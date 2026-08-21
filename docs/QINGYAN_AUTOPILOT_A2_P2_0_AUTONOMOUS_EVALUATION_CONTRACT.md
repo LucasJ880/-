@@ -70,6 +70,13 @@ P2.0 不计费，只锁定有界常量。
 - 唯一运行时校验入口：`parseTaskContract()`。未知顶层字段拒绝；递归拒绝 forbidden keys；只重建批准字段。
 - 显式/工作流合同存在但畸形 → `INVALID_*` fail-closed（`RESTRICTED` + `L0_HUMAN_CONTROLLED` + 恢复关闭），不得降到领域模板。
 - `verdictState`：`NOT_EVALUATED` | `PROPOSED` | `ACCEPTED` | `ABSTAINED`。语义 outcome 不得暗示 final。仅 `ACCEPTED` 可走 `AUTO_FINALIZE`。
+- 权威是 `verdictState`，不是 outcome 形状，也不是遗留 `final` 布尔。
+- 兼容矩阵（不合法组合 fail-closed，禁止静默归一化）：
+  - `NOT_EVALUATED` → `UNKNOWN` / 缺省
+  - `PROPOSED` → `TASK_SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE` / `UNKNOWN`
+  - `ACCEPTED` → `TASK_SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE`
+  - `ABSTAINED` → 仅 `UNKNOWN`
+- `hasEvaluatableRequirements()`：GENERIC 且 `requirements.length === 0` 时，**不得**仅因未来 Judge 提议就产出语义 `TASK_SUCCESS` / `PARTIAL_SUCCESS`。P2.2 才允许在后续合同解析补齐 grounded requirements 后宣称成功。
 - `AutomationLevel` 描述任务权威。Evaluation 恢复上限始终 `READ_SEARCH_VERIFY_ONLY`。L0 必人工；L5 fail-closed；L4 可 inspect，Evaluation 单独不授权对外动作。
 
 ## 路由优先级
@@ -78,10 +85,10 @@ P2.0 不计费，只锁定有界常量。
 2. L5 → `POLICY_BLOCKED`；L0 → `HUMAN_ESCALATE`
 3. legal / financial / external side effect / irreversible → `HUMAN_ESCALATE`
 4. `escalationPolicy.requireHumanForRisk` 命中当前风险 → `HUMAN_ESCALATE`
-5. `goalAmbiguous` → `HUMAN_ESCALATE`
-6. `recoveryState = IN_PROGRESS` → `AUTO_WAIT`（不重复调度）
+5. `recoveryState = IN_PROGRESS` → `AUTO_WAIT`（不重复调度；歧义也不得抢跑）
+6. `goalAmbiguous`：仍有 READ/SEARCH/VERIFY 恢复 → `AUTO_RECOVER` / `AUTO_RECOVERY_GOAL_AMBIGUOUS`；耗尽/不允许 → `HUMAN_ESCALATION_GOAL_AMBIGUOUS`
 7. 证据不足/冲突 + 仍有安全恢复动作 → `AUTO_RECOVER`（Judge 预算耗尽不阻断本地读/搜；外搜预算只过滤外搜）
-8. `ACCEPTED` + 证据充足 + 策略允许 → `AUTO_FINALIZE`（只结束评价记录）
+8. `ACCEPTED` + 证据充足 + 兼容 outcome + 策略允许 → `AUTO_FINALIZE`（只结束评价记录）
 9. 低风险未决 → `AUTO_ABSTAIN`
 
 `UNKNOWN` 默认不是人工。预算：恢复周期/全局费用耗尽才停止全部恢复。
@@ -102,7 +109,7 @@ P2.0 不计费，只锁定有界常量。
 ## 后续边界（未实现）
 
 - **P2.1**：真实 Evidence Packet + 隐私扫描（仍不执行业务副作用）
-- **P2.2**：语义 Judge（证据门后才能宣称需求满足）
+- **P2.2**：语义 Judge（证据门后才能宣称需求满足）。GENERIC 空需求在补齐 grounded requirements 之前不得产出 `TASK_SUCCESS`。
 - **P2.3**：有界自动恢复 worker
 - **P2.4**：人工升级工作流（Human by Exception）
 - **A3**：失败诊断

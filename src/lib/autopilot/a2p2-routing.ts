@@ -11,9 +11,11 @@
 import {
   A2P2_ROUTER_VERSION,
   automationLevelPolicy,
+  canClaimSemanticSuccess,
   isExternalResearchAction,
   isForbiddenSideEffectAction,
   isJudgeEligiblePrivacyClass,
+  isVerdictOutcomeCompatible,
   parseTaskContract,
   type AutonomousEvaluationTaskContract,
   type EvaluationEvidenceStatus,
@@ -42,7 +44,6 @@ export type EvaluationRouteInput = {
   evaluationState: {
     outcome?: EvaluationOutcomeHint;
     verdictState?: EvaluationVerdictState;
-    final?: boolean;
   };
   evidenceState: {
     status: EvaluationEvidenceStatus;
@@ -131,17 +132,19 @@ function filterRecoveryActions(
 /**
  * Precedence:
  * 1. unvalidated / privacy / restricted hard block
- * 2. L5 restricted automation
- * 3. legal / financial / external / irreversible
- * 4. contract requireHumanForRisk / L0
- * 5. goalAmbiguous
+ * 2. invalid verdict/outcome combination
+ * 3. L0 / L5 automation authority
+ * 4. legal / financial / external / irreversible
+ * 5. contract requireHumanForRisk
  * 6. recovery already IN_PROGRESS → AUTO_WAIT
- * 7. insufficient / conflicting + remaining safe recovery
- * 8. ACCEPTED + sufficient → AUTO_FINALIZE
- * 9. low-risk unresolved → AUTO_ABSTAIN
+ * 7. recoverable goalAmbiguous → AUTO_RECOVER; else HUMAN_ESCALATE
+ * 8. insufficient / conflicting + remaining safe recovery
+ * 9. ACCEPTED + sufficient + compatible outcome → AUTO_FINALIZE
+ * 10. low-risk unresolved → AUTO_ABSTAIN
  *
  * UNKNOWN never defaults to HUMAN_ESCALATE.
  * Outcome values never imply finality. Only ACCEPTED may AUTO_FINALIZE.
+ * evaluationState.final is not an input and cannot grant authority.
  */
 export function routeEvaluation(
   input: EvaluationRouteInput,
@@ -153,7 +156,7 @@ export function routeEvaluation(
   const contract = parsed.contract;
   const risk = contract.riskClass;
   const evidence = input.evidenceState.status;
-  const outcome = input.evaluationState.outcome ?? "UNKNOWN";
+  const outcome = input.evaluationState.outcome;
   const verdictState = verdictStateOf(input);
   const autoPolicy = automationLevelPolicy(contract.automationLevel);
 
@@ -168,6 +171,10 @@ export function routeEvaluation(
 
   if (input.policySignals?.restrictedAction === true) {
     return decided("POLICY_BLOCKED", "POLICY_BLOCKED_RESTRICTED_ACTION");
+  }
+
+  if (!isVerdictOutcomeCompatible(verdictState, outcome)) {
+    return decided("POLICY_BLOCKED", "POLICY_BLOCKED_INVALID_EVALUATION_STATE");
   }
 
   if (autoPolicy.failClosedDecision && autoPolicy.failClosedReason) {
@@ -196,10 +203,6 @@ export function routeEvaluation(
     );
   }
 
-  if (input.policySignals?.goalAmbiguous === true) {
-    return decided("HUMAN_ESCALATE", "HUMAN_ESCALATION_GOAL_AMBIGUOUS");
-  }
-
   if (input.recoveryState.status === "IN_PROGRESS") {
     return decided("AUTO_WAIT", "AUTO_WAIT_RECOVERY_IN_PROGRESS");
   }
@@ -208,6 +211,13 @@ export function routeEvaluation(
     ? filterRecoveryActions(input, contract)
     : [];
   const recover = actions.length > 0;
+
+  if (input.policySignals?.goalAmbiguous === true) {
+    if (recover) {
+      return decided("AUTO_RECOVER", "AUTO_RECOVERY_GOAL_AMBIGUOUS", actions);
+    }
+    return decided("HUMAN_ESCALATE", "HUMAN_ESCALATION_GOAL_AMBIGUOUS");
+  }
 
   if (evidence === "INSUFFICIENT" && recover) {
     return decided("AUTO_RECOVER", "AUTO_RECOVERY_MISSING_EVIDENCE", actions);
@@ -226,6 +236,9 @@ export function routeEvaluation(
     evidence === "SUFFICIENT";
 
   if (acceptedFinal) {
+    if (!canClaimSemanticSuccess(contract, outcome ?? "UNKNOWN")) {
+      return decided("POLICY_BLOCKED", "POLICY_BLOCKED_INVALID_EVALUATION_STATE");
+    }
     return decided("AUTO_FINALIZE", "AUTO_FINALIZED_SUFFICIENT_EVIDENCE");
   }
 
@@ -242,7 +255,7 @@ export function routeEvaluation(
 
   if (
     risk === "LOW" &&
-    (outcome === "UNKNOWN" || evidence === "INSUFFICIENT") &&
+    ((outcome ?? "UNKNOWN") === "UNKNOWN" || evidence === "INSUFFICIENT") &&
     !recover
   ) {
     return decided("AUTO_ABSTAIN", "AUTO_ABSTAINED_INSUFFICIENT_EVIDENCE");

@@ -44,7 +44,6 @@ function input(partial: {
   risk?: EvaluationRiskClass;
   outcome?: EvaluationRouteInput["evaluationState"]["outcome"];
   verdictState?: EvaluationVerdictState;
-  final?: boolean;
   evidence: EvaluationRouteInput["evidenceState"]["status"];
   privacyClass?: EvaluationRouteInput["evidenceState"]["privacyClass"];
   recovery?: EvaluationRouteInput["recoveryState"]["status"];
@@ -60,7 +59,6 @@ function input(partial: {
     evaluationState: {
       outcome: partial.outcome ?? "UNKNOWN",
       verdictState: partial.verdictState,
-      final: partial.final,
     },
     evidenceState: {
       status: partial.evidence,
@@ -95,7 +93,6 @@ const proposedSuccess = routeEvaluation(
     evidence: "SUFFICIENT",
     outcome: "TASK_SUCCESS",
     verdictState: "PROPOSED",
-    final: false,
     recovery: "NOT_ATTEMPTED",
   }),
 );
@@ -136,10 +133,112 @@ const acceptedSuccess = routeEvaluation(
     recovery: "NOT_ATTEMPTED",
   }),
 );
+const acceptedUnknown = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "UNKNOWN",
+    verdictState: "ACCEPTED",
+  }),
+);
+ok(
+  acceptedUnknown.decision === "POLICY_BLOCKED" &&
+    acceptedUnknown.reasonCode === "POLICY_BLOCKED_INVALID_EVALUATION_STATE",
+  "ACCEPTED_UNKNOWN_REJECTED",
+);
+
+const abstainedSuccess = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "ABSTAINED",
+  }),
+);
+ok(
+  abstainedSuccess.decision === "POLICY_BLOCKED" &&
+    abstainedSuccess.reasonCode === "POLICY_BLOCKED_INVALID_EVALUATION_STATE",
+  "ABSTAINED_SUCCESS_REJECTED",
+);
+
+const abstainedFailure = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "FAILURE",
+    verdictState: "ABSTAINED",
+  }),
+);
+ok(
+  abstainedFailure.decision === "POLICY_BLOCKED" &&
+    abstainedFailure.reasonCode === "POLICY_BLOCKED_INVALID_EVALUATION_STATE",
+  "ABSTAINED_FAILURE_REJECTED",
+);
+
+const notEvaluatedSuccess = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "NOT_EVALUATED",
+  }),
+);
+ok(
+  notEvaluatedSuccess.decision === "POLICY_BLOCKED" &&
+    notEvaluatedSuccess.reasonCode === "POLICY_BLOCKED_INVALID_EVALUATION_STATE",
+  "NOT_EVALUATED_SUCCESS_REJECTED",
+);
+
 ok(
   acceptedSuccess.decision === "AUTO_FINALIZE" &&
     acceptedSuccess.reasonCode === "AUTO_FINALIZED_SUFFICIENT_EVIDENCE",
   "ACCEPTED_TASK_SUCCESS_CAN_FINALIZE",
+);
+ok(
+  acceptedSuccess.decision === "AUTO_FINALIZE",
+  "ACCEPTED_TASK_SUCCESS_VALID",
+);
+
+const acceptedPartial = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "PARTIAL_SUCCESS",
+    verdictState: "ACCEPTED",
+    recovery: "NOT_ATTEMPTED",
+  }),
+);
+ok(
+  acceptedPartial.decision === "AUTO_FINALIZE" &&
+    acceptedPartial.reasonCode === "AUTO_FINALIZED_SUFFICIENT_EVIDENCE",
+  "ACCEPTED_PARTIAL_SUCCESS_VALID",
+);
+
+const acceptedFailure = routeEvaluation(
+  input({
+    evidence: "SUFFICIENT",
+    outcome: "FAILURE",
+    verdictState: "ACCEPTED",
+    recovery: "NOT_ATTEMPTED",
+  }),
+);
+ok(
+  acceptedFailure.decision === "AUTO_FINALIZE" &&
+    acceptedFailure.reasonCode === "AUTO_FINALIZED_SUFFICIENT_EVIDENCE",
+  "ACCEPTED_FAILURE_VALID",
+);
+
+const legacyFinal = routeEvaluation({
+  ...input({
+    evidence: "SUFFICIENT",
+    outcome: "TASK_SUCCESS",
+    verdictState: "PROPOSED",
+    recovery: "NOT_ATTEMPTED",
+  }),
+  evaluationState: {
+    outcome: "TASK_SUCCESS",
+    verdictState: "PROPOSED",
+    final: true,
+  } as EvaluationRouteInput["evaluationState"] & { final: boolean },
+});
+ok(
+  legacyFinal.decision !== "AUTO_FINALIZE",
+  "FINAL_BOOLEAN_CANNOT_GRANT_AUTHORITY",
 );
 
 const unknownAbstention = routeEvaluation(
@@ -155,6 +254,11 @@ ok(
   unknownAbstention.decision === "AUTO_ABSTAIN" &&
     unknownAbstention.decision !== "AUTO_FINALIZE",
   "UNKNOWN_ABSTENTION_NOT_SUCCESS",
+);
+ok(
+  unknownAbstention.decision === "AUTO_ABSTAIN" &&
+    unknownAbstention.reasonCode !== "POLICY_BLOCKED_INVALID_EVALUATION_STATE",
+  "ABSTAINED_UNKNOWN_VALID",
 );
 
 const l0Finalize = routeEvaluation(
@@ -308,7 +412,7 @@ ok(
   "IRREVERSIBLE_ACTION_ESCALATES",
 );
 
-const ambiguous = routeEvaluation(
+const ambiguousRecover = routeEvaluation(
   input({
     evidence: "INSUFFICIENT",
     recovery: "AVAILABLE",
@@ -316,9 +420,42 @@ const ambiguous = routeEvaluation(
   }),
 );
 ok(
-  ambiguous.decision === "HUMAN_ESCALATE" &&
-    ambiguous.reasonCode === "HUMAN_ESCALATION_GOAL_AMBIGUOUS",
-  "GOAL_AMBIGUOUS_ESCALATES",
+  ambiguousRecover.decision === "AUTO_RECOVER" &&
+    ambiguousRecover.reasonCode === "AUTO_RECOVERY_GOAL_AMBIGUOUS" &&
+    ambiguousRecover.allowedNextActions.length > 0,
+  "GOAL_AMBIGUOUS_RECOVERY_AVAILABLE",
+);
+ok(
+  ambiguousRecover.decision !== "HUMAN_ESCALATE",
+  "GOAL_AMBIGUOUS_DOES_NOT_DEFAULT_TO_HUMAN",
+);
+
+const ambiguousWait = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    recovery: "IN_PROGRESS",
+    policySignals: { goalAmbiguous: true },
+  }),
+);
+ok(
+  ambiguousWait.decision === "AUTO_WAIT" &&
+    ambiguousWait.reasonCode === "AUTO_WAIT_RECOVERY_IN_PROGRESS" &&
+    ambiguousWait.allowedNextActions.length === 0,
+  "GOAL_AMBIGUOUS_RECOVERY_IN_PROGRESS",
+);
+
+const ambiguousExhausted = routeEvaluation(
+  input({
+    evidence: "INSUFFICIENT",
+    recovery: "EXHAUSTED",
+    cyclesUsed: 3,
+    policySignals: { goalAmbiguous: true },
+  }),
+);
+ok(
+  ambiguousExhausted.decision === "HUMAN_ESCALATE" &&
+    ambiguousExhausted.reasonCode === "HUMAN_ESCALATION_GOAL_AMBIGUOUS",
+  "GOAL_AMBIGUOUS_RECOVERY_EXHAUSTED",
 );
 
 const unvalidated = routeEvaluation(

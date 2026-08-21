@@ -141,6 +141,7 @@ export const EVALUATION_ROUTE_REASON_CODES = [
   "AUTO_FINALIZED_ABSTENTION",
   "AUTO_RECOVERY_MISSING_EVIDENCE",
   "AUTO_RECOVERY_SOURCE_CONFLICT",
+  "AUTO_RECOVERY_GOAL_AMBIGUOUS",
   "AUTO_WAIT_RECOVERY_IN_PROGRESS",
   "AUTO_ABSTAINED_INSUFFICIENT_EVIDENCE",
   "HUMAN_ESCALATION_HIGH_RISK",
@@ -157,6 +158,7 @@ export const EVALUATION_ROUTE_REASON_CODES = [
   "POLICY_BLOCKED_RESTRICTED_ACTION",
   "POLICY_BLOCKED_L5_RESTRICTED",
   "POLICY_BLOCKED_UNVALIDATED_CONTRACT",
+  "POLICY_BLOCKED_INVALID_EVALUATION_STATE",
   "BUDGET_EXHAUSTED",
 ] as const;
 export type EvaluationRouteReasonCode =
@@ -217,13 +219,16 @@ export const EXTERNAL_RESEARCH_ACTIONS = [
 
 export const EVALUATION_RECOVERY_AUTHORITY_MAX = "READ_SEARCH_VERIFY_ONLY" as const;
 
-export const A2P2_DOMAIN_IDS = [
+export const A2P2_KNOWN_DOMAIN_IDS = [
   "TENDER_ANALYSIS",
   "RESEARCH",
   "EMAIL_DRAFT",
-  "GENERIC",
 ] as const;
+
+export const A2P2_DOMAIN_IDS = [...A2P2_KNOWN_DOMAIN_IDS, "GENERIC"] as const;
 export type A2P2DomainId = (typeof A2P2_DOMAIN_IDS)[number];
+
+export const REQUIREMENT_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 export const TASK_CONTRACT_TOP_LEVEL_KEYS = [
   "version",
@@ -586,7 +591,9 @@ function parseRequirement(value: unknown): EvaluationRequirement | null {
   const id = boundedString(row.id, ID_MAX);
   const label = boundedString(row.label, METADATA_MAX);
   const normalizedDescription = boundedString(row.normalizedDescription, METADATA_MAX);
-  if (!id || !label || !normalizedDescription) return null;
+  if (!id || !REQUIREMENT_ID_PATTERN.test(id) || !label || !normalizedDescription) {
+    return null;
+  }
   if (typeof row.required !== "boolean" || typeof row.allowUnknown !== "boolean") {
     return null;
   }
@@ -599,6 +606,8 @@ function parseRequirement(value: unknown): EvaluationRequirement | null {
     return null;
   }
   if (!isNonNegInt(row.minimumEvidenceRefs)) return null;
+  if (row.required && row.minimumEvidenceRefs < 1) return null;
+  if (row.evidenceKinds.length > 0 && row.minimumEvidenceRefs < 1) return null;
   if (
     typeof row.criticality !== "string" ||
     !(REQUIREMENT_CRITICALITIES as readonly string[]).includes(row.criticality)
@@ -687,6 +696,16 @@ export function parseTaskContract(
     const parsed = parseRequirement(item);
     if (!parsed) return { ok: false, reason: "INVALID_REQUIREMENT" };
     requirements.push(parsed);
+  }
+  const requirementIds = requirements.map((item) => item.id);
+  if (new Set(requirementIds).size !== requirementIds.length) {
+    return { ok: false, reason: "DUPLICATE_REQUIREMENT_ID" };
+  }
+  if (
+    (A2P2_KNOWN_DOMAIN_IDS as readonly string[]).includes(raw.taskType as string) &&
+    requirements.length < 1
+  ) {
+    return { ok: false, reason: "EMPTY_KNOWN_DOMAIN_REQUIREMENTS" };
   }
 
   if (!raw.recoveryPolicy || typeof raw.recoveryPolicy !== "object") {
@@ -827,6 +846,51 @@ export function parseTaskContract(
     },
   };
   return { ok: true, contract: brandContract(contract) };
+}
+
+export function isVerdictOutcomeCompatible(
+  verdictState: EvaluationVerdictState,
+  outcome: EvaluationOutcomeHint | undefined,
+): boolean {
+  switch (verdictState) {
+    case "NOT_EVALUATED":
+      return outcome == null || outcome === "UNKNOWN";
+    case "PROPOSED":
+      return (
+        outcome === "TASK_SUCCESS" ||
+        outcome === "PARTIAL_SUCCESS" ||
+        outcome === "FAILURE" ||
+        outcome === "UNKNOWN"
+      );
+    case "ACCEPTED":
+      return (
+        outcome === "TASK_SUCCESS" ||
+        outcome === "PARTIAL_SUCCESS" ||
+        outcome === "FAILURE"
+      );
+    case "ABSTAINED":
+      return outcome === "UNKNOWN";
+    default:
+      return false;
+  }
+}
+
+export function hasEvaluatableRequirements(
+  contract: Pick<AutonomousEvaluationTaskContract, "requirements">,
+): boolean {
+  return contract.requirements.length > 0;
+}
+
+/**
+ * P2.2 invariant: GENERIC / empty contracts cannot claim semantic success
+ * until a later step supplies grounded requirements. P2.0 has no Judge.
+ */
+export function canClaimSemanticSuccess(
+  contract: Pick<AutonomousEvaluationTaskContract, "requirements">,
+  outcome: EvaluationOutcomeHint | undefined,
+): boolean {
+  if (outcome !== "TASK_SUCCESS" && outcome !== "PARTIAL_SUCCESS") return true;
+  return hasEvaluatableRequirements(contract);
 }
 
 export function failClosedTaskContract(

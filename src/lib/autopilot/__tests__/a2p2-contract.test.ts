@@ -35,6 +35,7 @@ import {
   parseTaskContract,
   rejectUnknownRecoveryAction,
   sanitizeGoalSummary,
+  hasEvaluatableRequirements,
 } from "../a2p2-contract";
 import {
   A2P2_DOMAIN_TEMPLATES,
@@ -231,10 +232,10 @@ ok(
   "TASK_CONTRACT_PROVENANCE",
 );
 
+const researchTemplate = A2P2_DOMAIN_TEMPLATES.RESEARCH(new Date().toISOString());
 const explicit = resolveTaskContract({
   explicitContract: {
-    ...plain(generic),
-    taskType: "RESEARCH",
+    ...plain(researchTemplate),
     goalSummary: "  classified research  ",
     riskClass: "LOW",
   },
@@ -389,6 +390,39 @@ const inconsistentExternal = parseTaskContract({
 });
 ok(inconsistentExternal.ok === false, "external research inconsistency rejected");
 
+const requiredZero = parseTaskContract({
+  ...plain(tender),
+  requirements: [
+    {
+      ...(plain(tender).requirements as object[])[0],
+      required: true,
+      minimumEvidenceRefs: 0,
+    },
+  ],
+});
+ok(requiredZero.ok === false, "REQUIRED_REQUIREMENT_ZERO_EVIDENCE_REJECTED");
+
+const duplicateId = parseTaskContract({
+  ...plain(tender),
+  requirements: [
+    (plain(tender).requirements as object[])[0],
+    (plain(tender).requirements as object[])[0],
+  ],
+});
+ok(duplicateId.ok === false, "DUPLICATE_REQUIREMENT_ID_REJECTED");
+
+const knownEmpty = parseTaskContract({
+  ...plain(tender),
+  requirements: [],
+});
+ok(knownEmpty.ok === false, "KNOWN_DOMAIN_EMPTY_REQUIREMENTS_REJECTED");
+
+ok(
+  hasEvaluatableRequirements(tender) === true &&
+    hasEvaluatableRequirements(generic) === false,
+  "GENERIC empty contract is not evaluatable for semantic success",
+);
+
 ok(
   A2P2_ACTIVATION_BLOCKERS.some((item) => item.id === "A2_P1_PRODUCTION_ORG_SCOPE") &&
     A2P2_ACTIVATION_BLOCKERS.some(
@@ -437,6 +471,10 @@ const processor = readFileSync(join(root, "src/lib/autopilot/processor.ts"), "ut
 ok(
   !instr.includes("a2p2-") && !processor.includes("a2p2-"),
   "RUNTIME_INTEGRATION_ADDED = NO",
+);
+ok(
+  !routingSrc.includes("final?: boolean"),
+  "legacy evaluationState.final is not part of the router input",
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);
