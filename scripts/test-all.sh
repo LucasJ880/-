@@ -157,6 +157,8 @@ run_test "Autopilot A1-P3 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/obs
 run_test "Autopilot A2-P0 Deterministic Evaluate" "npx tsx src/lib/autopilot/__tests__/evaluate.test.ts"
 run_test "Autopilot A2-P0 Evaluate Dashboard" "npx tsx src/lib/autopilot/__tests__/evaluate-dashboard.test.ts"
 run_test "Autopilot A2-P1 LLM Judge" "npx tsx src/lib/autopilot/__tests__/evaluate-judge.test.ts"
+run_test "Autopilot A2-P2.0 Contract" "npx tsx src/lib/autopilot/__tests__/a2p2-contract.test.ts"
+run_test "Autopilot A2-P2.0 Routing" "npx tsx src/lib/autopilot/__tests__/a2p2-routing.test.ts"
 run_test "Autopilot A2-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/evaluate-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
