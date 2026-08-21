@@ -320,13 +320,9 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
   if (countOverflow) {
     diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_EVIDENCE_FACTS" });
   }
-  let { assessments, packetLimitExceeded: perRequirementLimit } = assessRequirementEvidence(
-    contract,
-    boundedFacts,
-  );
-  if (countOverflow) {
-    assessments = overflowAssessments(contract);
-  }
+  const assessed = assessRequirementEvidence(contract, boundedFacts);
+  const assessments = countOverflow ? overflowAssessments(contract) : assessed.assessments;
+  const perRequirementLimit = assessed.packetLimitExceeded;
   const requirements = contract.requirements.map((item) => ({
     id: item.id,
     required: item.required,
