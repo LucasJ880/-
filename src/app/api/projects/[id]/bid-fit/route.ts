@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
+  listCompliancePositions,
+  matchRequirementsToMemory,
+  recordCompliancePosition,
+} from "@/lib/tender-compliance-memory";
+import {
   requireProjectReadAccess,
   requireProjectWriteAccess,
 } from "@/lib/projects/access";
@@ -42,6 +47,7 @@ export async function GET(
       requirementCode: true,
       category: true,
       chineseTranslation: true,
+      originalRequirement: true,
       mandatory: true,
       evidenceRequired: true,
     },
@@ -51,6 +57,20 @@ export async function GET(
       string,
       unknown
     >) ?? {};
+  // 合规记忆（B）：组织历史人工确认 → 对未标要求给出 exact/fuzzy 建议（零模型花费）
+  let suggestions: ReturnType<typeof matchRequirementsToMemory> = [];
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { orgId: true } });
+  if (project?.orgId) {
+    const positions = await listCompliancePositions({ orgId: project.orgId, userId: access.user.id });
+    if (positions.length > 0) {
+      const unmarked = requirements.filter((r) => !matrix[r.id]);
+      suggestions = matchRequirementsToMemory(
+        unmarked.map((r) => ({ id: r.id, text: r.originalRequirement || r.chineseTranslation, category: r.category })),
+        positions,
+        { excludeProjectId: projectId },
+      );
+    }
+  }
   return NextResponse.json({
     runId: run.id,
     requirements: requirements.map((r) => ({
@@ -62,6 +82,7 @@ export async function GET(
       evidenceRequired: r.evidenceRequired,
     })),
     matrix,
+    suggestions,
   });
 }
 
@@ -80,7 +101,13 @@ export async function POST(
     requirementIds?: string[];
     fit?: string;
     noteZh?: string | null;
+    /** 合规记忆：把历史确认带入未标要求（exact=指纹一致；all=含相似建议） */
+    action?: "apply-memory";
+    mode?: "exact" | "all";
   };
+  if (body.action === "apply-memory") {
+    return applyMemory({ projectId, runId: body.runId ?? null, mode: body.mode === "all" ? "all" : "exact", userId: access.user.id });
+  }
   const fit = (body.fit ?? "").toUpperCase();
   const ids = Array.isArray(body.requirementIds)
     ? body.requirementIds.filter((v): v is string => typeof v === "string")
@@ -120,9 +147,70 @@ export async function POST(
   for (const id of ids) {
     matrix[id] = mark;
   }
+  // 合规记忆（B）：人工标注 → 组织级立场（T3 claim，actor=user；失败不阻塞标注）
+  void (async () => {
+    const project = await db.project.findUnique({ where: { id: projectId }, select: { orgId: true, name: true } });
+    if (!project?.orgId) return;
+    const rows = await db.tenderExtractedRequirement.findMany({
+      where: { id: { in: ids } },
+      select: { requirementCode: true, category: true, originalRequirement: true, chineseTranslation: true },
+    });
+    for (const r of rows) {
+      await recordCompliancePosition({
+        orgId: project.orgId,
+        userId: access.user.id,
+        requirement: { text: r.originalRequirement || r.chineseTranslation, code: r.requirementCode, category: r.category },
+        fit,
+        noteZh: mark.noteZh,
+        project: { id: projectId, name: project.name },
+      });
+    }
+  })().catch(() => undefined);
   await db.tenderAnalysisRun.update({
     where: { id: run.id },
     data: { summaryJson: JSON.parse(JSON.stringify({ ...sj, bidFitMatrix: matrix })) },
   });
   return NextResponse.json({ ok: true, matrix });
+}
+
+/** 合规记忆带入：只填未标要求；带 provenance（via=memory），不回写记忆（防回声） */
+async function applyMemory(input: { projectId: string; runId: string | null; mode: "exact" | "all"; userId: string }) {
+  const run = input.runId
+    ? await db.tenderAnalysisRun.findFirst({ where: { id: input.runId, projectId: input.projectId }, select: { id: true, summaryJson: true } })
+    : await latestRun(input.projectId);
+  if (!run) return NextResponse.json({ error: "尚无已完成的分析" }, { status: 404 });
+  const project = await db.project.findUnique({ where: { id: input.projectId }, select: { orgId: true } });
+  if (!project?.orgId) return NextResponse.json({ applied: 0 });
+  const sj = ((run.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const matrix = ((sj.bidFitMatrix as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const reqs = await db.tenderExtractedRequirement.findMany({
+    where: { analysisRunId: run.id },
+    take: 300,
+    select: { id: true, category: true, originalRequirement: true, chineseTranslation: true },
+  });
+  const positions = await listCompliancePositions({ orgId: project.orgId, userId: input.userId });
+  const unmarked = reqs.filter((r) => !matrix[r.id]);
+  const suggestions = matchRequirementsToMemory(
+    unmarked.map((r) => ({ id: r.id, text: r.originalRequirement || r.chineseTranslation, category: r.category })),
+    positions,
+    { excludeProjectId: input.projectId },
+  ).filter((s) => input.mode === "all" || s.kind === "exact");
+  let applied = 0;
+  for (const sg of suggestions) {
+    matrix[sg.requirementId] = {
+      fit: sg.fit,
+      noteZh: sg.noteZh,
+      by: input.userId,
+      at: new Date().toISOString(),
+      provenance: { via: "memory", kind: sg.kind, score: sg.score, claimId: sg.claimId, sourceProjectName: sg.sourceProjectName, sourceRequirementCode: sg.sourceRequirementCode },
+    };
+    applied += 1;
+  }
+  if (applied > 0) {
+    await db.tenderAnalysisRun.update({
+      where: { id: run.id },
+      data: { summaryJson: JSON.parse(JSON.stringify({ ...sj, bidFitMatrix: matrix })) },
+    });
+  }
+  return NextResponse.json({ ok: true, applied, mode: input.mode, matrix });
 }

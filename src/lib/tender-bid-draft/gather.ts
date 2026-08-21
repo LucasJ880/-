@@ -4,7 +4,8 @@
  */
 
 import { db } from "@/lib/db";
-import { getBrandContext } from "@/lib/operations/brand-context";
+import { formatTenderProfileContext, isTenderProfileUsable } from "@/lib/tender-profile/contract";
+import { getTenderProfile } from "@/lib/tender-profile/store";
 import { complianceStatusFromFit, type BidDraftInputs, type BidDraftRequirement } from "./contract";
 
 export async function gatherBidDraftInputs(params: {
@@ -87,13 +88,16 @@ export async function gatherBidDraftInputs(params: {
   );
   const pricingInputs = (rsj.pricingInputs ?? {}) as { ourCostCad?: number | null; competitorPriceCad?: number | null; ourPriceCad?: number | null };
 
+  // A：投标业务档案（与窗饰品牌档案分离）——只读 tenderProfile，绝不回退到 BrandProfile
   let brandContext: string | null = null;
   let forbiddenClaims: string | null = null;
   if (params.orgId) {
     try {
-      brandContext = await getBrandContext(params.orgId);
-      const bp = await db.brandProfile.findUnique({ where: { orgId: params.orgId }, select: { forbiddenClaims: true } });
-      forbiddenClaims = bp?.forbiddenClaims ?? null;
+      const tp = await getTenderProfile(params.orgId);
+      if (isTenderProfileUsable(tp)) {
+        brandContext = formatTenderProfileContext(tp!);
+        forbiddenClaims = tp!.forbiddenClaims || null;
+      }
     } catch {
       brandContext = null;
     }
@@ -102,7 +106,7 @@ export async function gatherBidDraftInputs(params: {
   if (params.orgId) {
     try {
       const rows = await db.memoryClaim.findMany({
-        where: { orgId: params.orgId, status: "ACTIVE", verificationStatus: { in: ["HUMAN_CONFIRMED", "SYSTEM_VERIFIED"] } },
+        where: { orgId: params.orgId, status: "ACTIVE", verificationStatus: { in: ["HUMAN_CONFIRMED", "SYSTEM_VERIFIED"] }, claimType: { not: "COMPLIANCE_POSITION" } },
         orderBy: { capturedAt: "desc" },
         take: 40,
         select: { statement: true, claimType: true, verificationStatus: true },

@@ -82,7 +82,7 @@ function matchSinglePath(
       pathname.startsWith("/operations/matrix") ||
       pathname.startsWith("/operations/review") ||
       pathname.startsWith("/operations/dashboard") ||
-      pathname.startsWith("/operations/brand")
+      (pathname.startsWith("/operations/brand") || pathname.startsWith("/operations/tender-profile"))
     );
   }
 
@@ -197,7 +197,7 @@ export function isGrowthPath(pathname: string): boolean {
   if (pathname.startsWith("/marketing")) return true;
   if (pathname === "/operations" || pathname.startsWith("/operations/calendar"))
     return true;
-  if (pathname.startsWith("/operations/brand")) return true;
+  if ((pathname.startsWith("/operations/brand") || pathname.startsWith("/operations/tender-profile"))) return true;
   if (pathname.startsWith("/operations/assets")) return true;
   // 经营中心不属于增长
   if (isOperationsCenterPath(pathname)) return false;
