@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import { AlertTriangle, RefreshCw, ArrowLeft } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
@@ -39,13 +40,13 @@ export default function ProjectsError({
           <RefreshCw className="h-4 w-4" />
           重试
         </button>
-        <a
+        <Link
           href="/projects"
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-card-bg"
         >
           <ArrowLeft className="h-4 w-4" />
           返回项目列表
-        </a>
+        </Link>
       </div>
     </div>
   );
