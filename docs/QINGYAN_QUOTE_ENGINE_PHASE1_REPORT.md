@@ -20,7 +20,8 @@
 
 - **Reuse**：Project(Tender)、ProjectQuote、QuoteLineItem、ProjectBudget*、AuditLog、ProjectEvent、RBAC、money/fx 约定、Chromium PDF 链（未来客户报价 PDF）。
 - **Extend**：`ProjectQuote` +16 可空/带默认列（orgId/quoteType/quoteNumber/name/sourceQuoteId/revisionReason/pricingMethod/pricingRate/engineJson/summaryJson/calcVersion/submittedAt/approvedBy·At/supersededAt/awardedAt/cancelledAt）；`AUDIT` 动作词表（QUOTE_*）；`PROJECT_PDF_DOC_TYPES` 未动。
-- **New**：`QuoteCostLine`（统一成本行）、`QuotePricingTier`（分级）；`src/lib/quote-engine/`（contract / calc / standing-offer / templates / service / access / customer-view / analyze / flags）；7 条 API；Pricing Control Center 页面 + 投标 tab 最小入口；flag `TENDER_QUOTE_ENGINE_ENABLED`（默认 OFF）。
+- **New**：`QuoteCostLine`（统一成本行）、`QuotePricingTier`（分级）；`src/lib/quote-engine/`（contract / calc / standing-offer / templates / service / access / customer-view / analyze / flags）；7 条 API；Pricing Control Center 页面；flag `TENDER_QUOTE_ENGINE_ENABLED`（默认 OFF）。
+- **入口（§17 最小、不改五 Tab IA）**：投标 tab「招投标报价」区块置顶，legacy「外贸标准报价」折叠为次级（引擎未启用时回落为原样）；工作台新增「报价与成本」卡（当前报价 / 已批准·Awarded 报价 / 版本 / Bid / 估算成本 / 毛利率 / 状态 → 一键进 Pricing Control Center）。独立「报价」tab 留待 Lucas 拍板（IA 改动）。
 
 ## 计算引擎（纯函数，零 IO，禁 eval）
 
