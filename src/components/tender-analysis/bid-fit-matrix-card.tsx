@@ -1,8 +1,10 @@
 "use client";
 
 /**
- * 投标合规矩阵（矩阵可用性批次重构）：
- * - 按业务组折叠展示（程序类模板条款默认折叠，技术/资质等判断类默认展开）
+ * 投标合规矩阵（矩阵可用性批次重构 → 例外优先视图）：
+ * - 默认全部组折叠成计数行（用户实测：RFQ 条款基本都是普通合规，不需逐条看）
+ * - 顶部「例外区」单独列出真正要拍板的：需证据 / 已标为非「已有」的条目
+ * - 按业务组展开核对（程序类带「常规条款」标）
  * - 「未标全部设为已有」/「本组全部已有」批量标注（人工动作，AI 仍不代填）
  * - 检测到英文条目时提供「翻译成中文」（调补翻端点，写回后刷新）
  * 五态语义不变：已有/可开发/需 Partner/需 RFI/No-Go。
@@ -50,8 +52,9 @@ export function BidFitMatrixCard({
   const [showAll, setShowAll] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<BidFitGroupKey, boolean>>(
     () =>
+      // 例外优先：默认全部折叠（defaultCollapsed 仅用于「常规条款」标注）
       Object.fromEntries(
-        BID_FIT_GROUPS.map((g) => [g.key, g.defaultCollapsed]),
+        BID_FIT_GROUPS.map((g) => [g.key, true]),
       ) as Record<BidFitGroupKey, boolean>,
   );
   const [translating, setTranslating] = useState(false);
@@ -100,6 +103,16 @@ export function BidFitMatrixCard({
     () => visible.filter((r) => needsChineseTranslation(r.textZh)).length,
     [visible],
   );
+  // 例外 = 要拍板的：需证据，或已被人工标为非「已有」（可开发/需 Partner/需 RFI/No-Go）
+  const exceptions = useMemo(
+    () =>
+      visible.filter((r) => {
+        const m = matrix[r.id];
+        return r.evidenceRequired || (m != null && m.fit !== "HAVE");
+      }),
+    [visible, matrix],
+  );
+  const allCollapsed = BID_FIT_GROUPS.every((g) => collapsed[g.key]);
 
   if (!runId || reqs.length === 0) return null;
 
@@ -156,6 +169,25 @@ export function BidFitMatrixCard({
     n: Object.values(matrix).filter((m) => m.fit === o.value).length,
   }));
 
+  const row = (r: Req) => (
+    <div
+      key={r.id}
+      className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2 text-xs"
+    >
+      <div className="min-w-0">
+        <span className="font-mono text-[10px] text-muted">{r.code}</span>
+        {r.mandatory ? (
+          <span className="ml-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 text-[9px] text-amber-700">强制</span>
+        ) : null}
+        {r.evidenceRequired ? (
+          <span className="ml-1 rounded-full border border-sky-300 bg-sky-50 px-1.5 text-[9px] text-sky-700">需证据</span>
+        ) : null}
+        <p className="mt-0.5 leading-5 text-foreground/85">{r.textZh}</p>
+      </div>
+      {fitSelect(r)}
+    </div>
+  );
+
   const fitSelect = (r: Req) => {
     const m = matrix[r.id];
     return canManage ? (
@@ -209,6 +241,20 @@ export function BidFitMatrixCard({
           >
             {showAll ? "只看强制" : `全部 ${reqs.length} 条`}
           </button>
+          <button
+            type="button"
+            data-testid="bid-fit-toggle-groups"
+            onClick={() =>
+              setCollapsed(
+                Object.fromEntries(
+                  BID_FIT_GROUPS.map((g) => [g.key, !allCollapsed]),
+                ) as Record<BidFitGroupKey, boolean>,
+              )
+            }
+            className="text-accent underline"
+          >
+            {allCollapsed ? "展开全部组" : "收起全部组"}
+          </button>
         </div>
       </div>
 
@@ -255,6 +301,25 @@ export function BidFitMatrixCard({
         </div>
       ) : null}
 
+      <div
+        data-testid="bid-fit-exceptions"
+        className="mt-3 rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2"
+      >
+        <p className="text-xs font-medium text-foreground/90">
+          需要拍板的例外 {exceptions.length} 条
+          <span className="ml-2 font-normal text-[10px] text-muted">
+            需证据 · 或已标为可开发/需 Partner/需 RFI/No-Go
+          </span>
+        </p>
+        {exceptions.length === 0 ? (
+          <p className="mt-1 text-[11px] text-muted">
+            暂无例外——其余均为常规合规条款，可用「全部设为已有」一键处理，或展开某组逐条核对。
+          </p>
+        ) : (
+          <div className="mt-2 space-y-1.5">{exceptions.map(row)}</div>
+        )}
+      </div>
+
       <div className="mt-3 max-h-[32rem] space-y-2 overflow-auto pr-1">
         {groups.map((g) => {
           const isCollapsed = collapsed[g.key];
@@ -295,24 +360,7 @@ export function BidFitMatrixCard({
               </div>
               {!isCollapsed ? (
                 <div className="space-y-1.5 border-t border-border/40 px-2 py-2">
-                  {g.items.map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <span className="font-mono text-[10px] text-muted">{r.code}</span>
-                        {r.mandatory ? (
-                          <span className="ml-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 text-[9px] text-amber-700">强制</span>
-                        ) : null}
-                        {r.evidenceRequired ? (
-                          <span className="ml-1 rounded-full border border-sky-300 bg-sky-50 px-1.5 text-[9px] text-sky-700">需证据</span>
-                        ) : null}
-                        <p className="mt-0.5 leading-5 text-foreground/85">{r.textZh}</p>
-                      </div>
-                      {fitSelect(r)}
-                    </div>
-                  ))}
+                  {g.items.map(row)}
                 </div>
               ) : null}
             </div>
