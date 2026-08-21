@@ -2,6 +2,8 @@
  * Autopilot A2-P2.1 — runtime structured-source parser.
  *
  * TypeScript types are not authority. Unknown JSON fails closed.
+ * Tender input is projected to ParsedTenderEvidenceSource; the original
+ * unknown value is never returned to collectors/adapters.
  * Never throws.
  */
 
@@ -12,10 +14,27 @@ import {
   type EvaluationPrivacyClass,
 } from "./a2p2-contract";
 import {
+  CONFIDENCE_LEVELS,
+  CRITICAL_FACT_TYPES,
+  DOCUMENT_SOURCE_ROLES,
+  REQUIREMENT_CATEGORIES,
   TENDER_ANALYSIS_RESULT_VERSION,
+  type FactTypeV2,
+  type MandatoryV2,
+  type NormalizedValueV2,
+  type RequirementCategoryV2,
+  type RequirementStatusV2,
 } from "../tender-understanding/contract";
-import { scanForbiddenEvidenceFields } from "./a2p2-evidence-privacy";
 import {
+  isBoundedIsoTimestamp,
+  isOpaqueSourceId,
+  isOpaqueToken,
+  isVersionToken,
+  scanForbiddenEvidenceFields,
+} from "./a2p2-evidence-privacy";
+import {
+  MAX_EVIDENCE_REFS_PER_ITEM,
+  MAX_MANIFEST_DOCUMENTS,
   MAX_SAFE_SCALAR_ARRAY,
   MAX_STRUCTURED_FACTS,
   SAFE_FACT_STRING_MAX,
@@ -23,6 +42,11 @@ import {
   type EvidenceLocator,
   type GenericStructuredFact,
   type GenericStructuredSnapshot,
+  type ParsedTenderEvidenceRef,
+  type ParsedTenderEvidenceSource,
+  type ParsedTenderFact,
+  type ParsedTenderManifestDocument,
+  type ParsedTenderRequirement,
   type ResearchStructuredSnapshot,
   type SafeNormalizedValue,
   type StructuredSourcesSnapshot,
@@ -84,6 +108,18 @@ const REQUIREMENT_KEYS = [
 ] as const;
 
 const EVIDENCE_REF_KEYS = ["documentId", "pageNumber", "snippet"] as const;
+const MANIFEST_DOCUMENT_KEYS = [
+  "documentId",
+  "name",
+  "type",
+  "sourceRole",
+  "pageCount",
+  "contentHash",
+] as const;
+
+const DOCUMENT_FACT_STATUSES = ["ACTIVE", "SUPERSEDED", "CONFLICT"] as const;
+const REQUIREMENT_STATUSES = ["ACTIVE", "SUPERSEDED", "CONFLICT", "NEEDS_REVIEW"] as const;
+const FACT_TYPES: readonly string[] = [...CRITICAL_FACT_TYPES, "other"];
 
 const GENERIC_FACT_KEYS = [
   "requirementId",
@@ -96,6 +132,7 @@ const GENERIC_FACT_KEYS = [
   "locator",
   "contentHash",
   "extractorVersion",
+  "sourceObservedAt",
   "sourceType",
 ] as const;
 
@@ -130,6 +167,10 @@ function boundedString(value: unknown, max = SAFE_FACT_STRING_MAX): string | nul
 
 function positiveInt(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function isCanonical(value: unknown, allowed: readonly string[]): boolean {
+  return typeof value === "string" && allowed.includes(value);
 }
 
 function parseSafeNormalized(value: unknown): SafeNormalizedValue | undefined {
@@ -193,6 +234,9 @@ function parseGenericFact(value: unknown): GenericStructuredFact | null {
   const summary = boundedString(value.summary);
   const sourceId = boundedString(value.sourceId, 128);
   if (!requirementId || !factKey || !summary || !sourceId) return null;
+  if (!isOpaqueToken(requirementId) || !isOpaqueToken(factKey) || !isOpaqueSourceId(sourceId)) {
+    return null;
+  }
   let evidenceKind: EvaluationEvidenceKind | undefined;
   if (value.evidenceKind !== undefined) {
     if (
@@ -225,12 +269,27 @@ function parseGenericFact(value: unknown): GenericStructuredFact | null {
   if (value.contentHash !== undefined && (contentHash == null || !/^[a-f0-9]{64}$/i.test(contentHash))) {
     return null;
   }
-  const extractorVersion =
-    value.extractorVersion === undefined ? undefined : boundedString(value.extractorVersion, 80);
-  if (value.extractorVersion !== undefined && extractorVersion == null) return null;
-  const sourceType =
-    value.sourceType === undefined ? undefined : boundedString(value.sourceType, 80);
-  if (value.sourceType !== undefined && sourceType == null) return null;
+  let extractorVersion: string | undefined;
+  if (value.extractorVersion !== undefined) {
+    if (typeof value.extractorVersion !== "string" || !isVersionToken(value.extractorVersion)) {
+      return null;
+    }
+    extractorVersion = value.extractorVersion;
+  }
+  let sourceObservedAt: string | undefined;
+  if (value.sourceObservedAt !== undefined) {
+    if (typeof value.sourceObservedAt !== "string" || !isBoundedIsoTimestamp(value.sourceObservedAt)) {
+      return null;
+    }
+    sourceObservedAt = value.sourceObservedAt;
+  }
+  let sourceType: string | undefined;
+  if (value.sourceType !== undefined) {
+    if (typeof value.sourceType !== "string" || !isOpaqueToken(value.sourceType)) {
+      return null;
+    }
+    sourceType = value.sourceType;
+  }
   return {
     requirementId,
     factKey,
@@ -241,8 +300,9 @@ function parseGenericFact(value: unknown): GenericStructuredFact | null {
     privacyClass,
     locator,
     contentHash: contentHash ?? undefined,
-    extractorVersion: extractorVersion ?? undefined,
-    sourceType: sourceType ?? undefined,
+    extractorVersion,
+    sourceObservedAt,
+    sourceType,
   };
 }
 
@@ -302,130 +362,245 @@ function parseEmail(value: unknown): EmailDraftStructuredSnapshot | null {
       return null;
     }
   }
-  if (value.sourceId !== undefined && boundedString(value.sourceId, 128) == null) return null;
+  if (value.sourceId !== undefined) {
+    const sourceId = boundedString(value.sourceId, 128);
+    if (sourceId == null || !isOpaqueSourceId(sourceId)) return null;
+  }
   return {
     purposeAddressed: value.purposeAddressed as boolean | undefined,
     requiredQuestionIds: value.requiredQuestionIds as string[] | undefined,
     unsupportedCommitmentAbsent: value.unsupportedCommitmentAbsent as boolean | undefined,
     recipientResolved: value.recipientResolved as boolean | undefined,
-    sourceId: value.sourceId as string | undefined,
+    sourceId: typeof value.sourceId === "string" ? value.sourceId : undefined,
   };
 }
 
-function parseEvidenceRef(value: unknown): boolean {
-  if (!isPlainObject(value)) return false;
-  if (unknownKeys(value, EVIDENCE_REF_KEYS).length > 0) return false;
-  if (boundedString(value.documentId, 128) == null) return false;
-  if (positiveInt(value.pageNumber) == null) return false;
-  if (typeof value.snippet !== "string" || value.snippet.length < 1 || value.snippet.length > 600) {
-    return false;
+function parseEvidenceRef(value: unknown): ParsedTenderEvidenceRef | null {
+  if (!isPlainObject(value)) return null;
+  if (unknownKeys(value, EVIDENCE_REF_KEYS).length > 0) return null;
+  const documentId = boundedString(value.documentId, 128);
+  if (documentId == null || !isOpaqueSourceId(documentId)) return null;
+  const pageNumber = positiveInt(value.pageNumber);
+  if (pageNumber == null) return null;
+  if (value.snippet !== undefined) {
+    if (typeof value.snippet !== "string" || value.snippet.length < 1 || value.snippet.length > 600) {
+      return null;
+    }
   }
-  return true;
+  return { documentId, pageNumber };
 }
 
-function parseNormalizedV2(value: unknown): boolean {
-  if (value === null) return true;
-  if (!isPlainObject(value) || typeof value.kind !== "string") return false;
+function parseNormalizedV2(value: unknown): NormalizedValueV2 | null | undefined {
+  if (value === null) return null;
+  if (!isPlainObject(value) || typeof value.kind !== "string") return undefined;
   const kind = value.kind;
-  if (kind === "date") return boundedString(value.value, 40) != null;
+  if (kind === "date") {
+    const parsed = boundedString(value.value, 40);
+    return parsed == null ? undefined : { kind: "date", value: parsed };
+  }
   if (kind === "datetime") {
-    return (
-      boundedString(value.date, 40) != null &&
-      (value.time === null || boundedString(value.time, 20) != null) &&
-      (value.tz === null || boundedString(value.tz, 40) != null)
-    );
+    const date = boundedString(value.date, 40);
+    if (date == null) return undefined;
+    if (value.time !== null && boundedString(value.time, 20) == null) return undefined;
+    if (value.tz !== null && boundedString(value.tz, 40) == null) return undefined;
+    return {
+      kind: "datetime",
+      date,
+      time: value.time === null ? null : (value.time as string),
+      tz: value.tz === null ? null : (value.tz as string),
+    };
   }
   if (kind === "money") {
-    return (
-      typeof value.amount === "number" &&
-      Number.isFinite(value.amount) &&
-      (value.currency === null || boundedString(value.currency, 12) != null)
-    );
+    if (typeof value.amount !== "number" || !Number.isFinite(value.amount)) return undefined;
+    if (value.currency !== null && boundedString(value.currency, 12) == null) return undefined;
+    return {
+      kind: "money",
+      amount: value.amount,
+      currency: value.currency === null ? null : (value.currency as string),
+    };
   }
   if (kind === "quantity") {
-    return (
-      typeof value.value === "number" &&
-      Number.isFinite(value.value) &&
-      (value.unit === null || boundedString(value.unit, 40) != null)
-    );
+    if (typeof value.value !== "number" || !Number.isFinite(value.value)) return undefined;
+    if (value.unit !== null && boundedString(value.unit, 40) == null) return undefined;
+    return {
+      kind: "quantity",
+      value: value.value,
+      unit: value.unit === null ? null : (value.unit as string),
+    };
   }
   if (kind === "duration_days") {
-    return typeof value.days === "number" && Number.isFinite(value.days);
+    if (typeof value.days !== "number" || !Number.isFinite(value.days)) return undefined;
+    return { kind: "duration_days", days: value.days };
   }
   if (kind === "percent") {
-    return typeof value.value === "number" && Number.isFinite(value.value);
+    if (typeof value.value !== "number" || !Number.isFinite(value.value)) return undefined;
+    return { kind: "percent", value: value.value };
   }
-  if (kind === "boolean") return typeof value.value === "boolean";
-  if (kind === "text") return boundedString(value.value) != null;
-  return false;
+  if (kind === "boolean") {
+    if (typeof value.value !== "boolean") return undefined;
+    return { kind: "boolean", value: value.value };
+  }
+  if (kind === "text") {
+    const parsed = boundedString(value.value);
+    return parsed == null ? undefined : { kind: "text", value: parsed };
+  }
+  return undefined;
 }
 
-function parseDocumentFact(value: unknown): boolean {
-  if (!isPlainObject(value)) return false;
-  if (unknownKeys(value, DOCUMENT_FACT_KEYS).length > 0) return false;
-  if (boundedString(value.id, 80) == null) return false;
-  if (boundedString(value.factType, 80) == null) return false;
-  if (boundedString(value.claim) == null) return false;
-  if (value.rawValue !== null && boundedString(value.rawValue, 300) == null) return false;
-  if (!parseNormalizedV2(value.normalizedValue)) return false;
-  if (typeof value.confidence !== "string") return false;
-  if (!Array.isArray(value.evidence) || value.evidence.length > 20) return false;
-  if (!value.evidence.every(parseEvidenceRef)) return false;
-  if (typeof value.sourceRole !== "string") return false;
-  if (value.status !== "ACTIVE" && value.status !== "SUPERSEDED" && value.status !== "CONFLICT") {
-    return false;
+function parseDocumentFact(value: unknown): ParsedTenderFact | null {
+  if (!isPlainObject(value)) return null;
+  if (unknownKeys(value, DOCUMENT_FACT_KEYS).length > 0) return null;
+  const id = boundedString(value.id, 80);
+  if (id == null || !isOpaqueToken(id)) return null;
+  if (!isCanonical(value.factType, FACT_TYPES)) return null;
+  const claim = boundedString(value.claim);
+  if (claim == null) return null;
+  if (value.rawValue !== undefined && value.rawValue !== null && boundedString(value.rawValue, 300) == null) {
+    return null;
   }
-  return true;
+  const normalizedValue = parseNormalizedV2(value.normalizedValue);
+  if (normalizedValue === undefined) return null;
+  if (value.confidence !== undefined && !isCanonical(value.confidence, CONFIDENCE_LEVELS)) {
+    return null;
+  }
+  if (!Array.isArray(value.evidence) || value.evidence.length > MAX_EVIDENCE_REFS_PER_ITEM) return null;
+  const evidence: ParsedTenderEvidenceRef[] = [];
+  for (const item of value.evidence) {
+    const parsed = parseEvidenceRef(item);
+    if (!parsed) return null;
+    evidence.push(parsed);
+  }
+  if (value.sourceRole !== undefined && !isCanonical(value.sourceRole, DOCUMENT_SOURCE_ROLES)) {
+    return null;
+  }
+  if (!isCanonical(value.status, DOCUMENT_FACT_STATUSES)) return null;
+  return {
+    id,
+    factType: value.factType as FactTypeV2,
+    claim,
+    normalizedValue,
+    evidence,
+    status: value.status as ParsedTenderFact["status"],
+  };
 }
 
-function parseRequirement(value: unknown): boolean {
-  if (!isPlainObject(value)) return false;
-  if (unknownKeys(value, REQUIREMENT_KEYS).length > 0) return false;
-  if (boundedString(value.id, 80) == null) return false;
-  if (boundedString(value.category, 40) == null) return false;
-  if (boundedString(value.statement, 600) == null) return false;
-  if (value.actor !== null && boundedString(value.actor, 120) == null) return false;
-  if (value.action !== null && boundedString(value.action, 200) == null) return false;
-  if (value.object !== null && boundedString(value.object, 200) == null) return false;
+function parseRequirement(value: unknown): ParsedTenderRequirement | null {
+  if (!isPlainObject(value)) return null;
+  if (unknownKeys(value, REQUIREMENT_KEYS).length > 0) return null;
+  const id = boundedString(value.id, 80);
+  if (id == null || !isOpaqueToken(id)) return null;
+  if (!isCanonical(value.category, REQUIREMENT_CATEGORIES)) return null;
+  const statement = boundedString(value.statement, 600);
+  if (statement == null) return null;
+  if (value.actor !== null && boundedString(value.actor, 120) == null) return null;
+  if (value.action !== null && boundedString(value.action, 200) == null) return null;
+  if (value.object !== null && boundedString(value.object, 200) == null) return null;
   if (value.mandatory !== true && value.mandatory !== false && value.mandatory !== "uncertain") {
-    return false;
+    return null;
   }
-  if (!Array.isArray(value.evidence) || !value.evidence.every(parseEvidenceRef)) return false;
-  if (
-    value.status !== "ACTIVE" &&
-    value.status !== "SUPERSEDED" &&
-    value.status !== "CONFLICT" &&
-    value.status !== "NEEDS_REVIEW"
-  ) {
-    return false;
+  if (!Array.isArray(value.evidence) || value.evidence.length > MAX_EVIDENCE_REFS_PER_ITEM) return null;
+  const evidence: ParsedTenderEvidenceRef[] = [];
+  for (const item of value.evidence) {
+    const parsed = parseEvidenceRef(item);
+    if (!parsed) return null;
+    evidence.push(parsed);
   }
-  return true;
+  if (!isCanonical(value.status, REQUIREMENT_STATUSES)) return null;
+  if (value.confidence !== undefined && !isCanonical(value.confidence, CONFIDENCE_LEVELS)) {
+    return null;
+  }
+  return {
+    id,
+    category: value.category as RequirementCategoryV2,
+    statement,
+    actor: value.actor === null ? null : (value.actor as string),
+    action: value.action === null ? null : (value.action as string),
+    object: value.object === null ? null : (value.object as string),
+    mandatory: value.mandatory as MandatoryV2,
+    evidence,
+    status: value.status as RequirementStatusV2,
+  };
 }
 
-function parseTender(value: unknown): unknown | null {
+function parseManifestDocuments(value: unknown): ParsedTenderManifestDocument[] | null {
+  if (!isPlainObject(value)) return null;
+  if (!Array.isArray(value.documents) || value.documents.length > MAX_MANIFEST_DOCUMENTS) {
+    return null;
+  }
+  const documents: ParsedTenderManifestDocument[] = [];
+  for (const item of value.documents) {
+    if (!isPlainObject(item)) return null;
+    if (unknownKeys(item, MANIFEST_DOCUMENT_KEYS).length > 0) return null;
+    const documentId = boundedString(item.documentId, 128);
+    if (documentId == null || !isOpaqueSourceId(documentId)) return null;
+    if (item.sourceRole !== undefined && !isCanonical(item.sourceRole, DOCUMENT_SOURCE_ROLES)) {
+      return null;
+    }
+    let contentHash: string | null = null;
+    if (item.contentHash === undefined || item.contentHash === null) {
+      contentHash = null;
+    } else if (typeof item.contentHash === "string" && /^[a-f0-9]{64}$/i.test(item.contentHash)) {
+      contentHash = item.contentHash.toLowerCase();
+    } else {
+      return null;
+    }
+    documents.push({ documentId, contentHash });
+  }
+  return documents;
+}
+
+function parseAnalyzerVersion(metadata: unknown): string | undefined | "invalid" {
+  if (metadata === undefined) return undefined;
+  if (!isPlainObject(metadata)) return "invalid";
+  if (metadata.analyzerVersion === undefined) return undefined;
+  if (typeof metadata.analyzerVersion !== "string" || !isVersionToken(metadata.analyzerVersion)) {
+    return "invalid";
+  }
+  return metadata.analyzerVersion;
+}
+
+export function parseTenderEvidenceSource(value: unknown): ParsedTenderEvidenceSource | null {
   if (!isPlainObject(value)) return null;
   if (unknownKeys(value, ANALYSIS_RESULT_KEYS).length > 0) return null;
   if (value.contractVersion !== TENDER_ANALYSIS_RESULT_VERSION) return null;
+  const documents = parseManifestDocuments(value.manifest);
+  if (!documents) return null;
+  const analyzerVersion = parseAnalyzerVersion(value.metadata);
+  if (analyzerVersion === "invalid") return null;
   if (!Array.isArray(value.facts) || value.facts.length > MAX_STRUCTURED_FACTS) return null;
-  if (!value.facts.every(parseDocumentFact)) return null;
+  const facts: ParsedTenderFact[] = [];
+  for (const item of value.facts) {
+    const parsed = parseDocumentFact(item);
+    if (!parsed) return null;
+    facts.push(parsed);
+  }
   if (!Array.isArray(value.requirements) || value.requirements.length > MAX_STRUCTURED_FACTS) {
     return null;
   }
-  if (!value.requirements.every(parseRequirement)) return null;
-  if (!Array.isArray(value.mandatoryRequirementIds)) return null;
-  if (!value.mandatoryRequirementIds.every((id) => typeof id === "string" && id.length <= 80)) {
+  const requirements: ParsedTenderRequirement[] = [];
+  for (const item of value.requirements) {
+    const parsed = parseRequirement(item);
+    if (!parsed) return null;
+    requirements.push(parsed);
+  }
+  if (!Array.isArray(value.mandatoryRequirementIds) || value.mandatoryRequirementIds.length > MAX_STRUCTURED_FACTS) {
     return null;
   }
-  if (scanForbiddenEvidenceFields({
-    facts: (value.facts as { rawValue?: unknown }[]).map((fact) => ({
-      id: (fact as { id?: string }).id,
-      factType: (fact as { factType?: string }).factType,
-      claim: (fact as { claim?: string }).claim,
-    })),
-  })) {
-    return null;
+  const mandatoryRequirementIds: string[] = [];
+  for (const id of value.mandatoryRequirementIds) {
+    if (typeof id !== "string" || id.length > 80 || !isOpaqueToken(id)) return null;
+    mandatoryRequirementIds.push(id);
   }
-  return value;
+  const projected: ParsedTenderEvidenceSource = {
+    contractVersion: TENDER_ANALYSIS_RESULT_VERSION,
+    manifest: { documents },
+    metadata: analyzerVersion ? { analyzerVersion } : {},
+    facts,
+    requirements,
+    mandatoryRequirementIds,
+  };
+  if (scanForbiddenEvidenceFields(projected)) return null;
+  return projected;
 }
 
 export function parseStructuredSourcesSnapshot(
@@ -441,7 +616,7 @@ export function parseStructuredSourcesSnapshot(
     }
     const sources: StructuredSourcesSnapshot = {};
     if (value.tender !== undefined) {
-      const tender = parseTender(value.tender);
+      const tender = parseTenderEvidenceSource(value.tender);
       if (!tender) return { ok: false, reason: "EVIDENCE_INVALID_STRUCTURED_SOURCE" };
       sources.tender = tender;
     }

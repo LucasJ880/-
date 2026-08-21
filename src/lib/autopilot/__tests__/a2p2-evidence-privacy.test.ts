@@ -7,8 +7,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   FORBIDDEN_EVIDENCE_FIELD_NAMES,
+  containsPiiText,
   containsSecretMaterial,
+  containsUnsafeMarkup,
   redactPiiText,
+  safeRejectedIdentifier,
   scanForbiddenEvidenceFields,
 } from "../a2p2-evidence-privacy";
 import { A2P2_EVIDENCE_PACKET_VERSION } from "../a2p2-evidence-types";
@@ -207,7 +210,8 @@ const piiSource = buildEvidencePacket({
   now: NOW,
 });
 ok(
-  piiSource.rejectedFacts.some((item) => item.reasonCode === "EVIDENCE_UNSAFE_IDENTIFIER") &&
+  piiSource.status === "NOT_EVALUABLE" &&
+    piiSource.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE") &&
     !JSON.stringify(piiSource).includes("jane@example.com") &&
     !JSON.stringify(piiSource.evidenceFacts).includes("[EMAIL]"),
   "PII_IN_SOURCE_ID_REJECTED",
@@ -310,6 +314,186 @@ const rawKeys = keys.filter((key) =>
   (FORBIDDEN_EVIDENCE_FIELD_NAMES as readonly string[]).includes(key),
 );
 ok(rawKeys.length === 0, "RAW_SOURCE_FIELD_COUNT = 0");
+
+ok(
+  safeRejectedIdentifier("needed") === "needed" &&
+    safeRejectedIdentifier("jane@example.com") === undefined &&
+    safeRejectedIdentifier("sk-live-abcdefghijklmnopqrstuvwxyz") === undefined &&
+    safeRejectedIdentifier("<div>req</div>") === undefined,
+  "safeRejectedIdentifier omits unsafe tokens",
+);
+
+const piiRejectedReq = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "jane@example.com",
+          factKey: "k1",
+          summary: "ghost requirement",
+          sourceId: "src-1",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  piiRejectedReq.status === "NOT_EVALUABLE" &&
+    !JSON.stringify(piiRejectedReq).includes("jane@example.com") &&
+    !piiRejectedReq.rejectedFacts.some((item) => item.requirementId?.includes("@")),
+  "PII_IN_REJECTED_REQUIREMENT_ID_NOT_EMITTED",
+);
+ok(
+  piiRejectedReq.status === "NOT_EVALUABLE" &&
+    piiRejectedReq.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE"),
+  "GENERIC_PII_REQUIREMENT_ID_FAILS_CLOSED",
+);
+
+const secretFactKey = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "sk-live-abcdefghijklmnopqrstuvwxyz",
+          summary: "keyed fact",
+          sourceId: "src-1",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  secretFactKey.status === "NOT_EVALUABLE" &&
+    !JSON.stringify(secretFactKey).includes("sk-live-abcdefghijklmnopqrstuvwxyz") &&
+    !secretFactKey.rejectedFacts.some((item) => item.factKey?.includes("sk-live")),
+  "SECRET_IN_REJECTED_FACT_KEY_NOT_EMITTED",
+);
+ok(
+  secretFactKey.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE"),
+  "GENERIC_UNSAFE_FACT_KEY_FAILS_CLOSED",
+);
+
+const htmlRejectedMeta = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "<div>needed</div>",
+          factKey: "<span>k1</span>",
+          summary: "markup ids",
+          sourceId: "src-1",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  !JSON.stringify(htmlRejectedMeta).includes("<div>") &&
+    !JSON.stringify(htmlRejectedMeta).includes("<span>") &&
+    htmlRejectedMeta.rejectedFacts.every(
+      (item) => !containsUnsafeMarkup(item.requirementId) && !containsUnsafeMarkup(item.factKey),
+    ),
+  "HTML_IN_REJECTED_METADATA_NOT_EMITTED",
+);
+
+const ghostRejected = buildEvidencePacket({
+  contract: genericContract([{ id: "only_known", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [{ requirementId: "ghost_req", factKey: "x", summary: "nope", sourceId: "g1" }],
+    },
+  },
+  now: NOW,
+});
+ok(
+  ghostRejected.rejectedFacts.every(
+    (item) =>
+      !containsPiiText(item.requirementId ?? "") &&
+      !containsPiiText(item.factKey ?? "") &&
+      !containsSecretMaterial(item) &&
+      !containsUnsafeMarkup(item),
+  ),
+  "REJECTED_METADATA_IS_PACKET_SAFE",
+);
+
+const piiExtractor = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "k1",
+          summary: "ordinary fact",
+          sourceId: "src-1",
+          extractorVersion: "notes-from-jane@example.com",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  piiExtractor.status === "NOT_EVALUABLE" &&
+    !JSON.stringify(piiExtractor).includes("jane@example.com") &&
+    piiExtractor.evidenceFacts.every((fact) => fact.provenance.extractorVersion !== "notes-from-jane@example.com"),
+  "PII_IN_EXTRACTOR_VERSION_REJECTED",
+);
+
+const htmlExtractor = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "k1",
+          summary: "ordinary fact",
+          sourceId: "src-1",
+          extractorVersion: "<script>v1</script>",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  htmlExtractor.status === "NOT_EVALUABLE" &&
+    !JSON.stringify(htmlExtractor).includes("<script>") &&
+    htmlExtractor.evidenceFacts.length === 0,
+  "HTML_IN_EXTRACTOR_VERSION_REJECTED",
+);
+
+const badObservedAt = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "k1",
+          summary: "ordinary fact",
+          sourceId: "src-1",
+          sourceObservedAt: "yesterday-afternoon",
+        },
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  badObservedAt.status === "NOT_EVALUABLE" &&
+    !JSON.stringify(badObservedAt).includes("yesterday-afternoon") &&
+    badObservedAt.evidenceFacts.every((fact) => fact.provenance.sourceObservedAt === undefined),
+  "INVALID_SOURCE_OBSERVED_AT_REJECTED",
+);
 
 const src = [
   "a2p2-evidence-types.ts",

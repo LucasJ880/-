@@ -10,6 +10,7 @@ import {
   adaptAnalysisResultV2,
   flattenNormalizedValueV2,
 } from "../a2p2-evidence-tender-adapter";
+import { parseTenderEvidenceSource } from "../a2p2-evidence-sources";
 import { resolveTaskContract } from "../a2p2-templates";
 import {
   closingFact,
@@ -118,6 +119,100 @@ const noNorm = adaptAnalysisResultV2(
 ok(
   !noNorm.facts.some((item) => item.requirementId === "submission_deadline"),
   "no rawValue fallback when normalizedValue is null",
+);
+
+const projected = parseTenderEvidenceSource(makeAnalysisResultV2());
+ok(!!projected, "parser returns a canonical projection");
+ok(
+  projected != null &&
+    !("projectSummary" in projected) &&
+    !("risks" in projected) &&
+    !("nextActions" in projected) &&
+    !("rawValue" in (projected.facts[0] ?? {})) &&
+    !("snippet" in (projected.facts[0]?.evidence[0] ?? {})),
+  "projection drops unused AnalysisResultV2 fields",
+);
+ok(
+  projected != null &&
+    !JSON.stringify(projected).includes("SECRET_RAW_VALUE_MUST_NOT_LEAK") &&
+    !JSON.stringify(projected).includes("SNIPPET_TEXT_MUST_NOT_LEAK"),
+  "projection does not copy rawValue or snippet",
+);
+
+function tenderProbe(tender: unknown) {
+  let threw = false;
+  let packet;
+  try {
+    packet = buildEvidencePacket({
+      contract: resolveTaskContract({ domainHint: "TENDER_ANALYSIS", now: NOW }),
+      structuredSources: { tender },
+      now: NOW,
+    });
+  } catch {
+    threw = true;
+  }
+  return { threw, packet };
+}
+
+const objectDocuments = tenderProbe({
+  ...makeAnalysisResultV2(),
+  manifest: { ...makeAnalysisResultV2().manifest, documents: { find: "x" } },
+});
+ok(!objectDocuments.threw, "MALFORMED_MANIFEST_DOCUMENTS_DOES_NOT_THROW");
+ok(
+  objectDocuments.packet?.status === "NOT_EVALUABLE" &&
+    objectDocuments.packet.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE"),
+  "MALFORMED_MANIFEST_FAILS_CLOSED",
+);
+
+const unsafeDocId = tenderProbe(
+  makeAnalysisResultV2({
+    manifest: {
+      ...makeAnalysisResultV2().manifest,
+      documents: [
+        {
+          documentId: "jane@example.com",
+          name: "ITT.pdf",
+          type: "pdf",
+          sourceRole: "BASE_TENDER",
+          pageCount: 1,
+          contentHash: null,
+        },
+      ],
+    },
+  }),
+);
+ok(
+  unsafeDocId.packet?.status === "NOT_EVALUABLE" &&
+    !JSON.stringify(unsafeDocId.packet).includes("jane@example.com"),
+  "UNSAFE_MANIFEST_DOCUMENT_ID_REJECTED",
+);
+
+const badAnalyzer = tenderProbe({
+  ...makeAnalysisResultV2(),
+  metadata: { ...makeAnalysisResultV2().metadata, analyzerVersion: {} },
+});
+ok(
+  badAnalyzer.packet?.status === "NOT_EVALUABLE" &&
+    badAnalyzer.packet.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE"),
+  "MALFORMED_ANALYZER_VERSION_FAILS_CLOSED",
+);
+
+const probes = [
+  { ...makeAnalysisResultV2(), manifest: { ...makeAnalysisResultV2().manifest, documents: {} } },
+  { ...makeAnalysisResultV2(), manifest: { ...makeAnalysisResultV2().manifest, documents: { find: "x" } } },
+  { ...makeAnalysisResultV2(), metadata: "bad" },
+  { ...makeAnalysisResultV2(), metadata: { ...makeAnalysisResultV2().metadata, analyzerVersion: {} } },
+  { ...makeAnalysisResultV2(), facts: null },
+  { ...makeAnalysisResultV2(), requirements: {} },
+  { ...makeAnalysisResultV2(), mandatoryRequirementIds: 123 },
+];
+ok(
+  probes.every((probe) => {
+    const result = tenderProbe(probe);
+    return !result.threw && result.packet?.status === "NOT_EVALUABLE";
+  }),
+  "ARBITRARY_MALFORMED_TENDER_SOURCE_NEVER_THROWS",
 );
 
 if (fail > 0) {

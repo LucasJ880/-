@@ -10,17 +10,17 @@ import {
   type A2P2DomainId,
   type ValidatedTaskContract,
 } from "./a2p2-contract";
-import { containsSecretMaterial, scanForbiddenEvidenceFields } from "./a2p2-evidence-privacy";
-import { adaptAnalysisResultV2 } from "./a2p2-evidence-tender-adapter";
+import { containsSecretMaterial, safeRejectedIdentifier, scanForbiddenEvidenceFields } from "./a2p2-evidence-privacy";
+import { adaptParsedTenderSource } from "./a2p2-evidence-tender-adapter";
 import {
   A2P2_EVIDENCE_COLLECTOR_VERSION,
   type CollectorResult,
   type EvidenceCandidate,
   type EvidenceDiagnostic,
+  type EvidenceReasonCode,
   type RejectedEvidence,
   type StructuredSourcesSnapshot,
 } from "./a2p2-evidence-types";
-import type { AnalysisResultV2 } from "../tender-understanding/contract";
 
 function emptyResult(
   taskType: A2P2DomainId,
@@ -36,16 +36,28 @@ function emptyResult(
   };
 }
 
+function rejectRecord(
+  reasonCode: EvidenceReasonCode,
+  requirementId?: string,
+  factKey?: string,
+): RejectedEvidence {
+  return {
+    reasonCode,
+    requirementId: safeRejectedIdentifier(requirementId),
+    factKey: safeRejectedIdentifier(factKey),
+  };
+}
+
 function rejectIfUnsafe(
   value: unknown,
   requirementId: string,
   factKey: string,
 ): RejectedEvidence | null {
   if (scanForbiddenEvidenceFields(value)) {
-    return { reasonCode: "EVIDENCE_RAW_CONTENT_REJECTED", requirementId, factKey };
+    return rejectRecord("EVIDENCE_RAW_CONTENT_REJECTED", requirementId, factKey);
   }
   if (containsSecretMaterial(value)) {
-    return { reasonCode: "EVIDENCE_SECRET_BLOCKED", requirementId, factKey };
+    return rejectRecord("EVIDENCE_SECRET_BLOCKED", requirementId, factKey);
   }
   return null;
 }
@@ -79,17 +91,13 @@ export function collectTenderEvidence(
       { code: "EVIDENCE_UNSUPPORTED_STRUCTURED_SOURCE", detail: "tender snapshot missing" },
     ]);
   }
-  const adapted = adaptAnalysisResultV2(sources.tender as AnalysisResultV2);
+  const adapted = adaptParsedTenderSource(sources.tender);
   const ids = knownRequirementIds(contract);
   const facts: EvidenceCandidate[] = [];
   const rejected: RejectedEvidence[] = [...adapted.rejectedFacts];
   for (const fact of adapted.facts) {
     if (!ids.has(fact.requirementId)) {
-      rejected.push({
-        reasonCode: "EVIDENCE_UNKNOWN_REQUIREMENT",
-        requirementId: fact.requirementId,
-        factKey: fact.factKey,
-      });
+      rejected.push(rejectRecord("EVIDENCE_UNKNOWN_REQUIREMENT", fact.requirementId, fact.factKey));
       continue;
     }
     const unsafe = rejectIfUnsafe(fact, fact.requirementId, fact.factKey);
@@ -144,11 +152,7 @@ export function collectGenericEvidence(
   const rejected: RejectedEvidence[] = [];
   for (const fact of snapshot.facts) {
     if (!ids.has(fact.requirementId)) {
-      rejected.push({
-        reasonCode: "EVIDENCE_UNKNOWN_REQUIREMENT",
-        requirementId: fact.requirementId,
-        factKey: fact.factKey,
-      });
+      rejected.push(rejectRecord("EVIDENCE_UNKNOWN_REQUIREMENT", fact.requirementId, fact.factKey));
       continue;
     }
     const unsafe = rejectIfUnsafe(fact, fact.requirementId, fact.factKey);
@@ -168,6 +172,7 @@ export function collectGenericEvidence(
       sourceContentHash: fact.contentHash,
       privacyClass: fact.privacyClass,
       extractorVersion: fact.extractorVersion,
+      sourceObservedAt: fact.sourceObservedAt,
     });
   }
   return {

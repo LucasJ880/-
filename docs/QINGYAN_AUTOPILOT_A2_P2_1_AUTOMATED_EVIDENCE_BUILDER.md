@@ -42,7 +42,7 @@ raw structured fact candidate
 
 P2.1 **只消费已结构化快照**，不查库、不读原文、不调 LLM、不外搜。
 
-入口 `parseStructuredSourcesSnapshot()` 做运行时闭合校验：未知顶层/嵌套字段、非法数组、非法 normalized value 一律 `NOT_EVALUABLE` + `EVIDENCE_INVALID_STRUCTURED_SOURCE`，且不得抛异常。
+入口 `parseStructuredSourcesSnapshot()` 做运行时闭合校验：未知顶层/嵌套字段、非法数组、非法 normalized value 一律 `NOT_EVALUABLE` + `EVIDENCE_INVALID_STRUCTURED_SOURCE`，且不得抛异常。Tender 分支校验后 **投影** 为 `ParsedTenderEvidenceSource`，不返回原始值。
 
 | 领域 | 仓库内 canonical 源 | P2.1 覆盖 |
 |---|---|---|
@@ -59,9 +59,13 @@ P2.1 **只消费已结构化快照**，不查库、不读原文、不调 LLM、�
 
 - `candidate.privacyClass === PROHIBITED` 或扫描结果为 PROHIBITED：**不得进入** `evidenceFacts`。必填 → 包级 `PRIVACY_BLOCKED`；选填 → 拒绝并记审计，不得混入 `SUFFICIENT` 包。
 - `factSummary` / `normalizedValue` / locator 可读字段：确定性 `[EMAIL]` / `[PHONE]`。任一处脱敏 → `acceptance=REDACTED`、`privacyClass=SENSITIVE`。
-- `sourceId` 必须是不透明标识符。含 PII / 密钥 / 自由文本 → 拒绝该事实，**不得**把邮箱 sourceId 收成 `[EMAIL]`。
+- `sourceId` / `requirementId` / `factKey` 必须是不透明标识符。含 PII / 密钥 / HTML / 自由文本 → **解析期 fail-closed**，不得进入 collector 拒绝列表。
+- `rejectedFacts` 只保留 opaque token；不安全标识 **省略**，不得 redact 成 `[EMAIL]`。
+- `extractorVersion` 必须是有界 version token（允许 `tender-understanding/v2` 这种斜杠）。`sourceObservedAt` 仅有效 ISO-Z 时间戳，否则省略或拒收。
 - HTML/markup 载荷 fail-closed：`EVIDENCE_HTML_REJECTED`。
 - `privacySummary.prohibitedCount` 计入 SECRET / RAW / PROHIBITED_CLASS。
+
+Tender 运行时 parser 产出 `ParsedTenderEvidenceSource`：只投影 adapter 需要的 `contractVersion` / `manifest.documents[{documentId,contentHash}]` / `metadata.analyzerVersion` / facts / requirements / `mandatoryRequirementIds`。**不得**把原始 unknown JSON 交回 adapter，也不得携带 `rawValue` / `snippet` / `projectSummary` / risks / nextActions。枚举对照仓库常量（`CRITICAL_FACT_TYPES`、`REQUIREMENT_CATEGORIES`、`DOCUMENT_SOURCE_ROLES`、`CONFIDENCE_LEVELS`）。任意畸形 Tender JSON：`buildEvidencePacket` 永不抛异常，返回 `NOT_EVALUABLE` + `EVIDENCE_INVALID_STRUCTURED_SOURCE`。
 
 ## 证据身份与 provenance
 
@@ -76,9 +80,10 @@ P2.1 **只消费已结构化快照**，不查库、不读原文、不调 LLM、�
 - `MAX_EVIDENCE_FACTS = 100`
 - `MAX_FACTS_PER_REQUIREMENT = 20`
 - `MAX_FACT_SUMMARY_LENGTH = 500`
-- `MAX_PACKET_SAFE_TEXT_BYTES = 32 KB`（完整 Judge-facing payload，不仅是 factSummary 列表）
+- `MAX_PACKET_SAFE_TEXT_BYTES = 32 KB`（**最终** Judge-facing payload，含 rejectedFacts / diagnostics）
+- `MAX_EMITTED_REJECTED_FACTS = 32`
 
-溢出：`EVIDENCE_PACKET_LIMIT_EXCEEDED` → `NOT_EVALUABLE`，输出空 facts + 溢出诊断，**禁止**截断后再算成 `SUFFICIENT`。溢出输出本身必须有界。
+溢出：`EVIDENCE_PACKET_LIMIT_EXCEEDED` → `NOT_EVALUABLE`（若同时隐私硬阻断则仍为 `PRIVACY_BLOCKED`）。最小溢出包：空 `evidenceFacts`、空或不保留无界 `rejectedFacts`、有界规范 diagnostics、确定性 `NOT_EVALUABLE` assessments。**禁止**截断后再算成 `SUFFICIENT`。返回前 `judgeFacingPacketBytes(final) <= 32KB`。
 
 需求级状态：`READY` · `INSUFFICIENT` · `CONFLICTING` · `PRIVACY_BLOCKED` · `NOT_EVALUABLE`。  
 **READY = 结构上够证据，不是需求语义为真。**

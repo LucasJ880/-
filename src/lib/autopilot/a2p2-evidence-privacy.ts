@@ -59,6 +59,11 @@ const PHONE_RE =
   /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4})/g;
 const HTML_RE = /<\/?[a-z][a-z0-9]*\b[^>]*>/i;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const VERSION_TOKEN_RE =
+  /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:\/[A-Za-z0-9][A-Za-z0-9._:-]{0,63}){0,3}$/;
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const MAX_VERSION_TOKEN_LENGTH = 80;
+const MAX_ISO_TIMESTAMP_LENGTH = 30;
 
 export type PrivacyScanResult = {
   secret: boolean;
@@ -153,6 +158,40 @@ export function isOpaqueSourceId(value: string): boolean {
 
 export function isOpaqueToken(value: string): boolean {
   return isOpaqueSourceId(value);
+}
+
+export function isVersionToken(value: string): boolean {
+  if (value.length < 1 || value.length > MAX_VERSION_TOKEN_LENGTH) return false;
+  if (/\s/.test(value)) return false;
+  if (!VERSION_TOKEN_RE.test(value)) return false;
+  if (containsPiiText(value)) return false;
+  if (containsSecretMaterial(value)) return false;
+  if (containsUnsafeMarkup(value)) return false;
+  return true;
+}
+
+export function isBoundedIsoTimestamp(value: string): boolean {
+  if (value.length < 20 || value.length > MAX_ISO_TIMESTAMP_LENGTH) return false;
+  if (!ISO_TIMESTAMP_RE.test(value)) return false;
+  return Number.isFinite(Date.parse(value));
+}
+
+export function safeRejectedIdentifier(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (!isOpaqueToken(value)) return undefined;
+  return value;
+}
+
+export function safeExtractorVersion(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return undefined;
+  return isVersionToken(value) ? value : undefined;
+}
+
+export function safeSourceObservedAt(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return undefined;
+  return isBoundedIsoTimestamp(value) ? value : undefined;
 }
 
 export function sanitizeLocator(

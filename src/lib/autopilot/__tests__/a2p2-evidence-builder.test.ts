@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { toEvaluationEvidenceStatus } from "../a2p2-evidence-adapter";
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
 import { selectEvidenceCollector } from "../a2p2-evidence-collectors";
-import { hashEvidencePacket, makeEvidenceRef } from "../a2p2-evidence-hash";
+import { hashEvidencePacket, judgeFacingPacketBytes, makeEvidenceRef } from "../a2p2-evidence-hash";
 import { MAX_EVIDENCE_FACTS, MAX_PACKET_SAFE_TEXT_BYTES } from "../a2p2-evidence-types";
 import { resolveTaskContract } from "../a2p2-templates";
 import {
@@ -437,6 +437,72 @@ ok(
   Buffer.byteLength(JSON.stringify(bulky), "utf8") <= MAX_PACKET_SAFE_TEXT_BYTES + 2048 &&
     bulky.evidenceFacts.length === 0,
   "OVERFLOW_PACKET_OUTPUT_IS_BOUNDED",
+);
+ok(
+  judgeFacingPacketBytes(bulky) <= MAX_PACKET_SAFE_TEXT_BYTES,
+  "FINAL_JUDGE_PAYLOAD_ALWAYS_WITHIN_LIMIT",
+);
+ok(bulky.rejectedFacts.length === 0, "REJECTED_FACT_OVERFLOW_OUTPUT_IS_BOUNDED");
+ok(
+  bulky.diagnostics.length <= 8 &&
+    bulky.diagnostics.every((item) => !item.detail || item.detail.length <= 80),
+  "DIAGNOSTIC_OVERFLOW_OUTPUT_IS_BOUNDED",
+);
+
+const maxId = `u000${"x".repeat(76)}`;
+const maxKey = `k000${"x".repeat(76)}`;
+const maxSource = `s${"y".repeat(127)}`;
+const rejectedFlood = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: Array.from({ length: 200 }, (_, index) => ({
+        requirementId: `u${String(index).padStart(3, "0")}${"x".repeat(76)}`,
+        factKey: `k${String(index).padStart(3, "0")}${"z".repeat(76)}`,
+        summary: "unknown requirement",
+        sourceId: `s${String(index).padStart(3, "0")}${"y".repeat(124)}`,
+      })),
+    },
+  },
+  now: NOW,
+});
+ok(maxId.length === 80 && maxKey.length === 80 && maxSource.length === 128, "max-length opaque ids");
+ok(rejectedFlood.status !== "SUFFICIENT", "rejected flood cannot become SUFFICIENT");
+ok(
+  judgeFacingPacketBytes(rejectedFlood) <= MAX_PACKET_SAFE_TEXT_BYTES &&
+    rejectedFlood.rejectedFacts.length < 200 &&
+    rejectedFlood.rejectedFacts.length <= 32,
+  "REJECTED_FACTS_CANNOT_BYPASS_PACKET_LIMIT",
+);
+
+const privacyOverflow = buildEvidencePacket({
+  contract: genericContract([{ id: "needed", required: true }]),
+  structuredSources: {
+    generic: {
+      facts: [
+        {
+          requirementId: "needed",
+          factKey: "secret_key",
+          summary: "Authorization: Bearer sk-live-abcdefghijklmnopqrstuvwxyz",
+          sourceId: "src-secret",
+        },
+        ...Array.from({ length: 199 }, (_, index) => ({
+          requirementId: `u${String(index).padStart(3, "0")}${"x".repeat(76)}`,
+          factKey: `k${String(index).padStart(3, "0")}${"z".repeat(76)}`,
+          summary: "unknown requirement",
+          sourceId: `s${String(index).padStart(3, "0")}${"y".repeat(124)}`,
+        })),
+      ],
+    },
+  },
+  now: NOW,
+});
+ok(
+  privacyOverflow.status === "PRIVACY_BLOCKED" &&
+    privacyOverflow.evidenceFacts.length === 0 &&
+    !JSON.stringify(privacyOverflow).includes("sk-live-abcdefghijklmnopqrstuvwxyz") &&
+    judgeFacingPacketBytes(privacyOverflow) <= MAX_PACKET_SAFE_TEXT_BYTES,
+  "OVERFLOW_PRIVACY_BLOCK_PRECEDENCE_PRESERVED",
 );
 
 if (fail > 0) {

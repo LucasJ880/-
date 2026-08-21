@@ -29,6 +29,9 @@ import {
   isOpaqueSourceId,
   isOpaqueToken,
   redactPiiText,
+  safeExtractorVersion,
+  safeRejectedIdentifier,
+  safeSourceObservedAt,
   sanitizeLocator,
   sanitizeNormalizedValue,
   scanEvidenceValue,
@@ -39,7 +42,10 @@ import {
   A2P2_EVIDENCE_BUILDER_VERSION,
   A2P2_EVIDENCE_COLLECTOR_VERSION,
   A2P2_EVIDENCE_PACKET_VERSION,
+  MAX_DIAGNOSTIC_DETAIL,
+  MAX_EMITTED_REJECTED_FACTS,
   MAX_EVIDENCE_FACTS,
+  MAX_OVERFLOW_DIAGNOSTICS,
   MAX_PACKET_SAFE_TEXT_BYTES,
   type EvidenceCandidate,
   type EvidenceDiagnostic,
@@ -61,6 +67,13 @@ const PRIVACY_REJECT_CODES = new Set([
   "EVIDENCE_RAW_CONTENT_REJECTED",
   "EVIDENCE_PROHIBITED_CLASS_BLOCKED",
   "EVIDENCE_PRIVACY_BLOCKED",
+]);
+
+const CANONICAL_DIAGNOSTIC_DETAILS = new Set([
+  "MAX_EVIDENCE_FACTS",
+  "MAX_PACKET_SAFE_TEXT_BYTES",
+  "MAX_FACTS_PER_REQUIREMENT",
+  "MAX_EMITTED_REJECTED_FACTS",
 ]);
 
 function requirementOf(
@@ -90,8 +103,29 @@ function reject(
 ): void {
   rejected.push({
     reasonCode,
-    requirementId: candidate.requirementId,
-    factKey: candidate.factKey,
+    requirementId: safeRejectedIdentifier(candidate.requirementId),
+    factKey: safeRejectedIdentifier(candidate.factKey),
+  });
+}
+
+function sanitizeRejected(items: readonly RejectedEvidence[]): RejectedEvidence[] {
+  return items.map((item) => ({
+    reasonCode: item.reasonCode,
+    requirementId: safeRejectedIdentifier(item.requirementId),
+    factKey: safeRejectedIdentifier(item.factKey),
+  }));
+}
+
+function sanitizeDiagnostics(items: readonly EvidenceDiagnostic[]): EvidenceDiagnostic[] {
+  return items.map((item) => {
+    if (!item.detail) return { code: item.code };
+    if (CANONICAL_DIAGNOSTIC_DETAILS.has(item.detail)) {
+      return { code: item.code, detail: item.detail };
+    }
+    if (isOpaqueToken(item.detail) && item.detail.length <= MAX_DIAGNOSTIC_DETAIL) {
+      return { code: item.code, detail: item.detail };
+    }
+    return { code: item.code };
   });
 }
 
@@ -129,6 +163,16 @@ function acceptCandidate(
   }
   if (!isOpaqueSourceId(candidate.sourceId) || !isOpaqueToken(candidate.sourceType) || !isOpaqueToken(candidate.factKey)) {
     reject(rejected, "EVIDENCE_UNSAFE_IDENTIFIER", candidate);
+    return { privacyBlockedRequired: false };
+  }
+  const extractorVersion = safeExtractorVersion(candidate.extractorVersion);
+  if (candidate.extractorVersion !== undefined && extractorVersion === undefined) {
+    reject(rejected, "EVIDENCE_UNSAFE_IDENTIFIER", candidate);
+    return { privacyBlockedRequired: false };
+  }
+  const sourceObservedAt = safeSourceObservedAt(candidate.sourceObservedAt);
+  if (candidate.sourceObservedAt !== undefined && sourceObservedAt === undefined) {
+    reject(rejected, "EVIDENCE_INVALID_VALUE", candidate);
     return { privacyBlockedRequired: false };
   }
   const normalized = sanitizeNormalizedValue(candidate.normalizedValue);
@@ -188,9 +232,9 @@ function acceptCandidate(
       countsTowardRequirement: kindOk,
       provenance: {
         collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
-        extractorVersion: candidate.extractorVersion,
+        extractorVersion,
         sourceContentHash,
-        sourceObservedAt: candidate.sourceObservedAt,
+        sourceObservedAt,
         createdAt,
       },
     },
@@ -203,20 +247,19 @@ function emptyPacket(input: {
   diagnostics: EvidenceDiagnostic[];
   rejectedFacts?: RejectedEvidence[];
 }): SemanticEvidencePacketV1 {
-  const contract = {
-    taskType: input.taskType,
-    riskClass: "RESTRICTED",
-    automationLevel: "L0",
-    requirementCount: 0,
-  };
-  return finalizePacket({
+  const packet = finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
-    contract,
+    contract: {
+      taskType: input.taskType,
+      riskClass: "RESTRICTED",
+      automationLevel: "L0",
+      requirementCount: 0,
+    },
     taskType: input.taskType,
     requirements: [],
     evidenceFacts: [],
-    rejectedFacts: input.rejectedFacts ?? [],
+    rejectedFacts: sanitizeRejected(input.rejectedFacts ?? []),
     requirementAssessments: [],
     status: input.status,
     privacySummary: {
@@ -231,7 +274,17 @@ function emptyPacket(input: {
       factCount: 0,
       rejectedCount: (input.rejectedFacts ?? []).length,
     },
-    diagnostics: input.diagnostics,
+    diagnostics: sanitizeDiagnostics(input.diagnostics),
+  });
+  return enforceFinalByteBound(packet, {
+    taskType: input.taskType,
+    status: input.status,
+    privacyBlocked: input.status === "PRIVACY_BLOCKED",
+    rejectedCount: (input.rejectedFacts ?? []).length,
+    prohibitedCount: packet.privacySummary.prohibitedCount,
+    assessments: [],
+    requirements: [],
+    contractMeta: packet.contract,
   });
 }
 
@@ -268,7 +321,113 @@ function overflowAssessments(
   }));
 }
 
-export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEvidencePacketV1 {
+function lastResortPacket(input: {
+  taskType: SemanticEvidencePacketV1["taskType"];
+  privacyBlocked: boolean;
+  rejectedCount: number;
+  prohibitedCount: number;
+}): SemanticEvidencePacketV1 {
+  const status: EvidencePacketStatus = input.privacyBlocked ? "PRIVACY_BLOCKED" : "NOT_EVALUABLE";
+  const diagnostics: EvidenceDiagnostic[] = [{ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED" }];
+  if (input.privacyBlocked) diagnostics.push({ code: "EVIDENCE_PRIVACY_BLOCKED" });
+  return finalizePacket({
+    version: A2P2_EVIDENCE_PACKET_VERSION,
+    builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
+    contract: {
+      taskType: input.taskType,
+      riskClass: "RESTRICTED",
+      automationLevel: "L0",
+      requirementCount: 0,
+    },
+    taskType: input.taskType,
+    requirements: [],
+    evidenceFacts: [],
+    rejectedFacts: [],
+    requirementAssessments: [],
+    status,
+    privacySummary: {
+      blocked: input.privacyBlocked,
+      redactedCount: 0,
+      prohibitedCount: input.prohibitedCount,
+    },
+    provenanceSummary: {
+      collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
+      factCount: 0,
+      rejectedCount: input.rejectedCount,
+    },
+    diagnostics: diagnostics.slice(0, MAX_OVERFLOW_DIAGNOSTICS),
+  });
+}
+
+function minimalOverflowPacket(input: {
+  taskType: SemanticEvidencePacketV1["taskType"];
+  contractMeta: SemanticEvidencePacketV1["contract"];
+  requirements: SemanticEvidencePacketV1["requirements"];
+  assessments: readonly RequirementEvidenceAssessment[];
+  privacyBlocked: boolean;
+  rejectedCount: number;
+  prohibitedCount: number;
+}): SemanticEvidencePacketV1 {
+  const status: EvidencePacketStatus = input.privacyBlocked ? "PRIVACY_BLOCKED" : "NOT_EVALUABLE";
+  const diagnostics: EvidenceDiagnostic[] = [{ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED" }];
+  if (input.privacyBlocked) diagnostics.push({ code: "EVIDENCE_PRIVACY_BLOCKED" });
+  return finalizePacket({
+    version: A2P2_EVIDENCE_PACKET_VERSION,
+    builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
+    contract: input.contractMeta,
+    taskType: input.taskType,
+    requirements: input.requirements,
+    evidenceFacts: [],
+    rejectedFacts: [],
+    requirementAssessments: input.assessments,
+    status,
+    privacySummary: {
+      blocked: input.privacyBlocked,
+      redactedCount: 0,
+      prohibitedCount: input.prohibitedCount,
+    },
+    provenanceSummary: {
+      collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
+      factCount: 0,
+      rejectedCount: input.rejectedCount,
+    },
+    diagnostics: diagnostics.slice(0, MAX_OVERFLOW_DIAGNOSTICS),
+  });
+}
+
+function enforceFinalByteBound(
+  packet: SemanticEvidencePacketV1,
+  overflow: {
+    taskType: SemanticEvidencePacketV1["taskType"];
+    status: EvidencePacketStatus;
+    privacyBlocked: boolean;
+    rejectedCount: number;
+    prohibitedCount: number;
+    assessments: readonly RequirementEvidenceAssessment[];
+    requirements: SemanticEvidencePacketV1["requirements"];
+    contractMeta: SemanticEvidencePacketV1["contract"];
+  },
+): SemanticEvidencePacketV1 {
+  if (judgeFacingPacketBytes(packet) <= MAX_PACKET_SAFE_TEXT_BYTES) return packet;
+  const minimal = minimalOverflowPacket({
+    taskType: overflow.taskType,
+    contractMeta: overflow.contractMeta,
+    requirements: overflow.requirements,
+    assessments: overflow.assessments,
+    privacyBlocked: overflow.privacyBlocked || overflow.status === "PRIVACY_BLOCKED",
+    rejectedCount: overflow.rejectedCount,
+    prohibitedCount: overflow.prohibitedCount,
+  });
+  if (judgeFacingPacketBytes(minimal) <= MAX_PACKET_SAFE_TEXT_BYTES) return minimal;
+  return lastResortPacket({
+    taskType: overflow.taskType,
+    privacyBlocked: overflow.privacyBlocked || overflow.status === "PRIVACY_BLOCKED",
+    rejectedCount: overflow.rejectedCount,
+    prohibitedCount: overflow.prohibitedCount,
+  });
+}
+
+function buildEvidencePacketInner(input: BuildEvidencePacketInput): SemanticEvidencePacketV1 {
   const parsed = parseTaskContract(input.contract);
   if (!parsed.ok) {
     return emptyPacket({
@@ -288,8 +447,8 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
   }
   const createdAt = (input.now ?? new Date(0)).toISOString();
   const collected = collectEvidenceForContract(contract, parsedSources.sources);
-  const rejected: RejectedEvidence[] = [...collected.rejectedFacts];
-  const diagnostics: EvidenceDiagnostic[] = [...collected.diagnostics];
+  const rejected: RejectedEvidence[] = sanitizeRejected(collected.rejectedFacts);
+  const diagnostics: EvidenceDiagnostic[] = sanitizeDiagnostics(collected.diagnostics);
   let privacyBlockedRequired = rejected.some((item) => {
     if (!PRIVACY_REJECT_CODES.has(item.reasonCode)) return false;
     return requirementOf(contract, item.requirementId ?? "")?.required === true;
@@ -305,11 +464,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
   const seen = new Set<string>();
   for (const fact of accepted) {
     if (seen.has(fact.evidenceRef)) {
-      rejected.push({
-        reasonCode: "EVIDENCE_DUPLICATE",
-        requirementId: fact.requirementId,
-        factKey: fact.factKey,
-      });
+      reject(rejected, "EVIDENCE_DUPLICATE", fact);
       continue;
     }
     seen.add(fact.evidenceRef);
@@ -321,8 +476,14 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_EVIDENCE_FACTS" });
   }
   const assessed = assessRequirementEvidence(contract, boundedFacts);
-  const assessments = countOverflow ? overflowAssessments(contract) : assessed.assessments;
   const perRequirementLimit = assessed.packetLimitExceeded;
+  if (perRequirementLimit) {
+    diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_FACTS_PER_REQUIREMENT" });
+  }
+  const rejectedOverflow = rejected.length > MAX_EMITTED_REJECTED_FACTS;
+  if (rejectedOverflow) {
+    diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_EMITTED_REJECTED_FACTS" });
+  }
   const requirements = contract.requirements.map((item) => ({
     id: item.id,
     required: item.required,
@@ -330,6 +491,15 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     minimumEvidenceRefs: item.minimumEvidenceRefs,
     allowUnknown: item.allowUnknown,
   }));
+  const contractMeta = {
+    taskType: contract.taskType,
+    riskClass: contract.riskClass,
+    automationLevel: contract.automationLevel,
+    requirementCount: contract.requirements.length,
+  };
+  const assessments = perRequirementLimit || countOverflow
+    ? overflowAssessments(contract)
+    : assessed.assessments;
   const privacySummary = {
     blocked: false,
     redactedCount: boundedFacts.filter((fact) => fact.acceptance === "REDACTED").length,
@@ -340,31 +510,32 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
     factCount: boundedFacts.length,
     rejectedCount: rejected.length,
   };
-  const byteCount = judgeFacingPacketBytes({
+  const preBytes = judgeFacingPacketBytes({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     taskType: contract.taskType,
-    contract: {
-      taskType: contract.taskType,
-      riskClass: contract.riskClass,
-      automationLevel: contract.automationLevel,
-      requirementCount: contract.requirements.length,
-    },
+    contract: contractMeta,
     requirements,
     evidenceFacts: boundedFacts,
     requirementAssessments: assessments,
     status: "INSUFFICIENT",
-    rejectedFacts: rejected,
+    rejectedFacts: rejectedOverflow ? [] : rejected,
     diagnostics,
     privacySummary,
     provenanceSummary,
   });
-  const byteOverflow = byteCount > MAX_PACKET_SAFE_TEXT_BYTES;
+  const byteOverflow = preBytes > MAX_PACKET_SAFE_TEXT_BYTES;
   if (byteOverflow) {
     diagnostics.push({ code: "EVIDENCE_PACKET_LIMIT_EXCEEDED", detail: "MAX_PACKET_SAFE_TEXT_BYTES" });
   }
-  const overflow = countOverflow || perRequirementLimit || byteOverflow;
-  const factsOut = byteOverflow ? [] : boundedFacts;
+  const hardOverflow = countOverflow || byteOverflow || rejectedOverflow;
+  const overflow = hardOverflow || perRequirementLimit;
+  const factsOut = hardOverflow ? [] : boundedFacts;
+  const rejectedOut = hardOverflow ? [] : sanitizeRejected(rejected);
   const assessmentsOut = overflow ? overflowAssessments(contract) : assessments;
+  const boundedDiagnostics = sanitizeDiagnostics(diagnostics).slice(
+    0,
+    hardOverflow ? MAX_OVERFLOW_DIAGNOSTICS : diagnostics.length,
+  );
   const status = assessPacketStatus({
     contract,
     assessments: assessmentsOut,
@@ -374,25 +545,43 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEv
   privacySummary.blocked = status === "PRIVACY_BLOCKED";
   privacySummary.redactedCount = factsOut.filter((fact) => fact.acceptance === "REDACTED").length;
   provenanceSummary.factCount = factsOut.length;
-  return finalizePacket({
+  provenanceSummary.rejectedCount = rejected.length;
+  const packet = finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
-    contract: {
-      taskType: contract.taskType,
-      riskClass: contract.riskClass,
-      automationLevel: contract.automationLevel,
-      requirementCount: contract.requirements.length,
-    },
+    contract: contractMeta,
     taskType: contract.taskType,
     requirements,
     evidenceFacts: factsOut,
-    rejectedFacts: rejected,
+    rejectedFacts: rejectedOut,
     requirementAssessments: assessmentsOut,
     status,
     privacySummary,
     provenanceSummary,
-    diagnostics,
+    diagnostics: boundedDiagnostics,
   });
+  return enforceFinalByteBound(packet, {
+    taskType: contract.taskType,
+    status,
+    privacyBlocked: privacyBlockedRequired,
+    rejectedCount: rejected.length,
+    prohibitedCount: privacySummary.prohibitedCount,
+    assessments: assessmentsOut,
+    requirements,
+    contractMeta,
+  });
+}
+
+export function buildEvidencePacket(input: BuildEvidencePacketInput): SemanticEvidencePacketV1 {
+  try {
+    return buildEvidencePacketInner(input);
+  } catch {
+    return emptyPacket({
+      taskType: "GENERIC",
+      status: "NOT_EVALUABLE",
+      diagnostics: [{ code: "EVIDENCE_INVALID_STRUCTURED_SOURCE" }],
+    });
+  }
 }
 
 export function evidencePacketHasSemanticVerdict(packet: SemanticEvidencePacketV1): boolean {

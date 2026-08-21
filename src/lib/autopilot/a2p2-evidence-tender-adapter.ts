@@ -1,19 +1,25 @@
 /**
  * Autopilot A2-P2.1 — pure AnalysisResultV2 → EvidenceCandidate adapter.
  *
- * Canonical tender source. Drops rawValue, evidence snippets, and document text.
+ * Consumes ParsedTenderEvidenceSource only. Drops rawValue, snippets,
+ * projectSummary, and other unused AnalysisResultV2 fields at parse time.
  * No DB, file read, LLM, or PDF access.
  */
 
 import {
   TENDER_ANALYSIS_RESULT_VERSION,
   TENDER_UNDERSTANDING_VERSION,
-  type AnalysisResultV2,
-  type DocumentFactV2,
   type NormalizedValueV2,
-  type TenderRequirementV2,
 } from "../tender-understanding/contract";
-import type { EvidenceCandidate, RejectedEvidence, SafeNormalizedValue } from "./a2p2-evidence-types";
+import { parseTenderEvidenceSource } from "./a2p2-evidence-sources";
+import type {
+  EvidenceCandidate,
+  ParsedTenderEvidenceSource,
+  ParsedTenderFact,
+  ParsedTenderRequirement,
+  RejectedEvidence,
+  SafeNormalizedValue,
+} from "./a2p2-evidence-types";
 
 export const TENDER_FACT_TYPE_TO_REQUIREMENT: Readonly<Record<string, string>> = {
   closing_datetime: "submission_deadline",
@@ -49,27 +55,27 @@ export function flattenNormalizedValueV2(
   }
 }
 
-function firstEvidence(item: { evidence: { documentId: string; pageNumber: number }[] }): {
-  documentId: string;
-  pageNumber: number;
-} | null {
+function firstEvidence(item: {
+  evidence: readonly { documentId: string; pageNumber: number }[];
+}): { documentId: string; pageNumber: number } | null {
   const ev = item.evidence[0];
-  if (!ev || typeof ev.documentId !== "string" || typeof ev.pageNumber !== "number") {
-    return null;
-  }
+  if (!ev) return null;
   return { documentId: ev.documentId, pageNumber: ev.pageNumber };
 }
 
 function manifestHash(
-  result: AnalysisResultV2,
+  source: ParsedTenderEvidenceSource,
   documentId: string,
 ): string | undefined {
-  const hash = result.manifest?.documents?.find((doc) => doc.documentId === documentId)
-    ?.contentHash;
-  return typeof hash === "string" && /^[a-f0-9]{64}$/i.test(hash) ? hash.toLowerCase() : undefined;
+  for (const doc of source.manifest.documents) {
+    if (doc.documentId === documentId) {
+      return doc.contentHash ?? undefined;
+    }
+  }
+  return undefined;
 }
 
-function mandatorySummary(req: TenderRequirementV2): string {
+function mandatorySummary(req: ParsedTenderRequirement): string {
   const parts = [req.actor, req.action, req.object].filter(
     (part): part is string => typeof part === "string" && part.trim().length > 0,
   );
@@ -78,8 +84,8 @@ function mandatorySummary(req: TenderRequirementV2): string {
 }
 
 function adaptFact(
-  fact: DocumentFactV2,
-  result: AnalysisResultV2,
+  fact: ParsedTenderFact,
+  source: ParsedTenderEvidenceSource,
 ): EvidenceCandidate | null {
   if (fact.status === "SUPERSEDED") return null;
   const requirementId = TENDER_FACT_TYPE_TO_REQUIREMENT[fact.factType];
@@ -100,14 +106,14 @@ function adaptFact(
       field: fact.factType,
       recordKey: fact.id,
     },
-    sourceContentHash: manifestHash(result, evidence.documentId),
-    extractorVersion: result.metadata?.analyzerVersion ?? TENDER_UNDERSTANDING_VERSION,
+    sourceContentHash: manifestHash(source, evidence.documentId),
+    extractorVersion: source.metadata.analyzerVersion ?? TENDER_UNDERSTANDING_VERSION,
   };
 }
 
 function adaptMandatory(
-  req: TenderRequirementV2,
-  result: AnalysisResultV2,
+  req: ParsedTenderRequirement,
+  source: ParsedTenderEvidenceSource,
 ): EvidenceCandidate | null {
   if (req.status !== "ACTIVE") return null;
   if (req.mandatory !== true) return null;
@@ -126,30 +132,39 @@ function adaptMandatory(
       field: req.category,
       recordKey: req.id,
     },
-    sourceContentHash: manifestHash(result, evidence.documentId),
-    extractorVersion: result.metadata?.analyzerVersion ?? TENDER_UNDERSTANDING_VERSION,
+    sourceContentHash: manifestHash(source, evidence.documentId),
+    extractorVersion: source.metadata.analyzerVersion ?? TENDER_UNDERSTANDING_VERSION,
   };
 }
 
-export function adaptAnalysisResultV2(result: AnalysisResultV2): {
+export function adaptParsedTenderSource(source: ParsedTenderEvidenceSource): {
   facts: EvidenceCandidate[];
   rejectedFacts: RejectedEvidence[];
 } {
   const facts: EvidenceCandidate[] = [];
   const rejectedFacts: RejectedEvidence[] = [];
-  if (result.contractVersion !== TENDER_ANALYSIS_RESULT_VERSION) {
+  if (source.contractVersion !== TENDER_ANALYSIS_RESULT_VERSION) {
     return { facts: [], rejectedFacts };
   }
-  for (const fact of result.facts) {
-    const adapted = adaptFact(fact, result);
+  for (const fact of source.facts) {
+    const adapted = adaptFact(fact, source);
     if (adapted) facts.push(adapted);
   }
-  const byId = new Map(result.requirements.map((item) => [item.id, item]));
-  for (const id of result.mandatoryRequirementIds) {
+  const byId = new Map(source.requirements.map((item) => [item.id, item]));
+  for (const id of source.mandatoryRequirementIds) {
     const req = byId.get(id);
     if (!req) continue;
-    const adapted = adaptMandatory(req, result);
+    const adapted = adaptMandatory(req, source);
     if (adapted) facts.push(adapted);
   }
   return { facts, rejectedFacts };
+}
+
+export function adaptAnalysisResultV2(result: unknown): {
+  facts: EvidenceCandidate[];
+  rejectedFacts: RejectedEvidence[];
+} {
+  const parsed = parseTenderEvidenceSource(result);
+  if (!parsed) return { facts: [], rejectedFacts: [] };
+  return adaptParsedTenderSource(parsed);
 }

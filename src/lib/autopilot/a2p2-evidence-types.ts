@@ -11,6 +11,14 @@ import type {
   EvaluationPrivacyClass,
   EvaluationRequirement,
 } from "./a2p2-contract";
+import type {
+  FactTypeV2,
+  MandatoryV2,
+  NormalizedValueV2,
+  RequirementCategoryV2,
+  RequirementStatusV2,
+} from "../tender-understanding/contract";
+import { TENDER_ANALYSIS_RESULT_VERSION } from "../tender-understanding/contract";
 
 export const A2P2_EVIDENCE_SURFACE = "A2_P2_1_EVIDENCE_BUILDER" as const;
 export const A2P2_EVIDENCE_PACKET_VERSION = "a2p2-evidence-packet-v1" as const;
@@ -25,6 +33,11 @@ export const MAX_SAFE_SCALAR_ARRAY = 20;
 export const MAX_LOCATOR_STRING = 80;
 export const MAX_SOURCE_ID_LENGTH = 128;
 export const MAX_STRUCTURED_FACTS = 200;
+export const MAX_MANIFEST_DOCUMENTS = 40;
+export const MAX_EVIDENCE_REFS_PER_ITEM = 20;
+export const MAX_EMITTED_REJECTED_FACTS = 32;
+export const MAX_OVERFLOW_DIAGNOSTICS = 8;
+export const MAX_DIAGNOSTIC_DETAIL = 80;
 
 export const EVIDENCE_SOURCE_STATES = [
   "FOUND",
@@ -172,7 +185,52 @@ export type GenericStructuredFact = {
   locator?: EvidenceLocator;
   contentHash?: string;
   extractorVersion?: string;
+  sourceObservedAt?: string;
   sourceType?: string;
+};
+
+export type ParsedTenderEvidenceRef = {
+  documentId: string;
+  pageNumber: number;
+};
+
+export type ParsedTenderManifestDocument = {
+  documentId: string;
+  contentHash: string | null;
+};
+
+export type ParsedTenderFact = {
+  id: string;
+  factType: FactTypeV2;
+  claim: string;
+  normalizedValue: NormalizedValueV2 | null;
+  evidence: readonly ParsedTenderEvidenceRef[];
+  status: "ACTIVE" | "SUPERSEDED" | "CONFLICT";
+};
+
+export type ParsedTenderRequirement = {
+  id: string;
+  category: RequirementCategoryV2;
+  statement: string;
+  actor: string | null;
+  action: string | null;
+  object: string | null;
+  mandatory: MandatoryV2;
+  evidence: readonly ParsedTenderEvidenceRef[];
+  status: RequirementStatusV2;
+};
+
+export type ParsedTenderEvidenceSource = {
+  contractVersion: typeof TENDER_ANALYSIS_RESULT_VERSION;
+  manifest: {
+    documents: readonly ParsedTenderManifestDocument[];
+  };
+  metadata: {
+    analyzerVersion?: string;
+  };
+  facts: readonly ParsedTenderFact[];
+  requirements: readonly ParsedTenderRequirement[];
+  mandatoryRequirementIds: readonly string[];
 };
 
 export type GenericStructuredSnapshot = {
@@ -192,7 +250,7 @@ export type EmailDraftStructuredSnapshot = {
 };
 
 export type StructuredSourcesSnapshot = {
-  tender?: unknown;
+  tender?: ParsedTenderEvidenceSource;
   research?: ResearchStructuredSnapshot;
   emailDraft?: EmailDraftStructuredSnapshot;
   generic?: GenericStructuredSnapshot;
