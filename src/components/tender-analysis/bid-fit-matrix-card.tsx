@@ -149,8 +149,9 @@ export function BidFitMatrixCard({
         error?: string;
       };
       if (res.ok) {
+        const by = (json as { byKind?: { requirements: number; facts: number; criticalFacts: number } }).byKind;
         setTranslateNote(
-          `已翻译 ${json.translated ?? 0} 条${(json.failed ?? 0) > 0 ? `，${json.failed} 条保留原文` : ""}`,
+          `已翻译 ${json.translated ?? 0} 条${by ? `（要求 ${by.requirements} / 事实 ${by.facts} / 关键事实 ${by.criticalFacts}）` : ""}${(json.failed ?? 0) > 0 ? `，${json.failed} 条保留原文` : ""}`,
         );
         load();
       } else {
@@ -292,7 +293,7 @@ export function BidFitMatrixCard({
               ) : (
                 <Languages size={12} />
               )}
-              翻译成中文（{englishCount} 条英文）
+              翻译成中文（要求 + 事实；{englishCount} 条英文）
             </button>
           ) : null}
           {translateNote ? (

@@ -15,6 +15,7 @@ import {
 } from "@/lib/tender-auto-analysis/bid-fit-groups";
 import { needsChineseTranslation } from "@/lib/tender-auto-analysis/requirement-lang";
 import {
+  translateAnalysisZh,
   translateRequirementTexts,
   TRANSLATE_BATCH_SIZE,
   TRANSLATE_MAX_ITEMS,
@@ -212,11 +213,11 @@ async function main() {
       "BF-09b: 补翻端点写权限门 + 60s 频控",
     );
     const resumable = code("src/lib/tender-auto-analysis/v2-resumable.ts");
-    const idx = resumable.indexOf("translateRequirementTexts");
+    const idx = resumable.indexOf("translateAnalysisZh(");
     ok(
       idx > 0 &&
         resumable.slice(idx - 900, idx).includes("ensureLease()") &&
-        /try\s*\{[\s\S]{0,600}translateRequirementTexts/.test(resumable),
+        /try\s*\{[\s\S]{0,600}translateAnalysisZh\(/.test(resumable),
       "BF-09c: 管线翻译挂点在租约后组装段（事务外）且 try 包裹不阻塞终态化",
     );
   }
@@ -246,6 +247,56 @@ async function main() {
         /r\.evidenceRequired \|\| \(m != null && m\.fit !== "HAVE"\)/.test(ui) &&
         ui.includes('data-testid="bid-fit-toggle-groups"'),
       "BF-12: 例外区=需证据 ∪ 已标非已有；含展开/收起全部组",
+    );
+  }
+
+  // BF-13 全分析中文化：要求 + 事实 claim + 关键事实槽一次合并分批，按类回写；UNKNOWN 槽不碰
+  {
+    let calls = 0;
+    const invoker: LlmInvoker = async (req) => {
+      calls++;
+      const parsed = JSON.parse(req.userPrompt) as { items: { i: number; text: string }[] };
+      return {
+        content: JSON.stringify({ items: parsed.items.map((it) => ({ i: it.i, zh: `中文译文：${it.text.slice(0, 6)}` })) }),
+        model: "test-fake",
+        elapsedMs: 1,
+      };
+    };
+    const target = {
+      requirements: [{ chineseTranslation: "Must submit online." }, { chineseTranslation: "已是中文。" }],
+      facts: [{ contentZh: "The deadline is September 8, 2026." }],
+      criticalFacts: {
+        incumbent_supplier: { status: "KNOWN", text: "The municipality has used a vendor since November 2021." },
+        bond: { status: "UNKNOWN", text: null },
+      } as Record<string, { status?: string; text?: string | null }>,
+    };
+    const out = await translateAnalysisZh(target, { invoker });
+    ok(
+      calls === 1 &&
+        out.translated === 3 && out.skipped === 1 &&
+        out.byKind.requirements === 1 && out.byKind.facts === 1 && out.byKind.criticalFacts === 1 &&
+        target.requirements[0]!.chineseTranslation.startsWith("中文译文：") &&
+        target.requirements[1]!.chineseTranslation === "已是中文。" &&
+        target.facts[0]!.contentZh.startsWith("中文译文：") &&
+        target.criticalFacts.incumbent_supplier!.text!.startsWith("中文译文：") &&
+        target.criticalFacts.bond!.text === null,
+      "BF-13: 要求+事实+关键事实一次合并翻译（单次调用）按类回写；中文与 UNKNOWN 槽不碰",
+      { calls, out },
+    );
+  }
+  // BF-14 结构守卫：管线挂点走 translateAnalysisZh（含 facts/criticalFacts）；补翻端点更新事实表与 criticalFacts
+  {
+    const resumable = code("src/lib/tender-auto-analysis/v2-resumable.ts");
+    ok(
+      resumable.includes("translateAnalysisZh(") &&
+        /facts:\s*inference\.mapped\.facts/.test(resumable) &&
+        /criticalFacts:\s*inference\.mapped\.summaryJson\.criticalFacts/.test(resumable),
+      "BF-14a: 管线挂点覆盖要求 + 事实 + 关键事实槽",
+    );
+    const route = code("src/app/api/projects/[id]/bid-fit/translate/route.ts");
+    ok(
+      route.includes("tenderAnalysisFact.update") && route.includes("criticalFacts") && route.includes("translateAnalysisZh("),
+      "BF-14b: 补翻端点写回事实表 contentZh 与 summaryJson.criticalFacts",
     );
   }
 
