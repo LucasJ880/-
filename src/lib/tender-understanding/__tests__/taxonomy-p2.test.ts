@@ -130,5 +130,39 @@ ok(
   );
 }
 
+// P2T-11 优先级（用户定）：文档载明 > AI 检索否定结果；AI 正向结论仍优先于文档
+{
+  const base = {
+    run: {
+      status: "REVIEW_REQUIRED",
+      fingerprint: "f",
+      source: { oneLiner: null, buyer: null, product: null, recommendation: null, nextActions: [], blockers: [], unresolvedConflictCount: 0 } as never,
+    },
+    room: null,
+    projectTypeLabel: null,
+    docStatedIncumbent: "The municipality has used a vendor since November 2021.",
+  };
+  const neg = buildExecutiveBrief({
+    ...base,
+    externalAnalysis: { previousWinnerZh: "未能从现有来源确定此前同类采购的中标供应商。" } as never,
+  } as never);
+  const pos = buildExecutiveBrief({
+    ...base,
+    externalAnalysis: { previousWinnerZh: "Meltwater News Canada Inc.（2022 年预算文件点名）" } as never,
+  } as never);
+  const negOnly = buildExecutiveBrief({
+    ...base,
+    docStatedIncumbent: null,
+    externalAnalysis: { previousWinnerZh: "未能确定。" } as never,
+  } as never);
+  ok(
+    neg.external.previousWinner.state === "DOC_STATED" &&
+      pos.external.previousWinner.state === "AI_RESEARCHED" &&
+      negOnly.external.previousWinner.state === "AI_RESEARCHED",
+    "P2T-11: AI 否定结果不盖文档载明；AI 正向结论仍优先；无文档时否定结果照常显示",
+    { neg: neg.external.previousWinner.state, pos: pos.external.previousWinner.state, negOnly: negOnly.external.previousWinner.state },
+  );
+}
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);

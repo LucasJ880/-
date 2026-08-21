@@ -125,14 +125,22 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
   // 外部字段优先级：人工确认 READY > AI 初步调查 AI_RESEARCHED > 需外部调查
   const ext = input.externalConfirmed ?? null;
   const ai = input.externalAnalysis ?? null;
+  // 优先级（2026-08-20 用户定：文档载明 > AI 检索的否定结果）：
+  //   READY（人工确认）> AI_RESEARCHED（AI 查到了具体结论）> DOC_STATED（文档明写）
+  //   > AI_RESEARCHED（AI 只说「未能确定」——否定结果不得盖住文档事实）> 需外部调查
   const extField = (
     confirmed: string | null | undefined,
     aiZh: string | null | undefined,
     docStated?: string | null,
   ): BriefField => {
     if (confirmed && confirmed.trim()) return { state: "READY", value: confirmed };
-    if (aiZh && aiZh.trim()) return { state: "AI_RESEARCHED", value: aiZh };
-    if (docStated && docStated.trim()) return { state: "DOC_STATED", value: docStated };
+    const ai = aiZh && aiZh.trim() ? aiZh : null;
+    const doc = docStated && docStated.trim() ? docStated : null;
+    if (ai && !(doc && isNegativeResearchResult(ai))) {
+      return { state: "AI_RESEARCHED", value: ai };
+    }
+    if (doc) return { state: "DOC_STATED", value: doc };
+    if (ai) return { state: "AI_RESEARCHED", value: ai };
     return externalField();
   };
   const external: ExecutiveBriefExternal = {
@@ -460,4 +468,17 @@ export function readDocStatedIncumbent(summaryJson: unknown): string | null {
   }
   const v = (raw ?? "").trim();
   return v && v.toUpperCase() !== "N/A" ? v : null;
+}
+
+/**
+ * AI 外部检索是否为「否定/未知」结论（未能确定/未找到/未披露…）。
+ * 用于 extField 优先级：否定结果不得盖住文档明写的事实（DOC_STATED）。
+ * 启发式取宽：命中任一否定措辞即视为否定；正向结论（含具体名称/金额）不受影响。
+ */
+export function isNegativeResearchResult(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  return /未能|无法|未找到|未查到|未发现|未披露|不确定|无公开|没有公开|暂无|未知|not (?:found|available|determined|disclosed)|unknown|unable to/i.test(
+    t,
+  );
 }
