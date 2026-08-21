@@ -8,6 +8,8 @@ import { round2, round4, isFiniteNum, sellingPriceFromCost } from "./calc";
 import type { QuoteValidationError, StandingOfferInput, TierInput } from "./contract";
 
 export type UnitEconomics = {
+  /** 全精度内部值（分级计算的权威输入；禁止用 4 位显示值做百万件级乘法） */
+  exact: { landedPerContainer: number; landedPerBox: number; landedPerPiece: number; supplierPerPiece: number };
   piecesPerContainer: number;
   supplierPerContainer: number;
   freightPerContainer: number;
@@ -23,19 +25,36 @@ export type UnitEconomics = {
   supplierPerPieceQuoteCcy: number;
 };
 
-export function validateStandingOffer(so: StandingOfferInput | null | undefined): QuoteValidationError[] {
+/** 外币供应商成本必须有有限且 > 0 的汇率；绝不默认 1:1（B1 fail-closed） */
+export function isForeignSupplier(so: Pick<StandingOfferInput, "supplierCurrency">, quoteCurrency: string): boolean {
+  const c = (so.supplierCurrency ?? "").trim().toUpperCase();
+  return c.length > 0 && c !== quoteCurrency.toUpperCase();
+}
+
+export function validateStandingOffer(so: StandingOfferInput | null | undefined, quoteCurrency = "CAD"): QuoteValidationError[] {
   const errors: QuoteValidationError[] = [];
   if (!so) return [{ code: "SO_MISSING", message: "Standing Offer 单位经济输入缺失" }];
   if (!isFiniteNum(so.supplierCostPerPiece) || so.supplierCostPerPiece < 0) errors.push({ code: "SO_SUPPLIER_COST", message: "供应商单件成本无效" });
   if (!isFiniteNum(so.piecesPerBox) || so.piecesPerBox <= 0) errors.push({ code: "SO_PIECES_PER_BOX", message: "每箱件数必须 > 0" });
   if (!isFiniteNum(so.boxesPerContainer) || so.boxesPerContainer <= 0) errors.push({ code: "SO_BOXES_PER_CONTAINER", message: "每柜箱数必须 > 0" });
-  if (so.fxRate != null && !(so.fxRate > 0)) errors.push({ code: "FX_INVALID", message: "汇率必须 > 0" });
+  if (isForeignSupplier(so, quoteCurrency)) {
+    if (so.fxRate == null) errors.push({ code: "SO_FX_REQUIRED", message: `${so.supplierCurrency}→${quoteCurrency} 必须提供汇率（不默认 1:1）` });
+    else if (!isFiniteNum(so.fxRate) || so.fxRate <= 0) errors.push({ code: "FX_INVALID", message: "汇率必须是 > 0 的有限数" });
+  } else if (so.fxRate != null && !(so.fxRate > 0)) {
+    errors.push({ code: "FX_INVALID", message: "汇率必须 > 0" });
+  }
   if (so.dutyPct != null && so.dutyPct < 0) errors.push({ code: "SO_DUTY", message: "关税 % 不得为负" });
   return errors;
 }
 
 export function computeUnitEconomics(so: StandingOfferInput, quoteCurrency: string): UnitEconomics {
-  const fx = so.supplierCurrency && so.supplierCurrency !== quoteCurrency ? (so.fxRate ?? 1) : 1;
+  let fx = 1;
+  if (isForeignSupplier(so, quoteCurrency)) {
+    if (so.fxRate == null || !isFiniteNum(so.fxRate) || so.fxRate <= 0) {
+      throw new Error(`SO_FX_REQUIRED: ${so.supplierCurrency}→${quoteCurrency} 汇率缺失或无效，拒绝按 1:1 折算`);
+    }
+    fx = so.fxRate;
+  }
   const supplierPerPiece = (so.supplierCostPerPiece ?? 0) * fx;
   const piecesPerContainer = (so.piecesPerBox ?? 0) * (so.boxesPerContainer ?? 0);
   const supplierPerContainer = supplierPerPiece * piecesPerContainer;
@@ -47,7 +66,10 @@ export function computeUnitEconomics(so: StandingOfferInput, quoteCurrency: stri
   const preInventory = supplierPerContainer + freight + customs + duty + warehouse + other;
   const inventory = (preInventory * (so.inventoryCarryingPct ?? 0)) / 100;
   const landed = preInventory + inventory;
+  const exactPerBox = (so.boxesPerContainer ?? 0) > 0 ? landed / (so.boxesPerContainer ?? 1) : 0;
+  const exactPerPiece = piecesPerContainer > 0 ? landed / piecesPerContainer : 0;
   return {
+    exact: { landedPerContainer: landed, landedPerBox: exactPerBox, landedPerPiece: exactPerPiece, supplierPerPiece },
     piecesPerContainer,
     supplierPerContainer: round2(supplierPerContainer),
     freightPerContainer: round2(freight),
@@ -120,7 +142,8 @@ export function computeTiers(input: { tiers: TierInput[]; unit: UnitEconomics; r
     .sort((a, b) => a.sortOrder - b.sortOrder || a.minQuantity - b.minQuantity)
     .map((t) => {
       const c = containersFor(t.expectedQuantity, input.unit.piecesPerContainer);
-      const baseCost = t.expectedQuantity * input.unit.landedPerPiece;
+      // B6：用全精度到岸单件成本（显示值 4 位会在百万件级产生实质漂移）
+      const baseCost = t.expectedQuantity * input.unit.exact.landedPerPiece;
       const rate = t.rate ?? 0;
       // 与主引擎同口径：Selling = (C + markup×C) / (1 − otherRev − margin)
       const margin = t.pricingMethod === "MARGIN_ON_REVENUE" ? rate : 0;

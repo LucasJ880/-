@@ -4,7 +4,8 @@
  * 探针用白名单键集做反例守卫。
  */
 
-import type { QuoteCalcResult } from "./calc";
+import { computeTax, type QuoteCalcResult } from "./calc";
+import type { TaxConfig } from "./contract";
 import type { TierResult } from "./standing-offer";
 
 export type CustomerLine = { item: string; description: string | null; quantity: number | null; unit: string | null; unitPrice: number | null; amount: number; optional: boolean; allowance: boolean };
@@ -28,6 +29,8 @@ export function buildCustomerView(input: {
   quote: { quoteNumber: string | null; title: string | null; name: string | null; currency: string; version: number; status: string; validUntil: Date | null; quoteType: string; lineItems: Array<{ itemName: string; specification: string | null; unit: string | null; quantity: unknown; unitPrice: unknown; totalPrice: unknown; isInternal: boolean; category: string }> };
   calc: QuoteCalcResult | null;
   tiers?: TierResult[] | null;
+  /** 报价税配置（B5：税必须按客户可见应税小计重算，不复用引擎售价口径的税额） */
+  tax?: TaxConfig | null;
 }): CustomerQuoteView {
   const q = input.quote;
   const num = (v: unknown) => (v == null ? null : Number(v));
@@ -42,9 +45,11 @@ export function buildCustomerView(input: {
       lines = [{ item: q.name ?? q.title ?? "Supply & Install", description: null, quantity: 1, unit: "lot", unitPrice: input.calc.sellingPrice, amount: input.calc.sellingPrice, optional: false, allowance: false }];
     }
   }
+  // Phase 1：无逐行税模型 → 全部非 optional 公开行视为应税
   const subtotal = Math.round(lines.filter((l) => !l.optional).reduce((s, l) => s + l.amount, 0) * 100) / 100;
-  const tax = input.calc ? { gst: input.calc.tax.gst, hst: input.calc.tax.hst, pst: input.calc.tax.pst } : { gst: 0, hst: 0, pst: 0 };
-  const total = Math.round((subtotal + tax.gst + tax.hst + tax.pst) * 100) / 100;
+  const t = computeTax(subtotal, input.tax ?? null);
+  const tax = { gst: t.gst, hst: t.hst, pst: t.pst };
+  const total = t.total;
   return { quoteNumber: q.quoteNumber, title: q.name ?? q.title ?? "Quotation", currency: q.currency, version: q.version, status: q.status, validUntil: q.validUntil ? q.validUntil.toISOString().slice(0, 10) : null, lines, subtotal, tax, total };
 }
 

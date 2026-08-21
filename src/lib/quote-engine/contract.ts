@@ -33,8 +33,8 @@ export const QUOTE_TRANSITIONS: Readonly<Record<QuoteStatus, readonly QuoteStatu
   awarded: [],
   cancelled: [],
 };
-/** approved 之后内容冻结：只能通过 revision（新版本）修改 */
-export const FROZEN_STATUSES: readonly QuoteStatus[] = ["approved", "superseded", "awarded"];
+/** approved 之后内容冻结：只能通过 revision（新版本）修改；cancelled 为终态同样冻结（B4） */
+export const FROZEN_STATUSES: readonly QuoteStatus[] = ["approved", "superseded", "awarded", "cancelled"];
 
 export const COST_CATEGORIES = [
   "MATERIAL",

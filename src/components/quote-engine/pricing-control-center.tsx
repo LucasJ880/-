@@ -86,13 +86,14 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
       else setMsg(json.error ?? "修订失败");
     } finally { setBusy(null); }
   };
-  const award = async () => {
-    if (!window.confirm("把已批准报价标记为 awarded，并按成本分解建立项目预算（财务模块未启用时只返回映射）？")) return;
+  const award = async (mode: "with_budget" | "without_budget") => {
+    const msgConfirm = mode === "with_budget" ? "Award：建立项目预算版本并标记 awarded（同一事务；预算建不了就不 award）？" : "显式「不建项目预算」直接 award？（独立语义，审计会记录）";
+    if (!window.confirm(msgConfirm)) return;
     setBusy("award");
     try {
-      const res = await apiFetch(`/api/projects/${projectId}/quote-engine/${quoteId}/award`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ createBudget: true }) });
-      const json = (await res.json()) as { error?: string; budgetCreated?: boolean; reason?: string | null; budgetLines?: unknown[] };
-      setMsg(res.ok ? `已 award；预算${json.budgetCreated ? "已创建" : "未创建"}（${json.reason ?? `${json.budgetLines?.length ?? 0} 行映射`}）` : json.error ?? "失败");
+      const res = await apiFetch(`/api/projects/${projectId}/quote-engine/${quoteId}/award`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+      const json = (await res.json()) as { error?: string; code?: string; budgetCreated?: boolean; budgetVersionId?: string | null };
+      setMsg(res.ok ? (json.budgetCreated ? `已 award，预算版本 ${json.budgetVersionId} 已创建` : "已 award（显式不建预算）") : `${json.code ?? ""} ${json.error ?? "失败"}——报价保持 approved`);
       await load();
     } finally { setBusy(null); }
   };
@@ -141,7 +142,7 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
           {data.capabilities.canApprove && q.status === "review" ? <button type="button" disabled={busy != null} onClick={() => void transition("approved")} className="rounded border border-emerald-300 px-2 py-1 text-emerald-800">批准</button> : null}
           {data.capabilities.canEdit && q.status === "review" ? <button type="button" disabled={busy != null} onClick={() => void transition("draft")} className="rounded border border-border px-2 py-1">退回草稿</button> : null}
           {data.capabilities.canEdit && (q.status === "approved" || q.status === "superseded" || q.status === "awarded") ? <button type="button" disabled={busy != null} onClick={() => void revise()} className="rounded border border-border px-2 py-1">创建修订版本</button> : null}
-          {data.capabilities.canApprove && q.status === "approved" ? <button type="button" disabled={busy != null} onClick={() => void award()} className="rounded border border-violet-300 px-2 py-1 text-violet-800">Award → 项目预算</button> : null}
+          {data.capabilities.canApprove && q.status === "approved" ? <><button type="button" disabled={busy != null} onClick={() => void award("with_budget")} className="rounded border border-violet-300 px-2 py-1 text-violet-800">Award + 建项目预算</button><button type="button" disabled={busy != null} onClick={() => void award("without_budget")} className="rounded border border-border px-2 py-1 text-muted">仅 Award（不建预算）</button></> : null}
           {data.capabilities.canEdit && (q.status === "draft" || q.status === "review" || q.status === "approved") ? <button type="button" disabled={busy != null} onClick={() => { if (window.confirm("取消此报价？")) void transition("cancelled"); }} className="rounded border border-border px-2 py-1 text-muted">取消</button> : null}
           <button type="button" onClick={() => (view === "internal" ? void loadCustomer() : setView("internal"))} className="rounded border border-border px-2 py-1">{view === "internal" ? "客户报价预览" : "返回内部视图"}</button>
         </div>

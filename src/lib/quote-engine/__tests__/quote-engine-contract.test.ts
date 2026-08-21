@@ -28,7 +28,7 @@ const toInputs = (seeds: ReturnType<typeof templateSupplyInstallLines>): CostLin
 console.log("Quote Engine 契约/安全探针");
 
 // QE-01 状态机：approved 不可回 draft；终态无出边；冻结集
-ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approved.includes("awarded") && !QUOTE_TRANSITIONS.approved.includes("draft") && QUOTE_TRANSITIONS.superseded.length === 0 && QUOTE_TRANSITIONS.awarded.length === 0 && FROZEN_STATUSES.includes("approved") && QUOTE_STATUSES.length === 6, "QE-01: 状态机——approved 不可回 draft（只能修订），superseded/awarded 终态，冻结集含 approved");
+ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approved.includes("awarded") && !QUOTE_TRANSITIONS.approved.includes("draft") && QUOTE_TRANSITIONS.superseded.length === 0 && QUOTE_TRANSITIONS.awarded.length === 0 && QUOTE_TRANSITIONS.cancelled.length === 0 && FROZEN_STATUSES.includes("approved") && FROZEN_STATUSES.includes("cancelled") && QUOTE_STATUSES.length === 6, "QE-01: 状态机——approved 不可回 draft（只能修订），superseded/awarded/cancelled 终态，冻结集含 approved + cancelled（B4）");
 
 // QE-02 权限映射
 {
@@ -45,12 +45,12 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
   const calc = computeQuote({ quoteCurrency: "CAD", lines: toInputs(dA.lines), pricing: dA.pricing, engine: dA.engine });
   ok(calc.ok, "QE-03a: Demo A 可计算", calc.ok ? null : calc.errors);
   if (calc.ok) {
-    const view = buildCustomerView({ quote: { quoteNumber: "Q-1", title: "Demo", name: null, currency: "CAD", version: 1, status: "draft", validUntil: null, quoteType: "PROJECT_SUPPLY_INSTALL", lineItems: [{ itemName: "internal", specification: null, unit: null, quantity: 1, unitPrice: 1, totalPrice: 1, isInternal: true, category: "product" }] }, calc });
+    const view = buildCustomerView({ quote: { quoteNumber: "Q-1", title: "Demo", name: null, currency: "CAD", version: 1, status: "draft", validUntil: null, quoteType: "PROJECT_SUPPLY_INSTALL", lineItems: [{ itemName: "internal", specification: null, unit: null, quantity: 1, unitPrice: 1, totalPrice: 1, isInternal: true, category: "product" }] }, calc, tax: dA.engine.tax });
     const leaks = customerViewLeaks(view);
     const keysOk = Object.keys(view).every((k) => CUSTOMER_VIEW_ALLOWED_KEYS.has(k)) && view.lines.every((l) => Object.keys(l).every((k) => CUSTOMER_LINE_ALLOWED_KEYS.has(k)));
     ok(leaks.length === 0 && keysOk && view.lines.length === 1 && view.lines[0]!.amount === calc.sellingPrice && !JSON.stringify(view).includes("Demo Supplier"), "QE-03b（反例守卫）: 客户视图只含白名单键；isInternal 行不出现；无供应商/成本/毛利/佣金字段；金额 = 售价", leaks);
     ok(customerViewLeaks({ lines: [{ supplierName: "x" }] }).length === 1 && customerViewLeaks({ total: 1, internalMargin: 2 }).length === 1, "QE-03c: 泄露自检能抓 supplier*/internal* 键");
-    ok(near(view.total, calc.sellingPrice * 1.13) && view.tax.hst === calc.tax.hst, "QE-03d: 税与内部成本分离——客户视图 Subtotal/HST/Total");
+    ok(near(view.total, calc.sellingPrice * 1.13) && view.tax.hst === calc.tax.hst, "QE-03d: 税与内部成本分离——客户可见小计 = 售价时，按客户小计重算的 HST 与引擎一致");
   }
 }
 
@@ -113,6 +113,30 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
   const wb = readFileSync(join(process.cwd(), "src/components/project-detail/tabs/workbench-tab.tsx"), "utf-8");
   ok(bid.includes("<BidQuoteArea") && !bid.includes("<ProjectQuoteSection") && area.includes('data-testid="legacy-quote-collapsed"') && area.includes("if (!data) return <ProjectQuoteSection"), "QE-08a: 投标 tab 引擎区块置顶、legacy 折叠；引擎未启用时回落为原 legacy 区块");
   ok(wb.includes("<QuoteBudgetCard") && readFileSync(join(process.cwd(), "src/components/quote-engine/quote-budget-card.tsx"), "utf-8").includes("已批准 / Awarded"), "QE-08b: 工作台「报价与成本」卡（当前/已批准/版本/Bid/成本/毛利率/状态）");
+}
+
+// QE-09（B5）：客户视图税按客户可见小计重算——售价 1000 / 公开行 900 / HST 13% → 117 / 1017，不是 130
+{
+  const dA = demoSupplyInstall();
+  const calc = computeQuote({ quoteCurrency: "CAD", lines: [{ id: "m", sortOrder: 1, category: "MATERIAL", description: "m", quantity: null, unitCost: 1000, sourceCurrency: "CAD", fxRate: null, calculationType: "FIXED", calculationBase: null, rate: null, duration: null, included: true }], pricing: { method: "MARKUP_ON_COST", rate: 0 }, engine: { tax: { hstPct: 13 } } });
+  if (calc.ok) {
+    const view = buildCustomerView({ quote: { quoteNumber: null, title: "t", name: null, currency: "CAD", version: 1, status: "draft", validUntil: null, quoteType: "PROJECT_SUPPLY_INSTALL", lineItems: [{ itemName: "public", specification: null, unit: "lot", quantity: 1, unitPrice: 900, totalPrice: 900, isInternal: false, category: "product" }] }, calc, tax: { hstPct: 13 } });
+    ok(calc.sellingPrice === 1000 && view.subtotal === 900 && view.tax.hst === 117 && view.total === 1017 && calc.tax.hst === 130, "QE-09: 引擎售价 1000（引擎税 130）但客户可见小计 900 → 客户税 117 / 合计 1017（不复用引擎税额）");
+  } else ok(false, "QE-09: calc 失败", calc.errors);
+  void dA;
+}
+// QE-10（B2/B3 结构守卫）：award 原子事务 + 显式双路径 + 阻断审计；修订谱系根 FOR UPDATE
+{
+  const svc = code("src/lib/quote-engine/service.ts");
+  ok(/await createBudget\(\{ tx,/.test(svc) && /tx\.projectQuote\.updateMany\(\{ where: \{ id: q\.id, status: "approved" \}, data: \{ status: "awarded"/.test(svc), "QE-10a（B2）: 预算版本创建与 quote→awarded 在同一事务（updateMany 条件 status=approved 防并发双 award）");
+  ok(svc.includes('QUOTE_AWARD_BLOCKED: "quote_award_blocked"') && /mode === "without_budget"/.test(svc) && /BUDGET_CREATION_FAILED/.test(svc) && /AWARD_BLOCKED/.test(svc) && !/createBudget: boolean/.test(svc), "QE-10b（B2）: 未启用/失败 → 抛错 + quote_award_blocked 审计；without_budget 为独立显式路径；createBudget=true 重载语义已移除");
+  ok(/FOR UPDATE/.test(svc) && /collectLineage\(lineageRoot, input\.projectId, tx\)/.test(svc) && /tx\.projectQuote\.aggregate\(\{ where: \{ id: \{ in: lineageIds \} \}, _max: \{ version: true \} \}\)/.test(svc), "QE-10c（B3）: 修订在事务内对谱系根 FOR UPDATE 加锁后重算 max version");
+  const route = code("src/app/api/projects/[id]/quote-engine/[quoteId]/award/route.ts");
+  ok(/mode === "without_budget" \? "without_budget" : "with_budget"/.test(route), "QE-10d: award 路由显式 mode（默认 with_budget）");
+  const cv = code("src/lib/quote-engine/customer-view.ts");
+  ok(cv.includes("computeTax(subtotal, input.tax ?? null)") && !cv.includes("input.calc.tax.hst"), "QE-10e（B5 反例守卫）: 客户视图不再复用引擎税额");
+  const so = code("src/lib/quote-engine/standing-offer.ts");
+  ok(/SO_FX_REQUIRED/.test(so) && /input\.unit\.exact\.landedPerPiece/.test(so) && !/so\.fxRate \?\? 1/.test(so), "QE-10f（B1/B6 反例守卫）: 无 `fxRate ?? 1` 默认；分级用 exact 单件成本");
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

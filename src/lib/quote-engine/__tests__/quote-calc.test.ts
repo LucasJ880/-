@@ -3,7 +3,7 @@
  * 运行：npx tsx src/lib/quote-engine/__tests__/quote-calc.test.ts
  * 含任务书回归算例 1/2/3；纯函数，零 DB。
  */
-import { assertFiniteDeep, computeQuote, computeScenarios, sellingPriceFromCost, validateLines } from "@/lib/quote-engine/calc";
+import { assertFiniteDeep, computeQuote, computeScenarios, round4, sellingPriceFromCost, validateLines } from "@/lib/quote-engine/calc";
 import { computeTiers, computeUnitEconomics, containersFor, validateStandingOffer, validateTiers } from "@/lib/quote-engine/standing-offer";
 import type { CostLineInput } from "@/lib/quote-engine/contract";
 
@@ -163,6 +163,34 @@ console.log("Quote & Cost Engine 计算单测");
   let threw = false;
   try { assertFiniteDeep({ a: 1, b: [2, { c: Infinity }] }); } catch { threw = true; }
   ok(threw, "QC-13: assertFiniteDeep 拦截 Infinity（禁 NaN/Infinity 入库）");
+}
+
+// QC-14（B1 fail-closed）：外币供应商成本必须有有限且 >0 的汇率；绝不默认 1:1
+{
+  const base = { supplierCostPerPiece: 10, piecesPerBox: 50, boxesPerContainer: 100 };
+  const codes = (so: Parameters<typeof validateStandingOffer>[0]) => validateStandingOffer(so, "CAD").map((e) => e.code);
+  ok(codes({ ...base, supplierCurrency: "CNY" }).includes("SO_FX_REQUIRED"), "QC-14a: CNY→CAD 缺汇率 = FAIL");
+  ok(codes({ ...base, supplierCurrency: "USD" }).includes("SO_FX_REQUIRED"), "QC-14b: USD→CAD 缺汇率 = FAIL");
+  ok(codes({ ...base, supplierCurrency: "CNY", fxRate: 0 }).includes("FX_INVALID") && codes({ ...base, supplierCurrency: "CNY", fxRate: -1 }).includes("FX_INVALID") && codes({ ...base, supplierCurrency: "CNY", fxRate: Infinity }).includes("FX_INVALID"), "QC-14c: CNY→CAD 汇率 ≤0 / 非有限 = FAIL");
+  ok(codes({ ...base, supplierCurrency: "CAD" }).length === 0 && codes({ ...base }).length === 0, "QC-14d: CAD→CAD 无汇率 = PASS（同币种允许省略）");
+  const okCase = { ...base, supplierCurrency: "CNY", fxRate: 0.19 };
+  ok(codes(okCase).length === 0 && near(computeUnitEconomics(okCase, "CAD").exact.supplierPerPiece, 1.9, 1e-9), "QC-14e: CNY→CAD 有效汇率 = PASS 且按汇率折算（10 × 0.19 = 1.9）");
+  let threw = false;
+  try { computeUnitEconomics({ ...base, supplierCurrency: "CNY" }, "CAD"); } catch { threw = true; }
+  ok(threw, "QC-14f（反例守卫）: computeUnitEconomics 对缺汇率外币直接抛错，不可能按 1:1 算");
+}
+// QC-15（B6 精度）：百万件级分级用全精度到岸单件成本，4 位显示值会产生实质漂移
+{
+  // 到岸/柜 = 700,000 + 10,000 + 500 + 1,000 = 711,500；件/柜 = 1,358,350 → 单件 0.523797... (非 4 位可表示)
+  const so = { supplierCostPerPiece: 700000 / 1358350, piecesPerBox: 50, boxesPerContainer: 27167, freightPerContainer: 10000, customsPerContainer: 500, warehousePerContainer: 1000 };
+  const u = computeUnitEconomics(so, "CAD");
+  const qty = 3750000;
+  const exactCost = qty * u.exact.landedPerPiece;
+  const roundedCost = qty * u.landedPerPiece;
+  const tiers = computeTiers({ tiers: [{ id: "t", sortOrder: 1, tierName: "L", minQuantity: 1, maxQuantity: null, expectedQuantity: qty, pricingMethod: "MARKUP_ON_COST", rate: 0, active: true }], unit: u, revenuePctTotal: 0, boxesPerContainer: 27167, piecesPerBox: 50 });
+  ok(Math.abs(exactCost - roundedCost) > 1, `QC-15a: 4 位显示值在 3,750,000 件上漂移 ${Math.abs(exactCost - roundedCost).toFixed(2)} CAD（证明该回归有意义）`);
+  ok(near(tiers[0]!.calculatedCost, exactCost, 0.01) && !near(tiers[0]!.calculatedCost, roundedCost, 0.5), "QC-15b: 分级成本 = 数量 × 全精度单件成本（不是显示值）");
+  ok(u.landedPerPiece === round4(u.exact.landedPerPiece) && u.exact.landedPerContainer === 711500, "QC-15c: 显示值只做输出舍入，内部 exact 保持全精度");
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

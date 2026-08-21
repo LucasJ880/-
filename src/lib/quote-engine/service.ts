@@ -41,6 +41,7 @@ export const QUOTE_AUDIT_ACTIONS = {
   QUOTE_SUPERSEDED: "quote_superseded",
   QUOTE_AWARDED: "quote_awarded",
   QUOTE_CANCELLED: "quote_cancelled",
+  QUOTE_AWARD_BLOCKED: "quote_award_blocked",
   PROJECT_BUDGET_CREATED: "project_budget_created",
 } as const;
 export const QUOTE_AUDIT_TARGET = "project_quote";
@@ -97,7 +98,7 @@ export function computeForQuote(q: QuoteRecord): QuoteComputed {
   const calc = computeQuote({ quoteCurrency: q.currency, lines: toLineInputs(q.costLines), pricing: { method: q.pricingMethod, rate: d(q.pricingRate) }, engine });
   let standingOffer: QuoteComputed["standingOffer"] = null;
   if (q.quoteType === "STANDING_OFFER") {
-    const soErrors = validateStandingOffer(engine.standingOffer);
+    const soErrors = validateStandingOffer(engine.standingOffer, q.currency);
     const tiers = toTierInputs(q.pricingTiers);
     const tierErrors = validateTiers(tiers);
     const errors = [...soErrors, ...tierErrors.filter((e) => e.code !== "TIER_GAP")];
@@ -274,11 +275,13 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
 export async function reviseQuote(input: { quoteId: string; projectId: string; userId: string; orgId: string; reason: string }): Promise<QuoteRecord> {
   const q = await getQuote(input.quoteId, input.projectId);
   if (!input.reason.trim()) throw new QuoteEngineError("REASON_REQUIRED", "修订原因必填");
-  // 谱系版本：沿 sourceQuoteId 链找根，取谱系内最大 version + 1（并发修订不撞号）
+  // B3：谱系版本号在事务内、对谱系根行 FOR UPDATE 加锁后计算——并发修订被 DB 串行化，
+  // 第二个事务在锁释放后重算 max，保证单调递增不撞号（不依赖应用时序）
   const lineageRoot = await findLineageRoot(q.id, input.projectId);
-  const lineageIds = await collectLineage(lineageRoot, input.projectId);
-  const maxVer = await db.projectQuote.aggregate({ where: { id: { in: lineageIds } }, _max: { version: true } });
   const created = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ProjectQuote" WHERE "id" = ${lineageRoot} FOR UPDATE`;
+    const lineageIds = await collectLineage(lineageRoot, input.projectId, tx);
+    const maxVer = await tx.projectQuote.aggregate({ where: { id: { in: lineageIds } }, _max: { version: true } });
     const nq = await tx.projectQuote.create({
       data: {
         projectId: q.projectId, orgId: q.orgId, templateType: q.templateType, quoteType: q.quoteType, quoteNumber: q.quoteNumber, name: q.name, title: q.title, version: (maxVer._max.version ?? q.version) + 1, status: "draft",
@@ -320,32 +323,53 @@ export function mapQuoteToBudgetLines(calc: QuoteCalcResult, quoteId: string): A
   });
 }
 
-export async function awardQuoteToBudget(input: { quoteId: string; projectId: string; userId: string; orgId: string; createBudget: boolean }): Promise<{ quote: QuoteRecord; budgetLines: ReturnType<typeof mapQuoteToBudgetLines>; budgetVersionId: string | null; budgetCreated: boolean; reason?: string }> {
+export type AwardMode = "with_budget" | "without_budget";
+
+/**
+ * Award（B2 fail-closed）：
+ *  - with_budget（默认）：预算版本创建与 quote→awarded **同一事务**；财务模块未启用或创建失败 →
+ *    抛 QuoteEngineError（AWARD_BLOCKED / BUDGET_CREATION_FAILED），quote 保持 approved，
+ *    不产生 QUOTE_AWARDED / PROJECT_BUDGET_CREATED，但写 quote_award_blocked 审计留证。
+ *  - without_budget：显式「不建项目预算直接 award」语义（独立路径，不与 with_budget 混用）。
+ */
+export async function awardQuoteToBudget(input: { quoteId: string; projectId: string; userId: string; orgId: string; mode?: AwardMode; deps?: { createBudgetVersion?: (args: never) => Promise<unknown> } }): Promise<{ quote: QuoteRecord; mode: AwardMode; budgetLines: ReturnType<typeof mapQuoteToBudgetLines>; budgetVersionId: string | null; budgetCreated: boolean }> {
+  const mode: AwardMode = input.mode ?? "with_budget";
   const q = await getQuote(input.quoteId, input.projectId);
-  if (q.status !== "approved" && q.status !== "awarded") throw new QuoteEngineError("NOT_APPROVED", "只有 approved 报价可以 award", 409);
+  if (q.status !== "approved") throw new QuoteEngineError("NOT_APPROVED", "只有 approved 报价可以 award", 409);
   const computed = computeForQuote(q);
   if (!computed.calc.ok) throw new QuoteEngineError("QUOTE_INVALID", "报价校验失败", 409, computed.calc.errors);
   const budgetLines = mapQuoteToBudgetLines(computed.calc, q.id);
-  let budgetVersionId: string | null = null;
-  let budgetCreated = false;
-  let reason: string | undefined;
-  if (input.createBudget) {
-    const { isFinancialControlEnabled } = await import("@/lib/project-finance/flags");
-    if (!isFinancialControlEnabled()) reason = "TENDER_FINANCIAL_CONTROL_ENABLED 未开启：预算未创建（映射已返回，接口已就位）";
-    else {
-      try {
-        const { createBudgetVersion } = await import("@/lib/project-finance/budget-service");
-        const v = await createBudgetVersion({ orgId: input.orgId, projectId: input.projectId, currency: q.currency, actor: { actorType: "user", actorId: input.userId }, createdById: input.userId, note: `Quote ${q.quoteNumber ?? q.id} v${q.version} award`, lines: budgetLines.map((l) => ({ category: l.category, amount: l.amount, percentage: l.percentage, basis: l.basis, basisAmount: l.basisAmount, note: l.note, sourceReference: l.sourceReference, sortOrder: l.sortOrder })) as never });
-        budgetVersionId = (v as { id?: string; version?: { id?: string } }).id ?? (v as { version?: { id?: string } }).version?.id ?? null;
-        budgetCreated = true;
-        await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.PROJECT_BUDGET_CREATED, targetType: "project_budget_version", targetId: budgetVersionId, afterData: { quoteId: q.id, lines: budgetLines.length } }).catch(() => undefined);
-      } catch (e) {
-        reason = `预算创建失败：${e instanceof Error ? e.message : String(e)}`;
-      }
-    }
+  const blocked = async (code: string, message: string, details?: unknown) => {
+    await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_AWARD_BLOCKED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, afterData: { mode, code, message, details: details ?? null, version: q.version } }).catch(() => undefined);
+    return new QuoteEngineError(code, message, 409, details);
+  };
+  if (mode === "without_budget") {
+    await transitionQuote({ quoteId: q.id, projectId: input.projectId, userId: input.userId, orgId: input.orgId, to: "awarded", note: "awarded without project budget (explicit)" });
+    return { quote: await getQuote(q.id, input.projectId), mode, budgetLines, budgetVersionId: null, budgetCreated: false };
   }
-  if (q.status !== "awarded") await transitionQuote({ quoteId: q.id, projectId: input.projectId, userId: input.userId, orgId: input.orgId, to: "awarded", note: reason ?? null });
-  return { quote: await getQuote(q.id, input.projectId), budgetLines, budgetVersionId, budgetCreated, reason };
+  const { isFinancialControlEnabled } = await import("@/lib/project-finance/flags");
+  if (!isFinancialControlEnabled()) {
+    throw await blocked("AWARD_BLOCKED", "BUDGET_NOT_CREATED：TENDER_FINANCIAL_CONTROL_ENABLED 未开启，无法建立项目预算；报价保持 approved（如需不建预算直接 award，请显式使用 without_budget）");
+  }
+  const createBudget = (input.deps?.createBudgetVersion as unknown as typeof import("@/lib/project-finance/budget-service").createBudgetVersion | undefined) ?? (await import("@/lib/project-finance/budget-service")).createBudgetVersion;
+  let budgetVersionId: string | null = null;
+  try {
+    budgetVersionId = await db.$transaction(async (tx) => {
+      const v = await createBudget({ tx, orgId: input.orgId, projectId: input.projectId, currency: q.currency, actor: { actorType: "user", actorId: input.userId }, createdById: input.userId, note: `Quote ${q.quoteNumber ?? q.id} v${q.version} award`, lines: budgetLines.map((l) => ({ category: l.category, amount: l.amount, percentage: l.percentage, basis: l.basis, basisAmount: l.basisAmount, note: l.note, sourceReference: l.sourceReference, sortOrder: l.sortOrder })) as never });
+      const id = (v as { id?: string; version?: { id?: string } }).id ?? (v as { version?: { id?: string } }).version?.id ?? null;
+      if (!id) throw new Error("createBudgetVersion 未返回版本 id");
+      // 同一事务：仅当状态仍为 approved 才能 award（防并发双 award）
+      const r = await tx.projectQuote.updateMany({ where: { id: q.id, status: "approved" }, data: { status: "awarded", awardedAt: new Date() } });
+      if (r.count !== 1) throw new Error("报价状态已变化，award 中止");
+      return id;
+    });
+  } catch (e) {
+    throw await blocked("BUDGET_CREATION_FAILED", `预算创建失败，award 已回滚：${e instanceof Error ? e.message : String(e)}`);
+  }
+  await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.PROJECT_BUDGET_CREATED, targetType: "project_budget_version", targetId: budgetVersionId, afterData: { quoteId: q.id, lines: budgetLines.length } }).catch(() => undefined);
+  await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: "approved" }, afterData: { status: "awarded", budgetVersionId, version: q.version } }).catch(() => undefined);
+  await appendLedgerEvent({ orgId: input.orgId, projectId: input.projectId, userId: input.userId, quoteId: q.id, eventType: "QUOTE_AWARDED", title: `报价 v${q.version} awarded`, payload: { budgetVersionId } });
+  return { quote: await getQuote(q.id, input.projectId), mode, budgetLines, budgetVersionId, budgetCreated: true };
 }
 
 async function appendLedgerEvent(input: { orgId: string; projectId: string; userId: string; quoteId: string; eventType: string; title: string; payload: unknown }) {
@@ -368,11 +392,11 @@ async function findLineageRoot(quoteId: string, projectId: string): Promise<stri
   }
   return cur;
 }
-async function collectLineage(rootId: string, projectId: string): Promise<string[]> {
+async function collectLineage(rootId: string, projectId: string, client: Prisma.TransactionClient | typeof db = db): Promise<string[]> {
   const ids = [rootId];
   let frontier = [rootId];
   for (let i = 0; i < 100 && frontier.length > 0; i++) {
-    const rows = await db.projectQuote.findMany({ where: { projectId, sourceQuoteId: { in: frontier } }, select: { id: true } });
+    const rows = await client.projectQuote.findMany({ where: { projectId, sourceQuoteId: { in: frontier } }, select: { id: true } });
     frontier = rows.map((r) => r.id).filter((id) => !ids.includes(id));
     ids.push(...frontier);
   }

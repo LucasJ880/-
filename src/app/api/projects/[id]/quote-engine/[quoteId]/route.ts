@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireQuoteAccess } from "@/lib/quote-engine/access";
-import { computeForQuote, getQuote, QuoteEngineError, updateEngineQuote, type QuoteRecord } from "@/lib/quote-engine/service";
+import { computeForQuote, engineOf, getQuote, QuoteEngineError, updateEngineQuote, type QuoteRecord } from "@/lib/quote-engine/service";
 import { quoteHeaderSchema, type CostLinePayload, type TierPayload } from "@/lib/quote-engine/contract";
 import { buildCustomerView } from "@/lib/quote-engine/customer-view";
 
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     const q = await getQuote(quoteId, id);
     const computed = computeForQuote(q);
     if (!access.canViewInternal) {
-      return NextResponse.json({ customerView: buildCustomerView({ quote: q, calc: computed.calc.ok ? computed.calc : null, tiers: computed.standingOffer?.tiers ?? null }), capabilities: { canViewInternal: false, canEdit: false, canApprove: false } });
+      return NextResponse.json({ customerView: buildCustomerView({ quote: q, calc: computed.calc.ok ? computed.calc : null, tiers: computed.standingOffer?.tiers ?? null, tax: engineOf(q).tax ?? null }), capabilities: { canViewInternal: false, canEdit: false, canApprove: false } });
     }
     return NextResponse.json({ quote: serializeInternal(q), computed, capabilities: { canViewInternal: true, canEdit: access.canEdit, canApprove: access.canApprove } });
   } catch (e) {

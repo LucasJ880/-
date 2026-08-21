@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireQuoteAccess } from "@/lib/quote-engine/access";
-import { computeForQuote, getQuote, QuoteEngineError } from "@/lib/quote-engine/service";
+import { computeForQuote, engineOf, getQuote, QuoteEngineError } from "@/lib/quote-engine/service";
 import { buildCustomerView, customerViewLeaks } from "@/lib/quote-engine/customer-view";
 
 /** GET：客户侧投影（项目读权限即可；服务端再做泄露自检，命中即 500 拒发） */
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   try {
     const q = await getQuote(quoteId, id);
     const computed = computeForQuote(q);
-    const view = buildCustomerView({ quote: q, calc: computed.calc.ok ? computed.calc : null, tiers: computed.standingOffer?.tiers ?? null });
+    const view = buildCustomerView({ quote: q, calc: computed.calc.ok ? computed.calc : null, tiers: computed.standingOffer?.tiers ?? null, tax: engineOf(q).tax ?? null });
     const leaks = customerViewLeaks(view);
     if (leaks.length > 0) return NextResponse.json({ error: "客户视图泄露自检失败", leaks }, { status: 500 });
     return NextResponse.json({ customerView: view });
