@@ -234,6 +234,19 @@ async function main() {
         ui.includes("window.confirm"),
       "BF-10: UI 含全部设为已有（带确认）/翻译按钮/分组渲染",
     );
+    // 例外优先视图（用户实测：条款基本都是普通合规，不需逐条展示）
+    const flat = ui.replace(/\s+/g, " ");
+    ok(
+      flat.includes("BID_FIT_GROUPS.map((g) => [g.key, true])") &&
+        !flat.includes("BID_FIT_GROUPS.map((g) => [g.key, g.defaultCollapsed])"),
+      "BF-11（反例守卫）: 初始状态全部组折叠（按 defaultCollapsed 展开判断组的写法不得回归）",
+    );
+    ok(
+      ui.includes('data-testid="bid-fit-exceptions"') &&
+        /r\.evidenceRequired \|\| \(m != null && m\.fit !== "HAVE"\)/.test(ui) &&
+        ui.includes('data-testid="bid-fit-toggle-groups"'),
+      "BF-12: 例外区=需证据 ∪ 已标非已有；含展开/收起全部组",
+    );
   }
 
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
