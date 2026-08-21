@@ -422,17 +422,42 @@ export async function getExecutiveBrief(
     projectType,
     externalConfirmed: extConfirmed,
     externalAnalysis: extAnalysis,
-    // 批次二：文档自述的现任供应商（v2-map 落 summaryJson.criticalFacts 文本槽；
-    // "N/A"/空 视为无）
-    docStatedIncumbent: (() => {
-      const cf = (run?.summaryJson as Record<string, unknown> | null)
-        ?.criticalFacts as Record<string, string> | undefined;
-      const v = (cf?.incumbent_supplier ?? "").trim();
-      return v && v.toUpperCase() !== "N/A" ? v : null;
-    })(),
+    // 批次二：文档自述的现任供应商（生产 hotfix 2026-08-20：summaryJson.criticalFacts
+    // 是 v2-map 的 {status,text} 槽对象而非字符串——直接 .trim() 会让整个简报抛
+    // TypeError，情报 tab/工作台摘要全空。容错读取见 readDocStatedIncumbent）
+    docStatedIncumbent: readDocStatedIncumbent(run?.summaryJson ?? null),
   });
 
   const coverage = await getPackageCoverage(projectId, run?.id ?? null);
 
   return { ...brief, runId: run?.id ?? null, packageChanges, coverage };
+}
+
+/**
+ * 从 run.summaryJson.criticalFacts.incumbent_supplier 读「文档载明的现任供应商」。
+ * 兼容三种形状：v2-map 槽对象 {status:"KNOWN"|"UNKNOWN", text}（生产真实形态）、
+ * 旧字符串、缺失/脏值。只有 KNOWN 且非空非 "N/A" 才返回文本；其余一律 null，
+ * **绝不抛出**——简报是只读投影，任何字段读取失败都不得拖垮整张简报。
+ */
+export function readDocStatedIncumbent(summaryJson: unknown): string | null {
+  const cf = (summaryJson as Record<string, unknown> | null)?.criticalFacts as
+    | Record<string, unknown>
+    | undefined;
+  const slot = cf?.incumbent_supplier;
+  let raw: string | null = null;
+  if (typeof slot === "string") {
+    raw = slot;
+  } else if (slot && typeof slot === "object") {
+    const o = slot as { status?: unknown; text?: unknown; value?: unknown };
+    if (o.status === undefined || o.status === "KNOWN") {
+      raw =
+        typeof o.text === "string"
+          ? o.text
+          : typeof o.value === "string"
+            ? o.value
+            : null;
+    }
+  }
+  const v = (raw ?? "").trim();
+  return v && v.toUpperCase() !== "N/A" ? v : null;
 }

@@ -12,7 +12,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CRITICAL_FACT_TYPES, factTypeSchema } from "../contract";
 import { PROMPT_EXTRACT } from "../prompts";
-import { buildExecutiveBrief } from "@/lib/tender-auto-analysis/executive-brief";
+import {
+  buildExecutiveBrief,
+  readDocStatedIncumbent,
+} from "@/lib/tender-auto-analysis/executive-brief";
 
 let pass = 0;
 let fail = 0;
@@ -92,6 +95,40 @@ ok(
   read("src/components/bid-workflow/project-intel-sections.tsx").includes("文档载明 · 名称待核"),
   "P2T-08: UI 状态词典含 DOC_STATED",
 );
+
+// P2T-09 生产 hotfix 回归守卫（2026-08-20）：criticalFacts 槽是 {status,text} 对象
+{
+  const known = { criticalFacts: { incumbent_supplier: { status: "KNOWN", text: "The municipality has used a vendor since November 2021; contract expires November 1, 2026." } } };
+  const unknown = { criticalFacts: { incumbent_supplier: { status: "UNKNOWN", text: null } } };
+  const legacyStr = { criticalFacts: { incumbent_supplier: "Meltwater News Canada Inc." } };
+  const na = { criticalFacts: { incumbent_supplier: { status: "KNOWN", text: "N/A" } } };
+  const garbage = { criticalFacts: { incumbent_supplier: 42 } };
+  let threw = false;
+  try {
+    ok(
+      readDocStatedIncumbent(known)?.startsWith("The municipality has used a vendor") === true &&
+        readDocStatedIncumbent(unknown) === null &&
+        readDocStatedIncumbent(legacyStr) === "Meltwater News Canada Inc." &&
+        readDocStatedIncumbent(na) === null &&
+        readDocStatedIncumbent(garbage) === null &&
+        readDocStatedIncumbent(null) === null &&
+        readDocStatedIncumbent({}) === null,
+      "P2T-09: 现任供应商读取兼容槽对象(KNOWN/UNKNOWN)/旧字符串/N-A/脏值/缺失",
+    );
+  } catch {
+    threw = true;
+  }
+  ok(!threw, "P2T-09b（反例守卫）: 任何形状都不得抛出（生产 TypeError 形态）");
+  const src = readFileSync(
+    join(process.cwd(), "src/lib/tender-auto-analysis/executive-brief.ts"),
+    "utf-8",
+  );
+  ok(
+    src.includes("docStatedIncumbent: readDocStatedIncumbent(") &&
+      !/cf\?\.incumbent_supplier \?\? ""\)\.trim\(\)/.test(src),
+    "P2T-10（反例守卫）: 简报不得再对 criticalFacts 值直接 .trim()（经容错读取器）",
+  );
+}
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);
