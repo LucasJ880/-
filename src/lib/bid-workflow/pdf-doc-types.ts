@@ -7,6 +7,7 @@ export const PROJECT_PDF_DOC_TYPES = [
   "teammate_tasks",
   "tech_confirm",
   "owner_clarification",
+  "bid_draft",
 ] as const;
 
 export type ProjectPdfDocType = (typeof PROJECT_PDF_DOC_TYPES)[number];
