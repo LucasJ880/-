@@ -40,7 +40,7 @@ export function IntelTab({
 
   return (
     <div className="space-y-6">
-      {/* 当前项目情报主卡（含人工复核流） */}
+      {/* BidToGo 来源项目的情报主卡（含人工复核流）；上传型项目无此卡 */}
       {hasIntelligenceCard ? (
         <BidToGoIntelligenceCard
           project={{
@@ -60,14 +60,10 @@ export function IntelTab({
           }}
           onUpdate={onProjectUpdate}
         />
-      ) : (
-        <div className="rounded-xl border border-dashed border-border p-6 text-center">
-          <p className="text-sm font-medium">尚未生成项目情报分析</p>
-          <p className="mt-1 text-xs text-muted">
-            上传招标文件并完成「招标要求」分析，或在工作台确认进入投标调查后，这里将展示项目情报。
-          </p>
-        </div>
-      )}
+      ) : null}
+      {/* 上传型项目不再渲染 BidToGo 遗留主卡占位（该卡只由旧人工评估协议写入，
+          上传型项目结构性恒空，其「分析后将展示」文案是永不兑现的空头承诺——
+          真实情报全在下方调查区块与组织授标槽位） */}
 
       {/* 调查区块（原调查室内容归位：30 秒摘要 / 八个调查模块 / 事实与可信度） */}
       {project.intelligenceAvailable === false ? (

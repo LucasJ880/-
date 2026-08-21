@@ -12,7 +12,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CRITICAL_FACT_TYPES, factTypeSchema } from "../contract";
 import { PROMPT_EXTRACT } from "../prompts";
-import { buildExecutiveBrief } from "@/lib/tender-auto-analysis/executive-brief";
+import {
+  buildExecutiveBrief,
+  readDocStatedIncumbent,
+} from "@/lib/tender-auto-analysis/executive-brief";
 
 let pass = 0;
 let fail = 0;
@@ -92,6 +95,74 @@ ok(
   read("src/components/bid-workflow/project-intel-sections.tsx").includes("文档载明 · 名称待核"),
   "P2T-08: UI 状态词典含 DOC_STATED",
 );
+
+// P2T-09 生产 hotfix 回归守卫（2026-08-20）：criticalFacts 槽是 {status,text} 对象
+{
+  const known = { criticalFacts: { incumbent_supplier: { status: "KNOWN", text: "The municipality has used a vendor since November 2021; contract expires November 1, 2026." } } };
+  const unknown = { criticalFacts: { incumbent_supplier: { status: "UNKNOWN", text: null } } };
+  const legacyStr = { criticalFacts: { incumbent_supplier: "Meltwater News Canada Inc." } };
+  const na = { criticalFacts: { incumbent_supplier: { status: "KNOWN", text: "N/A" } } };
+  const garbage = { criticalFacts: { incumbent_supplier: 42 } };
+  let threw = false;
+  try {
+    ok(
+      readDocStatedIncumbent(known)?.startsWith("The municipality has used a vendor") === true &&
+        readDocStatedIncumbent(unknown) === null &&
+        readDocStatedIncumbent(legacyStr) === "Meltwater News Canada Inc." &&
+        readDocStatedIncumbent(na) === null &&
+        readDocStatedIncumbent(garbage) === null &&
+        readDocStatedIncumbent(null) === null &&
+        readDocStatedIncumbent({}) === null,
+      "P2T-09: 现任供应商读取兼容槽对象(KNOWN/UNKNOWN)/旧字符串/N-A/脏值/缺失",
+    );
+  } catch {
+    threw = true;
+  }
+  ok(!threw, "P2T-09b（反例守卫）: 任何形状都不得抛出（生产 TypeError 形态）");
+  const src = readFileSync(
+    join(process.cwd(), "src/lib/tender-auto-analysis/executive-brief.ts"),
+    "utf-8",
+  );
+  ok(
+    src.includes("docStatedIncumbent: readDocStatedIncumbent(") &&
+      !/cf\?\.incumbent_supplier \?\? ""\)\.trim\(\)/.test(src),
+    "P2T-10（反例守卫）: 简报不得再对 criticalFacts 值直接 .trim()（经容错读取器）",
+  );
+}
+
+// P2T-11 优先级（用户定）：文档载明 > AI 检索否定结果；AI 正向结论仍优先于文档
+{
+  const base = {
+    run: {
+      status: "REVIEW_REQUIRED",
+      fingerprint: "f",
+      source: { oneLiner: null, buyer: null, product: null, recommendation: null, nextActions: [], blockers: [], unresolvedConflictCount: 0 } as never,
+    },
+    room: null,
+    projectTypeLabel: null,
+    docStatedIncumbent: "The municipality has used a vendor since November 2021.",
+  };
+  const neg = buildExecutiveBrief({
+    ...base,
+    externalAnalysis: { previousWinnerZh: "未能从现有来源确定此前同类采购的中标供应商。" } as never,
+  } as never);
+  const pos = buildExecutiveBrief({
+    ...base,
+    externalAnalysis: { previousWinnerZh: "Meltwater News Canada Inc.（2022 年预算文件点名）" } as never,
+  } as never);
+  const negOnly = buildExecutiveBrief({
+    ...base,
+    docStatedIncumbent: null,
+    externalAnalysis: { previousWinnerZh: "未能确定。" } as never,
+  } as never);
+  ok(
+    neg.external.previousWinner.state === "DOC_STATED" &&
+      pos.external.previousWinner.state === "AI_RESEARCHED" &&
+      negOnly.external.previousWinner.state === "AI_RESEARCHED",
+    "P2T-11: AI 否定结果不盖文档载明；AI 正向结论仍优先；无文档时否定结果照常显示",
+    { neg: neg.external.previousWinner.state, pos: pos.external.previousWinner.state, negOnly: negOnly.external.previousWinner.state },
+  );
+}
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);
