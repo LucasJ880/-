@@ -2653,8 +2653,124 @@ model ProjectQuote {
 
   lineItems QuoteLineItem[]
 
+  // ── Quote & Cost Engine Phase 1（additive；既有字段/行为不变）──
+  /// 引擎报价必须 org-scoped；legacy 行可空
+  orgId          String?
+  /// PROJECT_SUPPLY_INSTALL | STANDING_OFFER | SUPPLY_ONLY | INSTALL_ONLY | SERVICE | CUSTOM
+  quoteType      String    @default("CUSTOM")
+  quoteNumber    String?
+  name           String?
+  /// 修订链：本版本由哪个报价修订而来（历史 approved 版本不可覆盖）
+  sourceQuoteId  String?
+  revisionReason String?   @db.Text
+  /// MARKUP_ON_COST | MARGIN_ON_REVENUE —— UI 必须标明口径
+  pricingMethod  String    @default("MARKUP_ON_COST")
+  /// 百分数（20.0000 = 20%）
+  pricingRate    Decimal?  @db.Decimal(9, 4)
+  /// 引擎输入：情景参数 / 税 / Standing Offer 单位经济 / FX 默认（结构由 contract zod 约束）
+  engineJson     Json?
+  /// 计算快照（KPI/分解/情景）+ calcVersion；运行时引擎为真相，快照用于漂移检测与列表展示
+  summaryJson    Json?
+  calcVersion    String?
+  submittedAt    DateTime?
+  approvedById   String?
+  approvedAt     DateTime?
+  supersededAt   DateTime?
+  awardedAt      DateTime?
+  cancelledAt    DateTime?
+
+  costLines    QuoteCostLine[]
+  pricingTiers QuotePricingTier[]
+
   @@index([projectId, status])
   @@index([projectId, version])
+  @@index([orgId, quoteNumber])
+  @@index([sourceQuoteId])
+}
+
+/// Quote & Cost Engine · 统一成本行（不按 Material/Labour/Freight 分表）
+model QuoteCostLine {
+  id      String       @id @default(cuid())
+  quoteId String
+  quote   ProjectQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  orgId   String?
+
+  sortOrder   Int     @default(0)
+  /// canonical category（COST_CATEGORIES；domain 可扩展，UI 不硬编码）
+  category    String
+  subcategory String?
+  description String
+
+  quantity Decimal? @db.Decimal(18, 4)
+  unit     String?
+  unitCost Decimal? @db.Decimal(18, 4)
+
+  /// 成本行原币与手填汇率（Phase 1 不接实时汇率）
+  sourceCurrency String    @default("CAD")
+  fxRate         Decimal?  @db.Decimal(18, 8)
+  fxRateSource   String?
+  fxRateDate     DateTime?
+
+  /// FIXED | PER_UNIT | PER_HOUR | PER_DAY | PER_MONTH | PER_TRIP | PER_CONTAINER |
+  /// PERCENT_OF_COST | PERCENT_OF_REVENUE | PERCENT_OF_CAPITAL | TIER_BASED | CUSTOM_FORMULA
+  calculationType String   @default("FIXED")
+  /// 百分比类型的基数（DIRECT_COST | PROCUREMENT | LANDED | CAPITAL | REVENUE | CATEGORY:<X>）
+  calculationBase String?
+  /// 百分数（18.0000 = 18%）
+  rate            Decimal? @db.Decimal(9, 4)
+  /// 时长/次数/箱数（PER_HOUR/DAY/MONTH/TRIP/CONTAINER）
+  duration        Decimal? @db.Decimal(18, 4)
+
+  supplierId   String?
+  supplierName String?
+  source       String?
+  notes        String? @db.Text
+  included     Boolean @default(true)
+
+  /// 快照：按报价币种折算后的本行成本（运行时重算对比，漂移即标记）
+  calculatedCost Decimal? @db.Decimal(18, 2)
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quoteId, sortOrder])
+  @@index([orgId, quoteId])
+  @@index([quoteId, category])
+}
+
+/// Quote & Cost Engine · Standing Offer 数量分级
+model QuotePricingTier {
+  id      String       @id @default(cuid())
+  quoteId String
+  quote   ProjectQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  orgId   String?
+
+  sortOrder        Int      @default(0)
+  tierName         String
+  minQuantity      Decimal  @db.Decimal(18, 2)
+  maxQuantity      Decimal? @db.Decimal(18, 2)
+  expectedQuantity Decimal  @db.Decimal(18, 2)
+  /// MARKUP_ON_COST | MARGIN_ON_REVENUE
+  pricingMethod    String   @default("MARKUP_ON_COST")
+  rate             Decimal? @db.Decimal(9, 4)
+  unitPrice        Decimal? @db.Decimal(18, 6)
+
+  calculatedRevenue     Decimal? @db.Decimal(18, 2)
+  calculatedCost        Decimal? @db.Decimal(18, 2)
+  calculatedMargin      Decimal? @db.Decimal(9, 4)
+  /// 数学箱数（2.76）与采购箱数（CEILING → 3）分开存
+  containersMath        Decimal? @db.Decimal(18, 4)
+  containersProcurement Int?
+
+  active   Boolean @default(true)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quoteId, sortOrder])
+  @@index([orgId, quoteId])
 }
 
 /// 报价行项目
@@ -4794,9 +4910,9 @@ model AutopilotTelemetryOutbox {
 
 /// Autopilot A0：AgentRun 的脱敏观察层（非平行 Runtime；写入失败不得阻断 Agent）
 model AutopilotRun {
-  id                   String    @id @default(cuid())
-  agentRunId           String    @unique
-  agentRun             AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  id                   String                @id @default(cuid())
+  agentRunId           String                @unique
+  agentRun             AgentRun              @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
   orgId                String
   userId               String?
   projectId            String?
@@ -4805,7 +4921,7 @@ model AutopilotRun {
   agentId              String?
   agentType            String?
   agentVersion         String?
-  userGoalSummary      String?   @db.Text
+  userGoalSummary      String?               @db.Text
   intent               String?
   inputRef             Json?
   outputRef            Json?
@@ -4814,23 +4930,23 @@ model AutopilotRun {
   humanEditMeta        Json?
   agentRecommendation  Json?
   humanDecision        Json?
-  humanOverride        Boolean   @default(false)
-  humanEdit            Boolean   @default(false)
-  reAskStatus          String    @default("NOT_EVALUATED")
-  outcome              String    @default("UNKNOWN")
+  humanOverride        Boolean               @default(false)
+  humanEdit            Boolean               @default(false)
+  reAskStatus          String                @default("NOT_EVALUATED")
+  outcome              String                @default("UNKNOWN")
   failureType          String?
   failureSource        String?
   latencyMs            Int?
   tokenUsage           Json?
-  estimatedCost        Decimal?  @db.Decimal(18, 6)
+  estimatedCost        Decimal?              @db.Decimal(18, 6)
   errorCode            String?
-  errorSummary         String?   @db.Text
-  toolCallCount        Int       @default(0)
+  errorSummary         String?               @db.Text
+  toolCallCount        Int                   @default(0)
   startedAt            DateTime?
   completedAt          DateTime?
   metadata             Json?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
   events               AutopilotRunEvent[]
   evaluations          AutopilotEvaluation[]
 
@@ -7327,14 +7443,14 @@ model ProjectBudgetLine {
 
 /// 成员费用提交（Submission ≠ Authoritative Cost）。审批后经 cost-service 生成 ProjectCost.ACTUAL。
 model ProjectExpenseSubmission {
-  id                    String    @id @default(cuid())
-  orgId                 String
-  projectId             String
+  id                       String    @id @default(cuid())
+  orgId                    String
+  projectId                String
   /// budget-vs-actual 按行滚动的链接（taxonomy 无关）
-  budgetLineId          String?
+  budgetLineId             String?
   /// 冻结 ProjectCost 类别（减 AI/DATA_API）；审批时 1:1 → ProjectCost.category
-  costCategory          String
-  submittedById         String
+  costCategory             String
+  submittedById            String
   // ── T2-P1.6 追加（全部可空；legacy 行语义见 project-finance/money.ts resolveExpenseCad） ──
   /// 汇率方向固定：1 单位 currency（原始币种）= X CAD。刻意不叫 fxRate，杜绝 reciprocal 歧义。
   fxRateCadPerOriginalUnit Decimal?  @db.Decimal(18, 8)
@@ -7353,38 +7469,38 @@ model ProjectExpenseSubmission {
   amountConfirmedAt        DateTime?
   amountConfirmedById      String?
   /// 时间语义三分（不只用 createdAt）
-  expenseOccurredAt     DateTime
-  submittedAt           DateTime?
-  reviewedAt            DateTime?
+  expenseOccurredAt        DateTime
+  submittedAt              DateTime?
+  reviewedAt               DateTime?
   /// 费用发生时的项目上下文快照（阶段变化后仍可还原）
-  projectPhaseSnapshot  String?
-  projectStageSnapshot  String?
-  relatedTaskId         String?
-  relatedMilestoneId    String?
-  vendorName            String?
-  description           String    @db.Text
-  subtotal              Decimal?  @db.Decimal(18, 2)
-  taxAmount             Decimal?  @db.Decimal(18, 2)
-  totalAmount           Decimal   @db.Decimal(18, 2)
-  currency              String
+  projectPhaseSnapshot     String?
+  projectStageSnapshot     String?
+  relatedTaskId            String?
+  relatedMilestoneId       String?
+  vendorName               String?
+  description              String    @db.Text
+  subtotal                 Decimal?  @db.Decimal(18, 2)
+  taxAmount                Decimal?  @db.Decimal(18, 2)
+  totalAmount              Decimal   @db.Decimal(18, 2)
+  currency                 String
   /// ExpenseStatus 状态机
-  status                String    @default("DRAFT")
-  reviewedById          String?
-  reviewNote            String?   @db.Text
+  status                   String    @default("DRAFT")
+  reviewedById             String?
+  reviewNote               String?   @db.Text
   /// 审批产出的权威成本行（一次性写入；immutable link）
-  approvedProjectCostId String?
+  approvedProjectCostId    String?
   /// 可重复转移（info_requested/resubmitted）的 retry-stable 幂等号
-  transitionCount       Int       @default(0)
+  transitionCount          Int       @default(0)
   /// OCR 抽取字段（预留；不得覆盖 human-confirmed 正式字段）
-  extractedVendorName   String?
-  extractedDate         DateTime?
-  extractedSubtotal     Decimal?  @db.Decimal(18, 2)
-  extractedTax          Decimal?  @db.Decimal(18, 2)
-  extractedTotal        Decimal?  @db.Decimal(18, 2)
-  extractedCategory     String?
-  extractionConfidence  Decimal?  @db.Decimal(5, 4)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  extractedVendorName      String?
+  extractedDate            DateTime?
+  extractedSubtotal        Decimal?  @db.Decimal(18, 2)
+  extractedTax             Decimal?  @db.Decimal(18, 2)
+  extractedTotal           Decimal?  @db.Decimal(18, 2)
+  extractedCategory        String?
+  extractionConfidence     Decimal?  @db.Decimal(5, 4)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   @@index([orgId, projectId, status])
   @@index([projectId, status])
@@ -7482,28 +7598,28 @@ model ProjectExpensePayable {
 /// 一个 payable 可对多条 payment（partial payment 一等公民）。
 /// 唯一内部 FK（Restrict）：对齐 ProjectEventActor / MemoryClaimEvidence 先例，禁级联抹史。
 model ProjectExpensePayment {
-  id             String                @id @default(cuid())
-  orgId          String
-  projectId      String
-  payableId      String
-  payable        ProjectExpensePayable @relation(fields: [payableId], references: [id], onDelete: Restrict)
+  id               String                @id @default(cuid())
+  orgId            String
+  projectId        String
+  payableId        String
+  payable          ProjectExpensePayable @relation(fields: [payableId], references: [id], onDelete: Restrict)
   /// 本次付款金额（CAD，正数）
-  amountCad      Decimal               @db.Decimal(18, 2)
+  amountCad        Decimal               @db.Decimal(18, 2)
   /// 付款业务发生时间（producer 显式传入；刻意无 default）
-  paidAt         DateTime
+  paidAt           DateTime
   /// BANK_TRANSFER | ETRANSFER | PAYROLL | CHEQUE | CASH | CREDIT_NOTE | OTHER
-  paymentMethod  String
+  paymentMethod    String
   paymentReference String?
   /// 服务端可信操作人（财务放款人；与费用审批人是两权）
-  paidById       String
-  note           String?               @db.Text
+  paidById         String
+  note             String?               @db.Text
   /// 幂等键：`payment:{payableId}:{clientKey}`，服务端构造；防双击 / 重试重复放款
-  idempotencyKey String                @unique
+  idempotencyKey   String                @unique
   /// 冲销：VOID 后不计入 paidAmountCad
-  voidedAt       DateTime?
-  voidReason     String?
-  voidedById     String?
-  createdAt      DateTime              @default(now())
+  voidedAt         DateTime?
+  voidReason       String?
+  voidedById       String?
+  createdAt        DateTime              @default(now())
 
   @@index([orgId, projectId, paidAt])
   @@index([payableId, createdAt])
@@ -7513,34 +7629,34 @@ model ProjectExpensePayment {
 /// 并驱动 ProjectCost 的 VOID + correction（绝不 UPDATE ACTUAL 金额）。
 /// unique(expenseSubmissionId) = 重复结算幂等锚（FX-SETTLE-04）。
 model ProjectExpenseFxSettlement {
-  id                       String   @id @default(cuid())
-  orgId                    String
-  projectId                String
-  expenseSubmissionId      String   @unique
+  id                              String   @id @default(cuid())
+  orgId                           String
+  projectId                       String
+  expenseSubmissionId             String   @unique
   /// 结算时复制的原始事实（快照，便于独立审计）
-  originalAmount           Decimal  @db.Decimal(18, 2)
-  originalCurrency         String
+  originalAmount                  Decimal  @db.Decimal(18, 2)
+  originalCurrency                String
   /// 审批时快照的 estimated CAD（对比基准）
-  estimatedCadAmount       Decimal  @db.Decimal(18, 2)
+  estimatedCadAmount              Decimal  @db.Decimal(18, 2)
   /// 银行实际成交汇率：1 单位 originalCurrency = X CAD
-  settledFxRateCadPerOriginalUnit Decimal @db.Decimal(18, 8)
-  settlementDate           DateTime
+  settledFxRateCadPerOriginalUnit Decimal  @db.Decimal(18, 8)
+  settlementDate                  DateTime
   /// BANK_SETTLEMENT | MANUAL
-  fxRateSource             String
+  fxRateSource                    String
   /// 银行入账 CAD 本金
-  settledCadAmount         Decimal  @db.Decimal(18, 2)
+  settledCadAmount                Decimal  @db.Decimal(18, 2)
   /// 银行 / 电汇手续费（CAD）
-  bankFeeCad               Decimal  @default(0) @db.Decimal(18, 2)
+  bankFeeCad                      Decimal  @default(0) @db.Decimal(18, 2)
   /// finalCadAmount = settledCadAmount + bankFeeCad（服务端 Decimal 计算，非前端）
-  finalCadAmount           Decimal  @db.Decimal(18, 2)
+  finalCadAmount                  Decimal  @db.Decimal(18, 2)
   /// varianceCad = finalCadAmount − estimatedCadAmount（可正可负）
-  varianceCad              Decimal  @db.Decimal(18, 2)
+  varianceCad                     Decimal  @db.Decimal(18, 2)
   /// 修正链：被作废的原 ACTUAL 行 → 新 correction 行
-  previousProjectCostId    String?
-  correctedProjectCostId   String?
-  settledById              String
-  note                     String?  @db.Text
-  createdAt                DateTime @default(now())
+  previousProjectCostId           String?
+  correctedProjectCostId          String?
+  settledById                     String
+  note                            String?  @db.Text
+  createdAt                       DateTime @default(now())
 
   @@index([orgId, projectId])
   @@index([correctedProjectCostId])
@@ -7610,32 +7726,32 @@ model ProjectRevenueEntry {
 /// primaryLossReason 单选、secondaryLossReasons 多选；AI 只写 aiSuggested*，
 /// 最终原因必须 humanConfirmedAt/ById 人工确认（LOSS-02 / LOSS-03）。
 model ProjectTenderLossReview {
-  id                         String    @id @default(cuid())
-  orgId                      String
-  projectId                  String    @unique
+  id                          String    @id @default(cuid())
+  orgId                       String
+  projectId                   String    @unique
   /// DRAFT | CONFIRMED
-  status                     String    @default("DRAFT")
+  status                      String    @default("DRAFT")
   /// TenderLossReason 词表；仅 CONFIRMED 时非空
-  primaryLossReason          String?
-  secondaryLossReasons       String[]
+  primaryLossReason           String?
+  secondaryLossReasons        String[]
   /// [{ kind, note, archiveItemId?, documentId?, sourceUrl? }] —— 证据引用，不复制原文
-  evidence                   Json?
-  ourBidAmountCad            Decimal?  @db.Decimal(18, 2)
-  winningBidAmountCad        Decimal?  @db.Decimal(18, 2)
-  winnerName                 String?
-  notes                      String?   @db.Text
+  evidence                    Json?
+  ourBidAmountCad             Decimal?  @db.Decimal(18, 2)
+  winningBidAmountCad         Decimal?  @db.Decimal(18, 2)
+  winnerName                  String?
+  notes                       String?   @db.Text
   /// AI 建议（永远不能直接成为最终原因）
-  aiSuggestedPrimaryReason   String?
+  aiSuggestedPrimaryReason    String?
   aiSuggestedSecondaryReasons String[]
-  aiSuggestionAt             DateTime?
-  aiSuggestionSourceRef      String?
-  reviewedById               String?
-  reviewedAt                 DateTime?
-  humanConfirmedById         String?
-  humanConfirmedAt           DateTime?
-  createdById                String
-  createdAt                  DateTime  @default(now())
-  updatedAt                  DateTime  @updatedAt
+  aiSuggestionAt              DateTime?
+  aiSuggestionSourceRef       String?
+  reviewedById                String?
+  reviewedAt                  DateTime?
+  humanConfirmedById          String?
+  humanConfirmedAt            DateTime?
+  createdById                 String
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
 
   @@index([orgId, status])
   @@index([orgId, primaryLossReason])

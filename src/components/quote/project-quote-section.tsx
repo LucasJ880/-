@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { QuoteEngineSection } from "@/components/quote-engine/quote-engine-section";
 import { TEMPLATE_LABELS, QUOTE_STATUS_LABELS, type TemplateType, type QuoteStatus } from "@/lib/quote/types";
 
 interface QuoteSummary {
@@ -139,6 +140,7 @@ export function ProjectQuoteSection({ projectId }: { projectId: string }) {
           ))}
         </div>
       )}
+      <QuoteEngineSection projectId={projectId} />
     </div>
   );
 }
