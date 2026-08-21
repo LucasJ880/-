@@ -66,3 +66,18 @@ QE_FLAG                 = TENDER_QUOTE_ENGINE_ENABLED（default OFF，生产 dar
 QE_TESTS                = calc 25/25 + contract 19/19 + DB E2E 17/17 + migration guards 88/88
 QE_ISOLATED_BRANCHES    = 0
 ```
+
+## Final Review Fix Gate（2026-08-21，Lucas 审阅 B1–B6）
+
+前置核对：PR 实际 head = `a9894240`（与审阅一致）、base = main、Draft；main 漂移 3 提交（#149）→ `git merge origin/main`（merge commit，不改写历史）解测试注册并集。
+
+| # | 阻断 | 修复 | 证据 |
+| --- | --- | --- | --- |
+| B1 P0 | Standing Offer 外币汇率缺失默认 1:1 | `validateStandingOffer(so, quoteCurrency)`：外币须 fxRate 有限且 >0（SO_FX_REQUIRED / FX_INVALID）；`computeUnitEconomics` 外币缺汇率**直接抛错**；service 传报价币种 | QC-14a–f（CNY/USD 缺→FAIL、≤0/非有限→FAIL、CAD→CAD 无 FX→PASS、CNY 有效→PASS 且按汇率折算）；DB E2E B1：CNY 缺汇率 → 无单位经济、不能提交审核 |
+| B2 P0 | 预算创建失败/未启用仍 awarded | `awardQuoteToBudget({ mode })`：**with_budget** = `createBudgetVersion({tx})` 与 `quote.status: approved→awarded`（updateMany 条件 status=approved）同一事务，失败整体回滚并抛 BUDGET_CREATION_FAILED；财务未启用 → 抛 AWARD_BLOCKED；两者都写 `quote_award_blocked` 审计、quote 保持 approved、不产 QUOTE_AWARDED/PROJECT_BUDGET_CREATED；**without_budget** = 独立显式路径（审计注明）。`createBudget:true` 重载语义已移除；路由与 UI 双按钮对应两路径 | DB E2E B2-1（未启用→AWARD_BLOCKED/保持 approved/阻断审计）、B2-2（注入强制失败→回滚/无预算版本/无 PROJECT_BUDGET_CREATED/无 AWARDED）、B2-3（成功→同事务 awarded+版本+两审计）、B2-4（不可重复）、B2-5（without_budget） |
+| B3 P1 | 修订版本号在事务外读取 | 事务内对谱系根 `SELECT … FOR UPDATE`，锁下重算谱系与 max version 再创建（DB 串行化，不依赖应用时序） | DB E2E B3-1（同时两路修订 → v2+v3）、B3-2（三路不同父并发 → v4/v5/v6 全唯一）；QE-10c 结构守卫 |
+| B4 P1 | cancelled 未冻结 | `FROZEN_STATUSES` += cancelled | DB E2E B4（取消后头/成本行/分级更新全 QUOTE_FROZEN，内容零变化）；QE-01 |
+| B5 P1 | 客户视图税复用引擎售价口径税额 | `buildCustomerView({ tax })` 按客户可见应税小计（非 optional 公开行）`computeTax` 重算；路由传 `engineOf(q).tax` | QE-09：售价 1000 / 公开行 900 / HST 13% → 117 / 1017（引擎税 130 不被复用）；QE-10e 反例守卫 |
+| B6 P1 | 分级用 4 位显示值算百万件 | `UnitEconomics.exact{landedPerPiece…}` 全精度；`computeTiers` 用 exact；显示值只做输出舍入 | QC-15a–c：3,750,000 件下 4 位舍入漂移 >1 CAD（证明回归有意义）；分级成本 = 数量 × exact |
+
+修复后验证：quote-calc **34/34** · quote-engine-contract **28/28** · 隔离 DB E2E **10/10**（新分支 `migrate deploy` 后，已删）· 迁移守卫 61/61 + 27/27 · swc-nullish 守卫 PASS · tsc 零错 · eslint 零告警；full test-all / lint / build / GitHub CI / qingyan-staging 结果见最终返回。
