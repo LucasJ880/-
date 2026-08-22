@@ -81,7 +81,21 @@
 
 ## J. 测试证据
 
-见 Gate 与最终返回（本文件在 CI 结果后补记）。
+| 套件 | 结果 |
+|---|---|
+| `quote-import.test.ts`（XLSX/CSV/PDF 抽取 · 分类 · 确认校验 · 行→成本行映射） | **41/41** |
+| `quote-ops-customer.test.ts`（草稿生成 = 售价 · Optional/Allowance/Taxable 税基 · 泄露门正反例 · PDF 模板 · XSS 转义） | **25/25** |
+| `quote-ops-contract.test.ts`（6 路由权限门 · 导入状态机 · PDF fail-closed · Our Bid 规则 · 财务只读 · 迁移登记 · 无 flag 碎片） | **31/31** |
+| `performance.test.ts`（Budget/Actual/Remaining · 超预算 · 零预算防除零 · 人工/投影/无预测 · 毛利侵蚀 · 收入台账优先 · advisory） | **20/20** |
+| Phase 1 回归：`quote-calc` / `quote-engine-contract`（QE-07 路由表扩到 13 条；QE-10e 税基守卫改 `taxableSubtotal`） | **34/34 · 28/28** |
+| 迁移守卫 `verify-migration-history` / `check-release-safety` | **63/63 · 27/27** |
+| swc nullish 守卫 · tsc · ESLint baseline gate（相对基线 −12 error） | PASS · 0 错 · PASS |
+| **Golden DB E2E** `scripts/quote-ops-golden-e2e.ts`（隔离 Neon 分支 `e2e-qops-phase2` + 本地磁盘 Blob + 真 Chromium PDF） | **44/44**：A 链 34（导入→Review→Apply→PDF 导入→定价→客户草稿→approve→PDF→自动 Our Bid→修订 REVISION_PENDING→跟随 V2→旧 PDF 保留→award→预算→激活/基线→合成实际→Freight +20%→溯源→人工预测→advisory→审计≥11）· B 链 6（Standing Offer 3,750,000 件分级→客户行→显式选 Our Bid→draft 拒绝）· C 安全 3（跨组织 quote/import/PDF/select-bid not found · 财务租户 mismatch · awarded 不可导入） |
+| `npm run build` | PASS（Compiled successfully） |
+| 全量 `scripts/test-all.sh`（隔离分支，NODE_ENV=test + `QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD`） | **302/303**；唯一失败 `Autopilot A2-P0 Isolated E2E`（4 条 A2-failure/A1-overlay 断言）= **既有**：该套件在此前全量跑中因缺 NODE_ENV=test 被跳过；在干净 `origin/main@83755839` 检出、同一隔离分支、同一 env 下**完全相同地失败**（92/96），与本分支及本地 Blob store 无关 |
+| GitHub CI（validate-lint-typecheck-test-build）+ Vercel – qingyan-staging | **双绿 @ 91207de9** |
+
+隔离分支 `e2e-qops-phase2` 已删除（残留 e2e-* = 0）；迁移前快照 `prod-pre-quote-engine-migration-20260821` 保留。
 
 ## K. 非目标与边界
 
@@ -97,6 +111,6 @@ QO_MIGRATION              = 20260821233000_add_quote_operations_phase2（三处�
 QO_PRODUCTION_DB_CHANGED  = NO
 QO_PRODUCTION_FLAG_CHANGED= NO
 QO_FLAG                   = TENDER_QUOTE_ENGINE_ENABLED（复用；无新 flag）；财务面沿用 TENDER_FINANCIAL_CONTROL_ENABLED
-QO_TESTS                  = 见最终返回
-QO_ISOLATED_BRANCHES      = 见最终返回
+QO_TESTS                  = import 41/41 · customer 25/25 · contract 31/31 · performance 20/20 · Phase1 34/34+28/28 · guards 63/63+27/27 · golden DB E2E 44/44 · test-all 302/303（唯一失败为 main 既有）
+QO_ISOLATED_BRANCHES      = 0
 ```
