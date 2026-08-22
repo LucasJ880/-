@@ -46,7 +46,7 @@ P2.1 **只消费已结构化快照**，不查库、不读原文、不调 LLM、�
 
 | 领域 | 仓库内 canonical 源 | P2.1 覆盖 |
 |---|---|---|
-| TENDER_ANALYSIS | `AnalysisResultV2`（`src/lib/tender-understanding/contract.ts`）。纯适配器 `adaptAnalysisResultV2()` 丢掉 `rawValue` / `snippet` / 文档正文。强制要求必须是 ACTIVE + `mandatory===true` + 有 evidence 的真实 requirement，禁止存在位 / `tender-mandatory` 伪造 sourceId。 | **IMPLEMENTED** |
+| TENDER_ANALYSIS | `AnalysisResultV2`（`src/lib/tender-understanding/contract.ts`）。纯适配器丢掉 `rawValue` / `snippet` / 文档正文。仅 **ACTIVE** facts 可计分；`SUPERSEDED` / `CONFLICT` 不计为 READY 证据，且不选边。`mandatoryRequirementIds` 必须与 ACTIVE + `mandatory===true` 集合顺序无关地完全相等，且每条都有 parsed EvidenceRef；缺证据 / ghost / 重复则 parser fail-closed。禁止存在位 / `tender-mandatory` 伪造 sourceId。 | **IMPLEMENTED** |
 | RESEARCH | 无安全 canonical claim 源。合成 claims **不得**变成 `SUFFICIENT`。 | **SAFE_INTERFACE_ONLY** |
 | EMAIL_DRAFT | 无安全 canonical 元数据源。合成 boolean checklist **不得**变成 `SUFFICIENT`。 | **SAFE_INTERFACE_ONLY** |
 | GENERIC | 仅映射合同中已有 requirementId 的显式事实。空需求不得语义充分。 | **IMPLEMENTED** |

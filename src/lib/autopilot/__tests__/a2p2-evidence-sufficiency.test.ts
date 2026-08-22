@@ -78,8 +78,8 @@ const existenceBitGone = buildEvidencePacket({
   now: NOW,
 });
 ok(
-  existenceBitGone.requirementAssessments.find((item) => item.requirementId === "mandatory_requirements")
-    ?.state === "INSUFFICIENT",
+  existenceBitGone.status === "NOT_EVALUABLE" &&
+    existenceBitGone.diagnostics.some((item) => item.code === "EVIDENCE_INVALID_STRUCTURED_SOURCE"),
   "MANDATORY_EXISTENCE_BIT_REMOVED",
 );
 ok(
@@ -168,6 +168,66 @@ ok(
   "absence is not a negative fact",
 );
 
+const conflictDeadline = buildEvidencePacket({
+  contract: tender,
+  structuredSources: {
+    tender: makeAnalysisResultV2({
+      facts: [closingFact({ status: "CONFLICT" })],
+    }),
+  },
+  now: NOW,
+});
+ok(
+  conflictDeadline.requirementAssessments.find((item) => item.requirementId === "submission_deadline")
+    ?.state !== "READY",
+  "CONFLICT fact cannot make READY",
+);
+ok(conflictDeadline.status !== "SUFFICIENT", "CONFLICT_DEADLINE_DOES_NOT_PRODUCE_SUFFICIENT");
+
+const ghostMandatory = buildEvidencePacket({
+  contract: tender,
+  structuredSources: {
+    tender: makeAnalysisResultV2({
+      mandatoryRequirementIds: ["req_bond", "req_ghost"],
+    }),
+  },
+  now: NOW,
+});
+ok(ghostMandatory.status !== "SUFFICIENT", "ghost mandatory IDs cannot make READY");
+
+const missingMandatoryEvidence = buildEvidencePacket({
+  contract: tender,
+  structuredSources: {
+    tender: makeAnalysisResultV2({
+      requirements: [mandatoryRequirement({ evidence: [] })],
+      mandatoryRequirementIds: ["req_bond"],
+    }),
+  },
+  now: NOW,
+});
+ok(missingMandatoryEvidence.status !== "SUFFICIENT", "missing mandatory evidence cannot make READY");
+
+const partialMandatorySet = buildEvidencePacket({
+  contract: tender,
+  structuredSources: {
+    tender: makeAnalysisResultV2({
+      requirements: [
+        mandatoryRequirement(),
+        mandatoryRequirement({
+          id: "req_insurance",
+          category: "INSURANCE",
+          statement: "Bidder must provide proof of insurance coverage.",
+          object: "insurance certificate",
+          evidence: [],
+        }),
+      ],
+      mandatoryRequirementIds: ["req_bond", "req_insurance"],
+    }),
+  },
+  now: NOW,
+});
+ok(partialMandatorySet.status !== "SUFFICIENT", "partial mandatory set cannot make READY");
+
 const falseSufficiency = [
   caseB.status === "SUFFICIENT",
   caseC.status === "SUFFICIENT",
@@ -176,6 +236,10 @@ const falseSufficiency = [
   overflow.status === "SUFFICIENT",
   notFound.status === "SUFFICIENT",
   existenceBitGone.status === "SUFFICIENT",
+  conflictDeadline.status === "SUFFICIENT",
+  ghostMandatory.status === "SUFFICIENT",
+  missingMandatoryEvidence.status === "SUFFICIENT",
+  partialMandatorySet.status === "SUFFICIENT",
 ].filter(Boolean).length;
 ok(falseSufficiency === 0, "FALSE_SUFFICIENCY_PATHS = ZERO");
 

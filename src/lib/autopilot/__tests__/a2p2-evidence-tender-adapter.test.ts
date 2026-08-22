@@ -98,14 +98,50 @@ ok(
   ),
   "MANDATORY_REQUIREMENT_REQUIRES_REAL_EVIDENCE",
 );
-
-const noEvidenceMandatory = adaptAnalysisResultV2(
-  makeAnalysisResultV2({
-    requirements: [mandatoryRequirement({ evidence: [] })],
-    mandatoryRequirementIds: ["req_bond"],
-    facts: [closingFact()],
-  }),
+ok(
+  packet.evidenceFacts.some((item) => item.requirementId === "submission_deadline"),
+  "ACTIVE_FACT_STILL_COUNTS",
 );
+
+const conflictClosing = makeAnalysisResultV2({
+  facts: [closingFact({ status: "CONFLICT" })],
+});
+const conflictAdapted = adaptAnalysisResultV2(conflictClosing);
+ok(
+  !conflictAdapted.facts.some((item) => item.requirementId === "submission_deadline") &&
+    conflictAdapted.rejectedFacts.some((item) => item.reasonCode === "EVIDENCE_STRUCTURAL_CONFLICT"),
+  "CONFLICT_FACT_CANNOT_SATISFY_REQUIRED_EVIDENCE",
+);
+const conflictPacket = buildEvidencePacket({
+  contract: resolveTaskContract({ domainHint: "TENDER_ANALYSIS", now: NOW }),
+  structuredSources: { tender: conflictClosing },
+  now: NOW,
+});
+ok(
+  conflictPacket.status !== "SUFFICIENT" &&
+    conflictPacket.requirementAssessments.find((item) => item.requirementId === "submission_deadline")
+      ?.state !== "READY",
+  "CONFLICT_DEADLINE_DOES_NOT_PRODUCE_SUFFICIENT",
+);
+
+const supersededClosing = adaptAnalysisResultV2(
+  makeAnalysisResultV2({ facts: [closingFact({ status: "SUPERSEDED" })] }),
+);
+ok(
+  !supersededClosing.facts.some((item) => item.requirementId === "submission_deadline"),
+  "SUPERSEDED_FACT_STILL_DOES_NOT_COUNT",
+);
+
+const noEvidenceMandatorySource = makeAnalysisResultV2({
+  requirements: [mandatoryRequirement({ evidence: [] })],
+  mandatoryRequirementIds: ["req_bond"],
+  facts: [closingFact()],
+});
+ok(
+  parseTenderEvidenceSource(noEvidenceMandatorySource) == null,
+  "MANDATORY_WITHOUT_EVIDENCE_FAILS_CLOSED",
+);
+const noEvidenceMandatory = adaptAnalysisResultV2(noEvidenceMandatorySource);
 ok(
   !noEvidenceMandatory.facts.some((item) => item.requirementId === "mandatory_requirements"),
   "mandatory without evidence is not fabricated",
@@ -213,6 +249,73 @@ ok(
     return !result.threw && result.packet?.status === "NOT_EVALUABLE";
   }),
   "ARBITRARY_MALFORMED_TENDER_SOURCE_NEVER_THROWS",
+);
+
+const insurance = mandatoryRequirement({
+  id: "req_insurance",
+  category: "INSURANCE",
+  statement: "Bidder must provide proof of insurance coverage.",
+  object: "insurance certificate",
+});
+ok(
+  parseTenderEvidenceSource(
+    makeAnalysisResultV2({
+      requirements: [mandatoryRequirement(), insurance],
+      mandatoryRequirementIds: ["req_bond", "req_bond"],
+    }),
+  ) == null,
+  "MANDATORY_VIEW_DUPLICATE_ID_FAILS_CLOSED",
+);
+ok(
+  parseTenderEvidenceSource(
+    makeAnalysisResultV2({
+      requirements: [mandatoryRequirement()],
+      mandatoryRequirementIds: ["req_bond", "req_ghost"],
+    }),
+  ) == null &&
+    tenderProbe(
+      makeAnalysisResultV2({
+        requirements: [mandatoryRequirement()],
+        mandatoryRequirementIds: ["req_bond", "req_ghost"],
+      }),
+    ).packet?.status === "NOT_EVALUABLE",
+  "MANDATORY_VIEW_GHOST_ID_FAILS_CLOSED",
+);
+ok(
+  parseTenderEvidenceSource(
+    makeAnalysisResultV2({
+      requirements: [mandatoryRequirement(), insurance],
+      mandatoryRequirementIds: ["req_bond"],
+    }),
+  ) == null,
+  "MANDATORY_VIEW_MISSING_ID_FAILS_CLOSED",
+);
+const partialMandatory = makeAnalysisResultV2({
+  requirements: [mandatoryRequirement(), mandatoryRequirement({ ...insurance, evidence: [] })],
+  mandatoryRequirementIds: ["req_bond", "req_insurance"],
+  facts: [closingFact()],
+});
+ok(parseTenderEvidenceSource(partialMandatory) == null, "partial mandatory parse fails closed");
+ok(
+  tenderProbe(partialMandatory).packet?.status !== "SUFFICIENT",
+  "PARTIAL_MANDATORY_EVIDENCE_CANNOT_BE_SUFFICIENT",
+);
+const reversedMandatory = makeAnalysisResultV2({
+  requirements: [mandatoryRequirement(), insurance],
+  mandatoryRequirementIds: ["req_insurance", "req_bond"],
+  facts: [closingFact()],
+});
+ok(parseTenderEvidenceSource(reversedMandatory) != null, "MANDATORY_VIEW_ORDER_INDEPENDENT");
+const bothBacked = buildEvidencePacket({
+  contract: resolveTaskContract({ domainHint: "TENDER_ANALYSIS", now: NOW }),
+  structuredSources: { tender: reversedMandatory },
+  now: NOW,
+});
+ok(
+  bothBacked.status === "SUFFICIENT" &&
+    bothBacked.evidenceFacts.some((item) => item.factKey === "mandatory:req_bond") &&
+    bothBacked.evidenceFacts.some((item) => item.factKey === "mandatory:req_insurance"),
+  "ALL_MANDATORY_REQUIREMENTS_EVIDENCE_BACKED",
 );
 
 if (fail > 0) {

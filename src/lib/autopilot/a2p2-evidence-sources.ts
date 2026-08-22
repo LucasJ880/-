@@ -559,6 +559,34 @@ function parseAnalyzerVersion(metadata: unknown): string | undefined | "invalid"
   return metadata.analyzerVersion;
 }
 
+function mandatoryViewMatchesCanonical(
+  requirements: readonly ParsedTenderRequirement[],
+  actualIds: readonly string[],
+): boolean {
+  const seen = new Set<string>();
+  for (const id of actualIds) {
+    if (seen.has(id)) return false;
+    seen.add(id);
+  }
+  const byId = new Map(requirements.map((item) => [item.id, item]));
+  for (const id of actualIds) {
+    if (!byId.has(id)) return false;
+  }
+  const expectedIds = requirements
+    .filter((item) => item.status === "ACTIVE" && item.mandatory === true)
+    .map((item) => item.id);
+  if (actualIds.length !== expectedIds.length) return false;
+  const expectedSet = new Set(expectedIds);
+  for (const id of actualIds) {
+    if (!expectedSet.has(id)) return false;
+  }
+  for (const id of expectedIds) {
+    const req = byId.get(id);
+    if (!req || req.evidence.length < 1) return false;
+  }
+  return true;
+}
+
 export function parseTenderEvidenceSource(value: unknown): ParsedTenderEvidenceSource | null {
   if (!isPlainObject(value)) return null;
   if (unknownKeys(value, ANALYSIS_RESULT_KEYS).length > 0) return null;
@@ -590,6 +618,9 @@ export function parseTenderEvidenceSource(value: unknown): ParsedTenderEvidenceS
   for (const id of value.mandatoryRequirementIds) {
     if (typeof id !== "string" || id.length > 80 || !isOpaqueToken(id)) return null;
     mandatoryRequirementIds.push(id);
+  }
+  if (!mandatoryViewMatchesCanonical(requirements, mandatoryRequirementIds)) {
+    return null;
   }
   const projected: ParsedTenderEvidenceSource = {
     contractVersion: TENDER_ANALYSIS_RESULT_VERSION,

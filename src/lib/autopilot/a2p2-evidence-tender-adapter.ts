@@ -87,7 +87,7 @@ function adaptFact(
   fact: ParsedTenderFact,
   source: ParsedTenderEvidenceSource,
 ): EvidenceCandidate | null {
-  if (fact.status === "SUPERSEDED") return null;
+  if (fact.status !== "ACTIVE") return null;
   const requirementId = TENDER_FACT_TYPE_TO_REQUIREMENT[fact.factType];
   if (!requirementId) return null;
   if (!fact.normalizedValue) return null;
@@ -147,6 +147,17 @@ export function adaptParsedTenderSource(source: ParsedTenderEvidenceSource): {
     return { facts: [], rejectedFacts };
   }
   for (const fact of source.facts) {
+    if (fact.status === "CONFLICT") {
+      const requirementId = TENDER_FACT_TYPE_TO_REQUIREMENT[fact.factType];
+      if (requirementId) {
+        rejectedFacts.push({
+          reasonCode: "EVIDENCE_STRUCTURAL_CONFLICT",
+          requirementId,
+          factKey: fact.factType,
+        });
+      }
+      continue;
+    }
     const adapted = adaptFact(fact, source);
     if (adapted) facts.push(adapted);
   }
