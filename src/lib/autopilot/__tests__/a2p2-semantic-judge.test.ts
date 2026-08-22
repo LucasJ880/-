@@ -13,6 +13,7 @@ import { hashEvidencePacket } from "../a2p2-evidence-hash";
 import { routeEvaluation } from "../a2p2-routing";
 import { resolveTaskContract } from "../a2p2-templates";
 import { hashSemanticJudgeProposal } from "../a2p2-semantic-judge-gate";
+import { judgeFacingPrivacyLeakRule } from "../a2p2-semantic-judge-input";
 import { runSemanticJudge, toP2EvaluationState } from "../a2p2-semantic-judge";
 import {
   A2P2_SEMANTIC_JUDGE_PROPOSAL_VERSION,
@@ -24,7 +25,9 @@ import {
   NOW,
   ZERO_BUDGET,
   cloneJson,
+  conflictingDeadlinePacket,
   countingProvider,
+  overLimitTenderContract,
   satisfiedProvider,
   tenderContract,
   tenderReady,
@@ -100,6 +103,7 @@ ok(!successPayload.includes("tenderBody"), "no tender body");
 ok(!successPayload.includes("toolPayload"), "no toolPayload");
 ok(!successPayload.includes("modelOutput"), "no modelOutput");
 ok(!/"prompt"\s*:/.test(successPayload), "no prompt key in judge input");
+ok(judgeFacingPrivacyLeakRule(successPayload) == null, "JUDGE_PRIVACY_LEAK_PATHS");
 
 const lowRoute = routeEvaluation({
   taskContract: contract,
@@ -524,6 +528,55 @@ const oversize = await run("oversize output", {
 ok(oversize.outcome === "UNKNOWN" && oversize.verdictState === "NOT_EVALUATED", "oversize not evaluated");
 ok(oversize.outcome !== "FAILURE", "OVERSIZED_PROVIDER_OUTPUT_IS_NOT_TASK_FAILURE");
 ok(oversize.ruleId === "SEMANTIC_JUDGE_OUTPUT_LIMIT_EXCEEDED", "OVERSIZED_PROVIDER_OUTPUT_NOT_PARSED e2e");
+
+const conflictCounter = countingProvider(satisfiedProvider());
+const conflict = await run("conflicting facts", {
+  taskContract: contract,
+  evidencePacket: conflictingDeadlinePacket(packet),
+  budgetState: ZERO_BUDGET,
+  provider: conflictCounter.provider,
+});
+ok(conflictCounter.calls() === 0, "CONFLICTING_FACTS_CANNOT_REACH_SEMANTIC_JUDGE e2e");
+ok(conflict.outcome !== "TASK_SUCCESS", "CONFLICTING_FACTS_CANNOT_CREATE_TASK_SUCCESS");
+ok(
+  conflict.outcome === "UNKNOWN" && conflict.verdictState === "NOT_EVALUATED",
+  "SELF_HASHED_CONFLICTING_PACKET_CANNOT_CLAIM_SUFFICIENT e2e",
+);
+
+const piiFact = cloneJson(packet);
+const piiTarget = piiFact.evidenceFacts.find(
+  (item) => item.requirementId === "submission_deadline" && item.countsTowardRequirement,
+);
+if (piiTarget) {
+  piiTarget.factSummary = "contact bidder@example.com";
+  piiTarget.privacyClass = "PUBLIC";
+  piiTarget.acceptance = "COLLECTED";
+}
+piiFact.packetHash = hashEvidencePacket(piiFact);
+const piiFactCounter = countingProvider(satisfiedProvider());
+const piiFactSkip = await run("pii fact", {
+  taskContract: contract,
+  evidencePacket: piiFact,
+  budgetState: ZERO_BUDGET,
+  provider: piiFactCounter.provider,
+});
+ok(piiFactCounter.calls() === 0, "SELF_HASHED_PII_FACT_CANNOT_REACH_JUDGE e2e");
+ok(piiFactSkip.outcome !== "TASK_SUCCESS", "pii fact not success");
+
+const overLimitCounter = countingProvider(satisfiedProvider());
+const overLimit = await run("over limit contract", {
+  taskContract: overLimitTenderContract(),
+  evidencePacket: packet,
+  budgetState: ZERO_BUDGET,
+  provider: overLimitCounter.provider,
+});
+ok(overLimitCounter.calls() === 0, "OVER_LIMIT_CONTRACT_SKIPS_PROVIDER e2e");
+ok(overLimitCounter.calls() === 0, "OVER_LIMIT_CONTRACT_CONSUMES_ZERO_JUDGE_CALLS");
+ok(
+  overLimit.outcome === "UNKNOWN" && overLimit.verdictState === "NOT_EVALUATED",
+  "over-limit is not evaluated",
+);
+ok(overLimit.ruleId === "SEMANTIC_JUDGE_REQUIREMENT_LIMIT_EXCEEDED", "over-limit rule");
 
 const falseSuccess = tracked.filter(
   (item) => item.outcome === "TASK_SUCCESS" && item.verdict === "ACCEPTED",

@@ -11,21 +11,31 @@ import {
   type EvaluationEvidenceKind,
   type ValidatedTaskContract,
 } from "./a2p2-contract";
-import { canonicalJson, computeSemanticContractHash, hashEvidencePacket, sha256Hex } from "./a2p2-evidence-hash";
+import { canonicalJson, computeSemanticContractHash, hashEvidencePacket, judgeFacingPacketBytes, sha256Hex } from "./a2p2-evidence-hash";
 import {
   containsSecretMaterial,
   containsUnsafeMarkup,
+  containsPiiText,
   FORBIDDEN_EVIDENCE_FIELD_NAMES,
   isKnownPrivacyClass,
   redactPiiText,
+  scanEvidenceValue,
 } from "./a2p2-evidence-privacy";
-import { type EvidenceFact, type SemanticEvidencePacketV1 } from "./a2p2-evidence-types";
+import { assessPacketStatus, assessRequirementEvidence } from "./a2p2-evidence-sufficiency";
+import {
+  isPrivacyRejectCode,
+  MAX_PACKET_SAFE_TEXT_BYTES,
+  type EvidenceFact,
+  type RequirementEvidenceAssessment,
+  type SemanticEvidencePacketV1,
+} from "./a2p2-evidence-types";
 import { validateEvidencePacketForSemanticJudge } from "./a2p2-semantic-judge-packet";
 import {
   A2P2_SEMANTIC_JUDGE_INPUT_VERSION,
   A2P2_SEMANTIC_JUDGE_PROMPT_VERSION,
   A2P2_SEMANTIC_JUDGE_VERSION,
   MAX_SEMANTIC_JUDGE_INPUT_BYTES,
+  MAX_SEMANTIC_JUDGE_REQUIREMENTS,
   type JudgeSafeEvidenceFact,
   type JudgeSafeRequirement,
   type SemanticJudgeFacingInput,
@@ -120,20 +130,29 @@ export function prepareSemanticJudgeInput(input: {
   contract: ValidatedTaskContract;
   evidencePacket: unknown;
 }): PrepareSemanticJudgeInputResult {
+  if (input.contract.requirements.length > MAX_SEMANTIC_JUDGE_REQUIREMENTS) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_REQUIREMENT_LIMIT_EXCEEDED" };
+  }
+
   const validated = validateEvidencePacketForSemanticJudge(input.evidencePacket);
   if (!validated.ok) {
     return { ok: false, ruleId: validated.ruleId };
   }
   const packet = validated.packet;
 
-  const eligibility = packetEligibilityRule(packet, input.contract);
-  if (eligibility) {
-    return { ok: false, ruleId: eligibility, packetHash: packet.packetHash };
-  }
-
   const binding = contractPacketBindingRule(input.contract, packet);
   if (binding) {
     return { ok: false, ruleId: binding, packetHash: packet.packetHash };
+  }
+
+  const canonical = revalidateCanonicalPacketState(input.contract, packet);
+  if (canonical) {
+    return { ok: false, ruleId: canonical, packetHash: packet.packetHash };
+  }
+
+  const eligibility = packetEligibilityRule(packet, input.contract);
+  if (eligibility) {
+    return { ok: false, ruleId: eligibility, packetHash: packet.packetHash };
   }
 
   const spec = buildJudgeTaskSpec(input.contract);
@@ -142,6 +161,9 @@ export function prepareSemanticJudgeInput(input: {
   }
 
   const facts = buildJudgeEvidenceFacts(packet);
+  if (!facts.ok) {
+    return { ok: false, ruleId: facts.ruleId, packetHash: packet.packetHash };
+  }
   const unsigned = {
     version: A2P2_SEMANTIC_JUDGE_INPUT_VERSION,
     judgeVersion: A2P2_SEMANTIC_JUDGE_VERSION,
@@ -149,7 +171,7 @@ export function prepareSemanticJudgeInput(input: {
     packetHash: packet.packetHash,
     taskType: packet.taskType,
     requirements: stableRequirements(spec.requirements),
-    evidenceFacts: stableFacts(facts),
+    evidenceFacts: stableFacts(facts.facts),
   };
   const semanticView = {
     requirements: unsigned.requirements,
@@ -174,8 +196,117 @@ export function prepareSemanticJudgeInput(input: {
       packetHash: packet.packetHash,
     };
   }
+  const leak = judgeFacingPrivacyLeakRule(serialized);
+  if (leak) {
+    return { ok: false, ruleId: leak, packetHash: packet.packetHash };
+  }
 
   return { ok: true, packet, facing, serialized, byteLength };
+}
+
+function revalidateCanonicalPacketState(
+  contract: ValidatedTaskContract,
+  packet: SemanticEvidencePacketV1,
+): SemanticJudgeRuleId | null {
+  if (judgeFacingPacketBytes(packet) > MAX_PACKET_SAFE_TEXT_BYTES) {
+    return "SEMANTIC_JUDGE_PACKET_LIMIT_EXCEEDED";
+  }
+  const assessed = assessRequirementEvidence(contract, packet.evidenceFacts);
+  const overflow =
+    assessed.packetLimitExceeded ||
+    packet.diagnostics.some((item) => item.code === "EVIDENCE_PACKET_LIMIT_EXCEEDED");
+  const privacyBlocked = canonicalPrivacyBlocked(contract, packet);
+  const recomputedStatus = assessPacketStatus({
+    contract,
+    assessments: assessed.assessments,
+    privacyBlocked,
+    packetLimitExceeded: overflow,
+  });
+  if (!overflow && !assessmentsMatch(packet.requirementAssessments, assessed.assessments)) {
+    return "SEMANTIC_JUDGE_ASSESSMENT_MISMATCH";
+  }
+  if (packet.status !== recomputedStatus) {
+    return "SEMANTIC_JUDGE_STATUS_MISMATCH";
+  }
+  if (!summariesMatch(packet, overflow, recomputedStatus)) {
+    return "SEMANTIC_JUDGE_SUMMARY_MISMATCH";
+  }
+  return null;
+}
+
+function canonicalPrivacyBlocked(
+  contract: ValidatedTaskContract,
+  packet: SemanticEvidencePacketV1,
+): boolean {
+  const requiredIds = new Set(
+    contract.requirements.filter((item) => item.required).map((item) => item.id),
+  );
+  if (
+    packet.rejectedFacts.some(
+      (item) =>
+        isPrivacyRejectCode(item.reasonCode) &&
+        item.requirementId != null &&
+        requiredIds.has(item.requirementId),
+    )
+  ) {
+    return true;
+  }
+  return packet.evidenceFacts.some(
+    (fact) =>
+      requiredIds.has(fact.requirementId) &&
+      (fact.privacyClass === "PROHIBITED" || fact.acceptance === "BLOCKED"),
+  );
+}
+
+function assessmentsMatch(
+  packetRows: readonly RequirementEvidenceAssessment[],
+  canonicalRows: readonly RequirementEvidenceAssessment[],
+): boolean {
+  if (packetRows.length !== canonicalRows.length) return false;
+  const byId = new Map(canonicalRows.map((item) => [item.requirementId, item]));
+  for (const row of packetRows) {
+    const expected = byId.get(row.requirementId);
+    if (!expected) return false;
+    if (row.requiredEvidenceRefs !== expected.requiredEvidenceRefs) return false;
+    if (row.state !== expected.state) return false;
+    if (row.reasonCode !== expected.reasonCode) return false;
+    if (!sameRefSet(row.validEvidenceRefs, expected.validEvidenceRefs)) return false;
+  }
+  return true;
+}
+
+function sameRefSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const a = [...left].sort();
+  const b = [...right].sort();
+  return a.every((item, index) => item === b[index]);
+}
+
+function summariesMatch(
+  packet: SemanticEvidencePacketV1,
+  overflow: boolean,
+  recomputedStatus: SemanticEvidencePacketV1["status"],
+): boolean {
+  const redactedCount = packet.evidenceFacts.filter((fact) => fact.acceptance === "REDACTED").length;
+  if (packet.privacySummary.redactedCount !== redactedCount) return false;
+  if (packet.provenanceSummary.factCount !== packet.evidenceFacts.length) return false;
+  if (!overflow && packet.provenanceSummary.rejectedCount !== packet.rejectedFacts.length) {
+    return false;
+  }
+  const prohibitedCount = packet.rejectedFacts.filter((item) =>
+    isPrivacyRejectCode(item.reasonCode),
+  ).length;
+  if (!overflow && packet.privacySummary.prohibitedCount !== prohibitedCount) return false;
+  const blocked = recomputedStatus === "PRIVACY_BLOCKED";
+  if (packet.privacySummary.blocked !== blocked) return false;
+  return true;
+}
+
+export function judgeFacingPrivacyLeakRule(serialized: string): SemanticJudgeRuleId | null {
+  if (containsSecretMaterial(serialized)) return "SEMANTIC_JUDGE_SECRET_IN_EVIDENCE";
+  if (containsUnsafeMarkup(serialized)) return "SEMANTIC_JUDGE_HTML_IN_EVIDENCE";
+  if (containsPiiText(serialized)) return "SEMANTIC_JUDGE_PII_IN_EVIDENCE";
+  return null;
 }
 
 function packetEligibilityRule(
@@ -302,7 +433,11 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildJudgeEvidenceFacts(packet: SemanticEvidencePacketV1): JudgeSafeEvidenceFact[] {
+function buildJudgeEvidenceFacts(
+  packet: SemanticEvidencePacketV1,
+):
+  | { ok: true; facts: JudgeSafeEvidenceFact[] }
+  | { ok: false; ruleId: SemanticJudgeRuleId } {
   const factsByRef = new Map(packet.evidenceFacts.map((fact) => [fact.evidenceRef, fact]));
   const seen = new Set<string>();
   const out: JudgeSafeEvidenceFact[] = [];
@@ -312,6 +447,8 @@ function buildJudgeEvidenceFacts(packet: SemanticEvidencePacketV1): JudgeSafeEvi
       const fact = factsByRef.get(evidenceRef);
       if (!fact) continue;
       if (!isJudgeEligibleFact(fact, assessment.requirementId)) continue;
+      const unsafe = judgeVisibleFactUnsafe(fact);
+      if (unsafe) return { ok: false, ruleId: unsafe };
       seen.add(evidenceRef);
       out.push({
         evidenceRef: fact.evidenceRef,
@@ -323,7 +460,18 @@ function buildJudgeEvidenceFacts(packet: SemanticEvidencePacketV1): JudgeSafeEvi
       });
     }
   }
-  return out;
+  return { ok: true, facts: out };
+}
+
+function judgeVisibleFactUnsafe(fact: EvidenceFact): SemanticJudgeRuleId | null {
+  const scan = scanEvidenceValue({
+    factSummary: fact.factSummary,
+    normalizedValue: fact.normalizedValue,
+  });
+  if (scan.secret) return "SEMANTIC_JUDGE_SECRET_IN_EVIDENCE";
+  if (scan.html) return "SEMANTIC_JUDGE_HTML_IN_EVIDENCE";
+  if (scan.redacted) return "SEMANTIC_JUDGE_PII_IN_EVIDENCE";
+  return null;
 }
 
 function isJudgeEligibleFact(fact: EvidenceFact, requirementId: string): boolean {

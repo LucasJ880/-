@@ -15,6 +15,7 @@ import { resolveTaskContract } from "../a2p2-templates";
 import {
   detectPromptInjectionLikeText,
   hashSemanticJudgeInput,
+  judgeFacingPrivacyLeakRule,
   judgeInputExceedsLimit,
   prepareSemanticJudgeInput,
   serializedJudgeInputBytes,
@@ -28,6 +29,8 @@ import {
 import {
   NOW,
   cloneJson,
+  conflictingDeadlinePacket,
+  overLimitTenderContract,
   rehashPacket,
   tenderReady,
 } from "./a2p2-semantic-judge-helpers";
@@ -110,6 +113,10 @@ if (prepared.ok) {
       return original?.countsTowardRequirement === true && original.acceptance !== "BLOCKED";
     }),
     "REJECTED_EVIDENCE_NOT_SENT_TO_JUDGE",
+  );
+  ok(
+    judgeFacingPrivacyLeakRule(prepared.serialized) == null,
+    "JUDGE_VISIBLE_EVIDENCE_PRIVACY_RESCAN",
   );
 }
 
@@ -557,6 +564,112 @@ ok(
   prepareSemanticJudgeInput({ contract: critContract, evidencePacket: packet }).ruleId ===
     "SEMANTIC_JUDGE_SEMANTIC_CONTRACT_MISMATCH",
   "SEMANTIC_CRITICALITY_MISMATCH_SKIPS_PROVIDER",
+);
+
+const forgedReady = conflictingDeadlinePacket(packet);
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: forgedReady }).ruleId ===
+    "SEMANTIC_JUDGE_ASSESSMENT_MISMATCH",
+  "FORGED_READY_ASSESSMENT_REJECTED",
+);
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: forgedReady }).ok === false,
+  "SELF_HASHED_CONFLICTING_PACKET_CANNOT_CLAIM_SUFFICIENT",
+);
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: forgedReady }).ok === false,
+  "CONFLICTING_FACTS_CANNOT_REACH_SEMANTIC_JUDGE",
+);
+
+const forgedReason = cloneJson(packet);
+const readyRow = forgedReason.requirementAssessments.find(
+  (item) => item.requirementId === "submission_deadline",
+);
+if (readyRow) readyRow.reasonCode = "EVIDENCE_MISSING";
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: rehashPacket(forgedReason),
+  }).ruleId === "SEMANTIC_JUDGE_ASSESSMENT_MISMATCH",
+  "FORGED_ASSESSMENT_REASON_REJECTED",
+);
+
+const forgedStatus = cloneJson(insufficient);
+forgedStatus.status = "SUFFICIENT";
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: rehashPacket(forgedStatus),
+  }).ruleId === "SEMANTIC_JUDGE_STATUS_MISMATCH",
+  "FORGED_SUFFICIENT_STATUS_REJECTED",
+);
+
+const forgedPrivacy = cloneJson(privacy);
+forgedPrivacy.privacySummary = {
+  blocked: false,
+  redactedCount: 0,
+  prohibitedCount: 0,
+};
+forgedPrivacy.status = "SUFFICIENT";
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: rehashPacket(forgedPrivacy),
+  }).ok === false,
+  "FORGED_PRIVACY_SUMMARY_CANNOT_CREATE_SUFFICIENT",
+);
+
+function forgeVisibleFact(summary: string) {
+  const next = cloneJson(packet);
+  const fact = next.evidenceFacts.find(
+    (item) => item.requirementId === "submission_deadline" && item.countsTowardRequirement,
+  );
+  if (fact) {
+    fact.factSummary = summary;
+    fact.privacyClass = "PUBLIC";
+    fact.acceptance = "COLLECTED";
+  }
+  return rehashPacket(next);
+}
+
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: forgeVisibleFact("contact bidder@example.com"),
+  }).ok === false,
+  "SELF_HASHED_PII_FACT_CANNOT_REACH_JUDGE",
+);
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: forgeVisibleFact("Authorization: Bearer sk-live-test-secret"),
+  }).ok === false,
+  "SELF_HASHED_SECRET_FACT_CANNOT_REACH_JUDGE",
+);
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: forgeVisibleFact("<script>alert(1)</script>"),
+  }).ok === false,
+  "SELF_HASHED_HTML_FACT_CANNOT_REACH_JUDGE",
+);
+
+const oversizedPacket = cloneJson(packet);
+oversizedPacket.diagnostics = [{ code: "EVIDENCE_READY", detail: "x".repeat(40_000) }];
+ok(
+  prepareSemanticJudgeInput({
+    contract,
+    evidencePacket: rehashPacket(oversizedPacket),
+  }).ruleId === "SEMANTIC_JUDGE_PACKET_LIMIT_EXCEEDED",
+  "SELF_HASHED_OVERSIZED_PACKET_REJECTED",
+);
+
+const overLimit = overLimitTenderContract();
+ok(overLimit.requirements.length === 33, "over-limit contract has 33 requirements");
+ok(
+  prepareSemanticJudgeInput({ contract: overLimit, evidencePacket: packet }).ruleId ===
+    "SEMANTIC_JUDGE_REQUIREMENT_LIMIT_EXCEEDED",
+  "OVER_LIMIT_CONTRACT_SKIPS_PROVIDER",
 );
 
 const research = resolveTaskContract({ domainHint: "RESEARCH", now: NOW });

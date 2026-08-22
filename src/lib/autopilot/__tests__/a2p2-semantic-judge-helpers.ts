@@ -2,7 +2,7 @@
  * Shared fixtures for A2-P2.2 Grounded Semantic Judge tests.
  */
 
-import { hashEvidencePacket } from "../a2p2-evidence-hash";
+import { hashEvidencePacket, makeCanonicalFactHash, makeEvidenceRef } from "../a2p2-evidence-hash";
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
 import type { SemanticEvidencePacketV1 } from "../a2p2-evidence-types";
 import { resolveTaskContract } from "../a2p2-templates";
@@ -45,6 +45,63 @@ export function rehashPacket(
   const next = cloneJson(packet);
   next.packetHash = hashEvidencePacket(next);
   return next;
+}
+
+export function conflictingDeadlinePacket(
+  packet: SemanticEvidencePacketV1,
+): SemanticEvidencePacketV1 {
+  const next = cloneJson(packet);
+  const original = next.evidenceFacts.find(
+    (item) => item.requirementId === "submission_deadline" && item.countsTowardRequirement,
+  );
+  if (!original) return rehashPacket(next);
+  const twin = cloneJson(original);
+  twin.normalizedValue =
+    typeof original.normalizedValue === "string"
+      ? `${original.normalizedValue}-conflict`
+      : "2026-09-20";
+  twin.canonicalFactHash = makeCanonicalFactHash({
+    evidenceKind: twin.evidenceKind,
+    requirementId: twin.requirementId,
+    factKey: twin.factKey,
+    normalizedValue: twin.normalizedValue,
+    sourceType: twin.source.sourceType,
+    sourceId: twin.source.sourceId,
+  });
+  twin.evidenceRef = makeEvidenceRef({
+    evidenceKind: twin.evidenceKind,
+    requirementId: twin.requirementId,
+    factKey: twin.factKey,
+    sourceType: twin.source.sourceType,
+    sourceId: twin.source.sourceId,
+    canonicalFactHash: twin.canonicalFactHash,
+  });
+  next.evidenceFacts.push(twin);
+  const assessment = next.requirementAssessments.find(
+    (item) => item.requirementId === "submission_deadline",
+  );
+  if (assessment) {
+    assessment.state = "READY";
+    assessment.reasonCode = "EVIDENCE_READY";
+  }
+  next.status = "SUFFICIENT";
+  return rehashPacket(next);
+}
+
+export function overLimitTenderContract(): ValidatedTaskContract {
+  const raw = cloneJson(tenderContract());
+  const extras = Array.from({ length: 28 }, (_, index) => ({
+    id: `extra_req_${index}`,
+    label: `extra requirement ${index}`,
+    normalizedDescription: `extra requirement ${index}`,
+    required: false,
+    evidenceKinds: ["SOURCE_FACT" as const],
+    minimumEvidenceRefs: 1,
+    allowUnknown: true,
+    criticality: "LOW" as const,
+  }));
+  raw.requirements = [...raw.requirements, ...extras];
+  return resolveTaskContract({ now: NOW, explicitContract: raw });
 }
 
 export function countingProvider(inner: SemanticJudgeProvider): {

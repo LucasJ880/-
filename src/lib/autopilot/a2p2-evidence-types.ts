@@ -96,6 +96,18 @@ export const EVIDENCE_REASON_CODES = [
 ] as const;
 export type EvidenceReasonCode = (typeof EVIDENCE_REASON_CODES)[number];
 
+export const PRIVACY_REJECT_CODES = [
+  "EVIDENCE_SECRET_BLOCKED",
+  "EVIDENCE_RAW_CONTENT_REJECTED",
+  "EVIDENCE_PROHIBITED_CLASS_BLOCKED",
+  "EVIDENCE_PRIVACY_BLOCKED",
+] as const;
+export type PrivacyRejectCode = (typeof PRIVACY_REJECT_CODES)[number];
+
+export function isPrivacyRejectCode(value: string): value is PrivacyRejectCode {
+  return (PRIVACY_REJECT_CODES as readonly string[]).includes(value);
+}
+
 export type SafeScalar = string | number | boolean | null;
 export type SafeNormalizedValue = SafeScalar | readonly SafeScalar[];
 

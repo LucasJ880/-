@@ -19,6 +19,7 @@ import { A2P2_SEMANTIC_JUDGE_SYSTEM_PROMPT } from "./a2p2-semantic-judge-prompt"
 import {
   A2P2_SEMANTIC_JUDGE_PROMPT_VERSION,
   A2P2_SEMANTIC_JUDGE_VERSION,
+  MAX_SEMANTIC_JUDGE_REQUIREMENTS,
   SEMANTIC_JUDGE_PROPOSAL_JSON_SCHEMA,
   SEMANTIC_JUDGE_TOOL_COUNT,
   type SemanticJudgeBudgetState,
@@ -48,6 +49,9 @@ export async function runSemanticJudge(
   const contract = parsed.contract;
   if (contract.requirements.length === 0) {
     return skipped("SEMANTIC_JUDGE_GENERIC_EMPTY");
+  }
+  if (contract.requirements.length > MAX_SEMANTIC_JUDGE_REQUIREMENTS) {
+    return skipped("SEMANTIC_JUDGE_REQUIREMENT_LIMIT_EXCEEDED");
   }
 
   const budgetRule = budgetPreflight(contract.evaluationBudget, input.budgetState);

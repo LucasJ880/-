@@ -73,6 +73,10 @@ runSemanticJudge({ taskContract, evidencePacket, budgetState, provider })
 12. counting fact 的 `evidenceKind` 不在对应 requirement.evidenceKinds 内
 13. READY assessment 的 `validEvidenceRefs` 不唯一、不存在、跨 requirement、不计分、或低于 `minimumEvidenceRefs`
 14. `privacyClass` 必须是 `PUBLIC | INTERNAL | SENSITIVE | PROHIBITED`（`SECRET` 等未知值不得仅因 `!== PROHIBITED` 进入 Judge）
+15. 用 P2.1 `assessRequirementEvidence()` / `assessPacketStatus()` 重算 assessment 与 packet status；自报 `SUFFICIENT` / READY 与 canonical 不一致则拒绝
+16. Judge 可见 `factSummary` / `normalizedValue` 再扫 secret / HTML / PII；发现即拒绝，不静默 redact
+17. `contract.requirements.length > MAX_SEMANTIC_JUDGE_REQUIREMENTS`（32）→ 不调模型
+18. 校验后的 packet 仍须满足 P2.1 `MAX_PACKET_SAFE_TEXT_BYTES`
 
 缺证据 ≠ 语义 FAILURE。基础设施失败 ≠ 任务 FAILURE。
 
