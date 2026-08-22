@@ -111,6 +111,16 @@ QO_MIGRATION              = 20260821233000_add_quote_operations_phase2（三处�
 QO_PRODUCTION_DB_CHANGED  = NO
 QO_PRODUCTION_FLAG_CHANGED= NO
 QO_FLAG                   = TENDER_QUOTE_ENGINE_ENABLED（复用；无新 flag）；财务面沿用 TENDER_FINANCIAL_CONTROL_ENABLED
-QO_TESTS                  = import 41/41 · customer 25/25 · contract 31/31 · performance 20/20 · Phase1 34/34+28/28 · guards 63/63+27/27 · golden DB E2E 44/44 · test-all 302/303（唯一失败为 main 既有）
+QO_TESTS                  = import 49/49 · customer 25/25 · contract 48/48 · performance 20/20 · Phase1 34/34+28/28 · guards 63/63+27/27 · golden DB E2E 63/63 · test-all 302/303（唯一失败为 main 既有）
 QO_ISOLATED_BRANCHES      = 0
 ```
+
+## Final Review Fix Gate（2026-08-22，Lucas 审阅 B1–B3；reviewed head `a4f98703`）
+
+| # | 阻断 | 修复 | 证据 |
+|---|---|---|---|
+| B1 P0 | Apply 非原子：成本行 / provenance / APPLIED 三段提交，重试可重复写成本 | `applyImport` = **单一事务**：`QuoteCostImport` + `ProjectQuote` 行 `FOR UPDATE`（并发串行化）→ 事务内重读状态（APPLIED → 幂等返回 `alreadyApplied`，零重复；非 CONFIRMED/允许确认 → 409）→ 冻结纪律 + 行级校验锁内复核 → 逐行 INSERT `QuoteCostLine`（**provenance 同一 INSERT**）→ 同事务 `APPLIED + appliedJson(lineIds)`（confirm_apply 同事务写 confirmedAt）。只追加，不再全量替换（既有/并发行原样保留）。派生快照事务外刷新，结果以 `snapshotRefreshed` 显式报告（运行时引擎为真相，读路径 drift 自愈） | E2E D：B1-04 提交前失败 → 状态未变/零行/无 appliedJson；B1-01/05 重试 exactly-once；B1-06 provenance 首次提交即在；B1-02 APPLIED 重试 alreadyApplied 零重复；B1-03 两路并发 → 恰好 N 行；B1-08 既有行保留。结构守卫 B1-S1…S6 |
+| B2 P0 | 指针先写、镜像 `catch(() => undefined)`，可产生 bidQuoteId=V3 / ourBidPrice=V2 的脑裂 | `writeBidMirrorsTx`：`bidQuoteId + ourBidPrice + currency` 单条 UPDATE + `BidIntelligenceRoom.pricingInputs` 同事务（非 CAD 写 ourPriceCad=null 并标币种，不伪装）；项目行 `FOR UPDATE` 串行化；**所有静默 catch 移除**（仅审计 best-effort）；`transitionQuote` / `reviseQuote` / `awardQuoteToBudget(with_budget)` 在**各自事务内**调用 `syncTenderBidPointerTx`：失败 → 迁移整体回滚 + `tender_bid_sync_failed` 审计 + `TENDER_BID_SYNC_FAILED`；`resolveTenderBid` 暴露 `mirrorStale` | E2E E：B2-01/04 自动选中与重批跟随 → 指针/价格/币种/房间镜像一致；B2-02/06 强制镜像失败 → 整体回滚（旧指针旧价一致）+ 审计；B2-03 修订 → REVISION_PENDING；B2-05 并发选择一致；B2-06 迁移中同步失败 → approve 回滚仍 review；B2-07 取消 → NONE。结构守卫 B2-S1…S6 |
+| B3 P0/P1 | 导入默认把报价币种当供应商币种：未标币种的中国供应商表会悄悄变成 CAD | **无任何报价币种兜底**；缺省 `AUTO_DETECT`；优先级 行级 → 表头/表级/文档级 → 人工显式确认（`supplierCurrency`）→ `UNRESOLVED`（`MISSING_CURRENCY`，Confirm/Apply 被挡）；批量确认只传播到未识别行；行→成本行映射对未解析币种 fail-closed；外币继续走 `FX_REQUIRED` | 纯测试 B3-01…08（350000 无信号 ≠ CAD 350000；确认 CNY 后才 CNY；表头 USD > 人工 CNY；PDF 同规则）；E2E F：服务层 UNRESOLVED → 挡 → 人工确认 CNY → CNY 250×1400 → 引擎 FX_REQUIRED。结构守卫 B3-S1…S5；UI 缺省 AUTO_DETECT + CURRENCY_CONFIRMATION_REQUIRED 横幅 |
+
+修复后验证（head `6cec98b0`）：quote-import **49/49** · quote-ops-contract **48/48** · quote-ops-customer 25/25 · performance 20/20 · Phase 1 calc 34/34 + contract 28/28 · 迁移守卫 63/63 + 27/27 · **迁移文件未变（sha256 `ea5a74fb…` 与审阅版一致）** · swc 守卫 PASS · tsc 0 错 · ESLint baseline PASS · `npm run build` PASS · **Golden DB E2E 63/63**（隔离分支 `e2e-qops-fixgate`，已删，残留 e2e-* = 0）· 全量 test-all **302/303**（唯一失败仍是 main 既有的 `Autopilot A2-P0 Isolated E2E`，与本分支无关）· GitHub CI validate-lint-typecheck-test-build **SUCCESS @ 6cec98b0** · Vercel – qingyan-staging **SUCCESS @ 6cec98b0**。
