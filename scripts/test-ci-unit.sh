@@ -111,6 +111,10 @@ npx tsx src/lib/autopilot/__tests__/evaluate-dashboard.test.ts
 npx tsx src/lib/autopilot/__tests__/evaluate-judge.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-contract.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-routing.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-evidence-privacy.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-evidence-builder.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-evidence-sufficiency.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-evidence-tender-adapter.test.ts
 npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
