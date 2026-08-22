@@ -10,6 +10,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Ban, CheckSquare, ClipboardList, Flag, Loader2, Send } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { useTenderBid } from "@/components/quote-engine/tender-our-bid";
 import { BidChecklist } from "@/components/project-checklist/bid-checklist";
 import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
@@ -246,6 +247,9 @@ function TenderResultForm({
 }) {
   const [result, setResult] = useState<TenderResult | "">("");
   const [ourBidPrice, setOurBidPrice] = useState("");
+  // Phase 2：Approved Quote 为我方报价唯一权威来源——存在时不再手填 ourBidPrice（避免两处漂移）
+  const { data: tenderBid } = useTenderBid(projectId);
+  const authoritativeBid = tenderBid?.bid.status === "AUTHORITATIVE" ? tenderBid.bid.quote : null;
   const [winningBidPrice, setWinningBidPrice] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -261,7 +265,7 @@ function TenderResultForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           result,
-          ourBidPrice: ourBidPrice.trim() === "" ? undefined : ourBidPrice.trim(),
+          ourBidPrice: authoritativeBid ? undefined : ourBidPrice.trim() === "" ? undefined : ourBidPrice.trim(),
           winningBidPrice: winningBidPrice.trim() === "" ? undefined : winningBidPrice.trim(),
           note: note.trim() || undefined,
         }),
@@ -300,16 +304,25 @@ function TenderResultForm({
             ))}
           </select>
         </label>
-        <label className="text-xs space-y-1">
-          <span>我方报价{currency ? `（${currency}）` : ""}（可选）</span>
-          <input
-            value={ourBidPrice}
-            onChange={(e) => setOurBidPrice(e.target.value)}
-            inputMode="decimal"
-            placeholder="例如 125000"
-            className="block w-36 rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-          />
-        </label>
+        {authoritativeBid ? (
+          <div className="text-xs space-y-1" data-testid="our-bid-authoritative">
+            <span>我方报价（来自 Approved Quote V{authoritativeBid.version}，报价引擎为权威来源）</span>
+            <div className="block w-44 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-sm">
+              {authoritativeBid.sellingPrice == null ? "—" : authoritativeBid.sellingPrice.toLocaleString("en-CA", { style: "currency", currency: authoritativeBid.currency })}
+            </div>
+          </div>
+        ) : (
+          <label className="text-xs space-y-1">
+            <span>我方报价{currency ? `（${currency}）` : ""}（可选）</span>
+            <input
+              value={ourBidPrice}
+              onChange={(e) => setOurBidPrice(e.target.value)}
+              inputMode="decimal"
+              placeholder="例如 125000"
+              className="block w-36 rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+            />
+          </label>
+        )}
         <label className="text-xs space-y-1">
           <span>中标价（可选）</span>
           <input
