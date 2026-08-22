@@ -4,7 +4,10 @@
  */
 
 import { parseSemanticJudgeProposal } from "../a2p2-semantic-judge-parser";
-import { A2P2_SEMANTIC_JUDGE_PROPOSAL_VERSION } from "../a2p2-semantic-judge-types";
+import {
+  A2P2_SEMANTIC_JUDGE_PROPOSAL_VERSION,
+  MAX_SEMANTIC_JUDGE_OUTPUT_BYTES,
+} from "../a2p2-semantic-judge-types";
 
 let pass = 0;
 let fail = 0;
@@ -137,6 +140,101 @@ ok(!malformed.ok, "malformed JSON rejected");
 ok(
   parseSemanticJudgeProposal(JSON.stringify(proposal({ version: "nope" }))).ok === false,
   "unknown proposal version rejected",
+);
+
+ok(
+  parseSemanticJudgeProposal(
+    JSON.stringify(proposal({ requirements: [row({ reasonCode: "EVIDENCE_CONTRADICTS_REQUIREMENT" })] })),
+  ).ruleId === "SEMANTIC_JUDGE_JUDGMENT_REASON_MISMATCH",
+  "SATISFIED_WITH_CONTRADICTS_REASON_REJECTED",
+);
+ok(
+  parseSemanticJudgeProposal(
+    JSON.stringify(
+      proposal({
+        requirements: [
+          row({
+            judgment: "PARTIAL",
+            reasonCode: "EVIDENCE_SUPPORTS_REQUIREMENT",
+          }),
+        ],
+      }),
+    ),
+  ).ruleId === "SEMANTIC_JUDGE_JUDGMENT_REASON_MISMATCH",
+  "PARTIAL_WITH_SUPPORTS_REASON_REJECTED",
+);
+ok(
+  parseSemanticJudgeProposal(
+    JSON.stringify(
+      proposal({
+        requirements: [
+          row({
+            judgment: "NOT_SATISFIED",
+            reasonCode: "EVIDENCE_SUPPORTS_REQUIREMENT",
+          }),
+        ],
+      }),
+    ),
+  ).ruleId === "SEMANTIC_JUDGE_JUDGMENT_REASON_MISMATCH",
+  "NOT_SATISFIED_WITH_SUPPORTS_REASON_REJECTED",
+);
+ok(
+  parseSemanticJudgeProposal(
+    JSON.stringify(
+      proposal({
+        requirements: [
+          row({
+            judgment: "UNKNOWN",
+            reasonCode: "EVIDENCE_SUPPORTS_REQUIREMENT",
+            evidenceRefs: [],
+          }),
+        ],
+      }),
+    ),
+  ).ruleId === "SEMANTIC_JUDGE_JUDGMENT_REASON_MISMATCH",
+  "UNKNOWN_WITH_SUPPORTS_REASON_REJECTED",
+);
+
+ok(
+  parseSemanticJudgeProposal("x".repeat(MAX_SEMANTIC_JUDGE_OUTPUT_BYTES + 1)).ruleId ===
+    "SEMANTIC_JUDGE_OUTPUT_LIMIT_EXCEEDED",
+  "OVERSIZED_PROVIDER_OUTPUT_NOT_PARSED",
+);
+
+const tooMany = parseSemanticJudgeProposal(
+  JSON.stringify(
+    proposal({
+      requirements: Array.from({ length: 33 }, (_, index) =>
+        row({ requirementId: `req_${index}` }),
+      ),
+    }),
+  ),
+);
+ok(
+  !tooMany.ok && tooMany.ruleId === "SEMANTIC_JUDGE_REQUIREMENT_ARRAY_LIMIT",
+  "MODEL_REQUIREMENT_ARRAY_LIMIT_ENFORCED",
+);
+
+ok(
+  parseSemanticJudgeProposal(
+    JSON.stringify(proposal({ requirements: [row({ rationale: "password: hunter2" })] })),
+  ).ruleId === "SEMANTIC_JUDGE_UNSAFE_RATIONALE",
+  "SECRET_IN_MODEL_RATIONALE_REJECTED",
+);
+ok(
+  parseSemanticJudgeProposal(
+    JSON.stringify(proposal({ requirements: [row({ rationale: "<b>html</b>" })] })),
+  ).ruleId === "SEMANTIC_JUDGE_UNSAFE_RATIONALE",
+  "HTML_IN_MODEL_RATIONALE_REJECTED",
+);
+const piiRationale = parseSemanticJudgeProposal(
+  JSON.stringify(proposal({ requirements: [row({ rationale: "contact bidder@example.com" })] })),
+);
+ok(
+  piiRationale.ok &&
+    piiRationale.proposal.requirements[0]?.rationale.includes("[EMAIL]") &&
+    !piiRationale.proposal.requirements[0]?.rationale.includes("bidder@example.com"),
+  "PII_IN_MODEL_RATIONALE_REDACTED",
 );
 
 if (fail > 0) {

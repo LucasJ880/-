@@ -53,7 +53,7 @@ runSemanticJudge({ taskContract, evidencePacket, budgetState, provider })
 
 合同必须通过现有 `parseTaskContract()`。禁止第二套 Task Contract parser。
 
-证据包必须是 `SemanticEvidencePacketV1`（`a2p2-evidence-packet-v1`）。不信任 TypeScript 类型：运行时重算 `packetHash`（P2.1 `hashEvidencePacket()`）。
+证据包必须是 `SemanticEvidencePacketV1`（`a2p2-evidence-packet-v1`）。不信任 TypeScript 类型：先做 never-throw 深层结构校验 `validateEvidencePacketForSemanticJudge()`，再核验 P2.1 canonical 不变量（fact hash / EvidenceRef / 枚举 / READY assessment），**然后才**重算 `packetHash`。任意畸形 JSON 不得 throw，结果为 `NOT_EVALUATED` + `UNKNOWN`。
 
 ## 调模型前的 fail-closed 门
 
@@ -61,17 +61,22 @@ runSemanticJudge({ taskContract, evidencePacket, budgetState, provider })
 
 1. 合同无效 / GENERIC 空需求
 2. `judgeCallsUsed >= maxJudgeCalls` 或 `costUsdUsed >= maxCostUsd`
-3. packet `version` 不是 v1
+3. packet `version` / `builderVersion` / `collectorVersion` 不是当前权威值，或枚举未知
 4. `status` 不是 `SUFFICIENT`（`INSUFFICIENT` / `CONFLICTING` / `PRIVACY_BLOCKED` / `NOT_EVALUABLE`）
 5. `privacySummary.blocked === true` 或 `prohibitedCount > 0`
 6. 任一 **required** assessment 不是 `READY`
-7. `packetHash` 与本地重算不一致
-8. Task Contract ↔ packet 精确绑定失败：`taskType`、requirement 条数/id/`required`/`evidenceKinds`/`minimumEvidenceRefs`/`allowUnknown`、`packet.contract.{taskType,riskClass,automationLevel,requirementCount}`
+7. `packetHash` 与本地重算不一致；或 `canonicalFactHash` / `EvidenceRef` 与 P2.1 算法不一致
+8. Task Contract ↔ packet 精确绑定失败：`semanticContractHash`（含 `normalizedDescription` / `criticality`）、`taskType`、requirement 条数/id/`required`/`evidenceKinds`/`minimumEvidenceRefs`/`allowUnknown`、`packet.contract.{taskType,riskClass,automationLevel,requirementCount}`
 9. requirement `normalizedDescription` 含密钥 / HTML / 禁止原文标记 → 跳过。PII 可确定性 redact 后继续
 10. Judge 可见文本含明显 prompt-injection 句式 → 跳过
 11. 最终序列化 Judge input > `MAX_SEMANTIC_JUDGE_INPUT_BYTES`（32KB）→ **禁止截断后仍评价**
+12. counting fact 的 `evidenceKind` 不在对应 requirement.evidenceKinds 内
+13. READY assessment 的 `validEvidenceRefs` 不唯一、不存在、跨 requirement、不计分、或低于 `minimumEvidenceRefs`
+14. `privacyClass` 必须是 `PUBLIC | INTERNAL | SENSITIVE | PROHIBITED`（`SECRET` 等未知值不得仅因 `!== PROHIBITED` 进入 Judge）
 
 缺证据 ≠ 语义 FAILURE。基础设施失败 ≠ 任务 FAILURE。
+
+`semanticContractHash` 由当前 Task Contract 确定性重算；旧 packet 不得在 requirement 语义变更后复用。
 
 ## Judge 输入（最小投影）
 
@@ -138,7 +143,18 @@ type SemanticJudgeProvider = (request) => Promise<{ text: string }>
 
 整段就是一个 JSON object。拒绝：markdown fence、前后散文、未知顶层/requirement 字段、未知枚举、重复 requirementId、缺字段、超长 rationale、非法 evidenceRefs。
 
-`rationale` 只是有界展示元数据，**不参与**接受决策。不索取、不持久化 chain-of-thought。
+`rationale` 只是有界展示元数据，**不参与**接受决策。不索取、不持久化 chain-of-thought。进入 decision 前必须过 secret / HTML / injection 扫描；PII 确定性 redact。`proposalHash` 只哈希这份安全对象。
+
+judgment / reasonCode 权威矩阵：
+
+- `SATISFIED` → `EVIDENCE_SUPPORTS_REQUIREMENT`
+- `PARTIAL` → `EVIDENCE_PARTIALLY_SUPPORTS_REQUIREMENT`
+- `NOT_SATISFIED` → `EVIDENCE_CONTRADICTS_REQUIREMENT`
+- `UNKNOWN` → `SEMANTIC_UNCERTAINTY`
+
+mismatch 即拒收提案。
+
+原始 provider 文本在 `JSON.parse` 前受 `MAX_SEMANTIC_JUDGE_OUTPUT_BYTES`（64KB）约束。`requirements` 数组受 `MAX_SEMANTIC_JUDGE_REQUIREMENTS`（32）约束。
 
 ## 证据锚定
 
@@ -233,6 +249,7 @@ P2.2 合同预算有用，但 Production 激活仍需要真正的 runtime org/ra
 ## 模块
 
 - `a2p2-semantic-judge-types.ts` — 版本与契约
+- `a2p2-semantic-judge-packet.ts` — 深层 never-throw Evidence Packet validator
 - `a2p2-semantic-judge-input.ts` — 输入门与投影
 - `a2p2-semantic-judge-prompt.ts` — system prompt
 - `a2p2-semantic-judge-parser.ts` — 严格 parser

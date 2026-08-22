@@ -19,6 +19,41 @@ export function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+/**
+ * Judge-authoritative contract fingerprint. Does not include raw prompts
+ * or goal conversation text. Used by P2.1 packet identity and P2.2 binding.
+ */
+export function computeSemanticContractHash(input: {
+  taskType: string;
+  requirements: readonly {
+    id: string;
+    normalizedDescription: string;
+    required: boolean;
+    criticality: string;
+    allowUnknown: boolean;
+    minimumEvidenceRefs: number;
+    evidenceKinds: readonly string[];
+  }[];
+}): string {
+  const requirements = [...input.requirements]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((item) => ({
+      id: item.id,
+      normalizedDescription: item.normalizedDescription,
+      required: item.required,
+      criticality: item.criticality,
+      allowUnknown: item.allowUnknown,
+      minimumEvidenceRefs: item.minimumEvidenceRefs,
+      evidenceKinds: [...item.evidenceKinds].sort(),
+    }));
+  return sha256Hex(
+    canonicalJson({
+      taskType: input.taskType,
+      requirements,
+    }),
+  );
+}
+
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortValue(value));
 }

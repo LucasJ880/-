@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { toEvaluationEvidenceStatus } from "../a2p2-evidence-adapter";
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
 import { selectEvidenceCollector } from "../a2p2-evidence-collectors";
-import { hashEvidencePacket, judgeFacingPacketBytes, makeEvidenceRef } from "../a2p2-evidence-hash";
+import { hashEvidencePacket, judgeFacingPacketBytes, makeEvidenceRef, computeSemanticContractHash } from "../a2p2-evidence-hash";
 import { MAX_EVIDENCE_FACTS, MAX_PACKET_SAFE_TEXT_BYTES } from "../a2p2-evidence-types";
 import { resolveTaskContract } from "../a2p2-templates";
 import {
@@ -84,6 +84,26 @@ const packetA2 = buildEvidencePacket({
 });
 ok(packetA.status === "SUFFICIENT", "Tender Case A sufficient from AnalysisResultV2");
 ok(packetA.packetHash === packetA2.packetHash, "PACKET_HASH_DETERMINISTIC");
+ok(
+  packetA.contract.semanticContractHash === computeSemanticContractHash(contract),
+  "SEMANTIC_CONTRACT_HASH_MATCHES_TASK_CONTRACT",
+);
+ok(
+  packetA.contract.semanticContractHash === packetA2.contract.semanticContractHash,
+  "SEMANTIC_CONTRACT_HASH_DETERMINISTIC",
+);
+{
+  const renamed = JSON.parse(JSON.stringify(contract)) as typeof contract;
+  renamed.requirements = renamed.requirements.map((item) =>
+    item.id === "submission_deadline"
+      ? { ...item, normalizedDescription: "completely different deadline wording" }
+      : item,
+  );
+  ok(
+    computeSemanticContractHash(renamed) !== packetA.contract.semanticContractHash,
+    "SEMANTIC_CONTRACT_HASH_CHANGES_WITH_DESCRIPTION",
+  );
+}
 ok(
   packetA.evidenceFacts[0]?.evidenceRef === packetA2.evidenceFacts[0]?.evidenceRef,
   "EVIDENCE_REF_REPLAY_STABLE",

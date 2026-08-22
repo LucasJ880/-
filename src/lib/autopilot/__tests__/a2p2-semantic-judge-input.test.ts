@@ -6,6 +6,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
+import {
+  hashEvidencePacket,
+  makeCanonicalFactHash,
+  makeEvidenceRef,
+} from "../a2p2-evidence-hash";
 import { resolveTaskContract } from "../a2p2-templates";
 import {
   detectPromptInjectionLikeText,
@@ -14,6 +19,7 @@ import {
   prepareSemanticJudgeInput,
   serializedJudgeInputBytes,
 } from "../a2p2-semantic-judge-input";
+import { validateEvidencePacketForSemanticJudge } from "../a2p2-semantic-judge-packet";
 import { MAX_SEMANTIC_JUDGE_INPUT_BYTES } from "../a2p2-semantic-judge-types";
 import {
   closingFact,
@@ -359,6 +365,198 @@ ok(!judgeInputExceedsLimit("x".repeat(16)), "small payload within limit");
 ok(
   judgeInputExceedsLimit("x".repeat(MAX_SEMANTIC_JUDGE_INPUT_BYTES + 1)) === true,
   "OVERSIZED_JUDGE_INPUT_SKIPS_PROVIDER",
+);
+
+const malformedInputs = [
+  null,
+  1,
+  "packet",
+  [],
+  { version: 1 },
+  { circular: null as unknown },
+];
+(malformedInputs[5] as { circular: unknown }).circular = malformedInputs[5];
+let malformedThrew = false;
+for (const sample of malformedInputs) {
+  try {
+    validateEvidencePacketForSemanticJudge(sample);
+    prepareSemanticJudgeInput({ contract, evidencePacket: sample });
+  } catch {
+    malformedThrew = true;
+  }
+}
+ok(!malformedThrew, "ARBITRARY_MALFORMED_PACKET_NEVER_THROWS");
+
+function mutateAndRehash(
+  mutator: (packet: ReturnType<typeof cloneJson<typeof packet>>) => void,
+) {
+  const next = cloneJson(packet);
+  mutator(next);
+  next.packetHash = hashEvidencePacket(next);
+  return next;
+}
+
+const hashTamper = mutateAndRehash((next) => {
+  const fact = next.evidenceFacts[0];
+  if (fact) fact.canonicalFactHash = "0".repeat(64);
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: hashTamper }).ruleId ===
+    "SEMANTIC_JUDGE_CANONICAL_FACT_HASH_MISMATCH",
+  "CANONICAL_FACT_HASH_MISMATCH_SKIPS_PROVIDER",
+  prepareSemanticJudgeInput({ contract, evidencePacket: hashTamper }),
+);
+
+const refTamper = mutateAndRehash((next) => {
+  const fact = next.evidenceFacts[0];
+  if (!fact) return;
+  const old = fact.evidenceRef;
+  fact.evidenceRef = "f".repeat(64);
+  for (const assessment of next.requirementAssessments) {
+    assessment.validEvidenceRefs = assessment.validEvidenceRefs.map((item) =>
+      item === old ? fact.evidenceRef : item,
+    );
+  }
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: refTamper }).ruleId ===
+    "SEMANTIC_JUDGE_EVIDENCE_REF_MISMATCH",
+  "EVIDENCE_REF_RECOMPUTE_MISMATCH_SKIPS_PROVIDER",
+);
+
+const kindTamper = mutateAndRehash((next) => {
+  const fact = next.evidenceFacts.find(
+    (item) => item.requirementId === "submission_deadline" && item.countsTowardRequirement,
+  );
+  if (!fact) return;
+  const old = fact.evidenceRef;
+  fact.evidenceKind = "TOOL_RESULT";
+  fact.canonicalFactHash = makeCanonicalFactHash({
+    evidenceKind: fact.evidenceKind,
+    requirementId: fact.requirementId,
+    factKey: fact.factKey,
+    normalizedValue: fact.normalizedValue,
+    sourceType: fact.source.sourceType,
+    sourceId: fact.source.sourceId,
+  });
+  fact.evidenceRef = makeEvidenceRef({
+    evidenceKind: fact.evidenceKind,
+    requirementId: fact.requirementId,
+    factKey: fact.factKey,
+    sourceType: fact.source.sourceType,
+    sourceId: fact.source.sourceId,
+    canonicalFactHash: fact.canonicalFactHash,
+  });
+  for (const assessment of next.requirementAssessments) {
+    assessment.validEvidenceRefs = assessment.validEvidenceRefs.map((item) =>
+      item === old ? fact.evidenceRef : item,
+    );
+  }
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: kindTamper }).ruleId ===
+    "SEMANTIC_JUDGE_WRONG_EVIDENCE_KIND",
+  "WRONG_EVIDENCE_KIND_CANNOT_ENTER_JUDGE",
+);
+
+const unknownKind = mutateAndRehash((next) => {
+  const fact = next.evidenceFacts[0];
+  if (!fact) return;
+  fact.evidenceKind = "MAGIC" as never;
+  fact.countsTowardRequirement = false;
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: unknownKind }).ruleId ===
+    "SEMANTIC_JUDGE_UNKNOWN_EVIDENCE_KIND",
+  "UNKNOWN_EVIDENCE_KIND_SKIPS_PROVIDER",
+);
+
+const secretClass = mutateAndRehash((next) => {
+  const fact = next.evidenceFacts[0];
+  if (fact) fact.privacyClass = "SECRET" as never;
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: secretClass }).ruleId ===
+    "SEMANTIC_JUDGE_UNKNOWN_PRIVACY_CLASS",
+  "UNKNOWN_PRIVACY_CLASS_SKIPS_PROVIDER",
+);
+
+const unknownAcceptance = mutateAndRehash((next) => {
+  const fact = next.evidenceFacts[0];
+  if (fact) fact.acceptance = "DESTROYED" as never;
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: unknownAcceptance }).ruleId ===
+    "SEMANTIC_JUDGE_UNKNOWN_ACCEPTANCE",
+  "UNKNOWN_ACCEPTANCE_STATE_SKIPS_PROVIDER",
+);
+
+const missingRef = mutateAndRehash((next) => {
+  const assessment = next.requirementAssessments.find(
+    (item) => item.requirementId === "submission_deadline",
+  );
+  if (assessment) assessment.validEvidenceRefs = [...assessment.validEvidenceRefs, "a".repeat(64)];
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: missingRef }).ruleId ===
+    "SEMANTIC_JUDGE_READY_ASSESSMENT_INVALID",
+  "READY_ASSESSMENT_MISSING_REF_SKIPS_PROVIDER",
+);
+
+const wrongReqRef = mutateAndRehash((next) => {
+  const deadline = next.requirementAssessments.find(
+    (item) => item.requirementId === "submission_deadline",
+  );
+  const other = next.evidenceFacts.find((item) => item.requirementId === "mandatory_requirements");
+  if (deadline && other) deadline.validEvidenceRefs = [other.evidenceRef];
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: wrongReqRef }).ruleId ===
+    "SEMANTIC_JUDGE_READY_ASSESSMENT_INVALID",
+  "READY_ASSESSMENT_WRONG_REQUIREMENT_REF_SKIPS_PROVIDER",
+);
+
+const belowMin = mutateAndRehash((next) => {
+  const deadline = next.requirementAssessments.find(
+    (item) => item.requirementId === "submission_deadline",
+  );
+  if (deadline) {
+    deadline.state = "READY";
+    deadline.validEvidenceRefs = [];
+  }
+});
+ok(
+  prepareSemanticJudgeInput({ contract, evidencePacket: belowMin }).ruleId ===
+    "SEMANTIC_JUDGE_READY_ASSESSMENT_INVALID",
+  "READY_ASSESSMENT_BELOW_MINIMUM_SKIPS_PROVIDER",
+);
+
+const descContractRaw = cloneJson(contract);
+descContractRaw.requirements = descContractRaw.requirements.map((item) =>
+  item.id === "submission_deadline"
+    ? { ...item, normalizedDescription: "a different deadline description" }
+    : item,
+);
+const descContract = resolveTaskContract({ now: NOW, explicitContract: descContractRaw });
+ok(
+  prepareSemanticJudgeInput({ contract: descContract, evidencePacket: packet }).ruleId ===
+    "SEMANTIC_JUDGE_SEMANTIC_CONTRACT_MISMATCH",
+  "SEMANTIC_DESCRIPTION_MISMATCH_SKIPS_PROVIDER",
+);
+ok(
+  prepareSemanticJudgeInput({ contract: descContract, evidencePacket: packet }).ok === false,
+  "OLD_PACKET_CANNOT_BE_REUSED_WITH_NEW_REQUIREMENT_SEMANTICS",
+);
+
+const critContractRaw = cloneJson(contract);
+critContractRaw.requirements = critContractRaw.requirements.map((item) =>
+  item.id === "submission_deadline" ? { ...item, criticality: "MEDIUM" } : item,
+);
+const critContract = resolveTaskContract({ now: NOW, explicitContract: critContractRaw });
+ok(
+  prepareSemanticJudgeInput({ contract: critContract, evidencePacket: packet }).ruleId ===
+    "SEMANTIC_JUDGE_SEMANTIC_CONTRACT_MISMATCH",
+  "SEMANTIC_CRITICALITY_MISMATCH_SKIPS_PROVIDER",
 );
 
 const research = resolveTaskContract({ domainHint: "RESEARCH", now: NOW });

@@ -17,6 +17,7 @@ import { collectEvidenceForContract } from "./a2p2-evidence-collectors";
 import {
   compareDiagnostics,
   compareRejectedEvidence,
+  computeSemanticContractHash,
   hashEvidencePacket,
   judgeFacingPacketBytes,
   makeCanonicalFactHash,
@@ -53,6 +54,7 @@ import {
   type EvidencePacketStatus,
   type RejectedEvidence,
   type RequirementEvidenceAssessment,
+  type SafeContractMetadata,
   type SemanticEvidencePacketV1,
 } from "./a2p2-evidence-types";
 
@@ -241,6 +243,31 @@ function acceptCandidate(
   };
 }
 
+function contractMetadataOf(contract: ValidatedTaskContract): SafeContractMetadata {
+  return {
+    taskType: contract.taskType,
+    riskClass: contract.riskClass,
+    automationLevel: contract.automationLevel,
+    requirementCount: contract.requirements.length,
+    semanticContractHash: computeSemanticContractHash(contract),
+  };
+}
+
+function emptyContractMetadata(
+  taskType: SemanticEvidencePacketV1["taskType"],
+): SafeContractMetadata {
+  return {
+    taskType,
+    riskClass: "RESTRICTED",
+    automationLevel: "L0",
+    requirementCount: 0,
+    semanticContractHash: computeSemanticContractHash({
+      taskType,
+      requirements: [],
+    }),
+  };
+}
+
 function emptyPacket(input: {
   taskType: SemanticEvidencePacketV1["taskType"];
   status: EvidencePacketStatus;
@@ -250,12 +277,7 @@ function emptyPacket(input: {
   const packet = finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
-    contract: {
-      taskType: input.taskType,
-      riskClass: "RESTRICTED",
-      automationLevel: "L0",
-      requirementCount: 0,
-    },
+    contract: emptyContractMetadata(input.taskType),
     taskType: input.taskType,
     requirements: [],
     evidenceFacts: [],
@@ -333,12 +355,7 @@ function lastResortPacket(input: {
   return finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
-    contract: {
-      taskType: input.taskType,
-      riskClass: "RESTRICTED",
-      automationLevel: "L0",
-      requirementCount: 0,
-    },
+    contract: emptyContractMetadata(input.taskType),
     taskType: input.taskType,
     requirements: [],
     evidenceFacts: [],
@@ -491,12 +508,7 @@ function buildEvidencePacketInner(input: BuildEvidencePacketInput): SemanticEvid
     minimumEvidenceRefs: item.minimumEvidenceRefs,
     allowUnknown: item.allowUnknown,
   }));
-  const contractMeta = {
-    taskType: contract.taskType,
-    riskClass: contract.riskClass,
-    automationLevel: contract.automationLevel,
-    requirementCount: contract.requirements.length,
-  };
+  const contractMeta = contractMetadataOf(contract);
   const assessments = perRequirementLimit || countOverflow
     ? overflowAssessments(contract)
     : assessed.assessments;

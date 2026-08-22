@@ -7,10 +7,19 @@
 
 import { REQUIREMENT_ID_PATTERN } from "./a2p2-contract";
 import {
+  containsSecretMaterial,
+  containsUnsafeMarkup,
+  redactPiiText,
+} from "./a2p2-evidence-privacy";
+import { detectPromptInjectionLikeText } from "./a2p2-semantic-judge-input";
+import {
   A2P2_SEMANTIC_JUDGE_PROPOSAL_VERSION,
+  MAX_SEMANTIC_JUDGE_OUTPUT_BYTES,
   MAX_SEMANTIC_JUDGE_RATIONALE_CHARS,
+  MAX_SEMANTIC_JUDGE_REQUIREMENTS,
   MODEL_FORBIDDEN_AUTHORITY_FIELDS,
   SEMANTIC_CONFIDENCES,
+  SEMANTIC_JUDGMENT_REASON_MATRIX,
   SEMANTIC_JUDGMENTS,
   SEMANTIC_PROPOSAL_REASON_CODES,
   type ParsedRequirementProposal,
@@ -51,6 +60,9 @@ export function parseSemanticJudgeProposal(
   if (typeof text !== "string") {
     return { ok: false, ruleId: "SEMANTIC_JUDGE_PROPOSAL_REJECTED" };
   }
+  if (Buffer.byteLength(text, "utf8") > MAX_SEMANTIC_JUDGE_OUTPUT_BYTES) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_OUTPUT_LIMIT_EXCEEDED" };
+  }
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, ruleId: "SEMANTIC_JUDGE_PROPOSAL_REJECTED" };
   if (trimmed.includes("```") || /^```/m.test(trimmed)) {
@@ -87,6 +99,9 @@ export function parseSemanticJudgeProposal(
   }
   if (!Array.isArray(row.requirements)) {
     return { ok: false, ruleId: "SEMANTIC_JUDGE_PROPOSAL_REJECTED" };
+  }
+  if (row.requirements.length > MAX_SEMANTIC_JUDGE_REQUIREMENTS) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_REQUIREMENT_ARRAY_LIMIT" };
   }
 
   const requirements: ParsedRequirementProposal[] = [];
@@ -140,9 +155,14 @@ function parseRequirementProposal(
   if (!isEnum(row.reasonCode, SEMANTIC_PROPOSAL_REASON_CODES)) {
     return { ok: false, ruleId: "SEMANTIC_JUDGE_INVALID_ENUM" };
   }
+  if (SEMANTIC_JUDGMENT_REASON_MATRIX[row.judgment] !== row.reasonCode) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_JUDGMENT_REASON_MISMATCH" };
+  }
   if (typeof row.rationale !== "string" || row.rationale.length > MAX_SEMANTIC_JUDGE_RATIONALE_CHARS) {
     return { ok: false, ruleId: "SEMANTIC_JUDGE_PROPOSAL_REJECTED" };
   }
+  const rationale = sanitizeRationale(row.rationale);
+  if (!rationale.ok) return rationale;
   const refs = parseEvidenceRefs(row.evidenceRefs);
   if (!refs.ok) return refs;
 
@@ -154,7 +174,7 @@ function parseRequirementProposal(
       confidence: row.confidence,
       evidenceRefs: refs.refs,
       reasonCode: row.reasonCode,
-      rationale: row.rationale,
+      rationale: rationale.text,
     },
   };
 }
@@ -181,6 +201,22 @@ function parseEvidenceRefs(
     refs.push(item);
   }
   return { ok: true, refs };
+}
+
+function sanitizeRationale(
+  value: string,
+): { ok: true; text: string } | { ok: false; ruleId: SemanticJudgeRuleId } {
+  if (containsSecretMaterial(value) || containsUnsafeMarkup(value)) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_UNSAFE_RATIONALE" };
+  }
+  if (detectPromptInjectionLikeText(value)) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_UNSAFE_RATIONALE" };
+  }
+  const redacted = redactPiiText(value);
+  if (redacted.text.length > MAX_SEMANTIC_JUDGE_RATIONALE_CHARS) {
+    return { ok: false, ruleId: "SEMANTIC_JUDGE_PROPOSAL_REJECTED" };
+  }
+  return { ok: true, text: redacted.text };
 }
 
 function unknownFieldRule(keys: readonly string[]): SemanticJudgeRuleId {

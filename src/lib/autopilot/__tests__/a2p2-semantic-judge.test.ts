@@ -9,10 +9,16 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { toEvaluationEvidenceStatus } from "../a2p2-evidence-adapter";
 import { buildEvidencePacket } from "../a2p2-evidence-builder";
+import { hashEvidencePacket } from "../a2p2-evidence-hash";
 import { routeEvaluation } from "../a2p2-routing";
 import { resolveTaskContract } from "../a2p2-templates";
+import { hashSemanticJudgeProposal } from "../a2p2-semantic-judge-gate";
 import { runSemanticJudge, toP2EvaluationState } from "../a2p2-semantic-judge";
-import { SEMANTIC_JUDGE_TOOL_COUNT } from "../a2p2-semantic-judge-types";
+import {
+  A2P2_SEMANTIC_JUDGE_PROPOSAL_VERSION,
+  MAX_SEMANTIC_JUDGE_OUTPUT_BYTES,
+  SEMANTIC_JUDGE_TOOL_COUNT,
+} from "../a2p2-semantic-judge-types";
 import { makeAnalysisResultV2 } from "./a2p2-evidence-fixtures";
 import {
   NOW,
@@ -421,11 +427,114 @@ const highRoute = routeEvaluation({
 });
 ok(highRoute.decision === "HUMAN_ESCALATE", "HIGH_RISK_ACCEPTED_VERDICT_STILL_HUMAN");
 
+const malformedCounter = countingProvider(satisfiedProvider());
+const malformed = await run("malformed packet", {
+  taskContract: contract,
+  evidencePacket: { version: 1, nested: { x: null } },
+  budgetState: ZERO_BUDGET,
+  provider: malformedCounter.provider,
+});
+ok(malformedCounter.calls() === 0, "malformed packet skips provider");
+ok(
+  malformed.outcome === "UNKNOWN" && malformed.verdictState === "NOT_EVALUATED",
+  "ARBITRARY_MALFORMED_PACKET_NEVER_THROWS e2e",
+);
+
+const descContractRaw = cloneJson(contract);
+descContractRaw.requirements = descContractRaw.requirements.map((item) =>
+  item.id === "submission_deadline"
+    ? { ...item, normalizedDescription: "a different deadline description" }
+    : item,
+);
+const descContract = resolveTaskContract({ now: NOW, explicitContract: descContractRaw });
+const descCounter = countingProvider(satisfiedProvider());
+const descSkip = await run("semantic description mismatch", {
+  taskContract: descContract,
+  evidencePacket: packet,
+  budgetState: ZERO_BUDGET,
+  provider: descCounter.provider,
+});
+ok(descCounter.calls() === 0, "SEMANTIC_DESCRIPTION_MISMATCH_SKIPS_PROVIDER e2e");
+ok(
+  descSkip.outcome === "UNKNOWN" && descSkip.verdictState === "NOT_EVALUATED",
+  "OLD_PACKET_CANNOT_BE_REUSED_WITH_NEW_REQUIREMENT_SEMANTICS e2e",
+);
+
+const piiCounter = countingProvider(
+  satisfiedProvider((proposal) => {
+    for (const row of proposal.requirements) {
+      row.rationale = "contact bidder@example.com";
+    }
+  }),
+);
+const pii = await run("pii rationale", {
+  taskContract: contract,
+  evidencePacket: packet,
+  budgetState: ZERO_BUDGET,
+  provider: piiCounter.provider,
+});
+ok(
+  pii.requirementJudgments.every(
+    (item) =>
+      item.rationale.includes("[EMAIL]") && !item.rationale.includes("bidder@example.com"),
+  ),
+  "PII_IN_MODEL_RATIONALE_REDACTED e2e",
+);
+ok(
+  typeof pii.proposalHash === "string" &&
+    pii.packetHash &&
+    pii.judgeInputHash &&
+    pii.proposalHash ===
+      hashSemanticJudgeProposal({
+        version: A2P2_SEMANTIC_JUDGE_PROPOSAL_VERSION,
+        packetHash: pii.packetHash,
+        judgeInputHash: pii.judgeInputHash,
+        requirements: [...pii.requirementJudgments],
+      }),
+  "proposalHash matches safe redacted proposal",
+);
+
+const forgedCounter = countingProvider(satisfiedProvider());
+const forgedPacket = cloneJson(packet);
+if (forgedPacket.evidenceFacts[0]) {
+  forgedPacket.evidenceFacts[0].privacyClass = "SECRET" as never;
+}
+forgedPacket.packetHash = hashEvidencePacket(forgedPacket);
+const forged = await run("forged self-hash", {
+  taskContract: contract,
+  evidencePacket: forgedPacket,
+  budgetState: ZERO_BUDGET,
+  provider: forgedCounter.provider,
+});
+ok(forgedCounter.calls() === 0, "forged packet skips provider");
+ok(
+  forged.outcome === "UNKNOWN" && forged.verdictState === "NOT_EVALUATED",
+  "SELF_HASHED_FORGED_PACKET_CANNOT_CREATE_SUCCESS",
+);
+
+const oversizeCounter = countingProvider(async () => ({
+  text: "x".repeat(MAX_SEMANTIC_JUDGE_OUTPUT_BYTES + 1),
+}));
+const oversize = await run("oversize output", {
+  taskContract: contract,
+  evidencePacket: packet,
+  budgetState: ZERO_BUDGET,
+  provider: oversizeCounter.provider,
+});
+ok(oversize.outcome === "UNKNOWN" && oversize.verdictState === "NOT_EVALUATED", "oversize not evaluated");
+ok(oversize.outcome !== "FAILURE", "OVERSIZED_PROVIDER_OUTPUT_IS_NOT_TASK_FAILURE");
+ok(oversize.ruleId === "SEMANTIC_JUDGE_OUTPUT_LIMIT_EXCEEDED", "OVERSIZED_PROVIDER_OUTPUT_NOT_PARSED e2e");
+
 const falseSuccess = tracked.filter(
   (item) => item.outcome === "TASK_SUCCESS" && item.verdict === "ACCEPTED",
 );
 ok(
-  falseSuccess.every((item) => item.name === "tender success" || item.name === "high risk success"),
+  falseSuccess.every(
+    (item) =>
+      item.name === "tender success" ||
+      item.name === "high risk success" ||
+      item.name === "pii rationale",
+  ),
   "FALSE_TASK_SUCCESS_PATHS",
 );
 ok(

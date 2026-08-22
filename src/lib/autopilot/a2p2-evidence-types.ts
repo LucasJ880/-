@@ -261,6 +261,7 @@ export type SafeContractMetadata = {
   riskClass: string;
   automationLevel: string;
   requirementCount: number;
+  semanticContractHash: string;
 };
 
 export type SemanticEvidencePacketV1 = {

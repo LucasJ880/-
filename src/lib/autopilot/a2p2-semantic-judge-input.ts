@@ -11,18 +11,16 @@ import {
   type EvaluationEvidenceKind,
   type ValidatedTaskContract,
 } from "./a2p2-contract";
-import { canonicalJson, hashEvidencePacket, sha256Hex } from "./a2p2-evidence-hash";
+import { canonicalJson, computeSemanticContractHash, hashEvidencePacket, sha256Hex } from "./a2p2-evidence-hash";
 import {
   containsSecretMaterial,
   containsUnsafeMarkup,
   FORBIDDEN_EVIDENCE_FIELD_NAMES,
+  isKnownPrivacyClass,
   redactPiiText,
 } from "./a2p2-evidence-privacy";
-import {
-  A2P2_EVIDENCE_PACKET_VERSION,
-  type EvidenceFact,
-  type SemanticEvidencePacketV1,
-} from "./a2p2-evidence-types";
+import { type EvidenceFact, type SemanticEvidencePacketV1 } from "./a2p2-evidence-types";
+import { validateEvidencePacketForSemanticJudge } from "./a2p2-semantic-judge-packet";
 import {
   A2P2_SEMANTIC_JUDGE_INPUT_VERSION,
   A2P2_SEMANTIC_JUDGE_PROMPT_VERSION,
@@ -122,25 +120,15 @@ export function prepareSemanticJudgeInput(input: {
   contract: ValidatedTaskContract;
   evidencePacket: unknown;
 }): PrepareSemanticJudgeInputResult {
-  const packet = asEvidencePacket(input.evidencePacket);
-  if (!packet) {
-    return { ok: false, ruleId: "SEMANTIC_JUDGE_NOT_EVALUABLE" };
+  const validated = validateEvidencePacketForSemanticJudge(input.evidencePacket);
+  if (!validated.ok) {
+    return { ok: false, ruleId: validated.ruleId };
   }
-  if (packet.version !== A2P2_EVIDENCE_PACKET_VERSION) {
-    return { ok: false, ruleId: "SEMANTIC_JUDGE_NOT_EVALUABLE", packetHash: packet.packetHash };
-  }
+  const packet = validated.packet;
 
   const eligibility = packetEligibilityRule(packet, input.contract);
   if (eligibility) {
     return { ok: false, ruleId: eligibility, packetHash: packet.packetHash };
-  }
-
-  if (!verifyEvidencePacketHash(packet)) {
-    return {
-      ok: false,
-      ruleId: "SEMANTIC_JUDGE_PACKET_HASH_MISMATCH",
-      packetHash: packet.packetHash,
-    };
   }
 
   const binding = contractPacketBindingRule(input.contract, packet);
@@ -190,24 +178,6 @@ export function prepareSemanticJudgeInput(input: {
   return { ok: true, packet, facing, serialized, byteLength };
 }
 
-function asEvidencePacket(value: unknown): SemanticEvidencePacketV1 | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const row = value as Partial<SemanticEvidencePacketV1>;
-  if (typeof row.version !== "string") return null;
-  if (typeof row.packetHash !== "string") return null;
-  if (typeof row.taskType !== "string") return null;
-  if (!row.contract || typeof row.contract !== "object") return null;
-  if (!Array.isArray(row.requirements)) return null;
-  if (!Array.isArray(row.evidenceFacts)) return null;
-  if (!Array.isArray(row.requirementAssessments)) return null;
-  if (!Array.isArray(row.rejectedFacts)) return null;
-  if (!Array.isArray(row.diagnostics)) return null;
-  if (!row.privacySummary || typeof row.privacySummary !== "object") return null;
-  if (!row.provenanceSummary || typeof row.provenanceSummary !== "object") return null;
-  if (typeof row.status !== "string") return null;
-  return value as SemanticEvidencePacketV1;
-}
-
 function packetEligibilityRule(
   packet: SemanticEvidencePacketV1,
   contract: ValidatedTaskContract,
@@ -237,6 +207,9 @@ function contractPacketBindingRule(
   contract: ValidatedTaskContract,
   packet: SemanticEvidencePacketV1,
 ): SemanticJudgeRuleId | null {
+  if (packet.contract.semanticContractHash !== computeSemanticContractHash(contract)) {
+    return "SEMANTIC_JUDGE_SEMANTIC_CONTRACT_MISMATCH";
+  }
   if (contract.taskType !== packet.taskType || packet.contract.taskType !== contract.taskType) {
     return "SEMANTIC_JUDGE_CONTRACT_TASK_TYPE_MISMATCH";
   }
@@ -357,6 +330,7 @@ function isJudgeEligibleFact(fact: EvidenceFact, requirementId: string): boolean
   if (fact.requirementId !== requirementId) return false;
   if (fact.countsTowardRequirement !== true) return false;
   if (fact.acceptance === "BLOCKED") return false;
+  if (!isKnownPrivacyClass(fact.privacyClass)) return false;
   if (!isJudgeEligiblePrivacyClass(fact.privacyClass)) return false;
   return true;
 }
