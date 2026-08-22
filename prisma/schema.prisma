@@ -349,6 +349,9 @@ model Project {
   /// Phase1 投标工作流状态（DISCOVERED / INTELLIGENCE_IN_PROGRESS / GO…）；不覆盖 tenderStatus
   bidPhaseStatus String?
 
+  /// Quote Operations Phase 2：被选为「我方报价（Our Bid）」的引擎报价（仅 approved/awarded 可选；逻辑引用，不建 FK）
+  bidQuoteId String?
+
   intelligenceRoom BidIntelligenceRoom?
   supplierLinks    ProjectSupplierLink[]
   joinBriefs       ProjectJoinBrief[]
@@ -359,6 +362,7 @@ model Project {
   tenderDeliverables           TenderDeliverable[]
   tenderClarificationQuestions TenderClarificationQuestion[]
 
+  @@index([bidQuoteId])
   @@index([orgId])
   @@index([workspaceId])
   @@index([purchaserId])
@@ -2679,8 +2683,15 @@ model ProjectQuote {
   awardedAt      DateTime?
   cancelledAt    DateTime?
 
+  // ── Quote Operations Phase 2（additive）──
+  /// 客户报价抬头快照（clientName/clientCompany/clientAddress/contact/projectNumber/tenderNumber/preparedBy/quoteDate）——不建第二套 CRM
+  customerJson Json?
+  /// 条款快照（payment/delivery/leadTime/warranty/validity/exclusions/assumptions/notes；自由文本 + 组织模板）
+  termsJson    Json?
+
   costLines    QuoteCostLine[]
   pricingTiers QuotePricingTier[]
+  costImports  QuoteCostImport[]
 
   @@index([projectId, status])
   @@index([projectId, version])
@@ -2773,6 +2784,51 @@ model QuotePricingTier {
   @@index([orgId, quoteId])
 }
 
+/// Quote Operations Phase 2：供应商报价 / 成本表导入（Upload → Extract → Review → Confirm → Apply → QuoteCostLine）
+/// 抽取结果绝不直接成为成本行；必须人工 Review + Confirm。导入记录永久保留（供应商报价来源沉淀）。
+model QuoteCostImport {
+  id        String       @id @default(cuid())
+  orgId     String
+  projectId String
+  quoteId   String
+  quote     ProjectQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  /// 复用 ProjectDocument（不建第二套文档存储）；逻辑引用
+  sourceDocumentId String?
+  /// XLSX | CSV | PDF
+  sourceType     String
+  sourceFilename String
+  contentHash    String?
+  /// UPLOADED | EXTRACTING | REVIEW_REQUIRED | CONFIRMED | APPLIED | FAILED | CANCELLED
+  status         String   @default("UPLOADED")
+  extractionVersion String?
+  /// 原始抽取结果（不可变；rows[] 含 provenance/evidence）
+  extractedJson  Json?
+  /// 人工 Review 后的行（可编辑；Confirm 时校验）
+  reviewJson     Json?
+  /// Apply 结果（写入的 QuoteCostLine ids 等）
+  appliedJson    Json?
+  /// 供应商名 / 报价日期 / 默认币种 / 再导入来源等
+  metadataJson   Json?
+  errorMessage   String?  @db.Text
+
+  supplierName String?
+  quoteDate    DateTime?
+
+  confirmedAt   DateTime?
+  confirmedById String?
+  appliedAt     DateTime?
+  appliedById   String?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId, projectId])
+  @@index([quoteId, status])
+  @@index([projectId, contentHash])
+  @@index([sourceDocumentId])
+}
+
 /// 报价行项目
 model QuoteLineItem {
   id      String       @id @default(cuid())
@@ -2791,6 +2847,18 @@ model QuoteLineItem {
 
   costPrice  Decimal? @db.Decimal(18, 2)
   isInternal Boolean  @default(false)
+
+  // ── Quote Operations Phase 2：客户报价行（公开卖价行；与内部成本严格分离）──
+  /// 分组标题（如 Section A — Base Work）
+  section   String?
+  /// 可选项（列示但不计入合计）
+  optional  Boolean @default(false)
+  /// 暂定金额（Allowance：计入合计并标注）
+  allowance Boolean @default(false)
+  /// 是否应税（税基 = 非 optional 且 taxable 的公开行小计）
+  taxable   Boolean @default(true)
+  /// 内部溯源（来自哪些 QuoteCostLine / 草稿生成器）；绝不进入客户视图
+  sourceJson Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

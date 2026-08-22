@@ -6,3 +6,7 @@ export * from "./customer-view";
 export * from "./analyze";
 export * from "./flags";
 export * from "./service";
+export * from "./customer-quote";
+export * from "./tender-bid";
+export * from "./quotation-html";
+export * from "./analyze-operations";

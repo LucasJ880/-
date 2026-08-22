@@ -247,7 +247,7 @@ export async function snapshotQuote(quoteId: string, projectId: string): Promise
 }
 
 /** 状态机：draft→review→approved→(superseded|awarded)；cancelled；不可覆盖历史 approved */
-export async function transitionQuote(input: { quoteId: string; projectId: string; userId: string; orgId: string; to: QuoteStatus; note?: string | null }): Promise<QuoteRecord> {
+export async function transitionQuote(input: { quoteId: string; projectId: string; userId: string; orgId: string; to: QuoteStatus; note?: string | null; deps?: { bidSync?: typeof import("./tender-bid").syncTenderBidPointerTx } }): Promise<QuoteRecord> {
   const q = await getQuote(input.quoteId, input.projectId);
   const from = q.status as QuoteStatus;
   const allowed = QUOTE_TRANSITIONS[from] ?? [];
@@ -264,7 +264,24 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
   if (input.to === "superseded") data.supersededAt = now;
   if (input.to === "awarded") data.awardedAt = now;
   if (input.to === "cancelled") data.cancelledAt = now;
-  await db.projectQuote.update({ where: { id: q.id }, data });
+  // B2：状态迁移 + Tender 我方报价指针/镜像同步在**同一事务**；同步失败 → 迁移回滚 + 审计 + 显式错误（绝不 swallow）
+  const tb = await import("./tender-bid");
+  const needsSync = input.to === "approved" || input.to === "superseded" || input.to === "awarded" || input.to === "cancelled";
+  let syncResult: import("./tender-bid").SyncResult | null = null;
+  try {
+    syncResult = await db.$transaction(async (tx) => {
+      await tx.projectQuote.update({ where: { id: q.id }, data });
+      if (!needsSync) return null;
+      return (input.deps?.bidSync ?? tb.syncTenderBidPointerTx)(tx, { projectId: input.projectId, orgId: input.orgId, userId: input.userId });
+    });
+  } catch (e) {
+    if (e instanceof tb.TenderBidSyncError) {
+      await tb.auditSyncFailure({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: `transition:${input.to}`, quoteId: q.id, error: e });
+      throw new QuoteEngineError("TENDER_BID_SYNC_FAILED", `状态变更已回滚：我方报价同步失败（${e.message.slice(0, 160)}）`, 500);
+    }
+    throw e;
+  }
+  if (syncResult) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: `transition:${input.to}`, result: syncResult });
   const action = input.to === "review" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUBMITTED_FOR_REVIEW : input.to === "approved" ? QUOTE_AUDIT_ACTIONS.QUOTE_APPROVED : input.to === "superseded" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED : input.to === "awarded" ? QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED : input.to === "cancelled" ? QUOTE_AUDIT_ACTIONS.QUOTE_CANCELLED : QUOTE_AUDIT_ACTIONS.QUOTE_UPDATED;
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: from }, afterData: { status: input.to, note: input.note ?? null, version: q.version } }).catch(() => undefined);
   await appendLedgerEvent({ orgId: input.orgId, projectId: input.projectId, userId: input.userId, quoteId: q.id, eventType: `QUOTE_${input.to.toUpperCase()}`, title: `报价 v${q.version} ${input.to}`, payload: { status: input.to, from, sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null } });
@@ -278,7 +295,11 @@ export async function reviseQuote(input: { quoteId: string; projectId: string; u
   // B3：谱系版本号在事务内、对谱系根行 FOR UPDATE 加锁后计算——并发修订被 DB 串行化，
   // 第二个事务在锁释放后重算 max，保证单调递增不撞号（不依赖应用时序）
   const lineageRoot = await findLineageRoot(q.id, input.projectId);
-  const created = await db.$transaction(async (tx) => {
+  const tb = await import("./tender-bid");
+  let syncResult: import("./tender-bid").SyncResult | null = null;
+  let created: { id: string; version: number };
+  try {
+  created = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "ProjectQuote" WHERE "id" = ${lineageRoot} FOR UPDATE`;
     const lineageIds = await collectLineage(lineageRoot, input.projectId, tx);
     const maxVer = await tx.projectQuote.aggregate({ where: { id: { in: lineageIds } }, _max: { version: true } });
@@ -294,9 +315,21 @@ export async function reviseQuote(input: { quoteId: string; projectId: string; u
       },
       select: { id: true, version: true },
     });
-    if (q.status === "approved") await tx.projectQuote.update({ where: { id: q.id }, data: { status: "superseded", supersededAt: new Date() } });
+    if (q.status === "approved") {
+      await tx.projectQuote.update({ where: { id: q.id }, data: { status: "superseded", supersededAt: new Date() } });
+      // B2：旧 approved 被取代 → 同事务同步我方报价指针（跟随 / 保持 REVISION_PENDING）；失败整体回滚
+      syncResult = await tb.syncTenderBidPointerTx(tx, { projectId: input.projectId, orgId: input.orgId, userId: input.userId });
+    }
     return nq;
   });
+  } catch (e) {
+    if (e instanceof tb.TenderBidSyncError) {
+      await tb.auditSyncFailure({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: "revise", quoteId: q.id, error: e });
+      throw new QuoteEngineError("TENDER_BID_SYNC_FAILED", `修订已回滚：我方报价同步失败（${e.message.slice(0, 160)}）`, 500);
+    }
+    throw e;
+  }
+  if (syncResult) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: "revise", result: syncResult });
   await snapshotQuote(created.id, input.projectId);
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_VERSION_CREATED, targetType: QUOTE_AUDIT_TARGET, targetId: created.id, beforeData: { sourceQuoteId: q.id, sourceVersion: q.version, sourceSellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null, sourceCost: (q.summaryJson as { estimatedCost?: number } | null)?.estimatedCost ?? null, sourceMargin: (q.summaryJson as { grossMarginPct?: number } | null)?.grossMarginPct ?? null }, afterData: { version: created.version, reason: input.reason } }).catch(() => undefined);
   if (q.status === "approved") await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, afterData: { supersededBy: created.id } }).catch(() => undefined);
@@ -353,6 +386,8 @@ export async function awardQuoteToBudget(input: { quoteId: string; projectId: st
   }
   const createBudget = (input.deps?.createBudgetVersion as unknown as typeof import("@/lib/project-finance/budget-service").createBudgetVersion | undefined) ?? (await import("@/lib/project-finance/budget-service")).createBudgetVersion;
   let budgetVersionId: string | null = null;
+  const tb = await import("./tender-bid");
+  let awardSync: import("./tender-bid").SyncResult | null = null;
   try {
     budgetVersionId = await db.$transaction(async (tx) => {
       const v = await createBudget({ tx, orgId: input.orgId, projectId: input.projectId, currency: q.currency, actor: { actorType: "user", actorId: input.userId }, createdById: input.userId, note: `Quote ${q.quoteNumber ?? q.id} v${q.version} award`, lines: budgetLines.map((l) => ({ category: l.category, amount: l.amount, percentage: l.percentage, basis: l.basis, basisAmount: l.basisAmount, note: l.note, sourceReference: l.sourceReference, sortOrder: l.sortOrder })) as never });
@@ -361,11 +396,18 @@ export async function awardQuoteToBudget(input: { quoteId: string; projectId: st
       // 同一事务：仅当状态仍为 approved 才能 award（防并发双 award）
       const r = await tx.projectQuote.updateMany({ where: { id: q.id, status: "approved" }, data: { status: "awarded", awardedAt: new Date() } });
       if (r.count !== 1) throw new Error("报价状态已变化，award 中止");
+      // B2：awarded 后同事务刷新我方报价指针/镜像（失败 → award + 预算整体回滚）
+      awardSync = await tb.syncTenderBidPointerTx(tx, { projectId: input.projectId, orgId: input.orgId, userId: input.userId });
       return id;
     });
   } catch (e) {
+    if (e instanceof tb.TenderBidSyncError) {
+      await tb.auditSyncFailure({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: "award", quoteId: q.id, error: e });
+      throw new QuoteEngineError("TENDER_BID_SYNC_FAILED", `award 已回滚：我方报价同步失败（${e.message.slice(0, 160)}）`, 500);
+    }
     throw await blocked("BUDGET_CREATION_FAILED", `预算创建失败，award 已回滚：${e instanceof Error ? e.message : String(e)}`);
   }
+  if (awardSync) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: "award", result: awardSync });
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.PROJECT_BUDGET_CREATED, targetType: "project_budget_version", targetId: budgetVersionId, afterData: { quoteId: q.id, lines: budgetLines.length } }).catch(() => undefined);
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: "approved" }, afterData: { status: "awarded", budgetVersionId, version: q.version } }).catch(() => undefined);
   await appendLedgerEvent({ orgId: input.orgId, projectId: input.projectId, userId: input.userId, quoteId: q.id, eventType: "QUOTE_AWARDED", title: `报价 v${q.version} awarded`, payload: { budgetVersionId } });
