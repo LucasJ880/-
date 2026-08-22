@@ -6,7 +6,10 @@
  *  - **不变量（B2）**：bidQuoteId + ourBidPrice + currency + BidIntelligenceRoom.pricingInputs 在**同一事务**写入（项目行 FOR UPDATE 串行化）；
  *    任何镜像写失败 → 整个事务回滚并抛错（绝不 swallow）；状态迁移（approve/revise/supersede/award/cancel）在调用方事务内同步指针，
  *    同步失败 = 迁移回滚 + `tender_bid_sync_failed` 审计 + TENDER_BID_SYNC_FAILED。
- *  - resolveTenderBid 额外报告 mirrorStale（镜像与权威报价不一致时显式暴露，绝不假装已同步）。
+ *  - **非权威态不得宣称有效报价（B2-CANCEL）**：被选报价 cancelled 且无可替代版本 → 同事务 clearBidMirrorsTx（bidQuoteId/ourBidPrice = null，
+ *    currency 不动，房间 ourPrice* 全清）；superseded 待批（QUOTE_REVISION_PENDING）→ bidQuoteId 保留为可追溯的 superseded 来源，
+ *    但 ourBidPrice 与房间 ourPrice* 全清并标 ourPriceStatus=QUOTE_REVISION_PENDING（legacy 读者不可能把旧价当成当前 Our Bid）。
+ *  - resolveTenderBid 报告 mirrorStale：AUTHORITATIVE 时 = 镜像价≠权威价；非权威态 = 仍有价格在宣传（绝不假装已同步）。
  *  - 不自动提交任何外部门户。
  */
 
@@ -18,6 +21,7 @@ import { computeForQuote, QuoteEngineError, QUOTE_AUDIT_TARGET, type QuoteRecord
 export const TENDER_BID_AUDIT_ACTIONS = {
   QUOTE_SELECTED_AS_TENDER_BID: "quote_selected_as_tender_bid",
   TENDER_BID_POINTER_SYNCED: "tender_bid_pointer_synced",
+  TENDER_BID_MIRRORS_CLEARED: "tender_bid_mirrors_cleared",
   TENDER_BID_SYNC_FAILED: "tender_bid_sync_failed",
 } as const;
 
@@ -129,19 +133,52 @@ export async function writeBidMirrorsTx(tx: Tx, args: MirrorArgs): Promise<{ roo
   if (!room) return { roomMirrored: false };
   const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
   const pi = ((sj.pricingInputs as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const pricingInputs = { ...pi, ourPriceCad: args.currency === "CAD" ? args.sellingPrice : null, ourPrice: args.sellingPrice, ourPriceCurrency: args.currency, ourPriceSource: `quote:${args.quoteId}:v${args.version}` };
+  const pricingInputs = { ...pi, ourPriceCad: args.currency === "CAD" ? args.sellingPrice : null, ourPrice: args.sellingPrice, ourPriceCurrency: args.currency, ourPriceSource: `quote:${args.quoteId}:v${args.version}`, ourPriceStatus: "AUTHORITATIVE", ourPriceSupersededSource: undefined };
   await tx.bidIntelligenceRoom.update({ where: { id: room.id }, data: { summaryJson: JSON.parse(JSON.stringify({ ...sj, pricingInputs })) as Prisma.InputJsonValue } });
   return { roomMirrored: true };
 }
 
-export type SyncAction = "none" | "auto_selected" | "followed_revision" | "refreshed";
+/** 房间价格镜像清空（保留 competitorPriceCad 等无关键）；存在房间时返回 true */
+async function clearRoomPriceMirrorsTx(tx: Tx, projectId: string, status: "NONE" | "QUOTE_REVISION_PENDING", supersededSource: string | null): Promise<boolean> {
+  const room = await tx.bidIntelligenceRoom.findUnique({ where: { projectId }, select: { id: true, summaryJson: true } });
+  if (!room) return false;
+  const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const pi = ((sj.pricingInputs as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const pricingInputs = { ...pi, ourPriceCad: null, ourPrice: null, ourPriceCurrency: null, ourPriceSource: null, ourPriceStatus: status, ourPriceSupersededSource: supersededSource ?? undefined };
+  await tx.bidIntelligenceRoom.update({ where: { id: room.id }, data: { summaryJson: JSON.parse(JSON.stringify({ ...sj, pricingInputs })) as Prisma.InputJsonValue } });
+  return true;
+}
+
+/**
+ * 原子清空（B2-CANCEL）：无权威报价时兼容字段不得宣称有效报价。
+ * Project.bidQuoteId / ourBidPrice = null（**currency 不动**：它同时是项目基准币种）；房间 ourPrice* 全清。必须在取消/同步的同一事务内调用。
+ */
+export async function clearBidMirrorsTx(tx: Tx, args: { projectId: string }): Promise<{ roomMirrored: boolean }> {
+  await tx.project.update({ where: { id: args.projectId }, data: { bidQuoteId: null, ourBidPrice: null } });
+  const roomMirrored = await clearRoomPriceMirrorsTx(tx, args.projectId, "NONE", null);
+  return { roomMirrored };
+}
+
+/**
+ * 修订待批（QUOTE_REVISION_PENDING）镜像语义：bidQuoteId 保留 = 可追溯的 superseded 来源；
+ * 但 ourBidPrice 与房间 ourPrice* 全清 + ourPriceStatus=QUOTE_REVISION_PENDING（旧价绝不被当成当前批准的 Our Bid）。
+ */
+export async function writePendingMirrorsTx(tx: Tx, args: { projectId: string; supersededQuoteId: string; version: number }): Promise<{ roomMirrored: boolean }> {
+  await tx.project.update({ where: { id: args.projectId }, data: { bidQuoteId: args.supersededQuoteId, ourBidPrice: null } });
+  const roomMirrored = await clearRoomPriceMirrorsTx(tx, args.projectId, "QUOTE_REVISION_PENDING", `quote:${args.supersededQuoteId}:v${args.version}`);
+  return { roomMirrored };
+}
+
+export type SyncAction = "none" | "auto_selected" | "followed_revision" | "refreshed" | "cleared" | "pending_cleared";
 export type SyncResult = { action: SyncAction; quoteId: string | null; version: number | null; previousQuoteId: string | null; roomMirrored: boolean };
 
 /**
  * 指针同步（**必须在调用方事务内**，项目行 FOR UPDATE 串行化）：
  *  - 无指针且恰有一份 approved/awarded → 自动选中
  *  - 指针指向 approved/awarded → 刷新镜像（重批/award 后价格以当前计算为准）
- *  - 指针指向 superseded/cancelled → 跟随同谱系最新 approved/awarded；没有 → 保持（解析层显示 QUOTE_REVISION_PENDING / NONE）
+ *  - 指针指向 superseded/cancelled → 跟随同谱系最新 approved/awarded；没有：
+ *      cancelled / 指针悬空 → clearBidMirrorsTx（NONE：指针与全部价格镜像清空）
+ *      superseded → writePendingMirrorsTx（QUOTE_REVISION_PENDING：指针保留可追溯，价格镜像清空）
  * 任何失败抛 TenderBidSyncError → 调用方回滚状态迁移并审计；绝不 swallow。
  */
 export async function syncTenderBidPointerTx(tx: Tx, input: { projectId: string; orgId: string; userId: string; deps?: TenderBidDeps }): Promise<SyncResult> {
@@ -161,8 +198,11 @@ export async function syncTenderBidPointerTx(tx: Tx, input: { projectId: string;
       const r = await apply(eligible[0]!.id);
       return { action: "auto_selected", quoteId: eligible[0]!.id, version: r.version, previousQuoteId: null, roomMirrored: r.roomMirrored };
     }
-    const sel = await tx.projectQuote.findFirst({ where: { id: project.bidQuoteId, projectId: input.projectId }, select: { id: true, status: true } });
-    if (!sel) return { action: "none", quoteId: project.bidQuoteId, version: null, previousQuoteId: project.bidQuoteId, roomMirrored: false };
+    const sel = await tx.projectQuote.findFirst({ where: { id: project.bidQuoteId, projectId: input.projectId }, select: { id: true, status: true, version: true } });
+    if (!sel) {
+      const r = await clearBidMirrorsTx(tx, { projectId: input.projectId });
+      return { action: "cleared", quoteId: null, version: null, previousQuoteId: project.bidQuoteId, roomMirrored: r.roomMirrored };
+    }
     if (isBidEligible(sel.status)) {
       const r = await apply(sel.id);
       return { action: "refreshed", quoteId: sel.id, version: r.version, previousQuoteId: sel.id, roomMirrored: r.roomMirrored };
@@ -172,7 +212,13 @@ export async function syncTenderBidPointerTx(tx: Tx, input: { projectId: string;
       const r = await apply(next);
       return { action: "followed_revision", quoteId: next, version: r.version, previousQuoteId: sel.id, roomMirrored: r.roomMirrored };
     }
-    return { action: "none", quoteId: sel.id, version: null, previousQuoteId: sel.id, roomMirrored: false };
+    if (sel.status === "superseded") {
+      const r = await writePendingMirrorsTx(tx, { projectId: input.projectId, supersededQuoteId: sel.id, version: sel.version });
+      return { action: "pending_cleared", quoteId: sel.id, version: sel.version, previousQuoteId: sel.id, roomMirrored: r.roomMirrored };
+    }
+    // cancelled（或其它非权威态）且无可替代版本 → 非权威：兼容字段不得宣称有效报价
+    const r = await clearBidMirrorsTx(tx, { projectId: input.projectId });
+    return { action: "cleared", quoteId: null, version: null, previousQuoteId: sel.id, roomMirrored: r.roomMirrored };
   } catch (e) {
     throw new TenderBidSyncError(e instanceof Error ? e.message : String(e), e);
   }
@@ -181,12 +227,13 @@ export async function syncTenderBidPointerTx(tx: Tx, input: { projectId: string;
 /** 同步成功后的审计（调用方在事务提交后调用；审计绝不阻塞业务） */
 export async function auditSyncResult(input: { projectId: string; orgId: string; userId: string; trigger: string; result: SyncResult }): Promise<void> {
   const { result } = input;
-  if (result.action !== "auto_selected" && result.action !== "followed_revision") return;
+  if (result.action === "none" || result.action === "refreshed") return;
+  const action = result.action === "auto_selected" ? TENDER_BID_AUDIT_ACTIONS.QUOTE_SELECTED_AS_TENDER_BID : result.action === "followed_revision" ? TENDER_BID_AUDIT_ACTIONS.TENDER_BID_POINTER_SYNCED : TENDER_BID_AUDIT_ACTIONS.TENDER_BID_MIRRORS_CLEARED;
   await logAudit({
     userId: input.userId, orgId: input.orgId, projectId: input.projectId,
-    action: result.action === "auto_selected" ? TENDER_BID_AUDIT_ACTIONS.QUOTE_SELECTED_AS_TENDER_BID : TENDER_BID_AUDIT_ACTIONS.TENDER_BID_POINTER_SYNCED,
-    targetType: QUOTE_AUDIT_TARGET, targetId: result.quoteId ?? "",
-    beforeData: { bidQuoteId: result.previousQuoteId }, afterData: { bidQuoteId: result.quoteId, version: result.version, auto: true, trigger: input.trigger, roomMirrored: result.roomMirrored },
+    action,
+    targetType: QUOTE_AUDIT_TARGET, targetId: result.quoteId ?? result.previousQuoteId ?? "",
+    beforeData: { bidQuoteId: result.previousQuoteId }, afterData: { bidQuoteId: result.quoteId, version: result.version, syncAction: result.action, auto: true, trigger: input.trigger, roomMirrored: result.roomMirrored },
   }).catch(() => undefined);
 }
 
@@ -228,9 +275,12 @@ export async function resolveTenderBid(input: { projectId: string; orgId: string
   const project = await db.project.findFirst({ where: { id: input.projectId, orgId: input.orgId }, select: { bidQuoteId: true, ourBidPrice: true, currency: true } });
   if (!project) throw new QuoteEngineError("PROJECT_NOT_FOUND", "项目不存在", 404);
   const mirror = { ourBidPrice: project.ourBidPrice, currency: project.currency };
+  // 引擎已在用（存在任何引擎报价）时，非权威态仍宣传价格 = 镜像过期；纯 legacy 项目（无引擎报价）的手填 ourBidPrice 不在本规则内
+  const engineQuoteCount = await db.projectQuote.count({ where: { projectId: input.projectId, orgId: input.orgId, quoteType: { not: "CUSTOM" } } });
+  const advertisingWithoutAuthority = engineQuoteCount > 0 && project.ourBidPrice != null;
   const candidateRows = await db.projectQuote.findMany({ where: { projectId: input.projectId, orgId: input.orgId, quoteType: { not: "CUSTOM" }, status: { in: [...BID_ELIGIBLE] } }, orderBy: [{ approvedAt: "desc" }], select: { id: true, quoteNumber: true, name: true, title: true, version: true, status: true, currency: true, summaryJson: true } });
   const candidates = candidateRows.map((r) => ({ id: r.id, quoteNumber: r.quoteNumber, name: r.name ?? r.title, version: r.version, status: r.status, sellingPrice: (r.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null, currency: r.currency }));
-  const none = (selectedQuoteId: string | null, reason: string): TenderBidResolution => ({ status: "NONE", selectedQuoteId, quote: null, followedRevision: false, pendingRevision: null, candidates, mirrorStale: false, mirror, reason });
+  const none = (selectedQuoteId: string | null, reason: string): TenderBidResolution => ({ status: "NONE", selectedQuoteId, quote: null, followedRevision: false, pendingRevision: null, candidates, mirrorStale: advertisingWithoutAuthority, mirror, reason: advertisingWithoutAuthority ? `${reason}（兼容镜像仍有价格，需清理）` : reason });
   if (!project.bidQuoteId) return none(null, candidates.length > 0 ? "尚未选择我方报价（有已批准报价可选）" : "尚无已批准的报价");
   const selected = await db.projectQuote.findFirst({ where: { id: project.bidQuoteId, projectId: input.projectId }, include: QUOTE_INCLUDE });
   if (!selected) return none(project.bidQuoteId, "所选报价已不存在");
@@ -249,5 +299,5 @@ export async function resolveTenderBid(input: { projectId: string; orgId: string
   const root = await lineageRootOf(db, selected.id, input.projectId);
   const ids = await lineageIdsOf(db, root, input.projectId);
   const pending = await db.projectQuote.findFirst({ where: { id: { in: ids }, projectId: input.projectId, status: { in: ["draft", "review"] } }, orderBy: { version: "desc" }, select: { id: true, version: true, status: true } });
-  return { status: "QUOTE_REVISION_PENDING", selectedQuoteId: selected.id, quote: summarize(selected, input.internal), followedRevision: false, pendingRevision: pending, candidates, mirrorStale: false, mirror, reason: `我方报价 V${selected.version} 已被修订，新版本尚未批准` };
+  return { status: "QUOTE_REVISION_PENDING", selectedQuoteId: selected.id, quote: summarize(selected, input.internal), followedRevision: false, pendingRevision: pending, candidates, mirrorStale: project.ourBidPrice != null, mirror, reason: `我方报价 V${selected.version} 已被修订，新版本尚未批准${project.ourBidPrice != null ? "（兼容镜像仍有价格，需清理）" : ""}` };
 }

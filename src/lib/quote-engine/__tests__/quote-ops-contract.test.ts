@@ -99,6 +99,14 @@ const reviseBody = service.slice(service.indexOf("export async function reviseQu
 ok(reviseBody.includes("syncTenderBidPointerTx(tx") && reviseBody.includes("TENDER_BID_SYNC_FAILED") && !reviseBody.includes("syncTenderBidPointer("), "B2-S5: reviseQuote 在修订事务内同步（supersede 后）");
 const awardBody = service.slice(service.indexOf("export async function awardQuoteToBudget("), service.indexOf("async function appendLedgerEvent("));
 ok(awardBody.includes("awardSync = await tb.syncTenderBidPointerTx(tx") && awardBody.includes("TenderBidSyncError"), "B2-S6: award（with_budget）事务内同步；同步失败与预算失败区分");
+// ── Final Review 2 B2-CANCEL：非权威态不得宣称有效报价 ──
+const syncBody = tbBody.slice(tbBody.indexOf("export async function syncTenderBidPointerTx("), tbBody.indexOf("export async function auditSyncResult("));
+ok(tbBody.includes("export async function clearBidMirrorsTx(") && tbBody.includes("data: { bidQuoteId: null, ourBidPrice: null }") && !/clearBidMirrorsTx[\s\S]*?currency: null/.test(tbBody.slice(tbBody.indexOf("export async function clearBidMirrorsTx("), tbBody.indexOf("export async function writePendingMirrorsTx("))), "B2-S7: clearBidMirrorsTx 清 bidQuoteId/ourBidPrice，不动 Project.currency");
+ok(tbBody.includes("ourPriceCad: null, ourPrice: null, ourPriceCurrency: null, ourPriceSource: null"), "B2-S8: 房间 ourPriceCad/ourPrice/ourPriceCurrency/ourPriceSource 全清");
+ok(syncBody.includes("clearBidMirrorsTx(tx, { projectId: input.projectId })") && syncBody.includes('action: "cleared"') && syncBody.includes("writePendingMirrorsTx(tx") && syncBody.includes('action: "pending_cleared"') && syncBody.includes('sel.status === "superseded"'), "B2-S9: 同步：cancelled/悬空 → cleared；superseded 无替代 → pending_cleared（指针保留可追溯，价格清空）");
+ok(tbBody.includes("mirrorStale: advertisingWithoutAuthority") && tbBody.includes("mirrorStale: project.ourBidPrice != null"), "B2-S10: 解析层 NONE/PENDING 态仍宣传价格 = mirrorStale");
+ok(tbBody.includes('ourPriceStatus: "AUTHORITATIVE"') && tbBody.includes('"QUOTE_REVISION_PENDING", `quote:${args.supersededQuoteId}:v${args.version}`'), "B2-S11: 房间 ourPriceStatus 显式区分 AUTHORITATIVE / QUOTE_REVISION_PENDING / NONE，superseded 来源可追溯");
+
 // ── Final Review B3：供应商币种 fail-closed ──
 ok(!/\?\?\s*quote\.currency/.test(svc) && !/defaultCurrency/.test(svc + code("src/lib/quote-engine/import/parse-xlsx.ts") + code("src/lib/quote-engine/import/parse-pdf.ts") + code("src/lib/quote-engine/import/contract.ts")) && svc.includes('currencyMode: supplierCurrency ? "CONFIRMED" : "AUTO_DETECT"'), "B3-S1: 无报价币种兜底；币种模式 AUTO_DETECT / CONFIRMED 显式");
 ok(svc.includes("const currency = normalizeCurrency(row.sourceCurrency);") && svc.includes('throw new QuoteEngineError("IMPORT_ROWS_INVALID", `行 ${row.rowId} 币种未确认`'), "B3-S2: 行→成本行映射对未解析币种 fail-closed");

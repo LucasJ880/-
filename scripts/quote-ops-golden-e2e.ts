@@ -311,7 +311,10 @@ async function main() {
   // B2-03：修订 → REVISION_PENDING（不把旧版宣称为当前）
   const qE1v2 = await reviseQuote({ ...ctxE, quoteId: qE1.id, reason: "B2 revision" });
   const res03 = await resolveTenderBid({ ...ctxE, internal: false });
-  ok(res03.status === "QUOTE_REVISION_PENDING" && res03.pendingRevision?.id === qE1v2.id && res03.selectedQuoteId === qE1.id, "B2-03: 修订后 → QUOTE_REVISION_PENDING（显式，不宣称旧版为当前）", res03.status);
+  const pE3 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true, currency: true } });
+  const piE3 = ((await db.bidIntelligenceRoom.findUnique({ where: { projectId: projE.id }, select: { summaryJson: true } }))?.summaryJson as { pricingInputs?: Record<string, unknown> })?.pricingInputs ?? {};
+  ok(res03.status === "QUOTE_REVISION_PENDING" && res03.pendingRevision?.id === qE1v2.id && res03.selectedQuoteId === qE1.id && res03.mirrorStale === false, "B2-03: 修订后 → QUOTE_REVISION_PENDING（显式，不宣称旧版为当前）", res03.status);
+  ok(pE3?.bidQuoteId === qE1.id && pE3?.ourBidPrice === null && pE3?.currency === "CAD" && piE3.ourPriceCad === null && piE3.ourPrice === null && piE3.ourPriceCurrency === null && piE3.ourPriceSource === null && piE3.ourPriceStatus === "QUOTE_REVISION_PENDING" && piE3.ourPriceSupersededSource === `quote:${qE1.id}:v1` && piE3.competitorPriceCad === 300000, "B2-03b: PENDING 镜像语义：bidQuoteId 保留为可追溯的 superseded 来源；ourBidPrice=null；房间 ourPrice* 全清 + ourPriceStatus=QUOTE_REVISION_PENDING（legacy 读者看不到旧价）；currency/竞对价不动", { pE3, piE3 });
   // B2-04：批准修订 → 指针 + 价格 + 房间镜像跟随 V2
   await updateEngineQuote({ ...ctxE, quoteId: qE1v2.id, header: { pricingRate: 20 } });
   await transitionQuote({ ...ctxE, quoteId: qE1v2.id, to: "review" });
@@ -320,7 +323,7 @@ async function main() {
   const pE4 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true } });
   const piE4 = ((await db.bidIntelligenceRoom.findUnique({ where: { projectId: projE.id }, select: { summaryJson: true } }))?.summaryJson as { pricingInputs?: Record<string, unknown> })?.pricingInputs ?? {};
   const res04 = await resolveTenderBid({ ...ctxE, internal: true });
-  ok(priceV2.ok && pE4?.bidQuoteId === qE1v2.id && Math.abs((pE4?.ourBidPrice ?? 0) - priceV2.sellingPrice) < 0.005 && piE4.ourPriceSource === `quote:${qE1v2.id}:v2` && res04.status === "AUTHORITATIVE" && res04.mirrorStale === false, "B2-04: 批准修订 → 指针/价格/房间镜像全部跟随 V2；mirrorStale=false", { pE4, piE4, res04: res04.status });
+  ok(priceV2.ok && pE4?.bidQuoteId === qE1v2.id && Math.abs((pE4?.ourBidPrice ?? 0) - priceV2.sellingPrice) < 0.005 && piE4.ourPriceSource === `quote:${qE1v2.id}:v2` && piE4.ourPriceStatus === "AUTHORITATIVE" && piE4.ourPriceSupersededSource === undefined && piE4.ourPriceCad === priceV2.sellingPrice && res04.status === "AUTHORITATIVE" && res04.mirrorStale === false, "B2-04: 批准修订 → 指针/价格/房间镜像全部跟随 V2（ourPriceStatus=AUTHORITATIVE，superseded 痕迹清除）；mirrorStale=false", { pE4, piE4, res04: res04.status });
   const synced = await db.auditLog.count({ where: { projectId: projE.id, action: "tender_bid_pointer_synced" } });
   ok(synced >= 1, "B2-04b: 跟随修订有 tender_bid_pointer_synced 审计");
   // B2-05：并发选择两份 approved → 最终 bidQuoteId 与 ourBidPrice 必一致
@@ -337,10 +340,34 @@ async function main() {
   let c26 = ""; try { await transitionQuote({ ...ctxE, quoteId: qE4.id, to: "approved", deps: { bidSync: async () => { throw new (await import("@/lib/quote-engine/tender-bid")).TenderBidSyncError("forced sync failure"); } } }); } catch (e) { c26 = codeOf(e); }
   const e4After = await getQuote(qE4.id, projE.id);
   ok(c26 === "TENDER_BID_SYNC_FAILED" && e4After.status === "review" && (await db.auditLog.count({ where: { projectId: projE.id, action: "tender_bid_sync_failed" } })) >= 2, "B2-06: 迁移中同步失败 → approve 回滚（仍 review）+ 审计（不吞）", { c26, status: e4After.status });
-  // cancel 路径：取消被选报价 → NONE（确定性）
+  // B2-07c：取消**非**被选报价 → 被选报价的指针/镜像不受影响
+  const loser = pE5!.bidQuoteId === qE1v2.id ? qE3 : qE1v2;
+  await transitionQuote({ ...ctxE, quoteId: qE2.id, to: "cancelled" });
+  const pE7c = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true } });
+  ok(pE7c?.bidQuoteId === pE5!.bidQuoteId && Math.abs((pE7c?.ourBidPrice ?? 0) - winnerPrice.sellingPrice) < 0.005, "B2-07c: 取消非被选报价 → 被选指针/价格不动");
+  // B2-07a：取消被选报价，同谱系无可替代版本（loser 是另一谱系，不自动跟随）→ NONE + 指针/价格/房间镜像同事务全清；currency 不动
   await transitionQuote({ ...ctxE, quoteId: pE5!.bidQuoteId!, to: "cancelled" });
-  const res06 = await resolveTenderBid({ ...ctxE, internal: false });
-  ok(res06.status === "NONE" && /取消/.test(res06.reason), "B2-07: 取消被选报价 → 解析为 NONE（显式）");
+  const res07 = await resolveTenderBid({ ...ctxE, internal: false });
+  const pE7 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true, currency: true } });
+  const piE7 = ((await db.bidIntelligenceRoom.findUnique({ where: { projectId: projE.id }, select: { summaryJson: true } }))?.summaryJson as { pricingInputs?: Record<string, unknown> })?.pricingInputs ?? {};
+  ok(res07.status === "NONE" && res07.mirrorStale === false && pE7?.bidQuoteId === null && pE7?.ourBidPrice === null && pE7?.currency === "CAD" && piE7.ourPriceCad === null && piE7.ourPrice === null && piE7.ourPriceCurrency === null && piE7.ourPriceSource === null && piE7.ourPriceStatus === "NONE" && piE7.competitorPriceCad === 300000, "B2-07a: 取消被选报价且无替代 → NONE；bidQuoteId/ourBidPrice=null；房间 ourPrice* 全清（同事务）；currency 与竞对价不动", { res07: res07.status, pE7, piE7 });
+  ok((await db.auditLog.count({ where: { projectId: projE.id, action: "tender_bid_mirrors_cleared" } })) >= 1, "B2-07a-audit: 清空有 tender_bid_mirrors_cleared 审计");
+  ok(res07.candidates.some((c) => c.id === loser.id), "B2-07a-candidates: 另一谱系的 approved 报价仍为候选（不自动抢指针：候选 ≥1 且无指针时只有恰好 1 份才自动选中）");
+  // B2-07b：清空后选择新的有效报价 → 指针 + 全部镜像原子恢复
+  const res07b = await selectQuoteAsTenderBid({ ...ctxE, quoteId: loser.id });
+  const loserPrice = computeForQuote(await getQuote(loser.id, projE.id)).calc;
+  const pE7b = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true, currency: true } });
+  const piE7b = ((await db.bidIntelligenceRoom.findUnique({ where: { projectId: projE.id }, select: { summaryJson: true } }))?.summaryJson as { pricingInputs?: Record<string, unknown> })?.pricingInputs ?? {};
+  ok(loserPrice.ok && res07b.status === "AUTHORITATIVE" && res07b.mirrorStale === false && pE7b?.bidQuoteId === loser.id && Math.abs((pE7b?.ourBidPrice ?? 0) - loserPrice.sellingPrice) < 0.005 && piE7b.ourPriceCad === loserPrice.sellingPrice && piE7b.ourPriceSource === `quote:${loser.id}:v${loser.version}` && piE7b.ourPriceStatus === "AUTHORITATIVE", "B2-07b: 清空后选择新有效报价 → 指针 + ourBidPrice + 房间镜像原子恢复", { pE7b, piE7b });
+  // B2-07d：清空后恰好一份 approved 被批准时自动恢复（approve 路径）：先取消 loser 再批准一份新的
+  await transitionQuote({ ...ctxE, quoteId: loser.id, to: "cancelled" });
+  const pE7d0 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true } });
+  const qE5 = await createEngineQuote({ ...ctxE, quoteType: "PROJECT_SUPPLY_INSTALL", demo: "A", name: "E quote 5" });
+  await transitionQuote({ ...ctxE, quoteId: qE5.id, to: "review" });
+  await transitionQuote({ ...ctxE, quoteId: qE5.id, to: "approved" });
+  const qE5Price = computeForQuote(await getQuote(qE5.id, projE.id)).calc;
+  const pE7d = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true } });
+  ok(pE7d0?.bidQuoteId === null && pE7d0?.ourBidPrice === null && qE5Price.ok && pE7d?.bidQuoteId === qE5.id && Math.abs((pE7d?.ourBidPrice ?? 0) - qE5Price.sellingPrice) < 0.005, "B2-07d: 再次清空后，批准唯一有效报价 → approve 事务内自动恢复指针 + 镜像", { pE7d0, pE7d });
 
   /* ───────────── F. Final Review B3 — 供应商币种 fail-closed（服务层） ───────────── */
   console.log("\n[F] B3 supplier currency fail-closed");
