@@ -114,13 +114,14 @@ export const POST = withAuth(async (request, _ctx, user) => {
     });
   }
 
-  // 错误不泄漏：只回 code + 安全文案（+ runId，便于工作台追踪）
+  // 错误不泄漏：只回 code + 安全文案（+ runId / delivered，便于工作台追踪）
   return NextResponse.json(
     {
       status: result.status,
       error: result.code,
       message: result.message,
       ...(result.runId ? { runId: result.runId } : {}),
+      ...(result.delivered !== undefined ? { delivered: result.delivered } : {}),
     },
     { status: httpStatusFor(result.code) },
   );

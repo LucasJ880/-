@@ -59,8 +59,8 @@ Mock Adapter.sendMessage（audience = initiating_user_only）
 | 2 | validate event | `adapter.receiveEvent` → `MockMentionEventInputSchema`（zod） | `INVALID_EVENT`（rejected） |
 | 3 | validate mention | `event.mentionedAgent`（`@Qingyan` / `@青砚` 前缀，或显式字段） | `NOT_MENTIONED`（ignored） |
 | 4 | audience | `evaluateAudience(channel.type)`：仅 `dm` / `thread` | `AUDIENCE_DENIED`（rejected） |
-| 5 | idempotency | `DuplicateEventGuard.markIfNew(provider:eventId)`（进程内） | `DUPLICATE_EVENT`（duplicate） |
-| 6 | external identity + membership / tenant | `resolveMentionIdentity`：fixture → `db.user`(active) → `organizationMember(status=active)` → `pickMembershipOrg` → **`resolveAgentTenant`**，`hasMembership !== true` 即拒 | `IDENTITY_OR_MEMBERSHIP_DENIED`（rejected） |
+| 5 | external identity + caller verification + membership / tenant | `resolveMentionIdentity`：fixture → caller 必须等于解析用户（非平台管理员）→ `db.user`(active) → `organizationMember(status=active)` → `pickMembershipOrg` → **`resolveAgentTenant`**，`hasMembership !== true` 即拒。**B1：在此之前不写入任何 dedupe 状态** | `IDENTITY_OR_MEMBERSHIP_DENIED`（rejected） |
+| 6 | idempotency（principal 作用域） | `DuplicateEventGuard.markIfNew(buildMentionDedupeKey)`，键 = `provider:orgId:userId:channelId:eventId`（进程内，仅对已验证 principal） | `DUPLICATE_EVENT`（duplicate） |
 | 7 | channel binding | `lookupChannelBinding(provider, channelId, threadId?)`（线程级优先） | `CONTEXT_UNRESOLVED`（rejected） |
 | 8 | verify binding org | `verifyBindingOrganization(binding, tenant.orgId)` | `CHANNEL_ORG_MISMATCH`（rejected） |
 | 9 | business context | `bindingToScopeInput`（project/tender → projectId；sales → customerId） | `CONTEXT_UNRESOLVED`（rejected） |
@@ -68,12 +68,14 @@ Mock Adapter.sendMessage（audience = initiating_user_only）
 | 11 | create/get session | `getOrCreateMentionSession`（AgentSession 现有表，逻辑键含 channelConversationId） | `SESSION_FAILED`（failed） |
 | 12 | create AgentRun | `createAgentRun({ userMessageId: "mock:<channelId>:<messageId>", runType: "conversation", intent: "mention", metadata.source="mention_gateway" })`；`reused` → duplicate | `DUPLICATE_EVENT` / `RUN_CREATE_FAILED` |
 | 13 | build allowed tools | `buildMentionRunOptions`：`tools = MENTION_GATEWAY_M1_TOOL_ALLOWLIST`（18）、`maxRisk = l0_read`、租户字段全部来自 tenant、`scopeGuard = toScopeGuard(scope)` | `RUN_FAILED`（failed；不变量被破坏时） |
-| 14 | runAgent | `@/lib/agent-core` `runAgent`（先 `import "@/lib/agent-core/tools"` 注册） | `RUN_FAILED`（failed；`failAgentRun(model_failed)` + 安全失败 DM） |
-| 15 | emit runtime events | `context.loading` / `context.loaded` / `response.started` / `tool.started` / `tool.completed` / `agent.output`（均带 `source=mention_gateway, provider=mock`） | — |
-| 16 | complete run | `completeAgentRunRespectingApprovals` | — |
-| 17 | adapter.sendMessage | 仅 `initiating_user_only`；成功 → `response.completed{delivered:true}`；失败 → `response.failed{delivered:false}` | `DELIVERY_FAILED`（failed） |
+| 14 | runAgent | `@/lib/agent-core` `runAgent`（先 `import "@/lib/agent-core/tools"` 注册）；失败 → `response.failed` → `failAgentRun(model_failed)` → 安全失败 DM | `RUN_FAILED`（failed） |
+| 15 | agent.output | `emitAgentOutputEvent`（生成成功）；观测事件 `context.loading` / `context.loaded` / `response.started` / `tool.started` / `tool.completed` 均带 `source=mention_gateway, provider=mock` | — |
+| 16 | deliver | `adapter.sendMessage`（仅 `initiating_user_only`）。**B2：投递先于任何终态化**。失败（返回 !ok 或抛异常）→ `response.failed{delivered:false}` → `failAgentRun(unknown, "delivery_failed: …")` | `DELIVERY_FAILED`（failed，`delivered=false`） |
+| 17 | response.completed | `response.completed{delivered:true}`（response 生命周期结束 = MENTION_RESPONSE_SENT） | — |
+| 18 | terminalize run | `completeAgentRunRespectingApprovals`（只有 17 成功后才调用）。失败不得静默：best-effort `failAgentRun(db_error, "finalize_failed_after_delivery: …")` 并返回 `RUN_FINALIZE_FAILED`（`delivered=true`） | `RUN_FINALIZE_FAILED`（failed） |
 
-"runAgent 之后再做权限" 不存在：步骤 6–10 全部先于 11–14；runAgent 内部工具调用再由 Registry 链独立复核。
+"runAgent 之后再做权限" 不存在：步骤 5–10 全部先于 11–14；runAgent 内部工具调用再由 Registry 链独立复核。
+终态不变量（B2）：`run.completed` / `run.failed` 绝不早于 `response.completed` / `response.failed`；`DELIVERY_FAILED` 时 Run 终态 = `failed`，绝不是 `completed`。
 
 ## 4. Security Model
 
@@ -155,8 +157,8 @@ M1_ALLOWED_TOOLS = [
 POC_IDEMPOTENCY_STRENGTH = BEST_EFFORT
 ```
 
-- 第一层：进程内 `DuplicateEventGuard`（`provider:eventId`，有界 5000 条）。
-- 第二层（跨实例）：`createAgentRun.userMessageId = "mock:<channelId>:<messageId>"` 复用现有幂等（`run.ts:62-70` `findFirst` → `reused`）。
+- 第一层：进程内 `DuplicateEventGuard`（有界 5000 条）。**B1**：键 = `provider:orgId:userId:channelId:eventId`，且只在 identity + caller verification + tenant 解析成功之后写入——未通过身份校验的请求（冒充 / 未知外部用户 / 无 membership / 账号停用）不会预占任何 eventId；Org A 与 Org B 的同名 eventId 互不干扰；同一 principal 的重放才去重。
+- 第二层（跨实例）：`createAgentRun.userMessageId = "mock:<channelId>:<messageId>"` 复用现有 **org 作用域** 幂等（`run.ts:62-70` `findFirst({orgId, userMessageId})` → `reused`），未改动。
 - 为 BEST_EFFORT 的原因：`AgentRun(orgId, userMessageId)` 只有索引没有唯一约束（`schema:4797`），并发重放存在窗口；本轮按约定不加 migration。测试覆盖：同 eventId 两次只执行一次；跨实例重放同 messageId → `DUPLICATE_EVENT`，不执行、不发消息。
 
 **会话键方案（任务书 §9）**：不改 `agent-runtime/session.ts`（避免改变 Web 助手会话语义），网关自有 `getOrCreateMentionSession` 按完整逻辑键查找/创建 AgentSession 现有行：`channel="mention:mock"`、`channelUserId=externalUserId`、`channelConversationId="mock:<channelId>:<threadId|->"`。零 Schema。
@@ -171,6 +173,7 @@ POC_IDEMPOTENCY_STRENGTH = BEST_EFFORT
 | M1 Mock Gateway | `src/lib/mention-gateway/__tests__/m1-gateway.test.ts` | 69 通过 / 0 失败 |
 | M1 Tool Allowlist vs Registry | `src/lib/mention-gateway/__tests__/m1-tool-policy.test.ts` | 151 通过 / 0 失败 |
 | M1 静态策略扫描 | `src/lib/mention-gateway/__tests__/m1-static-policy.test.ts` | 207 通过 / 0 失败 |
+| M1 Final Review（B1 幂等边界 / B2 终态顺序） | `src/lib/mention-gateway/__tests__/m1-final-review.test.ts` | 72 通过 / 0 失败 |
 
 覆盖矩阵：Feature Flag（gateway disabled / mock disabled / production mock rejected / maxRisk 夹紧 / 硬关）、Identity（unknown external user / known user without membership / disabled membership / disabled account / wrong organization / caller 冒充）、Channel Context（unknown channel / binding org mismatch / context not found / cross-tenant context）、Audience（DM/thread 接受；channel/group/public 拒绝）、Memory（永不触达写入；下一轮无回灌）、Happy Path、Permission（Org A → Org B 两条路径）、Tool Escalation（真实 Registry：`sales_send_quote_email` → `TOOL_NOT_ALLOWLISTED`；放宽到 l2/l3 → `risk_too_high`；去掉 membership → `no_membership`；参数覆盖 → `SCOPE_*_OVERRIDE`）、Unknown Context、Duplicate Event（两层）、Prompt Injection（tools / maxRisk / orgRole / hasMembership / scope 不变）、Memory Contamination、Runtime Failure（run failed + 安全 DM + 结构化错误）、Delivery Failure、会话逻辑键。
 
@@ -187,11 +190,11 @@ UNKNOWN_USER_FAILS_CLOSED                = PASS
 全量回归（本机，2026-08-22）：
 
 ```text
-MENTION_TESTS   = 4/4 套件 PASS（522 断言）
+MENTION_TESTS   = 5/5 套件 PASS（95 + 70 + 151 + 207 + 72 = 595 断言；Final Review 后复跑）
 typecheck       = PASS（tsc --noEmit 0 error；需先 prisma generate 刷新本 worktree 的客户端）
 lint:baseline   = PASS（41 error vs 基线 53，无新增 fingerprint；npm run lint 的 exit 1 为既有债务，CI 标记 continue-on-error）
-test:ci         = PASS（21/21，含新增 4 套件）
-test-all        = 295/307；12 个失败全部为 DB / OAuth 环境套件（见下），与本分支无共享代码改动
+test:ci         = PASS（21/21，含新增 5 套件；Final Review 后复跑）
+test-all        = 296/308（Final Review 后复跑；首轮 295/307）；12 个失败全部为 DB / OAuth 环境套件（见下），与本分支无共享代码改动
 BUILD           = PASS（npm run build exit 0：prisma generate → preview-db-isolation skip(VERCEL_ENV unset)
                   → predeploy-migration-gate 跳过（仅生产校验）→ next build "✓ Compiled successfully in 60s"，
                   路由 ƒ /api/mention-gateway/mock 已生成）
@@ -204,8 +207,9 @@ test-all 的 12 个失败套件及日志原因：
 
 ## 12. Known Limitations
 
-1. 幂等为 BEST_EFFORT（无唯一约束；按约定不加 migration）。
+1. 幂等为 BEST_EFFORT（无唯一约束；按约定不加 migration）；进程内键已含 org + principal 边界（B1）。
 2. 进程内 `DuplicateEventGuard` / Mock outbox / fixture 在 Serverless 下按实例隔离。
+2a. `RUN_FINALIZE_FAILED`（投递成功但 completeRun 失败）时 Run 以 `failed/db_error` 终态标记；若 failRun 也失败则 Run 停留在 `running`，仅日志可追踪（无后台 reconcile，M1 不新增）。
 3. `user` 平台角色下 Registry 暴露面只剩 1 个工具（既有 `allowRoles` 策略，不在本轮范围）。
 4. 无 Task / ProjectEvent / PendingAction 只读工具（Registry 尚无此类工具；本轮不新增工具）。
 5. 无多轮上下文（不写 summary、不回灌历史）——这是记忆策略的有意取舍。
@@ -221,6 +225,28 @@ test-all 的 12 个失败套件及日志原因：
 - `l2_soft` + PendingAction 草稿 + 渠道内 "1/2/3" 确认（复用 `ApprovalPort`，候选改用 `listApprovalInbox`）。
 - P0-A 独立修复 lane（`process.ts` / `skills/runtime.ts` / `trade/chat-assistant.ts` 接入 `resolveAgentTenant`）。
 - 评估 `AgentRun(orgId, userMessageId)` 唯一约束以把幂等提升为 STRONG。
+- **P1（Final Review 记录，本轮未实施）：context-specific tool allowlists。** M1 的 18 个工具对所有上下文类型一视同仁；M2 应按绑定上下文收窄：`project` / `tender` 上下文不默认暴露 sales-wide 工具（`sales_get_pipeline`、`sales_list_opportunities`、`sales_get_overview`、`sales_search_customers`）；`sales` 客户上下文应区分 customer-bound 读（`sales_get_customer`、`sales_get_customer_quotes`、`sales_get_customer_interactions`，并以 `scope.customerId` 约束参数）与 org-wide pipeline 读（`sales_get_pipeline*`、`sales_get_overview`）。实现位置建议：`policy.ts` 按 `contextType` 派生 `tools` 子集，仍经 Registry 链复核。
+
+## 16. Final Review Fixes（PR #154，同分支，无 Schema / 无 migration / 无 Runtime V2 / 无 M2）
+
+**B1 — authenticated idempotency boundary**
+- 问题：进程内 dedupe 在 identity / caller verification 之前按 `provider:eventId` 登记，一个 `caller_mismatch` 被拒的请求可预占他人 / 他租户的 eventId。
+- 修复：dedupe 移到 identity 成功、tenant/org 解析之后（`handle.ts` 步骤 5 → 6）；键改为 `buildMentionDedupeKey = provider:orgId:userId:channelId:eventId`；`AgentRun.userMessageId` org 作用域幂等不变。
+- 测试（`m1-final-review.test.ts` B1-1…B1-5）：User A 以 User B 外部身份 + `evt-shared` → DENY 且 `guard.size()===0`；User B 随后同 eventId → 正常执行（不是 DUPLICATE），再重放 → DUPLICATE；未知用户 / 无 membership / 停用账号四次失败后 guard 仍为空；Org A `evt-1` 与 Org B `evt-1` 均执行（runAgent ×2）；同用户不同频道同 eventId 不互相误判。
+
+**B2 — terminal lifecycle ordering**
+- 问题：原顺序 `runAgent → agent.output → completeRun → sendMessage → response.completed`，`run.completed` 早于实际投递；投递失败时 Run 已 completed。
+- 修复（冻结）：`agent.output → sendMessage → 成功: response.completed → completeRun(run.completed)`；投递失败（!ok 或抛异常）→ `response.failed` → `failAgentRun(unknown, delivery_failed…)`，**completeRun 不会被调用**；`completeRun` 抛错 → best-effort `failAgentRun(db_error, finalize_failed_after_delivery…)` + 返回 `RUN_FINALIZE_FAILED{delivered:true}`，不再返回完全成功。生成失败路径：`response.failed → run.failed → 安全通知`。
+- 测试（B2-1…B2-6）：SUCCESS `agent.output(3) < response.completed(4) < run.completed(5)`，`sendMessage` 先于 `completeRun`；DELIVERY FAILURE `response.failed` 存在、`run.completed` 不存在、`completeRun` 未调用、`failRun ×1` 且 `run.failed` 晚于 `response.failed`；适配器抛异常同语义；FINALIZE FAILURE → `RUN_FINALIZE_FAILED`；GENERATION FAILURE `response.failed < run.failed`；全部 5 条时间线满足「终态 run 事件不早于 response 生命周期结束」且至多一个终态事件。
+
+```text
+B1_IDEMPOTENCY_PRINCIPAL_ISOLATION       = PASS
+B1_FAILED_IDENTITY_CANNOT_POISON_DEDUPE  = PASS
+B1_CROSS_TENANT_EVENT_ID_ISOLATION       = PASS
+B2_DELIVERY_BEFORE_TERMINAL              = PASS
+B2_DELIVERY_FAILURE_NOT_COMPLETED        = PASS
+B2_EVENT_ORDERING                        = PASS
+```
 
 ## 14. Files Added
 
@@ -240,6 +266,7 @@ src/lib/mention-gateway/__tests__/m0-safety-gate.test.ts
 src/lib/mention-gateway/__tests__/m1-gateway.test.ts
 src/lib/mention-gateway/__tests__/m1-tool-policy.test.ts
 src/lib/mention-gateway/__tests__/m1-static-policy.test.ts
+src/lib/mention-gateway/__tests__/m1-final-review.test.ts   （Final Review B1/B2）
 src/app/api/mention-gateway/mock/route.ts
 docs/QINGYAN_MENTION_GATEWAY_M1_IMPLEMENTATION.md
 docs/QINGYAN_MENTION_GATEWAY_READINESS_AUDIT.md   （docs-only cherry-pick 自审计分支）
@@ -248,8 +275,8 @@ docs/QINGYAN_MENTION_GATEWAY_READINESS_AUDIT.md   （docs-only cherry-pick 自�
 ## 15. Files Modified
 
 ```text
-scripts/test-all.sh        +4 run_test 注册行
-scripts/test-ci-unit.sh    +4 测试行
+scripts/test-all.sh        +5 run_test 注册行（含 Final Review 套件）
+scripts/test-ci-unit.sh    +5 测试行
 .env.example               +Mention Gateway M1 flag 段（默认全关）
 ```
 

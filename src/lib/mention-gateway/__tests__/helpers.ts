@@ -171,6 +171,10 @@ export function makeFakeDeps(options?: {
   world?: FakeWorld;
   runAgent?: (opts: AgentRunOptions) => Promise<AgentRunResult>;
   createRunReused?: (userMessageId: string) => boolean;
+  /** 模拟 completeRun 抛错（B2：finalize 失败不得静默） */
+  completeRunThrows?: boolean;
+  /** 多次调用共用同一个进程内 guard（B1：跨用户 / 跨租户隔离） */
+  duplicateGuard?: DuplicateEventGuard;
 }): FakeDepsResult {
   const world = options?.world ?? defaultWorld();
   const calls: Call[] = [];
@@ -297,11 +301,15 @@ export function makeFakeDeps(options?: {
       async updateRunStatus(orgId, runId, status, patch) {
         record("updateRunStatus", orgId, runId, status, patch);
       },
+      // 与真实 applyAgentRunTerminalInTx 一致：终态化会在 canonical 事件流里落 run.completed / run.failed
       async completeRun(orgId, runId) {
         record("completeRun", orgId, runId);
+        if (options?.completeRunThrows) throw new Error("simulated completeRun failure");
+        events.push({ eventType: "run.completed", payload: { runId } });
       },
       async failRun(orgId, runId, error) {
         record("failRun", orgId, runId, error);
+        events.push({ eventType: "run.failed", payload: { runId, code: error.code } });
       },
       async runAgent(opts) {
         record("runAgent", opts.tools, opts.maxRisk);
@@ -310,11 +318,30 @@ export function makeFakeDeps(options?: {
         return { content: "这是只读回复", toolCalls: [], model: "fake", rounds: 1 };
       },
     },
-    duplicateGuard: new DuplicateEventGuard(),
+    duplicateGuard: options?.duplicateGuard ?? new DuplicateEventGuard(),
     now: () => new Date("2026-08-22T12:00:00Z"),
   };
 
   return { deps, calls, adapter, runOptions, events, world };
+}
+
+/**
+ * B2 不变量：任何终态 run 事件（run.completed / run.failed）之前，
+ * 最近一次 response.started 必须已经以 response.completed / response.failed 结束。
+ */
+export function terminalAfterResponseLifecycle(
+  events: { eventType: string }[],
+): { ok: boolean; detail: string } {
+  let openResponse = false;
+  for (let i = 0; i < events.length; i++) {
+    const t = events[i].eventType;
+    if (t === "response.started") openResponse = true;
+    if (t === "response.completed" || t === "response.failed") openResponse = false;
+    if ((t === "run.completed" || t === "run.failed") && openResponse) {
+      return { ok: false, detail: `${t} at index ${i} while response lifecycle still open` };
+    }
+  }
+  return { ok: true, detail: events.map((e) => e.eventType).join(" → ") };
 }
 
 export function baseRaw(overrides?: Record<string, unknown>) {

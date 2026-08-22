@@ -76,7 +76,7 @@ export {
   handleMentionEvent,
   createDefaultMentionGatewayDeps,
   DuplicateEventGuard,
-  buildMentionEventKey,
+  buildMentionDedupeKey,
 } from "./handle";
 export type {
   HandleMentionInput,

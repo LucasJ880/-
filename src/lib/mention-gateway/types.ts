@@ -119,7 +119,9 @@ export type MentionGatewayErrorCode =
   | "SESSION_FAILED"
   | "RUN_CREATE_FAILED"
   | "RUN_FAILED"
-  | "DELIVERY_FAILED";
+  | "DELIVERY_FAILED"
+  /** 回复已送达，但 completeRun 失败；Run 以 failed 终态标记（可追踪），不返回完全成功 */
+  | "RUN_FINALIZE_FAILED";
 
 export interface MentionHandleSuccess {
   ok: true;
@@ -142,6 +144,8 @@ export interface MentionHandleFailure {
   message: string;
   stage: MentionStage;
   runId?: string;
+  /** 已建 Run 后的失败：回复是否已送达 initiating user（RUN_FINALIZE_FAILED 时为 true） */
+  delivered?: boolean;
 }
 
 export type MentionHandleResult = MentionHandleSuccess | MentionHandleFailure;

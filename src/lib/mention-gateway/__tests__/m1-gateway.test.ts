@@ -85,7 +85,19 @@ async function main() {
       `事件复用现有字面量：${types.join(" → ")}`,
     );
     ok(!types.some((t) => /^MENTION_/.test(t) || /^channel\./.test(t) || /^identity\./.test(t)), "未新增 event taxonomy");
-    ok(events.every((e) => !e.payload || e.eventType === "agent.output" || e.payload.source === "mention_gateway"), "事件 payload 带 source=mention_gateway");
+    // run.completed / run.failed 由 canonical runtime 终态化时发出（非网关 payload），其余网关事件必须带 source
+    ok(
+      events.every(
+        (e) =>
+          !e.payload ||
+          e.eventType === "agent.output" ||
+          e.eventType === "run.completed" ||
+          e.eventType === "run.failed" ||
+          e.payload.source === "mention_gateway",
+      ),
+      "网关事件 payload 带 source=mention_gateway",
+    );
+    ok(idx("runAgent") < idx("completeRun") && types.indexOf("response.completed") < types.indexOf("run.completed"), "response.completed 早于 run.completed（B2）");
     const completed = events.find((e) => e.eventType === "response.completed");
     ok(completed?.payload?.delivered === true && completed?.payload?.audience === "initiating_user_only", "response.completed 记录 delivered=true（MENTION_RESPONSE_SENT 复用）");
 
