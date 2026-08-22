@@ -68,6 +68,10 @@ npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
 npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
+npx tsx src/lib/tender-compliance-memory/__tests__/compliance-memory.test.ts
+npx tsx src/lib/tender-profile/__tests__/tender-profile.test.ts
+npx tsx src/lib/quote-engine/__tests__/quote-calc.test.ts
+npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/obs-p4-page-limit.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-schema-contract.test.ts
 npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts

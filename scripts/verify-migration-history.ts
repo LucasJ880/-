@@ -59,6 +59,8 @@ const IMMUTABLE: Record<string, string> = {
     "11ea9dd36b0ed9a3679088b25e90909df24e02fcc7e19b06c0fb6d53ee36671a",
   "20260819190000_add_autopilot_a2_p0_evaluation":
     "5292fe04ce18a0f8c22ccbe066e5eb51a158c8c55fbb37dbfe95c9c5407b073e",
+  "20260821150000_add_quote_cost_engine_phase1":
+    "3336a36134060869b3d4a8b48f2ce6f8408db2a2381da8a167f09e18387caeaf",
 };
 
 let passed = 0;

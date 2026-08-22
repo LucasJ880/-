@@ -31,6 +31,8 @@ export const MEMORY_CLAIM_TYPES = [
   "PRICE_FACT",
   "WIN_LOSS_REASON",
   "SUPPLIER_FACT",
+  /// 合规记忆：我方对某条招标要求的人工合规立场（五态 + 备注），跨项目复用
+  "COMPLIANCE_POSITION",
   "OTHER",
 ] as const;
 export type MemoryClaimType = (typeof MEMORY_CLAIM_TYPES)[number];

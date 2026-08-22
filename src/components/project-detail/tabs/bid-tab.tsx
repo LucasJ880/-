@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { History } from "lucide-react";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
-import { ProjectQuoteSection } from "@/components/quote/project-quote-section";
+import { BidQuoteArea } from "@/components/quote-engine/bid-quote-area";
 import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
 import { ChinaSupplierBriefPanel } from "@/components/bid-workflow/china-supplier-brief-panel";
 import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
@@ -38,7 +38,8 @@ export function BidTab({ projectId, orgId, canManage }: BidTabProps) {
         </button>
       </div>
 
-      <ProjectQuoteSection projectId={projectId} />
+      {/* 招投标报价（引擎）置顶；legacy 外贸报价折叠（flag OFF 时与原来一致） */}
+      <BidQuoteArea projectId={projectId} />
 
       <ProjectGenerateMenu projectId={projectId} canManage={canManage} />
 
