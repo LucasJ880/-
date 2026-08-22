@@ -133,6 +133,10 @@ npx tsx src/lib/bid-workflow/__tests__/china-supplier-brief.test.ts
 npx tsx src/lib/tender/__tests__/detail-tabs.test.ts
 npx tsx src/components/project-detail/__tests__/tender-detail-ia.test.ts
 npx tsx src/components/project-detail/__tests__/project-context-panel.test.ts
+npx tsx src/lib/mention-gateway/__tests__/m0-safety-gate.test.ts
+npx tsx src/lib/mention-gateway/__tests__/m1-gateway.test.ts
+npx tsx src/lib/mention-gateway/__tests__/m1-tool-policy.test.ts
+npx tsx src/lib/mention-gateway/__tests__/m1-static-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 echo ""

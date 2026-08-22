@@ -118,6 +118,11 @@ run_test "Tender/Project 安全P0 AgentTask execute/cancel 路由级授权" "npx
 run_test "Phase2A 规则/Pack/工具权限" "npx tsx src/lib/tenancy/__tests__/phase2a-rules-tools.test.ts"
 run_test "AI收敛P0 pre-execute守卫/审批闸" "npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts"
 run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
+# Mention Gateway M0/M1（Mock PoC：flag 默认关、只读 allowlist、fail-closed；纯逻辑，无 DB）
+run_test "Mention Gateway M0 Safety Gate" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m0-safety-gate.test.ts"
+run_test "Mention Gateway M1 Mock Gateway" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m1-gateway.test.ts"
+run_test "Mention Gateway M1 Tool Allowlist vs Registry" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m1-tool-policy.test.ts"
+run_test "Mention Gateway M1 静态策略扫描" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m1-static-policy.test.ts"
 run_test "Phase1.1 AIRuntimeContext契约" "npx tsx src/lib/ai/__tests__/runtime-context.test.ts"
 run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
