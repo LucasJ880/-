@@ -4,6 +4,8 @@
  * 顺序：workbook structure inspection → header detection（中英同义词）→ table extraction
  *       → heuristic mapping（类别 / 算法 / 币种）→（AI 仅在低置信度行上补充，见 classify-ai.ts）。
  * 金额 / 数量 / 单价只来自单元格本身；解析不出的数字标 UNPARSED_NUMBER，绝不猜。
+ * 币种优先级（B3 fail-closed）：行级币种列/符号 → 表头 (CAD) / 表级 "Currency: X" → 人工显式确认的供应商币种（confirmedCurrency）→ UNRESOLVED（null + MISSING_CURRENCY）。
+ * **绝不**用报价币种兜底：未标币种的中国供应商表不能悄悄变成 CAD。
  */
 
 import * as XLSX from "xlsx";
@@ -204,7 +206,7 @@ function rowSnippet(row: Cell[]): string {
 }
 
 /** 工作表抽取（含无表头回退：描述 + 行内最后一个数字） */
-export function extractRowsFromSheet(sheetName: string, rows: Cell[][], opts: { defaultCurrency: string | null; rowIdPrefix: string }): { rows: ImportRow[]; notes: string[]; headerFound: boolean; currency: string | null } {
+export function extractRowsFromSheet(sheetName: string, rows: Cell[][], opts: { confirmedCurrency: string | null; rowIdPrefix: string }): { rows: ImportRow[]; notes: string[]; headerFound: boolean; currency: string | null } {
   const out: ImportRow[] = [];
   const notes: string[] = [];
   const header = detectHeader(rows);
@@ -225,7 +227,7 @@ export function extractRowsFromSheet(sheetName: string, rows: Cell[][], opts: { 
       if (!desc && hasNumber) { skippedTotals += 1; continue; }
       if (looksLikeTotalLine(desc)) { skippedTotals += 1; continue; }
       if (desc && !hasNumber && qtyCell.value == null) { section = desc.slice(0, 80); continue; }
-      const rowCcy = (roleCol.has("currency") ? detectCurrencyToken(cellText(row[roleCol.get("currency")!] ?? null)) : null) ?? detectCurrencyToken(amountCell.raw) ?? detectCurrencyToken(unitCostCell.raw) ?? sheetCcy ?? opts.defaultCurrency;
+      const rowCcy = (roleCol.has("currency") ? detectCurrencyToken(cellText(row[roleCol.get("currency")!] ?? null)) : null) ?? detectCurrencyToken(amountCell.raw) ?? detectCurrencyToken(unitCostCell.raw) ?? sheetCcy ?? opts.confirmedCurrency;
       const unit = roleCol.has("unit") ? cellText(row[roleCol.get("unit")!] ?? null).slice(0, 30) || null : null;
       const categoryText = roleCol.has("category") ? cellText(row[roleCol.get("category")!] ?? null) || null : null;
       const noteText = roleCol.has("notes") ? cellText(row[roleCol.get("notes")!] ?? null) || null : null;
@@ -240,7 +242,7 @@ export function extractRowsFromSheet(sheetName: string, rows: Cell[][], opts: { 
     return { rows: out, notes, headerFound: true, currency: sheetCcy };
   }
   // 无表头回退：每行「第一个文本 + 最后一个数字」
-  const sheetCcy = sheetLevelCurrency(rows, Math.min(rows.length, 12)) ?? opts.defaultCurrency;
+  const sheetCcy = sheetLevelCurrency(rows, Math.min(rows.length, 12)) ?? opts.confirmedCurrency;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] ?? [];
     const texts = row.map((c, idx) => ({ idx, t: cellText(c), n: parseNumberCell(c) }));
@@ -262,7 +264,7 @@ export function extractRowsFromSheet(sheetName: string, rows: Cell[][], opts: { 
   return { rows: out, notes, headerFound: false, currency: sheetCcy };
 }
 
-export function extractRowsFromWorkbook(buffer: Buffer, opts: { defaultCurrency?: string | null; sourceType?: "XLSX" | "CSV" } = {}): ExtractionResult {
+export function extractRowsFromWorkbook(buffer: Buffer, opts: { confirmedCurrency?: string | null; sourceType?: "XLSX" | "CSV" } = {}): ExtractionResult {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const rows: ImportRow[] = [];
   const notes: string[] = [];
@@ -276,7 +278,7 @@ export function extractRowsFromWorkbook(buffer: Buffer, opts: { defaultCurrency?
     const grid = XLSX.utils.sheet_to_json<Cell[]>(sheet, { header: 1, raw: true, defval: null, blankrows: true }) as Cell[][];
     if (grid.length === 0) return;
     sheets.push(name);
-    const res = extractRowsFromSheet(name, grid, { defaultCurrency: opts.defaultCurrency ?? null, rowIdPrefix: `s${si + 1}` });
+    const res = extractRowsFromSheet(name, grid, { confirmedCurrency: opts.confirmedCurrency ?? null, rowIdPrefix: `s${si + 1}` });
     rows.push(...res.rows);
     notes.push(...res.notes);
     if (!detectedCurrency && res.currency) detectedCurrency = res.currency;

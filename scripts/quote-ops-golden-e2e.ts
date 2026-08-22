@@ -6,6 +6,9 @@
  *     → 激活 + 冻结基线 → 合成实际成本 → Budget vs Actual 差异正确 → 人工预测 → 利润预测
  *  B. Standing Offer：供应商成本 27,167 箱/柜 × 50 件/箱，年量 3,750,000 → 导入成本 → 分级 → Approve → 客户报价 → Our Bid
  *  C. 安全：跨组织枚举（quote / import / document / pdf）= 404；PDF 泄露门 fail-closed；重复导入 409；修订后旧 PDF 不覆盖
+ *  D. Final Review B1：Apply 原子 / 幂等 / 并发 / 提交前失败回滚 / 重试 exactly-once / provenance 首次提交即在
+ *  E. Final Review B2：指针 + 镜像原子；强制镜像失败回滚；修订 PENDING；重批跟随；并发选择一致；同步失败可观测
+ *  F. Final Review B3：报价 CAD + 未标币种供应商表 350000 → 不会自动成 CAD；人工确认 CNY 后才成 CNY
  *
  * 用法（必须指向隔离 Neon 分支，绝不指生产；Blob 用本地磁盘 store，零凭据）：
  *   DATABASE_URL=... DIRECT_URL=... NODE_ENV=test DATABASE_ENVIRONMENT=isolated PRODUCT_CONTENT_LOCAL_STORE=1 PRODUCT_CONTENT_LOCAL_STORE_DIR=/tmp/x \
@@ -253,8 +256,121 @@ async function main() {
   let eImp = ""; try { await createImportFromUpload({ ...ctx, quoteId: qA_v2.id, file: { buffer: xlsx, filename: "late.xlsx", safeName: "late.xlsx", ext: "xlsx", mime: null, size: xlsx.length } }); } catch (e) { eImp = codeOf(e); }
   ok(eImp === "QUOTE_FROZEN", "C-03: awarded 报价不能导入成本（QUOTE_FROZEN）");
 
+  /* ───────────── D. Final Review B1 — Apply 原子 / 幂等 / 并发 ───────────── */
+  console.log("\n[D] B1 atomic + idempotent Apply");
+  const qD = await createEngineQuote({ ...ctx, quoteType: "PROJECT_SUPPLY_INSTALL", name: "B1 quote", seedTemplate: false });
+  const upD = await createImportFromUpload({ ...ctx, quoteId: qD.id, file: { buffer: xlsx, filename: "b1.xlsx", safeName: "b1.xlsx", ext: "xlsx", mime: null, size: xlsx.length }, ai: { enabled: false } });
+  const rowsD = importRows(upD.record);
+  const expectedD = rowsD.filter((r) => r.include).length;
+  const countD = async () => db.quoteCostLine.count({ where: { quoteId: qD.id, source: `import:${upD.record.id}` } });
+  // B1-04：提交前失败 → 既无 APPLIED 也无成本行
+  let c04 = ""; try { await applyImport({ ...ctx, quoteId: qD.id, importId: upD.record.id, allowConfirm: true, deps: { failBeforeCommit: () => { throw new Error("simulated crash before commit"); } } }); } catch (e) { c04 = (e as Error).message; }
+  const recD04 = await getImport({ ...ctx, quoteId: qD.id, importId: upD.record.id });
+  ok(/simulated crash/.test(c04) && recD04.status === "REVIEW_REQUIRED" && (await countD()) === 0 && recD04.appliedJson === null, "B1-04: 提交前失败 → 事务回滚：状态未变、零成本行、无 appliedJson", { c04, status: recD04.status });
+  // B1-05 / B1-01：中断后重试 → exactly-once；B1-06：provenance 首次提交即在
+  const r01 = await applyImport({ ...ctx, quoteId: qD.id, importId: upD.record.id, allowConfirm: true });
+  const linesD = await db.quoteCostLine.findMany({ where: { quoteId: qD.id, source: `import:${upD.record.id}` }, select: { id: true, metadata: true } });
+  ok(!r01.alreadyApplied && r01.lineIds.length === expectedD && linesD.length === expectedD && r01.record.status === "APPLIED" && r01.record.confirmedAt != null, `B1-01/05: 重试成功 → 恰好 ${expectedD} 行、APPLIED、confirm_apply 同事务写 confirmedAt`, { n: linesD.length, status: r01.record.status });
+  ok(linesD.every((l) => (l.metadata as { importId?: string } | null)?.importId === upD.record.id && (l.metadata as { originalAmount?: unknown } | null)?.originalAmount != null), "B1-06: 每条成本行 provenance 与成本行同一提交（无事后补写窗口）");
+  ok(r01.snapshotRefreshed === true, "B1-07: 派生快照事务外刷新并显式报告 snapshotRefreshed=true");
+  // B1-02：第二次 Apply → 幂等：零重复，返回 alreadyApplied
+  const r02 = await applyImport({ ...ctx, quoteId: qD.id, importId: upD.record.id });
+  ok(r02.alreadyApplied === true && r02.lineIds.length === expectedD && (await countD()) === expectedD, "B1-02: APPLIED 后重试 → alreadyApplied，零重复行");
+  // B1-03：并发 Apply（新导入，CONFIRMED）→ 只有一份被应用
+  const upD2 = await createImportFromUpload({ ...ctx, quoteId: qD.id, file: { buffer: xlsx, filename: "b1-concurrent.xlsx", safeName: "b1-concurrent.xlsx", ext: "xlsx", mime: null, size: xlsx.length }, reimport: true, ai: { enabled: false } });
+  await confirmImport({ ...ctx, quoteId: qD.id, importId: upD2.record.id });
+  const [ra, rb] = await Promise.all([applyImport({ ...ctx, quoteId: qD.id, importId: upD2.record.id }), applyImport({ ...ctx, quoteId: qD.id, importId: upD2.record.id })]);
+  const countD2 = await db.quoteCostLine.count({ where: { quoteId: qD.id, source: `import:${upD2.record.id}` } });
+  ok(countD2 === expectedD && [ra, rb].filter((r) => r.alreadyApplied).length === 1 && [ra, rb].filter((r) => !r.alreadyApplied).length === 1, `B1-03: 两路并发 Apply → 恰好 ${expectedD} 行（一路应用，一路 alreadyApplied）`, { countD2, a: ra.alreadyApplied, b: rb.alreadyApplied });
+  const otherLines = await db.quoteCostLine.count({ where: { quoteId: qD.id, source: `import:${upD.record.id}` } });
+  ok(otherLines === expectedD, "B1-08: 追加式写入：既有（第一次导入）成本行原样保留，未被全量替换");
+
+  /* ───────────── E. Final Review B2 — 指针 + 镜像一致性 ───────────── */
+  console.log("\n[E] B2 canonical / mirror consistency");
+  const projE = await db.project.create({ data: { name: `E2E B2 ${tag}`, ownerId: user.id, orgId: org.id, workDomain: "tender", currency: "CAD" } });
+  await db.bidIntelligenceRoom.create({ data: { orgId: org.id, projectId: projE.id, summaryJson: { pricingInputs: { competitorPriceCad: 300000 } } } });
+  const ctxE = { projectId: projE.id, orgId: org.id, userId: user.id };
+  const mkApproved = async (name: string, rate: number) => {
+    const q = await createEngineQuote({ ...ctxE, quoteType: "PROJECT_SUPPLY_INSTALL", demo: "A", name });
+    await updateEngineQuote({ ...ctxE, quoteId: q.id, header: { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: rate } });
+    await transitionQuote({ ...ctxE, quoteId: q.id, to: "review" });
+    return transitionQuote({ ...ctxE, quoteId: q.id, to: "approved" });
+  };
+  const qE1 = await mkApproved("E quote 1", 12);
+  const priceE1 = computeForQuote(await getQuote(qE1.id, projE.id)).calc;
+  const pE1 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true, currency: true } });
+  const roomE1 = await db.bidIntelligenceRoom.findUnique({ where: { projectId: projE.id }, select: { summaryJson: true } });
+  const piE1 = (roomE1?.summaryJson as { pricingInputs?: Record<string, unknown> })?.pricingInputs ?? {};
+  ok(priceE1.ok && pE1?.bidQuoteId === qE1.id && Math.abs((pE1?.ourBidPrice ?? 0) - priceE1.sellingPrice) < 0.005 && pE1?.currency === "CAD" && piE1.ourPriceCad === priceE1.sellingPrice && piE1.ourPriceSource === `quote:${qE1.id}:v1` && piE1.competitorPriceCad === 300000, "B2-01/04: 首个 approved 自动选中 → 指针 + ourBidPrice + currency + 房间 pricingInputs 同事务一致（既有键保留）", { pE1, piE1 });
+  // B2-02：强制镜像写失败 → 不得留下新指针 + 旧价格
+  const qE2 = await mkApprovedNoSync(ctxE, "E quote 2", 15);
+  let c22 = ""; try { await selectQuoteAsTenderBid({ ...ctxE, quoteId: qE2.id, deps: { mirror: async () => { throw new Error("mirror write failed"); } } }); } catch (e) { c22 = codeOf(e); }
+  const pE2 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true } });
+  const failAudit = await db.auditLog.count({ where: { projectId: projE.id, action: "tender_bid_sync_failed" } });
+  ok(c22 === "TENDER_BID_SYNC_FAILED" && pE2?.bidQuoteId === qE1.id && Math.abs((pE2?.ourBidPrice ?? 0) - (priceE1.ok ? priceE1.sellingPrice : -1)) < 0.005 && failAudit >= 1, "B2-02/06: 镜像失败 → 整体回滚（指针与价格仍为旧报价一致）+ tender_bid_sync_failed 审计", { c22, pE2, failAudit });
+  // B2-03：修订 → REVISION_PENDING（不把旧版宣称为当前）
+  const qE1v2 = await reviseQuote({ ...ctxE, quoteId: qE1.id, reason: "B2 revision" });
+  const res03 = await resolveTenderBid({ ...ctxE, internal: false });
+  ok(res03.status === "QUOTE_REVISION_PENDING" && res03.pendingRevision?.id === qE1v2.id && res03.selectedQuoteId === qE1.id, "B2-03: 修订后 → QUOTE_REVISION_PENDING（显式，不宣称旧版为当前）", res03.status);
+  // B2-04：批准修订 → 指针 + 价格 + 房间镜像跟随 V2
+  await updateEngineQuote({ ...ctxE, quoteId: qE1v2.id, header: { pricingRate: 20 } });
+  await transitionQuote({ ...ctxE, quoteId: qE1v2.id, to: "review" });
+  await transitionQuote({ ...ctxE, quoteId: qE1v2.id, to: "approved" });
+  const priceV2 = computeForQuote(await getQuote(qE1v2.id, projE.id)).calc;
+  const pE4 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true } });
+  const piE4 = ((await db.bidIntelligenceRoom.findUnique({ where: { projectId: projE.id }, select: { summaryJson: true } }))?.summaryJson as { pricingInputs?: Record<string, unknown> })?.pricingInputs ?? {};
+  const res04 = await resolveTenderBid({ ...ctxE, internal: true });
+  ok(priceV2.ok && pE4?.bidQuoteId === qE1v2.id && Math.abs((pE4?.ourBidPrice ?? 0) - priceV2.sellingPrice) < 0.005 && piE4.ourPriceSource === `quote:${qE1v2.id}:v2` && res04.status === "AUTHORITATIVE" && res04.mirrorStale === false, "B2-04: 批准修订 → 指针/价格/房间镜像全部跟随 V2；mirrorStale=false", { pE4, piE4, res04: res04.status });
+  const synced = await db.auditLog.count({ where: { projectId: projE.id, action: "tender_bid_pointer_synced" } });
+  ok(synced >= 1, "B2-04b: 跟随修订有 tender_bid_pointer_synced 审计");
+  // B2-05：并发选择两份 approved → 最终 bidQuoteId 与 ourBidPrice 必一致
+  const qE3 = await mkApprovedNoSync(ctxE, "E quote 3", 10);
+  await Promise.all([selectQuoteAsTenderBid({ ...ctxE, quoteId: qE1v2.id }), selectQuoteAsTenderBid({ ...ctxE, quoteId: qE3.id })]);
+  const pE5 = await db.project.findUnique({ where: { id: projE.id }, select: { bidQuoteId: true, ourBidPrice: true, currency: true } });
+  const winner = await getQuote(pE5!.bidQuoteId!, projE.id);
+  const winnerPrice = computeForQuote(winner).calc;
+  const res05 = await resolveTenderBid({ ...ctxE, internal: true });
+  ok(winnerPrice.ok && Math.abs((pE5?.ourBidPrice ?? 0) - winnerPrice.sellingPrice) < 0.005 && res05.status === "AUTHORITATIVE" && res05.mirrorStale === false, "B2-05: 并发选择 → bidQuoteId 与 ourBidPrice 一致（项目行锁串行化）", { bid: pE5?.bidQuoteId, price: pE5?.ourBidPrice });
+  // B2-06b：状态迁移中同步失败 → 迁移回滚 + 审计
+  const qE4 = await createEngineQuote({ ...ctxE, quoteType: "PROJECT_SUPPLY_INSTALL", demo: "A", name: "E quote 4" });
+  await transitionQuote({ ...ctxE, quoteId: qE4.id, to: "review" });
+  let c26 = ""; try { await transitionQuote({ ...ctxE, quoteId: qE4.id, to: "approved", deps: { bidSync: async () => { throw new (await import("@/lib/quote-engine/tender-bid")).TenderBidSyncError("forced sync failure"); } } }); } catch (e) { c26 = codeOf(e); }
+  const e4After = await getQuote(qE4.id, projE.id);
+  ok(c26 === "TENDER_BID_SYNC_FAILED" && e4After.status === "review" && (await db.auditLog.count({ where: { projectId: projE.id, action: "tender_bid_sync_failed" } })) >= 2, "B2-06: 迁移中同步失败 → approve 回滚（仍 review）+ 审计（不吞）", { c26, status: e4After.status });
+  // cancel 路径：取消被选报价 → NONE（确定性）
+  await transitionQuote({ ...ctxE, quoteId: pE5!.bidQuoteId!, to: "cancelled" });
+  const res06 = await resolveTenderBid({ ...ctxE, internal: false });
+  ok(res06.status === "NONE" && /取消/.test(res06.reason), "B2-07: 取消被选报价 → 解析为 NONE（显式）");
+
+  /* ───────────── F. Final Review B3 — 供应商币种 fail-closed（服务层） ───────────── */
+  console.log("\n[F] B3 supplier currency fail-closed");
+  const qF = await createEngineQuote({ ...ctx, quoteType: "PROJECT_SUPPLY_INSTALL", name: "B3 quote", seedTemplate: false, currency: "CAD" });
+  const cnWb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(cnWb, XLSX.utils.aoa_to_sheet([["品名", "数量", "单价", "金额"], ["铝合金窗 Type A", 250, 1400, 350000]]), "采购");
+  const cnBuf = XLSX.write(cnWb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const upF = await createImportFromUpload({ ...ctx, quoteId: qF.id, file: { buffer: cnBuf, filename: "cn-supplier.xlsx", safeName: "cn-supplier.xlsx", ext: "xlsx", mime: null, size: cnBuf.length }, ai: { enabled: false } });
+  const rowsF = importRows(upF.record);
+  const metaF = upF.record.metadataJson as Record<string, unknown>;
+  ok(rowsF.length === 1 && rowsF[0]!.sourceAmount === 350000 && rowsF[0]!.sourceCurrency === null && rowsF[0]!.warnings.includes("MISSING_CURRENCY") && metaF.currencyMode === "AUTO_DETECT" && metaF.unresolvedCurrencyRows === 1, "B3-E1: 报价 CAD + 无币种信号 → 行 UNRESOLVED（不是 CAD 350000）", { row: rowsF[0], metaF });
+  let cF = ""; try { await applyImport({ ...ctx, quoteId: qF.id, importId: upF.record.id, allowConfirm: true }); } catch (e) { cF = codeOf(e); }
+  ok(cF === "IMPORT_ROWS_INVALID" && (await db.quoteCostLine.count({ where: { quoteId: qF.id } })) === 0, "B3-E2: 未确认币种 → Confirm/Apply 被挡，零成本行");
+  await updateImportReview({ ...ctx, quoteId: qF.id, importId: upF.record.id, patch: { rows: rowsF, supplierCurrency: "CNY", applyToUnresolved: true } });
+  const rF = await applyImport({ ...ctx, quoteId: qF.id, importId: upF.record.id, allowConfirm: true });
+  const lineF = (await getQuote(qF.id, project.id)).costLines.find((l) => l.source === `import:${upF.record.id}`);
+  ok(rF.lineIds.length === 1 && lineF?.sourceCurrency === "CNY" && Number(lineF.unitCost) === 1400 && lineF.fxRate === null, "B3-E3: 人工确认 CNY 后 → CNY 250 × 1400 成本行，fxRate 留空", { ccy: lineF?.sourceCurrency, fx: lineF?.fxRate });
+  const compF = computeForQuote(await getQuote(qF.id, project.id));
+  ok(!compF.calc.ok && compF.calc.errors.some((e) => e.code === "FX_REQUIRED"), "B3-E4: CNY 行无汇率 → 引擎 FX_REQUIRED（不按 1:1 定价）");
+
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   await db.$disconnect();
   process.exit(fail > 0 ? 1 : 0);
+}
+
+/** 建一份 approved 报价但不触发自动选中（项目已有指针时 approve 不会抢指针；用于并发/镜像失败测试） */
+async function mkApprovedNoSync(ctxE: { projectId: string; orgId: string; userId: string }, name: string, rate: number) {
+  const q = await createEngineQuote({ ...ctxE, quoteType: "PROJECT_SUPPLY_INSTALL", demo: "A", name });
+  await updateEngineQuote({ ...ctxE, quoteId: q.id, header: { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: rate } });
+  await transitionQuote({ ...ctxE, quoteId: q.id, to: "review" });
+  return transitionQuote({ ...ctxE, quoteId: q.id, to: "approved" });
 }
 main().catch(async (e) => { console.error(e); await db.$disconnect(); process.exit(1); });

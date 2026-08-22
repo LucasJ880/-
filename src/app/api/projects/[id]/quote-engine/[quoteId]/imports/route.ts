@@ -8,7 +8,7 @@ import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
 /**
  * 成本导入（Quote Operations Phase 2）
  *  GET  ：导入记录列表（internal_cost：供应商成本属内部数据）
- *  POST ：上传供应商报价 / 成本表（multipart: file + supplierName? + quoteDate? + defaultCurrency? + reimport? + ai?）
+ *  POST ：上传供应商报价 / 成本表（multipart: file + supplierName? + quoteDate? + supplierCurrency?（人工显式确认；缺省 AUTO_DETECT，绝不用报价币种兜底）+ reimport? + ai?）
  *         → Upload → Extract → REVIEW_REQUIRED（绝不直接写正式成本行）
  */
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       file: { buffer: Buffer.from(check.buffer), filename: entry.name, safeName: check.safeName, ext: check.ext, mime: check.mime ?? null, size: check.size },
       supplierName: str("supplierName"),
       quoteDate: str("quoteDate"),
-      defaultCurrency: str("defaultCurrency"),
+      supplierCurrency: str("supplierCurrency"),
       reimport: str("reimport") === "true",
       ai: { enabled: str("ai") !== "false" },
     });

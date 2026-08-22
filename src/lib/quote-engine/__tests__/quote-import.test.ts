@@ -104,8 +104,30 @@ const wb2 = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb2, XLSX.utils.aoa_to_sheet([["Description", "Amount"], ["Ocean Freight", 20000]]), "S");
 const ex2 = extractRowsFromWorkbook(XLSX.write(wb2, { type: "buffer", bookType: "xlsx" }) as Buffer);
 ok(ex2.rows[0]?.sourceCurrency === null && ex2.rows[0]?.warnings.includes("MISSING_CURRENCY"), "XLS-15: 无任何币种信号 → MISSING_CURRENCY");
-const ex3 = extractRowsFromWorkbook(XLSX.write(wb2, { type: "buffer", bookType: "xlsx" }) as Buffer, { defaultCurrency: "CAD" });
-ok(ex3.rows[0]?.sourceCurrency === "CAD" && !ex3.rows[0]?.warnings.includes("MISSING_CURRENCY"), "XLS-16: 报价币种作为默认币种兜底");
+const ex3 = extractRowsFromWorkbook(XLSX.write(wb2, { type: "buffer", bookType: "xlsx" }) as Buffer, { confirmedCurrency: "CNY" });
+ok(ex3.rows[0]?.sourceCurrency === "CNY" && !ex3.rows[0]?.warnings.includes("MISSING_CURRENCY"), "XLS-16: 人工显式确认的供应商币种只在无文档信号时生效");
+
+// ── B3 回归：报价 CAD + 未标币种的供应商表 350000 → 绝不自动成为 CAD 350000 ──
+const wbCn = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wbCn, XLSX.utils.aoa_to_sheet([["品名", "数量", "单价", "金额"], ["铝合金窗 Type A", 250, 1400, 350000]]), "采购");
+const cnBuf = XLSX.write(wbCn, { type: "buffer", bookType: "xlsx" }) as Buffer;
+const exCn = extractRowsFromWorkbook(cnBuf);
+ok(exCn.rows.length === 1 && exCn.rows[0]!.sourceAmount === 350000 && exCn.rows[0]!.sourceCurrency === null && exCn.rows[0]!.warnings.includes("MISSING_CURRENCY") && exCn.detectedCurrency === null, "B3-01: 无币种信号 → sourceCurrency=null + MISSING_CURRENCY（不是 CAD 350000）", exCn.rows[0]);
+ok(validateRowsForConfirm(exCn.rows).some((i) => i.code === "MISSING_CURRENCY"), "B3-02: 未解析币种 → Confirm 被挡");
+let thrown = "";
+try { rowToCostLinePayload(exCn.rows[0]!, { importId: "imp", sortOrder: 10, supplierName: null, quoteCurrency: "CAD" }); } catch (e) { thrown = (e as { code?: string }).code ?? ""; }
+ok(thrown === "IMPORT_ROWS_INVALID", "B3-03: 行→成本行映射拒绝未解析币种（绝不用报价币种 CAD 兜底）");
+const exCn2 = extractRowsFromWorkbook(cnBuf, { confirmedCurrency: "CNY" });
+ok(exCn2.rows[0]!.sourceCurrency === "CNY" && !exCn2.rows[0]!.warnings.includes("MISSING_CURRENCY"), "B3-04: 人工显式选择 CNY 后 → CNY 350000");
+const pCn = rowToCostLinePayload(exCn2.rows[0]!, { importId: "imp", sortOrder: 10, supplierName: null, quoteCurrency: "CAD" });
+ok(pCn.sourceCurrency === "CNY" && pCn.fxRate === null, "B3-05: CNY 行 fxRate 留空 → 引擎 FX_REQUIRED fail-closed（Phase 1 B1 规则延续）");
+const wbHdr = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wbHdr, XLSX.utils.aoa_to_sheet([["Description", "Amount (USD)"], ["Hardware", 1200]]), "S");
+const exHdr = extractRowsFromWorkbook(XLSX.write(wbHdr, { type: "buffer", bookType: "xlsx" }) as Buffer, { confirmedCurrency: "CNY" });
+ok(exHdr.rows[0]!.sourceCurrency === "USD", "B3-06: 优先级：表头 (USD) 信号 > 人工确认 CNY");
+const pdfCn = extractRowsFromPdfPages([{ pageNumber: 1, contentText: "铝合金窗 Type A 250 x 1400.00 350,000.00\nTotal 350,000.00" }]);
+ok(pdfCn.rows[0]?.sourceCurrency === null && pdfCn.rows[0]?.warnings.includes("MISSING_CURRENCY"), "B3-07: PDF 无币种信号同样 UNRESOLVED");
+ok(extractRowsFromPdfPages([{ pageNumber: 1, contentText: "Hardware 1,200.00" }], { confirmedCurrency: "CNY" }).rows[0]?.sourceCurrency === "CNY", "B3-08: PDF 人工确认币种仅在无信号时生效");
 
 // CSV
 const csv = Buffer.from("Description,Qty,Unit Price,Total,Currency\nWindow Type B,100,300.5,30050,CAD\nTotal,,,30050,\n", "utf-8");

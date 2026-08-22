@@ -26,6 +26,7 @@ export const IMPORT_TERMINAL_STATUSES: readonly ImportStatus[] = ["APPLIED", "FA
 
 export const IMPORT_ROW_WARNINGS = [
   "MISSING_AMOUNT",
+  /** 币种未解析（行级 / 文档级 / 人工确认均无）→ Confirm 被挡，须人工选择源币种；绝不用报价币种兜底 */
   "MISSING_CURRENCY",
   "AMBIGUOUS_CATEGORY",
   "LOW_CONFIDENCE",
@@ -87,7 +88,9 @@ export const importReviewPatchSchema = z.object({
   rows: z.array(importRowSchema).max(500),
   supplierName: z.string().max(120).nullable().optional(),
   quoteDate: z.string().max(10).nullable().optional(),
-  defaultCurrency: z.string().length(3).nullable().optional(),
+  /** B3：人工显式确认的供应商源币种（3 位 ISO）；配合 applyToUnresolved 只传播到未识别行 */
+  supplierCurrency: z.string().length(3).nullable().optional(),
+  applyToUnresolved: z.boolean().optional(),
 });
 export type ImportReviewPatch = z.infer<typeof importReviewPatchSchema>;
 

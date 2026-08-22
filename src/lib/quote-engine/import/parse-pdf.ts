@@ -36,10 +36,10 @@ function documentCurrency(pages: PdfPageText[]): string | null {
   return ranked[0]?.[0] ?? null;
 }
 
-export function extractRowsFromPdfPages(pages: PdfPageText[], opts: { defaultCurrency?: string | null } = {}): ExtractionResult {
+export function extractRowsFromPdfPages(pages: PdfPageText[], opts: { confirmedCurrency?: string | null } = {}): ExtractionResult {
   const rows: ImportRow[] = [];
   const notes: string[] = [];
-  const docCcy = documentCurrency(pages) ?? opts.defaultCurrency ?? null;
+  const docCcy = documentCurrency(pages) ?? opts.confirmedCurrency ?? null;
   let skippedTotals = 0;
   let emptyPages = 0;
   let supplierNameGuess: string | null = null;

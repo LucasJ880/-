@@ -12,7 +12,7 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { COST_CATEGORIES, QUOTE_CURRENCIES } from "@/lib/quote-engine/contract";
 import type { ImportRow } from "@/lib/quote-engine/import/contract";
 
-type ImportSummary = { id: string; status: string; sourceType: string; sourceFilename: string; supplierName: string | null; quoteDate: string | null; rowCount: number | null; errorMessage: string | null; notes: string[]; detectedCurrency: string | null; aiUpdated: number; applied: { lineIds?: string[]; count?: number } | null; createdAt: string; reimportOf: string | null };
+type ImportSummary = { id: string; status: string; sourceType: string; sourceFilename: string; supplierName: string | null; quoteDate: string | null; rowCount: number | null; errorMessage: string | null; notes: string[]; detectedCurrency: string | null; supplierCurrency: string | null; currencyMode: string; unresolvedCurrencyRows: number; aiUpdated: number; applied: { lineIds?: string[]; count?: number } | null; createdAt: string; reimportOf: string | null };
 type ImportDetail = ImportSummary & { rows: ImportRow[] };
 
 const STATUS_ZH: Record<string, string> = { UPLOADED: "已上传", EXTRACTING: "抽取中", REVIEW_REQUIRED: "待审核", CONFIRMED: "已确认", APPLIED: "已应用", FAILED: "失败", CANCELLED: "已取消" };
@@ -25,7 +25,9 @@ export function CostImportPanel({ projectId, quoteId, editable, currency, onAppl
   const [file, setFile] = useState<File | null>(null);
   const [supplierName, setSupplierName] = useState("");
   const [quoteDate, setQuoteDate] = useState("");
-  const [defaultCurrency, setDefaultCurrency] = useState(currency);
+  // B3：供应商币种缺省 AUTO_DETECT（""）——绝不把报价币种当供应商币种；未识别行须人工确认
+  const [supplierCurrency, setSupplierCurrency] = useState("");
+  const [bulkCurrency, setBulkCurrency] = useState("CNY");
   const [useAi, setUseAi] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function CostImportPanel({ projectId, quoteId, editable, currency, onAppl
       fd.append("file", file);
       if (supplierName.trim()) fd.append("supplierName", supplierName.trim());
       if (quoteDate) fd.append("quoteDate", quoteDate);
-      fd.append("defaultCurrency", defaultCurrency);
+      if (supplierCurrency) fd.append("supplierCurrency", supplierCurrency);
       fd.append("ai", useAi ? "true" : "false");
       if (reimport) fd.append("reimport", "true");
       const res = await apiFetch(base, { method: "POST", body: fd });
@@ -68,7 +70,7 @@ export function CostImportPanel({ projectId, quoteId, editable, currency, onAppl
     if (!detail) return;
     setBusy("save"); setMsg(null);
     try {
-      const res = await apiFetch(`${base}/${detail.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows, supplierName: detail.supplierName, quoteDate: detail.quoteDate, defaultCurrency }) });
+      const res = await apiFetch(`${base}/${detail.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows, supplierName: detail.supplierName, quoteDate: detail.quoteDate, supplierCurrency: supplierCurrency || null }) });
       const json = (await res.json()) as { import?: ImportDetail; error?: string };
       if (!res.ok) { setMsg(json.error ?? "保存失败"); return false; }
       if (json.import) { setDetail(json.import); setRows(json.import.rows ?? []); }
@@ -95,6 +97,8 @@ export function CostImportPanel({ projectId, quoteId, editable, currency, onAppl
   const patchRow = (rowId: string, patch: Partial<ImportRow>) => setRows((rs) => rs.map((r) => (r.rowId === rowId ? { ...r, ...patch, userEdited: true } : r)));
   const reviewable = !!detail && (detail.status === "REVIEW_REQUIRED" || detail.status === "CONFIRMED") && editable;
   const included = rows.filter((r) => r.include);
+  const unresolved = included.filter((r) => !r.sourceCurrency);
+  const applyBulkCurrency = () => setRows((rs) => rs.map((r) => (r.include && !r.sourceCurrency ? { ...r, sourceCurrency: bulkCurrency, warnings: r.warnings.filter((w) => w !== "MISSING_CURRENCY"), userEdited: true } : r)));
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-card-bg p-4" data-testid="cost-import-panel">
@@ -104,7 +108,7 @@ export function CostImportPanel({ projectId, quoteId, editable, currency, onAppl
           <label className="text-muted">文件（xlsx / csv / pdf）<br /><input type="file" accept=".xlsx,.xls,.csv,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mt-0.5 text-[11px]" /></label>
           <label className="text-muted">供应商<br /><input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="可选，抽取可猜" className="mt-0.5 w-36 rounded border border-border bg-transparent px-2 py-1 text-foreground" /></label>
           <label className="text-muted">报价日期<br /><input type="date" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} className="mt-0.5 rounded border border-border bg-transparent px-2 py-1 text-foreground" /></label>
-          <label className="text-muted">默认币种<br /><select value={defaultCurrency} onChange={(e) => setDefaultCurrency(e.target.value)} className="mt-0.5 rounded border border-border bg-transparent px-2 py-1 text-foreground">{QUOTE_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+          <label className="text-muted" title="供应商源币种 ≠ 报价币种：未标币种的中国供应商表不会被当成 CAD；不选则按文档信号识别，识别不到的行必须人工确认">供应商币种<br /><select value={supplierCurrency} onChange={(e) => setSupplierCurrency(e.target.value)} className="mt-0.5 rounded border border-border bg-transparent px-2 py-1 text-foreground"><option value="">自动识别（未识别需人工确认）</option>{QUOTE_CURRENCIES.map((c) => <option key={c} value={c}>{c}（显式确认）</option>)}</select></label>
           <label className="flex items-center gap-1 text-muted"><input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} />AI 补充分类（仅低置信度行；不改数字）</label>
           <button type="button" disabled={!file || busy !== null} onClick={() => void upload(false)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] disabled:opacity-50"><Upload size={12} />上传并抽取</button>
           {dup ? <button type="button" onClick={() => void upload(true)} className="rounded border border-warning px-2 py-1 text-[11px]">同一文件已导入 → 重新导入为新版本</button> : null}
@@ -116,9 +120,16 @@ export function CostImportPanel({ projectId, quoteId, editable, currency, onAppl
       ) : <p className="text-[11px] text-muted">尚无导入记录。</p>}
       {detail ? (
         <div className="space-y-2 rounded-lg border border-border/60 p-3" data-testid="cost-import-review">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]"><div><b>{detail.sourceFilename}</b> · {STATUS_ZH[detail.status] ?? detail.status} · 供应商 {detail.supplierName ?? "—"} · 币种检测 {detail.detectedCurrency ?? "无"}{detail.aiUpdated ? ` · AI 补充 ${detail.aiUpdated} 行` : ""}</div>
-            {reviewable ? <div className="flex gap-2"><button type="button" disabled={busy !== null} onClick={() => void saveReview()} className="rounded border border-border px-2 py-1">保存 Review</button><button type="button" disabled={busy !== null || included.length === 0} onClick={() => void act("confirm_apply")} className="rounded border border-accent bg-accent/10 px-2 py-1 font-medium">确认并写入 {included.length} 行成本</button><button type="button" disabled={busy !== null} onClick={() => void act("cancel")} className="rounded border border-border px-2 py-1 text-danger">取消导入</button></div> : null}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]"><div><b>{detail.sourceFilename}</b> · {STATUS_ZH[detail.status] ?? detail.status} · 供应商 {detail.supplierName ?? "—"} · 币种 {detail.currencyMode === "CONFIRMED" ? `人工确认 ${detail.supplierCurrency}` : `自动识别${detail.detectedCurrency ? ` ${detail.detectedCurrency}` : "（无文档信号）"}`}{detail.aiUpdated ? ` · AI 补充 ${detail.aiUpdated} 行` : ""}</div>
+            {reviewable ? <div className="flex gap-2"><button type="button" disabled={busy !== null} onClick={() => void saveReview()} className="rounded border border-border px-2 py-1">保存 Review</button><button type="button" disabled={busy !== null || included.length === 0 || unresolved.length > 0} title={unresolved.length > 0 ? `${unresolved.length} 行币种未确认，先选择供应商币种` : ""} onClick={() => void act("confirm_apply")} className="rounded border border-accent bg-accent/10 px-2 py-1 font-medium disabled:opacity-50">确认并写入 {included.length} 行成本</button><button type="button" disabled={busy !== null} onClick={() => void act("cancel")} className="rounded border border-border px-2 py-1 text-danger">取消导入</button></div> : null}
           </div>
+          {reviewable && unresolved.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded border border-warning/50 bg-warning/5 px-2 py-1 text-[11px]" data-testid="currency-confirmation-required">
+              <span className="text-warning">CURRENCY_CONFIRMATION_REQUIRED：{unresolved.length} 行未识别币种（不会按报价币种 {currency} 兜底）。请选择供应商源币种：</span>
+              <select value={bulkCurrency} onChange={(e) => setBulkCurrency(e.target.value)} className="rounded border border-border bg-transparent px-1 py-0.5 text-foreground">{QUOTE_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              <button type="button" onClick={applyBulkCurrency} className="rounded border border-border px-2 py-0.5">应用到 {unresolved.length} 行未识别行</button>
+            </div>
+          ) : null}
           {detail.notes.length > 0 ? <ul className="list-disc pl-4 text-[10px] text-muted">{detail.notes.map((n, i) => <li key={i}>{n}</li>)}</ul> : null}
           {detail.errorMessage ? <p className="text-[11px] text-danger">{detail.errorMessage}</p> : null}
           <div className="overflow-x-auto"><table className="w-full text-[11px]"><thead className="text-muted"><tr><th>导入</th><th className="text-left">描述（可改）</th><th className="text-left">Suggested Category</th><th className="text-right">数量</th><th>单位</th><th className="text-right">单价 / 金额</th><th>币种</th><th>置信度</th><th className="text-left">提示</th><th className="text-left">来源</th></tr></thead>

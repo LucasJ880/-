@@ -7,7 +7,8 @@ import { applyImport, cancelImport, confirmImport, getImport, serializeImport, u
  *  GET  ：导入详情 + Review 行（internal_cost）
  *  PUT  ：保存 Review（行编辑 / 类别 / 勾选 / 供应商名 / 币种）（edit）
  *  POST ：{ action: "confirm" | "apply" | "confirm_apply" | "cancel", reason? }（edit）
- *         confirm = 校验并锁定；apply = 写入 QuoteCostLine（带 provenance）；只有 confirm 过才能 apply
+ *         confirm = 校验并锁定；apply = 单事务写入 QuoteCostLine（provenance 同一 INSERT）+ APPLIED（幂等：已应用的重试返回 alreadyApplied，零重复）；
+ *         confirm_apply = 同一原子边界内确认并应用
  */
 
 type Ctx = { params: Promise<{ id: string; quoteId: string; importId: string }> };
@@ -54,14 +55,9 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       const record = await confirmImport(base);
       return NextResponse.json({ import: serializeImport(record, { withRows: true }) });
     }
-    if (body.action === "apply") {
-      const { record, lineIds } = await applyImport(base);
-      return NextResponse.json({ import: serializeImport(record, { withRows: true }), lineIds });
-    }
-    if (body.action === "confirm_apply") {
-      await confirmImport(base);
-      const { record, lineIds } = await applyImport(base);
-      return NextResponse.json({ import: serializeImport(record, { withRows: true }), lineIds });
+    if (body.action === "apply" || body.action === "confirm_apply") {
+      const { record, lineIds, alreadyApplied, snapshotRefreshed } = await applyImport({ ...base, allowConfirm: body.action === "confirm_apply" });
+      return NextResponse.json({ import: serializeImport(record, { withRows: true }), lineIds, alreadyApplied, snapshotRefreshed });
     }
     if (body.action === "cancel") {
       const record = await cancelImport({ ...base, reason: body.reason ?? null });
