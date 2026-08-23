@@ -26,9 +26,19 @@
 
 ROWS_EXTRACTED = 17 · WRONG_MONEY_ROWS = **0** · 窗户供货 58,755.68（244,080.96 入备注）· 资金使用 9,274.94 / 8% · 公司利润 50,316.70 / 14% / include=false · Admin Fee 11,000 / 3% · 币种 UNRESOLVED（17/17）· REFERENCE_TOTAL 359,404.12（第 20 行）· EXTRACTED 359,404.30 · 差 0.18（容差 359.40）→ OK。
 
-## 4. 证据
+## 4. 证据（head `f687a1cd`）
 
-见最终返回（focused / golden E2E / test-all / lint / typecheck / build / CI / staging）。
+| 项 | 结果 |
+|---|---|
+| `quote-import.test.ts`（含 REAL-01…12 / CASE-1…5 / FB-01…04 / P0-C） | **74/74** |
+| `quote-ops-contract.test.ts`（含 P21-S1…S11） | **64/64** |
+| `quote-calc` / `quote-engine-contract` / `quote-ops-customer` / `performance` | 34/34 · 28/28 · 25/25 · 20/20 |
+| 迁移守卫 | 63/63 · 27/27；`20260821233000` sha256 `ea5a74fb…` 不变；`prisma/` 零改动 |
+| Golden DB E2E（A–G，隔离分支 `e2e-qops-phase2-1`，已删） | **79/79**（G 段：17 行 / 0 错钱 / 利润默认排除 / 币种 UNRESOLVED / 对账 OK / Apply 16 / 309,087.60 → 359,404.19 @14% / 客户视图 / **PDF 1 页**） |
+| 真实 `Quote.xlsx` 复跑（只读诊断，未提交） | 17 行 / 0 错钱 / 参考 359,404.12 vs 抽取 359,404.30（差 0.18，容差 359.40）OK |
+| swc 守卫 · tsc · ESLint baseline · `npm run build` | PASS · 0 错 · PASS · PASS |
+| 全量 `test-all`（隔离分支） | **311/312**（唯一失败 = main 既有 `Autopilot A2-P0 Isolated E2E`，与本分支无关） |
+| GitHub CI + Vercel – qingyan-staging | **双绿 @ f687a1cd** |
 
 ## Gate
 
@@ -38,5 +48,5 @@ QO21_SCHEMA_CHANGED       = NO
 QO21_MIGRATION_CREATED    = NO（20260821233000 sha256 ea5a74fb… 不变）
 QO21_PRODUCTION_DB_CHANGED= NO
 QO21_PRODUCTION_FLAG      = 未改（TENDER_QUOTE_ENGINE_ENABLED OFF；TENDER_FINANCIAL_CONTROL_ENABLED 未设）
-QO21_ISOLATED_BRANCHES    = 见最终返回
+QO21_ISOLATED_BRANCHES    = 0
 ```
