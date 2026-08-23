@@ -339,7 +339,7 @@ ORG_WIDE_SALES_TOOLS  = [sales_get_pipeline, sales_get_pipeline_snapshot, sales_
 
 | 选项 | 内容 | 评估 |
 |---|---|---|
-| C1（**推荐，需显式批准**） | `scopeGuard` 增加可选 `customerId?`；`assertArgsMatchScopeGuard` 增加一条与 projectId 同形的 fail-closed 比对（`SCOPE_CUSTOMER_OVERRIDE`）；`toScopeGuard` 投影 `scope.customerId` | core 链最小 additive 扩展（≈10 行 + 测试），缺省不传时行为不变；属于 `pre-execute-guard.ts` / `types.ts` / `agent-scope/resolve.ts` 三处 |
+| C1（**APPROVED — M2-C 已实施**，见 `docs/QINGYAN_MENTION_GATEWAY_M2C_IMPLEMENTATION.md`） | `scopeGuard` 增加可选 `customerId?`；`assertArgsMatchScopeGuard` 增加一条与 projectId 同形的 fail-closed 比对（`SCOPE_CUSTOMER_OVERRIDE`）；`toScopeGuard` 投影 `scope.customerId`。Final Review 修正版另含：scoped 下 effectiveCustomerId 由服务端权威给定（`tools/sales-scope.ts`）、`customerName` 不得切换客户、`opportunityId` 必须属于绑定客户、scoped 报价 DTO 不含 `shareToken` | core 链最小 additive 扩展（3 文件），缺省不传时行为不变 |
 | C2 | 网关不暴露任何带 `customerId` 参数的工具，改为 extraTools 包装固定 customerId | extraTools l0 跳过 `canInvokeTool`（`engine.ts:208`），等于绕开策略链 → **否决** |
 | C3 | 只靠系统提示 | 不满足「不仅依赖 prompt」→ **否决** |
 
@@ -595,7 +595,7 @@ LEGACY_BINDING_MIGRATION_REQUIRED = YES（回填；WeChatBinding 保留为推送
 
 | PR | 内容 | Schema | 依赖 |
 |---|---|---|---|
-| **M2-C** Context-specific Tool Policy | `policy.ts`：`MENTION_TOOL_POLICY[contextType]`、`CUSTOMER_BOUND_TOOLS / ORG_WIDE_SALES_TOOLS`；`buildMentionRunOptions` 按 contextType 取 allowlist；**C1：`scopeGuard.customerId` additive 扩展（需批准）**；测试 18–20 | 无 | 无（可先行，只影响 mock 路径） |
+| **M2-C** Context-specific Tool Policy — **DONE**（分支 `feature/qingyan-mention-gateway-m2-c-tool-policy`） | `policy.ts`：`MENTION_CONTEXT_TOOL_POLICY[canonical]`、`PROJECT_CONTEXT_TOOLS(8) / CUSTOMER_CONTEXT_TOOLS(3) / ORG_WIDE_SALES_TOOLS(7)`；`buildMentionRunOptions` 按 contextType 取 allowlist；**C1 已批准并实施**（`scopeGuard.customerId` + `SCOPE_CUSTOMER_OVERRIDE` + `tools/sales-scope.ts` 服务端权威客户 / name 不逃逸 / opportunity 校验 / shareToken 脱敏）；测试 18–20 + 105 断言攻击套件 | 无 | 无 |
 | **M2-A** Persistent External Identity | migration M2-1；`identity-service.ts`（link/verify/relink/disable/revoke + AuditLog）；`IdentityDeps.lookupExternalIdentity` DB 实现（含 `providerTenantId`）；identities API；回填脚本；flag `MENTION_GATEWAY_IDENTITY_SOURCE=fixture|db`（默认 fixture，生产不开）；测试 1–7、17、23、24 | M2-1 | — |
 | **M2-B** Persistent Channel Context Binding | migration M2-2；`binding-service.ts`（create/rebind/revoke/disable + 派生 orgId + 权限 + AuditLog）；`ContextDeps.lookupChannelBinding` DB 实现（status 过滤 + 线程优先）；bindings API；flag `MENTION_GATEWAY_BINDING_SOURCE=fixture|db`；测试 8–16、21、22、24 | M2-2 | M2-A（identity 先于 binding 才能端到端） |
 | **M2-D** Integration / Security E2E | 隔离库跑全矩阵 + Mock API e2e + M1 B1/B2 不变量回归；并入 A/B 各自 PR，并在 B 合并前跑一次完整门 | 无 | A + B |
@@ -604,6 +604,18 @@ LEGACY_BINDING_MIGRATION_REQUIRED = YES（回填；WeChatBinding 保留为推送
 RECOMMENDED_M2_SPLIT = 3 PRs（M2-C → M2-A → M2-B；M2-D 作为 A/B 的测试门，不单独成 PR）
 理由：C 零 schema、独立可回滚、立即收紧 mock 路径；A/B 各带一个 additive migration，审阅与回滚边界清晰；合成一个 PR 会把 policy 变更与两张表的生产迁移绑死。
 ```
+
+### 24.1 M2-A / M2-B 新增前置条件（M2-C Final Review 记录）
+
+```text
+PROVIDER_TENANT_OWNERSHIP_GATE_REQUIRED = YES
+```
+
+`ExternalIdentity.status = ACTIVE` 与 `ChannelContextBinding.status = ACTIVE` 之前，必须证明 `providerTenantId` 属于目标 org 的**可信 installation / gateway**：
+- 今天：`WeChatGateway(orgId = 目标 org | PLATFORM_WECOM_ORG_ID, channel).corpId`（企微）/ `WeChatGateway.id`（iLink 个微）；mock：固定 `"mock"` 且仅非生产；
+- M3：`ChannelProviderInstallation(provider, providerTenantId) → orgId`。
+
+未能证明归属（未知租户 / 租户属于其它 org / installation 非 ACTIVE）→ 身份与绑定只能停留 `PENDING`，Mention 解析视同不存在（fail-closed）。该门必须在 M2-A / M2-B 的 service 层实现并测试（对应测试矩阵 #6 / #7 扩展为「租户归属未证明 → PENDING」），不得由 API 请求体声明。
 
 ---
 
@@ -656,7 +668,7 @@ CONTEXT_TOOL_POLICY_IS_SCOPED                     PASS BY DESIGN（contextType �
 ```text
 P0_DESIGN_BLOCKERS = 0
 P1_DESIGN_GAPS     = 4
-  1. C1 scopeGuard.customerId 为 core 链 additive 扩展 —— 需显式批准后才能在 M2-C 实施；未批准则 customer 上下文只能暴露 org_search_knowledge（customer-bound 工具退化为 M3）
+  1. C1 scopeGuard.customerId —— 已批准并在 M2-C 实施（RESOLVED）；新增 M2-A/B 前置 PROVIDER_TENANT_OWNERSHIP_GATE_REQUIRED = YES（§24.1）
   2. 企微 WeChatGateway secret 明文（R4）与 legacy R1–R3 在 M2 不修（生产链路 DO NOT TOUCH），切换窗口在 M3
   3. 幂等保持 BEST_EFFORT 直到 M3 InboundChannelEvent
   4. 回填的 LEGACY_SELF_ASSERTED 身份无占有证明：按 org flag 可要求重新验证，但默认放行以保证企微连续性（产品决策）

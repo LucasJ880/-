@@ -82,6 +82,17 @@ console.log("P0-3: scopeGuard 防覆盖");
   const missing = assertArgsMatchScopeGuard({}, { orgId: " ", principalUserId: "u1" });
   ok(!missing.ok && missing.code === "SCOPE_MISSING", "scopeGuard.orgId 空 → 拒绝");
   ok(assertArgsMatchScopeGuard({ orgId: "org_b" }, undefined).ok, "无 scopeGuard → 兼容放行");
+
+  // M2-C / C1：customerId 与 projectId 同语义（scope 未声明 customerId 时 legacy 不变）
+  const custGuard = { orgId: "org_a", principalUserId: "u1", customerId: "c1" };
+  ok(assertArgsMatchScopeGuard({ customerId: "c1" }, custGuard).ok, "C1：customer 相同 → 放行");
+  ok(assertArgsMatchScopeGuard({}, custGuard).ok, "C1：未给 customerId → 放行（由工具层取 scope 权威值）");
+  const custOverride = assertArgsMatchScopeGuard({ customerId: "c2" }, custGuard);
+  ok(!custOverride.ok && custOverride.code === "SCOPE_CUSTOMER_OVERRIDE", "C1：跨 customer 参数 → 拒绝（SCOPE_CUSTOMER_OVERRIDE）");
+  const legacyGuard = { orgId: "org_a", principalUserId: "u1", projectId: "p1" };
+  ok(assertArgsMatchScopeGuard({ customerId: "c2" }, legacyGuard).ok, "C1：scope 未声明 customerId → legacy 行为不变（放行）");
+  const projStillDenied = assertArgsMatchScopeGuard({ projectId: "p2", customerId: "c1" }, { ...custGuard, projectId: "p1" });
+  ok(!projStillDenied.ok && projStillDenied.code === "SCOPE_PROJECT_OVERRIDE", "C1：既有 project 守卫优先级与行为不变");
 }
 
 console.log("P0-1: approval gate 不执行 executor");

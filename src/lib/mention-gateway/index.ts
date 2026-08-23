@@ -9,6 +9,7 @@ export type {
   MentionChannelType,
   MentionEvent,
   MentionContextType,
+  MentionCanonicalContextType,
   ChannelContextBinding,
   MentionAudience,
   AudiencePolicy,
@@ -38,6 +39,13 @@ export {
   describeMentionGatewayFlags,
 } from "./flags";
 export {
+  PROJECT_CONTEXT_TOOLS,
+  CUSTOMER_CONTEXT_TOOLS,
+  ORG_WIDE_SALES_TOOLS,
+  MENTION_CONTEXT_TOOL_POLICY,
+  MENTION_GATEWAY_TOOL_UNIVERSE,
+  toCanonicalContextType,
+  resolveMentionToolPolicy,
   MENTION_GATEWAY_M1_TOOL_ALLOWLIST,
   MENTION_GATEWAY_M1_BLOCKED_L0_TOOLS,
   MENTION_GATEWAY_FORBIDDEN_TOOL_NAME_PATTERN,
@@ -48,6 +56,7 @@ export {
   buildMentionSystemPrompt,
   buildMentionRunOptions,
 } from "./policy";
+export type { MentionContextToolPolicy } from "./policy";
 export {
   MentionFixtureStore,
   MentionFixtureSetSchema,

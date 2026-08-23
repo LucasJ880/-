@@ -4,7 +4,9 @@
  * 语义（P0-2 / P0-3）：
  * - allowedToolNames === undefined → 调用方未声明 allowlist，不按名称拦截（兼容旧调用）
  * - allowedToolNames === []        → 零工具，全部拒绝
- * - 工具 args 不得覆盖服务端 scopeGuard（orgId / principalUserId / projectId）
+ * - 工具 args 不得覆盖服务端 scopeGuard（orgId / principalUserId / projectId / customerId）
+ *   · customerId（M2-C / C1）：与 projectId 同语义——scopeGuard.customerId 存在且 args.customerId
+ *     明确给出不同值 → SCOPE_CUSTOMER_OVERRIDE；scopeGuard 未声明 customerId 时不检查（legacy 不变）
  *
  * 参考 Draft PR #52 pre-execute-guard.ts，适配当前 main 的 ToolExecutionContext。
  */
@@ -16,6 +18,7 @@ export type PreExecuteDenyCode =
   | "SCOPE_ORG_OVERRIDE"
   | "SCOPE_USER_OVERRIDE"
   | "SCOPE_PROJECT_OVERRIDE"
+  | "SCOPE_CUSTOMER_OVERRIDE"
   | "SCOPE_MISSING";
 
 export type PreExecuteDecision =
@@ -81,6 +84,17 @@ export function assertArgsMatchScopeGuard(
       ok: false,
       code: "SCOPE_PROJECT_OVERRIDE",
       error: "工具参数不得覆盖 ScopeContext.projectId",
+    };
+  }
+
+  // M2-C / C1：customerId 与 projectId 同语义（fail-closed；scope 未声明时不检查）
+  const argCustomer =
+    typeof args.customerId === "string" ? args.customerId.trim() : "";
+  if (argCustomer && scopeGuard.customerId && argCustomer !== scopeGuard.customerId) {
+    return {
+      ok: false,
+      code: "SCOPE_CUSTOMER_OVERRIDE",
+      error: "工具参数不得覆盖 ScopeContext.customerId",
     };
   }
 

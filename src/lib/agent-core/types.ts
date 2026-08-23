@@ -125,12 +125,14 @@ export interface ToolExecutionContext {
   allowedToolNames?: string[];
   /**
    * P0-3：服务端权威作用域守卫。传入后工具 args 中的
-   * orgId / userId / projectId 不得与之冲突（fail-closed）。
+   * orgId / userId / projectId / customerId 不得与之冲突（fail-closed）。
+   * M2-C（C1）：customerId 为可选 additive 扩展；缺省时行为与 M1 完全一致。
    */
   scopeGuard?: {
     orgId: string;
     principalUserId: string;
     projectId?: string;
+    customerId?: string;
   };
   /**
    * Phase 1.1：统一执行上下文（actor/agent/owner/job/task/run 树/trace）。
@@ -262,12 +264,14 @@ export interface AgentRunOptions {
   runtime?: AIRuntimeContext;
   /**
    * Phase 1.1：服务端权威 scopeGuard，透传至 ToolExecutionContext
-   * 供 pre-execute-guard 防止工具参数跨 org/user/project 覆盖。
+   * 供 pre-execute-guard 防止工具参数跨 org/user/project/customer 覆盖。
+   * M2-C（C1）：customerId 可选 additive；缺省时行为不变。
    */
   scopeGuard?: {
     orgId: string;
     principalUserId: string;
     projectId?: string;
+    customerId?: string;
   };
 }
 

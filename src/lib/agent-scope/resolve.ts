@@ -253,15 +253,17 @@ export async function resolveAgentScope(
   return { ok: true, scope };
 }
 
-/** 投影为 ToolExecutionContext.scopeGuard（P0-3 工具参数防覆盖） */
+/** 投影为 ToolExecutionContext.scopeGuard（P0-3 工具参数防覆盖；M2-C/C1 含 customerId） */
 export function toScopeGuard(scope: AgentScopeContext): {
   orgId: string;
   principalUserId: string;
   projectId?: string;
+  customerId?: string;
 } {
   return {
     orgId: scope.orgId,
     principalUserId: scope.principalUserId,
     projectId: scope.projectId,
+    customerId: scope.customerId,
   };
 }
