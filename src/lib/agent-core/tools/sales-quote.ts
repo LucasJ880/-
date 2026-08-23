@@ -12,6 +12,11 @@ import { onQuoteCreated } from "@/lib/sales/opportunity-lifecycle";
 import { ok } from "./sales-helpers";
 import { canSeeResource } from "@/lib/rbac/data-scope";
 import { assertSalesCustomerInOrgOrThrowForConvert } from "@/lib/sales/org-context";
+import {
+  customerNameLookupAllowed,
+  redactQuoteShareTokens,
+  resolveEffectiveCustomerId,
+} from "./sales-scope";
 
 // ── sales.ai_quote ──────────────────────────────────────────
 
@@ -230,11 +235,14 @@ registry.register({
     required: [],
   },
   execute: async (ctx: ToolExecutionContext) => {
-    let customerId = ctx.args.customerId as string | undefined;
+    // M2-C：SERVER AUTHORITATIVE CUSTOMER ID —— scopeGuard.customerId 存在时固定为该客户；
+    // customerName 不得触发重新搜索/切换客户（scope 下只是无权威的提示）。legacy（无 scope）行为不变。
+    const effective = resolveEffectiveCustomerId(ctx, ctx.args.customerId);
+    let customerId = effective.customerId;
     const customerName = ctx.args.customerName as string | undefined;
     const productFilter = ctx.args.productFilter as string | undefined;
 
-    if (!customerId && customerName) {
+    if (!customerId && customerName && customerNameLookupAllowed(ctx)) {
       const found = await db.salesCustomer.findFirst({
         where: { name: { contains: customerName, mode: "insensitive" } },
         select: { id: true, name: true },
@@ -284,27 +292,30 @@ registry.register({
       );
     }
 
+    const quoteDtos = filtered.map((q) => ({
+      id: q.id,
+      version: q.version,
+      status: q.status,
+      grandTotal: q.grandTotal,
+      shareToken: q.shareToken,
+      createdAt: q.createdAt,
+      products: [...new Set(q.items.map((i) => i.product))].join(", "),
+      itemCount: q.items.length,
+      items: q.items.map((i) => ({
+        product: i.product,
+        fabric: i.fabric,
+        price: i.price,
+        location: i.location,
+      })),
+    }));
+
     return ok({
       customerName: quotes[0]?.customer?.name,
       customerEmail: quotes[0]?.customer?.email,
       totalQuotes: quotes.length,
       filteredCount: filtered.length,
-      quotes: filtered.map((q) => ({
-        id: q.id,
-        version: q.version,
-        status: q.status,
-        grandTotal: q.grandTotal,
-        shareToken: q.shareToken,
-        createdAt: q.createdAt,
-        products: [...new Set(q.items.map((i) => i.product))].join(", "),
-        itemCount: q.items.length,
-        items: q.items.map((i) => ({
-          product: i.product,
-          fabric: i.fabric,
-          price: i.price,
-          location: i.location,
-        })),
-      })),
+      // M2-C：客户作用域（Mention Gateway 等）下不向模型输出 shareToken；legacy 原样返回
+      quotes: redactQuoteShareTokens(quoteDtos, ctx),
     });
   },
 });

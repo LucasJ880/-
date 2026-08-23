@@ -74,7 +74,7 @@ for (const f of files) {
   const context = readFileSync(join(dir, "context.ts"), "utf8");
   ok(/resolveAgentScope/.test(context) && /CHANNEL_ORG_MISMATCH/.test(context) && /CONTEXT_UNRESOLVED/.test(context), "context.ts 经 resolveAgentScope，且 fail-closed 码齐全");
   const policy = readFileSync(join(dir, "policy.ts"), "utf8");
-  ok(/tools:\s*\[\.\.\.MENTION_GATEWAY_M1_TOOL_ALLOWLIST\]/.test(policy), "policy.ts 只传显式 allowlist");
+  ok(/tools:\s*\[\.\.\.policy\.tools\]/.test(policy) && /resolveMentionToolPolicy\(input\.contextType\)/.test(policy), "policy.ts 只传按上下文解析的显式 allowlist（M2-C）");
   ok(/toScopeGuard\(input\.scope\)/.test(policy), "policy.ts scopeGuard 来自 resolveAgentScope 结果");
   const route = readFileSync(join(root, "src/app/api/mention-gateway/mock/route.ts"), "utf8");
   ok(/withAuth\(/.test(route) && /isMentionMockEnabled\(\)/.test(route) && /checkRateLimitAsync/.test(route), "route：withAuth + mock flag/生产门禁 + 限流");

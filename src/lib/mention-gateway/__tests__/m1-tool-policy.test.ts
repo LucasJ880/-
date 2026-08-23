@@ -15,15 +15,18 @@ import { registry } from "@/lib/agent-core/tool-registry";
 import { buildToolContextBase } from "@/lib/agent-core/engine";
 import type { AgentScopeContext } from "@/lib/agent-scope/types";
 import {
+  CUSTOMER_CONTEXT_TOOLS,
   MENTION_GATEWAY_FORBIDDEN_TOOL_NAME_PATTERN,
   MENTION_GATEWAY_M1_BLOCKED_L0_TOOLS,
   MENTION_GATEWAY_M1_DOMAINS,
-  MENTION_GATEWAY_M1_TOOL_ALLOWLIST,
+  MENTION_GATEWAY_TOOL_UNIVERSE,
+  PROJECT_CONTEXT_TOOLS,
   buildMentionRunOptions,
 } from "../policy";
-import { ORG_A, PROJECT_A, USER_A, fakeTenant, finish, ok } from "./helpers";
+import { CUSTOMER_A, ORG_A, PROJECT_A, USER_A, fakeTenant, finish, ok } from "./helpers";
 
-const ALLOWLIST: readonly string[] = MENTION_GATEWAY_M1_TOOL_ALLOWLIST;
+// M2-C：各上下文 allowlist 的并集（Registry 一致性用）；单次运行只暴露所属上下文的子集
+const ALLOWLIST: readonly string[] = MENTION_GATEWAY_TOOL_UNIVERSE;
 
 async function main() {
   console.log("TP-1 allowlist 全部已注册且 risk=l0_read");
@@ -94,7 +97,33 @@ async function main() {
       maxRisk: opts.maxRisk,
     });
     const exposedNames = exposed.map((t) => t.function.name);
-    ok(exposedNames.length === ALLOWLIST.length && exposedNames.every((n) => ALLOWLIST.includes(n)), `admin 视角暴露 = allowlist（${exposedNames.length}）`);
+    ok(
+      exposedNames.length === PROJECT_CONTEXT_TOOLS.length &&
+        exposedNames.every((n) => (PROJECT_CONTEXT_TOOLS as readonly string[]).includes(n)),
+      `project 上下文 admin 视角暴露 = PROJECT_CONTEXT_TOOLS（${exposedNames.length}）`,
+    );
+    const customerOpts = buildMentionRunOptions({
+      event: {
+        provider: "mock", eventId: "e", channel: { id: "c", type: "dm" }, messageId: "m",
+        externalUserId: "x", text: "hi", mentionedAgent: true, timestamp: "2026-08-22T00:00:00Z",
+      },
+      user: { id: USER_A, role: "admin", name: "A" },
+      tenant: fakeTenant(ORG_A),
+      scope: { ...scope, projectId: undefined, projectRole: undefined, customerId: CUSTOMER_A },
+      contextType: "sales",
+      contextId: CUSTOMER_A,
+      contextBlock: "",
+      sessionId: "s",
+      runId: "r",
+    });
+    const customerExposed = registry
+      .toOpenAITools({ domains: customerOpts.domains, names: customerOpts.tools, role: "admin", orgRole: customerOpts.orgRole, maxRisk: customerOpts.maxRisk })
+      .map((t) => t.function.name);
+    ok(
+      customerExposed.length === CUSTOMER_CONTEXT_TOOLS.length &&
+        customerExposed.every((n) => (CUSTOMER_CONTEXT_TOOLS as readonly string[]).includes(n)),
+      `customer 上下文 admin 视角暴露 = CUSTOMER_CONTEXT_TOOLS（${customerExposed.length}）`,
+    );
     const salesView = registry.toOpenAITools({ domains: opts.domains, names: opts.tools, role: "sales", maxRisk: opts.maxRisk }).map((t) => t.function.name);
     ok(salesView.every((n) => ALLOWLIST.includes(n)), `sales 视角暴露 ⊆ allowlist（${salesView.length}）`);
     const userView = registry.toOpenAITools({ domains: opts.domains, names: opts.tools, role: "user", maxRisk: opts.maxRisk }).map((t) => t.function.name);
