@@ -23,7 +23,7 @@ const RULES: Rule[] = [
   { category: "PROJECT_MANAGEMENT", weight: 3, patterns: [/project\s*manag/i, /\bPM\b/, /supervis/i, /management/i, /项目经理/, /项目管理/, /管理人员/] },
   { category: "INSURANCE", weight: 3, patterns: [/insurance/i, /保险/] },
   { category: "BOND", weight: 3, patterns: [/\bbond/i, /surety/i, /保函/, /保证金/] },
-  { category: "FINANCING", weight: 3, patterns: [/financ/i, /interest/i, /融资/, /利息/, /资金成本/] },
+  { category: "FINANCING", weight: 3, patterns: [/financ/i, /interest/i, /融资/, /利息/, /资金成本/, /资金使用/, /资金占用/] },
   { category: "ADMIN", weight: 2, patterns: [/\badmin/i, /overhead/i, /office/i, /行政/, /管理费/, /办公/] },
   { category: "COMMISSION", weight: 3, patterns: [/commission/i, /佣金/, /提成/] },
   { category: "CONTINGENCY", weight: 3, patterns: [/contingenc/i, /不可预见/, /预备费/, /风险金/] },

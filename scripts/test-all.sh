@@ -340,6 +340,7 @@ run_test "Quote Engine 契约与安全" "npx tsx src/lib/quote-engine/__tests__/
 run_test "Quote Operations 成本导入（XLSX/CSV/PDF 抽取）" "npx tsx src/lib/quote-engine/__tests__/quote-import.test.ts"
 run_test "Quote Operations 客户报价与 PDF 泄露门" "npx tsx src/lib/quote-engine/__tests__/quote-ops-customer.test.ts"
 run_test "Quote Operations 结构与安全契约" "npx tsx src/lib/quote-engine/__tests__/quote-ops-contract.test.ts"
+run_test "Quote Operations 客户报价 PDF 分页布局（Chromium；缺失则 SKIP）" "npx tsx scripts/quotation-pdf-layout-e2e.ts"
 run_test "Project Finance 财务表现只读模型" "npx tsx src/lib/project-finance/__tests__/performance.test.ts"
 run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"
 run_test "招标自动分析 RCMP 回归" "npx tsx src/lib/tender-auto-analysis/__tests__/rcmp-regression.test.ts"
