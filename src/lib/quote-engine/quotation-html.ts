@@ -44,7 +44,11 @@ ul{margin:2px 0 6px 18px;padding:0}
    while reserving its height in flow (a fixed-position footer overlaps body lines once the page content area is full). */
 table.page{width:100%;border-collapse:collapse;table-layout:fixed}
 table.page>tbody>tr>td,table.page>tfoot>tr>td{padding:0;border:0;vertical-align:top}
-.foot{border-top:1px solid #ddd;margin-top:8px;padding-top:6px;font-size:10.5px;color:#666;display:flex;justify-content:space-between;background:#fff}
+.foot{border-top:1px solid #ddd;margin-top:3px;padding-top:3px;font-size:9.5px;line-height:1.25;color:#666;display:flex;justify-content:space-between;background:#fff}
+/* The repeating footer reserves ~13pt on every page that the previous (overlapping) layout did not; the bottom page margin is reduced
+   from the renderer default 14mm to 7mm so the footer sits inside the old margin zone (≈7mm from the paper edge on full pages) and the
+   body capacity per page stays equal to the previous layout (Real-UAT sized quotation remains one page). */
+@page{margin-bottom:7mm}
 @media print{body{padding:0}}
 </style>`;
 
