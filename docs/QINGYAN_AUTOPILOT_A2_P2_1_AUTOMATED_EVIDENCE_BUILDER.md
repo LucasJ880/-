@@ -75,6 +75,8 @@ Tender 运行时 parser 产出 `ParsedTenderEvidenceSource`：只投影 adapter 
 
 `packetHash` 对 Judge-facing 包内容哈希，**仅排除** `provenance.createdAt`。稳定 provenance（collectorVersion / extractorVersion / sourceContentHash / sourceObservedAt）计入 hash。`rejectedFacts` / `diagnostics` 排序后再哈希。
 
+包级安全合同元数据含 `semanticContractHash`：由 taskType + 按 id 排序的 requirement 语义字段（含 `normalizedDescription` / `criticality`，不含 raw prompt）确定性计算。这是身份绑定，不改变 collector / 隐私 / sufficiency / Tender 语义。
+
 ## 界限
 
 - `MAX_EVIDENCE_FACTS = 100`
