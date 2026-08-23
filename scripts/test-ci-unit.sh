@@ -149,5 +149,8 @@ npx tsx src/lib/mention-gateway/__tests__/m1-final-review.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
+# R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
+bash scripts/test-runtime-architecture.sh
+
 echo ""
 echo "CI unit subset PASS"
