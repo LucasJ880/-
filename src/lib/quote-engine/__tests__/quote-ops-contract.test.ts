@@ -131,7 +131,7 @@ const panel21 = code("src/components/quote-engine/cost-import-panel.tsx");
 ok(panel21.includes('data-testid="import-reconciliation"') && panel21.includes("RECONCILIATION_MISMATCH") && panel21.includes("工作簿参考总计") && panel21.includes("抽取合计") && panel21.includes('data-testid="ambiguous-amount-required"') && panel21.includes('data-testid="profit-rule-notice"') && panel21.includes("利润通常应通过 Pricing / Margin 设置"), "P21-S8: Review UI：对账横幅（参考总计 / 抽取合计 / 差异）+ AMBIGUOUS 金额提示 + 利润行提示文案");
 ok(panel21.includes('ambiguousAmount.length > 0}') && panel21.includes('w !== "AMBIGUOUS_AMOUNT_COLUMN"'), "P21-S9: 金额列不明时 Confirm 禁用；人工填写金额即清除标记（显式决定）");
 const qh = code("src/lib/quote-engine/quotation-html.ts");
-ok(qh.includes(".foot{position:fixed;bottom:0") && qh.includes("padding:28px 26px 44px"), "P21-S10: PDF 页脚固定页底、不占文档流（不会单独溢出成空白页）");
+ok(/<table class="page"><tfoot><tr><td><div class="foot">/.test(qh) && qh.indexOf("<tfoot>") < qh.indexOf("<tbody>") && !/\.foot\{[^}]*position:\s*fixed/.test(qh), "P21-S10: PDF 页脚为 <tfoot> 重复页脚（每页预留高度，不用 position:fixed，不会压住正文或单独溢出成空白页）");
 ok(!/readSheetGrid[\s\S]*ws\["!merges"\]/.test(px21) || true, "P21-S11: 不改写工作簿（只读抽取）");
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
