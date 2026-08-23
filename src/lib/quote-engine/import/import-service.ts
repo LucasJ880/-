@@ -184,7 +184,7 @@ export async function createImportFromUpload(input: {
         reviewJson: JSON.parse(JSON.stringify({ rows: extraction.rows })) as Prisma.InputJsonValue,
         supplierName: record.supplierName ?? extraction.supplierNameGuess ?? null,
         quoteDate: record.quoteDate ?? (extraction.quoteDateGuess ? new Date(extraction.quoteDateGuess) : null),
-        metadataJson: { ...(record.metadataJson as Record<string, unknown>), detectedCurrency: extraction.detectedCurrency, notes: extraction.notes, sheets: extraction.sheets, pages: extraction.pages, aiUpdated, rowCount: extraction.rows.length, unresolvedCurrencyRows: extraction.rows.filter((r) => r.include && !r.sourceCurrency).length } as Prisma.InputJsonValue,
+        metadataJson: { ...(record.metadataJson as Record<string, unknown>), detectedCurrency: extraction.detectedCurrency, notes: extraction.notes, sheets: extraction.sheets, pages: extraction.pages, aiUpdated, rowCount: extraction.rows.length, unresolvedCurrencyRows: extraction.rows.filter((r) => r.include && !r.sourceCurrency).length, reconciliation: extraction.reconciliation, profitRowsExcluded: extraction.rows.filter((r) => r.warnings.includes("PROFIT_PRICING_RULE_RECOMMENDED")).length, ambiguousAmountRows: extraction.rows.filter((r) => r.warnings.includes("AMBIGUOUS_AMOUNT_COLUMN")).length } as Prisma.InputJsonValue,
       },
     });
     return { record, extraction };
@@ -365,6 +365,7 @@ export function serializeImport(r: ImportRecord, opts: { withRows: boolean }) {
     supplierName: r.supplierName, quoteDate: r.quoteDate ? r.quoteDate.toISOString().slice(0, 10) : null, extractionVersion: r.extractionVersion, errorMessage: r.errorMessage,
     notes: (meta.notes as string[] | undefined) ?? [], detectedCurrency: (meta.detectedCurrency as string | null | undefined) ?? null, supplierCurrency: (meta.supplierCurrency as string | null | undefined) ?? null, currencyMode: (meta.currencyMode as string | undefined) ?? "AUTO_DETECT", unresolvedCurrencyRows: (meta.unresolvedCurrencyRows as number | undefined) ?? rowsOf(r).filter((x) => x.include && !x.sourceCurrency).length, reimportOf: (meta.reimportOf as string | null | undefined) ?? null,
     rowCount: (meta.rowCount as number | undefined) ?? null, aiUpdated: (meta.aiUpdated as number | undefined) ?? 0, applied: (r.appliedJson as { lineIds?: string[]; count?: number } | null) ?? null,
+    reconciliation: (meta.reconciliation as unknown) ?? null, profitRowsExcluded: (meta.profitRowsExcluded as number | undefined) ?? 0, ambiguousAmountRows: (meta.ambiguousAmountRows as number | undefined) ?? 0,
     confirmedAt: r.confirmedAt, appliedAt: r.appliedAt, createdAt: r.createdAt, updatedAt: r.updatedAt,
     ...(opts.withRows ? { rows: rowsOf(r) } : {}),
   };

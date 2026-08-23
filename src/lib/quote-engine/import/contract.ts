@@ -11,7 +11,7 @@
 import { z } from "zod";
 import { COST_CATEGORIES } from "../contract";
 
-export const IMPORT_EXTRACTION_VERSION = "quote-import-extract/v1" as const;
+export const IMPORT_EXTRACTION_VERSION = "quote-import-extract/v2" as const;
 
 export const IMPORT_SOURCE_TYPES = ["XLSX", "CSV", "PDF"] as const;
 export type ImportSourceType = (typeof IMPORT_SOURCE_TYPES)[number];
@@ -33,6 +33,10 @@ export const IMPORT_ROW_WARNINGS = [
   "NEGATIVE_AMOUNT",
   "UNPARSED_NUMBER",
   "QTY_PRICE_MISMATCH",
+  /** 金额列无法确定（表头「价格」与数量并存 / 无表头且数值列不一致）→ 金额留空，Confirm 被挡，须人工填写 */
+  "AMBIGUOUS_AMOUNT_COLUMN",
+  /** 识别为利润：默认不导入（利润走 Pricing / Margin，作为成本会双计）；人工可重新勾选（提示性，不挡 Confirm） */
+  "PROFIT_PRICING_RULE_RECOMMENDED",
 ] as const;
 export type ImportRowWarning = (typeof IMPORT_ROW_WARNINGS)[number];
 
@@ -94,6 +98,28 @@ export const importReviewPatchSchema = z.object({
 });
 export type ImportReviewPatch = z.infer<typeof importReviewPatchSchema>;
 
+/** 对账守卫（P0-D）：参考总计 = 显式 Total/合计 行 或 末尾纯数字校验行；仅提示，不改金额 */
+export type SheetReconciliation = {
+  sheet: string;
+  referenceTotal: number | null;
+  referenceSource: "explicit_total" | "numeric_only_row" | null;
+  /** Excel 行号（1-based） */
+  referenceRow: number | null;
+  /** 抽取到金额的全部行合计（含被默认排除的 PROFIT 行；与 include 无关） */
+  extractedTotal: number;
+  difference: number | null;
+  tolerance: number | null;
+  status: "OK" | "MISMATCH" | "NO_REFERENCE";
+};
+export type ReconciliationResult = {
+  status: "OK" | "MISMATCH" | "NO_REFERENCE";
+  referenceTotal: number | null;
+  extractedTotal: number;
+  difference: number | null;
+  tolerance: number | null;
+  sheets: SheetReconciliation[];
+};
+
 export type ExtractionResult = {
   extractionVersion: typeof IMPORT_EXTRACTION_VERSION;
   sourceType: ImportSourceType;
@@ -103,8 +129,9 @@ export type ExtractionResult = {
   detectedCurrency: string | null;
   supplierNameGuess: string | null;
   quoteDateGuess: string | null;
-  /** 抽取器说明（跳过的合计行数、未识别表头等）——给 Review 界面看，不是错误 */
+  /** 抽取器说明（跳过的合计行数、未识别表头、RECONCILIATION_MISMATCH 等）——给 Review 界面看，不是错误 */
   notes: string[];
+  reconciliation: ReconciliationResult;
 };
 
 export const IMPORT_SUPPORTED_EXTENSIONS = ["xlsx", "xls", "csv", "pdf"] as const;
@@ -121,7 +148,7 @@ export function isKnownCostCategory(v: string | null | undefined): boolean {
 }
 
 /** Confirm 前的行级校验（fail-closed：任一 included 行不合格 → 整体拒绝，不做半成功） */
-export type ImportRowIssue = { rowId: string; code: "MISSING_AMOUNT" | "MISSING_CURRENCY" | "MISSING_CATEGORY" | "INVALID_CATEGORY" | "INVALID_QUANTITY" | "NEGATIVE_AMOUNT" | "EMPTY_DESCRIPTION"; message: string };
+export type ImportRowIssue = { rowId: string; code: "MISSING_AMOUNT" | "MISSING_CURRENCY" | "MISSING_CATEGORY" | "INVALID_CATEGORY" | "INVALID_QUANTITY" | "NEGATIVE_AMOUNT" | "EMPTY_DESCRIPTION" | "AMBIGUOUS_AMOUNT"; message: string };
 
 export function validateRowsForConfirm(rows: readonly ImportRow[]): ImportRowIssue[] {
   const issues: ImportRowIssue[] = [];
@@ -129,6 +156,8 @@ export function validateRowsForConfirm(rows: readonly ImportRow[]): ImportRowIss
     if (!r.include) continue;
     const desc = (r.suggestedDescription || r.sourceDescription).trim();
     if (!desc) issues.push({ rowId: r.rowId, code: "EMPTY_DESCRIPTION", message: "描述为空" });
+    // P0-B：金额列未确定的行必须由人工显式填写金额（填写后 Review UI 会清除该标记）
+    if (r.warnings.includes("AMBIGUOUS_AMOUNT_COLUMN")) issues.push({ rowId: r.rowId, code: "AMBIGUOUS_AMOUNT", message: "金额列无法确定（单价还是总价 / 多个数值列）——请人工填写金额" });
     if (!r.sourceCurrency) issues.push({ rowId: r.rowId, code: "MISSING_CURRENCY", message: "缺少币种（请在 Review 中指定）" });
     if (!r.suggestedCategory) issues.push({ rowId: r.rowId, code: "MISSING_CATEGORY", message: "缺少成本类别（请确认 Suggested Category）" });
     else if (!isKnownCostCategory(r.suggestedCategory)) issues.push({ rowId: r.rowId, code: "INVALID_CATEGORY", message: `未知类别 ${r.suggestedCategory}` });

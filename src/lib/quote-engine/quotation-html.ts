@@ -10,7 +10,7 @@ const money = (n: number | null | undefined, ccy: string) => (n == null || !Numb
 const qty = (n: number | null) => (n == null ? "" : n.toLocaleString("en-CA", { maximumFractionDigits: 2 }));
 
 const STYLE = `<style>
-body{font-family:"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:820px;margin:0 auto;padding:28px 26px;line-height:1.5;font-size:12.5px}
+body{font-family:"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:820px;margin:0 auto;padding:28px 26px 44px;line-height:1.5;font-size:12.5px}
 .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2e6b57;padding-bottom:12px;margin-bottom:14px}
 .brand img{height:48px;max-width:220px;object-fit:contain}
 .brand .co{font-size:16px;font-weight:700;margin-top:4px}
@@ -39,7 +39,16 @@ h2{font-size:13px;border-left:4px solid #2e6b57;padding-left:8px;margin:16px 0 6
 .terms{white-space:pre-line}
 ul{margin:2px 0 6px 18px;padding:0}
 .muted{color:#666;font-size:11px}
-.foot{margin-top:22px;border-top:1px solid #ddd;padding-top:8px;font-size:10.5px;color:#666;display:flex;justify-content:space-between}
+/* P2（Phase 2.1）：页脚固定在每页底部、不占文档流高度 → 不会单独溢出成只有页脚的空白页 */
+/* Print-safe repeating footer: the document body is wrapped in a single table whose <tfoot> Chromium repeats at the bottom of every printed page
+   while reserving its height in flow (a fixed-position footer overlaps body lines once the page content area is full). */
+table.page{width:100%;border-collapse:collapse;table-layout:fixed}
+table.page>tbody>tr>td,table.page>tfoot>tr>td{padding:0;border:0;vertical-align:top}
+.foot{border-top:1px solid #ddd;margin-top:3px;padding-top:3px;font-size:9.5px;line-height:1.25;color:#666;display:flex;justify-content:space-between;background:#fff}
+/* The repeating footer reserves ~13pt on every page that the previous (overlapping) layout did not; the bottom page margin is reduced
+   from the renderer default 14mm to 7mm so the footer sits inside the old margin zone (≈7mm from the paper edge on full pages) and the
+   body capacity per page stays equal to the previous layout (Real-UAT sized quotation remains one page). */
+@page{margin-bottom:7mm}
 @media print{body{padding:0}}
 </style>`;
 
@@ -75,6 +84,7 @@ export function buildCustomerQuotationHtml(view: CustomerQuoteView, opts: Quotat
   ].join("");
   const title = opts.documentTitle ?? "QUOTATION";
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} ${esc(view.quoteNumber ?? "")}</title>${STYLE}</head><body>
+<table class="page"><tfoot><tr><td><div class="foot"><span>${esc(c.name ?? "")} · ${esc(view.quoteNumber ?? "")} · ${esc(h.revision)}</span><span>Generated ${esc(opts.generatedAt.slice(0, 16).replace("T", " "))}</span></div></td></tr></tfoot><tbody><tr><td>
 <div class="top">
   <div class="brand">${opts.logoDataUrl ? `<img src="${opts.logoDataUrl}" alt="logo"/>` : ""}<div class="co">${esc(c.name ?? "")}</div><div class="addr">${esc([...c.addressLines, [c.phone, c.email, c.website].filter(Boolean).join(" · "), c.taxNumber ? `Business No. ${c.taxNumber}` : ""].filter(Boolean).join("\n"))}</div></div>
   <div class="qbox"><h1>${esc(title)}</h1><table>
@@ -100,6 +110,6 @@ ${optional.length ? `<h2>Optional Items <span class="muted">(not included in tot
   <tr class="grand"><td class="k">Total (${esc(ccy)})</td><td class="n">${money(view.total, ccy)}</td></tr>
 </table>
 ${termBlocks ? `<h2>Terms &amp; Conditions</h2>${termBlocks}` : ""}
-<div class="foot"><span>${esc(c.name ?? "")} · ${esc(view.quoteNumber ?? "")} · ${esc(h.revision)}</span><span>Generated ${esc(opts.generatedAt.slice(0, 16).replace("T", " "))}</span></div>
+</td></tr></tbody></table>
 </body></html>`;
 }
