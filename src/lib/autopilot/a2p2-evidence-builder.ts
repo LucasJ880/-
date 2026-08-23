@@ -17,6 +17,7 @@ import { collectEvidenceForContract } from "./a2p2-evidence-collectors";
 import {
   compareDiagnostics,
   compareRejectedEvidence,
+  computeSemanticContractHash,
   hashEvidencePacket,
   judgeFacingPacketBytes,
   makeCanonicalFactHash,
@@ -47,12 +48,14 @@ import {
   MAX_EVIDENCE_FACTS,
   MAX_OVERFLOW_DIAGNOSTICS,
   MAX_PACKET_SAFE_TEXT_BYTES,
+  isPrivacyRejectCode,
   type EvidenceCandidate,
   type EvidenceDiagnostic,
   type EvidenceFact,
   type EvidencePacketStatus,
   type RejectedEvidence,
   type RequirementEvidenceAssessment,
+  type SafeContractMetadata,
   type SemanticEvidencePacketV1,
 } from "./a2p2-evidence-types";
 
@@ -61,13 +64,6 @@ export type BuildEvidencePacketInput = {
   structuredSources?: unknown;
   now?: Date;
 };
-
-const PRIVACY_REJECT_CODES = new Set([
-  "EVIDENCE_SECRET_BLOCKED",
-  "EVIDENCE_RAW_CONTENT_REJECTED",
-  "EVIDENCE_PROHIBITED_CLASS_BLOCKED",
-  "EVIDENCE_PRIVACY_BLOCKED",
-]);
 
 const CANONICAL_DIAGNOSTIC_DETAILS = new Set([
   "MAX_EVIDENCE_FACTS",
@@ -241,6 +237,31 @@ function acceptCandidate(
   };
 }
 
+function contractMetadataOf(contract: ValidatedTaskContract): SafeContractMetadata {
+  return {
+    taskType: contract.taskType,
+    riskClass: contract.riskClass,
+    automationLevel: contract.automationLevel,
+    requirementCount: contract.requirements.length,
+    semanticContractHash: computeSemanticContractHash(contract),
+  };
+}
+
+function emptyContractMetadata(
+  taskType: SemanticEvidencePacketV1["taskType"],
+): SafeContractMetadata {
+  return {
+    taskType,
+    riskClass: "RESTRICTED",
+    automationLevel: "L0",
+    requirementCount: 0,
+    semanticContractHash: computeSemanticContractHash({
+      taskType,
+      requirements: [],
+    }),
+  };
+}
+
 function emptyPacket(input: {
   taskType: SemanticEvidencePacketV1["taskType"];
   status: EvidencePacketStatus;
@@ -250,12 +271,7 @@ function emptyPacket(input: {
   const packet = finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
-    contract: {
-      taskType: input.taskType,
-      riskClass: "RESTRICTED",
-      automationLevel: "L0",
-      requirementCount: 0,
-    },
+    contract: emptyContractMetadata(input.taskType),
     taskType: input.taskType,
     requirements: [],
     evidenceFacts: [],
@@ -266,7 +282,7 @@ function emptyPacket(input: {
       blocked: input.status === "PRIVACY_BLOCKED",
       redactedCount: 0,
       prohibitedCount: (input.rejectedFacts ?? []).filter((item) =>
-        PRIVACY_REJECT_CODES.has(item.reasonCode),
+        isPrivacyRejectCode(item.reasonCode),
       ).length,
     },
     provenanceSummary: {
@@ -333,12 +349,7 @@ function lastResortPacket(input: {
   return finalizePacket({
     version: A2P2_EVIDENCE_PACKET_VERSION,
     builderVersion: A2P2_EVIDENCE_BUILDER_VERSION,
-    contract: {
-      taskType: input.taskType,
-      riskClass: "RESTRICTED",
-      automationLevel: "L0",
-      requirementCount: 0,
-    },
+    contract: emptyContractMetadata(input.taskType),
     taskType: input.taskType,
     requirements: [],
     evidenceFacts: [],
@@ -450,7 +461,7 @@ function buildEvidencePacketInner(input: BuildEvidencePacketInput): SemanticEvid
   const rejected: RejectedEvidence[] = sanitizeRejected(collected.rejectedFacts);
   const diagnostics: EvidenceDiagnostic[] = sanitizeDiagnostics(collected.diagnostics);
   let privacyBlockedRequired = rejected.some((item) => {
-    if (!PRIVACY_REJECT_CODES.has(item.reasonCode)) return false;
+    if (!isPrivacyRejectCode(item.reasonCode)) return false;
     return requirementOf(contract, item.requirementId ?? "")?.required === true;
   });
   const accepted: EvidenceFact[] = [];
@@ -491,19 +502,14 @@ function buildEvidencePacketInner(input: BuildEvidencePacketInput): SemanticEvid
     minimumEvidenceRefs: item.minimumEvidenceRefs,
     allowUnknown: item.allowUnknown,
   }));
-  const contractMeta = {
-    taskType: contract.taskType,
-    riskClass: contract.riskClass,
-    automationLevel: contract.automationLevel,
-    requirementCount: contract.requirements.length,
-  };
+  const contractMeta = contractMetadataOf(contract);
   const assessments = perRequirementLimit || countOverflow
     ? overflowAssessments(contract)
     : assessed.assessments;
   const privacySummary = {
     blocked: false,
     redactedCount: boundedFacts.filter((fact) => fact.acceptance === "REDACTED").length,
-    prohibitedCount: rejected.filter((item) => PRIVACY_REJECT_CODES.has(item.reasonCode)).length,
+    prohibitedCount: rejected.filter((item) => isPrivacyRejectCode(item.reasonCode)).length,
   };
   const provenanceSummary = {
     collectorVersion: A2P2_EVIDENCE_COLLECTOR_VERSION,
