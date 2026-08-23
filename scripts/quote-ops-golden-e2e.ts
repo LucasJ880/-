@@ -9,6 +9,7 @@
  *  D. Final Review B1：Apply 原子 / 幂等 / 并发 / 提交前失败回滚 / 重试 exactly-once / provenance 首次提交即在
  *  E. Final Review B2：指针 + 镜像原子；强制镜像失败回滚；修订 PENDING；重批跟随；并发选择一致；同步失败可观测
  *  F. Final Review B3：报价 CAD + 未标币种供应商表 350000 → 不会自动成 CAD；人工确认 CNY 后才成 CNY
+ *  G. Phase 2.1 真实模版（结构等价夹具）：Upload → Extract（17 行，零错钱，利润默认排除，币种 UNRESOLVED，对账 OK）→ Review → Apply → Margin 14% → 客户报价 → 单页 PDF
  *
  * 用法（必须指向隔离 Neon 分支，绝不指生产；Blob 用本地磁盘 store，零凭据）：
  *   DATABASE_URL=... DIRECT_URL=... NODE_ENV=test DATABASE_ENVIRONMENT=isolated PRODUCT_CONTENT_LOCAL_STORE=1 PRODUCT_CONTENT_LOCAL_STORE_DIR=/tmp/x \
@@ -18,6 +19,8 @@
 
 import * as XLSX from "xlsx";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { db } from "@/lib/db";
 import { createEngineQuote, getQuote, computeForQuote, transitionQuote, reviseQuote, awardQuoteToBudget, updateEngineQuote } from "@/lib/quote-engine/service";
 import { applyImport, cancelImport, confirmImport, createImportFromUpload, getImport, importRows, updateImportReview } from "@/lib/quote-engine/import/import-service";
@@ -388,9 +391,63 @@ async function main() {
   const compF = computeForQuote(await getQuote(qF.id, project.id));
   ok(!compF.calc.ok && compF.calc.errors.some((e) => e.code === "FX_REQUIRED"), "B3-E4: CNY 行无汇率 → 引擎 FX_REQUIRED（不按 1:1 定价）");
 
+  /* ───────────── G. Phase 2.1 — 真实模版结构等价夹具 · 生产代码路径全链 ───────────── */
+  console.log("\n[G] Phase 2.1 real-layout fixture");
+  const qG = await createEngineQuote({ ...ctx, quoteType: "PROJECT_SUPPLY_INSTALL", name: "Supply + Install — real layout", seedTemplate: false, currency: "CAD" });
+  const realBuf = realLayoutWorkbook();
+  const upG = await createImportFromUpload({ ...ctx, quoteId: qG.id, file: { buffer: realBuf, filename: "Quote-layout.xlsx", safeName: "Quote-layout.xlsx", ext: "xlsx", mime: null, size: realBuf.length }, ai: { enabled: false } });
+  const rowsG = importRows(upG.record);
+  const metaG = upG.record.metadataJson as Record<string, unknown>;
+  const recG = metaG.reconciliation as { status: string; referenceTotal: number; extractedTotal: number; difference: number } | undefined;
+  const g = (d: string) => rowsG.find((r) => r.sourceDescription === d);
+  const wrongMoney = [["窗户供货", 58755.68], ["资金使用", 9274.94], ["公司利润", 50316.7], ["Admin Fee", 11000], ["佣金提成", 21564.3], ["运费+关税", 49535.86]].filter(([d, v]) => g(d as string)?.sourceAmount !== v);
+  ok(upG.record.status === "REVIEW_REQUIRED" && rowsG.length === 17 && wrongMoney.length === 0 && !(metaG.notes as string[]).some((n) => n.includes("未识别表头")), `G-01: 真实布局 → 17 行，错钱行 0（表头「项目|价格」识别）`, { n: rowsG.length, wrongMoney, notes: metaG.notes });
+  ok(g("窗户供货")?.sourceAmount === 58755.68 && /244080\.96/.test(g("窗户供货")?.notes ?? "") && g("资金使用")?.sourceAmount === 9274.94 && g("资金使用")?.suggestedRate === 8 && g("Admin Fee")?.sourceAmount === 11000 && g("Admin Fee")?.suggestedRate === 3, "G-02: 窗户供货 = 58,755.68（244,080.96 仅备注）；资金使用 9,274.94 / 8%；Admin Fee 11,000 / 3%");
+  ok(g("公司利润")?.sourceAmount === 50316.7 && g("公司利润")?.include === false && g("公司利润")?.warnings.includes("PROFIT_PRICING_RULE_RECOMMENDED") && g("公司利润")?.suggestedRate === 14, "G-03: 公司利润 50,316.70 / 14% 且默认 include=false（PROFIT_PRICING_RULE_RECOMMENDED）");
+  ok(rowsG.every((r) => r.sourceCurrency === null) && metaG.unresolvedCurrencyRows === 16 && metaG.currencyMode === "AUTO_DETECT", "G-04: 币种全部 UNRESOLVED（16 勾选行待确认；无 CAD 兜底）", { u: metaG.unresolvedCurrencyRows });
+  ok(recG?.status === "OK" && recG.referenceTotal === 359404.12 && recG.extractedTotal === 359404.3 && Math.abs((recG.difference ?? 0) - 0.18) < 0.001 && metaG.profitRowsExcluded === 1 && metaG.ambiguousAmountRows === 0, "G-05: 对账：参考 359,404.12（末尾校验行）vs 抽取 359,404.30 → OK（差 0.18）；利润排除 1；金额不明 0", recG);
+  let gGate = ""; try { await applyImport({ ...ctx, quoteId: qG.id, importId: upG.record.id, allowConfirm: true }); } catch (e) { gGate = codeOf(e); }
+  ok(gGate === "IMPORT_ROWS_INVALID", "G-06: 币种未确认 → Confirm/Apply 被挡");
+  // 人工 Review：币种 CAD（批量到未识别行）+ 混合行类别人工选择（其余沿用自动识别）
+  const reviewedG = rowsG.map((r) => ({ ...r, suggestedCategory: r.sourceDescription === "运费+关税" ? "FREIGHT" : r.sourceDescription.startsWith("Permit") ? "ENGINEERING" : r.sourceDescription.startsWith("Bond") ? "BOND" : r.suggestedCategory, warnings: r.warnings.filter((w) => w !== "AMBIGUOUS_CATEGORY"), userEdited: true }));
+  await updateImportReview({ ...ctx, quoteId: qG.id, importId: upG.record.id, patch: { rows: reviewedG, supplierCurrency: "CAD", applyToUnresolved: true } });
+  const appliedG = await applyImport({ ...ctx, quoteId: qG.id, importId: upG.record.id, allowConfirm: true });
+  const qG2 = await getQuote(qG.id, project.id);
+  ok(appliedG.lineIds.length === 16 && !qG2.costLines.some((l) => l.description === "公司利润") && qG2.costLines.every((l) => l.sourceCurrency === "CAD" && l.fxRate === null) && qG2.costLines.find((l) => l.description === "窗户供货")?.metadata != null, "G-07: Apply → 16 条成本行（利润未导入）；全 CAD；provenance 在");
+  const linesG = qG2.costLines.map((l) => ({ id: l.id, sortOrder: l.sortOrder, category: l.category, description: l.description, quantity: l.quantity == null ? null : Number(l.quantity), unit: l.unit, unitCost: l.unitCost == null ? null : Number(l.unitCost), sourceCurrency: l.sourceCurrency, fxRate: null, calculationType: l.calculationType as "FIXED", calculationBase: l.calculationBase, rate: null, duration: null, supplierName: l.supplierName, source: l.source, notes: l.notes, included: l.included }));
+  await updateEngineQuote({ ...ctx, quoteId: qG.id, lines: linesG, header: { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: 14, engine: { tax: { hstPct: 13 } } } });
+  const compG = computeForQuote(await getQuote(qG.id, project.id));
+  ok(compG.calc.ok && Math.abs(compG.calc.estimatedCost - 309087.6) < 0.01 && Math.abs(compG.calc.sellingPrice - 359404.19) < 0.01 && Math.abs(compG.calc.grossMarginPct - 14) < 0.01 && Math.abs(compG.calc.markupPct - 16.28) < 0.01, "G-08: 成本 309,087.60 → Margin 14% → 售价 359,404.19 / 毛利 14% / Markup 16.28%", compG.calc.ok ? { c: compG.calc.estimatedCost, s: compG.calc.sellingPrice, m: compG.calc.grossMarginPct, k: compG.calc.markupPct } : compG.calc);
+  const draftG = generateCustomerDraftLines({ calc: compG.calc as never, quoteType: "PROJECT_SUPPLY_INSTALL", productLabel: "replacement windows" });
+  await updateCustomerQuote({ ...ctx, quoteId: qG.id, patch: { header: { clientCompany: "Halifax Regional Municipality", clientName: "Procurement Services", clientAddress: "1841 Argyle Street, Halifax, NS B3J 3A5", contactName: "Procurement Contact", projectName: "Strathcona Place — Window Replacement", tenderNumber: "T-2026-UAT", preparedBy: "Lucas", quoteDate: "2026-08-22", validUntil: "2026-09-21" }, terms: { paymentTerms: "30% deposit on award; 60% on delivery to site; 10% upon substantial completion. Net 30 days.", delivery: "Delivered to site, Halifax NS. Installation by Sunny Shutter crews.", leadTime: "12–14 weeks from approved shop drawings.", warranty: "2-year workmanship warranty; manufacturer warranty on windows per specification.", validity: "This quotation is valid for 30 days from the date of issue.", exclusions: ["Electrical work", "Asbestos / hazardous material abatement", "Structural modifications beyond window openings"], assumptions: ["Site access Monday–Friday 7:00–17:00", "Quantities per tender drawings (250 window units)"] }, lines: draftG } });
+  const viewG = await buildQuotationViewForQuote(qG.id, project.id, org.id);
+  const vtG = JSON.stringify(viewG).toLowerCase();
+  ok(Math.abs(viewG.subtotal - 359404.19) < 0.01 && Math.abs(viewG.tax.hst - 46722.54) < 0.01 && Math.abs(viewG.total - 406126.73) < 0.01 && !["244080", "58755", "佣金", "利润", "commission", "profit", "financing", "sheet1", "import"].some((t) => vtG.includes(t)), "G-09: 客户视图 小计 359,404.19 / HST 46,722.54 / 合计 406,126.73；无内部数据", { s: viewG.subtotal, h: viewG.tax.hst, t: viewG.total });
+  const pdfG = await generateCustomerQuotationPdf({ ...ctx, quoteId: qG.id });
+  const blobRoot = process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR!;
+  const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const pth = path.join(d, f); return statSync(pth).isDirectory() ? walk(pth) : [pth]; });
+  const pdfPath = walk(blobRoot).find((pth) => pth.includes(`customer-quotation-${qG.id}-`) && pth.endsWith(".pdf"));
+  const pdfDoc = pdfPath ? await PDFDocument.load(readFileSync(pdfPath)) : null;
+  ok(pdfG.size > 1000 && pdfDoc !== null && pdfDoc.getPageCount() === 1, `G-10（P2）: Real-UAT 规模的客户报价 PDF = 1 页（无仅页脚的空白尾页）；${pdfG.size} bytes`, { pages: pdfDoc?.getPageCount(), path: !!pdfPath });
+
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   await db.$disconnect();
   process.exit(fail > 0 ? 1 : 0);
+}
+
+/** Phase 2.1：真实 Sunny 工作簿的结构等价夹具（`项目|价格` + 备注列裸数字/百分比 + 空行 + 末尾纯数字校验行）——不提交原始工作簿 */
+function realLayoutWorkbook(): Buffer {
+  const wb = XLSX.utils.book_new();
+  const rows: Array<[string, number, string | number | null]> = [
+    ["窗户供货", 58755.68, 244080.96], ["现有窗拆除及新窗安装人工", 72460, null], ["打胶", 3667.5, "14.67/each"], ["油漆恢复", 5160, "20/EACH （含油漆）"],
+    ["Lift、现场保护、垃圾及物流", 15169.32, "$8,169.32(2个lift/2个月），$5000( fancing),$2000(垃圾）"], ["Permit、工程师、Shop Drawing及测试", 5500, null], ["1个PM 的工资", 25000, "5个月工资"],
+    ["Bond及项目保险", 5000, null], ["样品、测试、出口包装及备件", 6000, null], ["运费+关税", 49535.86, "3900关税+4W 4个40 尺高柜"], ["测量费用", 2000, null], ["资金使用", 9274.94, 0.08],
+    ["公司利润", 50316.7, 0.14], ["售后", 10000, null], ["销售现场费用", 9000, "3次（3000/each)"], ["Admin Fee", 11000, 0.03], ["佣金提成", 21564.3, null],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([["项目", "价格"], ...rows.map((r) => [r[0], r[1], r[2]]), [], [null, 359404.12]]);
+  for (const addr of ["C13", "C14", "C17"]) { const c = ws[addr] as XLSX.CellObject; c.t = "n"; c.z = "0%"; }
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
 /** 建一份 approved 报价但不触发自动选中（项目已有指针时 approve 不会抢指针；用于并发/镜像失败测试） */
