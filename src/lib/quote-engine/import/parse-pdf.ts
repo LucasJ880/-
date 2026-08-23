@@ -5,7 +5,8 @@
  */
 
 import { classifyDescription, extractRatePct, looksLikeTotalLine, normalizeDescription } from "./classify";
-import { IMPORT_EXTRACTION_VERSION, LOW_CONFIDENCE_THRESHOLD, type ExtractionResult, type ImportRow, type ImportRowWarning } from "./contract";
+import { IMPORT_EXTRACTION_VERSION, LOW_CONFIDENCE_THRESHOLD, type ExtractionResult, type ImportRow, type ImportRowWarning, type ReconciliationResult } from "./contract";
+import { reconcileTotals } from "./reconcile";
 import { detectCurrencyToken } from "./parse-xlsx";
 
 export type PdfPageText = { pageNumber: number; contentText: string };
@@ -44,6 +45,8 @@ export function extractRowsFromPdfPages(pages: PdfPageText[], opts: { confirmedC
   let emptyPages = 0;
   let supplierNameGuess: string | null = null;
   let quoteDateGuess: string | null = null;
+  let subtotalRef: number | null = null;
+  let totalRef: number | null = null;
   for (const page of pages) {
     const text = page.contentText ?? "";
     if (text.trim().length < 16) { emptyPages += 1; continue; }
@@ -82,9 +85,12 @@ export function extractRowsFromPdfPages(pages: PdfPageText[], opts: { confirmedC
       }
       desc = desc.replace(/[\s×x@*:：-]+$/i, "").replace(/\s+/g, " ").trim();
       if (!desc || !/[A-Za-z一-鿿]{2,}/.test(desc)) return;
-      if (looksLikeTotalLine(desc)) { skippedTotals += 1; return; }
+      if (looksLikeTotalLine(desc)) { skippedTotals += 1; if (amount != null) { if (/^(sub\s*-?\s*total|小计)/i.test(desc)) subtotalRef = amount; else if (/^(grand\s*total|total|总计|合计|总额)/i.test(desc)) totalRef = amount; } return; }
       const cls = classifyDescription(desc);
       const warnings: ImportRowWarning[] = [];
+      // P1：利润不是成本——识别为 PROFIT 的行默认不导入（人工可重新勾选）
+      const isProfit = cls.category === "PROFIT";
+      if (isProfit) warnings.push("PROFIT_PRICING_RULE_RECOMMENDED");
       const currency = detectCurrencyToken(amountToken) ?? docCcy;
       if (!currency) warnings.push("MISSING_CURRENCY");
       if (amount < 0) warnings.push("NEGATIVE_AMOUNT");
@@ -107,7 +113,7 @@ export function extractRowsFromPdfPages(pages: PdfPageText[], opts: { confirmedC
         suggestedCalculationBase: null,
         suggestedRate: extractRatePct(desc),
         confidence,
-        include: true,
+        include: !isProfit,
         userEdited: false,
         aiSuggested: false,
         warnings,
@@ -119,5 +125,9 @@ export function extractRowsFromPdfPages(pages: PdfPageText[], opts: { confirmedC
   if (skippedTotals > 0) notes.push(`跳过合计/税/应付行 ${skippedTotals} 条`);
   if (emptyPages > 0) notes.push(`${emptyPages} 页无可抽取文本（扫描件需 OCR，本版本不支持）`);
   if (rows.length === 0) notes.push("未从 PDF 文本抽取到「描述 + 金额」行；请改用 Excel 或手工录入");
-  return { extractionVersion: IMPORT_EXTRACTION_VERSION, sourceType: "PDF", rows: rows.slice(0, 500), sheets: [], pages: pages.length, detectedCurrency: docCcy, supplierNameGuess, quoteDateGuess, notes };
+  const referenceTotal = subtotalRef ?? totalRef;
+  const rec = reconcileTotals({ referenceTotal, extractedTotal: rows.reduce((s, r) => s + (r.sourceAmount ?? 0), 0) });
+  if (rec.status === "MISMATCH") notes.push(`RECONCILIATION_MISMATCH：抽取合计 ${rec.extractedTotal.toLocaleString("en-CA")} 与 PDF 的 Total ${rec.referenceTotal!.toLocaleString("en-CA")} 相差 ${rec.difference!.toLocaleString("en-CA")}（容差 ${rec.tolerance!.toFixed(2)}）——请逐行核对`);
+  const reconciliation: ReconciliationResult = { ...rec, sheets: [{ sheet: "PDF", referenceTotal: rec.referenceTotal, referenceSource: referenceTotal != null ? "explicit_total" : null, referenceRow: null, extractedTotal: rec.extractedTotal, difference: rec.difference, tolerance: rec.tolerance, status: rec.status }] };
+  return { extractionVersion: IMPORT_EXTRACTION_VERSION, sourceType: "PDF", rows: rows.slice(0, 500), sheets: [], pages: pages.length, detectedCurrency: docCcy, supplierNameGuess, quoteDateGuess, notes, reconciliation };
 }

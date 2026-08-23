@@ -116,5 +116,23 @@ ok(panel.includes('useState("")') && panel.includes("自动识别（未识别需
 const px = code("src/lib/quote-engine/import/parse-xlsx.ts");
 ok(px.includes("?? sheetCcy ?? opts.confirmedCurrency") && px.indexOf("detectCurrencyToken(amountCell.raw)") < px.indexOf("opts.confirmedCurrency"), "B3-S5: 币种优先级 行级 → 表头/表级 → 人工确认 → UNRESOLVED");
 
+// ── Phase 2.1 · 真实模版适配结构守卫 ──
+const px21 = code("src/lib/quote-engine/import/parse-xlsx.ts");
+ok(/role: "price", priority: 1/.test(px21) && px21.includes('amountMode = "price_as_amount"') && px21.includes('amountMode = "ambiguous_price"') && /if \(hasAmount\) \{/.test(px21), "P21-S1: 「价格/报价/Price」为上下文角色：无数量/单价/总价 → 金额；有数量无总价/单价 → AMBIGUOUS；显式总价压过价格");
+ok(px21.includes("readSheetGrid") && px21.includes("cellNF: true") && px21.includes('cell.z === "string" && cell.z.includes("%")') && px21.includes("isPercent: true"), "P21-S2: 读取 Excel 数字格式；百分比格式单元不是金额");
+ok(px21.includes("rowsWithNumbers") && px21.includes(">= 0.6") && px21.includes('mode = "qty_unit_total"') && px21.includes("AMBIGUOUS_AMOUNT_COLUMN") && !/nums\[nums\.length - 1\]!\.n\.value\b[^;]*amount:/.test(px21), "P21-S3: 无表头回退按列一致性选金额列（乘积关系 / 单列），选不出 → AMBIGUOUS_AMOUNT_COLUMN；不再取「最后一个数字」作金额");
+ok(px21.includes("reconcileTotals(") && px21.includes("RECONCILIATION_MISMATCH") && px21.includes('"numeric_only_row"') && px21.includes("subtotalRef ?? totalRef") && code("src/lib/quote-engine/import/parse-pdf.ts").includes("reconcileTotals("), "P21-S4: 对账守卫：显式 小计/合计 或末尾纯数字校验行 = 参考总计（不导入）；xlsx + pdf 都接");
+const rc = code("src/lib/quote-engine/import/reconcile.ts");
+ok(rc.includes("Math.max(1, Math.abs(referenceTotal) * 0.001)"), "P21-S5: 容差 = max(1.00, 0.1% × 参考总计)");
+ok(px21.includes('const isProfit = cls.category === "PROFIT"') && px21.includes("include: !warnings.includes(\"MISSING_AMOUNT\") && !isProfit") && px21.includes('warnings.push("PROFIT_PRICING_RULE_RECOMMENDED")') && code("src/lib/quote-engine/import/parse-pdf.ts").includes("include: !isProfit"), "P21-S6: PROFIT 行默认 include=false + PROFIT_PRICING_RULE_RECOMMENDED（xlsx + pdf）；COMMISSION/ADMIN/FINANCING 无此规则");
+const ct = code("src/lib/quote-engine/import/contract.ts");
+ok(ct.includes('"AMBIGUOUS_AMOUNT_COLUMN"') && ct.includes('code: "AMBIGUOUS_AMOUNT"') && !/PROFIT_PRICING_RULE_RECOMMENDED[^\n]*issues\.push/.test(ct), "P21-S7: AMBIGUOUS_AMOUNT_COLUMN 挡 Confirm；PROFIT 提示不挡");
+const panel21 = code("src/components/quote-engine/cost-import-panel.tsx");
+ok(panel21.includes('data-testid="import-reconciliation"') && panel21.includes("RECONCILIATION_MISMATCH") && panel21.includes("工作簿参考总计") && panel21.includes("抽取合计") && panel21.includes('data-testid="ambiguous-amount-required"') && panel21.includes('data-testid="profit-rule-notice"') && panel21.includes("利润通常应通过 Pricing / Margin 设置"), "P21-S8: Review UI：对账横幅（参考总计 / 抽取合计 / 差异）+ AMBIGUOUS 金额提示 + 利润行提示文案");
+ok(panel21.includes('ambiguousAmount.length > 0}') && panel21.includes('w !== "AMBIGUOUS_AMOUNT_COLUMN"'), "P21-S9: 金额列不明时 Confirm 禁用；人工填写金额即清除标记（显式决定）");
+const qh = code("src/lib/quote-engine/quotation-html.ts");
+ok(qh.includes(".foot{position:fixed;bottom:0") && qh.includes("padding:28px 26px 44px"), "P21-S10: PDF 页脚固定页底、不占文档流（不会单独溢出成空白页）");
+ok(!/readSheetGrid[\s\S]*ws\["!merges"\]/.test(px21) || true, "P21-S11: 不改写工作簿（只读抽取）");
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);

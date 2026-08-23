@@ -10,7 +10,7 @@ const money = (n: number | null | undefined, ccy: string) => (n == null || !Numb
 const qty = (n: number | null) => (n == null ? "" : n.toLocaleString("en-CA", { maximumFractionDigits: 2 }));
 
 const STYLE = `<style>
-body{font-family:"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:820px;margin:0 auto;padding:28px 26px;line-height:1.5;font-size:12.5px}
+body{font-family:"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:820px;margin:0 auto;padding:28px 26px 44px;line-height:1.5;font-size:12.5px}
 .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2e6b57;padding-bottom:12px;margin-bottom:14px}
 .brand img{height:48px;max-width:220px;object-fit:contain}
 .brand .co{font-size:16px;font-weight:700;margin-top:4px}
@@ -39,7 +39,8 @@ h2{font-size:13px;border-left:4px solid #2e6b57;padding-left:8px;margin:16px 0 6
 .terms{white-space:pre-line}
 ul{margin:2px 0 6px 18px;padding:0}
 .muted{color:#666;font-size:11px}
-.foot{margin-top:22px;border-top:1px solid #ddd;padding-top:8px;font-size:10.5px;color:#666;display:flex;justify-content:space-between}
+/* P2（Phase 2.1）：页脚固定在每页底部、不占文档流高度 → 不会单独溢出成只有页脚的空白页 */
+.foot{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #ddd;padding-top:6px;font-size:10.5px;color:#666;display:flex;justify-content:space-between;background:#fff}
 @media print{body{padding:0}}
 </style>`;
 
