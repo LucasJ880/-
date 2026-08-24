@@ -249,6 +249,27 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
 
   let result;
   try {
+    // B1（安全修复）：技能内工具调用的租户授权字段必须来自服务端权威解析。
+    // 此前 runSkill 不传 orgRole/hasMembership/... → skill.requiredTools 全部
+    // 被 no_membership 拒绝（数字员工带工具技能实际不可用）。解析失败
+    // fail-closed（进入既有失败记录路径）；无 membership 原样传 false。
+    // input.role 只作 isPlatformAdmin 判定输入，来自可信服务端调用方；
+    // 缺省按 "user" 处理（永不放宽）。
+    const { resolveAgentTenant } = await import(
+      "@/lib/tenancy/resolve-agent-tenant"
+    );
+    const { toAgentTenantRunFields } = await import(
+      "@/lib/tenancy/agent-tenant-run-fields"
+    );
+    const tenantResolved = await resolveAgentTenant(
+      { id: input.userId, role: input.role ?? "user" },
+      input.orgId,
+    );
+    if ("error" in tenantResolved) {
+      throw new Error(`TENANT_RESOLVE_FAILED: ${tenantResolved.error}`);
+    }
+    const tenantRunFields = toAgentTenantRunFields(tenantResolved);
+
     result = await runAgent({
       systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
@@ -271,6 +292,7 @@ export async function runSkill(input: SkillRunInput): Promise<SkillRunOutput> {
       orgId: input.orgId,
       agentRunId: input.agentRunId,
       role: input.role,
+      ...tenantRunFields,
       maxToolRounds: 3,
       // Phase 1.1：技能执行以 AGENT 身份运行，owner 为发起用户
       runtime: {

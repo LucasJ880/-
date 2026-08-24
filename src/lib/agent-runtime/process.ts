@@ -427,6 +427,32 @@ export async function executeConversationRun(input: {
 
   const { runAgent } = await import("@/lib/agent-core");
 
+  // B1（安全修复）：工具授权字段必须来自服务端权威租户解析（resolveAgentTenant），
+  // 不能缺省。此前本入口不传 orgRole/hasMembership/modulesJson/workspaceIds/
+  // toolPolicy，registry.execute 视为无 membership → 所有企业工具被
+  // no_membership 拒绝（fail-closed 但白烧模型费）。现在：
+  // - 解析失败（组织不存在/归档）→ fail-closed，终止本轮，不带工具执行；
+  // - 无 active membership → 原样传 hasMembership=false（工具层照旧拒绝）；
+  // - 有 membership → 工具按 org 级策略（orgRole/modules/toolPolicy）授权。
+  const { resolveAgentTenant } = await import(
+    "@/lib/tenancy/resolve-agent-tenant"
+  );
+  const { toAgentTenantRunFields } = await import(
+    "@/lib/tenancy/agent-tenant-run-fields"
+  );
+  const tenantResolved = await resolveAgentTenant(
+    { id: userId, role: input.userRole },
+    orgId,
+  );
+  if ("error" in tenantResolved) {
+    await failAgentRun(orgId, runId, {
+      code: "org_forbidden",
+      message: `租户上下文解析失败：${tenantResolved.error}`,
+    });
+    return { text: "当前组织不可用，任务未执行。请联系管理员确认组织状态。" };
+  }
+  const tenantRunFields = toAgentTenantRunFields(tenantResolved);
+
   const domains: Array<
     "trade" | "sales" | "project" | "secretary" | "knowledge" | "cockpit" | "system"
   > = ["secretary", "system"];
@@ -510,6 +536,7 @@ ${context.memoryBlock}`;
       sessionId: input.session.id,
       agentRunId: runId,
       role: input.userRole,
+      ...tenantRunFields,
       abortSignal: abort.signal,
       runtime: {
         orgId,

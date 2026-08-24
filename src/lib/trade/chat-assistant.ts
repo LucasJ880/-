@@ -231,6 +231,31 @@ ${memoryBlock}`;
   }));
   messages.push({ role: "user", content: userMessage });
 
+  // B1（安全修复）：此前本入口既不传 role 也不传租户授权字段/scopeGuard——
+  // 工具全部被 no_membership 拒绝，且（若未来放行）模型参数可覆盖 org/user。
+  // 现在：平台角色从 DB 权威读取；租户字段来自 resolveAgentTenant；
+  // scopeGuard 锁定 org/principal（模型参数只可收窄、不可扩权）。
+  // 解析失败 fail-closed：不带工具执行，直接返回错误提示。
+  const { resolveAgentTenant } = await import(
+    "@/lib/tenancy/resolve-agent-tenant"
+  );
+  const { toAgentTenantRunFields } = await import(
+    "@/lib/tenancy/agent-tenant-run-fields"
+  );
+  const { db } = await import("@/lib/db");
+  const dbUser = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  const platformRole = dbUser?.role ?? "user";
+  const tenantResolved = await resolveAgentTenant(
+    { id: userId, role: platformRole },
+    orgId,
+  );
+  if ("error" in tenantResolved) {
+    return "当前组织不可用，助手暂时无法处理。请联系管理员确认组织状态。";
+  }
+
   const result = await runAgent({
     systemPrompt,
     messages,
@@ -239,6 +264,9 @@ ${memoryBlock}`;
     temperature: 0.3,
     userId,
     orgId,
+    role: platformRole,
+    ...toAgentTenantRunFields(tenantResolved),
+    scopeGuard: { orgId, principalUserId: userId },
   });
 
   return result.content;
