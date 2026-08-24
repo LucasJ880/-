@@ -603,3 +603,15 @@ export async function expireOverdueApprovals(
     reconciledWorkforceRuns,
   };
 }
+
+// ── R1 canonical creation facade（新代码唯一审批创建入口；见 request.ts 头注释） ──
+
+export {
+  requestApproval,
+  buildPendingActionDraftInput,
+  validateApprovalRequestInput,
+} from "./request";
+export type {
+  CanonicalApprovalRequestInput,
+  RequestApprovalResult,
+} from "./request";

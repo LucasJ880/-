@@ -50,6 +50,7 @@ run_test "iLink 媒体纯函数" "npx tsx src/lib/messaging/adapters/__tests__/i
 run_test "iLink 报文解析" "npx tsx src/lib/messaging/adapters/__tests__/ilink-parse.test.ts"
 run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests__/ilink-send-payload.test.ts"
 run_test "企业微信回调加解密/验签" "npx tsx src/lib/messaging/adapters/__tests__/wecom-crypto.test.ts"
+run_test "Runtime Architecture Guards (R1 boundary freeze)" "bash scripts/test-runtime-architecture.sh"
 run_test "Agent Runtime Phase-1" "npx tsx src/lib/agent-runtime/__tests__/runtime.test.ts"
 run_test "Agent Runtime V2 Planner" "npx tsx src/lib/agent-runtime-v2/__tests__/planner.test.ts"
 run_test "Agent Runtime V2 Durable State" "npx tsx src/lib/agent-runtime-v2/__tests__/durable-state.test.ts"
