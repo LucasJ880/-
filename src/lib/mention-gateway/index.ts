@@ -30,6 +30,7 @@ export {
   EXTERNAL_IDENTITY_PROVIDERS,
   EXTERNAL_IDENTITY_STATUSES,
   EXTERNAL_IDENTITY_VERIFICATION_METHODS,
+  VERIFIED_IDENTITY_METHODS,
 } from "./types";
 export {
   resolveProviderTenantOwnership,
@@ -53,17 +54,20 @@ export {
   decideProvisionOutcome,
   normalizeIdentityKey,
   hashProviderUserId,
+  commitIdentityTransition,
 } from "./identity-service";
 export type {
   ExternalIdentityRecord,
   IdentityServiceResult,
   IdentityServiceErrorCode,
+  IdentityTransitionPlan,
 } from "./identity-service";
 export {
   resolveLegacyProviderTenant,
   mapLegacyIdentityStatus,
   decideBackfillAction,
   gatewayMapKey,
+  buildCorpOrgIndex,
 } from "./backfill";
 export {
   MENTION_GATEWAY_M1_MAX_RISK,

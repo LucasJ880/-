@@ -63,8 +63,10 @@ const IMMUTABLE: Record<string, string> = {
     "3336a36134060869b3d4a8b48f2ce6f8408db2a2381da8a167f09e18387caeaf",
   "20260821233000_add_quote_operations_phase2":
     "ea5a74fb1b38b5874670a7811f5735aed5765c566ee0b0c78258d5432fc1cfbe",
+  // Final Review B4：ACTIVE-requires-method CHECK 在 merge 前加入
+  // （该迁移从未在任何共享/生产库应用过，属 pre-merge 修订，非历史改写）
   "20260824170000_add_mention_gateway_external_identity":
-    "65d282a8fd2fef8d6ebd3c0499f4e67ac19cd374caf12536bd53f028b1bde3b1",
+    "00302bf409ea820073692d21886bb29826b6d01379d2bf04c616d6b0ac632b52",
 };
 
 let passed = 0;

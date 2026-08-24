@@ -139,7 +139,17 @@ async function main() {
     ok(methodRejected, `verificationMethod='SELF_LINK' → verification_method_check 拒绝`);
     const okInsert = await rawInsert(`chk_ok_${tag}`, "PENDING", "LEGACY_SELF_ASSERTED");
     ok(okInsert === 1, "合法值原样接受");
-    await db.externalIdentity.deleteMany({ where: { id: `chk_ok_${tag}` } });
+    // B4：ACTIVE 必须带 verificationMethod（DB 层不可表达 ACTIVE+NULL）
+    let activeNullRejected = false;
+    try {
+      await rawInsert(`chk_actnull_${tag}`, "ACTIVE", null);
+    } catch (e) {
+      activeNullRejected = String(e).includes("ExternalIdentity_active_requires_method_check");
+    }
+    ok(activeNullRejected, "ACTIVE + verificationMethod=NULL → active_requires_method_check 拒绝");
+    ok((await rawInsert(`chk_pendnull_${tag}`, "PENDING", null)) === 1, "PENDING + NULL 仍合法");
+    ok((await rawInsert(`chk_actleg_${tag}`, "ACTIVE", "LEGACY_SELF_ASSERTED")) === 1, "ACTIVE + LEGACY_SELF_ASSERTED 仍合法（回填形态）");
+    await db.externalIdentity.deleteMany({ where: { id: { in: [`chk_ok_${tag}`, `chk_pendnull_${tag}`, `chk_actleg_${tag}`] } } });
   }
 
   console.log("DB-3 User 级联删除：删用户 → 身份行随之删除");
@@ -291,7 +301,17 @@ async function main() {
       providerUserId: `wx_out_${tag}`,
       targetUserId: outsider.id,
     });
-    ok(!toOutsider.ok && toOutsider.code === "TARGET_NOT_MEMBER", "目标无本 org membership → TARGET_NOT_MEMBER");
+    const toNobody = await svc.adminProvisionIdentity({
+      caller: callerAdminA,
+      managementOrgId: orgA.id,
+      provider: "personal_wechat",
+      providerTenantId: gwPersonalA.id,
+      providerUserId: `wx_ghost_${tag}`,
+      targetUserId: `nonexistent_${tag}`,
+    });
+    // P1 existence-safe：跨 org 用户与不存在用户返回同一 code（不泄露全局用户存在性）
+    ok(!toOutsider.ok && toOutsider.code === "TARGET_USER_NOT_FOUND", "目标属其它 org → TARGET_USER_NOT_FOUND（统一 404）");
+    ok(!toNobody.ok && toNobody.code === "TARGET_USER_NOT_FOUND", "目标不存在 → TARGET_USER_NOT_FOUND（与跨 org 不可区分）");
   }
 
   console.log("DB-10 verify：PENDING → ACTIVE（升级 LEGACY）+ 审计；REVOKED 不可 verify");
@@ -495,6 +515,271 @@ async function main() {
     const before2 = await db.externalIdentity.count();
     const write2 = run(true);
     ok(/EXISTING_SAME/.test(write2) && (await db.externalIdentity.count()) === before2, "重复 --write 幂等：无新增行");
+  }
+
+  console.log("DB-17 B1 Optimistic CAS：stale 请求不得覆盖并发变更（无审计残留）");
+  {
+    const mkIdentity = (suffix: string, data: Record<string, unknown> = {}) =>
+      db.externalIdentity.create({
+        data: {
+          provider: "personal_wechat",
+          providerTenantId: gwPersonalA.id,
+          providerUserId: `cas_${suffix}_${tag}`,
+          userId: memberA.id,
+          status: "PENDING",
+          verificationMethod: "LEGACY_SELF_ASSERTED",
+          ...data,
+        },
+      });
+    const totalAudit = () => db.auditLog.count({ where: { targetType: "external_identity" } });
+
+    // 场景1（全 API 交错）：verify 读到 PENDING → ownership 解析窗口内并发 revoke 落库 → verify CAS FAIL
+    {
+      const row = await mkIdentity("c1");
+      const interleavedDeps = {
+        env: process.env,
+        async findGatewayById(id: string) {
+          // verify 已完成读取，此刻并发 revoke 抢先提交
+          await svc.revokeIdentity({
+            caller: callerAdminA,
+            managementOrgId: orgA.id,
+            identityId: row.id,
+            reason: "concurrent revoke",
+          });
+          return db.weChatGateway.findUnique({
+            where: { id },
+            select: { id: true, orgId: true, channel: true, corpId: true, status: true },
+          });
+        },
+        async findWecomGatewaysByCorpId() {
+          return [];
+        },
+      };
+      const audBefore = await totalAudit();
+      const r = await svc.verifyIdentity({
+        caller: callerAdminA,
+        managementOrgId: orgA.id,
+        identityId: row.id,
+        ownershipDeps: interleavedDeps,
+      });
+      const final = await db.externalIdentity.findUnique({ where: { id: row.id } });
+      ok(!r.ok && r.code === "IDENTITY_STATE_CHANGED", "verify(PENDING) vs 并发 revoke → IDENTITY_STATE_CHANGED", r);
+      ok(final?.status === "REVOKED", "终态保持 REVOKED（stale verify 未复活）");
+      ok((await totalAudit()) === audBefore + 1, "仅并发 revoke 产生 1 条审计；CAS FAIL 零审计");
+    }
+
+    // 场景2（stale 写阶段）：disable 基于 ACTIVE 快照，提交前行已被 revoke → CAS FAIL，REVOKED 终态不被覆盖
+    {
+      const row = await mkIdentity("c2", { status: "ACTIVE" });
+      const staleSnapshot = (await db.externalIdentity.findUnique({ where: { id: row.id } }))!;
+      const rv = await svc.revokeIdentity({
+        caller: callerAdminA,
+        managementOrgId: orgA.id,
+        identityId: row.id,
+      });
+      ok(rv.ok, "并发 revoke 先提交");
+      const audBefore = await totalAudit();
+      const stale = await svc.commitIdentityTransition({
+        before: staleSnapshot,
+        data: { status: "DISABLED" },
+        outcome: "DISABLED",
+        audit: {
+          callerUserId: adminA.id,
+          orgId: orgA.id,
+          action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
+        },
+      });
+      const final = await db.externalIdentity.findUnique({ where: { id: row.id } });
+      ok(!stale.ok && stale.code === "IDENTITY_STATE_CHANGED", "stale disable 写阶段 → IDENTITY_STATE_CHANGED");
+      ok(final?.status === "REVOKED", "REVOKED 终态未被 stale disable 覆盖");
+      ok((await totalAudit()) === audBefore, "CAS FAIL 零审计写入");
+    }
+
+    // 场景3（全 API 交错）：enable 读到 DISABLED → ownership 窗口内并发 revoke → CAS FAIL，终态 REVOKED
+    {
+      const row = await mkIdentity("c3", { status: "DISABLED", verificationMethod: "ADMIN_PROVISIONED" });
+      const interleavedDeps = {
+        env: process.env,
+        async findGatewayById(id: string) {
+          await svc.revokeIdentity({
+            caller: callerAdminA,
+            managementOrgId: orgA.id,
+            identityId: row.id,
+            reason: "concurrent revoke",
+          });
+          return db.weChatGateway.findUnique({
+            where: { id },
+            select: { id: true, orgId: true, channel: true, corpId: true, status: true },
+          });
+        },
+        async findWecomGatewaysByCorpId() {
+          return [];
+        },
+      };
+      const r = await svc.enableIdentity({
+        caller: callerAdminA,
+        managementOrgId: orgA.id,
+        identityId: row.id,
+        ownershipDeps: interleavedDeps,
+      });
+      const final = await db.externalIdentity.findUnique({ where: { id: row.id } });
+      ok(!r.ok && r.code === "IDENTITY_STATE_CHANGED", "enable(DISABLED) vs 并发 revoke → IDENTITY_STATE_CHANGED");
+      ok(final?.status === "REVOKED", "终态保持 REVOKED（stale enable 未复活）");
+    }
+
+    // 场景4：old owner self-revoke 开始（读到旧快照）→ admin relink 到新用户提交 →
+    // stale revoke CAS（WHERE 含旧 userId）必然 FAIL；新用户身份不受影响
+    {
+      const row = await mkIdentity("c4", { status: "ACTIVE", verificationMethod: "ADMIN_PROVISIONED" });
+      const staleSnapshot = (await db.externalIdentity.findUnique({ where: { id: row.id } }))!;
+      const rl = await svc.relinkIdentity({
+        caller: callerAdminA,
+        managementOrgId: orgA.id,
+        identityId: row.id,
+        newUserId: memberA2.id,
+      });
+      ok(rl.ok && rl.identity.userId === memberA2.id, "admin relink 先提交（memberA → memberA2）");
+      const staleRevoke = await svc.commitIdentityTransition({
+        before: staleSnapshot,
+        data: { status: "REVOKED", revokedAt: new Date(), revokedById: memberA.id, revokeReason: "stale self revoke" },
+        outcome: "REVOKED",
+        audit: {
+          callerUserId: memberA.id,
+          orgId: null,
+          action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_REVOKE,
+        },
+      });
+      const final = await db.externalIdentity.findUnique({ where: { id: row.id } });
+      ok(!staleRevoke.ok && staleRevoke.code === "IDENTITY_STATE_CHANGED", "旧 owner 的 stale self-revoke → CAS FAIL");
+      ok(final?.userId === memberA2.id && final?.status === "ACTIVE", "新用户身份保持 ACTIVE，不受 stale revoke 影响");
+      // 全 API 复核：relink 后旧 owner 再发起 self-revoke → owner 归属已变 → 视同不存在
+      const fullApi = await svc.revokeIdentity({
+        caller: { userId: memberA.id, role: memberA.role },
+        managementOrgId: null,
+        identityId: row.id,
+      });
+      ok(!fullApi.ok && fullApi.code === "IDENTITY_NOT_FOUND", "relink 后旧 owner 重新走 self-revoke → IDENTITY_NOT_FOUND（重读语义）");
+    }
+
+    // 场景5：backfill RECONCILE 基于 LEGACY 快照 → 并发 admin verify 升级 ADMIN_PROVISIONED →
+    // stale reconcile CAS（WHERE 含 verificationMethod=LEGACY）FAIL，升级行不被降回/改状态
+    {
+      const row = await mkIdentity("c5", { status: "ACTIVE", verificationMethod: "LEGACY_SELF_ASSERTED" });
+      const staleSnapshot = (await db.externalIdentity.findUnique({ where: { id: row.id } }))!;
+      const up = await svc.verifyIdentity({
+        caller: callerAdminA,
+        managementOrgId: orgA.id,
+        identityId: row.id,
+      });
+      ok(up.ok && up.identity.verificationMethod === "ADMIN_PROVISIONED", "并发 admin verify 升级先提交");
+      const staleReconcile = await svc.commitIdentityTransition({
+        before: staleSnapshot,
+        data: { status: "REVOKED", revokedAt: new Date(), revokeReason: "legacy_backfill_reconcile" },
+        outcome: "RECONCILED",
+        audit: {
+          callerUserId: memberA.id,
+          orgId: orgA.id,
+          action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
+        },
+      });
+      const final = await db.externalIdentity.findUnique({ where: { id: row.id } });
+      ok(!staleReconcile.ok && staleReconcile.code === "IDENTITY_STATE_CHANGED", "stale 回填 reconcile → CAS FAIL（方法已升级）");
+      ok(final?.status === "ACTIVE" && final?.verificationMethod === "ADMIN_PROVISIONED", "升级后的行保持 ACTIVE/ADMIN_PROVISIONED 不被改动");
+    }
+  }
+
+  console.log("DB-18 B2 多 org 管理隔离：user ∈ Org A+B，各 org 管理员只见/只管本 org provider 租户的身份");
+  const gwPersonalB = await db.weChatGateway.create({
+    data: { orgId: orgB.id, channel: "personal_wechat", status: "active" },
+  });
+  {
+    const multiUser = await mkUser("m2a_multi");
+    await db.organizationMember.createMany({
+      data: [
+        { orgId: orgA.id, userId: multiUser.id, role: "org_member", status: "active" },
+        { orgId: orgB.id, userId: multiUser.id, role: "org_member", status: "active" },
+      ],
+    });
+    const ia = await db.externalIdentity.create({
+      data: { provider: "personal_wechat", providerTenantId: gwPersonalA.id, providerUserId: `multi_a_${tag}`, userId: multiUser.id, status: "ACTIVE", verificationMethod: "ADMIN_PROVISIONED" },
+    });
+    const ib = await db.externalIdentity.create({
+      data: { provider: "personal_wechat", providerTenantId: gwPersonalB.id, providerUserId: `multi_b_${tag}`, userId: multiUser.id, status: "ACTIVE", verificationMethod: "ADMIN_PROVISIONED" },
+    });
+
+    const listA = await svc.listIdentitiesForAdmin({ caller: callerAdminA, managementOrgId: orgA.id, targetUserId: multiUser.id });
+    ok(listA.ok && listA.identities.length === 1 && listA.identities[0].id === ia.id, "Org A admin list → 只见 IA（Org B 身份不可见）");
+    const listB = await svc.listIdentitiesForAdmin({ caller: callerAdminB, managementOrgId: orgB.id, targetUserId: multiUser.id });
+    ok(listB.ok && listB.identities.length === 1 && listB.identities[0].id === ib.id, "Org B admin list → 只见 IB");
+
+    const aOnIb = {
+      disable: await svc.disableIdentity({ caller: callerAdminA, managementOrgId: orgA.id, identityId: ib.id }),
+      revoke: await svc.revokeIdentity({ caller: callerAdminA, managementOrgId: orgA.id, identityId: ib.id }),
+      verify: await svc.verifyIdentity({ caller: callerAdminA, managementOrgId: orgA.id, identityId: ib.id }),
+      enable: await svc.enableIdentity({ caller: callerAdminA, managementOrgId: orgA.id, identityId: ib.id }),
+      relink: await svc.relinkIdentity({ caller: callerAdminA, managementOrgId: orgA.id, identityId: ib.id, newUserId: memberA.id }),
+    };
+    for (const [op, r] of Object.entries(aOnIb)) {
+      ok(!r.ok && r.code === "IDENTITY_NOT_FOUND", `Org A admin ${op}(IB) → 404（provider 租户属 Org B，视同不存在）`);
+    }
+    const bOnIa = await svc.disableIdentity({ caller: callerAdminB, managementOrgId: orgB.id, identityId: ia.id });
+    ok(!bOnIa.ok && bOnIa.code === "IDENTITY_NOT_FOUND", "Org B admin disable(IA) → 404");
+    const iaRow = await db.externalIdentity.findUnique({ where: { id: ia.id } });
+    const ibRow = await db.externalIdentity.findUnique({ where: { id: ib.id } });
+    ok(iaRow?.status === "ACTIVE" && ibRow?.status === "ACTIVE", "两身份全程未被跨 org 修改");
+
+    // self 语义不受 admin org filtering 影响
+    const selfList = await svc.listIdentitiesForUser(multiUser.id);
+    ok(selfList.length === 2, "owner self list → 两条全见");
+    const selfRevoke = await svc.revokeIdentity({
+      caller: { userId: multiUser.id, role: multiUser.role },
+      managementOrgId: null,
+      identityId: ib.id,
+      reason: "owner opt-out",
+    });
+    ok(selfRevoke.ok && selfRevoke.identity.status === "REVOKED", "owner self-revoke IB → 成功（owner 语义保持）");
+  }
+
+  console.log("DB-19 B3 CorpID 跨 org 重复 → fail closed（双方均不得 provision）");
+  {
+    // orgB 建 wecom 网关，corpId 与 orgA 相同 → corp_a_<tag> 出现在两个真实 org
+    await db.weChatGateway.create({
+      data: { orgId: orgB.id, channel: "wecom", corpId: `corp_a_${tag}`, status: "active" },
+    });
+    const before = await db.externalIdentity.count();
+    const byA = await svc.adminProvisionIdentity({
+      caller: callerAdminA,
+      managementOrgId: orgA.id,
+      provider: "wecom",
+      providerTenantId: `corp_a_${tag}`,
+      providerUserId: `wc_dup_${tag}`,
+      targetUserId: memberA.id,
+    });
+    ok(!byA.ok && byA.code === "PROVIDER_TENANT_UNVERIFIED", "Org A（也持有该 corp）→ AMBIGUOUS → 拒");
+    const byB = await svc.adminProvisionIdentity({
+      caller: callerAdminB,
+      managementOrgId: orgB.id,
+      provider: "wecom",
+      providerTenantId: `corp_a_${tag}`,
+      providerUserId: `wc_dup_${tag}`,
+      targetUserId: adminB.id,
+    });
+    ok(!byB.ok && byB.code === "PROVIDER_TENANT_UNVERIFIED", "Org B 同样被拒（NEVER OWNED）");
+    ok((await db.externalIdentity.count()) === before, "双方均未产生任何行");
+  }
+
+  console.log("DB-20 B3 回填遇 CorpID 歧义 → UNRESOLVED(wecom_corp_ambiguous)，零写入");
+  {
+    await db.weChatBinding.create({
+      data: { userId: memberA2.id, orgId: orgA.id, channel: "wecom", externalId: `bf_amb_${tag}`, status: "active" },
+    });
+    const runOut = execFileSync(
+      "npx",
+      ["tsx", "scripts/backfill-external-identity-from-wechat-binding.ts", "--write"],
+      { env: { ...process.env }, encoding: "utf8", timeout: 180_000 },
+    );
+    ok(/wecom_corp_ambiguous/.test(runOut), "报告含 wecom_corp_ambiguous");
+    ok((await db.externalIdentity.count({ where: { providerUserId: `bf_amb_${tag}` } })) === 0, "歧义 corp 的 binding 未产生任何行（不按 binding.orgId 猜）");
   }
 
   console.log(`\nM2-A Identity DB 结果: ${pass} 通过, ${fail} 失败`);

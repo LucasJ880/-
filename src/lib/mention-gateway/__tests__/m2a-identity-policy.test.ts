@@ -26,6 +26,7 @@ import {
   type ProviderGatewayRecord,
 } from "../provider-tenant-ownership";
 import {
+  buildCorpOrgIndex,
   decideBackfillAction,
   gatewayMapKey,
   mapLegacyIdentityStatus,
@@ -158,10 +159,13 @@ async function main() {
         corp_platform_only: [mk(PLATFORM_ORG)],
         corp_other_org: [mk("org_b")],
         corp_platform_and_target: [mk(PLATFORM_ORG), mk(ORG_A)],
+        corp_two_real_orgs: [mk(ORG_A), mk("org_b")],
+        corp_platform_and_two: [mk(PLATFORM_ORG), mk(ORG_A), mk("org_b")],
       },
     });
-    const at = (t: string) => resolveProviderTenantOwnership({ provider: "wecom", providerTenantId: t, targetOrgId: ORG_A }, deps);
+    const at = (t: string, org = ORG_A) => resolveProviderTenantOwnership({ provider: "wecom", providerTenantId: t, targetOrgId: org }, deps);
     ok((await at("corp_owned")) === "OWNED", "目标 org 自有 corp 网关 → OWNED");
+    ok((await at("corp_owned", "org_b")) === "MISMATCH", "同 corp 由其它 org 视角 → MISMATCH");
     ok((await at("corp_inactive")) === "INACTIVE", "目标 org 网关未激活 → INACTIVE");
     const platformOnly = await at("corp_platform_only");
     ok(platformOnly === "UNPROVEN", "仅平台共享网关命中 → UNPROVEN（无 platform→org 可信映射）");
@@ -169,6 +173,14 @@ async function main() {
     ok((await at("corp_other_org")) === "MISMATCH", "CorpID 属其它真实 org → MISMATCH");
     ok((await at("corp_none")) === "UNPROVEN", "无网关 → UNPROVEN");
     ok((await at("corp_platform_and_target")) === "OWNED", "平台网关 + 目标 org 网关并存 → 以目标 org 网关为准 OWNED");
+    // B3：同一 CorpID 出现在多个真实 org → 任何一方都不得 OWNED
+    const twoA = await at("corp_two_real_orgs");
+    const twoB = await at("corp_two_real_orgs", "org_b");
+    ok(twoA === "AMBIGUOUS" && twoB === "AMBIGUOUS", "CorpID 属两个真实 org → 双方均 AMBIGUOUS（NEVER OWNED）");
+    if (twoA === "OWNED" || twoB === "OWNED") ownershipFailClosed = false;
+    const three = await at("corp_platform_and_two");
+    ok(three === "AMBIGUOUS", "平台 + 两个真实 org → 仍 AMBIGUOUS（平台不消除 real-org 歧义）");
+    if (three === "OWNED") ownershipFailClosed = false;
   }
 
   console.log("M2A-8 Ownership 矩阵：slack / 未知 provider → UNSUPPORTED（M3 前不得 ACTIVE）");
@@ -209,6 +221,20 @@ async function main() {
     ok(!resolveLegacyProviderTenant({ channel: "wecom", orgId: "org_b" }, gwMap).ok, "org 无 wecom 网关 → UNRESOLVED（不用 orgId/\"legacy\" 顶替）");
     ok(!resolveLegacyProviderTenant({ channel: "wecom", orgId: "org_c" }, gwMap).ok, "corpId 为空 → UNRESOLVED");
     ok(!resolveLegacyProviderTenant({ channel: "sms", orgId: ORG_A }, gwMap).ok, "未知 channel → UNRESOLVED");
+    // B3：CorpID 同属多个真实 org → 即使 binding.orgId 指向其中之一也 UNRESOLVED
+    const dupGateways: ProviderGatewayRecord[] = [
+      { id: "gw-wc-a", orgId: ORG_A, channel: "wecom", corpId: "corp_dup", status: "active" },
+      { id: "gw-wc-b", orgId: "org_b", channel: "wecom", corpId: "corp_dup", status: "active" },
+      { id: "gw-wc-p", orgId: PLATFORM_ORG, channel: "wecom", corpId: "corp_dup", status: "active" },
+      { id: "gw-pw-x", orgId: ORG_A, channel: "personal_wechat", corpId: null, status: "active" },
+    ];
+    const corpIndex = buildCorpOrgIndex(dupGateways);
+    ok(corpIndex.get("corp_dup")?.size === 2, "buildCorpOrgIndex：平台网关与非 wecom 网关不计入真实 org 集合");
+    const dupMap = new Map([[gatewayMapKey(ORG_A, "wecom"), dupGateways[0]]]);
+    const amb = resolveLegacyProviderTenant({ channel: "wecom", orgId: ORG_A }, dupMap, corpIndex);
+    ok(!amb.ok && amb.reason === "wecom_corp_ambiguous", "corp 歧义 → UNRESOLVED(wecom_corp_ambiguous)，不得按 binding.orgId 绕过");
+    const single = buildCorpOrgIndex(dupGateways.filter((g) => g.orgId !== "org_b"));
+    ok(resolveLegacyProviderTenant({ channel: "wecom", orgId: ORG_A }, dupMap, single).ok, "唯一真实 org（平台不计）→ 正常解析");
   }
 
   console.log("M2A-11 回填：状态映射（LEGACY 永不直接 ACTIVE-verified；gateway 不活 → PENDING）");
@@ -305,6 +331,16 @@ async function main() {
       ok(!r.ok && !r.ok && r.reason === "identity_not_active", `${status} → identity_not_active DENY`);
       if (r.ok) unverifiedDenied = false;
     }
+    // B4：VERIFIED_IDENTITY_METHODS 白名单（fail-closed，不再是「黑名单 LEGACY」）
+    for (const method of ["ADMIN_PROVISIONED", "PROVIDER_CHALLENGE", "PROVIDER_OAUTH", "PROVIDER_SIGNED_EVENT"]) {
+      const r = await run(async () => ({ userId: "user_1", status: "ACTIVE", verificationMethod: method }));
+      ok(r.ok, `ACTIVE + ${method} → PASS`);
+    }
+    const nullMethod = await run(async () => ({ userId: "user_1", status: "ACTIVE", verificationMethod: null }));
+    ok(!nullMethod.ok && nullMethod.reason === "identity_unverified", "B4：ACTIVE + verificationMethod=null → identity_unverified DENY（fail-closed）");
+    if (nullMethod.ok) unverifiedDenied = false;
+    const unknownMethod = await run(async () => ({ userId: "user_1", status: "ACTIVE", verificationMethod: "SELF_LINK" }));
+    ok(!unknownMethod.ok && unknownMethod.reason === "identity_unverified", "B4：白名单外方法 → DENY");
     const legacy = await run(async () => ({ userId: "user_1", status: "ACTIVE", verificationMethod: "LEGACY_SELF_ASSERTED" }));
     ok(!legacy.ok && legacy.reason === "identity_unverified", "缺省 requireVerified：LEGACY ACTIVE → identity_unverified DENY");
     if (legacy.ok) unverifiedDenied = false;

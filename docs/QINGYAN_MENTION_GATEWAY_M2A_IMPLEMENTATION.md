@@ -49,9 +49,9 @@ M2-A 身份仅两个来源：
 ### 2.2 Migration
 
 - 名称：`prisma/migrations/20260824170000_add_mention_gateway_external_identity/migration.sql`（无命名冲突）
-- 内容：CreateTable + 唯一索引 + 3 索引 + FK + **2 个 CHECK 兜底约束**（`ExternalIdentity_status_check`、`ExternalIdentity_verification_method_check`；Prisma 不建模 CHECK，应用层为主，DB 兜底，additive 可独立 DROP 回滚）
+- 内容：CreateTable + 唯一索引 + 3 索引 + FK + **3 个 CHECK 兜底约束**（`ExternalIdentity_status_check`、`ExternalIdentity_verification_method_check`、`ExternalIdentity_active_requires_method_check` = ACTIVE 必须带 verificationMethod（B4，ACTIVE+NULL 在 DB 层不可表达）；Prisma 不建模 CHECK，应用层为主，DB 兜底，additive 可独立 DROP 回滚）
 - 纯 additive：无 ALTER 业务列 / 无 DROP / 无 RENAME / 无数据回填（回填是独立脚本）
-- SHA256：`65d282a8fd2fef8d6ebd3c0499f4e67ac19cd374caf12536bd53f028b1bde3b1`
+- SHA256：`00302bf409ea820073692d21886bb29826b6d01379d2bf04c616d6b0ac632b52`（Final Review B4 修订版：初版 `65d282a8…` + `ExternalIdentity_active_requires_method_check`；该迁移从未在任何共享/生产库应用过，属 pre-merge 修订）
 - 治理三件套同步：`src/lib/release/expected-migrations.ts`（追加 active 名单）、`scripts/verify-migration-history.ts`（IMMUTABLE 表新增本条 checksum，历史条目零改动）、`scripts/check-release-safety.test.ts`（有序清单 + 标签 `+ MentionGatewayExternalIdentity`）
 - **未执行** `prisma db push`；**未触碰**任何生产库（生产部署走 safe-migrate-deploy runbook，不在本 PR）
 
@@ -65,7 +65,7 @@ M2-A 身份仅两个来源：
 |---|---|---|
 | `mock` | 固定租户 `"mock"` | tenant ≠ "mock" → MISMATCH；生产运行时（`isMentionMockRuntimeAllowedWithEnv` 为 false，含环境声明冲突）→ UNSUPPORTED；否则 OWNED |
 | `personal_wechat` | `WeChatGateway.id` | 网关不存在/channel 不符 → UNPROVEN；`orgId ≠ 目标 org` → MISMATCH；`status ≠ active` → INACTIVE；全匹配 → OWNED |
-| `wecom` | 目标 org 的 org 级 `WeChatGateway.corpId` | 无网关 → UNPROVEN；目标 org 网关 → OWNED/INACTIVE；**仅平台共享网关（`PLATFORM_WECOM_ORG_ID = "__qingyan_platform__"`）命中 → UNPROVEN**（仓库运行期解析是 WeChatBinding→用户级，不存在可信 platform→org 映射，**不得猜**）；CorpID 属其它真实 org → MISMATCH |
+| `wecom` | 目标 org 的 org 级 `WeChatGateway.corpId` | 先算真实 org 集合（排除平台共享网关）：0 个 → UNPROVEN（含仅平台网关命中——不存在可信 platform→org 映射，**不得猜**）；1 个且 ≠ 目标 org → MISMATCH；1 个且 = 目标 org → active ? OWNED : INACTIVE；**>1 个真实 org → AMBIGUOUS，任何一方 NEVER OWNED（Final Review B3：平台网关不消除 real-org 歧义）** |
 | `slack` / 未知 | 无 ChannelProviderInstallation | UNSUPPORTED（M3 安装模型后开放） |
 
 非 OWNED → `PROVIDER_TENANT_UNVERIFIED`（HTTP 422），**不创建任何行**（含 PENDING 占位；DB-7 断言 count 不变）。
@@ -140,8 +140,8 @@ M2-A 身份仅两个来源：
 
 | 套件 | 断言 | 摘要 |
 |---|---|---|
-| `m2a-identity-policy.test.ts`（纯，进 test:ci + test-all） | 96 | flags fail-closed、键归一化、ownership 全矩阵（mock 生产 / platform corp / slack）、decideProvisionOutcome（Attack B）、回填纯函数（Attack C）、租户键隔离、适配器 tenant 伪造（Attack E）、SELF_LINK 缺席（fs）、resolver 状态/验证门 |
-| `m2a-identity-db.isolated.test.ts`（隔离库） | 57 | 上表 §8 |
+| `m2a-identity-policy.test.ts`（纯，进 test:ci + test-all） | 108 | flags fail-closed、键归一化、ownership 全矩阵（mock 生产 / platform corp / slack）、decideProvisionOutcome（Attack B）、回填纯函数（Attack C）、租户键隔离、适配器 tenant 伪造（Attack E）、SELF_LINK 缺席（fs）、resolver 状态/验证门 |
+| `m2a-identity-db.isolated.test.ts`（隔离库） | 93 | 上表 §8 + §13（DB-17 CAS ×5 / DB-18 多 org 隔离 / DB-19-20 corp 歧义 / B4 CHECK / P1 oracle） |
 | `m2a-db-identity-e2e.isolated.test.ts`（隔离库） | 25 | 上表 §8 |
 | 既有套件（fixture 缺省语义不变） | m0 95 / m1-gateway 70 / m1-static 279 / m1-final-review 72 / m1-tool-policy 124 / m2c 105 | 仅 providerTenantId 键面与 fixture 3 参签名更新；全绿 |
 
@@ -170,6 +170,36 @@ M2-A 身份仅两个来源：
 5. lastSeenAt 暂无写入方（读路径刻意零写；未来由已验签 inbound 事件更新）
 6. 回填脚本无 production override —— 生产运行需后续显式 runbook PR
 
-## 13. 门禁结果
+## 13. Final Review 修正（2026-08-24，同 PR）
+
+### B1 — Optimistic CAS（TOCTOU 防线）
+
+所有生命周期 mutation（verify / relink / disable / enable / revoke / 回填 RECONCILE_STATUS）改为
+read → validate → **compare-and-set**：`updateMany WHERE id + userId + status + verificationMethod + updatedAt` 与读取快照完全一致才写；命中 ≠ 1 → `IDENTITY_STATE_CHANGED`（409），**零写入、零审计**，caller 重读后再操作（`commitIdentityTransition` 单一提交入口，写+审计同事务）。锁定语义（隔离库 DB-17 全部实测）：
+
+- verify(PENDING) / enable(DISABLED) vs 并发 revoke → STATE_CHANGED，REVOKED 终态不被复活
+- disable(ACTIVE) 的 stale 写 vs 已 REVOKED → STATE_CHANGED
+- old owner self-revoke vs 并发 admin relink → CAS WHERE 含旧 userId → 必然 FAIL，新用户身份不受影响（重走 API 则 owner 归属已变 → 404）
+- 回填 reconcile vs 并发 verify 升级 → CAS WHERE 含 verificationMethod=LEGACY → 升级行原样保留
+
+### B2 — 管理域必须含 provider 租户归属
+
+`ExternalIdentity` 无 orgId，**user ∈ org ≠ identity ∈ org**。管理可见性 = 目标用户是本 org 在职成员 **且** provider 租户归属可证明属于本 org：OWNED 全权；INACTIVE 可 list/disable/revoke（ACTIVE transition 仍要求 OWNED → 422）；MISMATCH/UNPROVEN/AMBIGUOUS/UNSUPPORTED → 视同不存在（404，不泄露存在性）。应用于 listIdentitiesForAdmin（逐条过滤）+ verify/enable/relink/disable/revoke(admin)。多 org 用户（X ∈ A+B）：A 管理员只见/只管 A 租户身份（DB-18 全矩阵实测）；self list / self revoke 保持 owner 全量语义。
+
+### B3 — WeCom CorpID 歧义 fail-closed
+
+见 §3 矩阵：CorpID 出现在 >1 个真实 org → `AMBIGUOUS`，任何一方 NEVER OWNED（先前实现「目标 org 命中即 OWNED」已废除）。回填同步：`buildCorpOrgIndex` 预计算 CorpID → 真实 org 集合，>1 → `UNRESOLVED(wecom_corp_ambiguous)` 零写入，不得按单条 binding.orgId 绕过（DB-19/DB-20 实测）。
+
+### B4 — Verified 白名单 fail-closed
+
+`VERIFIED_IDENTITY_METHODS = ADMIN_PROVISIONED | PROVIDER_CHALLENGE | PROVIDER_OAUTH | PROVIDER_SIGNED_EVENT`（types.ts canonical）。REQUIRE_VERIFIED=true 下持久身份必须 `status===ACTIVE 且 method ∈ 白名单`——**ACTIVE+null 与 ACTIVE+LEGACY 一律 `identity_unverified` DENY**（先前「黑名单 LEGACY」会放行 ACTIVE+null）。migration 新增 `ExternalIdentity_active_requires_method_check`（ACTIVE+NULL 在 DB 层不可表达；sha 见 §2）。
+
+### P1 — 目标用户存在性 oracle 关闭
+
+`loadManageableTargetUser` 改为 membership-first scoped lookup：无本 org membership 行（用户不存在 / 属其它 org）→ 统一 `TARGET_USER_NOT_FOUND`（404，不可区分）；同 org 事实（membership 停用 / 账号停用）仍可区分（DB-9 实测两种输入同 code）。
+
+---
+
+## 14. 门禁结果
 
 见 PR 描述与最终交付块：typecheck 0 错、eslint 基线 PASS（error 出现数较基线 -12）、test:ci PASS、test-all 与 main 基线逐条一致（12 项环境性失败，全部 MISSING_DATABASE_URL/Gmail 环境门）、build PASS、治理测试 27/27 + 65/65。

@@ -24,10 +24,7 @@ import {
   resolveProviderTenantOwnership,
   type OwnershipDeps,
 } from "./provider-tenant-ownership";
-import {
-  EXTERNAL_IDENTITY_PROVIDERS,
-  type ExternalIdentityStatus,
-} from "./types";
+import { EXTERNAL_IDENTITY_PROVIDERS } from "./types";
 
 export interface ExternalIdentityRecord {
   id: string;
@@ -60,6 +57,7 @@ export type IdentityServiceErrorCode =
   | "IDENTITY_ALREADY_CLAIMED"
   | "IDENTITY_NOT_FOUND"
   | "INVALID_STATE"
+  | "IDENTITY_STATE_CHANGED"
   | "OLD_USER_NOT_MANAGEABLE";
 
 export type IdentityServiceResult =
@@ -140,6 +138,91 @@ function err(
   return { ok: false, code, message };
 }
 
+// ── B1 Optimistic CAS（TOCTOU 防线）────────────────────────────────────────
+//
+// 所有生命周期 mutation 均为 read → validate → compare-and-set：
+// WHERE id + userId + status + verificationMethod + updatedAt 与读到的快照完全一致
+// 才允许写。期间任何并发变更（revoke / relink / verify 升级…）→ 命中数 ≠ 1
+// → IDENTITY_STATE_CHANGED（409），不写 AuditLog，调用方需重新读取后再操作。
+// 尤其保证：REVOKED 终态不可被 stale 请求覆盖；relink 到新用户后，
+// 旧 owner 的 stale self-revoke（快照里的旧 userId 不再匹配）必然 CAS FAIL。
+
+export interface IdentityTransitionPlan {
+  /** 事务外读取的完整快照；CAS WHERE 由此构造 */
+  before: ExternalIdentityRecord;
+  /** 要写入的字段 */
+  data: {
+    status?: string;
+    verificationMethod?: string | null;
+    userId?: string;
+    verifiedAt?: Date | null;
+    verifiedById?: string | null;
+    linkedAt?: Date;
+    linkedById?: string | null;
+    revokedAt?: Date | null;
+    revokedById?: string | null;
+    revokeReason?: string | null;
+  };
+  outcome: string;
+  audit: {
+    callerUserId: string;
+    orgId: string | null;
+    action: string;
+    afterExtra?: Record<string, unknown>;
+  };
+}
+
+/**
+ * 提交一次 CAS 状态迁移（写 + 审计同事务；审计失败整体回滚）。
+ * 快照过期 → IDENTITY_STATE_CHANGED，零写入、零审计。
+ */
+export async function commitIdentityTransition(
+  plan: IdentityTransitionPlan,
+): Promise<IdentityServiceResult> {
+  const { db } = await import("@/lib/db");
+  const casMiss = Symbol("cas-miss");
+  try {
+    const updated = await db.$transaction(async (tx) => {
+      const hit = await tx.externalIdentity.updateMany({
+        where: {
+          id: plan.before.id,
+          userId: plan.before.userId,
+          status: plan.before.status,
+          verificationMethod: plan.before.verificationMethod,
+          updatedAt: plan.before.updatedAt,
+        },
+        data: plan.data,
+      });
+      if (hit.count !== 1) {
+        // 并发修改赢了：本次请求基于陈旧状态，禁止覆盖
+        throw casMiss;
+      }
+      const row = await tx.externalIdentity.findUniqueOrThrow({
+        where: { id: plan.before.id },
+      });
+      await writeAuditLog(tx, {
+        userId: plan.audit.callerUserId,
+        orgId: plan.audit.orgId,
+        action: plan.audit.action,
+        targetType: "external_identity",
+        targetId: row.id,
+        beforeData: auditPayload(plan.before),
+        afterData: { ...auditPayload(row), ...(plan.audit.afterExtra ?? {}) },
+      });
+      return row;
+    });
+    return { ok: true, identity: updated, outcome: plan.outcome };
+  } catch (e) {
+    if (e === casMiss) {
+      return err(
+        "IDENTITY_STATE_CHANGED",
+        "身份状态在操作期间已被并发修改，请重新读取后再操作",
+      );
+    }
+    throw e;
+  }
+}
+
 // ── DB helpers（服务内二次校验；route 守卫之外的 server authority）──────────
 
 async function assertCallerCanManageOrg(
@@ -158,6 +241,12 @@ async function assertCallerCanManageOrg(
   return { ok: true, orgRole: membership.role };
 }
 
+/**
+ * P1 existence-safe：先按 managementOrg membership 定位（scoped lookup）。
+ * 无 membership 行 → 统一 TARGET_USER_NOT_FOUND（404），不区分「用户不存在」
+ * 与「用户存在但属其它 org」——不向 Org A 管理员暴露跨 org 用户存在性。
+ * 同 org 事实（membership 停用 / 账号停用）允许区分。
+ */
 async function loadManageableTargetUser(
   targetUserId: string,
   managementOrgId: string,
@@ -166,20 +255,20 @@ async function loadManageableTargetUser(
   | { ok: false; code: IdentityServiceErrorCode; message: string }
 > {
   const { db } = await import("@/lib/db");
-  const user = await db.user.findUnique({
-    where: { id: targetUserId },
-    select: { id: true, status: true },
-  });
-  if (!user) return err("TARGET_USER_NOT_FOUND", "目标用户不存在");
-  if (user.status !== "active") return err("TARGET_USER_INACTIVE", "目标用户未激活");
   const membership = await db.organizationMember.findUnique({
     where: { orgId_userId: { orgId: managementOrgId, userId: targetUserId } },
-    select: { status: true },
+    select: { status: true, user: { select: { id: true, status: true } } },
   });
-  if (!membership || membership.status !== "active") {
+  if (!membership) {
+    return err("TARGET_USER_NOT_FOUND", "目标用户不存在或不属于当前组织");
+  }
+  if (membership.status !== "active") {
     return err("TARGET_NOT_MEMBER", "目标用户不是当前组织的在职成员");
   }
-  return { ok: true, user };
+  if (membership.user.status !== "active") {
+    return err("TARGET_USER_INACTIVE", "目标用户未激活");
+  }
+  return { ok: true, user: membership.user };
 }
 
 function auditPayload(identity: {
@@ -200,10 +289,36 @@ function auditPayload(identity: {
   };
 }
 
-/** 管理路径统一取一条「本 org 可管理」的身份：identity.userId 必须是 org 在职成员，否则视同不存在（IDOR 404） */
+/**
+ * B2 canonical management scope：user ∈ org 不等于 identity ∈ org
+ * （ExternalIdentity 无 orgId，多 org 用户的身份必须按 provider 租户归属切分）。
+ * 管理可见性 = ①identity.userId 是 managementOrg 在职成员
+ *            + ②provider 租户归属可证明属于 managementOrg（OWNED / INACTIVE）。
+ * MISMATCH / UNPROVEN / AMBIGUOUS / UNSUPPORTED → 视同不存在（404，不泄露存在性）。
+ * INACTIVE 可 list / disable / revoke；ACTIVE transition（verify/enable/relink）
+ * 在各自函数内仍额外要求 OWNED。
+ */
+const MANAGEABLE_OWNERSHIP: readonly string[] = ["OWNED", "INACTIVE"];
+
+async function resolveManagementOwnership(
+  identity: { provider: string; providerTenantId: string },
+  managementOrgId: string,
+  ownershipDeps?: OwnershipDeps,
+) {
+  return resolveProviderTenantOwnership(
+    {
+      provider: identity.provider,
+      providerTenantId: identity.providerTenantId,
+      targetOrgId: managementOrgId,
+    },
+    ownershipDeps ?? createDefaultOwnershipDeps(),
+  );
+}
+
 async function loadManageableIdentity(
   identityId: string,
   managementOrgId: string,
+  ownershipDeps?: OwnershipDeps,
 ): Promise<ExternalIdentityRecord | null> {
   const { db } = await import("@/lib/db");
   const identity = await db.externalIdentity.findUnique({
@@ -217,6 +332,12 @@ async function loadManageableIdentity(
     select: { status: true },
   });
   if (!membership || membership.status !== "active") return null;
+  const ownership = await resolveManagementOwnership(
+    identity,
+    managementOrgId,
+    ownershipDeps,
+  );
+  if (!MANAGEABLE_OWNERSHIP.includes(ownership)) return null;
   return identity;
 }
 
@@ -377,6 +498,7 @@ export async function verifyIdentity(
   const identity = await loadManageableIdentity(
     input.identityId,
     input.managementOrgId,
+    input.ownershipDeps,
   );
   if (!identity) return err("IDENTITY_NOT_FOUND", "身份不存在");
 
@@ -393,42 +515,31 @@ export async function verifyIdentity(
   );
   if (!target.ok) return target;
 
-  const ownership = await resolveProviderTenantOwnership(
-    {
-      provider: identity.provider,
-      providerTenantId: identity.providerTenantId,
-      targetOrgId: input.managementOrgId,
-    },
-    input.ownershipDeps ?? createDefaultOwnershipDeps(),
+  const ownership = await resolveManagementOwnership(
+    identity,
+    input.managementOrgId,
+    input.ownershipDeps,
   );
   if (ownership !== "OWNED") {
     return err("PROVIDER_TENANT_UNVERIFIED", "provider 租户归属未证明，拒绝激活");
   }
 
-  const { db } = await import("@/lib/db");
   const now = new Date();
-  const updated = await db.$transaction(async (tx) => {
-    const row = await tx.externalIdentity.update({
-      where: { id: identity.id },
-      data: {
-        status: "ACTIVE",
-        verificationMethod: "ADMIN_PROVISIONED",
-        verifiedAt: now,
-        verifiedById: input.caller.userId,
-      },
-    });
-    await writeAuditLog(tx, {
-      userId: input.caller.userId,
+  return commitIdentityTransition({
+    before: identity,
+    data: {
+      status: "ACTIVE",
+      verificationMethod: "ADMIN_PROVISIONED",
+      verifiedAt: now,
+      verifiedById: input.caller.userId,
+    },
+    outcome: "VERIFIED",
+    audit: {
+      callerUserId: input.caller.userId,
       orgId: input.managementOrgId,
       action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_VERIFY,
-      targetType: "external_identity",
-      targetId: row.id,
-      beforeData: auditPayload(identity),
-      afterData: auditPayload(row),
-    });
-    return row;
+    },
   });
-  return { ok: true, identity: updated, outcome: "VERIFIED" };
 }
 
 export interface RelinkInput extends IdentityMutationInput {
@@ -448,6 +559,7 @@ export async function relinkIdentity(
   const identity = await loadManageableIdentityForRelink(
     input.identityId,
     input.managementOrgId,
+    input.ownershipDeps,
   );
   if (!identity.ok) return identity;
 
@@ -457,48 +569,39 @@ export async function relinkIdentity(
   );
   if (!newTarget.ok) return newTarget;
 
-  const ownership = await resolveProviderTenantOwnership(
-    {
-      provider: identity.identity.provider,
-      providerTenantId: identity.identity.providerTenantId,
-      targetOrgId: input.managementOrgId,
-    },
-    input.ownershipDeps ?? createDefaultOwnershipDeps(),
+  const ownership = await resolveManagementOwnership(
+    identity.identity,
+    input.managementOrgId,
+    input.ownershipDeps,
   );
   if (ownership !== "OWNED") {
     return err("PROVIDER_TENANT_UNVERIFIED", "provider 租户归属未证明，拒绝改绑");
   }
 
-  const { db } = await import("@/lib/db");
   const now = new Date();
-  const updated = await db.$transaction(async (tx) => {
-    const row = await tx.externalIdentity.update({
-      where: { id: identity.identity.id },
-      data: {
-        userId: input.newUserId,
-        status: "ACTIVE",
-        verificationMethod: "ADMIN_PROVISIONED",
-        verifiedAt: now,
-        verifiedById: input.caller.userId,
-        linkedAt: now,
-        linkedById: input.caller.userId,
-        revokedAt: null,
-        revokedById: null,
-        revokeReason: null,
-      },
-    });
-    await writeAuditLog(tx, {
-      userId: input.caller.userId,
+  // CAS WHERE 含旧 userId：并发 revoke / 另一 relink 赢了 → 本次 STATE_CHANGED
+  return commitIdentityTransition({
+    before: identity.identity,
+    data: {
+      userId: input.newUserId,
+      status: "ACTIVE",
+      verificationMethod: "ADMIN_PROVISIONED",
+      verifiedAt: now,
+      verifiedById: input.caller.userId,
+      linkedAt: now,
+      linkedById: input.caller.userId,
+      revokedAt: null,
+      revokedById: null,
+      revokeReason: null,
+    },
+    outcome: "RELINKED",
+    audit: {
+      callerUserId: input.caller.userId,
       orgId: input.managementOrgId,
       action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_RELINK,
-      targetType: "external_identity",
-      targetId: row.id,
-      beforeData: auditPayload(identity.identity),
-      afterData: auditPayload(row),
-    });
-    return row;
+      afterExtra: { reason: input.reason ?? null },
+    },
   });
-  return { ok: true, identity: updated, outcome: "RELINKED" };
 }
 
 /**
@@ -508,6 +611,7 @@ export async function relinkIdentity(
 async function loadManageableIdentityForRelink(
   identityId: string,
   managementOrgId: string,
+  ownershipDeps?: OwnershipDeps,
 ): Promise<
   | { ok: true; identity: ExternalIdentityRecord }
   | { ok: false; code: IdentityServiceErrorCode; message: string }
@@ -517,6 +621,15 @@ async function loadManageableIdentityForRelink(
     where: { id: identityId },
   });
   if (!identity) return err("IDENTITY_NOT_FOUND", "身份不存在");
+  // B2：provider 租户不可证明属于本 org → 视同不存在（先于 membership 细分，避免存在性泄露）
+  const ownership = await resolveManagementOwnership(
+    identity,
+    managementOrgId,
+    ownershipDeps,
+  );
+  if (!MANAGEABLE_OWNERSHIP.includes(ownership)) {
+    return err("IDENTITY_NOT_FOUND", "身份不存在");
+  }
   const oldMembership = await db.organizationMember.findUnique({
     where: {
       orgId_userId: { orgId: managementOrgId, userId: identity.userId },
@@ -544,13 +657,22 @@ export async function disableIdentity(
   const identity = await loadManageableIdentity(
     input.identityId,
     input.managementOrgId,
+    input.ownershipDeps,
   );
   if (!identity) return err("IDENTITY_NOT_FOUND", "身份不存在");
   if (identity.status !== "ACTIVE" && identity.status !== "PENDING") {
     return err("INVALID_STATE", `当前状态（${identity.status}）不可 disable`);
   }
-  return transitionStatus(identity, "DISABLED", input, {
-    action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
+  return commitIdentityTransition({
+    before: identity,
+    data: { status: "DISABLED" },
+    outcome: "DISABLED",
+    audit: {
+      callerUserId: input.caller.userId,
+      orgId: input.managementOrgId,
+      action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
+      afterExtra: { reason: input.reason ?? null },
+    },
   });
 }
 
@@ -565,6 +687,7 @@ export async function enableIdentity(
   const identity = await loadManageableIdentity(
     input.identityId,
     input.managementOrgId,
+    input.ownershipDeps,
   );
   if (!identity) return err("IDENTITY_NOT_FOUND", "身份不存在");
   if (identity.status !== "DISABLED") {
@@ -576,46 +699,25 @@ export async function enableIdentity(
     input.managementOrgId,
   );
   if (!target.ok) return target;
-  const ownership = await resolveProviderTenantOwnership(
-    {
-      provider: identity.provider,
-      providerTenantId: identity.providerTenantId,
-      targetOrgId: input.managementOrgId,
-    },
-    input.ownershipDeps ?? createDefaultOwnershipDeps(),
+  const ownership = await resolveManagementOwnership(
+    identity,
+    input.managementOrgId,
+    input.ownershipDeps,
   );
   if (ownership !== "OWNED") {
     return err("PROVIDER_TENANT_UNVERIFIED", "provider 租户归属未证明，拒绝恢复");
   }
-  return transitionStatus(identity, "ACTIVE", input, {
-    action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
-  });
-}
-
-async function transitionStatus(
-  identity: ExternalIdentityRecord,
-  nextStatus: ExternalIdentityStatus,
-  input: IdentityMutationInput,
-  opts: { action: string },
-): Promise<IdentityServiceResult> {
-  const { db } = await import("@/lib/db");
-  const updated = await db.$transaction(async (tx) => {
-    const row = await tx.externalIdentity.update({
-      where: { id: identity.id },
-      data: { status: nextStatus },
-    });
-    await writeAuditLog(tx, {
-      userId: input.caller.userId,
+  return commitIdentityTransition({
+    before: identity,
+    data: { status: "ACTIVE" },
+    outcome: "ACTIVE",
+    audit: {
+      callerUserId: input.caller.userId,
       orgId: input.managementOrgId,
-      action: opts.action,
-      targetType: "external_identity",
-      targetId: row.id,
-      beforeData: auditPayload(identity),
-      afterData: { ...auditPayload(row), reason: input.reason ?? null },
-    });
-    return row;
+      action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
+      afterExtra: { reason: input.reason ?? null },
+    },
   });
-  return { ok: true, identity: updated, outcome: nextStatus };
 }
 
 export interface RevokeInput {
@@ -624,6 +726,7 @@ export interface RevokeInput {
   reason?: string;
   /** admin 路径：服务端解析的管理 org；self 路径传 null */
   managementOrgId: string | null;
+  ownershipDeps?: OwnershipDeps;
 }
 
 /** owner 本人（findFirst id+userId）或授权管理员；REVOKED 终态。 */
@@ -643,6 +746,7 @@ export async function revokeIdentity(
     identity = await loadManageableIdentity(
       input.identityId,
       input.managementOrgId,
+      input.ownershipDeps,
     );
     auditOrgId = input.managementOrgId;
   } else {
@@ -657,28 +761,25 @@ export async function revokeIdentity(
   }
 
   const now = new Date();
-  const updated = await db.$transaction(async (tx) => {
-    const row = await tx.externalIdentity.update({
-      where: { id: identity!.id },
-      data: {
-        status: "REVOKED",
-        revokedAt: now,
-        revokedById: input.caller.userId,
-        revokeReason: (input.reason ?? "").slice(0, 500) || null,
-      },
-    });
-    await writeAuditLog(tx, {
-      userId: input.caller.userId,
+  const reason = (input.reason ?? "").slice(0, 500) || null;
+  // CAS WHERE 含快照 userId：admin relink 抢先改绑到新用户后，
+  // 旧 owner 的 stale self-revoke 必然 STATE_CHANGED，不影响新用户身份。
+  return commitIdentityTransition({
+    before: identity,
+    data: {
+      status: "REVOKED",
+      revokedAt: now,
+      revokedById: input.caller.userId,
+      revokeReason: reason,
+    },
+    outcome: "REVOKED",
+    audit: {
+      callerUserId: input.caller.userId,
       orgId: auditOrgId,
       action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_REVOKE,
-      targetType: "external_identity",
-      targetId: row.id,
-      beforeData: auditPayload(identity!),
-      afterData: { ...auditPayload(row), reason: row.revokeReason },
-    });
-    return row;
+      afterExtra: { reason },
+    },
   });
-  return { ok: true, identity: updated, outcome: "REVOKED" };
 }
 
 // ── 读列表 ──────────────────────────────────────────────────────────────────
@@ -708,11 +809,17 @@ export async function listIdentitiesForUser(userId: string) {
   });
 }
 
-/** 管理员视角：目标用户必须是管理 org 的在职成员（否则视同不存在） */
+/**
+ * 管理员视角：目标用户必须是管理 org 的在职成员（否则视同不存在）。
+ * B2：目标用户可能同时属于多个 org —— 只返回 provider 租户归属可证明属于
+ * 当前管理 org（OWNED / INACTIVE）的身份；其它 org 的身份对本 org 管理员不可见。
+ * self list（listIdentitiesForUser）保持 owner 全量语义，不做 org 过滤。
+ */
 export async function listIdentitiesForAdmin(input: {
   caller: IdentityServiceCaller;
   managementOrgId: string;
   targetUserId: string;
+  ownershipDeps?: OwnershipDeps;
 }): Promise<
   | { ok: true; identities: Awaited<ReturnType<typeof listIdentitiesForUser>> }
   | { ok: false; code: IdentityServiceErrorCode; message: string }
@@ -727,5 +834,15 @@ export async function listIdentitiesForAdmin(input: {
     input.managementOrgId,
   );
   if (!target.ok) return err("IDENTITY_NOT_FOUND", "身份不存在");
-  return { ok: true, identities: await listIdentitiesForUser(input.targetUserId) };
+  const all = await listIdentitiesForUser(input.targetUserId);
+  const visible: typeof all = [];
+  for (const identity of all) {
+    const ownership = await resolveManagementOwnership(
+      identity,
+      input.managementOrgId,
+      input.ownershipDeps,
+    );
+    if (MANAGEABLE_OWNERSHIP.includes(ownership)) visible.push(identity);
+  }
+  return { ok: true, identities: visible };
 }

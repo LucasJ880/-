@@ -41,6 +41,17 @@ export type ExternalIdentityVerificationMethod =
   | "PROVIDER_OAUTH"
   | "PROVIDER_SIGNED_EVENT"
   | "LEGACY_SELF_ASSERTED";
+/**
+ * B4：REQUIRE_VERIFIED 下允许通过的验证方法白名单（fail-closed）。
+ * 持久身份 ACTIVE 但方法 ∉ 本列表（含 null / LEGACY_SELF_ASSERTED）→ identity_unverified DENY。
+ */
+export const VERIFIED_IDENTITY_METHODS: readonly ExternalIdentityVerificationMethod[] = [
+  "ADMIN_PROVISIONED",
+  "PROVIDER_CHALLENGE",
+  "PROVIDER_OAUTH",
+  "PROVIDER_SIGNED_EVENT",
+];
+
 export const EXTERNAL_IDENTITY_VERIFICATION_METHODS: readonly ExternalIdentityVerificationMethod[] = [
   "ADMIN_PROVISIONED",
   "PROVIDER_CHALLENGE",

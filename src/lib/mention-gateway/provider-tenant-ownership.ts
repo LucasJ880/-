@@ -26,6 +26,7 @@ export type ProviderTenantOwnership =
   | "UNPROVEN"
   | "MISMATCH"
   | "INACTIVE"
+  | "AMBIGUOUS"
   | "UNSUPPORTED";
 
 export interface ProviderGatewayRecord {
@@ -100,18 +101,21 @@ export async function resolveProviderTenantOwnership(
     }
     case "wecom": {
       const gateways = await deps.findWecomGatewaysByCorpId(tenantId);
-      if (gateways.length === 0) return "UNPROVEN";
+      // 先算真实 org 集合（平台共享网关不是 real org，但也不能掩盖 real-org 歧义）
+      const realOrgIds = [
+        ...new Set(
+          gateways
+            .filter((g) => g.orgId !== PLATFORM_WECOM_ORG_ID)
+            .map((g) => g.orgId),
+        ),
+      ];
+      // 0 个真实 org（含仅平台共享网关命中）：无可信 platform-gateway → org 映射 → 不得猜
+      if (realOrgIds.length === 0) return "UNPROVEN";
+      // 同一 CorpID 出现在多个真实 org：归属不可判定，任何 org 都不得 OWNED
+      if (realOrgIds.length > 1) return "AMBIGUOUS";
+      if (realOrgIds[0] !== targetOrgId) return "MISMATCH";
       const targetOrgGateway = gateways.find((g) => g.orgId === targetOrgId);
-      if (targetOrgGateway) {
-        return targetOrgGateway.status === "active" ? "OWNED" : "INACTIVE";
-      }
-      const realOrgGateways = gateways.filter(
-        (g) => g.orgId !== PLATFORM_WECOM_ORG_ID,
-      );
-      // 仅平台共享网关命中：无可信 platform-gateway → org 映射 → 不得猜
-      if (realOrgGateways.length === 0) return "UNPROVEN";
-      // CorpID 属于其它真实 org → 明确归属冲突
-      return "MISMATCH";
+      return targetOrgGateway?.status === "active" ? "OWNED" : "INACTIVE";
     }
     case "slack":
       // M2-A 无 ChannelProviderInstallation；M3 安装模型完成后开放

@@ -37,17 +37,40 @@ export type LegacyTenantResolution =
         | "no_gateway"
         | "no_corp_id"
         | "wecom_no_org_gateway"
+        | "wecom_corp_ambiguous"
         | "unsupported_channel";
     };
 
 /**
+ * 预计算 CorpID → 拥有它的真实 org 集合（排除平台共享网关）。
+ * B3：同一 CorpID 出现在 >1 个真实 org → canonical 归属不可判定，
+ * 回填不得依据单条 binding.orgId 绕过歧义规则。
+ */
+export function buildCorpOrgIndex(
+  gateways: readonly ProviderGatewayRecord[],
+): Map<string, Set<string>> {
+  const index = new Map<string, Set<string>>();
+  for (const g of gateways) {
+    if (g.channel !== "wecom" || g.orgId === PLATFORM_WECOM_ORG_ID) continue;
+    const corpId = (g.corpId ?? "").trim();
+    if (!corpId) continue;
+    const set = index.get(corpId) ?? new Set<string>();
+    set.add(g.orgId);
+    index.set(corpId, set);
+  }
+  return index;
+}
+
+/**
  * canonical providerTenantId：
  * - personal_wechat：binding.orgId 的 personal_wechat 网关 → gateway.id
- * - wecom：binding.orgId 的 org 级 wecom 网关 → corpId；只有平台共享网关时无可信映射 → UNRESOLVED
+ * - wecom：binding.orgId 的 org 级 wecom 网关 → corpId；只有平台共享网关时无可信映射 → UNRESOLVED；
+ *   CorpID 同时属于多个真实 org → UNRESOLVED(wecom_corp_ambiguous)，绝不写行
  */
 export function resolveLegacyProviderTenant(
   binding: Pick<LegacyBindingSnapshot, "channel" | "orgId">,
   gatewayByOrgChannel: ReadonlyMap<string, ProviderGatewayRecord>,
+  corpOrgIndex?: ReadonlyMap<string, ReadonlySet<string>>,
 ): LegacyTenantResolution {
   const orgId = (binding.orgId ?? "").trim();
   if (!orgId || orgId === PLATFORM_WECOM_ORG_ID) return { ok: false, reason: "no_org" };
@@ -62,6 +85,10 @@ export function resolveLegacyProviderTenant(
     if (!gateway) return { ok: false, reason: "wecom_no_org_gateway" };
     const corpId = (gateway.corpId ?? "").trim();
     if (!corpId) return { ok: false, reason: "no_corp_id" };
+    const owners = corpOrgIndex?.get(corpId);
+    if (owners && owners.size > 1) {
+      return { ok: false, reason: "wecom_corp_ambiguous" };
+    }
     return { ok: true, providerTenantId: corpId, gatewayStatus: gateway.status };
   }
   return { ok: false, reason: "unsupported_channel" };

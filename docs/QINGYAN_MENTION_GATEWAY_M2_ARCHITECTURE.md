@@ -684,8 +684,16 @@ P1_DESIGN_GAPS     = 4
 |---|---|
 | **A1 SELF_LINK_DEFERRED_TO_M3** | `POST /identities/link` 不存在（测试 M2A-15 以 fs 断言缺席）。M2-A 仅 `ADMIN_PROVISIONED`（provision API）与 `LEGACY_SELF_ASSERTED`（回填脚本）两个来源；PROVIDER_CHALLENGE / OAUTH / SIGNED_EVENT / SELF_LINK 全部 M3 |
 | **A2 NO_BLIND_UPSERT** | 写路径无任何 `upsert`：`decideProvisionOutcome`（纯函数）→ 键属他人 = `CONFLICT`（DB 零修改、不泄露 existing userId）；同用户按状态给显式指令（NEEDS_VERIFY / NEEDS_ENABLE / NEEDS_RELINK）；并发 P2002 → 同 CONFLICT 语义。永不把更强 verified 身份降级为 LEGACY |
-| **Provider Tenant Ownership Gate（§24.1）** | `provider-tenant-ownership.ts`：任何 ACTIVE transition（provision/verify/relink/enable）前重判。mock → 恒 `"mock"` 且仅非生产；personal_wechat → `WeChatGateway.id`（channel+orgId+status 全匹配）；wecom → 目标 org 的 org 级 `WeChatGateway.corpId`；**仅平台共享网关（`PLATFORM_WECOM_ORG_ID`）命中 → UNPROVEN（无可信 platform→org 映射，不得猜）**；slack → UNSUPPORTED（待 M3 ChannelProviderInstallation）。非 OWNED → 拒绝且**不创建任何行**（含 PENDING 占位） |
+| **Provider Tenant Ownership Gate（§24.1）** | `provider-tenant-ownership.ts`：任何 ACTIVE transition（provision/verify/relink/enable）前重判。mock → 恒 `"mock"` 且仅非生产；personal_wechat → `WeChatGateway.id`（channel+orgId+status 全匹配）；wecom → 真实 org 集合（排除平台网关）：0 → UNPROVEN（**含仅平台共享网关命中——无可信 platform→org 映射，不得猜**）、1 → MISMATCH/OWNED/INACTIVE、**>1 → AMBIGUOUS（Final Review B3，NEVER OWNED）**；slack → UNSUPPORTED（待 M3 ChannelProviderInstallation）。非 OWNED → 拒绝且**不创建任何行**（含 PENDING 占位）。**B2：管理可见性同样绑定归属**——OWNED/INACTIVE 可管理（ACTIVE transition 仍要求 OWNED），其余对管理员 404 |
 | **REQUIRE_VERIFIED 默认** | 与 §28.4 原产品决策相反：缺省 **true**（LEGACY ACTIVE 也拒）；`MENTION_GATEWAY_IDENTITY_SOURCE` 缺省 fixture、非法值 fail-closed `GATEWAY_DISABLED`（不 fallback）；`MENTION_GATEWAY_IDENTITY_ADMIN_ENABLED` 缺省 false |
 | **providerTenantId 贯穿** | `MentionEvent.providerTenantId`（mock 适配器服务端固定 `"mock"`，body 声明被忽略）；session / userMessageId / dedupe 键全部含 tenant 段；仍 BEST_EFFORT |
 | **回填** | `scripts/backfill-external-identity-from-wechat-binding.ts`：dry-run 默认、`--write` 显式、生产 hard-block（无 override）；tenant 解析不出 → 仅 UNRESOLVED 报告（绝不写 `"unknown"`/orgId 顶替）；键属他人 → CONFLICT 不 mutation；更强身份 → STRONGER_PRESERVED；仅允许 ACTIVE/PENDING → REVOKED/DISABLED 单调收敛 |
 | **审计** | 全部写在 `db.$transaction` + `writeAuditLog(tx, …)`（审计失败整体回滚）；`providerUserId` 只以 sha256 截断 hash 入审计/日志 |
+
+### §29.1 Final Review 修正（2026-08-24，同 PR #160）
+
+- **B1 CAS**：全部生命周期 mutation `updateMany WHERE id+userId+status+verificationMethod+updatedAt`（快照）→ 失配 = `IDENTITY_STATE_CHANGED` 409、零写零审计；REVOKED 终态、self-revoke-vs-relink、回填-vs-verify 升级均实测不可被 stale 覆盖
+- **B2 管理域**：user ∈ org ≠ identity ∈ org；admin list/写操作逐身份过滤 provider 租户归属（OWNED/INACTIVE 可见，其余 404）
+- **B3**：CorpID 属 >1 真实 org → AMBIGUOUS（NEVER OWNED）；回填 `buildCorpOrgIndex` 同规则 → `wecom_corp_ambiguous` UNRESOLVED
+- **B4**：`VERIFIED_IDENTITY_METHODS` 白名单（ACTIVE+null 也拒）；migration 增补 `ExternalIdentity_active_requires_method_check`，最终 sha256 `00302bf409ea820073692d21886bb29826b6d01379d2bf04c616d6b0ac632b52`
+- **P1**：目标用户跨 org / 不存在 → 统一 `TARGET_USER_NOT_FOUND`（存在性 oracle 关闭）

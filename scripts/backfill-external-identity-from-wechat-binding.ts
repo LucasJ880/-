@@ -13,13 +13,17 @@
 
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 import {
+  buildCorpOrgIndex,
   decideBackfillAction,
   gatewayMapKey,
   mapLegacyIdentityStatus,
   resolveLegacyProviderTenant,
   type LegacyIdentityStatus,
 } from "@/lib/mention-gateway/backfill";
-import { hashProviderUserId } from "@/lib/mention-gateway/identity-service";
+import {
+  commitIdentityTransition,
+  hashProviderUserId,
+} from "@/lib/mention-gateway/identity-service";
 
 const WRITE = process.argv.includes("--write");
 
@@ -52,6 +56,8 @@ async function main() {
   ]);
 
   const gatewayMap = new Map(gateways.map((g) => [gatewayMapKey(g.orgId, g.channel), g]));
+  // B3：CorpID → 真实 org 集合；>1 → 歧义，UNRESOLVED（不得按单条 binding.orgId 猜）
+  const corpOrgIndex = buildCorpOrgIndex(gateways);
   const userStatus = new Map(users.map((u) => [u.id, u.status]));
 
   const counters: Record<string, number> = {
@@ -91,7 +97,7 @@ async function main() {
       continue;
     }
 
-    const tenant = resolveLegacyProviderTenant(binding, gatewayMap);
+    const tenant = resolveLegacyProviderTenant(binding, gatewayMap, corpOrgIndex);
     if (!tenant.ok) {
       bump("UNRESOLVED_TENANT");
       note(binding.id, "UNRESOLVED_TENANT", tenant.reason, hash);
@@ -114,7 +120,6 @@ async function main() {
           providerUserId: binding.externalId,
         },
       },
-      select: { id: true, userId: true, status: true, verificationMethod: true },
     });
 
     const decision = decideBackfillAction(existing, {
@@ -140,35 +145,36 @@ async function main() {
           note(binding.id, "WOULD_RECONCILE", `to_${decision.nextStatus}`, hash);
           continue;
         }
-        await db.$transaction(async (tx) => {
-          const before = existing!;
-          const row = await tx.externalIdentity.update({
-            where: { id: before.id },
-            data: {
-              status: decision.nextStatus!,
-              ...(decision.nextStatus === "REVOKED"
-                ? {
-                    revokedAt: binding.lastActiveAt ?? new Date(),
-                    revokeReason: mapped.reason ?? "legacy_backfill_reconcile",
-                  }
-                : {}),
-            },
-          });
-          await writeAuditLog(tx, {
-            userId: binding.userId,
+        // B1 CAS：仅当行仍是 same user + LEGACY_SELF_ASSERTED + 期望 status/updatedAt
+        // 才允许单调收敛；期间被 admin verify 升级 / relink / revoke → STATE_CHANGED，不改。
+        const committed = await commitIdentityTransition({
+          before: existing!,
+          data: {
+            status: decision.nextStatus!,
+            ...(decision.nextStatus === "REVOKED"
+              ? {
+                  revokedAt: binding.lastActiveAt ?? new Date(),
+                  revokeReason: mapped.reason ?? "legacy_backfill_reconcile",
+                }
+              : {}),
+          },
+          outcome: "RECONCILED",
+          audit: {
+            callerUserId: binding.userId,
             orgId: binding.orgId,
             action: AUDIT_ACTIONS.EXTERNAL_IDENTITY_STATUS_CHANGE,
-            targetType: "external_identity",
-            targetId: row.id,
-            beforeData: { status: before.status },
-            afterData: {
-              status: row.status,
+            afterExtra: {
               reason: mapped.reason ?? "legacy_backfill_reconcile",
               source: "legacy_backfill",
               bindingId: binding.id,
             },
-          });
+          },
         });
+        if (!committed.ok) {
+          bump("STRONGER_IDENTITY_PRESERVED");
+          note(binding.id, "STATE_CHANGED_PRESERVED", committed.code, hash);
+          continue;
+        }
         bump("RECONCILED");
         note(binding.id, "RECONCILED", `to_${decision.nextStatus}`, hash);
         continue;

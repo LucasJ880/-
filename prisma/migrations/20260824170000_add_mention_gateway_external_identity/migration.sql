@@ -46,3 +46,6 @@ ALTER TABLE "ExternalIdentity" ADD CONSTRAINT "ExternalIdentity_status_check" CH
 
 -- CheckConstraint
 ALTER TABLE "ExternalIdentity" ADD CONSTRAINT "ExternalIdentity_verification_method_check" CHECK ("verificationMethod" IS NULL OR "verificationMethod" IN ('ADMIN_PROVISIONED', 'PROVIDER_CHALLENGE', 'PROVIDER_OAUTH', 'PROVIDER_SIGNED_EVENT', 'LEGACY_SELF_ASSERTED'));
+
+-- CheckConstraint（B4 fail-closed：ACTIVE 身份必须带 verificationMethod；ACTIVE+NULL 在 DB 层不可表达）
+ALTER TABLE "ExternalIdentity" ADD CONSTRAINT "ExternalIdentity_active_requires_method_check" CHECK ("status" <> 'ACTIVE' OR "verificationMethod" IS NOT NULL);

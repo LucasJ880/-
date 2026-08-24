@@ -11,6 +11,7 @@
  */
 
 import type { AgentTenantResolved } from "@/lib/tenancy/resolve-agent-tenant";
+import { VERIFIED_IDENTITY_METHODS } from "./types";
 import type { MentionEvent, MentionProvider } from "./types";
 
 export interface MentionUserRecord {
@@ -129,9 +130,18 @@ export async function resolveMentionIdentity(
   if (mapped.status !== undefined && mapped.status !== "ACTIVE") {
     return deny("identity_not_active");
   }
+  // B4 fail-closed：持久身份（带 status 的形状）在 REQUIRE_VERIFIED 下必须
+  // ACTIVE 且 method ∈ VERIFIED_IDENTITY_METHODS 白名单——
+  // ACTIVE+null 与 ACTIVE+LEGACY_SELF_ASSERTED 一律拒绝（不再用「黑名单 LEGACY」判定）。
   const requireVerified = options.requireVerifiedIdentity ?? true;
-  if (requireVerified && mapped.verificationMethod === "LEGACY_SELF_ASSERTED") {
-    return deny("identity_unverified");
+  if (requireVerified && mapped.status !== undefined) {
+    const method = mapped.verificationMethod ?? null;
+    if (
+      method === null ||
+      !(VERIFIED_IDENTITY_METHODS as readonly string[]).includes(method)
+    ) {
+      return deny("identity_unverified");
+    }
   }
 
   const caller = options.caller;
