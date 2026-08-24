@@ -14,6 +14,7 @@ import {
 import {
   P2_3_SUPPORTED_ACTIONS,
   P2_3_UNSUPPORTED_ACTIONS,
+  computeRecoveryAttemptKey,
   type RecoveryAdapter,
 } from "../a2p2-recovery-types";
 import { resolveTaskContract } from "../a2p2-templates";
@@ -91,23 +92,47 @@ const zeroAdapter: RecoveryAdapter = {
 const executable = zeroCostExecutableActions({ intersection, adapters: [zeroAdapter] });
 ok(executable.includes("SEARCH_PROJECT_DOCUMENTS"), "zero-cost adapter remains executable");
 
+const attemptKeySeed = {
+  semanticContractHash: emptyPacket.contract.semanticContractHash,
+  packetHash: emptyPacket.packetHash,
+  reasonCode: "AUTO_RECOVERY_MISSING_EVIDENCE",
+};
+
 const plan = planNextRecoveryAction({
   contract: tender,
   packet: emptyPacket,
   reasonCode: "AUTO_RECOVERY_MISSING_EVIDENCE",
   executable,
-  blockedActionKinds: new Set(),
+  usedAttemptKeys: new Set(),
+  attemptKeySeed,
 });
 ok(plan?.actionKind === "SEARCH_PROJECT_DOCUMENTS", "SOURCE_FACT gap prefers SEARCH_PROJECT_DOCUMENTS", plan);
+ok(plan?.requirementIds[0] === "submission_deadline", "first unready required requirement is submission_deadline", plan);
 
-const blocked = planNextRecoveryAction({
+const usedDeadlineKey = computeRecoveryAttemptKey({
+  ...attemptKeySeed,
+  actionKind: "SEARCH_PROJECT_DOCUMENTS",
+  requirementIds: ["submission_deadline"],
+});
+const nextPlan = planNextRecoveryAction({
   contract: tender,
   packet: emptyPacket,
   reasonCode: "AUTO_RECOVERY_MISSING_EVIDENCE",
   executable,
-  blockedActionKinds: new Set(["SEARCH_PROJECT_DOCUMENTS"]),
+  usedAttemptKeys: new Set([usedDeadlineKey]),
+  attemptKeySeed,
 });
-ok(blocked == null || blocked.actionKind !== "SEARCH_PROJECT_DOCUMENTS", "blocked action is not re-planned", blocked);
+ok(
+  nextPlan?.actionKind === "SEARCH_PROJECT_DOCUMENTS" &&
+    nextPlan.requirementIds[0] === "mandatory_requirements",
+  "SAME_ACTION_DIFFERENT_REQUIREMENT_REMAINS_ELIGIBLE",
+  nextPlan,
+);
+ok(
+  nextPlan?.requirementIds[0] !== "submission_deadline",
+  "ATTEMPT_KEY_NOT_ACTION_KIND_IS_REPEAT_AUTHORITY",
+  nextPlan,
+);
 
 const src = [
   readFileSync(join(__dirname, "../a2p2-recovery-plan.ts"), "utf8"),

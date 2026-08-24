@@ -16,6 +16,7 @@ import {
 } from "./a2p2-contract";
 import { toEvaluationEvidenceStatus } from "./a2p2-evidence-adapter";
 import { buildEvidencePacket } from "./a2p2-evidence-builder";
+import { parseStructuredSourcesSnapshot } from "./a2p2-evidence-sources";
 import type { SemanticEvidencePacketV1 } from "./a2p2-evidence-types";
 import { routeEvaluation, type EvaluationRouteDecision } from "./a2p2-routing";
 import {
@@ -29,6 +30,7 @@ import {
   projectRecoveryDelta,
 } from "./a2p2-recovery-merge";
 import {
+  bindRecoveryDeltaToPlan,
   computeRecoveryAttemptKey,
   parseRecoverySnapshotDelta,
   type AutoRecoveryLoopResult,
@@ -168,7 +170,7 @@ export function runAutoRecoveryLoop(
   const policySignals = input.policySignals;
   const ledger: RecoveryLedgerEntry[] = [];
   const attemptKeys: string[] = [];
-  const usedFingerprints = new Set<string>();
+  const skippedAttemptKeys = new Set<string>();
   let adapterCallCount = 0;
   let routeCallCount = 0;
   let cyclesUsed = Math.max(
@@ -246,6 +248,35 @@ export function runAutoRecoveryLoop(
   }
 
   if (contract.taskType !== "TENDER_ANALYSIS") {
+    routeCallCount += 1;
+    const route = routeFor(
+      contract,
+      packet,
+      "NOT_ALLOWED",
+      cyclesUsed,
+      budget,
+      evaluationState,
+      policySignals,
+    );
+    return finish({
+      outcome: "ROUTED",
+      route,
+      recoveryStatus: "NOT_ALLOWED",
+      cyclesUsed,
+      attemptKeys,
+      budget,
+      packet,
+      structuredSources,
+      ledger,
+      adapterCallCount,
+      routeCallCount,
+    });
+  }
+
+  const sourceInspect = parseStructuredSourcesSnapshot(input.structuredSources ?? {});
+  if (!sourceInspect.ok) {
+    structuredSources = {};
+    packet = build({});
     routeCallCount += 1;
     const route = routeFor(
       contract,
@@ -415,18 +446,17 @@ export function runAutoRecoveryLoop(
       adapters,
     });
 
-    const blockedActionKinds = new Set<string>();
-    for (const action of executable) {
-      const fingerprint = `${packet.packetHash}|${route.reasonCode}|${action}`;
-      if (usedFingerprints.has(fingerprint)) blockedActionKinds.add(action);
-    }
-
     const plan = planNextRecoveryAction({
       contract,
       packet,
       reasonCode: route.reasonCode,
       executable,
-      blockedActionKinds,
+      usedAttemptKeys: new Set([...attemptKeys, ...skippedAttemptKeys]),
+      attemptKeySeed: {
+        semanticContractHash: packet.contract.semanticContractHash,
+        packetHash: packet.packetHash,
+        reasonCode: route.reasonCode,
+      },
     });
 
     if (!plan) {
@@ -463,12 +493,6 @@ export function runAutoRecoveryLoop(
       });
     }
 
-    const adapter = adapterFor(adapters, plan.actionKind);
-    if (!adapter || adapter.declaredMaxCostUsd !== 0) {
-      usedFingerprints.add(`${packet.packetHash}|${route.reasonCode}|${plan.actionKind}`);
-      continue;
-    }
-
     const recoveryAttemptKey = computeRecoveryAttemptKey({
       semanticContractHash: packet.contract.semanticContractHash,
       packetHash: packet.packetHash,
@@ -477,8 +501,14 @@ export function runAutoRecoveryLoop(
       requirementIds: plan.requirementIds,
     });
 
-    if (attemptKeys.includes(recoveryAttemptKey)) {
-      usedFingerprints.add(`${packet.packetHash}|${route.reasonCode}|${plan.actionKind}`);
+    const adapter = adapterFor(adapters, plan.actionKind);
+    if (!adapter || adapter.declaredMaxCostUsd !== 0) {
+      skippedAttemptKeys.add(recoveryAttemptKey);
+      continue;
+    }
+
+    if (attemptKeys.includes(recoveryAttemptKey) || skippedAttemptKeys.has(recoveryAttemptKey)) {
+      skippedAttemptKeys.add(recoveryAttemptKey);
       continue;
     }
 
@@ -520,12 +550,30 @@ export function runAutoRecoveryLoop(
 
     cyclesUsed += 1;
     attemptKeys.push(recoveryAttemptKey);
-    usedFingerprints.add(`${packet.packetHash}|${route.reasonCode}|${plan.actionKind}`);
+
+    if (delta && adapterStatus === "CALLED") {
+      const bound = bindRecoveryDeltaToPlan({
+        delta,
+        plan: {
+          actionKind: plan.actionKind,
+          requirementIds: plan.requirementIds,
+        },
+      });
+      if (!bound.ok) {
+        adapterStatus = "REJECTED";
+        noProgress = true;
+        delta = null;
+      }
+    }
 
     if (delta && adapterStatus === "CALLED") {
       const projected = projectRecoveryDelta({
         currentSources: structuredSources,
         delta,
+        plan: {
+          actionKind: plan.actionKind,
+          requirementIds: plan.requirementIds,
+        },
       });
       if (!projected.ok) {
         adapterStatus =

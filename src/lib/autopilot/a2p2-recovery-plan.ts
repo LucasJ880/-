@@ -15,6 +15,7 @@ import {
 } from "./a2p2-contract";
 import type { SemanticEvidencePacketV1 } from "./a2p2-evidence-types";
 import {
+  computeRecoveryAttemptKey,
   isP23SupportedAction,
   P2_3_SUPPORTED_ACTIONS,
   type RecoveryAdapter,
@@ -119,10 +120,27 @@ export function planNextRecoveryAction(input: {
   packet: SemanticEvidencePacketV1;
   reasonCode: EvaluationRouteReasonCode;
   executable: readonly EvaluationRecoveryActionKind[];
-  blockedActionKinds: ReadonlySet<string>;
+  usedAttemptKeys: ReadonlySet<string>;
+  attemptKeySeed: {
+    semanticContractHash: string;
+    packetHash: string;
+    reasonCode: string;
+  };
 }): RecoveryPlan | null {
   const executable = new Set(input.executable);
   if (executable.size === 0) return null;
+
+  const attemptKeyFor = (
+    actionKind: EvaluationRecoveryActionKind,
+    requirementIds: readonly string[],
+  ): string =>
+    computeRecoveryAttemptKey({
+      semanticContractHash: input.attemptKeySeed.semanticContractHash,
+      packetHash: input.attemptKeySeed.packetHash,
+      reasonCode: input.attemptKeySeed.reasonCode,
+      actionKind,
+      requirementIds,
+    });
 
   const conflict =
     input.reasonCode === "AUTO_RECOVERY_SOURCE_CONFLICT" ||
@@ -154,14 +172,16 @@ export function planNextRecoveryAction(input: {
     for (const order of orders) {
       for (const action of order) {
         if (!executable.has(action)) continue;
-        if (input.blockedActionKinds.has(action)) continue;
+        const attemptKey = attemptKeyFor(action, [requirement.id]);
+        if (input.usedAttemptKeys.has(attemptKey)) continue;
         return { actionKind: action, requirementIds: [requirement.id] };
       }
     }
   }
 
   for (const action of input.executable) {
-    if (input.blockedActionKinds.has(action)) continue;
+    const attemptKey = attemptKeyFor(action, []);
+    if (input.usedAttemptKeys.has(attemptKey)) continue;
     return { actionKind: action, requirementIds: [] };
   }
   return null;

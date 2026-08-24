@@ -80,6 +80,19 @@ export type SafeNormalizedValue =
   | null
   | readonly (string | number | boolean | null)[];
 
+export const P2_3_TENDER_RECOVERY_EVIDENCE_KIND = "SOURCE_FACT" as const;
+
+export const TENDER_V1_REQUIREMENT_FACT_KEYS: Readonly<Record<string, string>> = {
+  submission_deadline: "closing_datetime",
+  submission_method: "submission_method",
+  pricing_requirements: "pricing_method",
+  evaluation_criteria: "evaluation_criteria",
+};
+
+export const TENDER_V1_UNSUPPORTED_RECOVERY_REQUIREMENTS = [
+  "mandatory_requirements",
+] as const;
+
 export type RecoveryDeltaFact = {
   requirementId: string;
   evidenceKind: EvaluationEvidenceKind;
@@ -87,6 +100,7 @@ export type RecoveryDeltaFact = {
   normalizedValue: SafeNormalizedValue;
   sourceId: string;
   contentHash: string;
+  pageNumber: number;
 };
 
 export type RecoverySourceRef = {
@@ -224,9 +238,12 @@ function isSafeNormalizedValue(value: unknown): value is SafeNormalizedValue {
 function parseRequirementIds(value: unknown): readonly string[] | null {
   if (!Array.isArray(value) || value.length > MAX_REQUIREMENT_IDS) return null;
   const ids: string[] = [];
+  const seen = new Set<string>();
   for (const item of value) {
     if (typeof item !== "string" || item.length > MAX_ID_LENGTH) return null;
     if (!REQUIREMENT_ID_PATTERN.test(item)) return null;
+    if (seen.has(item)) return null;
+    seen.add(item);
     ids.push(item);
   }
   return ids;
@@ -242,6 +259,7 @@ function parseFact(value: unknown): RecoveryDeltaFact | null {
       "normalizedValue",
       "sourceId",
       "contentHash",
+      "pageNumber",
     ])
   ) {
     return null;
@@ -277,6 +295,14 @@ function parseFact(value: unknown): RecoveryDeltaFact | null {
   if (typeof value.contentHash !== "string" || !CONTENT_HASH_PATTERN.test(value.contentHash)) {
     return null;
   }
+  if (
+    typeof value.pageNumber !== "number" ||
+    !Number.isInteger(value.pageNumber) ||
+    value.pageNumber < 1 ||
+    value.pageNumber > 10_000
+  ) {
+    return null;
+  }
   return {
     requirementId: value.requirementId,
     evidenceKind: value.evidenceKind as EvaluationEvidenceKind,
@@ -284,6 +310,7 @@ function parseFact(value: unknown): RecoveryDeltaFact | null {
     normalizedValue: value.normalizedValue,
     sourceId: value.sourceId,
     contentHash: value.contentHash.toLowerCase(),
+    pageNumber: value.pageNumber,
   };
 }
 
@@ -388,4 +415,90 @@ export function parseRecoverySnapshotDelta(value: unknown): ParseRecoveryDeltaRe
       costUsd: value.costUsd,
     },
   };
+}
+
+export type RecoveryPlanBinding = {
+  actionKind: EvaluationRecoveryActionKind;
+  requirementIds: readonly string[];
+};
+
+export type BindRecoveryDeltaResult =
+  | { ok: true }
+  | { ok: false; reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+
+function sortedIds(ids: readonly string[]): string[] {
+  return [...ids].sort();
+}
+
+function sameIdSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const a = sortedIds(left);
+  const b = sortedIds(right);
+  return a.every((id, index) => id === b[index]);
+}
+
+function sourceKey(sourceId: string, contentHash: string): string {
+  return `${sourceId}|${contentHash}`;
+}
+
+export function bindRecoveryDeltaToPlan(input: {
+  delta: RecoverySnapshotDelta;
+  plan: RecoveryPlanBinding;
+}): BindRecoveryDeltaResult {
+  if (input.delta.actionKind !== input.plan.actionKind) {
+    return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+  }
+  if (!sameIdSet(input.delta.requirementIds, input.plan.requirementIds)) {
+    return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+  }
+  const planIds = new Set(input.plan.requirementIds);
+  for (const fact of input.delta.facts) {
+    if (!planIds.has(fact.requirementId)) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+    if (fact.evidenceKind !== P2_3_TENDER_RECOVERY_EVIDENCE_KIND) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+    const expectedKey = TENDER_V1_REQUIREMENT_FACT_KEYS[fact.requirementId];
+    if (!expectedKey || fact.factKey !== expectedKey) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+    if (
+      (TENDER_V1_UNSUPPORTED_RECOVERY_REQUIREMENTS as readonly string[]).includes(
+        fact.requirementId,
+      )
+    ) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+  }
+
+  if (input.delta.status === "FOUND") {
+    if (input.delta.facts.length < 1 || input.delta.sourceRefs.length < 1) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+    const refs = new Map<string, RecoverySourceRef>();
+    for (const ref of input.delta.sourceRefs) {
+      const key = sourceKey(ref.sourceId, ref.contentHash);
+      if (refs.has(key)) return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+      refs.set(key, ref);
+    }
+    const used = new Set<string>();
+    for (const fact of input.delta.facts) {
+      const key = sourceKey(fact.sourceId, fact.contentHash);
+      if (!refs.has(key)) return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+      used.add(key);
+    }
+    if (used.size !== refs.size) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+  } else if (
+    input.delta.status === "NOT_FOUND" ||
+    input.delta.status === "UNCHANGED" ||
+    input.delta.status === "REJECTED"
+  ) {
+    if (input.delta.facts.length > 0 || input.delta.sourceRefs.length > 0) {
+      return { ok: false, reason: "DELTA_NOT_BOUND_TO_REQUEST" };
+    }
+  }
+  return { ok: true };
 }
