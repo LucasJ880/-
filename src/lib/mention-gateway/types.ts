@@ -37,7 +37,11 @@ export interface MentionEvent {
   timestamp: string;
 }
 
+/** 绑定声明的上下文类型（M1 fixture / 未来 ChannelContextBinding）：tender 即 project，sales 即 customer */
 export type MentionContextType = "project" | "tender" | "sales";
+
+/** M2 canonical 内部上下文（tool policy 按此分派）：tender → project；sales → customer */
+export type MentionCanonicalContextType = "project" | "customer";
 
 /**
  * 频道 → 业务上下文绑定（M1：fixture / 内存，不落库）。

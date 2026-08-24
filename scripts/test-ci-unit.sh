@@ -148,6 +148,7 @@ npx tsx src/lib/mention-gateway/__tests__/m1-gateway.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m1-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m1-static-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m1-final-review.test.ts
+npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 echo ""

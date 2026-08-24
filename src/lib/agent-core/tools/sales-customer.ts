@@ -7,6 +7,7 @@ import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
 import { salesCreatedScope, canSeeResource } from "@/lib/rbac/data-scope";
+import { resolveEffectiveCustomerId } from "./sales-scope";
 
 // ── sales.search_customers ──────────────────────────────────────
 
@@ -69,8 +70,14 @@ registry.register({
     required: ["customerId"],
   },
   execute: async (ctx: ToolExecutionContext) => {
+    // M2-C：客户作用域下以服务端权威 customerId 为准（args 与 scope 不同已由 pre-execute guard 拒绝）；
+    // legacy（无 scope）沿用 args.customerId，RBAC / 归档 / 跨 org 校验保持原样。
+    const effective = resolveEffectiveCustomerId(ctx, ctx.args.customerId);
+    if (!effective.customerId) {
+      return { success: false, data: { error: "缺少 customerId" } };
+    }
     const customer = await db.salesCustomer.findUnique({
-      where: { id: String(ctx.args.customerId) },
+      where: { id: effective.customerId },
       include: {
         opportunities: {
           orderBy: { updatedAt: "desc" },

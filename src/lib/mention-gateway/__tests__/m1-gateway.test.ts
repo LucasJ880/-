@@ -12,7 +12,7 @@ import { registry } from "@/lib/agent-core/tool-registry";
 import { buildToolContextBase } from "@/lib/agent-core/engine";
 import type { AgentRunOptions } from "@/lib/agent-core/types";
 import { handleMentionEvent, DuplicateEventGuard } from "../handle";
-import { MENTION_GATEWAY_M1_TOOL_ALLOWLIST } from "../policy";
+import { PROJECT_CONTEXT_TOOLS } from "../policy";
 import { buildMentionConversationKey, buildMentionUserMessageId } from "../session";
 import {
   ORG_A,
@@ -27,7 +27,8 @@ import {
   ok,
 } from "./helpers";
 
-const ALLOWLIST: readonly string[] = MENTION_GATEWAY_M1_TOOL_ALLOWLIST;
+// baseRaw() 绑定 mock-project-a → project 上下文；M2-C 起 allowlist 按上下文分派
+const ALLOWLIST: readonly string[] = PROJECT_CONTEXT_TOOLS;
 
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
@@ -68,7 +69,7 @@ async function main() {
     ok(adapter.outbox[0].target.audience === "initiating_user_only", "audience = initiating_user_only");
 
     const opts = runOptions[0];
-    ok(sameSet(opts.tools ?? [], ALLOWLIST), "tools === M1 allowlist（不是整个 Registry）");
+    ok(sameSet(opts.tools ?? [], ALLOWLIST), "tools === project 上下文 allowlist（8；不是整个 Registry）");
     ok(opts.maxRisk === "l0_read", "maxRisk === l0_read");
     ok(opts.hasMembership === true && opts.orgRole === "org_member", "hasMembership / orgRole 来自 resolveAgentTenant");
     ok(opts.orgId === ORG_A && opts.userId === USER_A && opts.scopeGuard?.orgId === ORG_A && opts.scopeGuard?.principalUserId === USER_A, "orgId / scopeGuard 来自真实 tenant / scope");

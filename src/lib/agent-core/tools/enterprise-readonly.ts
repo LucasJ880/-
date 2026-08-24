@@ -10,6 +10,11 @@ import { listProjectSimilaritiesForApi } from "@/lib/projects/similarity";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext } from "../types";
 import { ok } from "./sales-helpers";
+import {
+  assertOpportunityWithinCustomerScope,
+  isCustomerScoped,
+  resolveEffectiveCustomerId,
+} from "./sales-scope";
 
 async function requireOrgMember(ctx: ToolExecutionContext): Promise<string | null> {
   if (!ctx.orgId) return "缺少组织上下文";
@@ -200,9 +205,11 @@ registry.register({
     const denied = await requireOrgMember(ctx);
     if (denied) return { success: false, data: { error: denied } };
 
-    const customerId = ctx.args.customerId
-      ? String(ctx.args.customerId)
-      : undefined;
+    // M2-C：客户作用域下 customerId 由服务端权威给定（scopeGuard.customerId），
+    // 查询恒带 customerId + orgId；opportunityId 必须属于同 org 且属于该客户，否则 fail-closed。
+    // legacy（无 scope）：customerId / opportunityId 任一即可，行为不变。
+    const scoped = isCustomerScoped(ctx);
+    const customerId = resolveEffectiveCustomerId(ctx, ctx.args.customerId).customerId;
     const opportunityId = ctx.args.opportunityId
       ? String(ctx.args.opportunityId)
       : undefined;
@@ -226,6 +233,15 @@ registry.register({
       ) {
         return { success: false, data: { error: "无权访问该客户" } };
       }
+    }
+
+    if (scoped && opportunityId && customerId) {
+      const opportunity = await db.salesOpportunity.findFirst({
+        where: { id: opportunityId, orgId: ctx.orgId },
+        select: { id: true, orgId: true, customerId: true },
+      });
+      const check = assertOpportunityWithinCustomerScope(opportunity, ctx, customerId);
+      if (!check.ok) return { success: false, data: { error: check.error } };
     }
 
     const interactions = await db.customerInteraction.findMany({
