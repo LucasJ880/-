@@ -708,7 +708,7 @@ neverThrows("MALFORMED_STRUCTURED_SOURCE_NEVER_THROWS", () => {
 const src = [
   readFileSync(join(__dirname, "../a2p2-recovery-loop.ts"), "utf8"),
   readFileSync(join(__dirname, "../a2p2-recovery-merge.ts"), "utf8"),
-  readFileSync(join(__dirname, "../a2p2-recovery-plan.ts"), "utf8"),
+  readFileSync(join(__dirname, "../a2p2-recovery-select.ts"), "utf8"),
   readFileSync(join(__dirname, "../a2p2-recovery-types.ts"), "utf8"),
 ].join("\n");
 ok(!/import[^;]*runSemanticJudge/.test(src) && !src.includes('from "./a2p2-semantic-judge"'), "recovery sources never import runSemanticJudge");

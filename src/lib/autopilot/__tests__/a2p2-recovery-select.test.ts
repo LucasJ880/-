@@ -1,6 +1,6 @@
 /**
  * Autopilot A2-P2.3 recovery planner — unit locks.
- * 运行：npx tsx src/lib/autopilot/__tests__/a2p2-recovery-plan.test.ts
+ * 运行：npx tsx src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts
  */
 
 import { readFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import {
   planNextRecoveryAction,
   tripleActionIntersection,
   zeroCostExecutableActions,
-} from "../a2p2-recovery-plan";
+} from "../a2p2-recovery-select";
 import {
   P2_3_SUPPORTED_ACTIONS,
   P2_3_UNSUPPORTED_ACTIONS,
@@ -135,7 +135,7 @@ ok(
 );
 
 const src = [
-  readFileSync(join(__dirname, "../a2p2-recovery-plan.ts"), "utf8"),
+  readFileSync(join(__dirname, "../a2p2-recovery-select.ts"), "utf8"),
   readFileSync(join(__dirname, "../a2p2-recovery-loop.ts"), "utf8"),
   readFileSync(join(__dirname, "../a2p2-recovery-merge.ts"), "utf8"),
   readFileSync(join(__dirname, "../a2p2-recovery-types.ts"), "utf8"),

@@ -597,10 +597,10 @@ loop at most evaluationBudget.maxRecoveryCycles:
 | 文件 | 职责 |
 |---|---|
 | `src/lib/autopilot/a2p2-recovery-types.ts` | `RecoverySnapshotDelta`、`recoveryAttemptKey`、`P2.3_SUPPORTED_ACTIONS`、ledger |
-| `src/lib/autopilot/a2p2-recovery-plan.ts` | 三方交集 planner |
+| `src/lib/autopilot/a2p2-recovery-select.ts` | 三方交集 planner |
 | `src/lib/autopilot/a2p2-recovery-merge.ts` | delta → TENDER structured projection；畸形 fail-closed |
 | `src/lib/autopilot/a2p2-recovery-loop.ts` | 每拍重路由 + 预算 + NO_PROGRESS |
-| `src/lib/autopilot/__tests__/a2p2-recovery-plan.test.ts` | 交集 / 域 / 不支持动作 |
+| `src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts` | 交集 / 域 / 不支持动作 |
 | `src/lib/autopilot/__tests__/a2p2-recovery-loop.test.ts` | 每拍重路由、预算、无进展、禁止 Judge / 副作用 |
 
 实现阶段才允许改 `scripts/test-all.sh` / `scripts/test-ci-unit.sh`，且必须 **并集** 保留全部现有 P2.0–P2.2 / Quote / Mention 车道。

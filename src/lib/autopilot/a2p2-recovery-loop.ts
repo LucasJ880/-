@@ -23,7 +23,7 @@ import {
   planNextRecoveryAction,
   tripleActionIntersection,
   zeroCostExecutableActions,
-} from "./a2p2-recovery-plan";
+} from "./a2p2-recovery-select";
 import {
   cloneStructuredSources,
   hashStructuredSources,
