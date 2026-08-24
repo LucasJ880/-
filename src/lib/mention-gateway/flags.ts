@@ -104,6 +104,42 @@ export function resolveMentionGatewayMaxRiskWithEnv(
   return RISK_ORDER[raw] <= RISK_ORDER[ceiling] ? raw : ceiling;
 }
 
+// ── M2-A：身份来源 / 已验证要求 / 管理 API ──────────────────────────────────
+
+/** Mention 身份来源：fixture=M1 测试夹具；db=持久化 ExternalIdentity。非法值 → null（fail-closed，不 fallback） */
+export type MentionIdentitySource = "fixture" | "db";
+
+export function resolveMentionIdentitySourceWithEnv(
+  env: MentionGatewayFlagEnv = process.env,
+): MentionIdentitySource | null {
+  const raw = (env.MENTION_GATEWAY_IDENTITY_SOURCE || "").trim().toLowerCase();
+  if (!raw || raw === "fixture") return "fixture";
+  if (raw === "db") return "db";
+  return null;
+}
+
+/**
+ * 要求已验证身份（**安全默认 true**）：DB 身份源下
+ * `verificationMethod === "LEGACY_SELF_ASSERTED"` 的 ACTIVE 身份仍被拒。
+ * 只有显式 0 / false / off / no 才关闭。
+ */
+export function isMentionRequireVerifiedIdentityEnabledWithEnv(
+  env: MentionGatewayFlagEnv = process.env,
+): boolean {
+  const raw = (env.MENTION_GATEWAY_REQUIRE_VERIFIED_IDENTITY ?? "")
+    .trim()
+    .toLowerCase();
+  if (!raw) return true;
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+}
+
+/** 身份管理 API（全部写操作）的开关；默认关 */
+export function isMentionIdentityAdminEnabledWithEnv(
+  env: MentionGatewayFlagEnv = process.env,
+): boolean {
+  return envBool(env.MENTION_GATEWAY_IDENTITY_ADMIN_ENABLED);
+}
+
 export function isMentionGatewayEnabled(): boolean {
   return isMentionGatewayEnabledWithEnv(process.env);
 }
@@ -128,6 +164,9 @@ export function describeMentionGatewayFlags(
     externalSendEnabled: isMentionExternalSendEnabledWithEnv(env),
     maxRisk: resolveMentionGatewayMaxRiskWithEnv(env),
     maxRiskCeiling: MENTION_GATEWAY_M1_MAX_RISK,
+    identitySource: resolveMentionIdentitySourceWithEnv(env),
+    requireVerifiedIdentity: isMentionRequireVerifiedIdentityEnabledWithEnv(env),
+    identityAdminEnabled: isMentionIdentityAdminEnabledWithEnv(env),
     runtimeEnv: resolveQingyanRuntimeEnv(env as NodeJS.ProcessEnv),
   };
 }

@@ -35,7 +35,7 @@ WORKTREE_CLEAN          = YES
 | AgentRun 幂等唯一约束 | **NO**（`userMessageId` 可空、重试路径 `skipUserMessageIdempotency` 刻意复用同值；STRONG 去重应落在 M3 的 `InboundChannelEvent`） |
 | 迁移 | 2 个 additive migration（M2-1 identity / M2-2 binding）+ 1 个幂等回填脚本（`WeChatBinding → ExternalIdentity`）；零停机、可回滚 |
 | 拆分 | **3 个 PR**：M2-C（policy，零 schema，先行）→ M2-A（identity）→ M2-B（binding）；M2-D E2E 安全门并入 A/B 并在 B 末尾跑一次隔离库全量 |
-| 状态 | **READY_FOR_M2_IMPLEMENTATION**（1 项需显式批准：M2-C 的 `scopeGuard.customerId` 最小 additive core 扩展） |
+| 状态 | **READY_FOR_M2_IMPLEMENTATION** → M2-C 已实施（PR #156，merged）；**M2-A 已实施（见 §29 as-built 与 `docs/QINGYAN_MENTION_GATEWAY_M2A_IMPLEMENTATION.md`）**；M2-B 未开始 |
 
 ---
 
@@ -279,7 +279,7 @@ AI 永远不能创建/修改绑定（§34）：service 写入口要求 `actor.ty
 | 方法 | 产生状态 | M2 | 谁可执行 | 说明 |
 |---|---|---|---|---|
 | `ADMIN_PROVISIONED` | ACTIVE | **实现** | §11 identity 管理员 | 管理员在设置页为成员录入 provider 三元组；写 `verifiedById/verifiedAt` |
-| self link | PENDING | 实现 | 本人 | 只是申请；不可用于 Mention |
+| self link | PENDING | **DEFERRED → M3（A1 修正）** | — | 设计稿原计划 M2 实现；Final Security Review 裁定：没有 proof-of-possession 前，自助 link 会造成 identity-key squatting / DoS（PENDING 行占用唯一键，可抢注他人外部身份、阻塞管理员 provision）。M2-A **未实现** `POST /identities/link`；M3 与 PROVIDER_CHALLENGE/OAUTH/SIGNED_EVENT 一起交付 |
 | `PROVIDER_CHALLENGE` | ACTIVE | M3 | 系统 | 通过渠道向该外部账号下发一次性码，用户在青砚输入（或反向） |
 | `PROVIDER_OAUTH` | ACTIVE | M3 | 系统 | "Sign in with Slack" 回调带 team_id+user_id |
 | `PROVIDER_SIGNED_EVENT` | ACTIVE | M3 | 系统 | 已验签事件中的 user id 与 PENDING 申请匹配（如 `/link <code>` 命令） |
@@ -541,7 +541,7 @@ LEGACY_BINDING_MIGRATION_REQUIRED = YES（回填；WeChatBinding 保留为推送
 | 方法 / 路径 | 守卫 | 语义 |
 |---|---|---|
 | `GET /api/mention-gateway/identities` | withAuth | 本人身份列表；`?userId=` 需 §11 管理员权限且目标与管理员共享 org |
-| `POST /api/mention-gateway/identities/link` | withAuth | body `{provider, providerTenantId, providerUserId}` → 本人 `PENDING`（自助）；或 `{…, userId}` 管理员 provision → `ACTIVE/ADMIN_PROVISIONED`（需 §11 权限）；已存在同键 → 409（不 upsert） |
+| ~~`POST /api/mention-gateway/identities/link`~~ | — | **未实现（SELF_LINK_DEFERRED_TO_M3，A1）**；管理员 provision 改为独立端点 `POST /api/mention-gateway/identities/provision`（§11 权限 + `MENTION_GATEWAY_IDENTITY_ADMIN_ENABLED` + ownership gate）；已存在同键 → 409（不 upsert） |
 | `POST /api/mention-gateway/identities/:id/verify` | 管理员（§11） | PENDING → ACTIVE |
 | `POST /api/mention-gateway/identities/:id/relink` | 管理员（§11，对新旧用户均可管理） | body `{userId}`；审计 old→new |
 | `POST /api/mention-gateway/identities/:id/disable` / `enable` | 管理员 | 状态切换 |
@@ -671,5 +671,21 @@ P1_DESIGN_GAPS     = 4
   1. C1 scopeGuard.customerId —— 已批准并在 M2-C 实施（RESOLVED）；新增 M2-A/B 前置 PROVIDER_TENANT_OWNERSHIP_GATE_REQUIRED = YES（§24.1）
   2. 企微 WeChatGateway secret 明文（R4）与 legacy R1–R3 在 M2 不修（生产链路 DO NOT TOUCH），切换窗口在 M3
   3. 幂等保持 BEST_EFFORT 直到 M3 InboundChannelEvent
-  4. 回填的 LEGACY_SELF_ASSERTED 身份无占有证明：按 org flag 可要求重新验证，但默认放行以保证企微连续性（产品决策）
+  4. 回填的 LEGACY_SELF_ASSERTED 身份无占有证明：M2-A 最终裁定改为**默认拒绝**（`MENTION_GATEWAY_REQUIRE_VERIFIED_IDENTITY` 缺省 true；显式设 0 才放行）——安全默认优先于连续性；管理员可逐个 verify 升级
 ```
+
+---
+
+## 29. M2-A As-Built（2026-08-24 实施对齐）
+
+设计门之后的 Final Security Review 修正 + 实际实现与设计稿的差异（详细证据见 `docs/QINGYAN_MENTION_GATEWAY_M2A_IMPLEMENTATION.md`）：
+
+| 冻结语义 | 实施 |
+|---|---|
+| **A1 SELF_LINK_DEFERRED_TO_M3** | `POST /identities/link` 不存在（测试 M2A-15 以 fs 断言缺席）。M2-A 仅 `ADMIN_PROVISIONED`（provision API）与 `LEGACY_SELF_ASSERTED`（回填脚本）两个来源；PROVIDER_CHALLENGE / OAUTH / SIGNED_EVENT / SELF_LINK 全部 M3 |
+| **A2 NO_BLIND_UPSERT** | 写路径无任何 `upsert`：`decideProvisionOutcome`（纯函数）→ 键属他人 = `CONFLICT`（DB 零修改、不泄露 existing userId）；同用户按状态给显式指令（NEEDS_VERIFY / NEEDS_ENABLE / NEEDS_RELINK）；并发 P2002 → 同 CONFLICT 语义。永不把更强 verified 身份降级为 LEGACY |
+| **Provider Tenant Ownership Gate（§24.1）** | `provider-tenant-ownership.ts`：任何 ACTIVE transition（provision/verify/relink/enable）前重判。mock → 恒 `"mock"` 且仅非生产；personal_wechat → `WeChatGateway.id`（channel+orgId+status 全匹配）；wecom → 目标 org 的 org 级 `WeChatGateway.corpId`；**仅平台共享网关（`PLATFORM_WECOM_ORG_ID`）命中 → UNPROVEN（无可信 platform→org 映射，不得猜）**；slack → UNSUPPORTED（待 M3 ChannelProviderInstallation）。非 OWNED → 拒绝且**不创建任何行**（含 PENDING 占位） |
+| **REQUIRE_VERIFIED 默认** | 与 §28.4 原产品决策相反：缺省 **true**（LEGACY ACTIVE 也拒）；`MENTION_GATEWAY_IDENTITY_SOURCE` 缺省 fixture、非法值 fail-closed `GATEWAY_DISABLED`（不 fallback）；`MENTION_GATEWAY_IDENTITY_ADMIN_ENABLED` 缺省 false |
+| **providerTenantId 贯穿** | `MentionEvent.providerTenantId`（mock 适配器服务端固定 `"mock"`，body 声明被忽略）；session / userMessageId / dedupe 键全部含 tenant 段；仍 BEST_EFFORT |
+| **回填** | `scripts/backfill-external-identity-from-wechat-binding.ts`：dry-run 默认、`--write` 显式、生产 hard-block（无 override）；tenant 解析不出 → 仅 UNRESOLVED 报告（绝不写 `"unknown"`/orgId 顶替）；键属他人 → CONFLICT 不 mutation；更强身份 → STRONGER_PRESERVED；仅允许 ACTIVE/PENDING → REVOKED/DISABLED 单调收敛 |
+| **审计** | 全部写在 `db.$transaction` + `writeAuditLog(tx, …)`（审计失败整体回滚）；`providerUserId` 只以 sha256 截断 hash 入审计/日志 |

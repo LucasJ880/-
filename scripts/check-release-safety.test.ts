@@ -118,8 +118,9 @@ ok(
       "20260819190000_add_autopilot_a2_p0_evaluation",
       "20260821150000_add_quote_cost_engine_phase1",
       "20260821233000_add_quote_operations_phase2",
+      "20260824170000_add_mention_gateway_external_identity",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

@@ -10,6 +10,9 @@ export type {
   MentionEvent,
   MentionContextType,
   MentionCanonicalContextType,
+  ExternalIdentityProvider,
+  ExternalIdentityStatus,
+  ExternalIdentityVerificationMethod,
   ChannelContextBinding,
   MentionAudience,
   AudiencePolicy,
@@ -24,6 +27,45 @@ export type {
   MentionHandleResult,
 } from "./types";
 export {
+  EXTERNAL_IDENTITY_PROVIDERS,
+  EXTERNAL_IDENTITY_STATUSES,
+  EXTERNAL_IDENTITY_VERIFICATION_METHODS,
+} from "./types";
+export {
+  resolveProviderTenantOwnership,
+  createDefaultOwnershipDeps,
+} from "./provider-tenant-ownership";
+export type {
+  ProviderTenantOwnership,
+  OwnershipDeps,
+  ProviderGatewayRecord,
+} from "./provider-tenant-ownership";
+export {
+  adminProvisionIdentity,
+  verifyIdentity,
+  relinkIdentity,
+  disableIdentity,
+  enableIdentity,
+  revokeIdentity,
+  listIdentitiesForUser,
+  listIdentitiesForAdmin,
+  lookupExternalIdentityRecord,
+  decideProvisionOutcome,
+  normalizeIdentityKey,
+  hashProviderUserId,
+} from "./identity-service";
+export type {
+  ExternalIdentityRecord,
+  IdentityServiceResult,
+  IdentityServiceErrorCode,
+} from "./identity-service";
+export {
+  resolveLegacyProviderTenant,
+  mapLegacyIdentityStatus,
+  decideBackfillAction,
+  gatewayMapKey,
+} from "./backfill";
+export {
   MENTION_GATEWAY_M1_MAX_RISK,
   MENTION_GATEWAY_M1_MEMORY_WRITE_HARD_OFF,
   MENTION_GATEWAY_M1_EXTERNAL_SEND_HARD_OFF,
@@ -36,8 +78,12 @@ export {
   isMentionExternalSendEnabledWithEnv,
   resolveMentionGatewayMaxRisk,
   resolveMentionGatewayMaxRiskWithEnv,
+  resolveMentionIdentitySourceWithEnv,
+  isMentionRequireVerifiedIdentityEnabledWithEnv,
+  isMentionIdentityAdminEnabledWithEnv,
   describeMentionGatewayFlags,
 } from "./flags";
+export type { MentionIdentitySource } from "./flags";
 export {
   PROJECT_CONTEXT_TOOLS,
   CUSTOMER_CONTEXT_TOOLS,

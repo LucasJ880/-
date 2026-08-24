@@ -22,12 +22,15 @@ import type { ChannelContextBinding, MentionProvider } from "./types";
 
 export interface MentionIdentityFixture {
   provider: MentionProvider;
+  /** M2-A：provider 租户边界；mock 缺省 "mock" */
+  providerTenantId?: string;
   externalUserId: string;
   userId: string;
 }
 
 const IdentityFixtureSchema = z.object({
   provider: z.literal("mock").optional(),
+  providerTenantId: z.string().min(1).max(128).optional(),
   externalUserId: z.string().min(1).max(128),
   userId: z.string().min(1).max(128),
 });
@@ -48,8 +51,12 @@ export const MentionFixtureSetSchema = z.object({
 
 export type MentionFixtureSet = z.infer<typeof MentionFixtureSetSchema>;
 
-function identityKey(provider: string, externalUserId: string): string {
-  return `${provider}:${externalUserId}`;
+function identityKey(
+  provider: string,
+  providerTenantId: string,
+  externalUserId: string,
+): string {
+  return `${provider}:${providerTenantId}:${externalUserId}`;
 }
 
 function bindingKey(
@@ -67,7 +74,11 @@ export class MentionFixtureStore {
 
   registerIdentity(fixture: MentionIdentityFixture): void {
     this.identities.set(
-      identityKey(fixture.provider, fixture.externalUserId),
+      identityKey(
+        fixture.provider,
+        fixture.providerTenantId ?? "mock",
+        fixture.externalUserId,
+      ),
       fixture,
     );
   }
@@ -79,13 +90,29 @@ export class MentionFixtureStore {
     );
   }
 
-  /** 只返回 userId；不返回任何 org / role / membership */
+  /**
+   * 只返回 userId + test-safe 身份语义（fixture 视为已验证 ACTIVE，仅存在于非生产 mock 流）；
+   * 不返回任何 org / role / membership —— 这些仍由真实查询推导。
+   */
   lookupIdentity(
     provider: MentionProvider,
+    providerTenantId: string,
     externalUserId: string,
-  ): { userId: string } | null {
-    const hit = this.identities.get(identityKey(provider, externalUserId));
-    return hit ? { userId: hit.userId } : null;
+  ): {
+    userId: string;
+    status: "ACTIVE";
+    verificationMethod: "ADMIN_PROVISIONED";
+  } | null {
+    const hit = this.identities.get(
+      identityKey(provider, providerTenantId, externalUserId),
+    );
+    return hit
+      ? {
+          userId: hit.userId,
+          status: "ACTIVE",
+          verificationMethod: "ADMIN_PROVISIONED",
+        }
+      : null;
   }
 
   /** 线程级绑定优先，其次频道级；都没有 → null（上层 → CONTEXT_UNRESOLVED） */
@@ -106,6 +133,7 @@ export class MentionFixtureStore {
     for (const id of set.identities) {
       this.registerIdentity({
         provider: id.provider ?? "mock",
+        providerTenantId: id.providerTenantId ?? "mock",
         externalUserId: id.externalUserId,
         userId: id.userId,
       });

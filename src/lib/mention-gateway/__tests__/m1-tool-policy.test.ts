@@ -77,7 +77,7 @@ async function main() {
     };
     const opts = buildMentionRunOptions({
       event: {
-        provider: "mock", eventId: "e", channel: { id: "c", type: "dm" }, messageId: "m",
+        provider: "mock", providerTenantId: "mock", eventId: "e", channel: { id: "c", type: "dm" }, messageId: "m",
         externalUserId: "x", text: "hi", mentionedAgent: true, timestamp: "2026-08-22T00:00:00Z",
       },
       user: { id: USER_A, role: "admin", name: "A" },
@@ -104,7 +104,7 @@ async function main() {
     );
     const customerOpts = buildMentionRunOptions({
       event: {
-        provider: "mock", eventId: "e", channel: { id: "c", type: "dm" }, messageId: "m",
+        provider: "mock", providerTenantId: "mock", eventId: "e", channel: { id: "c", type: "dm" }, messageId: "m",
         externalUserId: "x", text: "hi", mentionedAgent: true, timestamp: "2026-08-22T00:00:00Z",
       },
       user: { id: USER_A, role: "admin", name: "A" },

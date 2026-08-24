@@ -37,7 +37,9 @@ import { getDefaultMentionFixtureStore } from "./fixtures";
 import {
   isMentionGatewayEnabledWithEnv,
   isMentionMockEnabledWithEnv,
+  isMentionRequireVerifiedIdentityEnabledWithEnv,
   resolveMentionGatewayMaxRiskWithEnv,
+  resolveMentionIdentitySourceWithEnv,
   type MentionGatewayFlagEnv,
 } from "./flags";
 import {
@@ -101,12 +103,13 @@ export class DuplicateEventGuard {
 /**
  * B1：进程内 dedupe 键必须带已验证的 principal / org 边界。
  * 只能在 identity + caller verification + tenant 解析成功之后计算与写入。
+ * M2-A：加入 providerTenantId —— 不同 provider 租户下同名 channel/eventId 互不干扰。
  */
 export function buildMentionDedupeKey(
   event: MentionEvent,
   principal: { orgId: string; userId: string },
 ): string {
-  return `${event.provider}:${principal.orgId}:${principal.userId}:${event.channel.id}:${event.eventId}`;
+  return `${event.provider}:${event.providerTenantId}:${principal.orgId}:${principal.userId}:${event.channel.id}:${event.eventId}`;
 }
 
 // ── 依赖注入面 ─────────────────────────────────────────────────────────────
@@ -158,12 +161,23 @@ export interface MentionGatewayDeps {
 const defaultDuplicateGuard = new DuplicateEventGuard();
 
 /** 真实依赖（全部懒加载；只在真正执行时触达 DB / 模型） */
-export function createDefaultMentionGatewayDeps(): MentionGatewayDeps {
+export function createDefaultMentionGatewayDeps(
+  env: MentionGatewayFlagEnv = process.env,
+): MentionGatewayDeps {
   const store = getDefaultMentionFixtureStore();
+  const identitySource = resolveMentionIdentitySourceWithEnv(env);
   return {
     identity: createDefaultIdentityDeps({
-      lookupExternalIdentity: async (provider, externalUserId) =>
-        store.lookupIdentity(provider, externalUserId),
+      lookupExternalIdentity: async (provider, providerTenantId, externalUserId) => {
+        if (identitySource === "db") {
+          // DB 源：持久化 ExternalIdentity（真实 status / verificationMethod）。
+          // DB 异常向上抛 → resolveMentionIdentity fail closed，绝不 fallback fixture。
+          const { lookupExternalIdentityRecord } = await import("./identity-service");
+          return lookupExternalIdentityRecord(provider, providerTenantId, externalUserId);
+        }
+        // fixture 源（默认）：M1 语义不变
+        return store.lookupIdentity(provider, providerTenantId, externalUserId);
+      },
     }),
     context: createDefaultContextDeps({
       lookupChannelBinding: async (provider, channelId, threadId) =>
@@ -276,7 +290,7 @@ export async function handleMentionEvent(
   input: HandleMentionInput,
 ): Promise<MentionHandleResult> {
   const env = input.env ?? process.env;
-  const defaults = createDefaultMentionGatewayDeps();
+  const defaults = createDefaultMentionGatewayDeps(env);
   const deps: MentionGatewayDeps = {
     identity: input.deps?.identity ?? defaults.identity,
     context: input.deps?.context ?? defaults.context,
@@ -292,6 +306,13 @@ export async function handleMentionEvent(
   }
   if (adapter.provider === "mock" && !isMentionMockEnabledWithEnv(env)) {
     return failure("rejected", "MOCK_DISABLED", "flags");
+  }
+  // M2-A：身份来源非法值 fail closed（不 fallback、不猜测）
+  if (resolveMentionIdentitySourceWithEnv(env) === null) {
+    logger.error("mention_gateway.identity_source_invalid", {
+      raw: String(env.MENTION_GATEWAY_IDENTITY_SOURCE ?? ""),
+    });
+    return failure("rejected", "GATEWAY_DISABLED", "flags");
   }
 
   // 2 event（含 schema 校验 + 受众预检）
@@ -322,9 +343,20 @@ export async function handleMentionEvent(
 
   // 5 identity + caller verification + membership / tenant
   //   B1：在此之前不得写入任何 dedupe 状态（未通过身份校验的请求不能预占他人的 eventId）
-  const identity = await resolveMentionIdentity(event, deps.identity, {
-    caller: input.caller,
-  });
+  let identity: Awaited<ReturnType<typeof resolveMentionIdentity>>;
+  try {
+    identity = await resolveMentionIdentity(event, deps.identity, {
+      caller: input.caller,
+      requireVerifiedIdentity: isMentionRequireVerifiedIdentityEnabledWithEnv(env),
+    });
+  } catch (e) {
+    logger.error("mention_gateway.identity_resolve_failed", {
+      provider: event.provider,
+      eventId: event.eventId,
+      err: errMessage(e),
+    });
+    return failure("rejected", "IDENTITY_OR_MEMBERSHIP_DENIED", "identity");
+  }
   if (!identity.ok) {
     logger.warn("mention_gateway.identity_denied", {
       provider: event.provider,
@@ -400,6 +432,7 @@ export async function handleMentionEvent(
       metadata: {
         source: "mention_gateway",
         provider: event.provider,
+        providerTenantId: event.providerTenantId,
         channelId: event.channel.id,
         channelType: event.channel.type,
         threadId: event.threadId ?? null,

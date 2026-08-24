@@ -49,6 +49,7 @@ async function main() {
   {
     const event = {
       provider: "mock" as const,
+      providerTenantId: "mock",
       eventId: "evt-1",
       channel: { id: "mock-project-a", type: "dm" as const },
       messageId: "m1",
@@ -58,12 +59,12 @@ async function main() {
       timestamp: "2026-08-22T12:00:00Z",
     };
     const key = buildMentionDedupeKey(event, { orgId: ORG_A, userId: USER_A });
-    ok(key === "mock:org_a:user_a:mock-project-a:evt-1", `key = ${key}`);
+    ok(key === "mock:mock:org_a:user_a:mock-project-a:evt-1", `key = ${key}`);
     ok(
       buildMentionDedupeKey(event, { orgId: ORG_B, userId: USER_B }) !== key,
       "同一 eventId 在不同 org/principal 下得到不同键",
     );
-    if (key !== "mock:org_a:user_a:mock-project-a:evt-1") b1PrincipalIsolation = false;
+    if (key !== "mock:mock:org_a:user_a:mock-project-a:evt-1") b1PrincipalIsolation = false;
   }
 
   console.log("B1-2 失败的 caller verification 不得预占他人 eventId（User A 冒充 User B → DENY；User B 随后正常执行）");
@@ -92,7 +93,7 @@ async function main() {
     ok(legit.ok && legit.status === "completed", "User B 合法调用同一 eventId → 不是 DUPLICATE，正常执行");
     ok(called(calls, "runAgent") === 1 && adapter.outbox.length === 1, "runAgent ×1，DM ×1（发给 User B 的外部身份）");
     ok(adapter.outbox[0]?.target.externalUserId === "mock-user-b", "回复只发给合法 initiating user");
-    ok(guard.size() === 1 && guard.has(`mock:${ORG_B}:${USER_B}:mock-project-b:evt-shared`), "dedupe 键只在 User B 通过校验后写入，且带 org/principal");
+    ok(guard.size() === 1 && guard.has(`mock:mock:${ORG_B}:${USER_B}:mock-project-b:evt-shared`), "dedupe 键只在 User B 通过校验后写入，且带 org/principal");
     if (!legit.ok) b1FailedIdentityCannotPoison = false;
 
     const replay = await handleMentionEvent({
@@ -167,7 +168,7 @@ async function main() {
     const { deps, adapter, calls } = makeFakeDeps();
     await handleMentionEvent({ raw: baseRaw({ eventId: "evt-x", messageId: "msg-x" }), adapter, deps, env: TEST_ENV });
     const runInput = calls.find((c) => c.name === "createRun")?.args[0] as { userMessageId: string; orgId: string };
-    ok(runInput.userMessageId === "mock:mock-project-a:msg-x" && runInput.orgId === ORG_A, "userMessageId = mock:<channelId>:<messageId>，与 orgId 一并传给 createAgentRun");
+    ok(runInput.userMessageId === "mock:mock:mock-project-a:msg-x" && runInput.orgId === ORG_A, "userMessageId = <provider>:<providerTenantId>:<channelId>:<messageId>，与 orgId 一并传给 createAgentRun");
     const { deps: deps2, adapter: adapter2, calls: calls2 } = makeFakeDeps({ createRunReused: () => true });
     const r = await handleMentionEvent({ raw: baseRaw({ eventId: "evt-y", messageId: "msg-x" }), adapter: adapter2, deps: deps2, env: TEST_ENV });
     ok(isCode(r, "DUPLICATE_EVENT") && r.runId === "run-reused", "createAgentRun 返回 reused → DUPLICATE_EVENT（DB 层幂等）");
