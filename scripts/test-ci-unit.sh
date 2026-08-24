@@ -18,6 +18,7 @@ npx tsx scripts/check-release-safety.test.ts
 npx tsx scripts/check-preview-db-isolation.test.ts
 npx tsx src/lib/testing/__tests__/assert-safe-test-database.test.ts
 npx tsx src/lib/db-safety/__tests__/production-operation-guard.test.ts
+npx tsx src/lib/db-safety/__tests__/b0-production-guard.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-outcome.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-ready.test.ts
