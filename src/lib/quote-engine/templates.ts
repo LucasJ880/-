@@ -34,7 +34,7 @@ export function templateSupplyInstallLines(): Seed[] {
     L({ category: "LOGISTICS", subcategory: "Logistics", description: "China domestic freight", calculationType: "FIXED" }),
     L({ category: "FREIGHT", subcategory: "Logistics", description: "Ocean freight", calculationType: "PER_CONTAINER", unit: "container" }),
     L({ category: "CUSTOMS", subcategory: "Logistics", description: "Customs brokerage", calculationType: "FIXED" }),
-    L({ category: "DUTY", subcategory: "Logistics", description: "Duty（% of procurement）", calculationType: "PERCENT_OF_COST", calculationBase: "PROCUREMENT" }),
+    L({ category: "DUTY", subcategory: "Logistics", description: "Duty（% of procurement；可按 SUBCAT 分品类）", calculationType: "PERCENT_OF_COST", calculationBase: "PROCUREMENT", included: false }),
     L({ category: "FREIGHT", subcategory: "Logistics", description: "Canada inland freight", calculationType: "FIXED" }),
     L({ category: "LOGISTICS", subcategory: "Logistics", description: "Packaging", calculationType: "FIXED" }),
     L({ category: "LABOUR", subcategory: "Labour", description: "Removal", calculationType: "PER_HOUR", unit: "hr" }),
@@ -53,13 +53,36 @@ export function templateSupplyInstallLines(): Seed[] {
     L({ category: "COMPLIANCE", subcategory: "Engineering & Compliance", description: "Testing / Inspection / ESA", calculationType: "FIXED" }),
     L({ category: "PROJECT_MANAGEMENT", subcategory: "Project Overhead", description: "Project Manager", calculationType: "PER_MONTH", unit: "month" }),
     L({ category: "INSURANCE", subcategory: "Project Overhead", description: "Insurance", calculationType: "FIXED" }),
-    L({ category: "BOND", subcategory: "Project Overhead", description: "Bond", calculationType: "PERCENT_OF_REVENUE" }),
+    L({ category: "BOND", subcategory: "Project Overhead", description: "Bond", calculationType: "PERCENT_OF_REVENUE", included: false }),
     L({ category: "SITE_GENERAL", subcategory: "Project Overhead", description: "Travel", calculationType: "PER_TRIP", unit: "trip" }),
-    L({ category: "OTHER", subcategory: "Project Overhead", description: "Warranty / After-sales reserve", calculationType: "PERCENT_OF_COST", calculationBase: "DIRECT_COST" }),
-    L({ category: "FINANCING", subcategory: "Commercial", description: "Financing（% of capital deployed）", calculationType: "PERCENT_OF_CAPITAL", calculationBase: "CAPITAL" }),
-    L({ category: "ADMIN", subcategory: "Commercial", description: "Admin（% of revenue）", calculationType: "PERCENT_OF_REVENUE" }),
-    L({ category: "COMMISSION", subcategory: "Commercial", description: "Commission（% of revenue）", calculationType: "PERCENT_OF_REVENUE" }),
-    L({ category: "CONTINGENCY", subcategory: "Commercial", description: "Contingency（% of direct cost）", calculationType: "PERCENT_OF_COST", calculationBase: "DIRECT_COST" }),
+    L({ category: "OTHER", subcategory: "Project Overhead", description: "Warranty / After-sales reserve", calculationType: "PERCENT_OF_COST", calculationBase: "DIRECT_COST", included: false }),
+    // ── Sunny 定价链（冻结口径 2026-08-24）：默认值开箱即算；关税待 AI/人工定率后再纳入 ──
+    L({ category: "FINANCING", subcategory: "Commercial", description: "资金使用（年化 8% ÷ 12 × 项目月数）", calculationType: "PCT_ANNUALIZED_ON_COST", rate: 8, duration: 1 }),
+    L({ category: "ADMIN", subcategory: "Commercial", description: "管理费用（自含 3%：100 → 103.09）", calculationType: "PCT_SELF_INCLUSIVE_ON_COST", rate: 3 }),
+    L({ category: "OTHER", subcategory: "Commercial", description: "Cash allowance（(直接成本+关税) × 1%）", calculationType: "PCT_ON_COST_SUBTOTAL", rate: 1 }),
+    L({ category: "COMMISSION", subcategory: "Commercial", description: "销售提成（毛利 × 30%，从毛利中扣）", calculationType: "PCT_OF_GROSS_PROFIT", rate: 30 }),
+    L({ category: "CONTINGENCY", subcategory: "Commercial", description: "Contingency（% of direct cost）", calculationType: "PERCENT_OF_COST", calculationBase: "DIRECT_COST", included: false }),
+  ].map((s, i) => ({ ...s, sortOrder: (i + 1) * 10 }));
+}
+
+/** Template A′：Supply Only（供货不安装）——采购/进口/工程支持 + Sunny 链，无安装与现场段 */
+export function templateSupplyOnlyLines(): Seed[] {
+  return [
+    L({ category: "PROCUREMENT", subcategory: "Procurement", description: "Product（供应商货值）", calculationType: "PER_UNIT", unit: "unit", sourceCurrency: "CNY" }),
+    L({ category: "LOGISTICS", subcategory: "Logistics", description: "China domestic freight", calculationType: "FIXED" }),
+    L({ category: "FREIGHT", subcategory: "Logistics", description: "Ocean freight", calculationType: "PER_CONTAINER", unit: "container" }),
+    L({ category: "CUSTOMS", subcategory: "Logistics", description: "Customs brokerage", calculationType: "FIXED" }),
+    L({ category: "DUTY", subcategory: "Logistics", description: "Duty（% of procurement；可按 SUBCAT 分品类）", calculationType: "PERCENT_OF_COST", calculationBase: "PROCUREMENT", included: false }),
+    L({ category: "FREIGHT", subcategory: "Logistics", description: "Canada inland freight（DAP 工地，卸货除外）", calculationType: "FIXED" }),
+    L({ category: "LOGISTICS", subcategory: "Logistics", description: "Packaging", calculationType: "FIXED" }),
+    L({ category: "ENGINEERING", subcategory: "Engineering & Compliance", description: "Shop drawings / 提交物", calculationType: "FIXED" }),
+    L({ category: "INSURANCE", subcategory: "Project Overhead", description: "Insurance", calculationType: "FIXED" }),
+    L({ category: "OTHER", subcategory: "Project Overhead", description: "Warranty / After-sales reserve", calculationType: "PERCENT_OF_COST", calculationBase: "DIRECT_COST", included: false }),
+    L({ category: "FINANCING", subcategory: "Commercial", description: "资金使用（年化 8% ÷ 12 × 项目月数）", calculationType: "PCT_ANNUALIZED_ON_COST", rate: 8, duration: 1 }),
+    L({ category: "ADMIN", subcategory: "Commercial", description: "管理费用（自含 3%：100 → 103.09）", calculationType: "PCT_SELF_INCLUSIVE_ON_COST", rate: 3 }),
+    L({ category: "OTHER", subcategory: "Commercial", description: "Cash allowance（(直接成本+关税) × 1%）", calculationType: "PCT_ON_COST_SUBTOTAL", rate: 1 }),
+    L({ category: "COMMISSION", subcategory: "Commercial", description: "销售提成（毛利 × 30%，从毛利中扣）", calculationType: "PCT_OF_GROSS_PROFIT", rate: 30 }),
+    L({ category: "CONTINGENCY", subcategory: "Commercial", description: "Contingency（% of direct cost）", calculationType: "PERCENT_OF_COST", calculationBase: "DIRECT_COST", included: false }),
   ].map((s, i) => ({ ...s, sortOrder: (i + 1) * 10 }));
 }
 

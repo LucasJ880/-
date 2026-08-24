@@ -9,8 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
-import { CALCULATION_TYPES, COST_CATEGORIES, PRICING_METHOD_LABELS, type CostLinePayload, type TierPayload } from "@/lib/quote-engine/contract";
-import type { QuoteCalcResult, QuoteCalcFailure } from "@/lib/quote-engine/calc";
+import { CALCULATION_TYPES, CALCULATION_TYPE_LABELS, CHAINED_COST_TYPES, COST_CATEGORIES, PERCENT_OF_COST_TYPES, PRICING_METHOD_LABELS, PROFIT_BASED_TYPES, REVENUE_BASED_TYPES, type CostLineInput, type CostLinePayload, type EngineConfig, type TierPayload } from "@/lib/quote-engine/contract";
+import { computeQuote, unpricedReason, type QuoteCalcResult, type QuoteCalcFailure } from "@/lib/quote-engine/calc";
 import type { TierResult, UnitEconomics } from "@/lib/quote-engine/standing-offer";
 import type { CustomerQuoteView } from "@/lib/quote-engine/customer-view";
 import type { QuoteAnalysis } from "@/lib/quote-engine/analyze";
@@ -42,6 +42,8 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
   const [customer, setCustomer] = useState<CustomerQuoteView | null>(null);
   const [analysis, setAnalysis] = useState<QuoteAnalysis | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [advice, setAdvice] = useState<{ kind: "duty" | "margin"; forLineId?: string; duty?: { ratePct: number; hsCodeGuess: string | null; confidence: string; rationaleZh: string; sources: Array<{ title: string; url: string }> }; margin?: { marginPct: number; rationaleZh: string; considerations: string[] } } | null>(null);
+  const [advBusy, setAdvBusy] = useState<"duty" | "margin" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -106,6 +108,16 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
     setCustomer(res?.customerView ?? null);
     setView("customer");
   };
+  const requestAdvice = async (kind: "duty" | "margin", forLineId?: string) => {
+    setAdvBusy(kind); setMsg(null);
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/quote-engine/${quoteId}/advise`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }) });
+      const json = (await res.json()) as { advice?: never; error?: string; code?: string } & { advice?: unknown };
+      if (!res.ok) { setMsg(`${json.code ?? ""} ${json.error ?? "建议器失败"}`); setAdvice(null); return; }
+      const advicePayload = (json as { advice: unknown }).advice;
+      setAdvice(kind === "duty" ? { kind, forLineId, duty: advicePayload as NonNullable<typeof advice>["duty"] } : { kind, margin: advicePayload as NonNullable<typeof advice>["margin"] });
+    } finally { setAdvBusy(null); }
+  };
   const loadAnalysis = async () => {
     const res = await apiJson<{ analysis: QuoteAnalysis | null }>(`/api/projects/${projectId}/quote-engine/${quoteId}/analyze`).catch(() => null);
     setAnalysis(res?.analysis ?? null);
@@ -116,11 +128,21 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
     for (const l of lines) by.set(l.category, [...(by.get(l.category) ?? []), l]);
     return CAT_ORDER.filter((c) => by.has(c)).map((c) => ({ category: c, items: by.get(c)! }));
   }, [lines]);
-  const amountOf = (id: string) => (data?.computed.calc.ok ? data.computed.calc.lines.find((l) => l.id === id)?.amount ?? null : null);
+  // 时时试算：输入即本地重算（与服务端 computeQuote 同一纯函数；保存后仍以服务端快照为准）
+  const asInput = useCallback((l: Line): CostLineInput => ({ id: l.id, sortOrder: l.sortOrder ?? 0, category: l.category, subcategory: l.subcategory ?? null, description: l.description, quantity: l.quantity ?? null, unit: l.unit ?? null, unitCost: l.unitCost ?? null, sourceCurrency: l.sourceCurrency || (header.currency || "CAD"), fxRate: l.fxRate ?? null, calculationType: l.calculationType, calculationBase: l.calculationBase ?? null, rate: l.rate ?? null, duration: l.duration ?? null, included: l.included ?? true, supplierName: l.supplierName ?? null, notes: l.notes ?? null }), [header.currency]);
+  const localCalc = useMemo<QuoteCalcResult | QuoteCalcFailure | null>(() => {
+    if (!data) return null;
+    const rate = header.pricingRate.trim() === "" ? null : Number(header.pricingRate);
+    return computeQuote({ quoteCurrency: header.currency || data.quote.currency, lines: lines.map(asInput), pricing: { method: header.pricingMethod, rate }, engine: (data.quote.engine ?? undefined) as EngineConfig | undefined });
+  }, [data, lines, header, asInput]);
+  const liveCalc = localCalc && localCalc.ok ? localCalc : null;
+  const amountOf = (id: string) => (liveCalc ? liveCalc.lines.find((l) => l.id === id)?.amount ?? null : data?.computed.calc.ok ? data.computed.calc.lines.find((l) => l.id === id)?.amount ?? null : null);
+  const unpricedCount = useMemo(() => lines.filter((l) => unpricedReason(asInput(l)) != null).length, [lines, asInput]);
+  const subcatInUse = useMemo(() => lines.some((l) => (l.calculationBase ?? "").startsWith("SUBCAT:")), [lines]);
 
   if (!data) return <div className="p-6 text-sm text-muted">加载报价引擎…（未启用或无权限时不可见）</div>;
   const q = data.quote;
-  const calc = data.computed.calc;
+  const calc = liveCalc ?? data.computed.calc;
   const editable = data.capabilities.canEdit && (q.status === "draft" || q.status === "review");
   const ccy = q.currency;
   const updateLine = (id: string, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -142,7 +164,7 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {editable ? <button type="button" disabled={busy != null} onClick={() => void save()} className="rounded border border-border bg-accent/10 px-2 py-1">{busy === "save" ? "保存中…" : "保存并重算"}</button> : null}
-          {data.capabilities.canEdit && q.status === "draft" ? <button type="button" disabled={busy != null} onClick={() => void transition("review")} className="rounded border border-border px-2 py-1">提交审核</button> : null}
+          {data.capabilities.canEdit && q.status === "draft" ? <button type="button" disabled={busy != null || unpricedCount > 0} title={unpricedCount > 0 ? `${unpricedCount} 行已纳入但未定价（按 0 计将低估报价）` : undefined} onClick={() => void transition("review")} className="rounded border border-border px-2 py-1 disabled:opacity-40">{unpricedCount > 0 ? `提交审核（${unpricedCount} 行未定价）` : "提交审核"}</button> : null}
           {data.capabilities.canApprove && q.status === "review" ? <button type="button" disabled={busy != null} onClick={() => void transition("approved")} className="rounded border border-emerald-300 px-2 py-1 text-emerald-800">批准</button> : null}
           {data.capabilities.canEdit && q.status === "review" ? <button type="button" disabled={busy != null} onClick={() => void transition("draft")} className="rounded border border-border px-2 py-1">退回草稿</button> : null}
           {data.capabilities.canEdit && (q.status === "approved" || q.status === "superseded" || q.status === "awarded") ? <button type="button" disabled={busy != null} onClick={() => void revise()} className="rounded border border-border px-2 py-1">创建修订版本</button> : null}
@@ -173,7 +195,7 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
               {data.computed.standingOffer?.unit ? [["Cost / Piece", money(data.computed.standingOffer.unit.landedPerPiece, ccy)], ["Cost / Box", money(data.computed.standingOffer.unit.landedPerBox, ccy)], ["Sell / Piece", money(data.computed.standingOffer.tiers[0]?.unitPrice ?? null, ccy)], ["Sell / Box", money(data.computed.standingOffer.tiers[0]?.boxPrice ?? null, ccy)], ["Containers (L1)", data.computed.standingOffer.tiers[0] ? `${data.computed.standingOffer.tiers[0].containersMath} → ${data.computed.standingOffer.tiers[0].containersProcurement}` : "—"]].map(([k, v]) => (<div key={k} className="rounded-lg border border-border bg-card-bg px-3 py-2"><div className="text-[10px] text-muted">{k}</div><div className="text-sm font-semibold">{v}</div></div>)) : null}
             </div>
           ) : (
-            <div className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-[12px]" data-testid="calc-errors"><b>校验错误（修正后才能定价）：</b><ul className="list-disc pl-4">{calc.errors.map((e, i) => <li key={i}>{e.code}{e.lineId ? `（行 ${e.lineId.slice(-4)}）` : ""}：{e.message}</li>)}</ul></div>
+            <div className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-[12px]" data-testid="calc-errors"><b>输入非法（未填的行不在此列，按 0 试算）：</b><ul className="list-disc pl-4">{calc.errors.map((e, i) => <li key={i}>{e.code}{e.lineId ? `（行 ${e.lineId.slice(-4)}）` : ""}：{e.message}</li>)}</ul></div>
           )}
 
           {/* Pricing */}
@@ -183,7 +205,15 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
               <label className="text-muted">Pricing Method<br /><select disabled={!editable} value={header.pricingMethod} onChange={(e) => setHeader((h) => ({ ...h, pricingMethod: e.target.value }))} className="mt-0.5 rounded border border-border bg-transparent px-2 py-1 text-foreground">{Object.entries(PRICING_METHOD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
               <label className="text-muted">{header.pricingMethod === "MARGIN_ON_REVENUE" ? "Target Margin %（on selling price）" : "Markup %（on cost）"}<br /><input type="number" disabled={!editable} value={header.pricingRate} onChange={(e) => setHeader((h) => ({ ...h, pricingRate: e.target.value }))} className="mt-0.5 w-28 rounded border border-border bg-transparent px-2 py-1 text-foreground" /></label>
               {calc.ok ? <span className="text-muted">收入基数行合计 {pct(calc.revenuePctTotal)}（Admin/Commission/Financing/Profit 以售价为基数 → 售价 = 成本 /(1 − Σ%)，不是 × (1 + Σ%)）</span> : null}
+              {editable ? <button type="button" disabled={advBusy != null} onClick={() => void requestAdvice("margin")} className="rounded border border-violet-300 px-2 py-1 text-violet-800">{advBusy === "margin" ? "AI 分析中…" : "AI 建议毛利率"}</button> : null}
             </div>
+            {advice?.kind === "margin" && advice.margin ? (
+              <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-[11px]" data-testid="margin-advice">
+                <div className="flex items-center justify-between"><b>AI 建议毛利率：{advice.margin.marginPct}%（advisory，采用才生效）</b>{editable ? <span className="flex gap-2"><button type="button" onClick={() => { setHeader((h) => ({ ...h, pricingMethod: "MARGIN_ON_REVENUE", pricingRate: String(advice.margin!.marginPct) })); setAdvice(null); }} className="rounded border border-violet-300 px-2 py-0.5">采用</button><button type="button" onClick={() => setAdvice(null)} className="rounded border border-border px-2 py-0.5 text-muted">忽略</button></span> : null}</div>
+                <p className="mt-1">{advice.margin.rationaleZh}</p>
+                {advice.margin.considerations.length ? <ul className="mt-1 list-disc pl-4">{advice.margin.considerations.map((c, i) => <li key={i}>{c}</li>)}</ul> : null}
+              </div>
+            ) : null}
           </div>
 
           {/* Cost Builder */}
@@ -191,7 +221,7 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
           <CostImportPanel projectId={projectId} quoteId={quoteId} editable={editable} currency={ccy} onApplied={() => void load()} />
 
           <div className="rounded-xl border border-border bg-card-bg p-4" data-testid="cost-builder">
-            <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Cost Builder（成本行，内部视图）</h3>{editable ? <select className="rounded border border-border bg-transparent px-2 py-1 text-[11px]" defaultValue="" onChange={(e) => { if (e.target.value) { addLine(e.target.value); e.target.value = ""; } }}><option value="">+ 添加成本行到类别…</option>{COST_CATEGORIES.map((c) => <option key={c} value={c}>{CAT_ZH[c] ?? c}</option>)}</select> : null}</div>
+            <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Cost Builder（成本行，内部视图）<span className="ml-2 text-[10px] font-normal text-muted">金额实时试算</span>{unpricedCount > 0 ? <span className="ml-2 rounded-full border border-amber-300 bg-amber-50 px-2 text-[10px] font-normal text-amber-800">{unpricedCount} 行未定价（按 0 计）</span> : null}</h3>{editable ? <select className="rounded border border-border bg-transparent px-2 py-1 text-[11px]" defaultValue="" onChange={(e) => { if (e.target.value) { addLine(e.target.value); e.target.value = ""; } }}><option value="">+ 添加成本行到类别…</option>{COST_CATEGORIES.map((c) => <option key={c} value={c}>{CAT_ZH[c] ?? c}</option>)}</select> : null}</div>
             {grouped.map((g) => {
               const total = g.items.reduce((s, l) => s + (amountOf(l.id) ?? 0), 0);
               const isOpen = open[g.category] ?? true;
@@ -200,16 +230,30 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
                   <button type="button" onClick={() => setOpen((o) => ({ ...o, [g.category]: !isOpen }))} className="flex w-full items-center justify-between px-3 py-1.5 text-[12px]"><span className="font-medium">{CAT_ZH[g.category] ?? g.category} <span className="text-muted">{g.items.length} 行</span></span><span className="font-mono">{money(total, ccy)}</span></button>
                   {isOpen ? (
                     <div className="overflow-x-auto border-t border-border/40 px-2 py-1">
-                      <table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="text-left">说明</th><th>类型</th><th>数量</th><th>时长/箱</th><th>单价/费率</th><th>币种</th><th>FX</th><th>基数</th><th>%</th><th>纳入</th><th className="text-right">金额({ccy})</th><th /></tr></thead>
-                        <tbody>{g.items.map((l) => (
+                      <table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="text-left">说明</th><th>类型</th><th>数量</th><th>时长·月·箱</th><th>单价</th><th>币种</th><th>FX</th><th>基数</th><th>%</th><th>纳入</th><th className="text-right">金额({ccy})</th><th /></tr></thead>
+                        <tbody>{g.items.map((l) => {
+                          const t = l.calculationType;
+                          const isChained = (CHAINED_COST_TYPES as readonly string[]).includes(t);
+                          const isProfitPct = (PROFIT_BASED_TYPES as readonly string[]).includes(t);
+                          const isPctCost = (PERCENT_OF_COST_TYPES as readonly string[]).includes(t);
+                          const isRevPct = (REVENUE_BASED_TYPES as readonly string[]).includes(t);
+                          const isPctRow = isChained || isProfitPct || isPctCost || isRevPct;
+                          const needsQty = t === "PER_UNIT";
+                          const needsDuration = ["PER_HOUR", "PER_DAY", "PER_MONTH", "PER_TRIP", "PER_CONTAINER"].includes(t) || t === "PCT_ANNUALIZED_ON_COST";
+                          const dash = <span className="text-muted/50">—</span>;
+                          const fixedBaseLabel = t === "PCT_ANNUALIZED_ON_COST" || t === "PCT_ON_COST_SUBTOTAL" ? "成本小计" : t === "PCT_SELF_INCLUSIVE_ON_COST" ? "自含累计" : isProfitPct ? "毛利" : isRevPct ? "售价" : null;
+                          const unpriced = unpricedReason(asInput(l));
+                          const showTag = !isPctRow && subcatInUse;
+                          const showDutyAi = editable && l.category === "DUTY" && isPctCost;
+                          return (
                           <tr key={l.id} className={`border-t border-border/30 ${l.included ? "" : "opacity-50"}`}>
-                            <td><input disabled={!editable} value={l.description} onChange={(e) => updateLine(l.id, { description: e.target.value })} className="w-44 rounded border border-border/60 bg-transparent px-1" /></td>
-                            <td><select disabled={!editable} value={l.calculationType} onChange={(e) => updateLine(l.id, { calculationType: e.target.value as Line["calculationType"] })} className="rounded border border-border/60 bg-transparent px-1">{CALCULATION_TYPES.filter((t) => t !== "TIER_BASED" && t !== "CUSTOM_FORMULA").map((t) => <option key={t} value={t}>{t}</option>)}</select></td>
-                            <td><input type="number" disabled={!editable} value={l.quantity ?? ""} onChange={(e) => updateLine(l.id, { quantity: e.target.value === "" ? null : Number(e.target.value) })} className="w-16 rounded border border-border/60 bg-transparent px-1" /></td>
-                            <td><input type="number" disabled={!editable} value={l.duration ?? ""} onChange={(e) => updateLine(l.id, { duration: e.target.value === "" ? null : Number(e.target.value) })} className="w-16 rounded border border-border/60 bg-transparent px-1" /></td>
-                            <td><input type="number" disabled={!editable} value={l.unitCost ?? ""} onChange={(e) => updateLine(l.id, { unitCost: e.target.value === "" ? null : Number(e.target.value) })} className="w-20 rounded border border-border/60 bg-transparent px-1" /></td>
-                            <td><input disabled={!editable} value={l.sourceCurrency} onChange={(e) => updateLine(l.id, { sourceCurrency: e.target.value.toUpperCase().slice(0, 3) })} className="w-12 rounded border border-border/60 bg-transparent px-1" /></td>
-                            <td>
+                            <td><span className="flex items-center gap-1"><input disabled={!editable} value={l.description} onChange={(e) => updateLine(l.id, { description: e.target.value })} className={`${showTag ? "w-32" : "w-44"} rounded border border-border/60 bg-transparent px-1`} />{showTag ? <input disabled={!editable} title="关税组（供 SUBCAT 基数汇总）" placeholder="组" value={l.subcategory ?? ""} onChange={(e) => updateLine(l.id, { subcategory: e.target.value || null })} className="w-12 rounded border border-amber-300/60 bg-transparent px-1" /> : null}</span></td>
+                            <td><select disabled={!editable} value={t} onChange={(e) => updateLine(l.id, { calculationType: e.target.value as Line["calculationType"] })} className="max-w-[9.5rem] rounded border border-border/60 bg-transparent px-1">{CALCULATION_TYPES.filter((x) => x !== "TIER_BASED" && x !== "CUSTOM_FORMULA").map((x) => <option key={x} value={x}>{CALCULATION_TYPE_LABELS[x] ?? x}</option>)}</select></td>
+                            <td>{needsQty || (!isPctRow && l.quantity != null) ? <input type="number" disabled={!editable} value={l.quantity ?? ""} onChange={(e) => updateLine(l.id, { quantity: e.target.value === "" ? null : Number(e.target.value) })} className="w-16 rounded border border-border/60 bg-transparent px-1" /> : dash}</td>
+                            <td>{needsDuration ? <input type="number" disabled={!editable} placeholder={t === "PCT_ANNUALIZED_ON_COST" ? "月" : ""} value={l.duration ?? ""} onChange={(e) => updateLine(l.id, { duration: e.target.value === "" ? null : Number(e.target.value) })} className="w-16 rounded border border-border/60 bg-transparent px-1" /> : dash}</td>
+                            <td>{!isPctRow ? <input type="number" disabled={!editable} value={l.unitCost ?? ""} onChange={(e) => updateLine(l.id, { unitCost: e.target.value === "" ? null : Number(e.target.value) })} className="w-20 rounded border border-border/60 bg-transparent px-1" /> : dash}</td>
+                            <td>{!isPctRow ? <input disabled={!editable} value={l.sourceCurrency} onChange={(e) => updateLine(l.id, { sourceCurrency: e.target.value.toUpperCase().slice(0, 3) })} className="w-12 rounded border border-border/60 bg-transparent px-1" /> : dash}</td>
+                            <td>{!isPctRow ? (
                               <input
                                 type="number"
                                 disabled={!editable || l.sourceCurrency === ccy}
@@ -217,19 +261,37 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
                                 onChange={(e) => updateLine(l.id, { fxRate: e.target.value === "" ? null : Number(e.target.value) })}
                                 className="w-16 rounded border border-border/60 bg-transparent px-1"
                               />
-                            </td>
-                            <td><input disabled={!editable} value={l.calculationBase ?? ""} placeholder="DIRECT_COST" onChange={(e) => updateLine(l.id, { calculationBase: e.target.value || null })} className="w-24 rounded border border-border/60 bg-transparent px-1" /></td>
-                            <td><input type="number" disabled={!editable} value={l.rate ?? ""} onChange={(e) => updateLine(l.id, { rate: e.target.value === "" ? null : Number(e.target.value) })} className="w-14 rounded border border-border/60 bg-transparent px-1" /></td>
+                            ) : dash}</td>
+                            <td>{fixedBaseLabel ? <span className="text-muted">{fixedBaseLabel}</span> : isPctCost ? (
+                              <span className="flex items-center gap-1">
+                                <select disabled={!editable} value={(l.calculationBase ?? "DIRECT_COST").startsWith("SUBCAT:") ? "SUBCAT" : l.calculationBase ?? "DIRECT_COST"} onChange={(e) => updateLine(l.id, { calculationBase: e.target.value === "SUBCAT" ? "SUBCAT:" : e.target.value })} className="max-w-[8rem] rounded border border-border/60 bg-transparent px-1">
+                                  {["DIRECT_COST", "PROCUREMENT", "LANDED", "CAPITAL"].map((b) => <option key={b} value={b}>{({ DIRECT_COST: "直接成本", PROCUREMENT: "材料+采购", LANDED: "到岸", CAPITAL: "资本占用" } as Record<string, string>)[b]}</option>)}
+                                  {COST_CATEGORIES.map((c) => <option key={c} value={`CATEGORY:${c}`}>类别：{CAT_ZH[c] ?? c}</option>)}
+                                  <option value="SUBCAT">标记组（SUBCAT）…</option>
+                                </select>
+                                {(l.calculationBase ?? "").startsWith("SUBCAT:") ? <input disabled={!editable} placeholder="组名" value={(l.calculationBase ?? "").slice(7)} onChange={(e) => updateLine(l.id, { calculationBase: `SUBCAT:${e.target.value}` })} className="w-16 rounded border border-border/60 bg-transparent px-1" /> : null}
+                              </span>
+                            ) : dash}</td>
+                            <td>{isPctRow ? <span className="flex items-center gap-1"><input type="number" disabled={!editable} value={l.rate ?? ""} onChange={(e) => updateLine(l.id, { rate: e.target.value === "" ? null : Number(e.target.value) })} className="w-14 rounded border border-border/60 bg-transparent px-1" />{showDutyAi ? <button type="button" title="AI 识别材料并查现行关税（只建议）" disabled={advBusy != null} onClick={() => void requestAdvice("duty", l.id)} className="rounded border border-violet-300 px-1 text-[10px] text-violet-800">{advBusy === "duty" ? "…" : "AI"}</button> : null}</span> : dash}</td>
                             <td className="text-center"><input type="checkbox" disabled={!editable} checked={l.included} onChange={(e) => updateLine(l.id, { included: e.target.checked })} /></td>
-                            <td className="text-right font-mono">{money(amountOf(l.id), ccy)}</td>
+                            <td className="text-right font-mono">{unpriced && l.included ? <span className="rounded bg-amber-50 px-1 text-[10px] text-amber-800" title={unpriced}>待填</span> : money(amountOf(l.id), ccy)}</td>
                             <td>{editable ? <span className="flex gap-1"><button type="button" title="复制" onClick={() => setLines((ls) => [...ls, { ...l, id: `new-${Date.now()}`, sortOrder: l.sortOrder + 1 }])} className="text-muted">⧉</button><button type="button" title="删除" onClick={() => setLines((ls) => ls.filter((x) => x.id !== l.id))} className="text-danger">×</button></span> : null}</td>
                           </tr>
-                        ))}</tbody></table>
+                          );
+                        })}</tbody></table>
                     </div>
                   ) : null}
                 </div>
               );
             })}
+            {advice?.kind === "duty" && advice.duty ? (
+              <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-[11px]" data-testid="duty-advice">
+                <div className="flex items-center justify-between"><b>AI 关税建议：{advice.duty.ratePct}%{advice.duty.hsCodeGuess ? `（HS ≈ ${advice.duty.hsCodeGuess}）` : ""} · 置信 {advice.duty.confidence}（advisory，采用才生效）</b>{editable && advice.forLineId ? <span className="flex gap-2"><button type="button" onClick={() => { updateLine(advice.forLineId!, { rate: advice.duty!.ratePct }); setAdvice(null); }} className="rounded border border-violet-300 px-2 py-0.5">采用到关税行</button><button type="button" onClick={() => setAdvice(null)} className="rounded border border-border px-2 py-0.5 text-muted">忽略</button></span> : null}</div>
+                <p className="mt-1">{advice.duty.rationaleZh}</p>
+                <ul className="mt-1 list-disc pl-4">{advice.duty.sources.slice(0, 5).map((src, i) => <li key={i}><a href={src.url} target="_blank" rel="noreferrer" className="underline">{src.title}</a></li>)}</ul>
+                <p className="mt-1 text-[10px] text-muted">税率随政策变动（对华附加税尤甚）——采用前请点开出处核对生效日期。</p>
+              </div>
+            ) : null}
           </div>
 
           {/* Standing Offer */}
