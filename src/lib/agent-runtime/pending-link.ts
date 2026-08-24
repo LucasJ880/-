@@ -62,8 +62,11 @@ export async function rejectPendingActionsForAgentRun(input: {
   for (const a of pending) {
     // 跨组织防护：有 orgId 则必须匹配
     if (a.orgId && a.orgId !== input.orgId) continue;
-    await db.pendingAction.update({
-      where: { id: a.id },
+    // B2：条件写（pending → rejected）。快照与写入之间该行可能已被并发
+    // approve claim 为 approved（执行中）——执行中的副作用无法被取消，
+    // 不得把 approved/终态行改写成 rejected（防止「已执行却显示已拒绝」）。
+    const res = await db.pendingAction.updateMany({
+      where: { id: a.id, status: "pending" },
       data: {
         status: "rejected",
         decidedAt: now,
@@ -71,7 +74,7 @@ export async function rejectPendingActionsForAgentRun(input: {
         failureReason: input.reason || "关联任务已取消，待确认动作已拒绝",
       },
     });
-    rejected++;
+    if (res.count === 1) rejected++;
   }
 
   return rejected;
