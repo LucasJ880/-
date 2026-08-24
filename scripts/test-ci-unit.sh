@@ -123,6 +123,8 @@ npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-input.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-parser.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-gate.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-recovery-loop.test.ts
 npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts

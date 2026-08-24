@@ -177,6 +177,8 @@ run_test "Autopilot A2-P2.2 Semantic Judge Input" "npx tsx src/lib/autopilot/__t
 run_test "Autopilot A2-P2.2 Semantic Judge Parser" "npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-parser.test.ts"
 run_test "Autopilot A2-P2.2 Semantic Judge Gate" "npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-gate.test.ts"
 run_test "Autopilot A2-P2.2 Grounded Semantic Judge" "npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge.test.ts"
+run_test "Autopilot A2-P2.3 Recovery Planner" "npx tsx src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts"
+run_test "Autopilot A2-P2.3 Auto Recovery Loop" "npx tsx src/lib/autopilot/__tests__/a2p2-recovery-loop.test.ts"
 run_test "Autopilot A2-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/evaluate-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
