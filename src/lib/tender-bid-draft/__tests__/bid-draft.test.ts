@@ -120,7 +120,8 @@ async function main() {
     const tab = readFileSync(join(process.cwd(), "src/components/project-detail/tabs/workbench-tab.tsx"), "utf-8");
     ok(gd.includes('"bid_draft"') && gd.includes('import(\n      "@/lib/tender-bid-draft"') && types.includes('"bid_draft"') && menu.includes('docType: "bid_draft"') && tab.includes("<BidDraftCard"), "BD-07: docType bid_draft 四处注册 + 工作台卡片挂载");
     const gather = code("src/lib/tender-bid-draft/gather.ts");
-    ok(gather.includes('verificationStatus: { in: ["HUMAN_CONFIRMED", "SYSTEM_VERIFIED"] }') && gather.includes('startsWith: "own-result:"'), "BD-08: 能力依据只取已验证企业记忆 + 我方中标记录");
+    // B4 后企业记忆经 searchMemoryClaims 访问门读取，验证态过滤改在授权投影后收窄
+    ok(gather.includes('r.verificationStatus === "HUMAN_CONFIRMED" || r.verificationStatus === "SYSTEM_VERIFIED"') && gather.includes("searchMemoryClaims") && gather.includes('startsWith: "own-result:"'), "BD-08: 能力依据只取已验证企业记忆（经访问门）+ 我方中标记录");
   }
 
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
