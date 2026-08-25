@@ -13,7 +13,8 @@ import {
 } from "@/lib/bid-workflow/pdf-doc-types";
 
 // CJK-PDF 包：Chromium 冷启动 + 渲染需要余量（生成文档为低频动作）
-export const maxDuration = 60;
+// analyst_memo：判断层 LLM（含重试）+ Chromium 渲染双开销；60s 在生产被硬杀（2026-08-25 实测 60.4s）
+export const maxDuration = 300;
 
 const ALLOWED: GenerateDocType[] = [...PROJECT_PDF_DOC_TYPES];
 
