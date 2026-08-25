@@ -67,8 +67,8 @@ ok(
 );
 const route = read("src/app/api/projects/[id]/generate-pdf/route.ts");
 ok(
-  route.includes("maxDuration = 60"),
-  "CJK-CFG-02: 生成路由 maxDuration=60（Chromium 冷启动余量）",
+  route.includes("maxDuration = 300"),
+  "CJK-CFG-02: 生成路由 maxDuration=300（analyst_memo 判断层 LLM 含重试 + Chromium 渲染同函数；60s 生产实测被硬杀）",
 );
 const panel = read("src/components/bid-workflow/china-supplier-brief-panel.tsx");
 ok(
