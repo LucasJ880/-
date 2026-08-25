@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import {
   executePendingAction,
   rejectPendingAction,
+  B2_DUPLICATE_ERROR_CODES,
 } from "@/lib/pending-actions/executor";
 import { isTerminalPendingActionStatus } from "@/lib/pending-actions/terminal";
 import {
@@ -224,6 +225,47 @@ export async function approveApprovalItem(
       orgId: ctx.orgId,
     });
 
+    // B2：CAS 失败方 / 竞态重复请求 → 确定性重复响应，不 resume、不再执行。
+    // 语义与上方「已终态」幂等分支一致（含收敛），只是竞态窗口更晚被发现。
+    if (result.errorCode === B2_DUPLICATE_ERROR_CODES.inProgress) {
+      return {
+        ok: false,
+        status: "approved",
+        duplicate: true,
+        message: result.error,
+        errorCode: result.errorCode,
+        run: null,
+      };
+    }
+    if (
+      result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyExecuted ||
+      result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyRejected ||
+      result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyFailed
+    ) {
+      const dupOutcome =
+        result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyExecuted
+          ? ("executed" as const)
+          : result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyRejected
+            ? ("rejected" as const)
+            : ("failed" as const);
+      const run = await reconcileAfterPendingAction({
+        actionId: id,
+        orgId: before?.orgId || ctx.orgId,
+        userId: ctx.userId,
+        outcome: dupOutcome,
+      });
+      return {
+        ok: dupOutcome === "executed",
+        status: dupOutcome,
+        duplicate: true,
+        resultRef: result.resultRef,
+        message: result.message ?? result.error,
+        error: dupOutcome === "executed" ? undefined : result.error,
+        errorCode: result.errorCode,
+        run,
+      };
+    }
+
     const after = await db.pendingAction.findUnique({
       where: { id },
       select: { status: true },
@@ -380,6 +422,45 @@ export async function rejectApprovalItem(
       { userId: ctx.userId, role: ctx.role, orgId: ctx.orgId },
       ctx.note,
     );
+
+    // B2：拒绝侧的竞态确定性响应（不 resume；executed/failed 按真实终态收敛）
+    if (result.errorCode === B2_DUPLICATE_ERROR_CODES.inProgress) {
+      return {
+        ok: false,
+        status: "approved",
+        duplicate: true,
+        message: result.error,
+        errorCode: result.errorCode,
+        run: null,
+      };
+    }
+    if (
+      result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyExecuted ||
+      result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyRejected ||
+      result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyFailed
+    ) {
+      const dupOutcome =
+        result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyExecuted
+          ? ("executed" as const)
+          : result.errorCode === B2_DUPLICATE_ERROR_CODES.alreadyRejected
+            ? ("rejected" as const)
+            : ("failed" as const);
+      const run = await reconcileAfterPendingAction({
+        actionId: id,
+        orgId: before?.orgId || ctx.orgId,
+        userId: ctx.userId,
+        outcome: dupOutcome,
+      });
+      return {
+        ok: result.ok,
+        status: dupOutcome,
+        duplicate: true,
+        message: result.message ?? result.error,
+        error: result.ok ? undefined : result.error,
+        errorCode: result.errorCode,
+        run,
+      };
+    }
 
     const run = await reconcileAfterPendingAction({
       actionId: id,
