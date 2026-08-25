@@ -1,13 +1,23 @@
 # 青砚 Autopilot A2-P2.4 — Exception Routing + Validation Closure
 
-日期：2026-08-24  
-状态：**DESIGN GATE — PROPOSED_FOR_LUCAS_REVIEW**。本文件是实现前冻结规格，不是实现报告。  
+日期：2026-08-25  
+状态：**DESIGN GATE — READY_FOR_DESIGN_FINAL_REVIEW_2**。本文件是实现前冻结规格，不是实现报告。  
 实现 = NOT_STARTED · Runtime wiring = NO · Production = OFF · Prisma/migration = NO
 
 A2-P0 = CLOSED · A2-P1 = CLOSED · A2-P2.0 = CLOSED · A2-P2.1 = CLOSED · A2-P2.2 = CLOSED  
-**A2-P2.3 = CLOSED** · **A2-P2.4 = DESIGN_GATE_READY_FOR_LUCAS_REVIEW** · A3 = NOT_STARTED
+**A2-P2.3 = CLOSED** · **A2-P2.4 = READY_FOR_DESIGN_FINAL_REVIEW_2** · A3 = NOT_STARTED
 
-基线：`origin/main` = `5d1076587556ca382fbee9da6b50554231f44f49`（PR #157 merge）
+基线：`origin/main` = `a131f7e774556c3f90c4cc47c7e36a30b5eb3791`  
+（受控合入 latest main：B0/B1/B2、Approval CAS、PendingAction 基础设施。**不授权** P2.4 使用那些 runtime 系统。）
+
+Design Review blockers：
+
+```
+P24_B1_CANONICAL_ROUTE_INPUT_BINDING = CLOSED
+P24_B2_VALID_ESCALATION_ENVELOPE_TOTALITY = CLOSED
+P24_B3_EXCEPTION_ID_AUTHORITY_VERSION_BINDING = CLOSED
+P24_B4_SAFE_EVIDENCE_MINIMIZATION = CLOSED
+```
 
 权威函数 / 类型（沿用已合入代码，不得另造同义词）：
 
@@ -64,7 +74,7 @@ P2.1–P2.3 已经能建包、裁决、有界恢复。
 
 P2.4 **回答**：
 
-- 何时允许物化 exception？仅当 `routeEvaluation().decision === HUMAN_ESCALATE`。
+- 何时允许物化 exception？仅当**规范** `routeEvaluation()` 在同一快照上返回 `HUMAN_ESCALATE`。route-shaped 对象不够。
 - `A2P2ExceptionEnvelopeV1` 的冻结字段、隐私边界、确定性 identity。
 - A2 终态如何对应「零或一份 envelope」。
 - A2 闭合验证矩阵与验收不变量。
@@ -85,10 +95,11 @@ P2.4 **不回答**：
 ## 3. 权威模型（沿用，不得改写）
 
 1. **P2.0 `routeEvaluation()` 是唯一路由权威，也是唯一终态路由权威。**  
-   `P2_4_ROUTE_AUTHORITY = P2_0_ROUTE_EVALUATION_ONLY`。P2.4 **不得**改 `decision` / `reasonCode` / `allowedNextActions`。
+   `P2_4_ROUTE_AUTHORITY = NO` · `P2_4_ROUTE_LOGIC = ZERO` · `P2_4_CANONICAL_ROUTE_VERIFICATION = P2_0_ROUTE_EVALUATION_ONLY`。  
+   形状像 route 的对象 **不是** 权威。P2.4 必须用同一快照重建 `EvaluationRouteInput` 并**现调**既有 `routeEvaluation()`。不得抄写或重实现路由规则。
 2. **P2.4 不是 Judge。** 不得调用、重跑或覆盖 `runSemanticJudge()`。不得把 provider 不可用 / 畸形提案解释成任务失败或人工升级。
 3. **P2.4 不是 Router。** 不得把 `AUTO_ABSTAIN` / `AUTO_RECOVER` / `POLICY_BLOCKED` / `AUTO_FINALIZE` / `AUTO_WAIT` 转成 `HUMAN_ESCALATE`。
-4. **P2.4 不是 Approval 系统。** 不得创建 `PendingAction` / `ApprovalRequest` / 通知 / 队列 / worker / 人审表。
+4. **P2.4 不是 Approval 系统。** 即使 latest main 已有 PendingAction / Approval CAS / `src/lib/approval/port.ts` / `src/lib/pending-actions/executor.ts`，P2.4 **不得** import、调用、创建或持久化它们，也不得发通知或写 AuditLog。
 5. **证据权威仍是 P2.1。** 不得创建/改写 `EvidenceFact`、`EvidenceRef`、`packetHash`、requirement assessment、`packet.status`。
 6. **恢复权威仍是 P2.3。** 不得重跑 recovery、扩白名单、把 adapter 错误写成任务失败。
 7. **HIGH / RESTRICTED 硬人工底线仍是 P2.0 B9。** 合同 / Judge / Recovery / P2.4 都不得降级。
@@ -98,7 +109,7 @@ P2.4 **不回答**：
 
 沿用句式：
 
-**P2.4 MATERIALIZES HUMAN_ESCALATE ONLY. IT NEVER ROUTES. IT NEVER JUDGES. IT NEVER RECOVERS. IT NEVER APPROVES. ENVELOPE CONTAINS HASHES / SAFE IDS / CLOSED ENUMS ONLY.**
+**P2.4 NEVER ROUTES. IT CALLS EXISTING routeEvaluation() ON ONE BOUND SNAPSHOT. A ROUTE-SHAPED OBJECT IS NOT AUTHORITY. VALID HUMAN_ESCALATE ALWAYS YIELDS EXACTLY ONE BOUNDED ENVELOPE. IT NEVER JUDGES. IT NEVER RECOVERS. IT NEVER APPROVES. IT NEVER TOUCHES PendingAction / Approval CAS.**
 
 ---
 
@@ -113,8 +124,8 @@ V1 验证矩阵以已实现的 A2 链为准，默认域仍是 `TENDER_ANALYSIS`�
 
 | 项 | 说明 |
 |---|---|
-| 纯函数 `buildExceptionEnvelope()` | 输入已有合同/包/Judge 适配态/recovery 态/P2.0 route |
-| `A2P2ExceptionEnvelopeV1` | 内存结构；确定性 `exceptionId` |
+| 纯函数 `buildExceptionEnvelope()` | 输入同一快照的合同/包/evaluation/recovery/budget/policySignals；内部现调 `routeEvaluation()` |
+| `A2P2ExceptionEnvelopeV1` | 内存结构；确定性 `exceptionId`；展示集合有界投影 |
 | 纯测试 harness | 调用现有 `parseTaskContract` / `buildEvidencePacket` / 注入式 Judge / `runAutoRecoveryLoop` / `routeEvaluation` / `buildExceptionEnvelope` |
 | 闭集枚举复制 | 只引用 P2.0–P2.3 已冻结枚举 |
 
@@ -129,7 +140,7 @@ V1 验证矩阵以已实现的 A2 链为准，默认域仍是 `TENDER_ANALYSIS`�
 | `AUTO_*` → `HUMAN_ESCALATE` 转换 | 无 helpful escalation |
 | 创建 Evidence / 改 packet | 证据权威 = P2.1 |
 | 调用 `runSemanticJudge()` 作为 P2.4 权威 | Judge 权威 = P2.2；harness 可注入调用以验证闭合，不得由 envelope 代码调用 |
-| Prisma / migration / 新表 / AuditLog / PendingAction 写路径 | V1 不持久化 |
+| Prisma / migration / 新表 / AuditLog / PendingAction / ApprovalRequest / approval port / approval executor | V1 不持久化；latest main 的 CAS 基础设施也不可用 |
 | 邮件 / Slack / 企微 / 任务指派 | 后期 runtime 集成 |
 | APPROVE / REJECT / EDIT / RETRY / RESUME | 人类响应生命周期另开设计 |
 | Production flags | 本 Gate 不关闭激活 blocker |
@@ -143,21 +154,55 @@ V1 验证矩阵以已实现的 A2 链为准，默认域仍是 `TENDER_ANALYSIS`�
 冻结：
 
 ```
-P2_4_ROUTE_AUTHORITY = P2_0_ROUTE_EVALUATION_ONLY
+P2_4_ROUTE_AUTHORITY = NO
+P2_4_ROUTE_LOGIC = ZERO
+P2_4_CANONICAL_ROUTE_VERIFICATION = P2_0_ROUTE_EVALUATION_ONLY
 ```
 
-### 5.1 唯一资格条件
+形状像 `EvaluationRouteDecision` 的对象 **不是** 权威。P2.4 不得信任调用方传入的 `decision` / `reasonCode`，也不得复制 P2.0 优先级表。
 
-`buildExceptionEnvelope()` 可以产出 envelope **当且仅当**：
+### 5.1 规范输入：同一快照 + 现调 `routeEvaluation()`
+
+未来 `buildExceptionEnvelope` 必须接收足够的规范权威输入，以重建**恰好一份**既有 `EvaluationRouteInput`，并调用**现有** `routeEvaluation()`：
+
+- validated contract（经 `parseTaskContract()` 的同一结果；未校验则无信封）
+- packet（当前 `SemanticEvidencePacketV1`；`evidenceState.status` 由 `toEvaluationEvidenceStatus(packet.status)` 得出）
+- evaluation state（`verdictState` + `outcome`，来自 `toP2EvaluationState` 或与之绑定的同一 Judge 快照）
+- recovery state
+- budget state
+- policy signals
+
+上述字段必须来自**同一 routing snapshot**。禁止 mix-and-match（例如合同来自快照 A、packet 来自快照 B、recovery 来自快照 C）。
+
+未来必测：
 
 ```
-routeEvaluation(input).decision === "HUMAN_ESCALATE"
+MIXED_AUTHORITY_SNAPSHOTS_REJECTED = PASS
 ```
 
-且该 `route` 对象本身是 `routeEvaluation()` 的返回值（或测试中对该返回值的只读拷贝）。  
-P2.4 **不得**根据 packet / Judge / recovery 自己「推断应该人工」。
+### 5.2 唯一资格条件
 
-### 5.2 明确禁止的转换
+Envelope 可以存在 **当且仅当** 该次规范调用：
+
+```
+routeEvaluation(reconstructedInput).decision === "HUMAN_ESCALATE"
+```
+
+若调用方同时提供 `expectedRoute`：
+
+要求与规范 `routeEvaluation()` 结果 **精确相等**：
+
+- `routerVersion`
+- `decision`
+- `reasonCode`
+- `allowedNextActions`（按既有数组顺序精确相等）
+
+任一字段不等 → `{ ok: false, reason: "EXPECTED_ROUTE_MISMATCH", envelope: null }`。
+
+P2.4 **不得**根据 packet / Judge / recovery 自己「推断应该人工」。  
+`P2_4_ROUTE_LOGIC = ZERO`：不得在 P2.4 内重写 HIGH 底线、legal 信号、预算耗尽等规则。
+
+### 5.3 明确禁止的转换
 
 | 输入 decision | P2.4 行为 |
 |---|---|
@@ -170,7 +215,7 @@ P2.4 **不得**根据 packet / Judge / recovery 自己「推断应该人工」�
 
 `POLICY_BLOCKED` 即使伴随 `POLICY_BLOCKED_PRIVACY` / `POLICY_BLOCKED_L5_RESTRICTED` 也 **不是** human-review envelope。那是策略阻断，不是人工评审。
 
-### 5.3 无 helpful / LLM / heuristic escalation
+### 5.4 无 helpful / LLM / heuristic escalation
 
 禁止：
 
@@ -191,30 +236,49 @@ P2.4 **不得**根据 packet / Judge / recovery 自己「推断应该人工」�
 P2.4 **不**发明平行风险词表。  
 既有 `EVALUATION_ESCALATION_REASONS`（合同层）**不是** P2.4 envelope 的 `routeReasonCode` 权威。
 
-Envelope 的 `routeReasonCode` **必须等于** 本次 `routeEvaluation().reasonCode`，且必须属于已冻结：
+冻结闭集（仅当前 P2.0 能与 `HUMAN_ESCALATE` **实际配对**的 reason）：
 
 ```
-EVALUATION_ROUTE_REASON_CODES
+P2_4_HUMAN_ESCALATION_REASON_CODES =
+  HUMAN_ESCALATION_L0_HUMAN_CONTROLLED
+  HUMAN_ESCALATION_LEGAL_COMMITMENT
+  HUMAN_ESCALATION_FINANCIAL_COMMITMENT
+  HUMAN_ESCALATION_EXTERNAL_SIDE_EFFECT
+  HUMAN_ESCALATION_IRREVERSIBLE_ACTION
+  HUMAN_ESCALATION_HIGH_RISK
+  HUMAN_ESCALATION_CONTRACT_POLICY
+  HUMAN_ESCALATION_GOAL_AMBIGUOUS
+  HUMAN_ESCALATION_EVIDENCE_CONFLICT
+  HUMAN_ESCALATION_RECOVERY_EXHAUSTED
+  BUDGET_EXHAUSTED
 ```
 
-P2.0 已存在的 `HUMAN_ESCALATE` reasonCode（P2.4 只抄写，不推断）：
-
-| reasonCode | 谁决定 |
+| reasonCode | 谁决定（P2.0，P2.4 不推断） |
 |---|---|
-| `HUMAN_ESCALATION_L0_HUMAN_CONTROLLED` | P2.0 automation policy |
-| `HUMAN_ESCALATION_LEGAL_COMMITMENT` | P2.0 `policySignals.legalCommitment` |
-| `HUMAN_ESCALATION_FINANCIAL_COMMITMENT` | P2.0 `policySignals.financialCommitment` |
-| `HUMAN_ESCALATION_EXTERNAL_SIDE_EFFECT` | P2.0 `policySignals.externalSideEffect` |
-| `HUMAN_ESCALATION_IRREVERSIBLE_ACTION` | P2.0 `policySignals.irreversibleAction` |
-| `HUMAN_ESCALATION_HIGH_RISK` | P2.0 `HARD_HUMAN_RISK_CLASSES`（HIGH / RESTRICTED 走此码；P2.4 不另造 RESTRICTED 码） |
+| `HUMAN_ESCALATION_L0_HUMAN_CONTROLLED` | automation policy L0 |
+| `HUMAN_ESCALATION_LEGAL_COMMITMENT` | `policySignals.legalCommitment` |
+| `HUMAN_ESCALATION_FINANCIAL_COMMITMENT` | `policySignals.financialCommitment` |
+| `HUMAN_ESCALATION_EXTERNAL_SIDE_EFFECT` | `policySignals.externalSideEffect` |
+| `HUMAN_ESCALATION_IRREVERSIBLE_ACTION` | `policySignals.irreversibleAction` |
+| `HUMAN_ESCALATION_HIGH_RISK` | `HARD_HUMAN_RISK_CLASSES`（HIGH / RESTRICTED 走此码；P2.4 不另造 RESTRICTED 码） |
 | `HUMAN_ESCALATION_CONTRACT_POLICY` | 合同把 LOW/MEDIUM 加入 `requireHumanForRisk` |
 | `HUMAN_ESCALATION_GOAL_AMBIGUOUS` | 歧义且恢复不可执行 |
 | `HUMAN_ESCALATION_EVIDENCE_CONFLICT` | `CONFLICTING` 且无剩余安全恢复 |
 | `HUMAN_ESCALATION_RECOVERY_EXHAUSTED` | 中高风险未决且恢复不可执行 |
 | `BUDGET_EXHAUSTED` | 预算耗尽；LOW → P2.0 `AUTO_ABSTAIN`，非 LOW → `HUMAN_ESCALATE` |
 
-P2.4 看到这些码时，只验证 `decision === HUMAN_ESCALATE` 且码属于闭集。  
-**不得**从 `legalCommitment` 等信号自己重算。
+Envelope 的 `routeReasonCode` **必须等于** 本次规范 `routeEvaluation().reasonCode`，且必须属于 `P2_4_HUMAN_ESCALATION_REASON_CODES`。
+
+永不接受不兼容配对，例如：
+
+```
+HUMAN_ESCALATE + AUTO_FINALIZED_SUFFICIENT_EVIDENCE
+HUMAN_ESCALATE + POLICY_BLOCKED_PRIVACY
+HUMAN_ESCALATE + AUTO_RECOVERY_MISSING_EVIDENCE
+```
+
+此类配对是权威输入畸形：拒绝信封。  
+规范 `routeEvaluation()` 仍是主键；闭集只做绑定检查，不替代路由。
 
 ---
 
@@ -232,8 +296,8 @@ A2 评价链的终端处理（P2.4 V1）：
 | `AUTO_WAIT` | 暂停，非人工终态 | **无** |
 
 P2.4 **不得改变**上述 decision。  
-同一终端状态（见 §9 identity 输入）必须得到同一 `exceptionId`。  
-同一 `HUMAN_ESCALATE` 终端不得产出两份不同身份的 envelope。
+规范 `HUMAN_ESCALATE` **必须**仍产出恰好一份信封（展示集合过大时做有界投影，不得整封丢弃）。  
+同一权威终端状态（见 §9）必须得到同一 `exceptionId`。
 
 ---
 
@@ -255,25 +319,32 @@ A2P2_EXCEPTION_IDENTITY_VERSION = "a2p2-exception-identity-v1"
 |---|---|---|---|
 | `version` | `"a2p2-exception-envelope-v1"` | 常量 | 否（identity 用独立 version） |
 | `exceptionId` | `sha256` hex 64 | §9 | 否（它是输出） |
-| `taskType` | `A2P2DomainId` | `parseTaskContract().contract.taskType` | 否（已由 semanticContractHash 覆盖） |
+| `taskType` | `A2P2DomainId` | 同一快照的 validated contract | 否 |
 | `semanticContractHash` | hex 64 | 合同 / packet.contract | **是** |
 | `packetHash` | hex 64 | `SemanticEvidencePacketV1.packetHash` | **是** |
-| `routeDecision` | `"HUMAN_ESCALATE"` 字面量 | `route.decision` | 否（资格已要求该值） |
-| `routeReasonCode` | `EvaluationRouteReasonCode` | `route.reasonCode` | **是** |
+| `judgeProposalHash` | hex 64 或 `null` | `SemanticJudgeDecision.proposalHash ?? null`（§8.7） | **是** |
+| `routeDecision` | `"HUMAN_ESCALATE"` 字面量 | **规范** `routeEvaluation().decision` | 否 |
+| `routeReasonCode` | `P2_4_HUMAN_ESCALATION_REASON_CODES` | **规范** `routeEvaluation().reasonCode` | **是** |
+| `routerVersion` | 既有 `A2P2_ROUTER_VERSION` | **规范** `routeEvaluation().routerVersion` | **是** |
 | `riskClass` | `LOW \| MEDIUM \| HIGH \| RESTRICTED` | 合同 | 否 |
 | `automationLevel` | 既有 `AutomationLevel` | 合同 | 否 |
-| `requiredRequirementIds` | `string[]` 排序、去重、≤16 | 合同 `requirements` 中 `required === true` | 否 |
-| `problemRequirementIds` | `string[]` 排序、去重、≤16 | §8.3 | **是** |
+| `requiredRequirementCount` | 有限非负整数 | 全量 eligible required id 数 | 否 |
+| `requiredRequirementIds` | `string[]` 确定性前缀，≤16 | §8.3 有界投影 | 否 |
+| `requiredRequirementsTruncated` | boolean | `count > displayed.length` | 否 |
+| `problemRequirementCount` | 有限非负整数 | 全量 eligible problem id 数 | 否 |
+| `problemRequirementIds` | `string[]` 确定性前缀，≤16 | §8.3 有界投影 | 否 |
+| `problemRequirementsTruncated` | boolean | `count > displayed.length` | 否 |
 | `evidenceStatus` | `EvaluationEvidenceStatus` | `toEvaluationEvidenceStatus(packet.status)` | 否 |
-| `evaluationOutcome` | `TASK_SUCCESS \| PARTIAL_SUCCESS \| FAILURE \| UNKNOWN` | `toP2EvaluationState` 或等价只读输入 | **是** |
+| `evaluationOutcome` | `TASK_SUCCESS \| PARTIAL_SUCCESS \| FAILURE \| UNKNOWN` | 同一 Judge/evaluation 快照 | **是** |
 | `verdictState` | `NOT_EVALUATED \| PROPOSED \| ACCEPTED \| ABSTAINED` | 同上 | **是** |
-| `recoveryStatus` | `EvaluationRecoveryStatus` | P2.3 `recoveryState.status` 或路由输入 | **是** |
+| `recoveryStatus` | `EvaluationRecoveryStatus` | 同一 recovery 快照 | **是** |
 | `recoveryCyclesUsed` | 有限非负整数 | recovery/budget | 否 |
-| `recoveryAttemptKeys` | hex 64 数组，≤16，排序去重 | P2.3 `recoveryState.attemptKeys` | 否（只引用，不重算） |
-| `safeEvidenceRefs` | §8.4 | packet 已接受的 `evidenceRef` | 否 |
-| `safeSummary` | §8.5 | 由 `routeReasonCode` 生成的闭集摘要 | 否 |
-| `observedAt` | ISO-8601 或 `null` | **调用方提供**；P2.4 不读系统时钟作为权威 | 否 |
-| `routerVersion` | 既有 `A2P2_ROUTER_VERSION` | `route.routerVersion` | 否 |
+| `recoveryAttemptKeys` | hex 64 数组，≤16，排序去重 | P2.3 `attemptKeys` 只读投影；超 16 条同样有界前缀，不丢信封 | 否 |
+| `safeEvidenceRefCount` | 有限非负整数 | 全量 eligible safe ref 数 | 否 |
+| `safeEvidenceRefs` | ≤32，§8.4 | 确定性前缀 | 否 |
+| `safeEvidenceRefsTruncated` | boolean | `count > displayed.length` | 否 |
+| `safeSummary` | §8.5 | 由规范 `routeReasonCode` 生成的闭集摘要 | 否 |
+| `observedAt` | ISO-8601 或 `null` | **调用方提供**；P2.4 不读系统时钟 | 否 |
 
 禁止额外字段，包括但不限于：`rawPrompt`、`modelOutput`、`emailBody`、`facts`、`normalizedValue`、`factSummary`、`delta`、`ledger`、`diagnostics.detail`、`goalSummary` 原文、任意 `unknown` JSON。
 
@@ -281,59 +352,90 @@ A2P2_EXCEPTION_IDENTITY_VERSION = "a2p2-exception-identity-v1"
 
 `buildExceptionEnvelope(raw: unknown)` 必须对任意运行时值 never-throw。
 
-若 `route.decision !== "HUMAN_ESCALATE"` → `{ ok: false, reason: "NOT_HUMAN_ESCALATE", envelope: null }`。
+若规范 `routeEvaluation().decision !== "HUMAN_ESCALATE"` → `{ ok: false, reason: "NOT_HUMAN_ESCALATE", envelope: null }`。
 
-若资格满足但任一权威字段缺失/类型非法/hash 非 64 hex/枚举越界/数组超界/出现禁止键：
+仅当权威输入畸形/不安全时拒绝信封，例如：
+
+- mix-and-match 快照
+- `expectedRoute` 与规范结果不等
+- hash 非 64 hex、枚举越界、禁止键、循环/BigInt
+- `proposalStatus === "VALID"` 但缺少合法 `proposalHash`
+- `HUMAN_ESCALATE` 配上不在 `P2_4_HUMAN_ESCALATION_REASON_CODES` 的 reason
 
 ```
-{ ok: false, reason: "ENVELOPE_INPUT_INVALID", envelope: null }
+{ ok: false, reason: "ENVELOPE_INPUT_INVALID" | "EXPECTED_ROUTE_MISMATCH" | "MIXED_AUTHORITY_SNAPSHOTS", envelope: null }
 ```
 
-**不得**为了「能给人类看」而填 `doc-1`、page 1、`HIGH` confidence、假 hash。  
-无合法信封优于伪造信封。
+**展示集合过大不得拒绝信封。** 用 §8.3 有界投影。  
+合法上游 `HUMAN_ESCALATE` **必须**仍产出恰好一份 envelope。
+
+**不得**为了「能给人类看」而填 `doc-1`、page 1、`HIGH` confidence、假 hash。
 
 循环结构 / BigInt / 畸形对象：不得对未校验 `unknown` 做会抛的 `JSON.stringify`。只解析已知字段。
 
-### 8.3 `problemRequirementIds`
+未来必测：
 
-只允许从**已存在**的评估结果投影，禁止猜测：
+```
+VALID_17_REQUIRED_HUMAN_ESCALATE_HAS_ENVELOPE = PASS
+VALID_MANY_PROBLEM_REQUIREMENTS_HAS_BOUNDED_ENVELOPE = PASS
+VALID_MORE_THAN_32_SAFE_REFS_HAS_BOUNDED_ENVELOPE = PASS
+DISPLAY_OVERFLOW_DOES_NOT_DROP_EXCEPTION = PASS
+```
 
-允许来源（取并集，再与合同 requirement id 相交）：
+### 8.3 有界确定性投影（totality）
 
-1. P2.1 `requirementAssessments` 中 `state !== "READY"` 且 `required` 的 id  
-   （沿用现有 `RequirementEvidenceState`；不得把 READY 标成 problem）
-2. 若 Judge `proposalStatus === "VALID"` 且存在逐条判断：required 且 `judgment !== "SATISFIED"` 的 id
+对 `requiredRequirementIds` / `problemRequirementIds` / `safeEvidenceRefs`：
 
-禁止：
+1. 先得到全量 eligible 集合
+2. **确定性排序**（id / evidenceRef 用 `localeCompare`）
+3. 展示数组 = 排序后的确定性前缀（required/problem ≤16，safe refs ≤32）
+4. `*Count` = **全量** eligible 数（不是展示长度）
+5. `*Truncated === true` 当且仅当 `fullCount > displayed.length`
 
-- 从 adapter payload / raw JSON 扫 id
-- 把未请求的 id 注入（与 P2.3 binding 同一精神）
-- 为空时发明 `mandatory_requirements`
+`problemRequirementIds` 全量来源（取并集，再与合同 requirement id 相交）：
 
-排序：`localeCompare`。重复删除。超过 16 条 → 输入非法，拒绝信封（fail-closed，不截断伪装完整）。
+1. P2.1 `requirementAssessments` 中 `state !== "READY"` 且该 requirement `required` 的 id
+2. 若 Judge `proposalStatus === "VALID"`：required 且 `judgment !== "SATISFIED"` 的 id
 
-### 8.4 `safeEvidenceRefs`
+禁止从 adapter payload / raw JSON 扫 id，禁止发明 `mandatory_requirements`。
 
-闭集元素：
+全量为空是合法的（例如 HIGH 风险 + 证据 READY）：`problemRequirementCount = 0`，展示 `[]`，`truncated = false`，信封仍必须存在。
+
+### 8.4 `safeEvidenceRefs`（最小化）
+
+闭集元素 **仅**：
 
 ```
 {
-  evidenceRef: string,          // packet 已有
+  evidenceRef: string,
   requirementId: string,
   evidenceKind: EvaluationEvidenceKind,
-  canonicalFactHash: string     // packet 已有
+  canonicalFactHash: string
 }
 ```
 
-规则：
+Never include：`factSummary` · `normalizedValue` · raw locator / page body · source text · model rationale。
+
+准入：
 
 - 必须能在当前 packet `evidenceFacts` 中精确匹配
-- `acceptance` 必须已是 P2.1 接受态（不得放入 rejected）
-- **不含** `factSummary` / `normalizedValue` / locator page body / source 原文
-- 条数上限 32；超限 → 拒绝信封
-- 孤儿 ref / 与 packetHash 不一致 → 拒绝信封
+- `acceptance` **恰好**为 `COLLECTED` 或 `REDACTED`
+- **永不** `BLOCKED`
+- V1 进一步限制：只属于**展示中的** `problemRequirementIds`
+- 若展示 `problemRequirementIds` 为空：`safeEvidenceRefs = []`，`safeEvidenceRefCount = 0`，`truncated = false`
+- 不得枚举无关成功证据（其他 requirement 的 READY 事实）
 
-这不是新的证据权威，只是 P2.1 已接受 EvidenceRef 的只读投影。
+孤儿 ref / 与 packetHash 不一致 → 权威畸形，拒绝信封（这不是展示溢出）。
+
+这不是新的证据权威，只是 P2.1 已接受 EvidenceRef 的只读最小化投影。
+
+未来必测：
+
+```
+BLOCKED_EVIDENCE_REF_NOT_EXPOSED = PASS
+UNRELATED_REQUIREMENT_EVIDENCE_NOT_EXPOSED = PASS
+EMPTY_PROBLEM_SET_HAS_ZERO_SAFE_EVIDENCE_REFS = PASS
+```
 
 ### 8.5 `safeSummary`
 
@@ -354,6 +456,22 @@ P2.2 rationale 即使 ≤160 也 **不得**进入 envelope（仍属模型输出�
 
 禁止用 `Date.now()` 作为 identity。禁止随机 UUID 作为 identity。
 
+### 8.7 `judgeProposalHash`
+
+安全字段：`judgeProposalHash: hex64 | null`
+
+来源 **只** 允许：
+
+```
+SemanticJudgeDecision.proposalHash ?? null
+```
+
+规则：
+
+- Judge 未调用 / `proposalStatus !== "VALID"` / 无提案：`null` 合法
+- 若 `proposalStatus === "VALID"`：`proposalHash` **必须存在且为合法 hex64**，否则权威畸形，拒绝信封
+- 不得从模型输出重算 hash，不得用 packetHash 冒充
+
 ---
 
 ## 9. 确定性 exception identity
@@ -361,24 +479,48 @@ P2.2 rationale 即使 ≤160 也 **不得**进入 envelope（仍属模型输出�
 ```
 exceptionId = sha256Hex(canonicalJson({
   version: "a2p2-exception-identity-v1",
+  routerVersion,
   semanticContractHash,
   packetHash,
   routeReasonCode,
   evaluationOutcome,
   verdictState,
-  recoveryStatus,
-  problemRequirementIds: sortedUnique(problemRequirementIds),
+  judgeProposalHash,
+  recoveryStatus
 }))
 ```
 
+绑定理由：
+
+- `packetHash` 绑定 P2.1 状态
+- `judgeProposalHash` 绑定 P2.2 提案
+- `routerVersion` 绑定路由语义
+
+**不**参与 identity：
+
+- `problemRequirementIds` / `problemRequirementCount` / truncated 标志
+- `safeEvidenceRefs` / count / truncated
+- `requiredRequirementIds` / count / truncated
+- `observedAt`
+- `recoveryAttemptKeys`
+- `safeSummary`
+
+因此展示截断 **不得** 改变 `exceptionId`。
+
 要求：
 
-- 使用既有 P2.1 `canonicalJson` + `sha256Hex`（不得另写会抛的 serializer）
-- 同一终端状态 → 同一 `exceptionId`
-- `observedAt` / `safeSummary` / `safeEvidenceRefs` / `recoveryAttemptKeys` **不**进入 identity（避免展示投影改变身份）
+- 使用既有 P2.1 `canonicalJson` + `sha256Hex`
+- 同一权威终端状态 → 同一 `exceptionId`
 - 禁止 `crypto.randomUUID()` 作为权威 id
+- identity 输入不齐 → 不生成信封（权威畸形，不是展示溢出）
 
-若 identity 输入不齐，不生成信封。
+未来必测：
+
+```
+ROUTER_VERSION_CHANGES_EXCEPTION_ID = PASS
+JUDGE_PROPOSAL_CHANGE_CHANGES_EXCEPTION_ID = PASS
+DISPLAY_TRUNCATION_DOES_NOT_CHANGE_EXCEPTION_ID = PASS
+```
 
 ---
 
@@ -395,7 +537,7 @@ Never include：
 - `PROHIBITED` 隐私类事实
 - 被 P2.1 拒绝的 evidence 的原文
 
-只使用：hashes、safe ids、closed enums、红acted/闭集 summary、P2.1 已接受的 EvidenceRef。
+只使用：hashes、safe ids、closed enums、红acted/闭集 summary、仅 `COLLECTED`/`REDACTED` 且属于展示 problem requirements 的 EvidenceRef。
 
 `PRIVACY_LEAK_PATHS = ZERO`
 
@@ -412,26 +554,28 @@ CASE 10：`POLICY_BLOCKED_PRIVACY` **不**产信封。即使错误地被调用�
 | P2.2 | 语义 outcome / verdictState | 调 Judge 作为 envelope 副作用；把 UNAVAILABLE 当 FAILURE |
 | P2.3 | 有界 recovery / attempt key | 重跑 loop、把 NO_PROGRESS 当任务失败 |
 
-P2.4 只读上述输出。
+P2.4 只读上述输出。不复制路由表。不把 route-shaped 对象当权威。
 
 ---
 
 ## 12. 人类评审 ≠ Approval 引擎
 
-V1 **不得**创建：
+即使 latest main 已合入 B0/B1/B2 与 Approval CAS，P2.4 V1 **不得** import、调用、创建或持久化：
 
 - `PendingAction`
-- `ApprovalRequest` / approval port request
-- email / Slack / WeChat 通知
-- 任务指派
-- human-review DB table
-- queue job / worker job / cron / outbox
+- `ApprovalRequest` / approval port（含 `src/lib/approval/port.ts`）
+- approval executor / `src/lib/pending-actions/executor.ts`
+- agent runtime / `pending-link`
+- worker / queue / notification
+- AuditLog 写路径
 
 只产生内存中的 `A2P2ExceptionEnvelopeV1`。
 
-`EXCEPTION_ENVELOPE_PERSISTENCE = NONE`  
-`PENDING_ACTION_CREATED = NO`  
-`APPROVAL_REQUEST_CREATED = NO`
+```
+EXCEPTION_ENVELOPE_PERSISTENCE = NONE
+PENDING_ACTION_CREATED = NO
+APPROVAL_REQUEST_CREATED = NO
+```
 
 真实人类工作流集成属于**后续单独审查的 runtime/integration 阶段**，不是 P2.4 V1，也不是 A3。
 
@@ -576,7 +720,7 @@ P2.4 不得因为 PARTIAL 就升级或阻止 finalize。
 
 ### CASE 7 — HIGH risk
 
-期望：`HUMAN_ESCALATE` + `HUMAN_ESCALATION_HIGH_RISK` · 恰好一份信封 · 即使 Judge 说 TASK_SUCCESS 也不得 `AUTO_FINALIZE`
+期望：`HUMAN_ESCALATE` + `HUMAN_ESCALATION_HIGH_RISK` · 恰好一份信封 · 即使 Judge 说 TASK_SUCCESS 也不得 `AUTO_FINALIZE` · problem 集可空 → `safeEvidenceRefs = []`
 
 ### CASE 8 — RESTRICTED risk
 
@@ -610,6 +754,22 @@ P2.4 不得因为 PARTIAL 就升级或阻止 finalize。
 
 期望：无偶然人工升级 · 无假 `SUFFICIENT` · P2.4 不发明 envelope
 
+### Envelope 必测（B1–B4）
+
+| 测试 | 期望 |
+|---|---|
+| `MIXED_AUTHORITY_SNAPSHOTS_REJECTED` | 混用合同/包/recovery/budget/policy 快照 → 无信封 |
+| `VALID_17_REQUIRED_HUMAN_ESCALATE_HAS_ENVELOPE` | 17 条 required + 规范 HUMAN_ESCALATE → **仍有**信封；`requiredRequirementCount=17`；展示 16；`truncated=true` |
+| `VALID_MANY_PROBLEM_REQUIREMENTS_HAS_BOUNDED_ENVELOPE` | 大量 problem ids → 仍有信封；count=全量；展示 ≤16 |
+| `VALID_MORE_THAN_32_SAFE_REFS_HAS_BOUNDED_ENVELOPE` | >32 eligible refs → 仍有信封；展示 ≤32 |
+| `DISPLAY_OVERFLOW_DOES_NOT_DROP_EXCEPTION` | 展示溢出 ≠ 丢异常 |
+| `ROUTER_VERSION_CHANGES_EXCEPTION_ID` | `routerVersion` 变则 `exceptionId` 变 |
+| `JUDGE_PROPOSAL_CHANGE_CHANGES_EXCEPTION_ID` | `judgeProposalHash` 变则 `exceptionId` 变 |
+| `DISPLAY_TRUNCATION_DOES_NOT_CHANGE_EXCEPTION_ID` | 截断标志/展示前缀变化不改 identity |
+| `BLOCKED_EVIDENCE_REF_NOT_EXPOSED` | `acceptance === BLOCKED` 不得出现 |
+| `UNRELATED_REQUIREMENT_EVIDENCE_NOT_EXPOSED` | 非展示 problem requirement 的证据不得出现 |
+| `EMPTY_PROBLEM_SET_HAS_ZERO_SAFE_EVIDENCE_REFS` | problem 为空 → `safeEvidenceRefs = []` |
+
 ---
 
 ## 19. A2 闭合不变量（未来验收冻结）
@@ -627,6 +787,8 @@ MODEL_ROUTE_AUTHORITY = NO
 MODEL_ESCALATION_AUTHORITY = NO
 RECOVERY_ROUTE_AUTHORITY = NO
 P2_4_ROUTE_AUTHORITY = NO
+P2_4_ROUTE_LOGIC = ZERO
+P2_4_CANONICAL_ROUTE_VERIFICATION = P2_0_ROUTE_EVALUATION_ONLY
 UNKNOWN_ALWAYS_HUMAN = NO
 UNKNOWN_AUTO_ESCALATION_HEURISTIC = ZERO
 PROVIDER_FAILURE_EQUALS_TASK_FAILURE = NO
@@ -636,7 +798,8 @@ P2_3_TERMINAL_ROUTE_AUTHORITY = P2_0_ROUTE_EVALUATION_ONLY
 RUN_SEMANTIC_JUDGE_CALL_COUNT_FROM_ENVELOPE_CODE = 0
 ```
 
-`P2_4_ROUTE_AUTHORITY = NO` 表示 P2.4 **自身**没有路由权；路由权只在 P2.0。
+`P2_4_ROUTE_AUTHORITY = NO` 表示 P2.4 **自身**没有路由权。  
+`P2_4_CANONICAL_ROUTE_VERIFICATION = P2_0_ROUTE_EVALUATION_ONLY` 表示资格只来自现调既有 `routeEvaluation()`。
 
 ---
 
@@ -657,7 +820,7 @@ RUN_SEMANTIC_JUDGE_CALL_COUNT_FROM_ENVELOPE_CODE = 0
 - live LLM / live network
 - Production DB / migrate
 - 改 processor / outbox / capture
-- 从 envelope 模块 import agent-runtime / workforce-runtime / executor
+- 从 envelope 模块 import agent-runtime / workforce-runtime / executor / approval port / pending-actions
 
 P2.4 V1 **不要求** Production E2E。
 
@@ -705,9 +868,12 @@ NO new table
 NO write path
 NO AuditLog write
 NO PendingAction write
+NO ApprovalRequest write
+NO approval port / executor call
 ```
 
 ExceptionEnvelope = 纯内存。  
+latest main 的 Approval CAS / PendingAction 基础设施 **不**构成 P2.4 授权。  
 持久化是后续 integration concern，需单独审查。
 
 ```
@@ -766,7 +932,11 @@ KPI 仍是 P2.0 设计目标，不是本阶段实测：自动评价 ≥ 95% · �
 | LLM 生成 envelope summary / 决定是否升级 | `MODEL_ESCALATION_AUTHORITY = NO` |
 | P2.4 修改 packet 让人类更好懂 | 证据权威 = P2.1 |
 | 在 envelope 内存 Tender 原文 | 隐私 / raw 禁止 |
-| 直接写 PendingAction / ApprovalRequest | 不是 Approval 引擎 |
+| 信任 route-shaped 对象、不现调 `routeEvaluation()` | `P2_4_ROUTE_AUTHORITY = NO`；形状不是权威 |
+| 因 17 条 required / >32 refs 整封丢弃 | 合法 HUMAN_ESCALATE 必须 totality；有界投影 |
+| 把 `BLOCKED` 或无关成功证据放进 `safeEvidenceRefs` | B4 最小化 |
+| 把 `problemRequirementIds` 打进 `exceptionId` | 展示截断不得改 identity |
+| 直接写 PendingAction / ApprovalRequest / approval port / CAS executor | latest main 有基础设施也不授权 |
 | 开 Prisma 表存 exception | V1 无持久化 |
 | P2.4 调 `runSemanticJudge()` 补一次 | 不是 Judge；harness 才可注入验证 |
 | P2.4 发明终态 | 终态权威 = `routeEvaluation()` |
@@ -777,98 +947,106 @@ KPI 仍是 P2.0 设计目标，不是本阶段实测：自动评价 ≥ 95% · �
 
 ---
 
-## 26. D1–D16 批准登记（Lucas review）
+## 26. D1–D18 批准登记
 
-实现开始前以本表为准。  
-**状态一律 = `PROPOSED_FOR_LUCAS_REVIEW`。本文不自动标 ACCEPTED。**
+实现开始前以本表为准。Design Review 四个 blocker 已闭合后的状态：
 
-### D1 — 路由权威 — PROPOSED_FOR_LUCAS_REVIEW
+```
+D1_D18 = ACCEPTED
+P24_B1_CANONICAL_ROUTE_INPUT_BINDING = CLOSED
+P24_B2_VALID_ESCALATION_ENVELOPE_TOTALITY = CLOSED
+P24_B3_EXCEPTION_ID_AUTHORITY_VERSION_BINDING = CLOSED
+P24_B4_SAFE_EVIDENCE_MINIMIZATION = CLOSED
+```
 
-`P2_4_ROUTE_AUTHORITY = P2_0_ROUTE_EVALUATION_ONLY`。  
-P2.4 不得路由、不得改 `decision` / `reasonCode`。
+### D1 — 路由权威 — ACCEPTED_WITH_CANONICAL_P2_0_VERIFICATION
 
-### D2 — 资格 — PROPOSED_FOR_LUCAS_REVIEW
+`P2_4_ROUTE_AUTHORITY = NO` · `P2_4_ROUTE_LOGIC = ZERO`。  
+资格来自同一快照上现调既有 `routeEvaluation()`。route-shaped 对象不是权威。`expectedRoute` 必须与规范结果精确相等。
 
-仅当 `routeEvaluation().decision === HUMAN_ESCALATE` 才物化。  
-禁止任何 `AUTO_*` / `POLICY_BLOCKED` → 人工 的转换。
+### D2 — 资格 — ACCEPTED_WITH_DECISION_REASON_BINDING
 
-### D3 — schema — PROPOSED_FOR_LUCAS_REVIEW
+仅当规范 `decision === HUMAN_ESCALATE` 且 `reasonCode ∈ P2_4_HUMAN_ESCALATION_REASON_CODES` 才物化。  
+禁止 `AUTO_*` / `POLICY_BLOCKED` → 人工。禁止 `HUMAN_ESCALATE + AUTO_FINALIZED_SUFFICIENT_EVIDENCE` 等不兼容配对。
 
-冻结 `A2P2ExceptionEnvelopeV1` 闭集字段（§8）。未知键拒绝。exact keys。
+### D3 — schema — ACCEPTED_WITH_BOUNDED_TOTAL_PROJECTION
 
-### D4 — 隐私 — PROPOSED_FOR_LUCAS_REVIEW
+冻结 `A2P2ExceptionEnvelopeV1` 闭集字段（§8）。未知键拒绝。  
+展示集合用 count + 确定性前缀 + truncated；合法 HUMAN_ESCALATE 不得因溢出丢信封。
+
+### D4 — 隐私 — ACCEPTED_WITH_DATA_MINIMIZATION
 
 无 raw prompt / 模型输出 / 邮件 / Tender 正文 / PDF / tool payload / 任意 nested JSON / P2.1 应 redact 的 PII。  
-只允许 hashes、safe ids、闭集枚举、闭集 summary、已接受 EvidenceRef。
+`safeEvidenceRefs` 仅 `COLLECTED`/`REDACTED`，且只属于展示中的 problem requirements；空 problem 集 → 零 refs。永不 `BLOCKED`。
 
-### D5 — 确定性 identity — PROPOSED_FOR_LUCAS_REVIEW
+### D5 — 确定性 identity — ACCEPTED_WITH_ROUTER_AND_PROPOSAL_HASH_BINDING
 
-`exceptionId = sha256(identity-v1 + semanticContractHash + packetHash + routeReasonCode + evaluationOutcome + verdictState + recoveryStatus + sorted problemRequirementIds)`。  
-禁止随机 UUID。`observedAt` 不进 identity。
+`exceptionId` 绑定 `routerVersion` + `semanticContractHash` + `packetHash` + `routeReasonCode` + `evaluationOutcome` + `verdictState` + `judgeProposalHash` + `recoveryStatus`。  
+`problemRequirementIds` / 展示截断 / `observedAt` / `recoveryAttemptKeys` 不进 identity。禁止随机 UUID。
 
-### D6 — 无证据权威 — PROPOSED_FOR_LUCAS_REVIEW
+### D6 — 无证据权威 — ACCEPTED
 
 不创建/修改 EvidenceFact、EvidenceRef、packetHash、assessment、packet.status。
 
-### D7 — 无 Judge 权威 — PROPOSED_FOR_LUCAS_REVIEW
+### D7 — 无 Judge 权威 — ACCEPTED
 
 不覆盖 outcome / verdictState。envelope 代码不调用 `runSemanticJudge()`。  
-provider 不可用 / 畸形输出 ≠ 任务失败，≠ 自动人工。
+`proposalStatus === VALID` 时必须有合法 `proposalHash`。provider 不可用 / 畸形输出 ≠ 任务失败，≠ 自动人工。
 
-### D8 — 无 Recovery 权威 — PROPOSED_FOR_LUCAS_REVIEW
+### D8 — 无 Recovery 权威 — ACCEPTED
 
 不执行、不扩白名单、不把 adapter/delta 错误写成任务失败。  
 `AUTO_RECOVER` 非终态，P2.4 不介入。
 
-### D9 — UNKNOWN 语义 — PROPOSED_FOR_LUCAS_REVIEW
+### D9 — UNKNOWN 语义 — ACCEPTED
 
 `UNKNOWN != HUMAN_REQUIRED`。低风险耗尽 → 尊重 P2.0 `AUTO_ABSTAIN`。  
 `UNKNOWN_AUTO_ESCALATION_HEURISTIC = ZERO`。
 
-### D10 — 高风险底线 — PROPOSED_FOR_LUCAS_REVIEW
+### D10 — 高风险底线 — ACCEPTED
 
 HIGH / RESTRICTED 不得被合同、Judge、Recovery、P2.4 降级。  
 `HIGH_RISK_AUTO_FINALIZE_PATHS = ZERO` · `RESTRICTED_RISK_AUTO_FINALIZE_PATHS = ZERO`。
 
-### D11 — 冲突处理 — PROPOSED_FOR_LUCAS_REVIEW
+### D11 — 冲突处理 — ACCEPTED
 
-冲突是否未解决由 P2.1+P2.3 报告、P2.0 决定。P2.4 只在 `HUMAN_ESCALATE` 时物化。  
+冲突是否未解决由 P2.1+P2.3 报告、P2.0 决定。P2.4 只在规范 `HUMAN_ESCALATE` 时物化。  
 无多数票、无 LLM 裁决、无公网破平。
 
-### D12 — 失败语义 — PROPOSED_FOR_LUCAS_REVIEW
+### D12 — 失败语义 — ACCEPTED
 
 Judge/provider/adapter/delta/域不支持 ≠ 任务失败。  
 `PROVIDER_FAILURE_EQUALS_TASK_FAILURE = NO` · `ADAPTER_FAILURE_EQUALS_TASK_FAILURE = NO`。  
 不发明 A3 failureType。
 
-### D13 — 验证矩阵 — PROPOSED_FOR_LUCAS_REVIEW
+### D13 — 验证矩阵 — ACCEPTED
 
-CASE 1–15 为未来纯测试验收合同。P2.4 不得覆盖 P2.0 在 CASE 2/5/11/12 上的既有路由。
+CASE 1–15 与 Envelope 必测为未来纯测试验收合同。P2.4 不得覆盖 P2.0 在 CASE 2/5/11/12 上的既有路由。
 
-### D14 — 持久化 / runtime 禁止 — PROPOSED_FOR_LUCAS_REVIEW
+### D14 — 持久化 / runtime 禁止 — ACCEPTED
 
-无 Prisma、migration、表、写路径、AuditLog、PendingAction、通知、worker。  
-信封纯内存。
+无 Prisma、migration、表、写路径、AuditLog、PendingAction、ApprovalRequest、approval port、通知、worker。  
+信封纯内存。latest main CAS 不授权。
 
-### D15 — R1 兼容 — PROPOSED_FOR_LUCAS_REVIEW
+### D15 — R1 兼容 — ACCEPTED
 
 Autopilot 保持 evaluation / evidence / judge / recovery-policy。  
 P2.4 不是 runtime / planner / executor / worker / scheduler / approval / tool registry。  
-未来文件名避开冻结 token。无新增向执行引擎的 import。
+未来文件名避开冻结 token。无新增向执行引擎或 approval 的 import。
 
-### D16 — A2 闭合标准 — PROPOSED_FOR_LUCAS_REVIEW
+### D16 — A2 闭合标准 — ACCEPTED
 
-§19 不变量全部成立后，A2-P2.4 实现才可称为闭合。  
+§19 不变量全部成立后，A2-P2.4 **实现**才可称为闭合。  
 本 Design Gate **本身**不闭合 Production 激活 blocker，也不开始 A3。
 
-### D17 — 人类响应另开设计 — PROPOSED_FOR_LUCAS_REVIEW
+### D17 — 人类响应另开设计 — ACCEPTED
 
 APPROVE / REJECT / EDIT / RETRY / RESUME 与评审后状态机 **不是** P2.4 V1。
 
-### D18 — 非法输入 fail-closed — PROPOSED_FOR_LUCAS_REVIEW
+### D18 — 非法输入 fail-closed — ACCEPTED
 
-`buildExceptionEnvelope` never-throw。循环/BigInt/畸形 → 无信封。  
-不得伪造 provenance 来「凑」信封。
+`buildExceptionEnvelope` never-throw。循环/BigInt/畸形权威 / mix-and-match → 无信封。  
+展示溢出不是畸形权威，必须仍产信封。不得伪造 provenance。
 
 ---
 
@@ -897,12 +1075,12 @@ APPROVE / REJECT / EDIT / RETRY / RESUME 与评审后状态机 **不是** P2.4 V
 
 ```
 IMPLEMENTATION_STARTED = NO
-D1_D16 = PROPOSED_FOR_LUCAS_REVIEW
+D1_D18 = ACCEPTED
 A2_P2_3_STATUS = CLOSED
-A2_P2_4_STATUS = DESIGN_GATE_READY_FOR_LUCAS_REVIEW
+A2_P2_4_STATUS = READY_FOR_DESIGN_FINAL_REVIEW_2
 A3_STATUS = NOT_STARTED
 ```
 
-FINAL_STATUS = `A2_P2_4_DESIGN_GATE_READY_FOR_LUCAS_REVIEW`
+FINAL_STATUS = `A2_P2_4_READY_FOR_DESIGN_FINAL_REVIEW_2`
 
-STOP. Lucas 审查通过并明确授权前不实现 P2.4。不开始 A3。
+STOP. Design Final Review 2 通过并明确授权前不实现 P2.4。不开始 A3。
