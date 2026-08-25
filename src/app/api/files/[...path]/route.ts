@@ -131,7 +131,9 @@ export const GET = withAuth<{ path: string[] }>(async (request, ctx, user) => {
     "Cache-Control": "private, max-age=3600",
     "X-Content-Type-Options": "nosniff",
   });
-  if (blob.size != null) headers.set("Content-Length", String(blob.size));
+  // 不手设 Content-Length：@vercel/blob get() 的 size 取自上游 content-length，
+  // ① 上游分块/压缩传输时缺失 → SDK 报 0 → 客户端按 0 截断（生产实测：下载全部 0 字节）；
+  // ② 即使非 0 也是压缩后长度，流吐的是解压字节 → 长度不符仍会截断。交给运行时 chunked 编码。
   if (wantDownload) {
     headers.set(
       "Content-Disposition",
