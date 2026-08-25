@@ -27,5 +27,9 @@ ok(seg("/api/projects/\\[id\\]/generate-pdf").includes("@sparticuz/chromium/bin/
 ok(seg("/api/projects/\\[id\\]/quote-engine/\\[quoteId\\]/pdf").includes("@sparticuz/chromium/bin/**"), "BP-5: 客户报价 PDF 路由同样带 Chromium 二进制（该路由 fail-closed，缺二进制在生产直接不可用）");
 ok(/serverExternalPackages[^\n]*@sparticuz\/chromium/.test(cfg), "BP-6: @sparticuz/chromium 保持 serverExternalPackages（不被打包器改写路径）");
 
+const pkg = code("package.json");
+ok(pkg.includes("next build --webpack"), "BP-7a: 生产构建必须走 webpack（Next 16 Turbopack 忽略 outputFileTracingIncludes → Chromium/字体/logo 全不进函数包，2026-08-25 vercel build 实证）");
+ok(pkg.includes("--max-old-space-size"), "BP-7b: webpack 全量构建需提堆（默认堆 OOM，本地实测）");
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);

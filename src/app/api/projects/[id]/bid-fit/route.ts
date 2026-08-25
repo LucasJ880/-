@@ -17,7 +17,8 @@ import {
  * （additive JSON，零 schema），人工判定为准——AI 不代填。
  */
 
-export const BID_FIT_VALUES = ["HAVE", "BUILD", "PARTNER", "RFI", "NO_GO"] as const;
+// 路由文件只准导出 HTTP 方法与路由配置（webpack 构建强校验；Turbopack 曾放过）——常量收为模块内私有
+const BID_FIT_VALUES = ["HAVE", "BUILD", "PARTNER", "RFI", "NO_GO"] as const;
 
 async function latestRun(projectId: string) {
   return db.tenderAnalysisRun.findFirst({
