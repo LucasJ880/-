@@ -56,6 +56,8 @@ run_test "B1 Tenant/AuthZ 安全矩阵" "npx tsx src/lib/tenancy/__tests__/b1-te
 run_test "B1 租户上下文静态断言" "npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts"
 run_test "B2 审批 CAS 静态断言" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts"
 run_test "B2 审批 CAS 并发矩阵(isolated)" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts"
+run_test "B3 报价台账 producer" "npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts"
+run_test "B3 报价台账 producer 矩阵(isolated)" "npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts"
 run_test "Agent Runtime Phase-1" "npx tsx src/lib/agent-runtime/__tests__/runtime.test.ts"
 run_test "Agent Runtime V2 Planner" "npx tsx src/lib/agent-runtime-v2/__tests__/planner.test.ts"
 run_test "Agent Runtime V2 Durable State" "npx tsx src/lib/agent-runtime-v2/__tests__/durable-state.test.ts"
