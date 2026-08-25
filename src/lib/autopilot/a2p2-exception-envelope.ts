@@ -208,14 +208,14 @@ function parseRecoveryState(value: unknown): {
   if (!isEnum(value.status, EVALUATION_RECOVERY_STATES)) return null;
   const cyclesUsed = value.cyclesUsed === undefined ? 0 : value.cyclesUsed;
   if (!isNonNegativeInt(cyclesUsed)) return null;
-  let attemptKeys: string[] = [];
-  if (value.attemptKeys !== undefined) {
-    if (!Array.isArray(value.attemptKeys)) return null;
-    for (const item of value.attemptKeys) {
-      if (typeof item !== "string" || !HEX_64.test(item)) return null;
-      attemptKeys.push(item.toLowerCase());
+    const attemptKeys: string[] = [];
+    if (value.attemptKeys !== undefined) {
+      if (!Array.isArray(value.attemptKeys)) return null;
+      for (const item of value.attemptKeys) {
+        if (typeof item !== "string" || !HEX_64.test(item)) return null;
+        attemptKeys.push(item.toLowerCase());
+      }
     }
-  }
   return { status: value.status, cyclesUsed, attemptKeys };
 }
 
