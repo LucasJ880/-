@@ -11,7 +11,7 @@ import {
   loadSupervisorState,
   resumeSupervisorAfterApproval,
 } from "@/lib/agent-supervisor";
-import { cancelAgentRun } from "@/lib/agent-runtime/run";
+import { cancelSupervisorRunGated } from "@/lib/agent-runtime/supervisor-cancel-gate";
 
 async function resolveOrg(userId: string) {
   let orgId = await getUserActiveOrgId(userId);
@@ -56,8 +56,21 @@ export const POST = withAuth(async (req, ctx, user) => {
   const action = body.action || body.type;
 
   if (action === "cancel") {
-    await cancelAgentRun(orgId, id);
-    return NextResponse.json({ ok: true, status: "cancelled" });
+    // B5：租户 + Supervisor 属主 + actor + 状态门（共享 AgentRun 表上的
+    // v2/workforce/他人 run 一律拒绝；orgId 为服务端解析，绝不取自 body）
+    const result = await cancelSupervisorRunGated({
+      orgId,
+      runId: id,
+      actor: { userId: user.id, role: user.role },
+    });
+    if (result.decision === "not_found") {
+      return NextResponse.json({ error: "任务不存在" }, { status: 404 });
+    }
+    if (result.decision === "forbidden") {
+      return NextResponse.json({ error: "无权取消该任务" }, { status: 403 });
+    }
+    // cancelled 或 already_terminal（幂等）：报告真实状态，不再谎报 cancelled
+    return NextResponse.json({ ok: true, status: result.status });
   }
 
   if (action === "resume" || action === "approval_result" || action === "user_input") {
