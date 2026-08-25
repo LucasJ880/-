@@ -6,7 +6,7 @@
  *    读取时重算并标记漂移（hybrid）。禁 NaN/Infinity 入库（assertFiniteDeep）。
  *  - 版本：approved/superseded/awarded 内容冻结；修订 = 新 ProjectQuote 行（version+1, sourceQuoteId, revisionReason），
  *    旧版本 → superseded；绝不覆盖历史。
- *  - 审计：AuditLog（logAudit，QUOTE_* action）+ ProjectEvent（ledger producers 开启时 best-effort）。
+ *  - 审计：AuditLog（logAudit，QUOTE_* action）；台账：ProjectEvent（producer 开启时与业务写同事务、权威、fail-closed —— B3）。
  */
 
 import { Prisma } from "@prisma/client";
@@ -273,7 +273,21 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
   let syncResult: import("./tender-bid").SyncResult | null = null;
   try {
     syncResult = await db.$transaction(async (tx) => {
+      // B3：先读迁移前 updatedAt（确定性 eventKey 的先前状态基准，重试稳定）
+      const prev = await tx.projectQuote.findUniqueOrThrow({ where: { id: q.id }, select: { updatedAt: true } });
       await tx.projectQuote.update({ where: { id: q.id }, data });
+      // B3：台账权威事件与状态迁移同一事务；append 失败 → 迁移整体回滚（冻结契约）
+      await appendQuoteLedgerEventTx(tx, {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        userId: input.userId,
+        quoteId: q.id,
+        to: input.to,
+        prevUpdatedAtIso: prev.updatedAt.toISOString(),
+        occurredAt: now,
+        title: `报价 v${q.version} ${input.to}`,
+        payload: { status: input.to, from, version: q.version, sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null },
+      });
       if (!needsSync) return null;
       return (input.deps?.bidSync ?? tb.syncTenderBidPointerTx)(tx, { projectId: input.projectId, orgId: input.orgId, userId: input.userId });
     });
@@ -287,7 +301,6 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
   if (syncResult) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: `transition:${input.to}`, result: syncResult });
   const action = input.to === "review" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUBMITTED_FOR_REVIEW : input.to === "approved" ? QUOTE_AUDIT_ACTIONS.QUOTE_APPROVED : input.to === "superseded" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED : input.to === "awarded" ? QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED : input.to === "cancelled" ? QUOTE_AUDIT_ACTIONS.QUOTE_CANCELLED : QUOTE_AUDIT_ACTIONS.QUOTE_UPDATED;
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: from }, afterData: { status: input.to, note: input.note ?? null, version: q.version } }).catch(() => undefined);
-  await appendLedgerEvent({ orgId: input.orgId, projectId: input.projectId, userId: input.userId, quoteId: q.id, eventType: `QUOTE_${input.to.toUpperCase()}`, title: `报价 v${q.version} ${input.to}`, payload: { status: input.to, from, sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null } });
   return getQuote(q.id, input.projectId);
 }
 
@@ -396,9 +409,23 @@ export async function awardQuoteToBudget(input: { quoteId: string; projectId: st
       const v = await createBudget({ tx, orgId: input.orgId, projectId: input.projectId, currency: q.currency, actor: { actorType: "user", actorId: input.userId }, createdById: input.userId, note: `Quote ${q.quoteNumber ?? q.id} v${q.version} award`, lines: budgetLines.map((l) => ({ category: l.category, amount: l.amount, percentage: l.percentage, basis: l.basis, basisAmount: l.basisAmount, note: l.note, sourceReference: l.sourceReference, sortOrder: l.sortOrder })) as never });
       const id = (v as { id?: string; version?: { id?: string } }).id ?? (v as { version?: { id?: string } }).version?.id ?? null;
       if (!id) throw new Error("createBudgetVersion 未返回版本 id");
+      // B3：先读迁移前 updatedAt（确定性 eventKey 的先前状态基准）
+      const prevAward = await tx.projectQuote.findUniqueOrThrow({ where: { id: q.id }, select: { updatedAt: true } });
       // 同一事务：仅当状态仍为 approved 才能 award（防并发双 award）
       const r = await tx.projectQuote.updateMany({ where: { id: q.id, status: "approved" }, data: { status: "awarded", awardedAt: new Date() } });
       if (r.count !== 1) throw new Error("报价状态已变化，award 中止");
+      // B3：quote.awarded 权威台账事件与 award/预算创建同一事务（失败整体回滚）
+      await appendQuoteLedgerEventTx(tx, {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        userId: input.userId,
+        quoteId: q.id,
+        to: "awarded",
+        prevUpdatedAtIso: prevAward.updatedAt.toISOString(),
+        occurredAt: new Date(),
+        title: `报价 v${q.version} awarded`,
+        payload: { budgetVersionId: id, version: q.version, mode },
+      });
       // B2：awarded 后同事务刷新我方报价指针/镜像（失败 → award + 预算整体回滚）
       awardSync = await tb.syncTenderBidPointerTx(tx, { projectId: input.projectId, orgId: input.orgId, userId: input.userId });
       return id;
@@ -413,19 +440,57 @@ export async function awardQuoteToBudget(input: { quoteId: string; projectId: st
   if (awardSync) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: "award", result: awardSync });
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.PROJECT_BUDGET_CREATED, targetType: "project_budget_version", targetId: budgetVersionId, afterData: { quoteId: q.id, lines: budgetLines.length } }).catch(() => undefined);
   await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: "approved" }, afterData: { status: "awarded", budgetVersionId, version: q.version } }).catch(() => undefined);
-  await appendLedgerEvent({ orgId: input.orgId, projectId: input.projectId, userId: input.userId, quoteId: q.id, eventType: "QUOTE_AWARDED", title: `报价 v${q.version} awarded`, payload: { budgetVersionId } });
   return { quote: await getQuote(q.id, input.projectId), mode, budgetLines, budgetVersionId, budgetCreated: true };
 }
 
-async function appendLedgerEvent(input: { orgId: string; projectId: string; userId: string; quoteId: string; eventType: string; title: string; payload: unknown }) {
-  try {
-    const { isLedgerProducerActive } = await import("@/lib/project-ledger/flags");
-    if (!isLedgerProducerActive()) return;
-    const { appendProjectEvent } = await import("@/lib/project-ledger/event-service");
-    await appendProjectEvent({ orgId: input.orgId, projectId: input.projectId, eventKey: `quote:${input.quoteId}:${input.eventType}:${Date.now()}`, occurredAt: new Date(), actor: { actorType: "user", actorId: input.userId }, eventType: input.eventType, stage: "quote", title: input.title, payload: input.payload as never, refs: { quoteId: input.quoteId } as never } as never);
-  } catch {
-    // ledger best-effort
-  }
+/**
+ * B3：报价状态 → Project Ledger 权威事件（同事务、确定性 key、fail-closed）。
+ *
+ * 修复前的三重缺陷（R0 取证）：无 tx（event-service 直接 throw）+ catch{} 吞掉
+ * + Date.now() 进 eventKey —— producer 存在但从未写入过一条台账事件。
+ * 现在：flag 关闭 → 明确跳过（生产 dark 期零行为变化）；flag 开启 → 与业务写
+ * 同一事务 append，失败按台账冻结契约整体回滚（禁止 best-effort）。
+ */
+export const QUOTE_LEDGER_EVENT_TYPES: Readonly<Record<QuoteStatus, string>> = {
+  draft: "quote.returned_to_draft",
+  review: "quote.submitted_for_review",
+  approved: "quote.approved",
+  superseded: "quote.superseded",
+  awarded: "quote.awarded",
+  cancelled: "quote.cancelled",
+};
+
+async function appendQuoteLedgerEventTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    orgId: string;
+    projectId: string;
+    userId: string;
+    quoteId: string;
+    to: QuoteStatus;
+    prevUpdatedAtIso: string;
+    occurredAt: Date;
+    title: string;
+    payload: Prisma.InputJsonValue;
+  },
+): Promise<void> {
+  const { isLedgerProducerActive } = await import("@/lib/project-ledger/flags");
+  if (!isLedgerProducerActive()) return;
+  const { appendProjectEvent } = await import("@/lib/project-ledger/event-service");
+  const { quoteStatusEventKey } = await import("@/lib/project-ledger/event-keys");
+  await appendProjectEvent({
+    tx,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    eventType: QUOTE_LEDGER_EVENT_TYPES[input.to],
+    eventKey: quoteStatusEventKey(input.quoteId, input.to, input.prevUpdatedAtIso),
+    occurredAt: input.occurredAt,
+    actor: { actorType: "user", actorId: input.userId },
+    stage: "quote",
+    title: input.title,
+    payload: input.payload,
+    refs: { quoteId: input.quoteId },
+  });
 }
 
 async function findLineageRoot(quoteId: string, projectId: string): Promise<string> {

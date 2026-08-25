@@ -153,6 +153,8 @@ npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts
 npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts
+npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts
+npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
