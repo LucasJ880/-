@@ -8,6 +8,48 @@ import { formatTenderProfileContext, isTenderProfileUsable } from "@/lib/tender-
 import { getTenderProfile } from "@/lib/tender-profile/store";
 import { complianceStatusFromFit, type BidDraftInputs, type BidDraftRequirement } from "./contract";
 
+/**
+ * B4（安全修复）：企业记忆已验证事实只能经 canonical 访问门读取。
+ * 修复前此处以裸 findMany 直查 MemoryClaim 表——绕过 requireMemoryReadAccess 与
+ * accessClass 服务端裁定：无成员资格校验（userId 根本未参与），且
+ * org_member 也能把 CONFIDENTIAL/RESTRICTED 级 claim 喂进 LLM prompt
+ * （"VERIFIED ORG FACTS"）。现在：
+ * - searchMemoryClaims（唯一授权读取口）：活跃成员资格 + 角色裁定可见分级
+ *   （org_member 仅 PUBLIC_SOURCE/INTERNAL_COMPANY；admin 全集）+ 默认仅 ACTIVE；
+ * - 业务语义过滤（仅 HUMAN_CONFIRMED/SYSTEM_VERIFIED、排除 COMPLIANCE_POSITION、
+ *   截断 300 字、最多 40 条）在**授权投影之后**做纯收窄，不复制访问策略；
+ * - 门失败（跨 org / 无成员资格 / 记录异常）→ fail-closed 空集，草稿继续走
+ *   [TO CONFIRM] 语义，绝不回退到裸查询。
+ */
+export async function gatherVerifiedOrgMemoryClaims(
+  orgId: string | null,
+  userId: string,
+): Promise<BidDraftInputs["org"]["memoryClaims"]> {
+  if (!orgId || !userId) return [];
+  try {
+    const { searchMemoryClaims } = await import("@/lib/corporate-memory/retrieval");
+    const rows = await searchMemoryClaims({
+      orgId,
+      actor: { userId },
+      limit: 100,
+    });
+    return rows
+      .filter(
+        (r) =>
+          (r.verificationStatus === "HUMAN_CONFIRMED" || r.verificationStatus === "SYSTEM_VERIFIED") &&
+          r.claimType !== "COMPLIANCE_POSITION",
+      )
+      .slice(0, 40)
+      .map((r) => ({
+        statement: r.statement.slice(0, 300),
+        claimType: r.claimType,
+        verificationStatus: r.verificationStatus,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export async function gatherBidDraftInputs(params: {
   projectId: string;
   orgId: string | null;
@@ -102,20 +144,7 @@ export async function gatherBidDraftInputs(params: {
       brandContext = null;
     }
   }
-  let memoryClaims: BidDraftInputs["org"]["memoryClaims"] = [];
-  if (params.orgId) {
-    try {
-      const rows = await db.memoryClaim.findMany({
-        where: { orgId: params.orgId, status: "ACTIVE", verificationStatus: { in: ["HUMAN_CONFIRMED", "SYSTEM_VERIFIED"] }, claimType: { not: "COMPLIANCE_POSITION" } },
-        orderBy: { capturedAt: "desc" },
-        take: 40,
-        select: { statement: true, claimType: true, verificationStatus: true },
-      });
-      memoryClaims = rows.map((r) => ({ statement: r.statement.slice(0, 300), claimType: r.claimType, verificationStatus: r.verificationStatus }));
-    } catch {
-      memoryClaims = [];
-    }
-  }
+  const memoryClaims = await gatherVerifiedOrgMemoryClaims(params.orgId, params.userId);
   let ownWins: BidDraftInputs["org"]["ownWins"] = [];
   if (params.orgId) {
     try {
