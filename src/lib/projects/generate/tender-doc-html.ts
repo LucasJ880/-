@@ -25,7 +25,7 @@ const stripRefs = (s: string): string =>
 
 const t = (s: string) => esc(stripRefs(s));
 
-const STYLE = `<style>
+export const STYLE = `<style>
 body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:820px;margin:0 auto;padding:32px 28px;line-height:1.65;font-size:14px}
 h1{font-size:22px;margin:0 0 4px}
 h2{font-size:16px;border-left:4px solid #2e6b57;padding-left:10px;margin:28px 0 10px}

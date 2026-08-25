@@ -1,0 +1,135 @@
+/**
+ * 分析师备忘录 v1 · M4 市场价格基准（AI 建议，人审语义）
+ *
+ * 对标 GPT 式"预算估计"：检索同类基准产品的公开市场价 → 给出价格观察与区间提示。
+ *
+ * 证据铁律（比 GPT 严的地方——这是本平台的价值）：
+ *  - 每个基准价必须带 sourceIndex（无效即丢弃）；LLM 只准引用片段里出现的价格数字
+ *  - **绝不自动做汇率换算**（发明汇率=发明金额）：原币呈现 + 提示人工确认汇率
+ *  - 检索无结果 = 明说 insufficient，绝不给"拍脑袋区间"
+ *  - 输出是 AI 初步调查；目标报价永远由人（配合报价引擎 Sunny 链）拍板
+ */
+
+import { z } from "zod";
+import { callStructured, createUnifiedRuntimeInvoker, type LlmInvoker } from "@/lib/tender-understanding/llm";
+import { hasWebSearchKey } from "./websearch";
+
+export const MARKET_PRICING_VERSION = "tender-market-pricing/v1" as const;
+
+const zh = (max: number) => z.preprocess((v) => String(v ?? "").slice(0, max), z.string());
+
+export type MarketSource = { title: string; url: string; snippet: string };
+
+export const marketBenchmarkSchema = z.object({
+  productName: zh(160),
+  vendor: zh(80).nullable().optional(),
+  /** 片段中出现的价格原文（如 "US$1,053" / "CAD $6,220"），不做任何换算 */
+  priceRaw: zh(60),
+  currency: zh(8).nullable().optional(),
+  unit: zh(40).nullable().optional(),
+  /** 与本项目规格的可比性说明（哪些规格相符/缺哪些） */
+  comparabilityZh: zh(240),
+  sourceIndex: z.number().int().min(0),
+});
+
+const marketSchema = z.object({
+  benchmarks: z.array(marketBenchmarkSchema).max(8),
+  observationsZh: z.array(zh(300)).max(6).default([]),
+  insufficientZh: zh(300).nullable().optional(),
+});
+
+export type MarketPricingIntel = {
+  version: typeof MARKET_PRICING_VERSION;
+  ranAt: string;
+  status: "ran" | "unavailable" | "no_product";
+  note?: string;
+  productPhrase: string | null;
+  benchmarks: Array<z.infer<typeof marketBenchmarkSchema>>;
+  observationsZh: string[];
+  insufficientZh: string | null;
+  fxNoteZh: string;
+  sources: MarketSource[];
+};
+
+const TAVILY_URL = "https://api.tavily.com/search";
+const FX_NOTE = "基准价按来源原币呈现，未做汇率换算——换算与目标价测算请在报价引擎（Sunny 定价链）中以人工确认的汇率完成。";
+
+async function tavily(query: string, env: NodeJS.ProcessEnv, fetchImpl: typeof fetch): Promise<MarketSource[]> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25_000);
+  try {
+    const res = await fetchImpl(TAVILY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: env.TAVILY_API_KEY, query, max_results: 5, search_depth: "basic" }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+    return (data.results ?? []).filter((r) => r.url).map((r) => ({ title: (r.title ?? r.url ?? "").slice(0, 160), url: r.url!, snippet: (r.content ?? "").slice(0, 500) }));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function deriveMarketQueries(input: { productPhrase: string | null; specHints: string[] }): string[] {
+  const p = (input.productPhrase ?? "").trim();
+  if (!p) return [];
+  const spec = input.specHints.filter(Boolean).slice(0, 2).join(" ");
+  return [
+    `${p} price catalog`,
+    `${p} ${spec} price USD`.trim(),
+    `${p} supplier price Canada`,
+  ].filter((q, i, a) => a.indexOf(q) === i);
+}
+
+export async function researchMarketPricing(input: {
+  productPhrase: string | null;
+  specHints: string[];
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: typeof fetch;
+  invoker?: LlmInvoker;
+}): Promise<MarketPricingIntel> {
+  const env = input.env ?? process.env;
+  const ranAt = new Date().toISOString();
+  const base: Omit<MarketPricingIntel, "status"> = { version: MARKET_PRICING_VERSION, ranAt, productPhrase: input.productPhrase ?? null, benchmarks: [], observationsZh: [], insufficientZh: null, fxNoteZh: FX_NOTE, sources: [] };
+  const queries = deriveMarketQueries(input);
+  if (queries.length === 0) return { ...base, status: "no_product", note: "分析摘要缺产品短语，无从检索" };
+  if (!hasWebSearchKey(env)) return { ...base, status: "unavailable", note: "未配置搜索 API Key（TAVILY_API_KEY），拒绝凭空给价格区间" };
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const found = (await Promise.all(queries.map((q) => tavily(q, env, fetchImpl)))).flat();
+  const sources = [...new Map(found.map((f) => [f.url, f])).values()].slice(0, 10);
+  if (sources.length === 0) return { ...base, status: "ran", insufficientZh: "检索无结果——需人工做市场询价（如向北美品牌索取目录价）", note: "search_no_result" };
+  const invoker = input.invoker ?? createUnifiedRuntimeInvoker();
+  try {
+    const res = await callStructured(
+      invoker,
+      {
+        promptName: "tender-market-pricing",
+        promptVersion: "1",
+        timeoutMs: 90_000,
+        maxTokens: 1400,
+        systemPrompt:
+          "你是采购市场分析师。仅基于提供的检索片段，提取与目标产品可比的公开市场价格基准。" +
+          '只输出 JSON：{"benchmarks":[{"productName","vendor","priceRaw","currency","unit","comparabilityZh","sourceIndex":数字}],"observationsZh":[...],"insufficientZh":null或说明}。' +
+          "铁律：priceRaw 必须是片段中出现的价格原文（原币原样），绝不换算、绝不外推；片段里没有可用价格就写 insufficientZh 并留空 benchmarks；sourceIndex 指向片段编号。",
+        userPrompt: `目标产品：${input.productPhrase}\n关键规格：${input.specHints.slice(0, 6).join("；")}\n\n检索片段：\n${sources.map((s, i) => `[${i}] ${s.title}\n${s.url}\n${s.snippet}`).join("\n\n")}`,
+      },
+      marketSchema,
+    );
+    if (!res.ok) return { ...base, status: "ran", sources, insufficientZh: "AI 归纳失败——请人工阅读来源链接", note: "llm_failed" };
+    // 接地过滤：sourceIndex 无效，或 priceRaw 的数字串在对应片段中找不到 → 丢弃（绝不让编造的金额过门）
+    const benchmarks = res.value.benchmarks.filter((b) => {
+      if (!(b.sourceIndex >= 0 && b.sourceIndex < sources.length)) return false;
+      const digits = (b.priceRaw.match(/[\d,]{2,}(?:\.\d+)?/) ?? [])[0]?.replace(/,/g, "");
+      if (!digits) return false;
+      const hay = sources[b.sourceIndex]!.snippet.replace(/,/g, "");
+      return hay.includes(digits);
+    });
+    return { ...base, status: "ran", benchmarks, observationsZh: res.value.observationsZh, insufficientZh: res.value.insufficientZh ?? (benchmarks.length === 0 ? "片段中未出现可核对的价格数字" : null), sources };
+  } catch {
+    return { ...base, status: "ran", sources, insufficientZh: "AI 归纳异常——请人工阅读来源链接", note: "llm_error" };
+  }
+}

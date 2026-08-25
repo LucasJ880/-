@@ -50,6 +50,10 @@ export type ExternalIntelOutcome = {
   autoObserved?: number;
   /** 情报自动流（包6）：本次是否生成 AI 策略草案 */
   strategyGenerated?: boolean;
+  /** 分析师备忘录 v1：M3 引用标准追查是否有产出 */
+  standardsResearched?: boolean;
+  /** 分析师备忘录 v1：M4 市场价格基准是否有产出 */
+  marketPriced?: boolean;
 };
 
 /** room.summaryJson 里的显式状态键（UI/排障唯一事实源） */
@@ -66,6 +70,8 @@ export type ExternalIntelStatus = {
   analyzed: boolean;
   autoObserved?: number;
   strategyGenerated?: boolean;
+  standardsResearched?: boolean;
+  marketPriced?: boolean;
 };
 
 /** manual 触发的简单频控：距上次记录不足窗口则拒绝（默认 60s） */
@@ -306,6 +312,49 @@ export async function runExternalIntelForProject(input: {
       }
     }
 
+    // 分析师备忘录 v1 · M3 引用标准追查 + M4 市场价格基准（AI 建议，人审；
+    // 温和失败不影响其余结果；证据纪律见各模块头注）。
+    let referencedStandards: unknown = null;
+    let marketPricing: unknown = null;
+    try {
+      const [m34Facts, m34Reqs] = await Promise.all([
+        db.tenderAnalysisFact.findMany({
+          where: { runId: run.id },
+          take: 60,
+          select: { contentOriginal: true, contentZh: true },
+        }),
+        db.tenderExtractedRequirement.findMany({
+          where: { analysisRunId: run.id },
+          take: 60,
+          select: { originalRequirement: true },
+        }),
+      ]);
+      const m34Texts = [
+        ...m34Facts.map((f) => f.contentOriginal ?? f.contentZh ?? ""),
+        ...m34Reqs.map((r) => r.originalRequirement),
+      ].filter(Boolean);
+      try {
+        const { extractStandardRefs, researchReferencedStandards } = await import("./referenced-standards");
+        const refs = await extractStandardRefs({ texts: m34Texts });
+        const intel = await researchReferencedStandards({ refs, env });
+        if (intel.status !== "no_refs") referencedStandards = intel;
+        else referencedStandards = intel; // no_refs 也落库（诚实状态，UI/备忘录可解释）
+      } catch {
+        referencedStandards = null;
+      }
+      try {
+        const { researchMarketPricing } = await import("./market-pricing");
+        const specHints = (syn?.scope?.deliverables ?? []).slice(0, 4);
+        const mp = await researchMarketPricing({ productPhrase: queries[0] ?? null, specHints, env });
+        marketPricing = mp;
+      } catch {
+        marketPricing = null;
+      }
+    } catch {
+      referencedStandards = null;
+      marketPricing = null;
+    }
+
     // 情报自动流（包6）：AI 投标策略草案（第 7 槽位）——基于组织级七域投影
     // + 本项目分析摘要合成，AI_INFERRED 标签人审语义。失败不影响其余结果。
     // 批次一：投标策略备忘录 v2（文档接地深读，替换浅层组织投影草案）。
@@ -445,6 +494,8 @@ export async function runExternalIntelForProject(input: {
       bidStrategyMemo = null;
     }
 
+    const standardsResearched = Boolean((referencedStandards as { status?: string } | null)?.status === "ran");
+    const marketPriced = Boolean((marketPricing as { benchmarks?: unknown[] } | null)?.benchmarks?.length);
     const ran = Boolean(auto?.ok || web?.ok);
     const outcome: ExternalIntelOutcome = {
       status: ran ? "ran" : "skipped",
@@ -458,6 +509,8 @@ export async function runExternalIntelForProject(input: {
       analyzed: Boolean(externalAnalysis),
       autoObserved,
       strategyGenerated,
+      standardsResearched,
+      marketPriced,
     };
 
     await db.bidIntelligenceRoom.update({
@@ -472,6 +525,8 @@ export async function runExternalIntelForProject(input: {
             ...(externalAnalysis ? { externalAnalysis } : {}),
             ...(bidStrategyMemo ? { bidStrategyMemo } : {}),
             ...(vendorPriceBenchmark ? { vendorPriceBenchmark } : {}),
+            ...(referencedStandards ? { referencedStandards } : {}),
+            ...(marketPricing ? { marketPricing } : {}),
             [EXTERNAL_INTEL_STATUS_KEY]: {
               ...base,
               status: outcome.status,
@@ -482,13 +537,15 @@ export async function runExternalIntelForProject(input: {
               analyzed: outcome.analyzed,
               autoObserved,
               strategyGenerated,
+              standardsResearched,
+              marketPriced,
             } satisfies ExternalIntelStatus,
           }),
         ),
       },
     });
     console.log(
-      `[tender-external-intel] project=${project.id} trigger=${input.trigger} status=${outcome.status} award_candidates=${outcome.awardCandidates} web_domains=${outcome.webDomains} analyzed=${outcome.analyzed ? 1 : 0} auto_observed=${autoObserved} strategy=${strategyGenerated ? 1 : 0}`,
+      `[tender-external-intel] project=${project.id} trigger=${input.trigger} status=${outcome.status} award_candidates=${outcome.awardCandidates} web_domains=${outcome.webDomains} analyzed=${outcome.analyzed ? 1 : 0} auto_observed=${autoObserved} strategy=${strategyGenerated ? 1 : 0} standards=${standardsResearched ? 1 : 0} market=${marketPriced ? 1 : 0}`,
     );
     return outcome;
   } catch (error) {

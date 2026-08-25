@@ -98,6 +98,19 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
         f.confidence === "HIGH_CONFIDENCE" ||
         f.sourceType === "tender_document"),
   );
+  // 分析师备忘录 v1 P1：北美公共采购常见 Unfair Labour Practices 条款（违约可罚合同额倍数）——
+  // 选厂时一并取证，避免中标后被动。固定清单（非敏感、无金额）。
+  lines.push(
+    "",
+    "9b) Compliance evidence to collect from factory (labour / origin — required by many Canadian public buyers):",
+    "- Business licence copy (营业执照)",
+    "- Factory photos: production floor + workshop conditions",
+    "- Labour & workplace-safety policy statement (工资/工时/安全制度)",
+    "- Raw material source: company + country (原材料来源公司与国别)",
+    "- Material certificates (e.g., stainless steel mill certificate 材质证书)",
+    "- If available: BSCI / SMETA / SA8000 audit report (非强制，加分)",
+  );
+
   if (techFacts.length) {
     lines.push("", "10) Confirmed / tender facts (non-pricing):");
     for (const f of techFacts.slice(0, 12)) {
