@@ -134,5 +134,27 @@ const qh = code("src/lib/quote-engine/quotation-html.ts");
 ok(/<table class="page"><tfoot><tr><td><div class="foot">/.test(qh) && qh.indexOf("<tfoot>") < qh.indexOf("<tbody>") && !/\.foot\{[^}]*position:\s*fixed/.test(qh), "P21-S10: PDF 页脚为 <tfoot> 重复页脚（每页预留高度，不用 position:fixed，不会压住正文或单独溢出成空白页）");
 ok(!/readSheetGrid[\s\S]*ws\["!merges"\]/.test(px21) || true, "P21-S11: 不改写工作簿（只读抽取）");
 
+// ─── Sunny 定价链 v1 + UX Round 1（SPU-1..8）───
+const calcSrc = code("src/lib/quote-engine/calc.ts");
+const contractSrc = code("src/lib/quote-engine/contract.ts");
+const svcSrc = code("src/lib/quote-engine/service.ts");
+const tplSrc = code("src/lib/quote-engine/templates.ts");
+const pccSrc = code("src/components/quote-engine/pricing-control-center.tsx");
+const cqbSrc = code("src/components/quote-engine/customer-quote-builder.tsx");
+const advSrc = code("src/lib/quote-engine/advisors.ts");
+const advRoute = code("src/app/api/projects/[id]/quote-engine/[quoteId]/advise/route.ts");
+
+ok(contractSrc.includes('"quote-engine-calc/v2"') && ["PCT_ANNUALIZED_ON_COST", "PCT_SELF_INCLUSIVE_ON_COST", "PCT_ON_COST_SUBTOTAL", "PCT_OF_GROSS_PROFIT"].every((t) => contractSrc.includes(`"${t}"`)), "SPU-1: calc/v2 + 四个 Sunny 链类型入契约");
+ok(calcSrc.includes("export function unpricedReason") && calcSrc.includes("LINE_UNPRICED") && calcSrc.includes("unpricedReason(l) == null && l.sourceCurrency !== input.quoteCurrency"), "SPU-2: 空值=未定价警告按 0；外币行填了金额缺汇率仍硬错误（FX 不许 1:1 混过）");
+ok(svcSrc.includes("QUOTE_UNPRICED_LINES") && /to === "review" \|\| input\.to === "approved"/.test(svcSrc), "SPU-3: draft→review/approved 状态门 fail-closed 拦未定价纳入行");
+ok(["PCT_ANNUALIZED_ON_COST", "PCT_SELF_INCLUSIVE_ON_COST", "PCT_ON_COST_SUBTOTAL", "PCT_OF_GROSS_PROFIT"].every((t) => tplSrc.split("templateSupplyOnlyLines")[0]!.includes(t) && (tplSrc.split("templateSupplyOnlyLines")[1] ?? "").includes(t)), "SPU-4a: 两套供货模板都种入完整 Sunny 链（8/3/1/30 默认值）");
+ok(/Duty[^\n]*included: false/.test(tplSrc) && /Bond[^\n]*included: false/.test(tplSrc), "SPU-4b: 模板中未定率的 % 行默认不纳入（新建报价开箱即绿）");
+ok(pccSrc.includes("computeQuote({ quoteCurrency:") && pccSrc.includes("unpricedReason") && pccSrc.includes("liveCalc"), "SPU-5a: Pricing UI 本地实时试算（与服务端同一纯函数），金额时时可见");
+ok(pccSrc.includes("disabled={busy != null || unpricedCount > 0}") && pccSrc.includes("行未定价"), "SPU-5b: 未定价行存在时提交审核按钮禁用并计数提示");
+ok(pccSrc.includes("CALCULATION_TYPE_LABELS[") && pccSrc.includes('t === "PCT_ANNUALIZED_ON_COST" || t === "PCT_ON_COST_SUBTOTAL" ? "成本小计"'), "SPU-5c: 类型中文标签 + 链式行基数只读展示（FIXED 行不再显示 基数/% 输入）");
+ok(!advSrc.includes("db.") && !advRoute.includes(".create(") && !advRoute.includes(".update(") && advRoute.includes('requireQuoteAccess(request, projectId, "edit")'), "SPU-6: AI 建议器零写库（只建议）+ edit 权限门");
+ok(advSrc.includes("ADVISOR_UNAVAILABLE") && advSrc.includes("hasWebSearchKey") && advSrc.includes("拒绝凭空猜税率"), "SPU-7: 关税建议 fail-closed——无检索 key 不猜税率；来源随建议返回");
+ok(cqbSrc.includes("mergeEmpty") && cqbSrc.includes("只填空、不覆盖已填"), "SPU-8: 客户抬头/条款自动预填只填空字段（人可见、保存才落库）");
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);

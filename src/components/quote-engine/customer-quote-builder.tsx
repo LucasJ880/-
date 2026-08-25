@@ -37,7 +37,24 @@ export function CustomerQuoteBuilder({ projectId, quoteId, editable, currency, o
 
   const load = useCallback(async () => {
     const res = await apiJson<Payload>(`${base}/customer-quote`).catch(() => null);
-    if (res) { setData(res); setHeader(res.header); setTerms(res.terms); setLines(res.lines); }
+    if (res) {
+      setData(res);
+      // 空字段自动并入项目/组织默认（clientCompany=项目客户组织、projectName、tenderNumber=关键事实、preparedBy=档案默认）；
+      // 只填空、不覆盖已填；用户看得见、保存才落库
+      const mergeEmpty = <T extends Record<string, unknown>>(stored: T, defaults: Record<string, unknown>): T => {
+        const out: Record<string, unknown> = { ...stored };
+        for (const [k, v] of Object.entries(defaults)) {
+          const cur = out[k];
+          const empty = cur == null || cur === "" || (Array.isArray(cur) && cur.length === 0);
+          const has = v != null && v !== "" && !(Array.isArray(v) && v.length === 0);
+          if (empty && has) out[k] = v;
+        }
+        return out as T;
+      };
+      setHeader(mergeEmpty(res.header, { ...res.defaults.header, preparedBy: res.defaults.terms.preparedBy ?? null }));
+      setTerms(mergeEmpty(res.terms, res.defaults.terms as Record<string, unknown>));
+      setLines(res.lines);
+    }
     const p = await apiJson<{ documents: PdfDoc[] }>(`${base}/pdf`).catch(() => null);
     setPdfs(p?.documents ?? []);
   }, [base]);
