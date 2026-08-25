@@ -60,7 +60,7 @@ export async function GET(
     "X-Content-Type-Options": "nosniff",
     "X-Robots-Tag": "noindex, nofollow",
   });
-  if (blob.size != null) headers.set("Content-Length", String(blob.size));
+  // 不手设 Content-Length（同 /api/files 代理：SDK size 缺失时为 0/压缩长度，手设必截断）
 
   return new NextResponse(blob.stream, { status: 200, headers });
 }

@@ -430,6 +430,42 @@ async function main() {
   const pdfDoc = pdfPath ? await PDFDocument.load(readFileSync(pdfPath)) : null;
   ok(pdfG.size > 1000 && pdfDoc !== null && pdfDoc.getPageCount() === 1, `G-10（P2）: Real-UAT 规模的客户报价 PDF = 1 页（无仅页脚的空白尾页）；${pdfG.size} bytes`, { pages: pdfDoc?.getPageCount(), path: !!pdfPath });
 
+  // ── H. Sunny 定价链 v1：种子模板 → 未定价状态门 → 全瀑布 DB 往返 → 审批 ──
+  console.log("\n[H] Sunny 定价链（种子模板 + 状态门 + 全瀑布）");
+  const hQ = await createEngineQuote({ ...ctx, quoteType: "PROJECT_SUPPLY_INSTALL", name: "Sunny chain seed" });
+  const hQ1 = await getQuote(hQ.id, project.id);
+  const hChainTypes = ["PCT_ANNUALIZED_ON_COST", "PCT_SELF_INCLUSIVE_ON_COST", "PCT_ON_COST_SUBTOTAL", "PCT_OF_GROSS_PROFIT"];
+  ok(hChainTypes.every((t) => hQ1.costLines.some((l) => l.calculationType === t)) && hQ1.pricingMethod === "MARGIN_ON_REVENUE", "H-01: 新建 Supply+Install 种子含完整 Sunny 链（8/3/1/30）+ 默认按售价倒扣");
+  const hC1 = computeForQuote(hQ1);
+  ok(hC1.calc.ok && hC1.calc.warnings.some((w) => w.code === "LINE_UNPRICED"), "H-02: 种子即绿（空值行未定价按 0，计算 ok 而非报错）");
+  let hGate = "";
+  try { await transitionQuote({ ...ctx, quoteId: hQ.id, to: "review" }); } catch (e) { hGate = (e as { code?: string }).code ?? ""; }
+  ok(hGate === "QUOTE_UNPRICED_LINES", "H-03: 存在未定价纳入行 → draft→review 被状态门拦下（fail-closed）");
+  const hLines = [
+    { sortOrder: 10, category: "MATERIAL", description: "钢窗（80）", calculationType: "FIXED" as const, unitCost: 80, sourceCurrency: "CAD", quantity: null, unit: null, fxRate: null, fxRateSource: null, subcategory: null, calculationBase: null, rate: null, duration: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+    { sortOrder: 20, category: "OTHER", description: "杂项（20）", calculationType: "FIXED" as const, unitCost: 20, sourceCurrency: "CAD", quantity: null, unit: null, fxRate: null, fxRateSource: null, subcategory: null, calculationBase: null, rate: null, duration: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+    { sortOrder: 30, category: "DUTY", description: "关税 25%", calculationType: "PERCENT_OF_COST" as const, calculationBase: "PROCUREMENT", rate: 25, sourceCurrency: "CAD", quantity: null, unit: null, unitCost: null, fxRate: null, fxRateSource: null, subcategory: null, duration: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+    { sortOrder: 40, category: "FINANCING", description: "资金使用", calculationType: "PCT_ANNUALIZED_ON_COST" as const, rate: 8, duration: 2.5, sourceCurrency: "CAD", quantity: null, unit: null, unitCost: null, fxRate: null, fxRateSource: null, subcategory: null, calculationBase: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+    { sortOrder: 50, category: "ADMIN", description: "管理费", calculationType: "PCT_SELF_INCLUSIVE_ON_COST" as const, rate: 3, sourceCurrency: "CAD", quantity: null, unit: null, unitCost: null, fxRate: null, fxRateSource: null, subcategory: null, calculationBase: null, duration: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+    { sortOrder: 60, category: "OTHER", description: "Cash allowance", calculationType: "PCT_ON_COST_SUBTOTAL" as const, rate: 1, sourceCurrency: "CAD", quantity: null, unit: null, unitCost: null, fxRate: null, fxRateSource: null, subcategory: null, calculationBase: null, duration: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+    { sortOrder: 70, category: "COMMISSION", description: "销售提成", calculationType: "PCT_OF_GROSS_PROFIT" as const, rate: 30, sourceCurrency: "CAD", quantity: null, unit: null, unitCost: null, fxRate: null, fxRateSource: null, subcategory: null, calculationBase: null, duration: null, supplierId: null, supplierName: null, source: null, notes: null, included: true },
+  ];
+  await updateEngineQuote({ ...ctx, quoteId: hQ.id, header: { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: 25 }, lines: hLines });
+  const hQ2 = await getQuote(hQ.id, project.id);
+  const hC2 = computeForQuote(hQ2);
+  ok(hC2.calc.ok, "H-04: 全瀑布 DB 往返计算 ok");
+  if (hC2.calc.ok) {
+    const hAmt = (desc: string) => hC2.calc.ok ? hC2.calc.lines.find((l) => hQ2.costLines.find((c) => c.id === l.id)?.description === desc)?.amount ?? NaN : NaN;
+    ok(Math.abs(hAmt("关税 25%") - 20) < 0.01 && Math.abs(hAmt("资金使用") - 2.4) < 0.01 && Math.abs(hAmt("管理费") - 3.79) < 0.01 && Math.abs(hAmt("Cash allowance") - 1.2) < 0.01, "H-05: 关税 20 / 资金使用 2.40（2.5→3月）/ 管理费自含 3.79 / CA 1.20");
+    ok(Math.abs(hC2.calc.sellingPrice - 169.85) < 0.01 && Math.abs(hAmt("销售提成") - 12.74) < 0.01 && Math.abs(hC2.calc.grossProfit - 29.72) < 0.01, "H-06: 售价 169.85 / 提成 12.74 / 净利 29.72（黄金瀑布过实库 Decimal 往返不失真）");
+  } else { ok(false, "H-05: 计算失败"); ok(false, "H-06: 计算失败"); }
+  await transitionQuote({ ...ctx, quoteId: hQ.id, to: "review" });
+  const hQ3 = await transitionQuote({ ...ctx, quoteId: hQ.id, to: "approved" });
+  ok(hQ3.status === "approved", "H-07: 填满后 review→approved 顺畅（状态门只拦未定价）");
+  const hSo = await createEngineQuote({ ...ctx, quoteType: "SUPPLY_ONLY", name: "Supply only seed" });
+  const hSo1 = await getQuote(hSo.id, project.id);
+  ok(hChainTypes.every((t) => hSo1.costLines.some((l) => l.calculationType === t)) && !hSo1.costLines.some((l) => l.category === "LABOUR"), "H-08: Supply Only 种子含 Sunny 链、无安装人工段");
+
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   await db.$disconnect();
   process.exit(fail > 0 ? 1 : 0);

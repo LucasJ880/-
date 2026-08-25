@@ -79,6 +79,61 @@ export interface ExecuteResult {
   errorCode?: string;
 }
 
+// ── B2（审批 CAS / 副作用单一执行权）─────────────────────────────
+// 不变量：一个 PendingAction 至多一个调用方能原子地把 pending → approved
+// （执行态）并跨过副作用边界；其余并发/重复/重试调用方拿到确定性结果，
+// 绝不再次触发副作用。approved 是「执行中」态：不可再执行（防 crash 后
+// 外部副作用重放，如 Gmail 草稿）、也不可拒绝——卡在 approved 的行属于
+// 崩溃窗口残留，需人工处理，绝不自动重放。
+export const B2_DUPLICATE_ERROR_CODES = {
+  inProgress: "EXECUTION_IN_PROGRESS",
+  alreadyExecuted: "ALREADY_EXECUTED",
+  alreadyRejected: "ALREADY_REJECTED",
+  alreadyFailed: "ALREADY_FAILED",
+} as const;
+
+/** 并发失败方 / 重复请求的确定性结果（纯函数；绝不触发副作用） */
+export function duplicateExecuteResult(action: {
+  status: string;
+  resultRef?: string | null;
+  failureReason?: string | null;
+}): ExecuteResult {
+  switch (action.status) {
+    case "executed":
+      return {
+        ok: true,
+        resultRef: action.resultRef ?? undefined,
+        message: "该动作此前已执行（重复请求，未再次执行）",
+        errorCode: B2_DUPLICATE_ERROR_CODES.alreadyExecuted,
+      };
+    case "approved":
+      return {
+        ok: false,
+        error: "该动作正在执行中，请稍候查看结果",
+        errorCode: B2_DUPLICATE_ERROR_CODES.inProgress,
+      };
+    case "rejected":
+      return {
+        ok: false,
+        error: "该动作此前已取消，不能执行",
+        errorCode: B2_DUPLICATE_ERROR_CODES.alreadyRejected,
+      };
+    case "failed":
+      return {
+        ok: false,
+        error: action.failureReason
+          ? `该动作此前已失败（${action.failureReason}），不能重复执行`
+          : "该动作此前已失败，不能重复执行",
+        errorCode: B2_DUPLICATE_ERROR_CODES.alreadyFailed,
+      };
+    default:
+      return {
+        ok: false,
+        error: `该草稿状态为 ${action.status}，不能重复执行`,
+      };
+  }
+}
+
 type ToolPolicyLoader = (
   orgId: string,
 ) => Promise<{ value?: { disabledTools?: string[] } | null }>;
@@ -145,8 +200,8 @@ export async function executePendingAction(
 
   // 占位动作（Grader 暂未接入执行器）：安全降级，不写任何业务数据。
   if (isUnsupportedPendingActionType(action.type)) {
-    await db.pendingAction.update({
-      where: { id: actionId },
+    await db.pendingAction.updateMany({
+      where: { id: actionId, status: "pending" },
       data: { status: "failed", failureReason: "该动作类型暂未接入执行器，仅作建议（未执行）" },
     });
     return {
@@ -155,16 +210,17 @@ export async function executePendingAction(
     };
   }
 
-  if (action.status !== "pending" && action.status !== "approved") {
-    return {
-      ok: false,
-      error: `该草稿状态为 ${action.status}，不能重复执行`,
-    };
+  // B2：只有 pending 可进入执行；approved（执行中/崩溃窗口残留）不可重放，
+  // 终态返回确定性重复结果。此前这里接受 approved 重入——那正是外部副作用
+  // （Gmail 草稿等）在 crash 后被重放的通道。
+  if (action.status !== "pending") {
+    return duplicateExecuteResult(action);
   }
 
   if (action.expiresAt.getTime() < Date.now()) {
-    await db.pendingAction.update({
-      where: { id: actionId },
+    // 条件写：只允许 pending → failed（并发赢家已 claim 的行不得被覆盖）
+    await db.pendingAction.updateMany({
+      where: { id: actionId, status: "pending" },
       data: { status: "failed", failureReason: "已过期" },
     });
     return { ok: false, error: "草稿已过期" };
@@ -257,11 +313,26 @@ export async function executePendingAction(
     }
   }
 
-  // 标记为 approved（进入执行态），避免并发重复执行
-  await db.pendingAction.update({
-    where: { id: actionId },
+  // B2 原子 CAS claim：pending → approved（执行态）。谓词含 status 与未过期，
+  // 数据库保证至多一个赢家；count!==1 的调用方绝不进入副作用 switch。
+  // 授权（canDecideTeamApproval / org / payloadHash / tool policy）已在 claim
+  // 之前完成——未授权调用方不可能锁走动作。
+  const claimed = await db.pendingAction.updateMany({
+    where: { id: actionId, status: "pending", expiresAt: { gt: new Date() } },
     data: { status: "approved", decidedAt: new Date(), decidedById: ctx.userId },
   });
+  if (claimed.count !== 1) {
+    const latest = await db.pendingAction.findUnique({
+      where: { id: actionId },
+      select: { status: true, resultRef: true, failureReason: true },
+    });
+    if (!latest) return { ok: false, error: "草稿不存在" };
+    if (latest.status === "pending") {
+      // 仍是 pending 却 claim 失败 → 只可能是与过期清扫竞态（谓词含 expiresAt）
+      return { ok: false, error: "草稿已过期", errorCode: "EXPIRED" };
+    }
+    return duplicateExecuteResult(latest);
+  }
 
   let exec: ExecuteResult;
   try {
@@ -355,8 +426,9 @@ export async function executePendingAction(
   }
 
   if (exec.ok) {
-    await db.pendingAction.update({
-      where: { id: actionId },
+    // 终态写同样带谓词：只有本次 claim 的 approved 行可被终态化（防御性）
+    await db.pendingAction.updateMany({
+      where: { id: actionId, status: "approved" },
       data: {
         status: "executed",
         executedAt: new Date(),
@@ -374,8 +446,8 @@ export async function executePendingAction(
       },
     });
   } else {
-    await db.pendingAction.update({
-      where: { id: actionId },
+    await db.pendingAction.updateMany({
+      where: { id: actionId, status: "approved" },
       data: { status: "failed", failureReason: exec.error },
     });
     await logAudit({
@@ -647,8 +719,45 @@ export async function rejectPendingAction(
   if (!(await canDecideTeamApproval(action, ctx))) {
     return { ok: false, error: "无权操作该草稿" };
   }
+  // B2：拒绝的确定性重复语义（与执行侧同一套 code）。approved = 执行中，
+  // 不能取消——副作用可能已经/正在发生，取消无法撤回它。
+  const rejectDuplicate = (latest: {
+    status: string;
+    resultRef?: string | null;
+    failureReason?: string | null;
+  }): ExecuteResult => {
+    switch (latest.status) {
+      case "rejected":
+        return {
+          ok: true,
+          message: "该动作此前已取消",
+          errorCode: B2_DUPLICATE_ERROR_CODES.alreadyRejected,
+        };
+      case "executed":
+        return {
+          ok: false,
+          error: "该动作已执行，不能取消",
+          errorCode: B2_DUPLICATE_ERROR_CODES.alreadyExecuted,
+          resultRef: latest.resultRef ?? undefined,
+        };
+      case "approved":
+        return {
+          ok: false,
+          error: "该动作正在执行中，不能取消",
+          errorCode: B2_DUPLICATE_ERROR_CODES.inProgress,
+        };
+      case "failed":
+        return {
+          ok: false,
+          error: "该动作此前已失败，无需取消",
+          errorCode: B2_DUPLICATE_ERROR_CODES.alreadyFailed,
+        };
+      default:
+        return { ok: false, error: `该草稿状态为 ${latest.status}，不能拒绝` };
+    }
+  };
   if (action.status !== "pending") {
-    return { ok: false, error: `该草稿状态为 ${action.status}，不能拒绝` };
+    return rejectDuplicate(action);
   }
 
   const rejectionData = {
@@ -657,11 +766,16 @@ export async function rejectPendingAction(
     decidedById: ctx.userId,
     failureReason: reason ?? undefined,
   };
+  // B2 原子 CAS：pending → rejected；并发的 approve/reject/过期清扫至多一家赢。
   if (action.type === "sales.approve_quote_promotion") {
     const payload = action.payload as unknown as SalesApproveQuotePromotionPayload;
-    await db.$transaction([
-      db.pendingAction.update({ where: { id: actionId }, data: rejectionData }),
-      db.salesQuote.updateMany({
+    const claimed = await db.$transaction(async (tx) => {
+      const res = await tx.pendingAction.updateMany({
+        where: { id: actionId, status: "pending" },
+        data: rejectionData,
+      });
+      if (res.count !== 1) return false;
+      await tx.salesQuote.updateMany({
         where: {
           id: payload.quoteId,
           orgId: payload.metadata?.orgId,
@@ -674,10 +788,30 @@ export async function rejectPendingAction(
           promotionRejectedById: ctx.userId,
           promotionRejectionReason: reason?.slice(0, 2000) || "管理员未批准本次超额让利",
         },
-      }),
-    ]);
+      });
+      return true;
+    });
+    if (!claimed) {
+      const latest = await db.pendingAction.findUnique({
+        where: { id: actionId },
+        select: { status: true, resultRef: true, failureReason: true },
+      });
+      if (!latest) return { ok: false, error: "草稿不存在" };
+      return rejectDuplicate(latest);
+    }
   } else {
-    await db.pendingAction.update({ where: { id: actionId }, data: rejectionData });
+    const res = await db.pendingAction.updateMany({
+      where: { id: actionId, status: "pending" },
+      data: rejectionData,
+    });
+    if (res.count !== 1) {
+      const latest = await db.pendingAction.findUnique({
+        where: { id: actionId },
+        select: { status: true, resultRef: true, failureReason: true },
+      });
+      if (!latest) return { ok: false, error: "草稿不存在" };
+      return rejectDuplicate(latest);
+    }
   }
 
   if (action.type === "marketing.approve_research_plan") {

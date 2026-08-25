@@ -193,5 +193,127 @@ console.log("Quote & Cost Engine 计算单测");
   ok(u.landedPerPiece === round4(u.exact.landedPerPiece) && u.exact.landedPerContainer === 711500, "QC-15c: 显示值只做输出舍入，内部 exact 保持全精度");
 }
 
+// ─── Sunny 定价链 v1（calc/v2 冻结口径 2026-08-24；黄金例：成本100/毛利30% → 售价142.86/提成12.85/净利30） ───
+
+// SP-01 Lucas 黄金例：按售价倒扣 + 提成=毛利30%（从毛利扣，不进分母）
+{
+  const r = computeQuote({ quoteCurrency: "CAD", lines: [
+    line({ category: "MATERIAL", calculationType: "FIXED", unitCost: 100 }),
+    line({ id: "comm", category: "COMMISSION", calculationType: "PCT_OF_GROSS_PROFIT", rate: 30 }),
+  ], pricing: { method: "MARGIN_ON_REVENUE", rate: 30 } });
+  ok(r.ok, "SP-01a: 黄金例计算成功");
+  if (r.ok) {
+    const comm = r.lines.find((l) => l.id === "comm")!;
+    ok(r.sellingPrice === 142.86, `SP-01b: 售价 = 142.86（100 ÷ 0.7）`, r.sellingPrice);
+    ok(comm.amount === 12.86 && comm.baseLabel === "GROSS_PROFIT" && comm.baseAmount === 42.86, "SP-01c: 提成 = 毛利 42.86 × 30% = 12.86", comm);
+    ok(r.estimatedCost === 112.86 && r.grossProfit === 30, "SP-01d: 全成本 112.86，净利恰 = 30.00（Lucas 例）", { cost: r.estimatedCost, net: r.grossProfit });
+  }
+}
+
+// SP-02 提成不进定价分母：有无提成行，售价不变
+{
+  const mk = (withComm: boolean) => computeQuote({ quoteCurrency: "CAD", lines: [
+    line({ category: "MATERIAL", calculationType: "FIXED", unitCost: 100 }),
+    ...(withComm ? [line({ category: "COMMISSION", calculationType: "PCT_OF_GROSS_PROFIT", rate: 30 })] : []),
+  ], pricing: { method: "MARGIN_ON_REVENUE", rate: 30 } });
+  const a = mk(true); const b = mk(false);
+  ok(a.ok && b.ok && a.sellingPrice === b.sellingPrice, "SP-02: PCT_OF_GROSS_PROFIT 不改变售价（非收入基数行）");
+}
+
+// SP-03 全瀑布：材料80+其他20 → 关税25%（PROCUREMENT 基）→ 资金使用8%年化×⌈2.5⌉→3月 → 管理费3%自含 → CA 1% → 毛利25% → 提成30%
+{
+  const r = computeQuote({ quoteCurrency: "CAD", lines: [
+    line({ id: "mat", category: "MATERIAL", calculationType: "FIXED", unitCost: 80 }),
+    line({ id: "oth", category: "OTHER", calculationType: "FIXED", unitCost: 20 }),
+    line({ id: "duty", category: "DUTY", calculationType: "PERCENT_OF_COST", calculationBase: "PROCUREMENT", rate: 25 }),
+    line({ id: "fin", category: "FINANCING", calculationType: "PCT_ANNUALIZED_ON_COST", rate: 8, duration: 2.5 }),
+    line({ id: "adm", category: "ADMIN", calculationType: "PCT_SELF_INCLUSIVE_ON_COST", rate: 3 }),
+    line({ id: "ca", category: "OTHER", calculationType: "PCT_ON_COST_SUBTOTAL", rate: 1 }),
+    line({ id: "comm", category: "COMMISSION", calculationType: "PCT_OF_GROSS_PROFIT", rate: 30 }),
+  ], pricing: { method: "MARGIN_ON_REVENUE", rate: 25 } });
+  ok(r.ok, "SP-03a: 全瀑布计算成功");
+  if (r.ok) {
+    const g = (id: string) => r.lines.find((l) => l.id === id)!.amount;
+    ok(g("duty") === 20, "SP-03b: 关税 = 材料 80 × 25% = 20（PROCUREMENT 基数不吃 OTHER 行）");
+    ok(g("fin") === 2.4, "SP-03c: 资金使用 = 120 × 8%/12 × 3 = 2.40（2.5 月进位 3 月）");
+    ok(g("adm") === 3.79, "SP-03d: 管理费自含 = 122.40/0.97 − 122.40 = 3.79（不是 ×3% 的 3.67）", g("adm"));
+    ok(g("ca") === 1.2, "SP-03e: cash allowance = (D+T) × 1% = 1.20（基数不含资金使用/管理费）");
+    ok(r.chainedCostTotal === 7.39 && r.baseCost === 127.39, "SP-03f: 成本侧合计 = 127.39");
+    ok(r.sellingPrice === 169.85 && g("comm") === 12.74, "SP-03g: 售价 169.85，提成 = 42.46 × 30% = 12.74");
+    ok(r.estimatedCost === 140.13 && r.grossProfit === 29.72, "SP-03h: 全成本 140.13，净利 29.72");
+  }
+}
+
+// SP-04 月取整边界（不足一月按一月）
+{
+  const fin = (duration: number) => {
+    const r = computeQuote({ quoteCurrency: "CAD", lines: [
+      line({ category: "MATERIAL", calculationType: "FIXED", unitCost: 120 }),
+      line({ id: "f", category: "FINANCING", calculationType: "PCT_ANNUALIZED_ON_COST", rate: 8, duration }),
+    ], pricing: { method: "MARGIN_ON_REVENUE", rate: 0 } });
+    return r.ok ? r.lines.find((l) => l.id === "f")!.amount : NaN;
+  };
+  ok(fin(0.2) === 0.8 && fin(1) === 0.8, "SP-04a: 0.2 月与 1 月都按 1 个月（0.80）");
+  ok(fin(1.01) === 1.6 && fin(12) === 9.6, "SP-04b: 1.01 月进位 2 个月（1.60）；12 月 = 9.60");
+}
+
+// SP-05 校验语义：填了但非法 = 硬错误；空值 = 未定价警告（按 0 计，不炸全局）
+{
+  const bad = validateLines([
+    line({ category: "FINANCING", calculationType: "PCT_ANNUALIZED_ON_COST", rate: 8, duration: -1 }),
+    line({ category: "ADMIN", calculationType: "PCT_SELF_INCLUSIVE_ON_COST", rate: 100 }),
+    line({ category: "COMMISSION", calculationType: "PCT_OF_GROSS_PROFIT", rate: 101 }),
+    line({ category: "OTHER", calculationType: "PCT_ON_COST_SUBTOTAL", rate: -1 }),
+  ]);
+  const codes = bad.map((e) => e.code);
+  ok(codes.includes("DURATION_INVALID") && codes.includes("SELF_INCLUSIVE_TOO_HIGH") && codes.includes("PROFIT_PCT_TOO_HIGH") && codes.includes("RATE_NEGATIVE"), "SP-05a: 四类非法输入全部硬拦截", codes);
+  const r = computeQuote({ quoteCurrency: "CAD", lines: [
+    line({ category: "MATERIAL", calculationType: "FIXED", unitCost: 100 }),
+    line({ id: "f0", category: "FINANCING", calculationType: "PCT_ANNUALIZED_ON_COST", rate: 8 }),
+    line({ id: "empty", category: "MATERIAL", calculationType: "FIXED" }),
+    line({ id: "cny", category: "MATERIAL", calculationType: "FIXED", sourceCurrency: "CNY" }),
+  ], pricing: { method: "MARGIN_ON_REVENUE", rate: 30 } });
+  ok(r.ok, "SP-05b: 空值行不阻塞计算（未定价按 0，含缺汇率但未填金额的外币行）");
+  if (r.ok) {
+    const unpriced = r.warnings.filter((w) => w.code === "LINE_UNPRICED");
+    ok(unpriced.length === 3 && r.lines.find((l) => l.id === "f0")!.amount === 0, "SP-05c: 3 行未定价警告（缺周期/缺金额/外币未填），金额按 0", unpriced.map((w) => w.lineId));
+    ok(r.sellingPrice === 142.86, "SP-05d: 已填行照常定价（100 ÷ 0.7）");
+  }
+  const fxHard = computeQuote({ quoteCurrency: "CAD", lines: [line({ category: "MATERIAL", calculationType: "FIXED", unitCost: 50, sourceCurrency: "CNY" })], pricing: { method: "MARGIN_ON_REVENUE", rate: 0 } });
+  ok(!fxHard.ok && fxHard.errors.some((e) => e.code === "FX_REQUIRED"), "SP-05e: 外币行一旦填了金额、缺汇率立刻硬错误（不许 1:1 混过）");
+}
+
+// SP-06 SUBCAT 基数：多品类不同关税率（钢材 25% / 铝材 10%），只乘各自标记行
+{
+  const r = computeQuote({ quoteCurrency: "CAD", lines: [
+    line({ id: "steel", category: "MATERIAL", calculationType: "FIXED", unitCost: 60, subcategory: "钢材" }),
+    line({ id: "alu", category: "MATERIAL", calculationType: "FIXED", unitCost: 40, subcategory: "铝材" }),
+    line({ id: "d1", category: "DUTY", calculationType: "PERCENT_OF_COST", calculationBase: "SUBCAT:钢材", rate: 25 }),
+    line({ id: "d2", category: "DUTY", calculationType: "PERCENT_OF_COST", calculationBase: "SUBCAT:铝材", rate: 10 }),
+  ], pricing: { method: "MARGIN_ON_REVENUE", rate: 0 } });
+  ok(r.ok, "SP-06a: SUBCAT 基数计算成功");
+  if (r.ok) {
+    const g = (id: string) => r.lines.find((l) => l.id === id)!.amount;
+    ok(g("d1") === 15 && g("d2") === 4, "SP-06b: 钢材关税 60×25%=15，铝材 40×10%=4（互不串）");
+  }
+  const bad = validateLines([line({ category: "DUTY", calculationType: "PERCENT_OF_COST", calculationBase: "SUBCAT:", rate: 5 })]);
+  ok(bad.some((e) => e.code === "INVALID_COST_BASE"), "SP-06c: 空 SUBCAT 标签被拒");
+}
+
+// SP-07 链式行 + 既有收入基数行共存：分母只吃 PERCENT_OF_REVENUE
+{
+  const r = computeQuote({ quoteCurrency: "CAD", lines: [
+    line({ category: "MATERIAL", calculationType: "FIXED", unitCost: 100 }),
+    line({ id: "rev", category: "ADMIN", calculationType: "PERCENT_OF_REVENUE", rate: 5 }),
+    line({ id: "comm", category: "COMMISSION", calculationType: "PCT_OF_GROSS_PROFIT", rate: 30 }),
+  ], pricing: { method: "MARGIN_ON_REVENUE", rate: 25 } });
+  ok(r.ok, "SP-07a: 混合模式计算成功");
+  if (r.ok) {
+    ok(r.sellingPrice === 142.86, "SP-07b: S = 100 ÷ (1−0.25−0.05) = 142.86（提成不在分母）");
+    const comm = r.lines.find((l) => l.id === "comm")!;
+    ok(comm.baseAmount === 42.86 && comm.amount === 12.86, "SP-07c: 提成基数 = S − 成本侧 = 42.86");
+  }
+}
+
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);
