@@ -9,6 +9,9 @@ import {
   type ExternalIntelStatus,
 } from "@/lib/tender-intel/orchestrate";
 
+// M3 标准追查（≤4 引用 × 检索+LLM）+ M4 市场基准接入后，手动触发需容纳全链
+export const maxDuration = 300;
+
 /**
  * 观察期包5 — 手动触发外部情报检索（情报 tab「立即检索外部情报」按钮）。
  *

@@ -91,8 +91,9 @@ export async function synthesizeAnalystMemo(input: {
       {
         promptName: "tender-analyst-memo",
         promptVersion: "1",
-        timeoutMs: 120_000,
-        maxTokens: 2400,
+        // 生产实测：2400 tokens 被全中文大 schema 顶满（finishReason=length → JSON 截断 → 校验失败重试 → 超函数时限）
+        timeoutMs: 90_000,
+        maxTokens: 4000,
         systemPrompt:
           "你是投标分析师，为管理层写一份备忘录的**判断层**。只输出 JSON：" +
           '{"execSummaryZh","goNoGo":[{"dimensionZh","rating":"GREEN|YELLOW|RED","reasonZh","basedOn"}],"risks":[{"riskZh","severity":"HIGH|MEDIUM|LOW","mitigationZh","basedOn"}],"rfiSuggestions":[{"questionZh","questionEn","whyZh"}],"nextStepsZh":[],"dataGapsZh":[]}。' +
@@ -100,7 +101,7 @@ export async function synthesizeAnalystMemo(input: {
           "② 金额与数字只准复述输入中出现的，绝不自行估算或换算；" +
           "③ goNoGo 至少覆盖：合规可行性、资格经验、交付周期、供应链、价格竞争力（4-10 维，每维独立评级，不给整体投/不投结论）；" +
           "④ rfiSuggestions 面向**规格歧义**（定义不清、结构未指明、验收口径缺失的条款），中英对照，可直接向采购方提交；" +
-          "⑤ 输入缺什么就写进 dataGapsZh（如无市场基准、无历史授标），不要假装知道。",
+          "⑤ 输入缺什么就写进 dataGapsZh（如无市场基准、无历史授标），不要假装知道；⑥ 全部字段务必精炼——单条不超过其上限的一半，宁可少列不可截断。",
         userPrompt,
       },
       analystMemoLlmSchema,
