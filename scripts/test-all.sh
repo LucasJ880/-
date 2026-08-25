@@ -351,6 +351,7 @@ run_test "Quote Operations 客户报价与 PDF 泄露门" "npx tsx src/lib/quote
 run_test "Quote Operations 结构与安全契约" "npx tsx src/lib/quote-engine/__tests__/quote-ops-contract.test.ts"
 run_test "Quote Operations 客户报价 PDF 分页布局（Chromium；缺失则 SKIP）" "npx tsx scripts/quotation-pdf-layout-e2e.ts"
 run_test "Blob 代理与 PDF 函数包契约（0 字节下载/Chromium 二进制回归）" "npx tsx src/lib/files/__tests__/blob-proxy-pdf-contract.test.ts"
+run_test "分析师备忘录 v1（M3 标准追查/M4 市场基准/判断层/注册守卫）" "npx tsx src/lib/tender-intel/__tests__/analyst-memo-v1.test.ts"
 run_test "Project Finance 财务表现只读模型" "npx tsx src/lib/project-finance/__tests__/performance.test.ts"
 run_test "招标自动分析抽取核心" "npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts"
 run_test "招标自动分析 RCMP 回归" "npx tsx src/lib/tender-auto-analysis/__tests__/rcmp-regression.test.ts"

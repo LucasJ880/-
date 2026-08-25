@@ -12,6 +12,7 @@ import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-b
 export type GenerateDocType =
   | "supplier_rfq"
   | "china_supplier_brief"
+  | "analyst_memo"
   | "internal_analysis"
   | "teammate_tasks"
   | "tech_confirm"
@@ -21,6 +22,7 @@ export type GenerateDocType =
 const DOC_TITLES: Record<GenerateDocType, string> = {
   supplier_rfq: "国内供应商询价",
   china_supplier_brief: "China Supplier Sourcing Brief",
+  analyst_memo: "投标分析师备忘录",
   internal_analysis: "内部项目分析",
   teammate_tasks: "同事执行任务单",
   tech_confirm: "供应商技术确认表",
@@ -162,6 +164,102 @@ ${escd}`;
       html,
       addendumFingerprint,
       conclusionVersion: "china_brief_text_v1",
+    });
+  }
+
+  // 分析师备忘录 v1：确定性表格（关键事实/要求/M3标准/M4市场基准/对标）+ AI 判断层（AI_INFERRED）
+  if (input.docType === "analyst_memo") {
+    const latestRun = await db.tenderAnalysisRun.findFirst({
+      where: { projectId: project.id, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, summaryJson: true },
+    });
+    if (!latestRun) throw new Error("先完成标书分析（REVIEW_REQUIRED/APPROVED）再生成分析师备忘录");
+    const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
+    const syn = readAnalystSynthesis(latestRun.summaryJson ?? null);
+    const sj = ((latestRun.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+    const cf = (sj.criticalFacts ?? {}) as Record<string, { status?: string; text?: string | null }>;
+    const CF_ZH: Record<string, string> = { buyer: "采购方", tender_number: "招标编号", project_title: "项目名称", closing_datetime: "截标时间", question_deadline: "提问截止", site_visit: "现场踏勘", location: "地点/交付地", scope: "工作范围", quantity: "数量", contract_duration: "合同期", delivery: "交付要求", installation: "安装要求", warranty: "保修", bond: "保函", insurance: "保险", submission_method: "提交方式", pricing_method: "计价方式", addenda: "补遗", incumbent_supplier: "现任供应商", evaluation_criteria: "评标标准" };
+    const criticalFacts = Object.entries(CF_ZH)
+      .map(([k, labelZh]) => ({ labelZh, status: cf[k]?.status ?? "UNKNOWN", text: cf[k]?.text ?? null }))
+      .filter((f) => f.status !== "UNKNOWN" || f.text);
+    const reqRows = await db.tenderExtractedRequirement.findMany({
+      where: { analysisRunId: latestRun.id },
+      orderBy: [{ mandatory: "desc" }, { requirementCode: "asc" }],
+      take: 48,
+      select: { category: true, chineseTranslation: true, mandatory: true },
+    });
+    const reqTotal = await db.tenderExtractedRequirement.count({ where: { analysisRunId: latestRun.id } });
+    const { BID_FIT_GROUPS, bidFitGroupOf } = await import("@/lib/tender-auto-analysis/bid-fit-groups");
+    const grouped = BID_FIT_GROUPS.map((g) => ({
+      groupZh: g.labelZh,
+      items: reqRows.filter((r) => bidFitGroupOf(r.category) === g.key).map((r) => ({ zh: r.chineseTranslation.slice(0, 220), mandatory: r.mandatory })),
+    })).filter((g) => g.items.length > 0);
+    const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId: project.id }, select: { summaryJson: true } });
+    const rsj = ((room?.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+    const standards = (rsj.referencedStandards ?? null) as import("@/lib/tender-intel/referenced-standards").ReferencedStandardsIntel | null;
+    const market = (rsj.marketPricing ?? null) as import("@/lib/tender-intel/market-pricing").MarketPricingIntel | null;
+    const strategy = rsj.bidStrategyMemo as { keyPoints?: Array<{ pointZh?: string; basedOn?: string }> } | undefined;
+    const strategyPointsZh = (strategy?.keyPoints ?? []).map((kp) => `${kp.pointZh ?? ""}${kp.basedOn ? `（依据：${kp.basedOn}）` : ""}`).filter((x) => x.length > 5).slice(0, 8);
+    const vb = rsj.vendorPriceBenchmark as { vendor?: string; federalTotal?: number; median?: number | null; low?: number | null; high?: number | null } | undefined;
+    const vendorBenchmarkZh = vb?.vendor ? [`现任/相关供应商 ${vb.vendor} 联邦合同对标：共 ${vb.federalTotal ?? "?"} 条${vb.median != null ? `，中位 ${vb.median}` : ""}${vb.low != null && vb.high != null ? `，区间 ${vb.low}–${vb.high}` : ""}（来源：联邦合同披露开放数据）`] : [];
+    const quote = await db.projectQuote.findFirst({
+      where: { projectId: project.id, quoteNumber: { not: null } },
+      orderBy: { updatedAt: "desc" },
+      select: { quoteNumber: true, status: true, currency: true, pricingMethod: true, pricingRate: true, summaryJson: true },
+    });
+    const qsnap = (quote?.summaryJson ?? null) as { sellingPrice?: number; estimatedCost?: number; grossProfit?: number } | null;
+    const quoteSnapshotZh = quote && qsnap?.sellingPrice != null
+      ? [`报价 ${quote.quoteNumber}（${quote.status}）：售价 ${qsnap.sellingPrice} ${quote.currency}${qsnap.estimatedCost != null ? `，全成本 ${qsnap.estimatedCost}` : ""}${qsnap.grossProfit != null ? `，利润 ${qsnap.grossProfit}` : ""}（${quote.pricingMethod} ${quote.pricingRate ?? "?"}%）`]
+      : [];
+    const { synthesizeAnalystMemo } = await import("@/lib/tender-analyst-memo/synthesize");
+    const projMeta2 = await db.project.findUnique({ where: { id: project.id }, select: { solicitationNumber: true } });
+    const digest = {
+      project: { nameZh: project.name, buyer: project.clientOrganization ?? null, closeDate: project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null, solicitationNumber: projMeta2?.solicitationNumber ?? null },
+      criticalFactsDigest: criticalFacts.map((f) => `${f.labelZh}：${f.text ?? "—"}（${f.status}）`).slice(0, 20),
+      requirementsDigest: { mandatoryCount: reqRows.filter((r) => r.mandatory).length, totalCount: reqTotal, top: reqRows.slice(0, 18).map((r) => r.chineseTranslation.slice(0, 140)) },
+      synthesisDigest: syn
+        ? [syn.executiveBrief?.whatIsBeingBoughtZh ?? "", syn.executiveBrief?.bidderTakeawayZh ?? "", ...(syn.risksAndGaps ?? []).slice(0, 6).map((r: { titleZh?: string; explanationZh?: string }) => `风险：${r.titleZh ?? ""} ${r.explanationZh ?? ""}`.trim())].filter(Boolean)
+        : [],
+      standardsDigest: standards?.status === "ran" ? standards.standards.flatMap((s2) => s2.clauses.map((c) => `${s2.ref.docName} ${c.clauseId}：${c.clauseSummaryZh}（含义：${c.implicationZh}）`)).slice(0, 12) : [],
+      marketDigest: market?.status === "ran" ? [...market.benchmarks.map((b) => `${b.productName}：${b.priceRaw}${b.unit ? `/${b.unit}` : ""}（${b.comparabilityZh}）`), ...market.observationsZh].slice(0, 12) : [],
+      strategyDigest: strategyPointsZh,
+      pricingDigest: vendorBenchmarkZh,
+      quoteDigest: quoteSnapshotZh,
+    };
+    const { memo, errorCode } = await synthesizeAnalystMemo({ digest });
+    const { buildAnalystMemoHtml } = await import("./analyst-memo-html");
+    const { ANALYST_MEMO_VERSION } = await import("@/lib/tender-analyst-memo/synthesize");
+    const html = `<!doctype html><meta charset="utf-8">${buildAnalystMemoHtml({
+      header: {
+        projectName: project.name,
+        clientOrganization: project.clientOrganization,
+        solicitationNumber: projMeta2?.solicitationNumber ?? null,
+        closeDate: project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null,
+        orgName: null,
+        generatedAt: new Date().toISOString().slice(0, 10),
+      },
+      criticalFacts,
+      requirements: grouped,
+      requirementsTruncated: reqTotal > reqRows.length,
+      standards,
+      market,
+      vendorBenchmarkZh,
+      pricingScenarioZh: [],
+      quoteSnapshotZh,
+      strategyPointsZh,
+      llm: memo,
+      llmErrorCode: errorCode,
+    })}`;
+    return persistGeneratedHtml({
+      project: { id: project.id, name: project.name },
+      orgId: input.orgId,
+      userId: input.userId,
+      docType: input.docType,
+      titleZh: "投标分析师备忘录",
+      html,
+      addendumFingerprint,
+      conclusionVersion: ANALYST_MEMO_VERSION,
     });
   }
 

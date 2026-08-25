@@ -6,6 +6,7 @@ import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 
 const OPTIONS = [
+  { docType: "analyst_memo", label: "投标分析师备忘录 PDF（事实+标准展开+市场基准+GO/NO-GO）" },
   { docType: "china_supplier_brief", label: "国内供应商简报 PDF（China Brief）" },
   { docType: "supplier_rfq", label: "国内供应商询价 PDF" },
   { docType: "tech_confirm", label: "供应商技术确认表 PDF" },

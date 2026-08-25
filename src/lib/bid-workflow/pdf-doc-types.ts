@@ -1,6 +1,7 @@
 /** 与 generate-pdf 路由 ALLOWED 保持同步 */
 
 export const PROJECT_PDF_DOC_TYPES = [
+  "analyst_memo",
   "china_supplier_brief",
   "supplier_rfq",
   "internal_analysis",
