@@ -30,7 +30,7 @@ import {
   type TierInput,
   type TierPayload,
 } from "./contract";
-import { defaultEngineConfig, templateStandingOfferLines, templateSupplyInstallLines } from "./templates";
+import { defaultEngineConfig, templateStandingOfferLines, templateSupplyInstallLines, templateSupplyOnlyLines } from "./templates";
 
 export const QUOTE_AUDIT_ACTIONS = {
   QUOTE_CREATED: "quote_created",
@@ -137,8 +137,8 @@ export async function createEngineQuote(input: { projectId: string; orgId: strin
   // 引擎报价版本按谱系（V1/V2/V3），新谱系恒 v1；legacy 报价（旧 POST 路由）仍按项目计数，不受影响
   const existing = 0;
   const engine = defaultEngineConfig(input.quoteType);
-  let lines = input.seedTemplate === false ? [] : input.quoteType === "STANDING_OFFER" ? templateStandingOfferLines() : input.quoteType === "PROJECT_SUPPLY_INSTALL" ? templateSupplyInstallLines() : [];
-  let pricing: { method: string; rate: number | null } = { method: "MARKUP_ON_COST", rate: null };
+    let lines = input.seedTemplate === false ? [] : input.quoteType === "STANDING_OFFER" ? templateStandingOfferLines() : input.quoteType === "PROJECT_SUPPLY_INSTALL" ? templateSupplyInstallLines() : input.quoteType === "SUPPLY_ONLY" ? templateSupplyOnlyLines() : [];
+  let pricing: { method: string; rate: number | null } = ["PROJECT_SUPPLY_INSTALL", "SUPPLY_ONLY"].includes(input.quoteType) ? { method: "MARGIN_ON_REVENUE", rate: null } : { method: "MARKUP_ON_COST", rate: null };
   let tiers: Omit<TierPayload, "id">[] = [];
   let engineFinal: EngineConfig = engine;
   if (input.demo) {
@@ -255,6 +255,9 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
   if (input.to === "review" || input.to === "approved") {
     const computed = computeForQuote(q);
     if (!computed.calc.ok) throw new QuoteEngineError("QUOTE_INVALID", "报价存在校验错误，不能提交/批准", 409, computed.calc.errors);
+    // 草稿期空值行按 0 实时试算（LINE_UNPRICED 警告）；离开草稿即 fail-closed——未定价的纳入行不得送审/批准
+    const unpriced = computed.calc.warnings.filter((w) => w.code === "LINE_UNPRICED");
+    if (unpriced.length > 0) throw new QuoteEngineError("QUOTE_UNPRICED_LINES", `存在 ${unpriced.length} 行已纳入但未定价的成本行（按 0 计将低估报价），请填值或取消纳入后再提交`, 409, unpriced);
     if (computed.standingOffer && computed.standingOffer.errors.some((e) => e.code !== "TIER_GAP")) throw new QuoteEngineError("QUOTE_INVALID", "Standing Offer 分级/单位经济存在错误", 409, computed.standingOffer.errors);
   }
   const now = new Date();

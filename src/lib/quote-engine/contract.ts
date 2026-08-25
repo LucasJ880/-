@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-export const QUOTE_ENGINE_CALC_VERSION = "quote-engine-calc/v1" as const;
+export const QUOTE_ENGINE_CALC_VERSION = "quote-engine-calc/v2" as const;
 
 export const QUOTE_TYPES = [
   "PROJECT_SUPPLY_INSTALL",
@@ -79,17 +79,49 @@ export const CALCULATION_TYPES = [
   "PERCENT_OF_COST",
   "PERCENT_OF_REVENUE",
   "PERCENT_OF_CAPITAL",
+  // Sunny 定价链 v1（calc/v2 冻结口径，2026-08-24）：
+  // 资金使用 = (①+②小计) × 年化rate%/12 × ⌈duration 月⌉（不足一月按一月）
+  "PCT_ANNUALIZED_ON_COST",
+  // 管理费 = P ÷ (1 − rate%) − P，P = ①+② + 全部资金使用行（成本侧自含：100 → 103.09）
+  "PCT_SELF_INCLUSIVE_ON_COST",
+  // Cash allowance = (①+②小计) × rate%（基数不含资金使用/管理费）
+  "PCT_ON_COST_SUBTOTAL",
+  // 销售提成 = 毛利(S − 全部成本侧成本) × rate%（从毛利中扣，不进定价分母；净利 = 毛利 − 提成）
+  "PCT_OF_GROSS_PROFIT",
   "TIER_BASED",
   "CUSTOM_FORMULA",
 ] as const;
 export type CalculationType = (typeof CALCULATION_TYPES)[number];
 
 export const PERCENT_OF_COST_TYPES: readonly CalculationType[] = ["PERCENT_OF_COST", "PERCENT_OF_CAPITAL"];
+/** Sunny 链式成本行：在 ①直接+②成本百分比 之后按固定语义顺序求值（资金使用 → 管理费 → cash allowance），无自由基数 → 无循环 */
+export const CHAINED_COST_TYPES: readonly CalculationType[] = ["PCT_ANNUALIZED_ON_COST", "PCT_SELF_INCLUSIVE_ON_COST", "PCT_ON_COST_SUBTOTAL"];
 export const REVENUE_BASED_TYPES: readonly CalculationType[] = ["PERCENT_OF_REVENUE"];
+/** 毛利基数行（提成）：金额 = (卖价 − 成本侧合计) × rate%，计入成本但不进定价分母 */
+export const PROFIT_BASED_TYPES: readonly CalculationType[] = ["PCT_OF_GROSS_PROFIT"];
 
-/** 百分比基数：固定基数 | CATEGORY:<COST_CATEGORY> */
+export const CALCULATION_TYPE_LABELS: Record<string, string> = {
+  FIXED: "固定金额",
+  PER_UNIT: "按数量",
+  PER_HOUR: "按小时",
+  PER_DAY: "按天",
+  PER_MONTH: "按月",
+  PER_TRIP: "按次",
+  PER_CONTAINER: "按柜",
+  PERCENT_OF_COST: "成本 %（选基数）",
+  PERCENT_OF_REVENUE: "售价 %",
+  PERCENT_OF_CAPITAL: "资本占用 %",
+  PCT_ANNUALIZED_ON_COST: "资金使用（年化%×月）",
+  PCT_SELF_INCLUSIVE_ON_COST: "管理费（自含%）",
+  PCT_ON_COST_SUBTOTAL: "成本小计 %（cash allowance）",
+  PCT_OF_GROSS_PROFIT: "提成（毛利%）",
+  TIER_BASED: "分级（Standing Offer）",
+  CUSTOM_FORMULA: "自定义公式（禁用）",
+};
+
+/** 百分比基数：固定基数 | CATEGORY:<COST_CATEGORY> | SUBCAT:<自由标签>（对 subcategory 精确匹配的直接成本行合计；多品类不同关税率用） */
 export const CALC_BASES = ["DIRECT_COST", "PROCUREMENT", "LANDED", "CAPITAL", "REVENUE"] as const;
-export type CalcBase = (typeof CALC_BASES)[number] | `CATEGORY:${CostCategory}`;
+export type CalcBase = (typeof CALC_BASES)[number] | `CATEGORY:${CostCategory}` | `SUBCAT:${string}`;
 
 export const PRICING_METHODS = ["MARKUP_ON_COST", "MARGIN_ON_REVENUE"] as const;
 export type PricingMethod = (typeof PRICING_METHODS)[number];

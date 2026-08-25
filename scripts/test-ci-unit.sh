@@ -18,6 +18,7 @@ npx tsx scripts/check-release-safety.test.ts
 npx tsx scripts/check-preview-db-isolation.test.ts
 npx tsx src/lib/testing/__tests__/assert-safe-test-database.test.ts
 npx tsx src/lib/db-safety/__tests__/production-operation-guard.test.ts
+npx tsx src/lib/db-safety/__tests__/b0-production-guard.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-outcome.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-ready.test.ts
@@ -150,6 +151,8 @@ npx tsx src/lib/mention-gateway/__tests__/m1-static-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m1-final-review.test.ts
 npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts
 npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts
+npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts
+npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 

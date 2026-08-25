@@ -4,6 +4,9 @@
  * 两遍求值：
  *  ① 直接成本行（FIXED / PER_* / FX 折算）→ 各基数（DIRECT_COST / PROCUREMENT / LANDED / CAPITAL / CATEGORY:x）
  *  ② 成本百分比行（PERCENT_OF_COST / PERCENT_OF_CAPITAL）只能引用第 ① 遍基数（不得互相引用 → 无循环）
+ *  ②b Sunny 链（calc/v2，固定顺序 → 无循环）：subtotal12 = ①+②；
+ *      资金使用 = subtotal12 × 年化rate/12 × ⌈月⌉ → 管理费 = P/(1−r)−P（P = subtotal12+资金使用，自含口径 100→103.09）
+ *      → cash allowance = subtotal12 × r（基数刻意不含资金使用/管理费）
  *  ③ 卖价：SellingPrice = (C + profitOnCost) / (1 − Σrev% − marginOnRevenue)
  *     其中 C = ① + ②，profitOnCost = markup × C（MARKUP_ON_COST），marginOnRevenue = rate（MARGIN_ON_REVENUE）
  *     Σrev% = PERCENT_OF_REVENUE 行（Admin/Commission/Financing/Profit-target…）之和
@@ -13,11 +16,13 @@
 
 import {
   CAPITAL_CATEGORIES,
+  CHAINED_COST_TYPES,
   COST_CATEGORIES,
   DEFAULT_SCENARIOS,
   LANDED_CATEGORIES,
   PERCENT_OF_COST_TYPES,
   PROCUREMENT_CATEGORIES,
+  PROFIT_BASED_TYPES,
   QUOTE_ENGINE_CALC_VERSION,
   REVENUE_BASED_TYPES,
   type CostLineInput,
@@ -52,7 +57,9 @@ export type QuoteCalcResult = {
   lines: LineResult[];
   directCost: number;
   percentOfCostTotal: number;
-  /** 不含收入基数行、不含利润的成本 = ① + ② */
+  /** Sunny 链式行合计（资金使用 + 管理费 + cash allowance） */
+  chainedCostTotal: number;
+  /** 不含收入基数行、不含利润的成本 = ① + ② + ②b */
   baseCost: number;
   revenuePctTotal: number;
   pricing: { method: string; rate: number; profitOnCost: number; marginOnRevenue: number };
@@ -96,35 +103,63 @@ export function validateLines(lines: CostLineInput[]): QuoteValidationError[] {
     if (l.calculationType === "CUSTOM_FORMULA") e("CUSTOM_FORMULA_UNSUPPORTED", "Phase 1 不开放自定义公式（禁 eval）");
     if (l.calculationType === "TIER_BASED") e("TIER_BASED_ON_LINE", "TIER_BASED 由 Standing Offer 分级承载，不作为成本行");
     if (!l.included) continue;
+    if (CHAINED_COST_TYPES.includes(l.calculationType as never) || PROFIT_BASED_TYPES.includes(l.calculationType as never)) {
+      // rate 为空 = 未定价（completeness 警告，不阻塞草稿实时试算）；填了但非法才是硬错误
+      if (l.rate != null && !isFiniteNum(l.rate)) e("RATE_INVALID", "rate 非法");
+      else if (isFiniteNum(l.rate) && l.rate < 0) e("RATE_NEGATIVE", "rate 不得为负");
+      else if (l.calculationType === "PCT_SELF_INCLUSIVE_ON_COST" && isFiniteNum(l.rate) && l.rate >= 100) e("SELF_INCLUSIVE_TOO_HIGH", "自含比例 ≥ 100%（除零）");
+      else if (l.calculationType === "PCT_OF_GROSS_PROFIT" && isFiniteNum(l.rate) && l.rate > 100) e("PROFIT_PCT_TOO_HIGH", "提成比例 > 100%");
+      if (l.calculationType === "PCT_ANNUALIZED_ON_COST" && l.duration != null && (!isFiniteNum(l.duration) || l.duration <= 0)) e("DURATION_INVALID", "项目周期（月）必须 > 0");
+      continue;
+    }
     const isPct = PERCENT_OF_COST_TYPES.includes(l.calculationType as never) || REVENUE_BASED_TYPES.includes(l.calculationType as never);
     if (isPct) {
-      if (!isFiniteNum(l.rate)) e("RATE_REQUIRED", "百分比行必须有 rate");
-      else if (l.rate < 0) e("RATE_NEGATIVE", "rate 不得为负");
+      if (l.rate != null && !isFiniteNum(l.rate)) e("RATE_INVALID", "rate 非法");
+      else if (isFiniteNum(l.rate) && l.rate < 0) e("RATE_NEGATIVE", "rate 不得为负");
       if (l.calculationType === "PERCENT_OF_REVENUE" && isFiniteNum(l.rate) && l.rate >= 100) e("REVENUE_PCT_TOO_HIGH", "单项收入基数 ≥ 100%");
       if (PERCENT_OF_COST_TYPES.includes(l.calculationType as never)) {
         const base = l.calculationBase ?? (l.calculationType === "PERCENT_OF_CAPITAL" ? "CAPITAL" : "DIRECT_COST");
         if (base === "REVENUE") e("INVALID_COST_BASE", "PERCENT_OF_COST 不能以 REVENUE 为基数（请用 PERCENT_OF_REVENUE）");
         if (base.startsWith("CATEGORY:") && !(COST_CATEGORIES as readonly string[]).includes(base.slice(9))) e("INVALID_COST_BASE", `未知基数 ${base}`);
-        if (!base.startsWith("CATEGORY:") && !["DIRECT_COST", "PROCUREMENT", "LANDED", "CAPITAL"].includes(base)) e("INVALID_COST_BASE", `未知基数 ${base}`);
+        if (base.startsWith("SUBCAT:") && base.slice(7).trim().length === 0) e("INVALID_COST_BASE", "SUBCAT 基数需要标签");
+        if (!base.startsWith("CATEGORY:") && !base.startsWith("SUBCAT:") && !["DIRECT_COST", "PROCUREMENT", "LANDED", "CAPITAL"].includes(base)) e("INVALID_COST_BASE", `未知基数 ${base}`);
       }
       continue;
     }
     if (l.calculationType === "FIXED") {
-      if (!isFiniteNum(l.unitCost)) e("UNIT_COST_REQUIRED", "FIXED 行需要金额");
-      else if (l.unitCost < 0) e("UNIT_COST_NEGATIVE", "金额不得为负");
+      if (l.unitCost != null && !isFiniteNum(l.unitCost)) e("UNIT_COST_INVALID", "金额非法");
+      else if (isFiniteNum(l.unitCost) && l.unitCost < 0) e("UNIT_COST_NEGATIVE", "金额不得为负");
     } else {
-      if (!isFiniteNum(l.unitCost)) e("UNIT_COST_REQUIRED", "需要单价/费率");
-      else if (l.unitCost < 0) e("UNIT_COST_NEGATIVE", "单价不得为负");
+      if (l.unitCost != null && !isFiniteNum(l.unitCost)) e("UNIT_COST_INVALID", "单价非法");
+      else if (isFiniteNum(l.unitCost) && l.unitCost < 0) e("UNIT_COST_NEGATIVE", "单价不得为负");
       if (l.calculationType === "PER_UNIT") {
-        if (!isFiniteNum(l.quantity) || l.quantity <= 0) e("QUANTITY_INVALID", "数量必须 > 0");
+        if (l.quantity != null && (!isFiniteNum(l.quantity) || l.quantity <= 0)) e("QUANTITY_INVALID", "数量必须 > 0");
       } else {
-        if (!isFiniteNum(l.duration) || l.duration <= 0) e("DURATION_INVALID", "时长/次数/箱数必须 > 0");
+        if (l.duration != null && (!isFiniteNum(l.duration) || l.duration <= 0)) e("DURATION_INVALID", "时长/次数/箱数必须 > 0");
         if (l.quantity != null && l.quantity < 0) e("QUANTITY_INVALID", "数量不得为负");
       }
     }
     if (l.fxRate != null && !(l.fxRate > 0)) e("FX_INVALID", "汇率必须 > 0");
   }
   return errors;
+}
+
+/** 未定价判定（不算硬错误）：空值行金额按 0 参与实时试算；draft→review 状态门 fail-closed 挡住未定价的纳入行 */
+export function unpricedReason(l: CostLineInput): string | null {
+  if (!l.included) return null;
+  if (CHAINED_COST_TYPES.includes(l.calculationType as never) || PROFIT_BASED_TYPES.includes(l.calculationType as never)) {
+    if (!isFiniteNum(l.rate)) return "缺 rate";
+    if (l.calculationType === "PCT_ANNUALIZED_ON_COST" && !isFiniteNum(l.duration)) return "缺项目周期（月）";
+    return null;
+  }
+  if (PERCENT_OF_COST_TYPES.includes(l.calculationType as never) || REVENUE_BASED_TYPES.includes(l.calculationType as never)) {
+    return isFiniteNum(l.rate) ? null : "缺 rate";
+  }
+  if (l.calculationType === "TIER_BASED" || l.calculationType === "CUSTOM_FORMULA") return null;
+  if (!isFiniteNum(l.unitCost)) return "缺金额/单价";
+  if (l.calculationType === "PER_UNIT" && !isFiniteNum(l.quantity)) return "缺数量";
+  if (["PER_HOUR", "PER_DAY", "PER_MONTH", "PER_TRIP", "PER_CONTAINER"].includes(l.calculationType) && !isFiniteNum(l.duration)) return "缺时长/次数/箱数";
+  return null;
 }
 
 /* ------------------------------- 求值 ------------------------------- */
@@ -165,7 +200,7 @@ export function computeQuote(input: {
   if (!isFiniteNum(pricingRate) || pricingRate < 0) errors.push({ code: "PRICING_RATE_INVALID", message: "定价比例无效" });
   if (input.pricing.method === "MARGIN_ON_REVENUE" && pricingRate >= 100) errors.push({ code: "MARGIN_TOO_HIGH", message: "Margin ≥ 100%" });
   for (const l of input.lines) {
-    if (l.included && l.sourceCurrency !== input.quoteCurrency && !(l.fxRate && l.fxRate > 0)) errors.push({ code: "FX_REQUIRED", message: `${l.sourceCurrency}→${input.quoteCurrency} 需要汇率`, lineId: l.id });
+    if (l.included && unpricedReason(l) == null && l.sourceCurrency !== input.quoteCurrency && !(l.fxRate && l.fxRate > 0)) errors.push({ code: "FX_REQUIRED", message: `${l.sourceCurrency}→${input.quoteCurrency} 需要汇率`, lineId: l.id });
   }
   if (errors.length > 0) return { ok: false, errors };
 
@@ -173,13 +208,16 @@ export function computeQuote(input: {
   const results = new Map<string, LineResult>();
   // ① 直接成本
   const byCategory = new Map<string, number>();
+  const bySubcat = new Map<string, number>();
   let directCost = 0;
   for (const l of included) {
-    const isPct = PERCENT_OF_COST_TYPES.includes(l.calculationType as never) || REVENUE_BASED_TYPES.includes(l.calculationType as never);
+    const isPct = PERCENT_OF_COST_TYPES.includes(l.calculationType as never) || REVENUE_BASED_TYPES.includes(l.calculationType as never) || CHAINED_COST_TYPES.includes(l.calculationType as never) || PROFIT_BASED_TYPES.includes(l.calculationType as never);
     if (isPct) continue;
-    const amt = round2(directAmount(l, input.quoteCurrency));
+    // 未定价行（空值）金额按 0：避免 0 × NaN(未填汇率) 污染全局
+    const amt = unpricedReason(l) != null ? 0 : round2(directAmount(l, input.quoteCurrency));
     directCost += amt;
     byCategory.set(l.category, (byCategory.get(l.category) ?? 0) + amt);
+    if (l.subcategory) bySubcat.set(l.subcategory, (bySubcat.get(l.subcategory) ?? 0) + amt);
     results.set(l.id, { id: l.id, category: l.category, calculationType: l.calculationType, included: true, amount: amt, baseAmount: null, baseLabel: null, fxApplied: fxOf(l, input.quoteCurrency).applied });
   }
   const sumCats = (cats: readonly string[]) => cats.reduce((s, c) => s + (byCategory.get(c) ?? 0), 0);
@@ -192,6 +230,7 @@ export function computeQuote(input: {
   const baseOf = (l: CostLineInput): { amount: number; label: string } => {
     const key = l.calculationBase ?? (l.calculationType === "PERCENT_OF_CAPITAL" ? "CAPITAL" : "DIRECT_COST");
     if (key.startsWith("CATEGORY:")) return { amount: byCategory.get(key.slice(9)) ?? 0, label: key };
+    if (key.startsWith("SUBCAT:")) return { amount: bySubcat.get(key.slice(7)) ?? 0, label: key };
     return { amount: bases[key] ?? 0, label: key };
   };
   // ② 成本百分比行（仅引用 ① 基数）
@@ -205,7 +244,31 @@ export function computeQuote(input: {
     pctCatAdds.set(l.category, (pctCatAdds.get(l.category) ?? 0) + amt);
     results.set(l.id, { id: l.id, category: l.category, calculationType: l.calculationType, included: true, amount: amt, baseAmount: round2(b.amount), baseLabel: b.label, fxApplied: false });
   }
-  const baseCost = round2(directCost + percentOfCostTotal);
+  const subtotal12 = round2(directCost + percentOfCostTotal);
+  // ②b Sunny 链（固定顺序：资金使用 → 管理费（P 含资金使用）→ cash allowance（基数仍为 ①+②））
+  let chainedTotal = 0;
+  const chainAdd = (l: CostLineInput, amt: number, baseAmount: number, baseLabel: string) => {
+    const a = round2(amt);
+    chainedTotal += a;
+    pctCatAdds.set(l.category, (pctCatAdds.get(l.category) ?? 0) + a);
+    results.set(l.id, { id: l.id, category: l.category, calculationType: l.calculationType, included: true, amount: a, baseAmount: round2(baseAmount), baseLabel, fxApplied: false });
+  };
+  const chainLines = included.filter((l) => CHAINED_COST_TYPES.includes(l.calculationType as never)).sort((a, b) => a.sortOrder - b.sortOrder);
+  for (const l of chainLines.filter((l) => l.calculationType === "PCT_ANNUALIZED_ON_COST")) {
+    const months = isFiniteNum(l.duration) ? Math.max(Math.ceil(l.duration - 1e-9), 1) : 0; // 不足一月按一月；缺周期 = 未定价按 0
+    chainAdd(l, (subtotal12 * (l.rate ?? 0)) / 100 / 12 * months, subtotal12, `COST_SUBTOTAL×${months}mo`);
+  }
+  let selfInclusiveP = round2(subtotal12 + chainedTotal);
+  for (const l of chainLines.filter((l) => l.calculationType === "PCT_SELF_INCLUSIVE_ON_COST")) {
+    const r = (l.rate ?? 0) / 100;
+    const amt = selfInclusiveP / (1 - r) - selfInclusiveP; // 自含口径：P ÷ 0.97 − P
+    chainAdd(l, amt, selfInclusiveP, "SELF_INCLUSIVE");
+    selfInclusiveP = round2(selfInclusiveP + round2(amt));
+  }
+  for (const l of chainLines.filter((l) => l.calculationType === "PCT_ON_COST_SUBTOTAL")) {
+    chainAdd(l, (subtotal12 * (l.rate ?? 0)) / 100, subtotal12, "COST_SUBTOTAL");
+  }
+  const baseCost = round2(subtotal12 + chainedTotal);
   // ③ 卖价
   const revLines = included.filter((l) => REVENUE_BASED_TYPES.includes(l.calculationType as never));
   const revenuePctTotal = revLines.reduce((s, l) => s + (l.rate ?? 0), 0);
@@ -225,6 +288,14 @@ export function computeQuote(input: {
     revenueBasedCost += amt;
     pctCatAdds.set(l.category, (pctCatAdds.get(l.category) ?? 0) + amt);
     results.set(l.id, { id: l.id, category: l.category, calculationType: l.calculationType, included: true, amount: amt, baseAmount: sellingPrice, baseLabel: "REVENUE", fxApplied: false });
+  }
+  // ④b 提成（毛利基数）：金额 = (卖价 − 成本侧合计) × rate%；计入成本（净利 = 卖价 − estimatedCost），不进定价分母
+  const gpBase = round2(sellingPrice - baseCost);
+  for (const l of included.filter((l) => PROFIT_BASED_TYPES.includes(l.calculationType as never))) {
+    const amt = round2((Math.max(gpBase, 0) * (l.rate ?? 0)) / 100);
+    revenueBasedCost += amt;
+    pctCatAdds.set(l.category, (pctCatAdds.get(l.category) ?? 0) + amt);
+    results.set(l.id, { id: l.id, category: l.category, calculationType: l.calculationType, included: true, amount: amt, baseAmount: gpBase, baseLabel: "GROSS_PROFIT", fxApplied: false });
   }
   for (const l of input.lines) {
     if (!results.has(l.id)) results.set(l.id, { id: l.id, category: l.category, calculationType: l.calculationType, included: false, amount: 0, baseAmount: null, baseLabel: null, fxApplied: false });
@@ -251,6 +322,10 @@ export function computeQuote(input: {
   const scenarios = computeScenarios({ baseCost, revenuePctTotal, revenueBasedProfitPct: revLines.filter((l) => l.category === "PROFIT").reduce((s, l) => s + (l.rate ?? 0), 0), params: input.engine?.scenarios ?? DEFAULT_SCENARIOS, risk: input.engine?.marginRiskPct });
   const tax = computeTax(sellingPrice, input.engine?.tax);
   const warnings: QuoteValidationError[] = [];
+  for (const l of included) {
+    const reason = unpricedReason(l);
+    if (reason) warnings.push({ code: "LINE_UNPRICED", message: `「${l.description}」未定价（${reason}），当前按 0 计`, lineId: l.id });
+  }
   if (!included.some((l) => l.category === "CONTINGENCY")) warnings.push({ code: "NO_CONTINGENCY", message: "当前报价没有显式 contingency" });
   if (grossMarginPct < 0) warnings.push({ code: "NEGATIVE_MARGIN", message: "毛利为负" });
   return {
@@ -259,6 +334,7 @@ export function computeQuote(input: {
     lines: input.lines.map((l) => results.get(l.id)!),
     directCost: round2(directCost),
     percentOfCostTotal: round2(percentOfCostTotal),
+    chainedCostTotal: round2(chainedTotal),
     baseCost,
     revenuePctTotal: round4(revenuePctTotal),
     pricing: { method: input.pricing.method, rate: pricingRate, profitOnCost, marginOnRevenue },
