@@ -118,6 +118,28 @@ export function resolveMentionIdentitySourceWithEnv(
   return null;
 }
 
+export type MentionBindingSource = "fixture" | "db";
+
+/**
+ * M2-B 频道绑定来源：fixture（默认，M1 语义不变）| db（持久化 ChannelContextBinding）。
+ * 非法值 → null（调用方必须 fail-closed 为 GATEWAY_DISABLED，绝不 fallback fixture）。
+ */
+export function resolveMentionBindingSourceWithEnv(
+  env: MentionGatewayFlagEnv = process.env,
+): MentionBindingSource | null {
+  const raw = (env.MENTION_GATEWAY_BINDING_SOURCE || "").trim().toLowerCase();
+  if (!raw || raw === "fixture") return "fixture";
+  if (raw === "db") return "db";
+  return null;
+}
+
+/** M2-B 绑定管理 API 总开关（写与管理 list 全部 404）；缺省 false */
+export function isMentionBindingAdminEnabledWithEnv(
+  env: MentionGatewayFlagEnv = process.env,
+): boolean {
+  return envBool(env.MENTION_GATEWAY_BINDING_ADMIN_ENABLED);
+}
+
 /**
  * 要求已验证身份（**安全默认 true**）：DB 身份源下
  * `verificationMethod === "LEGACY_SELF_ASSERTED"` 的 ACTIVE 身份仍被拒。
@@ -165,6 +187,8 @@ export function describeMentionGatewayFlags(
     maxRisk: resolveMentionGatewayMaxRiskWithEnv(env),
     maxRiskCeiling: MENTION_GATEWAY_M1_MAX_RISK,
     identitySource: resolveMentionIdentitySourceWithEnv(env),
+    bindingSource: resolveMentionBindingSourceWithEnv(env),
+    bindingAdminEnabled: isMentionBindingAdminEnabledWithEnv(env),
     requireVerifiedIdentity: isMentionRequireVerifiedIdentityEnabledWithEnv(env),
     identityAdminEnabled: isMentionIdentityAdminEnabledWithEnv(env),
     runtimeEnv: resolveQingyanRuntimeEnv(env as NodeJS.ProcessEnv),

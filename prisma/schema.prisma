@@ -377,6 +377,8 @@ model Project {
   @@index([orgId, workDomain, deliveryStage])
   @@index([orgId, sourceTenderProjectId])
   @@index([sourceTenderProjectId])
+  // Mention Gateway M2-B
+  channelContextBindings ChannelContextBinding[] @relation("ProjectChannelContextBindings")
   @@index([orgId, bidPhaseStatus])
 }
 
@@ -801,6 +803,9 @@ model Organization {
   aiThreads           AiThread[]
   salesActions        SalesAction[]
   salesActionSyncRuns SalesActionSyncRun[]
+
+  // Mention Gateway M2-B
+  channelContextBindings ChannelContextBinding[] @relation("OrganizationChannelContextBindings")
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -3778,6 +3783,9 @@ model SalesCustomer {
   @@index([phone])
   @@index([email])
   @@index([createdAt])
+
+  // Mention Gateway M2-B
+  channelContextBindings ChannelContextBinding[] @relation("SalesCustomerChannelContextBindings")
   @@index([orgId])
 }
 
@@ -7958,4 +7966,55 @@ model ExternalIdentity {
   @@index([userId, status])
   @@index([provider, providerTenantId, userId])
   @@index([status, updatedAt])
+}
+
+/// Mention Gateway M2-B — 频道/线程 → 业务对象 的持久绑定（server authority；AI 不可写）。
+/// 唯一键含 providerTenantId（B1 渠道边界）；providerThreadId 用 "" 哨兵表示 channel 级
+/// （B5 设计：可空列会让 Postgres UNIQUE 放行多条 channel 行）。
+/// target XOR：projectId / customerId 恰一（tender 只是 Project 的 contextRole 标签，无 tenderId）。
+/// REVOKED 终态（同 exact key 永久撤销，恢复属未来显式 recovery 设计）。
+model ChannelContextBinding {
+  id String @id @default(cuid())
+
+  provider          String
+  providerTenantId  String
+  providerChannelId String
+  /// CHANNEL | THREAD（服务端由 threadId 有无推导；body 不可写）
+  bindingLevel      String @default("CHANNEL")
+  /// CHANNEL → ""；THREAD → 非空真实 provider 线程 id
+  providerThreadId  String @default("")
+
+  orgId String
+  org   Organization @relation("OrganizationChannelContextBindings", fields: [orgId], references: [id], onDelete: Restrict)
+
+  projectId String?
+  project   Project? @relation("ProjectChannelContextBindings", fields: [projectId], references: [id], onDelete: Restrict)
+
+  customerId String?
+  customer   SalesCustomer? @relation("SalesCustomerChannelContextBindings", fields: [customerId], references: [id], onDelete: Restrict)
+
+  /// null | "tender"（tender → projectId 必非空）
+  contextRole String?
+
+  /// ACTIVE | DISABLED | REVOKED
+  status String @default("ACTIVE")
+
+  createdById String?
+  updatedById String?
+
+  disabledAt   DateTime?
+  disabledById String?
+
+  revokedAt    DateTime?
+  revokedById  String?
+  revokeReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerTenantId, providerChannelId, providerThreadId])
+  @@index([orgId, status])
+  @@index([projectId, status])
+  @@index([customerId, status])
+  @@index([provider, providerTenantId, providerChannelId, status])
 }

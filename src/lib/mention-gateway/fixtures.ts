@@ -37,6 +37,7 @@ const IdentityFixtureSchema = z.object({
 
 const BindingFixtureSchema = z.object({
   provider: z.literal("mock").optional(),
+  providerTenantId: z.string().min(1).max(128).optional(),
   channelId: z.string().min(1).max(128),
   threadId: z.string().min(1).max(128).optional(),
   organizationId: z.string().min(1).max(128),
@@ -61,10 +62,11 @@ function identityKey(
 
 function bindingKey(
   provider: string,
+  providerTenantId: string,
   channelId: string,
   threadId: string | undefined,
 ): string {
-  return `${provider}:${channelId}:${threadId ?? "-"}`;
+  return `${provider}:${providerTenantId}:${channelId}:${threadId ?? "-"}`;
 }
 
 /** 内存 fixture 存储（可多实例，便于测试隔离） */
@@ -83,10 +85,18 @@ export class MentionFixtureStore {
     );
   }
 
-  registerBinding(binding: ChannelContextBinding): void {
+  registerBinding(
+    binding: ChannelContextBinding & { providerTenantId?: string },
+  ): void {
+    const { providerTenantId, ...runtime } = binding;
     this.bindings.set(
-      bindingKey(binding.provider, binding.channelId, binding.threadId),
-      binding,
+      bindingKey(
+        binding.provider,
+        providerTenantId ?? "mock",
+        binding.channelId,
+        binding.threadId,
+      ),
+      runtime,
     );
   }
 
@@ -115,17 +125,22 @@ export class MentionFixtureStore {
       : null;
   }
 
-  /** 线程级绑定优先，其次频道级；都没有 → null（上层 → CONTEXT_UNRESOLVED） */
+  /** 线程级绑定优先，其次频道级；都没有 → null（上层 → CONTEXT_UNRESOLVED）。B1：租户是键的一部分 */
   lookupBinding(
     provider: MentionProvider,
+    providerTenantId: string,
     channelId: string,
     threadId?: string,
   ): ChannelContextBinding | null {
     if (threadId) {
-      const thread = this.bindings.get(bindingKey(provider, channelId, threadId));
+      const thread = this.bindings.get(
+        bindingKey(provider, providerTenantId, channelId, threadId),
+      );
       if (thread) return { ...thread };
     }
-    const channel = this.bindings.get(bindingKey(provider, channelId, undefined));
+    const channel = this.bindings.get(
+      bindingKey(provider, providerTenantId, channelId, undefined),
+    );
     return channel ? { ...channel } : null;
   }
 
@@ -141,6 +156,7 @@ export class MentionFixtureStore {
     for (const b of set.bindings) {
       this.registerBinding({
         provider: b.provider ?? "mock",
+        providerTenantId: b.providerTenantId ?? "mock",
         channelId: b.channelId,
         threadId: b.threadId,
         organizationId: b.organizationId,

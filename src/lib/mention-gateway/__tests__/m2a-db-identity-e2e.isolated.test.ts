@@ -130,14 +130,17 @@ async function main() {
           svc.lookupExternalIdentityRecord(provider, providerTenantId, externalUserId),
       }),
       context: {
-        async lookupChannelBinding(provider: "mock", channelId: string) {
-          if (channelId !== CHAN) return null;
+        async lookupChannelBinding(provider: "mock", _tenant: string, channelId: string) {
+          if (channelId !== CHAN) return { status: "none" as const };
           return {
-            provider,
-            channelId,
-            organizationId: org.id,
-            contextType: "project" as const,
-            contextId: project.id,
+            status: "found" as const,
+            binding: {
+              provider,
+              channelId,
+              organizationId: org.id,
+              contextType: "project" as const,
+              contextId: project.id,
+            },
           };
         },
         resolveAgentScope,

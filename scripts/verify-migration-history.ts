@@ -67,6 +67,8 @@ const IMMUTABLE: Record<string, string> = {
   // （该迁移从未在任何共享/生产库应用过，属 pre-merge 修订，非历史改写）
   "20260824170000_add_mention_gateway_external_identity":
     "00302bf409ea820073692d21886bb29826b6d01379d2bf04c616d6b0ac632b52",
+  "20260826183000_add_mention_gateway_channel_context_binding":
+    "457b4b779cb9e4215276407643b8e128eb78c9a22b3120e0eb6deb19a3a1f85a",
 };
 
 let passed = 0;

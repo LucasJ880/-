@@ -18,12 +18,21 @@ import type { ResolveAgentScopeInput } from "@/lib/agent-scope/resolve";
 import type { ResolvedMentionIdentity } from "./identity";
 import type { ChannelContextBinding, MentionEvent, MentionProvider } from "./types";
 
+/** M2-B：绑定查找三态 —— found / none / fail_closed（ACTIVE 行校验失败或 DB 源异常；绝不 fallback） */
+export type ChannelBindingLookup =
+  | { status: "found"; binding: ChannelContextBinding }
+  | { status: "none" }
+  | { status: "fail_closed"; reason: string };
+
 export interface ContextDeps {
+  /** B1：providerTenantId 是渠道边界的一部分；expectedOrgId 供 DB 源在行上做 org fail-closed 校验 */
   lookupChannelBinding(
     provider: MentionProvider,
+    providerTenantId: string,
     channelId: string,
-    threadId?: string,
-  ): Promise<ChannelContextBinding | null>;
+    threadId: string | undefined,
+    expectedOrgId: string,
+  ): Promise<ChannelBindingLookup>;
   resolveAgentScope(input: ResolveAgentScopeInput): Promise<ResolveAgentScopeResult>;
   /** 只读上下文块；失败返回空串（不阻断；工具层仍强制 scope） */
   buildContextBlock(input: {
@@ -41,6 +50,7 @@ export interface ResolvedMentionContext {
 export type ContextDenyReason =
   | "no_binding"
   | "binding_invalid"
+  | "binding_lookup_failed"
   | "binding_org_mismatch"
   | "scope_denied"
   | "scope_org_mismatch";
@@ -100,14 +110,22 @@ export async function resolveMentionContext(
   deps: ContextDeps,
   extra: { sessionId?: string; agentRunId?: string } = {},
 ): Promise<ResolveMentionContextResult> {
-  const binding = await deps.lookupChannelBinding(
+  const lookup = await deps.lookupChannelBinding(
     event.provider,
+    event.providerTenantId,
     event.channel.id,
     event.threadId,
+    identity.orgId,
   );
-  if (!binding) {
+  if (lookup.status === "fail_closed") {
+    // ACTIVE 行校验失败 / DB 源不可用：fail closed，对外统一 CONTEXT_UNRESOLVED，
+    // 绝不 fallback channel / fixture（B4：损坏的 thread override 不得被绕过）
+    return { ok: false, code: "CONTEXT_UNRESOLVED", reason: "binding_lookup_failed" };
+  }
+  if (lookup.status === "none") {
     return { ok: false, code: "CONTEXT_UNRESOLVED", reason: "no_binding" };
   }
+  const binding = lookup.binding;
   if (!verifyBindingOrganization(binding, identity.orgId)) {
     return {
       ok: false,

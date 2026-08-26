@@ -216,12 +216,13 @@ export function makeFakeDeps(options?: {
   };
 
   const context: ContextDeps = {
-    async lookupChannelBinding(provider, channelId, threadId) {
-      record("lookupChannelBinding", provider, channelId, threadId);
+    async lookupChannelBinding(provider, providerTenantId, channelId, threadId) {
+      record("lookupChannelBinding", provider, providerTenantId, channelId, threadId);
+      // 世界键保持 provider:channelId 简写（fixture 世界恒为 mock 租户）；租户参数用于断言
       const thread = threadId ? world.bindings[`${provider}:${channelId}:${threadId}`] : undefined;
       const channel = world.bindings[`${provider}:${channelId}:-`];
       const hit = thread ?? channel;
-      return hit ? { ...hit } : null;
+      return hit ? { status: "found", binding: { ...hit } } : { status: "none" };
     },
     async resolveAgentScope(input) {
       record("resolveAgentScope", input);

@@ -39,6 +39,7 @@ import {
   isMentionMockEnabledWithEnv,
   isMentionRequireVerifiedIdentityEnabledWithEnv,
   resolveMentionGatewayMaxRiskWithEnv,
+  resolveMentionBindingSourceWithEnv,
   resolveMentionIdentitySourceWithEnv,
   type MentionGatewayFlagEnv,
 } from "./flags";
@@ -166,6 +167,7 @@ export function createDefaultMentionGatewayDeps(
 ): MentionGatewayDeps {
   const store = getDefaultMentionFixtureStore();
   const identitySource = resolveMentionIdentitySourceWithEnv(env);
+  const bindingSource = resolveMentionBindingSourceWithEnv(env);
   return {
     identity: createDefaultIdentityDeps({
       lookupExternalIdentity: async (provider, providerTenantId, externalUserId) => {
@@ -180,8 +182,44 @@ export function createDefaultMentionGatewayDeps(
       },
     }),
     context: createDefaultContextDeps({
-      lookupChannelBinding: async (provider, channelId, threadId) =>
-        store.lookupBinding(provider, channelId, threadId),
+      lookupChannelBinding: async (
+        provider,
+        providerTenantId,
+        channelId,
+        threadId,
+        expectedOrgId,
+      ) => {
+        if (bindingSource === "db") {
+          // DB 源：持久化 ChannelContextBinding；异常 fail closed（对外 CONTEXT_UNRESOLVED），
+          // 绝不 fallback fixture / channel。
+          try {
+            const { lookupPersistentChannelBinding } = await import("./binding-lookup");
+            const result = await lookupPersistentChannelBinding({
+              provider,
+              providerTenantId,
+              providerChannelId: channelId,
+              providerThreadId: threadId,
+              expectedOrgId,
+            });
+            if (result.status === "fail_closed") {
+              logger.warn("mention_gateway.binding_invalid", {
+                provider,
+                reason: result.reason,
+              });
+            }
+            return result;
+          } catch (e) {
+            logger.error("mention_gateway.binding_lookup_failed", {
+              provider,
+              err: errMessage(e),
+            });
+            return { status: "fail_closed", reason: "binding_lookup_error" };
+          }
+        }
+        // fixture 源（默认）：M1 语义不变（org 复验仍在 resolveMentionContext）
+        const binding = store.lookupBinding(provider, providerTenantId, channelId, threadId);
+        return binding ? { status: "found", binding } : { status: "none" };
+      },
     }),
     runtime: {
       getOrCreateSession: (key) => getOrCreateMentionSession(key),
@@ -314,6 +352,13 @@ export async function handleMentionEvent(
     });
     return failure("rejected", "GATEWAY_DISABLED", "flags");
   }
+  if (resolveMentionBindingSourceWithEnv(env) === null) {
+    // M2-B fail-closed：绑定来源配置非法 → 网关整体关闭（绝不 fallback fixture）
+    logger.error("mention_gateway.binding_source_invalid", {
+      raw: String(env.MENTION_GATEWAY_BINDING_SOURCE ?? ""),
+    });
+    return failure("rejected", "GATEWAY_DISABLED", "flags");
+  }
 
   // 2 event（含 schema 校验 + 受众预检）
   const received = adapter.receiveEvent(input.raw);
@@ -367,13 +412,9 @@ export async function handleMentionEvent(
   }
   const { user, orgId, tenant } = identity.identity;
 
-  // 6 idempotency（进程内；键含已验证的 org + principal 边界）
-  const dedupeKey = buildMentionDedupeKey(event, { orgId, userId: user.id });
-  if (!deps.duplicateGuard.markIfNew(dedupeKey)) {
-    return failure("duplicate", "DUPLICATE_EVENT", "idempotency");
-  }
-
-  // 7–10 binding → binding org → business context → scope
+  // 6–9 binding → binding org → business context → scope
+  //   B5（M2-B）：dedupe 移到 context/scope 之后 —— DB binding lookup 可能临时失败，
+  //   若先 markIfNew，合法重试会被误判 DUPLICATE。此前所有步骤保持只读。
   const context = await resolveMentionContext(event, identity.identity, deps.context);
   if (!context.ok) {
     logger.warn("mention_gateway.context_denied", {
@@ -394,6 +435,13 @@ export async function handleMentionEvent(
     return failure("rejected", context.code, stage);
   }
   const { binding, scope, contextBlock } = context.context;
+
+  // 10 idempotency（进程内；键含已验证的 org + principal 边界；
+  //    任何 identity / binding / context / scope 失败都不得消耗 dedupe key）
+  const dedupeKey = buildMentionDedupeKey(event, { orgId, userId: user.id });
+  if (!deps.duplicateGuard.markIfNew(dedupeKey)) {
+    return failure("duplicate", "DUPLICATE_EVENT", "idempotency");
+  }
 
   // 11 session（线程级逻辑键，复用 AgentSession 表）
   let sessionId: string;
