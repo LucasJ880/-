@@ -75,6 +75,7 @@
       "src/lib/agent-runtime/run.ts",
       "src/lib/agent-runtime/session-memory.ts",
       "src/lib/agent-runtime/session.ts",
+      "src/lib/agent-runtime/supervisor-cancel-gate.ts",
       "src/lib/agent-runtime/trace.ts",
       "src/lib/agent-runtime/types.ts",
       "src/lib/agent-runtime/workbench-link.ts"

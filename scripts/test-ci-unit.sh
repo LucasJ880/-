@@ -157,6 +157,8 @@ npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
+npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel-static.test.ts
+npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel.isolated.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
