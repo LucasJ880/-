@@ -17,6 +17,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { createRequire } from "node:module";
 
 export class HtmlToPdfError extends Error {
@@ -56,15 +57,29 @@ let cjkFontFaceCss: string | null = null;
 function getCjkFontFaceCss(): string {
   if (cjkFontFaceCss !== null) return cjkFontFaceCss;
   const faces: string[] = [];
+  const missing: string[] = [];
   for (const f of CJK_FONTS) {
+    // 生产实测（2026-08-26 备忘录 v2 首单）：tracing 通配只带 *.ttf，包的 package.json
+    // 不在函数里 → require.resolve 找不到包根 MODULE_NOT_FOUND → 旧代码静默吞掉 → 全文中文空白。
+    // 修法：① 直接按 cwd/node_modules 路径读（serverless /var/task 与本地仓库根都成立），
+    //       ② require.resolve 兜底（tsx/测试等非常规 cwd 场景），③ 全失败必须 console.warn（拆掉静默）。
+    const candidates: string[] = [path.join(process.cwd(), "node_modules", ...f.segments)];
     try {
-      const b64 = readFileSync(nodeRequire.resolve(f.segments.join("/"))).toString("base64");
-      faces.push(
-        `@font-face{font-family:"Noto Sans SC";font-weight:${f.weight};src:url(data:font/ttf;base64,${b64}) format("truetype")}`,
-      );
+      candidates.push(nodeRequire.resolve(f.segments.join("/")));
     } catch {
-      /* 单字重缺失不阻塞；E2E 以「中文可抽取」把关最终效果 */
+      /* resolve 失败不致命，直接路径优先 */
     }
+    const hit = candidates.find((c) => existsSync(c));
+    if (!hit) {
+      missing.push(f.segments.join("/"));
+      continue;
+    }
+    faces.push(
+      `@font-face{font-family:"Noto Sans SC";font-weight:${f.weight};src:url(data:font/ttf;base64,${readFileSync(hit).toString("base64")}) format("truetype")}`,
+    );
+  }
+  if (missing.length > 0) {
+    console.warn(`[html-to-pdf] CJK 字体缺失（中文将无法渲染）：${missing.join("; ")} cwd=${process.cwd()}`);
   }
   cjkFontFaceCss = faces.length > 0 ? `<style>${faces.join("")}</style>` : "";
   return cjkFontFaceCss;

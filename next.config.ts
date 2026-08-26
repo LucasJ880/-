@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     "/api/projects/\[id\]/generate-pdf": [
       "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
       "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
+      "./node_modules/@expo-google-fonts/noto-sans-sc/package.json",
       // Chromium 浏览器二进制（brotli 包）由 executablePath() 运行时扫目录加载，
       // 静态追踪看不见 → 不显式声明就不进函数包（生产实测：/var/task/.../bin does not exist → 全部回落 HTML）
       "./node_modules/@sparticuz/chromium/bin/**",
@@ -17,6 +18,7 @@ const nextConfig: NextConfig = {
     "/api/projects/\[id\]/quote-engine/\[quoteId\]/pdf": [
       "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
       "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
+      "./node_modules/@expo-google-fonts/noto-sans-sc/package.json",
       "./public/brands/*.png",
       "./public/logo.png",
       "./node_modules/@sparticuz/chromium/bin/**",

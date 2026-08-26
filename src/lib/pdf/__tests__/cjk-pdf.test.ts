@@ -66,6 +66,11 @@ ok(
   "CJK-CFG-01: serverExternalPackages 登记（Next 打包不内联浏览器二进制）",
 );
 const route = read("src/app/api/projects/[id]/generate-pdf/route.ts");
+const h2p = read("src/lib/pdf/html-to-pdf.ts");
+ok(h2p.includes('path.join(process.cwd(), "node_modules", ...f.segments)') && h2p.includes("CJK 字体缺失"), "CJK-CFG-04: 字体加载直接路径优先 + require.resolve 兜底 + 全失败显式告警（生产静默无字体的根治）");
+const cfg2 = read("next.config.ts");
+ok(cfg2.split("@expo-google-fonts/noto-sans-sc/package.json").length === 3, "CJK-CFG-05: 两个 PDF 路由都 trace 字体包 package.json（require.resolve 兜底的前提）");
+
 ok(
   route.includes("maxDuration = 800") && route.includes("ROUTE_BUDGET_MS"),
   "CJK-CFG-02: 生成路由 maxDuration=800（备忘录 v2 全文多轮推理；Fluid 上限试探，部署被拒即回退 300+续跑）+ 显式时间预算传入生成器",
