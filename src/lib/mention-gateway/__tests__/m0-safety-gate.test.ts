@@ -303,8 +303,11 @@ async function main() {
     ok(set !== null, "合法 fixture 可解析");
     const store = new MentionFixtureStore();
     if (set) store.loadSet(set);
-    const id = store.lookupIdentity("mock", "u");
-    ok(id !== null && Object.keys(id ?? {}).join(",") === "userId", "identity fixture 只返回 userId（忽略 hasMembership/role/orgId）");
+    const id = store.lookupIdentity("mock", "mock", "u");
+    ok(
+      id !== null && id.userId === "user_1" && id.status === "ACTIVE" && !("orgId" in (id ?? {})) && !("hasMembership" in (id ?? {})),
+      "identity fixture 只返回 userId + test-safe 身份语义（忽略 hasMembership/role/orgId）",
+    );
     ok(store.lookupBinding("mock", "c")?.contextId === "p", "binding fixture 可查");
     ok(store.lookupBinding("mock", "nope") === null, "未知频道 → null");
     ok(parseMentionFixtureJson("{not json") === null, "非法 JSON → null（不加载）");

@@ -46,7 +46,7 @@ async function main() {
     const r = await handleMentionEvent({ raw: baseRaw(), adapter, deps, env: TEST_ENV });
     ok(r.ok, "返回 completed");
     if (r.ok) {
-      ok(r.runId === "run-1" && r.sessionId.startsWith("sess:mock:mock-project-a:-"), "runId / sessionId 来自 runtime 依赖");
+      ok(r.runId === "run-1" && r.sessionId.startsWith("sess:mock:mock:mock-project-a:-"), "runId / sessionId 来自 runtime 依赖");
       ok(r.context.type === "project" && r.context.id === PROJECT_A, "context = 绑定的项目");
       ok(r.response === "这是只读回复" && r.delivered && r.audience === "initiating_user_only", "回复已送达 initiating user");
       ok(r.maxRisk === "l0_read", "maxRisk = l0_read");
@@ -103,7 +103,7 @@ async function main() {
     ok(completed?.payload?.delivered === true && completed?.payload?.audience === "initiating_user_only", "response.completed 记录 delivered=true（MENTION_RESPONSE_SENT 复用）");
 
     const runInput = calls.find((c) => c.name === "createRun")?.args[0] as { userMessageId: string; metadata: Record<string, unknown>; runType: string };
-    ok(runInput.userMessageId === "mock:mock-project-a:msg-001", "userMessageId = mock:<channelId>:<messageId>");
+    ok(runInput.userMessageId === "mock:mock:mock-project-a:msg-001", "userMessageId = <provider>:<providerTenantId>:<channelId>:<messageId>");
     ok(runInput.metadata.source === "mention_gateway" && runInput.metadata.provider === "mock", "run metadata 带 source/provider");
     ok(runInput.runType === "conversation", "runType=conversation（不是 runtime_v2 / workforce_job）");
   }
@@ -240,7 +240,7 @@ async function main() {
     // 跨实例（进程内 guard 为空）：同一 messageId → createRun 返回 reused → 不执行
     const { deps: deps2, adapter: adapter2, calls: calls2 } = makeFakeDeps({
       createRunReused: (userMessageId) => userMessageId === buildMentionUserMessageId({
-        provider: "mock", eventId: "x", channel: { id: "mock-project-a", type: "dm" }, messageId: "msg-001",
+        provider: "mock", providerTenantId: "mock", eventId: "x", channel: { id: "mock-project-a", type: "dm" }, messageId: "msg-001",
         externalUserId: "mock-user-a", text: "t", mentionedAgent: true, timestamp: "2026-08-22T12:00:00Z",
       }),
     });
@@ -316,10 +316,10 @@ async function main() {
     await handleMentionEvent({ raw: baseRaw(), adapter, deps, env: TEST_ENV });
     await handleMentionEvent({ raw: baseRaw({ eventId: "e2", messageId: "m2", threadId: "thread-1" }), adapter, deps, env: TEST_ENV });
     const keys = calls.filter((c) => c.name === "getOrCreateSession").map((c) => c.args[0] as { channel: string; channelConversationId: string; channelUserId: string; orgId: string });
-    ok(keys.length === 2 && keys[0].channelConversationId === "mock:mock-project-a:-" && keys[1].channelConversationId === "mock:mock-project-a:thread-1", "DM 与线程得到不同 channelConversationId");
+    ok(keys.length === 2 && keys[0].channelConversationId === "mock:mock:mock-project-a:-" && keys[1].channelConversationId === "mock:mock:mock-project-a:thread-1", "DM 与线程得到不同 channelConversationId");
     ok(keys.every((k) => k.channel === "mention:mock" && k.channelUserId === "mock-user-a" && k.orgId === ORG_A), "channel=mention:mock, channelUserId=externalUserId, orgId=真实 org");
     ok(
-      buildMentionConversationKey({ provider: "mock", eventId: "e", channel: { id: "c", type: "thread" }, threadId: "t", messageId: "m", externalUserId: "u", text: "x", mentionedAgent: true, timestamp: "2026-08-22T00:00:00Z" }) === "mock:c:t",
+      buildMentionConversationKey({ provider: "mock", providerTenantId: "mock", eventId: "e", channel: { id: "c", type: "thread" }, threadId: "t", messageId: "m", externalUserId: "u", text: "x", mentionedAgent: true, timestamp: "2026-08-22T00:00:00Z" }) === "mock:mock:c:t",
       "buildMentionConversationKey 确定性",
     );
   }

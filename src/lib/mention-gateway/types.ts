@@ -14,11 +14,62 @@ import type { ToolRisk } from "@/lib/agent-core/types";
 
 export type MentionProvider = "mock";
 
+/**
+ * M2-A：身份存储可表达的 provider（**不代表 adapter ready** —— 真实入站 adapter 仍仅 mock；
+ * wecom / personal_wechat / slack 只是 ExternalIdentity 能存储这些 provider 的身份）。
+ * DB 列仍为 String；应用层以此校验。
+ */
+export type ExternalIdentityProvider = "mock" | "wecom" | "personal_wechat" | "slack";
+export const EXTERNAL_IDENTITY_PROVIDERS: readonly ExternalIdentityProvider[] = [
+  "mock",
+  "wecom",
+  "personal_wechat",
+  "slack",
+];
+
+export type ExternalIdentityStatus = "PENDING" | "ACTIVE" | "DISABLED" | "REVOKED";
+export const EXTERNAL_IDENTITY_STATUSES: readonly ExternalIdentityStatus[] = [
+  "PENDING",
+  "ACTIVE",
+  "DISABLED",
+  "REVOKED",
+];
+
+export type ExternalIdentityVerificationMethod =
+  | "ADMIN_PROVISIONED"
+  | "PROVIDER_CHALLENGE"
+  | "PROVIDER_OAUTH"
+  | "PROVIDER_SIGNED_EVENT"
+  | "LEGACY_SELF_ASSERTED";
+/**
+ * B4：REQUIRE_VERIFIED 下允许通过的验证方法白名单（fail-closed）。
+ * 持久身份 ACTIVE 但方法 ∉ 本列表（含 null / LEGACY_SELF_ASSERTED）→ identity_unverified DENY。
+ */
+export const VERIFIED_IDENTITY_METHODS: readonly ExternalIdentityVerificationMethod[] = [
+  "ADMIN_PROVISIONED",
+  "PROVIDER_CHALLENGE",
+  "PROVIDER_OAUTH",
+  "PROVIDER_SIGNED_EVENT",
+];
+
+export const EXTERNAL_IDENTITY_VERIFICATION_METHODS: readonly ExternalIdentityVerificationMethod[] = [
+  "ADMIN_PROVISIONED",
+  "PROVIDER_CHALLENGE",
+  "PROVIDER_OAUTH",
+  "PROVIDER_SIGNED_EVENT",
+  "LEGACY_SELF_ASSERTED",
+];
+
 /** M1 允许的会话形态：私聊或私有线程。任何其它值 → AUDIENCE_DENIED */
 export type MentionChannelType = "dm" | "thread";
 
 export interface MentionEvent {
   provider: MentionProvider;
+  /**
+   * provider 租户边界（M2-A）：由 adapter **服务端**产生 —— mock 恒为 "mock"，
+   * 未来 Slack team_id / 企微 CorpID 由 verified adapter 写入；raw 请求不可覆盖。
+   */
+  providerTenantId: string;
   /** 渠道侧事件 id（幂等键之一） */
   eventId: string;
   channel: {

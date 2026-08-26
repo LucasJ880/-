@@ -17,16 +17,17 @@
 import type { MentionEvent } from "./types";
 
 export function buildMentionConversationKey(event: MentionEvent): string {
-  return `${event.provider}:${event.channel.id}:${event.threadId ?? "-"}`;
+  // M2-A：加入 provider 租户边界（不同 provider 租户的同名 channelId/threadId 不得共享会话）
+  return `${event.provider}:${event.providerTenantId}:${event.channel.id}:${event.threadId ?? "-"}`;
 }
 
 export function buildMentionSessionChannel(provider: MentionEvent["provider"]): string {
   return `mention:${provider}`;
 }
 
-/** AgentRun.userMessageId（幂等键）：mock:<channelId>:<messageId> */
+/** AgentRun.userMessageId（org 作用域幂等键）：<provider>:<providerTenantId>:<channelId>:<messageId>（M2-A 加租户边界；仍 BEST_EFFORT） */
 export function buildMentionUserMessageId(event: MentionEvent): string {
-  return `${event.provider}:${event.channel.id}:${event.messageId}`;
+  return `${event.provider}:${event.providerTenantId}:${event.channel.id}:${event.messageId}`;
 }
 
 export interface MentionSessionKey {

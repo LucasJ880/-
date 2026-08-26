@@ -11,6 +11,7 @@
  */
 
 import type { AgentTenantResolved } from "@/lib/tenancy/resolve-agent-tenant";
+import { VERIFIED_IDENTITY_METHODS } from "./types";
 import type { MentionEvent, MentionProvider } from "./types";
 
 export interface MentionUserRecord {
@@ -21,12 +22,21 @@ export interface MentionUserRecord {
   activeOrgId: string | null;
 }
 
+/** 身份查找结果（M2-A）：DB 源必须带真实 status / method；fixture 源返回 test-safe ACTIVE 语义 */
+export interface ExternalIdentityLookup {
+  userId: string;
+  /** 缺省视为 fixture test-safe（等价 ACTIVE）；DB 源恒为真实值 */
+  status?: string;
+  verificationMethod?: string | null;
+}
+
 export interface IdentityDeps {
-  /** fixture：externalUserId → userId（只返回 id） */
+  /** fixture / DB：外部三元组 → 身份记录（只读，不更新 lastSeenAt） */
   lookupExternalIdentity(
     provider: MentionProvider,
+    providerTenantId: string,
     externalUserId: string,
-  ): Promise<{ userId: string } | null>;
+  ): Promise<ExternalIdentityLookup | null>;
   loadUser(userId: string): Promise<MentionUserRecord | null>;
   /** 用户的 active OrganizationMember（org 未归档）的 orgId 列表 —— 不含平台管理员特权视角 */
   listActiveMembershipOrgIds(userId: string): Promise<string[]>;
@@ -44,6 +54,9 @@ export interface ResolvedMentionIdentity {
 
 export type IdentityDenyReason =
   | "unknown_external_user"
+  | "identity_not_active"
+  | "identity_unverified"
+  | "identity_lookup_error"
   | "user_not_found"
   | "user_inactive"
   | "caller_mismatch"
@@ -67,6 +80,11 @@ export interface ResolveMentionIdentityOptions {
    * 必须等于调用者本人（防止借 fixture 冒充他人）。
    */
   caller?: { userId: string; isPlatformAdmin: boolean };
+  /**
+   * M2-A：要求已验证身份（缺省 true，安全默认）。
+   * true 时 `verificationMethod === "LEGACY_SELF_ASSERTED"` 的 ACTIVE 身份仍拒绝。
+   */
+  requireVerifiedIdentity?: boolean;
 }
 
 function deny(reason: IdentityDenyReason): ResolveMentionIdentityResult {
@@ -95,11 +113,36 @@ export async function resolveMentionIdentity(
   deps: IdentityDeps,
   options: ResolveMentionIdentityOptions = {},
 ): Promise<ResolveMentionIdentityResult> {
-  const mapped = await deps.lookupExternalIdentity(
-    event.provider,
-    event.externalUserId,
-  );
+  let mapped: ExternalIdentityLookup | null;
+  try {
+    mapped = await deps.lookupExternalIdentity(
+      event.provider,
+      event.providerTenantId,
+      event.externalUserId,
+    );
+  } catch {
+    // DB 源不可用 → fail closed，绝不 fallback fixture（对外统一 DENY，不泄漏内部状态）
+    return deny("identity_lookup_error");
+  }
   if (!mapped?.userId) return deny("unknown_external_user");
+
+  // M2-A：持久化身份的状态门（fixture 源返回 test-safe ACTIVE，同一路径统一执行）
+  if (mapped.status !== undefined && mapped.status !== "ACTIVE") {
+    return deny("identity_not_active");
+  }
+  // B4 fail-closed：持久身份（带 status 的形状）在 REQUIRE_VERIFIED 下必须
+  // ACTIVE 且 method ∈ VERIFIED_IDENTITY_METHODS 白名单——
+  // ACTIVE+null 与 ACTIVE+LEGACY_SELF_ASSERTED 一律拒绝（不再用「黑名单 LEGACY」判定）。
+  const requireVerified = options.requireVerifiedIdentity ?? true;
+  if (requireVerified && mapped.status !== undefined) {
+    const method = mapped.verificationMethod ?? null;
+    if (
+      method === null ||
+      !(VERIFIED_IDENTITY_METHODS as readonly string[]).includes(method)
+    ) {
+      return deny("identity_unverified");
+    }
+  }
 
   const caller = options.caller;
   if (caller && !caller.isPlatformAdmin && caller.userId !== mapped.userId) {

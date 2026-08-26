@@ -21,6 +21,8 @@ export const MockMentionEventInputSchema = z.object({
   messageId: z.string().min(1).max(128),
   externalUserId: z.string().min(1).max(128),
   channelId: z.string().min(1).max(128),
+  /** 接受但**忽略**：providerTenantId 是服务端权威（mock 恒为 "mock"），raw 不可覆盖（M2-A Attack E） */
+  providerTenantId: z.string().max(128).optional(),
   /** 受众形态；缺省由 threadId 推导。非 dm/thread 的值在 audience 阶段被拒 */
   channelType: z.string().min(1).max(32).optional(),
   threadId: z.string().min(1).max(128).optional(),
@@ -84,6 +86,8 @@ export function normalizeMockMentionEvent(
 
   const event: MentionEvent = {
     provider: "mock",
+    // 服务端权威租户边界：无论 raw 提交什么，mock 恒为 "mock"
+    providerTenantId: "mock",
     eventId: input.eventId,
     channel: { id: input.channelId, type: channelType as MentionEvent["channel"]["type"] },
     threadId: input.threadId,

@@ -146,6 +146,13 @@ export const AUDIT_ACTIONS = {
   AI_GENERATE: "ai_generate",
   AI_SEND: "ai_send",
   AI_ANALYZE: "ai_analyze",
+  // Mention Gateway M2-A：外部渠道身份生命周期（targetType = external_identity）
+  EXTERNAL_IDENTITY_PROVISION: "external_identity_provision",
+  EXTERNAL_IDENTITY_VERIFY: "external_identity_verify",
+  EXTERNAL_IDENTITY_RELINK: "external_identity_relink",
+  EXTERNAL_IDENTITY_STATUS_CHANGE: "external_identity_status_change",
+  EXTERNAL_IDENTITY_REVOKE: "external_identity_revoke",
+  EXTERNAL_IDENTITY_BACKFILL: "external_identity_backfill",
 } as const;
 
 // --- 常用 targetType 常量 ---

@@ -187,10 +187,13 @@ export function makeFakeDeps(options?: {
   let runSeq = 0;
 
   const identity: IdentityDeps = {
-    async lookupExternalIdentity(provider, externalUserId) {
-      record("lookupExternalIdentity", provider, externalUserId);
+    async lookupExternalIdentity(provider, providerTenantId, externalUserId) {
+      record("lookupExternalIdentity", provider, providerTenantId, externalUserId);
       const userId = world.identities[externalUserId];
-      return userId ? { userId } : null;
+      // fixture 语义：test-safe ACTIVE / ADMIN_PROVISIONED（与真实 MentionFixtureStore 一致）
+      return userId
+        ? { userId, status: "ACTIVE", verificationMethod: "ADMIN_PROVISIONED" }
+        : null;
     },
     async loadUser(userId) {
       record("loadUser", userId);

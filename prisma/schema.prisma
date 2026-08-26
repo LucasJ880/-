@@ -107,6 +107,9 @@ model User {
   // WeChat Bindings
   wechatBindings WeChatBinding[] @relation("UserWeChatBindings")
 
+  // Mention Gateway M2-A：外部渠道身份（不带 orgId；不授予业务权限）
+  externalIdentities ExternalIdentity[] @relation("UserExternalIdentities")
+
   // Sales CRM relations
   salesCustomersCreated       SalesCustomer[]       @relation("SalesCustomerCreatedBy")
   salesOpportunitiesAssigned  SalesOpportunity[]    @relation("SalesOpportunityAssignee")
@@ -7906,4 +7909,53 @@ model AwardRecordSource {
   @@unique([orgId, sourceType, sourceKey])
   @@index([awardRecordId])
   @@index([orgId, sourceType])
+}
+
+// ============================================================
+// Mention Gateway M2-A — External Identity（外部渠道身份 → 青砚用户）
+// ============================================================
+// 不带 orgId：组织与权限每次由 OrganizationMember + resolveAgentTenant 推导
+// （EXTERNAL_IDENTITY_DOES_NOT_GRANT_ORG_ACCESS）。
+// 不存 profile / token / secret —— 不是 Integration credential store。
+// status / verificationMethod 值域由应用层 + migration CHECK 兜底（无 DB enum，
+// 降低 additive migration 摩擦；provider 不做 DB CHECK 以便 M3 扩展）。
+
+model ExternalIdentity {
+  id String @id @default(cuid())
+
+  /// mock | wecom | personal_wechat | slack（应用层校验）
+  provider         String
+  /// provider 租户边界：企微 CorpID / iLink 个微 = WeChatGateway.id / mock = "mock"（Slack team_id 留 M3）
+  providerTenantId String
+  /// provider 用户 id（企微 userid / 微信 openid 等）
+  providerUserId   String
+
+  userId String
+  user   User   @relation("UserExternalIdentities", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// PENDING | ACTIVE | DISABLED | REVOKED（REVOKED 终态；恢复只能显式 relink）
+  status String @default("PENDING")
+
+  /// ADMIN_PROVISIONED | PROVIDER_CHALLENGE | PROVIDER_OAUTH | PROVIDER_SIGNED_EVENT | LEGACY_SELF_ASSERTED
+  verificationMethod String?
+  verifiedAt         DateTime?
+  verifiedById       String?
+
+  linkedAt   DateTime @default(now())
+  linkedById String?
+
+  /// 仅 M3 verified inbound adapter 更新；Mention lookup 保持只读
+  lastSeenAt DateTime?
+
+  revokedAt    DateTime?
+  revokedById  String?
+  revokeReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerTenantId, providerUserId])
+  @@index([userId, status])
+  @@index([provider, providerTenantId, userId])
+  @@index([status, updatedAt])
 }
