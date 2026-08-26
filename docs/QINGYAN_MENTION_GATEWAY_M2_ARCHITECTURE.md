@@ -35,7 +35,7 @@ WORKTREE_CLEAN          = YES
 | AgentRun 幂等唯一约束 | **NO**（`userMessageId` 可空、重试路径 `skipUserMessageIdempotency` 刻意复用同值；STRONG 去重应落在 M3 的 `InboundChannelEvent`） |
 | 迁移 | 2 个 additive migration（M2-1 identity / M2-2 binding）+ 1 个幂等回填脚本（`WeChatBinding → ExternalIdentity`）；零停机、可回滚 |
 | 拆分 | **3 个 PR**：M2-C（policy，零 schema，先行）→ M2-A（identity）→ M2-B（binding）；M2-D E2E 安全门并入 A/B 并在 B 末尾跑一次隔离库全量 |
-| 状态 | **READY_FOR_M2_IMPLEMENTATION** → M2-C 已实施（PR #156，merged）；**M2-A 已实施（见 §29 as-built 与 `docs/QINGYAN_MENTION_GATEWAY_M2A_IMPLEMENTATION.md`）**；M2-B 未开始 |
+| 状态 | **READY_FOR_M2_IMPLEMENTATION** → M2-C 已实施（#156 merged）→ M2-A 已实施（#160 merged，§29）→ **M2-B 已实施（见 §30 as-built 与 `docs/QINGYAN_MENTION_GATEWAY_M2B_IMPLEMENTATION.md`）** |
 
 ---
 
@@ -697,3 +697,23 @@ P1_DESIGN_GAPS     = 4
 - **B3**：CorpID 属 >1 真实 org → AMBIGUOUS（NEVER OWNED）；回填 `buildCorpOrgIndex` 同规则 → `wecom_corp_ambiguous` UNRESOLVED
 - **B4**：`VERIFIED_IDENTITY_METHODS` 白名单（ACTIVE+null 也拒）；migration 增补 `ExternalIdentity_active_requires_method_check`，最终 sha256 `00302bf409ea820073692d21886bb29826b6d01379d2bf04c616d6b0ac632b52`
 - **P1**：目标用户跨 org / 不存在 → 统一 `TARGET_USER_NOT_FOUND`（存在性 oracle 关闭）
+
+---
+
+## §30 M2-B As-Built（2026-08-26 实施对齐）
+
+与 §7/§18 设计稿的关键差异与冻结（详细见 `docs/QINGYAN_MENTION_GATEWAY_M2B_IMPLEMENTATION.md`）：
+
+| 冻结语义 | 实施 |
+|---|---|
+| **B1 键含 providerTenantId** | `@@unique([provider, providerTenantId, providerChannelId, providerThreadId])`；**threadId `""` 哨兵**取代设计稿的可空列（Postgres UNIQUE+NULL 会放行多条 channel 级行）——CHANNEL↔""、THREAD↔非空白由 DB CHECK 兜底 |
+| **B2/B3** | create/rebind/disable/enable/revoke 全显式；REVOKED 终态（同 exact key 不能 recreate/enable/rebind；恢复属未来 supersession 设计） |
+| **B4 thread precedence** | ACTIVE thread > ACTIVE channel > 无；DISABLED/REVOKED thread 视为不存在可 fallback；**ACTIVE-but-invalid（org/XOR/ownership）→ FAIL CLOSED 绝不 fallback channel** |
+| **B5 dedupe 次序** | handle 改为 identity → binding → context → scope → dedupe → session/run；任何 identity/binding/context/scope 失败零 dedupe 消耗（DB lookup 临时失败可安全重试） |
+| **权限** | project = requireProjectWriteAccess 决策表（super_admin/owner/org_admin/project_admin，dispatched 前置）；customer = canonical `authorize('sales.customer.update')` + isAdmin 旁路；personal project（`Project.orgId===null` canonical 判别）硬拒；targetOrg 服务端推导且必须 == 管理租户 org；CROSS_ORG_REBIND 禁止（平台 admin 也不例外） |
+| **ownership 复用** | 复用 M2-A `resolveProviderTenantOwnership`（含 B3 AMBIGUOUS）；create/enable/rebind 需 OWNED；管理可见性 OWNED/INACTIVE，其余 404 |
+| **CAS Day-One** | commitBindingTransition：WHERE id+status+projectId+customerId+contextRole+updatedAt；失配 BINDING_STATE_CHANGED 409 零写零审计 |
+| **审计** | 4 个新 action；channel/thread id 只以 sha256 截断入审计（raw 仅表内功能字段） |
+| **flags** | `MENTION_GATEWAY_BINDING_SOURCE`（缺省 fixture，非法值 GATEWAY_DISABLED）、`MENTION_GATEWAY_BINDING_ADMIN_ENABLED`（缺省 false，含管理 list 404） |
+| **无 backfill** | 不存在可信 legacy channel→target canonical 源；持久绑定初始为空是正确状态（§21 设计稿的回填不适用于 binding） |
+| **migration** | `20260826183000_add_mention_gateway_channel_context_binding`（sha256 `457b4b779cb9e4215276407643b8e128eb78c9a22b3120e0eb6deb19a3a1f85a`；additive；FK 全 RESTRICT；CHECK×6） |

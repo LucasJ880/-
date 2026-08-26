@@ -63,6 +63,29 @@ export type {
   IdentityTransitionPlan,
 } from "./identity-service";
 export {
+  createChannelBinding,
+  rebindChannelBinding,
+  disableChannelBinding,
+  enableChannelBinding,
+  revokeChannelBinding,
+  listChannelBindingsForAdmin,
+  commitBindingTransition,
+  decideCreateBindingOutcome,
+  normalizeBindingKey,
+  bindingRowToContextType,
+  hashChannelToken,
+  CHANNEL_BINDING_STATUSES,
+} from "./binding-service";
+export type {
+  ChannelBindingRecord,
+  BindingServiceResult,
+  BindingServiceErrorCode,
+  BindingTransitionPlan,
+  BindingTargetType,
+} from "./binding-service";
+export { lookupPersistentChannelBinding } from "./binding-lookup";
+export type { PersistentBindingLookupResult } from "./binding-lookup";
+export {
   resolveLegacyProviderTenant,
   mapLegacyIdentityStatus,
   decideBackfillAction,
@@ -83,11 +106,13 @@ export {
   resolveMentionGatewayMaxRisk,
   resolveMentionGatewayMaxRiskWithEnv,
   resolveMentionIdentitySourceWithEnv,
+  resolveMentionBindingSourceWithEnv,
   isMentionRequireVerifiedIdentityEnabledWithEnv,
   isMentionIdentityAdminEnabledWithEnv,
+  isMentionBindingAdminEnabledWithEnv,
   describeMentionGatewayFlags,
 } from "./flags";
-export type { MentionIdentitySource } from "./flags";
+export type { MentionIdentitySource, MentionBindingSource } from "./flags";
 export {
   PROJECT_CONTEXT_TOOLS,
   CUSTOMER_CONTEXT_TOOLS,

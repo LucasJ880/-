@@ -153,6 +153,11 @@ export const AUDIT_ACTIONS = {
   EXTERNAL_IDENTITY_STATUS_CHANGE: "external_identity_status_change",
   EXTERNAL_IDENTITY_REVOKE: "external_identity_revoke",
   EXTERNAL_IDENTITY_BACKFILL: "external_identity_backfill",
+  // Mention Gateway M2-B — 频道上下文绑定生命周期
+  CHANNEL_CONTEXT_BINDING_CREATE: "channel_context_binding_create",
+  CHANNEL_CONTEXT_BINDING_REBIND: "channel_context_binding_rebind",
+  CHANNEL_CONTEXT_BINDING_STATUS_CHANGE: "channel_context_binding_status_change",
+  CHANNEL_CONTEXT_BINDING_REVOKE: "channel_context_binding_revoke",
 } as const;
 
 // --- 常用 targetType 常量 ---

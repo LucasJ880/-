@@ -159,6 +159,7 @@ npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
+npx tsx src/lib/mention-gateway/__tests__/m2b-binding-policy.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
