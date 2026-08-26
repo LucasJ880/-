@@ -32,6 +32,7 @@ import { ProjectProgressSummary } from "@/components/project-progress/project-pr
 import { ProjectInsightsPanel } from "@/components/project-insights/project-insights-panel";
 import { ProjectOnboardingGuide } from "@/components/project-onboarding/project-onboarding-guide";
 import { TenderBenchmarkCard } from "@/components/project-detail/tender-benchmark-card";
+import { AnalystMemoCard } from "@/components/project-detail/analyst-memo-card";
 import { StartIntelligencePanel } from "@/components/bid-workflow/start-intelligence-panel";
 import { ProjectJoinBriefs } from "@/components/bid-workflow/project-join-briefs";
 import { WorkbenchCommandDeck } from "@/components/tender/workbench-command-deck";
@@ -141,6 +142,9 @@ export function WorkbenchTab({
 
       {/* FB-13：历史项目对标（团队成员进工作台即见结论；无候选/未启用时自渲染 null） */}
       {tenderish ? <TenderBenchmarkCard projectId={projectId} /> : null}
+
+      {/* 分析师备忘录：工作台直接分节阅读（无备忘录且非管理员时自渲染 null） */}
+      {tenderish ? <AnalystMemoCard projectId={projectId} canManage={canManage} /> : null}
 
       {/* 报价与成本（Quote Engine §17 最小入口）：当前/已批准报价 KPI → Pricing Control Center（flag OFF 自渲染 null） */}
       {/* Phase 2：Our Bid = 被选中的 Approved Quote（唯一权威来源；flag OFF / 无报价自渲染 null） */}

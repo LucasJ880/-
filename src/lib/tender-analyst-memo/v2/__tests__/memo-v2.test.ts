@@ -92,6 +92,15 @@ console.log("分析师备忘录 v2 单测");
     ok(route.includes("maxDuration = 800") && route.includes("deadlineMs: Date.now() + ROUTE_BUDGET_MS") && route.includes('"inProgress" in doc'), "AMV2-13: 路由三件套——800s 预算/deadline 传入/inProgress 透传");
     ok(gen.includes("runMemoV2Step") && menu.includes("for (let round = 0") && menu.includes("realExt"), "AMV2-14: 生成器走 v2 管线；UI 自动续跑 + 下载后缀跟随真实扩展名");
   }
+  {
+    const root2 = join(__dirname, "../../../../..");
+    const viewRoute = readFileSync(join(root2, "src/app/api/projects/[id]/analyst-memo/route.ts"), "utf-8");
+    const card = readFileSync(join(root2, "src/components/project-detail/analyst-memo-card.tsx"), "utf-8");
+    const wb = readFileSync(join(root2, "src/components/project-detail/tabs/workbench-tab.tsx"), "utf-8");
+    ok(viewRoute.includes("requireProjectReadAccess") && viewRoute.includes("renderLimitedMd") && !viewRoute.includes(".update(") && !viewRoute.includes(".create("), "AMV2-15: 阅读接口只读 + 项目读权限 + 服务端受限渲染（转义链单一）");
+    ok(card.includes("dangerouslySetInnerHTML") && card.includes("analyst-memo") && card.includes("setActive") && wb.includes("<AnalystMemoCard"), "AMV2-16: 工作台阅读卡——类目切换 + 只吃自家接口 HTML + 已挂载");
+  }
+
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   if (fail > 0) process.exit(1);
 })();
