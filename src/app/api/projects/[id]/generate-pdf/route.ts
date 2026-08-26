@@ -13,8 +13,10 @@ import {
 } from "@/lib/bid-workflow/pdf-doc-types";
 
 // CJK-PDF 包：Chromium 冷启动 + 渲染需要余量（生成文档为低频动作）
-// analyst_memo：判断层 LLM（含重试）+ Chromium 渲染双开销；60s 在生产被硬杀（2026-08-25 实测 60.4s）
-export const maxDuration = 300;
+// 备忘录 v2 全文多轮推理 + Chromium 渲染同函数；Fluid Compute 下 Pro 可到 800s——
+// 若平台计划不支持，部署会直接失败（staging 先证伪），届时回退 300 + 纯断点续跑。
+export const maxDuration = 800;
+const ROUTE_BUDGET_MS = 800_000;
 
 const ALLOWED: GenerateDocType[] = [...PROJECT_PDF_DOC_TYPES];
 
@@ -76,6 +78,8 @@ export const POST = withAuth(async (request, ctx, user) => {
       previewOnly,
       includePublicHistoricalAmounts,
       confirmNotes,
+      // v2 断点续跑：给 PDF 渲染与落库留 ~2 分钟余量
+      deadlineMs: Date.now() + ROUTE_BUDGET_MS - 120_000,
     });
     if (previewOnly && "previewText" in doc) {
       return NextResponse.json({
@@ -87,6 +91,9 @@ export const POST = withAuth(async (request, ctx, user) => {
             ? "Chinese text may render poorly under Helvetica; full CJK font embed deferred."
             : null,
       });
+    }
+    if ("inProgress" in doc && doc.inProgress) {
+      return NextResponse.json({ inProgress: true, statusZh: doc.statusZh, progress: doc.progress });
     }
     const fileUrl = asBrowserUrl(doc.fileUrl);
     const blobUrl = asBrowserUrl(doc.blobUrl);

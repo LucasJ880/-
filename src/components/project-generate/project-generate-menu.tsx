@@ -35,7 +35,9 @@ function withDownloadParam(url: string, filename: string): string {
   try {
     const u = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://local");
     u.searchParams.set("download", "1");
-    u.searchParams.set("filename", filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+    // 后缀跟随真实存储扩展名（PDF 渲染失败回落 HTML 时，命名 .pdf 会让阅读器误报"已损坏"）
+    const realExt = /\.html?$/i.test(u.pathname) ? ".html" : ".pdf";
+    u.searchParams.set("filename", filename.replace(/\.(pdf|html?)$/i, "") + realExt);
     // 相对路径代理：只返回 pathname+search
     if (url.startsWith("/")) {
       return `${u.pathname}${u.search}`;
@@ -58,6 +60,7 @@ export function ProjectGenerateMenu({
   const [busy, setBusy] = useState<string | null>(null);
   const [docs, setDocs] = useState<GenDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [progressZh, setProgressZh] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -79,18 +82,30 @@ export function ProjectGenerateMenu({
   const generate = async (docType: string) => {
     setBusy(docType);
     setError(null);
+    setProgressZh(null);
     try {
-      await apiJson(`/api/projects/${projectId}/generate-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docType }),
-      });
+      // 分析师备忘录 v2 是多轮管线：服务端每轮跑到时间预算即返回 inProgress，
+      // 前端自动续点直到完成（状态服务端落盘，中断可续），一次点击等到结果。
+      for (let round = 0; round < 12; round++) {
+        const res = await apiJson<{ inProgress?: boolean; statusZh?: string }>(
+          `/api/projects/${projectId}/generate-pdf`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ docType }),
+          },
+        );
+        if (!res.inProgress) break;
+        setProgressZh(res.statusZh ?? "多轮推理进行中…");
+        if (round === 11) throw new Error("多轮生成超出轮次上限，请再点一次继续");
+      }
       await load();
       setOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "生成失败");
     }
     setBusy(null);
+    setProgressZh(null);
   };
 
   const staleHint = docs.some((d) => d.stale);
@@ -139,6 +154,9 @@ export function ProjectGenerateMenu({
         <p className="mt-2 text-[11px] text-amber-600">
           项目文件可能已更新，此前生成的 PDF 可能过期。建议重新生成。
         </p>
+      ) : null}
+      {progressZh ? (
+        <p className="mt-2 text-[11px] text-accent">{progressZh}（全文多轮推理，可能需要几分钟）</p>
       ) : null}
       {error ? (
         <p className="mt-2 text-[11px] text-red-500">{error}</p>
