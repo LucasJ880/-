@@ -67,8 +67,8 @@ ok(
 );
 const route = read("src/app/api/projects/[id]/generate-pdf/route.ts");
 ok(
-  route.includes("maxDuration = 300"),
-  "CJK-CFG-02: 生成路由 maxDuration=300（analyst_memo 判断层 LLM 含重试 + Chromium 渲染同函数；60s 生产实测被硬杀）",
+  route.includes("maxDuration = 800") && route.includes("ROUTE_BUDGET_MS"),
+  "CJK-CFG-02: 生成路由 maxDuration=800（备忘录 v2 全文多轮推理；Fluid 上限试探，部署被拒即回退 300+续跑）+ 显式时间预算传入生成器",
 );
 const panel = read("src/components/bid-workflow/china-supplier-brief-panel.tsx");
 ok(

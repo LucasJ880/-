@@ -133,3 +133,84 @@ export async function researchMarketPricing(input: {
     return { ...base, status: "ran", sources, insufficientZh: "AI 归纳异常——请人工阅读来源链接", note: "llm_error" };
   }
 }
+
+/* ────────────────────────── 两跳版（备忘录 v2） ──────────────────────────
+ * 跳 1：LLM 从产品/规格生成「品牌/型号候选检索词」（仅检索词，无事实断言，无编造风险）
+ * 跳 2：对每个候选词检索目录价，与直查线合并，走同一"片段逐字可核"接地门。
+ */
+
+const discoverySchema = z.object({ searchTerms: z.array(zh(80)).max(5).default([]) });
+
+export async function researchMarketPricingTwoHop(input: {
+  productPhrase: string | null;
+  specHints: string[];
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: typeof fetch;
+  invoker?: LlmInvoker;
+}): Promise<MarketPricingIntel> {
+  const env = input.env ?? process.env;
+  const ranAt = new Date().toISOString();
+  const base: Omit<MarketPricingIntel, "status"> = { version: MARKET_PRICING_VERSION, ranAt, productPhrase: input.productPhrase ?? null, benchmarks: [], observationsZh: [], insufficientZh: null, fxNoteZh: FX_NOTE, sources: [] };
+  if (!input.productPhrase?.trim()) return { ...base, status: "no_product", note: "缺产品短语" };
+  if (!hasWebSearchKey(env)) return { ...base, status: "unavailable", note: "未配置搜索 API Key（TAVILY_API_KEY），拒绝凭空给价格区间" };
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const invoker = input.invoker ?? createUnifiedRuntimeInvoker();
+
+  // 跳 1：发现该品类的具体品牌/型号（检索词，非事实）
+  let modelTerms: string[] = [];
+  try {
+    const disc = await callStructured(
+      invoker,
+      {
+        promptName: "tender-market-pricing-discover",
+        promptVersion: "1",
+        timeoutMs: 60_000,
+        maxTokens: 400,
+        systemPrompt:
+          '你是采购市场研究员。为找到目标产品的公开市场价，请给出最可能命中的「品牌+产品线」英文检索词（北美市场优先）。只输出 JSON：{"searchTerms":["...", ...]}（≤5 条，每条是可直接搜索的品牌/型号短语，不要泛词）。这些只是检索词，允许猜测品牌。',
+        userPrompt: `目标产品：${input.productPhrase}\n关键规格：${input.specHints.slice(0, 6).join("；")}`,
+      },
+      discoverySchema,
+    );
+    if (disc.ok) modelTerms = disc.value.searchTerms.filter((t) => t.trim().length > 3);
+  } catch {
+    modelTerms = [];
+  }
+
+  // 跳 2：直查线 + 型号线合并检索
+  const queries = [
+    ...deriveMarketQueries({ productPhrase: input.productPhrase, specHints: input.specHints }),
+    ...modelTerms.map((t) => `${t} price`),
+    ...modelTerms.slice(0, 2).map((t) => `${t} catalog price list`),
+  ].filter((q, i, a) => a.indexOf(q) === i).slice(0, 8);
+  const found = (await Promise.all(queries.map((q) => tavily(q, env, fetchImpl)))).flat();
+  const sources = [...new Map(found.map((f) => [f.url, f])).values()].slice(0, 12);
+  if (sources.length === 0) return { ...base, status: "ran", insufficientZh: "两跳检索均无结果——需人工市场询价", note: "search_no_result" };
+  try {
+    const res = await callStructured(
+      invoker,
+      {
+        promptName: "tender-market-pricing",
+        promptVersion: "1",
+        timeoutMs: 90_000,
+        maxTokens: 1600,
+        systemPrompt:
+          "你是采购市场分析师。仅基于提供的检索片段，提取与目标产品可比的公开市场价格基准。" +
+          '只输出 JSON：{"benchmarks":[{"productName","vendor","priceRaw","currency","unit","comparabilityZh","sourceIndex":数字}],"observationsZh":[...],"insufficientZh":null或说明}。' +
+          "铁律：priceRaw 必须是片段中出现的价格原文（原币原样），绝不换算、绝不外推；片段里没有可用价格就写 insufficientZh 并留空 benchmarks；sourceIndex 指向片段编号。",
+        userPrompt: `目标产品：${input.productPhrase}\n关键规格：${input.specHints.slice(0, 6).join("；")}\n\n检索片段：\n${sources.map((s2, i) => `[${i}] ${s2.title}\n${s2.url}\n${s2.snippet}`).join("\n\n")}`,
+      },
+      marketSchema,
+    );
+    if (!res.ok) return { ...base, status: "ran", sources, insufficientZh: "AI 归纳失败——请人工阅读来源链接", note: "llm_failed" };
+    const benchmarks = res.value.benchmarks.filter((b) => {
+      if (!(b.sourceIndex >= 0 && b.sourceIndex < sources.length)) return false;
+      const digits = (b.priceRaw.match(/[\d,]{2,}(?:\.\d+)?/) ?? [])[0]?.replace(/,/g, "");
+      if (!digits) return false;
+      return sources[b.sourceIndex]!.snippet.replace(/,/g, "").includes(digits);
+    });
+    return { ...base, status: "ran", benchmarks, observationsZh: res.value.observationsZh, insufficientZh: res.value.insufficientZh ?? (benchmarks.length === 0 ? "片段中未出现可核对的价格数字" : null), sources };
+  } catch {
+    return { ...base, status: "ran", sources, insufficientZh: "AI 归纳异常——请人工阅读来源链接", note: "llm_error" };
+  }
+}
