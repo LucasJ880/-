@@ -38,7 +38,7 @@ public/product-content-templates/<suite-id>/
   style-display.jpg
 ```
 
-重启/刷新后，`GET /api/product-content/templates` 与素材库页会自动列出。
+重启/刷新后，`GET /api/product-content/templates` 与产品内容套图工作台会自动列出。
 
 ## 表格协作
 
