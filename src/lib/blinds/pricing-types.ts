@@ -63,6 +63,8 @@ export interface QuoteTotalInput {
   taxRate?: number;
   /** 企业 Sunny Motor 税前单价（CAD）；缺省 150。 */
   sunnyMotorPrice?: number;
+  /** 企业最低安装费（CAD）；缺省 INSTALL_RULES.minimumTotal。 */
+  minInstallTotal?: number;
 }
 
 export interface QuoteTotalResult {

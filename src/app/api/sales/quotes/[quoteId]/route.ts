@@ -212,9 +212,10 @@ export const PUT = withAuth(async (request, ctx, user) => {
       items: items || [],
       addons,
       installMode,
-      deliveryFee,
+      deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
       taxRate,
       sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
+      minInstallTotal: quoteSettings.minInstallFee,
     });
   } catch (err) {
     console.error("[quotes.PUT] pricing engine threw:", err);

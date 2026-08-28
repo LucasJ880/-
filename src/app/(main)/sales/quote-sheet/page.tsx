@@ -36,7 +36,11 @@ import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
-import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
+import {
+  DEFAULT_SUNNY_MOTOR_PRICE,
+  DEFAULT_MIN_INSTALL_FEE,
+  DEFAULT_DELIVERY_FEE,
+} from "@/lib/blinds/pricing-data";
 
 import type {
   PartALine,
@@ -50,7 +54,7 @@ import type {
   QuoteFormState,
   InstallMode,
 } from "./types";
-import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, HST_RATE, generateOrderNumber } from "./types";
+import { INSTALL_PRICES, SERVICE_ADDONS, HST_RATE, generateOrderNumber } from "./types";
 
 import { makeEmptyLine } from "./part-a";
 import { PartBForm } from "./part-b";
@@ -355,6 +359,9 @@ function QuoteSheetPageInner() {
   const [promoWarnPct, setPromoWarnPct] = useState(0.06);
   const [promoDangerPct, setPromoDangerPct] = useState(0.15);
   const [promoMaxPct, setPromoMaxPct] = useState(0.25);
+  // 最低安装费与运费 —— 驾驶舱「报价附加价格」设置，改价自动生效
+  const [minInstallFee, setMinInstallFee] = useState<number>(DEFAULT_MIN_INSTALL_FEE);
+  const [deliveryFee, setDeliveryFee] = useState<number>(DEFAULT_DELIVERY_FEE);
   // 定金阈值
   const [depositWarnPct, setDepositWarnPct] = useState(0.4);
   const [depositMinPct, setDepositMinPct] = useState(0.3);
@@ -370,6 +377,7 @@ function QuoteSheetPageInner() {
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
+          minInstallFee?: number; deliveryFee?: number;
           hasDepositOverrideCode?: boolean;
         }>("/api/sales/quote-settings/discounts");
         setDiscounts({
@@ -393,6 +401,20 @@ function QuoteSheetPageInner() {
           d.sunnyMotorPrice >= 0
         ) {
           setSunnyMotorPrice(d.sunnyMotorPrice);
+        }
+        if (
+          typeof d.minInstallFee === "number" &&
+          Number.isFinite(d.minInstallFee) &&
+          d.minInstallFee >= 0
+        ) {
+          setMinInstallFee(d.minInstallFee);
+        }
+        if (
+          typeof d.deliveryFee === "number" &&
+          Number.isFinite(d.deliveryFee) &&
+          d.deliveryFee >= 0
+        ) {
+          setDeliveryFee(d.deliveryFee);
         }
         if (typeof d.hasDepositOverrideCode === "boolean") setHasDepositOverrideCode(d.hasDepositOverrideCode);
       } catch {
@@ -441,7 +463,7 @@ function QuoteSheetPageInner() {
 
   // Calculations
   // Part A / Part C 已从总价/Tab/PDF 的独立表单中隐藏，数据结构暂留以便老单打开。
-  // 安装费已内置在 Shades / Shutters / Drapes 行价里；这里只补足最低安装+运费合计。
+  // 安装费已内置在 Shades / Shutters / Drapes 行价里；这里补足最低安装费差额并加收运费（金额来自驾驶舱设置）。
   const subtotalB = useMemo(
     () => partBAddons.reduce((s, a) => s + a.total, 0),
     [partBAddons]
@@ -473,8 +495,8 @@ function QuoteSheetPageInner() {
     () =>
       installMode === "pickup" || productInstallSubtotal <= 0
         ? 0
-        : Math.max(0, MIN_INSTALL_CHARGE - productInstallSubtotal),
-    [installMode, productInstallSubtotal],
+        : Math.max(0, minInstallFee - productInstallSubtotal) + deliveryFee,
+    [installMode, productInstallSubtotal, minInstallFee, deliveryFee],
   );
 
   // Step 4：折扣率追踪 —— 提前计算，供 handleSave 引用
@@ -1137,6 +1159,8 @@ function QuoteSheetPageInner() {
       logoDataUrl,
       discounts,
       sunnyMotorPrice,
+      minInstallFee,
+      deliveryFee,
       specialPromotion: specialPromotionNum,
       totalMsrp,
       finalDiscountPct,
@@ -1148,7 +1172,7 @@ function QuoteSheetPageInner() {
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
-    discounts, sunnyMotorPrice,
+    discounts, sunnyMotorPrice, minInstallFee, deliveryFee,
     specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,
   ]);
 
@@ -1867,7 +1891,7 @@ function QuoteSheetPageInner() {
           {installMode !== "pickup" && (
             <span className="flex items-center gap-1">
               <InstallIcon className="h-3.5 w-3.5 text-muted-foreground" />
-              Install min adj.:{" "}
+              Install min + delivery:{" "}
               <span className="font-mono text-muted-foreground">
                 {formatCAD(subtotalC)}
               </span>

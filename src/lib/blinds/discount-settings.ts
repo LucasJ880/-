@@ -7,7 +7,12 @@
 
 import { db } from "@/lib/db";
 import type { ProductName } from "./pricing-types";
-import { DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE } from "./pricing-data";
+import {
+  DEFAULT_DISCOUNTS,
+  DEFAULT_SUNNY_MOTOR_PRICE,
+  DEFAULT_DELIVERY_FEE,
+  INSTALL_RULES,
+} from "./pricing-data";
 import type { ConfigLoadResult } from "@/lib/org-rules/types";
 import { publishOrgRule } from "@/lib/org-rules/service";
 import { hashUnlockCode } from "./unlock-code";
@@ -43,6 +48,10 @@ export interface DiscountsDto {
   shutters: number;
   honeycomb: number;
   sunnyMotorPrice: number;
+  /** 最低安装费（CAD）：installation 模式下行内安装费不足时补足到此金额 */
+  minInstallFee: number;
+  /** 运费（CAD）：installation 模式下每单加收；pickup 免收 */
+  deliveryFee: number;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -68,7 +77,7 @@ const PRODUCT_KEYS = [
 ] as const;
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
 const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
-const PRICE_KEYS = ["sunnyMotorPrice"] as const;
+const PRICE_KEYS = ["sunnyMotorPrice", "minInstallFee", "deliveryFee"] as const;
 export const DTO_NUMERIC_KEYS = [
   ...PRODUCT_KEYS,
   ...THRESHOLD_KEYS,
@@ -145,6 +154,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       shutters: DEFAULT_DISCOUNTS.Shutters,
       honeycomb: DEFAULT_DISCOUNTS.SkylightHoneycomb,
       sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
+      minInstallFee: INSTALL_RULES.minimumTotal,
+      deliveryFee: DEFAULT_DELIVERY_FEE,
       promoWarnPct: 0.06,
       promoDangerPct: 0.15,
       promoMaxPct: 0.25,
@@ -171,6 +182,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     shutters: row.shutters,
     honeycomb: row.honeycomb,
     sunnyMotorPrice: row.sunnyMotorPrice,
+    minInstallFee: row.minInstallFee,
+    deliveryFee: row.deliveryFee,
     promoWarnPct: row.promoWarnPct,
     promoDangerPct: row.promoDangerPct,
     promoMaxPct: row.promoMaxPct,
@@ -266,6 +279,8 @@ export async function saveDiscountsForOrg(params: {
       shutters: updated.shutters,
       honeycomb: updated.honeycomb,
       sunnyMotorPrice: updated.sunnyMotorPrice,
+      minInstallFee: updated.minInstallFee,
+      deliveryFee: updated.deliveryFee,
       promoWarnPct: updated.promoWarnPct,
       promoDangerPct: updated.promoDangerPct,
       promoMaxPct: updated.promoMaxPct,
@@ -301,15 +316,16 @@ export function validateDiscountsInput(
     }
     out[k] = Math.round(n * 10000) / 10000;
   }
-  if (input.sunnyMotorPrice !== undefined) {
-    const n = Number(input.sunnyMotorPrice);
+  for (const k of PRICE_KEYS) {
+    if (input[k] === undefined) continue;
+    const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 10000) {
       return {
         ok: false,
-        error: "字段 sunnyMotorPrice 必须为 0~10000 之间的 CAD 金额",
+        error: `字段 ${k} 必须为 0~10000 之间的 CAD 金额`,
       };
     }
-    out.sunnyMotorPrice = Math.round(n * 100) / 100;
+    out[k] = Math.round(n * 100) / 100;
   }
   const w = out.promoWarnPct;
   const d = out.promoDangerPct;

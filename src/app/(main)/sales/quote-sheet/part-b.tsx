@@ -406,7 +406,7 @@ export function PartBForm({
               <span className="font-bold">{formatCAD(grandSubtotal)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Install minimum adjustment:</span>
+              <span className="text-muted-foreground">Install minimum + delivery:</span>
               <span>{formatCAD(installMinimumAdjustment)}</span>
             </div>
             {promoNum > 0 && (
