@@ -25,6 +25,13 @@ const nextConfig: NextConfig = {
     ],
   },
   turbopack: {},
+  // 生产构建 OOM 治理（Vercel 容器把 Next build worker SIGKILL）：
+  // 编译收回主进程——单一 Node 堆受 NODE_OPTIONS max-old-space-size 约束，
+  // 避免 worker + 主进程各持 6GB 配额挤爆容器；并开启 webpack 内存优化。
+  experimental: {
+    webpackBuildWorker: false,
+    webpackMemoryOptimizations: true,
+  },
 };
 
 // Sentry 集成：仅当显式配置 SENTRY_DSN 时启用
