@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   formatSalesMoney,
@@ -12,12 +11,37 @@ import { SalesMiniTrend } from "@/components/sales-command-center/sales-mini-tre
 import { SalesTargetProgress } from "@/components/sales-command-center/sales-target-progress";
 import { SalesFunnelSummary } from "@/components/sales-command-center/sales-funnel-summary";
 import { SalesHomeSkeleton } from "@/components/sales-command-center/sales-home-skeleton";
+import { SalesActionEffectivenessCard } from "../cockpit/sales-action-effectiveness-card";
 
 export default function SalesPerformancePage() {
   const [data, setData] = useState<SalesHomeResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">(
     "loading",
   );
+  // 就地设目标（此前只有一个跳回首页的链接）
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetDraft, setTargetDraft] = useState("");
+  const [savingTarget, setSavingTarget] = useState(false);
+  // 提成估算参数（驾驶舱配置；毛利率为 0 = 未配置，不显示提成卡）
+  const [commission, setCommission] = useState<{
+    marginRate: number;
+    rate: number;
+  } | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/sales/quote-settings/discounts")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { commissionMarginRate?: number; commissionRate?: number } | null) => {
+        if (
+          d &&
+          typeof d.commissionMarginRate === "number" &&
+          typeof d.commissionRate === "number"
+        ) {
+          setCommission({ marginRate: d.commissionMarginRate, rate: d.commissionRate });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -34,6 +58,25 @@ export default function SalesPerformancePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const saveTarget = useCallback(async () => {
+    const n = Number(targetDraft);
+    if (!Number.isFinite(n) || n < 0) return;
+    setSavingTarget(true);
+    try {
+      const res = await apiFetch("/api/sales/home", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetAmount: n }),
+      });
+      if (res.ok) {
+        setEditingTarget(false);
+        await load();
+      }
+    } finally {
+      setSavingTarget(false);
+    }
+  }, [targetDraft, load]);
 
   if (status === "loading") {
     return (
@@ -89,12 +132,51 @@ export default function SalesPerformancePage() {
               : "尚未设置销售目标"}
           </p>
           <SalesTargetProgress rate={p.completionRate} className="mt-3" />
-          <Link
-            href="/sales/home"
-            className="mt-3 inline-block text-[12px] text-[var(--accent)] hover:underline"
-          >
-            在首页设置目标
-          </Link>
+          {editingTarget ? (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-[13px] text-[var(--muted)]">$</span>
+              <input
+                type="number"
+                min={0}
+                value={targetDraft}
+                onChange={(e) => setTargetDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void saveTarget();
+                  if (e.key === "Escape") setEditingTarget(false);
+                }}
+                autoFocus
+                className="w-32 rounded-lg border border-[var(--border)] bg-transparent px-2 py-1 text-[13px]"
+              />
+              <button
+                type="button"
+                onClick={() => void saveTarget()}
+                disabled={savingTarget}
+                className="rounded-lg bg-[var(--accent)] px-2.5 py-1 text-[12px] font-medium text-[var(--on-accent)] disabled:opacity-50"
+              >
+                {savingTarget ? "保存中…" : "保存"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingTarget(false)}
+                className="text-[12px] text-[var(--muted)]"
+              >
+                取消
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setTargetDraft(
+                  p.targetAmount != null ? String(Math.round(p.targetAmount)) : "",
+                );
+                setEditingTarget(true);
+              }}
+              className="mt-3 inline-block text-[12px] text-[var(--accent)] hover:underline"
+            >
+              {p.targetAmount != null ? "修改目标" : "设置目标"}
+            </button>
+          )}
         </SalesCard>
 
         <SalesCard title="关键指标">
@@ -128,6 +210,33 @@ export default function SalesPerformancePage() {
           <SalesMiniTrend points={data.trend} />
         </SalesCard>
       </div>
+
+      {/* 预计提成（估算口径）—— 毛利率系数未配置时整卡隐藏，避免拍脑袋数字 */}
+      {commission && commission.marginRate > 0 && (
+        <SalesCard title="预计提成">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <p className="text-[32px] font-semibold tracking-tight">
+              {formatSalesMoney(
+                p.signedAmount * commission.marginRate * commission.rate,
+              )}
+            </p>
+            <span className="rounded-full bg-[var(--muted)]/15 px-2 py-0.5 text-[11px] font-medium text-[var(--muted)]">
+              估算
+            </span>
+          </div>
+          <p className="mt-1 text-[13px] text-[var(--muted)]">
+            本月签约 {formatSalesMoney(p.signedAmount)} × 估算毛利率{" "}
+            {Math.round(commission.marginRate * 100)}% × 提成比例{" "}
+            {Math.round(commission.rate * 100)}%
+          </p>
+          <p className="mt-2 text-[11px] text-[var(--muted)]">
+            按公司统一估算参数计算，非工资单口径；实际提成以财务核算为准。
+          </p>
+        </SalesCard>
+      )}
+
+      {/* 我的行动效果 —— 与驾驶舱同一张卡；销售身份下 API 自动只回本人数据、隐藏团队区 */}
+      <SalesActionEffectivenessCard />
 
       <div className="grid gap-4 md:grid-cols-2">
         <SalesCard title="近三个月对比">

@@ -38,6 +38,7 @@ export const EXPECTED_ACTIVE_MIGRATIONS = [
   "20260824170000_add_mention_gateway_external_identity",
   "20260828120000_add_quote_fee_settings",
   "20260829090000_add_visualizer_render_job_state",
+  "20260829180000_add_commission_estimate_settings",
 ] as const;
 
 export type ExpectedMigrationName = (typeof EXPECTED_ACTIVE_MIGRATIONS)[number];

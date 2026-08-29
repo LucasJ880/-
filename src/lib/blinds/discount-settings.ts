@@ -52,6 +52,10 @@ export interface DiscountsDto {
   minInstallFee: number;
   /** 运费（CAD）：installation 模式下每单加收；pickup 免收 */
   deliveryFee: number;
+  /** 提成估算：毛利率估算系数（0-1；0=未配置，业绩页隐藏提成卡） */
+  commissionMarginRate: number;
+  /** 提成估算：提成比例（0-1，默认 0.3=毛利的 30%） */
+  commissionRate: number;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -78,11 +82,13 @@ const PRODUCT_KEYS = [
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
 const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
 const PRICE_KEYS = ["sunnyMotorPrice", "minInstallFee", "deliveryFee"] as const;
+const COMMISSION_KEYS = ["commissionMarginRate", "commissionRate"] as const;
 export const DTO_NUMERIC_KEYS = [
   ...PRODUCT_KEYS,
   ...THRESHOLD_KEYS,
   ...DEPOSIT_KEYS,
   ...PRICE_KEYS,
+  ...COMMISSION_KEYS,
 ] as const;
 
 function rowToProductMap(row: Record<string, unknown> | null): DiscountsByProduct {
@@ -156,6 +162,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
       minInstallFee: INSTALL_RULES.minimumTotal,
       deliveryFee: DEFAULT_DELIVERY_FEE,
+      commissionMarginRate: 0,
+      commissionRate: 0.3,
       promoWarnPct: 0.06,
       promoDangerPct: 0.15,
       promoMaxPct: 0.25,
@@ -184,6 +192,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     sunnyMotorPrice: row.sunnyMotorPrice,
     minInstallFee: row.minInstallFee,
     deliveryFee: row.deliveryFee,
+    commissionMarginRate: row.commissionMarginRate,
+    commissionRate: row.commissionRate,
     promoWarnPct: row.promoWarnPct,
     promoDangerPct: row.promoDangerPct,
     promoMaxPct: row.promoMaxPct,
@@ -281,6 +291,8 @@ export async function saveDiscountsForOrg(params: {
       sunnyMotorPrice: updated.sunnyMotorPrice,
       minInstallFee: updated.minInstallFee,
       deliveryFee: updated.deliveryFee,
+      commissionMarginRate: updated.commissionMarginRate,
+      commissionRate: updated.commissionRate,
       promoWarnPct: updated.promoWarnPct,
       promoDangerPct: updated.promoDangerPct,
       promoMaxPct: updated.promoMaxPct,
@@ -305,7 +317,7 @@ export function validateDiscountsInput(
     }
   | { ok: false; error: string } {
   const out: Record<string, number> = {};
-  for (const k of [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS]) {
+  for (const k of [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS, ...COMMISSION_KEYS]) {
     if (input[k] === undefined) continue;
     const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 1) {

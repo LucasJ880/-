@@ -4057,6 +4057,10 @@ model QuoteDiscountSettings {
   minInstallFee              Float        @default(200)
   /// 运费（CAD）：installation 模式下每单加收；pickup 自提免收
   deliveryFee                Float        @default(75)
+  /// 提成估算：毛利率估算系数（0-1；0=未配置，销售业绩页隐藏提成卡）
+  commissionMarginRate       Float        @default(0)
+  /// 提成估算：提成比例（0-1；口径=毛利 × 该比例，默认 30%）
+  commissionRate             Float        @default(0.3)
   promoWarnPct               Float        @default(0.06)
   promoDangerPct             Float        @default(0.15)
   promoMaxPct                Float        @default(0.25)
