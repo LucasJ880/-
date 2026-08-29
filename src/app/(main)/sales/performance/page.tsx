@@ -225,7 +225,7 @@ export default function SalesPerformancePage() {
             </span>
           </div>
           <p className="mt-1 text-[13px] text-[var(--muted)]">
-            本月签约 {formatSalesMoney(p.signedAmount)} × 估算毛利率{" "}
+            本月签约（商机估值）{formatSalesMoney(p.signedAmount)} × 估算毛利率{" "}
             {Math.round(commission.marginRate * 100)}% × 提成比例{" "}
             {Math.round(commission.rate * 100)}%
           </p>

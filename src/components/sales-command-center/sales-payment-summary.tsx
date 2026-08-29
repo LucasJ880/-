@@ -41,7 +41,7 @@ export function SalesPaymentSummary({
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
               {[
-                { label: "本月已签金额", value: summary.signedAmount },
+                { label: "本月签约（商机估值）", value: summary.signedAmount },
                 {
                   label: "待登记定金",
                   value: summary.pendingDepositAmount,

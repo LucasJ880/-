@@ -157,6 +157,10 @@ async function generateBriefing(
   };
 
   const { createNotification } = await import("@/lib/notifications/create");
+  const { shouldDeliverInApp } = await import("@/lib/notifications/delivery-gate");
+  if (!(await shouldDeliverInApp(userId, { type: "sales_daily_briefing" }))) {
+    return briefing;
+  }
   await createNotification({
     userId,
     type: "sales_daily_briefing",

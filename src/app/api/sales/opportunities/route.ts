@@ -128,6 +128,10 @@ export const POST = withAuth(async (request, _ctx, user) => {
   // 分配即通知：商机指派给别人时，被指派销售第一时间知道（此前完全静默）
   if (opportunity.assignedToId && opportunity.assignedToId !== user.id) {
     const { createNotification } = await import('@/lib/notifications/create');
+    const { shouldDeliverInApp } = await import('@/lib/notifications/delivery-gate');
+    if (!(await shouldDeliverInApp(opportunity.assignedToId, { type: 'followup', priority: 'high' }))) {
+      return NextResponse.json(opportunity, { status: 201 });
+    }
     await createNotification({
       userId: opportunity.assignedToId,
       orgId: orgRes.orgId,
