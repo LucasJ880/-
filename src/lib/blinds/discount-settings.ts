@@ -56,6 +56,8 @@ export interface DiscountsDto {
   commissionMarginRate: number;
   /** 提成估算：提成比例（0-1，默认 0.3=毛利的 30%） */
   commissionRate: number;
+  /** 品类成本率（{zebra:0.45,...}；成本 ≈ 成交行价 × 率）；空对象=未配置 */
+  costRates: Record<string, number>;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -90,6 +92,42 @@ export const DTO_NUMERIC_KEYS = [
   ...PRICE_KEYS,
   ...COMMISSION_KEYS,
 ] as const;
+
+const COST_RATE_FIELDS = new Set(PRODUCT_KEYS as readonly string[]);
+
+/** 解析 costRatesJson：仅接受已知品类字段、0-1 有限数，其余静默丢弃 */
+export function parseCostRates(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!COST_RATE_FIELDS.has(k)) continue;
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) {
+      out[k] = Math.round(v * 10000) / 10000;
+    }
+  }
+  return out;
+}
+
+/** 校验入参形态的品类成本率（API PUT 用）；非法字段/数值报错而非丢弃 */
+export function validateCostRatesInput(
+  raw: unknown,
+): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: "costRates 必须是对象（{zebra:0.45,...}）" };
+  }
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!COST_RATE_FIELDS.has(k)) {
+      return { ok: false, error: `costRates 含未知品类字段 ${k}` };
+    }
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      return { ok: false, error: `品类成本率 ${k} 必须为 0~1 之间的数字` };
+    }
+    out[k] = Math.round(n * 10000) / 10000;
+  }
+  return { ok: true, value: out };
+}
 
 function rowToProductMap(row: Record<string, unknown> | null): DiscountsByProduct {
   const out = { ...DEFAULT_DISCOUNTS };
@@ -164,6 +202,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       deliveryFee: DEFAULT_DELIVERY_FEE,
       commissionMarginRate: 0,
       commissionRate: 0.3,
+      costRates: {},
       promoWarnPct: 0.06,
       promoDangerPct: 0.15,
       promoMaxPct: 0.25,
@@ -194,6 +233,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     deliveryFee: row.deliveryFee,
     commissionMarginRate: row.commissionMarginRate,
     commissionRate: row.commissionRate,
+    costRates: parseCostRates(row.costRatesJson),
     promoWarnPct: row.promoWarnPct,
     promoDangerPct: row.promoDangerPct,
     promoMaxPct: row.promoMaxPct,
@@ -211,6 +251,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
 export type DiscountSavePatch = Partial<
   Pick<DiscountsDto, (typeof DTO_NUMERIC_KEYS)[number]>
 > & {
+  /** 品类成本率整表替换（已经 validateCostRatesInput 校验） */
+  costRates?: Record<string, number>;
   /** 明文入参；落库前哈希到 depositOverrideCode */
   depositOverrideCodePlain?: string | null;
   /** 明文入参；落库前哈希到 lineDiscountUnlockCodeHash */
@@ -231,10 +273,14 @@ export async function saveDiscountsForOrg(params: {
   const {
     depositOverrideCodePlain,
     lineDiscountUnlockCodePlain,
+    costRates,
     ...numericPatch
   } = params.patch;
 
   const data: Record<string, unknown> = { ...numericPatch };
+  if (costRates !== undefined) {
+    data.costRatesJson = costRates;
+  }
 
   if (depositOverrideCodePlain !== undefined) {
     if (depositOverrideCodePlain === null || depositOverrideCodePlain.trim() === "") {
@@ -293,6 +339,7 @@ export async function saveDiscountsForOrg(params: {
       deliveryFee: updated.deliveryFee,
       commissionMarginRate: updated.commissionMarginRate,
       commissionRate: updated.commissionRate,
+      costRates: parseCostRates(updated.costRatesJson),
       promoWarnPct: updated.promoWarnPct,
       promoDangerPct: updated.promoDangerPct,
       promoMaxPct: updated.promoMaxPct,

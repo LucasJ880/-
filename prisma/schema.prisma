@@ -4061,6 +4061,8 @@ model QuoteDiscountSettings {
   commissionMarginRate       Float        @default(0)
   /// 提成估算：提成比例（0-1；口径=毛利 × 该比例，默认 30%）
   commissionRate             Float        @default(0.3)
+  /// 品类成本率（{zebra:0.45,...}，成本 ≈ 成交行价 × 率）；配置后新报价行写入 costPrice 快照
+  costRatesJson              Json?
   promoWarnPct               Float        @default(0.06)
   promoDangerPct             Float        @default(0.15)
   promoMaxPct                Float        @default(0.25)
@@ -4238,6 +4240,8 @@ model SalesQuoteItem {
   discountValue Float      @default(0)
   price         Float      @default(0)
   installFee    Float      @default(0)
+  /// 行级成本快照（CAD）：报价创建时按企业品类成本率 × 行价写入；null=未配置成本率
+  costPrice     Float?
   location      String? // room location note
 
   @@index([quoteId, sortOrder])

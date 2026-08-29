@@ -22,6 +22,26 @@ export default function SalesPerformancePage() {
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetDraft, setTargetDraft] = useState("");
   const [savingTarget, setSavingTarget] = useState(false);
+  // 真实口径提成（单据毛利；有成本快照的签约单才有数据）
+  const [realCommission, setRealCommission] = useState<{
+    quotesSigned: number;
+    quotesWithCost: number;
+    itemsCosted: number;
+    itemsTotal: number;
+    realMargin: number;
+    commissionRate: number;
+    realCommission: number;
+  } | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/sales/commission-summary")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.realCommission === "number") setRealCommission(d);
+      })
+      .catch(() => {});
+  }, []);
+
   // 提成估算参数（驾驶舱配置；毛利率为 0 = 未配置，不显示提成卡）
   const [commission, setCommission] = useState<{
     marginRate: number;
@@ -210,6 +230,27 @@ export default function SalesPerformancePage() {
           <SalesMiniTrend points={data.trend} />
         </SalesCard>
       </div>
+
+      {/* 预计提成（单据毛利口径）—— 有成本快照的签约单才出现，数字真实可追 */}
+      {realCommission && realCommission.quotesWithCost > 0 && (
+        <SalesCard title="预计提成（单据毛利）">
+          <p className="text-[32px] font-semibold tracking-tight">
+            {formatSalesMoney(realCommission.realCommission)}
+          </p>
+          <p className="mt-1 text-[13px] text-[var(--muted)]">
+            本月已签 {realCommission.quotesSigned} 单，其中{" "}
+            {realCommission.quotesWithCost} 单含成本快照 · 单据毛利{" "}
+            {formatSalesMoney(realCommission.realMargin)} × 提成{" "}
+            {Math.round(realCommission.commissionRate * 100)}%
+          </p>
+          {realCommission.itemsCosted < realCommission.itemsTotal && (
+            <p className="mt-2 text-[11px] text-[var(--muted)]">
+              {realCommission.itemsTotal - realCommission.itemsCosted}{" "}
+              行未含成本数据（历史单或未配置品类），未计入本数字。
+            </p>
+          )}
+        </SalesCard>
+      )}
 
       {/* 预计提成（估算口径）—— 毛利率系数未配置时整卡隐藏，避免拍脑袋数字 */}
       {commission && commission.marginRate > 0 && (

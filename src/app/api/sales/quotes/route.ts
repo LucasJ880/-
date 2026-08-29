@@ -14,6 +14,7 @@ import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
 import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
+import { costRateForProduct, snapshotCostPrice } from '@/lib/blinds/cost-rates';
 import { isAdmin } from '@/lib/rbac/roles';
 import { logAudit } from '@/lib/audit/logger';
 
@@ -261,6 +262,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
                 discountValue: r.discountValue,
                 price: r.price,
                 installFee: r.install,
+                costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings.costRates, r.input.product)),
                 location: r.input.location || null,
               })),
             }

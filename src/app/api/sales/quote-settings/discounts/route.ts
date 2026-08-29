@@ -4,6 +4,7 @@ import {
   loadDiscountsDto,
   saveDiscountsForOrg,
   validateDiscountsInput,
+  validateCostRatesInput,
   DTO_NUMERIC_KEYS,
   type DiscountsDto,
   type DiscountSavePatch,
@@ -84,6 +85,13 @@ export async function PUT(request: Request) {
   }
 
   const patch: DiscountSavePatch = { ...parsed.value };
+  if (body.costRates !== undefined) {
+    const costParsed = validateCostRatesInput(body.costRates);
+    if (!costParsed.ok) {
+      return NextResponse.json({ error: costParsed.error }, { status: 400 });
+    }
+    patch.costRates = costParsed.value;
+  }
   if (depositParsed.value !== undefined) {
     patch.depositOverrideCodePlain = depositParsed.value;
   }
@@ -104,6 +112,8 @@ export async function PUT(request: Request) {
       diff[k] = { from: before[k], to: after[k] };
     }
   }
+  const costRatesChanged =
+    JSON.stringify(before.costRates) !== JSON.stringify(after.costRates);
   const depositCodeChanged =
     before.hasDepositOverrideCode !== after.hasDepositOverrideCode ||
     depositParsed.value !== undefined;
@@ -111,7 +121,7 @@ export async function PUT(request: Request) {
     before.hasLineDiscountUnlockCode !== after.hasLineDiscountUnlockCode ||
     lineParsed.value !== undefined;
 
-  if (Object.keys(diff).length > 0 || depositCodeChanged || lineCodeChanged) {
+  if (Object.keys(diff).length > 0 || depositCodeChanged || lineCodeChanged || costRatesChanged) {
     await logAudit({
       userId: tenant.userId,
       orgId: tenant.orgId,
@@ -127,6 +137,7 @@ export async function PUT(request: Request) {
         discounts: pickRates(after),
         version: after.version,
         diff,
+        ...(costRatesChanged ? { costRates: after.costRates } : {}),
         hasDepositOverrideCode: after.hasDepositOverrideCode,
         hasLineDiscountUnlockCode: after.hasLineDiscountUnlockCode,
         ...(depositCodeChanged ? { depositUnlockCodeChanged: true } : {}),
@@ -140,7 +151,7 @@ export async function PUT(request: Request) {
     ...after,
     canEdit: true,
     changed:
-      Object.keys(diff).length > 0 || depositCodeChanged || lineCodeChanged,
+      Object.keys(diff).length > 0 || depositCodeChanged || lineCodeChanged || costRatesChanged,
     diff,
   });
 }

@@ -140,6 +140,7 @@ npx tsx src/lib/sales/__tests__/action-notify.test.ts
 npx tsx src/lib/notifications/__tests__/delivery-gate.test.ts
 npx tsx src/lib/blinds/__tests__/discount-permissions.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
+npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
 npx tsx src/lib/visualizer/__tests__/render-job.test.ts
 npx tsx src/lib/visualizer/__tests__/texture-fill.test.ts
 npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts
