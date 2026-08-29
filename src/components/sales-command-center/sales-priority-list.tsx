@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SalesPriorityItem } from "@/lib/sales/home";
 import { SalesCard, SalesCardState } from "./sales-card";
-import { SalesPriorityItemRow } from "./sales-priority-item";
+import { SalesPriorityItemRow, isFollowupDraftItem } from "./sales-priority-item";
+import { FollowupDraftDialog } from "./followup-draft-dialog";
 
 export function SalesPriorityList({
   items,
@@ -19,6 +20,7 @@ export function SalesPriorityList({
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
+  const [draftItem, setDraftItem] = useState<SalesPriorityItem | null>(null);
   const visible = expanded ? items : items.slice(0, 5);
 
   return (
@@ -56,6 +58,11 @@ export function SalesPriorityList({
             key={item.id}
             item={item}
             onPrimary={(it) => {
+              // 「生成跟进消息」按钮：真的生成（此前只是跳转到客户详情）
+              if (isFollowupDraftItem(it) && it.customerId) {
+                setDraftItem(it);
+                return;
+              }
               if (it.primaryAction.href) {
                 router.push(it.primaryAction.href);
               } else if (it.customerId) {
@@ -64,6 +71,14 @@ export function SalesPriorityList({
             }}
           />
         ))}
+
+      <FollowupDraftDialog
+        open={!!draftItem}
+        onClose={() => setDraftItem(null)}
+        customerId={draftItem?.customerId ?? null}
+        customerName={draftItem?.customerName ?? ""}
+        category={draftItem?.category ?? ""}
+      />
     </SalesCard>
   );
 }

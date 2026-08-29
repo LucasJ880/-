@@ -22,6 +22,16 @@ const LEVEL_META = {
   },
 } as const;
 
+/** 主按钮是否为「生成跟进消息」类（首页据此打开 AI 草稿框而非跳转） */
+export function isFollowupDraftItem(item: Item): boolean {
+  return (
+    item.primaryAction.type.includes("email") ||
+    item.category === "quote_pending" ||
+    item.category === "viewed_not_signed" ||
+    item.category === "followup_due"
+  );
+}
+
 export function SalesPriorityItemRow({
   item,
   onPrimary,
@@ -30,11 +40,7 @@ export function SalesPriorityItemRow({
   onPrimary?: (item: Item) => void;
 }) {
   const meta = LEVEL_META[item.level];
-  const primaryIsGenerate =
-    item.primaryAction.type.includes("email") ||
-    item.category === "quote_pending" ||
-    item.category === "viewed_not_signed" ||
-    item.category === "followup_due";
+  const primaryIsGenerate = isFollowupDraftItem(item);
 
   return (
     <article className="border-b border-[var(--border)]/70 py-3 last:border-0">

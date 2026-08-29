@@ -36,7 +36,11 @@ import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
-import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
+import {
+  DEFAULT_SUNNY_MOTOR_PRICE,
+  DEFAULT_MIN_INSTALL_FEE,
+  DEFAULT_DELIVERY_FEE,
+} from "@/lib/blinds/pricing-data";
 
 import type {
   PartALine,
@@ -50,7 +54,7 @@ import type {
   QuoteFormState,
   InstallMode,
 } from "./types";
-import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, HST_RATE, generateOrderNumber } from "./types";
+import { INSTALL_PRICES, SERVICE_ADDONS, HST_RATE, generateOrderNumber } from "./types";
 
 import { makeEmptyLine } from "./part-a";
 import { PartBForm } from "./part-b";
@@ -84,6 +88,8 @@ import {
 import { OrgSelectBanner } from "@/components/org-select-banner";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { RoughQuotePanel } from "./rough-quote-panel";
+import { CustomerCombobox } from "./customer-combobox";
+import { NewCustomerDialog, type CreatedCustomer } from "../new-customer-dialog";
 import { QuoteSentNextSteps } from "@/components/sales-command-center/quote-sent-next-steps";
 import { reviewQuoteWorkflow } from "@/lib/digital-employees/quote-review";
 import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
@@ -242,6 +248,7 @@ function QuoteSheetPageInner() {
 
   // Customer selector
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -327,7 +334,8 @@ function QuoteSheetPageInner() {
   useEffect(() => {
     (async () => {
       try {
-        const d = await apiJson<{ customers?: CustomerOption[] }>("/api/sales/customers?limit=200");
+        // picker=1：轻量选择器模式，真实一次拉 200 条（旧 limit 参数从未被 API 解析，实际只有 20 条）
+        const d = await apiJson<{ customers?: CustomerOption[] }>("/api/sales/customers?picker=1&pageSize=200");
         setCustomers((d.customers ?? []) as CustomerOption[]);
       } catch { /* ignore */ }
     })();
@@ -355,6 +363,9 @@ function QuoteSheetPageInner() {
   const [promoWarnPct, setPromoWarnPct] = useState(0.06);
   const [promoDangerPct, setPromoDangerPct] = useState(0.15);
   const [promoMaxPct, setPromoMaxPct] = useState(0.25);
+  // 最低安装费与运费 —— 驾驶舱「报价附加价格」设置，改价自动生效
+  const [minInstallFee, setMinInstallFee] = useState<number>(DEFAULT_MIN_INSTALL_FEE);
+  const [deliveryFee, setDeliveryFee] = useState<number>(DEFAULT_DELIVERY_FEE);
   // 定金阈值
   const [depositWarnPct, setDepositWarnPct] = useState(0.4);
   const [depositMinPct, setDepositMinPct] = useState(0.3);
@@ -370,6 +381,7 @@ function QuoteSheetPageInner() {
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
+          minInstallFee?: number; deliveryFee?: number;
           hasDepositOverrideCode?: boolean;
         }>("/api/sales/quote-settings/discounts");
         setDiscounts({
@@ -393,6 +405,20 @@ function QuoteSheetPageInner() {
           d.sunnyMotorPrice >= 0
         ) {
           setSunnyMotorPrice(d.sunnyMotorPrice);
+        }
+        if (
+          typeof d.minInstallFee === "number" &&
+          Number.isFinite(d.minInstallFee) &&
+          d.minInstallFee >= 0
+        ) {
+          setMinInstallFee(d.minInstallFee);
+        }
+        if (
+          typeof d.deliveryFee === "number" &&
+          Number.isFinite(d.deliveryFee) &&
+          d.deliveryFee >= 0
+        ) {
+          setDeliveryFee(d.deliveryFee);
         }
         if (typeof d.hasDepositOverrideCode === "boolean") setHasDepositOverrideCode(d.hasDepositOverrideCode);
       } catch {
@@ -439,9 +465,33 @@ function QuoteSheetPageInner() {
     }
   }, [customers]);
 
+  // 报价页内新建客户成功：加入选项并直接选中（新客户无商机，跳过商机拉取）
+  const applyCreatedCustomer = useCallback((created?: CreatedCustomer) => {
+    setShowNewCustomer(false);
+    if (!created) return;
+    setCustomers((prev) => [
+      created as CustomerOption,
+      ...prev.filter((c) => c.id !== created.id),
+    ]);
+    setCustomerId(created.id);
+    setLastSaved(null);
+    setOpportunityId("");
+    setOpportunities([]);
+    setCustomerName(created.name);
+    setCustomerPhone(created.phone ?? "");
+    setCustomerEmail(created.email ?? "");
+    const addrs = (created.address ?? "")
+      .split(/\r?\n|;/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setCustomerAddressOptions(addrs);
+    setCustomerAddress(addrs[0] ?? "");
+    setHeardUsOn(created.source ?? "");
+  }, []);
+
   // Calculations
   // Part A / Part C 已从总价/Tab/PDF 的独立表单中隐藏，数据结构暂留以便老单打开。
-  // 安装费已内置在 Shades / Shutters / Drapes 行价里；这里只补足最低安装+运费合计。
+  // 安装费已内置在 Shades / Shutters / Drapes 行价里；这里补足最低安装费差额并加收运费（金额来自驾驶舱设置）。
   const subtotalB = useMemo(
     () => partBAddons.reduce((s, a) => s + a.total, 0),
     [partBAddons]
@@ -473,8 +523,8 @@ function QuoteSheetPageInner() {
     () =>
       installMode === "pickup" || productInstallSubtotal <= 0
         ? 0
-        : Math.max(0, MIN_INSTALL_CHARGE - productInstallSubtotal),
-    [installMode, productInstallSubtotal],
+        : Math.max(0, minInstallFee - productInstallSubtotal) + deliveryFee,
+    [installMode, productInstallSubtotal, minInstallFee, deliveryFee],
   );
 
   // Step 4：折扣率追踪 —— 提前计算，供 handleSave 引用
@@ -1137,6 +1187,8 @@ function QuoteSheetPageInner() {
       logoDataUrl,
       discounts,
       sunnyMotorPrice,
+      minInstallFee,
+      deliveryFee,
       specialPromotion: specialPromotionNum,
       totalMsrp,
       finalDiscountPct,
@@ -1148,7 +1200,7 @@ function QuoteSheetPageInner() {
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
-    discounts, sunnyMotorPrice,
+    discounts, sunnyMotorPrice, minInstallFee, deliveryFee,
     specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,
   ]);
 
@@ -1605,20 +1657,13 @@ function QuoteSheetPageInner() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-full md:w-64">
             <Label className="text-xs">Select Customer</Label>
-            <div className="relative mt-1">
-              <select
+            <div className="mt-1">
+              <CustomerCombobox
+                customers={customers}
                 value={customerId}
-                onChange={(e) => handleCustomerSelect(e.target.value)}
-                className="w-full rounded-lg border border-border bg-card-bg px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
-              >
-                <option value="">— Select customer —</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}{c.phone ? ` (${c.phone})` : ""}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                onSelect={handleCustomerSelect}
+                onCreateNew={() => setShowNewCustomer(true)}
+              />
             </div>
           </div>
           {!customerId && (
@@ -1867,7 +1912,7 @@ function QuoteSheetPageInner() {
           {installMode !== "pickup" && (
             <span className="flex items-center gap-1">
               <InstallIcon className="h-3.5 w-3.5 text-muted-foreground" />
-              Install min adj.:{" "}
+              Install min + delivery:{" "}
               <span className="font-mono text-muted-foreground">
                 {formatCAD(subtotalC)}
               </span>
@@ -2164,6 +2209,13 @@ function QuoteSheetPageInner() {
         customerId={customerId || null}
         opportunityId={sentNext.opportunityId}
         quoteUrl={sentNext.quoteUrl}
+      />
+
+      {/* 报价页内新建客户（上门遇新客不必离开本页） */}
+      <NewCustomerDialog
+        open={showNewCustomer}
+        onOpenChange={setShowNewCustomer}
+        onSuccess={applyCreatedCustomer}
       />
     </div>
   );

@@ -86,14 +86,18 @@ export const INSTALL_RULES = {
   regular: 18,
   wideThresholdIn: 70,
   wide: 26,
-  minimumTotal: 275,
+  // 最低安装费（可在驾驶舱按企业覆盖：QuoteDiscountSettings.minInstallFee）
+  minimumTotal: 200,
   draperySheerNarrow: 55,
   draperySheerWide: 90,
   shuttersPanelWidthIn: 35,
   shutterPerPanel: 18,
 } as const;
 
-export const DEFAULT_DELIVERY_FEE = 0;
+// 运费默认值（可在驾驶舱按企业覆盖：QuoteDiscountSettings.deliveryFee）；pickup 免收
+export const DEFAULT_DELIVERY_FEE = 75;
+// 最低安装费默认值的语义化别名（与 INSTALL_RULES.minimumTotal 同源）
+export const DEFAULT_MIN_INSTALL_FEE = INSTALL_RULES.minimumTotal;
 export const DEFAULT_TAX_RATE = 0.13;
 /** Shade Order Form 选择 Lift=M 时的默认税前加价（CAD）。 */
 export const DEFAULT_SUNNY_MOTOR_PRICE = 150;

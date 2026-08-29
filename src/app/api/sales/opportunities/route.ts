@@ -91,7 +91,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   const customer = await db.salesCustomer.findFirst({
     where: { id: body.customerId, archivedAt: null },
-    select: { id: true, orgId: true, createdById: true },
+    select: { id: true, orgId: true, createdById: true, name: true },
   });
   if (!customer) {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
@@ -124,6 +124,22 @@ export const POST = withAuth(async (request, _ctx, user) => {
       createdById: user.id,
     },
   });
+
+  // 分配即通知：商机指派给别人时，被指派销售第一时间知道（此前完全静默）
+  if (opportunity.assignedToId && opportunity.assignedToId !== user.id) {
+    const { createNotification } = await import('@/lib/notifications/create');
+    await createNotification({
+      userId: opportunity.assignedToId,
+      orgId: orgRes.orgId,
+      type: 'followup',
+      title: `新商机分配给你 — ${customer.name}`,
+      summary: `${opportunity.title}（点开直达客户详情，尽快首次联系）`,
+      priority: 'high',
+      entityType: 'sales_customer',
+      entityId: customer.id,
+      sourceKey: `opp-assigned:${opportunity.id}:${opportunity.assignedToId}`,
+    }).catch(() => {});
+  }
 
   return NextResponse.json(opportunity, { status: 201 });
 });

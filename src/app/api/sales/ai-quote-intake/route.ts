@@ -22,8 +22,10 @@ import {
   transcribeVoice,
 } from "@/lib/sales/ai-quote-parser";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
+import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 
-export const POST = withAuth(async (request) => {
+export const POST = withAuth(async (request, _ctx, user) => {
   try {
     const body = await request.json();
     const {
@@ -70,11 +72,25 @@ export const POST = withAuth(async (request) => {
       }
     }
 
+    // 预览费用与电子报价单同源：能解析出组织时读驾驶舱设置，否则退回平台默认
+    const orgRes = await resolveSalesOrgIdForRequest(request, user).catch(
+      () => null,
+    );
+    const quoteSettings =
+      orgRes && orgRes.ok ? await loadDiscountsDto(orgRes.orgId) : null;
+
     const preview = plan.items.length > 0
       ? calculateQuoteTotal({
           items: plan.items,
           addons: plan.addons,
           installMode: plan.installMode,
+          ...(quoteSettings
+            ? {
+                sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
+                deliveryFee: quoteSettings.deliveryFee,
+                minInstallTotal: quoteSettings.minInstallFee,
+              }
+            : {}),
         })
       : null;
 

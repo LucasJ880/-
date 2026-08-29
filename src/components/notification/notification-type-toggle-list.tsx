@@ -11,6 +11,8 @@ const LABELS: Record<string, string> = {
   system: "系统通知（预留）",
   agent_task: "AI 任务通知",
   agent_approval: "AI 审批通知",
+  quote_signed: "客户签署报价",
+  sales_daily_briefing: "每日销售简报",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);

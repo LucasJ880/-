@@ -38,6 +38,10 @@ import {
   type DiscountsOverride,
 } from "./pricing-helpers";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import {
+  DEFAULT_MIN_INSTALL_FEE,
+  DEFAULT_DELIVERY_FEE,
+} from "@/lib/blinds/pricing-data";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 
@@ -239,6 +243,8 @@ export interface QuotePdfInput {
   logoDataUrl?: string | null; // 公司 Logo（可选，加载失败时用文字 logo 降级）
   discounts?: DiscountsOverride; // 来自全局折扣率设置（缺省使用 pricing-data.ts 内置默认）
   sunnyMotorPrice?: number; // Lift=M 时每行税前加价；历史报价缺省按 150
+  minInstallFee?: number; // 最低安装费（驾驶舱设置）；缺省用平台默认
+  deliveryFee?: number; // 运费（驾驶舱设置）；缺省用平台默认；pickup 不收
   specialPromotion?: number; // Step 4：销售手填让利（税前直减）
   totalMsrp?: number; // Step 4：产品 MSRP 合计，用于展示折扣率
   finalDiscountPct?: number; // Step 4：实际成交折扣率（0~1）
@@ -696,7 +702,7 @@ export async function exportQuotePdf(
     { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
     {
-      label: input.installMode === "pickup" ? "Install (Pickup)" : "Install Min Adj.",
+      label: input.installMode === "pickup" ? "Install (Pickup)" : "Install & Delivery",
       value: formatCAD(input.subtotalC),
     },
     { label: taxLabel, value: formatCAD(hst) },
@@ -987,12 +993,12 @@ export async function exportQuotePdf(
     { label: "Drapes & Sheers Subtotal", value: formatCAD(input.drapeTotals.total) },
     { label: "Add-ons (Part B)", value: formatCAD(input.subtotalB) },
     {
-      label: "Install Minimum Adjustment",
+      label: "Installation Minimum & Delivery",
       value: formatCAD(input.subtotalC),
       hint:
         input.installMode === "pickup"
-          ? "Pickup mode — installation waived"
-          : "Product line installation is included; this only tops up to the $275 minimum.",
+          ? "Pickup mode — installation and delivery waived"
+          : `Includes ${formatCAD(input.deliveryFee ?? DEFAULT_DELIVERY_FEE)} delivery. Product line installation is included and tops up to the ${formatCAD(input.minInstallFee ?? DEFAULT_MIN_INSTALL_FEE)} minimum.`,
     },
     ...(promoAmount > 0
       ? [{ label: "Special Promotion", value: `− ${formatCAD(promoAmount)}`, hint: "Pre-tax discount applied" }]
@@ -1099,7 +1105,10 @@ export async function exportQuotePdf(
   drawTotalsTable(ctx, [
     { label: "Merchandise", value: formatCAD(input.productsSubtotal) },
     { label: "Add-ons (B)", value: formatCAD(input.subtotalB) },
-    { label: "Install Min Adj.", value: formatCAD(input.subtotalC) },
+    {
+      label: input.installMode === "pickup" ? "Install (Pickup)" : "Install & Delivery",
+      value: formatCAD(input.subtotalC),
+    },
     { label: "Subtotal (before tax)", value: formatCAD(preTax) },
     { label: taxLabel, value: formatCAD(hst) },
     { label: "Grand Total", value: formatCAD(grandTotal), emphasize: true },
