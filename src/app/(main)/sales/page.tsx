@@ -14,6 +14,7 @@ import { StatsCards } from "./stats-cards";
 import { AiAlertPanel } from "./ai-alert-panel";
 import { PipelineBoard } from "./pipeline-board";
 import { CustomerList } from "./customer-list";
+import { Pagination } from "@/components/ui/pagination";
 import { CsvImportDialog } from "./csv-import-dialog";
 import { NewCustomerDialog } from "./new-customer-dialog";
 import { PullToRefresh } from "@/components/pull-to-refresh";
@@ -73,9 +74,26 @@ function SalesPageInner() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // 防抖后的搜索词才触发请求，避免每敲一个键打一次全量列表
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showImport, setShowImport] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [followupHint, setFollowupHint] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // 钻取筛选变化时回到第一页
+  useEffect(() => {
+    setPage(1);
+  }, [urlCreatedById, urlStartDate, urlEndDate, urlFunnelStatus, viewMode]);
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -115,20 +133,22 @@ function SalesPageInner() {
         setOpportunities(list);
       } else {
         const params = new URLSearchParams();
-        if (search) params.set("search", search);
+        if (debouncedSearch) params.set("search", debouncedSearch);
         if (urlCreatedById) params.set("createdById", urlCreatedById);
         if (urlStartDate) params.set("startDate", urlStartDate);
         if (urlEndDate) params.set("endDate", urlEndDate);
         if (urlFunnelStatus) params.set("funnelStatus", urlFunnelStatus);
         params.set("pageSize", "50");
+        params.set("page", String(page));
         const qs = params.toString() ? `?${params}` : "";
-        const data = await apiJson<{ customers?: Customer[] }>(
+        const data = await apiJson<{ customers?: Customer[]; total?: number }>(
           `/api/sales/customers${qs}`,
         );
         const serverCustomers = Array.isArray(data?.customers)
           ? data.customers
           : [];
         setCustomers(serverCustomers);
+        setTotal(typeof data?.total === "number" ? data.total : serverCustomers.length);
       }
     } catch (err) {
       console.error("Load sales data failed:", err);
@@ -136,7 +156,7 @@ function SalesPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [viewMode, search, urlCreatedById, urlStartDate, urlEndDate, urlFunnelStatus]);
+  }, [viewMode, debouncedSearch, page, urlCreatedById, urlStartDate, urlEndDate, urlFunnelStatus]);
 
   const clearDrillFilters = useCallback(() => {
     router.replace("/sales?view=customers");
@@ -366,7 +386,19 @@ function SalesPageInner() {
               </button>
             </div>
           )}
-          <CustomerList customers={customers} showOwnerColumn={isSuperAdmin} />
+          <CustomerList
+            customers={customers}
+            showOwnerColumn={isSuperAdmin}
+            followupMode={followupHint}
+          />
+          <div className="flex flex-col items-center gap-1">
+            <Pagination
+              page={page}
+              totalPages={Math.max(1, Math.ceil(total / 50))}
+              onPageChange={setPage}
+            />
+            <p className="text-xs text-muted">共 {total} 位客户</p>
+          </div>
         </>
       )}
 

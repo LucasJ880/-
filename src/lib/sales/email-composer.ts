@@ -44,9 +44,10 @@ export async function composeEmail(ctx: ComposeContext): Promise<ComposedEmail> 
     select: { name: true, email: true },
   });
 
-  if (!customer?.email) {
-    throw new Error(`客户 ${customer?.name || ctx.customerId} 没有邮箱地址`);
+  if (!customer) {
+    throw new Error(`客户 ${ctx.customerId} 不存在`);
   }
+  // 无邮箱也允许生成草稿（销售可复制到微信/短信发送）；实际发送路径各自校验收件地址
 
   // 查找报价
   let quote = null;
@@ -163,7 +164,7 @@ ${ctx.extraInstructions ? `\n额外要求: ${ctx.extraInstructions}` : ""}
   }
 
   return {
-    to: customer.email,
+    to: customer.email ?? "",
     subject,
     html: wrapEmailLayout(htmlBody),
     text: textBody,
@@ -217,6 +218,9 @@ export async function sendSalesEmail(
   userId: string,
   email: ComposedEmail,
 ): Promise<{ success: boolean; error?: string; messageId?: string; method?: string }> {
+  if (!email.to) {
+    return { success: false, error: "客户没有邮箱地址，无法发送邮件" };
+  }
   // 尝试 Gmail OAuth
   try {
     const { getEmailProvider, sendGmail } = await import("@/lib/google-email");

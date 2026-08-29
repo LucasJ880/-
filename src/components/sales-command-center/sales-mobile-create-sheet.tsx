@@ -3,9 +3,9 @@
 import Link from "next/link";
 import {
   CalendarPlus,
-  Camera,
   FileText,
   MessageSquare,
+  Ruler,
   UserPlus,
 } from "lucide-react";
 import { SalesBottomSheet } from "./sales-bottom-sheet";
@@ -32,9 +32,10 @@ const ITEMS = [
     icon: CalendarPlus,
   },
   {
+    // 页面实际是量房/尺寸录入 + 粗略计价；照片上传做出来之前不许挂错标签
     href: "/sales/measure",
-    label: "上传照片",
-    icon: Camera,
+    label: "量房估价",
+    icon: Ruler,
   },
 ] as const;
 

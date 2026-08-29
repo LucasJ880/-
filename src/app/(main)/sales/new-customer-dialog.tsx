@@ -44,6 +44,15 @@ const INITIAL_FORM = {
   source: "",
 };
 
+export interface CreatedCustomer {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  source?: string | null;
+}
+
 export function NewCustomerDialog({
   open,
   onOpenChange,
@@ -51,7 +60,8 @@ export function NewCustomerDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  /** 创建/合并成功后回调；能拿到服务端返回的客户时一并传出（供调用方直接选中） */
+  onSuccess: (created?: CreatedCustomer) => void;
 }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [conflict, setConflict] = useState<ExistingCustomer | null>(null);
@@ -78,6 +88,7 @@ export function NewCustomerDialog({
       setError(salesOrgCreateBlockedHint(orgLoading, ambiguous, orgId) ?? "请稍候…");
       return;
     }
+    let created: CreatedCustomer | undefined;
     await handleSubmit(async () => {
       const res = await apiFetch("/api/sales/customers", {
         method: "POST",
@@ -103,7 +114,9 @@ export function NewCustomerDialog({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "创建失败");
       }
-    }, { onSuccess });
+      const data = (await res.json().catch(() => null)) as CreatedCustomer | null;
+      if (data?.id) created = data;
+    }, { onSuccess: () => onSuccess(created) });
   }
 
   async function handleMerge() {

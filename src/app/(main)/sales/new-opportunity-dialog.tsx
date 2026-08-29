@@ -53,7 +53,7 @@ export function NewOpportunityDialog({
 
   useEffect(() => {
     if (!open) return;
-    apiFetch("/api/sales/customers")
+    apiFetch("/api/sales/customers?picker=1&pageSize=200")
       .then((r) => r.json())
       .then((d) => {
         setCustomerOptions(

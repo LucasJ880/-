@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
@@ -70,7 +71,17 @@ function isSameDay(d1: Date, d2: Date) {
 }
 
 export default function SalesCalendarPage() {
+  return (
+    <Suspense fallback={null}>
+      <SalesCalendarPageInner />
+    </Suspense>
+  );
+}
+
+function SalesCalendarPageInner() {
   const { isMobile, mounted } = useIsMobile();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("month");
@@ -80,6 +91,19 @@ export default function SalesCalendarPage() {
   }, [mounted, isMobile]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showCreate, setShowCreate] = useState(false);
+
+  // Command Center / 移动端「+」入口：?new=1 直接打开创建预约框，?customerId= 预选客户
+  const [createCustomerId, setCreateCustomerId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    setCreateCustomerId(searchParams.get("customerId") ?? undefined);
+    setShowCreate(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("new");
+    next.delete("customerId");
+    const qs = next.toString();
+    router.replace(qs ? `/sales/calendar?${qs}` : "/sales/calendar");
+  }, [searchParams, router]);
   const [createDefaults, setCreateDefaults] = useState<{ start?: string; end?: string }>({});
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
   const [gcalConnected, setGcalConnected] = useState(false);
@@ -520,10 +544,11 @@ export default function SalesCalendarPage() {
       {/* Create dialog */}
       <CreateAppointmentDialog
         open={showCreate}
-        onClose={() => { setShowCreate(false); setCreateDefaults({}); }}
-        onCreated={() => { setShowCreate(false); setCreateDefaults({}); loadAppointments(); }}
+        onClose={() => { setShowCreate(false); setCreateDefaults({}); setCreateCustomerId(undefined); }}
+        onCreated={() => { setShowCreate(false); setCreateDefaults({}); setCreateCustomerId(undefined); loadAppointments(); }}
         defaultStart={createDefaults.start}
         defaultEnd={createDefaults.end}
+        defaultCustomerId={createCustomerId}
       />
     </PullToRefresh>
   );
