@@ -151,6 +151,12 @@ function NotificationsContent() {
       } else if (item.entityType === "approval" && item.entityId) {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         router.push(`/capabilities/approvals/${encodeURIComponent(item.entityId)}`);
+      } else if (item.entityType === "sales_customer" && item.entityId) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(`/sales/customers/${encodeURIComponent(item.entityId)}`);
+      } else if (item.entityType === "sales_actions") {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(`/sales?view=customers`);
       } else if (item.projectId && item.activityId) {
         router.push(`/projects/${item.projectId}?activity=${item.activityId}`);
       } else if (item.projectId) {

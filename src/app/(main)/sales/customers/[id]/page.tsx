@@ -266,6 +266,34 @@ function CustomerDetailPageInner() {
     );
   }, [searchParams, router, id]);
 
+  // 一键设跟进：明天 / +2天 / 下周（上午 10 点），直接写商机 nextFollowupAt
+  const [settingFollowupFor, setSettingFollowupFor] = useState<string | null>(null);
+  const quickSetFollowup = useCallback(
+    async (opportunityId: string, days: number) => {
+      const at = new Date();
+      at.setDate(at.getDate() + days);
+      at.setHours(10, 0, 0, 0);
+      setSettingFollowupFor(opportunityId);
+      try {
+        const res = await apiFetch(`/api/sales/opportunities/${opportunityId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nextFollowupAt: at.toISOString() }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error((data as { error?: string }).error || "设置跟进失败");
+        }
+        await loadCustomer();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "设置跟进失败");
+      } finally {
+        setSettingFollowupFor(null);
+      }
+    },
+    [loadCustomer],
+  );
+
   // opp → 最新 session 封面（sessions 已按 updatedAt desc）
   const oppIdToCover = useMemo(() => {
     const map = new Map<string, { sessionId: string; cover: string | null }>();
@@ -935,16 +963,36 @@ function CustomerDetailPageInner() {
                         {STAGE_LABELS[opp.stage] || opp.stage}
                       </Badge>
                     </div>
-                    <div className="mt-0.5 flex items-center gap-3 text-xs text-muted">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                       {opp.estimatedValue != null && (
                         <span>${opp.estimatedValue.toLocaleString()}</span>
                       )}
                       {opp.productTypes && <span>{opp.productTypes}</span>}
-                      {opp.nextFollowupAt && (
+                      {opp.nextFollowupAt ? (
                         <span className="text-amber-600">
                           跟进: {new Date(opp.nextFollowupAt).toLocaleDateString("zh-CN")}
                         </span>
+                      ) : (
+                        <span>设跟进:</span>
                       )}
+                      {/* 一键设跟进（复制发报价弹窗里唯一被高频使用的模式） */}
+                      <span className="inline-flex items-center gap-1">
+                        {[
+                          { label: "明天", days: 1 },
+                          { label: "+2天", days: 2 },
+                          { label: "下周", days: 7 },
+                        ].map((q) => (
+                          <button
+                            key={q.label}
+                            type="button"
+                            disabled={settingFollowupFor === opp.id}
+                            onClick={() => void quickSetFollowup(opp.id, q.days)}
+                            className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted hover:bg-accent-soft hover:text-foreground disabled:opacity-50"
+                          >
+                            {q.label}
+                          </button>
+                        ))}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted">

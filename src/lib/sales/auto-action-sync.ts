@@ -6,6 +6,10 @@ import {
   buildSalesActionActiveKey,
   defaultSalesActionDueAt,
 } from "@/lib/sales/action-loop";
+import {
+  notifyNewSalesActions,
+  type CreatedActionForNotify,
+} from "@/lib/sales/action-notify";
 
 export const SALES_AUTO_ACTION_SOURCE = "digital_employee_auto";
 export const SALES_AUTO_ACTION_SCAN_LIMIT = 500;
@@ -93,6 +97,7 @@ export async function syncSalesAutoActions(
     let createdCount = 0;
     let updatedCount = 0;
     const observedKeys: string[] = [];
+    const createdForNotify: CreatedActionForNotify[] = [];
 
     for (const candidate of candidates) {
       const opportunity = opportunityById.get(candidate.opportunityId);
@@ -117,7 +122,7 @@ export async function syncSalesAutoActions(
         continue;
       }
       try {
-        await db.salesAction.create({
+        const createdAction = await db.salesAction.create({
           data: {
             orgId,
             customerId: candidate.customerId,
@@ -134,11 +139,27 @@ export async function syncSalesAutoActions(
             createdById: opportunity.createdById,
             lastObservedAt: now,
           },
+          select: {
+            id: true,
+            orgId: true,
+            customerId: true,
+            assignedToId: true,
+            priority: true,
+            title: true,
+          },
         });
         createdCount += 1;
+        createdForNotify.push(createdAction);
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) throw error;
       }
+    }
+
+    // 站内通知（urgent 实时单发 + 其余按人按天聚合）；失败不影响同步
+    if (createdForNotify.length > 0) {
+      await notifyNewSalesActions(createdForNotify, now).catch((error) =>
+        console.warn("[auto-action-sync] notify failed:", error),
+      );
     }
 
     const truncated = scan.stats.scanLimitReached === 1;
