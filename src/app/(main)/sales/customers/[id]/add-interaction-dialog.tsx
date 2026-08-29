@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import {
@@ -52,6 +52,27 @@ export function AddInteractionDialog({
   });
   const [saving, setSaving] = useState(false);
   const { orgId, ambiguous, loading: orgLoading } = useSalesCurrentOrgId();
+
+  // 打开时默认关联第一个商机：让「下次跟进时间」直接可见，
+  // 不再要求销售先发现并手选商机才出现该字段
+  useEffect(() => {
+    if (!open) return;
+    setForm((f) =>
+      f.opportunityId || opportunities.length === 0
+        ? f
+        : { ...f, opportunityId: opportunities[0].id },
+    );
+  }, [open, opportunities]);
+
+  /** 快捷跟进时间：N 天后上午 10 点（datetime-local 本地格式） */
+  function quickFollowupValue(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(10, 0, 0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+  }
 
   async function handleSave() {
     if (!form.summary.trim()) return;
@@ -148,6 +169,24 @@ export function AddInteractionDialog({
           {form.opportunityId && (
             <div className="space-y-1.5">
               <Label htmlFor="interaction-next-followup">下次跟进时间</Label>
+              <div className="flex items-center gap-1.5">
+                {[
+                  { label: "明天", days: 1 },
+                  { label: "+2天", days: 2 },
+                  { label: "下周", days: 7 },
+                ].map((q) => (
+                  <button
+                    key={q.label}
+                    type="button"
+                    onClick={() =>
+                      setForm({ ...form, nextFollowupAt: quickFollowupValue(q.days) })
+                    }
+                    className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:bg-accent-soft hover:text-foreground"
+                  >
+                    {q.label}
+                  </button>
+                ))}
+              </div>
               <Input
                 id="interaction-next-followup"
                 type="datetime-local"
