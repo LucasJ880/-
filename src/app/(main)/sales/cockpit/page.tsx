@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
@@ -16,8 +15,6 @@ import {
   AlertTriangle,
   Trophy,
   BarChart3,
-  ArrowRight,
-  Images,
   Loader2,
 } from "lucide-react";
 import { SalesRepSettingsCard } from "./sales-rep-settings-card";
@@ -154,30 +151,6 @@ export default function SalesCockpitPage() {
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">{reportResult}</p>
         </div>
       )}
-
-      {/* 轻量入口：现场素材 / 建模参考照片后续从这里统一进入 */}
-      <Link
-        href="/sales/materials"
-        className="group flex items-center justify-between rounded-xl border border-accent/40 bg-accent p-4 transition-colors hover:bg-accent-hover"
-      >
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color:var(--on-accent)]/15 text-[color:var(--on-accent)]">
-            <Images size={20} />
-          </span>
-          <div>
-            <div className="text-sm font-semibold text-[color:var(--on-accent)]">
-              素材库
-            </div>
-            <div className="text-xs text-[color:var(--on-accent)]/80">
-              集中管理现场照片、建模参考图和后续 Visualizer 素材
-            </div>
-          </div>
-        </div>
-        <ArrowRight
-          size={18}
-          className="text-[color:var(--on-accent)] transition-transform group-hover:translate-x-0.5"
-        />
-      </Link>
 
       {/* 销售个人设置 — 首次进入会高亮提示未填写 */}
       <SalesRepSettingsCard />
