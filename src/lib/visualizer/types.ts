@@ -111,6 +111,8 @@ export interface VisualizerProductOptionDetail {
   transform: VisualizerProductOptionTransform | null;
   notes: string | null;
   createdAt: string;
+  /** 产品面料纹理图（目录 textureUrl）；null 时前端回退 colorHex 色块 */
+  textureUrl: string | null;
 }
 
 /** 异步 HD 渲染任务快照（陈旧 rendering 已在服务端归一为 failed） */

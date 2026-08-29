@@ -97,12 +97,20 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     data: { updatedAt: new Date() },
   });
 
+  const catalogTexture = await db.visualizerCatalogProduct
+    .findUnique({
+      where: { id: updated.productCatalogId },
+      select: { textureUrl: true },
+    })
+    .catch(() => null);
+
   const detail: VisualizerProductOptionDetail = {
     id: updated.id,
     variantId: updated.variantId,
     regionId: updated.regionId,
     productCatalogId: updated.productCatalogId,
     productName: updated.productName,
+    textureUrl: catalogTexture?.textureUrl ?? null,
     productCategory: updated.productCategory,
     color: updated.color,
     colorHex: updated.colorHex,
