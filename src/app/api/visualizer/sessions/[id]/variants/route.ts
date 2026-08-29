@@ -56,6 +56,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     hasCustomerSelection: false,
     createdAt: created.createdAt.toISOString(),
     updatedAt: created.updatedAt.toISOString(),
+    renderJob: { status: null, tier: null, error: null, startedAt: null, stale: false },
     productOptions: [],
   };
   return NextResponse.json({ variant: summary }, { status: 201 });

@@ -5,6 +5,7 @@ import {
   canSeeVisualizerSession,
   validateSessionLinks,
 } from "@/lib/visualizer/access";
+import { summarizeRenderJob } from "@/lib/visualizer/render-job";
 import type {
   UpdateVisualizerSessionRequest,
   VisualizerProductOptionDetail,
@@ -205,6 +206,7 @@ export const GET = withAuth(async (_request, ctx, user) => {
         hasCustomerSelection: v.selections.some((s) => s.selectedBy === "customer"),
         createdAt: v.createdAt.toISOString(),
         updatedAt: v.updatedAt.toISOString(),
+        renderJob: summarizeRenderJob(v, Date.now()),
         productOptions,
       };
     }),

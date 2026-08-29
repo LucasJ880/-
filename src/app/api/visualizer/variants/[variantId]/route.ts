@@ -6,6 +6,46 @@ import {
   loadSessionByVariant,
 } from "@/lib/visualizer/access";
 import type { UpdateVariantRequest } from "@/lib/visualizer/types";
+import { summarizeRenderJob } from "@/lib/visualizer/render-job";
+
+/**
+ * GET /api/visualizer/variants/[variantId]
+ * 轻量轮询端点：异步 HD 渲染的状态 + 最新效果图地址。
+ */
+export const GET = withAuth(async (_request, ctx, user) => {
+  const { variantId } = await ctx.params;
+
+  const found = await loadSessionByVariant(variantId);
+  if (!found) {
+    return NextResponse.json({ error: "方案不存在" }, { status: 404 });
+  }
+  if (!canSeeVisualizerSession(found.session, user)) {
+    return NextResponse.json({ error: "无权查看该方案" }, { status: 403 });
+  }
+
+  const variant = await db.visualizerVariant.findUnique({
+    where: { id: variantId },
+    select: {
+      id: true,
+      exportImageUrl: true,
+      updatedAt: true,
+      renderJobStatus: true,
+      renderJobQuality: true,
+      renderJobError: true,
+      renderJobStartedAt: true,
+    },
+  });
+  if (!variant) {
+    return NextResponse.json({ error: "方案不存在" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    id: variant.id,
+    exportImageUrl: variant.exportImageUrl,
+    updatedAt: variant.updatedAt.toISOString(),
+    renderJob: summarizeRenderJob(variant, Date.now()),
+  });
+});
 
 /** PATCH /api/visualizer/variants/[variantId] */
 export const PATCH = withAuth(async (request, ctx, user) => {

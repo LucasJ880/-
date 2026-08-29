@@ -113,6 +113,15 @@ export interface VisualizerProductOptionDetail {
   createdAt: string;
 }
 
+/** 异步 HD 渲染任务快照（陈旧 rendering 已在服务端归一为 failed） */
+export interface VisualizerRenderJobSummary {
+  status: "rendering" | "done" | "failed" | null;
+  tier: "fast" | "fine" | null;
+  error: string | null;
+  startedAt: string | null;
+  stale: boolean;
+}
+
 export interface VisualizerVariantSummary {
   id: string;
   name: string;
@@ -124,6 +133,7 @@ export interface VisualizerVariantSummary {
   hasCustomerSelection: boolean;
   createdAt: string;
   updatedAt: string;
+  renderJob: VisualizerRenderJobSummary;
   productOptions: VisualizerProductOptionDetail[];
 }
 

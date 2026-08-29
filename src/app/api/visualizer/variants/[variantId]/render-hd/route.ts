@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
@@ -17,7 +17,15 @@ import {
 import { resolveHdRoomSourceImage } from "@/lib/visualizer/hd-source-image";
 import { buildHdWindowMask } from "@/lib/visualizer/hd-window-mask";
 import { buildHdRenderPrompt } from "@/lib/visualizer/hd-render-prompt";
+import {
+  RENDER_JOB_STALE_MS,
+  normalizeRenderTier,
+  renderTierToImageQuality,
+} from "@/lib/visualizer/render-job";
 import type { VisualizerRegionShape } from "@/lib/visualizer/types";
+
+// AI 渲染 1–2 分钟：请求本身立即返回，after() 后置执行需要完整时长
+export const maxDuration = 300;
 
 type RenderBody = {
   /** @deprecated 仅兼容旧客户端；不得作为 AI 主输入 */
@@ -25,8 +33,17 @@ type RenderBody = {
   instruction?: string;
   /** 编辑器当前选中房间图（可选偏好） */
   sourceImageId?: string;
+  /** 渲染档位：fast=快速预览（medium），fine=精修（high）；缺省 fast */
+  tier?: string;
 };
 
+/**
+ * POST /api/visualizer/variants/[variantId]/render-hd
+ *
+ * 异步模式：前置校验通过后立即 202 返回并标记 renderJobStatus=rendering，
+ * 真正的 AI 生成在 after() 里执行，客户端轮询 GET /variants/[variantId]。
+ * 弱网/切页/锁屏不再导致渲染作废；防重入靠原子 claim + 陈旧阈值。
+ */
 export const POST = withAuth(async (request, ctx, user) => {
   const { variantId } = await ctx.params;
   const found = await loadSessionByVariant(variantId);
@@ -42,12 +59,15 @@ export const POST = withAuth(async (request, ctx, user) => {
       { variantId, dataUrlBytes: body.dataUrl.length },
     );
   }
+  const tier = normalizeRenderTier(body.tier);
 
   const variant = await db.visualizerVariant.findUnique({
     where: { id: variantId },
     select: {
       id: true,
       exportImageUrl: true,
+      renderJobStatus: true,
+      renderJobStartedAt: true,
       productOptions: {
         select: {
           regionId: true,
@@ -154,18 +174,6 @@ export const POST = withAuth(async (request, ctx, user) => {
     };
   }
 
-  const roomBuffer = await fetchBuffer(primary.fileUrl);
-  if (!roomBuffer) {
-    return NextResponse.json(
-      {
-        error: "房间图下载失败，无法进行高清渲染",
-        code: "SOURCE_ROOM_IMAGE_MISSING",
-        exportImageUrl: previousExportImageUrl,
-      },
-      { status: 502 },
-    );
-  }
-
   const regionById = new Map(regions.map((r) => [r.id, r]));
   const maskRegions = variant.productOptions.map((option) => {
     const region = regionById.get(option.regionId);
@@ -213,144 +221,170 @@ export const POST = withAuth(async (request, ctx, user) => {
     })
     .slice(0, 8);
 
-  const quality = evaluateReferenceQuality(
+  const effectiveQuality = evaluateReferenceQuality(
     referenceCandidates.map(({ asset }) => asset),
   );
 
-  const loadedReferences = await Promise.all(
-    referenceCandidates.map(async ({ product, asset }) => {
-      const buffer = await fetchBuffer(asset.fileUrl);
-      return buffer ? { product, asset, buffer } : null;
-    }),
-  );
-  const usableReferences = loadedReferences.filter(
-    (item): item is NonNullable<typeof item> => item !== null,
-  );
-
-  const effectiveQuality =
-    usableReferences.length === 0 ? evaluateReferenceQuality([]) : quality;
-
-  const prompt = buildHdRenderPrompt({
-    productOptions: variant.productOptions,
-    references: usableReferences.map(({ product, asset }, index) => ({
-      index,
-      role: asset.role,
-      productName: product.name,
-      sourceType: asset.sourceType,
-      verificationStatus: asset.verificationStatus,
-    })),
-    customInstruction: body.instruction,
-  });
-
-  let rendered;
-  try {
-    rendered = await runImageEditDetailed({
-      imageBuffer: roomBuffer,
-      imageMime: primary.mimeType,
-      maskBuffer: maskResult.maskBuffer,
-      prompt,
-      referenceImages: usableReferences.map(({ asset, buffer }) => ({
-        buffer,
-        mime: asset.mimeType,
-        fileName: asset.fileName,
-      })),
-      quality: "high",
-    });
-  } catch (err) {
-    console.error("[render-hd] image edit threw:", err);
-    return NextResponse.json(
-      {
-        error:
-          "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。",
-        code: "AI_RENDER_FAILED",
-        exportImageUrl: previousExportImageUrl,
-      },
-      { status: 502 },
-    );
-  }
-
-  if (!rendered.buffer) {
-    return NextResponse.json(
-      {
-        error:
-          "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。",
-        code: "AI_RENDER_FAILED",
-        exportImageUrl: previousExportImageUrl,
-        providerErrorCode: rendered.providerErrorCode,
-      },
-      { status: 502 },
-    );
-  }
-
-  let uploaded: { url: string } | null = null;
-  try {
-    uploaded = await putVisualizerHdRender({
-      sessionId: found.session.id,
-      variantId,
-      buffer: rendered.buffer,
-    });
-  } catch (err) {
-    console.error("[render-hd] blob upload failed:", err);
-    return NextResponse.json(
-      {
-        error:
-          "效果图保存失败，当前画面仍为编辑预览，并非最终效果图。请重试。",
-        code: "HD_BLOB_SAVE_FAILED",
-        exportImageUrl: previousExportImageUrl,
-      },
-      { status: 502 },
-    );
-  }
-
-  if (!uploaded?.url) {
-    return NextResponse.json(
-      {
-        error:
-          "效果图保存失败，当前画面仍为编辑预览，并非最终效果图。请重试。",
-        code: "HD_BLOB_SAVE_FAILED",
-        exportImageUrl: previousExportImageUrl,
-      },
-      { status: 502 },
-    );
-  }
-
-  const updated = await db.visualizerVariant.update({
-    where: { id: variantId },
-    data: { exportImageUrl: uploaded.url },
-    select: { exportImageUrl: true, updatedAt: true },
-  });
-  await db.visualizerSession.update({
-    where: { id: found.session.id },
-    data: { updatedAt: new Date() },
-  });
-
-  if (!updated.exportImageUrl) {
-    return NextResponse.json(
-      {
-        error: "效果图地址未保存成功，当前画面仍为编辑预览。请重试。",
-        code: "EXPORT_URL_MISSING",
-        exportImageUrl: previousExportImageUrl,
-      },
-      { status: 502 },
-    );
-  }
-
-  return NextResponse.json({
-    exportImageUrl: updated.exportImageUrl,
-    updatedAt: updated.updatedAt.toISOString(),
-    referenceQuality: effectiveQuality.referenceQuality,
-    warning: effectiveQuality.warning,
-    warningCode: effectiveQuality.warningCode,
-    sourceImage: {
-      id: primary.sourceImageId,
-      kind: primary.kind,
-      width: primary.width,
-      height: primary.height,
+  // ── 原子 claim：已有活跃任务则拒绝（陈旧 rendering 允许覆盖重试） ──
+  const now = new Date();
+  const staleCutoff = new Date(now.getTime() - RENDER_JOB_STALE_MS);
+  const claimed = await db.visualizerVariant.updateMany({
+    where: {
+      id: variantId,
+      OR: [
+        { renderJobStatus: null },
+        { renderJobStatus: { notIn: ["rendering"] } },
+        { renderJobStartedAt: null },
+        { renderJobStartedAt: { lt: staleCutoff } },
+      ],
     },
-    mask: {
-      width: maskResult.width,
-      height: maskResult.height,
-      regionCount: maskResult.expandedRegions.length,
+    data: {
+      renderJobStatus: "rendering",
+      renderJobQuality: tier,
+      renderJobError: null,
+      renderJobStartedAt: now,
     },
   });
+  if (claimed.count === 0) {
+    return NextResponse.json(
+      {
+        error: "该方案正在渲染中，请等它完成或失败后再试",
+        code: "RENDER_ALREADY_RUNNING",
+        renderJob: {
+          status: "rendering",
+          startedAt: variant.renderJobStartedAt?.toISOString() ?? null,
+        },
+      },
+      { status: 409 },
+    );
+  }
+
+  const sessionId = found.session.id;
+  const instruction = body.instruction;
+  const productOptions = variant.productOptions;
+  const referenceMeta = referenceCandidates;
+
+  const failJob = async (message: string, code: string) => {
+    await db.visualizerVariant
+      .update({
+        where: { id: variantId },
+        data: {
+          renderJobStatus: "failed",
+          renderJobError: `${message}（${code}）`,
+        },
+      })
+      .catch((e) => console.error("[render-hd] fail-state write failed:", e));
+  };
+
+  // ── 慢工作后置：下载图片 → AI 生成 → 上传 → 落库 ──
+  after(async () => {
+    try {
+      const roomBuffer = await fetchBuffer(primary.fileUrl);
+      if (!roomBuffer) {
+        await failJob("房间图下载失败", "SOURCE_ROOM_IMAGE_MISSING");
+        return;
+      }
+
+      const loadedReferences = await Promise.all(
+        referenceMeta.map(async ({ product, asset }) => {
+          const buffer = await fetchBuffer(asset.fileUrl);
+          return buffer ? { product, asset, buffer } : null;
+        }),
+      );
+      const usableReferences = loadedReferences.filter(
+        (item): item is NonNullable<typeof item> => item !== null,
+      );
+
+      const prompt = buildHdRenderPrompt({
+        productOptions,
+        references: usableReferences.map(({ product, asset }, index) => ({
+          index,
+          role: asset.role,
+          productName: product.name,
+          sourceType: asset.sourceType,
+          verificationStatus: asset.verificationStatus,
+        })),
+        customInstruction: instruction,
+      });
+
+      const rendered = await runImageEditDetailed({
+        imageBuffer: roomBuffer,
+        imageMime: primary.mimeType,
+        maskBuffer: maskResult.maskBuffer,
+        prompt,
+        referenceImages: usableReferences.map(({ asset, buffer }) => ({
+          buffer,
+          mime: asset.mimeType,
+          fileName: asset.fileName,
+        })),
+        quality: renderTierToImageQuality(tier),
+      });
+
+      if (!rendered.buffer) {
+        await failJob(
+          "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。",
+          rendered.providerErrorCode ?? "AI_RENDER_FAILED",
+        );
+        return;
+      }
+
+      const uploaded = await putVisualizerHdRender({
+        sessionId,
+        variantId,
+        buffer: rendered.buffer,
+      });
+      if (!uploaded?.url) {
+        await failJob(
+          "效果图保存失败，当前画面仍为编辑预览。请重试。",
+          "HD_BLOB_SAVE_FAILED",
+        );
+        return;
+      }
+
+      await db.visualizerVariant.update({
+        where: { id: variantId },
+        data: {
+          exportImageUrl: uploaded.url,
+          renderJobStatus: "done",
+          renderJobError: null,
+        },
+      });
+      await db.visualizerSession.update({
+        where: { id: sessionId },
+        data: { updatedAt: new Date() },
+      });
+    } catch (err) {
+      console.error("[render-hd] async render failed:", err);
+      await failJob(
+        "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。",
+        "AI_RENDER_FAILED",
+      );
+    }
+  });
+
+  return NextResponse.json(
+    {
+      jobStarted: true,
+      renderJob: {
+        status: "rendering",
+        tier,
+        startedAt: now.toISOString(),
+      },
+      referenceQuality: effectiveQuality.referenceQuality,
+      warning: effectiveQuality.warning,
+      warningCode: effectiveQuality.warningCode,
+      sourceImage: {
+        id: primary.sourceImageId,
+        kind: primary.kind,
+        width: primary.width,
+        height: primary.height,
+      },
+      mask: {
+        width: maskResult.width,
+        height: maskResult.height,
+        regionCount: maskResult.expandedRegions.length,
+      },
+    },
+    { status: 202 },
+  );
 });

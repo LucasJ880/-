@@ -260,9 +260,12 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     return session.variants.find((v) => v.id === selectedVariantId) ?? null;
   }, [session, selectedVariantId]);
 
-  // 切换方案时：有成功效果图则进入 rendered，否则回到编辑；渲染中不打断
+  // 切换方案时：该方案有活跃渲染任务则显示渲染中，有成功效果图则 rendered，否则回编辑
   useEffect(() => {
-    if (hdViewMode === "rendering") return;
+    if (selectedVariant?.renderJob?.status === "rendering") {
+      setHdViewMode("rendering");
+      return;
+    }
     if (selectedVariant?.exportImageUrl) {
       setHdViewMode("rendered");
       setHdError(null);
@@ -902,68 +905,152 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
     }
   }, [captureDataUrl, load, selectedImage, selectedVariant, toast]);
 
-  const handleRenderHdCover = useCallback(async () => {
-    if (!selectedImage || !selectedVariant) return;
-    const ok = confirm(
-      "AI 将基于客户房间原图（或已清理图）与已确认窗户区域生成高清实景效果图，并更新该方案封面。编辑预览中的色块不会作为最终效果。继续吗？",
-    );
-    if (!ok) return;
-    setExporting("hd");
-    setHdViewMode("rendering");
-    setHdError(null);
-    setHdQualityWarning(null);
-    toast.info("正在生成 AI 实景效果图…");
-    try {
-      const res = await apiFetch(
-        `/api/visualizer/variants/${selectedVariant.id}/render-hd`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sourceImageId: selectedImage.id,
-          }),
-        },
-      );
-      const raw = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        code?: string;
-        warning?: string | null;
-        warningCode?: string | null;
-        referenceQuality?: string;
-        exportImageUrl?: string | null;
-      };
-      if (!res.ok || !raw.exportImageUrl) {
-        const msg =
-          raw.error ??
-          "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。";
-        setHdError(msg);
-        setHdViewMode(
-          selectedVariant.exportImageUrl ? "rendered" : "error",
-        );
-        toast.error(msg);
-        return;
-      }
-      await load();
-      setHdViewMode("rendered");
-      setHdError(null);
-      if (raw.warning) {
-        setHdQualityWarning(raw.warning);
-        toast.success("高清效果图已生成");
-        toast.info(raw.warning);
-      } else {
-        toast.success("高清效果图已生成");
-      }
-    } catch (err) {
-      console.error("Render HD cover failed:", err);
-      const msg =
-        "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。";
-      setHdError(msg);
-      setHdViewMode(selectedVariant.exportImageUrl ? "rendered" : "error");
-      toast.error(msg);
-    } finally {
-      setExporting(null);
+  // ── 异步 HD 渲染：请求即返回 + 轮询；弱网/切页/刷新都不会丢渲染 ──
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRenderTierRef = useRef<"fast" | "fine">("fast");
+  // 轮询完成时只更新"仍选中该方案"的视图（渲染期间用户可能切到别的方案）
+  const selectedVariantIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedVariantIdRef.current = selectedVariantId;
+  }, [selectedVariantId]);
+
+  const stopRenderPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
     }
-  }, [load, selectedImage, selectedVariant, toast]);
+  }, []);
+  useEffect(() => stopRenderPolling, [stopRenderPolling]);
+
+  const pollRenderJob = useCallback(
+    (variantId: string) => {
+      stopRenderPolling();
+      const pollStartMs = Date.now();
+      const tick = async () => {
+        try {
+          const res = await apiFetch(`/api/visualizer/variants/${variantId}`);
+          const data = (await res.json().catch(() => null)) as {
+            exportImageUrl?: string | null;
+            renderJob?: { status?: string | null; error?: string | null };
+          } | null;
+          const job = data?.renderJob;
+          const stillViewing = selectedVariantIdRef.current === variantId;
+          if (job?.status === "done") {
+            stopRenderPolling();
+            setExporting(null);
+            await load();
+            if (stillViewing) {
+              setHdViewMode("rendered");
+              setHdError(null);
+            }
+            toast.success("高清效果图已生成");
+            return;
+          }
+          if (job?.status === "failed") {
+            stopRenderPolling();
+            setExporting(null);
+            const msg =
+              job.error ||
+              "AI 渲染失败，当前画面仍为编辑预览，并非最终效果图。请重试。";
+            if (stillViewing) {
+              setHdError(msg);
+              setHdViewMode(data?.exportImageUrl ? "rendered" : "error");
+            }
+            toast.error(msg);
+            return;
+          }
+        } catch {
+          // 网络抖动：忽略本轮，下一轮继续（这正是异步化要解决的场景）
+        }
+        if (Date.now() - pollStartMs > 7 * 60_000) {
+          stopRenderPolling();
+          setExporting(null);
+          if (selectedVariantIdRef.current === variantId) {
+            setHdError("渲染超时，请重试。");
+            setHdViewMode("error");
+          }
+          return;
+        }
+        pollTimerRef.current = setTimeout(() => void tick(), 5000);
+      };
+      pollTimerRef.current = setTimeout(() => void tick(), 4000);
+    },
+    [load, stopRenderPolling, toast],
+  );
+
+  const handleRenderHdCover = useCallback(
+    async (tier: "fast" | "fine" = lastRenderTierRef.current) => {
+      if (!selectedImage || !selectedVariant) return;
+      lastRenderTierRef.current = tier;
+      setExporting("hd");
+      setHdViewMode("rendering");
+      setHdError(null);
+      setHdQualityWarning(null);
+      try {
+        const res = await apiFetch(
+          `/api/visualizer/variants/${selectedVariant.id}/render-hd`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceImageId: selectedImage.id,
+              tier,
+            }),
+          },
+        );
+        const raw = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+          jobStarted?: boolean;
+          warning?: string | null;
+        };
+        if (res.status === 409) {
+          // 已有渲染在跑：直接接上轮询
+          toast.info("该方案已在渲染中，正在为你接上进度…");
+          pollRenderJob(selectedVariant.id);
+          return;
+        }
+        if (!res.ok || !raw.jobStarted) {
+          const msg =
+            raw.error ??
+            "AI 渲染启动失败，当前画面仍为编辑预览。请重试。";
+          setExporting(null);
+          setHdError(msg);
+          setHdViewMode(
+            selectedVariant.exportImageUrl ? "rendered" : "error",
+          );
+          toast.error(msg);
+          return;
+        }
+        toast.info(
+          tier === "fast"
+            ? "快速效果图生成中（约 1 分钟）。可以先做别的，完成后这里自动更新。"
+            : "精修效果图生成中（约 2 分钟）。可以先做别的，完成后这里自动更新。",
+        );
+        if (raw.warning) setHdQualityWarning(raw.warning);
+        pollRenderJob(selectedVariant.id);
+      } catch (err) {
+        console.error("Render HD cover failed:", err);
+        const msg = "AI 渲染启动失败，请检查网络后重试。";
+        setExporting(null);
+        setHdError(msg);
+        setHdViewMode(selectedVariant.exportImageUrl ? "rendered" : "error");
+        toast.error(msg);
+      }
+    },
+    [pollRenderJob, selectedImage, selectedVariant, toast],
+  );
+
+  // 进入页面/切换方案时：若该方案有活跃渲染任务（如刷新前发起的），自动接上轮询
+  useEffect(() => {
+    if (!selectedVariant) return;
+    if (selectedVariant.renderJob?.status === "rendering") {
+      setHdViewMode("rendering");
+      setExporting("hd");
+      pollRenderJob(selectedVariant.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVariantId]);
 
   const handleUpdateTransform = useCallback(
     (args: { id: string; transform: VisualizerProductOptionTransform }) => {
@@ -1232,7 +1319,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
             </button>
             <button
               type="button"
-              onClick={handleRenderHdCover}
+              onClick={() => void handleRenderHdCover("fast")}
               disabled={
                 !selectedImage || !selectedVariant || exporting !== null
               }
@@ -1242,7 +1329,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                   ? "请先选择一张照片"
                   : !selectedVariant
                   ? "请先选择/创建一个方案"
-                  : "基于房间原图与窗户 mask 生成 AI 高清实景效果图"
+                  : "快速档 AI 实景效果图（约 1 分钟），适合现场演示；发起后可离开页面"
               }
             >
               {exporting === "hd" ? (
@@ -1250,7 +1337,19 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              生成高清效果图
+              快速效果图
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRenderHdCover("fine")}
+              disabled={
+                !selectedImage || !selectedVariant || exporting !== null
+              }
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent-soft disabled:opacity-60"
+              title="精修档（约 2 分钟，更清晰）：发给客户前用这档出最终图"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              精修
             </button>
           </div>
         </div>
@@ -1369,7 +1468,7 @@ export default function SessionEditor({ sessionId }: { sessionId: string }) {
                 <Loader2 className="h-6 w-6 animate-spin text-amber-300" />
                 <div className="text-sm font-medium">正在生成 AI 实景效果图…</div>
                 <div className="max-w-sm text-[11px] text-white/70">
-                  使用客户房间原图与窗户区域 mask，不会把编辑预览色块当作最终结果。
+                  在后台生成，可以先切换方案、锁屏或离开本页——完成后这里会自动更新，刷新页面也能接上进度。
                 </div>
               </div>
             ) : hdViewMode === "rendered" && selectedVariant?.exportImageUrl ? (
