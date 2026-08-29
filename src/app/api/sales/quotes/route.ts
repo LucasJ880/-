@@ -136,9 +136,10 @@ export const POST = withAuth(async (request, _ctx, user) => {
       items: items || [],
       addons,
       installMode,
-      deliveryFee,
+      deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
       taxRate,
       sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
+      minInstallTotal: quoteSettings.minInstallFee,
     });
   } catch (err) {
     // 极端情况：pricing 引擎自己 throw 了（理论上不会，但保险起见）

@@ -2,8 +2,15 @@
 
 import { useCallback } from "react";
 import type { PartCService, PartCAddOn } from "./types";
-import { INSTALL_PRICES, SERVICE_ADDONS, MIN_INSTALL_CHARGE, DELIVERY_FEE } from "./types";
+import {
+  DEFAULT_MIN_INSTALL_FEE,
+  DEFAULT_DELIVERY_FEE,
+} from "@/lib/blinds/pricing-data";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
+
+// 遗留表单（已从 Tab/总价/PDF 隐藏，仅老单打开）；金额沿用平台默认值
+const MIN_INSTALL_CHARGE = DEFAULT_MIN_INSTALL_FEE;
+const DELIVERY_FEE = DEFAULT_DELIVERY_FEE;
 
 interface PartCProps {
   services: PartCService[];

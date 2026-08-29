@@ -239,7 +239,8 @@ export function priceFor(
 
 export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   const installMode: InstallMode = input.installMode ?? 'default';
-  const deliveryFee = input.deliveryFee ?? DEFAULT_DELIVERY_FEE;
+  // 入参为运费费率（企业设置/请求覆盖）；是否收取由 installMode 与有效行数决定
+  const deliveryRate = input.deliveryFee ?? DEFAULT_DELIVERY_FEE;
   const taxRate = input.taxRate ?? DEFAULT_TAX_RATE;
   const sunnyMotorPrice =
     typeof input.sunnyMotorPrice === 'number' &&
@@ -319,10 +320,20 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
 
   const addonsSubtotal = input.addons ? calcAddonSubtotal(input.addons) : 0;
 
+  const minInstallTotal =
+    typeof input.minInstallTotal === 'number' &&
+    Number.isFinite(input.minInstallTotal) &&
+    input.minInstallTotal >= 0
+      ? input.minInstallTotal
+      : INSTALL_RULES.minimumTotal;
   const installApplied =
     installMode === 'pickup'
       ? 0
-      : Math.max(installSubtotal, itemResults.length > 0 ? INSTALL_RULES.minimumTotal : 0);
+      : Math.max(installSubtotal, itemResults.length > 0 ? minInstallTotal : 0);
+
+  // pickup 自提或没有任何有效行时不收运费
+  const deliveryFee =
+    installMode === 'pickup' || itemResults.length === 0 ? 0 : deliveryRate;
 
   const preTaxTotal = merchSubtotal + addonsSubtotal + installApplied + deliveryFee;
   const taxAmount = preTaxTotal * taxRate;

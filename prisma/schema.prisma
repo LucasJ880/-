@@ -4053,6 +4053,10 @@ model QuoteDiscountSettings {
   honeycomb                  Float        @default(0.35)
   /// Shade Order Form 选择 Lift=M 时，每行税前加收的电机价格（CAD）
   sunnyMotorPrice            Float        @default(150)
+  /// 最低安装费（CAD）：installation 模式下行内安装费合计不足时补足到此金额
+  minInstallFee              Float        @default(200)
+  /// 运费（CAD）：installation 模式下每单加收；pickup 自提免收
+  deliveryFee                Float        @default(75)
   promoWarnPct               Float        @default(0.06)
   promoDangerPct             Float        @default(0.15)
   promoMaxPct                Float        @default(0.25)

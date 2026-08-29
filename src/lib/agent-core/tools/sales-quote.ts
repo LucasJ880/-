@@ -7,6 +7,7 @@ import type { ToolExecutionContext } from "../types";
 import { db } from "@/lib/db";
 import { parseGptQuotePlan, parseLocalQuotePlan } from "@/lib/sales/ai-quote-parser";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
+import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { onQuoteCreated } from "@/lib/sales/opportunity-lifecycle";
 import { ok } from "./sales-helpers";
@@ -49,10 +50,19 @@ registry.register({
       return { success: false, data: { error: "未能从描述中识别出报价项。请提供产品类型和尺寸。" } };
     }
 
+    // 费用与电子报价单同源：驾驶舱设置（无组织上下文时退回平台默认）
+    const quoteSettings = ctx.orgId ? await loadDiscountsDto(ctx.orgId) : null;
     const preview = calculateQuoteTotal({
       items: plan.items,
       addons: plan.addons,
       installMode: plan.installMode,
+      ...(quoteSettings
+        ? {
+            sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
+            deliveryFee: quoteSettings.deliveryFee,
+            minInstallTotal: quoteSettings.minInstallFee,
+          }
+        : {}),
     });
 
     return ok({
@@ -114,6 +124,8 @@ registry.register({
       installMode?: string;
     };
 
+    // 费用与电子报价单同源：驾驶舱设置（无组织上下文时退回平台默认）
+    const quoteSettings = ctx.orgId ? await loadDiscountsDto(ctx.orgId) : null;
     const calc = calculateQuoteTotal({
       items: items.map((i) => ({
         product: i.product as ProductName,
@@ -122,6 +134,13 @@ registry.register({
         heightIn: i.heightIn,
       })),
       installMode: installMode === "pickup" ? "pickup" : "default",
+      ...(quoteSettings
+        ? {
+            sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
+            deliveryFee: quoteSettings.deliveryFee,
+            minInstallTotal: quoteSettings.minInstallFee,
+          }
+        : {}),
     });
 
     if (calc.itemResults.length === 0) {

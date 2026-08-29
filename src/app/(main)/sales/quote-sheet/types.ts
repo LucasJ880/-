@@ -465,8 +465,6 @@ export const SERVICE_ADDONS = {
   oadDelivery: { label: "OAD (Out of Area Delivery/GTA)", price: 1.5, unit: "/km" },
 } as const;
 
-export const MIN_INSTALL_CHARGE = 275;
-export const DELIVERY_FEE = 0;
 export const HST_RATE = 0.13;
 
 // 工厂下单统一 16 分制，不做约分展示（8/16 不显示为 1/2）
