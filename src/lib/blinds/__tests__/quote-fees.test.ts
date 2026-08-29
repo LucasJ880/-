@@ -97,4 +97,17 @@ if (valid.ok) {
 assert.equal(validateDiscountsInput({ minInstallFee: 10001 }).ok, false);
 assert.equal(validateDiscountsInput({ deliveryFee: -1 }).ok, false);
 
+// ── 提成估算参数：0~1 比例校验 ──
+const commissionValid = validateDiscountsInput({
+  commissionMarginRate: 0.42,
+  commissionRate: 0.3,
+});
+assert.equal(commissionValid.ok, true);
+if (commissionValid.ok) {
+  assert.equal(commissionValid.value.commissionMarginRate, 0.42);
+  assert.equal(commissionValid.value.commissionRate, 0.3);
+}
+assert.equal(validateDiscountsInput({ commissionMarginRate: 1.5 }).ok, false, "系数超 1 拒绝");
+assert.equal(validateDiscountsInput({ commissionRate: -0.1 }).ok, false, "负比例拒绝");
+
 console.log("Quote fee settings tests passed");

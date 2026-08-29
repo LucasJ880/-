@@ -26,6 +26,8 @@ interface DiscountsDto {
   sunnyMotorPrice: number;
   minInstallFee: number;
   deliveryFee: number;
+  commissionMarginRate: number;
+  commissionRate: number;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -79,11 +81,25 @@ const PRICE_FIELDS = [
 
 type PriceDraftKey = (typeof PRICE_FIELDS)[number]["key"];
 
+const COMMISSION_FIELDS: { key: "commissionMarginRate" | "commissionRate"; label: string; hint: string }[] = [
+  {
+    key: "commissionMarginRate",
+    label: "毛利率估算系数",
+    hint: "按公司混合毛利水平填写；0 = 未配置，销售业绩页不显示提成卡",
+  },
+  {
+    key: "commissionRate",
+    label: "提成比例",
+    hint: "提成 = 估算毛利 × 该比例（默认 30%）",
+  },
+];
+
 type NumericDraftKey =
   | "zebra" | "shangrila" | "cellular" | "roller"
   | "drapery" | "sheer" | "shutters" | "honeycomb"
   | "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
-  | "depositWarnPct" | "depositMinPct";
+  | "depositWarnPct" | "depositMinPct"
+  | "commissionMarginRate" | "commissionRate";
 
 interface DraftMap {
   zebra: string;
@@ -99,6 +115,8 @@ interface DraftMap {
   promoMaxPct: string;
   depositWarnPct: string;
   depositMinPct: string;
+  commissionMarginRate: string;
+  commissionRate: string;
   sunnyMotorPrice: string;
   minInstallFee: string;
   deliveryFee: string;
@@ -122,6 +140,8 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),
     depositWarnPct: Math.round(d.depositWarnPct * 100).toString(),
     depositMinPct: Math.round(d.depositMinPct * 100).toString(),
+    commissionMarginRate: Math.round(d.commissionMarginRate * 100).toString(),
+    commissionRate: Math.round(d.commissionRate * 100).toString(),
     sunnyMotorPrice: Number(d.sunnyMotorPrice).toFixed(
       Number.isInteger(d.sunnyMotorPrice) ? 0 : 2,
     ),
@@ -171,6 +191,7 @@ export function DiscountSettingsCard() {
       ...FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
       ...THRESHOLD_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
       ...DEPOSIT_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
+      ...COMMISSION_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
     ];
     for (const f of allFields) {
       const n = Number(draft[f.key]);
@@ -380,6 +401,47 @@ export function DiscountSettingsCard() {
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground">{field.hint}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 提成估算参数 —— 销售业绩页「预计提成」卡的数据源 */}
+      <div className="mt-5 pt-4 border-t border-border">
+        <h4 className="text-xs font-semibold text-foreground mb-1">提成估算</h4>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          销售业绩页的「预计提成」卡按 签约额 × 毛利率估算系数 × 提成比例 计算，
+          属于估算口径（销售单据暂无真实成本数据）。毛利率设为 0 时该卡对销售隐藏。
+        </p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {COMMISSION_FIELDS.map((f) => (
+            <div key={f.key} className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground block">
+                {f.label}
+              </label>
+              {editing && draft && canEdit ? (
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={draft[f.key]}
+                    onChange={(e) =>
+                      setDraft({ ...draft, [f.key]: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                    %
+                  </span>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
+                  {current ? `${Math.round((current[f.key] as number) * 100)}%` : "—"}
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground">{f.hint}</p>
             </div>
           ))}
         </div>
