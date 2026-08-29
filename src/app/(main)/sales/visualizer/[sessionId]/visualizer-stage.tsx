@@ -35,6 +35,8 @@ import type {
   VisualizerVariantSummary,
   VisualizerWindowRegionDetail,
 } from "@/lib/visualizer/types";
+import { useTextureImages } from "@/lib/visualizer/use-texture-images";
+import { texturePatternScale } from "@/lib/visualizer/texture-fill";
 
 export type VisualizerTool = "move" | "rect" | "polygon";
 
@@ -346,6 +348,11 @@ export default function VisualizerStage(props: VisualizerStageProps) {
     return map;
   }, [variant]);
 
+  // 面料纹理图（有 textureUrl 的产品加载后由色块升级为纹理填充；null 保持色块）
+  const textureImages = useTextureImages(
+    variant?.productOptions.map((po) => po.textureUrl) ?? [],
+  );
+
   const stageCursor =
     tool === "move" ? "default" : tool === "rect" ? "crosshair" : "crosshair";
 
@@ -474,6 +481,9 @@ export default function VisualizerStage(props: VisualizerStageProps) {
               };
 
               const isSelectedPO = selectedProductOptionId === po.id;
+              const textureImg = po.textureUrl
+                ? textureImages.get(po.textureUrl) ?? null
+                : null;
 
               return (
                 <Group
@@ -489,7 +499,20 @@ export default function VisualizerStage(props: VisualizerStageProps) {
                     y={bounds.y + transform.offsetY}
                     width={bounds.w}
                     height={bounds.h}
-                    fill={po.colorHex ?? "#888888"}
+                    {...(textureImg
+                      ? {
+                          fillPatternImage: textureImg,
+                          fillPatternRepeat: "repeat",
+                          fillPatternScaleX: texturePatternScale(
+                            textureImg.width,
+                            bounds.w,
+                          ),
+                          fillPatternScaleY: texturePatternScale(
+                            textureImg.width,
+                            bounds.w,
+                          ),
+                        }
+                      : { fill: po.colorHex ?? "#888888" })}
                     opacity={po.opacity}
                     scaleX={transform.scaleX}
                     scaleY={transform.scaleY}

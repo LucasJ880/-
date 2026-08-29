@@ -118,6 +118,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     productCatalogId: created.productCatalogId,
     productName: created.productName,
     productCategory: created.productCategory,
+    textureUrl: product.textureUrl ?? null,
     color: created.color,
     colorHex: created.colorHex,
     opacity: created.opacity,

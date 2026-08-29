@@ -329,6 +329,7 @@ function mapPresentationCompareVariant(
       regionId: p.regionId,
       colorHex: p.colorHex,
       opacity: p.opacity,
+      textureUrl: p.textureUrl,
     })),
   };
 }

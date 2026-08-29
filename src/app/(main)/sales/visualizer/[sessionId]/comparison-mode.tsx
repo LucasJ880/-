@@ -38,6 +38,8 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTextureImages } from "@/lib/visualizer/use-texture-images";
+import { fillPathWithTexture } from "@/lib/visualizer/texture-fill";
 import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 
 export type CompareMode = "side-by-side" | "slider";
@@ -60,6 +62,8 @@ export interface CompareProductOption {
   regionId: string;
   colorHex: string | null;
   opacity: number;
+  /** 面料纹理图；有值且加载成功时替代色块填充 */
+  textureUrl?: string | null;
 }
 
 export interface CompareVariantInput {
@@ -513,6 +517,9 @@ function CompositeStage(props: {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const exportUrl = variant.exportImageUrl;
   const size = useContainerSize(containerRef);
+  const textureImages = useTextureImages(
+    variant.options.map((o) => o.textureUrl),
+  );
 
   useEffect(() => {
     if (exportUrl) return;
@@ -571,9 +578,22 @@ function CompositeStage(props: {
           }
           ctx.closePath();
         }
-        ctx.fillStyle = po.colorHex || "#cccccc";
-        ctx.globalAlpha = Math.max(0, Math.min(1, po.opacity));
-        ctx.fill();
+        // region 显示包围盒（pattern 原点与目标宽度）
+        const rxs = region.points.map((p) => p[0]);
+        const rys = region.points.map((p) => p[1]);
+        const rw = (Math.max(...rxs) - Math.min(...rxs)) * scale;
+        const rx = dx + Math.min(...rxs) * scale;
+        const ry = dy + Math.min(...rys) * scale;
+        const texImg = po.textureUrl ? textureImages.get(po.textureUrl) ?? null : null;
+        fillPathWithTexture(ctx, {
+          textureImage: texImg,
+          textureWidth: texImg?.width ?? 0,
+          colorHex: po.colorHex,
+          opacity: po.opacity,
+          targetWidth: rw,
+          originX: rx,
+          originY: ry,
+        });
         ctx.restore();
       }
     };
@@ -581,7 +601,7 @@ function CompositeStage(props: {
     return () => {
       img.onload = null;
     };
-  }, [exportUrl, image, variant, size]);
+  }, [exportUrl, image, variant, size, textureImages]);
 
   return (
     <div ref={containerRef} className="relative h-full w-full">

@@ -97,6 +97,24 @@ export const GET = withAuth(async (_request, ctx, user) => {
     return NextResponse.json({ error: "无权访问该可视化方案" }, { status: 403 });
   }
 
+  // 面料纹理：按 productCatalogId 批量取目录 textureUrl（mock 产品查不到 → null 回退色块）
+  const catalogIds = [
+    ...new Set(
+      session.variants.flatMap((v) =>
+        v.productOptions.map((po) => po.productCatalogId),
+      ),
+    ),
+  ].filter(Boolean);
+  const catalogTextures = catalogIds.length
+    ? await db.visualizerCatalogProduct.findMany({
+        where: { id: { in: catalogIds } },
+        select: { id: true, textureUrl: true },
+      })
+    : [];
+  const textureByCatalogId = new Map(
+    catalogTextures.map((c) => [c.id, c.textureUrl]),
+  );
+
   const detail: VisualizerSessionDetail = {
     id: session.id,
     title: session.title,
@@ -194,6 +212,7 @@ export const GET = withAuth(async (_request, ctx, user) => {
         transform: parseTransform(po.transformJson),
         notes: po.notes,
         createdAt: po.createdAt.toISOString(),
+        textureUrl: textureByCatalogId.get(po.productCatalogId) ?? null,
       }));
       return {
         id: v.id,
