@@ -5406,6 +5406,15 @@ model VisualizerVariant {
   exportImageUrl String?
   sortOrder      Int     @default(0)
 
+  /// HD 渲染任务状态：rendering / done / failed（null=从未渲染）。异步渲染的轮询依据。
+  renderJobStatus    String?
+  /// 本次渲染档位：fast（medium 质量）/ fine（high 质量）
+  renderJobQuality   String?
+  /// 失败原因（面向销售的可读文案）
+  renderJobError     String?   @db.Text
+  /// 渲染开始时间；超过陈旧阈值视为中断可重试
+  renderJobStartedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
