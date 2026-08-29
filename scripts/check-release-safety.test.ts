@@ -122,8 +122,9 @@ ok(
       "20260828120000_add_quote_fee_settings",
       "20260829090000_add_visualizer_render_job_state",
       "20260829180000_add_commission_estimate_settings",
+      "20260829210000_add_sales_quote_cost_foundation",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

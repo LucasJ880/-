@@ -11,6 +11,7 @@ import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import type {
   QuoteItemInput,
   QuoteAddonInput,
@@ -391,6 +392,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
                   discountValue: r.discountValue,
                   price: r.price,
                   installFee: r.install,
+                  costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings.costRates, r.input.product)),
                   location: r.input.location || null,
                 })),
               }

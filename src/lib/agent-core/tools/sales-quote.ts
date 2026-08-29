@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { parseGptQuotePlan, parseLocalQuotePlan } from "@/lib/sales/ai-quote-parser";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { onQuoteCreated } from "@/lib/sales/opportunity-lifecycle";
 import { ok } from "./sales-helpers";
@@ -211,6 +212,7 @@ registry.register({
             discountValue: r.discountValue,
             price: r.price,
             installFee: r.install,
+            costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings?.costRates ?? {}, r.input.product)),
             location: r.input.location || null,
           })),
         },

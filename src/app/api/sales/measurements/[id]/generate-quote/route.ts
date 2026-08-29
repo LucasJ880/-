@@ -10,6 +10,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import { ALL_PRODUCTS, getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName, QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { randomBytes } from "crypto";
@@ -127,6 +128,7 @@ export const POST = withAuth(async (request, ctx, user) => {
               discountValue: r.discountValue,
               price: r.price,
               installFee: r.install,
+              costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings.costRates, r.input.product)),
               location: r.input.location || null,
             })),
           },

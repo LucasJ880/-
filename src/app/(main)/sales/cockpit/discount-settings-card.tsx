@@ -28,6 +28,7 @@ interface DiscountsDto {
   deliveryFee: number;
   commissionMarginRate: number;
   commissionRate: number;
+  costRates: Record<string, number>;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -163,6 +164,8 @@ export function DiscountSettingsCard() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [flash, setFlash] = useState<"saved" | null>(null);
+  // 品类成本率草稿（%字符串；空串=未配置该品类）
+  const [costDraft, setCostDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const canEdit = current?.canEdit === true;
 
@@ -171,6 +174,14 @@ export function DiscountSettingsCard() {
       .then((d) => {
         setCurrent(d);
         setDraft(toDraftMap(d));
+        setCostDraft(
+          Object.fromEntries(
+            FIELDS.map((f) => {
+              const v = d.costRates?.[f.key as string];
+              return [f.key as string, typeof v === "number" ? Math.round(v * 100).toString() : ""];
+            }),
+          ),
+        );
       })
       .catch(() => {
         /* ignore */
@@ -186,7 +197,7 @@ export function DiscountSettingsCard() {
     if (!draft) return;
     setError(null);
 
-    const payload: Record<string, number | string | null> = {};
+    const payload: Record<string, number | string | null | Record<string, number>> = {};
     const allFields: { key: NumericDraftKey; label: string }[] = [
       ...FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
       ...THRESHOLD_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
@@ -209,6 +220,18 @@ export function DiscountSettingsCard() {
       }
       payload[field.key] = Math.round(amount * 100) / 100;
     }
+    const costRates: Record<string, number> = {};
+    for (const f of FIELDS) {
+      const raw = costDraft[f.key as string];
+      if (raw === undefined || raw.trim() === "") continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        setError(`${f.label} 成本率必须是 0~100 之间的数字（留空=未配置）`);
+        return;
+      }
+      costRates[f.key as string] = Math.round(n) / 100;
+    }
+    payload.costRates = costRates;
     // 顺序校验：warn <= danger <= max
     const w = payload.promoWarnPct as number | undefined;
     const d2 = payload.promoDangerPct as number | undefined;
@@ -442,6 +465,50 @@ export function DiscountSettingsCard() {
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground">{f.hint}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 品类成本率 —— 行级成本快照与「预计提成（单据毛利）」的数据源 */}
+      <div className="mt-5 pt-4 border-t border-border">
+        <h4 className="text-xs font-semibold text-foreground mb-1">品类成本率</h4>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          成本 ≈ 成交行价 × 成本率。配置后，新建报价的每一行会写入成本快照，
+          销售业绩页出现「预计提成（单据毛利）」真实口径卡。留空 = 该品类暂不配置
+          （对应行不计成本、不进真实毛利）。历史报价不回填。
+        </p>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {FIELDS.map((f) => (
+            <div key={`cost-${f.key}`} className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground block">
+                {f.label}
+              </label>
+              {editing && canEdit ? (
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={costDraft[f.key as string] ?? ""}
+                    placeholder="未配置"
+                    onChange={(e) =>
+                      setCostDraft({ ...costDraft, [f.key as string]: e.target.value })
+                    }
+                    className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                    %
+                  </span>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
+                  {current?.costRates?.[f.key as string] != null
+                    ? `${Math.round((current.costRates[f.key as string] ?? 0) * 100)}%`
+                    : "未配置"}
+                </div>
+              )}
             </div>
           ))}
         </div>
