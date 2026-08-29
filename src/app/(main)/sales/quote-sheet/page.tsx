@@ -84,6 +84,8 @@ import {
 import { OrgSelectBanner } from "@/components/org-select-banner";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { RoughQuotePanel } from "./rough-quote-panel";
+import { CustomerCombobox } from "./customer-combobox";
+import { NewCustomerDialog, type CreatedCustomer } from "../new-customer-dialog";
 import { QuoteSentNextSteps } from "@/components/sales-command-center/quote-sent-next-steps";
 import { reviewQuoteWorkflow } from "@/lib/digital-employees/quote-review";
 import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
@@ -242,6 +244,7 @@ function QuoteSheetPageInner() {
 
   // Customer selector
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -327,7 +330,8 @@ function QuoteSheetPageInner() {
   useEffect(() => {
     (async () => {
       try {
-        const d = await apiJson<{ customers?: CustomerOption[] }>("/api/sales/customers?limit=200");
+        // picker=1：轻量选择器模式，真实一次拉 200 条（旧 limit 参数从未被 API 解析，实际只有 20 条）
+        const d = await apiJson<{ customers?: CustomerOption[] }>("/api/sales/customers?picker=1&pageSize=200");
         setCustomers((d.customers ?? []) as CustomerOption[]);
       } catch { /* ignore */ }
     })();
@@ -438,6 +442,30 @@ function QuoteSheetPageInner() {
       setHeardUsOn("");
     }
   }, [customers]);
+
+  // 报价页内新建客户成功：加入选项并直接选中（新客户无商机，跳过商机拉取）
+  const applyCreatedCustomer = useCallback((created?: CreatedCustomer) => {
+    setShowNewCustomer(false);
+    if (!created) return;
+    setCustomers((prev) => [
+      created as CustomerOption,
+      ...prev.filter((c) => c.id !== created.id),
+    ]);
+    setCustomerId(created.id);
+    setLastSaved(null);
+    setOpportunityId("");
+    setOpportunities([]);
+    setCustomerName(created.name);
+    setCustomerPhone(created.phone ?? "");
+    setCustomerEmail(created.email ?? "");
+    const addrs = (created.address ?? "")
+      .split(/\r?\n|;/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setCustomerAddressOptions(addrs);
+    setCustomerAddress(addrs[0] ?? "");
+    setHeardUsOn(created.source ?? "");
+  }, []);
 
   // Calculations
   // Part A / Part C 已从总价/Tab/PDF 的独立表单中隐藏，数据结构暂留以便老单打开。
@@ -1605,20 +1633,13 @@ function QuoteSheetPageInner() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-full md:w-64">
             <Label className="text-xs">Select Customer</Label>
-            <div className="relative mt-1">
-              <select
+            <div className="mt-1">
+              <CustomerCombobox
+                customers={customers}
                 value={customerId}
-                onChange={(e) => handleCustomerSelect(e.target.value)}
-                className="w-full rounded-lg border border-border bg-card-bg px-3 py-2.5 pr-8 text-base md:text-sm appearance-none min-h-[44px]"
-              >
-                <option value="">— Select customer —</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}{c.phone ? ` (${c.phone})` : ""}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                onSelect={handleCustomerSelect}
+                onCreateNew={() => setShowNewCustomer(true)}
+              />
             </div>
           </div>
           {!customerId && (
@@ -2164,6 +2185,13 @@ function QuoteSheetPageInner() {
         customerId={customerId || null}
         opportunityId={sentNext.opportunityId}
         quoteUrl={sentNext.quoteUrl}
+      />
+
+      {/* 报价页内新建客户（上门遇新客不必离开本页） */}
+      <NewCustomerDialog
+        open={showNewCustomer}
+        onOpenChange={setShowNewCustomer}
+        onSuccess={applyCreatedCustomer}
       />
     </div>
   );

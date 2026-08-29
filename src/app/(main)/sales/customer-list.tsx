@@ -120,11 +120,14 @@ function CustomerCard({
   onOpenActions,
   nowMs,
   duplicate,
+  detailSuffix = "",
 }: {
   customer: Customer;
   onOpenActions: (c: Customer) => void;
   nowMs: number;
   duplicate: boolean;
+  /** 跟进模式下为 "?followup=1"：点卡片直达客户详情并弹出跟进对话框 */
+  detailSuffix?: string;
 }) {
   const overdue =
     !!c.nextFollowupAt && new Date(c.nextFollowupAt).getTime() <= nowMs;
@@ -132,7 +135,7 @@ function CustomerCard({
   return (
     <div className="rounded-xl border border-border bg-card-bg/70 p-3">
       <div className="flex min-w-0 items-start justify-between gap-2">
-        <Link href={`/sales/customers/${c.id}`} className="min-w-0 flex-1">
+        <Link href={`/sales/customers/${c.id}${detailSuffix}`} className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="break-words text-sm font-medium text-foreground">{c.name}</p>
             <DigitalEmployeeBadge review={review} duplicate={duplicate} />
@@ -169,7 +172,7 @@ function CustomerCard({
         下一步：{review.action === "none" ? c.suggestedAction || review.summary : review.actionLabel}
       </p>
       <Link
-        href={`/sales/customers/${c.id}`}
+        href={`/sales/customers/${c.id}${detailSuffix}`}
         className="mt-2 inline-flex items-center gap-0.5 text-xs text-accent"
       >
         查看详情
@@ -182,9 +185,12 @@ function CustomerCard({
 export function CustomerList({
   customers,
   showOwnerColumn = false,
+  followupMode = false,
 }: {
   customers: Customer[];
   showOwnerColumn?: boolean;
+  /** 跟进模式（移动端「+」→ 记跟进）：点客户直达详情并弹出跟进对话框 */
+  followupMode?: boolean;
 }) {
   const [actionCustomer, setActionCustomer] = useState<Customer | null>(null);
   const [nowMs] = useState(() => Date.now());
@@ -216,6 +222,7 @@ export function CustomerList({
             onOpenActions={setActionCustomer}
             nowMs={nowMs}
             duplicate={duplicateIds.has(c.id)}
+            detailSuffix={followupMode ? "?followup=1" : ""}
           />
         ))}
       </div>
@@ -250,7 +257,7 @@ export function CustomerList({
                 >
                   <td className="px-4 py-3">
                     <Link
-                      href={`/sales/customers/${c.id}`}
+                      href={`/sales/customers/${c.id}${followupMode ? "?followup=1" : ""}`}
                       className="font-medium text-foreground hover:underline"
                     >
                       {c.name}

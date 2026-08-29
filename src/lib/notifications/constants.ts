@@ -10,6 +10,8 @@ export const NOTIFICATION_TYPE_KEYS = [
   "system",
   "agent_task",
   "agent_approval",
+  "quote_signed",
+  "sales_daily_briefing",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];

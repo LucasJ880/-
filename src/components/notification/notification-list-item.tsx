@@ -24,6 +24,8 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   system: Zap,
   agent_task: Bot,
   agent_approval: ShieldCheck,
+  quote_signed: CheckSquare,
+  sales_daily_briefing: Bell,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {

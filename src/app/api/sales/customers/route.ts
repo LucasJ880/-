@@ -34,7 +34,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const search = searchParams.get('search') || '';
   const status = searchParams.get('status') || '';
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-  const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20')));
+  // picker=1：轻量选择器模式（报价单/预约等下拉），只回基础字段，允许一次拉到 200 条
+  const picker = searchParams.get('picker') === '1';
+  const pageSize = picker
+    ? Math.min(200, Math.max(1, parseInt(searchParams.get('pageSize') || '200')))
+    : Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20')));
 
   const includeArchived = searchParams.get('includeArchived') === '1';
 
@@ -81,6 +85,27 @@ export const GET = withAuth(async (request, _ctx, user) => {
     if (Object.keys(range).length > 0) {
       where.createdAt = range;
     }
+  }
+
+  if (picker) {
+    const [customers, total] = await Promise.all([
+      db.salesCustomer.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          address: true,
+          source: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      db.salesCustomer.count({ where }),
+    ]);
+    return NextResponse.json({ customers, total, page, pageSize });
   }
 
   // funnelStatus 过滤无法直接下沉到 Prisma where（需要先聚合机会 + 报价数），
