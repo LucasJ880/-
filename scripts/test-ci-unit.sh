@@ -137,6 +137,7 @@ npx tsx src/lib/marketing/__tests__/marketing-economics.test.ts
 npx tsx --test src/lib/marketing/__tests__/crm-source-attribution.test.ts
 npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts
 npx tsx src/lib/sales/__tests__/action-notify.test.ts
+npx tsx src/lib/notifications/__tests__/delivery-gate.test.ts
 npx tsx src/lib/blinds/__tests__/discount-permissions.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/visualizer/__tests__/render-job.test.ts

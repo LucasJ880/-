@@ -11,6 +11,7 @@
 
 import { db } from "@/lib/db";
 import { createNotification } from "@/lib/notifications/create";
+import { shouldDeliverInApp } from "@/lib/notifications/delivery-gate";
 import { torontoDateStr } from "@/lib/time";
 
 export interface CreatedActionForNotify {
@@ -67,6 +68,9 @@ export async function notifyNewSalesActions(
   );
   for (const action of urgentActions) {
     try {
+      if (!(await shouldDeliverInApp(action.assignedToId!, { type: "followup", priority: "urgent" }))) {
+        continue;
+      }
       await createNotification({
         userId: action.assignedToId!,
         orgId: action.orgId,
@@ -95,6 +99,9 @@ export async function notifyNewSalesActions(
 
   for (const [userId, group] of byAssignee) {
     try {
+      if (!(await shouldDeliverInApp(userId, { type: "followup", priority: "high" }))) {
+        continue;
+      }
       const openTotal = await db.salesAction.count({
         where: {
           orgId: group.orgId,

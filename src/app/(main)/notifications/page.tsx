@@ -157,6 +157,9 @@ function NotificationsContent() {
       } else if (item.entityType === "sales_actions") {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         router.push(`/sales?view=customers`);
+      } else if (item.entityType === "visualizer_session" && item.entityId) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(`/sales/visualizer/${encodeURIComponent(item.entityId)}`);
       } else if (item.projectId && item.activityId) {
         router.push(`/projects/${item.projectId}?activity=${item.activityId}`);
       } else if (item.projectId) {

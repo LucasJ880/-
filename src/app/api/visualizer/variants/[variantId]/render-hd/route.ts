@@ -22,6 +22,8 @@ import {
   normalizeRenderTier,
   renderTierToImageQuality,
 } from "@/lib/visualizer/render-job";
+import { createNotification } from "@/lib/notifications/create";
+import { shouldDeliverInApp } from "@/lib/notifications/delivery-gate";
 import type { VisualizerRegionShape } from "@/lib/visualizer/types";
 
 // AI 渲染 1–2 分钟：请求本身立即返回，after() 后置执行需要完整时长
@@ -65,6 +67,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     where: { id: variantId },
     select: {
       id: true,
+      name: true,
       exportImageUrl: true,
       renderJobStatus: true,
       renderJobStartedAt: true,
@@ -264,6 +267,32 @@ export const POST = withAuth(async (request, ctx, user) => {
   const productOptions = variant.productOptions;
   const referenceMeta = referenceCandidates;
 
+  const requesterId = user.id;
+  const variantName = variant.name;
+  const notifyRenderResult = async (outcome: "done" | "failed", detail: string) => {
+    try {
+      if (!(await shouldDeliverInApp(requesterId, { type: "agent_task" }))) return;
+      await createNotification({
+        userId: requesterId,
+        type: "agent_task",
+        title:
+          outcome === "done"
+            ? `效果图已生成 — ${variantName}`
+            : `效果图渲染失败 — ${variantName}`,
+        summary:
+          outcome === "done"
+            ? `${tier === "fine" ? "精修" : "快速"}档 AI 实景效果图已完成，点开查看。`
+            : detail,
+        priority: outcome === "failed" ? "high" : "medium",
+        entityType: "visualizer_session",
+        entityId: sessionId,
+        sourceKey: `visualizer-hd:${variantId}:${now.getTime()}:${outcome}`,
+      });
+    } catch (error) {
+      console.warn("[render-hd] notify failed:", error);
+    }
+  };
+
   const failJob = async (message: string, code: string) => {
     await db.visualizerVariant
       .update({
@@ -274,6 +303,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         },
       })
       .catch((e) => console.error("[render-hd] fail-state write failed:", e));
+    await notifyRenderResult("failed", message);
   };
 
   // ── 慢工作后置：下载图片 → AI 生成 → 上传 → 落库 ──
@@ -353,6 +383,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         where: { id: sessionId },
         data: { updatedAt: new Date() },
       });
+      await notifyRenderResult("done", "");
     } catch (err) {
       console.error("[render-hd] async render failed:", err);
       await failJob(

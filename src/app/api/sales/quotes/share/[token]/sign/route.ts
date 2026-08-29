@@ -143,15 +143,19 @@ export async function POST(
     ? `${protocol}${origin}/api/sales/quotes/share/${token}/pdf?download=1`
     : null;
 
-  // 1) 站内通知
+  // 1) 站内通知（尊重用户通知偏好）
   const { createNotification } = await import("@/lib/notifications/create");
-  await createNotification({
-    userId: salesUserId,
-    type: "quote_signed",
-    title: `报价已签约 — ${customerName}`,
-    summary: `${customerName} 签署了报价单，总额 $${amounts.total.toFixed(2)}`,
-    metadata: { customerId: quote.customerId },
-  }).catch(() => {});
+  const { shouldDeliverInApp } = await import("@/lib/notifications/delivery-gate");
+  if (await shouldDeliverInApp(salesUserId, { type: "quote_signed", priority: "high" })) {
+    await createNotification({
+      userId: salesUserId,
+      type: "quote_signed",
+      priority: "high",
+      title: `报价已签约 — ${customerName}`,
+      summary: `${customerName} 签署了报价单，总额 $${amounts.total.toFixed(2)}`,
+      metadata: { customerId: quote.customerId },
+    }).catch(() => {});
+  }
 
   // 2) 微信推送
   try {
