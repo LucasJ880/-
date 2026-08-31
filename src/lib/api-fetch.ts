@@ -26,6 +26,8 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/product-content",
   // Phase 3A-5：中台 API 必须按当前企业隔离；多组织用户需显式 orgId
   "/api/capabilities",
+  // Supplier Intelligence M1-S1：全部按 orgId 隔离（平台管理员需显式 orgId）
+  "/api/supplier-intel/",
 ];
 
 function isOrgScopedPath(pathname: string): boolean {

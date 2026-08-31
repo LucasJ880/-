@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
 import type { CreateSupplierInput, UpdateSupplierInput } from "@/lib/inquiry/types";
+import { countSupplierIntelReferences } from "@/lib/supplier-intel/delete-guard";
+import { SupplierIntelError } from "@/lib/supplier-intel/errors";
 
 // ============================================================
 // Supplier CRUD 服务层
@@ -172,6 +174,15 @@ export async function deleteSupplier(supplierId: string) {
   const refs = await db.inquiryItem.count({ where: { supplierId } });
   if (refs > 0) {
     throw new Error("该供应商已被询价引用，无法删除，请将其设为停用状态");
+  }
+  // Supplier Intelligence 审计守卫（B.1 §6）：有情报历史的供应商不得硬删——
+  // 受控拒绝（409），历史 Run/候选/信号/认证必须存活；DB 侧 RESTRICT 是第二道防线
+  const intel = await countSupplierIntelReferences(supplierId);
+  if (intel.total > 0) {
+    throw new SupplierIntelError(
+      "SUPPLIER_HAS_INTELLIGENCE_HISTORY",
+      `该供应商已有供应商情报历史（信号 ${intel.signals} / 产品 ${intel.offerings} / 候选 ${intel.candidates} / 认证 ${intel.certifications}），不可删除；请改为停用`,
+    );
   }
   return db.supplier.delete({ where: { id: supplierId } });
 }
