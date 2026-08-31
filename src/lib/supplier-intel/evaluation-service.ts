@@ -27,11 +27,13 @@ import {
   SUPPLIER_INTEL_LIMITS,
 } from "./constants";
 import { SupplierIntelError } from "./errors";
+import { resolveArchiveEvidence } from "./evidence-scope";
 import {
   collapseMandatoryForMatch,
   indexRequirementSnapshot,
   validateRequirementSnapshot,
 } from "./requirement-snapshot";
+import { lockSupplierSearchRunForWrite } from "./run-service";
 
 // ── 按值快照构造器（S1 Guard §3.1/§3.2/§3.3）────────────────
 
@@ -123,11 +125,8 @@ export async function createSupplierCandidate(
   }
 
   return db.$transaction(async (tx) => {
-    const run = await tx.supplierSearchRun.findFirst({
-      where: { id: input.searchRunId, orgId: actor.orgId },
-      select: { id: true, status: true, scoreVersion: true },
-    });
-    if (!run) throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
+    // F2.2 锁序：Run 锁最先，锁内裁决 RUNNING —— 与终态迁移互相串行（T20）
+    const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, input.searchRunId);
     if (run.status !== "RUNNING") {
       throw new SupplierIntelError(
         "RUN_NOT_RUNNING",
@@ -210,7 +209,8 @@ export type MatchEvidenceInput =
 export interface CreateRequirementMatchInput {
   candidateId: string;
   requirementKey: string;
-  requirementRefId?: string | null;
+  // F1.7：不接受调用方提供的 requirementRefId——canonical 需求身份一律由
+  // Run.requirementSnapshotJson 服务端推导（快照是历史真相）
   verdict: string;
   confidence?: number | null;
   explanation?: string | null;
@@ -247,21 +247,22 @@ export async function createRequirementMatch(
   }
 
   return db.$transaction(async (tx) => {
+    // candidateId → searchRunId 为不可变字段，此读取仅取指针；随后按 F2.2 锁序先锁 Run
     const candidate = await tx.supplierCandidate.findFirst({
       where: { id: input.candidateId, orgId: actor.orgId },
-      include: { searchRun: { select: { id: true, status: true, requirementSnapshotJson: true, evaluationVersion: true } } },
+      select: { id: true, searchRunId: true, supplierId: true, offeringId: true },
     });
     if (!candidate) throw new SupplierIntelError("NOT_FOUND", "候选不存在");
-    if (candidate.searchRun.status !== "RUNNING") {
+
+    const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, candidate.searchRunId);
+    if (run.status !== "RUNNING") {
       throw new SupplierIntelError(
         "RUN_NOT_RUNNING",
-        `需求匹配只能在 RUNNING 的 Run 中写入（当前 ${candidate.searchRun.status}）；重评估请新建 Run`,
+        `需求匹配只能在 RUNNING 的 Run 中写入（当前 ${run.status}）；重评估请新建 Run`,
       );
     }
 
-    const snapshotEntries = validateRequirementSnapshot(
-      candidate.searchRun.requirementSnapshotJson,
-    );
+    const snapshotEntries = validateRequirementSnapshot(run.requirementSnapshotJson);
     const entry = indexRequirementSnapshot(snapshotEntries).get(input.requirementKey.trim());
     if (!entry) {
       throw new SupplierIntelError(
@@ -271,7 +272,7 @@ export async function createRequirementMatch(
     }
     const { mandatory, mandatoryUncertain } = collapseMandatoryForMatch(entry);
 
-    // 证据按值冻结（capturedAt 统一；certification 引用解析成整组冻结字段）
+    // F1.8：先完成全部绑定/scope 裁决，通过后才按值冻结（快照不能把非法活引用洗白）
     const capturedAt = new Date();
     const frozenEvidence: Record<string, unknown>[] = [];
     for (const item of input.evidence) {
@@ -283,6 +284,24 @@ export async function createRequirementMatch(
           where: { id: item.certificationId, orgId: actor.orgId },
         });
         if (!cert) throw new SupplierIntelError("NOT_FOUND", "证据引用的认证不存在");
+        // F1.2：证书必须属于本候选的供应商（供应商 B 的证书永远不能支撑供应商 A）
+        if (cert.supplierId !== candidate.supplierId) {
+          throw new SupplierIntelError(
+            "CERT_SUPPLIER_MISMATCH",
+            "认证属于其它供应商，不能支撑本候选",
+          );
+        }
+        // F1.3：scope 兼容性显式裁决——SUPPLIER 级适用该供应商任何候选；
+        // PRODUCT/MODEL_SERIES 级必须与候选的具体 offering 精确一致
+        //（Offering X 的证书不得满足 Offering Y；候选无 offering 绑定时同样拒绝）
+        if (cert.scope !== "SUPPLIER") {
+          if (!candidate.offeringId || cert.offeringId !== candidate.offeringId) {
+            throw new SupplierIntelError(
+              "CERT_SCOPE_MISMATCH",
+              `${cert.scope} 级认证只能支撑其绑定 offering 的候选（认证 offering=${cert.offeringId ?? "无"}，候选 offering=${candidate.offeringId ?? "无"}）`,
+            );
+          }
+        }
         frozenEvidence.push(buildCertificationEvidenceSnapshot(cert, capturedAt));
       } else if (item.kind === "url") {
         const url = item.url?.trim();
@@ -298,20 +317,31 @@ export async function createRequirementMatch(
       } else if (item.kind === "signal") {
         const signal = await tx.supplierDiscoverySignal.findFirst({
           where: { id: item.signalId, orgId: actor.orgId },
-          select: { id: true, platform: true, contentUrl: true },
+          select: { id: true, platform: true, contentUrl: true, status: true, linkedSupplierId: true },
         });
         if (!signal) throw new SupplierIntelError("NOT_FOUND", "证据引用的信号不存在");
+        // F1.4：作为正式候选证据的信号必须已被人工 LINKED 到本候选的供应商——
+        // 未关联 / 关联到其它供应商的信号只能是发现语境，不得支撑正式判定
+        if (signal.status !== "LINKED" || signal.linkedSupplierId !== candidate.supplierId) {
+          throw new SupplierIntelError(
+            "SIGNAL_NOT_LINKED_TO_SUPPLIER",
+            "信号未经人工关联到本候选供应商（实体解析工作流），不能作为正式证据",
+          );
+        }
         frozenEvidence.push({
           kind: "signal",
           signalId: signal.id,
           platform: signal.platform,
           contentUrl: signal.contentUrl,
+          linkedSupplierId: signal.linkedSupplierId,
           snippet: clampSnippet(item.snippet),
           capturedAt: capturedAt.toISOString(),
         });
       } else if (item.kind === "archive") {
         const archiveItemId = item.archiveItemId?.trim();
         if (!archiveItemId) throw new SupplierIntelError("INVALID_INPUT", "archiveItemId 缺失");
+        // F1.1：档案引用必须解析为本 org 的 TenderArchiveItem（非空字符串≠证据）
+        await resolveArchiveEvidence(tx, actor.orgId, archiveItemId);
         frozenEvidence.push({
           kind: "archive",
           archiveItemId,
@@ -335,14 +365,15 @@ export async function createRequirementMatch(
           orgId: actor.orgId,
           candidateId: candidate.id,
           requirementKey: entry.code,
-          requirementRefId: input.requirementRefId?.trim() || null,
+          // F1.7：导航 id 由 Run 快照服务端推导（快照=历史真相），不信任调用方
+          requirementRefId: entry.id,
           mandatory,
           mandatoryUncertain,
           verdict: input.verdict,
           confidence,
           explanation,
           evidenceJson: frozenEvidence as unknown as Prisma.InputJsonValue,
-          evaluationVersion: candidate.searchRun.evaluationVersion,
+          evaluationVersion: run.evaluationVersion,
           evaluatedBy: input.evaluatedBy,
         },
       });

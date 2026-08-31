@@ -26,6 +26,32 @@ const RUN_TARGET_TYPE = "supplier_search_run";
 /** brief/sourceConfig 快照序列化上限（防滥用；正常 brief 远低于此） */
 const SNAPSHOT_MAX_BYTES = 131_072;
 
+/**
+ * F2.1 canonical Run 写锁：所有「绑定到 Run 的写」（状态迁移 / 建候选 / 写匹配 /
+ * 终态前挂信号）都必须在**同一事务内**先拿本锁再动手——PostgreSQL 行级
+ * `SELECT ... FOR UPDATE`（对齐 quote-engine 的 FOR UPDATE 先例），org 同筛。
+ * 统一锁序 = 永远先锁 Run（单锁无环，天然无死锁）。
+ * 返回锁定后的当前 Run 行；不存在/跨 org 抛 NOT_FOUND。
+ */
+export async function lockSupplierSearchRunForWrite(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  runId: string,
+) {
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "SupplierSearchRun"
+    WHERE "id" = ${runId} AND "orgId" = ${orgId}
+    FOR UPDATE`;
+  if (locked.length === 0) {
+    throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
+  }
+  const run = await tx.supplierSearchRun.findFirst({ where: { id: runId, orgId } });
+  if (!run) {
+    throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
+  }
+  return run;
+}
+
 function assertJsonObjectWithinLimit(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new SupplierIntelError("INVALID_INPUT", `${label} 必须是对象`);
@@ -144,18 +170,15 @@ async function transitionRun(
   patch: RunLifecyclePatch,
 ) {
   return db.$transaction(async (tx) => {
-    const run = await tx.supplierSearchRun.findFirst({
-      where: { id: runId, orgId: actor.orgId },
-      select: { id: true, status: true, projectId: true },
-    });
-    if (!run) throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
+    // F2.2 锁序：Run 锁最先（行锁持有至事务提交，与子写路径互相串行）
+    const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
     if (!canTransitionRun(run.status, to)) {
       throw new SupplierIntelError(
         "INVALID_RUN_TRANSITION",
         `不允许的状态迁移：${run.status} → ${to}${isRunTerminal(run.status) ? "（终态不可重入）" : ""}`,
       );
     }
-    // 乐观并发守卫：以读取时的 status 为条件更新，被并发抢先则 count=0
+    // 行锁已串行化；status 条件保留为第二道防线
     const updated = await tx.supplierSearchRun.updateMany({
       where: { id: runId, orgId: actor.orgId, status: run.status },
       data: { status: to, ...patch },

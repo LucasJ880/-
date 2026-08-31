@@ -13,6 +13,7 @@ import {
   SOCIAL_WRITE_EVIDENCE_STATUSES,
   canTransitionRun,
   isRunTerminal,
+  resolveRegistryProvider,
 } from "../constants";
 import { isSupplierIntelError } from "../errors";
 import {
@@ -93,6 +94,15 @@ async function main() {
       { id: "2", code: "R-1", text: "dup", mandatory: false, mandatorySignal: null },
     ]));
   expectCode("INVALID_REQUIREMENT_SNAPSHOT", () => validateRequirementSnapshot("not-array"));
+
+  console.log("F1.6 registry fail-closed：只认白名单官方登记库（https），任意 URL 标 REGISTRY 无效");
+  assert.equal(resolveRegistryProvider("https://www.gsxt.gov.cn/corp-query-xyz")?.id, "GSXT");
+  assert.equal(resolveRegistryProvider("https://productiq.ul.com/database/xxx")?.id, "UL_PRODUCT_IQ");
+  assert.equal(resolveRegistryProvider("https://some-random-site.example/cert"), null);
+  assert.equal(resolveRegistryProvider("http://www.gsxt.gov.cn/x"), null, "非 https 不认");
+  assert.equal(resolveRegistryProvider("https://gsxt.gov.cn.evil.com/x"), null, "host 仿冒不认");
+  assert.equal(resolveRegistryProvider(""), null);
+  assert.equal(resolveRegistryProvider("not a url"), null);
 
   console.log("flag 组合语义：default OFF；主开关关→allowlist 无效；allowlist 收窄");
   assert.equal(isSupplierIntelEnabledWithEnv({}), false);

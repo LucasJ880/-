@@ -159,6 +159,43 @@ export const CLAIM_ONLY_CERT_SOURCE_KINDS: readonly CertificationSourceKind[] = 
   "BROCHURE",
 ];
 
+/**
+ * F1.6 fail-closed registry 契约：REGISTRY 证据只认这里登记的官方可查库
+ * （host 白名单 endsWith 匹配 + https）。任意网站 URL 标成 REGISTRY 不构成证据；
+ * 扩库 = 改代码 + 评审。验证仍需人工动作（本目录只解决「什么算官方登记库」）。
+ */
+export const SUPPORTED_REGISTRY_PROVIDERS = [
+  { id: "GSXT", label: "国家企业信用信息公示系统", hosts: ["gsxt.gov.cn"] },
+  { id: "UL_PRODUCT_IQ", label: "UL Product iQ", hosts: ["productiq.ul.com", "ul.com"] },
+  { id: "INTERTEK_DIRECTORY", label: "Intertek ETL Listed Directory", hosts: ["intertek.com"] },
+  { id: "CSA_GROUP", label: "CSA Group Certified Product Listing", hosts: ["csagroup.org"] },
+  { id: "BIFMA_REGISTRY", label: "BIFMA Compliant Registry", hosts: ["bifma.org"] },
+  { id: "IAF_CERTSEARCH", label: "IAF CertSearch（ISO 体系认证核验）", hosts: ["iafcertsearch.org"] },
+] as const;
+export type RegistryProviderId = (typeof SUPPORTED_REGISTRY_PROVIDERS)[number]["id"];
+
+/** 纯函数：URL → 受支持的官方登记库；不匹配返回 null（fail-closed，调用方拒绝） */
+export function resolveRegistryProvider(
+  rawUrl: string | null | undefined,
+): { id: RegistryProviderId; label: string } | null {
+  const trimmed = rawUrl?.trim();
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  const host = url.hostname.toLowerCase();
+  for (const provider of SUPPORTED_REGISTRY_PROVIDERS) {
+    if (provider.hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+      return { id: provider.id, label: provider.label };
+    }
+  }
+  return null;
+}
+
 // ── Offering（B4）─────────────────────────────────────────
 
 export const OFFERING_PRICE_STATUSES = ["KNOWN", "ESTIMATED", "UNKNOWN"] as const;

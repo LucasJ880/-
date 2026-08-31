@@ -24,6 +24,7 @@ import {
   type SignalStatus,
 } from "./constants";
 import { SupplierIntelError } from "./errors";
+import { lockSupplierSearchRunForWrite } from "./run-service";
 import { parseUserSubmission } from "./submission-parser";
 
 const SIGNAL_TARGET_TYPE = "supplier_discovery_signal";
@@ -86,21 +87,18 @@ export async function createSubmittedSignal(actor: SupplierIntelActor, input: Su
   const tenderId = await assertProjectPointerInOrg(actor.orgId, input.tenderId, "招标项目");
 
   const searchRunId = input.searchRunId?.trim() || null;
-  if (searchRunId) {
-    const run = await db.supplierSearchRun.findFirst({
-      where: { id: searchRunId, orgId: actor.orgId },
-      select: { status: true },
-    });
-    if (!run) throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
-    if (run.status !== "PLANNED" && run.status !== "RUNNING") {
-      throw new SupplierIntelError(
-        "RUN_IMMUTABLE",
-        "Run 已处于终态，不能再挂新信号；重评估请新建 Run",
-      );
-    }
-  }
 
   return db.$transaction(async (tx) => {
+    // F2.2 锁序：挂 Run 的信号先锁 Run、锁内裁决非终态——与终态迁移互相串行（T20）
+    if (searchRunId) {
+      const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, searchRunId);
+      if (run.status !== "PLANNED" && run.status !== "RUNNING") {
+        throw new SupplierIntelError(
+          "RUN_IMMUTABLE",
+          "Run 已处于终态，不能再挂新信号；重评估请新建 Run",
+        );
+      }
+    }
     const signal = await tx.supplierDiscoverySignal.create({
       data: {
         orgId: actor.orgId,

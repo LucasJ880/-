@@ -18,9 +18,11 @@ import {
   CERTIFICATION_TYPES,
   SUPPLIER_INTEL_AUDIT_ACTIONS,
   SUPPLIER_INTEL_LIMITS,
+  resolveRegistryProvider,
   type CertificationStatus,
 } from "./constants";
 import { SupplierIntelError } from "./errors";
+import { resolveArchiveEvidence, resolveSourceSignalForSupplier } from "./evidence-scope";
 
 const CERT_TARGET_TYPE = "supplier_certification";
 
@@ -72,6 +74,14 @@ export async function createCertification(
   if (!supplier) throw new SupplierIntelError("NOT_FOUND", "供应商不存在");
 
   const offeringId = input.offeringId?.trim() || null;
+  // F1.3 scope↔offering 冻结规则：SUPPLIER 级必须 offeringId=null；
+  // PRODUCT/MODEL_SERIES 级必须绑定具体 offering 且归属本供应商
+  if (input.scope === "SUPPLIER" && offeringId) {
+    throw new SupplierIntelError(
+      "INVALID_SCOPE",
+      "SUPPLIER 级认证不得绑定 offering（产品级认证请用 PRODUCT / MODEL_SERIES scope）",
+    );
+  }
   if (input.scope !== "SUPPLIER" && !offeringId) {
     throw new SupplierIntelError(
       "INVALID_SCOPE",
@@ -94,6 +104,17 @@ export async function createCertification(
     throw new SupplierIntelError("URL_TOO_LONG", "sourceUrl 超长");
   }
 
+  // F1.5：溯源信号指针必须真实、同 org、供应商绑定兼容（禁跨供应商溯源）
+  const sourceSignalId = input.sourceSignalId?.trim() || null;
+  if (sourceSignalId) {
+    await resolveSourceSignalForSupplier(db, actor.orgId, sourceSignalId, supplier.id);
+  }
+  // F1.1：创建期携带的档案指针同样必须解析（避免坏指针在 verify 期被当独立证据）
+  const archiveItemId = input.archiveItemId?.trim() || null;
+  if (archiveItemId) {
+    await resolveArchiveEvidence(db, actor.orgId, archiveItemId);
+  }
+
   // status 恒为 CLAIMED：创建路径没有任何参数能产生 VERIFIED（H5）
   return db.supplierCertification.create({
     data: {
@@ -109,8 +130,8 @@ export async function createCertification(
       expiresAt: input.expiresAt ?? null,
       sourceKind: input.sourceKind,
       sourceUrl,
-      sourceSignalId: input.sourceSignalId?.trim() || null,
-      archiveItemId: input.archiveItemId?.trim() || null,
+      sourceSignalId,
+      archiveItemId,
       verificationNote: input.verificationNote?.trim() || null,
     },
   });
@@ -140,13 +161,34 @@ export async function verifyCertification(
       );
     }
 
+    // F1.1：档案证据必须解析为本 org 的 TenderArchiveItem——提供了坏指针即拒绝，
+    // 不静默回落到其它证据路径（fail-closed）
     const archiveItemId = input?.archiveItemId?.trim() || cert.archiveItemId;
-    const registryUrl =
-      cert.sourceKind === "REGISTRY" ? input?.sourceUrl?.trim() || cert.sourceUrl : null;
-    if (!archiveItemId && !registryUrl) {
+    if (archiveItemId) {
+      await resolveArchiveEvidence(tx, actor.orgId, archiveItemId);
+    }
+
+    // F1.6：REGISTRY 证据只认受支持的官方登记库（host 白名单）；
+    // 任意网站 URL 标成 REGISTRY 不能自我认证成 VERIFIED
+    let registryUrl: string | null = null;
+    let registryProvider: { id: string; label: string } | null = null;
+    if (!archiveItemId && cert.sourceKind === "REGISTRY") {
+      registryUrl = input?.sourceUrl?.trim() || cert.sourceUrl;
+      if (registryUrl) {
+        registryProvider = resolveRegistryProvider(registryUrl);
+        if (!registryProvider) {
+          throw new SupplierIntelError(
+            "REGISTRY_PROVIDER_UNSUPPORTED",
+            "该 URL 不属于受支持的官方登记库（fail-closed 白名单）；一般网站链接不构成 REGISTRY 证据",
+          );
+        }
+      }
+    }
+
+    if (!archiveItemId && !registryProvider) {
       throw new SupplierIntelError(
         "CERT_VERIFY_REQUIRES_EVIDENCE",
-        "VERIFIED 需要独立证据：证书档案（archiveItemId）或官方登记库链接（REGISTRY 来源）；" +
+        "VERIFIED 需要独立证据：证书档案（archiveItemId）或受支持官方登记库链接（REGISTRY 来源）；" +
           "SOCIAL/WEBSITE/BROCHURE 仅凭来源自身不能验证",
       );
     }
@@ -175,6 +217,7 @@ export async function verifyCertification(
         status: "VERIFIED",
         archiveItemId: archiveItemId ?? null,
         registryUrl,
+        registryProvider: registryProvider?.id ?? null,
         scope: cert.scope,
         certificationType: cert.certificationType,
       },
@@ -249,6 +292,12 @@ export async function createOffering(actor: SupplierIntelActor, input: CreateOff
     throw new SupplierIntelError("INVALID_INPUT", "sourceKind 非法");
   }
 
+  // F1.5：offering 溯源信号指针同样 fail-closed（同 org + 供应商绑定兼容）
+  const offeringSourceSignalId = input.sourceSignalId?.trim() || null;
+  if (offeringSourceSignalId) {
+    await resolveSourceSignalForSupplier(db, actor.orgId, offeringSourceSignalId, supplier.id);
+  }
+
   // 缺价合法：unitPrice 为空 + priceStatus=UNKNOWN 不构成任何拒绝理由（B4，T13）
   return db.supplierOffering.create({
     data: {
@@ -270,7 +319,7 @@ export async function createOffering(actor: SupplierIntelActor, input: CreateOff
       priceStatus,
       sourceKind: input.sourceKind,
       sourceUrl: input.sourceUrl?.trim() || null,
-      sourceSignalId: input.sourceSignalId?.trim() || null,
+      sourceSignalId: offeringSourceSignalId,
       createdByUserId: actor.userId,
     },
   });
