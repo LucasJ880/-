@@ -25,7 +25,7 @@ const noPrior: PriorLinkedIdentities = { ownedDomains: new Map(), platformAccoun
 async function main() {
   console.log("B2：URL 身份分级——自有域名 / 平台账号页 / 内容页 / 未知");
   assert.deepEqual(classifyUrlForIdentity("https://xxfurniture.cn/about"), {
-    kind: "SUPPLIER_OWNED_DOMAIN",
+    kind: "WEB_DOMAIN",
     domain: "xxfurniture.cn",
   });
   const douyinAccount = classifyUrlForIdentity("https://www.douyin.com/user/MS4wAbc123");
@@ -48,19 +48,19 @@ async function main() {
     description: "统一社会信用代码 91440605MA4W2XY70B 联系 13800138000",
     rawText: "佛山市XX家具有限公司 源头工厂",
   });
-  assert.deepEqual(hints.domains, ["xxfurniture.cn"]);
+  assert.deepEqual(hints.observedWebDomains, ["xxfurniture.cn"]);
   assert.deepEqual(hints.platformAccounts, [{ platform: "DOUYIN", accountKey: "DOUYIN:user:ms4wabc123" }]);
   const contentOnly = extractEntityHints({
     accountName: null, accountUrl: null,
     contentUrl: "https://v.douyin.com/f1video/",
     title: null, description: null, rawText: null,
   });
-  assert.deepEqual(contentOnly.domains, []);
+  assert.deepEqual(contentOnly.observedWebDomains, []);
   assert.deepEqual(contentOnly.platformAccounts, []);
 
   console.log("强键（自有官网域名）→ MATCHED_EXISTING 0.92（仅预填）");
   const m1 = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: "91440605MA4W2XY70B", phones: [], domains: ["xxfurniture.cn"], platformAccounts: [] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: "91440605MA4W2XY70B", phones: [], observedWebDomains: ["xxfurniture.cn"], platformAccounts: [] },
     suppliers,
     noPrior,
   );
@@ -75,7 +75,7 @@ async function main() {
     platformAccounts: new Map([["DOUYIN:user:account_a", new Set(["sup_a"])]]),
   };
   const accountB = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_b" }] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_b" }] },
     suppliers,
     priorWithA,
   );
@@ -84,7 +84,7 @@ async function main() {
 
   console.log("S2-FR-T5：同一精确账号再现 → MATCHED_EXISTING 预填（仍不自动 LINK）");
   const accountA = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }] },
     suppliers,
     priorWithA,
   );
@@ -102,7 +102,7 @@ async function main() {
 
   console.log("B2 守卫：供应商 website 填平台链接 → 不构成自有域名强键");
   const platformSite = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:platformshop" }] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:platformshop" }] },
     suppliers,
     noPrior, // 无人工 LINKED 沉淀 → 即使账号同名也不匹配（账号键只认 prior 表）
   );
@@ -110,14 +110,14 @@ async function main() {
 
   console.log("已档自有域名与联系电话各自可 MATCHED_EXISTING");
   const m2 = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: ["factory-b-site.example"], platformAccounts: [] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: ["factory-b-site.example"], platformAccounts: [] },
     suppliers,
     { ownedDomains: new Map([["factory-b-site.example", new Set(["sup_b"])]]), platformAccounts: new Map() },
   );
   assert.equal(m2.decision, "MATCHED_EXISTING");
   assert.equal(m2.supplierId, "sup_b");
   const m3 = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: ["13800138000"], domains: [], platformAccounts: [] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: ["13800138000"], observedWebDomains: [], platformAccounts: [] },
     suppliers,
     noPrior,
   );
@@ -126,28 +126,28 @@ async function main() {
 
   console.log("归一名等值 ≠ 强键（0.72 人审）；多强键冲突必人审；模糊仅候选；无线索=NEW");
   const nameOnly = resolveSupplierEntityPure(
-    { companyNameCandidates: ["东莞YY金属制品厂"], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [] },
+    { companyNameCandidates: ["东莞YY金属制品厂"], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [] },
     suppliers.filter((s) => s.id === "sup_b"),
     noPrior,
   );
   assert.equal(nameOnly.decision, "NEEDS_HUMAN_REVIEW");
   assert.equal(nameOnly.confidence, 0.72);
   const conflicted = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: ["13800138000"], domains: ["factory-b-site.example"], platformAccounts: [] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: ["13800138000"], observedWebDomains: ["factory-b-site.example"], platformAccounts: [] },
     suppliers,
     { ownedDomains: new Map([["factory-b-site.example", new Set(["sup_b"])]]), platformAccounts: new Map() },
   );
   assert.equal(conflicted.decision, "NEEDS_HUMAN_REVIEW");
   assert.ok(conflicted.conflicts.some((c) => c.includes("不得自动挑选")));
   const fuzzy = resolveSupplierEntityPure(
-    { companyNameCandidates: ["XX家具源头工厂"], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [] },
+    { companyNameCandidates: ["XX家具源头工厂"], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [] },
     suppliers,
     noPrior,
   );
   assert.equal(fuzzy.decision, "NEEDS_HUMAN_REVIEW");
   assert.equal(fuzzy.confidence, 0.55);
   const none = resolveSupplierEntityPure(
-    { companyNameCandidates: ["毫不相关的词条组合体"], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [] },
+    { companyNameCandidates: ["毫不相关的词条组合体"], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [] },
     suppliers,
     noPrior,
   );
@@ -159,7 +159,7 @@ async function main() {
     contentUrl: "https://xxfurniture.cn.evil.com/phish",
     title: null, description: null, rawText: null,
   });
-  assert.ok(!evil.domains.includes("xxfurniture.cn"));
+  assert.ok(!evil.observedWebDomains.includes("xxfurniture.cn"));
   const t25 = resolveSupplierEntityPure({ ...evil, companyNameCandidates: [] }, suppliers, noPrior);
   assert.notEqual(t25.decision, "MATCHED_EXISTING");
 
@@ -169,7 +169,7 @@ async function main() {
     platformAccounts: new Map([["DOUYIN:user:account_x", new Set(["sup_b", "sup_a"])]]),
   };
   const t10 = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_x" }] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_x" }] },
     suppliers,
     collidedAccounts,
   );
@@ -185,17 +185,17 @@ async function main() {
 
   console.log("S2-FR-T11：同一自有域名历史关联 A 与 B → NEEDS_HUMAN_REVIEW");
   const t11 = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: ["shared-legacy.example"], platformAccounts: [] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: ["shared-legacy.example"], platformAccounts: [] },
     suppliers,
     { ownedDomains: new Map([["shared-legacy.example", new Set(["sup_a", "sup_b"])]]), platformAccounts: new Map() },
   );
   assert.equal(t11.decision, "NEEDS_HUMAN_REVIEW");
   assert.equal(t11.supplierId, undefined);
-  assert.ok(t11.conflicts.some((c) => c.includes("强身份冲突") && c.includes("archived_supplier_domain")));
+  assert.ok(t11.conflicts.some((c) => c.includes("强身份冲突") && c.includes("reviewed_owned_domain")));
 
   console.log("S2-FR-T12：多条历史 LINK 但同指 A（Set 去重后 size=1）→ 仍可 MATCHED_EXISTING 预填");
   const t12 = resolveSupplierEntityPure(
-    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }] },
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }] },
     suppliers,
     { ownedDomains: new Map(), platformAccounts: new Map([["DOUYIN:user:account_a", new Set(["sup_a"])]]) },
   );
@@ -206,7 +206,7 @@ async function main() {
   const t13 = resolveSupplierEntityPure(
     {
       companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [],
-      domains: ["factory-b-site.example"],
+      observedWebDomains: ["factory-b-site.example"],
       platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }],
     },
     suppliers,
@@ -217,6 +217,42 @@ async function main() {
   );
   assert.equal(t13.decision, "NEEDS_HUMAN_REVIEW");
   assert.equal(t13.supplierId, undefined);
+
+  console.log("B4-T3（纯核）：一般 web contentUrl 独木不成强匹配（无 canonical 官网对质 → NEW）");
+  const blogHints = extractEntityHints({
+    accountName: null, accountUrl: null,
+    contentUrl: "https://industry-blog.example/articles/factory-b",
+    title: null, description: null, rawText: null,
+  });
+  assert.deepEqual(blogHints.observedWebDomains, ["industry-blog.example"], "观察级域名可收集");
+  const b4t3 = resolveSupplierEntityPure(
+    { ...blogHints, companyNameCandidates: [] },
+    suppliers, // 无任何供应商 website=industry-blog.example
+    noPrior,
+  );
+  assert.equal(b4t3.decision, "NEW_SUPPLIER_CANDIDATE");
+  assert.equal(b4t3.supplierId, undefined);
+
+  console.log("B4-T4（纯核）：平台精确账号页分类不回退");
+  assert.equal(classifyUrlForIdentity("https://www.douyin.com/user/exactid1234").kind, "PLATFORM_ACCOUNT_IDENTITY");
+  assert.equal(classifyUrlForIdentity("https://www.xiaohongshu.com/user/profile/abcd1234").kind, "PLATFORM_ACCOUNT_IDENTITY");
+  assert.equal(classifyUrlForIdentity("https://myshop123.1688.com/").kind, "PLATFORM_ACCOUNT_IDENTITY");
+
+  console.log("B4-T5（纯核）：平台视频/帖子/商品页仍是纯 provenance");
+  assert.equal(classifyUrlForIdentity("https://www.douyin.com/video/999").kind, "CONTENT_URL");
+  assert.equal(classifyUrlForIdentity("https://www.xiaohongshu.com/explore/n99").kind, "CONTENT_URL");
+  assert.equal(classifyUrlForIdentity("https://detail.1688.com/offer/99.html").kind, "CONTENT_URL");
+
+  console.log("B5（纯核）：scanComplete=false → 本可 MATCHED 的强命中降级 NEEDS + IDENTITY_SCAN_INCOMPLETE");
+  const b5pure = resolveSupplierEntityPure(
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: ["xxfurniture.cn"], platformAccounts: [] },
+    suppliers,
+    noPrior,
+    { scanComplete: false },
+  );
+  assert.equal(b5pure.decision, "NEEDS_HUMAN_REVIEW");
+  assert.equal(b5pure.supplierId, undefined);
+  assert.ok(b5pure.conflicts.some((c) => c.includes("IDENTITY_SCAN_INCOMPLETE")));
 
   console.log("\nentity-resolution（B2 + S2-FR-T4/T5/T6）全部通过");
 }

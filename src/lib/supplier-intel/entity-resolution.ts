@@ -29,14 +29,20 @@ import {
  * 永不构成供应商身份——两家工厂的抖音主页同为 douyin.com，域名等值毫无身份意义。
  */
 export type UrlIdentityKind =
-  | "SUPPLIER_OWNED_DOMAIN" // 供应商自有官网域名（唯一可作强键的 URL 形态）
+  /**
+   * 非平台/非市场的普通 web 域名。B4 冻结：这只说明「URL 形态是个网站」，
+   * **不证明供应商拥有该域名**——新闻/行业目录/博客/经销商页都长这样。
+   * 域名要成为强身份，只能与 canonical 所有权源（Supplier.website）对质成立；
+   * LINK 历史永不把 WEB_DOMAIN 沉淀为 owned。
+   */
+  | "WEB_DOMAIN"
   | "PLATFORM_ACCOUNT_IDENTITY" // 平台上的**精确账号页**（人工 LINKED 沉淀后可作已验证身份提示）
   | "CONTENT_URL" // 平台上的单条视频/帖子/商品页——最多是 provenance，永不身份
   | "UNKNOWN_URL";
 
 export interface UrlIdentity {
   kind: UrlIdentityKind;
-  /** SUPPLIER_OWNED_DOMAIN：归一化域名 */
+  /** WEB_DOMAIN：归一化域名（观察级，所有权未证） */
   domain?: string;
   /** PLATFORM_ACCOUNT_IDENTITY：平台 + 精确账号键 */
   platform?: string;
@@ -85,7 +91,7 @@ export function classifyUrlForIdentity(raw: string | null | undefined): UrlIdent
     return { kind: "CONTENT_URL" };
   }
   const domain = normalizeWebsiteDomain(url.toString());
-  return domain ? { kind: "SUPPLIER_OWNED_DOMAIN", domain } : { kind: "UNKNOWN_URL" };
+  return domain ? { kind: "WEB_DOMAIN", domain } : { kind: "UNKNOWN_URL" };
 }
 
 // 统一社会信用代码字符集（GB 32100-2015；不含 I/O/S/V/Z）
@@ -98,8 +104,12 @@ export interface ExtractedEntityHints {
   companyNameCandidates: string[];
   unifiedSocialCreditCode: string | null;
   phones: string[];
-  /** 仅供应商自有域名（B2：平台/市场 host 永不入列） */
-  domains: string[];
+  /**
+   * 观察到的普通 web 域名（B2：平台/市场 host 永不入列；B4：这是**观察级**线索，
+   * 不自证所有权——只允许与 canonical Supplier.website 对质产生强匹配，
+   * 永不与 LINK 历史沉淀出的任何「owned」集合对质）。
+   */
+  observedWebDomains: string[];
   /** 平台精确账号身份（仅账号页可解析时；内容页绝不入列） */
   platformAccounts: Array<{ platform: string; accountKey: string }>;
 }
@@ -134,13 +144,13 @@ export function extractEntityHints(signal: SignalLikeForExtraction): ExtractedEn
   const uscc = corpus.match(USCC_RE)?.[0] ?? null;
   const phones = take(corpus.match(CN_PHONE_RE) ?? [], 3);
 
-  // B2：URL 按身份分级——自有域名与平台账号分流；内容页/未知一律弃
-  const domains: string[] = [];
+  // B2/B4：URL 按身份分级——观察级 web 域名与平台精确账号分流；内容页/未知一律弃
+  const observedWebDomains: string[] = [];
   const platformAccounts: Array<{ platform: string; accountKey: string }> = [];
   for (const u of [signal.accountUrl, signal.contentUrl]) {
     const identity = classifyUrlForIdentity(u);
-    if (identity.kind === "SUPPLIER_OWNED_DOMAIN" && identity.domain) {
-      domains.push(identity.domain);
+    if (identity.kind === "WEB_DOMAIN" && identity.domain) {
+      observedWebDomains.push(identity.domain);
     } else if (identity.kind === "PLATFORM_ACCOUNT_IDENTITY" && identity.accountKey) {
       platformAccounts.push({ platform: identity.platform!, accountKey: identity.accountKey });
     }
@@ -150,7 +160,7 @@ export function extractEntityHints(signal: SignalLikeForExtraction): ExtractedEn
     companyNameCandidates: names,
     unifiedSocialCreditCode: uscc,
     phones,
-    domains: take(domains, 3),
+    observedWebDomains: take(observedWebDomains, 3),
     platformAccounts: take(platformAccounts, 3),
   };
 }
@@ -202,12 +212,15 @@ function nameOverlap(a: string, b: string): number {
 
 export interface PriorLinkedIdentities {
   /**
-   * 已 LINKED 信号沉淀的供应商**自有域名** → 该身份历史上关联过的全部 supplierId 集合。
-   * F1（Identity Collision Closure）：绝不允许 first-wins/last-wins 把冲突历史静默
-   * 折叠成单一供应商——同一强身份出现 >1 家即冲突，交人审。（平台域名永不入此表，B2）
+   * 显式复核过的「官方站域名」→ supplierId 集合。
+   * B4 冻结：**LINK 历史永不填充本表**——把信号（尤其 PUBLIC_WEB 的 contentUrl：
+   * 新闻/行业目录/博客/经销商页）关联到供应商，不构成对该域名的所有权；
+   * M1 生产路径本表恒空，域名所有权唯一 canonical 源 = Supplier.website。
+   * 保留此位是给未来「显式复核的官方站身份」用，且沿用 F1 冲突纪律
+   *（Set 收集全量、>1 家即人审、first-wins 不可能）。
    */
   ownedDomains: Map<string, Set<string>>;
-  /** 已 LINKED 信号沉淀的平台**精确账号键** → supplierId 集合（exact account，非裸 host；同上冲突纪律） */
+  /** 已 LINKED 信号沉淀的平台**精确账号键** → supplierId 集合（exact account，非裸 host；F1 冲突纪律） */
   platformAccounts: Map<string, Set<string>>;
 }
 
@@ -224,28 +237,40 @@ export function resolveSupplierEntityPure(
   hints: ExtractedEntityHints,
   suppliers: SupplierRowForResolution[],
   prior: PriorLinkedIdentities,
+  opts?: {
+    /**
+     * B5：身份宇宙是否已被**完整**扫描（供应商行 + LINKED 身份史全量）。
+     * false = 明知不完整——此时禁止给出高置信 MATCHED_EXISTING（局部真相可能漏掉
+     * 冲突的另一半），一律降级 NEEDS_HUMAN_REVIEW 并显式标 IDENTITY_SCAN_INCOMPLETE。
+     */
+    scanComplete?: boolean;
+  },
 ): SupplierEntityResolutionResult {
+  const scanComplete = opts?.scanComplete !== false;
   const matchedSources: SupplierEntityResolutionResult["matchedSources"] = [];
   const conflicts: string[] = [];
 
-  // 键 2a：供应商自有域名（官网字段 or 已档 LINKED 来源）——强键。
-  // 供应商主表 website 若填的是平台链接（如抖音主页），不算自有域名（B2 守卫）。
-  // F1：同一身份键的历史关联集 size>1 = 冲突——全部 id 逐个计入 matchedSources
-  //（让 strongSuppliers>1 分支确定性接管 → NEEDS_HUMAN_REVIEW）+ 冲突元数据入 conflicts。
-  for (const domain of hints.domains) {
+  // 键 2a：域名。B4 语义拆分：
+  //   观察级 web 域名（hints.observedWebDomains）只能与 canonical 所有权源对质——
+  //   (i) 显式复核集 prior.ownedDomains（M1 生产恒空，LINK 永不填充）；
+  //   (ii) Supplier.website（且 website 本身必须是 WEB_DOMAIN 形态——填平台链接不算，B2 守卫）。
+  //   仅凭「某内容页长在域名 X 上」永远推不出「供应商拥有 X」。
+  // F1：同一身份键关联集 size>1 = 冲突——全部 id 计入 matchedSources
+  //（strongSuppliers>1 分支确定性接管 → NEEDS_HUMAN_REVIEW）+ 冲突元数据入 conflicts。
+  for (const domain of hints.observedWebDomains) {
     const priorSet = prior.ownedDomains.get(domain);
     if (priorSet && priorSet.size > 0) {
       for (const sid of [...priorSet].sort()) {
-        matchedSources.push({ kind: "archived_supplier_domain", key: domain, supplierId: sid });
+        matchedSources.push({ kind: "reviewed_owned_domain", key: domain, supplierId: sid });
       }
       if (priorSet.size > 1) {
-        conflicts.push(identityCollisionConflict("archived_supplier_domain", domain, [...priorSet]));
+        conflicts.push(identityCollisionConflict("reviewed_owned_domain", domain, [...priorSet]));
       }
     }
     for (const s of suppliers) {
       if (!s.website) continue;
       const siteIdentity = classifyUrlForIdentity(s.website);
-      if (siteIdentity.kind !== "SUPPLIER_OWNED_DOMAIN") continue;
+      if (siteIdentity.kind !== "WEB_DOMAIN") continue;
       if (siteIdentity.domain === domain) {
         matchedSources.push({ kind: "supplier_owned_domain", key: domain, supplierId: s.id });
       }
@@ -298,6 +323,22 @@ export function resolveSupplierEntityPure(
   if (strongSuppliers.length === 1) {
     const sid = strongSuppliers[0];
     const legal = suppliers.find((s) => s.id === sid)?.name;
+    if (!scanComplete) {
+      // B5 fail-closed：扫描不完整时绝不高置信匹配（漏页可能藏着冲突的另一半）
+      conflicts.push(
+        "IDENTITY_SCAN_INCOMPLETE：身份历史扫描未完整（触及安全上限），禁止高置信匹配——交人工裁决",
+      );
+      return {
+        decision: "NEEDS_HUMAN_REVIEW",
+        supplierId: undefined,
+        legalName: undefined,
+        candidateNames: hints.companyNameCandidates,
+        confidence: 0.6,
+        matchedSignals: signalsOf(matchedSources),
+        matchedSources,
+        conflicts,
+      };
+    }
     return {
       decision: "MATCHED_EXISTING", // 仅预填：LINKED 仍需人工点按
       supplierId: sid,
@@ -372,43 +413,70 @@ export async function resolveSignalEntity(actor: SupplierIntelActor, signalId: s
   });
   if (!signal) throw new SupplierIntelError("NOT_FOUND", "发现信号不存在");
 
-  const suppliers = await db.supplier.findMany({
-    where: { orgId: actor.orgId, status: "active" },
-    select: { id: true, name: true, website: true, contactPhone: true },
-    take: 500,
-  });
-  const linked = await db.supplierDiscoverySignal.findMany({
-    where: { orgId: actor.orgId, status: "LINKED", linkedSupplierId: { not: null } },
-    select: { accountUrl: true, contentUrl: true, linkedSupplierId: true },
-    take: 500,
-  });
-  // B2：LINKED 沉淀按身份分级入库——自有域名与平台精确账号分表；
-  // 平台裸 host / 内容页 URL 什么都不沉淀（同 host ≠ 同供应商）。
-  // F1：同一身份键收集**全部**历史 supplierId（Set 去重）——绝不 first-wins，
-  // 冲突历史必须原样暴露给 resolver 裁决（历史脏数据可读、可判、不折叠）。
+  // B5：身份裁决禁止「前 500 行局部真相」——按稳定键（id asc）游标分页穷尽
+  // org 内相关记录；触及安全上限仍有余量 → scanComplete=false（resolver 侧
+  // fail-closed，绝不基于已知不完整的身份宇宙给高置信匹配）。分页是纯 DB 游标，
+  // 零 N+1 网络路径。
+  const PAGE_SIZE = 500;
+  const MAX_PAGES = 40; // 安全上限（40×500=2 万行/类）；触顶即 fail-closed，绝不静默截断
+  let scanComplete = true;
+
+  async function fetchAllPages<T extends { id: string }>(
+    fetchPage: (cursor: string | null) => Promise<T[]>,
+  ): Promise<T[]> {
+    const all: T[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const rows = await fetchPage(cursor);
+      all.push(...rows);
+      if (rows.length < PAGE_SIZE) return all;
+      cursor = rows[rows.length - 1].id;
+    }
+    scanComplete = false; // 还有余量没读完
+    return all;
+  }
+
+  const suppliers = await fetchAllPages((cursor) =>
+    db.supplier.findMany({
+      where: { orgId: actor.orgId, status: "active" },
+      select: { id: true, name: true, website: true, contactPhone: true },
+      orderBy: { id: "asc" },
+      take: PAGE_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    }),
+  );
+  const linked = await fetchAllPages((cursor) =>
+    db.supplierDiscoverySignal.findMany({
+      where: { orgId: actor.orgId, status: "LINKED", linkedSupplierId: { not: null } },
+      select: { id: true, accountUrl: true, contentUrl: true, linkedSupplierId: true },
+      orderBy: { id: "asc" },
+      take: PAGE_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    }),
+  );
+
+  // B2/B4：LINKED 沉淀**只**产平台精确账号身份。域名一律不沉淀——把一条
+  // 新闻/博客/目录页信号 LINK 给供应商，不构成对该域名的所有权
+  //（域名所有权唯一 canonical 源 = Supplier.website，在 resolver 内对质）。
+  // F1：同一账号键收集全部历史 supplierId（Set 去重）——first-wins 不可能。
   const prior: PriorLinkedIdentities = {
-    ownedDomains: new Map<string, Set<string>>(),
+    ownedDomains: new Map<string, Set<string>>(), // B4：生产恒空（见接口注释）
     platformAccounts: new Map<string, Set<string>>(),
-  };
-  const addTo = (map: Map<string, Set<string>>, key: string, supplierId: string) => {
-    const set = map.get(key);
-    if (set) set.add(supplierId);
-    else map.set(key, new Set([supplierId]));
   };
   for (const row of linked) {
     if (!row.linkedSupplierId) continue;
     for (const u of [row.accountUrl, row.contentUrl]) {
       const identity = classifyUrlForIdentity(u);
-      if (identity.kind === "SUPPLIER_OWNED_DOMAIN" && identity.domain) {
-        addTo(prior.ownedDomains, identity.domain, row.linkedSupplierId);
-      } else if (identity.kind === "PLATFORM_ACCOUNT_IDENTITY" && identity.accountKey) {
-        addTo(prior.platformAccounts, identity.accountKey, row.linkedSupplierId);
+      if (identity.kind === "PLATFORM_ACCOUNT_IDENTITY" && identity.accountKey) {
+        const set = prior.platformAccounts.get(identity.accountKey);
+        if (set) set.add(row.linkedSupplierId);
+        else prior.platformAccounts.set(identity.accountKey, new Set([row.linkedSupplierId]));
       }
     }
   }
 
   const hints = extractEntityHints(signal);
-  const result = resolveSupplierEntityPure(hints, suppliers, prior);
+  const result = resolveSupplierEntityPure(hints, suppliers, prior, { scanComplete });
 
   const entry = {
     phase: "AUTO_PREFILL",

@@ -348,6 +348,150 @@ async function main() {
       "S2-FR-T14：他 org 的同身份 LINK 不参与本 org 匹配/冲突",
       JSON.stringify({ d: resLocal.decision, c: resLocal.conflicts }),
     );
+    console.log("\n== B4：contentUrl 域名不自证所有权 ==");
+    const supB4 = await db.supplier.create({
+      data: { orgId: orgA.id, name: `B4供应商 ${tag}`, createdById: userOwner.id },
+    });
+    const sigBlogA = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://industry-blog.example/articles/factory-a",
+      rawText: "行业博客文章分享",
+    });
+    await signalSvc.linkSignalToSupplier(ownerActor, sigBlogA.id, { supplierId: supB4.id });
+    const sigBlogB = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://industry-blog.example/articles/factory-b",
+      rawText: "同一博客另一篇文章",
+    });
+    const resBlogB = await er.resolveSignalEntity(ownerActor, sigBlogB.id);
+    ok(
+      resBlogB.decision === "NEW_SUPPLIER_CANDIDATE" && resBlogB.supplierId === undefined,
+      "B4-T1：LINK 过的博客域名不构成所有权——同域另一文章不匹配该供应商",
+      JSON.stringify({ d: resBlogB.decision, s: resBlogB.supplierId, m: resBlogB.matchedSignals }),
+    );
+    ok(
+      !resBlogB.matchedSources.some((m) => m.kind === "reviewed_owned_domain" || m.kind === "archived_supplier_domain"),
+      "B4-T2：LINKED contentUrl 域名未沉淀进 prior.ownedDomains（零 archived/reviewed 命中）",
+    );
+
+    console.log("\n== B5：身份裁决禁用局部真相（穷尽分页）==");
+    const supY2 = await db.supplier.create({
+      data: { orgId: orgA.id, name: `B5冲突供应商 ${tag}`, createdById: userOwner.id },
+    });
+    // 519 条 LINKED 同账号 → supX（把 org 内 LINKED 总量推过 500 行页界）
+    await db.supplierDiscoverySignal.createMany({
+      data: Array.from({ length: 519 }, (_, i) => ({
+        orgId: orgA.id,
+        platform: "DOUYIN",
+        contentType: "POST",
+        sourceOrigin: "USER_SUBMITTED",
+        contentUrl: `https://www.douyin.com/user/b5same?i=${i}`,
+        status: "LINKED",
+        linkedSupplierId: supX.id,
+      })),
+    });
+    // 冲突的另一半：1 条（更晚创建 → 落在翻页尾部）→ supY2
+    await db.supplierDiscoverySignal.create({
+      data: {
+        orgId: orgA.id,
+        platform: "DOUYIN",
+        contentType: "POST",
+        sourceOrigin: "USER_SUBMITTED",
+        contentUrl: "https://www.douyin.com/user/b5same?i=tail",
+        status: "LINKED",
+        linkedSupplierId: supY2.id,
+      },
+    });
+    const sigB5Same = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://www.douyin.com/user/b5same",
+      rawText: "B5 同账号新信号",
+    });
+    const resB5Same = await er.resolveSignalEntity(ownerActor, sigB5Same.id);
+    ok(
+      resB5Same.decision === "NEEDS_HUMAN_REVIEW" && resB5Same.supplierId === undefined,
+      "B5-T1：冲突另一半在 500 行页界之后 → 仍被收集 → NEEDS_HUMAN_REVIEW（局部真相不可匹配）",
+      JSON.stringify({ d: resB5Same.decision, s: resB5Same.supplierId }),
+    );
+    ok(
+      resB5Same.conflicts.some((c) => c.includes("强身份冲突")),
+      "B5-T1：冲突元数据在（跨页收集完备）",
+    );
+    // 全量同指一家：>500 行表内 account b5uni 全部 → supX
+    await db.supplierDiscoverySignal.createMany({
+      data: Array.from({ length: 5 }, (_, i) => ({
+        orgId: orgA.id,
+        platform: "DOUYIN",
+        contentType: "POST",
+        sourceOrigin: "USER_SUBMITTED",
+        contentUrl: `https://www.douyin.com/user/b5uni?i=${i}`,
+        status: "LINKED",
+        linkedSupplierId: supX.id,
+      })),
+    });
+    // 他 org 同账号指向他 org 供应商——跨页也不得参与本 org 裁决
+    const userB5 = await db.user.create({
+      data: { email: `fr_b5_${tag}@test.qingyan.local`, name: "FRB5", role: "user", status: "active" },
+    });
+    const orgB5 = await db.organization.create({
+      data: { name: `FR OrgB5 ${tag}`, code: `frb5_${tag}`, ownerId: userB5.id, status: "active" },
+    });
+    const supForeign2 = await db.supplier.create({
+      data: { orgId: orgB5.id, name: `外org B5 ${tag}`, createdById: userB5.id },
+    });
+    await db.supplierDiscoverySignal.createMany({
+      data: Array.from({ length: 10 }, (_, i) => ({
+        orgId: orgB5.id,
+        platform: "DOUYIN",
+        contentType: "POST",
+        sourceOrigin: "USER_SUBMITTED",
+        contentUrl: `https://www.douyin.com/user/b5uni?x=${i}`,
+        status: "LINKED",
+        linkedSupplierId: supForeign2.id,
+      })),
+    });
+    const sigB5Uni = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://www.douyin.com/user/b5uni",
+      rawText: "B5 单一账号新信号",
+    });
+    const resB5Uni = await er.resolveSignalEntity(ownerActor, sigB5Uni.id);
+    ok(
+      resB5Uni.decision === "MATCHED_EXISTING" && resB5Uni.supplierId === supX.id,
+      "B5-T2：>500 行表内全量同指一家 → 扫描完备可 MATCHED_EXISTING",
+      JSON.stringify({ d: resB5Uni.decision, s: resB5Uni.supplierId }),
+    );
+    ok(
+      !resB5Uni.conflicts.some((c) => c.includes("强身份冲突")) && resB5Uni.supplierId !== supForeign2.id,
+      "B5-T3：他 org 的同账号 LINK 跨页也不参与本 org 匹配/冲突",
+    );
+    // 供应商扫描完备性：505 家填充后创建的目标供应商（第二页）仍可按官网域名命中
+    await db.supplier.createMany({
+      data: Array.from({ length: 505 }, (_, i) => ({
+        orgId: orgA.id,
+        name: `B5填充供应商${String(i).padStart(3, "0")} ${tag}`,
+        createdById: userOwner.id,
+      })),
+    });
+    const supPageEnd = await db.supplier.create({
+      data: {
+        orgId: orgA.id,
+        name: `B5页尾目标供应商 ${tag}`,
+        website: "https://b5-target-site.example",
+        createdById: userOwner.id,
+      },
+    });
+    const sigPageEnd = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://b5-target-site.example/contact",
+      rawText: "官网线索",
+    });
+    const resPageEnd = await er.resolveSignalEntity(ownerActor, sigPageEnd.id);
+    ok(
+      resPageEnd.decision === "MATCHED_EXISTING" && resPageEnd.supplierId === supPageEnd.id,
+      "B5：供应商行扫描同样穷尽——>500 家后创建的官网匹配供应商仍被命中",
+      JSON.stringify({ d: resPageEnd.decision, s: resPageEnd.supplierId }),
+    );
+    await db.supplierDiscoverySignal.deleteMany({ where: { orgId: orgB5.id } });
+    await db.supplier.deleteMany({ where: { orgId: orgB5.id } });
+    await db.organization.delete({ where: { id: orgB5.id } });
+    await db.user.delete({ where: { id: userB5.id } });
+
     await db.supplierDiscoverySignal.deleteMany({ where: { orgId: orgB2.id } });
     await db.supplier.deleteMany({ where: { orgId: orgB2.id } });
     await db.auditLog.deleteMany({ where: { orgId: orgB2.id } });
