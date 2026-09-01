@@ -442,6 +442,39 @@ async function main() {
     const evi2 = (match2.evidenceJson as Array<Record<string, unknown>>)[0];
     ok(evi2.statusAtEvaluation === "EXPIRED", "新 Run 的认证证据读取最新状态（EXPIRED）");
 
+    console.log("\n== E12 Registry URL 持久化（F4）==");
+    const registryUrlE12 = `https://www.gsxt.gov.cn/corp-e12-${tag}`;
+    const certE12 = await certSvc.createCertification(actorA, {
+      supplierId: supplierA.id, scope: "SUPPLIER", certificationType: "OTHER",
+      sourceKind: "REGISTRY", // 创建时刻意不带 sourceUrl（F4 场景：定位符在 verify 时提供）
+    });
+    ok(certE12.sourceUrl === null, "E12 前置：REGISTRY 认证创建时 sourceUrl=null");
+    const certE12Verified = await certSvc.verifyCertification(actorA, certE12.id, {
+      sourceUrl: registryUrlE12, note: "verify 时提供登记库定位符",
+    });
+    ok(certE12Verified?.status === "VERIFIED", "E12：verify 通过（受支持登记库）");
+    ok(
+      certE12Verified?.sourceUrl === registryUrlE12,
+      "E12：通过校验的登记库 URL 同事务写回 sourceUrl（无 VERIFIED+REGISTRY+null 非法态）",
+      `实际 sourceUrl=${String(certE12Verified?.sourceUrl)}`,
+    );
+    const matchE12 = await evalSvc.createRequirementMatch(actorA, {
+      candidateId: candidate2.id, requirementKey: "R-002", verdict: "PASS",
+      evidence: [{ kind: "certification", certificationId: certE12.id }], evaluatedBy: "HUMAN",
+    });
+    const eviE12 = (matchE12.evidenceJson as Array<Record<string, unknown>>)[0];
+    ok(
+      eviE12.statusAtEvaluation === "VERIFIED" && eviE12.sourceKind === "REGISTRY" && eviE12.sourceUrl === registryUrlE12,
+      "E12：Match 冻结 VERIFIED+REGISTRY+已校验 URL 三件套",
+    );
+    await certSvc.updateCertificationStatus(actorA, certE12.id, "EXPIRED", "E12 后续过期演练");
+    const matchE12After = await db.supplierRequirementMatch.findUnique({ where: { id: matchE12.id } });
+    const eviE12After = (matchE12After?.evidenceJson as Array<Record<string, unknown>>)[0];
+    ok(
+      eviE12After.statusAtEvaluation === "VERIFIED" && eviE12After.sourceUrl === registryUrlE12,
+      "E12：live 认证后续变化不回写 Match 快照（定位符长存）",
+    );
+
     console.log("\n== T20 终态并发串行化（F2）==");
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     // 场景：事务 A 持有 Run 写锁并在锁内落终态；子写在锁上等待，提交顺序被强制串行——

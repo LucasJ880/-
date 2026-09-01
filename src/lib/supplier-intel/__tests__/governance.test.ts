@@ -98,6 +98,7 @@ async function main() {
   console.log("F1.6 registry fail-closed：只认白名单官方登记库（https），任意 URL 标 REGISTRY 无效");
   assert.equal(resolveRegistryProvider("https://www.gsxt.gov.cn/corp-query-xyz")?.id, "GSXT");
   assert.equal(resolveRegistryProvider("https://productiq.ul.com/database/xxx")?.id, "UL_PRODUCT_IQ");
+  assert.equal(resolveRegistryProvider("https://www.ul.com/about"), null, "宽域企业页不算登记库（F4 语义对抗项）");
   assert.equal(resolveRegistryProvider("https://some-random-site.example/cert"), null);
   assert.equal(resolveRegistryProvider("http://www.gsxt.gov.cn/x"), null, "非 https 不认");
   assert.equal(resolveRegistryProvider("https://gsxt.gov.cn.evil.com/x"), null, "host 仿冒不认");

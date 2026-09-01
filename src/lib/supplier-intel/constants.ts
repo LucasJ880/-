@@ -166,7 +166,10 @@ export const CLAIM_ONLY_CERT_SOURCE_KINDS: readonly CertificationSourceKind[] = 
  */
 export const SUPPORTED_REGISTRY_PROVIDERS = [
   { id: "GSXT", label: "国家企业信用信息公示系统", hosts: ["gsxt.gov.cn"] },
-  { id: "UL_PRODUCT_IQ", label: "UL Product iQ", hosts: ["productiq.ul.com", "ul.com"] },
+  // UL 收窄到专用登记库主机（宽域 ul.com 上的一般企业页不构成登记库证据，F4 语义对抗项）
+  { id: "UL_PRODUCT_IQ", label: "UL Product iQ", hosts: ["productiq.ul.com"] },
+  // 下列 provider 暂以企业宽域登记（其专用登记路径/主机需另行调研核实——S2 跟进项，
+  // 见 PR 记录；收窄原则同 UL：有专用主机/稳定登记路径的一律用最窄白名单）
   { id: "INTERTEK_DIRECTORY", label: "Intertek ETL Listed Directory", hosts: ["intertek.com"] },
   { id: "CSA_GROUP", label: "CSA Group Certified Product Listing", hosts: ["csagroup.org"] },
   { id: "BIFMA_REGISTRY", label: "BIFMA Compliant Registry", hosts: ["bifma.org"] },

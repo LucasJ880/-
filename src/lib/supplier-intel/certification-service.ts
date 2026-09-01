@@ -198,6 +198,10 @@ export async function verifyCertification(
       data: {
         status: "VERIFIED",
         archiveItemId: archiveItemId ?? null,
+        // F4：REGISTRY 路径通过验证时，把「恰好通过 resolveRegistryProvider 的那个 URL」
+        // 在同一事务写回 sourceUrl——否则会留下 VERIFIED+REGISTRY+sourceUrl=null 的非法历史态，
+        // 后续 Match 冻结的证据快照将失去登记库定位符。未经验证的 URL 永不写入。
+        ...(registryProvider && registryUrl ? { sourceUrl: registryUrl } : {}),
         verifiedByUserId: actor.userId,
         verifiedAt: new Date(),
         ...(input?.note?.trim() ? { verificationNote: input.note.trim() } : {}),
