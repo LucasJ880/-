@@ -15,6 +15,78 @@ import { normalizeBuyerName, normalizeWebsiteDomain } from "@/lib/corporate-memo
 import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
 import { SupplierIntelError } from "./errors";
+import {
+  classifyPublicUrlPlatform,
+  isPlatformOrMarketplaceHost,
+  validatePublicHttpUrl,
+} from "./submission-parser";
+
+/* ------------------------- B2：URL 身份分级 ------------------------- */
+
+/**
+ * S2 Final Review B2 冻结：URL 对「供应商身份」的四级分类。
+ * 平台/市场 host（douyin/xiaohongshu/1688/alibaba/made-in-china/…）的域名本身
+ * 永不构成供应商身份——两家工厂的抖音主页同为 douyin.com，域名等值毫无身份意义。
+ */
+export type UrlIdentityKind =
+  | "SUPPLIER_OWNED_DOMAIN" // 供应商自有官网域名（唯一可作强键的 URL 形态）
+  | "PLATFORM_ACCOUNT_IDENTITY" // 平台上的**精确账号页**（人工 LINKED 沉淀后可作已验证身份提示）
+  | "CONTENT_URL" // 平台上的单条视频/帖子/商品页——最多是 provenance，永不身份
+  | "UNKNOWN_URL";
+
+export interface UrlIdentity {
+  kind: UrlIdentityKind;
+  /** SUPPLIER_OWNED_DOMAIN：归一化域名 */
+  domain?: string;
+  /** PLATFORM_ACCOUNT_IDENTITY：平台 + 精确账号键 */
+  platform?: string;
+  accountKey?: string;
+}
+
+/** 平台账号页识别（保守：认不出精确账号 = CONTENT_URL，绝不猜） */
+function extractPlatformAccountIdentity(url: URL): { platform: string; accountKey: string } | null {
+  const platform = classifyPublicUrlPlatform(url);
+  const path = url.pathname.replace(/\/+$/, "");
+  if (platform === "DOUYIN") {
+    const m = path.match(/^\/user\/([\w.-]{4,})$/);
+    if (m) return { platform, accountKey: `DOUYIN:user:${m[1].toLowerCase()}` };
+    return null;
+  }
+  if (platform === "XIAOHONGSHU") {
+    const m = path.match(/^\/user\/profile\/([\w-]{4,})$/);
+    if (m) return { platform, accountKey: `XIAOHONGSHU:user:${m[1].toLowerCase()}` };
+    return null;
+  }
+  if (platform === "ONE688") {
+    // 店铺子域（shop1234.1688.com）；www/detail/m 等公共子域不是账号
+    const host = url.hostname.toLowerCase();
+    const m = host.match(/^([\w-]{3,})\.1688\.com$/);
+    if (m && !["www", "detail", "m", "s", "page", "offer", "air"].includes(m[1])) {
+      return { platform, accountKey: `ONE688:shop:${m[1]}` };
+    }
+    return null;
+  }
+  return null; // WECHAT_CHANNELS 及其它：无可靠公开账号页形态
+}
+
+/** 纯函数：URL → 身份分级（解析失败 = UNKNOWN_URL） */
+export function classifyUrlForIdentity(raw: string | null | undefined): UrlIdentity {
+  const t = raw?.trim();
+  if (!t) return { kind: "UNKNOWN_URL" };
+  let url: URL;
+  try {
+    url = validatePublicHttpUrl(t);
+  } catch {
+    return { kind: "UNKNOWN_URL" };
+  }
+  if (isPlatformOrMarketplaceHost(url)) {
+    const account = extractPlatformAccountIdentity(url);
+    if (account) return { kind: "PLATFORM_ACCOUNT_IDENTITY", ...account };
+    return { kind: "CONTENT_URL" };
+  }
+  const domain = normalizeWebsiteDomain(url.toString());
+  return domain ? { kind: "SUPPLIER_OWNED_DOMAIN", domain } : { kind: "UNKNOWN_URL" };
+}
 
 // 统一社会信用代码字符集（GB 32100-2015；不含 I/O/S/V/Z）
 const USCC_RE = /\b[0-9A-HJ-NPQRTUWXY]{18}\b/g;
@@ -26,7 +98,10 @@ export interface ExtractedEntityHints {
   companyNameCandidates: string[];
   unifiedSocialCreditCode: string | null;
   phones: string[];
+  /** 仅供应商自有域名（B2：平台/市场 host 永不入列） */
   domains: string[];
+  /** 平台精确账号身份（仅账号页可解析时；内容页绝不入列） */
+  platformAccounts: Array<{ platform: string; accountKey: string }>;
 }
 
 export interface SignalLikeForExtraction {
@@ -58,14 +133,26 @@ export function extractEntityHints(signal: SignalLikeForExtraction): ExtractedEn
   );
   const uscc = corpus.match(USCC_RE)?.[0] ?? null;
   const phones = take(corpus.match(CN_PHONE_RE) ?? [], 3);
-  const domains = take(
-    [signal.accountUrl, signal.contentUrl]
-      .map((u) => normalizeWebsiteDomain(u))
-      .filter((v): v is string => Boolean(v)),
-    3,
-  );
 
-  return { companyNameCandidates: names, unifiedSocialCreditCode: uscc, phones, domains };
+  // B2：URL 按身份分级——自有域名与平台账号分流；内容页/未知一律弃
+  const domains: string[] = [];
+  const platformAccounts: Array<{ platform: string; accountKey: string }> = [];
+  for (const u of [signal.accountUrl, signal.contentUrl]) {
+    const identity = classifyUrlForIdentity(u);
+    if (identity.kind === "SUPPLIER_OWNED_DOMAIN" && identity.domain) {
+      domains.push(identity.domain);
+    } else if (identity.kind === "PLATFORM_ACCOUNT_IDENTITY" && identity.accountKey) {
+      platformAccounts.push({ platform: identity.platform!, accountKey: identity.accountKey });
+    }
+  }
+
+  return {
+    companyNameCandidates: names,
+    unifiedSocialCreditCode: uscc,
+    phones,
+    domains: take(domains, 3),
+    platformAccounts: take(platformAccounts, 3),
+  };
 }
 
 export interface SupplierRowForResolution {
@@ -113,26 +200,47 @@ function nameOverlap(a: string, b: string): number {
   return hit / Math.min(ta.size, tb.size);
 }
 
+export interface PriorLinkedIdentities {
+  /** 已 LINKED 信号沉淀的供应商**自有域名** → supplierId（平台域名永不入此表，B2） */
+  ownedDomains: Map<string, string>;
+  /** 已 LINKED 信号沉淀的平台**精确账号键** → supplierId（exact account，非裸 host） */
+  platformAccounts: Map<string, string>;
+}
+
 /**
- * 纯函数解析核心。priorLinkedDomains = 本 org 此前 LINKED 信号沉淀的 域名→supplierId
- * （DESIGN §8.3 键 2 的「已档 URL」半边）。
+ * 纯函数解析核心（B2 重构）：强键 = 自有域名（官网/已档）、联系电话、
+ * 已人工验证的平台精确账号；平台 host 与内容页永不构成身份。
  */
 export function resolveSupplierEntityPure(
   hints: ExtractedEntityHints,
   suppliers: SupplierRowForResolution[],
-  priorLinkedDomains: Map<string, string>,
+  prior: PriorLinkedIdentities,
 ): SupplierEntityResolutionResult {
   const matchedSources: SupplierEntityResolutionResult["matchedSources"] = [];
   const conflicts: string[] = [];
 
-  // 键 2：域名（官网 or 已档来源）——强键
+  // 键 2a：供应商自有域名（官网字段 or 已档 LINKED 来源）——强键。
+  // 供应商主表 website 若填的是平台链接（如抖音主页），不算自有域名（B2 守卫）。
   for (const domain of hints.domains) {
-    const prior = priorLinkedDomains.get(domain);
-    if (prior) matchedSources.push({ kind: "archived_domain", key: domain, supplierId: prior });
+    const prior2 = prior.ownedDomains.get(domain);
+    if (prior2) {
+      matchedSources.push({ kind: "archived_supplier_domain", key: domain, supplierId: prior2 });
+    }
     for (const s of suppliers) {
-      if (normalizeWebsiteDomain(s.website) === domain) {
-        matchedSources.push({ kind: "website_domain", key: domain, supplierId: s.id });
+      if (!s.website) continue;
+      const siteIdentity = classifyUrlForIdentity(s.website);
+      if (siteIdentity.kind !== "SUPPLIER_OWNED_DOMAIN") continue;
+      if (siteIdentity.domain === domain) {
+        matchedSources.push({ kind: "supplier_owned_domain", key: domain, supplierId: s.id });
       }
+    }
+  }
+  // 键 2b：平台精确账号（仅人工 LINKED 沉淀过的 exact account）——已验证身份提示。
+  // 同平台不同账号（同为 douyin.com）绝不互相匹配（S2-FR-T4）。
+  for (const account of hints.platformAccounts) {
+    const prior2 = prior.platformAccounts.get(account.accountKey);
+    if (prior2) {
+      matchedSources.push({ kind: "platform_account", key: account.accountKey, supplierId: prior2 });
     }
   }
   // 键 4：联系方式——强键
@@ -252,18 +360,30 @@ export async function resolveSignalEntity(actor: SupplierIntelActor, signalId: s
     select: { accountUrl: true, contentUrl: true, linkedSupplierId: true },
     take: 500,
   });
-  const priorLinkedDomains = new Map<string, string>();
+  // B2：LINKED 沉淀按身份分级入库——自有域名与平台精确账号分表；
+  // 平台裸 host / 内容页 URL 什么都不沉淀（同 host ≠ 同供应商）
+  const prior: PriorLinkedIdentities = {
+    ownedDomains: new Map<string, string>(),
+    platformAccounts: new Map<string, string>(),
+  };
   for (const row of linked) {
+    if (!row.linkedSupplierId) continue;
     for (const u of [row.accountUrl, row.contentUrl]) {
-      const d = normalizeWebsiteDomain(u);
-      if (d && row.linkedSupplierId && !priorLinkedDomains.has(d)) {
-        priorLinkedDomains.set(d, row.linkedSupplierId);
+      const identity = classifyUrlForIdentity(u);
+      if (identity.kind === "SUPPLIER_OWNED_DOMAIN" && identity.domain) {
+        if (!prior.ownedDomains.has(identity.domain)) {
+          prior.ownedDomains.set(identity.domain, row.linkedSupplierId);
+        }
+      } else if (identity.kind === "PLATFORM_ACCOUNT_IDENTITY" && identity.accountKey) {
+        if (!prior.platformAccounts.has(identity.accountKey)) {
+          prior.platformAccounts.set(identity.accountKey, row.linkedSupplierId);
+        }
       }
     }
   }
 
   const hints = extractEntityHints(signal);
-  const result = resolveSupplierEntityPure(hints, suppliers, priorLinkedDomains);
+  const result = resolveSupplierEntityPure(hints, suppliers, prior);
 
   const entry = {
     phase: "AUTO_PREFILL",

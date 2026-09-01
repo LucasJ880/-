@@ -18,6 +18,7 @@
 import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 import { logAudit } from "@/lib/audit/logger";
 import type { SupplierIntelActor } from "./actor";
+import { assertProjectAccessForActor } from "./access";
 import {
   DEFAULT_DISCOVERY_ADAPTERS,
   type AdapterSourceStatus,
@@ -132,6 +133,11 @@ export async function executeSupplierSearchRun(
 ): Promise<DiscoveryRunResult> {
   const run = await getSearchRun(actor, runId);
   if (!run) throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
+  // B3 外呼顺序不变量：AUTH → PROJECT ACCESS → 需求读取/egress 分类 → provider。
+  // 项目权限断言必须先于任何计划/外呼（无权限 = provider 调用数恒 0，S2-FR-T8）
+  if (run.projectId) {
+    await assertProjectAccessForActor(actor, run.projectId, "write");
+  }
   if (run.status !== "RUNNING") {
     throw new SupplierIntelError(
       "RUN_NOT_RUNNING",

@@ -33,6 +33,11 @@ export type SupplierIntelErrorCode =
   | "REGISTRY_PROVIDER_UNSUPPORTED"
   // S2 Provider 策略门（H3/H4 机制化落点，fail-closed）
   | "PROVIDER_POLICY_BLOCKED"
+  // S2 Final Review B3：项目级授权（org 成员 ≠ 项目可见/可写）
+  | "PROJECT_ACCESS_DENIED"
+  // S2 Final Review B1：canonical 需求源
+  | "CANONICAL_REQUIREMENTS_UNAVAILABLE"
+  | "BLOCKED_BY_CANONICAL_REQUIREMENT_SOURCE"
   | "INVALID_INPUT"
   // 资源（404，跨租户按不存在处理，不泄露存在性）
   | "NOT_FOUND"
@@ -66,6 +71,9 @@ const DEFAULT_STATUS: Partial<Record<SupplierIntelErrorCode, number>> = {
   SOURCE_SIGNAL_MISMATCH: 422,
   REGISTRY_PROVIDER_UNSUPPORTED: 422,
   PROVIDER_POLICY_BLOCKED: 422,
+  PROJECT_ACCESS_DENIED: 403,
+  CANONICAL_REQUIREMENTS_UNAVAILABLE: 409,
+  BLOCKED_BY_CANONICAL_REQUIREMENT_SOURCE: 409,
 };
 
 export class SupplierIntelError extends Error {

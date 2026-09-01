@@ -108,6 +108,22 @@ async function main() {
   assert.equal(resolveRegistryProvider("https://compliant.bifma.org/products/123")?.id, "BIFMA_REGISTRY");
   assert.equal(resolveRegistryProvider("https://level.bifma.org/x")?.id, "BIFMA_REGISTRY");
   assert.equal(resolveRegistryProvider("https://www.bifma.org/mpage/bifmacompliantregistry"), null, "BIFMA 宽域弃用（专用主机才算）");
+
+  // B1 源码守卫（S2 Final Review）：HTTP 边界与项目编排层结构上不存在客户端 requirements 通道
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const runsRoute = readFileSync(join(process.cwd(), "src/app/api/supplier-intel/runs/route.ts"), "utf8");
+  assert.ok(!runsRoute.includes("body.requirements"), "B1：runs 路由不得读取 body.requirements（canonical 需求一律服务端读）");
+  assert.ok(runsRoute.includes("requireProjectWriteAccess"), "B3：runs POST 必须走 canonical 项目写门");
+  assert.ok(runsRoute.includes("requireProjectReadAccess"), "B3：runs GET 必须走 canonical 项目读门");
+  const projectRunSvcSrc = readFileSync(join(process.cwd(), "src/lib/supplier-intel/project-run-service.ts"), "utf8");
+  assert.ok(!/requirements\??:/.test(projectRunSvcSrc.split("loadCanonicalSupplierRequirementSnapshot")[0]), "B1：项目编排入参无 requirements 位（快照只能来自 canonical loader）");
+  const discoverySrc = readFileSync(join(process.cwd(), "src/lib/supplier-intel/discovery-service.ts"), "utf8");
+  assert.ok(
+    discoverySrc.indexOf("await assertProjectAccessForActor") <
+      discoverySrc.indexOf("buildExternalQueryPlan(brief"),
+    "B3：执行器内项目授权（调用点）先于查询计划/外呼（顺序不变量）",
+  );
   assert.equal(resolveRegistryProvider("http://www.gsxt.gov.cn/x"), null, "非 https 不认");
   assert.equal(resolveRegistryProvider("https://gsxt.gov.cn.evil.com/x"), null, "host 仿冒不认");
   assert.equal(resolveRegistryProvider(""), null);

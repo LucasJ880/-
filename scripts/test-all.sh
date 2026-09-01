@@ -152,6 +152,7 @@ run_test "Supplier Intel S2 Provider 策略门（T7 fail-closed）" "npx tsx src
 run_test "Supplier Intel S2 平台 Adapter（层 B host 白名单归类）" "npx tsx src/lib/supplier-intel/__tests__/adapters.test.ts"
 run_test "Supplier Intel S2 实体解析纯核（强键/冲突/永不自动合并）" "npx tsx src/lib/supplier-intel/__tests__/entity-resolution.test.ts"
 run_test "Supplier Intel S2 发现编排 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2-db.isolated.test.ts"
+run_test "Supplier Intel S2-FR 终审回归 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2fr-db.isolated.test.ts"
 run_test "Phase2B 企业语义隔离" "npx tsx src/lib/tenancy/__tests__/phase2b-semantics.test.ts"
 run_test "Phase3A-1 Trace Read Model" "npx tsx src/lib/capabilities/__tests__/phase3a1-trace-read-model.test.ts"
 run_test "Phase3A-2 Runs and Usage Ledger" "npx tsx src/lib/capabilities/__tests__/phase3a2-runs-and-usage.test.ts"

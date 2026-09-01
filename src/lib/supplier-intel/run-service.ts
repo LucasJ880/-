@@ -12,6 +12,7 @@ import type { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
+import { assertProjectAccessForActor } from "./access";
 import {
   SUPPLIER_EVALUATION_VERSION_V1,
   SUPPLIER_INTEL_AUDIT_ACTIONS,
@@ -104,6 +105,10 @@ export async function createSearchRun(actor: SupplierIntelActor, input: CreateSe
 
   const projectId = await assertProjectPointerInOrg(actor.orgId, input.projectId, "项目");
   const tenderId = await assertProjectPointerInOrg(actor.orgId, input.tenderId, "招标项目");
+  // B3：项目绑定的 Run 创建要求项目写权限（org 成员 ≠ 项目权限；canonical 策略投影）
+  for (const pid of new Set([projectId, tenderId].filter((v): v is string => Boolean(v)))) {
+    await assertProjectAccessForActor(actor, pid, "write");
+  }
 
   return db.$transaction(async (tx) => {
     const run = await tx.supplierSearchRun.create({
@@ -147,10 +152,14 @@ export async function getSearchRun(actor: SupplierIntelActor, runId: string) {
 
 export async function listSearchRuns(
   actor: SupplierIntelActor,
-  opts?: { status?: string; take?: number },
+  opts?: { status?: string; projectId?: string; take?: number },
 ) {
   return db.supplierSearchRun.findMany({
-    where: { orgId: actor.orgId, ...(opts?.status ? { status: opts.status } : {}) },
+    where: {
+      orgId: actor.orgId,
+      ...(opts?.status ? { status: opts.status } : {}),
+      ...(opts?.projectId ? { projectId: opts.projectId } : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: Math.min(opts?.take ?? 50, 200),
   });
