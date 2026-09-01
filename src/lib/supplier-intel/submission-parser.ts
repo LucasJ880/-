@@ -30,6 +30,16 @@ export interface ParsedSubmission {
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>]+/i;
 
+/** S2 起对外导出：层 B 发现结果按 host 白名单归类平台（与用户提交同一套判定） */
+export function classifyPublicUrlPlatform(url: URL): SignalPlatform {
+  return classifyHost(url);
+}
+
+/** S2 起对外导出：公开 URL 校验（http/https 白名单 + 长度上限；零抓取） */
+export function validatePublicHttpUrl(raw: string): URL {
+  return parseCandidateUrl(raw);
+}
+
 function classifyHost(url: URL): SignalPlatform {
   const host = url.hostname.toLowerCase();
   const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`);

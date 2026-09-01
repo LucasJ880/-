@@ -17,6 +17,7 @@ import {
   AI_ASSISTED_CONFIDENCE_CAP,
   CAPABILITY_EXTRACTED_BY,
   CAPABILITY_TYPES,
+  SIGNAL_PLATFORMS,
   SIGNAL_TRANSITIONS,
   SOCIAL_WRITE_EVIDENCE_STATUSES,
   SUPPLIER_INTEL_AUDIT_ACTIONS,
@@ -25,7 +26,7 @@ import {
 } from "./constants";
 import { SupplierIntelError } from "./errors";
 import { lockSupplierSearchRunForWrite } from "./run-service";
-import { parseUserSubmission } from "./submission-parser";
+import { parseUserSubmission, validatePublicHttpUrl } from "./submission-parser";
 
 const SIGNAL_TARGET_TYPE = "supplier_discovery_signal";
 
@@ -132,6 +133,74 @@ export async function createSubmittedSignal(actor: SupplierIntelActor, input: Su
       },
     });
     return signal;
+  });
+}
+
+export interface DiscoveredSignalInput {
+  searchRunId: string;
+  platform: string;
+  contentUrl: string;
+  title?: string | null;
+  description?: string | null;
+  sourceQuery?: string | null;
+  projectId?: string | null;
+  tenderId?: string | null;
+}
+
+/**
+ * 层 B（PUBLIC_WEB）发现结果落信号（M1-S2）。与用户提交同一信任面：
+ * 只存搜索引擎已合法索引的元数据，零抓取；同 Run 同 contentUrl 幂等去重；
+ * F2 锁序：先锁 Run、锁内裁决非终态。
+ */
+export async function createDiscoveredSignal(actor: SupplierIntelActor, input: DiscoveredSignalInput) {
+  if (!(SIGNAL_PLATFORMS as readonly string[]).includes(input.platform)) {
+    throw new SupplierIntelError("INVALID_INPUT", `未知平台：${input.platform}`);
+  }
+  const url = validatePublicHttpUrl(input.contentUrl).toString();
+  const projectId = await assertProjectPointerInOrg(actor.orgId, input.projectId, "项目");
+  const tenderId = await assertProjectPointerInOrg(actor.orgId, input.tenderId, "招标项目");
+
+  return db.$transaction(async (tx) => {
+    const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, input.searchRunId);
+    if (run.status !== "PLANNED" && run.status !== "RUNNING") {
+      throw new SupplierIntelError(
+        "RUN_IMMUTABLE",
+        "Run 已处于终态，不能再挂新信号；重评估请新建 Run",
+      );
+    }
+    const existing = await tx.supplierDiscoverySignal.findFirst({
+      where: { orgId: actor.orgId, searchRunId: run.id, contentUrl: url },
+    });
+    if (existing) return { signal: existing, created: false };
+
+    const signal = await tx.supplierDiscoverySignal.create({
+      data: {
+        orgId: actor.orgId,
+        projectId: projectId ?? run.projectId,
+        tenderId: tenderId ?? run.tenderId,
+        searchRunId: run.id,
+        platform: input.platform,
+        contentType: "POST",
+        sourceOrigin: "PUBLIC_WEB",
+        contentUrl: url,
+        title: assertShortText(input.title, "标题"),
+        description: input.description?.trim().slice(0, 500) || null,
+        rawMetadataJson: {
+          provider: "search-engine",
+          sourceQuery: input.sourceQuery?.slice(0, 200) ?? null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    await writeAuditLog(tx, {
+      userId: actor.userId,
+      orgId: actor.orgId,
+      projectId: projectId ?? run.projectId,
+      action: SUPPLIER_INTEL_AUDIT_ACTIONS.SIGNAL_CREATED,
+      targetType: SIGNAL_TARGET_TYPE,
+      targetId: signal.id,
+      afterData: { platform: signal.platform, sourceOrigin: "PUBLIC_WEB", searchRunId: run.id },
+    });
+    return { signal, created: true };
   });
 }
 

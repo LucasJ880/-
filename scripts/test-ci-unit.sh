@@ -172,6 +172,11 @@ npx tsx src/lib/supplier-intel/__tests__/score-contract.test.ts
 npx tsx src/lib/supplier-intel/__tests__/submission-parser.test.ts
 npx tsx src/lib/supplier-intel/__tests__/governance.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-db.isolated.test.ts
+npx tsx src/lib/supplier-intel/__tests__/search-brief.test.ts
+npx tsx src/lib/supplier-intel/__tests__/providers-policy.test.ts
+npx tsx src/lib/supplier-intel/__tests__/adapters.test.ts
+npx tsx src/lib/supplier-intel/__tests__/entity-resolution.test.ts
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）

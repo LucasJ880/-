@@ -31,6 +31,8 @@ export type SupplierIntelErrorCode =
   | "SIGNAL_NOT_LINKED_TO_SUPPLIER"
   | "SOURCE_SIGNAL_MISMATCH"
   | "REGISTRY_PROVIDER_UNSUPPORTED"
+  // S2 Provider 策略门（H3/H4 机制化落点，fail-closed）
+  | "PROVIDER_POLICY_BLOCKED"
   | "INVALID_INPUT"
   // 资源（404，跨租户按不存在处理，不泄露存在性）
   | "NOT_FOUND"
@@ -63,6 +65,7 @@ const DEFAULT_STATUS: Partial<Record<SupplierIntelErrorCode, number>> = {
   SIGNAL_NOT_LINKED_TO_SUPPLIER: 422,
   SOURCE_SIGNAL_MISMATCH: 422,
   REGISTRY_PROVIDER_UNSUPPORTED: 422,
+  PROVIDER_POLICY_BLOCKED: 422,
 };
 
 export class SupplierIntelError extends Error {

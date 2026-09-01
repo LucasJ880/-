@@ -100,6 +100,14 @@ async function main() {
   assert.equal(resolveRegistryProvider("https://productiq.ul.com/database/xxx")?.id, "UL_PRODUCT_IQ");
   assert.equal(resolveRegistryProvider("https://www.ul.com/about"), null, "宽域企业页不算登记库（F4 语义对抗项）");
   assert.equal(resolveRegistryProvider("https://some-random-site.example/cert"), null);
+  // §43 收窄核实（S2）：Intertek/CSA=宽域稳定路径契约；BIFMA=专用主机
+  assert.equal(resolveRegistryProvider("https://www.intertek.com/directories/etl-listed-mark/")?.id, "INTERTEK_DIRECTORY");
+  assert.equal(resolveRegistryProvider("https://www.intertek.com/about-us/"), null, "Intertek 一般企业页不算登记库");
+  assert.equal(resolveRegistryProvider("https://www.csagroup.org/testing-certification/product-listing/")?.id, "CSA_GROUP");
+  assert.equal(resolveRegistryProvider("https://www.csagroup.org/news/"), null, "CSA 一般企业页不算登记库");
+  assert.equal(resolveRegistryProvider("https://compliant.bifma.org/products/123")?.id, "BIFMA_REGISTRY");
+  assert.equal(resolveRegistryProvider("https://level.bifma.org/x")?.id, "BIFMA_REGISTRY");
+  assert.equal(resolveRegistryProvider("https://www.bifma.org/mpage/bifmacompliantregistry"), null, "BIFMA 宽域弃用（专用主机才算）");
   assert.equal(resolveRegistryProvider("http://www.gsxt.gov.cn/x"), null, "非 https 不认");
   assert.equal(resolveRegistryProvider("https://gsxt.gov.cn.evil.com/x"), null, "host 仿冒不认");
   assert.equal(resolveRegistryProvider(""), null);

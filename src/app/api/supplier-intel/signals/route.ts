@@ -1,14 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
-import { SupplierIntelError } from "@/lib/supplier-intel/errors";
+import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
 import { createSubmittedSignal, listSignals } from "@/lib/supplier-intel/signal-service";
-
-function mapDomainError(err: unknown): NextResponse | null {
-  if (err instanceof SupplierIntelError) {
-    return NextResponse.json({ error: err.message, code: err.code }, { status: err.httpStatus });
-  }
-  return null;
-}
 
 export async function GET(request: NextRequest) {
   const tenant = await requireSupplierIntelAccess(request);
@@ -48,7 +41,7 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ signal }, { status: 201 });
   } catch (err) {
-    const mapped = mapDomainError(err);
+    const mapped = mapSupplierIntelError(err);
     if (mapped) return mapped;
     throw err;
   }
