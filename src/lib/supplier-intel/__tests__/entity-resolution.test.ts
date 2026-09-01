@@ -72,7 +72,7 @@ async function main() {
   console.log("S2-FR-T4：同平台 host ≠ 同供应商——A 的抖音已 LINKED，B 的另一账号不得匹配 A");
   const priorWithA: PriorLinkedIdentities = {
     ownedDomains: new Map(),
-    platformAccounts: new Map([["DOUYIN:user:account_a", "sup_a"]]),
+    platformAccounts: new Map([["DOUYIN:user:account_a", new Set(["sup_a"])]]),
   };
   const accountB = resolveSupplierEntityPure(
     { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_b" }] },
@@ -112,7 +112,7 @@ async function main() {
   const m2 = resolveSupplierEntityPure(
     { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: ["factory-b-site.example"], platformAccounts: [] },
     suppliers,
-    { ownedDomains: new Map([["factory-b-site.example", "sup_b"]]), platformAccounts: new Map() },
+    { ownedDomains: new Map([["factory-b-site.example", new Set(["sup_b"])]]), platformAccounts: new Map() },
   );
   assert.equal(m2.decision, "MATCHED_EXISTING");
   assert.equal(m2.supplierId, "sup_b");
@@ -135,7 +135,7 @@ async function main() {
   const conflicted = resolveSupplierEntityPure(
     { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: ["13800138000"], domains: ["factory-b-site.example"], platformAccounts: [] },
     suppliers,
-    { ownedDomains: new Map([["factory-b-site.example", "sup_b"]]), platformAccounts: new Map() },
+    { ownedDomains: new Map([["factory-b-site.example", new Set(["sup_b"])]]), platformAccounts: new Map() },
   );
   assert.equal(conflicted.decision, "NEEDS_HUMAN_REVIEW");
   assert.ok(conflicted.conflicts.some((c) => c.includes("不得自动挑选")));
@@ -162,6 +162,61 @@ async function main() {
   assert.ok(!evil.domains.includes("xxfurniture.cn"));
   const t25 = resolveSupplierEntityPure({ ...evil, companyNameCandidates: [] }, suppliers, noPrior);
   assert.notEqual(t25.decision, "MATCHED_EXISTING");
+
+  console.log("S2-FR-T10：同一精确账号历史关联 A 与 B → 冲突 fail-closed（绝不 first-wins）");
+  const collidedAccounts: PriorLinkedIdentities = {
+    ownedDomains: new Map(),
+    platformAccounts: new Map([["DOUYIN:user:account_x", new Set(["sup_b", "sup_a"])]]),
+  };
+  const t10 = resolveSupplierEntityPure(
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_x" }] },
+    suppliers,
+    collidedAccounts,
+  );
+  assert.equal(t10.decision, "NEEDS_HUMAN_REVIEW");
+  assert.equal(t10.supplierId, undefined, "冲突时不得选任何一家");
+  assert.ok(t10.confidence < 0.9, "冲突不得给高置信");
+  assert.ok(
+    t10.conflicts.some((c) => c.includes("强身份冲突") && c.includes("platform_account") && c.includes("supplierIds=[sup_a,sup_b]")),
+    `冲突元数据确定性（id 排序）：${JSON.stringify(t10.conflicts)}`,
+  );
+  const t10Ids = new Set(t10.matchedSources.filter((m) => m.kind === "platform_account").map((m) => m.supplierId));
+  assert.deepEqual([...t10Ids].sort(), ["sup_a", "sup_b"], "两个 id 都对内暴露");
+
+  console.log("S2-FR-T11：同一自有域名历史关联 A 与 B → NEEDS_HUMAN_REVIEW");
+  const t11 = resolveSupplierEntityPure(
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: ["shared-legacy.example"], platformAccounts: [] },
+    suppliers,
+    { ownedDomains: new Map([["shared-legacy.example", new Set(["sup_a", "sup_b"])]]), platformAccounts: new Map() },
+  );
+  assert.equal(t11.decision, "NEEDS_HUMAN_REVIEW");
+  assert.equal(t11.supplierId, undefined);
+  assert.ok(t11.conflicts.some((c) => c.includes("强身份冲突") && c.includes("archived_supplier_domain")));
+
+  console.log("S2-FR-T12：多条历史 LINK 但同指 A（Set 去重后 size=1）→ 仍可 MATCHED_EXISTING 预填");
+  const t12 = resolveSupplierEntityPure(
+    { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], domains: [], platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }] },
+    suppliers,
+    { ownedDomains: new Map(), platformAccounts: new Map([["DOUYIN:user:account_a", new Set(["sup_a"])]]) },
+  );
+  assert.equal(t12.decision, "MATCHED_EXISTING");
+  assert.equal(t12.supplierId, "sup_a");
+
+  console.log("S2-FR-T13：自有域名→A、精确账号→B（跨键分裂）→ NEEDS_HUMAN_REVIEW，不按求值顺序偏袒");
+  const t13 = resolveSupplierEntityPure(
+    {
+      companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [],
+      domains: ["factory-b-site.example"],
+      platformAccounts: [{ platform: "DOUYIN", accountKey: "DOUYIN:user:account_a" }],
+    },
+    suppliers,
+    {
+      ownedDomains: new Map([["factory-b-site.example", new Set(["sup_b"])]]),
+      platformAccounts: new Map([["DOUYIN:user:account_a", new Set(["sup_a"])]]),
+    },
+  );
+  assert.equal(t13.decision, "NEEDS_HUMAN_REVIEW");
+  assert.equal(t13.supplierId, undefined);
 
   console.log("\nentity-resolution（B2 + S2-FR-T4/T5/T6）全部通过");
 }

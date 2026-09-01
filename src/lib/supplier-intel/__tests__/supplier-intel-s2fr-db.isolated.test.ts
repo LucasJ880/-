@@ -288,6 +288,73 @@ async function main() {
     const resVideo2 = await er.resolveSignalEntity(ownerActor, sigVideo2.id);
     ok(resVideo2.decision !== "MATCHED_EXISTING", "S2-FR-T6：内容页 URL 不沉淀身份——另一条视频不因同平台匹配");
 
+    console.log("\n== F1：强身份冲突 fail-closed（S2-FR-T10/T14 DB 实证）==");
+    const supY = await db.supplier.create({
+      data: { orgId: orgA.id, name: `工厂Y ${tag}`, createdById: userOwner.id },
+    });
+    // 历史脏数据：同一精确账号被先后 LINK 给 supX 与 supY（无 schema 唯一约束，允许存在）
+    const sigCollide1 = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://www.douyin.com/user/collide_account",
+      rawText: "主页分享 C1",
+    });
+    await signalSvc.linkSignalToSupplier(ownerActor, sigCollide1.id, { supplierId: supX.id });
+    const sigCollide2 = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://www.douyin.com/user/collide_account?ref=2",
+      rawText: "主页分享 C2",
+    });
+    await signalSvc.linkSignalToSupplier(ownerActor, sigCollide2.id, { supplierId: supY.id });
+
+    const sigCollideNew = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://www.douyin.com/user/collide_account?ref=3",
+      rawText: "主页分享 C3",
+    });
+    const resCollide = await er.resolveSignalEntity(ownerActor, sigCollideNew.id);
+    ok(resCollide.decision === "NEEDS_HUMAN_REVIEW", "S2-FR-T10：冲突身份 → NEEDS_HUMAN_REVIEW（不 first-wins）", resCollide.decision);
+    ok(resCollide.supplierId === undefined, "S2-FR-T10：不选任何一家");
+    ok(
+      resCollide.conflicts.some((c) => c.includes("强身份冲突") && c.includes([supX.id, supY.id].sort().join(","))),
+      "S2-FR-T10：冲突元数据含排序后的双方 id",
+      JSON.stringify(resCollide.conflicts),
+    );
+
+    // T14：另一 org 存在同一精确账号的 LINKED 历史——不得参与本 org 的匹配/冲突
+    const userB2 = await db.user.create({
+      data: { email: `fr_b2_${tag}@test.qingyan.local`, name: "FRB2", role: "user", status: "active" },
+    });
+    const orgB2 = await db.organization.create({
+      data: { name: `FR OrgB2 ${tag}`, code: `frb2_${tag}`, ownerId: userB2.id, status: "active" },
+    });
+    await db.organizationMember.create({
+      data: { orgId: orgB2.id, userId: userB2.id, role: "org_admin", status: "active" },
+    });
+    const actorB2 = { orgId: orgB2.id, userId: userB2.id };
+    const supForeign = await db.supplier.create({
+      data: { orgId: orgB2.id, name: `外org供应商 ${tag}`, createdById: userB2.id },
+    });
+    const sigForeign = await signalSvc.createSubmittedSignal(actorB2, {
+      url: "https://www.douyin.com/user/xorg_account",
+      rawText: "外 org 主页分享",
+    });
+    await signalSvc.linkSignalToSupplier(actorB2, sigForeign.id, { supplierId: supForeign.id });
+    const sigLocal = await signalSvc.createSubmittedSignal(ownerActor, {
+      url: "https://www.douyin.com/user/xorg_account",
+      rawText: "本 org 看到同一账号",
+    });
+    const resLocal = await er.resolveSignalEntity(ownerActor, sigLocal.id);
+    ok(
+      resLocal.decision === "NEW_SUPPLIER_CANDIDATE" &&
+        resLocal.supplierId === undefined &&
+        !resLocal.conflicts.some((c) => c.includes("强身份冲突")),
+      "S2-FR-T14：他 org 的同身份 LINK 不参与本 org 匹配/冲突",
+      JSON.stringify({ d: resLocal.decision, c: resLocal.conflicts }),
+    );
+    await db.supplierDiscoverySignal.deleteMany({ where: { orgId: orgB2.id } });
+    await db.supplier.deleteMany({ where: { orgId: orgB2.id } });
+    await db.auditLog.deleteMany({ where: { orgId: orgB2.id } });
+    await db.organizationMember.deleteMany({ where: { orgId: orgB2.id } });
+    await db.organization.delete({ where: { id: orgB2.id } });
+    await db.user.delete({ where: { id: userB2.id } });
+
     console.log("\n== 服务层 assert 与 canonical 门语义对齐（抽查）==");
     await accessMod.assertProjectAccessForActor(memberActor, projectA.id, "read");
     ok(true, "viewer read 放行（与 requireProjectReadAccess 一致）");

@@ -201,10 +201,19 @@ function nameOverlap(a: string, b: string): number {
 }
 
 export interface PriorLinkedIdentities {
-  /** 已 LINKED 信号沉淀的供应商**自有域名** → supplierId（平台域名永不入此表，B2） */
-  ownedDomains: Map<string, string>;
-  /** 已 LINKED 信号沉淀的平台**精确账号键** → supplierId（exact account，非裸 host） */
-  platformAccounts: Map<string, string>;
+  /**
+   * 已 LINKED 信号沉淀的供应商**自有域名** → 该身份历史上关联过的全部 supplierId 集合。
+   * F1（Identity Collision Closure）：绝不允许 first-wins/last-wins 把冲突历史静默
+   * 折叠成单一供应商——同一强身份出现 >1 家即冲突，交人审。（平台域名永不入此表，B2）
+   */
+  ownedDomains: Map<string, Set<string>>;
+  /** 已 LINKED 信号沉淀的平台**精确账号键** → supplierId 集合（exact account，非裸 host；同上冲突纪律） */
+  platformAccounts: Map<string, Set<string>>;
+}
+
+/** F1.3：确定性冲突元数据（supplierIds 排序，跨 org 数据永不入内——builder 本身 org-scoped） */
+function identityCollisionConflict(identityType: string, identityKey: string, supplierIds: string[]): string {
+  return `强身份冲突 identityType=${identityType} identityKey=${identityKey} supplierIds=[${[...supplierIds].sort().join(",")}]——不得自动挑选，需人工裁决`;
 }
 
 /**
@@ -221,10 +230,17 @@ export function resolveSupplierEntityPure(
 
   // 键 2a：供应商自有域名（官网字段 or 已档 LINKED 来源）——强键。
   // 供应商主表 website 若填的是平台链接（如抖音主页），不算自有域名（B2 守卫）。
+  // F1：同一身份键的历史关联集 size>1 = 冲突——全部 id 逐个计入 matchedSources
+  //（让 strongSuppliers>1 分支确定性接管 → NEEDS_HUMAN_REVIEW）+ 冲突元数据入 conflicts。
   for (const domain of hints.domains) {
-    const prior2 = prior.ownedDomains.get(domain);
-    if (prior2) {
-      matchedSources.push({ kind: "archived_supplier_domain", key: domain, supplierId: prior2 });
+    const priorSet = prior.ownedDomains.get(domain);
+    if (priorSet && priorSet.size > 0) {
+      for (const sid of [...priorSet].sort()) {
+        matchedSources.push({ kind: "archived_supplier_domain", key: domain, supplierId: sid });
+      }
+      if (priorSet.size > 1) {
+        conflicts.push(identityCollisionConflict("archived_supplier_domain", domain, [...priorSet]));
+      }
     }
     for (const s of suppliers) {
       if (!s.website) continue;
@@ -236,11 +252,17 @@ export function resolveSupplierEntityPure(
     }
   }
   // 键 2b：平台精确账号（仅人工 LINKED 沉淀过的 exact account）——已验证身份提示。
-  // 同平台不同账号（同为 douyin.com）绝不互相匹配（S2-FR-T4）。
+  // 同平台不同账号（同为 douyin.com）绝不互相匹配（S2-FR-T4）；
+  // 同一精确账号历史上关联过多家（S2-FR-T10）→ 冲突，同上纪律。
   for (const account of hints.platformAccounts) {
-    const prior2 = prior.platformAccounts.get(account.accountKey);
-    if (prior2) {
-      matchedSources.push({ kind: "platform_account", key: account.accountKey, supplierId: prior2 });
+    const priorSet = prior.platformAccounts.get(account.accountKey);
+    if (priorSet && priorSet.size > 0) {
+      for (const sid of [...priorSet].sort()) {
+        matchedSources.push({ kind: "platform_account", key: account.accountKey, supplierId: sid });
+      }
+      if (priorSet.size > 1) {
+        conflicts.push(identityCollisionConflict("platform_account", account.accountKey, [...priorSet]));
+      }
     }
   }
   // 键 4：联系方式——强键
@@ -361,23 +383,26 @@ export async function resolveSignalEntity(actor: SupplierIntelActor, signalId: s
     take: 500,
   });
   // B2：LINKED 沉淀按身份分级入库——自有域名与平台精确账号分表；
-  // 平台裸 host / 内容页 URL 什么都不沉淀（同 host ≠ 同供应商）
+  // 平台裸 host / 内容页 URL 什么都不沉淀（同 host ≠ 同供应商）。
+  // F1：同一身份键收集**全部**历史 supplierId（Set 去重）——绝不 first-wins，
+  // 冲突历史必须原样暴露给 resolver 裁决（历史脏数据可读、可判、不折叠）。
   const prior: PriorLinkedIdentities = {
-    ownedDomains: new Map<string, string>(),
-    platformAccounts: new Map<string, string>(),
+    ownedDomains: new Map<string, Set<string>>(),
+    platformAccounts: new Map<string, Set<string>>(),
+  };
+  const addTo = (map: Map<string, Set<string>>, key: string, supplierId: string) => {
+    const set = map.get(key);
+    if (set) set.add(supplierId);
+    else map.set(key, new Set([supplierId]));
   };
   for (const row of linked) {
     if (!row.linkedSupplierId) continue;
     for (const u of [row.accountUrl, row.contentUrl]) {
       const identity = classifyUrlForIdentity(u);
       if (identity.kind === "SUPPLIER_OWNED_DOMAIN" && identity.domain) {
-        if (!prior.ownedDomains.has(identity.domain)) {
-          prior.ownedDomains.set(identity.domain, row.linkedSupplierId);
-        }
+        addTo(prior.ownedDomains, identity.domain, row.linkedSupplierId);
       } else if (identity.kind === "PLATFORM_ACCOUNT_IDENTITY" && identity.accountKey) {
-        if (!prior.platformAccounts.has(identity.accountKey)) {
-          prior.platformAccounts.set(identity.accountKey, row.linkedSupplierId);
-        }
+        addTo(prior.platformAccounts, identity.accountKey, row.linkedSupplierId);
       }
     }
   }
