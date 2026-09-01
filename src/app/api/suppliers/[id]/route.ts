@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
+import { isSupplierIntelError } from "@/lib/supplier-intel/errors";
 import { requireSupplierOrgAccess } from "@/lib/supplier/access";
 import { updateSupplier, deleteSupplier } from "@/lib/supplier/service";
 
@@ -47,6 +48,10 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     await deleteSupplier(id);
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
+    // 情报历史守卫：受控 409（不可删，历史审计必须存活），区别于一般 400
+    if (isSupplierIntelError(err, "SUPPLIER_HAS_INTELLIGENCE_HISTORY")) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.httpStatus });
+    }
     const msg = err instanceof Error ? err.message : "删除失败";
     return NextResponse.json({ error: msg }, { status: 400 });
   }

@@ -2155,6 +2155,13 @@ model Supplier {
   inquiryItems InquiryItem[]
   projectLinks ProjectSupplierLink[]
 
+  // Supplier Intelligence M1-S1（docs/QYANE_SUPPLIER_INTELLIGENCE_M1_DESIGN.md）
+  // 全部 onDelete: Restrict——情报/审计行不得因供应商删除而级联消失（B.1 §5/§6）
+  discoverySignals    SupplierDiscoverySignal[]
+  offerings           SupplierOffering[]
+  intelCandidates     SupplierCandidate[]
+  intelCertifications SupplierCertification[]
+
   @@index([orgId, status])
   @@index([orgId, name])
   @@index([orgId, source])
@@ -2617,6 +2624,302 @@ model InquiryItem {
   @@unique([inquiryId, supplierId])
   @@index([inquiryId, status])
   @@index([supplierId])
+}
+
+// ============================================================
+// Supplier Intelligence M1-S1 —— 审计脊柱
+//   设计冻结：docs/QYANE_SUPPLIER_INTELLIGENCE_M1_DESIGN.md（v2，PR #188）
+//   分层：发现层（DiscoverySignal/CapabilitySignal）→ 评估脊柱（SearchRun/Offering/
+//   Candidate/RequirementMatch/Certification）。
+//   刻意不挂 Organization/User/Project FK（对齐 corporate-memory 先例：审计留存与
+//   业务对象生命周期解耦；租户隔离由服务层 orgId 过滤强制，DB FK 不是授权）。
+//   Supplier/内部 FK 一律 onDelete: Restrict——审计行不得因业务对象删除级联消失。
+//   Run 终态后语义字段不可变、重评估=新 Run，由 src/lib/supplier-intel/* 服务层强制。
+// ============================================================
+
+/// 一次正式、可审计的供应商搜索/评估运行（B1）。
+/// 四快照（brief/requirements/sourceConfig/queries）+ 三版本在创建/运行期写入，
+/// 终态（COMPLETED/FAILED/CANCELLED）后禁改；历史 Run 永不重算，重评估=新 Run。
+model SupplierSearchRun {
+  id        String  @id @default(cuid())
+  orgId     String
+  /// 关联项目/招标（字符串指针，刻意无 FK：项目删除后审计仍可回放）
+  projectId String?
+  tenderId  String?
+
+  status String @default("PLANNED") // PLANNED | RUNNING | COMPLETED | FAILED | CANCELLED
+
+  /// SupplierSearchBrief 全量快照（含四组中文词），审计可回放
+  briefSnapshotJson       Json
+  /// canonical requirements 冻结副本；mandatory 保留 true|false|"uncertain"（V2 层取得，
+  /// 绕开 TenderExtractedRequirement.mandatory 布尔塌缩陷阱）
+  requirementSnapshotJson Json
+  /// 启用的 adapters/providers + 可用性 + 参数
+  sourceConfigJson        Json
+  /// 逐 source 实发查询词（S1 允许为空数组，S2 起填充；终态后冻结）
+  queriesJson             Json
+
+  promptName    String?
+  promptVersion String?
+  /// 创建即冻结的评分契约版本（如 supplier-score-v1）
+  scoreVersion      String
+  /// matching/gate 逻辑版本
+  evaluationVersion String
+
+  /// 仅来自服务端认证上下文（trusted principal），禁止客户端断言
+  createdByUserId String
+  startedAt       DateTime?
+  completedAt     DateTime?
+  /// supplierIntelStatus 同型：{ status: ran|skipped|error, reason, perSource... }（防静默 no-op）
+  statusDetailJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signals    SupplierDiscoverySignal[]
+  candidates SupplierCandidate[]
+
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+  @@index([orgId, tenderId])
+  @@index([orgId, createdAt])
+}
+
+/// 供应商发现信号（Addendum §3）：社媒/公开网络/用户提交的原始线索。
+/// 信号先行——不直接创建 trusted Supplier；REJECTED 为终态之一，不物理删。
+model SupplierDiscoverySignal {
+  id        String  @id @default(cuid())
+  orgId     String
+  projectId String?
+  tenderId  String?
+
+  searchRunId String?
+  searchRun   SupplierSearchRun? @relation(fields: [searchRunId], references: [id], onDelete: Restrict)
+
+  platform     String // DOUYIN | XIAOHONGSHU | WECHAT_CHANNELS | ONE688 | WEBSITE | OPEN_WEB | MANUAL
+  contentType  String // VIDEO | POST | PROFILE | USER_SUBMITTED
+  /// 信任与合规策略按此走（展示按 platform 走）
+  sourceOrigin String // USER_SUBMITTED | PUBLIC_WEB | PROVIDER | MANUAL_ENTRY
+
+  accountName String?
+  accountUrl  String?
+  contentUrl  String?
+  title       String?
+  description String?   @db.Text
+  publishedAt DateTime?
+
+  /// 用户粘贴的分享文案/识别文本（解析不到的字段留空不猜）
+  rawText         String? @db.Text
+  /// provider/解析器原始返回快照（审计）
+  rawMetadataJson Json?
+
+  status           String    @default("NEW") // NEW | REVIEWED | LINKED | REJECTED
+  linkedSupplierId String?
+  linkedSupplier   Supplier? @relation(fields: [linkedSupplierId], references: [id], onDelete: Restrict)
+  /// SupplierEntityResolutionResult 快照数组（人工改判也 append，不覆盖）
+  resolutionJson   Json?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+
+  discoveredAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  capabilitySignals SupplierCapabilitySignal[]
+
+  @@index([orgId, status])
+  @@index([orgId, platform])
+  @@index([orgId, linkedSupplierId])
+  @@index([orgId, tenderId])
+  @@index([orgId, searchRunId])
+}
+
+/// 能力信号（Addendum §4）：从发现信号中提取的结构化能力断言。
+/// social 写路径 evidenceStatus 值域仅 {CLAIMED, OBSERVED, UNKNOWN}——VERIFIED 只能由
+/// 独立证据 + 人工确认路径产生（服务层强制 + 测试断言）。
+model SupplierCapabilitySignal {
+  id    String @id @default(cuid())
+  /// 冗余落一份，跨表查询不 join 也能过滤租户
+  orgId String
+
+  discoverySignalId String
+  discoverySignal   SupplierDiscoverySignal @relation(fields: [discoverySignalId], references: [id], onDelete: Restrict)
+
+  /// TS 常量目录 fail-closed（未知 type 拒收）
+  type           String
+  value          String?
+  evidenceStatus String // CLAIMED | OBSERVED | VERIFIED | UNKNOWN
+  /// AI_ASSISTED 的 OBSERVED 上限 0.8（服务层强制）
+  confidence     Float?
+  explanation    String? @db.Text
+  extractedBy    String // HUMAN | AI_ASSISTED
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, discoverySignalId])
+  @@index([orgId, type, evidenceStatus])
+}
+
+/// 供应商产品/报盘（B4）：Supplier ≠ Product——需求匹配的真正主体是
+/// Supplier + 具体 Offering。priceStatus=UNKNOWN 合法，缺价不得拒绝供应商。
+model SupplierOffering {
+  id         String   @id @default(cuid())
+  orgId      String
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  /// product / model
+  name           String
+  sku            String?
+  category       String?
+  description    String? @db.Text
+  attributesJson Json?
+
+  unitPrice    Decimal? @db.Decimal(18, 2)
+  currency     String?
+  moq          Int?
+  leadTimeDays Int?
+  incoterm     String? // FOB | CIF | DDP | ...
+  priceStatus  String   @default("UNKNOWN") // KNOWN | ESTIMATED | UNKNOWN
+
+  sourceKind     String // DISCOVERY | MANUAL | BROCHURE | INQUIRY
+  sourceUrl      String?
+  /// 溯源指针（字符串，刻意无 FK）
+  sourceSignalId String?
+  status         String  @default("active") // active | archived
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  candidates     SupplierCandidate[]
+  certifications SupplierCertification[]
+
+  @@index([orgId, supplierId])
+  @@index([orgId, category])
+}
+
+/// 供应商候选（B2）：Supplier × Offering × Run 的一次评估记录（Tender 语境经 Run 携带）。
+/// Run 终态后不可变；分数只住这里，禁写 Supplier.rating；人审短名单动作桥接
+/// ProjectSupplierLink，本行不动。supplierSnapshotJson/offeringSnapshotJson 为
+/// 评估当时的按值快照（S1 Final Review Guard）——live 行后续修改不得影响历史候选。
+model SupplierCandidate {
+  id    String @id @default(cuid())
+  orgId String
+
+  searchRunId String
+  searchRun   SupplierSearchRun @relation(fields: [searchRunId], references: [id], onDelete: Restrict)
+  supplierId  String
+  supplier    Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  offeringId  String?
+  offering    SupplierOffering? @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+
+  /// `${searchRunId}:${supplierId}:${offeringId ?? "-"}`（幂等键，规避可空列 unique 的 NULL 陷阱）
+  candidateKey String @unique
+
+  /// 检索优先级 1–5 的审计痕迹（B.1 §9）
+  originSource String // MEMORY | HISTORICAL_SUCCESS | SAVED | EXTERNAL_SEARCH | NEW_DISCOVERY
+
+  /// 评估当时的供应商身份快照（audit-relevant 字段，非整行复制）
+  supplierSnapshotJson Json
+  /// offeringId 非空时进入评估前按值复制（价格/属性/交期后续变化不回写历史）
+  offeringSnapshotJson Json?
+
+  technicalScore     Float?
+  commercialScore    Float?
+  reliabilityScore   Float?
+  importRiskScore    Float?
+  totalScore         Float?
+  /// 与 Run.scoreVersion 一致（冗余落行，行内自证）
+  scoreVersion       String
+  scoreBreakdownJson Json?
+
+  mandatoryGateResult String  @default("PENDING") // PASS | FAIL | INCOMPLETE | PENDING
+  mandatoryGateJson   Json?
+  recommendation      String? // PRIMARY | BACKUP | NEEDS_VERIFICATION | HIGH_RISK | NOT_ELIGIBLE
+  rejectionReason     String?
+
+  discoveryConfidenceJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches SupplierRequirementMatch[]
+
+  @@index([orgId, searchRunId])
+  @@index([orgId, supplierId])
+}
+
+/// 需求匹配行（B3）：Requirement ↔ Candidate/Offering 的持久化判定。
+/// 证据按值快照进 evidenceJson（含认证证据冻结字段）——历史 match 不因
+/// Supplier/Offering/Certification 后续更新而漂移；UNKNOWN 永不折算 PASS。
+model SupplierRequirementMatch {
+  id    String @id @default(cuid())
+  orgId String
+
+  candidateId String
+  candidate   SupplierCandidate @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+
+  /// Run.requirementSnapshotJson 内的 code/id（真相源=快照）
+  requirementKey     String
+  /// TenderExtractedRequirement.id（导航用，非真相源）
+  requirementRefId   String?
+  /// 快照当时判定（uncertain 按 fail-closed 折入 mandatory=true 并置 uncertain 标记）
+  mandatory          Boolean
+  mandatoryUncertain Boolean @default(false)
+
+  verdict     String // PASS | PARTIAL | FAIL | UNKNOWN
+  confidence  Float?
+  explanation String? @db.Text
+  /// 按值证据快照数组：[{kind, url?, signalId?, certification?{...冻结字段}, snippet?, capturedAt}]
+  evidenceJson Json
+
+  evaluationVersion String
+  evaluatedBy       String // HUMAN | AI_ASSISTED | DETERMINISTIC
+
+  createdAt DateTime @default(now())
+
+  @@unique([candidateId, requirementKey])
+  @@index([orgId, candidateId])
+}
+
+/// 认证登记（B5）：分 scope（SUPPLIER/PRODUCT/MODEL_SERIES）。
+/// VERIFIED 唯一写路径 = 人工 + 独立证据（archiveItemId 或 REGISTRY sourceUrl）；
+/// SOCIAL/WEBSITE/BROCHURE 来源仅凭自身永远只能 CLAIMED（「官网说 UL certified」≠ VERIFIED）。
+model SupplierCertification {
+  id         String   @id @default(cuid())
+  orgId      String
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  offeringId String?
+  offering   SupplierOffering? @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+
+  scope             String // SUPPLIER | PRODUCT | MODEL_SERIES
+  certificationType String // UL | ETL | CSA | BIFMA | GREENGUARD | ISO_9001 | ... | OTHER（目录 fail-closed）
+  status            String @default("CLAIMED") // CLAIMED | VERIFIED | REJECTED | EXPIRED
+
+  certificateNumber String?
+  issuer            String?
+  validFrom         DateTime?
+  expiresAt         DateTime?
+
+  sourceKind     String // SOCIAL | WEBSITE | BROCHURE | USER_ENTRY | REGISTRY
+  sourceUrl      String?
+  /// 溯源指针（字符串，刻意无 FK）
+  sourceSignalId String?
+  /// 证书扫描件等独立证据（TenderArchiveItem.id，复用既有内容寻址档案）
+  archiveItemId  String?
+
+  verifiedByUserId String?
+  verifiedAt       DateTime?
+  verificationNote String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, supplierId, status])
+  @@index([orgId, certificationType])
 }
 
 // ============================================================

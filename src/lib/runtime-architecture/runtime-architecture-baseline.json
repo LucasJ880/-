@@ -199,6 +199,7 @@
     "PublishJobStatusEvent",
     "SalesActionSyncRun",
     "SkillExecution",
+    "SupplierSearchRun",
     "TagOnTask",
     "Task",
     "TaskActivity",
