@@ -46,6 +46,7 @@ function ctx(
         "product_content",
         "bids",
         "projects",
+        "window_covering",
       ],
     },
     isPlatformAdmin: false,
@@ -192,7 +193,7 @@ const sunnyLike = resolveNavigationTree(
   ctx({
     platformRole: "sales",
     modules: {
-      enabled: ["sales", "bids", "projects", "operations", "marketing"],
+      enabled: ["sales", "bids", "projects", "operations", "marketing", "window_covering"],
     },
   }),
 );
@@ -226,6 +227,33 @@ ok(
   mengxinLike.some((i) => i.href === "/product-content") &&
     mengxinLike.find((i) => i.href === "/product-content")?.group === "GROWTH",
   "产品内容在品牌增长",
+);
+
+// —— 梦馨销售员：有 sales 无 window_covering → 客户 CRM 在、窗饰域整体不可见 ——
+const mengxinSales = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({
+    platformRole: "sales",
+    modules: {
+      enabled: ["sales", "trade", "product_content", "supply_chain", "operations", "marketing"],
+    },
+  }),
+);
+const mengxinSalesHrefs = mengxinSales.flatMap((i) => [
+  i.href,
+  ...(i.children?.map((c) => c.href) ?? []),
+]);
+ok(
+  ["/sales/home", "/sales", "/sales/calendar"].every((h) =>
+    mengxinSalesHrefs.includes(h),
+  ),
+  "梦馨销售保留销售首页/客户/日历",
+);
+ok(
+  ["/sales/quote-sheet", "/sales/quotes", "/sales/cockpit", "/blinds-orders", "/inventory"].every(
+    (h) => !mengxinSalesHrefs.includes(h),
+  ),
+  "梦馨销售不见电子报价单/全部报价/驾驶舱/工艺单/库存（窗饰域）",
 );
 
 // —— 重复 href ——

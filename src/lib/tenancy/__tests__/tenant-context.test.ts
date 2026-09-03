@@ -14,6 +14,7 @@ import {
   CONFIG_SCOPE_PRIORITY,
   DEFAULT_SUNNY_MODULES,
   DEFAULT_MENGXIN_MODULES,
+  withIndustryPackModules,
 } from "../index";
 
 let pass = 0;
@@ -73,6 +74,50 @@ ok(
 ok(
   navHrefAllowedByModules("/sales", null),
   "未配置 modules 时不限制导航",
+);
+
+ok(isModuleEnabled(sunny, "window_covering"), "Sunny 默认启用 window_covering");
+ok(!isModuleEnabled(mengxin, "window_covering"), "梦馨不含 window_covering");
+ok(
+  !navHrefAllowedByModules("/sales/quote-sheet", mengxin),
+  "梦馨侧栏隐藏电子报价单（窗饰专属）",
+);
+ok(
+  !navHrefAllowedByModules("/blinds-orders", mengxin),
+  "梦馨侧栏隐藏工艺单",
+);
+ok(
+  navHrefAllowedByModules("/sales", mengxin),
+  "梦馨保留销售工作区（客户 CRM）",
+);
+ok(
+  navHrefAllowedByModules("/sales/quote-sheet", sunny),
+  "Sunny 侧栏保留电子报价单",
+);
+
+// —— 行业包回退：老 Sunny 企业 modulesJson 未含 window_covering 时按行业包补上 ——
+const legacySunny = parseOrgModulesJson({ enabled: ["sales", "operations"] });
+const patched = withIndustryPackModules(legacySunny, "window_covering_services_v1");
+ok(
+  !!patched && patched.enabled.includes("window_covering"),
+  "窗饰行业包为老配置补 window_covering",
+);
+ok(
+  withIndustryPackModules(sunny, "window_covering_services_v1") === sunny,
+  "已含 window_covering 时原样返回（幂等）",
+);
+ok(
+  withIndustryPackModules(mengxin, "home_textile_trade_v1") === mengxin,
+  "家纺行业包不补 window_covering",
+);
+ok(
+  withIndustryPackModules(null, "window_covering_services_v1") === null,
+  "无 modules 配置时不注入",
+);
+const emptyModules = parseOrgModulesJson({ enabled: [] });
+ok(
+  withIndustryPackModules(emptyModules, "window_covering_services_v1") === emptyModules,
+  "空 enabled 保持 fail-closed 语义不注入",
 );
 
 ok(

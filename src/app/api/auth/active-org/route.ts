@@ -11,7 +11,7 @@ import {
   switchUserActiveOrg,
 } from "@/lib/organizations/org-access";
 import { db } from "@/lib/db";
-import { parseOrgModulesJson } from "@/lib/tenancy";
+import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy";
 
 /**
  * GET /api/auth/active-org
@@ -37,10 +37,13 @@ export async function GET(request: NextRequest) {
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
-      select: { code: true, modulesJson: true },
+      select: { code: true, modulesJson: true, industryPackId: true },
     });
     orgCode = org?.code ?? null;
-    modules = parseOrgModulesJson(org?.modulesJson);
+    modules = withIndustryPackModules(
+      parseOrgModulesJson(org?.modulesJson),
+      org?.industryPackId,
+    );
     const [member, workspaces, projectMember] = await Promise.all([
       db.organizationMember.findUnique({
         where: {

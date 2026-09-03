@@ -8,6 +8,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOrgModules } from "@/lib/hooks/use-org-modules";
 
 const ACTIONS = [
   {
@@ -17,6 +18,7 @@ const ACTIONS = [
     primary: true,
   },
   {
+    // 报价入口按企业行业切换：窗饰=电子报价单；家纺外贸（梦馨）=外贸报价
     href: "/sales/quote-sheet",
     label: "快速报价",
     icon: FileText,
@@ -37,9 +39,18 @@ const ACTIONS = [
 ] as const;
 
 export function SalesQuickActions() {
+  const { hasModule } = useOrgModules();
+  const windowCovering = hasModule("window_covering");
+  const actions = ACTIONS.map((a) => {
+    if (a.href !== "/sales/quote-sheet") return a;
+    if (windowCovering === false) {
+      return { ...a, href: "/trade/quotes", label: "外贸报价" };
+    }
+    return a;
+  });
   return (
     <div className="flex flex-wrap gap-2">
-      {ACTIONS.map((a) => {
+      {actions.map((a) => {
         const Icon = a.icon;
         return (
           <Link
