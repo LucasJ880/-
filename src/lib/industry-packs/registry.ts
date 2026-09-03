@@ -63,6 +63,7 @@ const WINDOW_COVERING_SERVICES_V1: IndustryPack = {
     "marketing",
     "product_content",
     "operations",
+    "window_covering",
   ],
   businessVocabulary: {
     customer: "客户",

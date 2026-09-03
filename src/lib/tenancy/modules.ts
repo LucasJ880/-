@@ -12,6 +12,8 @@ export const ORG_MODULES = [
   "product_content",
   "supply_chain",
   "operations",
+  /** 窗饰专属工具面（报价单/工艺单/面料库存/可视化等）；梦馨等非窗饰企业不启用 */
+  "window_covering",
 ] as const;
 
 export type OrgModule = (typeof ORG_MODULES)[number];
@@ -27,6 +29,7 @@ export const DEFAULT_SUNNY_MODULES: OrgModule[] = [
   "marketing",
   "product_content",
   "operations",
+  "window_covering",
 ];
 
 export const DEFAULT_MENGXIN_MODULES: OrgModule[] = [
@@ -41,13 +44,13 @@ export const DEFAULT_MENGXIN_MODULES: OrgModule[] = [
 /** 导航项 → 所需模块（任一命中即显示；未配置则不限制） */
 export const NAV_HREF_MODULES: Record<string, OrgModule[]> = {
   "/sales": ["sales"],
-  "/sales/quote-sheet": ["sales"],
-  "/sales/quotes": ["sales"],
+  "/sales/quote-sheet": ["window_covering"],
+  "/sales/quotes": ["window_covering"],
   "/sales/calendar": ["sales"],
-  "/sales/cockpit": ["sales"],
+  "/sales/cockpit": ["window_covering"],
   "/sales/knowledge": ["sales"],
-  "/blinds-orders": ["sales", "operations"],
-  "/inventory": ["sales", "supply_chain"],
+  "/blinds-orders": ["window_covering"],
+  "/inventory": ["window_covering"],
   "/trade": ["trade"],
   "/trade/prospects": ["trade"],
   "/trade/intelligence": ["trade"],
@@ -73,6 +76,21 @@ export const NAV_HREF_MODULES: Record<string, OrgModule[]> = {
   "/marketing": ["marketing"],
   "/operations/growth": ["marketing", "operations"],
 };
+
+/**
+ * 行业包 → 隐含模块（过渡兜底）：
+ * 窗饰服务包的企业即使 modulesJson 尚未显式加 window_covering，也视同启用，
+ * 保证代码先于数据脚本上线时 Sunny 工具面不闪断；非窗饰包（如梦馨家纺）不受影响。
+ */
+export function withIndustryPackModules(
+  modules: OrgModulesConfig | null,
+  industryPackId: string | null | undefined,
+): OrgModulesConfig | null {
+  if (industryPackId !== "window_covering_services_v1") return modules;
+  if (!modules?.enabled?.length) return modules;
+  if (modules.enabled.includes("window_covering")) return modules;
+  return { enabled: [...modules.enabled, "window_covering"] };
+}
 
 export function parseOrgModulesJson(raw: unknown): OrgModulesConfig | null {
   if (!raw || typeof raw !== "object") return null;

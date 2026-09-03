@@ -98,6 +98,7 @@ npx tsx scripts/public-route-auth-contracts.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
+npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts

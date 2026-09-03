@@ -10,6 +10,7 @@ export {
   parseOrgModulesJson,
   isModuleEnabled,
   navHrefAllowedByModules,
+  withIndustryPackModules,
 } from "./modules";
 
 export {

@@ -50,7 +50,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     }
 
     try {
-      const refined = await refineEmail({ currentSubject, currentHtml, refinement });
+      const refined = await refineEmail({ currentSubject, currentHtml, refinement, orgId: orgRes.orgId });
       return NextResponse.json({ email: refined });
     } catch (err) {
       return NextResponse.json(
