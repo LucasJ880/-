@@ -143,6 +143,7 @@ run_test "Mention Gateway M2-A DB Identity E2E（隔离库执行，否则跳过�
 run_test "Phase1.1 AIRuntimeContext契约" "npx tsx src/lib/ai/__tests__/runtime-context.test.ts"
 run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
+run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra 无 None）" "npx tsx src/lib/blinds/__tests__/valance-options.test.ts"
 run_test "Supplier Intel S1 评分契约 supplier-score-v1（T10 零 LLM）" "npx tsx src/lib/supplier-intel/__tests__/score-contract.test.ts"
 run_test "Supplier Intel S1 提交解析器（T3/T19 SSRF 守卫）" "npx tsx src/lib/supplier-intel/__tests__/submission-parser.test.ts"
 run_test "Supplier Intel S1 治理矩阵（T8 目录 fail-closed/状态机/uncertain）" "npx tsx src/lib/supplier-intel/__tests__/governance.test.ts"
