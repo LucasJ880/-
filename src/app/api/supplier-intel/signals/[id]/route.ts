@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
-import { SupplierIntelError } from "@/lib/supplier-intel/errors";
+import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
 import {
   getSignal,
   linkSignalToSupplier,
@@ -9,13 +9,6 @@ import {
 } from "@/lib/supplier-intel/signal-service";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-function mapDomainError(err: unknown): NextResponse | null {
-  if (err instanceof SupplierIntelError) {
-    return NextResponse.json({ error: err.message, code: err.code }, { status: err.httpStatus });
-  }
-  return null;
-}
 
 export async function GET(request: NextRequest, ctx: Ctx) {
   const tenant = await requireSupplierIntelAccess(request);
@@ -55,7 +48,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       { status: 400 },
     );
   } catch (err) {
-    const mapped = mapDomainError(err);
+    const mapped = mapSupplierIntelError(err);
     if (mapped) return mapped;
     throw err;
   }

@@ -8,8 +8,8 @@
  */
 
 import { isExternalIntelEnabled } from "./canadabuys";
+import { tavilySearch as sharedTavilySearch } from "./tavily-client";
 
-const TAVILY_URL = "https://api.tavily.com/search";
 const TIMEOUT_MS = 25_000;
 const MAX_PER_LINE = 5;
 
@@ -111,37 +111,15 @@ async function tavilySearch(
   env: NodeJS.ProcessEnv,
   fetchImpl: typeof fetch,
 ): Promise<WebFinding[]> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetchImpl(TAVILY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: env.TAVILY_API_KEY,
-        query,
-        max_results: MAX_PER_LINE,
-        search_depth: "basic",
-      }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as {
-      results?: Array<{ title?: string; url?: string; content?: string }>;
-    };
-    return (data.results ?? [])
-      .filter((r) => r.url)
-      .map((r) => ({
-        title: (r.title ?? r.url ?? "").slice(0, 160),
-        url: r.url!,
-        snippet: (r.content ?? "").slice(0, 300),
-        sourceQuery: query,
-      }));
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
+  // M1-S2 起统一走共享 client（行为等价：max 5 / basic / 25s / catch→[]，snippet 300）
+  const hits = await sharedTavilySearch(query, {
+    env,
+    fetchImpl,
+    maxResults: MAX_PER_LINE,
+    timeoutMs: TIMEOUT_MS,
+    snippetMaxChars: 300,
+  });
+  return hits.map((h) => ({ ...h, sourceQuery: query }));
 }
 
 /** 多线 Web 检索 + 交叉验证（总闸 OFF 或无 key → 零出站） */

@@ -12,6 +12,7 @@
 
 import { z } from "zod";
 import { callStructured, createUnifiedRuntimeInvoker, type LlmInvoker } from "@/lib/tender-understanding/llm";
+import { tavilySearch } from "./tavily-client";
 import { hasWebSearchKey } from "./websearch";
 
 export const MARKET_PRICING_VERSION = "tender-market-pricing/v1" as const;
@@ -51,27 +52,11 @@ export type MarketPricingIntel = {
   sources: MarketSource[];
 };
 
-const TAVILY_URL = "https://api.tavily.com/search";
 const FX_NOTE = "基准价按来源原币呈现，未做汇率换算——换算与目标价测算请在报价引擎（Sunny 定价链）中以人工确认的汇率完成。";
 
+// M1-S2 起统一走共享 client（tavily-client.ts），行为等价
 async function tavily(query: string, env: NodeJS.ProcessEnv, fetchImpl: typeof fetch): Promise<MarketSource[]> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25_000);
-  try {
-    const res = await fetchImpl(TAVILY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: env.TAVILY_API_KEY, query, max_results: 5, search_depth: "basic" }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
-    return (data.results ?? []).filter((r) => r.url).map((r) => ({ title: (r.title ?? r.url ?? "").slice(0, 160), url: r.url!, snippet: (r.content ?? "").slice(0, 500) }));
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
+  return tavilySearch(query, { env, fetchImpl });
 }
 
 export function deriveMarketQueries(input: { productPhrase: string | null; specHints: string[] }): string[] {
