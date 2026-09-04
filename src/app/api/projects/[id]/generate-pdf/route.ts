@@ -35,11 +35,14 @@ export const GET = withAuth(async (request, ctx) => {
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  const docs = await db.projectGeneratedDocument.findMany({
+  const docsRaw = await db.projectGeneratedDocument.findMany({
     where: { projectId },
     orderBy: { createdAt: "desc" },
     take: 30,
   });
+  // 乱码时代文档（jsPDF 无 CJK / html_fallback 回落件）列表层作废——行保留可审计
+  const { isLegacyGarbledGeneratedDoc } = await import("@/lib/projects/generate/legacy-doc-filter");
+  const docs = docsRaw.filter((d) => !isLegacyGarbledGeneratedDoc(d));
   return NextResponse.json({
     documents: docs.map((d) => ({
       ...d,
