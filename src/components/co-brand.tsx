@@ -2,6 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element */
 
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useLocale } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
@@ -24,7 +26,28 @@ export function CoBrand({
 }) {
   const { m } = useLocale();
   const { user } = useCurrentUser();
-  const company = user?.companies?.[0];
+  // 当前企业归属的公司优先（公司→组织层级）；无归属时回退账号级公司标
+  const [orgCompany, setOrgCompany] = useState<
+    { name: string; logoUrl: string } | null | undefined
+  >(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/auth/active-org")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { orgCompany?: { name: string; logoUrl: string } | null } | null) => {
+        if (!cancelled) setOrgCompany(d?.orgCompany ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgCompany(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const company =
+    orgCompany === undefined
+      ? user?.companies?.[0]
+      : (orgCompany ?? user?.companies?.[0]);
 
   const isSidebar = variant === "sidebar";
   const nameCls = cn(

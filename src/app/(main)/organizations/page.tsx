@@ -22,6 +22,7 @@ interface OrgRow {
   memberCount: number;
   projectCount: number;
   myRole: string | null;
+  company: { name: string; logoUrl: string } | null;
 }
 
 export default function OrganizationsPage() {
@@ -215,8 +216,43 @@ export default function OrganizationsPage() {
           </div>
         </div>
       ) : (
-        <ul className="space-y-2">
-          {orgs.map((o) => {
+        <div className="space-y-6">
+          {(() => {
+            // 公司 → 组织层级：先按公司分组，独立组织（个人工作区等）殿后
+            const groups = new Map<string, { company: OrgRow["company"]; rows: OrgRow[] }>();
+            for (const o of orgs) {
+              const key = o.company?.name ?? "";
+              if (!groups.has(key)) groups.set(key, { company: o.company, rows: [] });
+              groups.get(key)!.rows.push(o);
+            }
+            const sections = [...groups.entries()].sort(([a], [b]) => {
+              if (a === "") return 1;
+              if (b === "") return -1;
+              return a.localeCompare(b, "zh");
+            });
+            return sections.map(([key, g]) => (
+              <section key={key || "__standalone"}>
+                <div className="mb-2 flex items-center gap-2">
+                  {g.company ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={g.company.logoUrl}
+                        alt={g.company.name}
+                        className="h-5 max-w-[96px] rounded object-contain"
+                      />
+                      <span className="text-xs font-semibold tracking-wide text-muted">
+                        {g.company.name} · {g.rows.length} 个组织
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs font-semibold tracking-wide text-muted">
+                      独立组织（未归属公司）· {g.rows.length} 个
+                    </span>
+                  )}
+                </div>
+                <ul className="space-y-2">
+                  {g.rows.map((o) => {
             const isCurrent = o.id === activeOrgId;
             return (
               <li key={o.id}>
@@ -299,8 +335,12 @@ export default function OrganizationsPage() {
                 </div>
               </li>
             );
-          })}
-        </ul>
+                  })}
+                </ul>
+              </section>
+            ));
+          })()}
+        </div>
       )}
     </div>
   );
