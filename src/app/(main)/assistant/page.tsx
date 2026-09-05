@@ -273,6 +273,63 @@ function AssistantPageInner() {
         ? "当前账号尚未关联可用组织，请联系管理员或先加入组织"
         : null;
 
+  // 断流恢复：流挂起/中断时，回复可能已在服务端落库——轮询取回并接管界面。
+  // 成功返回 true（界面已用服务端权威快照重挂，含审批卡与 run 状态）。
+  const tryRecoverAssistantReply = async (
+    threadId: string,
+    sentContent: string,
+    attempts: number,
+    delayMs: number,
+  ): Promise<boolean> => {
+    for (let i = 0; i < attempts; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
+      try {
+        const [data, runsData] = await Promise.all([
+          apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${threadId}/messages`),
+          apiJson<{ runs?: AssistantRunStatusDto[] }>(
+            `/api/ai/threads/${threadId}/runs`,
+          ).catch(() => ({ runs: [] as AssistantRunStatusDto[] })),
+        ]);
+        const serverMsgs = data.messages ?? [];
+        const latest = serverMsgs.at(-1);
+        const recoveredContent =
+          latest?.role === "assistant" ? (latest.content ?? "").trim() : "";
+        if (recoveredContent && !recoveredContent.startsWith("正在")) {
+          const now = Date.now();
+          const mapped: StreamingMsg[] = serverMsgs.map((m: AiMsg) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+            pendingApprovals: (m.pendingActions ?? []).map((a) =>
+              mapApiPendingAction(a, now),
+            ),
+          }));
+          setMessages(
+            attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
+          );
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === threadId
+                ? {
+                    ...t,
+                    title:
+                      t.title === "新对话" ? sentContent.slice(0, 60) : t.title,
+                    lastMessageAt: new Date().toISOString(),
+                    _count: { messages: t._count.messages + 2 },
+                  }
+                : t,
+            ),
+          );
+          return true;
+        }
+      } catch {
+        /* 下一轮再试 */
+      }
+    }
+    return false;
+  };
+
   const handleSend = async (text?: string) => {
     const content = (text || input).trim();
     if (!content || isLoading) return;
@@ -291,6 +348,7 @@ function AssistantPageInner() {
       content,
     };
     let assistantId = `assistant-${Date.now()}`;
+    let recoveryExhausted = false;
     const assistantMsg: StreamingMsg = {
       id: assistantId,
       role: "assistant",
@@ -344,9 +402,51 @@ function AssistantPageInner() {
       const sseLines = new SseLineBuffer();
       let fullText = "";
       let runtimeV2Mode = false;
+      let recoveredFromStall = false;
+
+      // 静默看门狗：正常运行时工具事件/文本增量会持续到达；
+      // 超过 30s 一个字节都没有≈链路挂起（代理截断/断网），不 abort 请求
+      // （避免误杀慢推理），改为轮询服务端已落库的回复接管界面。
+      const STALL_MS = 30_000;
+      const readWithStallGuard = async (): Promise<
+        | { kind: "chunk"; done: boolean; value: Uint8Array | undefined }
+        | { kind: "stalled" }
+      > => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const stallP = new Promise<{ kind: "stalled" }>((resolve) => {
+          timer = setTimeout(() => resolve({ kind: "stalled" }), STALL_MS);
+        });
+        try {
+          return await Promise.race([
+            reader.read().then((r) => ({
+              kind: "chunk" as const,
+              done: r.done,
+              value: r.value,
+            })),
+            stallP,
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
 
       while (true) {
-        const { done, value } = await reader.read();
+        const raced = await readWithStallGuard();
+        if (raced.kind === "stalled") {
+          const ok = await tryRecoverAssistantReply(threadId, content, 6, 5000);
+          if (ok) {
+            recoveredFromStall = true;
+            try {
+              await reader.cancel();
+            } catch {
+              /* ignore */
+            }
+            break;
+          }
+          recoveryExhausted = true;
+          throw new Error("连接中断，且暂未取到回复。稍候刷新或重试。");
+        }
+        const { done, value } = raced;
         const lines = done
           ? [...sseLines.push(decoder.decode()), ...sseLines.flush()]
           : sseLines.push(decoder.decode(value, { stream: true }));
@@ -583,29 +683,20 @@ function AssistantPageInner() {
         if (done) break;
       }
 
+      if (recoveredFromStall) {
+        return; // 界面已由服务端权威快照接管
+      }
+
       const { cleanText, suggestion, parseError } = extractWorkSuggestion(fullText);
-      let finalContent = parseError
+      const finalContent = parseError
         ? `${cleanText}\n\n> [AI 建议解析异常] ${parseError.reason}`
         : cleanText;
 
       // 上游可能已经正常落库，但浏览器响应流被代理提前截断。
-      // 此时恢复服务端最终消息，避免界面只留下“思考”后出现空白。
+      // 轮询取回服务端最终消息，避免界面只留下“思考”后出现空白。
       if (!finalContent.trim() && threadId) {
-        try {
-          const recovered = await apiJson<{ messages?: AiMsg[] }>(
-            `/api/ai/threads/${threadId}/messages`,
-          );
-          const recoveredMessages = recovered.messages ?? [];
-          const latestMessage = recoveredMessages.at(-1);
-          const latestAssistant =
-            latestMessage?.role === "assistant" ? latestMessage : null;
-          const recoveredContent = latestAssistant?.content?.trim() ?? "";
-          if (recoveredContent && !recoveredContent.startsWith("正在")) {
-            finalContent = recoveredContent;
-          }
-        } catch {
-          /* 下方统一显示可重试错误 */
-        }
+        const ok = await tryRecoverAssistantReply(threadId, content, 3, 2000);
+        if (ok) return;
       }
 
       if (!finalContent.trim()) {
@@ -674,6 +765,10 @@ function AssistantPageInner() {
         )
       );
     } catch (err) {
+      if (threadId && !recoveryExhausted) {
+        const ok = await tryRecoverAssistantReply(threadId, content, 3, 3000);
+        if (ok) return;
+      }
       const errorMessage =
         err instanceof Error ? err.message : "AI 服务暂时不可用";
       setMessages((prev) =>

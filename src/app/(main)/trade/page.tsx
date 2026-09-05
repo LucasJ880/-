@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
+import { TradeOnboardingGuide } from "@/components/trade/trade-onboarding-guide";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
@@ -186,6 +187,8 @@ export default function TradeDashboardPage() {
         title="外贸获客"
         description="AI 驱动的海外买家发现、研究和外联自动化"
       />
+
+      <TradeOnboardingGuide />
 
       <p className="text-[11px] text-muted">
         <Link href="/trade/prospects" className="text-blue-400 hover:text-blue-300 hover:underline">
