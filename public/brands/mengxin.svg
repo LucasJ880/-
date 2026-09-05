@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 200" role="img" aria-label="Mengxin Home Textile">
+  <!-- 白底圆角徽牌：保证深色侧栏与浅色页头都清晰 -->
+  <rect x="0" y="0" width="780" height="200" rx="28" fill="#ffffff"/>
+  <defs>
+    <clipPath id="mx-circle">
+      <circle cx="100" cy="100" r="66"/>
+    </clipPath>
+  </defs>
+
+  <!-- 圆形线稿标志：上方扇形旭日 + 下方层叠织物流线 -->
+  <g stroke="#3c4c55" stroke-width="3.6" fill="none" stroke-linecap="round">
+    <circle cx="100" cy="100" r="70"/>
+    <g clip-path="url(#mx-circle)">
+      <!-- 扇形放射线（从中上焦点向上散开） -->
+      <g>
+        <path d="M96 88 L52 62"/>
+        <path d="M96 88 L62 46"/>
+        <path d="M96 88 L80 38"/>
+        <path d="M96 88 L100 34"/>
+        <path d="M96 88 L120 40"/>
+        <path d="M96 88 L136 52"/>
+        <path d="M96 88 L146 70"/>
+      </g>
+      <!-- 织物流线：向右上悬垂的层叠曲线 -->
+      <path d="M28 100 C 62 94, 112 82, 172 90"/>
+      <path d="M26 114 C 66 106, 118 94, 174 102"/>
+      <path d="M26 128 C 68 118, 122 106, 174 114"/>
+      <path d="M30 142 C 72 130, 126 118, 172 126"/>
+      <path d="M36 156 C 78 144, 126 132, 166 138"/>
+      <path d="M48 168 C 86 158, 124 146, 156 150"/>
+    </g>
+  </g>
+
+  <!-- 字标 -->
+  <text x="200" y="118" font-family="'Poppins','Avenir Next','PingFang SC','Segoe UI',system-ui,sans-serif" font-size="52" font-weight="600" fill="#2e3338" letter-spacing="0.5">Mengxin Home Textile</text>
+</svg>
