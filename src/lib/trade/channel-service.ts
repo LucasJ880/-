@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 
 export interface ChannelConfig {
   orgId: string;
-  channel: "whatsapp" | "wechat" | "wechat_work";
+  channel: "whatsapp" | "wechat" | "wechat_work" | "website";
   name: string;
   config: Record<string, string>;
 }
@@ -243,7 +243,7 @@ async function sendWechatWork(
 // ── Webhook: Process Inbound ────────────────────────────────
 
 export interface InboundMessage {
-  channel: "whatsapp" | "wechat" | "wechat_work";
+  channel: "whatsapp" | "wechat" | "wechat_work" | "website";
   from: string;
   content: string;
   externalId?: string;
