@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
@@ -33,6 +33,24 @@ function NewQuoteForm() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  type DraftItem = { productName: string; specification: string; quantity: string; unit: string; unitPrice: string };
+  const emptyItem: DraftItem = { productName: "", specification: "", quantity: "", unit: "pcs", unitPrice: "" };
+  const [items, setItems] = useState<DraftItem[]>([{ ...emptyItem }]);
+  const updateItem = (idx: number, patch: Partial<DraftItem>) =>
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  const removeItem = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
+  // 只提交填了品名的行；数量/单价非法时按 0 处理（与详情页加行的宽松度一致）
+  const cleanedItems = items
+    .filter((it) => it.productName.trim())
+    .map((it) => ({
+      productName: it.productName.trim(),
+      specification: it.specification.trim() || undefined,
+      unit: it.unit.trim() || "pcs",
+      quantity: Number(it.quantity) > 0 ? Number(it.quantity) : 0,
+      unitPrice: Number(it.unitPrice) > 0 ? Number(it.unitPrice) : 0,
+    }));
+  const subtotal = cleanedItems.reduce((s, it) => s + it.quantity * it.unitPrice, 0);
+
   const prospectId = params.get("prospectId") ?? undefined;
   const campaignId = params.get("campaignId") ?? undefined;
 
@@ -60,6 +78,7 @@ function NewQuoteForm() {
           moq: moq.trim() || undefined,
           shippingPort: shippingPort.trim() || undefined,
           notes: notes.trim() || undefined,
+          ...(cleanedItems.length > 0 ? { items: cleanedItems } : {}),
         }),
       });
       if (res.ok) {
@@ -102,7 +121,7 @@ function NewQuoteForm() {
         </button>
         <div>
           <h1 className="text-lg font-semibold text-foreground">新建报价单</h1>
-          <p className="text-xs text-muted">创建后可添加产品行项目</p>
+          <p className="text-xs text-muted">产品行可直接填写，创建后也能继续增改</p>
         </div>
       </div>
 
@@ -171,6 +190,67 @@ function NewQuoteForm() {
             <label className="mb-1 block text-xs font-medium text-foreground">最低起订量</label>
             <input value={moq} onChange={(e) => setMoq(e.target.value)} placeholder="500 pcs" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
           </div>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-medium text-foreground">产品行</label>
+            {subtotal > 0 && (
+              <span className="text-xs text-muted">小计 {currency} {subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            )}
+          </div>
+          {items.map((it, idx) => (
+            <div key={idx} className="rounded-lg border border-border/60 bg-background/50 p-2.5 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  value={it.productName}
+                  onChange={(e) => updateItem(idx, { productName: e.target.value })}
+                  placeholder="品名，如 Coral Fleece Bathrobe"
+                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+                />
+                <button type="button" onClick={() => removeItem(idx)} aria-label="删除产品行" className="rounded-lg p-2 text-muted transition hover:text-red-500">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <input
+                value={it.specification}
+                onChange={(e) => updateItem(idx, { specification: e.target.value })}
+                placeholder="规格：材质成分 / 克重 / 尺寸 / 装箱（如 100% polyester 280GSM · S-XL · 25pcs/ctn）"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+              />
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  value={it.quantity}
+                  onChange={(e) => updateItem(idx, { quantity: e.target.value })}
+                  type="number"
+                  min="0"
+                  placeholder="数量"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  value={it.unit}
+                  onChange={(e) => updateItem(idx, { unit: e.target.value })}
+                  placeholder="单位"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+                />
+                <input
+                  value={it.unitPrice}
+                  onChange={(e) => updateItem(idx, { unitPrice: e.target.value })}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={`单价 (${currency})`}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setItems((prev) => [...prev, { ...emptyItem }])}
+            className="flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted transition hover:border-blue-500 hover:text-foreground"
+          >
+            <Plus size={13} /> 加一行产品
+          </button>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-foreground">备注</label>

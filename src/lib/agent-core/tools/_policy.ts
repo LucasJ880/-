@@ -65,6 +65,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   trade_list_quotes:              { risk: "l0_read", allowRoles: ["admin", "trade"] },
   trade_get_suggestions:          { risk: "l0_read", allowRoles: ["admin", "trade"] },
   trade_run_prospect_research:    { risk: "l2_soft", allowRoles: ["admin", "trade"] },
+  trade_generate_outreach:        { risk: "l2_soft", allowRoles: ["admin", "trade"] },
+  trade_log_follow_up:            { risk: "l2_soft", allowRoles: ["admin", "trade"] },
   trade_create_service_request:   { risk: "l2_soft", allowRoles: ["admin", "trade"] },
   trade_search_knowledge:         { risk: "l0_read", allowRoles: ["admin", "trade"] },
 
