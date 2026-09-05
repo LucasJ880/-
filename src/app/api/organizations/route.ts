@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { members: true } },
+        company: { select: { name: true, logoUrl: true } },
       },
     });
     const [membershipRows, projectCounts] = await Promise.all([
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
         memberCount: o._count.members,
         projectCount: projectCountByOrg.get(o.id) ?? 0,
         myRole: roleByOrg.get(o.id) ?? null,
+        company: o.company ?? null,
       })),
     });
   }
@@ -69,7 +71,10 @@ export async function GET(request: NextRequest) {
     },
     include: {
       org: {
-        include: { _count: { select: { members: true } } },
+        include: {
+          _count: { select: { members: true } },
+          company: { select: { name: true, logoUrl: true } },
+        },
       },
     },
     orderBy: { joinedAt: "desc" },
@@ -98,6 +103,7 @@ export async function GET(request: NextRequest) {
       createdAt: m.org.createdAt,
       updatedAt: m.org.updatedAt,
       memberCount: m.org._count.members,
+      company: m.org.company ?? null,
       projectCount: dispatchedCountByOrg.get(m.org.id) ?? 0,
       myRole: m.role,
     })),
