@@ -31,15 +31,22 @@ export async function GET(request: NextRequest) {
   const resolved = await resolvePreferredOrgId(user.id, user.role);
   let modules: ReturnType<typeof parseOrgModulesJson> = null;
   let orgCode: string | null = null;
+  let orgCompany: { name: string; logoUrl: string } | null = null;
   let workspaceIds: string[] = [];
   let orgRole: string | null = null;
   let hasBidCapability = false;
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
-      select: { code: true, modulesJson: true, industryPackId: true },
+      select: {
+        code: true,
+        modulesJson: true,
+        industryPackId: true,
+        company: { select: { name: true, logoUrl: true } },
+      },
     });
     orgCode = org?.code ?? null;
+    orgCompany = org?.company ?? null;
     modules = withIndustryPackModules(
       parseOrgModulesJson(org?.modulesJson),
       org?.industryPackId,
@@ -81,6 +88,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     activeOrgId: resolved.orgId,
     orgCode,
+    orgCompany,
     modules,
     orgRole,
     workspaceIds,

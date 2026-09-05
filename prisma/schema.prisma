@@ -210,6 +210,9 @@ model Company {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// 公司旗下的组织（公司 → 多组织层级）
+  organizations Organization[]
 }
 
 // ============================================================
@@ -752,6 +755,9 @@ model Organization {
   settingsJson   Json?
   /// Industry Pack id（Registry）：如 window_covering_services_v1；空=未配置（禁止静默家纺回退）
   industryPackId String?
+  /// 归属公司（公司 → 多组织；空=独立组织，如个人工作区）
+  companyId      String?
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -801,6 +807,7 @@ model Organization {
   aiThreads           AiThread[]
   salesActions        SalesAction[]
   salesActionSyncRuns SalesActionSyncRun[]
+  @@index([companyId])
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
