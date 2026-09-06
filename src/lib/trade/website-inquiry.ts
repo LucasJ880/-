@@ -169,9 +169,12 @@ export async function resolveWebsiteChannelBySecret(secret: string) {
   return null;
 }
 
-async function ensureInquiryCampaign(orgId: string) {
+export async function ensureInquiryCampaign(
+  orgId: string,
+  name: string = WEBSITE_INQUIRY_CAMPAIGN_NAME,
+) {
   const existing = await db.tradeCampaign.findFirst({
-    where: { orgId, name: WEBSITE_INQUIRY_CAMPAIGN_NAME },
+    where: { orgId, name },
     select: { id: true },
   });
   if (existing) return existing.id;
@@ -182,8 +185,8 @@ async function ensureInquiryCampaign(orgId: string) {
   const created = await db.tradeCampaign.create({
     data: {
       orgId,
-      name: WEBSITE_INQUIRY_CAMPAIGN_NAME,
-      productDesc: "独立站表单自动归集的询盘",
+      name,
+      productDesc: name === WEBSITE_INQUIRY_CAMPAIGN_NAME ? "独立站表单自动归集的询盘" : "消息通道陌生来信自动归集的询盘",
       targetMarket: "海外（按询盘国家）",
       searchKeywords: [],
       status: "active",
@@ -253,6 +256,23 @@ export async function ingestWebsiteInquiry(
     },
   });
 
+  const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
+  const notified = await notifyInquiryMembers(orgId, {
+    title: `网站询盘：${prospect.companyName}`,
+    summary: (summaryBits || v.email || v.phone).slice(0, 140),
+    prospectId: prospect.id,
+    source: "website",
+    sourceKey: `website-inquiry:${message.id}`,
+  });
+
+  return { prospectId: prospect.id, messageId: message.id, duplicate, notified };
+}
+
+/** 通知 org 内外贸相关成员（幂等键防重复） */
+export async function notifyInquiryMembers(
+  orgId: string,
+  input: { title: string; summary: string; prospectId: string; source: string; sourceKey: string },
+): Promise<number> {
   const members = await db.organizationMember.findMany({
     where: {
       orgId,
@@ -261,23 +281,19 @@ export async function ingestWebsiteInquiry(
     },
     select: { userId: true },
   });
-  const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
-  const notified = members.length
-    ? await createNotificationsForUsers(
-        members.map((m) => m.userId),
-        {
-          type: "followup",
-          title: `网站询盘：${prospect.companyName}`,
-          summary: (summaryBits || v.email || v.phone).slice(0, 140),
-          orgId,
-          entityType: "trade_prospect",
-          entityId: prospect.id,
-          priority: "high",
-          metadata: { prospectId: prospect.id, source: "website" },
-          sourceKeyPrefix: `website-inquiry:${message.id}`,
-        },
-      )
-    : 0;
-
-  return { prospectId: prospect.id, messageId: message.id, duplicate, notified };
+  if (members.length === 0) return 0;
+  return createNotificationsForUsers(
+    members.map((m) => m.userId),
+    {
+      type: "followup",
+      title: input.title,
+      summary: input.summary,
+      orgId,
+      entityType: "trade_prospect",
+      entityId: input.prospectId,
+      priority: "high",
+      metadata: { prospectId: input.prospectId, source: input.source },
+      sourceKeyPrefix: input.sourceKey,
+    },
+  );
 }
