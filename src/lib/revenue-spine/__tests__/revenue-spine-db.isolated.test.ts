@@ -47,7 +47,10 @@ async function main() {
   const { buildRevenueQueue } = await import("../daily-actions");
   const { listOpportunityOutcomes } = await import("../outcomes");
   const { loadRevenueSpinePolicy, publishRevenueSpineRule, RULE_KEY_POLICY } = await import("../policy");
-  const { executePendingAction, rejectPendingAction, __setToolPolicyLoaderForTest } = await import("@/lib/pending-actions/executor");
+  const { ingestWebsiteInquiry, normalizeInquiry } = await import("@/lib/trade/website-inquiry");
+  const { executePendingAction, __setToolPolicyLoaderForTest } = await import("@/lib/pending-actions/executor");
+  // 真实 UI 路径：/api/ai/pending-actions/[id] → approval/port（含 run reconcile）
+  const { approveApprovalItem, rejectApprovalItem } = await import("@/lib/approval/port");
   const { __setInquiryReplySenderForTest } = await import("@/lib/pending-actions/exec-sales-inquiry-reply");
 
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
@@ -104,7 +107,7 @@ async function main() {
     ok(opp0?.stage === "new_inquiry" && opp0.source === "website_inquiry" && opp0.nextActionType === "reply_inquiry" && opp0.nextFollowupAt?.toISOString() === addBusinessHours(t0, 4).toISOString(), "商机 stage=new_inquiry + SLA next action", opp0);
     const inter0 = await db.customerInteraction.findUnique({ where: { id: a.interactionId } });
     ok(inter0?.direction === "inbound" && inter0.channel === "website" && (inter0.rawMessages ?? "").includes("coldemail"), "CustomerInteraction 保存 UTM/来源页", inter0?.rawMessages?.slice(0, 200));
-    const act0 = await db.salesAction.findUnique({ where: { id: a.salesActionId } });
+    const act0 = await db.salesAction.findUnique({ where: { id: a.salesActionId! } });
     ok(act0?.employeeKey === "inbound_sales_fde" && act0.actionType === "inbound_inquiry" && act0.status === "open", "SalesAction 进入 FDE 队列", act0);
 
     console.log("\n[3] 去重：duplicate / same-domain / invalid email / existing customer");
@@ -137,8 +140,9 @@ async function main() {
     ok(run?.status === "completed" && run.runType === "fde_inbound_sales", "AgentRun completed", { status: run?.status });
     ok(["run.started", "tool.started", "tool.completed", "retrieval.completed", "approval.required", "agent.output", "run.completed"].every((t) => types.includes(t)), "事件链 trigger→tools→facts→decision→approval→result", types);
     const pa = await db.pendingAction.findUnique({ where: { id: fde.pendingActionId! } });
-    ok(pa?.type === INQUIRY_REPLY_ACTION_TYPE && pa.status === "pending" && pa.orgId === ORG && pa.approverUserId === TRADE && pa.agentRunId === fde.agentRunId, "PendingAction 字段（审批人=负责人，关联 run）", pa);
-    const actAfter = await db.salesAction.findUnique({ where: { id: a.salesActionId } });
+    const paMeta = ((pa?.payload as Record<string, unknown> | null)?.metadata ?? {}) as Record<string, unknown>;
+    ok(pa?.type === INQUIRY_REPLY_ACTION_TYPE && pa.status === "pending" && pa.orgId === ORG && pa.approverUserId === TRADE && pa.agentRunId === null && paMeta.agentRunId === fde.agentRunId && paMeta.canonicalRisk === "high_impact", "PendingAction 字段（审批人=负责人；run 追溯在 metadata，不挂 assistant reconcile）", { pa, paMeta });
+    const actAfter = await db.salesAction.findUnique({ where: { id: a.salesActionId! } });
     ok(actAfter?.pendingActionId === fde.pendingActionId && actAfter.agentRunId === fde.agentRunId && actAfter.approvalRequired && actAfter.priority === "high", "SalesAction 回填 FDE 追踪字段", actAfter);
     const oppAfter = await db.salesOpportunity.findUnique({ where: { id: a.opportunityId } });
     ok(oppAfter?.fdeInfluenced === true && oppAfter.firstFdeActionId === a.salesActionId && oppAfter.score === fde.score && oppAfter.scoreGrade === "HIGH" && oppAfter.priority === "hot", "商机归因 + 评分缓存", oppAfter);
@@ -146,25 +150,27 @@ async function main() {
     ok(fdeAgain.ok && fdeAgain.pendingActionId === fde.pendingActionId, "重跑 FDE：审批草稿幂等复用", fdeAgain.pendingActionId);
 
     console.log("\n[5] 审批：拒绝一次不发送；批准后唯一发送");
-    const rejected = await rejectPendingAction(fde.pendingActionId!, { userId: OWNER, role: "boss", orgId: ORG }, "先改措辞");
+    const rejected = await rejectApprovalItem("pending_action", fde.pendingActionId!, { userId: OWNER, role: "boss", orgId: ORG, note: "先改措辞" });
     ok(rejected.ok === true, "拒绝成功（组织 owner 可决策）", rejected);
     ok(sent.length === 0, "拒绝不发送", sent.length);
     const fdeRedo = await runInboundSalesFde({ orgId: ORG, opportunityId: a.opportunityId, salesActionId: a.salesActionId, trigger: "manual", useLlm: false, now: new Date(t0.getTime() + 7_200_000) });
     ok(fdeRedo.ok && !!fdeRedo.pendingActionId && fdeRedo.pendingActionId !== fde.pendingActionId, "拒绝后重跑生成新草稿（旧 key 已终态）", fdeRedo.pendingActionId);
-    const crossOrg = await executePendingAction(fdeRedo.pendingActionId!, { userId: OTHER, role: "trade", orgId: ORG2 });
+    const crossOrg = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: OTHER, role: "trade", orgId: ORG2 });
     ok(!crossOrg.ok, "跨组织用户不能批准", crossOrg);
     const inactive = await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "inactive" } }).catch(() => null);
-    const approvedByTrade = await executePendingAction(fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    const approvedByTrade = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
     ok(approvedByTrade.ok === true, "负责人（approverUserId）批准 → 发送", approvedByTrade);
     if (inactive) await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "active" } });
     ok(sent.length === 1 && sent[0].to === "cathy@hotel-supply.ca" && /blackout curtains/i.test(sent[0].subject), "只发送一次，收件人=客户邮箱", sent);
-    const dupExec = await executePendingAction(fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
-    ok(sent.length === 1 && dupExec.errorCode === "ALREADY_EXECUTED", "重复批准不重复发送（B2 CAS）", { sent: sent.length, dupExec });
+    const dupExec = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(sent.length === 1 && dupExec.duplicate === true, "重复批准不重复发送（B2 CAS，port 幂等）", { sent: sent.length, dupExec });
+    const dupExecRaw = await executePendingAction(fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(sent.length === 1 && dupExecRaw.errorCode === "ALREADY_EXECUTED", "executor 直调重复执行同样阻断", { sent: sent.length, dupExecRaw });
     const oppSent = await db.salesOpportunity.findUnique({ where: { id: a.opportunityId } });
     ok(!!oppSent?.lastOutboundAt && oppSent.followUpCount === 1 && oppSent.nextActionType === "follow_up", "外发后 lastOutboundAt / followUpCount / next=follow_up", oppSent);
     const outbound = await db.customerInteraction.findFirst({ where: { opportunityId: a.opportunityId, direction: "outbound" } });
     ok(!!outbound && outbound.channel === "email" && outbound.emailMessageId === "msg_1", "outbound CustomerInteraction", outbound);
-    const actExec = await db.salesAction.findUnique({ where: { id: a.salesActionId } });
+    const actExec = await db.salesAction.findUnique({ where: { id: a.salesActionId! } });
     ok(actExec?.status === "completed" && !!actExec.executedAt && actExec.approvedById === TRADE && actExec.activeKey === null, "SalesAction executed（approvedBy / executedAt / result）", actExec);
 
     console.log("\n[6] 客户回复 → CUSTOMER_REPLIED → Next Action");
@@ -175,7 +181,7 @@ async function main() {
     const fde2 = await runInboundSalesFde({ orgId: ORG, opportunityId: a.opportunityId, trigger: "customer_reply", useLlm: false });
     ok(fde2.ok && fde2.stage === "rfq_ready", "补充信息后 → rfq_ready", { stage: fde2.stage, missing: fde2.missing });
     ok(!!fde2.pendingActionId && fde2.pendingActionId !== fdeRedo.pendingActionId, "客户来信后生成新的回复草稿待审批", fde2.pendingActionId);
-    const approve2 = await executePendingAction(fde2.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    const approve2 = await approveApprovalItem("pending_action", fde2.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
     ok(approve2.ok === true && sent.length === 2, "第二封回复经审批发送", { approve2, sent: sent.length });
     const rfq2 = await db.salesRfq.findUnique({ where: { opportunityId: a.opportunityId } });
     ok(rfq2?.status === "complete" && rfq2.quantity === 3000 && /140\s*x\s*260/i.test(rfq2.size ?? "") && rfq2.version >= 3, "RFQ 合并：保留历史数量 + 新增尺寸/材质，版本递增", rfq2);
@@ -207,7 +213,7 @@ async function main() {
     if (!b.ok) throw new Error("intake b failed");
     const fdeB = await runInboundSalesFde({ orgId: ORG, opportunityId: b.opportunityId, salesActionId: b.salesActionId, trigger: "inquiry", useLlm: false });
     ok(fdeB.ok && fdeB.stage === "disqualified" && !fdeB.pendingActionId, "个人小单 → disqualified，无审批草稿", { stage: fdeB.stage, pa: fdeB.pendingActionId });
-    const actB = await db.salesAction.findUnique({ where: { id: b.salesActionId } });
+    const actB = await db.salesAction.findUnique({ where: { id: b.salesActionId! } });
     ok(actB?.status === "auto_resolved", "不合格行动 auto_resolved", actB?.status);
     const nurture = await transitionOpportunity({ orgId: ORG, opportunityId: b.opportunityId, to: "nurture", actorUserId: OWNER, source: "human" });
     ok(nurture.ok && nurture.nextAction?.type === "nurture_check_in", "disqualified → nurture + 回访", nurture);
@@ -216,7 +222,7 @@ async function main() {
     const fdeC = await runInboundSalesFde({ orgId: ORG, opportunityId: c.opportunityId, salesActionId: c.salesActionId, trigger: "inquiry", useLlm: false });
     ok(fdeC.ok && fdeC.stage === "rfq_ready", "完整 RFQ → rfq_ready", { stage: fdeC.stage, missing: fdeC.missing });
     if (fdeC.pendingActionId) {
-      const rejC = await rejectPendingAction(fdeC.pendingActionId, { userId: OWNER, role: "boss", orgId: ORG }, "先不回复");
+      const rejC = await rejectApprovalItem("pending_action", fdeC.pendingActionId, { userId: OWNER, role: "boss", orgId: ORG, note: "先不回复" });
       ok(rejC.ok === true, "C 的草稿被拒绝（不发送）", rejC);
     }
     await transitionOpportunity({ orgId: ORG, opportunityId: c.opportunityId, to: "quoting", actorUserId: OWNER, source: "human" });
@@ -236,6 +242,76 @@ async function main() {
     const cockpit2 = await computeRevenueCockpit(ORG2);
     ok(cockpit2.metrics.openOpportunities === 0 && cockpit2.metrics.wonRevenue.value === 0, "跨组织：ORG2 看不到 ORG 数据", cockpit2.metrics);
 
+    console.log("\n[11] 网站 webhook 幂等（Trade 线索 + Revenue Spine 双车道）");
+    const wCounts = async (email: string) => {
+      const prospects = await db.tradeProspect.findMany({ where: { orgId: ORG, contactEmail: { equals: email, mode: "insensitive" } }, select: { id: true } });
+      const pids = prospects.map((p) => p.id);
+      const customers = await db.salesCustomer.findMany({ where: { orgId: ORG, email: { equals: email, mode: "insensitive" } }, select: { id: true } });
+      const cids = customers.map((c) => c.id);
+      const opps = await db.salesOpportunity.findMany({ where: { orgId: ORG, customerId: { in: cids } }, select: { id: true } });
+      const oids = opps.map((o) => o.id);
+      return {
+        prospects: pids.length,
+        tradeMessages: await db.tradeMessage.count({ where: { prospectId: { in: pids }, direction: "inbound" } }),
+        customers: cids.length,
+        opportunities: oids.length,
+        interactions: await db.customerInteraction.count({ where: { orgId: ORG, customerId: { in: cids }, direction: "inbound" } }),
+        rfqs: await db.salesRfq.count({ where: { opportunityId: { in: oids } } }),
+        runs: await db.agentRun.count({ where: { orgId: ORG, runType: "fde_inbound_sales", metadata: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
+        pending: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
+        rejected: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "rejected", payload: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
+      };
+    };
+    const formA = normalizeInquiry({ name: "Mark Chen", email: "mark@maple-hotels.ca", company: "Maple Hotels Group", country: "Canada", message: ACCEPTANCE, page: "https://www.mengxinhometextile.com/contact?utm_source=ads", utm_source: "ads" });
+    if (!formA.ok || formA.value.honeypotTripped) throw new Error("fixture normalize failed");
+    const w1 = await ingestWebsiteInquiry(ORG, formA.value);
+    ok(!w1.duplicate && !w1.replay && w1.spine.ok && w1.spine.opportunityCreated && !!w1.fde?.ok, "Case A：全新询盘 → 线索 + 消息 + 客户 + 商机 + FDE", { duplicate: w1.duplicate, spine: w1.spine.ok, fde: w1.fde?.ok });
+    const cA = await wCounts("mark@maple-hotels.ca");
+    ok(cA.prospects === 1 && cA.tradeMessages === 1 && cA.customers === 1 && cA.opportunities === 1 && cA.interactions === 1 && cA.rfqs === 1 && cA.runs === 1 && cA.pending === 1, "Case A 计数：1/1/1/1/1/1/1/1", cA);
+    const prospectA = await db.tradeProspect.findFirst({ where: { orgId: ORG, contactEmail: "mark@maple-hotels.ca" } });
+    ok(prospectA?.convertedToSalesOpportunityId === (w1.spine.ok ? w1.spine.opportunityId : null) && prospectA?.stage === "replied", "Trade 线索 ↔ 商机链接 + Trade Inbox 阶段 replied", prospectA);
+    const w2 = await ingestWebsiteInquiry(ORG, formA.value);
+    ok(w2.replay && w2.duplicate && w2.messageId === w1.messageId && !w2.spine.ok && w2.spine.code === "REPLAY" && w2.fde === null, "Case B：原样重放 → replay，不建任何对象", { replay: w2.replay, spine: w2.spine });
+    const cB = await wCounts("mark@maple-hotels.ca");
+    ok(JSON.stringify(cB) === JSON.stringify(cA), "Case B 计数不变", cB);
+    const spineReplay = await intakeInquiry({ orgId: ORG, source: "website_inquiry", contact: { name: "Mark Chen", email: "mark@maple-hotels.ca", company: "Maple Hotels Group" }, message: ACCEPTANCE, product: null });
+    ok(spineReplay.ok && spineReplay.replay && spineReplay.interactionId === (w1.spine.ok ? w1.spine.interactionId : ""), "Case B（主干层）：intakeInquiry 自身也幂等", spineReplay);
+    const formC = normalizeInquiry({ name: "Mark Chen", email: "mark@maple-hotels.ca", message: "Sizes are 140x260cm, material 100% polyester blackout, ship to Vancouver by 2026-12-15." });
+    if (!formC.ok || formC.value.honeypotTripped) throw new Error("fixture C failed");
+    const w3 = await ingestWebsiteInquiry(ORG, formC.value);
+    ok(w3.duplicate && !w3.replay && w3.spine.ok && !w3.spine.opportunityCreated && w3.spine.attachedToExisting && !!w3.fde?.ok, "Case C：同买家新内容 → 新消息/互动，复用商机", { spine: w3.spine.ok, fde: w3.fde?.ok });
+    const cC = await wCounts("mark@maple-hotels.ca");
+    ok(cC.prospects === 1 && cC.tradeMessages === 2 && cC.customers === 1 && cC.opportunities === 1 && cC.interactions === 2 && cC.rfqs === 1 && cC.runs === 2 && cC.pending === 1 && cC.rejected === 1, "Case C 计数：线索 1 / 消息 2 / 客户 1 / 商机 1 / 互动 2 / RFQ 1 / 运行 2 / 未决草稿 1（旧草稿已被取代）", cC);
+    const rfqC = await db.salesRfq.findUnique({ where: { opportunityId: w1.spine.ok ? w1.spine.opportunityId : "" } });
+    ok(rfqC?.quantity === 3000 && /140\s*x\s*260/i.test(rfqC.size ?? "") && rfqC.destinationCity?.toLowerCase() === "vancouver", "Case C RFQ 合并（保留数量，补尺寸/目的地）", rfqC);
+    // executor 边界：针对旧来信的草稿即使被批准也拒发（STALE_DRAFT）
+    const { execSalesSendInquiryReply } = await import("@/lib/pending-actions/exec-sales-inquiry-reply");
+    const sentBefore = sent.length;
+    const stale = await execSalesSendInquiryReply(
+      {
+        opportunityId: w1.spine.ok ? w1.spine.opportunityId : "",
+        customerId: w1.spine.ok ? w1.spine.customerId : "",
+        to: "mark@maple-hotels.ca",
+        subject: "stale",
+        body: "stale draft body",
+        replyToInteractionId: w1.spine.ok ? w1.spine.interactionId : "",
+        metadata: { orgId: ORG, customerId: w1.spine.ok ? w1.spine.customerId : "", opportunityId: w1.spine.ok ? w1.spine.opportunityId : "" },
+      },
+      { userId: TRADE, role: "trade", orgId: ORG },
+      "manual-stale-probe",
+    );
+    ok(!stale.ok && stale.errorCode === "STALE_DRAFT" && sent.length === sentBefore, "executor 拒发过时草稿（STALE_DRAFT），未发送", stale);
+
+    const formD = normalizeInquiry({ name: "Purchasing Dept", email: "purchasing@maple-hotels.ca", company: "Maple Hotels Group", message: "Following Mark's inquiry — we also need 800 bath towels." });
+    if (!formD.ok || formD.value.honeypotTripped) throw new Error("fixture D failed");
+    const w4 = await ingestWebsiteInquiry(ORG, formD.value, { runFde: false });
+    ok(!w4.duplicate && w4.spine.ok && w4.spine.matchLevel === "domain" && w4.spine.customerId === (w1.spine.ok ? w1.spine.customerId : "") && w4.spine.opportunityId === (w1.spine.ok ? w1.spine.opportunityId : ""), "Case D：同公司第二联系人 → 复用账户与开放商机", w4.spine);
+    const prospectsD = await db.tradeProspect.count({ where: { orgId: ORG, companyName: "Maple Hotels Group" } });
+    const interD = await db.customerInteraction.findUnique({ where: { id: w4.spine.ok ? w4.spine.interactionId : "" }, select: { rawMessages: true } });
+    ok(prospectsD === 2 && (interD?.rawMessages ?? "").includes("purchasing@maple-hotels.ca") && (interD?.rawMessages ?? "").includes("Purchasing Dept"), "Case D：Trade 侧保留独立联系人线索，互动保留第二联系人证据", { prospectsD, raw: interD?.rawMessages?.slice(0, 200) });
+    const custD = await db.salesCustomer.findUnique({ where: { id: w4.spine.ok ? w4.spine.customerId : "" } });
+    ok(custD?.email === "mark@maple-hotels.ca" && custD.contactName === "Mark Chen", "Case D：账户主联系人不被覆盖", custD);
+
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });
     ok(audits >= 10, "审计日志覆盖 intake / transition / send / outcome", audits);
@@ -246,6 +322,10 @@ async function main() {
       const opps = await db.salesOpportunity.findMany({ where: { orgId }, select: { id: true } });
       const oppIds = opps.map((o) => o.id);
       await db.businessOutcome.deleteMany({ where: { orgId } });
+      const prospectsToClean = await db.tradeProspect.findMany({ where: { orgId }, select: { id: true } });
+      await db.tradeMessage.deleteMany({ where: { prospectId: { in: prospectsToClean.map((p) => p.id) } } });
+      await db.tradeProspect.deleteMany({ where: { orgId } });
+      await db.tradeCampaign.deleteMany({ where: { orgId } });
       await db.pendingAction.deleteMany({ where: { orgId } });
       await db.notification.deleteMany({ where: { orgId } });
       await db.customerInteraction.deleteMany({ where: { orgId } });

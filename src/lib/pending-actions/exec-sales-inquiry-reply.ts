@@ -72,6 +72,18 @@ export async function execSalesSendInquiryReply(
     return { ok: false, error: "收件人与客户档案邮箱不一致，拒绝发送" };
   }
 
+  // 客户在该草稿之后又有新来信 → 草稿过时，拒绝发送（防止两份草稿被各自批准而双发 / 答非所问）
+  if (payload.replyToInteractionId) {
+    const latestInbound = await db.customerInteraction.findFirst({
+      where: { orgId, opportunityId: opp.id, direction: "inbound" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (latestInbound && latestInbound.id !== payload.replyToInteractionId) {
+      return { ok: false, error: "客户已有更新的来信，该草稿已过时；请使用最新草稿", errorCode: "STALE_DRAFT" };
+    }
+  }
+
   const approver = await db.user.findUnique({ where: { id: ctx.userId }, select: { name: true } });
   const fromName = approver?.name?.trim() || "Sales Team";
 

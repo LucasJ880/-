@@ -13,6 +13,7 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { requestApproval } from "@/lib/approval/request";
+import { rejectApprovalItem } from "@/lib/approval/port";
 import {
   appendAgentRunEvent,
   completeAgentRun,
@@ -369,6 +370,35 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           : await db.pendingAction.count({
               where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["opportunityId"], equals: opp.id } },
             });
+        // 同商机针对更早来信的未决草稿已过时：先作废，避免两份草稿被各自批准造成双发
+        if (!openDraft) {
+          const staleDrafts = await db.pendingAction.findMany({
+            where: {
+              orgId,
+              type: INQUIRY_REPLY_ACTION_TYPE,
+              status: "pending",
+              payload: { path: ["opportunityId"], equals: opp.id },
+            },
+            select: { id: true },
+          });
+          for (const stale of staleDrafts) {
+            try {
+              const rej = await rejectApprovalItem("pending_action", stale.id, {
+                userId: principalUserId,
+                role: null,
+                orgId,
+                note: `superseded by newer inbound message ${latest.id}`,
+              });
+              await event("approval.rejected", "旧回复草稿已被新来信取代", { pendingActionId: stale.id, ok: rej.ok, supersededBy: latest.id });
+            } catch (err) {
+              // 取代失败不阻塞：executor 在发送前还会以 STALE_DRAFT 拒绝针对旧来信的草稿
+              await event("approval.failed", "作废旧草稿失败（发送时由 executor 二次拦截）", {
+                pendingActionId: stale.id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+        }
         const approval = openDraft
           ? ({ ok: true, kind: "pending_action", actionIds: [openDraft.id] } as const)
           : await requestApproval({
@@ -389,7 +419,11 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
             metadata: { orgId, customerId: opp.customerId, opportunityId: opp.id, salesActionId, agentRunId: runId, employeeKey: FDE_EMPLOYEE_KEY },
           },
           risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
-          source: { module: "revenue-spine.inbound-sales-fde", runId, toolName: "sales_send_inquiry_reply", stepKey: `reply:${latest.id}` },
+          // 不写 source.runId：PendingAction.agentRunId 会把草稿挂进 assistant 会话 run 的收敛机
+          // （reconcile-run：run 状态由 PA 状态推导，run 终态被改写；merge-closure 探针实测该事务在远端
+          // 库上超 5s 超时并可能阻塞 FDE）。FDE run 是确定性流水线、在草稿生成后即终态；
+          // 追溯链保留在 payload.metadata.agentRunId / SalesAction.agentRunId / approval.required 事件。
+          source: { module: "revenue-spine.inbound-sales-fde", toolName: "sales_send_inquiry_reply", stepKey: `reply:${latest.id}` },
           approver: { approverUserId: principalUserId },
           ttlHours: 72,
           idempotencyKey: `revenue-spine:reply:${opp.id}:${latest.id}:v${priorDrafts + 1}`,

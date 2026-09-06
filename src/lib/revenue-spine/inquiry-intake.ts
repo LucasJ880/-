@@ -83,12 +83,18 @@ export type IntakeResult =
       /** true = 附到既有开放商机（补充信息/客户回复） */
       attachedToExisting: boolean;
       interactionId: string;
-      salesActionId: string;
+      /** replay 时可能为空（既有行动已执行并释放） */
+      salesActionId: string | null;
       ownerUserId: string;
       language: InquiryLanguage;
       customerReplied: boolean;
+      /** 同一客户在 INQUIRY_REPLAY_WINDOW_MS 内重复提交同一内容：不新建任何对象 */
+      replay: boolean;
     }
   | { ok: false; code: "INVALID_CONTACT" | "INVALID_EMAIL" | "EMPTY_MESSAGE" | "NO_OWNER"; error: string };
+
+/** 幂等窗口：同客户 + 同正文 = 重放（浏览器重试 / 站点重发 / 双击） */
+export const INQUIRY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const LIMITS = { name: 120, email: 200, phone: 60, company: 200, country: 80, website: 300, message: 20_000, subject: 200, product: 200 };
 
@@ -177,6 +183,43 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
   }
   if (!ownerUserId) return { ok: false, code: "NO_OWNER", error: "组织没有可分配的负责人" };
 
+  // ── 幂等：同客户、同正文、窗口内 → 重放，返回既有对象 ──
+  const renderedContent = [subject ? `Subject: ${subject}` : null, product ? `Product: ${product}` : null, message].filter(Boolean).join("\n");
+  if (!customerCreated) {
+    const replayed = await db.customerInteraction.findFirst({
+      where: {
+        orgId: input.orgId,
+        customerId,
+        direction: "inbound",
+        content: renderedContent,
+        createdAt: { gte: new Date(now.getTime() - INQUIRY_REPLAY_WINDOW_MS) },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, opportunityId: true },
+    });
+    if (replayed?.opportunityId) {
+      const existingAction = await db.salesAction.findFirst({
+        where: { orgId: input.orgId, opportunityId: replayed.opportunityId, signalKey: `inbound:${replayed.id}` },
+        select: { id: true },
+      });
+      return {
+        ok: true,
+        customerId,
+        customerCreated: false,
+        matchLevel: match.level,
+        opportunityId: replayed.opportunityId,
+        opportunityCreated: false,
+        attachedToExisting: true,
+        interactionId: replayed.id,
+        salesActionId: existingAction?.id ?? null,
+        ownerUserId,
+        language,
+        customerReplied: false,
+        replay: true,
+      };
+    }
+  }
+
   // ── 5-6. 商机：报价前的开放商机 → 附加；否则新建 ──
   const openPreQuote = customerCreated
     ? null
@@ -216,7 +259,7 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
   const rawMessages = [
     {
       role: "customer",
-      content: [subject ? `Subject: ${subject}` : null, product ? `Product: ${product}` : null, message].filter(Boolean).join("\n"),
+      content: renderedContent,
       time: now.toISOString(),
       contact: { name: name || null, email, phone: phone || null, company: company || null, country: country || null, website: website || null },
       meta: input.meta ?? null,
@@ -309,5 +352,6 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     ownerUserId,
     language,
     customerReplied: logged.customerReplied,
+    replay: false,
   };
 }
