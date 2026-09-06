@@ -320,6 +320,24 @@ export async function processInboundMessage(orgId: string, msg: InboundMessage) 
   });
 
   try {
+    const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
+    await scheduleInquiryAnalysis({
+      orgId,
+      prospectId: prospect.id,
+      messageId: message.id,
+      content: msg.content,
+      channel: msg.channel,
+      meta: {
+        email: msg.from.includes("@") ? msg.from : null,
+        companyName: prospect.companyName,
+        phone: msg.from.includes("@") ? null : msg.from,
+      },
+    });
+  } catch (err) {
+    console.warn("[channel-service] analysis schedule failed:", err);
+  }
+
+  try {
     const { notifyInquiryMembers } = await import("@/lib/trade/website-inquiry");
     await notifyInquiryMembers(orgId, {
       title: `${CHANNEL_LABEL[msg.channel] ?? msg.channel}来信：${prospect.companyName}`,

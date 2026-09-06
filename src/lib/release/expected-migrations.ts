@@ -42,6 +42,8 @@ export const EXPECTED_ACTIVE_MIGRATIONS = [
   "20260829210000_add_sales_quote_cost_foundation",
   "20260831120000_add_supplier_intelligence_spine",
   "20260905093000_add_organization_company_link",
+  "20260905160000_add_trade_inquiry_analysis",
+  "20260906090000_add_inquiry_design_fields",
   "20260906120000_mengxin_fde_revenue_spine",
 ] as const;
 
