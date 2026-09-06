@@ -77,6 +77,10 @@ export interface Messages {
   nav_org_knowledge: string;
   nav_trade_watch_signals: string;
   nav_trade_channels: string;
+  nav_trade_inbox: string;
+  nav_trade_chat: string;
+  nav_trade_more: string;
+  nav_trade_primary: string;
   nav_product_content: string;
   nav_organizations: string;
   nav_projects: string;
