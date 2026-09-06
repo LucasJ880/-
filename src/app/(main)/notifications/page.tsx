@@ -151,6 +151,8 @@ function NotificationsContent() {
       } else if (item.entityType === "approval" && item.entityId) {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         router.push(`/capabilities/approvals/${encodeURIComponent(item.entityId)}`);
+      } else if (item.entityType === "trade_prospect" && item.entityId) {
+        router.push(`/trade/prospects/${item.entityId}`);
       } else if (item.entityType === "revenue_opportunity" && item.entityId) {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         router.push(`/revenue/${encodeURIComponent(item.entityId)}`);

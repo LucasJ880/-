@@ -171,9 +171,12 @@ export async function resolveWebsiteChannelBySecret(secret: string) {
   return null;
 }
 
-async function ensureInquiryCampaign(orgId: string) {
+export async function ensureInquiryCampaign(
+  orgId: string,
+  name: string = WEBSITE_INQUIRY_CAMPAIGN_NAME,
+) {
   const existing = await db.tradeCampaign.findFirst({
-    where: { orgId, name: WEBSITE_INQUIRY_CAMPAIGN_NAME },
+    where: { orgId, name },
     select: { id: true },
   });
   if (existing) return existing.id;
@@ -184,8 +187,8 @@ async function ensureInquiryCampaign(orgId: string) {
   const created = await db.tradeCampaign.create({
     data: {
       orgId,
-      name: WEBSITE_INQUIRY_CAMPAIGN_NAME,
-      productDesc: "独立站表单自动归集的询盘",
+      name,
+      productDesc: name === WEBSITE_INQUIRY_CAMPAIGN_NAME ? "独立站表单自动归集的询盘" : "消息通道陌生来信自动归集的询盘",
       targetMarket: "海外（按询盘国家）",
       searchKeywords: [],
       status: "active",
@@ -201,15 +204,20 @@ export interface IngestResult {
   messageId: string;
   duplicate: boolean;
   notified: number;
+  /** 同一表单在 REPLAY_WINDOW_MS 内重复提交：不新建任何业务对象，返回既有 message */
+  replay: boolean;
   /** Revenue Spine（SalesCustomer → SalesOpportunity → FDE）结果；失败时 ok=false 且 Trade 线索仍已落库 */
-  spine: IntakeResult | { ok: false; code: "SPINE_FAILED"; error: string };
+  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY"; error: string };
   fde: InboundFdeResult | null;
 }
+
+/** 幂等窗口：同一线索、同一渲染正文的网站询盘视为重放（浏览器重试 / 双击提交 / 站点重发） */
+export const WEBSITE_INQUIRY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function ingestWebsiteInquiry(
   orgId: string,
   v: NormalizedInquiry,
-  opts?: { runFde?: boolean },
+  opts?: { runFde?: boolean; now?: Date },
 ): Promise<IngestResult> {
   const campaignId = await ensureInquiryCampaign(orgId);
 
@@ -237,18 +245,44 @@ export async function ingestWebsiteInquiry(
     prospect = { id: created.id, stage: created.stage, companyName: created.companyName };
   }
 
+  const content = buildInquiryMessage(v);
+  const now = opts?.now ?? new Date();
+  if (duplicate) {
+    const replayed = await db.tradeMessage.findFirst({
+      where: {
+        prospectId: prospect.id,
+        direction: "inbound",
+        channel: "website",
+        content,
+        createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (replayed) {
+      return {
+        prospectId: prospect.id,
+        messageId: replayed.id,
+        duplicate: true,
+        notified: 0,
+        replay: true,
+        spine: { ok: false, code: "REPLAY", error: "duplicate submission within replay window" },
+        fde: null,
+      };
+    }
+  }
+
   const message = await db.tradeMessage.create({
     data: {
       prospectId: prospect.id,
       direction: "inbound",
       channel: "website",
       subject: v.product ? `网站询盘：${v.product}` : "网站询盘",
-      content: buildInquiryMessage(v),
+      content,
     },
     select: { id: true },
   });
 
-  const now = new Date();
   await db.tradeProspect.update({
     where: { id: prospect.id },
     data: {
@@ -259,33 +293,17 @@ export async function ingestWebsiteInquiry(
     },
   });
 
-  const members = await db.organizationMember.findMany({
-    where: {
-      orgId,
-      status: "active",
-      user: { role: { in: ["trade", "boss", "manager", "admin", "super_admin"] } },
-    },
-    select: { userId: true },
-  });
   const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
-  const notified = members.length
-    ? await createNotificationsForUsers(
-        members.map((m) => m.userId),
-        {
-          type: "followup",
-          title: `网站询盘：${prospect.companyName}`,
-          summary: (summaryBits || v.email || v.phone).slice(0, 140),
-          orgId,
-          entityType: "trade_prospect",
-          entityId: prospect.id,
-          priority: "high",
-          metadata: { prospectId: prospect.id, source: "website" },
-          sourceKeyPrefix: `website-inquiry:${message.id}`,
-        },
-      )
-    : 0;
+  const notified = await notifyInquiryMembers(orgId, {
+    title: `网站询盘：${prospect.companyName}`,
+    summary: (summaryBits || v.email || v.phone).slice(0, 140),
+    prospectId: prospect.id,
+    source: "website",
+    sourceKey: `website-inquiry:${message.id}`,
+  });
 
   // ── Revenue Spine：canonical 商业主干（SalesCustomer → SalesOpportunity → CustomerInteraction → SalesAction → FDE） ──
+  // Trade 线索 / 询盘收件箱 / 通知已在上方落库；主干失败不回滚 Trade 侧（响应 spine.code 供排障）。
   let spine: IngestResult["spine"];
   let fde: InboundFdeResult | null = null;
   try {
@@ -310,7 +328,7 @@ export async function ingestWebsiteInquiry(
           ...(duplicate ? {} : { convertedAt: now }),
         },
       });
-      if (opts?.runFde !== false) {
+      if (opts?.runFde !== false && !spine.replay) {
         fde = await runInboundSalesFde({
           orgId,
           opportunityId: spine.opportunityId,
@@ -320,10 +338,40 @@ export async function ingestWebsiteInquiry(
       }
     }
   } catch (err) {
-    const message2 = err instanceof Error ? err.message : String(err);
-    console.error("[website-inquiry] revenue spine intake failed:", message2);
-    spine = { ok: false, code: "SPINE_FAILED", error: message2 };
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("[website-inquiry] revenue spine intake failed:", reason);
+    spine = { ok: false, code: "SPINE_FAILED", error: reason };
   }
 
-  return { prospectId: prospect.id, messageId: message.id, duplicate, notified, spine, fde };
+  return { prospectId: prospect.id, messageId: message.id, duplicate, notified, replay: false, spine, fde };
+}
+
+/** 通知 org 内外贸相关成员（幂等键防重复） */
+export async function notifyInquiryMembers(
+  orgId: string,
+  input: { title: string; summary: string; prospectId: string; source: string; sourceKey: string },
+): Promise<number> {
+  const members = await db.organizationMember.findMany({
+    where: {
+      orgId,
+      status: "active",
+      user: { role: { in: ["trade", "boss", "manager", "admin", "super_admin"] } },
+    },
+    select: { userId: true },
+  });
+  if (members.length === 0) return 0;
+  return createNotificationsForUsers(
+    members.map((m) => m.userId),
+    {
+      type: "followup",
+      title: input.title,
+      summary: input.summary,
+      orgId,
+      entityType: "trade_prospect",
+      entityId: input.prospectId,
+      priority: "high",
+      metadata: { prospectId: input.prospectId, source: input.source },
+      sourceKeyPrefix: input.sourceKey,
+    },
+  );
 }

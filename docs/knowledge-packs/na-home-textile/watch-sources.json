@@ -1,0 +1,52 @@
+[
+  {
+    "label": "CPSC — Flammability of Clothing Textiles (16 CFR 1610) 规则页",
+    "url": "https://www.cpsc.gov/Regulations-Laws--Standards/Rulemaking/Final-and-Proposed-Rules/Flammability-of-Clothing-Textiles",
+    "what": "出现新的 Final/Proposed Rule 说明服装可燃性测试方法、免测面料或类别定义可能修改；需重新评估全部浴袍面料的 1610 状态与 GCC/CPC。"
+  },
+  {
+    "label": "eCFR — 16 CFR Part 1615 儿童睡衣（0–6X）",
+    "url": "https://www.ecfr.gov/current/title-16/chapter-II/subchapter-D/part-1615",
+    "what": "页面顶部生效日期变化 = 儿童睡衣定义（含 robes）、婴儿/紧身豁免尺寸或标签用语修改；直接影响儿童浴袍可否出口美国。1616（7–14 码）同理：https://www.ecfr.gov/current/title-16/chapter-II/subchapter-D/part-1616"
+  },
+  {
+    "label": "FTC — Textile Fiber Rule（16 CFR 303）规则页",
+    "url": "https://www.ftc.gov/legal-library/browse/rules/textile-fiber-rule",
+    "what": "新增 Federal Register 通知 = 纤维通用名、RN、原产国或标签位置规则修订；需更新所有美国标签模板。洗护标签规则页同看：https://www.ftc.gov/legal-library/browse/rules/care-labeling-textile-wearing-apparel-certain-piece-goods（若允许新版 ASTM/ISO 符号则更新洗标）。"
+  },
+  {
+    "label": "CPSC — Total Lead Content（CPSIA 铅）",
+    "url": "https://www.cpsc.gov/Business--Manufacturing/Business-Education/Lead/Total-Lead-Content",
+    "what": "铅限值或 16 CFR 1500.91 纺织品免测判定变化 = 儿童浴袍/婴儿毯的第三方测试范围与 CPC 引用需调整。"
+  },
+  {
+    "label": "Justice Laws Canada — Textile Flammability Regulations SOR/2016-194",
+    "url": "https://laws-lois.justice.gc.ca/eng/regulations/SOR-2016-194/FullText.html",
+    "what": "'Last amended' 日期变化 = 加拿大通用纺织品（>3.5 s/>4 s）与寝具（>7 s）阈值或 CAN/CGSB-4.2 No. 27.5 引用修改；影响毯子与成人浴袍。"
+  },
+  {
+    "label": "Health Canada — 儿童睡衣法规修订意向（SOR/2016-169）",
+    "url": "https://www.canada.ca/en/health-canada/services/consumer-product-safety/legislation-guidelines/guidelines-policies/notice-of-intent-proposal-amend-childrens-sleepwear-regulations.html",
+    "what": "咨询期 2026-07-07 至 2026-09-14；此后若出现 Canada Gazette 草案/定稿，说明儿童睡衣定义（loungewear、sleep sacks）、婴儿尺寸（0–9 个月、胸围 ≤508 mm）、测试引用与 180 天过渡期正式落地，需更新 03 文件与 Q3 答法。法规正文同看：https://laws-lois.justice.gc.ca/eng/regulations/SOR-2016-169/FullText.html"
+  },
+  {
+    "label": "Competition Bureau Canada — 纺织品标签要求",
+    "url": "https://competition-bureau.canada.ca/en/labelling/textile-labelling/textile-labelling-requirements",
+    "what": "双语、永久标签（10 次洗涤）、CA 号申请流程或费用变化 = 加拿大标签模板与进口商沟通话术需更新。"
+  },
+  {
+    "label": "OEHHA — Proposition 65 化学品清单",
+    "url": "https://oehha.ca.gov/proposition-65/proposition-65-list",
+    "what": "清单至少每年更新；新增纺织相关物质（染料、阻燃剂、增塑剂等）= 买家 RSL 与我方 Prop 65 声明需更新。警示格式变动看规则页：https://oehha.ca.gov/proposition-65/crnr/proposition-65-clear-and-reasonable-warnings-safe-harbor-methods-and-content（旧短式警示过渡期至 2028-01-01）。"
+  },
+  {
+    "label": "OEKO-TEX — STANDARD 100 标准与年度新规",
+    "url": "https://www.oeko-tex.com/en/our-standards/oeko-tex-standard-100",
+    "what": "每年发布新版限值（2026 版：2026-03-03 发布、2026-06-01 生效）；新版生效前需确认在证产品的染化料/助剂仍满足新限值，续证时按新版测试。年度公告页：https://www.oeko-tex.com/en/news/infocenter/oeko-tex-new-regulations-2026/"
+  },
+  {
+    "label": "Global Standard — GOTS 版本与新闻",
+    "url": "https://global-standards.org/",
+    "what": "GOTS 8.0 于 2027-03-01 强制生效（7.0 过渡期内仍可用）；出现 8.x 修订或实施手册更新 = 有机产品链条认证要求变化。Textile Exchange 标准页同看：https://textileexchange.org/standards/（GRS → Materials Matter Standard：2026-12-31 生效、2027-12-31 强制、GRS 范围证书最迟 2029-03-31 撤销）。"
+  }
+]

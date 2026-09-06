@@ -250,18 +250,51 @@ export interface InboundMessage {
   timestamp?: Date;
 }
 
+const CHANNEL_LABEL: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  wechat: "微信",
+  wechat_work: "企业微信",
+  website: "官网",
+};
+
+/** 陌生来信建线索时的占位公司名——同一发信人再次来信可据此匹配回同一线索 */
+export function inboundPlaceholderCompanyName(channel: string, from: string): string {
+  return `${CHANNEL_LABEL[channel] ?? channel} ${from}`.trim();
+}
+
 export async function processInboundMessage(orgId: string, msg: InboundMessage) {
-  const prospects = await db.tradeProspect.findMany({
+  const placeholder = inboundPlaceholderCompanyName(msg.channel, msg.from);
+  let prospect = await db.tradeProspect.findFirst({
     where: {
       orgId,
-      contactEmail: msg.from,
+      OR: [{ contactEmail: msg.from }, { companyName: placeholder }],
     },
-    take: 1,
+    select: { id: true, companyName: true, stage: true },
   });
 
-  const prospect = prospects[0];
+  // 陌生发信人：不再丢弃，建成新询盘（归集到「渠道询盘」活动）并通知销售
+  let created = false;
   if (!prospect) {
-    return { matched: false, from: msg.from };
+    const { ensureInquiryCampaign } = await import("@/lib/trade/website-inquiry");
+    const campaignId = await ensureInquiryCampaign(orgId, "渠道询盘");
+    const row = await db.tradeProspect.create({
+      data: {
+        campaignId,
+        orgId,
+        companyName: placeholder,
+        contactEmail: msg.from.includes("@") ? msg.from : undefined,
+        contactName: msg.from.includes("@") ? undefined : msg.from,
+        source: msg.channel,
+        stage: "new",
+      },
+      select: { id: true, companyName: true, stage: true },
+    });
+    await db.tradeCampaign.update({
+      where: { id: campaignId },
+      data: { totalProspects: { increment: 1 } },
+    });
+    prospect = row;
+    created = true;
   }
 
   const message = await db.tradeMessage.create({
@@ -273,10 +306,31 @@ export async function processInboundMessage(orgId: string, msg: InboundMessage) 
     },
   });
 
+  const now = new Date();
   await db.tradeProspect.update({
     where: { id: prospect.id },
-    data: { lastContactAt: new Date() },
+    data: {
+      lastContactAt: now,
+      // 买家主动来信 → 进当日待回复队列
+      nextFollowUpAt: now,
+      ...(["new", "discovered", "researched", "qualified", "contacted", "outreach_sent", "follow_up", "no_response"].includes(prospect.stage)
+        ? { stage: "replied" }
+        : {}),
+    },
   });
 
-  return { matched: true, prospectId: prospect.id, messageId: message.id };
+  try {
+    const { notifyInquiryMembers } = await import("@/lib/trade/website-inquiry");
+    await notifyInquiryMembers(orgId, {
+      title: `${CHANNEL_LABEL[msg.channel] ?? msg.channel}来信：${prospect.companyName}`,
+      summary: msg.content.replace(/\s+/g, " ").slice(0, 140),
+      prospectId: prospect.id,
+      source: msg.channel,
+      sourceKey: `channel-inbound:${message.id}`,
+    });
+  } catch (err) {
+    console.warn("[channel-service] notify failed:", err);
+  }
+
+  return { matched: !created, created, prospectId: prospect.id, messageId: message.id };
 }

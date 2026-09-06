@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, MoreHorizontal } from "lucide-react";
 import {
   useState,
   useEffect,
@@ -31,6 +31,9 @@ import {
   type NavigationGroup,
   type ResolvedNavItem,
 } from "@/lib/navigation";
+import { partitionTradeNav, usesTradeLayout } from "@/lib/navigation/trade-layout";
+
+const TRADE_MORE_STORAGE_KEY = "qingyan-sidebar-trade-more";
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -149,8 +152,15 @@ function CollapsibleNav({
   if (collapsed) {
     return (
       <Link
-        href={item.href || "/capabilities"}
-        onClick={onNavigate}
+        href={item.href || (item.key === "trade-more" ? "#" : "/capabilities")}
+        onClick={(e) => {
+          if (!item.href && item.key === "trade-more") {
+            e.preventDefault();
+            onToggle();
+            return;
+          }
+          onNavigate?.();
+        }}
         className={cn(
           "flex min-h-9 items-center justify-center rounded-md px-0 py-2 transition-colors",
           // 折叠态父级：有活跃后代时仅中性强调，不用叶子绿色
@@ -169,8 +179,15 @@ function CollapsibleNav({
     <div className="space-y-px">
       <div className="flex items-center gap-0.5">
         <Link
-          href={item.href || "/capabilities"}
-          onClick={onNavigate}
+          href={item.href || (item.key === "trade-more" ? "#" : "/capabilities")}
+          onClick={(e) => {
+            if (!item.href && item.key === "trade-more") {
+              e.preventDefault();
+              onToggle();
+              return;
+            }
+            onNavigate?.();
+          }}
           className={cn(
             "flex min-h-9 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
             // 父级分组：永不使用叶子绿色 active；仅中性色 + chevron 展开
@@ -242,6 +259,26 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   );
   const [hasBidCapability, setHasBidCapability] = useState(false);
   const [capExpanded, setCapExpanded] = useState<boolean | null>(null);
+  // 外贸员「更多」默认折叠，展开状态按浏览器记忆
+  const [tradeMoreExpanded, setTradeMoreExpanded] = useState(false);
+  useEffect(() => {
+    try {
+      setTradeMoreExpanded(window.localStorage.getItem(TRADE_MORE_STORAGE_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleTradeMore = () => {
+    setTradeMoreExpanded((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(TRADE_MORE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -352,14 +389,40 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     })).filter((g) => g.items.length > 0);
   }, [resolved]);
 
-  const sections = useMemo(
-    () =>
-      grouped.map((g) => ({
-        label: g.label,
-        groups: [g],
-      })),
-    [grouped],
+  const tradeLayout = usesTradeLayout(platformRole);
+  const tradePartition = useMemo(
+    () => (tradeLayout ? partitionTradeNav(resolved) : null),
+    [tradeLayout, resolved],
   );
+
+  const sections = useMemo(() => {
+    if (tradePartition) {
+      // 外贸员：核心动作面 + 一个可折叠「更多」（配置/通用工作区项）
+      const moreItem: ResolvedNavItem = {
+        key: "trade-more",
+        label: "更多",
+        labelKey: "nav_trade_more",
+        icon: MoreHorizontal,
+        group: "BUSINESS",
+        collapsible: true,
+        displayOrder: 999,
+        expanded: false,
+        active: false,
+        children: tradePartition.secondary,
+      };
+      const groups = [
+        { group: "BUSINESS" as NavigationGroup, items: tradePartition.primary, label: m.nav_trade_primary },
+      ];
+      if (tradePartition.secondary.length > 0) {
+        groups.push({ group: "BUSINESS" as NavigationGroup, items: [moreItem], label: m.nav_trade_more });
+      }
+      return [{ label: m.nav_trade_primary, groups }];
+    }
+    return grouped.map((g) => ({
+      label: g.label,
+      groups: [g],
+    }));
+  }, [grouped, tradePartition, m]);
 
   return (
     <aside
@@ -415,14 +478,22 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                     onNavigate={onNavigate}
                     pendingCount={pendingCount}
                     manualExpanded={
-                      item.key === "capabilities" ? capExpanded : null
+                      item.key === "trade-more"
+                        ? tradeMoreExpanded
+                        : item.key === "capabilities"
+                          ? capExpanded
+                          : null
                     }
-                    onToggle={() =>
+                    onToggle={() => {
+                      if (item.key === "trade-more") {
+                        toggleTradeMore();
+                        return;
+                      }
                       setCapExpanded((prev) => {
                         const current = prev ?? item.expanded;
                         return !current;
-                      })
-                    }
+                      });
+                    }}
                   />
                 ) : (
                   <NavLink
