@@ -119,7 +119,16 @@ No schema or migration change in this PR. The only pending migration on a produc
 
 ## 11. CI
 
-<<CI_RESULTS>>
+PR #205 `feature/mengxin-fde-trade-outbound-sync` → base `feature/mengxin-fde-revenue-spine` (#203 head `4765b3e5`; #203 was still open at the time, so #205 is stacked and is to be re-based onto `main` after #203 merges). Code HEAD `3dfdad5c0333afc56e8e19e332ed68bbb618189d`.
+
+| WORKFLOW | HEAD | STATUS | CONCLUSION | RUN URL/ID |
+|---|---|---|---|---|
+| CI · validate-lint-typecheck-test-build | `3dfdad5c` | completed | success | https://github.com/LucasJ880/-/actions/runs/34063560515 (job 101568291778) |
+| Vercel – qingyan-staging (preview deploy) | `3dfdad5c` | completed | pass / SUCCESS | https://vercel.com/lucas-9039s-projects/qingyan-staging/AXqZkfF8i9gnMMRPi5ViAcyEicNH |
+| Vercel – - (production project; ignored build step) | `3dfdad5c` | completed | pass / SUCCESS | https://vercel.com/lucas-9039s-projects/-/5VVgk118gCr8fsZbbNS9645TjqxY |
+| Vercel Preview Comments | `3dfdad5c` | completed | pass / SUCCESS | https://vercel.com/github |
+
+GitHub API after the run: `mergeable = true`, `mergeable_state = clean`, `draft = true`. The commit adding this report is docs-only; its run is reported in the closing message.
 
 ## 12. Unresolved P1 items (unchanged from #203 §13, not addressed here by instruction)
 
@@ -130,4 +139,10 @@ No schema or migration change in this PR. The only pending migration on a produc
 
 ## 13. Status
 
-<<STATUS>>
+Acceptance condition (PART 8) verified on a real database through the real route handlers and the approval port: after a manual Trade Inbox reply, the older FDE `PendingAction` is superseded, a late approval is refused, and even with the supersede step absent the executor refuses on its own; the customer receives one reply. The symmetric case (approved FDE send, then a manual reply prompted by an "unreplied" inbox) is closed by the reverse mirror.
+
+```text
+MENGXIN_FDE_V1_TRADE_OUTBOUND_SYNC = PASS
+```
+
+Not done by instruction: V2, Trade Inbox redesign, consolidation of the two analysis systems, notification fan-out, navigation changes, ERP scope, production deploy / migration / seed. #205 is not merged; #203 is not merged.
