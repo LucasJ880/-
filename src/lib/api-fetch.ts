@@ -28,6 +28,8 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/capabilities",
   // Supplier Intelligence M1-S1：全部按 orgId 隔离（平台管理员需显式 orgId）
   "/api/supplier-intel/",
+  // Revenue Spine（Mengxin FDE V1）：全部按当前企业隔离
+  "/api/revenue/",
 ];
 
 function isOrgScopedPath(pathname: string): boolean {

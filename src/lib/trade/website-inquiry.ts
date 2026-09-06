@@ -12,6 +12,8 @@ import { timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { createProspect } from "@/lib/trade/service";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
+import { intakeInquiry, type IntakeResult } from "@/lib/revenue-spine/inquiry-intake";
+import { runInboundSalesFde, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 
@@ -199,11 +201,15 @@ export interface IngestResult {
   messageId: string;
   duplicate: boolean;
   notified: number;
+  /** Revenue Spine（SalesCustomer → SalesOpportunity → FDE）结果；失败时 ok=false 且 Trade 线索仍已落库 */
+  spine: IntakeResult | { ok: false; code: "SPINE_FAILED"; error: string };
+  fde: InboundFdeResult | null;
 }
 
 export async function ingestWebsiteInquiry(
   orgId: string,
   v: NormalizedInquiry,
+  opts?: { runFde?: boolean },
 ): Promise<IngestResult> {
   const campaignId = await ensureInquiryCampaign(orgId);
 
@@ -279,5 +285,45 @@ export async function ingestWebsiteInquiry(
       )
     : 0;
 
-  return { prospectId: prospect.id, messageId: message.id, duplicate, notified };
+  // ── Revenue Spine：canonical 商业主干（SalesCustomer → SalesOpportunity → CustomerInteraction → SalesAction → FDE） ──
+  let spine: IngestResult["spine"];
+  let fde: InboundFdeResult | null = null;
+  try {
+    spine = await intakeInquiry({
+      orgId,
+      source: "website_inquiry",
+      contact: { name: v.name, email: v.email, phone: v.phone, company: v.company, country: v.country, website: v.website },
+      message: v.message,
+      product: v.product,
+      meta: { page: v.page, utm: v.utm, channel: "website" },
+      sourceRef: { tradeProspectId: prospect.id, tradeMessageId: message.id },
+      actorUserId: null,
+      now,
+    });
+    if (spine.ok) {
+      // 回填 Trade 线索 ↔ 商机链接（P1-2：TradeProspect 仅为展示视图，SalesOpportunity 为 canonical）
+      await db.tradeProspect.update({
+        where: { id: prospect.id },
+        data: {
+          convertedToSalesCustomerId: spine.customerId,
+          convertedToSalesOpportunityId: spine.opportunityId,
+          ...(duplicate ? {} : { convertedAt: now }),
+        },
+      });
+      if (opts?.runFde !== false) {
+        fde = await runInboundSalesFde({
+          orgId,
+          opportunityId: spine.opportunityId,
+          salesActionId: spine.salesActionId,
+          trigger: spine.attachedToExisting ? "customer_reply" : "inquiry",
+        });
+      }
+    }
+  } catch (err) {
+    const message2 = err instanceof Error ? err.message : String(err);
+    console.error("[website-inquiry] revenue spine intake failed:", message2);
+    spine = { ok: false, code: "SPINE_FAILED", error: message2 };
+  }
+
+  return { prospectId: prospect.id, messageId: message.id, duplicate, notified, spine, fde };
 }

@@ -63,6 +63,7 @@ export const en: Messages = {
   nav_trade_prospects: "Lead Assets",
   nav_trade_intelligence: "Company Intelligence",
   nav_trade_cockpit: "Global Analytics",
+  nav_revenue_cockpit: "Revenue Cockpit",
   nav_trade_fulfillment: "Fulfillment Collaboration",
   nav_ai_assistant: "Digital Employees",
   nav_ai_jobs: "AI Jobs",

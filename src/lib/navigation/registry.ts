@@ -5,6 +5,7 @@
  */
 
 import {
+  TrendingUp,
   LayoutDashboard,
   CheckSquare,
   Bell,
@@ -516,6 +517,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE, "operations"],
     displayOrder: 25,
+  },
+  {
+    key: "biz-revenue",
+    label: "收入驾驶舱",
+    labelKey: "nav_revenue_cockpit",
+    href: "/revenue",
+    icon: TrendingUp,
+    group: "BUSINESS",
+    moduleKey: ["trade", "sales"],
+    requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
+    matchPaths: ["/revenue"],
+    displayOrder: 26,
   },
 
   // ── 项目（一级栏目，不挂在业务运营下）──
