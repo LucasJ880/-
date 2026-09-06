@@ -61,14 +61,17 @@ async function main() {
   const OWNER = `rsowner_${stamp}`;
   const TRADE = `rstrade_${stamp}`;
   const OTHER = `rsother_${stamp}`;
+  const TRADE2 = `rstrade2_${stamp}`;
 
   await db.user.create({ data: { id: OWNER, email: `${OWNER}@fixture.test`, name: "Lucas Owner", role: "boss" } });
   await db.user.create({ data: { id: TRADE, email: `${TRADE}@fixture.test`, name: "Mengxin Trade Rep", role: "trade" } });
   await db.user.create({ data: { id: OTHER, email: `${OTHER}@fixture.test`, name: "Other Org User", role: "trade" } });
+  await db.user.create({ data: { id: TRADE2, email: `${TRADE2}@fixture.test`, name: "Second Trade Rep", role: "trade" } });
   await db.organization.create({ data: { id: ORG, name: "Mengxin Fixture OEM", code: `rs-${stamp}`, ownerId: OWNER } });
   await db.organization.create({ data: { id: ORG2, name: "Other Fixture Org", code: `rs2-${stamp}`, ownerId: OTHER } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_owner", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: TRADE, role: "org_member", status: "active" } });
+  await db.organizationMember.create({ data: { orgId: ORG, userId: TRADE2, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OTHER, role: "org_owner", status: "active" } });
 
   const sent: Array<{ to: string; subject: string; body: string }> = [];
@@ -271,8 +274,10 @@ async function main() {
         runs: await db.agentRun.count({ where: { orgId: ORG, runType: "fde_inbound_sales", metadata: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
         pending: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
         rejected: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "rejected", payload: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
+        superseded: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "failed", failureReason: { startsWith: "SUPERSEDED_" }, payload: { path: ["opportunityId"], equals: oids[0] ?? "none" } } }),
       };
     };
+    const oids0 = async () => (await db.salesOpportunity.findFirst({ where: { orgId: ORG, customer: { email: "mark@maple-hotels.ca" } }, select: { id: true } }))?.id ?? "none";
     const formA = normalizeInquiry({ name: "Mark Chen", email: "mark@maple-hotels.ca", company: "Maple Hotels Group", country: "Canada", message: ACCEPTANCE, page: "https://www.mengxinhometextile.com/contact?utm_source=ads", utm_source: "ads" });
     if (!formA.ok || formA.value.honeypotTripped) throw new Error("fixture normalize failed");
     const w1 = await ingestWebsiteInquiry(ORG, formA.value);
@@ -292,7 +297,9 @@ async function main() {
     const w3 = await ingestWebsiteInquiry(ORG, formC.value);
     ok(w3.duplicate && !w3.replay && w3.spine.ok && !w3.spine.opportunityCreated && w3.spine.attachedToExisting && !!w3.fde?.ok, "Case C：同买家新内容 → 新消息/互动，复用商机", { spine: w3.spine.ok, fde: w3.fde?.ok });
     const cC = await wCounts("mark@maple-hotels.ca");
-    ok(cC.prospects === 1 && cC.tradeMessages === 2 && cC.customers === 1 && cC.opportunities === 1 && cC.interactions === 2 && cC.rfqs === 1 && cC.runs === 2 && cC.pending === 1 && cC.rejected === 1, "Case C 计数：线索 1 / 消息 2 / 客户 1 / 商机 1 / 互动 2 / RFQ 1 / 运行 2 / 未决草稿 1（旧草稿已被取代）", cC);
+    ok(cC.prospects === 1 && cC.tradeMessages === 2 && cC.customers === 1 && cC.opportunities === 1 && cC.interactions === 2 && cC.rfqs === 1 && cC.runs === 2 && cC.pending === 1 && cC.superseded === 1 && cC.rejected === 0, "Case C 计数：线索 1 / 消息 2 / 客户 1 / 商机 1 / 互动 2 / RFQ 1 / 运行 2 / 未决草稿 1（旧草稿系统作废 SUPERSEDED_BY_NEWER_INBOUND，非人类拒绝）", cC);
+    const supersededByInbound = await db.pendingAction.findFirst({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "failed", failureReason: { startsWith: "SUPERSEDED_BY_NEWER_INBOUND" }, payload: { path: ["opportunityId"], equals: await oids0() } }, select: { decidedById: true, decidedAt: true, failureReason: true } });
+    ok(!!supersededByInbound && supersededByInbound.decidedById === null && supersededByInbound.decidedAt === null && /triggeredBy=none/.test(supersededByInbound.failureReason ?? "") && /terminationMode=system_superseded/.test(supersededByInbound.failureReason ?? ""), "Case C：新来信作废旧草稿不写 decidedById（无人类决策者）", supersededByInbound);
     const rfqC = await db.salesRfq.findUnique({ where: { opportunityId: w1.spine.ok ? w1.spine.opportunityId : "" } });
     ok(rfqC?.quantity === 3000 && /140\s*x\s*260/i.test(rfqC.size ?? "") && rfqC.destinationCity?.toLowerCase() === "vancouver", "Case C RFQ 合并（保留数量，补尺寸/目的地）", rfqC);
     // executor 边界：针对旧来信的草稿即使被批准也拒发（STALE_DRAFT）
@@ -384,7 +391,14 @@ async function main() {
       outboundInteractions: await db.customerInteraction.count({ where: { orgId: ORG, opportunityId, direction: "outbound" } }),
       pending: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: opportunityId } } }),
       rejected: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "rejected", payload: { path: ["opportunityId"], equals: opportunityId } } }),
+      superseded: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "failed", failureReason: { startsWith: "SUPERSEDED_" }, payload: { path: ["opportunityId"], equals: opportunityId } } }),
     });
+    await db.user.update({ where: { id: TRADE2 }, data: { activeOrgId: ORG } });
+    const auditData = (v: unknown): Record<string, unknown> => {
+      if (typeof v === "string") { try { return JSON.parse(v) as Record<string, unknown>; } catch { return {}; } }
+      return (v ?? {}) as Record<string, unknown>;
+    };
+
     await db.user.update({ where: { id: TRADE }, data: { activeOrgId: ORG } });
 
     // 前置：网站询盘 → FDE 草稿 pending
@@ -413,24 +427,28 @@ async function main() {
     const mirroredMeta = (mirroredA?.analysisResult ?? {}) as Record<string, unknown>;
     ok(tcA.outboundMsgs === 1 && scA.outboundInteractions === 1 && !!oppA?.lastOutboundAt && oppA.followUpCount === 1 && oppA.nextActionType === "follow_up", "A：TradeMessage(outbound)=1，CustomerInteraction(outbound)=1，lastOutboundAt 已更新", { tcA, scA, oppA });
     ok(mirroredA?.direction === "outbound" && mirroredA.channel === "email" && mirroredA.type === "email" && mirroredMeta.source === "trade_inbox.mark_sent" && mirroredMeta.tradeMessageId === bodyA.messageId && mirroredMeta.tradeProspectId === nProspect && mirroredA.createdById === TRADE, "A：镜像语义 outbound/email/email + source + Trade 证据 + 操作者", { mirroredA, mirroredMeta });
-    const draft1 = await db.pendingAction.findUnique({ where: { id: nDraft1 }, select: { status: true, failureReason: true, decidedById: true } });
-    ok(draft1?.status === "rejected" && (draft1.failureReason ?? "").includes("SUPERSEDED_BY_MANUAL_REPLY") && (draft1.failureReason ?? "").includes(`tradeMessageId=${bodyA.messageId}`) && (draft1.failureReason ?? "").includes(`outboundInteractionId=${bodyA.revenueSync!.interactionId}`), "A：旧 FDE 草稿经 port 作废，原因机器可读并保留证据", draft1);
-    ok(bodyA.revenueSync!.supersededPendingActionIds.includes(nDraft1) && bodyA.revenueSync!.supersedeFailures.length === 0 && scA.pending === 0 && scA.rejected >= 1 && sent.length === sentAtStart, "A：一次真实发送（无 Revenue 发送），无 pending 草稿", { sync: bodyA.revenueSync, scA, sent: sent.length - sentAtStart });
+    const draft1 = await db.pendingAction.findUnique({ where: { id: nDraft1 }, select: { status: true, failureReason: true, decidedById: true, decidedAt: true, approverUserId: true } });
+    ok(draft1?.status === "failed" && (draft1.failureReason ?? "").startsWith("SUPERSEDED_BY_MANUAL_REPLY") && (draft1.failureReason ?? "").includes(`tradeMessageId=${bodyA.messageId}`) && (draft1.failureReason ?? "").includes(`outboundInteractionId=${bodyA.revenueSync!.interactionId}`) && (draft1.failureReason ?? "").includes(`triggeredBy=${TRADE}`) && (draft1.failureReason ?? "").includes("terminationMode=system_superseded"), "A：旧 FDE 草稿系统性作废（failed + 机器可读原因 + 证据 + 真实触发者）", draft1);
+    ok(draft1?.approverUserId === TRADE && draft1.decidedById === null && draft1.decidedAt === null, "J：操作者恰为审批人时仍走系统作废语义——不写 decidedById（不是人类点了拒绝）", draft1);
+    const auditA = await db.auditLog.findFirst({ where: { orgId: ORG, action: "APPROVAL_SYSTEM_SUPERSEDED", targetId: nDraft1 }, select: { userId: true, afterData: true } });
+    const auditAData = auditData(auditA?.afterData);
+    ok(!!auditA && auditA.userId === TRADE && auditAData.terminationMode === "system_superseded" && auditAData.reasonCode === "SUPERSEDED_BY_MANUAL_REPLY" && auditAData.triggeredByUserId === TRADE && auditAData.tradeMessageId === bodyA.messageId && auditAData.outboundInteractionId === bodyA.revenueSync!.interactionId && auditAData.decidedById === null, "A/J：AuditLog APPROVAL_SYSTEM_SUPERSEDED 记录真实触发者与证据", { auditA });
+    ok(bodyA.revenueSync!.supersededPendingActionIds.includes(nDraft1) && bodyA.revenueSync!.supersedeFailures.length === 0 && scA.pending === 0 && scA.superseded >= 1 && scA.rejected === 0 && sent.length === sentAtStart, "A：一次真实发送（无 Revenue 发送），无 pending 草稿，无人类拒绝记录", { sync: bodyA.revenueSync, scA, sent: sent.length - sentAtStart });
     const replayA = await syncTradeOutboundToRevenueSpine({ orgId: ORG, prospectId: nProspect, tradeMessageId: bodyA.messageId!, actorUserId: TRADE, actorRole: "trade", source: "trade_inbox.mark_sent", channel: "email", subject: "Re: blackout curtains", content: "Thanks Nora, we can produce these. Sizes?" });
     ok(replayA.replay && replayA.interactionId === bodyA.revenueSync!.interactionId && (await spineCounts(nOpp)).outboundInteractions === 1, "A：同一 tradeMessageId 重复镜像 → replay，不重复写互动", replayA);
 
     // B — 迟到批准旧草稿 → 不能二次发送
     const lateB = await approveApprovalItem("pending_action", nDraft1, { userId: TRADE, role: "trade", orgId: ORG });
-    ok(lateB.status === "rejected" && lateB.duplicate === true && sent.length === sentAtStart, "B：迟到批准落到已作废草稿 → port 幂等返回 rejected，无第二封邮件", lateB);
+    ok(lateB.ok === false && lateB.status === "failed" && lateB.duplicate === true && sent.length === sentAtStart, "B：迟到批准落到已作废草稿 → port 幂等返回 failed（system_superseded），无第二封邮件", lateB);
     const lateBraw = await executePendingAction(nDraft1, { userId: TRADE, role: "trade", orgId: ORG });
-    ok(lateBraw.ok === false && sent.length === sentAtStart, "B：executor 直调同样拒绝（ALREADY_REJECTED）", lateBraw);
+    ok(lateBraw.ok === false && lateBraw.errorCode === "ALREADY_FAILED" && sent.length === sentAtStart, "B：executor 直调同样拒绝（ALREADY_FAILED）", lateBraw);
 
     // C — 竞态：新草稿 T1 → 人工外发 T2（作废步骤缺席）→ 迟到批准 T3 → executor 独立拒绝
     const fdeC1 = await runInboundSalesFde({ orgId: ORG, opportunityId: nOpp, trigger: "manual", useLlm: false });
     ok(fdeC1.ok && !!fdeC1.pendingActionId && fdeC1.pendingActionId !== nDraft1, "C：重跑 FDE 生成新草稿 T1", fdeC1.pendingActionId);
     const t2 = await logRevenueInteraction({ orgId: ORG, opportunityId: nOpp, direction: "outbound", channel: "email", content: "manual reply sent, cleanup delayed", actorUserId: TRADE, source: "trade_inbox.reply" });
     const raceC = await approveApprovalItem("pending_action", fdeC1.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
-    ok(raceC.ok === false && /STALE_DRAFT|过时|已收到回复/.test(`${raceC.errorCode ?? ""} ${raceC.error ?? ""} ${raceC.message ?? ""}`) && sent.length === sentAtStart, "C：作废缺席时 executor 仍按 createdAt 对比拒发（STALE_DRAFT）", { raceC, t2: t2.interactionId });
+    ok(raceC.ok === false && /STALE_DRAFT|过时|已收到回复/.test(`${raceC.errorCode ?? ""} ${raceC.error ?? ""} ${raceC.message ?? ""}`) && sent.length === sentAtStart, "C/L：作废缺席时 executor 仍按 createdAt 对比拒发（STALE_DRAFT），0 次二次发送", { raceC, t2: t2.interactionId });
 
     // D — Trade-only 线索（未转商机）：回复行为不变，不伪造 Revenue 对象
     const campaignId = await ensureInquiryCampaign(ORG);
@@ -493,7 +511,45 @@ async function main() {
     );
     const bodyH = (await resH.json()) as { revenueSync?: { linked: boolean; supersededPendingActionIds: string[] } };
     const draftH = fdeH.pendingActionId ? await db.pendingAction.findUnique({ where: { id: fdeH.pendingActionId }, select: { status: true } }) : null;
-    ok(resH.status === 201 && bodyH.revenueSync?.linked === true && !!fdeH.pendingActionId && bodyH.revenueSync.supersededPendingActionIds.includes(fdeH.pendingActionId) && draftH?.status === "rejected", "H：收件箱「已处理」标记（messages 路由 outbound）同样镜像并作废草稿", { status: resH.status, bodyH, draftH });
+    ok(resH.status === 201 && bodyH.revenueSync?.linked === true && !!fdeH.pendingActionId && bodyH.revenueSync.supersededPendingActionIds.includes(fdeH.pendingActionId) && draftH?.status === "failed", "H：收件箱「已处理」标记（messages 路由 outbound）同样镜像并系统作废草稿", { status: resH.status, bodyH, draftH });
+
+    // I — 非审批人的外贸员真实回复：作废旧草稿但绝不把审批人记成决策者
+    const fdeI = await runInboundSalesFde({ orgId: ORG, opportunityId: nOpp, trigger: "manual", useLlm: false });
+    if (!fdeI.ok || !fdeI.pendingActionId) throw new Error("fixture I: no pending draft");
+    const draftIBefore = await db.pendingAction.findUnique({ where: { id: fdeI.pendingActionId }, select: { approverUserId: true, status: true } });
+    ok(draftIBefore?.approverUserId === TRADE && draftIBefore.status === "pending", "I 前置：草稿审批人 = TRADE（USER_B），操作者将是 TRADE2（USER_A，非审批人、非管理员）", draftIBefore);
+    const sentBeforeI = sent.length;
+    const resI = await replyRoute(
+      await routeReq(TRADE2, "trade", `http://localhost/api/trade/inbox/${nProspect}/reply`, { orgId: ORG, subject: "Re: sizes", body: "Confirming sizes, quotation to follow.", mode: "mark_sent" }),
+      { params: Promise.resolve({ prospectId: nProspect }) },
+    );
+    const bodyI = (await resI.json()) as { ok?: boolean; messageId?: string; revenueSync?: { linked: boolean; interactionId: string | null; supersededPendingActionIds: string[]; supersedeFailures: unknown[] } };
+    const draftI = await db.pendingAction.findUnique({ where: { id: fdeI.pendingActionId }, select: { status: true, failureReason: true, decidedById: true, decidedAt: true } });
+    const interI = bodyI.revenueSync?.interactionId ? await db.customerInteraction.findUnique({ where: { id: bodyI.revenueSync.interactionId }, select: { createdById: true, direction: true } }) : null;
+    const auditI = await db.auditLog.findFirst({ where: { orgId: ORG, action: "APPROVAL_SYSTEM_SUPERSEDED", targetId: fdeI.pendingActionId }, select: { userId: true, afterData: true } });
+    const auditIData = auditData(auditI?.afterData);
+    ok(resI.status === 200 && bodyI.ok === true && bodyI.revenueSync?.linked === true && interI?.direction === "outbound" && interI.createdById === TRADE2 && sent.length === sentBeforeI, "I：非审批人真实回复成功，outbound 互动归属 TRADE2，无第二封发送", { status: resI.status, bodyI, interI });
+    ok(draftI?.status === "failed" && (draftI.failureReason ?? "").startsWith("SUPERSEDED_BY_MANUAL_REPLY") && (draftI.failureReason ?? "").includes(`triggeredBy=${TRADE2}`) && bodyI.revenueSync!.supersededPendingActionIds.includes(fdeI.pendingActionId) && bodyI.revenueSync!.supersedeFailures.length === 0, "I：草稿终止（failed/superseded），触发者 = TRADE2", draftI);
+    ok(draftI?.decidedById !== TRADE && draftI?.decidedById === null && draftI.decidedAt === null, "I：decidedById 绝不伪造成审批人 TRADE（USER_B 未执行任何动作）", draftI);
+    ok(!!auditI && auditI.userId === TRADE2 && auditIData.triggeredByUserId === TRADE2 && auditIData.reasonCode === "SUPERSEDED_BY_MANUAL_REPLY" && auditIData.terminationMode === "system_superseded" && auditIData.decidedById === null, "I：审计 = 系统作废，triggeredByUserId = TRADE2", { auditI });
+    const lateI = await approveApprovalItem("pending_action", fdeI.pendingActionId, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(lateI.ok === false && sent.length === sentBeforeI, "I：审批人迟到批准 → 拒绝，无发送", lateI);
+
+    // K — 伪造主体不可能：请求体里的 approverUserId / decidedById / actor 一律被忽略
+    const fdeK = await runInboundSalesFde({ orgId: ORG, opportunityId: nOpp, trigger: "manual", useLlm: false });
+    if (!fdeK.ok || !fdeK.pendingActionId) throw new Error("fixture K: no pending draft");
+    const resK = await replyRoute(
+      await routeReq(TRADE2, "trade", `http://localhost/api/trade/inbox/${nProspect}/reply`, { orgId: ORG, subject: "Re: forged", body: "forged principal attempt", mode: "mark_sent", approverUserId: OTHER, decidedById: OTHER, actor: OTHER, actorUserId: OTHER, triggeredByUserId: OTHER, userId: OTHER, systemActor: "system" }),
+      { params: Promise.resolve({ prospectId: nProspect }) },
+    );
+    const bodyK = (await resK.json()) as { ok?: boolean; revenueSync?: { interactionId: string | null } };
+    const interK = bodyK.revenueSync?.interactionId ? await db.customerInteraction.findUnique({ where: { id: bodyK.revenueSync.interactionId }, select: { createdById: true } }) : null;
+    const draftK = await db.pendingAction.findUnique({ where: { id: fdeK.pendingActionId }, select: { status: true, failureReason: true, decidedById: true } });
+    const auditK = await db.auditLog.findFirst({ where: { orgId: ORG, action: "APPROVAL_SYSTEM_SUPERSEDED", targetId: fdeK.pendingActionId }, select: { userId: true, afterData: true } });
+    const auditKData = auditData(auditK?.afterData);
+    ok(resK.status === 200 && interK?.createdById === TRADE2 && draftK?.status === "failed" && draftK.decidedById === null && (draftK.failureReason ?? "").includes(`triggeredBy=${TRADE2}`) && !(draftK.failureReason ?? "").includes(OTHER) && auditK?.userId === TRADE2 && auditKData.triggeredByUserId === TRADE2, "K：请求体伪造 approverUserId/decidedById/actor 全部被忽略，主体只来自服务端会话", { interK, draftK, auditK });
+    const auditForged = await db.auditLog.count({ where: { orgId: ORG, action: "APPROVAL_SYSTEM_SUPERSEDED", userId: OTHER } });
+    ok(auditForged === 0, "K：不存在以伪造主体记账的审计行", auditForged);
 
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });
@@ -526,9 +582,9 @@ async function main() {
       await db.organizationMember.deleteMany({ where: { orgId } });
     }
     await db.organization.deleteMany({ where: { id: { in: [ORG, ORG2] } } });
-    await db.auditLog.deleteMany({ where: { userId: { in: [OWNER, TRADE, OTHER] } } });
-    await db.notification.deleteMany({ where: { userId: { in: [OWNER, TRADE, OTHER] } } });
-    await db.user.deleteMany({ where: { id: { in: [OWNER, TRADE, OTHER] } } });
+    await db.auditLog.deleteMany({ where: { userId: { in: [OWNER, TRADE, OTHER, TRADE2] } } });
+    await db.notification.deleteMany({ where: { userId: { in: [OWNER, TRADE, OTHER, TRADE2] } } });
+    await db.user.deleteMany({ where: { id: { in: [OWNER, TRADE, OTHER, TRADE2] } } });
   }
 
   console.log(`\nRevenue Spine DB e2e 结果: ${pass} 通过, ${fail} 失败`);

@@ -7,18 +7,19 @@
  * 语义：
  *   1. 线索已链接商机（TradeProspect.convertedToSalesOpportunityId）→ 经 canonical logRevenueInteraction 写 outbound
  *      CustomerInteraction（lastOutboundAt / followUpCount / next action 由它统一维护；本模块不直接改商机字段）
- *   2. 同商机所有 pending 的 sales.send_inquiry_reply 草稿 → 经 approval/port 作废（SUPERSEDED_BY_MANUAL_REPLY）
+ *   2. 同商机所有 pending 的 sales.send_inquiry_reply 草稿 → 系统性作废（pending-actions/supersede，
+ *      SUPERSEDED_BY_MANUAL_REPLY；不写 decidedById，真实操作者只以 triggeredByUserId 记录）
  *   3. 幂等键 = tradeMessageId（存于 CustomerInteraction.analysisResult），重复调用不重复镜像
  *   4. 任何失败只记录（console + AuditLog），绝不回滚已经成功的客户回复
  */
 
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
-import { rejectApprovalItem } from "@/lib/approval/port";
+import { supersedePendingAction } from "@/lib/pending-actions/supersede";
 import { INQUIRY_REPLY_ACTION_TYPE } from "@/lib/revenue-spine/fde/inbound-sales";
 import { logRevenueInteraction } from "@/lib/revenue-spine/interactions";
 
-export const SUPERSEDED_BY_MANUAL_REPLY = "SUPERSEDED_BY_MANUAL_REPLY";
+export const SUPERSEDED_BY_MANUAL_REPLY = "SUPERSEDED_BY_MANUAL_REPLY" as const;
 
 export type TradeOutboundSource =
   | "trade_inbox.reply"
@@ -78,8 +79,10 @@ async function findMirroredInteraction(orgId: string, opportunityId: string, tra
 }
 
 /**
- * 作废同商机的 pending 回复草稿。先以真实操作者身份经 port 拒绝；无权（非审批人/非管理员）时
- * 以草稿指定审批人（服务端推导）身份拒绝，note 中保留真实操作者与证据。
+ * 系统性作废同商机的 pending 回复草稿（SYSTEM SUPERSESSION）。
+ * 不是"某人拒绝"：一条已核实的真实外发使旧草稿客观过时。经 pending-actions/supersede 原语
+ * pending → failed（CAS），failureReason 机器可读，**不写 decidedById**；真实操作者仅作为
+ * triggeredByUserId 进入 failureReason 与 AuditLog。绝不以审批人/创建人身份冒名执行。
  */
 export async function supersedePendingInquiryReplies(input: {
   orgId: string;
@@ -98,26 +101,23 @@ export async function supersedePendingInquiryReplies(input: {
       expiresAt: { gt: now },
       payload: { path: ["opportunityId"], equals: input.opportunityId },
     },
-    select: { id: true, approverUserId: true, createdById: true },
+    select: { id: true },
   });
   const superseded: string[] = [];
   const failures: Array<{ pendingActionId: string; error: string }> = [];
-  const note = `${SUPERSEDED_BY_MANUAL_REPLY} tradeMessageId=${input.tradeMessageId} outboundInteractionId=${input.outboundInteractionId ?? "none"} actor=${input.actorUserId}`;
   for (const d of drafts) {
     try {
-      let r = await rejectApprovalItem("pending_action", d.id, {
-        userId: input.actorUserId,
-        role: input.actorRole,
+      const r = await supersedePendingAction({
+        pendingActionId: d.id,
         orgId: input.orgId,
-        note,
+        expectedType: INQUIRY_REPLY_ACTION_TYPE,
+        reasonCode: SUPERSEDED_BY_MANUAL_REPLY,
+        triggeredByUserId: input.actorUserId,
+        auditActorUserId: input.actorUserId,
+        evidence: { tradeMessageId: input.tradeMessageId, outboundInteractionId: input.outboundInteractionId },
       });
-      const principal = d.approverUserId ?? d.createdById;
-      if (!r.ok && /无权/.test(r.error ?? "") && principal && principal !== input.actorUserId) {
-        // 系统性作废：以草稿指定审批人身份执行（服务端推导），真实操作者保留在 note
-        r = await rejectApprovalItem("pending_action", d.id, { userId: principal, role: null, orgId: input.orgId, note });
-      }
-      if (r.ok || r.status === "rejected") superseded.push(d.id);
-      else failures.push({ pendingActionId: d.id, error: r.error ?? r.message ?? "reject failed" });
+      if (r.ok) superseded.push(d.id);
+      else failures.push({ pendingActionId: d.id, error: `${r.errorCode}: ${r.error}` });
     } catch (err) {
       failures.push({ pendingActionId: d.id, error: err instanceof Error ? err.message : String(err) });
     }

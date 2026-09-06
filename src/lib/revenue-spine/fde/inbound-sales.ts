@@ -13,7 +13,7 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { requestApproval } from "@/lib/approval/request";
-import { rejectApprovalItem } from "@/lib/approval/port";
+import { supersedePendingAction } from "@/lib/pending-actions/supersede";
 import {
   appendAgentRunEvent,
   completeAgentRun,
@@ -376,7 +376,8 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           : await db.pendingAction.count({
               where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["opportunityId"], equals: opp.id } },
             });
-        // 同商机针对更早来信的未决草稿已过时：先作废，避免两份草稿被各自批准造成双发
+        // 同商机针对更早来信的未决草稿已过时：系统性作废（SYSTEM SUPERSESSION，不是人类拒绝、
+        // 不冒用负责人身份——触发者是客户新来信，triggeredByUserId=null），避免两份草稿被各自批准造成双发
         if (!openDraft) {
           const staleDrafts = await db.pendingAction.findMany({
             where: {
@@ -389,13 +390,23 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           });
           for (const stale of staleDrafts) {
             try {
-              const rej = await rejectApprovalItem("pending_action", stale.id, {
-                userId: principalUserId,
-                role: null,
+              const sup = await supersedePendingAction({
+                pendingActionId: stale.id,
                 orgId,
-                note: `superseded by newer inbound message ${latest.id}`,
+                expectedType: INQUIRY_REPLY_ACTION_TYPE,
+                reasonCode: "SUPERSEDED_BY_NEWER_INBOUND",
+                triggeredByUserId: null,
+                auditActorUserId: principalUserId,
+                evidence: { inboundInteractionId: latest.id, agentRunId: runId },
               });
-              await event("approval.rejected", "旧回复草稿已被新来信取代", { pendingActionId: stale.id, ok: rej.ok, supersededBy: latest.id });
+              await event("approval.failed", sup.ok ? "旧回复草稿已被新来信取代（system_superseded）" : "作废旧草稿未成功（发送时由 executor 二次拦截）", {
+                pendingActionId: stale.id,
+                ok: sup.ok,
+                terminationMode: "system_superseded",
+                reasonCode: "SUPERSEDED_BY_NEWER_INBOUND",
+                supersededBy: latest.id,
+                ...(sup.ok ? {} : { errorCode: sup.errorCode }),
+              });
             } catch (err) {
               // 取代失败不阻塞：executor 在发送前还会以 STALE_DRAFT 拒绝针对旧来信的草稿
               await event("approval.failed", "作废旧草稿失败（发送时由 executor 二次拦截）", {
