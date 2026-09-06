@@ -158,6 +158,14 @@ export async function analyzeInquiry(input: AnalyzeInquiryInput): Promise<void> 
     await db.tradeMessage
       .update({ where: { id: messageId }, data: { intent: mapIntentToMessageIntent(extracted.intent) } })
       .catch(() => {});
+
+    // 第三刀：分析完成 → 设计段（回复草稿 / 报价建议 / 寄样建议），失败只记 designStatus
+    try {
+      const { designInquiryResponse } = await import("@/lib/trade/inquiry-design");
+      await designInquiryResponse(messageId);
+    } catch (err) {
+      console.warn("[inquiry-analysis] design step failed:", err);
+    }
   } catch (err) {
     await db.tradeInquiryAnalysis
       .update({
@@ -217,6 +225,10 @@ export async function loadLatestAnalyses(prospectIds: string[]) {
       compliance: true,
       redFlags: true,
       researchStatus: true,
+      replyDraft: true,
+      quoteSuggestion: true,
+      sampleAdvice: true,
+      designStatus: true,
     },
   });
   const map = new Map<string, InquiryAnalysisSummary>();
@@ -236,6 +248,10 @@ export async function loadLatestAnalyses(prospectIds: string[]) {
       compliance: hints.map((h) => ({ code: h.code, title: h.title, severity: h.severity })),
       redFlags: flags.map((f) => ({ code: f.code, title: f.title, severity: f.severity })),
       researchStatus: r.researchStatus,
+      designStatus: r.designStatus,
+      replyDraft: (r.replyDraft as InquiryAnalysisSummary["replyDraft"]) ?? null,
+      quoteSuggestion: (r.quoteSuggestion as InquiryAnalysisSummary["quoteSuggestion"]) ?? null,
+      sampleAdvice: (r.sampleAdvice as InquiryAnalysisSummary["sampleAdvice"]) ?? null,
     });
   }
   return map;
@@ -252,4 +268,15 @@ export interface InquiryAnalysisSummary {
   compliance: { code: string; title: string; severity: string }[];
   redFlags: { code: string; title: string; severity: string }[];
   researchStatus: string | null;
+  designStatus: string | null;
+  replyDraft: { subject: string; body: string; subjectZh: string; bodyZh: string; language: string; askedQuestions: string[] } | null;
+  quoteSuggestion: {
+    items: { productName: string; specification: string; unit: string; quantity: number; unitPriceSuggested: number | null; basis: string; matchedSku: string | null }[];
+    moq: string | null;
+    leadTimeDays: number | null;
+    incoterm: string;
+    notes: string;
+    matchedSkus: string[];
+  } | null;
+  sampleAdvice: { recommend: boolean; mode: string; reasons: string[]; suggestedFeeUsd: number | null } | null;
 }

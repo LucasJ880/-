@@ -3708,6 +3708,18 @@ model TradeInquiryAnalysis {
   /// 自动研究触发结果：triggered / skipped_no_serper / skipped_no_domain / failed
   researchStatus String?
   error      String?  @db.VarChar(1000)
+
+  /// 第三刀：AI 设计段（草稿，人确认后才动作）
+  /// { subject, body, subjectZh, bodyZh, language, askedQuestions[] }
+  replyDraft      Json?
+  /// { items:[{productName,specification,unit,quantity,unitPriceSuggested,basis}], moq, leadTimeDays, incoterm, notes, matchedSkus[] }
+  quoteSuggestion Json?
+  /// { recommend: boolean, mode: free|paid_deductible|paid|decline, reasons[], suggestedFeeUsd }
+  sampleAdvice    Json?
+  /// pending / done / failed
+  designStatus    String?
+  designError     String?  @db.VarChar(1000)
+  designedAt      DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
