@@ -349,7 +349,7 @@ async function main() {
       cancelledRunId = (args.data as { agentRunId?: string | null }).agentRunId ?? null;
       if (cancelledRunId) await cancelAgentRun(ORG, cancelledRunId);
       return row;
-    }) as typeof origCreate;
+    }) as unknown as typeof origCreate;
     let cancelRun: Awaited<ReturnType<typeof runInboundSalesFde>>;
     try {
       cancelRun = await runInboundSalesFde({ orgId: ORG, opportunityId: cancelProbe.opportunityId, salesActionId: cancelProbe.salesActionId, trigger: "inquiry", useLlm: false });
@@ -359,6 +359,141 @@ async function main() {
     const cancelledRun = cancelledRunId ? await db.agentRun.findUnique({ where: { id: cancelledRunId }, select: { status: true } }) : null;
     const cancelPending = await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: cancelProbe.opportunityId } } });
     ok(cancelledRun?.status === "cancelled" && cancelRun.pendingActionId === null && cancelPending === 0, "run 被 supervisor 取消 → 不生成审批草稿，run 保持 cancelled", { status: cancelledRun?.status, pa: cancelRun.pendingActionId, cancelPending });
+
+    console.log("\n[13] Trade 收件箱外发 ↔ Revenue Spine 同步（P0.5）");
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "revenue-spine-e2e-jwt-secret";
+    const { createSession } = await import("@/lib/auth/session");
+    const { POST: replyRoute } = await import("@/app/api/trade/inbox/[prospectId]/reply/route");
+    const { POST: messagesRoute } = await import("@/app/api/trade/prospects/[id]/messages/route");
+    const { syncTradeOutboundToRevenueSpine } = await import("@/lib/trade/outbound-sync");
+    const { createProspect } = await import("@/lib/trade/service");
+    const { ensureInquiryCampaign } = await import("@/lib/trade/website-inquiry");
+    const routeReq = async (userId: string, role: string, url: string, body: Record<string, unknown>) => {
+      const token = await createSession({ sub: userId, email: `${userId}@fixture.test`, role });
+      return new NextRequest(url, {
+        method: "POST",
+        headers: { cookie: `qy_session=${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    };
+    const tradeCounts = async (prospectId: string) => ({
+      outboundMsgs: await db.tradeMessage.count({ where: { prospectId, direction: "outbound" } }),
+      inboundMsgs: await db.tradeMessage.count({ where: { prospectId, direction: "inbound" } }),
+    });
+    const spineCounts = async (opportunityId: string) => ({
+      outboundInteractions: await db.customerInteraction.count({ where: { orgId: ORG, opportunityId, direction: "outbound" } }),
+      pending: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: opportunityId } } }),
+      rejected: await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "rejected", payload: { path: ["opportunityId"], equals: opportunityId } } }),
+    });
+    await db.user.update({ where: { id: TRADE }, data: { activeOrgId: ORG } });
+
+    // 前置：网站询盘 → FDE 草稿 pending
+    const formN = normalizeInquiry({ name: "Nora Park", email: "nora@peak-hotels.ca", company: "Peak Hotels Ltd", country: "Canada", message: ACCEPTANCE });
+    if (!formN.ok || formN.value.honeypotTripped) throw new Error("fixture N failed");
+    const wn = await ingestWebsiteInquiry(ORG, formN.value);
+    if (!wn.spine.ok || !wn.fde?.pendingActionId) throw new Error("fixture N: no pending draft");
+    const nProspect = wn.prospectId;
+    const nOpp = wn.spine.opportunityId;
+    const nDraft1 = wn.fde.pendingActionId;
+    const sentAtStart = sent.length;
+    const beforeA = await spineCounts(nOpp);
+    ok(beforeA.pending === 1 && beforeA.outboundInteractions === 0, "前置：1 个 FDE 草稿 pending，尚无 outbound", beforeA);
+
+    // A — 收件箱人工回复（真实路由；mark_sent = 人已在系统外发出，一次真实发送）
+    const resA = await replyRoute(
+      await routeReq(TRADE, "trade", `http://localhost/api/trade/inbox/${nProspect}/reply`, { orgId: ORG, subject: "Re: blackout curtains", body: "Thanks Nora, we can produce these. Sizes?", mode: "mark_sent" }),
+      { params: Promise.resolve({ prospectId: nProspect }) },
+    );
+    const bodyA = (await resA.json()) as { ok?: boolean; messageId?: string; revenueSync?: { linked: boolean; interactionId: string | null; supersededPendingActionIds: string[]; supersedeFailures: unknown[] } };
+    ok(resA.status === 200 && bodyA.ok === true && !!bodyA.revenueSync?.linked && !!bodyA.revenueSync.interactionId, "A：收件箱回复路由 200 + 已镜像到 Revenue Spine", { status: resA.status, body: bodyA });
+    const tcA = await tradeCounts(nProspect);
+    const scA = await spineCounts(nOpp);
+    const oppA = await db.salesOpportunity.findUnique({ where: { id: nOpp }, select: { lastOutboundAt: true, followUpCount: true, nextActionType: true } });
+    const mirroredA = await db.customerInteraction.findUnique({ where: { id: bodyA.revenueSync!.interactionId! }, select: { direction: true, channel: true, type: true, analysisResult: true, createdById: true } });
+    const mirroredMeta = (mirroredA?.analysisResult ?? {}) as Record<string, unknown>;
+    ok(tcA.outboundMsgs === 1 && scA.outboundInteractions === 1 && !!oppA?.lastOutboundAt && oppA.followUpCount === 1 && oppA.nextActionType === "follow_up", "A：TradeMessage(outbound)=1，CustomerInteraction(outbound)=1，lastOutboundAt 已更新", { tcA, scA, oppA });
+    ok(mirroredA?.direction === "outbound" && mirroredA.channel === "email" && mirroredA.type === "email" && mirroredMeta.source === "trade_inbox.mark_sent" && mirroredMeta.tradeMessageId === bodyA.messageId && mirroredMeta.tradeProspectId === nProspect && mirroredA.createdById === TRADE, "A：镜像语义 outbound/email/email + source + Trade 证据 + 操作者", { mirroredA, mirroredMeta });
+    const draft1 = await db.pendingAction.findUnique({ where: { id: nDraft1 }, select: { status: true, failureReason: true, decidedById: true } });
+    ok(draft1?.status === "rejected" && (draft1.failureReason ?? "").includes("SUPERSEDED_BY_MANUAL_REPLY") && (draft1.failureReason ?? "").includes(`tradeMessageId=${bodyA.messageId}`) && (draft1.failureReason ?? "").includes(`outboundInteractionId=${bodyA.revenueSync!.interactionId}`), "A：旧 FDE 草稿经 port 作废，原因机器可读并保留证据", draft1);
+    ok(bodyA.revenueSync!.supersededPendingActionIds.includes(nDraft1) && bodyA.revenueSync!.supersedeFailures.length === 0 && scA.pending === 0 && scA.rejected >= 1 && sent.length === sentAtStart, "A：一次真实发送（无 Revenue 发送），无 pending 草稿", { sync: bodyA.revenueSync, scA, sent: sent.length - sentAtStart });
+    const replayA = await syncTradeOutboundToRevenueSpine({ orgId: ORG, prospectId: nProspect, tradeMessageId: bodyA.messageId!, actorUserId: TRADE, actorRole: "trade", source: "trade_inbox.mark_sent", channel: "email", subject: "Re: blackout curtains", content: "Thanks Nora, we can produce these. Sizes?" });
+    ok(replayA.replay && replayA.interactionId === bodyA.revenueSync!.interactionId && (await spineCounts(nOpp)).outboundInteractions === 1, "A：同一 tradeMessageId 重复镜像 → replay，不重复写互动", replayA);
+
+    // B — 迟到批准旧草稿 → 不能二次发送
+    const lateB = await approveApprovalItem("pending_action", nDraft1, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(lateB.status === "rejected" && lateB.duplicate === true && sent.length === sentAtStart, "B：迟到批准落到已作废草稿 → port 幂等返回 rejected，无第二封邮件", lateB);
+    const lateBraw = await executePendingAction(nDraft1, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(lateBraw.ok === false && sent.length === sentAtStart, "B：executor 直调同样拒绝（ALREADY_REJECTED）", lateBraw);
+
+    // C — 竞态：新草稿 T1 → 人工外发 T2（作废步骤缺席）→ 迟到批准 T3 → executor 独立拒绝
+    const fdeC1 = await runInboundSalesFde({ orgId: ORG, opportunityId: nOpp, trigger: "manual", useLlm: false });
+    ok(fdeC1.ok && !!fdeC1.pendingActionId && fdeC1.pendingActionId !== nDraft1, "C：重跑 FDE 生成新草稿 T1", fdeC1.pendingActionId);
+    const t2 = await logRevenueInteraction({ orgId: ORG, opportunityId: nOpp, direction: "outbound", channel: "email", content: "manual reply sent, cleanup delayed", actorUserId: TRADE, source: "trade_inbox.reply" });
+    const raceC = await approveApprovalItem("pending_action", fdeC1.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(raceC.ok === false && /STALE_DRAFT|过时|已收到回复/.test(`${raceC.errorCode ?? ""} ${raceC.error ?? ""} ${raceC.message ?? ""}`) && sent.length === sentAtStart, "C：作废缺席时 executor 仍按 createdAt 对比拒发（STALE_DRAFT）", { raceC, t2: t2.interactionId });
+
+    // D — Trade-only 线索（未转商机）：回复行为不变，不伪造 Revenue 对象
+    const campaignId = await ensureInquiryCampaign(ORG);
+    const onlyProspect = await createProspect({ campaignId, orgId: ORG, companyName: "Trade Only GmbH", contactEmail: "buyer@trade-only.de", contactName: "Jonas", source: "manual", stage: "new" });
+    const resD = await replyRoute(
+      await routeReq(TRADE, "trade", `http://localhost/api/trade/inbox/${onlyProspect.id}/reply`, { orgId: ORG, subject: "Re: your inquiry", body: "Hello Jonas", mode: "mark_sent" }),
+      { params: Promise.resolve({ prospectId: onlyProspect.id }) },
+    );
+    const bodyD = (await resD.json()) as { ok?: boolean; revenueSync?: { linked: boolean; interactionId: string | null } };
+    const tcD = await tradeCounts(onlyProspect.id);
+    const custD2 = await db.salesCustomer.count({ where: { orgId: ORG, email: "buyer@trade-only.de" } });
+    ok(resD.status === 200 && bodyD.ok === true && bodyD.revenueSync?.linked === false && bodyD.revenueSync.interactionId === null && tcD.outboundMsgs === 1 && custD2 === 0, "D：Trade-only 线索回复不变，无 Revenue 对象", { status: resD.status, bodyD, tcD, custD2 });
+
+    // E — 人工回复之后客户再来信：记录 inbound、CUSTOMER_REPLIED、允许新 FDE 与新草稿
+    const scBeforeE = await spineCounts(nOpp);
+    const formE = normalizeInquiry({ name: "Nora Park", email: "nora@peak-hotels.ca", message: "Sizes are 140x260cm, polyester blackout, ship to Toronto by 2026-12-10." });
+    if (!formE.ok || formE.value.honeypotTripped) throw new Error("fixture E failed");
+    const wE = await ingestWebsiteInquiry(ORG, formE.value);
+    const outcomesE = await listOpportunityOutcomes(ORG, nOpp);
+    const scE = await spineCounts(nOpp);
+    const draftC1After = await db.pendingAction.findUnique({ where: { id: fdeC1.pendingActionId! }, select: { status: true } });
+    ok(wE.spine.ok && !wE.spine.opportunityCreated && wE.spine.customerReplied && outcomesE.some((o) => o.outcomeType === "CUSTOMER_REPLIED") && !!wE.fde?.ok && !!wE.fde.pendingActionId && wE.fde.pendingActionId !== fdeC1.pendingActionId && scE.pending === 1 && scE.rejected >= scBeforeE.rejected && draftC1After?.status === "failed", "E：新来信 → inbound + CUSTOMER_REPLIED + 新 FDE 草稿（C 的过时草稿已 failed，商机未被永久压制）", { spine: wE.spine, fde: wE.fde?.pendingActionId, scE, draftC1After });
+
+    // F — 授权：跨组织 / 失效成员 / 他组织线索
+    const resF1 = await replyRoute(
+      await routeReq(OTHER, "trade", `http://localhost/api/trade/inbox/${nProspect}/reply`, { orgId: ORG, subject: "x", body: "cross org", mode: "mark_sent" }),
+      { params: Promise.resolve({ prospectId: nProspect }) },
+    );
+    ok(resF1.status === 403, "F：他组织成员显式指定本组织 → 403", resF1.status);
+    await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "inactive" } });
+    const resF2 = await replyRoute(
+      await routeReq(TRADE, "trade", `http://localhost/api/trade/inbox/${nProspect}/reply`, { orgId: ORG, subject: "x", body: "inactive", mode: "mark_sent" }),
+      { params: Promise.resolve({ prospectId: nProspect }) },
+    );
+    await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "active" } });
+    ok(resF2.status === 403, "F：失效成员 → 403", resF2.status);
+    const foreignProspect = await createProspect({ campaignId: await ensureInquiryCampaign(ORG2), orgId: ORG2, companyName: "Foreign Co", contactEmail: "f@foreign.example", source: "manual", stage: "new" });
+    const resF3 = await replyRoute(
+      await routeReq(TRADE, "trade", `http://localhost/api/trade/inbox/${foreignProspect.id}/reply`, { orgId: ORG, subject: "x", body: "foreign prospect", mode: "mark_sent" }),
+      { params: Promise.resolve({ prospectId: foreignProspect.id }) },
+    );
+    ok(resF3.status === 404 && (await tradeCounts(foreignProspect.id)).outboundMsgs === 0, "F：本组织成员回复他组织线索 → 404，无写入", resF3.status);
+    const tcAfterF = await tradeCounts(nProspect);
+    ok(tcAfterF.outboundMsgs === 1, "F：授权失败不产生 TradeMessage", tcAfterF);
+
+    // G — 反向镜像：审批发送的 FDE 回复出现在 Trade 时间线（幂等）
+    const approveG = await approveApprovalItem("pending_action", wE.fde!.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    const tcG = await tradeCounts(nProspect);
+    const mirroredG = await db.tradeMessage.findFirst({ where: { prospectId: nProspect, direction: "outbound", content: { contains: "[青砚审批发送 · ref " } }, select: { id: true, subject: true } });
+    ok(approveG.ok === true && sent.length === sentAtStart + 1 && tcG.outboundMsgs === 2 && !!mirroredG, "G：审批发送 → 一次真实发送 + Trade 时间线 outbound（收件箱视为已回复）", { approveG, tcG, mirroredG });
+    const dupG = await approveApprovalItem("pending_action", wE.fde!.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(dupG.duplicate === true && sent.length === sentAtStart + 1 && (await tradeCounts(nProspect)).outboundMsgs === 2, "G：重复批准不重复发送、不重复镜像", { dupG, out: (await tradeCounts(nProspect)).outboundMsgs });
+    const prospectG = await db.tradeProspect.findUnique({ where: { id: nProspect }, select: { stage: true, lastContactAt: true, nextFollowUpAt: true } });
+    ok(prospectG?.stage !== "new" && !!prospectG?.lastContactAt && !!prospectG.nextFollowUpAt, "G：线索 stage/lastContactAt/nextFollowUpAt 随反向镜像更新", prospectG);
+    // 收件箱「已处理」标记路径同样镜像
+    const fdeH = await runInboundSalesFde({ orgId: ORG, opportunityId: nOpp, trigger: "manual", useLlm: false });
+    const resH = await messagesRoute(
+      await routeReq(TRADE, "trade", `http://localhost/api/trade/prospects/${nProspect}/messages`, { orgId: ORG, direction: "outbound", channel: "whatsapp", content: "已在系统外回复买家（收件箱标记）" }),
+      { params: Promise.resolve({ id: nProspect }) },
+    );
+    const bodyH = (await resH.json()) as { revenueSync?: { linked: boolean; supersededPendingActionIds: string[] } };
+    const draftH = fdeH.pendingActionId ? await db.pendingAction.findUnique({ where: { id: fdeH.pendingActionId }, select: { status: true } }) : null;
+    ok(resH.status === 201 && bodyH.revenueSync?.linked === true && !!fdeH.pendingActionId && bodyH.revenueSync.supersededPendingActionIds.includes(fdeH.pendingActionId) && draftH?.status === "rejected", "H：收件箱「已处理」标记（messages 路由 outbound）同样镜像并作废草稿", { status: resH.status, bodyH, draftH });
 
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });

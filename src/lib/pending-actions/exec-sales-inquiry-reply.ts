@@ -14,6 +14,8 @@ import { assertSideEffectOrThrow } from "@/lib/env/runtime-isolation";
 import { logRevenueInteraction } from "@/lib/revenue-spine/interactions";
 import { updateFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { isAdmin } from "@/lib/rbac/roles";
+import { createMessage, updateProspect } from "@/lib/trade/service";
+import { stageAtLeastContacted } from "@/lib/trade/stage";
 import type { SalesSendInquiryReplyPayload } from "./types";
 
 export interface InquiryReplySender {
@@ -95,6 +97,24 @@ export async function execSalesSendInquiryReply(
     }
   }
 
+  // 竞态防线（P0.5）：草稿创建时间（PendingAction.createdAt，服务端可信）之后若已有任何 outbound 互动
+  // （含 Trade 收件箱人工回复的镜像），说明客户已收到回复 → 拒发，防止迟到批准造成二次发送。
+  const draftRow = await db.pendingAction.findUnique({ where: { id: pendingActionId }, select: { createdAt: true } });
+  if (draftRow) {
+    const outboundAfterDraft = await db.customerInteraction.findFirst({
+      where: { orgId, opportunityId: opp.id, direction: "outbound", createdAt: { gt: draftRow.createdAt } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, channel: true, createdAt: true },
+    });
+    if (outboundAfterDraft) {
+      return {
+        ok: false,
+        error: `草稿生成后客户已收到回复（${outboundAfterDraft.channel ?? "outbound"} @ ${outboundAfterDraft.createdAt.toISOString()}），拒绝再次发送`,
+        errorCode: "STALE_DRAFT",
+      };
+    }
+  }
+
   const approver = await db.user.findUnique({ where: { id: ctx.userId }, select: { name: true } });
   const fromName = approver?.name?.trim() || "Sales Team";
 
@@ -121,6 +141,12 @@ export async function execSalesSendInquiryReply(
     extra: { pendingActionId, sendChannel: sent.channel, salesActionId: payload.salesActionId ?? null, replyToInteractionId: payload.replyToInteractionId ?? null },
   });
 
+  // 反向镜像：让 Trade 收件箱看到这封审批发送（否则收件箱仍显示待回复，诱发二次人工回复）。
+  // 只写 TradeMessage，不经 Trade 路由，因此不会触发 Trade→Revenue 镜像（无回路）；幂等键 = interactionId 标记行。
+  await mirrorApprovedReplyToTradeTimeline({ orgId, opportunityId: opp.id, subject, body, interactionId: logged.interactionId }).catch((e) =>
+    console.warn("[inquiry-reply] trade timeline mirror failed:", e instanceof Error ? e.message : e),
+  );
+
   if (payload.salesActionId) {
     await updateFdeAction({
       orgId,
@@ -140,4 +166,44 @@ export async function execSalesSendInquiryReply(
   });
 
   return { ok: true, resultRef: logged.interactionId, message: `已发送询盘回复：${subject}` };
+}
+
+const TRADE_MIRROR_MARKER = "[青砚审批发送 · ref ";
+
+/** Revenue → Trade 反向镜像（幂等；找不到链接线索则跳过） */
+export async function mirrorApprovedReplyToTradeTimeline(input: {
+  orgId: string;
+  opportunityId: string;
+  subject: string;
+  body: string;
+  interactionId: string;
+}): Promise<{ mirrored: boolean; tradeMessageId: string | null }> {
+  const prospect = await db.tradeProspect.findFirst({
+    where: { orgId: input.orgId, convertedToSalesOpportunityId: input.opportunityId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, stage: true },
+  });
+  if (!prospect) return { mirrored: false, tradeMessageId: null };
+  const marker = `${TRADE_MIRROR_MARKER}${input.interactionId}]`;
+  const existing = await db.tradeMessage.findFirst({
+    where: { prospectId: prospect.id, direction: "outbound", content: { contains: marker } },
+    select: { id: true },
+  });
+  if (existing) return { mirrored: false, tradeMessageId: existing.id };
+  const message = await createMessage({
+    prospectId: prospect.id,
+    direction: "outbound",
+    channel: "email",
+    subject: input.subject,
+    content: `${input.body}\n\n${marker}`,
+    aiDraft: true,
+  });
+  const now = new Date();
+  const next = new Date(now.getTime() + 3 * 86_400_000);
+  await updateProspect(prospect.id, {
+    stage: stageAtLeastContacted(prospect.stage),
+    lastContactAt: now,
+    nextFollowUpAt: next,
+  });
+  return { mirrored: true, tradeMessageId: message.id };
 }
