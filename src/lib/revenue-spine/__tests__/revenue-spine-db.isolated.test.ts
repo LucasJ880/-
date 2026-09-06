@@ -157,10 +157,21 @@ async function main() {
     ok(fdeRedo.ok && !!fdeRedo.pendingActionId && fdeRedo.pendingActionId !== fde.pendingActionId, "拒绝后重跑生成新草稿（旧 key 已终态）", fdeRedo.pendingActionId);
     const crossOrg = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: OTHER, role: "trade", orgId: ORG2 });
     ok(!crossOrg.ok, "跨组织用户不能批准", crossOrg);
-    const inactive = await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "inactive" } }).catch(() => null);
-    const approvedByTrade = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
-    ok(approvedByTrade.ok === true, "负责人（approverUserId）批准 → 发送", approvedByTrade);
-    if (inactive) await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "active" } });
+    await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "inactive" } });
+    const inactiveApprove = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    ok(inactiveApprove.ok === false && sent.length === 0, "失效成员（approverUserId 但 membership inactive）批准 → 拒发", inactiveApprove);
+    const paAfterInactive = await db.pendingAction.findUnique({ where: { id: fdeRedo.pendingActionId! }, select: { status: true } });
+    await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "active" } });
+    let approvedByTrade: Awaited<ReturnType<typeof approveApprovalItem>>;
+    if (paAfterInactive?.status === "pending") {
+      approvedByTrade = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    } else {
+      // executor 失败会把草稿标 failed（B2 语义）：重跑 FDE 起新草稿再批准
+      const fdeRedo2 = await runInboundSalesFde({ orgId: ORG, opportunityId: a.opportunityId, salesActionId: a.salesActionId, trigger: "manual", useLlm: false, now: new Date(t0.getTime() + 9_000_000) });
+      fdeRedo.pendingActionId = fdeRedo2.pendingActionId;
+      approvedByTrade = await approveApprovalItem("pending_action", fdeRedo2.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
+    }
+    ok(approvedByTrade.ok === true, "恢复 active 后负责人批准 → 发送", approvedByTrade);
     ok(sent.length === 1 && sent[0].to === "cathy@hotel-supply.ca" && /blackout curtains/i.test(sent[0].subject), "只发送一次，收件人=客户邮箱", sent);
     const dupExec = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
     ok(sent.length === 1 && dupExec.duplicate === true, "重复批准不重复发送（B2 CAS，port 幂等）", { sent: sent.length, dupExec });
@@ -311,6 +322,43 @@ async function main() {
     ok(prospectsD === 2 && (interD?.rawMessages ?? "").includes("purchasing@maple-hotels.ca") && (interD?.rawMessages ?? "").includes("Purchasing Dept"), "Case D：Trade 侧保留独立联系人线索，互动保留第二联系人证据", { prospectsD, raw: interD?.rawMessages?.slice(0, 200) });
     const custD = await db.salesCustomer.findUnique({ where: { id: w4.spine.ok ? w4.spine.customerId : "" } });
     ok(custD?.email === "mark@maple-hotels.ca" && custD.contactName === "Mark Chen", "Case D：账户主联系人不被覆盖", custD);
+
+    console.log("\n[12] 授权边界：API org 解析 + supervisor 取消");
+    const { NextRequest } = await import("next/server");
+    const { resolveTradeOrgId } = await import("@/lib/trade/access");
+    const mkUser = (id: string, role: string) => ({ id, email: `${id}@fixture.test`, name: id, role, status: "active" } as unknown as Parameters<typeof resolveTradeOrgId>[1]);
+    const reqOrg = (orgId: string) => new NextRequest(`http://localhost/api/revenue/cockpit?orgId=${orgId}`);
+    await db.user.update({ where: { id: TRADE }, data: { activeOrgId: ORG } }).catch(() => undefined);
+    const okActive = await resolveTradeOrgId(reqOrg(ORG), mkUser(TRADE, "trade"));
+    ok(okActive.ok && okActive.orgId === ORG, "active 成员解析到本组织", okActive);
+    await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "inactive" } });
+    const denyInactive = await resolveTradeOrgId(reqOrg(ORG), mkUser(TRADE, "trade"));
+    ok(!denyInactive.ok && denyInactive.response.status === 403, "inactive membership → 403（API 边界）", denyInactive.ok ? "ok?!" : denyInactive.response.status);
+    await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: TRADE } }, data: { status: "active" } });
+    const denyCross = await resolveTradeOrgId(reqOrg(ORG), mkUser(OTHER, "trade"));
+    ok(!denyCross.ok && denyCross.response.status === 403, "他组织成员显式请求本组织 → 403（cross-org）", denyCross.ok ? "ok?!" : denyCross.response.status);
+    // supervisor 取消：run 取消后 FDE 不再产生审批草稿
+    const { cancelAgentRun } = await import("@/lib/agent-runtime/run");
+    const cancelProbe = await intakeInquiry({ orgId: ORG, source: "email", contact: { name: "Cancel Probe", email: "probe@cancel-probe.ca", company: "Cancel Probe Ltd" }, message: "Need 2000 bathrobes, cotton, size L, ship to Toronto by 2026-12-20.", actorUserId: TRADE });
+    if (!cancelProbe.ok) throw new Error("cancel probe intake failed");
+    const origCreate = db.salesOpportunityAssessment.create.bind(db.salesOpportunityAssessment);
+    let cancelledRunId: string | null = null;
+    // 在评分落库这一步（审批之前）模拟 supervisor 取消 run
+    (db.salesOpportunityAssessment as unknown as { create: typeof origCreate }).create = (async (args: Parameters<typeof origCreate>[0]) => {
+      const row = await origCreate(args);
+      cancelledRunId = (args.data as { agentRunId?: string | null }).agentRunId ?? null;
+      if (cancelledRunId) await cancelAgentRun(ORG, cancelledRunId);
+      return row;
+    }) as typeof origCreate;
+    let cancelRun: Awaited<ReturnType<typeof runInboundSalesFde>>;
+    try {
+      cancelRun = await runInboundSalesFde({ orgId: ORG, opportunityId: cancelProbe.opportunityId, salesActionId: cancelProbe.salesActionId, trigger: "inquiry", useLlm: false });
+    } finally {
+      (db.salesOpportunityAssessment as unknown as { create: typeof origCreate }).create = origCreate;
+    }
+    const cancelledRun = cancelledRunId ? await db.agentRun.findUnique({ where: { id: cancelledRunId }, select: { status: true } }) : null;
+    const cancelPending = await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: cancelProbe.opportunityId } } });
+    ok(cancelledRun?.status === "cancelled" && cancelRun.pendingActionId === null && cancelPending === 0, "run 被 supervisor 取消 → 不生成审批草稿，run 保持 cancelled", { status: cancelledRun?.status, pa: cancelRun.pendingActionId, cancelPending });
 
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });

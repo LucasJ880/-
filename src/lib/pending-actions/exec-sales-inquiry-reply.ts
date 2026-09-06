@@ -13,6 +13,7 @@ import { sendEmail as sendViaResend } from "@/lib/trade/email";
 import { assertSideEffectOrThrow } from "@/lib/env/runtime-isolation";
 import { logRevenueInteraction } from "@/lib/revenue-spine/interactions";
 import { updateFdeAction } from "@/lib/revenue-spine/fde/actions";
+import { isAdmin } from "@/lib/rbac/roles";
 import type { SalesSendInquiryReplyPayload } from "./types";
 
 export interface InquiryReplySender {
@@ -61,6 +62,16 @@ export async function execSalesSendInquiryReply(
   const body = (payload.body ?? "").trim().slice(0, 10_000);
   if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) return { ok: false, error: "收件人邮箱无效" };
   if (!subject || !body) return { ok: false, error: "邮件主题或正文为空" };
+
+  // 发送边界：审批人必须是该组织的 active 成员（平台 admin 除外）；上游 API 已按 active membership 解析 org，
+  // 此处二次校验，保证 executor 被其它入口（微信确认 / 助手）调用时同样拒绝失效成员。
+  if (!isAdmin(ctx.role)) {
+    const membership = await db.organizationMember.findFirst({
+      where: { orgId, userId: ctx.userId, status: "active", org: { status: "active" } },
+      select: { id: true },
+    });
+    if (!membership) return { ok: false, error: "审批人不是该组织的有效成员，拒绝发送", errorCode: "INACTIVE_MEMBERSHIP" };
+  }
 
   const opp = await db.salesOpportunity.findFirst({
     where: { id: payload.opportunityId, orgId },

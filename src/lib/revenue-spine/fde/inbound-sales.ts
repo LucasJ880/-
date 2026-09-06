@@ -19,6 +19,7 @@ import {
   completeAgentRun,
   createAgentRun,
   failAgentRun,
+  isAgentRunCancelled,
   updateAgentRunStatus,
 } from "@/lib/agent-runtime/run";
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
@@ -351,8 +352,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         guardrailViolations: draft.guardrailViolations,
       });
 
-      // ── Step 7 approval（唯一外部副作用入口） ──
-      if (opp.customer.email && draft.guardrailViolations.length === 0) {
+      // ── Step 7 approval（唯一外部副作用入口）──
+      // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）
+      const cancelled = await isAgentRunCancelled(orgId, runId);
+      if (cancelled) {
+        await event("agent.output", "run 已被取消：跳过草稿审批", { decision: "cancelled_before_approval" });
+      }
+      if (!cancelled && opp.customer.email && draft.guardrailViolations.length === 0) {
         approvalRequired = true;
         // 幂等：同一来信已有未决草稿 → 复用；否则按历史草稿数生成新 key（拒绝/过期后允许重新起草）
         const openDraft = await db.pendingAction.findFirst({
@@ -434,7 +440,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         } else {
           await event("approval.failed", "创建审批草稿失败", { error: approval.error, code: approval.errorCode });
         }
-      } else if (!opp.customer.email) {
+      } else if (!cancelled && !opp.customer.email) {
         await event("agent.output", "客户无邮箱，草稿仅供人工复制发送", { decision: "no_email_channel" });
       }
     } else {
