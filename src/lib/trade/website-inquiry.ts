@@ -256,6 +256,17 @@ export async function ingestWebsiteInquiry(
     },
   });
 
+  // 第二刀：进线自动分析（响应后执行，失败不影响主链）
+  const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
+  await scheduleInquiryAnalysis({
+    orgId,
+    prospectId: prospect.id,
+    messageId: message.id,
+    content: [v.product && `Product: ${v.product}`, v.message].filter(Boolean).join("\n") || v.email,
+    channel: "website",
+    meta: { email: v.email || null, companyName: prospect.companyName, phone: v.phone || null, country: v.country || null, website: v.website || null },
+  });
+
   const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
   const notified = await notifyInquiryMembers(orgId, {
     title: `网站询盘：${prospect.companyName}`,

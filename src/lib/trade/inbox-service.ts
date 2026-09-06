@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { loadLatestAnalyses, type InquiryAnalysisSummary } from "@/lib/trade/inquiry-analysis";
 
 export interface InboxMessageRow {
   id: string;
@@ -49,6 +50,7 @@ export interface InquiryThread {
   /** 未回复时距最后进线的分钟数 */
   waitingMinutes: number | null;
   nextFollowUpAt: Date | null;
+  analysis?: InquiryAnalysisSummary | null;
 }
 
 const TERMINAL_STAGES = new Set(["converted", "lost", "archived"]);
@@ -158,6 +160,9 @@ export async function loadInquiryThreads(
     },
   });
 
-  const threads = buildInquiryThreads(messages, prospects);
-  return threads.slice(0, opts.limit ?? 200);
+  const threads = buildInquiryThreads(messages, prospects).slice(0, opts.limit ?? 200);
+  const analyses = await loadLatestAnalyses(threads.map((t) => t.prospectId)).catch(
+    () => new Map<string, InquiryAnalysisSummary>(),
+  );
+  return threads.map((t) => ({ ...t, analysis: analyses.get(t.prospectId) ?? null }));
 }

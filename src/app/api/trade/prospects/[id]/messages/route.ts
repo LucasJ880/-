@@ -45,6 +45,21 @@ export async function POST(
 
   if (direction === "outbound") {
     await updateProspect(id, { lastContactAt: new Date() });
+  } else {
+    const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
+    await scheduleInquiryAnalysis({
+      orgId: orgRes.orgId,
+      prospectId: id,
+      messageId: message.id,
+      content: content,
+      channel,
+      meta: {
+        email: loaded.prospect.contactEmail,
+        companyName: loaded.prospect.companyName,
+        country: loaded.prospect.country,
+        website: loaded.prospect.website,
+      },
+    });
   }
 
   return NextResponse.json({ message }, { status: 201 });

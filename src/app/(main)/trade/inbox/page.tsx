@@ -25,6 +25,37 @@ import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { getTradeProspectStageLabel } from "@/lib/trade/stage";
 
+interface AnalysisSummary {
+  status: string;
+  intent: string | null;
+  buyerType: string | null;
+  summary: string | null;
+  products: string[];
+  quantity: string | null;
+  missingInfo: string[];
+  compliance: { code: string; title: string; severity: string }[];
+  redFlags: { code: string; title: string; severity: string }[];
+  researchStatus: string | null;
+}
+
+const INTENT_LABEL: Record<string, string> = {
+  rfq: "询价",
+  sample: "要样品",
+  info: "问信息",
+  partnership: "谈合作",
+  spam: "疑似垃圾",
+  unclear: "意图不明",
+};
+const BUYER_LABEL: Record<string, string> = {
+  importer: "进口商",
+  brand: "品牌方",
+  hotel: "酒店",
+  retailer: "零售商",
+  agent: "中间商",
+  individual: "个人",
+  unknown: "",
+};
+
 interface Thread {
   prospectId: string;
   companyName: string;
@@ -41,6 +72,7 @@ interface Thread {
   inboundCount: number;
   replied: boolean;
   waitingMinutes: number | null;
+  analysis?: AnalysisSummary | null;
 }
 
 const CHANNEL_META: Record<string, { label: string; icon: typeof Mail; cls: string }> = {
@@ -65,6 +97,58 @@ function timeAgo(iso: string): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h} 小时前`;
   return `${Math.round(h / 24)} 天前`;
+}
+
+function AnalysisBlock({ a }: { a: AnalysisSummary }) {
+  if (a.status === "pending") {
+    return <p className="mt-2 text-[11px] text-muted">AI 正在分析这条询盘…</p>;
+  }
+  if (a.status === "failed") {
+    return <p className="mt-2 text-[11px] text-muted">AI 分析暂时失败，可打开线索手动处理。</p>;
+  }
+  const critical = a.compliance.filter((c) => c.severity === "critical");
+  const warn = a.compliance.filter((c) => c.severity === "warn");
+  const highFlags = a.redFlags.filter((f) => f.severity === "critical");
+  const otherFlags = a.redFlags.filter((f) => f.severity !== "critical");
+  return (
+    <div className="mt-2 rounded-lg border border-border/60 bg-background/50 p-2.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {a.intent && (
+          <span className={cn("rounded-full px-2 py-0.5 font-medium", a.intent === "rfq" || a.intent === "sample" ? "bg-emerald-500/15 text-emerald-500" : a.intent === "spam" ? "bg-red-500/15 text-red-500" : "bg-zinc-500/15 text-zinc-400")}>
+            {INTENT_LABEL[a.intent] ?? a.intent}
+          </span>
+        )}
+        {a.buyerType && BUYER_LABEL[a.buyerType] && (
+          <span className="rounded-full bg-zinc-500/10 px-2 py-0.5 text-muted">{BUYER_LABEL[a.buyerType]}</span>
+        )}
+        {a.products.length > 0 && (
+          <span className="text-foreground/90">{a.products.slice(0, 3).join(" / ")}{a.quantity ? ` · ${a.quantity}` : ""}</span>
+        )}
+        {a.researchStatus === "triggered" && <span className="text-muted">· 买家研究已触发</span>}
+      </div>
+      {a.summary && <p className="mt-1 whitespace-pre-line leading-relaxed text-muted">{a.summary}</p>}
+      {(critical.length > 0 || warn.length > 0) && (
+        <ul className="mt-1.5 space-y-0.5">
+          {critical.map((c) => (
+            <li key={c.code} className="font-medium text-red-500">⚠ {c.title}</li>
+          ))}
+          {warn.map((c) => (
+            <li key={c.code} className="text-amber-500">• {c.title}</li>
+          ))}
+        </ul>
+      )}
+      {a.redFlags.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5">
+          {highFlags.map((f) => (
+            <li key={f.code} className="font-medium text-red-500">🚩 {f.title}</li>
+          ))}
+          {otherFlags.map((f) => (
+            <li key={f.code} className="text-muted">🚩 {f.title}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export default function TradeInboxPage() {
@@ -220,6 +304,7 @@ export default function TradeInboxPage() {
                       <p className="mt-1.5 text-xs font-medium text-foreground/90">{t.lastInboundSubject}</p>
                     )}
                     <p className="mt-1 text-xs leading-relaxed text-muted">{t.lastInboundExcerpt}</p>
+                    {t.analysis && <AnalysisBlock a={t.analysis} />}
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted">
                       <span className="inline-flex items-center gap-1"><Clock size={11} /> {timeAgo(t.lastInboundAt)}</span>
                       <span>{t.inboundCount} 条进线</span>

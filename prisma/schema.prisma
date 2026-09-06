@@ -3685,6 +3685,36 @@ model MarketResearchRun {
   @@index([status, leaseExpiresAt])
 }
 
+/// 询盘自动分析（第二刀）：每条进线消息一份结构化分析
+model TradeInquiryAnalysis {
+  id         String   @id @default(cuid())
+  orgId      String
+  prospectId String
+  messageId  String   @unique
+  status     String   @default("pending") // pending / done / failed
+  /// rfq / sample / info / partnership / spam / unclear
+  intent     String?
+  /// importer / brand / hotel / retailer / agent / individual / unknown
+  buyerType  String?
+  language   String?
+  /// LLM 抽取的结构化需求（产品/数量/规格/目标价/交期/认证/目的国/缺失信息…）
+  extracted  Json?
+  /// 规则生成的合规提示 [{code,title,severity,detail,knowledgeTitle}]
+  compliance Json?
+  /// 规则生成的红旗 [{code,title,severity,detail}]
+  redFlags   Json?
+  /// 建议动作摘要（人读）
+  summary    String?  @db.Text
+  /// 自动研究触发结果：triggered / skipped_no_serper / skipped_no_domain / failed
+  researchStatus String?
+  error      String?  @db.VarChar(1000)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([prospectId, createdAt])
+}
+
 model TradeMessage {
   id         String        @id @default(cuid())
   prospectId String
