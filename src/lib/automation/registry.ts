@@ -18,7 +18,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: AUTOMATION_TIMEZONE },
   { key: "progress-summary", name: "项目进度摘要", category: "projects", cadence: "每日", timezone: "UTC" },
   { key: "service-inbox-sla", name: "客服 SLA 提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
-  "inquiry-sla",
+  { key: "inquiry-sla", name: "询盘响应提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "market-intelligence", name: "市场情报分析", category: "marketing", cadence: "每 15 分钟", timezone: "UTC", requiredEnv: ["FIRECRAWL_API_KEY"] },
   { key: "marketing-channel-sync", name: "增长中心渠道同步", category: "marketing", cadence: "每日 4 次，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_SYNC_WEBHOOK_URL"] },
   { key: "marketing-crm-attribution", name: "CRM 营销反馈归总", category: "marketing", cadence: "每日 07:00", timezone: AUTOMATION_TIMEZONE },
