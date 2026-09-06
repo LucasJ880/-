@@ -103,6 +103,7 @@ npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts
+npx tsx src/lib/trade/__tests__/inquiry-design-rules.test.ts
 npx tsx src/lib/navigation/__tests__/trade-layout.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts

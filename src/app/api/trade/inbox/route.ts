@@ -28,5 +28,8 @@ export async function GET(request: NextRequest) {
       pending: threads.filter((t) => !t.replied).length,
       total: threads.length,
     },
+    capabilities: {
+      emailSend: Boolean(process.env.RESEND_API_KEY),
+    },
   });
 }

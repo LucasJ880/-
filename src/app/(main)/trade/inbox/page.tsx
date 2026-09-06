@@ -36,7 +36,23 @@ interface AnalysisSummary {
   compliance: { code: string; title: string; severity: string }[];
   redFlags: { code: string; title: string; severity: string }[];
   researchStatus: string | null;
+  designStatus?: string | null;
+  replyDraft?: { subject: string; body: string; subjectZh: string; bodyZh: string; language: string; askedQuestions: string[] } | null;
+  quoteSuggestion?: {
+    items: { productName: string; specification: string; quantity: number; unitPriceSuggested: number | null; matchedSku: string | null }[];
+    moq: string | null;
+    leadTimeDays: number | null;
+    incoterm: string;
+  } | null;
+  sampleAdvice?: { recommend: boolean; mode: string; reasons: string[]; suggestedFeeUsd: number | null } | null;
 }
+
+const SAMPLE_MODE_LABEL: Record<string, string> = {
+  free: "免费寄样",
+  paid_deductible: "收样品费，首单抵扣",
+  paid: "按实收样品费+运费",
+  decline: "暂不寄样",
+};
 
 const INTENT_LABEL: Record<string, string> = {
   rfq: "询价",
@@ -159,6 +175,14 @@ export default function TradeInboxPage() {
   const [counts, setCounts] = useState({ pending: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState<string | null>(null);
+  const [emailSend, setEmailSend] = useState(false);
+  const [draftFor, setDraftFor] = useState<Thread | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const flash = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const load = useCallback(async () => {
     if (!orgId || ambiguous) {
@@ -171,9 +195,10 @@ export default function TradeInboxPage() {
       `/api/trade/inbox?orgId=${encodeURIComponent(orgId)}&filter=${filter}`,
     );
     if (res.ok) {
-      const data = (await res.json()) as { items: Thread[]; counts: { pending: number; total: number } };
+      const data = (await res.json()) as { items: Thread[]; counts: { pending: number; total: number }; capabilities?: { emailSend?: boolean } };
       setThreads(data.items ?? []);
       setCounts(data.counts ?? { pending: 0, total: 0 });
+      setEmailSend(Boolean(data.capabilities?.emailSend));
     } else {
       setThreads([]);
     }
@@ -214,6 +239,44 @@ export default function TradeInboxPage() {
       await load();
     } finally {
       setMarking(null);
+    }
+  };
+
+  const createQuoteDraft = async (t: Thread) => {
+    if (!orgId) return;
+    setBusy(`quote:${t.prospectId}`);
+    try {
+      const res = await apiFetch(`/api/trade/inbox/${t.prospectId}/quote-draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        flash(data.error || "生成失败");
+        return;
+      }
+      router.push(`/trade/quotes/${data.quoteId}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const regenerate = async (t: Thread) => {
+    if (!orgId) return;
+    setBusy(`design:${t.prospectId}`);
+    try {
+      const res = await apiFetch(`/api/trade/inbox/${t.prospectId}/design`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) flash(data.error || "重新生成失败");
+      else flash("已重新生成");
+      await load();
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -305,6 +368,16 @@ export default function TradeInboxPage() {
                     )}
                     <p className="mt-1 text-xs leading-relaxed text-muted">{t.lastInboundExcerpt}</p>
                     {t.analysis && <AnalysisBlock a={t.analysis} />}
+                    {t.analysis && t.analysis.status === "done" && (
+                      <DesignBlock
+                        a={t.analysis}
+                        busy={busy}
+                        prospectId={t.prospectId}
+                        onOpenDraft={() => setDraftFor(t)}
+                        onQuote={() => void createQuoteDraft(t)}
+                        onRegenerate={() => void regenerate(t)}
+                      />
+                    )}
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted">
                       <span className="inline-flex items-center gap-1"><Clock size={11} /> {timeAgo(t.lastInboundAt)}</span>
                       <span>{t.inboundCount} 条进线</span>
@@ -339,6 +412,180 @@ export default function TradeInboxPage() {
           })}
         </ul>
       )}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-foreground px-4 py-2 text-xs text-background shadow-lg">{toast}</div>
+      )}
+
+      {draftFor && draftFor.analysis?.replyDraft && (
+        <ReplyDraftModal
+          thread={draftFor}
+          emailSend={emailSend}
+          orgId={orgId}
+          onClose={() => setDraftFor(null)}
+          onDone={(msg) => {
+            setDraftFor(null);
+            flash(msg);
+            void load();
+          }}
+        />
+      )}
     </div>
   );
 }
+
+function DesignBlock({
+  a,
+  busy,
+  prospectId,
+  onOpenDraft,
+  onQuote,
+  onRegenerate,
+}: {
+  a: AnalysisSummary;
+  busy: string | null;
+  prospectId: string;
+  onOpenDraft: () => void;
+  onQuote: () => void;
+  onRegenerate: () => void;
+}) {
+  if (a.designStatus === "pending" || !a.designStatus) {
+    return <p className="mt-1.5 text-[11px] text-muted">AI 正在起草回复与报价建议…</p>;
+  }
+  const q = a.quoteSuggestion;
+  const s = a.sampleAdvice;
+  return (
+    <div className="mt-2 rounded-lg border border-accent/25 bg-accent/5 p-2.5 text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold text-foreground">AI 已备好（需你确认）</span>
+        <button type="button" onClick={onRegenerate} disabled={busy === `design:${prospectId}`} className="text-muted hover:text-foreground disabled:opacity-50">
+          {busy === `design:${prospectId}` ? "生成中…" : "重新生成"}
+        </button>
+      </div>
+      {a.designStatus === "failed" && <p className="mt-1 text-muted">生成失败，可点「重新生成」。</p>}
+      {s && (
+        <p className="mt-1 text-muted">
+          寄样：<span className="text-foreground">{SAMPLE_MODE_LABEL[s.mode] ?? s.mode}{s.suggestedFeeUsd ? `（约 $${s.suggestedFeeUsd}）` : ""}</span>
+          {s.reasons[0] ? ` — ${s.reasons[0]}` : ""}
+        </p>
+      )}
+      {q && q.items.length > 0 && (
+        <p className="mt-1 text-muted">
+          报价建议：{q.items.slice(0, 2).map((it) => `${it.productName}${it.quantity ? ` ×${it.quantity}` : ""}${it.unitPriceSuggested !== null ? ` @$${it.unitPriceSuggested}` : "（待填价）"}`).join("；")}
+          {q.items.length > 2 ? ` 等 ${q.items.length} 项` : ""}{q.moq ? ` · MOQ ${q.moq}` : ""}{q.leadTimeDays ? ` · ${q.leadTimeDays} 天` : ""} · {q.incoterm}
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {a.replyDraft && (
+          <button type="button" onClick={onOpenDraft} className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover">
+            查看回复草稿
+          </button>
+        )}
+        {q && q.items.length > 0 && (
+          <button type="button" onClick={onQuote} disabled={busy === `quote:${prospectId}`} className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent disabled:opacity-50">
+            {busy === `quote:${prospectId}` ? "创建中…" : "按建议生成报价草稿"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReplyDraftModal({
+  thread,
+  emailSend,
+  orgId,
+  onClose,
+  onDone,
+}: {
+  thread: Thread;
+  emailSend: boolean;
+  orgId: string;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const draft = thread.analysis!.replyDraft!;
+  const [subject, setSubject] = useState(draft.subject);
+  const [body, setBody] = useState(draft.body);
+  const [showZh, setShowZh] = useState(false);
+  const [sending, setSending] = useState<"send" | "mark_sent" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (mode: "send" | "mark_sent") => {
+    setSending(mode);
+    setErr(null);
+    try {
+      const res = await apiFetch(`/api/trade/inbox/${thread.prospectId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, subject, body, mode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(data.error || "操作失败");
+        return;
+      }
+      onDone(mode === "send" ? "已发送并记入时间线，3 天后提醒跟进" : "已标记发送，3 天后提醒跟进");
+    } finally {
+      setSending(null);
+    }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+      setErr(null);
+      onDone("草稿已复制，去邮箱/WhatsApp 发送后回来点「标记已发送」");
+    } catch {
+      setErr("复制失败，请手动选择文本");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-2xl rounded-2xl border border-border bg-card-bg p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">回复草稿 · {thread.companyName}</h2>
+            <p className="mt-0.5 text-xs text-muted">AI 起草，你改定后再发。{draft.askedQuestions.length ? `已包含追问：${draft.askedQuestions.slice(0, 3).join("；")}` : ""}</p>
+          </div>
+          <button type="button" onClick={() => setShowZh((v) => !v)} className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs text-muted hover:text-foreground">
+            {showZh ? "看英文" : "看中文对照"}
+          </button>
+        </div>
+        <div className="mt-3 space-y-2">
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none" />
+          {showZh ? (
+            <div className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-sm leading-relaxed text-foreground/90">
+              {draft.subjectZh && <p className="mb-2 font-medium">{draft.subjectZh}</p>}
+              {draft.bodyZh || "（无中文对照）"}
+            </div>
+          ) : (
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={14} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground focus:border-blue-500 focus:outline-none" />
+          )}
+        </div>
+        {err && <p className="mt-2 text-xs text-red-500">{err}</p>}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">取消</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void copy()} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent">复制草稿</button>
+            <button type="button" disabled={sending !== null} onClick={() => void submit("mark_sent")} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent disabled:opacity-50">
+              {sending === "mark_sent" ? "…" : "已在别处发送，标记"}
+            </button>
+            <button
+              type="button"
+              disabled={sending !== null || !emailSend || !thread.contactEmail}
+              title={!emailSend ? "邮件发送未配置（RESEND）" : !thread.contactEmail ? "该线索没有邮箱" : ""}
+              onClick={() => void submit("send")}
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
+            >
+              {sending === "send" ? "发送中…" : "发送邮件"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
