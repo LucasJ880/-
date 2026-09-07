@@ -62,6 +62,7 @@ export const NAV_HREF_MODULES: Record<string, OrgModule[]> = {
   "/trade/channels": ["trade"],
   "/trade/fulfillment": ["trade", "supply_chain"],
   "/trade/knowledge": ["trade"],
+  "/revenue": ["trade", "sales"],
   "/trade/signals": ["trade"],
   "/product-content": ["product_content", "trade"],
   "/projects": ["bids", "projects"],

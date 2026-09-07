@@ -14,6 +14,7 @@ import {
 } from "@/lib/trade/website-inquiry";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 function corsHeaders(origin: string | null): Record<string, string> {
   return {
@@ -79,7 +80,14 @@ export async function POST(request: NextRequest) {
   try {
     const result = await ingestWebsiteInquiry(channel.orgId, normalized.value);
     return json(
-      { ok: true, prospectId: result.prospectId, duplicate: result.duplicate },
+      {
+        ok: true,
+        prospectId: result.prospectId,
+        duplicate: result.duplicate,
+        replay: result.replay,
+        opportunityId: result.spine.ok ? result.spine.opportunityId : null,
+        spine: result.spine.ok ? (result.spine.replay ? "replay" : "ok") : result.spine.code,
+      },
       200,
       origin,
     );

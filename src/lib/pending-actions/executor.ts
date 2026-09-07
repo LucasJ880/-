@@ -44,6 +44,8 @@ import {
   EMAIL_DRAFT_SUBJECT_MAX_LEN,
   EMAIL_DRAFT_BODY_MAX_LEN,
 } from "./types";
+import { execSalesSendInquiryReply } from "./exec-sales-inquiry-reply";
+import type { SalesSendInquiryReplyPayload } from "./types";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
 import { createNotification } from "@/lib/notifications/create";
 import { pushMessage } from "@/lib/messaging/gateway";
@@ -402,6 +404,13 @@ export async function executePendingAction(
         exec = await execMarketingCreateCampaignDraft(
           action.payload as unknown as MarketingCreateCampaignDraftPayload,
           ctx,
+        );
+        break;
+      case "sales.send_inquiry_reply":
+        exec = await execSalesSendInquiryReply(
+          action.payload as unknown as SalesSendInquiryReplyPayload,
+          ctx,
+          action.id,
         );
         break;
       default:

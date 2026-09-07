@@ -179,6 +179,12 @@ npx tsx src/lib/supplier-intel/__tests__/score-contract.test.ts
 npx tsx src/lib/supplier-intel/__tests__/submission-parser.test.ts
 npx tsx src/lib/supplier-intel/__tests__/governance.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-db.isolated.test.ts
+
+# Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts
+npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
+npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
+npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）

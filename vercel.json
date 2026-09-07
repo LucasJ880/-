@@ -37,6 +37,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/revenue-spine",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/aivora-sync",
       "schedule": "*/15 * * * *"
     },

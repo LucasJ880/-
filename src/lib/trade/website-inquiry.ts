@@ -12,6 +12,8 @@ import { timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { createProspect } from "@/lib/trade/service";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
+import { intakeInquiry, type IntakeResult } from "@/lib/revenue-spine/inquiry-intake";
+import { runInboundSalesFde, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 
@@ -202,11 +204,20 @@ export interface IngestResult {
   messageId: string;
   duplicate: boolean;
   notified: number;
+  /** 同一表单在 REPLAY_WINDOW_MS 内重复提交：不新建任何业务对象，返回既有 message */
+  replay: boolean;
+  /** Revenue Spine（SalesCustomer → SalesOpportunity → FDE）结果；失败时 ok=false 且 Trade 线索仍已落库 */
+  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY"; error: string };
+  fde: InboundFdeResult | null;
 }
+
+/** 幂等窗口：同一线索、同一渲染正文的网站询盘视为重放（浏览器重试 / 双击提交 / 站点重发） */
+export const WEBSITE_INQUIRY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function ingestWebsiteInquiry(
   orgId: string,
   v: NormalizedInquiry,
+  opts?: { runFde?: boolean; now?: Date },
 ): Promise<IngestResult> {
   const campaignId = await ensureInquiryCampaign(orgId);
 
@@ -234,18 +245,44 @@ export async function ingestWebsiteInquiry(
     prospect = { id: created.id, stage: created.stage, companyName: created.companyName };
   }
 
+  const content = buildInquiryMessage(v);
+  const now = opts?.now ?? new Date();
+  if (duplicate) {
+    const replayed = await db.tradeMessage.findFirst({
+      where: {
+        prospectId: prospect.id,
+        direction: "inbound",
+        channel: "website",
+        content,
+        createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (replayed) {
+      return {
+        prospectId: prospect.id,
+        messageId: replayed.id,
+        duplicate: true,
+        notified: 0,
+        replay: true,
+        spine: { ok: false, code: "REPLAY", error: "duplicate submission within replay window" },
+        fde: null,
+      };
+    }
+  }
+
   const message = await db.tradeMessage.create({
     data: {
       prospectId: prospect.id,
       direction: "inbound",
       channel: "website",
       subject: v.product ? `网站询盘：${v.product}` : "网站询盘",
-      content: buildInquiryMessage(v),
+      content,
     },
     select: { id: true },
   });
 
-  const now = new Date();
   await db.tradeProspect.update({
     where: { id: prospect.id },
     data: {
@@ -276,7 +313,48 @@ export async function ingestWebsiteInquiry(
     sourceKey: `website-inquiry:${message.id}`,
   });
 
-  return { prospectId: prospect.id, messageId: message.id, duplicate, notified };
+  // ── Revenue Spine：canonical 商业主干（SalesCustomer → SalesOpportunity → CustomerInteraction → SalesAction → FDE） ──
+  // Trade 线索 / 询盘收件箱 / 通知已在上方落库；主干失败不回滚 Trade 侧（响应 spine.code 供排障）。
+  let spine: IngestResult["spine"];
+  let fde: InboundFdeResult | null = null;
+  try {
+    spine = await intakeInquiry({
+      orgId,
+      source: "website_inquiry",
+      contact: { name: v.name, email: v.email, phone: v.phone, company: v.company, country: v.country, website: v.website },
+      message: v.message,
+      product: v.product,
+      meta: { page: v.page, utm: v.utm, channel: "website" },
+      sourceRef: { tradeProspectId: prospect.id, tradeMessageId: message.id },
+      actorUserId: null,
+      now,
+    });
+    if (spine.ok) {
+      // 回填 Trade 线索 ↔ 商机链接（P1-2：TradeProspect 仅为展示视图，SalesOpportunity 为 canonical）
+      await db.tradeProspect.update({
+        where: { id: prospect.id },
+        data: {
+          convertedToSalesCustomerId: spine.customerId,
+          convertedToSalesOpportunityId: spine.opportunityId,
+          ...(duplicate ? {} : { convertedAt: now }),
+        },
+      });
+      if (opts?.runFde !== false && !spine.replay) {
+        fde = await runInboundSalesFde({
+          orgId,
+          opportunityId: spine.opportunityId,
+          salesActionId: spine.salesActionId,
+          trigger: spine.attachedToExisting ? "customer_reply" : "inquiry",
+        });
+      }
+    }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error("[website-inquiry] revenue spine intake failed:", reason);
+    spine = { ok: false, code: "SPINE_FAILED", error: reason };
+  }
+
+  return { prospectId: prospect.id, messageId: message.id, duplicate, notified, replay: false, spine, fde };
 }
 
 /** 通知 org 内外贸相关成员（幂等键防重复） */
