@@ -68,13 +68,13 @@ Reverse mirror (Revenue → Trade), added so the Inbox stops showing an FDE-answ
 
 ## 4. PendingAction supersession
 
-After a mirrored outbound, every `PendingAction` with `type = sales.send_inquiry_reply`, `status = pending`, unexpired, and `payload.opportunityId = <opportunity>` is rejected through the canonical `approval/port.rejectApprovalItem()` (→ executor B2 CAS `pending → rejected`, audit). No direct `PendingAction` mutation. The machine-readable reason stored in `failureReason`:
+After a mirrored outbound, every `PendingAction` with `type = sales.send_inquiry_reply`, `status = pending`, unexpired, and `payload.opportunityId = <opportunity>` is **system-superseded** through the internal primitive `supersedePendingAction()` (`src/lib/pending-actions/supersede.ts`, P0.5.1 — see §14): B2-style CAS `pending → failed`, machine-readable `failureReason`, no `decidedById` / `decidedAt`, audit `APPROVAL_SYSTEM_SUPERSEDED` carrying the real trigger actor. The stored reason:
 
 ```text
-SUPERSEDED_BY_MANUAL_REPLY tradeMessageId=<TradeMessage.id> outboundInteractionId=<CustomerInteraction.id> actor=<userId>
+SUPERSEDED_BY_MANUAL_REPLY tradeMessageId=<TradeMessage.id> outboundInteractionId=<CustomerInteraction.id> triggeredBy=<real Trade actor> terminationMode=system_superseded
 ```
 
-Permission: the port only lets the draft's `approverUserId`, org owner/admin, or super admin decide. If the real actor lacks that permission (a rep who is not the opportunity owner), the bridge retries **as the draft's designated approver** (`approverUserId ?? createdById`, server-derived) with the same note, which records the real actor. Failures are collected into `supersedeFailures`, logged (`revenue_spine.trade_outbound.supersede_failed`) and returned; they never fail the Trade reply.
+Failures are collected into `supersedeFailures`, logged (`revenue_spine.trade_outbound.supersede_failed`) and returned; they never fail the Trade reply. (The first P0.5 iteration rejected through the human approval port and, on a permission failure, retried as the draft's designated approver; that fallback fabricated a decision actor and was removed in P0.5.1.)
 
 ## 5. Executor race gate (defense in depth)
 
@@ -96,14 +96,18 @@ Section 13 of `src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
 
 | Case | What is proven |
 |---|---|
-| A — manual reply supersedes FDE draft | website inquiry → FDE draft pending → Inbox reply (`mark_sent`) → 200; `TradeMessage(outbound)=1`, `CustomerInteraction(outbound)=1` with `source=trade_inbox.mark_sent`, `tradeMessageId`, `tradeProspectId`, actor; `lastOutboundAt` set, `followUpCount=1`, next action `follow_up`; old draft `rejected` with `SUPERSEDED_BY_MANUAL_REPLY tradeMessageId=… outboundInteractionId=…`; zero Revenue sends; replaying the same `tradeMessageId` returns `replay=true` without a second interaction |
-| B — late approval cannot double-send | port approve of the superseded draft → `status=rejected, duplicate=true`, no send; direct executor call → `ALREADY_REJECTED`, no send |
+| A — manual reply supersedes FDE draft | website inquiry → FDE draft pending → Inbox reply (`mark_sent`) → 200; `TradeMessage(outbound)=1`, `CustomerInteraction(outbound)=1` with `source=trade_inbox.mark_sent`, `tradeMessageId`, `tradeProspectId`, actor; `lastOutboundAt` set, `followUpCount=1`, next action `follow_up`; old draft `failed` with `SUPERSEDED_BY_MANUAL_REPLY tradeMessageId=… outboundInteractionId=… triggeredBy=<actor> terminationMode=system_superseded`, `decidedById = null`; audit `APPROVAL_SYSTEM_SUPERSEDED`; zero Revenue sends; replaying the same `tradeMessageId` returns `replay=true` without a second interaction |
+| B — late approval cannot double-send | port approve of the superseded draft → `ok=false, status=failed, duplicate=true`, no send; direct executor call → `ALREADY_FAILED`, no send |
 | C — race defense | new draft (T1) → outbound interaction logged directly (T2, supersede step absent) → port approve (T3) → executor refuses `STALE_DRAFT`, no send |
 | D — Trade-only prospect | prospect without `convertedToSalesOpportunityId`: reply route 200, `TradeMessage(outbound)=1`, `revenueSync.linked=false`, no `SalesCustomer`/`CustomerInteraction` created |
 | E — multiple customer messages | new genuine website message after the manual reply → inbound logged, `CUSTOMER_REPLIED`, new FDE run, new current draft pending (the earlier stale draft is `failed`), opportunity not suppressed |
 | F — authorization | other-org member with explicit `orgId` → 403; inactive membership → 403; own-org member replying to another org's prospect → 404 and no `TradeMessage` written |
 | G — reverse mirror | approving the current draft → exactly one send, one outbound `TradeMessage` with the `[青砚审批发送 · ref …]` marker, prospect `stage`/`lastContactAt`/`nextFollowUpAt` updated; duplicate approval → no second send, no second `TradeMessage` |
-| H — Inbox "标记已处理" | `POST /api/trade/prospects/[id]/messages` (`direction=outbound`, channel whatsapp) → mirrored (`linked=true`) and the pending draft superseded |
+| H — Inbox "标记已处理" | `POST /api/trade/prospects/[id]/messages` (`direction=outbound`, channel whatsapp) → mirrored (`linked=true`) and the pending draft system-superseded (`failed`) |
+| I — non-approver Trade rep (P0.5.1) | draft approver = `TRADE`; a second active, non-admin rep `TRADE2` replies through the real route → 200, outbound interaction `createdById = TRADE2`, draft `failed` with `triggeredBy=TRADE2`, **`decidedById = null` (never `TRADE`)**, audit `APPROVAL_SYSTEM_SUPERSEDED` with `userId = TRADE2`, `triggeredByUserId = TRADE2`; the approver's late approval is refused; no send |
+| J — actor is the approver (P0.5.1) | Case A actor `TRADE` is also the draft approver: the same system path runs, `decidedById = null`, `decidedAt = null` — no branch back into a human "reject" |
+| K — forged principal impossible (P0.5.1) | request body carrying `approverUserId`, `decidedById`, `actor`, `actorUserId`, `triggeredByUserId`, `userId`, `systemActor` = another user is ignored: interaction `createdById`, audit `userId`/`triggeredByUserId` = the session user; no audit row exists for the forged id; the primitive's input type has no `decidedById` field at all |
+| L — race remains blocked | = Case C: draft T1 → outbound T2 with supersession absent → approval T3 → executor `STALE_DRAFT`, 0 second sends |
 
 Sections 1–12 of the same file (from #203) re-ran unchanged: intake/dedupe, FDE, approval via port, customer reply, transitions/outcomes, attribution, cockpit, website idempotency A–D, executor `STALE_DRAFT` (inbound), `INACTIVE_MEMBERSHIP`, API-boundary 403s, supervisor cancel.
 
@@ -146,3 +150,65 @@ MENGXIN_FDE_V1_TRADE_OUTBOUND_SYNC = PASS
 ```
 
 Not done by instruction: V2, Trade Inbox redesign, consolidation of the two analysis systems, notification fan-out, navigation changes, ERP scope, production deploy / migration / seed. #205 is not merged; #203 is not merged.
+
+## 14. Trusted Supersession Principal Closure (P0.5.1)
+
+### Audit of the substrate
+
+- `rejectPendingAction()` (executor) persists `status=rejected, decidedAt=now, decidedById=ctx.userId` — the schema documents `decidedAt` as the approve/reject time, and every writer of `decidedById` in the repo is a human decision path (executor approve/reject, capabilities approval decision, quote-signature route). Two legacy system paths already misuse it (`pending-link` run cancellation writes `input.userId || createdById`; batch prepare compensation writes the creator) — pre-existing, not changed here.
+- The canonical **system** termination convention is expiry: `approval/port.expireOverdueApprovals()` and the executor's expiry branch write `status=failed` + `failureReason` with **no** `decidedById`/`decidedAt`, using a per-row CAS on `status=pending`. No supersede primitive existed; nothing else terminates a draft on "newer evidence".
+- Terminal statuses are `executed | failed | rejected` (`terminal.ts`); B2 duplicate codes `EXECUTION_IN_PROGRESS | ALREADY_EXECUTED | ALREADY_REJECTED | ALREADY_FAILED` give deterministic results to late approvals of any terminal row.
+
+### Old (incorrect) semantic
+
+P0.5's `supersedePendingInquiryReplies()` called `rejectApprovalItem()` as the Trade actor and, when that actor lacked approval permission, retried as `approverUserId ?? createdById`. The substrate then recorded `decidedById = <designated approver>` — a person who performed no action. The FDE's newer-inbound supersession had the same defect through the run principal (`principalUserId`).
+
+### New semantic — system supersession
+
+`src/lib/pending-actions/supersede.ts` (owner directory, internal server primitive, not an endpoint):
+
+- `supersedePendingAction({ pendingActionId, orgId, expectedType, reasonCode, triggeredByUserId, auditActorUserId, evidence })`.
+- Org-scoped lookup (cross-org → `NOT_FOUND`, no leak); `expectedType` enforced (`TYPE_MISMATCH`); run-linked drafts refused (`RUN_LINKED`, the run lifecycle owns them); `status` must be `pending`, otherwise deterministic duplicate results (`ALREADY_SUPERSEDED` / `ALREADY_REJECTED` / `ALREADY_FAILED` as `ok=true, duplicate=true`; `ALREADY_EXECUTED` and `EXECUTION_IN_PROGRESS` as `ok=false`).
+- CAS: `updateMany where { id, orgId, type, status: "pending" } → { status: "failed", failureReason }`; count≠1 → re-read → duplicate mapping. No external side effect.
+- `decidedById` and `decidedAt` are **never written** (schema keeps them `null`, no schema change).
+- `failureReason` is machine-readable: `<REASON_CODE> [tradeMessageId=…] [outboundInteractionId=…] [inboundInteractionId=…] [agentRunId=…] triggeredBy=<userId|none> terminationMode=system_superseded`.
+- Audit `APPROVAL_SYSTEM_SUPERSEDED` (`afterData`: `terminationMode=system_superseded`, `reasonCode`, `triggeredByUserId`, `decidedById=null`, evidence ids, `auditActorSemantics`). `AuditLog.userId` is a non-null FK: for a Trade outbound it is the real actor; for the FDE's newer-inbound case there is no human actor, so the run principal carries the audit row and `auditActorSemantics = run_principal_not_actor` states that explicitly, with `triggeredByUserId = null`.
+
+Call sites: `trade/outbound-sync.ts` (`SUPERSEDED_BY_MANUAL_REPLY`, `triggeredByUserId = real Trade actor`) and `revenue-spine/fde/inbound-sales.ts` (`SUPERSEDED_BY_NEWER_INBOUND`, `triggeredByUserId = null`, evidence = inbound interaction + run). The reject-as-actor / retry-as-approver code is gone; `rejectApprovalItem` is no longer imported by either module. Normal human approval rules are untouched (the port and executor are unchanged).
+
+### Defense in depth retained
+
+The executor's outbound-after-draft `STALE_DRAFT` gate is unchanged (Case C/L), so a failed or skipped supersession still cannot produce a second customer send.
+
+### Evidence
+
+- DB e2e on isolated branch `preview-mengxin-fde-v1-p051-202609070708` (`br-flat-field-an2zih34`, production snapshot child; only #203's migration pending → deployed): **116 / 116** (`Revenue Spine DB e2e 结果: 116 通过, 0 失败`; all 105 prior assertions kept green, 11 added for Cases I/J/K and the `decidedById` / audit checks). One earlier run on the same branch reported 3 failures that were a test-side JSON parsing error on `AuditLog.afterData` (persisted as a string); the dumped values already showed the correct semantics; the parser was fixed and the suite rerun alone. Branch deleted after the evidence was captured; connection-string file removed. No `db push`, no production migrate/seed, no manual DDL.
+- Static: `tsc` clean (main tree and the test file through an extending tsconfig), runtime-architecture guard 9/9, B2 approval-CAS static 18/18, requestApproval facade 18/18, B1 tenant-context static 20/20, eslint clean on touched files.
+- CI (head `21b8c85b`):
+
+| WORKFLOW | STATUS | CONCLUSION | RUN URL/ID |
+|---|---|---|---|
+| CI · validate-lint-typecheck-test-build | completed | success | https://github.com/LucasJ880/-/actions/runs/34068114142 (job 101580376914) |
+| Vercel – qingyan-staging (preview deploy) | completed | pass / SUCCESS | https://vercel.com/lucas-9039s-projects/qingyan-staging/3kQ4Rs3Fv8ZC9TgmN8SBftTgJreL |
+| Vercel – - (production project; ignored build step) | completed | pass / SUCCESS | https://vercel.com/lucas-9039s-projects/-/FR77N3LX2PWJvybJTrCepFUZjov3 |
+| Vercel Preview Comments | completed | pass / SUCCESS | https://vercel.com/github |
+
+The commit adding this section is docs-only; its run is reported in the closing message.
+
+### Final HEAD / base / mergeability (PART 8)
+
+```text
+PR205_HEAD (code)         = 21b8c85bae61621ec96368a3aea3d74ec5f0855b
+PR205_BASE                = feature/mengxin-fde-revenue-spine @ 4765b3e5 (PR #203 head)
+PR203 state               = OPEN, not merged at the time of this closure
+origin/main               = a69f7c6191a2eaf634ac2388297b72ad52bf80d7 (unchanged; #203's base)
+POST_RETARGET_MAIN_SHA    = n/a — retarget to main deferred until #203 merges (base then collapses cleanly: #205 contains exactly #203's history + the P0.5/P0.5.1 commits, no force push needed)
+MERGEABLE                 = true
+MERGEABLE_STATE           = clean
+DRAFT                     = true (not merged)
+```
+
+```text
+MENGXIN_FDE_V1_TRADE_OUTBOUND_SYNC = PASS
+TRUSTED_SUPERSESSION_PRINCIPAL = PASS
+```
