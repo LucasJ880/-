@@ -11,6 +11,7 @@ import { updateProspect, createMessage } from "@/lib/trade/service";
 import { sendEmail } from "@/lib/trade/email";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
+import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
 
 export async function POST(
   request: NextRequest,
@@ -37,6 +38,7 @@ export async function POST(
 
   const mode = body.mode ?? "mark_sent";
   const now = new Date();
+  let emailMessageId: string | null = null;
 
   if (mode === "send" && prospect.contactEmail) {
     const result = await sendEmail({
@@ -52,9 +54,10 @@ export async function POST(
         { status: 500 },
       );
     }
+    emailMessageId = result.messageId ?? null;
   }
 
-  await createMessage({
+  const outbound = await createMessage({
     prospectId: id,
     direction: "outbound",
     channel: "email",
@@ -72,9 +75,25 @@ export async function POST(
     nextFollowUpAt: threeDaysLater,
   });
 
+  // 已链接商机的线索：让 Revenue Spine 看到这次真实外发并作废旧回复草稿（失败只记录）
+  const revenueSync = await syncTradeOutboundToRevenueSpine({
+    orgId: orgRes.orgId,
+    prospectId: id,
+    tradeMessageId: outbound.id,
+    actorUserId: auth.user.id,
+    actorRole: auth.user.role,
+    source: mode === "send" ? "trade_outreach.send" : "trade_outreach.mark_sent",
+    channel: "email",
+    subject: prospect.outreachSubject,
+    content: prospect.outreachBody,
+    emailMessageId,
+    occurredAt: now,
+  });
+
   return NextResponse.json({
     success: true,
     mode,
     nextFollowUpAt: threeDaysLater.toISOString(),
+    revenueSync,
   });
 }

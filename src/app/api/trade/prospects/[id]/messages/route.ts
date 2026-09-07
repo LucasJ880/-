@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { createMessage, updateProspect } from "@/lib/trade/service";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
 
 const CHANNELS = new Set(["email", "whatsapp", "wechat", "wechat_work", "website", "phone", "other"]);
 
@@ -43,8 +44,22 @@ export async function POST(
     content,
   });
 
+  let revenueSync: Awaited<ReturnType<typeof syncTradeOutboundToRevenueSpine>> | null = null;
   if (direction === "outbound") {
     await updateProspect(id, { lastContactAt: new Date() });
+    // 人工声明的外发（收件箱「已处理」/ 系统外沟通留痕）同样让 Revenue Spine 看见并作废旧草稿
+    revenueSync = await syncTradeOutboundToRevenueSpine({
+      orgId: orgRes.orgId,
+      prospectId: id,
+      tradeMessageId: message.id,
+      actorUserId: auth.user.id,
+      actorRole: auth.user.role,
+      source: "trade_prospect.manual_outbound",
+      channel,
+      subject: subject ?? null,
+      content,
+      occurredAt: message.createdAt,
+    });
   } else {
     const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
     await scheduleInquiryAnalysis({
@@ -62,5 +77,5 @@ export async function POST(
     });
   }
 
-  return NextResponse.json({ message }, { status: 201 });
+  return NextResponse.json({ message, revenueSync }, { status: 201 });
 }

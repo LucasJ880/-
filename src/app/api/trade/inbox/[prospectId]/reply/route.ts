@@ -11,6 +11,7 @@ import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 import { createMessage, updateProspect } from "@/lib/trade/service";
 import { sendEmail } from "@/lib/trade/email";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
+import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
 
 export async function POST(
   request: NextRequest,
@@ -33,6 +34,7 @@ export async function POST(
   const mode = body.mode === "send" ? "send" : "mark_sent";
   if (!text) return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
 
+  let emailMessageId: string | null = null;
   if (mode === "send") {
     if (!prospect.contactEmail) {
       return NextResponse.json({ error: "该线索没有邮箱，请改为「标记已发送」并在原渠道回复", code: "NO_EMAIL" }, { status: 400 });
@@ -44,6 +46,7 @@ export async function POST(
     if (!result.success) {
       return NextResponse.json({ error: `发送失败: ${result.error}` }, { status: 502 });
     }
+    emailMessageId = result.messageId ?? null;
   }
 
   const message = await createMessage({
@@ -64,5 +67,20 @@ export async function POST(
     nextFollowUpAt: next,
   });
 
-  return NextResponse.json({ ok: true, mode, messageId: message.id, nextFollowUpAt: next.toISOString() });
+  // Revenue Spine 镜像：真实外发已持久化后执行；失败只记录，不影响本次回复
+  const revenueSync = await syncTradeOutboundToRevenueSpine({
+    orgId: orgRes.orgId,
+    prospectId,
+    tradeMessageId: message.id,
+    actorUserId: auth.user.id,
+    actorRole: auth.user.role,
+    source: mode === "send" ? "trade_inbox.reply" : "trade_inbox.mark_sent",
+    channel: "email",
+    subject: subject || null,
+    content: text,
+    emailMessageId,
+    occurredAt: now,
+  });
+
+  return NextResponse.json({ ok: true, mode, messageId: message.id, nextFollowUpAt: next.toISOString(), revenueSync });
 }
