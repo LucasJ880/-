@@ -107,6 +107,12 @@ export function detectSubmitPointerConflicts(
   if (t && run.tenderId && t !== run.tenderId) {
     conflicts.push(`tenderId=${t} 与 Run 的 tenderId=${run.tenderId} 不一致`);
   }
+  // 对称补齐（R1 Edge Closure）：Run 只挂 projectId 时，客户端的 tenderId 同样要与之对质——
+  // 否则 Run(projectId=A, tenderId=null) + Input(tenderId=B) 会静默通过，
+  // 变成「用 B 的 tenderId 借 A 的 Run 建信号」的混合指针。
+  if (t && !run.tenderId && run.projectId && t !== run.projectId) {
+    conflicts.push(`tenderId=${t} 与 Run 的 projectId=${run.projectId} 不一致`);
+  }
   return conflicts;
 }
 
