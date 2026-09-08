@@ -78,3 +78,53 @@ export async function assertProjectAccessForActor(
     level === "write" ? "无权在该项目下执行供应商搜索" : "无权查看该项目的供应商搜索",
   );
 }
+
+/**
+ * R1：assertProjectAccessForActor 的**批量**投影（列表面用；判定树逐条一致，不是第二套 RBAC）。
+ *
+ * 列表不能逐条鉴权（N+1），也不能只修单条 GET 而让列表照旧泄露。因此这里一次性算出
+ * 「本 org 内该 actor 在给定级别下可访问的项目 id 集合」，交给查询层做集合过滤：
+ *   unrestricted=true  → super_admin / org_admin：org 内不再按项目收窄（调用方仍必须 org-scope）
+ *   unrestricted=false → 仅 owner 项目 + active projectRole 项目（write 还需 project_admin）
+ * 与单条断言一致的细节：用户须 active；项目须 intakeStatus=dispatched；跨 org 一律不入集合。
+ */
+export type ProjectAccessScope =
+  | { unrestricted: true }
+  | { unrestricted: false; projectIds: string[] };
+
+export async function listAccessibleProjectIdsForActor(
+  actor: SupplierIntelActor,
+  level: ProjectAccessLevel,
+): Promise<ProjectAccessScope> {
+  const user = await db.user.findUnique({
+    where: { id: actor.userId },
+    select: { id: true, role: true, status: true },
+  });
+  if (!user || user.status !== "active") return { unrestricted: false, projectIds: [] };
+  if (isSuperAdmin(user.role)) return { unrestricted: true };
+
+  const om = await getOrgMembership(actor.userId, actor.orgId);
+  const orgRole = om?.status === "active" ? om.role : null;
+  if (orgRole && hasOrgRole(orgRole, "org_admin")) return { unrestricted: true };
+
+  const [owned, memberships] = await Promise.all([
+    db.project.findMany({
+      where: { orgId: actor.orgId, ownerId: actor.userId, intakeStatus: "dispatched" },
+      select: { id: true },
+    }),
+    db.projectMember.findMany({
+      where: {
+        userId: actor.userId,
+        status: "active",
+        project: { orgId: actor.orgId, intakeStatus: "dispatched" },
+      },
+      select: { projectId: true, role: true },
+    }),
+  ]);
+
+  const ids = new Set(owned.map((p) => p.id));
+  for (const m of memberships) {
+    if (level === "read" || hasProjectRole(m.role, "project_admin")) ids.add(m.projectId);
+  }
+  return { unrestricted: false, projectIds: [...ids].sort() };
+}
