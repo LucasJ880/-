@@ -83,10 +83,17 @@ export async function assertProjectAccessForActor(
  * R1：assertProjectAccessForActor 的**批量**投影（列表面用；判定树逐条一致，不是第二套 RBAC）。
  *
  * 列表不能逐条鉴权（N+1），也不能只修单条 GET 而让列表照旧泄露。因此这里一次性算出
- * 「本 org 内该 actor 在给定级别下可访问的项目 id 集合」，交给查询层做集合过滤：
- *   unrestricted=true  → super_admin / org_admin：org 内不再按项目收窄（调用方仍必须 org-scope）
- *   unrestricted=false → 仅 owner 项目 + active projectRole 项目（write 还需 project_admin）
- * 与单条断言一致的细节：用户须 active；项目须 intakeStatus=dispatched；跨 org 一律不入集合。
+ * 「本 org 内该 actor 在给定级别下可访问的项目 id 集合」，交给查询层做集合过滤。
+ *
+ * 与单条判定树逐条对齐（R1 Edge Closure 修正）：单条里 `intakeStatus !== "dispatched"` 的
+ * NOT_FOUND **先于** owner / org_admin / projectRole 三个放行分支，只有 `isSuperAdmin` 在它之前
+ * 返回。因此：
+ *   super_admin              → unrestricted（唯一特权分支；org 隔离仍由调用方的 orgId 条件保证）
+ *   org_admin / org_owner    → 本 org **全部 dispatched 项目**（不是 unrestricted——org_admin 不等价
+ *                              于 super_admin；非 dispatched 项目的信号单条读不到，列表/计数也不得出现）
+ *   其余                     → owner 项目 ∪ active projectRole 项目（write 还需 project_admin），
+ *                              两者同样只取 dispatched
+ * 跨 org 一律不入集合；用户须 active。
  */
 export type ProjectAccessScope =
   | { unrestricted: true }
@@ -101,11 +108,20 @@ export async function listAccessibleProjectIdsForActor(
     select: { id: true, role: true, status: true },
   });
   if (!user || user.status !== "active") return { unrestricted: false, projectIds: [] };
+  // 单条断言中 super_admin 在项目查询之前就返回 → 这里保留同样的特权分支
   if (isSuperAdmin(user.role)) return { unrestricted: true };
 
   const om = await getOrgMembership(actor.userId, actor.orgId);
   const orgRole = om?.status === "active" ? om.role : null;
-  if (orgRole && hasOrgRole(orgRole, "org_admin")) return { unrestricted: true };
+  if (orgRole && hasOrgRole(orgRole, "org_admin")) {
+    // org_admin 的放行分支在单条里位于 dispatched 检查**之后** → 只覆盖 dispatched 项目。
+    // 仍是集合过滤（一次查询），不引入逐行鉴权。
+    const dispatched = await db.project.findMany({
+      where: { orgId: actor.orgId, intakeStatus: "dispatched" },
+      select: { id: true },
+    });
+    return { unrestricted: false, projectIds: dispatched.map((p) => p.id).sort() };
+  }
 
   const [owned, memberships] = await Promise.all([
     db.project.findMany({
