@@ -360,7 +360,9 @@ EVENT_IDENTITY_RECOVERY     = PASS
 PARTIAL_STAGE_RECOVERY      = PASS
 DELIVERY_PROCESSING_RECOVERY= PASS
 SITE_DEPLOYMENT_PREFLIGHT   = NEEDS_SERVER_ACCESS
-PR207_FINAL_HEAD            = 442d0623df030f13956df7a9191b2d8c19ff0b74 (docs-only on top of the code head 5a40a229)
+PR207_FINAL_HEAD            = 5a40a229679fc1a172c85e20f775acda9bbc793f  (last code commit; this
+                              report is committed on top of it, so the branch tip is a later
+                              docs-only commit — see the PR for the current tip)
 PR207_CI                    = PASS (run 34208833151: validate-lint-typecheck-test-build + both Vercel previews green on 5a40a229)
 
 MENGXIN_FDE_V1 = PRODUCTION_BLOCKED
