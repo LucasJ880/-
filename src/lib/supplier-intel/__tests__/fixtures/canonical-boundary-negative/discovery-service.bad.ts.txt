@@ -1,0 +1,16 @@
+// 负向 fixture（BL-3）：外呼与查询计划早于项目 ACL
+import { assertProjectAccessForActor } from "./access";
+
+export async function executeSupplierSearchRun(actor: { orgId: string; userId: string }, runId: string, opts: any) {
+  const run = await opts.getRun(runId);
+  const { plans } = buildExternalQueryPlan(run.brief, opts.adapters);
+  const outcome = await opts.adapters[0].discover(run.brief, opts.provider);
+  if (run.projectId) {
+    await assertProjectAccessForActor(actor, run.projectId, "write");
+  }
+  return { plans, outcome };
+}
+
+function buildExternalQueryPlan(brief: unknown, adapters: unknown[]) {
+  return { plans: new Map(), brief, adapters };
+}
