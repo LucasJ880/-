@@ -77,6 +77,9 @@ export async function createProjectSearchRun(
       canonicalAnalysisRunId: canonical.analysisRunId,
       canonicalAnalysisRunStatus: canonical.analysisRunStatus,
       canonicalUncertainCount: canonical.uncertainCount,
+      // R2 审计：uncertain 来源判定（不可证完整时 loader 已抛错，能走到这里必为 VALID）
+      canonicalUncertainSourceStatus: canonical.uncertainSourceStatus,
+      canonicalUncertainSourceReason: canonical.uncertainSourceReason,
     },
     promptName: brief.generator.llm?.promptName ?? null,
     promptVersion: brief.generator.llm?.promptVersion ?? null,
