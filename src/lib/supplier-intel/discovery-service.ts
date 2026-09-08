@@ -126,6 +126,57 @@ export function buildExternalQueryPlan(
   return { plans, egressDropped, budgetTrimmed };
 }
 
+/**
+ * 计划期 → 执行期（BL-4 最小提取，纯函数）：把过滤后的查询计划绑定到 adapter——
+ * 执行时只走 buildExternalQueryPlan 产出的计划（egress 闸 + 预算之后），adapter 原始
+ * buildQueryPlan 不再被调用；空计划 → adapter.discover 零 provider 调用（makeDiscover 短路）。
+ */
+export function bindQueryPlan(
+  adapter: SupplierDiscoveryAdapter,
+  plan: PlannedQuery[],
+): SupplierDiscoveryAdapter {
+  return {
+    platform: adapter.platform,
+    buildQueryPlan: () => plan,
+    discover: adapter.discover,
+  };
+}
+
+export interface RunFinalizationDecision {
+  outcome: "COMPLETED" | "FAILED";
+  /** 已执行源 = 状态 ∉ {DISABLED, PLANNED}；DISABLED/PLANNED 永不伪装成执行源 */
+  executed: number;
+  failed: number;
+  succeeded: number;
+  empty: number;
+}
+
+/**
+ * §44 收口决策（BL-4 最小提取，纯函数；沿用既有 S2 语义，不重新设计状态机）：
+ *   - 已执行源全部 FAILED（且至少一个已执行源）→ FAILED；
+ *   - 否则 → COMPLETED（含 EMPTY：EMPTY 是合法执行结果，不改判为错误；SUCCESS+FAILED 混合按
+ *     COMPLETED 收口，源级失败详情保留在 sources 里）；
+ *   - DISABLED / PLANNED 不计入已执行源（零已执行源时不构成「全失败」）。
+ */
+export function decideRunFinalization(
+  sources: Record<string, SourceExecutionStatus>,
+): RunFinalizationDecision {
+  const executed = Object.values(sources).filter(
+    (s) => s.status !== "DISABLED" && s.status !== "PLANNED",
+  );
+  const failed = executed.filter((s) => s.status === "FAILED").length;
+  const succeeded = executed.filter((s) => s.status === "SUCCESS").length;
+  const empty = executed.filter((s) => s.status === "EMPTY").length;
+  const allFailed = executed.length > 0 && failed === executed.length;
+  return {
+    outcome: allFailed ? "FAILED" : "COMPLETED",
+    executed: executed.length,
+    failed,
+    succeeded,
+    empty,
+  };
+}
+
 export async function executeSupplierSearchRun(
   actor: SupplierIntelActor,
   runId: string,
@@ -247,11 +298,7 @@ export async function executeSupplierSearchRun(
     let totalResults = 0;
     for (const adapter of adapters) {
       const plan = plans.get(adapter.platform) ?? [];
-      const planAdapter: SupplierDiscoveryAdapter = {
-        platform: adapter.platform,
-        buildQueryPlan: () => plan,
-        discover: adapter.discover,
-      };
+      const planAdapter = bindQueryPlan(adapter, plan);
       const outcome = await planAdapter.discover(brief, provider);
       if (!outcome.ok) {
         sources[adapter.platform] = { status: "FAILED", reason: `${outcome.code}: ${outcome.message}` };
@@ -350,10 +397,9 @@ export async function executeSupplierSearchRun(
     result.runStatus = "RUNNING";
     return result;
   }
-  const executed = Object.values(sources).filter((s) => s.status !== "DISABLED" && s.status !== "PLANNED");
-  const allFailed = executed.length > 0 && executed.every((s) => s.status === "FAILED");
+  const decision = decideRunFinalization(sources);
   try {
-    if (allFailed) {
+    if (decision.outcome === "FAILED") {
       await failSearchRun(actor, runId, "全部已执行源 FAILED", statusDetail);
       result.runStatus = "FAILED";
     } else {
