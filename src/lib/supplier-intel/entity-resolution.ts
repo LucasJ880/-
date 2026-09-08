@@ -184,6 +184,8 @@ export interface SupplierEntityResolutionResult {
   /** 机器可用的命中明细（预填/审计） */
   matchedSources: Array<{ kind: string; key: string; supplierId: string }>;
   conflicts: string[];
+  /** BL-2：身份宇宙扫描完整性（与 decision 分离；不完整时 decision 恒为 NEEDS_HUMAN_REVIEW） */
+  scan: IdentityScanStatus;
 }
 
 /**
@@ -229,6 +231,118 @@ function identityCollisionConflict(identityType: string, identityKey: string, su
   return `强身份冲突 identityType=${identityType} identityKey=${identityKey} supplierIds=[${[...supplierIds].sort().join(",")}]——不得自动挑选，需人工裁决`;
 }
 
+/* ------------------------- BL-2：身份宇宙扫描完整性（与解析结论分离） ------------------------- */
+
+/** 机器可读原因码：返回值 conflicts、scan.reasonCode 与持久快照共用同一常量 */
+export const IDENTITY_SCAN_INCOMPLETE = "IDENTITY_SCAN_INCOMPLETE" as const;
+
+/**
+ * 生产分页参数（B5 冻结：500/页 × 40 页 = 2 万行/类）。
+ * 测试注入（resolveSignalEntityWithPagination）只能在此上限内**收窄**，不能放宽；
+ * HTTP 路由只允许调用 resolveSignalEntity（生产常量），不暴露任何分页参数。
+ */
+export const IDENTITY_SCAN_PAGINATION = { PAGE_SIZE: 500, MAX_PAGES: 40 } as const;
+
+export interface IdentityScanPagination {
+  pageSize: number;
+  maxPages: number;
+}
+
+/** 单类扫描（供应商行 / LINKED 身份史）的真实分页结果 */
+export interface IdentityScanPassStatus {
+  complete: boolean;
+  /** 实际读取的页数 */
+  pages: number;
+  /** 实际读入身份集合的行数 */
+  rows: number;
+  /** true = 触及 maxPages 且末页仍满页——余量未读，不得当作扫描完成 */
+  capped: boolean;
+}
+
+/**
+ * 扫描完整性元数据：由服务层真实分页结果产生（不接受客户端声明），
+ * 随解析结果返回并原样 append 进 resolutionJson（返回值与持久快照一致）。
+ */
+export interface IdentityScanStatus {
+  suppliers: IdentityScanPassStatus;
+  linkedHistory: IdentityScanPassStatus;
+  /** 整体完整 = 两类扫描均完整 */
+  complete: boolean;
+  /** 不完整时恒为 IDENTITY_SCAN_INCOMPLETE；完整时 null */
+  reasonCode: typeof IDENTITY_SCAN_INCOMPLETE | null;
+  pageSize: number;
+  maxPages: number;
+}
+
+export function identityScanStatusOf(
+  suppliers: IdentityScanPassStatus,
+  linkedHistory: IdentityScanPassStatus,
+  pagination: IdentityScanPagination,
+): IdentityScanStatus {
+  const complete = suppliers.complete && linkedHistory.complete;
+  return {
+    suppliers,
+    linkedHistory,
+    complete,
+    reasonCode: complete ? null : IDENTITY_SCAN_INCOMPLETE,
+    pageSize: pagination.pageSize,
+    maxPages: pagination.maxPages,
+  };
+}
+
+/**
+ * 纯核默认值：调用方把**整个**身份宇宙以内存数组传入（无分页）——按构造即完整，
+ * rows 如实取自传入集合大小（不伪造覆盖率）。服务层永远显式传真实分页状态。
+ */
+export function inMemoryIdentityScanStatus(rows: {
+  suppliers: number;
+  linkedHistory: number;
+}): IdentityScanStatus {
+  return identityScanStatusOf(
+    { complete: true, pages: 1, rows: rows.suppliers, capped: false },
+    { complete: true, pages: 1, rows: rows.linkedHistory, capped: false },
+    { pageSize: IDENTITY_SCAN_PAGINATION.PAGE_SIZE, maxPages: IDENTITY_SCAN_PAGINATION.MAX_PAGES },
+  );
+}
+
+function isScanPassStatus(v: unknown): v is IdentityScanPassStatus {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.complete === "boolean" &&
+    typeof o.pages === "number" &&
+    typeof o.rows === "number" &&
+    typeof o.capped === "boolean"
+  );
+}
+
+export type RecordedIdentityScan =
+  | { recorded: true; scan: IdentityScanStatus }
+  | { recorded: false; reason: "MISSING" | "MALFORMED" };
+
+/**
+ * 读取历史 resolutionJson 条目的扫描状态。BL-2 之前写入的条目没有 scan 字段——
+ * 按「未记录」处理（recorded:false），绝不默认解释为 COMPLETE；不回填、不改写历史快照。
+ */
+export function readIdentityScanFromResolutionEntry(entry: unknown): RecordedIdentityScan {
+  if (typeof entry !== "object" || entry === null) return { recorded: false, reason: "MISSING" };
+  const raw = (entry as { scan?: unknown }).scan;
+  if (raw === undefined || raw === null) return { recorded: false, reason: "MISSING" };
+  if (typeof raw !== "object") return { recorded: false, reason: "MALFORMED" };
+  const o = raw as Record<string, unknown>;
+  if (
+    !isScanPassStatus(o.suppliers) ||
+    !isScanPassStatus(o.linkedHistory) ||
+    typeof o.complete !== "boolean" ||
+    !(o.reasonCode === null || o.reasonCode === IDENTITY_SCAN_INCOMPLETE) ||
+    typeof o.pageSize !== "number" ||
+    typeof o.maxPages !== "number"
+  ) {
+    return { recorded: false, reason: "MALFORMED" };
+  }
+  return { recorded: true, scan: o as unknown as IdentityScanStatus };
+}
+
 /**
  * 纯函数解析核心（B2 重构）：强键 = 自有域名（官网/已档）、联系电话、
  * 已人工验证的平台精确账号；平台 host 与内容页永不构成身份。
@@ -239,14 +353,24 @@ export function resolveSupplierEntityPure(
   prior: PriorLinkedIdentities,
   opts?: {
     /**
-     * B5：身份宇宙是否已被**完整**扫描（供应商行 + LINKED 身份史全量）。
-     * false = 明知不完整——此时禁止给出高置信 MATCHED_EXISTING（局部真相可能漏掉
-     * 冲突的另一半），一律降级 NEEDS_HUMAN_REVIEW 并显式标 IDENTITY_SCAN_INCOMPLETE。
+     * BL-2：身份宇宙扫描完整性——服务层必须传真实分页结果；纯核调用方省略 = 传入的是
+     * 内存全集（按构造完整）。任一必需扫描不完整 → 保守策略：
+     *   decision=NEEDS_HUMAN_REVIEW、supplierId=undefined、conflicts 显式记录
+     *   IDENTITY_SCAN_INCOMPLETE；已发现的强键命中 / F1 冲突元数据 / 名称与模糊候选全部保留。
+     * 「不完整扫描后没找到」绝不显示为「已确认 NEW_SUPPLIER_CANDIDATE」。
      */
-    scanComplete?: boolean;
+    scan?: IdentityScanStatus;
   },
 ): SupplierEntityResolutionResult {
-  const scanComplete = opts?.scanComplete !== false;
+  const scan =
+    opts?.scan ??
+    inMemoryIdentityScanStatus({
+      suppliers: suppliers.length,
+      linkedHistory: [...prior.ownedDomains.values(), ...prior.platformAccounts.values()].reduce(
+        (n, set) => n + set.size,
+        0,
+      ),
+    });
   const matchedSources: SupplierEntityResolutionResult["matchedSources"] = [];
   const conflicts: string[] = [];
 
@@ -320,25 +444,46 @@ export function resolveSupplierEntityPure(
   const strong = matchedSources.filter((m) => m.kind !== "normalized_name");
   const strongSuppliers = [...new Set(strong.map((m) => m.supplierId))];
 
+  // 键 6：模糊相似——只产候选（既有语义：无强键且无归一名等值时才求）；
+  // 扫描不完整时同样求值，以便把候选证据一并交给人审（不丢证据）。
+  let fuzzyBest: { supplierId: string; name: string; score: number } | null = null;
+  if (strongSuppliers.length === 0 && nameEqHits.length === 0) {
+    for (const cand of hints.companyNameCandidates) {
+      for (const s of suppliers) {
+        const score = nameOverlap(cand, s.name);
+        if (score >= FUZZY_CANDIDATE_THRESHOLD && (!fuzzyBest || score > fuzzyBest.score)) {
+          fuzzyBest = { supplierId: s.id, name: s.name, score };
+        }
+      }
+    }
+    if (fuzzyBest) {
+      matchedSources.push({ kind: "fuzzy_name", key: fuzzyBest.name, supplierId: fuzzyBest.supplierId });
+    }
+  }
+
+  // BL-2 保守策略：任一必需扫描不完整 → 一律人审；不返回 MATCHED_EXISTING，也不确认 NEW；
+  // 上面已收集的命中 / 冲突 / 候选原样保留（不提前 return 丢证据）。
+  if (!scan.complete) {
+    conflicts.push(
+      `${IDENTITY_SCAN_INCOMPLETE}：身份宇宙扫描未完整（suppliers=${scan.suppliers.complete ? "complete" : "incomplete"} linkedHistory=${scan.linkedHistory.complete ? "complete" : "incomplete"}；触及安全上限 ${scan.maxPages}×${scan.pageSize}）——禁止高置信匹配，也不得确认为新供应商——交人工裁决`,
+    );
+    const confidence = strongSuppliers.length > 0 ? 0.6 : nameEqHits.length > 0 || fuzzyBest ? 0.5 : 0.3;
+    return {
+      decision: "NEEDS_HUMAN_REVIEW",
+      supplierId: undefined,
+      legalName: undefined,
+      candidateNames: hints.companyNameCandidates,
+      confidence,
+      matchedSignals: signalsOf(matchedSources),
+      matchedSources,
+      conflicts,
+      scan,
+    };
+  }
+
   if (strongSuppliers.length === 1) {
     const sid = strongSuppliers[0];
     const legal = suppliers.find((s) => s.id === sid)?.name;
-    if (!scanComplete) {
-      // B5 fail-closed：扫描不完整时绝不高置信匹配（漏页可能藏着冲突的另一半）
-      conflicts.push(
-        "IDENTITY_SCAN_INCOMPLETE：身份历史扫描未完整（触及安全上限），禁止高置信匹配——交人工裁决",
-      );
-      return {
-        decision: "NEEDS_HUMAN_REVIEW",
-        supplierId: undefined,
-        legalName: undefined,
-        candidateNames: hints.companyNameCandidates,
-        confidence: 0.6,
-        matchedSignals: signalsOf(matchedSources),
-        matchedSources,
-        conflicts,
-      };
-    }
     return {
       decision: "MATCHED_EXISTING", // 仅预填：LINKED 仍需人工点按
       supplierId: sid,
@@ -348,6 +493,7 @@ export function resolveSupplierEntityPure(
       matchedSignals: signalsOf(matchedSources),
       matchedSources,
       conflicts,
+      scan,
     };
   }
   if (strongSuppliers.length > 1) {
@@ -359,6 +505,7 @@ export function resolveSupplierEntityPure(
       matchedSignals: signalsOf(matchedSources),
       matchedSources,
       conflicts,
+      scan,
     };
   }
   if (nameEqHits.length > 0) {
@@ -371,29 +518,20 @@ export function resolveSupplierEntityPure(
       matchedSignals: signalsOf(matchedSources),
       matchedSources,
       conflicts,
+      scan,
     };
   }
-  // 键 6：模糊相似——只产候选，只能 NEEDS_HUMAN_REVIEW
-  let best: { supplierId: string; name: string; score: number } | null = null;
-  for (const cand of hints.companyNameCandidates) {
-    for (const s of suppliers) {
-      const score = nameOverlap(cand, s.name);
-      if (score >= FUZZY_CANDIDATE_THRESHOLD && (!best || score > best.score)) {
-        best = { supplierId: s.id, name: s.name, score };
-      }
-    }
-  }
-  if (best) {
-    matchedSources.push({ kind: "fuzzy_name", key: best.name, supplierId: best.supplierId });
+  if (fuzzyBest) {
     return {
       decision: "NEEDS_HUMAN_REVIEW",
-      supplierId: best.supplierId,
-      legalName: best.name,
+      supplierId: fuzzyBest.supplierId,
+      legalName: fuzzyBest.name,
       candidateNames: hints.companyNameCandidates,
       confidence: 0.55,
       matchedSignals: signalsOf(matchedSources),
       matchedSources,
       conflicts,
+      scan,
     };
   }
   return {
@@ -403,57 +541,96 @@ export function resolveSupplierEntityPure(
     matchedSignals: [],
     matchedSources,
     conflicts,
+    scan,
   };
 }
 
-/** 服务：对某条信号做解析预填，结果 append 进 resolutionJson（人工改判也 append） */
+function clampPagination(p: IdentityScanPagination): IdentityScanPagination {
+  const norm = (v: number, max: number) =>
+    Number.isFinite(v) ? Math.min(max, Math.max(1, Math.floor(v))) : max;
+  return {
+    pageSize: norm(p.pageSize, IDENTITY_SCAN_PAGINATION.PAGE_SIZE),
+    maxPages: norm(p.maxPages, IDENTITY_SCAN_PAGINATION.MAX_PAGES),
+  };
+}
+
+/**
+ * 稳定键（id asc）游标穷尽分页；返回真实分页结果（页数 / 行数 / 是否触顶）。
+ * 触顶（maxPages 用尽且末页仍满页）→ complete=false、capped=true——余量未读，绝不静默截断。
+ */
+async function fetchAllPages<T extends { id: string }>(
+  fetchPage: (cursor: string | null, take: number) => Promise<T[]>,
+  pagination: IdentityScanPagination,
+): Promise<{ rows: T[]; status: IdentityScanPassStatus }> {
+  const all: T[] = [];
+  let cursor: string | null = null;
+  let pages = 0;
+  for (let page = 0; page < pagination.maxPages; page++) {
+    const rows = await fetchPage(cursor, pagination.pageSize);
+    pages += 1;
+    all.push(...rows);
+    if (rows.length < pagination.pageSize) {
+      return { rows: all, status: { complete: true, pages, rows: all.length, capped: false } };
+    }
+    cursor = rows[rows.length - 1].id;
+  }
+  return { rows: all, status: { complete: false, pages, rows: all.length, capped: true } };
+}
+
+/**
+ * 服务：对某条信号做解析预填，结果 append 进 resolutionJson（人工改判也 append）。
+ * 生产入口：固定使用 IDENTITY_SCAN_PAGINATION（500/页 × 40 页）。
+ */
 export async function resolveSignalEntity(actor: SupplierIntelActor, signalId: string) {
+  return resolveSignalEntityWithPagination(actor, signalId, {
+    pageSize: IDENTITY_SCAN_PAGINATION.PAGE_SIZE,
+    maxPages: IDENTITY_SCAN_PAGINATION.MAX_PAGES,
+  });
+}
+
+/**
+ * 内部/测试注入点（BL-2）：以小 fixture 触发与生产同构的触顶路径。
+ * 只允许服务端代码调用；分页参数只能在生产上限内收窄（clampPagination），
+ * 不暴露为任何 HTTP 参数（governance 守卫断言 resolve 路由不引用本函数）。
+ */
+export async function resolveSignalEntityWithPagination(
+  actor: SupplierIntelActor,
+  signalId: string,
+  pagination: IdentityScanPagination,
+) {
   const signal = await db.supplierDiscoverySignal.findFirst({
     where: { id: signalId, orgId: actor.orgId },
   });
   if (!signal) throw new SupplierIntelError("NOT_FOUND", "发现信号不存在");
 
   // B5：身份裁决禁止「前 500 行局部真相」——按稳定键（id asc）游标分页穷尽
-  // org 内相关记录；触及安全上限仍有余量 → scanComplete=false（resolver 侧
-  // fail-closed，绝不基于已知不完整的身份宇宙给高置信匹配）。分页是纯 DB 游标，
-  // 零 N+1 网络路径。
-  const PAGE_SIZE = 500;
-  const MAX_PAGES = 40; // 安全上限（40×500=2 万行/类）；触顶即 fail-closed，绝不静默截断
-  let scanComplete = true;
+  // org 内相关记录；触及安全上限仍有余量 → 该类扫描 complete=false，resolver 侧
+  // fail-closed（BL-2：任一类不完整即整体不完整 → 一律人审）。分页是纯 DB 游标，零 N+1 网络路径。
+  const paging = clampPagination(pagination);
 
-  async function fetchAllPages<T extends { id: string }>(
-    fetchPage: (cursor: string | null) => Promise<T[]>,
-  ): Promise<T[]> {
-    const all: T[] = [];
-    let cursor: string | null = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const rows = await fetchPage(cursor);
-      all.push(...rows);
-      if (rows.length < PAGE_SIZE) return all;
-      cursor = rows[rows.length - 1].id;
-    }
-    scanComplete = false; // 还有余量没读完
-    return all;
-  }
-
-  const suppliers = await fetchAllPages((cursor) =>
-    db.supplier.findMany({
-      where: { orgId: actor.orgId, status: "active" },
-      select: { id: true, name: true, website: true, contactPhone: true },
-      orderBy: { id: "asc" },
-      take: PAGE_SIZE,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    }),
+  const suppliersScan = await fetchAllPages(
+    (cursor, take) =>
+      db.supplier.findMany({
+        where: { orgId: actor.orgId, status: "active" },
+        select: { id: true, name: true, website: true, contactPhone: true },
+        orderBy: { id: "asc" },
+        take,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      }),
+    paging,
   );
-  const linked = await fetchAllPages((cursor) =>
-    db.supplierDiscoverySignal.findMany({
-      where: { orgId: actor.orgId, status: "LINKED", linkedSupplierId: { not: null } },
-      select: { id: true, accountUrl: true, contentUrl: true, linkedSupplierId: true },
-      orderBy: { id: "asc" },
-      take: PAGE_SIZE,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    }),
+  const linkedScan = await fetchAllPages(
+    (cursor, take) =>
+      db.supplierDiscoverySignal.findMany({
+        where: { orgId: actor.orgId, status: "LINKED", linkedSupplierId: { not: null } },
+        select: { id: true, accountUrl: true, contentUrl: true, linkedSupplierId: true },
+        orderBy: { id: "asc" },
+        take,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      }),
+    paging,
   );
+  const scan = identityScanStatusOf(suppliersScan.status, linkedScan.status, paging);
 
   // B2/B4：LINKED 沉淀**只**产平台精确账号身份。域名一律不沉淀——把一条
   // 新闻/博客/目录页信号 LINK 给供应商，不构成对该域名的所有权
@@ -463,7 +640,7 @@ export async function resolveSignalEntity(actor: SupplierIntelActor, signalId: s
     ownedDomains: new Map<string, Set<string>>(), // B4：生产恒空（见接口注释）
     platformAccounts: new Map<string, Set<string>>(),
   };
-  for (const row of linked) {
+  for (const row of linkedScan.rows) {
     if (!row.linkedSupplierId) continue;
     for (const u of [row.accountUrl, row.contentUrl]) {
       const identity = classifyUrlForIdentity(u);
@@ -476,12 +653,14 @@ export async function resolveSignalEntity(actor: SupplierIntelActor, signalId: s
   }
 
   const hints = extractEntityHints(signal);
-  const result = resolveSupplierEntityPure(hints, suppliers, prior, { scanComplete });
+  const result = resolveSupplierEntityPure(hints, suppliersScan.rows, prior, { scan });
 
+  // 返回值与持久快照一致：result.scan 与顶层 scan 是同一对象；历史条目只 append，不改写
   const entry = {
     phase: "AUTO_PREFILL",
     result,
     hints,
+    scan,
     at: new Date().toISOString(),
     byUserId: actor.userId,
   };

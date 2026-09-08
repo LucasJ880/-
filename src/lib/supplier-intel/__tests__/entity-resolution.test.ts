@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   classifyUrlForIdentity,
   extractEntityHints,
+  identityScanStatusOf,
   resolveSupplierEntityPure,
   type PriorLinkedIdentities,
   type SupplierRowForResolution,
@@ -243,12 +244,19 @@ async function main() {
   assert.equal(classifyUrlForIdentity("https://www.xiaohongshu.com/explore/n99").kind, "CONTENT_URL");
   assert.equal(classifyUrlForIdentity("https://detail.1688.com/offer/99.html").kind, "CONTENT_URL");
 
-  console.log("B5（纯核）：scanComplete=false → 本可 MATCHED 的强命中降级 NEEDS + IDENTITY_SCAN_INCOMPLETE");
+  console.log("B5（纯核）：扫描不完整 → 本可 MATCHED 的强命中降级 NEEDS + IDENTITY_SCAN_INCOMPLETE");
   const b5pure = resolveSupplierEntityPure(
     { companyNameCandidates: [], unifiedSocialCreditCode: null, phones: [], observedWebDomains: ["xxfurniture.cn"], platformAccounts: [] },
     suppliers,
     noPrior,
-    { scanComplete: false },
+    {
+      // BL-2：扫描状态由服务层真实分页产生；纯核测试显式构造「供应商扫描触顶」形态
+      scan: identityScanStatusOf(
+        { complete: false, pages: 40, rows: 20000, capped: true },
+        { complete: true, pages: 1, rows: 0, capped: false },
+        { pageSize: 500, maxPages: 40 },
+      ),
+    },
   );
   assert.equal(b5pure.decision, "NEEDS_HUMAN_REVIEW");
   assert.equal(b5pure.supplierId, undefined);
