@@ -51,6 +51,8 @@ async function main() {
   const runSvc = await import("../run-service");
   const signalSvc = await import("../signal-service");
   const er = await import("../entity-resolution");
+  // R2：RISKS 夹具改由**真实 writer**（deriveRisks → v2-map 形状）产出，不再手写 risks 对象
+  const { buildCanonicalRisksStructuredJson } = await import("./fixtures/canonical-risks-writer");
   const accessMod = await import("../access");
   type Provider = import("../providers").DiscoveryProvider;
 
@@ -132,11 +134,13 @@ async function main() {
       runId: analysisA.id,
       sectionKey: "RISKS",
       contentZh: "1 条要求强制性无法确定",
-      structuredJson: {
-        risks: [
-          { id: "RISK-001", reasonCode: "MANDATORY_UNCERTAIN", relatedRequirementIds: ["R-005"] },
-        ],
-      },
+      structuredJson: buildCanonicalRisksStructuredJson([
+        { code: "R-001", mandatory: true },
+        { code: "R-002", mandatory: true },
+        { code: "R-003", mandatory: false },
+        { code: "R-004", mandatory: false },
+        { code: "R-005", mandatory: "uncertain" },
+      ]) as never,
     },
   });
   // projectB：uncertain 聚合表打满 12 条 → 封顶 fail-closed
@@ -165,15 +169,13 @@ async function main() {
       runId: analysisB.id,
       sectionKey: "RISKS",
       contentZh: "12 条要求强制性无法确定",
-      structuredJson: {
-        risks: [
-          {
-            id: "RISK-001",
-            reasonCode: "MANDATORY_UNCERTAIN",
-            relatedRequirementIds: Array.from({ length: 12 }, (_, i) => `R-${String(i + 1).padStart(3, "0")}`),
-          },
-        ],
-      },
+      // 12 条 uncertain → 真实 writer 的 .slice(0,12) 恰好打满封顶 → 来源不可证完整
+      structuredJson: buildCanonicalRisksStructuredJson(
+        Array.from({ length: 12 }, (_, i) => ({
+          code: `R-${String(i + 1).padStart(3, "0")}`,
+          mandatory: "uncertain" as const,
+        })),
+      ) as never,
     },
   });
 

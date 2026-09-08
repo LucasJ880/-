@@ -58,6 +58,7 @@ async function main() {
   const { db } = await import("@/lib/db");
   const { isSupplierIntelError } = await import("../errors");
   const er = await import("../entity-resolution");
+  const { buildCanonicalRisksStructuredJson } = await import("./fixtures/canonical-risks-writer");
   const signalSvc = await import("../signal-service");
   const projectRunSvc = await import("../project-run-service");
   const runSvc = await import("../run-service");
@@ -123,7 +124,13 @@ async function main() {
       runId: analysisA.id,
       sectionKey: "RISKS",
       contentZh: "1 条要求强制性无法确定",
-      structuredJson: { risks: [{ id: "RISK-001", reasonCode: "MANDATORY_UNCERTAIN", relatedRequirementIds: ["R-004"] }] },
+      // R2：改由真实 writer（deriveRisks → v2-map 形状）产出
+      structuredJson: buildCanonicalRisksStructuredJson([
+        { code: "R-001", mandatory: true },
+        { code: "R-002", mandatory: true },
+        { code: "R-003", mandatory: false },
+        { code: "R-004", mandatory: "uncertain" },
+      ]) as never,
     },
   });
 
