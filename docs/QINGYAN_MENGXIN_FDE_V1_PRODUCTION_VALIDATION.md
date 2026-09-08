@@ -274,3 +274,102 @@ MENGXIN_FDE_V1 = PRODUCTION_BLOCKED
 BLOCKER = website bridge built and validated but not yet on the site server (password-SSH only) and receiver PR #207 not yet merged; PART 七/八 not run
 ```
 Not claimed: no permanent no-double-send guarantee under all concurrency (a retry arriving while the first request is still inside intake can still race; retries in this design are minutes apart); no automatic quoting, no automatic closing, no full inbound email loop.
+
+---
+
+# Round 3 — PR #207 recovery review closure (2026-09-08)
+
+Review base: PR #207 at `19d53086`. Rounds 1 and 2 above are kept unchanged; this section appends what the review found and changed. Nothing was merged, deployed, migrated in production, or emailed.
+
+## R3-1. Event identity at the earliest reliable boundary (PART 1)
+
+**Finding (confirmed defect).** At `19d53086` the event id survived only inside `CustomerInteraction.analysisResult.sourceRef.externalId`, which is written by `intakeInquiry` — the *fourth* step of the chain. An interruption after the Trade message but before the Sales interaction therefore left no trace of the event id at all, and recovery fell back to matching the rendered message text within 24 hours. Outside that window, or when the retry carried any text difference, the same submission became a second inquiry. Two different event ids carrying identical text were also swallowed by content dedupe with no record that a second submission had ever happened.
+
+**Change.** A receipt is now written **before any business object**: `WebsiteInquiryReceipt`, keyed `@@unique([orgId, source, eventId])`, holding the first-seen normalized payload, its business-field hash, and the ids of every downstream object as they are created (`prospectId`, `tradeMessageId`, `customerId`, `opportunityId`, `interactionId`, `salesActionId`, `agentRunId`, `pendingActionId`).
+
+Frozen rules, all enforced in code and covered by tests:
+
+| Rule | Behaviour |
+|---|---|
+| Event scope | `(orgId, source, eventId)`. `orgId` and `source` come from the authenticated channel; a form submitter cannot set either, and cannot address another organization. |
+| Same event id again | Located by id, no business object created, downstream state returned from real records. |
+| Same event id, conflicting business content | Original payload is kept and replayed; the conflict is counted (`conflictCount`, `lastConflictAt`) and reported as `conflict: true`. Nothing is overwritten. |
+| Source page / UTM changes | Excluded from the business fingerprint: not a conflict, and never written back over existing objects. |
+| Different event ids, same content | Each gets its own receipt; the later one records `duplicateOfReceiptId` and reuses the first event's business objects. Recorded, never silently swallowed. |
+| No event id (legacy caller) | Server derives an identity from the business fingerprint (`eventIdProvided = false`) and keeps the previous 24-hour content-window semantics: identical content inside the window is the same event, outside it is a new one. |
+| Retention | Receipts are never auto-deleted; no purge path exists. Recovery may be driven by a human long after the automatic attempts stop, so the identity has to outlive it. |
+| Identity unknown | If a caller presents an event id with no receipt (deleted or beyond retention), the receiver first tries to attach to existing objects by content, and only then treats it as new — the result says which happened rather than defaulting to "brand new inquiry". |
+
+**Single execution per event.** The receipt is claimed (`status = processing`, `processingSince`) before any write, with a conditional update so only one caller wins; a concurrent duplicate gets `busy: true` and performs no steps. A claim older than 6 minutes (longer than the 300 s route cap) is treated as an interrupted process and may be re-claimed. The unique constraint also converts a concurrent first-delivery race into the replay path rather than two inquiries.
+
+**SCHEMA_REQUIRED.** This needs one new table. Migration `20260908120000_website_inquiry_receipt` (sha256 `4cc862a8589206f256d680cc930607d4e7f813aeb1fb6f936cfd7e2b6b3f06fb`) is **additive only**: one `CREATE TABLE` plus four indexes, no change to any existing table, column or row. It is registered in `EXPECTED_ACTIVE_MIGRATIONS` and `check-release-safety.test.ts`, and was applied and exercised on an isolated Neon branch. **It has not been applied to production.** Because the build-time migration gate blocks production builds whose database lacks a required migration, the release order is: apply the migration through `safe-migrate-deploy` (needs your authorization) → merge #207 → redeploy. Until then #207 must not be merged.
+
+## R3-2. Filling in missing intermediate steps (PART 2)
+
+**Finding (confirmed defect).** Recovery keyed entirely off "does a `CustomerInteraction` exist". Any state where the interaction existed but a later object did not was reported as complete and never repaired.
+
+**Change.** `inspectChain()` verifies all seven objects independently from real records — Trade message, prospect, customer, opportunity, interaction, `SalesAction`, prospect→Sales link — and `loadFdeState()` resolves the run/approval state from `AgentRun` and `PendingAction` rather than from the previous step's existence. Gaps are then filled in canonical order through the existing services (`createProspect`, `intakeInquiry`, `createFdeAction`, `runInboundSalesFde`); each filled step is written back to the receipt and named in `recoveredSteps`, so a later interruption resumes from there. No duplicate customer, opportunity, interaction or message is ever created, and `not_run` is treated as "still to do", never as recovered.
+
+Terminal states are respected — recovery must not resurrect a decision a human or the system already made:
+
+| State | Recovery behaviour |
+|---|---|
+| Draft executed (reply sent) | `already_sent`, terminal. No re-run, no second send. |
+| Draft rejected by a human | `human_rejected`, terminal. No new draft. |
+| Draft superseded by a newer inbound | `superseded`, terminal. |
+| `AgentRun` cancelled by the supervisor | `cancelled`, terminal. No new run. |
+| Valid pending draft exists | Reused, reported as terminal for this event. No second approval is manufactured. |
+| FDE `running` within 10 minutes | Left alone (no concurrent double run). |
+| `failed` / `run_blocked` / `queued` / `not_run` / `stale_running` (>10 min) | Re-run. |
+
+## R3-3. Delivery vs processing, and who owns recovery (PART 3)
+
+**Finding (confirmed defect).** `delivered` was terminal on the site. A submission whose FDE was interrupted would be marked delivered on the first answer and then never looked at again. The 3-minute pending grace was also shorter than the forward budget, so a recovery pass could fire a second request while the first was still running.
+
+**Change.**
+
+- Two independent axes per record: delivery (`qingyan.status`) and processing (`qingyan.processing` ∈ unknown / incomplete / complete). Processing is complete only when the receiver itself reports `complete: true` **and** `fde.terminal: true`, from its own records. A delivered-but-incomplete record keeps being followed up on its own counter (`followUps`) and backoff. Delivery success no longer stops tracking.
+- The scenario named in the brief now terminates correctly: interrupted first processing → first resync answers `opportunityId` present with `fde.status = running` (processing incomplete, tracking continues) → after 10 minutes the receiver classifies it `stale_running` → the next follow-up re-runs the FDE and reports a terminal state.
+- `inFlightSince` is written before every forward and cleared afterwards, including when the forward throws; a record is not eligible while a forward is in flight, and the pending grace is raised to the in-flight timeout (6 min > 305 s budget). The 3-minute grace can no longer produce a parallel send.
+- Attempt caps are visible, not silent: delivery 6, follow-up 8, then the record becomes `needs_attention` with `attentionReason`, and nothing retries it automatically. `force` is the documented way back in after a human fixes the cause.
+- Receiver `busy` is classified `partial` — a known state, neither a failure nor an unknown result.
+- **One recovery owner: the site.** It holds the durable record and the original payload and drives every retry. The receiver never schedules website recovery for itself; it is idempotent and completes what is missing when asked. One retry loop in the system, not two.
+- Scheduling is now a required deployment step, not an optional note: the cron line is in the site's `docs/QINGYAN_BRIDGE.md`, together with the named human owner (site maintainer, currently Lucas) and the daily check `GET /api/admin/inquiries?status=needs_attention,rejected,disabled`. An API with no schedule and no owner is not a recovery path.
+
+## R3-4. Test evidence (PART 4)
+
+Fault injection is done on the isolated branch only; nothing was broken in production.
+
+- **Site** (deterministic mock receiver): 22 tests — bridge 12, route 7, admin/restart 3. Includes the in-flight guard, delivered-but-incomplete follow-up to completion, both exhaustion caps flipping to `needs_attention`, busy handling, and a genuine **cross-process** restart test where a second `node` process recovers an inquiry saved by the first.
+- **Receiver** (isolated Neon branch `bridge-review-20260908`, migration applied): unit 10/10; DB suite: **151 passed, 1 failed.** All 15 sections' logic passed, including every new assertion. The single failure is a pre-existing section-4 assertion (`重跑 FDE：审批草稿幂等复用`), and the diagnostics dump identified the cause rather than leaving it open: the re-run's `AgentRun` row carries `errorMessage: "Transaction API error: Transaction not found"` — a Prisma interactive transaction (default 5 s) exceeding its limit against the remote branch from this laptop. The draft id actually matched; the assertion failed on `ok`. Nothing in this PR changes transaction handling, and the FDE behaved correctly under the fault (run marked failed, reason persisted). Three separate observations came out of chasing it: LLM calls in the Trade analysis lane are unguarded (above), a cleanup error used to replace the original failure (fixed), and the pooled connection survives long runs better than the direct one (the direct endpoint dropped immediately on wake). New sections cover identity at the earliest boundary (receipt exists before any prospect/message), concurrent claim → busy with no steps executed, replay by id after the 24-hour window, conflicting content not overwriting, page/UTM-only change not a conflict, two event ids with identical content both recorded, derived identity for legacy callers, and every gap and terminal case in R3-2.
+- **Diagnostics before cleanup.** The suite now writes a redacted dump (`revenue-spine-diag-<stamp>.json`) *before* the test database is torn down: failed assertions with their detail, plus opportunities, `SalesAction` states with `fdeStatus`, `AgentRun` status/error codes, `PendingAction` status/failure reasons/deciders, receipts, and interaction previews. Emails are reduced to `***@domain`, message bodies to 200 characters. This was exercised on a real failure during the review and produced the expected file.
+- **The earlier two "no draft" failures.** Not dismissed as unrelated. I tested the specific way this PR could have caused them — the org-wide content replay could have made section 13's fixture collide with an earlier fixture that shares the acceptance text — and ruled it out: the rendered message includes the contact line, so two different buyers never produce identical content. What the review *did* find is the real fragility behind them: the suite runs long, every website ingest triggers a Trade-lane analysis whose LLM call is **not** guarded by `isAIConfigured()` (unlike both Revenue Spine call sites), so without a key each ingest burns a doomed request and leaves the database session idle; a pooled Neon connection was then dropped mid-suite. Two changes came out of it — the harness no longer lets a cleanup error replace the original failure (that masking is why the first occurrence was undiagnosable), and long local runs use the direct connection. The unguarded Trade-lane call is left as a reported P1, not silently changed in a lane this round was told to preserve.
+
+## R3-5. Site deployment preflight (PART 5)
+
+`scripts/preflight-bridge.sh` (checks only, no server contact, no publish) prints the change list with a SHA256 per file, packages the delta, and fails closed on: environment or credential files in the package, real values in `.env.example`, key-shaped literals, `data/` (real inquiries) in the package or tracked by git, `NEXT_PUBLIC_*` secret variables, the webhook secret being read anywhere but the server-side forwarder, and server-only variables appearing in client components. Two findings it raised on first run were investigated and turned out to be defects in the checks themselves, now fixed to test the real invariants.
+
+It also prints the pre-deployment comparison steps (per-file SHA256 against the server, and whether the deployed build already contains the forwarder), the backup step, and the release/rollback procedure. **Rollback restores code only; the inquiry directory is never deleted** — those files are real customer inquiries, and after rolling back they stay on disk to be resynced once the new version is redeployed. `INQUIRY_DATA_DIR` is documented as a separate, writable location outside the deployment tree.
+
+Preflight result on the final site commit: `PREFLIGHT: OK`.
+
+## R3-6. Status
+
+```text
+EVENT_IDENTITY_RECOVERY     = PASS
+PARTIAL_STAGE_RECOVERY      = PASS
+DELIVERY_PROCESSING_RECOVERY= PASS
+SITE_DEPLOYMENT_PREFLIGHT   = NEEDS_SERVER_ACCESS
+PR207_FINAL_HEAD            = 5a40a229679fc1a172c85e20f775acda9bbc793f
+PR207_CI                    = PASS (run 34208833151: validate-lint-typecheck-test-build + both Vercel previews green on 5a40a229)
+
+MENGXIN_FDE_V1 = PRODUCTION_BLOCKED
+```
+
+`SITE_DEPLOYMENT_PREFLIGHT` is `NEEDS_SERVER_ACCESS`, not `PASS`: everything checkable without the server passes and the package is ready, but the server's current version has not been compared, the site is only reachable by password SSH, and no deployment has happened.
+
+The first three passing does not change the overall state. `MENGXIN_FDE_V1` stays `PRODUCTION_BLOCKED` until the site is actually deployed and a real form submission is accepted end to end. Still outstanding and unchanged from round 2: the site delta is not deployed, the receipt migration is not applied, #207 is not merged, and the real-form acceptance (PART 七) and the human approval and Trade Inbox steps (PART 八) have not run.
+
+Open P1 items recorded, not fixed this round: the Trade-lane inquiry analysis and design LLM calls have no `isAIConfigured()` guard; `scripts/seed-revenue-spine-policy.ts` does not call `assertProductionOperationAllowed()`; the FDE's default owner (first active trade member) has no email provider connected; `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP` from round 1.
+
+#207 stays unmerged pending explicit release authorization. #206 stays open until its report content is confirmed preserved here and #207 is merged.
