@@ -190,7 +190,7 @@ Brief: `QINGYAN_MENGXIN_WEBSITE_BRIDGE_RELIABLE_CLOSURE`. The first-round record
 
 ## R2-2. Bridge implemented on the site (PART 二–四)
 
-Site commits (local repo): `41ee233` feat, `beaa479` docs, `dbbe437` deploy docs. Delta archive for the server: `~/Desktop/梦馨家纺网站-bridge-delta-dbbe437.tar.gz` (13 files).
+Site commits (local repo): `41ee233` feat, `beaa479` docs, `dbbe437` deploy docs, `756b1b0` diagnosis checklist, `fa8d2cc` 305 s budget. Delta archive for the server: `~/Desktop/梦馨家纺网站-bridge-delta-fa8d2cc.tar.gz` (13 files).
 
 Order of operations in `/api/inquiry` now: parse → honeypot (silently 200, **not stored, not emailed, not forwarded**) → validate → **persist `data/inquiries/<inq_…>.json` atomically** → Resend (when configured; a failure no longer hides a saved inquiry) → respond `{ success, emailSent, inquiryId }` → **after the response** (`next/server` `after`) forward the saved record to Qingyan.
 
@@ -222,7 +222,7 @@ Only `src/lib/trade/website-inquiry.ts` and the webhook route changed (no schema
 
 Site (mock Qingyan, `tests/inquiry-bridge.test.ts` 8/8, `tests/inquiry-route.test.ts` 7/7, `tsc` + `next lint` clean): normal mapping; record exists before the success response; honeypot (no record / no forward); missing secret → `disabled`, wrong secret (401) → `rejected`; slow-but-inside-budget → delivered; hang → `unconfirmed` (visitor still got success); 500 → `failed` then recovery pass → delivered with byte-identical payload; 200 + `SPINE_FAILED` → `partial` → recovery; duplicate/limit/backoff/attempt-cap rules; store unavailable → 500 and nothing forwarded.
 
-Qingyan (isolated Neon branch `bridge-closure-20260908` = `br-frosty-mountain-anpmgspu`, deleted after the run): unit tests 10/10; DB suite `__ISOLATED_RESULT__`.
+Qingyan (isolated Neon branch `bridge-closure-20260908` = `br-frosty-mountain-anpmgspu`, deleted after the run): unit tests 10/10; DB suite: run 1 → 134/135 (the single failure was §11 Case B's pre-change expectation `REPLAY` + `opportunityId: null`, updated to the new semantics); runs 2 and 3 aborted in §13 and §6 respectively because an FDE call returned no draft — both places are outside this change, no pool-timeout or connection error was logged, and the test's cleanup had removed the run rows before the cause could be read (run 2 also overlapped with local typechecks, which the project notes warn against); diagnostics were added at both checkpoints and run 4, executed alone, passed **135/135** including all 19 new §14 assertions (R1–R7).
 
 Measured Qingyan processing measured with the real LLM path on the isolated branch **from this laptop** (every DB round trip crosses the Pacific, so these are upper bounds; in-region production numbers come from the site record's `lastElapsedMs` during acceptance):
 
@@ -239,8 +239,38 @@ Read-only production pre-check (2026-09-08): org 梦馨家纺; identity `lucas@s
 
 ## R2-6. Production steps
 
-`__PRODUCTION__`
+Done in this round (production, read-only or preparatory):
+
+1. Read-only pre-check of the acceptance identity, website channel, members, email providers, policy (R2-5). No production write of any kind was made.
+2. Site change built, tested and packaged: `~/Desktop/梦馨家纺网站-bridge-delta-fa8d2cc.tar.gz` (13 files) + `docs/QINGYAN_BRIDGE.md` (states, budgets, recovery, deployment steps, server diagnosis checklist).
+3. Qingyan receiver change on PR #207 (Draft; CI pending at the time of writing).
+
+Not done, and why (each needs Lucas):
+
+| Step | Blocker |
+|---|---|
+| Server-side diagnosis of the 2026-09-07 failure (deployed code has forwarder? env has secret? outbound reachability? `[inquiry]` log lines) | The site server is reachable only by password SSH (`.deploy/*.exp`); this session must not enter passwords, and the auto-mode classifier also blocked the SSH attempt. Checklist is in `docs/QINGYAN_BRIDGE.md` → 服务器诊断. |
+| Deploy the site delta + `QINGYAN_WEBHOOK_SECRET` (+ optional `INQUIRY_DATA_DIR`, `INQUIRY_RESYNC_TOKEN`) + `npm run build` + restart | Same server access. Steps in `docs/QINGYAN_BRIDGE.md` → 部署. |
+| Merge PR #207 so the receiver returns real ids on replay and the route cap is 300 s | Production release; not merged without an explicit go-ahead (the old receiver would answer a retry with `REPLAY` + `opportunityId: null`, which the site classifies as `partial`, so the acceptance must run against the new receiver). |
+| PART 七 real website submission (marker `QY-ACC-20260908-d524b362`) | Depends on the two deployments above; I will submit it from the in-app browser and trace submission → record → webhook → TradeMessage → SalesOpportunity/CustomerInteraction → RFQ/Evidence/Assessment → AgentRun → PendingAction with ids and timings. |
+| PART 八 A: approve the draft as Lucas (`/revenue/<opportunityId>` → 回复草稿审批 → 批准并发送) and confirm receipt in the lucas@sunnyshutter.ca mailbox | Human approval; Lucas's Gmail token has `gmail.compose` only, so receipt must be confirmed by the human (or forwarded). |
+| PART 八 B: real Gmail send by a human, then Trade Inbox → 标记已发送 (mark_sent) → verify Trade→Revenue mirror + `SUPERSEDED_BY_MANUAL_REPLY` | Human action. |
 
 ## R2-7. Status
 
-`__STATUS__`
+| Item | Status | Evidence |
+|---|---|---|
+| WEBSITE_PERSISTENCE | BLOCKED (production) — PASS in non-production | record written before the success response; `tests/inquiry-route.test.ts` (store-unavailable → 500, nothing forwarded); not yet deployed to the site server |
+| WEBSITE_TO_QINGYAN_DELIVERY | BLOCKED (production) — PASS in non-production | forwarder + classification + recovery tests (mock Qingyan); real path needs the site deployment and PR #207 |
+| REVENUE_SPINE_INTAKE | NOT_TESTED (production) — PASS isolated | §11/§14 on the isolated branch |
+| FDE_DRAFT | NOT_TESTED (production) — PASS isolated | §4/§11/§14 (grade HIGH on the bathrobe sample in the timing run) |
+| APPROVED_GMAIL_SEND | NOT_TESTED | needs the human approval step |
+| TRADE_TIMELINE_SYNC | NOT_TESTED (production) — PASS isolated | §13 A–L |
+| SYSTEM_SUPERSESSION | NOT_TESTED (production) — PASS isolated | §11 Case C, §13 I–K |
+| RECOVERY_PATH | NOT_TESTED (production) — PASS non-production | site: failed/partial/unconfirmed → resync → delivered with identical payload; receiver: §14 R2–R5, R7 |
+
+```text
+MENGXIN_FDE_V1 = PRODUCTION_BLOCKED
+BLOCKER = website bridge built and validated but not yet on the site server (password-SSH only) and receiver PR #207 not yet merged; PART 七/八 not run
+```
+Not claimed: no permanent no-double-send guarantee under all concurrency (a retry arriving while the first request is still inside intake can still race; retries in this design are minutes apart); no automatic quoting, no automatic closing, no full inbound email loop.
