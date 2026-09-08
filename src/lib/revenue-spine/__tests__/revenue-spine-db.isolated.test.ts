@@ -23,14 +23,69 @@ assertSafeTestDatabase({ scriptName: "Revenue Spine DB e2e" });
 
 let pass = 0;
 let fail = 0;
+/** 失败明细留给诊断转储（清库前保存），不只打印在滚动日志里 */
+const failures: Array<{ name: string; detail: string }> = [];
 function ok(cond: boolean, name: string, detail?: unknown) {
   if (cond) {
     pass++;
     console.log(`  ✓ ${name}`);
   } else {
     fail++;
-    console.error(`  ✗ ${name}`, detail !== undefined ? JSON.stringify(detail).slice(0, 600) : "");
+    const rendered = detail !== undefined ? JSON.stringify(detail).slice(0, 2000) : "";
+    failures.push({ name, detail: rendered });
+    console.error(`  ✗ ${name}`, rendered.slice(0, 600));
   }
+}
+
+/**
+ * 诊断转储：在测试库被清理之前，把失败判定与相关运行态写成文件。
+ * 邮箱只保留域名，正文只留前 200 字符。默认仅在有失败时写；QY_DIAG_ALWAYS=1 时每次都写。
+ */
+async function captureDiagnostics(orgId: string, stamp: string, failures: Array<{ name: string; detail: string }>) {
+  if (failures.length === 0 && process.env.QY_DIAG_ALWAYS !== "1") return;
+  const { writeFile } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { db } = await import("@/lib/db");
+  const mask = (email?: string | null) => (email ? `***@${email.split("@")[1] ?? "?"}` : null);
+  const opportunities = await db.salesOpportunity.findMany({
+    where: { orgId },
+    select: { id: true, stage: true, score: true, scoreGrade: true, assignedToId: true, customer: { select: { id: true, email: true, name: true } } },
+  });
+  const actions = await db.salesAction.findMany({
+    where: { orgId },
+    select: { id: true, opportunityId: true, status: true, signalKey: true, agentRunId: true, pendingActionId: true, inputContext: true, updatedAt: true },
+  });
+  const runs = await db.agentRun.findMany({
+    where: { orgId, runType: "fde_inbound_sales" },
+    select: { id: true, status: true, errorCode: true, errorMessage: true, metadata: true, createdAt: true },
+  });
+  const drafts = await db.pendingAction.findMany({
+    where: { orgId },
+    select: { id: true, type: true, status: true, failureReason: true, decidedById: true, expiresAt: true, createdAt: true, idempotencyKey: true },
+  });
+  const receipts = await db.websiteInquiryReceipt.findMany({
+    where: { orgId },
+    select: { id: true, eventId: true, eventIdProvided: true, status: true, attempts: true, conflictCount: true, duplicateOfReceiptId: true, prospectId: true, tradeMessageId: true, customerId: true, opportunityId: true, interactionId: true, salesActionId: true, agentRunId: true, pendingActionId: true },
+  });
+  const interactions = await db.customerInteraction.findMany({
+    where: { orgId },
+    select: { id: true, opportunityId: true, direction: true, channel: true, content: true, createdAt: true },
+  });
+  const dir = process.env.QY_DIAG_DIR || "/tmp";
+  const file = path.join(dir, `revenue-spine-diag-${stamp}.json`);
+  const payload = {
+    capturedAt: new Date().toISOString(),
+    orgId,
+    failures,
+    opportunities: opportunities.map((o) => ({ ...o, customer: { id: o.customer.id, name: o.customer.name, email: mask(o.customer.email) } })),
+    salesActions: actions.map((a) => ({ ...a, fdeStatus: ((a.inputContext ?? {}) as Record<string, unknown>).fdeStatus ?? null, inputContext: undefined })),
+    agentRuns: runs,
+    pendingActions: drafts,
+    receipts,
+    interactions: interactions.map((i) => ({ ...i, content: (i.content ?? "").slice(0, 200) })),
+  };
+  await writeFile(file, JSON.stringify(payload, null, 2), "utf8");
+  console.log(`\n[diag] 诊断已保存（清库前）：${file}（失败 ${failures.length} 项）`);
 }
 
 const ACCEPTANCE =
@@ -551,101 +606,344 @@ async function main() {
     const auditForged = await db.auditLog.count({ where: { orgId: ORG, action: "APPROVAL_SYSTEM_SUPERSEDED", userId: OTHER } });
     ok(auditForged === 0, "K：不存在以伪造主体记账的审计行", auditForged);
 
-    console.log("\n[14] 网站桥接可靠性：eventId / 重放补齐 / 部分失败恢复 / FDE 重跑 / 电话-only / webhook 响应");
+    console.log("\n[14] 事件身份（收据）：最早边界持久化 / 按 id 重放 / 窗口外恢复 / 冲突不覆盖");
+    const { claimInquiryReceipt, computePayloadHash, findReceiptByEventId } = await import("@/lib/trade/website-inquiry-receipts");
     const evt = (n: string) => `inq_${stamp}_${n}`;
-    const R1 = { eventId: evt("r1"), name: "Rita Bridge", email: "rita@bridge-hotels.ca", company: "Bridge Hotels", country: "Canada", message: "We need 1,200 waffle bathrobes for a hotel refurbishment in Calgary. Please advise MOQ and lead time.", page: "https://www.mengxinhometextile.com/contact?utm_source=site", utm_source: "site" };
+    const R1 = {
+      eventId: evt("r1"),
+      name: "Rita Bridge",
+      email: "rita@bridge-hotels.ca",
+      company: "Bridge Hotels",
+      country: "Canada",
+      message: "We need 1,200 waffle bathrobes for a hotel refurbishment in Calgary. Please advise MOQ and lead time.",
+      page: "https://www.mengxinhometextile.com/contact?utm_source=site",
+      utm_source: "site",
+    };
     const formR1 = normalizeInquiry(R1);
     if (!formR1.ok || formR1.value.honeypotTripped) throw new Error("fixture R1 failed");
+
+    // 事件身份必须在任何业务对象之前落库：单独认领一次，确认此刻还没有任何业务对象
+    const probeForm = normalizeInquiry({ ...R1, eventId: evt("probe"), email: "probe@bridge-hotels.ca" });
+    if (!probeForm.ok) throw new Error("fixture probe failed");
+    const probeClaim = await claimInquiryReceipt(ORG, probeForm.value);
+    const probeProspects = await db.tradeProspect.count({ where: { orgId: ORG, contactEmail: "probe@bridge-hotels.ca" } });
+    ok(
+      probeClaim.created &&
+        probeClaim.receipt.status === "processing" &&
+        probeClaim.receipt.tradeMessageId === null &&
+        probeClaim.receipt.payloadHash === computePayloadHash(probeForm.value) &&
+        probeProspects === 0,
+      "事件身份在最早边界落库：收据先于 Trade 线索/消息存在",
+      { status: probeClaim.receipt.status, msg: probeClaim.receipt.tradeMessageId, probeProspects },
+    );
+    // 同一事件并发到达：后到者不并行执行（单执行者控制）
+    const busyClaim = await claimInquiryReceipt(ORG, probeForm.value);
+    ok(busyClaim.busy && !busyClaim.created && busyClaim.receipt.id === probeClaim.receipt.id, "同一事件正在处理中 → 后到者 busy，不并行", { busy: busyClaim.busy });
+    const busyIngest = await ingestWebsiteInquiry(ORG, probeForm.value);
+    ok(
+      busyIngest.busy && busyIngest.recoveredSteps.length === 0 && (await db.tradeProspect.count({ where: { orgId: ORG, contactEmail: "probe@bridge-hotels.ca" } })) === 0,
+      "busy 时不执行任何步骤（不重复建对象）",
+      { busy: busyIngest.busy, steps: busyIngest.recoveredSteps },
+    );
+    await db.websiteInquiryReceipt.update({ where: { id: probeClaim.receipt.id }, data: { status: "received", processingSince: null } });
+
     const r1 = await ingestWebsiteInquiry(ORG, formR1.value);
     const r1Spine = r1.spine.ok ? r1.spine : null;
-    ok(!r1.replay && !r1.recovered && !!r1Spine && !r1Spine.replay && !!r1.fde?.ok && r1.fdeState?.status === "completed" && r1.fdeState.pendingActionId === r1.fde.pendingActionId && r1.fdeState.agentRunId === r1.fde.agentRunId, "R1：带 eventId 的全新询盘 → 主干 + FDE；fdeState 取自 SalesAction 且与运行结果一致", { replay: r1.replay, fde: r1.fde?.ok, state: r1.fdeState });
+    ok(
+      !r1.replay && !r1.recovered && !!r1Spine && !!r1.fde?.ok && r1.fdeState?.status === "completed" && r1.fdeState.terminal && r1.complete,
+      "R1：全新事件 → 主干 + FDE；fdeState 取自真实记录且为终态，complete=true",
+      { replay: r1.replay, fde: r1.fde?.ok, state: r1.fdeState, complete: r1.complete },
+    );
+    const receiptR1 = await findReceiptByEventId(ORG, R1.eventId);
+    ok(
+      receiptR1?.status === "complete" &&
+        receiptR1.tradeMessageId === r1.messageId &&
+        receiptR1.opportunityId === r1Spine?.opportunityId &&
+        receiptR1.interactionId === r1Spine?.interactionId &&
+        !!receiptR1.salesActionId &&
+        receiptR1.pendingActionId === r1.fde?.pendingActionId,
+      "R1：收据回填全部下游对象 id（消息/商机/互动/行动/草稿）",
+      receiptR1,
+    );
     type SourceRef = { sourceRef?: { externalId?: string; tradeMessageId?: string } } | null;
     const interR1 = r1Spine ? await db.customerInteraction.findUnique({ where: { id: r1Spine.interactionId }, select: { analysisResult: true } }) : null;
     const refR1 = (interR1?.analysisResult as SourceRef)?.sourceRef;
-    ok(refR1?.externalId === R1.eventId && refR1?.tradeMessageId === r1.messageId, "R1：eventId 存入互动 sourceRef.externalId 并关联 Trade 消息 id（接收端解析 + 存储）", refR1);
+    ok(refR1?.externalId === R1.eventId && refR1?.tradeMessageId === r1.messageId, "R1：eventId 同时写入互动 sourceRef.externalId", refR1);
     const cR1 = await wCounts(R1.email);
     ok(cR1.prospects === 1 && cR1.tradeMessages === 1 && cR1.customers === 1 && cR1.opportunities === 1 && cR1.interactions === 1 && cR1.runs === 1 && cR1.pending === 1, "R1 计数：1/1/1/1/1/1/1", cR1);
 
+    // ① 同 eventId 重复请求 → 重放，不新建任何对象，不重跑 FDE
     const r2 = await ingestWebsiteInquiry(ORG, formR1.value);
-    ok(r2.replay && !r2.recovered && r2.prospectId === r1.prospectId && r2.messageId === r1.messageId && r2.spine.ok && r2.spine.replay && r2.spine.opportunityId === r1Spine?.opportunityId && r2.spine.interactionId === r1Spine?.interactionId && r2.fde === null && r2.fdeState?.status === "completed" && r2.fdeState.pendingActionId === r1.fde?.pendingActionId, "R2：原样重放 → 返回既有 prospect/message/opportunity/interaction 与 FDE 状态，不新建、不重跑", { replay: r2.replay, spine: r2.spine, state: r2.fdeState });
-    ok(JSON.stringify(await wCounts(R1.email)) === JSON.stringify(cR1), "R2 计数不变");
+    ok(
+      r2.replay && !r2.recovered && r2.messageId === r1.messageId && r2.spine.ok && r2.spine.replay && r2.spine.opportunityId === r1Spine?.opportunityId && r2.fde === null && r2.fdeState?.terminal === true,
+      "①：同 eventId 重复请求 → 重放，返回既有对象与终态 FDE，不重跑",
+      { replay: r2.replay, spine: r2.spine, state: r2.fdeState },
+    );
+    ok(JSON.stringify(await wCounts(R1.email)) === JSON.stringify(cR1), "① 计数不变");
 
-    const formR3 = normalizeInquiry({ ...R1, page: "https://www.mengxinhometextile.com/contact?utm_source=retry", utm_source: "retry" });
-    if (!formR3.ok || formR3.value.honeypotTripped) throw new Error("fixture R3 failed");
-    const r3 = await ingestWebsiteInquiry(ORG, formR3.value);
-    ok(r3.replay && r3.messageId === r1.messageId && r3.spine.ok && r3.spine.opportunityId === r1Spine?.opportunityId && r3.fde === null, "R3：同 eventId、不同来源页（正文不同）→ 仍按事件 ID 重放（接收端使用 eventId）", { replay: r3.replay, messageId: r3.messageId });
-    ok(JSON.stringify(await wCounts(R1.email)) === JSON.stringify(cR1), "R3 计数不变（未新建消息/互动）");
+    // ② 超出旧正文去重窗口（>24h）后按事件 id 恢复：仍是同一事件，不新建询盘
+    const later = new Date(Date.now() + 25 * 60 * 60 * 1000);
+    const r3 = await ingestWebsiteInquiry(ORG, formR1.value, { now: later });
+    ok(
+      r3.replay && r3.messageId === r1.messageId && r3.spine.ok && r3.spine.opportunityId === r1Spine?.opportunityId,
+      "②：超过 24h 正文窗口后同 eventId 重发 → 仍关联原事件（不再依赖正文匹配）",
+      { replay: r3.replay, messageId: r3.messageId },
+    );
+    ok(JSON.stringify(await wCounts(R1.email)) === JSON.stringify(cR1), "② 计数不变（窗口外未复制询盘）");
 
-    // R4：Trade 已落库、主干缺失（模拟上一次 SPINE_FAILED / 处理中途被杀）
-    const R4 = { eventId: evt("r4"), name: "Paul Partial", email: "paul@partial-inn.ca", company: "Partial Inn", country: "Canada", message: "Quote for 600 hotel slippers and 300 coral fleece blankets, ship to Montreal." };
-    const formR4 = normalizeInquiry(R4);
-    if (!formR4.ok || formR4.value.honeypotTripped) throw new Error("fixture R4 failed");
-    const campaign4 = await db.tradeCampaign.findFirst({ where: { orgId: ORG, name: "网站询盘" }, select: { id: true } });
-    if (!campaign4) throw new Error("fixture R4: campaign missing");
-    const p4 = await db.tradeProspect.create({ data: { campaignId: campaign4.id, orgId: ORG, companyName: "Partial Inn", contactName: "Paul Partial", contactEmail: R4.email, country: "Canada", source: "website", stage: "replied" }, select: { id: true } });
-    const m4 = await db.tradeMessage.create({ data: { prospectId: p4.id, direction: "inbound", channel: "website", subject: "网站询盘", content: buildInquiryMessage(formR4.value) }, select: { id: true } });
-    const r4 = await ingestWebsiteInquiry(ORG, formR4.value);
-    ok(r4.replay && r4.recovered && r4.prospectId === p4.id && r4.messageId === m4.id && r4.spine.ok && !r4.spine.replay && r4.spine.opportunityCreated && !!r4.fde?.ok && r4.fdeState?.status === "completed", "R4：Trade 已存但主干缺失 → 重放补建主干 + FDE，关联原消息、不改正文", { replay: r4.replay, recovered: r4.recovered, spine: r4.spine.ok, fde: r4.fde?.ok });
-    const p4after = await db.tradeProspect.findUnique({ where: { id: p4.id }, select: { convertedToSalesOpportunityId: true, convertedAt: true } });
-    const cR4 = await wCounts(R4.email);
-    ok(p4after?.convertedToSalesOpportunityId === (r4.spine.ok ? r4.spine.opportunityId : "") && !!p4after?.convertedAt && cR4.prospects === 1 && cR4.tradeMessages === 1 && cR4.customers === 1 && cR4.opportunities === 1 && cR4.interactions === 1 && cR4.runs === 1 && cR4.pending === 1, "R4 计数：线索 1 / 消息 1 / 客户 1 / 商机 1 / 互动 1 / 运行 1 / 草稿 1，线索已链接商机", { p4after, cR4 });
-    const inter4 = await db.customerInteraction.findUnique({ where: { id: r4.spine.ok ? r4.spine.interactionId : "" }, select: { analysisResult: true } });
-    const ref4 = (inter4?.analysisResult as SourceRef)?.sourceRef;
-    ok(ref4?.tradeMessageId === m4.id && ref4?.externalId === R4.eventId, "R4：补建的互动仍指向原始 Trade 消息与 eventId", ref4);
-    const r4b = await ingestWebsiteInquiry(ORG, formR4.value);
-    ok(r4b.replay && !r4b.recovered && r4b.spine.ok && r4b.spine.replay && r4b.fde === null && JSON.stringify(await wCounts(R4.email)) === JSON.stringify(cR4), "R4：补齐后再重放 → 纯重放，不再恢复", { recovered: r4b.recovered });
+    // ③ 同 eventId、冲突业务内容 → 只记冲突，不覆盖原始事实
+    const conflictForm = normalizeInquiry({ ...R1, message: "Actually make it 5,000 pieces and add slippers.", company: "Bridge Hotels Group" });
+    if (!conflictForm.ok) throw new Error("fixture conflict failed");
+    const r4 = await ingestWebsiteInquiry(ORG, conflictForm.value);
+    const msgR1 = await db.tradeMessage.findUnique({ where: { id: r1.messageId }, select: { content: true } });
+    const receiptAfterConflict = await findReceiptByEventId(ORG, R1.eventId);
+    ok(
+      r4.conflict && r4.replay && r4.messageId === r1.messageId && (msgR1?.content ?? "").includes("1,200 waffle bathrobes") && !(msgR1?.content ?? "").includes("5,000 pieces"),
+      "③：同 eventId 冲突内容 → 标记 conflict，原始事实未被覆盖",
+      { conflict: r4.conflict, content: msgR1?.content?.slice(0, 60) },
+    );
+    ok(
+      receiptAfterConflict?.conflictCount === 1 && !!receiptAfterConflict.lastConflictAt && receiptAfterConflict.payloadHash === computePayloadHash(formR1.value),
+      "③：收据记录冲突次数，载荷仍是首次事实",
+      { conflictCount: receiptAfterConflict?.conflictCount },
+    );
+    // 来源页/UTM 变化不算冲突（非业务字段）
+    const pageOnly = normalizeInquiry({ ...R1, page: "https://www.mengxinhometextile.com/products/bathrobes?utm_source=ads", utm_source: "ads" });
+    if (!pageOnly.ok) throw new Error("fixture pageOnly failed");
+    const r5 = await ingestWebsiteInquiry(ORG, pageOnly.value);
+    const receiptAfterPage = await findReceiptByEventId(ORG, R1.eventId);
+    ok(!r5.conflict && receiptAfterPage?.conflictCount === 1, "③：仅来源页/UTM 变化不算业务冲突", { conflict: r5.conflict, conflictCount: receiptAfterPage?.conflictCount });
 
-    // R5：FDE 曾失败 → 重放重跑；running 未超时 → 不重跑；running 超时（stale）→ 重跑
-    const actionR1 = r1Spine ? await db.salesAction.findFirst({ where: { orgId: ORG, signalKey: `inbound:${r1Spine.interactionId}` }, select: { id: true, inputContext: true } }) : null;
-    if (!actionR1) throw new Error("fixture R5: SalesAction missing");
-    const patchFde = async (fdeStatus: string) => {
-      const cur = await db.salesAction.findUniqueOrThrow({ where: { id: actionR1.id }, select: { inputContext: true } });
-      await db.salesAction.update({ where: { id: actionR1.id }, data: { inputContext: { ...((cur.inputContext as Record<string, unknown> | null) ?? {}), fdeStatus } } });
+    // ④ 两个不同 eventId、相同内容 → 各自有记录，不被正文去重静默吞掉
+    const twinForm = normalizeInquiry({ ...R1, eventId: evt("r1twin") });
+    if (!twinForm.ok) throw new Error("fixture twin failed");
+    const r6 = await ingestWebsiteInquiry(ORG, twinForm.value);
+    const twinReceipt = await findReceiptByEventId(ORG, evt("r1twin"));
+    ok(
+      !!twinReceipt && twinReceipt.duplicateOfReceiptId === receiptR1?.id && r6.contentDuplicateOf === receiptR1?.id && r6.messageId === r1.messageId,
+      "④：不同 eventId 相同内容 → 独立收据并指向原事件（有记录，不静默吞掉），业务对象复用",
+      { twin: twinReceipt?.eventId, dup: r6.contentDuplicateOf },
+    );
+    ok(JSON.stringify(await wCounts(R1.email)) === JSON.stringify(cR1), "④ 计数不变（未重复建询盘）");
+
+    // ⑤ 旧接口（无 eventId）：服务端派生身份，保留 24h 正文窗口语义
+    const legacyRaw = { name: "Legacy Buyer", email: "legacy@old-form.ca", company: "Old Form Ltd", country: "Canada", message: "Do you make 300 GSM cotton towels? Need 500 pcs." };
+    const legacy1 = normalizeInquiry(legacyRaw);
+    const legacy2 = normalizeInquiry(legacyRaw);
+    if (!legacy1.ok || !legacy2.ok) throw new Error("fixture legacy failed");
+    const l1 = await ingestWebsiteInquiry(ORG, legacy1.value, { runFde: false });
+    const l2 = await ingestWebsiteInquiry(ORG, legacy2.value, { runFde: false });
+    // 只数这条 legacy 内容对应的收据（同套件里其它无 eventId 的夹具也会派生身份）
+    const legacyReceipts = await db.websiteInquiryReceipt.count({
+      where: { orgId: ORG, eventIdProvided: false, payloadHash: computePayloadHash(legacy1.value) },
+    });
+    ok(
+      !l1.replay && l2.replay && l2.messageId === l1.messageId && legacyReceipts === 1 && l1.eventId.startsWith("sha256:"),
+      "⑤：无 eventId → 派生身份，窗口内同内容仍是同一事件",
+      { l1: l1.eventId.slice(0, 20), replay: l2.replay, legacyReceipts },
+    );
+    const l3 = await ingestWebsiteInquiry(ORG, legacy2.value, { runFde: false, now: new Date(Date.now() + 25 * 60 * 60 * 1000) });
+    ok(!l3.replay && l3.messageId !== l1.messageId, "⑤：派生身份在窗口外是新事件（保持旧语义）", { replay: l3.replay });
+
+    console.log("\n[15] 中间步骤补齐：逐项核对七个对象 + 不复活已终结动作");
+    // A. 互动已建、SalesAction 缺失
+    const A = { eventId: evt("a"), name: "Alan Gap", email: "alan@gap-suites.ca", company: "Gap Suites", country: "Canada", message: "Quote for 900 waffle bathrobes, 400gsm, embroidered logo, ship to Halifax." };
+    const formA2 = normalizeInquiry(A);
+    if (!formA2.ok) throw new Error("fixture A failed");
+    const a1 = await ingestWebsiteInquiry(ORG, formA2.value);
+    const aOpp = a1.spine.ok ? a1.spine.opportunityId : "";
+    const aInteraction = a1.spine.ok ? a1.spine.interactionId : "";
+    const aCounts = await wCounts(A.email);
+    // 删除 SalesAction（模拟建互动后中断）；同时清掉草稿，使 FDE 状态回到未完成
+    await db.pendingAction.deleteMany({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["opportunityId"], equals: aOpp } } });
+    await db.salesAction.deleteMany({ where: { orgId: ORG, signalKey: `inbound:${aInteraction}` } });
+    const aRecover = await ingestWebsiteInquiry(ORG, formA2.value);
+    const aCountsAfter = await wCounts(A.email);
+    const aAction = await db.salesAction.findFirst({ where: { orgId: ORG, signalKey: `inbound:${aInteraction}` }, select: { id: true, opportunityId: true, customerId: true } });
+    ok(
+      aRecover.recovered && aRecover.recoveredSteps.includes("sales_action") && !!aAction && aAction.opportunityId === aOpp,
+      "A：互动已建、SalesAction 缺失 → 用 canonical helper 补建同一 signalKey 的行动",
+      { steps: aRecover.recoveredSteps, action: aAction?.id },
+    );
+    ok(
+      aCountsAfter.customers === aCounts.customers && aCountsAfter.opportunities === aCounts.opportunities && aCountsAfter.interactions === aCounts.interactions && aCountsAfter.tradeMessages === aCounts.tradeMessages,
+      "A：不新建重复客户/商机/互动/消息",
+      { before: aCounts, after: aCountsAfter },
+    );
+    ok(aRecover.recoveredSteps.includes("fde") && aCountsAfter.pending === 1, "A：补建行动后 FDE 重跑并产生一份未决草稿", { steps: aRecover.recoveredSteps, pending: aCountsAfter.pending });
+
+    // B. SalesAction 已存在、Trade 线索关联回填缺失
+    const B = { eventId: evt("b"), name: "Bella Link", email: "bella@link-resorts.ca", company: "Link Resorts", country: "Canada", message: "Need 700 coral fleece blankets 150x200 for a resort in Banff." };
+    const formB = normalizeInquiry(B);
+    if (!formB.ok) throw new Error("fixture B failed");
+    const b1 = await ingestWebsiteInquiry(ORG, formB.value);
+    const bOpp = b1.spine.ok ? b1.spine.opportunityId : "";
+    await db.tradeProspect.update({ where: { id: b1.prospectId }, data: { convertedToSalesCustomerId: null, convertedToSalesOpportunityId: null, convertedAt: null } });
+    const bRecover = await ingestWebsiteInquiry(ORG, formB.value);
+    const bProspect = await db.tradeProspect.findUnique({ where: { id: b1.prospectId }, select: { convertedToSalesOpportunityId: true, convertedToSalesCustomerId: true } });
+    ok(
+      bRecover.recovered && bRecover.recoveredSteps.includes("prospect_link") && bProspect?.convertedToSalesOpportunityId === bOpp && !!bProspect?.convertedToSalesCustomerId,
+      "B：SalesAction 已存在、Trade↔Sales 关联缺失 → 只补关联",
+      { steps: bRecover.recoveredSteps, prospect: bProspect },
+    );
+    ok(!bRecover.recoveredSteps.includes("spine") && !bRecover.recoveredSteps.includes("fde"), "B：不重复 intake、不重跑已完成的 FDE", bRecover.recoveredSteps);
+
+    // C. Trade 消息已存、主干整体缺失（上一次 SPINE_FAILED / 中途被杀）
+    const C = { eventId: evt("c"), name: "Cara Partial", email: "cara@partial-inn.ca", company: "Partial Inn", country: "Canada", message: "Quote for 600 hotel slippers and 300 coral fleece blankets, ship to Montreal." };
+    const formC2 = normalizeInquiry(C);
+    if (!formC2.ok) throw new Error("fixture C failed");
+    const cClaim = await claimInquiryReceipt(ORG, formC2.value);
+    const campaignC = await db.tradeCampaign.findFirst({ where: { orgId: ORG, name: "网站询盘" }, select: { id: true } });
+    if (!campaignC) throw new Error("fixture C: campaign missing");
+    const pC = await db.tradeProspect.create({ data: { campaignId: campaignC.id, orgId: ORG, companyName: "Partial Inn", contactName: "Cara Partial", contactEmail: C.email, country: "Canada", source: "website", stage: "replied" }, select: { id: true } });
+    const mC = await db.tradeMessage.create({ data: { prospectId: pC.id, direction: "inbound", channel: "website", subject: "网站询盘", content: buildInquiryMessage(formC2.value) }, select: { id: true } });
+    await db.websiteInquiryReceipt.update({ where: { id: cClaim.receipt.id }, data: { prospectId: pC.id, tradeMessageId: mC.id, status: "linked", processingSince: null } });
+    const cRecover = await ingestWebsiteInquiry(ORG, formC2.value);
+    const cCounts = await wCounts(C.email);
+    ok(
+      cRecover.recovered && cRecover.recoveredSteps.includes("spine") && cRecover.messageId === mC.id && cRecover.prospectId === pC.id && cCounts.tradeMessages === 1 && cCounts.customers === 1 && cCounts.opportunities === 1 && cCounts.interactions === 1,
+      "C：Trade 已存、主干缺失 → 用原消息补建主干，不复制消息/客户/商机",
+      { steps: cRecover.recoveredSteps, counts: cCounts },
+    );
+    const interC = await db.customerInteraction.findUnique({ where: { id: cRecover.spine.ok ? cRecover.spine.interactionId : "" }, select: { analysisResult: true, content: true } });
+    const refC = (interC?.analysisResult as SourceRef)?.sourceRef;
+    ok(refC?.tradeMessageId === mC.id && refC?.externalId === C.eventId, "C：补建的互动指向原始消息与事件 id", refC);
+
+    // D. 已人工拒绝的草稿：恢复不得复活
+    const D = { eventId: evt("d"), name: "Dan Rejected", email: "dan@rejected-hotels.ca", company: "Rejected Hotels", country: "Canada", message: "Need 400 bath towels 70x140 for a lodge in Whistler." };
+    const formD2 = normalizeInquiry(D);
+    if (!formD2.ok) throw new Error("fixture D failed");
+    const d1 = await ingestWebsiteInquiry(ORG, formD2.value);
+    const dDraft = d1.fde?.pendingActionId;
+    if (!dDraft) throw new Error("fixture D: no draft");
+    const rejectD = await rejectApprovalItem("pending_action", dDraft, { userId: TRADE, role: "trade", orgId: ORG });
+    const dState = await ingestWebsiteInquiry(ORG, formD2.value);
+    const dDraftRow = await db.pendingAction.findUnique({ where: { id: dDraft }, select: { status: true, decidedById: true } });
+    const dPendingCount = await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: d1.spine.ok ? d1.spine.opportunityId : "" } } });
+    ok(
+      rejectD.ok && dDraftRow?.status === "rejected" && dDraftRow.decidedById === TRADE && dState.fdeState?.status === "human_rejected" && dState.fdeState.terminal && dState.fde === null && dPendingCount === 0,
+      "D：人工拒绝后重发 → 不复活、不重造草稿（human_rejected 终态）",
+      { state: dState.fdeState, pending: dPendingCount },
+    );
+
+    // E. 已批准发送：恢复不得重发
+    const E = { eventId: evt("e"), name: "Ed Sent", email: "ed@sent-suites.ca", company: "Sent Suites", country: "Canada", message: "Need 350 waffle bathrobes for a boutique hotel in Victoria." };
+    const formE2 = normalizeInquiry(E);
+    if (!formE2.ok) throw new Error("fixture E failed");
+    const e1 = await ingestWebsiteInquiry(ORG, formE2.value);
+    const eDraft = e1.fde?.pendingActionId;
+    if (!eDraft) throw new Error("fixture E: no draft");
+    const sentBeforeE = sent.length;
+    const approveE = await approveApprovalItem("pending_action", eDraft, { userId: TRADE, role: "trade", orgId: ORG });
+    const eState = await ingestWebsiteInquiry(ORG, formE2.value);
+    ok(
+      approveE.ok === true && sent.length === sentBeforeE + 1 && eState.fdeState?.status === "already_sent" && eState.fdeState.terminal && eState.fde === null && sent.length === sentBeforeE + 1,
+      "E：已批准发送后重发 → already_sent 终态，不重跑、不二次发送",
+      { state: eState.fdeState, sent: sent.length - sentBeforeE },
+    );
+
+    // F. run 被 supervisor 取消且草稿已过期：恢复不得重跑
+    const F = { eventId: evt("f"), name: "Fay Cancelled", email: "fay@cancelled-inn.ca", company: "Cancelled Inn", country: "Canada", message: "Need 250 slippers and 250 towels for a small inn in Tofino." };
+    const formF = normalizeInquiry(F);
+    if (!formF.ok) throw new Error("fixture F failed");
+    const f1 = await ingestWebsiteInquiry(ORG, formF.value);
+    const fRun = f1.fde?.agentRunId;
+    const fDraft = f1.fde?.pendingActionId;
+    if (!fRun || !fDraft) throw new Error("fixture F: no run/draft");
+    await db.agentRun.update({ where: { id: fRun }, data: { status: "cancelled" } });
+    await db.pendingAction.update({ where: { id: fDraft }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+    const fRunsBefore = await db.agentRun.count({ where: { orgId: ORG, runType: "fde_inbound_sales", metadata: { path: ["opportunityId"], equals: f1.spine.ok ? f1.spine.opportunityId : "" } } });
+    const fState = await ingestWebsiteInquiry(ORG, formF.value);
+    const fRunsAfter = await db.agentRun.count({ where: { orgId: ORG, runType: "fde_inbound_sales", metadata: { path: ["opportunityId"], equals: f1.spine.ok ? f1.spine.opportunityId : "" } } });
+    ok(
+      fState.fdeState?.status === "cancelled" && fState.fdeState.terminal && fState.fde === null && fRunsAfter === fRunsBefore,
+      "F：run 已取消 → 恢复不复活（不新增 run）",
+      { state: fState.fdeState, before: fRunsBefore, after: fRunsAfter },
+    );
+
+    // G. 未决草稿仍有效：恢复复用，不重复制造审批
+    const G = { eventId: evt("g"), name: "Gina Pending", email: "gina@pending-lodge.ca", company: "Pending Lodge", country: "Canada", message: "Need 800 hotel bathrobes with logo, ship to Ottawa in December." };
+    const formG = normalizeInquiry(G);
+    if (!formG.ok) throw new Error("fixture G failed");
+    const g1 = await ingestWebsiteInquiry(ORG, formG.value);
+    const gOpp = g1.spine.ok ? g1.spine.opportunityId : "";
+    const gInteraction = g1.spine.ok ? g1.spine.interactionId : "";
+    // FDE 状态被写成 failed（模拟上一次记账失败），但草稿仍未决 → 不应再造第二份审批
+    const gAction = await db.salesAction.findFirst({ where: { orgId: ORG, signalKey: `inbound:${gInteraction}` }, select: { id: true, inputContext: true } });
+    if (!gAction) throw new Error("fixture G: no action");
+    await db.salesAction.update({ where: { id: gAction.id }, data: { inputContext: { ...((gAction.inputContext as Record<string, unknown> | null) ?? {}), fdeStatus: "failed" } } });
+    const gState = await ingestWebsiteInquiry(ORG, formG.value);
+    const gPending = await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: gOpp } } });
+    ok(
+      gState.fde === null && gState.fdeState?.status === "completed" && gState.fdeState.terminal && gPending === 1 && gState.fdeState.pendingActionId === g1.fde?.pendingActionId,
+      "G：仍有有效未决草稿 → 复用，不重跑、不重复制造审批",
+      { state: gState.fdeState, pending: gPending },
+    );
+
+    // H. FDE 曾失败且无草稿 → 重跑；running 未超时 → 不重跑；running 超时 → 重跑
+    const H = { eventId: evt("h"), name: "Hana Retry", email: "hana@retry-hotels.ca", company: "Retry Hotels", country: "Canada", message: "Need 500 bath towels and 200 bathrobes for a hotel in Regina." };
+    const formH = normalizeInquiry(H);
+    if (!formH.ok) throw new Error("fixture H failed");
+    const h1 = await ingestWebsiteInquiry(ORG, formH.value);
+    const hOpp = h1.spine.ok ? h1.spine.opportunityId : "";
+    const hInteraction = h1.spine.ok ? h1.spine.interactionId : "";
+    const hAction = await db.salesAction.findFirst({ where: { orgId: ORG, signalKey: `inbound:${hInteraction}` }, select: { id: true, inputContext: true } });
+    if (!hAction) throw new Error("fixture H: no action");
+    const setFde = async (fdeStatus: string) => {
+      const cur = await db.salesAction.findUniqueOrThrow({ where: { id: hAction.id }, select: { inputContext: true } });
+      await db.salesAction.update({ where: { id: hAction.id }, data: { inputContext: { ...((cur.inputContext as Record<string, unknown> | null) ?? {}), fdeStatus } } });
     };
-    await patchFde("failed");
-    const r5 = await ingestWebsiteInquiry(ORG, formR1.value);
-    const cR5 = await wCounts(R1.email);
-    ok(r5.replay && r5.recovered && !!r5.fde?.ok && r5.fdeState?.status === "completed" && cR5.runs === cR1.runs + 1 && cR5.tradeMessages === 1 && cR5.interactions === 1 && cR5.pending === 1 && cR5.superseded === 0, "R5：FDE 曾失败 → 重放重跑 FDE（运行 +1），消息/互动不重复，未决草稿复用为 1", { recovered: r5.recovered, fde: r5.fde?.ok, cR5 });
-    await patchFde("running");
-    const r5b = await ingestWebsiteInquiry(ORG, formR1.value);
-    ok(r5b.replay && !r5b.recovered && r5b.fde === null && r5b.fdeState?.status === "running" && (await wCounts(R1.email)).runs === cR5.runs, "R5：FDE running（未超时）→ 重放不重跑（避免并发双跑）", { state: r5b.fdeState });
-    await db.$executeRaw`UPDATE "SalesAction" SET "updatedAt" = NOW() - interval '20 minutes' WHERE "id" = ${actionR1.id}`;
-    const r5c = await ingestWebsiteInquiry(ORG, formR1.value);
-    const cR5c = await wCounts(R1.email);
-    ok(r5c.replay && r5c.recovered && !!r5c.fde?.ok && r5c.fdeState?.status === "completed" && cR5c.runs === cR5.runs + 1, "R5：FDE running 超过 10 分钟（stale_running）→ 视为中断并重跑", { state: r5c.fdeState, runs: cR5c.runs });
+    const hRuns = async () => db.agentRun.count({ where: { orgId: ORG, runType: "fde_inbound_sales", metadata: { path: ["opportunityId"], equals: hOpp } } });
+    await db.pendingAction.deleteMany({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["opportunityId"], equals: hOpp } } });
+    await setFde("failed");
+    const runsBeforeH = await hRuns();
+    const h2 = await ingestWebsiteInquiry(ORG, formH.value);
+    ok((await hRuns()) === runsBeforeH + 1 && h2.recoveredSteps.includes("fde") && !!h2.fde?.ok, "H：FDE 曾失败且无草稿 → 重跑", { runs: await hRuns(), steps: h2.recoveredSteps });
+    await db.pendingAction.deleteMany({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["opportunityId"], equals: hOpp } } });
+    await setFde("running");
+    const runsAfterH2 = await hRuns();
+    const h3 = await ingestWebsiteInquiry(ORG, formH.value);
+    ok((await hRuns()) === runsAfterH2 && h3.fde === null && h3.fdeState?.status === "running" && !h3.fdeState.terminal, "H：running 未超时 → 不重跑（避免并发双跑）", { state: h3.fdeState });
+    await db.$executeRaw`UPDATE "SalesAction" SET "updatedAt" = NOW() - interval '20 minutes' WHERE "id" = ${hAction.id}`;
+    const h4 = await ingestWebsiteInquiry(ORG, formH.value);
+    ok((await hRuns()) === runsAfterH2 + 1 && h4.recoveredSteps.includes("fde") && h4.fdeState?.terminal === true, "H：running 超过 10 分钟（stale_running）→ 视为中断并重跑", { runs: await hRuns(), state: h4.fdeState });
 
-    // R6：电话-only 询盘重放（无邮箱不再复制线索）
-    const formR6 = normalizeInquiry({ name: "Ali WhatsApp", whatsapp: "+1 555 0199", message: "Price for 500 coral fleece blankets 150x200?" });
-    if (!formR6.ok || formR6.value.honeypotTripped) throw new Error("fixture R6 failed");
-    const r6a = await ingestWebsiteInquiry(ORG, formR6.value, { runFde: false });
-    const r6b = await ingestWebsiteInquiry(ORG, formR6.value, { runFde: false });
-    const prospects6 = await db.tradeProspect.count({ where: { orgId: ORG, companyName: "Ali WhatsApp" } });
-    const messages6 = await db.tradeMessage.count({ where: { prospect: { orgId: ORG, companyName: "Ali WhatsApp" }, direction: "inbound" } });
-    ok(!r6a.replay && r6b.replay && r6b.prospectId === r6a.prospectId && r6b.messageId === r6a.messageId && prospects6 === 1 && messages6 === 1, "R6：电话-only 询盘重放 → 不复制线索/消息（按 org 内正文匹配）", { prospects6, messages6 });
-
-    // R7：真实 webhook 路由（密钥鉴权）的响应字段
+    // I. 真实 webhook 路由：响应字段来自真实记录
     await db.tradeChannel.create({ data: { orgId: ORG, channel: "website", name: "fixture site", status: "active", config: { secret: `s3cret_${stamp}` } } });
     const { POST: webhookPost } = await import("@/app/api/trade/webhook/website/route");
-    type WebhookBody = { ok?: boolean; eventId?: string | null; prospectId?: string; messageId?: string; opportunityId?: string | null; spine?: string; replay?: boolean; recovered?: boolean; fde?: { status?: string; pendingActionId?: string | null; agentRunId?: string | null } | null; error?: string };
+    type WebhookBody = { ok?: boolean; eventId?: string | null; receiptId?: string | null; prospectId?: string; messageId?: string; opportunityId?: string | null; spine?: string; replay?: boolean; recovered?: boolean; recoveredSteps?: string[]; busy?: boolean; conflict?: boolean; complete?: boolean; fde?: { status?: string; terminal?: boolean; reason?: string; pendingActionId?: string | null } | null; error?: string };
     const hitWebhook = async (body: Record<string, unknown>, secret = `s3cret_${stamp}`) => {
       const res = await webhookPost(new NextRequest("http://localhost/api/trade/webhook/website", { method: "POST", headers: { "content-type": "application/json", "x-qingyan-webhook-secret": secret }, body: JSON.stringify(body) }));
       return { status: res.status, body: (await res.json()) as WebhookBody };
     };
-    const R7 = { eventId: evt("r7"), name: "Wendy Webhook", email: "wendy@webhook-suites.ca", company: "Webhook Suites", country: "Canada", message: "Need 900 bath towels 70x140cm for a resort in Kelowna. MOQ and price please." };
-    const h1 = await hitWebhook(R7);
-    ok(h1.status === 200 && h1.body.ok === true && h1.body.eventId === R7.eventId && !!h1.body.prospectId && !!h1.body.messageId && !!h1.body.opportunityId && h1.body.spine === "ok" && h1.body.replay === false && h1.body.recovered === false && h1.body.fde?.status === "completed" && !!h1.body.fde?.pendingActionId && !!h1.body.fde?.agentRunId, "R7：webhook 首发响应含 eventId / messageId / opportunityId / spine / fde（真实记录）", h1.body);
-    const h2 = await hitWebhook(R7);
-    ok(h2.status === 200 && h2.body.replay === true && h2.body.recovered === false && h2.body.prospectId === h1.body.prospectId && h2.body.messageId === h1.body.messageId && h2.body.opportunityId === h1.body.opportunityId && h2.body.spine === "replay" && h2.body.fde?.status === "completed" && h2.body.fde?.pendingActionId === h1.body.fde?.pendingActionId, "R7：webhook 重放响应返回真实下游 ID 与 FDE 状态（不再是 REPLAY + opportunityId null）", h2.body);
-    const cR7 = await wCounts(R7.email);
-    const h3 = await hitWebhook(R7, "wrong-secret");
-    ok(h3.status === 401 && JSON.stringify(await wCounts(R7.email)) === JSON.stringify(cR7), "R7：错误密钥 → 401，不落库", h3);
-    ok(cR7.prospects === 1 && cR7.tradeMessages === 1 && cR7.opportunities === 1 && cR7.interactions === 1 && cR7.runs === 1 && cR7.pending === 1, "R7 计数：1/1/1/1/1/1", cR7);
+    const W = { eventId: evt("w"), name: "Wendy Webhook", email: "wendy@webhook-suites.ca", company: "Webhook Suites", country: "Canada", message: "Need 900 bath towels 70x140cm for a resort in Kelowna. MOQ and price please." };
+    const h1w = await hitWebhook(W);
+    ok(
+      h1w.status === 200 && h1w.body.ok === true && h1w.body.eventId === W.eventId && !!h1w.body.receiptId && !!h1w.body.opportunityId && h1w.body.spine === "ok" && h1w.body.complete === true && h1w.body.fde?.terminal === true && !!h1w.body.fde?.pendingActionId,
+      "I：webhook 首发响应含事件身份 + 真实 FDE 终态 + complete",
+      h1w.body,
+    );
+    const h2w = await hitWebhook(W);
+    ok(
+      h2w.body.replay === true && h2w.body.recovered === false && h2w.body.messageId === h1w.body.messageId && h2w.body.opportunityId === h1w.body.opportunityId && h2w.body.fde?.pendingActionId === h1w.body.fde?.pendingActionId,
+      "I：webhook 重放返回真实下游 ID 与 FDE 状态",
+      h2w.body,
+    );
+    const cW = await wCounts(W.email);
+    const h3w = await hitWebhook(W, "wrong-secret");
+    ok(h3w.status === 401 && JSON.stringify(await wCounts(W.email)) === JSON.stringify(cW), "I：错误密钥 → 401，不落库且不建收据", h3w);
+    const noReceiptForBadSecret = await db.websiteInquiryReceipt.count({ where: { orgId: ORG, eventId: evt("nope") } });
+    ok(noReceiptForBadSecret === 0 && cW.prospects === 1 && cW.tradeMessages === 1 && cW.opportunities === 1 && cW.pending === 1, "I 计数：1/1/1/1", cW);
 
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });
     ok(audits >= 10, "审计日志覆盖 intake / transition / send / outcome", audits);
   } finally {
     __setInquiryReplySenderForTest(null);
+    // 清库前保存脱敏诊断：输入案例 / 错误码 / AgentRun / SalesAction / PendingAction / 关联 ID
+    await captureDiagnostics(ORG, stamp, failures).catch((err) => console.warn("[diag] capture failed:", err));
+    // 清理失败不得掩盖真正的失败原因（清理异常会替换掉 try 里抛出的错误）
+    try {
     // 清理（按依赖顺序；级联删除覆盖 RFQ/证据/评估/行动）
     for (const orgId of [ORG, ORG2]) {
       const opps = await db.salesOpportunity.findMany({ where: { orgId }, select: { id: true } });
@@ -654,6 +952,7 @@ async function main() {
       const prospectsToClean = await db.tradeProspect.findMany({ where: { orgId }, select: { id: true } });
       await db.tradeMessage.deleteMany({ where: { prospectId: { in: prospectsToClean.map((p) => p.id) } } });
       await db.tradeProspect.deleteMany({ where: { orgId } });
+      await db.websiteInquiryReceipt.deleteMany({ where: { orgId } });
       await db.tradeCampaign.deleteMany({ where: { orgId } });
       await db.tradeChannel.deleteMany({ where: { orgId } });
       await db.pendingAction.deleteMany({ where: { orgId } });
@@ -676,6 +975,9 @@ async function main() {
     await db.auditLog.deleteMany({ where: { userId: { in: [OWNER, TRADE, OTHER, TRADE2] } } });
     await db.notification.deleteMany({ where: { userId: { in: [OWNER, TRADE, OTHER, TRADE2] } } });
     await db.user.deleteMany({ where: { id: { in: [OWNER, TRADE, OTHER, TRADE2] } } });
+    } catch (cleanupErr) {
+      console.warn("[cleanup] 清理未完成（不覆盖原始错误）：", cleanupErr instanceof Error ? cleanupErr.message : cleanupErr);
+    }
   }
 
   console.log(`\nRevenue Spine DB e2e 结果: ${pass} 通过, ${fail} 失败`);

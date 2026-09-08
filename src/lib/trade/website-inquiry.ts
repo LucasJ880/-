@@ -14,7 +14,11 @@ import { createProspect } from "@/lib/trade/service";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { intakeInquiry, type InquiryIntakeInput, type IntakeResult } from "@/lib/revenue-spine/inquiry-intake";
 import type { InquiryLanguage } from "@/lib/revenue-spine/normalize";
-import { runInboundSalesFde, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
+import { INQUIRY_REPLY_ACTION_TYPE, runInboundSalesFde, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
+import { addBusinessHours } from "@/lib/revenue-spine/business-days";
+import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
+import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
+import { claimInquiryReceipt, fromReceiptPayload, linkReceipt, releaseReceipt } from "./website-inquiry-receipts";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 
@@ -207,11 +211,28 @@ export async function ensureInquiryCampaign(
 }
 
 export interface FdeState {
-  /** queued | running | completed | failed | run_blocked | stale_running | not_run（SalesAction.inputContext.fdeStatus 真实记录，不由 HTTP 结果推断） */
+  /** not_run | queued | running | stale_running | completed | failed | run_blocked | cancelled | already_sent | human_rejected | superseded */
   status: string;
+  /** true = 接收端不会再自行推进（全链已完成或已被人工/系统终结）；false = 仍需恢复 */
+  terminal: boolean;
+  /** 判定依据（供站点与排障读取，不由 HTTP 状态推断） */
+  reason: string;
   agentRunId: string | null;
   pendingActionId: string | null;
   salesActionId: string | null;
+}
+
+/** 链路逐项核对结果：每一项都由真实记录判定，不由上一项存在推断 */
+export interface ChainState {
+  prospectId: string | null;
+  tradeMessageId: string | null;
+  customerId: string | null;
+  opportunityId: string | null;
+  interactionId: string | null;
+  salesActionId: string | null;
+  /** TradeProspect → Sales 关联已回填 */
+  prospectLinked: boolean;
+  fde: FdeState;
 }
 
 export interface IngestResult {
@@ -219,23 +240,37 @@ export interface IngestResult {
   messageId: string;
   duplicate: boolean;
   notified: number;
-  /** 同一原始询盘再次到达（同 eventId，或窗口内同正文）：不新建 Trade 消息，返回既有 message */
+  /** 同一原始事件再次到达（同 eventId / 派生身份），不新建 Trade 消息 */
   replay: boolean;
-  /** Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库。重放时为既有主干（replay=true）或本次补齐的主干（recovered=true） */
-  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY"; error: string };
+  /** Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库 */
+  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string };
   /** 本次调用实际执行的 FDE（首次或恢复重跑）；未执行为 null */
   fde: InboundFdeResult | null;
-  /** 重放时补齐了缺失的下游步骤（主干或 FDE） */
+  /** 本次补齐了此前缺失的步骤 */
   recovered: boolean;
-  /** 该消息的 FDE 状态快照（来自 SalesAction） */
+  /** 本次补齐的步骤名（trade_message / spine / sales_action / prospect_link / fde） */
+  recoveredSteps: string[];
+  /** FDE 真实状态快照（来自 SalesAction / AgentRun / PendingAction） */
   fdeState: FdeState | null;
+  /** 事件身份 */
+  eventId: string;
+  receiptId: string;
+  /** 同一事件正在被另一执行者处理：本次未执行任何步骤 */
+  busy: boolean;
+  /** 同 eventId 携带了不同业务内容：原始事实未被覆盖 */
+  conflict: boolean;
+  /** 内容与既有事件相同（不同 eventId）：已记录，复用原事件对象 */
+  contentDuplicateOf: string | null;
+  /** 全链终态（业务对象齐全 + FDE 终态） */
+  complete: boolean;
 }
 
 /** 幂等窗口：同一渲染正文的网站询盘视为重放（浏览器重试 / 双击提交 / 站点重发） */
 export const WEBSITE_INQUIRY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** FDE 处于 running 超过此时长视为被中断（函数被硬杀等），重放时允许重跑 */
 export const FDE_STALE_RUNNING_MS = 10 * 60 * 1000;
-const FDE_RERUNNABLE = new Set(["queued", "failed", "run_blocked", "stale_running"]);
+/** 可重跑的 FDE 状态（其余状态要么已完成，要么已被人工/系统终结） */
+const FDE_RERUNNABLE = new Set(["not_run", "queued", "failed", "run_blocked", "stale_running"]);
 
 interface ProspectRef {
   id: string;
@@ -269,235 +304,352 @@ async function findSpineInteractionByMessage(orgId: string, tradeMessageId: stri
   });
 }
 
-async function findSpineInteractionByEventId(orgId: string, eventId: string) {
-  return db.customerInteraction.findFirst({
-    where: { orgId, direction: "inbound", analysisResult: { path: ["sourceRef", "externalId"], equals: eventId } },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, analysisResult: true },
-  });
-}
-
-function tradeMessageIdOf(analysisResult: unknown): string | null {
-  const ref = (analysisResult as { sourceRef?: { tradeMessageId?: unknown } } | null)?.sourceRef?.tradeMessageId;
-  return typeof ref === "string" && ref ? ref : null;
-}
-
-/** FDE 状态来自 SalesAction（signalKey=inbound:<interactionId>）；running 过久视为 stale_running */
+/**
+ * FDE 真实状态：SalesAction.inputContext.fdeStatus 为主，再用 AgentRun / PendingAction 的
+ * 真实终态覆盖。恢复不得复活已取消、已人工拒绝、已发送或已被系统作废的动作。
+ */
 export async function loadFdeState(orgId: string, interactionId: string, now: Date = new Date()): Promise<FdeState> {
   const action = await db.salesAction.findFirst({
     where: { orgId, signalKey: `inbound:${interactionId}` },
     orderBy: { createdAt: "desc" },
     select: { id: true, agentRunId: true, pendingActionId: true, inputContext: true, updatedAt: true },
   });
-  if (!action) return { status: "not_run", agentRunId: null, pendingActionId: null, salesActionId: null };
+  if (!action) {
+    return { status: "not_run", terminal: false, reason: "no SalesAction for this inbound", agentRunId: null, pendingActionId: null, salesActionId: null };
+  }
   const ctx = (action.inputContext ?? {}) as Record<string, unknown>;
   let status = typeof ctx.fdeStatus === "string" && ctx.fdeStatus ? ctx.fdeStatus : "queued";
   if (status === "running" && now.getTime() - action.updatedAt.getTime() > FDE_STALE_RUNNING_MS) status = "stale_running";
-  return { status, agentRunId: action.agentRunId, pendingActionId: action.pendingActionId, salesActionId: action.id };
+  const base = { agentRunId: action.agentRunId, pendingActionId: action.pendingActionId, salesActionId: action.id };
+
+  // 1) 该来信的审批草稿真实状态优先（人工决策与系统作废都是终态，不得靠恢复复活）
+  const drafts = await db.pendingAction.findMany({
+    where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["replyToInteractionId"], equals: interactionId } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, status: true, decidedById: true, failureReason: true, expiresAt: true },
+  });
+  const executed = drafts.find((d) => d.status === "executed");
+  if (executed) return { ...base, status: "already_sent", terminal: true, reason: "reply already sent (PendingAction executed)", pendingActionId: executed.id };
+  const pending = drafts.find((d) => d.status === "pending" && d.expiresAt > now);
+  if (pending) return { ...base, status: "completed", terminal: true, reason: "draft awaiting human approval", pendingActionId: pending.id };
+  const rejected = drafts.find((d) => d.status === "rejected" && d.decidedById);
+  if (rejected) return { ...base, status: "human_rejected", terminal: true, reason: "draft rejected by a human", pendingActionId: rejected.id };
+  const superseded = drafts.find((d) => d.status === "failed" && (d.failureReason ?? "").startsWith("SUPERSEDED_"));
+  if (superseded) return { ...base, status: "superseded", terminal: true, reason: "draft superseded by a newer event", pendingActionId: superseded.id };
+
+  // 2) run 被 supervisor 取消 → 终态，恢复不得重跑
+  if (action.agentRunId) {
+    const run = await db.agentRun.findUnique({ where: { id: action.agentRunId }, select: { status: true } });
+    if (run?.status === "cancelled") return { ...base, status: "cancelled", terminal: true, reason: "AgentRun cancelled by supervisor" };
+  }
+
+  if (status === "completed") return { ...base, status, terminal: true, reason: "FDE completed" };
+  if (status === "running") return { ...base, status, terminal: false, reason: "FDE currently running" };
+  return { ...base, status, terminal: false, reason: `FDE not finished (${status})` };
 }
 
-async function linkProspectToSpine(prospectId: string, spine: Extract<IntakeResult, { ok: true }>, convertedAt: Date | null) {
+/** 逐项核对七个对象；每一项都用真实记录判定，不由上一项存在推断 */
+export async function inspectChain(orgId: string, receipt: { tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date): Promise<ChainState> {
+  const empty: ChainState = {
+    prospectId: null, tradeMessageId: null, customerId: null, opportunityId: null, interactionId: null,
+    salesActionId: null, prospectLinked: false,
+    fde: { status: "not_run", terminal: false, reason: "chain not established", agentRunId: null, pendingActionId: null, salesActionId: null },
+  };
+
+  // Trade 消息：先按收据登记的 id；否则按 org 内窗口内同正文认领（无收据的历史数据兼容）
+  let message = receipt.tradeMessageId
+    ? await db.tradeMessage.findFirst({ where: { id: receipt.tradeMessageId, prospect: { orgId } }, select: { id: true, prospect: { select: PROSPECT_REF_SELECT } } })
+    : null;
+  if (!message) {
+    message = await db.tradeMessage.findFirst({
+      where: {
+        direction: "inbound",
+        channel: "website",
+        content: buildInquiryMessage(v),
+        createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
+        prospect: { orgId },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
+    });
+  }
+  if (!message) return empty;
+
+  const state: ChainState = { ...empty, prospectId: message.prospect.id, tradeMessageId: message.id };
+
+  // 主干互动：先按收据登记的 id；否则按 sourceRef.tradeMessageId 反查
+  const interaction = receipt.interactionId
+    ? await db.customerInteraction.findFirst({ where: { id: receipt.interactionId, orgId }, select: { id: true, customerId: true, opportunityId: true } })
+    : await findSpineInteractionByMessage(orgId, message.id);
+  if (!interaction?.opportunityId) return state;
+
+  state.interactionId = interaction.id;
+  state.customerId = interaction.customerId;
+  state.opportunityId = interaction.opportunityId;
+  state.prospectLinked = message.prospect.convertedToSalesOpportunityId === interaction.opportunityId;
+
+  state.fde = await loadFdeState(orgId, interaction.id, now);
+  state.salesActionId = state.fde.salesActionId;
+  return state;
+}
+
+async function linkProspectToSpine(prospectId: string, customerId: string, opportunityId: string, convertedAt: Date | null) {
   // 回填 Trade 线索 ↔ 商机链接（P1-2：TradeProspect 仅为展示视图，SalesOpportunity 为 canonical）
   await db.tradeProspect.update({
     where: { id: prospectId },
     data: {
-      convertedToSalesCustomerId: spine.customerId,
-      convertedToSalesOpportunityId: spine.opportunityId,
+      convertedToSalesCustomerId: customerId,
+      convertedToSalesOpportunityId: opportunityId,
       ...(convertedAt ? { convertedAt } : {}),
     },
   });
 }
 
-/**
- * 重放：同一原始询盘再次到达（站点超时/失败后重发、浏览器重试）。不新建 Trade 消息；
- * 按真实记录返回下游状态，并补齐缺失步骤：主干未建 → 用同一原消息 intake；FDE 失败/中断 → 重跑。
- * 内容去重只是"不重复建对象"，这里才是失败恢复；恢复始终关联原始消息，不改正文。
- */
-async function replayIngest(
-  orgId: string,
-  v: NormalizedInquiry,
-  prospect: ProspectRef,
-  messageId: string,
-  opts: { runFde?: boolean } | undefined,
-  now: Date,
-): Promise<IngestResult> {
-  let spine: IngestResult["spine"];
-  let fde: InboundFdeResult | null = null;
-  let recovered = false;
-  const existing = await findSpineInteractionByMessage(orgId, messageId);
-  if (existing?.opportunityId) {
-    const opp = await db.salesOpportunity.findUnique({ where: { id: existing.opportunityId }, select: { assignedToId: true, createdById: true } });
-    const state = await loadFdeState(orgId, existing.id, now);
-    spine = {
-      ok: true,
-      customerId: existing.customerId,
-      customerCreated: false,
-      matchLevel: null,
-      opportunityId: existing.opportunityId,
-      opportunityCreated: false,
-      attachedToExisting: true,
-      interactionId: existing.id,
-      salesActionId: state.salesActionId,
-      ownerUserId: opp?.assignedToId ?? opp?.createdById ?? "",
-      language: (existing.language as InquiryLanguage | null) ?? "en",
-      customerReplied: false,
-      replay: true,
-    };
-    if (opts?.runFde !== false && FDE_RERUNNABLE.has(state.status)) {
-      fde = await runInboundSalesFde({ orgId, opportunityId: existing.opportunityId, salesActionId: state.salesActionId, trigger: "inquiry", now });
-      recovered = true;
-    }
-  } else {
-    try {
-      spine = await intakeInquiry(intakeInputFor(orgId, v, prospect.id, messageId, now));
-      if (spine.ok) {
-        await linkProspectToSpine(prospect.id, spine, prospect.convertedToSalesOpportunityId ? null : now);
-        recovered = true;
-        if (opts?.runFde !== false && !spine.replay) {
-          fde = await runInboundSalesFde({
-            orgId,
-            opportunityId: spine.opportunityId,
-            salesActionId: spine.salesActionId,
-            trigger: spine.attachedToExisting ? "customer_reply" : "inquiry",
-          });
-        }
-      }
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      console.error("[website-inquiry] replay recovery: revenue spine intake failed:", reason);
-      spine = { ok: false, code: "SPINE_FAILED", error: reason };
-    }
-  }
-  const fdeState = spine.ok ? await loadFdeState(orgId, spine.interactionId, now) : null;
-  return { prospectId: prospect.id, messageId, duplicate: true, notified: 0, replay: true, spine, fde, recovered, fdeState };
+/** 缺失的 FDE 行动（互动已建但 SalesAction 未建）：用 canonical helper 补，不新建平行体系 */
+async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactionId: string, customerId: string, opportunityId: string, now: Date) {
+  const opp = await db.salesOpportunity.findFirst({ where: { id: opportunityId, orgId }, select: { assignedToId: true, createdById: true } });
+  const ownerUserId = opp?.assignedToId ?? opp?.createdById;
+  if (!ownerUserId) return null;
+  const policy = await loadRevenueSpinePolicy(orgId);
+  const who = (v.company || v.name || v.email || v.phone).slice(0, 80);
+  return createFdeAction({
+    orgId,
+    customerId,
+    opportunityId,
+    actionType: "inbound_inquiry",
+    category: "contact",
+    title: `新询盘：${who}${v.product ? " — " + v.product.slice(0, 60) : ""}`,
+    description: v.message.slice(0, 2000),
+    priority: "high",
+    dueAt: addBusinessHours(now, policy.salesSla.newInquiryResponseHours),
+    signalKey: `inbound:${interactionId}`,
+    assignedToId: ownerUserId,
+    createdById: ownerUserId,
+    inputContext: { source: "website_inquiry", interactionId, fdeStatus: "queued", recovered: true, meta: { page: v.page, utm: v.utm, channel: "website" } },
+  });
 }
 
+/**
+ * 网站询盘接收：先认领事件身份（收据），再逐项核对并补齐链路。
+ *
+ * 首次事件 → 建链；重发 → 只补缺失的步骤，绝不重复创建客户 / 商机 / 互动 / 消息。
+ * 同一事件同时到达两次 → 后到者 busy 返回，不并行执行。
+ */
 export async function ingestWebsiteInquiry(
   orgId: string,
-  v: NormalizedInquiry,
+  incoming: NormalizedInquiry,
   opts?: { runFde?: boolean; now?: Date },
 ): Promise<IngestResult> {
   const now = opts?.now ?? new Date();
-  const content = buildInquiryMessage(v);
+  const claim = await claimInquiryReceipt(orgId, incoming, now);
+  const receipt = claim.receipt;
+  // 恢复一律按**首次**收到的业务事实重放；本次请求的冲突内容只记录，不覆盖
+  const v = fromReceiptPayload(receipt.payload);
+  const recoveredSteps: string[] = [];
+  // duplicate 保持原义：该联系人此前已有 Trade 线索（不是"事件重发"，后者是 replay）
+  let prospectExisted = !claim.created;
 
-  // ── 重放 ①：同 eventId（站点按原始询盘 id 重发；主干已建立时不依赖正文匹配） ──
-  if (v.eventId) {
-    const byEvent = await findSpineInteractionByEventId(orgId, v.eventId);
-    const refMessageId = byEvent ? tradeMessageIdOf(byEvent.analysisResult) : null;
-    if (refMessageId) {
-      const msg = await db.tradeMessage.findFirst({
-        where: { id: refMessageId, prospect: { orgId } },
-        select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
-      });
-      if (msg) return replayIngest(orgId, v, msg.prospect, msg.id, opts, now);
+  const snapshot = async (state: ChainState, spine: IngestResult["spine"], fde: InboundFdeResult | null, extra: Partial<IngestResult>): Promise<IngestResult> => ({
+    prospectId: state.prospectId ?? "",
+    messageId: state.tradeMessageId ?? "",
+    duplicate: prospectExisted,
+    notified: 0,
+    replay: !claim.created,
+    spine,
+    fde,
+    recovered: recoveredSteps.length > 0,
+    recoveredSteps: [...recoveredSteps],
+    fdeState: state.opportunityId ? state.fde : null,
+    eventId: receipt.eventId,
+    receiptId: receipt.id,
+    busy: false,
+    conflict: claim.conflict,
+    contentDuplicateOf: claim.duplicateOfReceiptId,
+    complete: Boolean(state.opportunityId && state.salesActionId && state.prospectLinked && state.fde.terminal),
+    ...extra,
+  });
+
+  /** 重放时的主干快照：字段全部取自真实记录，不臆造负责人/语言 */
+  const spineOf = async (state: ChainState, replay: boolean): Promise<IngestResult["spine"]> => {
+    if (!state.opportunityId || !state.customerId || !state.interactionId) {
+      return { ok: false, code: "INCOMPLETE", error: "revenue spine not established for this event" };
     }
-  }
-  // ── 重放 ②：窗口内同正文（org 内 website 进线；不依赖邮箱，电话-only 询盘同样覆盖） ──
-  const replayed = await db.tradeMessage.findFirst({
-    where: {
-      direction: "inbound",
-      channel: "website",
-      content,
-      createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
-      prospect: { orgId },
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
-  });
-  if (replayed) return replayIngest(orgId, v, replayed.prospect, replayed.id, opts, now);
-
-  const campaignId = await ensureInquiryCampaign(orgId);
-
-  let prospect: ProspectRef | null = v.email
-    ? await db.tradeProspect.findFirst({
-        where: { orgId, contactEmail: { equals: v.email, mode: "insensitive" } },
-        select: PROSPECT_REF_SELECT,
-        orderBy: { createdAt: "desc" },
-      })
-    : null;
-  const duplicate = Boolean(prospect);
-
-  if (!prospect) {
-    const created = await createProspect({
-      campaignId,
-      orgId,
-      companyName: deriveCompanyName(v),
-      contactName: v.name || undefined,
-      contactEmail: v.email || undefined,
-      website: v.website || undefined,
-      country: v.country || undefined,
-      source: "website",
-      stage: "new",
+    const opp = await db.salesOpportunity.findFirst({
+      where: { id: state.opportunityId, orgId },
+      select: { assignedToId: true, createdById: true },
     });
-    prospect = { id: created.id, stage: created.stage, companyName: created.companyName, convertedToSalesOpportunityId: null };
+    const interaction = await db.customerInteraction.findUnique({ where: { id: state.interactionId }, select: { language: true } });
+    return {
+      ok: true,
+      customerId: state.customerId,
+      customerCreated: false,
+      matchLevel: null,
+      opportunityId: state.opportunityId,
+      opportunityCreated: false,
+      attachedToExisting: true,
+      interactionId: state.interactionId,
+      salesActionId: state.salesActionId,
+      ownerUserId: opp?.assignedToId ?? opp?.createdById ?? "",
+      language: (interaction?.language as InquiryLanguage | null) ?? "en",
+      customerReplied: false,
+      replay,
+    };
+  };
+
+  // 单执行者控制：同一事件正在被处理（首发仍在跑 / 另一次重发在跑）→ 返回当前状态，不并行
+  if (claim.busy) {
+    const state = await inspectChain(orgId, receipt, v, now);
+    return snapshot(state, await spineOf(state, true), null, { busy: true });
   }
 
-  const message = await db.tradeMessage.create({
-    data: {
-      prospectId: prospect.id,
-      direction: "inbound",
-      channel: "website",
-      subject: v.product ? `网站询盘：${v.product}` : "网站询盘",
-      content,
-    },
-    select: { id: true },
-  });
-
-  await db.tradeProspect.update({
-    where: { id: prospect.id },
-    data: {
-      lastContactAt: now,
-      // 询盘=买家主动，立即进当日跟进队列
-      nextFollowUpAt: now,
-      ...(BUMPABLE_STAGES.has(prospect.stage) ? { stage: "replied" } : {}),
-    },
-  });
-
-  // 第二刀：进线自动分析（响应后执行，失败不影响主链）
-  const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
-  await scheduleInquiryAnalysis({
-    orgId,
-    prospectId: prospect.id,
-    messageId: message.id,
-    content: [v.product && `Product: ${v.product}`, v.message].filter(Boolean).join("\n") || v.email,
-    channel: "website",
-    meta: { email: v.email || null, companyName: prospect.companyName, phone: v.phone || null, country: v.country || null, website: v.website || null },
-  });
-
-  const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
-  const notified = await notifyInquiryMembers(orgId, {
-    title: `网站询盘：${prospect.companyName}`,
-    summary: (summaryBits || v.email || v.phone).slice(0, 140),
-    prospectId: prospect.id,
-    source: "website",
-    sourceKey: `website-inquiry:${message.id}`,
-  });
-
-  // ── Revenue Spine：canonical 商业主干（SalesCustomer → SalesOpportunity → CustomerInteraction → SalesAction → FDE） ──
-  // Trade 线索 / 询盘收件箱 / 通知已在上方落库；主干失败不回滚 Trade 侧（响应 spine.code 供排障，站点重发即可补齐）。
-  let spine: IngestResult["spine"];
-  let fde: InboundFdeResult | null = null;
   try {
-    spine = await intakeInquiry(intakeInputFor(orgId, v, prospect.id, message.id, now));
-    if (spine.ok) {
-      await linkProspectToSpine(prospect.id, spine, duplicate ? null : now);
-      if (opts?.runFde !== false && !spine.replay) {
-        fde = await runInboundSalesFde({
+    const state = await inspectChain(orgId, receipt, v, now);
+
+    // ── 步骤 1：Trade 线索 + 消息 ──
+    let notified = 0;
+    if (!state.tradeMessageId) {
+      const campaignId = await ensureInquiryCampaign(orgId);
+      let prospect: ProspectRef | null = v.email
+        ? await db.tradeProspect.findFirst({
+            where: { orgId, contactEmail: { equals: v.email, mode: "insensitive" } },
+            select: PROSPECT_REF_SELECT,
+            orderBy: { createdAt: "desc" },
+          })
+        : null;
+      const existingProspect = Boolean(prospect);
+      if (!prospect) {
+        const created = await createProspect({
+          campaignId,
           orgId,
-          opportunityId: spine.opportunityId,
-          salesActionId: spine.salesActionId,
-          trigger: spine.attachedToExisting ? "customer_reply" : "inquiry",
+          companyName: deriveCompanyName(v),
+          contactName: v.name || undefined,
+          contactEmail: v.email || undefined,
+          website: v.website || undefined,
+          country: v.country || undefined,
+          source: "website",
+          stage: "new",
         });
+        prospect = { id: created.id, stage: created.stage, companyName: created.companyName, convertedToSalesOpportunityId: null };
+      }
+      const message = await db.tradeMessage.create({
+        data: {
+          prospectId: prospect.id,
+          direction: "inbound",
+          channel: "website",
+          subject: v.product ? `网站询盘：${v.product}` : "网站询盘",
+          content: buildInquiryMessage(v),
+        },
+        select: { id: true },
+      });
+      await linkReceipt(receipt.id, { prospectId: prospect.id, tradeMessageId: message.id });
+      state.prospectId = prospect.id;
+      state.tradeMessageId = message.id;
+      if (!claim.created) recoveredSteps.push("trade_message");
+
+      await db.tradeProspect.update({
+        where: { id: prospect.id },
+        data: {
+          lastContactAt: now,
+          // 询盘=买家主动，立即进当日跟进队列
+          nextFollowUpAt: now,
+          ...(BUMPABLE_STAGES.has(prospect.stage) ? { stage: "replied" } : {}),
+        },
+      });
+
+      // 第二刀：进线自动分析（响应后执行，失败不影响主链）
+      const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
+      await scheduleInquiryAnalysis({
+        orgId,
+        prospectId: prospect.id,
+        messageId: message.id,
+        content: [v.product && `Product: ${v.product}`, v.message].filter(Boolean).join("\n") || v.email,
+        channel: "website",
+        meta: { email: v.email || null, companyName: prospect.companyName, phone: v.phone || null, country: v.country || null, website: v.website || null },
+      });
+
+      const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
+      notified = await notifyInquiryMembers(orgId, {
+        title: `网站询盘：${prospect.companyName}`,
+        summary: (summaryBits || v.email || v.phone).slice(0, 140),
+        prospectId: prospect.id,
+        source: "website",
+        sourceKey: `website-inquiry:${message.id}`,
+      });
+      prospectExisted = existingProspect;
+    }
+
+    // ── 步骤 2：Revenue Spine（客户 / 商机 / 互动 / FDE 行动） ──
+    let intake: IntakeResult | null = null;
+    if (!state.interactionId) {
+      try {
+        intake = await intakeInquiry(intakeInputFor(orgId, v, state.prospectId!, state.tradeMessageId!, now));
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error("[website-inquiry] revenue spine intake failed:", reason);
+        await releaseReceipt(receipt.id, "linked", now);
+        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: reason }, null, { notified });
+      }
+      if (!intake.ok) {
+        await releaseReceipt(receipt.id, "linked", now);
+        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error }, null, { notified });
+      }
+      state.customerId = intake.customerId;
+      state.opportunityId = intake.opportunityId;
+      state.interactionId = intake.interactionId;
+      state.salesActionId = intake.salesActionId;
+      await linkReceipt(receipt.id, {
+        customerId: intake.customerId,
+        opportunityId: intake.opportunityId,
+        interactionId: intake.interactionId,
+        salesActionId: intake.salesActionId,
+      });
+      if (!claim.created) recoveredSteps.push("spine");
+    }
+
+    // ── 步骤 3：FDE 行动缺失（互动已建、SalesAction 未建）──
+    if (state.interactionId && !state.salesActionId) {
+      const action = await recreateFdeAction(orgId, v, state.interactionId, state.customerId!, state.opportunityId!, now);
+      if (action) {
+        state.salesActionId = action.id;
+        await linkReceipt(receipt.id, { salesActionId: action.id });
+        recoveredSteps.push("sales_action");
       }
     }
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error("[website-inquiry] revenue spine intake failed:", reason);
-    spine = { ok: false, code: "SPINE_FAILED", error: reason };
-  }
 
-  const fdeState = spine.ok ? await loadFdeState(orgId, spine.interactionId, now) : null;
-  return { prospectId: prospect.id, messageId: message.id, duplicate, notified, replay: false, spine, fde, recovered: false, fdeState };
+    // ── 步骤 4：Trade 线索 ↔ 商机关联回填 ──
+    if (state.prospectId && state.opportunityId && state.customerId && !state.prospectLinked) {
+      await linkProspectToSpine(state.prospectId, state.customerId, state.opportunityId, claim.created ? now : null);
+      state.prospectLinked = true;
+      if (!claim.created) recoveredSteps.push("prospect_link");
+    }
+
+    // ── 步骤 5：FDE（真实状态判定；不复活已取消 / 已人工终结的动作）──
+    let fde: InboundFdeResult | null = null;
+    state.fde = await loadFdeState(orgId, state.interactionId!, now);
+    state.salesActionId = state.fde.salesActionId ?? state.salesActionId;
+    const shouldRun = opts?.runFde !== false && !state.fde.terminal && FDE_RERUNNABLE.has(state.fde.status);
+    if (shouldRun) {
+      fde = await runInboundSalesFde({
+        orgId,
+        opportunityId: state.opportunityId!,
+        salesActionId: state.salesActionId,
+        trigger: intake && intake.ok && intake.attachedToExisting ? "customer_reply" : "inquiry",
+        now,
+      });
+      if (!claim.created) recoveredSteps.push("fde");
+      state.fde = await loadFdeState(orgId, state.interactionId!, now);
+      await linkReceipt(receipt.id, { agentRunId: state.fde.agentRunId, pendingActionId: state.fde.pendingActionId });
+    }
+
+    const complete = Boolean(state.opportunityId && state.salesActionId && state.prospectLinked && state.fde.terminal);
+    await releaseReceipt(receipt.id, complete ? "complete" : "linked", now);
+
+    const spine: IngestResult["spine"] = intake ?? (await spineOf(state, true));
+    return snapshot(state, spine, fde, { notified, complete });
+  } catch (err) {
+    await releaseReceipt(receipt.id, "linked", now).catch(() => undefined);
+    throw err;
+  }
 }
 
 /** 通知 org 内外贸相关成员（幂等键防重复） */

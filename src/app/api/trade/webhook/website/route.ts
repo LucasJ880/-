@@ -4,7 +4,8 @@
  * 鉴权：website 通道密钥（header x-qingyan-webhook-secret / ?secret= / body.secret）
  * 载荷：JSON 或 form-urlencoded / multipart（字段见 website-inquiry.ts）
  * 跨域：网站前端直接 fetch，故放开 CORS（密钥 + 蜜罐防滥用）
- * 重放：同 eventId / 窗口内同正文 → 不新建对象，返回既有 ID 并补齐缺失的主干 / FDE（站点超时重发安全）
+ * 事件身份：eventId 在任何业务写入前落收据（WebsiteInquiryReceipt），重发按事件逐项补齐缺失步骤；
+ * 同一事件并发到达时后到者返回 busy 不并行执行。响应字段是真实记录，不由 HTTP 状态推断。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -82,21 +83,40 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await ingestWebsiteInquiry(channel.orgId, normalized.value);
-    // fde：优先 SalesAction 真实状态快照；否则本次运行结果。HTTP 200 ≠ 全链完成，调用方按字段判定。
+    // fde 取自真实记录（SalesAction / AgentRun / PendingAction）；terminal 告诉调用方是否还需继续恢复。
+    // HTTP 200 不代表全链完成：调用方按 spine / opportunityId / complete / fde.terminal 判定。
     const fde = result.fdeState
-      ? { status: result.fdeState.status, agentRunId: result.fdeState.agentRunId, pendingActionId: result.fdeState.pendingActionId }
+      ? {
+          status: result.fdeState.status,
+          terminal: result.fdeState.terminal,
+          reason: result.fdeState.reason,
+          agentRunId: result.fdeState.agentRunId,
+          pendingActionId: result.fdeState.pendingActionId,
+        }
       : result.fde
-        ? { status: result.fde.ok ? "completed" : "failed", agentRunId: result.fde.agentRunId, pendingActionId: result.fde.pendingActionId, ...(result.fde.errorCode ? { errorCode: result.fde.errorCode } : {}) }
+        ? {
+            status: result.fde.ok ? "completed" : "failed",
+            terminal: false,
+            reason: result.fde.error ?? "FDE just ran",
+            agentRunId: result.fde.agentRunId,
+            pendingActionId: result.fde.pendingActionId,
+          }
         : null;
     return json(
       {
         ok: true,
-        eventId: normalized.value.eventId || null,
+        eventId: result.eventId,
+        receiptId: result.receiptId,
         prospectId: result.prospectId,
         messageId: result.messageId,
         duplicate: result.duplicate,
         replay: result.replay,
         recovered: result.recovered,
+        recoveredSteps: result.recoveredSteps,
+        busy: result.busy,
+        conflict: result.conflict,
+        contentDuplicateOf: result.contentDuplicateOf,
+        complete: result.complete,
         opportunityId: result.spine.ok ? result.spine.opportunityId : null,
         spine: result.spine.ok ? (result.spine.replay ? "replay" : "ok") : result.spine.code,
         fde,
