@@ -15,6 +15,7 @@ import { normalizeBuyerName, normalizeWebsiteDomain } from "@/lib/corporate-memo
 import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
 import { SupplierIntelError } from "./errors";
+import { assertSignalAccess } from "./signal-scope";
 import {
   classifyPublicUrlPlatform,
   isPlatformOrMarketplaceHost,
@@ -598,6 +599,10 @@ export async function resolveSignalEntityWithPagination(
   signalId: string,
   pagination: IdentityScanPagination,
 ) {
+  // R1：resolve 会 append resolutionJson = 业务写入，不是无副作用读取。
+  // 先按最小归属元数据断言项目写权限（授权前不读取信号正文、不执行任何写入）。
+  await assertSignalAccess(actor, signalId, "write");
+
   const signal = await db.supplierDiscoverySignal.findFirst({
     where: { id: signalId, orgId: actor.orgId },
   });
@@ -606,6 +611,13 @@ export async function resolveSignalEntityWithPagination(
   // B5：身份裁决禁止「前 500 行局部真相」——按稳定键（id asc）游标分页穷尽
   // org 内相关记录；触及安全上限仍有余量 → 该类扫描 complete=false，resolver 侧
   // fail-closed（BL-2：任一类不完整即整体不完整 → 一律人审）。分页是纯 DB 游标，零 N+1 网络路径。
+  //
+  // R1 不变量（项目可见性 ≠ 身份裁决完整性）：以下两类扫描**恒为 org 全量**，
+  // 绝不按「当前用户可见项目」裁剪。若把受保护项目里的同身份记录过滤掉，扫描仍会
+  // 自称 complete，然后返回强匹配——那正是把授权过滤伪装成完整宇宙。
+  // 受保护项目的内容不会外泄：本函数只从这些行取 accountUrl/contentUrl 计算身份键，
+  // 且身份键来自**当前信号自带的线索**；返回值只含 org 级实体（supplierId）与冲突摘要，
+  // 不含其他项目的正文、备注或证据。冲突存在时由 F1 分支降级为 NEEDS_HUMAN_REVIEW。
   const paging = clampPagination(pagination);
 
   const suppliersScan = await fetchAllPages(

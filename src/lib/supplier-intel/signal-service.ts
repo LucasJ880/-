@@ -7,6 +7,10 @@
  *   - AI_ASSISTED 标注 confidence ≤ 0.8，且 extractedBy 落库；信任提升 = append 新记录，
  *     不原地改写 AI observation。
  *   - 所有 LINKED 动作是人工点按；解析结果只 append 进 resolutionJson，不覆盖。
+ *
+ * R1（Trust-Boundary Closure）：所有入口按**有效项目归属**做项目级授权（见 signal-scope.ts）——
+ * 读（查看单条/列表）要项目 read，写（创建/review/reject/link/capability）要项目 write；
+ * signal.projectId 为空但挂在项目绑定 Run 上的信号继承 Run 归属，绝不当组织公共线索。
  */
 
 import type { Prisma } from "@prisma/client";
@@ -26,6 +30,12 @@ import {
 } from "./constants";
 import { SupplierIntelError } from "./errors";
 import { lockSupplierSearchRunForWrite } from "./run-service";
+import {
+  assertSignalAccess,
+  assertSubmitSignalAccess,
+  buildSignalListScopeFilter,
+  detectSubmitPointerConflicts,
+} from "./signal-scope";
 import { parseUserSubmission, validatePublicHttpUrl } from "./submission-parser";
 
 const SIGNAL_TARGET_TYPE = "supplier_discovery_signal";
@@ -88,6 +98,10 @@ export async function createSubmittedSignal(actor: SupplierIntelActor, input: Su
   const tenderId = await assertProjectPointerInOrg(actor.orgId, input.tenderId, "招标项目");
 
   const searchRunId = input.searchRunId?.trim() || null;
+
+  // R1：授权先于业务写入——解析有效项目归属（含 Run 继承），拒绝混合指针，
+  // 对治理集合内每个项目断言写权限（空集合 = 真正的组织级线索，沿用既有 org 授权）
+  await assertSubmitSignalAccess(actor, { projectId, tenderId, searchRunId });
 
   return db.$transaction(async (tx) => {
     // F2.2 锁序：挂 Run 的信号先锁 Run、锁内裁决非终态——与终态迁移互相串行（T20）
@@ -168,6 +182,19 @@ export async function createDiscoveredSignal(actor: SupplierIntelActor, input: D
         "Run 已处于终态，不能再挂新信号；重评估请新建 Run",
       );
     }
+    // R1：本函数不是 HTTP 入口——授权由 executeSupplierSearchRun 在任何计划/外呼前对
+    // run.projectId 断言写权限完成（覆盖同一治理集合，信号归属 `?? run.*` 继承 Run）。
+    // 这里只做零额外查询的指针一致性校验，防止调用方传入与 Run 不一致的项目指针。
+    const pointerConflicts = detectSubmitPointerConflicts(
+      { projectId, tenderId, searchRunId: run.id },
+      run,
+    );
+    if (pointerConflicts.length > 0) {
+      throw new SupplierIntelError(
+        "INVALID_INPUT",
+        `项目指针与 Run 归属冲突：${pointerConflicts.join("；")}`,
+      );
+    }
     const existing = await tx.supplierDiscoverySignal.findFirst({
       where: { orgId: actor.orgId, searchRunId: run.id, contentUrl: url },
     });
@@ -205,24 +232,55 @@ export async function createDiscoveredSignal(actor: SupplierIntelActor, input: D
 }
 
 export async function getSignal(actor: SupplierIntelActor, signalId: string) {
+  // R1：先按最小归属元数据鉴权，再读正文/capability——授权前不返回受保护内容。
+  // 本 org 内不存在 → 沿用既有契约返回 null（路由 404），不泄露存在性。
+  const exists = await db.supplierDiscoverySignal.findFirst({
+    where: { id: signalId, orgId: actor.orgId },
+    select: { id: true },
+  });
+  if (!exists) return null;
+  await assertSignalAccess(actor, signalId, "read");
+
   return db.supplierDiscoverySignal.findFirst({
     where: { id: signalId, orgId: actor.orgId },
     include: { capabilitySignals: true },
   });
 }
 
+/**
+ * R1：列表与单条同口径——无权项目的信号不得出现在列表、筛选或计数里。
+ * 项目可见性以「一次算出的可访问项目集合 + 关系过滤」实现（单条 SQL，零逐条鉴权）。
+ */
 export async function listSignals(
   actor: SupplierIntelActor,
   opts?: { status?: string; platform?: string; take?: number },
 ) {
+  const scopeFilter = await buildSignalListScopeFilter(actor);
   return db.supplierDiscoverySignal.findMany({
     where: {
       orgId: actor.orgId,
       ...(opts?.status ? { status: opts.status } : {}),
       ...(opts?.platform ? { platform: opts.platform } : {}),
+      ...(scopeFilter.length > 0 ? { AND: scopeFilter } : {}),
     },
     orderBy: { discoveredAt: "desc" },
     take: Math.min(opts?.take ?? 100, 200),
+  });
+}
+
+/** R1：计数与列表共用同一可见性口径（避免「列表看不到但计数暴露」） */
+export async function countSignals(
+  actor: SupplierIntelActor,
+  opts?: { status?: string; platform?: string },
+) {
+  const scopeFilter = await buildSignalListScopeFilter(actor);
+  return db.supplierDiscoverySignal.count({
+    where: {
+      orgId: actor.orgId,
+      ...(opts?.status ? { status: opts.status } : {}),
+      ...(opts?.platform ? { platform: opts.platform } : {}),
+      ...(scopeFilter.length > 0 ? { AND: scopeFilter } : {}),
+    },
   });
 }
 
@@ -244,6 +302,8 @@ async function transitionSignal(
   extraData?: Record<string, unknown>,
   resolutionEntry?: Record<string, unknown>,
 ) {
+  // R1：review / reject / link 都是业务写入——先按有效项目归属断言写权限
+  await assertSignalAccess(actor, signalId, "write");
   return db.$transaction(async (tx) => {
     const signal = await tx.supplierDiscoverySignal.findFirst({
       where: { id: signalId, orgId: actor.orgId },
@@ -395,6 +455,8 @@ export async function createCapabilitySignal(
     select: { id: true },
   });
   if (!signal) throw new SupplierIntelError("NOT_FOUND", "发现信号不存在");
+  // R1：capability 挂靠 = 对该信号的业务写入，按其有效项目归属断言写权限
+  await assertSignalAccess(actor, signal.id, "write");
 
   return db.supplierCapabilitySignal.create({
     data: {
