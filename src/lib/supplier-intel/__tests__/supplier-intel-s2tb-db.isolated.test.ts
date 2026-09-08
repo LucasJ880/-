@@ -10,6 +10,9 @@
  *   不是只测 cross-org；服务行为 + HTTP 边界都测，不只做源码字符串守卫。
  * R2（canonical 来源不可证完整时明确阻断）R2-T6/T7：阻断点在 Run 创建 / LLM / provider 之前，
  *   客户端伪造 requirements 与完整性声明不解除阻断，HTTP 返回领域错误而非 500。
+ * R1 Edge Closure A1..A4 / B1..B4：org_admin 的列表·单条一致性（非 dispatched 项目不得从列表或
+ *   计数泄露）、super_admin 既有特权不放松 org 隔离与不可解析 Run 保护、tenderId↔Run.projectId
+ *   对称对质（含 HTTP 与 discovered-signal 共享路径）。
  */
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
@@ -56,6 +59,7 @@ async function main() {
   const er = await import("../entity-resolution");
   const discovery = await import("../discovery-service");
   const { createSession } = await import("@/lib/auth/session");
+  const { SUPPLIER_INTEL_AUDIT_ACTIONS } = await import("../constants");
   const { buildCanonicalRisksStructuredJson } = await import("./fixtures/canonical-risks-writer");
   type LlmInvoker = import("@/lib/tender-understanding/llm").LlmInvoker;
   type Provider = import("../providers").DiscoveryProvider;
@@ -76,6 +80,7 @@ async function main() {
   }
 
   const tag = `s2tb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const PENDING_MARKER = `PENDING_PROJECT_BODY_${tag}`;
   const SECRET_MARKERS = {
     title: `PROTECTED_TITLE_${tag}`,
     description: `PROTECTED_DESC_${tag}`,
@@ -101,6 +106,10 @@ async function main() {
   const uPlain = await mkUser("tb_plain");
   const uInactiveMember = await mkUser("tb_inactive_member");
   const uSuspended = await mkUser("tb_suspended", "suspended");
+  const uOrgAdmin = await mkUser("tb_org_admin");            // 非 super_admin 的 org_admin（非项目 owner）
+  const uSuper = await db.user.create({
+    data: { email: `tb_super_${tag}@test.qingyan.local`, name: "tb_super", role: "super_admin", status: "active" },
+  });
 
   const orgA = await db.organization.create({
     data: { name: `TB Org ${tag}`, code: `tb_${tag}`, ownerId: userOwner.id, status: "active" },
@@ -114,6 +123,8 @@ async function main() {
       { orgId: orgA.id, userId: uPlain.id, role: "org_member", status: "active" },
       { orgId: orgA.id, userId: uInactiveMember.id, role: "org_member", status: "active" },
       { orgId: orgA.id, userId: uSuspended.id, role: "org_member", status: "active" },
+      { orgId: orgA.id, userId: uOrgAdmin.id, role: "org_admin", status: "active" },
+      { orgId: orgA.id, userId: uSuper.id, role: "org_member", status: "active" },
     ],
   });
 
@@ -150,6 +161,8 @@ async function main() {
   const actorInactive = { orgId: orgA.id, userId: uInactiveMember.id };
   const actorSuspended = { orgId: orgA.id, userId: uSuspended.id };
   const actorX = { orgId: orgX.id, userId: userX.id };
+  const actorOrgAdmin = { orgId: orgA.id, userId: uOrgAdmin.id };
+  const actorSuper = { orgId: orgA.id, userId: uSuper.id };
 
   const requirements = [
     { id: "q1", code: "R-001", text: "ANSI/BIFMA X5.1", category: "MANDATORY", mandatory: true, mandatorySignal: "must" },
@@ -169,10 +182,29 @@ async function main() {
   const cleanupOrgs = [orgA.id, orgX.id];
   const cleanupUsers = [
     userOwner.id, uWriterA.id, uReaderA.id, uWriterB.id, uPlain.id,
-    uInactiveMember.id, uSuspended.id, userX.id,
+    uInactiveMember.id, uSuspended.id, userX.id, uOrgAdmin.id, uSuper.id,
   ];
 
   try {
+    // 连接池预热（与 S1 夹具同手段）：本套件在同一进程里跑服务层 + 路由 + 隔离库，
+    // 首次并发查询会同时新建多条 Neon 连接（约 3s/条），默认 10s 池超时下偶发
+    // "Timed out fetching a new connection"。预热只放宽预热事务自身的等待，不改生产默认值。
+    {
+      const t0 = Date.now();
+      await Promise.all(
+        Array.from({ length: 4 }, () =>
+          db.$transaction(
+            async (tx) => {
+              await tx.$queryRaw`SELECT 1`;
+              await new Promise((r) => setTimeout(r, 400));
+            },
+            { maxWait: 30_000, timeout: 30_000 },
+          ),
+        ),
+      );
+      console.log(`  · 连接池预热 4 条并发事务，耗时 ${Date.now() - t0}ms`);
+    }
+
     // ── 被保护的对象 ──────────────────────────────────────────
     const runA = await runSvc.createSearchRun(actorOwner, {
       projectId: projA.id,
@@ -671,6 +703,191 @@ async function main() {
       r9body.run.requirementSnapshotJson.find((e) => e.code === "R-003")?.mandatory === "uncertain",
       "R2-T7g：服务端 canonical 三值仍然生效",
     );
+
+
+    // ════════════ R1 Edge Closure ════════════
+    console.log("\n== A：org_admin 的列表 / 计数 / 单条必须同口径（非 dispatched 项目不得泄露）==");
+    // 夹具：项目派发期间由 owner 正常建 Run 与信号，随后项目回到 pending_dispatch
+    const projPending = await db.project.create({
+      data: { orgId: orgA.id, name: `TB ProjPending ${tag}`, ownerId: userOwner.id, workDomain: "tender", intakeStatus: "dispatched" },
+    });
+    const runPending = await runSvc.createSearchRun(actorOwner, {
+      projectId: projPending.id,
+      brief: { productKeywords: ["待派发"] },
+      requirements,
+    });
+    const sigPendingDirect = await signalSvc.createSubmittedSignal(actorOwner, {
+      rawText: `${PENDING_MARKER} 非 dispatched 项目直挂线索`,
+      manualEntry: true,
+      projectId: projPending.id,
+    });
+    const sigPendingViaRun = await signalSvc.createSubmittedSignal(actorOwner, {
+      rawText: "非 dispatched 项目经 Run 继承的线索",
+      manualEntry: true,
+      searchRunId: runPending.id,
+    });
+    await db.project.update({ where: { id: projPending.id }, data: { intakeStatus: "pending_dispatch" } });
+    ok(
+      (await db.supplierDiscoverySignal.findUnique({ where: { id: sigPendingViaRun.id } }))?.projectId === null,
+      "A 夹具前提：sigPendingViaRun 的 projectId 为 null（只能靠 Run 继承）",
+    );
+
+    // A1：单条不可读 → 列表/计数必须一致
+    await expectErr("NOT_FOUND", "A1a：org_admin 读不到非 dispatched 项目的信号（单条 canonical 口径）", () =>
+      signalSvc.getSignal(actorOrgAdmin, sigPendingDirect.id));
+    const adminList = await signalSvc.listSignals(actorOrgAdmin, { take: 200 });
+    const adminIds = new Set(adminList.map((x) => x.id));
+    ok(!adminIds.has(sigPendingDirect.id), "A1b：列表不返回该信号（修复前 org_admin 走 unrestricted 会返回）");
+    ok(
+      !JSON.stringify(adminList).includes(PENDING_MARKER),
+      "A1c：列表载荷零非 dispatched 项目正文",
+    );
+    const adminCount = await signalSvc.countSignals(actorOrgAdmin);
+    ok(adminCount === adminList.length, "A1d：计数与列表同口径", `count=${adminCount} list=${adminList.length}`);
+
+    // A2：projectId=null、经 searchRunId 继承非 dispatched 项目
+    await expectErr("NOT_FOUND", "A2a：Run 继承的非 dispatched 项目信号单条不可读", () =>
+      signalSvc.getSignal(actorOrgAdmin, sigPendingViaRun.id));
+    ok(!adminIds.has(sigPendingViaRun.id), "A2b：列表同样不返回（tenderId / Run 继承受同一约束）");
+
+    // A3：dispatched 正常读取与组织级线索不回归
+    ok(
+      (await signalSvc.getSignal(actorOrgAdmin, sigADirect.id))?.id === sigADirect.id,
+      "A3a：org_admin 仍可读 dispatched 项目的信号",
+    );
+    ok(adminIds.has(sigADirect.id), "A3b：dispatched 项目信号仍在列表内");
+    ok(adminIds.has(sigOrg.id), "A3c：真正的组织级线索不回归");
+    ok(
+      (await signalSvc.reviewSignal(actorOrgAdmin, sigAViaRun.id))?.status === "REVIEWED",
+      "A3d：org_admin 对 dispatched 项目的写操作不回归",
+    );
+
+    // A4：super_admin 既有特权保留，但 org 隔离与不可解析 Run 保护不放松
+    ok(
+      (await signalSvc.getSignal(actorSuper, sigPendingDirect.id))?.id === sigPendingDirect.id,
+      "A4a：super_admin 既有特殊规则保留（单条可读）",
+    );
+    const superList = await signalSvc.listSignals(actorSuper, { take: 200 });
+    ok(superList.some((x) => x.id === sigPendingDirect.id), "A4b：super_admin 列表与单条一致");
+    const foreignSignal = await signalSvc.createSubmittedSignal(actorX, {
+      rawText: "另一个 org 的线索",
+      manualEntry: true,
+    });
+    ok(!superList.some((x) => x.id === foreignSignal.id), "A4c：super_admin 仍受 org 隔离（不跨 org）");
+    const superOrphan = await signalSvc.createSubmittedSignal(actorOwner, {
+      rawText: "指向他 org Run 的线索",
+      manualEntry: true,
+      searchRunId: orphanRun.id,
+    });
+    await db.$executeRaw`UPDATE "SupplierDiscoverySignal" SET "searchRunId" = ${runX.id} WHERE "id" = ${superOrphan.id}`;
+    const superList2 = await signalSvc.listSignals(actorSuper, { take: 200 });
+    ok(
+      !superList2.some((x) => x.id === superOrphan.id),
+      "A4d：不可解析 Run 的保护对 super_admin 同样成立",
+    );
+    await expectErr("NOT_FOUND", "A4e：super_admin 单条同样 fail-closed", () =>
+      signalSvc.getSignal(actorSuper, superOrphan.id));
+
+    console.log("\n== A HTTP：org_admin 走真实路由的一致性 ==");
+    const ra1 = await signalItemRoute.GET(
+      await req(uOrgAdmin, `/api/supplier-intel/signals/${sigPendingDirect.id}`),
+      ctx(sigPendingDirect.id),
+    );
+    ok(ra1.status === 404, "A-HTTP1：org_admin GET 非 dispatched 项目信号 → 404", `实际 ${ra1.status}`);
+    const ra2 = await signalsRoute.GET(await req(uOrgAdmin, `/api/supplier-intel/signals`));
+    const ra2body = (await ra2.json()) as { signals: Array<{ id: string }> };
+    ok(
+      ra2.status === 200 && !ra2body.signals.some((x) => x.id === sigPendingDirect.id || x.id === sigPendingViaRun.id),
+      "A-HTTP2：org_admin 列表不含非 dispatched 项目的信号",
+    );
+    ok(ra2body.signals.some((x) => x.id === sigADirect.id), "A-HTTP3：dispatched 项目信号仍在 HTTP 列表内");
+
+    console.log("\n== B：tenderId 与 Run 项目归属的对称校验 ==");
+    // userOwner 是 org_admin，对 projA / projB 都有写权限 → 拒绝理由只能是指针冲突本身
+    const beforeB = await db.supplierDiscoverySignal.count({ where: { orgId: orgA.id } });
+    const beforeAudit = await db.auditLog.count({
+      where: { orgId: orgA.id, action: SUPPLIER_INTEL_AUDIT_ACTIONS.SIGNAL_CREATED },
+    });
+    await expectErr("INVALID_INPUT", "B1a：Run(projectId=A, tenderId=null) + Input(tenderId=B) → 冲突拒绝", () =>
+      signalSvc.createSubmittedSignal(actorOwner, {
+        rawText: "遗漏组合",
+        manualEntry: true,
+        tenderId: projB.id,
+        searchRunId: runA.id,
+      }));
+    const rb1 = await signalsRoute.POST(
+      await req(userOwner, `/api/supplier-intel/signals`, {
+        method: "POST",
+        body: { rawText: "HTTP 遗漏组合", manualEntry: true, tenderId: projB.id, searchRunId: runA.id },
+      }),
+    );
+    ok(rb1.status === 400, "B1b：HTTP 创建同样拒绝（400 领域错误）", `实际 ${rb1.status}`);
+    ok(((await rb1.json()) as { code?: string }).code === "INVALID_INPUT", "B1c：返回 INVALID_INPUT 语义");
+    ok(
+      (await db.supplierDiscoverySignal.count({ where: { orgId: orgA.id } })) === beforeB,
+      "B1d：service 与 HTTP 两条拒绝路径零信号落库",
+    );
+    ok(
+      (await db.auditLog.count({
+        where: { orgId: orgA.id, action: SUPPLIER_INTEL_AUDIT_ACTIONS.SIGNAL_CREATED },
+      })) === beforeAudit,
+      "B1e：两条拒绝路径零新增成功业务审计记录（前后差值 0）",
+    );
+
+    // B2：既有反向组合继续拒绝（Run.projectId=null / Run.tenderId=A，Input.projectId=B）
+    const runTenderOnly = await runSvc.createSearchRun(actorOwner, {
+      tenderId: projA.id,
+      brief: { productKeywords: ["仅 tender"] },
+      requirements,
+    });
+    ok(
+      (await db.supplierSearchRun.findUnique({ where: { id: runTenderOnly.id } }))?.projectId === null,
+      "B2 夹具前提：该 Run 只挂 tenderId",
+    );
+    await expectErr("INVALID_INPUT", "B2：Run(tenderId=A) + Input(projectId=B) 继续拒绝", () =>
+      signalSvc.createSubmittedSignal(actorOwner, {
+        rawText: "反向组合",
+        manualEntry: true,
+        projectId: projB.id,
+        searchRunId: runTenderOnly.id,
+      }));
+
+    // B3：合法指针通过
+    const okSame = await signalSvc.createSubmittedSignal(actorOwner, {
+      rawText: "同项目指针",
+      manualEntry: true,
+      projectId: projA.id,
+      searchRunId: runA.id,
+    });
+    ok(Boolean(okSame.id), "B3a：projectId 与 Run 一致 → 通过");
+    const okTenderSame = await signalSvc.createSubmittedSignal(actorOwner, {
+      rawText: "tenderId 指向 Run 的项目",
+      manualEntry: true,
+      tenderId: projA.id,
+      searchRunId: runA.id,
+    });
+    ok(Boolean(okTenderSame.id), "B3b：tenderId 指向 Run 的 projectId → 通过（不误伤）");
+    const okInherit = await signalSvc.createSubmittedSignal(actorOwner, {
+      rawText: "仅继承 Run",
+      manualEntry: true,
+      searchRunId: runA.id,
+    });
+    ok(Boolean(okInherit.id), "B3c：省略直接指针、仅继承 Run → 通过");
+
+    // B4：discovered-signal 共享路径同样生效（零新增逐结果权限查询——仍是事务内纯函数校验）
+    await expectErr("INVALID_INPUT", "B4a：createDiscoveredSignal 走同一 helper，冲突同样拒绝", () =>
+      signalSvc.createDiscoveredSignal(actorOwner, {
+        searchRunId: runA.id,
+        platform: "OPEN_WEB",
+        contentUrl: `https://b4-conflict-${tag}.example/x`,
+        tenderId: projB.id,
+      }));
+    const discovered = await signalSvc.createDiscoveredSignal(actorOwner, {
+      searchRunId: runA.id,
+      platform: "OPEN_WEB",
+      contentUrl: `https://b4-ok-${tag}.example/x`,
+    });
+    ok(discovered.created && discovered.signal.projectId === projA.id, "B4b：正常 discovered 路径不回归（继承 Run 归属）");
 
     console.log(`\nS2-TB 断言：${pass} 通过 / ${fail} 失败`);
   } finally {

@@ -91,9 +91,31 @@ async function main() {
     [],
   );
 
-  console.log("C1：列表过滤——super_admin / org_admin 不追加项目约束，但归属可解析性对所有角色成立");
+  console.log("B3（R1 Edge Closure）：tenderId 与 Run 的 projectId 对称对质——补齐的遗漏组合");
+  assert.deepEqual(
+    detectSubmitPointerConflicts({ projectId: null, tenderId: "P-B", searchRunId: "run1" }, run("run1", "P-A")),
+    ["tenderId=P-B 与 Run 的 projectId=P-A 不一致"],
+    "Run(projectId=A, tenderId=null) + Input(tenderId=B) 必须冲突",
+  );
+  assert.deepEqual(
+    detectSubmitPointerConflicts({ projectId: null, tenderId: "P-A", searchRunId: "run1" }, run("run1", "P-A")),
+    [],
+    "tenderId 指向 Run 自己的 projectId 不算冲突",
+  );
+  assert.deepEqual(
+    detectSubmitPointerConflicts({ projectId: "P-A", tenderId: "P-A", searchRunId: "run1" }, run("run1", "P-A")),
+    [],
+    "两个指针都指向 Run 的项目 → 合法",
+  );
+  assert.equal(
+    detectSubmitPointerConflicts({ projectId: "P-B", tenderId: "P-C", searchRunId: "run1" }, run("run1", "P-A")).length,
+    2,
+    "两个方向的冲突各自独立报出（不互相吞掉）",
+  );
+
+  console.log("C1：列表过滤——unrestricted（仅 super_admin）不追加项目约束，但归属可解析性对所有角色成立");
   const unrestricted = buildSignalProjectVisibilityFilter({ unrestricted: true }, "ORG-1");
-  assert.equal(unrestricted.length, 1, "只保留归属可解析性一段");
+  assert.equal(unrestricted.length, 1, "只保留归属可解析性一段（org_admin 不再走这个分支，见 access.listAccessibleProjectIdsForActor）");
   const unrestrictedJson = JSON.stringify(unrestricted);
   assert.ok(unrestrictedJson.includes('"searchRunId":null'), "未挂 Run 的信号不受影响");
   assert.ok(unrestrictedJson.includes('"orgId":"ORG-1"'), "挂 Run 的信号要求 Run 在本 org（与单条 fail-closed 一致）");
