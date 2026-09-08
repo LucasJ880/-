@@ -375,3 +375,169 @@ The first three passing does not change the overall state. `MENGXIN_FDE_V1` stay
 Open P1 items recorded, not fixed this round: the Trade-lane inquiry analysis and design LLM calls have no `isAIConfigured()` guard; `scripts/seed-revenue-spine-policy.ts` does not call `assertProductionOperationAllowed()`; the FDE's default owner (first active trade member) has no email provider connected; `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP` from round 1.
 
 #207 stays unmerged pending explicit release authorization. #206 stays open until its report content is confirmed preserved here and #207 is merged.
+
+---
+
+# Round 4 — PR #207 release gate closure (2026-09-08)
+
+Scope: close the one known DB-suite failure, freeze the release candidate, prepare the production migration checklist, prepare the site deployment. No production write, no merge, no deployment, no real email.
+
+## R4-1. Review baseline (PART 1)
+
+Re-read from the remote; all three match the values given in the brief.
+
+| Item | Expected | Actual (remote) |
+|---|---|---|
+| PR #207 head | `90314efc3c7ad33a4ff406e45b67ed872efb48f8` | same |
+| main | `5933ff7a0b17b343982cbe836ffb4931122e2e69` | same |
+| migration | `20260908120000_website_inquiry_receipt` | present, sha256 `4cc862a8589206f256d680cc930607d4e7f813aeb1fb6f936cfd7e2b6b3f06fb` |
+
+PR state: open, draft, MERGEABLE. No divergence, so the round-3 verification results still apply to this head.
+
+## R4-2. Closing the one known DB failure (PART 2)
+
+The round-3 record (151 pass / 1 fail) and its redacted diagnostics are kept above and unchanged.
+
+### Confirmed facts
+
+1. **Effective timeout.** `src/lib/db.ts` constructs `new PrismaClient()` with no options, so interactive transactions use the Prisma defaults: **`timeout` 5000 ms**, `maxWait` 2000 ms. Nothing in the repo overrides them.
+2. **Transaction entry points on the FDE path, with measured durations** (instrumented `db.$transaction`, isolated branch, from this machine, 5 scenario repetitions):
+
+| Transaction | Site | n | p50 | max |
+|---|---|---|---|---|
+| `completeAgentRun` | `src/lib/agent-runtime/run.ts:447` | 10 | **3484 ms** | **3824 ms** |
+| `createDraftBatch` (approval creation) | `src/lib/pending-actions/drafts.ts:183` | 5 | 1719 ms | 2852 ms |
+| `createAgentRun` | `src/lib/agent-runtime/run.ts:171` | 10 | 2015 ms | 2641 ms |
+| `upsertRfq` | `src/lib/revenue-spine/rfq/persist.ts:54` | 10 | 2031 ms | 2433 ms |
+| `appendAgentRunEvent` | `src/lib/agent-runtime/run.ts:639` | 130 | 1468 ms | 2204 ms |
+
+   165 transactions in total, **0 failed**, **0 reached 5000 ms**. The slowest (`completeAgentRun`, which holds `SELECT … FOR UPDATE` plus the terminal event write) already consumes about 70 % of the 5 s budget at p50.
+3. **Connection.** The isolated branch endpoint carries no `-pooler` (Neon direct). Measured round-trip for `SELECT 1` from this machine: min 256 ms, p50 257 ms, p90 287 ms, **max 3060 ms** — one spike of three seconds on a single trivial query.
+4. **What actually failed in round 3.** The `AgentRun` row for the re-run carries `status = failed` and `errorMessage = "Transaction API error: Transaction not found…"`. The draft id returned by the re-run was the **same** id the first run created, so the assertion failed on `ok === false`, not on draft identity.
+5. **Normal path now verified.** The targeted probe ran the exact section-4 scenario 5 times: first run ok, re-run ok, same draft id, 5/5. In the full suite below the original assertion — unchanged, still requiring `ok === true` — passes.
+
+### Inferences, explicitly not proven
+
+- **That a latency spike pushed `completeAgentRun` past 5000 ms** is the most probable mechanism. It is supported by (2) and (3): p50 already at 3.5 s of a 5 s budget, and an observed 3060 ms spike on a single query. It is not directly proven, because the failing run happened before the instrumentation existed.
+- **That a timeout, rather than the quota above, caused the specific round-3 section-4 failure** remains the reading of the evidence there (that run's `AgentRun` carries a transaction error, not a quota error), but the two failure modes look similar from the outside, and only the quota one has since been reproduced deterministically.
+- **That production is not exposed to the transaction timeout** rests on the app and database both being in us-east-1, where per-round-trip latency is single-digit milliseconds rather than ~256 ms, leaving roughly two orders of magnitude of headroom. I cannot measure production from here, so this stays an inference. If it ever does occur in production, the failure path below is what governs the outcome.
+
+### The real cause of the recurring "no pending draft" failures — a platform quota, not latency
+
+The instrumentation added this round finally caught it, and it is **not** environmental. Running the suite against a **local PostgreSQL** (sub-millisecond latency, where no timeout is possible) reproduced the failure immediately and deterministically, with the FDE returning:
+
+```text
+errorCode: "QUOTA"   error: "配额限制：配额 hard limit，拒绝执行"   fdeState.status: "run_blocked"
+```
+
+The mechanism, read from the code:
+
+- `createAgentRun` reserves one unit of `MAX_CONCURRENT_RUNS` before creating a run (`agent-runtime/run.ts`).
+- The platform default hard limit for that metric is **10** (`capabilities/governance/defaults.ts`), and usage is counted as *runs in `running`/`claimed`/`queued`* **plus** *reservations still `RESERVED` and not yet expired* (`usage-counters.ts`).
+- The concurrency reservation is deliberately kept `RESERVED` "until the run reaches a terminal state", but **no terminal path ever releases it**: `releaseReservation`/`commitReservation` appear only on `createAgentRun`'s failure paths (and the daily metric's commit). The slot is freed only when the reservation's **5-minute TTL** expires.
+- Organization policies cannot lift this: `resolveEffectiveQuota` combines platform and org limits with `tighter()`, so an org policy can only lower a limit, never raise it.
+
+That produces exactly the behaviour observed all along: **an organization can begin at most 10 agent runs per 5-minute window, no matter how quickly they finish.** Against Neon each FDE took 40–90 s, so ten runs usually spanned more than five minutes and the slots expired in time — the failure appeared only when a burst happened to fit inside the window, which is why it looked random and why I mis-attributed it to latency in round 3. Locally the same suite runs twenty times faster, so it hit the cap immediately and repeatably.
+
+**Production consequence (worth acting on separately).** The Mengxin organization is subject to the same cap. Eleven or more website inquiries — or FDE re-runs — starting inside one five-minute window will have the eleventh onward refused with `QUOTA`, and the FDE records `run_blocked`. The mitigating factor is that this round's recovery layer treats `run_blocked` as re-runnable, so the site's follow-up re-sends the same event after the backoff and the work completes once slots free up; nothing is lost and nothing is double-sent. It is still a real capacity limit and a missing release path, recorded as a P1 below rather than changed here, since the agent-runtime quota substrate is outside this PR's scope.
+
+**Effect on the suite.** The fixture organizations now release their own `MAX_CONCURRENT_RUNS` reservations immediately before each FDE-triggering call. That is the test-side equivalent of "five minutes passed": the suite is strictly sequential and never actually runs two agent runs at once, so no real concurrency limit is being bypassed, no limit is altered, and no assertion is weakened.
+
+### A second, distinct environment failure mode
+
+While producing the final verification run, a different failure appeared in section 13: Prisma **P2024, "Timed out fetching a new connection from the connection pool"** (pool timeout 10 s, connection limit 13), raised from `loadRevenueSpinePolicy`. This is not the transaction timeout above — it is pool exhaustion, and it has the same underlying driver: at ~256 ms per round trip every query holds its connection roughly a hundred times longer than in-region, so a suite that fans out queries saturates a 13-connection pool.
+
+It was fixed **in the test environment only**, by adding `connection_limit=20&pool_timeout=30&connect_timeout=20` to the isolated `DATABASE_URL`. No product code, no client configuration and no assertion was changed; the product still runs on Prisma defaults.
+
+### Where this suite actually runs
+
+Worth stating plainly, because it changes what CI green means: `scripts/test-ci-unit.sh` does invoke this suite, but the suite **skips itself** unless `DATABASE_URL`, `NODE_ENV=test` and `DATABASE_ENVIRONMENT=isolated` are all present, and CI provisions no isolated database. So the GitHub check does not exercise it — the local isolated-branch run reported below is the only place these 160 assertions actually execute, which is also why its environment sensitivity had to be dealt with rather than waved through.
+
+### Correction to round 3
+
+Round 3 stated that the pooled endpoint survived long runs better than the direct one, and that the direct endpoint "dropped immediately on wake". That comparison was **invalid**: `neonctl` returned a single connection URI for the branch, so both env files resolved to the *same* (direct) endpoint. The immediate drop was a transient compute-wake failure on that one endpoint, not a pooled-versus-direct difference. The separate round-3 finding about unguarded Trade-lane LLM calls stands — pointing `OPENAI_BASE_URL` at a closed port cut the suite from 40+ minutes to a few minutes.
+
+### Failure path, independently verified (new section 16)
+
+Fault injection replaces nothing that should be genuinely verified: every Prisma write and the whole approval state machine run for real, and only one named `db.$transaction` call is forced to throw the same "Transaction not found" shape.
+
+- **16A, failure before the draft exists** (injected into the RFQ persist transaction, `rfq/persist.ts:54`): the Revenue Spine is still established; **no approval is created**, nothing is sent, the `AgentRun` is `failed` with the reason recorded, `SalesAction.fdeStatus = failed`, and the receipt stays `linked` rather than being marked complete. Re-sending the same event then re-runs the FDE and produces **exactly one** pending approval, the receipt turns `complete`, and still nothing is sent. No business object is duplicated across failure and recovery.
+- **16B, failure after the draft exists** (injected into `completeAgentRun` — the very transaction observed failing in round 3): nothing is sent, **exactly one valid pending approval** remains, no one is recorded as a decision maker, and the run is `failed`. Re-sending either completes (one valid pending approval, receipt `complete`) or stops in an explicitly non-terminal state for a human; both are asserted as acceptable, nothing in between.
+- **16C, failure in the run-event write**: the FDE still completes, the run is `completed`, there is exactly one pending approval and nothing is sent.
+
+Getting 16A to fail *usefully* required finding out which transactions are actually fatal, which is itself a result worth recording: `appendAgentRunEvent` wraps its transaction in `try/catch` and returns `null` on error, so **run-event logging is best-effort by design and a failure there cannot break or duplicate the approval flow** (16C pins that behaviour down). The fatal pre-draft transaction is the RFQ persist, whose error propagates to the FDE's own catch. Two earlier attempts injected into the event write and were silently absorbed — the injection was corrected rather than the assertions relaxed.
+
+## R4-3. Full verification (PART 3)
+
+All of it run after the closure above, nothing running concurrently.
+
+| Check | Result |
+|---|---|
+| Isolated DB suite | **161 passed, 0 failed** — reproduced three consecutive times |
+| Typecheck (repo-wide `tsc --noEmit`) | pass |
+| Lint (changed files) | 0 errors, 0 warnings |
+| Runtime architecture guard (R1) | `runtime-architecture baseline: clean` |
+| Release safety (`check-release-safety.test.ts`) | 27 passed, 0 failed |
+| Migration history (`verify-migration-history.ts`) | 77 passed, 0 failed |
+| `website-inquiry` unit tests | 10 passed |
+
+The assertion count moved from 152 (151 + 1 failing) to **161** because this round adds section 16 (eight assertions) and one more inside it; no assertion was removed, relaxed or skipped, and the previously failing one — `重跑 FDE：审批草稿幂等复用`, still requiring `ok === true` — passes as written.
+
+**Where it ran, and why.** Two isolated environments were used, and the difference between them is what produced the diagnosis:
+
+- an isolated Neon branch (`gate-20260908`, created from production, migrations applied including the new one) — deleted after use; no `prod-pre-*` backup branch was touched;
+- a **local PostgreSQL 17 instance with pgvector**, created for this round in the scratchpad with the full migration history applied.
+
+The local instance is what made the suite trustworthy: from this machine the Neon branch answers a trivial `SELECT 1` in ~256 ms (with an observed 3060 ms spike), so a 30-minute run kept dying in a different place each time — a transaction timeout, then pool exhaustion, then the quota cap. Locally the same suite finishes in about four minutes and is repeatable, which is exactly what let the quota cause be isolated instead of guessed at. The local cluster is a throwaway; it is stopped and removed at the end of the round.
+
+## R4-4. Production migration release checklist (PART 4) — prepared, not executed
+
+| Item | Value / finding |
+|---|---|
+| Release candidate | PR #207 head `90314efc3c7ad33a4ff406e45b67ed872efb48f8` |
+| Migration file | `prisma/migrations/20260908120000_website_inquiry_receipt/migration.sql` |
+| SHA256 (recomputed on the candidate) | `4cc862a8589206f256d680cc930607d4e7f813aeb1fb6f936cfd7e2b6b3f06fb` |
+| Statements | `CREATE TABLE "WebsiteInquiryReceipt"` + 1 unique index + 4 indexes. Zero `ALTER` / `DROP` / `UPDATE` / `DELETE`, no foreign keys, no change to any existing table, column or row. |
+| Production target identification | `prisma migrate status` (read-only) reports `PostgreSQL "neondb" schema "public" at ep-super-field-antfibsl.c-6.us-east-1.aws.neon.tech`. The datasource is `url = env("DATABASE_URL")`, `directUrl = env("DIRECT_URL")`, and **Prisma migrate uses `directUrl`**, i.e. the non-pooled endpoint, while the running app uses the pooled one. `safe-migrate-deploy` additionally prints the masked host and requires `ALLOW_DATABASE_MIGRATION=true` plus `CONFIRM_PRODUCTION_MIGRATION=I_UNDERSTAND_PRODUCTION_MIGRATION`. |
+| Pending migrations | **Exactly one: `20260908120000_website_inquiry_receipt`.** Last common migration `20260906120000_mengxin_fde_revenue_spine`. `safe-migrate-deploy` runs *all* pending migrations, so if a second pending entry ever appears, stop and re-review instead of applying. |
+| Migration history / drift | The "not found locally" list is the known archived pre-greenfield history, covered by `verify-migration-history.ts`. One extra entry deserves attention and is **not mine**: `20260829200000_add_vinyl_work_order` is applied in production but is in neither `EXPECTED_ACTIVE_MIGRATIONS` nor `ARCHIVED_MIGRATIONS` on this branch (it exists only as an untracked directory in the working tree of the vinyl lane). `prisma migrate deploy` will not touch it because it is already applied, and the predeploy gate classifies it as "unexpected" and passes — but the vinyl lane should register it. |
+| Pre-migration backup | Take a Neon branch from production immediately before applying, following the existing convention: `prod-pre-website-inquiry-receipt-migration-<YYYYMMDD>`. Do **not** delete the earlier `prod-pre-*` branches. Not created in this round, because a snapshot is only meaningful taken immediately before the change. |
+| Old app compatibility with the new table | Safe by construction and by inspection: the table is new, standalone, has no foreign keys into existing tables, and no code in the currently deployed build (`5933ff7a`) references it. The deployed Prisma client simply does not know it exists. |
+| Migration applied but deployment fails | The old application keeps running unaffected, and it can still be **re-deployed**: `scripts/predeploy-migration-gate.ts` blocks only on *missing* migrations; extra applied migrations are logged as "unexpected" and explicitly allowed ("回滚部署时属正常，放行"). So the safe order is: back up → apply migration → merge → deploy; and if the deploy fails, roll the deployment back and leave the table in place. |
+
+Not executed and not permitted in this round: production `db push` / `migrate dev` / `reset`, manual production DDL, production seed, automatic whole-database restore.
+
+## R4-5. Site deployment preparation (PART 5)
+
+The package is unchanged and re-verified on this pass: site commit `da4ff0c`, 15 files, `PREFLIGHT: OK`, package `梦馨家纺网站-bridge-delta-da4ff0c.tar.gz`, sha256 `83ec8f03de0d92d58a76b4415428df66b3604b7fb664390d387af609978c28d0`. Nothing was rebuilt.
+
+The read-only server checks the brief asks for — deployed file versions against the local baseline, deployment directory and process manager, a separate `INQUIRY_DATA_DIR`, its permissions and non-public reachability, presence (only) of the environment variables, whether the recovery schedule is actually installed, and the backup/rollback arrangement — are all specified as commands in the site repo's `docs/QINGYAN_BRIDGE.md` (sections 服务器诊断 and 部署). **None of them were run:** the site host is reachable only by interactive password SSH, this session must not handle passwords or private keys, and the sandbox blocked the one SSH attempt made in round 2. No credential, private key or webhook secret appears anywhere in this work.
+
+```text
+SITE_DEPLOYMENT_PREFLIGHT = NEEDS_SERVER_ACCESS
+```
+
+To unblock, either run the checklist in `docs/QINGYAN_BRIDGE.md` yourself and paste the output, or grant a non-interactive key-based login for this session.
+
+## R4-6. Status
+
+```text
+SCHEMA_DESIGN_REVIEW         = ACCEPTED
+KNOWN_DB_FAILURE_CLOSURE     = PASS
+NORMAL_REPLAY_PATH           = PASS
+TIMEOUT_RECOVERY_PATH        = PASS
+DB_SUITE                     = 161/161
+PR207_FINAL_HEAD             = 93a34a1647a944921abd8d70b6e533b3aec0121d  (last code commit; this report is committed on top,
+                               so the branch tip is a later docs-only commit)
+PR207_FINAL_HEAD_CI          = PASS (validate-lint-typecheck-test-build + both Vercel previews green on 93a34a16)
+MIGRATION_PREFLIGHT          = READY (not executed)
+SITE_DEPLOYMENT_PREFLIGHT    = NEEDS_SERVER_ACCESS
+
+PR207_RELEASE_GATE = READY_FOR_PRODUCTION_AUTHORIZATION
+```
+
+The gate covers the Qingyan side only: the code is verified, the migration checklist is prepared, and what remains is your authorization to apply the migration and merge. It does **not** mean the feature is live. `MENGXIN_FDE_V1` stays `PRODUCTION_BLOCKED`, and the outstanding items are unchanged: the site delta is not deployed (needs server access), the receipt migration is not applied, #207 is not merged, and the real-form acceptance and the human approval / Trade Inbox steps have not run.
+
+New P1 recorded this round, not fixed here: `MAX_CONCURRENT_RUNS` reservations are never released at run terminal (only creation-failure paths release), so an organization can begin at most 10 agent runs per 5-minute TTL window and the eleventh is refused with `QUOTA`; organization policy cannot raise it. For Mengxin this caps inbound FDE throughput at ten inquiries or re-runs per five minutes. The recovery layer treats `run_blocked` as re-runnable, so work resumes once slots free rather than being lost. Earlier P1s stand: unguarded Trade-lane LLM calls, `seed-revenue-spine-policy.ts` not calling `assertProductionOperationAllowed()`, the FDE default owner having no email provider, and `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP`.
+
+PR #207 remains unmerged. The production migration, the merge, the deployment and any real send all remain pending explicit authorization.
