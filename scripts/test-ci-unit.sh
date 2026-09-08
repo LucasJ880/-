@@ -98,6 +98,13 @@ npx tsx scripts/public-route-auth-contracts.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
+npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
+npx tsx src/lib/trade/__tests__/inbox-service.test.ts
+npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
+npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts
+npx tsx src/lib/trade/__tests__/inquiry-design-rules.test.ts
+npx tsx src/lib/navigation/__tests__/trade-layout.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
@@ -178,6 +185,12 @@ npx tsx src/lib/supplier-intel/__tests__/adapters.test.ts
 npx tsx src/lib/supplier-intel/__tests__/entity-resolution.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2fr-db.isolated.test.ts
+
+# Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts
+npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
+npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
+npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）

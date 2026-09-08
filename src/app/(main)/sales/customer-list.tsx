@@ -30,6 +30,7 @@ import {
   reviewCrmRecord,
   type CrmReview,
 } from "@/lib/digital-employees/crm-review";
+import { useOrgModules } from "@/lib/hooks/use-org-modules";
 
 function reviewCustomer(customer: Customer, nowMs: number): CrmReview {
   return reviewCrmRecord({
@@ -75,6 +76,8 @@ function RowActions({
   customer: Customer;
   className?: string;
 }) {
+  const { hasModule } = useOrgModules();
+  const windowCovering = hasModule("window_covering");
   return (
     <div className={cn("flex flex-wrap items-center gap-1", className)}>
       {customer.phone ? (
@@ -95,14 +98,16 @@ function RowActions({
         <MessageSquare className="h-3 w-3" />
         记录跟进
       </Link>
-      <Link
-        href={`/sales/quote-sheet?customerId=${customer.id}`}
-        onClick={(e) => e.stopPropagation()}
-        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--border)] px-2 text-[11px] hover:bg-[var(--muted)]/10"
-      >
-        <FileText className="h-3 w-3" />
-        新建报价
-      </Link>
+      {windowCovering !== false && (
+        <Link
+          href={`/sales/quote-sheet?customerId=${customer.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--border)] px-2 text-[11px] hover:bg-[var(--muted)]/10"
+        >
+          <FileText className="h-3 w-3" />
+          新建报价
+        </Link>
+      )}
       <Link
         href={`/sales/calendar?new=1&customerId=${customer.id}`}
         onClick={(e) => e.stopPropagation()}

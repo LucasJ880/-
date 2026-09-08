@@ -43,6 +43,12 @@ const CHANNEL_INFO: Record<string, { label: string; color: string; fields: { key
       { key: "agentId", label: "Agent ID", placeholder: "应用AgentId" },
     ],
   },
+  website: {
+    label: "网站询盘表单",
+    color: "bg-indigo-500/15 text-indigo-400",
+    // 密钥由服务端生成，添加后在通道卡片里查看接入代码
+    fields: [],
+  },
 };
 
 export default function TradeChannelsPage() {
@@ -135,11 +141,15 @@ export default function TradeChannelsPage() {
                     <Trash2 size={14} />
                   </button>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                  {Object.entries(ch.config).map(([k, v]) => (
-                    <span key={k}>{k}: <span className="text-foreground">{v}</span></span>
-                  ))}
-                </div>
+                {ch.channel === "website" ? (
+                  <WebsiteInquirySetup orgId={orgId} />
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                    {Object.entries(ch.config).map(([k, v]) => (
+                      <span key={k}>{k}: <span className="text-foreground">{v}</span></span>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -156,6 +166,111 @@ export default function TradeChannelsPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function WebsiteInquirySetup({ orgId }: { orgId: string }) {
+  const [secret, setSecret] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const endpoint =
+    typeof window !== "undefined" ? `${window.location.origin}/api/trade/webhook/website` : "/api/trade/webhook/website";
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/api/trade/channels/website?orgId=${encodeURIComponent(orgId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { config?: { secret?: string } } | null) => {
+        if (!cancelled) setSecret(d?.config?.secret ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSecret(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  const copy = async (label: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const snippet = `<!-- 青砚网站询盘：放到 Contact Us 表单所在页面 -->
+<form id="qy-inquiry">
+  <input name="name" placeholder="Your name" required />
+  <input name="email" type="email" placeholder="Work email" required />
+  <input name="company" placeholder="Company" />
+  <input name="country" placeholder="Country" />
+  <input name="product" placeholder="Product of interest" />
+  <textarea name="message" placeholder="Quantity, specs, target price..."></textarea>
+  <input name="_hp" style="display:none" tabindex="-1" autocomplete="off" />
+  <button type="submit">Send inquiry</button>
+</form>
+<script>
+document.getElementById('qy-inquiry').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const q = new URLSearchParams(location.search);
+  ['utm_source','utm_medium','utm_campaign','utm_content','utm_term']
+    .forEach((k) => { if (q.get(k)) data[k] = q.get(k); });
+  data.page = location.href;
+  const res = await fetch('${endpoint}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-qingyan-webhook-secret': '${secret ?? "<密钥>"}' },
+    body: JSON.stringify(data),
+  });
+  form.innerHTML = res.ok
+    ? '<p>Thanks! We will get back to you within 24 hours.</p>'
+    : '<p>Something went wrong. Please email us directly.</p>';
+});
+</script>`;
+
+  return (
+    <div className="mt-3 space-y-3 text-xs">
+      <p className="text-muted">
+        网站表单提交后自动进入「线索资产」（活动：网站询盘），带上来源页与 UTM，并即时通知销售。已有邮箱的买家会合并到原线索。
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-muted">接口地址</span>
+            <button type="button" onClick={() => copy("endpoint", endpoint)} className="text-accent hover:underline">
+              {copied === "endpoint" ? "已复制" : "复制"}
+            </button>
+          </div>
+          <code className="break-all text-foreground">{endpoint}</code>
+        </div>
+        <div className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-muted">通道密钥（请求头 x-qingyan-webhook-secret）</span>
+            {secret && (
+              <button type="button" onClick={() => copy("secret", secret)} className="text-accent hover:underline">
+                {copied === "secret" ? "已复制" : "复制"}
+              </button>
+            )}
+          </div>
+          <code className="break-all text-foreground">{secret ?? "读取中…"}</code>
+        </div>
+      </div>
+      <details className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+        <summary className="cursor-pointer text-foreground">接入代码（复制到网站 Contact Us 页面）</summary>
+        <div className="mt-2 flex justify-end">
+          <button type="button" onClick={() => copy("snippet", snippet)} className="text-accent hover:underline">
+            {copied === "snippet" ? "已复制" : "复制代码"}
+          </button>
+        </div>
+        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all text-[11px] leading-relaxed text-foreground/90">{snippet}</pre>
+        <p className="mt-2 text-muted">
+          自建站（如 Next.js）可不改表单结构，只在提交处 fetch 上面的接口；字段名支持 name / email / phone / company / country / product / message，另有 page 与 utm_* 可选。
+        </p>
+      </details>
     </div>
   );
 }

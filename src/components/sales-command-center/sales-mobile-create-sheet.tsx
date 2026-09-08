@@ -9,6 +9,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { SalesBottomSheet } from "./sales-bottom-sheet";
+import { useOrgModules } from "@/lib/hooks/use-org-modules";
 
 const ITEMS = [
   {
@@ -46,10 +47,22 @@ export function SalesMobileCreateSheet({
   open: boolean;
   onClose: () => void;
 }) {
+  const { hasModule } = useOrgModules();
+  const windowCovering = hasModule("window_covering");
+  const items = ITEMS.flatMap((item) => {
+    if (item.href === "/sales/quote-sheet" && windowCovering === false) {
+      return [{ ...item, href: "/trade/quotes", label: "外贸报价" }];
+    }
+    // 量房估价是窗饰专属，非窗饰企业不展示
+    if (item.href === "/sales/measure" && windowCovering === false) {
+      return [];
+    }
+    return [item];
+  });
   return (
     <SalesBottomSheet open={open} onClose={onClose} title="新增">
       <div className="grid grid-cols-2 gap-2">
-        {ITEMS.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
           return (
             <Link

@@ -66,6 +66,7 @@ import {
   type CustomerContextTarget,
 } from "@/components/sales/customer-context-panel";
 import type { SalesActionDto } from "../../sales-action-types";
+import { useOrgModules } from "@/lib/hooks/use-org-modules";
 
 const CUSTOMER_SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "referral", label: "转介绍" },
@@ -167,13 +168,19 @@ function CustomerDetailPageInner() {
     "timeline" | "quotes" | "orders" | "visualizer" | "coaching"
   >("timeline");
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
+  // 窗饰模块关闭的企业（如梦馨外贸）：报价/工艺单/可视化都是窗饰域，整块隐藏
+  const { hasModule } = useOrgModules();
+  const windowCovering = hasModule("window_covering");
   const TAB_ORDER: (
     | "timeline"
     | "quotes"
     | "orders"
     | "visualizer"
     | "coaching"
-  )[] = ["timeline", "quotes", "orders", "visualizer", "coaching"];
+  )[] =
+    windowCovering === false
+      ? ["timeline", "coaching"]
+      : ["timeline", "quotes", "orders", "visualizer", "coaching"];
   const swipeHandlers = useSwipeable({
     onSwipeLeft: () => {
       const idx = TAB_ORDER.indexOf(activeTab);
@@ -600,7 +607,13 @@ function CustomerDetailPageInner() {
       <CustomerDigitalEmployeePanel
         customer={customer}
         onRecordFollowup={() => setShowAddInteraction(true)}
-        onCreateQuote={() => setShowCreateQuote(true)}
+        onCreateQuote={() => {
+          if (windowCovering === false) {
+            router.push("/trade/quotes");
+            return;
+          }
+          setShowCreateQuote(true);
+        }}
         onEditProfile={() => {
           setMobileSummaryOpen(true);
           startBasicEdit();
@@ -998,6 +1011,7 @@ function CustomerDetailPageInner() {
                   <div className="flex items-center gap-2 text-xs text-muted">
                     <span>{opp._count.quotes} 报价</span>
                     <span>{opp._count.blindsOrders} 订单</span>
+                    {windowCovering !== false && (
                     <button
                       type="button"
                       onClick={() => handleOpenVisualizer(opp.id)}
@@ -1012,6 +1026,7 @@ function CustomerDetailPageInner() {
                       )}
                       可视化方案
                     </button>
+                    )}
                   </div>
                 </div>
                 );
@@ -1031,7 +1046,7 @@ function CustomerDetailPageInner() {
             { key: "visualizer" as const, label: "可视化方案", shortLabel: "方案", count: 0 },
             { key: "coaching" as const, label: "建议记录", shortLabel: "建议", count: 0 },
           ]
-        ).map((tab) => (
+        ).filter((tab) => TAB_ORDER.includes(tab.key)).map((tab) => (
           <button
             key={tab.key}
             className={cn(

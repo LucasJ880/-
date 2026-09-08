@@ -34,7 +34,7 @@ function ctx(
     hasMembership: true,
     workspaceIds: ["ws1"],
     modules: {
-      enabled: ["sales", "projects", "operations", "trade", "finance", "bids"],
+      enabled: ["sales", "projects", "operations", "trade", "finance", "bids", "window_covering"],
     },
     isPlatformAdmin: true,
     hasBidCapability: true,

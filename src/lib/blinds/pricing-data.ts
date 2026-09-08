@@ -248,6 +248,9 @@ export const ROLLER_FABRICS: Record<string, { msrpRef: 'LF' | 'BO'; cassette: bo
   'Blackout (Open Roll)':         { msrpRef: 'BO', cassette: false },
   'Light Filtering w Cassette':   { msrpRef: 'LF', cassette: true },
   'Blackout w Cassette':          { msrpRef: 'BO', cassette: true },
+  // Fascia 暂与 Cassette 同价（2026-08-26 Lucas 口径）；独立键保住工艺单上的真实罩型
+  'Light Filtering w Fascia':     { msrpRef: 'LF', cassette: true },
+  'Blackout w Fascia':            { msrpRef: 'BO', cassette: true },
 };
 
 export const MSRP_DRAPERY: Record<string, number[][]> = {

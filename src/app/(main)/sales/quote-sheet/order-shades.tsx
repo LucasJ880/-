@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import type { ShadeOrderLine, InstallMode } from "./types";
 import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
+import { valanceOptionsFor } from "@/lib/blinds/valance-options";
 import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
@@ -275,11 +276,10 @@ export function OrderShadesForm({
                     />
                   </td>
                   <td className="px-1 py-0.5">
-                    <input
-                      type="text"
+                    <RadioGroup
                       value={line.valance}
-                      onChange={(e) => updateLine(line.id, "valance", e.target.value)}
-                      className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
+                      options={[...valanceOptionsFor(line.product)]}
+                      onChange={(v) => updateLine(line.id, "valance", v)}
                     />
                   </td>
                   <td className="px-1 py-0.5">

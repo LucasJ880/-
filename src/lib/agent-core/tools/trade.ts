@@ -17,9 +17,12 @@ import {
 import {
   getTradeProspectStageLabel,
   mergeNormalizedProspectStageCounts,
+  stageAtLeastContacted,
   TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE,
   TRADE_PROSPECT_STAGES,
 } from "@/lib/trade/stage";
+import { generateOutreachEmail } from "@/lib/trade/agents";
+import { updateProspect, createMessage } from "@/lib/trade/service";
 import { searchKnowledge } from "@/lib/trade/knowledge-service";
 
 function ok(data: unknown): ToolExecutionResult {
@@ -498,6 +501,200 @@ registry.register({
       category: category ?? null,
       found: Boolean(context),
       context: context || "未找到相关知识条目。可提示用户到「外贸 · 产品知识库」导入 Markdown/ZIP。",
+    });
+  },
+});
+
+// ── 动作工具共用：按 id 或公司名在组织内解析唯一线索 ─────────────
+
+type ProspectResolution =
+  | { kind: "ok"; prospect: { id: string; companyName: string; country: string | null } }
+  | { kind: "candidates"; candidates: { id: string; companyName: string; country: string | null }[] }
+  | { kind: "error"; error: string };
+
+async function resolveProspectForAction(
+  orgId: string,
+  args: Record<string, unknown>,
+): Promise<ProspectResolution> {
+  const prospectId = (args.prospectId as string | undefined)?.trim();
+  const companyName = (args.companyName as string | undefined)?.trim();
+
+  if (prospectId) {
+    const p = await db.tradeProspect.findFirst({
+      where: { id: prospectId, orgId },
+      select: { id: true, companyName: true, country: true },
+    });
+    return p
+      ? { kind: "ok", prospect: p }
+      : { kind: "error", error: "线索不存在或不属于当前组织" };
+  }
+
+  if (!companyName) {
+    return { kind: "error", error: "请提供 prospectId 或 companyName" };
+  }
+
+  const matches = await db.tradeProspect.findMany({
+    where: { orgId, companyName: { contains: companyName } },
+    select: { id: true, companyName: true, country: true },
+    take: 6,
+  });
+  if (matches.length === 0) return { kind: "error", error: `未找到匹配「${companyName}」的线索` };
+  if (matches.length > 1) return { kind: "candidates", candidates: matches };
+  return { kind: "ok", prospect: matches[0] };
+}
+
+// ── trade.generate_outreach（生成个性化开发信草稿）──────────────
+
+registry.register({
+  name: "trade_generate_outreach",
+  description:
+    "为已研究的线索生成个性化开发信草稿（基于研究报告与活动产品描述，自动匹配客户语言），草稿存入线索的开发信字段，发送仍由人在界面确认。用户说「写开发信/生成开发信/给XX起草邮件」时使用。前置：线索需已有研究报告，否则先用 trade_run_prospect_research。",
+  domain: "trade",
+  parameters: {
+    type: "object",
+    properties: {
+      prospectId: { type: "string", description: "线索 ID（优先）" },
+      companyName: { type: "string", description: "公司名（组织内唯一匹配时可用；多匹配会返回 candidates）" },
+      language: { type: "string", description: "可选，强制正文语言（如 English / 中文 / Deutsch）；默认按客户国家自动判断" },
+    },
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const resolved = await resolveProspectForAction(ctx.orgId, ctx.args);
+    if (resolved.kind === "error") return { success: false, data: null, error: resolved.error };
+    if (resolved.kind === "candidates") {
+      return {
+        success: false,
+        data: { code: "ambiguous_prospect", candidates: resolved.candidates },
+        error: "匹配到多条线索，请让用户选择后改传 prospectId",
+      };
+    }
+
+    const prospect = await db.tradeProspect.findFirst({
+      where: { id: resolved.prospect.id, orgId: ctx.orgId },
+      include: { campaign: { select: { productDesc: true } } },
+    });
+    if (!prospect?.campaign) return { success: false, data: null, error: "线索或所属活动不存在" };
+
+    const report = getResearchReportForAgents(prospect.researchReport);
+    if (!report) {
+      return {
+        success: false,
+        data: { code: "research_required", prospectId: prospect.id },
+        error: "该线索还没有研究报告，请先调用 trade_run_prospect_research 再生成开发信",
+      };
+    }
+
+    const [org, user] = await Promise.all([
+      db.organization.findUnique({ where: { id: ctx.orgId }, select: { name: true } }),
+      db.user.findUnique({ where: { id: ctx.userId }, select: { name: true } }),
+    ]);
+
+    const language = (ctx.args.language as string | undefined)?.trim();
+    const draft = await generateOutreachEmail(
+      {
+        companyName: prospect.companyName,
+        contactName: prospect.contactName,
+        contactTitle: prospect.contactTitle,
+        country: prospect.country,
+      },
+      report,
+      prospect.campaign.productDesc,
+      {
+        companyName: org?.name ?? "Our Company",
+        senderName: user?.name ?? "Sales",
+      },
+      { ...(language ? { language } : {}), orgId: ctx.orgId },
+    );
+
+    await updateProspect(prospect.id, {
+      outreachSubject: draft.subject,
+      outreachBody: draft.body,
+      outreachLang: language ?? "en",
+    });
+
+    return ok({
+      prospectId: prospect.id,
+      companyName: prospect.companyName,
+      subject: draft.subject,
+      subjectZh: draft.subjectZh,
+      bodyPreview: draft.body.slice(0, 400),
+      note: "草稿已存入该线索的开发信字段；发送需在线索详情页人工确认（可选 Resend 直发或手动发送后标记）。",
+    });
+  },
+});
+
+// ── trade.log_follow_up（记录跟进并排下一次）────────────────────
+
+registry.register({
+  name: "trade_log_follow_up",
+  description:
+    "为线索记录一次跟进（写入消息时间线），推进阶段至至少「已触达」，并安排下一次跟进时间。用户说「记一下跟进/标记已跟进/跟进完了」时使用。",
+  domain: "trade",
+  parameters: {
+    type: "object",
+    properties: {
+      prospectId: { type: "string", description: "线索 ID（优先）" },
+      companyName: { type: "string", description: "公司名（组织内唯一匹配时可用）" },
+      note: { type: "string", description: "跟进内容摘要（做了什么/客户说了什么）" },
+      channel: { type: "string", description: "渠道：email / whatsapp / phone / wechat / other，默认 other" },
+      nextFollowUpDays: { type: "number", description: "几天后再跟进，默认 3；传 0 表示今天再看" },
+    },
+    required: ["note"],
+  },
+  execute: async (ctx: ToolExecutionContext) => {
+    const note = (ctx.args.note as string | undefined)?.trim();
+    if (!note) return { success: false, data: null, error: "note 不能为空" };
+
+    const resolved = await resolveProspectForAction(ctx.orgId, ctx.args);
+    if (resolved.kind === "error") return { success: false, data: null, error: resolved.error };
+    if (resolved.kind === "candidates") {
+      return {
+        success: false,
+        data: { code: "ambiguous_prospect", candidates: resolved.candidates },
+        error: "匹配到多条线索，请让用户选择后改传 prospectId",
+      };
+    }
+
+    const channelRaw = (ctx.args.channel as string | undefined)?.trim().toLowerCase();
+    const channel = ["email", "whatsapp", "phone", "wechat", "other"].includes(channelRaw ?? "")
+      ? channelRaw!
+      : "other";
+    const daysRaw = Number(ctx.args.nextFollowUpDays);
+    const days = Number.isFinite(daysRaw) && daysRaw >= 0 && daysRaw <= 60 ? daysRaw : 3;
+
+    const current = await db.tradeProspect.findFirst({
+      where: { id: resolved.prospect.id, orgId: ctx.orgId },
+      select: { id: true, stage: true },
+    });
+    if (!current) return { success: false, data: null, error: "线索不存在或不属于当前组织" };
+
+    await createMessage({
+      prospectId: current.id,
+      direction: "outbound",
+      channel,
+      content: note,
+    });
+
+    const now = new Date();
+    const next = new Date(now);
+    next.setDate(next.getDate() + days);
+    const updated = await db.tradeProspect.update({
+      where: { id: current.id },
+      data: {
+        stage: stageAtLeastContacted(current.stage),
+        lastContactAt: now,
+        nextFollowUpAt: next,
+        followUpCount: { increment: 1 },
+      },
+      select: { followUpCount: true, stage: true },
+    });
+
+    return ok({
+      prospectId: current.id,
+      companyName: resolved.prospect.companyName,
+      stage: updated.stage,
+      followUpCount: updated.followUpCount,
+      nextFollowUpAt: next.toISOString(),
     });
   },
 });

@@ -70,6 +70,7 @@ export function canAccessModule(role: string | null | undefined, modulePath: str
     "/blinds-orders":   ["admin", "boss", "manager", "sales", "operations"],
     "/trade":           ["admin", "boss", "manager", "trade"],
     "/trade/knowledge": ["admin", "boss", "manager", "trade"],
+    "/revenue":         ["admin", "boss", "manager", "trade", "sales"],
     "/organizations":   ["admin", "boss", "manager", "operations", "user"],
     "/projects":        ["admin", "boss", "manager", "operations", "user"],
     "/suppliers":       ["admin", "boss", "manager", "operations", "user"],

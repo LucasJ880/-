@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Plus, Trash2, AlertCircle, Lock, Unlock, Settings2 } from "lucide-react";
 import { priceFor, isCordlessEligible, formatCAD } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS, DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
+import { valanceOptionsFor, valanceRequiredFor, defaultValanceFor, rollerEngineFabricKey, parseRollerFabric, ROLLER_BASE_FABRICS } from "@/lib/blinds/valance-options";
 import { apiFetch } from "@/lib/api-fetch";
 
 function recalcLine(line: PartALine): PartALine {
@@ -199,8 +200,19 @@ function ShadeFields({ line, onUpdate }: { line: PartALine; onUpdate: (u: Partia
       </div>
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground text-[10px] font-medium">Valance:</span>
-        {["Cassette", "Fascia"].map((v) => (
-          <button key={v} type="button" onClick={() => onUpdate({ valance: line.valance === v ? "" : v })}
+        {valanceOptionsFor(line.product as ProductName | "").map((v) => (
+          <button key={v} type="button"
+            onClick={() => {
+              // Roller/Zebra 必选：点击已选项不清空；Roller 同步重写引擎定价键（None 不加钱，Cassette/Fascia +25/50）
+              const required = valanceRequiredFor(line.product as ProductName | "");
+              const nextValance = line.valance === v ? (required ? v : "") : v;
+              if (line.product === "Roller") {
+                const base = parseRollerFabric(line.fabric).base;
+                onUpdate({ valance: nextValance, fabric: base ? rollerEngineFabricKey(base, nextValance) : line.fabric });
+              } else {
+                onUpdate({ valance: nextValance });
+              }
+            }}
             className={cn("px-2 py-1 rounded text-[10px] font-medium transition-colors",
               line.valance === v ? "bg-teal-600 text-white" : "bg-muted/40 text-muted-foreground hover:bg-muted/70")}>
             {v}
@@ -329,6 +341,7 @@ export function PartAForm({
           const merged = { ...l, ...updates };
           if ("product" in updates && updates.product !== l.product) {
             merged.fabric = "";
+            merged.valance = defaultValanceFor((updates.product ?? "") as ProductName | "");
             merged.msrp = null;
             merged.price = null;
             merged.discountValue = null;
@@ -374,7 +387,7 @@ export function PartAForm({
 
       <div className="space-y-3">
         {lines.map((line, i) => {
-          const fabrics = line.product ? getAvailableFabrics(line.product as ProductName) : [];
+          const fabrics = line.product === "Roller" ? [...ROLLER_BASE_FABRICS] : line.product ? getAvailableFabrics(line.product as ProductName) : [];
           const cat = getProductCategory(line.product);
           const qty = Math.max(1, line.panelCount);
 
@@ -414,8 +427,10 @@ export function PartAForm({
 
                 <div className="w-44">
                   <label className="text-[10px] text-muted-foreground font-medium">Fabric / SKU</label>
-                  <select value={line.fabric}
-                    onChange={(e) => updateLine(line.id, { fabric: e.target.value })}
+                  <select value={line.product === "Roller" ? parseRollerFabric(line.fabric).base : line.fabric}
+                    onChange={(e) => updateLine(line.id, line.product === "Roller"
+                      ? { fabric: rollerEngineFabricKey(e.target.value, line.valance || defaultValanceFor("Roller")) }
+                      : { fabric: e.target.value })}
                     disabled={!line.product}
                     className="w-full rounded border border-border bg-card-bg/80 px-2 py-1.5 text-sm outline-none min-h-[44px] disabled:opacity-50">
                     <option value="">Select fabric...</option>

@@ -223,6 +223,11 @@ export async function processChatV2(
 - 2～4 条带依据的要点（可引用返回中的 evidenceHighlights）
 - 未确认项（unknownsNote）请保守表述
 - 若有 internalLaunchHint，仅作内部弱信号一句带过，不要当卖点或预测
+
+**开发信与跟进（动作工具）**
+- 用户要「写/生成开发信」→ \`trade_generate_outreach\`（优先 prospectId；多匹配返回 candidates 时列出让用户选）。前置是已有研究报告：若返回 research_required，先跑 \`trade_run_prospect_research\` 再生成。生成的是草稿，发送必须由用户在线索详情页确认——不要声称已发送。
+- 用户说「记一下跟进/跟进完了」→ \`trade_log_follow_up\`（note 必填=跟进摘要；channel 可选 email/whatsapp/phone/wechat；nextFollowUpDays 默认 3）。执行后回报下次跟进日期。
+- 批量请求（如「给评分 8 分以上的都生成开发信」）：先查出清单，逐条调用，最后汇总成功/失败。
 ${memoryBlock}`;
 
   const messages = history.slice(-10).map((m) => ({

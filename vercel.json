@@ -29,7 +29,15 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/inquiry-sla",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/sales-actions",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/revenue-spine",
       "schedule": "*/15 * * * *"
     },
     {

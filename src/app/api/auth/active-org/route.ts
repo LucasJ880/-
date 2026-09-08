@@ -11,7 +11,7 @@ import {
   switchUserActiveOrg,
 } from "@/lib/organizations/org-access";
 import { db } from "@/lib/db";
-import { parseOrgModulesJson } from "@/lib/tenancy";
+import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy";
 
 /**
  * GET /api/auth/active-org
@@ -31,16 +31,26 @@ export async function GET(request: NextRequest) {
   const resolved = await resolvePreferredOrgId(user.id, user.role);
   let modules: ReturnType<typeof parseOrgModulesJson> = null;
   let orgCode: string | null = null;
+  let orgCompany: { name: string; logoUrl: string } | null = null;
   let workspaceIds: string[] = [];
   let orgRole: string | null = null;
   let hasBidCapability = false;
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
-      select: { code: true, modulesJson: true },
+      select: {
+        code: true,
+        modulesJson: true,
+        industryPackId: true,
+        company: { select: { name: true, logoUrl: true } },
+      },
     });
     orgCode = org?.code ?? null;
-    modules = parseOrgModulesJson(org?.modulesJson);
+    orgCompany = org?.company ?? null;
+    modules = withIndustryPackModules(
+      parseOrgModulesJson(org?.modulesJson),
+      org?.industryPackId,
+    );
     const [member, workspaces, projectMember] = await Promise.all([
       db.organizationMember.findUnique({
         where: {
@@ -78,6 +88,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     activeOrgId: resolved.orgId,
     orgCode,
+    orgCompany,
     modules,
     orgRole,
     workspaceIds,

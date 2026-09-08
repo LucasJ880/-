@@ -210,6 +210,9 @@ model Company {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// 公司旗下的组织（公司 → 多组织层级）
+  organizations Organization[]
 }
 
 // ============================================================
@@ -752,6 +755,9 @@ model Organization {
   settingsJson   Json?
   /// Industry Pack id（Registry）：如 window_covering_services_v1；空=未配置（禁止静默家纺回退）
   industryPackId String?
+  /// 归属公司（公司 → 多组织；空=独立组织，如个人工作区）
+  companyId      String?
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -801,6 +807,7 @@ model Organization {
   aiThreads           AiThread[]
   salesActions        SalesAction[]
   salesActionSyncRuns SalesActionSyncRun[]
+  @@index([companyId])
 }
 
 /// 企业内部工作空间 / 部门（第一阶段骨架）
@@ -3678,6 +3685,48 @@ model MarketResearchRun {
   @@index([status, leaseExpiresAt])
 }
 
+/// 询盘自动分析（第二刀）：每条进线消息一份结构化分析
+model TradeInquiryAnalysis {
+  id         String   @id @default(cuid())
+  orgId      String
+  prospectId String
+  messageId  String   @unique
+  status     String   @default("pending") // pending / done / failed
+  /// rfq / sample / info / partnership / spam / unclear
+  intent     String?
+  /// importer / brand / hotel / retailer / agent / individual / unknown
+  buyerType  String?
+  language   String?
+  /// LLM 抽取的结构化需求（产品/数量/规格/目标价/交期/认证/目的国/缺失信息…）
+  extracted  Json?
+  /// 规则生成的合规提示 [{code,title,severity,detail,knowledgeTitle}]
+  compliance Json?
+  /// 规则生成的红旗 [{code,title,severity,detail}]
+  redFlags   Json?
+  /// 建议动作摘要（人读）
+  summary    String?  @db.Text
+  /// 自动研究触发结果：triggered / skipped_no_serper / skipped_no_domain / failed
+  researchStatus String?
+  error      String?  @db.VarChar(1000)
+
+  /// 第三刀：AI 设计段（草稿，人确认后才动作）
+  /// { subject, body, subjectZh, bodyZh, language, askedQuestions[] }
+  replyDraft      Json?
+  /// { items:[{productName,specification,unit,quantity,unitPriceSuggested,basis}], moq, leadTimeDays, incoterm, notes, matchedSkus[] }
+  quoteSuggestion Json?
+  /// { recommend: boolean, mode: free|paid_deductible|paid|decline, reasons[], suggestedFeeUsd }
+  sampleAdvice    Json?
+  /// pending / done / failed
+  designStatus    String?
+  designError     String?  @db.VarChar(1000)
+  designedAt      DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([prospectId, createdAt])
+}
+
 model TradeMessage {
   id         String        @id @default(cuid())
   prospectId String
@@ -4055,6 +4104,14 @@ model SalesCustomer {
   lastSyncAt DateTime?
   // 软删字段：管理员"删除客户"时设置此时间戳；列表默认过滤掉已归档
   archivedAt DateTime?
+  // Revenue Spine（Mengxin FDE V1）：OEM 询盘账户字段 + 去重键（Account/Contact 拆分为 P1）
+  contactName    String?
+  website        String?
+  country        String?
+  /// 去重二级键：邮箱域名（免费邮箱域不参与匹配）
+  emailDomain    String?
+  /// 去重三级键：规范化公司名（小写、去公司后缀与标点）
+  normalizedName String?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -4081,6 +4138,8 @@ model SalesCustomer {
   @@index([phone])
   @@index([email])
   @@index([createdAt])
+  @@index([orgId, emailDomain])
+  @@index([orgId, normalizedName])
   @@index([orgId])
 }
 
@@ -4106,6 +4165,23 @@ model SalesOpportunity {
   lastSyncAt            DateTime?
   /// 来源外贸线索（可空；用于去重与审计）
   sourceTradeProspectId String?
+  // Revenue Spine（Mengxin FDE V1）：canonical 阶段时间 + Next Action 引擎 + 评分缓存 + FDE 归因
+  stageChangedAt      DateTime?
+  nextActionType      String?
+  nextActionReason    String?   @db.Text
+  lastInteractionAt   DateTime?
+  lastCustomerReplyAt DateTime?
+  lastOutboundAt      DateTime?
+  followUpCount       Int       @default(0)
+  score               Int?
+  scoreGrade          String?
+  scoredAt            DateTime?
+  buyerType           String?
+  market              String?
+  fdeSourced          Boolean   @default(false)
+  fdeInfluenced       Boolean   @default(false)
+  firstFdeActionId    String?
+  lastFdeActionId     String?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
@@ -4120,6 +4196,9 @@ model SalesOpportunity {
   appointments Appointment[]
   salesActions SalesAction[]
 
+  rfq          SalesRfq?
+  assessments  SalesOpportunityAssessment[]
+
   // RAG
   knowledgeChunks SalesKnowledgeChunk[]
   coachingRecords CoachingRecord[]
@@ -4133,6 +4212,8 @@ model SalesOpportunity {
   @@index([nextFollowupAt])
   @@index([stage, updatedAt])
   @@index([sourceTradeProspectId])
+  @@index([orgId, stage])
+  @@index([orgId, nextFollowupAt])
   @@index([orgId])
 }
 
@@ -4208,6 +4289,19 @@ model SalesAction {
   completedById String?
   completedBy   User?   @relation("SalesActionCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
 
+  // Revenue Spine（Mengxin FDE V1）：FDE 行动追踪（复用 SalesAction，不建平行 Action 系统）
+  employeeKey        String?
+  actionType         String?
+  inputContext       Json?
+  recommendedAction  Json?
+  approvalRequired   Boolean   @default(false)
+  pendingActionId    String?
+  agentRunId         String?
+  interactionId      String?
+  approvedById       String?
+  executedAt         DateTime?
+  resultJson         Json?
+
   resolutionNote  String?   @db.Text
   dismissedReason String?   @db.Text
   completedAt     DateTime?
@@ -4219,7 +4313,110 @@ model SalesAction {
   @@index([orgId, assignedToId, status])
   @@index([customerId, status])
   @@index([opportunityId, status])
+  @@index([pendingActionId])
+  @@index([agentRunId])
+  @@index([orgId, employeeKey, status])
   @@index([signalKey])
+}
+
+/// Revenue Spine（Mengxin FDE V1）：OEM 结构化 RFQ（每商机一条，可多次抽取覆盖；证据见 SalesRfqEvidence）
+model SalesRfq {
+  id            String           @id @default(cuid())
+  orgId         String
+  opportunityId String           @unique
+  opportunity   SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  customerId    String
+  version       Int              @default(1)
+  /// draft | partial | complete
+  status        String           @default("draft")
+
+  productCategory      String?
+  productName          String?
+  material             String?
+  composition          String?
+  size                 String?
+  quantity             Float?
+  unit                 String?
+  color                String?
+  customLogo           Boolean?
+  customization        String?
+  packaging            String?
+  certification        String?
+  sampleRequired       Boolean?
+  targetPrice          Float?
+  currency             String?
+  destinationCountry   String?
+  destinationCity      String?
+  incoterm             String?
+  requiredDeliveryDate DateTime?
+  buyerType            String?
+  application          String?
+  /// string[]：按优先级排序的缺失字段
+  missingFields        Json?
+  notes                String?   @db.Text
+  /// zh | en | mixed
+  language             String?
+  /// heuristic | llm | merged | manual
+  extractionMethod     String?
+  extractedAt          DateTime?
+  agentRunId           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evidence SalesRfqEvidence[]
+
+  @@index([orgId, status])
+  @@index([customerId])
+}
+
+/// RFQ 字段证据：每个抽取字段必须能回溯到来源消息（禁止 AI 无来源地"记得"数量）
+model SalesRfqEvidence {
+  id                  String   @id @default(cuid())
+  orgId               String
+  rfqId               String
+  rfq                 SalesRfq @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  opportunityId       String
+  field               String
+  value               String?  @db.Text
+  confidence          Float
+  /// CustomerInteraction.id（来源消息）
+  sourceInteractionId String?
+  /// website_inquiry | email | conversation | manual
+  sourceKind          String
+  evidenceText        String?  @db.Text
+  /// heuristic | llm | human
+  extractedBy         String
+  createdAt           DateTime @default(now())
+
+  @@index([rfqId, field])
+  @@index([opportunityId])
+  @@index([sourceInteractionId])
+}
+
+/// 可解释商机评分快照（每次评分一条；SalesOpportunity.score 缓存最新）
+model SalesOpportunityAssessment {
+  id            String           @id @default(cuid())
+  orgId         String
+  opportunityId String
+  opportunity   SalesOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  version       Int              @default(1)
+  score         Int
+  grade         String
+  priority      String
+  /// [{ key, label, score, max, reason }]
+  dimensionsJson Json
+  reasoning     String           @db.Text
+  /// string[]
+  missingInformation Json?
+  recommendedNextAction String?  @db.Text
+  policyVersion String
+  agentRunId    String?
+  createdById   String?
+  createdAt     DateTime         @default(now())
+
+  @@index([opportunityId, createdAt])
+  @@index([orgId, grade])
 }
 
 /// 数字员工销售行动扫描记录。只记录任务同步，不执行外发或商机阶段变更。
@@ -6838,6 +7035,9 @@ model BusinessOutcome {
   pendingActionId  String?
   skillExecutionId String?
 
+  /// Revenue Spine：Action → Outcome 关联（SalesAction.id）
+  salesActionId    String?
+
   entityType       String
   entityId         String
   actionType       String
@@ -6864,6 +7064,7 @@ model BusinessOutcome {
   @@index([orgId, entityType, entityId])
   @@index([orgId, outcomeType, createdAt])
   @@index([feedbackEventId])
+  @@index([salesActionId])
   @@index([pendingActionId])
 }
 

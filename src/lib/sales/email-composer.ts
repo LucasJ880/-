@@ -38,15 +38,62 @@ interface ComposeContext {
   extraInstructions?: string;
 }
 
+// ── 邮件品牌（按客户所属企业解析）───────────────────────────
+// 历史上邮件模板硬编码 Sunny 品牌；多企业试用后按 org 解析。
+// 窗饰行业包（=Sunny）与无行业包的历史企业保持原样，其他企业用企业名中性品牌。
+export type EmailBrand = {
+  name: string;
+  legalLine: string | null;
+  tagline: string | null;
+  website: string | null;
+  descriptor: string;
+};
+
+const SUNNY_BRAND: EmailBrand = {
+  name: "SUNNY HOME & DECO",
+  legalLine: "Est. Sunny Shutter Inc.",
+  tagline: "Custom Window Coverings & Interior Decor",
+  website: "www.sunnyshutter.ca",
+  descriptor: "Sunny Blinds, a custom window covering company",
+};
+
+function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export async function resolveEmailBrandForOrg(
+  orgId: string | null | undefined,
+): Promise<EmailBrand> {
+  if (!orgId) return SUNNY_BRAND;
+  const org = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { name: true, industryPackId: true },
+  });
+  if (!org || !org.industryPackId) return SUNNY_BRAND;
+  if (org.industryPackId === "window_covering_services_v1") return SUNNY_BRAND;
+  return {
+    name: org.name,
+    legalLine: null,
+    tagline: null,
+    website: null,
+    descriptor: `${org.name}, a manufacturer serving overseas B2B clients`,
+  };
+}
+
 export async function composeEmail(ctx: ComposeContext): Promise<ComposedEmail> {
   const customer = await db.salesCustomer.findUnique({
     where: { id: ctx.customerId },
-    select: { name: true, email: true },
+    select: { name: true, email: true, orgId: true },
   });
 
   if (!customer) {
     throw new Error(`客户 ${ctx.customerId} 不存在`);
   }
+  const brand = await resolveEmailBrandForOrg(customer.orgId);
   // 无邮箱也允许生成草稿（销售可复制到微信/短信发送）；实际发送路径各自校验收件地址
 
   // 查找报价
@@ -123,7 +170,7 @@ ${quote ? `- 报价金额: $${quote.grandTotal.toFixed(2)}\n- 报价项目: ${qu
 ${recentInteractions.length > 0 ? `- 最近互动: ${recentInteractions[0].summary}` : ""}
 
 销售姓名: ${salesUser?.name || "Sales Team"}
-公司: Sunny Blinds
+公司: ${brand.name}
 ${shareUrl ? `报价查看链接: ${shareUrl}` : ""}
 ${ctx.extraInstructions ? `\n额外要求: ${ctx.extraInstructions}` : ""}
 
@@ -136,8 +183,7 @@ ${ctx.extraInstructions ? `\n额外要求: ${ctx.extraInstructions}` : ""}
 
   try {
     const aiResult = await runSimple({
-      systemPrompt:
-        "You are a professional sales email writer for Sunny Blinds, a custom window covering company. Write concise, warm, and professional emails in English. Always return valid JSON.",
+      systemPrompt: `You are a professional sales email writer for ${brand.descriptor}. Write concise, warm, and professional emails in English. Always return valid JSON.`,
       userPrompt: prompt,
       mode: "chat",
       temperature: 0.6,
@@ -151,7 +197,7 @@ ${ctx.extraInstructions ? `\n额外要求: ${ctx.extraInstructions}` : ""}
     textBody = htmlBody.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
   } catch {
     // AI 失败降级到模板
-    const fallback = getFallbackEmail(ctx.scene, {
+    const fallback = getFallbackEmail(ctx.scene, brand.name, {
       customerName: customer.name,
       salesName: salesUser?.name || "Sales Team",
       products,
@@ -166,7 +212,7 @@ ${ctx.extraInstructions ? `\n额外要求: ${ctx.extraInstructions}` : ""}
   return {
     to: customer.email ?? "",
     subject,
-    html: wrapEmailLayout(htmlBody),
+    html: wrapEmailLayout(htmlBody, brand),
     text: textBody,
     scene: ctx.scene,
     quoteId: quote?.id,
@@ -181,7 +227,9 @@ export async function refineEmail(params: {
   currentSubject: string;
   currentHtml: string;
   refinement: string;
+  orgId?: string | null;
 }): Promise<{ subject: string; html: string; text: string }> {
+  const brand = await resolveEmailBrandForOrg(params.orgId);
   const plainText = params.currentHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 
   const prompt = `当前邮件：
@@ -206,7 +254,7 @@ export async function refineEmail(params: {
 
   return {
     subject: parsed.subject || params.currentSubject,
-    html: wrapEmailLayout(parsed.body || params.currentHtml),
+    html: wrapEmailLayout(parsed.body || params.currentHtml, brand),
     text: (parsed.body || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
   };
 }
@@ -264,7 +312,15 @@ export async function sendSalesEmail(
 
 // ── 邮件 HTML 布局 ──────────────────────────────────────────
 
-function wrapEmailLayout(body: string): string {
+function wrapEmailLayout(body: string, brand: EmailBrand = SUNNY_BRAND): string {
+  const brandName = escapeHtml(brand.name);
+  const legalLine = brand.legalLine
+    ? `<p style="margin:0;color:rgba(255,255,255,0.75);font-size:10px;letter-spacing:3px;text-transform:uppercase;">${escapeHtml(brand.legalLine)}</p>\n  `
+    : "";
+  const tagline = brand.tagline
+    ? `\n  <p style="margin:0;color:rgba(255,255,255,0.88);font-size:12px;font-style:italic;">${escapeHtml(brand.tagline)}</p>`
+    : "";
+  const footerLine = brand.website ? `${brandName} · ${escapeHtml(brand.website)}` : brandName;
   return `
 <!DOCTYPE html>
 <html>
@@ -274,15 +330,13 @@ function wrapEmailLayout(body: string): string {
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
 <tr><td style="background:linear-gradient(135deg,#ea580c,#c2410c);padding:28px 32px;">
-  <p style="margin:0;color:rgba(255,255,255,0.75);font-size:10px;letter-spacing:3px;text-transform:uppercase;">Est. Sunny Shutter Inc.</p>
-  <h1 style="margin:6px 0 4px;color:#fff;font-size:22px;font-weight:700;letter-spacing:1px;">SUNNY HOME &amp; DECO</h1>
-  <p style="margin:0;color:rgba(255,255,255,0.88);font-size:12px;font-style:italic;">Custom Window Coverings &amp; Interior Decor</p>
+  ${legalLine}<h1 style="margin:6px 0 4px;color:#fff;font-size:22px;font-weight:700;letter-spacing:1px;">${brandName}</h1>${tagline}
 </td></tr>
 <tr><td style="padding:32px;">
   ${body}
 </td></tr>
 <tr><td style="background:#fff7ed;padding:18px 32px;text-align:center;border-top:1px solid #fed7aa;">
-  <p style="margin:0;color:#c2410c;font-size:11px;font-weight:600;letter-spacing:1px;">SUNNY HOME &amp; DECO · www.sunnyshutter.ca</p>
+  <p style="margin:0;color:#c2410c;font-size:11px;font-weight:600;letter-spacing:1px;">${footerLine}</p>
   <p style="margin:4px 0 0;color:#a8a29e;font-size:10px;">Delivered securely by Qingyan AI</p>
 </td></tr>
 </table>
@@ -296,6 +350,7 @@ function wrapEmailLayout(body: string): string {
 
 function getFallbackEmail(
   scene: EmailScene,
+  brandName: string,
   data: {
     customerName: string;
     salesName: string;
@@ -336,7 +391,7 @@ function getFallbackEmail(
       };
     default:
       return {
-        subject: `Checking in — Sunny Blinds`,
+        subject: `Checking in — ${brandName}`,
         html: `<p>Hi ${customerName},</p><p>Just wanted to check in and see how things are going. If there's anything I can help with, please don't hesitate to reach out.</p><p>Best regards,<br/>${salesName}</p>`,
         text: `Hi ${customerName}, just checking in. Let me know if you need anything!`,
       };

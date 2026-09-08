@@ -25,7 +25,9 @@ export type PendingActionType =
   // ── 营销 Phase2：写入已确认 Product Marketing Context（绝不自动）──
   | "marketing.propose_context_update"
   // ── 营销 Phase2：创建活动草稿（status=draft，不投放）──
-  | "marketing.create_campaign_draft";
+  | "marketing.create_campaign_draft"
+  // ── Revenue Spine：询盘回复发送（FDE 草稿 → 人工批准 → 唯一发送路径）──
+  | "sales.send_inquiry_reply";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -242,6 +244,7 @@ export type PendingActionPayload =
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)
   | ({ type: "grader.email_draft" } & EmailDraftPayload)
+  | ({ type: "sales.send_inquiry_reply" } & SalesSendInquiryReplyPayload)
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
   | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
   | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
@@ -271,5 +274,24 @@ export function toPendingApprovalResult(action: {
     title: action.title,
     preview: action.preview,
     hint: "草稿已生成。请在回复中告知用户正在等待他们的确认，不要重复调用工具。",
+  };
+}
+
+// ── 询盘回复发送（sales.send_inquiry_reply，Revenue Spine） ────────
+export interface SalesSendInquiryReplyPayload {
+  opportunityId: string;
+  customerId: string;
+  salesActionId?: string | null;
+  to: string;
+  subject: string;
+  body: string;
+  language?: "zh" | "en" | null;
+  replyToInteractionId?: string | null;
+  metadata: PendingActionMetadata & {
+    orgId: string;
+    customerId: string;
+    opportunityId: string;
+    salesActionId?: string | null;
+    employeeKey?: string;
   };
 }
