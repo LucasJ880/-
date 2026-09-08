@@ -1,0 +1,23 @@
+// 负向 fixture（BL-3）：违规结构——hints/输入携带 requirements，快照来自客户端而非 canonical loader
+import type { SupplierIntelActor } from "../actor";
+import { assertProjectAccessForActor } from "../access";
+import { loadCanonicalSupplierRequirementSnapshot } from "../canonical-requirements";
+import { createSearchRun } from "../run-service";
+
+export interface ProjectSearchRunHints {
+  productCategory?: string | null;
+  requirements?: unknown;
+}
+
+export async function createProjectSearchRun(
+  actor: SupplierIntelActor,
+  input: { projectId: string; hints?: ProjectSearchRunHints; requirements?: unknown; allowLlm?: boolean },
+) {
+  const canonical = await loadCanonicalSupplierRequirementSnapshot({ orgId: actor.orgId, projectId: input.projectId });
+  await assertProjectAccessForActor(actor, input.projectId, "write");
+  return createSearchRun(actor, {
+    projectId: input.projectId,
+    brief: {},
+    requirements: input.requirements ?? canonical.entries,
+  });
+}

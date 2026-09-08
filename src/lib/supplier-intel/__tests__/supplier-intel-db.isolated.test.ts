@@ -479,6 +479,45 @@ async function main() {
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     // 场景：事务 A 持有 Run 写锁并在锁内落终态；子写在锁上等待，提交顺序被强制串行——
     // 合法结局只有「子写先于终态」或「终态赢且子写被拒」；绝不允许终态后 Run 里再长出子行。
+    //
+    // S2 Final Remediation（测试条件稳定化，只改夹具，不改业务锁/事务隔离/终态判定/生产超时默认）：
+    // 竞态需要 ≥2 条**已建立**的池连接——holder 持锁期间，子写必须在另一条连接上 BEGIN 后再排队
+    // 到 FOR UPDATE。高延迟链路上新建一条 Neon 连接 ≈3s > Prisma 默认 maxWait(2s)：子写会在
+    // 「获取事务」阶段报 P2028（Unable to start a transaction），根本没进入行锁等待——那是环境
+    // 现象而非业务拒绝，且与「任意异常当作正确拒绝」不同：本夹具把子写失败分为
+    // TX_ACQUISITION_TIMEOUT / TX_EXECUTION_TIMEOUT / BUSINESS_REJECTION / OTHER，只有
+    // BUSINESS_REJECTION + 预期错误码 + 子写晚于终态提交才算通过。
+    // 稳定化手段：并发预热 3 条连接（预热事务自身放宽 maxWait，不影响生产代码默认值）。
+    async function prewarmPool(connections: number) {
+      const t0 = Date.now();
+      await Promise.all(
+        Array.from({ length: connections }, () =>
+          db.$transaction(
+            async (tx) => {
+              await tx.$queryRaw`SELECT 1`;
+              await sleep(400); // 让各事务重叠，迫使池同时建立多条连接
+            },
+            { maxWait: 30_000, timeout: 30_000 },
+          ),
+        ),
+      );
+      console.log(`  · 连接池预热 ${connections} 条并发事务，耗时 ${Date.now() - t0}ms`);
+    }
+    await prewarmPool(3);
+
+    type ChildFailureClass = "BUSINESS_REJECTION" | "TX_ACQUISITION_TIMEOUT" | "TX_EXECUTION_TIMEOUT" | "OTHER";
+    function classifyChildFailure(reason: unknown): ChildFailureClass {
+      if (isSupplierIntelError(reason, "RUN_NOT_RUNNING" as never) || isSupplierIntelError(reason, "RUN_IMMUTABLE" as never)) {
+        return "BUSINESS_REJECTION";
+      }
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      if (/Unable to start a transaction/i.test(msg)) return "TX_ACQUISITION_TIMEOUT"; // P2028：maxWait 阶段
+      if (/Transaction already closed|expired transaction|Transaction API error: Transaction/i.test(msg)) {
+        return "TX_EXECUTION_TIMEOUT"; // 事务运行 timeout 阶段
+      }
+      return "OTHER";
+    }
+
     async function raceTerminalVsChild(
       name: string,
       runId: string,
@@ -488,26 +527,46 @@ async function main() {
     ) {
       let lockAcquired!: () => void;
       const lockHeld = new Promise<void>((r) => { lockAcquired = r; });
-      const holder = db.$transaction(
-        async (tx) => {
-          await runSvc.lockSupplierSearchRunForWrite(tx, orgA.id, runId);
-          lockAcquired();
-          await sleep(700); // 持锁窗口：子写此刻已在 FOR UPDATE 上排队
-          await tx.supplierSearchRun.updateMany({
-            where: { id: runId, orgId: orgA.id, status: "RUNNING" },
-            data: { status: "COMPLETED", completedAt: new Date() },
-          });
-        },
-        { timeout: 20_000, maxWait: 10_000 },
-      );
+      let holderCommittedAt = 0;
+      const holder = db
+        .$transaction(
+          async (tx) => {
+            await runSvc.lockSupplierSearchRunForWrite(tx, orgA.id, runId);
+            lockAcquired();
+            await sleep(700); // 持锁窗口：子写此刻已在 FOR UPDATE 上排队
+            await tx.supplierSearchRun.updateMany({
+              where: { id: runId, orgId: orgA.id, status: "RUNNING" },
+              data: { status: "COMPLETED", completedAt: new Date() },
+            });
+          },
+          { timeout: 20_000, maxWait: 10_000 },
+        )
+        .then((v) => {
+          holderCommittedAt = Date.now();
+          return v;
+        });
       await lockHeld;
-      const childPromise = childFn();
+      const childStartedAt = Date.now();
+      let childSettledAt = 0;
+      const childPromise = childFn().finally(() => {
+        childSettledAt = Date.now();
+      });
       const [holderRes, childRes] = await Promise.allSettled([holder, childPromise]);
       ok(holderRes.status === "fulfilled", `${name}: 终态事务提交成功`);
+      const failureClass = childRes.status === "rejected" ? classifyChildFailure(childRes.reason) : "OTHER";
+      const waitedMs = childSettledAt - childStartedAt;
+      console.log(`  · ${name}: 子写失败分类=${childRes.status === "rejected" ? failureClass : "NONE(成功)"} 子写等待=${waitedMs}ms 终态提交后=${childSettledAt - holderCommittedAt}ms`);
       ok(
-        childRes.status === "rejected" && isSupplierIntelError(childRes.reason, expectedCode as never),
-        `${name}: 排队子写被拒（${expectedCode}）`,
-        childRes.status === "rejected" ? String(childRes.reason) : "子写居然成功了",
+        childRes.status === "rejected" && failureClass === "BUSINESS_REJECTION" && isSupplierIntelError(childRes.reason, expectedCode as never),
+        `${name}: 排队子写被业务约束拒绝（${expectedCode}）`,
+        childRes.status === "rejected"
+          ? `${failureClass}: ${String(childRes.reason).split("\n")[0]}`
+          : "子写居然成功了",
+      );
+      ok(
+        childRes.status === "rejected" && holderCommittedAt > 0 && childSettledAt >= holderCommittedAt,
+        `${name}: 子写确实排队到终态提交之后才被裁决（不是没取得事务就报错）`,
+        `holderCommittedAt=${holderCommittedAt} childSettledAt=${childSettledAt}`,
       );
       ok((await countChildren()) === 0, `${name}: 终态 Run 内零事后子行（不变量成立）`);
       const finalRun = await db.supplierSearchRun.findUnique({ where: { id: runId } });

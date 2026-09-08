@@ -100,6 +100,63 @@ async function main() {
   assert.equal(resolveRegistryProvider("https://productiq.ul.com/database/xxx")?.id, "UL_PRODUCT_IQ");
   assert.equal(resolveRegistryProvider("https://www.ul.com/about"), null, "宽域企业页不算登记库（F4 语义对抗项）");
   assert.equal(resolveRegistryProvider("https://some-random-site.example/cert"), null);
+  // §43 收窄核实（S2）：Intertek/CSA=宽域稳定路径契约；BIFMA=专用主机
+  assert.equal(resolveRegistryProvider("https://www.intertek.com/directories/etl-listed-mark/")?.id, "INTERTEK_DIRECTORY");
+  assert.equal(resolveRegistryProvider("https://www.intertek.com/about-us/"), null, "Intertek 一般企业页不算登记库");
+  assert.equal(resolveRegistryProvider("https://www.csagroup.org/testing-certification/product-listing/")?.id, "CSA_GROUP");
+  assert.equal(resolveRegistryProvider("https://www.csagroup.org/news/"), null, "CSA 一般企业页不算登记库");
+  assert.equal(resolveRegistryProvider("https://compliant.bifma.org/products/123")?.id, "BIFMA_REGISTRY");
+  assert.equal(resolveRegistryProvider("https://level.bifma.org/x")?.id, "BIFMA_REGISTRY");
+  assert.equal(resolveRegistryProvider("https://www.bifma.org/mpage/bifmacompliantregistry"), null, "BIFMA 宽域弃用（专用主机才算）");
+
+  // B1/B3 结构守卫（S2 Final Remediation BL-3）：改用 TypeScript AST 检查真实函数签名 /
+  // 输入结构 / 调用顺序（不再靠注释或 import 首次出现切片、不再靠字符串存在性、不再让 indexOf=-1 制造假阳性）
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { checkCanonicalRequirementBoundary, violationCodes } = await import("./canonical-boundary-guard");
+  const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+  const real = checkCanonicalRequirementBoundary({
+    runsRoute: read("src/app/api/supplier-intel/runs/route.ts"),
+    projectRunService: read("src/lib/supplier-intel/project-run-service.ts"),
+    discoveryService: read("src/lib/supplier-intel/discovery-service.ts"),
+    resolveRoute: read("src/app/api/supplier-intel/signals/[id]/resolve/route.ts"),
+  });
+  assert.deepEqual(
+    violationCodes(real),
+    [],
+    `B1/B3 边界违规：${JSON.stringify(real, null, 2)}`,
+  );
+
+  console.log("BL-3 负向有效性：对故意违规的 fixture，同一守卫必须报出对应违规（证明断言非空）");
+  const fixture = (name: string) =>
+    read(`src/lib/supplier-intel/__tests__/fixtures/canonical-boundary-negative/${name}`);
+  const negative = checkCanonicalRequirementBoundary({
+    runsRoute: fixture("runs-route.bad.ts.txt"),
+    projectRunService: fixture("project-run-service.bad.ts.txt"),
+    discoveryService: fixture("discovery-service.bad.ts.txt"),
+    resolveRoute: fixture("resolve-route.bad.ts.txt"),
+  });
+  const negCodes = violationCodes(negative);
+  for (const expected of [
+    "HINTS_HAS_REQUIREMENTS",
+    "CREATE_INPUT_HAS_REQUIREMENTS",
+    "ORDER_ACL_AFTER_CANONICAL",
+    "SNAPSHOT_NOT_FROM_CANONICAL",
+    "ROUTE_READS_BODY_REQUIREMENTS",
+    "ROUTE_PASSES_UNKNOWN_KEY:requirements",
+    "ROUTE_MISSING_WRITE_GATE",
+    "ORDER_ACL_AFTER_PLAN",
+    "ORDER_ACL_AFTER_EGRESS",
+    "RESOLVE_ROUTE_USES_PAGINATION_INJECTION",
+    "RESOLVE_ROUTE_MISSING_CANONICAL_CALL",
+  ]) {
+    assert.ok(negCodes.includes(expected), `负向 fixture 应报 ${expected}，实际：${negCodes.join(", ")}`);
+  }
+  // 负向 fixture 里的每个文件都至少触发一条违规（守卫对四个面都不是空断言）
+  assert.ok(negCodes.some((c) => c.startsWith("HINTS_") || c.startsWith("CREATE_") || c.startsWith("SNAPSHOT_")), "project-run-service 面");
+  assert.ok(negCodes.some((c) => c.startsWith("ROUTE_")), "runs route 面");
+  assert.ok(negCodes.some((c) => c.startsWith("ORDER_ACL_AFTER_PLAN")), "discovery-service 面");
+  assert.ok(negCodes.some((c) => c.startsWith("RESOLVE_ROUTE_")), "resolve route 面");
   assert.equal(resolveRegistryProvider("http://www.gsxt.gov.cn/x"), null, "非 https 不认");
   assert.equal(resolveRegistryProvider("https://gsxt.gov.cn.evil.com/x"), null, "host 仿冒不认");
   assert.equal(resolveRegistryProvider(""), null);

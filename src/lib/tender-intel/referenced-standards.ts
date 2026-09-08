@@ -16,6 +16,7 @@
 
 import { z } from "zod";
 import { callStructured, createUnifiedRuntimeInvoker, type LlmInvoker } from "@/lib/tender-understanding/llm";
+import { tavilySearch } from "./tavily-client";
 import { hasWebSearchKey } from "./websearch";
 
 export const REFERENCED_STANDARDS_VERSION = "tender-referenced-standards/v1" as const;
@@ -68,26 +69,9 @@ export type ReferencedStandardsIntel = {
   standards: ExpandedStandard[];
 };
 
-const TAVILY_URL = "https://api.tavily.com/search";
-
+// M1-S2 起统一走共享 client（tavily-client.ts），行为等价
 async function tavily(query: string, env: NodeJS.ProcessEnv, fetchImpl: typeof fetch): Promise<StandardSource[]> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25_000);
-  try {
-    const res = await fetchImpl(TAVILY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: env.TAVILY_API_KEY, query, max_results: 5, search_depth: "basic" }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
-    return (data.results ?? []).filter((r) => r.url).map((r) => ({ title: (r.title ?? r.url ?? "").slice(0, 160), url: r.url!, snippet: (r.content ?? "").slice(0, 500) }));
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
+  return tavilySearch(query, { env, fetchImpl });
 }
 
 /** ① 从招标文本抽外部标准引用（无 LLM key 等异常由 callStructured 内部抛出，调用方温和降级） */

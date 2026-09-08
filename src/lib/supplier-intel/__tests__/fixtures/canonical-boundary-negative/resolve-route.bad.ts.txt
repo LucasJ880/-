@@ -1,0 +1,13 @@
+// 负向 fixture（BL-3/BL-2）：HTTP 路由把分页注入点暴露成请求参数
+import { NextResponse, type NextRequest } from "next/server";
+import { resolveSignalEntityWithPagination } from "@/lib/supplier-intel/entity-resolution";
+
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const body = (await request.json()) as { pageSize?: number; maxPages?: number };
+  const result = await resolveSignalEntityWithPagination({ orgId: "o", userId: "u" }, id, {
+    pageSize: body.pageSize ?? 500,
+    maxPages: body.maxPages ?? 40,
+  });
+  return NextResponse.json({ result });
+}

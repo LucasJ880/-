@@ -30,6 +30,40 @@ export interface ParsedSubmission {
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>]+/i;
 
+/** S2 起对外导出：层 B 发现结果按 host 白名单归类平台（与用户提交同一套判定） */
+export function classifyPublicUrlPlatform(url: URL): SignalPlatform {
+  return classifyHost(url);
+}
+
+/**
+ * B2：平台/市场 host 补充清单——这些域名上的页面是「平台上的内容」，
+ * 域名本身绝不构成供应商身份（分类归 WEBSITE 但同样不许当 supplier-owned domain）。
+ * 与 classifyHost 同文件维护 = 全库唯一 host taxonomy，禁止第二套。
+ */
+const MARKETPLACE_HOST_SUFFIXES = [
+  "alibaba.com",
+  "aliexpress.com",
+  "made-in-china.com",
+  "globalsources.com",
+  "taobao.com",
+  "tmall.com",
+  "temu.com",
+  "amazon.com",
+  "ebay.com",
+] as const;
+
+/** true = 社媒平台或电商市场 host（其域名永不作为供应商自有域名/强身份键） */
+export function isPlatformOrMarketplaceHost(url: URL): boolean {
+  if (classifyHost(url) !== "WEBSITE") return true; // DOUYIN / XIAOHONGSHU / WECHAT_CHANNELS / ONE688
+  const h = url.hostname.toLowerCase();
+  return MARKETPLACE_HOST_SUFFIXES.some((s) => h === s || h.endsWith(`.${s}`));
+}
+
+/** S2 起对外导出：公开 URL 校验（http/https 白名单 + 长度上限；零抓取） */
+export function validatePublicHttpUrl(raw: string): URL {
+  return parseCandidateUrl(raw);
+}
+
 function classifyHost(url: URL): SignalPlatform {
   const host = url.hostname.toLowerCase();
   const matches = (domain: string) => host === domain || host.endsWith(`.${domain}`);

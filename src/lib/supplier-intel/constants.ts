@@ -166,18 +166,32 @@ export const CLAIM_ONLY_CERT_SOURCE_KINDS: readonly CertificationSourceKind[] = 
  */
 export const SUPPORTED_REGISTRY_PROVIDERS = [
   { id: "GSXT", label: "国家企业信用信息公示系统", hosts: ["gsxt.gov.cn"] },
-  // UL 收窄到专用登记库主机（宽域 ul.com 上的一般企业页不构成登记库证据，F4 语义对抗项）
+  // UL 收窄到专用登记库主机（宽域 ul.com 上的一般企业页不构成登记库证据）
   { id: "UL_PRODUCT_IQ", label: "UL Product iQ", hosts: ["productiq.ul.com"] },
-  // 下列 provider 暂以企业宽域登记（其专用登记路径/主机需另行调研核实——S2 跟进项，
-  // 见 PR 记录；收窄原则同 UL：有专用主机/稳定登记路径的一律用最窄白名单）
-  { id: "INTERTEK_DIRECTORY", label: "Intertek ETL Listed Directory", hosts: ["intertek.com"] },
-  { id: "CSA_GROUP", label: "CSA Group Certified Product Listing", hosts: ["csagroup.org"] },
-  { id: "BIFMA_REGISTRY", label: "BIFMA Compliant Registry", hosts: ["bifma.org"] },
+  // §43 S2 调研收窄（2026-09-01 核实的官方登记面）：
+  // Intertek/CSA 的登记库是宽域下的稳定路径 → host + pathPrefix 双白名单；
+  // BIFMA 有专用主机 compliant/level.bifma.org → 弃宽域 bifma.org
+  {
+    id: "INTERTEK_DIRECTORY",
+    label: "Intertek ETL Listed Directory",
+    hosts: ["intertek.com"],
+    pathPrefixes: ["/directories/"],
+  },
+  {
+    id: "CSA_GROUP",
+    label: "CSA Group Certified Product Listing",
+    hosts: ["csagroup.org"],
+    pathPrefixes: ["/testing-certification/product-listing"],
+  },
+  { id: "BIFMA_REGISTRY", label: "BIFMA Compliant / LEVEL Registry", hosts: ["compliant.bifma.org", "level.bifma.org"] },
   { id: "IAF_CERTSEARCH", label: "IAF CertSearch（ISO 体系认证核验）", hosts: ["iafcertsearch.org"] },
 ] as const;
 export type RegistryProviderId = (typeof SUPPORTED_REGISTRY_PROVIDERS)[number]["id"];
 
-/** 纯函数：URL → 受支持的官方登记库；不匹配返回 null（fail-closed，调用方拒绝） */
+/**
+ * 纯函数：URL → 受支持的官方登记库；不匹配返回 null（fail-closed，调用方拒绝）。
+ * host endsWith 白名单 + 可选 pathPrefix（稳定登记路径契约，不 overfit 具体记录页/查询串）。
+ */
 export function resolveRegistryProvider(
   rawUrl: string | null | undefined,
 ): { id: RegistryProviderId; label: string } | null {
@@ -191,10 +205,13 @@ export function resolveRegistryProvider(
   }
   if (url.protocol !== "https:") return null;
   const host = url.hostname.toLowerCase();
+  const path = url.pathname.toLowerCase();
   for (const provider of SUPPORTED_REGISTRY_PROVIDERS) {
-    if (provider.hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
-      return { id: provider.id, label: provider.label };
-    }
+    const hostHit = provider.hosts.some((h) => host === h || host.endsWith(`.${h}`));
+    if (!hostHit) continue;
+    const prefixes = (provider as { pathPrefixes?: readonly string[] }).pathPrefixes;
+    if (prefixes && !prefixes.some((p) => path.startsWith(p))) continue;
+    return { id: provider.id, label: provider.label };
   }
   return null;
 }
