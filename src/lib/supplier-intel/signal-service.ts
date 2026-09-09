@@ -17,6 +17,7 @@ import type { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
+import { assertProjectAccessForActor } from "./access";
 import {
   AI_ASSISTED_CONFIDENCE_CAP,
   CAPABILITY_EXTRACTED_BY,
@@ -34,8 +35,10 @@ import {
   assertSignalAccess,
   assertSubmitSignalAccess,
   buildSignalListScopeFilter,
+  buildSignalProjectFilter,
   detectSubmitPointerConflicts,
 } from "./signal-scope";
+import { existingResolutionEntries, lockSignalForWrite } from "./signal-write-lock";
 import { parseUserSubmission, validatePublicHttpUrl } from "./submission-parser";
 
 const SIGNAL_TARGET_TYPE = "supplier_discovery_signal";
@@ -251,37 +254,95 @@ export async function getSignal(actor: SupplierIntelActor, signalId: string) {
  * R1：列表与单条同口径——无权项目的信号不得出现在列表、筛选或计数里。
  * 项目可见性以「一次算出的可访问项目集合 + 关系过滤」实现（单条 SQL，零逐条鉴权）。
  */
+export interface SignalListFilter {
+  status?: string;
+  platform?: string;
+  /** 按治理项目筛选（含 Run 继承归属）；调用方须先断言该项目读权限 */
+  projectId?: string;
+  searchRunId?: string;
+}
+
+export interface SignalPageOptions extends SignalListFilter {
+  take?: number;
+  /** 稳定游标：上一页最后一行的 id（排序 discoveredAt desc, id desc） */
+  cursor?: string | null;
+}
+
+/** S3-A：列表页大小上界（服务端有界分页，客户端不能放大） */
+export const SIGNAL_PAGE_SIZE = { DEFAULT: 25, MAX: 100 } as const;
+
+async function buildSignalWhere(
+  actor: SupplierIntelActor,
+  filter: SignalListFilter | undefined,
+): Promise<Prisma.SupplierDiscoverySignalWhereInput> {
+  // S3-A：按项目筛选前先断言该项目读权限（与 listProjectSearchRuns 同形的服务层门）。
+  // 否则「筛选无权项目」只会静默返回空列表——与「该项目确实没有线索」不可区分，
+  // 既不利于排障，也让越权探测变得无声无息。
+  if (filter?.projectId) {
+    await assertProjectAccessForActor(actor, filter.projectId, "read");
+  }
+  const scopeFilter = await buildSignalListScopeFilter(actor);
+  const and = [...scopeFilter];
+  if (filter?.projectId) and.push(buildSignalProjectFilter(filter.projectId, actor.orgId));
+  return {
+    orgId: actor.orgId,
+    ...(filter?.status ? { status: filter.status } : {}),
+    ...(filter?.platform ? { platform: filter.platform } : {}),
+    ...(filter?.searchRunId ? { searchRunId: filter.searchRunId } : {}),
+    ...(and.length > 0 ? { AND: and } : {}),
+  };
+}
+
 export async function listSignals(
   actor: SupplierIntelActor,
-  opts?: { status?: string; platform?: string; take?: number },
+  opts?: SignalListFilter & { take?: number },
 ) {
-  const scopeFilter = await buildSignalListScopeFilter(actor);
   return db.supplierDiscoverySignal.findMany({
-    where: {
-      orgId: actor.orgId,
-      ...(opts?.status ? { status: opts.status } : {}),
-      ...(opts?.platform ? { platform: opts.platform } : {}),
-      ...(scopeFilter.length > 0 ? { AND: scopeFilter } : {}),
-    },
-    orderBy: { discoveredAt: "desc" },
+    where: await buildSignalWhere(actor, opts),
+    orderBy: [{ discoveredAt: "desc" }, { id: "desc" }],
     take: Math.min(opts?.take ?? 100, 200),
   });
 }
 
 /** R1：计数与列表共用同一可见性口径（避免「列表看不到但计数暴露」） */
-export async function countSignals(
+export async function countSignals(actor: SupplierIntelActor, opts?: SignalListFilter) {
+  return db.supplierDiscoverySignal.count({ where: await buildSignalWhere(actor, opts) });
+}
+
+/**
+ * S3-A：收件箱分页读取——列表 + 总数 + 下一页游标，三者同一 where（同口径）。
+ * 排序 (discoveredAt desc, id desc) 稳定；游标是上一页最后一行 id，避免 offset 抖动。
+ * 注意：分页只影响**展示范围**，不影响身份裁决的扫描范围（B5 的穷尽扫描在 resolver 内独立进行）。
+ */
+export async function listSignalsPage(
   actor: SupplierIntelActor,
-  opts?: { status?: string; platform?: string },
-) {
-  const scopeFilter = await buildSignalListScopeFilter(actor);
-  return db.supplierDiscoverySignal.count({
-    where: {
-      orgId: actor.orgId,
-      ...(opts?.status ? { status: opts.status } : {}),
-      ...(opts?.platform ? { platform: opts.platform } : {}),
-      ...(scopeFilter.length > 0 ? { AND: scopeFilter } : {}),
-    },
-  });
+  opts?: SignalPageOptions,
+): Promise<{
+  signals: Awaited<ReturnType<typeof listSignals>>;
+  total: number;
+  nextCursor: string | null;
+  pageSize: number;
+}> {
+  const where = await buildSignalWhere(actor, opts);
+  const pageSize = Math.min(Math.max(opts?.take ?? SIGNAL_PAGE_SIZE.DEFAULT, 1), SIGNAL_PAGE_SIZE.MAX);
+  const cursor = opts?.cursor?.trim() || null;
+  const [rows, total] = await Promise.all([
+    db.supplierDiscoverySignal.findMany({
+      where,
+      orderBy: [{ discoveredAt: "desc" }, { id: "desc" }],
+      take: pageSize + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    }),
+    db.supplierDiscoverySignal.count({ where }),
+  ]);
+  const hasMore = rows.length > pageSize;
+  const signals = hasMore ? rows.slice(0, pageSize) : rows;
+  return {
+    signals,
+    total,
+    nextCursor: hasMore ? (signals[signals.length - 1]?.id ?? null) : null,
+    pageSize,
+  };
 }
 
 function assertSignalTransition(from: string, to: SignalStatus): void {
@@ -305,15 +366,13 @@ async function transitionSignal(
   // R1：review / reject / link 都是业务写入——先按有效项目归属断言写权限
   await assertSignalAccess(actor, signalId, "write");
   return db.$transaction(async (tx) => {
-    const signal = await tx.supplierDiscoverySignal.findFirst({
-      where: { id: signalId, orgId: actor.orgId },
-    });
-    if (!signal) throw new SupplierIntelError("NOT_FOUND", "发现信号不存在");
+    // S3-A §9B：锁内重读——与自动预填的追加路径互相串行，谁都不会用旧数组覆盖对方
+    const signal = await lockSignalForWrite(tx, actor.orgId, signalId);
     assertSignalTransition(signal.status, to);
 
     const resolutionJson = resolutionEntry
       ? ([
-          ...(Array.isArray(signal.resolutionJson) ? (signal.resolutionJson as unknown[]) : []),
+          ...existingResolutionEntries(signal.resolutionJson),
           resolutionEntry,
         ] as unknown as Prisma.InputJsonValue)
       : undefined;

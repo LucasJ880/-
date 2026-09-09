@@ -252,6 +252,109 @@ export async function cancelSearchRun(actor: SupplierIntelActor, runId: string) 
   });
 }
 
+/* ───────── S3-A：发现执行的服务端重复保护（短锁 CAS，不新建任务队列） ───────── */
+
+/** 执行声明的存活时长；超时视为上一次执行已崩溃，允许重新认领 */
+export const RUN_EXECUTION_CLAIM_TTL_MS = 10 * 60 * 1000;
+
+export interface RunExecutionClaim {
+  claimedAt: string;
+  expiresAt: string;
+  byUserId: string;
+}
+
+/** 纯函数：既有 statusDetailJson 里是否有仍然有效的执行声明 */
+export function readActiveExecutionClaim(
+  statusDetail: unknown,
+  now: Date,
+): RunExecutionClaim | null {
+  if (typeof statusDetail !== "object" || statusDetail === null || Array.isArray(statusDetail)) return null;
+  const raw = (statusDetail as { executionClaim?: unknown }).executionClaim;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const c = raw as { claimedAt?: unknown; expiresAt?: unknown; byUserId?: unknown };
+  if (typeof c.expiresAt !== "string" || typeof c.claimedAt !== "string" || typeof c.byUserId !== "string") {
+    return null;
+  }
+  const expires = Date.parse(c.expiresAt);
+  if (!Number.isFinite(expires) || expires <= now.getTime()) return null;
+  return { claimedAt: c.claimedAt, expiresAt: c.expiresAt, byUserId: c.byUserId };
+}
+
+/**
+ * 认领一次发现执行：短事务内锁住 Run（锁不跨网络），读最新 statusDetailJson，
+ * 已有有效声明 → 抛 RUN_EXECUTION_IN_PROGRESS；否则写入声明并提交。
+ * 重复点击 / 刷新重发 / 客户端重试都会撞在这里，不会并发跑两轮 provider。
+ */
+export async function claimRunExecution(
+  actor: SupplierIntelActor,
+  runId: string,
+  opts?: { now?: Date; ttlMs?: number },
+) {
+  const now = opts?.now ?? new Date();
+  const ttl = opts?.ttlMs ?? RUN_EXECUTION_CLAIM_TTL_MS;
+  return db.$transaction(async (tx) => {
+    const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
+    if (isRunTerminal(run.status)) {
+      throw new SupplierIntelError(
+        "RUN_IMMUTABLE",
+        `Run 已处于终态 ${run.status}，不能再次执行；重新搜索请新建 Run`,
+      );
+    }
+    const active = readActiveExecutionClaim(run.statusDetailJson, now);
+    if (active) {
+      throw new SupplierIntelError(
+        "RUN_EXECUTION_IN_PROGRESS",
+        "该搜索正在执行中，请等待本轮结束后再试",
+      );
+    }
+    const claim: RunExecutionClaim = {
+      claimedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + ttl).toISOString(),
+      byUserId: actor.userId,
+    };
+    const base =
+      typeof run.statusDetailJson === "object" &&
+      run.statusDetailJson !== null &&
+      !Array.isArray(run.statusDetailJson)
+        ? (run.statusDetailJson as Record<string, unknown>)
+        : {};
+    await tx.supplierSearchRun.update({
+      where: { id: run.id },
+      data: {
+        statusDetailJson: { ...base, executionClaim: claim } as unknown as Prisma.InputJsonValue,
+      },
+    });
+    return claim;
+  });
+}
+
+/**
+ * 释放执行声明（成功/失败都要调）。Run 已进终态时不再写工作数据——
+ * 终态的 statusDetailJson 由收口逻辑冻结，这里静默跳过。
+ */
+export async function releaseRunExecution(actor: SupplierIntelActor, runId: string): Promise<void> {
+  try {
+    await db.$transaction(async (tx) => {
+      const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
+      if (isRunTerminal(run.status)) return;
+      const base =
+        typeof run.statusDetailJson === "object" &&
+        run.statusDetailJson !== null &&
+        !Array.isArray(run.statusDetailJson)
+          ? { ...(run.statusDetailJson as Record<string, unknown>) }
+          : {};
+      if (!("executionClaim" in base)) return;
+      delete base.executionClaim;
+      await tx.supplierSearchRun.update({
+        where: { id: run.id },
+        data: { statusDetailJson: base as unknown as Prisma.InputJsonValue },
+      });
+    });
+  } catch {
+    // 释放失败不改变业务结果：声明自带 TTL，过期后自动可再认领
+  }
+}
+
 /**
  * 运行期工作数据（queries/sourceConfig/statusDetail）——仅 PLANNED/RUNNING 可写；
  * 终态后一律 RUN_IMMUTABLE。快照语义字段（brief/requirements/版本/createdBy/startedAt）
@@ -276,7 +379,24 @@ export async function updateRunWorkingData(
     ) as Prisma.InputJsonValue;
   }
   if (patch.statusDetail !== undefined) {
-    data.statusDetailJson = patch.statusDetail as Prisma.InputJsonValue;
+    // S3-A：发现执行会在收尾时整块重写 statusDetailJson。若直接覆盖，执行声明会在
+    // 「写状态档 → 收口」之间的窗口里消失，第二个并发请求就能重新认领并跑第二轮 provider。
+    // 因此这里把仍然有效的 executionClaim 带过去——声明只由 releaseRunExecution 或 TTL 清除。
+    const patched =
+      typeof patch.statusDetail === "object" &&
+      patch.statusDetail !== null &&
+      !Array.isArray(patch.statusDetail)
+        ? { ...(patch.statusDetail as Record<string, unknown>) }
+        : patch.statusDetail;
+    if (patched && typeof patched === "object" && !Array.isArray(patched) && !("executionClaim" in patched)) {
+      const current = await db.supplierSearchRun.findFirst({
+        where: { id: runId, orgId: actor.orgId },
+        select: { statusDetailJson: true },
+      });
+      const claim = readActiveExecutionClaim(current?.statusDetailJson, new Date());
+      if (claim) (patched as Record<string, unknown>).executionClaim = claim;
+    }
+    data.statusDetailJson = patched as unknown as Prisma.InputJsonValue;
   }
   if (Object.keys(data).length === 0) {
     throw new SupplierIntelError("INVALID_INPUT", "没有可更新的字段");

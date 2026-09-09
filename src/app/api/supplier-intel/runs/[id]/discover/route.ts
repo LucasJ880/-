@@ -4,7 +4,11 @@ import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
 import { executeSupplierSearchRun } from "@/lib/supplier-intel/discovery-service";
 import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
 import { getProjectSearchRun } from "@/lib/supplier-intel/project-run-service";
-import { startSearchRun } from "@/lib/supplier-intel/run-service";
+import {
+  claimRunExecution,
+  releaseRunExecution,
+  startSearchRun,
+} from "@/lib/supplier-intel/run-service";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -28,17 +32,24 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     if (access.project.orgId !== tenant.orgId) {
       return NextResponse.json({ error: "搜索运行不存在" }, { status: 404 });
     }
-    if (run.status === "PLANNED") {
-      await startSearchRun(actor, id); // PLANNED → RUNNING（审计 run.started）
+    // S3-A：服务端重复执行保护——先认领（短锁 CAS），认领失败即 409，
+    // 不依赖前端 disabled；刷新/重复点击/客户端重试都撞在这里。
+    await claimRunExecution(actor, id);
+    try {
+      if (run.status === "PLANNED") {
+        await startSearchRun(actor, id); // PLANNED → RUNNING（审计 run.started）
+      }
+      // §21/§44：执行发现并按确定性策略收口（S4 组合编排可传 finalize:false 保持 RUNNING）
+      const result = await executeSupplierSearchRun(actor, id, {
+        includeInternalPool: body?.includeInternalPool !== false,
+        internalPoolLimit:
+          typeof body?.internalPoolLimit === "number" ? body.internalPoolLimit : undefined,
+        finalize: body?.finalize !== false,
+      });
+      return NextResponse.json({ result });
+    } finally {
+      await releaseRunExecution(actor, id);
     }
-    // §21/§44：执行发现并按确定性策略收口（S4 组合编排可传 finalize:false 保持 RUNNING）
-    const result = await executeSupplierSearchRun(actor, id, {
-      includeInternalPool: body?.includeInternalPool !== false,
-      internalPoolLimit:
-        typeof body?.internalPoolLimit === "number" ? body.internalPoolLimit : undefined,
-      finalize: body?.finalize !== false,
-    });
-    return NextResponse.json({ result });
   } catch (err) {
     const mapped = mapSupplierIntelError(err);
     if (mapped) return mapped;
