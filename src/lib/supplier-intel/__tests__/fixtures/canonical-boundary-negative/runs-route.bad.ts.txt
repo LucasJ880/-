@@ -1,0 +1,24 @@
+// 负向 fixture（BL-3）：路由读取 body.requirements、向服务传非白名单键、POST 缺写门
+import { NextResponse, type NextRequest } from "next/server";
+import { requireProjectReadAccess } from "@/lib/projects/access";
+import { createProjectSearchRun, listProjectSearchRuns } from "@/lib/supplier-intel/project-run-service";
+
+export async function GET(request: NextRequest) {
+  const url = new URL(request.url);
+  const projectId = url.searchParams.get("projectId") ?? "";
+  await requireProjectReadAccess(request, projectId);
+  return NextResponse.json({ runs: await listProjectSearchRuns({ orgId: "o", userId: "u" }, projectId) });
+}
+
+export async function POST(request: NextRequest) {
+  const body = (await request.json()) as Record<string, unknown>;
+  const run = await createProjectSearchRun(
+    { orgId: "o", userId: "u" },
+    {
+      projectId: String(body.projectId),
+      requirements: body.requirements,
+      allowLlm: true,
+    },
+  );
+  return NextResponse.json({ run });
+}

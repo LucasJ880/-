@@ -179,6 +179,22 @@ npx tsx src/lib/supplier-intel/__tests__/score-contract.test.ts
 npx tsx src/lib/supplier-intel/__tests__/submission-parser.test.ts
 npx tsx src/lib/supplier-intel/__tests__/governance.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-db.isolated.test.ts
+npx tsx src/lib/supplier-intel/__tests__/search-brief.test.ts
+npx tsx src/lib/supplier-intel/__tests__/providers-policy.test.ts
+npx tsx src/lib/supplier-intel/__tests__/adapters.test.ts
+npx tsx src/lib/supplier-intel/__tests__/entity-resolution.test.ts
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2-db.isolated.test.ts
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2fr-db.isolated.test.ts
+# Supplier Intelligence M1-S2 Final Remediation（BL-2/BL-3/BL-4：纯核在 CI 真实执行；DB 套件无隔离库自跳过）
+npx tsx src/lib/supplier-intel/__tests__/identity-scan.test.ts
+npx tsx src/lib/supplier-intel/__tests__/egress-plan.test.ts
+npx tsx src/lib/supplier-intel/__tests__/run-finalization.test.ts
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2rem-db.isolated.test.ts
+
+# Supplier Intelligence S2 Trust-Boundary Closure（R1 信号项目 ACL / R2 canonical 来源判定）
+npx tsx src/lib/supplier-intel/__tests__/signal-scope.test.ts
+npx tsx src/lib/supplier-intel/__tests__/canonical-source.test.ts
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2tb-db.isolated.test.ts
 
 # Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）
 npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts
