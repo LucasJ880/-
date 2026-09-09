@@ -166,6 +166,8 @@ run_test "Supplier Intel S2-REM 整改回归 DB（BL-2 快照/BL-3 边界行为/
 run_test "Supplier Intel S2-TB R1 信号归属/冲突/列表过滤纯核" "npx tsx src/lib/supplier-intel/__tests__/signal-scope.test.ts"
 run_test "Supplier Intel S2-TB R2 canonical 来源四级判定（真实 writer 夹具）" "npx tsx src/lib/supplier-intel/__tests__/canonical-source.test.ts"
 run_test "Supplier Intel S2-TB 信任边界收口 DB+HTTP（R1 项目 ACL / R2 阻断点；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2tb-db.isolated.test.ts"
+run_test "Supplier Intel S3-A 采购视图/工作台文案纯核" "npx tsx src/lib/supplier-intel/__tests__/procurement-view.test.ts"
+run_test "Supplier Intel S3-A 工作台服务+HTTP（T2–T11；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts"
 run_test "Phase2B 企业语义隔离" "npx tsx src/lib/tenancy/__tests__/phase2b-semantics.test.ts"
 run_test "Phase3A-1 Trace Read Model" "npx tsx src/lib/capabilities/__tests__/phase3a1-trace-read-model.test.ts"
 run_test "Phase3A-2 Runs and Usage Ledger" "npx tsx src/lib/capabilities/__tests__/phase3a2-runs-and-usage.test.ts"
