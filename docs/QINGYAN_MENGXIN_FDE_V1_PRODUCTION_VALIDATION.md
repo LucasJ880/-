@@ -541,3 +541,53 @@ The gate covers the Qingyan side only: the code is verified, the migration check
 New P1 recorded this round, not fixed here: `MAX_CONCURRENT_RUNS` reservations are never released at run terminal (only creation-failure paths release), so an organization can begin at most 10 agent runs per 5-minute TTL window and the eleventh is refused with `QUOTA`; organization policy cannot raise it. For Mengxin this caps inbound FDE throughput at ten inquiries or re-runs per five minutes. The recovery layer treats `run_blocked` as re-runnable, so work resumes once slots free rather than being lost. Earlier P1s stand: unguarded Trade-lane LLM calls, `seed-revenue-spine-policy.ts` not calling `assertProductionOperationAllowed()`, the FDE default owner having no email provider, and `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP`.
 
 PR #207 remains unmerged. The production migration, the merge, the deployment and any real send all remain pending explicit authorization.
+
+## R4-7. Section 16A failure diagnosis (evidence and classification)
+
+Diagnosis only: no production code, transaction timeout, migration file or existing assertion was changed. Run against a local PostgreSQL 17 + pgvector instance with the full migration history, where latency and the concurrency quota are both removed as variables. Raw artifact preserved as `section16a-diagnosis-<stamp>.json`.
+
+Two 16A assertions failed in the first two round-4 runs. Both have the same cause, so both are classified together.
+
+| Failed assertion | Classification |
+|---|---|
+| `16A：草稿前事务失败 → 无审批、无发送；run=failed…收据=linked` | **FAULT_INJECTION_INVALID** |
+| `16A：再次恢复 → FDE 重跑并只产生一份未决审批，收据转 complete，仍未发送` | **FAULT_INJECTION_INVALID** (consequence of the same invalid injection) |
+
+### Variant 1 — the injection those runs actually used
+
+| Field | Observed |
+|---|---|
+| Injected transaction caller | `<anonymous> src/lib/agent-runtime/run.ts:639:10` (the transaction inside `appendAgentRunEvent`) |
+| Thrown error | `Transaction API error: Transaction not found. Transaction ID is invalid (simulated fault injection).` — injection confirmed fired |
+| FDE result | `ok: true`, no error code |
+| Receipt | status `complete`, `processingSince` null, all downstream ids populated |
+| SalesAction | status `open`, `fdeStatus` `completed`, run and draft both linked |
+| AgentRun | status `completed`, `errorCode` null, `errorMessage` null |
+| PendingAction | one row, status `pending`, `failureReason` null, `decidedById` null, not expired |
+| Counts | interactions 1, SalesActions 1, AgentRuns 1, valid pending approvals **1** |
+| Recovery after retry | `recovered: false`, steps `[]` — nothing to recover, chain already complete |
+| Duplicate externally executable action | **none** |
+
+The injected failure was absorbed, because `appendAgentRunEvent` wraps its own transaction in `try/catch` and returns `null`: run-event logging is best-effort by design. The assertion described a *fatal* pre-draft failure, which that injection point cannot produce. The expectation was right about the scenario; the injection could not create it.
+
+### Variants 2 and 3 — the injection now in the suite (identical runs, reproduced twice)
+
+| Field | Observed |
+|---|---|
+| Injected transaction caller | `upsertRfq src/lib/revenue-spine/rfq/persist.ts:54:13` |
+| Thrown error | same simulated "Transaction not found" |
+| FDE result | `ok: false`, `errorCode: FDE_FAILED`, error carries the injected message |
+| Receipt after failure | status **`linked`** (correctly *not* marked complete), `processingSince` null |
+| SalesAction after failure | status `open`, `fdeStatus` **`failed`**, no draft linked |
+| AgentRun after failure | status **`failed`**, `errorCode: unknown`, `errorMessage` preserves the transaction error |
+| PendingAction after failure | **none** |
+| Counts after failure | interactions 1, SalesActions 1, AgentRuns 1, valid pending approvals **0** |
+| Recovery after retry | `recovered: true`, steps `["fde"]`, new run `completed`, receipt `complete` |
+| Counts after recovery | interactions 1, SalesActions 1, AgentRuns 2 (the failed one is retained as real history), valid pending approvals **1** |
+| Duplicate externally executable action | **none, in either phase** |
+
+### Verdict
+
+The system is safe under a fatal mid-FDE transaction failure: no approval is created, nothing is sent, the failure is recorded on both the run and the action, the receipt is not falsely marked complete, and a retry completes the chain leaving exactly one approvable draft. No duplicate externally executable action, no unrecoverable state and no false-complete state was observed in any variant or phase.
+
+Accordingly only the new Section 16 expectation was corrected — by moving the injection to a transaction whose failure actually reaches the FDE (`upsertRfq`), and adding 16C to pin down that a run-event write failure is non-fatal by design. No existing production assertion was touched, and `PR207_RELEASE_GATE` is unchanged at `READY_FOR_PRODUCTION_AUTHORIZATION`.
