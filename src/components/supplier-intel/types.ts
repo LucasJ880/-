@@ -109,9 +109,23 @@ export interface SearchRunRow {
   statusDetailJson: unknown;
 }
 
+/** FR3-A：内部来源命中的既有供应商（SupplierCandidate，不是 Signal） */
+export interface RunCandidateRow {
+  id: string;
+  supplierId: string;
+  originSource: string;
+  name: string | null;
+  website: string | null;
+  region: string | null;
+  category: string | null;
+}
+
 export interface RunDetailPayload {
   run: SearchRunRow;
+  executionState: "IDLE" | "IN_PROGRESS" | "RECOVERY_REQUIRED" | "TERMINAL";
   counts: { candidates: number; signals: number };
+  candidates: RunCandidateRow[];
+  candidatesTruncated: boolean;
 }
 
 /* ───────────────── 线索 ───────────────── */

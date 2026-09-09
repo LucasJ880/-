@@ -21,6 +21,7 @@ import {
   signalStatusDisplay,
   sourceOriginDisplay,
 } from "@/lib/supplier-intel/workspace-labels";
+import { ScopeGuard } from "./scope-guard";
 import {
   WorkspaceApiError,
   workspaceFetch,
@@ -66,14 +67,22 @@ export function SignalsPanel({
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const [selected, setSelected] = useState<SignalRow | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+
+  // FR2：列表作用域 = org + project。切走后到达的旧响应一律不落地。
+  const guardRef = useRef<ScopeGuard | null>(null);
+  if (guardRef.current === null) guardRef.current = new ScopeGuard();
+  const guard = guardRef.current;
+  guard.setScope(`${orgId}::${projectId}`);
+
+  // FR2-D：当前打开的是哪条线索。写后刷新只能回填**这一条**，
+  // 抽屉已经关掉或换到别的线索时，绝不把旧线索重新弹出来。
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selected?.id ?? null;
 
   const cursor = cursorStack.length > 0 ? cursorStack[cursorStack.length - 1] : null;
 
   const load = useCallback(async () => {
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    const ticket = guard.begin("list");
     setLoading(true);
     setError(null);
     const qs = new URLSearchParams({ orgId, projectId });
@@ -83,22 +92,25 @@ export function SignalsPanel({
     try {
       const data = await workspaceFetch<SignalPagePayload>(
         `/api/supplier-intel/signals?${qs.toString()}`,
-        { signal: ctrl.signal },
+        { signal: ticket.signal },
       );
-      if (!ctrl.signal.aborted) setPage(data);
+      if (!ticket.isCurrent()) return;
+      setPage(data);
     } catch (e) {
-      if (ctrl.signal.aborted) return;
+      if (!ticket.isCurrent()) return;
       setError(e instanceof Error ? e.message : "加载失败");
       setPage(null);
     } finally {
-      if (!ctrl.signal.aborted) setLoading(false);
+      if (ticket.shouldSettle()) setLoading(false);
+      ticket.done();
     }
-  }, [orgId, projectId, status, runFilterId, cursor]);
+  }, [orgId, projectId, status, runFilterId, cursor, guard]);
 
   useEffect(() => {
     void load();
-    return () => abortRef.current?.abort();
   }, [load]);
+
+  useEffect(() => () => guard.abortAll(), [guard]);
 
   // 切换筛选/项目时回到第一页，避免游标串页
   useEffect(() => {
@@ -107,17 +119,27 @@ export function SignalsPanel({
 
   const refreshAfterWrite = useCallback(
     async (signalId: string) => {
+      const ticket = guard.begin("refreshOne");
       await load();
       try {
         const fresh = await workspaceFetch<{ signal: SignalRow }>(
           `/api/supplier-intel/signals/${signalId}?orgId=${encodeURIComponent(orgId)}`,
+          { signal: ticket.signal },
         );
+        // 抽屉可能已经被关掉（FR2-D）或已经换到别的线索（FR2-C）：
+        // 列表刷新照做，但当前选择保持用户此刻的状态，不被这次迟到的响应改写。
+        if (!ticket.isSameScope()) return;
+        if (selectedIdRef.current !== signalId) return;
         setSelected(fresh.signal);
       } catch {
+        if (!ticket.isSameScope()) return;
+        if (selectedIdRef.current !== signalId) return;
         setSelected(null);
+      } finally {
+        ticket.done();
       }
     },
-    [load, orgId],
+    [load, orgId, guard],
   );
 
   return (
@@ -160,6 +182,7 @@ export function SignalsPanel({
           {canWrite ? (
             <button
               type="button"
+              data-testid="add-signal-open"
               onClick={() => setShowAdd(true)}
               className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-3 py-1 text-xs text-[color:var(--on-accent)]"
             >
@@ -195,6 +218,9 @@ export function SignalsPanel({
                   <button
                     type="button"
                     onClick={() => setSelected(s)}
+                    data-testid="signal-row"
+                    data-signal-id={s.id}
+                    data-signal-status={s.status}
                     className="w-full rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-3 text-left hover:border-[var(--accent)]"
                   >
                     <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -264,6 +290,12 @@ export function SignalsPanel({
 
 /* ───────────────── 线索详情 + 人工确认 ───────────────── */
 
+/**
+ * FR2-C/D/E：抽屉里的每一路异步都绑定 signalId。
+ *   打开 A → 点核对 → 打开 B → A 的结果回来 → 必须丢弃，不能出现在 B 的抽屉里。
+ * FR3-B/C：AI 猜不出公司名时，人工检索与新建建档也要走得通——
+ *   但**关联始终是人点的**，系统永不自动 LINK。
+ */
 function SignalDetailDrawer({
   orgId,
   signal,
@@ -282,54 +314,83 @@ function SignalDetailDrawer({
   const [resolution, setResolution] = useState<ResolutionResult | null>(null);
   const [candidates, setCandidates] = useState<SupplierOption[] | null>(null);
 
+  // FR3-B 人工检索
+  const [manualQuery, setManualQuery] = useState("");
+  const [manualResults, setManualResults] = useState<SupplierOption[] | null>(null);
+  // FR3-C 新建后回到本线索：建过就记住，link 失败重试**不再重复建档**
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [createdSupplier, setCreatedSupplier] = useState<SupplierOption | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const signalId = signal?.id ?? null;
+  const guardRef = useRef<ScopeGuard | null>(null);
+  if (guardRef.current === null) guardRef.current = new ScopeGuard();
+  const guard = guardRef.current;
+  // 作用域 = 当前打开的线索。切线索/关抽屉的瞬间，旧线索的在途请求即失去归属。
+  guard.setScope(signalId);
+
   useEffect(() => {
     setResolution(null);
     setCandidates(null);
     setMsg(null);
-  }, [signal?.id]);
+    setBusy(null);
+    setManualQuery("");
+    setManualResults(null);
+    setShowCreate(false);
+    setCreatedSupplier(null);
+    setNewSupplierName(signal?.accountName ?? signal?.title ?? "");
+  }, [signalId, signal?.accountName, signal?.title]);
 
-  if (!signal) return null;
-  const st = signalStatusDisplay(signal.status);
-  const pf = platformDisplay(signal.platform);
-  const origin = sourceOriginDisplay(signal.sourceOrigin);
+  useEffect(() => () => guard.abortAll(), [guard]);
 
-  async function act(action: string, body: Record<string, unknown>) {
-    if (!signal) return;
-    setBusy(action);
-    setMsg(null);
-    try {
-      await workspaceFetch(`/api/supplier-intel/signals/${signal.id}?orgId=${encodeURIComponent(orgId)}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      setMsg({ tone: "ok", text: "已保存" });
-      await onChanged(signal.id);
-    } catch (e) {
-      const conflict = e instanceof WorkspaceApiError && e.status === 409;
-      setMsg({
-        tone: "err",
-        text: conflict
-          ? "该线索已被其他同事更新，请刷新后再操作（本次未覆盖对方的结果）"
-          : e instanceof Error
-            ? e.message
-            : "操作失败",
-      });
-    } finally {
-      setBusy(null);
-    }
-  }
+  const act = useCallback(
+    async (action: string, body: Record<string, unknown>) => {
+      if (!signalId) return false;
+      const ticket = guard.begin("write");
+      setBusy(action);
+      setMsg(null);
+      try {
+        await workspaceFetch(`/api/supplier-intel/signals/${signalId}?orgId=${encodeURIComponent(orgId)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!ticket.isSameScope()) return true; // 已经切到别的线索：结果不落到当前抽屉
+        setMsg({ tone: "ok", text: "已保存" });
+        await onChanged(signalId);
+        return true;
+      } catch (e) {
+        if (!ticket.isSameScope()) return false;
+        const conflict = e instanceof WorkspaceApiError && e.status === 409;
+        setMsg({
+          tone: "err",
+          text: conflict
+            ? "该线索已被其他同事更新，请刷新后再操作（本次未覆盖对方的结果）"
+            : e instanceof Error
+              ? e.message
+              : "操作失败",
+        });
+        return false;
+      } finally {
+        // FR2-E：只有仍是最新一轮才允许清忙碌态
+        if (ticket.shouldSettle()) setBusy(null);
+        ticket.done();
+      }
+    },
+    [guard, onChanged, orgId, signalId],
+  );
 
-  async function checkIdentity() {
-    if (!signal) return;
+  const checkIdentity = useCallback(async () => {
+    if (!signal || !signalId) return;
+    const ticket = guard.begin("resolve");
     setBusy("resolve");
     setMsg(null);
     try {
       const r = await workspaceFetch<{ result: ResolutionResult }>(
-        `/api/supplier-intel/signals/${signal.id}/resolve?orgId=${encodeURIComponent(orgId)}`,
-        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        `/api/supplier-intel/signals/${signalId}/resolve?orgId=${encodeURIComponent(orgId)}`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: ticket.signal },
       );
-      setResolution(r.result);
+      if (!ticket.isCurrent()) return; // 换线索后回来的旧解析结果：丢弃
 
       // 候选来源有两路，合并去重后交给人工选择（系统永不自动关联）：
       //   1) 解析命中的那家供应商——必须直接可选，否则「已匹配却无法关联」；
@@ -339,6 +400,7 @@ function SignalDetailDrawer({
         try {
           const one = await workspaceFetch<SupplierOption>(
             `/api/suppliers/${r.result.supplierId}?orgId=${encodeURIComponent(orgId)}`,
+            { signal: ticket.signal },
           );
           if (one?.id) picked.push(one);
         } catch {
@@ -352,6 +414,7 @@ function SignalDetailDrawer({
         try {
           const list = await workspaceFetch<{ data: SupplierOption[] }>(
             `/api/suppliers?orgId=${encodeURIComponent(orgId)}&search=${encodeURIComponent(namesQuery)}&pageSize=10`,
+            { signal: ticket.signal },
           );
           for (const c of list.data ?? []) {
             if (!picked.some((p) => p.id === c.id)) picked.push(c);
@@ -360,20 +423,108 @@ function SignalDetailDrawer({
           /* 检索失败不影响已命中的那家 */
         }
       }
+      if (!ticket.isCurrent()) return;
+      setResolution(r.result);
       setCandidates(picked);
+      if (!namesQuery) setManualQuery("");
     } catch (e) {
+      if (!ticket.isCurrent()) return;
       setMsg({ tone: "err", text: e instanceof Error ? e.message : "核对失败" });
     } finally {
-      setBusy(null);
+      if (ticket.shouldSettle()) setBusy(null);
+      ticket.done();
     }
-  }
+  }, [guard, orgId, signal, signalId]);
 
+  /** FR3-B：AI 猜不出公司名时，人工按名字/关键词在供应商库里找 */
+  const manualSearch = useCallback(async () => {
+    const q = manualQuery.trim();
+    if (!q || !signalId) return;
+    const ticket = guard.begin("manualSearch");
+    setBusy("manualSearch");
+    setMsg(null);
+    try {
+      const list = await workspaceFetch<{ data: SupplierOption[] }>(
+        `/api/suppliers?orgId=${encodeURIComponent(orgId)}&search=${encodeURIComponent(q)}&pageSize=20`,
+        { signal: ticket.signal },
+      );
+      if (!ticket.isCurrent()) return;
+      setManualResults(list.data ?? []);
+    } catch (e) {
+      if (!ticket.isCurrent()) return;
+      setMsg({ tone: "err", text: e instanceof Error ? e.message : "检索失败" });
+    } finally {
+      if (ticket.shouldSettle()) setBusy(null);
+      ticket.done();
+    }
+  }, [guard, manualQuery, orgId, signalId]);
+
+  /**
+   * FR3-C：在本线索上下文里新建 canonical 供应商，建完**留在原地**变成可选项。
+   * 刻意不 create-then-auto-link：关联仍要人点一次（身份归属是人的判断）。
+   * 建档成功后即使随后的 link 失败，createdSupplier 仍保留——重试关联，不会重复建档。
+   */
+  const createSupplier = useCallback(async () => {
+    const name = newSupplierName.trim();
+    if (!name || !signalId) return;
+    if (createdSupplier) {
+      setMsg({ tone: "err", text: "已经为这条线索建过供应商了，请直接点下方的「关联这家供应商」。" });
+      return;
+    }
+    const ticket = guard.begin("createSupplier");
+    setBusy("createSupplier");
+    setMsg(null);
+    try {
+      const created = await workspaceFetch<SupplierOption>(`/api/suppliers`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          orgId,
+          name,
+          source: "supplier_intel_signal",
+          sourceDetail: `S3-A 线索 ${signalId}`,
+        }),
+      });
+      if (!ticket.isCurrent()) return;
+      setCreatedSupplier(created);
+      setShowCreate(false);
+      setMsg({
+        tone: "ok",
+        text: "供应商已建档。请确认确实是同一家后，再点「关联这家供应商」。",
+      });
+    } catch (e) {
+      if (!ticket.isCurrent()) return;
+      setMsg({ tone: "err", text: e instanceof Error ? e.message : "建档失败" });
+    } finally {
+      if (ticket.shouldSettle()) setBusy(null);
+      ticket.done();
+    }
+  }, [createdSupplier, guard, newSupplierName, orgId, signalId]);
+
+  if (!signal) return null;
+  const st = signalStatusDisplay(signal.status);
+  const pf = platformDisplay(signal.platform);
+  const origin = sourceOriginDisplay(signal.sourceOrigin);
   const decision = resolution ? resolutionDecisionDisplay(resolution.decision) : null;
   const scan = resolution ? scanCompletenessDisplay(resolution.scan.complete) : null;
+  const openForWork = signal.status !== "LINKED" && signal.status !== "REJECTED";
+
+  const linkButton = (id: string, label = "关联这家供应商") => (
+    <button
+      type="button"
+      disabled={busy !== null}
+      onClick={() => void act("link", { action: "link", supplierId: id })}
+      data-testid="link-supplier"
+      data-supplier-id={id}
+      className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] text-[color:var(--on-accent)] disabled:opacity-50"
+    >
+      {label}
+    </button>
+  );
 
   return (
     <Drawer open={Boolean(signal)} onClose={onClose} title="线索详情" width="w-[520px]">
-      <div className="space-y-4 text-sm">
+      <div className="space-y-4 text-sm" data-testid="signal-drawer" data-signal-id={signal.id}>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className={`rounded border px-1.5 py-0.5 ${TONE_CLASS[st.tone]}`}>{st.label}</span>
           <span className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[var(--muted)]">
@@ -394,7 +545,7 @@ function SignalDetailDrawer({
             <p className="whitespace-pre-wrap text-xs text-[var(--muted)]">{signal.description}</p>
           ) : null}
           {signal.rawText ? (
-            <details className="text-xs">
+            <details className="text-xs" data-testid="signal-rawtext">
               <summary className="cursor-pointer text-[var(--accent)]">查看原始文字</summary>
               <p className="mt-1 whitespace-pre-wrap rounded-lg bg-[var(--background)] p-2 text-[var(--text-secondary)]">
                 {signal.rawText}
@@ -439,6 +590,7 @@ function SignalDetailDrawer({
 
         {msg ? (
           <p
+            data-testid="drawer-message"
             className={`rounded-lg px-2 py-1.5 text-xs ${
               msg.tone === "ok"
                 ? "bg-[var(--success-bg)] text-[var(--success)]"
@@ -458,12 +610,13 @@ function SignalDetailDrawer({
                   type="button"
                   disabled={busy !== null}
                   onClick={() => void act("review", { action: "review" })}
+                  data-testid="signal-review"
                   className="rounded-full border border-[var(--border)] px-3 py-1 text-xs disabled:opacity-50"
                 >
                   {busy === "review" ? "处理中…" : "标记已查看"}
                 </button>
               ) : null}
-              {signal.status !== "LINKED" && signal.status !== "REJECTED" ? (
+              {openForWork ? (
                 <button
                   type="button"
                   disabled={busy !== null}
@@ -473,11 +626,12 @@ function SignalDetailDrawer({
                   {busy === "reject" ? "处理中…" : "不采用"}
                 </button>
               ) : null}
-              {signal.status !== "LINKED" && signal.status !== "REJECTED" ? (
+              {openForWork ? (
                 <button
                   type="button"
                   disabled={busy !== null}
                   onClick={() => void checkIdentity()}
+                  data-testid="check-identity"
                   className="rounded-full bg-[var(--accent)] px-3 py-1 text-xs text-[color:var(--on-accent)] disabled:opacity-50"
                 >
                   {busy === "resolve" ? "核对中…" : "核对是否已有供应商"}
@@ -486,7 +640,7 @@ function SignalDetailDrawer({
             </div>
 
             {resolution && decision && scan ? (
-              <div className="space-y-2 rounded-xl border border-[var(--border)] p-3">
+              <div className="space-y-2 rounded-xl border border-[var(--border)] p-3" data-testid="resolution-box">
                 <p className={`rounded px-2 py-1 text-xs ${TONE_CLASS[decision.tone]}`}>{decision.label}</p>
                 {decision.hint ? <p className="text-[11px] text-[var(--muted)]">{decision.hint}</p> : null}
                 <p className={`rounded px-2 py-1 text-xs ${TONE_CLASS[scan.tone]}`}>{scan.label}</p>
@@ -520,11 +674,11 @@ function SignalDetailDrawer({
                   {candidates === null ? (
                     <p className="text-[11px] text-[var(--muted)]">未查询到候选</p>
                   ) : candidates.length === 0 ? (
-                    <p className="text-[11px] text-[var(--muted)]">
-                      供应商库里没有相近的记录。如确需新建，请到「供应商」页用既有建档流程创建后再回来关联。
+                    <p className="text-[11px] text-[var(--muted)]" data-testid="no-auto-candidates">
+                      系统没有找到相近记录。可以用下面的「按名字找供应商」自己找，或新建供应商。
                     </p>
                   ) : (
-                    <ul className="space-y-1">
+                    <ul className="space-y-1" data-testid="auto-candidates">
                       {candidates.map((c) => (
                         <li key={c.id} className="flex items-center justify-between gap-2 rounded border border-[var(--border)] px-2 py-1">
                           <span className="min-w-0 truncate text-xs" title={c.name}>
@@ -535,19 +689,121 @@ function SignalDetailDrawer({
                               </span>
                             ) : null}
                           </span>
-                          <button
-                            type="button"
-                            disabled={busy !== null}
-                            onClick={() => void act("link", { action: "link", supplierId: c.id })}
-                            className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] text-[color:var(--on-accent)] disabled:opacity-50"
-                          >
-                            关联这家供应商
-                          </button>
+                          {linkButton(c.id)}
                         </li>
                       ))}
                     </ul>
                   )}
                 </div>
+              </div>
+            ) : null}
+
+            {/* FR3-B：人工检索——不依赖 AI 能否猜出公司名 */}
+            {openForWork ? (
+              <div className="space-y-2 rounded-xl border border-[var(--border)] p-3" data-testid="manual-search-box">
+                <p className="text-xs font-medium">按名字找供应商</p>
+                <p className="text-[11px] text-[var(--muted)]">
+                  在本组织的供应商库里检索。系统不会替你判断是不是同一家——确认后由你点关联。
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    value={manualQuery}
+                    onChange={(e) => setManualQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void manualSearch();
+                    }}
+                    placeholder="公司名 / 关键词"
+                    data-testid="manual-search-input"
+                    className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy !== null || manualQuery.trim().length === 0}
+                    onClick={() => void manualSearch()}
+                    data-testid="manual-search-go"
+                    className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-xs disabled:opacity-50"
+                  >
+                    {busy === "manualSearch" ? "检索中…" : "检索"}
+                  </button>
+                </div>
+                {manualResults === null ? null : manualResults.length === 0 ? (
+                  <p className="text-[11px] text-[var(--muted)]" data-testid="manual-search-empty">
+                    没有找到匹配的供应商。确认库里确实没有这家后，可以在下面新建。
+                  </p>
+                ) : (
+                  <ul className="space-y-1" data-testid="manual-search-results">
+                    {manualResults.map((c) => (
+                      <li
+                        key={c.id}
+                        className="flex items-center justify-between gap-2 rounded border border-[var(--border)] px-2 py-1"
+                      >
+                        <span className="min-w-0 truncate text-xs" title={c.name}>
+                          {c.name}
+                          {c.region ? (
+                            <span className="ml-1 text-[10px] text-[var(--muted)]">{c.region}</span>
+                          ) : null}
+                        </span>
+                        {linkButton(c.id)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* FR3-C：新建 → 留在本线索 → 人工关联 */}
+                {createdSupplier ? (
+                  <div
+                    className="flex items-center justify-between gap-2 rounded border border-[var(--accent)] px-2 py-1"
+                    data-testid="created-supplier"
+                  >
+                    <span className="min-w-0 truncate text-xs">
+                      {createdSupplier.name}
+                      <span className="ml-1 rounded bg-[var(--success-bg)] px-1 text-[10px] text-[var(--success)]">
+                        刚建档
+                      </span>
+                    </span>
+                    {linkButton(createdSupplier.id, "关联这家供应商")}
+                  </div>
+                ) : showCreate ? (
+                  <div className="space-y-1.5 rounded border border-[var(--border)] p-2" data-testid="create-supplier-form">
+                    <label htmlFor="s3a-new-supplier" className="text-[11px] text-[var(--muted)]">
+                      供应商名称（建档后仍需你人工点关联）
+                    </label>
+                    <input
+                      id="s3a-new-supplier"
+                      value={newSupplierName}
+                      onChange={(e) => setNewSupplierName(e.target.value)}
+                      data-testid="create-supplier-name"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowCreate(false)}
+                        className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px]"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy !== null || newSupplierName.trim().length === 0}
+                        onClick={() => void createSupplier()}
+                        data-testid="create-supplier-go"
+                        className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[11px] text-[color:var(--on-accent)] disabled:opacity-50"
+                      >
+                        {busy === "createSupplier" ? "建档中…" : "建档"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreate(true)}
+                    data-testid="create-supplier-open"
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-3 py-1 text-xs"
+                  >
+                    <Plus size={11} /> 库里没有？新建供应商
+                  </button>
+                )}
               </div>
             ) : null}
           </div>
@@ -626,6 +882,7 @@ function AddSignalDialog({
           </label>
           <textarea
             id="s3a-text"
+            data-testid="add-signal-text"
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
             rows={4}
@@ -642,6 +899,7 @@ function AddSignalDialog({
             type="button"
             disabled={busy || (!url.trim() && !rawText.trim())}
             onClick={() => void submit()}
+            data-testid="add-signal-submit"
             className="rounded-full bg-[var(--accent)] px-3 py-1 text-xs text-[color:var(--on-accent)] disabled:opacity-50"
           >
             {busy ? "提交中…" : "提交线索"}
