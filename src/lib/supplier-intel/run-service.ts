@@ -8,6 +8,7 @@
  * - 所有函数 org-scoped：查询自带 actor.orgId，跨租户一律按 NOT_FOUND 处理（不泄露存在性）。
  */
 
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
@@ -20,10 +21,26 @@ import {
   isRunTerminal,
 } from "./constants";
 import { SupplierIntelError } from "./errors";
+import {
+  classifyRunExecutionState,
+  readActiveExecutionClaim,
+  readExecutionClaimRecord,
+  type RunExecutionClaim,
+  type RunExecutionState,
+} from "./run-execution-state";
 import { validateRequirementSnapshot } from "./requirement-snapshot";
 import { SUPPLIER_SCORE_V1 } from "./score-contract";
 
 const RUN_TARGET_TYPE = "supplier_search_run";
+
+// FR1：执行声明的纯判定集中在 run-execution-state（客户端也要用），这里原样再导出
+export {
+  classifyRunExecutionState,
+  readActiveExecutionClaim,
+  readExecutionClaimRecord,
+  type RunExecutionClaim,
+  type RunExecutionState,
+};
 /** brief/sourceConfig 快照序列化上限（防滥用；正常 brief 远低于此） */
 const SNAPSHOT_MAX_BYTES = 131_072;
 
@@ -252,46 +269,38 @@ export async function cancelSearchRun(actor: SupplierIntelActor, runId: string) 
   });
 }
 
-/* ───────── S3-A：发现执行的服务端重复保护（短锁 CAS，不新建任务队列） ───────── */
+/* ───────── S3-A / FR1：发现执行的所有权化重复保护（短锁 CAS，不新建任务队列） ───────── */
 
-/** 执行声明的存活时长；超时视为上一次执行已崩溃，允许重新认领 */
+/**
+ * 执行声明的存活时长。**过期不等于可以接管**：过期只说明「上一次执行没有正常收尾，
+ * 结果未知」（FR1-C no-takeover）。见 claimRunExecution 的 RECOVERY_REQUIRED 分支。
+ */
 export const RUN_EXECUTION_CLAIM_TTL_MS = 10 * 60 * 1000;
 
-export interface RunExecutionClaim {
-  claimedAt: string;
-  expiresAt: string;
-  byUserId: string;
-}
-
-/** 纯函数：既有 statusDetailJson 里是否有仍然有效的执行声明 */
-export function readActiveExecutionClaim(
-  statusDetail: unknown,
-  now: Date,
-): RunExecutionClaim | null {
-  if (typeof statusDetail !== "object" || statusDetail === null || Array.isArray(statusDetail)) return null;
-  const raw = (statusDetail as { executionClaim?: unknown }).executionClaim;
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-  const c = raw as { claimedAt?: unknown; expiresAt?: unknown; byUserId?: unknown };
-  if (typeof c.expiresAt !== "string" || typeof c.claimedAt !== "string" || typeof c.byUserId !== "string") {
-    return null;
-  }
-  const expires = Date.parse(c.expiresAt);
-  if (!Number.isFinite(expires) || expires <= now.getTime()) return null;
-  return { claimedAt: c.claimedAt, expiresAt: c.expiresAt, byUserId: c.byUserId };
+/** 认领句柄：release 必须带回 claimId，否则无从证明自己仍是当前 executor */
+export interface RunExecutionLease {
+  claimId: string;
+  claim: RunExecutionClaim;
 }
 
 /**
- * 认领一次发现执行：短事务内锁住 Run（锁不跨网络），读最新 statusDetailJson，
- * 已有有效声明 → 抛 RUN_EXECUTION_IN_PROGRESS；否则写入声明并提交。
- * 重复点击 / 刷新重发 / 客户端重试都会撞在这里，不会并发跑两轮 provider。
+ * 认领一次发现执行。短事务内锁 Run → 读最新 statusDetailJson → 三分支裁决：
+ *
+ *   1. 有**未过期**声明 → RUN_EXECUTION_IN_PROGRESS（重复点击/刷新重发都撞这里）；
+ *   2. 有**已过期**声明 → RUN_EXECUTION_RECOVERY_REQUIRED（FR1-C）。过期只证明上一个
+ *      executor 没有正常释放，**不证明它已经死了**——它可能只是慢。此时自动接管会让
+ *      两个 executor 同时对同一个 Run 写结果，因此这里 fail closed：由有权限的人显式
+ *      取消该 Run，再新建 Run 重搜。这是「不可能出现双 executor」最容易证明的策略；
+ *   3. 无声明 → 写入带唯一 claimId 的新声明。
  */
 export async function claimRunExecution(
   actor: SupplierIntelActor,
   runId: string,
-  opts?: { now?: Date; ttlMs?: number },
-) {
+  opts?: { now?: Date; ttlMs?: number; claimId?: string },
+): Promise<RunExecutionLease> {
   const now = opts?.now ?? new Date();
   const ttl = opts?.ttlMs ?? RUN_EXECUTION_CLAIM_TTL_MS;
+  const claimId = opts?.claimId ?? randomUUID();
   return db.$transaction(async (tx) => {
     const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
     if (isRunTerminal(run.status)) {
@@ -300,14 +309,21 @@ export async function claimRunExecution(
         `Run 已处于终态 ${run.status}，不能再次执行；重新搜索请新建 Run`,
       );
     }
-    const active = readActiveExecutionClaim(run.statusDetailJson, now);
-    if (active) {
+    const existing = readExecutionClaimRecord(run.statusDetailJson);
+    if (existing) {
+      if (Date.parse(existing.expiresAt) > now.getTime()) {
+        throw new SupplierIntelError(
+          "RUN_EXECUTION_IN_PROGRESS",
+          "该搜索正在执行中，请等待本轮结束后再试",
+        );
+      }
       throw new SupplierIntelError(
-        "RUN_EXECUTION_IN_PROGRESS",
-        "该搜索正在执行中，请等待本轮结束后再试",
+        "RUN_EXECUTION_RECOVERY_REQUIRED",
+        "上一次执行没有正常结束，本次搜索的执行结果无法确认。请取消这次搜索并重新发起，避免同一次搜索被执行两遍",
       );
     }
     const claim: RunExecutionClaim = {
+      claimId,
       claimedAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + ttl).toISOString(),
       byUserId: actor.userId,
@@ -324,34 +340,40 @@ export async function claimRunExecution(
         statusDetailJson: { ...base, executionClaim: claim } as unknown as Prisma.InputJsonValue,
       },
     });
-    return claim;
+    return { claimId, claim };
   });
 }
 
 /**
- * 释放执行声明（成功/失败都要调）。Run 已进终态时不再写工作数据——
- * 终态的 statusDetailJson 由收口逻辑冻结，这里静默跳过。
+ * 释放执行声明（成功/失败都要调）。**FR1-B 所有权检查**：只有当库里当前声明的
+ * claimId 与调用方持有的一致时才删除。一个超时的旧 executor 迟到的 finally 因此
+ * 无法删掉新 executor 的声明（那会让第三个请求误以为 Run 空闲）。
+ *
+ * 返回是否真的释放了；不匹配 = NO-OP（不是错误，旧 executor 本来就该安静退出）。
+ * Run 已进终态时同样跳过：终态 statusDetailJson 由收口逻辑冻结。
  */
-export async function releaseRunExecution(actor: SupplierIntelActor, runId: string): Promise<void> {
+export async function releaseRunExecution(
+  actor: SupplierIntelActor,
+  runId: string,
+  claimId: string,
+): Promise<boolean> {
   try {
-    await db.$transaction(async (tx) => {
+    return await db.$transaction(async (tx) => {
       const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
-      if (isRunTerminal(run.status)) return;
-      const base =
-        typeof run.statusDetailJson === "object" &&
-        run.statusDetailJson !== null &&
-        !Array.isArray(run.statusDetailJson)
-          ? { ...(run.statusDetailJson as Record<string, unknown>) }
-          : {};
-      if (!("executionClaim" in base)) return;
+      if (isRunTerminal(run.status)) return false;
+      const current = readExecutionClaimRecord(run.statusDetailJson);
+      if (!current || current.claimId !== claimId) return false; // 不是我的声明 → 不动
+      const base = { ...(run.statusDetailJson as Record<string, unknown>) };
       delete base.executionClaim;
       await tx.supplierSearchRun.update({
         where: { id: run.id },
         data: { statusDetailJson: base as unknown as Prisma.InputJsonValue },
       });
+      return true;
     });
   } catch {
-    // 释放失败不改变业务结果：声明自带 TTL，过期后自动可再认领
+    // 释放失败不改变业务结果：声明自带 TTL，过期后走显式恢复路径
+    return false;
   }
 }
 
@@ -378,28 +400,48 @@ export async function updateRunWorkingData(
       "sourceConfig 快照",
     ) as Prisma.InputJsonValue;
   }
-  if (patch.statusDetail !== undefined) {
-    // S3-A：发现执行会在收尾时整块重写 statusDetailJson。若直接覆盖，执行声明会在
-    // 「写状态档 → 收口」之间的窗口里消失，第二个并发请求就能重新认领并跑第二轮 provider。
-    // 因此这里把仍然有效的 executionClaim 带过去——声明只由 releaseRunExecution 或 TTL 清除。
-    const patched =
-      typeof patch.statusDetail === "object" &&
-      patch.statusDetail !== null &&
-      !Array.isArray(patch.statusDetail)
+  const statusDetailPatch =
+    patch.statusDetail !== undefined
+      ? typeof patch.statusDetail === "object" &&
+        patch.statusDetail !== null &&
+        !Array.isArray(patch.statusDetail)
         ? { ...(patch.statusDetail as Record<string, unknown>) }
-        : patch.statusDetail;
-    if (patched && typeof patched === "object" && !Array.isArray(patched) && !("executionClaim" in patched)) {
-      const current = await db.supplierSearchRun.findFirst({
-        where: { id: runId, orgId: actor.orgId },
-        select: { statusDetailJson: true },
-      });
-      const claim = readActiveExecutionClaim(current?.statusDetailJson, new Date());
-      if (claim) (patched as Record<string, unknown>).executionClaim = claim;
-    }
-    data.statusDetailJson = patched as unknown as Prisma.InputJsonValue;
-  }
-  if (Object.keys(data).length === 0) {
+        : patch.statusDetail
+      : undefined;
+
+  if (Object.keys(data).length === 0 && statusDetailPatch === undefined) {
     throw new SupplierIntelError("INVALID_INPUT", "没有可更新的字段");
+  }
+
+  // FR1-D：statusDetailJson 会被发现流程整块重写。若在锁外读声明、锁外合并、再写回，
+  // 就存在「A 读到旧声明 → B 写入新声明 → A 把旧声明写回去」的复活窗口。
+  // 因此只要本次要动 statusDetail，读-合并-写三步全部放进同一个 Run 行锁事务里。
+  if (statusDetailPatch !== undefined) {
+    return db.$transaction(async (tx) => {
+      const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
+      if (isRunTerminal(run.status)) {
+        throw new SupplierIntelError(
+          "RUN_IMMUTABLE",
+          `Run 已处于终态 ${run.status}，快照与工作数据不可修改；重评估请新建 Run`,
+        );
+      }
+      const merged = statusDetailPatch;
+      if (
+        merged &&
+        typeof merged === "object" &&
+        !Array.isArray(merged) &&
+        !("executionClaim" in (merged as Record<string, unknown>))
+      ) {
+        // 锁内读到的才是权威当前声明；调用方没有显式携带声明时一律沿用它。
+        // 声明只能由 releaseRunExecution（带所有权校验）删除，或过期后走显式恢复。
+        const currentClaim = readExecutionClaimRecord(run.statusDetailJson);
+        if (currentClaim) (merged as Record<string, unknown>).executionClaim = currentClaim;
+      }
+      return tx.supplierSearchRun.update({
+        where: { id: run.id },
+        data: { ...data, statusDetailJson: merged as unknown as Prisma.InputJsonValue },
+      });
+    });
   }
 
   const updated = await db.supplierSearchRun.updateMany({
