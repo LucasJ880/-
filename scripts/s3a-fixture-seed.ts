@@ -205,6 +205,205 @@ async function main() {
     }
   }
 
+  /* ═════════ FR4 场景夹具：来源五态 / 历史快照 / 恢复态 ═════════
+   *
+   * 全部经**真实 service 路径**产生（createProjectSearchRun → executeSupplierSearchRun），
+   * 只把 provider 与 adapter 换成确定性的测试实现。刻意不把 provider 选择做成生产 HTTP
+   * 参数——那等于给公开入口开一个「换搜索源」的后门。
+   */
+  const projectByKey = new Map(created.map((c) => [c.key, c.projectId]));
+  const actorBuyer = { orgId: org.id, userId: buyer.id };
+  const projectRunSvc = await import("@/lib/supplier-intel/project-run-service");
+  const runSvc = await import("@/lib/supplier-intel/run-service");
+  const { executeSupplierSearchRun } = await import("@/lib/supplier-intel/discovery-service");
+  const signalSvc = await import("@/lib/supplier-intel/signal-service");
+
+  const testPolicy = { respectsRobots: true, requiresPlatformLogin: false, dataLicense: "test-fixture" };
+  /** 可用的确定性 provider：adapter 自己决定成功/空/失败，provider 本身不被真正调用 */
+  const availableProvider = {
+    providerId: "s3a-fixture-provider",
+    policy: testPolicy,
+    isAvailable: () => true,
+    search: async () => ({ status: "OK", results: [], failureReason: null }),
+  };
+  const unavailableProvider = {
+    providerId: "s3a-fixture-provider-off",
+    policy: testPolicy,
+    isAvailable: () => false,
+    search: async () => ({ status: "DISABLED", results: [], failureReason: "fixture: disabled" }),
+  };
+  const mkPlan = (source: string) => [
+    {
+      source,
+      query: `${source} 演示检索词 ${TAG}`,
+      language: "zh" as const,
+      queryType: "COMMERCIAL" as const,
+      priority: 1,
+      generatedFrom: ["fixture"],
+    },
+  ];
+  const mkAdapter = (platform: string, mode: "SUCCESS" | "EMPTY" | "FAILED") => ({
+    platform,
+    buildQueryPlan: () => mkPlan(platform),
+    discover: async () => {
+      if (mode === "FAILED") {
+        return { ok: false as const, code: "PROVIDER_ERROR", message: `演示：${platform} 来源本次失败` };
+      }
+      return {
+        ok: true as const,
+        sourceStatus: mode,
+        plan: mkPlan(platform),
+        drafts:
+          mode === "SUCCESS"
+            ? [
+                {
+                  platform: "OPEN_WEB",
+                  contentUrl: `https://s3a-fixture-factory.example/${TAG}/a`,
+                  title: `[演示夹具] 佛山某家具厂 ${TAG}`,
+                  description: "合成夹具数据，不是真实搜到的厂家。",
+                  sourceQuery: mkPlan(platform)[0].query,
+                },
+              ]
+            : [],
+        noiseFiltered: 0,
+        providerStatuses: [mode === "SUCCESS" ? "OK" : "EMPTY"],
+        failureReason: null,
+        note: null,
+      };
+    },
+  });
+
+  /**
+   * 场景重置：验收会**消耗**恢复态夹具（取消 / 继续执行都是破坏性的），
+   * 所以每轮验收前重跑本脚本时，先把上一轮的场景数据清掉再重建。
+   * 删除严格限定在本夹具 org 内；顺序按外键依赖（候选 → 线索 → Run）。
+   */
+  const fixtureProjectIds = created.map((c) => c.projectId);
+  await db.supplierCandidate.deleteMany({ where: { orgId: org.id } });
+  await db.supplierCapabilitySignal.deleteMany({ where: { orgId: org.id } });
+  await db.supplierDiscoverySignal.deleteMany({ where: { orgId: org.id } });
+  await db.supplierSearchRun.deleteMany({ where: { orgId: org.id } });
+  // V2 分析也一并重来，保证「V1 快照 Run 早于 V2 分析」这个时序恒成立
+  const staleV2 = await db.tenderAnalysisRun.findMany({
+    where: { orgId: org.id, idempotencyKey: { startsWith: `s3a_${TAG}_custom_v2` } },
+    select: { id: true },
+  });
+  if (staleV2.length > 0) {
+    const v2Ids = staleV2.map((r) => r.id);
+    await db.tenderAnalysisSection.deleteMany({ where: { runId: { in: v2Ids } } });
+    await db.tenderExtractedRequirement.deleteMany({ where: { analysisRunId: { in: v2Ids } } });
+    await db.tenderAnalysisRun.deleteMany({ where: { id: { in: v2Ids } } });
+  }
+  void fixtureProjectIds;
+
+  const scenarioRuns: Array<{ key: string; runId: string; state: string }> = [];
+
+  // ① custom：来源混合态（SUCCESS + EMPTY + FAILED）
+  const customProjectId = projectByKey.get("custom");
+  if (customProjectId) {
+    const mixed = await projectRunSvc.createProjectSearchRun(actorBuyer, {
+      projectId: customProjectId, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorBuyer, mixed.id);
+    await executeSupplierSearchRun(actorBuyer, mixed.id, {
+      finalize: true,
+      includeInternalPool: true,
+      provider: availableProvider as never,
+      adapters: [
+        mkAdapter("OPEN_WEB", "SUCCESS"),
+        mkAdapter("ONE688", "EMPTY"),
+        mkAdapter("XIAOHONGSHU", "FAILED"),
+      ] as never,
+    });
+    scenarioRuns.push({ key: "custom", runId: mixed.id, state: "MIXED_SOURCES" });
+
+    // ② custom：外部整体未启用（全 DISABLED，仅内部源）
+    const disabled = await projectRunSvc.createProjectSearchRun(actorBuyer, {
+      projectId: customProjectId, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorBuyer, disabled.id);
+    await executeSupplierSearchRun(actorBuyer, disabled.id, {
+      finalize: true,
+      includeInternalPool: true,
+      provider: unavailableProvider as never,
+    });
+    scenarioRuns.push({ key: "custom", runId: disabled.id, state: "EXTERNAL_DISABLED" });
+
+    // ③ custom：历史快照——这次 Run 用 V1 需求，随后 canonical 升到 V2
+    const v1Run = await projectRunSvc.createProjectSearchRun(actorBuyer, {
+      projectId: customProjectId, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorBuyer, v1Run.id);
+    await runSvc.completeSearchRun(actorBuyer, v1Run.id, { status: "fixture-v1" });
+    // 场景重置已经把旧的 V2 删掉，这里总是新建——保证时序：V1 Run 先建，V2 分析后到
+    const v2Key = `s3a_${TAG}_custom_v2`;
+    {
+      const v2 = await db.tenderAnalysisRun.create({
+        data: {
+          orgId: org.id, projectId: customProjectId, status: "APPROVED",
+          idempotencyKey: v2Key, sourceHashFingerprint: `s3a-fixture-custom-v2`,
+          summaryText: "演示分析 V2（需求已改版）",
+        },
+      });
+      await db.tenderExtractedRequirement.create({
+        data: {
+          projectId: customProjectId, analysisRunId: v2.id, requirementCode: "R-V2-ONLY",
+          category: "technical",
+          originalRequirement: `V2 ONLY REQUIREMENT ${TAG}`,
+          chineseTranslation: `仅 V2 才有的新要求 ${TAG}`,
+          mandatory: true,
+        },
+      });
+      await db.tenderAnalysisSection.create({
+        data: {
+          runId: v2.id, sectionKey: "RISKS", contentZh: "V2",
+          structuredJson: buildCanonicalRisksStructuredJson([
+            { code: "R-V2-ONLY", mandatory: true, statement: `V2 ONLY REQUIREMENT ${TAG}` },
+          ]) as never,
+        },
+      });
+    }
+    scenarioRuns.push({ key: "custom", runId: v1Run.id, state: "V1_SNAPSHOT" });
+  }
+
+  // ④ install：恢复态——PLANNED（从未执行）+ RUNNING 且声明已过期（执行结果未知）
+  const installProjectId = projectByKey.get("install");
+  if (installProjectId) {
+    const planned = await projectRunSvc.createProjectSearchRun(actorBuyer, {
+      projectId: installProjectId, allowLlm: false,
+    });
+    scenarioRuns.push({ key: "install", runId: planned.id, state: "IDLE_PLANNED" });
+
+    const stale = await projectRunSvc.createProjectSearchRun(actorBuyer, {
+      projectId: installProjectId, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorBuyer, stale.id);
+    // 负 TTL = 造出一个「已过期且从未释放」的声明（等价于 executor 中途被杀）
+    await runSvc.claimRunExecution(actorBuyer, stale.id, { ttlMs: -1000 });
+    scenarioRuns.push({ key: "install", runId: stale.id, state: "RECOVERY_REQUIRED" });
+  }
+
+  // ⑤ standard：不可信文本线索（XSS 载荷必须以字面文本呈现）
+  const standardProjectId = projectByKey.get("standard");
+  let xssSignalId: string | null = null;
+  if (standardProjectId) {
+    const existing = await db.supplierDiscoverySignal.findFirst({
+      where: { orgId: org.id, projectId: standardProjectId, rawText: { contains: "onerror" } },
+      select: { id: true },
+    });
+    if (existing) {
+      xssSignalId = existing.id;
+    } else {
+      const created = await signalSvc.createSubmittedSignal(actorBuyer, {
+        url: `https://s3a-fixture-factory.example/${TAG}/xss`,
+        rawText: `展会线索 <img src=x onerror=alert(1)> <script>alert(2)</script> ${TAG}`,
+        manualEntry: true,
+        projectId: standardProjectId,
+      });
+      xssSignalId = created.id;
+    }
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -217,6 +416,8 @@ async function main() {
           outsider: outsider.email,
         },
         projects: created,
+        scenarioRuns,
+        xssSignalId,
       },
       null,
       2,

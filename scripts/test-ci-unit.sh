@@ -198,6 +198,10 @@ npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s2tb-db.isolated.test.ts
 
 # Supplier Intelligence S3-A 国内采购工作台（纯核在 CI 真实执行；DB 套件无隔离库自跳过）
 npx tsx src/lib/supplier-intel/__tests__/procurement-view.test.ts
+
+# S3-A Final Review 整改（FR1 执行声明所有权 / FR2 异步上下文隔离）
+npx tsx src/lib/supplier-intel/__tests__/run-execution-claim.test.ts
+npx tsx src/lib/supplier-intel/__tests__/scope-guard.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 
 # Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）

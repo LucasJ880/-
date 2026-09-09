@@ -236,23 +236,35 @@ async function main() {
     console.log("\n== T5：重复执行保护（服务端，不靠前端 disabled）==");
     const run2 = await projectRunSvc.createProjectSearchRun(actorWriter, { projectId: projA.id, allowLlm: false });
     await runSvc.startSearchRun(actorWriter, run2.id);
-    const claim1 = await runSvc.claimRunExecution(actorWriter, run2.id);
-    ok(Boolean(claim1.expiresAt), "T5a：首次认领成功");
+    const lease1 = await runSvc.claimRunExecution(actorWriter, run2.id);
+    ok(Boolean(lease1.claim.expiresAt), "T5a：首次认领成功");
+    ok(typeof lease1.claimId === "string" && lease1.claimId.length > 0, "T5a2：认领带唯一 claimId");
     await expectErr("RUN_EXECUTION_IN_PROGRESS", "T5b：并发第二次认领被拒（不会跑两轮 provider）", () =>
       runSvc.claimRunExecution(actorOwner, run2.id));
     // 状态档整块重写后声明仍在（否则收口前会出现可再认领的窗口）
     await runSvc.updateRunWorkingData(actorWriter, run2.id, { statusDetail: { status: "ran", sources: {} } });
     await expectErr("RUN_EXECUTION_IN_PROGRESS", "T5c：写状态档后声明仍然有效", () =>
       runSvc.claimRunExecution(actorOwner, run2.id));
-    await runSvc.releaseRunExecution(actorWriter, run2.id);
-    const claim2 = await runSvc.claimRunExecution(actorOwner, run2.id);
-    ok(Boolean(claim2.claimedAt), "T5d：释放后可重新认领");
-    await runSvc.releaseRunExecution(actorOwner, run2.id);
+    ok(
+      (await runSvc.releaseRunExecution(actorWriter, run2.id, lease1.claimId)) === true,
+      "T5c2：持有者凭 claimId 释放成功",
+    );
+    const lease2 = await runSvc.claimRunExecution(actorOwner, run2.id);
+    ok(Boolean(lease2.claim.claimedAt), "T5d：释放后可重新认领");
+    ok(lease2.claimId !== lease1.claimId, "T5d2：两次认领的 claimId 不同（同一 Run 不同 owner）");
+    await runSvc.releaseRunExecution(actorOwner, run2.id, lease2.claimId);
     const expired = runSvc.readActiveExecutionClaim(
-      { executionClaim: { claimedAt: "x", expiresAt: new Date(Date.now() - 1000).toISOString(), byUserId: "u" } },
+      {
+        executionClaim: {
+          claimId: "c1",
+          claimedAt: "x",
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
+          byUserId: "u",
+        },
+      },
       new Date(),
     );
-    ok(expired === null, "T5e：过期声明不再阻挡（崩溃后可恢复）");
+    ok(expired === null, "T5e：过期声明不再算「进行中」");
 
     console.log("\n== T6：手工线索——不自动抓取、不自动 LINK、不自动 VERIFIED ==");
     const manual = await signalSvc.createSubmittedSignal(actorWriter, {
@@ -389,6 +401,228 @@ async function main() {
         "https://s3a-demo-factory.example",
       "T11e：全流程结束后 Supplier.website 仍未被 contentUrl 覆盖",
     );
+
+    /* ═════════ FR1：执行声明所有权 + 安全恢复 ═════════ */
+
+    console.log("\n== FR1-T1/T2：声明所有权（旧 executor 不得释放新 executor 的声明）==");
+    const runOwn = await projectRunSvc.createProjectSearchRun(actorWriter, {
+      projectId: projA.id, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorWriter, runOwn.id);
+    const leaseA = await runSvc.claimRunExecution(actorWriter, runOwn.id);
+    await expectErr("RUN_EXECUTION_IN_PROGRESS", "FR1-T1：未过期时第二次认领被拒", () =>
+      runSvc.claimRunExecution(actorOwner, runOwn.id));
+
+    // A 正常收尾 → B 认领（新 claimId）→ A 的迟到 finally 再次 release(A.claimId)。
+    // 这是「旧 executor 释放掉新 executor 声明」在 no-takeover 策略下唯一可达的路径。
+    await runSvc.releaseRunExecution(actorWriter, runOwn.id, leaseA.claimId);
+    const leaseB = await runSvc.claimRunExecution(actorOwner, runOwn.id);
+    ok(leaseB.claimId !== leaseA.claimId, "FR1-T2a：新 executor 拿到不同的 claimId");
+    const staleRelease = await runSvc.releaseRunExecution(actorWriter, runOwn.id, leaseA.claimId);
+    ok(staleRelease === false, "FR1-T2b：旧 claimId 释放 = NO-OP");
+    const afterStale = await db.supplierSearchRun.findUnique({
+      where: { id: runOwn.id }, select: { statusDetailJson: true },
+    });
+    const survivingClaim = runSvc.readExecutionClaimRecord(afterStale?.statusDetailJson);
+    ok(
+      survivingClaim?.claimId === leaseB.claimId,
+      "FR1-T2c：B 的声明仍在（旧 executor 没能把它删掉）",
+      `实际 ${survivingClaim?.claimId ?? "null"}`,
+    );
+    await expectErr("RUN_EXECUTION_IN_PROGRESS", "FR1-T2d：第三方仍被 B 的声明挡住", () =>
+      runSvc.claimRunExecution(actorViewer, runOwn.id));
+
+    console.log("\n== FR1-T3：过期声明 = 结果未知，显式恢复（no-takeover）==");
+    const runStale = await projectRunSvc.createProjectSearchRun(actorWriter, {
+      projectId: projA.id, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorWriter, runStale.id);
+    // 用负 TTL 直接造出一个「已过期且从未释放」的声明（等价于 executor 中途被杀）
+    await runSvc.claimRunExecution(actorWriter, runStale.id, { ttlMs: -1000 });
+    await expectErr(
+      "RUN_EXECUTION_RECOVERY_REQUIRED",
+      "FR1-T3a：过期后不自动接管，要求显式恢复",
+      () => runSvc.claimRunExecution(actorOwner, runStale.id),
+    );
+    ok(
+      runSvc.classifyRunExecutionState(
+        (await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runStale.id } })),
+        new Date(),
+      ) === "RECOVERY_REQUIRED",
+      "FR1-T3b：执行态对外表现为 RECOVERY_REQUIRED",
+    );
+    // 恢复出路 = 取消后新建；取消后终态不重入
+    await runSvc.cancelSearchRun(actorWriter, runStale.id);
+    await expectErr("RUN_IMMUTABLE", "FR1-T3c：取消后不可再执行（只能新建 Run）", () =>
+      runSvc.claimRunExecution(actorWriter, runStale.id));
+
+    console.log("\n== FR1-T4：状态档整块重写与声明更新的竞争 ==");
+    const runRace = await projectRunSvc.createProjectSearchRun(actorWriter, {
+      projectId: projA.id, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorWriter, runRace.id);
+    const leaseRace = await runSvc.claimRunExecution(actorWriter, runRace.id);
+    // 并发：一边整块重写 statusDetail，一边（模拟收尾后）重新认领。
+    // 任何交错顺序下，最终留在库里的声明都不能是已经被释放的那一个。
+    await Promise.all([
+      runSvc.updateRunWorkingData(actorWriter, runRace.id, {
+        statusDetail: { status: "ran", sources: { saved: { status: "EMPTY" } } },
+      }),
+      runSvc.updateRunWorkingData(actorWriter, runRace.id, {
+        statusDetail: { status: "ran2", sources: {} },
+      }),
+    ]);
+    const afterRace = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runRace.id } });
+    ok(
+      runSvc.readExecutionClaimRecord(afterRace.statusDetailJson)?.claimId === leaseRace.claimId,
+      "FR1-T4a：并发整块重写后，当前声明原样幸存（不被旧值覆盖）",
+    );
+    await runSvc.releaseRunExecution(actorWriter, runRace.id, leaseRace.claimId);
+    const leaseRace2 = await runSvc.claimRunExecution(actorOwner, runRace.id);
+    await runSvc.updateRunWorkingData(actorWriter, runRace.id, {
+      statusDetail: { status: "late-write-from-old-executor" },
+    });
+    const afterLate = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runRace.id } });
+    ok(
+      runSvc.readExecutionClaimRecord(afterLate.statusDetailJson)?.claimId === leaseRace2.claimId,
+      "FR1-T4b：旧 executor 的迟到状态档写入，不会把旧声明复活回去",
+    );
+    await runSvc.releaseRunExecution(actorOwner, runRace.id, leaseRace2.claimId);
+
+    console.log("\n== FR1-T5：HTTP 执行入口的输入白名单 ==");
+    const discoverRoute = await import("@/app/api/supplier-intel/runs/[id]/discover/route");
+    const runPolicy = await projectRunSvc.createProjectSearchRun(actorWriter, {
+      projectId: projA.id, allowLlm: false,
+    });
+    const policyRes = await discoverRoute.POST(
+      await req(writer, `/api/supplier-intel/runs/${runPolicy.id}/discover?orgId=${org.id}`, {
+        method: "POST",
+        // 恶意/越权的执行策略：全部必须被忽略
+        body: { finalize: false, includeInternalPool: false, internalPoolLimit: 999999 },
+      }),
+      { params: Promise.resolve({ id: runPolicy.id }) },
+    );
+    ok(policyRes.status === 200, "FR1-T5a：执行入口正常返回", `实际 ${policyRes.status}`);
+    const policyRun = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runPolicy.id } });
+    ok(
+      policyRun.status === "COMPLETED" || policyRun.status === "FAILED",
+      "FR1-T5b：finalize:false 被忽略——Run 仍按服务端策略收口到终态",
+      `实际 ${policyRun.status}`,
+    );
+    const policyDetail = (policyRun.statusDetailJson ?? {}) as Record<string, unknown>;
+    const policySources = (policyDetail.perSource ?? policyDetail.sources ?? {}) as Record<string, unknown>;
+    ok(
+      Object.keys(policySources).some((k) => k === "saved" || k === "memory" || k === "historical"),
+      "FR1-T5c：includeInternalPool:false 被忽略——内部源仍然执行",
+      `实际来源 ${Object.keys(policySources).join(",")}`,
+    );
+    ok(
+      runSvc.readExecutionClaimRecord(policyRun.statusDetailJson) === null,
+      "FR1-T5d：执行结束后声明已被持有者释放",
+    );
+
+    console.log("\n== FR1-T6：请求失败后的可恢复性（不重复调用 provider）==");
+    const { executeSupplierSearchRun } = await import("../discovery-service");
+    let providerCalls = 0;
+    const countingProvider = {
+      id: "test-counting",
+      isAvailable: () => false, // 外部禁用：本例只关心「被调了几次」
+      search: async () => {
+        providerCalls += 1;
+        return [];
+      },
+    };
+    const runResume = await projectRunSvc.createProjectSearchRun(actorWriter, {
+      projectId: projA.id, allowLlm: false,
+    });
+    // 浏览器断开 = 服务端根本没收到执行请求 → Run 停在 PLANNED、无声明
+    const beforeResume = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runResume.id } });
+    ok(
+      runSvc.classifyRunExecutionState(beforeResume, new Date()) === "IDLE",
+      "FR1-T6a：未执行的 Run 是 IDLE（界面给「继续执行 / 取消」）",
+    );
+    const leaseResume = await runSvc.claimRunExecution(actorWriter, runResume.id);
+    await runSvc.startSearchRun(actorWriter, runResume.id);
+    await executeSupplierSearchRun(actorWriter, runResume.id, {
+      includeInternalPool: true, finalize: true,
+      provider: countingProvider as never,
+    });
+    await runSvc.releaseRunExecution(actorWriter, runResume.id, leaseResume.claimId);
+    ok(providerCalls === 0, "FR1-T6b：外部 provider 未启用时调用数恒 0", `实际 ${providerCalls}`);
+    await expectErr("RUN_IMMUTABLE", "FR1-T6c：收口后重复执行被拒（不会跑第二轮）", () =>
+      runSvc.claimRunExecution(actorWriter, runResume.id));
+
+    console.log("\n== FR1-F：取消入口（HTTP）==");
+    const runDetailRoute = await import("@/app/api/supplier-intel/runs/[id]/route");
+    const runCancel = await projectRunSvc.createProjectSearchRun(actorWriter, {
+      projectId: projA.id, allowLlm: false,
+    });
+    const cancelForbidden = await runDetailRoute.PATCH(
+      await req(viewer, `/api/supplier-intel/runs/${runCancel.id}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "cancel" },
+      }),
+      { params: Promise.resolve({ id: runCancel.id }) },
+    );
+    ok(cancelForbidden.status === 403, "FR1-Fa：只读用户不能取消", `实际 ${cancelForbidden.status}`);
+    const badAction = await runDetailRoute.PATCH(
+      await req(writer, `/api/supplier-intel/runs/${runCancel.id}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "reset-claim" },
+      }),
+      { params: Promise.resolve({ id: runCancel.id }) },
+    );
+    ok(badAction.status === 400, "FR1-Fb：除 cancel 外没有其他动作（不提供「重置声明」后门）");
+    const cancelOk = await runDetailRoute.PATCH(
+      await req(writer, `/api/supplier-intel/runs/${runCancel.id}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "cancel" },
+      }),
+      { params: Promise.resolve({ id: runCancel.id }) },
+    );
+    ok(cancelOk.status === 200, "FR1-Fc：有写权限的人可以取消", `实际 ${cancelOk.status}`);
+    ok(
+      (await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runCancel.id } })).status === "CANCELLED",
+      "FR1-Fd：DB 回查确认已取消",
+    );
+
+    console.log("\n== FR3-A：内部候选可见（HTTP 回候选清单，不是只回计数）==");
+    const detailRes = await runDetailRoute.GET(
+      await req(writer, `/api/supplier-intel/runs/${runPolicy.id}?orgId=${org.id}`),
+      { params: Promise.resolve({ id: runPolicy.id }) },
+    );
+    ok(detailRes.status === 200, "FR3-Aa：Run 详情 HTTP 200");
+    const detailBody = (await detailRes.json()) as {
+      counts: { candidates: number };
+      candidates: Array<{ supplierId: string; name: string | null; originSource: string }>;
+      executionState: string;
+    };
+    ok(Array.isArray(detailBody.candidates), "FR3-Ab：返回候选数组");
+    ok(
+      detailBody.candidates.length === Math.min(detailBody.counts.candidates, 50),
+      "FR3-Ac：候选条数与计数一致",
+      `list=${detailBody.candidates.length} count=${detailBody.counts.candidates}`,
+    );
+    if (detailBody.candidates.length > 0) {
+      ok(
+        detailBody.candidates.every((c) => typeof c.name === "string" && c.name.length > 0),
+        "FR3-Ad：候选带供应商名字（采购同事能看出是哪几家）",
+      );
+      const dbCand = await db.supplierCandidate.findMany({
+        where: { orgId: org.id, searchRunId: runPolicy.id }, select: { supplierId: true },
+      });
+      ok(
+        detailBody.candidates.every((c) => dbCand.some((d) => d.supplierId === c.supplierId)),
+        "FR3-Ae：候选来自 SupplierCandidate 真表（不是伪造的 Signal）",
+      );
+      const signalsForRun = await db.supplierDiscoverySignal.count({
+        where: { orgId: org.id, searchRunId: runPolicy.id },
+      });
+      ok(
+        signalsForRun === 0 || detailBody.candidates.length > 0,
+        "FR3-Af：内部候选与线索是两张表，未被复制成假线索",
+      );
+    } else {
+      ok(false, "FR3-Ad：本次执行没有产生任何内部候选（夹具应保证至少一家已存供应商命中）");
+    }
+    ok(detailBody.executionState === "TERMINAL", "FR3-Ag：详情带执行态");
 
     console.log(`\nS3-A 断言：${pass} 通过 / ${fail} 失败`);
   } finally {
