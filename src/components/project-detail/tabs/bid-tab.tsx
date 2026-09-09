@@ -14,6 +14,7 @@ import { TenderOurBidCard } from "@/components/quote-engine/tender-our-bid";
 import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
 import { ChinaSupplierBriefPanel } from "@/components/bid-workflow/china-supplier-brief-panel";
 import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
+import { TenderSourcingEntry } from "@/components/supplier-intel/tender-sourcing-entry";
 import { VersionHistoryDrawer } from "@/components/project-detail/version-history-drawer";
 
 interface BidTabProps {
@@ -46,6 +47,8 @@ export function BidTab({ projectId, orgId, canManage }: BidTabProps) {
       <BidQuoteArea projectId={projectId} />
 
       <ProjectGenerateMenu projectId={projectId} canManage={canManage} />
+
+      <TenderSourcingEntry projectId={projectId} />
 
       <ProjectInquirySection projectId={projectId} orgId={orgId} canManage={canManage} />
 
