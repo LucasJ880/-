@@ -591,3 +591,134 @@ The injected failure was absorbed, because `appendAgentRunEvent` wraps its own t
 The system is safe under a fatal mid-FDE transaction failure: no approval is created, nothing is sent, the failure is recorded on both the run and the action, the receipt is not falsely marked complete, and a retry completes the chain leaving exactly one approvable draft. No duplicate externally executable action, no unrecoverable state and no false-complete state was observed in any variant or phase.
 
 Accordingly only the new Section 16 expectation was corrected — by moving the injection to a transaction whose failure actually reaches the FDE (`upsertRfq`), and adding 16C to pin down that a run-event write failure is non-fatal by design. No existing production assertion was touched, and `PR207_RELEASE_GATE` is unchanged at `READY_FOR_PRODUCTION_AUTHORIZATION`.
+
+---
+
+# Round 5 — Main sync and release freeze (2026-09-10)
+
+Rounds 1–4 above are unchanged, including their failure history. This round synchronised PR #207 with the current `main` and re-verified the whole candidate on top of it. Nothing was merged, migrated in production, deployed, seeded or emailed.
+
+## R5-1. Sync with current main (PART 1)
+
+```text
+PRE_SYNC_HEAD  = 7b61a0cf4625035c07f9ee0139de120d96e3fc89
+SYNC_MAIN_SHA  = 4070d6d83842427e6318ab92ad7d19f0cc76fbae
+POST_SYNC_HEAD = e6b6098738adfe6420ac86e81d2c273c707ffc8a
+CONFLICTS      = NONE
+```
+
+The merge base was `5933ff7a`, the old review base. `main` had advanced by 22 commits, all of them PR #190 (Supplier Intelligence M1-S2). A merge commit was used, matching the convention already present in the drifted history (#190 itself carries `efdd0785 merge: origin/main → …`). No reviewed commit was rewritten and no force push was used.
+
+## R5-2. Drift review (PART 2)
+
+```text
+MAIN_DRIFT_SOURCE          = PR190 (Supplier Intelligence M1-S2)
+DIRECT_FILE_OVERLAP        = NONE
+SEMANTIC_RUNTIME_OVERLAP   = NONE
+TEST_RUNNER_IMPACT         = ADDITIVE_ONLY
+MIGRATION_REGISTRY_OVERLAP = NONE
+```
+
+- **Direct file overlap: none.** The two change sets are disjoint. #207 touches 10 files (schema, the one migration, the webhook route, `website-inquiry.ts`, `website-inquiry-receipts.ts`, the two test suites, both migration registries, the report). #190 touches 52, every one of them under `src/lib/supplier-intel/`, `src/lib/tender-intel/`, `src/app/api/supplier-intel/`, `docs/` or `scripts/`. The set intersection is empty.
+- **Semantic runtime overlap: none.** #190 changed nothing outside those directories — in particular nothing in `agent-runtime`, `pending-actions`, `revenue-spine` or `trade`. In the other direction, nothing under `src/lib/trade/`, `src/lib/revenue-spine/`, `src/lib/pending-actions/` or `src/app/api/trade/` imports `supplier-intel` or `tender-intel`. The two lanes share the Prisma client and the approval facade, and neither changed.
+- **Test runner impact: additive only.** #190 appended 13 `run_test` lines to `scripts/test-all.sh` and 14 lines to `scripts/test-ci-unit.sh`, all Supplier Intel suites; its isolated-DB suites self-skip when no isolated database is provided. #207 does not modify either runner: all three of its suites (`check-release-safety.test.ts`, `website-inquiry.test.ts`, `revenue-spine-db.isolated.test.ts`) were already registered on both sides, so no registration was lost or duplicated by the merge.
+- **Migration registry overlap: none.** #190 adds no migration and does not touch `expected-migrations.ts` or `check-release-safety.test.ts`.
+
+No semantic conflict was found, and no Supplier Intelligence file was edited.
+
+## R5-3. Migration after sync (PART 3)
+
+```text
+MIGRATION_SHA256         = 4cc862a8589206f256d680cc930607d4e7f813aeb1fb6f936cfd7e2b6b3f06fb
+MIGRATION_CHANGED_BY_SYNC = NO
+```
+
+Recomputed from the post-sync tree; byte-identical to the round-4 value. A diff of the whole #207 surface (`prisma/`, `src/lib/trade/`, `src/lib/revenue-spine/`, `src/lib/pending-actions/`, `src/lib/release/`, `src/app/api/trade/`, `check-release-safety.test.ts`) between the pre-sync and post-sync heads is empty — the merge changed none of it.
+
+The SQL remains additive only: one `CREATE TABLE "WebsiteInquiryReceipt"`, one unique index and four ordinary indexes. No `ALTER` of an existing table, no `DROP`, no `DELETE`, no `UPDATE`, no foreign key. Compared with `origin/main`, `prisma/schema.prisma` is +54 lines and −0, adding exactly one model. `prisma/migrations/` gains exactly one directory. The migration is still registered in `EXPECTED_ACTIVE_MIGRATIONS` (`expected-migrations.ts:48`) and in `check-release-safety.test.ts:131`, and the release-safety suite passes.
+
+## R5-4. Final database validation (PART 4)
+
+Isolated Neon branch `final-sync-20260910` (`br-aged-hat-an4wrwlw`), created fresh from the production branch `br-green-boat-ann7k5yf`. On that clone `prisma migrate status` reported exactly one unapplied migration — `20260908120000_website_inquiry_receipt` — and `prisma migrate deploy` applied that one and nothing else. No `db push`, no `--accept-data-loss`, no manual DDL, no seed, and no production database was written to.
+
+```text
+DB_SUITE = ALL PASS  (161 通过, 0 失败, exit 0)
+```
+
+One full run of `revenue-spine-db.isolated.test.ts` against the post-main-sync tree, all 16 sections. The previously failing existing assertion is unchanged and passes; no assertion was deleted, relaxed or rewritten this round, and the transaction timeout was not touched. This also reproduces the round-4 result of 161/161 on a second, independent database engine and location — round 4's confirming run was on a local PostgreSQL 17 cluster, this one on Neon — so the count is not an artefact of one environment.
+
+Section 16 behaved exactly as specified:
+
+| Case | Result |
+|---|---|
+| 16A — fatal transaction fault at a real fatal boundary (`upsertRfq`) | FDE returns failed; `AgentRun` = `failed` with the cause preserved; `SalesAction.fdeStatus` = `failed`; receipt stays `linked`, **not** `complete`; **zero** approvals; nothing sent |
+| 16A — retry | Recovers through the `fde` step; **exactly one** valid pending approval; receipt turns `complete`; still nothing sent; no business object duplicated |
+| 16B — fault after the draft exists (`completeAgentRun`) | FDE reports failure honestly; exactly one valid pending approval; no one recorded as decider; no automatic send |
+| 16C — `appendAgentRunEvent` write failure | Non-fatal by design: the run still completes, exactly one pending approval, nothing sent. The log line `[AgentRunEvent] append failed …` is the intended visible trace, not a failure expectation |
+
+No diagnostics dump was needed, because there was no failing assertion to preserve.
+
+## R5-5. Static and CI gates (PART 5)
+
+Run after the DB suite finished, not alongside it.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean, no output |
+| `npm run lint` | exit 1 — pre-existing debt, 41 errors / 137 warnings. CI marks this step `continue-on-error` by design; it is a log, not the gate |
+| `npm run lint:baseline` (the real gate) | **PASS** — no new error fingerprint; 41 errors against a baseline of 53 |
+| `npm run test:ci` | **PASS**, exit 0 — includes release-safety, migration-history verification, the runtime architecture guard (violations = 0, `AgentRunEvent` single physical writer intact), the approval-facade and tenant guards, and `website-inquiry` 10/10 |
+| Revenue Spine DB suite in `test:ci` | skipped locally with no `DATABASE_URL`, exactly as in CI — it was run separately against the isolated branch above |
+
+The Next.js build is left to repository CI, which runs it with the migration gate.
+
+## R5-6. Production migration preflight (PART 7) — read-only, not executed
+
+The target was confirmed before reading: `.env`'s `DIRECT_URL` host `ep-super-field-antfibsl…` is the endpoint of Neon branch `br-green-boat-ann7k5yf`, the `[default] production` branch — the known protected target. `prisma migrate status` was run read-only from the clean post-sync worktree (not from the main checkout, whose working tree carries unrelated uncommitted migration directories that would have polluted the pending list).
+
+Pending migrations in production: **exactly one**.
+
+```text
+20260908120000_website_inquiry_receipt
+```
+
+The command also reports migrations present in the production `_prisma_migrations` table but absent from `prisma/migrations/`. That list was checked item by item against the registry: all of it is `ARCHIVED_MIGRATIONS` (85 entries), plus one extra — `20260829200000_add_vinyl_work_order`, applied in production but committed to neither registry nor the repository. That is the pre-existing P1 already recorded in round 4, unrelated to #207, and it does not block: `predeploy-migration-gate.ts` blocks only on `drift.missing` and treats `drift.unexpected` as a warning.
+
+```text
+MIGRATION_PREFLIGHT = READY_NOT_EXECUTED
+```
+
+Prepared, deliberately not executed, and requiring your explicit authorization:
+
+```bash
+ALLOW_DATABASE_MIGRATION=true CONFIRM_PRODUCTION_MIGRATION=I_UNDERSTAND_PRODUCTION_MIGRATION npm run db:migrate:deploy
+```
+
+`safe-migrate-deploy` applies **all** pending migrations. The check above is what makes that safe here: the pending list is exactly one, and that one is additive. Release order is unchanged — apply the migration, then merge #207, then redeploy — because the build-time gate fails a production build whose database lacks a required migration.
+
+## R5-7. Status (PART 6, PART 8)
+
+```text
+MAIN_DRIFT_SOURCE         = PR190 (Supplier Intelligence M1-S2)
+DIRECT_OVERLAP            = NONE
+PRE_SYNC_HEAD             = 7b61a0cf4625035c07f9ee0139de120d96e3fc89
+BASE_MAIN_SHA             = 4070d6d83842427e6318ab92ad7d19f0cc76fbae
+POST_SYNC_HEAD            = e6b6098738adfe6420ac86e81d2c273c707ffc8a
+MIGRATION_SHA256          = 4cc862a8589206f256d680cc930607d4e7f813aeb1fb6f936cfd7e2b6b3f06fb
+MIGRATION_CHANGED_BY_SYNC = NO
+DB_SUITE                  = ALL PASS (161/161)
+MIGRATION_PREFLIGHT       = READY_NOT_EXECUTED
+SITE_DEPLOYMENT_PREFLIGHT = NEEDS_SERVER_ACCESS
+
+MENGXIN_FDE_V1 = PRODUCTION_BLOCKED
+```
+
+The release candidate is this commit — the merge of `4070d6d8` into the branch plus this report. `PR207_RELEASE_HEAD` and `CI_RUN_ID` are the SHA of this commit and the CI run against it; they are reported with the delivery rather than written here, since a commit cannot record its own hash. The freeze is declared only if that run is green **and** `origin/main` is still `4070d6d8` at the moment of declaration; if `main` has moved again, the drift is evaluated first and nothing is frozen.
+
+Unchanged from earlier rounds, and not addressed by this one:
+
+- `SITE_DEPLOYMENT_PREFLIGHT` stays `NEEDS_SERVER_ACCESS`. Everything checkable without the server passes and the delta package is ready, but the deployed version has not been compared and nothing has been deployed.
+- `MENGXIN_FDE_V1` stays `PRODUCTION_BLOCKED`. Migration not applied, #207 not merged, site not deployed, real-form acceptance (PART 七) and the human approval / Trade Inbox steps (PART 八) not run.
+- Open P1 items, again not fixed here because they are outside this lane: the Trade-lane inquiry analysis and design LLM calls have no `isAIConfigured()` guard; `MAX_CONCURRENT_RUNS` reservations are never released at run terminal, so an organisation can start only 10 agent runs per 5 minutes; `scripts/seed-revenue-spine-policy.ts` does not call `assertProductionOperationAllowed()`; the FDE's default owner has no email provider connected; `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP`; `20260829200000_add_vinyl_work_order` is applied in production but present in neither migration registry.
+
+#207 remains unmerged, pending explicit release authorization. #206 stays open until #207 merges.
