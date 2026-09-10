@@ -177,6 +177,7 @@ async function main() {
   requireFixture(RUN_BY_STATE.V1_SNAPSHOT, "历史快照 Run（V1 需求）");
   requireFixture(RUN_BY_STATE.IDLE_PLANNED, "未执行 Run（PLANNED）");
   requireFixture(RUN_BY_STATE.RECOVERY_REQUIRED, "执行结果未知 Run（声明过期）");
+  requireFixture(RUN_BY_STATE.LEGACY_CLAIM, "旧格式声明 Run（无 claimId，未过期）");
   requireFixture(ids.xssSignalId, "不可信文本线索（XSS 载荷）");
   if (fail > 0) {
     console.log(`\n夹具不完整，终止验收：${pass} 通过 / ${fail} 失败`);
@@ -547,6 +548,34 @@ async function main() {
       (await staleCard.locator('[data-testid="card-cancel"]').count()) === 1,
       "E8e：给出「取消」这条明确出路",
     );
+
+    // FR1 最终收口：旧格式声明在界面上必须与「过期」同样处理——不给继续执行，只给取消。
+    // 修复前它会被当成 IDLE，卡片上会出现「继续执行」，点下去就是第二个 executor。
+    const legacyRunId = RUN_BY_STATE.LEGACY_CLAIM[0].runId;
+    const legacyCard = page.locator(`[data-testid="run-card"][data-run-id="${legacyRunId}"]`);
+    ok((await legacyCard.count()) === 1, "E8a2：旧格式声明的 Run 卡片可见");
+    ok(
+      (await legacyCard.getAttribute("data-exec-state")) === "RECOVERY_REQUIRED",
+      "E8b2：旧格式声明（未过期）判为 RECOVERY_REQUIRED，不是 IDLE",
+      `实际 ${await legacyCard.getAttribute("data-exec-state")}`,
+    );
+    ok(
+      (await legacyCard.locator('[data-testid="card-resume"]').count()) === 0,
+      "E8d2：旧格式声明不给「继续执行」（无法证明旧 executor 已停手）",
+    );
+    ok(
+      (await legacyCard.locator('[data-testid="card-cancel"]').count()) === 1,
+      "E8e2：旧格式声明给出「取消」这条出路",
+    );
+    ok(
+      (await legacyCard.innerText()).includes("结果无法确认"),
+      "E8c2：复用既有恢复文案，不新增第五种用户状态",
+    );
+    const legacyExec = await buyerCtx.request.post(
+      `${BASE}/api/supplier-intel/runs/${legacyRunId}/discover?orgId=${encodeURIComponent(ORG)}`,
+      { data: {} },
+    );
+    ok(legacyExec.status() === 409, "E8f2：旧格式声明的 Run 执行请求被 409 拒绝", `实际 ${legacyExec.status()}`);
 
     const plannedRunId = RUN_BY_STATE.IDLE_PLANNED[0].runId;
     const plannedCard = page.locator(`[data-testid="run-card"][data-run-id="${plannedRunId}"]`);

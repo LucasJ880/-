@@ -69,6 +69,16 @@ async function main() {
     }
   }
 
+  /** 稳定序列化：Prisma 回读 JSON 的键顺序与写入时不同，比较必须与顺序无关 */
+  function canonicalJson(v: unknown): string {
+    if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+    if (v !== null && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(",")}}`;
+    }
+    return JSON.stringify(v) ?? "null";
+  }
+
   const tag = `s3a_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   /* ─────────────── Fixture ─────────────── */
@@ -455,6 +465,152 @@ async function main() {
     await runSvc.cancelSearchRun(actorWriter, runStale.id);
     await expectErr("RUN_IMMUTABLE", "FR1-T3c：取消后不可再执行（只能新建 Run）", () =>
       runSvc.claimRunExecution(actorWriter, runStale.id));
+
+    console.log("\n== FR1-FINAL-T5/T6：不可验证的声明（旧格式 / malformed）必须 fail closed ==");
+    /**
+     * 这一组守的是 FR1 最容易被绕开的那条缝：
+     * 「解析不出声明」曾被当成「没有声明」，于是旧格式（无 claimId）的 Run
+     * 可以被直接重新认领——no-takeover 形同虚设。
+     */
+    const invalidClaimCases: Array<{ label: string; value: unknown }> = [
+      // 旧格式：本轮之前写下的声明就长这样，且 expiresAt 还在未来
+      {
+        label: "legacy（无 claimId，未过期）",
+        value: {
+          claimedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          byUserId: writer.id,
+        },
+      },
+      { label: "空 claimId", value: { claimId: "", claimedAt: "x", expiresAt: new Date(Date.now() + 600_000).toISOString(), byUserId: writer.id } },
+      { label: "expiresAt 非法", value: { claimId: "c1", claimedAt: "x", expiresAt: "not-a-date", byUserId: writer.id } },
+      { label: "值不是对象", value: "surprise" },
+    ];
+
+    for (const c of invalidClaimCases) {
+      const r = await projectRunSvc.createProjectSearchRun(actorWriter, {
+        projectId: projA.id, allowLlm: false,
+      });
+      await runSvc.startSearchRun(actorWriter, r.id);
+      // 直接落一个不可验证的声明（模拟历史数据 / 被改过的行）
+      await db.supplierSearchRun.update({
+        where: { id: r.id },
+        data: { statusDetailJson: { executionClaim: c.value } as never },
+      });
+
+      const row = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: r.id } });
+      ok(
+        runSvc.classifyRunExecutionState(row, new Date()) === "RECOVERY_REQUIRED",
+        `FR1-FINAL-T5[${c.label}]：执行态判为 RECOVERY_REQUIRED`,
+        `实际 ${runSvc.classifyRunExecutionState(row, new Date())}`,
+      );
+      await expectErr(
+        "RUN_EXECUTION_RECOVERY_REQUIRED",
+        `FR1-FINAL-T5[${c.label}]：claimRunExecution 被拒（不接管、不修复、不替换）`,
+        () => runSvc.claimRunExecution(actorOwner, r.id),
+      );
+      // 新声明未写入：库里还是原来那个不可验证的值
+      const after = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: r.id } });
+      const afterDetail = (after.statusDetailJson ?? {}) as Record<string, unknown>;
+      ok(
+        canonicalJson(afterDetail.executionClaim) === canonicalJson(c.value),
+        `FR1-FINAL-T5[${c.label}]：原值原样保留，没有被 repair / replace / 删除`,
+        `实际 ${JSON.stringify(afterDetail.executionClaim)}`,
+      );
+      ok(after.status === "RUNNING", `FR1-FINAL-T5[${c.label}]：Run 状态未被错误推进`, `实际 ${after.status}`);
+
+      // 持有者身份无从证明 → release 一律 NO-OP（不能把不可判定洗成空闲）
+      ok(
+        (await runSvc.releaseRunExecution(actorWriter, r.id, "any-claim-id")) === false,
+        `FR1-FINAL-T5[${c.label}]：release 无法证明所有权 → NO-OP`,
+      );
+
+      // 状态档整块重写也不能把标记洗掉（否则一次工作数据写入就绕过了 no-takeover）
+      await runSvc.updateRunWorkingData(actorWriter, r.id, {
+        statusDetail: { status: "rewritten-by-discovery", sources: {} },
+      });
+      const afterRewrite = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: r.id } });
+      const rewriteDetail = (afterRewrite.statusDetailJson ?? {}) as Record<string, unknown>;
+      ok(
+        canonicalJson(rewriteDetail.executionClaim) === canonicalJson(c.value),
+        `FR1-FINAL-T5[${c.label}]：整块重写 statusDetail 后标记仍在（不被洗成 IDLE）`,
+        `实际 ${JSON.stringify(rewriteDetail.executionClaim)}`,
+      );
+      ok(
+        runSvc.classifyRunExecutionState(afterRewrite, new Date()) === "RECOVERY_REQUIRED",
+        `FR1-FINAL-T5[${c.label}]：重写后仍是 RECOVERY_REQUIRED`,
+      );
+    }
+
+    // T5 收尾：不可验证声明的 Run 上，provider 一次都不许被调用
+    {
+      const rBlocked = await projectRunSvc.createProjectSearchRun(actorWriter, {
+        projectId: projA.id, allowLlm: false,
+      });
+      await runSvc.startSearchRun(actorWriter, rBlocked.id);
+      await db.supplierSearchRun.update({
+        where: { id: rBlocked.id },
+        data: {
+          statusDetailJson: {
+            executionClaim: {
+              claimedAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 600_000).toISOString(),
+              byUserId: writer.id,
+            },
+          } as never,
+        },
+      });
+      const discoverRouteBlocked = await import("@/app/api/supplier-intel/runs/[id]/discover/route");
+      const blockedRes = await discoverRouteBlocked.POST(
+        await req(writer, `/api/supplier-intel/runs/${rBlocked.id}/discover?orgId=${org.id}`, {
+          method: "POST", body: {},
+        }),
+        { params: Promise.resolve({ id: rBlocked.id }) },
+      );
+      ok(blockedRes.status === 409, "FR1-FINAL-T5-HTTP：legacy 声明的 Run 执行请求被 409 拒绝", `实际 ${blockedRes.status}`);
+      const blockedBody = (await blockedRes.json()) as { code?: string };
+      ok(
+        blockedBody.code === "RUN_EXECUTION_RECOVERY_REQUIRED",
+        "FR1-FINAL-T5-HTTP：错误码为 RUN_EXECUTION_RECOVERY_REQUIRED",
+        `实际 ${blockedBody.code}`,
+      );
+      const candAfterBlocked = await db.supplierCandidate.count({
+        where: { orgId: org.id, searchRunId: rBlocked.id },
+      });
+      const sigAfterBlocked = await db.supplierDiscoverySignal.count({
+        where: { orgId: org.id, searchRunId: rBlocked.id },
+      });
+      ok(
+        candAfterBlocked === 0 && sigAfterBlocked === 0,
+        "FR1-FINAL-T5-HTTP：被拒的 Run 没有产生任何候选/线索（provider 调用数恒 0）",
+        `cand=${candAfterBlocked} sig=${sigAfterBlocked}`,
+      );
+
+      // T6：恢复路径 = 取消旧 Run → 新建 Run → 新 Run 可以正常认领
+      await runSvc.cancelSearchRun(actorWriter, rBlocked.id);
+      const cancelled = await db.supplierSearchRun.findUniqueOrThrow({ where: { id: rBlocked.id } });
+      ok(cancelled.status === "CANCELLED", "FR1-FINAL-T6a：旧 Run 被取消进入终态");
+      ok(
+        runSvc.classifyRunExecutionState(cancelled, new Date()) === "TERMINAL",
+        "FR1-FINAL-T6b：终态优先于不可验证声明",
+      );
+      await expectErr("RUN_IMMUTABLE", "FR1-FINAL-T6c：终态 Run 不能就地重启（不在原 Run 上修复）", () =>
+        runSvc.claimRunExecution(actorWriter, rBlocked.id));
+
+      const rFresh = await projectRunSvc.createProjectSearchRun(actorWriter, {
+        projectId: projA.id, allowLlm: false,
+      });
+      const freshLease = await runSvc.claimRunExecution(actorWriter, rFresh.id);
+      ok(Boolean(freshLease.claimId), "FR1-FINAL-T6d：新建的 Run 可以正常认领（恢复路径通畅）");
+      await runSvc.releaseRunExecution(actorWriter, rFresh.id, freshLease.claimId);
+      ok(
+        runSvc.classifyRunExecutionState(
+          await db.supplierSearchRun.findUniqueOrThrow({ where: { id: rFresh.id } }),
+          new Date(),
+        ) === "IDLE",
+        "FR1-FINAL-T6e：正常释放后回到 IDLE（没有把正常路径一起阻断）",
+      );
+    }
 
     console.log("\n== FR1-T4：状态档整块重写与声明更新的竞争 ==");
     const runRace = await projectRunSvc.createProjectSearchRun(actorWriter, {

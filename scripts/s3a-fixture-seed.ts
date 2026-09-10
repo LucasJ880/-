@@ -381,6 +381,27 @@ async function main() {
     // 负 TTL = 造出一个「已过期且从未释放」的声明（等价于 executor 中途被杀）
     await runSvc.claimRunExecution(actorBuyer, stale.id, { ttlMs: -1000 });
     scenarioRuns.push({ key: "install", runId: stale.id, state: "RECOVERY_REQUIRED" });
+
+    // FR1 最终收口：**旧格式**声明（无 claimId，且 expiresAt 还在未来）。
+    // 早期实现会把它解析成 null → 当成「没有声明」→ IDLE → 直接允许重跑。
+    // 现在必须判为不可验证 → RECOVERY_REQUIRED。直接写库造出这种历史行。
+    const legacy = await projectRunSvc.createProjectSearchRun(actorBuyer, {
+      projectId: installProjectId, allowLlm: false,
+    });
+    await runSvc.startSearchRun(actorBuyer, legacy.id);
+    await db.supplierSearchRun.update({
+      where: { id: legacy.id },
+      data: {
+        statusDetailJson: {
+          executionClaim: {
+            claimedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+            byUserId: buyer.id,
+          },
+        } as never,
+      },
+    });
+    scenarioRuns.push({ key: "install", runId: legacy.id, state: "LEGACY_CLAIM" });
   }
 
   // ⑤ standard：不可信文本线索（XSS 载荷必须以字面文本呈现）
