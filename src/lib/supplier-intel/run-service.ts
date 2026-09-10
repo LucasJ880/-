@@ -24,7 +24,9 @@ import { SupplierIntelError } from "./errors";
 import {
   classifyRunExecutionState,
   readActiveExecutionClaim,
+  readExecutionClaimMarker,
   readExecutionClaimRecord,
+  type ExecutionClaimMarker,
   type RunExecutionClaim,
   type RunExecutionState,
 } from "./run-execution-state";
@@ -37,7 +39,9 @@ const RUN_TARGET_TYPE = "supplier_search_run";
 export {
   classifyRunExecutionState,
   readActiveExecutionClaim,
+  readExecutionClaimMarker,
   readExecutionClaimRecord,
+  type ExecutionClaimMarker,
   type RunExecutionClaim,
   type RunExecutionState,
 };
@@ -309,9 +313,19 @@ export async function claimRunExecution(
         `Run 已处于终态 ${run.status}，不能再次执行；重新搜索请新建 Run`,
       );
     }
-    const existing = readExecutionClaimRecord(run.statusDetailJson);
-    if (existing) {
-      if (Date.parse(existing.expiresAt) > now.getTime()) {
+    // 三态裁决：只有「压根没有声明标记」才允许认领。
+    // 「解析不出声明」不等于「没有声明」——旧格式（无 claimId）、时间戳非法、被改过的值，
+    // 都说明有人在这个 Run 上执行过，而我们无法证明它已经停手。fail closed。
+    const marker = readExecutionClaimMarker(run.statusDetailJson);
+    if (marker.kind === "INVALID_CLAIM") {
+      throw new SupplierIntelError(
+        "RUN_EXECUTION_RECOVERY_REQUIRED",
+        `这次搜索上一次执行留下的记录无法解析（${marker.reason}），因此无法确认它是否还在执行。` +
+          "请取消这次搜索并重新发起，避免同一次搜索被执行两遍",
+      );
+    }
+    if (marker.kind === "VALID_CLAIM") {
+      if (Date.parse(marker.claim.expiresAt) > now.getTime()) {
         throw new SupplierIntelError(
           "RUN_EXECUTION_IN_PROGRESS",
           "该搜索正在执行中，请等待本轮结束后再试",
@@ -361,8 +375,11 @@ export async function releaseRunExecution(
     return await db.$transaction(async (tx) => {
       const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
       if (isRunTerminal(run.status)) return false;
-      const current = readExecutionClaimRecord(run.statusDetailJson);
-      if (!current || current.claimId !== claimId) return false; // 不是我的声明 → 不动
+      // 不可验证的声明也一并守住：证明不了它是我的，就不能删——
+      // 删掉等于把一个「不可判定」的 Run 洗成「空闲」，下一个请求就能重跑。
+      const marker = readExecutionClaimMarker(run.statusDetailJson);
+      if (marker.kind !== "VALID_CLAIM") return false;
+      if (marker.claim.claimId !== claimId) return false; // 不是我的声明 → 不动
       const base = { ...(run.statusDetailJson as Record<string, unknown>) };
       delete base.executionClaim;
       await tx.supplierSearchRun.update({
@@ -434,8 +451,14 @@ export async function updateRunWorkingData(
       ) {
         // 锁内读到的才是权威当前声明；调用方没有显式携带声明时一律沿用它。
         // 声明只能由 releaseRunExecution（带所有权校验）删除，或过期后走显式恢复。
-        const currentClaim = readExecutionClaimRecord(run.statusDetailJson);
-        if (currentClaim) (merged as Record<string, unknown>).executionClaim = currentClaim;
+        //
+        // 关键：搬运的是**原值**（marker.raw），不是解析后的对象。不可验证的旧声明
+        // 如果在这里被解析成 null 而丢掉，一次普通的状态档写入就能把「不可判定」洗成
+        // 「空闲」，no-takeover 就被绕过去了。
+        const marker = readExecutionClaimMarker(run.statusDetailJson);
+        if (marker.kind !== "NO_CLAIM") {
+          (merged as Record<string, unknown>).executionClaim = marker.raw;
+        }
       }
       return tx.supplierSearchRun.update({
         where: { id: run.id },
