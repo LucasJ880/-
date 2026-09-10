@@ -187,19 +187,94 @@ generation。计数器在 React StrictMode 的重复执行下会错位——开�
 
 ---
 
+## 5B. FR1 最终收口：不可验证的执行声明（旧格式 / malformed）
+
+### 5B.1 上一版留下的缝
+
+§1 把「过期声明」守住了，但漏了一种更隐蔽的情况：**声明解析失败**。
+
+原实现里 `readExecutionClaimRecord()` 对下列输入一律返回 `null`：
+
+```text
+executionClaim 存在但缺 claimId      ← 本轮之前写下的声明就长这样
+claimId 为空串
+expiresAt 非法
+字段缺失 / 值不是对象
+```
+
+而 `classifyRunExecutionState()` 与 `claimRunExecution()` 都把 `null` 读成
+「没有声明」→ `IDLE` → **允许认领**。于是 no-takeover 在正好最需要它的那批数据上失效：
+
+> 升级前留下的每一个 legacy 声明，都可以被新 executor 直接接管并覆盖。
+
+核心不变量被违反了：
+
+```text
+无法证明 Run 安全空闲  ≠  Run 空闲
+```
+
+### 5B.2 修法：marker 三态
+
+`run-execution-state.ts` 增加 `readExecutionClaimMarker()`，返回：
+
+| marker | 含义 | 执行态 | 能否认领 |
+| --- | --- | --- | --- |
+| `NO_CLAIM` | `statusDetailJson` 上**没有** `executionClaim` 这个自有属性 | `IDLE` | 可以 |
+| `VALID_CLAIM` + 未过期 | 可验证且在有效期内 | `IN_PROGRESS` | 不可 |
+| `VALID_CLAIM` + 已过期 | 可验证但没收尾 | `RECOVERY_REQUIRED` | 不可 |
+| `INVALID_CLAIM` | 键在、值不可验证（旧格式 / 非法 / 被改过） | `RECOVERY_REQUIRED` | 不可 |
+
+「有没有」用的是结构化的 `hasOwnProperty` 判断，**不是**在 JSON 文本里搜字符串
+（后者会被任何含 `executionClaim` 字样的普通文本骗到——测试里有这条断言）。
+
+`INVALID_CLAIM` 一律不 repair、不 delete、不 replace、不接管；恢复方式仍是
+**取消旧 Run → 新建 Run**。
+
+### 5B.3 顺带堵上的第二个洞（评审未点名）
+
+排查调用链时发现 `updateRunWorkingData` 的声明保全也走 `readExecutionClaimRecord`：
+不可验证的声明会被解析成 `null` → 整块重写 `statusDetailJson` 时**直接丢掉**。
+也就是说，即使认领这一侧守住了，发现流程一次普通的状态档写入仍能把
+「不可判定」洗成「空闲」，下一个请求就能重跑。
+
+改成搬运 `marker.raw` **原值**（含不可验证的），并加了对应断言
+（`FR1-FINAL-T5[*]：整块重写 statusDetail 后标记仍在`）。
+
+`releaseRunExecution` 同理：证明不了所有权就不删——不可验证的声明返回 NO-OP。
+
+### 5B.4 UI
+
+不新增第五种用户可见状态。`INVALID_CLAIM` 复用既有的
+`RECOVERY_REQUIRED` 呈现：「上一次执行没有正常结束，结果无法确认」→ 取消 → 新建。
+
+### 5B.5 负向控制
+
+把 `INVALID_CLAIM` 改回 `NO_CLAIM`（即恢复旧行为）后实测：
+
+```text
+纯核         首条 marker 断言即失败
+执行态       legacy 声明 → IDLE（而非 RECOVERY_REQUIRED）
+claimRunExecution  成功，并把 legacy 声明**替换**成全新 claimId
+HTTP discover      200（不是 409）
+副作用       该 Run 产生了 1 条候选 —— 第二个 executor 真的跑起来了
+```
+
+最后一行是这次修复的全部意义：**不是理论风险，是实测能复现的双执行**。
+恢复修复后全部回到 PASS；破坏版本未提交。
+
 ## 6. 验证结果
 
 ### 6.1 测试
 
 | 套件 | 结果 |
 | --- | --- |
-| `run-execution-claim`（FR1 纯核，新增） | PASS |
+| `run-execution-claim`（FR1 纯核，含 marker 三态 / 旧格式 / malformed） | PASS |
 | `scope-guard`（FR2 纯核，新增） | PASS |
 | `procurement-view`（S3-A 纯核） | PASS |
-| S3-A 服务 + HTTP（隔离库） | **95 通过 / 0 失败**（原 64，本轮新增 FR1 + FR3-A 断言） |
+| S3-A 服务 + HTTP（隔离库） | **131 通过 / 0 失败**（64 → 95 → 131，最后一轮为 FR1 最终收口） |
 | S1 / S2 / S2-FR / S2-REM / S2-TB（隔离库） | 86 / 32 / 38 / 42 / 118，全部 0 失败 |
 | `npm run test:ci` 全量纯核 | PASS（`CI unit subset PASS`，退出码 0） |
-| 浏览器验收（Playwright，3 视口） | **115 通过 / 0 失败** |
+| 浏览器验收（Playwright，3 视口） | **122 通过 / 0 失败**（新增 7 条旧格式声明断言）|
 
 关键写操作已按 §9 要求**回查数据库**确认：两条线索状态确为 `LINKED` 且指向人工选中的供应商；
 既有供应商的 `website` 未被线索 `contentUrl` 覆盖；`E6 新建演示供应商` 无重复建档
@@ -260,7 +335,7 @@ S3A_BASE=http://localhost:3210 S3A_IDS=/tmp/s3a-ids.json S3A_PASSWORD=... \
 ## 9. 状态
 
 ```text
-CODE_HEAD_SHA               = dd8b953ac3b35e8e5f391ee362ecf2f6f54b5737
+CODE_HEAD_SHA               = 75e508b8934ec7ea7dfcd2098f9861385c8002d7
 BASE_HEAD                   = 70df2d5eebb1e9dd4aeacfaaade059c957954776
 BASE_MAIN                   = 4070d6d83842427e6318ab92ad7d19f0cc76fbae
 PR                          = #208
