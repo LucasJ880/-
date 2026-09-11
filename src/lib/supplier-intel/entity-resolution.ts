@@ -10,12 +10,12 @@
  * 与冲突说明，暂无法作为匹配键落地（SupplierIdentity 身份层 = M2 议题）。
  */
 
-import type { Prisma } from "@prisma/client";
 import { normalizeBuyerName, normalizeWebsiteDomain } from "@/lib/corporate-memory/normalize";
 import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
 import { SupplierIntelError } from "./errors";
 import { assertSignalAccess } from "./signal-scope";
+import { appendResolutionEntry } from "./signal-write-lock";
 import {
   classifyPublicUrlPlatform,
   isPlatformOrMarketplaceHost,
@@ -667,7 +667,11 @@ export async function resolveSignalEntityWithPagination(
   const hints = extractEntityHints(signal);
   const result = resolveSupplierEntityPure(hints, suppliersScan.rows, prior, { scan });
 
-  // 返回值与持久快照一致：result.scan 与顶层 scan 是同一对象；历史条目只 append，不改写
+  // 返回值与持久快照一致：result.scan 与顶层 scan 是同一对象；历史条目只 append，不改写。
+  //
+  // S3-A §9B：追加走行锁 + 锁内重读的短事务。上面的分页身份扫描（可能是数万行）与任何
+  // 网络调用都发生在事务之外——锁只覆盖「读最新数组 → 追加 → 提交」这一小段，
+  // 因此并发的人工 link/reject 与本次预填互相串行，双方条目都不会丢。
   const entry = {
     phase: "AUTO_PREFILL",
     result,
@@ -676,14 +680,6 @@ export async function resolveSignalEntityWithPagination(
     at: new Date().toISOString(),
     byUserId: actor.userId,
   };
-  await db.supplierDiscoverySignal.updateMany({
-    where: { id: signal.id, orgId: actor.orgId },
-    data: {
-      resolutionJson: [
-        ...(Array.isArray(signal.resolutionJson) ? (signal.resolutionJson as unknown[]) : []),
-        entry,
-      ] as unknown as Prisma.InputJsonValue,
-    },
-  });
+  await appendResolutionEntry(actor, signal.id, entry);
   return result;
 }

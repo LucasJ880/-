@@ -79,3 +79,6 @@ fixtures/private/
 # 会话临时脚本（UAT kick 等）
 *.tmp.ts
 .uat-*
+
+# S3-A 本地验收截图（不入库）
+.s3a-screenshots/

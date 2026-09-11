@@ -486,6 +486,20 @@ function ProjectDetailContent() {
       <ProjectImportBanner projectId={id} onFinished={load} />
       <AutoAiPanelsRunner projectId={id} />
 
+      {/* FR3-F：从国内采购工作台过来复核招标要求时，给一条明确的回程 */}
+      {searchParams.get("from") === "supply-chain" ? (
+        <button
+          type="button"
+          onClick={() =>
+            router.push(`/projects/intelligence/supply-chain?projectId=${encodeURIComponent(id)}`)
+          }
+          data-testid="back-to-supply-chain"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-accent"
+        >
+          <ArrowLeft size={12} /> 返回国内采购工作台
+        </button>
+      ) : null}
+
       {/* ═══ 5-Tab 一级导航（移动端为等宽紧凑分段，不横向溢出） ═══ */}
       <div className="rounded-lg border border-border bg-card-bg p-1" data-testid="tender-detail-tabs">
         <div className="grid grid-cols-5 gap-1">

@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireProjectWriteAccess } from "@/lib/projects/access";
+import { requireProjectReadAccess, requireProjectWriteAccess } from "@/lib/projects/access";
 import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
 import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
 import { resolveSubmitSignalScope } from "@/lib/supplier-intel/signal-scope";
-import { createSubmittedSignal, listSignals } from "@/lib/supplier-intel/signal-service";
+import { createSubmittedSignal, listSignalsPage } from "@/lib/supplier-intel/signal-service";
 
 /**
  * R1（Trust-Boundary Closure）顺序不变量：
@@ -18,15 +18,32 @@ export async function GET(request: NextRequest) {
   if (tenant instanceof NextResponse) return tenant;
 
   const url = new URL(request.url);
+  const projectId = url.searchParams.get("projectId")?.trim() || undefined;
+
+  // S3-A：按项目筛选前先过 canonical 读门（筛选参数不能成为越权读的入口）
+  if (projectId) {
+    const access = await requireProjectReadAccess(request, projectId);
+    if (access instanceof NextResponse) return access;
+    if (access.project.orgId !== tenant.orgId) {
+      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    }
+  }
+
+  const takeRaw = Number(url.searchParams.get("take"));
   try {
-    const signals = await listSignals(
+    const page = await listSignalsPage(
       { orgId: tenant.orgId, userId: tenant.userId },
       {
         status: url.searchParams.get("status") ?? undefined,
         platform: url.searchParams.get("platform") ?? undefined,
+        projectId,
+        searchRunId: url.searchParams.get("searchRunId")?.trim() || undefined,
+        cursor: url.searchParams.get("cursor"),
+        // 页大小由服务端有界（listSignalsPage 内 clamp），客户端放大无效
+        take: Number.isFinite(takeRaw) && takeRaw > 0 ? takeRaw : undefined,
       },
     );
-    return NextResponse.json({ signals });
+    return NextResponse.json(page);
   } catch (err) {
     const mapped = mapSupplierIntelError(err);
     if (mapped) return mapped;

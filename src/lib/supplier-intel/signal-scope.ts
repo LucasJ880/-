@@ -163,6 +163,26 @@ export function buildSignalProjectVisibilityFilter(
   return clauses;
 }
 
+/**
+ * S3-A：按「治理项目」筛选的 where 片段（列表/计数共用）。
+ * 与归属解析同口径：signal.projectId ∪ signal.tenderId ∪ run.projectId ∪ run.tenderId
+ * 命中该项目即算属于该项目——不把「projectId 为空但挂在该项目 Run 上」的信号漏掉，
+ * 也不把未绑定项目的组织级线索自动归入该项目（组织级线索四个指针全空，不会命中）。
+ * 调用方必须先对 projectId 断言读权限（fail-closed）。
+ */
+export function buildSignalProjectFilter(
+  projectId: string,
+  orgId: string,
+): Prisma.SupplierDiscoverySignalWhereInput {
+  return {
+    OR: [
+      { projectId },
+      { tenderId: projectId },
+      { searchRun: { is: { orgId, OR: [{ projectId }, { tenderId: projectId }] } } },
+    ],
+  };
+}
+
 /** 读取信号的最小归属元数据；不存在（或跨 org）→ null，不泄露存在性 */
 export async function readSignalScopePointers(
   actor: SupplierIntelActor,
