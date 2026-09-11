@@ -3,12 +3,15 @@
  * 金额单位：USD；无精确账单时标记 ESTIMATED
  */
 
-export const OPENAI_PRICING_VERSION = "openai-usd-2026-07-v1";
+export const OPENAI_PRICING_VERSION = "openai-usd-2026-09-gpt6-v1";
 
 /** 每 1M tokens 的 USD 单价 */
 type TokenRates = { inputPerM: number; outputPerM: number };
 
 const OPENAI_TEXT_RATES: Record<string, TokenRates> = {
+  "gpt-6-astra": { inputPerM: 10, outputPerM: 50 },
+  "gpt-5.6-sol": { inputPerM: 4, outputPerM: 20 },
+  "gpt-5.6-terra": { inputPerM: 2, outputPerM: 12 },
   "gpt-4o": { inputPerM: 2.5, outputPerM: 10 },
   "gpt-4o-mini": { inputPerM: 0.15, outputPerM: 0.6 },
   "gpt-4.1": { inputPerM: 2, outputPerM: 8 },

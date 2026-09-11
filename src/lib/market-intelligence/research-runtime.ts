@@ -12,6 +12,7 @@ import { createNotification } from "@/lib/notifications/create";
 import { createResearchPlanDraft } from "@/lib/marketing/research-plan";
 import { ensureMarketingSkill, MARKETING_SKILL_SLUG } from "./skill";
 import { OPENAI_BUILTIN, ProviderRouter } from "@/lib/ai/model-registry";
+import { asLegacyReasoningEffort, resolveModelPolicy } from "@/lib/ai/model-policy";
 
 const MAX_ATTEMPTS = 3;
 const LEASE_MS = 6 * 60 * 1000;
@@ -26,14 +27,14 @@ export interface MarketResearchModelConfig {
   primary: {
     model: string;
     maxTokens: number;
-    reasoningEffort: "high";
+    reasoningEffort: "low" | "medium" | "high";
     perRoundTimeoutMs: number;
     totalTimeoutMs: number;
   };
   fallback: {
     model: string;
     maxTokens: number;
-    reasoningEffort: "medium";
+    reasoningEffort: "low" | "medium" | "high";
     perRoundTimeoutMs: number;
     totalTimeoutMs: number;
   } | null;
@@ -42,8 +43,8 @@ export interface MarketResearchModelConfig {
 export function getMarketResearchModelConfig(
   env: Record<string, string | undefined> = process.env,
 ): MarketResearchModelConfig {
-  const primaryModel =
-    env.OPENAI_MODEL_MARKET_INTELLIGENCE?.trim() ||
+  const explicitPrimary = env.OPENAI_MODEL_MARKET_INTELLIGENCE?.trim();
+  const inheritedPrimary =
     env.OPENAI_CHAT_MODEL?.trim() ||
     env.OPENAI_MODEL?.trim() ||
     (env === process.env ? ProviderRouter.getChatModel() : OPENAI_BUILTIN.chat);
@@ -54,11 +55,21 @@ export function getMarketResearchModelConfig(
     (env === process.env
       ? ProviderRouter.getReasoningModel()
       : OPENAI_BUILTIN.reasoning);
+  const policy = resolveModelPolicy({
+    role: "researcher",
+    env,
+    baselineModel: inheritedPrimary,
+    fallbackModel,
+  });
+  const primaryModel = explicitPrimary || policy.model;
   return {
     primary: {
       model: primaryModel,
       maxTokens: safeInt(env.OPENAI_MAX_TOKENS_MARKET_INTELLIGENCE, 16_000, 2_048, 32_768),
-      reasoningEffort: "high",
+      reasoningEffort:
+        !explicitPrimary && policy.upgraded
+          ? asLegacyReasoningEffort(policy.reasoningEffort)
+          : "high",
       perRoundTimeoutMs: safeInt(env.OPENAI_TIMEOUT_MS_MARKET_INTELLIGENCE, 150_000, 30_000, 240_000),
       // 主备总预算控制在 Vercel 单次 300 秒生命周期内，并预留数据库收尾时间。
       totalTimeoutMs: safeInt(env.OPENAI_TOTAL_TIMEOUT_MS_MARKET_INTELLIGENCE, 180_000, 60_000, 180_000),

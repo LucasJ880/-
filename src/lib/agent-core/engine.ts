@@ -15,6 +15,15 @@
 import { getClient, buildTuningParams } from "@/lib/ai/client";
 import { getTaskPreset } from "@/lib/ai/config";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
+import {
+  capToolResultPayload,
+  isGpt6Astra,
+} from "@/lib/ai/model-policy";
+import {
+  chatCompatToStream,
+  createResponsesAsChatCompat,
+  requiresResponsesApi,
+} from "@/lib/ai/responses-client";
 import { logger } from "@/lib/common/logger";
 import { registry, RISK_ORDER } from "./tool-registry";
 import { runPreExecuteGuards } from "./pre-execute-guard";
@@ -82,9 +91,25 @@ async function llmCallWithTimeout(
   const t0 = Date.now();
   const model = params?.model ?? "unknown";
   try {
-    const res = await client.chat.completions.create(params, {
-      signal: controller.signal,
-    });
+    let res: any;
+    if (requiresResponsesApi(model, Boolean(params?.tools?.length))) {
+      const effort =
+        params?.reasoning_effort && params.reasoning_effort !== "none"
+          ? params.reasoning_effort
+          : "medium";
+      res = await createResponsesAsChatCompat({
+        model,
+        messages: params.messages,
+        tools: params.tools,
+        maxOutputTokens: params.max_completion_tokens ?? 4096,
+        reasoningEffort: effort,
+        signal: controller.signal,
+      });
+    } else {
+      res = await client.chat.completions.create(params, {
+        signal: controller.signal,
+      });
+    }
     const usage = extractUsage(res);
     recordAiCall({
       model,
@@ -416,7 +441,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       for (const tr of toolResults) {
         messages.push({
           role: "tool",
-          content: JSON.stringify(tr.result.data),
+          content: isGpt6Astra(model)
+            ? capToolResultPayload(tr.result.data)
+            : JSON.stringify(tr.result.data),
           tool_call_id: tr.id,
           name: tr.name,
         });
@@ -636,9 +663,21 @@ export async function* runAgentStream(
       const t0 = Date.now();
       let streamIter: any;
       try {
-        streamIter = await client.chat.completions.create(createParams, {
-          signal: controller.signal,
-        });
+        if (requiresResponsesApi(model, openaiTools.length > 0)) {
+          const compat = await createResponsesAsChatCompat({
+            model,
+            messages,
+            tools: openaiTools,
+            maxOutputTokens: maxCompletionTokens,
+            reasoningEffort,
+            signal: controller.signal,
+          });
+          streamIter = chatCompatToStream(compat);
+        } else {
+          streamIter = await client.chat.completions.create(createParams, {
+            signal: controller.signal,
+          });
+        }
       } catch (err: any) {
         clearTimeout(perRoundTimer);
         if (abortSignal) abortSignal.removeEventListener("abort", onExternalAbort);
@@ -802,7 +841,9 @@ export async function* runAgentStream(
 
         messages.push({
           role: "tool",
-          content: JSON.stringify(result.data),
+          content: isGpt6Astra(model)
+            ? capToolResultPayload(result.data)
+            : JSON.stringify(result.data),
           tool_call_id: tc.id,
           name,
         });
@@ -824,7 +865,7 @@ export async function* runAgentStream(
           max_completion_tokens: maxCompletionTokens,
           stream: true,
           ...buildTuningParams(model, temperature ?? preset.temperature, reasoningEffort),
-        },
+        } as never,
         { signal: abortSignal },
       );
       let finalLastChunk: unknown;

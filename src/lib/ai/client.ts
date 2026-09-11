@@ -8,6 +8,11 @@
 import OpenAI from "openai";
 import { getAIConfig, getTaskPreset, type TaskMode } from "./config";
 import { recordAiCall, extractUsage } from "./monitor";
+import {
+  isReasoningFamily,
+  sanitizeReasoningEffort,
+} from "./model-policy/compat";
+import type { ExtendedReasoningEffort } from "./model-policy/reasoning";
 
 // ── 单例客户端 ────────────────────────────────────────────────
 
@@ -27,25 +32,30 @@ export function getClient(): OpenAI {
 // 在这里统一适配，调用方无需感知模型差异。
 
 export function isReasoningModel(model: string): boolean {
-  return /^(gpt-5\.6|o[0-9])/.test(model);
+  return isReasoningFamily(model);
 }
 
 export function buildTuningParams(
   model: string,
   temperature: number,
-  reasoningEffort: "low" | "medium" | "high",
+  reasoningEffort: ExtendedReasoningEffort | "none" | "minimal",
   options: { hasFunctionTools?: boolean } = {},
 ): {
   temperature?: number;
-  reasoning_effort?: "none" | "low" | "medium" | "high";
+  reasoning_effort?: "none" | ExtendedReasoningEffort;
 } {
-  return isReasoningModel(model)
-    ? {
-        // Chat Completions 不支持部分推理模型同时启用 function tools
-        // 和 reasoning_effort；工具轮次关闭推理，普通轮次保留原预设。
-        reasoning_effort: options.hasFunctionTools ? "none" : reasoningEffort,
-      }
-    : { temperature };
+  if (!isReasoningModel(model)) {
+    return { temperature };
+  }
+  // GPT-5.6 + tools：Chat Completions 仍需 none。
+  // GPT-6 Astra：禁止 none（HTTP 400），由 sanitizeReasoningEffort 改为 low。
+  return {
+    reasoning_effort: sanitizeReasoningEffort({
+      model,
+      effort: reasoningEffort,
+      hasFunctionTools: options.hasFunctionTools,
+    }),
+  };
 }
 
 // ── 流式对话 ──────────────────────────────────────────────────
@@ -103,7 +113,11 @@ export async function createChatStream(opts: ChatStreamOptions) {
       // 请求最终 usage 块；不支持的提供商会忽略，不影响流本身
       stream_options: { include_usage: true },
       max_completion_tokens: preset.maxTokens,
-      ...buildTuningParams(preset.model, preset.temperature, preset.reasoningEffort),
+      ...(buildTuningParams(
+        preset.model,
+        preset.temperature,
+        preset.reasoningEffort,
+      ) as { temperature?: number; reasoning_effort?: "none" | "low" | "medium" | "high" }),
     },
     opts.signal ? { signal: opts.signal } : undefined,
   );
@@ -119,13 +133,17 @@ export interface CompletionOptions {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ExtendedReasoningEffort;
   /** Phase 3A-4：可信租户上下文时做月费用预检 */
   orgId?: string;
   userId?: string;
   workspaceId?: string;
   /** Optional AgentRun observation. No runId → no model.* events. */
   agentRunId?: string;
+  /** 成本观测：workflow 角色，禁止写入 prompt / 客户原文 */
+  workflow?: string;
+  retryCount?: number;
+  source?: string;
 }
 
 export async function createCompletion(opts: CompletionOptions): Promise<string> {
@@ -194,11 +212,11 @@ export async function createCompletionDetailed(
           { role: "user", content: opts.userPrompt },
         ],
         max_completion_tokens: opts.maxTokens ?? preset.maxTokens,
-        ...buildTuningParams(
+        ...(buildTuningParams(
           actualModel,
           opts.temperature ?? preset.temperature,
           opts.reasoningEffort ?? preset.reasoningEffort,
-        ),
+        ) as { temperature?: number; reasoning_effort?: "none" | "low" | "medium" | "high" }),
       },
       controller ? { signal: controller.signal } : undefined,
     );
@@ -209,7 +227,10 @@ export async function createCompletionDetailed(
       model: actualModel,
       success: true,
       elapsedMs,
-      source: "completion",
+      source: opts.source ?? "completion",
+      workflow: opts.workflow,
+      reasoningEffort: opts.reasoningEffort ?? preset.reasoningEffort,
+      retryCount: opts.retryCount,
       ...usage,
     });
 
@@ -239,7 +260,10 @@ export async function createCompletionDetailed(
       model: actualModel,
       success: false,
       elapsedMs: Date.now() - t0,
-      source: "completion",
+      source: opts.source ?? "completion",
+      workflow: opts.workflow,
+      reasoningEffort: opts.reasoningEffort ?? preset.reasoningEffort,
+      retryCount: opts.retryCount,
       error: err instanceof Error ? err.message : String(err),
     });
     if (opts.agentRunId && opts.orgId && observedCallId) {

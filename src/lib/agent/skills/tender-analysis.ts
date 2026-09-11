@@ -6,6 +6,7 @@
  */
 
 import { createCompletion } from "@/lib/ai/client";
+import { asLegacyReasoningEffort, resolveModelPolicy } from "@/lib/ai/model-policy";
 import { getExpertSystemPrompt } from "@/lib/ai/expert-roles";
 import { db } from "@/lib/db";
 import { registerSkill } from "./registry";
@@ -60,11 +61,21 @@ ${docContent}
 
 请按照你的输出格式规范，逐项分析并输出结构化报告。`;
 
+      const policy = resolveModelPolicy({
+        role: "researcher",
+      });
       const analysis = await createCompletion({
         systemPrompt: expertPrompt,
         userPrompt,
         mode: "deep",
         maxTokens: 4096,
+        workflow: "researcher",
+        ...(policy.upgraded
+          ? {
+              model: policy.model,
+              reasoningEffort: asLegacyReasoningEffort(policy.reasoningEffort),
+            }
+          : {}),
       });
 
       analyses.push({ docTitle: doc.title, analysis });

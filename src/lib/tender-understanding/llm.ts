@@ -47,12 +47,23 @@ export type LlmCallLog = {
 export function createUnifiedRuntimeInvoker(): LlmInvoker {
   return async (req) => {
     const { createCompletionDetailed } = await import("@/lib/ai/client");
+    const { resolveModelPolicy, asLegacyReasoningEffort } = await import(
+      "@/lib/ai/model-policy"
+    );
+    const policy = resolveModelPolicy({ role: "researcher" });
     const res = await createCompletionDetailed({
       systemPrompt: req.systemPrompt,
       userPrompt: req.userPrompt,
       mode: "structured",
       maxTokens: req.maxTokens,
       timeoutMs: req.timeoutMs,
+      workflow: "researcher",
+      ...(policy.upgraded
+        ? {
+            model: policy.model,
+            reasoningEffort: asLegacyReasoningEffort(policy.reasoningEffort),
+          }
+        : {}),
     });
     return {
       content: res.content,

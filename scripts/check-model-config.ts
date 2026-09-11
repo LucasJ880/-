@@ -14,6 +14,7 @@ import {
   ProviderRouter,
 } from "../src/lib/ai/model-registry";
 import { getAIConfig, isAIConfigured } from "../src/lib/ai/config";
+import { describeGpt6Flag } from "../src/lib/ai/model-policy";
 import { getPreferredImageModel, pickImageProvider } from "../src/lib/image-engine/types";
 
 function loadEnvFile(rel: string) {
@@ -68,7 +69,7 @@ async function probeOpenAI() {
   const ids = (data.data || []).map((m) => m.id);
   const imageModels = ids.filter((id) => /image|dall/i.test(id));
   const chatModelsSample = ids
-    .filter((id) => /gpt-5\.6|gpt-4o|o3|o4/i.test(id))
+    .filter((id) => /gpt-6-astra|gpt-5\.6|gpt-4o|o3|o4/i.test(id))
     .slice(0, 12);
 
   const preferredImage = ModelRegistry.image;
@@ -87,11 +88,11 @@ async function probeOpenAI() {
     imageEditAvailable,
     visionAvailable: Boolean(
       ids.includes(ModelRegistry.vision) ||
-        ids.some((id) => id.startsWith("gpt-5.6") || id.startsWith("gpt-4o")),
+        ids.some((id) => id.startsWith("gpt-6") || id.startsWith("gpt-5.6") || id.startsWith("gpt-4o")),
     ),
     toolCallingAvailable: Boolean(
       ids.includes(ModelRegistry.chat) ||
-        ids.some((id) => id.startsWith("gpt-5.6")),
+        ids.some((id) => id.startsWith("gpt-6-astra") || id.startsWith("gpt-5.6")),
     ),
   };
 }
@@ -142,6 +143,7 @@ async function main() {
   console.log("Image Edit Available: ", probe.imageEditAvailable);
   console.log("Vision Available:     ", probe.visionAvailable);
   console.log("Tool Calling Available:", probe.toolCallingAvailable);
+  console.log("GPT-6 Astra Flag:     ", JSON.stringify(describeGpt6Flag()));
   console.log("");
 
   if (retired.length > 0) {
