@@ -100,4 +100,25 @@ ok("消息正文：含产品/留言/联系人/来源页/UTM 各行，空项不�
   assert.doesNotMatch(body, /国家：/);
 });
 
+ok("eventId：解析 eventId / event_id，裁剪空白并截断到上限；蜜罐命中时也保留", () => {
+  const r = normalizeInquiry({ email: "a@b.co", message: "hi", eventId: "  inq_20260908T031500_9f1c2b7a " });
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.value.eventId, "inq_20260908T031500_9f1c2b7a");
+  const alt = normalizeInquiry({ email: "a@b.co", message: "hi", event_id: "evt-2" });
+  if (alt.ok) assert.equal(alt.value.eventId, "evt-2");
+  const none = normalizeInquiry({ email: "a@b.co", message: "hi" });
+  if (none.ok) assert.equal(none.value.eventId, "");
+  const long = normalizeInquiry({ email: "a@b.co", message: "hi", eventId: "x".repeat(500) });
+  if (long.ok) assert.equal(long.value.eventId.length, 120);
+  const bot = normalizeInquiry({ email: "bot@spam.io", _hp: "http://spam", eventId: "evt-bot" });
+  if (bot.ok) assert.equal(bot.value.eventId, "evt-bot");
+});
+
+ok("eventId 不进入消息正文（正文只由表单内容决定，站点重发正文一致）", () => {
+  const a = normalizeInquiry({ email: "a@b.co", message: "need quote", eventId: "evt-1" });
+  const b = normalizeInquiry({ email: "a@b.co", message: "need quote", eventId: "evt-2" });
+  assert.equal(a.ok && b.ok, true);
+  if (a.ok && b.ok) assert.equal(buildInquiryMessage(a.value), buildInquiryMessage(b.value));
+});
+
 console.log(`\nwebsite-inquiry: ${pass} 通过`);
