@@ -202,6 +202,9 @@ npx tsx src/lib/supplier-intel/__tests__/procurement-view.test.ts
 # S3-A Final Review 整改（FR1 执行声明所有权 / FR2 异步上下文隔离）
 npx tsx src/lib/supplier-intel/__tests__/run-execution-claim.test.ts
 npx tsx src/lib/supplier-intel/__tests__/scope-guard.test.ts
+
+# S3-B 供应商能力与资质归一（DB 套件无隔离库自跳过）
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3b-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 
 # Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）
