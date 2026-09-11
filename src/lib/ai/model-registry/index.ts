@@ -2,7 +2,8 @@
  * Model Registry + Provider Router
  *
  * 业务代码规则：
- * - 禁止写死 gpt-5.6-sol / gpt-5.6-terra / gpt-image-2
+ * - 禁止写死 gpt-5.6-sol / gpt-5.6-terra / gpt-6-astra / gpt-image-2
+ * - GPT-6 只经 Model Policy（ENABLE_GPT6_ASTRA），不得当全局默认
  * - 聊天：ProviderRouter.getChatModel() 或 ModelRegistry.chat
  * - 推理：ProviderRouter.getReasoningModel() 或 ModelRegistry.reasoning
  * - 图片：ProviderRouter.getImageModel() 或 ModelRegistry.image
@@ -14,7 +15,7 @@ import { OpenAIModels, OPENAI_BUILTIN } from "./openai";
 import { ProviderRouter } from "./provider-router";
 import { RETIRED_MODEL_PATTERNS } from "./types";
 
-export { OpenAIModels, OPENAI_BUILTIN } from "./openai";
+export { OpenAIModels, OPENAI_BUILTIN, OPENAI_GPT6_ASTRA } from "./openai";
 export { ProviderRouter } from "./provider-router";
 export type { AiProviderId, AiCapabilityKind, ProviderModelBundle } from "./types";
 export { RETIRED_MODEL_PATTERNS } from "./types";

@@ -23,4 +23,18 @@ assert.deepEqual(
   { temperature: 0.3 },
 );
 
-console.log("AI tuning params: 3/3 passed");
+assert.deepEqual(
+  buildTuningParams("gpt-6-astra", 0.2, "high", {
+    hasFunctionTools: true,
+  }),
+  { reasoning_effort: "high" },
+);
+
+assert.equal(
+  buildTuningParams("gpt-6-astra", 0.2, "none", {
+    hasFunctionTools: true,
+  }).reasoning_effort,
+  "low",
+);
+
+console.log("AI tuning params: 5/5 passed");

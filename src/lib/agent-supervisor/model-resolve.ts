@@ -18,6 +18,12 @@ import {
 } from "@/lib/ai/client";
 import { ProviderRouter } from "@/lib/ai/model-registry";
 import { logger } from "@/lib/common/logger";
+import {
+  classifyModelError,
+  isGpt6Astra,
+  isGpt6AstraEnabled,
+  resolveModelPolicy,
+} from "@/lib/ai/model-policy";
 
 export type SupervisorModelPurpose =
   | "planner"
@@ -62,14 +68,29 @@ export function resolveSupervisorModel(input: {
 }): SupervisorModelResolution {
   const reasoning = ProviderRouter.getReasoningModel();
   const chat = ProviderRouter.getChatModel();
-  const requested = envModel(input.purpose) || reasoning;
-  const fallbackModel = chat;
+  const role = input.purpose === "summary" ? "summarizer" : "supervisor";
+  const policy = resolveModelPolicy({
+    role,
+    orgId: input.orgId,
+    userId: input.userId,
+    baselineModel: reasoning,
+    fallbackModel: chat,
+  });
+  const fromEnv = envModel(input.purpose);
+  let requested = fromEnv || policy.model;
+  if (isGpt6Astra(requested) && !isGpt6AstraEnabled({
+    orgId: input.orgId,
+    userId: input.userId,
+  })) {
+    requested = reasoning;
+  }
+  const fallbackModel = policy.fallbackModel || chat;
 
   return {
     purpose: input.purpose,
     requestedModel: requested,
     fallbackModel,
-    source: envModel(input.purpose) ? "env" : "default",
+    source: fromEnv ? "env" : "default",
   };
 }
 
@@ -121,6 +142,8 @@ export async function callSupervisorCompletion(
       ...opts,
       model: resolved.requestedModel,
       mode: opts.mode ?? (purpose === "summary" ? "structured" : "normal"),
+      workflow: `supervisor.${purpose}`,
+      reasoningEffort: opts.reasoningEffort,
     });
     if (resolved.source === "env") {
       logger.info("supervisor.model.used", {
@@ -136,7 +159,36 @@ export async function callSupervisorCompletion(
       actualModel: first.model,
       fallbackUsed: false,
     };
-  } catch (err) {
+  } catch (firstErr) {
+    let err: unknown = firstErr;
+    const classified = classifyModelError(err);
+    if (classified === "non_retryable") throw err;
+
+    // GPT-6：先对可重试错误同模型再试一次，再走既有 fallback（不删除）
+    if (
+      isGpt6Astra(resolved.requestedModel) &&
+      classified === "retryable"
+    ) {
+      try {
+        const retried = await createCompletionDetailed({
+          ...opts,
+          model: resolved.requestedModel,
+          mode: opts.mode ?? (purpose === "summary" ? "structured" : "normal"),
+          workflow: `supervisor.${purpose}`,
+          retryCount: 1,
+        });
+        return {
+          ...retried,
+          requestedModel: resolved.requestedModel,
+          actualModel: retried.model,
+          fallbackUsed: false,
+        };
+      } catch (retryErr) {
+        if (classifyModelError(retryErr) === "non_retryable") throw retryErr;
+        err = retryErr;
+      }
+    }
+
     if (!isTransientModelError(err)) throw err;
     // 访问错误换模型；超时/中止用同一模型或 fallback 再试一次
     const retryModel = isModelAccessError(err)
@@ -159,6 +211,8 @@ export async function callSupervisorCompletion(
       model: retryModel,
       mode: opts.mode ?? "normal",
       timeoutMs: Math.max(opts.timeoutMs || 30_000, 45_000),
+      workflow: `supervisor.${purpose}`,
+      retryCount: 1,
     });
     return {
       ...second,

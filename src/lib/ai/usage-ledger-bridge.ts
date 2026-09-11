@@ -25,6 +25,11 @@ export type MonitorCallBridgeInput = {
   totalTokens?: number;
   userId?: string;
   source?: string;
+  workflow?: string;
+  reasoningEffort?: string;
+  cachedInputTokens?: number;
+  toolCalls?: number;
+  retryCount?: number;
 };
 
 function mapSource(source?: string): {
@@ -75,6 +80,7 @@ export function bridgeMonitorAiCallToLedger(input: MonitorCallBridgeInput): void
         model: input.model,
         inputTokens: input.promptTokens,
         outputTokens: input.completionTokens,
+        cachedInputTokens: input.cachedInputTokens,
       });
 
   const requestId = ctx.requestId ?? "noreq";
@@ -103,6 +109,10 @@ export function bridgeMonitorAiCallToLedger(input: MonitorCallBridgeInput): void
       route: ctx.route,
       monitorSource: input.source,
       pricingMode: "estimated",
+      ...(input.workflow ? { workflow: input.workflow } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+      ...(input.retryCount != null ? { retryCount: input.retryCount } : {}),
+      ...(input.toolCalls != null ? { toolCalls: input.toolCalls } : {}),
     },
   });
 }
