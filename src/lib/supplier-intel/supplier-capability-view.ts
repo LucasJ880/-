@@ -184,6 +184,18 @@ function excerpt(text: string | null): string | null {
   return text.length > EXCERPT_MAX ? `${text.slice(0, EXCERPT_MAX)}…` : text;
 }
 
+/**
+ * 线索的显示名：标题 → 账号名 → 原文前 40 字。
+ * 人工提交的线索常常没有标题，只有一段原文；回退到 CUID 等于让采购同事在下拉里认 id。
+ */
+function signalLabel(s: { title: string | null; accountName: string | null; rawText: string | null }): string | null {
+  if (s.title?.trim()) return s.title.trim();
+  if (s.accountName?.trim()) return s.accountName.trim();
+  const t = s.rawText?.trim();
+  if (!t) return null;
+  return t.length > 40 ? `${t.slice(0, 40)}…` : t;
+}
+
 function readAttributes(json: unknown): Record<string, string> {
   if (typeof json !== "object" || json === null || Array.isArray(json)) return {};
   const out: Record<string, string> = {};
@@ -301,7 +313,7 @@ export async function loadSupplierCapabilityView(
   let entryLinkedSignal: SupplierCapabilityPayload["entryContext"]["linkedSignal"] = null;
   if (opts?.signalId) {
     const s = signalById.get(opts.signalId);
-    if (s) entryLinkedSignal = { id: s.id, title: s.title ?? s.accountName };
+    if (s) entryLinkedSignal = { id: s.id, title: signalLabel(s) };
   }
 
   let entryCandidate: SupplierCapabilityPayload["entryContext"]["internalCandidate"] = null;
@@ -341,7 +353,7 @@ export async function loadSupplierCapabilityView(
           createdAt: c.createdAt.toISOString(),
           source: {
             signalId: src.id,
-            title: src.title ?? src.accountName,
+            title: signalLabel(src),
             platform: src.platform,
             contentUrl: src.contentUrl,
             rawTextExcerpt: excerpt(src.rawText),
@@ -366,7 +378,7 @@ export async function loadSupplierCapabilityView(
         priceStatus: o.priceStatus,
         sourceKind: o.sourceKind,
         sourceUrl: o.sourceUrl,
-        sourceSignal: src ? { id: src.id, title: src.title ?? src.accountName } : null,
+        sourceSignal: src ? { id: src.id, title: signalLabel(src) } : null,
         createdAt: o.createdAt.toISOString(),
         updatedAt: o.updatedAt.toISOString(),
       };
@@ -418,7 +430,7 @@ export async function loadSupplierCapabilityView(
     }),
     linkedSignals: linkedSignals.map((s) => ({
       id: s.id,
-      title: s.title ?? s.accountName,
+      title: signalLabel(s),
       platform: s.platform,
       discoveredAt: s.discoveredAt.toISOString(),
       contentUrl: s.contentUrl,

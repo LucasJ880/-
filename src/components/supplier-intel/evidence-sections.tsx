@@ -12,7 +12,7 @@
  *   - 厂家文本一律纯文本渲染；外链 rel="noopener noreferrer nofollow"。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, Loader2, Plus } from "lucide-react";
 import {
   CAPABILITY_TYPES,
@@ -456,12 +456,15 @@ function VerifyPanel({
   const [note, setNote] = useState("");
   const [items, setItems] = useState<ArchiveEvidenceOption[] | null>(null);
   const [itemsErr, setItemsErr] = useState<string | null>(null);
-  const loadedFor = useRef<string | null>(null);
 
+  // 不用「已加载」ref 去挡重复请求：StrictMode 会把 effect 跑两遍，第一遍刚发出请求就被清理，
+  // 第二遍若被 ref 挡住，回来的响应没人接——列表永远转圈（浏览器验收 F3l 抓到的正是这个）。
+  // 正确做法只靠 alive 标志：被清理的那一轮丢弃结果，最后一轮自然接住。
   useEffect(() => {
-    if (mode !== "archive" || !projectId || loadedFor.current === projectId) return;
-    loadedFor.current = projectId;
+    if (mode !== "archive" || !projectId) return;
     let alive = true;
+    setItems(null);
+    setItemsErr(null);
     workspaceFetch<{ items: ArchiveEvidenceOption[] }>(
       `/api/supplier-intel/projects/${projectId}/archive-evidence?orgId=${encodeURIComponent(orgId)}`,
     )

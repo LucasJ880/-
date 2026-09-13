@@ -1,6 +1,9 @@
 /**
  * S3-B 供应商能力与资质归一：服务 + HTTP 集成（隔离库执行，否则跳过）。
  *
+ * Slice 2 追加（S2-*）：项目可见性不因供应商页而失守、乐观并发、跨供应商归属、
+ * 档案证据的项目门、入口上下文由服务端核实、VERIFIED 但按日期已过期的如实呈现。
+ *
  * 这一套守的是 S3-B 的三条纪律：
  *   1. CLAIMED ≠ VERIFIED——客户端无论怎么传都产不出 VERIFIED；
  *   2. 缺价合法——没有单价不是拒绝理由；
@@ -54,6 +57,9 @@ async function main() {
   const offeringsRoute = await import(
     "@/app/api/supplier-intel/suppliers/[supplierId]/offerings/route"
   );
+  const offeringPatchRoute = await import(
+    "@/app/api/supplier-intel/suppliers/[supplierId]/offerings/[offeringId]/route"
+  );
   const certsRoute = await import(
     "@/app/api/supplier-intel/suppliers/[supplierId]/certifications/route"
   );
@@ -62,6 +68,9 @@ async function main() {
   );
   const capSignalsRoute = await import(
     "@/app/api/supplier-intel/suppliers/[supplierId]/capability-signals/route"
+  );
+  const archivePickerRoute = await import(
+    "@/app/api/supplier-intel/projects/[projectId]/archive-evidence/route"
   );
 
   async function expectErr(code: string, name: string, fn: () => Promise<unknown>) {
@@ -112,6 +121,7 @@ async function main() {
   });
 
   const actorOwner = { orgId: org.id, userId: owner.id };
+  const actorMember = { orgId: org.id, userId: member.id };
   const actorStranger = { orgId: otherOrg.id, userId: stranger.id };
 
   async function req(
@@ -374,9 +384,211 @@ async function main() {
       "B9c：越权请求没有产生任何行",
     );
 
+
+    /* ═══════════════ Slice 2 ═══════════════ */
+
+    console.log("\n== S2-1：供应商页不能成为项目情报的后门（线索/能力按项目可见性过滤）==");
+    // member：org 活跃成员，但对 project 没有任何角色 → 供应商本身可读，但项目线索不可见
+    const memberView = await view.loadSupplierCapabilityView(actorMember, supplier.id);
+    ok(memberView.supplier.id === supplier.id, "S2-1a：org 成员仍能读供应商（org 级资源）");
+    ok(memberView.offerings.length === 2, "S2-1b：产品是 org 级的，member 看得到");
+    ok(memberView.linkedSignals.length === 0, "S2-1c：无项目权限 → 已关联线索一条也不列（含标题）", `实际 ${memberView.linkedSignals.length}`);
+    ok(memberView.capabilities.length === 0, "S2-1d：挂在该线索上的能力证据同样不可见", `实际 ${memberView.capabilities.length}`);
+    ok(memberView.counts.capabilities === 0, "S2-1e：计数与列表一致，不从计数里泄露");
+    const ownerView = await view.loadSupplierCapabilityView(actorOwner, supplier.id);
+    ok(ownerView.linkedSignals.length === 1 && ownerView.linkedSignals[0]?.canAttachCapability === true,
+      "S2-1f：有项目写权限者看到线索且可挂能力");
+    ok(ownerView.capabilities[0]?.source.rawTextExcerpt?.includes(tag) === true, "S2-1g：能力出处带原文摘录");
+    const memberHttp = await capabilityRoute.GET(
+      await req(member, `/api/supplier-intel/suppliers/${supplier.id}/capability?orgId=${org.id}`),
+      { params: Promise.resolve({ supplierId: supplier.id }) },
+    );
+    const memberHttpBody = (await memberHttp.json()) as { view: { linkedSignals: unknown[] } };
+    ok(memberHttp.status === 200 && memberHttpBody.view.linkedSignals.length === 0, "S2-1h：HTTP 面同样过滤");
+    ok(!JSON.stringify(memberHttpBody).includes("工厂自述"), "S2-1i：响应正文不含该项目线索的原文");
+
+    console.log("\n== S2-2：入口上下文由服务端核实，URL 参数不是事实 ==");
+    const ctxOwner = await view.loadSupplierCapabilityView(actorOwner, supplier.id, {
+      projectId: project.id, signalId: linkedSignal.id, searchRunId: "no-such-run",
+    });
+    ok(ctxOwner.projectContext?.id === project.id, "S2-2a：有权限 → projectContext 给出");
+    ok(ctxOwner.entryContext.linkedSignal?.id === linkedSignal.id, "S2-2b：线索确实已关联 → entry 给出");
+    ok(ctxOwner.entryContext.internalCandidate === null, "S2-2c：不存在的搜索 → 内部候选上下文为 null（不报错）");
+    const ctxMember = await view.loadSupplierCapabilityView(actorMember, supplier.id, {
+      projectId: project.id, signalId: linkedSignal.id,
+    });
+    ok(ctxMember.projectContext === null, "S2-2d：无权限 → 传了 projectId 也不给项目名");
+    ok(ctxMember.entryContext.linkedSignal === null, "S2-2e：无权限 → 传了 signalId 也不确认关联");
+    const ctxLoose = await view.loadSupplierCapabilityView(actorOwner, supplier.id, { signalId: looseSignal.id });
+    ok(ctxLoose.entryContext.linkedSignal === null, "S2-2f：未关联的线索 id → entry 为 null（不能伪造「已关联」）");
+
+    console.log("\n== S2-3：编辑产品——乐观并发，绝不静默覆盖 ==");
+    const offeringId = noPriceBody.offering.id;
+    const before = await db.supplierOffering.findUniqueOrThrow({ where: { id: offeringId } });
+    const noVersion = await offeringPatchRoute.PATCH(
+      await req(member, `/api/supplier-intel/suppliers/${supplier.id}/offerings/${offeringId}?orgId=${org.id}`, {
+        method: "PATCH", body: { name: "绕过版本号" },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, offeringId }) },
+    );
+    ok(noVersion.status === 400, "S2-3a：不带 expectedUpdatedAt → 400（不能绕过并发控制）", `实际 ${noVersion.status}`);
+    const staleTs = new Date(before.updatedAt.getTime() - 60_000).toISOString();
+    const stale = await offeringPatchRoute.PATCH(
+      await req(member, `/api/supplier-intel/suppliers/${supplier.id}/offerings/${offeringId}?orgId=${org.id}`, {
+        method: "PATCH", body: { name: "旧版本改名", expectedUpdatedAt: staleTs },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, offeringId }) },
+    );
+    ok(stale.status === 409, "S2-3b：带旧版本号 → 409", `实际 ${stale.status}`);
+    ok(((await stale.json()) as { code?: string }).code === "STALE_WRITE", "S2-3c：错误码 STALE_WRITE");
+    ok((await db.supplierOffering.findUniqueOrThrow({ where: { id: offeringId } })).name === before.name, "S2-3d：库里名称未被覆盖");
+    const fresh = await offeringPatchRoute.PATCH(
+      await req(member, `/api/supplier-intel/suppliers/${supplier.id}/offerings/${offeringId}?orgId=${org.id}`, {
+        method: "PATCH",
+        body: { name: `办公椅 A 改 ${tag}`, moq: 50, attributes: { 材质: "钢", 颜色: "黑" }, expectedUpdatedAt: before.updatedAt.toISOString() },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, offeringId }) },
+    );
+    ok(fresh.status === 200, "S2-3e：带当前版本号 → 200", `实际 ${fresh.status}`);
+    const afterFresh = await db.supplierOffering.findUniqueOrThrow({ where: { id: offeringId } });
+    ok(afterFresh.name === `办公椅 A 改 ${tag}` && afterFresh.moq === 50, "S2-3f：修改落库");
+    ok(JSON.stringify(afterFresh.attributesJson) === JSON.stringify({ 材质: "钢", 颜色: "黑" }), "S2-3g：attributes 落库");
+    const secondEditor = await offeringPatchRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/offerings/${offeringId}?orgId=${org.id}`, {
+        method: "PATCH", body: { name: "第二个人基于旧版本改", expectedUpdatedAt: before.updatedAt.toISOString() },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, offeringId }) },
+    );
+    ok(secondEditor.status === 409, "S2-3h：另一位同事基于旧版本提交 → 409，不覆盖前者", `实际 ${secondEditor.status}`);
+    ok((await db.supplierOffering.findUniqueOrThrow({ where: { id: offeringId } })).name === `办公椅 A 改 ${tag}`, "S2-3i：前者的修改仍在");
+    const viewAfterEdit = await view.loadSupplierCapabilityView(actorOwner, supplier.id);
+    ok(viewAfterEdit.offerings.find((o) => o.id === offeringId)?.updatedAt === afterFresh.updatedAt.toISOString(), "S2-3j：视图回传新的版本号供下次编辑");
+
+    console.log("\n== S2-4：借 A 的 URL 改 B 的记录 ==");
+    const supplier2 = await db.supplier.create({ data: { orgId: org.id, name: `S3B 同组织另一家 ${tag}`, createdById: owner.id } });
+    const crossPatch = await offeringPatchRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier2.id}/offerings/${offeringId}?orgId=${org.id}`, {
+        method: "PATCH", body: { name: "借道改名", expectedUpdatedAt: afterFresh.updatedAt.toISOString() },
+      }),
+      { params: Promise.resolve({ supplierId: supplier2.id, offeringId }) },
+    );
+    ok(crossPatch.status === 404, "S2-4a：产品不属于 URL 里的供应商 → 404", `实际 ${crossPatch.status}`);
+    ok((await db.supplierOffering.findUniqueOrThrow({ where: { id: offeringId } })).name === `办公椅 A 改 ${tag}`, "S2-4b：未被改动");
+    const crossCert = await certActionRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier2.id}/certifications/${certId}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "reject" },
+      }),
+      { params: Promise.resolve({ supplierId: supplier2.id, certificationId: certId }) },
+    );
+    ok(crossCert.status === 404, "S2-4c：资质不属于 URL 里的供应商 → 404", `实际 ${crossCert.status}`);
+    ok((await db.supplierCertification.findUniqueOrThrow({ where: { id: certId } })).status === "CLAIMED", "S2-4d：状态未变");
+
+    console.log("\n== S2-5：产品/资质登记的出处线索必须是自己读得到的 ==");
+    const memberSourced = await offeringsRoute.POST(
+      await req(member, `/api/supplier-intel/suppliers/${supplier.id}/offerings?orgId=${org.id}`, {
+        method: "POST", body: { name: `借线索登记 ${tag}`, sourceSignalId: linkedSignal.id },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id }) },
+    );
+    ok(memberSourced.status === 403, "S2-5a：无该线索所属项目读权限 → 403", `实际 ${memberSourced.status}`);
+    ok((await db.supplierOffering.count({ where: { supplierId: supplier.id } })) === 2, "S2-5b：没有产生行");
+    const ownerSourced = await offeringsRoute.POST(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/offerings?orgId=${org.id}`, {
+        method: "POST", body: { name: `按线索登记 ${tag}`, sourceSignalId: linkedSignal.id, attributes: { 规格: "600×600" } },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id }) },
+    );
+    ok(ownerSourced.status === 201, "S2-5c：有权限 → 201");
+    const ownerSourcedId = ((await ownerSourced.json()) as { offering: { id: string } }).offering.id;
+    const v5 = await view.loadSupplierCapabilityView(actorOwner, supplier.id);
+    ok(v5.offerings.find((o) => o.id === ownerSourcedId)?.sourceSignal?.id === linkedSignal.id, "S2-5d：视图给出登记依据线索");
+    ok(v5.offerings.find((o) => o.id === ownerSourcedId)?.attributes["规格"] === "600×600", "S2-5e：POST 的 attributes 落库并回显");
+    const v5m = await view.loadSupplierCapabilityView(actorMember, supplier.id);
+    ok(v5m.offerings.find((o) => o.id === ownerSourcedId)?.sourceSignal === null, "S2-5f：member 看得到产品，但看不到它挂的项目线索");
+
+    console.log("\n== S2-6：档案证据的项目门 + 核验依据如实呈现 ==");
+    const archive = await db.tenderArchiveItem.create({
+      data: {
+        orgId: org.id, projectId: project.id, kind: "other", captureKey: `upload:${tag}`,
+        capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 1234,
+        contentHash: `hash_${tag}`, storageKey: `archive/${org.id}/te/${tag}`, createdById: owner.id,
+      },
+    });
+    const picker = await archivePickerRoute.GET(
+      await req(owner, `/api/supplier-intel/projects/${project.id}/archive-evidence?orgId=${org.id}`),
+      { params: Promise.resolve({ projectId: project.id }) },
+    );
+    const pickerBody = (await picker.json()) as { items?: Array<{ id: string }> };
+    ok(picker.status === 200 && pickerBody.items?.some((i) => i.id === archive.id) === true, "S2-6a：有权限者能在选择器里看到档案");
+    const pickerMember = await archivePickerRoute.GET(
+      await req(member, `/api/supplier-intel/projects/${project.id}/archive-evidence?orgId=${org.id}`),
+      { params: Promise.resolve({ projectId: project.id }) },
+    );
+    ok(pickerMember.status >= 400 && !JSON.stringify(await pickerMember.json()).includes(archive.id), "S2-6b：无权限者选择器拒绝且不泄露档案 id", `实际 ${pickerMember.status}`);
+    const memberVerify = await certActionRoute.PATCH(
+      await req(member, `/api/supplier-intel/suppliers/${supplier.id}/certifications/${certId}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "verify", archiveItemId: archive.id },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, certificationId: certId }) },
+    );
+    ok(memberVerify.status === 422, "S2-6c：拿看不见的项目里的档案核验 → 422（供应商权限不替代项目权限）", `实际 ${memberVerify.status}`);
+    ok((await db.supplierCertification.findUniqueOrThrow({ where: { id: certId } })).status === "CLAIMED", "S2-6d：状态未变");
+    const ownerVerify = await certActionRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/certifications/${certId}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "verify", archiveItemId: archive.id, note: "核对扫描件编号一致" },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, certificationId: certId }) },
+    );
+    ok(ownerVerify.status === 200, "S2-6e：合法档案依据 → VERIFIED", `实际 ${ownerVerify.status} ${JSON.stringify(await ownerVerify.clone().json().catch(() => ({})))}`);
+    const verifiedRow = await db.supplierCertification.findUniqueOrThrow({ where: { id: certId } });
+    ok(verifiedRow.status === "VERIFIED" && verifiedRow.archiveItemId === archive.id, "S2-6f：落库 VERIFIED 且记录了依据");
+    const v6o = await view.loadSupplierCapabilityView(actorOwner, supplier.id);
+    const evO = v6o.certifications.find((c) => c.id === certId)?.evidence;
+    ok(evO?.kind === "ARCHIVE" && evO.viewable === true && typeof evO.label === "string", "S2-6g：有权限者看到「核验依据：项目档案 + 标题」");
+    const v6m = await view.loadSupplierCapabilityView(actorMember, supplier.id);
+    const evM = v6m.certifications.find((c) => c.id === certId)?.evidence;
+    ok(evM?.kind === "ARCHIVE" && evM.viewable === false && evM.label === null, "S2-6h：无权限者只知道「有档案依据」，看不到标题");
+    ok(v6m.counts.verifiedCertifications === 1, "S2-6i：核验计数对所有成员一致（资质是 org 级）");
+
+    console.log("\n== S2-7：VERIFIED 但按日期已过期——如实呈现，GET 不写库 ==");
+    const pastCertRes = await certsRoute.POST(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/certifications?orgId=${org.id}`, {
+        method: "POST",
+        body: { scope: "SUPPLIER", certificationType: "BIFMA", sourceKind: "USER_ENTRY", expiresAt: new Date(Date.now() - 3 * 86_400_000).toISOString() },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id }) },
+    );
+    const pastCertId = ((await pastCertRes.json()) as { certification: { id: string } }).certification.id;
+    const pastVerify = await certActionRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/certifications/${pastCertId}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "verify", archiveItemId: archive.id },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, certificationId: pastCertId }) },
+    );
+    ok(pastVerify.status === 200, "S2-7a：核验本身成功（核验的是证书真伪，不是有效期）");
+    const v7 = await view.loadSupplierCapabilityView(actorOwner, supplier.id);
+    const pastView = v7.certifications.find((c) => c.id === pastCertId);
+    ok(pastView?.status === "VERIFIED" && pastView.expiredByDate === true, "S2-7b：视图：status=VERIFIED 且 expiredByDate=true");
+    ok((await db.supplierCertification.findUniqueOrThrow({ where: { id: pastCertId } })).status === "VERIFIED", "S2-7c：GET 之后库里仍是 VERIFIED（没有偷偷改状态）");
+    const expireRes = await certActionRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/certifications/${pastCertId}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "expire" },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, certificationId: pastCertId }) },
+    );
+    ok(expireRes.status === 200 && (await db.supplierCertification.findUniqueOrThrow({ where: { id: pastCertId } })).status === "EXPIRED", "S2-7d：人工「置为已过期」走状态机成功");
+    const rejectRes = await certActionRoute.PATCH(
+      await req(owner, `/api/supplier-intel/suppliers/${supplier.id}/certifications/${pastCertId}?orgId=${org.id}`, {
+        method: "PATCH", body: { action: "reject" },
+      }),
+      { params: Promise.resolve({ supplierId: supplier.id, certificationId: pastCertId }) },
+    );
+    ok(rejectRes.status === 409, "S2-7e：终态不能再迁移（EXPIRED → REJECTED 被拒）", `实际 ${rejectRes.status}`);
+
     console.log(`\nS3-B 断言：${pass} 通过 / ${fail} 失败`);
   } finally {
     await db.supplierCertification.deleteMany({ where: { orgId: { in: cleanupOrgs } } });
+    await db.tenderArchiveItem.deleteMany({ where: { orgId: { in: cleanupOrgs } } });
     await db.supplierCapabilitySignal.deleteMany({ where: { orgId: { in: cleanupOrgs } } });
     await db.supplierOffering.deleteMany({ where: { orgId: { in: cleanupOrgs } } });
     await db.supplierDiscoverySignal.deleteMany({ where: { orgId: { in: cleanupOrgs } } });

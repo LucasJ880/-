@@ -65,6 +65,20 @@ async function main() {
     await db.user.update({ where: { id: u.id }, data: { activeOrgId: org.id } });
   }
 
+  // S3-B：另一个组织里的用户——用来证明供应商证据页跨 org 一律 404 且零业务内容
+  const stranger = await mkUser("stranger", "他组织-赵");
+  const otherOrg = await db.organization.upsert({
+    where: { code: `s3a_${TAG}_other` },
+    update: {},
+    create: { name: `S3A 他组织 ${TAG}`, code: `s3a_${TAG}_other`, ownerId: stranger.id, status: "active" },
+  });
+  await db.organizationMember.upsert({
+    where: { orgId_userId: { orgId: otherOrg.id, userId: stranger.id } },
+    update: { role: "org_admin", status: "active" },
+    create: { orgId: otherOrg.id, userId: stranger.id, role: "org_admin", status: "active" },
+  });
+  await db.user.update({ where: { id: stranger.id }, data: { activeOrgId: otherOrg.id } });
+
   type Spec = {
     key: string;
     name: string;
@@ -279,7 +293,10 @@ async function main() {
    * 删除严格限定在本夹具 org 内；顺序按外键依赖（候选 → 线索 → Run）。
    */
   const fixtureProjectIds = created.map((c) => c.projectId);
+  await db.supplierCertification.deleteMany({ where: { orgId: org.id } });
   await db.supplierCandidate.deleteMany({ where: { orgId: org.id } });
+  await db.supplierOffering.deleteMany({ where: { orgId: org.id } });
+  await db.tenderArchiveItem.deleteMany({ where: { orgId: org.id, captureKey: { startsWith: "upload:s3b-" } } });
   await db.supplierCapabilitySignal.deleteMany({ where: { orgId: org.id } });
   await db.supplierDiscoverySignal.deleteMany({ where: { orgId: org.id } });
   await db.supplierSearchRun.deleteMany({ where: { orgId: org.id } });
@@ -425,11 +442,61 @@ async function main() {
     }
   }
 
+  /* ═════════ S3-B 夹具：已关联线索 + 档案依据 ═════════
+   * 供应商证据页的两个入口：① standard 项目里一条已人工关联到某家供应商的线索；
+   * ② custom 项目 MIXED_SOURCES 那次搜索命中的内部候选（上面已由真实 service 路径产生）。
+   * 另造一份项目档案条目，作为资质核验的合法「独立依据」。全部是合成数据。
+   */
+  const standardProjectIdForS3b = projectByKey.get("standard");
+  let s3b: {
+    supplierId: string; supplierName: string; projectId: string; linkedSignalId: string;
+    archiveItemId: string; internalCandidateRunId: string | null; internalCandidateProjectId: string | null;
+    otherOrgId: string; strangerEmail: string;
+  } | null = null;
+  if (standardProjectIdForS3b) {
+    let evidenceSupplier = await db.supplier.findFirst({ where: { orgId: org.id, name: { contains: "演示" } } });
+    if (!evidenceSupplier) {
+      evidenceSupplier = await db.supplier.create({
+        data: { orgId: org.id, name: `[演示夹具] 佛山演示家具厂 ${TAG}`, createdById: buyer.id },
+      });
+    }
+    const linked = await signalSvc.createSubmittedSignal(actorBuyer, {
+      url: `https://s3a-fixture-factory.example/${TAG}/s3b-linked`,
+      rawText: `[演示夹具] 厂家自述：有 3 轴 CNC 六台、喷粉线一条，做过办公椅出口 ${TAG}`,
+      manualEntry: true,
+      projectId: standardProjectIdForS3b,
+    });
+    await signalSvc.reviewSignal(actorBuyer, linked.id);
+    await signalSvc.linkSignalToSupplier(actorBuyer, linked.id, { supplierId: evidenceSupplier.id });
+
+    const archive = await db.tenderArchiveItem.create({
+      data: {
+        orgId: org.id, projectId: standardProjectIdForS3b, kind: "other",
+        captureKey: `upload:s3b-${TAG}-cert-scan`, capturedAt: new Date(), captureMethod: "upload",
+        mimeType: "application/pdf", fileSize: 4096, contentHash: `s3b_${TAG}_${Date.now()}`,
+        storageKey: `archive/${org.id}/s3/s3b_${TAG}`, createdById: buyer.id,
+      },
+    });
+    const mixedRun = scenarioRuns.find((r) => r.state === "MIXED_SOURCES") ?? null;
+    s3b = {
+      supplierId: evidenceSupplier.id,
+      supplierName: evidenceSupplier.name,
+      projectId: standardProjectIdForS3b,
+      linkedSignalId: linked.id,
+      archiveItemId: archive.id,
+      internalCandidateRunId: mixedRun?.runId ?? null,
+      internalCandidateProjectId: mixedRun ? (projectByKey.get(mixedRun.key) ?? null) : null,
+      otherOrgId: otherOrg.id,
+      strangerEmail: stranger.email,
+    };
+  }
+
   console.log(
     JSON.stringify(
       {
         orgId: org.id,
         orgCode: org.code,
+        s3b,
         password: PASSWORD,
         users: {
           buyer: buyer.email,

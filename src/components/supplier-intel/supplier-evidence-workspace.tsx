@@ -51,9 +51,14 @@ export function SupplierEvidenceWorkspace({
   const [view, setView] = useState<SupplierCapabilityPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [fatal, setFatal] = useState<{ kind: "notEnabled" | "forbidden" | "notFound" | "error"; text: string } | null>(null);
+  // 已经加载出页面之后再刷新失败（网络抖动 / 服务端瞬时错误）：保留页面，只在顶上提示并给重试。
+  // 一次写入成功后紧接着的读回失败，不应该把用户刚填好的整页清空。
+  const [refreshErr, setRefreshErr] = useState<string | null>(null);
 
   // 作用域 = org + supplier；切换的瞬间旧响应即失去归属（FR2 同一套纪律）
   const scopeKey = orgId && supplierId ? `${orgId}::${supplierId}` : null;
+  const viewRef = useRef<SupplierCapabilityPayload | null>(null);
+  viewRef.current = view;
   const guardRef = useRef<ScopeGuard | null>(null);
   if (guardRef.current === null) guardRef.current = new ScopeGuard();
   const guard = guardRef.current;
@@ -75,8 +80,17 @@ export function SupplierEvidenceWorkspace({
       if (!ticket.isCurrent()) return;
       setView(r.view);
       setFatal(null);
+      setRefreshErr(null);
     } catch (e) {
       if (!ticket.isCurrent()) return;
+      const terminal =
+        e instanceof WorkspaceApiError && (e.notEnabled || e.forbidden || e.status === 404);
+      // 权限 / 不存在 / 未启用是确定性结论，无论之前有没有页面都按 fatal 处理；
+      // 其它错误在已有页面时只提示，不清空。
+      if (!terminal && viewRef.current) {
+        setRefreshErr(e instanceof Error ? e.message : "刷新失败");
+        return;
+      }
       if (e instanceof WorkspaceApiError) {
         if (e.notEnabled) setFatal({ kind: "notEnabled", text: "供应商情报功能未对本组织开启" });
         else if (e.forbidden) setFatal({ kind: "forbidden", text: "你没有查看这家供应商的权限" });
@@ -176,6 +190,18 @@ export function SupplierEvidenceWorkspace({
           </p>
         ) : null}
       </div>
+
+      {refreshErr ? (
+        <p
+          role="status"
+          data-testid="workspace-refresh-error"
+          className="flex flex-wrap items-center gap-2 rounded-lg bg-[var(--warning-bg)] px-3 py-2 text-xs text-[var(--warning)]"
+        >
+          <AlertTriangle size={12} />
+          <span>刷新失败，页面显示的可能不是最新内容：{refreshErr}</span>
+          <button type="button" onClick={() => void load()} className="underline" data-testid="workspace-refresh-retry">重试</button>
+        </p>
+      ) : null}
 
       {/* 页签 */}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="供应商产品与资质">
