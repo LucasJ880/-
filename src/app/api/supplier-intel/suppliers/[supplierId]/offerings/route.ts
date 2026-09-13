@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
 import { createOffering } from "@/lib/supplier-intel/certification-service";
 import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
+import { assertSignalAccess } from "@/lib/supplier-intel/signal-scope";
 import { assertSupplierAccessForActor } from "@/lib/supplier-intel/supplier-capability-view";
 
 type Ctx = { params: Promise<{ supplierId: string }> };
@@ -24,6 +25,10 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const actor = { orgId: tenant.orgId, userId: tenant.userId };
   try {
     await assertSupplierAccessForActor(actor, supplierId);
+    // 出处线索是项目级情报：不能把自己读不到的线索挂成出处
+    if (typeof body.sourceSignalId === "string" && body.sourceSignalId.trim()) {
+      await assertSignalAccess(actor, body.sourceSignalId.trim(), "read");
+    }
     const offering = await createOffering(actor, {
       supplierId,
       name: typeof body.name === "string" ? body.name : "",

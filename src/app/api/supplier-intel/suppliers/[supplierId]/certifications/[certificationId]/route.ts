@@ -4,6 +4,8 @@ import {
   updateCertificationStatus,
   verifyCertification,
 } from "@/lib/supplier-intel/certification-service";
+import { db } from "@/lib/db";
+import { assertProjectAccessForActor } from "@/lib/supplier-intel/access";
 import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
 import { assertSupplierAccessForActor } from "@/lib/supplier-intel/supplier-capability-view";
 
@@ -31,9 +33,39 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const actor = { orgId: tenant.orgId, userId: tenant.userId };
   try {
     await assertSupplierAccessForActor(actor, supplierId);
+    // 资质必须属于 URL 里这家供应商——防止借 A 的页面去核验 / 驳回 B 的资质
+    const owned = await db.supplierCertification.findFirst({
+      where: { id: certificationId, orgId: actor.orgId, supplierId },
+      select: { id: true },
+    });
+    if (!owned) return NextResponse.json({ error: "认证记录不存在" }, { status: 404 });
+
     if (action === "verify") {
+      const archiveItemId = typeof body?.archiveItemId === "string" ? body.archiveItemId.trim() : "";
+      // 档案是项目级证据：拿你看不见的项目里的档案来核验，等于借用你无权读取的材料。
+      // 服务层只校验 org 归属；这里补上与能力证据一致的项目门（不存在与无权一律同一响应）。
+      if (archiveItemId) {
+        const item = await db.tenderArchiveItem.findFirst({
+          where: { id: archiveItemId, orgId: actor.orgId },
+          select: { projectId: true },
+        });
+        if (!item) {
+          return NextResponse.json(
+            { error: "证据档案不存在", code: "ARCHIVE_EVIDENCE_NOT_FOUND" },
+            { status: 422 },
+          );
+        }
+        try {
+          await assertProjectAccessForActor(actor, item.projectId, "read");
+        } catch {
+          return NextResponse.json(
+            { error: "证据档案不存在", code: "ARCHIVE_EVIDENCE_NOT_FOUND" },
+            { status: 422 },
+          );
+        }
+      }
       const cert = await verifyCertification(actor, certificationId, {
-        archiveItemId: typeof body?.archiveItemId === "string" ? body.archiveItemId : null,
+        archiveItemId: archiveItemId || null,
         sourceUrl: typeof body?.sourceUrl === "string" ? body.sourceUrl : null,
         note: typeof body?.note === "string" ? body.note : null,
       });

@@ -334,6 +334,7 @@ export async function updateOffering(
   actor: SupplierIntelActor,
   offeringId: string,
   patch: Partial<Omit<CreateOfferingInput, "supplierId" | "sourceKind">>,
+  opts?: { expectedUpdatedAt?: Date },
 ) {
   const existing = await db.supplierOffering.findFirst({
     where: { id: offeringId, orgId: actor.orgId },
@@ -365,9 +366,23 @@ export async function updateOffering(
   }
   if (patch.sourceUrl !== undefined) data.sourceUrl = patch.sourceUrl?.trim() || null;
 
-  await db.supplierOffering.updateMany({
-    where: { id: offeringId, orgId: actor.orgId },
+  // S3-B：乐观并发。两个采购同事同时改同一个产品时，后提交的一方不能静默覆盖前者。
+  // 以 updatedAt 作版本号（列已存在，无需 schema 变更）：提交方带上「我看到的版本」，
+  // 条件更新命中 0 行 = 期间被别人改过 → STALE_WRITE（409），由调用方刷新后重来。
+  // 不带版本号的内部调用保持原语义（S1 既有调用方不受影响）。
+  const updated = await db.supplierOffering.updateMany({
+    where: {
+      id: offeringId,
+      orgId: actor.orgId,
+      ...(opts?.expectedUpdatedAt ? { updatedAt: opts.expectedUpdatedAt } : {}),
+    },
     data,
   });
+  if (opts?.expectedUpdatedAt && updated.count === 0) {
+    throw new SupplierIntelError(
+      "STALE_WRITE",
+      "这条产品记录已被其他同事更新。请刷新后查看最新内容再修改（本次未覆盖对方的改动）",
+    );
+  }
   return db.supplierOffering.findFirst({ where: { id: offeringId, orgId: actor.orgId } });
 }

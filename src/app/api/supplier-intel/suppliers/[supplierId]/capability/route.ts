@@ -11,10 +11,18 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (tenant instanceof NextResponse) return tenant;
 
   const { supplierId } = await ctx.params;
+  const url = new URL(request.url);
   try {
+    // projectId / signalId / searchRunId 只是「从哪来、想看哪个」——是否属实由服务端核实，
+    // 核实不过就当没传（不回错误、不泄露它们是否存在）
     const view = await loadSupplierCapabilityView(
       { orgId: tenant.orgId, userId: tenant.userId },
       supplierId,
+      {
+        projectId: url.searchParams.get("projectId"),
+        signalId: url.searchParams.get("signalId"),
+        searchRunId: url.searchParams.get("searchRunId"),
+      },
     );
     return NextResponse.json({ view });
   } catch (err) {

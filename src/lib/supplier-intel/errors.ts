@@ -50,6 +50,8 @@ export type SupplierIntelErrorCode =
   // FR1-C：上一次执行的声明已过期且从未正常释放——执行结果未知，禁止自动重跑，
   // 必须由有权限的人显式取消该 Run 后新建（no-takeover 策略）
   | "RUN_EXECUTION_RECOVERY_REQUIRED"
+  // S3-B：工作层记录（如 Offering）已被别人改过——拒绝覆盖，要求刷新后再改
+  | "STALE_WRITE"
   | "INVALID_SIGNAL_TRANSITION"
   | "INVALID_CERT_TRANSITION"
   | "DUPLICATE_CANDIDATE"
@@ -63,6 +65,7 @@ const DEFAULT_STATUS: Partial<Record<SupplierIntelErrorCode, number>> = {
   RUN_NOT_RUNNING: 409,
   RUN_EXECUTION_IN_PROGRESS: 409,
   RUN_EXECUTION_RECOVERY_REQUIRED: 409,
+  STALE_WRITE: 409,
   INVALID_SIGNAL_TRANSITION: 409,
   INVALID_CERT_TRANSITION: 409,
   DUPLICATE_CANDIDATE: 409,
