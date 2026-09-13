@@ -21,6 +21,34 @@ export type ExtendedReasoningEffort =
 
 export type QualityMode = "standard" | "high";
 
+/** Tender 阶段。不得默认 max。 */
+export type TenderStage =
+  | "triage"
+  | "understanding"
+  | "mandatory"
+  | "eligibility"
+  | "technical"
+  | "commercial"
+  | "bid_no_bid"
+  | "addendum"
+  | "cross_document"
+  | "risk"
+  | "adjudication";
+
+export function reasoningBandForTenderStage(stage: TenderStage): ReasoningBand {
+  switch (stage) {
+    case "triage":
+      return "normal";
+    case "addendum":
+    case "cross_document":
+    case "risk":
+    case "adjudication":
+      return "critical";
+    default:
+      return "complex";
+  }
+}
+
 export function reasoningBandForRole(role: ModelRole): ReasoningBand {
   switch (role) {
     case "summarizer":
@@ -29,6 +57,7 @@ export function reasoningBandForRole(role: ModelRole): ReasoningBand {
       return "simple";
     case "chat":
       return "normal";
+    case "tender":
     case "researcher":
     case "supplier_intelligence":
     case "proposal":
@@ -76,12 +105,18 @@ export interface ReasoningPolicyInput {
   retryCount?: number;
   supervisorEscalation?: boolean;
   qualityMode?: QualityMode;
+  tenderStage?: TenderStage;
+  /** Tender：证据冲突。单独不足以升 max。 */
+  evidenceConflict?: boolean;
 }
 
 export function resolveReasoningPolicy(
   input: ReasoningPolicyInput,
 ): ExtendedReasoningEffort {
-  let band = reasoningBandForRole(input.role);
+  let band =
+    input.role === "tender"
+      ? reasoningBandForTenderStage(input.tenderStage ?? "understanding")
+      : reasoningBandForRole(input.role);
 
   if (input.criticality === "critical") band = "critical";
   if (input.supervisorEscalation) band = "critical";
@@ -108,6 +143,16 @@ export function resolveReasoningPolicy(
     input.supervisorEscalation &&
     input.criticality === "critical" &&
     (input.retryCount ?? 0) >= 2
+  ) {
+    band = "exception";
+  }
+
+  // Tender max：critical tender + 证据冲突 + supervisor escalation。禁止默认 max。
+  if (
+    input.role === "tender" &&
+    input.evidenceConflict &&
+    input.supervisorEscalation &&
+    (input.criticality === "critical" || input.criticality === "high")
   ) {
     band = "exception";
   }

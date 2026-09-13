@@ -18,6 +18,7 @@ export interface BenchmarkCase {
     | "supervisor"
     | "planner"
     | "researcher"
+    | "tender"
     | "coder"
     | "classifier"
     | "summarizer"
@@ -242,11 +243,11 @@ export const GPT6_BENCHMARK_CASES: BenchmarkCase[] = [
     id: "C03",
     band: "complex",
     workflow: "tender-understanding",
-    role: "researcher",
+    role: "tender",
     title: "标书证据接地理解",
     prompt: "在证据窗口内抽取强制项，未知必须 UNKNOWN。",
     expectStructured: true,
-    notes: "Phase 1；不得降低 evidence requirement",
+    notes: "QUALITY_FIRST；不得降低 evidence requirement",
   },
   {
     id: "C04",
@@ -261,7 +262,7 @@ export const GPT6_BENCHMARK_CASES: BenchmarkCase[] = [
     id: "C05",
     band: "complex",
     workflow: "tender-analysis-skill",
-    role: "researcher",
+    role: "tender",
     title: "老板决策标书报告",
     prompt: "对脱敏标书生成 bid/no-bid 输入材料，不代替人工决策。",
     notes: "Phase 1",
@@ -279,7 +280,7 @@ export const GPT6_BENCHMARK_CASES: BenchmarkCase[] = [
     id: "C07",
     band: "complex",
     workflow: "cross-doc-tender",
-    role: "researcher",
+    role: "tender",
     title: "多文档综合",
     prompt: "综合主标与补遗，冲突时列出证据对。",
     notes: "Phase 1 long-context，仍要 token discipline",

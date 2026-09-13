@@ -64,6 +64,28 @@ GPT6_ASTRA_BENCHMARK=1 ENABLE_GPT6_ASTRA=1 ENABLE_GPT6_ASTRA_ROLLOUT_PCT=100 \
 3. 记录 usage / latency / schema / 是否 hallucinate 证据
 4. 招标类：Evidence Verifier 失败则记 **失败**，即使文笔更好
 
+## Tender QUALITY_FIRST
+
+Tender is a QUALITY_FIRST domain. GPT-6 Astra is the default primary reasoning model for Tender Intelligence when the GPT-6 emergency kill switch is enabled.
+
+Benchmark **不再只要求 Astra ≥ Current**。权重：
+
+| 指标 | 权重 |
+|---|---|
+| Mandatory Requirement Recall | CRITICAL |
+| Hallucination rate / UNKNOWN discipline | CRITICAL |
+| Evidence citation accuracy | HIGH |
+| Accuracy / completeness | HIGH |
+| Deadline / certification / eligibility | HIGH |
+| Addendum override accuracy | HIGH |
+| Cross-document conflict detection | HIGH |
+| Bid/No-Bid accuracy | HIGH |
+| Execution risk detection | HIGH |
+| Latency | MEDIUM |
+| Cost | LOW |
+
+招标类：Evidence Verifier 失败则记 **失败**，即使文笔更好。不得因模型变强放宽证据。
+
 ## 通过门（Final Review 前）
 
 至少：

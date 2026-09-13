@@ -98,6 +98,10 @@ expect(
   GPT6_PHASE1_WORKFLOWS.includes("researcher"),
   "Phase 1 含 researcher",
 );
+expect(
+  (GPT6_PHASE1_WORKFLOWS as readonly string[]).includes("tender"),
+  "Phase 1 含 tender（QUALITY_FIRST）",
+);
 
 expect(
   [...gpt6WorkflowAllowlist({})].sort().join(",") ===

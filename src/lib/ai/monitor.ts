@@ -42,6 +42,9 @@ export interface RecordAiCallInput {
   cachedInputTokens?: number;
   toolCalls?: number;
   retryCount?: number;
+  tenderStage?: string;
+  fallbackUsed?: boolean;
+  promptVersion?: string;
   // ── Phase 1.1：统一执行上下文 correlation（全部可选，向后兼容）──
   traceId?: string;
   runId?: string;
@@ -95,6 +98,9 @@ export function recordAiCall(input: RecordAiCallInput) {
     reasoningEffort: input.reasoningEffort,
     toolCalls: input.toolCalls,
     retryCount: input.retryCount,
+    ...(input.tenderStage ? { tenderStage: input.tenderStage } : {}),
+    ...(input.fallbackUsed ? { fallbackUsed: true } : {}),
+    ...(input.promptVersion ? { promptVersion: input.promptVersion } : {}),
     // Phase 1.1 correlation（有值才输出）
     ...(input.traceId ? { traceId: input.traceId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),

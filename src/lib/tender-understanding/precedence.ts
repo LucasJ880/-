@@ -10,6 +10,7 @@
 
 import type {
   AddendumChangeV2,
+  AddendumDispositionV2,
   AnalyzerInput,
   ConflictV2,
   DocumentFactV2,
@@ -23,6 +24,20 @@ const REVISION_LANGUAGE =
   /\b(revis\w*|replac\w*|amend\w*|delet\w*|supersed\w*|chang\w* to|now reads|is hereby)\b/i;
 
 const TOPIC_SIMILARITY_MIN = 0.3;
+
+function documentIndex(input: AnalyzerInput, documentId: string): number {
+  const i = input.documents.findIndex((d) => d.documentId === documentId);
+  return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+}
+
+function addendumIndexOf(input: AnalyzerInput, m: MergedRequirement): number {
+  let best = Number.MAX_SAFE_INTEGER;
+  for (const mm of m.members) {
+    if (!isAddendumDoc(input, mm.sourceDocumentId)) continue;
+    best = Math.min(best, documentIndex(input, mm.sourceDocumentId));
+  }
+  return best;
+}
 
 function isAddendumDoc(input: AnalyzerInput, documentId: string): boolean {
   return (
@@ -115,10 +130,107 @@ export function applyAddendumPrecedence(
     }
   }
 
+  // ── 后发布 Addendum 优先：同主题的较后补遗覆盖较早补遗 ──
+  applyLaterAddendumPrecedence(input, merged, addendumChanges, conflicts);
+
   // ── 通用跨文档矛盾（不限于 Addendum；spec §29） ──
   detectRequirementContradictions(merged, conflicts);
 
+  assignAddendumDispositions(input, requirements);
+
   return { requirements, addendumChanges, conflicts };
+}
+
+function applyLaterAddendumPrecedence(
+  input: AnalyzerInput,
+  merged: MergedRequirement[],
+  addendumChanges: AddendumChangeV2[],
+  conflicts: ConflictV2[],
+): void {
+  const addGroups = merged
+    .map((m) => ({ m, idx: addendumIndexOf(input, m) }))
+    .filter((x) => x.idx !== Number.MAX_SAFE_INTEGER)
+    .sort((a, b) => a.idx - b.idx);
+
+  for (let i = 0; i < addGroups.length; i++) {
+    for (let j = i + 1; j < addGroups.length; j++) {
+      const earlier = addGroups[i]!.m;
+      const later = addGroups[j]!.m;
+      const earlierReq = earlier.requirement;
+      const laterReq = later.requirement;
+      if (earlierReq.status !== "ACTIVE" || laterReq.status !== "ACTIVE") continue;
+      if (earlierReq.category !== laterReq.category) continue;
+      const sim = tokenJaccard(earlierReq.statement, laterReq.statement);
+      const revising = later.members.find(
+        (mm) => isAddendumDoc(input, mm.sourceDocumentId) && hasRevisionSemantics(mm),
+      );
+      const targetHint = revising?.revisionTargetHint
+        ? normalizeForMatch(revising.revisionTargetHint)
+        : null;
+      const hintHit =
+        targetHint !== null &&
+        normalizeForMatch(earlierReq.statement).includes(targetHint);
+      if (sim < TOPIC_SIMILARITY_MIN && !hintHit) continue;
+
+      if (revising) {
+        earlierReq.status = "SUPERSEDED";
+        earlierReq.supersededById = laterReq.id;
+        addendumChanges.push({
+          id: `AC-${String(addendumChanges.length + 1).padStart(3, "0")}`,
+          addendumDocumentId: revising.sourceDocumentId,
+          action: revising.revisionAction ?? "SUPERSEDES",
+          supersededRequirementId: earlierReq.id,
+          activeRequirementId: laterReq.id,
+          note: `后发布 Addendum 优先：${earlierReq.statement.slice(0, 80)} → ${laterReq.statement.slice(0, 80)}`,
+          evidence: laterReq.evidence.slice(0, 2),
+        });
+      } else if (sim >= 0.45) {
+        earlierReq.status = "NEEDS_REVIEW";
+        laterReq.status = "NEEDS_REVIEW";
+        conflicts.push({
+          id: `C-${String(conflicts.length + 1).padStart(3, "0")}`,
+          topic: `${laterReq.category}: ${laterReq.statement.slice(0, 60)}`,
+          itemIds: [earlierReq.id, laterReq.id],
+          values: [
+            earlierReq.statement.slice(0, 120),
+            laterReq.statement.slice(0, 120),
+          ],
+          resolution: "UNRESOLVED",
+          note: "两份 Addendum 同主题表述存在实质差异且无明确修订语言，需人工确认。",
+        });
+      }
+      break;
+    }
+  }
+}
+
+export function assignAddendumDispositions(
+  input: AnalyzerInput,
+  requirements: TenderRequirementV2[],
+): void {
+  const hasAddendum = input.documents.some((d) => d.sourceRole === "ADDENDUM");
+  for (const req of requirements) {
+    req.addendumDisposition = dispositionOf(input, requirements, req, hasAddendum);
+  }
+}
+
+function dispositionOf(
+  input: AnalyzerInput,
+  requirements: TenderRequirementV2[],
+  req: TenderRequirementV2,
+  hasAddendum: boolean,
+): AddendumDispositionV2 {
+  if (req.status === "SUPERSEDED") return "SUPERSEDED";
+  const fromAddendum = req.evidence.some((e) => isAddendumDoc(input, e.documentId));
+  const fromBase = req.evidence.some((e) => !isAddendumDoc(input, e.documentId));
+  const supersededSomeone = requirements.some((r) => r.supersededById === req.id);
+  if (!hasAddendum) return "ORIGINAL";
+  if (fromAddendum && supersededSomeone) return "MODIFIED";
+  if (fromAddendum && !fromBase) return "NEW";
+  if (req.status === "NEEDS_REVIEW" || req.status === "CONFLICT") {
+    return fromAddendum ? "MODIFIED" : "ORIGINAL";
+  }
+  return "UNCHANGED";
 }
 
 const NUMBER_RE = /\b\d+(?:[.,]\d+)?\b/g;

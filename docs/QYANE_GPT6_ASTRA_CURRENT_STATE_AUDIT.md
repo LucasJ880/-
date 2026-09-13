@@ -39,9 +39,9 @@
 | `src/lib/agent-supervisor/model-resolve.ts` | Supervisor planner/observer/repair/summary | Reasoning；可 `AGENT_SUPERVISOR_*_MODEL` | 经 `createCompletionDetailed` | purpose 默认 | no | no | **Critical** |
 | `src/lib/agent-runtime-v2/planner.ts` | FDE / Runtime V2 plan | Chat（`createCompletion` 默认 normal） | Chat Completions | 默认 medium | no | no | **Critical** |
 | `src/lib/agent-runtime-v2/verifier.ts` | FDE Verify | Chat | Chat Completions | 默认 | no | no | High |
-| `src/lib/tender-understanding/llm.ts` | Bid research V2 | `structured` → terra | Chat Completions | medium | no | no | **Critical** |
+| `src/lib/tender-understanding/llm.ts` | Bid research V2 / **tender** | flag 关：`structured`→terra；flag 开：`gpt-6-astra` | Chat Completions | high（阶段可 xhigh） | no | no | **Critical / QUALITY_FIRST** |
+| `src/lib/agent/skills/tender-analysis.ts` | 标书深度报告 / **tender** | 同上 | Chat Completions | high / addendum xhigh | no | no | High / QUALITY_FIRST |
 | `src/lib/market-intelligence/research-runtime.ts` | 市场深度研究 | Chat 主 / Reasoning 备 | 经 skill runtime → Agent Core | high → medium fallback | yes（skill） | no | High |
-| `src/lib/agent/skills/tender-analysis.ts` | 标书深度报告 | `deep` → terra | Chat Completions | high | no | no | High |
 | `src/lib/files/intelligence-extractor.ts` | Intelligence report | `getIntelligenceReportConfig` | Chat Completions | env / deep | no | no | High |
 | `src/lib/supplier/classifier.ts` | 供应商标签 | `structured` | Chat Completions | medium | no | no | Medium |
 | `src/lib/supplier-intel/*` | Supplier Intelligence M1 打分/发现 | **无 LLM** | 确定性代码 + Provider | n/a | n/a | n/a | **Critical（禁止塞模型）** |

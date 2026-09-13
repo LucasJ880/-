@@ -39,6 +39,7 @@ function requirementOf(spec: RequirementSpec): TenderRequirementV2 {
     submissionStage: null,
     technicalArea: null,
     status: spec.status ?? "ACTIVE",
+    addendumDisposition: "ORIGINAL",
     supersededById: null,
     evidence: [],
     confidence: "HIGH",

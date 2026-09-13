@@ -18,8 +18,9 @@ import {
   resolveReasoningPolicy,
   type ExtendedReasoningEffort,
   type QualityMode,
+  type TenderStage,
 } from "./reasoning";
-import { ROLE_ENV_KEYS, type ModelRole } from "./roles";
+import { QUALITY_FIRST_ROLES, ROLE_ENV_KEYS, type ModelRole } from "./roles";
 
 export interface ResolveModelPolicyInput extends Gpt6FlagInput {
   role: ModelRole;
@@ -33,6 +34,8 @@ export interface ResolveModelPolicyInput extends Gpt6FlagInput {
   retryCount?: number;
   supervisorEscalation?: boolean;
   qualityMode?: QualityMode;
+  tenderStage?: TenderStage;
+  evidenceConflict?: boolean;
 }
 
 export interface ModelPolicyResolution {
@@ -43,6 +46,8 @@ export interface ModelPolicyResolution {
   upgraded: boolean;
   source: "baseline" | "env" | "gpt6_policy";
   api: "chat_completions" | "responses";
+  qualityFirst: boolean;
+  skipRolloutPct: boolean;
 }
 
 function envTrim(env: Gpt6FlagEnv, key: string): string | undefined {
@@ -54,6 +59,7 @@ function roleBaseline(role: ModelRole): string {
   switch (role) {
     case "supervisor":
     case "researcher":
+    case "tender":
     case "coder":
     case "classifier":
     case "supplier_intelligence":
@@ -92,23 +98,32 @@ function distinctFallback(model: string, fallback: string): string {
   return OPENAI_BUILTIN.chat;
 }
 
+function isQualityFirst(role: ModelRole): boolean {
+  return (QUALITY_FIRST_ROLES as readonly ModelRole[]).includes(role);
+}
+
 export function resolveModelPolicy(
   input: ResolveModelPolicyInput,
 ): ModelPolicyResolution {
   const env = input.env ?? process.env;
+  const qualityFirst = isQualityFirst(input.role);
   const flagInput: Gpt6FlagInput = {
     userId: input.userId,
     role: input.role,
     orgId: input.orgId,
     orgCode: input.orgCode,
+    modelRole: input.role,
   };
   const enabled = isGpt6AstraEnabledWithEnv(flagInput, env);
   const workflowOn = isGpt6WorkflowEnabledWithEnv(input.role, flagInput, env);
   const baseline = input.baselineModel?.trim() || roleBaseline(input.role);
+  // Tender 回退必须是稳定 Chat（Sol），不得为了省钱改 Terra；也不得因输入变长换模型。
   const fallback =
     input.fallbackModel?.trim() ||
     envTrim(env, "OPENAI_MODEL_GPT6_FALLBACK") ||
-    ProviderRouter.getChatModel();
+    (qualityFirst
+      ? ProviderRouter.getChatModel() || OPENAI_BUILTIN.chat
+      : ProviderRouter.getChatModel());
 
   const roleEnv = envTrim(env, ROLE_ENV_KEYS[input.role]);
   const reasoningEffort = resolveReasoningPolicy({
@@ -119,7 +134,14 @@ export function resolveModelPolicy(
     retryCount: input.retryCount,
     supervisorEscalation: input.supervisorEscalation,
     qualityMode: input.qualityMode,
+    tenderStage: input.tenderStage,
+    evidenceConflict: input.evidenceConflict,
   });
+
+  const extras = {
+    qualityFirst,
+    skipRolloutPct: qualityFirst,
+  };
 
   // 显式角色 env 优先，但仍受 kill switch 约束
   if (roleEnv) {
@@ -132,6 +154,7 @@ export function resolveModelPolicy(
       upgraded: isGpt6Astra(model),
       source: "env",
       api: "chat_completions",
+      ...extras,
     };
   }
 
@@ -145,6 +168,7 @@ export function resolveModelPolicy(
       upgraded: true,
       source: "gpt6_policy",
       api: "chat_completions",
+      ...extras,
     };
   }
 
@@ -157,6 +181,7 @@ export function resolveModelPolicy(
     upgraded: false,
     source: "baseline",
     api: "chat_completions",
+    ...extras,
   };
 }
 
@@ -167,6 +192,7 @@ export function getModelPolicySnapshot(
     "supervisor",
     "planner",
     "researcher",
+    "tender",
     "coder",
     "classifier",
     "summarizer",

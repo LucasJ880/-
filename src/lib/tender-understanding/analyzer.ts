@@ -38,6 +38,7 @@ import { generateClarifications } from "./clarify";
 import { dedupeFacts, dedupeRequirements } from "./dedupe";
 import type { LlmCallLog, LlmInvoker } from "./llm";
 import { callStructured, createUnifiedRuntimeInvoker } from "./llm";
+import { ANALYZED_WITH_FALLBACK_MODEL } from "@/lib/ai/model-policy";
 import { buildAllWindows, buildDocumentManifest, type SectionWindow } from "./manifest";
 import { applyAddendumPrecedence, detectFactConflicts } from "./precedence";
 import { deriveRisks } from "./risks";
@@ -161,6 +162,8 @@ export async function runExtractionWindow(
       userPrompt: buildExtractUserPrompt(window),
       maxTokens: EXTRACT_MAX_TOKENS,
       timeoutMs: Math.max(1_000, Math.min(opts.timeoutMs ?? EXTRACT_TIMEOUT_MS, EXTRACT_TIMEOUT_MS)),
+      tenderStage:
+        window.sourceRole === "ADDENDUM" ? "addendum" : "understanding",
     },
     extractionOutputSchema,
   );
@@ -304,6 +307,12 @@ export function assembleAnalysisResult(parts: {
   const models = Array.from(
     new Set(logs.filter((l) => l.model !== "unknown").map((l) => l.model)),
   );
+  const analyzedWithFallback = logs.some((l) => l.fallbackUsed);
+  if (analyzedWithFallback) {
+    limitations.push(
+      `${ANALYZED_WITH_FALLBACK_MODEL}：本次分析因 GPT-6 不可用改用回退模型，结果不得视为 GPT-6 产出。`,
+    );
+  }
   const promptUsageMap = new Map<string, { promptVersion: string; calls: number }>();
   for (const l of logs) {
     const cur = promptUsageMap.get(l.promptName) ?? {
@@ -313,6 +322,9 @@ export function assembleAnalysisResult(parts: {
     cur.calls += 1;
     promptUsageMap.set(l.promptName, cur);
   }
+  const requested = logs.find((l) => l.requestedModel)?.requestedModel;
+  const actual = models[0];
+  const extractPrompt = promptUsageMap.get(PROMPT_EXTRACT.name)?.promptVersion;
 
   return assembleResult({
     manifest: parts.manifest,
@@ -347,6 +359,14 @@ export function assembleAnalysisResult(parts: {
       evidenceReattributed: grounded.reattributed,
       inputChars: logs.reduce((a, l) => a + l.inputChars, 0),
       outputChars: logs.reduce((a, l) => a + l.outputChars, 0),
+      modelFamily: (requested ?? actual)?.startsWith("gpt-6-astra")
+        ? "gpt-6-astra"
+        : actual
+          ? "gpt-5.6"
+          : undefined,
+      modelVersion: requested ?? actual,
+      promptVersion: extractPrompt,
+      analyzedWithFallbackModel: analyzedWithFallback,
     },
   });
 }

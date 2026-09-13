@@ -7,7 +7,8 @@
  * 3. ROLE allowlist 非空且未命中 → 关
  * 4. USER allowlist 非空且未命中 → 关
  * 5. 任一 allowlist 非空且均已命中 → 开
- * 6. 否则按 ROLLOUT_PCT（无 userId 时仅 pct>=100 开启）
+ * 6. 否则：tender（QUALITY_FIRST）在总开关打开且 allowlist 未拦截时开启，不走 ROLLOUT_PCT
+ * 7. 其他角色按 ROLLOUT_PCT（无 userId 时仅 pct>=100 开启）
  */
 
 function envBool(v: string | undefined): boolean {
@@ -36,13 +37,24 @@ export interface Gpt6FlagInput {
   role?: string | null;
   orgId?: string | null;
   orgCode?: string | null;
+  /** Model / workflow 角色。tender 跳过 ROLLOUT_PCT。 */
+  modelRole?: string | null;
 }
 
 export const GPT6_PHASE1_WORKFLOWS = [
   "supervisor",
   "planner",
   "researcher",
+  "tender",
 ] as const;
+
+/** Tender 是 QUALITY_FIRST：kill switch 打开且 allowlist 未拦截时，不走百分比随机。 */
+export const GPT6_QUALITY_FIRST_WORKFLOWS = ["tender"] as const;
+
+function isQualityFirstWorkflow(name: string | null | undefined): boolean {
+  const id = name?.trim().toLowerCase() ?? "";
+  return (GPT6_QUALITY_FIRST_WORKFLOWS as readonly string[]).includes(id);
+}
 
 export function isGpt6AstraEnabledWithEnv(
   input: Gpt6FlagInput = {},
@@ -68,6 +80,11 @@ export function isGpt6AstraEnabledWithEnv(
   }
 
   if (orgAllow.length > 0 || roleAllow.length > 0 || userAllow.length > 0) {
+    return true;
+  }
+
+  // Tender：生产确定性路由。百分比灰度会把同一次标书分析拆到不同模型。
+  if (isQualityFirstWorkflow(input.modelRole) || isQualityFirstWorkflow(input.role)) {
     return true;
   }
 
@@ -98,7 +115,8 @@ export function isGpt6WorkflowEnabledWithEnv(
   input: Gpt6FlagInput = {},
   env: Gpt6FlagEnv = process.env,
 ): boolean {
-  if (!isGpt6AstraEnabledWithEnv(input, env)) return false;
+  const modelRole = input.modelRole ?? workflow;
+  if (!isGpt6AstraEnabledWithEnv({ ...input, modelRole }, env)) return false;
   return gpt6WorkflowAllowlist(env).has(workflow.trim().toLowerCase());
 }
 

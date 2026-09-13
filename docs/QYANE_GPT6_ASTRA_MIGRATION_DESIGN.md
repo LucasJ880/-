@@ -39,9 +39,11 @@ src/lib/ai/model-policy/
 
 ```
 AI_MODELS = {
-  supervisor: flag? gpt-6-astra : gpt-5.6-terra,
-  planner:    flag? gpt-6-astra : gpt-5.6-sol,
-  researcher: flag? gpt-6-astra : 调用方 baseline,
+  supervisor: flag+pct/allowlist? gpt-6-astra : gpt-5.6-terra,
+  planner:    flag+pct/allowlist? gpt-6-astra : gpt-5.6-sol,
+  researcher: flag+pct/allowlist? gpt-6-astra : 调用方 baseline,
+  tender:     ENABLE_GPT6_ASTRA=1（allowlist 未拦截）→ gpt-6-astra（QUALITY_FIRST，不走 ROLLOUT_PCT）
+              ENABLE_GPT6_ASTRA=0 → gpt-5.6-terra baseline；fallback = gpt-5.6-sol
   coder:      仅当 WORKFLOWS 包含 coder,
   classifier / summarizer / chat / fast: 保持低成本
 }
@@ -56,13 +58,46 @@ AI_MODELS = {
 | `ENABLE_GPT6_ASTRA_USER_ALLOWLIST` | 用户灰度 |
 | `ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST` | 角色灰度 |
 | `ENABLE_GPT6_ASTRA_ROLLOUT_PCT` | 无 allowlist 时的百分比 |
-| `ENABLE_GPT6_ASTRA_WORKFLOWS` | 默认 `supervisor,planner,researcher` |
+| `ENABLE_GPT6_ASTRA_WORKFLOWS` | 默认 `supervisor,planner,researcher,tender` |
 | `OPENAI_MODEL_SUPERVISOR` 等 | 角色覆盖（仍受 kill switch） |
-| `OPENAI_MODEL_GPT6_FALLBACK` | 回退模型，默认 Chat |
+| `OPENAI_MODEL_TENDER` | Tender 独立模型；生产目标 `gpt-6-astra` |
+| `OPENAI_MODEL_GPT6_FALLBACK` | 回退模型，默认 Chat（Sol） |
 
 判定复用 Supervisor flag 语义：未开总开关 → 关；allowlist 未命中不可被 pct 绕过。
 
 Kill switch：flag 关闭时，即使角色 env 写成 `gpt-6-astra` 也回退 baseline。
+
+## Tender is a QUALITY_FIRST domain
+
+Tender / Procurement Intelligence 是当前最高价值 AI workload 之一。**模型质量、推理能力和可靠性优先级明显高于 token 成本。**
+
+GPT-6 Astra is the default primary reasoning model for Tender Intelligence when the GPT-6 emergency kill switch is enabled.
+
+- 独立角色 `tender` / `OPENAI_MODEL_TENDER`，不再复用 generic `researcher`
+- Preview 可用 org/user allowlist；验证后 **禁止用 `ROLLOUT_PCT` 随机拆模型**
+- Production target：`ENABLE_GPT6_ASTRA=1` + `OPENAI_MODEL_TENDER=gpt-6-astra`
+- 禁止 `OPENAI_CHAT_MODEL=gpt-6-astra`
+- Fallback 仅 429 / timeout / 5xx / provider unavailable / hard compatibility；**禁止因 token 成本、大输入、日预算优化降到 Terra**
+- 回退链：Astra → 同模型 1 次 → `gpt-5.6-sol` → 安全失败。fallback 完成须标记 `ANALYZED_WITH_FALLBACK_MODEL`
+- 一次 Tender run pin：`modelFamily` / `modelVersion` / `promptVersion`
+- 证据契约不变：CLAIM → EVIDENCE → SOURCE → CONFIDENCE；无法证明 = UNKNOWN
+- 确定性机件保持：解析、索引、归一化、去重、schema、授权、org scoping
+- GPT-6 用于：理解、跨文档综合、Addendum 对照、资格/风险/Bid-No-Bid 推理
+
+### Tender reasoning
+
+| Stage | Effort |
+|---|---|
+| triage | medium |
+| understanding / mandatory / eligibility / technical / commercial / bid-no-bid | high |
+| addendum / cross-document / complex risk / adjudication | xhigh |
+| critical + evidence conflict + supervisor escalation | max（仅此） |
+
+### Tender Supervisor stages（推理重的阶段默认 Astra）
+
+Document inventory → understanding → mandatory → eligibility → technical → commercial → execution feasibility → evidence verification → risk → Bid/No-Bid
+
+Addendum：ORIGINAL / SUPERSEDED / MODIFIED / NEW / UNCHANGED；后发布有效补遗优先。跨文档识别 conflict / duplicate / override / dependency / missing form / cross-reference。
 
 ## Reasoning Policy
 
@@ -101,7 +136,7 @@ GPT-6 Astra
   → safe failure（抛给调用方规则降级）
 ```
 
-不重试：400 参数、invalid schema、401、明确 policy 失败。
+Tender：Astra → 同模型 1 次 → **gpt-5.6-sol** → 安全失败；结果标记 `ANALYZED_WITH_FALLBACK_MODEL`。不得因成本降级。
 
 Supervisor 原有 `isTransientModelError` + 一次 fallback **保留**。
 
@@ -120,13 +155,15 @@ Supervisor 原有 `isTransientModelError` + 一次 fallback **保留**。
 
 ## 迁移接线（已实现）
 
-Phase 1（flag 打开且 workflow 默认集合）：
+Phase 1（flag 打开）：
 
-1. `resolveSupervisorModel` — planner/observer/repair → Astra；summary 角色是 summarizer，默认不升级
-2. `agent-runtime-v2/planner.ts`
-3. `tender-understanding/llm.ts` `createUnifiedRuntimeInvoker`
-4. `market-intelligence/research-runtime.ts`（任务专用 `OPENAI_MODEL_MARKET_INTELLIGENCE` 仍优先）
-5. `agent/skills/tender-analysis.ts`
+1. `resolveSupervisorModel` — planner/observer/repair → Astra（仍受 pct/allowlist）；summary 角色是 summarizer，默认不升级
+2. `agent-runtime-v2/planner.ts`（仍受 pct/allowlist）
+3. `tender-understanding/llm.ts` **`role: tender`** — QUALITY_FIRST，kill switch 开即 Astra
+4. `agent/skills/tender-analysis.ts` **`role: tender`** — 跨文档一次综合，禁止逐 PDF 拼接
+5. `market-intelligence/research-runtime.ts` 仍是 generic researcher（pct/allowlist）
+
+Phase 2 仅当 `ENABLE_GPT6_ASTRA_WORKFLOWS` 显式加入 `coder` / `supplier_intelligence` / `proposal`。本 PR **不**改 M1 确定性脊柱。
 
 Phase 2 仅当 `ENABLE_GPT6_ASTRA_WORKFLOWS` 显式加入 `coder` / `supplier_intelligence` / `proposal`。本 PR **不**改 M1 确定性脊柱。
 

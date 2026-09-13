@@ -13,7 +13,7 @@
 - [x] Model Policy + kill switch
 - [x] Astra 参数隔离（无 `none` / 无 temperature）
 - [x] Responses 适配（仅 GPT-6 + tools）
-- [x] Phase 1 接线（supervisor / planner / researcher）
+- [x] Phase 1 接线（supervisor / planner / researcher；**tender QUALITY_FIRST**）
 - [x] 失败分类与有界 retry
 - [x] 复用 `recordAiCall` 成本字段
 - [x] 单元测试 + failure tests + benchmark harness
@@ -26,26 +26,38 @@
 
 ```
 ENABLE_GPT6_ASTRA=1
+OPENAI_MODEL_TENDER=gpt-6-astra
 ENABLE_GPT6_ASTRA_ORG_ALLOWLIST=<preview-org-id>
-ENABLE_GPT6_ASTRA_WORKFLOWS=supervisor,planner,researcher
+ENABLE_GPT6_ASTRA_WORKFLOWS=supervisor,planner,researcher,tender
 ENABLE_GPT6_ASTRA_ROLLOUT_PCT=0
 ```
 
-观察：
+Preview 观察：
 
 - Supervisor 计划是否更稳、是否更多澄清问题（Astra 更爱提问 — 必要时补 follow-through prompt）
-- Tender V2 UNKNOWN 纪律、schema pass
+- Tender V2 UNKNOWN 纪律、schema pass、Addendum ORIGINAL/SUPERSEDED/MODIFIED/NEW/UNCHANGED
+- Tender **不得**被 ROLLOUT_PCT 拆到 Terra；同一次 run 模型钉死
+- fallback 时 UI/metadata 出现 `ANALYZED_WITH_FALLBACK_MODEL`
 - 延迟与 429
-- 账本 `model=gpt-6-astra` 成本
+- 账本 `model=gpt-6-astra` `workflow=tender`
 
-回滚：去掉 allowlist 或 `ENABLE_GPT6_ASTRA=0`。
+回滚：`ENABLE_GPT6_ASTRA=0`（Tender 立即回 terra baseline）。
+
+## Production target（Preview 通过后）
+
+```
+ENABLE_GPT6_ASTRA=1
+OPENAI_MODEL_TENDER=gpt-6-astra
+```
+
+不要设置 `OPENAI_CHAT_MODEL=gpt-6-astra`。Tender 不走百分比随机。Supervisor / researcher 仍可用 allowlist 或 pct 单独放量。
 
 ## Phase 2 — Coding / 采购推理 / 方案
 
 仅当 Phase 1 指标不差于当前模型：
 
 ```
-ENABLE_GPT6_ASTRA_WORKFLOWS=supervisor,planner,researcher,coder,supplier_intelligence,proposal
+ENABLE_GPT6_ASTRA_WORKFLOWS=supervisor,planner,researcher,tender,coder,supplier_intelligence,proposal
 ```
 
 仍然：
