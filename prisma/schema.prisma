@@ -3763,6 +3763,60 @@ model TradeChatSession {
   @@index([orgId])
 }
 
+/// 网站询盘事件收据 — 最早可靠接收边界的事件身份 + 原始业务载荷。
+///
+/// 在任何业务对象（TradeProspect / TradeMessage / SalesCustomer / …）之前写入：
+/// 站点重发时按 (orgId, source, eventId) 唯一定位原始事件，据此逐项补齐中断的下游步骤，
+/// 而不依赖"正文在 24h 内可匹配"。载荷是**首次**收到的业务事实，后续冲突内容只记录不覆盖。
+model WebsiteInquiryReceipt {
+  id     String @id @default(cuid())
+  orgId  String
+  /// 事件来源（服务端按通道判定，调用方不可指定）
+  source String @default("website")
+  /// 站点侧原始事件 id；缺失时服务端按业务指纹派生（legacy 兼容，见 eventIdProvided）
+  eventId String
+  /// true = 站点提供了 eventId；false = 服务端按内容派生的兼容身份
+  eventIdProvided Boolean @default(true)
+
+  /// 首次收到的归一化业务载荷（恢复时以此重放）
+  payload Json
+  /// 业务字段指纹（联系人/公司/国家/正文/产品/买家网站；不含来源页与 UTM）
+  payloadHash String
+
+  /// 内容与既有事件相同 → 指向原事件（有记录，不静默吞掉）
+  duplicateOfReceiptId String?
+
+  /// 下游对象（各步骤成功后回填，恢复时逐项核对）
+  prospectId      String?
+  tradeMessageId  String?
+  customerId      String?
+  opportunityId   String?
+  interactionId   String?
+  salesActionId   String?
+  agentRunId      String?
+  pendingActionId String?
+
+  /// received（已收，未落业务对象）/ processing（本次请求正在处理）/ linked（业务对象已建，下游未完成）/ complete（全链终态）
+  status String @default("received")
+  /// 单执行者控制：本次处理开始时间；超过 PROCESSING_STALE_MS 视为中断可再次处理
+  processingSince DateTime?
+  /// 同一事件被送达的次数（首发 + 重发）
+  attempts Int @default(1)
+  /// 同一 eventId 携带不同业务内容的次数（只记录，不覆盖原始事实）
+  conflictCount  Int       @default(0)
+  lastConflictAt DateTime?
+
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@unique([orgId, source, eventId])
+  @@index([orgId, payloadHash, firstSeenAt])
+  @@index([orgId, status, firstSeenAt])
+  @@index([tradeMessageId])
+  @@index([opportunityId])
+}
+
 model TradeChatMessage {
   id         String           @id @default(cuid())
   sessionId  String
