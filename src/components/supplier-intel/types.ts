@@ -186,3 +186,28 @@ export interface SupplierOption {
   region?: string | null;
   category?: string | null;
 }
+
+/* ───────────────── S3-B：供应商证据工作台 ───────────────── */
+
+/**
+ * 只做 `type` 再导出：编译期擦除，不会把 server-only 的视图模块拖进浏览器包。
+ * 与服务端共用同一份类型定义，避免 S3-A 那种手抄副本随时间漂移。
+ */
+export type {
+  CapabilityClaimView,
+  CertificationEvidenceView,
+  CertificationView,
+  LinkedSignalView,
+  OfferingView,
+  SupplierCapabilityPayload,
+} from "@/lib/supplier-intel/supplier-capability-view";
+
+/** 资质核验的「档案依据」候选（GET /projects/[id]/archive-evidence） */
+export interface ArchiveEvidenceOption {
+  id: string;
+  kind: string;
+  mimeType: string;
+  capturedAt: string;
+  title: string | null;
+  sourceHost: string | null;
+}

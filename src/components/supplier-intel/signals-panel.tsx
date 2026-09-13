@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { ExternalLink, Loader2, Plus, RefreshCw } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import {
@@ -266,6 +267,7 @@ export function SignalsPanel({
 
       <SignalDetailDrawer
         orgId={orgId}
+        projectId={projectId}
         signal={selected}
         canWrite={canWrite}
         onClose={() => setSelected(null)}
@@ -298,12 +300,14 @@ export function SignalsPanel({
  */
 function SignalDetailDrawer({
   orgId,
+  projectId,
   signal,
   canWrite,
   onClose,
   onChanged,
 }: {
   orgId: string;
+  projectId: string;
   signal: SignalRow | null;
   canWrite: boolean;
   onClose: () => void;
@@ -537,6 +541,22 @@ function SignalDetailDrawer({
         {st.hint ? <p className="text-xs text-[var(--muted)]">{st.hint}</p> : null}
         {pf.hint ? <p className="text-xs text-[var(--muted)]">来源说明：{pf.hint}</p> : null}
         {origin.hint ? <p className="text-xs text-[var(--muted)]">{origin.hint}</p> : null}
+
+        {/* S3-B：身份确认之后的下一步——去看这家具体能供什么、凭什么信。
+            带上 projectId / signalId 只是告诉那页「从哪来」，是否属实由服务端核实。 */}
+        {signal.status === "LINKED" && signal.linkedSupplierId ? (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-xs" data-testid="linked-supplier-box">
+            <p>该线索已人工关联到此供应商。这只是身份归属——不代表已认证，也不代表本标合规。</p>
+            <Link
+              href={`/projects/intelligence/supply-chain/supplier?supplierId=${encodeURIComponent(signal.linkedSupplierId)}&projectId=${encodeURIComponent(projectId)}&signalId=${encodeURIComponent(signal.id)}`}
+              data-testid="view-supplier-evidence"
+              className="mt-1 inline-flex items-center gap-1 text-[var(--accent)] underline"
+            >
+              查看供应商产品与资质
+              <ExternalLink size={11} />
+            </Link>
+          </div>
+        ) : null}
 
         <div className="space-y-1">
           <p className="font-medium">{signal.title || signal.accountName || "（无标题）"}</p>
