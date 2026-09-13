@@ -35,6 +35,10 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       sku: typeof body.sku === "string" ? body.sku : null,
       category: typeof body.category === "string" ? body.category : null,
       description: typeof body.description === "string" ? body.description : null,
+      attributes:
+        body.attributes !== null && typeof body.attributes === "object" && !Array.isArray(body.attributes)
+          ? body.attributes
+          : undefined,
       unitPrice:
         typeof body.unitPrice === "number" || typeof body.unitPrice === "string"
           ? body.unitPrice

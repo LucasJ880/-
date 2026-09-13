@@ -204,6 +204,7 @@ npx tsx src/lib/supplier-intel/__tests__/run-execution-claim.test.ts
 npx tsx src/lib/supplier-intel/__tests__/scope-guard.test.ts
 
 # S3-B 供应商能力与资质归一（DB 套件无隔离库自跳过）
+npx tsx src/lib/supplier-intel/__tests__/evidence-display.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3b-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 

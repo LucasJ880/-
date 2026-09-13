@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, ChevronDown, History, Loader2 } from "lucide-react";
 import { classifyRunExecutionState } from "@/lib/supplier-intel/run-execution-state";
 import {
@@ -410,12 +411,23 @@ function RunCard({
                       官网
                     </a>
                   ) : null}
-                  <a
-                    href={`/suppliers?supplierId=${encodeURIComponent(c.supplierId)}`}
-                    className="ml-auto text-[var(--accent)] underline"
-                  >
-                    打开供应商档案
-                  </a>
+                  <span className="ml-auto flex flex-wrap gap-2">
+                    <a
+                      href={`/suppliers?supplierId=${encodeURIComponent(c.supplierId)}`}
+                      className="text-[var(--accent)] underline"
+                    >
+                      打开供应商档案
+                    </a>
+                    {/* S3-B：同一个 canonical 证据页；searchRunId 只表达「从这次搜索来」 */}
+                    <Link
+                      href={`/projects/intelligence/supply-chain/supplier?supplierId=${encodeURIComponent(c.supplierId)}${run.projectId ? `&projectId=${encodeURIComponent(run.projectId)}` : ""}&searchRunId=${encodeURIComponent(run.id)}`}
+                      data-testid="view-candidate-evidence"
+                      data-supplier-id={c.supplierId}
+                      className="text-[var(--accent)] underline"
+                    >
+                      查看产品与资质
+                    </Link>
+                  </span>
                 </li>
               ))}
             </ul>
