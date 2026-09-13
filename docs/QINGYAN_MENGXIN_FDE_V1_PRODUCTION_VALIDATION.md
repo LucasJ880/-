@@ -722,3 +722,204 @@ Unchanged from earlier rounds, and not addressed by this one:
 - Open P1 items, again not fixed here because they are outside this lane: the Trade-lane inquiry analysis and design LLM calls have no `isAIConfigured()` guard; `MAX_CONCURRENT_RUNS` reservations are never released at run terminal, so an organisation can start only 10 agent runs per 5 minutes; `scripts/seed-revenue-spine-policy.ts` does not call `assertProductionOperationAllowed()`; the FDE's default owner has no email provider connected; `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP`; `20260829200000_add_vinyl_work_order` is applied in production but present in neither migration registry.
 
 #207 remains unmerged, pending explicit release authorization. #206 stays open until #207 merges.
+
+---
+
+# Round 6 — Production release of PR #207 (2026-09-11)
+
+Rounds 1–5 above are unchanged, including every blocked status they recorded. This round executed the authorized production release: the migration, the merge and the Qingyan deployment. The Mengxin website half could not be executed and is recorded below with its exact boundary. No V2 work was started.
+
+## R6-1. Final freeze check (PART 1)
+
+```text
+origin/main at start = 4070d6d83842427e6318ab92ad7d19f0cc76fbae   ✓ as frozen
+PR #207 head         = d93ce70f0537f68ddbdbfbafd5dae7e7190ba607   ✓ as frozen
+PR #207 state        = OPEN, draft, not merged, MERGEABLE, CLEAN  ✓
+```
+
+One operational note before any production write: the scratch worktree used in rounds 2–5 had been partially deleted overnight by the OS temp-file cleaner, leaving a broken `.git` link. Nothing was lost — every commit was already pushed — but the tree could not be trusted, so it was discarded and a fresh worktree was checked out at `d93ce70f`. The working tree was clean and the migration SHA256 recomputed from it still read `4cc862a8…`. Every production step below was run from that clean tree, never from the main checkout, whose working directory carries unrelated uncommitted migration directories that would have been swept into `migrate deploy`.
+
+## R6-2. Pre-migration revalidation (PART 2)
+
+Target confirmed by comparing the `.env` `DIRECT_URL` host against Neon's own answer for the default branch — `ep-super-field-antfibsl…` is the endpoint of `br-green-boat-ann7k5yf`, `[default] production`. No credential was printed at any point.
+
+```text
+PENDING_MIGRATIONS = 20260908120000_website_inquiry_receipt   (count = 1, nothing else)
+MIGRATION_SHA256   = 4cc862a8589206f256d680cc930607d4e7f813aeb1fb6f936cfd7e2b6b3f06fb
+```
+
+`20260829200000_add_vinyl_work_order` appeared, as expected, in the "present in the database but not found locally" block — already applied, not pending. Its registry inconsistency was left exactly as it was; nothing was repaired opportunistically.
+
+## R6-3. Production snapshot (PART 3)
+
+```text
+PRE_PR207_PROD_SNAPSHOT     = prod-pre-website-inquiry-receipt-migration-20260911 (br-curly-dawn-an6hhzh0)
+PRODUCTION_BRANCH           = br-green-boat-ann7k5yf ([default] production)
+PRE_MIGRATION_SCHEMA_STATUS = 1 pending; "WebsiteInquiryReceipt" absent (to_regclass = null)
+```
+
+Retain this snapshot. It is a point-in-time branch for inspection and targeted recovery, not standing permission for an automatic full-database restore.
+
+## R6-4. Migration applied (PART 4)
+
+Applied through the protected command only, from the frozen tree, behind an inline guard that would have aborted had the pending set been anything other than that one migration:
+
+```bash
+ALLOW_DATABASE_MIGRATION=true CONFIRM_PRODUCTION_MIGRATION=I_UNDERSTAND_PRODUCTION_MIGRATION npm run db:migrate:deploy
+```
+
+`safe-migrate-deploy` recognised the target as protected (`protectedTarget=true`) and applied exactly one migration. No `db push`, no `--accept-data-loss`, no `migrate dev`, no `migrate reset`, no manual DDL.
+
+Read-only verification afterwards:
+
+```text
+prisma migrate status → "Database schema is up to date!", exit 0, zero pending
+WebsiteInquiryReceipt → 24 columns, 6 indexes (pkey + orgId/source/eventId UNIQUE + 4 ordinary), 0 rows
+```
+
+The columns and indexes match the reviewed structure exactly, including the `status` default `received`, `source` default `website`, `eventIdProvided` default true, `attempts` default 1 and `conflictCount` default 0.
+
+```text
+PR207_PRODUCTION_MIGRATION = PASS
+```
+
+## R6-5. Old build still compatible (PART 5)
+
+Checked before merging, on the build that predated #207, now running against the migrated database:
+
+```text
+qingyan.ca /            → 307 (auth redirect, normal)
+/login                  → 200
+/api/revenue/cockpit    → 401
+/api/trade/prospects    → 401
+/api/sales/customers    → 401
+/api/trade/webhook/website (no secret) → 401 {"error":"invalid secret"}
+```
+
+No schema errors, no 500s. As expected for a migration that only adds a table.
+
+## R6-6. Merge (PART 6)
+
+Marked ready for review, then merged with an exact head lock (`--match-head-commit d93ce70f…`) using the repository's normal merge-commit method.
+
+```text
+PR207_MERGE_SHA   = fba7a6b28f220c09dd03fd3d7c0907ca38f5f002
+POST_207_MAIN_SHA = fba7a6b28f220c09dd03fd3d7c0907ca38f5f002
+PR #207 merged    = true
+main contains d93ce70f = YES
+```
+
+The PR was not amended after merge.
+
+## R6-7. Qingyan production deployment (PART 7)
+
+The Git-integration build ran from the new `main` and passed — the migration gate is satisfied because the migration was already applied.
+
+```text
+/api/health → {"status":"ok","checks":{"database":"ok","isolation":"ok",
+               "runtimeEnv":"production","dbPlane":"production","deployedCommit":"fba7a6b"}}
+/api/trade/webhook/website  reachable
+  unauthenticated POST      → 401 {"error":"invalid secret"}
+  wrong-secret POST         → 401
+  receipts created by those probes → 0 (fail-closed before any write)
+```
+
+While this was being verified, PR #208 (Supplier Intelligence M1-S3-A workspace) was merged behind #207, moving `main` to `7261388a` and triggering another production deployment. That does not affect this release: `7261388a` contains `fba7a6b2` contains `d93ce70f`, and all checks above were re-run against the newer deployment with identical results (`deployedCommit: 7261388`, database ok, webhook 401).
+
+```text
+QINGYAN_PR207_PRODUCTION_DEPLOYMENT = PASS
+```
+
+The website channel secret was never printed, sent or logged.
+
+## R6-8. Mengxin website — stopped at server access (PART 8–12)
+
+```text
+LIVE_SITE_ROOT                    = NEEDS_SERVER_ACCESS
+PROCESS_MANAGER                   = NEEDS_SERVER_ACCESS
+NODE_VERSION                      = NEEDS_SERVER_ACCESS
+CURRENT_DEPLOYMENT_BACKUP         = NEEDS_SERVER_ACCESS
+CURRENT_QINGYAN_FORWARDER_PRESENT = NEEDS_SERVER_ACCESS (undecidable from outside — see below)
+QINGYAN_WEBHOOK_SECRET_PRESENT    = NEEDS_SERVER_ACCESS
+OUTBOUND_HTTPS_TO_QINGYAN         = NEEDS_SERVER_ACCESS
+INQUIRY_DATA_DIR                  = NEEDS_SERVER_ACCESS
+RECOVERY_SCHEDULER                = NEEDS_SERVER_ACCESS
+```
+
+The deployment helpers `.deploy/scp_up.exp` and `.deploy/ssh_run.exp` take host, user and password as command-line arguments; no host or credential is stored in the repository or on this machine, and none was supplied with this authorization. Without them the read-only server checklist in `docs/QINGYAN_BRIDGE.md` cannot be run, so nothing was deployed. PART 8 is explicit that an unknown production tree must not be blindly overwritten, and that is exactly the situation.
+
+What *was* checkable from outside, and one correction worth recording:
+
+```text
+https://mengxinhometextile.com/           → 200
+https://mengxinhometextile.com/contact    → 200
+https://mengxinhometextile.com/api/admin/inquiries → 401
+```
+
+That 401 initially looked like evidence that the bridge's admin routes were already live. It is not. `src/middleware.ts` and `src/lib/admin-auth.ts` already exist in the **pre-bridge** baseline (`d3afac9`) and return 401 for any `/api/admin/*` without a valid admin cookie — confirmed by `/api/admin/does-not-exist-xyz` also returning 401 while `/api/does-not-exist-xyz` returns 404, and by the live nginx config being a plain reverse proxy with no auth rule. The probe therefore says nothing either way about whether the bridge is deployed. Only the server-side checklist can answer that.
+
+The reviewed package is verified and ready for the moment access exists:
+
+```text
+package = 梦馨家纺网站-bridge-delta-da4ff0c.tar.gz
+sha256  = 83ec8f03de0d92d58a76b4415428df66b3604b7fb664390d387af609978c28d0   ✓ matches the frozen value
+manifest = 15 files, all bridge files only (.env.example, .gitignore, docs/QINGYAN_BRIDGE.md,
+           scripts/preflight-bridge.sh, 3 api routes, 4 lib files, middleware.ts, 3 tests)
+           — no unrelated website content
+```
+
+```text
+MENGXIN_WEBSITE_BRIDGE_DEPLOYMENT  = BLOCKED (NEEDS_SERVER_ACCESS)
+MENGXIN_WEBSITE_RECOVERY_OPERATION = BLOCKED (NEEDS_SERVER_ACCESS)
+```
+
+PARTS 9–12 (backup, persistent data directory, server environment, deployment, recovery-operation verification) were not reached.
+
+## R6-9. Real acceptance and human checkpoints (PART 13–16) — not reached
+
+PART 13's stated precondition is `MENGXIN_WEBSITE_BRIDGE_DEPLOYMENT = PASS`, which does not hold, so no form was submitted. Submitting the public form now would only re-prove the round-1 failure while creating a real inquiry record. Calling the Qingyan webhook directly as a substitute is forbidden and was not done.
+
+The prepared fixture is still valid — re-checked read-only in production, and nothing has been created since the round-2 preflight:
+
+```text
+org 梦馨家纺 (mengxin-home-textile, cmrv37moo0001sbskqeknr5km)
+TradeProspect with the acceptance email    = 0
+SalesCustomer with the acceptance email    = 0
+SalesOpportunity for that customer         = 0
+TradeMessage carrying QY-ACC-20260908-d524b362 = 0
+WebsiteInquiryReceipt rows in the org      = 0
+website-channel TradeMessage, last 7 days  = 0
+```
+
+So the original controlled fixture (2,000 waffle-weave hotel bathrobes, hotel project, Vancouver, embroidered logo, marker `QY-ACC-20260908-d524b362`) can be used unchanged. No production record was deleted and no dedupe rule was altered.
+
+Human checkpoints A and B were therefore not reached; no draft was approved, and no send was performed or simulated.
+
+## R6-10. Status (PART 17)
+
+```text
+PR207_PRODUCTION_MIGRATION          = PASS
+PR207 merged                        = PASS  (fba7a6b2)
+QINGYAN_PR207_PRODUCTION_DEPLOYMENT = PASS
+MENGXIN_WEBSITE_BRIDGE_DEPLOYMENT   = BLOCKED (NEEDS_SERVER_ACCESS)
+real browser inquiry                = NOT RUN
+website → Qingyan delivery          = NOT RUN
+event receipt / intake / FDE draft  = NOT RUN
+Lucas human approval                = NOT REACHED
+real Gmail receipt                  = NOT REACHED
+Trade reverse mirror                = NOT REACHED
+manual-send supersession            = NOT REACHED
+MENGXIN_WEBSITE_RECOVERY_OPERATION  = BLOCKED (NEEDS_SERVER_ACCESS)
+
+MENGXIN_FDE_V1 = PRODUCTION_BLOCKED
+```
+
+**Remaining boundary, precisely:** the Qingyan side of Mengxin FDE V1 is fully released and live — migration applied, #207 merged, production serving it, receiving endpoint reachable and fail-closed. The single thing standing between this and `PRODUCTION_VALIDATED` is that the Mengxin website bridge has not been deployed, because no authorized server access (host, user, password, or a key with rights on that VPS) has been supplied. Everything downstream of that — real form submission, delivery, receipt, intake, FDE draft, both human checkpoints — is waiting on it and on nothing else.
+
+## R6-11. Housekeeping (PART 18 and security follow-up)
+
+- PR #206 closed as superseded by #207. Before closing, all 171 lines of its report were verified present in this document on `main`; nothing was lost, and its Git history is intact. GitHub's auto-fix watcher had flagged merge conflicts on #206 — resolving them would have been wrong, since the PR's entire content now lives on `main` through #207.
+- Security follow-up filed as issue #211, `NEON_PRODUCTION_CREDENTIAL_ROTATION` (P1): Neon's `neondb_owner` credential is project-wide, so isolated branches cloned from production share it, and it was present in local scratchpad environment files during the #207 validation. Git history exposure: none found. Scratchpad files: deleted. Rotate after the current controlled release and validation window unless operational evidence requires it sooner; update all authorized consumers atomically and verify the old credential is rejected. No password, old or new, appears in this report or that issue.
+- Open P1 items carried forward unchanged: the Trade-lane inquiry analysis and design LLM calls have no `isAIConfigured()` guard; `MAX_CONCURRENT_RUNS` reservations are never released at run terminal; `scripts/seed-revenue-spine-policy.ts` does not call `assertProductionOperationAllowed()`; the FDE's default owner has no email provider connected; `RUNTIME_P1_TRUSTED_DECISION_ACTOR_CLEANUP`; `20260829200000_add_vinyl_work_order` is applied in production but in neither migration registry.
+
+No V2 Quotation Engineer work, no new FDE functionality, no Trade analysis consolidation, no notification cleanup and no ERP work was started.
