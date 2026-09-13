@@ -409,6 +409,7 @@ run_test "招标自动分析补遗对比" "npx tsx src/lib/tender-auto-analysis/
 run_test "Tender T2-M1 账本档案 schema 契约" "npx tsx --test src/lib/tender/__tests__/t2-m1-schema-contract.test.ts"
 run_test "招标真实评估评分引擎自测" "npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts"
 run_test "招标理解V2 Addendum 对照" "npx tsx src/lib/tender-understanding/__tests__/addendum-disposition.test.ts"
+run_test "招标输入完整性门" "npx tsx src/lib/tender-understanding/__tests__/input-completeness.test.ts"
 run_test "招标理解V2 通用理解（V2-01..10）" "npx tsx src/lib/tender-understanding/__tests__/v2-generic.test.ts"
 run_test "招标理解V2 幻觉防护（V2-H1..H7）" "npx tsx src/lib/tender-understanding/__tests__/v2-hallucination.test.ts"
 run_test "招标理解V2 证据纪律（V2-E1..E6）" "npx tsx src/lib/tender-understanding/__tests__/v2-evidence.test.ts"

@@ -88,6 +88,7 @@ npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
 npx tsx src/lib/tender-understanding/__tests__/addendum-disposition.test.ts
+npx tsx src/lib/tender-understanding/__tests__/input-completeness.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-generic.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-hallucination.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-evidence.test.ts

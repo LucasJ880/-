@@ -393,6 +393,16 @@ export type AnalysisMetadataV2 = {
   promptVersion?: string;
   analyzedWithFallbackModel?: boolean;
   fallbackReason?: string;
+  /** 招标包输入完整性。缺省视为未计算（旧结果兼容）。 */
+  packageCompletenessStatus?: "TENDER_PACKAGE_COMPLETE" | "TENDER_PACKAGE_INCOMPLETE";
+  packageCoverage?: number;
+  mandatoryEvidenceCoverage?: number;
+  addendumCoverage?: number;
+  totalDocuments?: number;
+  tenderRelevantDocuments?: number;
+  documentsAnalyzed?: number;
+  documentsExcluded?: number;
+  documentsPartiallyRead?: number;
 };
 
 export type AnalysisResultV2 = {
