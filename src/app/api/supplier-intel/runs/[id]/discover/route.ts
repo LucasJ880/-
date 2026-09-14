@@ -3,6 +3,7 @@ import { requireProjectWriteAccess } from "@/lib/projects/access";
 import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
 import { executeSupplierSearchRun } from "@/lib/supplier-intel/discovery-service";
 import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
+import { readRunMode } from "@/lib/supplier-intel/constants";
 import { getProjectSearchRun } from "@/lib/supplier-intel/project-run-service";
 import {
   claimRunExecution,
@@ -45,6 +46,13 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     if (access instanceof NextResponse) return access;
     if (access.project.orgId !== tenant.orgId) {
       return NextResponse.json({ error: "搜索运行不存在" }, { status: 404 });
+    }
+    // S4-A：评估运行不是搜索——这里不做任何 provider 外呼；它的推进走 matches / mandatory-gate / complete
+    if (readRunMode(run.sourceConfigJson) === "EVALUATION_ONLY") {
+      return NextResponse.json(
+        { error: "这是评估运行，不能执行供应商搜索（评估运行不外呼任何来源）", code: "RUN_MODE_MISMATCH" },
+        { status: 409 },
+      );
     }
     // S3-A：服务端重复执行保护——先认领（短锁 CAS），认领失败即 409，
     // 不依赖前端 disabled；刷新/重复点击/客户端重试都撞在这里。
