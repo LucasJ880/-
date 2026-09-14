@@ -1,9 +1,8 @@
 /**
  * V2 LLM 边界 — 统一模型运行时适配 + 结构化输出校验 + 有界重试
  *
- * - 生产调用只经 createCompletionDetailed（Unified Model Runtime）：
- *   模型/provider/温度由 TASK_PRESETS + ProviderRouter 统一配置，V2 不硬编码
- *   任何 SDK 或 model name。
+ * - 生产调用只经 createPinnedTenderInvoker（Tender QUALITY_FIRST）：
+ *   总开关打开时主模型 gpt-6-astra，与 generic researcher 独立。
  * - LlmInvoker 是显式注入缝：deterministic 单测注入脚本化 invoker 测确定性机件；
  *   REAL_LLM_LANE 用 createUnifiedRuntimeInvoker()（禁止 mock 冒充真实 lane）。
  * - 重试分类：transient model error → 1 次重试；invalid structured output →
@@ -12,6 +11,11 @@
  */
 
 import type { z } from "zod";
+import {
+  createPinnedTenderInvoker,
+  type TenderStage,
+} from "@/lib/ai/model-policy";
+import { PROMPT_EXTRACT } from "./prompts";
 
 export type LlmCallRequest = {
   promptName: string;
@@ -20,6 +24,7 @@ export type LlmCallRequest = {
   userPrompt: string;
   maxTokens: number;
   timeoutMs: number;
+  tenderStage?: TenderStage;
 };
 
 export type LlmCallResponse = {
@@ -28,6 +33,8 @@ export type LlmCallResponse = {
   elapsedMs: number;
   /** 供观测：length = token 预算截断（结构化输出失败的常见根因） */
   finishReason?: string | null;
+  fallbackUsed?: boolean;
+  requestedModel?: string;
 };
 
 export type LlmInvoker = (req: LlmCallRequest) => Promise<LlmCallResponse>;
@@ -41,26 +48,21 @@ export type LlmCallLog = {
   outputChars: number;
   ok: boolean;
   errorCode: string | null;
+  fallbackUsed?: boolean;
+  requestedModel?: string;
 };
 
-/** 生产 invoker：Unified Model Runtime（structured 预设 = 配置中心解析的推理模型） */
-export function createUnifiedRuntimeInvoker(): LlmInvoker {
-  return async (req) => {
-    const { createCompletionDetailed } = await import("@/lib/ai/client");
-    const res = await createCompletionDetailed({
-      systemPrompt: req.systemPrompt,
-      userPrompt: req.userPrompt,
-      mode: "structured",
-      maxTokens: req.maxTokens,
-      timeoutMs: req.timeoutMs,
-    });
-    return {
-      content: res.content,
-      model: res.model,
-      elapsedMs: res.elapsedMs,
-      finishReason: res.finishReason,
-    };
-  };
+/** 生产 invoker：Tender 角色，一次 run 钉住模型，禁止百分比随机拆模型。 */
+export function createUnifiedRuntimeInvoker(ctx: {
+  orgId?: string | null;
+  userId?: string | null;
+} = {}): LlmInvoker {
+  return createPinnedTenderInvoker({
+    orgId: ctx.orgId?.trim() || undefined,
+    userId: ctx.userId?.trim() || undefined,
+    promptVersion: PROMPT_EXTRACT.version,
+    defaultStage: "understanding",
+  });
 }
 
 /* ---------------------------------- JSON 提取 ---------------------------------- */
@@ -172,6 +174,8 @@ export async function callStructured<T>(
           outputChars: res.content.length,
           ok: true,
           errorCode: null,
+          fallbackUsed: res.fallbackUsed,
+          requestedModel: res.requestedModel,
         });
         return { ok: true, value: validated.data, logs };
       }
@@ -196,6 +200,8 @@ export async function callStructured<T>(
           : res.finishReason === "length"
             ? "TRUNCATED_OUTPUT"
             : "INVALID_STRUCTURED_OUTPUT",
+      fallbackUsed: res.fallbackUsed,
+      requestedModel: res.requestedModel,
     });
 
     if (attempt < maxAttempts) {

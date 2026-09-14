@@ -16,6 +16,7 @@ import {
   createUnifiedRuntimeInvoker,
   type LlmInvoker,
 } from "@/lib/tender-understanding/llm";
+import { resolveTenderOrgForProject } from "@/lib/tender-understanding/org-context";
 import {
   PROMPT_RESOLVE,
   RESOLVE_SYSTEM_PROMPT,
@@ -68,7 +69,11 @@ export async function resolveOwnerReplies(input: {
   projectId: string;
   invoker?: LlmInvoker;
 }): Promise<ResolveOwnerRepliesResult> {
-  const invoker = input.invoker ?? createUnifiedRuntimeInvoker();
+  const orgId = input.invoker
+    ? null
+    : await resolveTenderOrgForProject({ projectId: input.projectId });
+  const invoker =
+    input.invoker ?? createUnifiedRuntimeInvoker({ orgId, userId: null });
 
   const questions = await db.projectQuestion.findMany({
     where: { projectId: input.projectId, status: "sent" },

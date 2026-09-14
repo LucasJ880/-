@@ -349,6 +349,8 @@ async function run(): Promise<void> {
     assert.equal(baseReq.status, "SUPERSEDED");
     assert.equal(baseReq.supersededById, addReq.id);
     assert.equal(addReq.status, "ACTIVE");
+    assert.equal(baseReq.addendumDisposition, "SUPERSEDED");
+    assert.equal(addReq.addendumDisposition, "MODIFIED");
     assert.equal(result.addendumChanges.length, 1);
     assert.equal(result.addendumChanges[0]!.action, "REVISES");
     // mandatory 视图只含 ACTIVE

@@ -130,6 +130,7 @@ export function dedupeRequirements(
       submissionStage: primary.submissionStage,
       technicalArea: primary.technicalArea,
       status: "ACTIVE",
+      addendumDisposition: "ORIGINAL",
       supersededById: null,
       evidence,
       confidence,

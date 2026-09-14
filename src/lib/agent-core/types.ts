@@ -205,7 +205,7 @@ export interface AgentRunOptions {
   /** 单次任务最大完成 token */
   maxTokens?: number;
   /** 单次任务推理强度 */
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   /** 每轮模型调用超时 */
   perRoundTimeoutMs?: number;
   /** 整个 Agent 任务超时 */

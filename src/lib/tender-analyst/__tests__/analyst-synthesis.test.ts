@@ -61,6 +61,7 @@ const req = (
   submissionStage: null,
   technicalArea: null,
   status: "ACTIVE",
+  addendumDisposition: "ORIGINAL",
   supersededById: null,
   evidence: [ev("doc-main", 3, "synthetic snippet")],
   confidence: "HIGH",
