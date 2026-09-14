@@ -89,6 +89,7 @@ npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
 npx tsx src/lib/tender-understanding/__tests__/addendum-disposition.test.ts
 npx tsx src/lib/tender-understanding/__tests__/input-completeness.test.ts
+npx tsx src/lib/tender-understanding/__tests__/org-context.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-generic.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-hallucination.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-evidence.test.ts
@@ -223,6 +224,7 @@ npx tsx src/lib/ai/model-policy/__tests__/guardrails.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/failure-modes.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/benchmark-harness.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

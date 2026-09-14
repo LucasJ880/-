@@ -20,6 +20,7 @@ import {
   TENDER_FALLBACK_MODEL,
   TENDER_PRIMARY_WHEN_ENABLED,
   TENDER_WORKFLOW,
+  createPinnedTenderInvoker,
 } from "../index";
 
 let total = 0;
@@ -105,6 +106,81 @@ expect(
     },
   ) === false,
   "Preview org allowlist 仍拦截 tender",
+);
+
+const previewEnv = {
+  ENABLE_GPT6_ASTRA: "1",
+  OPENAI_MODEL_TENDER: OPENAI_GPT6_ASTRA,
+  ENABLE_GPT6_ASTRA_ORG_ALLOWLIST: "org-A",
+};
+const orgA = resolveTenderModelPolicy({
+  orgId: "org-A",
+  userId: "u-preview",
+  env: previewEnv,
+});
+expect(
+  orgA.model === OPENAI_GPT6_ASTRA && orgA.upgraded,
+  "ENABLE_GPT6_ASTRA=1 + ORG_ALLOWLIST=org-A + Tender org-A → gpt-6-astra",
+);
+const orgB = resolveTenderModelPolicy({
+  orgId: "org-B",
+  userId: "u-preview",
+  env: previewEnv,
+});
+expect(
+  !orgB.upgraded && orgB.model !== OPENAI_GPT6_ASTRA,
+  "Tender org-B → baseline",
+);
+const missingOrg = resolveTenderModelPolicy({
+  userId: "u-preview",
+  env: previewEnv,
+});
+expect(
+  !missingOrg.upgraded &&
+    missingOrg.flagDecision === "org_unavailable" &&
+    missingOrg.model !== OPENAI_GPT6_ASTRA,
+  "Tender missing org + ORG_ALLOWLIST → baseline / fail-closed",
+);
+
+const skillPin = createPinnedTenderInvoker({
+  orgId: "org-A",
+  userId: "u-skill",
+  promptVersion: "tender-analysis-skill@3",
+  env: previewEnv,
+});
+expect(
+  skillPin.pin.modelVersion === OPENAI_GPT6_ASTRA &&
+    skillPin.snapshot().requestedModel === OPENAI_GPT6_ASTRA,
+  "Tender Skill + allowed org → requestedModel = gpt-6-astra",
+);
+
+const v2Allowed = createPinnedTenderInvoker({
+  orgId: "org-A",
+  userId: "u-v2",
+  promptVersion: "tender-understanding-v2-extract@6",
+  env: previewEnv,
+});
+expect(
+  v2Allowed.pin.modelVersion === OPENAI_GPT6_ASTRA,
+  "Tender V2 + allowed org → pinned model = gpt-6-astra",
+);
+const v2Denied = createPinnedTenderInvoker({
+  orgId: "org-B",
+  promptVersion: "tender-understanding-v2-extract@6",
+  env: previewEnv,
+});
+expect(
+  v2Denied.pin.modelVersion !== OPENAI_GPT6_ASTRA && !v2Denied.pin.modelVersion.includes("gpt-6-astra"),
+  "Tender V2 + disallowed org → never Astra",
+);
+
+const noAllowlist = resolveTenderModelPolicy({
+  env: { ENABLE_GPT6_ASTRA: "1" },
+});
+expect(
+  noAllowlist.model === OPENAI_GPT6_ASTRA &&
+    noAllowlist.flagDecision === "quality_first",
+  "No ORG_ALLOWLIST + ENABLE_GPT6_ASTRA=1 → Tender QUALITY_FIRST",
 );
 
 const large = resolveTenderModelPolicy({

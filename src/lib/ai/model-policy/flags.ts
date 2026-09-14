@@ -51,48 +51,82 @@ export const GPT6_PHASE1_WORKFLOWS = [
 /** Tender 是 QUALITY_FIRST：kill switch 打开且 allowlist 未拦截时，不走百分比随机。 */
 export const GPT6_QUALITY_FIRST_WORKFLOWS = ["tender"] as const;
 
+export type Gpt6FlagDecision =
+  | "kill_switch"
+  | "org_unavailable"
+  | "org_allowlist_miss"
+  | "role_allowlist_miss"
+  | "user_allowlist_miss"
+  | "allowlist_hit"
+  | "quality_first"
+  | "rollout_open"
+  | "rollout_closed"
+  | "workflow_disabled";
+
 function isQualityFirstWorkflow(name: string | null | undefined): boolean {
   const id = name?.trim().toLowerCase() ?? "";
   return (GPT6_QUALITY_FIRST_WORKFLOWS as readonly string[]).includes(id);
+}
+
+export function explainGpt6FlagWithEnv(
+  input: Gpt6FlagInput = {},
+  env: Gpt6FlagEnv = process.env,
+): { enabled: boolean; decision: Gpt6FlagDecision } {
+  if (!envBool(env.ENABLE_GPT6_ASTRA)) {
+    return { enabled: false, decision: "kill_switch" };
+  }
+
+  const orgAllow = envList(env.ENABLE_GPT6_ASTRA_ORG_ALLOWLIST);
+  const orgId = input.orgId?.trim() || "";
+  const orgCode = input.orgCode?.trim() || "";
+  const orgHit =
+    (!!orgId && orgAllow.includes(orgId)) ||
+    (!!orgCode && orgAllow.includes(orgCode));
+  if (orgAllow.length > 0 && !orgHit) {
+    return {
+      enabled: false,
+      decision: orgId || orgCode ? "org_allowlist_miss" : "org_unavailable",
+    };
+  }
+
+  const roleAllow = envList(env.ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST);
+  if (roleAllow.length > 0 && !(input.role && roleAllow.includes(input.role))) {
+    return { enabled: false, decision: "role_allowlist_miss" };
+  }
+
+  const userAllow = envList(env.ENABLE_GPT6_ASTRA_USER_ALLOWLIST);
+  const userId = input.userId?.trim() || "";
+  if (userAllow.length > 0) {
+    if (!userId || !userAllow.includes(userId)) {
+      return { enabled: false, decision: "user_allowlist_miss" };
+    }
+  }
+
+  if (orgAllow.length > 0 || roleAllow.length > 0 || userAllow.length > 0) {
+    return { enabled: true, decision: "allowlist_hit" };
+  }
+
+  // Tender：生产确定性路由。百分比灰度会把同一次标书分析拆到不同模型。
+  if (isQualityFirstWorkflow(input.modelRole) || isQualityFirstWorkflow(input.role)) {
+    return { enabled: true, decision: "quality_first" };
+  }
+
+  const pct = Number(env.ENABLE_GPT6_ASTRA_ROLLOUT_PCT ?? "0");
+  if (!Number.isFinite(pct) || pct <= 0) {
+    return { enabled: false, decision: "rollout_closed" };
+  }
+  if (pct >= 100) return { enabled: true, decision: "rollout_open" };
+  if (!userId) return { enabled: false, decision: "rollout_closed" };
+  return userPercentBucket(userId) < pct
+    ? { enabled: true, decision: "rollout_open" }
+    : { enabled: false, decision: "rollout_closed" };
 }
 
 export function isGpt6AstraEnabledWithEnv(
   input: Gpt6FlagInput = {},
   env: Gpt6FlagEnv = process.env,
 ): boolean {
-  if (!envBool(env.ENABLE_GPT6_ASTRA)) return false;
-
-  const orgAllow = envList(env.ENABLE_GPT6_ASTRA_ORG_ALLOWLIST);
-  const orgHit =
-    (!!input.orgId && orgAllow.includes(input.orgId)) ||
-    (!!input.orgCode && orgAllow.includes(input.orgCode));
-  if (orgAllow.length > 0 && !orgHit) return false;
-
-  const roleAllow = envList(env.ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST);
-  if (roleAllow.length > 0 && !(input.role && roleAllow.includes(input.role))) {
-    return false;
-  }
-
-  const userAllow = envList(env.ENABLE_GPT6_ASTRA_USER_ALLOWLIST);
-  const userId = input.userId?.trim() || "";
-  if (userAllow.length > 0) {
-    if (!userId || !userAllow.includes(userId)) return false;
-  }
-
-  if (orgAllow.length > 0 || roleAllow.length > 0 || userAllow.length > 0) {
-    return true;
-  }
-
-  // Tender：生产确定性路由。百分比灰度会把同一次标书分析拆到不同模型。
-  if (isQualityFirstWorkflow(input.modelRole) || isQualityFirstWorkflow(input.role)) {
-    return true;
-  }
-
-  const pct = Number(env.ENABLE_GPT6_ASTRA_ROLLOUT_PCT ?? "0");
-  if (!Number.isFinite(pct) || pct <= 0) return false;
-  if (pct >= 100) return true;
-  if (!userId) return false;
-  return userPercentBucket(userId) < pct;
+  return explainGpt6FlagWithEnv(input, env).enabled;
 }
 
 export function isGpt6AstraEnabled(input: Gpt6FlagInput = {}): boolean {

@@ -53,8 +53,13 @@ export type LlmCallLog = {
 };
 
 /** 生产 invoker：Tender 角色，一次 run 钉住模型，禁止百分比随机拆模型。 */
-export function createUnifiedRuntimeInvoker(): LlmInvoker {
+export function createUnifiedRuntimeInvoker(ctx: {
+  orgId?: string | null;
+  userId?: string | null;
+} = {}): LlmInvoker {
   return createPinnedTenderInvoker({
+    orgId: ctx.orgId?.trim() || undefined,
+    userId: ctx.userId?.trim() || undefined,
     promptVersion: PROMPT_EXTRACT.version,
     defaultStage: "understanding",
   });

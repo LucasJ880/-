@@ -144,6 +144,10 @@ export interface CompletionOptions {
   workflow?: string;
   retryCount?: number;
   source?: string;
+  /** 策略钉住的请求模型（可与实际调用模型不同，例如 fallback） */
+  requestedModel?: string;
+  fallbackUsed?: boolean;
+  flagDecision?: string;
 }
 
 export async function createCompletion(opts: CompletionOptions): Promise<string> {
@@ -231,6 +235,11 @@ export async function createCompletionDetailed(
       workflow: opts.workflow,
       reasoningEffort: opts.reasoningEffort ?? preset.reasoningEffort,
       retryCount: opts.retryCount,
+      orgId: opts.orgId,
+      userId: opts.userId,
+      requestedModel: opts.requestedModel,
+      fallbackUsed: opts.fallbackUsed,
+      flagDecision: opts.flagDecision,
       ...usage,
     });
 
@@ -264,6 +273,11 @@ export async function createCompletionDetailed(
       workflow: opts.workflow,
       reasoningEffort: opts.reasoningEffort ?? preset.reasoningEffort,
       retryCount: opts.retryCount,
+      orgId: opts.orgId,
+      userId: opts.userId,
+      requestedModel: opts.requestedModel,
+      fallbackUsed: opts.fallbackUsed,
+      flagDecision: opts.flagDecision,
       error: err instanceof Error ? err.message : String(err),
     });
     if (opts.agentRunId && opts.orgId && observedCallId) {

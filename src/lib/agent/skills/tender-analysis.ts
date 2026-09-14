@@ -14,6 +14,8 @@ import { registerSkill } from "./registry";
 import type { SkillContext, SkillResult } from "../types";
 import { analyzeTender } from "@/lib/tender-understanding/analyzer";
 import { loadTenderPackageInventory } from "@/lib/tender-understanding/load-package";
+import { resolveTenderOrgForProject } from "@/lib/tender-understanding/org-context";
+import { createUnifiedRuntimeInvoker } from "@/lib/tender-understanding/llm";
 import {
   applyCompletenessToResult,
   buildTenderPackage,
@@ -79,6 +81,7 @@ function groundedDigest(result: AnalysisResultV2): string {
 
 async function execute(ctx: SkillContext): Promise<SkillResult> {
   try {
+    const orgId = await resolveTenderOrgForProject({ projectId: ctx.projectId });
     const inventory = await loadTenderPackageInventory(ctx.projectId);
     const pkg = buildTenderPackage({ projectId: ctx.projectId, inventory });
 
@@ -101,7 +104,15 @@ async function execute(ctx: SkillContext): Promise<SkillResult> {
     }
 
     const analyzerInput = toAnalyzerInput(ctx.projectId, pkg);
-    const { result: rawResult, run } = await analyzeTender(analyzerInput);
+    const invoker = createUnifiedRuntimeInvoker({
+      orgId,
+      userId: ctx.userId,
+    });
+    const { result: rawResult, run } = await analyzeTender(analyzerInput, {
+      invoker,
+      orgId,
+      userId: ctx.userId,
+    });
     const failedWindowDocumentIds = run.failedWindows.map(
       (w) => w.windowId.split(":")[0]!,
     );
@@ -152,6 +163,7 @@ ${incomplete ? `7. 开篇必须写 ${TENDER_PACKAGE_INCOMPLETE}，并写明尚�
       tenderStage: synthesisStage(gatedPkg),
       promptVersion: "tender-analysis-skill@3",
       userId: ctx.userId,
+      orgId: orgId ?? undefined,
     });
 
     const prefix = incomplete
@@ -168,6 +180,8 @@ ${incomplete ? `7. 开篇必须写 ${TENDER_PACKAGE_INCOMPLETE}，并写明尚�
         analyzedWithFallbackModel: synthesis.fallbackUsed || result.metadata.analyzedWithFallbackModel,
         model: synthesis.model,
         requestedModel: synthesis.requestedModel,
+        flagDecision: synthesis.flagDecision,
+        orgId,
         completeness: gatedPkg.completeness,
         manifest: gatedPkg.manifest,
         chunkCount: gatedPkg.chunks.length,

@@ -8,8 +8,9 @@ import {
   ProviderRouter,
 } from "@/lib/ai/model-registry";
 import {
-  isGpt6AstraEnabledWithEnv,
   isGpt6WorkflowEnabledWithEnv,
+  explainGpt6FlagWithEnv,
+  type Gpt6FlagDecision,
   type Gpt6FlagEnv,
   type Gpt6FlagInput,
 } from "./flags";
@@ -48,6 +49,7 @@ export interface ModelPolicyResolution {
   api: "chat_completions" | "responses";
   qualityFirst: boolean;
   skipRolloutPct: boolean;
+  flagDecision: Gpt6FlagDecision;
 }
 
 function envTrim(env: Gpt6FlagEnv, key: string): string | undefined {
@@ -114,8 +116,11 @@ export function resolveModelPolicy(
     orgCode: input.orgCode,
     modelRole: input.role,
   };
-  const enabled = isGpt6AstraEnabledWithEnv(flagInput, env);
+  const flag = explainGpt6FlagWithEnv(flagInput, env);
+  const enabled = flag.enabled;
   const workflowOn = isGpt6WorkflowEnabledWithEnv(input.role, flagInput, env);
+  const flagDecision: Gpt6FlagDecision =
+    enabled && !workflowOn ? "workflow_disabled" : flag.decision;
   const baseline = input.baselineModel?.trim() || roleBaseline(input.role);
   // Tender 回退必须是稳定 Chat（Sol），不得为了省钱改 Terra；也不得因输入变长换模型。
   const fallback =
@@ -154,6 +159,7 @@ export function resolveModelPolicy(
       upgraded: isGpt6Astra(model),
       source: "env",
       api: "chat_completions",
+      flagDecision,
       ...extras,
     };
   }
@@ -168,6 +174,7 @@ export function resolveModelPolicy(
       upgraded: true,
       source: "gpt6_policy",
       api: "chat_completions",
+      flagDecision,
       ...extras,
     };
   }
@@ -181,6 +188,7 @@ export function resolveModelPolicy(
     upgraded: false,
     source: "baseline",
     api: "chat_completions",
+    flagDecision,
     ...extras,
   };
 }

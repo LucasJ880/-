@@ -330,6 +330,8 @@ run_test "GPT6 Astra Guardrails" "npx tsx src/lib/ai/model-policy/__tests__/guar
 run_test "GPT6 Astra Failure Modes" "npx tsx src/lib/ai/model-policy/__tests__/failure-modes.test.ts"
 run_test "GPT6 Astra Benchmark Harness" "npx tsx src/lib/ai/model-policy/__tests__/benchmark-harness.test.ts"
 run_test "GPT6 Astra Tender Policy" "npx tsx src/lib/ai/model-policy/__tests__/tender.test.ts"
+run_test "GPT6 Astra Tender 组织上下文" "npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts"
+run_test "招标权威组织上下文" "npx tsx src/lib/tender-understanding/__tests__/org-context.test.ts"
 run_test "Growth Center 企业事实/评分/计划" "npx tsx src/lib/marketing/__tests__/growth-center.test.ts"
 run_test "Growth Center 研究转计划/团队审批隔离" "npx tsx src/lib/marketing/__tests__/research-plan.test.ts"
 run_test "Growth Center Activepieces 签名与配置" "npx tsx src/lib/marketing/__tests__/activepieces.test.ts"

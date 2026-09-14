@@ -109,6 +109,55 @@ expect(
   "未配置 WORKFLOWS 时使用 Phase 1 集合",
 );
 
+const composeEnv = {
+  ENABLE_GPT6_ASTRA: "1",
+  ENABLE_GPT6_ASTRA_ORG_ALLOWLIST: "org-A",
+  ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST: "tender",
+  ENABLE_GPT6_ASTRA_USER_ALLOWLIST: "u-ok",
+};
+expect(
+  isGpt6AstraEnabledWithEnv(
+    { orgId: "org-A", role: "tender", userId: "u-ok" },
+    composeEnv,
+  ) === true,
+  "ROLE + USER + ORG allowlist 同时命中 → 开",
+);
+expect(
+  isGpt6AstraEnabledWithEnv(
+    { orgId: "org-B", role: "tender", userId: "u-ok" },
+    composeEnv,
+  ) === false,
+  "ORG miss 不能被 ROLE/USER 命中绕过",
+);
+expect(
+  isGpt6AstraEnabledWithEnv(
+    { orgId: "org-A", role: "researcher", userId: "u-ok" },
+    composeEnv,
+  ) === false,
+  "ROLE miss 不能被 ORG/USER 命中绕过",
+);
+expect(
+  isGpt6AstraEnabledWithEnv(
+    { orgId: "org-A", role: "tender", userId: "u-other" },
+    composeEnv,
+  ) === false,
+  "USER miss 不能被 ORG/ROLE 命中绕过",
+);
+expect(
+  isGpt6AstraEnabledWithEnv(
+    { orgId: "org-A", role: "tender" },
+    composeEnv,
+  ) === false,
+  "USER allowlist 配置时缺 userId → fail-closed",
+);
+expect(
+  isGpt6AstraEnabledWithEnv(
+    { role: "tender", userId: "u-ok" },
+    composeEnv,
+  ) === false,
+  "ORG allowlist 配置时缺 org → fail-closed",
+);
+
 console.log(
   `\n${failed === 0 ? "✅" : "❌"} gpt6-flags: ${total - failed}/${total}`,
 );

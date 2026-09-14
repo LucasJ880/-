@@ -19,6 +19,7 @@ import {
   type TenderStage,
 } from "./reasoning";
 import { resolveModelPolicy, type ModelPolicyResolution } from "./resolve";
+import type { Gpt6FlagDecision, Gpt6FlagEnv } from "./flags";
 
 export const TENDER_WORKFLOW = "tender" as const;
 
@@ -100,7 +101,27 @@ export type TenderCompletionResult = DetailedCompletionResult & {
   pin: TenderModelPin;
   reasoningEffort: string;
   tenderStage: TenderStage;
+  flagDecision: Gpt6FlagDecision;
+  orgId?: string;
 };
+
+export function tenderEntitlementLogFields(input: {
+  orgId?: string | null;
+  requestedModel: string;
+  actualModel: string;
+  fallbackUsed: boolean;
+  flagDecision: Gpt6FlagDecision | string;
+}): Record<string, string | boolean | null> {
+  return {
+    workflow: TENDER_WORKFLOW,
+    org: input.orgId?.trim() || null,
+    organization: input.orgId?.trim() || null,
+    requestedModel: input.requestedModel,
+    actualModel: input.actualModel,
+    fallbackUsed: input.fallbackUsed,
+    flagDecision: String(input.flagDecision),
+  };
+}
 
 function reasoningForCall(
   policy: ModelPolicyResolution,
@@ -154,7 +175,7 @@ export async function createTenderCompletion(
     supervisorEscalation: opts.supervisorEscalation,
   });
 
-  const call = (model: string, retryCount: number) =>
+  const call = (model: string, retryCount: number, fallbackUsed: boolean) =>
     createCompletionDetailed({
       ...opts,
       model,
@@ -162,10 +183,15 @@ export async function createTenderCompletion(
       reasoningEffort: effort,
       retryCount,
       source: opts.source ?? "tender",
+      orgId: opts.orgId,
+      userId: opts.userId,
+      requestedModel: requested,
+      fallbackUsed,
+      flagDecision: policy.flagDecision,
     });
 
   try {
-    const first = await call(requested, opts.retryCount ?? 0);
+    const first = await call(requested, opts.retryCount ?? 0, false);
     return {
       ...first,
       requestedModel: requested,
@@ -173,6 +199,8 @@ export async function createTenderCompletion(
       pin,
       reasoningEffort: String(effort),
       tenderStage: stage,
+      flagDecision: policy.flagDecision,
+      orgId: opts.orgId,
     };
   } catch (firstErr) {
     if (!isTenderFallbackAllowed(firstErr)) throw firstErr;
@@ -186,7 +214,7 @@ export async function createTenderCompletion(
 
     if (recovery === "retry_same" && isGpt6Astra(requested)) {
       try {
-        const retried = await call(requested, 1);
+        const retried = await call(requested, 1, false);
         return {
           ...retried,
           requestedModel: requested,
@@ -194,6 +222,8 @@ export async function createTenderCompletion(
           pin,
           reasoningEffort: String(effort),
           tenderStage: stage,
+          flagDecision: policy.flagDecision,
+          orgId: opts.orgId,
         };
       } catch (retryErr) {
         if (!isTenderFallbackAllowed(retryErr)) throw retryErr;
@@ -206,7 +236,7 @@ export async function createTenderCompletion(
       throw err;
     }
 
-    const second = await call(fallback, 1);
+    const second = await call(fallback, 1, true);
     return {
       ...second,
       requestedModel: requested,
@@ -215,6 +245,8 @@ export async function createTenderCompletion(
       pin,
       reasoningEffort: String(effort),
       tenderStage: stage,
+      flagDecision: policy.flagDecision,
+      orgId: opts.orgId,
     };
   }
 }
@@ -240,6 +272,9 @@ export type PinnedTenderInvoker = ((req: {
     activeModel: string;
     fallbackUsed: boolean;
     fallbackReason?: string;
+    orgId?: string;
+    requestedModel: string;
+    flagDecision: Gpt6FlagDecision;
   };
 };
 
@@ -249,11 +284,13 @@ export function createPinnedTenderInvoker(input: {
   userId?: string;
   promptVersion: string;
   defaultStage?: TenderStage;
+  env?: Gpt6FlagEnv;
 } = {}): PinnedTenderInvoker {
   const policy = resolveTenderModelPolicy({
     orgId: input.orgId,
     userId: input.userId,
     tenderStage: input.defaultStage ?? "understanding",
+    env: input.env,
   });
   let activeModel = policy.model;
   let fallbackUsed = false;
@@ -270,6 +307,8 @@ export function createPinnedTenderInvoker(input: {
       promptVersion: req.promptVersion,
       pinnedPolicy: policy,
       pinnedModel: activeModel,
+      orgId: input.orgId,
+      userId: input.userId,
     });
     if (res.fallbackUsed) {
       fallbackUsed = true;
@@ -294,6 +333,9 @@ export function createPinnedTenderInvoker(input: {
     activeModel,
     fallbackUsed,
     fallbackReason,
+    orgId: input.orgId,
+    requestedModel: policy.model,
+    flagDecision: policy.flagDecision,
   });
   return invoke;
 }

@@ -61,6 +61,9 @@ export type AnalyzeOptions = {
   /** 提供时启用截止临近类风险（benchmark 不传以保持确定性） */
   analysisDate?: string | null;
   windowOptions?: { maxCharsPerWindow?: number; maxPagesPerWindow?: number };
+  /** 服务端权威组织；缺省 invoker 用它做 Preview allowlist。禁止来自请求体。 */
+  orgId?: string | null;
+  userId?: string | null;
 };
 
 export type AnalyzeRunLog = {
@@ -73,7 +76,9 @@ export async function analyzeTender(
   opts: AnalyzeOptions = {},
 ): Promise<{ result: AnalysisResultV2; run: AnalyzeRunLog }> {
   const startedAt = new Date();
-  const invoker = opts.invoker ?? createUnifiedRuntimeInvoker();
+  const invoker =
+    opts.invoker ??
+    createUnifiedRuntimeInvoker({ orgId: opts.orgId, userId: opts.userId });
   const manifest = buildDocumentManifest(input);
   const windows = buildAllWindows(input, opts.windowOptions);
 

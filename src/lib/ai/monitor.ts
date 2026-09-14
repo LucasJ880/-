@@ -45,6 +45,8 @@ export interface RecordAiCallInput {
   tenderStage?: string;
   fallbackUsed?: boolean;
   promptVersion?: string;
+  requestedModel?: string;
+  flagDecision?: string;
   // ── Phase 1.1：统一执行上下文 correlation（全部可选，向后兼容）──
   traceId?: string;
   runId?: string;
@@ -99,14 +101,19 @@ export function recordAiCall(input: RecordAiCallInput) {
     toolCalls: input.toolCalls,
     retryCount: input.retryCount,
     ...(input.tenderStage ? { tenderStage: input.tenderStage } : {}),
-    ...(input.fallbackUsed ? { fallbackUsed: true } : {}),
+    ...(typeof input.fallbackUsed === "boolean"
+      ? { fallbackUsed: input.fallbackUsed }
+      : {}),
     ...(input.promptVersion ? { promptVersion: input.promptVersion } : {}),
+    ...(input.requestedModel ? { requestedModel: input.requestedModel } : {}),
+    actualModel: input.model,
+    ...(input.flagDecision ? { flagDecision: input.flagDecision } : {}),
     // Phase 1.1 correlation（有值才输出）
     ...(input.traceId ? { traceId: input.traceId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.rootRunId ? { rootRunId: input.rootRunId } : {}),
     ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-    ...(input.orgId ? { orgId: input.orgId } : {}),
+    ...(input.orgId ? { orgId: input.orgId, org: input.orgId, organization: input.orgId } : {}),
     ...(input.actorType ? { actorType: input.actorType } : {}),
     ...(input.actorId ? { actorId: input.actorId } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
