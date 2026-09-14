@@ -22,17 +22,20 @@ import {
   computeInformationCompleteness,
   originSourceLabel,
 } from "@/lib/supplier-intel/evidence-display";
+import { EvaluationPanel } from "./evaluation-panel";
 import { CapabilitiesSection, CertificationsSection, OfferingsSection, TONE_CLASS } from "./evidence-sections";
 import { ScopeGuard } from "./scope-guard";
 import { WorkspaceApiError, workspaceFetch, type SupplierCapabilityPayload } from "./types";
 
-type TabKey = "offerings" | "certifications" | "capabilities" | "gaps";
+type TabKey = "offerings" | "certifications" | "capabilities" | "gaps" | "evaluation";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "offerings", label: "可供产品" },
   { key: "certifications", label: "认证与资质" },
   { key: "capabilities", label: "能力证据" },
   { key: "gaps", label: "资料缺口" },
+  // S4-A：只在有项目上下文时出现（下面按 projectContext 过滤）
+  { key: "evaluation", label: "项目匹配" },
 ];
 
 export function SupplierEvidenceWorkspace({
@@ -40,14 +43,17 @@ export function SupplierEvidenceWorkspace({
   projectId,
   signalId,
   searchRunId,
+  evaluationRunId = null,
 }: {
   supplierId: string | null;
   projectId: string | null;
   signalId: string | null;
   searchRunId: string | null;
+  /** S4-A：从搜索记录里的评估运行进入时直接打开「项目匹配」 */
+  evaluationRunId?: string | null;
 }) {
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
-  const [tab, setTab] = useState<TabKey>("offerings");
+  const [tab, setTab] = useState<TabKey>(evaluationRunId ? "evaluation" : "offerings");
   const [view, setView] = useState<SupplierCapabilityPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [fatal, setFatal] = useState<{ kind: "notEnabled" | "forbidden" | "notFound" | "error"; text: string } | null>(null);
@@ -205,7 +211,7 @@ export function SupplierEvidenceWorkspace({
 
       {/* 页签 */}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="供应商产品与资质">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.key !== "evaluation" || Boolean(view.projectContext)).map((t) => (
           <button
             key={t.key}
             type="button"
@@ -224,6 +230,16 @@ export function SupplierEvidenceWorkspace({
       {tab === "offerings" ? <OfferingsSection orgId={orgId} supplierId={view.supplier.id} view={view} onChanged={load} /> : null}
       {tab === "certifications" ? <CertificationsSection orgId={orgId} supplierId={view.supplier.id} projectId={view.projectContext?.id ?? null} view={view} onChanged={load} /> : null}
       {tab === "capabilities" ? <CapabilitiesSection orgId={orgId} supplierId={view.supplier.id} view={view} onChanged={load} /> : null}
+      {tab === "evaluation" && view.projectContext ? (
+        <EvaluationPanel
+          orgId={orgId}
+          supplierId={view.supplier.id}
+          projectId={view.projectContext.id}
+          offerings={view.offerings}
+          canWriteSupplier={view.canWrite}
+          initialRunId={evaluationRunId}
+        />
+      ) : null}
       {tab === "gaps" ? (
         <div className="space-y-2" data-testid="gaps-section">
           <p className="text-xs text-[var(--muted)]">
