@@ -259,6 +259,67 @@ export type MatchEvaluatedBy = (typeof MATCH_EVALUATED_BY)[number];
 /** matching/gate 逻辑版本（Run 创建即冻结） */
 export const SUPPLIER_EVALUATION_VERSION_V1 = "supplier-eval-v1";
 
+// ── S4-A：评估运行 / 强制项硬门（冻结词表，可测试）──────────
+
+/**
+ * Run 的运行模式。写在 sourceConfigJson.runMode（不加 schema）。
+ *   DISCOVERY        S2/S3 的找供应商：外呼 provider、产生线索与候选
+ *   EVALUATION_ONLY  S4 的正式评估：不外呼、不找新供应商，只评估已确认的供应商 × 产品
+ * 缺省（旧 Run 没有这个字段）= DISCOVERY。
+ */
+export const RUN_MODES = ["DISCOVERY", "EVALUATION_ONLY"] as const;
+export type RunMode = (typeof RUN_MODES)[number];
+
+export function readRunMode(sourceConfigJson: unknown): RunMode {
+  if (typeof sourceConfigJson !== "object" || sourceConfigJson === null || Array.isArray(sourceConfigJson)) {
+    return "DISCOVERY";
+  }
+  const v = (sourceConfigJson as { runMode?: unknown }).runMode;
+  return v === "EVALUATION_ONLY" ? "EVALUATION_ONLY" : "DISCOVERY";
+}
+
+/** 硬门规则版本（写进 mandatoryGateJson，回放时可知按哪一版规则算的） */
+export const MANDATORY_GATE_RULE_VERSION_V1 = "mandatory-gate-v1";
+
+/**
+ * 这些类别的要求说的是**具体产品**（型号 / 尺寸 / 性能 / 产品认证）。
+ * 候选没有绑定 Offering 时，供应商级能力不能替代具体型号——一律 OFFERING_REQUIRED（不可判定）。
+ */
+export const OFFERING_SCOPED_REQUIREMENT_CATEGORIES = [
+  "product",
+  "model",
+  "technical",
+  "safety",
+  "certification",
+  "dimensions",
+  "performance",
+  "material",
+] as const;
+
+/**
+ * 硬门的逐条原因码（冻结）。UI 再翻成中文；JSON 里只存 code。
+ */
+export const MANDATORY_GATE_REASON_CODES = [
+  "OK",
+  "MANDATORY_MATCH_FAIL",
+  "MANDATORY_MATCH_MISSING",
+  "MANDATORY_MATCH_UNKNOWN",
+  "MANDATORY_MATCH_PARTIAL",
+  "MANDATORY_STATUS_UNCERTAIN",
+  "EVIDENCE_NOT_VERIFIED",
+  "AI_ASSISTED_NOT_ADMISSIBLE",
+  "CERT_NOT_VERIFIED",
+  "CERT_EXPIRED_AT_EVALUATION",
+  "CERT_SCOPE_MISMATCH",
+  "OFFERING_REQUIRED",
+  "NOT_MANDATORY",
+] as const;
+export type MandatoryGateReasonCode = (typeof MANDATORY_GATE_REASON_CODES)[number];
+
+/** 确定性匹配规则 ID（Layer 1）。每条规则可回放：同快照同输入必同结果。 */
+export const DETERMINISTIC_MATCH_RULES = ["CERT_TYPE_V1", "NUMERIC_THRESHOLD_V1"] as const;
+export type DeterministicMatchRuleId = (typeof DETERMINISTIC_MATCH_RULES)[number];
+
 // ── 输入上限（B.1 §17：用户提交 = untrusted external input）──
 
 export const SUPPLIER_INTEL_LIMITS = {
@@ -289,4 +350,8 @@ export const SUPPLIER_INTEL_AUDIT_ACTIONS = {
   SIGNAL_LINKED: "supplier_intel.signal.linked",
   SIGNAL_REJECTED: "supplier_intel.signal.rejected",
   CERTIFICATION_VERIFIED: "supplier_intel.certification.verified",
+  // S4-A
+  EVALUATION_RUN_CREATED: "supplier_intel.evaluation.run.created",
+  REQUIREMENT_MATCH_CREATED: "supplier_intel.requirement_match.created",
+  MANDATORY_GATE_COMPUTED: "supplier_intel.mandatory_gate.computed",
 } as const;

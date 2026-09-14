@@ -52,6 +52,14 @@ export type SupplierIntelErrorCode =
   | "RUN_EXECUTION_RECOVERY_REQUIRED"
   // S3-B：工作层记录（如 Offering）已被别人改过——拒绝覆盖，要求刷新后再改
   | "STALE_WRITE"
+  // S4-A：评估运行
+  | "RUN_MODE_MISMATCH"          // 对评估运行做发现动作（或反之）
+  | "ORIGIN_SOURCE_UNRESOLVED"   // 服务端无法证明候选的来源（未被搜到、也无已关联线索）
+  | "EVIDENCE_REQUIRED"          // PASS/PARTIAL/FAIL 不能无证据保存
+  | "ARCHIVE_PROJECT_MISMATCH"   // 档案证据不属于本评估的项目
+  | "GATE_PENDING"               // 还有候选没算硬门，不能收口
+  | "NO_CANDIDATE"               // 评估运行里没有任何候选，不能收口
+  | "NO_DETERMINISTIC_RULE"      // 该要求没有可用的确定性规则
   | "INVALID_SIGNAL_TRANSITION"
   | "INVALID_CERT_TRANSITION"
   | "DUPLICATE_CANDIDATE"
@@ -66,6 +74,13 @@ const DEFAULT_STATUS: Partial<Record<SupplierIntelErrorCode, number>> = {
   RUN_EXECUTION_IN_PROGRESS: 409,
   RUN_EXECUTION_RECOVERY_REQUIRED: 409,
   STALE_WRITE: 409,
+  RUN_MODE_MISMATCH: 409,
+  ORIGIN_SOURCE_UNRESOLVED: 422,
+  EVIDENCE_REQUIRED: 422,
+  ARCHIVE_PROJECT_MISMATCH: 422,
+  GATE_PENDING: 409,
+  NO_CANDIDATE: 409,
+  NO_DETERMINISTIC_RULE: 422,
   INVALID_SIGNAL_TRANSITION: 409,
   INVALID_CERT_TRANSITION: 409,
   DUPLICATE_CANDIDATE: 409,
