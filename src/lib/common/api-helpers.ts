@@ -7,6 +7,12 @@ import {
   generateRequestId,
   runWithRequestContext,
 } from "./request-context";
+import { createRequestTimer } from "@/lib/performance/timing";
+import { applyServerTiming } from "@/lib/performance/server-timing";
+import {
+  logTimingSnapshot,
+  runWithRequestTimer,
+} from "@/lib/performance/request-timer";
 
 /**
  * Schema/DB 漂移类错误（表/列不存在）。
@@ -112,44 +118,50 @@ export function withAuth<P = Record<string, string>>(handler: AuthHandler<P>) {
     const route = request.nextUrl.pathname;
     const method = request.method;
     const startedAt = Date.now();
+    const timer = createRequestTimer();
 
     return runWithRequestContext(
       { requestId, route, method },
-      async () => {
-        let response: NextResponse;
-        try {
-          const user = await getCurrentUser(request);
-          if (!user) {
-            response = NextResponse.json({ error: "未登录" }, { status: 401 });
-          } else if (user.status !== "active") {
-            response = NextResponse.json(
-              { error: "账号已停用" },
-              { status: 403 },
-            );
-          } else {
-            // 更新上下文加上 userId
-            const store = (await import("./request-context")).getRequestContext();
-            if (store) store.userId = user.id;
-            response = await handler(request, ctx, user);
+      () =>
+        runWithRequestTimer(timer, async () => {
+          let response: NextResponse;
+          try {
+            const user = await getCurrentUser(request);
+            timer.mark("auth");
+            if (!user) {
+              response = NextResponse.json({ error: "未登录" }, { status: 401 });
+            } else if (user.status !== "active") {
+              response = NextResponse.json(
+                { error: "账号已停用" },
+                { status: 403 },
+              );
+            } else {
+              // 更新上下文加上 userId
+              const store = (await import("./request-context")).getRequestContext();
+              if (store) store.userId = user.id;
+              response = await handler(request, ctx, user);
+            }
+          } catch (err) {
+            logger.error("api.error", {
+              route,
+              method,
+              err,
+              durationMs: Date.now() - startedAt,
+              prismaCode:
+                err instanceof Prisma.PrismaClientKnownRequestError
+                  ? err.code
+                  : undefined,
+              requestId,
+            });
+            response = jsonForWithAuthCatch(err, requestId);
           }
-        } catch (err) {
-          logger.error("api.error", {
-            route,
-            method,
-            err,
-            durationMs: Date.now() - startedAt,
-            prismaCode:
-              err instanceof Prisma.PrismaClientKnownRequestError
-                ? err.code
-                : undefined,
-            requestId,
-          });
-          response = jsonForWithAuthCatch(err, requestId);
-        }
 
-        response.headers.set("x-request-id", requestId);
-        return response;
-      },
+          response.headers.set("x-request-id", requestId);
+          const snapshot = timer.finish();
+          applyServerTiming(response.headers, snapshot);
+          logTimingSnapshot(snapshot, { route, method, requestId });
+          return response;
+        }),
     ) as Promise<NextResponse>;
   };
 }

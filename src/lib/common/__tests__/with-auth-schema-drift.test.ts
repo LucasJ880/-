@@ -107,6 +107,11 @@ async function main() {
     ok(res.status === 401, "unauthenticated → 401");
     ok(body.error === "未登录", "unauthenticated message");
     ok(body.code !== "P2021" && body.code !== "P2022", "auth not schema codes");
+    ok(res.headers.get("x-request-id") === "req-unauth", "echoes x-request-id");
+    const timing = res.headers.get("Server-Timing") || "";
+    ok(timing.includes("auth;dur="), "Server-Timing auth");
+    ok(timing.includes("total;dur="), "Server-Timing total");
+    ok(!timing.toLowerCase().includes("select"), "Server-Timing has no SQL");
   }
 
   console.log(`\n结果: ${passed} passed, ${failed} failed`);

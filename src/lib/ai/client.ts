@@ -8,6 +8,8 @@
 import OpenAI from "openai";
 import { getAIConfig, getTaskPreset, type TaskMode } from "./config";
 import { recordAiCall, extractUsage } from "./monitor";
+import { logger } from "@/lib/common/logger";
+import { observeStreamTtft } from "@/lib/performance/ttft";
 
 // ── 单例客户端 ────────────────────────────────────────────────
 
@@ -92,7 +94,7 @@ export async function createChatStream(opts: ChatStreamOptions) {
   const preset = getTaskPreset(opts.mode ?? "chat");
   const client = getClient();
 
-  return client.chat.completions.create(
+  const stream = await client.chat.completions.create(
     {
       model: preset.model,
       messages: [
@@ -107,6 +109,16 @@ export async function createChatStream(opts: ChatStreamOptions) {
     },
     opts.signal ? { signal: opts.signal } : undefined,
   );
+
+  return observeStreamTtft(stream, {
+    onFirstToken(ttftMs) {
+      logger.info("ai.ttft", {
+        ttftMs,
+        model: preset.model,
+        source: "createChatStream",
+      });
+    },
+  });
 }
 
 // ── 非流式结构化调用 ──────────────────────────────────────────

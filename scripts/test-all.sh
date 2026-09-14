@@ -52,6 +52,7 @@ run_test "iLink 出站报文构造" "npx tsx src/lib/messaging/adapters/__tests_
 run_test "企业微信回调加解密/验签" "npx tsx src/lib/messaging/adapters/__tests__/wecom-crypto.test.ts"
 run_test "Runtime Architecture Guards (R1 boundary freeze)" "bash scripts/test-runtime-architecture.sh"
 run_test "B0 数据库目标守卫" "npx tsx src/lib/db-safety/__tests__/b0-production-guard.test.ts"
+run_test "China Performance M1 timing/probes" "npx tsx src/lib/performance/__tests__/timing.test.ts"
 run_test "Revenue Spine 阶段状态机" "npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts"
 run_test "Revenue Spine RFQ 抽取/缺失信息" "npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts"
 run_test "Revenue Spine 评分/草稿守卫/Next Action" "npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts"
