@@ -13,7 +13,7 @@ import { SupplierEvidenceWorkspace } from "@/components/supplier-intel/supplier-
 export default async function SupplierEvidencePage({
   searchParams,
 }: {
-  searchParams: Promise<{ supplierId?: string; projectId?: string; signalId?: string; searchRunId?: string }>;
+  searchParams: Promise<{ supplierId?: string; projectId?: string; signalId?: string; searchRunId?: string; evaluationRunId?: string }>;
 }) {
   const sp = await searchParams;
   return (
@@ -23,6 +23,7 @@ export default async function SupplierEvidencePage({
         projectId={sp.projectId?.trim() || null}
         signalId={sp.signalId?.trim() || null}
         searchRunId={sp.searchRunId?.trim() || null}
+        evaluationRunId={sp.evaluationRunId?.trim() || null}
       />
     </IntelHubShell>
   );
