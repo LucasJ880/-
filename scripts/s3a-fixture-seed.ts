@@ -306,6 +306,8 @@ async function main() {
    */
   const fixtureProjectIds = created.map((c) => c.projectId);
   await db.supplierCertification.deleteMany({ where: { orgId: org.id } });
+  // S4-A：需求匹配行引用候选（onDelete Restrict），必须先于候选删除；否则第二次评估验收后重跑夹具会撞 FK
+  await db.supplierRequirementMatch.deleteMany({ where: { orgId: org.id } });
   await db.supplierCandidate.deleteMany({ where: { orgId: org.id } });
   await db.supplierOffering.deleteMany({ where: { orgId: org.id } });
   await db.tenderArchiveItem.deleteMany({ where: { orgId: org.id, captureKey: { startsWith: "upload:s3b-" } } });
