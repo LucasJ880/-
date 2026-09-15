@@ -443,7 +443,11 @@ export async function loadEvaluationView(actor: SupplierIntelActor, runId: strin
   try {
     const pv = await loadProcurementView(actor, run.projectId);
     displayById = new Map(pv.requirements.map((r) => [r.id, { textZh: r.textZh, textZhIsChinese: r.textZhIsChinese, sources: r.sources }]));
-  } catch { /* 展示补充失败不影响评估视图；快照才是真相 */ }
+  } catch (err) {
+    // 只吞领域性的「没有可用展示」（如 canonical 被阻断）；DB 抖动等基础设施错误必须抛出，
+    // 否则页面会静默少掉中文说明与来源引用，用户不知道自己看到的是残缺视图
+    if (!(err instanceof SupplierIntelError)) throw err;
+  }
 
   const supplierIds = [...new Set(candidates.map((c) => c.supplierId))];
   const [certs, readFilter, archives] = await Promise.all([
