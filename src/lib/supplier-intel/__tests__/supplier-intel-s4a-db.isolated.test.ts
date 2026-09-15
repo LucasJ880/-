@@ -342,7 +342,8 @@ async function main() {
         const st = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cr.candidate.id } });
         const gj = st.mandatoryGateJson as { items?: Array<{ requirementKey: string; matchId: string | null }> } | null;
         const gateSawMatch = Boolean(gj?.items?.find((it) => it.requirementKey === "R-001")?.matchId);
-        if (st.mandatoryGateResult === "PENDING") sawMatchFirst += 0, sawGateFirst += 1; else if (gateSawMatch) sawMatchFirst += 1;
+        if (st.mandatoryGateResult === "PENDING") sawGateFirst += 1;
+        else if (gateSawMatch) sawMatchFirst += 1;
         ok(st.mandatoryGateResult === "PENDING" || gateSawMatch, `FR3-G4-${i}b：要么门已被置 PENDING（门先、Match 后），要么门包含该 Match（Match 先、门后）`, `${st.mandatoryGateResult} sawMatch=${gateSawMatch}`);
         await evalRun.computeCandidateMandatoryGate(actorWriter, cr.candidate.id);
         const fin = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cr.candidate.id } });
