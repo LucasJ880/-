@@ -349,6 +349,20 @@ async function main() {
         ok(fin.mandatoryGateResult === "PASS", `FR3-G4-${i}c：重算后 PASS`);
       }
       ok(true, `FR3-G4：观察到 gate-first=${sawGateFirst} match-first=${sawMatchFirst}（两种顺序都合法）`);
+      // G4-alt：显式把 Match 事务先启动（先拿 Run 锁），门随后 → 门必须包含该 Match，且不是 PENDING
+      {
+        const cr = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: projB.id, supplierId: supplier.id, offeringId: offA.id });
+        await evalRun.applyDeterministicMatch(actorWriter, { candidateId: cr.candidate.id, requirementKey: "R-002" });
+        const pMatch = evalRun.recordEvaluationMatch(actorWriter, { candidateId: cr.candidate.id, requirementKey: "R-001", verdict: "PASS", evidence: [{ kind: "certification", certificationId: certBifmaA.id }] });
+        await new Promise((r) => setTimeout(r, 150));
+        const pGate = evalRun.computeCandidateMandatoryGate(actorWriter, cr.candidate.id);
+        const rs = await Promise.allSettled([pMatch, pGate]);
+        ok(rs.every((x) => x.status === "fulfilled"), "FR3-G4-alt-a：Match 先起、门后起，都完成", rs.filter((x) => x.status === "rejected").map((x) => String((x as PromiseRejectedResult).reason)).join(" | "));
+        const st = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cr.candidate.id } });
+        const gj = st.mandatoryGateJson as { items?: Array<{ requirementKey: string; matchId: string | null }> } | null;
+        const gateSawMatch = Boolean(gj?.items?.find((it) => it.requirementKey === "R-001")?.matchId);
+        ok(st.mandatoryGateResult === "PASS" && gateSawMatch, "FR3-G4-alt-b：Match 先 → 门看见该 Match → PASS（不是陈旧门）", `${st.mandatoryGateResult} sawMatch=${gateSawMatch}`);
+      }
     }
 
     console.log("\n== T24/T25/T26：收口后不可变；历史不随 live 数据漂移 ==");
