@@ -249,7 +249,7 @@ export async function recordEvaluationMatch(actor: SupplierIntelActor, input: Re
     action: SUPPLIER_INTEL_AUDIT_ACTIONS.REQUIREMENT_MATCH_CREATED,
     targetType: MATCH_TARGET_TYPE,
     targetId: match.id,
-    afterData: { candidateId: candidate.id, requirementKey: match.requirementKey, verdict: match.verdict, evaluatedBy: "HUMAN", evidenceCount: evidence.length },
+    afterData: { candidateId: candidate.id, requirementKey: match.requirementKey, verdict: match.verdict, evaluatedBy: "HUMAN", evidenceCount: evidence.length, previousGateResult: candidate.mandatoryGateResult, gateInvalidated: candidate.mandatoryGateResult !== "PENDING" },
   });
   return match;
 }
@@ -265,9 +265,9 @@ function readOfferingAttributes(offeringSnapshotJson: unknown): Record<string, u
 async function loadSupplierCertsForRules(orgId: string, supplierId: string) {
   const rows = await db.supplierCertification.findMany({
     where: { orgId, supplierId },
-    select: { id: true, certificationType: true, scope: true, offeringId: true, status: true, expiresAt: true },
+    select: { id: true, certificationType: true, scope: true, offeringId: true, status: true, validFrom: true, expiresAt: true },
   });
-  return rows.map((c) => ({ ...c, expiresAt: c.expiresAt ? c.expiresAt.toISOString() : null }));
+  return rows.map((c) => ({ ...c, validFrom: c.validFrom ? c.validFrom.toISOString() : null, expiresAt: c.expiresAt ? c.expiresAt.toISOString() : null }));
 }
 
 /** 只读：给视图看的规则建议（不写库） */
@@ -311,7 +311,7 @@ export async function applyDeterministicMatch(actor: SupplierIntelActor, input: 
     action: SUPPLIER_INTEL_AUDIT_ACTIONS.REQUIREMENT_MATCH_CREATED,
     targetType: MATCH_TARGET_TYPE,
     targetId: match.id,
-    afterData: { candidateId: candidate.id, requirementKey: match.requirementKey, verdict: match.verdict, evaluatedBy: "DETERMINISTIC", ruleId: suggestion.ruleId },
+    afterData: { candidateId: candidate.id, requirementKey: match.requirementKey, verdict: match.verdict, evaluatedBy: "DETERMINISTIC", ruleId: suggestion.ruleId, previousGateResult: candidate.mandatoryGateResult, gateInvalidated: candidate.mandatoryGateResult !== "PENDING" },
   });
   return { match, suggestion };
 }
@@ -472,6 +472,7 @@ export async function loadEvaluationView(actor: SupplierIntelActor, runId: strin
   for (const c of candidates) {
     const supplierCerts = certs.filter((x) => x.supplierId === c.supplierId).map((x) => ({
       id: x.id, certificationType: x.certificationType, scope: x.scope, offeringId: x.offeringId, status: x.status,
+      validFrom: x.validFrom ? x.validFrom.toISOString() : null,
       expiresAt: x.expiresAt ? x.expiresAt.toISOString() : null, certificateNumber: x.certificateNumber,
       expiredByDate: Boolean(x.expiresAt && x.expiresAt.getTime() < now.getTime()),
       scopeCompatible: x.scope === "SUPPLIER" || (Boolean(c.offeringId) && x.offeringId === c.offeringId),

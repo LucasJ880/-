@@ -11,12 +11,7 @@
  *      重评估 = 新 Run（B.1 §9）。
  */
 
-import type {
-  Prisma,
-  Supplier,
-  SupplierCertification,
-  SupplierOffering,
-} from "@prisma/client";
+import { Prisma, type Supplier, type SupplierCertification, type SupplierOffering } from "@prisma/client";
 import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
@@ -359,8 +354,9 @@ export async function createRequirementMatch(
       }
     }
 
+    let created;
     try {
-      return await tx.supplierRequirementMatch.create({
+      created = await tx.supplierRequirementMatch.create({
         data: {
           orgId: actor.orgId,
           candidateId: candidate.id,
@@ -386,5 +382,14 @@ export async function createRequirementMatch(
       }
       throw err;
     }
+    // S4-A FR3：mandatoryGateJson 必须对应候选**当前完整** Match 集。正式 Match 集一变，
+    // 已算的门就不再是最新事实——在写入 Match 的同一事务里把门置回 PENDING（复用既有枚举，
+    // 不加 schema），收口据此拒绝，直到重新计算。放在 canonical 写路径里，HUMAN / DETERMINISTIC /
+    // 将来的 AI_ASSISTED 都逃不掉；对 S1/S2 既有调用无语义影响（它们的候选门本就 PENDING）。
+    await tx.supplierCandidate.updateMany({
+      where: { id: candidate.id, orgId: actor.orgId },
+      data: { mandatoryGateResult: "PENDING", mandatoryGateJson: Prisma.DbNull, recommendation: null, rejectionReason: null },
+    });
+    return created;
   }, RUN_WRITE_TX_OPTIONS);
 }

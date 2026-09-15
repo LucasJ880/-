@@ -76,7 +76,7 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   console.log("\n== 夹具门 ==");
   requireFixture(ORG, "orgId"); requireFixture(EMAILS?.buyer, "采购员"); requireFixture(EMAILS?.viewer, "只读成员"); requireFixture(EMAILS?.outsider, "无项目权限成员");
-  for (const k of ["projectId", "supplierId", "offeringAId", "offeringBId", "certBifmaAId", "certBifmaClaimedId", "certUlExpiredId", "socialSignalId", "archiveItemId"]) requireFixture(S4A?.[k], `s4a.${k}`);
+  for (const k of ["projectId", "supplierId", "offeringAId", "offeringBId", "certBifmaAId", "certBifmaClaimedId", "certUlExpiredId", "certBifmaFutureAId", "socialSignalId", "archiveItemId"]) requireFixture(S4A?.[k], `s4a.${k}`);
   if (fail > 0) { console.log(`\n夹具不完整，终止：${pass} 通过 / ${fail} 失败`); process.exit(1); }
 
   const browser = await chromium.launch();
@@ -194,6 +194,51 @@ async function main() {
     ok((await page.locator('[data-testid="evaluation-message"]').innerText()).includes("认证"), "H2：服务端拒绝并提示（CERT_SCOPE_MISMATCH）");
     const evH = await apiEval(ctx, runH);
     ok(!evH.json.view.candidates[0].requirements.find((r) => r.entry.code === "R-001")?.match, "H3：没有产生 Match");
+
+    console.log("\n== FLOW K（FR2）：VERIFIED 但 validFrom 在评估之后的证书 → 评估时尚未生效，不可采信 ==");
+    const runK = await startEvaluation(page, ctx, S4A.offeringAId);
+    const rowK = page.locator(`[data-testid="evaluation-run"][data-run-id="${runK}"] [data-testid="requirement-row"][data-requirement-key="R-001"]`);
+    await rowK.locator('[data-testid="open-adjudicate"]').click();
+    const futureLabel = await rowK.locator(`[data-testid="evidence-cert"][data-cert-id="${S4A.certBifmaFutureAId}"]`).locator("xpath=..").innerText();
+    ok(futureLabel.includes("生效于") && futureLabel.includes("对应本产品"), "K1：选择器显示该证书的生效日（范围对、已核实）", futureLabel);
+    await rowK.locator('[data-testid="verdict-PASS"]').click();
+    await rowK.locator(`[data-testid="evidence-cert"][data-cert-id="${S4A.certBifmaFutureAId}"]`).check();
+    await rowK.locator('[data-testid="adjudicate-submit"]').click();
+    await waitEvalState(ctx, runK, (v) => v.candidates[0].requirements.find((r) => r.entry.code === "R-001")?.match);
+    await applySuggestion(page, ctx, runK, "R-002");
+    await computeGate(page, ctx, runK);
+    const gateK = page.locator('[data-testid="gate-item"][data-requirement-key="R-001"]');
+    ok((await gateK.getAttribute("data-reason")) === "CERT_NOT_YET_VALID_AT_EVALUATION", "K2：硬门原因 CERT_NOT_YET_VALID_AT_EVALUATION（不是 CERT_NOT_VERIFIED）", await gateK.getAttribute("data-reason"));
+    ok((await gateK.innerText()).includes("尚未生效"), "K3：原因用中文说明「尚未生效」");
+    ok((await page.locator('[data-testid="mandatory-gate-label"]').innerText()).includes("资料不足"), "K4：整体 INCOMPLETE → 待核实（不 PASS）");
+    const evK = await apiEval(ctx, runK);
+    const evidK = evK.json.view.candidates[0].requirements.find((r) => r.entry.code === "R-001").match.evidence[0];
+    ok(evidK.statusAtEvaluation === "VERIFIED" && typeof evidK.validFrom === "string" && typeof evidK.capturedAt === "string" && Date.parse(evidK.validFrom) > Date.parse(evidK.capturedAt), "K5：冻结证据带 validFrom / capturedAt，且 validFrom > capturedAt", JSON.stringify({ s: evidK.statusAtEvaluation, vf: evidK.validFrom, ca: evidK.capturedAt }));
+    await page.screenshot({ path: `${OUT}/flow-k-not-yet-valid.png` });
+
+    console.log("\n== FLOW L（FR3）：已算门后再新增 Match → 门立刻失效（PENDING）→ 不能完成 → 重算 ==");
+    const runL = await startEvaluation(page, ctx, S4A.offeringAId);
+    await applySuggestion(page, ctx, runL, "R-002");
+    await computeGate(page, ctx, runL);
+    ok((await page.locator('[data-testid="mandatory-gate-label"]').innerText()).includes("资料不足"), "L1：只判了 R-002 → 资料不足（R-001 缺）");
+    ok((await page.locator('[data-testid="gate-stale-hint"]').count()) === 0, "L2：门与 Match 集一致时没有「需要重新计算」提示");
+    await humanAdjudicate(page, ctx, runL, "R-001", "PASS", async (row) => { await row.locator(`[data-testid="evidence-cert"][data-cert-id="${S4A.certBifmaAId}"]`).check(); });
+    const stale = await waitEvalState(ctx, runL, (v) => v.candidates[0].requirements.find((r) => r.entry.code === "R-001")?.match && v.candidates[0].mandatoryGateResult === "PENDING");
+    const candL = stale.json.view.candidates[0];
+    ok(candL.mandatoryGateResult === "PENDING" && candL.mandatoryGate === null && candL.recommendation === null && candL.rejectionReason === null, "L3：服务端：新增 Match 后门立刻 PENDING、快照 / 推荐 / 原因清空", JSON.stringify({ g: candL.mandatoryGateResult, rec: candL.recommendation }));
+    await page.waitForFunction((id) => document.querySelector(`[data-testid="evaluation-run"][data-run-id="${id}"]`)?.getAttribute("data-gate-result") === "PENDING", runL, { timeout: 60_000 });
+    ok((await page.locator('[data-testid="gate-stale-hint"]').count()) === 1 && (await page.locator('[data-testid="gate-stale-hint"]').innerText()).includes("重新计算"), "L4：界面提示「判定已更新，强制项需要重新计算」");
+    ok(await page.locator('[data-testid="complete-evaluation"]').isDisabled(), "L5：「完成评估」按钮禁用（门未算）");
+    const lc = await ctx.request.post(`${BASE}/api/supplier-intel/runs/${runL}/complete?orgId=${encodeURIComponent(ORG)}`, { data: {} });
+    const lcBody = await lc.json().catch(() => null);
+    ok(lc.status() === 409 && lcBody?.code === "GATE_PENDING", "L6：API 直接完成 → 409 GATE_PENDING（服务端拒绝，不靠按钮）", `${lc.status()} ${JSON.stringify(lcBody)}`);
+    await computeGate(page, ctx, runL);
+    ok((await page.locator('[data-testid="mandatory-gate-label"]').innerText()).includes("强制项：已通过"), "L7：重算 → 已通过（R-001 + R-002 都 PASS）");
+    ok((await page.locator('[data-testid="gate-stale-hint"]').count()) === 0, "L8：重算后提示消失");
+    await page.locator('[data-testid="complete-evaluation"]').click();
+    const doneL = await waitEvalState(ctx, runL, (v) => v.run.status === "COMPLETED");
+    ok(doneL.json?.view?.run?.status === "COMPLETED" && doneL.json.view.candidates[0].mandatoryGateResult === "PASS", "L9：重算后可完成 → COMPLETED / PASS");
+    await page.screenshot({ path: `${OUT}/flow-l-stale-gate.png` });
 
     console.log("\n== FLOW I：完成后修改 live 数据，历史界面不漂移 ==");
     const patchOff = await ctx.request.get(`${BASE}/api/supplier-intel/suppliers/${SUP}/capability?orgId=${encodeURIComponent(ORG)}`);

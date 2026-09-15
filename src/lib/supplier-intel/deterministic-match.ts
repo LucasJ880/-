@@ -22,6 +22,7 @@ export interface DeterministicCertInput {
   scope: string;
   offeringId: string | null;
   status: string;
+  validFrom: string | null;
   expiresAt: string | null;
 }
 
@@ -81,7 +82,8 @@ export function suggestCertificationMatch(
   const scopeOk = (c: DeterministicCertInput) =>
     c.scope === "SUPPLIER" || (Boolean(candidate.offeringId) && c.offeringId === candidate.offeringId);
   const unexpired = (c: DeterministicCertInput) => !c.expiresAt || Date.parse(c.expiresAt) > now.getTime();
-  const good = ofType.find((c) => c.status === "VERIFIED" && scopeOk(c) && unexpired(c));
+  const inEffect = (c: DeterministicCertInput) => !c.validFrom || Date.parse(c.validFrom) <= now.getTime();
+  const good = ofType.find((c) => c.status === "VERIFIED" && scopeOk(c) && inEffect(c) && unexpired(c));
   if (good) {
     return {
       ruleId: "CERT_TYPE_V1",
@@ -94,6 +96,7 @@ export function suggestCertificationMatch(
   const reasons = ofType.map((c) => {
     if (c.status !== "VERIFIED") return `${c.id}：${c.status}（未独立核验）`;
     if (!scopeOk(c)) return `${c.id}：范围 ${c.scope} 不覆盖候选产品`;
+    if (!inEffect(c)) return `${c.id}：评估时尚未生效（validFrom 在评估之后）`;
     return `${c.id}：评估时已过期`;
   });
   return {
@@ -104,7 +107,57 @@ export function suggestCertificationMatch(
   };
 }
 
-/* ───────────────── NUMERIC_THRESHOLD_V1 ───────────────── */
+/* ───────────────── NUMERIC_THRESHOLD_V2：维度绑定 ───────────────── */
+
+/**
+ * 冻结的维度别名契约（代码评审可见；不接 LLM、不做模糊相似）。
+ * 只列当前招标要求 / 产品属性真的会出现的维度，按需最小。
+ * 要求文本与属性键都必须归一到这里的**同一个**维度，才允许比较。
+ */
+export const NUMERIC_DIMENSION_ALIASES: Record<string, readonly string[]> = {
+  width: ["width", "overall width", "宽", "宽度", "总宽"],
+  height: ["height", "overall height", "高", "高度", "总高"],
+  length: ["length", "overall length", "长", "长度", "总长"],
+  depth: ["depth", "overall depth", "深", "深度"],
+  thickness: ["thickness", "thick", "厚", "厚度"],
+  load_capacity: ["load capacity", "weight capacity", "maximum load", "rated load", "load rating", "load", "承重", "承载", "载荷", "额定载荷"],
+  product_weight: ["product weight", "net weight", "gross weight", "weight", "重量", "净重", "毛重", "自重"],
+  warranty: ["warranty period", "warranty", "质保", "质保期", "保修", "保修期"],
+};
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+const HAS_CJK = /[\u4e00-\u9fff]/;
+
+/**
+ * 从要求原文识别**唯一**维度。多词别名优先（"weight capacity" 压过其中的 "weight"）：
+ * 先收集全部命中，再丢掉被更长命中完全覆盖的；剩下的维度集合必须恰好一个，否则 null（不猜）。
+ */
+export function detectRequirementDimension(text: string): string | null {
+  const t = text.toLowerCase();
+  const hits: Array<{ dim: string; start: number; end: number }> = [];
+  for (const [dim, aliases] of Object.entries(NUMERIC_DIMENSION_ALIASES)) {
+    for (const alias of aliases) {
+      const re = HAS_CJK.test(alias) ? new RegExp(escapeRe(alias), "g") : new RegExp(`\\b${escapeRe(alias)}(?:s|es)?\\b`, "g");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(t)) !== null) hits.push({ dim, start: m.index, end: m.index + m[0].length });
+    }
+  }
+  const kept = hits.filter((h) => !hits.some((o) => o !== h && o.start <= h.start && o.end >= h.end && (o.end - o.start) > (h.end - h.start)));
+  const dims = new Set(kept.map((h) => h.dim));
+  return dims.size === 1 ? [...dims][0] : null;
+}
+
+/** 属性键归一：camelCase / 下划线 / 连字符 → 小写单空格；必须**整键等于**某个别名，不做包含匹配 */
+export function attributeDimension(key: string): string | null {
+  const norm = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_\-]+/g, " ").toLowerCase().replace(/\s+/g, " ").trim();
+  for (const [dim, aliases] of Object.entries(NUMERIC_DIMENSION_ALIASES)) {
+    if (aliases.some((a) => a.toLowerCase() === norm)) return dim;
+  }
+  return null;
+}
+
 
 /** 可靠换算的单位族。不在这里的单位一律不换算（UNKNOWN）。 */
 const UNIT_FAMILIES: Array<{ canonical: string; units: Record<string, number> }> = [
@@ -152,23 +205,31 @@ export function parseNumericThreshold(text: string): NumericThreshold | null {
 }
 
 /** 从 offering 快照 attributes 里找同单位族的数值：值形如 "600 lb" / "136kg" / "55 in" */
+export type OfferingNumericLookup =
+  | { status: "FOUND"; key: string; raw: string; canonicalValue: number }
+  | { status: "NONE" }
+  | { status: "AMBIGUOUS"; keys: string[] }
+  | { status: "UNIT_MISMATCH"; key: string; raw: string };
+
+/**
+ * 在 offering 快照里找**同一维度**的数值。维度不同的属性一律不看（哪怕单位一样）；
+ * 同维度不止一个 → AMBIGUOUS；有且一个但单位不在同族 → UNIT_MISMATCH。
+ */
 export function findOfferingNumeric(
   attributes: Record<string, unknown> | null | undefined,
   family: string,
-): { key: string; raw: string; canonicalValue: number } | null {
-  if (!attributes) return null;
-  const hits: Array<{ key: string; raw: string; canonicalValue: number }> = [];
-  for (const [key, v] of Object.entries(attributes)) {
-    if (typeof v !== "string" && typeof v !== "number") continue;
-    const raw = String(v).replace(/,/g, "");
-    const m = /^(\d+(?:\.\d+)?)\s*(lbs?|pounds?|kgs?|mm|cm|m|in|inch(?:es)?|"|years?|yrs?|年)$/i.exec(raw.trim());
-    if (!m) continue;
-    const norm = normalizeUnit(m[2]);
-    if (!norm || norm.family !== family) continue;
-    hits.push({ key, raw, canonicalValue: Number(m[1]) * norm.factor });
-  }
-  // 多个同族属性时无法确定该用哪一个 → 不猜
-  return hits.length === 1 ? hits[0] : null;
+  dimension: string,
+): OfferingNumericLookup {
+  if (!attributes) return { status: "NONE" };
+  const sameDim = Object.entries(attributes).filter(([key]) => attributeDimension(key) === dimension);
+  if (sameDim.length === 0) return { status: "NONE" };
+  if (sameDim.length > 1) return { status: "AMBIGUOUS", keys: sameDim.map(([k]) => k) };
+  const [key, v] = sameDim[0];
+  const raw = String(v ?? "").replace(/,/g, "").trim();
+  const m = /^(\d+(?:\.\d+)?)\s*(lbs?|pounds?|kgs?|mm|cm|m|in|inch(?:es)?|"|years?|yrs?|年)$/i.exec(raw);
+  const norm = m ? normalizeUnit(m[2]) : null;
+  if (!m || !norm || norm.family !== family) return { status: "UNIT_MISMATCH", key, raw };
+  return { status: "FOUND", key, raw, canonicalValue: Number(m[1]) * norm.factor };
 }
 
 export function suggestNumericMatch(
@@ -177,22 +238,25 @@ export function suggestNumericMatch(
 ): DeterministicSuggestion | null {
   const th = parseNumericThreshold(entry.text);
   if (!th) return null;
-  const found = findOfferingNumeric(offeringAttributes, th.family);
-  if (!found) {
-    return {
-      ruleId: "NUMERIC_THRESHOLD_V1",
-      verdict: "UNKNOWN",
-      explanation: `规则 NUMERIC_THRESHOLD_V1：要求 ${th.op} ${th.value} ${th.unit}；候选产品快照里没有可比的 ${th.family} 数值（或不止一个，无法确定用哪个）`,
-      evidence: [],
-    };
-  }
+  const unknown = (why: string): DeterministicSuggestion => ({
+    ruleId: "NUMERIC_THRESHOLD_V2",
+    verdict: "UNKNOWN",
+    explanation: `规则 NUMERIC_THRESHOLD_V2：要求 ${th.op} ${th.value} ${th.unit}；${why}`,
+    evidence: [],
+  });
+  const dimension = detectRequirementDimension(entry.text);
+  if (!dimension) return unknown("要求原文里识别不出唯一的维度（宽度 / 高度 / 承重 / 重量…），不猜");
+  const found = findOfferingNumeric(offeringAttributes, th.family, dimension);
+  if (found.status === "NONE") return unknown(`候选产品快照里没有「${dimension}」维度的属性（同单位的其它维度不算）`);
+  if (found.status === "AMBIGUOUS") return unknown(`候选产品快照里「${dimension}」维度有多个属性（${found.keys.join(" / ")}），无法确定用哪个`);
+  if (found.status === "UNIT_MISMATCH") return unknown(`产品「${found.key}」= ${found.raw} 的单位无法可靠换算到 ${th.unit}`);
   const ok = th.op === ">=" ? found.canonicalValue >= th.canonicalValue : found.canonicalValue <= th.canonicalValue;
-  const cmp = `产品「${found.key}」= ${found.raw}，要求 ${th.op} ${th.value} ${th.unit}`;
+  const cmp = `维度 ${dimension}：产品「${found.key}」= ${found.raw}，要求 ${th.op} ${th.value} ${th.unit}`;
   return {
-    ruleId: "NUMERIC_THRESHOLD_V1",
+    ruleId: "NUMERIC_THRESHOLD_V2",
     verdict: ok ? "PASS" : "FAIL",
-    explanation: `规则 NUMERIC_THRESHOLD_V1：${cmp} → ${ok ? "满足" : "不满足"}`,
-    evidence: [{ kind: "note", snippet: `NUMERIC_THRESHOLD_V1 | ${cmp} | 来源：候选 offering 快照（冻结）` }],
+    explanation: `规则 NUMERIC_THRESHOLD_V2：${cmp} → ${ok ? "满足" : "不满足"}`,
+    evidence: [{ kind: "note", snippet: `NUMERIC_THRESHOLD_V2 | ${cmp} | 来源：候选 offering 快照（冻结）` }],
   };
 }
 

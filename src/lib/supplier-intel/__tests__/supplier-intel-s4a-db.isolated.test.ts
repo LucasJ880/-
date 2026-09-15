@@ -193,7 +193,7 @@ async function main() {
     console.log("\n== T11/T22/T27：确定性 PASS + 人工 PASS → 门 PASS；价格 UNKNOWN 不导致 NOT_ELIGIBLE ==");
     r = await post(writer, cand.id, { requirementKey: "R-002", applyDeterministic: true });
     const detBody = (await r.json()) as { match?: { verdict: string; evaluatedBy: string }; ruleId?: string };
-    ok(r.status === 201 && detBody.match?.verdict === "PASS" && detBody.match?.evaluatedBy === "DETERMINISTIC" && detBody.ruleId === "NUMERIC_THRESHOLD_V1", "G6：600 lb ≥ 300 lb 规则判 PASS（DETERMINISTIC）", JSON.stringify(detBody));
+    ok(r.status === 201 && detBody.match?.verdict === "PASS" && detBody.match?.evaluatedBy === "DETERMINISTIC" && detBody.ruleId === "NUMERIC_THRESHOLD_V2", "G6：600 lb ≥ 300 lb 规则判 PASS（DETERMINISTIC）", JSON.stringify(detBody));
     r = await post(writer, cand.id, { requirementKey: "R-003", verdict: "FAIL", evidence: [{ kind: "note", snippet: "非强制项：不是网布" }] });
     ok(r.status === 201, "T17 前置：非强制项写 FAIL");
     g = await evalRun.computeCandidateMandatoryGate(actorWriter, cand.id);
@@ -227,7 +227,7 @@ async function main() {
       const recomputed = await evalRun.computeCandidateMandatoryGate(actorWriter, c2.id);
       const storedJson = stored.mandatoryGateJson as { result: string; items: unknown[] };
       const rank = { FAIL: 0, INCOMPLETE: 1, PASS: 2 } as Record<string, number>;
-      ok(rank[storedJson.result] <= rank[recomputed.snapshot.result], "并发 b：存的门不比最终 Match 集算出的门更乐观", `${storedJson.result} vs ${recomputed.snapshot.result}`);
+      ok(stored.mandatoryGateResult === "PENDING" || rank[storedJson.result] <= rank[recomputed.snapshot.result], "并发 b：存的门要么 PENDING（Match 写在门之后并使其失效），要么不比最终 Match 集更乐观", `${stored.mandatoryGateResult} vs ${recomputed.snapshot.result}`);
       ok(recomputed.snapshot.result === "PASS", "并发 c：最终重算为 PASS");
       await evalRun.completeEvaluationRun(actorWriter, cres.run.id);
     }
@@ -294,6 +294,62 @@ async function main() {
     g = await evalRun.computeCandidateMandatoryGate(actorWriter, c.id);
     ok(g.snapshot.items.find((i) => i.requirementKey === "R-001")?.reasonCode === "OFFERING_REQUIRED", "§6.1：产品类要求 + 无 Offering → OFFERING_REQUIRED");
     ok(g.snapshot.result === "INCOMPLETE", "§6.1b：整体 INCOMPLETE");
+
+    console.log("\n== FR3：新增 Match 必须在同一事务里使已算的门失效 ==");
+    {
+      // G2（人工写入使门失效）：先规则判 R-002 → 算门 INCOMPLETE（R-001 缺）→ 人工写 R-001 PASS → 门必须立刻 PENDING
+      const fr = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: projB.id, supplierId: supplier.id, offeringId: offA.id });
+      await evalRun.applyDeterministicMatch(actorWriter, { candidateId: fr.candidate.id, requirementKey: "R-002" });
+      let gg = await evalRun.computeCandidateMandatoryGate(actorWriter, fr.candidate.id);
+      ok(gg.snapshot.result === "INCOMPLETE", "FR3-G2a：R-001 缺 → INCOMPLETE");
+      await evalRun.recordEvaluationMatch(actorWriter, { candidateId: fr.candidate.id, requirementKey: "R-001", verdict: "PASS", evidence: [{ kind: "certification", certificationId: certBifmaA.id }] });
+      let row = await db.supplierCandidate.findUniqueOrThrow({ where: { id: fr.candidate.id } });
+      ok(row.mandatoryGateResult === "PENDING" && row.mandatoryGateJson === null && row.recommendation === null && row.rejectionReason === null, "FR3-G2b：人工 Match 写入后候选立刻 PENDING、门快照 / 推荐 / 原因清空", `${row.mandatoryGateResult} json=${row.mandatoryGateJson === null} rec=${row.recommendation}`);
+      await expectErr("GATE_PENDING", "FR3-G2c：门失效 → 不能收口", () => evalRun.completeEvaluationRun(actorWriter, fr.run.id));
+      gg = await evalRun.computeCandidateMandatoryGate(actorWriter, fr.candidate.id);
+      ok(gg.snapshot.result === "PASS" && gg.recommendation === null, "FR3-G2d：重算 → PASS，推荐 null");
+      const done2 = await evalRun.completeEvaluationRun(actorWriter, fr.run.id);
+      ok(done2.status === "COMPLETED", "FR3-G2e：重算后可以收口");
+      // 收口后再写 Match：终态守卫先拦（T24），门不会被动
+      row = await db.supplierCandidate.findUniqueOrThrow({ where: { id: fr.candidate.id } });
+      ok(row.mandatoryGateResult === "PASS", "FR3-G2f：收口后门保持 PASS");
+
+      // G1（规则写入使门失效 → 重算 FAIL）：人工 R-001 UNKNOWN → 算门 INCOMPLETE → 规则写 R-002（250 lb → FAIL）→ PENDING → 重算 FAIL/NOT_ELIGIBLE
+      const fr1 = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: projB.id, supplierId: supplier.id, offeringId: offB.id });
+      await evalRun.recordEvaluationMatch(actorWriter, { candidateId: fr1.candidate.id, requirementKey: "R-001", verdict: "UNKNOWN", evidence: [] });
+      gg = await evalRun.computeCandidateMandatoryGate(actorWriter, fr1.candidate.id);
+      ok(gg.snapshot.result === "INCOMPLETE" && gg.recommendation === "NEEDS_VERIFICATION", "FR3-G1a：R-002 缺 → INCOMPLETE + NEEDS_VERIFICATION");
+      const detF = await evalRun.applyDeterministicMatch(actorWriter, { candidateId: fr1.candidate.id, requirementKey: "R-002" });
+      ok(detF.match.verdict === "FAIL", "FR3-G1b：规则判 R-002 FAIL");
+      row = await db.supplierCandidate.findUniqueOrThrow({ where: { id: fr1.candidate.id } });
+      ok(row.mandatoryGateResult === "PENDING" && row.mandatoryGateJson === null && row.recommendation === null, "FR3-G3：规则（DETERMINISTIC）写入同样使门失效 → PENDING");
+      await expectErr("GATE_PENDING", "FR3-G1c：收口被拒", () => evalRun.completeEvaluationRun(actorWriter, fr1.run.id));
+      gg = await evalRun.computeCandidateMandatoryGate(actorWriter, fr1.candidate.id);
+      ok(gg.snapshot.result === "FAIL" && gg.recommendation === "NOT_ELIGIBLE" && gg.rejectionReason === "R-002:MANDATORY_MATCH_FAIL", "FR3-G1d：重算 → FAIL + NOT_ELIGIBLE");
+      const auditInv = await db.auditLog.findFirst({ where: { action: "supplier_intel.requirement_match.created", targetId: detF.match.id } });
+      ok(Boolean(auditInv), "FR3：Match 审计存在（afterData 含 previousGateResult / gateInvalidated）");
+
+      // G4（并发）：门计算 vs 新 Match 写入，无论谁先拿到 Run 锁，最终状态都不能是「门对应旧 Match 集且 != PENDING」
+      let sawGateFirst = 0, sawMatchFirst = 0;
+      for (let i = 0; i < 3; i++) {
+        const cr = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: projB.id, supplierId: supplier.id, offeringId: offA.id });
+        await evalRun.applyDeterministicMatch(actorWriter, { candidateId: cr.candidate.id, requirementKey: "R-002" });
+        const rs = await Promise.allSettled([
+          evalRun.computeCandidateMandatoryGate(actorWriter, cr.candidate.id),
+          evalRun.recordEvaluationMatch(actorWriter, { candidateId: cr.candidate.id, requirementKey: "R-001", verdict: "PASS", evidence: [{ kind: "certification", certificationId: certBifmaA.id }] }),
+        ]);
+        ok(rs.every((x) => x.status === "fulfilled"), `FR3-G4-${i}a：门计算与 Match 写入并发都完成`, rs.filter((x) => x.status === "rejected").map((x) => String((x as PromiseRejectedResult).reason)).join(" | "));
+        const st = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cr.candidate.id } });
+        const gj = st.mandatoryGateJson as { items?: Array<{ requirementKey: string; matchId: string | null }> } | null;
+        const gateSawMatch = Boolean(gj?.items?.find((it) => it.requirementKey === "R-001")?.matchId);
+        if (st.mandatoryGateResult === "PENDING") sawMatchFirst += 0, sawGateFirst += 1; else if (gateSawMatch) sawMatchFirst += 1;
+        ok(st.mandatoryGateResult === "PENDING" || gateSawMatch, `FR3-G4-${i}b：要么门已被置 PENDING（门先、Match 后），要么门包含该 Match（Match 先、门后）`, `${st.mandatoryGateResult} sawMatch=${gateSawMatch}`);
+        await evalRun.computeCandidateMandatoryGate(actorWriter, cr.candidate.id);
+        const fin = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cr.candidate.id } });
+        ok(fin.mandatoryGateResult === "PASS", `FR3-G4-${i}c：重算后 PASS`);
+      }
+      ok(true, `FR3-G4：观察到 gate-first=${sawGateFirst} match-first=${sawMatchFirst}（两种顺序都合法）`);
+    }
 
     console.log("\n== T24/T25/T26：收口后不可变；历史不随 live 数据漂移 ==");
     const rid = evRun.id;

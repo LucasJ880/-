@@ -310,6 +310,7 @@ export const MANDATORY_GATE_REASON_CODES = [
   "AI_ASSISTED_NOT_ADMISSIBLE",
   "CERT_NOT_VERIFIED",
   "CERT_EXPIRED_AT_EVALUATION",
+  "CERT_NOT_YET_VALID_AT_EVALUATION",
   "CERT_SCOPE_MISMATCH",
   "CERT_TYPE_MISMATCH",
   "OFFERING_REQUIRED",
@@ -317,8 +318,12 @@ export const MANDATORY_GATE_REASON_CODES = [
 ] as const;
 export type MandatoryGateReasonCode = (typeof MANDATORY_GATE_REASON_CODES)[number];
 
-/** 确定性匹配规则 ID（Layer 1）。每条规则可回放：同快照同输入必同结果。 */
-export const DETERMINISTIC_MATCH_RULES = ["CERT_TYPE_V1", "NUMERIC_THRESHOLD_V1"] as const;
+/**
+ * 确定性匹配规则 ID（Layer 1）。每条规则可回放：同快照同输入必同结果。
+ * NUMERIC_THRESHOLD_V1 已退役（它会拿「唯一同单位族数值」去比，宽度 vs 高度都能撞上）；
+ * 保留 ID 只为回放历史 note。V2 = 维度绑定 fail-closed。
+ */
+export const DETERMINISTIC_MATCH_RULES = ["CERT_TYPE_V1", "NUMERIC_THRESHOLD_V1", "NUMERIC_THRESHOLD_V2"] as const;
 export type DeterministicMatchRuleId = (typeof DETERMINISTIC_MATCH_RULES)[number];
 
 // ── 输入上限（B.1 §17：用户提交 = untrusted external input）──

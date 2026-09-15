@@ -76,6 +76,7 @@ const REASON_TEXT: Record<MandatoryGateReasonCode, string> = {
   AI_ASSISTED_NOT_ADMISSIBLE: "AI 辅助判断不能独立作为硬门依据，需人工确认",
   CERT_NOT_VERIFIED: "证书只是厂家声称，未独立核验",
   CERT_EXPIRED_AT_EVALUATION: "证书在评估当时已过期",
+  CERT_NOT_YET_VALID_AT_EVALUATION: "证书在评估当时尚未生效（生效日晚于评估时刻）",
   CERT_SCOPE_MISMATCH: "证书范围不覆盖候选产品",
   CERT_TYPE_MISMATCH: "证书类型与要求点名的认证不符",
   OFFERING_REQUIRED: "这是产品级要求，需要选定具体产品才能判定",

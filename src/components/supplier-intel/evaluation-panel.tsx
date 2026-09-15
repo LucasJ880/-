@@ -215,6 +215,9 @@ function EvaluationRunDetail({ view, candidate, canAct, busy, q, onAct, onRefres
           {candidate.mandatoryGateResult === "PASS" ? <span className="font-normal text-[var(--muted)]">（通过硬门 ≠ 最终推荐）</span> : null}
         </p>
         {gate.hint ? <p className="mt-0.5 font-normal">{gate.hint}</p> : null}
+        {candidate.mandatoryGateResult === "PENDING" && candidate.requirements.some((r) => r.match) ? (
+          <p className="mt-0.5 font-normal" data-testid="gate-stale-hint">判定已更新，强制项需要重新计算后才能完成评估。</p>
+        ) : null}
         {candidate.mandatoryGate ? (
           <ul className="mt-1 space-y-0.5 font-normal" data-testid="gate-items">
             {candidate.mandatoryGate.items.map((it) => (
@@ -363,7 +366,7 @@ function EvidencePicker({ candidate, selected, onToggle }: { candidate: Evaluati
           {certifications.map((c) => { const st = certificationStatusDisplay(c.status, c.expiredByDate); return (
             <li key={c.id}><label className="inline-flex items-start gap-1">
               <input type="checkbox" checked={has({ kind: "certification", certificationId: c.id })} onChange={() => onToggle({ kind: "certification", certificationId: c.id })} data-testid="evidence-cert" data-cert-id={c.id} />
-              <span>{certificationTypeLabel(c.certificationType)} · {certificationScopeLabel(c.scope)}{c.scope !== "SUPPLIER" ? (c.scopeCompatible ? "（对应本产品）" : "（对应其它产品，不可采信）") : ""} · <Badge tone={st.tone}>{st.label}</Badge>{c.expiresAt ? ` · 有效至 ${new Date(c.expiresAt).toLocaleDateString("zh-CN")}` : ""}</span>
+              <span>{certificationTypeLabel(c.certificationType)} · {certificationScopeLabel(c.scope)}{c.scope !== "SUPPLIER" ? (c.scopeCompatible ? "（对应本产品）" : "（对应其它产品，不可采信）") : ""} · <Badge tone={st.tone}>{st.label}</Badge>{c.validFrom ? ` · 生效于 ${new Date(c.validFrom).toLocaleDateString("zh-CN")}` : ""}{c.expiresAt ? ` · 有效至 ${new Date(c.expiresAt).toLocaleDateString("zh-CN")}` : ""}</span>
             </label></li>
           ); })}
         </ul>

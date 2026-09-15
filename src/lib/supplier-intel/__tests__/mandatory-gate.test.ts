@@ -104,12 +104,33 @@ async function main() {
     assert.equal(g.snapshot.items[0].reasonCode, "CERT_EXPIRED_AT_EVALUATION");
   }
 
+  console.log("FR2 C1：VERIFIED 但 validFrom 在评估时刻之后 → CERT_NOT_YET_VALID_AT_EVALUATION（不是 CERT_NOT_VERIFIED）");
+  {
+    const g = gate([req("R1", true)], [match("R1", "PASS", [cert({ validFrom: "2026-10-01T00:00:00.000Z", expiresAt: "2027-10-01T00:00:00.000Z", capturedAt: "2026-09-15T00:00:00.000Z" })])]);
+    assert.equal(g.snapshot.result, "INCOMPLETE");
+    assert.equal(g.snapshot.items[0].reasonCode, "CERT_NOT_YET_VALID_AT_EVALUATION");
+    assert.equal(g.recommendation, "NEEDS_VERIFICATION");
+  }
+  console.log("FR2 C2：validFrom ≤ 评估时刻 < expiresAt → 可采信");
+  assert.equal(gate([req("R1", true)], [match("R1", "PASS", [cert({ validFrom: "2026-01-01T00:00:00.000Z", expiresAt: "2027-01-01T00:00:00.000Z", capturedAt: "2026-09-15T00:00:00.000Z" })])]).snapshot.result, "PASS");
+  console.log("FR2 C3：validFrom 缺省 + 未过期 → 仍按既有规则可采信");
+  assert.equal(gate([req("R1", true)], [match("R1", "PASS", [cert({ validFrom: null })])]).snapshot.result, "PASS");
+  console.log("FR2 C4：证据缺 capturedAt 时回落到 Match 创建时刻；两者都缺 → 不可采信（fail closed）");
+  assert.equal(gate([req("R1", true)], [match("R1", "PASS", [cert({ validFrom: "2026-01-01T00:00:00.000Z", capturedAt: undefined })])]).snapshot.result, "PASS", "capturedAt 缺 → 用 createdAt=T0（2026-09-14）");
+  assert.equal(computeMandatoryGate({ requirementSnapshot: [req("R1", true)], candidate: { offeringId: "off-A" }, matches: [{ ...match("R1", "PASS", [cert({ validFrom: "2026-01-01T00:00:00.000Z", capturedAt: undefined })]), createdAt: "garbage" }], evaluationVersion: "v", computedAt: NOW }).snapshot.items[0].reasonCode, "CERT_NOT_YET_VALID_AT_EVALUATION");
+
   console.log("§11.2：过期按冻结时刻 capturedAt 算——证书在 2027 到期，2026 的评估回放仍是 PASS");
   {
     const frozen = cert({ expiresAt: "2027-06-01T00:00:00.000Z", capturedAt: "2026-09-14T00:00:00.000Z" });
     const later = new Date("2028-01-01T00:00:00.000Z"); // 「今天」已经过了到期日
     const g = computeMandatoryGate({ requirementSnapshot: [req("R1", true)], candidate: { offeringId: "off-A" }, matches: [match("R1", "PASS", [frozen])], evaluationVersion: "v", computedAt: later });
     assert.equal(g.snapshot.result, "PASS", "读取时的时钟不改写历史门");
+    // FR2 C4（历史）：validFrom 与 expiresAt 都按冻结 capturedAt 判，computedAt 换成任何时刻结果不变
+    const withFrom = cert({ validFrom: "2026-01-01T00:00:00.000Z", expiresAt: "2027-06-01T00:00:00.000Z", capturedAt: "2026-09-14T00:00:00.000Z" });
+    const a = computeMandatoryGate({ requirementSnapshot: [req("R1", true)], candidate: { offeringId: "off-A" }, matches: [match("R1", "PASS", [withFrom])], evaluationVersion: "v", computedAt: new Date("2025-01-01T00:00:00.000Z") });
+    const b = computeMandatoryGate({ requirementSnapshot: [req("R1", true)], candidate: { offeringId: "off-A" }, matches: [match("R1", "PASS", [withFrom])], evaluationVersion: "v", computedAt: new Date("2030-01-01T00:00:00.000Z") });
+    assert.equal(a.snapshot.result, "PASS"); assert.equal(b.snapshot.result, "PASS");
+    assert.equal(JSON.stringify({ ...a.snapshot, computedAt: 0 }), JSON.stringify({ ...b.snapshot, computedAt: 0 }), "时钟无关");
   }
 
   console.log("G4：PRODUCT 级证书绑定 Offering A，候选是 Offering B → 不可采信（CERT_SCOPE_MISMATCH）");

@@ -110,11 +110,12 @@ export function classifyEvidenceForGate(
       const certOffering = typeof item.offeringId === "string" ? item.offeringId : null;
       if (!candidate.offeringId || certOffering !== candidate.offeringId) return "CERT_SCOPE_MISMATCH";
     }
+    // 评估时刻 = 证据冻结时刻 capturedAt；只有旧历史证据缺它时才回落到 Match 创建时刻。绝不用 Date.now()。
+    const at = parseTime(item.capturedAt) ?? parseTime(matchCreatedAt);
+    const validFrom = parseTime(item.validFrom);
+    if (validFrom !== null && (at === null || validFrom > at)) return "CERT_NOT_YET_VALID_AT_EVALUATION";
     const expires = parseTime(item.expiresAt);
-    if (expires !== null) {
-      const at = parseTime(item.capturedAt) ?? parseTime(matchCreatedAt);
-      if (at === null || expires <= at) return "CERT_EXPIRED_AT_EVALUATION";
-    }
+    if (expires !== null && (at === null || expires <= at)) return "CERT_EXPIRED_AT_EVALUATION";
     return null;
   }
   // signal / url / note：单独不构成硬门证据（社媒自述、官网文案、厂家自称、口头备注）

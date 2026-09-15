@@ -519,6 +519,9 @@ async function main() {
     const certBifmaA = await mkCert({ scope: "PRODUCT", offeringId: offA.id, certificationType: "BIFMA", certificateNumber: `BIFMA-A-${TAG}`, status: "VERIFIED", expiresAt: FUTURE, verifiedByUserId: buyer.id, verifiedAt: new Date() });
     const certBifmaClaimed = await mkCert({ scope: "SUPPLIER", certificationType: "BIFMA", certificateNumber: `BIFMA-CLAIM-${TAG}`, status: "CLAIMED", sourceKind: "SOCIAL" });
     const certUlExpired = await mkCert({ scope: "SUPPLIER", certificationType: "UL", certificateNumber: `UL-OLD-${TAG}`, status: "VERIFIED", expiresAt: PAST, verifiedByUserId: buyer.id, verifiedAt: new Date() });
+    // FR2：VERIFIED、范围对、未过期，但 validFrom 在评估之后 → 评估时尚未生效，不可采信
+    const NOT_YET = new Date(Date.now() + 60 * 24 * 3600_000);
+    const certBifmaFutureA = await mkCert({ scope: "PRODUCT", offeringId: offA.id, certificationType: "BIFMA", certificateNumber: `BIFMA-FUTURE-A-${TAG}`, status: "VERIFIED", validFrom: NOT_YET, expiresAt: FUTURE, verifiedByUserId: buyer.id, verifiedAt: new Date() });
     const social = await signalSvc.createSubmittedSignal(actorBuyer, {
       url: `https://s3a-fixture-factory.example/${TAG}/s4a-social`,
       rawText: `[演示夹具] 厂家抖音自述：我们的椅子都是 BIFMA 认证、UL 认证 ${TAG}`,
@@ -528,7 +531,7 @@ async function main() {
     await signalSvc.reviewSignal(actorBuyer, social.id);
     await signalSvc.linkSignalToSupplier(actorBuyer, social.id, { supplierId: sup });
     const arch = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: evalProjectId, kind: "other", captureKey: `upload:s3b-${TAG}-s4a-test-report`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 2048, contentHash: `s4a_${TAG}_${Date.now()}`, storageKey: `archive/${org.id}/s4/s4a_${TAG}`, createdById: buyer.id } });
-    s4a = { projectId: evalProjectId, supplierId: sup, offeringAId: offA.id, offeringBId: offB.id, certBifmaAId: certBifmaA.id, certBifmaClaimedId: certBifmaClaimed.id, certUlExpiredId: certUlExpired.id, socialSignalId: social.id, archiveItemId: arch.id };
+    s4a = { projectId: evalProjectId, supplierId: sup, offeringAId: offA.id, offeringBId: offB.id, certBifmaAId: certBifmaA.id, certBifmaClaimedId: certBifmaClaimed.id, certUlExpiredId: certUlExpired.id, certBifmaFutureAId: certBifmaFutureA.id, socialSignalId: social.id, archiveItemId: arch.id };
   }
 
   console.log(

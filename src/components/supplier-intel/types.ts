@@ -247,7 +247,7 @@ export interface EvaluationCandidateView {
   scores: { technical: number | null; commercial: number | null; reliability: number | null; importRisk: number | null; total: number | null };
   requirements: EvaluationRequirementRowView[];
   evidenceOptions: {
-    certifications: Array<{ id: string; certificationType: string; scope: string; offeringId: string | null; status: string; expiresAt: string | null; certificateNumber: string | null; expiredByDate: boolean; scopeCompatible: boolean }>;
+    certifications: Array<{ id: string; certificationType: string; scope: string; offeringId: string | null; status: string; validFrom: string | null; expiresAt: string | null; certificateNumber: string | null; expiredByDate: boolean; scopeCompatible: boolean }>;
     signals: Array<{ id: string; title: string; platform: string; contentUrl: string | null }>;
     archives: Array<{ id: string; kind: string; mimeType: string; capturedAt: string }>;
   };
