@@ -33,6 +33,7 @@ import {
 import { computeMandatoryGate, type GateOutcome } from "./mandatory-gate";
 import { validateRequirementSnapshot, type RequirementSnapshotEntry } from "./requirement-snapshot";
 import {
+  RUN_WRITE_TX_OPTIONS,
   createSearchRun,
   failSearchRun,
   lockSupplierSearchRunForWrite,
@@ -362,7 +363,7 @@ export async function computeCandidateMandatoryGate(actor: SupplierIntelActor, c
       afterData: { mandatoryGateResult: outcome.snapshot.result, recommendation: outcome.recommendation, summary: outcome.snapshot.summary },
     });
     return outcome;
-  });
+  }, RUN_WRITE_TX_OPTIONS);
 }
 
 /* ───────────────── 收口 ───────────────── */
@@ -404,7 +405,7 @@ export async function completeEvaluationRun(actor: SupplierIntelActor, runId: st
       afterData: { status: "COMPLETED", runMode: "EVALUATION_ONLY", gates },
     });
     return tx.supplierSearchRun.findFirstOrThrow({ where: { id: run.id } });
-  });
+  }, RUN_WRITE_TX_OPTIONS);
 }
 
 /* ───────────────── 视图 ───────────────── */

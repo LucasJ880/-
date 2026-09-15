@@ -152,8 +152,9 @@ export interface LinkedSignalView {
 export interface SupplierCapabilityPayload {
   supplier: { id: string; name: string };
   canWrite: boolean;
-  /** 当前用于哪个项目（仅在用户对该项目有读权限时给出；供应商本身仍是 org 级） */
-  projectContext: { id: string; name: string } | null;
+  /** 当前用于哪个项目（仅在用户对该项目有读权限时给出；供应商本身仍是 org 级）。
+   *  canWrite = 对该项目的写权限（服务端裁决）：评估 / 匹配 / 硬门都是项目级决策。 */
+  projectContext: { id: string; name: string; canWrite: boolean } | null;
   /**
    * 从哪里进来的——由**服务端核实**后给出，不是照抄 URL 参数：
    *   linkedSignal      该线索确实已人工关联到这家供应商，且用户看得见它
@@ -307,7 +308,11 @@ export async function loadSupplierCapabilityView(
       where: { id: opts.projectId, orgId: actor.orgId },
       select: { id: true, name: true },
     });
-    if (p) projectContext = p;
+    if (p) {
+      let projectWrite = true;
+      try { await assertProjectAccessForActor(actor, p.id, "write"); } catch { projectWrite = false; }
+      projectContext = { id: p.id, name: p.name, canWrite: projectWrite };
+    }
   }
 
   let entryLinkedSignal: SupplierCapabilityPayload["entryContext"]["linkedSignal"] = null;

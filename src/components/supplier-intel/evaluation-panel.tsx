@@ -49,8 +49,8 @@ function Badge({ tone, children, testId }: { tone: string; children: React.React
 type EvidenceSel = { kind: "certification"; certificationId: string } | { kind: "signal"; signalId: string } | { kind: "archive"; archiveItemId: string };
 
 export function EvaluationPanel({
-  orgId, supplierId, projectId, offerings, canWriteSupplier, initialRunId,
-}: { orgId: string; supplierId: string; projectId: string; offerings: OfferingView[]; canWriteSupplier: boolean; initialRunId: string | null }) {
+  orgId, supplierId, projectId, offerings, canWriteProject, initialRunId,
+}: { orgId: string; supplierId: string; projectId: string; offerings: OfferingView[]; canWriteProject: boolean; initialRunId: string | null }) {
   const [runs, setRuns] = useState<EvaluationRunListRow[] | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
   const [view, setView] = useState<EvaluationViewPayload | null>(null);
@@ -120,7 +120,7 @@ export function EvaluationPanel({
       </p>
 
       {/* 新建评估 */}
-      {canWriteSupplier ? (
+      {canWriteProject ? (
         <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[var(--border)] p-3" data-testid="evaluation-start-box">
           <label className="min-w-[14rem] flex-1 text-xs">
             <span className="mb-0.5 block text-[var(--muted)]">评估哪个具体产品（供应商 ≠ 产品）</span>

@@ -77,6 +77,7 @@ const REASON_TEXT: Record<MandatoryGateReasonCode, string> = {
   CERT_NOT_VERIFIED: "证书只是厂家声称，未独立核验",
   CERT_EXPIRED_AT_EVALUATION: "证书在评估当时已过期",
   CERT_SCOPE_MISMATCH: "证书范围不覆盖候选产品",
+  CERT_TYPE_MISMATCH: "证书类型与要求点名的认证不符",
   OFFERING_REQUIRED: "这是产品级要求，需要选定具体产品才能判定",
   NOT_MANDATORY: "非强制要求",
 };

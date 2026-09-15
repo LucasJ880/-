@@ -25,6 +25,7 @@ import {
   OFFERING_SCOPED_REQUIREMENT_CATEGORIES,
   type MandatoryGateReasonCode,
 } from "./constants";
+import { detectRequiredCertificationType } from "./deterministic-match";
 import { collapseMandatoryForMatch, type RequirementSnapshotEntry } from "./requirement-snapshot";
 
 export interface GateMatchInput {
@@ -90,6 +91,8 @@ export function classifyEvidenceForGate(
   item: unknown,
   candidate: GateCandidateInput,
   matchCreatedAt: string,
+  /** 要求原文明确点名的认证类型（如 UL）；非 null 时证书类型必须一致 */
+  requiredCertType: string | null = null,
 ): MandatoryGateReasonCode | null {
   if (!isObj(item)) return "EVIDENCE_NOT_VERIFIED";
   const kind = item.kind;
@@ -99,6 +102,8 @@ export function classifyEvidenceForGate(
   }
   if (kind === "certification") {
     if (item.statusAtEvaluation !== "VERIFIED") return "CERT_NOT_VERIFIED";
+    // 要求点名了认证类型（"Must be UL listed"）时，一张 VERIFIED 的 CSA 证书不能顶 UL
+    if (requiredCertType && item.certificationType !== requiredCertType) return "CERT_TYPE_MISMATCH";
     const scope = item.scope;
     if (scope !== "SUPPLIER") {
       // PRODUCT / MODEL_SERIES：必须精确等于候选绑定的 offering；候选无 offering 也不行
@@ -163,11 +168,12 @@ export function adjudicateMandatoryItem(
     return { ...base, gateVerdict: "UNKNOWN", evidenceAdmissible: false, reasonCode: "AI_ASSISTED_NOT_ADMISSIBLE" };
   }
   const evidence = Array.isArray(match.evidence) ? match.evidence : [];
+  const requiredCertType = detectRequiredCertificationType(entry.text);
   if (match.evaluatedBy === "DETERMINISTIC") {
     // 只有服务端规则能写出 DETERMINISTIC，但门不只信标签：证据里必须有可采信的证书，
     // 或一条带已知规则 ID 的 note（规则按冻结的 offering 快照可回放）
     const admissible = evidence.some((item) => {
-      if (classifyEvidenceForGate(item, candidate, match.createdAt) === null) return true;
+      if (classifyEvidenceForGate(item, candidate, match.createdAt, requiredCertType) === null) return true;
       if (!isObj(item) || item.kind !== "note" || typeof item.snippet !== "string") return false;
       const snippet = item.snippet;
       return (DETERMINISTIC_MATCH_RULES as readonly string[]).some((id) => snippet.startsWith(`${id} |`));
@@ -179,7 +185,7 @@ export function adjudicateMandatoryItem(
   // HUMAN PASS：至少一条可采信证据（证书 VERIFIED+未过期+scope 兼容，或项目档案）
   let firstReason: MandatoryGateReasonCode = "EVIDENCE_NOT_VERIFIED";
   for (const item of evidence) {
-    const r = classifyEvidenceForGate(item, candidate, match.createdAt);
+    const r = classifyEvidenceForGate(item, candidate, match.createdAt, requiredCertType);
     if (r === null) {
       return { ...base, gateVerdict: "PASS", evidenceAdmissible: true, reasonCode: "OK" };
     }

@@ -161,6 +161,19 @@ async function main() {
     assert.equal(g.snapshot.items[0].reasonCode, "OFFERING_REQUIRED");
   }
 
+  console.log("类型：要求点名 UL 时，VERIFIED 的 CSA 证书不能顶（CERT_TYPE_MISMATCH）；UL 才行；未点名类型时不限");
+  {
+    const ul = req("R1", true, "safety", "Must be UL listed.");
+    const csa = cert({ certificationType: "CSA" });
+    const g1 = gate([ul], [match("R1", "PASS", [csa])]);
+    assert.equal(g1.snapshot.result, "INCOMPLETE");
+    assert.equal(g1.snapshot.items[0].reasonCode, "CERT_TYPE_MISMATCH");
+    assert.equal(gate([ul], [match("R1", "PASS", [cert({ certificationType: "UL" })])]).snapshot.result, "PASS");
+    assert.equal(gate([req("R1", true, "installation", "Installer shall hold a valid quality certificate.")], [match("R1", "PASS", [csa])]).snapshot.result, "PASS", "未点名类型 → 任何可采信证书都行");
+    assert.equal(gate([ul], [match("R1", "PASS", [cert({ certificationType: "CSA", statusAtEvaluation: "CLAIMED" })])]).snapshot.items[0].reasonCode, "CERT_NOT_VERIFIED", "状态缺陷先于类型缺陷");
+    assert.equal(gate([ul], [match("R1", "PASS", [csa], "DETERMINISTIC")]).snapshot.result, "INCOMPLETE", "DETERMINISTIC 也不能拿错类型证书当依据");
+  }
+
   console.log("档案证据可采信（项目档案：写入时已过归属校验）");
   assert.equal(gate([req("R1", true)], [match("R1", "PASS", [{ kind: "archive", archiveItemId: "a1" }])]).snapshot.result, "PASS");
 

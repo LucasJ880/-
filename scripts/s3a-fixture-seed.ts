@@ -133,6 +133,18 @@ async function main() {
     },
   ];
 
+  // S4-A：一个**没有** uncertain 要求的项目——否则硬门永远 INCOMPLETE，验不了 PASS 流程
+  SPECS.push({
+    key: "evalclean",
+    name: `[演示] 标准成品采购（无待确认项）— 会议椅 ${TAG}`,
+    scenario: "标准成品采购",
+    reqs: [
+      { code: "R-001", en: "Chairs shall be certified to ANSI/BIFMA X5.1.", zh: "座椅须通过 ANSI/BIFMA X5.1 认证。", category: "safety", mandatory: true },
+      { code: "R-002", en: "Minimum weight capacity 300 lb.", zh: "最小承重 300 磅。", category: "technical", mandatory: true, quantity: "300", unit: "lb" },
+      { code: "R-003", en: "Mesh back preferred.", zh: "优先选用网布靠背。", category: "product", mandatory: false },
+    ],
+  });
+
   const created: Array<{ key: string; projectId: string; analysisRunId: string }> = [];
 
   for (const spec of SPECS) {
@@ -491,12 +503,39 @@ async function main() {
     };
   }
 
+  /* ═════════ S4-A 夹具：评估用的产品 / 证书 / 线索 / 档案（evalclean 项目）═════════ */
+  let s4a: Record<string, string | null> | null = null;
+  const evalProjectId = projectByKey.get("evalclean");
+  if (evalProjectId && s3b) {
+    const sup = s3b.supplierId;
+    await db.supplierOffering.deleteMany({ where: { orgId: org.id, supplierId: sup, sku: { in: ["S4A-A", "S4A-B"] } } });
+    const offA = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: sup, name: "[演示] 网布会议椅 A", sku: "S4A-A", attributesJson: { 承重: "600 lb", 材质: "钢架+网布" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", createdByUserId: buyer.id } });
+    const offB = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: sup, name: "[演示] 经济款会议椅 B", sku: "S4A-B", attributesJson: { 承重: "250 lb" }, unitPrice: 50, currency: "CNY", priceStatus: "KNOWN", sourceKind: "MANUAL", createdByUserId: buyer.id } });
+    const FUTURE = new Date(`${new Date().getFullYear() + 3}-01-01T00:00:00.000Z`);
+    const PAST = new Date("2020-01-01T00:00:00.000Z");
+    const mkCert = (data: Record<string, unknown>) => db.supplierCertification.create({ data: { orgId: org.id, supplierId: sup, sourceKind: "USER_ENTRY", ...data } as never });
+    const certBifmaA = await mkCert({ scope: "PRODUCT", offeringId: offA.id, certificationType: "BIFMA", certificateNumber: `BIFMA-A-${TAG}`, status: "VERIFIED", expiresAt: FUTURE, verifiedByUserId: buyer.id, verifiedAt: new Date() });
+    const certBifmaClaimed = await mkCert({ scope: "SUPPLIER", certificationType: "BIFMA", certificateNumber: `BIFMA-CLAIM-${TAG}`, status: "CLAIMED", sourceKind: "SOCIAL" });
+    const certUlExpired = await mkCert({ scope: "SUPPLIER", certificationType: "UL", certificateNumber: `UL-OLD-${TAG}`, status: "VERIFIED", expiresAt: PAST, verifiedByUserId: buyer.id, verifiedAt: new Date() });
+    const social = await signalSvc.createSubmittedSignal(actorBuyer, {
+      url: `https://s3a-fixture-factory.example/${TAG}/s4a-social`,
+      rawText: `[演示夹具] 厂家抖音自述：我们的椅子都是 BIFMA 认证、UL 认证 ${TAG}`,
+      manualEntry: true,
+      projectId: evalProjectId,
+    });
+    await signalSvc.reviewSignal(actorBuyer, social.id);
+    await signalSvc.linkSignalToSupplier(actorBuyer, social.id, { supplierId: sup });
+    const arch = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: evalProjectId, kind: "other", captureKey: `upload:s3b-${TAG}-s4a-test-report`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 2048, contentHash: `s4a_${TAG}_${Date.now()}`, storageKey: `archive/${org.id}/s4/s4a_${TAG}`, createdById: buyer.id } });
+    s4a = { projectId: evalProjectId, supplierId: sup, offeringAId: offA.id, offeringBId: offB.id, certBifmaAId: certBifmaA.id, certBifmaClaimedId: certBifmaClaimed.id, certUlExpiredId: certUlExpired.id, socialSignalId: social.id, archiveItemId: arch.id };
+  }
+
   console.log(
     JSON.stringify(
       {
         orgId: org.id,
         orgCode: org.code,
         s3b,
+        s4a,
         password: PASSWORD,
         users: {
           buyer: buyer.email,

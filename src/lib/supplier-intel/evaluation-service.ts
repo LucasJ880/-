@@ -33,7 +33,7 @@ import {
   indexRequirementSnapshot,
   validateRequirementSnapshot,
 } from "./requirement-snapshot";
-import { lockSupplierSearchRunForWrite } from "./run-service";
+import { RUN_WRITE_TX_OPTIONS, lockSupplierSearchRunForWrite } from "./run-service";
 
 // ── 按值快照构造器（S1 Guard §3.1/§3.2/§3.3）────────────────
 
@@ -186,7 +186,7 @@ export async function createSupplierCandidate(
       }
       throw err;
     }
-  });
+  }, RUN_WRITE_TX_OPTIONS);
 }
 
 export async function getCandidate(actor: SupplierIntelActor, candidateId: string) {
@@ -386,5 +386,5 @@ export async function createRequirementMatch(
       }
       throw err;
     }
-  });
+  }, RUN_WRITE_TX_OPTIONS);
 }

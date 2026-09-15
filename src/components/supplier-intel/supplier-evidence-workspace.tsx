@@ -236,7 +236,7 @@ export function SupplierEvidenceWorkspace({
           supplierId={view.supplier.id}
           projectId={view.projectContext.id}
           offerings={view.offerings}
-          canWriteSupplier={view.canWrite}
+          canWriteProject={view.projectContext.canWrite}
           initialRunId={evaluationRunId}
         />
       ) : null}
