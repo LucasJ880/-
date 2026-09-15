@@ -28,7 +28,7 @@ import { getOrgMembership } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import type { SupplierIntelActor } from "./actor";
-import { assertProjectAccessForActor, listAccessibleProjectIdsForActor } from "./access";
+import { listAccessibleProjectIdsForActor, probeProjectAccess } from "./access";
 import { resolveRegistryProvider } from "./constants";
 import { SupplierIntelError } from "./errors";
 import { buildSignalListScopeFilter, buildSignalProjectVisibilityFilter } from "./signal-scope";
@@ -206,13 +206,9 @@ function readAttributes(json: unknown): Record<string, string> {
   return out;
 }
 
-async function canReadProject(actor: SupplierIntelActor, projectId: string): Promise<boolean> {
-  try {
-    await assertProjectAccessForActor(actor, projectId, "read");
-    return true;
-  } catch {
-    return false;
-  }
+/** 只吞授权失败；基础设施错误抛出（见 access.probeProjectAccess） */
+function canReadProject(actor: SupplierIntelActor, projectId: string): Promise<boolean> {
+  return probeProjectAccess(actor, projectId, "read");
 }
 
 export async function loadSupplierCapabilityView(
@@ -309,9 +305,7 @@ export async function loadSupplierCapabilityView(
       select: { id: true, name: true },
     });
     if (p) {
-      let projectWrite = true;
-      try { await assertProjectAccessForActor(actor, p.id, "write"); } catch { projectWrite = false; }
-      projectContext = { id: p.id, name: p.name, canWrite: projectWrite };
+      projectContext = { id: p.id, name: p.name, canWrite: await probeProjectAccess(actor, p.id, "write") };
     }
   }
 

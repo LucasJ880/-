@@ -19,6 +19,8 @@ let pass = 0, fail = 0;
 function ok(cond, name, detail) { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ""}`); } }
 function requireFixture(v, name) { if (v === undefined || v === null || v === "") { fail++; console.log(`  ✗ [夹具缺失] ${name}`); return false; } pass++; console.log(`  ✓ [夹具就绪] ${name}`); return true; }
 const FORBIDDEN = /\/100|排名|推荐指数|合格率|PRIMARY|BACKUP|HIGH_RISK|系统已确认/;
+/** 页面**必须**写「这不是最终供应商排名」这类否定句；断言抓的是把排名 / 分数当陈述用，先剥掉已知否定形式 */
+function stripNegated(t) { return t.replace(/这不是最终供应商排名|不是最终排名|不是排名|不是评分|不是合规判定/g, ""); }
 
 async function login(context, email) {
   const res = await context.request.post(`${BASE}/api/auth/login`, { data: { email, password: PASSWORD } });
@@ -51,7 +53,15 @@ async function applySuggestion(page, ctx, runId, key) {
 }
 async function humanAdjudicate(page, ctx, runId, key, verdict, pickEvidence) {
   const row = page.locator(`[data-testid="requirement-row"][data-requirement-key="${key}"]`);
-  await row.locator('[data-testid="open-adjudicate"]').click();
+  const openBtn = row.locator('[data-testid="open-adjudicate"]');
+  await openBtn.waitFor({ state: "visible", timeout: 30_000 }).catch(() => {});
+  if ((await openBtn.count()) === 0) {
+    // 不只报 timeout：把服务端此刻的 status / canWrite / 该键是否已有 Match 一起报出来
+    const ev = await apiEval(ctx, runId);
+    const v = ev.json?.view; const m = v?.candidates?.[0]?.requirements?.find((r) => r.entry.code === key)?.match;
+    throw new Error(`「人工判定」按钮缺失（${key}）：api=${ev.status} status=${v?.run?.status} canWrite=${v?.canWrite} match=${m ? m.verdict + "/" + m.evaluatedBy : "none"}`);
+  }
+  await openBtn.click();
   await row.locator(`[data-testid="verdict-${verdict}"]`).click();
   if (pickEvidence) await pickEvidence(row);
   await row.locator('[data-testid="adjudicate-submit"]').click();
@@ -113,7 +123,7 @@ async function main() {
     ok((await page.locator('[data-testid="mandatory-gate-label"]').innerText()).includes("强制项：已通过"), "B1：强制项：已通过");
     ok((await page.locator('[data-testid="gate-recommendation"]').count()) === 0, "B2：PASS 不显示任何推荐（不提前 PRIMARY/BACKUP）");
     const mainText = await page.innerText("main");
-    ok(!FORBIDDEN.test(mainText), "B3：页面无分数 / 排名 / PRIMARY / BACKUP / HIGH_RISK", (mainText.match(FORBIDDEN) ?? [])[0]);
+    ok(!FORBIDDEN.test(stripNegated(mainText)), "B3：页面不把分数 / 排名 / PRIMARY / BACKUP / HIGH_RISK 当陈述使用（否定句除外）", (stripNegated(mainText).match(FORBIDDEN) ?? [])[0]);
     await page.locator('[data-testid="complete-evaluation"]').click();
     const doneA = await waitEvalState(ctx, runA, (v) => v.run.status === "COMPLETED");
     ok(doneA.json?.view?.run?.status === "COMPLETED", "B4：完成评估 → COMPLETED");

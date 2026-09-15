@@ -15,7 +15,7 @@
 import type { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
-import { assertProjectAccessForActor } from "./access";
+import { assertProjectAccessForActor, probeProjectAccess } from "./access";
 import type { SupplierIntelActor } from "./actor";
 import { loadCanonicalSupplierRequirementSnapshot } from "./canonical-requirements";
 import {
@@ -426,8 +426,8 @@ export async function loadEvaluationView(actor: SupplierIntelActor, runId: strin
   if (!run || !run.projectId) throw new SupplierIntelError("NOT_FOUND", "评估运行不存在");
   await assertProjectAccessForActor(actor, run.projectId, "read");
   if (readRunMode(run.sourceConfigJson) !== "EVALUATION_ONLY") throw new SupplierIntelError("RUN_MODE_MISMATCH", "这不是评估运行");
-  let canWrite = true;
-  try { await assertProjectAccessForActor(actor, run.projectId, "write"); } catch { canWrite = false; }
+  // 探测只吞授权失败；DB 抖动要抛出去（否则 200 + canWrite=false 会把整页按钮变没）
+  const canWrite = await probeProjectAccess(actor, run.projectId, "write");
 
   const entries = validateRequirementSnapshot(run.requirementSnapshotJson);
   const candidates = await db.supplierCandidate.findMany({
