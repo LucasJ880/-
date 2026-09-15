@@ -349,19 +349,26 @@ async function main() {
         ok(fin.mandatoryGateResult === "PASS", `FR3-G4-${i}c：重算后 PASS`);
       }
       ok(true, `FR3-G4：观察到 gate-first=${sawGateFirst} match-first=${sawMatchFirst}（两种顺序都合法）`);
-      // G4-alt：显式把 Match 事务先启动（先拿 Run 锁），门随后 → 门必须包含该 Match，且不是 PENDING
+      // G4-alt：把 Match 先启动、门随后。Match 在进事务前还要读候选 / 校验证据 / 冻结证书快照，
+      // 所以「谁先拿到 Run 锁」并不由启动顺序决定——这里断言的是不变量本身：
+      // 终态要么 PENDING 且无快照（门先、Match 后使其失效），要么 PASS 且门含该 Match（Match 先）。
+      // 绝不允许「门 != PENDING 且不含最新 Match」。
       {
         const cr = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: projB.id, supplierId: supplier.id, offeringId: offA.id });
         await evalRun.applyDeterministicMatch(actorWriter, { candidateId: cr.candidate.id, requirementKey: "R-002" });
         const pMatch = evalRun.recordEvaluationMatch(actorWriter, { candidateId: cr.candidate.id, requirementKey: "R-001", verdict: "PASS", evidence: [{ kind: "certification", certificationId: certBifmaA.id }] });
-        await new Promise((r) => setTimeout(r, 150));
+        await new Promise((r) => setTimeout(r, 1500));
         const pGate = evalRun.computeCandidateMandatoryGate(actorWriter, cr.candidate.id);
         const rs = await Promise.allSettled([pMatch, pGate]);
         ok(rs.every((x) => x.status === "fulfilled"), "FR3-G4-alt-a：Match 先起、门后起，都完成", rs.filter((x) => x.status === "rejected").map((x) => String((x as PromiseRejectedResult).reason)).join(" | "));
         const st = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cr.candidate.id } });
         const gj = st.mandatoryGateJson as { items?: Array<{ requirementKey: string; matchId: string | null }> } | null;
         const gateSawMatch = Boolean(gj?.items?.find((it) => it.requirementKey === "R-001")?.matchId);
-        ok(st.mandatoryGateResult === "PASS" && gateSawMatch, "FR3-G4-alt-b：Match 先 → 门看见该 Match → PASS（不是陈旧门）", `${st.mandatoryGateResult} sawMatch=${gateSawMatch}`);
+        const gateFirst = st.mandatoryGateResult === "PENDING" && st.mandatoryGateJson === null && st.recommendation === null;
+        const matchFirst = st.mandatoryGateResult === "PASS" && gateSawMatch;
+        ok(gateFirst || matchFirst, `FR3-G4-alt-b：终态合法（${gateFirst ? "门先→已置 PENDING 无快照" : matchFirst ? "Match 先→门含该 Match→PASS" : "非法：陈旧门"}）`, `${st.mandatoryGateResult} sawMatch=${gateSawMatch} json=${st.mandatoryGateJson === null ? "null" : "set"}`);
+        const stale = st.mandatoryGateResult !== "PENDING" && !gateSawMatch;
+        ok(!stale, "FR3-G4-alt-c：不存在「门 != PENDING 且不含最新 Match」的陈旧终态");
       }
     }
 
