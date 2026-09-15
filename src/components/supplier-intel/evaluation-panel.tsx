@@ -171,7 +171,9 @@ export function EvaluationPanel({
       {/* 选中的评估运行 */}
       {selectedRunId && loading && !view ? <p className="flex items-center gap-1 text-xs text-[var(--muted)]"><Loader2 size={12} className="animate-spin" /> 加载评估…</p> : null}
       {view && candidate ? (
-        <EvaluationRunDetail view={view} candidate={candidate} canAct={canAct} busy={busy} q={q} onAct={act} onRefresh={() => void refresh()} />
+        // key=run.id：切换评估运行时整块重挂。否则按 requirementKey 复用的行会把上一次运行里
+        // 「已展开的判定表单 + 勾选的证据」原样带到这一次——证据错跑到别的运行上（验收 FLOW E 实测）。
+        <EvaluationRunDetail key={view.run.id} view={view} candidate={candidate} canAct={canAct} busy={busy} q={q} onAct={act} onRefresh={() => void refresh()} />
       ) : null}
     </div>
   );
@@ -253,7 +255,7 @@ function RequirementGroup({ title, rows, candidate, canAct, busy, q, onAct }: {
     <div className="space-y-2">
       <p className="text-xs font-medium">{title}（{rows.length}）</p>
       <ul className="space-y-2">
-        {rows.map((r) => <RequirementRow key={r.entry.code} row={r} candidate={candidate} canAct={canAct} busy={busy} q={q} onAct={onAct} />)}
+        {rows.map((r) => <RequirementRow key={`${candidate.id}:${r.entry.code}`} row={r} candidate={candidate} canAct={canAct} busy={busy} q={q} onAct={onAct} />)}
       </ul>
     </div>
   );
@@ -267,6 +269,11 @@ function RequirementRow({ row, candidate, canAct, busy, q, onAct }: {
   const [verdict, setVerdict] = useState<(typeof VERDICTS)[number]>("UNKNOWN");
   const [selected, setSelected] = useState<EvidenceSel[]>([]);
   const [explanation, setExplanation] = useState("");
+  // 判定一旦落库，把表单状态清干净——不留「已展开 + 旧勾选」给任何后续渲染
+  const matchId = row.match?.id ?? null;
+  useEffect(() => {
+    if (matchId) { setOpen(false); setSelected([]); setExplanation(""); }
+  }, [matchId]);
   const ml = mandatoryLabel(row.entry.mandatory);
   const mv = row.match ? matchVerdictDisplay(row.match.verdict) : null;
   const gateItem = candidate.mandatoryGate?.items.find((i) => i.requirementKey === row.entry.code) ?? null;
