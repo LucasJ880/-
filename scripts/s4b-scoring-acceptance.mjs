@@ -38,13 +38,17 @@ async function apiEval(ctx, runId) { return apiJson(ctx, `/api/supplier-intel/ru
 async function apiRanking(ctx) { return apiJson(ctx, `/api/supplier-intel/projects/${PROJ}/ranking?orgId=${encodeURIComponent(ORG)}`); }
 async function waitEvalState(ctx, runId, pred, timeoutMs = 120_000) { const dl = Date.now() + timeoutMs; let last = null; while (Date.now() < dl) { last = await apiEval(ctx, runId); if (last.json?.view && pred(last.json.view)) return last; await new Promise((r) => setTimeout(r, 1500)); } return last; }
 async function waitRunView(page, runId) { await page.locator(`[data-testid="evaluation-run"][data-run-id="${runId}"]`).waitFor({ state: "visible", timeout: 120_000 }); }
-async function startEvaluation(page, offeringId) {
+async function startEvaluation(page, ctx, supplierId, offeringId) {
+  // 运行列表是异步加载的：先等它落地（空态或至少一行），再用**服务端**列表当基线——否则会把旧运行误当成「新建的那个」
+  await page.locator('[data-testid="evaluation-runs-empty"], [data-testid="evaluation-run-row"]').first().waitFor({ state: "attached", timeout: 120_000 });
+  const listPath = `/api/supplier-intel/projects/${PROJ}/evaluations?orgId=${encodeURIComponent(ORG)}&supplierId=${encodeURIComponent(supplierId)}`;
+  const before = new Set(((await apiJson(ctx, listPath)).json?.runs ?? []).map((r) => r.id));
   await page.selectOption('[data-testid="evaluation-offering"]', offeringId);
-  const before = new Set(await page.locator('[data-testid="evaluation-run-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-run-id"))));
   await page.locator('[data-testid="evaluation-start"]').click();
-  await page.waitForFunction((prev) => { const rows = [...document.querySelectorAll('[data-testid="evaluation-run-row"]')].map((e) => e.getAttribute("data-run-id")); return rows.some((id) => !prev.includes(id)); }, [...before], { timeout: 120_000 });
-  const rows = await page.locator('[data-testid="evaluation-run-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-run-id")));
-  const runId = rows.find((id) => !before.has(id));
+  let runId = null; const dl = Date.now() + 120_000;
+  while (!runId && Date.now() < dl) { const l = await apiJson(ctx, listPath); runId = (l.json?.runs ?? []).find((r) => !before.has(r.id))?.id ?? null; if (!runId) await new Promise((r) => setTimeout(r, 1500)); }
+  if (!runId) throw new Error("开始评估后服务端列表里没有出现新的运行");
+  await page.locator(`[data-testid="evaluation-run-row"][data-run-id="${runId}"]`).waitFor({ state: "visible", timeout: 120_000 });
   // dev + 远程隔离库下评估视图一次要十几秒；视图首载失败时（如连接池抖动）采购人员会再点一次运行行——这里做同样的事
   try { await page.locator(`[data-testid="evaluation-run"][data-run-id="${runId}"]`).waitFor({ state: "visible", timeout: 60_000 }); }
   catch { await page.locator(`[data-testid="evaluation-run-row"][data-run-id="${runId}"]`).click(); await waitRunView(page, runId); }
@@ -58,8 +62,17 @@ async function applySuggestion(page, ctx, runId, key) {
 }
 async function humanAdjudicate(page, ctx, runId, key, verdict, certId) {
   const row = page.locator(`[data-testid="requirement-row"][data-requirement-key="${key}"]`);
-  await row.locator('[data-testid="open-adjudicate"]').waitFor({ state: "visible", timeout: 30_000 });
-  await row.locator('[data-testid="open-adjudicate"]').click();
+  const openBtn = row.locator('[data-testid="open-adjudicate"]');
+  await openBtn.waitFor({ state: "visible", timeout: 30_000 }).catch(() => {});
+  if ((await openBtn.count()) === 0) {
+    // 不只报 timeout：把服务端此刻的 status / canWrite / 该键是否已有 Match，以及页面当前选中的运行一起报出来
+    const ev = await apiEval(ctx, runId);
+    const v = ev.json?.view; const m = v?.candidates?.[0]?.requirements?.find((r) => r.entry.code === key)?.match;
+    const shown = await page.locator('[data-testid="evaluation-run"]').evaluateAll((els) => els.map((e) => `${e.getAttribute("data-run-id")}:${e.getAttribute("data-run-status")}`));
+    const rows = await page.locator('[data-testid="requirement-row"]').count();
+    throw new Error(`「人工判定」按钮缺失（${key}）：api=${ev.status} status=${v?.run?.status} canWrite=${v?.canWrite} match=${m ? m.verdict + "/" + m.evaluatedBy : "none"} shownRuns=${shown.join(",")} rows=${rows} wanted=${runId}`);
+  }
+  await openBtn.click();
   await row.locator(`[data-testid="verdict-${verdict}"]`).click();
   if (certId) await row.locator(`[data-testid="evidence-cert"][data-cert-id="${certId}"]`).check();
   await row.locator('[data-testid="adjudicate-submit"]').click();
@@ -77,8 +90,8 @@ async function completeRun(page, ctx, runId) {
   return done;
 }
 /** 全流程：开始评估 → R-001 人工 PASS（证书）→ R-002 规则 → R-003 人工 PASS → 算门 → 完成并评分 */
-async function evaluateFull(page, ctx, offeringId, certId, opts = {}) {
-  const runId = await startEvaluation(page, offeringId);
+async function evaluateFull(page, ctx, supplierId, offeringId, certId, opts = {}) {
+  const runId = await startEvaluation(page, ctx, supplierId, offeringId);
   await humanAdjudicate(page, ctx, runId, "R-001", "PASS", certId);
   await applySuggestion(page, ctx, runId, "R-002");
   if (!opts.skipR003) await humanAdjudicate(page, ctx, runId, "R-003", "PASS", certId);
@@ -127,7 +140,7 @@ async function main() {
 
     console.log("\n== FLOW H：便宜但 mandatory FAIL → NOT_ELIGIBLE，无正式评分 ==");
     await page.goto(evidenceUrl(S4A.s4bSupplierCheapId), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const runH = await startEvaluation(page, S4A.s4bOfferingCheapId);
+    const runH = await startEvaluation(page, ctx, S4A.s4bSupplierCheapId, S4A.s4bOfferingCheapId);
     await humanAdjudicate(page, ctx, runH, "R-001", "PASS", S4A.s4bCertCheapId);
     await applySuggestion(page, ctx, runH, "R-002");
     await computeGate(page, ctx, runH);
@@ -140,7 +153,7 @@ async function main() {
 
     console.log("\n== FLOW B / E：1688 便宜挂牌价 + 门 PASS + 无 RFQ → Commercial 待确认；新供应商 → Reliability 待验证 → 总分 null → NEEDS_VERIFICATION ==");
     await page.goto(evidenceUrl(S4A.s4bSupplier1688Id), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { runId: runB, view: vB } = await evaluateFull(page, ctx, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
+    const { runId: runB, view: vB } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
     const cB = vB.candidates[0];
     ok(cB.mandatoryGateResult === "PASS" && cB.recommendation === "NEEDS_VERIFICATION" && cB.scores.total === null, "B1：门 PASS 但 NEEDS_VERIFICATION，总分 null");
     ok(cB.scoreBreakdown?.commercial?.priceEvidenceTier === "PLATFORM_LISTED" && cB.scores.commercial === null, "B2：商务 = PLATFORM_LISTED → 待确认（不进正式评分）");
@@ -157,7 +170,7 @@ async function main() {
 
     console.log("\n== FLOW D / F：历史供应商 B（正式 RFQ + VERIFIED 出口）→ 技术 40 分维度可解释；进口准备度出现 ==");
     await page.goto(evidenceUrl(SUP_B), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { runId: runD, view: vD } = await evaluateFull(page, ctx, S4A.offeringAId, S4A.certBifmaAId);
+    const { runId: runD, view: vD } = await evaluateFull(page, ctx, SUP_B, S4A.offeringAId, S4A.certBifmaAId);
     const cD = vD.candidates[0];
     ok(cD.scores.technical === 100 && cD.scores.commercial !== null && cD.scores.reliability !== null && cD.scores.importRisk !== null && cD.scores.total !== null, "D1/F1：四维齐全，总分存在", JSON.stringify(cD.scores));
     ok((await page.locator('[data-testid="supplier-score-box"]').getAttribute("data-score-state")) === "COMPLETE", "D2：评分框 COMPLETE");
@@ -174,7 +187,7 @@ async function main() {
 
     console.log("\n== FLOW G 前置：第二家四维齐全（FULL）==");
     await page.goto(evidenceUrl(S4A.s4bSupplierFullId), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { view: vF } = await evaluateFull(page, ctx, S4A.s4bOfferingFullId, S4A.s4bCertFullId);
+    const { view: vF } = await evaluateFull(page, ctx, S4A.s4bSupplierFullId, S4A.s4bOfferingFullId, S4A.s4bCertFullId);
     const cF = vF.candidates[0];
     ok(cF.scores.total !== null || cF.recommendation === "HIGH_RISK", "G0：FULL 四维齐全（或按契约 HIGH_RISK）", JSON.stringify(cF.scores));
 
@@ -208,7 +221,7 @@ async function main() {
     const oldB2 = (await apiEval(ctx, runB)).json.view.candidates[0];
     ok(JSON.stringify(oldB.scores) === JSON.stringify(oldB2.scores) && oldB2.recommendation === "NEEDS_VERIFICATION" && oldB2.scoreBreakdown.commercial.priceEvidenceTier === "PLATFORM_LISTED", "C1 / I0：旧评估不因新报价漂移");
     await page.goto(evidenceUrl(S4A.s4bSupplier1688Id), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { view: vC } = await evaluateFull(page, ctx, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
+    const { view: vC } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
     const cC = vC.candidates[0];
     ok(cC.scoreBreakdown.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && cC.scores.commercial !== null && cC.scoreBreakdown.commercial.sub.price === 100, "C2：新评估 RFQ_CONFIRMED，最低正式价 → 价格分 100", JSON.stringify(cC.scoreBreakdown.commercial.sub));
     ok((await page.locator('[data-testid="price-evidence-tier"]').innerText()).includes("正式报价") && (await page.locator('[data-testid="listed-price"]').innerText()).includes("正式报价覆盖挂牌价"), "C3：界面「正式报价 · 来源 Round 1」，挂牌证据保留并注明被覆盖");
@@ -225,7 +238,7 @@ async function main() {
     ok(JSON.stringify(frozen.scores) === JSON.stringify(after.scores) && JSON.stringify(frozen.scoreBreakdown) === JSON.stringify(after.scoreBreakdown), "I1：报价 / 能力变了，B 历史评估评分与快照一字不变");
     await page.goto(evidenceUrl(SUP_B, `&evaluationRunId=${runD}`), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await waitRunView(page, runD);
     ok((await page.locator('[data-testid="supplier-score-box"]').getAttribute("data-official-total")) === String(frozen.scores.total), "I2：历史界面显示冻结总分");
-    const { view: vI } = await evaluateFull(page, ctx, S4A.offeringAId, S4A.certBifmaAId);
+    const { view: vI } = await evaluateFull(page, ctx, SUP_B, S4A.offeringAId, S4A.certBifmaAId);
     const cI = vI.candidates[0];
     ok(cI.scores.importRisk !== frozen.scores.importRisk || cI.scores.commercial !== frozen.scores.commercial, "I3：新评估反映新数据（出口回到 CLAIMED / 竞价变化）", JSON.stringify({ old: frozen.scores, new: cI.scores }));
     await page.screenshot({ path: `${OUT}/flow-i-immutability.png` });

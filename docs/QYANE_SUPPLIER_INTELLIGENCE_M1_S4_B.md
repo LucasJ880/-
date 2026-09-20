@@ -98,12 +98,12 @@
 
 | 项 | 结果 |
 | --- | --- |
-| 纯核 discovery-priority（D1–D6 + 纯度守卫） | ⟨PURE_DP⟩ |
-| 纯核 score-components（T1–T4 / C1–C6 / R1–R5 / I1–I5 / P1–P3 / 价格层 / 推荐契约） | ⟨PURE_SC⟩ |
-| 纯核 project-ranking-model（Q1–Q7 / §70 §71 / §51 / 赛马态 / 下一步） | ⟨PURE_RK⟩ |
-| S4-B DB 套件（隔离库） | ⟨S4B_DB⟩ |
+| 纯核 discovery-priority（D1–D6 + 纯度守卫） | PASS（D1 P1 / D2 ONE688 低相关 P3 / D3 抖音高相关 > 1688 低相关 / D4 「UL认证」不产生 VERIFIED / D5 确定性 / D6 不猜店龄销量；桶阈值与可操作性表冻结；模块零 import、零 IO） |
+| 纯核 score-components（T1–T4 / C1–C6 / R1–R5 / I1–I5 / P1–P3 / 价格层 / 推荐契约） | PASS（T1 100/50/0、T2 缺失进分母、T3 AI_ASSISTED 归 0、T4 无技术项 null + UNMAPPED；C1–C6 含混币种 / 单家 / 挂牌价 / 口径不混；R1 <2 null、R2 70/30、当前项目不算历史、R3–R5 类型层不接受 rating / origin / 店铺指标；I1 无证据 null（不打 0）、I2 公式、I3 CLAIMED 仍 null；价格层六级；P1 官方总分 == computeSupplierScore、P2 缺维 null、P3 40/25/20/15；推荐契约阈值） |
+| 纯核 project-ranking-model（Q1–Q7 / §70 §71 / §51 / 赛马态 / 下一步） | PASS（Q1–Q7、§70 最低价门 FAIL、§71 历史门 FAIL、§51 1688 例子、赛马态 / 下一步动作；输入对象不被改写） |
+| S4-B DB 套件（隔离库） | **65 通过 / 0 失败**（隔离分支 br-fancy-queen-an60hl31，第二遍；第一遍 58/4 全是测试自身的期望错误：V2 权限顺序、R2 把无关项目的真实历史漏数、D 供应商史料不足以可排名、赛马 A 因夹具无发现 Run 的 Brief 而 P3——均修正测试 / 夹具，产品代码未改） |
 | 浏览器验收 FLOW A–I + 只读 + 三视口（隔离库 + dev） | ⟨BROWSER⟩ |
-| 回归 S4-A / S3-B / S3-A / S2-TB / S2 / S1 | ⟨REGRESS⟩ |
+| 回归 S4-A / S3-B / S3-A / S2-TB / S2 / S1 | **S4-A 116 / S3-B 87 / S3-A 131 / S2-TB 118 / S2 32 / S1 86，全部 0 失败**（分支 br-summer-night-anaivy7g / br-purple-brook-an5c72k5 / br-lively-dream-andca1pm）。S4-A T26d 按 S4-B 收口契约对齐：PASS 但评分证据不完整的候选在收口时写 NEEDS_VERIFICATION（此前 S4-A 收口不写推荐），live 数据变化仍不改写、永不 PRIMARY / BACKUP；第一遍 115/1 即此一处 |
 | typecheck / 改动文件 lint / lint baseline / build | ⟨QUALITY⟩ |
 | CI / staging（最终 PR HEAD） | ⟨CI_STAGING⟩ |
 
