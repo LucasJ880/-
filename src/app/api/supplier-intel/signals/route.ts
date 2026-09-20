@@ -3,6 +3,7 @@ import { requireProjectReadAccess, requireProjectWriteAccess } from "@/lib/proje
 import { requireSupplierIntelAccess } from "@/lib/supplier-intel/access";
 import { mapSupplierIntelError } from "@/lib/supplier-intel/http";
 import { resolveSubmitSignalScope } from "@/lib/supplier-intel/signal-scope";
+import { annotateSignalsWithPriority } from "@/lib/supplier-intel/discovery-priority-service";
 import { createSubmittedSignal, listSignalsPage } from "@/lib/supplier-intel/signal-service";
 
 /**
@@ -43,6 +44,11 @@ export async function GET(request: NextRequest) {
         take: Number.isFinite(takeRaw) && takeRaw > 0 ? takeRaw : undefined,
       },
     );
+    // S4-B：项目上下文下给每条线索标注「找厂优先级」（read-model，不落库；≠ 供应商评分）
+    if (projectId) {
+      const signals = await annotateSignalsWithPriority({ orgId: tenant.orgId, userId: tenant.userId }, projectId, page.signals);
+      return NextResponse.json({ ...page, signals });
+    }
     return NextResponse.json(page);
   } catch (err) {
     const mapped = mapSupplierIntelError(err);
