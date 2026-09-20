@@ -16,6 +16,16 @@ const OUT = process.env.S4B_SHOT_DIR || ".s4b-screenshots";
 const DB_URL = process.env.DATABASE_URL || "";
 if (!DB_URL || DB_URL.includes("ep-super-field-antfibsl")) { console.error("DATABASE_URL 缺失或指向生产主机 — ABORT"); process.exit(2); }
 const db = new PrismaClient({ datasources: { db: { url: DB_URL } } });
+/** 脚本自己的直写只用于模拟外部事实；远程隔离库的空闲连接会被回收（P2024 / P1001），重连一次再试，不把基础设施抖动记成产品失败 */
+async function dbWrite(fn) {
+  try { return await fn(db); }
+  catch (e) {
+    if (!["P2024", "P1001", "P1017", "P2028"].includes(e?.code)) throw e;
+    console.log(`  · 隔离库连接回收（${e.code}），重连后重试一次`);
+    await db.$disconnect().catch(() => {}); await new Promise((r) => setTimeout(r, 5000));
+    return await fn(db);
+  }
+}
 let ids;
 try { ids = JSON.parse(readFileSync(IDS_FILE, "utf8")); } catch (e) { console.error(`无法读取夹具清单 ${IDS_FILE}：${e?.message}`); process.exit(2); }
 const ORG = ids.orgId; const EMAILS = ids.users; const S4A = ids.s4a; const PROJ = S4A?.projectId; const SUP_B = S4A?.supplierId;
@@ -217,7 +227,7 @@ async function main() {
 
     console.log("\n== FLOW C：1688 厂家正式回复 RFQ（隔离库直写模拟）→ 新评估才有 Commercial；旧评估不漂移 ==");
     const oldB = (await apiEval(ctx, runB)).json.view.candidates[0];
-    await db.inquiryItem.create({ data: { inquiryId: S4A.s4bRound1Id, supplierId: S4A.s4bSupplier1688Id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 80000, currency: "CAD", deliveryDays: 35, validUntil: new Date("2026-12-31"), createdById: (await db.user.findFirstOrThrow({ where: { email: EMAILS.buyer } })).id } });
+    await dbWrite(async (d) => d.inquiryItem.create({ data: { inquiryId: S4A.s4bRound1Id, supplierId: S4A.s4bSupplier1688Id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 80000, currency: "CAD", deliveryDays: 35, validUntil: new Date("2026-12-31"), createdById: (await d.user.findFirstOrThrow({ where: { email: EMAILS.buyer } })).id } }));
     const oldB2 = (await apiEval(ctx, runB)).json.view.candidates[0];
     ok(JSON.stringify(oldB.scores) === JSON.stringify(oldB2.scores) && oldB2.recommendation === "NEEDS_VERIFICATION" && oldB2.scoreBreakdown.commercial.priceEvidenceTier === "PLATFORM_LISTED", "C1 / I0：旧评估不因新报价漂移");
     await page.goto(evidenceUrl(S4A.s4bSupplier1688Id), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
@@ -232,8 +242,8 @@ async function main() {
 
     console.log("\n== FLOW I：完成评分后改报价 / 能力，旧 Run 不变；新 Run 反映新数据 ==");
     const frozen = (await apiEval(ctx, runD)).json.view.candidates[0];
-    await db.inquiryItem.updateMany({ where: { inquiryId: S4A.s4bRound1Id, supplierId: S4A.s4bSupplierCheapId }, data: { totalPrice: 10 } });
-    await db.supplierCapabilitySignal.updateMany({ where: { discoverySignalId: S4A.socialSignalId, type: "CANADA_EXPORT" }, data: { evidenceStatus: "CLAIMED" } });
+    await dbWrite((d) => d.inquiryItem.updateMany({ where: { inquiryId: S4A.s4bRound1Id, supplierId: S4A.s4bSupplierCheapId }, data: { totalPrice: 10 } }));
+    await dbWrite((d) => d.supplierCapabilitySignal.updateMany({ where: { discoverySignalId: S4A.socialSignalId, type: "CANADA_EXPORT" }, data: { evidenceStatus: "CLAIMED" } }));
     const after = (await apiEval(ctx, runD)).json.view.candidates[0];
     ok(JSON.stringify(frozen.scores) === JSON.stringify(after.scores) && JSON.stringify(frozen.scoreBreakdown) === JSON.stringify(after.scoreBreakdown), "I1：报价 / 能力变了，B 历史评估评分与快照一字不变");
     await page.goto(evidenceUrl(SUP_B, `&evaluationRunId=${runD}`), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await waitRunView(page, runD);
