@@ -47,6 +47,7 @@ export const EXPECTED_ACTIVE_MIGRATIONS = [
   "20260906120000_mengxin_fde_revenue_spine",
   "20260908120000_website_inquiry_receipt",
   "20260920120000_trade_chat_message_attachments",
+  "20260920150000_ai_message_attachments",
 ] as const;
 
 export type ExpectedMigrationName = (typeof EXPECTED_ACTIVE_MIGRATIONS)[number];

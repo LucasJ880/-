@@ -100,6 +100,8 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
   context_search_history:     { risk: "l0_read",           allowRoles: "*" },
   context_get_summaries:      { risk: "l0_read",           allowRoles: "*" },
   context_index_messages:     { risk: "l1_internal_write", allowRoles: "*" },
+  // 对话图片附件「重新看图」：只读；ref 在工具内按当前 org 前缀校验
+  chat_view_attachment_image: { risk: "l0_read",           allowRoles: "*" },
 
   // ── project 域（A-P2：lib/agent 静态技能桥接，9 个） ──────────
   // 分析类只读；document_summary 写文档摘要字段（内部写）；

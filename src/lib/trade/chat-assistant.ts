@@ -17,7 +17,6 @@ import {
   buildUserMemoryBlock,
 } from "@/lib/ai/user-memory";
 import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
-import { attachmentBlobPathBelongsTo } from "@/lib/trade/chat-attachments";
 import {
   getTradeProspectStageLabel,
   mergeNormalizedProspectStageCounts,
@@ -537,17 +536,8 @@ async function toolGetSuggestions(orgId: string): Promise<ToolResult> {
 
 /** V1 伪协议工具：重新看对话里的图片附件原图（与 agent-core 的 trade_view_attachment_image 同源） */
 async function toolViewImage(orgId: string, args: Record<string, string>): Promise<ToolResult> {
-  const ref = (args.ref ?? "").trim();
-  const question = (args.question ?? "").trim();
-  if (!question) return { text: "缺少 question" };
-  if (!attachmentBlobPathBelongsTo(ref, orgId)) return { text: "ref 不合法或不属于当前组织" };
-  const { readBlobBuffer } = await import("@/lib/files/blob-access");
-  const blob = await readBlobBuffer(ref);
-  if (!blob) return { text: "找不到该图片附件（可能已被删除）" };
-  const { answerQuestionAboutImage } = await import("@/lib/ai/image-to-text");
-  const { text } = await answerQuestionAboutImage(
-    { buffer: blob.buffer, mime: blob.contentType, fileName: ref.split("/").pop() ?? "image" },
-    question,
-  );
-  return { text: `[看图 ${ref.split("/").pop()}] ${text}` };
+  const { viewAttachmentImage } = await import("@/lib/chat-attachments/view-image-tool");
+  const result = await viewAttachmentImage({ orgId, ref: args.ref ?? "", question: args.question ?? "" });
+  if (!result.ok) return { text: result.error };
+  return { text: `[看图 ${result.fileName}] ${result.answer}` };
 }

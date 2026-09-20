@@ -24,9 +24,7 @@ import {
 import { generateOutreachEmail } from "@/lib/trade/agents";
 import { updateProspect, createMessage } from "@/lib/trade/service";
 import { searchKnowledge } from "@/lib/trade/knowledge-service";
-import { readBlobBuffer } from "@/lib/files/blob-access";
-import { answerQuestionAboutImage } from "@/lib/ai/image-to-text";
-import { attachmentBlobPathBelongsTo } from "@/lib/trade/chat-attachments";
+import { buildViewAttachmentImageTool } from "@/lib/chat-attachments/view-image-tool";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -703,35 +701,5 @@ registry.register({
 });
 
 // ── trade.view_attachment_image（追问时重新看对话里的图片附件）────────
-
-registry.register({
-  name: "trade_view_attachment_image",
-  description:
-    "重新查看用户在本对话里上传的图片附件原图，并回答一个具体问题。用户消息里的 <attachment kind=\"image\" ref=\"…\"> 给出 ref。当问题涉及图片的视觉细节（颜色、材质、结构、布局、位置、数量）、识别文本标了 [不清晰]、或用户质疑识别结果时使用；不要凭识别文本猜。",
-  domain: "trade",
-  parameters: {
-    type: "object",
-    properties: {
-      ref: { type: "string", description: "附件标签里的 ref（trade-chat/… 路径）" },
-      question: { type: "string", description: "要从图片里看什么，具体到细节（中文）" },
-    },
-    required: ["ref", "question"],
-  },
-  execute: async (ctx: ToolExecutionContext) => {
-    const ref = (ctx.args.ref as string | undefined)?.trim() ?? "";
-    const question = (ctx.args.question as string | undefined)?.trim() ?? "";
-    if (!question) return { success: false, data: null, error: "question 不能为空" };
-    // 边界：只能看当前 org 自己的对话图片
-    if (!attachmentBlobPathBelongsTo(ref, ctx.orgId)) {
-      return { success: false, data: null, error: "ref 不合法或不属于当前组织" };
-    }
-    const blob = await readBlobBuffer(ref);
-    if (!blob) return { success: false, data: null, error: "找不到该图片附件（可能已被删除）" };
-    const fileName = ref.split("/").pop() ?? "image";
-    const { text, model } = await answerQuestionAboutImage(
-      { buffer: blob.buffer, mime: blob.contentType, fileName },
-      question,
-    );
-    return ok({ ref, question, answer: text, model });
-  },
-});
+// 实现见 src/lib/chat-attachments/view-image-tool.ts（与主助手的 chat_view_attachment_image 同源）
+registry.register(buildViewAttachmentImageTool({ name: "trade_view_attachment_image", domain: "trade" }));

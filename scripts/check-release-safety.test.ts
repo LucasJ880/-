@@ -130,8 +130,9 @@ ok(
       "20260906120000_mengxin_fde_revenue_spine",
       "20260908120000_website_inquiry_receipt",
       "20260920120000_trade_chat_message_attachments",
+      "20260920150000_ai_message_attachments",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments + AiMessageAttachments",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

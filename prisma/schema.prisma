@@ -1981,6 +1981,8 @@ model AiMessage {
   role           String
   content        String
   workSuggestion Json?
+  /// 用户消息附件（浏览器解析后的文本 / 图片识别文本 + 原图路径）：[{ name, kind, size, text, blobPath?, mime? }]，见 src/lib/chat-attachments/core.ts
+  attachments    Json?
   createdAt      DateTime @default(now())
 
   @@index([threadId, createdAt])

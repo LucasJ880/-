@@ -9,9 +9,6 @@ import {
   Trash2,
   Sparkles,
   Paperclip,
-  FileText,
-  Image as ImageIcon,
-  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -19,6 +16,15 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { useRouter } from "next/navigation";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import {
+  AttachButton,
+  DropOverlay,
+  MessageAttachments,
+  PendingAttachmentChips,
+  ATTACH_HINT,
+  useChatAttachments,
+  type AttachmentSummary,
+} from "@/components/chat-attachments";
 
 interface ChatSession {
   id: string;
@@ -28,62 +34,11 @@ interface ChatSession {
 }
 
 /** 服务端回给浏览器的附件摘要（不带正文） */
-type AttachmentKind = "document" | "image";
-
-interface AttachmentSummary {
-  name: string;
-  kind?: AttachmentKind;
-  size: number;
-  textLength: number;
-  /** 图片原图（经 /api/files 代理）：气泡里显示缩略图 */
-  fileUrl?: string;
-  mime?: string;
-}
-
 interface Message {
   id?: string;
   role: "user" | "assistant" | "system";
   content: string;
   attachments?: AttachmentSummary[];
-}
-
-/** 输入框里待发送的附件：先经 /api/ai/upload-file 解析成文本 */
-interface PendingAttachment {
-  id: string;
-  kind: AttachmentKind;
-  name: string;
-  size: number;
-  status: "parsing" | "ready" | "error";
-  text?: string;
-  error?: string;
-  /** 图片的本地预览（object URL，发送/移除时释放） */
-  previewUrl?: string;
-  /** 图片原图已存到私有 Blob 的路径 / 代理 URL（上传接口返回） */
-  blobPath?: string;
-  fileUrl?: string;
-  mime?: string;
-}
-
-const DOC_EXTENSIONS = new Set(["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt"]);
-const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
-const ATTACH_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp";
-const ATTACH_MAX_FILES = 5;
-const DOC_MAX_BYTES = 10 * 1024 * 1024; // 与 /api/ai/upload-file 上限一致
-const IMAGE_MAX_BYTES = 6 * 1024 * 1024; // 与 /api/ai/upload-image 上限一致
-const ATTACH_HINT = "支持 PDF、Word、Excel、CSV、TXT 和 PNG/JPG/WebP 图片";
-const EXT_BY_IMAGE_MIME: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-};
-
-/** 粘贴的截图有时没有扩展名（或叫 image.png）——按 MIME 补一个，服务端按扩展名校验 */
-function ensureImageFileName(file: File): File {
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  if (file.name.includes(".") && IMAGE_EXTENSIONS.has(ext)) return file;
-  const fallbackExt = EXT_BY_IMAGE_MIME[file.type] ?? "png";
-  const base = file.name && file.name !== "image" ? file.name.replace(/\.[^.]*$/, "") : "截图";
-  return new File([file], `${base}.${fallbackExt}`, { type: file.type });
 }
 
 const QUICK_COMMANDS = [
@@ -96,18 +51,6 @@ const QUICK_COMMANDS = [
   { label: "高分线索", text: "评分最高的线索有哪些？" },
 ];
 
-function formatBytes(bytes: number): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatChars(n: number): string {
-  if (n < 1000) return `${n} 字符`;
-  return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k 字符`;
-}
-
 export default function TradeChatPage() {
   const router = useRouter();
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
@@ -118,14 +61,9 @@ export default function TradeChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
-  const [pending, setPending] = useState<PendingAttachment[]>([]);
-  const [attachNotice, setAttachNotice] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragCounterRef = useRef(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  /** pending 的同步镜像：连续拖入/粘贴时上限判断不等下一次渲染 */
-  const pendingRef = useRef<PendingAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 附件：文档走 /api/ai/upload-file 解析，图片走外贸专用接口（存原图 + 识别）
+  const attachments = useChatAttachments({ orgId, imageEndpoint: "/api/trade/chat/upload-image" });
 
   /** 线索详情「对话里研究」等入口：/trade/chat?draft=... */
   useEffect(() => {
@@ -147,16 +85,6 @@ export default function TradeChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  useEffect(() => {
-    if (!attachNotice) return;
-    const t = setTimeout(() => setAttachNotice(null), 4000);
-    return () => clearTimeout(t);
-  }, [attachNotice]);
-
-  useEffect(() => {
-    pendingRef.current = pending;
-  }, [pending]);
 
   const loadSessions = useCallback(async () => {
     if (!orgId || ambiguous) {
@@ -216,149 +144,16 @@ export default function TradeChatPage() {
     loadSessions();
   };
 
-  // ── 附件：选择/拖入/粘贴 → 解析成文本 ─────────────────────────
-
-  const updatePending = (id: string, patch: Partial<PendingAttachment>) => {
-    setPending((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  };
-
-  const parseFile = async (id: string, file: File, kind: AttachmentKind) => {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      if (kind === "image" && orgId) formData.append("orgId", orgId);
-      // 图片：存原图 + 识别文本（追问时可重新看图）；文档：只解析文本
-      const endpoint = kind === "image" ? "/api/trade/chat/upload-image" : "/api/ai/upload-file";
-      const res = await apiFetch(endpoint, { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        updatePending(id, { status: "error", error: data.error || (kind === "image" ? "识别失败" : "解析失败") });
-        return;
-      }
-      const text = typeof data.text === "string" ? data.text : "";
-      if (!text.trim()) {
-        updatePending(id, {
-          status: "error",
-          error: kind === "image" ? "图片里没有识别出可用内容" : "没有可提取的文字（扫描件请先转成文字或直接传图片）",
-        });
-        return;
-      }
-      updatePending(id, {
-        status: "ready",
-        text,
-        ...(typeof data.blobPath === "string" ? { blobPath: data.blobPath } : {}),
-        ...(typeof data.fileUrl === "string" ? { fileUrl: data.fileUrl } : {}),
-        ...(typeof data.mime === "string" ? { mime: data.mime } : {}),
-      });
-    } catch {
-      updatePending(id, { status: "error", error: "网络错误，请重试" });
-    }
-  };
-
-  // 注意：解析请求等副作用放在 setState 更新函数之外——
-  // React 开发模式（StrictMode）会把更新函数调用两次，放在里面会重复上传。
-  const addFiles = (files: FileList | File[] | null | undefined) => {
-    if (!files || files.length === 0) return;
-    const incoming = Array.from(files);
-    const current = pendingRef.current;
-    const slots = ATTACH_MAX_FILES - current.filter((p) => p.status !== "error").length;
-    if (slots <= 0) {
-      setAttachNotice(`一条消息最多附 ${ATTACH_MAX_FILES} 个文件`);
-      return;
-    }
-    const accepted = incoming.slice(0, slots);
-    if (accepted.length < incoming.length) {
-      setAttachNotice(`一条消息最多附 ${ATTACH_MAX_FILES} 个文件，已忽略多余的 ${incoming.length - accepted.length} 个`);
-    }
-    const toParse: { id: string; file: File; kind: AttachmentKind }[] = [];
-    const added: PendingAttachment[] = accepted.map((raw) => {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const isImage = raw.type.startsWith("image/") || IMAGE_EXTENSIONS.has(raw.name.split(".").pop()?.toLowerCase() ?? "");
-      const file = isImage ? ensureImageFileName(raw) : raw;
-      const kind: AttachmentKind = isImage ? "image" : "document";
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-      if (isImage ? !IMAGE_EXTENSIONS.has(ext) : !DOC_EXTENSIONS.has(ext)) {
-        return { id, kind, name: file.name, size: file.size, status: "error", error: `不支持的格式（${ATTACH_HINT}）` };
-      }
-      const maxBytes = isImage ? IMAGE_MAX_BYTES : DOC_MAX_BYTES;
-      if (file.size > maxBytes) {
-        return { id, kind, name: file.name, size: file.size, status: "error", error: `文件过大（上限 ${Math.round(maxBytes / 1024 / 1024)}MB）` };
-      }
-      toParse.push({ id, file, kind });
-      return {
-        id,
-        kind,
-        name: file.name,
-        size: file.size,
-        status: "parsing",
-        previewUrl: isImage ? URL.createObjectURL(file) : undefined,
-      };
-    });
-    pendingRef.current = [...current, ...added];
-    setPending((prev) => [...prev, ...added]);
-    for (const { id, file, kind } of toParse) void parseFile(id, file, kind);
-  };
-
-  const removePending = (id: string) => {
-    const target = pendingRef.current.find((p) => p.id === id);
-    if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-    // 图片原图已上传但用户不发了：尽力删掉，失败也不影响界面
-    if (target?.blobPath && orgId) {
-      void apiFetch(
-        `/api/trade/chat/upload-image?path=${encodeURIComponent(target.blobPath)}&orgId=${encodeURIComponent(orgId)}`,
-        { method: "DELETE" },
-      ).catch(() => undefined);
-    }
-    setPending((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current++;
-    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
-  };
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current--;
-    if (dragCounterRef.current <= 0) {
-      dragCounterRef.current = 0;
-      setIsDragging(false);
-    }
-  };
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current = 0;
-    setIsDragging(false);
-    addFiles(e.dataTransfer.files);
-  };
-
-  const readyAttachments = pending.filter((p) => p.status === "ready");
-  const parsingCount = pending.filter((p) => p.status === "parsing").length;
-  const canSend = !sending && parsingCount === 0 && (input.trim().length > 0 || readyAttachments.length > 0);
+  const canSend =
+    !sending && !attachments.isParsing && (input.trim().length > 0 || attachments.hasReady);
 
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
-    const attachments = readyAttachments.map((p) => ({
-      name: p.name,
-      kind: p.kind,
-      size: p.size,
-      text: p.text ?? "",
-      ...(p.blobPath ? { blobPath: p.blobPath } : {}),
-      ...(p.mime ? { mime: p.mime } : {}),
-    }));
+    const outgoing = attachments.buildPayload();
+    const summaries = attachments.toSummaries();
     if (sending || !orgId || ambiguous) return;
-    if (!content && attachments.length === 0) return;
-    if (parsingCount > 0) {
-      setAttachNotice("附件还在解析，稍等一下再发送");
-      return;
-    }
+    if (!content && outgoing.length === 0) return;
+    if (attachments.isParsing) return;
 
     let sessionId = activeId;
 
@@ -375,24 +170,10 @@ export default function TradeChatPage() {
     }
 
     setInput("");
-    for (const p of pendingRef.current) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
-    setPending([]);
+    attachments.clear();
     setMessages((prev) => [
       ...prev,
-      {
-        role: "user",
-        content,
-        attachments: attachments.length
-          ? readyAttachments.map((p) => ({
-              name: p.name,
-              kind: p.kind,
-              size: p.size,
-              textLength: p.text?.length ?? 0,
-              ...(p.fileUrl ? { fileUrl: p.fileUrl } : {}),
-              ...(p.mime ? { mime: p.mime } : {}),
-            }))
-          : undefined,
-      },
+      { role: "user", content, attachments: summaries.length ? summaries : undefined },
     ]);
     setSending(true);
 
@@ -400,7 +181,7 @@ export default function TradeChatPage() {
       const res = await apiFetch(`/api/trade/chat/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, orgId, attachments }),
+        body: JSON.stringify({ content, orgId, attachments: outgoing }),
       });
 
       if (res.ok) {
@@ -491,25 +272,17 @@ export default function TradeChatPage() {
       {/* Chat Area */}
       <div
         className="relative flex min-w-0 flex-1 flex-col rounded-xl border border-border/60 bg-card-bg"
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
+        onDragEnter={attachments.dropZone.onDragEnter}
+        onDragLeave={attachments.dropZone.onDragLeave}
+        onDragOver={attachments.dropZone.onDragOver}
+        onDrop={attachments.dropZone.onDrop}
       >
-        {isDragging && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-card-bg/85 px-5 backdrop-blur-sm">
-            <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-xl border border-dashed border-blue-500/40 bg-card-bg px-8 py-10">
-              <Paperclip size={28} className="text-blue-400" />
-              <p className="text-sm font-medium text-blue-400">松开以添加附件</p>
-              <p className="text-xs text-muted">{ATTACH_HINT}</p>
-            </div>
-          </div>
-        )}
+        <DropOverlay active={attachments.dropZone.isDragging} className="rounded-xl" />
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {messages.length === 0 ? (
-            <EmptyChat onQuickCommand={sendMessage} onPickFile={() => fileInputRef.current?.click()} />
+            <EmptyChat onQuickCommand={sendMessage} onFiles={attachments.addFiles} />
           ) : (
             <div className="space-y-4">
               {messages.filter((m) => m.role !== "system").map((m, i) => (
@@ -520,37 +293,12 @@ export default function TradeChatPage() {
                       ? "rounded-br-md bg-blue-600 text-white"
                       : "rounded-bl-md bg-background text-foreground",
                   )}>
-                    {m.attachments && m.attachments.some((a) => a.kind === "image" && a.fileUrl) && (
-                      <div className={cn("flex flex-wrap gap-2", "mb-2")}>
-                        {m.attachments.filter((a) => a.kind === "image" && a.fileUrl).map((a, j) => (
-                          <a
-                            key={`${a.fileUrl}-${j}`}
-                            href={a.fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={`${a.name}（点击查看原图）`}
-                            className="block overflow-hidden rounded-lg border border-white/20 bg-white/10"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={a.fileUrl} alt={a.name} className="h-24 max-w-[220px] object-cover" loading="lazy" />
-                          </a>
-                        ))}
-                      </div>
-                    )}
                     {m.attachments && m.attachments.length > 0 && (
-                      <div className={cn("flex flex-wrap gap-1.5", m.content ? "mb-2" : "")}>
-                        {m.attachments.map((a, j) => (
-                          <span
-                            key={`${a.name}-${j}`}
-                            title={`${a.name}${a.size ? ` · ${formatBytes(a.size)}` : ""} · ${formatChars(a.textLength)}`}
-                            className="inline-flex max-w-full items-center gap-1 rounded-lg bg-white/15 px-2 py-1 text-[11px]"
-                          >
-                            {a.kind === "image" ? <ImageIcon size={12} className="shrink-0" /> : <FileText size={12} className="shrink-0" />}
-                            <span className="truncate">{a.name}</span>
-                            <span className="shrink-0 opacity-70">{formatChars(a.textLength)}</span>
-                          </span>
-                        ))}
-                      </div>
+                      <MessageAttachments
+                        attachments={m.attachments}
+                        tone={m.role === "user" ? "onAccent" : "onSurface"}
+                        className={m.content ? "mb-2" : undefined}
+                      />
                     )}
                     {m.content && (m.role === "assistant" ? (
                       <div className="prose-ai">
@@ -593,74 +341,18 @@ export default function TradeChatPage() {
               ))}
             </div>
           )}
-          {pending.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-1.5" data-testid="pending-attachments">
-              {pending.map((p) => (
-                <div
-                  key={p.id}
-                  className={cn(
-                    "flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px]",
-                    p.status === "error"
-                      ? "border-red-500/40 text-red-400"
-                      : "border-border/60 bg-background text-foreground",
-                  )}
-                >
-                  {p.previewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.previewUrl} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
-                  ) : p.status === "parsing" ? (
-                    <Loader2 size={12} className="shrink-0 animate-spin text-blue-400" />
-                  ) : p.kind === "image" ? (
-                    <ImageIcon size={12} className={cn("shrink-0", p.status === "ready" && "text-blue-400")} />
-                  ) : (
-                    <FileText size={12} className={cn("shrink-0", p.status === "ready" && "text-blue-400")} />
-                  )}
-                  <span className="max-w-[200px] truncate" title={p.name}>{p.name}</span>
-                  <span className={cn("shrink-0", p.status === "error" ? "" : "text-muted")}>
-                    {p.status === "parsing"
-                      ? (p.kind === "image" ? "识别中…" : "解析中…")
-                      : p.status === "error"
-                        ? p.error
-                        : `${formatBytes(p.size)} · ${formatChars(p.text?.length ?? 0)}`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removePending(p.id)}
-                    className="shrink-0 rounded p-0.5 text-muted transition hover:text-foreground"
-                    aria-label={`移除附件 ${p.name}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {attachNotice && (
-            <p className="mb-2 text-[11px] text-amber-500">{attachNotice}</p>
-          )}
+          <PendingAttachmentChips
+            pending={attachments.pending}
+            notice={attachments.notice}
+            onRemove={attachments.removePending}
+          />
           <div className="flex items-end gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={ATTACH_ACCEPT}
-              className="hidden"
-              data-testid="trade-chat-file-input"
-              onChange={(e) => {
-                addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
+            <AttachButton
+              onFiles={attachments.addFiles}
               disabled={sending}
-              title="上传附件（文档或图片）让 AI 分析"
-              aria-label="上传附件"
+              testId="trade-chat-file-input"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted transition hover:border-blue-500/40 hover:text-blue-400 disabled:opacity-40"
-            >
-              <Paperclip size={16} />
-            </button>
+            />
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -670,15 +362,9 @@ export default function TradeChatPage() {
                   sendMessage();
                 }
               }}
-              onPaste={(e) => {
-                const files = e.clipboardData?.files;
-                if (files && files.length > 0) {
-                  e.preventDefault();
-                  addFiles(files);
-                }
-              }}
+              onPaste={attachments.onPaste}
               placeholder={
-                readyAttachments.length > 0
+                attachments.hasReady
                   ? "想让 AI 怎么分析这份附件？留空直接发送也可以"
                   : "输入消息，或拖入/粘贴文件、截图让 AI 分析... (Enter 发送, Shift+Enter 换行)"
               }
@@ -701,10 +387,10 @@ export default function TradeChatPage() {
 
 function EmptyChat({
   onQuickCommand,
-  onPickFile,
+  onFiles,
 }: {
   onQuickCommand: (text: string) => void;
-  onPickFile: () => void;
+  onFiles: (files: FileList | null) => void;
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center">
@@ -725,14 +411,14 @@ function EmptyChat({
             {cmd.text}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={onPickFile}
+        <AttachButton
+          onFiles={onFiles}
+          testId="trade-chat-empty-file-input"
           className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-blue-500/40 bg-blue-500/5 px-4 py-2 text-xs text-blue-400 transition hover:bg-blue-500/10"
         >
           <Paperclip size={12} />
           上传询盘 / 报价单 / 产品图片让 AI 分析
-        </button>
+        </AttachButton>
       </div>
       <p className="mt-3 text-[11px] text-muted">也可以把文件或截图直接拖进 / 粘贴到对话框（{ATTACH_HINT.replace("支持 ", "")}）</p>
     </div>

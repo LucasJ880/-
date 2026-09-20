@@ -10,28 +10,16 @@
  *
  * DELETE /api/trade/chat/upload-image?path=trade-chat/...
  *   用户在发送前移除了图片芯片 → 删掉刚上传的原图（只允许删自己 org/自己上传的路径）。
+ *
+ * 处理逻辑与主助手的 /api/ai/upload-image 共用 src/lib/chat-attachments/upload-image.ts。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
-import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
-import { deleteBlob, putPrivateBlob } from "@/lib/files/blob-access";
-import { describeImageForChat } from "@/lib/ai/image-to-text";
-import {
-  attachmentBlobPathBelongsTo,
-  tradeChatImageBlobPrefix,
-} from "@/lib/trade/chat-attachments";
-
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-const ALLOWED_EXT = ["png", "jpg", "jpeg", "webp"];
-const MIME_BY_EXT: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  webp: "image/webp",
-};
+import { TRADE_CHAT_BLOB_ROOT } from "@/lib/chat-attachments/core";
+import { deleteOwnChatImage, processChatImageUpload } from "@/lib/chat-attachments/upload-image";
 
 const UPLOAD_RATE_LIMIT = {
   name: "trade-chat-upload-image",
@@ -69,49 +57,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "请上传图片" }, { status: 400 });
   }
 
-  const check = await validateUploadedFileAsync(file, {
-    maxSize: MAX_IMAGE_BYTES,
-    allowedExtensions: ALLOWED_EXT,
-    allowedMimeTypes: Object.values(MIME_BY_EXT),
-    checkMagicBytes: true,
+  const result = await processChatImageUpload({
+    file,
+    orgId: orgRes.orgId,
+    userId: auth.user.id,
+    root: TRADE_CHAT_BLOB_ROOT,
   });
-  if (!check.ok) {
-    return NextResponse.json({ error: check.reason }, { status: 400 });
-  }
-  // 魔数已校验；MIME 以扩展名为准，避免浏览器给的 octet-stream 进到 data URL / 代理响应头
-  const mime = MIME_BY_EXT[check.ext] ?? check.mime;
-
-  const blobPath = `${tradeChatImageBlobPrefix(orgRes.orgId, auth.user.id)}${Date.now()}_${check.safeName}`;
-  let proxyUrl: string;
-  try {
-    const blob = await putPrivateBlob({ pathname: blobPath, body: check.buffer, contentType: mime });
-    proxyUrl = blob.proxyUrl;
-  } catch (e) {
-    console.error("[trade/chat/upload-image] blob put failed:", e);
-    return NextResponse.json({ error: "图片存储失败，请稍后再试" }, { status: 502 });
-  }
-
-  try {
-    const { text } = await describeImageForChat({ buffer: check.buffer, mime, fileName: file.name });
-    if (!text.trim()) {
-      await deleteBlob(blobPath).catch(() => undefined);
-      return NextResponse.json({ error: "图片里没有识别出可用内容" }, { status: 422 });
-    }
-    return NextResponse.json({
-      name: file.name,
-      kind: "image",
-      size: file.size,
-      mime,
-      text,
-      textLength: text.length,
-      blobPath,
-      fileUrl: proxyUrl,
-    });
-  } catch (err) {
-    console.error("[trade/chat/upload-image] vision failed:", err);
-    await deleteBlob(blobPath).catch(() => undefined);
-    return NextResponse.json({ error: "图片识别失败，请稍后再试" }, { status: 502 });
-  }
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  return NextResponse.json(result.body);
 }
 
 export async function DELETE(request: NextRequest) {
@@ -121,12 +74,12 @@ export async function DELETE(request: NextRequest) {
   const orgRes = await resolveTradeOrgId(request, auth.user);
   if (!orgRes.ok) return orgRes.response;
 
-  const path = request.nextUrl.searchParams.get("path")?.trim() ?? "";
-  // 只允许删「当前 org + 本人上传」前缀下的对象；已随消息落库的图片不经此接口删除
-  const own = tradeChatImageBlobPrefix(orgRes.orgId, auth.user.id);
-  if (!path.startsWith(own) || !attachmentBlobPathBelongsTo(path, orgRes.orgId) || path.includes("..")) {
-    return NextResponse.json({ error: "路径不合法" }, { status: 400 });
-  }
-  await deleteBlob(path).catch(() => undefined);
+  const result = await deleteOwnChatImage({
+    path: request.nextUrl.searchParams.get("path") ?? "",
+    orgId: orgRes.orgId,
+    userId: auth.user.id,
+    root: TRADE_CHAT_BLOB_ROOT,
+  });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

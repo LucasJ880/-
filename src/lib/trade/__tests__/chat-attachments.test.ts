@@ -16,6 +16,11 @@ import {
   summarizeAttachments,
   attachmentBlobPathBelongsTo,
   tradeChatImageBlobPrefix,
+  chatImageBlobPrefix,
+  attachmentsFromLegacyFile,
+  attachmentsPlainText,
+  attachmentPromptRules,
+  turnsHaveAttachments,
 } from "../chat-attachments";
 
 let pass = 0;
@@ -216,6 +221,24 @@ console.log("image blob (原图存储 / 追问 ref)");
   );
   const stored = readStoredAttachments([{ name: "s.png", kind: "image", text: "t", blobPath: `${prefix}1_s.png`, mime: "image/png" }]);
   ok(stored[0].blobPath === `${prefix}1_s.png` && stored[0].mime === "image/png", "ATT-15l 读回保留 blobPath/mime");
+}
+
+console.log("multi-root（主助手 ai-chat/ 与外贸 trade-chat/ 共用核心）");
+{
+  const aiPrefix = chatImageBlobPrefix("ai-chat/", "org1", "userA");
+  ok(aiPrefix === "ai-chat/org1/userA/", "ATT-16a ai-chat 前缀按 org + 上传者隔离");
+  ok(attachmentBlobPathBelongsTo(`${aiPrefix}1_a.png`, "org1"), "ATT-16b ai-chat 本 org 路径通过");
+  ok(!attachmentBlobPathBelongsTo(`${aiPrefix}1_a.png`, "org2"), "ATT-16c ai-chat 他 org 路径拒绝");
+  ok(!attachmentBlobPathBelongsTo("chat/org1/x.png", "org1"), "ATT-16d 未知根拒绝");
+  const parsed = parseAttachmentsInput([{ name: "s.png", kind: "image", size: 1, text: "t", blobPath: `${aiPrefix}1_s.png` }]);
+  ok(parsed.ok && parsed.attachments[0].blobPath === `${aiPrefix}1_s.png`, "ATT-16e ai-chat 根的 blobPath 可入库");
+  const legacy = attachmentsFromLegacyFile("  hello world ", "old.pdf");
+  ok(legacy.length === 1 && legacy[0].kind === "document" && legacy[0].name === "old.pdf" && legacy[0].text === "  hello world ", "ATT-16f 旧客户端 fileText/fileName 折算成文档附件");
+  ok(attachmentsFromLegacyFile("   ", "x").length === 0, "ATT-16g 空 fileText → 无附件");
+  const plain = attachmentsPlainText([{ name: "a.pdf", size: 1, text: "A".repeat(50) }, { name: "b.png", kind: "image", size: 1, text: "B".repeat(50) }], 80);
+  ok(plain.startsWith("【文件：a.pdf】\n") && plain.includes("【图片识别：b.png】") && plain.length <= 80 + 2, "ATT-16h 纯文本拼接按上限截断并标注来源");
+  ok(attachmentPromptRules("chat_view_attachment_image").includes("chat_view_attachment_image(ref, question)"), "ATT-16i 提示词规则带工具名");
+  ok(turnsHaveAttachments([{ role: "user", content: "x" }, { role: "user", content: "y", attachments: legacy }]) && !turnsHaveAttachments([{ role: "user", content: "x" }]), "ATT-16j turnsHaveAttachments");
 }
 
 console.log("attachmentsTitleSource");

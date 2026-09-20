@@ -18,6 +18,7 @@
  * - trade-service/{orgId}/...             → org 成员校验
  * - trade/intelligence/{orgId}/...        → org 成员校验
  * - trade-chat/{orgId}/...              → org 成员校验（外贸 AI 对话图片附件原图）
+ * - ai-chat/{orgId}/...                 → org 成员校验（主助手等 AI 对话图片附件原图）
  * - temp/brochures/...                    → 登录即可（临时画册 PDF）
  */
 
