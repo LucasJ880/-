@@ -282,7 +282,8 @@ export type PinnedTenderInvoker = ((req: {
 export function createPinnedTenderInvoker(input: {
   orgId?: string;
   userId?: string;
-  promptVersion: string;
+  /** 缺省 "unversioned"（tsc：参数默认 {} 与必填字段冲突） */
+  promptVersion?: string;
   defaultStage?: TenderStage;
   env?: Gpt6FlagEnv;
 } = {}): PinnedTenderInvoker {
@@ -327,7 +328,7 @@ export function createPinnedTenderInvoker(input: {
   invoke.pin = {
     modelFamily: modelFamilyOf(policy.model),
     modelVersion: policy.model,
-    promptVersion: input.promptVersion,
+    promptVersion: input.promptVersion ?? "unversioned",
   };
   invoke.snapshot = () => ({
     activeModel,

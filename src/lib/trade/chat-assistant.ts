@@ -10,6 +10,7 @@
  */
 
 import { createCompletion } from "@/lib/ai/client";
+import { resolveModelPolicy } from "@/lib/ai/model-policy";
 import { db } from "@/lib/db";
 import {
   getWakeUpMemories,
@@ -125,8 +126,12 @@ export async function processChat(
 
   const systemPrompt = buildSystemPrompt() + memoryBlock;
   const recentHistory = history.slice(-10);
+  // GPT-6 灰度：chat 角色经 Model Policy 解析；未升级时沿用 mode 预设
+  const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId });
+  const policyModel = chatPolicy.upgraded ? chatPolicy.model : undefined;
 
   const firstPass = await createCompletion({
+    model: policyModel,
     systemPrompt,
     userPrompt: [
       ...recentHistory.map((m) => `${m.role === "user" ? "用户" : "助手"}: ${m.content}`),
@@ -158,6 +163,7 @@ export async function processChat(
   }
 
   const finalResponse = await createCompletion({
+    model: policyModel,
     systemPrompt: `你是「青砚」外贸 AI 助手。根据工具返回的数据，用简洁中文回复用户。
 不要暴露工具调用细节，直接呈现有用的信息和建议。
 用表格或列表呈现数据（如果合适），给出具体行动建议。
@@ -268,11 +274,14 @@ ${memoryBlock}`;
     return "当前组织不可用，助手暂时无法处理。请联系管理员确认组织状态。";
   }
 
+  // GPT-6 灰度：chat 角色经 Model Policy 解析；升级后 agent-core 带工具时自动走 Responses API
+  const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId });
   const result = await runAgent({
     systemPrompt,
     messages,
     domains: ["trade", "secretary"],
     mode: "chat",
+    model: chatPolicy.upgraded ? chatPolicy.model : undefined,
     temperature: 0.3,
     userId,
     orgId,

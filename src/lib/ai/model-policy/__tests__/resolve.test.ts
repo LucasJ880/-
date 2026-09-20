@@ -72,6 +72,50 @@ expect(
   "flag 关闭时即使 env 写 gpt-6 也被 kill switch 挡回",
 );
 
+// chat 角色：OPENAI_CHAT_MODEL 是全局基线键（生产恒有值），不能当显式覆盖挡住灰度
+const chatOff = resolveModelPolicy({
+  role: "chat",
+  userId: "u1",
+  env: { OPENAI_CHAT_MODEL: "gpt-5.6-sol" },
+});
+expect(chatOff.upgraded === false && chatOff.model === "gpt-5.6-sol", "chat：flag 关时沿用 OPENAI_CHAT_MODEL 基线");
+const chatOnNoWorkflow = resolveModelPolicy({
+  role: "chat",
+  userId: "u1",
+  env: { OPENAI_CHAT_MODEL: "gpt-5.6-sol", ENABLE_GPT6_ASTRA: "1", ENABLE_GPT6_ASTRA_ROLLOUT_PCT: "100" },
+});
+expect(chatOnNoWorkflow.upgraded === false, "chat：总开关开但 WORKFLOWS 未含 chat → 不升级（低成本角色默认不动）");
+const chatOn = resolveModelPolicy({
+  role: "chat",
+  userId: "u1",
+  env: {
+    OPENAI_CHAT_MODEL: "gpt-5.6-sol",
+    ENABLE_GPT6_ASTRA: "1",
+    ENABLE_GPT6_ASTRA_ROLLOUT_PCT: "100",
+    ENABLE_GPT6_ASTRA_WORKFLOWS: "supervisor,planner,researcher,tender,chat",
+  },
+});
+expect(chatOn.upgraded === true && chatOn.model === OPENAI_GPT6_ASTRA, "chat：WORKFLOWS 含 chat 时即使设了 OPENAI_CHAT_MODEL 也能升级");
+expect(chatOn.fallbackModel === "gpt-5.6-sol", "chat：回退仍是 5.6 chat 基线");
+const chatOrgMiss = resolveModelPolicy({
+  role: "chat",
+  userId: "u1",
+  orgId: "org-b",
+  env: {
+    OPENAI_CHAT_MODEL: "gpt-5.6-sol",
+    ENABLE_GPT6_ASTRA: "1",
+    ENABLE_GPT6_ASTRA_ORG_ALLOWLIST: "org-a",
+    ENABLE_GPT6_ASTRA_WORKFLOWS: "chat",
+  },
+});
+expect(chatOrgMiss.upgraded === false, "chat：org allowlist 未命中 → 不升级（灰度圈外）");
+const chatEnvGpt6Killed = resolveModelPolicy({
+  role: "chat",
+  userId: "u1",
+  env: { OPENAI_CHAT_MODEL: OPENAI_GPT6_ASTRA },
+});
+expect(chatEnvGpt6Killed.model !== OPENAI_GPT6_ASTRA, "chat：OPENAI_CHAT_MODEL 硬写 gpt-6 但 kill switch 关 → 挡回");
+
 const researcher = resolveModelPolicy({
   role: "researcher",
   userId: "u1",

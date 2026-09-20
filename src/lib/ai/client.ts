@@ -64,6 +64,8 @@ export interface ChatStreamOptions {
   systemPrompt: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
   mode?: TaskMode;
+  /** 显式模型（Model Policy 灰度升级时传入）；缺省用 mode 预设 */
+  model?: string;
   /**
    * 外部 AbortSignal（通常传入 NextRequest.signal）
    * 客户端断开连接时会自动中止上游 OpenAI 请求，避免继续计费。
@@ -100,11 +102,12 @@ export async function createChatStream(opts: ChatStreamOptions) {
   }
 
   const preset = getTaskPreset(opts.mode ?? "chat");
+  const model = opts.model?.trim() || preset.model;
   const client = getClient();
 
   return client.chat.completions.create(
     {
-      model: preset.model,
+      model,
       messages: [
         { role: "developer", content: opts.systemPrompt },
         ...opts.messages,
@@ -114,7 +117,7 @@ export async function createChatStream(opts: ChatStreamOptions) {
       stream_options: { include_usage: true },
       max_completion_tokens: preset.maxTokens,
       ...(buildTuningParams(
-        preset.model,
+        model,
         preset.temperature,
         preset.reasoningEffort,
       ) as { temperature?: number; reasoning_effort?: "none" | "low" | "medium" | "high" }),
