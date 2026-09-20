@@ -532,6 +532,65 @@ async function main() {
     await signalSvc.linkSignalToSupplier(actorBuyer, social.id, { supplierId: sup });
     const arch = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: evalProjectId, kind: "other", captureKey: `upload:s3b-${TAG}-s4a-test-report`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 2048, contentHash: `s4a_${TAG}_${Date.now()}`, storageKey: `archive/${org.id}/s4/s4a_${TAG}`, createdById: buyer.id } });
     s4a = { projectId: evalProjectId, supplierId: sup, offeringAId: offA.id, offeringBId: offB.id, certBifmaAId: certBifmaA.id, certBifmaClaimedId: certBifmaClaimed.id, certUlExpiredId: certUlExpired.id, certBifmaFutureAId: certBifmaFutureA.id, socialSignalId: social.id, archiveItemId: arch.id };
+
+    /* ═════════ S4-B 夹具：1688 线索 / 挂牌价报盘 / 询价轮 / 历史交互 / 已核验出口能力（evalclean 项目）═════════
+     * 角色：B = s3b 供应商（历史供应商，正式 RFQ，VERIFIED 出口）；ONE688 = 1688 便宜挂牌价、无 RFQ；
+     *       CHEAP = 最低正式价但 250 lb 门 FAIL；FULL = 第二家四维齐全（用于 PRIMARY / BACKUP）。全部是合成夹具。 */
+    const s4bNames = [`[演示] 1688 网布椅源头工厂 ${TAG}`, `[演示] 便宜但不合规椅厂 ${TAG}`, `[演示] 第二家合规椅厂 ${TAG}`];
+    const olds = await db.supplier.findMany({ where: { orgId: org.id, name: { in: s4bNames } }, select: { id: true } });
+    const oldIds = olds.map((x) => x.id);
+    if (oldIds.length) {
+      await db.supplierRequirementMatch.deleteMany({ where: { orgId: org.id, candidate: { is: { supplierId: { in: oldIds } } } } });
+      await db.supplierCandidate.deleteMany({ where: { orgId: org.id, supplierId: { in: oldIds } } });
+      await db.supplierCertification.deleteMany({ where: { orgId: org.id, supplierId: { in: oldIds } } });
+      await db.supplierOffering.deleteMany({ where: { orgId: org.id, supplierId: { in: oldIds } } });
+      await db.inquiryItem.deleteMany({ where: { supplierId: { in: oldIds } } });
+      await db.supplierCapabilitySignal.deleteMany({ where: { orgId: org.id, discoverySignal: { is: { linkedSupplierId: { in: oldIds } } } } });
+      await db.supplierDiscoverySignal.deleteMany({ where: { orgId: org.id, linkedSupplierId: { in: oldIds } } });
+      await db.supplier.deleteMany({ where: { id: { in: oldIds } } });
+    }
+    // 本项目与历史项目的询价轮全部重置（夹具幂等）
+    const histProjA = projectByKey.get("custom") ?? null; const histProjB = projectByKey.get("install") ?? null;
+    await db.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: [evalProjectId, histProjA, histProjB].filter((x): x is string => Boolean(x)) } } } });
+    await db.projectInquiry.deleteMany({ where: { projectId: { in: [evalProjectId, histProjA, histProjB].filter((x): x is string => Boolean(x)) } } });
+    await db.supplierCapabilitySignal.deleteMany({ where: { orgId: org.id, discoverySignalId: social.id } });
+
+    const mkSup = (name: string) => db.supplier.create({ data: { orgId: org.id, name, createdById: buyer.id } });
+    const sup1688 = await mkSup(s4bNames[0]); const supCheap = await mkSup(s4bNames[1]); const supFull = await mkSup(s4bNames[2]);
+    const linkSignal = async (supplierId: string, url: string, rawText: string) => {
+      const sig = await signalSvc.createSubmittedSignal(actorBuyer, { url, rawText, manualEntry: true, projectId: evalProjectId });
+      await signalSvc.reviewSignal(actorBuyer, sig.id); await signalSvc.linkSignalToSupplier(actorBuyer, sig.id, { supplierId });
+      return sig;
+    };
+    const sig1688 = await linkSignal(sup1688.id, `https://detail.1688.com/offer/${TAG}-chair.html`, `[演示夹具] 办公椅 网布椅 源头工厂 OEM ODM 出口 加拿大 北美 UL certified BIFMA 厂家直销 挂牌价 ¥80 ${TAG}`);
+    await db.supplierDiscoverySignal.update({ where: { id: sig1688.id }, data: { platform: "ONE688", contentType: "PROFILE", title: "办公椅 网布椅 源头工厂 OEM 出口加拿大 UL认证", description: "[演示夹具] 厂家直销 ¥80 起 支持 OEM ODM 出口北美", accountName: `演示1688店铺 ${TAG}`, rawMetadataJson: { sourceQuery: "办公椅 厂家" } } });
+    const sigCheap = await linkSignal(supCheap.id, `https://cheap-chairs.example/${TAG}`, `[演示夹具] 便宜椅子 ${TAG}`);
+    const sigFull = await linkSignal(supFull.id, `https://full-chairs.example/${TAG}`, `[演示夹具] 网布椅 办公椅 厂家 出口 ${TAG}`);
+    const off1688 = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: sup1688.id, name: "[演示] 1688 网布会议椅", sku: `S4B-1688-${TAG}`, attributesJson: { 承重: "600 lb", 材质: "钢架+网布" }, unitPrice: 80, currency: "CNY", priceStatus: "KNOWN", sourceKind: "DISCOVERY", sourceUrl: `https://detail.1688.com/offer/${TAG}-chair.html`, sourceSignalId: sig1688.id, leadTimeDays: 30, incoterm: "FOB", createdByUserId: buyer.id } });
+    const offCheap = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supCheap.id, name: "[演示] 经济款会议椅", sku: `S4B-CHEAP-${TAG}`, attributesJson: { 承重: "250 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", leadTimeDays: 20, incoterm: "FOB", createdByUserId: buyer.id } });
+    const offFull = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supFull.id, name: "[演示] 网布会议椅 F", sku: `S4B-FULL-${TAG}`, attributesJson: { 承重: "600 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", leadTimeDays: 40, incoterm: "FOB", createdByUserId: buyer.id } });
+    const mkCert2 = (supplierId: string, offeringId: string, number: string) => db.supplierCertification.create({ data: { orgId: org.id, supplierId, sourceKind: "USER_ENTRY", scope: "PRODUCT", offeringId, certificationType: "BIFMA", certificateNumber: number, status: "VERIFIED", expiresAt: FUTURE, verifiedByUserId: buyer.id, verifiedAt: new Date() } as never });
+    const cert1688 = await mkCert2(sup1688.id, off1688.id, `BIFMA-1688-${TAG}`); const certCheap = await mkCert2(supCheap.id, offCheap.id, `BIFMA-CHEAP-${TAG}`); const certFull = await mkCert2(supFull.id, offFull.id, `BIFMA-FULL-${TAG}`);
+    // 出口能力：B / FULL 已核验（VERIFIED 只能来自人工 + 档案，夹具直接落库并注明）；1688 只是 CLAIMED
+    const mkCap = (discoverySignalId: string, type: string, evidenceStatus: string, value: string) => db.supplierCapabilitySignal.create({ data: { orgId: org.id, discoverySignalId, type, value, evidenceStatus, extractedBy: "HUMAN", explanation: evidenceStatus === "VERIFIED" ? `[演示夹具] VERIFIED by human; archive=${arch.id}` : "[演示夹具] 平台文案声称" } });
+    await mkCap(social.id, "CANADA_EXPORT", "VERIFIED", "已出口加拿大（档案）"); await mkCap(social.id, "EXPORT_PACKAGING", "VERIFIED", "出口包装（档案）");
+    await mkCap(sigFull.id, "CANADA_EXPORT", "VERIFIED", "已出口加拿大（档案）");
+    const cap1688Claimed = await mkCap(sig1688.id, "CANADA_EXPORT", "CLAIMED", "1688 文案：出口加拿大");
+    // 历史交互（别项目）：B 两次联系两次回复一次入选；FULL 两次联系一次回复；CHEAP 两次入选（历史很强但门 FAIL）
+    const mkInq = async (projectId: string | null, round: number, items: Array<{ supplierId: string; total: number | null; replied: boolean; selected?: boolean; days?: number }>) => {
+      if (!projectId) return null;
+      const inq = await db.projectInquiry.create({ data: { projectId, roundNumber: round, title: `[演示夹具] 询价第 ${round} 轮`, scope: "会议椅", status: "in_progress", createdById: buyer.id } });
+      for (const it of items) await db.inquiryItem.create({ data: { inquiryId: inq.id, supplierId: it.supplierId, status: it.replied ? "quoted" : "no_response", sentAt: new Date("2026-03-01"), repliedAt: it.replied ? new Date("2026-03-05") : null, totalPrice: it.total, currency: "CAD", deliveryDays: it.days ?? null, validUntil: new Date("2026-12-31"), isSelected: it.selected ?? false, createdById: buyer.id } });
+      return inq;
+    };
+    await mkInq(histProjA, 1, [{ supplierId: sup, total: 1000, replied: true, selected: true }, { supplierId: supFull.id, total: 1200, replied: true }, { supplierId: supCheap.id, total: 900, replied: true, selected: false }]);
+    await mkInq(histProjB, 1, [{ supplierId: sup, total: 1100, replied: true }, { supplierId: supFull.id, total: null, replied: false }, { supplierId: supCheap.id, total: 950, replied: true, selected: true }]);
+    // 本项目 RFQ round 1：B / CHEAP / FULL 已正式报价；1688 未询价（FLOW C 再补）
+    const round1 = await mkInq(evalProjectId, 1, [{ supplierId: sup, total: 110000, replied: true, days: 60 }, { supplierId: supCheap.id, total: 90000, replied: true, days: 40 }, { supplierId: supFull.id, total: 95000, replied: true, days: 50 }]);
+    s4a = { ...s4a, s4bSupplier1688Id: sup1688.id, s4bOffering1688Id: off1688.id, s4bSignal1688Id: sig1688.id, s4bCert1688Id: cert1688.id, s4bCap1688ClaimedId: cap1688Claimed.id,
+      s4bSupplierCheapId: supCheap.id, s4bOfferingCheapId: offCheap.id, s4bCertCheapId: certCheap.id, s4bSignalCheapId: sigCheap.id,
+      s4bSupplierFullId: supFull.id, s4bOfferingFullId: offFull.id, s4bCertFullId: certFull.id, s4bSignalFullId: sigFull.id,
+      s4bRound1Id: round1?.id ?? null, s4bHistProjectAId: histProjA, s4bHistProjectBId: histProjB };
   }
 
   console.log(
