@@ -564,6 +564,10 @@ async function main() {
     };
     const sig1688 = await linkSignal(sup1688.id, `https://detail.1688.com/offer/${TAG}-chair.html`, `[演示夹具] 办公椅 网布椅 源头工厂 OEM ODM 出口 加拿大 北美 UL certified BIFMA 厂家直销 挂牌价 ¥80 ${TAG}`);
     await db.supplierDiscoverySignal.update({ where: { id: sig1688.id }, data: { platform: "ONE688", contentType: "PROFILE", title: "办公椅 网布椅 源头工厂 OEM 出口加拿大 UL认证", description: "[演示夹具] 厂家直销 ¥80 起 支持 OEM ODM 出口北美", accountName: `演示1688店铺 ${TAG}`, rawMetadataJson: { sourceQuery: "办公椅 厂家" } } });
+    // 本项目先有一次发现 Run（Brief 快照是找厂优先级的词源；真实链路里线索来自它）。不执行外呼，直接收口为 skipped。
+    const runSvcSeed = await import("@/lib/supplier-intel/run-service");
+    const discRun = await projectRunSvc.createProjectSearchRun(actorBuyer, { projectId: evalProjectId, hints: { productKeywordsZh: ["办公椅", "网布椅"], productKeywordsEn: ["office chair"], capabilityHintsZh: ["OEM"] } });
+    await runSvcSeed.startSearchRun(actorBuyer, discRun.id); await runSvcSeed.completeSearchRun(actorBuyer, discRun.id, { status: "skipped", sources: {} });
     const sigCheap = await linkSignal(supCheap.id, `https://cheap-chairs.example/${TAG}`, `[演示夹具] 便宜椅子 ${TAG}`);
     const sigFull = await linkSignal(supFull.id, `https://full-chairs.example/${TAG}`, `[演示夹具] 网布椅 办公椅 厂家 出口 ${TAG}`);
     const off1688 = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: sup1688.id, name: "[演示] 1688 网布会议椅", sku: `S4B-1688-${TAG}`, attributesJson: { 承重: "600 lb", 材质: "钢架+网布" }, unitPrice: 80, currency: "CNY", priceStatus: "KNOWN", sourceKind: "DISCOVERY", sourceUrl: `https://detail.1688.com/offer/${TAG}-chair.html`, sourceSignalId: sig1688.id, leadTimeDays: 30, incoterm: "FOB", createdByUserId: buyer.id } });
@@ -584,7 +588,7 @@ async function main() {
       return inq;
     };
     await mkInq(histProjA, 1, [{ supplierId: sup, total: 1000, replied: true, selected: true }, { supplierId: supFull.id, total: 1200, replied: true }, { supplierId: supCheap.id, total: 900, replied: true, selected: false }]);
-    await mkInq(histProjB, 1, [{ supplierId: sup, total: 1100, replied: true }, { supplierId: supFull.id, total: null, replied: false }, { supplierId: supCheap.id, total: 950, replied: true, selected: true }]);
+    await mkInq(histProjB, 1, [{ supplierId: sup, total: 1100, replied: true }, { supplierId: supFull.id, total: 1150, replied: true }, { supplierId: supCheap.id, total: 950, replied: true, selected: true }]);
     // 本项目 RFQ round 1：B / CHEAP / FULL 已正式报价；1688 未询价（FLOW C 再补）
     const round1 = await mkInq(evalProjectId, 1, [{ supplierId: sup, total: 110000, replied: true, days: 60 }, { supplierId: supCheap.id, total: 90000, replied: true, days: 40 }, { supplierId: supFull.id, total: 95000, replied: true, days: 50 }]);
     s4a = { ...s4a, s4bSupplier1688Id: sup1688.id, s4bOffering1688Id: off1688.id, s4bSignal1688Id: sig1688.id, s4bCert1688Id: cert1688.id, s4bCap1688ClaimedId: cap1688Claimed.id,

@@ -29,6 +29,7 @@ async function main() {
   const evalRun = await import("../evaluation-run-service");
   const signalSvc = await import("../signal-service");
   const rankingSvc = await import("../project-supplier-ranking");
+  const runSvc = await import("../run-service");
   const capVerify = await import("../capability-verification-service");
   const { buildCanonicalRisksStructuredJson } = await import("./fixtures/canonical-risks-writer");
   const { createSession } = await import("@/lib/auth/session");
@@ -80,7 +81,11 @@ async function main() {
   const archHidden = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: hidden.id, kind: "other", captureKey: `upload:s4b-hidden-${tag}`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 1, contentHash: `s4b_h_${tag}`, storageKey: `archive/${org.id}/s4b/h_${tag}`, createdById: owner.id } });
   const actorWriter = { orgId: org.id, userId: writer.id }; const actorViewer = { orgId: org.id, userId: viewer.id }; const actorOutsider = { orgId: org.id, userId: outsider.id };
 
-  // 线索（含 ONE688 平台线索 + 抖音低相关线索）并关联
+  // 本项目先有过一次发现 Run（Brief 快照 = 找厂优先级的词源；真实链路里线索来自它）
+  const disc = await runSvc.createSearchRun(actorWriter, { projectId: proj.id, brief: { productKeywords: ["办公椅", "网布椅"], productCategory: "办公家具", commercialSearchTermsZh: ["办公椅厂家"], capabilitySearchTermsZh: ["OEM"], searchTermsEn: ["office chair"] }, requirements: SEED.map((r) => ({ id: `d-${r.code}`, code: r.code, text: r.en, category: r.cat, mandatory: r.mandatory })), sourceConfig: { adapters: [] } });
+  await runSvc.startSearchRun(actorWriter, disc.id); await runSvc.completeSearchRun(actorWriter, disc.id, { status: "skipped", sources: {} });
+
+  // 线索（含 ONE688 平台线索 + 低信息线索）并关联
   const link = async (supplierId: string, rawText: string, url: string) => {
     const s = await signalSvc.createSubmittedSignal(actorWriter, { url, rawText, manualEntry: true, projectId: proj.id });
     await signalSvc.reviewSignal(actorWriter, s.id); await signalSvc.linkSignalToSupplier(actorWriter, s.id, { supplierId });
@@ -207,11 +212,12 @@ async function main() {
     const runB = await evaluate(supB.id, offB.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certB.id);
     await evalRun.completeEvaluationRun(actorWriter, runB.run.id);
     const bRow = await cand(runB.candidate.id);
-    const bBd = bRow.scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; round: { roundNumber: number } | null; comparableGroup: Array<{ supplierId: string }>; sub: { price: number | null; delivery: number } }; reliability: { score: number | null; contacted: number; replied: number; selected: number }; importRisk: { score: number | null; verified: Array<{ type: string }> }; contract: { totalScore: number | null; knownWeightShare: number }; officialTotalScore: number | null; recommendation: string | null; rankable: boolean };
+    const bBd = bRow.scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; round: { roundNumber: number } | null; comparableGroup: Array<{ supplierId: string }>; sub: { price: number | null; delivery: number } }; reliability: { score: number | null; contacted: number; replied: number; selected: number; history: Array<{ projectId: string }> }; importRisk: { score: number | null; verified: Array<{ type: string }> }; contract: { totalScore: number | null; knownWeightShare: number }; officialTotalScore: number | null; recommendation: string | null; rankable: boolean };
     ok(bBd.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && bBd.commercial.round?.roundNumber === 1 && bBd.commercial.comparableGroup.length === 2, "C1 / §22：同项目 round 1 两家已确认 → 可比组 = {B, C}", JSON.stringify(bBd.commercial));
     ok(bBd.commercial.sub.price === Math.round((90000 / 110000) * 10000) / 100, "C3：B 价格分 = 最低 90000 / 110000 × 100", String(bBd.commercial.sub.price));
     ok(!bBd.commercial.comparableGroup.some((g) => g.supplierId === supA.id), "§60：无关项目里 A 的报价不进入当前可比组");
-    ok(bBd.reliability.contacted === 2 && bBd.reliability.replied === 2 && bBd.reliability.selected === 1 && bBd.reliability.score === 85, "R2：B 别项目 2 次联系 2 次回复 1 次入选 → 0.7×100 + 0.3×50 = 85", JSON.stringify(bBd.reliability));
+    ok(bBd.reliability.contacted === 3 && bBd.reliability.replied === 3 && bBd.reliability.selected === 1 && bBd.reliability.score === 85, "R2：B 别项目（含无关项目）3 次联系 3 次回复 1 次入选 → 0.7×100 + 0.3×50 = 85；当前项目自己的询价不算", JSON.stringify({ c: bBd.reliability.contacted, r: bBd.reliability.replied, s: bBd.reliability.selected, score: bBd.reliability.score }));
+    ok(!bBd.reliability.history.some((h) => h.projectId === proj.id), "R2b：历史里没有当前项目的询价（不自己给自己制造历史）");
     ok(bBd.importRisk.score === 100 && bBd.importRisk.verified.map((v) => v.type).sort().join(",") === "CANADA_EXPORT,EXPORT_PACKAGING", "I2：CANADA_EXPORT + 包装 VERIFIED、DDP、交期已知 → 100");
     ok(bRow.technicalScore === 100 && bRow.commercialScore === bBd.commercial.score && bRow.reliabilityScore === 85 && bRow.importRiskScore === 100, "§40：四个组件落列");
     const { computeSupplierScore } = await import("../score-contract");
@@ -260,14 +266,14 @@ async function main() {
 
     console.log("\n== Q4–Q7：第二家四维齐全（D 核验出口 + 补历史 + RFQ）→ PRIMARY / BACKUP 动态变化，旧候选不改写 ==");
     await mkInquiry(hist1.id, 2, [{ supplierId: supD.id, status: "quoted", sent: true, replied: true, total: 500 }]);
-    await mkInquiry(hist2.id, 3, [{ supplierId: supD.id, status: "no_response", sent: true, replied: false }]);
+    await mkInquiry(hist2.id, 3, [{ supplierId: supD.id, status: "quoted", sent: true, replied: true, total: 520 }]);
     await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supD.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 95000, currency: "CAD", deliveryDays: 50, validUntil: new Date("2026-12-01"), createdById: owner.id } });
     const bBefore = JSON.stringify(await cand(runB.candidate.id));
     const runD = await evaluate(supD.id, offD.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certD.id);
     await evalRun.completeEvaluationRun(actorWriter, runD.run.id);
     const dRow = await cand(runD.candidate.id);
-    ok(dRow.totalScore !== null && dRow.recommendation === null, "D 四维齐全（可靠性 50 = 0.7×50 + 0.3×0... 见断言）→ 可排名", JSON.stringify({ t: dRow.technicalScore, c: dRow.commercialScore, r: dRow.reliabilityScore, i: dRow.importRiskScore, total: dRow.totalScore }));
-    ok(dRow.reliabilityScore === 35 || dRow.reliabilityScore === 50, "D 可靠性按公式（1/2 回复 → 35）", String(dRow.reliabilityScore));
+    ok(dRow.totalScore !== null && dRow.recommendation === null, "D 四维齐全（可靠性 70 = 0.7×100 + 0.3×0）→ 可排名", JSON.stringify({ t: dRow.technicalScore, c: dRow.commercialScore, r: dRow.reliabilityScore, i: dRow.importRiskScore, total: dRow.totalScore, rec: dRow.recommendation }));
+    ok(dRow.reliabilityScore === 70, "D 可靠性按公式（2/2 回复、0 入选 → 70）", String(dRow.reliabilityScore));
     view = await rankingSvc.loadProjectSupplierRanking(actorWriter, proj.id);
     const orderIds = view.ranked.filter((r) => r.rank !== null).map((r) => r.supplierId);
     const bTotal = (await cand(runB.candidate.id)).totalScore as number; const dTotal = dRow.totalScore as number;
