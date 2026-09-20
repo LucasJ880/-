@@ -9,9 +9,14 @@
  * 本文件只有纯函数，不碰 DB / 网络，便于单测。
  */
 
+/** document = 文档解析文本；image = 图片识别文本（逐字转录 + 画面描述） */
+export type TradeChatAttachmentKind = "document" | "image";
+
 export interface TradeChatAttachment {
   /** 原文件名（展示 + 模型引用） */
   name: string;
+  /** 缺省视为 document（兼容早期数据） */
+  kind?: TradeChatAttachmentKind;
   /** 原文件字节数（仅展示） */
   size: number;
   /** 解析后的文本，≤ MAX_ATTACHMENT_TEXT_CHARS */
@@ -21,8 +26,13 @@ export interface TradeChatAttachment {
 /** 返回给浏览器的形状：不带正文 */
 export interface TradeChatAttachmentSummary {
   name: string;
+  kind: TradeChatAttachmentKind;
   size: number;
   textLength: number;
+}
+
+export function attachmentKind(a: { kind?: TradeChatAttachmentKind }): TradeChatAttachmentKind {
+  return a.kind === "image" ? "image" : "document";
 }
 
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
@@ -68,7 +78,8 @@ export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
     }
     const sizeRaw = typeof rec.size === "number" ? rec.size : Number(rec.size);
     const size = Number.isFinite(sizeRaw) && sizeRaw >= 0 ? Math.floor(sizeRaw) : 0;
-    attachments.push({ name, size, text });
+    const kind: TradeChatAttachmentKind = rec.kind === "image" ? "image" : "document";
+    attachments.push({ name, kind, size, text });
   }
   return { ok: true, attachments };
 }
@@ -83,6 +94,7 @@ export function readStoredAttachments(raw: unknown): TradeChatAttachment[] {
     if (typeof rec.name !== "string" || typeof rec.text !== "string") continue;
     out.push({
       name: rec.name,
+      kind: rec.kind === "image" ? "image" : "document",
       size: typeof rec.size === "number" && Number.isFinite(rec.size) ? rec.size : 0,
       text: rec.text,
     });
@@ -93,7 +105,12 @@ export function readStoredAttachments(raw: unknown): TradeChatAttachment[] {
 export function summarizeAttachments(
   list: TradeChatAttachment[],
 ): TradeChatAttachmentSummary[] {
-  return list.map((a) => ({ name: a.name, size: a.size, textLength: a.text.length }));
+  return list.map((a) => ({
+    name: a.name,
+    kind: attachmentKind(a),
+    size: a.size,
+    textLength: a.text.length,
+  }));
 }
 
 export interface ModelTurnInput {
@@ -112,15 +129,22 @@ function attr(value: string): string {
   return value.replace(/["<>\r\n]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/** 图片附件正文前的说明：让模型知道这是识别结果而非原图 */
+const IMAGE_NOTE = "（图片附件：以下是从图片识别出的文字与画面描述，不是原图；[不清晰] 处不要脑补）";
+
+function openTag(a: TradeChatAttachment, extra: string): string {
+  const kindAttr = attachmentKind(a) === "image" ? ' kind="image"' : "";
+  return `<attachment name="${attr(a.name)}"${kindAttr} chars="${a.text.length}"${extra}>`;
+}
+
 function renderExpanded(a: TradeChatAttachment, shown: string): string {
   const truncated = shown.length < a.text.length;
-  const head = truncated
-    ? `<attachment name="${attr(a.name)}" chars="${a.text.length}" shown="${shown.length}" truncated="true">`
-    : `<attachment name="${attr(a.name)}" chars="${a.text.length}">`;
+  const head = openTag(a, truncated ? ` shown="${shown.length}" truncated="true"` : "");
+  const note = attachmentKind(a) === "image" ? `${IMAGE_NOTE}\n` : "";
   const tail = truncated
     ? `\n…（正文已按预算截断：共 ${a.text.length} 字符，仅展示前 ${shown.length} 字符）`
     : "";
-  return `${head}\n${shown}${tail}\n</attachment>`;
+  return `${head}\n${note}${shown}${tail}\n</attachment>`;
 }
 
 function renderStub(a: TradeChatAttachment): string {
@@ -129,7 +153,7 @@ function renderStub(a: TradeChatAttachment): string {
     .replace(/\s+/g, " ")
     .trim();
   return (
-    `<attachment name="${attr(a.name)}" chars="${a.text.length}" omitted="true">\n` +
+    `${openTag(a, ' omitted="true"')}\n` +
     `（此前上传的附件，正文未随本轮附上；开头：${preview}…）\n` +
     `</attachment>`
   );

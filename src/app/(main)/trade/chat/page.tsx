@@ -10,8 +10,11 @@ import {
   Sparkles,
   Paperclip,
   FileText,
+  Image as ImageIcon,
   X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { useRouter } from "next/navigation";
@@ -25,8 +28,11 @@ interface ChatSession {
 }
 
 /** 服务端回给浏览器的附件摘要（不带正文） */
+type AttachmentKind = "document" | "image";
+
 interface AttachmentSummary {
   name: string;
+  kind?: AttachmentKind;
   size: number;
   textLength: number;
 }
@@ -41,17 +47,37 @@ interface Message {
 /** 输入框里待发送的附件：先经 /api/ai/upload-file 解析成文本 */
 interface PendingAttachment {
   id: string;
+  kind: AttachmentKind;
   name: string;
   size: number;
   status: "parsing" | "ready" | "error";
   text?: string;
   error?: string;
+  /** 图片的本地预览（object URL，发送/移除时释放） */
+  previewUrl?: string;
 }
 
-const ATTACH_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt";
-const ATTACH_EXTENSIONS = new Set(["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt"]);
+const DOC_EXTENSIONS = new Set(["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt"]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
+const ATTACH_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp";
 const ATTACH_MAX_FILES = 5;
-const ATTACH_MAX_BYTES = 10 * 1024 * 1024; // 与 /api/ai/upload-file 上限一致
+const DOC_MAX_BYTES = 10 * 1024 * 1024; // 与 /api/ai/upload-file 上限一致
+const IMAGE_MAX_BYTES = 6 * 1024 * 1024; // 与 /api/ai/upload-image 上限一致
+const ATTACH_HINT = "支持 PDF、Word、Excel、CSV、TXT 和 PNG/JPG/WebP 图片";
+const EXT_BY_IMAGE_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+
+/** 粘贴的截图有时没有扩展名（或叫 image.png）——按 MIME 补一个，服务端按扩展名校验 */
+function ensureImageFileName(file: File): File {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (file.name.includes(".") && IMAGE_EXTENSIONS.has(ext)) return file;
+  const fallbackExt = EXT_BY_IMAGE_MIME[file.type] ?? "png";
+  const base = file.name && file.name !== "image" ? file.name.replace(/\.[^.]*$/, "") : "截图";
+  return new File([file], `${base}.${fallbackExt}`, { type: file.type });
+}
 
 const QUICK_COMMANDS = [
   { label: "总览", text: "给我看一下外贸业务总览" },
@@ -189,19 +215,23 @@ export default function TradeChatPage() {
     setPending((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   };
 
-  const parseFile = async (id: string, file: File) => {
+  const parseFile = async (id: string, file: File, kind: AttachmentKind) => {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await apiFetch("/api/ai/upload-file", { method: "POST", body: formData });
+      const endpoint = kind === "image" ? "/api/ai/upload-image" : "/api/ai/upload-file";
+      const res = await apiFetch(endpoint, { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        updatePending(id, { status: "error", error: data.error || "解析失败" });
+        updatePending(id, { status: "error", error: data.error || (kind === "image" ? "识别失败" : "解析失败") });
         return;
       }
       const text = typeof data.text === "string" ? data.text : "";
       if (!text.trim()) {
-        updatePending(id, { status: "error", error: "没有可提取的文字（扫描件/图片请先转成文字）" });
+        updatePending(id, {
+          status: "error",
+          error: kind === "image" ? "图片里没有识别出可用内容" : "没有可提取的文字（扫描件请先转成文字或直接传图片）",
+        });
         return;
       }
       updatePending(id, { status: "ready", text });
@@ -225,25 +255,38 @@ export default function TradeChatPage() {
     if (accepted.length < incoming.length) {
       setAttachNotice(`一条消息最多附 ${ATTACH_MAX_FILES} 个文件，已忽略多余的 ${incoming.length - accepted.length} 个`);
     }
-    const toParse: { id: string; file: File }[] = [];
-    const added: PendingAttachment[] = accepted.map((file) => {
+    const toParse: { id: string; file: File; kind: AttachmentKind }[] = [];
+    const added: PendingAttachment[] = accepted.map((raw) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const isImage = raw.type.startsWith("image/") || IMAGE_EXTENSIONS.has(raw.name.split(".").pop()?.toLowerCase() ?? "");
+      const file = isImage ? ensureImageFileName(raw) : raw;
+      const kind: AttachmentKind = isImage ? "image" : "document";
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-      if (!ATTACH_EXTENSIONS.has(ext)) {
-        return { id, name: file.name, size: file.size, status: "error", error: "不支持的格式（支持 PDF/Word/Excel/CSV/TXT）" };
+      if (isImage ? !IMAGE_EXTENSIONS.has(ext) : !DOC_EXTENSIONS.has(ext)) {
+        return { id, kind, name: file.name, size: file.size, status: "error", error: `不支持的格式（${ATTACH_HINT}）` };
       }
-      if (file.size > ATTACH_MAX_BYTES) {
-        return { id, name: file.name, size: file.size, status: "error", error: "文件过大（上限 10MB）" };
+      const maxBytes = isImage ? IMAGE_MAX_BYTES : DOC_MAX_BYTES;
+      if (file.size > maxBytes) {
+        return { id, kind, name: file.name, size: file.size, status: "error", error: `文件过大（上限 ${Math.round(maxBytes / 1024 / 1024)}MB）` };
       }
-      toParse.push({ id, file });
-      return { id, name: file.name, size: file.size, status: "parsing" };
+      toParse.push({ id, file, kind });
+      return {
+        id,
+        kind,
+        name: file.name,
+        size: file.size,
+        status: "parsing",
+        previewUrl: isImage ? URL.createObjectURL(file) : undefined,
+      };
     });
     pendingRef.current = [...current, ...added];
     setPending((prev) => [...prev, ...added]);
-    for (const { id, file } of toParse) void parseFile(id, file);
+    for (const { id, file, kind } of toParse) void parseFile(id, file, kind);
   };
 
   const removePending = (id: string) => {
+    const target = pendingRef.current.find((p) => p.id === id);
+    if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
     setPending((prev) => prev.filter((p) => p.id !== id));
   };
 
@@ -280,7 +323,7 @@ export default function TradeChatPage() {
 
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
-    const attachments = readyAttachments.map((p) => ({ name: p.name, size: p.size, text: p.text ?? "" }));
+    const attachments = readyAttachments.map((p) => ({ name: p.name, kind: p.kind, size: p.size, text: p.text ?? "" }));
     if (sending || !orgId || ambiguous) return;
     if (!content && attachments.length === 0) return;
     if (parsingCount > 0) {
@@ -303,6 +346,7 @@ export default function TradeChatPage() {
     }
 
     setInput("");
+    for (const p of pendingRef.current) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
     setPending([]);
     setMessages((prev) => [
       ...prev,
@@ -310,7 +354,7 @@ export default function TradeChatPage() {
         role: "user",
         content,
         attachments: attachments.length
-          ? attachments.map((a) => ({ name: a.name, size: a.size, textLength: a.text.length }))
+          ? attachments.map((a) => ({ name: a.name, kind: a.kind, size: a.size, textLength: a.text.length }))
           : undefined,
       },
     ]);
@@ -421,7 +465,7 @@ export default function TradeChatPage() {
             <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-xl border border-dashed border-blue-500/40 bg-card-bg px-8 py-10">
               <Paperclip size={28} className="text-blue-400" />
               <p className="text-sm font-medium text-blue-400">松开以添加附件</p>
-              <p className="text-xs text-muted">支持 PDF、Word、Excel、CSV、TXT，单个 10MB 以内</p>
+              <p className="text-xs text-muted">{ATTACH_HINT}</p>
             </div>
           </div>
         )}
@@ -448,16 +492,20 @@ export default function TradeChatPage() {
                             title={`${a.name}${a.size ? ` · ${formatBytes(a.size)}` : ""} · ${formatChars(a.textLength)}`}
                             className="inline-flex max-w-full items-center gap-1 rounded-lg bg-white/15 px-2 py-1 text-[11px]"
                           >
-                            <FileText size={12} className="shrink-0" />
+                            {a.kind === "image" ? <ImageIcon size={12} className="shrink-0" /> : <FileText size={12} className="shrink-0" />}
                             <span className="truncate">{a.name}</span>
                             <span className="shrink-0 opacity-70">{formatChars(a.textLength)}</span>
                           </span>
                         ))}
                       </div>
                     )}
-                    {m.content && (
+                    {m.content && (m.role === "assistant" ? (
+                      <div className="prose-ai">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      </div>
+                    ) : (
                       <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
-                    )}
+                    ))}
                   </div>
                 </div>
               ))}
@@ -504,15 +552,20 @@ export default function TradeChatPage() {
                       : "border-border/60 bg-background text-foreground",
                   )}
                 >
-                  {p.status === "parsing" ? (
+                  {p.previewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.previewUrl} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
+                  ) : p.status === "parsing" ? (
                     <Loader2 size={12} className="shrink-0 animate-spin text-blue-400" />
+                  ) : p.kind === "image" ? (
+                    <ImageIcon size={12} className={cn("shrink-0", p.status === "ready" && "text-blue-400")} />
                   ) : (
                     <FileText size={12} className={cn("shrink-0", p.status === "ready" && "text-blue-400")} />
                   )}
                   <span className="max-w-[200px] truncate" title={p.name}>{p.name}</span>
                   <span className={cn("shrink-0", p.status === "error" ? "" : "text-muted")}>
                     {p.status === "parsing"
-                      ? "解析中…"
+                      ? (p.kind === "image" ? "识别中…" : "解析中…")
                       : p.status === "error"
                         ? p.error
                         : `${formatBytes(p.size)} · ${formatChars(p.text?.length ?? 0)}`}
@@ -549,7 +602,7 @@ export default function TradeChatPage() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={sending}
-              title="上传附件（PDF/Word/Excel/CSV/TXT）让 AI 分析"
+              title="上传附件（文档或图片）让 AI 分析"
               aria-label="上传附件"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted transition hover:border-blue-500/40 hover:text-blue-400 disabled:opacity-40"
             >
@@ -574,7 +627,7 @@ export default function TradeChatPage() {
               placeholder={
                 readyAttachments.length > 0
                   ? "想让 AI 怎么分析这份附件？留空直接发送也可以"
-                  : "输入消息，或拖入/粘贴文件让 AI 分析... (Enter 发送, Shift+Enter 换行)"
+                  : "输入消息，或拖入/粘贴文件、截图让 AI 分析... (Enter 发送, Shift+Enter 换行)"
               }
               rows={1}
               className="min-h-[36px] max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
@@ -625,10 +678,10 @@ function EmptyChat({
           className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-blue-500/40 bg-blue-500/5 px-4 py-2 text-xs text-blue-400 transition hover:bg-blue-500/10"
         >
           <Paperclip size={12} />
-          上传询盘 / 报价单 / 产品表让 AI 分析
+          上传询盘 / 报价单 / 产品图片让 AI 分析
         </button>
       </div>
-      <p className="mt-3 text-[11px] text-muted">也可以把 PDF、Word、Excel、CSV、TXT 直接拖进对话框</p>
+      <p className="mt-3 text-[11px] text-muted">也可以把文件或截图直接拖进 / 粘贴到对话框（{ATTACH_HINT.replace("支持 ", "")}）</p>
     </div>
   );
 }

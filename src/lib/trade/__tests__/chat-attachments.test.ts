@@ -147,6 +147,40 @@ console.log("renderTurnsForModel");
   );
 }
 
+console.log("image kind");
+{
+  const r = parseAttachmentsInput([
+    { name: "a.pdf", size: 1, text: "doc" },
+    { name: "shot.png", size: 1, text: "【文字内容】RFQ 200 pcs", kind: "image" },
+    { name: "weird.txt", size: 1, text: "x", kind: "video" },
+  ]);
+  ok(
+    r.ok && r.attachments[0].kind === "document" && r.attachments[1].kind === "image" && r.attachments[2].kind === "document",
+    "ATT-14a 缺省/未知 kind → document，image 原样保留",
+  );
+  const stored = readStoredAttachments([{ name: "old.pdf", text: "legacy" }, { name: "s.png", text: "t", kind: "image" }]);
+  ok(stored[0].kind === "document" && stored[1].kind === "image", "ATT-14b 读回旧数据缺 kind 视为 document");
+  const sum = summarizeAttachments(stored);
+  ok(sum[0].kind === "document" && sum[1].kind === "image", "ATT-14c 摘要携带 kind 供前端选图标");
+  const rendered = renderTurnsForModel([
+    { role: "user", content: "看图", attachments: [{ name: "shot.png", kind: "image", size: 1, text: "t".repeat(400) }] },
+  ]);
+  ok(
+    rendered[0].content.includes('<attachment name="shot.png" kind="image" chars="400">') &&
+      rendered[0].content.includes("图片附件：以下是从图片识别出的文字与画面描述"),
+    "ATT-14d 图片附件带 kind=\"image\" 标签与识别结果说明",
+  );
+  const stub = renderTurnsForModel(
+    [{ role: "user", content: "看图", attachments: [{ name: "shot.png", kind: "image", size: 1, text: "t".repeat(400) }] }],
+    0,
+  );
+  ok(stub[0].content.includes('kind="image" chars="400" omitted="true"'), "ATT-14e 图片桩同样标 kind");
+  const doc = renderTurnsForModel([
+    { role: "user", content: "看文档", attachments: [{ name: "a.pdf", size: 1, text: "d".repeat(400) }] },
+  ]);
+  ok(!doc[0].content.includes('kind="image"') && !doc[0].content.includes("图片附件"), "ATT-14f 文档附件不带图片说明");
+}
+
 console.log("attachmentsTitleSource");
 {
   const a = { name: "报价单.xlsx", size: 1, text: "x" };
