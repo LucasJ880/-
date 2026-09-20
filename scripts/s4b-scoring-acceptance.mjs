@@ -45,7 +45,9 @@ async function startEvaluation(page, offeringId) {
   await page.waitForFunction((prev) => { const rows = [...document.querySelectorAll('[data-testid="evaluation-run-row"]')].map((e) => e.getAttribute("data-run-id")); return rows.some((id) => !prev.includes(id)); }, [...before], { timeout: 120_000 });
   const rows = await page.locator('[data-testid="evaluation-run-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-run-id")));
   const runId = rows.find((id) => !before.has(id));
-  await waitRunView(page, runId);
+  // dev + 远程隔离库下评估视图一次要十几秒；视图首载失败时（如连接池抖动）采购人员会再点一次运行行——这里做同样的事
+  try { await page.locator(`[data-testid="evaluation-run"][data-run-id="${runId}"]`).waitFor({ state: "visible", timeout: 60_000 }); }
+  catch { await page.locator(`[data-testid="evaluation-run-row"][data-run-id="${runId}"]`).click(); await waitRunView(page, runId); }
   return runId;
 }
 async function applySuggestion(page, ctx, runId, key) {
@@ -116,8 +118,10 @@ async function main() {
     await page.waitForSelector('[data-testid="discovery-priority-box"]', { timeout: 30_000 });
     const boxText = await page.locator('[data-testid="discovery-priority-box"]').innerText();
     ok(boxText.includes("P1 — 优先查看") && boxText.includes("不是已核验能力") && boxText.includes("不是可靠性"), "A5：抽屉解释命中原因，并区分「文本命中 ≠ 核验」「可操作性 ≠ 可靠性」");
-    const mainA = await page.innerText("main");
-    ok(!/推荐供应商|已合格|已认证/.test(mainA), "A6：线索页不出现「推荐供应商 / 已合格 / 已认证」");
+    // 页面**必须**写「不代表已认证 / 不代表本标合规」这类否定句；断言抓的是把这些词当陈述用，先剥掉已知否定形式
+    const stripNegated = (t) => t.replace(/不代表已认证|不代表本标合规|不代表已合格|不是已核验|≠ 已核验/g, "");
+    const mainA = stripNegated(await page.innerText("main"));
+    ok(!/推荐供应商|已合格|已认证/.test(mainA), "A6：线索页不把「推荐供应商 / 已合格 / 已认证」当陈述使用（否定句除外）", (mainA.match(/推荐供应商|已合格|已认证/) ?? [])[0]);
     await page.screenshot({ path: `${OUT}/flow-a-priority.png` });
     await page.keyboard.press("Escape");
 
@@ -157,7 +161,9 @@ async function main() {
     const cD = vD.candidates[0];
     ok(cD.scores.technical === 100 && cD.scores.commercial !== null && cD.scores.reliability !== null && cD.scores.importRisk !== null && cD.scores.total !== null, "D1/F1：四维齐全，总分存在", JSON.stringify(cD.scores));
     ok((await page.locator('[data-testid="supplier-score-box"]').getAttribute("data-score-state")) === "COMPLETE", "D2：评分框 COMPLETE");
-    await page.locator('[data-testid="technical-breakdown"]').waitFor({ state: "attached", timeout: 10_000 });
+    // 分解在 <details> 里：先展开再读（折叠内容的 innerText 为空）
+    await page.locator('[data-testid="supplier-score-box"] details summary').first().click();
+    await page.locator('[data-testid="technical-breakdown"]').waitFor({ state: "visible", timeout: 10_000 });
     const tb = await page.locator('[data-testid="technical-breakdown"]').innerText();
     ok(tb.includes("R-001") && tb.includes("R-002") && tb.includes("100 分") && tb.includes("规则判断"), "D3：技术分解逐条可解释（含谁判的）");
     ok((await page.locator('[data-testid="score-table"]').innerText()).includes("× 40%") && (await page.locator('[data-testid="score-table"]').innerText()).includes("× 15%"), "D4：权重 40/25/20/15 可见");

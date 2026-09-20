@@ -397,7 +397,8 @@ async function main() {
     ok(JSON.stringify(afterCand.supplierSnapshotJson) === JSON.stringify(beforeCand.supplierSnapshotJson), "T26a：供应商快照不变（live 改名无关）");
     ok(JSON.stringify(afterCand.offeringSnapshotJson) === JSON.stringify(beforeCand.offeringSnapshotJson), "T26b：offering 快照不变（live 属性/价格无关）");
     ok(JSON.stringify(afterCand.matches.map((m) => m.evidenceJson)) === JSON.stringify(beforeCand.matches.map((m) => m.evidenceJson)), "T26c：Match evidenceJson 不变（证书后来 EXPIRED 无关）");
-    ok(JSON.stringify(afterCand.mandatoryGateJson) === JSON.stringify(beforeCand.mandatoryGateJson) && afterCand.mandatoryGateResult === "PASS" && afterCand.recommendation === null, "T26d：门快照 / 结果 / 推荐不变");
+    // S4-B 起：收口时按推荐契约写候选态（PASS 但评分证据不完整 → NEEDS_VERIFICATION）；之后 live 数据再变也不改写，且永远不是 PRIMARY / BACKUP
+    ok(JSON.stringify(afterCand.mandatoryGateJson) === JSON.stringify(beforeCand.mandatoryGateJson) && afterCand.mandatoryGateResult === "PASS" && afterCand.recommendation === beforeCand.recommendation && !["PRIMARY", "BACKUP"].includes(afterCand.recommendation ?? ""), "T26d：门快照 / 结果 / 推荐不变（推荐态由收口时的评分契约决定，live 数据变化不改写）", `${beforeCand.recommendation} → ${afterCand.recommendation}`);
     const newEval = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: projB.id, supplierId: supplier.id, offeringId: offA.id });
     const newSnap = newEval.run.requirementSnapshotJson as Array<{ code: string }>;
     ok(newSnap.some((s) => s.code === "R-009"), "T26e：新评估运行才反映新的 canonical 需求");
