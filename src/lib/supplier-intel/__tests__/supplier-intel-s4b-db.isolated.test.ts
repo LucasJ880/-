@@ -53,7 +53,7 @@ async function main() {
     { orgId: org.id, userId: outsider.id, role: "org_member", status: "active" },
   ] });
   const mkProject = (name: string) => db.project.create({ data: { orgId: org.id, name: `${name} ${tag}`, ownerId: owner.id, workDomain: "tender", intakeStatus: "dispatched", status: "active" } });
-  const proj = await mkProject("S4B 当前项目"); const hist1 = await mkProject("S4B 历史项目1"); const hist2 = await mkProject("S4B 历史项目2"); const other = await mkProject("S4B 无关项目");
+  const proj = await mkProject("S4B 当前项目"); const hist1 = await mkProject("S4B 历史项目1"); const hist2 = await mkProject("S4B 历史项目2"); const other = await mkProject("S4B 无关项目"); const hidden = await mkProject("S4B writer 看不见的项目");
   for (const p of [proj, hist1, hist2]) {
     await db.projectMember.createMany({ data: [
       { projectId: p.id, userId: writer.id, role: "project_admin", status: "active" },
@@ -77,7 +77,7 @@ async function main() {
   const mkSup = (name: string) => db.supplier.create({ data: { orgId: org.id, name: `${name} ${tag}`, createdById: owner.id } });
   const supA = await mkSup("S4B 1688 厂家 A"); const supB = await mkSup("S4B 历史供应商 B"); const supC = await mkSup("S4B 便宜但不合规 C"); const supD = await mkSup("S4B 新供应商 D");
   const arch = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: proj.id, kind: "other", captureKey: `upload:s4b-${tag}`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 1, contentHash: `s4b_${tag}`, storageKey: `archive/${org.id}/s4b/${tag}`, createdById: owner.id } });
-  const archOther = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: other.id, kind: "other", captureKey: `upload:s4b-other-${tag}`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 1, contentHash: `s4b_o_${tag}`, storageKey: `archive/${org.id}/s4b/o_${tag}`, createdById: owner.id } });
+  const archHidden = await db.tenderArchiveItem.create({ data: { orgId: org.id, projectId: hidden.id, kind: "other", captureKey: `upload:s4b-hidden-${tag}`, capturedAt: new Date(), captureMethod: "upload", mimeType: "application/pdf", fileSize: 1, contentHash: `s4b_h_${tag}`, storageKey: `archive/${org.id}/s4b/h_${tag}`, createdById: owner.id } });
   const actorWriter = { orgId: org.id, userId: writer.id }; const actorViewer = { orgId: org.id, userId: viewer.id }; const actorOutsider = { orgId: org.id, userId: outsider.id };
 
   // 线索（含 ONE688 平台线索 + 抖音低相关线索）并关联
@@ -148,7 +148,8 @@ async function main() {
     const capC = await signalSvc.createCapabilitySignal(actorWriter, { discoverySignalId: sigC.id, type: "CANADA_EXPORT", value: "x", evidenceStatus: "CLAIMED", confidence: null, explanation: null, extractedBy: "HUMAN" });
     const capD = await signalSvc.createCapabilitySignal(actorWriter, { discoverySignalId: sigD.id, type: "CANADA_EXPORT", value: "x", evidenceStatus: "CLAIMED", confidence: null, explanation: null, extractedBy: "HUMAN" });
     await expectErr("CAPABILITY_VERIFY_REQUIRES_EVIDENCE", "V1：无档案证据不能 VERIFIED", () => capVerify.verifyCapabilitySignal(actorWriter, capB.id, { archiveItemId: "" }));
-    await expectErr("ARCHIVE_EVIDENCE_NOT_FOUND", "V2：看不见的项目里的档案不能当证据", () => capVerify.verifyCapabilitySignal(actorViewer, capB.id, { archiveItemId: archOther.id }));
+    await expectErr("ARCHIVE_EVIDENCE_NOT_FOUND", "V2：看不见的项目里的档案不能当证据（有线索写权限也不行）", () => capVerify.verifyCapabilitySignal(actorWriter, capB.id, { archiveItemId: archHidden.id }));
+    await expectErr("PROJECT_ACCESS_DENIED", "V2b：只读成员没有线索写权限，不能核验", () => capVerify.verifyCapabilitySignal(actorViewer, capB.id, { archiveItemId: arch.id }));
     await expectErr("PROJECT_ACCESS_DENIED", "V3：无项目写权限不能核验", () => capVerify.verifyCapabilitySignal(actorOutsider, capB.id, { archiveItemId: arch.id }));
     let vr = await capRoute.PATCH(await req(writer, `/api/supplier-intel/suppliers/${supA.id}/capability-signals/${capB.id}${q}`, { method: "PATCH", body: { action: "verify", archiveItemId: arch.id } }), P({ supplierId: supA.id, capabilityId: capB.id }));
     ok(vr.status === 404, "V4：借 A 的页面核验 B 的能力 → 404", `实际 ${vr.status}`);
