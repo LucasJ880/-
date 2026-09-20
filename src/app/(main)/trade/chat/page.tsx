@@ -8,6 +8,9 @@ import {
   MessageCircle,
   Trash2,
   Sparkles,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -21,11 +24,34 @@ interface ChatSession {
   messages: { content: string; createdAt: string }[];
 }
 
+/** 服务端回给浏览器的附件摘要（不带正文） */
+interface AttachmentSummary {
+  name: string;
+  size: number;
+  textLength: number;
+}
+
 interface Message {
   id?: string;
   role: "user" | "assistant" | "system";
   content: string;
+  attachments?: AttachmentSummary[];
 }
+
+/** 输入框里待发送的附件：先经 /api/ai/upload-file 解析成文本 */
+interface PendingAttachment {
+  id: string;
+  name: string;
+  size: number;
+  status: "parsing" | "ready" | "error";
+  text?: string;
+  error?: string;
+}
+
+const ATTACH_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt";
+const ATTACH_EXTENSIONS = new Set(["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt"]);
+const ATTACH_MAX_FILES = 5;
+const ATTACH_MAX_BYTES = 10 * 1024 * 1024; // 与 /api/ai/upload-file 上限一致
 
 const QUICK_COMMANDS = [
   { label: "总览", text: "给我看一下外贸业务总览" },
@@ -37,6 +63,18 @@ const QUICK_COMMANDS = [
   { label: "高分线索", text: "评分最高的线索有哪些？" },
 ];
 
+function formatBytes(bytes: number): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatChars(n: number): string {
+  if (n < 1000) return `${n} 字符`;
+  return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k 字符`;
+}
+
 export default function TradeChatPage() {
   const router = useRouter();
   const { orgId, ambiguous, loading: orgLoading } = useCurrentOrgId();
@@ -47,6 +85,13 @@ export default function TradeChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const [attachNotice, setAttachNotice] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** pending 的同步镜像：连续拖入/粘贴时上限判断不等下一次渲染 */
+  const pendingRef = useRef<PendingAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   /** 线索详情「对话里研究」等入口：/trade/chat?draft=... */
@@ -69,6 +114,16 @@ export default function TradeChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (!attachNotice) return;
+    const t = setTimeout(() => setAttachNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [attachNotice]);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
 
   const loadSessions = useCallback(async () => {
     if (!orgId || ambiguous) {
@@ -93,7 +148,13 @@ export default function TradeChatPage() {
     const res = await apiFetch(`/api/trade/chat/${sessionId}?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) {
       const data = await res.json();
-      setMessages(data.messages.map((m: Message) => ({ role: m.role, content: m.content })));
+      setMessages(
+        data.messages.map((m: Message) => ({
+          role: m.role,
+          content: m.content,
+          attachments: m.attachments?.length ? m.attachments : undefined,
+        })),
+      );
     }
   };
 
@@ -122,9 +183,110 @@ export default function TradeChatPage() {
     loadSessions();
   };
 
+  // ── 附件：选择/拖入/粘贴 → 解析成文本 ─────────────────────────
+
+  const updatePending = (id: string, patch: Partial<PendingAttachment>) => {
+    setPending((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  };
+
+  const parseFile = async (id: string, file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await apiFetch("/api/ai/upload-file", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        updatePending(id, { status: "error", error: data.error || "解析失败" });
+        return;
+      }
+      const text = typeof data.text === "string" ? data.text : "";
+      if (!text.trim()) {
+        updatePending(id, { status: "error", error: "没有可提取的文字（扫描件/图片请先转成文字）" });
+        return;
+      }
+      updatePending(id, { status: "ready", text });
+    } catch {
+      updatePending(id, { status: "error", error: "网络错误，请重试" });
+    }
+  };
+
+  // 注意：解析请求等副作用放在 setState 更新函数之外——
+  // React 开发模式（StrictMode）会把更新函数调用两次，放在里面会重复上传。
+  const addFiles = (files: FileList | File[] | null | undefined) => {
+    if (!files || files.length === 0) return;
+    const incoming = Array.from(files);
+    const current = pendingRef.current;
+    const slots = ATTACH_MAX_FILES - current.filter((p) => p.status !== "error").length;
+    if (slots <= 0) {
+      setAttachNotice(`一条消息最多附 ${ATTACH_MAX_FILES} 个文件`);
+      return;
+    }
+    const accepted = incoming.slice(0, slots);
+    if (accepted.length < incoming.length) {
+      setAttachNotice(`一条消息最多附 ${ATTACH_MAX_FILES} 个文件，已忽略多余的 ${incoming.length - accepted.length} 个`);
+    }
+    const toParse: { id: string; file: File }[] = [];
+    const added: PendingAttachment[] = accepted.map((file) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!ATTACH_EXTENSIONS.has(ext)) {
+        return { id, name: file.name, size: file.size, status: "error", error: "不支持的格式（支持 PDF/Word/Excel/CSV/TXT）" };
+      }
+      if (file.size > ATTACH_MAX_BYTES) {
+        return { id, name: file.name, size: file.size, status: "error", error: "文件过大（上限 10MB）" };
+      }
+      toParse.push({ id, file });
+      return { id, name: file.name, size: file.size, status: "parsing" };
+    });
+    pendingRef.current = [...current, ...added];
+    setPending((prev) => [...prev, ...added]);
+    for (const { id, file } of toParse) void parseFile(id, file);
+  };
+
+  const removePending = (id: string) => {
+    setPending((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    addFiles(e.dataTransfer.files);
+  };
+
+  const readyAttachments = pending.filter((p) => p.status === "ready");
+  const parsingCount = pending.filter((p) => p.status === "parsing").length;
+  const canSend = !sending && parsingCount === 0 && (input.trim().length > 0 || readyAttachments.length > 0);
+
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
-    if (!content || sending || !orgId || ambiguous) return;
+    const attachments = readyAttachments.map((p) => ({ name: p.name, size: p.size, text: p.text ?? "" }));
+    if (sending || !orgId || ambiguous) return;
+    if (!content && attachments.length === 0) return;
+    if (parsingCount > 0) {
+      setAttachNotice("附件还在解析，稍等一下再发送");
+      return;
+    }
 
     let sessionId = activeId;
 
@@ -141,21 +303,35 @@ export default function TradeChatPage() {
     }
 
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content }]);
+    setPending([]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content,
+        attachments: attachments.length
+          ? attachments.map((a) => ({ name: a.name, size: a.size, textLength: a.text.length }))
+          : undefined,
+      },
+    ]);
     setSending(true);
 
     try {
       const res = await apiFetch(`/api/trade/chat/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, orgId }),
+        body: JSON.stringify({ content, orgId, attachments }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setMessages((prev) => [...prev, { role: "assistant", content: data.assistantMessage.content }]);
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: "请求失败，请重试" }]);
+        const data = await res.json().catch(() => ({}));
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data?.error ? `请求失败：${data.error}` : "请求失败，请重试" },
+        ]);
       }
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", content: "网络错误，请重试" }]);
@@ -233,11 +409,27 @@ export default function TradeChatPage() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-border/60 bg-card-bg">
+      <div
+        className="relative flex min-w-0 flex-1 flex-col rounded-xl border border-border/60 bg-card-bg"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-card-bg/85 px-5 backdrop-blur-sm">
+            <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-xl border border-dashed border-blue-500/40 bg-card-bg px-8 py-10">
+              <Paperclip size={28} className="text-blue-400" />
+              <p className="text-sm font-medium text-blue-400">松开以添加附件</p>
+              <p className="text-xs text-muted">支持 PDF、Word、Excel、CSV、TXT，单个 10MB 以内</p>
+            </div>
+          </div>
+        )}
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {messages.length === 0 ? (
-            <EmptyChat onQuickCommand={sendMessage} />
+            <EmptyChat onQuickCommand={sendMessage} onPickFile={() => fileInputRef.current?.click()} />
           ) : (
             <div className="space-y-4">
               {messages.filter((m) => m.role !== "system").map((m, i) => (
@@ -248,7 +440,24 @@ export default function TradeChatPage() {
                       ? "rounded-br-md bg-blue-600 text-white"
                       : "rounded-bl-md bg-background text-foreground",
                   )}>
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                    {m.attachments && m.attachments.length > 0 && (
+                      <div className={cn("flex flex-wrap gap-1.5", m.content ? "mb-2" : "")}>
+                        {m.attachments.map((a, j) => (
+                          <span
+                            key={`${a.name}-${j}`}
+                            title={`${a.name}${a.size ? ` · ${formatBytes(a.size)}` : ""} · ${formatChars(a.textLength)}`}
+                            className="inline-flex max-w-full items-center gap-1 rounded-lg bg-white/15 px-2 py-1 text-[11px]"
+                          >
+                            <FileText size={12} className="shrink-0" />
+                            <span className="truncate">{a.name}</span>
+                            <span className="shrink-0 opacity-70">{formatChars(a.textLength)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {m.content && (
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -283,23 +492,96 @@ export default function TradeChatPage() {
               ))}
             </div>
           )}
+          {pending.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5" data-testid="pending-attachments">
+              {pending.map((p) => (
+                <div
+                  key={p.id}
+                  className={cn(
+                    "flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px]",
+                    p.status === "error"
+                      ? "border-red-500/40 text-red-400"
+                      : "border-border/60 bg-background text-foreground",
+                  )}
+                >
+                  {p.status === "parsing" ? (
+                    <Loader2 size={12} className="shrink-0 animate-spin text-blue-400" />
+                  ) : (
+                    <FileText size={12} className={cn("shrink-0", p.status === "ready" && "text-blue-400")} />
+                  )}
+                  <span className="max-w-[200px] truncate" title={p.name}>{p.name}</span>
+                  <span className={cn("shrink-0", p.status === "error" ? "" : "text-muted")}>
+                    {p.status === "parsing"
+                      ? "解析中…"
+                      : p.status === "error"
+                        ? p.error
+                        : `${formatBytes(p.size)} · ${formatChars(p.text?.length ?? 0)}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removePending(p.id)}
+                    className="shrink-0 rounded p-0.5 text-muted transition hover:text-foreground"
+                    aria-label={`移除附件 ${p.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachNotice && (
+            <p className="mb-2 text-[11px] text-amber-500">{attachNotice}</p>
+          )}
           <div className="flex items-end gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={ATTACH_ACCEPT}
+              className="hidden"
+              data-testid="trade-chat-file-input"
+              onChange={(e) => {
+                addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              title="上传附件（PDF/Word/Excel/CSV/TXT）让 AI 分析"
+              aria-label="上传附件"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted transition hover:border-blue-500/40 hover:text-blue-400 disabled:opacity-40"
+            >
+              <Paperclip size={16} />
+            </button>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   sendMessage();
                 }
               }}
-              placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+              onPaste={(e) => {
+                const files = e.clipboardData?.files;
+                if (files && files.length > 0) {
+                  e.preventDefault();
+                  addFiles(files);
+                }
+              }}
+              placeholder={
+                readyAttachments.length > 0
+                  ? "想让 AI 怎么分析这份附件？留空直接发送也可以"
+                  : "输入消息，或拖入/粘贴文件让 AI 分析... (Enter 发送, Shift+Enter 换行)"
+              }
               rows={1}
               className="min-h-[36px] max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
             />
             <button
               onClick={() => sendMessage()}
-              disabled={sending || !input.trim()}
+              disabled={!canSend}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-500 disabled:opacity-40"
             >
               {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -311,7 +593,13 @@ export default function TradeChatPage() {
   );
 }
 
-function EmptyChat({ onQuickCommand }: { onQuickCommand: (text: string) => void }) {
+function EmptyChat({
+  onQuickCommand,
+  onPickFile,
+}: {
+  onQuickCommand: (text: string) => void;
+  onPickFile: () => void;
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center">
       <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10">
@@ -331,7 +619,16 @@ function EmptyChat({ onQuickCommand }: { onQuickCommand: (text: string) => void 
             {cmd.text}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={onPickFile}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-blue-500/40 bg-blue-500/5 px-4 py-2 text-xs text-blue-400 transition hover:bg-blue-500/10"
+        >
+          <Paperclip size={12} />
+          上传询盘 / 报价单 / 产品表让 AI 分析
+        </button>
       </div>
+      <p className="mt-3 text-[11px] text-muted">也可以把 PDF、Word、Excel、CSV、TXT 直接拖进对话框</p>
     </div>
   );
 }

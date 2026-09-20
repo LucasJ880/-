@@ -71,6 +71,8 @@ const IMMUTABLE: Record<string, string> = {
     "50539596285e0d547fec5f58045d731c3d2e938f7e2e50ed33be71b05ecb62c3",
   "20260906120000_mengxin_fde_revenue_spine":
     "037871de5f2ec3ff068daade6b25d7b8105bbe9eace48924fd47a7138dd246d7",
+  "20260920120000_trade_chat_message_attachments":
+    "cbcb7f3758ff18a03e8e7ab679bdf507097434479f433eeff5a86770d9542158",
 };
 
 let passed = 0;
