@@ -102,12 +102,16 @@
 | 纯核 score-components（T1–T4 / C1–C6 / R1–R5 / I1–I5 / P1–P3 / 价格层 / 推荐契约） | PASS（T1 100/50/0、T2 缺失进分母、T3 AI_ASSISTED 归 0、T4 无技术项 null + UNMAPPED；C1–C6 含混币种 / 单家 / 挂牌价 / 口径不混；R1 <2 null、R2 70/30、当前项目不算历史、R3–R5 类型层不接受 rating / origin / 店铺指标；I1 无证据 null（不打 0）、I2 公式、I3 CLAIMED 仍 null；价格层六级；P1 官方总分 == computeSupplierScore、P2 缺维 null、P3 40/25/20/15；推荐契约阈值） |
 | 纯核 project-ranking-model（Q1–Q7 / §70 §71 / §51 / 赛马态 / 下一步） | PASS（Q1–Q7、§70 最低价门 FAIL、§71 历史门 FAIL、§51 1688 例子、赛马态 / 下一步动作；输入对象不被改写） |
 | S4-B DB 套件（隔离库） | **65 通过 / 0 失败**（隔离分支 br-fancy-queen-an60hl31，第二遍；第一遍 58/4 全是测试自身的期望错误：V2 权限顺序、R2 把无关项目的真实历史漏数、D 供应商史料不足以可排名、赛马 A 因夹具无发现 Run 的 Brief 而 P3——均修正测试 / 夹具，产品代码未改） |
-| 浏览器验收 FLOW A–I + 只读 + 三视口（隔离库 + dev） | ⟨BROWSER⟩ |
+| 浏览器验收 FLOW A–I + 只读 + 三视口（隔离库 + dev） | **70 通过 / 0 失败**（第四遍，10 张截图；隔离分支 br-cool-frost-anbe4h2g，dev :3218）。前三遍全是验收脚本自身：A6 把页面必须写的「不代表已认证」当违规（剥否定句）；D3 读折叠 <details> 的 innerText 为空（先展开）；F2 夹具产品缺贸易术语 / 交期（补齐）；开始评估的「新运行」检测在运行列表异步加载完成前取基线，会把旧运行误当新建（改为服务端列表为基线 + 视图首载失败时重点运行行）；脚本自己的直写模拟在空闲十几分钟后遇 P2024 连接回收（重连重试一次）。产品代码零改动 |
 | 回归 S4-A / S3-B / S3-A / S2-TB / S2 / S1 | **S4-A 116 / S3-B 87 / S3-A 131 / S2-TB 118 / S2 32 / S1 86，全部 0 失败**（分支 br-summer-night-anaivy7g / br-purple-brook-an5c72k5 / br-lively-dream-andca1pm）。S4-A T26d 按 S4-B 收口契约对齐：PASS 但评分证据不完整的候选在收口时写 NEEDS_VERIFICATION（此前 S4-A 收口不写推荐），live 数据变化仍不改写、永不 PRIMARY / BACKUP；第一遍 115/1 即此一处 |
-| typecheck / 改动文件 lint / lint baseline / build | ⟨QUALITY⟩ |
-| CI / staging（最终 PR HEAD） | ⟨CI_STAGING⟩ |
+| typecheck / 改动文件 lint / lint baseline / build | typecheck PASS / 改动 28 个 ts(x) 文件 lint 0 problems / lint baseline PASS（相对基线减少 12 处 error 出现，无新增 fingerprint）/ build PASS（362/362 页，代码头 `569530a3`） |
+| CI / staging（最终 PR HEAD） | 以 PR #215 最终 PR HEAD 的 checks 与 qingyan-staging 部署为准，结果写在交付收据里（不为写入自身结果再加提交） |
 
-⟨PROCESS_NOTES⟩
+过程记录：
+- 隔离分支：br-fancy-queen-an60hl31（S4-B DB ×2）、br-summer-night-anaivy7g（S4-A ×2 / S3-B）、br-purple-brook-an5c72k5（S3-A / S2-TB）、br-lively-dream-andca1pm（S2 / S1）、br-cool-frost-anbe4h2g（夹具 + dev + 浏览器 ×4）。全部为 br-green-boat-ann7k5yf 子分支，创建脚本用位置参数形式 + 主机前缀守卫，用后删除并复核。
+- 浏览器验收把 dev + 远程隔离库的现实写进脚本：评估视图一次 15–25s，脚本用服务端状态轮询与 UI 重选代替固定 sleep；没有 `|| true`。
+- 一处 zsh 非 UTF-8 locale 陷阱：后台命令用含中文的 `grep -q` 当门会永远不匹配（ugrep）→ 改用 ASCII 标记。
+- `.env.local`（gitignored）只在 scratchpad worktree 内存在，验收后删除；dev server 用后停止；`next build` 与 `next dev` 不并行（共用 .next）。
 
 ## 11. Deferred（明确写下，不静默假装完成）
 
@@ -119,4 +123,19 @@ Dedicated 1688 Adapter / API · 1688 authenticated crawling · HS code · tariff
 
 ## 13. Git
 
-⟨GIT⟩
+| 提交 | 说明 |
+| --- | --- |
+| `42a0af9e` | feat(supplier-intel/s4b): M1 纯核——找厂优先级 v1、推荐契约 v1、四个评分组件、项目排名 read-model |
+| `1649a494` | feat(supplier-intel/s4b): M2 服务层——score-and-complete、项目级当前推荐 / 赛马 read-model、找厂优先级标注、能力核验路径 |
+| `d295171c` | feat(supplier-intel/s4b): M3 UI——供应商评分分解、1688 挂牌价 vs 正式报价、找厂优先级徽章、供应商赛马 / 当前推荐页签 |
+| `4dae527e` | test(supplier-intel/s4b): 隔离库套件——评分收口 / 排名 / 1688 例子 / 不变性 / 并发 / ACL / 零网络 / 能力核验 |
+| `b7083715` | test(supplier-intel/s4b): 浏览器夹具——1688 挂牌价供应商 / 便宜但门 FAIL / 第二家四维齐全 / 询价轮 / 历史交互 / 已核验出口能力 |
+| `88f67543` | test(supplier-intel/s4b): 浏览器验收脚本 FLOW A–I + 只读成员 + 三视口；V2 改为「有写权限但档案项目不可见」 |
+| `5d38a6a9` | test(supplier-intel/s4b): 夹具补发现 Run 的 Brief 快照（找厂优先级词源）；修正 R2 历史计数与 D 可排名断言 |
+| `4116e16c` | docs(supplier-intel/s4b): 交付报告草稿——四层分离、1688 Trust Boundary、价格证据层、score-and-complete、组件公式、推荐 / 排名 / 赛马、deferred、Neon 安全规则 |
+| `6c4b6516` | test(supplier-intel): S4-A T26d 对齐 S4-B 收口契约（推荐态由评分契约决定，live 变化不改写、永不 PRIMARY/BACKUP）；浏览器验收 A6 剥否定句 / D3 展开分解 / 运行行重选；夹具补 incoterm 交期 |
+| `deec8740` | test(supplier-intel/s4b): 浏览器验收——开始评估以服务端列表为基线（运行列表异步加载会把旧运行误认成新建）；人工判定按钮缺失时输出诊断 |
+| `569530a3` | test(supplier-intel/s4b): 浏览器验收脚本的直写模拟对隔离库连接回收（P2024/P1001）重连重试一次 |
+| CODE_HEAD_SHA | `569530a3`（本报告提交之前的最后一次代码 / 测试提交） |
+| FINAL_PR_HEAD_SHA | 本报告所在的 docs 提交（见 PR #215） |
+| BASE_MAIN_SHA / REMOTE_MAIN_SHA | `36ccc1a2583968fa9eca05c1f72cecced06273b6`（S4-A merge commit）/ 见收据 |
