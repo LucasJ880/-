@@ -277,6 +277,16 @@ export type RequirementStatusV2 =
   | "CONFLICT"
   | "NEEDS_REVIEW";
 
+/** Addendum 对照标签。后发布有效 Addendum 优先；不得把模型推断当事实。 */
+export const ADDENDUM_DISPOSITIONS = [
+  "ORIGINAL",
+  "SUPERSEDED",
+  "MODIFIED",
+  "NEW",
+  "UNCHANGED",
+] as const;
+export type AddendumDispositionV2 = (typeof ADDENDUM_DISPOSITIONS)[number];
+
 export type TenderRequirementV2 = {
   id: string;
   category: RequirementCategoryV2;
@@ -292,6 +302,7 @@ export type TenderRequirementV2 = {
   submissionStage: string | null;
   technicalArea: string | null;
   status: RequirementStatusV2;
+  addendumDisposition: AddendumDispositionV2;
   /** SUPERSEDED 时指向替代者 */
   supersededById: string | null;
   evidence: EvidenceRefV2[];
@@ -376,6 +387,22 @@ export type AnalysisMetadataV2 = {
   rejectedCandidates: { reasonCode: string; count: number }[];
   inputChars: number;
   outputChars: number;
+  /** 钉住的模型族 / 版本 / prompt。fallback 时仍保留原 pin，另见 analyzedWithFallbackModel */
+  modelFamily?: string;
+  modelVersion?: string;
+  promptVersion?: string;
+  analyzedWithFallbackModel?: boolean;
+  fallbackReason?: string;
+  /** 招标包输入完整性。缺省视为未计算（旧结果兼容）。 */
+  packageCompletenessStatus?: "TENDER_PACKAGE_COMPLETE" | "TENDER_PACKAGE_INCOMPLETE";
+  packageCoverage?: number;
+  mandatoryEvidenceCoverage?: number;
+  addendumCoverage?: number;
+  totalDocuments?: number;
+  tenderRelevantDocuments?: number;
+  documentsAnalyzed?: number;
+  documentsExcluded?: number;
+  documentsPartiallyRead?: number;
 };
 
 export type AnalysisResultV2 = {

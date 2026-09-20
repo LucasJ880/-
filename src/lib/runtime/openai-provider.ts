@@ -7,6 +7,10 @@ import type {
 } from "./types";
 import { getClient, buildTuningParams } from "@/lib/ai/client";
 import { getAIConfig } from "@/lib/ai/config";
+import {
+  createResponsesAsChatCompat,
+  requiresResponsesApi,
+} from "@/lib/ai/responses-client";
 
 export class OpenAIProvider implements LLMProvider {
   readonly name = "openai";
@@ -23,6 +27,50 @@ export class OpenAIProvider implements LLMProvider {
 
     const model = req.model || cfg.primaryModel;
     const hasFunctionTools = Boolean(req.tools?.length);
+
+    if (requiresResponsesApi(model, hasFunctionTools)) {
+      const mappedTools = req.tools?.map((t) => ({
+        type: "function" as const,
+        function: {
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters as Record<string, unknown>,
+        },
+      }));
+      const compat = await createResponsesAsChatCompat({
+        model,
+        messages: req.messages,
+        tools: mappedTools,
+        maxOutputTokens: req.maxTokens ?? 4096,
+        reasoningEffort: "medium",
+      });
+      const choice = compat.choices[0];
+      const usage = compat.usage;
+      const toolCalls: ToolCallRequest[] = (choice?.message?.tool_calls ?? []).map(
+        (tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: {
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          },
+        }),
+      );
+      return {
+        assistantText: choice?.message?.content ?? "",
+        finishReason: choice?.finish_reason ?? "stop",
+        usage: {
+          inputTokens: usage?.prompt_tokens ?? 0,
+          outputTokens: usage?.completion_tokens ?? 0,
+          totalTokens: usage?.total_tokens ?? 0,
+        },
+        latencyMs: Date.now() - start,
+        modelName: compat.model || model,
+        toolCalls,
+        isMock: false,
+      };
+    }
+
     const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
       model,
       messages: req.messages.map((m) => {
@@ -36,9 +84,9 @@ export class OpenAIProvider implements LLMProvider {
         return { role: m.role, content: m.content };
       }),
       max_completion_tokens: req.maxTokens ?? 4096,
-      ...buildTuningParams(model, req.temperature ?? 0.7, "medium", {
+      ...(buildTuningParams(model, req.temperature ?? 0.7, "medium", {
         hasFunctionTools,
-      }),
+      }) as { temperature?: number; reasoning_effort?: "none" | "low" | "medium" | "high" }),
     };
 
     if (hasFunctionTools && req.tools) {

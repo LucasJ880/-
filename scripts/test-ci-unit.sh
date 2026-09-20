@@ -88,6 +88,9 @@ npx tsx --test src/lib/project-finance/__tests__/p16-authz-contract.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
+npx tsx src/lib/tender-understanding/__tests__/addendum-disposition.test.ts
+npx tsx src/lib/tender-understanding/__tests__/input-completeness.test.ts
+npx tsx src/lib/tender-understanding/__tests__/org-context.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-generic.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-hallucination.test.ts
 npx tsx src/lib/tender-understanding/__tests__/v2-evidence.test.ts
@@ -215,6 +218,18 @@ npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
+
+npx tsx src/lib/ai/__tests__/client-tuning.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/flags.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/resolve.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/reasoning.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/compat.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/retry.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/guardrails.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/failure-modes.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/benchmark-harness.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/tender.test.ts
+npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

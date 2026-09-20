@@ -25,6 +25,8 @@ import { db } from "@/lib/db";
 import type { AnalyzeOptions } from "@/lib/tender-understanding/analyzer";
 import type { AnalyzerInput } from "@/lib/tender-understanding/contract";
 import { isTenderAnalysisV2Enabled } from "@/lib/tender-understanding/flag";
+import { createUnifiedRuntimeInvoker } from "@/lib/tender-understanding/llm";
+import { resolveTenderOrgForProject } from "@/lib/tender-understanding/org-context";
 import type { AnalystCoverage } from "@/lib/tender-analyst/contract";
 import { mapRunRoleToV2Role, type V2MappedResult } from "./v2-map";
 // 执行/推理/续跑语义归 #113：错误类、分片执行器、游标都从各自模块取，
@@ -136,6 +138,27 @@ export async function loadCoverageForRun(
   };
 }
 
+async function productionInvokerForRun(
+  runId: string,
+  opts?: AnalyzeOptions,
+) {
+  if (opts?.invoker) return opts.invoker;
+  const run = await db.tenderAnalysisRun.findUnique({
+    where: { id: runId },
+    select: { orgId: true, projectId: true, createdById: true },
+  });
+  const orgId = run
+    ? await resolveTenderOrgForProject({
+        projectId: run.projectId,
+        runOrgId: run.orgId,
+      })
+    : null;
+  return createUnifiedRuntimeInvoker({
+    orgId,
+    userId: run?.createdById,
+  });
+}
+
 /**
  * 只做推理 + 纯映射，绝不触碰 canonical 表（可能长耗时）。
  * 内部走与生产 worker 同一个分片执行器（deadline=∞ → 一次跑完），
@@ -151,6 +174,7 @@ export async function runV2Inference(input: {
     throw new Error(`runV2Inference: no documents/pages for run ${input.runId}`);
   }
   const coverage = await loadCoverageForRun(analyzerInput.projectId, input.runId);
+  const invoker = await productionInvokerForRun(input.runId, input.opts);
   const outcome = await advanceV2Analysis({
     input: analyzerInput,
     coverage,
@@ -161,7 +185,7 @@ export async function runV2Inference(input: {
     }),
     deadlineAt: Number.POSITIVE_INFINITY,
     tickBudgetMs: Number.POSITIVE_INFINITY,
-    invoker: input.opts?.invoker,
+    invoker,
     maxConcurrency: input.opts?.maxConcurrency,
     windowOptions: input.opts?.windowOptions,
   });
@@ -301,6 +325,7 @@ export async function advanceAndPersistV2(input: {
     });
 
   const coverage = await loadCoverageForRun(analyzerInput.projectId, input.runId);
+  const invoker = await productionInvokerForRun(input.runId, input.opts);
 
   const outcome = await advanceV2Analysis({
     input: analyzerInput,
@@ -308,7 +333,7 @@ export async function advanceAndPersistV2(input: {
     cursor,
     deadlineAt: input.deadlineAt,
     tickBudgetMs: input.tickBudgetMs,
-    invoker: input.opts?.invoker,
+    invoker,
     maxConcurrency: input.opts?.maxConcurrency,
     windowOptions: input.opts?.windowOptions,
     now,
