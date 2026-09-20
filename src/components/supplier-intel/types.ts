@@ -151,6 +151,21 @@ export interface SignalRow {
   reviewedByUserId: string | null;
   reviewedAt: string | null;
   discoveredAt: string;
+  /** S4-B：项目上下文下的找厂优先级（read-model；≠ 供应商评分；无项目 / Brief 不可用时为 null） */
+  discoveryPriority?: DiscoveryPriorityView | null;
+}
+
+export interface DiscoveryPriorityView {
+  version: string;
+  total: number;
+  bucket: "P1" | "P2" | "P3";
+  components: { relevance: number; factory: number; export: number; actionability: number; completeness: number };
+  reasons: {
+    productTermsMatched: string[]; productTermsTotal: number; searchTermsMatched: string[]; searchTermsTotal: number;
+    factoryTermsMatched: string[]; exportTermsMatched: string[]; sourceQuery: string | null;
+    completeness: { url: boolean; title: boolean; body: boolean; account: boolean };
+  };
+  disclaimer: string;
 }
 
 export interface SignalPagePayload {
@@ -245,6 +260,9 @@ export interface EvaluationCandidateView {
   recommendation: string | null;
   rejectionReason: string | null;
   scores: { technical: number | null; commercial: number | null; reliability: number | null; importRisk: number | null; total: number | null };
+  scoreVersion: string;
+  /** S4-B：收口时冻结的评分快照（RUNNING 期间为 null） */
+  scoreBreakdown: CandidateScoreBreakdownView | null;
   requirements: EvaluationRequirementRowView[];
   evidenceOptions: {
     certifications: Array<{ id: string; certificationType: string; scope: string; offeringId: string | null; status: string; validFrom: string | null; expiresAt: string | null; certificateNumber: string | null; expiredByDate: boolean; scopeCompatible: boolean }>;
@@ -260,4 +278,51 @@ export interface EvaluationViewPayload {
   requirementCount: number;
   mandatoryCount: number;
   candidates: EvaluationCandidateView[];
+}
+
+/* ───────────────── S4-B：评分快照 / 当前推荐 / 赛马 ───────────────── */
+
+export interface CandidateScoreBreakdownView {
+  scoreVersion: string;
+  recommendationContractVersion: string;
+  componentRuleVersions: Record<string, string>;
+  computedAt: string;
+  gateResult: string;
+  technical: { score: number | null; scorableCount: number; items: Array<{ key: string; category: string | null; verdict: string; evaluatedBy: string | null; points: number; reason: string | null }>; excluded: Array<{ key: string; category: string | null }>; unmapped: Array<{ key: string; category: string | null }>; reasonCodes: string[] } | null;
+  commercial: { score: number | null; priceEvidenceTier: string; round: { inquiryId: string; roundNumber: number; scope: string | null } | null; priceBasis: string | null; currency: string | null; candidate: { itemId: string; price: number | null; deliveryDays: number | null; validUntil: string | null } | null; comparableGroup: Array<{ supplierId: string; itemId: string; price: number; deliveryDays: number | null }>; sub: { price: number | null; delivery: number; completeness: number | null }; reasonCodes: string[]; offeringPriceEvidence: { tier: string; listedPrice: string | null; currency: string | null; priceStatus: string | null; sourceKind: string | null; sourceUrl: string | null; sourceSignalPlatform: string | null } } | null;
+  reliability: { score: number | null; contacted: number; replied: number; selected: number; sub: { responseRate: number | null; priorSelection: number | null }; reasonCodes: string[] } | null;
+  importRisk: { score: number | null; verified: Array<{ id: string; type: string }>; unverified: Array<{ id: string; type: string; evidenceStatus: string }>; sub: { readiness: number | null; packaging: number; incoterm: number; leadTime: number }; offering: { incoterm: string | null; leadTimeDays: number | null }; reasonCodes: string[] } | null;
+  knownWeightShare: number | null;
+  unknownComponents: string[];
+  normalizedKnownScore: number | null;
+  officialTotalScore: number | null;
+  recommendation: string | null;
+  rankable: boolean;
+  reasonCodes: string[];
+}
+
+export interface RankingRowView {
+  candidateId: string; supplierId: string; offeringId: string | null; mandatoryGateResult: string; recommendation: string | null;
+  scores: { technical: number | null; commercial: number | null; reliability: number | null; importRisk: number | null; total: number | null };
+  eligible: boolean; rank: number | null; section: string; ineligibleReason: string | null;
+  runId: string; completedAt: string | null; supplierName: string; offeringName: string | null; offeringSku: string | null; originSource: string; scoreVersion: string;
+  unknownComponents: string[]; reasonCodes: string[]; priceEvidenceTier: string | null; nextAction: { code: string; label: string };
+}
+
+export interface RacingRowView {
+  key: string; supplierId: string; supplierName: string; offeringId: string | null; offeringName: string | null;
+  sourcePlatform: string | null; originSource: string | null; discoveryPriority: DiscoveryPriorityView | null;
+  state: string; gate: string | null; rfq: "NONE" | "SENT" | "CONFIRMED"; officialTotalScore: number | null;
+  currentRank: number | null; section: string | null; candidateId: string | null; runId: string | null; evaluationInProgress: boolean;
+  nextAction: { code: string; label: string };
+}
+
+export interface ProjectRankingPayload {
+  project: { id: string; name: string | null };
+  computedAt: string;
+  disclaimers: { ranking: string; discovery: string };
+  priorityBriefSource: string | null;
+  sections: Record<"PRIMARY" | "BACKUP" | "NEEDS_VERIFICATION" | "HIGH_RISK" | "NOT_ELIGIBLE", RankingRowView[]>;
+  ranked: RankingRowView[];
+  racing: RacingRowView[];
 }

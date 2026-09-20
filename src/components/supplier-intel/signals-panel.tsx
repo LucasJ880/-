@@ -22,6 +22,7 @@ import {
   signalStatusDisplay,
   sourceOriginDisplay,
 } from "@/lib/supplier-intel/workspace-labels";
+import { discoveryBucketLabel } from "@/lib/supplier-intel/discovery-priority";
 import { ScopeGuard } from "./scope-guard";
 import {
   WorkspaceApiError,
@@ -39,6 +40,9 @@ const TONE_CLASS: Record<string, string> = {
   warning: "bg-[var(--warning-bg)] text-[var(--warning)] border-transparent",
   danger: "bg-[var(--danger-bg)] text-[var(--danger)] border-transparent",
 };
+
+/** S4-B 找厂优先级桶的色调（只表达「先看谁」，不表达合格 / 可靠） */
+const BUCKET_TONE: Record<string, string> = { P1: "info", P2: "neutral", P3: "neutral" };
 
 const STATUS_FILTERS = [
   { key: "", label: "全部" },
@@ -210,6 +214,11 @@ export function SignalsPanel({
           <p className="text-xs text-[var(--muted)]">
             共 {page.total} 条{page.total > page.pageSize ? `（每页 ${page.pageSize} 条）` : ""}
           </p>
+          {page.signals.some((x) => x.discoveryPriority) ? (
+            <p className="rounded-lg bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]" data-testid="discovery-priority-disclaimer">
+              找厂优先级只用于安排采购调研顺序，不代表供应商符合本 Tender。P1 ≥ 70 · P2 50–69 · P3 &lt; 50；「来源可操作性」说的是联系 / 采购好不好操作，不是可靠性。
+            </p>
+          ) : null}
           <ul className="space-y-2">
             {page.signals.map((s) => {
               const st = signalStatusDisplay(s.status);
@@ -229,6 +238,11 @@ export function SignalsPanel({
                       <span className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[var(--muted)]">
                         {pf.label}
                       </span>
+                      {s.discoveryPriority ? (
+                        <span className={`rounded border px-1.5 py-0.5 ${TONE_CLASS[BUCKET_TONE[s.discoveryPriority.bucket] ?? "neutral"]}`} data-testid="discovery-priority" data-bucket={s.discoveryPriority.bucket} data-score={s.discoveryPriority.total}>
+                          找厂优先级 {s.discoveryPriority.bucket} · {s.discoveryPriority.total}
+                        </span>
+                      ) : null}
                       <span className="text-[var(--muted)]">
                         {new Date(s.discoveredAt).toLocaleString("zh-CN")}
                       </span>
@@ -541,6 +555,22 @@ function SignalDetailDrawer({
         {st.hint ? <p className="text-xs text-[var(--muted)]">{st.hint}</p> : null}
         {pf.hint ? <p className="text-xs text-[var(--muted)]">来源说明：{pf.hint}</p> : null}
         {origin.hint ? <p className="text-xs text-[var(--muted)]">{origin.hint}</p> : null}
+
+        {/* S4-B：找厂优先级——只回答「值不值得先点进去看」，不是评分 / 合规 */}
+        {signal.discoveryPriority ? (
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-xs" data-testid="discovery-priority-box" data-bucket={signal.discoveryPriority.bucket}>
+            <p className="font-medium">找厂优先级：{discoveryBucketLabel(signal.discoveryPriority.bucket)}（{signal.discoveryPriority.total} / 100）</p>
+            <p className="mt-0.5 text-[var(--muted)]">{signal.discoveryPriority.disclaimer}</p>
+            <ul className="mt-1 space-y-0.5 text-[var(--muted)]" data-testid="discovery-priority-reasons">
+              <li>要求 / 产品相关性 {signal.discoveryPriority.components.relevance} / 50：命中 {signal.discoveryPriority.reasons.productTermsMatched.concat(signal.discoveryPriority.reasons.searchTermsMatched).join("、") || "—"}</li>
+              <li>厂家 / OEM 信号 {signal.discoveryPriority.components.factory} / 20：{signal.discoveryPriority.reasons.factoryTermsMatched.join("、") || "—"}（文本命中，不是已核验能力）</li>
+              <li>出口 / 北美信号 {signal.discoveryPriority.components.export} / 15：{signal.discoveryPriority.reasons.exportTermsMatched.join("、") || "—"}（声称 / 发现，不是已核验）</li>
+              <li>来源可操作性 {signal.discoveryPriority.components.actionability} / 10：联系 / 采购好不好操作，不是可靠性</li>
+              <li>资料完整度 {signal.discoveryPriority.components.completeness} / 5</li>
+              {signal.discoveryPriority.reasons.sourceQuery ? <li>搜索词：{signal.discoveryPriority.reasons.sourceQuery}</li> : null}
+            </ul>
+          </div>
+        ) : null}
 
         {/* S3-B：身份确认之后的下一步——去看这家具体能供什么、凭什么信。
             带上 projectId / signalId 只是告诉那页「从哪来」，是否属实由服务端核实。 */}

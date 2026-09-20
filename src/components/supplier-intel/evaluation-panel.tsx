@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Plus, RefreshCw } from "lucide-react";
 import {
+  SCORE_COMPONENT_LABELS,
   evaluatedByLabel,
   evaluationRunOutcome,
   gateReasonText,
@@ -21,7 +22,9 @@ import {
   mandatoryLabel,
   matchVerdictDisplay,
   originSourceLabel,
+  priceEvidenceTierDisplay,
   recommendationDisplay,
+  scoreReasonText,
 } from "@/lib/supplier-intel/evaluation-display";
 import { certificationStatusDisplay, certificationScopeLabel, certificationTypeLabel } from "@/lib/supplier-intel/evidence-display";
 import { TONE_CLASS } from "./evidence-sections";
@@ -235,16 +238,95 @@ function EvaluationRunDetail({ view, candidate, canAct, busy, q, onAct, onRefres
             </button>
             <button type="button" className={BTN_GHOST} disabled={busy !== null || candidate.mandatoryGateResult === "PENDING"} data-testid="complete-evaluation"
               title={candidate.mandatoryGateResult === "PENDING" ? "先计算强制项" : "完成后结果冻结，改判需新建评估"}
-              onClick={() => void onAct("complete", () => workspaceFetch(`/api/supplier-intel/runs/${view.run.id}/complete${q}`, { method: "POST" }), "评估已完成并冻结。")}>
-              完成评估
+              onClick={() => void onAct("complete", () => workspaceFetch(`/api/supplier-intel/runs/${view.run.id}/complete${q}`, { method: "POST" }), "评估已完成并冻结（含正式评分）。")}>
+              完成评估并评分
             </button>
           </div>
         ) : null}
       </div>
 
+      <ScoreBox candidate={candidate} terminal={terminal} />
+
       <RequirementGroup title="强制项" rows={mandatoryRows} candidate={candidate} canAct={canAct} busy={busy} q={q} onAct={onAct} />
       <RequirementGroup title="非强制项" rows={optionalRows} candidate={candidate} canAct={canAct} busy={busy} q={q} onAct={onAct} />
       {terminal ? <p className="text-[11px] text-[var(--muted)]">评估已冻结：候选快照、判定与硬门不再变化；改判请新建评估运行。</p> : null}
+    </div>
+  );
+}
+
+/**
+ * S4-B：供应商评分（正式）——只在收口后显示冻结的四维分解与官方总分；UNKNOWN 显示「待核实」，绝不用 0 伪装。
+ * 平台挂牌价（1688 等）只展示、不进入正式商务评分；正式报价覆盖挂牌价作为评分依据。
+ */
+function ScoreBox({ candidate, terminal }: { candidate: EvaluationCandidateView; terminal: boolean }) {
+  const bd = candidate.scoreBreakdown;
+  const listed = candidate.offeringSnapshot as { unitPrice?: string | null; currency?: string | null; sourceKind?: string | null; sourceUrl?: string | null } | null;
+  const fmt = (v: number | null | undefined) => (v === null || v === undefined ? "待核实" : String(v));
+  const comps = [
+    { key: "technical" as const, value: candidate.scores.technical },
+    { key: "commercial" as const, value: candidate.scores.commercial },
+    { key: "reliability" as const, value: candidate.scores.reliability },
+    { key: "importRisk" as const, value: candidate.scores.importRisk },
+  ];
+  const tier = priceEvidenceTierDisplay(bd?.commercial?.priceEvidenceTier ?? null);
+  return (
+    <div className="rounded-lg border border-[var(--border)] p-2 text-xs" data-testid="supplier-score-box" data-official-total={candidate.scores.total ?? "unknown"} data-score-state={bd ? (candidate.mandatoryGateResult === "PASS" ? (candidate.scores.total !== null ? "COMPLETE" : "PARTIAL") : "NOT_SCORED") : "PENDING"}>
+      <p className="font-medium">供应商评分（{candidate.scoreVersion}）<span className="ml-1 font-normal text-[var(--muted)]">强制项通过后才计算；这是评分，不是当前推荐</span></p>
+      {!bd ? (
+        <p className="mt-0.5 text-[var(--muted)]" data-testid="score-pending">{terminal ? "此评估没有评分快照。" : "完成评估时计算并冻结。"}</p>
+      ) : candidate.mandatoryGateResult !== "PASS" ? (
+        <p className="mt-0.5 text-[var(--muted)]" data-testid="score-not-computed">{candidate.mandatoryGateResult === "FAIL" ? "强制项不通过：不计算正式评分，无论价格多低。" : "强制项资料不足：没有正式总分。"}</p>
+      ) : (
+        <>
+          <table className="mt-1 w-full text-left" data-testid="score-table">
+            <tbody>
+              {comps.map((c) => (
+                <tr key={c.key} data-testid="score-component" data-component={c.key} data-value={c.value ?? "unknown"}>
+                  <td className="py-0.5 pr-2">{SCORE_COMPONENT_LABELS[c.key].label}</td>
+                  <td className="py-0.5 pr-2 font-mono">{fmt(c.value)}{c.value !== null ? " / 100" : ""}</td>
+                  <td className="py-0.5 text-[var(--muted)]">× {SCORE_COMPONENT_LABELS[c.key].weightLabel}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-[var(--border)]" data-testid="score-total">
+                <td className="py-0.5 pr-2 font-medium">总分</td>
+                <td className="py-0.5 pr-2 font-mono font-medium" data-testid="score-total-value">{candidate.scores.total === null ? "待核实" : `${candidate.scores.total} / 100`}</td>
+                <td className="py-0.5 text-[var(--muted)]">{candidate.scores.total === null ? `有维度待核实（${bd.unknownComponents.map((k) => SCORE_COMPONENT_LABELS[k as keyof typeof SCORE_COMPONENT_LABELS]?.label ?? k).join("、")}），不给正式总分` : "四维齐全"}</td>
+              </tr>
+            </tbody>
+          </table>
+          {bd.reasonCodes.length ? (
+            <ul className="mt-1 space-y-0.5 text-[var(--muted)]" data-testid="score-reasons">
+              {bd.reasonCodes.map((c) => <li key={c} data-reason={c}>{scoreReasonText(c)}</li>)}
+            </ul>
+          ) : null}
+          {bd.technical ? (
+            <details className="mt-1"><summary className="cursor-pointer text-[var(--accent)]">技术匹配分解（{bd.technical.scorableCount} 条可计分技术项）</summary>
+              <ul className="mt-1 space-y-0.5 text-[var(--muted)]" data-testid="technical-breakdown">
+                {bd.technical.items.map((it) => <li key={it.key} data-key={it.key} data-points={it.points}><span className="font-mono">{it.key}</span>（{it.category ?? "—"}）：{it.verdict === "MISSING" ? "未判定" : matchVerdictDisplay(it.verdict).label}{it.evaluatedBy ? ` · ${evaluatedByLabel(it.evaluatedBy)}` : ""} → {it.points} 分{it.reason ? `（${scoreReasonText(it.reason)}）` : ""}</li>)}
+                {bd.technical.unmapped.map((u) => <li key={u.key}><span className="font-mono">{u.key}</span>（{u.category ?? "—"}）：类别不在技术计分词表内，未计分</li>)}
+              </ul>
+            </details>
+          ) : null}
+          {bd.reliability ? <p className="mt-1 text-[var(--muted)]" data-testid="reliability-detail">履约可靠性依据：别项目真实询价 {bd.reliability.contacted} 次 / 回复 {bd.reliability.replied} 次 / 曾入选 {bd.reliability.selected} 次（不用平台宣传数据、不用历史人工评分）</p> : null}
+          {bd.importRisk ? <p className="mt-1 text-[var(--muted)]" data-testid="import-detail">进口与交付准备度依据：已核验出口能力 {bd.importRisk.verified.map((v) => v.type).join("、") || "无"}；{bd.importRisk.unverified.length ? `另有 ${bd.importRisk.unverified.length} 条出口声明待核实；` : ""}贸易术语 {bd.importRisk.offering.incoterm ?? "未知"} · 交期 {bd.importRisk.offering.leadTimeDays ? `${bd.importRisk.offering.leadTimeDays} 天` : "未知"}</p> : null}
+        </>
+      )}
+      {/* 价格证据：挂牌价 vs 正式报价（无论是否已评分都如实展示） */}
+      <div className="mt-2 rounded border border-dashed border-[var(--border)] p-2" data-testid="price-evidence-box" data-tier={bd?.commercial?.priceEvidenceTier ?? "PENDING"}>
+        {bd?.commercial ? (
+          <>
+            <p><Badge tone={tier.tone} testId="price-evidence-tier">{tier.label}</Badge>{bd.commercial.round ? <span className="ml-1 text-[var(--muted)]">来源：Project Inquiry Round {bd.commercial.round.roundNumber}{bd.commercial.candidate?.price !== null && bd.commercial.candidate?.price !== undefined ? ` · ${bd.commercial.currency ?? ""} ${bd.commercial.candidate.price}` : ""}</span> : null}</p>
+            {tier.hint ? <p className="mt-0.5 text-[var(--muted)]">{tier.hint}</p> : null}
+            {bd.commercial.offeringPriceEvidence.listedPrice ? (
+              <p className="mt-0.5 text-[var(--muted)]" data-testid="listed-price">{bd.commercial.offeringPriceEvidence.sourceSignalPlatform === "ONE688" || (bd.commercial.offeringPriceEvidence.sourceUrl ?? "").includes("1688.com") ? "1688 平台挂牌价" : "报盘登记价"} {bd.commercial.offeringPriceEvidence.currency ?? ""} {bd.commercial.offeringPriceEvidence.listedPrice}{bd.commercial.priceEvidenceTier === "RFQ_CONFIRMED" ? "（历史挂牌证据保留；正式报价覆盖挂牌价作为评分依据）" : bd.commercial.priceEvidenceTier === "PLATFORM_LISTED" ? "（状态：待正式询价确认；不进入正式 Commercial Score）" : ""}</p>
+            ) : null}
+          </>
+        ) : listed?.unitPrice ? (
+          <p className="text-[var(--muted)]" data-testid="listed-price">{(listed.sourceUrl ?? "").includes("1688.com") ? "1688 平台挂牌价" : "报盘登记价"} {listed.currency ?? ""} {listed.unitPrice} · 待正式询价确认；不进入正式 Commercial Score</p>
+        ) : (
+          <p className="text-[var(--muted)]">价格：待正式询价确认</p>
+        )}
+      </div>
     </div>
   );
 }

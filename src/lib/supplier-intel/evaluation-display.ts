@@ -60,9 +60,84 @@ export function gateResultDisplay(result: string): LabelWithTone {
 export function recommendationDisplay(rec: string | null): LabelWithTone | null {
   switch (rec) {
     case "NOT_ELIGIBLE": return { label: "不可进入推荐候选", tone: "danger", hint: "强制项不通过；无论价格多低都不能推荐" };
-    case "NEEDS_VERIFICATION": return { label: "待核实", tone: "warning", hint: "强制项资料不足；补齐证据后新建评估" };
-    default: return null; // PASS 时本轮不给最终推荐（S4-B 评分阶段的事）
+    case "NEEDS_VERIFICATION": return { label: "待核实", tone: "warning", hint: "强制项或评分证据不完整；补齐后新建评估" };
+    case "HIGH_RISK": return { label: "重大风险", tone: "danger", hint: "四维齐全但进口准备度或履约可靠性低于阈值；不进入当前推荐" };
+    default: return null; // PASS 且可排名：候选自身不写 PRIMARY / BACKUP，由项目级当前推荐动态派生
   }
+}
+
+/* ───────────────── S4-B：评分 / 价格证据 / 赛马 / 当前推荐 ───────────────── */
+
+export const SCORE_COMPONENT_LABELS: Record<"technical" | "commercial" | "reliability" | "importRisk", { label: string; weightLabel: string }> = {
+  technical: { label: "技术匹配", weightLabel: "40%" },
+  commercial: { label: "商务", weightLabel: "25%" },
+  reliability: { label: "履约可靠性", weightLabel: "20%" },
+  importRisk: { label: "进口与交付准备度", weightLabel: "15%" },
+};
+
+const SCORE_REASON_TEXT: Record<string, string> = {
+  GATE_FAIL: "强制项不通过：不计算正式评分",
+  GATE_INCOMPLETE: "强制项资料不足：没有正式总分",
+  UNMAPPED_REQUIREMENT_CATEGORY: "有要求的类别不在技术计分词表内（未静默计分）",
+  TECHNICAL_NO_SCORABLE_REQUIREMENTS: "本项目没有可计分的技术要求",
+  TECHNICAL_AI_ASSISTED_UNCONFIRMED: "AI 辅助判定未经人工确认，按 0 计",
+  COMMERCIAL_NO_CONFIRMED_RFQ: "本项目尚无该供应商的正式报价（待询价确认）",
+  COMMERCIAL_SINGLE_QUOTE: "同一询价轮只有一家正式报价，无法比较",
+  COMMERCIAL_NOT_COMPARABLE_CURRENCY: "同轮报价币种不一致，不做汇率猜测",
+  COMMERCIAL_NOT_COMPARABLE_PRICE_BASIS: "同轮报价单价 / 总价口径不一致，不混比",
+  COMMERCIAL_PLATFORM_LISTED_ONLY: "只有平台挂牌价，不进入正式商务评分",
+  DELIVERY_UNKNOWN: "交期未知，交期竞争力按 0 计",
+  RELIABILITY_HISTORY_INSUFFICIENT: "内部真实询价历史不足 2 条，履约可靠性待验证",
+  EXPORT_READINESS_UNVERIFIED: "没有已核验的出口能力证据，进口准备度待核实",
+  EXPORT_CLAIMED_ONLY: "出口能力只是声称 / 观察到，尚未核验",
+  OFFICIAL_TOTAL_INCOMPLETE: "有维度待核实，不给正式总分",
+  HIGH_RISK_IMPORT: "进口准备度低于阈值",
+  HIGH_RISK_RELIABILITY: "履约可靠性低于阈值",
+};
+export function scoreReasonText(code: string): string {
+  return SCORE_REASON_TEXT[code] ?? code;
+}
+
+export function priceEvidenceTierDisplay(tier: string | null): LabelWithTone {
+  switch (tier) {
+    case "RFQ_CONFIRMED": return { label: "正式报价", tone: "success", hint: "来源：本项目询价轮的正式回复；覆盖挂牌价作为评分依据" };
+    case "INQUIRY_CONFIRMED": return { label: "询价确认价", tone: "info", hint: "来自询价渠道登记的报盘；项目级正式报价优先" };
+    case "HUMAN_ENTERED": return { label: "人工录入价", tone: "neutral", hint: "采购人员手工登记，不进入正式商务评分" };
+    case "PLATFORM_LISTED": return { label: "平台挂牌价 / 待询价确认", tone: "warning", hint: "1688 等平台页面价格，不进入正式商务评分" };
+    case "ESTIMATED": return { label: "估算价", tone: "neutral", hint: "不进入正式商务评分" };
+    default: return { label: "价格未知", tone: "neutral", hint: null };
+  }
+}
+
+export function rankingSectionDisplay(section: string): LabelWithTone {
+  switch (section) {
+    case "PRIMARY": return { label: "PRIMARY · 当前首选", tone: "success", hint: "按最新完成评估动态计算，不是历史记录" };
+    case "BACKUP": return { label: "BACKUP · 备选", tone: "info", hint: null };
+    case "NEEDS_VERIFICATION": return { label: "待核实", tone: "warning", hint: "证据不完整，不进入排名" };
+    case "HIGH_RISK": return { label: "重大风险", tone: "danger", hint: "不进入排名" };
+    case "NOT_ELIGIBLE": return { label: "不可进入推荐候选", tone: "danger", hint: "强制项不通过" };
+    default: return { label: section, tone: "neutral", hint: null };
+  }
+}
+
+export function racingStateDisplay(state: string): LabelWithTone {
+  switch (state) {
+    case "FOUND": return { label: "已发现", tone: "neutral", hint: null };
+    case "LINKED": return { label: "已关联", tone: "neutral", hint: null };
+    case "OFFERING_READY": return { label: "已登记产品", tone: "neutral", hint: null };
+    case "EVIDENCE_READY": return { label: "已有核验证据", tone: "info", hint: null };
+    case "GATE_PASS": return { label: "强制项已通过", tone: "info", hint: null };
+    case "RFQ_CONFIRMED": return { label: "已正式报价", tone: "info", hint: null };
+    case "SCORED": return { label: "已正式评分", tone: "success", hint: null };
+    case "NEEDS_VERIFICATION": return { label: "待核实", tone: "warning", hint: null };
+    case "NOT_ELIGIBLE": return { label: "不可进入推荐候选", tone: "danger", hint: null };
+    case "HIGH_RISK": return { label: "重大风险", tone: "danger", hint: null };
+    default: return { label: state, tone: "neutral", hint: null };
+  }
+}
+
+export function rfqStateLabel(rfq: string): string {
+  return rfq === "CONFIRMED" ? "已报价" : rfq === "SENT" ? "已询价待回复" : "待询价";
 }
 
 const REASON_TEXT: Record<MandatoryGateReasonCode, string> = {
