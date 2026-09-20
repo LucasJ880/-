@@ -143,6 +143,18 @@ const guard = { orgId: ORG_A, principalUserId: USER_A, projectId: "proj_a", cust
   ok(!d2.ok && d2.code === "TOOL_NOT_ALLOWLISTED", "矩阵14b：allowlist 语义不变（名单外工具拒绝）");
 }
 
+// ── org_owner（企业负责人）视同 org_admin；未知角色仍 fail-closed ─────────
+{
+  const owner = memberTenant({ orgRole: "org_owner" });
+  const d = canInvokeTool({ tenant: owner, hasMembership: true, tool: readTool });
+  ok(d.ok && d.allowed, "org_owner 可调用 admin/sales 只读工具（此前被当作无效角色 org_role_denied）");
+  const tradeTool = { name: "trade_view_attachment_image", domain: "trade" as const, risk: "l0_read" as const, allowRoles: ["admin", "trade"] as const };
+  const d2 = canInvokeTool({ tenant: owner, hasMembership: true, tool: tradeTool });
+  ok(d2.ok && d2.allowed, "org_owner 可调用 trade 域只读工具（外贸对话追问看图）");
+  const d3 = canInvokeTool({ tenant: memberTenant({ orgRole: "boss" }), hasMembership: true, tool: readTool });
+  ok(!d3.ok && d3.code === "org_role_denied", "未知组织角色仍 fail-closed（org_role_denied）");
+}
+
 console.log("");
 console.log(`B1 tenant/authz 安全矩阵 结果: ${pass} 通过, ${fail} 失败`);
 if (fail > 0) process.exit(1);

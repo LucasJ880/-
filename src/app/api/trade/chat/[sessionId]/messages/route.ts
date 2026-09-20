@@ -16,6 +16,7 @@ import { processChat, processChatV2, type ChatMessage } from "@/lib/trade/chat-a
 import { extractMemoriesFromConversation, saveMemories } from "@/lib/ai/user-memory";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import {
+  attachmentBlobPathBelongsTo,
   attachmentsTitleSource,
   parseAttachmentsInput,
   readStoredAttachments,
@@ -41,6 +42,13 @@ export async function POST(
     return NextResponse.json({ error: parsedAttachments.error }, { status: 400 });
   }
   const attachments = parsedAttachments.attachments;
+  // 图片原图路径必须落在当前 org 的前缀下（浏览器传来的值不可信）
+  const foreignBlob = attachments.find(
+    (a) => a.blobPath && !attachmentBlobPathBelongsTo(a.blobPath, orgRes.orgId),
+  );
+  if (foreignBlob) {
+    return NextResponse.json({ error: `附件「${foreignBlob.name}」不属于当前组织` }, { status: 400 });
+  }
 
   if (!content && attachments.length === 0) {
     return NextResponse.json({ error: "消息不能为空" }, { status: 400 });

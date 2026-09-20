@@ -14,6 +14,8 @@ import {
   readStoredAttachments,
   renderTurnsForModel,
   summarizeAttachments,
+  attachmentBlobPathBelongsTo,
+  tradeChatImageBlobPrefix,
 } from "../chat-attachments";
 
 let pass = 0;
@@ -179,6 +181,41 @@ console.log("image kind");
     { role: "user", content: "看文档", attachments: [{ name: "a.pdf", size: 1, text: "d".repeat(400) }] },
   ]);
   ok(!doc[0].content.includes('kind="image"') && !doc[0].content.includes("图片附件"), "ATT-14f 文档附件不带图片说明");
+}
+
+console.log("image blob (原图存储 / 追问 ref)");
+{
+  const prefix = tradeChatImageBlobPrefix("org1", "userA");
+  ok(prefix === "trade-chat/org1/userA/", "ATT-15a Blob 前缀按 org + 上传者隔离");
+  ok(attachmentBlobPathBelongsTo(`${prefix}1_a.png`, "org1"), "ATT-15b 本 org 路径通过");
+  ok(!attachmentBlobPathBelongsTo(`${prefix}1_a.png`, "org2"), "ATT-15c 他 org 路径拒绝");
+  ok(!attachmentBlobPathBelongsTo("trade-chat/org1/../org2/x.png", "org1"), "ATT-15d 含 .. 拒绝");
+  ok(!attachmentBlobPathBelongsTo("trade-service/org1/x.png", "org1"), "ATT-15e 非 trade-chat 根拒绝");
+
+  const good = parseAttachmentsInput([
+    { name: "s.png", kind: "image", size: 1, text: "t", blobPath: `${prefix}1_s.png`, mime: "image/png", fileUrl: "/api/files/whatever" },
+  ]);
+  ok(
+    good.ok && good.attachments[0].blobPath === `${prefix}1_s.png` && good.attachments[0].mime === "image/png" && !("fileUrl" in good.attachments[0]),
+    "ATT-15f 图片保留 blobPath/mime，忽略客户端传的 fileUrl",
+  );
+  ok(!parseAttachmentsInput([{ name: "s.png", kind: "image", size: 1, text: "t", blobPath: "product-content/org1/x.png" }]).ok, "ATT-15g 非 trade-chat 根的 blobPath → 拒绝");
+  ok(!parseAttachmentsInput([{ name: "s.png", kind: "image", size: 1, text: "t", blobPath: "trade-chat/org1/../x.png" }]).ok, "ATT-15h blobPath 含 .. → 拒绝");
+  const doc = parseAttachmentsInput([{ name: "a.pdf", size: 1, text: "t", blobPath: `${prefix}1_a.pdf` }]);
+  ok(doc.ok && !doc.attachments[0].blobPath, "ATT-15i 文档附件不带 blobPath");
+
+  const sum = summarizeAttachments(good.ok ? good.attachments : []);
+  ok(sum[0].fileUrl === `/api/files/${prefix}1_s.png` && sum[0].mime === "image/png", "ATT-15j 摘要给出代理 URL 供缩略图");
+
+  const rendered = renderTurnsForModel([
+    { role: "user", content: "看", attachments: good.ok ? good.attachments : [] },
+  ]);
+  ok(
+    rendered[0].content.includes(`<attachment name="s.png" kind="image" ref="${prefix}1_s.png" chars="1">`),
+    "ATT-15k 图片标签带 ref 供追问工具",
+  );
+  const stored = readStoredAttachments([{ name: "s.png", kind: "image", text: "t", blobPath: `${prefix}1_s.png`, mime: "image/png" }]);
+  ok(stored[0].blobPath === `${prefix}1_s.png` && stored[0].mime === "image/png", "ATT-15l 读回保留 blobPath/mime");
 }
 
 console.log("attachmentsTitleSource");

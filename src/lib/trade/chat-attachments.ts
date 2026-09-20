@@ -6,8 +6,13 @@
  * → 组装模型输入时按「最新优先」的字符预算展开正文，超预算的旧附件只留摘要桩，
  * 这样当轮能分析全文，后续追问也还能引用最近的附件。
  *
+ * 图片附件另存原图（私有 Blob，trade-chat/{orgId}/{userId}/…），<attachment> 标签带 ref，
+ * 追问时模型可用 trade_view_attachment_image(ref, question) 重新看图。
+ *
  * 本文件只有纯函数，不碰 DB / 网络，便于单测。
  */
+
+import { toProxyUrl } from "@/lib/files/blob-url";
 
 /** document = 文档解析文本；image = 图片识别文本（逐字转录 + 画面描述） */
 export type TradeChatAttachmentKind = "document" | "image";
@@ -21,6 +26,10 @@ export interface TradeChatAttachment {
   size: number;
   /** 解析后的文本，≤ MAX_ATTACHMENT_TEXT_CHARS */
   text: string;
+  /** 图片原图在私有 Blob 里的 pathname（trade-chat/{orgId}/{userId}/…），追问时重新看图用 */
+  blobPath?: string;
+  /** 原图 MIME（仅图片） */
+  mime?: string;
 }
 
 /** 返回给浏览器的形状：不带正文 */
@@ -29,6 +38,24 @@ export interface TradeChatAttachmentSummary {
   kind: TradeChatAttachmentKind;
   size: number;
   textLength: number;
+  /** 图片原图的代理 URL（登录 + org 成员可读），供气泡显示缩略图 */
+  fileUrl?: string;
+  mime?: string;
+}
+
+export const TRADE_CHAT_BLOB_ROOT = "trade-chat/";
+export const MAX_ATTACHMENT_BLOB_PATH_CHARS = 400;
+
+/** 图片原图的 Blob 路径前缀：按 org + 上传者隔离 */
+export function tradeChatImageBlobPrefix(orgId: string, userId: string): string {
+  return `${TRADE_CHAT_BLOB_ROOT}${orgId}/${userId}/`;
+}
+
+/** 该 Blob 路径是否属于指定 org（工具重新看图 / 删除前的边界检查） */
+export function attachmentBlobPathBelongsTo(blobPath: string, orgId: string): boolean {
+  if (!orgId || !blobPath) return false;
+  if (blobPath.includes("..") || blobPath.startsWith("/")) return false;
+  return blobPath.startsWith(`${TRADE_CHAT_BLOB_ROOT}${orgId}/`);
 }
 
 export function attachmentKind(a: { kind?: TradeChatAttachmentKind }): TradeChatAttachmentKind {
@@ -79,7 +106,23 @@ export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
     const sizeRaw = typeof rec.size === "number" ? rec.size : Number(rec.size);
     const size = Number.isFinite(sizeRaw) && sizeRaw >= 0 ? Math.floor(sizeRaw) : 0;
     const kind: TradeChatAttachmentKind = rec.kind === "image" ? "image" : "document";
-    attachments.push({ name, kind, size, text });
+    const entry: TradeChatAttachment = { name, kind, size, text };
+    if (kind === "image") {
+      const blobPath = typeof rec.blobPath === "string" ? rec.blobPath.trim() : "";
+      if (blobPath) {
+        if (
+          blobPath.length > MAX_ATTACHMENT_BLOB_PATH_CHARS ||
+          !blobPath.startsWith(TRADE_CHAT_BLOB_ROOT) ||
+          blobPath.includes("..")
+        ) {
+          return { ok: false, error: `附件「${name}」的图片路径不合法` };
+        }
+        entry.blobPath = blobPath;
+      }
+      const mime = typeof rec.mime === "string" ? rec.mime.trim().toLowerCase() : "";
+      if (/^image\/[a-z0-9.+-]+$/.test(mime)) entry.mime = mime;
+    }
+    attachments.push(entry);
   }
   return { ok: true, attachments };
 }
@@ -92,12 +135,17 @@ export function readStoredAttachments(raw: unknown): TradeChatAttachment[] {
     if (!item || typeof item !== "object") continue;
     const rec = item as Record<string, unknown>;
     if (typeof rec.name !== "string" || typeof rec.text !== "string") continue;
-    out.push({
+    const entry: TradeChatAttachment = {
       name: rec.name,
       kind: rec.kind === "image" ? "image" : "document",
       size: typeof rec.size === "number" && Number.isFinite(rec.size) ? rec.size : 0,
       text: rec.text,
-    });
+    };
+    if (typeof rec.blobPath === "string" && rec.blobPath.startsWith(TRADE_CHAT_BLOB_ROOT)) {
+      entry.blobPath = rec.blobPath;
+    }
+    if (typeof rec.mime === "string" && rec.mime) entry.mime = rec.mime;
+    out.push(entry);
   }
   return out;
 }
@@ -110,6 +158,8 @@ export function summarizeAttachments(
     kind: attachmentKind(a),
     size: a.size,
     textLength: a.text.length,
+    ...(a.blobPath ? { fileUrl: toProxyUrl(a.blobPath) } : {}),
+    ...(a.mime ? { mime: a.mime } : {}),
   }));
 }
 
@@ -130,11 +180,14 @@ function attr(value: string): string {
 }
 
 /** 图片附件正文前的说明：让模型知道这是识别结果而非原图 */
-const IMAGE_NOTE = "（图片附件：以下是从图片识别出的文字与画面描述，不是原图；[不清晰] 处不要脑补）";
+const IMAGE_NOTE = "（图片附件：以下是从图片识别出的文字与画面描述，不是原图；[不清晰] 处不要脑补。需要看视觉细节时用 trade_view_attachment_image 按 ref 重新看原图）";
 
 function openTag(a: TradeChatAttachment, extra: string): string {
-  const kindAttr = attachmentKind(a) === "image" ? ' kind="image"' : "";
-  return `<attachment name="${attr(a.name)}"${kindAttr} chars="${a.text.length}"${extra}>`;
+  const isImage = attachmentKind(a) === "image";
+  const kindAttr = isImage ? ' kind="image"' : "";
+  // ref = 原图 Blob 路径：模型追问时传给 trade_view_attachment_image 重新看图
+  const refAttr = isImage && a.blobPath ? ` ref="${attr(a.blobPath)}"` : "";
+  return `<attachment name="${attr(a.name)}"${kindAttr}${refAttr} chars="${a.text.length}"${extra}>`;
 }
 
 function renderExpanded(a: TradeChatAttachment, shown: string): string {

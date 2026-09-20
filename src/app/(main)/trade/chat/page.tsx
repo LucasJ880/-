@@ -35,6 +35,9 @@ interface AttachmentSummary {
   kind?: AttachmentKind;
   size: number;
   textLength: number;
+  /** 图片原图（经 /api/files 代理）：气泡里显示缩略图 */
+  fileUrl?: string;
+  mime?: string;
 }
 
 interface Message {
@@ -55,6 +58,10 @@ interface PendingAttachment {
   error?: string;
   /** 图片的本地预览（object URL，发送/移除时释放） */
   previewUrl?: string;
+  /** 图片原图已存到私有 Blob 的路径 / 代理 URL（上传接口返回） */
+  blobPath?: string;
+  fileUrl?: string;
+  mime?: string;
 }
 
 const DOC_EXTENSIONS = new Set(["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt"]);
@@ -219,7 +226,9 @@ export default function TradeChatPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const endpoint = kind === "image" ? "/api/ai/upload-image" : "/api/ai/upload-file";
+      if (kind === "image" && orgId) formData.append("orgId", orgId);
+      // 图片：存原图 + 识别文本（追问时可重新看图）；文档：只解析文本
+      const endpoint = kind === "image" ? "/api/trade/chat/upload-image" : "/api/ai/upload-file";
       const res = await apiFetch(endpoint, { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -234,7 +243,13 @@ export default function TradeChatPage() {
         });
         return;
       }
-      updatePending(id, { status: "ready", text });
+      updatePending(id, {
+        status: "ready",
+        text,
+        ...(typeof data.blobPath === "string" ? { blobPath: data.blobPath } : {}),
+        ...(typeof data.fileUrl === "string" ? { fileUrl: data.fileUrl } : {}),
+        ...(typeof data.mime === "string" ? { mime: data.mime } : {}),
+      });
     } catch {
       updatePending(id, { status: "error", error: "网络错误，请重试" });
     }
@@ -287,6 +302,13 @@ export default function TradeChatPage() {
   const removePending = (id: string) => {
     const target = pendingRef.current.find((p) => p.id === id);
     if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+    // 图片原图已上传但用户不发了：尽力删掉，失败也不影响界面
+    if (target?.blobPath && orgId) {
+      void apiFetch(
+        `/api/trade/chat/upload-image?path=${encodeURIComponent(target.blobPath)}&orgId=${encodeURIComponent(orgId)}`,
+        { method: "DELETE" },
+      ).catch(() => undefined);
+    }
     setPending((prev) => prev.filter((p) => p.id !== id));
   };
 
@@ -323,7 +345,14 @@ export default function TradeChatPage() {
 
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
-    const attachments = readyAttachments.map((p) => ({ name: p.name, kind: p.kind, size: p.size, text: p.text ?? "" }));
+    const attachments = readyAttachments.map((p) => ({
+      name: p.name,
+      kind: p.kind,
+      size: p.size,
+      text: p.text ?? "",
+      ...(p.blobPath ? { blobPath: p.blobPath } : {}),
+      ...(p.mime ? { mime: p.mime } : {}),
+    }));
     if (sending || !orgId || ambiguous) return;
     if (!content && attachments.length === 0) return;
     if (parsingCount > 0) {
@@ -354,7 +383,14 @@ export default function TradeChatPage() {
         role: "user",
         content,
         attachments: attachments.length
-          ? attachments.map((a) => ({ name: a.name, kind: a.kind, size: a.size, textLength: a.text.length }))
+          ? readyAttachments.map((p) => ({
+              name: p.name,
+              kind: p.kind,
+              size: p.size,
+              textLength: p.text?.length ?? 0,
+              ...(p.fileUrl ? { fileUrl: p.fileUrl } : {}),
+              ...(p.mime ? { mime: p.mime } : {}),
+            }))
           : undefined,
       },
     ]);
@@ -484,6 +520,23 @@ export default function TradeChatPage() {
                       ? "rounded-br-md bg-blue-600 text-white"
                       : "rounded-bl-md bg-background text-foreground",
                   )}>
+                    {m.attachments && m.attachments.some((a) => a.kind === "image" && a.fileUrl) && (
+                      <div className={cn("flex flex-wrap gap-2", "mb-2")}>
+                        {m.attachments.filter((a) => a.kind === "image" && a.fileUrl).map((a, j) => (
+                          <a
+                            key={`${a.fileUrl}-${j}`}
+                            href={a.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`${a.name}（点击查看原图）`}
+                            className="block overflow-hidden rounded-lg border border-white/20 bg-white/10"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={a.fileUrl} alt={a.name} className="h-24 max-w-[220px] object-cover" loading="lazy" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     {m.attachments && m.attachments.length > 0 && (
                       <div className={cn("flex flex-wrap gap-1.5", m.content ? "mb-2" : "")}>
                         {m.attachments.map((a, j) => (
