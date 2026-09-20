@@ -17,6 +17,7 @@
 
 import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 import { logAudit } from "@/lib/audit/logger";
+import { db } from "@/lib/db";
 import type { SupplierIntelActor } from "./actor";
 import { assertProjectAccessForActor } from "./access";
 import {
@@ -27,6 +28,7 @@ import {
   type SupplierDiscoveryAdapter,
 } from "./adapters";
 import { SupplierIntelError, isSupplierIntelError } from "./errors";
+import { readRunMode } from "./constants";
 import { createSupplierCandidate } from "./evaluation-service";
 import {
   INTERNAL_SOURCE_ADAPTERS,
@@ -182,6 +184,13 @@ export async function executeSupplierSearchRun(
   runId: string,
   opts?: DiscoveryRunOptions,
 ): Promise<DiscoveryRunResult> {
+  // S4-A：评估运行（runMode=EVALUATION_ONLY）绝不走发现流程——provider 调用数必须恒 0
+  {
+    const modeRow = await db.supplierSearchRun.findFirst({ where: { id: runId, orgId: actor.orgId }, select: { sourceConfigJson: true } });
+    if (modeRow && readRunMode(modeRow.sourceConfigJson) === "EVALUATION_ONLY") {
+      throw new SupplierIntelError("RUN_MODE_MISMATCH", "评估运行不外呼任何来源，不能执行发现流程");
+    }
+  }
   const run = await getSearchRun(actor, runId);
   if (!run) throw new SupplierIntelError("NOT_FOUND", "搜索运行不存在");
   // B3 外呼顺序不变量：AUTH → PROJECT ACCESS → 需求读取/egress 分类 → provider。

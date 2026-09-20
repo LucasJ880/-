@@ -18,6 +18,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ChevronDown, History, Loader2 } from "lucide-react";
+import { evaluationRunOutcome, isEvaluationOnlyRun } from "@/lib/supplier-intel/evaluation-display";
 import { classifyRunExecutionState } from "@/lib/supplier-intel/run-execution-state";
 import {
   runOutcomeSummary,
@@ -142,21 +143,58 @@ export function RunsPanel({
 
   return (
     <div className="space-y-3">
-      {runs.map((run) => (
-        <RunCard
-          key={run.id}
-          orgId={orgId}
-          run={run}
-          currentAnalysisRunId={currentAnalysisRunId}
-          selected={selectedRunId === run.id}
-          canWrite={canWrite}
-          busyAction={busyAction}
-          onSelect={() => onSelectRun(run.id)}
-          onResume={() => onResumeRun(run.id)}
-          onCancel={() => onCancelRun(run.id)}
-        />
-      ))}
+      {runs.map((run) =>
+        isEvaluationOnlyRun(run) ? (
+          <EvaluationRunCard
+            key={run.id}
+            run={run}
+            canWrite={canWrite}
+            busyAction={busyAction}
+            onCancel={() => onCancelRun(run.id)}
+          />
+        ) : (
+          <RunCard
+            key={run.id}
+            orgId={orgId}
+            run={run}
+            currentAnalysisRunId={currentAnalysisRunId}
+            selected={selectedRunId === run.id}
+            canWrite={canWrite}
+            busyAction={busyAction}
+            onSelect={() => onSelectRun(run.id)}
+            onResume={() => onResumeRun(run.id)}
+            onCancel={() => onCancelRun(run.id)}
+          />
+        ),
+      )}
     </div>
+  );
+}
+
+/** S4-A：评估运行的卡片——不显示来源 / 搜索词 / 继续执行，只给「查看项目匹配」出口 */
+function EvaluationRunCard({ run, canWrite, busyAction, onCancel }: { run: SearchRunRow; canWrite: boolean; busyAction: string | null; onCancel: () => void }) {
+  const oc = evaluationRunOutcome(run.status);
+  const brief = (typeof run.briefSnapshotJson === "object" && run.briefSnapshotJson !== null ? run.briefSnapshotJson : {}) as { supplierId?: string; supplierName?: string; offeringId?: string | null };
+  const href = brief.supplierId && run.projectId
+    ? `/projects/intelligence/supply-chain/supplier?supplierId=${encodeURIComponent(brief.supplierId)}&projectId=${encodeURIComponent(run.projectId)}&evaluationRunId=${encodeURIComponent(run.id)}`
+    : null;
+  return (
+    <li className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-3 text-sm" data-testid="run-card" data-run-id={run.id} data-run-mode="EVALUATION_ONLY" data-run-status={run.status}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`rounded border px-1.5 py-0.5 text-[11px] ${TONE_CLASS.info}`} data-testid="run-mode-badge">评估运行</span>
+        <span className={`rounded border px-1.5 py-0.5 text-[11px] ${TONE_CLASS[oc.tone]}`} data-testid="run-outcome">{oc.label}</span>
+        <span className="text-xs text-[var(--muted)]">{new Date(run.createdAt).toLocaleString("zh-CN")}</span>
+      </div>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        评估 {brief.supplierName ?? "已确认的供应商"}{brief.offeringId ? " × 指定产品" : ""}。评估运行不搜索新供应商，也不外呼任何来源。
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {href ? <Link href={href} className="text-xs text-[var(--accent)] underline" data-testid="view-evaluation">查看项目匹配</Link> : null}
+        {canWrite && (run.status === "PLANNED" || run.status === "RUNNING") ? (
+          <button type="button" disabled={busyAction !== null} onClick={onCancel} className="rounded-full border border-[var(--border)] px-3 py-1 text-xs" data-testid="cancel-evaluation">取消评估</button>
+        ) : null}
+      </div>
+    </li>
   );
 }
 

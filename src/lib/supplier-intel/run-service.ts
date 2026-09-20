@@ -49,6 +49,14 @@ export {
 const SNAPSHOT_MAX_BYTES = 131_072;
 
 /**
+ * 所有「先锁 Run 再写」的交互式事务共用的预算。
+ * Prisma 默认 5s 的 timeout **包含**等 FOR UPDATE 行锁的时间：几个并发写串行排队时，
+ * 排在后面的那个会在等锁阶段就把预算耗光（S4-A 并发测试实测 P2028，5237ms）。
+ * 串行本身是对的（无死锁、锁序 Run 先行），只是预算要覆盖排队。
+ */
+export const RUN_WRITE_TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
+
+/**
  * F2.1 canonical Run 写锁：所有「绑定到 Run 的写」（状态迁移 / 建候选 / 写匹配 /
  * 终态前挂信号）都必须在**同一事务内**先拿本锁再动手——PostgreSQL 行级
  * `SELECT ... FOR UPDATE`（对齐 quote-engine 的 FOR UPDATE 先例），org 同筛。
