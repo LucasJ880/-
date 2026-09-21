@@ -7,6 +7,7 @@
 
 import { db } from "@/lib/db";
 import { loadLatestAnalyses, type InquiryAnalysisSummary } from "@/lib/trade/inquiry-analysis";
+import { loadWaitingSamplesForProspects } from "@/lib/trade/sample-service";
 
 export interface InboxMessageRow {
   id: string;
@@ -51,6 +52,13 @@ export interface InquiryThread {
   waitingMinutes: number | null;
   nextFollowUpAt: Date | null;
   analysis?: InquiryAnalysisSummary | null;
+  /** 已有进线线程上的寄样盯办；无进线的寄样不进收件箱 */
+  waitingSample?: {
+    sampleId: string;
+    productName: string;
+    followUpDueAt: Date | null;
+    overdue: boolean;
+  } | null;
 }
 
 const TERMINAL_STAGES = new Set(["converted", "lost", "archived"]);
@@ -161,8 +169,27 @@ export async function loadInquiryThreads(
   });
 
   const threads = buildInquiryThreads(messages, prospects).slice(0, opts.limit ?? 200);
-  const analyses = await loadLatestAnalyses(threads.map((t) => t.prospectId)).catch(
-    () => new Map<string, InquiryAnalysisSummary>(),
-  );
-  return threads.map((t) => ({ ...t, analysis: analyses.get(t.prospectId) ?? null }));
+  const [analyses, waiting] = await Promise.all([
+    loadLatestAnalyses(threads.map((t) => t.prospectId)).catch(
+      () => new Map<string, InquiryAnalysisSummary>(),
+    ),
+    loadWaitingSamplesForProspects(orgId, threads.map((t) => t.prospectId)).catch(
+      () => new Map(),
+    ),
+  ]);
+  return threads.map((t) => {
+    const sample = waiting.get(t.prospectId);
+    return {
+      ...t,
+      analysis: analyses.get(t.prospectId) ?? null,
+      waitingSample: sample
+        ? {
+            sampleId: sample.id,
+            productName: sample.productName,
+            followUpDueAt: sample.followUpDueAt,
+            overdue: sample.overdue,
+          }
+        : null,
+    };
+  });
 }

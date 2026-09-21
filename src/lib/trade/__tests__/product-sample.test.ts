@@ -3,7 +3,12 @@
  * 运行：npx tsx src/lib/trade/__tests__/product-sample.test.ts
  */
 import { parseInquiryQuantity, rankProductMatch, tokenizeProductQuery } from "../product-match";
-import { canTransitionSample, isTradeSampleStatus } from "../sample-constants";
+import {
+  SAMPLE_FOLLOW_UP_BUSINESS_DAYS,
+  canTransitionSample,
+  isSampleWaitingReply,
+  isTradeSampleStatus,
+} from "../sample-constants";
 
 let pass = 0;
 let fail = 0;
@@ -36,6 +41,53 @@ function run() {
   ok(canTransitionSample("requested", "cancelled"), "申请可取消");
   ok(!canTransitionSample("shipped", "preparing"), "已寄出不能回退");
   ok(!canTransitionSample("cancelled", "shipped"), "已取消不能再寄");
+
+  ok(SAMPLE_FOLLOW_UP_BUSINESS_DAYS === 5, "寄出后 5 个工作日盯回复");
+  ok(
+    isSampleWaitingReply({
+      status: "shipped",
+      shippedAt: "2026-09-10T00:00:00Z",
+      followedUpAt: null,
+      lastInboundAt: null,
+    }),
+    "已寄出、未跟进、无进线 → 等买家回",
+  );
+  ok(
+    !isSampleWaitingReply({
+      status: "preparing",
+      shippedAt: null,
+      followedUpAt: null,
+      lastInboundAt: null,
+    }),
+    "未寄出不算等买家回",
+  );
+  ok(
+    !isSampleWaitingReply({
+      status: "shipped",
+      shippedAt: "2026-09-10T00:00:00Z",
+      followedUpAt: "2026-09-12T00:00:00Z",
+      lastInboundAt: null,
+    }),
+    "人点已跟进后出队",
+  );
+  ok(
+    !isSampleWaitingReply({
+      status: "shipped",
+      shippedAt: "2026-09-10T00:00:00Z",
+      followedUpAt: null,
+      lastInboundAt: "2026-09-12T00:00:00Z",
+    }),
+    "寄出后买家再进线算出队",
+  );
+  ok(
+    isSampleWaitingReply({
+      status: "shipped",
+      shippedAt: "2026-09-10T00:00:00Z",
+      followedUpAt: null,
+      lastInboundAt: "2026-09-09T00:00:00Z",
+    }),
+    "寄出前的进线仍算等买家回",
+  );
 
   console.log(`product-sample: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

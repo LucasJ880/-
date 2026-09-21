@@ -28,6 +28,10 @@ interface SampleDetail {
   notes: string | null;
   createdAt: string;
   shippedAt: string | null;
+  followUpDueAt: string | null;
+  followedUpAt: string | null;
+  waitingReply?: boolean;
+  overdue?: boolean;
   prospectId: string | null;
   quoteId: string | null;
 }
@@ -64,6 +68,21 @@ export default function TradeSampleDetailPage() {
     if (orgLoading) return;
     void load();
   }, [load, orgLoading]);
+
+  const markFollowedUp = async () => {
+    if (!orgId) return;
+    setBusy("followed_up");
+    setError(null);
+    const res = await apiFetch(`/api/trade/samples/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgId, followedUp: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) setError(data.error || "标记失败");
+    else await load();
+    setBusy(null);
+  };
 
   const changeStatus = async (status: TradeSampleStatus) => {
     if (!orgId) return;
@@ -103,12 +122,41 @@ export default function TradeSampleDetailPage() {
         description={`${TRADE_SAMPLE_STATUS_LABELS[current]} · ${row.quantity} ${row.unit}`}
       />
       {error && <p className="text-xs text-red-400">{error}</p>}
+      {row.waitingReply && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs">
+          <div>
+            <p className="font-medium text-foreground">
+              {row.overdue ? "已寄出、跟进日已过，等买家回" : "已寄出、等买家回"}
+            </p>
+            <p className="mt-0.5 text-muted">
+              {row.followUpDueAt
+                ? `跟进日 ${new Date(row.followUpDueAt).toLocaleDateString("zh-CN")} · 不自动发信`
+                : "不自动发信，人点已跟进后出队"}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void markFollowedUp()}
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] disabled:opacity-50"
+          >
+            {busy === "followed_up" ? "…" : "已跟进"}
+          </button>
+        </div>
+      )}
+      {row.followedUpAt && !row.waitingReply && (
+        <p className="text-xs text-emerald-500">
+          已跟进 · {new Date(row.followedUpAt).toLocaleString("zh-CN")}
+        </p>
+      )}
       <section className="rounded-xl border border-border/60 bg-card-bg p-4 text-sm">
         <dl className="grid gap-2 sm:grid-cols-2">
           <div>货号：{row.sku || "—"}</div>
           <div>目的地：{row.destination || "—"}</div>
           <div>收件人：{row.recipientName || "—"}</div>
           <div>邮箱：{row.recipientEmail || "—"}</div>
+          <div>寄出：{row.shippedAt ? new Date(row.shippedAt).toLocaleString("zh-CN") : "—"}</div>
+          <div>跟进日：{row.followUpDueAt ? new Date(row.followUpDueAt).toLocaleDateString("zh-CN") : "—"}</div>
         </dl>
         {row.address && <p className="mt-3 text-xs text-muted">地址：{row.address}</p>}
         {row.notes && <p className="mt-2 text-xs text-muted">备注：{row.notes}</p>}

@@ -4119,10 +4119,13 @@ model TradeSample {
   notes          String?
   createdById    String
   shippedAt      DateTime?
+  followUpDueAt  DateTime?
+  followedUpAt   DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
   @@index([orgId, status, createdAt])
+  @@index([orgId, status, followUpDueAt])
   @@index([prospectId])
   @@index([quoteId])
   @@index([productId])
