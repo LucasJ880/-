@@ -48,12 +48,19 @@ async function apiEval(ctx, runId) { return apiJson(ctx, `/api/supplier-intel/ru
 async function apiRanking(ctx) { return apiJson(ctx, `/api/supplier-intel/projects/${PROJ}/ranking?orgId=${encodeURIComponent(ORG)}`); }
 async function waitEvalState(ctx, runId, pred, timeoutMs = 120_000) { const dl = Date.now() + timeoutMs; let last = null; while (Date.now() < dl) { last = await apiEval(ctx, runId); if (last.json?.view && pred(last.json.view)) return last; await new Promise((r) => setTimeout(r, 1500)); } return last; }
 async function waitRunView(page, runId) { await page.locator(`[data-testid="evaluation-run"][data-run-id="${runId}"]`).waitFor({ state: "visible", timeout: 120_000 }); }
-async function startEvaluation(page, ctx, supplierId, offeringId) {
+async function startEvaluation(page, ctx, supplierId, offeringId, bindItemId = null) {
   // 运行列表是异步加载的：先等它落地（空态或至少一行），再用**服务端**列表当基线——否则会把旧运行误当成「新建的那个」
   await page.locator('[data-testid="evaluation-runs-empty"], [data-testid="evaluation-run-row"]').first().waitFor({ state: "attached", timeout: 120_000 });
   const listPath = `/api/supplier-intel/projects/${PROJ}/evaluations?orgId=${encodeURIComponent(ORG)}&supplierId=${encodeURIComponent(supplierId)}`;
   const before = new Set(((await apiJson(ctx, listPath)).json?.runs ?? []).map((r) => r.id));
   await page.selectOption('[data-testid="evaluation-offering"]', offeringId);
+  // FR1：正式报价绑定（可选）——由采购人员在开始评估时显式选择；不选 = 商务待确认
+  if (bindItemId) {
+    await page.locator(`[data-testid="evaluation-commercial-binding"] option[value="${bindItemId}"]`).waitFor({ state: "attached", timeout: 60_000 });
+    await page.selectOption('[data-testid="evaluation-commercial-binding"]', bindItemId);
+  } else {
+    await page.selectOption('[data-testid="evaluation-commercial-binding"]', "");
+  }
   await page.locator('[data-testid="evaluation-start"]').click();
   let runId = null; const dl = Date.now() + 120_000;
   while (!runId && Date.now() < dl) { const l = await apiJson(ctx, listPath); runId = (l.json?.runs ?? []).find((r) => !before.has(r.id))?.id ?? null; if (!runId) await new Promise((r) => setTimeout(r, 1500)); }
@@ -101,7 +108,7 @@ async function completeRun(page, ctx, runId) {
 }
 /** 全流程：开始评估 → R-001 人工 PASS（证书）→ R-002 规则 → R-003 人工 PASS → 算门 → 完成并评分 */
 async function evaluateFull(page, ctx, supplierId, offeringId, certId, opts = {}) {
-  const runId = await startEvaluation(page, ctx, supplierId, offeringId);
+  const runId = await startEvaluation(page, ctx, supplierId, offeringId, opts.bindItemId ?? null);
   await humanAdjudicate(page, ctx, runId, "R-001", "PASS", certId);
   await applySuggestion(page, ctx, runId, "R-002");
   if (!opts.skipR003) await humanAdjudicate(page, ctx, runId, "R-003", "PASS", certId);
@@ -114,7 +121,7 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   console.log("\n== 夹具门 ==");
   requireFixture(ORG, "orgId"); requireFixture(EMAILS?.buyer, "采购员"); requireFixture(EMAILS?.viewer, "只读成员");
-  for (const k of ["projectId", "supplierId", "offeringAId", "certBifmaAId", "socialSignalId", "s4bSupplier1688Id", "s4bOffering1688Id", "s4bSignal1688Id", "s4bCert1688Id", "s4bSupplierCheapId", "s4bOfferingCheapId", "s4bCertCheapId", "s4bSupplierFullId", "s4bOfferingFullId", "s4bCertFullId", "s4bRound1Id"]) requireFixture(S4A?.[k], `s4a.${k}`);
+  for (const k of ["projectId", "supplierId", "offeringAId", "certBifmaAId", "socialSignalId", "s4bSupplier1688Id", "s4bOffering1688Id", "s4bSignal1688Id", "s4bCert1688Id", "s4bSupplierCheapId", "s4bOfferingCheapId", "s4bCertCheapId", "s4bSupplierFullId", "s4bOfferingFullId", "s4bCertFullId", "s4bRound1Id", "s4bRound1ItemBId", "s4bRound1ItemFullId", "s4bSupplierTwoId", "s4bOfferingTwoA1Id", "s4bOfferingTwoA2Id", "s4bCertTwoA1Id", "s4bCertTwoA2Id", "s4bRound1ItemTwoId", "s4bHiddenProjectId", "s4bHiddenSignalId", "s4bHiddenCapId", "s4bCap1688ClaimedId"]) requireFixture(S4A?.[k], `s4a.${k}`);
   if (fail > 0) { console.log(`\n夹具不完整，终止：${pass} 通过 / ${fail} 失败`); process.exit(1); }
   const host = new URL(DB_URL.replace(/^postgres(ql)?:/, "http:")).hostname;
   ok(!host.startsWith("ep-super-field-antfibsl") && host.startsWith("ep-"), `隔离库主机守卫：${host}`);
@@ -164,6 +171,7 @@ async function main() {
     console.log("\n== FLOW B / E：1688 便宜挂牌价 + 门 PASS + 无 RFQ → Commercial 待确认；新供应商 → Reliability 待验证 → 总分 null → NEEDS_VERIFICATION ==");
     await page.goto(evidenceUrl(S4A.s4bSupplier1688Id), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
     const { runId: runB, view: vB } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
+    ok((await page.locator('[data-testid="commercial-binding"]').getAttribute("data-binding")) === "NONE" && (await page.locator('[data-testid="commercial-binding"]').innerText()).includes("未绑定正式报价"), "B0（FR1）：未绑定正式报价——商务待确认；报价不按供应商自动套用");
     const cB = vB.candidates[0];
     ok(cB.mandatoryGateResult === "PASS" && cB.recommendation === "NEEDS_VERIFICATION" && cB.scores.total === null, "B1：门 PASS 但 NEEDS_VERIFICATION，总分 null");
     ok(cB.scoreBreakdown?.commercial?.priceEvidenceTier === "PLATFORM_LISTED" && cB.scores.commercial === null, "B2：商务 = PLATFORM_LISTED → 待确认（不进正式评分）");
@@ -180,7 +188,8 @@ async function main() {
 
     console.log("\n== FLOW D / F：历史供应商 B（正式 RFQ + VERIFIED 出口）→ 技术 40 分维度可解释；进口准备度出现 ==");
     await page.goto(evidenceUrl(SUP_B), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { runId: runD, view: vD } = await evaluateFull(page, ctx, SUP_B, S4A.offeringAId, S4A.certBifmaAId);
+    const { runId: runD, view: vD } = await evaluateFull(page, ctx, SUP_B, S4A.offeringAId, S4A.certBifmaAId, { bindItemId: S4A.s4bRound1ItemBId });
+    ok((await page.locator('[data-testid="commercial-binding"]').getAttribute("data-binding")) === "BOUND_CONFIRMED" && (await page.locator('[data-testid="commercial-binding"]').innerText()).includes("已绑定正式报价：第 1 轮"), "D0（FR1）：评估显式绑定了第 1 轮正式报价（由采购人员确认对应本产品）");
     const cD = vD.candidates[0];
     ok(cD.scores.technical === 100 && cD.scores.commercial !== null && cD.scores.reliability !== null && cD.scores.importRisk !== null && cD.scores.total !== null, "D1/F1：四维齐全，总分存在", JSON.stringify(cD.scores));
     ok((await page.locator('[data-testid="supplier-score-box"]').getAttribute("data-score-state")) === "COMPLETE", "D2：评分框 COMPLETE");
@@ -197,7 +206,7 @@ async function main() {
 
     console.log("\n== FLOW G 前置：第二家四维齐全（FULL）==");
     await page.goto(evidenceUrl(S4A.s4bSupplierFullId), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { view: vF } = await evaluateFull(page, ctx, S4A.s4bSupplierFullId, S4A.s4bOfferingFullId, S4A.s4bCertFullId);
+    const { view: vF } = await evaluateFull(page, ctx, S4A.s4bSupplierFullId, S4A.s4bOfferingFullId, S4A.s4bCertFullId, { bindItemId: S4A.s4bRound1ItemFullId });
     const cF = vF.candidates[0];
     ok(cF.scores.total !== null || cF.recommendation === "HIGH_RISK", "G0：FULL 四维齐全（或按契约 HIGH_RISK）", JSON.stringify(cF.scores));
 
@@ -227,11 +236,15 @@ async function main() {
 
     console.log("\n== FLOW C：1688 厂家正式回复 RFQ（隔离库直写模拟）→ 新评估才有 Commercial；旧评估不漂移 ==");
     const oldB = (await apiEval(ctx, runB)).json.view.candidates[0];
-    await dbWrite(async (d) => d.inquiryItem.create({ data: { inquiryId: S4A.s4bRound1Id, supplierId: S4A.s4bSupplier1688Id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 80000, currency: "CAD", deliveryDays: 35, validUntil: new Date("2026-12-31"), createdById: (await d.user.findFirstOrThrow({ where: { email: EMAILS.buyer } })).id } }));
+    const newItem = await dbWrite(async (d) => d.inquiryItem.create({ data: { inquiryId: S4A.s4bRound1Id, supplierId: S4A.s4bSupplier1688Id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 80000, currency: "CAD", deliveryDays: 35, validUntil: new Date("2026-12-31"), createdById: (await d.user.findFirstOrThrow({ where: { email: EMAILS.buyer } })).id } }));
     const oldB2 = (await apiEval(ctx, runB)).json.view.candidates[0];
     ok(JSON.stringify(oldB.scores) === JSON.stringify(oldB2.scores) && oldB2.recommendation === "NEEDS_VERIFICATION" && oldB2.scoreBreakdown.commercial.priceEvidenceTier === "PLATFORM_LISTED", "C1 / I0：旧评估不因新报价漂移");
     await page.goto(evidenceUrl(S4A.s4bSupplier1688Id), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
-    const { view: vC } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
+    const { view: vCu } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id);
+    ok(vCu.candidates[0].scoreBreakdown.commercial.priceEvidenceTier === "PLATFORM_LISTED" && vCu.candidates[0].scores.commercial === null, "C1b（FR1）：项目里已有 A 的正式报价，但新评估没绑定 → 仍不自动 RFQ_CONFIRMED");
+    const racingUnbound = (await apiRanking(ctx)).json.view.racing.find((r) => r.supplierId === S4A.s4bSupplier1688Id);
+    ok(racingUnbound?.rfq === "CONFIRMED_UNBOUND" && racingUnbound.nextAction.code === "BIND_RFQ_NEW_RUN", "C1c（FR1）：赛马表：有正式报价但未绑定到此产品 → 下一步「新建评估并绑定」", JSON.stringify({ rfq: racingUnbound?.rfq, next: racingUnbound?.nextAction }));
+    const { view: vC } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id, { bindItemId: newItem.id });
     const cC = vC.candidates[0];
     ok(cC.scoreBreakdown.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && cC.scores.commercial !== null && cC.scoreBreakdown.commercial.sub.price === 100, "C2：新评估 RFQ_CONFIRMED，最低正式价 → 价格分 100", JSON.stringify(cC.scoreBreakdown.commercial.sub));
     ok((await page.locator('[data-testid="price-evidence-tier"]').innerText()).includes("正式报价") && (await page.locator('[data-testid="listed-price"]').innerText()).includes("正式报价覆盖挂牌价"), "C3：界面「正式报价 · 来源 Round 1」，挂牌证据保留并注明被覆盖");
@@ -248,10 +261,45 @@ async function main() {
     ok(JSON.stringify(frozen.scores) === JSON.stringify(after.scores) && JSON.stringify(frozen.scoreBreakdown) === JSON.stringify(after.scoreBreakdown), "I1：报价 / 能力变了，B 历史评估评分与快照一字不变");
     await page.goto(evidenceUrl(SUP_B, `&evaluationRunId=${runD}`), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await waitRunView(page, runD);
     ok((await page.locator('[data-testid="supplier-score-box"]').getAttribute("data-official-total")) === String(frozen.scores.total), "I2：历史界面显示冻结总分");
-    const { view: vI } = await evaluateFull(page, ctx, SUP_B, S4A.offeringAId, S4A.certBifmaAId);
+    const { view: vI } = await evaluateFull(page, ctx, SUP_B, S4A.offeringAId, S4A.certBifmaAId, { bindItemId: S4A.s4bRound1ItemBId });
     const cI = vI.candidates[0];
     ok(cI.scores.importRisk !== frozen.scores.importRisk || cI.scores.commercial !== frozen.scores.commercial, "I3：新评估反映新数据（出口回到 CLAIMED / 竞价变化）", JSON.stringify({ old: frozen.scores, new: cI.scores }));
     await page.screenshot({ path: `${OUT}/flow-i-immutability.png` });
+
+    console.log("\n== FLOW J（FR1）：同一供应商两款产品、一张 RFQ——只有显式绑定的产品得到商务评分 ==");
+    await page.goto(evidenceUrl(S4A.s4bSupplierTwoId), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
+    const { view: vJ1 } = await evaluateFull(page, ctx, S4A.s4bSupplierTwoId, S4A.s4bOfferingTwoA1Id, S4A.s4bCertTwoA1Id, { bindItemId: S4A.s4bRound1ItemTwoId });
+    const cJ1 = vJ1.candidates[0];
+    ok(cJ1.scoreBreakdown.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && cJ1.scores.commercial !== null && cJ1.scoreBreakdown.commercial.candidate?.itemId === S4A.s4bRound1ItemTwoId, "J1：A1 显式绑定 Q1 → 正式报价、Commercial 有分", JSON.stringify({ tier: cJ1.scoreBreakdown.commercial.priceEvidenceTier, c: cJ1.scores.commercial }));
+    ok((await page.locator('[data-testid="price-evidence-tier"]').innerText()).includes("正式报价") && (await page.locator('[data-testid="commercial-binding"]').getAttribute("data-binding")) === "BOUND_CONFIRMED", "J2：界面 A1：正式报价 · 已绑定");
+    const { view: vJ2 } = await evaluateFull(page, ctx, S4A.s4bSupplierTwoId, S4A.s4bOfferingTwoA2Id, S4A.s4bCertTwoA2Id);
+    const cJ2 = vJ2.candidates[0];
+    ok(cJ2.scores.commercial === null && cJ2.scoreBreakdown.commercial.priceEvidenceTier !== "RFQ_CONFIRMED" && cJ2.scoreBreakdown.commercial.round === null && cJ2.recommendation === "NEEDS_VERIFICATION", "J3：A2 未绑定 → Commercial 待确认 / NEEDS_VERIFICATION（绝不复用 Q1）", JSON.stringify(cJ2.scoreBreakdown.commercial.reasonCodes));
+    ok((await page.locator('[data-testid="commercial-binding"]').getAttribute("data-binding")) === "NONE" && (await page.locator('[data-testid="score-component"][data-component="commercial"]').innerText()).includes("待核实"), "J4：界面 A2：未绑定正式报价 · 商务待核实");
+    const rkJ = await apiRanking(ctx);
+    const rowJ1 = rkJ.json.view.racing.find((r) => r.supplierId === S4A.s4bSupplierTwoId && r.offeringId === S4A.s4bOfferingTwoA1Id);
+    const rowJ2 = rkJ.json.view.racing.find((r) => r.supplierId === S4A.s4bSupplierTwoId && r.offeringId === S4A.s4bOfferingTwoA2Id);
+    ok(rowJ1?.rfq === "CONFIRMED" && rowJ2?.rfq === "CONFIRMED_UNBOUND", "J5：赛马表 A1 已绑定 / A2 有报价未绑定到此产品", JSON.stringify({ a1: rowJ1?.rfq, a2: rowJ2?.rfq }));
+    await page.screenshot({ path: `${OUT}/flow-j-two-offerings.png` });
+
+    console.log("\n== FLOW K（FR2）：隐藏项目里核验过的出口能力不进当前项目 ==");
+    await page.goto(evidenceUrl(S4A.s4bSupplier1688Id), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
+    const { runId: runK, view: vK } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id, { bindItemId: newItem.id });
+    const cK = vK.candidates[0];
+    ok(cK.scores.importRisk === null && cK.scoreBreakdown.importRisk.verified.length === 0 && cK.scoreBreakdown.importRisk.reasonCodes.includes("EXPORT_READINESS_UNVERIFIED"), "K1：隐藏项目的 CANADA_EXPORT VERIFIED 不进当前项目的进口准备度 → 待核实", JSON.stringify(cK.scoreBreakdown.importRisk));
+    ok((await page.locator('[data-testid="import-detail"]').innerText()).includes("已核验出口能力 无"), "K2：界面显示「已核验出口能力 无」（不显示成当前项目已核验）");
+    ok(!JSON.stringify(vK).includes(S4A.s4bHiddenSignalId) && !JSON.stringify(vK).includes(S4A.s4bHiddenCapId) && !JSON.stringify(vK).includes(S4A.s4bHiddenProjectId), "K3：评估视图不泄露隐藏线索 / 能力 / 项目 id");
+    const rkK = await apiRanking(ctx);
+    ok(!JSON.stringify(rkK.json).includes(S4A.s4bHiddenSignalId) && !JSON.stringify(rkK.json).includes(S4A.s4bHiddenCapId) && !JSON.stringify(rkK.json).includes(S4A.s4bHiddenProjectId), "K4：ranking payload 不泄露隐藏项目内容");
+    // 当前项目人工 + 档案核验（唯一 VERIFIED 写路径）→ 旧 Run 不变，新 Run 才反映
+    const capVr = await ctx.request.patch(`${BASE}/api/supplier-intel/suppliers/${S4A.s4bSupplier1688Id}/capability-signals/${S4A.s4bCap1688ClaimedId}?orgId=${encodeURIComponent(ORG)}`, { data: { action: "verify", archiveItemId: S4A.archiveItemId, note: "海关出口记录（演示）" } });
+    ok(capVr.status() === 200 && (await capVr.json()).capability?.evidenceStatus === "VERIFIED", "K5：当前项目 CLAIMED → 人工 + 档案 → VERIFIED", `实际 ${capVr.status()}`);
+    ok((await apiEval(ctx, runK)).json.view.candidates[0].scores.importRisk === null, "K6：核验之后旧 Run 不漂移");
+    const { view: vK2 } = await evaluateFull(page, ctx, S4A.s4bSupplier1688Id, S4A.s4bOffering1688Id, S4A.s4bCert1688Id, { bindItemId: newItem.id });
+    const cK2 = vK2.candidates[0];
+    ok(cK2.scores.importRisk === 80 && cK2.scoreBreakdown.importRisk.verified[0]?.id === S4A.s4bCap1688ClaimedId && cK2.scoreBreakdown.importRisk.verified[0]?.projectScope === "CURRENT_PROJECT", "K7：新 Run 进口准备度 80（当前项目 VERIFIED + FOB + 交期），快照记当前项目能力出处", JSON.stringify({ i: cK2.scores.importRisk, v: cK2.scoreBreakdown.importRisk.verified }));
+    ok((await page.locator('[data-testid="import-detail"]').innerText()).includes("CANADA_EXPORT"), "K8：界面显示已核验 CANADA_EXPORT");
+    await page.screenshot({ path: `${OUT}/flow-k-hidden-capability.png` });
 
     console.log("\n== 只读成员：能看排名，不能收口 ==");
     const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await login(vctx, EMAILS.viewer);
