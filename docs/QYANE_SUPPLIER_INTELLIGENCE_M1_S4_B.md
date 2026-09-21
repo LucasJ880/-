@@ -217,4 +217,20 @@ Dedicated 1688 Adapter / API · 1688 authenticated crawling · HS code · tariff
 | `5044fb13` | fix(supplier-intel/s4b): 撤销误提交的 FR1 负向控制片段（供应商级 RFQ 自动查找） |
 | CODE_HEAD_SHA | `5044fb13` |
 | FINAL_PR_HEAD_SHA | 本节所在的 docs 提交（见 PR #215） |
-| REMOTE_MAIN_SHA / MAIN_DRIFT | `ef4f8a41…`（已以普通 merge `14352189` 同步进分支）/ 0 |
+| REMOTE_MAIN_SHA / MAIN_DRIFT | `539de4dc…`（两次普通 merge 同步：`14352189` ← `ef4f8a41`，`d734d4ea` ← `539de4dc`）/ 0 |
+
+### 14.6 第二次 main 同步与最终头复验
+
+在 §14.4 的验证完成、报告提交之后，`origin/main` 又前进到 `539de4dc`（#217 / #218 / #219 / #220：AI 对话附件与 GPT-6 Astra 灰度、外贸工厂闭环 / 寄样跟进；带来 5 条 trade / ai 迁移与 schema 变更、tender-auto-analysis 的 LLM invoker org 上下文、`canonical-risks-writer` 测试夹具新增 `addendumDisposition` 字段）。按任务书再次以普通 merge 同步（`d734d4ea`），并在同步后的头上重新执行全部验证：
+
+- 相关性：不触碰 `src/lib/supplier-intel` 产品代码、`src/app/api/supplier-intel`、`src/components/supplier-intel`、项目 ACL、run lifecycle、Supplier Intelligence flags；schema / migration 变更全部来自 main 自身的 trade / ai 模型（**本 PR 仍零 schema / 零 migration**）。唯一交集是 supplier-intel 测试夹具的一个新增字段（由 canonical requirement V2 形状演进带来），因此 DB 套件与回归全部在同步头重跑。
+- 同步头需要重新 `prisma generate`（新 schema），否则 typecheck 会因 stale client 报 `attachments` 不存在——这不是本分支的错误。
+
+| 项（同步头 `d734d4ea`） | 结果 |
+| --- | --- |
+| typecheck / 改动文件 lint / 纯核（6 套） | typecheck PASS（重新 `prisma generate` 后）/ 改动文件 lint 31 个文件 0 problems / 纯核 discovery-priority · score-components · project-ranking-model · score-contract · mandatory-gate · deterministic-match 全 PASS |
+| S4-B DB（分支 br-muddy-pond-an3092ef） | **91 通过 / 0 失败** |
+| 回归 S4-A / S3-B（br-delicate-mud-an3fkllx）、S3-A / S2-TB（br-crimson-morning-anxpopoy）、S2 / S1（br-proud-unit-anzjbjnk） | **S4-A 116 / S3-B 87 / S3-A 131 / S2-TB 118 / S2 32 / S1 86，全部 0 失败**（三条分支并行，两两串行） |
+| lint baseline / build | baseline PASS（相对基线减少 14 处 error 出现，无新增 fingerprint）/ build PASS（368/368 页） |
+| 浏览器验收 FLOW A–K + 只读 + 三视口（分支 br-cool-pine-anm76jbu） | **99 通过 / 0 失败**（12 张截图，分支 br-rapid-unit-an0raf3n）。之前两遍在同一浏览器分支跑到第 20+ 次评估创建时 dev 侧 `createSearchRun` 事务 P2028（同一分支已承载多次种子与验收），换新分支单独重跑即 99/0；产品代码零改动 |
+| CI / staging（最终 PR HEAD） | 以 PR #215 最终 PR HEAD 的 checks 为准，结果写在交付收据里 |
