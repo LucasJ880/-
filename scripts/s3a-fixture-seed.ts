@@ -578,9 +578,12 @@ async function main() {
       await db.supplierCapabilitySignal.deleteMany({ where: { orgId: org.id, discoverySignal: { is: { projectId: h.id } } } });
       await db.supplierDiscoverySignal.deleteMany({ where: { orgId: org.id, projectId: h.id } });
       await db.tenderArchiveItem.deleteMany({ where: { orgId: org.id, projectId: h.id } });
+      await db.projectMember.deleteMany({ where: { projectId: h.id } });
       await db.project.delete({ where: { id: h.id } });
     }
-    const hiddenProject = await db.project.create({ data: { orgId: org.id, name: `[演示] 隐藏项目（FR2） ${TAG}`, ownerId: outsider.id, workDomain: "tender", intakeStatus: "intake", status: "active" } });
+    // FR2-HIDDEN-V2：线索只能挂在 dispatched 项目上；采购员不是成员（org_member）→ 读不到；outsider 是该项目管理员
+    const hiddenProject = await db.project.create({ data: { orgId: org.id, name: `[演示] 隐藏项目（FR2） ${TAG}`, ownerId: outsider.id, workDomain: "tender", intakeStatus: "dispatched", status: "active" } });
+    await db.projectMember.create({ data: { projectId: hiddenProject.id, userId: outsider.id, role: "project_admin", status: "active" } });
     const actorOutsider = { orgId: org.id, userId: outsider.id };
     const sigHidden = await signalSvc.createSubmittedSignal(actorOutsider, { url: `https://hidden-1688.example/${TAG}`, rawText: `[演示夹具] 隐藏项目里的 1688 厂家线索 ${TAG}`, manualEntry: true, projectId: hiddenProject.id });
     await signalSvc.reviewSignal(actorOutsider, sigHidden.id); await signalSvc.linkSignalToSupplier(actorOutsider, sigHidden.id, { supplierId: sup1688.id });
