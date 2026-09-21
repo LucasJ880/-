@@ -44,6 +44,7 @@ import {
   queueMarketResearchRequest,
 } from "@/lib/market-intelligence/research-runtime";
 import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
+import { resolveModelPolicy } from "@/lib/ai/model-policy";
 import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
 import { getRequestContext } from "@/lib/common/request-context";
 import {
@@ -569,10 +570,17 @@ export const POST = withAuth(async (request, ctx, user) => {
     );
   }
 
+  // GPT-6 灰度：chat 角色经 Model Policy 解析；未升级时沿用 mode 预设
+  const legacyChatPolicy = resolveModelPolicy({
+    role: "chat",
+    orgId: streamTenant.orgId,
+    userId: user.id,
+  });
   const stream = await createChatStream({
     systemPrompt,
     messages: prepared.messages,
     mode: effectiveMode,
+    model: legacyChatPolicy.upgraded ? legacyChatPolicy.model : undefined,
     signal: request.signal,
     orgId: streamTenant.orgId,
     userId: user.id,
@@ -842,6 +850,11 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     ? autoSend.value.sessionMaxRisk
     : "l2_soft";
 
+  // GPT-6 灰度：对话（operator）走 chat 角色策略；未升级时沿用 mode 预设，
+  // 升级后 agent-core 会在带工具时自动切到 Responses API
+  const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId: user.id });
+  const policyModel = chatPolicy.upgraded ? chatPolicy.model : undefined;
+
   const caps = getCapabilities(user.role);
   let systemPrompt = buildOperatorSystemPrompt({
     role: user.role,
@@ -931,6 +944,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             systemPrompt,
             messages: chatMessages,
             mode: taskMode,
+            model: policyModel,
             userId: user.id,
             orgId,
             sessionId: threadId,
@@ -1018,6 +1032,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
               systemPrompt: directPrompt,
               messages: recent,
               mode: taskMode,
+              model: policyModel,
               signal: abortSignal,
               orgId,
               userId: user.id,

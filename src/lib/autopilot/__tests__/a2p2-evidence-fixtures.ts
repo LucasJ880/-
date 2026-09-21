@@ -68,6 +68,7 @@ export function mandatoryRequirement(
     submissionStage: overrides.submissionStage ?? null,
     technicalArea: overrides.technicalArea ?? null,
     status: overrides.status ?? "ACTIVE",
+    addendumDisposition: overrides.addendumDisposition ?? "ORIGINAL",
     supersededById: overrides.supersededById ?? null,
     evidence: overrides.evidence ?? [evidenceRef("doc-1", 8, "SNIPPET_TEXT_MUST_NOT_LEAK")],
     confidence: overrides.confidence ?? "HIGH",

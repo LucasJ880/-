@@ -22,6 +22,12 @@ export const OPENAI_BUILTIN = {
 } as const;
 
 /**
+ * GPT-6 Astra 字面量。禁止业务代码直接当默认模型；
+ * 仅允许 Model Policy 在 feature flag 打开后按角色选用。
+ */
+export const OPENAI_GPT6_ASTRA = "gpt-6-astra";
+
+/**
  * OpenAI 模型解析（运行时读 env）。
  * 兼容旧变量：OPENAI_MODEL / OPENAI_MODEL_MINI / OPENAI_MODEL_NANO。
  */

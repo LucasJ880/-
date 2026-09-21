@@ -24,6 +24,7 @@ import {
   type NormalizedValueV2,
   type RequirementCategoryV2,
   type RequirementStatusV2,
+  ADDENDUM_DISPOSITIONS,
 } from "../tender-understanding/contract";
 import {
   isBoundedIsoTimestamp,
@@ -105,6 +106,8 @@ const REQUIREMENT_KEYS = [
   "supersededById",
   "evidence",
   "confidence",
+  // Tender V2（GPT-6 Astra 迁移）新增：Addendum 对照标签；仅校验取值，不进入证据投影
+  "addendumDisposition",
 ] as const;
 
 const EVIDENCE_REF_KEYS = ["documentId", "pageNumber", "snippet"] as const;
@@ -507,6 +510,12 @@ function parseRequirement(value: unknown): ParsedTenderRequirement | null {
   }
   if (!isCanonical(value.status, REQUIREMENT_STATUSES)) return null;
   if (value.confidence !== undefined && !isCanonical(value.confidence, CONFIDENCE_LEVELS)) {
+    return null;
+  }
+  if (
+    value.addendumDisposition !== undefined &&
+    !isCanonical(value.addendumDisposition, ADDENDUM_DISPOSITIONS)
+  ) {
     return null;
   }
   return {
