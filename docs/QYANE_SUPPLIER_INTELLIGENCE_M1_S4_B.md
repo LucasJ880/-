@@ -139,3 +139,82 @@ Dedicated 1688 Adapter / API · 1688 authenticated crawling · HS code · tariff
 | CODE_HEAD_SHA | `569530a3`（本报告提交之前的最后一次代码 / 测试提交） |
 | FINAL_PR_HEAD_SHA | 本报告所在的 docs 提交（见 PR #215） |
 | BASE_MAIN_SHA / REMOTE_MAIN_SHA | `36ccc1a2583968fa9eca05c1f72cecced06273b6`（S4-A merge commit）/ 见收据 |
+
+## 14. Final Review Closure（终审两项 blocker：FR1 / FR2）
+
+终审在 PR HEAD `e2e04b67`（main `ef4f8a41`）上给出两项 blocker。本节只记录这两项的修复与验证；§0–§13 是原始交付历史，不改写。范围不变：无 schema / migration、score-contract 未改、不进 dedicated 1688 adapter / landed cost / FX / customs / automated RFQ / memory save、生产 flag 未动、PR #215 仍 DRAFT。本轮先把 `origin/main`（#216 fix(settings)，两个 settings 页面文件）以普通 merge 同步进分支，再做修复与全量验证；同步后 src/lib/supplier-intel / prisma / ACL / run lifecycle / feature flags 与 #216 无交集。
+
+### 14.1 FR1 — RFQ evidence is Candidate / Offering-bound
+
+**缺陷**：`loadProjectRfqFacts(projectId, supplierId)` 只知道 Supplier，不知道 Offering；正式评估主体是 Supplier × Offering，同一家供应商多款 Offering 时一张 RFQ 会被多个 Offering 错误消费。
+
+**原则**：不从 RFQ 文本 / scope / quoteNotes / SKU 推断绑定，不做 fuzzy / LLM；没有结构化绑定 → Commercial = UNKNOWN。
+
+**实现（无 schema）**：
+- `CreateEvaluationRunInput.commercialInquiryItemId?`：采购人员在「开始评估」时显式选择「这张 RFQ 回复对应正在评估的 Offering」。这是证据选择，不是客户端宣称报价已核实。
+- 服务端 `resolveCommercialEvidenceBinding` 重验：InquiryItem 存在 ∧ 属于 ProjectInquiry ∧ `ProjectInquiry.projectId == 当前项目` ∧ 项目 org == actor.orgId ∧ `supplierId == 候选供应商` ∧ 已确认（repliedAt ≠ null ∧ (totalPrice > 0 ∨ unitPrice > 0)）∧ 评估已指定 Offering；否则 `COMMERCIAL_EVIDENCE_BINDING_INVALID`（422，fail closed，且在建 Run 之前，不留 FAILED 残骸）。
+- 通过后冻结进 `sourceConfigJson.commercialEvidenceBinding = { inquiryId, inquiryItemId, supplierId, offeringId, roundNumber, scope, confirmedByUserId }`——全部服务端读取；`offeringId` 恒等于本 Run 的 Offering。审计 `evaluation.run.created.afterData` 记绑定 id。
+- `commercialInquiryItemId = null` 合法：Run 照常创建，收口时 Commercial = null → NEEDS_VERIFICATION（1688 首轮：listing → evaluation → NEEDS_VERIFICATION → RFQ → **new** Evaluation Run）。
+- 绑定创建即冻结；COMPLETED Run 绝对不可变（`updateRunWorkingData` → RUN_IMMUTABLE）。RFQ 后来到了 = 新 Run。
+- `loadProjectRfqFacts()` 重构为只消费冻结绑定：无绑定 → round=null；绑定与候选 supplierId / offeringId 不一致 → BOUND_MISMATCH 不消费；从 `inquiryItemId` 向上取 ProjectInquiry 轮，构建可比组（仍是同轮 / 同 scope / 同币种 / 同价格口径 / ≥2 家已确认）；**候选自己那条严格 = `commercialEvidenceBinding.inquiryItemId`**（`computeCommercialScore` 的 `candidateItemId`），不再 `find(supplierId)`；收口时该 item 已不是已确认 → BOUND_NOT_CONFIRMED 不消费（`COMMERCIAL_BINDING_NOT_CONFIRMED`）。
+- `priceEvidenceTier = RFQ_CONFIRMED` 只在绑定有效时给出；「该供应商在项目里别处有报价」不再自动升级（`COMMERCIAL_NOT_BOUND_TO_OFFERING`）。
+- 界面：「开始评估」增加绑定选择器（只列本项目该供应商已确认报价，服务端算，`GET evaluations` 附 `commercialEvidenceOptions`）；评分框显示「已绑定正式报价：第 N 轮」/「未绑定正式报价——商务待确认」；赛马 RFQ 列区分「已报价（已绑定此产品）」与「有正式报价，未绑定到此产品」，下一步动作「新建评估并把正式报价绑定到此产品」。
+
+**测试**：DB 黄金测试（Supplier T：T1 120V 绑定 Q1 → Commercial 有分且 `candidate.itemId == Q1`；T2 230V 未绑定 → null + NEEDS_VERIFICATION，绝不复用 Q1）；错供应商 / 错项目 / 已发送未回复 / 无产品 / 不存在 id 全部 422；绑定冻结；收口时撤回 → 不消费；A 在项目里有正式报价但新评估未绑定 → 仍不 RFQ_CONFIRMED；绑定选项只含已确认。纯核：`candidateItemId` 严格匹配、未绑定 / 错 item / 撤回三种原因码。浏览器 FLOW J（两款产品一张 RFQ：A1 正式报价 · 已绑定，A2 商务待确认，赛马列 CONFIRMED / CONFIRMED_UNBOUND）+ FLOW C 改为显式绑定 + B0 / D0 界面绑定状态。
+
+**负向控制 FR1-NC**：临时恢复「按 supplierId 自动找最近一张已确认报价」（忽略绑定）→ DB 套件立刻红两条：`FR1 §9`（A 未绑定却得到 price 100）与 `FR1-G2`（T2 复用了 Q1）；其余 89 条不受影响。恢复后绿。（负向控制片段曾被 `0e9b02aa` 误提交，`5044fb13` 撤销；见过程记录。）
+
+### 14.2 FR2 — Cross-project Capability is not official score evidence
+
+**缺陷**：正式 Import Risk 用 `orgId + linkedSupplierId + VERIFIED` 查 `SupplierCapabilitySignal`，会跨项目消费。Supplier 是 org-level，但 CapabilitySignal → DiscoverySignal 是 project-scoped evidence（S3-B 冻结边界），S4-B 不得绕过。
+
+**原则**：不用 actor 可见集决定分数（否则同一 Run 谁收口结果不同）。正式分数由**当前评估项目**决定。
+
+**实现（无 schema）**：
+- `buildCandidateScoreSnapshot` 的能力查询：`VERIFIED` ∧ `discoverySignal.status = LINKED` ∧ `linkedSupplierId = 候选供应商` ∧ **`signal.projectId == projectId ∨ signal.tenderId == projectId ∨ signal.searchRun.projectId == projectId`**（canonical project relation rules）。隐藏项目里的 VERIFIED → `importRiskScore = null` + `EXPORT_READINESS_UNVERIFIED`（不打 100，也不打 0）。
+- 赛马 `verifiedEvidenceCount` 的能力部分同样只取当前项目线索上的 VERIFIED；隐藏项目里核验过不会在当前项目显示成「已核验证据」。
+- Supplier 能力页的 `buildSignalListScopeFilter` 等既有读取保护未动（本轮没有重新开放跨项目 signal）。
+- 快照 provenance：`importRisk.verified[] = { id(capabilityId), type, discoverySignalId, projectScope: "CURRENT_PROJECT" }`，`unverified[]` 同样带出处线索 id；只记 id / 类型 / 出处，不复制线索全文、不复制档案内容。
+- 未来的「该供应商其它项目曾核验 CANADA_EXPORT，是否带入当前项目并重新确认？」= deferred（人工 promotion），本轮不自动。
+
+**测试**：DB 安全测试（Hidden 项目：Supplier X `CANADA_EXPORT VERIFIED`；Current 项目 writer 有写权限、无 Hidden 读权限 → 评估 importRisk = null；能看到 Hidden 的 owner 收口同样 null（不依赖 actor）；赛马 X = OFFERING_READY 而非 EVIDENCE_READY；评分快照 / ranking 服务 / HTTP payload 都不含隐藏线索 / 能力 / 项目 / 档案 id）；正向（Current CLAIMED 仍 null → 人工 + 档案 VERIFIED → 旧 Run 不漂移 → 新 Run 进口准备度 80，快照记当前项目能力出处）。纯核：`evaluation-scoring.ts` 去注释后不出现 signal-scope / actor，能力查询含 `tenderId: projectId` 与 `searchRun: { is: { orgId, projectId } }`。浏览器 FLOW K（隐藏项目 VERIFIED 不进当前项目：界面「已核验出口能力 无」，评估视图 / ranking payload 不泄露隐藏 id；当前项目人工 + 档案核验后旧 Run 不变、新 Run 80）。
+
+**负向控制 FR2-NC**：临时移除评分与赛马计数的 current-project filter → 在独立新分支上 DB 套件红 6 条、且**只**红 FR2 相关：`FR2-H1`（隐藏项目 VERIFIED 进了进口准备度 80）、`H2`（快照含隐藏 id）、`H4`、`H5`（赛马 X 变 EVIDENCE_READY）、`P1`、`P2`；FR1 与其余 85 条仍绿。恢复后 `git diff` 为空、源码无负向标记。
+
+### 14.3 保持不变（复验）
+
+1688 Trust Boundary（挂牌价 ≠ 报价、出口文案 ≠ VERIFIED、UL 文案 ≠ 认证、平台指标 ≠ 可靠性）、`supplier-score-v1` 40 / 25 / 20 / 15、官方总分只在 `knownWeightShare == 1`、排名资格与 PRIMARY / BACKUP 只在 read-model——全部由既有 DB / 纯核 / 浏览器断言继续覆盖。
+
+### 14.4 验证
+
+| 项 | 结果 |
+| --- | --- |
+| 纯核 discovery-priority / score-components（+FR1 绑定严格匹配、FR2 出处与静态守卫）/ project-ranking-model（+BIND_RFQ_NEW_RUN） | PASS |
+| S4-B DB 套件（隔离分支 br-bitter-smoke-an6l8owv） | **91 通过 / 0 失败**（分支 br-lively-leaf-ansg1stt，代码头 `5044fb13`，工作树干净、无负向标记；含 FR1 黄金 / 拒绝 / 冻结 / 撤回 与 FR2 隐藏 / 正向 / 不泄露） |
+| 浏览器验收 FLOW A–K + 只读 + 三视口（隔离分支 br-cold-mud-an2q55r8，dev :3219） | **99 通过 / 0 失败**（第四遍，12 张截图；新分支 br-cool-pine-anm76jbu，代码头 `5044fb13`，系统安静）。含 FLOW J（A1 绑定 Q1 → 正式报价 · 已绑定 · Commercial 有分；A2 未绑定 → 商务待核实 / NEEDS_VERIFICATION；赛马 CONFIRMED / CONFIRMED_UNBOUND）与 FLOW K（隐藏项目 VERIFIED 不进当前项目、界面「已核验出口能力 无」、评估视图 / ranking payload 不含隐藏 id、当前项目人工 + 档案核验后旧 Run 不变、新 Run 80）。前三遍：第一遍夹具隐藏项目未派发（线索只能挂 dispatched 项目）；第二遍 FLOW J 在与 DB 作业并发时评估视图超时；第三遍 FLOW B 创建评估时 dev 侧 P2028（旧浏览器分支已跑过 3 次种子 + 2 遍验收，疲劳），换新分支单独重跑 99/0 |
+| 回归 S4-A / S3-B / S3-A / S2-TB / S2 / S1 | **S4-A 116 / S3-A 131（均在 `5044fb13` 单独重跑）；S3-B 87 / S2-TB 118 / S2 32 / S1 86（在 `1af7a571` 跑，产品代码与最终头仅差 0e9b02aa 的原因码文案与被撤销的片段，这四套不触碰评分路径）；全部 0 失败**。S3-A 在与 ≥2 个 DB 作业并发时三次因 P2028/P1001 中断（0 断言失败），单独重跑 131/0 |
+| typecheck / 改动文件 lint / lint baseline / build | typecheck PASS / 改动文件 lint 0 problems / lint baseline PASS（相对基线减少 12 处 error 出现，无新增 fingerprint）/ build PASS（362/362 页，代码头 `5044fb13`） |
+| CI / staging（最终 PR HEAD） | 以 PR #215 最终 PR HEAD 的 checks 与 qingyan-staging 部署为准，结果写在交付收据里 |
+
+过程记录：
+- **一次必须写下的失误**：FR1 负向控制（临时恢复「按 supplierId 自动找报价」）是在 DB 套件后台跑的；期间我提交 `0e9b02aa`（原因码修正）时用了 `git add -A`，把还留在工作树里的负向控制片段一起带进了提交并推送。后来最终 DB 复跑与 FR2 负向控制在 FR1 §9 / G2 上意外变红才暴露出来。`5044fb13` 撤销该片段（恢复「无冻结绑定 → round=null」）；本节之后的**所有**最终验证都在 `5044fb13` 之后、工作树 `git diff` 为空且源码不含负向控制标记的前提下重跑（每个作业先自检再跑）。教训：负向控制期间不得提交；提交前先 `git diff` 看清楚。
+- scratchpad worktree 在验证中途被清理器整个删除并重建（文件时间戳统一变为同一分钟、node_modules 消失、cwd 失效），三个后台作业以 `uv_cwd ENOENT` 退出；重新 `npm ci` 后按「最终 DB → FR2 负向控制 → S3-A → S4-A → lint / build → 浏览器」严格串行重跑，避免同一工作树上并行作业互相污染。
+- 隔离分支 ≥3 套件并发时 P2024 / P2028 / P1001 反复出现（S3-A 三次在同一区段中断、FR2 负向控制两次在到达断言前中断），因此最终结果一律来自单独、安静的分支与串行执行。
+- zsh 非 UTF-8 locale：后台作业不能用含中文的 `grep -q` 当门（改用 ASCII 标记文件）；`qSent2` 含 `qSent` 这类子串陷阱同理。
+
+### 14.5 Git（本节）
+
+| 提交 | 说明 |
+| --- | --- |
+| `ef4f8a41` | fix(settings): 梦馨组织不把登录账号 Gmail 显示为企业绑定 (#216) |
+| `14352189` | merge: sync origin/main (#216 fix(settings)) into S4-B branch |
+| `5ec5caa2` | fix(supplier-intel/s4b): 终审收口 FR1/FR2——正式报价绑定到 Supplier × Offering；进口能力证据只认当前项目 |
+| `1af7a571` | test(supplier-intel/s4b): DB 套件——FR1 黄金测试 / 错供应商 / 错项目 / 未确认 / 无产品 / 冻结 / 收口时撤回；FR2 隐藏项目能力不进分不计数不泄露、当前项目核验后新 Run 才反映 |
+| `e5a77cd3` | test(supplier-intel/s4b): 浏览器夹具与验收——评估显式绑定正式报价；FLOW J 两款产品一张 RFQ；FLOW K 隐藏项目能力不进当前项目 |
+| `af0b7f5a` | test(supplier-intel/s4b): 夹具隐藏项目改为 dispatched + outsider 成员（线索只挂 dispatched 项目；采购员非成员仍读不到） |
+| `527ecfa3` | test(supplier-intel/s4b): FR1 未确认报价用例改放第 2 轮（同轮同供应商唯一） |
+| `0e9b02aa` | fix(supplier-intel/s4b): 绑定存在但收口时不可用 → 原因码 COMMERCIAL_BINDING_NOT_CONFIRMED（不是「没有报价」） |
+| `5044fb13` | fix(supplier-intel/s4b): 撤销误提交的 FR1 负向控制片段（供应商级 RFQ 自动查找） |
+| CODE_HEAD_SHA | `5044fb13` |
+| FINAL_PR_HEAD_SHA | 本节所在的 docs 提交（见 PR #215） |
+| REMOTE_MAIN_SHA / MAIN_DRIFT | `ef4f8a41…`（已以普通 merge `14352189` 同步进分支）/ 0 |
