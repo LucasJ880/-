@@ -48,8 +48,8 @@ async function main() {
 
   console.log("C1：同项目、同轮、同币种、两家已确认 → 可算；C2 最低价 = 100；C3 两倍最低价 = 50");
   const round = { inquiryId: "inq1", roundNumber: 2, scope: "chairs", items: [item({ supplierId: "A", totalPrice: 110, deliveryDays: 30, validUntil: "2026-12-01" }), item({ supplierId: "B", totalPrice: 220, deliveryDays: 60 })] };
-  const cA = computeCommercialScore({ candidateSupplierId: "A", round, priceEvidenceTier: "RFQ_CONFIRMED" });
-  const cB = computeCommercialScore({ candidateSupplierId: "B", round, priceEvidenceTier: "RFQ_CONFIRMED" });
+  const cA = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round, priceEvidenceTier: "RFQ_CONFIRMED" });
+  const cB = computeCommercialScore({ candidateSupplierId: "B", candidateItemId: "it-B", round, priceEvidenceTier: "RFQ_CONFIRMED" });
   assert.equal(cA.sub.price, 100); assert.equal(cB.sub.price, 50); assert.equal(cA.priceBasis, "totalPrice");
   assert.equal(cA.sub.delivery, 100); assert.equal(cB.sub.delivery, 50);
   assert.equal(cA.sub.completeness, 100); assert.equal(cB.sub.completeness, 66.67);
@@ -59,25 +59,35 @@ async function main() {
 
   console.log("C4：混币种 → commercial null（不实时查汇率）");
   const mixed = { ...round, items: [item({ supplierId: "A", totalPrice: 110, currency: "CAD" }), item({ supplierId: "B", totalPrice: 80, currency: "USD" })] };
-  const c4 = computeCommercialScore({ candidateSupplierId: "A", round: mixed, priceEvidenceTier: "RFQ_CONFIRMED" });
+  const c4 = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: mixed, priceEvidenceTier: "RFQ_CONFIRMED" });
   assert.equal(c4.score, null); assert.deepEqual(c4.reasonCodes, ["COMMERCIAL_NOT_COMPARABLE_CURRENCY"]);
 
   console.log("C5：只有一家正式报价 → null");
   const single = { ...round, items: [item({ supplierId: "A", totalPrice: 110 }), item({ supplierId: "B", repliedAt: null, totalPrice: null })] };
-  assert.deepEqual(computeCommercialScore({ candidateSupplierId: "A", round: single, priceEvidenceTier: "RFQ_CONFIRMED" }).reasonCodes, ["COMMERCIAL_SINGLE_QUOTE"]);
+  assert.deepEqual(computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: single, priceEvidenceTier: "RFQ_CONFIRMED" }).reasonCodes, ["COMMERCIAL_SINGLE_QUOTE"]);
 
   console.log("C6：只有 1688 挂牌价（无 RFQ）→ null + PLATFORM_LISTED_ONLY；即使挂牌价最低");
-  const c6 = computeCommercialScore({ candidateSupplierId: "A", round: null, priceEvidenceTier: "PLATFORM_LISTED" });
+  const c6 = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: null, round: null, priceEvidenceTier: "PLATFORM_LISTED" });
   assert.equal(c6.score, null); assert.deepEqual(c6.reasonCodes, ["COMMERCIAL_NO_CONFIRMED_RFQ", "COMMERCIAL_PLATFORM_LISTED_ONLY"]);
-  const c6b = computeCommercialScore({ candidateSupplierId: "A", round: { ...round, items: [item({ supplierId: "B", totalPrice: 110 }), item({ supplierId: "C", totalPrice: 120 })] }, priceEvidenceTier: "PLATFORM_LISTED" });
+  const c6b = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: null, round: { ...round, items: [item({ supplierId: "B", totalPrice: 110 }), item({ supplierId: "C", totalPrice: 120 })] }, priceEvidenceTier: "PLATFORM_LISTED" });
   assert.equal(c6b.score, null, "同轮别人有报价、自己没有 → 仍 null");
+
+  console.log("FR1：候选自己的报价 = 显式绑定的 item（按 id），不是「这家供应商在本轮的任意一条」");
+  const twoOffers = { ...round, items: [item({ supplierId: "A", totalPrice: 100 }), item({ supplierId: "B", totalPrice: 200 })] };
+  assert.equal(computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: twoOffers, priceEvidenceTier: "RFQ_CONFIRMED" }).sub.price, 100, "A1 绑定 Q1 → 可算");
+  const unbound = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: null, round: twoOffers, priceEvidenceTier: "UNKNOWN" });
+  assert.equal(unbound.score, null); assert.deepEqual(unbound.reasonCodes, ["COMMERCIAL_NOT_BOUND_TO_OFFERING"], "A2 未绑定 → 不复用 Q1");
+  const wrongItem = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-B", round: twoOffers, priceEvidenceTier: "RFQ_CONFIRMED" });
+  assert.equal(wrongItem.score, null); assert.deepEqual(wrongItem.reasonCodes, ["COMMERCIAL_BINDING_NOT_CONFIRMED"], "绑定的 item 不是自己的 → 不消费");
+  const stale = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: { ...round, items: [item({ supplierId: "A", repliedAt: null, totalPrice: 100 }), item({ supplierId: "B", totalPrice: 200 })] }, priceEvidenceTier: "RFQ_CONFIRMED" });
+  assert.deepEqual(stale.reasonCodes, ["COMMERCIAL_BINDING_NOT_CONFIRMED"], "绑定的 item 已不是已确认 → 不消费");
 
   console.log("价格口径不混用：A 只有 totalPrice、B 只有 unitPrice → 不可比");
   const basisMix = { ...round, items: [item({ supplierId: "A", totalPrice: 110 }), item({ supplierId: "B", unitPrice: 5 })] };
-  assert.deepEqual(computeCommercialScore({ candidateSupplierId: "A", round: basisMix, priceEvidenceTier: "RFQ_CONFIRMED" }).reasonCodes, ["COMMERCIAL_NOT_COMPARABLE_PRICE_BASIS"]);
+  assert.deepEqual(computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: basisMix, priceEvidenceTier: "RFQ_CONFIRMED" }).reasonCodes, ["COMMERCIAL_NOT_COMPARABLE_PRICE_BASIS"]);
   const unitOnly = { ...round, items: [item({ supplierId: "A", unitPrice: 5 }), item({ supplierId: "B", unitPrice: 10 })] };
-  assert.equal(computeCommercialScore({ candidateSupplierId: "B", round: unitOnly, priceEvidenceTier: "RFQ_CONFIRMED" }).sub.price, 50);
-  const noDelivery = computeCommercialScore({ candidateSupplierId: "A", round: unitOnly, priceEvidenceTier: "RFQ_CONFIRMED" });
+  assert.equal(computeCommercialScore({ candidateSupplierId: "B", candidateItemId: "it-B", round: unitOnly, priceEvidenceTier: "RFQ_CONFIRMED" }).sub.price, 50);
+  const noDelivery = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: unitOnly, priceEvidenceTier: "RFQ_CONFIRMED" });
   assert.equal(noDelivery.sub.delivery, 0); assert.ok(noDelivery.reasonCodes.includes("DELIVERY_UNKNOWN"));
 
   console.log("R1：历史实际联系 < 2 → null（不给新供应商虚构 50）");
@@ -109,6 +119,13 @@ async function main() {
   assert.equal(i1.score, null); assert.deepEqual(i1.reasonCodes, ["EXPORT_READINESS_UNVERIFIED"]);
   const i3 = computeImportRiskScore({ capabilities: [{ id: "c1", type: "CANADA_EXPORT", evidenceStatus: "CLAIMED" }, { id: "c2", type: "OVERSEAS_EXPORT", evidenceStatus: "OBSERVED" }], offering: null });
   assert.equal(i3.score, null); assert.deepEqual(i3.reasonCodes, ["EXPORT_READINESS_UNVERIFIED", "EXPORT_CLAIMED_ONLY"]); assert.equal(i3.unverified.length, 2);
+
+  console.log("FR2：进口能力证据带出处线索 id（审计元数据），组件本身不做项目过滤——范围由服务端按当前评估项目加载");
+  const prov = computeImportRiskScore({ capabilities: [{ id: "c1", type: "CANADA_EXPORT", evidenceStatus: "VERIFIED", discoverySignalId: "sig-cur" }], offering: null });
+  assert.deepEqual(prov.verified, [{ id: "c1", type: "CANADA_EXPORT", discoverySignalId: "sig-cur", projectScope: "CURRENT_PROJECT" }]);
+  const scoringSrc = readFileSync(join(__dirname, "..", "evaluation-scoring.ts"), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  assert.ok(!/signal-scope|buildSignalListScopeFilter|listAccessibleProjectIdsForActor|actor\b/.test(scoringSrc), "评分范围不依赖 actor 可见集（同一 Run 谁收口都一样）");
+  assert.ok(/searchRun: \{ is: \{ orgId, projectId \} \}/.test(scoringSrc) && /tenderId: projectId/.test(scoringSrc), "能力查询按当前项目 canonical 关系过滤");
 
   console.log("I2：CANADA_EXPORT VERIFIED → 可算；公式 50/20/15/15 冻结");
   const i2 = computeImportRiskScore({ capabilities: [{ id: "c1", type: "CANADA_EXPORT", evidenceStatus: "VERIFIED" }, { id: "c3", type: "EXPORT_PACKAGING", evidenceStatus: "VERIFIED" }], offering: { incoterm: "FOB", leadTimeDays: 30 } });

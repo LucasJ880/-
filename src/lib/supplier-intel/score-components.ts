@@ -132,7 +132,11 @@ export function isConfirmedQuote(it: RfqRoundItemInput): boolean {
   return it.repliedAt !== null && (((it.totalPrice ?? 0) > 0) || ((it.unitPrice ?? 0) > 0));
 }
 
-export function computeCommercialScore(input: { candidateSupplierId: string; round: RfqRoundInput | null; priceEvidenceTier: PriceEvidenceTier }): CommercialBreakdown {
+/**
+ * FR1：候选自己的报价 = **显式绑定**的 InquiryItem（candidateItemId），不是「这家供应商在本轮的任意一条」。
+ * 同一家供应商多款 Offering 时，一张 RFQ 不能被多个 Offering 各自消费。
+ */
+export function computeCommercialScore(input: { candidateSupplierId: string; candidateItemId: string | null; round: RfqRoundInput | null; priceEvidenceTier: PriceEvidenceTier }): CommercialBreakdown {
   const base = (over: Partial<CommercialBreakdown>, reasons: ScoreReasonCode[]): CommercialBreakdown => ({
     rule: SCORE_COMPONENT_RULE_VERSIONS.commercial, score: null, priceEvidenceTier: input.priceEvidenceTier, round: input.round ? { inquiryId: input.round.inquiryId, roundNumber: input.round.roundNumber, scope: input.round.scope } : null,
     priceBasis: null, currency: null, candidate: null, comparableGroup: [], sub: { price: null, delivery: 0, completeness: null }, reasonCodes: reasons, ...over,
@@ -143,9 +147,9 @@ export function computeCommercialScore(input: { candidateSupplierId: string; rou
     return base({}, r);
   }
   const confirmed = input.round.items.filter(isConfirmedQuote);
-  const mine = confirmed.find((it) => it.supplierId === input.candidateSupplierId);
+  const mine = input.candidateItemId ? confirmed.find((it) => it.itemId === input.candidateItemId && it.supplierId === input.candidateSupplierId) : undefined;
   if (!mine) {
-    const r: ScoreReasonCode[] = ["COMMERCIAL_NO_CONFIRMED_RFQ"];
+    const r: ScoreReasonCode[] = [input.candidateItemId ? "COMMERCIAL_BINDING_NOT_CONFIRMED" : "COMMERCIAL_NOT_BOUND_TO_OFFERING"];
     if (input.priceEvidenceTier === "PLATFORM_LISTED") r.push("COMMERCIAL_PLATFORM_LISTED_ONLY");
     return base({}, r);
   }
@@ -238,13 +242,16 @@ export interface CapabilityEvidenceInput {
   id: string;
   type: string;
   evidenceStatus: string;
+  /** 出处线索（审计元数据；FR2：必须属于当前评估项目，由调用方按项目范围加载） */
+  discoverySignalId?: string | null;
 }
 export interface ImportRiskBreakdown {
   rule: typeof SCORE_COMPONENT_RULE_VERSIONS.importRisk;
   score: number | null;
-  verified: Array<{ id: string; type: string }>;
+  /** 当时用的是哪条**当前项目**能力证据（只记 id / 类型 / 出处线索 id，不复制线索全文） */
+  verified: Array<{ id: string; type: string; discoverySignalId: string | null; projectScope: "CURRENT_PROJECT" }>;
   /** 非 VERIFIED 的出口相关声明（只展示「待核实」，不计分） */
-  unverified: Array<{ id: string; type: string; evidenceStatus: string }>;
+  unverified: Array<{ id: string; type: string; evidenceStatus: string; discoverySignalId: string | null }>;
   sub: { readiness: number | null; packaging: number; incoterm: number; leadTime: number };
   offering: { incoterm: string | null; leadTimeDays: number | null };
   reasonCodes: ScoreReasonCode[];
@@ -254,8 +261,8 @@ const EXPORT_TYPES = ["CANADA_EXPORT", "OVERSEAS_EXPORT", "EXPORT_PACKAGING"];
 
 export function computeImportRiskScore(input: { capabilities: CapabilityEvidenceInput[]; offering: { incoterm: string | null; leadTimeDays: number | null } | null }): ImportRiskBreakdown {
   const exportRelated = input.capabilities.filter((c) => EXPORT_TYPES.includes(c.type));
-  const verified = exportRelated.filter((c) => c.evidenceStatus === "VERIFIED").map((c) => ({ id: c.id, type: c.type }));
-  const unverified = exportRelated.filter((c) => c.evidenceStatus !== "VERIFIED").map((c) => ({ id: c.id, type: c.type, evidenceStatus: c.evidenceStatus }));
+  const verified = exportRelated.filter((c) => c.evidenceStatus === "VERIFIED").map((c) => ({ id: c.id, type: c.type, discoverySignalId: c.discoverySignalId ?? null, projectScope: "CURRENT_PROJECT" as const }));
+  const unverified = exportRelated.filter((c) => c.evidenceStatus !== "VERIFIED").map((c) => ({ id: c.id, type: c.type, evidenceStatus: c.evidenceStatus, discoverySignalId: c.discoverySignalId ?? null }));
   const offering = { incoterm: input.offering?.incoterm ?? null, leadTimeDays: input.offering?.leadTimeDays ?? null };
   const hasCanada = verified.some((c) => c.type === "CANADA_EXPORT");
   const hasOverseas = verified.some((c) => c.type === "OVERSEAS_EXPORT");

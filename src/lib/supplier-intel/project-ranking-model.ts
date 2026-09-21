@@ -85,8 +85,10 @@ export interface RacingFacts {
   latestGate: string | null;
   latestRecommendation: string | null;
   scoreComplete: boolean;
-  /** 同项目已确认 RFQ */
+  /** 该候选的评估已显式绑定一张已确认 RFQ（FR1） */
   rfqConfirmed: boolean;
+  /** 本项目有这家的已确认 RFQ，但没有绑定到这个候选 / 产品 */
+  rfqConfirmedUnbound?: boolean;
   /** 同项目已发出但未确认的询价 */
   rfqSent: boolean;
   priceEvidenceTier: string | null;
@@ -117,7 +119,10 @@ export function deriveNextAction(f: RacingFacts): NextAction {
   if (f.latestGate === null) return { code: "START_EVALUATION", label: "开始项目评估" };
   if (f.latestGate === "INCOMPLETE" || f.latestGate === "PENDING") return { code: "COMPLETE_MANDATORY_EVIDENCE", label: "补齐强制项证据" };
   if (f.claimedCertificationCount > 0 && f.verifiedEvidenceCount === 0) return { code: "VERIFY_CERTIFICATION", label: "核验证书" };
-  if (!f.rfqConfirmed) return { code: "SEND_RFQ", label: f.rfqSent ? "等待厂家正式回复报价" : "向厂家正式询价" };
+  if (!f.rfqConfirmed) {
+    if (f.rfqConfirmedUnbound) return { code: "BIND_RFQ_NEW_RUN", label: "新建评估并把正式报价绑定到此产品" };
+    return { code: "SEND_RFQ", label: f.rfqSent ? "等待厂家正式回复报价" : "向厂家正式询价" };
+  }
   if (f.unknownComponents.includes("commercial")) return { code: "WAIT_COMPARABLE_QUOTE", label: "等待同轮可比报价" };
   if (f.unknownComponents.includes("reliability")) return { code: "BUILD_HISTORY", label: "新供应商：需要更多交互 / 样品验证" };
   if (f.unknownComponents.includes("importRisk")) return { code: "VERIFY_EXPORT", label: "核实出口加拿大能力" };

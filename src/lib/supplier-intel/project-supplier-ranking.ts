@@ -14,6 +14,7 @@ import { loadProjectPriorityBrief, prioritizeSignal } from "./discovery-priority
 import { DISCOVERY_PRIORITY_DISCLAIMER, type DiscoveryPriorityResult } from "./discovery-priority";
 import { SupplierIntelError } from "./errors";
 import { deriveNextAction, deriveRacingState, rankCandidates, type RankedCandidate, type RacingFacts } from "./project-ranking-model";
+import { readCommercialEvidenceBinding } from "./evaluation-scoring";
 import { isConfirmedQuote } from "./score-components";
 import { buildSignalListScopeFilter } from "./signal-scope";
 
@@ -44,7 +45,8 @@ export interface RacingRow {
   discoveryPriority: DiscoveryPriorityResult | null;
   state: string;
   gate: string | null;
-  rfq: "NONE" | "SENT" | "CONFIRMED";
+  /** CONFIRMED = 该候选的评估已显式绑定一张已确认报价；CONFIRMED_UNBOUND = 本项目有这家的已确认报价但没绑定到这个候选 / 产品 */
+  rfq: "NONE" | "SENT" | "CONFIRMED_UNBOUND" | "CONFIRMED";
   officialTotalScore: number | null;
   currentRank: number | null;
   section: string | null;
@@ -99,7 +101,8 @@ export async function loadProjectSupplierRanking(actor: SupplierIntelActor, proj
     db.supplier.findMany({ where: { orgId: actor.orgId, id: { in: supplierIds } }, select: { id: true, name: true } }),
     db.supplierOffering.findMany({ where: { orgId: actor.orgId, supplierId: { in: supplierIds }, status: "active" }, select: { id: true, supplierId: true, name: true } }),
     db.supplierCertification.findMany({ where: { orgId: actor.orgId, supplierId: { in: supplierIds } }, select: { supplierId: true, status: true } }),
-    db.supplierCapabilitySignal.findMany({ where: { orgId: actor.orgId, evidenceStatus: "VERIFIED", discoverySignal: { is: { linkedSupplierId: { in: supplierIds }, status: "LINKED" } } }, select: { id: true, discoverySignal: { select: { linkedSupplierId: true } } } }),
+    // FR2：已核验能力只算**当前项目**线索上的（线索是项目级证据；隐藏项目里核验过的不在这里露面，也不进分）
+    db.supplierCapabilitySignal.findMany({ where: { orgId: actor.orgId, evidenceStatus: "VERIFIED", discoverySignal: { is: { linkedSupplierId: { in: supplierIds }, status: "LINKED", OR: [{ projectId }, { tenderId: projectId }, { searchRun: { is: { orgId: actor.orgId, projectId } } }] } } }, select: { id: true, discoverySignal: { select: { linkedSupplierId: true } } } }),
     db.projectInquiry.findMany({ where: { projectId, project: { is: { orgId: actor.orgId } } }, select: { items: { select: { supplierId: true, status: true, sentAt: true, repliedAt: true, unitPrice: true, totalPrice: true } } } }),
   ]);
   const supplierName = new Map(suppliers.map((s) => [s.id, s.name]));
@@ -132,7 +135,7 @@ export async function loadProjectSupplierRanking(actor: SupplierIntelActor, proj
   const rows: RankingRow[] = ranked.map((r) => {
     const { run, cand } = byCandidate.get(r.candidateId) as { run: (typeof runs)[number]; cand: Cand };
     const bd = (cand.scoreBreakdownJson ?? null) as { unknownComponents?: string[]; reasonCodes?: string[]; commercial?: { priceEvidenceTier?: string } | null } | null;
-    const facts = factsFor(cand.supplierId, cand.offeringId, cand, bd, false);
+    const facts = factsFor(cand.supplierId, cand.offeringId, cand, bd, false, run);
     return {
       ...r, runId: run.id, completedAt: run.completedAt ? run.completedAt.toISOString() : null, supplierName: cand.supplier.name,
       offeringName: cand.offering?.name ?? null, offeringSku: cand.offering?.sku ?? null, originSource: cand.originSource, scoreVersion: cand.scoreVersion,
@@ -143,14 +146,24 @@ export async function loadProjectSupplierRanking(actor: SupplierIntelActor, proj
   const sections: ProjectSupplierRankingView["sections"] = { PRIMARY: [], BACKUP: [], NEEDS_VERIFICATION: [], HIGH_RISK: [], NOT_ELIGIBLE: [] };
   for (const r of rows) sections[r.section].push(r);
 
-  function factsFor(supplierId: string, offeringId: string | null, cand: Cand | null, bd: { unknownComponents?: string[]; commercial?: { priceEvidenceTier?: string } | null } | null, evaluationInProgress: boolean): RacingFacts {
-    const rfq = rfqBySupplier.get(supplierId) ?? "NONE";
+  /** FR1：候选行的 RFQ 状态看其评估是否显式绑定了报价；供应商级的「有报价」只表示未绑定 */
+  function rfqFor(supplierId: string, run: { sourceConfigJson: unknown } | null, cand: Cand | null): RacingRow["rfq"] {
+    const supplierLevel = rfqBySupplier.get(supplierId) ?? "NONE";
+    if (cand && run) {
+      const b = readCommercialEvidenceBinding(run.sourceConfigJson);
+      if (b && b.supplierId === cand.supplierId && b.offeringId === cand.offeringId) return "CONFIRMED";
+      return supplierLevel === "CONFIRMED" ? "CONFIRMED_UNBOUND" : supplierLevel;
+    }
+    return supplierLevel === "CONFIRMED" ? "CONFIRMED_UNBOUND" : supplierLevel;
+  }
+  function factsFor(supplierId: string, offeringId: string | null, cand: Cand | null, bd: { unknownComponents?: string[]; commercial?: { priceEvidenceTier?: string } | null } | null, evaluationInProgress: boolean, run: { sourceConfigJson: unknown } | null = null): RacingFacts {
+    const rfq = rfqFor(supplierId, run, cand);
     const scoreComplete = Boolean(cand && cand.totalScore !== null && cand.technicalScore !== null && cand.commercialScore !== null && cand.reliabilityScore !== null && cand.importRiskScore !== null);
     return {
       linked: platformBySupplier.has(supplierId) || Boolean(cand), hasOffering: Boolean(offeringId) || hasOffering.has(supplierId),
       verifiedEvidenceCount: verifiedCount.get(supplierId) ?? 0, claimedCertificationCount: claimedCerts.get(supplierId) ?? 0,
       latestGate: cand?.mandatoryGateResult ?? null, latestRecommendation: cand?.recommendation ?? null, scoreComplete,
-      rfqConfirmed: rfq === "CONFIRMED", rfqSent: rfq !== "NONE", priceEvidenceTier: bd?.commercial?.priceEvidenceTier ?? null,
+      rfqConfirmed: rfq === "CONFIRMED", rfqConfirmedUnbound: rfq === "CONFIRMED_UNBOUND", rfqSent: rfq !== "NONE", priceEvidenceTier: bd?.commercial?.priceEvidenceTier ?? null,
       unknownComponents: bd?.unknownComponents ?? [], evaluationInProgress,
     };
   }
@@ -162,18 +175,19 @@ export async function loadProjectSupplierRanking(actor: SupplierIntelActor, proj
     const { cand } = byCandidate.get(r.candidateId) as { cand: Cand };
     const key = `${cand.supplierId}:${cand.offeringId ?? "-"}`; seen.add(key);
     const bd = (cand.scoreBreakdownJson ?? null) as { unknownComponents?: string[]; commercial?: { priceEvidenceTier?: string } | null } | null;
-    const facts = factsFor(cand.supplierId, cand.offeringId, cand, bd, inProgress.has(key));
+    const { run: candRun } = byCandidate.get(r.candidateId) as { run: (typeof runs)[number] };
+    const facts = factsFor(cand.supplierId, cand.offeringId, cand, bd, inProgress.has(key), candRun);
     racing.push({
       key, supplierId: cand.supplierId, supplierName: cand.supplier.name, offeringId: cand.offeringId, offeringName: cand.offering?.name ?? null,
       sourcePlatform: platformBySupplier.get(cand.supplierId) ?? null, originSource: cand.originSource, discoveryPriority: priorityBySupplier.get(cand.supplierId) ?? null,
-      state: deriveRacingState(facts), gate: cand.mandatoryGateResult, rfq: rfqBySupplier.get(cand.supplierId) ?? "NONE", officialTotalScore: cand.totalScore,
+      state: deriveRacingState(facts), gate: cand.mandatoryGateResult, rfq: rfqFor(cand.supplierId, candRun, cand), officialTotalScore: cand.totalScore,
       currentRank: r.rank, section: r.section, candidateId: cand.id, runId: r.runId, evaluationInProgress: inProgress.has(key), nextAction: r.nextAction,
     });
   }
   for (const key of inProgress) { if (seen.has(key)) continue; seen.add(key); const [sid, oid] = key.split(":"); const facts = factsFor(sid, oid === "-" ? null : oid, null, null, true);
-    racing.push({ key, supplierId: sid, supplierName: supplierName.get(sid) ?? sid, offeringId: oid === "-" ? null : oid, offeringName: offerings.find((o) => o.id === oid)?.name ?? null, sourcePlatform: platformBySupplier.get(sid) ?? null, originSource: null, discoveryPriority: priorityBySupplier.get(sid) ?? null, state: deriveRacingState(facts), gate: null, rfq: rfqBySupplier.get(sid) ?? "NONE", officialTotalScore: null, currentRank: null, section: null, candidateId: null, runId: null, evaluationInProgress: true, nextAction: deriveNextAction(facts) }); }
+    racing.push({ key, supplierId: sid, supplierName: supplierName.get(sid) ?? sid, offeringId: oid === "-" ? null : oid, offeringName: offerings.find((o) => o.id === oid)?.name ?? null, sourcePlatform: platformBySupplier.get(sid) ?? null, originSource: null, discoveryPriority: priorityBySupplier.get(sid) ?? null, state: deriveRacingState(facts), gate: null, rfq: rfqFor(sid, null, null), officialTotalScore: null, currentRank: null, section: null, candidateId: null, runId: null, evaluationInProgress: true, nextAction: deriveNextAction(facts) }); }
   for (const sid of supplierIds) { const key = `${sid}:-`; if ([...seen].some((k) => k.startsWith(`${sid}:`))) continue; seen.add(key); const facts = factsFor(sid, null, null, null, false);
-    racing.push({ key, supplierId: sid, supplierName: supplierName.get(sid) ?? sid, offeringId: null, offeringName: null, sourcePlatform: platformBySupplier.get(sid) ?? null, originSource: null, discoveryPriority: priorityBySupplier.get(sid) ?? null, state: deriveRacingState(facts), gate: null, rfq: rfqBySupplier.get(sid) ?? "NONE", officialTotalScore: null, currentRank: null, section: null, candidateId: null, runId: null, evaluationInProgress: false, nextAction: deriveNextAction(facts) }); }
+    racing.push({ key, supplierId: sid, supplierName: supplierName.get(sid) ?? sid, offeringId: null, offeringName: null, sourcePlatform: platformBySupplier.get(sid) ?? null, originSource: null, discoveryPriority: priorityBySupplier.get(sid) ?? null, state: deriveRacingState(facts), gate: null, rfq: rfqFor(sid, null, null), officialTotalScore: null, currentRank: null, section: null, candidateId: null, runId: null, evaluationInProgress: false, nextAction: deriveNextAction(facts) }); }
   racing.sort((a, b) => (a.currentRank ?? 1e9) - (b.currentRank ?? 1e9) || (b.discoveryPriority?.total ?? -1) - (a.discoveryPriority?.total ?? -1) || a.supplierName.localeCompare(b.supplierName, "zh-CN"));
 
   return {

@@ -230,6 +230,7 @@ export interface ArchiveEvidenceOption {
 /* ───────────────── S4-A：评估运行 ───────────────── */
 
 export interface EvaluationRunListRow {
+  commercialEvidenceBinding?: CommercialEvidenceBindingView | null;
   id: string;
   status: string;
   createdAt: string;
@@ -272,7 +273,7 @@ export interface EvaluationCandidateView {
 }
 
 export interface EvaluationViewPayload {
-  run: { id: string; status: string; runMode: "EVALUATION_ONLY"; createdAt: string; completedAt: string | null; evaluationVersion: string; scoreVersion: string; requirementSnapshotVersion: string | null; sourceDiscoveryRunId: string | null; statusDetail: unknown };
+  run: { id: string; status: string; runMode: "EVALUATION_ONLY"; createdAt: string; completedAt: string | null; evaluationVersion: string; scoreVersion: string; requirementSnapshotVersion: string | null; sourceDiscoveryRunId: string | null; commercialEvidenceBinding?: CommercialEvidenceBindingView | null; statusDetail: unknown };
   project: { id: string; name: string | null };
   canWrite: boolean;
   requirementCount: number;
@@ -289,7 +290,7 @@ export interface CandidateScoreBreakdownView {
   computedAt: string;
   gateResult: string;
   technical: { score: number | null; scorableCount: number; items: Array<{ key: string; category: string | null; verdict: string; evaluatedBy: string | null; points: number; reason: string | null }>; excluded: Array<{ key: string; category: string | null }>; unmapped: Array<{ key: string; category: string | null }>; reasonCodes: string[] } | null;
-  commercial: { score: number | null; priceEvidenceTier: string; round: { inquiryId: string; roundNumber: number; scope: string | null } | null; priceBasis: string | null; currency: string | null; candidate: { itemId: string; price: number | null; deliveryDays: number | null; validUntil: string | null } | null; comparableGroup: Array<{ supplierId: string; itemId: string; price: number; deliveryDays: number | null }>; sub: { price: number | null; delivery: number; completeness: number | null }; reasonCodes: string[]; offeringPriceEvidence: { tier: string; listedPrice: string | null; currency: string | null; priceStatus: string | null; sourceKind: string | null; sourceUrl: string | null; sourceSignalPlatform: string | null } } | null;
+  commercial: { score: number | null; priceEvidenceTier: string; round: { inquiryId: string; roundNumber: number; scope: string | null } | null; priceBasis: string | null; currency: string | null; candidate: { itemId: string; price: number | null; deliveryDays: number | null; validUntil: string | null } | null; comparableGroup: Array<{ supplierId: string; itemId: string; price: number; deliveryDays: number | null }>; sub: { price: number | null; delivery: number; completeness: number | null }; reasonCodes: string[]; binding: (CommercialEvidenceBindingView & { status: string }) | null; offeringPriceEvidence: { tier: string; listedPrice: string | null; currency: string | null; priceStatus: string | null; sourceKind: string | null; sourceUrl: string | null; sourceSignalPlatform: string | null } } | null;
   reliability: { score: number | null; contacted: number; replied: number; selected: number; sub: { responseRate: number | null; priorSelection: number | null }; reasonCodes: string[] } | null;
   importRisk: { score: number | null; verified: Array<{ id: string; type: string }>; unverified: Array<{ id: string; type: string; evidenceStatus: string }>; sub: { readiness: number | null; packaging: number; incoterm: number; leadTime: number }; offering: { incoterm: string | null; leadTimeDays: number | null }; reasonCodes: string[] } | null;
   knownWeightShare: number | null;
@@ -312,7 +313,7 @@ export interface RankingRowView {
 export interface RacingRowView {
   key: string; supplierId: string; supplierName: string; offeringId: string | null; offeringName: string | null;
   sourcePlatform: string | null; originSource: string | null; discoveryPriority: DiscoveryPriorityView | null;
-  state: string; gate: string | null; rfq: "NONE" | "SENT" | "CONFIRMED"; officialTotalScore: number | null;
+  state: string; gate: string | null; rfq: "NONE" | "SENT" | "CONFIRMED_UNBOUND" | "CONFIRMED"; officialTotalScore: number | null;
   currentRank: number | null; section: string | null; candidateId: string | null; runId: string | null; evaluationInProgress: boolean;
   nextAction: { code: string; label: string };
 }
@@ -325,4 +326,15 @@ export interface ProjectRankingPayload {
   sections: Record<"PRIMARY" | "BACKUP" | "NEEDS_VERIFICATION" | "HIGH_RISK" | "NOT_ELIGIBLE", RankingRowView[]>;
   ranked: RankingRowView[];
   racing: RacingRowView[];
+}
+
+/* ───────────────── S4-B FR1：正式报价绑定 ───────────────── */
+
+export interface CommercialEvidenceBindingView {
+  inquiryId: string; inquiryItemId: string; supplierId: string; offeringId: string; roundNumber: number; scope: string | null; confirmedByUserId: string;
+}
+
+export interface CommercialEvidenceOption {
+  inquiryItemId: string; inquiryId: string; roundNumber: number; scope: string | null; status: string; repliedAt: string | null;
+  currency: string; totalPrice: string | null; unitPrice: string | null; deliveryDays: number | null; validUntil: string | null;
 }

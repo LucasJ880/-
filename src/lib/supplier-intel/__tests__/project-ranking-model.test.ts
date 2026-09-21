@@ -81,6 +81,7 @@ async function main() {
   assert.equal(deriveNextAction({ ...base, latestGate: "PASS", claimedCertificationCount: 1 }).label, "核验证书");
   assert.equal(deriveNextAction({ ...base, latestGate: "PASS", verifiedEvidenceCount: 1 }).label, "向厂家正式询价");
   assert.equal(deriveNextAction({ ...base, latestGate: "PASS", verifiedEvidenceCount: 1, rfqSent: true }).label, "等待厂家正式回复报价");
+  assert.equal(deriveNextAction({ ...base, latestGate: "PASS", verifiedEvidenceCount: 1, rfqSent: true, rfqConfirmedUnbound: true }).code, "BIND_RFQ_NEW_RUN", "FR1：有报价未绑定 → 新建评估并绑定");
   assert.equal(deriveNextAction({ ...base, latestGate: "PASS", rfqConfirmed: true, unknownComponents: ["commercial"] }).label, "等待同轮可比报价");
   assert.equal(deriveNextAction({ ...base, latestGate: "PASS", rfqConfirmed: true, unknownComponents: ["reliability"] }).label, "新供应商：需要更多交互 / 样品验证");
   assert.equal(deriveNextAction({ ...base, latestGate: "PASS", rfqConfirmed: true, unknownComponents: ["importRisk"] }).label, "核实出口加拿大能力");

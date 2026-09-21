@@ -31,6 +31,7 @@ import { TONE_CLASS } from "./evidence-sections";
 import { ScopeGuard } from "./scope-guard";
 import {
   workspaceFetch,
+  type CommercialEvidenceOption,
   type EvaluationCandidateView,
   type EvaluationRequirementRowView,
   type EvaluationRunListRow,
@@ -61,6 +62,9 @@ export function EvaluationPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
   const [offeringId, setOfferingId] = useState<string>(offerings[0]?.id ?? "");
+  // FR1：正式报价绑定——采购人员确认「这张 RFQ 回复对应正在评估的这个产品」；服务端重验后冻结进评估运行
+  const [commercialOptions, setCommercialOptions] = useState<CommercialEvidenceOption[]>([]);
+  const [commercialInquiryItemId, setCommercialInquiryItemId] = useState<string>("");
   const q = `?orgId=${encodeURIComponent(orgId)}`;
 
   const guardRef = useRef<ScopeGuard | null>(null);
@@ -71,9 +75,10 @@ export function EvaluationPanel({
   const loadRuns = useCallback(async () => {
     const ticket = guard.begin("runs");
     try {
-      const r = await workspaceFetch<{ runs: EvaluationRunListRow[] }>(`/api/supplier-intel/projects/${projectId}/evaluations${q}&supplierId=${encodeURIComponent(supplierId)}`, { signal: ticket.signal });
+      const r = await workspaceFetch<{ runs: EvaluationRunListRow[]; commercialEvidenceOptions?: CommercialEvidenceOption[] }>(`/api/supplier-intel/projects/${projectId}/evaluations${q}&supplierId=${encodeURIComponent(supplierId)}`, { signal: ticket.signal });
       if (!ticket.isCurrent()) return;
       setRuns(r.runs);
+      setCommercialOptions(r.commercialEvidenceOptions ?? []);
     } catch (e) { if (ticket.isCurrent()) setMsg({ tone: "err", text: errText(e) }); } finally { ticket.done(); }
   }, [guard, projectId, q, supplierId]);
 
@@ -96,13 +101,13 @@ export function EvaluationPanel({
     setBusy("start"); setMsg(null);
     try {
       const r = await workspaceFetch<{ run: { id: string }; candidate: { id: string } }>(`/api/supplier-intel/projects/${projectId}/evaluations${q}`, {
-        method: "POST", body: JSON.stringify({ supplierId, offeringId: offeringId || null }),
+        method: "POST", body: JSON.stringify({ supplierId, offeringId: offeringId || null, commercialInquiryItemId: commercialInquiryItemId || null }),
       });
       setMsg({ tone: "ok", text: "已创建评估运行（不搜索新供应商，只评估这家）。" });
       await loadRuns();
       setSelectedRunId(r.run.id);
     } catch (e) { setMsg({ tone: "err", text: errText(e) }); } finally { setBusy(null); }
-  }, [loadRuns, offeringId, projectId, q, supplierId]);
+  }, [commercialInquiryItemId, loadRuns, offeringId, projectId, q, supplierId]);
 
   const act = useCallback(async (label: string, fn: () => Promise<unknown>, okText: string) => {
     setBusy(label); setMsg(null);
@@ -131,6 +136,18 @@ export function EvaluationPanel({
               <option value="">不指定产品（仅供应商级；产品级要求将无法判定）</option>
               {offerings.map((o) => <option key={o.id} value={o.id}>{o.name}{o.sku ? `（${o.sku}）` : ""}</option>)}
             </select>
+          </label>
+          <label className="min-w-[260px] text-xs">
+            <span className="mb-1 block text-[var(--muted)]">正式报价绑定（可选）</span>
+            <select className={INPUT} value={commercialInquiryItemId} onChange={(e) => setCommercialInquiryItemId(e.target.value)} data-testid="evaluation-commercial-binding" disabled={!offeringId}>
+              <option value="">不绑定——商务待确认（评估后可新建评估再绑定）</option>
+              {commercialOptions.map((o) => (
+                <option key={o.inquiryItemId} value={o.inquiryItemId} data-item-id={o.inquiryItemId}>
+                  第 {o.roundNumber} 轮{o.scope ? `（${o.scope}）` : ""} · {o.currency} {o.totalPrice ?? o.unitPrice}{o.totalPrice ? "（总价）" : "（单价）"} · 回复于 {o.repliedAt ? new Date(o.repliedAt).toLocaleDateString("zh-CN") : "—"}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-[var(--muted)]">绑定 = 你确认这张回复对应所选产品；服务端只接受本项目、这家供应商、已回复且有价格的报价。报价不按供应商自动套用到别的产品。</span>
           </label>
           <button type="button" className={BTN_PRIMARY} disabled={busy !== null} onClick={() => void startEvaluation()} data-testid="evaluation-start">
             {busy === "start" ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} 开始项目评估
@@ -316,6 +333,9 @@ function ScoreBox({ candidate, terminal }: { candidate: EvaluationCandidateView;
         {bd?.commercial ? (
           <>
             <p><Badge tone={tier.tone} testId="price-evidence-tier">{tier.label}</Badge>{bd.commercial.round ? <span className="ml-1 text-[var(--muted)]">来源：Project Inquiry Round {bd.commercial.round.roundNumber}{bd.commercial.candidate?.price !== null && bd.commercial.candidate?.price !== undefined ? ` · ${bd.commercial.currency ?? ""} ${bd.commercial.candidate.price}` : ""}</span> : null}</p>
+            <p className="mt-0.5 text-[var(--muted)]" data-testid="commercial-binding" data-binding={bd.commercial.binding ? bd.commercial.binding.status : "NONE"}>
+              {bd.commercial.binding ? `已绑定正式报价：第 ${bd.commercial.binding.roundNumber} 轮（由采购人员确认对应本产品${bd.commercial.binding.status === "BOUND_CONFIRMED" ? "" : "；收口时该报价已不可用"}）` : "未绑定正式报价——商务待确认；报价不按供应商自动套用到别的产品"}
+            </p>
             {tier.hint ? <p className="mt-0.5 text-[var(--muted)]">{tier.hint}</p> : null}
             {bd.commercial.offeringPriceEvidence.listedPrice ? (
               <p className="mt-0.5 text-[var(--muted)]" data-testid="listed-price">{bd.commercial.offeringPriceEvidence.sourceSignalPlatform === "ONE688" || (bd.commercial.offeringPriceEvidence.sourceUrl ?? "").includes("1688.com") ? "1688 平台挂牌价" : "报盘登记价"} {bd.commercial.offeringPriceEvidence.currency ?? ""} {bd.commercial.offeringPriceEvidence.listedPrice}{bd.commercial.priceEvidenceTier === "RFQ_CONFIRMED" ? "（历史挂牌证据保留；正式报价覆盖挂牌价作为评分依据）" : bd.commercial.priceEvidenceTier === "PLATFORM_LISTED" ? "（状态：待正式询价确认；不进入正式 Commercial Score）" : ""}</p>

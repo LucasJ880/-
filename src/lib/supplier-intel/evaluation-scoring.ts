@@ -45,7 +45,7 @@ export interface CandidateScoreSnapshot {
   capturedAt: string;
   gateResult: string;
   technical: TechnicalBreakdown | null;
-  commercial: (CommercialBreakdown & { offeringPriceEvidence: OfferingPriceEvidenceSnapshot }) | null;
+  commercial: (CommercialBreakdown & { binding: (CommercialEvidenceBinding & { status: RfqBindingStatus }) | null; offeringPriceEvidence: OfferingPriceEvidenceSnapshot }) | null;
   reliability: ReliabilityBreakdown | null;
   importRisk: ImportRiskBreakdown | null;
   contract: SupplierScoreBreakdown | null;
@@ -81,32 +81,65 @@ function readOfferingSnapshot(json: unknown) {
   };
 }
 
-/** 本项目里该供应商的 RFQ 事实：最近一个含该供应商已确认报价的询价轮 + 是否已发出过询价 */
-export async function loadProjectRfqFacts(tx: Tx, orgId: string, projectId: string, supplierId: string): Promise<{ round: RfqRoundInput | null; rfqSent: boolean; rfqConfirmed: boolean }> {
-  const inquiries = await tx.projectInquiry.findMany({
-    where: { projectId, project: { is: { orgId } } },
-    orderBy: { roundNumber: "desc" },
-    include: { items: { select: { id: true, supplierId: true, status: true, repliedAt: true, unitPrice: true, totalPrice: true, currency: true, deliveryDays: true, validUntil: true, sentAt: true } } },
-  });
-  let rfqSent = false;
-  for (const inq of inquiries) {
-    const items = inq.items.map((it) => ({
-      itemId: it.id, supplierId: it.supplierId, status: it.status, repliedAt: it.repliedAt ? it.repliedAt.toISOString() : null,
-      unitPrice: num(it.unitPrice), totalPrice: num(it.totalPrice), currency: it.currency, deliveryDays: it.deliveryDays ?? null, validUntil: it.validUntil ? it.validUntil.toISOString() : null,
-    }));
-    const mine = inq.items.find((it) => it.supplierId === supplierId);
-    if (mine && (mine.sentAt || mine.status !== "pending")) rfqSent = true;
-    const mineMapped = items.find((it) => it.supplierId === supplierId);
-    if (mineMapped && isConfirmedQuote(mineMapped)) {
-      return { round: { inquiryId: inq.id, roundNumber: inq.roundNumber, scope: inq.scope ?? null, items }, rfqSent: true, rfqConfirmed: true };
-    }
+/** 冻结在 Run.sourceConfigJson 里的正式报价绑定（FR1）；形状不对一律视为无绑定（fail closed） */
+export interface CommercialEvidenceBinding {
+  inquiryId: string;
+  inquiryItemId: string;
+  supplierId: string;
+  offeringId: string;
+  roundNumber: number;
+  scope: string | null;
+  confirmedByUserId: string;
+}
+
+export function readCommercialEvidenceBinding(sourceConfigJson: unknown): CommercialEvidenceBinding | null {
+  if (typeof sourceConfigJson !== "object" || sourceConfigJson === null) return null;
+  const b = (sourceConfigJson as { commercialEvidenceBinding?: unknown }).commercialEvidenceBinding;
+  if (typeof b !== "object" || b === null) return null;
+  const o = b as Record<string, unknown>;
+  if (typeof o.inquiryId !== "string" || typeof o.inquiryItemId !== "string" || typeof o.supplierId !== "string" || typeof o.offeringId !== "string" || typeof o.roundNumber !== "number" || typeof o.confirmedByUserId !== "string") return null;
+  return { inquiryId: o.inquiryId, inquiryItemId: o.inquiryItemId, supplierId: o.supplierId, offeringId: o.offeringId, roundNumber: o.roundNumber, scope: typeof o.scope === "string" ? o.scope : null, confirmedByUserId: o.confirmedByUserId };
+}
+
+export type RfqBindingStatus = "NONE" | "BOUND_CONFIRMED" | "BOUND_MISMATCH" | "BOUND_NOT_CONFIRMED";
+
+/**
+ * FR1：RFQ 事实只来自**冻结的显式绑定**，不按 supplierId 自动找「最近一张报价」。
+ *   - 无绑定 → round=null（Commercial UNKNOWN；1688 首轮的正常路径）；
+ *   - 绑定与候选（supplierId / offeringId）不一致 → BOUND_MISMATCH（不消费）；
+ *   - 绑定的 item 在收口时不再是已确认报价 → BOUND_NOT_CONFIRMED（不消费）；
+ *   - 否则从该 item 向上取其 ProjectInquiry 轮，构建可比组（候选自己那条 = 绑定的 item，严格按 id）。
+ */
+export async function loadProjectRfqFacts(
+  tx: Tx,
+  orgId: string,
+  projectId: string,
+  binding: CommercialEvidenceBinding | null,
+  candidate: { supplierId: string; offeringId: string | null },
+): Promise<{ round: RfqRoundInput | null; rfqConfirmed: boolean; bindingStatus: RfqBindingStatus; candidateItemId: string | null }> {
+  if (!binding) return { round: null, rfqConfirmed: false, bindingStatus: "NONE", candidateItemId: null };
+  if (binding.supplierId !== candidate.supplierId || binding.offeringId !== candidate.offeringId) {
+    return { round: null, rfqConfirmed: false, bindingStatus: "BOUND_MISMATCH", candidateItemId: binding.inquiryItemId };
   }
-  return { round: null, rfqSent, rfqConfirmed: false };
+  const inq = await tx.projectInquiry.findFirst({
+    where: { id: binding.inquiryId, projectId, project: { is: { orgId } } },
+    include: { items: { select: { id: true, supplierId: true, status: true, repliedAt: true, unitPrice: true, totalPrice: true, currency: true, deliveryDays: true, validUntil: true } } },
+  });
+  if (!inq) return { round: null, rfqConfirmed: false, bindingStatus: "BOUND_NOT_CONFIRMED", candidateItemId: binding.inquiryItemId };
+  const items = inq.items.map((it) => ({
+    itemId: it.id, supplierId: it.supplierId, status: it.status, repliedAt: it.repliedAt ? it.repliedAt.toISOString() : null,
+    unitPrice: num(it.unitPrice), totalPrice: num(it.totalPrice), currency: it.currency, deliveryDays: it.deliveryDays ?? null, validUntil: it.validUntil ? it.validUntil.toISOString() : null,
+  }));
+  const mine = items.find((it) => it.itemId === binding.inquiryItemId);
+  if (!mine || mine.supplierId !== candidate.supplierId || !isConfirmedQuote(mine)) {
+    return { round: null, rfqConfirmed: false, bindingStatus: "BOUND_NOT_CONFIRMED", candidateItemId: binding.inquiryItemId };
+  }
+  return { round: { inquiryId: inq.id, roundNumber: inq.roundNumber, scope: inq.scope ?? null, items }, rfqConfirmed: true, bindingStatus: "BOUND_CONFIRMED", candidateItemId: mine.itemId };
 }
 
 export async function buildCandidateScoreSnapshot(
   tx: Tx,
-  input: { orgId: string; projectId: string; run: { requirementSnapshotJson: unknown }; candidate: { id: string; supplierId: string; offeringId: string | null; originSource: string; mandatoryGateResult: string; offeringSnapshotJson: unknown }; now: Date },
+  input: { orgId: string; projectId: string; run: { requirementSnapshotJson: unknown; sourceConfigJson: unknown }; candidate: { id: string; supplierId: string; offeringId: string | null; originSource: string; mandatoryGateResult: string; offeringSnapshotJson: unknown }; now: Date },
 ): Promise<CandidateScoreSnapshot> {
   const { orgId, projectId, candidate, now } = input;
   const at = now.toISOString();
@@ -131,8 +164,9 @@ export async function buildCandidateScoreSnapshot(
   const matches = await tx.supplierRequirementMatch.findMany({ where: { candidateId: candidate.id, orgId }, select: { requirementKey: true, verdict: true, evaluatedBy: true } });
   const technical = computeTechnicalFit(entries.map((e) => ({ key: e.code, category: e.category, mandatory: e.mandatory })), matches);
 
-  // Commercial：本项目 RFQ + 价格证据层
-  const rfq = await loadProjectRfqFacts(tx, orgId, projectId, candidate.supplierId);
+  // Commercial：只消费冻结的显式绑定（FR1）+ 价格证据层
+  const binding = readCommercialEvidenceBinding(input.run.sourceConfigJson);
+  const rfq = await loadProjectRfqFacts(tx, orgId, projectId, binding, { supplierId: candidate.supplierId, offeringId: candidate.offeringId });
   const offering = readOfferingSnapshot(candidate.offeringSnapshotJson);
   let sourceSignalPlatform: string | null = null;
   if (offering?.sourceSignalId) {
@@ -140,8 +174,8 @@ export async function buildCandidateScoreSnapshot(
     sourceSignalPlatform = sig?.platform ?? null;
   }
   const tier = derivePriceEvidenceTier({ rfqConfirmed: rfq.rfqConfirmed, offering: offering ? { sourceKind: offering.sourceKind, priceStatus: offering.priceStatus, unitPrice: offering.unitPrice, sourceUrl: offering.sourceUrl, sourceSignalPlatform } : null });
-  const commercialCore = computeCommercialScore({ candidateSupplierId: candidate.supplierId, round: rfq.round, priceEvidenceTier: tier });
-  const commercial = { ...commercialCore, offeringPriceEvidence: { tier, listedPrice: offering?.unitPrice ?? null, currency: offering?.currency ?? null, priceStatus: offering?.priceStatus ?? null, sourceKind: offering?.sourceKind ?? null, sourceUrl: offering?.sourceUrl ?? null, sourceSignalId: offering?.sourceSignalId ?? null, sourceSignalPlatform } };
+  const commercialCore = computeCommercialScore({ candidateSupplierId: candidate.supplierId, candidateItemId: rfq.candidateItemId, round: rfq.round, priceEvidenceTier: tier });
+  const commercial = { ...commercialCore, binding: binding ? { ...binding, status: rfq.bindingStatus } : null, offeringPriceEvidence: { tier, listedPrice: offering?.unitPrice ?? null, currency: offering?.currency ?? null, priceStatus: offering?.priceStatus ?? null, sourceKind: offering?.sourceKind ?? null, sourceUrl: offering?.sourceUrl ?? null, sourceSignalId: offering?.sourceSignalId ?? null, sourceSignalPlatform } };
 
   // Reliability：别项目的真实交互（同 org），只记 id / 状态
   const historyRows = await tx.inquiryItem.findMany({
@@ -150,10 +184,15 @@ export async function buildCandidateScoreSnapshot(
   });
   const reliability = computeReliabilityScore({ currentProjectId: projectId, history: historyRows.map((h) => ({ itemId: h.id, projectId: h.inquiry.projectId, status: h.status, sentAt: h.sentAt ? h.sentAt.toISOString() : null, repliedAt: h.repliedAt ? h.repliedAt.toISOString() : null, isSelected: h.isSelected })) });
 
-  // Import readiness：只认挂在已归属线索上的出口能力证据；VERIFIED 才计分
+  // Import readiness（FR2）：只认挂在**当前评估项目**已归属线索上的出口能力证据；VERIFIED 才计分。
+  // 线索是项目级证据（S3-B 冻结边界）；别的项目里核验过的能力不自动带入。范围由评估项目决定，
+  // 与当前 actor 能看几个项目无关（同一 Run 谁来收口结果都一样）。
   const caps = await tx.supplierCapabilitySignal.findMany({
-    where: { orgId, type: { in: EXPORT_CAPABILITY_TYPES }, discoverySignal: { is: { linkedSupplierId: candidate.supplierId, status: "LINKED" } } },
-    select: { id: true, type: true, evidenceStatus: true },
+    where: {
+      orgId, type: { in: EXPORT_CAPABILITY_TYPES },
+      discoverySignal: { is: { linkedSupplierId: candidate.supplierId, status: "LINKED", OR: [{ projectId }, { tenderId: projectId }, { searchRun: { is: { orgId, projectId } } }] } },
+    },
+    select: { id: true, type: true, evidenceStatus: true, discoverySignalId: true },
   });
   const importRisk = computeImportRiskScore({ capabilities: caps, offering: offering ? { incoterm: offering.incoterm, leadTimeDays: offering.leadTimeDays } : null });
 

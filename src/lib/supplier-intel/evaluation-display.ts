@@ -82,6 +82,8 @@ const SCORE_REASON_TEXT: Record<string, string> = {
   TECHNICAL_NO_SCORABLE_REQUIREMENTS: "本项目没有可计分的技术要求",
   TECHNICAL_AI_ASSISTED_UNCONFIRMED: "AI 辅助判定未经人工确认，按 0 计",
   COMMERCIAL_NO_CONFIRMED_RFQ: "本项目尚无该供应商的正式报价（待询价确认）",
+  COMMERCIAL_NOT_BOUND_TO_OFFERING: "评估创建时没有把正式报价绑定到这个产品；报价不按供应商自动套用，需新建评估并绑定",
+  COMMERCIAL_BINDING_NOT_CONFIRMED: "绑定的报价在收口时已不是已确认状态（被删或未回复），不进入商务评分",
   COMMERCIAL_SINGLE_QUOTE: "同一询价轮只有一家正式报价，无法比较",
   COMMERCIAL_NOT_COMPARABLE_CURRENCY: "同轮报价币种不一致，不做汇率猜测",
   COMMERCIAL_NOT_COMPARABLE_PRICE_BASIS: "同轮报价单价 / 总价口径不一致，不混比",
@@ -137,7 +139,12 @@ export function racingStateDisplay(state: string): LabelWithTone {
 }
 
 export function rfqStateLabel(rfq: string): string {
-  return rfq === "CONFIRMED" ? "已报价" : rfq === "SENT" ? "已询价待回复" : "待询价";
+  switch (rfq) {
+    case "CONFIRMED": return "已报价（已绑定此产品）";
+    case "CONFIRMED_UNBOUND": return "有正式报价，未绑定到此产品";
+    case "SENT": return "已询价待回复";
+    default: return "待询价";
+  }
 }
 
 const REASON_TEXT: Record<MandatoryGateReasonCode, string> = {
