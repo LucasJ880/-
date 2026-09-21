@@ -360,4 +360,113 @@ export const SUPPLIER_INTEL_AUDIT_ACTIONS = {
   EVALUATION_RUN_CREATED: "supplier_intel.evaluation.run.created",
   REQUIREMENT_MATCH_CREATED: "supplier_intel.requirement_match.created",
   MANDATORY_GATE_COMPUTED: "supplier_intel.mandatory_gate.computed",
+  // S4-B
+  SCORE_COMPUTED: "supplier_intel.score.computed",
+  EVALUATION_FINALIZED: "supplier_intel.evaluation.finalized",
+  CAPABILITY_VERIFIED: "supplier_intel.capability.verified",
 } as const;
+
+// ── S4-B：评分组件 / 价格证据层 / 找厂优先级（冻结词表）────────────
+
+/** 找厂优先级规则版本（read-model，不落 Candidate 评分列） */
+export const DISCOVERY_PRIORITY_VERSION_V1 = "discovery-priority-v1";
+
+/** 四个评分组件各自的规则版本（写进 scoreBreakdownJson.componentRuleVersions） */
+export const SCORE_COMPONENT_RULE_VERSIONS = {
+  technical: "technical-fit-v1",
+  commercial: "commercial-score-v1",
+  reliability: "reliability-score-v1",
+  importRisk: "import-risk-v1",
+} as const;
+
+/**
+ * 价格证据层（逻辑层，不加 schema；冻结在 scoreBreakdownJson.commercial.priceEvidenceTier）。
+ * 来源推导只在服务端完成；客户端不能声明。
+ */
+export const PRICE_EVIDENCE_TIERS = [
+  "RFQ_CONFIRMED",
+  "INQUIRY_CONFIRMED",
+  "HUMAN_ENTERED",
+  "PLATFORM_LISTED",
+  "ESTIMATED",
+  "UNKNOWN",
+] as const;
+export type PriceEvidenceTier = (typeof PRICE_EVIDENCE_TIERS)[number];
+
+/**
+ * 技术得分只对这些 category 计分（repo 真实 category 词表来自
+ * tender-auto-analysis/bid-fit-groups.ts + OFFERING_SCOPED_REQUIREMENT_CATEGORIES）。
+ */
+export const TECHNICAL_SCORABLE_CATEGORIES = [
+  "product",
+  "model",
+  "technical",
+  "safety",
+  "certification",
+  "dimensions",
+  "performance",
+  "material",
+  "quality",
+  "capability",
+] as const;
+
+/** 明确**不是**技术项的 category（程序 / 商务 / 保障 / 交付）——不进技术分母，也不算 UNMAPPED */
+export const NON_TECHNICAL_REQUIREMENT_CATEGORIES = [
+  "installation",
+  "samples",
+  "shop_drawings",
+  "training",
+  "insurance",
+  "bonding",
+  "warranty",
+  "reporting",
+  "pricing",
+  "commercial",
+  "delivery",
+  "packaging",
+  "administrative",
+  "submission",
+  "schedule",
+  "site_visit",
+  "mandatory",
+  "other",
+] as const;
+
+/** 评分原因码（冻结；UI 再翻中文；JSON 里只存 code） */
+export const SCORE_REASON_CODES = [
+  "GATE_FAIL",
+  "GATE_INCOMPLETE",
+  "UNMAPPED_REQUIREMENT_CATEGORY",
+  "TECHNICAL_NO_SCORABLE_REQUIREMENTS",
+  "TECHNICAL_AI_ASSISTED_UNCONFIRMED",
+  "COMMERCIAL_NO_CONFIRMED_RFQ",
+  "COMMERCIAL_NOT_BOUND_TO_OFFERING",
+  "COMMERCIAL_BINDING_NOT_CONFIRMED",
+  "COMMERCIAL_SINGLE_QUOTE",
+  "COMMERCIAL_NOT_COMPARABLE_CURRENCY",
+  "COMMERCIAL_NOT_COMPARABLE_PRICE_BASIS",
+  "COMMERCIAL_PLATFORM_LISTED_ONLY",
+  "DELIVERY_UNKNOWN",
+  "RELIABILITY_HISTORY_INSUFFICIENT",
+  "EXPORT_READINESS_UNVERIFIED",
+  "EXPORT_CLAIMED_ONLY",
+  "OFFICIAL_TOTAL_INCOMPLETE",
+  "HIGH_RISK_IMPORT",
+  "HIGH_RISK_RELIABILITY",
+] as const;
+export type ScoreReasonCode = (typeof SCORE_REASON_CODES)[number];
+
+/** 供应商赛马（read-model 派生态；不建表） */
+export const RACING_STATES = [
+  "FOUND",
+  "LINKED",
+  "OFFERING_READY",
+  "EVIDENCE_READY",
+  "GATE_PASS",
+  "RFQ_CONFIRMED",
+  "SCORED",
+  "NEEDS_VERIFICATION",
+  "NOT_ELIGIBLE",
+  "HIGH_RISK",
+] as const;
+export type RacingState = (typeof RACING_STATES)[number];

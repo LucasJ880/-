@@ -165,7 +165,7 @@ export function platformDisplay(platform: string): LabelWithTone {
     case "WECHAT_CHANNELS":
       return { label: "微信视频号", tone: "warning", hint: "平台封闭，需人工手动提交线索" };
     case "ONE688":
-      return { label: "1688", tone: "neutral", hint: "专用采集未实现，本轮不执行" };
+      return { label: "1688 / 国内采购平台", tone: "neutral", hint: "来自搜索引擎索引的公开页面；专用采集未实现。平台挂牌价 ≠ 正式报价，平台文案 ≠ 已核验" };
     case "OPEN_WEB":
       return { label: "公开网页", tone: "neutral", hint: "搜索引擎已索引的公开结果" };
     case "WEBSITE":

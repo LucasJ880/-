@@ -61,6 +61,8 @@ export function buildOfferingSnapshot(offering: SupplierOffering, capturedAt: Da
     incoterm: offering.incoterm ?? null,
     sourceKind: offering.sourceKind,
     sourceUrl: offering.sourceUrl ?? null,
+    /** S4-B：价格证据层推导需要知道报盘来自哪条线索（平台挂牌价 vs 人工 / 询价） */
+    sourceSignalId: offering.sourceSignalId ?? null,
     capturedAt: capturedAt.toISOString(),
   };
 }

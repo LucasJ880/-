@@ -219,6 +219,11 @@ npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3b-db.isolated.test.ts
 
 # S4-A 评估运行 + 硬门（DB 套件无隔离库自跳过）
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s4a-db.isolated.test.ts
+# S4-B：找厂优先级 / 评分组件 / 项目排名 read-model（纯核）+ 评分收口 DB 套件（隔离库，否则跳过）
+npx tsx src/lib/supplier-intel/__tests__/discovery-priority.test.ts
+npx tsx src/lib/supplier-intel/__tests__/score-components.test.ts
+npx tsx src/lib/supplier-intel/__tests__/project-ranking-model.test.ts
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s4b-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 
 # Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）

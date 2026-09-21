@@ -30,6 +30,7 @@ import {
   createSupplierCandidate,
   type MatchEvidenceInput,
 } from "./evaluation-service";
+import { buildCandidateScoreSnapshot, readCommercialEvidenceBinding, type CandidateScoreSnapshot } from "./evaluation-scoring";
 import { computeMandatoryGate, type GateOutcome } from "./mandatory-gate";
 import { validateRequirementSnapshot, type RequirementSnapshotEntry } from "./requirement-snapshot";
 import {
@@ -92,6 +93,44 @@ export interface CreateEvaluationRunInput {
   offeringId?: string | null;
   /** provenance：指回那次发现 Run（服务端核实同 org、同项目） */
   sourceDiscoveryRunId?: string | null;
+  /**
+   * FR1：采购人员确认「这张 RFQ 回复对应本次评估的 Offering」——这是证据选择，不是客户端宣称报价已核实。
+   * 服务端重验：同 org / 同项目 / 同供应商 / 已确认报价；通过后冻结进 sourceConfigJson.commercialEvidenceBinding。
+   * 为 null 时允许创建（Commercial 将为 UNKNOWN → NEEDS_VERIFICATION；1688 首轮的正常路径）。
+   */
+  commercialInquiryItemId?: string | null;
+}
+
+/** 服务端重验并构造冻结绑定；任何一项不成立 → COMMERCIAL_EVIDENCE_BINDING_INVALID（fail closed） */
+async function resolveCommercialEvidenceBinding(actor: SupplierIntelActor, projectId: string, supplierId: string, offeringId: string | null, inquiryItemId: string) {
+  if (!offeringId) throw new SupplierIntelError("COMMERCIAL_EVIDENCE_BINDING_INVALID", "绑定正式报价需要先选定具体产品（报价绑定到 Supplier × Offering）");
+  const item = await db.inquiryItem.findFirst({
+    where: { id: inquiryItemId, inquiry: { is: { projectId, project: { is: { orgId: actor.orgId } } } } },
+    select: { id: true, supplierId: true, status: true, repliedAt: true, unitPrice: true, totalPrice: true, inquiry: { select: { id: true, roundNumber: true, scope: true } } },
+  });
+  if (!item) throw new SupplierIntelError("COMMERCIAL_EVIDENCE_BINDING_INVALID", "该报价不属于本项目（或不存在）");
+  if (item.supplierId !== supplierId) throw new SupplierIntelError("COMMERCIAL_EVIDENCE_BINDING_INVALID", "该报价不是这家供应商的");
+  const confirmed = item.repliedAt !== null && ((item.totalPrice !== null && Number(item.totalPrice) > 0) || (item.unitPrice !== null && Number(item.unitPrice) > 0));
+  if (!confirmed) throw new SupplierIntelError("COMMERCIAL_EVIDENCE_BINDING_INVALID", "该报价尚未回复或没有价格，不能作为正式商务证据");
+  return { inquiryId: item.inquiry.id, inquiryItemId: item.id, supplierId: item.supplierId, offeringId, roundNumber: item.inquiry.roundNumber, scope: item.inquiry.scope ?? null, confirmedByUserId: actor.userId };
+}
+
+/** 本项目里这家供应商的已确认报价（给「开始评估」的绑定选择器用；服务端过项目读权限） */
+export async function listCommercialEvidenceOptions(actor: SupplierIntelActor, projectId: string, supplierId: string) {
+  await assertProjectAccessForActor(actor, projectId, "read");
+  const items = await db.inquiryItem.findMany({
+    where: { supplierId, inquiry: { is: { projectId, project: { is: { orgId: actor.orgId } } } } },
+    select: { id: true, status: true, repliedAt: true, unitPrice: true, totalPrice: true, currency: true, deliveryDays: true, validUntil: true, inquiry: { select: { id: true, roundNumber: true, scope: true } } },
+    orderBy: [{ inquiry: { roundNumber: "desc" } }, { repliedAt: "desc" }],
+  });
+  return items
+    .filter((it) => it.repliedAt !== null && ((it.totalPrice !== null && Number(it.totalPrice) > 0) || (it.unitPrice !== null && Number(it.unitPrice) > 0)))
+    .map((it) => ({
+      inquiryItemId: it.id, inquiryId: it.inquiry.id, roundNumber: it.inquiry.roundNumber, scope: it.inquiry.scope ?? null, status: it.status,
+      repliedAt: it.repliedAt ? it.repliedAt.toISOString() : null, currency: it.currency,
+      totalPrice: it.totalPrice !== null ? it.totalPrice.toString() : null, unitPrice: it.unitPrice !== null ? it.unitPrice.toString() : null,
+      deliveryDays: it.deliveryDays ?? null, validUntil: it.validUntil ? it.validUntil.toISOString() : null,
+    }));
 }
 
 export async function createProjectEvaluationRun(
@@ -127,6 +166,11 @@ export async function createProjectEvaluationRun(
 
   const origin = await deriveCandidateOriginSource(actor.orgId, projectId, supplier.id);
 
+  // FR1：正式报价绑定（可选）——服务端重验后冻结；客户端只能给一个 id
+  const commercialEvidenceBinding = input.commercialInquiryItemId?.trim()
+    ? await resolveCommercialEvidenceBinding(actor, projectId, supplier.id, offeringId, input.commercialInquiryItemId.trim())
+    : null;
+
   const run = await createSearchRun(actor, {
     projectId,
     brief: {
@@ -145,6 +189,7 @@ export async function createProjectEvaluationRun(
       internalAdapters: [],
       adapters: [],
       sourceDiscoveryRunId,
+      commercialEvidenceBinding,
       canonicalAnalysisRunId: canonical.analysisRunId,
       canonicalAnalysisRunStatus: canonical.analysisRunStatus,
       canonicalUncertainCount: canonical.uncertainCount,
@@ -159,7 +204,7 @@ export async function createProjectEvaluationRun(
     action: SUPPLIER_INTEL_AUDIT_ACTIONS.EVALUATION_RUN_CREATED,
     targetType: RUN_TARGET_TYPE,
     targetId: run.id,
-    afterData: { runMode: "EVALUATION_ONLY", supplierId: supplier.id, offeringId, sourceDiscoveryRunId, originSource: origin.originSource, originBasis: origin.basis },
+    afterData: { runMode: "EVALUATION_ONLY", supplierId: supplier.id, offeringId, sourceDiscoveryRunId, originSource: origin.originSource, originBasis: origin.basis, commercialEvidenceBinding: commercialEvidenceBinding ? { inquiryId: commercialEvidenceBinding.inquiryId, inquiryItemId: commercialEvidenceBinding.inquiryItemId, roundNumber: commercialEvidenceBinding.roundNumber } : null },
   });
 
   await startSearchRun(actor, run.id);
@@ -372,6 +417,12 @@ export async function computeCandidateMandatoryGate(actor: SupplierIntelActor, c
  * 只有「候选存在 + 全部候选硬门已算」才能 COMPLETED；之后候选 / Match / 门全部不可变。
  * 与硬门计算共用 Run 锁，串行。
  */
+/**
+ * S4-B score-and-complete（§15 / §55）：收口 = 门已定 → 构建评分证据快照 → 四组件 → computeSupplierScore
+ * → 落候选评分快照 → 候选推荐态 → Run COMPLETED，全部在同一个 Run 行锁事务里。
+ * 没有「先完成、以后再评分」的路径；COMPLETED 之后评分列不可变（重评估 = 新 Run）。
+ * 事务内零网络 / 零 LLM / 零 provider：只读冻结快照、本地 DB 与既有项目数据。
+ */
 export async function completeEvaluationRun(actor: SupplierIntelActor, runId: string) {
   const pre = await db.supplierSearchRun.findFirst({ where: { id: runId, orgId: actor.orgId }, select: { projectId: true, sourceConfigJson: true } });
   if (!pre || !pre.projectId) throw new SupplierIntelError("NOT_FOUND", "评估运行不存在");
@@ -382,13 +433,49 @@ export async function completeEvaluationRun(actor: SupplierIntelActor, runId: st
     const run = await lockSupplierSearchRunForWrite(tx, actor.orgId, runId);
     if (isRunTerminal(run.status)) throw new SupplierIntelError("RUN_IMMUTABLE", `评估运行已处于终态 ${run.status}`);
     if (run.status !== "RUNNING") throw new SupplierIntelError("RUN_NOT_RUNNING", `评估运行不在 RUNNING（当前 ${run.status}）`);
-    const candidates = await tx.supplierCandidate.findMany({ where: { searchRunId: run.id, orgId: actor.orgId }, select: { id: true, mandatoryGateResult: true } });
+    const projectId = run.projectId as string;
+    const candidates = await tx.supplierCandidate.findMany({ where: { searchRunId: run.id, orgId: actor.orgId }, select: { id: true, supplierId: true, offeringId: true, originSource: true, mandatoryGateResult: true, recommendation: true, offeringSnapshotJson: true } });
     if (candidates.length === 0) throw new SupplierIntelError("NO_CANDIDATE", "评估运行里没有任何候选，不能收口");
     const pending = candidates.filter((c) => c.mandatoryGateResult === "PENDING");
     if (pending.length > 0) throw new SupplierIntelError("GATE_PENDING", `还有 ${pending.length} 个候选没有计算强制项硬门，不能收口`);
     const gates = { PASS: 0, FAIL: 0, INCOMPLETE: 0 } as Record<string, number>;
     for (const c of candidates) gates[c.mandatoryGateResult] = (gates[c.mandatoryGateResult] ?? 0) + 1;
-    const statusDetail = { status: "evaluated", runMode: "EVALUATION_ONLY", sources: {}, candidateCount: candidates.length, gates };
+
+    // ── S4-B：正式评分（同事务、同 Run 锁）──
+    const now = new Date();
+    const scored: Array<{ candidateId: string; snapshot: CandidateScoreSnapshot }> = [];
+    for (const c of candidates) {
+      const snapshot = await buildCandidateScoreSnapshot(tx, { orgId: actor.orgId, projectId, run: { requirementSnapshotJson: run.requirementSnapshotJson, sourceConfigJson: run.sourceConfigJson }, candidate: c, now });
+      const isPass = c.mandatoryGateResult === "PASS";
+      const updated = await tx.supplierCandidate.updateMany({
+        where: { id: c.id, orgId: actor.orgId, mandatoryGateResult: c.mandatoryGateResult },
+        data: {
+          technicalScore: isPass ? snapshot.technical?.score ?? null : null,
+          commercialScore: isPass ? snapshot.commercial?.score ?? null : null,
+          reliabilityScore: isPass ? snapshot.reliability?.score ?? null : null,
+          importRiskScore: isPass ? snapshot.importRisk?.score ?? null : null,
+          totalScore: isPass ? snapshot.officialTotalScore : null,
+          scoreVersion: snapshot.scoreVersion,
+          scoreBreakdownJson: snapshot as unknown as Prisma.InputJsonValue,
+          // FAIL / INCOMPLETE 保持门给出的 NOT_ELIGIBLE / NEEDS_VERIFICATION；PASS 按推荐契约（null = 可进排名）
+          recommendation: isPass ? snapshot.recommendation : c.recommendation,
+        },
+      });
+      if (updated.count !== 1) throw new SupplierIntelError("INVALID_RUN_TRANSITION", "候选门结果已被并发修改，评分中止");
+      scored.push({ candidateId: c.id, snapshot });
+      await writeAuditLog(tx, {
+        userId: actor.userId, orgId: actor.orgId, projectId,
+        action: SUPPLIER_INTEL_AUDIT_ACTIONS.SCORE_COMPUTED, targetType: CANDIDATE_TARGET_TYPE, targetId: c.id,
+        afterData: {
+          scoreVersion: snapshot.scoreVersion, componentRuleVersions: snapshot.componentRuleVersions, recommendationContractVersion: snapshot.recommendationContractVersion,
+          gateResult: c.mandatoryGateResult, knownWeightShare: snapshot.knownWeightShare, officialTotalScore: snapshot.officialTotalScore,
+          components: { technical: snapshot.technical?.score ?? null, commercial: snapshot.commercial?.score ?? null, reliability: snapshot.reliability?.score ?? null, importRisk: snapshot.importRisk?.score ?? null },
+          recommendation: isPass ? snapshot.recommendation : c.recommendation, rankable: snapshot.rankable, reasonCodes: snapshot.reasonCodes,
+          priceEvidenceTier: snapshot.commercial?.priceEvidenceTier ?? null,
+        },
+      });
+    }
+    const statusDetail = { status: "evaluated", runMode: "EVALUATION_ONLY", sources: {}, candidateCount: candidates.length, gates, scored: scored.map((x) => ({ candidateId: x.candidateId, officialTotalScore: x.snapshot.officialTotalScore, recommendation: x.snapshot.recommendation, unknownComponents: x.snapshot.unknownComponents })) };
     const updated = await tx.supplierSearchRun.updateMany({
       where: { id: run.id, orgId: actor.orgId, status: "RUNNING" },
       data: { status: "COMPLETED", completedAt: new Date(), statusDetailJson: statusDetail as unknown as Prisma.InputJsonValue },
@@ -403,6 +490,11 @@ export async function completeEvaluationRun(actor: SupplierIntelActor, runId: st
       targetId: run.id,
       beforeData: { status: "RUNNING" },
       afterData: { status: "COMPLETED", runMode: "EVALUATION_ONLY", gates },
+    });
+    await writeAuditLog(tx, {
+      userId: actor.userId, orgId: actor.orgId, projectId,
+      action: SUPPLIER_INTEL_AUDIT_ACTIONS.EVALUATION_FINALIZED, targetType: RUN_TARGET_TYPE, targetId: run.id,
+      afterData: { runMode: "EVALUATION_ONLY", gates, scored: statusDetail.scored },
     });
     return tx.supplierSearchRun.findFirstOrThrow({ where: { id: run.id } });
   }, RUN_WRITE_TX_OPTIONS);
@@ -500,6 +592,8 @@ export async function loadEvaluationView(actor: SupplierIntelActor, runId: strin
       recommendation: c.recommendation,
       rejectionReason: c.rejectionReason,
       scores: { technical: c.technicalScore, commercial: c.commercialScore, reliability: c.reliabilityScore, importRisk: c.importRiskScore, total: c.totalScore },
+      scoreVersion: c.scoreVersion,
+      scoreBreakdown: c.scoreBreakdownJson,
       requirements: rows,
       evidenceOptions: {
         certifications: supplierCerts,
@@ -516,6 +610,7 @@ export async function loadEvaluationView(actor: SupplierIntelActor, runId: strin
       evaluationVersion: run.evaluationVersion, scoreVersion: run.scoreVersion,
       requirementSnapshotVersion: (run.sourceConfigJson as { canonicalAnalysisRunId?: string } | null)?.canonicalAnalysisRunId ?? null,
       sourceDiscoveryRunId: (run.sourceConfigJson as { sourceDiscoveryRunId?: string | null } | null)?.sourceDiscoveryRunId ?? null,
+      commercialEvidenceBinding: readCommercialEvidenceBinding(run.sourceConfigJson),
       statusDetail: run.statusDetailJson,
     },
     project: project ? { id: project.id, name: project.name } : { id: run.projectId, name: null },
@@ -539,6 +634,7 @@ export async function listProjectEvaluationRuns(actor: SupplierIntelActor, proje
   return filtered.map((r) => ({
     id: r.id, status: r.status, createdAt: r.createdAt.toISOString(), completedAt: r.completedAt ? r.completedAt.toISOString() : null,
     evaluationVersion: r.evaluationVersion,
+    commercialEvidenceBinding: readCommercialEvidenceBinding(r.sourceConfigJson),
     candidates: r.candidates.map((c) => ({ id: c.id, supplierId: c.supplierId, supplierName: c.supplier.name, offeringId: c.offeringId, offeringName: c.offering?.name ?? null, offeringSku: c.offering?.sku ?? null, mandatoryGateResult: c.mandatoryGateResult, recommendation: c.recommendation, rejectionReason: c.rejectionReason })),
   }));
 }
