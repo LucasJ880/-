@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { logActivity } from "./activity-log";
 import { runWatchTargetsCron } from "./watch-service";
 import { TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE } from "./stage";
+import { draftDueSequenceSteps } from "./outreach-sequence";
 
 export interface CronResult {
   overdueFollowUps: number;
@@ -22,6 +23,7 @@ export interface CronResult {
   /** 同 target + signalType 在 24h 冷却内已存在信号，本次未新建 */
   watchSignalsSuppressed: number;
   watchFetchErrors: number;
+  sequenceDrafted: number;
   timestamp: string;
 }
 
@@ -35,6 +37,7 @@ export async function runDailyCron(): Promise<CronResult> {
     watchSignalsCreated: 0,
     watchSignalsSuppressed: 0,
     watchFetchErrors: 0,
+    sequenceDrafted: 0,
     timestamp: now.toISOString(),
   };
 
@@ -107,6 +110,13 @@ export async function runDailyCron(): Promise<CronResult> {
     result.watchFetchErrors = w.fetchErrors;
   } catch (e) {
     console.error("[cron] watch targets:", e);
+  }
+
+  // ── 5. Day 3/7 只起草，不发送 ──
+  try {
+    result.sequenceDrafted = await draftDueSequenceSteps(now);
+  } catch (e) {
+    console.error("[cron] outreach sequence draft:", e);
   }
 
   return result;

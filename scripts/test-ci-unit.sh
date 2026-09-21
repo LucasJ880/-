@@ -100,6 +100,8 @@ npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
 npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
+npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
+npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
@@ -204,9 +206,16 @@ npx tsx src/lib/supplier-intel/__tests__/procurement-view.test.ts
 npx tsx src/lib/supplier-intel/__tests__/run-execution-claim.test.ts
 npx tsx src/lib/supplier-intel/__tests__/scope-guard.test.ts
 
+# S4-A 强制项硬门 / 确定性匹配（纯核）
+npx tsx src/lib/supplier-intel/__tests__/mandatory-gate.test.ts
+npx tsx src/lib/supplier-intel/__tests__/deterministic-match.test.ts
+
 # S3-B 供应商能力与资质归一（DB 套件无隔离库自跳过）
 npx tsx src/lib/supplier-intel/__tests__/evidence-display.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3b-db.isolated.test.ts
+
+# S4-A 评估运行 + 硬门（DB 套件无隔离库自跳过）
+npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s4a-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 
 # Mengxin FDE V1 — Revenue Spine（阶段状态机 / RFQ 抽取 / 评分与草稿守卫；DB e2e 无隔离库自动跳过）

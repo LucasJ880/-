@@ -42,6 +42,7 @@ import {
   isEvidenceWeakDisplay,
 } from "@/lib/trade/research-status-display";
 import type { WebsiteCandidateJson } from "@/lib/trade/website-candidate-scoring";
+import { OutreachSequencePanel } from "../outreach-sequence-panel";
 import {
   TRADE_PROSPECT_STAGE_OPTIONS,
   getTradeProspectStageLabel,
@@ -885,6 +886,16 @@ export default function ProspectDetailPage() {
             创建报价单
           </button>
         )}
+        <button
+          onClick={() =>
+            router.push(
+              `/trade/samples/new?prospectId=${encodeURIComponent(p.id)}&recipientName=${encodeURIComponent(p.contactName ?? "")}&recipientEmail=${encodeURIComponent(p.contactEmail ?? "")}&destination=${encodeURIComponent(p.country ?? "")}`,
+            )
+          }
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-blue-500/50"
+        >
+          开寄样单
+        </button>
       </div>
 
       {/* 转入销售 CRM */}
@@ -1641,6 +1652,8 @@ export default function ProspectDetailPage() {
           )}
         </div>
       )}
+
+      {orgId && !ambiguous && <OutreachSequencePanel prospectId={p.id} orgId={orgId} />}
 
       {/* Follow-up Info */}
       {showFollowUpFlow && (

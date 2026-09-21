@@ -76,6 +76,7 @@ export const zh: Messages = {
   nav_trade_watch_signals: "市场监测",
   nav_trade_channels: "消息通道",
   nav_trade_inbox: "询盘收件箱",
+  nav_trade_samples: "寄样",
   nav_trade_chat: "外贸 AI 对话",
   nav_trade_more: "更多",
   nav_trade_primary: "外贸工作",

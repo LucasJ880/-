@@ -228,6 +228,36 @@ function looksLikeLegacyReport(obj: Record<string, unknown>): boolean {
   );
 }
 
+function looksLikeIntelligencePayload(obj: Record<string, unknown>): boolean {
+  return (
+    typeof obj.intelligenceCaseId === "string" ||
+    (typeof obj.candidateName === "string" && Array.isArray(obj.evidenceUrls))
+  );
+}
+
+function coerceIntelligencePayload(obj: Record<string, unknown>): ParsedResearchBundle {
+  const evidenceUrls = Array.isArray(obj.evidenceUrls)
+    ? obj.evidenceUrls.filter((u): u is string => typeof u === "string" && u.trim().length > 0).slice(0, 12)
+    : [];
+  const sources = evidenceUrls.map((url, i) => ({
+    id: `s${i + 1}`,
+    url,
+    title: url,
+    kind: "search" as const,
+    snippet: typeof obj.reason === "string" ? obj.reason : undefined,
+  }));
+  const report = coerceReport({
+    companyOverview: [obj.candidateName, obj.reason].filter((x) => typeof x === "string" && x.trim()).join(" · "),
+    products: [obj.productName, obj.brand].filter((x) => typeof x === "string" && x.trim()).join(" / "),
+    marketPosition: `${String(obj.candidateRole ?? "")} · 置信 ${String(obj.confidence ?? "")}`,
+    importHistory: "",
+    contactInfo: obj.candidateWebsite ? `网站：${String(obj.candidateWebsite)}` : "",
+    matchAnalysis: typeof obj.reason === "string" ? obj.reason : "",
+    recommendations: "来源：企业情报人工确认。可基于以上证据起草开发信，禁止编造联系人。",
+  });
+  return { isBundle: false, sources, report };
+}
+
 function coerceReport(obj: unknown): ResearchReport | null {
   if (!isRecord(obj)) return null;
   return {
@@ -590,6 +620,10 @@ export function parseResearchBundle(json: unknown): ParsedResearchBundle {
       sources: [],
       report: coerceReport(json),
     };
+  }
+
+  if (looksLikeIntelligencePayload(json)) {
+    return coerceIntelligencePayload(json);
   }
 
   return { isBundle: false, sources: [], report: null };
