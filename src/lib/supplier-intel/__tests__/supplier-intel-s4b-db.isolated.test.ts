@@ -130,8 +130,9 @@ async function main() {
   const P = (o: Record<string, string>) => ({ params: Promise.resolve(o) });
   const q = `?orgId=${org.id}`;
   const cand = (id: string) => db.supplierCandidate.findUniqueOrThrow({ where: { id } });
-  const evaluate = async (supplierId: string, offeringId: string, verdicts: Record<string, "PASS" | "FAIL" | "UNKNOWN">, certId: string) => {
-    const r = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId, offeringId });
+  const itemOf = async (inquiryId: string, supplierId: string) => (await db.inquiryItem.findFirstOrThrow({ where: { inquiryId, supplierId }, select: { id: true } })).id;
+  const evaluate = async (supplierId: string, offeringId: string, verdicts: Record<string, "PASS" | "FAIL" | "UNKNOWN">, certId: string, commercialInquiryItemId: string | null = null) => {
+    const r = await evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId, offeringId, commercialInquiryItemId });
     for (const [key, v] of Object.entries(verdicts)) {
       if (key === "R-002") await evalRun.applyDeterministicMatch(actorWriter, { candidateId: r.candidate.id, requirementKey: key });
       else await evalRun.recordEvaluationMatch(actorWriter, { candidateId: r.candidate.id, requirementKey: key, verdict: v, evidence: v === "UNKNOWN" ? [] : [{ kind: "certification", certificationId: certId }] });
@@ -209,11 +210,15 @@ async function main() {
     ok(Boolean(await db.auditLog.findFirst({ where: { action: "supplier_intel.score.computed", targetId: runA.candidate.id } })) && Boolean(await db.auditLog.findFirst({ where: { action: "supplier_intel.evaluation.finalized", targetId: runA.run.id } })), "§58：审计 score.computed + evaluation.finalized");
 
     console.log("\n== B（历史供应商、正式 RFQ、VERIFIED 出口能力）→ 四维齐全 → 官方总分 → 可排名 ==");
-    const runB = await evaluate(supB.id, offB.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certB.id);
+    const itemB1 = await itemOf(round1.id, supB.id);
+    const runB = await evaluate(supB.id, offB.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certB.id, itemB1);
+    const runBcfg = (await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runB.run.id } })).sourceConfigJson as { commercialEvidenceBinding?: { inquiryItemId: string; offeringId: string; supplierId: string; confirmedByUserId: string; roundNumber: number } };
+    ok(runBcfg.commercialEvidenceBinding?.inquiryItemId === itemB1 && runBcfg.commercialEvidenceBinding.offeringId === offB.id && runBcfg.commercialEvidenceBinding.supplierId === supB.id && runBcfg.commercialEvidenceBinding.confirmedByUserId === writer.id && runBcfg.commercialEvidenceBinding.roundNumber === 1, "FR1-F：绑定服务端重验后冻结进 sourceConfigJson.commercialEvidenceBinding（全部服务端读取）");
     await evalRun.completeEvaluationRun(actorWriter, runB.run.id);
     const bRow = await cand(runB.candidate.id);
     const bBd = bRow.scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; round: { roundNumber: number } | null; comparableGroup: Array<{ supplierId: string }>; sub: { price: number | null; delivery: number } }; reliability: { score: number | null; contacted: number; replied: number; selected: number; history: Array<{ projectId: string }> }; importRisk: { score: number | null; verified: Array<{ type: string }> }; contract: { totalScore: number | null; knownWeightShare: number }; officialTotalScore: number | null; recommendation: string | null; rankable: boolean };
-    ok(bBd.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && bBd.commercial.round?.roundNumber === 1 && bBd.commercial.comparableGroup.length === 2, "C1 / §22：同项目 round 1 两家已确认 → 可比组 = {B, C}", JSON.stringify(bBd.commercial));
+    ok(bBd.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && bBd.commercial.round?.roundNumber === 1 && bBd.commercial.comparableGroup.length === 2, "C1 / §22：绑定 round 1 → 可比组 = {B, C}（同轮两家已确认）", JSON.stringify(bBd.commercial));
+    ok((bBd.commercial as { binding?: { inquiryItemId: string; status: string } }).binding?.inquiryItemId === itemB1 && (bBd.commercial as { binding?: { status: string } }).binding?.status === "BOUND_CONFIRMED" && (bBd.commercial as { candidate?: { itemId: string } }).candidate?.itemId === itemB1, "FR1：候选自己那条 = 绑定的 item（按 id）");
     ok(bBd.commercial.sub.price === Math.round((90000 / 110000) * 10000) / 100, "C3：B 价格分 = 最低 90000 / 110000 × 100", String(bBd.commercial.sub.price));
     ok(!bBd.commercial.comparableGroup.some((g) => g.supplierId === supA.id), "§60：无关项目里 A 的报价不进入当前可比组");
     ok(bBd.reliability.contacted === 3 && bBd.reliability.replied === 3 && bBd.reliability.selected === 1 && bBd.reliability.score === 85, "R2：B 别项目（含无关项目）3 次联系 3 次回复 1 次入选 → 0.7×100 + 0.3×50 = 85；当前项目自己的询价不算", JSON.stringify({ c: bBd.reliability.contacted, r: bBd.reliability.replied, s: bBd.reliability.selected, score: bBd.reliability.score }));
@@ -251,9 +256,13 @@ async function main() {
 
     console.log("\n== §52 / C7 / C8：A 正式回复 RFQ → 新 Run 才有 Commercial；旧 Run 不漂移 ==");
     const aOld = JSON.stringify(await cand(runA.candidate.id));
-    await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supA.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 80000, currency: "CAD", deliveryDays: 35, validUntil: new Date("2026-12-01"), createdById: owner.id } });
+    const itemA1 = (await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supA.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 80000, currency: "CAD", deliveryDays: 35, validUntil: new Date("2026-12-01"), createdById: owner.id } })).id;
     ok(JSON.stringify(await cand(runA.candidate.id)) === aOld, "C8 / §57：新报价进来，旧 Run 的候选一字不变");
-    const runA2 = await evaluate(supA.id, offA.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certA.id);
+    const runAunbound = await evaluate(supA.id, offA.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certA.id, null);
+    await evalRun.completeEvaluationRun(actorWriter, runAunbound.run.id);
+    const aUnb = (await cand(runAunbound.candidate.id)).scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; reasonCodes: string[] } };
+    ok(aUnb.commercial.priceEvidenceTier === "PLATFORM_LISTED" && aUnb.commercial.score === null && aUnb.commercial.reasonCodes.includes("COMMERCIAL_NO_CONFIRMED_RFQ"), "FR1 §9：项目里已有 A 的正式报价，但评估没绑定 → 不自动 RFQ_CONFIRMED，Commercial 仍 null", JSON.stringify(aUnb.commercial));
+    const runA2 = await evaluate(supA.id, offA.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certA.id, itemA1);
     await evalRun.completeEvaluationRun(actorWriter, runA2.run.id);
     const a2Row = await cand(runA2.candidate.id);
     const a2Bd = a2Row.scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; sub: { price: number | null } }; recommendation: string | null; unknownComponents: string[] };
@@ -267,9 +276,9 @@ async function main() {
     console.log("\n== Q4–Q7：第二家四维齐全（D 核验出口 + 补历史 + RFQ）→ PRIMARY / BACKUP 动态变化，旧候选不改写 ==");
     await mkInquiry(hist1.id, 2, [{ supplierId: supD.id, status: "quoted", sent: true, replied: true, total: 500 }]);
     await mkInquiry(hist2.id, 3, [{ supplierId: supD.id, status: "quoted", sent: true, replied: true, total: 520 }]);
-    await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supD.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 95000, currency: "CAD", deliveryDays: 50, validUntil: new Date("2026-12-01"), createdById: owner.id } });
+    const itemD1 = (await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supD.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 95000, currency: "CAD", deliveryDays: 50, validUntil: new Date("2026-12-01"), createdById: owner.id } })).id;
     const bBefore = JSON.stringify(await cand(runB.candidate.id));
-    const runD = await evaluate(supD.id, offD.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certD.id);
+    const runD = await evaluate(supD.id, offD.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certD.id, itemD1);
     await evalRun.completeEvaluationRun(actorWriter, runD.run.id);
     const dRow = await cand(runD.candidate.id);
     ok(dRow.totalScore !== null && dRow.recommendation === null, "D 四维齐全（可靠性 70 = 0.7×100 + 0.3×0）→ 可排名", JSON.stringify({ t: dRow.technicalScore, c: dRow.commercialScore, r: dRow.reliabilityScore, i: dRow.importRiskScore, total: dRow.totalScore, rec: dRow.recommendation }));
@@ -292,7 +301,7 @@ async function main() {
     await db.supplierCapabilitySignal.update({ where: { id: capB.id }, data: { evidenceStatus: "CLAIMED" } });
     await db.supplierOffering.update({ where: { id: offB.id }, data: { leadTimeDays: null, incoterm: null } });
     ok(JSON.stringify(await cand(runB.candidate.id)) === bFrozen, "§57：报价 / 能力 / 报盘变了，B 历史候选评分与快照一字不变");
-    const runB2 = await evaluate(supB.id, offB.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certB.id);
+    const runB2 = await evaluate(supB.id, offB.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certB.id, itemB1);
     await evalRun.completeEvaluationRun(actorWriter, runB2.run.id);
     const b2 = await cand(runB2.candidate.id);
     ok(b2.importRiskScore === 35 || b2.importRiskScore === null || (b2.importRiskScore as number) < 100, "I5：新 Run 反映新数据（出口能力回到 CLAIMED / 交期未知）", String(b2.importRiskScore));
@@ -311,6 +320,95 @@ async function main() {
       `complete=${completeOk} match=${matchOk} run=${xRun.status} gate=${xRow.mandatoryGateResult}`);
     ok(!(xRun.status === "COMPLETED" && xRow.mandatoryGateResult === "PENDING"), "§56：不存在「已收口但门 PENDING」");
     if (!completeOk) { const e = (rs[0] as PromiseRejectedResult).reason; ok(isSupplierIntelError(e, "GATE_PENDING" as never), "Match 先时收口错误码 = GATE_PENDING"); }
+
+    console.log("\n== FR1 黄金测试：同一供应商两款 Offering，一张 RFQ ==");
+    {
+      const supT = await mkSup("S4B 两款产品厂 T");
+      const sigT = await link(supT.id, `${tag} 两款产品 办公椅 厂家`, `https://t.example/${tag}`);
+      void sigT;
+      const offT1 = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supT.id, name: "T1 120V", sku: "T1", attributesJson: { 承重: "600 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", createdByUserId: owner.id } });
+      const offT2 = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supT.id, name: "T2 230V", sku: "T2", attributesJson: { 承重: "600 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", createdByUserId: owner.id } });
+      const certT1 = await mkCert(supT.id, offT1.id); const certT2 = await mkCert(supT.id, offT2.id);
+      const q1 = (await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supT.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 100000, currency: "CAD", deliveryDays: 45, validUntil: new Date("2026-12-01"), createdById: owner.id } })).id;
+      const runT1 = await evaluate(supT.id, offT1.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certT1.id, q1);
+      await evalRun.completeEvaluationRun(actorWriter, runT1.run.id);
+      const t1 = await cand(runT1.candidate.id); const t1Bd = t1.scoreBreakdownJson as { commercial: { priceEvidenceTier: string; candidate: { itemId: string } | null } };
+      ok(t1.commercialScore !== null && t1Bd.commercial.priceEvidenceTier === "RFQ_CONFIRMED" && t1Bd.commercial.candidate?.itemId === q1, "FR1-G1：T1 绑定 Q1 → Commercial 有分（按 Q1）", JSON.stringify({ c: t1.commercialScore, tier: t1Bd.commercial.priceEvidenceTier }));
+      const runT2 = await evaluate(supT.id, offT2.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certT2.id, null);
+      await evalRun.completeEvaluationRun(actorWriter, runT2.run.id);
+      const t2 = await cand(runT2.candidate.id); const t2Bd = t2.scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; reasonCodes: string[]; round: unknown } };
+      ok(t2.commercialScore === null && t2Bd.commercial.priceEvidenceTier !== "RFQ_CONFIRMED" && t2Bd.commercial.round === null && t2Bd.commercial.reasonCodes.includes("COMMERCIAL_NO_CONFIRMED_RFQ") && t2.recommendation === "NEEDS_VERIFICATION", "FR1-G2：T2 未绑定 → Commercial null + NEEDS_VERIFICATION（绝不复用 Q1）", JSON.stringify(t2Bd.commercial));
+      // 拒绝：错供应商 / 错项目 / 未确认 / 无产品
+      const qB = await itemOf(round1.id, supB.id);
+      await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-WS：绑定 B 的报价到 T 的评估 → 拒", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supT.id, offeringId: offT1.id, commercialInquiryItemId: qB }));
+      const otherInq = await db.projectInquiry.findFirstOrThrow({ where: { projectId: other.id } });
+      const qOther = await itemOf(otherInq.id, supA.id);
+      await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-WP：其它项目的报价 → 拒", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supA.id, offeringId: offA.id, commercialInquiryItemId: qOther }));
+      const qSent = (await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supT.id, status: "sent", sentAt: new Date(), repliedAt: null, totalPrice: null, currency: "CAD", createdById: owner.id } })).id;
+      await db.inquiryItem.delete({ where: { id: qSent } }); // (inquiryId, supplierId) 唯一：换一轮放未回复的
+      const round2 = await mkInquiry(proj.id, 2, [{ supplierId: supT.id, status: "sent", sent: true, replied: false }]);
+      const qSent2 = await itemOf(round2.id, supT.id);
+      await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-UC：已发送未回复的报价 → 拒（不能变成 RFQ_CONFIRMED）", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supT.id, offeringId: offT1.id, commercialInquiryItemId: qSent2 }));
+      await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-NO：没有指定产品不能绑定报价", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supT.id, offeringId: null, commercialInquiryItemId: q1 }));
+      await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-NX：不存在的报价 id → 拒", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supT.id, offeringId: offT1.id, commercialInquiryItemId: "nope" }));
+      ok((await db.supplierSearchRun.count({ where: { orgId: org.id, projectId: proj.id, status: "FAILED" } })) === 0, "FR1：绑定校验在建 Run 之前，不留下 FAILED 残骸");
+      // 冻结：COMPLETED 之后 sourceConfig 不可改；绑定不随后来的报价变化
+      await expectErr("RUN_IMMUTABLE", "FR1-FZ：COMPLETED Run 的工作数据 / 绑定不可改", () => runSvc.updateRunWorkingData(actorWriter, runT1.run.id, { statusDetail: { hacked: true } }));
+      const cfgAfter = (await db.supplierSearchRun.findUniqueOrThrow({ where: { id: runT1.run.id } })).sourceConfigJson as { commercialEvidenceBinding?: { inquiryItemId: string } };
+      ok(cfgAfter.commercialEvidenceBinding?.inquiryItemId === q1, "FR1-FZ2：绑定冻结不变");
+      // 收口时绑定的报价已不再确认 → 不消费（fail closed），不报错
+      const q3 = (await db.inquiryItem.create({ data: { inquiryId: round2.id, supplierId: supA.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: 70000, currency: "CAD", createdById: owner.id } })).id;
+      const runStale = await evaluate(supA.id, offA.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certA.id, q3);
+      await db.inquiryItem.update({ where: { id: q3 }, data: { repliedAt: null, totalPrice: null, status: "sent" } });
+      await evalRun.completeEvaluationRun(actorWriter, runStale.run.id);
+      const st = (await cand(runStale.candidate.id)).scoreBreakdownJson as { commercial: { priceEvidenceTier: string; score: number | null; reasonCodes: string[]; binding: { status: string } | null } };
+      ok(st.commercial.score === null && st.commercial.priceEvidenceTier !== "RFQ_CONFIRMED" && st.commercial.binding?.status === "BOUND_NOT_CONFIRMED" && st.commercial.reasonCodes.includes("COMMERCIAL_BINDING_NOT_CONFIRMED"), "FR1-ST：绑定的报价收口时已撤回 → 不消费、不 RFQ_CONFIRMED", JSON.stringify(st.commercial));
+      // 列表选项：只列本项目该供应商的已确认报价（服务端算）
+      const opts = await evalRun.listCommercialEvidenceOptions(actorViewer, proj.id, supT.id);
+      ok(opts.length === 1 && opts[0].inquiryItemId === q1, "FR1-OP：绑定选项只含已确认报价（未回复的不在）", JSON.stringify(opts.map((o) => o.inquiryItemId)));
+    }
+
+    console.log("\n== FR2：跨项目 VERIFIED 能力不进正式分、不进赛马计数、不泄露 ==");
+    {
+      const actorOwner = { orgId: org.id, userId: owner.id };
+      const supX = await mkSup("S4B 隐藏项目出口厂 X");
+      const offX = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supX.id, name: "X 网布椅", sku: "X-1", attributesJson: { 承重: "600 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", leadTimeDays: 30, incoterm: "FOB", createdByUserId: owner.id } });
+      const sigXcur = await link(supX.id, `${tag} X 当前项目线索 办公椅`, `https://x-cur.example/${tag}`);
+      const capXcurClaimed = await signalSvc.createCapabilitySignal(actorWriter, { discoverySignalId: sigXcur.id, type: "CANADA_EXPORT", value: "文案：出口加拿大", evidenceStatus: "CLAIMED", confidence: null, explanation: null, extractedBy: "HUMAN" });
+      // 隐藏项目：owner 建（writer 无成员资格、intake 未派发 → writer 读不到）
+      const sigXhidden = await signalSvc.createSubmittedSignal(actorOwner, { url: `https://x-hidden.example/${tag}`, rawText: `${tag} X 隐藏项目线索`, manualEntry: true, projectId: hidden.id });
+      await signalSvc.reviewSignal(actorOwner, sigXhidden.id); await signalSvc.linkSignalToSupplier(actorOwner, sigXhidden.id, { supplierId: supX.id });
+      const capXhidden = await db.supplierCapabilitySignal.create({ data: { orgId: org.id, discoverySignalId: sigXhidden.id, type: "CANADA_EXPORT", value: "隐藏项目已核验", evidenceStatus: "VERIFIED", extractedBy: "HUMAN", explanation: `[fixture] VERIFIED; archive=${archHidden.id}` } });
+      await expectErr("PROJECT_ACCESS_DENIED", "FR2-前置：writer 确实读不到隐藏项目", async () => evalRun.loadEvaluationView(actorWriter, (await runSvc.createSearchRun(actorOwner, { projectId: hidden.id, brief: {}, requirements: [], sourceConfig: { runMode: "EVALUATION_ONLY" } })).id));
+      // 赛马计数范围：X 此刻只有 隐藏项目 VERIFIED 能力 + 当前项目 CLAIMED（还没有证书）→ 必须是 OFFERING_READY，不是 EVIDENCE_READY
+      const rowX0 = (await rankingSvc.loadProjectSupplierRanking(actorWriter, proj.id)).racing.find((r) => r.supplierId === supX.id);
+      ok(rowX0?.state === "OFFERING_READY", "FR2-H5：赛马表不把隐藏项目的 VERIFIED 算成「已核验证据」（OFFERING_READY，非 EVIDENCE_READY）", JSON.stringify(rowX0));
+      const certX = await mkCert(supX.id, offX.id);
+      const runX = await evaluate(supX.id, offX.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certX.id, null);
+      await evalRun.completeEvaluationRun(actorWriter, runX.run.id);
+      const x = await cand(runX.candidate.id); const xBd = x.scoreBreakdownJson as { importRisk: { score: number | null; reasonCodes: string[]; verified: Array<{ id: string }>; unverified: Array<{ id: string; discoverySignalId: string | null }> }; provenance: { capabilityIds: string[] } };
+      ok(x.importRiskScore === null && xBd.importRisk.score === null && xBd.importRisk.reasonCodes.includes("EXPORT_READINESS_UNVERIFIED") && xBd.importRisk.reasonCodes.includes("EXPORT_CLAIMED_ONLY"), "FR2-H1：隐藏项目的 VERIFIED CANADA_EXPORT 不进当前项目的进口准备度 → null", JSON.stringify(xBd.importRisk));
+      ok(xBd.importRisk.verified.length === 0 && !JSON.stringify(x.scoreBreakdownJson).includes(capXhidden.id) && !JSON.stringify(x.scoreBreakdownJson).includes(sigXhidden.id) && !JSON.stringify(x.scoreBreakdownJson).includes(hidden.id), "FR2-H2：评分快照不含隐藏项目的能力 / 线索 / 项目 id");
+      ok(xBd.importRisk.unverified.some((u) => u.id === capXcurClaimed.id && u.discoverySignalId === sigXcur.id), "FR2-H3：当前项目的 CLAIMED 能力作为「待核实」列出（带出处线索 id）");
+      // 同一 Run 谁收口都一样：owner 能看隐藏项目，但评分范围由评估项目决定——owner 重跑一次同样 null
+      const runXo = await evaluate(supX.id, offX.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certX.id, null);
+      await evalRun.completeEvaluationRun(actorOwner, runXo.run.id);
+      ok((await cand(runXo.candidate.id)).importRiskScore === null, "FR2-H4：能看到隐藏项目的 owner 收口 → 同样 null（不依赖 actor 可见集）");
+      const rkX = await rankingSvc.loadProjectSupplierRanking(actorWriter, proj.id);
+      const rkJson = JSON.stringify(rkX);
+      ok(!rkJson.includes(sigXhidden.id) && !rkJson.includes(capXhidden.id) && !rkJson.includes(hidden.id) && !rkJson.includes(archHidden.id), "FR2-H6：ranking payload 不泄露隐藏线索 / 能力 / 项目 / 档案 id");
+      const rkHttp = await rankingRoute.GET(await req(writer, `/api/supplier-intel/projects/${proj.id}/ranking${q}`), P({ projectId: proj.id }));
+      ok(rkHttp.status === 200 && !(await rkHttp.text()).includes(sigXhidden.id), "FR2-H7：HTTP ranking 同样不泄露");
+      // 当前项目人工 + 档案核验 → 新 Run 才反映
+      await capVerify.verifyCapabilitySignal(actorWriter, capXcurClaimed.id, { archiveItemId: arch.id });
+      ok((await cand(runX.candidate.id)).importRiskScore === null, "FR2-P1：核验之后旧 Run 不漂移");
+      const runX2 = await evaluate(supX.id, offX.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certX.id, null);
+      await evalRun.completeEvaluationRun(actorWriter, runX2.run.id);
+      const x2 = await cand(runX2.candidate.id); const x2Bd = x2.scoreBreakdownJson as { importRisk: { verified: Array<{ id: string; discoverySignalId: string | null; projectScope: string }> } };
+      ok(x2.importRiskScore === 80 && x2Bd.importRisk.verified.length === 1 && x2Bd.importRisk.verified[0].id === capXcurClaimed.id && x2Bd.importRisk.verified[0].discoverySignalId === sigXcur.id && x2Bd.importRisk.verified[0].projectScope === "CURRENT_PROJECT", "FR2-P2：当前项目 VERIFIED → 新 Run 进口准备度 80（50 + FOB 15 + 交期 15），快照记当前项目能力出处", JSON.stringify({ i: x2.importRiskScore, v: x2Bd.importRisk.verified }));
+      const rowX2 = (await rankingSvc.loadProjectSupplierRanking(actorWriter, proj.id)).racing.find((r) => r.supplierId === supX.id);
+      ok(rowX2?.runId === runX2.run.id, "FR2-P3：赛马取最新 COMPLETED");
+    }
 
     console.log("\n== §14：COMPLETED Run 不能再评分 / 改分 ==");
     await expectErr("RUN_IMMUTABLE", "再次收口 COMPLETED Run → RUN_IMMUTABLE", () => evalRun.completeEvaluationRun(actorWriter, runB.run.id));
