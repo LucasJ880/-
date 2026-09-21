@@ -334,6 +334,7 @@ run_test "招标自动分析编排开关" "npx tsx src/lib/tender-auto-analysis/
 run_test "招标自动分析 V2 映射" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-map.test.ts"
 run_test "招标 30 秒执行摘要投影" "npx tsx src/lib/tender-auto-analysis/__tests__/executive-brief.test.ts"
 run_test "招标会话 package 上下文" "npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts"
+run_test "外贸 AI 对话附件（解析文本预算/校验）" "npx tsx src/lib/trade/__tests__/chat-attachments.test.ts"
 run_test "招标 V2 持久化 lease fence" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts"
 run_test "招标 V2 分片续跑（检查点/parity/重试/fence）" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts"
 run_test "招标非 PDF 可引用单元切分（sheet/block）" "npx tsx src/lib/tender-auto-analysis/__tests__/document-units.test.ts"

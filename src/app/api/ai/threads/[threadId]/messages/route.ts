@@ -59,6 +59,20 @@ import {
   threadNotFoundResponse,
 } from "@/lib/assistant/thread-org";
 import { prepareAssistantDispatch } from "@/lib/assistant/dispatch";
+import type { Prisma } from "@prisma/client";
+import {
+  attachmentBlobPathBelongsTo,
+  attachmentPromptRules,
+  attachmentsFromLegacyFile,
+  attachmentsPlainText,
+  attachmentsTitleSource,
+  parseAttachmentsInput,
+  readStoredAttachments,
+  renderTurnsForModel,
+  summarizeAttachments,
+  turnsHaveAttachments,
+  type ModelTurnInput,
+} from "@/lib/chat-attachments/core";
 
 // 普通对话仍使用 Agent 自身的短超时；只有前置分流的深度研究使用后台预算。
 export const maxDuration = 300;
@@ -93,6 +107,7 @@ export const GET = withAuth(async (request, ctx, user) => {
       role: true,
       content: true,
       workSuggestion: true,
+      attachments: true,
       createdAt: true,
     },
   });
@@ -174,8 +189,10 @@ export const GET = withAuth(async (request, ctx, user) => {
     actionsByMessage.set(mid, bucket);
   }
 
-  const messagesWithActions = messages.map((m) => ({
+  // 附件正文只留在服务端；浏览器只需要文件名/大小/字数/原图代理 URL
+  const messagesWithActions = messages.map(({ attachments, ...m }) => ({
     ...m,
+    attachments: summarizeAttachments(readStoredAttachments(attachments)),
     pendingActions: actionsByMessage.get(m.id) ?? [],
   }));
 
@@ -196,7 +213,8 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const { threadId } = await ctx.params;
 
-  const body = await request.json();
+  // 空/坏 JSON 体（如被中断的重试）→ 400 而不是 500 栈
+  const body = await request.json().catch(() => ({}));
   const claimedBodyOrgId =
     typeof body.orgId === "string" ? body.orgId.trim() : null;
   const orgRes = await resolveAssistantOrgId(request, user, claimedBodyOrgId);
@@ -213,12 +231,30 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (!thread) return threadNotFoundResponse();
 
   const content = typeof body.content === "string" ? body.content.trim() : "";
-  if (!content) {
+  // 附件：新客户端传 attachments[]；旧客户端只传 fileText/fileName → 折算成一个文档附件
+  const parsedAttachments = parseAttachmentsInput(body.attachments);
+  if (!parsedAttachments.ok) {
+    return NextResponse.json({ error: parsedAttachments.error }, { status: 400 });
+  }
+  const attachments =
+    parsedAttachments.attachments.length > 0
+      ? parsedAttachments.attachments
+      : attachmentsFromLegacyFile(body.fileText, body.fileName);
+  const foreignBlob = attachments.find(
+    (a) => a.blobPath && !attachmentBlobPathBelongsTo(a.blobPath, orgRes.orgId),
+  );
+  if (foreignBlob) {
+    return NextResponse.json({ error: `附件「${foreignBlob.name}」不属于当前组织` }, { status: 400 });
+  }
+  if (!content && attachments.length === 0) {
     return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
   }
   if (content.length > 10000) {
     return NextResponse.json({ error: "消息过长" }, { status: 400 });
   }
+  const titleSource = attachmentsTitleSource(content, attachments);
+  const attachmentData: { attachments?: Prisma.InputJsonValue } =
+    attachments.length > 0 ? { attachments: attachments as unknown as Prisma.InputJsonValue } : {};
 
   // Phase 3B-A Commit 3A：限流必须在 Dispatch 之前（场景/unsupported/general 同一配额）
   // 命中 429 时不得写入 AiMessage / AgentRun / Event / PendingAction
@@ -238,16 +274,18 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   // Phase 3B-A：统一服务端意图分流（废除前端 Supervisor 业务双路由）
   // general_answer → 继续下方既有 Operator/SSE；场景/unsupported 由此处落库并返回。
-  const dispatchPrep = await prepareAssistantDispatch({
-    userId: user.id,
-    activeOrgId: orgRes.orgId,
-    threadId,
-    message: content,
-    threadTitle: thread.title,
-    role: user.role,
-  });
-  if (dispatchPrep.kind === "handled") {
-    return dispatchPrep.response;
+  if (attachments.length === 0) {
+    const dispatchPrep = await prepareAssistantDispatch({
+      userId: user.id,
+      activeOrgId: orgRes.orgId,
+      threadId,
+      message: content,
+      threadTitle: thread.title,
+      role: user.role,
+    });
+    if (dispatchPrep.kind === "handled") {
+      return dispatchPrep.response;
+    }
   }
 
   // Phase 3A-5：流开始前强制可信租户；须与线程 orgId 一致
@@ -276,8 +314,8 @@ export const POST = withAuth(async (request, ctx, user) => {
     threadId,
   });
 
-  const fileText = typeof body.fileText === "string" ? body.fileText : "";
-  const fileName = typeof body.fileName === "string" ? body.fileName : "";
+  const fileText = attachments.length > 0 ? attachmentsPlainText(attachments, 120_000) : "";
+  const fileName = attachments.map((a) => a.name).join(" ");
 
   const { parseAssistantMode } = await import("@/lib/ai/assistant-modes");
   const assistantMode = parseAssistantMode(body.assistantMode);
@@ -334,7 +372,7 @@ export const POST = withAuth(async (request, ctx, user) => {
 
     await db.$transaction([
       db.aiMessage.create({
-        data: { threadId, role: "user", content },
+        data: { threadId, role: "user", content, ...attachmentData },
       }),
       db.aiMessage.create({
         data: { threadId, role: "assistant", content: assistantContent },
@@ -343,7 +381,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         where: { id: threadId },
         data: {
           lastMessageAt: new Date(),
-          ...(thread.title === "新对话" ? { title: content.slice(0, 60) } : {}),
+          ...(thread.title === "新对话" ? { title: titleSource.slice(0, 60) } : {}),
         },
       }),
     ]);
@@ -356,19 +394,26 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   await db.aiMessage.create({
-    data: { threadId, role: "user", content },
+    data: { threadId, role: "user", content, ...attachmentData },
   });
 
   const history = await db.aiMessage.findMany({
     where: { threadId },
     orderBy: { createdAt: "asc" },
-    select: { role: true, content: true },
+    select: { role: true, content: true, attachments: true },
   });
 
-  const chatMessages: ChatMessage[] = history.map((m) => ({
+  // 把带附件的轮次展开成模型可读的纯文本：最新附件优先拿预算，旧附件留桩
+  const turns: ModelTurnInput[] = history.map((m) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
+    attachments: readStoredAttachments(m.attachments),
   }));
+  const threadHasAttachments = turnsHaveAttachments(turns);
+  const threadHasImageAttachments = turns.some((t) =>
+    (t.attachments ?? []).some((a) => a.kind === "image" && a.blobPath),
+  );
+  const chatMessages: ChatMessage[] = renderTurnsForModel(turns);
 
   const isFirstMessage = history.length === 1;
 
@@ -394,6 +439,9 @@ export const POST = withAuth(async (request, ctx, user) => {
       orgId: streamTenant.orgId,
       streamSessionKey,
       userContent: content,
+      titleSource,
+      hasAttachments: threadHasAttachments,
+      hasImageAttachments: threadHasImageAttachments,
       chatMessages,
       abortSignal: request.signal,
       projectId: thread.projectId ?? null,
@@ -449,8 +497,9 @@ export const POST = withAuth(async (request, ctx, user) => {
     : [];
   const userMemoryBlock = buildUserMemoryBlock(wakeUp.l0, wakeUp.l1, l2Memories);
 
-  const fileBlock = fileText
-    ? `\n\n<uploaded_document filename="${fileName}">\n${fileText.slice(0, 120000)}\n</uploaded_document>\n\n请基于上述文档内容回答用户问题。使用 Markdown 格式输出（表格、标题、列表、粗体等）。`
+  // 附件正文已随对话轮次（<attachment> 块）进入 messages；这里只追加规则与格式要求
+  const fileBlock = threadHasAttachments
+    ? `${attachmentPromptRules("chat_view_attachment_image")}\n请基于附件内容回答用户问题。使用 Markdown 格式输出（表格、标题、列表、粗体等）。`
     : "";
 
   const TENDER_KEYWORDS = [
@@ -611,7 +660,7 @@ export const POST = withAuth(async (request, ctx, user) => {
             data: {
               lastMessageAt: new Date(),
               ...(isFirstMessage && thread.title === "新对话"
-                ? { title: content.slice(0, 60) }
+                ? { title: titleSource.slice(0, 60) }
                 : {}),
             },
           }),
@@ -743,6 +792,12 @@ interface OperatorBranchInput {
   /** Phase 3A-5 流式会话键（含 orgId） */
   streamSessionKey: string;
   userContent: string;
+  /** 首条消息的标题来源（无文字时用附件名） */
+  titleSource: string;
+  /** 会话里出现过附件 → system prompt 追加附件规则 */
+  hasAttachments: boolean;
+  /** 会话里有带原图的图片附件 → 必须挂工具，模型才能重新看图 */
+  hasImageAttachments: boolean;
   chatMessages: ChatMessage[];
   abortSignal: AbortSignal;
   projectId: string | null;
@@ -758,6 +813,9 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     orgId,
     streamSessionKey,
     userContent,
+    titleSource,
+    hasAttachments,
+    hasImageAttachments,
     chatMessages,
     abortSignal,
     projectId,
@@ -823,7 +881,12 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     withTools = true;
   }
   if (calendarWrite || calendarMention) withTools = true;
+  // 有图片附件时必须挂工具，否则模型没有 chat_view_attachment_image 可用
+  if (hasImageAttachments) withTools = true;
 
+  if (hasAttachments) {
+    systemPrompt += attachmentPromptRules("chat_view_attachment_image");
+  }
   const domains = new Set<string>(caps.aiDomains);
   if (projectId && assistantMode !== "fast") {
     domains.add("project");
@@ -1075,7 +1138,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           data: {
             lastMessageAt: new Date(),
             ...(isFirstMessage && threadTitle === "新对话"
-              ? { title: userContent.slice(0, 60) }
+              ? { title: titleSource.slice(0, 60) }
               : {}),
           },
         });

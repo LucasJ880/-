@@ -17,6 +17,14 @@ import {
   WorkSuggestionCard,
   type SimpleProject,
 } from "@/components/work-suggestion-card";
+import {
+  AttachButton,
+  DropOverlay,
+  PendingAttachmentChips,
+  useChatAttachments,
+} from "@/components/chat-attachments";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { composeUserContent } from "@/lib/chat-attachments/core";
 import Link from "next/link";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -37,6 +45,9 @@ export default function InboxPage() {
   const [projects, setProjects] = useState<SimpleProject[]>([]);
   const [showAiConfigHint, setShowAiConfigHint] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { orgId } = useCurrentOrgId();
+  // 附件：文档解析 / 图片识别后的文本随这一条一起交给 AI 解析（收件箱是单条捕获，不持久化附件）
+  const attachments = useChatAttachments({ orgId, imageEndpoint: "/api/ai/upload-image" });
 
   useEffect(() => {
     apiJson<{ id: string; name: string }[]>("/api/projects")
@@ -59,12 +70,22 @@ export default function InboxPage() {
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
-    if (!text || isLoading) return;
+    const outgoing = attachments.buildPayload();
+    if ((!text && outgoing.length === 0) || isLoading || attachments.isParsing) return;
+    // 附件正文直接拼进这一条（与多轮对话不同，收件箱不存历史）
+    const aiInput =
+      outgoing.length > 0
+        ? composeUserContent(
+            text,
+            outgoing.map((a) => `<attachment name="${a.name.replace(/["<>]/g, " ")}"${a.kind === "image" ? ' kind="image"' : ""}>\n${a.text}\n</attachment>`),
+          )
+        : text;
+    const rawLabel = text || `附件：${outgoing.map((a) => a.name).join("、")}`;
 
     const itemId = `inbox-${Date.now()}`;
     const newItem: InboxItem = {
       id: itemId,
-      rawText: text,
+      rawText: rawLabel,
       aiText: "",
       suggestion: null,
       status: "parsing",
@@ -73,6 +94,7 @@ export default function InboxPage() {
 
     setItems((prev) => [newItem, ...prev]);
     setInput("");
+    attachments.clear();
     setIsLoading(true);
 
     try {
@@ -80,7 +102,7 @@ export default function InboxPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: text }],
+          messages: [{ role: "user", content: aiInput }],
         }),
       });
 
@@ -149,7 +171,7 @@ export default function InboxPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading]);
+  }, [input, isLoading, attachments]);
 
   const handleRemove = (id: string) => {
     setItems((prev) => prev.filter((it) => it.id !== id));
@@ -185,11 +207,24 @@ export default function InboxPage() {
         </p>
       </div>
 
-      <div className="rounded-xl border border-border bg-card-bg p-3">
+      <div
+        className="relative rounded-xl border border-border bg-card-bg p-3"
+        onDragEnter={attachments.dropZone.onDragEnter}
+        onDragLeave={attachments.dropZone.onDragLeave}
+        onDragOver={attachments.dropZone.onDragOver}
+        onDrop={attachments.dropZone.onDrop}
+      >
+        <DropOverlay active={attachments.dropZone.isDragging} className="rounded-xl" />
+        <PendingAttachmentChips
+          pending={attachments.pending}
+          notice={attachments.notice}
+          onRemove={attachments.removePending}
+        />
         <textarea
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onPaste={attachments.onPaste}
           onKeyDown={(e) => {
             if (
               e.key === "Enter" &&
@@ -210,13 +245,21 @@ export default function InboxPage() {
           className="w-full resize-none bg-transparent px-1 text-sm leading-relaxed outline-none placeholder:text-muted disabled:opacity-50"
         />
         <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs text-muted">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <AttachButton
+              onFiles={attachments.addFiles}
+              disabled={isLoading}
+              size={14}
+              testId="inbox-file-input"
+              title="上传文件或截图，一起交给 AI 解析"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-accent-soft hover:text-accent disabled:opacity-40"
+            />
             <Sparkles size={12} />
-            <span>Enter 发送，AI 自动识别任务或日程</span>
+            <span>Enter 发送，AI 自动识别任务或日程；可拖入文件或截图</span>
           </div>
           <button
             onClick={handleSubmit}
-            disabled={!input.trim() || isLoading}
+            disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
           >
             {isLoading ? (

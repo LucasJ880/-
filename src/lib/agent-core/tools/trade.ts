@@ -24,6 +24,7 @@ import {
 import { generateOutreachEmail } from "@/lib/trade/agents";
 import { updateProspect, createMessage } from "@/lib/trade/service";
 import { searchKnowledge } from "@/lib/trade/knowledge-service";
+import { buildViewAttachmentImageTool } from "@/lib/chat-attachments/view-image-tool";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -698,3 +699,7 @@ registry.register({
     });
   },
 });
+
+// ── trade.view_attachment_image（追问时重新看对话里的图片附件）────────
+// 实现见 src/lib/chat-attachments/view-image-tool.ts（与主助手的 chat_view_attachment_image 同源）
+registry.register(buildViewAttachmentImageTool({ name: "trade_view_attachment_image", domain: "trade" }));

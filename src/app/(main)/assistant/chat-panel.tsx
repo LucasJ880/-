@@ -11,9 +11,6 @@ import {
   AlertCircle,
   PanelLeft,
   ArrowUpRight,
-  Paperclip,
-  FileText,
-  X,
   MessageSquare,
   Mic,
   Square,
@@ -30,6 +27,14 @@ import {
   type SimpleProject,
 } from "@/components/work-suggestion-card";
 import ReactMarkdown, { type Components } from "react-markdown";
+import {
+  AttachButton,
+  DropOverlay,
+  MessageAttachments,
+  PendingAttachmentChips,
+  type AttachmentSummary,
+  type ChatAttachmentsController,
+} from "@/components/chat-attachments";
 import remarkGfm from "remark-gfm";
 import type { AiThread } from "./thread-list";
 import { ApprovalCard, type PendingApproval } from "./approval-card";
@@ -151,6 +156,8 @@ export interface StreamingMsg {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** 用户消息附件（文档 / 图片）摘要 */
+  attachments?: AttachmentSummary[];
   /** Legacy WORK_JSON；Runtime V2 也可能写入 { runtimeVersion:"v2", runId } */
   workSuggestion?: WorkSuggestion | Record<string, unknown> | null;
   isStreaming?: boolean;
@@ -193,10 +200,8 @@ export interface ChatPanelProps {
   onInputChange: (value: string) => void;
   onSend: (text?: string) => void;
   projects: SimpleProject[];
-  attachedFile: { name: string; text: string } | null;
-  onClearAttachedFile: () => void;
-  onFileUpload: (file: File) => void;
-  uploadingFile: boolean;
+  /** 附件控制器（useChatAttachments）：多文件、图片、拖入、粘贴 */
+  attachments: ChatAttachmentsController;
   onShowMobileSidebar: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   /** PR4：审批卡片更新回调 */
@@ -225,10 +230,7 @@ export function ChatPanel({
   onInputChange,
   onSend,
   projects,
-  attachedFile,
-  onClearAttachedFile,
-  onFileUpload,
-  uploadingFile,
+  attachments,
   onShowMobileSidebar,
   inputRef,
   onApprovalChange,
@@ -241,10 +243,6 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const approvalPanelRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragCounterRef = useRef(0);
-  const onFileUploadRef = useRef(onFileUpload);
   const [stickySelectedIds, setStickySelectedIds] = useState<string[]>([]);
   const [approvalBusy, setApprovalBusy] = useState(false);
 
@@ -275,10 +273,6 @@ export function ChatPanel({
     stickyTarget?.message.id,
     stickyTarget?.pending.map((p) => p.actionId).join("|"),
   ]);
-  useEffect(() => {
-    onFileUploadRef.current = onFileUpload;
-  }, [onFileUpload]);
-
   // 语音输入：转写结果追加到输入框，用户确认后发送
   const { error: toastError } = useToast();
 
@@ -362,55 +356,15 @@ export function ChatPanel({
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current++;
-    if (e.dataTransfer.types.includes("Files")) {
-      setIsDragging(true);
-    }
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounterRef.current--;
-    if (dragCounterRef.current === 0) {
-      setIsDragging(false);
-    }
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    dragCounterRef.current = 0;
-    const file = e.dataTransfer.files?.[0];
-    if (file) onFileUploadRef.current(file);
-  }, []);
-
   return (
     <div
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
+      onDragEnter={attachments.dropZone.onDragEnter}
+      onDragLeave={attachments.dropZone.onDragLeave}
+      onDragOver={attachments.dropZone.onDragOver}
+      onDrop={attachments.dropZone.onDrop}
     >
-      {isDragging && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-card-bg/85 px-5 backdrop-blur-xl">
-          <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-lg border border-dashed border-accent/35 bg-card-bg px-8 py-10 shadow-float">
-            <Paperclip size={32} className="text-accent" />
-            <p className="text-sm font-medium text-accent">松开以上传文件</p>
-            <p className="text-xs text-muted">支持 PDF、Word、Excel、CSV、TXT</p>
-          </div>
-        </div>
-      )}
+      <DropOverlay active={attachments.dropZone.isDragging} className="z-50" />
       {/* Header */}
       <div className="z-20 flex min-h-16 items-center gap-3 border-b border-border bg-card-bg/90 px-3 backdrop-blur-xl sm:px-5">
         <button
@@ -643,6 +597,15 @@ export function ChatPanel({
                                 (msg.pendingApprovals?.length ?? 0) > 0,
                             })
                           : msg.content;
+                    const attachmentsNode =
+                      msg.role === "user" && msg.attachments?.length ? (
+                        <MessageAttachments
+                          attachments={msg.attachments}
+                          tone="onAccent"
+                          className={body ? "mb-2" : undefined}
+                        />
+                      ) : null;
+                    if (attachmentsNode && !body) return attachmentsNode;
                     if (body) {
                       return msg.role === "assistant" ? (
                         <div className="prose-ai">
@@ -654,11 +617,14 @@ export function ChatPanel({
                           </ReactMarkdown>
                         </div>
                       ) : (
-                        body.split("\n").map((line, i) => (
-                          <p key={i} className={line === "" ? "h-2" : ""}>
-                            {line}
-                          </p>
-                        ))
+                        <>
+                          {attachmentsNode}
+                          {body.split("\n").map((line, i) => (
+                            <p key={i} className={line === "" ? "h-2" : ""}>
+                              {line}
+                            </p>
+                          ))}
+                        </>
                       );
                     }
                     if (
@@ -810,44 +776,24 @@ export function ChatPanel({
             <span>{orgBlockReason}</span>
           </div>
         )}
-        {attachedFile && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/15 bg-card-bg px-3 py-2">
-            <FileText size={14} className="shrink-0 text-accent" />
-            <span className="flex-1 truncate text-xs font-medium text-foreground">{attachedFile.name}</span>
-            <span className="text-[10px] text-muted">{(attachedFile.text.length / 1000).toFixed(0)}k 字符</span>
-            <button onClick={onClearAttachedFile} className="text-muted hover:text-foreground">
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        <PendingAttachmentChips
+          pending={attachments.pending}
+          notice={attachments.notice}
+          onRemove={attachments.removePending}
+        />
         <div className="flex items-end gap-1 rounded-lg border border-border bg-card-bg p-2 shadow-float focus-within:border-accent/35 focus-within:shadow-card sm:gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onFileUploadRef.current(file);
-              e.target.value = "";
-            }}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading || uploadingFile}
+          <AttachButton
+            onFiles={attachments.addFiles}
+            disabled={isLoading}
+            size={15}
+            testId="assistant-file-input"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[#6f7773] transition-colors hover:bg-accent-soft hover:text-accent disabled:opacity-40"
-            title="上传文件（PDF/Word/Excel/CSV/TXT）"
-          >
-            {uploadingFile ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Paperclip size={15} />
-            )}
-          </button>
+          />
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
+            onPaste={attachments.onPaste}
             onKeyDown={(e) => {
               if (
                 e.key === "Enter" &&
@@ -867,9 +813,9 @@ export function ChatPanel({
                   ? "正在识别语音..."
                   : isLoading
                     ? "AI 正在回复..."
-                    : attachedFile
-                      ? "输入你的问题，如「帮我提炼产品细节」..."
-                      : "描述目标、客户情况或需要推进的工作..."
+                    : attachments.hasReady
+                      ? "输入你的问题，如「帮我提炼产品细节」，留空直接发送也可以..."
+                      : "描述目标、客户情况或需要推进的工作，也可拖入文件或截图..."
             }
             disabled={isLoading}
             rows={1}
@@ -906,7 +852,7 @@ export function ChatPanel({
           )}
           <button
             onClick={() => trySend()}
-            disabled={!input.trim() || isLoading}
+            disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing}
             className={cn(
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white shadow-xs transition-colors disabled:bg-[#d8dcda] disabled:text-[#8e9591] disabled:shadow-none",
               !orgReady

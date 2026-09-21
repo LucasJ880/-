@@ -1981,6 +1981,8 @@ model AiMessage {
   role           String
   content        String
   workSuggestion Json?
+  /// 用户消息附件（浏览器解析后的文本 / 图片识别文本 + 原图路径）：[{ name, kind, size, text, blobPath?, mime? }]，见 src/lib/chat-attachments/core.ts
+  attachments    Json?
   createdAt      DateTime @default(now())
 
   @@index([threadId, createdAt])
@@ -3844,15 +3846,17 @@ model WebsiteInquiryReceipt {
 }
 
 model TradeChatMessage {
-  id         String           @id @default(cuid())
-  sessionId  String
-  session    TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role       String // user / assistant / system / tool
-  content    String           @db.Text
-  toolName   String?
-  toolInput  Json?
-  toolOutput Json?
-  createdAt  DateTime         @default(now())
+  id          String           @id @default(cuid())
+  sessionId   String
+  session     TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String // user / assistant / system / tool
+  content     String           @db.Text
+  toolName    String?
+  toolInput   Json?
+  toolOutput  Json?
+  /// 用户消息附件（浏览器解析后的文本）：[{ name, size, text }]，见 src/lib/trade/chat-attachments.ts
+  attachments Json?
+  createdAt   DateTime         @default(now())
 
   @@index([sessionId, createdAt])
 }

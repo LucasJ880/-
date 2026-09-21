@@ -5,6 +5,7 @@
  */
 
 import { registry } from "../tool-registry";
+import { buildViewAttachmentImageTool } from "@/lib/chat-attachments/view-image-tool";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
 
 registry.register({
@@ -153,3 +154,6 @@ registry.register({
     }
   },
 });
+
+// ── chat.view_attachment_image：重新查看对话里上传的图片附件原图（所有角色；ref 必须属于当前 org）──
+registry.register(buildViewAttachmentImageTool({ name: "chat_view_attachment_image", domain: "system" }));
