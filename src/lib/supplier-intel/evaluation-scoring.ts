@@ -117,7 +117,16 @@ export async function loadProjectRfqFacts(
   binding: CommercialEvidenceBinding | null,
   candidate: { supplierId: string; offeringId: string | null },
 ): Promise<{ round: RfqRoundInput | null; rfqConfirmed: boolean; bindingStatus: RfqBindingStatus; candidateItemId: string | null }> {
-  if (!binding) return { round: null, rfqConfirmed: false, bindingStatus: "NONE", candidateItemId: null };
+  if (!binding) {
+    // NEGATIVE CONTROL (temporary): old supplierId-only lookup
+    const inqs = await tx.projectInquiry.findMany({ where: { projectId, project: { is: { orgId } } }, orderBy: { roundNumber: "desc" }, include: { items: { select: { id: true, supplierId: true, status: true, repliedAt: true, unitPrice: true, totalPrice: true, currency: true, deliveryDays: true, validUntil: true } } } });
+    for (const inq of inqs) {
+      const items = inq.items.map((it) => ({ itemId: it.id, supplierId: it.supplierId, status: it.status, repliedAt: it.repliedAt ? it.repliedAt.toISOString() : null, unitPrice: num(it.unitPrice), totalPrice: num(it.totalPrice), currency: it.currency, deliveryDays: it.deliveryDays ?? null, validUntil: it.validUntil ? it.validUntil.toISOString() : null }));
+      const mine = items.find((it) => it.supplierId === candidate.supplierId && isConfirmedQuote(it));
+      if (mine) return { round: { inquiryId: inq.id, roundNumber: inq.roundNumber, scope: inq.scope ?? null, items }, rfqConfirmed: true, bindingStatus: "BOUND_CONFIRMED", candidateItemId: mine.itemId };
+    }
+    return { round: null, rfqConfirmed: false, bindingStatus: "NONE", candidateItemId: null };
+  }
   if (binding.supplierId !== candidate.supplierId || binding.offeringId !== candidate.offeringId) {
     return { round: null, rfqConfirmed: false, bindingStatus: "BOUND_MISMATCH", candidateItemId: binding.inquiryItemId };
   }

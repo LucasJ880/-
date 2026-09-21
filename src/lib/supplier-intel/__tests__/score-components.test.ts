@@ -81,6 +81,7 @@ async function main() {
   assert.equal(wrongItem.score, null); assert.deepEqual(wrongItem.reasonCodes, ["COMMERCIAL_BINDING_NOT_CONFIRMED"], "绑定的 item 不是自己的 → 不消费");
   const stale = computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: { ...round, items: [item({ supplierId: "A", repliedAt: null, totalPrice: 100 }), item({ supplierId: "B", totalPrice: 200 })] }, priceEvidenceTier: "RFQ_CONFIRMED" });
   assert.deepEqual(stale.reasonCodes, ["COMMERCIAL_BINDING_NOT_CONFIRMED"], "绑定的 item 已不是已确认 → 不消费");
+  assert.deepEqual(computeCommercialScore({ candidateSupplierId: "A", candidateItemId: "it-A", round: null, priceEvidenceTier: "UNKNOWN" }).reasonCodes, ["COMMERCIAL_BINDING_NOT_CONFIRMED"], "绑定存在但轮次不可用（收口时撤回）→ 说清楚是绑定失效");
 
   console.log("价格口径不混用：A 只有 totalPrice、B 只有 unitPrice → 不可比");
   const basisMix = { ...round, items: [item({ supplierId: "A", totalPrice: 110 }), item({ supplierId: "B", unitPrice: 5 })] };

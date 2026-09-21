@@ -142,7 +142,8 @@ export function computeCommercialScore(input: { candidateSupplierId: string; can
     priceBasis: null, currency: null, candidate: null, comparableGroup: [], sub: { price: null, delivery: 0, completeness: null }, reasonCodes: reasons, ...over,
   });
   if (!input.round) {
-    const r: ScoreReasonCode[] = ["COMMERCIAL_NO_CONFIRMED_RFQ"];
+    // 有绑定但绑定已不可用（收口时撤回 / 与候选不一致）→ 说清楚是绑定失效，不是「没有报价」
+    const r: ScoreReasonCode[] = [input.candidateItemId ? "COMMERCIAL_BINDING_NOT_CONFIRMED" : "COMMERCIAL_NO_CONFIRMED_RFQ"];
     if (input.priceEvidenceTier === "PLATFORM_LISTED") r.push("COMMERCIAL_PLATFORM_LISTED_ONLY");
     return base({}, r);
   }
