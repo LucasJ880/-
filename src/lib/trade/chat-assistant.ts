@@ -10,6 +10,7 @@
  */
 
 import { createCompletion } from "@/lib/ai/client";
+import { resolveModelPolicy } from "@/lib/ai/model-policy";
 import { db } from "@/lib/db";
 import {
   getWakeUpMemories,
@@ -68,6 +69,11 @@ const TOOLS: Record<string, { description: string; params: string; fn: ToolFn }>
     params: "",
     fn: toolGetSuggestions,
   },
+  view_image: {
+    description: "重新查看用户上传的图片附件原图并回答具体问题（用于颜色/材质/结构等视觉细节或识别文本标 [不清晰] 时）",
+    params: "ref: 附件标签里的 ref, question: 要看什么",
+    fn: toolViewImage,
+  },
 };
 
 // ── System Prompt ───────────────────────────────────────────
@@ -91,6 +97,7 @@ ${toolList}
 6. 给出具体可执行的建议，不说废话
 7. 涉及金额用 USD 显示，日期用中文格式
 8. 如果无法确定用户意图，列出你能做的事情让用户选择
+9. 用户可能上传附件：文档（PDF/Word/Excel/CSV/TXT）正文与图片（截图/产品照/吊牌/名片等）的识别结果都会以 <attachment name="文件名"> 块附在用户消息后，图片的标 kind="image" 并带 ref（内容是识别出的文字与画面描述，引用时说明来自图片识别，[不清晰] 处不要脑补）。当问题涉及图片的视觉细节（颜色/材质/结构/布局）或识别文本有 [不清晰]，用 [TOOL:view_image(ref=…,question=…)] 重新看原图，不要猜。分析时以附件正文为准并注明文件名；标了 omitted 的是早先上传、本轮未附正文的附件，需要其内容时请用户重新上传
 
 你了解外贸全流程：找客户→研究→评分→开发信→跟进→报价→成交
 你的角色是老板的外贸 AI 参谋，帮他做决策、盯进度、提醒遗漏。`;
@@ -119,8 +126,12 @@ export async function processChat(
 
   const systemPrompt = buildSystemPrompt() + memoryBlock;
   const recentHistory = history.slice(-10);
+  // GPT-6 灰度：chat 角色经 Model Policy 解析；未升级时沿用 mode 预设
+  const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId });
+  const policyModel = chatPolicy.upgraded ? chatPolicy.model : undefined;
 
   const firstPass = await createCompletion({
+    model: policyModel,
     systemPrompt,
     userPrompt: [
       ...recentHistory.map((m) => `${m.role === "user" ? "用户" : "助手"}: ${m.content}`),
@@ -152,6 +163,7 @@ export async function processChat(
   }
 
   const finalResponse = await createCompletion({
+    model: policyModel,
     systemPrompt: `你是「青砚」外贸 AI 助手。根据工具返回的数据，用简洁中文回复用户。
 不要暴露工具调用细节，直接呈现有用的信息和建议。
 用表格或列表呈现数据（如果合适），给出具体行动建议。
@@ -207,6 +219,7 @@ export async function processChatV2(
 4. 涉及金额用 USD 显示，日期用中文格式
 5. 如果无法确定用户意图，列出你能做的事让用户选
 6. 用表格或列表呈现数据（如果合适）
+7. 用户可能上传附件：文档（PDF/Word/Excel/CSV/TXT）正文与图片（截图/产品照/吊牌/名片等）的识别结果都会以 <attachment name="文件名"> 块附在用户消息后，图片的标 kind="image" 并带 ref（内容是识别出的文字与画面描述，引用时说明来自图片识别，[不清晰] 处不要脑补）。**当问题涉及图片的视觉细节（颜色/材质/结构/布局/位置/数量）、识别文本有 [不清晰]、或用户质疑识别结果时，必须调用 trade_view_attachment_image(ref, question) 重新看原图，不要凭识别文本猜**。分析时以附件正文为准并注明文件名；附件里的公司/型号/数量等可直接用来配合工具查线索、写开发信；标了 omitted 的是早先上传、本轮未附正文的附件，需要其内容时请用户重新上传（其 ref 仍可用于重新看图）
 
 你了解外贸全流程：找客户→研究→评分→开发信→跟进→报价→成交
 你的角色是老板的外贸 AI 参谋。
@@ -261,11 +274,14 @@ ${memoryBlock}`;
     return "当前组织不可用，助手暂时无法处理。请联系管理员确认组织状态。";
   }
 
+  // GPT-6 灰度：chat 角色经 Model Policy 解析；升级后 agent-core 带工具时自动走 Responses API
+  const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId });
   const result = await runAgent({
     systemPrompt,
     messages,
     domains: ["trade", "secretary"],
     mode: "chat",
+    model: chatPolicy.upgraded ? chatPolicy.model : undefined,
     temperature: 0.3,
     userId,
     orgId,
@@ -525,4 +541,12 @@ async function toolGetSuggestions(orgId: string): Promise<ToolResult> {
   if (suggestions.length === 0) suggestions.push("✅ 当前暂无紧急事项，继续保持！");
 
   return { text: suggestions.join("\n") };
+}
+
+/** V1 伪协议工具：重新看对话里的图片附件原图（与 agent-core 的 trade_view_attachment_image 同源） */
+async function toolViewImage(orgId: string, args: Record<string, string>): Promise<ToolResult> {
+  const { viewAttachmentImage } = await import("@/lib/chat-attachments/view-image-tool");
+  const result = await viewAttachmentImage({ orgId, ref: args.ref ?? "", question: args.question ?? "" });
+  if (!result.ok) return { text: result.error };
+  return { text: `[看图 ${result.fileName}] ${result.answer}` };
 }

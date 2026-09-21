@@ -1981,6 +1981,8 @@ model AiMessage {
   role           String
   content        String
   workSuggestion Json?
+  /// 用户消息附件（浏览器解析后的文本 / 图片识别文本 + 原图路径）：[{ name, kind, size, text, blobPath?, mime? }]，见 src/lib/chat-attachments/core.ts
+  attachments    Json?
   createdAt      DateTime @default(now())
 
   @@index([threadId, createdAt])
@@ -3456,6 +3458,8 @@ model TradeProspect {
 
   messages                    TradeMessage[]
   quotes                      TradeQuote[]
+  outreachSteps               TradeOutreachStep[]
+  samples                     TradeSample[]
   watchTargets                TradeWatchTarget[]
   intelligenceCaseConversions TradeIntelligenceCase[] @relation("TradeIntelligenceCaseProspect")
 
@@ -3472,6 +3476,30 @@ model TradeProspect {
   @@index([orgId, researchStatus])
   @@index([nextFollowUpAt])
   @@index([score])
+}
+
+model TradeOutreachStep {
+  id                String        @id @default(cuid())
+  orgId             String
+  prospectId        String
+  prospect          TradeProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  dayOffset         Int
+  status            String        @default("pending") // pending / drafted / sent / skipped
+  sequenceCategory  String
+  scheduledAt       DateTime
+  draftedAt         DateTime?
+  sentAt            DateTime?
+  subject           String?
+  body              String?       @db.Text
+  subjectZh         String?
+  bodyZh            String?       @db.Text
+  lastError         String?       @db.VarChar(2000)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([prospectId, dayOffset])
+  @@index([orgId, status, scheduledAt])
+  @@index([prospectId, status])
 }
 
 // P1-alpha：少量 URL 文本指纹监控（与 researchReport / bundle 无关）
@@ -3818,15 +3846,17 @@ model WebsiteInquiryReceipt {
 }
 
 model TradeChatMessage {
-  id         String           @id @default(cuid())
-  sessionId  String
-  session    TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role       String // user / assistant / system / tool
-  content    String           @db.Text
-  toolName   String?
-  toolInput  Json?
-  toolOutput Json?
-  createdAt  DateTime         @default(now())
+  id          String           @id @default(cuid())
+  sessionId   String
+  session     TradeChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String // user / assistant / system / tool
+  content     String           @db.Text
+  toolName    String?
+  toolInput   Json?
+  toolOutput  Json?
+  /// 用户消息附件（浏览器解析后的文本）：[{ name, size, text }]，见 src/lib/trade/chat-attachments.ts
+  attachments Json?
+  createdAt   DateTime         @default(now())
 
   @@index([sessionId, createdAt])
 }
@@ -4043,7 +4073,8 @@ model TradeQuote {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  items TradeQuoteItem[]
+  items   TradeQuoteItem[]
+  samples TradeSample[]
 
   @@index([orgId, status])
   @@index([prospectId])
@@ -4054,16 +4085,54 @@ model TradeQuoteItem {
   quoteId String
   quote   TradeQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
-  sortOrder     Int     @default(0)
+  sortOrder     Int           @default(0)
+  productId     String?
+  product       TradeProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sku           String?
   productName   String
   specification String?
-  unit          String  @default("pcs")
-  quantity      Float   @default(0)
-  unitPrice     Float   @default(0)
-  totalPrice    Float   @default(0)
+  unit          String        @default("pcs")
+  quantity      Float         @default(0)
+  unitPrice     Float         @default(0)
+  totalPrice    Float         @default(0)
   remarks       String?
 
   @@index([quoteId, sortOrder])
+  @@index([productId])
+}
+
+model TradeSample {
+  id             String         @id @default(cuid())
+  orgId          String
+  prospectId     String?
+  prospect       TradeProspect? @relation(fields: [prospectId], references: [id], onDelete: SetNull)
+  quoteId        String?
+  quote          TradeQuote?    @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  productId      String?
+  product        TradeProduct?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sku            String?
+  productName    String
+  quantity       Float          @default(1)
+  unit           String         @default("pcs")
+  destination    String?
+  recipientName  String?
+  recipientEmail String?
+  address        String?
+  status         String         @default("requested") // requested / preparing / shipped / cancelled
+  trackingNo     String?
+  notes          String?
+  createdById    String
+  shippedAt      DateTime?
+  followUpDueAt  DateTime?
+  followedUpAt   DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([orgId, status, createdAt])
+  @@index([orgId, status, followUpDueAt])
+  @@index([prospectId])
+  @@index([quoteId])
+  @@index([productId])
 }
 
 model TradeKnowledge {
@@ -7262,9 +7331,11 @@ model TradeProduct {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  facts  ProductFact[]
-  assets ProductAsset[]
-  jobs   ProductContentJob[]
+  facts      ProductFact[]
+  assets     ProductAsset[]
+  jobs       ProductContentJob[]
+  quoteItems TradeQuoteItem[]
+  samples    TradeSample[]
 
   @@unique([orgId, sku])
   @@index([orgId, category])

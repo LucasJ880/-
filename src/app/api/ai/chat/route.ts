@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
+import { resolveModelPolicy } from "@/lib/ai/model-policy";
 import { recordAiCall, extractUsage } from "@/lib/ai/monitor";
 import { getRequestContext } from "@/lib/common/request-context";
 import {
@@ -127,10 +128,12 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   let stream;
   try {
+    const chatPolicy = resolveModelPolicy({ role: "chat", orgId: tenant.orgId, userId: user.id });
     stream = await createChatStream({
       systemPrompt,
       messages: prepared.messages,
       mode: prepared.mode,
+      model: chatPolicy.upgraded ? chatPolicy.model : undefined,
       signal: request.signal,
       orgId: tenant.orgId,
       userId: user.id,

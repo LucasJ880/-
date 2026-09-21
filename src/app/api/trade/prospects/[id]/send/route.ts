@@ -12,6 +12,7 @@ import { sendEmail } from "@/lib/trade/email";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
 import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
+import { markSequenceStepSent } from "@/lib/trade/outreach-sequence";
 
 export async function POST(
   request: NextRequest,
@@ -74,6 +75,12 @@ export async function POST(
     lastContactAt: now,
     nextFollowUpAt: threeDaysLater,
   });
+  await markSequenceStepSent({
+    orgId: orgRes.orgId,
+    prospectId: id,
+    dayOffset: 0,
+    sentAt: now,
+  }).catch(() => undefined);
 
   // 已链接商机的线索：让 Revenue Spine 看到这次真实外发并作废旧回复草稿（失败只记录）
   const revenueSync = await syncTradeOutboundToRevenueSpine({

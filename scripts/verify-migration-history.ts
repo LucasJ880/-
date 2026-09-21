@@ -71,6 +71,16 @@ const IMMUTABLE: Record<string, string> = {
     "50539596285e0d547fec5f58045d731c3d2e938f7e2e50ed33be71b05ecb62c3",
   "20260906120000_mengxin_fde_revenue_spine":
     "037871de5f2ec3ff068daade6b25d7b8105bbe9eace48924fd47a7138dd246d7",
+  "20260920120000_trade_chat_message_attachments":
+    "cbcb7f3758ff18a03e8e7ab679bdf507097434479f433eeff5a86770d9542158",
+  "20260920150000_ai_message_attachments":
+    "014cfbdf10f681a9052951ea9daed58662a905844e05cd753378ce4ff40f20af",
+  "20260921120000_add_trade_outreach_step":
+    "d5b6b5caedef95cc2934ccbae04dfe12b8f674bb7a5b228b65960c94ee820f46",
+  "20260921130000_add_trade_quote_product_and_sample":
+    "58a1aac50d7789a6c942cfd48244925c92368e0e3aeeebb8661f4ec2f45ddc5f",
+  "20260921160000_add_trade_sample_follow_up":
+    "09f8a730a8f590b11c3e2119d3ce63c02f1dd43d77eef4e225f91596b765ca4b",
 };
 
 let passed = 0;

@@ -23,6 +23,14 @@ import {
 } from "@/components/work-suggestion-card";
 import { apiFetch } from "@/lib/api-fetch";
 import {
+  AttachButton,
+  DropOverlay,
+  MessageAttachments,
+  PendingAttachmentChips,
+  useChatAttachments,
+  type AttachmentSummary,
+} from "@/components/chat-attachments";
+import {
   ASSISTANT_MODE_META,
   type AssistantMode,
 } from "@/lib/ai/assistant-modes";
@@ -44,6 +52,7 @@ interface StreamingMsg {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: AttachmentSummary[];
   workSuggestion?: WorkSuggestion | null;
   isStreaming?: boolean;
   isError?: boolean;
@@ -99,6 +108,8 @@ export function ProjectAiChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadIdRef = useRef<string | null>(null);
+  // 附件：文档解析 + 图片（存原图 + 识别），随消息提交给 threads 接口
+  const attachments = useChatAttachments({ orgId, imageEndpoint: "/api/ai/upload-image" });
   const initPromiseRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
@@ -236,7 +247,9 @@ export function ProjectAiChat({
 
   const handleSend = async (text?: string) => {
     const content = (text || input).trim();
-    if (!content || isLoading) return;
+    const outgoing = attachments.buildPayload();
+    const summaries = attachments.toSummaries();
+    if ((!content && outgoing.length === 0) || isLoading || attachments.isParsing) return;
 
     const tid = await ensureThread();
     if (!tid) return;
@@ -245,6 +258,7 @@ export function ProjectAiChat({
       id: `user-${Date.now()}`,
       role: "user",
       content,
+      attachments: summaries.length ? summaries : undefined,
     };
     const assistantId = `assistant-${Date.now()}`;
     const assistantMsg: StreamingMsg = {
@@ -257,6 +271,7 @@ export function ProjectAiChat({
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput("");
+    attachments.clear();
     setIsLoading(true);
     if (!expanded) setExpanded(true);
 
@@ -268,6 +283,7 @@ export function ProjectAiChat({
           content,
           orgId: orgId || undefined,
           assistantMode,
+          ...(outgoing.length ? { attachments: outgoing } : {}),
         }),
       });
 
@@ -592,6 +608,13 @@ export function ProjectAiChat({
                             className={msg.content ? "mb-2.5" : undefined}
                           />
                         )}
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <MessageAttachments
+                          attachments={msg.attachments}
+                          tone={msg.role === "user" ? "onAccent" : "onSurface"}
+                          className={msg.content ? "mb-1.5" : undefined}
+                        />
+                      )}
                       {msg.content ? (
                         msg.content.split("\n").map((line, i) => (
                           <p key={i} className={line === "" ? "h-1.5" : ""}>
@@ -663,12 +686,32 @@ export function ProjectAiChat({
             </div>
           </div>
 
-          <div className="border-t border-border p-3">
+          <div
+            className="relative border-t border-border p-3"
+            onDragEnter={attachments.dropZone.onDragEnter}
+            onDragLeave={attachments.dropZone.onDragLeave}
+            onDragOver={attachments.dropZone.onDragOver}
+            onDrop={attachments.dropZone.onDrop}
+          >
+            <DropOverlay active={attachments.dropZone.isDragging} />
+            <PendingAttachmentChips
+              pending={attachments.pending}
+              notice={attachments.notice}
+              onRemove={attachments.removePending}
+            />
             <div className="flex items-end gap-2 rounded-lg border border-border bg-background p-1.5">
+              <AttachButton
+                onFiles={attachments.addFiles}
+                disabled={isLoading}
+                size={14}
+                testId="project-chat-file-input"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-accent-soft hover:text-accent disabled:opacity-40"
+              />
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onPaste={attachments.onPaste}
                 onKeyDown={(e) => {
                   if (
                     e.key === "Enter" &&
@@ -700,7 +743,7 @@ export function ProjectAiChat({
               <button
                 type="button"
                 onClick={() => handleSend()}
-                disabled={!input.trim() || isLoading}
+                disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
               >
                 {isLoading ? (

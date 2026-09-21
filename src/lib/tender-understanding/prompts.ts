@@ -13,7 +13,8 @@ export const PROMPT_EXTRACT = {
   // 生产实测多单元窗口（尤其 xlsx 工作表）下模型高频引错单元号。
   // @5（批次二）：新增竞争格局（incumbent_supplier）与授标评分标准
   // （evaluation_criteria）覆盖指引——HRM-2026-0395 实测两类关键事实全丢。
-  version: "tender-understanding-v2-extract@5",
+  // @6：Addendum 状态标签 + 跨文档核对（仍 evidence-bound；不得发明缺失条件）。
+  version: "tender-understanding-v2-extract@6",
 } as const;
 
 export const PROMPT_RESOLVE = {
@@ -34,8 +35,11 @@ HARD RULES — violating any of these makes the output unusable:
 6. "facts" are project-level data points. Use factType from the taxonomy; if none fits use "other". rawValue = the literal value text from the page (e.g. a date, an amount), else null.
 7. "potentialRisks" only when grounded in the text (contradictions, tight deadlines, rejection conditions, missing referenced forms, compliance constraints, commercial exposure). Cite evidence like everything else.
 8. "ambiguities" = places where the document is unclear, self-contradictory, or references something it does not define. whatIsUnknown must state precisely what a bidder cannot determine.
-9. If this document is an ADDENDUM/AMENDMENT and the text changes, replaces, revises, extends or deletes an earlier provision, set revisionAction accordingly and put the original provision's identifier/topic in revisionTargetHint.
+9. If this document is an ADDENDUM/AMENDMENT and the text changes, replaces, revises, extends or deletes an earlier provision, set revisionAction accordingly and put the original provision's identifier/topic in revisionTargetHint. Later addenda override earlier ones when they explicitly revise the same topic.
 10. Do not summarize the whole document. Extract discrete items only from these pages.
+11. CROSS-DOCUMENT DISCIPLINE: when sourceRole is ADDENDUM, also extract deadline changes, pricing changes, submission changes, and compliance impact as discrete requirements/facts. Quote verbatim. Never treat inference as a stated requirement.
+12. A missing mandatory form, cross-reference ("see Annex X"), or conflicting instruction is an ambiguity or potentialRisk (MISSING_FORM / CONTRADICTION / ADDENDUM_CONFLICT). Do not invent the missing form's contents.
+13. Evidence contract: CLAIM must be supported by SOURCE snippet. If you cannot prove it, omit the item (UNKNOWN is produced downstream). Do not fill gaps because they "should" exist.
 CATEGORY DISCIPLINE — "Vendor must ..." alone does NOT make something TECHNICAL or bid-critical:
   - TECHNICAL: ONLY product specifications, materials, dimensions, performance, testing, quality standards, technical installation, engineering criteria.
   - PRODUCT: composition / model / function / packaging / specification of the product itself.
@@ -46,14 +50,14 @@ CATEGORY DISCIPLINE — "Vendor must ..." alone does NOT make something TECHNICA
   - REPORTING: reports, records, invoice supporting info. OTHER: when nothing fits.
   - Invoicing / Procurement Card / confidentiality / notices / force majeure / records retention / gifts & hospitality are NEVER "TECHNICAL" — use COMMERCIAL, REPORTING or ADMINISTRATIVE (e.g. "Vendor must email invoices..." → COMMERCIAL or REPORTING, submissionStage "after award").
 STAGE DISCIPLINE — always try to fill submissionStage with one of: "with bid" / "pre-award" / "post-award" / "ongoing"; null only when truly undeterminable. Post-award contract obligations (invoices, reports, records, payment) are "post-award", not bid submission conditions.
-11. Coverage guidance (still evidence-bound, never invented):
+14. Coverage guidance (still evidence-bound, never invented):
    a. Capture document identification data as facts when present: issue/publication date, solicitation/reference numbers, buyer identity, contact for questions.
    b. Deadlines expressed as RULES count as facts too (e.g. "questions no later than N days before closing" → question_deadline with the rule text as rawValue).
    c. Capture quantity/pricing schedule rows and stated quantity limits as quantity facts (e.g. estimated annual quantities, "up to N per period"), quoting the row/line.
    d. COMPETITIVE LANDSCAPE: statements about an existing/current/incumbent supplier or contract (e.g. "services provided by the current supplier since ...", current contract expiry, current volumes like "approx N items per month") → factType "incumbent_supplier". Quote verbatim; the supplier may be unnamed — extract the statement anyway.
    e. AWARD/EVALUATION CRITERIA: scoring weights, evaluation stages, formulas, price-score math, deductions or default scores (e.g. "Price 70%", "lowest cost receives full points, others prorated", "suppliers without prior performance receive N%", nationality/origin adjustments) → factType "evaluation_criteria". rawValue must carry the numbers/formula verbatim — these drive bid pricing strategy.
    d. When scope lists products/services, include the enumeration in the scope fact claim so the product types are preserved.
-12. Output ONLY one JSON object matching the schema below. No markdown, no commentary, no code fences.
+15. Output ONLY one JSON object matching the schema below. No markdown, no commentary, no code fences.
 
 SCHEMA (all arrays may be empty; that is a valid answer):
 {

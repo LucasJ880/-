@@ -8,11 +8,23 @@ import {
   MessageCircle,
   Trash2,
   Sparkles,
+  Paperclip,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { useRouter } from "next/navigation";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import {
+  AttachButton,
+  DropOverlay,
+  MessageAttachments,
+  PendingAttachmentChips,
+  ATTACH_HINT,
+  useChatAttachments,
+  type AttachmentSummary,
+} from "@/components/chat-attachments";
 
 interface ChatSession {
   id: string;
@@ -21,10 +33,12 @@ interface ChatSession {
   messages: { content: string; createdAt: string }[];
 }
 
+/** 服务端回给浏览器的附件摘要（不带正文） */
 interface Message {
   id?: string;
   role: "user" | "assistant" | "system";
   content: string;
+  attachments?: AttachmentSummary[];
 }
 
 const QUICK_COMMANDS = [
@@ -48,6 +62,8 @@ export default function TradeChatPage() {
   const [sending, setSending] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 附件：文档走 /api/ai/upload-file 解析，图片走外贸专用接口（存原图 + 识别）
+  const attachments = useChatAttachments({ orgId, imageEndpoint: "/api/trade/chat/upload-image" });
 
   /** 线索详情「对话里研究」等入口：/trade/chat?draft=... */
   useEffect(() => {
@@ -93,7 +109,13 @@ export default function TradeChatPage() {
     const res = await apiFetch(`/api/trade/chat/${sessionId}?orgId=${encodeURIComponent(orgId)}`);
     if (res.ok) {
       const data = await res.json();
-      setMessages(data.messages.map((m: Message) => ({ role: m.role, content: m.content })));
+      setMessages(
+        data.messages.map((m: Message) => ({
+          role: m.role,
+          content: m.content,
+          attachments: m.attachments?.length ? m.attachments : undefined,
+        })),
+      );
     }
   };
 
@@ -122,9 +144,16 @@ export default function TradeChatPage() {
     loadSessions();
   };
 
+  const canSend =
+    !sending && !attachments.isParsing && (input.trim().length > 0 || attachments.hasReady);
+
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
-    if (!content || sending || !orgId || ambiguous) return;
+    const outgoing = attachments.buildPayload();
+    const summaries = attachments.toSummaries();
+    if (sending || !orgId || ambiguous) return;
+    if (!content && outgoing.length === 0) return;
+    if (attachments.isParsing) return;
 
     let sessionId = activeId;
 
@@ -141,21 +170,29 @@ export default function TradeChatPage() {
     }
 
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content }]);
+    attachments.clear();
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content, attachments: summaries.length ? summaries : undefined },
+    ]);
     setSending(true);
 
     try {
       const res = await apiFetch(`/api/trade/chat/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, orgId }),
+        body: JSON.stringify({ content, orgId, attachments: outgoing }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setMessages((prev) => [...prev, { role: "assistant", content: data.assistantMessage.content }]);
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: "请求失败，请重试" }]);
+        const data = await res.json().catch(() => ({}));
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data?.error ? `请求失败：${data.error}` : "请求失败，请重试" },
+        ]);
       }
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", content: "网络错误，请重试" }]);
@@ -233,11 +270,19 @@ export default function TradeChatPage() {
       </div>
 
       {/* Chat Area */}
-      <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-border/60 bg-card-bg">
+      <div
+        className="relative flex min-w-0 flex-1 flex-col rounded-xl border border-border/60 bg-card-bg"
+        onDragEnter={attachments.dropZone.onDragEnter}
+        onDragLeave={attachments.dropZone.onDragLeave}
+        onDragOver={attachments.dropZone.onDragOver}
+        onDrop={attachments.dropZone.onDrop}
+      >
+        <DropOverlay active={attachments.dropZone.isDragging} className="rounded-xl" />
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {messages.length === 0 ? (
-            <EmptyChat onQuickCommand={sendMessage} />
+            <EmptyChat onQuickCommand={sendMessage} onFiles={attachments.addFiles} />
           ) : (
             <div className="space-y-4">
               {messages.filter((m) => m.role !== "system").map((m, i) => (
@@ -248,7 +293,20 @@ export default function TradeChatPage() {
                       ? "rounded-br-md bg-blue-600 text-white"
                       : "rounded-bl-md bg-background text-foreground",
                   )}>
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                    {m.attachments && m.attachments.length > 0 && (
+                      <MessageAttachments
+                        attachments={m.attachments}
+                        tone={m.role === "user" ? "onAccent" : "onSurface"}
+                        className={m.content ? "mb-2" : undefined}
+                      />
+                    )}
+                    {m.content && (m.role === "assistant" ? (
+                      <div className="prose-ai">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -283,23 +341,39 @@ export default function TradeChatPage() {
               ))}
             </div>
           )}
+          <PendingAttachmentChips
+            pending={attachments.pending}
+            notice={attachments.notice}
+            onRemove={attachments.removePending}
+          />
           <div className="flex items-end gap-2">
+            <AttachButton
+              onFiles={attachments.addFiles}
+              disabled={sending}
+              testId="trade-chat-file-input"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted transition hover:border-blue-500/40 hover:text-blue-400 disabled:opacity-40"
+            />
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   sendMessage();
                 }
               }}
-              placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+              onPaste={attachments.onPaste}
+              placeholder={
+                attachments.hasReady
+                  ? "想让 AI 怎么分析这份附件？留空直接发送也可以"
+                  : "输入消息，或拖入/粘贴文件、截图让 AI 分析... (Enter 发送, Shift+Enter 换行)"
+              }
               rows={1}
               className="min-h-[36px] max-h-32 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
             />
             <button
               onClick={() => sendMessage()}
-              disabled={sending || !input.trim()}
+              disabled={!canSend}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-500 disabled:opacity-40"
             >
               {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -311,7 +385,13 @@ export default function TradeChatPage() {
   );
 }
 
-function EmptyChat({ onQuickCommand }: { onQuickCommand: (text: string) => void }) {
+function EmptyChat({
+  onQuickCommand,
+  onFiles,
+}: {
+  onQuickCommand: (text: string) => void;
+  onFiles: (files: FileList | null) => void;
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center">
       <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-500/10">
@@ -331,7 +411,16 @@ function EmptyChat({ onQuickCommand }: { onQuickCommand: (text: string) => void 
             {cmd.text}
           </button>
         ))}
+        <AttachButton
+          onFiles={onFiles}
+          testId="trade-chat-empty-file-input"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-blue-500/40 bg-blue-500/5 px-4 py-2 text-xs text-blue-400 transition hover:bg-blue-500/10"
+        >
+          <Paperclip size={12} />
+          上传询盘 / 报价单 / 产品图片让 AI 分析
+        </AttachButton>
       </div>
+      <p className="mt-3 text-[11px] text-muted">也可以把文件或截图直接拖进 / 粘贴到对话框（{ATTACH_HINT.replace("支持 ", "")}）</p>
     </div>
   );
 }

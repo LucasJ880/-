@@ -184,6 +184,7 @@ export async function resolveClarificationItem(
         1_000,
         Math.min(opts.timeoutMs ?? RESOLVE_TIMEOUT_MS, RESOLVE_TIMEOUT_MS),
       ),
+      tenderStage: "eligibility",
     },
     resolutionOutputSchema,
   );

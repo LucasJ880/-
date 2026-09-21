@@ -38,8 +38,8 @@ ok(
   "P2T-02: zod schema 同步接受新类型",
 );
 ok(
-  PROMPT_EXTRACT.version === "tender-understanding-v2-extract@5",
-  "P2T-03: 抽取 prompt 升 @5（带 changelog）",
+  PROMPT_EXTRACT.version === "tender-understanding-v2-extract@6",
+  "P2T-03: 抽取 prompt 升 @6（Addendum/跨文档纪律；taxonomy 仍在 @5 扩容之上）",
 );
 
 // 反例守卫：prompt 的 factType 枚举行与 enum 永远同步（解析比对）

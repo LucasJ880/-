@@ -1,4 +1,5 @@
 import { createCompletion } from "@/lib/ai/client";
+import { asLegacyReasoningEffort, resolveModelPolicy } from "@/lib/ai/model-policy";
 import { getRuntimeV2Limits } from "./flags";
 import {
   PlannerOutputSchema,
@@ -317,6 +318,11 @@ ${workerLines}`
   });
 
   try {
+    const policy = resolveModelPolicy({
+      role: "planner",
+      orgId: input.orgId,
+      userId: input.userId,
+    });
     const text = await createCompletion({
       systemPrompt: system,
       userPrompt: user,
@@ -325,6 +331,13 @@ ${workerLines}`
       orgId: input.orgId,
       userId: input.userId,
       agentRunId: input.agentRunId,
+      workflow: "planner",
+      ...(policy.upgraded
+        ? {
+            model: policy.model,
+            reasoningEffort: asLegacyReasoningEffort(policy.reasoningEffort),
+          }
+        : {}),
     });
     const jsonMatch = text.trim().match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

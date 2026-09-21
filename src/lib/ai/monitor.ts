@@ -37,6 +37,16 @@ export interface RecordAiCallInput {
   userId?: string;
   /** 调用点标识（如 "agent-core", "ai-chat"），便于分类 */
   source?: string;
+  workflow?: string;
+  reasoningEffort?: string;
+  cachedInputTokens?: number;
+  toolCalls?: number;
+  retryCount?: number;
+  tenderStage?: string;
+  fallbackUsed?: boolean;
+  promptVersion?: string;
+  requestedModel?: string;
+  flagDecision?: string;
   // ── Phase 1.1：统一执行上下文 correlation（全部可选，向后兼容）──
   traceId?: string;
   runId?: string;
@@ -83,14 +93,27 @@ export function recordAiCall(input: RecordAiCallInput) {
     promptTokens: record.promptTokens,
     completionTokens: record.completionTokens,
     totalTokens: record.totalTokens,
+    cachedInputTokens: input.cachedInputTokens,
     userId: record.userId,
     err: input.error,
+    workflow: input.workflow,
+    reasoningEffort: input.reasoningEffort,
+    toolCalls: input.toolCalls,
+    retryCount: input.retryCount,
+    ...(input.tenderStage ? { tenderStage: input.tenderStage } : {}),
+    ...(typeof input.fallbackUsed === "boolean"
+      ? { fallbackUsed: input.fallbackUsed }
+      : {}),
+    ...(input.promptVersion ? { promptVersion: input.promptVersion } : {}),
+    ...(input.requestedModel ? { requestedModel: input.requestedModel } : {}),
+    actualModel: input.model,
+    ...(input.flagDecision ? { flagDecision: input.flagDecision } : {}),
     // Phase 1.1 correlation（有值才输出）
     ...(input.traceId ? { traceId: input.traceId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.rootRunId ? { rootRunId: input.rootRunId } : {}),
     ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-    ...(input.orgId ? { orgId: input.orgId } : {}),
+    ...(input.orgId ? { orgId: input.orgId, org: input.orgId, organization: input.orgId } : {}),
     ...(input.actorType ? { actorType: input.actorType } : {}),
     ...(input.actorId ? { actorId: input.actorId } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
@@ -111,14 +134,35 @@ export function extractUsage(response: unknown): {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  cachedInputTokens?: number;
 } {
-  const r = response as { usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
+  const r = response as {
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      input_tokens?: number;
+      output_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+      input_tokens_details?: { cached_tokens?: number };
+    };
+  };
   const usage = r?.usage;
   if (!usage) return {};
+  const prompt = usage.prompt_tokens ?? usage.input_tokens;
+  const completion = usage.completion_tokens ?? usage.output_tokens;
+  const cached =
+    usage.prompt_tokens_details?.cached_tokens ??
+    usage.input_tokens_details?.cached_tokens;
   return {
-    promptTokens: usage.prompt_tokens,
-    completionTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
+    promptTokens: prompt,
+    completionTokens: completion,
+    totalTokens:
+      usage.total_tokens ??
+      (prompt != null || completion != null
+        ? (prompt ?? 0) + (completion ?? 0)
+        : undefined),
+    cachedInputTokens: cached,
   };
 }
 
