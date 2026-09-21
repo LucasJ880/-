@@ -208,6 +208,7 @@
     "TenderAnalysisRunDocument",
     "ToolCallTrace",
     "ToolRegistry",
+    "TradeOutreachStep",
     "UserMemory",
     "VisualGenerationJob",
     "VisualizerCatalogTemplateJob",

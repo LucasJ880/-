@@ -78,6 +78,9 @@ function toolRequiredModules(toolName: string, domain: string): OrgModule[] {
 }
 
 function normalizeOrgRole(role: string | undefined | null): OrgRole | null {
+  // org_owner（企业负责人）⊇ org_admin：与 rbac/roles.ts isOrgAdminRole、agent-scope/resolve.ts 口径一致。
+  // 此前漏掉 owner → 企业负责人调用任何 agent 工具都被 org_role_denied（含外贸对话的全部工具）。
+  if (role === "org_owner") return "org_admin";
   if (role === "org_admin" || role === "org_member" || role === "org_viewer") {
     return role;
   }

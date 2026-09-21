@@ -129,11 +129,13 @@ ok(
       "20260906090000_add_inquiry_design_fields",
       "20260906120000_mengxin_fde_revenue_spine",
       "20260908120000_website_inquiry_receipt",
+      "20260920120000_trade_chat_message_attachments",
+      "20260920150000_ai_message_attachments",
       "20260921120000_add_trade_outreach_step",
       "20260921130000_add_trade_quote_product_and_sample",
       "20260921160000_add_trade_sample_follow_up",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeOutreachStep + TradeQuoteProductAndSample + TradeSampleFollowUp",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments + AiMessageAttachments + TradeOutreachStep + TradeQuoteProductAndSample + TradeSampleFollowUp",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

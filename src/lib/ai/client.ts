@@ -26,8 +26,13 @@ export function getClient(): OpenAI {
 // 但支持 reasoning_effort。旧模型（gpt-4o / gpt-5.4 等）相反。
 // 在这里统一适配，调用方无需感知模型差异。
 
+/** GPT-6 系（gpt-6-astra 等）：同为推理模型，且不接受 reasoning_effort="none"（HTTP 400） */
+export function isGpt6Model(model: string): boolean {
+  return /^gpt-6/i.test(model.trim());
+}
+
 export function isReasoningModel(model: string): boolean {
-  return /^(gpt-5\.6|o[0-9])/.test(model);
+  return isGpt6Model(model) || /^(gpt-5\.6|o[0-9])/.test(model);
 }
 
 export function buildTuningParams(
@@ -39,13 +44,12 @@ export function buildTuningParams(
   temperature?: number;
   reasoning_effort?: "none" | "low" | "medium" | "high";
 } {
-  return isReasoningModel(model)
-    ? {
-        // Chat Completions 不支持部分推理模型同时启用 function tools
-        // 和 reasoning_effort；工具轮次关闭推理，普通轮次保留原预设。
-        reasoning_effort: options.hasFunctionTools ? "none" : reasoningEffort,
-      }
-    : { temperature };
+  if (!isReasoningModel(model)) return { temperature };
+  // Chat Completions 不支持部分推理模型同时启用 function tools
+  // 和 reasoning_effort；GPT-5.6 工具轮次关闭推理，普通轮次保留原预设。
+  // GPT-6 不接受 "none"，工具轮次降到 "low"（与 feat/gpt6-astra-migration 的 sanitizeReasoningEffort 一致）。
+  if (!options.hasFunctionTools) return { reasoning_effort: reasoningEffort };
+  return { reasoning_effort: isGpt6Model(model) ? "low" : "none" };
 }
 
 // ── 流式对话 ──────────────────────────────────────────────────

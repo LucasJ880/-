@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { resolveTradeOrgId } from "@/lib/trade/access";
+import { readStoredAttachments, summarizeAttachments } from "@/lib/trade/chat-attachments";
 
 export async function GET(
   request: NextRequest,
@@ -25,7 +26,14 @@ export async function GET(
     return NextResponse.json({ error: "对话不存在" }, { status: 404 });
   }
 
-  return NextResponse.json(session);
+  // 附件正文只留在服务端；浏览器只需要文件名/大小/字数
+  return NextResponse.json({
+    ...session,
+    messages: session.messages.map(({ attachments, ...m }) => ({
+      ...m,
+      attachments: summarizeAttachments(readStoredAttachments(attachments)),
+    })),
+  });
 }
 
 export async function DELETE(

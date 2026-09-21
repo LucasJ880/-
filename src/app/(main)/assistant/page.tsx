@@ -15,6 +15,7 @@ import type { WorkSuggestion } from "@/lib/ai/schemas";
 import type { SimpleProject } from "@/components/work-suggestion-card";
 import { AiServiceConfigHint } from "@/components/ai-service-config-hint";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { useChatAttachments, type AttachmentSummary } from "@/components/chat-attachments";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import { SseLineBuffer } from "@/lib/assistant/sse-line-buffer";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
@@ -82,6 +83,7 @@ interface AiMsg {
   role: "user" | "assistant";
   content: string;
   workSuggestion?: WorkSuggestion | null;
+  attachments?: AttachmentSummary[];
   createdAt: string;
   pendingActions?: ApiPendingAction[];
 }
@@ -129,8 +131,6 @@ function AssistantPageInner() {
   const [projects, setProjects] = useState<SimpleProject[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
-  const [uploadingFile, setUploadingFile] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -204,6 +204,7 @@ function AssistantPageInner() {
           id: m.id,
           role: m.role as "user" | "assistant",
           content: m.content,
+          attachments: m.attachments?.length ? m.attachments : undefined,
           workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
           pendingApprovals: (m.pendingActions ?? []).map((a) =>
             mapApiPendingAction(a, now),
@@ -240,29 +241,8 @@ function AssistantPageInner() {
     }
   };
 
-  const handleFileUpload = async (file: File) => {
-    setUploadingFile(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await apiFetch("/api/ai/upload-file", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "文件上传失败");
-        return;
-      }
-      const data = await res.json();
-      setAttachedFile({ name: data.fileName, text: data.text });
-    } catch (err) {
-      console.error("File upload error:", err);
-      alert("文件解析失败");
-    } finally {
-      setUploadingFile(false);
-    }
-  };
+  // 附件：文档解析 + 图片（存原图 + 识别），随消息提交给 threads 接口
+  const attachments = useChatAttachments({ orgId, imageEndpoint: "/api/ai/upload-image" });
 
   const orgReady = !orgLoading && !!orgId && !ambiguous;
   const orgBlockReason = orgLoading
@@ -300,6 +280,7 @@ function AssistantPageInner() {
             id: m.id,
             role: m.role as "user" | "assistant",
             content: m.content,
+            attachments: m.attachments?.length ? m.attachments : undefined,
             workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
             pendingApprovals: (m.pendingActions ?? []).map((a) =>
               mapApiPendingAction(a, now),
@@ -332,7 +313,9 @@ function AssistantPageInner() {
 
   const handleSend = async (text?: string) => {
     const content = (text || input).trim();
-    if (!content || isLoading) return;
+    const outgoing = attachments.buildPayload();
+    const summaries = attachments.toSummaries();
+    if ((!content && outgoing.length === 0) || isLoading || attachments.isParsing) return;
     if (!orgReady) return;
 
     let threadId = activeThreadId;
@@ -346,6 +329,7 @@ function AssistantPageInner() {
       id: `user-${Date.now()}`,
       role: "user",
       content,
+      attachments: summaries.length ? summaries : undefined,
     };
     let assistantId = `assistant-${Date.now()}`;
     let recoveryExhausted = false;
@@ -359,16 +343,13 @@ function AssistantPageInner() {
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput("");
-    setAttachedFile(null);
+    attachments.clear();
     setIsLoading(true);
 
     try {
       // Phase 3B-A：单一主入口。业务路由由服务端 dispatch 决定，禁止前端 Supervisor→SSE 双路由。
-      const payload: Record<string, string> = { content, orgId };
-      if (attachedFile) {
-        payload.fileText = attachedFile.text;
-        payload.fileName = attachedFile.name;
-      }
+      const payload: Record<string, unknown> = { content, orgId };
+      if (outgoing.length > 0) payload.attachments = outgoing;
 
       const res = await apiFetch(
         `/api/ai/threads/${threadId}/messages`,
@@ -925,10 +906,7 @@ function AssistantPageInner() {
           onInputChange={setInput}
           onSend={handleSend}
           projects={projects}
-          attachedFile={attachedFile}
-          onClearAttachedFile={() => setAttachedFile(null)}
-          onFileUpload={handleFileUpload}
-          uploadingFile={uploadingFile}
+          attachments={attachments}
           onShowMobileSidebar={() => setShowMobileSidebar(true)}
           inputRef={inputRef}
           onApprovalChange={handleApprovalChange}

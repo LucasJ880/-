@@ -17,6 +17,8 @@
  * - projects/{projectId}/...              → 项目读权限
  * - trade-service/{orgId}/...             → org 成员校验
  * - trade/intelligence/{orgId}/...        → org 成员校验
+ * - trade-chat/{orgId}/...              → org 成员校验（外贸 AI 对话图片附件原图）
+ * - ai-chat/{orgId}/...                 → org 成员校验（主助手等 AI 对话图片附件原图）
  * - temp/brochures/...                    → 登录即可（临时画册 PDF）
  */
 
@@ -33,7 +35,7 @@ export {
 } from "./blob-url";
 
 /** 本地验收/无 private Blob store 时：写入仓库外 .data（不进 git） */
-function useLocalBlobStore(): boolean {
+function isLocalBlobStoreEnabled(): boolean {
   return process.env.PRODUCT_CONTENT_LOCAL_STORE === "1";
 }
 
@@ -143,7 +145,7 @@ export interface PutPrivateBlobResult {
 export async function putPrivateBlob(
   args: PutPrivateBlobArgs,
 ): Promise<PutPrivateBlobResult> {
-  if (useLocalBlobStore()) {
+  if (isLocalBlobStoreEnabled()) {
     return putLocalBlob(args);
   }
   try {
@@ -176,6 +178,13 @@ export async function putPrivateBlob(
 /** 删除 Blob（按 URL 或 pathname）。双 store 各删一次（del 幂等，不存在不报错）。 */
 export async function deleteBlob(urlOrPathname: string): Promise<void> {
   const pathname = blobPathnameFromUrl(urlOrPathname);
+  if (isLocalBlobStoreEnabled()) {
+    // 本地验收存储：连同旁路 meta 一起删；不存在不报错
+    const abs = localBlobAbsPath(pathname);
+    fs.rmSync(abs, { force: true });
+    fs.rmSync(`${abs}.meta.json`, { force: true });
+    return;
+  }
   await del(pathname, { token: privateToken() }).catch(() => undefined);
   const legacy = legacyToken();
   if (legacy && legacy !== privateToken()) {
@@ -197,6 +206,18 @@ export async function readBlobStream(
   urlOrPathname: string,
 ): Promise<BlobStreamResult | null> {
   const pathname = blobPathnameFromUrl(urlOrPathname);
+
+  // 本地验收存储：与 readBlobBuffer 对齐，让 /api/files 代理在本地也能回图
+  if (isLocalBlobStoreEnabled()) {
+    const local = readLocalBlob(pathname);
+    if (local) {
+      return {
+        stream: new Blob([new Uint8Array(local.buffer)]).stream(),
+        contentType: local.contentType,
+        size: local.buffer.length,
+      };
+    }
+  }
 
   const tryRead = async (
     target: string,
@@ -230,7 +251,7 @@ export async function readBlobBuffer(
   urlOrPathname: string,
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
   const pathname = blobPathnameFromUrl(urlOrPathname);
-  if (useLocalBlobStore() || pathname.startsWith("product-content/")) {
+  if (isLocalBlobStoreEnabled() || pathname.startsWith("product-content/")) {
     const local = readLocalBlob(pathname);
     if (local) return local;
   }

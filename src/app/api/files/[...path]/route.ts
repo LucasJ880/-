@@ -6,6 +6,8 @@
  * - product-content/{orgId}/...         → org 成员
  * - wechat-visualizer/{orgId}/...       → org 成员
  * - trade-service/{orgId}/...           → org 成员
+ * - trade-chat/{orgId}/...             → org 成员（外贸 AI 对话的图片附件原图）
+ * - ai-chat/{orgId}/...                → org 成员（主助手 / 项目问青砚 / 收件箱的图片附件原图）
  * - trade/intelligence/{orgId}/...      → org 成员
  * - visualizer/catalog/{orgId}/...      → org 成员
  * - visualizer/sessions/{sessionId}/... → session 可见性（创建人/负责人/客户创建人/admin）
@@ -55,7 +57,9 @@ async function authorizeBlobPath(
     case "visual-builder":
     case "product-content":
     case "wechat-visualizer":
-    case "trade-service": {
+    case "trade-service":
+    case "trade-chat":
+    case "ai-chat": {
       if (!second) return "unknown";
       return (await hasOrgAccess(user, second)) ? "ok" : "forbidden";
     }
