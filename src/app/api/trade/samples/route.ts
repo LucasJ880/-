@@ -15,9 +15,11 @@ export async function GET(request: NextRequest) {
   if (!orgRes.ok) return orgRes.response;
 
   const url = new URL(request.url);
+  const waiting = url.searchParams.get("waiting") === "1";
   const rows = await listTradeSamples(orgRes.orgId, {
-    status: url.searchParams.get("status") ?? undefined,
+    status: waiting ? undefined : url.searchParams.get("status") ?? undefined,
     prospectId: url.searchParams.get("prospectId") ?? undefined,
+    waiting,
   });
   return NextResponse.json({ items: rows });
 }

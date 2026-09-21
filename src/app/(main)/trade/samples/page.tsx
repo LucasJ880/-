@@ -22,6 +22,10 @@ interface SampleRow {
   status: string;
   trackingNo: string | null;
   createdAt: string;
+  followUpDueAt: string | null;
+  followedUpAt: string | null;
+  waitingReply?: boolean;
+  overdue?: boolean;
 }
 
 export default function TradeSamplesPage() {
@@ -39,7 +43,8 @@ export default function TradeSamplesPage() {
     }
     setLoading(true);
     const sp = new URLSearchParams({ orgId });
-    if (status) sp.set("status", status);
+    if (status === "waiting") sp.set("waiting", "1");
+    else if (status) sp.set("status", status);
     const res = await apiFetch(`/api/trade/samples?${sp}`);
     if (res.ok) {
       const data = (await res.json()) as { items?: SampleRow[] };
@@ -66,7 +71,7 @@ export default function TradeSamplesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
-        <PageHeader title="寄样" description="人审创建，不自动发邮件。跟踪备样与寄出。" />
+        <PageHeader title="寄样" description="人审创建，不自动发邮件。寄出后 5 个工作日盯买家回音。" />
         <button
           type="button"
           onClick={() => router.push("/trade/samples/new")}
@@ -82,6 +87,7 @@ export default function TradeSamplesPage() {
         className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
       >
         <option value="">全部状态</option>
+        <option value="waiting">等买家回</option>
         {Object.entries(TRADE_SAMPLE_STATUS_LABELS).map(([value, label]) => (
           <option key={value} value={value}>
             {label}
@@ -90,7 +96,9 @@ export default function TradeSamplesPage() {
       </select>
 
       {items.length === 0 ? (
-        <p className="py-16 text-center text-sm text-muted">还没有寄样单。</p>
+        <p className="py-16 text-center text-sm text-muted">
+          {status === "waiting" ? "没有等买家回的寄样。" : "还没有寄样单。"}
+        </p>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border/60">
           <table className="w-full text-left text-xs">
@@ -100,6 +108,7 @@ export default function TradeSamplesPage() {
                 <th className="px-3 py-2">数量</th>
                 <th className="px-3 py-2">目的地</th>
                 <th className="px-3 py-2">状态</th>
+                <th className="px-3 py-2">盯回复</th>
                 <th className="px-3 py-2">运单</th>
                 <th className="px-3 py-2">创建</th>
               </tr>
@@ -123,6 +132,22 @@ export default function TradeSamplesPage() {
                     <span className={cn("rounded-full px-2 py-0.5 text-[10px]", row.status === "shipped" ? "bg-emerald-500/15 text-emerald-400" : "bg-zinc-500/15 text-zinc-300")}>
                       {TRADE_SAMPLE_STATUS_LABELS[row.status as TradeSampleStatus] ?? row.status}
                     </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.waitingReply ? (
+                      <span className={cn("rounded-full px-2 py-0.5 text-[10px]", row.overdue ? "bg-amber-500/15 text-amber-500" : "bg-blue-500/15 text-blue-400")}>
+                        {row.overdue ? "已逾期" : "等买家回"}
+                      </span>
+                    ) : row.followedUpAt ? (
+                      <span className="text-muted">已跟进</span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                    {row.followUpDueAt && row.waitingReply && (
+                      <div className="mt-0.5 text-[10px] text-muted">
+                        {new Date(row.followUpDueAt).toLocaleDateString("zh-CN")}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-muted">{row.trackingNo ?? "—"}</td>
                   <td className="px-3 py-2 text-muted">{new Date(row.createdAt).toLocaleDateString("zh-CN")}</td>

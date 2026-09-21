@@ -89,6 +89,12 @@ interface Thread {
   replied: boolean;
   waitingMinutes: number | null;
   analysis?: AnalysisSummary | null;
+  waitingSample?: {
+    sampleId: string;
+    productName: string;
+    followUpDueAt: string | null;
+    overdue: boolean;
+  } | null;
 }
 
 const CHANNEL_META: Record<string, { label: string; icon: typeof Mail; cls: string }> = {
@@ -362,6 +368,19 @@ export default function TradeInboxPage() {
                         {getTradeProspectStageLabel(t.stage)}
                       </span>
                       {t.score !== null && <span className="text-[10px] text-muted">评分 {t.score.toFixed(1)}</span>}
+                      {t.waitingSample && (
+                        <Link
+                          href={`/trade/samples/${t.waitingSample.sampleId}`}
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                            t.waitingSample.overdue
+                              ? "bg-amber-500/15 text-amber-500"
+                              : "bg-blue-500/15 text-blue-400",
+                          )}
+                        >
+                          {t.waitingSample.overdue ? "寄样已逾期" : "已寄出、等买家回"}
+                        </Link>
+                      )}
                     </div>
                     {t.lastInboundSubject && (
                       <p className="mt-1.5 text-xs font-medium text-foreground/90">{t.lastInboundSubject}</p>
