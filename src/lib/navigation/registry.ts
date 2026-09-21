@@ -498,6 +498,17 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 21.5,
   },
   {
+    key: "biz-trade-samples",
+    label: "寄样",
+    labelKey: "nav_trade_samples",
+    href: "/trade/samples",
+    icon: Package,
+    group: "BUSINESS",
+    moduleKey: "trade",
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    displayOrder: 21.55,
+  },
+  {
     key: "biz-trade-chat",
     label: "外贸 AI 对话",
     labelKey: "nav_trade_chat",

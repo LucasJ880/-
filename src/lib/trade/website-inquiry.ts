@@ -19,6 +19,7 @@ import { addBusinessHours } from "@/lib/revenue-spine/business-days";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
 import { claimInquiryReceipt, fromReceiptPayload, linkReceipt, releaseReceipt } from "./website-inquiry-receipts";
+import { ensureOutreachSequence } from "./outreach-sequence";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 
@@ -530,6 +531,7 @@ export async function ingestWebsiteInquiry(
           stage: "new",
         });
         prospect = { id: created.id, stage: created.stage, companyName: created.companyName, convertedToSalesOpportunityId: null };
+        await ensureOutreachSequence({ orgId, prospectId: created.id }).catch(() => undefined);
       }
       const message = await db.tradeMessage.create({
         data: {

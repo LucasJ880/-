@@ -9,6 +9,7 @@ import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 import { createQuote } from "@/lib/trade/quote-service";
+import { loadTradeProductForOrg, searchTradeProductsForOrg } from "@/lib/trade/product-match";
 
 interface SuggestionItem {
   productName: string;
@@ -17,6 +18,7 @@ interface SuggestionItem {
   quantity?: number;
   unitPriceSuggested?: number | null;
   basis?: string;
+  matchedSku?: string | null;
 }
 interface Suggestion {
   items?: SuggestionItem[];
@@ -52,13 +54,30 @@ export async function POST(
     return NextResponse.json({ error: "还没有 AI 报价建议，可先「重新生成」或直接新建报价" }, { status: 400 });
   }
 
-  const items = suggestion.items.slice(0, 20).map((it) => ({
-    productName: (it.productName || "Item").slice(0, 200),
-    specification: it.specification ? it.specification.slice(0, 500) : undefined,
-    unit: it.unit || "pcs",
-    quantity: Number.isFinite(it.quantity) && (it.quantity ?? 0) > 0 ? Number(it.quantity) : 0,
-    unitPrice: Number.isFinite(it.unitPriceSuggested ?? NaN) ? Number(it.unitPriceSuggested) : 0,
-  }));
+  const items = await Promise.all(
+    suggestion.items.slice(0, 20).map(async (it) => {
+      const sku = it.matchedSku?.trim() || "";
+      const matched = sku
+        ? (await searchTradeProductsForOrg({
+            orgId: orgRes.orgId,
+            sku,
+            take: 1,
+          }))[0]
+        : null;
+      const product = matched
+        ? await loadTradeProductForOrg(matched.id, orgRes.orgId)
+        : null;
+      return {
+        productId: product?.id,
+        sku: product?.sku ?? (sku || undefined),
+        productName: (product?.nameEn || product?.name || it.productName || "Item").slice(0, 200),
+        specification: it.specification ? it.specification.slice(0, 500) : undefined,
+        unit: it.unit || "pcs",
+        quantity: Number.isFinite(it.quantity) && (it.quantity ?? 0) > 0 ? Number(it.quantity) : 0,
+        unitPrice: Number.isFinite(it.unitPriceSuggested ?? NaN) ? Number(it.unitPriceSuggested) : 0,
+      };
+    }),
+  );
   const needsPricing = items.filter((it) => it.unitPrice === 0).length;
 
   const quote = await createQuote(
