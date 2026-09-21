@@ -217,6 +217,11 @@ ok(
   "外贸模块企业显示外贸不显示销售",
 );
 ok(
+  mengxinLike.some((i) => i.href === "/trade/inbox") &&
+    mengxinLike.some((i) => i.href === "/trade/samples"),
+  "外贸模块企业显示询盘收件箱和寄样",
+);
+ok(
   !resolveNavigationTree(
     NAVIGATION_REGISTRY,
     ctx({ hasMembership: true, modules: null }),

@@ -99,6 +99,8 @@ npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
 npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
+npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
+npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts

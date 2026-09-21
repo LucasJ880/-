@@ -18,6 +18,7 @@ import { ConvertTradeQuoteToSalesQuoteDialog } from "../../convert-trade-quote-t
 
 interface QuoteItem {
   id: string;
+  sku: string | null;
   productName: string;
   specification: string | null;
   unit: string;
@@ -243,7 +244,10 @@ export default function QuoteDetailPage() {
           <tbody>
             {q.items.map((item) => (
               <tr key={item.id} className="border-b border-border/30">
-                <td className="px-4 py-2 text-foreground">{item.productName}</td>
+                <td className="px-4 py-2 text-foreground">
+                  <div>{item.productName}</div>
+                  {item.sku && <div className="font-mono text-[10px] text-blue-400">{item.sku}</div>}
+                </td>
                 <td className="px-4 py-2 text-muted">{item.specification ?? "-"}</td>
                 <td className="px-4 py-2 text-right text-foreground">{item.quantity} {item.unit}</td>
                 <td className="px-4 py-2 text-right text-foreground">{q.currency} {item.unitPrice.toFixed(2)}</td>
@@ -355,11 +359,32 @@ function AddItemForm({
   onCancel: () => void;
 }) {
   const [productName, setProductName] = useState("");
+  const [productId, setProductId] = useState("");
+  const [sku, setSku] = useState("");
   const [specification, setSpecification] = useState("");
   const [unit, setUnit] = useState("pcs");
   const [quantity, setQuantity] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [catalog, setCatalog] = useState<Array<{ id: string; sku: string; name: string; nameEn: string | null }>>([]);
+
+  useEffect(() => {
+    const q = (sku || productName).trim();
+    if (q.length < 2) {
+      setCatalog([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      void apiFetch(`/api/trade/products?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(q)}`).then(
+        async (res) => {
+          if (!res.ok) return;
+          const data = (await res.json()) as { items?: Array<{ id: string; sku: string; name: string; nameEn: string | null }> };
+          setCatalog(data.items ?? []);
+        },
+      );
+    }, 250);
+    return () => clearTimeout(t);
+  }, [orgId, sku, productName]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,6 +396,8 @@ function AddItemForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orgId,
+          productId: productId || undefined,
+          sku: sku || undefined,
           productName: productName.trim(),
           specification: specification.trim() || undefined,
           unit,
@@ -386,8 +413,27 @@ function AddItemForm({
 
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border border-border/60 bg-card-bg p-4">
+      {catalog.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {catalog.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                setProductId(p.id);
+                setSku(p.sku);
+                setProductName(p.nameEn || p.name);
+                setCatalog([]);
+              }}
+              className="rounded-md border border-border px-2 py-1 text-[10px]"
+            >
+              {p.sku} · {p.nameEn || p.name}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-6 gap-2">
-        <input value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="产品名称 *" className="col-span-2 rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
+        <input value={productName} onChange={(e) => { setProductName(e.target.value); setProductId(""); }} placeholder="产品名称 *" className="col-span-2 rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
         <input value={specification} onChange={(e) => setSpecification(e.target.value)} placeholder="规格" className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
         <input value={quantity} onChange={(e) => setQuantity(e.target.value)} type="number" placeholder="数量 *" className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />
         <input value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} type="number" step="0.01" placeholder={`单价 (${currency}) *`} className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none" />

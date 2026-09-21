@@ -7,11 +7,12 @@
 
 import type { ResolvedNavItem } from "./types";
 
-/** 外贸员的核心动作面：询盘 → 线索 → 报价 → AI 对话 → 总台 → 知识库 */
+/** 外贸员的核心动作面：询盘 → 线索 → 报价 → 寄样 → AI 对话 → 总台 → 知识库 */
 export const TRADE_PRIMARY_KEYS: readonly string[] = [
   "biz-inbox",
   "biz-prospects",
   "biz-trade-quotes",
+  "biz-trade-samples",
   "biz-trade-chat",
   "biz-trade",
   "mgmt-knowledge",

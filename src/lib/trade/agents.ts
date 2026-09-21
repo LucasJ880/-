@@ -279,7 +279,7 @@ export async function generateOutreachEmail(
   report: ResearchReport,
   productDesc: string,
   senderInfo: { companyName: string; senderName: string },
-  opts?: { language?: string; orgId?: string },
+  opts?: { language?: string; orgId?: string; sequenceCategory?: "first" | "follow_up_d3" | "follow_up_d7" },
 ): Promise<OutreachDraft> {
   const targetLang = opts?.language ?? detectLanguage(prospect.country);
   const langInstruction = targetLang === "English"
@@ -293,15 +293,25 @@ export async function generateOutreachEmail(
     } catch { /* knowledge not available yet */ }
   }
 
+  const category = opts?.sequenceCategory ?? "first";
+  const sequenceInstruction =
+    category === "follow_up_d3"
+      ? "这是第 3 天跟进信：比首封更短，提醒对方已联系过，补充一个具体价值点，仍要明确 CTA。不要重复整封首封。"
+      : category === "follow_up_d7"
+        ? "这是第 7 天收口信：礼貌收尾，给对方一个轻松的是/否选择，不要施压，不要编造折扣或库存。"
+        : "这是首封开发信。";
+
   const raw = await createCompletion({
-    systemPrompt: `你是专业外贸开发信写手。根据客户研究报告生成个性化的首封开发邮件。
+    systemPrompt: `你是专业外贸开发信写手。根据客户研究报告生成个性化开发邮件。
+
+${sequenceInstruction}
 
 要求：
 1. ${langInstruction}，同时附上中文翻译版（供老板审阅理解）
 2. 主题行简洁有力，提及对方公司或行业
-3. 正文 150-250 词，包含：简要自我介绍、为什么联系对方（基于研究）、产品价值主张、明确的行动号召（CTA）
+3. 正文 150-250 词（跟进信可更短），包含：简要自我介绍、为什么联系对方（基于研究）、产品价值主张、明确的行动号召（CTA）
 4. 语气专业但友好，不要过于推销
-5. 不要虚构任何事实
+5. 不要虚构任何事实，不要编造联系人或邮箱
 
 用 JSON 格式返回：
 {"subject": "外语主题", "body": "外语正文", "subjectZh": "中文主题", "bodyZh": "中文正文"}`,
