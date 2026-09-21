@@ -344,8 +344,7 @@ async function main() {
       const otherInq = await db.projectInquiry.findFirstOrThrow({ where: { projectId: other.id } });
       const qOther = await itemOf(otherInq.id, supA.id);
       await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-WP：其它项目的报价 → 拒", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supA.id, offeringId: offA.id, commercialInquiryItemId: qOther }));
-      const qSent = (await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: supT.id, status: "sent", sentAt: new Date(), repliedAt: null, totalPrice: null, currency: "CAD", createdById: owner.id } })).id;
-      await db.inquiryItem.delete({ where: { id: qSent } }); // (inquiryId, supplierId) 唯一：换一轮放未回复的
+      // (inquiryId, supplierId) 唯一：未回复的报价放到第 2 轮
       const round2 = await mkInquiry(proj.id, 2, [{ supplierId: supT.id, status: "sent", sent: true, replied: false }]);
       const qSent2 = await itemOf(round2.id, supT.id);
       await expectErr("COMMERCIAL_EVIDENCE_BINDING_INVALID", "FR1-UC：已发送未回复的报价 → 拒（不能变成 RFQ_CONFIRMED）", () => evalRun.createProjectEvaluationRun(actorWriter, { projectId: proj.id, supplierId: supT.id, offeringId: offT1.id, commercialInquiryItemId: qSent2 }));
