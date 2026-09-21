@@ -19,6 +19,7 @@ import Link from "next/link";
 import { AlertTriangle, ExternalLink, Loader2, Search } from "lucide-react";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { classifyRunExecutionState } from "@/lib/supplier-intel/run-execution-state";
+import { isEvaluationOnlyRun } from "@/lib/supplier-intel/evaluation-display";
 import { runStatusDisplay } from "@/lib/supplier-intel/workspace-labels";
 import { RequirementsPanel } from "./requirements-panel";
 import { RunsPanel } from "./runs-panel";
@@ -62,8 +63,10 @@ export function ProcurementWorkspace({ projectId }: { projectId: string | null }
 
   // 服务端裁决的有效写权限；前端隐藏按钮只是体验，每个写操作仍在服务端独立鉴权
   const canWrite = view?.canWrite === true;
+  // S4-A：评估运行（EVALUATION_ONLY）不是搜索——进行中的评估不阻断「开始找供应商」，
+  // 也不显示成「搜索未收尾」；它在搜索记录里有自己的卡片与出口。
   const activeRun = useMemo(
-    () => runs?.find((r) => r.status === "PLANNED" || r.status === "RUNNING") ?? null,
+    () => runs?.find((r) => (r.status === "PLANNED" || r.status === "RUNNING") && !isEvaluationOnlyRun(r)) ?? null,
     [runs],
   );
   // FR1-F：执行态由声明决定，不是由 Run.status 决定。RUNNING 且声明已过期

@@ -43,14 +43,14 @@ ok("只有 trade 角色启用两段式", () => {
   assert.equal(usesTradeLayout(null), false);
 });
 
-ok("核心段按既定顺序：询盘收件箱 → 线索资产 → 外贸报价 → AI 对话 → 总台 → 知识库", () => {
+ok("核心段按既定顺序：询盘收件箱 → 线索资产 → 外贸报价 → 寄样 → AI 对话 → 总台 → 知识库", () => {
   assert.deepEqual(
     primary.map((i) => i.key),
     TRADE_PRIMARY_KEYS.filter((k) => tree.some((i) => i.key === k)),
   );
   assert.deepEqual(
     primary.map((i) => i.href),
-    ["/trade/inbox", "/trade/prospects", "/trade/quotes", "/trade/chat", "/trade", "/knowledge"],
+    ["/trade/inbox", "/trade/prospects", "/trade/quotes", "/trade/samples", "/trade/chat", "/trade", "/knowledge"],
   );
 });
 

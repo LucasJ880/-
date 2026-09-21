@@ -1,9 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { apiFetch, apiJson } from "@/lib/api-fetch";
-import { PageHeader } from "@/components/page-header";
-import { Label } from "@/components/ui/label";
 import {
   Mail,
   CheckCircle,
@@ -15,6 +12,12 @@ import {
   ChevronDown,
   Sparkles,
 } from "lucide-react";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { PageHeader } from "@/components/page-header";
+import { Label } from "@/components/ui/label";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+
+const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
 interface GmailState {
   connected: boolean;
@@ -64,6 +67,9 @@ const PRESETS = [
 ];
 
 export default function EmailBindingPage() {
+  const { orgId, organizations, loading: orgLoading } = useCurrentOrgId();
+  const currentOrg = organizations.find((o) => o.id === orgId);
+  const isMengxinOrg = currentOrg?.code === MENGXIN_ORG_CODE;
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
 
@@ -218,7 +224,7 @@ export default function EmailBindingPage() {
     setSmtpPort(p.port);
   };
 
-  if (loading || statusLoading) {
+  if (loading || statusLoading || orgLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="animate-spin text-muted-foreground" />
@@ -233,11 +239,31 @@ export default function EmailBindingPage() {
     <div className="space-y-6 max-w-2xl">
       <PageHeader
         title="邮箱绑定"
-        description="绑定一次，报价 / 通知邮件自动从你的邮箱发给客户"
+        description={
+          isMengxinOrg
+            ? "梦馨官网询盘走 Resend，不使用 Gmail。下方 Gmail 属于登录账号的个人绑定。"
+            : "绑定一次，报价 / 通知邮件自动从你的邮箱发给客户"
+        }
       />
 
+      {isMengxinOrg && (
+        <div className="rounded-xl border border-border bg-card-bg p-3 text-sm">
+          <div className="flex items-start gap-2">
+            <Mail size={16} className="mt-0.5 shrink-0 text-accent" />
+            <div>
+              <p className="font-medium text-foreground">梦馨当前发信：Resend（非 Gmail）</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                官网询盘发到 Cathy，并抄送 QQ，同时写入青砚外贸询盘。你看到的 Gmail
+                {gmail?.email ? `（${gmail.email}）` : ""}
+                是登录账号的个人绑定，切回 Sunny 才会用于青砚发信。请不要断开，以免影响 Sunny。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── 当前生效通道提示 ─── */}
-      {activeChannel && (
+      {!isMengxinOrg && activeChannel && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-sm text-emerald-800">
           <div className="flex items-center gap-2">
             <CheckCircle size={16} className="text-emerald-600" />
@@ -252,6 +278,7 @@ export default function EmailBindingPage() {
       )}
 
       {/* ─── Google OAuth 一键授权（主推） ─── */}
+      {!isMengxinOrg && (
       <div className="rounded-xl border-2 border-accent/30 bg-gradient-to-br from-accent/5 to-transparent p-5">
         <div className="flex items-start gap-3">
           <div className="shrink-0 rounded-lg bg-card-bg p-2 shadow-sm">
@@ -323,6 +350,7 @@ export default function EmailBindingPage() {
           </div>
         </div>
       </div>
+      )}
 
       {msg && (
         <p className={`text-sm ${msg.includes("成功") || msg.includes("已保存") || msg.includes("已断开") ? "text-emerald-600" : "text-red-500"}`}>
@@ -330,6 +358,8 @@ export default function EmailBindingPage() {
         </p>
       )}
 
+      {!isMengxinOrg && (
+      <>
       {/* ─── 高级：SMTP 手动配置（折叠） ─── */}
       <div className="rounded-xl border border-border bg-card-bg/60">
         <button
@@ -529,6 +559,8 @@ export default function EmailBindingPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

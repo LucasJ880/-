@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { addQuoteItem, removeQuoteItem } from "@/lib/trade/quote-service";
 import { loadTradeQuoteForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import { loadTradeProductForOrg } from "@/lib/trade/product-match";
 import { db } from "@/lib/db";
 
 export async function POST(
@@ -23,7 +24,29 @@ export async function POST(
     return NextResponse.json({ error: "productName, quantity, unitPrice 必填" }, { status: 400 });
   }
 
-  const item = await addQuoteItem(id, body);
+  let productId: string | undefined;
+  let sku: string | undefined;
+  if (typeof body.productId === "string" && body.productId.trim()) {
+    const product = await loadTradeProductForOrg(body.productId, orgRes.orgId);
+    if (!product) {
+      return NextResponse.json({ error: "货号不存在或不属于当前组织" }, { status: 403 });
+    }
+    productId = product.id;
+    sku = product.sku;
+  }
+
+  const item = await addQuoteItem(id, {
+    productId,
+    sku: sku ?? (typeof body.sku === "string" ? body.sku : undefined),
+    productName: productId
+      ? body.productName
+      : body.productName,
+    specification: body.specification,
+    unit: body.unit,
+    quantity: body.quantity,
+    unitPrice: body.unitPrice,
+    remarks: body.remarks,
+  });
   return NextResponse.json(item, { status: 201 });
 }
 

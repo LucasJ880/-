@@ -10,6 +10,7 @@ import { updateProspect } from "@/lib/trade/service";
 import { generateOutreachEmail } from "@/lib/trade/agents";
 import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import { syncFirstStepDraft } from "@/lib/trade/outreach-sequence";
 
 export async function POST(
   request: NextRequest,
@@ -60,6 +61,7 @@ export async function POST(
     outreachBody: draft.body,
     outreachLang: "en",
   });
+  await syncFirstStepDraft({ orgId: orgRes.orgId, prospectId: id, draft });
 
   return NextResponse.json({ draft });
 }

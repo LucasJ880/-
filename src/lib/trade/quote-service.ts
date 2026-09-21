@@ -36,6 +36,8 @@ export interface CreateQuoteInput {
   notes?: string;
   internalNotes?: string;
   items?: {
+    productId?: string;
+    sku?: string;
     productName: string;
     specification?: string;
     unit?: string;
@@ -50,6 +52,8 @@ export async function createQuote(input: CreateQuoteInput, userId: string) {
 
   const items = (input.items ?? []).map((item, i) => ({
     sortOrder: i,
+    productId: item.productId,
+    sku: item.sku,
     productName: item.productName,
     specification: item.specification,
     unit: item.unit ?? "pcs",
@@ -155,6 +159,8 @@ export async function recalcQuote(id: string) {
 }
 
 export async function addQuoteItem(quoteId: string, item: {
+  productId?: string;
+  sku?: string;
   productName: string;
   specification?: string;
   unit?: string;
@@ -171,6 +177,8 @@ export async function addQuoteItem(quoteId: string, item: {
     data: {
       quoteId,
       sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
+      productId: item.productId,
+      sku: item.sku,
       productName: item.productName,
       specification: item.specification,
       unit: item.unit ?? "pcs",

@@ -15,6 +15,11 @@ import { searchGoogle, type SearchResult } from "@/lib/trade/tools";
 import { scrapePage } from "@/lib/trade/research-fetch-provider";
 import { loadTradeCampaignForOrg } from "@/lib/trade/access";
 import { logActivity } from "@/lib/trade/activity-log";
+import {
+  buildIntelligenceResearchBundle,
+  extractObservedEmail,
+} from "@/lib/trade/intelligence-to-research";
+import { ensureOutreachSequence } from "@/lib/trade/outreach-sequence";
 import type {
   IntelligenceCandidate,
   IntelligenceContactCandidate,
@@ -819,6 +824,24 @@ function pickCandidateList(
   return [];
 }
 
+const INTELLIGENCE_CAMPAIGN_NAME = "企业情报";
+
+export async function ensureIntelligenceCampaign(orgId: string, userId: string) {
+  const existing = await db.tradeCampaign.findFirst({
+    where: { orgId, name: INTELLIGENCE_CAMPAIGN_NAME },
+  });
+  if (existing) return existing;
+  return db.tradeCampaign.create({
+    data: {
+      orgId,
+      name: INTELLIGENCE_CAMPAIGN_NAME,
+      productDesc: "企业情报确认买家后转入",
+      targetMarket: "intelligence",
+      createdById: userId,
+    },
+  });
+}
+
 export async function convertCaseToTradeProspect(params: {
   caseRow: TradeIntelligenceCase;
   orgId: string;
@@ -831,21 +854,13 @@ export async function convertCaseToTradeProspect(params: {
   }
 
   let campaignId = norm(body.createCampaignId);
-  if (!campaignId) {
-    const first = await db.tradeCampaign.findFirst({
-      where: { orgId, status: { not: "completed" } },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true },
-    });
-    if (!first) {
-      return { error: "当前组织下没有可用活动，请先创建活动或在请求中指定 createCampaignId", status: 400 };
-    }
-    campaignId = first.id;
-  } else {
+  if (campaignId) {
     const camp = await loadTradeCampaignForOrg(campaignId, orgId);
     if (camp instanceof NextResponse) {
       return { error: "活动不存在或不属于当前组织", status: 403 };
     }
+  } else {
+    campaignId = (await ensureIntelligenceCampaign(orgId, userId)).id;
   }
 
   const list = pickCandidateList(caseRow, body.candidateRole);
@@ -865,21 +880,14 @@ export async function convertCaseToTradeProspect(params: {
   }
 
   const evidenceUrls = (cand.evidence ?? []).map((e) => e.url).filter(Boolean).slice(0, 12);
-  const reportJson = {
-    intelligenceCaseId: caseRow.id,
+  const researchBundle = buildIntelligenceResearchBundle({
+    caseTitle: caseRow.title,
     productName: caseRow.productName,
     brand: caseRow.brand,
-    upc: caseRow.upc,
-    mpn: caseRow.mpn,
+    candidate: cand,
     evidenceUrls,
-    confidence: cand.confidence,
-    candidateRole: body.candidateRole,
-    candidateName: cand.name,
-    candidateIndex: idx,
-    candidateWebsite: website,
-    reason: cand.reason,
-    riskFlags: cand.riskFlags ?? [],
-  };
+  });
+  const observedEmail = extractObservedEmail(caseRow.contactCandidates, cand.name);
 
   const notesLines = [
     `[trade_intelligence] intelligenceCaseId=${caseRow.id}`,
@@ -918,11 +926,14 @@ export async function convertCaseToTradeProspect(params: {
           companyName: cand.name.slice(0, 240),
           website,
           country: cand.country,
+          contactEmail: observedEmail,
           source: "trade_intelligence",
-          stage: "discovered",
-          researchStatus: website ? "research_pending" : "website_needed",
-          researchReport: reportJson as object,
+          stage: "qualified",
+          researchStatus: "researched",
+          researchReport: researchBundle as object,
           scoreReason: scoreReason.slice(0, 12000),
+          lastResearchedAt: new Date(),
+          ownerId: userId,
         },
       });
 
@@ -945,6 +956,8 @@ export async function convertCaseToTradeProspect(params: {
       }
       return prospect;
     });
+
+    await ensureOutreachSequence({ orgId, prospectId: result.id });
 
     await logActivity({
       orgId,

@@ -95,6 +95,26 @@ export async function assertProjectAccessForActor(
  *                              两者同样只取 dispatched
  * 跨 org 一律不入集合；用户须 active。
  */
+/**
+ * 权限**探测**（给 UI 决定显不显示按钮用）：只把授权类失败（PROJECT_ACCESS_DENIED / NOT_FOUND）
+ * 映射成 false；数据库连接、事务超时等基础设施错误一律抛出。
+ * 否则一次 P2028 就会把整页按钮变没（返回 200 但 canWrite=false），用户看到的是「没权限」，
+ * 实际上是「数据库抖了一下」——S4-A 浏览器验收在疲劳分支上实测撞到这一点。
+ */
+export async function probeProjectAccess(
+  actor: SupplierIntelActor,
+  projectId: string,
+  level: ProjectAccessLevel,
+): Promise<boolean> {
+  try {
+    await assertProjectAccessForActor(actor, projectId, level);
+    return true;
+  } catch (err) {
+    if (err instanceof SupplierIntelError) return false;
+    throw err;
+  }
+}
+
 export type ProjectAccessScope =
   | { unrestricted: true }
   | { unrestricted: false; projectIds: string[] };

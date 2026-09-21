@@ -7,6 +7,9 @@ import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+
+const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
 interface GoogleStatus {
   connected: boolean;
@@ -48,6 +51,9 @@ const GOOGLE_ERROR_HINTS: Record<string, string> = {
 
 function SettingsContent() {
   const { isPlatformAdmin } = useCurrentUser();
+  const { orgId, organizations, loading: orgLoading } = useCurrentOrgId();
+  const currentOrg = organizations.find((o) => o.id === orgId);
+  const isMengxinOrg = currentOrg?.code === MENGXIN_ORG_CODE;
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -361,25 +367,43 @@ function SettingsContent() {
         </div>
       </div>
 
-      {/* Gmail 邮件服务 */}
+      {/* Gmail 邮件服务 — 绑定挂在登录账号上，切组织不会换成企业邮箱 */}
       <div className="mt-4 rounded-xl border border-border bg-card-bg">
         <div className="flex items-center gap-3 border-b border-border px-5 py-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
             <Mail size={20} className="text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold">Gmail 邮件发送</h2>
+            <h2 className="text-sm font-semibold">
+              {isMengxinOrg ? "梦馨发信通道" : "Gmail 邮件发送"}
+            </h2>
             <p className="text-xs text-muted">
-              绑定后，可在询价流程中通过青砚直接发送邮件给供应商（AI 生成草稿 → 确认 → 发送）
+              {isMengxinOrg
+                ? "官网询盘由 Resend 发到 Cathy / QQ，并写入青砚外贸询盘。梦馨不使用 Gmail。"
+                : "绑定后，可在询价流程中通过青砚直接发送邮件给供应商（AI 生成草稿 → 确认 → 发送）"}
             </p>
           </div>
         </div>
 
         <div className="px-5 py-4">
-          {gmailLoading ? (
+          {orgLoading || gmailLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted">
               <Loader2 size={14} className="animate-spin" />
               检查连接状态...
+            </div>
+          ) : isMengxinOrg ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#2e7a56]" />
+                <span className="text-sm font-medium text-[#2e7a56]">官网询盘：Resend</span>
+                <span className="text-sm text-muted">inquiry@mengxinhometextile.com</span>
+              </div>
+              <p className="text-xs leading-relaxed text-muted">
+                这不是梦馨的 Gmail 企业绑定。工厂收件箱是 Cathy 的业务邮箱，客户确认信也由 Resend 发出。
+                {gmail?.connected
+                  ? ` 你登录账号上仍绑着 Gmail（${gmail.email}），那是个人/其他企业用的，切回 Sunny 才会用于青砚发信。请不要在此解除，以免影响 Sunny。`
+                  : ""}
+              </p>
             </div>
           ) : gmail?.connected ? (
             <div className="space-y-3">
@@ -388,6 +412,9 @@ function SettingsContent() {
                 <span className="text-sm font-medium text-[#2e7a56]">已绑定</span>
                 <span className="text-sm text-muted">{gmail.email}</span>
               </div>
+              <p className="text-xs text-muted">
+                这是当前登录账号的个人 Gmail，不是企业级绑定。切换组织后仍会显示同一邮箱。
+              </p>
               {gmail.needsReauth && (
                 <p className="text-xs text-[#a67c3d]">
                   缺少 <code className="rounded bg-[rgba(110,125,118,0.08)] px-1 py-0.5 text-[10px]">gmail.compose</code>
@@ -429,6 +456,7 @@ function SettingsContent() {
           )}
         </div>
 
+        {!isMengxinOrg && (
         <div className="border-t border-border px-5 py-3">
           <details className="group rounded-lg border border-border/80 bg-background/40">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
@@ -469,6 +497,7 @@ function SettingsContent() {
             </div>
           </details>
         </div>
+        )}
       </div>
     </div>
   );

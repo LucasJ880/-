@@ -395,6 +395,12 @@ export default function TradeInboxPage() {
                     <Link href={quoteHref} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:border-accent/50 hover:text-accent">
                       <FileText size={12} /> 新建报价
                     </Link>
+                    <Link
+                      href={`/trade/samples/new?prospectId=${encodeURIComponent(t.prospectId)}&recipientName=${encodeURIComponent(t.contactName ?? "")}&recipientEmail=${encodeURIComponent(t.contactEmail ?? "")}&destination=${encodeURIComponent(t.country ?? "")}${t.analysis?.quoteSuggestion?.items[0]?.productName ? `&productName=${encodeURIComponent(t.analysis.quoteSuggestion.items[0].productName)}` : ""}${t.analysis?.quoteSuggestion?.items[0]?.matchedSku ? `&sku=${encodeURIComponent(t.analysis.quoteSuggestion.items[0].matchedSku)}` : ""}`}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:border-accent/50 hover:text-accent"
+                    >
+                      开寄样单
+                    </Link>
                     {!t.replied && (
                       <button
                         type="button"

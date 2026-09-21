@@ -211,3 +211,53 @@ export interface ArchiveEvidenceOption {
   title: string | null;
   sourceHost: string | null;
 }
+
+/* ───────────────── S4-A：评估运行 ───────────────── */
+
+export interface EvaluationRunListRow {
+  id: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  evaluationVersion: string;
+  candidates: Array<{
+    id: string; supplierId: string; supplierName: string; offeringId: string | null; offeringName: string | null;
+    offeringSku: string | null; mandatoryGateResult: string; recommendation: string | null; rejectionReason: string | null;
+  }>;
+}
+
+export interface EvaluationRequirementRowView {
+  entry: { id: string; code: string; text: string; category: string | null; mandatory: true | false | "uncertain"; mandatorySignal: string | null };
+  display: { textZh: string | null; textZhIsChinese: boolean; sources: Array<{ documentTitle?: string | null; locationLabel?: string | null; snippet?: string }> } | null;
+  match: { id: string; verdict: string; evaluatedBy: string; explanation: string | null; confidence: number | null; evidence: unknown; createdAt: string } | null;
+  suggestion: { ruleId: string; verdict: "PASS" | "FAIL" | "UNKNOWN"; explanation: string; evidence: unknown[] } | null;
+}
+
+export interface EvaluationCandidateView {
+  id: string;
+  supplier: { id: string; name: string };
+  offering: { id: string; name: string; sku: string | null } | null;
+  originSource: string;
+  supplierSnapshot: unknown;
+  offeringSnapshot: unknown;
+  mandatoryGateResult: string;
+  mandatoryGate: { result: string; items: Array<{ requirementKey: string; gateVerdict: string; reasonCode: string; matchVerdict: string | null }>; summary: Record<string, number> } | null;
+  recommendation: string | null;
+  rejectionReason: string | null;
+  scores: { technical: number | null; commercial: number | null; reliability: number | null; importRisk: number | null; total: number | null };
+  requirements: EvaluationRequirementRowView[];
+  evidenceOptions: {
+    certifications: Array<{ id: string; certificationType: string; scope: string; offeringId: string | null; status: string; validFrom: string | null; expiresAt: string | null; certificateNumber: string | null; expiredByDate: boolean; scopeCompatible: boolean }>;
+    signals: Array<{ id: string; title: string; platform: string; contentUrl: string | null }>;
+    archives: Array<{ id: string; kind: string; mimeType: string; capturedAt: string }>;
+  };
+}
+
+export interface EvaluationViewPayload {
+  run: { id: string; status: string; runMode: "EVALUATION_ONLY"; createdAt: string; completedAt: string | null; evaluationVersion: string; scoreVersion: string; requirementSnapshotVersion: string | null; sourceDiscoveryRunId: string | null; statusDetail: unknown };
+  project: { id: string; name: string | null };
+  canWrite: boolean;
+  requirementCount: number;
+  mandatoryCount: number;
+  candidates: EvaluationCandidateView[];
+}
