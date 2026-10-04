@@ -21,6 +21,7 @@ import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { classifyRunExecutionState } from "@/lib/supplier-intel/run-execution-state";
 import { isEvaluationOnlyRun } from "@/lib/supplier-intel/evaluation-display";
 import { runStatusDisplay } from "@/lib/supplier-intel/workspace-labels";
+import { RankingPanel } from "./ranking-panel";
 import { RequirementsPanel } from "./requirements-panel";
 import { RunsPanel } from "./runs-panel";
 import { ScopeGuard } from "./scope-guard";
@@ -32,12 +33,13 @@ import {
   type SearchRunRow,
 } from "./types";
 
-type TabKey = "requirements" | "signals" | "runs";
+type TabKey = "requirements" | "signals" | "runs" | "racing";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "requirements", label: "采购要求" },
   { key: "signals", label: "供应商线索" },
   { key: "runs", label: "搜索记录" },
+  { key: "racing", label: "供应商赛马" },
 ];
 
 const ACTIVE_POLL_MS = 4000;
@@ -453,6 +455,7 @@ export function ProcurementWorkspace({ projectId }: { projectId: string | null }
       </div>
 
       {tab === "requirements" ? <RequirementsPanel view={view} /> : null}
+      {tab === "racing" ? <RankingPanel orgId={orgId} projectId={projectId} /> : null}
       {tab === "signals" ? (
         <SignalsPanel
           orgId={orgId}

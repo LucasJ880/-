@@ -59,6 +59,11 @@ export type SupplierIntelErrorCode =
   | "ARCHIVE_PROJECT_MISMATCH"   // 档案证据不属于本评估的项目
   | "GATE_PENDING"               // 还有候选没算硬门，不能收口
   | "NO_CANDIDATE"               // 评估运行里没有任何候选，不能收口
+  // S4-B：能力核验（唯一 VERIFIED 写路径）
+  | "CAPABILITY_VERIFY_REQUIRES_EVIDENCE" // VERIFIED 需要独立档案证据
+  | "SOURCE_SIGNAL_NOT_LINKED"            // 出处线索尚未归属到供应商
+  // S4-B FR1：正式报价必须由人显式绑定到本次评估的 Supplier × Offering，且服务端重验
+  | "COMMERCIAL_EVIDENCE_BINDING_INVALID"
   | "NO_DETERMINISTIC_RULE"      // 该要求没有可用的确定性规则
   | "INVALID_SIGNAL_TRANSITION"
   | "INVALID_CERT_TRANSITION"
@@ -80,6 +85,9 @@ const DEFAULT_STATUS: Partial<Record<SupplierIntelErrorCode, number>> = {
   ARCHIVE_PROJECT_MISMATCH: 422,
   GATE_PENDING: 409,
   NO_CANDIDATE: 409,
+  CAPABILITY_VERIFY_REQUIRES_EVIDENCE: 422,
+  SOURCE_SIGNAL_NOT_LINKED: 422,
+  COMMERCIAL_EVIDENCE_BINDING_INVALID: 422,
   NO_DETERMINISTIC_RULE: 422,
   INVALID_SIGNAL_TRANSITION: 409,
   INVALID_CERT_TRANSITION: 409,
