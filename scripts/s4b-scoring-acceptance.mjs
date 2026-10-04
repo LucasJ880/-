@@ -213,8 +213,11 @@ async function main() {
     console.log("\n== FLOW G：当前排名 → PRIMARY / BACKUP，排名原因可见；P1 ≠ PRIMARY ==");
     await page.goto(`${BASE}/projects/intelligence/supply-chain?projectId=${encodeURIComponent(PROJ)}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[role="tablist"][aria-label="采购工作台"]', { timeout: 120_000 });
+    for (const t of ["采购要求", "供应商线索", "搜索记录", "供应商赛马"]) ok((await page.getByRole("tab", { name: t }).count()) === 1, `G0：工作台入口四个 Tab 之「${t}」存在`);
     await page.getByRole("tab", { name: "供应商赛马" }).click();
     await page.waitForSelector('[data-testid="ranking-sections"]', { timeout: 90_000 });
+    const racingHead = await page.locator('[data-testid="racing-table"] thead').innerText();
+    ok(["Supplier", "Source", "找厂优先级", "Gate", "RFQ", "Score", "Current Rank", "下一步"].every((h) => racingHead.includes(h)), "G0b：赛马表列齐全：供应商 / 来源 / 找厂优先级 / Gate / RFQ / Score / Current Rank / Next Action", racingHead);
     ok((await page.locator('[data-testid="ranking-disclaimer"]').innerText()).includes("历史评估记录本身不会被改写"), "G1：明说「动态计算；历史记录不改写」");
     const rk = await apiRanking(ctx);
     const primary = rk.json.view.sections.PRIMARY; const backup = rk.json.view.sections.BACKUP;
