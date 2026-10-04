@@ -2,6 +2,15 @@
  * 货号匹配与寄样状态机。
  * 运行：npx tsx src/lib/trade/__tests__/product-sample.test.ts
  */
+import {
+  commercialFromFacts,
+  formatFobPrice,
+  formatLeadTimeDays,
+  formatMoq,
+  normalizeCatalogDraft,
+  parseFobPrice,
+  parseLeadTimeDays,
+} from "../catalog";
 import { parseInquiryQuantity, rankProductMatch, tokenizeProductQuery } from "../product-match";
 import {
   SAMPLE_FOLLOW_UP_BUSINESS_DAYS,
@@ -87,6 +96,28 @@ function run() {
       lastInboundAt: "2026-09-09T00:00:00Z",
     }),
     "寄出前的进线仍算等买家回",
+  );
+
+  ok(formatFobPrice(8.5) === "USD 8.5", "FOB 写成档案价");
+  ok(parseFobPrice("USD 8.50") === 8.5, "档案 FOB 能读回数字");
+  ok(formatMoq("500") === "500 pcs", "纯数字起订量补单位");
+  ok(formatMoq("500 pcs") === "500 pcs", "已有单位的起订量不重复补");
+  ok(formatLeadTimeDays(30) === "30 days" && parseLeadTimeDays("30-35 days") === 35, "交期按天数读写");
+  ok(!normalizeCatalogDraft({ sku: "", name: "浴袍" }).ok, "没有货号不能保存");
+  const draft = normalizeCatalogDraft({
+    sku: " MX-1 ",
+    name: "珊瑚绒浴袍",
+    fobPrice: "8.5",
+    moq: "500",
+    leadTimeDays: "30",
+  });
+  ok(draft.ok && draft.draft.sku === "MX-1" && draft.draft.fobPrice === 8.5, "货号草稿去掉空白并解析 FOB");
+  ok(
+    commercialFromFacts([
+      { fieldKey: "fob_price", value: "USD 1", status: "extracted" },
+      { fieldKey: "fob_price", value: "USD 8.50", status: "confirmed" },
+    ]).fobPrice === 8.5,
+    "已确认的 FOB 覆盖抽取值",
   );
 
   console.log(`product-sample: ${pass} passed, ${fail} failed`);

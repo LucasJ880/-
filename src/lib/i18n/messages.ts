@@ -80,6 +80,7 @@ export interface Messages {
   nav_trade_channels: string;
   nav_trade_inbox: string;
   nav_trade_samples: string;
+  nav_trade_products: string;
   nav_trade_chat: string;
   nav_trade_more: string;
   nav_trade_primary: string;

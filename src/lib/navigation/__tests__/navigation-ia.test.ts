@@ -218,8 +218,9 @@ ok(
 );
 ok(
   mengxinLike.some((i) => i.href === "/trade/inbox") &&
-    mengxinLike.some((i) => i.href === "/trade/samples"),
-  "外贸模块企业显示询盘收件箱和寄样",
+    mengxinLike.some((i) => i.href === "/trade/samples") &&
+    mengxinLike.some((i) => i.href === "/trade/products"),
+  "外贸模块企业显示询盘收件箱、寄样和货号",
 );
 ok(
   !resolveNavigationTree(
