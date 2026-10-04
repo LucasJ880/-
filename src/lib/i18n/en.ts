@@ -77,6 +77,7 @@ export const en: Messages = {
   nav_trade_channels: "Message Channels",
   nav_trade_inbox: "Inquiry Inbox",
   nav_trade_samples: "Samples",
+  nav_trade_products: "SKUs",
   nav_trade_chat: "Trade AI Chat",
   nav_trade_more: "More",
   nav_trade_primary: "Trade Work",
