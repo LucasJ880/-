@@ -3,6 +3,7 @@
  */
 
 import { db } from "@/lib/db";
+import { commercialFromFacts } from "@/lib/trade/catalog";
 
 export type TradeProductMatch = {
   id: string;
@@ -11,6 +12,9 @@ export type TradeProductMatch = {
   nameEn: string | null;
   category: string | null;
   status: string;
+  fobPrice: number | null;
+  moq: string | null;
+  leadTimeDays: number | null;
 };
 
 export function parseInquiryQuantity(raw?: string | null): number {
@@ -73,7 +77,21 @@ export async function searchTradeProductsForOrg(input: {
     where,
     take: take * 3,
     orderBy: { updatedAt: "desc" },
-    select: { id: true, sku: true, name: true, nameEn: true, category: true, status: true },
+    select: {
+      id: true,
+      sku: true,
+      name: true,
+      nameEn: true,
+      category: true,
+      status: true,
+      facts: {
+        where: {
+          fieldKey: { in: ["fob_price", "moq", "lead_time"] },
+          status: { in: ["confirmed", "extracted", "needs_review"] },
+        },
+        select: { fieldKey: true, value: true, status: true },
+      },
+    },
   });
   const ranked = rows
     .map((p) => ({
@@ -81,7 +99,18 @@ export async function searchTradeProductsForOrg(input: {
       score: rankProductMatch(p, { sku: input.sku ?? q, productName: input.productName ?? q }),
     }))
     .sort((a, b) => b.score - a.score);
-  return ranked.slice(0, take).map((r) => r.p);
+  return ranked.slice(0, take).map((r) => {
+    const commercial = commercialFromFacts(r.p.facts);
+    return {
+      id: r.p.id,
+      sku: r.p.sku,
+      name: r.p.name,
+      nameEn: r.p.nameEn,
+      category: r.p.category,
+      status: r.p.status,
+      ...commercial,
+    };
+  });
 }
 
 export async function loadTradeProductForOrg(productId: string, orgId: string) {

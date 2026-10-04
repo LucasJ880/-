@@ -366,7 +366,7 @@ function AddItemForm({
   const [quantity, setQuantity] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const [saving, setSaving] = useState(false);
-  const [catalog, setCatalog] = useState<Array<{ id: string; sku: string; name: string; nameEn: string | null }>>([]);
+  const [catalog, setCatalog] = useState<Array<{ id: string; sku: string; name: string; nameEn: string | null; fobPrice: number | null }>>([]);
 
   useEffect(() => {
     const q = (sku || productName).trim();
@@ -378,7 +378,7 @@ function AddItemForm({
       void apiFetch(`/api/trade/products?orgId=${encodeURIComponent(orgId)}&q=${encodeURIComponent(q)}`).then(
         async (res) => {
           if (!res.ok) return;
-          const data = (await res.json()) as { items?: Array<{ id: string; sku: string; name: string; nameEn: string | null }> };
+          const data = (await res.json()) as { items?: Array<{ id: string; sku: string; name: string; nameEn: string | null; fobPrice: number | null }> };
           setCatalog(data.items ?? []);
         },
       );
@@ -423,6 +423,7 @@ function AddItemForm({
                 setProductId(p.id);
                 setSku(p.sku);
                 setProductName(p.nameEn || p.name);
+                if (!unitPrice && p.fobPrice != null) setUnitPrice(String(p.fobPrice));
                 setCatalog([]);
               }}
               className="rounded-md border border-border px-2 py-1 text-[10px]"
