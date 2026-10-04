@@ -234,3 +234,43 @@ Dedicated 1688 Adapter / API · 1688 authenticated crawling · HS code · tariff
 | lint baseline / build | baseline PASS（相对基线减少 14 处 error 出现，无新增 fingerprint）/ build PASS（368/368 页） |
 | 浏览器验收 FLOW A–K + 只读 + 三视口（分支 br-cool-pine-anm76jbu） | **99 通过 / 0 失败**（12 张截图，分支 br-rapid-unit-an0raf3n）。之前两遍在同一浏览器分支跑到第 20+ 次评估创建时 dev 侧 `createSearchRun` 事务 P2028（同一分支已承载多次种子与验收），换新分支单独重跑即 99/0；产品代码零改动 |
 | CI / staging（最终 PR HEAD） | 以 PR #215 最终 PR HEAD 的 checks 为准，结果写在交付收据里 |
+
+### 14.7 FR3 — Reliability history read-surface redaction（第三项 blocker）
+
+**缺陷**：`SupplierCandidate.scoreBreakdownJson` 是内部审计快照——为了可复算，`reliability.history[]` 记着**别项目**的 `itemId / projectId / status / replied / selected`，`provenance.historyItemIds` 也是。`loadEvaluationView()` 把它原样回给前端（`scoreBreakdown: c.scoreBreakdownJson`）。于是一个能读当前项目 C、却读不到历史项目 H 的用户，能从 C 的评估视图里拿到 H 的项目 id、H 里的 InquiryItem id 和互动状态。这不被允许。
+
+**原则**：
+- 评分**计算范围**（org 内别项目全部历史）≠ **读范围**（actor 的项目 ACL）。Reliability 公式 / 应答率 / 入选率 / 最少 2 条历史一字不改；评分仍 actor 无关（同一冻结输入 → 同一结果，谁收口都一样）。
+- 内部审计快照**保留**历史 provenance（`reliability.history`、`provenance.historyItemIds`），用于审计、复算、历史回放。不为界面安全删内部数据。
+- 数据最小化只发生在**读投影**：一个 canonical sanitizer，所有读面必经。投影不接 actor 参数——不是「能读 H 就多给一点」的权限分支，而是对所有人一样的契约。
+
+**实现（无 schema）**：`src/lib/supplier-intel/score-breakdown-view.ts`
+- `toEvaluationScoreBreakdownView(internal: unknown): EvaluationScoreBreakdownView | null`：**白名单**投影——只复制明确列出的字段，未知键一律丢弃（新加字段必须在这里显式放行才会出现在读面上）。
+- `reliability` 公共形状：`{ rule, score, contacted, replied, selected, sub: { responseRate, priorSelection }, reasonCodes }`，**没有 `history`**。
+- `provenance` 公共形状：去掉 `historyItemIds`，改给 `historicalInteractionCount`（只数个数）；当前项目的 `projectId / supplierId / offeringId / originSource / inquiryId / capabilityIds` 保留（FR1 绑定、FR2 当前项目能力本来就在当前项目的可读范围内）。
+- `technical / commercial / importRisk / contract` 只含当前项目数据（FR1 / FR2 已保证），按字段白名单透传；`commercial.offeringPriceEvidence.sourceSignalId` 顺带不透出（供应商级报盘的来源线索可能属于别项目；界面只用 platform / url）。
+- 读面接线：`loadEvaluationView()` 的 `scoreBreakdown` 改为 `toEvaluationScoreBreakdownView(c.scoreBreakdownJson)`；项目排名 / 赛马 read-model（`project-supplier-ranking.ts`）两处对 `scoreBreakdownJson` 的读取也改走同一投影（它们本来只取 `unknownComponents / reasonCodes / priceEvidenceTier` 聚合，接投影是为了「所有读面必经一处」）。`completeEvaluationRun` 落库的内部快照不改。
+- 读面审计（`rg "scoreBreakdownJson|scoreBreakdown:" src/app src/lib src/components`）：直出 `scoreBreakdownJson` 的只有 `loadEvaluationView`（已改）与排名 read-model（已改）；`GET /runs/[id]`（搜索运行详情）用 `select` 不取该列；`GET /runs/[id]/evaluation`、`GET /projects/[projectId]/evaluations`、`GET /projects/[projectId]/ranking` 均经上述服务。客户端类型 `CandidateScoreBreakdownView` 补 `provenance`（只有计数）以记录公共形状。
+
+**测试**：
+- 纯核 `score-breakdown-view.test.ts`（已接 `scripts/test-ci-unit.sh`）：P1 history 整个消失；P2 provenance → 计数；P3 序列化不含隐藏项目 id / 历史 item id / 历史报价 / 未知键 / `history` / `historyItemIds`；P4 当前项目数据（FR1 绑定、可比组、FR2 当前项目能力 id、合同聚合、版本）照常透传；P5 纯函数、无 actor 参数、输入不被改写；P6 残缺输入安全默认；P7 **源码守卫**——`evaluation-run-service.ts` 不得再出现 `scoreBreakdown: c.scoreBreakdownJson`，排名 read-model 不得再直接 cast `scoreBreakdownJson`。
+- DB 黄金安全测试（S4-B 套件 FR3 段，15 条）：历史项目 H = `hidden`（writer / viewer 均非成员）；供应商 Y 在 H 里 2 次询价（联系 2 / 回复 2 / 入选 1，报价金额取独特值 7340021 / 7340022 便于全文搜泄露）；在当前项目 C 完成评估 → `reliabilityScore != null`（FR3-S1）。DB 直读：内部快照仍记 2 条历史 `itemId / projectId`（FR3-S2），且内部快照本身也不复制别项目报价金额（FR3-S3）。viewer 的 `loadEvaluationView` 序列化结果不含 H 项目 id / 历史 InquiryItem id / 历史询价 id / 历史报价（FR3-V1）；`reliability` 只有聚合、无 `history` 键（V2）；`provenance` 无 `historyItemIds`、`historicalInteractionCount = 2`、当前项目 id 保留（V3）；整份视图不出现 `history / historyItemIds` 键（V4）；分数照常可见（V5）；能读 H 的 owner 看同一 Run 得到**同一份**投影（V6，投影不按 actor 分叉）。HTTP：评估视图 / 评估列表 + 绑定选项 / ranking（viewer）200 且无泄露、含 `"contacted":2` 与 `"historicalInteractionCount":2`（H1 / L1 / R1–R3）。
+- 浏览器 FLOW L（FR3）+ 只读成员 V3：夹具新增「隐藏项目历史厂 Y」（隐藏项目里 2 轮询价、独特金额）；采购员完成 Y 的评估后，评估视图 / ranking payload / 界面「履约可靠性依据」只见聚合次数，不见隐藏项目 id / 询价 id / InquiryItem id / 金额；DB 直读仍留明细；只读成员 GET 评估视图同样只见聚合。
+
+**负向控制 FR3-NC**（分支 `br-cool-bread-an6oyt34`，未提交）：临时把 `loadEvaluationView` 恢复为 `scoreBreakdown: c.scoreBreakdownJson` → S4-B DB 套件 **6 条红：FR3-V1 / V2 / V3 / V4 / V6 / H1（视图与 HTTP 评估视图泄露 H 项目 id 与 2 个历史 InquiryItem id、出现 history / historyItemIds 键、owner 与 viewer 投影不同）**（其余 100 条仍绿：排名 read-model 本来只回聚合，赛马行无快照）。恢复投影后 `git diff` 为空，同步头全量复跑 **106 通过 / 0 失败**。
+
+### 14.8 第三次 main 同步、全量复验与受控合并
+
+`origin/main` 前进到 `5237558f`（#221 梦馨在售货号页：`src/app/(main)/trade/products`、`src/lib/trade/catalog*`、i18n / navigation；**无 prisma 变更**）。普通 merge `25ece54e`（两父：`15aea36a` + `5237558f`），无冲突，不触碰 `src/lib/supplier-intel`、`src/components/supplier-intel`、`src/app/api/supplier-intel`、`prisma/`。
+
+| 项（同步头 `25ece54e`） | 结果 |
+| --- | --- |
+| typecheck / 改动文件 lint（32 文件）/ 纯核 7 套 + navigation-ia | typecheck PASS / lint 0 errors（1 条既有 warning：`capClaimedA` 未使用）/ 全 PASS |
+| S4-B DB（br-silent-rain-anq1ejcd） | **106 通过 / 0 失败**（含 FR3 段 15 条） |
+| 回归（S4-B / S4-A / S3-B 串行于 br-silent-rain-anq1ejcd；S3-A / S2-TB / S2 / S1 串行于 br-bitter-art-anq0hbjv；两车道并行） | **S4-A 116 / S3-B 87 / S3-A 131 / S2-TB 118 / S2 32 / S1 86，全部 0 失败** |
+| lint baseline / build | baseline PASS（current 39 errors / baseline 53，相对基线减少 14 处 error 出现，无新增 fingerprint） / build PASS（369/369 页；main #221 新增在售货号页） |
+| 浏览器验收 FLOW A–L + 只读 + 三视口（br-muddy-hall-an0fzxci，dev :3220） | **122 通过 / 0 失败**（含 G0 四个 Tab、G0b 赛马列、FLOW L / V3 FR3） |
+| CI / staging（最终 PR HEAD） | 以 PR #215 最终 PR HEAD 的 checks 为准（validate-lint-typecheck-test-build + Vercel – qingyan-staging），结果写在交付收据里 |
+| 合并 | 受控合并（merge commit、head lock）结果写在交付收据里；本节所在 docs 提交之后不再改代码 |
+
+生产：`SUPPLIER_INTEL_ENABLED` / `SUPPLIER_INTEL_ORG_ALLOWLIST` 在生产 env 中**均未设置**（只读 `vercel env ls production` 核对，0 条 `SUPPLIER_INTEL*`）→ 生产仍 404-dark。本任务不改生产 env；启用需另行授权。
