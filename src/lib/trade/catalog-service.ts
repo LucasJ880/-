@@ -43,10 +43,15 @@ function toItem(row: {
   };
 }
 
-const factSelect = {
-  where: { fieldKey: { in: FACT_KEYS }, status: { in: ["confirmed", "extracted", "needs_review"] } },
-  select: { fieldKey: true, value: true, status: true },
-} as const;
+function factQuery() {
+  return {
+    where: {
+      fieldKey: { in: [...FACT_KEYS] },
+      status: { in: ["confirmed", "extracted", "needs_review"] },
+    },
+    select: { fieldKey: true, value: true, status: true },
+  };
+}
 
 export async function listTradeCatalog(orgId: string): Promise<CatalogListItem[]> {
   const rows = await db.tradeProduct.findMany({
@@ -59,7 +64,7 @@ export async function listTradeCatalog(orgId: string): Promise<CatalogListItem[]
       name: true,
       nameEn: true,
       status: true,
-      facts: factSelect,
+      facts: factQuery(),
     },
   });
   return rows.map(toItem);
@@ -146,7 +151,7 @@ async function reload(orgId: string, productId: string) {
       name: true,
       nameEn: true,
       status: true,
-      facts: factSelect,
+      facts: factQuery(),
     },
   });
   return row ? toItem(row) : null;
