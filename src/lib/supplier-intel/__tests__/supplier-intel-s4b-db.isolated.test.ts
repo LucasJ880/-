@@ -409,6 +409,61 @@ async function main() {
       ok(rowX2?.runId === runX2.run.id, "FR2-P3：赛马取最新 COMPLETED");
     }
 
+    console.log("\n== FR3：Reliability 历史只回聚合——别项目 InquiryItem / 项目 id / 报价不出当前项目读面 ==");
+    {
+      const actorOwner = { orgId: org.id, userId: owner.id };
+      const evRoute = await import("@/app/api/supplier-intel/runs/[id]/evaluation/route");
+      const evalsRoute = await import("@/app/api/supplier-intel/projects/[projectId]/evaluations/route");
+      // Historical-H = hidden（writer / viewer 都不是成员）：Y 在里面被联系 2 次、回复 2 次、入选 1 次；报价金额取独特值便于全文搜泄露
+      const supY = await mkSup("S4B 隐藏历史厂 Y");
+      const offY = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supY.id, name: "Y 网布椅", sku: "Y-1", attributesJson: { 承重: "600 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", leadTimeDays: 30, incoterm: "FOB", createdByUserId: owner.id } });
+      const certY = await mkCert(supY.id, offY.id);
+      await link(supY.id, `${tag} Y 当前项目线索 办公椅`, `https://y-cur.example/${tag}`); // 来源：本项目已关联线索（评估前置，与 FR2 的 X 一样）
+      const H_TOTAL_1 = 7340021; const H_TOTAL_2 = 7340022;
+      const hInq1 = await mkInquiry(hidden.id, 1, [{ supplierId: supY.id, status: "quoted", sent: true, replied: true, total: H_TOTAL_1, selected: true }]);
+      const hInq2 = await mkInquiry(hidden.id, 2, [{ supplierId: supY.id, status: "quoted", sent: true, replied: true, total: H_TOTAL_2, selected: false }]);
+      const hItem1 = await itemOf(hInq1.id, supY.id); const hItem2 = await itemOf(hInq2.id, supY.id);
+      await expectErr("PROJECT_ACCESS_DENIED", "FR3-前置：viewer 读不到历史项目 H", () => rankingSvc.loadProjectSupplierRanking(actorViewer, hidden.id));
+      const runY = await evaluate(supY.id, offY.id, { "R-001": "PASS", "R-002": "PASS", "R-003": "PASS" }, certY.id, null);
+      await evalRun.completeEvaluationRun(actorWriter, runY.run.id);
+      // 内部审计快照：评分范围 = org 内别项目全部历史（不看 actor）；明细保留以便复算
+      const y = await cand(runY.candidate.id);
+      const yBd = y.scoreBreakdownJson as { reliability: { score: number | null; contacted: number; replied: number; selected: number; history: Array<{ itemId: string; projectId: string }> }; provenance: { historyItemIds: string[] } };
+      const yRaw = JSON.stringify(y.scoreBreakdownJson);
+      ok(y.reliabilityScore !== null && yBd.reliability.score === y.reliabilityScore && yBd.reliability.contacted === 2 && yBd.reliability.replied === 2 && yBd.reliability.selected === 1, "FR3-S1：Y 的可靠性按 org 内别项目历史计算（联系 2 / 回复 2 / 入选 1 → 有分；计算范围不看 actor）", JSON.stringify(yBd.reliability));
+      ok(yBd.reliability.history.length === 2 && yBd.reliability.history.every((h) => h.projectId === hidden.id) && yBd.provenance.historyItemIds.length === 2 && yBd.provenance.historyItemIds.includes(hItem1) && yBd.provenance.historyItemIds.includes(hItem2), "FR3-S2：内部审计快照（DB 直读）仍记历史 InquiryItem id / 项目 id——存储留，便于复算");
+      ok(!yRaw.includes(String(H_TOTAL_1)) && !yRaw.includes(String(H_TOTAL_2)), "FR3-S3：内部快照本身也不复制别项目报价金额");
+      // 公共读面：viewer 能读当前项目、读不到 H
+      const LEAK = [hidden.id, hItem1, hItem2, hInq1.id, hInq2.id, String(H_TOTAL_1), String(H_TOTAL_2)];
+      const leak = (s: string) => LEAK.filter((x) => s.includes(x));
+      const viewV = await evalRun.loadEvaluationView(actorViewer, runY.run.id);
+      const cv = viewV.candidates.find((c) => c.id === runY.candidate.id);
+      const cvJson = JSON.stringify(viewV);
+      ok(Boolean(cv) && leak(cvJson).length === 0, "FR3-V1：viewer 的 loadEvaluationView 序列化结果不含 H 项目 id / 历史 InquiryItem id / 历史询价 id / 历史报价金额", JSON.stringify(leak(cvJson)));
+      const bdv = cv?.scoreBreakdown ?? null;
+      ok(bdv !== null && bdv.reliability !== null && !("history" in (bdv.reliability as object)) && bdv.reliability.contacted === 2 && bdv.reliability.replied === 2 && bdv.reliability.selected === 1 && bdv.reliability.score === y.reliabilityScore, "FR3-V2：公共视图 reliability 只有聚合 contacted / replied / selected / score（无 history 键）", JSON.stringify(bdv?.reliability));
+      ok(bdv !== null && bdv.provenance !== null && !("historyItemIds" in (bdv.provenance as object)) && bdv.provenance.historicalInteractionCount === 2 && bdv.provenance.projectId === proj.id && bdv.provenance.supplierId === supY.id && bdv.provenance.offeringId === offY.id, "FR3-V3：公共 provenance 去掉 historyItemIds，只给 historicalInteractionCount=2；当前项目 projectId / supplierId / offeringId 保留", JSON.stringify(bdv?.provenance));
+      ok(!cvJson.includes('"history"') && !cvJson.includes("historyItemIds"), "FR3-V4：整份视图里不出现 history / historyItemIds 键");
+      ok(Boolean(cv) && cv?.scores.reliability === y.reliabilityScore && cv?.scores.total === y.totalScore, "FR3-V5：分数本身照常可见（聚合可见，明细不可见）");
+      const viewO = await evalRun.loadEvaluationView(actorOwner, runY.run.id);
+      ok(leak(JSON.stringify(viewO)).length === 0 && JSON.stringify(viewO.candidates.find((c) => c.id === runY.candidate.id)?.scoreBreakdown) === JSON.stringify(bdv), "FR3-V6：能读 H 的 owner 看同一视图得到同一份投影（投影不按 actor 分叉放宽）");
+      // HTTP：评估视图 / 评估列表 / ranking（viewer）
+      const evHttp = await evRoute.GET(await req(viewer, `/api/supplier-intel/runs/${runY.run.id}/evaluation${q}`), P({ id: runY.run.id }));
+      const evText = await evHttp.text();
+      ok(evHttp.status === 200 && leak(evText).length === 0 && !evText.includes('"history"') && !evText.includes("historyItemIds") && evText.includes('"contacted":2') && evText.includes('"historicalInteractionCount":2'), "FR3-H1：HTTP 评估视图（viewer）200、无泄露、含聚合与计数", `status=${evHttp.status} leak=${JSON.stringify(leak(evText))}`);
+      const lsHttp = await evalsRoute.GET(await req(viewer, `/api/supplier-intel/projects/${proj.id}/evaluations${q}&supplierId=${supY.id}`), P({ projectId: proj.id }));
+      const lsText = await lsHttp.text();
+      ok(lsHttp.status === 200 && leak(lsText).length === 0, "FR3-L1：评估列表 + 绑定选项（viewer）不泄露", `status=${lsHttp.status} leak=${JSON.stringify(leak(lsText))}`);
+      const rkV = await rankingSvc.loadProjectSupplierRanking(actorViewer, proj.id);
+      const rkVJson = JSON.stringify(rkV);
+      ok(leak(rkVJson).length === 0 && !rkVJson.includes('"history"') && !rkVJson.includes("historyItemIds"), "FR3-R1：ranking + racing read-model 不含 H 项目 / 历史 item / 报价", JSON.stringify(leak(rkVJson)));
+      const rkRow = rkV.ranked.find((r) => r.candidateId === runY.candidate.id);
+      ok(Boolean(rkRow) && rkRow?.scores.reliability === y.reliabilityScore, "FR3-R2：ranking 行照常带可靠性聚合分", JSON.stringify(rkRow?.scores));
+      const rkHttp = await rankingRoute.GET(await req(viewer, `/api/supplier-intel/projects/${proj.id}/ranking${q}`), P({ projectId: proj.id }));
+      const rkText = await rkHttp.text();
+      ok(rkHttp.status === 200 && leak(rkText).length === 0, "FR3-R3：HTTP ranking（viewer）同样不泄露", `status=${rkHttp.status} leak=${JSON.stringify(leak(rkText))}`);
+    }
+
     console.log("\n== §14：COMPLETED Run 不能再评分 / 改分 ==");
     await expectErr("RUN_IMMUTABLE", "再次收口 COMPLETED Run → RUN_IMMUTABLE", () => evalRun.completeEvaluationRun(actorWriter, runB.run.id));
 

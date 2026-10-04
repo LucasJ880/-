@@ -121,7 +121,7 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   console.log("\n== 夹具门 ==");
   requireFixture(ORG, "orgId"); requireFixture(EMAILS?.buyer, "采购员"); requireFixture(EMAILS?.viewer, "只读成员");
-  for (const k of ["projectId", "supplierId", "offeringAId", "certBifmaAId", "socialSignalId", "s4bSupplier1688Id", "s4bOffering1688Id", "s4bSignal1688Id", "s4bCert1688Id", "s4bSupplierCheapId", "s4bOfferingCheapId", "s4bCertCheapId", "s4bSupplierFullId", "s4bOfferingFullId", "s4bCertFullId", "s4bRound1Id", "s4bRound1ItemBId", "s4bRound1ItemFullId", "s4bSupplierTwoId", "s4bOfferingTwoA1Id", "s4bOfferingTwoA2Id", "s4bCertTwoA1Id", "s4bCertTwoA2Id", "s4bRound1ItemTwoId", "s4bHiddenProjectId", "s4bHiddenSignalId", "s4bHiddenCapId", "s4bCap1688ClaimedId"]) requireFixture(S4A?.[k], `s4a.${k}`);
+  for (const k of ["projectId", "supplierId", "offeringAId", "certBifmaAId", "socialSignalId", "s4bSupplier1688Id", "s4bOffering1688Id", "s4bSignal1688Id", "s4bCert1688Id", "s4bSupplierCheapId", "s4bOfferingCheapId", "s4bCertCheapId", "s4bSupplierFullId", "s4bOfferingFullId", "s4bCertFullId", "s4bRound1Id", "s4bRound1ItemBId", "s4bRound1ItemFullId", "s4bSupplierTwoId", "s4bOfferingTwoA1Id", "s4bOfferingTwoA2Id", "s4bCertTwoA1Id", "s4bCertTwoA2Id", "s4bRound1ItemTwoId", "s4bHiddenProjectId", "s4bHiddenSignalId", "s4bHiddenCapId", "s4bCap1688ClaimedId", "s4bSupplierHistYId", "s4bOfferingHistYId", "s4bCertHistYId", "s4bHiddenInq1Id", "s4bHiddenInq2Id", "s4bHiddenInqItem1Id", "s4bHiddenInqItem2Id", "s4bHiddenTotal1", "s4bHiddenTotal2"]) requireFixture(S4A?.[k], `s4a.${k}`);
   if (fail > 0) { console.log(`\n夹具不完整，终止：${pass} 通过 / ${fail} 失败`); process.exit(1); }
   const host = new URL(DB_URL.replace(/^postgres(ql)?:/, "http:")).hostname;
   ok(!host.startsWith("ep-super-field-antfibsl") && host.startsWith("ep-"), `隔离库主机守卫：${host}`);
@@ -301,10 +301,33 @@ async function main() {
     ok((await page.locator('[data-testid="import-detail"]').innerText()).includes("CANADA_EXPORT"), "K8：界面显示已核验 CANADA_EXPORT");
     await page.screenshot({ path: `${OUT}/flow-k-hidden-capability.png` });
 
+    console.log("\n== FLOW L（FR3）：别项目历史只回聚合——隐藏项目的 InquiryItem / 询价 / 项目 id / 报价金额不出当前项目读面 ==");
+    await page.goto(evidenceUrl(S4A.s4bSupplierHistYId), { waitUntil: "domcontentloaded" }); await waitWorkspace(page); await openEvaluationTab(page);
+    const { runId: runL, view: vL } = await evaluateFull(page, ctx, S4A.s4bSupplierHistYId, S4A.s4bOfferingHistYId, S4A.s4bCertHistYId, {});
+    const cL = vL.candidates[0]; const vLJson = JSON.stringify(vL);
+    const LEAK_L = [S4A.s4bHiddenProjectId, S4A.s4bHiddenInq1Id, S4A.s4bHiddenInq2Id, S4A.s4bHiddenInqItem1Id, S4A.s4bHiddenInqItem2Id, S4A.s4bHiddenTotal1, S4A.s4bHiddenTotal2];
+    const leakL = (s) => LEAK_L.filter((x) => s.includes(String(x)));
+    ok(cL.scores.reliability !== null && cL.scoreBreakdown.reliability?.contacted === 2 && cL.scoreBreakdown.reliability?.replied === 2 && cL.scoreBreakdown.reliability?.selected === 1, "L1：可靠性按 org 内别项目历史计算（联系 2 / 回复 2 / 入选 1 → 有分）", JSON.stringify(cL.scoreBreakdown.reliability));
+    ok(!("history" in (cL.scoreBreakdown.reliability ?? {})) && !vLJson.includes('"history"') && !vLJson.includes("historyItemIds"), "L2：评估视图 reliability 无 history；整份视图无 historyItemIds 键");
+    ok(leakL(vLJson).length === 0, "L3：评估视图不含隐藏项目 id / 历史询价 id / 历史 InquiryItem id / 历史报价金额", JSON.stringify(leakL(vLJson)));
+    ok(cL.scoreBreakdown.provenance?.historicalInteractionCount === 2 && cL.scoreBreakdown.provenance?.projectId === PROJ, "L4：provenance 只给 historicalInteractionCount=2 + 当前项目 id", JSON.stringify(cL.scoreBreakdown.provenance));
+    const relText = await page.locator('[data-testid="reliability-detail"]').innerText();
+    ok(relText.includes("询价 2 次") && relText.includes("回复 2 次") && relText.includes("曾入选 1 次") && leakL(relText).length === 0, "L5：界面只显示聚合次数，不显示别项目明细", relText);
+    const rkL = await apiRanking(ctx); const rkLJson = JSON.stringify(rkL.json);
+    ok(leakL(rkLJson).length === 0 && !rkLJson.includes('"history"') && !rkLJson.includes("historyItemIds"), "L6：ranking / racing payload 不含隐藏项目历史明细", JSON.stringify(leakL(rkLJson)));
+    ok((rkL.json?.view?.ranked ?? []).some((r) => r.candidateId === cL.id && r.scores.reliability === cL.scores.reliability), "L7：ranking 行照常带可靠性聚合分");
+    const rowL = await db.supplierCandidate.findUniqueOrThrow({ where: { id: cL.id }, select: { scoreBreakdownJson: true } });
+    const bdL = rowL.scoreBreakdownJson;
+    ok(Array.isArray(bdL?.reliability?.history) && bdL.reliability.history.length === 2 && bdL.reliability.history.every((h) => h.projectId === S4A.s4bHiddenProjectId) && Array.isArray(bdL?.provenance?.historyItemIds) && bdL.provenance.historyItemIds.length === 2, "L8：内部审计快照（DB 直读）仍保留历史 InquiryItem / 项目 id——读面删、存储留");
+    await page.screenshot({ path: `${OUT}/flow-l-reliability-redaction.png` });
+
     console.log("\n== 只读成员：能看排名，不能收口 ==");
     const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 } }); await login(vctx, EMAILS.viewer);
     const vr = await vctx.request.get(`${BASE}/api/supplier-intel/projects/${PROJ}/ranking?orgId=${encodeURIComponent(ORG)}`);
     ok(vr.status() === 200, "V1：只读成员 GET ranking 200", `实际 ${vr.status()}`);
+    const ve = await vctx.request.get(`${BASE}/api/supplier-intel/runs/${runL}/evaluation?orgId=${encodeURIComponent(ORG)}`);
+    const veText = await ve.text();
+    ok(ve.status() === 200 && leakL(veText).length === 0 && !veText.includes('"history"') && !veText.includes("historyItemIds") && veText.includes('"contacted":2'), "V3（FR3）：只读成员 GET 评估视图 200，只见聚合，不见隐藏项目历史明细", `实际 ${ve.status()} leak=${JSON.stringify(leakL(veText))}`);
     const vc = await vctx.request.post(`${BASE}/api/supplier-intel/runs/${runD}/complete?orgId=${encodeURIComponent(ORG)}`, { data: {} });
     ok(vc.status() === 403 || vc.status() === 409, "V2：只读成员不能收口 / 评分", `实际 ${vc.status()}`);
     await vctx.close();

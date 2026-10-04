@@ -223,6 +223,7 @@ npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s4a-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/discovery-priority.test.ts
 npx tsx src/lib/supplier-intel/__tests__/score-components.test.ts
 npx tsx src/lib/supplier-intel/__tests__/project-ranking-model.test.ts
+npx tsx src/lib/supplier-intel/__tests__/score-breakdown-view.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s4b-db.isolated.test.ts
 npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 

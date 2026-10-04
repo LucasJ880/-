@@ -300,6 +300,8 @@ export interface CandidateScoreBreakdownView {
   recommendation: string | null;
   rankable: boolean;
   reasonCodes: string[];
+  /** FR3：只有当前项目指针 + 别项目历史互动的**计数**；历史 InquiryItem / 项目 id 不出读面（服务端白名单投影） */
+  provenance: { projectId: string | null; supplierId: string | null; offeringId: string | null; originSource: string | null; inquiryId: string | null; capabilityIds: string[]; historicalInteractionCount: number } | null;
 }
 
 export interface RankingRowView {

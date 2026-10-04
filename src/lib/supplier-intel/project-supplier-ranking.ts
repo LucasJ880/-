@@ -15,6 +15,7 @@ import { DISCOVERY_PRIORITY_DISCLAIMER, type DiscoveryPriorityResult } from "./d
 import { SupplierIntelError } from "./errors";
 import { deriveNextAction, deriveRacingState, rankCandidates, type RankedCandidate, type RacingFacts } from "./project-ranking-model";
 import { readCommercialEvidenceBinding } from "./evaluation-scoring";
+import { toEvaluationScoreBreakdownView } from "./score-breakdown-view";
 import { isConfirmedQuote } from "./score-components";
 import { buildSignalListScopeFilter } from "./signal-scope";
 
@@ -134,7 +135,8 @@ export async function loadProjectSupplierRanking(actor: SupplierIntelActor, proj
   const byCandidate = new Map([...latest.values()].map((x) => [x.cand.id, x]));
   const rows: RankingRow[] = ranked.map((r) => {
     const { run, cand } = byCandidate.get(r.candidateId) as { run: (typeof runs)[number]; cand: Cand };
-    const bd = (cand.scoreBreakdownJson ?? null) as { unknownComponents?: string[]; reasonCodes?: string[]; commercial?: { priceEvidenceTier?: string } | null } | null;
+    // FR3：排名行只取聚合（unknownComponents / reasonCodes / 价格证据层），且一律走白名单投影
+    const bd = toEvaluationScoreBreakdownView(cand.scoreBreakdownJson);
     const facts = factsFor(cand.supplierId, cand.offeringId, cand, bd, false, run);
     return {
       ...r, runId: run.id, completedAt: run.completedAt ? run.completedAt.toISOString() : null, supplierName: cand.supplier.name,
@@ -174,7 +176,7 @@ export async function loadProjectSupplierRanking(actor: SupplierIntelActor, proj
   for (const r of rows) {
     const { cand } = byCandidate.get(r.candidateId) as { cand: Cand };
     const key = `${cand.supplierId}:${cand.offeringId ?? "-"}`; seen.add(key);
-    const bd = (cand.scoreBreakdownJson ?? null) as { unknownComponents?: string[]; commercial?: { priceEvidenceTier?: string } | null } | null;
+    const bd = toEvaluationScoreBreakdownView(cand.scoreBreakdownJson);
     const { run: candRun } = byCandidate.get(r.candidateId) as { run: (typeof runs)[number] };
     const facts = factsFor(cand.supplierId, cand.offeringId, cand, bd, inProgress.has(key), candRun);
     racing.push({

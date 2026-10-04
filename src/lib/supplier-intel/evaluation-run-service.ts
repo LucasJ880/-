@@ -31,6 +31,7 @@ import {
   type MatchEvidenceInput,
 } from "./evaluation-service";
 import { buildCandidateScoreSnapshot, readCommercialEvidenceBinding, type CandidateScoreSnapshot } from "./evaluation-scoring";
+import { toEvaluationScoreBreakdownView } from "./score-breakdown-view";
 import { computeMandatoryGate, type GateOutcome } from "./mandatory-gate";
 import { validateRequirementSnapshot, type RequirementSnapshotEntry } from "./requirement-snapshot";
 import {
@@ -593,7 +594,8 @@ export async function loadEvaluationView(actor: SupplierIntelActor, runId: strin
       rejectionReason: c.rejectionReason,
       scores: { technical: c.technicalScore, commercial: c.commercialScore, reliability: c.reliabilityScore, importRisk: c.importRiskScore, total: c.totalScore },
       scoreVersion: c.scoreVersion,
-      scoreBreakdown: c.scoreBreakdownJson,
+      // FR3：对外只给白名单投影——别项目的历史 InquiryItem / 项目 id 留在内部审计快照里，不出当前项目的读面
+      scoreBreakdown: toEvaluationScoreBreakdownView(c.scoreBreakdownJson),
       requirements: rows,
       evidenceOptions: {
         certifications: supplierCerts,

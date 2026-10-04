@@ -536,7 +536,7 @@ async function main() {
     /* ═════════ S4-B 夹具：1688 线索 / 挂牌价报盘 / 询价轮 / 历史交互 / 已核验出口能力（evalclean 项目）═════════
      * 角色：B = s3b 供应商（历史供应商，正式 RFQ，VERIFIED 出口）；ONE688 = 1688 便宜挂牌价、无 RFQ；
      *       CHEAP = 最低正式价但 250 lb 门 FAIL；FULL = 第二家四维齐全（用于 PRIMARY / BACKUP）。全部是合成夹具。 */
-    const s4bNames = [`[演示] 1688 网布椅源头工厂 ${TAG}`, `[演示] 便宜但不合规椅厂 ${TAG}`, `[演示] 第二家合规椅厂 ${TAG}`, `[演示] 两款产品椅厂 ${TAG}`];
+    const s4bNames = [`[演示] 1688 网布椅源头工厂 ${TAG}`, `[演示] 便宜但不合规椅厂 ${TAG}`, `[演示] 第二家合规椅厂 ${TAG}`, `[演示] 两款产品椅厂 ${TAG}`, `[演示] 隐藏项目历史厂 Y ${TAG}`];
     const olds = await db.supplier.findMany({ where: { orgId: org.id, name: { in: s4bNames } }, select: { id: true } });
     const oldIds = olds.map((x) => x.id);
     if (oldIds.length) {
@@ -578,6 +578,8 @@ async function main() {
       await db.supplierCapabilitySignal.deleteMany({ where: { orgId: org.id, discoverySignal: { is: { projectId: h.id } } } });
       await db.supplierDiscoverySignal.deleteMany({ where: { orgId: org.id, projectId: h.id } });
       await db.tenderArchiveItem.deleteMany({ where: { orgId: org.id, projectId: h.id } });
+      await db.inquiryItem.deleteMany({ where: { inquiry: { projectId: h.id } } });
+      await db.projectInquiry.deleteMany({ where: { projectId: h.id } });
       await db.projectMember.deleteMany({ where: { projectId: h.id } });
       await db.project.delete({ where: { id: h.id } });
     }
@@ -615,13 +617,25 @@ async function main() {
     // 本项目 RFQ round 1：B / CHEAP / FULL 已正式报价；1688 未询价（FLOW C 再补）
     const round1 = await mkInq(evalProjectId, 1, [{ supplierId: sup, total: 110000, replied: true, days: 60 }, { supplierId: supCheap.id, total: 90000, replied: true, days: 40 }, { supplierId: supFull.id, total: 95000, replied: true, days: 50 }, { supplierId: supTwo.id, total: 100000, replied: true, days: 45 }]);
     const itemOf = async (supplierId: string) => round1 ? (await db.inquiryItem.findFirstOrThrow({ where: { inquiryId: round1.id, supplierId }, select: { id: true } })).id : null;
+    // FR3 夹具：别项目（隐藏项目）里的历史询价——采购员读不到该项目，评分仍按 org 内历史算，但读面只许回聚合
+    const supHistY = await mkSup(s4bNames[4]);
+    const sigHistY = await linkSignal(supHistY.id, `https://hist-y-chairs.example/${TAG}`, `[演示夹具] 隐藏项目历史厂 办公椅 网布椅 厂家 ${TAG}`);
+    const offHistY = await db.supplierOffering.create({ data: { orgId: org.id, supplierId: supHistY.id, name: "[演示] 网布会议椅 Y", sku: `S4B-HISTY-${TAG}`, attributesJson: { 承重: "600 lb" }, priceStatus: "UNKNOWN", sourceKind: "MANUAL", leadTimeDays: 35, incoterm: "FOB", createdByUserId: buyer.id } });
+    const certHistY = await mkCert2(supHistY.id, offHistY.id, `BIFMA-HISTY-${TAG}`);
+    const HIDDEN_TOTAL_1 = 7340021; const HIDDEN_TOTAL_2 = 7340022;
+    const hiddenInq1 = await mkInq(hiddenProject.id, 1, [{ supplierId: supHistY.id, total: HIDDEN_TOTAL_1, replied: true, selected: true }]);
+    const hiddenInq2 = await mkInq(hiddenProject.id, 2, [{ supplierId: supHistY.id, total: HIDDEN_TOTAL_2, replied: true }]);
+    const hiddenItemOf = async (inq: { id: string } | null) => inq ? (await db.inquiryItem.findFirstOrThrow({ where: { inquiryId: inq.id, supplierId: supHistY.id }, select: { id: true } })).id : null;
     s4a = { ...s4a, s4bSupplier1688Id: sup1688.id, s4bOffering1688Id: off1688.id, s4bSignal1688Id: sig1688.id, s4bCert1688Id: cert1688.id, s4bCap1688ClaimedId: cap1688Claimed.id,
       s4bSupplierCheapId: supCheap.id, s4bOfferingCheapId: offCheap.id, s4bCertCheapId: certCheap.id, s4bSignalCheapId: sigCheap.id,
       s4bSupplierFullId: supFull.id, s4bOfferingFullId: offFull.id, s4bCertFullId: certFull.id, s4bSignalFullId: sigFull.id,
       s4bRound1Id: round1?.id ?? null, s4bHistProjectAId: histProjA, s4bHistProjectBId: histProjB,
       s4bRound1ItemBId: await itemOf(sup), s4bRound1ItemCheapId: await itemOf(supCheap.id), s4bRound1ItemFullId: await itemOf(supFull.id),
       s4bSupplierTwoId: supTwo.id, s4bOfferingTwoA1Id: offTwoA1.id, s4bOfferingTwoA2Id: offTwoA2.id, s4bCertTwoA1Id: certTwoA1.id, s4bCertTwoA2Id: certTwoA2.id, s4bSignalTwoId: sigTwo.id, s4bRound1ItemTwoId: await itemOf(supTwo.id),
-      s4bHiddenProjectId: hiddenProject.id, s4bHiddenSignalId: sigHidden.id, s4bHiddenCapId: capHidden.id };
+      s4bHiddenProjectId: hiddenProject.id, s4bHiddenSignalId: sigHidden.id, s4bHiddenCapId: capHidden.id,
+      s4bSupplierHistYId: supHistY.id, s4bOfferingHistYId: offHistY.id, s4bCertHistYId: certHistY.id, s4bSignalHistYId: sigHistY.id,
+      s4bHiddenInq1Id: hiddenInq1?.id ?? null, s4bHiddenInq2Id: hiddenInq2?.id ?? null, s4bHiddenInqItem1Id: await hiddenItemOf(hiddenInq1), s4bHiddenInqItem2Id: await hiddenItemOf(hiddenInq2),
+      s4bHiddenTotal1: String(HIDDEN_TOTAL_1), s4bHiddenTotal2: String(HIDDEN_TOTAL_2) };
   }
 
   console.log(
