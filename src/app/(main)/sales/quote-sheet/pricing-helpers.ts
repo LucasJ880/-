@@ -90,6 +90,10 @@ export function computeShadeLinePrice(
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
 ): LinePrice | null {
   const motorSurcharge = line.lift === "M" ? Math.max(0, sunnyMotorPrice) : 0;
+  // 无绳（lift === "C"）暂不计价 —— **等新价目表**（Lucas 2026-08-29：新表含无绳价格）。
+  // 现状：Order Form 选 C 与选 L/R 同价。新表到位后在这里把 cordlessRequested
+  // 传进下面的 priceFor 即可；同时要确认无绳是继续走 DEFAULT_CORDLESS_MULTIPLIER
+  // 系数，还是新表给的是独立价目网格（两者代码改法不同，见 pricing-data.ts）。
   // Allusion / Roman：销售手填单价，跳过 MSRP 表
   if (isManualPriceShadeProduct(line.product)) {
     if (!line.widthWhole || !line.heightWhole) return null;

@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { canTransition, timestampField } from "@/lib/blinds/order-state-machine";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireTenantContext } from "@/lib/tenancy";
 
 export const POST = withAuth(async (request, ctx, user) => {
+  const tenant = await requireTenantContext(request);
+  if (tenant instanceof NextResponse) return tenant;
+
   const { id } = await ctx.params;
   const body = await request.json();
   const { toStatus, note, cancelReason } = body as {
@@ -12,7 +16,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     cancelReason?: string;
   };
 
-  const order = await db.blindsOrder.findUnique({ where: { id } });
+  const order = await db.blindsOrder.findFirst({ where: { id, orgId: tenant.orgId } });
   if (!order) return NextResponse.json({ error: "工单不存在" }, { status: 404 });
 
   if (!canTransition(order.status, toStatus)) {

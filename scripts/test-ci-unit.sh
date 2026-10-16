@@ -154,6 +154,9 @@ npx tsx src/lib/notifications/__tests__/delivery-gate.test.ts
 npx tsx src/lib/blinds/__tests__/discount-permissions.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
+npx tsx src/lib/blinds/__tests__/deduction-rules.test.ts
+npx tsx src/lib/vinyl/__tests__/vinyl-engine.test.ts
+npx tsx src/lib/work-orders/__tests__/from-quote-mapping.test.ts
 npx tsx src/lib/visualizer/__tests__/render-job.test.ts
 npx tsx src/lib/visualizer/__tests__/texture-fill.test.ts
 npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts

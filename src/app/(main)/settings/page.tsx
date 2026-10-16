@@ -2,12 +2,13 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain, Building2, Palette } from "lucide-react";
+import { Calendar, Mail, Loader2, CheckCircle2, XCircle, ExternalLink, ChevronDown, Bell, MessageCircle, Send, Sparkles, Brain, Building2, Palette, Factory } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { useOrgModules } from "@/lib/hooks/use-org-modules";
 
 const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
@@ -51,6 +52,9 @@ const GOOGLE_ERROR_HINTS: Record<string, string> = {
 
 function SettingsContent() {
   const { isPlatformAdmin } = useCurrentUser();
+  const { hasModule } = useOrgModules();
+  // Vinyl 工艺参数属窗饰域：与侧栏工艺单同一 window_covering 门控
+  const windowCovering = hasModule("window_covering") === true;
   const { orgId, organizations, loading: orgLoading } = useCurrentOrgId();
   const currentOrg = organizations.find((o) => o.id === orgId);
   const isMengxinOrg = currentOrg?.code === MENGXIN_ORG_CODE;
@@ -196,6 +200,22 @@ function SettingsContent() {
           <div className="flex-1">
             <h2 className="text-sm font-semibold">数字员工技能</h2>
             <p className="text-xs text-muted">查看、编辑与测试销售/营销/投标等技能；副作用仍需负责人确认</p>
+          </div>
+          <span className="text-xs text-accent">去管理 →</span>
+        </Link>
+      )}
+
+      {windowCovering && (
+        <Link
+          href="/settings/vinyl-panel-codes"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
+            <Factory size={20} className="text-accent" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">Vinyl 百叶窗工艺参数</h2>
+            <p className="text-xs text-muted">开启状态编码表（条/盖用量）；新工艺出现新码时在此维护，无需发版</p>
           </div>
           <span className="text-xs text-accent">去管理 →</span>
         </Link>

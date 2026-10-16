@@ -442,6 +442,19 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 17,
   },
   {
+    key: "biz-vinyl-work-orders",
+    label: "Vinyl 工艺单",
+    labelKey: "nav_vinyl_work_orders",
+    href: "/vinyl-orders",
+    icon: ClipboardList,
+    group: "BUSINESS",
+    moduleKey: "window_covering",
+    // 与 Blinds 工艺单同权限面：销售工作区不暴露，运营/高管可见
+    requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
+    badgeKey: "sidebar_badge_industry",
+    displayOrder: 17.2,
+  },
+  {
     key: "biz-inventory",
     label: "面料库存",
     labelKey: "nav_fabric_inventory",

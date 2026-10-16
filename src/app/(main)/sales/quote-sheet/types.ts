@@ -52,7 +52,7 @@ export interface PartALine {
   error: string | null;
   // Product-specific fields
   mount: "I" | "O" | "";           // Shades: Inside/Outside
-  lift: "L" | "R" | "M" | "";      // Shades: Left/Right/Motorized
+  lift: "L" | "R" | "M" | "C" | ""; // Shades: Left/Right/Motorized/Cordless
   bracket: "C" | "W" | "";         // Bracket: Ceiling/Wall
   valance: string;                  // Shades: Cassette/Fascia
   // Shutters specific
@@ -146,7 +146,13 @@ export interface ShadeOrderLine {
   product: ProductName;
   sku: string;
   mount: "I" | "O" | "";
-  lift: "L" | "R" | "M" | "";
+  /**
+   * L/R = 拉绳（含拉杆位置）、M = 电动、C = 无绳。
+   * 这一列同时承载「操控方式」与「拉杆位置」两个工艺概念：
+   *   L→(普通, 左)  R→(普通, 右)  M→(电动, 无侧)  C→(无绳, 无侧)
+   * 工艺单侧对应 controlType + controlSide 两个字段。
+   */
+  lift: "L" | "R" | "M" | "C" | "";
   bracket: "C" | "W" | "";
   valance: string;
   note: string;

@@ -17,6 +17,9 @@ export const POST = withAuth(async (request) => {
     );
   }
 
+  // 预览默认用当前版本；带 ruleVersion 时按该版本算（历史单编辑页用）
+  const version = typeof body.ruleVersion === "string" ? body.ruleVersion : RULE_VERSION;
+
   const results = (body.items as Record<string, unknown>[]).map(
     (item: Record<string, unknown>) => {
       const input: ItemInput = {
@@ -30,15 +33,16 @@ export const POST = withAuth(async (request) => {
         silkRatio: item.silkRatio != null ? Number(item.silkRatio) : null,
         bottomBarWidth:
           item.bottomBarWidth != null ? Number(item.bottomBarWidth) : null,
+        fabricSku: item.fabricSku != null ? String(item.fabricSku) : null,
       };
 
       if (input.width <= 0 || input.height <= 0) {
         return { error: "宽度和高度必须大于0", input };
       }
 
-      return calculateItem(input);
+      return calculateItem(input, version);
     }
   );
 
-  return NextResponse.json({ ruleVersion: RULE_VERSION, results });
+  return NextResponse.json({ ruleVersion: version, results });
 });

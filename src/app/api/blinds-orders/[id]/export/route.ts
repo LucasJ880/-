@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateBlindsExcel } from "@/lib/blinds/excel-export";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireTenantContext } from "@/lib/tenancy";
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx) => {
+  const tenant = await requireTenantContext(request);
+  if (tenant instanceof NextResponse) return tenant;
+
   const { id } = await ctx.params;
 
-  const order = await db.blindsOrder.findUnique({
-    where: { id },
+  const order = await db.blindsOrder.findFirst({
+    where: { id, orgId: tenant.orgId },
     include: {
       items: { orderBy: { itemNumber: "asc" } },
     },

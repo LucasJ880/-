@@ -56,6 +56,7 @@ export const zh: Messages = {
   nav_field_measure: "现场量房",
   nav_cockpit: "销售分析",
   nav_work_orders: "工艺单",
+  nav_vinyl_work_orders: "Vinyl 工艺单",
   nav_fabric_inventory: "面料库存",
   nav_sales_knowledge: "销售知识",
   nav_quote_sheet: "电子报价单",

@@ -64,6 +64,7 @@ model User {
   calendarEvents           CalendarEvent[]
   calendarProviders        CalendarProvider[]
   blindsOrders             BlindsOrder[]
+  vinylOrders              VinylOrder[]
   reminders                Reminder[]
   notifications            Notification[]              @relation("UserNotifications")
   notificationPreference   UserNotificationPreference?
@@ -316,6 +317,7 @@ model Project {
   purchaser            User?                     @relation("ProjectPurchaser", fields: [purchaserId], references: [id])
   tasks                Task[]
   blindsOrders         BlindsOrder[]
+  vinylOrders          VinylOrder[]
   members              ProjectMember[]
   environments         Environment[]
   auditLogs            AuditLog[]
@@ -556,6 +558,9 @@ model CalendarEvent {
 
 model BlindsOrder {
   id          String @id @default(cuid())
+  /// 多租户边界。建表时遗漏，2026-08-29 补上（当时生产库 0 行，故可直接 NOT NULL）
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   code        String @unique
   status      String @default("draft")
   // draft → confirmed → in_production → ready → scheduled → installed → completed → cancelled
@@ -594,9 +599,14 @@ model BlindsOrder {
   opportunityId String?
   opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
 
+  /// 由哪张已签报价自动生成；@unique = 一张报价至多一张 Blinds 工艺单（生成幂等键）
+  quoteId String?     @unique
+  quote   SalesQuote? @relation("SalesQuoteBlindsOrder", fields: [quoteId], references: [id])
+
   items      BlindsOrderItem[]
   statusLogs OrderStatusLog[]
 
+  @@index([orgId, status])
   @@index([customerId])
   @@index([opportunityId])
   @@index([status])
@@ -653,6 +663,171 @@ model BlindsOrderItem {
 
   orderId String
   order   BlindsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// Vinyl 百叶窗工艺单
+//   规则引擎见 src/lib/vinyl/*，来源 Vinyl百叶窗统一工艺单_V15.xlsx
+//   与 Blinds 工艺单是两套完全独立的工艺，不共享字段
+// ============================================================
+
+/// 「开启状态」编码表（工艺单!G3）——车间可自行加码，无需改代码部署
+model VinylPanelCode {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// 方向码，统一大写无空格存储，如 LLRR / LTLTRTR
+  code String
+  /// 适用百叶尺寸；null = 2.5" 与 3.5" 都适用
+  louverSize Float?
+  /// 条（LIGHT BLOCK 盖条）数量
+  strips Int
+  /// 盖数量
+  caps Int
+  /// 备注：这条码代表的实际开启方式，便于后来人看懂
+  note String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+
+  /// 同一组织下「码 + 尺寸」唯一；louverSize=null 与具体尺寸可并存（具体尺寸优先）
+  @@unique([orgId, code, louverSize])
+  @@index([orgId])
+}
+
+/// Vinyl 百叶窗工艺单（工单）
+model VinylOrder {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  code   String @unique
+  status String @default("draft")
+  // draft → confirmed → in_production → ready → scheduled → installed → completed
+  //                 ↘ cancelled
+  /// 计算规则版本；导出/重算按本单自己的版本走，不用"当前版本"
+  ruleVersion String @default("vinyl_v15")
+
+  customerName String
+  phone        String?
+  address      String?
+  installDate  String?
+  remarks      String?
+
+  /// 订单总表!E4 百叶尺寸，全单一个值（2.5 / 3.5）
+  louverSize Float  @default(3.5)
+  /// 订单总表!C4 颜色
+  color      String @default("白色")
+
+  confirmedAt       DateTime?
+  productionStartAt DateTime?
+  readyAt           DateTime?
+  scheduledAt       DateTime?
+  installedAt       DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  expectedInstallDate DateTime?
+  appointmentId       String?
+  priority            String    @default("normal")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creatorId String
+  creator   User    @relation(fields: [creatorId], references: [id])
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  customerId    String?
+  customer      SalesCustomer?    @relation(fields: [customerId], references: [id])
+  opportunityId String?
+  opportunity   SalesOpportunity? @relation(fields: [opportunityId], references: [id])
+
+  /// 由哪张已签报价自动生成；@unique = 一张报价至多一张工艺单（生成幂等键）
+  quoteId String?     @unique
+  quote   SalesQuote? @relation(fields: [quoteId], references: [id])
+
+  items      VinylOrderItem[]
+  statusLogs VinylOrderStatusLog[]
+
+  @@index([orgId, status])
+  @@index([customerId])
+  @@index([opportunityId])
+  @@index([expectedInstallDate])
+}
+
+/// 工艺单行 = 一扇窗（对应 订单总表 一行）
+model VinylOrderItem {
+  id         String @id @default(cuid())
+  itemNumber Int
+
+  // ── 录入字段（订单总表 B~O） ──
+  location       String
+  width          Float
+  height         Float
+  panelCount     Int
+  /// 开启方向码，如 LLRR
+  panelCode      String
+  /// 分隔柱数量，形如 2T（分隔柱）/ 2H（挂柱）；空=无
+  dividerSpec    String?
+  /// 特殊分隔档（绝对英寸），优先于 midRailRatio
+  specialMidRail Float?
+  /// Mid-Rail 比例（× 测量高）
+  midRailRatio   Float?
+  tiltRodPosition String?
+  /// L / Z / T / Door
+  frameType      String
+  /// "4" / "3+1"
+  frameCount     String
+  /// IN / OUT
+  inOut          String
+  /// 有框 / 无框
+  structure      String  @default("有框")
+  itemRemark     String?
+
+  // ── 计算快照（签名那一刻的尺寸；导出时仍会按 ruleVersion 重算核对） ──
+  frameSignature    Float?
+  cavityWidth       Float?
+  cavityHeight      Float?
+  panelWidth        Float?
+  panelHeight       Float?
+  midRail           Float?
+  midRailFromBottom Float?
+  topLouvers        Int?
+  bottomLouvers     Int?
+  louverPitch       Float?
+  strips            Int?
+  caps              Int?
+  squareFeet        Float?
+
+  /// 生成时未解决的问题（未知框型组合 / 未知开启码 等），供工厂补录
+  warningsJson String? @db.Text
+
+  sortOrder Int @default(0)
+
+  orderId String
+  order   VinylOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, itemNumber])
+}
+
+/// Vinyl 工单状态变更日志（与 BlindsOrder 的 OrderStatusLog 分开，避免多态外键）
+model VinylOrderStatusLog {
+  id         String     @id @default(cuid())
+  orderId    String
+  order      VinylOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus String
+  toStatus   String
+  note       String?
+  operatorId String
+  createdAt  DateTime   @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 // ============================================================
@@ -807,6 +982,13 @@ model Organization {
   aiThreads           AiThread[]
   salesActions        SalesAction[]
   salesActionSyncRuns SalesActionSyncRun[]
+
+  // Vinyl 百叶窗工艺单
+  vinylPanelCodes VinylPanelCode[]
+  vinylOrders     VinylOrder[]
+  // Blinds 工艺单（orgId 于 2026-08-29 补齐）
+  blindsOrders    BlindsOrder[]
+
   @@index([companyId])
 }
 
@@ -4245,6 +4427,7 @@ model SalesCustomer {
   interactions  CustomerInteraction[]
   quotes        SalesQuote[]          @relation("SalesQuoteCustomer")
   blindsOrders  BlindsOrder[]
+  vinylOrders   VinylOrder[]
   appointments  Appointment[]
   measurements  MeasurementRecord[]
   salesActions  SalesAction[]
@@ -4316,6 +4499,7 @@ model SalesOpportunity {
   interactions CustomerInteraction[]
   quotes       SalesQuote[]
   blindsOrders BlindsOrder[]
+  vinylOrders  VinylOrder[]
   appointments Appointment[]
   salesActions SalesAction[]
 
@@ -4594,6 +4778,11 @@ model SalesQuote {
   signedAt     DateTime? // 签名时间
   aiSource     String? // voice / text / image / manual
   viewedAt     DateTime? // 客户查看时间
+
+  /// 由本报价自动生成的 Vinyl 工艺单（1:1；生成幂等键在 VinylOrder.quoteId）
+  vinylOrder VinylOrder?
+  /// 由本报价自动生成的 Blinds 工艺单（1:1）
+  blindsOrder BlindsOrder? @relation("SalesQuoteBlindsOrder")
 
   // 报价 PDF 存档（客户以 PDF 为准查看并签字，解决网页渲染与 PDF 不一致问题）
   pdfPath       String? // 发送时存档的 Order Form PDF（私有 Blob pathname）

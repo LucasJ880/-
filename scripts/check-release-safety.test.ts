@@ -122,7 +122,9 @@ ok(
       "20260828120000_add_quote_fee_settings",
       "20260829090000_add_visualizer_render_job_state",
       "20260829180000_add_commission_estimate_settings",
+      "20260829200000_add_vinyl_work_order",
       "20260829210000_add_sales_quote_cost_foundation",
+      "20260829230000_add_blinds_order_org_and_quote",
       "20260831120000_add_supplier_intelligence_spine",
       "20260905093000_add_organization_company_link",
       "20260905160000_add_trade_inquiry_analysis",
@@ -135,7 +137,7 @@ ok(
       "20260921130000_add_trade_quote_product_and_sample",
       "20260921160000_add_trade_sample_follow_up",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments + AiMessageAttachments + TradeOutreachStep + TradeQuoteProductAndSample + TradeSampleFollowUp",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + VinylWorkOrder + SalesQuoteCostFoundation + BlindsOrderOrgAndQuote + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments + AiMessageAttachments + TradeOutreachStep + TradeQuoteProductAndSample + TradeSampleFollowUp",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

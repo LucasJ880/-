@@ -11,8 +11,8 @@ import {
   CONTROL_SIDES,
   MOUNT_TYPES,
   RULE_VERSION,
-  SUPPORTED_FABRIC_RATIOS,
 } from "@/lib/blinds/deduction-rules";
+import { lookupFabricRatio } from "@/lib/blinds/fabric-ratio-catalog";
 import { apiFetch } from "@/lib/api-fetch";
 
 interface OrderItem {
@@ -79,8 +79,9 @@ const DEFAULT_ITEM: () => OrderItem = () => ({
   controlSide: "R",
   headrailType: "亮白插片圆盒",
   mountType: "顶装",
-  fabricRatio: "3",
-  silkRatio: "2",
+  // 留空：由 fabricSku 查布纱比目录解析。硬填 3:2 会盖掉目录里的真实比例。
+  fabricRatio: "",
+  silkRatio: "",
   bottomBarWidth: "",
   itemRemark: "",
 });
@@ -177,6 +178,14 @@ export function BlindsOrderForm({
       const bw = item.bottomBarWidth ? parseFloat(item.bottomBarWidth) : null;
       if (bw && w && bw > w) warns.push(`#${n}: 底杆覆盖值 ${bw}" 大于宽度 ${w}"`);
       if (!item.fabricSku.trim()) warns.push(`#${n}: 面料号未填写`);
+      if (item.productType === "斑马帘" && !(item.fabricRatio.trim() && item.silkRatio.trim())) {
+        const hit = lookupFabricRatio(item.fabricSku);
+        if (hit.status === "conflict") {
+          warns.push(`#${n}: 面料 ${item.fabricSku} 在布纱比目录里有两个不同比例，请手填布/纱`);
+        } else if (hit.status === "not_found") {
+          warns.push(`#${n}: 面料 ${item.fabricSku || "(空)"} 不在布纱比目录里，斑马帘裁剪位将留空 —— 请手填布/纱`);
+        }
+      }
     });
     if (errs.length > 0) return { valid: false, warns: errs };
     return { valid: true, warns };
@@ -193,6 +202,7 @@ export function BlindsOrderForm({
         measureType: item.measureType,
         controlType: item.controlType,
         headrailType: item.headrailType,
+        fabricSku: item.fabricSku,
         fabricRatio: item.productType === "斑马帘" ? parseFloat(item.fabricRatio) || null : null,
         silkRatio: item.productType === "斑马帘" ? parseFloat(item.silkRatio) || null : null,
         bottomBarWidth: item.bottomBarWidth ? parseFloat(item.bottomBarWidth) : null,
@@ -307,7 +317,7 @@ export function BlindsOrderForm({
         <span>规则版本:</span>
         <span className="rounded bg-card-bg px-2 py-0.5 font-mono">{RULE_VERSION}</span>
         <span className="mx-2">|</span>
-        <span>布纱比: 仅支持 {SUPPORTED_FABRIC_RATIOS.join(", ")}</span>
+        <span>布纱比: 留空则按面料货号自动查目录</span>
         <span className="mx-2">|</span>
         <span>单位: 英寸（内部）</span>
       </div>
@@ -602,7 +612,7 @@ export function BlindsOrderForm({
               裁切计算结果预览
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              规则版本: {RULE_VERSION} · 仅支持 3:2 布纱比自动计算
+              规则版本: {RULE_VERSION} · 斑马帘布纱比支持任意比例（留空按面料货号查目录）
             </p>
           </div>
           <div className="overflow-x-auto">
