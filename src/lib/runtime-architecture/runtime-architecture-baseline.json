@@ -247,6 +247,7 @@
     "src/lib/runtime/tool-executor.ts",
     "src/lib/sales/profile-engine.ts",
     "src/lib/secretary/followup-engine.ts",
+    "src/lib/vinyl/calculation-engine.ts",
     "src/lib/webhook/dispatcher.ts",
     "src/lib/workforce-runtime/lease-heartbeat.ts",
     "src/lib/workforce-runtime/processor.ts"
