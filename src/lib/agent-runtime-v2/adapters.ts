@@ -114,13 +114,65 @@ export type AdapterResult = {
 
 type RuntimeV2ToolHandler = (ctx: AdapterContext) => Promise<AdapterResult>;
 
-function nextFridayIso(): string {
-  const d = new Date();
-  const day = d.getDay();
-  const add = day <= 5 ? 5 - day : 7 - day + 5;
-  d.setDate(d.getDate() + (add === 0 ? 7 : add));
-  d.setHours(15, 0, 0, 0);
-  return d.toISOString();
+// ── 提醒 / 跟进时间：只来自用户明确输入或已授权业务规则 ─────────────
+//
+// 时区只能取可信的用户 / 组织配置（MarketingBrandProfile.timezone），
+// 绝不取服务器本地时间。legacy runtime_v2 黄金模板与 LLM 规划的
+// Workforce Job 的步骤都不携带用户明确时间，也不存在已授权的默认跟进
+// 时间规则 → 依赖时间的写工具一律 fail-closed：不查库、不建草稿，
+// 以 executor 既有的 skipped 终态返回明确原因（替代曾经凭空推算
+// "下周五 15:00（服务器本地时区）"的 nextFridayIso）。
+
+export const REMINDER_TIME_REQUIRED = "REMINDER_TIME_REQUIRED";
+
+function reminderTimeRequired(what: string, targetCount: number): AdapterResult {
+  return {
+    ok: true,
+    data: {
+      skipped: true,
+      reason: `${REMINDER_TIME_REQUIRED}: 缺少用户明确给出的${what}，系统不会自行假设时间`,
+      missingInputs: ["reminder_time"],
+      targetCount,
+      summary: `未创建草稿：需要明确的${what}（${targetCount} 个待安排对象）`,
+    },
+  };
+}
+
+// ── 面向客户的跟进邮件：中性模板 ──────────────────────────────────
+//
+// 正文进入 Gmail 草稿（text/html）并由客户阅读：绝不拼接内部评分 /
+// 风险理由（如"跟进逾期 12 天(+30)"），客户名必须 HTML 转义。
+
+function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** 优先客户缺名时的内部占位（证据识别 / 排序输入），不得出现在客户邮件里 */
+const UNKNOWN_CUSTOMER_PLACEHOLDER = "未知客户";
+
+export function neutralFollowupEmailContent(customerName: string): {
+  subject: string;
+  body: string;
+} {
+  const name = customerName.trim();
+  const greeting =
+    name && name !== UNKNOWN_CUSTOMER_PLACEHOLDER
+      ? `${escapeHtml(name)}，您好：`
+      : "您好：";
+  return {
+    subject: "跟进我们之前的沟通",
+    body: [
+      `<p>${greeting}</p>`,
+      "<p>想跟进一下我们之前沟通的事项，看看您目前的进展，以及是否有需要我们协助或调整的地方。</p>",
+      "<p>方便的话请直接回复这封邮件，或告诉我适合沟通的时间。</p>",
+      "<p>谢谢！</p>",
+    ].join(""),
+  };
 }
 
 function draftActionId(draft: { success: boolean; data: unknown }): string | null {
@@ -208,7 +260,9 @@ export function findPrioritizedEvidence(
         .map((p) => ({
           customerId: p.customerId as string,
           customerName:
-            typeof p.customerName === "string" ? p.customerName : "未知客户",
+            typeof p.customerName === "string"
+              ? p.customerName
+              : UNKNOWN_CUSTOMER_PLACEHOLDER,
           email: typeof p.email === "string" ? p.email : null,
           opportunityId:
             typeof p.opportunityId === "string" ? p.opportunityId : undefined,
@@ -678,7 +732,7 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
         return {
           id: o.id!,
           customerId: (o.customerId ?? o.customer?.id)!,
-          customerName: o.customer?.name ?? "未知客户",
+          customerName: o.customer?.name ?? UNKNOWN_CUSTOMER_PLACEHOLDER,
           email: o.customer?.email ?? null,
           stage: o.stage,
           estimatedValue: o.estimatedValue,
@@ -720,61 +774,7 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
     if (prioritized.length === 0) {
       return { ok: true, data: { skipped: true, reason: "无优先客户" } };
     }
-    const targets = prioritized.slice(0, 3);
-    const startTime = nextFridayIso();
-    const endTime = new Date(
-      new Date(startTime).getTime() + 30 * 60_000,
-    ).toISOString();
-    const actionIds: string[] = [];
-    for (const t of targets) {
-      const targetId = t.opportunityId || t.customerId;
-      const idempotencyKey = buildRuntimeV2OperationKey({
-        runId: ctx.runId,
-        stepKey: ctx.stepKey,
-        actionType: "calendar.create_event",
-        targetId,
-      });
-      const draft = await createDraft({
-        type: "calendar.create_event",
-        title: `跟进提醒：${t.customerName}`,
-        preview: t.reasons?.[0] ?? "销售跟进提醒",
-        payload: {
-          title: `跟进客户 ${t.customerName}`,
-          description: t.reasons?.join("；") ?? "Runtime V2 建议跟进",
-          startTime,
-          endTime,
-          metadata: {
-            orgId: ctx.orgId,
-            customerId: t.customerId,
-            opportunityId: t.opportunityId,
-            source: "agent_runtime_v2",
-            stepKey: ctx.stepKey,
-            idempotencyKey,
-          },
-        },
-        userId: ctx.userId,
-        orgId: ctx.orgId,
-        agentRunId: ctx.runId,
-        threadId: ctx.threadId ?? undefined,
-        messageId: ctx.assistantMessageId ?? undefined,
-        idempotencyKey,
-      });
-      const id = draftActionId(draft);
-      if (id) actionIds.push(id);
-    }
-    if (actionIds.length === 0) {
-      return { ok: false, error: "创建跟进任务草稿失败" };
-    }
-    return {
-      ok: true,
-      requiresApproval: true,
-      pendingActionId: actionIds[0],
-      data: {
-        pendingActionIds: actionIds,
-        count: actionIds.length,
-        summary: `已创建 ${actionIds.length} 个跟进任务草稿，等待审批`,
-      },
-    };
+    return reminderTimeRequired("跟进提醒时间", Math.min(prioritized.length, 3));
   },
 
   sales_update_followup: async (ctx) => {
@@ -783,64 +783,7 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
     if (withOpp.length === 0) {
       return { ok: true, data: { skipped: true, reason: "无可改期商机" } };
     }
-    const nextAt = nextFridayIso();
-    const actionIds: string[] = [];
-    for (const t of withOpp) {
-      const opp = await db.salesOpportunity.findFirst({
-        where: { id: t.opportunityId!, orgId: ctx.orgId },
-        select: { id: true, title: true, nextFollowupAt: true },
-      });
-      if (!opp) continue;
-      const idempotencyKey = buildRuntimeV2OperationKey({
-        runId: ctx.runId,
-        stepKey: ctx.stepKey,
-        actionType: "sales.update_followup",
-        targetId: opp.id,
-      });
-      const draft = await createDraft({
-        type: "sales.update_followup",
-        title: `调整跟进日期：${t.customerName}`,
-        preview: `下次跟进 → ${nextAt}`,
-        payload: {
-          opportunityId: opp.id,
-          opportunityTitle: opp.title ?? t.customerName,
-          customerName: t.customerName,
-          previousFollowupAt: opp.nextFollowupAt
-            ? opp.nextFollowupAt.toISOString()
-            : null,
-          nextFollowupAt: nextAt,
-          note: "Runtime V2 建议",
-          metadata: {
-            orgId: ctx.orgId,
-            customerId: t.customerId,
-            source: "agent_runtime_v2",
-            stepKey: ctx.stepKey,
-            idempotencyKey,
-          },
-        },
-        userId: ctx.userId,
-        orgId: ctx.orgId,
-        agentRunId: ctx.runId,
-        threadId: ctx.threadId ?? undefined,
-        messageId: ctx.assistantMessageId ?? undefined,
-        idempotencyKey,
-      });
-      const id = draftActionId(draft);
-      if (id) actionIds.push(id);
-    }
-    if (actionIds.length === 0) {
-      return { ok: false, error: "创建跟进日期草稿失败" };
-    }
-    return {
-      ok: true,
-      requiresApproval: true,
-      pendingActionId: actionIds[0],
-      data: {
-        pendingActionIds: actionIds,
-        nextFollowupAt: nextAt,
-        summary: `已创建 ${actionIds.length} 个跟进改期草稿（→ ${nextAt.slice(0, 10)}），等待审批`,
-      },
-    };
+    return reminderTimeRequired("下次跟进时间", withOpp.length);
   },
 
   gmail_create_draft: async (ctx) => {
@@ -857,8 +800,7 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
     }
     const actionIds: string[] = [];
     for (const t of withEmail) {
-      const subject = `跟进：${t.customerName}`;
-      const body = `<p>您好，${t.customerName}：</p><p>想跟进一下当前进展。${t.reasons?.[0] ?? ""}</p><p>方便时请回复，谢谢。</p>`;
+      const { subject, body } = neutralFollowupEmailContent(t.customerName);
       const idempotencyKey = buildRuntimeV2OperationKey({
         runId: ctx.runId,
         stepKey: ctx.stepKey,
@@ -909,8 +851,8 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
     };
   },
 
-  // #88 新增（曾为 ghost tool）：日历提醒草稿。严格走 createDraft →
-  // PendingAction → 审批 → 既有 executor 的外部执行路径；本 adapter
+  // #88 新增（曾为 ghost tool）：日历提醒草稿。计划步骤不携带用户明确
+  // 时间 → 恒 fail-closed 跳过（REMINDER_TIME_REQUIRED）；本 adapter
   // 本身零外部副作用（绝不直连 Google Calendar）。
   calendar_create_event_draft: async (ctx) => {
     const prioritized = findPrioritizedEvidence(ctx.priorEvidence);
@@ -921,60 +863,7 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
         data: { skipped: true, reason: "无可安排日历提醒的优先客户" },
       };
     }
-    const startTime = nextFridayIso();
-    const endTime = new Date(
-      new Date(startTime).getTime() + 30 * 60_000,
-    ).toISOString();
-    const actionIds: string[] = [];
-    for (const t of targets) {
-      const targetId = t.opportunityId || t.customerId;
-      const idempotencyKey = buildRuntimeV2OperationKey({
-        runId: ctx.runId,
-        stepKey: ctx.stepKey,
-        actionType: "calendar.create_event",
-        targetId,
-      });
-      const draft = await createDraft({
-        type: "calendar.create_event",
-        title: `日历提醒：${t.customerName}`,
-        preview: t.reasons?.[0] ?? "销售跟进日历提醒",
-        payload: {
-          title: `跟进提醒 ${t.customerName}`,
-          description: t.reasons?.join("；") ?? "Runtime V2 建议的日历提醒",
-          startTime,
-          endTime,
-          metadata: {
-            orgId: ctx.orgId,
-            customerId: t.customerId,
-            opportunityId: t.opportunityId,
-            source: "agent_runtime_v2",
-            stepKey: ctx.stepKey,
-            idempotencyKey,
-          },
-        },
-        userId: ctx.userId,
-        orgId: ctx.orgId,
-        agentRunId: ctx.runId,
-        threadId: ctx.threadId ?? undefined,
-        messageId: ctx.assistantMessageId ?? undefined,
-        idempotencyKey,
-      });
-      const id = draftActionId(draft);
-      if (id) actionIds.push(id);
-    }
-    if (actionIds.length === 0) {
-      return { ok: false, error: "创建日历提醒草稿失败" };
-    }
-    return {
-      ok: true,
-      requiresApproval: true,
-      pendingActionId: actionIds[0],
-      data: {
-        pendingActionIds: actionIds,
-        count: actionIds.length,
-        summary: `已创建 ${actionIds.length} 个日历提醒草稿，等待审批`,
-      },
-    };
+    return reminderTimeRequired("日历提醒时间", targets.length);
   },
 
   // ── Tender T1B（internal-only 工具组）：可执行但不入

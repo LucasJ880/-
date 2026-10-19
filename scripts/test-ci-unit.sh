@@ -178,6 +178,7 @@ npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel-static.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel.isolated.test.ts
+npx tsx src/lib/agent-runtime-v2/__tests__/legacy-followup-safety.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
 # Supplier Intelligence M1-S1（DB 套件无 DATABASE_URL 时自跳过）
