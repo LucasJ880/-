@@ -53,7 +53,8 @@ const v2Entries = [...catalogBlock.matchAll(/\{[^{}]*?\}/gs)]
     readOnly: /readOnly:\s*true/.test(o),
     requiresApproval: /requiresApproval:\s*true/.test(o),
   }));
-ok(v2Entries.length === 13, `RUNTIME_V2_TOOL_CATALOG 解析出 13 个描述符（实际 ${v2Entries.length}）`);
+// DURABLE_FOLLOWUP_M1：13 个 planner 可见 + 3 个 serverPlanOnly（同一 catalog，同一风险归一化）
+ok(v2Entries.length === 16, `RUNTIME_V2_TOOL_CATALOG 解析出 16 个描述符（实际 ${v2Entries.length}）`);
 
 const v2Descriptors = v2Entries.map((e) => fromRuntimeV2Descriptor(e));
 ok(v2Descriptors.every((d) => !d.failClosedRisk), "V2 目录风险值全部可归一化");

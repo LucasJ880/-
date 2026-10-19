@@ -91,6 +91,12 @@ export const ToolDescriptorSchema = z.object({
    * 只有无副作用的 read/analysis 工具允许标注。
    */
   parallelSafe: z.boolean().optional(),
+  /**
+   * DURABLE_FOLLOWUP_M1：仅供服务端计划（ServerAuthoredPlanV1）使用的工具。
+   * 有真实 handler 与执行期 descriptor（风险/审批照常鉴权），但 LLM Planner
+   * 不可见（plannerVisibleRuntimeV2Tools 过滤）。缺省 / false = 行为不变。
+   */
+  serverPlanOnly: z.boolean().optional(),
 });
 
 export type ToolDescriptor = z.infer<typeof ToolDescriptorSchema>;

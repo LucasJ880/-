@@ -47,6 +47,11 @@ import {
 } from "@/lib/assistant/scenarios/gmail-draft";
 import type { AssistantScenarioResult } from "@/lib/assistant/scenarios/types";
 import { friendlyScenarioError } from "@/lib/assistant/scenarios/types";
+import {
+  startDurableFollowupTask,
+  type ScheduleAfterResponse,
+} from "@/lib/assistant/followup-task";
+import type { ChatAttachment } from "@/lib/chat-attachments/core";
 
 export type DispatchHandleResult = {
   kind: "handled";
@@ -1194,7 +1199,45 @@ export async function prepareAssistantDispatch(input: {
   threadTitle?: string;
   /** 服务端可信角色，不得来自客户端 */
   role: string;
+  /** 已在路由层完成格式与组织归属校验的附件 */
+  attachments?: ChatAttachment[];
+  /** 本次提交的客户端标识：只用于同一提交的幂等去重 */
+  clientRequestId?: string | null;
+  /** 路由层注入的响应后调度（next/server after）；不传 = 只靠 cron 推进 */
+  scheduleAfterResponse?: ScheduleAfterResponse;
 }): Promise<DispatchPrepareResult> {
+  // DURABLE_FOLLOWUP_M1：批量客户跟进目标 → 持久 Workforce 任务（默认关闭，
+  // 需同时命中本体验开关与 WORKFORCE_RUNTIME 开关/白名单）。返回 null 时下方
+  // 既有分流逐字不变。创建前的异常回落既有路径；创建开始后由该模块自行收口。
+  try {
+    const durable = await startDurableFollowupTask({
+      userId: input.userId,
+      role: input.role,
+      orgId: input.activeOrgId,
+      threadId: input.threadId,
+      message: input.message,
+      attachments: input.attachments,
+      clientRequestId: input.clientRequestId,
+      scheduleAfterResponse: input.scheduleAfterResponse,
+    });
+    if (durable) return durable;
+  } catch (e) {
+    console.error("[assistant.dispatch] durable followup route failed:", e);
+  }
+
+  // 带附件的消息：保持既有行为——不进入旧 V2 / 场景分流（它们不落库附件），
+  // 由调用方继续 Operator / legacy 对话分支
+  if ((input.attachments?.length ?? 0) > 0) {
+    return {
+      kind: "general",
+      intent: {
+        intent: "general_answer",
+        confidence: 0,
+        reason: "attachments_use_conversation_branch",
+      },
+    };
+  }
+
   // Agent Runtime 2.0：复杂销售跟进目标走 durable graph（灰度白名单）
   try {
     const {
@@ -1436,6 +1479,9 @@ export async function dispatchAssistantMessage(input: {
   message: string;
   threadTitle?: string;
   role: string;
+  attachments?: ChatAttachment[];
+  clientRequestId?: string | null;
+  scheduleAfterResponse?: ScheduleAfterResponse;
 }): Promise<DispatchPrepareResult> {
   return prepareAssistantDispatch(input);
 }

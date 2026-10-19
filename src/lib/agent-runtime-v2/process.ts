@@ -299,6 +299,17 @@ export async function resumeRuntimeV2AfterApproval(input: {
     shouldSkipReconcile,
   } = await import("./reconcile-approval");
 
+  // DURABLE_FOLLOWUP_M1（取消安全）：已取消的 Run 不接受任何审批恢复——
+  // 下方的 needs_human / executing 写入都是无条件 update，迟到的审批决定
+  // 会把已取消任务改回非终态。取消优先级最高（与 resumeWorkforceJob 同一语义）。
+  const cancelledRun = await db.agentRun.findFirst({
+    where: { id: input.runId, orgId: input.orgId },
+    select: { status: true },
+  });
+  if (cancelledRun?.status === "cancelled") {
+    return { status: "cancelled", report: "任务已取消，审批结果不再恢复执行" };
+  }
+
   await recordApprovalActor({
     orgId: input.orgId,
     runId: input.runId,

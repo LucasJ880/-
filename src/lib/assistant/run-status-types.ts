@@ -2,6 +2,8 @@
  * Phase 3B-A：助手七态类型与纯函数（客户端可安全导入，无 DB）
  */
 
+import type { FollowupOutcome } from "./followup-outcome";
+
 export type AssistantTaskStatus =
   | "received"
   | "planning"
@@ -85,6 +87,13 @@ export type AssistantRunStatusDto = {
   }>;
   awaitingApprovalStepCount?: number;
   verificationLabel?: string | null;
+  /**
+   * DURABLE_FOLLOWUP_M1：客户跟进持久任务的成果投影（只来自 DB 事实）。
+   * 可选字段：旧客户端忽略即可；非跟进任务恒为 undefined。
+   */
+  followup?: FollowupOutcome;
+  /** 服务端判定当前用户可以取消该持久任务（取消走服务端控制） */
+  cancellable?: boolean;
 };
 
 export type RunStatusEvent = {
@@ -186,6 +195,36 @@ export function runMatchesOwner(input: {
     return false;
   }
   return true;
+}
+
+/**
+ * 同一 Run 的增量更新：以新 DTO 为准，但新 DTO 没带的展示字段（例如审批回包
+ * 里 reconcile 生成的 DTO 不含步骤 / 成果投影）沿用旧值，避免卡片被清空。
+ * 只合并同一 runId；不同 Run 直接返回新值。
+ */
+export function mergeAssistantRunUpdate(
+  prev: AssistantRunStatusDto | null | undefined,
+  next: AssistantRunStatusDto,
+): AssistantRunStatusDto {
+  if (!prev || prev.runId !== next.runId) return next;
+  return {
+    ...next,
+    runtimeVersion: next.runtimeVersion ?? prev.runtimeVersion,
+    runtimeSteps: next.runtimeSteps ?? prev.runtimeSteps,
+    prioritizedCustomers: next.prioritizedCustomers ?? prev.prioritizedCustomers,
+    awaitingApprovalStepCount:
+      next.awaitingApprovalStepCount ?? prev.awaitingApprovalStepCount,
+    objective: next.objective ?? prev.objective,
+    planSummary: next.planSummary ?? prev.planSummary,
+    verificationLabel: next.verificationLabel ?? prev.verificationLabel,
+    followup: next.followup ?? prev.followup,
+    cancellable: next.cancellable ?? prev.cancellable,
+  };
+}
+
+/** 持久跟进任务仍会自行推进（前端据此轮询；等待确认/补充信息时不推进） */
+export function isDurableRunProgressing(run: AssistantRunStatusDto): boolean {
+  return run.followup?.overall === "in_progress";
 }
 
 export function isAssistantRunStatusDto(value: unknown): value is AssistantRunStatusDto {

@@ -144,9 +144,13 @@ ok(
   "scope: handler 注册表与白名单一一对应",
 );
 ok(
-  RUNTIME_V2_TOOL_CATALOG.length === 13 &&
+  // DURABLE_FOLLOWUP_M1：catalog 新增 3 个销售线 serverPlanOnly 工具（LLM Planner 不可见），
+  // planner 可见的销售线工具仍恰为 13 个
+  RUNTIME_V2_TOOL_CATALOG.length === 16 &&
+    RUNTIME_V2_TOOL_CATALOG.filter((t) => t.serverPlanOnly === true).length === 3 &&
+    plannerVisibleRuntimeV2Tools().length === 13 &&
     RUNTIME_V2_TOOL_CATALOG.every((t) => !t.name.startsWith("tender_")),
-  "scope/#94: 全局 catalog 保持 13 个销售线工具，零 tender 污染",
+  "scope/#94: 全局 catalog = 13 个 planner 可见销售线工具 + 3 个 serverPlanOnly，零 tender 污染",
 );
 ok(
   plannerVisibleRuntimeV2Tools().every((t) => !t.name.startsWith("tender_")),

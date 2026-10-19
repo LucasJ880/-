@@ -168,6 +168,11 @@ export class LostLeaseError extends Error {
  * （token 变化），断言命中 0 行 → 抛 LostLeaseError，写入不会发生；若并发
  * claim 与本事务竞争同一行锁，两者被 Postgres 串行化，不存在
  * "check 通过但写入落在新 worker 之后" 的窗口。
+ *
+ * DURABLE_FOLLOWUP_M1（取消安全）：cancelAgentRun 不改租约 token，此前仍持有
+ * 租约的 worker 在取消之后的迟到写入（如 verifier 的 status=completed、batch 的
+ * status=executing）会把已取消的 Run 改回执行中 / 已完成。断言因此同时要求
+ * `status != cancelled`：取消对当前持有者等同于失去租约（抛 LostLeaseError，零写入）。
  */
 /** guard 事务参数（可选；不传 = Prisma 默认，既有调用方行为逐字不变） */
 export type FenceTxOptions = {
@@ -216,11 +221,12 @@ export function createRunFence(holder: LeaseHolder): RunFence {
     check: async () => {
       const row = await db.agentRun.findUnique({
         where: { id: runId },
-        select: { leaseExpiresAt: true },
+        select: { leaseExpiresAt: true, status: true },
       });
       return (
+        row?.status !== "cancelled" &&
         row?.leaseExpiresAt?.getTime() ===
-        holder.lease.leaseExpiresAt.getTime()
+          holder.lease.leaseExpiresAt.getTime()
       );
     },
     guard: async (write, options) =>
@@ -230,6 +236,7 @@ export function createRunFence(holder: LeaseHolder): RunFence {
             where: {
               id: runId,
               leaseExpiresAt: holder.lease.leaseExpiresAt,
+              status: { not: "cancelled" },
             },
             // no-op：仅为取得行锁并断言 token 未被其他 worker 覆盖
             data: { leaseExpiresAt: holder.lease.leaseExpiresAt },

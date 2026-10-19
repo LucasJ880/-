@@ -9,7 +9,7 @@
  * Commit 6：决策后 reconcile AgentRun，响应附带最新 Run DTO。
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
@@ -22,6 +22,25 @@ import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 import { canConfirmPendingActionInActiveOrg } from "@/lib/assistant/thread-org-backfill";
 import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
 import type { NextRequest } from "next/server";
+
+/**
+ * DURABLE_FOLLOWUP_M1：决策后若关联 workforce_job 被 resumeWorkforceJob 重新排队，
+ * 响应后立即推进一个 slice（不再空等下一班 2 分钟 cron；cron 仍兜底）。
+ * legacy runtime_v2 的同步续跑本就在请求内执行，给足与 messages 路由相同的上限。
+ */
+export const maxDuration = 300;
+
+function kickLinkedWorkforceJob(agentRunId: string | null) {
+  if (!agentRunId) return;
+  after(async () => {
+    const { kickQueuedWorkforceJobSlice } = await import(
+      "@/lib/workforce-runtime/processor"
+    );
+    await kickQueuedWorkforceJobSlice(agentRunId).catch((e) =>
+      console.error("[pending-actions] workforce kick failed", e),
+    );
+  });
+}
 
 const authenticatedPost = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -107,6 +126,7 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
         { status: 400 },
       );
     }
+    kickLinkedWorkforceJob(action.agentRunId);
     return NextResponse.json({
       ok: true,
       status: result.status ?? "executed",
@@ -134,6 +154,7 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
         { status: 400 },
       );
     }
+    kickLinkedWorkforceJob(action.agentRunId);
     return NextResponse.json({
       ok: true,
       status: "rejected",
