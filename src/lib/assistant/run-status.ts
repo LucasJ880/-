@@ -19,8 +19,46 @@ import {
   deriveRetryFlags,
   summarizeActions,
 } from "@/lib/assistant/reconcile-decision";
+import {
+  FOLLOWUP_META,
+  readFollowupRunContext,
+} from "@/lib/assistant/followup-contract";
+import {
+  projectFollowupOutcome,
+  type FollowupOutcome,
+  type FollowupOverallState,
+} from "@/lib/assistant/followup-outcome";
 
 export * from "@/lib/assistant/run-status-types";
+
+/**
+ * 跟进任务总状态 → 既有七态（旧客户端兼容）。部分完成映射为 completed 但同时
+ * 置 partialCompletion=true、resultSummary=「部分完成：…」，新客户端用 followup
+ * 明细展示，绝不只显示"已完成"。
+ */
+export function followupTaskStatus(
+  overall: FollowupOverallState,
+  runStatus: string,
+): AssistantTaskStatus {
+  switch (overall) {
+    case "in_progress":
+      return runStatus === "queued" || runStatus === "acknowledged"
+        ? "received"
+        : runStatus === "planning" || runStatus === "planned"
+          ? "planning"
+          : "running";
+    case "waiting_for_confirmation":
+    case "needs_input":
+      return "waiting_for_confirmation";
+    case "partially_completed":
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+  }
+}
 
 function mapEventToStep(
   event: Pick<AgentRunEvent, "eventType" | "title">,
@@ -262,6 +300,7 @@ export async function listAssistantRunsForThread(input: {
     let prioritizedCustomers: AssistantRunStatusDto["prioritizedCustomers"];
     let awaitingApprovalStepCount: number | undefined;
     let verificationLabel: string | null = null;
+    let followup: FollowupOutcome | null = null;
     if (run.runtimeVersion === "v2") {
       const steps = await db.agentRunStep.findMany({
         where: { orgId: input.orgId, runId: run.id },
@@ -290,7 +329,14 @@ export async function listAssistantRunsForThread(input: {
       awaitingApprovalStepCount = steps.filter(
         (s) => s.status === "awaiting_approval",
       ).length;
-      const prioritizeStep = steps.find((s) => s.stepKey === "s5_prioritize");
+      // #89 语义定位（与 getRuntimeV2WorkbenchView 一致）：先按工具，legacy 字面键兜底；
+      // 此前只认 s5_prioritize，服务端 / 模型命名的计划刷新后会丢失优先客户
+      const prioritizeStep =
+        steps.find(
+          (s) =>
+            s.preferredTool === "sales_prioritize_followups" &&
+            ["completed", "partially_executed"].includes(s.status),
+        ) ?? steps.find((s) => s.stepKey === "s5_prioritize");
       if (prioritizeStep?.outputJson) {
         const { extractPrioritizedCustomers } = await import(
           "@/lib/assistant/runtime-v2-ui"
@@ -307,6 +353,94 @@ export async function listAssistantRunsForThread(input: {
       if (latestVerify) {
         verificationLabel = `${latestVerify.verdict}：${latestVerify.summary}`;
       }
+
+      // DURABLE_FOLLOWUP_M1：客户跟进持久任务的成果投影（只读 DB 事实）
+      if (readFollowupRunContext(run.metadata)) {
+        const [actions, continuation] = await Promise.all([
+          db.pendingAction.findMany({
+            where: { orgId: input.orgId, agentRunId: run.id },
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              resultRef: true,
+              failureReason: true,
+              expiresAt: true,
+            },
+            take: 40,
+          }),
+          db.agentRun.findFirst({
+            where: {
+              orgId: input.orgId,
+              runType: "workforce_job",
+              metadata: { path: [FOLLOWUP_META.parentRunId], equals: run.id },
+              status: { notIn: ["cancelled", "failed"] },
+            },
+            select: { id: true },
+          }),
+        ]);
+        followup = projectFollowupOutcome({
+          run: {
+            id: run.id,
+            status: run.status,
+            errorCode: run.errorCode,
+            errorMessage: run.errorMessage,
+            metadata: run.metadata,
+          },
+          steps: steps.map((s) => ({
+            stepKey: s.stepKey,
+            preferredTool: s.preferredTool,
+            status: s.status,
+            outputJson: s.outputJson,
+            errorMessage: s.errorMessage,
+          })),
+          pendingActions: actions,
+          continuedByRunId: continuation?.id ?? null,
+          now,
+        });
+        if (followup && followup.analysis.customers.length > 0) {
+          prioritizedCustomers = followup.analysis.customers.map((c) => ({
+            customerName: c.customerName,
+            score: c.score ?? 0,
+            reasons: c.reasons,
+            evidenceRefs: c.evidenceRefs,
+          }));
+        }
+      }
+    }
+
+    if (followup) {
+      const overall = followup.overall;
+      dtos.push({
+        ...toAssistantRunStatusDto({
+          run: {
+            ...run,
+            metadata: (run.metadata ?? null) as Prisma.JsonValue,
+          },
+          threadId: input.threadId,
+          initiatedByUserId,
+          events,
+          pendingActionIds: pendingRows.map((p) => p.id),
+          resultSummary: followup.headline,
+          statusOverride: followupTaskStatus(overall, run.status),
+          actionSummary: summarizeActions(pendingRows, now),
+          partialCompletion: overall === "partially_completed",
+          partialSideEffects:
+            overall !== "completed" &&
+            [...followup.emailDrafts.items, ...followup.reminders.items].some(
+              (i) => i.state === "draft_created" || i.state === "reminder_created",
+            ),
+          canRetry: false,
+          retryKind: null,
+          runtimeSteps,
+          prioritizedCustomers,
+          awaitingApprovalStepCount,
+          verificationLabel,
+        }),
+        followup,
+        cancellable: !["completed", "failed", "cancelled"].includes(run.status),
+      });
+      continue;
     }
 
     dtos.push(

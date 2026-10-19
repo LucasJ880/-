@@ -259,6 +259,10 @@ run_test "Gmail Draft OAuth Compose Scope" "npx tsx src/lib/__tests__/google-ema
 run_test "Phase3B-A Run Reconcile" "npx tsx src/lib/assistant/__tests__/run-reconcile.test.ts"
 run_test "Phase3B-A Run Retry Policy" "npx tsx src/lib/assistant/__tests__/run-retry-policy.test.ts"
 run_test "Phase3B-A PA-Run Integration" "npx tsx src/lib/assistant/__tests__/pending-action-run-integration.test.ts"
+run_test "助手客户跟进持久任务 M1（纯逻辑）" "npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts"
+run_test "助手客户跟进持久任务 M1（任务卡渲染）" "npx tsx src/components/assistant/__tests__/followup-outcome-render.test.tsx"
+# DB 测试：仅 NODE_ENV=test + 一次性隔离库时真正执行（统一 fail-closed Guard），否则自动跳过
+run_test "助手客户跟进持久任务 M1（隔离 DB 端到端）" "npx tsx src/lib/assistant/__tests__/durable-followup-m1.isolated.test.ts"
 run_test "发布内容规则拦截" "npx tsx src/lib/operations/__tests__/content-rules.test.ts"
 run_test "Matrix Playbook 权限/校验/合并" "npx tsx src/lib/operations/__tests__/playbook.test.ts"
 run_test "Publish Pipeline Phase C" "npx tsx src/lib/operations/__tests__/publish-pipeline.test.ts"

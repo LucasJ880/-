@@ -63,11 +63,45 @@ export function shouldFireContinuationTrigger(input: {
 }
 
 /**
+ * 自触发的可观测结果（DURABLE_FOLLOWUP_M1 修正观测语义）。
+ *
+ * 五种事实必须分开，任何一种都**不等于**"下一轮已认领 / 已执行"：
+ *   not_configured         未配置 → 未尝试
+ *   accepted               收到 2xx：child 已接收请求（下一轮是否认领 Job
+ *                          以 child 自己的 AutomationRun / job.claimed 事件为准）
+ *   http_rejected          收到非 2xx（401/403/5xx/3xx 重定向等）：child 未处理
+ *   unknown_after_timeout  发出后在等待窗口内放弃：请求可能已到达也可能没有，
+ *                          接收状态未知（预期常态：child 处理时间远超等待窗口）
+ *   send_failed            网络等发送失败
+ * 后续 tick 的安全性一律依赖 claim CAS + 租约 + 幂等，而不是这里的结果。
+ */
+export type ContinuationTriggerOutcome =
+  | "not_configured"
+  | "accepted"
+  | "http_rejected"
+  | "unknown_after_timeout"
+  | "send_failed";
+
+export type ContinuationTriggerResult = {
+  /** 是否实际尝试发出请求 */
+  attempted: boolean;
+  outcome: ContinuationTriggerOutcome;
+  /** accepted / http_rejected 时的 child HTTP 状态码 */
+  httpStatus?: number;
+  /**
+   * 兼容旧字段：**仅** accepted（child 明确 2xx 接收）为 true。
+   * 此前 HTTP 失败响应与超时中止也被报成 fired=true——那是错误的成功语义。
+   */
+  fired: boolean;
+  reason?: "not_configured" | "send_timeout_abort" | "fetch_failed" | "http_status";
+};
+
+/**
  * fire-and-forget 调自身 cron endpoint（child depth = 父 depth + 1）。
  *
- * 只保证请求发出：超时即 abort 放弃等待，绝不等 child 的完整响应。
- * 任何失败（网络/超时/配置缺失）都不抛出、不影响父 invocation 的结果
- * ——自触发只是加速器，cron 节拍永远是兜底。
+ * 只等发出：超时即 abort 放弃等待，绝不等 child 的完整响应。
+ * 任何失败（网络/超时/配置缺失/非 2xx）都不抛出、不影响父 invocation 的结果
+ * ——自触发只是加速器，cron 节拍永远是兜底。不跟随重定向（SSO 302 = 未接收）。
  * 返回值不含任何 secret。
  */
 export async function fireContinuationTrigger(input: {
@@ -75,11 +109,18 @@ export async function fireContinuationTrigger(input: {
   env?: SelfTriggerEnv;
   fetchImpl?: typeof fetch;
   sendTimeoutMs?: number;
-}): Promise<{ fired: boolean; reason?: string }> {
+}): Promise<ContinuationTriggerResult> {
   const env = input.env ?? process.env;
   const base = resolveSelfTriggerBaseUrl(env);
   const secret = env.CRON_SECRET?.trim();
-  if (!base || !secret) return { fired: false, reason: "not_configured" };
+  if (!base || !secret) {
+    return {
+      attempted: false,
+      outcome: "not_configured",
+      fired: false,
+      reason: "not_configured",
+    };
+  }
 
   const url = `${base}/api/cron/agent-runs?trigger=continuation&depth=${input.depth + 1}`;
   const doFetch = input.fetchImpl ?? fetch;
@@ -89,20 +130,60 @@ export async function fireContinuationTrigger(input: {
     input.sendTimeoutMs ?? CONTINUATION_TRIGGER_SEND_TIMEOUT_MS,
   );
   try {
-    await doFetch(url, {
+    const res = await doFetch(url, {
       method: "GET",
       headers: { authorization: `Bearer ${secret}` },
       signal: controller.signal,
       cache: "no-store",
+      redirect: "manual",
     });
-    return { fired: true };
+    const status = typeof res?.status === "number" ? res.status : 0;
+    if (status >= 200 && status < 300) {
+      return { attempted: true, outcome: "accepted", httpStatus: status, fired: true };
+    }
+    return {
+      attempted: true,
+      outcome: "http_rejected",
+      httpStatus: status,
+      fired: false,
+      reason: "http_status",
+    };
   } catch (error) {
     const aborted = error instanceof Error && error.name === "AbortError";
-    // abort = 请求已发出、放弃等待（预期路径）；其余 = 发送本身失败
+    // abort = 发出后放弃等待：不能证明请求未发送，也不能证明 child 已接收
     return aborted
-      ? { fired: true, reason: "send_timeout_abort" }
-      : { fired: false, reason: "fetch_failed" };
+      ? {
+          attempted: true,
+          outcome: "unknown_after_timeout",
+          fired: false,
+          reason: "send_timeout_abort",
+        }
+      : {
+          attempted: true,
+          outcome: "send_failed",
+          fired: false,
+          reason: "fetch_failed",
+        };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** 结构化记录自触发结果（route 层 after() 内调用；不含 secret / URL） */
+export function logContinuationTriggerResult(
+  depth: number,
+  result: ContinuationTriggerResult,
+): void {
+  const payload = {
+    depth,
+    childDepth: depth + 1,
+    attempted: result.attempted,
+    outcome: result.outcome,
+    httpStatus: result.httpStatus ?? null,
+  };
+  if (result.outcome === "accepted" || result.outcome === "unknown_after_timeout") {
+    console.info("[cron.agent-runs] continuation trigger", payload);
+  } else {
+    console.warn("[cron.agent-runs] continuation trigger not accepted", payload);
   }
 }

@@ -60,6 +60,7 @@ import {
   threadNotFoundResponse,
 } from "@/lib/assistant/thread-org";
 import { prepareAssistantDispatch } from "@/lib/assistant/dispatch";
+import { normalizeClientRequestId } from "@/lib/assistant/followup-task";
 import type { Prisma } from "@prisma/client";
 import {
   attachmentBlobPathBelongsTo,
@@ -275,18 +276,23 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   // Phase 3B-A：统一服务端意图分流（废除前端 Supervisor 业务双路由）
   // general_answer → 继续下方既有 Operator/SSE；场景/unsupported 由此处落库并返回。
-  if (attachments.length === 0) {
-    const dispatchPrep = await prepareAssistantDispatch({
-      userId: user.id,
-      activeOrgId: orgRes.orgId,
-      threadId,
-      message: content,
-      threadTitle: thread.title,
-      role: user.role,
-    });
-    if (dispatchPrep.kind === "handled") {
-      return dispatchPrep.response;
-    }
+  // DURABLE_FOLLOWUP_M1：带附件的消息也进入同一 Dispatch（附件已在上方完成格式与
+  // 组织归属校验）；Dispatch 内部对非持久跟进场景保持"带附件不分流"的既有行为。
+  const dispatchPrep = await prepareAssistantDispatch({
+    userId: user.id,
+    activeOrgId: orgRes.orgId,
+    threadId,
+    message: content,
+    threadTitle: thread.title,
+    role: user.role,
+    attachments,
+    clientRequestId: normalizeClientRequestId(body.clientRequestId),
+    // 持久任务已入队后只在响应之后推进一个 slice；与本请求连接无关
+    // （关闭页面不会取消已受理的任务），cron 兜底
+    scheduleAfterResponse: (task) => after(task),
+  });
+  if (dispatchPrep.kind === "handled") {
+    return dispatchPrep.response;
   }
 
   // Phase 3A-5：流开始前强制可信租户；须与线程 orgId 一致

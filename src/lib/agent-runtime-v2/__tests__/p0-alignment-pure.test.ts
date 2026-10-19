@@ -64,15 +64,23 @@ console.log("\n[P0-G1 Catalog ↔ Execution Alignment]");
     visible.every((t) => isRuntimeV2ToolExecutable(t.name)),
     "G1: isRuntimeV2ToolExecutable 对每个 planner 可见工具为 true",
   );
-  // 当前目录 13 个工具全部实现（含曾经的 5 个 ghost）
+  // 当前目录 16 个工具全部实现（含曾经的 5 个 ghost；DURABLE_FOLLOWUP_M1 新增 3 个
+  // serverPlanOnly 工具——可执行、有执行策略 descriptor，但不进入 planner 可见面）
   const catalogNames = RUNTIME_V2_TOOL_CATALOG.map((t) => t.name);
   const unimplemented = catalogNames.filter(
     (n) => !isRuntimeV2ToolExecutable(n),
   );
   ok(
-    unimplemented.length === 0 && catalogNames.length === 13,
-    "G1: 全目录 13 个工具均有 server execution path（原 5 个 ghost 已实现）",
+    unimplemented.length === 0 && catalogNames.length === 16,
+    "G1: 全目录 16 个工具均有 server execution path（原 5 个 ghost 已实现）",
     unimplemented,
+  );
+  ok(
+    visible.length === 13 &&
+      RUNTIME_V2_TOOL_CATALOG.filter((t) => t.serverPlanOnly === true).every(
+        (t) => !visible.some((v) => v.name === t.name),
+      ),
+    "G1b: serverPlanOnly 工具永不进入 planner 可见面（可见面仍为 13 个）",
   );
   const formerGhosts = [
     "sales_search_customers",

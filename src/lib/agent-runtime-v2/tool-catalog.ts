@@ -131,15 +131,47 @@ export const RUNTIME_V2_TOOL_CATALOG: ToolDescriptor[] = [
     parallelSafe: true,
     supportedChannels: ["web", "wechat"],
   },
+  // ── DURABLE_FOLLOWUP_M1：仅服务端计划可用（serverPlanOnly，LLM Planner 不可见）。
+  // 执行期仍经 resolveExecutionPolicyTool → canInvokeTool 鉴权；写工具只产出 PendingAction。
+  {
+    name: "sales_followup_attachment_evidence",
+    description:
+      "读取客户跟进任务发起消息所附资料（校验组织/发起人/对话归属），输出引用与组织内客户匹配；正文视为不可信资料",
+    riskLevel: "LOW",
+    readOnly: true,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+    serverPlanOnly: true,
+  },
+  {
+    name: "sales_followup_carry_targets",
+    description:
+      "沿用同一对话中上一客户跟进任务已选出的优先客户（同组织、同发起人校验），不重新分析",
+    riskLevel: "LOW",
+    readOnly: true,
+    requiresApproval: false,
+    supportedChannels: ["web"],
+    serverPlanOnly: true,
+  },
+  {
+    name: "sales_prepare_followup_actions",
+    description:
+      "为优先客户逐个生成待确认动作：Gmail 草稿（确认后仅 drafts.create，不发送）与跟进提醒（确认后写日历，时间只取用户明确输入）",
+    riskLevel: "HIGH",
+    readOnly: false,
+    requiresApproval: true,
+    supportedChannels: ["web"],
+    serverPlanOnly: true,
+  },
 ];
 
 /**
- * Planner 可见工具投影（#88 §6–§7）：目录 ∩ 可执行。
+ * Planner 可见工具投影（#88 §6–§7）：目录 ∩ 可执行 − 仅服务端计划工具。
  * 任何进入 Planner 视野的工具都保证有真实 server execution path。
  */
 export function plannerVisibleRuntimeV2Tools(): ToolDescriptor[] {
-  return RUNTIME_V2_TOOL_CATALOG.filter((t) =>
-    isRuntimeV2ToolExecutable(t.name),
+  return RUNTIME_V2_TOOL_CATALOG.filter(
+    (t) => isRuntimeV2ToolExecutable(t.name) && t.serverPlanOnly !== true,
   );
 }
 

@@ -307,6 +307,11 @@ export function prioritizeFollowups(input: {
   quoteRiskAnalysis: unknown;
   now?: Date;
   limit?: number;
+  /**
+   * DURABLE_FOLLOWUP_M1：用户本次提供的资料中提及的客户（已在组织内匹配）。
+   * 只做可解释加权并附证据引用，不替换 Grader 证据；缺省 = 行为不变。
+   */
+  focus?: { customerIds: string[]; ref: string };
 }): {
   prioritized: PrioritizedCustomer[];
   selectedCount: number;
@@ -317,9 +322,20 @@ export function prioritizeFollowups(input: {
     input.followupAnalysis,
     input.quoteRiskAnalysis,
   );
+  const focus = new Set(input.focus?.customerIds ?? []);
   const ranked = input.opportunities
     .filter((o) => o.customerId)
-    .map((o) => scoreFollowupCandidate(o, now, boosts))
+    .map((o) => {
+      const scored = scoreFollowupCandidate(o, now, boosts);
+      if (!focus.has(scored.customerId)) return scored;
+      // 用户本次提供的上下文放在首位（展示层会截断理由 / 引用列表）
+      return {
+        ...scored,
+        score: scored.score + 15,
+        reasons: ["用户提供的资料中提及该客户(+15)", ...scored.reasons],
+        evidenceRefs: [input.focus!.ref, ...scored.evidenceRefs],
+      };
+    })
     .sort((a, b) => b.score - a.score)
     .slice(0, input.limit ?? 3);
 

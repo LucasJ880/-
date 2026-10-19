@@ -31,6 +31,8 @@ import {
 } from "./agent-run-types";
 import {
   isAssistantRunStatusDto,
+  isDurableRunProgressing,
+  mergeAssistantRunUpdate,
   type AssistantRunStatusDto,
 } from "@/lib/assistant/run-status-types";
 import { preferRuntimeV2Steps } from "@/lib/assistant/runtime-v2-ui";
@@ -50,6 +52,18 @@ interface ApiPendingAction {
   expiresAt: string;
   failureReason?: string | null;
   resultRef?: string | null;
+}
+
+/** 每次发送生成一次：同一次提交的重放（双击 / 网络重试）由服务端去重，新的提交不受影响 */
+function newClientRequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function mapApiPendingAction(
@@ -127,6 +141,10 @@ function AssistantPageInner() {
   const [messages, setMessages] = useState<StreamingMsg[]>([]);
   const [input, setInput] = useState(initialPrompt);
   const [isLoading, setIsLoading] = useState(false);
+  const isLoadingRef = useRef(false);
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
   const [noApiKey, setNoApiKey] = useState(false);
   const [projects, setProjects] = useState<SimpleProject[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -219,6 +237,49 @@ function AssistantPageInner() {
       .catch(() => {})
       .finally(() => setLoadingThread(false));
   }, [activeThreadId]);
+
+  // DURABLE_FOLLOWUP_M1：按服务端权威快照重挂消息 + 确认卡片 + Run（不依赖本次连接）
+  const refreshThreadSnapshot = useCallback(async (threadId: string) => {
+    const [data, runsData] = await Promise.all([
+      apiJson<{ messages?: AiMsg[] }>(`/api/ai/threads/${threadId}/messages`),
+      apiJson<{ runs?: AssistantRunStatusDto[] }>(
+        `/api/ai/threads/${threadId}/runs`,
+      ).catch(() => ({ runs: [] as AssistantRunStatusDto[] })),
+    ]);
+    if (!data.messages) return;
+    const now = Date.now();
+    const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
+      id: m.id,
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      attachments: m.attachments?.length ? m.attachments : undefined,
+      workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
+      pendingApprovals: (m.pendingActions ?? []).map((a) =>
+        mapApiPendingAction(a, now),
+      ),
+    }));
+    setMessages(attachRunsToAssistantMessages(mapped, runsData.runs ?? []));
+  }, []);
+
+  // 持久任务在后台推进期间轮询（页面可见、未在发送时）；等待确认 / 需补充信息 /
+  // 终态不轮询——离开页面不会影响任务，回来后加载即见最新状态
+  const progressingRunKey = messages
+    .map((m) => m.assistantRun)
+    .filter((r): r is AssistantRunStatusDto => !!r && isDurableRunProgressing(r))
+    .map((r) => r.runId)
+    .join(",");
+  useEffect(() => {
+    if (!activeThreadId || !progressingRunKey) return;
+    const threadId = activeThreadId;
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      if (isLoadingRef.current) return;
+      void refreshThreadSnapshot(threadId).catch(() => {});
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [activeThreadId, progressingRunKey, refreshThreadSnapshot]);
 
   const handleTogglePin = async (id: string, pinned: boolean) => {
     await apiFetch(`/api/ai/threads/${id}`, {
@@ -348,7 +409,12 @@ function AssistantPageInner() {
 
     try {
       // Phase 3B-A：单一主入口。业务路由由服务端 dispatch 决定，禁止前端 Supervisor→SSE 双路由。
-      const payload: Record<string, unknown> = { content, orgId };
+      // clientRequestId：本次提交的幂等标识（服务端只用于去重，不参与授权）
+      const payload: Record<string, unknown> = {
+        content,
+        orgId,
+        clientRequestId: newClientRequestId(),
+      };
       if (outgoing.length > 0) payload.attachments = outgoing;
 
       const res = await apiFetch(
@@ -704,29 +770,7 @@ function AssistantPageInner() {
       // Runtime V2：流结束后按服务端权威数据重挂 steps / ApprovalCard（支持刷新一致）
       if (runtimeV2Mode && threadId) {
         try {
-          const [data, runsData] = await Promise.all([
-            apiJson<{ messages?: AiMsg[] }>(
-              `/api/ai/threads/${threadId}/messages`,
-            ),
-            apiJson<{ runs?: AssistantRunStatusDto[] }>(
-              `/api/ai/threads/${threadId}/runs`,
-            ).catch(() => ({ runs: [] as AssistantRunStatusDto[] })),
-          ]);
-          if (data.messages) {
-            const now = Date.now();
-            const mapped: StreamingMsg[] = data.messages.map((m: AiMsg) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              workSuggestion: m.workSuggestion as WorkSuggestion | null | undefined,
-              pendingApprovals: (m.pendingActions ?? []).map((a) =>
-                mapApiPendingAction(a, now),
-              ),
-            }));
-            setMessages(
-              attachRunsToAssistantMessages(mapped, runsData.runs ?? []),
-            );
-          }
+          await refreshThreadSnapshot(threadId);
         } catch {
           /* 保底：保留流式态 */
         }
@@ -819,9 +863,39 @@ function AssistantPageInner() {
             ? (m.workSuggestion as unknown as { runId: string }).runId
             : null;
         const byWs = !!wsRunId && wsRunId === run.runId;
-        return byMsg || byRun || byWs ? { ...m, assistantRun: run } : m;
+        // 审批回包里的 DTO 可能不带步骤 / 成果投影：合并而不是整体替换
+        return byMsg || byRun || byWs
+          ? { ...m, assistantRun: mergeAssistantRunUpdate(m.assistantRun, run) }
+          : m;
       }),
     );
+    // DURABLE_FOLLOWUP_M1：持久任务的审批会让后台任务继续推进——
+    // 以服务端快照为准刷新（随后若仍在推进，轮询自动接管）
+    const isDurable = messages.some(
+      (m) => m.assistantRun?.runId === run.runId && !!m.assistantRun.followup,
+    );
+    if (isDurable && activeThreadId) {
+      const threadId = activeThreadId;
+      window.setTimeout(() => {
+        void refreshThreadSnapshot(threadId).catch(() => {});
+      }, 1500);
+    }
+  };
+
+  // DURABLE_FOLLOWUP_M1：用户主动取消（与关闭页面区分：只有这里会取消任务）
+  const handleRunCancel = async (run: AssistantRunStatusDto) => {
+    if (!activeThreadId || !run.cancellable) return;
+    const threadId = activeThreadId;
+    const res = await apiFetch(
+      `/api/ai/threads/${threadId}/runs/${run.runId}/cancel`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "取消失败");
+    }
+    await refreshThreadSnapshot(threadId).catch(() => {});
+    notifyPendingActionsChanged();
   };
 
   const handleRunRetry = async (run: AssistantRunStatusDto) => {
@@ -913,6 +987,7 @@ function AssistantPageInner() {
           onApprovalsReplace={handleApprovalsReplace}
           onRunUpdate={handleRunUpdate}
           onRunRetry={handleRunRetry}
+          onRunCancel={handleRunCancel}
           onOpenThread={(id) => {
             setActiveThreadId(id);
             router.replace(`/assistant?thread=${id}`);
