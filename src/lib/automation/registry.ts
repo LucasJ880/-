@@ -1,4 +1,9 @@
+import { isLocalScheduleHour, isValidTimeZone } from "./local-time";
+
+/** 组织未设置 settingsJson.timezone（或值无效）时的默认时区 */
 export const AUTOMATION_TIMEZONE = "America/Toronto";
+/** registry 标记：按各组织自己的时区在当地固定时刻执行 */
+export const ORG_TIMEZONE = "org";
 
 export interface AutomationDefinition {
   key: string;
@@ -11,12 +16,12 @@ export interface AutomationDefinition {
 
 export const AUTOMATION_REGISTRY = [
   { key: "project-inspection", name: "项目智能巡检", category: "projects", cadence: "每日", timezone: "UTC" },
-  { key: "daily-brief", name: "每日经营简报", category: "sales", cadence: "每日 07:00", timezone: AUTOMATION_TIMEZONE },
+  { key: "daily-brief", name: "每日经营简报", category: "sales", cadence: "每日 07:00", timezone: ORG_TIMEZONE },
   { key: "approval-timeout", name: "审批超时检查", category: "operations", cadence: "每 2 小时", timezone: "UTC" },
-  { key: "trade-followup", name: "客户跟进建议", category: "sales", cadence: "每日 09:00、14:00", timezone: AUTOMATION_TIMEZONE },
+  { key: "trade-followup", name: "客户跟进建议", category: "sales", cadence: "每日 09:00、14:00", timezone: ORG_TIMEZONE },
   { key: "sales-action-sync", name: "销售行动自动同步", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "revenue-spine-sync", name: "收入主干同步（询盘 FDE / 跟进到期）", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
-  { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: AUTOMATION_TIMEZONE },
+  { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: ORG_TIMEZONE },
   { key: "progress-summary", name: "项目进度摘要", category: "projects", cadence: "每日", timezone: "UTC" },
   { key: "service-inbox-sla", name: "客服 SLA 提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "inquiry-sla", name: "询盘响应提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
@@ -36,7 +41,7 @@ export const AUTOMATION_REGISTRY = [
     timezone: "UTC",
     requiredEnv: ["POSTIZ_API_URL", "POSTIZ_API_KEY"],
   },
-  { key: "trade-daily", name: "外贸每日检查", category: "sales", cadence: "每日 08:00", timezone: AUTOMATION_TIMEZONE },
+  { key: "trade-daily", name: "外贸每日检查", category: "sales", cadence: "每日 08:00", timezone: ORG_TIMEZONE },
   { key: "proactive-scan", name: "主动工作提醒", category: "projects", cadence: "每小时", timezone: AUTOMATION_TIMEZONE },
   { key: "agent-runs", name: "Agent 后台任务队列", category: "operations", cadence: "每 2 分钟", timezone: "UTC" },
   { key: "release-drift", name: "发布漂移检查（代码 vs 生产库迁移）", category: "operations", cadence: "每日 09:00", timezone: "UTC" },
@@ -71,6 +76,33 @@ export const AUTOMATION_REGISTRY = [
 ] as const satisfies readonly AutomationDefinition[];
 
 export type AutomationKey = (typeof AUTOMATION_REGISTRY)[number]["key"];
+
+/**
+ * 组织时区：Organization.settingsJson.timezone（IANA 名称，如梦馨 "Asia/Shanghai"）。
+ * 未设置或不是有效 IANA 名称时回退 AUTOMATION_TIMEZONE。
+ */
+export function resolveOrgTimezone(settingsJson: unknown): string {
+  if (settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson)) {
+    const value = (settingsJson as Record<string, unknown>).timezone;
+    const timeZone = typeof value === "string" ? value.trim() : "";
+    if (isValidTimeZone(timeZone)) return timeZone;
+  }
+  return AUTOMATION_TIMEZONE;
+}
+
+/**
+ * 当前时刻处于当地 hours 的组织。cron 每小时唤醒一次，所以每个组织在自己的当地时刻
+ * 各执行一次，而不是所有组织都按多伦多时间执行。
+ */
+export function orgsAtLocalHour<T extends { settingsJson?: unknown }>(
+  orgs: readonly T[],
+  now: Date,
+  hours: readonly number[],
+): Array<T & { timezone: string }> {
+  return orgs
+    .map((org) => ({ ...org, timezone: resolveOrgTimezone(org.settingsJson) }))
+    .filter((org) => isLocalScheduleHour(now, org.timezone, hours));
+}
 
 export function getAutomationReadiness() {
   return AUTOMATION_REGISTRY.map((definition) => {
