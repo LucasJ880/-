@@ -230,7 +230,8 @@ export async function createAgentRun(input: {
     orgId: input.orgId,
     userId: actorId,
   });
-  // 并发预留保持 RESERVED 至 run 终态；此处先关联 runId
+  // 并发预留保持 RESERVED 至 run 终态（completeAgentRun / failAgentRun / cancelAgentRun
+  // 按 runId 释放）；此处先关联 runId
   await db.capabilityQuotaReservation
     .updateMany({
       where: { id: rConc.reservationId, orgId: input.orgId },
@@ -442,7 +443,49 @@ async function applyAgentRunTerminalInTx(
   return next;
 }
 
+/**
+ * 终态即释放本 run 的并发预留（MAX_CONCURRENT_RUNS）。
+ * createAgentRun 预留后按 runId 关联；修复前没有任何终态路径释放它，只能等 5 分钟 TTL，
+ * 同一组织 5 分钟内最多开始 10 个 run。在终态事务提交之后执行：尽力而为，失败只记日志，
+ * TTL 与 usage-counters 的惰性释放仍兜底；releaseReservation 只处理 RESERVED，重复调用幂等。
+ */
+async function releaseAgentRunConcurrencySlot(orgId: string, runId: string) {
+  try {
+    const slots = await db.capabilityQuotaReservation.findMany({
+      where: { orgId, runId, metric: "MAX_CONCURRENT_RUNS", status: "RESERVED" },
+      select: { id: true },
+    });
+    if (slots.length === 0) return;
+    const run = await db.agentRun.findFirst({
+      where: { id: runId, orgId },
+      select: { session: { select: { userId: true } } },
+    });
+    const { releaseReservation } = await import(
+      "@/lib/capabilities/governance/reserve"
+    );
+    for (const slot of slots) {
+      await releaseReservation({
+        reservationId: slot.id,
+        orgId,
+        userId: run?.session.userId ?? "system",
+      });
+    }
+  } catch (error) {
+    console.error("[AgentRun] concurrency slot release failed", {
+      runId,
+      orgId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function completeAgentRun(orgId: string, runId: string) {
+  const run = await completeAgentRunInTx(orgId, runId);
+  await releaseAgentRunConcurrencySlot(orgId, runId);
+  return run;
+}
+
+async function completeAgentRunInTx(orgId: string, runId: string) {
   return withAgentRunEventSequenceRetry(async () => {
     return db.$transaction(async (tx) => {
       const run = await loadLockedAgentRun(tx, orgId, runId);
@@ -464,6 +507,16 @@ export async function completeAgentRun(orgId: string, runId: string) {
 }
 
 export async function failAgentRun(
+  orgId: string,
+  runId: string,
+  error: { code: AgentErrorCode; message: string },
+) {
+  const run = await failAgentRunInTx(orgId, runId, error);
+  await releaseAgentRunConcurrencySlot(orgId, runId);
+  return run;
+}
+
+async function failAgentRunInTx(
   orgId: string,
   runId: string,
   error: { code: AgentErrorCode; message: string },
@@ -516,7 +569,7 @@ export async function cancelAgentRun(orgId: string, runId: string) {
     /* 联动失败不阻断取消 */
   }
 
-  return withAgentRunEventSequenceRetry(async () => {
+  const cancelled = await withAgentRunEventSequenceRetry(async () => {
     return db.$transaction(async (tx) => {
       const current = await loadLockedAgentRun(tx, orgId, runId);
       if (isAgentRunTerminalStatus(current.status)) return current;
@@ -541,6 +594,8 @@ export async function cancelAgentRun(orgId: string, runId: string) {
       });
     });
   });
+  await releaseAgentRunConcurrencySlot(orgId, runId);
+  return cancelled;
 }
 
 export async function isAgentRunCancelled(
