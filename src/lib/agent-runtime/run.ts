@@ -189,6 +189,12 @@ export async function createAgentRun(input: {
           startedAt: new Date(),
         },
       });
+      // 并发预留与 run 行同时可见：usage-counters 按 runId 只计一次，终态按 runId 释放。
+      // 放在事务里，提交前不存在「run 已建、预留未关联」被重复计数的窗口；关联失败则整体回滚并释放预留。
+      await tx.capabilityQuotaReservation.updateMany({
+        where: { id: rConc.reservationId, orgId: input.orgId },
+        data: { runId: created.id },
+      });
       // 新建 run：本事务的 INSERT 已对该 AgentRun 行持有排他锁，
       // 其它事务此刻还看不到该行（未提交），故不存在并发竞争者 ——
       // 这里的 outbox→event 顺序与 canonical lock order 不冲突。
@@ -231,13 +237,7 @@ export async function createAgentRun(input: {
     userId: actorId,
   });
   // 并发预留保持 RESERVED 至 run 终态（completeAgentRun / failAgentRun / cancelAgentRun
-  // 按 runId 释放）；此处先关联 runId
-  await db.capabilityQuotaReservation
-    .updateMany({
-      where: { id: rConc.reservationId, orgId: input.orgId },
-      data: { runId: run.id },
-    })
-    .catch(() => {});
+  // 按 runId 释放；runId 已在创建事务里关联）
 
   // 回写 runId 到 metadata（创建后已知）；无父 Run 时自身即 root
   const runWithMeta = await db.agentRun.update({

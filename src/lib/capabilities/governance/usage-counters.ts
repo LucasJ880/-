@@ -88,10 +88,26 @@ export async function getQuotaCurrentUsage(opts: {
 
   switch (opts.metric) {
     case "MAX_CONCURRENT_RUNS": {
+      // 预留仍计入 reserved 的 run，不再按 run 行重复计数（否则进行中的 run 占 2 个额度）；
+      // 预留过期或已释放后，进行中的 run 仍按 run 行计 1 个。条件与 reservedAgg 一致。
+      const heldRunIds = (
+        await db.capabilityQuotaReservation.findMany({
+          where: {
+            orgId: opts.orgId,
+            metric: opts.metric,
+            status: "RESERVED",
+            expiresAt: { gt: at },
+            runId: { not: null },
+            ...wsFilter,
+          },
+          select: { runId: true },
+        })
+      ).map((r) => r.runId as string);
       const running = await db.agentRun.count({
         where: {
           orgId: opts.orgId,
           status: { in: ["running", "claimed", "queued"] },
+          ...(heldRunIds.length > 0 ? { id: { notIn: heldRunIds } } : {}),
           ...(opts.workspaceId
             ? {
                 metadata: {

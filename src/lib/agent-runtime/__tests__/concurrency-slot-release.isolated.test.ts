@@ -12,9 +12,11 @@
  *  - 日配额预留保持 COMMITTED，不被并发释放误伤
  *  - 重复终态幂等：只写一条 QUOTA_RELEASED 审计
  *  - 绕过 run.ts 直接写终态的模块（v2 / workforce / reconcile）：用量计数时惰性释放
- *  - 仍在进行中的 run 不被释放
+ *  - 仍在进行中的 run 不被释放，且只占 1 个额度（修复前预留 + run 行各算一次 = 2 个）；
+ *    TTL 过期后仍按 run 行占 1 个；按 workspace 计数同样只占 1 个
  *  - 释放只作用于本组织
  *  - 生产症状：同一窗口内连续 12 个「创建 → 完成」全部成功（修复前第 11 个被拒）
+ *  - 同时进行中的 run 能到上限 10 个，第 11 个被拒（修复前第 6 个就被拒）
  */
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
@@ -62,8 +64,8 @@ async function main() {
       where: { runId, metric: "MAX_CONCURRENT_RUNS" },
       select: { id: true, status: true, releasedAt: true },
     });
-  const newRun = async (orgId = ORG_A, sessionId = sA.id) =>
-    (await createAgentRun({ orgId, sessionId, runType: "conversation" })).run;
+  const newRun = async (orgId = ORG_A, sessionId = sA.id, workspaceId?: string) =>
+    (await createAgentRun({ orgId, sessionId, runType: "conversation", workspaceId })).run;
   const clearSlots = (orgId: string) =>
     db.capabilityQuotaReservation.deleteMany({ where: { orgId, metric: "MAX_CONCURRENT_RUNS" } });
 
@@ -122,13 +124,29 @@ async function main() {
       ok(u === 0 && slot.status === "RELEASED", "直接写终态：用量计数时惰性释放，用量归零", { usage: u, slot });
     }
 
-    // ══ 进行中的 run 不释放 ══
+    // ══ 进行中的 run 不释放，且只占 1 个额度 ══
     {
       await clearSlots(ORG_A);
       const live = await newRun();
       const u = await usage(ORG_A);
       const [slot] = await slotsOf(live.id);
-      ok(slot.status === "RESERVED" && u >= 1, "进行中的 run：预留保持 RESERVED，仍计入用量", { usage: u, slot });
+      ok(slot.status === "RESERVED" && u === 1, "进行中的 run：预留保持 RESERVED，只占 1 个额度（修复前为 2）", { usage: u, slot });
+
+      await db.capabilityQuotaReservation.update({ where: { id: slot.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      const uAfterTtl = await usage(ORG_A);
+      const [expired] = await slotsOf(live.id);
+      ok(expired.status === "EXPIRED" && uAfterTtl === 1, "TTL 过期后：进行中的 run 仍按 run 行占 1 个", { usage: uAfterTtl, expired });
+      await completeAgentRun(ORG_A, live.id);
+    }
+
+    // ══ 按 workspace 计数：同样只占 1 个 ══
+    {
+      await clearSlots(ORG_A);
+      const WS = `ws_${stamp}`;
+      const live = await newRun(ORG_A, sA.id, WS);
+      const uWs = await getQuotaCurrentUsage({ orgId: ORG_A, workspaceId: WS, metric: "MAX_CONCURRENT_RUNS" });
+      const uOrg = await usage(ORG_A);
+      ok(uWs === 1 && uOrg === 1, "workspace 内进行中的 run：workspace 与组织用量都只算 1 个", { uWs, uOrg });
       await completeAgentRun(ORG_A, live.id);
     }
 
@@ -162,6 +180,26 @@ async function main() {
         }
       }
       ok(started === 12, "同一窗口内连续 12 个「创建 → 完成」全部成功（修复前第 11 个被 QUOTA 拒绝）", { started, firstError });
+    }
+
+    // ══ 同时进行中：能到上限 10 个，第 11 个被拒 ══
+    {
+      await clearSlots(ORG_A);
+      const live: string[] = [];
+      let refusal: string | null = null;
+      for (let i = 0; i < 11; i++) {
+        try {
+          live.push((await newRun()).id);
+        } catch (e) {
+          refusal = e instanceof Error ? e.message : String(e);
+          break;
+        }
+      }
+      ok(live.length === 10 && refusal !== null && refusal.includes("配额限制"),
+        "同时进行中的 run 能开到 10 个，第 11 个被 QUOTA 拒绝（修复前第 6 个就被拒）", { started: live.length, refusal });
+      ok((await usage(ORG_A)) === 10, "10 个进行中的 run：用量正好 10");
+      for (const id of live) await completeAgentRun(ORG_A, id);
+      ok((await usage(ORG_A)) === 0, "全部结束后用量归零");
     }
   } finally {
     await db.capabilityQuotaReservation.deleteMany({ where: { orgId: { in: [ORG_A, ORG_B] } } });
