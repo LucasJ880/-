@@ -1079,6 +1079,14 @@ async function handleFinalizeAnalysis(
       return { ok: false, error: `TOOL_FAILED: ${finalizedV2.error}` };
     }
 
+    // Muse Bridge（P0-7）：终态化成功 → analysis.ready（best-effort）。
+    try {
+      const { museOnAnalysisFinalized } = await import("@/lib/muse-bridge/hooks");
+      await museOnAnalysisFinalized(runId);
+    } catch {
+      /* Muse 推送失败不影响终态化 */
+    }
+
     // 观察期包5：分析终态化成功后自动跑外部情报（统一编排服务）。
     // 失败绝不影响终态化结果；flag OFF 零出站；状态显式落调查室 externalIntelStatus。
     try {
@@ -1226,6 +1234,14 @@ async function handleFinalizeAnalysis(
   });
   if (!finalized.ok) {
     return { ok: false, error: `TOOL_FAILED: ${finalized.error}` };
+  }
+
+  // Muse Bridge（P0-7）：终态化成功 → analysis.ready（best-effort）。
+  try {
+    const { museOnAnalysisFinalized } = await import("@/lib/muse-bridge/hooks");
+    await museOnAnalysisFinalized(runId);
+  } catch {
+    /* Muse 推送失败不影响终态化 */
   }
 
   // 观察期包5：分析终态化成功后自动跑外部情报（统一编排服务）。
