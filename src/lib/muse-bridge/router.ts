@@ -14,7 +14,7 @@ import { approveApprovalItem, rejectApprovalItem, listApprovalInbox } from "@/li
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import { buildTenderPackageContext } from "@/lib/tender-auto-analysis/chat-context";
-import { museCommandResponseSchema, type MuseCommandEnvelope, type MuseCommandResponse } from "./contract";
+import { museCommandResponseSchema, type MuseCommandArgs, type MuseCommandEnvelope, type MuseCommandResponse } from "./contract";
 import { enabledMuseIntents } from "./flags";
 import type { MuseIdentity } from "./binding-pure";
 import {
@@ -78,6 +78,9 @@ export async function handleMuseCommand(
         response = formatApprovalOutcome(requestId, "reject", outcome);
         break;
       }
+      case "rfq":
+        response = await handleRfq(requestId, identity, command);
+        break;
       default:
         // gateIntent 已拦；此处仅类型兜底
         response = errResponse(requestId, "INTENT_NOT_ENABLED", "该动作尚未开放。");
@@ -280,4 +283,58 @@ async function fallbackContext(projectId: string): Promise<string | null> {
     .map((r, i) => `${i + 1}. [${r.mandatory ? "强制" : "评分"}|${r.complianceStatus}] ${r.originalRequirement.slice(0, 240)}`)
     .join("\n");
   return [`分析状态：${run.status}`, run.summaryText ? `摘要：\n${run.summaryText}` : "摘要：无", reqs ? `要求：\n${reqs}` : "要求：无"].join("\n\n");
+}
+
+// ── rfq（P1-2：准备一轮询价 → 审批卡） ──────────────────────────
+
+async function handleRfq(
+  requestId: string,
+  identity: MuseIdentity,
+  command: Extract<MuseCommandArgs, { intent: "rfq" }>,
+): Promise<MuseCommandResponse> {
+  const { prepareRfqRound } = await import("@/lib/tender-rfq/service");
+  const r = await prepareRfqRound({
+    projectId: command.projectId,
+    orgId: identity.orgId,
+    userId: identity.userId,
+    supplierIds: command.supplierIds,
+    supplierHint: command.supplierHint ?? null,
+    scopeNote: command.scope ?? null,
+  });
+
+  if (!r.ok) {
+    if (r.errorCode === "NO_SUPPLIERS" && r.candidates?.length) {
+      const withEmail = r.candidates.filter((c) => !!c.contactEmail);
+      const list = r.candidates.map((c) => `· ${c.name}${c.contactEmail ? "" : "（无邮箱）"}`).join("\n");
+      return okResponse(requestId, `要问哪几家？最近用过的供应商：\n${list}\n直接说名字，或者说「全部有邮箱的」。`, {
+        data: { candidates: r.candidates },
+        suggestedActions: [
+          ...(withEmail.length
+            ? [{ label: `全部有邮箱的 ${withEmail.length} 家`, command: { intent: "rfq" as const, projectId: command.projectId, supplierIds: withEmail.slice(0, 10).map((c) => c.id) } }]
+            : []),
+          ...withEmail.slice(0, 3).map((c) => ({ label: `只问 ${c.name.slice(0, 12)}`, command: { intent: "rfq" as const, projectId: command.projectId, supplierIds: [c.id] } })),
+        ],
+      });
+    }
+    const code = r.errorCode === "PROJECT_NOT_FOUND" ? "PROJECT_NOT_FOUND" : r.errorCode === "ROUND_LOCKED" ? "APPROVAL_FAILED" : "VALIDATION_FAILED";
+    return errResponse(requestId, code, r.message, {
+      suggestedActions: [{ label: "看这个标的状态", command: { intent: "status", projectId: command.projectId } }],
+    });
+  }
+
+  const blocked = r.blockedSuppliers.length
+    ? `\n没发的：${r.blockedSuppliers.map((b) => `${b.name}（${b.reason === "no_email" ? "没邮箱" : "已停用"}）`).join("、")}。`
+    : "";
+  const excluded = r.excludedRequirements > 0 ? `已自动排除 ${r.excludedRequirements} 条非供应商侧/未确认要求。` : "";
+  return okResponse(
+    requestId,
+    `第 ${r.roundNumber} 轮询价草稿好了：${r.suppliers.map((s) => s.name).join("、")}，回复截止 ${r.replyBy ?? "未设"}。${excluded}${blocked}\n发？批准后会从 ${r.fromEmail} 发出。`,
+    {
+      data: { actionId: r.actionId, inquiryId: r.inquiryId, suppliers: r.suppliers, blockedSuppliers: r.blockedSuppliers },
+      suggestedActions: [
+        { label: "发", command: { intent: "approve", approvalId: r.actionId } },
+        { label: "先不发", command: { intent: "reject", approvalId: r.actionId, reason: "暂缓" } },
+      ],
+    },
+  );
 }

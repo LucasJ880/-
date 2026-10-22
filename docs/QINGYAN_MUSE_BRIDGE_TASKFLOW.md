@@ -50,14 +50,19 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| P1-1 | 结构化 RFQ 生成器：从已确认 `TenderExtractedRequirement` 取行项/数量阶梯/Incoterm/目的地/交期/回复截止/编号问题清单；经 `china-supplier-brief` allowlist 脱敏；中文 PDF（CJK 已修） | P0 | 生成物每个行项带 requirementCode + 来源页码；敏感字段 0 泄漏（单测） | [ ] |
-| P1-2 | `rfq` 意图：选供应商（复用 `supplier-intel` ranking）→ 生成 → 创建 PendingAction（type `tender.send_rfq`）→ 审批卡 | P1-1 | Muse 里出现预览链接 + 「发？」；批准前零出站 | [ ] |
-| P1-3 | 执行器 `exec-tender-send-rfq`：批准后 Resend/Gmail 发送 → `markItemSent` → `inquiry round lock`（同 round 第二次 rfq 拒绝并告知谁在何时发过） | P1-2 | 并发两次 rfq，第二次收到 BusinessError 含首发人/时间 | [ ] |
+| P1-1 | 结构化 RFQ 生成器：从已确认 `TenderExtractedRequirement` 取行项/数量/Incoterm/目的地/交期/回复截止/编号问题清单；两档出站闸 | P0 | `tender-rfq/build.ts`；21 项单测 | [x] |
+| P1-2 | `rfq` 意图：选供应商 → 生成 → ProjectInquiry(draft)+items → PendingAction `tender.send_rfq` → 审批卡 | P1-1 | `tender-rfq/service.ts` + `muse-bridge/router.ts handleRfq`；批准前零出站；无供应商时回候选列表 | [x]（待 GATE-1 联调） |
+| P1-3 | 执行器 `execTenderSendRfq`：只从组织配置邮箱（Organization.settingsJson.tenderRfq / env，默认 project@sunnyshutter.ca，抬头 Qyan-Sunny Purchasing）Gmail 发出 → `markItemSent` → in_progress；payload hash 防篡改；轮次锁（待批/3 天内已发） | P1-2 | `tender-rfq/execute.ts` + `round-pure.ts`；25 项单测 | [x]（待 GATE-1 联调） |
 | P1-4 | 入站解析：邮件 webhook + 附件（PDF/Excel/图片）→ 结构化报价 → `recordQuote`；保留原文片段作证据；缺字段标记（不猜） | P0-8 | 回邮缺有效期 → `quote.parsed` 事件 summary 明说"缺有效期"，`missing_fields` 事件带追问草稿 | [ ] |
 | P1-5 | 归一化层：币种、Incoterm → 落地成本（复用 `lib/quote/types.ts` shipping/customs）、MOQ/阶梯价、交期 vs 截标日、有效期 vs 开标日 | P1-4 | 纯函数 + 表驱动测试 ≥ 20 例 | [ ] |
 | P1-6 | `compare` 意图：归一化矩阵 + 一句话结论（谁最便宜、谁全合规、谁交期超期） | P1-5 | 响应 ≤ 1200 字，data 带矩阵 | [ ] |
 | P1-7 | `chase` 意图 + 催单调度：N 天无回复 → 草稿 → PendingAction → 审批 → 发送；超期自动 `markItemNoResponse` | P1-3 | cron tick 幂等；同 item 一天最多一张催单卡 | [ ] |
 | P1-8 | `price_scenario` 意图：比价矩阵 → `tender-pricing.buildScenarios`；输出价格分/盈亏平衡，**不输出毛利** | P1-6 | 脱敏测试通过；情景与 UI 数值一致 | [ ] |
+
+**GATE-1 联调前置（运维）**
+- 用拥有 `project@sunnyshutter.ca` 的人登录青砚 → 设置 → 连接 Gmail（需 gmail.compose）；`EmailProvider.accountEmail` 必须等于该邮箱，发送只认它。
+- `MUSE_BRIDGE_INTENTS=status,ask,approve,reject,rfq` 打开 rfq 意图。
+- 非生产环境 `sendGmail` 受 `assertSideEffectOrThrow("email")` 保护：先在允许副作用的 staging 上用一个自己的测试供应商邮箱验证。
 
 **GATE-1 验收**：从 Muse 说「问三家价」到三家报价进表，人工手录字段数 = 0；全程出站动作全部有 PendingAction 记录；Muse 端消息零敏感字段。
 
