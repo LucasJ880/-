@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { appendQuoteNotes, planInquiryItemUpdate, type ExistingInquiryItem, type InquiryItemUpdatePlan } from "../inbound-apply";
 import { INBOUND_CONTRACT_VERSION, type InboundQuote } from "../inbound-contract";
 import { parseInboundQuote, type InboundAttachmentInput, type ParseCompleteFn, type ParsedQuote } from "../inbound-parse";
-import { syncAllOrgsInbound, syncOrgInbound, type InboundItemRow, type InboundMessage, type InboundOrgContext, type InboundSyncDeps } from "../inbound-sync";
+import { museQuoteEvent } from "@/lib/muse-bridge/hooks";
+import { inboundQuoteHookArgs, syncAllOrgsInbound, syncOrgInbound, type InboundItemRow, type InboundMessage, type InboundOrgContext, type InboundSyncDeps } from "../inbound-sync";
 
 let passed = 0;
 function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
@@ -124,6 +125,7 @@ console.log("tender-rfq inbound (§5 acceptance)");
   ok("§5-1 deliveryDays=35, validUntil=2026-11-30", p.data.deliveryDays === 35 && p.data.validUntil === "2026-11-30");
   ok("§5-1 missingFields=[]", p.missingFields.length === 0);
   ok("§5-1 状态 quoted，事件 quote.parsed", p.transition === "quoted" && p.events.join() === "quote.parsed");
+  ok("§5-1 实际推送的事件类型 quote.parsed", museQuoteEvent(...inboundQuoteHookArgs(sentItem, p)).type === "quote.parsed");
 }
 
 /* §5-2 */
@@ -142,6 +144,7 @@ console.log("tender-rfq inbound (§5 acceptance)");
   ok("§5-3 价格面议 → 价格 null", p.data.unitPrice === undefined && p.data.totalPrice === undefined && parsed.prices.length === 0);
   ok("§5-3 missingFields 含 price", p.missingFields.includes("price"));
   ok("§5-3 状态 replied（不是 quoted），触发 missing_fields", p.transition === "replied" && p.events.includes("missing_fields"));
+  ok("§5-3 实际推送的事件类型 missing_fields", museQuoteEvent(...inboundQuoteHookArgs(sentItem, p)).type === "missing_fields");
 }
 
 /* §5-4 */
@@ -154,6 +157,12 @@ console.log("tender-rfq inbound (§5 acceptance)");
   const p = plan(sentItem, parsed);
   ok("§5-4 没写币种 → currency 保持默认（不写 currency）", p.data.currency === undefined && sentItem.currency === "CAD");
   ok("§5-4 missingFields 含 currency", p.missingFields.includes("currency"));
+  // 入站 quoted 路径：recordQuote(skipMuseHook) 后用 inboundQuoteHookArgs 自己推，缺字段以 plan 为准
+  const stored = { unitPrice: "39.8", totalPrice: null, currency: "CAD", deliveryDays: 30, validUntil: new Date("2026-12-15") };
+  const [snapshot, override] = inboundQuoteHookArgs(sentItem, p, stored);
+  const ev = museQuoteEvent(snapshot, override);
+  ok("§5-4 触发的事件类型是 missing_fields（缺：币种）", ev.type === "missing_fields" && ev.missing.join() === "币种");
+  ok("§5-4 反证：只按库里字段值推断（币种=默认 CAD）会误报 quote.parsed", museQuoteEvent(stored).type === "quote.parsed");
   // 反向：LLM 自称 USD 但原文没有 → 也作废（默认值 ≠ 供应商说了）
   const parsed2 = await parse("单价 39.80", llm({ isQuote: true, currency: "USD", prices: [{ quantity: null, unitPrice: 39.8, totalPrice: null, evidence: "单价 39.80" }] }));
   ok("§5-4 LLM 编造币种（原文无 USD）→ 作废并列缺", parsed2.currency === null && plan(sentItem, parsed2).missingFields.includes("currency"));

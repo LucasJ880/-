@@ -17,6 +17,7 @@
 import { appendQuoteNotes, planInquiryItemUpdate, type ExistingInquiryItem, type InquiryItemUpdatePlan } from "./inbound-apply";
 import { parseRfqThreadId, rfqContextFromBody } from "./inbound-contract";
 import type { InboundAttachmentInput, ParseInboundQuoteInput, ParsedQuote } from "./inbound-parse";
+import type { MuseQuoteSnapshot } from "@/lib/muse-bridge/hooks";
 
 /* ---------------------------------- 类型 ---------------------------------- */
 
@@ -244,6 +245,34 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
   return result;
 }
 
+/**
+ * 入站写入后推 Muse 事件的参数（quoted 与 replied 两条路径共用）。
+ * 缺字段以 plan.missingFields 为准（missingFieldsOverride），不让 hook 按字段值重新推断。
+ */
+export function inboundQuoteHookArgs(
+  item: ExistingInquiryItem,
+  plan: InquiryItemUpdatePlan,
+  updated?: { unitPrice?: unknown; totalPrice?: unknown; currency?: string | null; deliveryDays?: number | null; validUntil?: Date | string | null } | null,
+): [MuseQuoteSnapshot, readonly string[]] {
+  const after = updated ?? {
+    unitPrice: plan.data.unitPrice ?? item.unitPrice,
+    totalPrice: plan.data.totalPrice ?? item.totalPrice,
+    currency: plan.data.currency ?? item.currency,
+    deliveryDays: plan.data.deliveryDays ?? item.deliveryDays,
+    validUntil: plan.data.validUntil ?? item.validUntil,
+  };
+  return [
+    {
+      unitPrice: after.unitPrice ?? null,
+      totalPrice: after.totalPrice ?? null,
+      currency: plan.missingFields.includes("currency") ? null : after.currency ?? null,
+      deliveryDays: after.deliveryDays ?? null,
+      validUntil: after.validUntil ?? null,
+    },
+    plan.missingFields,
+  ];
+}
+
 /* ---------------------------------- 默认依赖（DB / Gmail / 服务） ---------------------------------- */
 
 export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
@@ -333,7 +362,11 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
         if (plan.data.currency) input.currency = plan.data.currency;
         if (plan.data.deliveryDays != null) input.deliveryDays = plan.data.deliveryDays;
         if (plan.data.validUntil) input.validUntil = plan.data.validUntil;
-        await recordQuote(scope, input); // hook：quote.parsed / missing_fields
+        // 跳过 recordQuote 自带的 hook：它只看字段值判缺，币种列默认 CAD 时判不出"供应商没写币种"；
+        // 这里自己推，缺字段以解析结果（plan.missingFields）为准
+        const updated = await recordQuote(scope, input, { skipMuseHook: true });
+        const { museOnQuoteRecorded } = await import("@/lib/muse-bridge/hooks");
+        await museOnQuoteRecorded(item.id, ...inboundQuoteHookArgs(item, plan, updated));
         return;
       }
 
@@ -343,13 +376,7 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
       await db.inquiryItem.update({ where: { id: item.id }, data: { quoteNotes, ...nonPrice } });
       if (plan.transition === "replied" && plan.events.includes("missing_fields")) {
         const { museOnQuoteRecorded } = await import("@/lib/muse-bridge/hooks");
-        await museOnQuoteRecorded(item.id, {
-          unitPrice: null,
-          totalPrice: null,
-          currency: plan.missingFields.includes("currency") ? null : item.currency,
-          deliveryDays: plan.data.deliveryDays ?? item.deliveryDays,
-          validUntil: plan.data.validUntil ?? item.validUntil,
-        });
+        await museOnQuoteRecorded(item.id, ...inboundQuoteHookArgs(item, plan));
       }
     },
     writeAudit: (e) =>

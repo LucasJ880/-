@@ -76,7 +76,7 @@ GATE-1 联调前置（运维）：
 
 - **P1-3 之前发出的询价不入站**：旧 `contactNotes` 只有 messageId、没有 threadId，按"只认 threadId"规则不匹配。只有本分支之后发出的询价才会自动入表。
 - **只扫最近 90 天发出的询价**（`sentAt`），更早的线程不再期待回信。
-- **事件粒度**：`quote.parsed` / `missing_fields` 由 `recordQuote` 里已有的 hook 推，它按自己的规则判缺；币种列有默认值 CAD，hook 看不出"供应商没写币种"，所以 §5-4 这种情况 Muse 事件可能是 `quote.parsed`，而 `missingFields`（与 notes）里有 currency。hook 按要求未改写。
+- **事件粒度**：入站 quoted 路径调用 `recordQuote(scope, input, { skipMuseHook: true })`，再自己调 `museOnQuoteRecorded(itemId, quote, plan.missingFields)`（`missingFieldsOverride`）。缺字段以解析结果为准：§5-4（没写币种）推 `missing_fields`，不会因为列默认 CAD 被误判为 `quote.parsed`。人工录价（record-quote 路由）不传 `skipMuseHook`，行为不变。
 - **sent → quoted 时不经 `markItemReplied`**：状态机要求先 replied 才能 quoted。为避免先推一条"报价还没录入"的 `reply.received`、紧接着又推 `quote.parsed`，这一步用带状态条件的 `updateMany({ status: "sent" } → "replied")`，再调 `recordQuote`。
 - **人工已录价格、状态仍是 replied 的 item**：回信带报价时会走 `recordQuote` 到 quoted，把原价格原样带回以满足校验（值不变）。
 - **附件损坏**：单个附件解析失败只标 `parsed=false` 并在 notes 说明，不让整封信失败（正文里的报价照常入表）；整封信级别的异常（LLM 输出不合契约等）才记 failed。
