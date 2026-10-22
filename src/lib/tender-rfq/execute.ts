@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { hasGmailComposeScope, sendGmail } from "@/lib/google-email";
 import { markItemSent } from "@/lib/inquiry/service";
 import { INQUIRY_STATUS } from "@/lib/inquiry/types";
+import { formatRfqContactNotes } from "./inbound-contract";
 import { hashRfqPayloadItems, resolveSender } from "./round-pure";
 import type { TenderSendRfqPayload } from "./types";
 
@@ -59,11 +60,12 @@ export async function execTenderSendRfq(
       continue;
     }
     try {
-      const { messageId } = await send(sender.userId, { to: item.to, from, subject: item.subject, body: item.body, replyTo: payload.fromEmail });
+      const { messageId, threadId } = await send(sender.userId, { to: item.to, from, subject: item.subject, body: item.body, replyTo: payload.fromEmail });
       await markItemSent({ projectId: payload.projectId, inquiryId: payload.inquiryId, itemId: item.inquiryItemId }, { sentVia: "email" });
+      // threadId 是 P1-4 回信入站的唯一匹配键（formatRfqContactNotes / parseRfqThreadId 成对）
       await db.inquiryItem.update({
         where: { id: item.inquiryItemId },
-        data: { contactNotes: `Gmail messageId=${messageId} · ${new Date().toISOString()}` },
+        data: { contactNotes: formatRfqContactNotes(messageId, threadId, new Date()) },
       });
       sent.push(item.supplierName);
     } catch (err) {
