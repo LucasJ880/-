@@ -1,0 +1,219 @@
+diff --git a/scripts/muse-bridge/README.md b/scripts/muse-bridge/README.md
+new file mode 100644
+index 0000000..271b591
+--- /dev/null
++++ b/scripts/muse-bridge/README.md
+@@ -0,0 +1,61 @@
++# Muse Bridge Phase 0 — 落地手册（复制粘贴即可）
++
++前提：电脑上已能 `npm run dev` 跑起青砚（.env 里有本地/开发库的 DATABASE_URL）。
++
++## 第 1 步：把代码放进仓库并验证（1 条命令）
++
++```bash
++git checkout -b feature/muse-bridge-phase0
++bash scripts/muse-bridge/setup.sh ~/Downloads/muse-bridge-phase0.patch
++```
++> 如果补丁已经 apply 过，去掉最后那个路径参数。脚本会装依赖、`prisma generate`、跑 43 项测试、类型检查。看到「Phase 0 本地验证完成」即可。
++
++## 第 2 步：签发 Bridge token（1 条命令）
++
++```bash
++npx tsx scripts/muse-bridge/seed-token.ts
++```
++> 复制屏幕上的 `qy_...`，这就是 Muse--Bridge-bot 的 `QINGYAN_API_TOKEN`。只显示一次。
++
++## 第 3 步：绑定你自己（1 条命令）
++
++```bash
++npx tsx scripts/muse-bridge/bind.ts --org <orgId> --muse <你的Muse用户id> --email <你登录青砚的邮箱>
++```
++> orgId：登录青砚 → 组织设置，地址栏 `/organizations/<这一段>` 就是。
++> 同事也要用的话，每人跑一次，换 `--muse` 和 `--email`。
++
++## 第 4 步：打开开关并冒烟
++
++在 `.env` 末尾加一行：
++```
++MUSE_BRIDGE_ENABLED=1
++```
++重启 `npm run dev`，然后：
++```bash
++BASE_URL=http://localhost:3000 MUSE_BRIDGE_TOKEN=<第2步的token> ORG_ID=<orgId> MUSE_USER_ID=<你的Muse用户id> \
++  bash scripts/muse-bridge/smoke.sh
++```
++把输出整段贴给 Claude，过 GATE-0。
++
++## 出了问题
++
++| 现象 | 原因 | 处理 |
++|---|---|---|
++| 503 `BRIDGE_DISABLED` | `.env` 没加开关或没重启 | 加 `MUSE_BRIDGE_ENABLED=1` 后重启 dev |
++| 401 `AUTH_INVALID` | token 粘贴不全 / 已 `--rotate` | 重新跑第 2 步 |
++| 403 `USER_NOT_BOUND` | 第 3 步没跑或 `--muse` 不一致 | `npx tsx scripts/muse-bridge/bind.ts --org <orgId> --list` 核对 |
++| 403 `ORG_MEMBERSHIP_REQUIRED` | 邮箱对应用户不在该组织 | 先在青砚把人加进组织 |
++| setup.sh 类型检查报错 | 环境差异 | 输出贴给 Claude |
++
++## GATE-0 完整验收（smoke.sh 四项通过后）
++
++```bash
++# 1) 造固定数据：一个 [MUSE-QA] 投标项目 + 一张待批（批准只会建一条任务，无外发）
++MUSE_BRIDGE_ENABLED=1 npx tsx scripts/muse-bridge/gate0-fixture.ts --org <orgId> --email <青砚邮箱>
++# 2) 用它打印的 PROJECT_ID / APPROVAL_ID 跑
++BASE_URL=http://localhost:3000 MUSE_BRIDGE_TOKEN=... ORG_ID=... MUSE_USER_ID=... PROJECT_ID=... APPROVAL_ID=... \
++  bash scripts/muse-bridge/smoke-gate0.sh
++# 3) 清理
++npx tsx scripts/muse-bridge/gate0-fixture.ts --org <orgId> --cleanup
++```
+diff --git a/scripts/muse-bridge/gate0-fixture.ts b/scripts/muse-bridge/gate0-fixture.ts
+new file mode 100644
+index 0000000..d69dbf2
+--- /dev/null
++++ b/scripts/muse-bridge/gate0-fixture.ts
+@@ -0,0 +1,102 @@
++/**
++ * GATE-0 固定数据：造一个 [MUSE-QA] 投标项目 + 一张待批 PendingAction（type=grader.project_task，批准只会建一条 Task，无外发副作用）。
++ * createDraft 会触发 P0-6 挂钩 → approval.requested 事件进 outbox → /events 能拉到 → 从 Muse 批准/驳回可闭环。
++ *
++ * 运行：
++ *   MUSE_BRIDGE_ENABLED=1 npx tsx scripts/muse-bridge/gate0-fixture.ts --org <orgId> --email <青砚邮箱>
++ *   npx tsx scripts/muse-bridge/gate0-fixture.ts --org <orgId> --cleanup      # 删除 [MUSE-QA] 数据
++ *
++ * 只操作 [MUSE-QA] 前缀数据；assertSafeTestDatabase 拒绝生产库。
++ */
++
++import { PrismaClient } from "@prisma/client";
++import { assertSafeTestDatabase } from "../../src/lib/testing/assert-safe-test-database";
++
++assertSafeTestDatabase({ scriptName: "scripts/muse-bridge/gate0-fixture.ts" });
++
++const db = new PrismaClient();
++const PREFIX = "[MUSE-QA]";
++
++function arg(name: string): string | null {
++  const i = process.argv.indexOf(`--${name}`);
++  return i >= 0 && process.argv[i + 1] && !process.argv[i + 1].startsWith("--") ? process.argv[i + 1] : null;
++}
++
++async function cleanup(orgId: string) {
++  const projects = await db.project.findMany({ where: { orgId, name: { startsWith: PREFIX } }, select: { id: true } });
++  const ids = projects.map((p) => p.id);
++  const pa = await db.pendingAction.deleteMany({ where: { orgId, title: { startsWith: PREFIX } } });
++  const nt = await db.notification.deleteMany({ where: { orgId, projectId: { in: ids } } });
++  const tk = await db.task.deleteMany({ where: { projectId: { in: ids } } }).catch(() => ({ count: 0 }));
++  const pj = await db.project.deleteMany({ where: { id: { in: ids } } });
++  console.log(`✓ cleanup: projects=${pj.count} pendingActions=${pa.count} notifications=${nt.count} tasks=${tk.count}`);
++}
++
++async function main() {
++  const orgId = arg("org");
++  if (!orgId) throw new Error("缺 --org <orgId>");
++  if (process.argv.includes("--cleanup")) return cleanup(orgId);
++
++  const email = arg("email");
++  if (!email) throw new Error("缺 --email <青砚邮箱>（将作为项目 owner 与审批收件人）");
++  if (process.env.MUSE_BRIDGE_ENABLED !== "1") throw new Error("请以 MUSE_BRIDGE_ENABLED=1 运行，否则挂钩会短路、事件不会落库");
++
++  const user = await db.user.findUnique({ where: { email }, select: { id: true } });
++  if (!user) throw new Error(`用户不存在：${email}`);
++  const member = await db.organizationMember.findFirst({ where: { orgId, userId: user.id, status: "active" } });
++  if (!member) throw new Error(`${email} 不是该组织有效成员`);
++
++  const close = new Date(Date.now() + 9 * 86_400_000);
++  const project = await db.project.create({
++    data: {
++      orgId,
++      ownerId: user.id,
++      name: `${PREFIX} Halifax 媒体监测服务（Muse 联调）`,
++      workDomain: "tender",
++      tenderStatus: "pursuing",
++      closeDate: close,
++      distributedAt: new Date(),
++      interpretedAt: new Date(),
++      clientOrganization: "Halifax Regional Municipality",
++      solicitationNumber: "MUSE-QA-0001",
++    },
++    select: { id: true, name: true },
++  });
++  console.log(`✓ 项目 ${project.id}  ${project.name}  截标 ${close.toISOString().slice(0, 10)}`);
++
++  // 走正式入口 createDraft → 触发 P0-6 挂钩
++  const { createDraft } = await import("../../src/lib/pending-actions/drafts");
++  const res = await createDraft({
++    type: "grader.project_task",
++    title: `${PREFIX} 补齐保险额度证明（强制要求 R-07）`,
++    preview: "招标文件 §4.2 要求 CGL ≥ $5M，当前资料库无对应证明，批准后建一条任务给项目负责人。",
++    payload: { projectId: project.id, title: `${PREFIX} 补齐保险额度证明`, reason: "强制要求 R-07 无证据", priority: "high" },
++    userId: user.id,
++    orgId,
++    projectId: project.id,
++    ttlHours: 48,
++    idempotencyKey: `muse-qa:${project.id}:insurance`,
++  });
++  if (!res.success) throw new Error(`createDraft 失败：${res.error}`);
++  const actionId = (res.data as { actionId?: string } | null)?.actionId ?? JSON.stringify(res.data);
++  console.log(`✓ PendingAction ${actionId}`);
++
++  // 等挂钩（void 异步）落库
++  await new Promise((r) => setTimeout(r, 1500));
++  const ev = await db.notification.findFirst({
++    where: { orgId, projectId: project.id, category: "muse_bridge" },
++    select: { id: true, title: true, summary: true, createdAt: true },
++  });
++  if (ev) console.log(`✓ approval.requested 已进 outbox：${ev.title} — ${ev.summary}`);
++  else console.log("✗ outbox 里没有 muse_bridge 事件：检查 MUSE_BRIDGE_ENABLED 是否生效、以及 drafts.ts 挂钩是否在");
++
++  console.log("\n接下来：");
++  console.log(`  PROJECT_ID=${project.id} APPROVAL_ID=${actionId}  →  bash scripts/muse-bridge/smoke-gate0.sh`);
++}
++
++main()
++  .catch((e) => {
++    console.error("失败：", e instanceof Error ? e.message : e);
++    process.exitCode = 1;
++  })
++  .finally(() => db.$disconnect());
+diff --git a/scripts/muse-bridge/smoke-gate0.sh b/scripts/muse-bridge/smoke-gate0.sh
+new file mode 100755
+index 0000000..e910c89
+--- /dev/null
++++ b/scripts/muse-bridge/smoke-gate0.sh
+@@ -0,0 +1,38 @@
++#!/bin/bash
++# GATE-0 完整验收（在 smoke.sh 四项之上补齐 §验收 第 1/2/5/6 条）
++#
++#   BASE_URL=... MUSE_BRIDGE_TOKEN=... ORG_ID=... MUSE_USER_ID=... PROJECT_ID=... APPROVAL_ID=... \
++#     bash scripts/muse-bridge/smoke-gate0.sh
++#
++# 预期：
++#   A) 未绑定用户 → 403 USER_NOT_BOUND
++#   B) status → 列表里有 [MUSE-QA] 项目，带「1 条待你批」
++#   C) events → 有一条 approval.requested，approval.approvalId == APPROVAL_ID
++#   D) ask → 没有分析结果时诚实回「还没有可用的分析结果」（不编造）
++#   E) approve → 「已批准」，再 approve 一次 → 含「未重复执行」
++#   F) 开关测试需你手动：.env 去掉 MUSE_BRIDGE_ENABLED 重启后，任意请求应 503 BRIDGE_DISABLED
++set -u
++: "${BASE_URL:?}"; : "${MUSE_BRIDGE_TOKEN:?}"; : "${ORG_ID:?}"; : "${MUSE_USER_ID:?}"; : "${PROJECT_ID:?}"; : "${APPROVAL_ID:?}"
++H=(-H "Authorization: Bearer $MUSE_BRIDGE_TOKEN" -H "Content-Type: application/json")
++T=$(date +%s)
++post() { curl -s -w "\n[http %{http_code}]\n" -X POST "$BASE_URL/api/bridge/muse/command" "${H[@]}" -d "$1"; }
++env_() { echo "{\"contractVersion\":\"muse-bridge/v1\",\"requestId\":\"g0-$T-$1\",\"orgId\":\"$ORG_ID\",\"museUserRef\":\"$2\",\"command\":$3}"; }
++
++echo "── A) 未绑定用户（应 403 USER_NOT_BOUND）"
++post "$(env_ a 'nobody-not-bound' '{"intent":"status"}')"
++
++echo; echo "── B) status（应含 [MUSE-QA] 项目与「1 条待你批」）"
++post "$(env_ b "$MUSE_USER_ID" '{"intent":"status"}')"
++
++echo; echo "── C) events（应含 approval.requested，approvalId=$APPROVAL_ID）"
++curl -s -w "\n[http %{http_code}]\n" "$BASE_URL/api/bridge/muse/events?orgId=$ORG_ID&museUserRef=$MUSE_USER_ID&limit=20" -H "Authorization: Bearer $MUSE_BRIDGE_TOKEN"
++
++echo; echo "── D) ask（无分析 → 诚实提示，不编造）"
++post "$(env_ d "$MUSE_USER_ID" "{\"intent\":\"ask\",\"projectId\":\"$PROJECT_ID\",\"question\":\"这个标最大的废标风险是什么？\"}")"
++
++echo; echo "── E1) approve（应「已批准」）"
++post "$(env_ e1 "$MUSE_USER_ID" "{\"intent\":\"approve\",\"approvalId\":\"$APPROVAL_ID\"}")"
++echo; echo "── E2) 再 approve 一次（应含「未重复执行」或 APPROVAL_FAILED 终态）"
++post "$(env_ e2 "$MUSE_USER_ID" "{\"intent\":\"approve\",\"approvalId\":\"$APPROVAL_ID\"}")"
++
++echo; echo "── F) 开关：请手动去掉 MUSE_BRIDGE_ENABLED 重启后再跑一次 B，预期 503 BRIDGE_DISABLED"
