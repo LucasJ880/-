@@ -37,6 +37,35 @@
 
 AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分常偏低）。跟进优先级以业务员判的等级为准。
 
+## 展会小结（给管理层，开馆前看）
+
+速记卡页面最下面「4. 展会小结」：当天录入的卡汇总成一段中文。
+- 内容：录入张数和 A/B/C 分布；待审批的跟进邮件；只有 WhatsApp 的卡；草稿没完成的卡；
+  A 级名单（公司、国家、联系人、下一步、业务员、卡号、备注原文）；不在参考表的款号
+- 「复制」贴到微信群；「发给管理层」发青砚通知，绑定了微信的同时推送到微信。管理层 = 老板 / 经理 / 平台管理员 / 组织所有者和管理员
+- **每天当地 07:00 自动发前一天的小结**；同一天同样张数只发一次，补录后张数变了会再发一版
+- 展会日从当地 07:00 到次日 07:00，夜里录到凌晨也算前一天。**梦馨组织时区要设成 `Asia/Shanghai`**，否则按多伦多时间算
+
+## 跟进邮件从哪里发出（公司发件身份）
+
+青砚 → 设置 → 邮箱绑定 →「公司发件身份」。设了之后，审批中心批准的跟进邮件、外贸收件箱的回复、开发信都以这个身份发出，
+**不用任何人的个人 Gmail**（个人 Gmail 按登录账号绑定，跨公司共用，会把梦馨的邮件从 Sunny 的邮箱发出去）。
+
+| 项 | 梦馨填写 | 说明 |
+|---|---|---|
+| 发件人名称 | `Cathy \| Mengxin Home Textile` | 买家收件箱里看到的名字 |
+| 发件地址 | `cathy@hlmbedding.com` | 只有平台管理员能设置；域名要在青砚的 Resend 账号里验证 |
+| 回复地址 | 留空（= 发件地址） | 买家点「回复」进 Cathy 的邮箱 |
+| 密送留底 | `cathy@hlmbedding.com` | 每封发出的邮件 Cathy 邮箱里都有一份 |
+
+域名还没验证时：邮件由平台地址代发，发件人名称、回复地址、密送不变，买家回信照样到 Cathy，不会丢。页面上会显示当前状态。
+
+验证 hlmbedding.com（一次性，青砚服务器上 `RESEND_API_KEY` 所属的 Resend 账号，不是官网那个）：
+1. Resend → Domains → Add Domain → `hlmbedding.com`
+2. 把 Resend 给出的 DNS 记录（`resend._domainkey` 的 TXT，`send` 子域的 MX 和 TXT）加到 hlmbedding.com 的域名解析里。
+   都在子域上，不动现有的 MX，Cathy 收信不受影响
+3. 回 Resend 点 Verify（几分钟到几小时）。验证通过后自动改用 `cathy@hlmbedding.com` 发出，青砚这边不用再改
+
 ## 卡号就是线索编号
 
 - 每张卡预印唯一卡号（CF140-0001 起）。同一张卡重复上传、录到一半中断、网络断了重试，都只会补齐缺的步骤，**不会多出线索或第二封草稿**
@@ -66,4 +95,9 @@ AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分�
 - 落款：互动 meta `boothSales`（英文名才用）→ 草稿 `senderName`；来源对象统一由 `boothCardOrigin(card, event, styles)` 生成
 - 中文对照：FDE 在英文草稿之外用同一模板生成中文版，只拼进 PendingAction `preview`（`approvalPreview`），`payload.body` 只有英文
 - 参考款品类名里读出的材质等不作为买家要求列出（整词匹配），避免请买家确认参考款的属性
+- 展会小结：`src/lib/trade/booth-summary.ts`（数据来自 source = trade_show 的收据；卡上中文勾选项用 `parseBoothCardContext` 从「展会」一行读回），
+  接口 `/api/trade/booth-cards/summary`；07:00 自动发送挂在 `cron/daily-brief`；通知 entityType `trade_booth_summary` 点开回到 `/trade/booth-cards?day=`
+- 发件身份：OrgBusinessRule `trade.email_sender`（`src/lib/trade/email-sender.ts`，接口 `/api/trade/email-sender`）。
+  `exec-sales-inquiry-reply` 有组织身份时只走 Resend（不回落个人 Gmail）；`sendAsOrg` 先用组织地址，Resend 拒收发件域名时用平台地址重发；
+  外贸收件箱回复 / 开发信 / 序列跟进经 `sendTradeEmailForOrg` 同一出口。发件地址只有平台管理员能改（Resend 账号各组织共用，防冒用域名）
 - 测试：`src/lib/trade/__tests__/booth-cards.test.ts`、`booth-cards-db.isolated.test.ts`（隔离库端到端）、`src/lib/revenue-spine/__tests__/scoring-draft.test.ts`

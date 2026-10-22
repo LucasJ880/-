@@ -44,6 +44,10 @@ async function main() {
   const { ingestWebsiteInquiry, normalizeInquiry, BOOTH_CARD_CAMPAIGN_NAME } = await import("@/lib/trade/website-inquiry");
   const { INQUIRY_REPLY_ACTION_TYPE } = await import("@/lib/revenue-spine/fde/inbound-sales");
   const { __setToolPolicyLoaderForTest } = await import("@/lib/pending-actions/executor");
+  const { approveApprovalItem } = await import("@/lib/approval/port");
+  const { __setInquiryReplySenderForTest } = await import("@/lib/pending-actions/exec-sales-inquiry-reply");
+  const { saveOrgEmailSender, sendAsOrg, sendTradeEmailForOrg } = await import("@/lib/trade/email-sender");
+  const { boothDayOf, collectBoothSummary, formatBoothSummary, sendBoothSummary } = await import("@/lib/trade/booth-summary");
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
 
   const stamp = Date.now().toString(36);
@@ -191,6 +195,78 @@ async function main() {
       { channel: msgW?.channel, source: prospectW?.source, campaign: prospectW?.campaign.name, opp: oppW?.source, receipt: webReceipt?.source },
     );
     ok(w.notified > 0, "网站询盘照常通知外贸成员", w.notified);
+
+    // ── 展会小结：当天录入的 3 张卡（网站询盘不算），发给管理层（老板），不发给外贸；同样张数不重复发 ──
+    const TZ = "Asia/Shanghai";
+    const today = boothDayOf(new Date(), TZ);
+    const summary = await collectBoothSummary(ORG, today, TZ);
+    const cardNos = summary.cards.map((c) => c.cardNo);
+    ok(cardNos.join(",") === "CF140-0001,CF140-0002,CF140-0003" && summary.event === EVENT, "小结只收当天的速记卡，按卡号排", { cardNos, event: summary.event });
+    const c1 = summary.cards[0];
+    ok(c1.grade === "A" && c1.sales === "Cathy" && c1.nextStep === "报价, 寄样" && c1.noteOriginal === "要自有品牌礼盒包装，圣诞季" && c1.hasEmail, "卡上等级、业务员、下一步、备注原文读回", c1);
+    ok(summary.cards[1].hasEmail === false && summary.cards[1].draftStatus === null, "只有 WhatsApp 的卡：没有草稿", summary.cards[1]);
+    const { text: summaryText } = formatBoothSummary(summary);
+    ok(/录入 3 张：A 2 · B 0 · C 1/.test(summaryText) && /只有 WhatsApp 1 张/.test(summaryText) && /A 级 2 张/.test(summaryText), "小结正文", summaryText);
+    const pushed: string[] = [];
+    const push = async (userId: string) => {
+      pushed.push(userId);
+    };
+    const firstSend = await sendBoothSummary(ORG, today, TZ, { push });
+    ok(firstSend.total === 3 && firstSend.recipients === 1 && firstSend.sent === 1 && pushed.join() === OWNER, "发给管理层（老板），并推送微信", { firstSend, pushed });
+    const ownerNote = await db.notification.findFirst({ where: { userId: OWNER, type: "trade_booth_summary" } });
+    ok(ownerNote?.entityType === "trade_booth_summary" && ownerNote.entityId === today && /^展会小结 .*录入 3 张，A 级 2 张$/.test(ownerNote.title), "青砚通知：点开回到当天小结", ownerNote);
+    const tradeNote = await db.notification.count({ where: { userId: TRADE, type: "trade_booth_summary" } });
+    ok(tradeNote === 0, "外贸成员不收小结", tradeNote);
+    const again = await sendBoothSummary(ORG, today, TZ, { push });
+    ok(again.sent === 0 && pushed.length === 1, "同一天同样张数不重复发", again);
+
+    // ── 公司发件身份：批准后以梦馨身份发出；域名未验证时平台地址代发，回复地址和密送不变 ──
+    const CATHY = "cathy@hlmbedding.com";
+    const ORG_FROM = '"Cathy | Mengxin Home Textile" <cathy@hlmbedding.com>';
+    const PLATFORM_FROM = '"Cathy | Mengxin Home Textile" <noreply@qingyan.ai>';
+    await saveOrgEmailSender(ORG, { fromName: "Cathy | Mengxin Home Textile", fromEmail: CATHY, replyTo: CATHY, bcc: [CATHY] }, OWNER);
+    const sends: Array<{ to: string; from?: string; replyTo?: string; bcc?: string[] }> = [];
+    const unverifiedResend = async (m: { to: string; from?: string; replyTo?: string; bcc?: string[] }) => {
+      sends.push({ to: m.to, from: m.from, replyTo: m.replyTo, bcc: m.bcc });
+      return m.from?.includes("@hlmbedding.com")
+        ? { success: false, error: "The hlmbedding.com domain is not verified. Please, add and verify your domain on https://resend.com/domains", errorName: "validation_error" }
+        : { success: true, messageId: `re_${sends.length}` };
+    };
+    let seenSender: { fromEmail?: string | null } | null | undefined;
+    __setInquiryReplySenderForTest(async (input) => {
+      seenSender = input.orgSender;
+      if (!input.orgSender) throw new Error("组织发件身份没有传给发送通道");
+      const r = await sendAsOrg(input.orgSender, input, unverifiedResend, "noreply@qingyan.ai");
+      return { channel: "resend", messageId: r.messageId, from: r.from, fallback: r.fallback };
+    });
+    try {
+      const latestA = await db.pendingAction.findFirst({
+        where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } },
+        orderBy: { createdAt: "desc" },
+      });
+      const approved = latestA ? await approveApprovalItem("pending_action", latestA.id, { userId: OWNER, role: "boss", orgId: ORG }) : null;
+      ok(approved?.ok === true, "管理层批准跟进邮件", approved);
+      ok(seenSender?.fromEmail === CATHY, "发送通道拿到梦馨的发件身份（不用审批人的个人 Gmail）", seenSender);
+      ok(
+        sends.length === 2 && sends[0].from === ORG_FROM && sends[1].from === PLATFORM_FROM &&
+          sends.every((x) => x.replyTo === CATHY && x.bcc?.[0] === CATHY),
+        "域名未验证：先试 cathy@hlmbedding.com，被拒后平台地址代发；显示名、回复地址、密送不变",
+        sends,
+      );
+      const outA = await db.customerInteraction.findFirst({ where: { orgId: ORG, opportunityId: oppA?.id ?? "", direction: "outbound" }, orderBy: { createdAt: "desc" } });
+      const outExtra = (outA?.analysisResult ?? {}) as Record<string, unknown>;
+      ok(outExtra.sentFrom === PLATFORM_FROM && outExtra.senderFallback === true, "时间线记下实际发件人、是否代发", outExtra);
+
+      // 外贸收件箱回复 / 开发信走同一出口
+      sends.length = 0;
+      const inboxReply = await sendTradeEmailForOrg(ORG, { to: "buyer@example.com", subject: "Re: your inquiry", body: "Thanks" }, unverifiedResend);
+      ok(inboxReply.success && inboxReply.from === PLATFORM_FROM && sends[1]?.replyTo === CATHY, "收件箱回复同样以梦馨身份发出", { inboxReply, sends });
+      sends.length = 0;
+      const noConfig = await sendTradeEmailForOrg(`${ORG}_none`, { to: "buyer@example.com", subject: "Hi", body: "Hi" }, unverifiedResend);
+      ok(noConfig.success && sends.length === 1 && sends[0].from === undefined, "没设发件身份的组织：沿用平台默认发件人", sends);
+    } finally {
+      __setInquiryReplySenderForTest(null);
+    }
   } finally {
     try {
       const oppIds = (await db.salesOpportunity.findMany({ where: { orgId: ORG }, select: { id: true } })).map((o) => o.id);

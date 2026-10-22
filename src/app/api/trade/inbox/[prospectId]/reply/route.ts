@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 import { createMessage, updateProspect } from "@/lib/trade/service";
-import { sendEmail } from "@/lib/trade/email";
+import { sendTradeEmailForOrg } from "@/lib/trade/email-sender";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
 import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
 
@@ -42,7 +42,7 @@ export async function POST(
     if (!process.env.RESEND_API_KEY) {
       return NextResponse.json({ error: "邮件发送未配置（RESEND_API_KEY），请复制草稿到邮箱发送后标记", code: "RESEND_NOT_CONFIGURED" }, { status: 400 });
     }
-    const result = await sendEmail({ to: prospect.contactEmail, subject: subject || "Re: your inquiry", body: text });
+    const result = await sendTradeEmailForOrg(orgRes.orgId, { to: prospect.contactEmail, subject: subject || "Re: your inquiry", body: text });
     if (!result.success) {
       return NextResponse.json({ error: `发送失败: ${result.error}` }, { status: 502 });
     }

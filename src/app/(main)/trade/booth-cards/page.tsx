@@ -26,6 +26,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { BoothSummaryPanel } from "./booth-summary-panel";
 
 interface Card {
   row: number;
@@ -91,6 +92,7 @@ export default function BoothCardsPage() {
   const [savingStyles, setSavingStyles] = useState(false);
   // 参考表为空时默认展开；之后由用户开合（不随保存后的数量自动收起）
   const [stylesOpen, setStylesOpen] = useState(false);
+  const [summaryKey, setSummaryKey] = useState(0);
   const cancelled = useRef(false);
 
   useEffect(() => {
@@ -248,6 +250,7 @@ export default function BoothCardsPage() {
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
     setRunning(false);
+    setSummaryKey((k) => k + 1);
   };
 
   const failedCards = valid.filter((r) => states[r.card.cardNo]?.state === "failed").map((r) => r.card);
@@ -509,6 +512,8 @@ export default function BoothCardsPage() {
           </div>
         </section>
       )}
+
+      <BoothSummaryPanel orgId={ambiguous ? null : orgId} refreshKey={summaryKey} />
     </div>
   );
 }

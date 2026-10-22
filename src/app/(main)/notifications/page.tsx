@@ -153,6 +153,9 @@ function NotificationsContent() {
         router.push(`/capabilities/approvals/${encodeURIComponent(item.entityId)}`);
       } else if (item.entityType === "trade_prospect" && item.entityId) {
         router.push(`/trade/prospects/${item.entityId}`);
+      } else if (item.entityType === "trade_booth_summary" && item.entityId) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(`/trade/booth-cards?day=${encodeURIComponent(item.entityId)}`);
       } else if (item.entityType === "revenue_opportunity" && item.entityId) {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         router.push(`/revenue/${encodeURIComponent(item.entityId)}`);

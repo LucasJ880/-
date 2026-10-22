@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { updateProspect, createMessage } from "@/lib/trade/service";
-import { sendEmail } from "@/lib/trade/email";
+import { sendTradeEmailForOrg } from "@/lib/trade/email-sender";
 import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
 import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
@@ -42,7 +42,7 @@ export async function POST(
   let emailMessageId: string | null = null;
 
   if (mode === "send" && prospect.contactEmail) {
-    const result = await sendEmail({
+    const result = await sendTradeEmailForOrg(orgRes.orgId, {
       to: prospect.contactEmail,
       subject: prospect.outreachSubject,
       body: prospect.outreachBody,

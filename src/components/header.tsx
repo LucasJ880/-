@@ -557,6 +557,9 @@ export function Header() {
       if (item.orgId) persistSelectedOrgId(item.orgId);
       const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";
       window.location.href = `/sales/quote-sheet?mode=order&quoteId=${encodeURIComponent(item.entityId)}${orgQuery}`;
+    } else if (item.entityType === "trade_booth_summary" && item.entityId) {
+      if (item.orgId) persistSelectedOrgId(item.orgId);
+      window.location.href = `/trade/booth-cards?day=${encodeURIComponent(item.entityId)}`;
     } else if (item.projectId && item.activityId) {
       window.location.href = `/projects/${item.projectId}?activity=${item.activityId}`;
     } else if (item.projectId) {
