@@ -47,3 +47,15 @@ BASE_URL=http://localhost:3000 MUSE_BRIDGE_TOKEN=<第2步的token> ORG_ID=<orgId
 | 403 `USER_NOT_BOUND` | 第 3 步没跑或 `--muse` 不一致 | `npx tsx scripts/muse-bridge/bind.ts --org <orgId> --list` 核对 |
 | 403 `ORG_MEMBERSHIP_REQUIRED` | 邮箱对应用户不在该组织 | 先在青砚把人加进组织 |
 | setup.sh 类型检查报错 | 环境差异 | 输出贴给 Claude |
+
+## GATE-0 完整验收（smoke.sh 四项通过后）
+
+```bash
+# 1) 造固定数据：一个 [MUSE-QA] 投标项目 + 一张待批（批准只会建一条任务，无外发）
+MUSE_BRIDGE_ENABLED=1 npx tsx scripts/muse-bridge/gate0-fixture.ts --org <orgId> --email <青砚邮箱>
+# 2) 用它打印的 PROJECT_ID / APPROVAL_ID 跑
+BASE_URL=http://localhost:3000 MUSE_BRIDGE_TOKEN=... ORG_ID=... MUSE_USER_ID=... PROJECT_ID=... APPROVAL_ID=... \
+  bash scripts/muse-bridge/smoke-gate0.sh
+# 3) 清理
+npx tsx scripts/muse-bridge/gate0-fixture.ts --org <orgId> --cleanup
+```
