@@ -4,6 +4,7 @@
  * 首封回复发出后买家一直没回信：从首封算起第 3 / 7 / 14 天（policy.followUp.noReplyFollowUpDays）
  * 各起草一封跟进邮件进审批中心，**不发送**。买家回信、商机进入报价或之后的阶段、或已有待审批草稿时不起草；
  * 同一封外发之后的同一次跟进只起草一次（被拒绝、过期也不重复起草）。
+ * 买家在首封之后回过信（包括业务点了「买家已回复」：回到 Cathy 邮箱 / WhatsApp）→ 对话已在人手里，此后不再自动起草。
  *
  * 跟进只追问报价需要的信息，不写价格 / MOQ / 交期等任何承诺，与首封同一套守卫；英文草稿附中文对照给审核人。
  */
@@ -26,6 +27,8 @@ const DAY_MS = 86_400_000;
 const MAX_PER_RUN = 50;
 /** 错过跟进时间超过这么多天就不再补起草（上线时不给几周前的老询盘一口气补草稿；长期无动作交给 stale 流程） */
 const MAX_LATE_DAYS = 7;
+/** 买家的回信可能直接进了业务员邮箱或 WhatsApp，青砚看不到：发跟进前让审核人确认 */
+export const FOLLOW_UP_REMINDER = "发送前确认买家这几天没有通过邮件或 WhatsApp 直接回复过业务员。回复过就在商机页点「买家已回复」，这封作废，之后也不再自动跟进";
 
 export interface NoReplyFollowUpDue {
   /** 第几次跟进（1 起） */
@@ -240,6 +243,19 @@ export async function draftNoReplyFollowUps(
     }
 
     try {
+      // 首封之后买家回过信（含在青砚之外回复、业务点了「买家已回复」）：对话在人手里，不再自动跟进
+      const firstOut = await db.customerInteraction.findFirst({
+        where: { orgId, opportunityId: opp.id, direction: "outbound" },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      });
+      const repliedSince = firstOut
+        ? await db.customerInteraction.count({ where: { orgId, opportunityId: opp.id, direction: "inbound", createdAt: { gt: firstOut.createdAt } } })
+        : 0;
+      if (repliedSince > 0) {
+        skip("buyer_replied");
+        continue;
+      }
       const [inbound, lastOut, rfqRow] = await Promise.all([
         db.customerInteraction.findMany({
           where: { orgId, opportunityId: opp.id, direction: "inbound" },
@@ -293,7 +309,7 @@ export async function draftNoReplyFollowUps(
         principal: { userId: principalUserId, actorType: "agent" },
         actionType: INQUIRY_REPLY_ACTION_TYPE,
         title: `${risks.length ? "⚠ " : ""}跟进第 ${due.step}/${due.total} 次（${booth.fromLatest ? `展会${booth.grade ? ` · ${booth.grade} 级` : ""} · ` : ""}${due.day} 天未回复）：${opp.customer.name}`.slice(0, 160),
-        preview: approvalPreview(draft, reviewZh, risks),
+        preview: approvalPreview(draft, reviewZh, risks, [FOLLOW_UP_REMINDER]),
         payload: {
           opportunityId: opp.id,
           customerId: opp.customerId,

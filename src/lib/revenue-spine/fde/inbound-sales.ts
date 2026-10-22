@@ -107,8 +107,9 @@ async function safeTransition(
  * 审批预览：来信风险提醒（如有）在最上面；然后是发送的邮件；英文邮件再附中文对照（模板版）给看中文的审核人。
  * 提醒和中文对照都不会发送。
  */
-export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null, risks: InquiryRisk[] = []): string {
-  const warn = risks.length ? `${formatRiskNotes(risks)}\n\n` : "";
+export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null, risks: InquiryRisk[] = [], reminders: string[] = []): string {
+  const block = formatRiskNotes(risks, reminders);
+  const warn = block ? `${block}\n\n` : "";
   const sent = `${warn}${draft.subject}\n\n${draft.body}`;
   if (!zh) return sent.slice(0, 4000);
   const note = draft.templateOnly

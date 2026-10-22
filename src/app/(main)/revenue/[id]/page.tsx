@@ -62,6 +62,9 @@ export default function RevenueOpportunityPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inbound, setInbound] = useState("");
+  const [replyChannel, setReplyChannel] = useState("email");
+  const [alsoReplied, setAlsoReplied] = useState(false);
+  const [replyNote, setReplyNote] = useState("");
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -235,6 +238,38 @@ export default function RevenueOpportunityPage() {
         {/* 审批 */}
         <section className="rounded-xl border border-border bg-card p-4 text-sm">
           <div className="mb-2 font-medium">回复草稿审批（{pending.length} 待批）</div>
+          {/* 买家回到业务员邮箱 / WhatsApp，青砚看不到：点一下作废未批草稿、此后不再自动跟进 */}
+          <form
+            className="mb-3 flex flex-wrap items-center gap-2 rounded border border-amber-500/40 bg-amber-500/5 p-2 text-xs"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void post("replied", `/api/revenue/opportunities/${o.id}/customer-replied`, { channel: replyChannel, alsoReplied, note: replyNote }).then((r) => {
+                if (r) {
+                  setReplyNote("");
+                  setAlsoReplied(false);
+                }
+              });
+            }}
+          >
+            <span className="font-medium">买家在青砚之外回复了？</span>
+            <label className="inline-flex items-center gap-1">
+              <span className="sr-only">回复渠道</span>
+              <select value={replyChannel} onChange={(e) => setReplyChannel(e.target.value)} className="rounded border border-border bg-background px-1.5 py-1">
+                <option value="email">邮件</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="phone">电话</option>
+                <option value="in_person">当面</option>
+              </select>
+            </label>
+            <input value={replyNote} onChange={(e) => setReplyNote(e.target.value)} placeholder="备注（可选），如：要 3 月交货的报价" className="min-w-[180px] flex-1 rounded border border-border bg-background px-2 py-1" />
+            <label className="inline-flex items-center gap-1">
+              <input type="checkbox" checked={alsoReplied} onChange={(e) => setAlsoReplied(e.target.checked)} />
+              我们也已回复
+            </label>
+            <button type="submit" disabled={busy !== null} className="inline-flex items-center gap-1 rounded bg-amber-600 px-2 py-1 font-medium text-white disabled:opacity-50">
+              <Check className="h-3 w-3" /> 买家已回复，停止自动跟进
+            </button>
+          </form>
           {data.pendingApprovals.length === 0 ? <div className="text-xs text-muted">尚无草稿</div> : null}
           <ul className="space-y-3">
             {data.pendingApprovals.map((p) => (

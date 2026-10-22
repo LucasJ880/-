@@ -49,6 +49,7 @@ async function main() {
   const { saveOrgEmailSender, sendAsOrg, sendTradeEmailForOrg } = await import("@/lib/trade/email-sender");
   const { boothDayOf, collectBoothSummary, formatBoothSummary, sendBoothSummary } = await import("@/lib/trade/booth-summary");
   const { draftNoReplyFollowUps } = await import("@/lib/revenue-spine/fde/no-reply-followup");
+  const { markCustomerRepliedOutside } = await import("@/lib/revenue-spine/customer-replied");
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
 
   const stamp = Date.now().toString(36);
@@ -338,10 +339,17 @@ async function main() {
     const fu2 = await db.pendingAction.findFirst({ where: { id: { in: day7.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } });
     ok(!!fu2 && /^跟进第 2\/3 次.*7 天未回复/.test(fu2.title) && /still active/.test(String((fu2.payload as Record<string, unknown>).body)), "第 7 天：起草第 2 次跟进（问项目是否还在进行）", fu2?.title);
 
-    // 买家回信：之后不再起草；已起草的第 2 次因来信更新而过时（executor 发送前拒发）
-    await db.salesOpportunity.update({ where: { id: oppA?.id ?? "" }, data: { lastCustomerReplyAt: new Date(fu1SentAt.getTime() + 5 * DAY) } });
-    const afterReply = await draftNoReplyFollowUps(ORG, { now: new Date(fu1SentAt.getTime() + 30 * DAY) });
-    ok(!afterReply.pendingActionIds.length || !(await db.pendingAction.count({ where: { id: { in: afterReply.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } })), "买家回信后不再起草跟进", afterReply);
+    ok((fu2?.preview ?? "").startsWith("⚠ 审核提醒（不会发送）：\n- 发送前确认买家这几天没有通过邮件或 WhatsApp 直接回复过业务员"), "跟进草稿预览最上面提醒：确认买家没在邮箱 / WhatsApp 回过", (fu2?.preview ?? "").slice(0, 120));
+
+    // 买家直接回到 Cathy 邮箱：业务点「买家已回复」→ 未批的第 2 次跟进作废；之后不再自动跟进
+    const replied = await markCustomerRepliedOutside({ orgId: ORG, opportunityId: oppA?.id ?? "", channel: "email", alsoReplied: true, note: "要 3 月交货的报价", actorUserId: OWNER });
+    const fu2After = fu2 ? await db.pendingAction.findUnique({ where: { id: fu2.id }, select: { status: true, failureReason: true } }) : null;
+    ok(replied.superseded === 1 && fu2After?.status === "failed" && /^SUPERSEDED_BY_NEWER_INBOUND/.test(fu2After.failureReason ?? ""), "点「买家已回复」：未批的跟进草稿系统作废", { replied, fu2After });
+    const markedIn = await db.customerInteraction.findUnique({ where: { id: replied.interactionId }, select: { direction: true, channel: true, content: true } });
+    const oppAfterReply = await db.salesOpportunity.findUnique({ where: { id: oppA?.id ?? "" }, select: { nextActionType: true } });
+    ok(markedIn?.direction === "inbound" && /买家已通过邮件回复（内容不在青砚）：要 3 月交货的报价/.test(markedIn.content ?? "") && oppAfterReply?.nextActionType !== "reply_customer", "记下来信渠道和备注；勾了「我们也已回复」不挂在待回复队列", { markedIn, oppAfterReply });
+    const afterReply = await draftNoReplyFollowUps(ORG, { now: new Date(Date.now() + 7 * DAY + 60_000) });
+    ok(!afterReply.pendingActionIds.length && afterReply.skipped.some((x) => x.opportunityId === oppA?.id && x.reason === "buyer_replied"), "买家回过信后不再自动跟进（即使之后又有外发）", afterReply);
   } finally {
     try {
       const oppIds = (await db.salesOpportunity.findMany({ where: { orgId: ORG }, select: { id: true } })).map((o) => o.id);
