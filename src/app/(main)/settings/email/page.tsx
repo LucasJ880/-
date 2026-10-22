@@ -16,6 +16,7 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { Label } from "@/components/ui/label";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { OrgSenderCard } from "./org-sender-card";
 
 const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
@@ -241,7 +242,7 @@ export default function EmailBindingPage() {
         title="邮箱绑定"
         description={
           isMengxinOrg
-            ? "梦馨官网询盘走 Resend，不使用 Gmail。下方 Gmail 属于登录账号的个人绑定。"
+            ? "梦馨的跟进邮件按下方「公司发件身份」发出，不使用 Gmail。下方 Gmail 属于登录账号的个人绑定。"
             : "绑定一次，报价 / 通知邮件自动从你的邮箱发给客户"
         }
       />
@@ -251,16 +252,18 @@ export default function EmailBindingPage() {
           <div className="flex items-start gap-2">
             <Mail size={16} className="mt-0.5 shrink-0 text-accent" />
             <div>
-              <p className="font-medium text-foreground">梦馨当前发信：Resend（非 Gmail）</p>
+              <p className="font-medium text-foreground">梦馨发信：公司发件身份（Resend，非 Gmail）</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                官网询盘发到 Cathy，并抄送 QQ，同时写入青砚外贸询盘。你看到的 Gmail
+                官网询盘发到 Cathy，并抄送 QQ，同时写入青砚外贸询盘；审批后的跟进邮件按下方「公司发件身份」发出。你看到的 Gmail
                 {gmail?.email ? `（${gmail.email}）` : ""}
-                是登录账号的个人绑定，切回 Sunny 才会用于青砚发信。请不要断开，以免影响 Sunny。
+                是登录账号的个人绑定，只用于 Sunny，不会用来发梦馨的邮件。请不要断开，以免影响 Sunny。
               </p>
             </div>
           </div>
         </div>
       )}
+
+      <OrgSenderCard orgId={orgId} />
 
       {/* ─── 当前生效通道提示 ─── */}
       {!isMengxinOrg && activeChannel && (

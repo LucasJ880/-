@@ -26,12 +26,15 @@ export interface SendEmailInput {
   body: string;
   replyTo?: string;
   from?: string;
+  bcc?: string[];
 }
 
 export interface SendEmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** Resend 错误名（如 validation_error），用于区分"发件域名未验证"与其它失败 */
+  errorName?: string;
 }
 
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
@@ -49,10 +52,11 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       subject: input.subject,
       text: input.body,
       replyTo: input.replyTo,
+      ...(input.bcc?.length ? { bcc: input.bcc } : {}),
     });
 
     if (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error.message, errorName: error.name };
     }
 
     return { success: true, messageId: data?.id };
@@ -61,5 +65,23 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       success: false,
       error: err instanceof Error ? err.message : "发送失败",
     };
+  }
+}
+
+export type ResendDomainStatus = "verified" | "pending" | "failed" | "not_started" | "not_added" | "no_resend" | "unknown";
+
+/** 平台 Resend 账号里某个发件域名的验证状态（只读；发送权限受限的 key 读不到时返回 unknown） */
+export async function getResendDomainStatus(domain: string): Promise<ResendDomainStatus> {
+  const client = getClient();
+  if (!client) return "no_resend";
+  try {
+    const { data, error } = await client.domains.list();
+    if (error || !data) return "unknown";
+    const row = data.data.find((d) => d.name.toLowerCase() === domain.toLowerCase());
+    if (!row) return "not_added";
+    if (row.status === "temporary_failure") return "pending";
+    return row.status;
+  } catch {
+    return "unknown";
   }
 }
