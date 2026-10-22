@@ -47,6 +47,7 @@ async function main() {
   const { approveApprovalItem } = await import("@/lib/approval/port");
   const { __setInquiryReplySenderForTest } = await import("@/lib/pending-actions/exec-sales-inquiry-reply");
   const { saveOrgEmailSender, sendAsOrg, sendTradeEmailForOrg } = await import("@/lib/trade/email-sender");
+  const { boothDayOf, collectBoothSummary, formatBoothSummary, sendBoothSummary } = await import("@/lib/trade/booth-summary");
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
 
   const stamp = Date.now().toString(36);
@@ -194,6 +195,30 @@ async function main() {
       { channel: msgW?.channel, source: prospectW?.source, campaign: prospectW?.campaign.name, opp: oppW?.source, receipt: webReceipt?.source },
     );
     ok(w.notified > 0, "网站询盘照常通知外贸成员", w.notified);
+
+    // ── 展会小结：当天录入的 3 张卡（网站询盘不算），发给管理层（老板），不发给外贸；同样张数不重复发 ──
+    const TZ = "Asia/Shanghai";
+    const today = boothDayOf(new Date(), TZ);
+    const summary = await collectBoothSummary(ORG, today, TZ);
+    const cardNos = summary.cards.map((c) => c.cardNo);
+    ok(cardNos.join(",") === "CF140-0001,CF140-0002,CF140-0003" && summary.event === EVENT, "小结只收当天的速记卡，按卡号排", { cardNos, event: summary.event });
+    const c1 = summary.cards[0];
+    ok(c1.grade === "A" && c1.sales === "Cathy" && c1.nextStep === "报价, 寄样" && c1.noteOriginal === "要自有品牌礼盒包装，圣诞季" && c1.hasEmail, "卡上等级、业务员、下一步、备注原文读回", c1);
+    ok(summary.cards[1].hasEmail === false && summary.cards[1].draftStatus === null, "只有 WhatsApp 的卡：没有草稿", summary.cards[1]);
+    const { text: summaryText } = formatBoothSummary(summary);
+    ok(/录入 3 张：A 2 · B 0 · C 1/.test(summaryText) && /只有 WhatsApp 1 张/.test(summaryText) && /A 级 2 张/.test(summaryText), "小结正文", summaryText);
+    const pushed: string[] = [];
+    const push = async (userId: string) => {
+      pushed.push(userId);
+    };
+    const firstSend = await sendBoothSummary(ORG, today, TZ, { push });
+    ok(firstSend.total === 3 && firstSend.recipients === 1 && firstSend.sent === 1 && pushed.join() === OWNER, "发给管理层（老板），并推送微信", { firstSend, pushed });
+    const ownerNote = await db.notification.findFirst({ where: { userId: OWNER, type: "trade_booth_summary" } });
+    ok(ownerNote?.entityType === "trade_booth_summary" && ownerNote.entityId === today && /^展会小结 .*录入 3 张，A 级 2 张$/.test(ownerNote.title), "青砚通知：点开回到当天小结", ownerNote);
+    const tradeNote = await db.notification.count({ where: { userId: TRADE, type: "trade_booth_summary" } });
+    ok(tradeNote === 0, "外贸成员不收小结", tradeNote);
+    const again = await sendBoothSummary(ORG, today, TZ, { push });
+    ok(again.sent === 0 && pushed.length === 1, "同一天同样张数不重复发", again);
 
     // ── 公司发件身份：批准后以梦馨身份发出；域名未验证时平台地址代发，回复地址和密送不变 ──
     const CATHY = "cathy@hlmbedding.com";

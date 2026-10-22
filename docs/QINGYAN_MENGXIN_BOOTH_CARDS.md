@@ -37,6 +37,15 @@
 
 AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分常偏低）。跟进优先级以业务员判的等级为准。
 
+## 展会小结（给管理层，开馆前看）
+
+速记卡页面最下面「4. 展会小结」：当天录入的卡汇总成一段中文。
+- 内容：录入张数和 A/B/C 分布；待审批的跟进邮件；只有 WhatsApp 的卡；草稿没完成的卡；
+  A 级名单（公司、国家、联系人、下一步、业务员、卡号、备注原文）；不在参考表的款号
+- 「复制」贴到微信群；「发给管理层」发青砚通知，绑定了微信的同时推送到微信。管理层 = 老板 / 经理 / 平台管理员 / 组织所有者和管理员
+- **每天当地 07:00 自动发前一天的小结**；同一天同样张数只发一次，补录后张数变了会再发一版
+- 展会日从当地 07:00 到次日 07:00，夜里录到凌晨也算前一天。**梦馨组织时区要设成 `Asia/Shanghai`**，否则按多伦多时间算
+
 ## 跟进邮件从哪里发出（公司发件身份）
 
 青砚 → 设置 → 邮箱绑定 →「公司发件身份」。设了之后，审批中心批准的跟进邮件、外贸收件箱的回复、开发信都以这个身份发出，
@@ -86,6 +95,8 @@ AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分�
 - 落款：互动 meta `boothSales`（英文名才用）→ 草稿 `senderName`；来源对象统一由 `boothCardOrigin(card, event, styles)` 生成
 - 中文对照：FDE 在英文草稿之外用同一模板生成中文版，只拼进 PendingAction `preview`（`approvalPreview`），`payload.body` 只有英文
 - 参考款品类名里读出的材质等不作为买家要求列出（整词匹配），避免请买家确认参考款的属性
+- 展会小结：`src/lib/trade/booth-summary.ts`（数据来自 source = trade_show 的收据；卡上中文勾选项用 `parseBoothCardContext` 从「展会」一行读回），
+  接口 `/api/trade/booth-cards/summary`；07:00 自动发送挂在 `cron/daily-brief`；通知 entityType `trade_booth_summary` 点开回到 `/trade/booth-cards?day=`
 - 发件身份：OrgBusinessRule `trade.email_sender`（`src/lib/trade/email-sender.ts`，接口 `/api/trade/email-sender`）。
   `exec-sales-inquiry-reply` 有组织身份时只走 Resend（不回落个人 Gmail）；`sendAsOrg` 先用组织地址，Resend 拒收发件域名时用平台地址重发；
   外贸收件箱回复 / 开发信 / 序列跟进经 `sendTradeEmailForOrg` 同一出口。发件地址只有平台管理员能改（Resend 账号各组织共用，防冒用域名）

@@ -302,6 +302,38 @@ export function buildBoothCardContext(card: BoothCard, event: string): string {
     .join(" · ");
 }
 
+const CONTEXT_LABELS = {
+  卡号: "cardNo",
+  业务员: "sales",
+  等级: "grade",
+  职位: "title",
+  买家类型: "buyerType",
+  规模: "volume",
+  时间: "timing",
+  下一步: "nextStep",
+  规格认证: "specs",
+  备注原文: "noteOriginal",
+} as const;
+
+export type BoothContextFields = Partial<Record<(typeof CONTEXT_LABELS)[keyof typeof CONTEXT_LABELS], string>>;
+
+/** 读回 buildBoothCardContext 写的「展会」一行（展会小结用） */
+export function parseBoothCardContext(page: string): BoothContextFields {
+  const out: BoothContextFields = {};
+  // 备注原文是最后一项、可能自带「 · 」：整段取到行尾
+  const noteAt = page.indexOf(" · 备注原文 ");
+  if (noteAt >= 0) {
+    out.noteOriginal = page.slice(noteAt + " · 备注原文 ".length).trim();
+    page = page.slice(0, noteAt);
+  }
+  for (const part of page.split(" · ")) {
+    const m = /^(\S+) ([\s\S]+)$/.exec(part);
+    const key = m ? CONTEXT_LABELS[m[1] as keyof typeof CONTEXT_LABELS] : undefined;
+    if (key && m) out[key] = m[2].trim();
+  }
+  return out;
+}
+
 /** 卡片 → 归一化询盘（与网站表单同一校验）；事件身份 = card:<卡号> */
 export function boothCardToInquiry(card: BoothCard, event: string, styles: ResolvedStyle[] = []): NormalizeResult {
   return normalizeInquiry({
