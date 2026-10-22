@@ -378,7 +378,9 @@ export interface WatchCronSummary {
   fetchErrors: number;
 }
 
-export async function runWatchTargetsCron(): Promise<WatchCronSummary> {
+export async function runWatchTargetsCron(
+  orgIds?: readonly string[],
+): Promise<WatchCronSummary> {
   const summary: WatchCronSummary = {
     checked: 0,
     signalsCreated: 0,
@@ -387,7 +389,7 @@ export async function runWatchTargetsCron(): Promise<WatchCronSummary> {
   };
 
   const targets = await db.tradeWatchTarget.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...(orgIds ? { orgId: { in: [...orgIds] } } : {}) },
     orderBy: { lastCheckedAt: { sort: "asc", nulls: "first" } },
     take: WATCH_CRON_BATCH_SIZE,
     select: { id: true },

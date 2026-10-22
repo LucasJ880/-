@@ -114,10 +114,13 @@ async function main() {
     });
     ok(
       r.fired === true &&
+        r.attempted === true &&
+        r.outcome === "accepted" &&
+        r.httpStatus === 200 &&
         calls.length === 1 &&
         calls[0].url === "https://qingyan.ca/api/cron/agent-runs?trigger=continuation&depth=4",
-      "OBS-P1-FIRE-01: 恰一次请求，URL 正确（尾斜杠归一化，child depth = 父 + 1）",
-      calls,
+      "OBS-P1-FIRE-01: 恰一次请求，URL 正确（尾斜杠归一化，child depth = 父 + 1）；2xx = accepted",
+      { calls, r },
     );
     ok(
       calls[0].auth === "Bearer test-secret",
@@ -140,11 +143,41 @@ async function main() {
       fetchImpl,
       sendTimeoutMs: 30,
     });
+    // DURABLE_FOLLOWUP_M1 语义修正：超时中止既不能证明请求未发送，也不能证明
+    // child 已接收——必须报"接收状态未知"，绝不再报 fired=true（成功）
     ok(
-      r.fired === true && r.reason === "send_timeout_abort" && Date.now() - startedAt < 2_000,
-      "OBS-P1-FIRE-03: child 不速回（预期常态）→ 超时 abort 放弃等待，不悬挂",
+      r.fired === false &&
+        r.attempted === true &&
+        r.outcome === "unknown_after_timeout" &&
+        r.reason === "send_timeout_abort" &&
+        Date.now() - startedAt < 2_000,
+      "OBS-P1-FIRE-03: child 不速回（预期常态）→ 超时 abort 放弃等待、不悬挂；结果=接收状态未知（非成功）",
       r,
     );
+  }
+
+  {
+    // OBS-P1-FIRE-06：HTTP 失败响应（401/403/500/SSO 302）不得被记录为成功触发
+    for (const status of [401, 403, 500, 302]) {
+      const fetchImpl = (async () =>
+        new Response(null, { status })) as unknown as typeof fetch;
+      const r = await fireContinuationTrigger({ depth: 0, env: ENV_OK, fetchImpl });
+      ok(
+        r.fired === false &&
+          r.attempted === true &&
+          r.outcome === "http_rejected" &&
+          r.httpStatus === status,
+        `OBS-P1-FIRE-06: HTTP ${status} → http_rejected（非成功，记录状态码）`,
+        r,
+      );
+    }
+    let sawRedirectManual = false;
+    const spy = (async (_u: unknown, init?: RequestInit) => {
+      sawRedirectManual = init?.redirect === "manual";
+      return new Response("ok");
+    }) as unknown as typeof fetch;
+    await fireContinuationTrigger({ depth: 0, env: ENV_OK, fetchImpl: spy });
+    ok(sawRedirectManual, "OBS-P1-FIRE-07: 不跟随重定向（SSO 302 不会被当成已接收）");
   }
 
   {
@@ -153,8 +186,8 @@ async function main() {
     }) as unknown as typeof fetch;
     const r = await fireContinuationTrigger({ depth: 0, env: ENV_OK, fetchImpl });
     ok(
-      r.fired === false && r.reason === "fetch_failed",
-      "OBS-P1-FIRE-04: 网络失败不抛出（自触发只是加速器，cron 节拍兜底）",
+      r.fired === false && r.reason === "fetch_failed" && r.outcome === "send_failed",
+      "OBS-P1-FIRE-04: 网络失败不抛出（自触发只是加速器，cron 节拍兜底）；结果=send_failed",
     );
   }
 
@@ -162,6 +195,8 @@ async function main() {
     const r = await fireContinuationTrigger({ depth: 0, env: {} });
     ok(
       r.fired === false &&
+        r.attempted === false &&
+        r.outcome === "not_configured" &&
         r.reason === "not_configured" &&
         !JSON.stringify(r).includes("test-secret"),
       "OBS-P1-FIRE-05: 未配置 → 不发请求；返回值不含 secret",
@@ -178,8 +213,14 @@ async function main() {
   // ── route 接线 ──────────────────────────────────────────
   ok(
     routeFlat.includes("shouldFireContinuationTrigger") &&
-      routeFlat.includes("after(()=>fireContinuationTrigger({depth}))"),
-    "OBS-P1-ROUTE-01: 让出后经 after() fire-and-forget（响应后才发）",
+      routeFlat.includes(
+        "after(()=>fireContinuationTrigger({depth}).then((r)=>logContinuationTriggerResult(depth,r),),)",
+      ),
+    "OBS-P1-ROUTE-01: 让出后经 after() fire-and-forget（响应后才发），真实结果在 after 内记录",
+  );
+  ok(
+    routeFlat.includes("continuationScheduled"),
+    "OBS-P1-ROUTE-01b: AutomationRun metadata 只记录'已安排触发'，不冒充下一轮已认领",
   );
   ok(
     routeFlat.includes(

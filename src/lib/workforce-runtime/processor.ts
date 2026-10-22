@@ -656,6 +656,40 @@ export async function processWorkforceJobSlice(
   }
 }
 
+/**
+ * DURABLE_FOLLOWUP_M1：受控即时推进（route 层在响应后经 after() 调用）。
+ *
+ * 场景：助手刚创建 Job / 审批刚把 Job 重新排队——不必空等下一班 2 分钟 cron。
+ * 只推进**已排队且到期**的这一个 Job 的一个 slice；认领仍走 claimRunLease 原子 CAS
+ * （与 cron 并发时至多一个 worker 成功，多余调用空转无害），kill-switch 由
+ * processWorkforceJobSlice 自身判定。绝不发 HTTP 自调用、绝不循环自触发：
+ * 后续 slice 一律交还 cron 节拍（cron 永远是兜底）。
+ *
+ * 层次纪律：只允许 route 层调用；processor 内部 / 回归 harness 不得调用。
+ */
+export async function kickQueuedWorkforceJobSlice(
+  runId: string,
+): Promise<WorkforceSliceResult | { claimed: false; skipped: string }> {
+  const run = await db.agentRun.findUnique({
+    where: { id: runId },
+    select: { runType: true, status: true, nextAttemptAt: true },
+  });
+  if (!run || run.runType !== WORKFORCE_JOB_RUN_TYPE) {
+    return { claimed: false, skipped: "not_workforce_job" };
+  }
+  if (run.status !== "queued") return { claimed: false, skipped: `status:${run.status}` };
+  if (run.nextAttemptAt && run.nextAttemptAt.getTime() > Date.now()) {
+    return { claimed: false, skipped: "backoff" };
+  }
+  const startedAt = Date.now();
+  return processWorkforceJobSlice(runId, {
+    executionBudget: {
+      deadlineAt: startedAt + AGENT_RUNS_INVOCATION_BUDGET_MS,
+      tickBudgetMs: AGENT_RUNS_INVOCATION_BUDGET_MS,
+    },
+  });
+}
+
 /** cron / worker 批量消费（§13） */
 export async function processQueuedWorkforceJobs(
   limit = 2,

@@ -16,6 +16,7 @@ import {
 import {
   shouldFireContinuationTrigger,
   fireContinuationTrigger,
+  logContinuationTriggerResult,
 } from "@/lib/workforce-runtime/self-trigger";
 
 /**
@@ -60,13 +61,19 @@ export async function GET(request: NextRequest) {
     // 包1：本批有让出 → after() 在响应发出后 fire-and-forget 自触发下一
     // tick（不占本 invocation 的处理预算，也绝不等 child 的完整响应）。
     // 防风暴五层见 self-trigger.ts 头注释；env 未配置默认 OFF。
-    if (
-      shouldFireContinuationTrigger({
-        yieldedContinuations: workforce.yieldedContinuations,
-        depth,
-      })
-    ) {
-      after(() => fireContinuationTrigger({ depth }));
+    // 观测语义：metadata 只记"已安排触发"；after() 内记录真实结果
+    // （accepted / http_rejected / unknown_after_timeout / send_failed），
+    // 两者都不代表下一轮已认领——那由 child 自己的 AutomationRun 证明。
+    const continuationScheduled = shouldFireContinuationTrigger({
+      yieldedContinuations: workforce.yieldedContinuations,
+      depth,
+    });
+    if (continuationScheduled) {
+      after(() =>
+        fireContinuationTrigger({ depth }).then((r) =>
+          logContinuationTriggerResult(depth, r),
+        ),
+      );
     }
 
     return {
@@ -81,6 +88,7 @@ export async function GET(request: NextRequest) {
         trigger: isContinuation ? "continuation" : "schedule",
         depth,
         workforceYieldedContinuations: workforce.yieldedContinuations,
+        continuationScheduled,
       },
     };
   });

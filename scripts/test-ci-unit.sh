@@ -57,6 +57,8 @@ npx tsx src/lib/workforce-runtime/__tests__/t5-seg25-work-domain.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-seg3-v2-convergence.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts
 npx tsx src/lib/workforce-runtime/__tests__/obs-p1-latency-self-trigger.test.ts
+npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts
+npx tsx src/components/assistant/__tests__/followup-outcome-render.test.tsx
 npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
@@ -99,6 +101,9 @@ npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
 npx tsx src/lib/env/__tests__/wave15-seed-target-guard.test.ts
 npx tsx scripts/public-route-auth-contracts.test.ts
+npx tsx src/lib/automation/__tests__/local-time.test.ts
+npx tsx src/lib/automation/__tests__/org-timezone.test.ts
+npx tsx src/lib/trade/__tests__/daily-cron-org-scope.isolated.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
@@ -178,6 +183,7 @@ npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel-static.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel.isolated.test.ts
+npx tsx src/lib/agent-runtime/__tests__/concurrency-slot-release.isolated.test.ts
 npx tsx src/lib/agent-runtime-v2/__tests__/legacy-followup-safety.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts

@@ -25,6 +25,16 @@ import { classifyGraderError } from "./grader-errors";
 import { buildRuntimeV2OperationKey } from "./idempotency";
 import { prioritizeFollowups, type PrioritizeOpportunity } from "./prioritize";
 import { TENDER_WORKFORCE_TOOL_HANDLERS } from "@/lib/tender-workforce/tools";
+import {
+  followupReminderSchedule,
+  formatInTimezone,
+  readFollowupRunContext,
+  type FollowupRunContext,
+} from "@/lib/assistant/followup-contract";
+import {
+  attachmentBlobPathBelongsTo,
+  readStoredAttachments,
+} from "@/lib/chat-attachments/core";
 
 export type AdapterContext = {
   orgId: string;
@@ -321,6 +331,82 @@ export function deriveCustomerTargetIds(
     }
   }
   return [...seen];
+}
+
+// ── DURABLE_FOLLOWUP_M1：客户跟进持久任务（服务端计划专用工具的共享上下文）──
+//
+// 任务上下文只从 AgentRun.metadata（createWorkforceJob 经 extraMetadata 写入，
+// 客户端无写入通道）读取；非本契约的 run 一律 null → 工具 fail-closed。
+
+const NOT_FOLLOWUP_TASK =
+  "NOT_A_FOLLOWUP_TASK: 该工具只服务于客户跟进持久任务（服务端计划）";
+
+async function loadFollowupRun(ctx: AdapterContext): Promise<{
+  status: string;
+  userMessageId: string | null;
+  followup: FollowupRunContext;
+} | null> {
+  const run = await db.agentRun.findFirst({
+    where: { id: ctx.runId, orgId: ctx.orgId },
+    select: { status: true, metadata: true, userMessageId: true },
+  });
+  if (!run) return null;
+  const followup = readFollowupRunContext(run.metadata);
+  if (!followup) return null;
+  return { status: run.status, userMessageId: run.userMessageId, followup };
+}
+
+/** 附件证据（sales_followup_attachment_evidence 输出形状） */
+export function findAttachmentEvidence(
+  prior: Record<string, unknown>,
+): { customerIds: string[]; refs: string[] } | null {
+  for (const v of evidenceRecords(prior)) {
+    if (v.attachmentEvidence !== true) continue;
+    const customerIds = (Array.isArray(v.customerMatches) ? v.customerMatches : [])
+      .map((c) =>
+        c && typeof c === "object" ? (c as Record<string, unknown>).customerId : null,
+      )
+      .filter((id): id is string => typeof id === "string");
+    const refs = (Array.isArray(v.attachments) ? v.attachments : [])
+      .map((a) =>
+        a && typeof a === "object" ? (a as Record<string, unknown>).ref : null,
+      )
+      .filter((r): r is string => typeof r === "string");
+    return { customerIds, refs };
+  }
+  return null;
+}
+
+/** 同一客户多个商机只保留得分最高者（列表已按分数降序） */
+function uniqueByCustomer<T extends { customerId: string }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  return list.filter((p) => {
+    if (seen.has(p.customerId)) return false;
+    seen.add(p.customerId);
+    return true;
+  });
+}
+
+/** 面向客户的跟进邮件：不含任何内部评分 / 风险措辞；用户在 Gmail 中审阅后自行发送 */
+function followupEmailContent(customerName: string): {
+  subject: string;
+  body: string;
+} {
+  const name =
+    customerName
+      .trim()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;") || "您好";
+  return {
+    subject: "跟进我们之前沟通的方案",
+    body: [
+      `<p>${name}，您好：</p>`,
+      "<p>想跟进一下我们之前沟通的方案和报价，看看您是否还有疑问，或需要我们调整的地方。</p>",
+      "<p>方便的话请直接回复这封邮件，或告诉我适合沟通的时间。</p>",
+      "<p>谢谢！</p>",
+    ].join(""),
+  };
 }
 
 async function runGraderWithGuardedFallback(
@@ -744,12 +830,33 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
         };
       });
 
-    const ranked = prioritizeFollowups({
+    // DURABLE_FOLLOWUP_M1：客户跟进持久任务按用户要求的数量取不同客户，
+    // 并对用户附件中提及的客户做可解释加权；legacy run 行为不变（limit 3）
+    const followupRun = await loadFollowupRun(ctx);
+    const attachment = followupRun ? findAttachmentEvidence(prior) : null;
+    const rankedRaw = prioritizeFollowups({
       opportunities,
       followupAnalysis,
       quoteRiskAnalysis,
-      limit: 3,
+      limit: followupRun ? 15 : 3,
+      ...(attachment && attachment.customerIds.length > 0
+        ? {
+            focus: {
+              customerIds: attachment.customerIds,
+              ref: attachment.refs[0] ?? "attachment",
+            },
+          }
+        : {}),
     });
+    const ranked = followupRun
+      ? (() => {
+          const prioritized = uniqueByCustomer(rankedRaw.prioritized).slice(
+            0,
+            followupRun.followup.topN,
+          );
+          return { ...rankedRaw, prioritized, selectedCount: prioritized.length };
+        })()
+      : rankedRaw;
     const names = ranked.prioritized
       .map((p) => `${p.customerName}(${p.score})`)
       .join("、");
@@ -864,6 +971,411 @@ const RUNTIME_V2_TOOL_HANDLERS: Record<string, RuntimeV2ToolHandler> = {
       };
     }
     return reminderTimeRequired("日历提醒时间", targets.length);
+  },
+
+  // ── DURABLE_FOLLOWUP_M1：客户跟进持久任务专用（catalog serverPlanOnly，
+  // LLM Planner 不可见）。全部 org-scoped；非本契约 run 调用一律 fail-closed。──
+
+  sales_followup_attachment_evidence: async (ctx) => {
+    const fr = await loadFollowupRun(ctx);
+    if (!fr) return { ok: false, error: NOT_FOLLOWUP_TASK };
+    const f = fr.followup;
+    // 附件只对发起人本人可见：执行主体必须是发起人
+    if (!f.initiatedByUserId || f.initiatedByUserId !== ctx.userId) {
+      return {
+        ok: false,
+        error: "ATTACHMENT_ACCESS_DENIED: 执行主体不是任务发起人",
+      };
+    }
+    if (!fr.userMessageId) {
+      return {
+        ok: true,
+        data: {
+          attachmentEvidence: true,
+          attachments: [],
+          customerMatches: [],
+          summary: "本任务没有附带资料",
+        },
+      };
+    }
+    const msg = await db.aiMessage.findFirst({
+      where: { id: fr.userMessageId, role: "user" },
+      select: {
+        id: true,
+        attachments: true,
+        thread: { select: { id: true, orgId: true, userId: true } },
+      },
+    });
+    // 归属三重校验：组织 + 发起人 + 对话（绝不凭客户端路径或 orgId 放行）
+    if (
+      !msg ||
+      msg.thread.orgId !== ctx.orgId ||
+      msg.thread.userId !== f.initiatedByUserId ||
+      (f.threadId !== null && msg.thread.id !== f.threadId)
+    ) {
+      return {
+        ok: false,
+        error:
+          "ATTACHMENT_ACCESS_DENIED: 附件所在消息不属于本任务的组织 / 发起人 / 对话",
+      };
+    }
+    const stored = readStoredAttachments(msg.attachments);
+    const usable = stored
+      .map((a, i) => ({ a, i }))
+      .filter(
+        ({ a }) => !a.blobPath || attachmentBlobPathBelongsTo(a.blobPath, ctx.orgId),
+      );
+    // 附件正文是不可信业务资料：只做字符串匹配，不进入任何提示词 / 指令
+    const corpus = usable
+      .map(({ a }) => `${a.name}\n${a.text}`)
+      .join("\n")
+      .slice(0, 200_000);
+    const emails = Array.from(
+      new Set(
+        (corpus.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) ?? []).map(
+          (e) => e.toLowerCase(),
+        ),
+      ),
+    ).slice(0, 30);
+    const byEmail =
+      emails.length > 0
+        ? await db.salesCustomer.findMany({
+            where: {
+              orgId: ctx.orgId,
+              archivedAt: null,
+              OR: emails.map((e) => ({
+                email: { equals: e, mode: "insensitive" as const },
+              })),
+            },
+            select: { id: true, name: true },
+            take: 20,
+          })
+        : [];
+    const recent = await db.salesCustomer.findMany({
+      where: { orgId: ctx.orgId, archivedAt: null },
+      select: { id: true, name: true },
+      orderBy: { updatedAt: "desc" },
+      take: 300,
+    });
+    const matches: Array<{
+      customerId: string;
+      customerName: string;
+      matchedBy: "email" | "name";
+    }> = [];
+    for (const c of byEmail) {
+      matches.push({ customerId: c.id, customerName: c.name, matchedBy: "email" });
+    }
+    for (const c of recent) {
+      const name = (c.name ?? "").trim();
+      if (name.length < 2 || !corpus.includes(name)) continue;
+      if (matches.some((m) => m.customerId === c.id)) continue;
+      matches.push({ customerId: c.id, customerName: c.name, matchedBy: "name" });
+    }
+    const bounded = matches.slice(0, 10);
+    const attachments = usable.map(({ a, i }) => ({
+      ref: `ai_message:${msg.id}#attachment:${i}`,
+      name: a.name.slice(0, 200),
+      kind: a.kind ?? "document",
+      chars: a.text.length,
+    }));
+    return {
+      ok: true,
+      data: {
+        attachmentEvidence: true,
+        untrusted: true,
+        attachments,
+        excludedForeignAttachments: stored.length - usable.length,
+        customerMatches: bounded,
+        summary: truncateText(
+          `读取 ${attachments.length} 份资料；匹配到组织内客户 ${bounded.length} 个${
+            bounded.length > 0 ? `：${bounded.map((m) => m.customerName).join("、")}` : ""
+          }`,
+          300,
+        ),
+      },
+    };
+  },
+
+  sales_followup_carry_targets: async (ctx) => {
+    const fr = await loadFollowupRun(ctx);
+    if (!fr) return { ok: false, error: NOT_FOLLOWUP_TASK };
+    const f = fr.followup;
+    if (!f.parentRunId) {
+      return { ok: false, error: "CARRY_PARENT_MISSING: 续接任务缺少父任务" };
+    }
+    if (!f.initiatedByUserId || f.initiatedByUserId !== ctx.userId) {
+      return { ok: false, error: "CARRY_PARENT_DENIED: 执行主体不是任务发起人" };
+    }
+    const parent = await db.agentRun.findFirst({
+      where: { id: f.parentRunId, orgId: ctx.orgId, runType: "workforce_job" },
+      select: {
+        id: true,
+        metadata: true,
+        steps: {
+          where: {
+            preferredTool: "sales_prioritize_followups",
+            status: "completed",
+          },
+          select: { outputJson: true },
+          take: 1,
+        },
+      },
+    });
+    const pf = parent ? readFollowupRunContext(parent.metadata) : null;
+    if (
+      !parent ||
+      !pf ||
+      pf.initiatedByUserId !== f.initiatedByUserId ||
+      pf.threadId !== f.threadId
+    ) {
+      return {
+        ok: false,
+        error: "CARRY_PARENT_DENIED: 父任务不属于同一组织 / 发起人 / 对话",
+      };
+    }
+    const out = parent.steps[0]?.outputJson as
+      | { prioritized?: unknown }
+      | null
+      | undefined;
+    if (!out || !Array.isArray(out.prioritized)) {
+      return {
+        ok: false,
+        error: "CARRY_PARENT_NOT_READY: 父任务尚未完成客户排序",
+      };
+    }
+    let carried = uniqueByCustomer(
+      (out.prioritized as Array<Record<string, unknown>>).filter(
+        (p): p is Record<string, unknown> & { customerId: string } =>
+          !!p && typeof p.customerId === "string",
+      ),
+    ).slice(0, pf.topN);
+    if (f.targetCustomerIds.length > 0) {
+      carried = carried.filter((p) => f.targetCustomerIds.includes(p.customerId));
+    }
+    // 现查：客户仍属本组织且未归档；姓名/邮箱以当前记录为准
+    const live = await db.salesCustomer.findMany({
+      where: {
+        orgId: ctx.orgId,
+        archivedAt: null,
+        id: { in: carried.map((p) => p.customerId) },
+      },
+      select: { id: true, name: true, email: true },
+    });
+    const liveById = new Map(live.map((c) => [c.id, c]));
+    const prioritized = carried
+      .filter((p) => liveById.has(p.customerId))
+      .map((p) => {
+        const c = liveById.get(p.customerId)!;
+        return { ...p, customerName: c.name, email: c.email ?? null };
+      });
+    return {
+      ok: true,
+      data: {
+        prioritized,
+        carriedFromRunId: parent.id,
+        droppedCount: carried.length - prioritized.length,
+        summary: truncateText(
+          `沿用上次任务选出的 ${prioritized.length} 个客户：${prioritized
+            .map((p) => p.customerName)
+            .join("、")}`,
+          300,
+        ),
+      },
+    };
+  },
+
+  sales_prepare_followup_actions: async (ctx) => {
+    const fr = await loadFollowupRun(ctx);
+    if (!fr) return { ok: false, error: NOT_FOLLOWUP_TASK };
+    if (fr.status === "cancelled") {
+      return { ok: false, error: "RUN_CANCELLED: 任务已取消，不再生成待确认动作" };
+    }
+    const f = fr.followup;
+    // 恢复执行始终以发起人当前有效身份进行（审批人不扩大权限）
+    if (!f.initiatedByUserId || f.initiatedByUserId !== ctx.userId) {
+      return { ok: false, error: "PRINCIPAL_MISMATCH: 只能以任务发起人身份准备动作" };
+    }
+    let targets = uniqueByCustomer(findPrioritizedEvidence(ctx.priorEvidence)).slice(
+      0,
+      f.topN,
+    );
+    if (f.targetCustomerIds.length > 0) {
+      targets = targets.filter((t) => f.targetCustomerIds.includes(t.customerId));
+    }
+    const wantsEmail =
+      f.deliverables.includes("email_drafts") && !f.emailUnavailable && !f.parentRunId;
+    const schedule = followupReminderSchedule(f);
+    if (targets.length === 0 || (!wantsEmail && !schedule)) {
+      return {
+        ok: true,
+        data: {
+          skipped: true,
+          items: [],
+          reason: targets.length === 0 ? "无优先客户" : "没有需要准备的动作",
+          summary: targets.length === 0 ? "没有需要准备动作的客户" : "没有需要准备的动作",
+        },
+      };
+    }
+
+    const gmailOn = isGmailDraftEnabled();
+    const items: Array<{
+      kind: "email_draft" | "reminder";
+      customerId: string;
+      customerName: string;
+      pendingActionId: string | null;
+      skippedReason?: string;
+    }> = [];
+    const actionIds: string[] = [];
+    let creationFailed = false;
+
+    for (const t of targets) {
+      if (wantsEmail) {
+        if (!gmailOn) {
+          items.push({
+            kind: "email_draft",
+            customerId: t.customerId,
+            customerName: t.customerName,
+            pendingActionId: null,
+            skippedReason: "Gmail 草稿功能未开启",
+          });
+        } else if (!t.email) {
+          items.push({
+            kind: "email_draft",
+            customerId: t.customerId,
+            customerName: t.customerName,
+            pendingActionId: null,
+            skippedReason: "客户缺少邮箱",
+          });
+        } else {
+          const { subject, body } = followupEmailContent(t.customerName);
+          const idempotencyKey = buildRuntimeV2OperationKey({
+            runId: ctx.runId,
+            stepKey: ctx.stepKey,
+            actionType: "grader.email_draft",
+            targetId: t.customerId,
+          });
+          const draft = await createDraft({
+            type: "grader.email_draft",
+            title: `邮件草稿：${t.customerName}`,
+            preview: `收件人 ${t.email} · ${subject}（确认后只在 Gmail 创建草稿，不发送）`,
+            payload: {
+              to: t.email,
+              subject,
+              body,
+              targetType: "CUSTOMER",
+              targetId: t.customerId,
+              source: "GRADER",
+              metadata: {
+                orgId: ctx.orgId,
+                customerId: t.customerId,
+                source: "assistant_followup_m1",
+                stepKey: ctx.stepKey,
+                idempotencyKey,
+                // 治理命名空间：组织停用 gmail_create_draft 时执行期同样被阻止
+                toolName: "gmail_create_draft",
+              },
+            },
+            userId: ctx.userId,
+            orgId: ctx.orgId,
+            agentRunId: ctx.runId,
+            threadId: ctx.threadId ?? undefined,
+            messageId: ctx.assistantMessageId ?? undefined,
+            idempotencyKey,
+          });
+          const id = draftActionId(draft);
+          if (!id) creationFailed = true;
+          else actionIds.push(id);
+          items.push({
+            kind: "email_draft",
+            customerId: t.customerId,
+            customerName: t.customerName,
+            pendingActionId: id,
+          });
+        }
+      }
+      if (schedule) {
+        const startTime = schedule.startAt;
+        const endTime = new Date(
+          new Date(startTime).getTime() + 30 * 60_000,
+        ).toISOString();
+        const local = formatInTimezone(startTime, schedule.timezone);
+        const idempotencyKey = buildRuntimeV2OperationKey({
+          runId: ctx.runId,
+          stepKey: ctx.stepKey,
+          actionType: "calendar.create_event",
+          targetId: t.customerId,
+        });
+        const draft = await createDraft({
+          type: "calendar.create_event",
+          title: `跟进提醒：${t.customerName}`,
+          preview: `${local}（${schedule.timezone}）跟进 ${t.customerName}`,
+          payload: {
+            title: `跟进提醒：${t.customerName}`,
+            description: (t.reasons ?? []).slice(0, 3).join("；") || "客户跟进提醒",
+            startTime,
+            endTime,
+            metadata: {
+              orgId: ctx.orgId,
+              customerId: t.customerId,
+              opportunityId: t.opportunityId,
+              source: "assistant_followup_m1",
+              stepKey: ctx.stepKey,
+              idempotencyKey,
+              timezone: schedule.timezone,
+              toolName: "calendar_create_event_draft",
+            },
+          },
+          userId: ctx.userId,
+          orgId: ctx.orgId,
+          agentRunId: ctx.runId,
+          threadId: ctx.threadId ?? undefined,
+          messageId: ctx.assistantMessageId ?? undefined,
+          idempotencyKey,
+        });
+        const id = draftActionId(draft);
+        if (!id) creationFailed = true;
+        else actionIds.push(id);
+        items.push({
+          kind: "reminder",
+          customerId: t.customerId,
+          customerName: t.customerName,
+          pendingActionId: id,
+        });
+      }
+    }
+
+    // 取消竞态：落库后复查；任务已取消则立即撤回本次生成的待确认动作
+    const after = await db.agentRun.findFirst({
+      where: { id: ctx.runId, orgId: ctx.orgId },
+      select: { status: true },
+    });
+    if (after?.status === "cancelled") {
+      const { rejectPendingActionsForAgentRun } = await import(
+        "@/lib/agent-runtime/pending-link"
+      );
+      await rejectPendingActionsForAgentRun({
+        orgId: ctx.orgId,
+        agentRunId: ctx.runId,
+        reason: "关联任务已取消，待确认动作已拒绝",
+      });
+      return { ok: false, error: "RUN_CANCELLED: 任务已取消，已撤回待确认动作" };
+    }
+    // 任一创建失败 → 可重试失败；幂等键保证重试不会重复创建已成功的动作
+    if (creationFailed) {
+      return { ok: false, error: "DRAFT_CREATION_FAILED: 部分待确认动作创建失败，将重试" };
+    }
+    const emailCount = items.filter((i) => i.kind === "email_draft" && i.pendingActionId).length;
+    const reminderCount = items.filter((i) => i.kind === "reminder" && i.pendingActionId).length;
+    const summary = `已准备 ${emailCount} 个邮件草稿、${reminderCount} 个提醒，等待逐项确认`;
+    if (actionIds.length === 0) {
+      return { ok: true, data: { skipped: true, items, summary: "没有可生成的待确认动作" } };
+    }
+    return {
+      ok: true,
+      requiresApproval: true,
+      pendingActionId: actionIds[0],
+      data: { pendingActionIds: actionIds, items, count: actionIds.length, summary },
+    };
   },
 
   // ── Tender T1B（internal-only 工具组）：可执行但不入

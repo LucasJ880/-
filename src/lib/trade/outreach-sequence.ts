@@ -304,9 +304,13 @@ export async function sendSequenceStep(input: {
   return { ok: true };
 }
 
-export async function draftDueSequenceSteps(now = new Date()): Promise<number> {
+export async function draftDueSequenceSteps(
+  now = new Date(),
+  orgIds?: readonly string[],
+): Promise<number> {
   const due = await db.tradeOutreachStep.findMany({
     where: {
+      ...(orgIds ? { orgId: { in: [...orgIds] } } : {}),
       status: "pending",
       scheduledAt: { lte: now },
       dayOffset: { in: [3, 7] },

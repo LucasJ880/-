@@ -210,6 +210,8 @@ export interface ChatPanelProps {
   onApprovalsReplace?: (messageId: string, next: PendingApproval[]) => void;
   onRunUpdate?: (run: AssistantRunStatusDto) => void;
   onRunRetry?: (run: AssistantRunStatusDto) => void | Promise<void>;
+  /** DURABLE_FOLLOWUP_M1：用户主动取消持久任务（服务端控制） */
+  onRunCancel?: (run: AssistantRunStatusDto) => void | Promise<void>;
   /** PR4.5：PendingInbox 打开对话的回调 */
   onOpenThread?: (threadId: string) => void;
   /** 当前组织是否就绪；未就绪时发送会给出明确反馈 */
@@ -237,6 +239,7 @@ export function ChatPanel({
   onApprovalsReplace,
   onRunUpdate,
   onRunRetry,
+  onRunCancel,
   onOpenThread,
   orgReady = true,
   orgBlockReason = null,
@@ -501,6 +504,7 @@ export function ChatPanel({
                           (a) => a.status === "pending",
                         ).length}
                         onRetry={onRunRetry}
+                        onCancel={onRunCancel}
                         approvalSlot={
                           (msg.pendingApprovals?.length ?? 0) > 0 ? (
                             <InlineApprovalPanel

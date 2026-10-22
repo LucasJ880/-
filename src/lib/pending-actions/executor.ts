@@ -315,6 +315,36 @@ export async function executePendingAction(
     }
   }
 
+  // DURABLE_FOLLOWUP_M1（取消安全）：关联任务已被用户取消 → 绝不再产生业务副作用。
+  // cancelAgentRun 会拒绝取消时刻仍 pending 的动作，但取消之后才落库的迟到草稿
+  // （worker 在取消窗口内生成）此前仍可被批准执行。这里在 claim 之前统一拦截，
+  // 并把该动作条件写为 rejected（只允许 pending → rejected，不覆盖并发赢家）。
+  if (action.agentRunId) {
+    const linkedRun = await db.agentRun.findFirst({
+      where: {
+        id: action.agentRunId,
+        ...(action.orgId ? { orgId: action.orgId } : {}),
+      },
+      select: { status: true },
+    });
+    if (linkedRun?.status === "cancelled") {
+      await db.pendingAction.updateMany({
+        where: { id: actionId, status: "pending" },
+        data: {
+          status: "rejected",
+          decidedAt: new Date(),
+          decidedById: ctx.userId,
+          failureReason: "关联任务已取消，动作未执行",
+        },
+      });
+      return {
+        ok: false,
+        error: "关联任务已取消，该动作不会执行",
+        errorCode: "RUN_CANCELLED",
+      };
+    }
+  }
+
   // B2 原子 CAS claim：pending → approved（执行态）。谓词含 status 与未过期，
   // 数据库保证至多一个赢家；count!==1 的调用方绝不进入副作用 switch。
   // 授权（canDecideTeamApproval / org / payloadHash / tool policy）已在 claim
