@@ -95,7 +95,7 @@ const ACCEPTANCE =
 async function main() {
   const { db } = await import("@/lib/db");
   const { intakeInquiry } = await import("../inquiry-intake");
-  const { runInboundSalesFde: runInboundSalesFdeRaw, INQUIRY_REPLY_ACTION_TYPE } = await import("../fde/inbound-sales");
+  const { runInboundSalesFde, INQUIRY_REPLY_ACTION_TYPE } = await import("../fde/inbound-sales");
   const { transitionOpportunity } = await import("../transition");
   const { logRevenueInteraction } = await import("../interactions");
   const { computeFdeAttribution } = await import("../attribution");
@@ -103,7 +103,7 @@ async function main() {
   const { buildRevenueQueue } = await import("../daily-actions");
   const { listOpportunityOutcomes } = await import("../outcomes");
   const { loadRevenueSpinePolicy, publishRevenueSpineRule, RULE_KEY_POLICY } = await import("../policy");
-  const { ingestWebsiteInquiry: ingestWebsiteInquiryRaw, normalizeInquiry, buildInquiryMessage } = await import("@/lib/trade/website-inquiry");
+  const { ingestWebsiteInquiry, normalizeInquiry, buildInquiryMessage } = await import("@/lib/trade/website-inquiry");
   const { executePendingAction, __setToolPolicyLoaderForTest } = await import("@/lib/pending-actions/executor");
   // 真实 UI 路径：/api/ai/pending-actions/[id] → approval/port（含 run reconcile）
   const { approveApprovalItem, rejectApprovalItem } = await import("@/lib/approval/port");
@@ -129,30 +129,6 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG, userId: TRADE, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: TRADE2, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OTHER, role: "org_owner", status: "active" } });
-
-  /**
-   * 平台配额与本套件的关系（不是放宽断言，是消除与被测行为无关的限流）：
-   * MAX_CONCURRENT_RUNS 平台 hard=10，占用量 =「running/claimed/queued 的 run」+「未过期的 RESERVED 预留」。
-   * createAgentRun 会预留一个并发额度，但**没有任何终态路径释放它**（run.ts 只在创建失败时 release），
-   * 只能等 5 分钟 TTL 过期。组织级策略只能收紧、不能放宽（resolve.ts 的 tighter()），所以无法用配置抬高。
-   * 本套件是严格串行的（任何时刻只有一个 run 在跑，不存在真实并发），但几分钟内要跑几十次 FDE，
-   * 于是会被这条并发闸挡住。下面这个 helper 等价于「时间过去了 5 分钟」：只清理夹具组织自己的并发预留，
-   * 不改任何限额、不碰任何被测状态。生产侧的真实影响见报告 R4-2。
-   */
-  const releaseFixtureRunSlots = async () => {
-    await db.capabilityQuotaReservation.deleteMany({
-      where: { orgId: { in: [ORG, ORG2] }, metric: "MAX_CONCURRENT_RUNS" },
-    });
-  };
-  // 每次会触发 FDE 的调用前先"让时间过去"，把平台并发闸排除在被测范围之外
-  const runInboundSalesFde = async (...args: Parameters<typeof runInboundSalesFdeRaw>) => {
-    await releaseFixtureRunSlots();
-    return runInboundSalesFdeRaw(...args);
-  };
-  const ingestWebsiteInquiry = async (...args: Parameters<typeof ingestWebsiteInquiryRaw>) => {
-    await releaseFixtureRunSlots();
-    return ingestWebsiteInquiryRaw(...args);
-  };
 
   let thrownError: unknown = null;
   const sent: Array<{ to: string; subject: string; body: string }> = [];
@@ -337,7 +313,6 @@ async function main() {
     const cockpit2 = await computeRevenueCockpit(ORG2);
     ok(cockpit2.metrics.openOpportunities === 0 && cockpit2.metrics.wonRevenue.value === 0, "跨组织：ORG2 看不到 ORG 数据", cockpit2.metrics);
 
-    await releaseFixtureRunSlots();
     console.log("\n[11] 网站 webhook 幂等（Trade 线索 + Revenue Spine 双车道）");
     const wCounts = async (email: string) => {
       const prospects = await db.tradeProspect.findMany({ where: { orgId: ORG, contactEmail: { equals: email, mode: "insensitive" } }, select: { id: true } });
@@ -449,7 +424,6 @@ async function main() {
     const cancelPending = await db.pendingAction.count({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: cancelProbe.opportunityId } } });
     ok(cancelledRun?.status === "cancelled" && cancelRun.pendingActionId === null && cancelPending === 0, "run 被 supervisor 取消 → 不生成审批草稿，run 保持 cancelled", { status: cancelledRun?.status, pa: cancelRun.pendingActionId, cancelPending });
 
-    await releaseFixtureRunSlots();
     console.log("\n[13] Trade 收件箱外发 ↔ Revenue Spine 同步（P0.5）");
     process.env.JWT_SECRET = process.env.JWT_SECRET || "revenue-spine-e2e-jwt-secret";
     const { createSession } = await import("@/lib/auth/session");
@@ -634,7 +608,6 @@ async function main() {
     const auditForged = await db.auditLog.count({ where: { orgId: ORG, action: "APPROVAL_SYSTEM_SUPERSEDED", userId: OTHER } });
     ok(auditForged === 0, "K：不存在以伪造主体记账的审计行", auditForged);
 
-    await releaseFixtureRunSlots();
     console.log("\n[14] 事件身份（收据）：最早边界持久化 / 按 id 重放 / 窗口外恢复 / 冲突不覆盖");
     const { claimInquiryReceipt, computePayloadHash, findReceiptByEventId } = await import("@/lib/trade/website-inquiry-receipts");
     const evt = (n: string) => `inq_${stamp}_${n}`;
@@ -774,7 +747,6 @@ async function main() {
     const l3 = await ingestWebsiteInquiry(ORG, legacy2.value, { runFde: false, now: new Date(Date.now() + 25 * 60 * 60 * 1000) });
     ok(!l3.replay && l3.messageId !== l1.messageId, "⑤：派生身份在窗口外是新事件（保持旧语义）", { replay: l3.replay });
 
-    await releaseFixtureRunSlots();
     console.log("\n[15] 中间步骤补齐：逐项核对七个对象 + 不复活已终结动作");
     // A. 互动已建、SalesAction 缺失
     const A = { eventId: evt("a"), name: "Alan Gap", email: "alan@gap-suites.ca", company: "Gap Suites", country: "Canada", message: "Quote for 900 waffle bathrobes, 400gsm, embroidered logo, ship to Halifax." };
@@ -966,7 +938,6 @@ async function main() {
     const noReceiptForBadSecret = await db.websiteInquiryReceipt.count({ where: { orgId: ORG, eventId: evt("nope") } });
     ok(noReceiptForBadSecret === 0 && cW.prospects === 1 && cW.tradeMessages === 1 && cW.opportunities === 1 && cW.pending === 1, "I 计数：1/1/1/1", cW);
 
-    await releaseFixtureRunSlots();
     console.log("\n[16] 事务失败注入：失败后不重复审批、不自动发送、状态可解释、可再次恢复");
     // 真实 Prisma 写入与审批状态机全部保留，只把指定的一次 db.$transaction 注入为失败，
     // 复现观察到的 "Transaction API error: Transaction not found" 形态（run.ts 的运行态事务）。
