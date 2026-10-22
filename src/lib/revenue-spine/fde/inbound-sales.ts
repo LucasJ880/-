@@ -30,6 +30,7 @@ import { applyNextAction } from "../next-action";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
+import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
 import { classifyInquiry, type InquiryResearch } from "../research";
 import { extractRfq } from "../rfq/extract";
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
@@ -102,9 +103,13 @@ async function safeTransition(
   return cur?.stage ?? to;
 }
 
-/** 审批预览：发送的英文邮件在前；附中文对照（模板版）给看中文的审核人，不会发送 */
-export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null): string {
-  const sent = `${draft.subject}\n\n${draft.body}`;
+/**
+ * 审批预览：来信风险提醒（如有）在最上面；然后是发送的邮件；英文邮件再附中文对照（模板版）给看中文的审核人。
+ * 提醒和中文对照都不会发送。
+ */
+export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null, risks: InquiryRisk[] = []): string {
+  const warn = risks.length ? `${formatRiskNotes(risks)}\n\n` : "";
+  const sent = `${warn}${draft.subject}\n\n${draft.body}`;
   if (!zh) return sent.slice(0, 4000);
   const note = draft.templateOnly
     ? "——— 中文对照（仅供审核，不会发送）———"
@@ -291,6 +296,11 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     // 展会速记卡：最新来信是展位面谈 → 草稿写展位来访并点名看过的参考款；
     // 任一近期来信带卡上等级 → 以业务员判的等级定优先级（AI 评分照常记录）
     const booth = boothContext(opp.interactions, latest);
+    // 来信里压价、要折扣、要独家、侵权图案、操控 AI 等要求：草稿不答应，审批时提醒审核人
+    const risks = detectInquiryRisks(sourceText);
+    if (risks.length) {
+      await event("agent.output", `来信风险提醒：${risks.map((r) => r.code).join(", ")}`, { decision: "risk_notes", risks });
+    }
     // 卡上记了参考款但 RFQ 没认出产品时，用参考款名，不再追问"您要哪个产品"
     const fields: RfqFields =
       booth.styles.length && !persisted.fields.productName
@@ -500,11 +510,10 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           orgId,
           principal: { userId: principalUserId, actorType: "agent" },
           actionType: INQUIRY_REPLY_ACTION_TYPE,
-          title: (booth.fromLatest
-            ? `跟进邮件（展会${booth.grade ? ` · ${booth.grade} 级` : ""}）：${opp.customer.name}`
-            : `发送询盘回复：${opp.customer.name}`
-          ).slice(0, 160),
-          preview: approvalPreview(draft, reviewZh),
+          title: `${risks.length ? "⚠ " : ""}${
+            booth.fromLatest ? `跟进邮件（展会${booth.grade ? ` · ${booth.grade} 级` : ""}）：${opp.customer.name}` : `发送询盘回复：${opp.customer.name}`
+          }`.slice(0, 160),
+          preview: approvalPreview(draft, reviewZh, risks),
           payload: {
             opportunityId: opp.id,
             customerId: opp.customerId,

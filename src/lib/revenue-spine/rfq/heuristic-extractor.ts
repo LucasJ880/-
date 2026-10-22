@@ -52,6 +52,14 @@ function snippet(text: string, index: number, length: number): string {
       break;
     }
   }
+  // 窗口边缘落在拉丁单词中间：退到整词（"ke 1,000 bathrobes"、"sito precio" 这种半截词不要）；中文按字截，不处理
+  const inWord = (i: number) => /[A-Za-z0-9\u00C0-\u024F]/.test(text[i] ?? "");
+  if (start > 0 && inWord(start - 1) && inWord(start)) {
+    while (start < index && inWord(start)) start++;
+  }
+  if (end < text.length && inWord(end - 1) && inWord(end)) {
+    while (end > index + length && inWord(end - 1)) end--;
+  }
   return text.slice(start, end).replace(/\s+/g, " ").trim();
 }
 
@@ -93,7 +101,9 @@ const SIZE_RE =
   /(\d+(?:\.\d+)?)\s*(?:cm|mm|inch|inches|in|"|m|ft)?\s*[x×X*]\s*(\d+(?:\.\d+)?)\s*(cm|mm|inch|inches|in|"|m|ft)?(?:\s*[x×X*]\s*(\d+(?:\.\d+)?)\s*(cm|mm|inch|inches|in|"|m|ft)?)?/;
 const SIZE_LABEL_RE = /\b(s\s*[-–~到]\s*x{0,3}l|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|one size|queen|king|twin|full|double|single|super king|california king)\b(?:\s*(?:size|sizes|尺码|码))?/i;
 const GSM_RE = /(\d{2,4})\s*(?:gsm|g\/m2|g\/m²|克)/i;
-const COMPOSITION_RE = /(\d{1,3}\s*%\s*[a-z一-鿿]+(?:\s*(?:\/|,|and|\+|、)\s*\d{1,3}\s*%\s*[a-z一-鿿]+)*)/i;
+// 百分比后面必须是纤维名：30% deposit、10% discount、40% of the price 不是成分
+const FIBER = "(?:cotton|polyester|poly|viscose|rayon|bamboo|linen|wool|spandex|elastane|lycra|nylon|polyamide|acrylic|modal|silk|microfiber|microfibre|tencel|lyocell|棉|涤纶|聚酯纤维|聚酯|竹纤维|亚麻|羊毛|氨纶|锦纶|腈纶|莫代尔|真丝|粘胶)";
+const COMPOSITION_RE = new RegExp(`(\\d{1,3}\\s*%\\s*${FIBER}(?:(?:\\s*(?:\\/|,|and|\\+|、)\\s*|\\s+)\\d{1,3}\\s*%\\s*${FIBER})*)`, "i");
 const PRICE_RE =
   /(?:(usd|cad|eur|gbp|aud|rmb|cny|us\$|ca\$|\$|€|£|¥|美元|加元|欧元|人民币)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(usd|cad|eur|gbp|aud|rmb|cny|美元|加元|欧元|元))(?:\s*(?:\/|per|each|每)\s*(?:pc|pcs|piece|unit|set|件|个|套))?/i;
 const PRICE_CONTEXT_RE = /(target price|target|budget|price point|around|max|maximum|不超过|预算|目标价|单价)/i;
@@ -166,6 +176,8 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const before = source.slice(Math.max(0, m.index - 6), m.index).toLowerCase();
     if (/^\s*(gsm|cm|mm|inch|in\b|"|x|×|\*|%|usd|cad|eur|\$|元|美元|加元)/.test(after)) continue;
     if (/(x|×|\*|\$|€|£|¥|usd|cad|eur)\s*$/.test(before)) continue;
+    // 「MOQ is 100 pcs」「起订量 300 件」是对方说的起订量，不是采购数量
+    if (/(moq|minimum order(?: quantity)?|起订量|最小起订量?|起订)\s*(?:is|of|:|：|为|是|=)?\s*$/i.test(source.slice(Math.max(0, m.index - 24), m.index))) continue;
     if (/^(19|20)\d{2}$/.test(raw.replace(/[,，]/g, "")) && !unit) continue;
     let score = unit ? 3 : 0;
     if (/[,，]\d{3}/.test(raw) || /k|万|千/i.test(raw)) score += 2;
