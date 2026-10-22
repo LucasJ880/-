@@ -196,6 +196,30 @@ async function main() {
     );
     ok(w.notified > 0, "网站询盘照常通知外贸成员", w.notified);
 
+    // ── 刁钻询盘走完整链路：给目标价的照样有草稿（不复述价格）；侵权图案的审批标题带 ⚠、预览最上面是中文提醒 ──
+    const { TRICKY_INQUIRIES } = await import("@/lib/revenue-spine/__tests__/fixtures/tricky-inquiries");
+    const trickyDraft = async (id: string) => {
+      const t = TRICKY_INQUIRIES.find((x) => x.id === id)!;
+      const n = normalizeInquiry({ name: t.name, email: `${id.toLowerCase()}.${stamp}@${t.email.split("@")[1]}`, company: `${t.company} ${stamp}`, country: t.country, message: t.message, eventId: `tricky_${id}_${stamp}` });
+      if (!n.ok) throw new Error(n.error);
+      const r = await ingestWebsiteInquiry(ORG, n.value);
+      return r.spine.ok
+        ? db.pendingAction.findFirst({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["opportunityId"], equals: r.spine.opportunityId } } })
+        : null;
+    };
+    const t02 = await trickyDraft("T02");
+    const t02Body = String((t02?.payload as Record<string, unknown> | undefined)?.body ?? "");
+    ok(!!t02 && !/2\.5|USD/i.test(t02Body) && !t02?.title.startsWith("⚠"), "买家给了目标价：照样生成草稿，邮件里不复述价格", { title: t02?.title, body: t02Body.slice(0, 400) });
+    const t10 = await trickyDraft("T10");
+    const t10Body = String((t10?.payload as Record<string, unknown> | undefined)?.body ?? "");
+    ok(
+      !!t10 && t10.title.startsWith("⚠ 发送询盘回复：") && (t10.preview ?? "").startsWith("⚠ 审核提醒（不会发送）：\n- 买家要用品牌 / 卡通图案") && !/disney|pok[eé]mon/i.test(t10Body),
+      "侵权图案：审批标题带 ⚠，预览最上面是中文提醒，邮件里不提品牌",
+      { title: t10?.title, preview: (t10?.preview ?? "").slice(0, 200) },
+    );
+    const riskEvent = await db.agentRunEvent.findFirst({ where: { orgId: ORG, title: { startsWith: "来信风险提醒：ip_license" } } });
+    ok(!!riskEvent, "运行记录里写明来信风险", riskEvent?.title);
+
     // ── 展会小结：当天录入的 3 张卡（网站询盘不算），发给管理层（老板），不发给外贸；同样张数不重复发 ──
     const TZ = "Asia/Shanghai";
     const today = boothDayOf(new Date(), TZ);

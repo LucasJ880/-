@@ -11,6 +11,7 @@
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import type { FactoryKnowledgeBundle } from "./factory-knowledge";
+import { unsafeToRepeat } from "./inquiry-risks";
 import type { InquiryLanguage } from "./normalize";
 import type { RevenueSpinePolicy } from "./policy";
 import type { ClarifyingQuestion } from "./rfq/missing-info";
@@ -62,7 +63,7 @@ const CONFIRM_FIELDS: RfqField[] = [
   "destinationCity",
   "incoterm",
   "requiredDeliveryDate",
-  "targetPrice",
+  // 不复述买家的目标价：没必要请对方确认自己的价格，写出来也像是我方接受了这个价
 ];
 
 function fmtValue(field: RfqField, fields: RfqFields): string | null {
@@ -90,7 +91,8 @@ export function checkDraftGuardrails(body: string, allowed: GuardrailAllowances 
   const violations: string[] = [];
   const text = body;
   const lower = body.toLowerCase();
-  if (!allowed.moq && /\b(moq|minimum order(?: quantity)?|起订量|最小起订)\b[^\n.]{0,20}?(\d[\d,]*)/i.test(text)) {
+  // 中文词前后没有 \b（\b 只认 ASCII 单词字符），中英文分开写
+  if (!allowed.moq && (/\b(moq|minimum order(?: quantity)?)\b[^\n.]{0,20}?(\d[\d,]*)/i.test(text) || /(起订量|最小起订|起订)[^\n。]{0,10}?\d/.test(text))) {
     violations.push("MOQ 数字承诺（无工厂数据）");
   }
   if (!allowed.price && /(\$|€|£|usd|cad|eur|美元|加元)\s?\d|\d+(?:\.\d+)?\s?(usd|cad|eur|美元|加元|元)\s*(\/|per|each|每)/i.test(text)) {
@@ -102,14 +104,52 @@ export function checkDraftGuardrails(body: string, allowed: GuardrailAllowances 
   if (!allowed.leadTime && /(lead time|production time|生产周期|交期)[^\n.]{0,15}?\d+\s?(days?|weeks?|天|周)/i.test(text)) {
     violations.push("生产周期/交期数字承诺（无工厂数据）");
   }
-  if (!allowed.certification?.length && /(we (?:are|hold|have)|certified (?:by|with)|已通过|持有)[^\n.]{0,20}?(oeko-tex|gots|bsci|sedex|iso ?9001|grs)/i.test(text)) {
+  // "Production takes 25 days"、"We can deliver within 15 days"、"20 天可以交货"
+  if (
+    !allowed.leadTime &&
+    (/\b(production|produce|deliver(?:y|ed)?|ship(?:ped|ment)?|dispatch|ready|finish(?:ed)?|complete[ds]?)\b[^\n.]{0,25}?\b\d+\s?(?:-|to|~)?\s?\d*\s?(days?|weeks?)\b/i.test(text) ||
+      /\d+\s?(天|周)[^\n。]{0,6}(交货|出货|发货|完成|到货)/.test(text))
+  ) {
+    violations.push("生产周期/交期数字承诺（无工厂数据）");
+  }
+  if (!allowed.price && /\b(fob|cif|cfr|exw|ddp|unit)\s+price\b[^\n.]{0,12}\d|\bprice\s+(?:is|of|at|will be)\s+\d/i.test(text)) {
+    violations.push("价格数字承诺（无报价数据）");
+  }
+  if (
+    !allowed.certification?.length &&
+    (/(we (?:are|hold|have)|certified (?:by|with)|已通过|持有)[^\n.]{0,20}?(oeko-tex|gots|bsci|sedex|iso ?9001|grs)/i.test(text) ||
+      /\b(our (?:factory|company|mill|products?)|we)\s+(?:has|have|holds?|is|are|got)\b[^\n.]{0,30}?\b(oeko-?tex|gots|bsci|sedex|smeta|iso ?9001|grs|wrap|amfori)/i.test(text) ||
+      /\b(oeko-?tex|gots|bsci|sedex|smeta|iso ?9001|grs)\b[^\n.]{0,20}?\b(certified|approved|audited)\b/i.test(text))
+  ) {
     violations.push("认证承诺（无认证数据）");
   }
-  if (/(payment terms?|付款(?:条款|方式))[^\n.]{0,20}?(\d+\s?%|t\/t|l\/c|net \d+)/i.test(lower)) {
+  if (
+    /(payment terms?|付款(?:条款|方式))[^\n.]{0,20}?(\d+\s?%|t\/t|l\/c|net \d+)/i.test(lower) ||
+    /\d+\s?%\s?(deposit|advance|down payment|prepayment)|\bbalance (?:before|after|against|upon)\b|\bwe (?:can |will )?accept\b[^\n.]{0,30}(t\/t|l\/c|o\/a|d\/p|net \d+|deposit|open account|letter of credit)/i.test(lower) ||
+    /\d+\s?%\s?(定金|预付)|(接受|可以).{0,6}(信用证|账期|赊账)/.test(text)
+  ) {
     violations.push("付款条款承诺");
   }
   if (/(\d+\s?%\s?(discount|off)|折扣\s?\d+|\d+\s?折)/i.test(lower)) {
     violations.push("折扣承诺");
+  }
+  if (/\bfree (?:of charge )?samples?\b|\bsamples? (?:are |is |will be )?(?:free|free of charge|at no cost)\b|免费(?:提供)?样品|样品免费/i.test(text)) {
+    violations.push("样品免费承诺（按样品政策确认）");
+  }
+  if (/\bexclusiv|\bsole (?:agent|distributor|supplier)\b|独家/i.test(text)) {
+    violations.push("独家承诺");
+  }
+  if (/\b(match|beat)\b[^\n.]{0,20}\b(price|prices|quote|offer)\b|比.{0,6}(便宜|低)/i.test(text)) {
+    violations.push("比价承诺");
+  }
+  if (/\bwe (?:can |will )?guarantee\b|\bguaranteed (?:delivery|price|quality)\b|保证(?:交期|价格|质量|按时)/i.test(text)) {
+    violations.push("保证承诺");
+  }
+  if (/\b(compensat\w*|refund\w*|reimburs\w*)\b|赔偿|退款/i.test(text)) {
+    violations.push("赔偿 / 退款承诺（转老板处理）");
+  }
+  if (/\blower (?:value|price|amount)\b[^\n.]{0,30}\binvoice|\binvoice\b[^\n.]{0,30}\blower (?:value|price|amount)|undervalu|低报|少报/i.test(text)) {
+    violations.push("低报货值");
   }
   return [...new Set(violations)];
 }
@@ -132,6 +172,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     const v = fmtValue(f, fields);
     if (!v) continue;
     if (styleNames.some((n) => containsPhrase(n, v.toLowerCase()))) continue;
+    // 买家原话里的折扣、定金、索赔、品牌图案、给 AI 的指令等不复述（像是我方认可了），审核提醒里会单独列出
+    if (checkDraftGuardrails(v).length || unsafeToRepeat(v)) continue;
     facts.push({ field: f, value: v });
   }
   const pending: string[] = [];
@@ -204,7 +246,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     const qty = fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
       ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${input.orgName}`
-      : `Re: Your inquiry about ${product}${qty} — ${input.orgName}`;
+      : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${input.orgName}`;
     const lines: string[] = [];
     lines.push(`Dear ${greetName},`);
     lines.push("");
@@ -218,7 +260,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       lines.push(
         met
           ? `Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you. Here is our follow-up on ${product}.`
-          : `Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry about ${product}.`,
+          : `Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry${fields.productName ? ` about ${product}` : ""}.`,
       );
     }
     if (facts.length) {
@@ -262,14 +304,22 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
  */
 export async function polishReplyDraftWithLlm(
   draft: ReplyDraft,
-  ctx: { orgId: string; userId: string; agentRunId?: string; timeoutMs?: number },
+  ctx: {
+    orgId: string;
+    userId: string;
+    agentRunId?: string;
+    timeoutMs?: number;
+    /** 测试注入：替代真实 LLM（检验润色结果过守卫、失败回退模板） */
+    complete?: (body: string) => Promise<string>;
+  },
 ): Promise<ReplyDraft> {
-  if (!isAIConfigured()) return draft;
+  if (!ctx.complete && !isAIConfigured()) return draft;
   try {
-    const polished = await createCompletion({
+    const polished = ctx.complete ? await ctx.complete(draft.body) : await createCompletion({
       systemPrompt:
         "You are a professional B2B OEM sales writer. Rewrite the email body for tone and flow ONLY. " +
         "Do not add, remove or change any facts, numbers, questions or commitments. Never state MOQ, prices, lead times, certifications, payment terms or discounts. " +
+        "Never promise free samples, exclusivity, price matching, compensation or refunds, and never mention brands or characters. " +
         "Keep the same language as the input. Output only the email body.",
       userPrompt: draft.body,
       mode: "fast",
