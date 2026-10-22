@@ -116,10 +116,15 @@ async function main() {
   );
   {
     const gateIdx = tradeCron.indexOf("if (denied) return denied");
-    const businessIdx = tradeCron.indexOf("runDailyCron()");
+    const businessIdx = tradeCron.indexOf("runDailyCron(");
+    const orgLookupIdx = tradeCron.indexOf("db.organization.findMany(");
     ok(
       gateIdx >= 0 && businessIdx > gateIdx,
       "runDailyCron() call only after secret gate (no bypass success path)",
+    );
+    ok(
+      gateIdx >= 0 && orgLookupIdx > gateIdx,
+      "org timezone lookup only after secret gate (no DB read before auth)",
     );
   }
   ok(

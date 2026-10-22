@@ -5,13 +5,12 @@
  * 为所有活跃组织的成员生成当日简报 →
  * 写入 Notification + 置顶「每日简报」对话线程 + 微信推送（既有链路）。
  *
- * 调度：每小时唤醒，仅在多伦多当地 07:00 执行。
+ * 调度：每小时唤醒，只处理当地时间 07:00 的组织（组织时区 settingsJson.timezone，默认多伦多）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireCronSecret } from "@/lib/cron/auth";
-import { AUTOMATION_TIMEZONE } from "@/lib/automation/registry";
-import { isLocalScheduleHour } from "@/lib/automation/local-time";
+import { orgsAtLocalHour } from "@/lib/automation/registry";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { db } from "@/lib/db";
 import { generateBriefingsForOrg } from "@/lib/secretary/briefing";
@@ -23,16 +22,19 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
 
   const now = new Date();
-  if (!isLocalScheduleHour(now, AUTOMATION_TIMEZONE, [7])) {
-    return NextResponse.json({ skipped: true, reason: "尚未到当地 07:00", checkedAt: now.toISOString() });
+  const orgs = orgsAtLocalHour(
+    await db.organization.findMany({
+      where: { status: "active" },
+      select: { id: true, name: true, settingsJson: true },
+    }),
+    now,
+    [7],
+  );
+  if (orgs.length === 0) {
+    return NextResponse.json({ skipped: true, reason: "没有组织处于当地 07:00", checkedAt: now.toISOString() });
   }
 
   const data = await runTrackedAutomation("daily-brief", async () => {
-    const orgs = await db.organization.findMany({
-      where: { status: "active" },
-      select: { id: true, name: true },
-    });
-
     const results: Array<{ orgId: string; orgName: string; generated?: number; error?: string }> = [];
 
     for (const org of orgs) {

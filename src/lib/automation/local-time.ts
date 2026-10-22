@@ -27,6 +27,16 @@ export function getLocalTimeParts(
   };
 }
 
+export function isValidTimeZone(timeZone: string): boolean {
+  if (!timeZone) return false;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isLocalScheduleHour(
   now: Date,
   timeZone: string,

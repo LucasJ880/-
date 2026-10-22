@@ -101,6 +101,9 @@ npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
 npx tsx src/lib/env/__tests__/wave15-seed-target-guard.test.ts
 npx tsx scripts/public-route-auth-contracts.test.ts
+npx tsx src/lib/automation/__tests__/local-time.test.ts
+npx tsx src/lib/automation/__tests__/org-timezone.test.ts
+npx tsx src/lib/trade/__tests__/daily-cron-org-scope.isolated.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
