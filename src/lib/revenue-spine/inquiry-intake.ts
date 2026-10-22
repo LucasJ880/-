@@ -60,6 +60,12 @@ export interface InquiryIntakeInput {
     channel?: string | null;
     /** 展会名称（可含展位）；trade_show 来源时写入互动，回复草稿开头引用 */
     event?: string | null;
+    /** 展位上看过的参考款；trade_show 来源时写入互动，草稿逐一点名 */
+    styles?: Array<{ code: string; name: string | null }> | null;
+    /** 业务员在卡上判的等级 A/B/C；trade_show 来源时写入互动，FDE 据此定优先级 */
+    boothGrade?: string | null;
+    /** 展位上接待的业务员；trade_show 来源时写入互动，草稿落款 */
+    boothSales?: string | null;
   };
   sourceRef?: {
     tradeProspectId?: string | null;
@@ -286,6 +292,9 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
       utm: input.meta?.utm ?? null,
       sourceRef: input.sourceRef ?? null,
       ...(input.meta?.event ? { event: input.meta.event } : {}),
+      ...(input.meta?.styles?.length ? { styles: input.meta.styles } : {}),
+      ...(input.meta?.boothGrade ? { boothGrade: input.meta.boothGrade } : {}),
+      ...(input.meta?.boothSales ? { boothSales: input.meta.boothSales } : {}),
     },
     policy,
   });

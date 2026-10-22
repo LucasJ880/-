@@ -102,6 +102,55 @@ async function safeTransition(
   return cur?.stage ?? to;
 }
 
+/** 审批预览：发送的英文邮件在前；附中文对照（模板版）给看中文的审核人，不会发送 */
+export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null): string {
+  const sent = `${draft.subject}\n\n${draft.body}`;
+  if (!zh) return sent.slice(0, 4000);
+  const note = draft.templateOnly
+    ? "——— 中文对照（仅供审核，不会发送）———"
+    : "——— 中文对照（仅供审核，不会发送；英文经 AI 润色，措辞可能略有不同）———";
+  return `${sent}\n\n${note}\n${zh.subject}\n\n${zh.body}`.slice(0, 4000);
+}
+
+/** 卡上等级 → 商机优先级（A 级进重点线索队列） */
+const BOOTH_GRADE_PRIORITY: Record<"A" | "B" | "C", "hot" | "warm" | "cold"> = { A: "hot", B: "warm", C: "cold" };
+
+interface BoothContext {
+  /** 最新来信就是展位面谈（草稿按展位来访写） */
+  fromLatest: boolean;
+  event: string | null;
+  styles: Array<{ code: string; name: string | null }>;
+  grade: "A" | "B" | "C" | null;
+  /** 卡上接待的业务员（英文名才用作落款；中文名给英文买家署名不合适，退回负责人） */
+  sales: string | null;
+}
+
+/** 从互动 analysisResult 读展会速记卡的 meta（event / styles / boothGrade，见 inquiry-intake） */
+export function boothContext(
+  interactions: Array<{ id: string; channel: string | null; analysisResult: unknown }>,
+  latest: { id: string; channel: string | null },
+): BoothContext {
+  const metaOf = (i: { analysisResult: unknown }) => (i.analysisResult ?? {}) as Record<string, unknown>;
+  const booth = interactions.filter((i) => i.channel === "trade_show");
+  const latestBooth = latest.channel === "trade_show" ? booth.find((i) => i.id === latest.id) ?? null : null;
+  const lm = latestBooth ? metaOf(latestBooth) : {};
+  const styles = Array.isArray(lm.styles)
+    ? (lm.styles as Array<Record<string, unknown>>)
+        .filter((st) => typeof st?.code === "string")
+        .map((st) => ({ code: st.code as string, name: typeof st.name === "string" && st.name.trim() ? st.name.trim() : null }))
+    : [];
+  // 同一商机有多张卡（同公司几位买家）：取最高等级，一张 A 就按 A 跟进
+  const grades = booth.map((i) => metaOf(i).boothGrade);
+  const graded = (["A", "B", "C"] as const).find((g) => grades.includes(g));
+  return {
+    fromLatest: Boolean(latestBooth),
+    event: typeof lm.event === "string" && lm.event.trim() ? lm.event.trim() : null,
+    styles,
+    grade: graded ?? null,
+    sales: typeof lm.boothSales === "string" && /^[A-Za-z][A-Za-z .'-]{0,59}$/.test(lm.boothSales.trim()) ? lm.boothSales.trim() : null,
+  };
+}
+
 export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<InboundFdeResult> {
   const now = input.now ?? new Date();
   const orgId = input.orgId;
@@ -239,7 +288,14 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       sourceKind: latest.channel === "website" ? "website_inquiry" : latest.channel === "email" ? "email" : "conversation",
       agentRunId: runId,
     });
-    const fields: RfqFields = persisted.fields;
+    // 展会速记卡：最新来信是展位面谈 → 草稿写展位来访并点名看过的参考款；
+    // 任一近期来信带卡上等级 → 以业务员判的等级定优先级（AI 评分照常记录）
+    const booth = boothContext(opp.interactions, latest);
+    // 卡上记了参考款但 RFQ 没认出产品时，用参考款名，不再追问"您要哪个产品"
+    const fields: RfqFields =
+      booth.styles.length && !persisted.fields.productName
+        ? { ...persisted.fields, productName: booth.styles.map((st) => st.name ?? st.code).join(", ") }
+        : persisted.fields;
     base.rfqId = persisted.rfq.id;
     await event("tool.completed", "RFQ 抽取完成", {
       tool: "extractRfq",
@@ -283,7 +339,9 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         score: score.score,
         scoreGrade: score.grade,
         scoredAt: now,
-        priority: score.grade === "HOT" || score.grade === "HIGH" ? "hot" : score.grade === "MEDIUM" ? "warm" : "cold",
+        priority: booth.grade
+          ? BOOTH_GRADE_PRIORITY[booth.grade]
+          : score.grade === "HOT" || score.grade === "HIGH" ? "hot" : score.grade === "MEDIUM" ? "warm" : "cold",
         buyerType: fields.buyerType ?? (research.buyerType !== "unknown" ? research.buyerType : null),
         market: fields.destinationCountry ?? research.country ?? opp.market,
         ...(opp.estimatedValue === null && score.estimatedValue !== null ? { estimatedValue: score.estimatedValue } : {}),
@@ -299,6 +357,14 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       recommendedNextAction: score.recommendedNextAction,
       assessmentId: assessment.id,
     });
+    if (booth.grade) {
+      await event("agent.output", `展会卡上等级 ${booth.grade} → 优先级 ${BOOTH_GRADE_PRIORITY[booth.grade]}`, {
+        decision: "booth_grade",
+        boothGrade: booth.grade,
+        priority: BOOTH_GRADE_PRIORITY[booth.grade],
+        aiGrade: score.grade,
+      });
+    }
 
     const target: Stage =
       score.qualification === "disqualified"
@@ -329,23 +395,31 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     let draft: ReplyDraft | null = null;
     let pendingActionId: string | null = null;
     let approvalRequired = false;
+    let reviewZh: ReplyDraft | null = null;
     if (score.qualification !== "disqualified") {
-      // 展会速记卡录入的线索：开头写展位来访（展会名来自互动 meta.event）
-      const latestMeta = (latest.analysisResult ?? {}) as Record<string, unknown>;
-      const tradeShow = latest.channel === "trade_show" ? { event: typeof latestMeta.event === "string" && latestMeta.event.trim() ? latestMeta.event.trim() : null } : null;
-      draft = buildReplyDraft({
-        tradeShow,
+      const draftInput = {
+        tradeShow: booth.fromLatest ? { event: booth.event, styles: booth.styles } : null,
         language: extraction.language,
         contactName: opp.customer.contactName ?? research.contactName,
         companyName: research.companyName ?? opp.customer.name,
         orgName: org.name,
-        senderName,
+        // 买家在展位见到的是卡上的业务员：落款用业务员的名字
+        senderName: (booth.fromLatest && booth.sales) || senderName,
         fields,
         questions,
         knowledge,
         policy,
-      });
+      };
+      draft = buildReplyDraft(draftInput);
       if (input.useLlm !== false) draft = await polishReplyDraftWithLlm(draft, { orgId, userId: principalUserId, agentRunId: runId });
+      // 审核的人看中文：英文草稿附同一模板的中文版，只进审批预览，不进发送正文
+      if (draft.language === "en") {
+        reviewZh = buildReplyDraft({
+          ...draftInput,
+          language: "zh",
+          questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply),
+        });
+      }
       base.draft = draft;
       await event("agent.output", "回复草稿已生成（未发送）", {
         decision: "draft",
@@ -426,8 +500,11 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           orgId,
           principal: { userId: principalUserId, actorType: "agent" },
           actionType: INQUIRY_REPLY_ACTION_TYPE,
-          title: `发送询盘回复：${opp.customer.name}`.slice(0, 160),
-          preview: `${draft.subject}\n\n${draft.body}`.slice(0, 4000),
+          title: (booth.fromLatest
+            ? `跟进邮件（展会${booth.grade ? ` · ${booth.grade} 级` : ""}）：${opp.customer.name}`
+            : `发送询盘回复：${opp.customer.name}`
+          ).slice(0, 160),
+          preview: approvalPreview(draft, reviewZh),
           payload: {
             opportunityId: opp.id,
             customerId: opp.customerId,

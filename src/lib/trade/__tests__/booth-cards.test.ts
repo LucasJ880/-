@@ -21,6 +21,7 @@ import { detectLanguage } from "@/lib/revenue-spine/normalize";
 import { extractRfqHeuristic } from "@/lib/revenue-spine/rfq/heuristic-extractor";
 import { detectBuyerType } from "@/lib/revenue-spine/lexicon";
 import { DEFAULT_PRODUCT_KEYWORDS } from "@/lib/revenue-spine/policy";
+import { resolveStyles } from "../style-references";
 
 let pass = 0;
 function ok(name: string, fn: () => void) {
@@ -45,7 +46,7 @@ function card(over: Partial<BoothCard> = {}): BoothCard {
     row: 2, cardNo: "CF140-0001", date: "10/31", sales: "Cathy", company: "Maple Home Goods", contactName: "Emma Brown",
     title: "Buyer", email: "emma@maplehome.example", whatsapp: "", country: "Canada", buyerType: "零售/自有品牌",
     styles: "MX-BL-001, MX-BR-001", specs: "OEKO-TEX; 280gsm", volume: "1-5柜", timing: "3个月内", nextStep: "报价, 寄样",
-    grade: "A", note: "Wants own-brand gift box packaging", voiceNote: "", ...over,
+    grade: "A", note: "Wants own-brand gift box packaging", noteOriginal: "", voiceNote: "", ...over,
   };
 }
 
@@ -205,9 +206,51 @@ ok("规则抽取读正文不会误判：款号不是数量、没有虚构交期�
   assert.equal(detectBuyerType(buildBoothCardMessage(card({ buyerType: "电商/亚马逊" }))).type, "ecommerce");
 });
 
-ok("时间线「展会」一行：展会 · 卡号 · 日期 · 业务员 · 等级 · 职位", () => {
-  assert.equal(buildBoothCardContext(card(), EVENT), "the Canton Fair (Booth 14.3E07) · 卡号 CF140-0001 · 10/31 · 业务员 Cathy · 等级 A · 职位 Buyer");
-  assert.equal(buildBoothCardContext(card({ date: "", sales: "", grade: "", title: "" }), ""), "展会 · 卡号 CF140-0001");
+ok("有参考表时：款号写成「品类名 (ref. 款号)」，RFQ 认出产品与类目、仍不读出数量", () => {
+  const styles = resolveStyles("MX-BL-001, MX-BR-001, MX-SP-202606", [
+    { code: "MX-BL-001", name: "Flannel / Coral Fleece Blanket" },
+    { code: "MX-BR-001", name: "Solid / Hotel / Spa Bathrobes" },
+  ]);
+  const m = buildBoothCardMessage(card({ styles: "MX-BL-001, MX-BR-001, MX-SP-202606" }), styles);
+  assert.match(m, /Interested in reference styles: Flannel \/ Coral Fleece Blanket \(ref\. MX-BL-001\); Solid \/ Hotel \/ Spa Bathrobes \(ref\. MX-BR-001\); MX-SP-202606\./);
+  const r = boothCardToInquiry(card({ styles: "MX-BL-001, MX-BR-001, MX-SP-202606" }), EVENT, styles);
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  const ex = extractRfqHeuristic(`Product: ${r.value.product}\n${r.value.message}`, { productKeywords: DEFAULT_PRODUCT_KEYWORDS });
+  assert.equal(ex.fields.productCategory, "blanket");
+  assert.match(ex.fields.productName ?? "", /fleece blanket/i);
+  assert.equal(ex.fields.quantity, null);
+});
+
+ok("时间线「展会」一行：卡上勾选项和备注原文按中文原样记录，给看中文的同事", () => {
+  assert.equal(
+    buildBoothCardContext(card({ noteOriginal: "要自有品牌礼盒包装，圣诞季" }), EVENT),
+    "the Canton Fair (Booth 14.3E07) · 卡号 CF140-0001 · 10/31 · 业务员 Cathy · 等级 A · 职位 Buyer · 买家类型 零售/自有品牌" +
+      " · 规模 1-5柜 · 时间 3个月内 · 下一步 报价, 寄样 · 规格认证 OEKO-TEX; 280gsm · 备注原文 要自有品牌礼盒包装，圣诞季",
+  );
+  assert.equal(
+    buildBoothCardContext(card({ date: "", sales: "", grade: "", title: "", buyerType: "", volume: "", timing: "", nextStep: "", specs: "" }), ""),
+    "展会 · 卡号 CF140-0001",
+  );
+});
+
+ok("备注原文：表头「备注原文」读进 noteOriginal，不进给买家的正文（正文只用英文备注）", () => {
+  const header = [...HEADER];
+  const row = header.map((h) => {
+    const f = BOOTH_CARD_COLUMNS.find((c) => c.header === h)!.field;
+    return { cardNo: "CF140-0002", email: "a@b.example", grade: "B", company: "Acme", note: "Needs 3 colours", noteOriginal: "要三个颜色" }[f as string] ?? "";
+  });
+  const parsed = parseBoothCardSheet(xlsx([header, row]));
+  assert.equal(parsed.cards.length, 1);
+  assert.deepEqual(parsed.cards[0].errors, []);
+  assert.equal(parsed.cards[0].card.noteOriginal, "要三个颜色");
+  assert.equal(parsed.cards[0].card.note, "Needs 3 colours");
+  const m = buildBoothCardMessage(parsed.cards[0].card);
+  assert.match(m, /Needs 3 colours/);
+  assert.doesNotMatch(m, /要三个颜色/);
+  const alias = parseBoothCardSheet(xlsx([["卡号", "邮箱", "等级", "英文备注", "中文备注"], ["CF140-0003", "c@d.example", "C", "Hotel project", "酒店项目"]]));
+  assert.equal(alias.cards[0].card.note, "Hotel project");
+  assert.equal(alias.cards[0].card.noteOriginal, "酒店项目");
 });
 
 ok("映射：事件身份 = card:<卡号>，UTM 记来源，联系人字段落位", () => {

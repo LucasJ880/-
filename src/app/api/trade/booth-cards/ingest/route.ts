@@ -10,7 +10,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { resolveTradeOrgId } from "@/lib/trade/access";
-import { BOOTH_CARD_ROLES, boothCardFromInput, boothCardToInquiry, validateBoothCard } from "@/lib/trade/booth-cards";
+import { BOOTH_CARD_ROLES, boothCardFromInput, boothCardOrigin, boothCardToInquiry, validateBoothCard } from "@/lib/trade/booth-cards";
+import { loadStyleReferences, resolveStyles } from "@/lib/trade/style-references";
 import { ingestWebsiteInquiry } from "@/lib/trade/website-inquiry";
 
 export const runtime = "nodejs";
@@ -39,15 +40,14 @@ export async function POST(request: NextRequest) {
   }
 
   const event = typeof body.event === "string" ? body.event.replace(/\s+/g, " ").trim().slice(0, 120) : "";
-  const normalized = boothCardToInquiry(card, event);
+  const styles = resolveStyles(card.styles, await loadStyleReferences(orgRes.orgId));
+  const normalized = boothCardToInquiry(card, event, styles);
   if (!normalized.ok) {
     return NextResponse.json({ error: normalized.error, cardNo: card.cardNo }, { status: 422 });
   }
 
   try {
-    const r = await ingestWebsiteInquiry(orgRes.orgId, normalized.value, {
-      origin: { kind: "trade_show", event: event || null },
-    });
+    const r = await ingestWebsiteInquiry(orgRes.orgId, normalized.value, { origin: boothCardOrigin(card, event, styles) });
     return NextResponse.json({
       ok: true,
       cardNo: card.cardNo,

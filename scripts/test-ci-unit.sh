@@ -112,6 +112,7 @@ npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
 npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards.test.ts
+npx tsx src/lib/trade/__tests__/style-references.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts

@@ -20,6 +20,8 @@ export interface QueueOpportunity {
   customerEmail: string | null;
   score: number | null;
   scoreGrade: string | null;
+  /** hot / warm / cold：FDE 按评分写入；展会速记卡按卡上等级写入（A → hot） */
+  priority?: string | null;
   estimatedValue: number | null;
   market: string | null;
   buyerType: string | null;
@@ -60,6 +62,7 @@ const SELECT = {
   customer: { select: { name: true, email: true } },
   score: true,
   scoreGrade: true,
+  priority: true,
   estimatedValue: true,
   market: true,
   buyerType: true,
@@ -80,7 +83,7 @@ const SELECT = {
 
 type Row = {
   id: string; title: string; stage: string; customerId: string; customer: { name: string; email: string | null };
-  score: number | null; scoreGrade: string | null; estimatedValue: number | null; market: string | null; buyerType: string | null;
+  score: number | null; scoreGrade: string | null; priority: string | null; estimatedValue: number | null; market: string | null; buyerType: string | null;
   assignedToId: string | null; createdAt: Date; updatedAt: Date; stageChangedAt: Date | null; lastInteractionAt: Date | null;
   lastCustomerReplyAt: Date | null; lastOutboundAt: Date | null; nextFollowupAt: Date | null; nextActionType: string | null;
   nextActionReason: string | null; followUpCount: number; fdeInfluenced: boolean; fdeSourced: boolean;
@@ -96,6 +99,7 @@ function toQueue(r: Row): QueueOpportunity {
     customerEmail: r.customer.email,
     score: r.score,
     scoreGrade: r.scoreGrade,
+    priority: r.priority,
     estimatedValue: r.estimatedValue,
     market: r.market,
     buyerType: r.buyerType,
@@ -120,8 +124,12 @@ export function bucketOpportunities(rows: QueueOpportunity[], policy: RevenueSpi
   const customerWaiting = (o: QueueOpportunity) =>
     !!o.lastCustomerReplyAt && (!o.lastOutboundAt || o.lastCustomerReplyAt.getTime() > o.lastOutboundAt.getTime());
   const due = (o: QueueOpportunity) => !!o.nextFollowupAt && o.nextFollowupAt.getTime() <= now.getTime();
+  // 重点线索：AI 评分高，或优先级为 hot（展会卡上 A 级的买家资料少、AI 分常偏低，以业务员判断为准）
   const hotLeads = rows.filter(
-    (o) => (o.scoreGrade === "HOT" || o.scoreGrade === "HIGH") && (PRE_QUOTE_STAGES as readonly string[]).includes(o.stage) && !o.lastOutboundAt,
+    (o) =>
+      (o.scoreGrade === "HOT" || o.scoreGrade === "HIGH" || o.priority === "hot") &&
+      (PRE_QUOTE_STAGES as readonly string[]).includes(o.stage) &&
+      !o.lastOutboundAt,
   );
   const needReply = rows.filter((o) => customerWaiting(o) && !hotLeads.includes(o));
   const quoteFollowUp = rows.filter((o) => (o.stage === "quoted" || o.stage === "follow_up") && due(o) && !customerWaiting(o));
