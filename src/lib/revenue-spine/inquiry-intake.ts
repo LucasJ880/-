@@ -58,6 +58,8 @@ export interface InquiryIntakeInput {
     referrer?: string | null;
     utm?: Record<string, string> | null;
     channel?: string | null;
+    /** 展会名称（可含展位）；trade_show 来源时写入互动，回复草稿开头引用 */
+    event?: string | null;
   };
   sourceRef?: {
     tradeProspectId?: string | null;
@@ -270,7 +272,7 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     opportunityId,
     direction: "inbound",
     channel: input.meta?.channel ?? (input.source === "website_inquiry" ? "website" : input.source === "email" ? "email" : "other"),
-    type: input.source === "website_inquiry" ? "web_form" : input.source === "email" ? "email" : "note",
+    type: input.source === "website_inquiry" ? "web_form" : input.source === "email" ? "email" : input.source === "trade_show" ? "in_person" : "note",
     summary: [subject, product, message].filter(Boolean).join(" — "),
     content: rawMessages[0].content,
     actorUserId: ownerUserId,
@@ -278,7 +280,13 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     rawMessages,
     language,
     source: input.source,
-    extra: { page: input.meta?.page ?? null, referrer: input.meta?.referrer ?? null, utm: input.meta?.utm ?? null, sourceRef: input.sourceRef ?? null },
+    extra: {
+      page: input.meta?.page ?? null,
+      referrer: input.meta?.referrer ?? null,
+      utm: input.meta?.utm ?? null,
+      sourceRef: input.sourceRef ?? null,
+      ...(input.meta?.event ? { event: input.meta.event } : {}),
+    },
     policy,
   });
 

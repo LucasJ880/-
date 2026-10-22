@@ -26,6 +26,8 @@ import { db } from "@/lib/db";
 import type { NormalizedInquiry } from "./website-inquiry";
 
 export const WEBSITE_INQUIRY_SOURCE = "website";
+/** 展会速记卡（夜间批量录入）：与网站询盘同一条链路，事件身份空间独立 */
+export const BOOTH_CARD_SOURCE = "trade_show";
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  必须大于 webhook 路由 maxDuration（300 s），否则会与仍在执行的请求并行。 */
@@ -104,11 +106,11 @@ export interface ReceiptClaim {
 }
 
 /** 同 org 内、窗口内、相同业务指纹的最新既有事件（派生身份 + 内容重复判定共用） */
-async function findByPayloadHash(orgId: string, payloadHash: string, now: Date, windowMs: number) {
+async function findByPayloadHash(orgId: string, source: string, payloadHash: string, now: Date, windowMs: number) {
   return db.websiteInquiryReceipt.findFirst({
     where: {
       orgId,
-      source: WEBSITE_INQUIRY_SOURCE,
+      source,
       payloadHash,
       firstSeenAt: { gte: new Date(now.getTime() - windowMs) },
     },
@@ -152,6 +154,7 @@ export async function claimInquiryReceipt(
   orgId: string,
   v: NormalizedInquiry,
   now: Date = new Date(),
+  source: string = WEBSITE_INQUIRY_SOURCE,
 ): Promise<ReceiptClaim> {
   const hash = computePayloadHash(v);
   const payload = toReceiptPayload(v) as unknown as Prisma.InputJsonValue;
@@ -159,7 +162,7 @@ export async function claimInquiryReceipt(
 
   if (provided) {
     const existing = await db.websiteInquiryReceipt.findUnique({
-      where: { orgId_source_eventId: { orgId, source: WEBSITE_INQUIRY_SOURCE, eventId: v.eventId } },
+      where: { orgId_source_eventId: { orgId, source, eventId: v.eventId } },
     });
     if (existing) {
       const c = await claimExisting(existing, hash, now);
@@ -175,7 +178,7 @@ export async function claimInquiryReceipt(
 
   // 派生身份（无 eventId）：窗口内相同内容视为同一事件，保持旧的正文去重语义
   if (!provided) {
-    const sameContent = await findByPayloadHash(orgId, hash, now, RECEIPT_DERIVED_WINDOW_MS);
+    const sameContent = await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS);
     if (sameContent) {
       const c = await claimExisting(sameContent, hash, now);
       return {
@@ -189,13 +192,13 @@ export async function claimInquiryReceipt(
   }
 
   // 新事件：内容与既有事件相同（不同 eventId）→ 记录并指向原事件，不静默吞掉
-  const contentTwin = provided ? await findByPayloadHash(orgId, hash, now, RECEIPT_DERIVED_WINDOW_MS) : null;
+  const contentTwin = provided ? await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS) : null;
   const eventId = provided ? v.eventId : deriveEventId(hash, now);
   try {
     const receipt = await db.websiteInquiryReceipt.create({
       data: {
         orgId,
-        source: WEBSITE_INQUIRY_SOURCE,
+        source,
         eventId,
         eventIdProvided: provided,
         payload,
@@ -218,7 +221,7 @@ export async function claimInquiryReceipt(
     // 并发首发：另一执行者刚建立了同一事件身份（唯一约束）→ 转为重发路径
     if ((err as { code?: string })?.code === "P2002") {
       const existing = await db.websiteInquiryReceipt.findUnique({
-        where: { orgId_source_eventId: { orgId, source: WEBSITE_INQUIRY_SOURCE, eventId } },
+        where: { orgId_source_eventId: { orgId, source, eventId } },
       });
       if (existing) {
         const c = await claimExisting(existing, hash, now);
@@ -272,8 +275,8 @@ export async function releaseReceipt(
 }
 
 /** 运维/排障：按事件 id 读取收据（只读） */
-export async function findReceiptByEventId(orgId: string, eventId: string) {
+export async function findReceiptByEventId(orgId: string, eventId: string, source: string = WEBSITE_INQUIRY_SOURCE) {
   return db.websiteInquiryReceipt.findUnique({
-    where: { orgId_source_eventId: { orgId, source: WEBSITE_INQUIRY_SOURCE, eventId } },
+    where: { orgId_source_eventId: { orgId, source, eventId } },
   });
 }

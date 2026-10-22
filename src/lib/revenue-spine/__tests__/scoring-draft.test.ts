@@ -150,6 +150,39 @@ ok("中文草稿", () => {
   assert.equal(d.guardrailViolations.length, 0);
 });
 
+ok("展会速记卡线索：开头写展位来访与展会名，不写“通过官网联系”；守卫与问题照旧", () => {
+  const ex = extractRfqHeuristic(ACCEPTANCE, { productKeywords: DEFAULT_PRODUCT_KEYWORDS });
+  const questions = buildClarifyingQuestions(computeMissingFields(ex.fields), "en", policy.followUp.maxQuestionsPerReply);
+  const base = {
+    language: "en" as const,
+    contactName: "Emma",
+    companyName: "Maple Home Goods",
+    orgName: "Mengxin Home Textile",
+    senderName: "Cathy",
+    fields: ex.fields,
+    questions,
+    knowledge: knowledgeFor("curtain"),
+    policy,
+  };
+  const d = buildReplyDraft({ ...base, tradeShow: { event: "the Canton Fair (Booth 14.3E07)" } });
+  assert.match(d.body, /Thank you for visiting the Mengxin Home Textile booth at the Canton Fair \(Booth 14\.3E07\)/);
+  assert.doesNotMatch(d.body, /We have received your inquiry/);
+  assert.match(d.subject, /^Great meeting you at the Canton Fair \(Booth 14\.3E07\) — /);
+  assert.match(d.body, /1\. What are the finished sizes/);
+  assert.equal(d.guardrailViolations.length, 0);
+
+  const noEvent = buildReplyDraft({ ...base, tradeShow: { event: null } });
+  assert.match(noEvent.body, /visiting the Mengxin Home Textile booth — it was a pleasure meeting you/);
+  assert.match(noEvent.subject, /^Great meeting you — /);
+
+  const zh = buildReplyDraft({ ...base, language: "zh", orgName: "梦馨家纺", tradeShow: { event: "广交会" } });
+  assert.match(zh.body, /感谢您在广交会莅临 梦馨家纺 的展位/);
+  assert.match(zh.subject, /^感谢展位来访：/);
+
+  const website = buildReplyDraft(base);
+  assert.match(website.body, /We have received your inquiry about/);
+});
+
 ok("守卫拦截：MOQ 数字 / 单价 / 交期天数 / 认证承诺 / 付款条款 / 折扣", () => {
   assert.ok(checkDraftGuardrails("Our MOQ is 500 pcs per color.").some((v) => v.includes("MOQ")));
   assert.ok(checkDraftGuardrails("The price is USD 8.5/pc.").some((v) => v.includes("价格")));

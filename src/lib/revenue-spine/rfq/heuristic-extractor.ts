@@ -24,9 +24,34 @@ import { emptyRfqFields, type RfqEvidence, type RfqExtraction, type RfqField, ty
 
 const CONTEXT = 40;
 
+/** 句末：换行、中文句读、分号；英文 . ! ? 只在其后是空白或结尾时算（8.5、14.3 不断句） */
+function isBoundary(text: string, i: number): boolean {
+  const c = text[i];
+  if (c === "\n" || c === ";" || /[。；！？]/.test(c)) return true;
+  return /[.!?]/.test(c) && (i + 1 >= text.length || /\s/.test(text[i + 1]));
+}
+
+/** 字段值去掉句首的「Packaging: 」这类标签（证据片段保留原句） */
+function stripLabel(clause: string): string {
+  return clause.replace(/^[A-Za-z][A-Za-z ()/]{0,30}:\s*/, "") || clause;
+}
+
+/** 证据片段：关键词前后各 CONTEXT 字符，但不越过所在句子（结构化正文里相邻字段不混进来） */
 function snippet(text: string, index: number, length: number): string {
-  const start = Math.max(0, index - CONTEXT);
-  const end = Math.min(text.length, index + length + CONTEXT);
+  let start = Math.max(0, index - CONTEXT);
+  let end = Math.min(text.length, index + length + CONTEXT);
+  for (let i = index - 1; i >= start; i--) {
+    if (isBoundary(text, i)) {
+      start = i + 1;
+      break;
+    }
+  }
+  for (let i = index + length; i < end; i++) {
+    if (isBoundary(text, i)) {
+      end = i;
+      break;
+    }
+  }
   return text.slice(start, end).replace(/\s+/g, " ").trim();
 }
 
@@ -125,7 +150,15 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   QTY_RE.lastIndex = 0;
   while ((m = QTY_RE.exec(source))) {
     const raw = m[1];
-    const unit = m[2];
+    let unit: string | undefined = m[2];
+    // raw 可能带着空白（"200 " 后面没跟 k/万/千）；紧贴判断看数字本身的结尾
+    const rawEnd = m.index + raw.trimEnd().length;
+    // 单位只是更长单词的开头（3 months 的 m、200 mattresses 的 m）→ 不算单位
+    if (unit && /[a-z]/i.test(source[m.index + m[0].length] ?? "")) unit = undefined;
+    // 编号 / 型号 / 序数 / 日期里的数字不是数量：MX-SP-202606、CF140-0101、140th、14.3E07、10/31
+    if (/[a-z\-_#/]/i.test(source[m.index - 1] ?? "")) continue;
+    if (!unit && /[a-z]/i.test(source[rawEnd] ?? "")) continue;
+    if (source[rawEnd] === "/") continue;
     const value = parseNumber(raw);
     if (value === null || value <= 0) continue;
     // 跳过尺寸/克重/价格/年份上下文
@@ -139,7 +172,7 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (productKw && Math.abs(productKw.index - (m.index + m[0].length)) <= 3) score += 3;
     if (value >= 50) score += 1;
     if (!unit && value < 10) continue;
-    qtyCandidates.push({ value, index: m.index, length: m[0].length, score });
+    qtyCandidates.push({ value, index: m.index, length: unit ? m[0].length : raw.trimEnd().length, score });
   }
   qtyCandidates.sort((a, b) => b.score - a.score || a.index - b.index);
   if (qtyCandidates.length) {
@@ -189,7 +222,7 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   // ── 定制 / Logo ──
   const custom = findKeyword(lower, CUSTOMIZATION_KEYWORDS);
   if (custom) {
-    fields.customization = snippet(source, custom.index, custom.kw.length);
+    fields.customization = stripLabel(snippet(source, custom.index, custom.kw.length));
     fields.customLogo = /logo|embroider|印|绣|brand|label/i.test(custom.kw) ? true : null;
     add("customization", fields.customization, 0.7, custom.index, custom.kw.length);
     if (fields.customLogo) add("customLogo", true, 0.75, custom.index, custom.kw.length);
@@ -198,7 +231,7 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   // ── 包装 / 认证 / 样品 ──
   const pack = findKeyword(lower, PACKAGING_KEYWORDS);
   if (pack) {
-    fields.packaging = snippet(source, pack.index, pack.kw.length);
+    fields.packaging = stripLabel(snippet(source, pack.index, pack.kw.length));
     add("packaging", fields.packaging, 0.65, pack.index, pack.kw.length);
   }
   const cert = findKeyword(lower, CERTIFICATION_KEYWORDS);

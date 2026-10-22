@@ -125,7 +125,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     where: { id: input.opportunityId, orgId },
     include: {
       customer: { select: { id: true, name: true, email: true, phone: true, contactName: true, website: true, country: true } },
-      interactions: { where: { direction: "inbound" }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, content: true, summary: true, channel: true, createdAt: true, language: true } },
+      interactions: { where: { direction: "inbound" }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, content: true, summary: true, channel: true, createdAt: true, language: true, analysisResult: true } },
     },
   });
   if (!opp) return { ...base, error: "商机不存在或跨组织", errorCode: "NOT_FOUND" };
@@ -330,7 +330,11 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     let pendingActionId: string | null = null;
     let approvalRequired = false;
     if (score.qualification !== "disqualified") {
+      // 展会速记卡录入的线索：开头写展位来访（展会名来自互动 meta.event）
+      const latestMeta = (latest.analysisResult ?? {}) as Record<string, unknown>;
+      const tradeShow = latest.channel === "trade_show" ? { event: typeof latestMeta.event === "string" && latestMeta.event.trim() ? latestMeta.event.trim() : null } : null;
       draft = buildReplyDraft({
+        tradeShow,
         language: extraction.language,
         contactName: opp.customer.contactName ?? research.contactName,
         companyName: research.companyName ?? opp.customer.name,

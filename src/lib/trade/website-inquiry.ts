@@ -18,10 +18,57 @@ import { INQUIRY_REPLY_ACTION_TYPE, runInboundSalesFde, type InboundFdeResult } 
 import { addBusinessHours } from "@/lib/revenue-spine/business-days";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
-import { claimInquiryReceipt, fromReceiptPayload, linkReceipt, releaseReceipt } from "./website-inquiry-receipts";
+import {
+  BOOTH_CARD_SOURCE,
+  WEBSITE_INQUIRY_SOURCE,
+  claimInquiryReceipt,
+  fromReceiptPayload,
+  linkReceipt,
+  releaseReceipt,
+} from "./website-inquiry-receipts";
 import { ensureOutreachSequence } from "./outreach-sequence";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
+export const BOOTH_CARD_CAMPAIGN_NAME = "展会速记卡";
+
+/**
+ * 线索从哪来：网站表单（默认），或展会速记卡（夜间批量录入）。两者走同一条链路，
+ * 只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
+ */
+export interface IngestOrigin {
+  kind: "website" | "trade_show";
+  /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
+  event?: string | null;
+}
+
+const ORIGINS = {
+  website: {
+    campaign: WEBSITE_INQUIRY_CAMPAIGN_NAME,
+    campaignDesc: "独立站表单自动归集的询盘",
+    receiptSource: WEBSITE_INQUIRY_SOURCE,
+    prospectSource: "website",
+    messageChannel: "website",
+    label: "网站询盘",
+    pageLabel: "来源页",
+    intakeSource: "website_inquiry",
+    interactionChannel: "website",
+    // 买家主动来询：通知外贸成员
+    notify: true,
+  },
+  trade_show: {
+    campaign: BOOTH_CARD_CAMPAIGN_NAME,
+    campaignDesc: "展位速记卡（名片 + 勾选项）夜间录入的线索",
+    receiptSource: BOOTH_CARD_SOURCE,
+    prospectSource: "exhibition",
+    messageChannel: "exhibition",
+    label: "展会速记卡",
+    pageLabel: "展会",
+    intakeSource: "trade_show",
+    interactionChannel: "trade_show",
+    // 录入人就是操作者，一晚几十张不逐条通知
+    notify: false,
+  },
+} as const;
 
 const LIMITS = {
   name: 120,
@@ -142,15 +189,19 @@ export function deriveCompanyName(v: NormalizedInquiry): string {
 }
 
 /** 写入线索时间线的结构化消息正文 */
-export function buildInquiryMessage(v: NormalizedInquiry): string {
-  const lines = ["【网站询盘】"];
+export function buildInquiryMessage(
+  v: NormalizedInquiry,
+  label: string = ORIGINS.website.label,
+  pageLabel: string = ORIGINS.website.pageLabel,
+): string {
+  const lines = [`【${label}】`];
   if (v.product) lines.push(`产品：${v.product}`);
   if (v.message) lines.push(`留言：${v.message}`);
   const who = [v.name, v.phone, v.email].filter(Boolean).join(" · ");
   if (who) lines.push(`联系人：${who}`);
   if (v.country) lines.push(`国家：${v.country}`);
   if (v.website) lines.push(`买家网站：${v.website}`);
-  if (v.page) lines.push(`来源页：${v.page}`);
+  if (v.page) lines.push(`${pageLabel}：${v.page}`);
   const utm = [
     v.utm.source && `source=${v.utm.source}`,
     v.utm.medium && `medium=${v.utm.medium}`,
@@ -186,6 +237,7 @@ export async function resolveWebsiteChannelBySecret(secret: string) {
 export async function ensureInquiryCampaign(
   orgId: string,
   name: string = WEBSITE_INQUIRY_CAMPAIGN_NAME,
+  productDesc?: string,
 ) {
   const existing = await db.tradeCampaign.findFirst({
     where: { orgId, name },
@@ -200,7 +252,7 @@ export async function ensureInquiryCampaign(
     data: {
       orgId,
       name,
-      productDesc: name === WEBSITE_INQUIRY_CAMPAIGN_NAME ? "独立站表单自动归集的询盘" : "消息通道陌生来信自动归集的询盘",
+      productDesc: productDesc ?? (name === WEBSITE_INQUIRY_CAMPAIGN_NAME ? ORIGINS.website.campaignDesc : "消息通道陌生来信自动归集的询盘"),
       targetMarket: "海外（按询盘国家）",
       searchKeywords: [],
       status: "active",
@@ -282,14 +334,15 @@ interface ProspectRef {
 
 const PROSPECT_REF_SELECT = { id: true, stage: true, companyName: true, convertedToSalesOpportunityId: true } as const;
 
-function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string, messageId: string, now: Date): InquiryIntakeInput {
+function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string, messageId: string, now: Date, origin: IngestOrigin): InquiryIntakeInput {
+  const o = ORIGINS[origin.kind];
   return {
     orgId,
-    source: "website_inquiry",
+    source: o.intakeSource,
     contact: { name: v.name, email: v.email, phone: v.phone, company: v.company, country: v.country, website: v.website },
     message: v.message,
     product: v.product,
-    meta: { page: v.page, utm: v.utm, channel: "website" },
+    meta: { page: v.page, utm: v.utm, channel: o.interactionChannel, ...(origin.kind === "trade_show" && origin.event ? { event: origin.event } : {}) },
     sourceRef: { tradeProspectId: prospectId, tradeMessageId: messageId, externalId: v.eventId || null },
     actorUserId: null,
     now,
@@ -350,7 +403,8 @@ export async function loadFdeState(orgId: string, interactionId: string, now: Da
 }
 
 /** 逐项核对七个对象；每一项都用真实记录判定，不由上一项存在推断 */
-export async function inspectChain(orgId: string, receipt: { tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date): Promise<ChainState> {
+export async function inspectChain(orgId: string, receipt: { tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date, origin: IngestOrigin = { kind: "website" }): Promise<ChainState> {
+  const o = ORIGINS[origin.kind];
   const empty: ChainState = {
     prospectId: null, tradeMessageId: null, customerId: null, opportunityId: null, interactionId: null,
     salesActionId: null, prospectLinked: false,
@@ -365,8 +419,8 @@ export async function inspectChain(orgId: string, receipt: { tradeMessageId: str
     message = await db.tradeMessage.findFirst({
       where: {
         direction: "inbound",
-        channel: "website",
-        content: buildInquiryMessage(v),
+        channel: o.messageChannel,
+        content: buildInquiryMessage(v, o.label, o.pageLabel),
         createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
         prospect: { orgId },
       },
@@ -407,7 +461,8 @@ async function linkProspectToSpine(prospectId: string, customerId: string, oppor
 }
 
 /** 缺失的 FDE 行动（互动已建但 SalesAction 未建）：用 canonical helper 补，不新建平行体系 */
-async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactionId: string, customerId: string, opportunityId: string, now: Date) {
+async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactionId: string, customerId: string, opportunityId: string, now: Date, origin: IngestOrigin) {
+  const o = ORIGINS[origin.kind];
   const opp = await db.salesOpportunity.findFirst({ where: { id: opportunityId, orgId }, select: { assignedToId: true, createdById: true } });
   const ownerUserId = opp?.assignedToId ?? opp?.createdById;
   if (!ownerUserId) return null;
@@ -426,7 +481,7 @@ async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactio
     signalKey: `inbound:${interactionId}`,
     assignedToId: ownerUserId,
     createdById: ownerUserId,
-    inputContext: { source: "website_inquiry", interactionId, fdeStatus: "queued", recovered: true, meta: { page: v.page, utm: v.utm, channel: "website" } },
+    inputContext: { source: o.intakeSource, interactionId, fdeStatus: "queued", recovered: true, meta: { page: v.page, utm: v.utm, channel: o.interactionChannel } },
   });
 }
 
@@ -439,10 +494,12 @@ async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactio
 export async function ingestWebsiteInquiry(
   orgId: string,
   incoming: NormalizedInquiry,
-  opts?: { runFde?: boolean; now?: Date },
+  opts?: { runFde?: boolean; now?: Date; origin?: IngestOrigin },
 ): Promise<IngestResult> {
   const now = opts?.now ?? new Date();
-  const claim = await claimInquiryReceipt(orgId, incoming, now);
+  const origin: IngestOrigin = opts?.origin ?? { kind: "website" };
+  const o = ORIGINS[origin.kind];
+  const claim = await claimInquiryReceipt(orgId, incoming, now, o.receiptSource);
   const receipt = claim.receipt;
   // 恢复一律按**首次**收到的业务事实重放；本次请求的冲突内容只记录，不覆盖
   const v = fromReceiptPayload(receipt.payload);
@@ -499,17 +556,17 @@ export async function ingestWebsiteInquiry(
 
   // 单执行者控制：同一事件正在被处理（首发仍在跑 / 另一次重发在跑）→ 返回当前状态，不并行
   if (claim.busy) {
-    const state = await inspectChain(orgId, receipt, v, now);
+    const state = await inspectChain(orgId, receipt, v, now, origin);
     return snapshot(state, await spineOf(state, true), null, { busy: true });
   }
 
   try {
-    const state = await inspectChain(orgId, receipt, v, now);
+    const state = await inspectChain(orgId, receipt, v, now, origin);
 
     // ── 步骤 1：Trade 线索 + 消息 ──
     let notified = 0;
     if (!state.tradeMessageId) {
-      const campaignId = await ensureInquiryCampaign(orgId);
+      const campaignId = await ensureInquiryCampaign(orgId, o.campaign, o.campaignDesc);
       let prospect: ProspectRef | null = v.email
         ? await db.tradeProspect.findFirst({
             where: { orgId, contactEmail: { equals: v.email, mode: "insensitive" } },
@@ -527,7 +584,7 @@ export async function ingestWebsiteInquiry(
           contactEmail: v.email || undefined,
           website: v.website || undefined,
           country: v.country || undefined,
-          source: "website",
+          source: o.prospectSource,
           stage: "new",
         });
         prospect = { id: created.id, stage: created.stage, companyName: created.companyName, convertedToSalesOpportunityId: null };
@@ -537,9 +594,9 @@ export async function ingestWebsiteInquiry(
         data: {
           prospectId: prospect.id,
           direction: "inbound",
-          channel: "website",
-          subject: v.product ? `网站询盘：${v.product}` : "网站询盘",
-          content: buildInquiryMessage(v),
+          channel: o.messageChannel,
+          subject: v.product ? `${o.label}：${v.product}` : o.label,
+          content: buildInquiryMessage(v, o.label, o.pageLabel),
         },
         select: { id: true },
       });
@@ -565,18 +622,20 @@ export async function ingestWebsiteInquiry(
         prospectId: prospect.id,
         messageId: message.id,
         content: [v.product && `Product: ${v.product}`, v.message].filter(Boolean).join("\n") || v.email,
-        channel: "website",
+        channel: o.messageChannel,
         meta: { email: v.email || null, companyName: prospect.companyName, phone: v.phone || null, country: v.country || null, website: v.website || null },
       });
 
-      const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
-      notified = await notifyInquiryMembers(orgId, {
-        title: `网站询盘：${prospect.companyName}`,
-        summary: (summaryBits || v.email || v.phone).slice(0, 140),
-        prospectId: prospect.id,
-        source: "website",
-        sourceKey: `website-inquiry:${message.id}`,
-      });
+      if (o.notify) {
+        const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
+        notified = await notifyInquiryMembers(orgId, {
+          title: `${o.label}：${prospect.companyName}`,
+          summary: (summaryBits || v.email || v.phone).slice(0, 140),
+          prospectId: prospect.id,
+          source: o.prospectSource,
+          sourceKey: `website-inquiry:${message.id}`,
+        });
+      }
       prospectExisted = existingProspect;
     }
 
@@ -584,7 +643,7 @@ export async function ingestWebsiteInquiry(
     let intake: IntakeResult | null = null;
     if (!state.interactionId) {
       try {
-        intake = await intakeInquiry(intakeInputFor(orgId, v, state.prospectId!, state.tradeMessageId!, now));
+        intake = await intakeInquiry(intakeInputFor(orgId, v, state.prospectId!, state.tradeMessageId!, now, origin));
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         console.error("[website-inquiry] revenue spine intake failed:", reason);
@@ -610,7 +669,7 @@ export async function ingestWebsiteInquiry(
 
     // ── 步骤 3：FDE 行动缺失（互动已建、SalesAction 未建）──
     if (state.interactionId && !state.salesActionId) {
-      const action = await recreateFdeAction(orgId, v, state.interactionId, state.customerId!, state.opportunityId!, now);
+      const action = await recreateFdeAction(orgId, v, state.interactionId, state.customerId!, state.opportunityId!, now, origin);
       if (action) {
         state.salesActionId = action.id;
         await linkReceipt(receipt.id, { salesActionId: action.id });
