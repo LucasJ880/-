@@ -28,6 +28,8 @@ export interface ReplyDraftInput {
   policy: RevenueSpinePolicy;
   /** 原始询盘（用于主题行） */
   inquirySubject?: string | null;
+  /** 展位见过面的买家（展会速记卡）：开头写展位来访而不是"通过官网联系" */
+  tradeShow?: { event: string | null } | null;
 }
 
 export interface ReplyDraft {
@@ -124,18 +126,26 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   if (knowledge.certification.status !== "available" && fields.certification) pending.push(lang === "zh" ? "认证" : "certification");
   if (fields.sampleRequired && knowledge.samplePolicy.status !== "available") pending.push(lang === "zh" ? "样品安排" : "sample arrangement");
 
-  const product = fields.productName ?? (lang === "zh" ? "您咨询的产品" : "the products you inquired about");
+  const met = input.tradeShow ?? null;
+  const product =
+    fields.productName ??
+    (met ? (lang === "zh" ? "您感兴趣的产品" : "the products we discussed") : lang === "zh" ? "您咨询的产品" : "the products you inquired about");
   const greetName = input.contactName ?? (lang === "zh" ? "您好" : "there");
   const questions = input.questions.slice(0, input.policy.followUp.maxQuestionsPerReply);
 
   let subject: string;
   let body: string;
   if (lang === "zh") {
-    subject = `回复：${product}${fields.quantity ? `（${fields.quantity}${fields.unit ?? "件"}）` : ""}询盘 — ${input.orgName}`;
+    const qty = fields.quantity ? `（${fields.quantity}${fields.unit ?? "件"}）` : "";
+    subject = met ? `感谢展位来访：${product}${qty} — ${input.orgName}` : `回复：${product}${qty}询盘 — ${input.orgName}`;
     const lines: string[] = [];
     lines.push(`${greetName}${input.contactName ? "，您好" : ""}：`);
     lines.push("");
-    lines.push(`感谢您通过官网联系 ${input.orgName}，我们已收到您关于${product}的询盘。`);
+    lines.push(
+      met
+        ? `感谢您${met.event ? `在${met.event}` : "在展会上"}莅临 ${input.orgName} 的展位，很高兴与您交流。以下是关于${product}的跟进。`
+        : `感谢您通过官网联系 ${input.orgName}，我们已收到您关于${product}的询盘。`,
+    );
     if (facts.length) {
       lines.push("");
       lines.push("我们对需求的理解如下，请确认：");
@@ -158,11 +168,18 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push(`${input.orgName}`);
     body = lines.join("\n");
   } else {
-    subject = `Re: Your inquiry about ${product}${fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : ""} — ${input.orgName}`;
+    const qty = fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : "";
+    subject = met
+      ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${product}${qty} — ${input.orgName}`
+      : `Re: Your inquiry about ${product}${qty} — ${input.orgName}`;
     const lines: string[] = [];
     lines.push(`Dear ${greetName},`);
     lines.push("");
-    lines.push(`Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry about ${product}.`);
+    lines.push(
+      met
+        ? `Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you. Here is our follow-up on ${product}.`
+        : `Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry about ${product}.`,
+    );
     if (facts.length) {
       lines.push("");
       lines.push("Here is our understanding of your requirement — please confirm:");

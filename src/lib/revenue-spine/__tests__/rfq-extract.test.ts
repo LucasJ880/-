@@ -119,6 +119,30 @@ ok("尺寸/克重/价格里的数字不会被当成数量", () => {
   assert.equal(r.fields.targetPrice, 3.2);
 });
 
+ok("款号 / 编号 / 序数 / 日期里的数字不是数量；单位不能只是单词开头", () => {
+  const codes = extractRfqHeuristic("Product: MX-SP-202606, MX-BL-001. Met at the 140th Canton Fair (Booth 14.3E07) on 10/31, card CF140-0101.", opts);
+  assert.equal(codes.fields.quantity, null, `quantity=${codes.fields.quantity}`);
+  const months = extractRfqHeuristic("We plan to order around 2,000 pcs of blankets within 3 months.", opts);
+  assert.equal(months.fields.quantity, 2000);
+  assert.equal(months.fields.unit, "pcs");
+  const mattress = extractRfqHeuristic("Looking for 200 mattress protectors.", opts);
+  assert.equal(mattress.fields.quantity, 200);
+  assert.notEqual(mattress.fields.unit, "m");
+  // 仍识别：连写单位、中文单位、千分位
+  assert.equal(extractRfqHeuristic("need 500pcs bathrobes", opts).fields.quantity, 500);
+  assert.equal(extractRfqHeuristic("需要3000条毛毯", opts).fields.quantity, 3000);
+});
+
+ok("定制 / 包装只取关键词所在的句子，并去掉句首标签", () => {
+  const r = extractRfqHeuristic("Buyer type: retailer (own brand). Packaging: gift box with hang tag. Agreed next step: samples.", opts);
+  assert.equal(r.fields.packaging, "gift box with hang tag");
+  const ev = r.evidence.find((e) => e.field === "packaging");
+  assert.equal(ev?.evidenceText, "Packaging: gift box with hang tag");
+  // 数字里的小数点不算句末
+  const c = extractRfqHeuristic("Embroidered logo on 8.5 inch patch, thanks", opts);
+  assert.equal(c.fields.customization, "Embroidered logo on 8.5 inch patch, thanks");
+});
+
 ok("相对交期按今日推算并记 note", () => {
   const r = extractRfqHeuristic("Need 800 pcs blankets within 6 weeks", opts);
   assert.equal(r.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2026-10-18");
