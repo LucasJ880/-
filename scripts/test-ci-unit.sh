@@ -243,6 +243,7 @@ npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts
 npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
+npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 

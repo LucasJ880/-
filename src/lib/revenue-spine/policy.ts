@@ -55,6 +55,11 @@ export interface FollowUpPolicy {
   maxQuestionsPerReply: number;
   /** 历史客户复购提示窗口（天，V1 仅数据接口） */
   reorderWindowDays: number;
+  /**
+   * 首封回复后买家一直没回信：在第几天（从首封算起）自动起草跟进邮件进审批；空数组 = 不起草。
+   * 只起草、不发送；买家回信、商机进入报价或之后的阶段即停止。
+   */
+  noReplyFollowUpDays: number[];
 }
 
 export interface ScoringPolicy {
@@ -175,6 +180,7 @@ export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
     nurtureCheckInDays: 30,
     maxQuestionsPerReply: 4,
     reorderWindowDays: 180,
+    noReplyFollowUpDays: [3, 7, 14],
   },
   scoring: {
     weights: {
@@ -354,6 +360,10 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
       nurtureCheckInDays: num(fu.nurtureCheckInDays, base.followUp.nurtureCheckInDays),
       maxQuestionsPerReply: Math.max(1, Math.min(8, num(fu.maxQuestionsPerReply, base.followUp.maxQuestionsPerReply))),
       reorderWindowDays: num(fu.reorderWindowDays, base.followUp.reorderWindowDays),
+      // 显式写 [] 表示关闭；递增排序、去重，最多 5 次
+      noReplyFollowUpDays: Array.isArray(fu.noReplyFollowUpDays)
+        ? [...new Set(numList(fu.noReplyFollowUpDays, []).map((d) => Math.round(d)))].sort((a, b) => a - b).slice(0, 5)
+        : base.followUp.noReplyFollowUpDays,
     },
     scoring: {
       weights: {

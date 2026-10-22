@@ -40,6 +40,18 @@
 
 AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分常偏低）。跟进优先级以业务员判的等级为准。
 
+## 展后跟进：买家没回信时自动起草跟进邮件
+
+首封跟进邮件发出后，买家一直没回信：**从首封算起第 3、7、14 天**各起草一封跟进邮件，放进审批中心，**不会自动发送**。
+- 标题「跟进第 1/3 次（展会 · A 级 · 3 天未回复）：公司名」；预览照样附中文对照，有风险时最上面是 ⚠ 提醒
+- 第 1 次：提展会回程，列出报价还缺的信息（最多 3 条）；第 2 次：问项目是否还在进行，可再发参考款图片；第 3 次：说明是近期最后一次
+- 沿用首封的主题（买家邮箱里归到同一串），落款仍是卡上的业务员；不写价格 / MOQ / 交期等任何承诺
+- 停止条件：买家回信、商机进入报价及之后的阶段、已有待审批草稿；同一次跟进被拒绝或过期不重复起草
+- 间隔按上一封实际发出时间算（审批拖了几天，下一封也顺延，不会挤在一起）；待审批 5 天后过期；
+  错过跟进时间超过 7 天的不再补起草（上线时几周前的老询盘不会一口气冒出草稿）
+- 「跟进无回复客户」的行动记录照常生成，但不再单独发通知（跟进草稿已有「待审批」通知）
+- 节奏可在业务规则里改：`revenue_spine.policy` 的 `followUp.noReplyFollowUpDays`（如 `[3, 7, 14]`），写 `[]` 关闭
+
 ## 展会小结（给管理层，开馆前看）
 
 速记卡页面最下面「4. 展会小结」：当天录入的卡汇总成一段中文。
@@ -98,6 +110,8 @@ AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分�
 - 落款：互动 meta `boothSales`（英文名才用）→ 草稿 `senderName`；来源对象统一由 `boothCardOrigin(card, event, styles)` 生成
 - 中文对照：FDE 在英文草稿之外用同一模板生成中文版，只拼进 PendingAction `preview`（`approvalPreview`），`payload.body` 只有英文
 - 参考款品类名里读出的材质等不作为买家要求列出（整词匹配），避免请买家确认参考款的属性
+- 展后跟进：`src/lib/revenue-spine/fde/no-reply-followup.ts`（`noReplyFollowUpDue` 判断到期，`buildNoReplyFollowUpDraft` 起草），
+  `cron/revenue-spine` 每 15 分钟扫描；审批 payload 带 `followUpStep`，发送沿用 `sales.send_inquiry_reply`（买家来信后草稿过时、拒发）
 - 展会小结：`src/lib/trade/booth-summary.ts`（数据来自 source = trade_show 的收据；卡上中文勾选项用 `parseBoothCardContext` 从「展会」一行读回），
   接口 `/api/trade/booth-cards/summary`；07:00 自动发送挂在 `cron/daily-brief`；通知 entityType `trade_booth_summary` 点开回到 `/trade/booth-cards?day=`
 - 发件身份：OrgBusinessRule `trade.email_sender`（`src/lib/trade/email-sender.ts`，接口 `/api/trade/email-sender`）。
