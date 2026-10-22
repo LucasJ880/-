@@ -39,7 +39,8 @@ const EVENT = "the 140th Canton Fair (Booth 14.3E07)";
 
 async function main() {
   const { db } = await import("@/lib/db");
-  const { parseBoothCardSheet, boothCardToInquiry } = await import("@/lib/trade/booth-cards");
+  const { parseBoothCardSheet, boothCardToInquiry, boothCardOrigin } = await import("@/lib/trade/booth-cards");
+  const { loadStyleReferences, resolveStyles, saveStyleReferences } = await import("@/lib/trade/style-references");
   const { ingestWebsiteInquiry, normalizeInquiry, BOOTH_CARD_CAMPAIGN_NAME } = await import("@/lib/trade/website-inquiry");
   const { INQUIRY_REPLY_ACTION_TYPE } = await import("@/lib/revenue-spine/fde/inbound-sales");
   const { __setToolPolicyLoaderForTest } = await import("@/lib/pending-actions/executor");
@@ -56,20 +57,33 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG, userId: TRADE, role: "org_member", status: "active" } });
 
   const csv = [
-    "卡号,日期,业务员,公司,联系人,职位,邮箱,WhatsApp,国家,买家类型,感兴趣款号,规格/认证,采购规模,时间,下一步,等级,备注,语音备注",
-    `CF140-0001,10/31,Cathy,Maple Home Goods ${stamp},Emma Brown,Purchasing Manager,emma.${stamp}@maplehome-${stamp}.ca,,Canada,零售/自有品牌,"MX-BL-001, MX-BR-001",OEKO-TEX; 280gsm,1-5柜,3个月内,"报价, 寄样",A,Wants own-brand gift box packaging,`,
-    `CF140-0002,10/31,Leo,Gulf Trading ${stamp},Omar,,,+971 50 123 4567,UAE,进口/批发,MX-BL-002,,>5柜,有具体项目,报价,A,,`,
-    `CF140-0003,10/31,Cathy,Maple Home Goods ${stamp},Liam Chen,Product Developer,liam.${stamp}@maplehome-${stamp}.ca,,Canada,零售/自有品牌,MX-CP-001,,<1柜,先了解,只发目录,C,,`,
+    "卡号,日期,业务员,公司,联系人,职位,邮箱,WhatsApp,国家,买家类型,感兴趣款号,规格/认证,采购规模,时间,下一步,等级,备注,备注原文,语音备注",
+    `CF140-0001,10/31,Cathy,Maple Home Goods ${stamp},Emma Brown,Purchasing Manager,emma.${stamp}@maplehome-${stamp}.ca,,Canada,零售/自有品牌,"MX-BL-001, MX-BR-001",OEKO-TEX; 280gsm,1-5柜,3个月内,"报价, 寄样",A,Wants own-brand gift box packaging,要自有品牌礼盒包装，圣诞季,`,
+    `CF140-0002,10/31,Leo,Gulf Trading ${stamp},Omar,,,+971 50 123 4567,UAE,进口/批发,MX-BL-002,,>5柜,有具体项目,报价,A,,,`,
+    `CF140-0003,10/31,Cathy,Maple Home Goods ${stamp},Liam Chen,Product Developer,liam.${stamp}@maplehome-${stamp}.ca,,Canada,零售/自有品牌,MX-CP-001,,<1柜,先了解,只发目录,C,,,`,
   ].join("\n");
 
   try {
     const parsed = parseBoothCardSheet(csv);
     ok(parsed.cards.length === 3 && parsed.cards.every((c) => c.errors.length === 0), "表格解析：3 张卡、无错误", parsed.cards.map((c) => c.errors));
 
+    // 参考表：卡 1 的两个款号都在表里；卡 3 的 MX-CP-001 不在（只写款号）
+    await saveStyleReferences(ORG, [{ code: "MX-BL-001", name: "Flannel / Coral Fleece Blanket" }, { code: "MX-BR-001", name: "Solid / Hotel / Spa Bathrobes" }], OWNER);
+    const v2 = await saveStyleReferences(ORG, [
+      { code: "MX-BL-001", name: "Flannel / Coral Fleece Blanket" },
+      { code: "MX-BR-001", name: "Solid / Hotel / Spa Bathrobes" },
+      { code: "MX-BL-002", name: "Sherpa Double-Layer Blanket" },
+    ], OWNER);
+    const refs = await loadStyleReferences(ORG);
+    ok(v2.version === 2 && refs.length === 3, "参考表按版本发布，读到最新一版", { version: v2.version, refs });
+
+    // 与录入接口一致：参考表对照款号，卡上等级随来源一起传
     const ingest = async (i: number) => {
-      const n = boothCardToInquiry(parsed.cards[i].card, EVENT);
+      const card = parsed.cards[i].card;
+      const styles = resolveStyles(card.styles, refs);
+      const n = boothCardToInquiry(card, EVENT, styles);
       if (!n.ok) throw new Error(n.error);
-      return ingestWebsiteInquiry(ORG, n.value, { origin: { kind: "trade_show", event: EVENT } });
+      return ingestWebsiteInquiry(ORG, n.value, { origin: boothCardOrigin(card, EVENT, styles) });
     };
 
     // ── 卡 1：有邮箱 → 线索 + 商机 + 草稿待审批 ──
@@ -94,13 +108,33 @@ async function main() {
     const bodyA = String(payloadA.body ?? "");
     const subjectA = String(payloadA.subject ?? "");
     ok(!!draftA, "回复草稿已进审批（未发送）", a.fdeState);
+    ok(draftA?.title === `跟进邮件（展会 · A 级）：Maple Home Goods ${stamp}`, "审批标题带展会和卡上等级", draftA?.title);
+    ok(a.fdeState?.pendingActionId === draftA?.id, "录入结果里的 pendingActionId 就是这封草稿（页面据此显示「草稿待审批」）", { result: a.fdeState?.pendingActionId, draft: draftA?.id });
+    ok(oppA?.priority === "hot", "卡上 A 级 → 商机优先级 hot（AI 评分照常记录）", { priority: oppA?.priority });
+    const oppA2 = a.spine.ok ? await db.salesOpportunity.findUnique({ where: { id: a.spine.opportunityId }, select: { priority: true, scoreGrade: true } }) : null;
+    ok(oppA2?.priority === "hot" && !!oppA2.scoreGrade, "FDE 评分后优先级仍按卡上等级", oppA2);
+    const gradeEvent = await db.agentRunEvent.findFirst({ where: { orgId: ORG, title: { startsWith: "展会卡上等级 A" } } });
+    ok(!!gradeEvent, "运行记录里写明按卡上等级定优先级", gradeEvent?.title);
     ok(/Thank you for visiting the Mengxin Home Textile booth at the 140th Canton Fair \(Booth 14\.3E07\)/.test(bodyA) && !/received your inquiry/i.test(bodyA), "草稿开头是展位来访，不是“收到询盘”", bodyA.slice(0, 240));
     ok(/^Great meeting you at the 140th Canton Fair/.test(subjectA), "草稿主题：Great meeting you at …", subjectA);
     ok(
-      /- Certification: OEKO-TEX/.test(bodyA) && /- Packaging: Wants own-brand gift box packaging/.test(bodyA) && !/- (Quantity|Customization|Required delivery)/i.test(bodyA) && !/CF140|Cathy|grade/i.test(bodyA),
-      "草稿里的需求要点只有卡上的真实信息：认证、包装；没有从编号里读出的数量 / 虚构交期 / 内部信息",
+      /- Certification: OEKO-TEX/.test(bodyA) && /- Packaging: Wants own-brand gift box packaging/.test(bodyA) && !/- (Quantity|Customization|Required delivery)/i.test(bodyA) && !/- Material/.test(bodyA) && !/CF140|grade/i.test(bodyA),
+      "草稿里的需求要点只有卡上的真实信息：认证、包装；没有从编号里读出的数量 / 从参考款名读出的材质 / 虚构交期 / 内部信息",
       bodyA.split("\n"),
     );
+    ok(
+      /You looked at these reference styles from our past production:\n- Flannel \/ Coral Fleece Blanket \(ref\. MX-BL-001\)\n- Solid \/ Hotel \/ Spa Bathrobes \(ref\. MX-BR-001\)\nEach of them can be made to your own specification/.test(bodyA) &&
+        !/Which specific product/.test(bodyA),
+      "草稿逐一点名参考款（OEM：做过的款式、按买家规格定做），不再问“要哪个产品”",
+      bodyA.split("\n"),
+    );
+    ok(/Best regards,\nCathy\nMengxin Home Textile\s*$/.test(bodyA), "落款是卡上接待的业务员（买家在展位见到的人）", bodyA.slice(-80));
+    ok(
+      /——— 中文对照（仅供审核，不会发送/.test(draftA?.preview ?? "") && /感谢您在 the 140th Canton Fair \(Booth 14\.3E07\) 莅临/.test(draftA?.preview ?? "") && !/中文对照/.test(bodyA),
+      "审批预览附中文对照给审核人看；发送正文里没有",
+      (draftA?.preview ?? "").slice(-400),
+    );
+    ok(/备注原文 要自有品牌礼盒包装，圣诞季/.test(msgA?.content ?? ""), "时间线记下中文备注原文", msgA?.content);
     const tradeNotes = await db.notification.count({ where: { userId: TRADE, title: { startsWith: "展会速记卡：" } } });
     ok(tradeNotes === 0, "夜间批量录入不逐张通知外贸成员", tradeNotes);
 
@@ -133,6 +167,15 @@ async function main() {
     ok(c.spine.ok && c.prospectId !== a.prospectId && !c.replay, "卡 3（同公司另一人）单独留痕", { a: a.prospectId, c: c.prospectId });
     const msgC = await db.tradeMessage.findUnique({ where: { id: c.messageId } });
     ok(!!msgC && /卡号 CF140-0003/.test(msgC.content), "卡 3 的消息带自己的卡号", msgC?.content);
+    const oppC = c.spine.ok ? await db.salesOpportunity.findUnique({ where: { id: c.spine.opportunityId }, select: { priority: true } }) : null;
+    const interactionC = c.spine.ok ? await db.customerInteraction.findUnique({ where: { id: c.spine.interactionId }, select: { content: true } }) : null;
+    ok(/Interested in reference styles: MX-CP-001\./.test(interactionC?.content ?? ""), "不在参考表的款号原样写款号", interactionC?.content);
+    if (c.spine.ok && a.spine.ok && c.spine.opportunityId !== a.spine.opportunityId) {
+      ok(oppC?.priority === "cold", "卡上 C 级 → 优先级 cold", oppC);
+    } else {
+      // 同公司卡 3（C 级）并进了卡 1（A 级）的商机：取最高等级，仍按 A 跟进
+      ok(oppC?.priority === "hot", "同一商机多张卡取最高等级：A + C → hot", oppC);
+    }
 
     // ── 网站询盘不受影响：标签、来源、通知照旧 ──
     const web = normalizeInquiry({ name: "Web Buyer", email: `web.${stamp}@buyer-${stamp}.com`, company: `Web Buyer ${stamp}`, message: "Need 500 coral fleece bathrobes.", eventId: `inq_${stamp}` });

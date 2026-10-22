@@ -28,8 +28,11 @@ export interface ReplyDraftInput {
   policy: RevenueSpinePolicy;
   /** 原始询盘（用于主题行） */
   inquirySubject?: string | null;
-  /** 展位见过面的买家（展会速记卡）：开头写展位来访而不是"通过官网联系" */
-  tradeShow?: { event: string | null } | null;
+  /**
+   * 展位见过面的买家（展会速记卡）：开头写展位来访而不是"通过官网联系"；
+   * styles = 买家看过的参考款（OEM：做过、能做的款式，按买家规格定做，不是现货）
+   */
+  tradeShow?: { event: string | null; styles?: Array<{ code: string; name: string | null }> } | null;
 }
 
 export interface ReplyDraft {
@@ -111,13 +114,25 @@ export function checkDraftGuardrails(body: string, allowed: GuardrailAllowances 
   return [...new Set(violations)];
 }
 
+/** 整词 / 整短语包含（"m" 不算在 "blanket" 里） */
+function containsPhrase(haystack: string, phrase: string): boolean {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`).test(haystack);
+}
+
 export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const lang: "zh" | "en" = input.language === "zh" ? "zh" : "en";
   const { fields, knowledge } = input;
   const facts: Array<{ field: RfqField; value: string }> = [];
+  // 展会参考款已在开头逐一列出，不再作为"产品名"重复确认；
+  // 从参考款品类名里读出的材质等（如 Coral Fleece）是参考款的，不是买家的要求，也不请买家确认
+  const styleNames = (input.tradeShow?.styles ?? []).map((st) => st.name?.toLowerCase()).filter((n): n is string => Boolean(n));
   for (const f of CONFIRM_FIELDS) {
+    if (styleNames.length && f === "productName") continue;
     const v = fmtValue(f, fields);
-    if (v) facts.push({ field: f, value: v });
+    if (!v) continue;
+    if (styleNames.some((n) => containsPhrase(n, v.toLowerCase()))) continue;
+    facts.push({ field: f, value: v });
   }
   const pending: string[] = [];
   if (knowledge.moq.status !== "available") pending.push("MOQ");
@@ -127,6 +142,14 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   if (fields.sampleRequired && knowledge.samplePolicy.status !== "available") pending.push(lang === "zh" ? "样品安排" : "sample arrangement");
 
   const met = input.tradeShow ?? null;
+  const atEventZh = met?.event ? (/^[A-Za-z0-9]/.test(met.event) ? `在 ${met.event} ` : `在${met.event}`) : "在展会上";
+  const styles = met?.styles ?? [];
+  const styleLabel = (st: { code: string; name: string | null }, zh: boolean) =>
+    st.name ? (zh ? `${st.name}（参考款 ${st.code}）` : `${st.name} (ref. ${st.code})`) : st.code;
+  const styleSubject = (zh: boolean) =>
+    styles.length
+      ? `${styles[0].name ?? styles[0].code}${styles.length > 1 ? (zh ? ` 等 ${styles.length} 款` : ` and ${styles.length - 1} more`) : ""}`
+      : null;
   const product =
     fields.productName ??
     (met ? (lang === "zh" ? "您感兴趣的产品" : "the products we discussed") : lang === "zh" ? "您咨询的产品" : "the products you inquired about");
@@ -137,15 +160,25 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   let body: string;
   if (lang === "zh") {
     const qty = fields.quantity ? `（${fields.quantity}${fields.unit ?? "件"}）` : "";
-    subject = met ? `感谢展位来访：${product}${qty} — ${input.orgName}` : `回复：${product}${qty}询盘 — ${input.orgName}`;
+    subject = met
+      ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${input.orgName}`
+      : `回复：${product}${qty}询盘 — ${input.orgName}`;
     const lines: string[] = [];
     lines.push(`${greetName}${input.contactName ? "，您好" : ""}：`);
     lines.push("");
-    lines.push(
-      met
-        ? `感谢您${met.event ? `在${met.event}` : "在展会上"}莅临 ${input.orgName} 的展位，很高兴与您交流。以下是关于${product}的跟进。`
-        : `感谢您通过官网联系 ${input.orgName}，我们已收到您关于${product}的询盘。`,
-    );
+    if (met && styles.length) {
+      lines.push(`感谢您${atEventZh}莅临 ${input.orgName} 的展位，很高兴与您交流。`);
+      lines.push("");
+      lines.push("您在展位看过的参考款（我们以往做过的款式）：");
+      for (const st of styles) lines.push(`- ${styleLabel(st, true)}`);
+      lines.push("每一款都可以按您的规格定做：尺寸、面料、克重、颜色、品牌和包装。");
+    } else {
+      lines.push(
+        met
+          ? `感谢您${atEventZh}莅临 ${input.orgName} 的展位，很高兴与您交流。以下是关于${product}的跟进。`
+          : `感谢您通过官网联系 ${input.orgName}，我们已收到您关于${product}的询盘。`,
+      );
+    }
     if (facts.length) {
       lines.push("");
       lines.push("我们对需求的理解如下，请确认：");
@@ -170,16 +203,24 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   } else {
     const qty = fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
-      ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${product}${qty} — ${input.orgName}`
+      ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${input.orgName}`
       : `Re: Your inquiry about ${product}${qty} — ${input.orgName}`;
     const lines: string[] = [];
     lines.push(`Dear ${greetName},`);
     lines.push("");
-    lines.push(
-      met
-        ? `Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you. Here is our follow-up on ${product}.`
-        : `Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry about ${product}.`,
-    );
+    if (met && styles.length) {
+      lines.push(`Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you.`);
+      lines.push("");
+      lines.push("You looked at these reference styles from our past production:");
+      for (const st of styles) lines.push(`- ${styleLabel(st, false)}`);
+      lines.push("Each of them can be made to your own specification — size, fabric, weight, colour, branding and packing.");
+    } else {
+      lines.push(
+        met
+          ? `Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you. Here is our follow-up on ${product}.`
+          : `Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry about ${product}.`,
+      );
+    }
     if (facts.length) {
       lines.push("");
       lines.push("Here is our understanding of your requirement — please confirm:");

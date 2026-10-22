@@ -3,29 +3,39 @@
 入口：青砚 → 外贸 → 展会导入 → 「展会速记卡 · 夜间录入」，或直接打开 `/trade/booth-cards`。
 外贸、老板、经理账号可用。
 
+## 展前一次性：款号参考表
+
+页面「款号参考表」里一行一个 `款号, 品类名`，品类名用英文（会写进给买家的跟进邮件），保存即生效，可随时改。
+梦馨展示的款号是**做过、能做的参考款**，不是有固定规格和价格的现货：表里只写通用品类名，不写尺寸、克重、价格。
+录入时卡上的款号会写成「品类名 (ref. 款号)」，跟进邮件逐一列出买家看过的参考款，并说明每一款都可以按买家的规格定做
+（尺寸、面料、克重、颜色、品牌和包装）。不在表里的款号照样能录入，邮件里只写款号，预览时黄字提醒。
+
 ## 每晚的流程（约 40 分钟 / 60 张卡）
 
 | 步骤 | 谁 | 做什么 |
 |---|---|---|
 | 1 拍照 | 晚间负责人 | 每张卡一张照片：名片朝上，整张卡入镜，光线均匀，不反光 |
 | 2 AI 识别 | 晚间负责人 | 页面上「复制 AI 提示词」，连同当天照片发给 AI（Claude / ChatGPT），得到 CSV |
-| 3 核对 | 晚间负责人 | 对照卡片逐行核对 **邮箱、WhatsApp、等级、卡号**；备注里带「[待核：…]」的格子补全后删掉标记 |
+| 3 核对 | 晚间负责人 | 对照卡片逐行核对 **邮箱、WhatsApp、等级、卡号**；备注里带「[待核：…]」的格子补全后删掉标记。「备注」是给买家邮件用的英文，「备注原文」是卡上手写的中文原话，给同事看 |
 | 4 上传 | 晚间负责人 | CSV 存成 `.csv` 直接上传，或粘贴进「下载模板」的表格后上传；展会名称填 `the 140th Canton Fair (Booth 14.3E07)`（只需填一次） |
 | 5 录入 | 晚间负责人 | 预览没有红字后点「开始录入」。每张约 1 分钟，同时处理 3 张；页面不要关 |
 | 6 审核 | 管理层，次日开馆前 | 审批中心逐封看跟进邮件草稿，修改后批准发送；A 级当天排报价或寄样 |
 
 ## 每张卡录入后有什么
 
-- 外贸线索，归在「展会速记卡」活动，来源「展会」；时间线里一条「【展会速记卡】」消息，带卡号、日期、业务员、买家类型、款号、规模、时间、下一步、**卡上的等级**和备注
+- 外贸线索，归在「展会速记卡」活动，来源「展会」；时间线里一条「【展会速记卡】」消息，带卡号、日期、业务员、**卡上的等级**，以及按中文原样记录的买家类型、规模、时间、下一步、规格认证和**备注原文**
 - 客户和商机（来源 trade_show），互动记为「面谈」
 - AI 评分、RFQ 要点、缺失信息
-- 一封英文跟进邮件草稿，放进审批中心，**不会自动发送**。开头是
+- 卡上等级决定商机优先级：A → 高（进「重点线索」队列）、B → 中、C → 低；同一家公司多张卡取最高等级。AI 评分照常记录，供参考
+- 一封英文跟进邮件草稿，放进审批中心，标题「跟进邮件（展会 · A 级）：公司名」，**不会自动发送**。开头是
   “Thank you for visiting the Mengxin Home Textile booth at the 140th Canton Fair (Booth 14.3E07) — it was a pleasure meeting you.”
   草稿不写价格、MOQ、交期、认证、付款条件，这些一律写“需内部确认”
+- 审批预览里英文邮件下面附一份**中文对照**（同一模板的中文版，标明「仅供审核，不会发送」），看中文的同事据此审核；真正发出去的只有英文
+- 落款是卡上的业务员（买家在展位见到的人，如 Cathy）；业务员栏写的是中文名时，落款用商机负责人的名字。审核时可以改
 - 只留了 WhatsApp、没有邮箱的卡：建客户和商机，但没有邮件草稿，状态栏显示「用 WhatsApp 跟进」
 - 不逐张发通知（录入的人就是操作者）
 
-AI 评分和卡上的 A/B/C 可能不一致。跟进优先级以业务员在展位上判的等级为准，它在时间线消息里。
+AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分常偏低）。跟进优先级以业务员判的等级为准。
 
 ## 卡号就是线索编号
 
@@ -50,5 +60,10 @@ AI 评分和卡上的 A/B/C 可能不一致。跟进优先级以业务员在展�
 - 页面 `src/app/(main)/trade/booth-cards/page.tsx`；接口 `/api/trade/booth-cards/{parse,ingest,template}`
 - 解析与映射 `src/lib/trade/booth-cards.ts`（纯函数）：列名中英文都认；勾选项译成英文标签写进正文，回复语言不会因中文标签变成中文
 - 录入复用 `ingestWebsiteInquiry(orgId, inquiry, { origin: { kind: "trade_show", event } })`：同一条链路，区别只在活动名、标签、商机来源（trade_show）、收据来源（trade_show，事件身份 `card:<卡号>`）和不逐张通知
-- 回复草稿：`buildReplyDraft({ tradeShow: { event } })`，由 FDE 按最新来信的渠道 `trade_show` 和互动里的展会名自动选择
+- 回复草稿：`buildReplyDraft({ tradeShow: { event, styles } })`，由 FDE 按最新来信的渠道 `trade_show` 和互动里的展会名、参考款自动选择
+- 款号参考表 `src/lib/trade/style-references.ts`（OrgBusinessRule `trade.style_references`，按版本发布）；接口 `/api/trade/booth-cards/styles`
+- 卡上等级：互动 meta `boothGrade` → FDE 写商机 `priority`（A hot / B warm / C cold，多张卡取最高）；`daily-actions` 的重点线索包含 priority = hot
+- 落款：互动 meta `boothSales`（英文名才用）→ 草稿 `senderName`；来源对象统一由 `boothCardOrigin(card, event, styles)` 生成
+- 中文对照：FDE 在英文草稿之外用同一模板生成中文版，只拼进 PendingAction `preview`（`approvalPreview`），`payload.body` 只有英文
+- 参考款品类名里读出的材质等不作为买家要求列出（整词匹配），避免请买家确认参考款的属性
 - 测试：`src/lib/trade/__tests__/booth-cards.test.ts`、`booth-cards-db.isolated.test.ts`（隔离库端到端）、`src/lib/revenue-spine/__tests__/scoring-draft.test.ts`

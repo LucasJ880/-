@@ -42,6 +42,9 @@ interface Card {
 interface ParsedRow {
   card: Card;
   errors: string[];
+  /** 不阻止录入的提醒（如款号不在参考表） */
+  warnings?: string[];
+  styles?: Array<{ code: string; name: string | null }>;
 }
 
 type RowState =
@@ -53,7 +56,7 @@ type RowState =
 const CONCURRENCY = 3;
 
 const AI_PROMPT = `你会收到若干张广交会「买家速记卡」的照片，每张卡左上角订着买家名片。请每张卡输出一行，做成 CSV（第一行是列名，用英文逗号分隔，含逗号的内容用双引号括起来）。列名和顺序必须是：
-卡号,日期,业务员,公司,联系人,职位,邮箱,WhatsApp,国家,买家类型,感兴趣款号,规格/认证,采购规模,时间,下一步,等级,备注,语音备注
+卡号,日期,业务员,公司,联系人,职位,邮箱,WhatsApp,国家,买家类型,感兴趣款号,规格/认证,采购规模,时间,下一步,等级,备注,备注原文,语音备注
 
 规则：
 1. 卡号照卡片右上角印的抄，如 CF140-0001。看不清就写 ?，不要猜。
@@ -61,7 +64,7 @@ const AI_PROMPT = `你会收到若干张广交会「买家速记卡」的照片�
 3. WhatsApp 列填卡上手写的 WhatsApp / 微信，没有就填名片上的手机号，保留国家区号。
 4. 勾选项只写勾了的选项原文（如「零售/自有品牌」「1-5柜」「3个月内」），多选用顿号分隔；日期写勾选的那天，如 10/31。
 5. 等级只写 A、B 或 C。
-6. 备注和语音备注翻成简洁的英文（会被引用进给买家的跟进邮件草稿），不要添加卡上没有的内容。
+6. 「备注」翻成简洁的英文（会被引用进给买家的跟进邮件草稿），不要添加卡上没有的内容；「备注原文」照卡上手写原文抄（给同事看）。语音备注写英文要点。
 7. 任何看不清或不确定的格子留空，并在备注末尾加「[待核：字段名]」。绝对不要编造邮箱、电话或公司名。
 8. 邮箱逐字符核对：常见混淆 0/o、1/l、rn/m。
 最后只输出 CSV，不要其它说明。`;
@@ -82,6 +85,12 @@ export default function BoothCardsPage() {
   const [states, setStates] = useState<Record<string, RowState>>({});
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [styleText, setStyleText] = useState("");
+  const [styleCount, setStyleCount] = useState<number | null>(null);
+  const [styleStatus, setStyleStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [savingStyles, setSavingStyles] = useState(false);
+  // 参考表为空时默认展开；之后由用户开合（不随保存后的数量自动收起）
+  const [stylesOpen, setStylesOpen] = useState(false);
   const cancelled = useRef(false);
 
   useEffect(() => {
@@ -92,6 +101,46 @@ export default function BoothCardsPage() {
       /* 存储不可用时用空值 */
     }
   }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId || ambiguous) return;
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/trade/booth-cards/styles");
+        if (!res.ok) return;
+        const data = await res.json();
+        setStyleText(data.text ?? "");
+        setStyleCount(data.count ?? 0);
+        if (!data.count) setStylesOpen(true);
+      } catch {
+        /* 参考表读不到时照样能录入 */
+      }
+    })();
+  }, [orgId, ambiguous]);
+
+  const saveStyles = async () => {
+    setSavingStyles(true);
+    setStyleStatus(null);
+    try {
+      const res = await apiFetch("/api/trade/booth-cards/styles", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, text: styleText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStyleStatus({ tone: "error", text: (data.errors ?? [data.error ?? "保存失败"]).join("；") });
+        return;
+      }
+      setStyleText(data.text ?? styleText);
+      setStyleCount(data.count ?? 0);
+      setStyleStatus({ tone: "ok", text: `已保存 ${data.count} 个款号（第 ${data.version} 版）。之后上传的表格按新表显示和录入。` });
+    } catch {
+      setStyleStatus({ tone: "error", text: "保存失败，请检查网络后重试" });
+    } finally {
+      setSavingStyles(false);
+    }
+  };
 
   const saveEvent = (v: string) => {
     setEvent(v);
@@ -265,6 +314,39 @@ export default function BoothCardsPage() {
           <summary className="cursor-pointer select-none">查看提示词</summary>
           <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-background p-3 font-sans text-[11px] leading-relaxed">{AI_PROMPT}</pre>
         </details>
+        <details className="text-xs text-muted" open={stylesOpen} onToggle={(e) => setStylesOpen(e.currentTarget.open)}>
+          <summary className="cursor-pointer select-none">
+            款号参考表{styleCount === null ? "" : styleCount ? `（${styleCount} 个款号）` : "（还没有，建议先填）"}
+          </summary>
+          <div className="mt-2 space-y-2">
+            <p className="text-[11px] leading-relaxed">
+              一行一个：<code>款号, 品类名</code>，品类名用英文，会写进给买家的跟进邮件，例如{" "}
+              <code>MX-BL-001, Flannel / Coral Fleece Blanket</code>。
+              展位上的款号是做过、能做的参考款：这里只写通用品类名，不写尺寸、克重、价格，邮件里会说明可按买家规格定做。
+            </p>
+            <textarea
+              value={styleText}
+              onChange={(e) => setStyleText(e.target.value)}
+              rows={8}
+              spellCheck={false}
+              placeholder={"MX-BL-001, Flannel / Coral Fleece Blanket\nMX-BR-001, Solid / Hotel / Spa Bathrobes"}
+              className="w-full max-w-2xl rounded-lg border border-border bg-background px-3 py-2 font-mono text-[11px] text-foreground focus:border-blue-500 focus:outline-none"
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void saveStyles()}
+                disabled={savingStyles || running}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-blue-500/40 disabled:opacity-50"
+              >
+                {savingStyles && <Loader2 size={12} className="animate-spin" />} 保存参考表
+              </button>
+              {styleStatus && (
+                <span className={styleStatus.tone === "ok" ? "text-emerald-400" : "text-red-400"}>{styleStatus.text}</span>
+              )}
+            </div>
+          </div>
+        </details>
       </section>
 
       <section className="space-y-3 rounded-xl border border-border/60 bg-card-bg p-5">
@@ -364,7 +446,7 @@ export default function BoothCardsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ card, errors }) => {
+                {rows.map(({ card, errors, warnings, styles }) => {
                   const s = states[card.cardNo];
                   return (
                     <tr key={`${card.row}-${card.cardNo}`} className="border-b border-border/30 align-top">
@@ -379,7 +461,21 @@ export default function BoothCardsPage() {
                         <div className="text-muted">{card.whatsapp}</div>
                       </td>
                       <td className="py-2 pr-3 font-semibold">{card.grade}</td>
-                      <td className="py-2 pr-3">{card.styles}</td>
+                      <td className="py-2 pr-3">
+                        {styles?.length
+                          ? styles.map((st) => (
+                              <div key={st.code}>
+                                <span className="font-mono">{st.code}</span>
+                                {st.name && <span className="text-muted"> · {st.name}</span>}
+                              </div>
+                            ))
+                          : card.styles}
+                        {warnings?.map((w) => (
+                          <div key={w} className="text-amber-400">
+                            {w}
+                          </div>
+                        ))}
+                      </td>
                       <td className="py-2">
                         {errors.length > 0 ? (
                           <span className="text-red-400">{errors.join("；")}</span>

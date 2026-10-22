@@ -12,7 +12,8 @@
  */
 
 import * as XLSX from "xlsx";
-import { normalizeInquiry, type NormalizeResult } from "./website-inquiry";
+import { normalizeInquiry, type IngestOrigin, type NormalizeResult } from "./website-inquiry";
+import { describeStyle, type ResolvedStyle } from "./style-references";
 
 /** 夜间录入的人：外贸，或负责审核的管理层 */
 export const BOOTH_CARD_ROLES = ["trade", "boss", "manager", "admin"];
@@ -36,7 +37,10 @@ export interface BoothCard {
   timing: string;
   nextStep: string;
   grade: string;
+  /** 英文备注（会写进给买家的邮件草稿） */
   note: string;
+  /** 卡上手写备注原文（中文，给同事看，只进时间线） */
+  noteOriginal: string;
   voiceNote: string;
 }
 
@@ -60,7 +64,8 @@ export const BOOTH_CARD_COLUMNS: Array<{ field: Field; header: string; aliases: 
   { field: "timing", header: "时间", aliases: ["timing", "采购时间"], hint: "有具体项目、3个月内、先了解" },
   { field: "nextStep", header: "下一步", aliases: ["next step", "next"], hint: "报价、寄样、视频验厂、只发目录（可多选）" },
   { field: "grade", header: "等级", aliases: ["grade", "level", "线索等级"], hint: "A / B / C" },
-  { field: "note", header: "备注", aliases: ["note", "notes", "remark", "remarks", "memo"], hint: "卡上手写备注，翻成简洁英文（会被引用进给买家的跟进邮件草稿）" },
+  { field: "note", header: "备注", aliases: ["note", "notes", "remark", "remarks", "memo", "备注（英文）", "英文备注"], hint: "卡上手写备注，翻成简洁英文（会被引用进给买家的跟进邮件草稿）" },
+  { field: "noteOriginal", header: "备注原文", aliases: ["原文备注", "中文备注", "备注（中文）", "original note", "note (original)"], hint: "卡上手写备注照原文抄（中文，给同事看，不进邮件）" },
   { field: "voiceNote", header: "语音备注", aliases: ["voice note", "voice", "语音"], hint: "语音备注的英文要点（没有就留空）" },
 ];
 
@@ -115,10 +120,11 @@ export function normalizeStyles(v: string): string {
 
 const EMPTY_CARD: Omit<BoothCard, "row"> = {
   cardNo: "", date: "", sales: "", company: "", contactName: "", title: "", email: "", whatsapp: "",
-  country: "", buyerType: "", styles: "", specs: "", volume: "", timing: "", nextStep: "", grade: "", note: "", voiceNote: "",
+  country: "", buyerType: "", styles: "", specs: "", volume: "", timing: "", nextStep: "", grade: "", note: "", noteOriginal: "",
+  voiceNote: "",
 };
 
-const LONG_FIELDS = new Set<Field>(["note", "voiceNote", "specs"]);
+const LONG_FIELDS = new Set<Field>(["note", "noteOriginal", "voiceNote", "specs"]);
 
 /** 任意来源（表格行 / 录入接口 JSON）→ 清洗、归一后的卡片；不信任调用方已处理 */
 export function boothCardFromInput(raw: Partial<Record<Field, unknown>>, row: number): BoothCard {
@@ -254,11 +260,13 @@ function sentence(label: string, value: string): string | null {
  * 交给 Revenue Spine 的正文（RFQ 抽取 / 评分 / 起草都读它）：只写买家相关的事实，一句一个，
  * 不含卡号、日期、业务员、等级、展会名这些内部信息（它们里的数字会被当成数量）。
  */
-export function buildBoothCardMessage(card: BoothCard): string {
+export function buildBoothCardMessage(card: BoothCard, styles: ResolvedStyle[] = []): string {
+  // 款号是参考款（做过、能做的款式），按参考表写成「品类名 (ref. 款号)」，让 RFQ 能识别类目
+  const interested = styles.length ? styles.map(describeStyle).join("; ") : card.styles;
   return [
     "Met at our trade show booth.",
     sentence("Buyer type", toEnglishOptions(card.buyerType, BUYER_TYPE_EN)),
-    sentence("Interested in", card.styles),
+    sentence(styles.length ? "Interested in reference styles" : "Interested in", interested),
     sentence("Requirements", card.specs),
     sentence("Volume", toEnglishOptions(card.volume, VOLUME_EN)),
     sentence("Timing", toEnglishOptions(card.timing, TIMING_EN)),
@@ -271,7 +279,10 @@ export function buildBoothCardMessage(card: BoothCard): string {
     .join("\n");
 }
 
-/** 只进线索时间线的内部信息（「展会」一行）：展会、卡号、日期、业务员、卡上等级、职位 */
+/**
+ * 只进线索时间线的内部信息（「展会」一行，给看中文的同事）：展会、卡号、日期、业务员、卡上等级、职位，
+ * 以及卡上勾选项和备注的中文原文。英文正文只给 AI 分析和起草用。
+ */
 export function buildBoothCardContext(card: BoothCard, event: string): string {
   return [
     event || "展会",
@@ -280,13 +291,19 @@ export function buildBoothCardContext(card: BoothCard, event: string): string {
     card.sales && `业务员 ${card.sales}`,
     card.grade && `等级 ${card.grade}`,
     card.title && `职位 ${card.title}`,
+    card.buyerType && `买家类型 ${card.buyerType}`,
+    card.volume && `规模 ${card.volume}`,
+    card.timing && `时间 ${card.timing}`,
+    card.nextStep && `下一步 ${card.nextStep}`,
+    card.specs && `规格认证 ${card.specs}`,
+    card.noteOriginal && `备注原文 ${card.noteOriginal}`,
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
 /** 卡片 → 归一化询盘（与网站表单同一校验）；事件身份 = card:<卡号> */
-export function boothCardToInquiry(card: BoothCard, event: string): NormalizeResult {
+export function boothCardToInquiry(card: BoothCard, event: string, styles: ResolvedStyle[] = []): NormalizeResult {
   return normalizeInquiry({
     name: card.contactName,
     email: card.email,
@@ -294,7 +311,7 @@ export function boothCardToInquiry(card: BoothCard, event: string): NormalizeRes
     company: card.company,
     country: card.country,
     product: card.styles,
-    message: buildBoothCardMessage(card),
+    message: buildBoothCardMessage(card, styles),
     page: buildBoothCardContext(card, event),
     utm_source: "booth",
     utm_medium: "card",
@@ -302,6 +319,11 @@ export function boothCardToInquiry(card: BoothCard, event: string): NormalizeRes
     utm_content: card.cardNo,
     eventId: `card:${card.cardNo}`,
   });
+}
+
+/** 录入来源：展会名、参考款、卡上等级、接待业务员（落款） */
+export function boothCardOrigin(card: BoothCard, event: string, styles: ResolvedStyle[] = []): IngestOrigin {
+  return { kind: "trade_show", event: event || null, styles, grade: card.grade || null, sales: card.sales || null };
 }
 
 /** 下载用的空白模板：表头 + 一行示例 + 「说明」页 */
@@ -325,6 +347,7 @@ export function buildBoothCardTemplate(): Buffer {
     nextStep: "报价, 寄样",
     grade: "A",
     note: "Wants own-brand gift packaging for the Christmas season",
+    noteOriginal: "要自有品牌礼盒包装，圣诞季",
     voiceNote: "",
   };
   const sheet = XLSX.utils.aoa_to_sheet([header, BOOTH_CARD_COLUMNS.map((c) => example[c.field])]);

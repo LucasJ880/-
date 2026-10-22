@@ -7,7 +7,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
+import { resolveTradeOrgId } from "@/lib/trade/access";
 import { BOOTH_CARD_ROLES, parseBoothCardSheet } from "@/lib/trade/booth-cards";
+import { loadStyleReferences, resolveStyles } from "@/lib/trade/style-references";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 500;
@@ -17,6 +19,10 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   const form = await request.formData().catch(() => null);
+  const orgRes = await resolveTradeOrgId(request, auth.user, {
+    bodyOrgId: typeof form?.get("orgId") === "string" ? (form.get("orgId") as string) : null,
+  });
+  if (!orgRes.ok) return orgRes.response;
   const file = form?.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "请上传文件" }, { status: 400 });
@@ -52,10 +58,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `一次最多 ${MAX_ROWS} 张卡，请分批上传` }, { status: 400 });
   }
 
+  // 参考款：预览时显示品类名，不在参考表里的款号只提醒（照样能录入）
+  const refs = await loadStyleReferences(orgRes.orgId);
+  const cards = parsed.cards.map((c) => {
+    const styles = resolveStyles(c.card.styles, refs);
+    const unknown = styles.filter((s) => !s.name).map((s) => s.code);
+    return { ...c, styles, warnings: unknown.length ? [`款号不在参考表：${unknown.join("、")}`] : [] };
+  });
   return NextResponse.json({
-    total: parsed.cards.length,
-    valid: parsed.cards.filter((c) => c.errors.length === 0).length,
+    total: cards.length,
+    valid: cards.filter((c) => c.errors.length === 0).length,
     unknownColumns: parsed.unknownColumns,
-    cards: parsed.cards,
+    styleReferences: refs.length,
+    cards,
   });
 }
