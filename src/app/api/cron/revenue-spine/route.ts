@@ -3,6 +3,7 @@
  *   1. 补跑排队/失败的 Inbound FDE（inputContext.fdeStatus = queued）
  *   2. 重算所有开放商机的 Next Action；到期的生成/刷新 SalesAction 跟进行动 + 通知
  *   3. 长期无动作商机标记进入 stale 队列（不自动流转，只提示）
+ *   4. 首封回复后买家没回信：第 3 / 7 / 14 天起草跟进邮件进审批（不发送）
  */
 import { NextRequest, NextResponse } from "next/server";
 import { runTrackedAutomation } from "@/lib/automation/runner";
@@ -11,6 +12,7 @@ import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { runInboundSalesFde } from "@/lib/revenue-spine/fde/inbound-sales";
+import { draftNoReplyFollowUps } from "@/lib/revenue-spine/fde/no-reply-followup";
 import { NEXT_ACTION_LABELS, applyNextAction, type NextActionType } from "@/lib/revenue-spine/next-action";
 import { OPEN_STAGES } from "@/lib/revenue-spine/opportunity-stage";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
@@ -71,7 +73,9 @@ export async function GET(request: NextRequest) {
             createdById: o.assignedToId ?? o.createdById,
             inputContext: { nextAction: next, generatedBy: "cron" },
           });
-          if (action.createdAt.getTime() >= now.getTime() - 60_000 && o.assignedToId) {
+          // 无回复跟进已经起草成审批草稿（步骤 4，另有「待审批」通知）：这里只留行动记录，不再重复通知
+          const draftsHandleIt = next.type === "follow_up" && policy.followUp.noReplyFollowUpDays.length > 0;
+          if (action.createdAt.getTime() >= now.getTime() - 60_000 && o.assignedToId && !draftsHandleIt) {
             dueActions += 1;
             await createNotificationsForUsers([o.assignedToId], {
               type: "followup",
@@ -86,7 +90,9 @@ export async function GET(request: NextRequest) {
             }).catch(() => undefined);
           }
         }
-        results.push({ orgId, fdeQueued: queued.length, fdeRan, openOpportunities: open.length, dueActions });
+        // 4. 无回复跟进草稿
+        const followUps = await draftNoReplyFollowUps(orgId, { policy, now });
+        results.push({ orgId, fdeQueued: queued.length, fdeRan, openOpportunities: open.length, dueActions, followUpDrafts: followUps.drafted });
       } catch (error) {
         failedCount += 1;
         results.push({ orgId, error: error instanceof Error ? error.message : String(error) });

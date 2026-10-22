@@ -287,6 +287,8 @@ export interface SalesSendInquiryReplyPayload {
   body: string;
   language?: "zh" | "en" | null;
   replyToInteractionId?: string | null;
+  /** 买家没回信时的第几次跟进（1 起）；首封回复不填 */
+  followUpStep?: number | null;
   metadata: PendingActionMetadata & {
     orgId: string;
     customerId: string;

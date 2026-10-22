@@ -48,6 +48,7 @@ async function main() {
   const { __setInquiryReplySenderForTest } = await import("@/lib/pending-actions/exec-sales-inquiry-reply");
   const { saveOrgEmailSender, sendAsOrg, sendTradeEmailForOrg } = await import("@/lib/trade/email-sender");
   const { boothDayOf, collectBoothSummary, formatBoothSummary, sendBoothSummary } = await import("@/lib/trade/booth-summary");
+  const { draftNoReplyFollowUps } = await import("@/lib/revenue-spine/fde/no-reply-followup");
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
 
   const stamp = Date.now().toString(36);
@@ -291,6 +292,56 @@ async function main() {
     } finally {
       __setInquiryReplySenderForTest(null);
     }
+
+    // ── 展后跟进：首封发出后买家没回信 → 第 3 天起草第 1 次跟进（展会口吻、Cathy 落款、沿用主题），不重复；
+    //    批准发出后第 7 天起草第 2 次；买家回信后不再起草 ──
+    const DAY = 86_400_000;
+    const oppAState = await db.salesOpportunity.findUnique({ where: { id: oppA?.id ?? "" }, select: { lastOutboundAt: true, followUpCount: true } });
+    const sentAt = oppAState?.lastOutboundAt ?? new Date();
+    ok(oppAState?.followUpCount === 1, "首封已发出（followUpCount = 1）", oppAState);
+    const early = await draftNoReplyFollowUps(ORG, { now: new Date(sentAt.getTime() + 2 * DAY) });
+    ok(early.drafted === 0, "第 2 天：还不到跟进时间", early);
+    const day3 = await draftNoReplyFollowUps(ORG, { now: new Date(sentAt.getTime() + 3 * DAY + 60_000) });
+    const fu1 = day3.pendingActionIds.length
+      ? await db.pendingAction.findFirst({ where: { id: { in: day3.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } })
+      : null;
+    const fu1Payload = (fu1?.payload ?? {}) as Record<string, unknown>;
+    ok(
+      !!fu1 && /^跟进第 1\/3 次（展会 · A 级 · 3 天未回复）：Maple Home Goods/.test(fu1.title) && fu1Payload.followUpStep === 1,
+      "第 3 天：起草第 1 次跟进，标题写明第几次、卡上等级、几天未回复",
+      { title: fu1?.title, step: fu1Payload.followUpStep },
+    );
+    const fu1Body = String(fu1Payload.body ?? "");
+    ok(
+      /^Re: Great meeting you at the 140th Canton Fair/.test(String(fu1Payload.subject)) &&
+        /I hope you had a good trip back from the 140th Canton Fair/.test(fu1Body) &&
+        /Best regards,\nCathy\nMengxin Home Textile$/.test(fu1Body) &&
+        /——— 中文对照（仅供审核，不会发送）———\n回复：Great meeting you/.test(fu1?.preview ?? ""),
+      "跟进草稿：沿用首封主题、展会口吻、Cathy 落款，预览附中文对照",
+      { subject: fu1Payload.subject, body: fu1Body },
+    );
+    const again3 = await draftNoReplyFollowUps(ORG, { now: new Date(sentAt.getTime() + 3 * DAY + 120_000) });
+    ok(!again3.pendingActionIds.some((id) => id === fu1?.id) && again3.skipped.some((x) => x.opportunityId === oppA?.id), "再跑一次不重复起草", again3);
+
+    __setInquiryReplySenderForTest(async () => ({ channel: "test", messageId: `fu_${Date.now()}` }));
+    try {
+      const sentFu1 = fu1 ? await approveApprovalItem("pending_action", fu1.id, { userId: OWNER, role: "boss", orgId: ORG }) : null;
+      ok(sentFu1?.ok === true, "批准第 1 次跟进并发出", sentFu1);
+    } finally {
+      __setInquiryReplySenderForTest(null);
+    }
+    const afterFu1 = await db.salesOpportunity.findUnique({ where: { id: oppA?.id ?? "" }, select: { lastOutboundAt: true, followUpCount: true } });
+    const fu1SentAt = afterFu1?.lastOutboundAt ?? new Date();
+    const day6 = await draftNoReplyFollowUps(ORG, { now: new Date(fu1SentAt.getTime() + 3 * DAY) });
+    ok(afterFu1?.followUpCount === 2 && !day6.skipped.some((x) => x.opportunityId === oppA?.id) && day6.drafted === 0, "第 1 次跟进发出后 3 天：还不到第 2 次（间隔 4 天）", { afterFu1, day6 });
+    const day7 = await draftNoReplyFollowUps(ORG, { now: new Date(fu1SentAt.getTime() + 4 * DAY + 60_000) });
+    const fu2 = await db.pendingAction.findFirst({ where: { id: { in: day7.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } });
+    ok(!!fu2 && /^跟进第 2\/3 次.*7 天未回复/.test(fu2.title) && /still active/.test(String((fu2.payload as Record<string, unknown>).body)), "第 7 天：起草第 2 次跟进（问项目是否还在进行）", fu2?.title);
+
+    // 买家回信：之后不再起草；已起草的第 2 次因来信更新而过时（executor 发送前拒发）
+    await db.salesOpportunity.update({ where: { id: oppA?.id ?? "" }, data: { lastCustomerReplyAt: new Date(fu1SentAt.getTime() + 5 * DAY) } });
+    const afterReply = await draftNoReplyFollowUps(ORG, { now: new Date(fu1SentAt.getTime() + 30 * DAY) });
+    ok(!afterReply.pendingActionIds.length || !(await db.pendingAction.count({ where: { id: { in: afterReply.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } })), "买家回信后不再起草跟进", afterReply);
   } finally {
     try {
       const oppIds = (await db.salesOpportunity.findMany({ where: { orgId: ORG }, select: { id: true } })).map((o) => o.id);
