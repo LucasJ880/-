@@ -7,6 +7,9 @@
  *   - currency 解析不到 → 保持默认（CAD）且列入缺字段（默认值 ≠ 供应商说了）；
  *   - quoteNotes 只追加，永不覆盖；
  *   - 有价格 → quoted；无价格但有回信 → replied。
+ *
+ * ⚠ notesAppend 的格式被 notes-parse.ts（parseAutoNotes，P1-5 比价回读起订量/贸易条款/多档价/强制项）
+ *   逐字解析：改这里的措辞或分隔符必须同步改 notes-parse.ts，并跑 __tests__/notes-parse.test.ts 往返测试。
  */
 
 import type { InboundMissingField } from "./inbound-contract";
