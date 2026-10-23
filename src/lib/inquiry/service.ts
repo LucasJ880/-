@@ -359,13 +359,13 @@ export async function markItemNoResponse(scope: ItemScope) {
 
 // ── select（事务保证同一 inquiry 下仅一个 isSelected） ─────────
 
-export async function selectItem(scope: ItemScope) {
+export async function selectItem(scope: ItemScope, opts: { actorUserId?: string } = {}) {
   const { item } = await resolveItem(scope);
   if (item.status !== ITEM_STATUS.QUOTED) {
     throw new BusinessError("只有已报价的供应商才能被选定");
   }
 
-  return db.$transaction(async (tx) => {
+  const selected = await db.$transaction(async (tx) => {
     await tx.inquiryItem.updateMany({
       where: { inquiryId: item.inquiryId, isSelected: true },
       data: { isSelected: false },
@@ -377,6 +377,14 @@ export async function selectItem(scope: ItemScope) {
       include: { supplier: true },
     });
   });
+  // Muse Bridge（P1-8）：操作者本人的常用供应商挪到最前（best-effort；没有操作者就不学）
+  if (opts.actorUserId) {
+    const actorUserId = opts.actorUserId;
+    void import("@/lib/muse-bridge/prefs")
+      .then((m) => m.learnSupplierPreference({ projectId: scope.projectId, userId: actorUserId, supplierId: selected.supplierId }))
+      .catch(() => undefined);
+  }
+  return selected;
 }
 
 // ── deselect ──────────────────────────────────────────────────

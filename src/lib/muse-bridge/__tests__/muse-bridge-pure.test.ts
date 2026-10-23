@@ -52,8 +52,8 @@ ok("ask 缺 question 拒绝", !parseMuseCommand({ ...base, command: { intent: "a
   const r = parseMuseCommand({ ...base, command: { intent: "status", extraField: 1 }, foo: "bar" });
   ok("多余字段被 strip（不泄漏到路由）", r.ok && !("foo" in r.value) && !("extraField" in r.value.command));
 }
-ok("意图集包含 9 个意图", MUSE_INTENTS.length === 9);
-ok("Phase 0 意图 = status/ask/approve/reject", JSON.stringify(MUSE_PHASE0_INTENTS) === JSON.stringify(["status", "ask", "approve", "reject"]));
+ok("意图集包含 12 个意图（P1-8 加 next_step / set_preference / preferences）", MUSE_INTENTS.length === 12);
+ok("Phase 0 意图 = status/ask/approve/reject + next_step/set_preference/preferences", JSON.stringify(MUSE_PHASE0_INTENTS) === JSON.stringify(["status", "ask", "approve", "reject", "next_step", "set_preference", "preferences"]));
 ok("出站敏感词检测：毛利", containsOutboundSensitive("本单毛利 35%"));
 ok("出站敏感词检测：winningBidPrice", containsOutboundSensitive("winningBidPrice=1000"));
 ok("出站敏感词检测：普通文本不误伤", !containsOutboundSensitive("截标还有 3 天"));
@@ -62,7 +62,7 @@ console.log("muse-bridge flags");
 
 ok("默认关闭", !isMuseBridgeEnabled({}));
 ok("MUSE_BRIDGE_ENABLED=1 开启", isMuseBridgeEnabled({ MUSE_BRIDGE_ENABLED: "1" }));
-ok("意图白名单为空 → Phase 0 四个", enabledMuseIntents({}).size === 4 && enabledMuseIntents({}).has("approve"));
+ok("意图白名单为空 → Phase 0 七个", enabledMuseIntents({}).size === 7 && enabledMuseIntents({}).has("approve") && enabledMuseIntents({}).has("next_step"));
 {
   const s = enabledMuseIntents({ MUSE_BRIDGE_INTENTS: "status,rfq,bogus" });
   ok("意图白名单显式配置 → 只认配置的合法意图", s.size === 2 && s.has("rfq") && !s.has("approve"));
@@ -132,12 +132,12 @@ const row = (over: Partial<StatusProjectRow>): StatusProjectRow => ({
   const empty = formatStatusMessage([], now);
   ok("无项目 → 诚实提示", empty.message.includes("没有在跟的投标项目") && empty.suggestedActions.length === 0);
   const many = formatStatusMessage(Array.from({ length: 10 }, (_, i) => row({ id: `p${i}`, name: `标${i}` })), now);
-  ok("超过 8 个 → 折叠提示 + ≤3 个建议动作", many.message.includes("还有 2 个") && many.suggestedActions.length === 3 && many.suggestedActions[0].command.intent === "ask");
+  ok("10 个项目 → 理由列前 3 个、结论注明其余 7 个、下一步 = 第一个标的 next_step", many.message.includes("另 7 个见列表") && many.advisory.reasons.length === 3 && many.suggestedActions[0].command.intent === "next_step");
   ok("status 响应符合契约", museCommandResponseSchema.safeParse({ contractVersion: MUSE_BRIDGE_CONTRACT_VERSION, requestId: "r", ok: true, message: many.message, suggestedActions: many.suggestedActions }).success);
 }
 {
   const a = formatApprovalOutcome("req-0001-abcdef", "approve", { ok: true, status: "executed" });
-  ok("批准成功 → 已批准 + 建议看状态", a.ok && a.message.startsWith("已批准") && a.suggestedActions[0]?.command.intent === "status");
+  ok("批准成功 → 已批准 + 下一步看状态", a.ok && a.message.startsWith("已批准") && a.suggestedActions[0]?.command.intent === "status" && a.message.includes("下一步：看看还有什么要批"));
   const d = formatApprovalOutcome("req-0001-abcdef", "approve", { ok: true, duplicate: true });
   ok("重复批准 → 标注未重复执行", d.message.includes("未重复执行"));
   const f = formatApprovalOutcome("req-0001-abcdef", "reject", { ok: false, error: "无权操作该草稿" });

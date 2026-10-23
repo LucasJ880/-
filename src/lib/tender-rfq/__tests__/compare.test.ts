@@ -115,8 +115,8 @@ const AB = buildCompareMatrix([
   ok("§4-10 反向：正常 summary 不误触", sanitizeOutbound(AB.summaryZh, { strict: true }) === AB.summaryZh);
   ok("§4-10 反向：默认模式不拦「成本评分」这类招标原文", sanitizeOutbound("评分：价格 40%，成本评分按最低价法") !== OUTBOUND_REDACTED);
   const res = formatCompareResponse("req-10", { projectId: "p1", inquiryId: "inq", roundNumber: 2, matrix: AB });
-  ok("§4-10 compare 回复：summary 原样出（未被误替换）", res.message === `第 2 轮比价：${AB.summaryZh}`, res.message);
-  ok("§4-10 compare 回复：每家可换算的供应商一个「按 X 的落地价算情景」", res.suggestedActions.length === 2 && res.suggestedActions.every((a) => a.command.intent === "price_scenario" && "supplierItemId" in a.command));
+  ok("§4-10 compare 回复：结论 / 理由 / 下一步原样出（未被 strict 误替换）", res.message !== OUTBOUND_REDACTED && res.message.startsWith("推荐 B 公司：落地价 54,000") && res.message.includes("最低价 A 公司（50,000）未推荐：交期超出交付截止 10 天"), res.message);
+  ok("§4-10 compare 回复：下一步按推荐那家算情景，备选为其它可换算的供应商", res.suggestedActions.length === 2 && res.suggestedActions.every((a) => a.command.intent === "price_scenario" && "supplierItemId" in a.command) && (res.suggestedActions[0].command as { supplierItemId?: string }).supplierItemId === "B");
   ok("§4-10 compare 回复符合契约", museCommandResponseSchema.safeParse(res).success);
 }
 
