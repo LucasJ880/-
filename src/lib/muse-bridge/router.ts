@@ -429,16 +429,18 @@ async function handlePriceScenario(
 
   const { buildScenarios } = await import("@/lib/tender-pricing/calc");
   const { projectScenariosForMuse, scoreCandidatePrice } = await import("@/lib/tender-rfq/compare");
+  // 决定 A：落地价可以出 Muse，毛利率不行——不传目标毛利，"成本 + 目标毛利"情景（价格 ÷ 落地价即可反推毛利率）不生成，
+  // 成本线只出落地价本身
   const result = buildScenarios(ctx.model, {
     competitorPriceCad,
     ourCostCad: row.landedCad.total,
-    targetMarginPct: ctx.saved.targetMarginPct ?? null,
+    targetMarginPct: null,
   });
   const candidate =
     command.candidatePrice != null && competitorPriceCad != null && competitorPriceCad > 0
       ? scoreCandidatePrice(ctx.model, command.candidatePrice, competitorPriceCad)
       : null;
-  const view = projectScenariosForMuse(result, candidate);
+  const view = projectScenariosForMuse(result, candidate, row.landedCad.total);
   return respond(
     requestId,
     priceScenarioAdvisory({ projectId: r.projectId, supplierName: row.supplierName, competitorPriceCad, competitorSourceZh, view }),
@@ -451,6 +453,7 @@ async function handlePriceScenario(
         scenarios: view.scenarios,
         candidate: view.candidate,
         breakEvenPriceCad: view.breakEvenPriceCad,
+        landedCostCad: view.landedCostCad,
       },
     },
   );

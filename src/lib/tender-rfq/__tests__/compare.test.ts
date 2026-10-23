@@ -111,7 +111,8 @@ const AB = buildCompareMatrix([
 /* §4-10 */
 {
   ok("§4-10 summaryZh 含「毛利」→ sanitizeOutbound 整段替换", sanitizeOutbound("推荐 B，毛利还有 12%", { strict: true }) === OUTBOUND_REDACTED);
-  ok("§4-10 summaryZh 含「成本」→ strict 整段替换", sanitizeOutbound("推荐 B，我方成本 50,000", { strict: true }) === OUTBOUND_REDACTED);
+  ok("§4-10 决定 A：含「成本」不再被 strict 替换（落地价/成本线可以出）", sanitizeOutbound("推荐 B，落地价（成本线）50,000", { strict: true }) === "推荐 B，落地价（成本线）50,000");
+  ok("§4-10 决定 A：含「利润」仍被 strict 整段替换", sanitizeOutbound("推荐 B，利润还有 6,000", { strict: true }) === OUTBOUND_REDACTED);
   ok("§4-10 反向：正常 summary 不误触", sanitizeOutbound(AB.summaryZh, { strict: true }) === AB.summaryZh);
   ok("§4-10 反向：默认模式不拦「成本评分」这类招标原文", sanitizeOutbound("评分：价格 40%，成本评分按最低价法") !== OUTBOUND_REDACTED);
   const res = formatCompareResponse("req-10", { projectId: "p1", inquiryId: "inq", roundNumber: 2, matrix: AB });
@@ -130,16 +131,28 @@ const AB = buildCompareMatrix([
   const b = AB.rows.find((r) => r.itemId === "B")!;
   const result = buildScenarios(model, { competitorPriceCad: 70000, ourCostCad: b.landedCad.total, targetMarginPct: 15 });
   ok("§4-11 前提：内部结果里确实有 marginPct 与成本底价情景", result.scenarios.some((s) => s.marginPct != null) && result.scenarios.some((s) => s.key === "floor"));
-  const view = projectScenariosForMuse(result, scoreCandidatePrice(model, 65000, 70000));
+  const view = projectScenariosForMuse(result, scoreCandidatePrice(model, 65000, 70000), b.landedCad.total);
   const res = formatPriceScenarioResponse("req-11", { projectId: "p1", supplierItemId: "B", supplierName: "B 公司", competitorPriceCad: 70000, competitorSourceZh: "人工假设", view });
   const json = JSON.stringify(res);
   ok("§4-11 price_scenario 响应 JSON 里不存在 marginPct 键", !json.includes("marginPct"));
-  ok("§4-11 price_scenario 响应 JSON 里不存在 ourCostCad 键", !json.includes("ourCostCad"));
-  ok("§4-11 成本底价情景（能反推成本）不出 Muse", !view.scenarios.some((s) => /成本|毛利/.test(s.labelZh)) && view.scenarios.length === result.scenarios.length - 1);
-  ok("§4-11 落地价数值不出现在响应里", !json.includes(String(b.landedCad.total)) && !json.includes("54,000"));
-  ok("§4-11 只出价格分 / 总分差 / 打平价", view.breakEvenPriceCad != null && view.scenarios.every((s) => Object.keys(s).sort().join() === "deltaPts,labelZh,ourPriceScore,priceCad"));
+  ok("§4-11 price_scenario 响应 JSON 里不存在 estimatedValue 键", !json.includes("estimatedValue"));
+  ok("§4-11 决定 A：landedCostCad 允许存在，且等于所选供应商落地价", view.landedCostCad === b.landedCad.total && (res.data as { landedCostCad?: number }).landedCostCad === b.landedCad.total);
+  ok("§4-11 决定 A：成本线情景照出，标签为「所选供应商落地价（成本线）」", view.scenarios.length === result.scenarios.length && view.scenarios.some((s) => s.labelZh === "所选供应商落地价（成本线）") && !view.scenarios.some((s) => /毛利/.test(s.labelZh)));
+  ok("§4-11 只出价格分 / 总分差 / 打平价（情景里没有 noteZh / marginPct）", view.breakEvenPriceCad != null && view.scenarios.every((s) => Object.keys(s).sort().join() === "deltaPts,labelZh,ourPriceScore,priceCad"));
   ok("§4-11 候选价 65,000 有价格分与总分差", view.candidate?.ourPriceScore === 40 && typeof view.candidate.deltaPts === "number", view.candidate);
+  ok("§4-11 候选价高于落地价 → candidate 不存在 belowCostZh 键", !!view.candidate && !("belowCostZh" in view.candidate));
   ok("§4-11 消息未被 strict 脱敏误替换，且符合契约", res.message !== OUTBOUND_REDACTED && museCommandResponseSchema.safeParse(res).success, res.message);
+  ok("§4-11 消息里带出落地价", res.message.includes("落地价 54,000"), res.message);
+
+  // 候选价低于落地价 → 写明会亏
+  const low = projectScenariosForMuse(result, scoreCandidatePrice(model, 50000, 70000), b.landedCad.total);
+  ok("§4-11 候选价低于落地价 → belowCostZh 非空", low.candidate?.belowCostZh === "低于该供应商落地价 54,000，会亏", low.candidate);
+  const lowRes = formatPriceScenarioResponse("req-11b", { projectId: "p1", supplierItemId: "B", supplierName: "B 公司", competitorPriceCad: 70000, competitorSourceZh: "人工假设", view: low });
+  ok("§4-11 会亏的提示出现在回复里且没被 strict 替换", lowRes.message.includes("会亏") && museCommandResponseSchema.safeParse(lowRes).success, lowRes.message);
+  // router 走的路径：不传目标毛利 → 成本线 = 落地价本身（"成本 + 目标毛利"情景不生成，否则价格 ÷ 落地价能反推毛利率）
+  const noMargin = projectScenariosForMuse(buildScenarios(model, { competitorPriceCad: 70000, ourCostCad: b.landedCad.total, targetMarginPct: null }), null, b.landedCad.total);
+  ok("§4-11 不传目标毛利 → 成本线价格 = 落地价", noMargin.scenarios.find((s) => s.labelZh === "所选供应商落地价（成本线）")?.priceCad === b.landedCad.total);
+  ok("§4-11 不给落地价时不判会亏", !("belowCostZh" in (projectScenariosForMuse(result, scoreCandidatePrice(model, 50000, 70000)).candidate ?? {})));
 }
 
 /* §4-12 */
