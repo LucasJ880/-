@@ -31,7 +31,17 @@ export type NextStepSnapshot = {
   /** 最新一轮询价（无轮次 → null） */
   latestRound: {
     inquiryId: string;
-    items: Array<{ itemId: string; supplierName: string; status: string; sentAt: Date | string | null; isSelected: boolean }>;
+    items: Array<{
+      itemId: string;
+      supplierName: string;
+      status: string;
+      sentAt: Date | string | null;
+      isSelected: boolean;
+      /** P1-7：有询价邮件线程（threadId）才能自动催；缺省视为能 */
+      hasThread?: boolean;
+      /** P1-7：已发出的催单（no_reply）时间；最后一次联系 = 最后一条催单，否则 = sentAt */
+      chasedAt?: Array<Date | string>;
+    }>;
   } | null;
   hasProjectQuote: boolean;
   prefs: Pick<MuseUserPrefs, "defaultSupplierIds" | "chaseAfterDays">;
@@ -160,19 +170,27 @@ export function decideNextStep(s: NextStepSnapshot): NextStepDecision {
     };
   }
 
-  // 7. 已发、有家没回且超过 N 天（P1-7 未上线：不给按钮）
+  // 7. 已发、有家没回且距最后一次联系满 N 天 → 催（P1-7）；催满两次的等自动标未响应，不再建议催
   const chaseDays = s.prefs.chaseAfterDays ?? DEFAULT_CHASE_AFTER_DAYS;
-  const silent = items.filter((i) => i.status === "sent" && i.sentAt && s.now.getTime() - ms(i.sentAt) > chaseDays * DAY);
+  const lastContact = (i: (typeof items)[number]) => Math.max(i.sentAt ? ms(i.sentAt) : 0, ...(i.chasedAt ?? []).map(ms));
+  const silent = items.filter((i) => i.status === "sent" && i.sentAt && (i.chasedAt?.length ?? 0) < 2 && s.now.getTime() - lastContact(i) >= chaseDays * DAY);
   if (silent.length > 0) {
+    const chaseable = silent.filter((i) => i.hasThread !== false);
+    const manual = silent.length - chaseable.length;
     return {
       rule: "no_reply",
       advisory: {
         conclusion: `${silent.length} 家没回`,
         reasons: [
           `超过 ${chaseDays} 天未回复：${silent.slice(0, 3).map((i) => short(i.supplierName, 12)).join("、")}`,
-          "P1-7 上线后可一键催；现在请在青砚里手动联系",
+          ...(manual ? [`${manual} 家没有邮件线程，无法自动催，请手工联系`] : []),
         ],
-        nextStep: null,
+        nextStep: chaseable.length
+          ? {
+              label: `催 ${chaseable.length} 家`,
+              command: { intent: "chase", projectId: pid, inquiryId: s.latestRound!.inquiryId, itemIds: chaseable.map((i) => i.itemId) },
+            }
+          : null,
       },
     };
   }

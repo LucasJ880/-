@@ -81,7 +81,7 @@ console.log("tender-rfq notes-parse");
 
 /* 只认 [auto …] 段 */
 {
-  ok("空 / 纯人工备注 → 全空", JSON.stringify(parseAutoNotes("报价含运费；起订量=300；贸易条款=FOB")) === JSON.stringify({ moq: null, incoterm: null, tiers: [], mandatoryAnswers: [], lastAutoAt: null }));
+  ok("空 / 纯人工备注 → 全空", JSON.stringify(parseAutoNotes("报价含运费；起订量=300；贸易条款=FOB")) === JSON.stringify({ lastMissingFields: [], moq: null, incoterm: null, tiers: [], mandatoryAnswers: [], lastAutoAt: null }));
   ok("null → 全空", parseAutoNotes(null).lastAutoAt === null);
   const only = planInquiryItemUpdate(sentItem, quote({ isQuote: false, currency: null }), 1500, EMAIL_DATE, { messageId: "m3", now: new Date("2026-10-25T10:00:00Z") });
   const back = parseAutoNotes(only.notesAppend);
@@ -96,6 +96,15 @@ console.log("tender-rfq notes-parse");
   ] }), 1500, EMAIL_DATE, { messageId: "m4", now: new Date("2026-10-25T10:00:00Z") });
   const back = parseAutoNotes(plan.notesAppend);
   ok("对不上第一档：回读到两档「其它档」", back.tiers.length === 2 && back.tiers[0].quantity === 1000 && back.tiers[1].unitPrice === 38, back.tiers);
+}
+
+/* P1-7：「缺：…」往返（写 → 读），只看最新一段 */
+{
+  const plan = planInquiryItemUpdate(sentItem, quote({ currency: null, validUntil: null, missingFields: ["currency", "validUntil"] }), 1500, EMAIL_DATE, { messageId: "m5", now: new Date("2026-10-25T10:00:00Z") });
+  const back = parseAutoNotes(plan.notesAppend);
+  ok("P1-7 往返：「缺：」回读成字段 key（与 planner 的 missingFields 一致）", JSON.stringify(back.lastMissingFields) === JSON.stringify(plan.missingFields) && plan.missingFields.length > 0, { back: back.lastMissingFields, plan: plan.missingFields });
+  const later = `${plan.notesAppend}\n[auto 2026-10-26T10:00:00.000Z msg=m6] 币种=USD`;
+  ok("P1-7：最新一段没有「缺：」→ 不再缺", parseAutoNotes(later).lastMissingFields.length === 0);
 }
 
 console.log(`\ntender-rfq notes-parse: ${passed} passed`);

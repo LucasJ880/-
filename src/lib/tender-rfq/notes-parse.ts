@@ -10,10 +10,15 @@
  *   - 过渡方案：等 schema 升级迁列后删除，本任务不加列。
  */
 
+import { INBOUND_MISSING_LABEL } from "./inbound-apply";
+import type { InboundMissingField } from "./inbound-contract";
+
 export type AutoNotesTier = { quantity: number | null; unitPrice: number | null; totalPrice: number | null };
 export type AutoNotesAnswer = { requirementCode: string; answer: "满足" | "部分满足" | "不满足" | "未答"; evidence: string | null };
 
 export type ParsedAutoNotes = {
+  /** 最新一段 `[auto]` 里的「缺：…」（P1-7 追问用；只看最新一段——后到的回信补齐了就不再缺） */
+  lastMissingFields: InboundMissingField[];
   moq: number | null;
   incoterm: string | null;
   tiers: AutoNotesTier[];
@@ -21,6 +26,10 @@ export type ParsedAutoNotes = {
   /** 最新一段 `[auto <iso>]` 的时间 */
   lastAutoAt: string | null;
 };
+
+const MISSING_BY_LABEL = new Map<string, InboundMissingField>(
+  (Object.entries(INBOUND_MISSING_LABEL) as Array<[InboundMissingField, string]>).map(([k, label]) => [label, k]),
+);
 
 const SEGMENT_RE = /^\[auto (\S+) msg=(\S+)\] (.*)$/;
 const EVIDENCE_RE = /（证据："([\s\S]*?)"）/g;
@@ -34,6 +43,7 @@ const toNum = (s: string | undefined): number | null => {
 
 type SegmentValues = {
   at: string;
+  missing: InboundMissingField[];
   moq: number | null;
   incoterm: string | null;
   tiers: AutoNotesTier[];
@@ -53,13 +63,18 @@ function parseSegment(at: string, body: string): SegmentValues {
   };
   const strip = (s: string) => s.replace(/\u0000\d+\u0000/g, "");
 
-  const v: SegmentValues = { at, moq: null, incoterm: null, tiers: [], answers: [] };
+  const v: SegmentValues = { at, missing: [], moq: null, incoterm: null, tiers: [], answers: [] };
   const chosen: AutoNotesTier = { quantity: null, unitPrice: null, totalPrice: null };
 
   for (const raw of masked.split("；")) {
     const fact = raw.trim();
     let m: RegExpMatchArray | null;
-    if ((m = strip(fact).match(/^起订量=([\d.,]+)$/))) v.moq = toNum(m[1]);
+    if ((m = strip(fact).match(/^缺：(.+)$/))) {
+      for (const label of m[1].split("、")) {
+        const f = MISSING_BY_LABEL.get(label.trim());
+        if (f && !v.missing.includes(f)) v.missing.push(f);
+      }
+    } else if ((m = strip(fact).match(/^起订量=([\d.,]+)$/))) v.moq = toNum(m[1]);
     else if ((m = strip(fact).match(/^贸易条款=([A-Z]{3})$/))) v.incoterm = m[1];
     else if ((m = strip(fact).match(/^(单价|总价)=([\d.,]+)(?:（数量 ([\d.,]+)）)?$/))) {
       if (m[1] === "单价") chosen.unitPrice = toNum(m[2]);
@@ -95,7 +110,7 @@ export function parseAutoNotes(quoteNotes: string | null | undefined): ParsedAut
   }
   segments.sort((a, b) => a.at.localeCompare(b.at));
 
-  const result: ParsedAutoNotes = { moq: null, incoterm: null, tiers: [], mandatoryAnswers: [], lastAutoAt: null };
+  const result: ParsedAutoNotes = { lastMissingFields: [], moq: null, incoterm: null, tiers: [], mandatoryAnswers: [], lastAutoAt: null };
   const answers = new Map<string, AutoNotesAnswer>();
   for (const s of segments) {
     if (s.moq != null) result.moq = s.moq;
@@ -103,6 +118,7 @@ export function parseAutoNotes(quoteNotes: string | null | undefined): ParsedAut
     if (s.tiers.length) result.tiers = s.tiers;
     for (const a of s.answers) answers.set(a.requirementCode, a);
     result.lastAutoAt = s.at;
+    result.lastMissingFields = s.missing;
   }
   result.mandatoryAnswers = [...answers.values()];
   return result;

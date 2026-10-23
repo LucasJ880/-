@@ -119,7 +119,13 @@ console.log("muse-bridge next_step");
     { itemId: "i-B", supplierName: "B 贸易", status: "quoted", sentAt: ago(5), isSelected: false },
   ];
   const d = contract("行7 没回", snap({ latestRound: { inquiryId: "inq", items }, hasProjectQuote: false }));
-  ok("行7 有家超 3 天没回 → nextStep=null，理由写 P1-7", d.rule === "no_reply" && d.advisory.conclusion === "1 家没回" && d.advisory.nextStep === null && d.advisory.reasons.some((r) => r.includes("P1-7")));
+  ok("行7 有家超 3 天没回 → nextStep = chase（P1-7），只带没回的那家", d.rule === "no_reply" && d.advisory.conclusion === "1 家没回" && d.advisory.nextStep?.command.intent === "chase" && JSON.stringify((d.advisory.nextStep.command as { itemIds?: string[] }).itemIds) === '["i-A"]' && (d.advisory.nextStep.command as { inquiryId?: string }).inquiryId === "inq");
+  const noThread = decideNextStep(snap({ latestRound: { inquiryId: "inq", items: [{ ...items[0], hasThread: false }, items[1]] }, hasProjectQuote: false }));
+  ok("行7 没回的那家没有邮件线程 → nextStep=null，理由写请手工联系", noThread.rule === "no_reply" && noThread.advisory.nextStep === null && noThread.advisory.reasons.some((r) => r.includes("手工联系")));
+  const chasedOnce = decideNextStep(snap({ latestRound: { inquiryId: "inq", items: [{ ...items[0], chasedAt: [ago(1)] }, items[1]] }, hasProjectQuote: false }));
+  ok("行7 刚催过 1 天 → 不再建议催（按最后一次联系算天数）", chasedOnce.rule !== "no_reply");
+  const chasedTwice = decideNextStep(snap({ latestRound: { inquiryId: "inq", items: [{ ...items[0], chasedAt: [ago(8), ago(4)] }, items[1]] }, hasProjectQuote: false }));
+  ok("行7 催满两次 → 不再建议催（等自动标未响应）", chasedTwice.rule !== "no_reply");
   ok("行7 偏好 chaseAfterDays=7 → 5 天没回不算", decideNextStep(snap({ latestRound: { inquiryId: "inq", items }, prefs: { defaultSupplierIds: [], chaseAfterDays: 7 } })).rule !== "no_reply");
 }
 

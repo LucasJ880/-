@@ -101,3 +101,36 @@ export function quoteRecordedEventInput(input: {
       : { label: "比价", command: { intent: "compare", projectId: input.projectId } },
   };
 }
+
+/* ---------------------------------- no_response（P1-7） ---------------------------------- */
+
+export function noResponseEventInput(input: {
+  itemId: string;
+  orgId: string;
+  ownerId: string;
+  projectId: string;
+  projectName: string;
+  supplierName: string;
+  reason: "two_chases" | "deadline";
+  /** 同一轮里已 quoted 的家数 */
+  quotedCount: number;
+}): EmitMuseEventInput {
+  const supplier = short(input.supplierName, 16);
+  return {
+    eventId: `no_response:${input.itemId}`,
+    type: "no_response",
+    orgId: input.orgId,
+    userId: input.ownerId,
+    projectId: input.projectId,
+    projectName: input.projectName,
+    summary: eventSummary(
+      input.reason === "two_chases" ? `${supplier}催了两次没回，已标未响应` : `${supplier}过了回复截止没回，已标未响应`,
+      `当前 ${input.quotedCount} 家有报价`,
+    ),
+    // 够两家就比价；不够就补人（再起一轮询价）
+    action:
+      input.quotedCount >= 2
+        ? { label: "比价", command: { intent: "compare", projectId: input.projectId } }
+        : { label: "补问几家供应商", command: { intent: "rfq", projectId: input.projectId } },
+  };
+}

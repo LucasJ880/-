@@ -1,8 +1,9 @@
 /**
  * GET /api/cron/tender-rfq-inbound
  *
- * Vercel Cron 每 10 分钟：读询价发件邮箱的新回信（Gmail history 游标）→ 报价自动入 InquiryItem。
- * 鉴权方式：Bearer CRON_SECRET。只读邮件、不发任何邮件（追问是 P1-7）。
+ * Vercel Cron 每 10 分钟：读询价发件邮箱的新回信（Gmail history 游标）→ 报价自动入 InquiryItem；
+ * 同一次 tick 末尾跑 P1-7 催单扫描（超期未回 → 起草催单审批卡；缺字段 → 起草追问审批卡；催满两次 → 标未响应）。
+ * 鉴权方式：Bearer CRON_SECRET。本路由不发任何邮件：催单 / 追问只建审批卡，批准后才发。
  */
 
 import { NextRequest, NextResponse } from "next/server";

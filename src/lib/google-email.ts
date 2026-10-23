@@ -352,6 +352,12 @@ export interface SendEmailParams {
   subject: string;
   body: string;
   replyTo?: string;
+  /** 线程回复（P1-7 催单/追问）：Gmail threadId，进 messages.send 的 body，让回信留在原询价线程 */
+  threadId?: string;
+  /** 线程回复：原始邮件的 RFC 822 Message-ID 头（不是 Gmail 的 message id），写进 In-Reply-To */
+  inReplyTo?: string;
+  /** 线程回复：References 头；缺省同 inReplyTo */
+  references?: string;
 }
 
 export type GmailSendApi = {
@@ -359,7 +365,7 @@ export type GmailSendApi = {
     messages: {
       send: (args: {
         userId: string;
-        requestBody: { raw: string };
+        requestBody: { raw: string; threadId?: string };
       }) => Promise<{ data: { id?: string | null; threadId?: string | null } }>;
     };
   };
@@ -409,7 +415,7 @@ export async function sendGmail(
 
   const res = await gmail.users.messages.send({
     userId: "me",
-    requestBody: { raw: rawMessage },
+    requestBody: params.threadId ? { raw: rawMessage, threadId: params.threadId } : { raw: rawMessage },
   });
 
   return { messageId: res.data.id ?? "", threadId: res.data.threadId ?? "" };
@@ -513,7 +519,7 @@ export type GmailReadApi = {
       }>;
     };
     messages: {
-      get: (args: { userId: string; id: string; format?: string }) => Promise<{
+      get: (args: { userId: string; id: string; format?: string; metadataHeaders?: string[] }) => Promise<{
         data: {
           id?: string | null;
           threadId?: string | null;
@@ -620,6 +626,21 @@ export async function listThreadMessages(
   return (data.messages ?? [])
     .filter((m): m is { id: string; threadId: string } => !!m.id)
     .map((m) => ({ messageId: m.id, threadId: m.threadId ?? threadId }));
+}
+
+/**
+ * 一封已发邮件的 RFC 822 Message-ID 头（P1-7：线程回复的 In-Reply-To / References）。
+ * P1-3 发信时只留了 Gmail 的 messageId，这里按需取一次；取不到 → null（调用方只带 threadId 发）。
+ */
+export async function getMessageIdHeader(
+  userId: string,
+  messageId: string,
+  deps: GmailReadDeps = {},
+): Promise<string | null> {
+  const gmail = await getGmailReader(userId, deps);
+  const { data } = await gmail.users.messages.get({ userId: "me", id: messageId, format: "metadata", metadataHeaders: ["Message-ID"] });
+  const v = (data.payload?.headers ?? []).find((h) => h.name?.toLowerCase() === "message-id")?.value?.trim();
+  return v ? v : null;
 }
 
 export type GmailAttachment = {
@@ -732,7 +753,13 @@ export async function getMessageWithAttachments(
 
 // ── MIME 构建 ───────────────────────────────────────────────
 
-function buildRawEmail(params: SendEmailParams): string {
+/** 头字段值：去掉换行（防头注入），空串 → undefined */
+function headerSafe(v: string | undefined): string | undefined {
+  const t = v?.replace(/[\r\n]+/g, " ").trim();
+  return t ? t : undefined;
+}
+
+export function buildRawEmail(params: SendEmailParams): string {
   const lines = [
     `From: ${params.from}`,
     `To: ${params.to}`,
@@ -745,6 +772,10 @@ function buildRawEmail(params: SendEmailParams): string {
   if (params.replyTo) {
     lines.push(`Reply-To: ${params.replyTo}`);
   }
+  const inReplyTo = headerSafe(params.inReplyTo);
+  const references = headerSafe(params.references) ?? inReplyTo;
+  if (inReplyTo) lines.push(`In-Reply-To: ${inReplyTo}`);
+  if (references) lines.push(`References: ${references}`);
 
   lines.push("", Buffer.from(params.body).toString("base64"));
 

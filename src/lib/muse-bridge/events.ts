@@ -82,6 +82,8 @@ function titleFor(e: MuseEventEnvelope): string {
       return `${name}招标文件有更新`;
     case "deadline.approaching":
       return `${name}截标临近`;
+    case "no_response":
+      return `${name}有供应商未响应`;
     case "brief.daily":
       return "今日投标早报";
   }

@@ -11,12 +11,13 @@
  *                       tender-workforce/tools.ts 两个 finalize（workforce）
  *   - reply.received  : inquiry/service.ts markItemReplied
  *   - quote.parsed    : inquiry/service.ts recordQuote
+ *   - no_response     : tender-rfq/chase-service.ts 催单扫描标未响应后（P1-7）
  */
 
 import { db } from "@/lib/db";
 import { resolveFailureRecipients } from "@/lib/tender-auto-analysis/alerts";
 import { emitAnalysisReady, emitMuseEvent } from "./events";
-import { quoteRecordedEventInput } from "./events-pure";
+import { noResponseEventInput, quoteRecordedEventInput } from "./events-pure";
 import { isMuseBridgeEnabled } from "./flags";
 
 /** 分析终态化（REVIEW_REQUIRED）→ analysis.ready。幂等键 = runId。 */
@@ -204,5 +205,30 @@ export async function museOnQuoteRecorded(
     );
   } catch (err) {
     console.error("[muse-bridge] quote.parsed hook failed:", err);
+  }
+}
+
+/** 催单两次（或截止已过）仍没回、已标未响应 → no_response。幂等键 = itemId。 */
+export async function museOnNoResponse(itemId: string, reason: "two_chases" | "deadline"): Promise<void> {
+  if (!isMuseBridgeEnabled()) return;
+  try {
+    const ctx = await loadInquiryItemContext(itemId);
+    if (!ctx) return;
+    const item = await db.inquiryItem.findUnique({ where: { id: itemId }, select: { inquiryId: true } });
+    const quotedCount = item ? await db.inquiryItem.count({ where: { inquiryId: item.inquiryId, status: "quoted" } }) : 0;
+    await emitMuseEvent(
+      noResponseEventInput({
+        itemId,
+        orgId: ctx.orgId,
+        ownerId: ctx.ownerId,
+        projectId: ctx.projectId,
+        projectName: ctx.projectName,
+        supplierName: ctx.supplierName,
+        reason,
+        quotedCount,
+      }),
+    );
+  } catch (err) {
+    console.error("[muse-bridge] no_response hook failed:", err);
   }
 }
