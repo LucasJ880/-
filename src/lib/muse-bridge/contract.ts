@@ -85,6 +85,8 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
       intent: z.literal("price_scenario"),
       projectId: idField,
       candidatePrice: z.number().positive().optional(),
+      /** 按哪家供应商的落地价算（InquiryItem.id）；不给 → 推荐的那家，没有推荐则最便宜的那家 */
+      supplierItemId: idField.optional(),
     })
     .strip(),
 ]);
@@ -213,6 +215,13 @@ const OUTBOUND_SENSITIVE_PATTERNS: RegExp[] = [
   /预算上限/,
 ];
 
-export function containsOutboundSensitive(text: string): boolean {
-  return OUTBOUND_SENSITIVE_PATTERNS.some((p) => p.test(text));
+/**
+ * strict：财务类意图（compare / price_scenario）额外拦截一切"成本 / 利润"字样。
+ * 默认模式不拦——status / ask 的招标原文里常有"成本评分""成本标"这类合法说法。
+ */
+const OUTBOUND_STRICT_PATTERNS: RegExp[] = [/成本/, /利润/, /\bourCost/i, /\bprofit\b/i];
+
+export function containsOutboundSensitive(text: string, opts: { strict?: boolean } = {}): boolean {
+  if (OUTBOUND_SENSITIVE_PATTERNS.some((p) => p.test(text))) return true;
+  return !!opts.strict && OUTBOUND_STRICT_PATTERNS.some((p) => p.test(text));
 }

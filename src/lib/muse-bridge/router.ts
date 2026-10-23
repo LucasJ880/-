@@ -5,7 +5,8 @@
  *   - 只调用青砚既有服务（ApprovalPort / tender stage / 分析上下文），不新造业务逻辑；
  *   - 幂等：同 requestId 在 24h 内重放 → 直接返回首次响应（AuditLog 作账本，零 schema）；
  *   - 所有格式化走 router-pure.ts；本文件只做取数与编排。
- *   - Phase 0 只实现 status / ask / approve / reject；其余意图由 gateIntent 诚实拒绝。
+ *   - Phase 0：status / ask / approve / reject；Phase 1：rfq（P1-2）、compare / price_scenario（P1-6）；
+ *     未在 MUSE_BRIDGE_INTENTS 放行的意图由 gateIntent 诚实拒绝。
  */
 
 import { db } from "@/lib/db";
@@ -20,6 +21,9 @@ import type { MuseIdentity } from "./binding-pure";
 import {
   errResponse,
   formatApprovalOutcome,
+  formatCompareResponse,
+  formatNoQuotesResponse,
+  formatPriceScenarioResponse,
   formatStatusMessage,
   gateIntent,
   okResponse,
@@ -80,6 +84,12 @@ export async function handleMuseCommand(
       }
       case "rfq":
         response = await handleRfq(requestId, identity, command);
+        break;
+      case "compare":
+        response = await handleCompare(requestId, identity, command);
+        break;
+      case "price_scenario":
+        response = await handlePriceScenario(requestId, identity, command);
         break;
       default:
         // gateIntent 已拦；此处仅类型兜底
@@ -337,4 +347,82 @@ async function handleRfq(
       ],
     },
   );
+}
+
+// ── compare / price_scenario（P1-6：落地价比价 → 定价情景） ──────────
+
+async function handleCompare(
+  requestId: string,
+  identity: MuseIdentity,
+  command: Extract<MuseCommandArgs, { intent: "compare" }>,
+): Promise<MuseCommandResponse> {
+  const { loadCompareMatrix } = await import("@/lib/tender-rfq/compare-service");
+  const r = await loadCompareMatrix({ projectId: command.projectId, orgId: identity.orgId, inquiryId: command.inquiryId ?? null });
+  if (!r.ok) {
+    if (r.errorCode === "NO_QUOTES") return formatNoQuotesResponse(requestId, r.message, command.projectId);
+    return errResponse(requestId, r.errorCode === "PROJECT_NOT_FOUND" ? "PROJECT_NOT_FOUND" : "VALIDATION_FAILED", r.message);
+  }
+  return formatCompareResponse(requestId, { projectId: r.projectId, inquiryId: r.inquiryId, roundNumber: r.roundNumber, matrix: r.matrix });
+}
+
+async function handlePriceScenario(
+  requestId: string,
+  identity: MuseIdentity,
+  command: Extract<MuseCommandArgs, { intent: "price_scenario" }>,
+): Promise<MuseCommandResponse> {
+  const { loadCompareMatrix } = await import("@/lib/tender-rfq/compare-service");
+  const r = await loadCompareMatrix({ projectId: command.projectId, orgId: identity.orgId });
+  if (!r.ok) {
+    if (r.errorCode === "NO_QUOTES") return formatNoQuotesResponse(requestId, `${r.message}有报价后才能按供应商的落地价算情景。`, command.projectId);
+    return errResponse(requestId, r.errorCode === "PROJECT_NOT_FOUND" ? "PROJECT_NOT_FOUND" : "VALIDATION_FAILED", r.message);
+  }
+
+  // 选哪家：指定的 > 推荐的 > 最便宜的
+  const pickId = command.supplierItemId ?? r.matrix.recommendedItemId ?? r.matrix.cheapestItemId;
+  const row = r.matrix.rows.find((x) => x.itemId === pickId);
+  if (!row) {
+    return errResponse(requestId, "VALIDATION_FAILED", command.supplierItemId ? "这家供应商不在最新一轮比价里。" : "最新一轮里还没有能换算出落地价的报价。", {
+      suggestedActions: [{ label: "看比价", command: { intent: "compare", projectId: command.projectId } }],
+    });
+  }
+  if (row.landedCad.total == null) {
+    return errResponse(requestId, "VALIDATION_FAILED", `「${row.supplierName}」的落地价还没换算出来：${row.blockers[0] ?? "参数不全"}。`, {
+      suggestedActions: [{ label: "看比价", command: { intent: "compare", projectId: command.projectId } }],
+    });
+  }
+
+  const { loadProjectPricingContext } = await import("@/lib/tender-pricing/project-context");
+  const ctx = await loadProjectPricingContext(r.projectId);
+  if (!ctx.model) {
+    return errResponse(requestId, "VALIDATION_FAILED", "评分模型还没确定（招标文件里没抓到价格权重），请先在青砚报价表助手确认后再算情景。");
+  }
+  const competitorPriceCad = ctx.saved.competitorPriceCad ?? ctx.benchmark.median ?? null;
+  const competitorSourceZh =
+    ctx.saved.competitorPriceCad != null
+      ? "人工假设"
+      : ctx.benchmark.source === "incumbent_lead"
+        ? "现任价格线索"
+        : ctx.benchmark.source === "federal_contracts"
+          ? "历史合同对标"
+          : null;
+
+  const { buildScenarios } = await import("@/lib/tender-pricing/calc");
+  const { projectScenariosForMuse, scoreCandidatePrice } = await import("@/lib/tender-rfq/compare");
+  const result = buildScenarios(ctx.model, {
+    competitorPriceCad,
+    ourCostCad: row.landedCad.total,
+    targetMarginPct: ctx.saved.targetMarginPct ?? null,
+  });
+  const candidate =
+    command.candidatePrice != null && competitorPriceCad != null && competitorPriceCad > 0
+      ? scoreCandidatePrice(ctx.model, command.candidatePrice, competitorPriceCad)
+      : null;
+  return formatPriceScenarioResponse(requestId, {
+    projectId: r.projectId,
+    supplierItemId: row.itemId,
+    supplierName: row.supplierName,
+    competitorPriceCad,
+    competitorSourceZh,
+    view: projectScenariosForMuse(result, candidate),
+  });
 }

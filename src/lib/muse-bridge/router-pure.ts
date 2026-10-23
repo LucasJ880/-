@@ -16,6 +16,7 @@ import {
   type MuseSuggestedAction,
 } from "./contract";
 import { getProjectStage, resolveCloseDate } from "@/lib/tender/stage";
+import type { CompareMatrix, MusePricingView } from "@/lib/tender-rfq/compare";
 import type { TenderProject } from "@/lib/tender/types";
 
 // ── 响应构造 ────────────────────────────────────────────────────
@@ -53,9 +54,12 @@ export function errResponse(
 }
 
 /** 出站脱敏：命中敏感字段 → 整段替换，而不是尝试"抠掉一部分"。 */
-export function sanitizeOutbound(text: string): string {
+export const OUTBOUND_REDACTED = "（该内容包含内部财务信息，不通过 Muse 通道输出，请在青砚内查看。）";
+
+/** 出站脱敏：命中敏感词整段替换。strict 用于 compare / price_scenario（另拦"成本 / 利润"）。 */
+export function sanitizeOutbound(text: string, opts: { strict?: boolean } = {}): string {
   const t = text.length > 1200 ? `${text.slice(0, 1199)}…` : text;
-  return containsOutboundSensitive(t) ? "（该内容包含内部财务信息，不通过 Muse 通道输出，请在青砚内查看。）" : t;
+  return containsOutboundSensitive(t, opts) ? OUTBOUND_REDACTED : t;
 }
 
 /** 未启用意图的统一回复（诚实告知阶段）。 */
@@ -187,4 +191,74 @@ export function gateIntent(
   enabled: ReadonlySet<MuseIntent>,
 ): MuseCommandResponse | null {
   return enabled.has(command.intent) ? null : notEnabledResponse(requestId, command.intent);
+}
+
+// ── compare / price_scenario（P1-6）────────────────────────────
+
+const shortName = (s: string, n = 12) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const money = (n: number) => Math.round(n).toLocaleString("en-US");
+
+/** compare：结论（代码拼的 summaryZh，strict 脱敏）+ 矩阵；每家能算出落地价的供应商给一个「按它算情景」 */
+export function formatCompareResponse(
+  requestId: string,
+  input: { projectId: string; inquiryId: string; roundNumber: number; matrix: CompareMatrix },
+): MuseCommandResponse {
+  const { matrix } = input;
+  const actions: MuseSuggestedAction[] = matrix.rows
+    .filter((r) => r.landedCad.total != null)
+    .slice(0, 4)
+    .map((r) => ({
+      label: `按 ${shortName(r.supplierName)} 的落地价算情景`,
+      command: { intent: "price_scenario" as const, projectId: input.projectId, supplierItemId: r.itemId },
+    }));
+  return okResponse(requestId, sanitizeOutbound(`第 ${input.roundNumber} 轮比价：${matrix.summaryZh}`, { strict: true }), {
+    data: { inquiryId: input.inquiryId, roundNumber: input.roundNumber, matrix },
+    suggestedActions: actions,
+  });
+}
+
+/** 轮次里 0 家 quoted：如实说"还没有报价入表"，不回空矩阵 */
+export function formatNoQuotesResponse(requestId: string, message: string, projectId: string): MuseCommandResponse {
+  return okResponse(requestId, message, {
+    suggestedActions: [{ label: "看这个标的状态", command: { intent: "status", projectId } }],
+  });
+}
+
+/**
+ * price_scenario：只出价格分、总分差、打平价（view 已由 projectScenariosForMuse 投影，不含 marginPct / ourCostCad）。
+ * 落地价（我方成本）只用于后台计算，消息与 data 都不出。
+ */
+export function formatPriceScenarioResponse(
+  requestId: string,
+  input: {
+    projectId: string;
+    supplierItemId: string;
+    supplierName: string;
+    competitorPriceCad: number | null;
+    competitorSourceZh: string | null;
+    view: MusePricingView;
+  },
+): MuseCommandResponse {
+  const { view } = input;
+  const delta = (d: number) => `${d > 0 ? "+" : ""}${d}`;
+  const lines: string[] = [];
+  if (input.competitorPriceCad == null) {
+    lines.push(`按「${shortName(input.supplierName, 20)}」的报价算情景：还没有对手/现任价格参考，算不出价格分。请在青砚报价表助手填一个对手价假设。`);
+  } else {
+    lines.push(`按「${shortName(input.supplierName, 20)}」的报价算情景（对手参考价 ${money(input.competitorPriceCad)}${input.competitorSourceZh ? `，${input.competitorSourceZh}` : ""}）：`);
+    for (const s of view.scenarios) lines.push(`· ${s.labelZh} ${money(s.priceCad)} → 价格分 ${s.ourPriceScore}，总分差 ${delta(s.deltaPts)}`);
+    if (view.candidate) lines.push(`· 你给的价 ${money(view.candidate.priceCad)} → 价格分 ${view.candidate.ourPriceScore}，总分差 ${delta(view.candidate.deltaPts)}`);
+    lines.push(view.breakEvenPriceCad != null ? `打平价 ${money(view.breakEvenPriceCad)}：${view.breakEvenNoteZh}` : `打平价：${view.breakEvenNoteZh}`);
+  }
+  return okResponse(requestId, sanitizeOutbound(lines.join("\n"), { strict: true }), {
+    data: {
+      supplierItemId: input.supplierItemId,
+      supplierName: input.supplierName,
+      competitorPriceCad: input.competitorPriceCad,
+      scenarios: view.scenarios,
+      candidate: view.candidate,
+      breakEvenPriceCad: view.breakEvenPriceCad,
+    },
+    suggestedActions: [{ label: "看比价", command: { intent: "compare", projectId: input.projectId } }],
+  });
 }

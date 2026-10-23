@@ -2,8 +2,9 @@
  * Muse Bridge — 开关（生产默认全关）
  *
  *   MUSE_BRIDGE_ENABLED   "1" 才开；否则 /api/bridge/muse/* 一律 BRIDGE_DISABLED
- *   MUSE_BRIDGE_INTENTS   逗号分隔的意图白名单；为空 → 仅 Phase 0 四个意图
- *                         例：status,ask,approve,reject,rfq
+ *   MUSE_BRIDGE_INTENTS   逗号分隔的意图白名单；为空 → 仅 Phase 0 四个意图（status,ask,approve,reject）
+ *                         Phase 1 按需逐个打开：rfq（P1-2 询价）、compare / price_scenario（P1-6 比价 / 定价情景）
+ *                         例：status,ask,approve,reject,rfq,compare,price_scenario
  *   MUSE_BRIDGE_ORG_ALLOWLIST  逗号分隔 orgId；为空 → 任意 org（仍需绑定 + membership）
  */
 
