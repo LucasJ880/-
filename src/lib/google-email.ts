@@ -358,6 +358,8 @@ export interface SendEmailParams {
   inReplyTo?: string;
   /** 线程回复：References 头；缺省同 inReplyTo */
   references?: string;
+  /** 正文类型：缺省 "html"（既有调用方）；纯文本正文（询价 / 催单模板）传 "text"，换行原样保留 */
+  contentType?: "text" | "html";
 }
 
 export type GmailSendApi = {
@@ -765,7 +767,7 @@ export function buildRawEmail(params: SendEmailParams): string {
     `To: ${params.to}`,
     `Subject: =?UTF-8?B?${Buffer.from(params.subject).toString("base64")}?=`,
     "MIME-Version: 1.0",
-    'Content-Type: text/html; charset="UTF-8"',
+    `Content-Type: ${params.contentType === "text" ? "text/plain" : "text/html"}; charset="UTF-8"`,
     "Content-Transfer-Encoding: base64",
   ];
 

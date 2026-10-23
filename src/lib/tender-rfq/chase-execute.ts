@@ -98,6 +98,8 @@ export async function execTenderSendChase(
       subject: payload.subject,
       body: payload.body,
       replyTo: payload.fromEmail,
+      // 正文是纯文本模板：按 text/plain 发，否则 Gmail 按 HTML 渲染会把换行合成一段
+      contentType: "text",
       threadId: payload.threadId,
       ...(messageIdHeader ? { inReplyTo: messageIdHeader, references: messageIdHeader } : {}),
     });
