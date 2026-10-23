@@ -3,6 +3,7 @@
 /**
  * 展会小结：当天录入的卡汇总成一段中文。复制贴到微信群，或一键发给管理层（青砚通知 + 微信）。
  * 每天当地 07:00 也会自动发一次前一天的小结（同样张数不重复发）。
+ * 「当地」= 组织时区（settingsJson.timezone，未设置时是多伦多）；组织管理员可在这里改。
  */
 
 import { useEffect, useState } from "react";
@@ -11,13 +12,22 @@ import { apiFetch } from "@/lib/api-fetch";
 
 interface SummaryData {
   day: string;
+  timeZone: string;
   total: number;
   title: string;
   text: string;
 }
 
+const TIME_ZONES: Array<{ value: string; label: string }> = [
+  { value: "Asia/Shanghai", label: "北京时间（Asia/Shanghai）" },
+  { value: "America/Toronto", label: "多伦多（America/Toronto）" },
+];
+
 export function BoothSummaryPanel({ orgId, refreshKey }: { orgId: string | null; refreshKey: number }) {
   const [data, setData] = useState<SummaryData | null>(null);
+  const [tz, setTz] = useState("");
+  const [savingTz, setSavingTz] = useState(false);
+  const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
@@ -35,14 +45,42 @@ export function BoothSummaryPanel({ orgId, refreshKey }: { orgId: string | null;
     void (async () => {
       try {
         const res = await apiFetch(`/api/trade/booth-cards/summary${day ? `?day=${encodeURIComponent(day)}` : ""}`);
-        if (res.ok) setData(await res.json());
+        if (res.ok) {
+          const d: SummaryData = await res.json();
+          setData(d);
+          setTz(d.timeZone);
+        }
       } catch {
         /* 小结读不到不影响录入 */
       } finally {
         setLoading(false);
       }
     })();
-  }, [orgId, refreshKey]);
+  }, [orgId, refreshKey, reload]);
+
+  const saveTimeZone = async () => {
+    if (!orgId || !tz) return;
+    setSavingTz(true);
+    setMsg(null);
+    try {
+      const res = await apiFetch(`/api/organizations/${encodeURIComponent(orgId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone: tz }),
+      });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ tone: "error", text: res.status === 403 ? "改时区需要组织管理员（或组织所有者）" : r.error ?? "保存失败" });
+        return;
+      }
+      setMsg({ tone: "ok", text: `组织时区已改为 ${r.organization?.timezone ?? tz}：展会日、07:00 小结和每日简报都按这个时间` });
+      setReload((n) => n + 1);
+    } catch {
+      setMsg({ tone: "error", text: "保存失败，请检查网络后重试" });
+    } finally {
+      setSavingTz(false);
+    }
+  };
 
   const copy = async () => {
     if (!data) return;
@@ -106,6 +144,33 @@ export function BoothSummaryPanel({ orgId, refreshKey }: { orgId: string | null;
           </button>
         </div>
       </div>
+      {data ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span>组织时区</span>
+          <select value={tz} onChange={(e) => setTz(e.target.value)} className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground">
+            {(TIME_ZONES.some((z) => z.value === data.timeZone) ? TIME_ZONES : [{ value: data.timeZone, label: data.timeZone }, ...TIME_ZONES]).map((z) => (
+              <option key={z.value} value={z.value}>
+                {z.label}
+              </option>
+            ))}
+          </select>
+          {tz !== data.timeZone ? (
+            <button
+              type="button"
+              onClick={() => void saveTimeZone()}
+              disabled={savingTz}
+              className="inline-flex items-center gap-1 rounded border border-blue-600 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+            >
+              {savingTz && <Loader2 size={12} className="animate-spin" />}保存时区
+            </button>
+          ) : null}
+          {data.timeZone !== "Asia/Shanghai" ? (
+            <span className="text-amber-700">
+              {data.timeZone === "America/Toronto" ? "现在按多伦多 07:00 发小结，相当于北京时间晚上 7–8 点" : `现在按 ${data.timeZone} 的 07:00 发小结`}；团队在国内请改成北京时间
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {msg && <p className={`text-xs ${msg.tone === "ok" ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</p>}
       {loading && !data ? (
         <Loader2 size={16} className="animate-spin text-muted" />
