@@ -73,6 +73,13 @@ export const AUTOMATION_REGISTRY = [
     cadence: "每小时",
     timezone: "UTC",
   },
+  {
+    key: "tender-rfq-inbound",
+    name: "询价回信入站（报价自动入表）",
+    category: "projects",
+    cadence: "每 10 分钟",
+    timezone: "UTC",
+  },
 ] as const satisfies readonly AutomationDefinition[];
 
 export type AutomationKey = (typeof AUTOMATION_REGISTRY)[number]["key"];

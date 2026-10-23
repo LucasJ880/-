@@ -267,7 +267,11 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
 
 // ── record-quote ──────────────────────────────────────────────
 
-export async function recordQuote(scope: ItemScope, input: RecordQuoteInput) {
+export async function recordQuote(
+  scope: ItemScope,
+  input: RecordQuoteInput,
+  opts: { skipMuseHook?: boolean } = {},
+) {
   const { item } = await resolveItem(scope);
 
   const current = item.status as ItemStatus;
@@ -304,7 +308,9 @@ export async function recordQuote(scope: ItemScope, input: RecordQuoteInput) {
     data,
     include: { supplier: true },
   });
-  // Muse Bridge（P0-8）：best-effort 推 quote.parsed / missing_fields（缺字段如实列出）
+  // Muse Bridge（P0-8）：best-effort 推 quote.parsed / missing_fields（缺字段如实列出）。
+  // skipMuseHook：调用方自己推（如 P1-4 入站，缺字段以解析结果为准），避免重复事件。
+  if (opts.skipMuseHook) return updated;
   void import("@/lib/muse-bridge/hooks")
     .then((m) =>
       m.museOnQuoteRecorded(scope.itemId, {

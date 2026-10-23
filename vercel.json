@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/tender-watch",
       "schedule": "25 * * * *"
+    },
+    {
+      "path": "/api/cron/tender-rfq-inbound",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
