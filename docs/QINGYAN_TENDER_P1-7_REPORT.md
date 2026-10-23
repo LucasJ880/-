@@ -80,5 +80,5 @@ npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts  # 20 passed（§4-9�
 ## 4. 已知限制 / 发现
 
 - **标了 no_response 的 item 不再被入站盯**（`loadInboundOrgContexts` 只看 sent/replied/quoted）：供应商之后才回的信不会自动入表。可以在 P1-4 的取数里把 no_response 加进去（状态机允许 no_response → sent），本 PR 没动。
-- **（P1-3 既有）询价 / 催单正文是纯文本，但 `buildRawEmail` 以 `text/html` 发出**：Gmail 网页版会把换行合并成一段。建议单独修成 `text/plain`（或换行转 `<br>`），GATE-1 发真信前处理。
+- ~~（P1-3 既有）询价 / 催单正文是纯文本，但 `buildRawEmail` 以 `text/html` 发出~~：已在后续 PR 修复——`sendGmail` 加 `contentType`，询价与催单都按 `text/plain` 发。
 - 催单计数从 `contactNotes` 读：有人手工清空沟通备注会丢掉计数（与任务书"不改 schema"一致）。

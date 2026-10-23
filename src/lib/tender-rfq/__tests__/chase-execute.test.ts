@@ -99,6 +99,11 @@ async function main() {
       ok("不是线程回复时不加这两个头", !plain.includes("In-Reply-To") && !plain.includes("References"));
       const inj = decodeRaw(buildRawEmail({ to: "a@x.com", from: "p@x.com", subject: "s", body: "b", inReplyTo: "<a@b>\r\nBcc: evil@x.com" }));
       ok("头值里的换行被去掉（防头注入）", !/\r\nBcc:/.test(inj));
+      ok("contentType 缺省仍是 text/html（既有调用方不变）", plain.includes('Content-Type: text/html; charset="UTF-8"'));
+      const body = "A 工厂 您好：\n\n第一段\n第二段\n\nQyan-Sunny Purchasing";
+      const text = decodeRaw(buildRawEmail({ to: "a@x.com", from: "p@x.com", subject: "s", body, contentType: "text" }));
+      const encodedBody = text.split("\r\n\r\n")[1] ?? "";
+      ok("contentType: \"text\" → 头是 text/plain 且正文换行原样", text.includes('Content-Type: text/plain; charset="UTF-8"') && !text.includes("text/html") && Buffer.from(encodedBody, "base64").toString("utf8") === body);
     }
 
     /* §4-9 */
@@ -110,6 +115,7 @@ async function main() {
       const raw = decodeRaw(w.sends[0].requestBody.raw);
       ok("§4-9 原始 Message-ID 存在时头里有 In-Reply-To / References", raw.includes(`In-Reply-To: ${ORIGINAL_MSGID}`) && raw.includes(`References: ${ORIGINAL_MSGID}`));
       ok("§4-9 From 仍是显示地址 project@，Reply-To 也是", raw.includes('From: "Qyan-Sunny Purchasing" <project@sunnyshutter.ca>') && raw.includes("Reply-To: project@sunnyshutter.ca"));
+      ok("催单按 text/plain 发出", raw.includes("Content-Type: text/plain"));
       const notes = parseChaseNotes(w.notes);
       ok("§4-9 contactNotes 追加 chase#1 messageId=…", notes.length === 1 && notes[0].index === 1 && notes[0].messageId === "gm-chase-1" && w.notes!.startsWith(RFQ_NOTES));
 
