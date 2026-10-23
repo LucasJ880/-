@@ -187,4 +187,14 @@ console.log("tender-rfq landed-cost");
   ok("RFQ 里的强制项回信没提 → 按未答计 partial", evaluateQuoteChecks({ ...base, mandatoryAnswers: [{ requirementCode: "R-01", answer: "满足" }] }, t).checks.mandatoryOk === "partial");
 }
 
+/* 邮箱拆分：PUT 校验 mailboxEmail（合法邮箱，可选） */
+{
+  ok("PUT：mailboxEmail 非法 → 拒绝", !tenderRfqSettingsPutSchema.safeParse({ mailboxEmail: "lucas@" }).success);
+  ok("PUT：不传 mailboxEmail 也合法", tenderRfqSettingsPutSchema.safeParse({ fromName: "X" }).success);
+  const r = applyTenderRfqSettingsUpdate({ tenderRfq: { fromEmail: "project@sunnyshutter.ca" } }, tenderRfqSettingsPutSchema.parse({ mailboxEmail: "Lucas@SunnyShutter.ca" }));
+  ok("PUT：mailboxEmail 小写落库，fromEmail 保留", r.ok && r.tenderRfq.mailboxEmail === "lucas@sunnyshutter.ca" && r.tenderRfq.fromEmail === "project@sunnyshutter.ca");
+  const cleared = applyTenderRfqSettingsUpdate({ tenderRfq: { mailboxEmail: "lucas@sunnyshutter.ca" } }, tenderRfqSettingsPutSchema.parse({ mailboxEmail: null }));
+  ok("PUT：mailboxEmail 传 null 清空（回退 env / fromEmail）", cleared.ok && cleared.tenderRfq.mailboxEmail === null);
+}
+
 console.log(`\ntender-rfq landed-cost: ${passed} passed`);

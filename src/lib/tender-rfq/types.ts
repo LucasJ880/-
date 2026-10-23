@@ -35,7 +35,10 @@ export type TenderSendRfqPayload = {
  */
 export type TenderRfqOrgSettings = {
   fromName: string | null;
+  /** 显示的发件地址（From / Reply-To），如 project@ */
   fromEmail: string | null;
+  /** 实际授权 Gmail 的账号（查 EmailProvider / 读回信用），如 lucas@；缺省 = fromEmail */
+  mailboxEmail: string | null;
   /** 回复截止提前量（天） */
   replyLeadDays: number | null;
   /** 同一项目两轮询价之间的最短间隔（天）；期间再发 → 轮次锁 */
@@ -43,7 +46,7 @@ export type TenderRfqOrgSettings = {
 };
 
 /** 读取后已回退到默认值的设置（无 null） */
-export type ResolvedTenderRfqSettings = { fromName: string; fromEmail: string; replyLeadDays: number; roundLockDays: number };
+export type ResolvedTenderRfqSettings = { fromName: string; fromEmail: string; mailboxEmail: string; replyLeadDays: number; roundLockDays: number };
 
 export const TENDER_RFQ_DEFAULTS = {
   fromName: "Qyan-Sunny Purchasing",
