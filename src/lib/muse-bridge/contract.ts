@@ -242,10 +242,11 @@ const OUTBOUND_SENSITIVE_PATTERNS: RegExp[] = [
 ];
 
 /**
- * strict：财务类意图（compare / price_scenario）额外拦截一切"成本 / 利润"字样。
- * 默认模式不拦——status / ask 的招标原文里常有"成本评分""成本标"这类合法说法。
+ * strict：财务类意图（compare / price_scenario）额外拦截"利润"字样。
+ * 决定 A：供应商落地价（成本线）允许出 Muse；不出的只有毛利率、项目估值、我方最终报价（见上面的常规模式）。
+ * 默认模式不拦——status / ask 的招标原文里常有"利润""profit"这类合法说法。
  */
-const OUTBOUND_STRICT_PATTERNS: RegExp[] = [/成本/, /利润/, /\bourCost/i, /\bprofit\b/i];
+const OUTBOUND_STRICT_PATTERNS: RegExp[] = [/利润/, /\bprofit\b/i];
 
 export function containsOutboundSensitive(text: string, opts: { strict?: boolean } = {}): boolean {
   if (OUTBOUND_SENSITIVE_PATTERNS.some((p) => p.test(text))) return true;

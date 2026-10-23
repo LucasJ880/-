@@ -374,8 +374,8 @@ export function formatNoQuotesResponse(requestId: string, message: string, proje
 }
 
 /**
- * price_scenario：只出价格分、总分差、打平价（view 已由 projectScenariosForMuse 投影，不含 marginPct / ourCostCad）。
- * 落地价（我方成本）只用于后台计算，消息与 data 都不出。
+ * price_scenario：出价格分、总分差、打平价、所选供应商落地价（view 已由 projectScenariosForMuse 投影，不含 marginPct）。
+ * 决定 A：落地价可以出；毛利率、项目估值、我方最终报价不出。候选价低于落地价 → 理由里写明会亏。
  */
 export function priceScenarioAdvisory(input: {
   projectId: string;
@@ -397,12 +397,14 @@ export function priceScenarioAdvisory(input: {
   const line = (s: { labelZh: string; priceCad: number; ourPriceScore: number; deltaPts: number }) =>
     `${s.labelZh} ${money(s.priceCad)} → 价格分 ${s.ourPriceScore}，总分差 ${delta(s.deltaPts)}`;
   const reasons: string[] = [];
-  if (view.candidate) reasons.push(line(view.candidate));
+  if (view.candidate) reasons.push(`${line(view.candidate)}${view.candidate.belowCostZh ? `（${view.candidate.belowCostZh}）` : ""}`);
   for (const s of view.scenarios) {
     if (reasons.length >= 2) break;
     reasons.push(line(s));
   }
-  reasons.push(`对手参考价 ${money(input.competitorPriceCad)}${input.competitorSourceZh ? `（${input.competitorSourceZh}）` : ""}；按「${shortName(input.supplierName, 16)}」的报价`);
+  reasons.push(
+    `对手参考价 ${money(input.competitorPriceCad)}${input.competitorSourceZh ? `（${input.competitorSourceZh}）` : ""}；按「${shortName(input.supplierName, 16)}」的报价${view.landedCostCad != null ? `，落地价 ${money(view.landedCostCad)}` : ""}`,
+  );
   return {
     conclusion: view.breakEvenPriceCad != null ? `打平价 ${money(view.breakEvenPriceCad)}：${view.breakEvenNoteZh}` : `打平价：${view.breakEvenNoteZh}`,
     reasons,
@@ -431,6 +433,7 @@ export function formatPriceScenarioResponse(
       scenarios: view.scenarios,
       candidate: view.candidate,
       breakEvenPriceCad: view.breakEvenPriceCad,
+      landedCostCad: view.landedCostCad,
     },
   });
 }
