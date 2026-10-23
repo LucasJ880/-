@@ -412,6 +412,14 @@ export async function executePendingAction(
           ctx,
         );
         break;
+      case "tender.send_rfq": {
+        const { execTenderSendRfq } = await import("@/lib/tender-rfq/execute");
+        exec = await execTenderSendRfq(
+          action.payload as unknown as import("@/lib/tender-rfq/types").TenderSendRfqPayload,
+          ctx,
+        );
+        break;
+      }
       case "marketing.activate_campaign":
         exec = await execMarketingActivateCampaign(
           action.payload as unknown as MarketingActivateCampaignPayload,

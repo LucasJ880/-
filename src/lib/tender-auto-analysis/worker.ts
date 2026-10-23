@@ -645,6 +645,14 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
   // 分析可用了要有人知道（与失败告警对称）：幂等 + best-effort，绝不阻断收尾
   await notifyTenderRunSucceeded(run.id);
 
+  // Muse Bridge（P0-7）：同一收件人推 analysis.ready；开关关闭零查库，绝不阻断收尾。
+  try {
+    const { museOnAnalysisFinalized } = await import("@/lib/muse-bridge/hooks");
+    await museOnAnalysisFinalized(run.id);
+  } catch {
+    /* Muse 推送失败不影响分析结果 */
+  }
+
   // 业务阶段推进（FB-7）：AI 解读产出（REVIEW_REQUIRED）即代表项目进入「项目解读」，
   // 不要求先做项目分发（默认使用者即项目负责人）。幂等：已有 interpretedAt 不覆盖。
   await db.project

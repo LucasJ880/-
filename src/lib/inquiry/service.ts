@@ -251,7 +251,7 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
     throw new BusinessError(`当前状态「${item.status}」不允许标记为已回复`);
   }
 
-  return db.inquiryItem.update({
+  const updated = await db.inquiryItem.update({
     where: { id: scope.itemId },
     data: {
       status: ITEM_STATUS.REPLIED,
@@ -260,6 +260,9 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
     },
     include: { supplier: true },
   });
+  // Muse Bridge（P0-8）：best-effort 推 reply.received
+  void import("@/lib/muse-bridge/hooks").then((m) => m.museOnInquiryReplied(scope.itemId)).catch(() => undefined);
+  return updated;
 }
 
 // ── record-quote ──────────────────────────────────────────────
@@ -296,11 +299,24 @@ export async function recordQuote(scope: ItemScope, input: RecordQuoteInput) {
     data.repliedAt = item.repliedAt ?? new Date();
   }
 
-  return db.inquiryItem.update({
+  const updated = await db.inquiryItem.update({
     where: { id: scope.itemId },
     data,
     include: { supplier: true },
   });
+  // Muse Bridge（P0-8）：best-effort 推 quote.parsed / missing_fields（缺字段如实列出）
+  void import("@/lib/muse-bridge/hooks")
+    .then((m) =>
+      m.museOnQuoteRecorded(scope.itemId, {
+        unitPrice: input.unitPrice,
+        totalPrice: input.totalPrice,
+        currency: input.currency ?? updated.currency,
+        deliveryDays: input.deliveryDays ?? updated.deliveryDays,
+        validUntil: input.validUntil ?? updated.validUntil,
+      }),
+    )
+    .catch(() => undefined);
+  return updated;
 }
 
 // ── mark-declined ─────────────────────────────────────────────

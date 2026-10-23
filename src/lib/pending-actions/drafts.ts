@@ -362,6 +362,10 @@ export async function createDraftBatch(
       await impl.markAwaitingApproval(orgId, agentRunId);
     }
 
+    // Muse Bridge（Phase 0）：best-effort 推审批卡；收件人 = 指定审批人，否则创建人。
+    // emitMuseEvent 内部按 MUSE_BRIDGE_ENABLED 开关短路、按 eventId 幂等、绝不上抛。
+    void notifyMuseApprovalRequested(created, inputs);
+
     return { success: true, actions: created };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -407,4 +411,42 @@ export async function createDraft(
       preview: action.preview,
     }),
   };
+}
+
+// ── Muse Bridge 挂钩（Phase 0）──────────────────────────────────
+
+async function notifyMuseApprovalRequested(
+  created: CreatedDraftAction[],
+  inputs: CreateDraftInput[],
+): Promise<void> {
+  try {
+    const { isMuseBridgeEnabled } = await import("@/lib/muse-bridge/flags");
+    if (!isMuseBridgeEnabled()) return;
+    const { emitApprovalRequested } = await import("@/lib/muse-bridge/events");
+    const projectIds = Array.from(new Set(inputs.map((i) => i.projectId).filter((x): x is string => !!x)));
+    const names = projectIds.length
+      ? await db.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true } })
+      : [];
+    const nameOf = new Map<string, string>(
+      (names as Array<{ id: string; name: string }>).map((p) => [p.id, p.name]),
+    );
+    await Promise.all(
+      created.map((action, i) => {
+        const input = inputs[i] ?? inputs[0];
+        if (!input?.orgId) return Promise.resolve();
+        const ttl = input.ttlHours ?? 24;
+        return emitApprovalRequested({
+          actionId: action.actionId,
+          orgId: input.orgId,
+          recipientUserId: input.approverUserId ?? input.userId,
+          projectId: input.projectId ?? null,
+          projectName: input.projectId ? nameOf.get(input.projectId) ?? null : null,
+          title: action.title,
+          expiresAt: new Date(Date.now() + ttl * 3600 * 1000),
+        });
+      }),
+    );
+  } catch (err) {
+    console.error("[muse-bridge] approval.requested hook failed:", err);
+  }
 }
