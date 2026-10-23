@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import { createNotification } from "@/lib/notifications/create";
 import { museEventEnvelopeSchema, type MuseEventEnvelope, type MuseEventType } from "./contract";
 import { isMuseBridgeEnabled } from "./flags";
-import { buildMuseEvent, type EmitMuseEventInput } from "./events-pure";
+import { analysisReadyEventInput, buildMuseEvent, type AnalysisReadyFacts, type EmitMuseEventInput } from "./events-pure";
 
 export const MUSE_EVENT_CATEGORY = "muse_bridge" as const;
 
@@ -151,27 +151,14 @@ export async function emitApprovalRequested(input: {
   });
 }
 
-/** 分析终态化后：推一句话结论 + 建议下一步。 */
+/** 分析终态化后：结论 + 1 条理由，action = next_step（P1-8）。 */
 export async function emitAnalysisReady(input: {
   runId: string;
   orgId: string | null | undefined;
   recipientUserId: string;
   projectId: string;
-  projectName: string;
-  summary: string;
+  facts: AnalysisReadyFacts;
 }): Promise<void> {
   if (!input.orgId) return;
-  await emitMuseEvent({
-    eventId: `analysis.ready:${input.runId}`,
-    type: "analysis.ready",
-    orgId: input.orgId,
-    userId: input.recipientUserId,
-    projectId: input.projectId,
-    projectName: input.projectName,
-    summary: input.summary,
-    action: {
-      label: "问它最需要我做什么",
-      command: { intent: "ask", projectId: input.projectId, question: "这个标现在最需要我做什么？" },
-    },
-  });
+  await emitMuseEvent(analysisReadyEventInput({ ...input, orgId: input.orgId }));
 }

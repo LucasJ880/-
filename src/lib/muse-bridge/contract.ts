@@ -27,11 +27,21 @@ export const MUSE_INTENTS = [
   "chase",
   "compare",
   "price_scenario",
+  "next_step",
+  "set_preference",
+  "preferences",
 ] as const;
 export type MuseIntent = (typeof MUSE_INTENTS)[number];
 
-/** Phase 0 默认放行的意图；其余由 env `MUSE_BRIDGE_INTENTS` 逐个开启（见 flags.ts）。 */
-export const MUSE_PHASE0_INTENTS: readonly MuseIntent[] = ["status", "ask", "approve", "reject"];
+/**
+ * Phase 0 默认放行的意图；其余由 env `MUSE_BRIDGE_INTENTS` 逐个开启（见 flags.ts）。
+ * next_step（只读查表）与 preferences / set_preference（只改本人偏好）是 P1-8 加进默认集的。
+ */
+export const MUSE_PHASE0_INTENTS: readonly MuseIntent[] = ["status", "ask", "approve", "reject", "next_step", "set_preference", "preferences"];
+
+/** 个人偏好可改的键（偏好里不存任何金额） */
+export const MUSE_PREF_KEYS = ["defaultSupplierIds", "defaultIncoterm", "chaseAfterDays"] as const;
+export type MusePrefKey = (typeof MUSE_PREF_KEYS)[number];
 
 /** 各意图所属阶段（文档 + 错误提示用；路由拒绝时如实告知"哪一阶段才有"）。 */
 export const MUSE_INTENT_PHASE: Record<MuseIntent, 0 | 1 | 2 | 3> = {
@@ -43,6 +53,9 @@ export const MUSE_INTENT_PHASE: Record<MuseIntent, 0 | 1 | 2 | 3> = {
   chase: 1,
   compare: 1,
   price_scenario: 1,
+  next_step: 0,
+  set_preference: 0,
+  preferences: 0,
   follow_tender: 2,
 };
 
@@ -89,6 +102,16 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
       supplierItemId: idField.optional(),
     })
     .strip(),
+  z.object({ intent: z.literal("next_step"), projectId: idField }).strip(),
+  z
+    .object({
+      intent: z.literal("set_preference"),
+      key: z.enum(MUSE_PREF_KEYS),
+      /** 按 key 再校验（prefs-pure.applyPreference）：供应商 id 列表 / 贸易条款 / 天数 / null 清空 */
+      value: z.union([z.array(idField).max(5), z.string().max(20), z.number(), z.null()]),
+    })
+    .strip(),
+  z.object({ intent: z.literal("preferences") }).strip(),
 ]);
 export type MuseCommandArgs = z.infer<typeof museCommandArgsSchema>;
 

@@ -1,7 +1,7 @@
 /**
  * Tender RFQ（P1-2）— 准备一轮询价 → PendingAction（tender.send_rfq）
  *
- * 流程：项目/组织 → 轮次锁 → 供应商就绪 → 已确认要求 + 关键事实 → buildRfqDocument
+ * 流程：项目/组织 → 轮次锁 → 供应商就绪（显式 > 名称提示 > 个人偏好 > 候选列表）→ 已确认要求 + 关键事实 → buildRfqDocument
  *       → 创建 ProjectInquiry(draft) + items → 每家渲染邮件 → requestApproval（审批卡）
  *
  * 本函数零出站。真正发送只在 execute.ts（批准后）。
@@ -22,6 +22,7 @@ import {
   type ExistingRound,
 } from "./round-pure";
 import { TENDER_SEND_RFQ_TYPE, type TenderSendRfqPayload } from "./types";
+import { pickRfqIncoterm, pickRfqSuppliers, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 
 const RFQ_FACT_TYPES = ["quantity", "delivery", "location", "warranty", "scope"] as const;
 
@@ -52,6 +53,10 @@ export type PrepareRfqResult =
       suppliers: Array<{ id: string; name: string; to: string }>;
       blockedSuppliers: Array<{ id: string; name: string; reason: "no_email" | "inactive" }>;
       excludedRequirements: number;
+      /** 供应商从哪来：显式指定 / 名称提示 / 操作者的常用供应商（P1-8 偏好） */
+      supplierSource: "explicit" | "hint" | "prefs";
+      incoterm: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
+      incotermFromPrefs: boolean;
     }
   | {
       ok: false;
@@ -111,13 +116,10 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   const lock = decideRoundLock(existing, now, settings.roundLockDays);
   if (lock.locked) return { ok: false, errorCode: "ROUND_LOCKED", message: lock.message };
 
-  // ── 供应商 ──
-  const where = input.supplierIds?.length
-    ? { orgId: input.orgId, id: { in: input.supplierIds } }
-    : input.supplierHint?.trim()
-      ? { orgId: input.orgId, name: { contains: input.supplierHint.trim(), mode: "insensitive" as const } }
-      : null;
-  if (!where) {
+  // ── 供应商：显式 > 名称提示 > 操作者的常用供应商（偏好）> 候选列表 ──
+  const prefs = readUserPrefs(project.org?.settingsJson, input.userId);
+  const pick = pickRfqSuppliers({ supplierIds: input.supplierIds, supplierHint: input.supplierHint, prefs });
+  const listCandidates = async (): Promise<PrepareRfqResult> => {
     const candidates = await db.supplier.findMany({
       where: { orgId: input.orgId, status: "active" },
       orderBy: { updatedAt: "desc" },
@@ -125,9 +127,16 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
       select: { id: true, name: true, contactEmail: true },
     });
     return { ok: false, errorCode: "NO_SUPPLIERS", message: "要问哪几家？", candidates };
-  }
+  };
+  if (pick.source === "candidates") return listCandidates();
+  const where =
+    pick.source === "hint"
+      ? { orgId: input.orgId, name: { contains: pick.hint, mode: "insensitive" as const } }
+      : { orgId: input.orgId, id: { in: pick.supplierIds } };
   const suppliers = await db.supplier.findMany({ where, select: { id: true, name: true, contactEmail: true, status: true } });
   const { ready, blocked } = partitionSuppliers(suppliers);
+  // 常用供应商都发不了（已删 / 没邮箱 / 停用）→ 回候选列表让人选，而不是报错
+  if (ready.length === 0 && pick.source === "prefs") return listCandidates();
   if (ready.length === 0) {
     return {
       ok: false,
@@ -175,6 +184,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     }
   }
 
+  const term = pickRfqIncoterm(input.incoterm, prefs);
   const built = buildRfqDocument({
     projectName: project.name,
     buyerDisplayName: settings.fromName,
@@ -183,7 +193,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     requirements,
     facts,
     quantityTiers: input.quantityTiers,
-    incoterm: input.incoterm ?? null,
+    incoterm: term.incoterm,
     destination: input.destination ?? null,
     replyLeadDays: settings.replyLeadDays,
     extraQuestions: input.extraQuestions,
@@ -212,6 +222,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     fromEmail: settings.fromEmail,
     items,
     rfqDocHash: hashRfqPayloadItems(items),
+    incoterm: term.incoterm,
   };
 
   // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）
@@ -245,5 +256,8 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     suppliers: items.map((i) => ({ id: i.supplierId, name: i.supplierName, to: i.to })),
     blockedSuppliers: blocked,
     excludedRequirements: doc.excluded.length,
+    supplierSource: pick.source,
+    incoterm: term.incoterm,
+    incotermFromPrefs: term.fromPrefs,
   };
 }

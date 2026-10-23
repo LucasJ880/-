@@ -25,6 +25,8 @@ export type TenderSendRfqPayload = {
   items: TenderRfqEmailItem[];
   /** RFQ 文档内容 hash（sha256 前 16 位），用于审计/防篡改 */
   rfqDocHash: string;
+  /** 这轮询价写进 RFQ 的贸易条款（P1-8：批准发出后学习为操作者的默认值） */
+  incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
 };
 
 /**

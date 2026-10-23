@@ -76,6 +76,11 @@ export async function execTenderSendRfq(
   if (sent.length > 0) {
     await db.projectInquiry.update({ where: { id: payload.inquiryId }, data: { status: INQUIRY_STATUS.IN_PROGRESS } }).catch(() => undefined);
     await db.project.update({ where: { id: payload.projectId }, data: { supplierInquiredAt: new Date() } }).catch(() => undefined);
+    // P1-8：批准人（操作者）没有默认贸易条款时，记下这轮用的（best-effort，不影响发送结果）
+    if (project.orgId && payload.incoterm) {
+      const { learnIncotermPreference } = await import("@/lib/muse-bridge/prefs");
+      await learnIncotermPreference({ orgId: project.orgId, userId: ctx.userId, incoterm: payload.incoterm });
+    }
   }
 
   const summary = `已发出 ${sent.length}/${payload.items.length}：${sent.join("、") || "无"}` + (failed.length ? `；失败：${failed.map((f) => `${f.supplierName}（${f.error}）`).join("、")}` : "");

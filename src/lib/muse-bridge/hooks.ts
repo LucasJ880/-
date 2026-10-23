@@ -14,8 +14,9 @@
  */
 
 import { db } from "@/lib/db";
-import { resolveFailureRecipients, tenderSuccessSummary } from "@/lib/tender-auto-analysis/alerts";
+import { resolveFailureRecipients } from "@/lib/tender-auto-analysis/alerts";
 import { emitAnalysisReady, emitMuseEvent } from "./events";
+import { quoteRecordedEventInput } from "./events-pure";
 import { isMuseBridgeEnabled } from "./flags";
 
 /** 分析终态化（REVIEW_REQUIRED）→ analysis.ready。幂等键 = runId。 */
@@ -49,15 +50,15 @@ export async function museOnAnalysisFinalized(runId: string): Promise<void> {
           qa?: { needsHumanReview?: boolean };
         }
       | undefined;
-    const summary = tenderSuccessSummary({
-      projectName: run.project?.name ?? null,
+    const facts = {
+      projectName: run.project?.name ?? "投标项目",
       analyzedFiles: syn?.coverage?.analyzed ?? null,
       uploadedFiles: syn?.coverage?.uploaded ?? null,
       keyRequirements: syn?.keyRequirements?.length ?? null,
       risks: syn?.risksAndGaps?.length ?? null,
       clarifications: syn?.clarifications?.length ?? null,
       needsHumanReview: syn?.qa?.needsHumanReview === true,
-    });
+    };
 
     for (const userId of recipients) {
       await emitAnalysisReady({
@@ -65,8 +66,7 @@ export async function museOnAnalysisFinalized(runId: string): Promise<void> {
         orgId: run.orgId,
         recipientUserId: userId,
         projectId: run.projectId,
-        projectName: run.project?.name ?? "投标项目",
-        summary,
+        facts,
       });
     }
   } catch (err) {
@@ -187,26 +187,21 @@ export async function museOnQuoteRecorded(
     const ctx = await loadInquiryItemContext(itemId);
     if (!ctx) return;
     const { type, missing } = museQuoteEvent(quote, missingFieldsOverride);
-    const price =
-      quote.totalPrice != null
-        ? `总价 ${String(quote.totalPrice)} ${quote.currency ?? ""}`
-        : quote.unitPrice != null
-          ? `单价 ${String(quote.unitPrice)} ${quote.currency ?? ""}`
-          : "价格未填";
-    const lead = quote.deliveryDays != null ? `交期 ${quote.deliveryDays} 天` : "交期未填";
-    const summary =
-      `${ctx.supplierName} 报价已入表：${price}，${lead}。` +
-      (missing.length ? `缺：${missing.join("、")}，建议追问。` : "字段齐全。");
-    await emitMuseEvent({
-      eventId: `quote.parsed:${itemId}:${Date.now()}`,
-      type,
-      orgId: ctx.orgId,
-      userId: ctx.ownerId,
-      projectId: ctx.projectId,
-      projectName: ctx.projectName,
-      summary,
-      action: { label: "看这个标的状态", command: { intent: "status", projectId: ctx.projectId } },
-    });
+    // P1-8：结论 + 1 条理由；缺字段 → action = next_step，齐全 → action = compare
+    await emitMuseEvent(
+      quoteRecordedEventInput({
+        itemId,
+        orgId: ctx.orgId,
+        ownerId: ctx.ownerId,
+        projectId: ctx.projectId,
+        projectName: ctx.projectName,
+        supplierName: ctx.supplierName,
+        type,
+        missing,
+        quote,
+        now: new Date(),
+      }),
+    );
   } catch (err) {
     console.error("[muse-bridge] quote.parsed hook failed:", err);
   }
