@@ -10,7 +10,7 @@ import { appendQuoteNotes, planInquiryItemUpdate, type ExistingInquiryItem, type
 import { INBOUND_CONTRACT_VERSION, type InboundQuote } from "../inbound-contract";
 import { parseInboundQuote, type InboundAttachmentInput, type ParseCompleteFn, type ParsedQuote } from "../inbound-parse";
 import { museQuoteEvent } from "@/lib/muse-bridge/hooks";
-import { inboundQuoteHookArgs, syncAllOrgsInbound, syncOrgInbound, type InboundItemRow, type InboundMessage, type InboundOrgContext, type InboundSyncDeps } from "../inbound-sync";
+import { inboundQuoteHookArgs, isOwnMessage, syncAllOrgsInbound, syncOrgInbound, type InboundItemRow, type InboundMessage, type InboundOrgContext, type InboundSyncDeps } from "../inbound-sync";
 
 let passed = 0;
 function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
@@ -282,6 +282,18 @@ console.log("tender-rfq inbound (§5 acceptance)");
   ok("§5-12 游标前进到新 historyId", world.cursors.at(-1)?.historyId === "h-200" && r.historyId === "h-200");
   const again = await syncOrgInbound(org(items), deps);
   ok("§5-12 失败的信下次不重试", again.duplicates === 3 && again.failed === 0);
+}
+
+// 邮箱拆分：显示地址 project@ 与授权账号 lucas@ 发出的信都算"我们自己的"
+{
+  const own = ["project@sunnyshutter.ca", "lucas@sunnyshutter.ca"];
+  ok("邮箱拆分：isOwnMessage 对 lucas@ 发出的信返回 true", isOwnMessage({ labelIds: ["INBOX"], from: "Lucas <Lucas@SunnyShutter.ca>" }, own));
+  ok("邮箱拆分：isOwnMessage 对 project@ 发出的信返回 true", isOwnMessage({ labelIds: [], from: "\"Qyan-Sunny Purchasing\" <project@sunnyshutter.ca>" }, own));
+  ok("邮箱拆分：供应商的信返回 false", !isOwnMessage({ labelIds: ["INBOX"], from: "Sales <sales@supplier.example>" }, own));
+  let asked = "";
+  const deps = { ...makeDeps(makeWorld(), { messages: [] }), findMailbox: async (e: string) => { asked = e; return null; } };
+  await syncOrgInbound({ orgId: "org-1", settingsJson: { tenderRfq: { fromEmail: "project@sunnyshutter.ca", mailboxEmail: "lucas@sunnyshutter.ca" } }, items: [] }, deps);
+  ok("邮箱拆分：入站按 mailboxEmail 找授权邮箱", asked === "lucas@sunnyshutter.ca");
 }
 
 console.log(`\ntender-rfq inbound-apply: ${passed} passed`);

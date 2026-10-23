@@ -55,7 +55,7 @@ export type InboundMessage = {
 
 export type InboundSyncDeps = {
   now: () => Date;
-  findMailbox: (fromEmail: string) => Promise<{ userId: string; grantedScopes: string | null } | null>;
+  findMailbox: (mailboxEmail: string) => Promise<{ userId: string; grantedScopes: string | null } | null>;
   hasReadScope: (grantedScopes: string | null) => boolean;
   /** 24h 内已提醒过 → true */
   recentReadScopeReminder: (orgId: string, userId: string, since: Date) => Promise<boolean>;
@@ -110,8 +110,11 @@ function emptyResult(orgId: string): OrgSyncResult {
   return { orgId, scanned: 0, ignored: 0, duplicates: 0, ownMessages: 0, quoted: 0, replied: 0, unchanged: 0, failed: 0, historyId: null };
 }
 
-function isOwnMessage(msg: InboundMessage, fromEmail: string): boolean {
-  return msg.labelIds.includes("SENT") || msg.from.toLowerCase().includes(fromEmail.toLowerCase());
+/** 线程里我们自己发出的信：SENT 标签，或发件人是显示地址（project@）/ 授权账号（lucas@）之一 */
+export function isOwnMessage(msg: Pick<InboundMessage, "labelIds" | "from">, ownEmails: readonly string[]): boolean {
+  if (msg.labelIds.includes("SENT")) return true;
+  const from = msg.from.toLowerCase();
+  return ownEmails.some((e) => !!e && from.includes(e.toLowerCase()));
 }
 
 /** AuditLog 摘要：结构化字段 + 证据片段，不含邮件原文 */
@@ -136,9 +139,9 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
   const result = emptyResult(org.orgId);
   const now = deps.now();
   const { readTenderRfqSettings } = await import("./round-pure");
-  const { fromEmail } = readTenderRfqSettings(org.settingsJson);
+  const { fromEmail, mailboxEmail } = readTenderRfqSettings(org.settingsJson);
 
-  const mailbox = await deps.findMailbox(fromEmail);
+  const mailbox = await deps.findMailbox(mailboxEmail);
   if (!mailbox) return { ...result, skipped: "no_mailbox" };
   if (!deps.hasReadScope(mailbox.grantedScopes)) {
     const already = await deps.recentReadScopeReminder(org.orgId, mailbox.userId, new Date(now.getTime() - REMINDER_WINDOW_MS));
@@ -183,7 +186,7 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
 
     try {
       const msg = await deps.getMessage(mailbox.userId, ref.messageId);
-      if (isOwnMessage(msg, fromEmail)) {
+      if (isOwnMessage(msg, [fromEmail, mailboxEmail])) {
         result.ownMessages += 1; // 线程里我们自己发出的询价/跟进，不是回信
         continue;
       }
@@ -288,9 +291,9 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
 
   return {
     now: () => new Date(),
-    findMailbox: (fromEmail) =>
+    findMailbox: (mailboxEmail) =>
       db.emailProvider.findFirst({
-        where: { type: "gmail", accountEmail: { equals: fromEmail, mode: "insensitive" } },
+        where: { type: "gmail", accountEmail: { equals: mailboxEmail, mode: "insensitive" } },
         select: { userId: true, grantedScopes: true },
       }),
     hasReadScope: google.hasGmailReadScope,

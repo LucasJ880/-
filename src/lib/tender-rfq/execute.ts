@@ -2,7 +2,8 @@
  * Tender RFQ（P1-3）— 批准后执行：Gmail 发送 → markItemSent → 轮次 in_progress
  *
  * 安全：
- *   - 只从组织配置的发件邮箱发出（按 accountEmail 查 EmailProvider），与审批人无关；
+ *   - 只用组织配置的授权邮箱发出（settings.mailboxEmail 查 EmailProvider），与审批人无关；
+ *     From / Reply-To 显示 payload.fromEmail（可以是该账号的 Gmail 别名，如 project@）；
  *   - payload 内容 hash 与执行时重算一致，否则拒绝（防止审批后被改）；
  *   - 逐封发送、逐封记录；某家失败不回滚已发出的（邮件发出即不可撤回），结果如实列出。
  *   - sendGmail 内部已有 assertSideEffectOrThrow("email")：非生产默认 SIDE_EFFECT_DISABLED。
@@ -13,7 +14,7 @@ import { hasGmailComposeScope, sendGmail } from "@/lib/google-email";
 import { markItemSent } from "@/lib/inquiry/service";
 import { INQUIRY_STATUS } from "@/lib/inquiry/types";
 import { formatRfqContactNotes } from "./inbound-contract";
-import { hashRfqPayloadItems, resolveSender } from "./round-pure";
+import { hashRfqPayloadItems, readTenderRfqSettings, resolveSender } from "./round-pure";
 import type { TenderSendRfqPayload } from "./types";
 
 export type ExecTenderSendRfqContext = { userId: string; role: string | null | undefined; orgId?: string | null };
@@ -31,16 +32,17 @@ export async function execTenderSendRfq(
     return { ok: false, error: "询价内容与审批时不一致，拒绝执行", errorCode: "RFQ_PAYLOAD_TAMPERED" };
   }
 
-  const project = await db.project.findUnique({ where: { id: payload.projectId }, select: { orgId: true, name: true } });
+  const project = await db.project.findUnique({ where: { id: payload.projectId }, select: { orgId: true, name: true, org: { select: { settingsJson: true } } } });
   if (!project) return { ok: false, error: "项目不存在", errorCode: "PROJECT_NOT_FOUND" };
   if (ctx.orgId && project.orgId !== ctx.orgId) return { ok: false, error: "跨组织动作，拒绝执行", errorCode: "CROSS_ORG" };
 
-  // 发件账号：必须是配置的邮箱
+  // 发件账号：组织配置的授权邮箱（mailboxEmail，从 org settings 读，不信 payload）；From / Reply-To 仍是 payload.fromEmail
+  const { mailboxEmail } = readTenderRfqSettings(project.org?.settingsJson);
   const providers = await db.emailProvider.findMany({
-    where: { type: "gmail", accountEmail: { equals: payload.fromEmail, mode: "insensitive" } },
+    where: { type: "gmail", accountEmail: { equals: mailboxEmail, mode: "insensitive" } },
     select: { userId: true, accountEmail: true, grantedScopes: true },
   });
-  const sender = resolveSender(providers, payload.fromEmail, hasGmailComposeScope);
+  const sender = resolveSender(providers, mailboxEmail, hasGmailComposeScope);
   if (!sender.ok) return { ok: false, error: sender.message, errorCode: sender.errorCode };
 
   const send = deps.send ?? sendGmail;

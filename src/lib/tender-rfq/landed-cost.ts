@@ -394,6 +394,8 @@ export const tenderRfqSettingsPutSchema = z
   .object({
     fromName: z.string().trim().min(1).max(120).nullable().optional(),
     fromEmail: z.string().trim().email().max(200).nullable().optional(),
+    /** 授权 Gmail 账号（可与显示地址 fromEmail 不同）；null 清空 → 回退 env / fromEmail */
+    mailboxEmail: z.string().trim().email().max(200).nullable().optional(),
     landedCost: z
       .object({
         fxRates: z.record(z.string().regex(/^[A-Z]{3}$/, "币种用三位大写代码"), z.number().positive()).optional(),
@@ -440,6 +442,7 @@ export function applyTenderRfqSettingsUpdate(
   const tenderRfq = { ...asObject(settings.tenderRfq) };
   if (body.fromName !== undefined) tenderRfq.fromName = body.fromName;
   if (body.fromEmail !== undefined) tenderRfq.fromEmail = body.fromEmail?.toLowerCase() ?? null;
+  if (body.mailboxEmail !== undefined) tenderRfq.mailboxEmail = body.mailboxEmail?.toLowerCase() ?? null;
 
   if (body.landedCost) {
     const lc = { ...asObject(tenderRfq.landedCost) };

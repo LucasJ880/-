@@ -1,7 +1,7 @@
 /**
  * /api/organizations/[orgId]/tender-rfq-settings（org_admin）
  *   GET  → 询价发件设置 + 落地价换算设置（已解析，缺省为 null）
- *   PUT  { fromName?, fromEmail?, landedCost?: { fxRates?, fxAsOf?, fxSource?, freightEstimate?,
+ *   PUT  { fromName?, fromEmail?, mailboxEmail?, landedCost?: { fxRates?, fxAsOf?, fxSource?, freightEstimate?,
  *          exportInlandEstimate?, insurancePct?, clearanceFlatCad?, projects?: { [projectId]: { dutyRatePct?, deliveryDeadline? } | null } } }
  *        → 写 Organization.settingsJson.tenderRfq（零 schema）。传了的键覆盖，没传的保留；传 null 清空。
  *
@@ -25,7 +25,7 @@ type Params = { params: Promise<{ orgId: string }> };
 
 function view(settingsJson: unknown) {
   const rfq = readTenderRfqSettings(settingsJson);
-  return { fromName: rfq.fromName, fromEmail: rfq.fromEmail, landedCost: readLandedCostSettings(settingsJson) };
+  return { fromName: rfq.fromName, fromEmail: rfq.fromEmail, mailboxEmail: rfq.mailboxEmail, landedCost: readLandedCostSettings(settingsJson) };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {

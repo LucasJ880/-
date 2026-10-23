@@ -23,6 +23,11 @@ console.log("tender-rfq settings");
   ok("org settings 优先于 env，邮箱小写、抬头去空格", s2.fromName === "采购部" && s2.fromEmail === "buy@example.com" && s2.roundLockDays === 1);
   const s3 = readTenderRfqSettings({}, { TENDER_RFQ_FROM_NAME: "env-name" });
   ok("org 未配置时取 env", s3.fromName === "env-name");
+  ok("邮箱拆分：设置缺省时 mailboxEmail === fromEmail", s.mailboxEmail === s.fromEmail && s2.mailboxEmail === "buy@example.com");
+  const s4 = readTenderRfqSettings({ tenderRfq: { fromEmail: "project@sunnyshutter.ca", mailboxEmail: " Lucas@SunnyShutter.ca " } }, { TENDER_RFQ_MAILBOX_EMAIL: "env@x.com" });
+  ok("邮箱拆分：org 的 mailboxEmail 优先、小写去空格；fromEmail 不受影响", s4.mailboxEmail === "lucas@sunnyshutter.ca" && s4.fromEmail === "project@sunnyshutter.ca");
+  const s5 = readTenderRfqSettings({ tenderRfq: { fromEmail: "project@sunnyshutter.ca" } }, { TENDER_RFQ_MAILBOX_EMAIL: "Lucas@SunnyShutter.ca" });
+  ok("邮箱拆分：org 未配 mailboxEmail 时取 env TENDER_RFQ_MAILBOX_EMAIL", s5.mailboxEmail === "lucas@sunnyshutter.ca");
 }
 
 console.log("tender-rfq round lock");
@@ -58,6 +63,14 @@ console.log("tender-rfq sender");
   ok("审批人自己的邮箱不算 → SENDER_NOT_CONNECTED", !r2.ok && r2.errorCode === "SENDER_NOT_CONNECTED");
   const r3 = resolveSender([{ userId: "u9", accountEmail: "project@sunnyshutter.ca", grantedScopes: "openid" }], "project@sunnyshutter.ca", scope);
   ok("缺 compose scope → SENDER_NO_COMPOSE_SCOPE", !r3.ok && r3.errorCode === "SENDER_NO_COMPOSE_SCOPE");
+  // 邮箱拆分：按授权账号（mailboxEmail = lucas@）查，From 显示 project@
+  const lucas = [{ userId: "u-lucas", accountEmail: "lucas@sunnyshutter.ca", grantedScopes: "gmail.compose gmail.readonly" }];
+  const r4 = resolveSender(lucas, "lucas@sunnyshutter.ca", scope);
+  ok("邮箱拆分：resolveSender 用 mailboxEmail 命中 lucas@ 的授权", r4.ok && r4.userId === "u-lucas");
+  const r5 = resolveSender(lucas, "project@sunnyshutter.ca", scope);
+  ok("邮箱拆分：拿显示地址 project@ 去查不会误命中", !r5.ok && r5.errorCode === "SENDER_NOT_CONNECTED");
+  const r6 = resolveSender([], "lucas@sunnyshutter.ca", scope);
+  ok("邮箱拆分：未连接文案写明授权邮箱", !r6.ok && r6.message.startsWith("授权邮箱 lucas@sunnyshutter.ca 未连接"));
 }
 
 console.log("tender-rfq critical facts");

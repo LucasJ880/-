@@ -25,9 +25,12 @@ export function readTenderRfqSettings(settingsJson: unknown, env: NodeJS.Process
     const v = raw?.[k];
     return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d;
   };
+  const fromEmail = str("fromEmail", "TENDER_RFQ_FROM_EMAIL", TENDER_RFQ_DEFAULTS.fromEmail).toLowerCase();
   return {
     fromName: str("fromName", "TENDER_RFQ_FROM_NAME", TENDER_RFQ_DEFAULTS.fromName),
-    fromEmail: str("fromEmail", "TENDER_RFQ_FROM_EMAIL", TENDER_RFQ_DEFAULTS.fromEmail).toLowerCase(),
+    fromEmail,
+    // 授权账号与显示地址可以不同（Gmail「以别名发送」）：缺省 = fromEmail
+    mailboxEmail: str("mailboxEmail", "TENDER_RFQ_MAILBOX_EMAIL", fromEmail).toLowerCase(),
     replyLeadDays: num("replyLeadDays", TENDER_RFQ_DEFAULTS.replyLeadDays),
     roundLockDays: num("roundLockDays", TENDER_RFQ_DEFAULTS.roundLockDays),
   };
@@ -111,25 +114,28 @@ export type SenderVerdict =
   | { ok: true; userId: string }
   | { ok: false; errorCode: "SENDER_NOT_CONNECTED" | "SENDER_NO_COMPOSE_SCOPE"; message: string };
 
-/** 执行时只允许从配置的发件邮箱发出；谁审批不影响发件人。 */
+/**
+ * 执行时只允许用组织配置的授权邮箱（mailboxEmail）发出；谁审批不影响发件人。
+ * From / Reply-To 显示的是 fromEmail（可以是该账号的 Gmail 别名），与这里查的账号分开。
+ */
 export function resolveSender(
   providers: SenderProvider[],
-  fromEmail: string,
+  mailboxEmail: string,
   hasComposeScope: (scopes: string | null) => boolean,
 ): SenderVerdict {
-  const p = providers.find((x) => x.accountEmail.toLowerCase() === fromEmail.toLowerCase());
+  const p = providers.find((x) => x.accountEmail.toLowerCase() === mailboxEmail.toLowerCase());
   if (!p) {
     return {
       ok: false,
       errorCode: "SENDER_NOT_CONNECTED",
-      message: `发件邮箱 ${fromEmail} 还没有连到任何青砚账号。请用拥有该邮箱的人登录青砚 → 设置 → 连接 Gmail，再审批发送。`,
+      message: `授权邮箱 ${mailboxEmail} 未连接：请用该邮箱登录青砚 → 设置 → 连接 Gmail，再审批发送。`,
     };
   }
   if (!hasComposeScope(p.grantedScopes)) {
     return {
       ok: false,
       errorCode: "SENDER_NO_COMPOSE_SCOPE",
-      message: `${fromEmail} 的 Gmail 授权缺少 compose 权限，请重新授权后再审批发送。`,
+      message: `授权邮箱 ${mailboxEmail} 的 Gmail 授权缺少 compose 权限，请重新授权后再审批发送。`,
     };
   }
   return { ok: true, userId: p.userId };
