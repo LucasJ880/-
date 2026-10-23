@@ -2,13 +2,13 @@
  * Tender RFQ（P1-2）— 准备一轮询价 → PendingAction（tender.send_rfq）
  *
  * 流程：项目/组织 → 轮次锁 → 供应商就绪 → 已确认要求 + 关键事实 → buildRfqDocument
- *       → 创建 ProjectInquiry(draft) + items → 每家渲染邮件 → createDraft（审批卡）
+ *       → 创建 ProjectInquiry(draft) + items → 每家渲染邮件 → requestApproval（审批卡）
  *
  * 本函数零出站。真正发送只在 execute.ts（批准后）。
  */
 
 import { db } from "@/lib/db";
-import { createDraft } from "@/lib/pending-actions/drafts";
+import { requestApproval } from "@/lib/approval/request";
 import { addInquiryItem, createInquiry } from "@/lib/inquiry/service";
 import { buildRfqDocument, renderRfqEmail, type RfqFactInput, type RfqRequirementInput } from "./build";
 import {
@@ -214,21 +214,25 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     rfqDocHash: hashRfqPayloadItems(items),
   };
 
-  const draft = await createDraft({
-    type: TENDER_SEND_RFQ_TYPE,
+  // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）
+  const approval = await requestApproval({
+    orgId: input.orgId,
+    principal: { userId: input.userId, actorType: "user" },
+    actionType: TENDER_SEND_RFQ_TYPE,
     title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商 — ${project.name}`,
     preview: previewRfqPayload(payload),
     payload: payload as unknown as Record<string, unknown>,
-    userId: input.userId,
-    orgId: input.orgId,
-    projectId: project.id,
+    // 对外发邮件：与 revenue-spine 跟进邮件同级
+    risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
+    source: { module: "tender-rfq.service", toolName: "tender_send_rfq", stepKey: `rfq:${inquiry.id}` },
+    business: { projectId: project.id },
     ttlHours: 72,
     idempotencyKey: `${TENDER_SEND_RFQ_TYPE}:${inquiry.id}`,
   });
-  if (!draft.success) {
-    return { ok: false, errorCode: "DRAFT_FAILED", message: `生成审批草稿失败：${draft.error}` };
+  if (!approval.ok) {
+    return { ok: false, errorCode: "DRAFT_FAILED", message: `生成审批草稿失败：${approval.error}` };
   }
-  const actionId = (draft.data as { actionId?: string } | null)?.actionId ?? "";
+  const actionId = approval.actionIds[0] ?? "";
 
   return {
     ok: true,
