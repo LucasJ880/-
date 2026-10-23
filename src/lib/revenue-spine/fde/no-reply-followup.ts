@@ -7,11 +7,16 @@
  * 买家在首封之后回过信（包括业务点了「买家已回复」：回到 Cathy 邮箱 / WhatsApp）→ 对话已在人手里，此后不再自动起草。
  *
  * 跟进只追问报价需要的信息，不写价格 / MOQ / 交期等任何承诺，与首封同一套守卫；英文草稿附中文对照给审核人。
+ * 英文买家用新版（booth-email.composeFollowUpEmail：一句话回复示例 → 三种包装方案 → 回 1/2/3），附 HTML 版；
+ * 中文买家沿用下面的纯文本模板。
  */
 
 import { db } from "@/lib/db";
 import { requestApproval } from "@/lib/approval/request";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
+import { composeFollowUpEmail, footerLines, type BoothEmailContext } from "../booth-email";
+import { renderPlainEmailHtml } from "../email-layout";
+import { loadEmailBranding, signatureFor } from "../email-profile";
 import { detectInquiryRisks } from "../inquiry-risks";
 import { toCanonicalStage, type OpportunityStage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
@@ -216,6 +221,7 @@ export async function draftNoReplyFollowUps(
   });
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, ownerId: true } });
   if (!org) return out;
+  const branding = await loadEmailBranding(orgId, org.name);
 
   for (const opp of candidates) {
     if (out.drafted >= MAX_PER_RUN) break;
@@ -297,12 +303,36 @@ export async function draftNoReplyFollowUps(
         event: booth.fromLatest ? booth.event : null,
         questions: buildClarifyingQuestions(missing, lang, 3),
       });
-      const draft = buildNoReplyFollowUpDraft(input(language));
+      const event = booth.fromLatest ? booth.event : null;
+      let draft: ReplyDraft;
+      let reviewZh: ReplyDraft | null = null;
+      let html: string | null;
+      if (language === "en") {
+        const ctx: BoothEmailContext = {
+          orgName: org.name,
+          contactName: opp.customer.contactName,
+          event,
+          product: fields?.productName ?? null,
+          styles: booth.fromLatest ? booth.styles : [],
+          noted: [],
+          missing,
+          signature: signatureFor(branding.profile, senderName, org.name),
+          profile: branding.profile,
+          replyEmail: branding.replyEmail,
+        };
+        const opts = { step: due.step, total: due.total, previousSubject: lastOut?.summary ?? null };
+        const composed = composeFollowUpEmail(ctx, opts, "en");
+        draft = composed.draft;
+        html = composed.html;
+        reviewZh = composeFollowUpEmail(ctx, opts, "zh").draft;
+      } else {
+        draft = buildNoReplyFollowUpDraft(input(language));
+        html = renderPlainEmailHtml({ subject: draft.subject, body: draft.body, footer: footerLines({ orgName: org.name, event, profile: branding.profile }, "zh") }, branding.brand);
+      }
       if (draft.guardrailViolations.length) {
         skip(`guardrail:${draft.guardrailViolations.join(",")}`);
         continue;
       }
-      const reviewZh = language === "en" ? buildNoReplyFollowUpDraft(input("zh")) : null;
 
       const approval = await requestApproval({
         orgId,
@@ -316,6 +346,7 @@ export async function draftNoReplyFollowUps(
           to: opp.customer.email,
           subject: draft.subject,
           body: draft.body,
+          html,
           language: draft.language,
           // 发送前 executor 核对：买家在此之后来信 → 草稿过时、拒发
           replyToInteractionId: latest.id,

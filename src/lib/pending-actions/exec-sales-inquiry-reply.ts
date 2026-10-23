@@ -25,6 +25,8 @@ export interface InquiryReplySendInput {
   to: string;
   subject: string;
   body: string;
+  /** HTML 版（Resend 通道同时发 text + html；Gmail 只发 text） */
+  html: string | null;
   fromName: string;
   /** 组织发件身份；有则不走审批人个人邮箱 */
   orgSender: OrgEmailSender | null;
@@ -60,7 +62,7 @@ async function defaultSender(input: InquiryReplySendInput): Promise<InquiryReply
     // 组织身份优先且不回落到个人 Gmail：宁可报错，也不从别家公司的邮箱发出去
     if (!process.env.RESEND_API_KEY) throw noProvider("组织已设置发件身份，但平台未配置 RESEND_API_KEY");
     assertSideEffectOrThrow("email");
-    const r = await sendAsOrg(input.orgSender, { to: input.to, subject: input.subject, body: input.body });
+    const r = await sendAsOrg(input.orgSender, { to: input.to, subject: input.subject, body: input.body, ...(input.html ? { html: input.html } : {}) });
     return { channel: "resend", messageId: r.messageId, from: r.from, fallback: r.fallback };
   }
   const provider = await getEmailProvider(input.userId);
@@ -75,7 +77,7 @@ async function defaultSender(input: InquiryReplySendInput): Promise<InquiryReply
   }
   if (process.env.RESEND_API_KEY) {
     assertSideEffectOrThrow("email");
-    const r = await sendViaResend({ to: input.to, subject: input.subject, body: input.body });
+    const r = await sendViaResend({ to: input.to, subject: input.subject, body: input.body, ...(input.html ? { html: input.html } : {}) });
     if (!r.success) throw new Error(r.error ?? "Resend 发送失败");
     return { channel: "resend", messageId: r.messageId ?? "" };
   }
@@ -93,6 +95,8 @@ export async function execSalesSendInquiryReply(
   const to = (payload.to ?? "").trim();
   const subject = (payload.subject ?? "").trim().slice(0, 200);
   const body = (payload.body ?? "").trim().slice(0, 10_000);
+  // HTML 只认起草时渲染的完整文档；被截断或不像整封邮件就只发纯文本
+  const html = typeof payload.html === "string" && payload.html.length <= 200_000 && payload.html.startsWith("<!doctype html>") ? payload.html : null;
   if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) return { ok: false, error: "收件人邮箱无效" };
   if (!subject || !body) return { ok: false, error: "邮件主题或正文为空" };
 
@@ -152,7 +156,7 @@ export async function execSalesSendInquiryReply(
   const orgSender = await loadOrgEmailSender(orgId);
   let sent: InquiryReplySendResult;
   try {
-    sent = await (testSender ?? defaultSender)({ userId: ctx.userId, to, subject, body, fromName, orgSender });
+    sent = await (testSender ?? defaultSender)({ userId: ctx.userId, to, subject, body, html, fromName, orgSender });
   } catch (err) {
     const e = err as Error & { code?: string };
     return { ok: false, error: e.message, errorCode: e.code ?? "SEND_FAILED" };
@@ -173,6 +177,7 @@ export async function execSalesSendInquiryReply(
     extra: {
       pendingActionId,
       sendChannel: sent.channel,
+      html: Boolean(html) && sent.channel === "resend",
       ...(sent.from ? { sentFrom: sent.from, senderFallback: Boolean(sent.fallback) } : {}),
       salesActionId: payload.salesActionId ?? null,
       replyToInteractionId: payload.replyToInteractionId ?? null,

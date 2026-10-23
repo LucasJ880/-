@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Play, Check, X, Send } from "lucide-react";
+import { ArrowLeft, Loader2, Play, Check, X, Send, Eye } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { getOpportunityStageLabel } from "@/lib/revenue-spine/opportunity-stage";
@@ -65,6 +65,22 @@ export default function RevenueOpportunityPage() {
   const [replyChannel, setReplyChannel] = useState("email");
   const [alsoReplied, setAlsoReplied] = useState(false);
   const [replyNote, setReplyNote] = useState("");
+  /** 草稿 id → HTML 版（null = 这封只有纯文本） */
+  const [emailPreview, setEmailPreview] = useState<Record<string, string | null>>({});
+
+  const togglePreview = async (paId: string) => {
+    if (paId in emailPreview) {
+      setEmailPreview((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== paId)));
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/revenue/opportunities/${encodeURIComponent(id ?? "")}/email-preview?pendingActionId=${encodeURIComponent(paId)}`);
+      const d = await res.json().catch(() => ({}));
+      setEmailPreview((m) => ({ ...m, [paId]: typeof d.html === "string" ? d.html : null }));
+    } catch {
+      setEmailPreview((m) => ({ ...m, [paId]: null }));
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -280,6 +296,16 @@ export default function RevenueOpportunityPage() {
                   <span className="ml-auto text-muted">{new Date(p.createdAt).toLocaleString()}</span>
                 </div>
                 <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/20 p-2 font-sans">{p.preview}</pre>
+                <button type="button" onClick={() => void togglePreview(p.id)} className="mt-2 inline-flex items-center gap-1 text-blue-600 hover:underline">
+                  <Eye className="h-3 w-3" /> {p.id in emailPreview ? "收起邮件效果" : "查看邮件效果（买家看到的样子）"}
+                </button>
+                {p.id in emailPreview ? (
+                  emailPreview[p.id] ? (
+                    <iframe title="邮件效果" sandbox="" srcDoc={emailPreview[p.id] ?? ""} className="mt-2 h-[640px] w-full rounded border border-border bg-white" />
+                  ) : (
+                    <div className="mt-2 text-muted">这封只有纯文本版（上线前起草的草稿），买家看到的就是上面的文字。</div>
+                  )
+                ) : null}
                 {p.failureReason ? <div className="mt-1 text-red-400">{p.failureReason}</div> : null}
                 {p.status === "pending" ? (
                   <div className="mt-2 flex gap-2">
