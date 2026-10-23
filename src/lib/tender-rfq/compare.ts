@@ -2,9 +2,9 @@
  * Tender RFQ（P1-6）— 比价矩阵（纯函数，零 IO、零 AI）
  *
  *   buildCompareMatrix：每家落地价（landed-cost.normalizeQuote 的结果）+ §2.4 合规检查 → 排序、标记、推荐、一句话结论
- *   summarizeMatrixZh ：结论由代码拼，不走 LLM；不出现"成本 / 毛利"字样（出 Muse 前还会过 sanitizeOutbound strict）
- *   projectScenariosForMuse：buildScenarios 的结果投影成 Muse 可见字段——只留价格分、总分差、打平价，
- *                            丢掉 marginPct / ourCostCad 以及能反推我方成本的"成本底价"情景
+ *   summarizeMatrixZh ：结论由代码拼，不走 LLM；不出现"毛利 / 利润"字样（出 Muse 前还会过 sanitizeOutbound strict）
+ *   projectScenariosForMuse：buildScenarios 的结果投影成 Muse 可见字段——价格分、总分差、打平价、供应商落地价（决定 A），
+ *                            丢掉 marginPct / noteZh / assumptionsZh
  *   buildMatrixInterpretationPrompt：/compare/analysis 的 LLM 只拿矩阵写解读，不碰原始行、不算数
  */
 
@@ -208,30 +208,50 @@ export function summarizeMatrixZh(m: {
 
 /* ---------------------------------- price_scenario 投影（Muse 脱敏） ---------------------------------- */
 
-export type MuseScenario = { labelZh: string; priceCad: number; ourPriceScore: number; deltaPts: number };
+export type MuseScenario = { labelZh: string; priceCad: number; ourPriceScore: number; deltaPts: number; belowCostZh?: string };
 
 export type MusePricingView = {
   scenarios: MuseScenario[];
   breakEvenPriceCad: number | null;
   breakEvenNoteZh: string;
   candidate: MuseScenario | null;
+  /** 所选供应商的落地价（决定 A：允许出 Muse；毛利率 / 项目估值 / 我方最终报价仍不出） */
+  landedCostCad: number | null;
 };
 
-/** 依赖我方成本的情景：其价格本身就能反推成本，Muse 通道一律不出 */
-const COST_DERIVED_SCENARIOS = new Set(["floor", "cost"]);
+/** 以落地价为底的情景：Muse 里统一叫"成本线" */
+const COST_LINE_SCENARIOS = new Set(["floor", "cost"]);
+export const MUSE_COST_LINE_LABEL = "所选供应商落地价（成本线）";
+
+const fmtCad = (n: number) => Math.round(n).toLocaleString("en-US");
 
 /**
- * 只留价格分、总分差、打平价；显式逐字段拷贝（不展开原对象），marginPct / ourCostCad 不可能漏出。
- * noteZh / assumptionsZh 不出（里面有"成本底线""毛利"字样）。
+ * 只留价格分、总分差、打平价、落地价；显式逐字段拷贝（不展开原对象），marginPct 不可能漏出。
+ * noteZh / assumptionsZh 不出（里面有"毛利"字样）。
+ * 候选价低于落地价 → candidate.belowCostZh 写明会亏。
  */
-export function projectScenariosForMuse(result: PricingResult, candidate: MuseScenario | null): MusePricingView {
+export function projectScenariosForMuse(result: PricingResult, candidate: MuseScenario | null, landedCostCad: number | null = null): MusePricingView {
+  const cost = landedCostCad != null && Number.isFinite(landedCostCad) && landedCostCad > 0 ? landedCostCad : null;
+  const cand: MuseScenario | null = candidate
+    ? {
+        labelZh: candidate.labelZh,
+        priceCad: candidate.priceCad,
+        ourPriceScore: candidate.ourPriceScore,
+        deltaPts: candidate.deltaPts,
+        ...(cost != null && candidate.priceCad < cost ? { belowCostZh: `低于该供应商落地价 ${fmtCad(cost)}，会亏` } : {}),
+      }
+    : null;
   return {
-    scenarios: result.scenarios
-      .filter((s) => !COST_DERIVED_SCENARIOS.has(s.key))
-      .map((s) => ({ labelZh: s.labelZh, priceCad: s.priceCad, ourPriceScore: s.ourPriceScore, deltaPts: s.deltaPts })),
+    scenarios: result.scenarios.map((s) => ({
+      labelZh: COST_LINE_SCENARIOS.has(s.key) ? MUSE_COST_LINE_LABEL : s.labelZh,
+      priceCad: s.priceCad,
+      ourPriceScore: s.ourPriceScore,
+      deltaPts: s.deltaPts,
+    })),
     breakEvenPriceCad: result.breakEvenPriceCad,
     breakEvenNoteZh: result.breakEvenNoteZh,
-    candidate,
+    candidate: cand,
+    landedCostCad: cost,
   };
 }
 
