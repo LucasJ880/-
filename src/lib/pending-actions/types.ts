@@ -29,7 +29,9 @@ export type PendingActionType =
   // ── Revenue Spine：询盘回复发送（FDE 草稿 → 人工批准 → 唯一发送路径）──
   | "sales.send_inquiry_reply"
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
-  | "tender.send_rfq";
+  | "tender.send_rfq"
+  // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
+  | "tender.send_chase";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];

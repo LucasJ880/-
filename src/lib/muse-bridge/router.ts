@@ -6,7 +6,7 @@
  *   - 幂等：同 requestId 在 24h 内重放 → 直接返回首次响应（AuditLog 作账本，零 schema）；
  *   - 所有格式化走 router-pure.ts；本文件只做取数与编排。
  *   - Phase 0：status / ask / approve / reject / next_step / preferences / set_preference（P1-8）；
- *     Phase 1：rfq（P1-2）、compare / price_scenario（P1-6）；未在 MUSE_BRIDGE_INTENTS 放行的意图由 gateIntent 诚实拒绝。
+ *     Phase 1：rfq（P1-2）、chase（P1-7）、compare / price_scenario（P1-6）；未在 MUSE_BRIDGE_INTENTS 放行的意图由 gateIntent 诚实拒绝。
  *   - P1-8：所有 ok 回复都是 Advisory（结论 → 理由 → 下一步），经 respond() 出站；
  *     建议里指向未放行意图的按钮一律去掉（gateAdvisory），不建议点了就被拒的动作。
  */
@@ -25,9 +25,12 @@ import { countUnknownCriticalFacts, decideNextStep } from "./next-step";
 import { loadUserPrefs, saveUserPrefs } from "./prefs";
 import { applyPreference } from "./prefs-pure";
 import { resolveCloseDate } from "@/lib/tender/stage";
+import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
+import { parseChaseNotes, resolveChaseAfterDays } from "@/lib/tender-rfq/chase-pure";
 import {
   ASK_OUTPUT_INSTRUCTIONS,
   askAdvisory,
+  chaseAdvisory,
   askNoContextAdvisory,
   compareAdvisory,
   errResponse,
@@ -101,6 +104,9 @@ export async function handleMuseCommand(
       }
       case "rfq":
         response = await handleRfq(requestId, identity, command);
+        break;
+      case "chase":
+        response = await handleChase(requestId, identity, command);
         break;
       case "compare":
         response = await handleCompare(requestId, identity, command);
@@ -245,9 +251,30 @@ async function handleStatus(requestId: string, identity: MuseIdentity, projectId
   if (projectId && rows.length === 0) {
     return errResponse(requestId, "PROJECT_NOT_FOUND", "没找到这个项目，或它不属于你的组织。");
   }
+  if (projectId) rows[0].manualChase = await countManualChase(identity, projectId);
   return respond(requestId, statusAdvisory(rows, new Date(), { singleProject: !!projectId }), {
     data: { projects: rows.map((r) => ({ id: r.id, name: r.name, closeDate: r.closeDate, analysisStatus: r.analysisStatus, pendingApprovals: r.pendingApprovals })) },
   });
+}
+
+/** P1-7：最新一轮里超期没回、但没有邮件线程（P1-3 之前 / 青砚外发的）——只能手工催 */
+async function countManualChase(identity: MuseIdentity, projectId: string): Promise<number> {
+  const round = await db.projectInquiry.findFirst({
+    where: { projectId },
+    orderBy: { roundNumber: "desc" },
+    select: { items: { where: { status: "sent" }, select: { sentAt: true, contactNotes: true } } },
+  });
+  if (!round?.items.length) return 0;
+  const days = await chaseDaysFor(identity);
+  const now = Date.now();
+  return round.items.filter((i) => i.sentAt && now - i.sentAt.getTime() >= days * 86_400_000 && !parseRfqThreadId(i.contactNotes)).length;
+}
+
+/** 催单天数：本人偏好 > 组织 tenderRfq.chaseAfterDays > 3（与催单扫描同一套） */
+async function chaseDaysFor(identity: MuseIdentity, prefDays?: number | null): Promise<number> {
+  const org = await db.organization.findUnique({ where: { id: identity.orgId }, select: { settingsJson: true } });
+  const days = prefDays !== undefined ? prefDays : (await loadUserPrefs(identity.orgId, identity.userId)).chaseAfterDays;
+  return resolveChaseAfterDays(days, org?.settingsJson);
 }
 
 /** 该用户可见、属于该项目的待批 PendingAction（approve 意图只认 pending_action） */
@@ -356,6 +383,35 @@ async function handleRfq(
 
   return respond(requestId, rfqDraftAdvisory({ ...r, projectId: command.projectId }), {
     data: { actionId: r.actionId, inquiryId: r.inquiryId, suppliers: r.suppliers, blockedSuppliers: r.blockedSuppliers, supplierSource: r.supplierSource },
+  });
+}
+
+// ── chase（P1-7：催单 / 缺字段追问 → 一家一张审批卡） ────────────────
+
+async function handleChase(
+  requestId: string,
+  identity: MuseIdentity,
+  command: Extract<MuseCommandArgs, { intent: "chase" }>,
+): Promise<MuseCommandResponse> {
+  const { draftChasesForProject } = await import("@/lib/tender-rfq/chase-service");
+  const r = await draftChasesForProject({
+    orgId: identity.orgId,
+    userId: identity.userId,
+    projectId: command.projectId,
+    inquiryId: command.inquiryId,
+    itemIds: command.itemIds,
+  });
+  if (!r.ok) {
+    return errResponse(requestId, r.errorCode === "PROJECT_NOT_FOUND" ? "PROJECT_NOT_FOUND" : "VALIDATION_FAILED", r.message, {
+      suggestedActions: [{ label: "看这个标的状态", command: { intent: "status", projectId: command.projectId } }],
+    });
+  }
+  return respond(requestId, chaseAdvisory(command.projectId, r.run), {
+    data: {
+      drafted: r.run.drafted.map((d) => ({ itemId: d.itemId, supplierName: d.supplierName, actionId: d.actionId, kind: d.kind, chaseIndex: d.chaseIndex })),
+      skipped: r.run.skipped,
+      failed: r.run.failed,
+    },
   });
 }
 
@@ -475,7 +531,7 @@ async function handleNextStep(requestId: string, identity: MuseIdentity, project
     db.projectInquiry.findFirst({
       where: { projectId },
       orderBy: { roundNumber: "desc" },
-      select: { id: true, items: { select: { id: true, status: true, sentAt: true, isSelected: true, supplier: { select: { name: true } } } } },
+      select: { id: true, items: { select: { id: true, status: true, sentAt: true, isSelected: true, contactNotes: true, supplier: { select: { name: true } } } } },
     }),
     db.projectQuote.count({ where: { projectId } }),
     pendingActionsForProject(identity.userId, projectId),
@@ -495,11 +551,19 @@ async function handleNextStep(requestId: string, identity: MuseIdentity, project
     latestRound: latestRound
       ? {
           inquiryId: latestRound.id,
-          items: latestRound.items.map((i) => ({ itemId: i.id, supplierName: i.supplier?.name ?? "供应商", status: i.status, sentAt: i.sentAt, isSelected: i.isSelected })),
+          items: latestRound.items.map((i) => ({
+            itemId: i.id,
+            supplierName: i.supplier?.name ?? "供应商",
+            status: i.status,
+            sentAt: i.sentAt,
+            isSelected: i.isSelected,
+            hasThread: !!parseRfqThreadId(i.contactNotes),
+            chasedAt: parseChaseNotes(i.contactNotes).filter((c) => c.kind === "no_reply").map((c) => c.at),
+          })),
         }
       : null,
     hasProjectQuote: quoteCount > 0,
-    prefs,
+    prefs: { ...prefs, chaseAfterDays: await chaseDaysFor(identity, prefs.chaseAfterDays) },
   });
   return respond(requestId, decision.advisory, { data: { rule: decision.rule } });
 }

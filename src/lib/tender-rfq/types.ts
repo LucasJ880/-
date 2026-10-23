@@ -29,6 +29,32 @@ export type TenderSendRfqPayload = {
   incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
 };
 
+export const TENDER_SEND_CHASE_TYPE = "tender.send_chase" as const;
+
+/**
+ * PendingAction.payload（type=tender.send_chase，P1-7）：一个 item 一封——审批人可以只催其中一家。
+ * 批准后作为原询价 Gmail 线程的回复发出（threadId + In-Reply-To / References）。
+ */
+export type TenderSendChasePayload = {
+  projectId: string;
+  inquiryId: string;
+  inquiryItemId: string;
+  supplierName: string;
+  to: string;
+  /** no_reply = 超期未回的催单；missing_fields = 报价缺字段的追问 */
+  kind: "no_reply" | "missing_fields";
+  /** 第几次（missing_fields 固定 1） */
+  chaseIndex: 1 | 2;
+  threadId: string;
+  originalSubject: string;
+  subject: string;
+  body: string;
+  fromName: string;
+  fromEmail: string;
+  /** 防篡改：执行时重算，与审批时不一致 → 拒绝（同 P1-3 rfqDocHash） */
+  bodyHash: string;
+};
+
 /**
  * 组织级 RFQ 设置（零 schema：Organization.settingsJson.tenderRfq）
  * 缺省回退到环境变量 TENDER_RFQ_FROM_NAME / TENDER_RFQ_FROM_EMAIL。
@@ -43,6 +69,8 @@ export type TenderRfqOrgSettings = {
   replyLeadDays: number | null;
   /** 同一项目两轮询价之间的最短间隔（天）；期间再发 → 轮次锁 */
   roundLockDays: number | null;
+  /** 超过几天没回就起草催单（P1-7；项目 owner 的个人偏好优先） */
+  chaseAfterDays: number | null;
 };
 
 /** 读取后已回退到默认值的设置（无 null） */

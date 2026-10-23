@@ -420,6 +420,14 @@ export async function executePendingAction(
         );
         break;
       }
+      case "tender.send_chase": {
+        const { execTenderSendChase } = await import("@/lib/tender-rfq/chase-execute");
+        exec = await execTenderSendChase(
+          action.payload as unknown as import("@/lib/tender-rfq/types").TenderSendChasePayload,
+          ctx,
+        );
+        break;
+      }
       case "marketing.activate_campaign":
         exec = await execMarketingActivateCampaign(
           action.payload as unknown as MarketingActivateCampaignPayload,

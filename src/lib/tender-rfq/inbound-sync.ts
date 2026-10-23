@@ -5,11 +5,12 @@
  *   读游标 → history.list → 只留 threadId 命中 InquiryItem 的信 → 幂等检查（AuditLog）→ 取信
  *   → parseInboundQuote → planInquiryItemUpdate → recordQuote / markItemReplied（含 Muse hooks）
  *   → AuditLog → 写游标（Organization.settingsJson.tenderRfq.inbound，零 schema）
+ *   → P1-7：同一次 tick 末尾跑催单扫描（先收信，再判断谁该催；只起草审批卡，不发信）
  *
  * 纪律：
  *   - 只认 threadId；命不中的信不写库、不通知；不按发件人或主题猜。
  *   - 单封失败记 rfq_inbound:failed + 站内通知"请手工录入"，游标照常前进，下次不重试。
- *   - 不发送任何邮件；AuditLog 只存结构化字段与 ≤200 字证据，不存邮件原文。
+ *   - 本文件不发送任何邮件（催单只起草审批卡，批准后才发）；AuditLog 只存结构化字段与 ≤200 字证据，不存邮件原文。
  *
  * 所有 I/O 经 deps 注入（默认实现懒加载 DB/服务），纯逻辑测试不连库。
  */
@@ -72,6 +73,8 @@ export type InboundSyncDeps = {
   writeAudit: (entry: { orgId: string; projectId: string; userId: string; messageId: string; action: "rfq_inbound:applied" | "rfq_inbound:failed"; data: Record<string, unknown> }) => Promise<void>;
   notifyFailed: (entry: { orgId: string; projectId: string; userId: string; messageId: string; error: string }) => Promise<void>;
   saveCursor: (orgId: string, cursor: InboundCursor) => Promise<void>;
+  /** P1-7：收信成功后的催单扫描（不传 = 不扫；入站被跳过时不扫——没读到回信就不知道谁真没回） */
+  runChaseScan?: (orgId: string, now: Date) => Promise<{ drafted: unknown[]; noResponse: unknown[]; failed: unknown[] }>;
 };
 
 export type OrgSyncResult = {
@@ -88,6 +91,8 @@ export type OrgSyncResult = {
   unchanged: number;
   failed: number;
   historyId: string | null;
+  /** P1-7 催单扫描：起草的卡数 / 标 no_response 数 / 失败数 */
+  chase?: { drafted: number; noResponse: number; failed: number; error?: string };
 };
 
 /* ---------------------------------- 游标（零 schema） ---------------------------------- */
@@ -407,6 +412,10 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
         sourceKey: `tender-rfq-inbound:failed:${e.messageId}`,
       });
     },
+    runChaseScan: async (orgId, now) => {
+      const { runChaseScan } = await import("./chase-service");
+      return runChaseScan(orgId, now);
+    },
     saveCursor: async (orgId, cursor) => {
       const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
       await db.organization.update({
@@ -465,7 +474,18 @@ export async function syncAllOrgsInbound(
   const orgs: OrgSyncResult[] = [];
   for (const ctx of contexts) {
     try {
-      orgs.push(await syncOrgInbound(ctx, d));
+      const r = await syncOrgInbound(ctx, d);
+      if (!r.skipped && d.runChaseScan) {
+        try {
+          const c = await d.runChaseScan(ctx.orgId, d.now());
+          r.chase = { drafted: c.drafted.length, noResponse: c.noResponse.length, failed: c.failed.length };
+        } catch (err) {
+          // 催单扫描失败不影响收信结果（游标已写），下次 tick 再扫
+          console.error(`[tender-rfq-inbound] chase scan ${ctx.orgId} failed:`, err);
+          r.chase = { drafted: 0, noResponse: 0, failed: 1, error: (err instanceof Error ? err.message : String(err)).slice(0, 200) };
+        }
+      }
+      orgs.push(r);
     } catch (err) {
       // 组织级失败（如 Gmail 鉴权失效）不影响其它组织；游标未写 → 下次重试
       console.error(`[tender-rfq-inbound] org ${ctx.orgId} failed:`, err);

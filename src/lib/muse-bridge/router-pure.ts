@@ -85,6 +85,8 @@ export type StatusProjectRow = TenderProject & {
   analysisStatus: string | null;
   /** 待办审批数（该用户可见） */
   pendingApprovals: number;
+  /** P1-7：最新一轮里超期没回、但没有邮件线程（不是经青砚发的）的家数——只能手工催（单项目 status 才算） */
+  manualChase?: number;
 };
 
 const STAGE_LABEL: Record<string, string> = {
@@ -150,7 +152,11 @@ export function statusAdvisory(rows: StatusProjectRow[], now: Date, opts: { sing
     const analysis = top.analysisStatus ? ANALYSIS_LABEL[top.analysisStatus] ?? top.analysisStatus : "未分析";
     return {
       conclusion: `「${shortName(top.name, 20)}」：${stage}阶段，${deadlineZh(top, now)}`,
-      reasons: [`分析：${analysis}`, ...(top.pendingApprovals > 0 ? [`${top.pendingApprovals} 条待你批`] : [])],
+      reasons: [
+        `分析：${analysis}`,
+        ...(top.pendingApprovals > 0 ? [`${top.pendingApprovals} 条待你批`] : []),
+        ...(top.manualChase ? [`${top.manualChase} 家没回且无法自动催（没有邮件线程），请手工催`] : []),
+      ],
       nextStep: nextStepOf(top.id, top.name),
       alternatives: [{ label: "最大的废标风险是什么", command: { intent: "ask", projectId: top.id, question: "这个标最大的废标风险是什么？" } }],
     };
@@ -427,6 +433,49 @@ export function formatPriceScenarioResponse(
       breakEvenPriceCad: view.breakEvenPriceCad,
     },
   });
+}
+
+// ── chase（P1-7：催单 / 缺字段追问 → 审批卡） ─────────────────────────
+
+export type ChaseRunView = {
+  drafted: Array<{ supplierName: string; actionId: string; kind: "no_reply" | "missing_fields"; chaseIndex: 1 | 2 }>;
+  skipped: Array<{ supplierName: string; reason: string }>;
+  failed: Array<{ supplierName: string; error: string }>;
+};
+
+const CHASE_SKIP_ZH: Record<string, string> = {
+  not_due: "还没到催的时候",
+  no_thread: "没有邮件线程，请手工联系",
+  pending_card: "已有一张待批的催单",
+  rejected_card: "催单被驳回过",
+  max_reached: "已催过两次，到期后自动标未响应",
+  already_asked: "已追问过缺字段",
+  complete: "已回复",
+  quoted: "已报价",
+  not_open: "不在询价中",
+};
+
+export function chaseAdvisory(projectId: string, run: ChaseRunView): Advisory {
+  const notes = [
+    ...run.skipped.map((s) => `${shortName(s.supplierName, 12)}${CHASE_SKIP_ZH[s.reason] ?? s.reason}`),
+    ...run.failed.map((f) => `${shortName(f.supplierName, 12)}没起草成：${f.error}`),
+  ];
+  if (run.drafted.length === 0) {
+    return {
+      conclusion: "没有需要催的供应商",
+      reasons: notes.slice(0, 3),
+      nextStep: { label: "这个标下一步做什么", command: { intent: "next_step", projectId } },
+    };
+  }
+  const what = (d: ChaseRunView["drafted"][number]) =>
+    d.kind === "missing_fields" ? `追问 ${shortName(d.supplierName, 12)}缺的字段` : `${d.chaseIndex === 2 ? "第二次催" : "催"} ${shortName(d.supplierName, 12)}`;
+  const first = run.drafted[0];
+  return {
+    conclusion: `起草了 ${run.drafted.length} 封催单 / 追问，等你批`,
+    reasons: [run.drafted.map(what).join("、"), ...notes].slice(0, 3),
+    nextStep: { label: `批准：${what(first)}`, command: { intent: "approve", approvalId: first.actionId } },
+    alternatives: [{ label: "先不发", command: { intent: "reject", approvalId: first.actionId, reason: "暂不催" } }],
+  };
 }
 
 // ── preferences（P1-8） ─────────────────────────────────────────

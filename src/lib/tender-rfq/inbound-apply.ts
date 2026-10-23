@@ -50,7 +50,8 @@ export type PlanMeta = { messageId: string; now: Date; attachmentNotes?: string[
 /** InquiryItem.currency 的 schema 默认值（prisma: @default("CAD")） */
 export const INQUIRY_ITEM_DEFAULT_CURRENCY = "CAD";
 
-const MISSING_LABEL: Record<InboundMissingField, string> = {
+/** 缺字段 → notes 里的中文标签（notes-parse.ts 按它反查，P1-7 追问从这里读） */
+export const INBOUND_MISSING_LABEL: Record<InboundMissingField, string> = {
   price: "价格",
   currency: "币种",
   deliveryDays: "交期",
@@ -208,7 +209,7 @@ export function planInquiryItemUpdate(
   const segs: string[] = [];
   segs.push(facts.length ? facts.join("；") : parsed.isQuote ? "回信涉及报价但未提取到可核验字段" : "供应商回复（无报价内容）");
   if (conflicts.length) segs.push(conflicts.join("；"));
-  if (missingFields.length) segs.push(`缺：${missingFields.map((f) => MISSING_LABEL[f]).join("、")}`);
+  if (missingFields.length) segs.push(`缺：${missingFields.map((f) => INBOUND_MISSING_LABEL[f]).join("、")}`);
   if (parsed.attachmentsSeen.length) {
     const notesByName = new Map((meta.attachmentNotes ?? []).map((n) => [n.split("：")[0], n.slice(n.indexOf("：") + 1)]));
     segs.push(`附件：${parsed.attachmentsSeen.map((a) => `${a.filename} ${a.parsed ? "已解析" : notesByName.get(a.filename) ?? "未解析"}`).join("、")}`);

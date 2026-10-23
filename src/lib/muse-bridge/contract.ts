@@ -91,7 +91,8 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
       scope: trimmed(2000).optional(),
     })
     .strip(),
-  z.object({ intent: z.literal("chase"), projectId: idField, inquiryId: idField.optional() }).strip(),
+  // P1-7：不指定 inquiryId → 最新一轮；不指定 itemIds → 该轮所有该催 / 该追问的
+  z.object({ intent: z.literal("chase"), projectId: idField, inquiryId: idField.optional(), itemIds: z.array(idField).min(1).max(20).optional() }).strip(),
   z.object({ intent: z.literal("compare"), projectId: idField, inquiryId: idField.optional() }).strip(),
   z
     .object({
@@ -186,6 +187,8 @@ export const MUSE_EVENT_TYPES = [
   "missing_fields",
   "addendum.detected",
   "deadline.approaching",
+  /** P1-7：催满两次（或截止已过）仍没回 → 已标未响应 */
+  "no_response",
 ] as const;
 export type MuseEventType = (typeof MUSE_EVENT_TYPES)[number];
 
