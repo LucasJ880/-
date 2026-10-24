@@ -1,13 +1,24 @@
 /**
  * Blinds 工艺单 Excel 导出
- * 规则版本: blinds_20251024_v1
  *
- * 导出时基于录入数据重新执行计算，不依赖已存储的计算值
+ * 导出时基于录入数据重新执行计算，不依赖已存储的计算值。
+ * 重算一律用 **该工单自己的 ruleVersion**，不是当前版本 ——
+ * 已经开过料的单再导一次必须拿到一模一样的尺寸。
  */
 
 import ExcelJS from "exceljs";
-import { calculateItem, getCordLengthTier, type CuttingResults } from "./calculation-engine";
-import { RULE_VERSION } from "./deduction-rules";
+import {
+  calculateItem,
+  getCordLengthTier,
+  calcZebraCuttingPosition,
+  type CuttingResults,
+} from "./calculation-engine";
+import {
+  resolveRuleVersion,
+  CUTTING_WASTE_FACTOR,
+  CONTROL_TYPE_SHOP_LABEL,
+  type ControlType,
+} from "./deduction-rules";
 
 interface OrderData {
   code: string;
@@ -89,29 +100,34 @@ function getBarValue(item: CalcItem): number | null {
 // ─── Main Export ───────────────────────────────────────────────
 
 export async function generateBlindsExcel(order: OrderData): Promise<Buffer> {
-  // Re-calculate all items
+  // 用工单自己的规则版本重算（历史单必须重现历史尺寸）
+  const version = resolveRuleVersion(order.ruleVersion);
   const calcItems: CalcItem[] = order.items.map((item) => ({
     ...item,
-    calc: calculateItem({
-      width: item.width,
-      height: item.height,
-      productType: item.productType,
-      measureType: item.measureType,
-      controlType: item.controlType,
-      headrailType: item.headrailType,
-      fabricRatio: item.fabricRatio,
-      silkRatio: item.silkRatio,
-      bottomBarWidth: item.bottomBarWidth,
-    }),
+    calc: calculateItem(
+      {
+        width: item.width,
+        height: item.height,
+        productType: item.productType,
+        measureType: item.measureType,
+        controlType: item.controlType,
+        headrailType: item.headrailType,
+        fabricRatio: item.fabricRatio,
+        silkRatio: item.silkRatio,
+        bottomBarWidth: item.bottomBarWidth,
+        fabricSku: item.fabricSku,
+      },
+      version
+    ),
   }));
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "青砚";
   wb.created = new Date();
 
-  buildPartsCuttingSheet(wb, order, calcItems);
-  buildOrderSheet(wb, order, calcItems);
-  buildFabricCuttingSheet(wb, order, calcItems);
+  buildPartsCuttingSheet(wb, order, calcItems, version);
+  buildOrderSheet(wb, order, calcItems, version);
+  buildFabricCuttingSheet(wb, order, calcItems, version);
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
@@ -122,7 +138,8 @@ export async function generateBlindsExcel(order: OrderData): Promise<Buffer> {
 function buildPartsCuttingSheet(
   wb: ExcelJS.Workbook,
   order: OrderData,
-  items: CalcItem[]
+  items: CalcItem[],
+  version: string
 ) {
   const ws = wb.addWorksheet("开料表", {
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1 },
@@ -135,17 +152,18 @@ function buildPartsCuttingSheet(
     { width: 10 },  // C: 产品
     { width: 8 },   // D: 操控
     { width: 16 },  // E: 罩盒类型
-    { width: 12 },  // F: 罩盒尺寸
-    { width: 12 },  // G: 38管
-    { width: 12 },  // H: 下杆
-    { width: 12 },  // I: 圆芯杆
-    { width: 12 },  // J: 面料宽
-    { width: 12 },  // K: 插片
-    { width: 6 },   // L: 数量
+    { width: 9 },   // F: 切割类型
+    { width: 12 },  // G: 罩盒尺寸
+    { width: 12 },  // H: 38管
+    { width: 12 },  // I: 下杆
+    { width: 12 },  // J: 圆芯杆
+    { width: 12 },  // K: 面料宽
+    { width: 12 },  // L: 插片
+    { width: 6 },   // M: 数量
   ];
 
   // Row 1: Title
-  ws.mergeCells("A1:L1");
+  ws.mergeCells("A1:M1");
   const titleCell = ws.getCell("A1");
   titleCell.value = `开料表 — ${order.code}`;
   titleCell.font = FONT_TITLE;
@@ -153,16 +171,19 @@ function buildPartsCuttingSheet(
   ws.getRow(1).height = 28;
 
   // Row 2: Subtitle
-  ws.mergeCells("A2:L2");
+  ws.mergeCells("A2:M2");
   const subCell = ws.getCell("A2");
-  subCell.value = `客户: ${order.customerName}  |  安装: ${order.installDate || "-"}  |  规则: ${RULE_VERSION}`;
+  subCell.value = `客户: ${order.customerName}  |  安装: ${order.installDate || "-"}  |  规则: ${version}`;
   subCell.font = FONT_SUBTITLE;
 
   // Row 3: blank
   ws.getRow(3).height = 6;
 
   // Row 4: Header
-  const headers = ["#", "位置", "产品", "操控", "罩盒类型", "罩盒尺寸", "38管", "下杆", "圆芯杆", "面料宽", "插片", "数量"];
+  // 切割类型对齐 开料表!O 列（车间按 A/B/C 分组开料）
+  const headers = ["#", "位置", "产品", "操控", "罩盒类型", "切割类型", "罩盒尺寸", "38管", "下杆", "圆芯杆", "面料宽", "插片", "数量"];
+  const NUM_FIRST = 6; // F 列起是尺寸数字
+  const NUM_LAST = 11; // K/L 列止（插片）
   const headerRow = ws.getRow(4);
   headers.forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
@@ -170,7 +191,7 @@ function buildPartsCuttingSheet(
     cell.font = FONT_HEADER;
     cell.fill = FILL_HEADER;
     cell.border = BORDER_THIN;
-    cell.alignment = i >= 5 ? ALIGN_RIGHT : ALIGN_CENTER;
+    cell.alignment = i >= NUM_FIRST ? ALIGN_RIGHT : ALIGN_CENTER;
   });
   headerRow.height = 22;
 
@@ -187,42 +208,79 @@ function buildPartsCuttingSheet(
       idx + 1,
       item.location,
       item.productType,
-      item.controlType,
+      CONTROL_TYPE_SHOP_LABEL[item.controlType as ControlType] ?? item.controlType,
       item.headrailType,
+      c.cutClass,
       fmtInch(c.cutHeadrail),
       fmtInch(c.cutTube38),
       fmtInch(barVal),
       fmtInch(c.cutCoreRod),
       fmtInch(c.cutFabricWidth),
       fmtInch(c.insertSize),
-      1,
+      c.quantities.tube38,
     ];
 
     values.forEach((v, i) => {
       const cell = row.getCell(i + 1);
       cell.value = v as ExcelJS.CellValue;
-      cell.font = i >= 5 && i <= 10 ? FONT_MONO : FONT_DEFAULT;
+      cell.font = i >= NUM_FIRST && i <= NUM_LAST ? FONT_MONO : FONT_DEFAULT;
       cell.border = BORDER_THIN;
-      cell.alignment = i >= 5 ? ALIGN_RIGHT : (i === 0 || i === 11 ? ALIGN_CENTER : ALIGN_LEFT);
-      if (typeof v === "number" && i >= 5 && i <= 10) {
+      cell.alignment =
+        i >= NUM_FIRST
+          ? ALIGN_RIGHT
+          : (i === 0 || i === 5 ? ALIGN_CENTER : ALIGN_LEFT);
+      if (typeof v === "number" && i >= NUM_FIRST && i <= NUM_LAST) {
         cell.numFmt = NUM_FMT_INCH;
       }
     });
+    row.getCell(13).alignment = ALIGN_CENTER;
     row.height = 18;
   });
 
-  // Total row
-  const totalRow = ws.getRow(5 + sorted.length);
-  ws.mergeCells(totalRow.number, 1, totalRow.number, 10);
-  totalRow.getCell(1).value = `合计 ${sorted.length} 扇`;
-  totalRow.getCell(1).font = FONT_HEADER;
-  totalRow.getCell(1).alignment = ALIGN_RIGHT;
-  totalRow.getCell(1).border = BORDER_THIN;
-  totalRow.getCell(11).border = BORDER_THIN;
-  totalRow.getCell(12).value = sorted.length;
-  totalRow.getCell(12).font = FONT_HEADER;
-  totalRow.getCell(12).alignment = ALIGN_CENTER;
-  totalRow.getCell(12).border = BORDER_THIN;
+  // 合计行 ①：扇数
+  const countRow = ws.getRow(5 + sorted.length);
+  ws.mergeCells(countRow.number, 1, countRow.number, 12);
+  countRow.getCell(1).value = `合计 ${sorted.length} 扇`;
+  countRow.getCell(1).font = FONT_HEADER;
+  countRow.getCell(1).alignment = ALIGN_RIGHT;
+  countRow.getCell(1).border = BORDER_THIN;
+  countRow.getCell(13).value = sorted.length;
+  countRow.getCell(13).font = FONT_HEADER;
+  countRow.getCell(13).alignment = ALIGN_CENTER;
+  countRow.getCell(13).border = BORDER_THIN;
+
+  // 合计行 ②：各部件用料米数 —— 对齐 开料表!B55 的口径
+  //   SUM(长度) × 0.0254 × 1.2
+  // 注意：原表这个 SUM **不乘裁剪数量**，双轨单会少算一半，1.2 是他们的余量系数。
+  // 这里保持与车间现行口径一致，不擅自改动采购数字；要改需业务确认后单独提。
+  const meterRow = ws.getRow(6 + sorted.length);
+  ws.mergeCells(meterRow.number, 1, meterRow.number, 5);
+  meterRow.getCell(1).value = `总计(米) ×${CUTTING_WASTE_FACTOR} 损耗`;
+  meterRow.getCell(1).font = FONT_HEADER;
+  meterRow.getCell(1).alignment = ALIGN_RIGHT;
+  meterRow.getCell(1).border = BORDER_THIN;
+  meterRow.getCell(6).border = BORDER_THIN;
+
+  const meterCols: [number, (c: CuttingResults, it: CalcItem) => number | null][] = [
+    [7, (c) => c.cutHeadrail],
+    [8, (c) => c.cutTube38],
+    [9, (_c, it) => getBarValue(it)],
+    [10, (c) => c.cutCoreRod],
+    [11, (c) => c.cutFabricWidth],
+    [12, (c) => c.insertSize],
+  ];
+  for (const [col, pick] of meterCols) {
+    const inches = sorted.reduce((sum, it) => sum + (pick(it.calc, it) ?? 0), 0);
+    const cell = meterRow.getCell(col);
+    cell.value = inches > 0
+      ? Math.round(inches * 0.0254 * CUTTING_WASTE_FACTOR * 100) / 100
+      : "";
+    cell.numFmt = NUM_FMT_2;
+    cell.font = FONT_HEADER;
+    cell.alignment = ALIGN_RIGHT;
+    cell.border = BORDER_THIN;
+  }
+  meterRow.getCell(13).border = BORDER_THIN;
 }
 
 // ─── Sheet 2: 工艺单 ──────────────────────────────────────────
@@ -230,7 +288,8 @@ function buildPartsCuttingSheet(
 function buildOrderSheet(
   wb: ExcelJS.Workbook,
   order: OrderData,
-  items: CalcItem[]
+  items: CalcItem[],
+  version: string
 ) {
   const ws = wb.addWorksheet("工艺单", {
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1 },
@@ -312,7 +371,7 @@ function buildOrderSheet(
       item.fabricSku,
       item.productType,
       item.measureType,
-      item.controlType,
+      CONTROL_TYPE_SHOP_LABEL[item.controlType as ControlType] ?? item.controlType,
       item.controlSide,
       item.headrailType,
       item.mountType,
@@ -352,7 +411,7 @@ function buildOrderSheet(
   totalRow.getCell(12).font = FONT_HEADER;
   totalRow.getCell(12).alignment = ALIGN_RIGHT;
   totalRow.getCell(12).border = BORDER_THIN;
-  totalRow.getCell(13).value = `${RULE_VERSION}`;
+  totalRow.getCell(13).value = `${version}`;
   totalRow.getCell(13).font = FONT_SUBTITLE;
   totalRow.getCell(13).border = BORDER_THIN;
 }
@@ -362,7 +421,8 @@ function buildOrderSheet(
 function buildFabricCuttingSheet(
   wb: ExcelJS.Workbook,
   order: OrderData,
-  items: CalcItem[]
+  items: CalcItem[],
+  version: string
 ) {
   const ws = wb.addWorksheet("开料表（布料）", {
     pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1 },
@@ -376,25 +436,29 @@ function buildFabricCuttingSheet(
     { width: 11 },  // E: 拉绳(m)
     { width: 11 },  // F: 绳套(m)
     { width: 13 },  // G: 拉绳分档
-    { width: 6 },   // H: 侧
-    { width: 18 },  // I: 位置
+    { width: 13 },  // H: 布纱比
+    { width: 12 },  // I: 裁剪位
+    { width: 6 },   // J: 侧
+    { width: 18 },  // K: 位置
   ];
 
   // Row 1: Title
-  ws.mergeCells("A1:I1");
+  ws.mergeCells("A1:K1");
   ws.getCell("A1").value = `开料表（布料）— ${order.code}`;
   ws.getCell("A1").font = FONT_TITLE;
   ws.getRow(1).height = 28;
 
   // Row 2: Subtitle
-  ws.mergeCells("A2:I2");
-  ws.getCell("A2").value = `客户: ${order.customerName}  |  规则: ${RULE_VERSION}`;
+  ws.mergeCells("A2:K2");
+  ws.getCell("A2").value = `客户: ${order.customerName}  |  规则: ${version}`;
   ws.getCell("A2").font = FONT_SUBTITLE;
 
   ws.getRow(3).height = 6;
 
   // Header row
-  const headers = ["#", "面料号", "面料宽", "面料长", "拉绳(m)", "绳套(m)", "拉绳分档", "侧", "位置"];
+  // 布纱比 / 裁剪位：斑马帘专用（纵向Ref!C28/D28）。
+  // 布纱比查不到时留 "缺" —— 猜错裁剪位整幅面料报废，宁可空着让人补。
+  const headers = ["#", "面料号", "面料宽", "面料长", "拉绳(m)", "绳套(m)", "拉绳分档", "布纱比", "裁剪位", "侧", "位置"];
   const headerRow = ws.getRow(4);
   headers.forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
@@ -419,10 +483,23 @@ function buildFabricCuttingSheet(
   sorted.forEach((item, idx) => {
     const row = ws.getRow(5 + idx);
     const c = item.calc;
-    const cordTier = getCordLengthTier(item.height, item.controlType);
+    const cordTier = getCordLengthTier(item.height, item.controlType, version);
 
     totalCord += c.cordLength ?? 0;
     totalSleeve += c.cordSleeveLen ?? 0;
+
+    const isZebra = item.productType === "斑马帘";
+    const ratioText = !isZebra
+      ? ""
+      : c.fabricRatioUsed != null && c.silkRatioUsed != null
+        ? `${c.fabricRatioUsed} : ${c.silkRatioUsed}`
+        : c.ratioSource === "conflict"
+          ? "目录冲突"
+          : "缺";
+    const cutPos =
+      isZebra && c.fabricRatioUsed != null && c.silkRatioUsed != null
+        ? calcZebraCuttingPosition(item.height, c.fabricRatioUsed, c.silkRatioUsed)
+        : null;
 
     const values: (string | number | null)[] = [
       idx + 1,
@@ -432,6 +509,8 @@ function buildFabricCuttingSheet(
       c.cordLength,
       c.cordSleeveLen,
       cordTier || "",
+      ratioText,
+      cutPos,
       item.controlSide,
       item.location,
     ];
@@ -440,7 +519,7 @@ function buildFabricCuttingSheet(
       const cell = row.getCell(i + 1);
       cell.value = v as ExcelJS.CellValue;
       cell.border = BORDER_THIN;
-      if (i === 2 || i === 3) {
+      if (i === 2 || i === 3 || i === 8) {
         cell.font = FONT_MONO;
         cell.numFmt = NUM_FMT_INCH;
         cell.alignment = ALIGN_RIGHT;
@@ -448,6 +527,9 @@ function buildFabricCuttingSheet(
         cell.font = FONT_MONO;
         cell.numFmt = NUM_FMT_2;
         cell.alignment = ALIGN_RIGHT;
+      } else if (i === 7) {
+        cell.font = FONT_MONO;
+        cell.alignment = ALIGN_CENTER;
       } else {
         cell.font = FONT_DEFAULT;
         cell.alignment = i === 0 ? ALIGN_CENTER : ALIGN_LEFT;
@@ -474,7 +556,7 @@ function buildFabricCuttingSheet(
   totalRow.getCell(6).font = FONT_HEADER;
   totalRow.getCell(6).alignment = ALIGN_RIGHT;
   totalRow.getCell(6).border = BORDER_THIN;
-  for (let i = 7; i <= 9; i++) {
+  for (let i = 7; i <= 11; i++) {
     totalRow.getCell(i).border = BORDER_THIN;
   }
 }

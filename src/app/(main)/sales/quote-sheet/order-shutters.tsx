@@ -23,6 +23,22 @@ interface Props {
   discounts?: DiscountsOverride;
 }
 
+/**
+ * 外框选项按材质过滤。
+ *
+ * Vinyl 工艺（src/lib/vinyl/frame-rules.ts）只有 L / Z 两种框的减尺规则；
+ * S / G / M / Casing 是 Wooden 才用的框型，选了工厂做不出来。
+ * 2026-08-29 Lucas 确认：Vinyl 报价端取消这四种。
+ */
+const FRAME_OPTIONS: { value: string; label: string; materials: ("Wooden" | "Vinyl")[] }[] = [
+  { value: "L", label: "L Frame", materials: ["Wooden", "Vinyl"] },
+  { value: "Z", label: "Z Frame", materials: ["Wooden", "Vinyl"] },
+  { value: "S", label: "S Frame", materials: ["Wooden"] },
+  { value: "G", label: "G Frame", materials: ["Wooden"] },
+  { value: "M", label: "M Frame", materials: ["Wooden"] },
+  { value: "Casing", label: "Casing", materials: ["Wooden"] },
+];
+
 function emptyLine(): ShutterOrderLine {
   return {
     id: crypto.randomUUID(),
@@ -58,6 +74,12 @@ export function OrderShuttersForm({
   );
 
   const addLine = () => onChange([...lines, emptyLine()]);
+
+  const frameOptions = FRAME_OPTIONS.filter((f) => f.materials.includes(material));
+  /** 已填但当前材质不支持的框型：不静默清空，标出来让人改 */
+  const invalidFrames = lines.filter(
+    (l) => l.frame && !frameOptions.some((f) => f.value === l.frame),
+  );
   const removeLine = (id: string) => {
     onChange(removeLineById(lines, id));
   };
@@ -87,6 +109,15 @@ export function OrderShuttersForm({
           <Plus className="h-3.5 w-3.5" /> Add Row
         </button>
       </div>
+
+      {invalidFrames.length > 0 && (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+          切换到 {material} 后，有 {invalidFrames.length} 行的外框类型不再适用（
+          {[...new Set(invalidFrames.map((l) => l.frame))].join("、")}
+          ）—— 已在行内标红，请逐行改成 {frameOptions.map((f) => f.value).join(" / ")}。
+          不改的话工厂收到的工艺单会缺外框规格。
+        </div>
+      )}
 
       {/* Material & Louver */}
       <div className="grid grid-cols-2 gap-4">
@@ -209,15 +240,22 @@ export function OrderShuttersForm({
                   <select
                     value={line.frame}
                     onChange={(e) => updateLine(line.id, "frame", e.target.value)}
-                    className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px]"
+                    className={cn(
+                      "w-full bg-transparent border-0 outline-none text-xs min-h-[44px]",
+                      line.frame && !frameOptions.some((f) => f.value === line.frame)
+                        && "text-red-600 font-medium",
+                    )}
                   >
                     <option value="">—</option>
-                    <option value="L">L Frame</option>
-                    <option value="Z">Z Frame</option>
-                    <option value="S">S Frame</option>
-                    <option value="G">G Frame</option>
-                    <option value="M">M Frame</option>
-                    <option value="Casing">Casing</option>
+                    {frameOptions.map((f) => (
+                      <option key={f.value} value={f.value}>{f.label}</option>
+                    ))}
+                    {/* 切换材质后原值可能不再可选：保留它而不是静默改数据 */}
+                    {line.frame && !frameOptions.some((f) => f.value === line.frame) && (
+                      <option value={line.frame}>
+                        {line.frame} —— {material} 不支持
+                      </option>
+                    )}
                   </select>
                 </td>
                 <td className="px-1 py-0.5">

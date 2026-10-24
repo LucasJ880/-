@@ -101,6 +101,11 @@ export const DEFAULT_MIN_INSTALL_FEE = INSTALL_RULES.minimumTotal;
 export const DEFAULT_TAX_RATE = 0.13;
 /** Shade Order Form 选择 Lift=M 时的默认税前加价（CAD）。 */
 export const DEFAULT_SUNNY_MOTOR_PRICE = 150;
+/**
+ * 无绳加价系数：在基础 MSRP 上乘 1.15。
+ * ⚠️ 2026-08-29：新价目表将含无绳价格。若新表给的是**独立价目网格**而非系数，
+ *    这个常量要退役，priceFor 里的 `msrpVal *= cordlessMultiplier` 也要换成查新表。
+ */
 export const DEFAULT_CORDLESS_MULTIPLIER = 1.15;
 export const CORDLESS_MAX_WIDTH = 75;
 export const CORDLESS_MAX_HEIGHT = 75;

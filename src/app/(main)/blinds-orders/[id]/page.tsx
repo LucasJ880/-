@@ -267,7 +267,9 @@ export default function BlindsOrderDetailPage({
       {/* Tab content */}
       {tab === "overview" && <OverviewTab order={order} />}
       {tab === "parts" && <PartsCuttingTab items={order.items} />}
-      {tab === "fabric" && <FabricCuttingTab items={order.items} />}
+      {tab === "fabric" && (
+        <FabricCuttingTab items={order.items} ruleVersion={order.ruleVersion} />
+      )}
     </div>
   );
 }
@@ -379,7 +381,13 @@ function PartsCuttingTab({ items }: { items: BlindsOrderItem[] }) {
   );
 }
 
-function FabricCuttingTab({ items }: { items: BlindsOrderItem[] }) {
+function FabricCuttingTab({
+  items,
+  ruleVersion,
+}: {
+  items: BlindsOrderItem[];
+  ruleVersion: string;
+}) {
   const sorted = [...items].sort((a, b) => a.sortOrder - b.sortOrder);
   const totalCord = sorted.reduce((s, i) => s + (i.cordLength || 0), 0);
   const totalSleeve = sorted.reduce((s, i) => s + (i.cordSleeveLen || 0), 0);
@@ -412,7 +420,11 @@ function FabricCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                   <td className="px-3 py-2 font-mono">{fmt(item.cordLength)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cordSleeveLen)}</td>
                   <td className="px-3 py-2">
-                    {getCordLengthTier(item.height, item.controlType) || "-"}
+                    {getCordLengthTier(
+                      item.height,
+                      item.controlType,
+                      ruleVersion,
+                    ) || "-"}
                   </td>
                   <td className="px-3 py-2">{item.controlSide}</td>
                   <td className="px-3 py-2 text-muted">{item.location}</td>

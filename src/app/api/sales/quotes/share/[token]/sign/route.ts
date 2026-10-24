@@ -130,6 +130,14 @@ export async function POST(
     console.error("Quote signed lifecycle error:", err),
   );
 
+  // 自动生成工艺单（flag 门控，default OFF）。
+  // 刻意不放进 onQuoteSigned：那个函数在 opportunityId 为空时直接 return null，
+  // 无商机的单会被静默漏掉。失败只记日志，不阻断签署。
+  const { ensureWorkOrdersFromSignedQuoteSafe } = await import(
+    "@/lib/work-orders/from-signed-quote"
+  );
+  const workOrder = await ensureWorkOrdersFromSignedQuoteSafe(quote.id);
+
   // --- 签约通知（销售三通道 + 客户签署副本） ---
   const salesUserId = quote.createdBy.id;
   const salesName = quote.createdBy.name || "Sales";
@@ -160,10 +168,15 @@ export async function POST(
   // 2) 微信推送
   try {
     const { pushNotification } = await import("@/lib/messaging/push-service");
+    const woCodes = [workOrder?.blindsOrderCode, workOrder?.vinylOrderCode].filter(Boolean);
+    const workOrderLine = woCodes.length
+      ? `\n工艺单 ${woCodes.join("、")} 已生成` +
+        (workOrder && workOrder.todoCount > 0 ? `，${workOrder.todoCount} 项待你确认` : "")
+      : "";
     await pushNotification(
       salesUserId,
       "✅ 报价已签约",
-      `${customerName} 签署了报价单\n总额 $${amounts.total.toFixed(2)}`,
+      `${customerName} 签署了报价单\n总额 $${amounts.total.toFixed(2)}${workOrderLine}`,
     );
   } catch {}
 

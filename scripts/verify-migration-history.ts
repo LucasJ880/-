@@ -67,6 +67,11 @@ const IMMUTABLE: Record<string, string> = {
   // （该迁移从未在任何共享/生产库应用过，属 pre-merge 修订，非历史改写）
   "20260824170000_add_mention_gateway_external_identity":
     "00302bf409ea820073692d21886bb29826b6d01379d2bf04c616d6b0ac632b52",
+  // 已于 2026-08-29 apply 到生产库（四表 + 9 外键校验通过），文件此后不得再改
+  "20260829200000_add_vinyl_work_order":
+    "3d16bf04de5d6635a02731e317135bf552ca43219a59ea42f832923bb2de8f77",
+  "20260829230000_add_blinds_order_org_and_quote":
+    "bc5cfcf83d041658c392b991fccfa2709990504d154295ba736156e71005cd6c",
   "20260831120000_add_supplier_intelligence_spine":
     "50539596285e0d547fec5f58045d731c3d2e938f7e2e50ed33be71b05ecb62c3",
   "20260906120000_mengxin_fde_revenue_spine":
