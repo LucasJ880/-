@@ -142,17 +142,20 @@ async function main() {
   // ════════════════════════════════════════════════════════════════════
   console.log("\n[P5 审批任务独占]");
   process.env.WORKFORCE_JOB_MAX_PARALLEL_TASKS = "3";
+  // 审批任务用 gmail_create_draft 产生真实 PendingAction：legacy 提醒类写工具
+  // 无用户明确时间已恒 fail-closed 跳过，不再能驱动审批链
+  process.env.GMAIL_DRAFT_ENABLED = "1";
   {
     armProbe([]);
     const runId = await createJobWithPlan("P5 审批独占计划", [
       readStep("s5_prioritize", "sales_get_pipeline"),
       readStep("task_b", "sales_get_pipeline"),
-      readStep("task_e", "grader_create_followup_task", {
+      readStep("task_e", "gmail_create_draft", {
         dependsOn: ["s5_prioritize", "task_b"],
         executionMode: "write",
         riskLevel: "HIGH",
         requiresApproval: true,
-        description: "为优先客户创建跟进任务草稿（须审批）",
+        description: "为优先客户创建跟进邮件草稿（须审批）",
       }),
     ]);
     // slice 1（单轮）：SAFE 上游并行批 [s5_prioritize, task_b]
@@ -178,7 +181,11 @@ async function main() {
           JSON.stringify({
             ...(metaOf(s5.outputJson) as AnyRecord),
             prioritized: [
-              { customerId: `cust_${fx.tag}`, customerName: "P5 优先客户" },
+              {
+                customerId: `cust_${fx.tag}`,
+                customerName: "P5 优先客户",
+                email: `p5_${fx.tag}@test.qingyan.local`,
+              },
             ],
           }),
         ),
@@ -246,6 +253,7 @@ async function main() {
       { slice3 },
     );
   }
+  delete process.env.GMAIL_DRAFT_ENABLED;
 
   // ════════════════════════════════════════════════════════════════════
   // P6（§30）：double driver —— 同一 ready Task 恰好一个 driver 执行
