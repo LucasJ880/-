@@ -30,6 +30,9 @@ import { applyNextAction } from "../next-action";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
+import { composeBoothFirstEmail, footerLines, notedFacts } from "../booth-email";
+import { renderPlainEmailHtml } from "../email-layout";
+import { loadEmailBranding, signatureFor } from "../email-profile";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
 import { classifyInquiry, type InquiryResearch } from "../research";
 import { extractRfq } from "../rfq/extract";
@@ -107,8 +110,9 @@ async function safeTransition(
  * 审批预览：来信风险提醒（如有）在最上面；然后是发送的邮件；英文邮件再附中文对照（模板版）给看中文的审核人。
  * 提醒和中文对照都不会发送。
  */
-export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null, risks: InquiryRisk[] = []): string {
-  const warn = risks.length ? `${formatRiskNotes(risks)}\n\n` : "";
+export function approvalPreview(draft: ReplyDraft, zh: ReplyDraft | null, risks: InquiryRisk[] = [], reminders: string[] = []): string {
+  const block = formatRiskNotes(risks, reminders);
+  const warn = block ? `${block}\n\n` : "";
   const sent = `${warn}${draft.subject}\n\n${draft.body}`;
   if (!zh) return sent.slice(0, 4000);
   const note = draft.templateOnly
@@ -124,7 +128,7 @@ interface BoothContext {
   /** 最新来信就是展位面谈（草稿按展位来访写） */
   fromLatest: boolean;
   event: string | null;
-  styles: Array<{ code: string; name: string | null }>;
+  styles: Array<{ code: string; name: string | null; specUrl?: string | null; imageUrl?: string | null }>;
   grade: "A" | "B" | "C" | null;
   /** 卡上接待的业务员（英文名才用作落款；中文名给英文买家署名不合适，退回负责人） */
   sales: string | null;
@@ -142,7 +146,12 @@ export function boothContext(
   const styles = Array.isArray(lm.styles)
     ? (lm.styles as Array<Record<string, unknown>>)
         .filter((st) => typeof st?.code === "string")
-        .map((st) => ({ code: st.code as string, name: typeof st.name === "string" && st.name.trim() ? st.name.trim() : null }))
+        .map((st) => ({
+          code: st.code as string,
+          name: typeof st.name === "string" && st.name.trim() ? st.name.trim() : null,
+          ...(typeof st.specUrl === "string" ? { specUrl: st.specUrl } : {}),
+          ...(typeof st.imageUrl === "string" ? { imageUrl: st.imageUrl } : {}),
+        }))
     : [];
   // 同一商机有多张卡（同公司几位买家）：取最高等级，一张 A 就按 A 跟进
   const grades = booth.map((i) => metaOf(i).boothGrade);
@@ -406,7 +415,9 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     let pendingActionId: string | null = null;
     let approvalRequired = false;
     let reviewZh: ReplyDraft | null = null;
+    let html: string | null = null;
     if (score.qualification !== "disqualified") {
+      const branding = await loadEmailBranding(orgId, org.name);
       const draftInput = {
         tradeShow: booth.fromLatest ? { event: booth.event, styles: booth.styles } : null,
         language: extraction.language,
@@ -420,15 +431,37 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         knowledge,
         policy,
       };
+      const zhInput = { ...draftInput, language: "zh" as const, questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply) };
       draft = buildReplyDraft(draftInput);
-      if (input.useLlm !== false) draft = await polishReplyDraftWithLlm(draft, { orgId, userId: principalUserId, agentRunId: runId });
-      // 审核的人看中文：英文草稿附同一模板的中文版，只进审批预览，不进发送正文
-      if (draft.language === "en") {
-        reviewZh = buildReplyDraft({
-          ...draftInput,
-          language: "zh",
-          questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply),
+      if (booth.fromLatest && draft.language === "en") {
+        // 展位来访的英文买家：新版首封（参考款卡片 + 报价只问三点 + 回复 / WhatsApp 按钮），文字和 HTML 出自同一份内容；
+        // 不过 AI 润色（版式和措辞已定稿）。「记下的要点」沿用模板过滤过的 factsUsed。
+        const ctx = (lang: "en" | "zh", facts: ReplyDraft["factsUsed"]) => ({
+          orgName: org.name,
+          contactName: draftInput.contactName,
+          event: booth.event,
+          product: fields.productName,
+          styles: booth.styles,
+          noted: notedFacts(facts, lang),
+          missing,
+          signature: signatureFor(branding.profile, draftInput.senderName, org.name),
+          profile: branding.profile,
+          replyEmail: branding.replyEmail,
         });
+        const zhFacts = buildReplyDraft(zhInput).factsUsed;
+        const composed = composeBoothFirstEmail(ctx("en", draft.factsUsed), "en");
+        draft = { ...composed.draft, factsUsed: draft.factsUsed, pendingInternalConfirmation: draft.pendingInternalConfirmation };
+        html = composed.html;
+        reviewZh = composeBoothFirstEmail(ctx("zh", zhFacts), "zh").draft;
+      } else {
+        if (input.useLlm !== false) draft = await polishReplyDraftWithLlm(draft, { orgId, userId: principalUserId, agentRunId: runId });
+        // 审核的人看中文：英文草稿附同一模板的中文版，只进审批预览，不进发送正文
+        if (draft.language === "en") reviewZh = buildReplyDraft(zhInput);
+        // 官网询盘等：正文不变，套同一个外框（抬头 + 页脚）
+        html = renderPlainEmailHtml(
+          { subject: draft.subject, body: draft.body, footer: footerLines({ orgName: org.name, event: booth.fromLatest ? booth.event : null, profile: branding.profile }, draft.language) },
+          branding.brand,
+        );
       }
       base.draft = draft;
       await event("agent.output", "回复草稿已生成（未发送）", {
@@ -521,6 +554,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
             to: opp.customer.email,
             subject: draft.subject,
             body: draft.body,
+            html,
             language: draft.language,
             replyToInteractionId: latest.id,
             metadata: { orgId, customerId: opp.customerId, opportunityId: opp.id, salesActionId, agentRunId: runId, employeeKey: FDE_EMPLOYEE_KEY },

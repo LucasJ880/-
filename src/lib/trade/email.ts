@@ -24,6 +24,8 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   body: string;
+  /** 有就同时发 HTML 版（body 仍作为纯文本部分） */
+  html?: string;
   replyTo?: string;
   from?: string;
   bcc?: string[];
@@ -51,6 +53,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       to: input.to,
       subject: input.subject,
       text: input.body,
+      ...(input.html ? { html: input.html } : {}),
       replyTo: input.replyTo,
       ...(input.bcc?.length ? { bcc: input.bcc } : {}),
     });

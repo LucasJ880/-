@@ -131,9 +131,9 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OTHER, role: "org_owner", status: "active" } });
 
   let thrownError: unknown = null;
-  const sent: Array<{ to: string; subject: string; body: string }> = [];
+  const sent: Array<{ to: string; subject: string; body: string; html: string | null }> = [];
   __setInquiryReplySenderForTest(async (input) => {
-    sent.push({ to: input.to, subject: input.subject, body: input.body });
+    sent.push({ to: input.to, subject: input.subject, body: input.body, html: input.html });
     return { channel: "test", messageId: `msg_${sent.length}` };
   });
 
@@ -202,6 +202,13 @@ async function main() {
     const pa = await db.pendingAction.findUnique({ where: { id: fde.pendingActionId! } });
     const paMeta = ((pa?.payload as Record<string, unknown> | null)?.metadata ?? {}) as Record<string, unknown>;
     ok(pa?.type === INQUIRY_REPLY_ACTION_TYPE && pa.status === "pending" && pa.orgId === ORG && pa.approverUserId === TRADE && pa.agentRunId === null && paMeta.agentRunId === fde.agentRunId && paMeta.canonicalRisk === "high_impact", "PendingAction 字段（审批人=负责人；run 追溯在 metadata，不挂 assistant reconcile）", { pa, paMeta });
+    const paPayload = (pa?.payload ?? {}) as Record<string, unknown>;
+    const paHtml = String(paPayload.html ?? "");
+    ok(
+      paHtml.startsWith("<!doctype html>") && paHtml.includes(String(paPayload.subject ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;")) && /confirm these internally/i.test(paHtml),
+      "官网询盘草稿：正文不变，同时存了套公司外框的 HTML 版",
+      paHtml.slice(0, 200),
+    );
     const actAfter = await db.salesAction.findUnique({ where: { id: a.salesActionId! } });
     ok(actAfter?.pendingActionId === fde.pendingActionId && actAfter.agentRunId === fde.agentRunId && actAfter.approvalRequired && actAfter.priority === "high", "SalesAction 回填 FDE 追踪字段", actAfter);
     const oppAfter = await db.salesOpportunity.findUnique({ where: { id: a.opportunityId } });
@@ -232,7 +239,8 @@ async function main() {
       approvedByTrade = await approveApprovalItem("pending_action", fdeRedo2.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
     }
     ok(approvedByTrade.ok === true, "恢复 active 后负责人批准 → 发送", approvedByTrade);
-    ok(sent.length === 1 && sent[0].to === "cathy@hotel-supply.ca" && /blackout curtains/i.test(sent[0].subject), "只发送一次，收件人=客户邮箱", sent);
+    ok(sent.length === 1 && sent[0].to === "cathy@hotel-supply.ca" && /blackout curtains/i.test(sent[0].subject), "只发送一次，收件人=客户邮箱", sent.map(({ html, ...x }) => ({ ...x, html: html?.slice(0, 30) })));
+    ok(sent[0]?.html?.startsWith("<!doctype html>") === true, "发送通道拿到 HTML 版", sent[0]?.html?.slice(0, 30));
     const dupExec = await approveApprovalItem("pending_action", fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });
     ok(sent.length === 1 && dupExec.duplicate === true, "重复批准不重复发送（B2 CAS，port 幂等）", { sent: sent.length, dupExec });
     const dupExecRaw = await executePendingAction(fdeRedo.pendingActionId!, { userId: TRADE, role: "trade", orgId: ORG });

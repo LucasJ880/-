@@ -158,8 +158,9 @@ export function unsafeToRepeat(text: string): boolean {
   return detectInquiryRisks(text).some((r) => !INFORMATIONAL.has(r.code));
 }
 
-/** 审批预览最上面的提醒块（中文，不会发送） */
-export function formatRiskNotes(risks: InquiryRisk[]): string {
-  if (!risks.length) return "";
-  return ["⚠ 审核提醒（不会发送）：", ...risks.map((r) => `- ${r.note}`)].join("\n");
+/** 审批预览最上面的提醒块（中文，不会发送）；reminders = 与来信无关的固定提醒（如跟进前确认买家没在别处回过） */
+export function formatRiskNotes(risks: InquiryRisk[], reminders: string[] = []): string {
+  const lines = [...risks.map((r) => r.note), ...reminders];
+  if (!lines.length) return "";
+  return ["⚠ 审核提醒（不会发送）：", ...lines.map((l) => `- ${l}`)].join("\n");
 }

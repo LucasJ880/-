@@ -14,12 +14,18 @@ export const RULE_KEY_STYLE_REFERENCES = "trade.style_references";
 export interface StyleReference {
   code: string;
   name: string;
+  /** 官网规格页（可选，进邮件的「View specification」） */
+  specUrl?: string | null;
+  /** 款式图片（可选，邮件里的参考款卡片；用 jpg/png，Outlook 不显示 webp） */
+  imageUrl?: string | null;
 }
 
 /** 草稿 / 正文里引用的参考款；name 为空 = 款号不在参考表里 */
 export interface ResolvedStyle {
   code: string;
   name: string | null;
+  specUrl?: string | null;
+  imageUrl?: string | null;
 }
 
 const CODE_RE = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$/;
@@ -29,12 +35,14 @@ export function normalizeStyleCode(v: string): string {
   return v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
 }
 
+const HTTPS_RE = /^https:\/\/[^\s"'<>]+$/i;
+
 /**
- * 解析页面上粘贴的文本：一行一个「款号, 品类名」（逗号、制表符或竖线分隔；表格直接复制也行）。
- * 空行和 # 开头的行忽略；同一款号出现多次以最后一次为准。
+ * 解析页面上粘贴的文本：一行一个「款号, 品类名[, 规格页链接[, 图片链接]]」（逗号、制表符或竖线分隔；表格直接复制也行）。
+ * 链接可省；空行和 # 开头的行忽略；同一款号出现多次以最后一次为准。
  */
 export function parseStyleReferenceText(text: string): { refs: StyleReference[]; errors: string[] } {
-  const byCode = new Map<string, string>();
+  const byCode = new Map<string, StyleReference>();
   const errors: string[] = [];
   text.split(/\r?\n/).forEach((line, i) => {
     const t = line.trim();
@@ -45,7 +53,9 @@ export function parseStyleReferenceText(text: string): { refs: StyleReference[];
       return;
     }
     const code = normalizeStyleCode(m[1]);
-    const name = m[2].replace(/\s+/g, " ").trim().slice(0, 120);
+    // 品类名里可能有逗号；链接从第一个「, https://」起
+    const [namePart, ...urls] = m[2].split(/\s*[,，\t|]\s*(?=https?:\/\/)/);
+    const name = namePart.replace(/[,，\t|]+\s*$/, "").replace(/\s+/g, " ").trim().slice(0, 120);
     if (!CODE_RE.test(code)) {
       errors.push(`第 ${i + 1} 行：款号格式不对：${m[1].trim()}`);
       return;
@@ -54,15 +64,22 @@ export function parseStyleReferenceText(text: string): { refs: StyleReference[];
       errors.push(`第 ${i + 1} 行：缺少品类名`);
       return;
     }
-    byCode.set(code, name);
+    const cleanUrls = urls.map((u) => u.replace(/[,，\t|]+\s*$/, "").trim());
+    const bad = cleanUrls.find((u) => !HTTPS_RE.test(u));
+    if (bad) {
+      errors.push(`第 ${i + 1} 行：链接要以 https:// 开头：${bad}`);
+      return;
+    }
+    byCode.set(code, { code, name, ...(cleanUrls[0] ? { specUrl: cleanUrls[0] } : {}), ...(cleanUrls[1] ? { imageUrl: cleanUrls[1] } : {}) });
   });
-  const refs = [...byCode].map(([code, name]) => ({ code, name }));
+  const refs = [...byCode.values()];
   if (refs.length > MAX_REFS) errors.push(`最多 ${MAX_REFS} 个款号`);
   return { refs: refs.slice(0, MAX_REFS), errors };
 }
 
 export function formatStyleReferenceText(refs: StyleReference[]): string {
-  return refs.map((r) => `${r.code}, ${r.name}`).join("\n");
+  // 图片链接排在规格页之后，没有规格页时不写图片（否则读回来会当成规格页）
+  return refs.map((r) => [r.code, r.name, r.specUrl, r.specUrl ? r.imageUrl : null].filter(Boolean).join(", ")).join("\n");
 }
 
 function fromConfig(config: unknown): StyleReference[] {
@@ -70,7 +87,12 @@ function fromConfig(config: unknown): StyleReference[] {
   if (!Array.isArray(list)) return [];
   return list
     .filter((r): r is StyleReference => typeof r?.code === "string" && typeof r?.name === "string")
-    .map((r) => ({ code: normalizeStyleCode(r.code), name: r.name }));
+    .map((r) => ({
+      code: normalizeStyleCode(r.code),
+      name: r.name,
+      ...(typeof r.specUrl === "string" && HTTPS_RE.test(r.specUrl) ? { specUrl: r.specUrl } : {}),
+      ...(typeof r.imageUrl === "string" && HTTPS_RE.test(r.imageUrl) ? { imageUrl: r.imageUrl } : {}),
+    }));
 }
 
 export async function loadStyleReferences(orgId: string): Promise<StyleReference[]> {
@@ -112,12 +134,15 @@ export async function saveStyleReferences(orgId: string, refs: StyleReference[],
 
 /** 卡上「感兴趣款号」（已归一，逗号分隔）→ 参考款列表，保持卡上顺序 */
 export function resolveStyles(styles: string, refs: StyleReference[]): ResolvedStyle[] {
-  const byCode = new Map(refs.map((r) => [r.code, r.name]));
+  const byCode = new Map(refs.map((r) => [r.code, r]));
   return styles
     .split(/\s*,\s*/)
     .map((c) => normalizeStyleCode(c))
     .filter(Boolean)
-    .map((code) => ({ code, name: byCode.get(code) ?? null }));
+    .map((code) => {
+      const r = byCode.get(code);
+      return r ? { code, name: r.name, ...(r.specUrl ? { specUrl: r.specUrl } : {}), ...(r.imageUrl ? { imageUrl: r.imageUrl } : {}) } : { code, name: null };
+    });
 }
 
 /** 正文 / 草稿里的写法：「品类名 (ref. 款号)」，不在表里的只写款号 */

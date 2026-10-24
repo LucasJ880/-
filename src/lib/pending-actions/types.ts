@@ -289,6 +289,8 @@ export interface SalesSendInquiryReplyPayload {
   to: string;
   subject: string;
   body: string;
+  /** 起草时由 email-layout 从同一份内容渲染的 HTML 版（审批不能改内容，所以起草时就定稿）；Gmail 通道只发 body */
+  html?: string | null;
   language?: "zh" | "en" | null;
   replyToInteractionId?: string | null;
   /** 买家没回信时的第几次跟进（1 起）；首封回复不填 */
