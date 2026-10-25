@@ -205,10 +205,13 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
  * （约定见 docs/QINGYAN_INTAKE_WEBHOOK.md）。关键词扫描照常跑完后，用这些值覆盖对应字段——
  * "Material: flannel fleece with sherpa back" 不会只剩 flannel fleece，"3,000 pcs per colour" 不会只剩 3000 pcs。
  *
- * 只认这个区块里的行：买家邮件、聊天里的「Label: value」常是占位（see below）、模糊回答或引用的旧内容，交给关键词扫描。
- * 拿不准就不覆盖（结果与没有这一层时一样）：值是没答 / 占位 / yes-no、数量说不清、认证不在词表里。
- * 也不覆盖：更晚的来信里关键词抽到了同一字段（买家后来改口）；数量 / 交期 / 目的地 / 贸易术语在同一封来信里
- * 表单区块之前就说过（正文先说的为准）。
+ * 原则：拿不准就不覆盖，结果与没有这一层时一样。
+ * - 只认表单区块里的行；邮件、聊天里的「Label: value」常是占位、模糊回答或引用的旧内容
+ * - 只收能核实、关键词抽得不全的字段（数量、材质、尺寸、定制、包装、目的地、贸易术语、交期、买家类型）；
+ *   认证、样品的否定说法太多（BSCI isn't required、Sample: no 但正文要样品），保持关键词结果；
+ *   定制只在值里没有任何否定 / 条件 / 推迟的字眼时采用
+ * - 值要核实得了（见 labeledValue）；更晚的来信提到了该字段、同一封来信区块之外买家写过、
+ *   这次提交点名的是别的产品，都不覆盖（见 extractRfqHeuristic 末尾的 keywordWins）
  */
 const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["quantity", ["quantity", "qty", "estimated quantity", "order quantity", "数量", "采购数量", "预计数量"]],
@@ -216,8 +219,6 @@ const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["size", ["size", "sizes", "size / specification", "dimensions", "尺寸", "规格"]],
   ["customization", ["customization", "customisation", "branding", "logo", "labelling", "labeling", "定制", "定制要求"]],
   ["packaging", ["packaging", "packing", "包装", "包装要求"]],
-  ["certification", ["certification", "certifications", "certification needs", "certificates", "认证", "认证要求", "认证需求"]],
-  ["sampleRequired", ["sample requirement", "sample required", "samples", "sample", "样品", "样品需求"]],
   ["destinationCountry", ["destination", "destination country", "ship to", "目的国", "目的地"]],
   ["incoterm", ["incoterm", "incoterms", "trade term", "贸易术语"]],
   ["requiredDeliveryDate", ["required date", "delivery date", "required delivery date", "target delivery date", "交期", "要求交期"]],
@@ -287,24 +288,6 @@ function labeledQuantity(value: string): LabeledPairs | null {
   return null;
 }
 
-function labeledCertification(value: string): LabeledPairs | null {
-  // 只认词表里的认证名（OEKO-TEX certified → OEKO-TEX）；Yes / Required / Not needed、问句、链接不覆盖；
-  // 短的缩写（REACH、CE、GRS…）要大写才算，免得「reach EU retailers」里的 reach 当成认证
-  if (/[?？]|https?:\/\/|www\./i.test(value)) return null;
-  const lower = value.toLowerCase();
-  const hits: Array<{ index: number; text: string }> = [];
-  for (const kw of CERTIFICATION_KEYWORDS) {
-    const isAscii = /^[\x00-\x7f]+$/.test(kw);
-    const i = !isAscii
-      ? lower.indexOf(kw.toLowerCase())
-      : kw.replace(/[^a-z]/gi, "").length <= 5
-        ? value.search(new RegExp(`(?<![A-Za-z])${escapeRe(kw.toUpperCase())}(?![A-Za-z])`))
-        : lower.search(new RegExp(`(?<![a-z])${escapeRe(kw.toLowerCase())}(?![a-z])`));
-    if (i >= 0 && !hits.some((h) => i >= h.index && i < h.index + h.text.length)) hits.push({ index: i, text: value.substr(i, kw.length) });
-  }
-  if (!hits.length || /^(?:no|not|none|without|不需要|无需|没有|不用)(?![A-Za-z])/i.test(value)) return null;
-  return [["certification", hits.sort((a, b) => a.index - b.index).map((h) => h.text).join(", ")]];
-}
 
 // 只有标点（「-」「/」「...」「?」）或指向别处（see photo、as per drawing、见图）：不是答案
 const PLACEHOLDER_RE =
@@ -312,14 +295,18 @@ const PLACEHOLDER_RE =
 
 // 否定、问句、链接：不是对规格的回答（「not polybag」「no branding」「OEKO-TEX?」「https://…」）
 const NOT_A_SPEC_RE = /^(?:no|not|none|without|avoid|never|无|不需要|不用|不要|没有)(?![A-Za-z])|\b(?:no|not|without)\s+(?:\w+\s+){0,2}(?:logos?|brand\w*|labels?|print\w*|tags?|embroider\w*|polybags?|box(?:es)?|cartons?|cotton|polyester)\b|[?？]|https?:\/\/|www\./i;
-// 定制 / 认证的值里只要有否定（「plain, no logos」「CE marking not needed, just OEKO-TEX」「your brand is fine」）就不采用
-const ANY_NEGATION_RE = /\b(?:no|not|none|nothing|without|never|don'?t|don’t|doesn'?t|doesn’t|needn'?t|unable|cannot|can'?t|can’t|free)\b|-free\b|\byour (?:own )?(?:brand|logo|label)s?\b|无|不需要|不要|不用|没有|免/i;
 // 表单尺寸值只由尺码词组成才算（S/M and L/XL、Queen、S-XL）；单个字母要独立成词，不算 it's / let's 里的 s
 const SIZE_WORDS_ONLY_RE =
   /^(?:(?<![A-Za-z'’])(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-4]xl|one size|queen|king|super king|california king|twin|full|double|single)(?![A-Za-z'’])(?:\s*sizes?)?(?:\s*(?:[,/&+~–-]|and|to)\s*)?)+$/i;
 const CUSTOMIZATION_WORD_RE = /\b(?:logos?|embroider\w*|brand(?:ed|ing)?|labels?|print(?:ed|ing)?|tags?|woven|patch(?:es)?)\b|印|绣|贴牌|商标|吊牌|标签|织标/i;
+// 定制值里有任何否定、条件、推迟的字眼（won't need logos、brandless、logo maybe later、可以不印字、暂不绣花）就不采用
+const HEDGE_RE =
+  /\b(?:no|not|none|nothing|nor|never|without|skip\w*|exclud\w*|zero|unnecessary|optional|maybe|perhaps|later|if|or|either|unless|tbd|tba)\b|n['’]t\b|\w+less\b|-free\b|\byour (?:own )?(?:brand|logo|label)s?\b|[不无没免暂别勿否]/i;
+// ❌ / 🚫 / ⛔ 是买家在表单里打的「不要」：整值不采用
+const NO_MARK_RE = /[❌🚫⛔✖✗✘]/u;
 
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
+  if (NO_MARK_RE.test(raw)) return null;
   const value = capWords(raw.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
   if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value)) return null;
   const sentence = firstSentence(value);
@@ -348,16 +335,9 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
       const inco = new RegExp(`\\b(${INCOTERMS.join("|")})\\b`, "i").exec(value);
       return inco ? [["incoterm", inco[1].toUpperCase()]] : null;
     }
-    case "sampleRequired":
-      // 只认明确的是 / 否（「No problem, please send 2 pcs」不是否）
-      if (/^(?:yes|y|required|needed|需要|要|是)(?:[\s,.!。，]|$)/i.test(value)) return [["sampleRequired", true]];
-      if (/^(?:no|n|no samples?(?: needed)?|not needed|no need|不需要|不要|否)[.!。]?$/i.test(value)) return [["sampleRequired", false]];
-      return null;
-    case "certification":
-      return ANY_NEGATION_RE.test(value) ? null : labeledCertification(sentence);
-    // 下面几项只在值里真有对应的词时采用（「No requirement」「Later」「normal」「无」「maybe」这类不是答案）
+    // 下面几项只在值里真有对应的词时采用（「No requirement」「Later」「normal」「无」这类不是答案）
     case "customization":
-      if (yesNo || NOT_A_SPEC_RE.test(sentence) || ANY_NEGATION_RE.test(value) || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
+      if (yesNo || NOT_A_SPEC_RE.test(sentence) || HEDGE_RE.test(value) || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
       return [["customization", sentence], ["customLogo", true]];
     case "packaging":
       return !NOT_A_SPEC_RE.test(sentence) && findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS) ? [["packaging", sentence]] : null;
@@ -384,8 +364,9 @@ interface LabeledHit {
   /** 整行范围：关键词命中落在这一行里，说明就是同一句话 */
   lineStart: number;
   lineEnd: number;
-  /** 所在表单区块的起点：买家在区块之前（正文里）写过的，以正文为准 */
+  /** 所在表单区块的范围：同一封来信里区块之外（正文、P.S.）买家写过的，以正文为准 */
   blockStart: number;
+  blockEnd: number;
   segment: number;
 }
 
@@ -400,8 +381,9 @@ function labeledFields(
 ): {
   hits: LabeledHit[];
   buyerTypeLines: Array<[number, number]>;
-  /** 表单区块里每一行认得出的字段（不管值能不能用）：别的字段的行不给这个字段提供关键词 */
-  fieldLines: Array<{ field: RfqField; start: number; end: number }>;
+  blocks: Array<[number, number]>;
+  /** 表单区块里认得出字段的行（买家类型行除外）：区块里只有这些是买家填的规格，来源页、着陆页这类不是 */
+  specLines: Array<[number, number]>;
   segmentOf: (index: number) => number;
   segmentEnd: (segment: number) => number;
 } {
@@ -426,7 +408,7 @@ function labeledFields(
 
   const byField = new Map<RfqField, LabeledHit>();
   const buyerTypeLines: Array<[number, number]> = [];
-  const fieldLines: Array<{ field: RfqField; start: number; end: number }> = [];
+  const specLines: Array<[number, number]> = [];
   let m: RegExpExecArray | null;
   LABELED_LINE_RE.lastIndex = 0;
   while ((m = LABELED_LINE_RE.exec(source))) {
@@ -436,9 +418,9 @@ function labeledFields(
     const raw = m[2];
     const block = blockOf(m.index);
     if (SECOND_LABEL_RE.test(raw) || !block) continue;
-    fieldLines.push({ field, start: m.index, end: m.index + m[0].length });
     // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
     if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5) buyerTypeLines.push([m.index, m.index + m[0].length]);
+    if (field !== "buyerType") specLines.push([m.index, m.index + m[0].length]);
     const segment = segmentOf(m.index);
     const prev = byField.get(field);
     if (prev && prev.segment >= segment) continue;
@@ -452,11 +434,12 @@ function labeledFields(
       lineStart: m.index,
       lineEnd: m.index + m[0].length,
       blockStart: block[0],
+      blockEnd: block[1],
       segment,
     });
   }
   const segmentEnd = (seg: number) => (seg + 1 < segStarts.length ? segStarts[seg + 1] : source.length);
-  return { hits: [...byField.values()], buyerTypeLines, fieldLines, segmentOf, segmentEnd };
+  return { hits: [...byField.values()], buyerTypeLines, blocks, specLines, segmentOf, segmentEnd };
 }
 
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
@@ -468,7 +451,7 @@ function mentionedIn(field: RfqField, text: string): boolean {
       return new RegExp(`\\d[\\d,，.]*\\s*(?:k|万|千)?\\s*(?:${UNIT_WORDS})(?![A-Za-z])|\\b(?:quantity|qty|volume|increase|reduce|double|half)\\b|数量|加量|减量`, "i").test(text);
     case "requiredDeliveryDate":
       return (
-        new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time|christmas|xmas|new year|easter|ramadan|eid|diwali|black friday|season|holiday\\w*)\\b|交期|交货|到货|提前|推迟|延期|春节|圣诞|国庆|节前`, "i").test(text) ||
+        new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time|christmas|xmas|new year|easter|ramadan|eid|diwali|black friday|season|holiday\\w*|q[1-4]|no rush|quarter|spring|summer|autumn|fall|winter)\\b|交期|交货|到货|提前|推迟|延期|春节|圣诞|国庆|节前|年后|以后|季度`, "i").test(text) ||
         RELATIVE_RE.test(text)
       );
     case "destinationCountry":
@@ -478,7 +461,7 @@ function mentionedIn(field: RfqField, text: string): boolean {
     case "material":
       return findKeyword(lower, MATERIAL_KEYWORDS) !== null || /\b(?:material|fabric)\b|面料|材质/i.test(text);
     case "size":
-      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size)\b|\b[sml]\s*\/\s*[sml]\b|尺寸|尺码|规格|大号|中号|小号|均码/i.test(text);
+      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|super ?king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size|size (?:up|down)|bigger|smaller|larger|inch(?:es)?|cm)\b|\b[sml]\s*\/\s*[sml]\b|\d+\s*(?:by|x|×)\s*\d+|尺寸|尺码|规格|大号|中号|小号|均码|大一|小一/i.test(text);
     case "customization":
       return findKeyword(lower, CUSTOMIZATION_KEYWORDS) !== null || CUSTOMIZATION_WORD_RE.test(text) || /定制/.test(text);
     case "packaging":
@@ -714,7 +697,8 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const here = segmentText(segment);
     const a = productLine(segmentText(labeled.segmentOf(productAt)));
     const b = productLine(here);
-    if (a && b) return a !== b;
+    // 两封的「Product:」一样且不是「Other / custom textile」这类泛称，才算同一个产品
+    if (a && b) return a !== b || /other|custom|general|misc|其他|其它|定制/i.test(a);
     const kw = findKeyword(here.toLowerCase(), Object.keys(opts.productKeywords));
     return kw !== null && kw.kw.toLowerCase() !== (fields.productName ?? "").toLowerCase();
   };
@@ -727,8 +711,8 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (k === undefined || (k >= hit.lineStart && k < hit.lineEnd)) return false;
     const seg = labeled.segmentOf(k);
     if (seg !== hit.segment) return seg > hit.segment;
-    // 同一封来信里表单区块之前买家自己写过：以正文为准，表单只补没写到的
-    return k < hit.blockStart;
+    // 同一封来信里表单区块之外（之前的正文、之后的 P.S.）买家自己写过：以正文为准，表单只补没写到的
+    return k < hit.blockStart || k >= hit.blockEnd;
   };
   const keywordQty = { quantity: fields.quantity, unit: fields.unit };
   let labeledCountry = false;
@@ -753,11 +737,9 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const k = keywordPos.get(field);
     if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
     if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]))) continue;
-    const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
-    let elsewhere = labeled.buyerTypeLines.reduce((t, [a, b]) => blank(t, a, b), lower);
-    // 找包装时不看表单里别的字段的行（Branding 行里的 label 不是包装）；找定制时照看（「Packaging: gift box with our logo printed」）
-    if (field === "packaging") for (const l of labeled.fieldLines) if (l.field !== field) elsewhere = blank(elsewhere, l.start, l.end);
-    elsewhere = elsewhere.replace(/[^\n]*(?:https?:\/\/|www\.|utm|campaign=|source=|来源页|落地页|引荐页)[^\n]*/gi, (line) => " ".repeat(line.length));
+    // 在买家自己写的正文和表单里的规格行（Packaging、Material…）里找；区块里的来源页、着陆页、UTM 之类不看
+    let elsewhere = labeled.blocks.reduce((t, [a, b]) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b), lower);
+    for (const [a, b] of labeled.specLines) elsewhere = elsewhere.slice(0, a) + lower.slice(a, b) + elsewhere.slice(b);
     const again = findKeyword(elsewhere, field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS);
     dropEvidence(field);
     if (field === "customization") {

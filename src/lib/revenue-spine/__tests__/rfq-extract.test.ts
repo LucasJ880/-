@@ -265,7 +265,7 @@ ok("表单区块里没答 / 占位 / yes-no / 认证不在词表：不覆盖", (
   assert.equal(cert.certification, "OEKO-TEX");
   assert.equal(cert.material, "cotton terry");
   const zh = fx(["需要法兰绒毯2000条。", "", block("Sample requirement: 不需要", "Packaging: 每条一个PE袋，20条一箱")].join("\n"));
-  assert.equal(zh.sampleRequired, false, "中文「不需要」");
+  assert.equal(zh.sampleRequired, true, "样品不按表单覆盖（正文、标签里提到样品照原样记为要样品）");
   assert.equal(zh.packaging, "每条一个PE袋，20条一箱");
   assert.equal(fx(["Need 3000 bath towels.", "", block("Sample requirement: yes")].join("\n")).sampleRequired, true);
   assert.equal(fx(["Need 3000 bath towels.", "", block("Size / specification: S/M and L/XL")].join("\n")).size, "S/M and L/XL", "整个值都是尺码词时照录");
@@ -365,6 +365,23 @@ ok("第六轮审查用例：否定的定制 / 认证、后来的来信改尺码 
   const twoProducts = fx("Product: Bath towels\nQuote towels.\n\n— Form details —\nEstimated quantity: 3000 pcs" + INBOUND_MESSAGE_SEPARATOR + "Product: Beach towels\nAnd beach towels to Australia.\n\n— Form details —\nEstimated quantity: 1000 pcs");
   assert.equal(twoProducts.quantity, 3000);
   assert.equal(fx(q + "Material: Cotton 🙂").material, "Cotton");
+});
+
+ok("第七轮审查用例：定制值里的各种否定、认证与样品不按表单覆盖、区块后的 P.S.、泛称产品、❌ 标记、来源行", () => {
+  const q = "Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 pcs\n";
+  // 这些值表单层不采用：结果与去掉表单标记（只走关键词扫描）时完全一样
+  const noForm = (t: string) => fx(t.replace("— Form details —", "Form details"));
+  for (const v of ["we won't need logos", "brandless, generic labels are fine", "可以不印字", "素色，暂不绣花", "Logo ❌", "logo maybe later"]) {
+    const a = fx(q + `Branding: ${v}`);
+    const b = noForm(q + `Branding: ${v}`);
+    assert.deepEqual([a.customization, a.customLogo], [b.customization, b.customLogo], `Branding: ${v}`);
+  }
+  assert.notEqual(fx(q + "Certification: GOTS, FSC isn't required").certification, "GOTS, FSC");
+  assert.equal(fx("Product: 浴巾\n先寄样品看看\n\n— Form details —\nEstimated quantity: 3000条\nSample requirement: 不需要").sampleRequired, true);
+  assert.match(fx(q + "Branding: embroidered logo\n\nP.S. we changed our mind: printed logo instead").customization ?? "", /printed logo/);
+  const generic = fx("Product: Other / custom textile\nBlackout curtains.\n\n— Form details —\nEstimated quantity: 600 pcs\nSize / specification: 140x260cm" + INBOUND_MESSAGE_SEPARATOR + "Product: Other / custom textile\nAlso cushions.\n\n— Form details —\nEstimated quantity: 200 pcs\nSize / specification: 45x45cm");
+  assert.equal(generic.size, "140x260cm");
+  assert.doesNotMatch(fx(q + "Buyer type: Private label\nInquiry source: Logo towels landing page").customization ?? "", /landing page/i);
 });
 
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
