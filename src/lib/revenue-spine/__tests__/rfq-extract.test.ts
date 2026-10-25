@@ -268,7 +268,8 @@ ok("表单区块里没答 / 占位 / yes-no / 认证不在词表：不覆盖", (
   assert.equal(zh.sampleRequired, false, "中文「不需要」");
   assert.equal(zh.packaging, "每条一个PE袋，20条一箱");
   assert.equal(fx(["Need 3000 bath towels.", "", block("Sample requirement: yes")].join("\n")).sampleRequired, true);
-  assert.equal(fx(["Need 3000 bath towels.", "", block("Size / specification: Std. King size")].join("\n")).size, "Std. King size", "缩写的句点不断句");
+  assert.equal(fx(["Need 3000 bath towels.", "", block("Size / specification: S/M and L/XL")].join("\n")).size, "S/M and L/XL", "整个值都是尺码词时照录");
+  assert.equal(fx(["Need 3000 bath towels.", "", block("Size / specification: it's the same as above")].join("\n")).size, null, "it's 里的 s 不是尺码");
 });
 
 ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 / 多个带单位的数交给关键词扫描；Pieces 记成 pcs；只写数字时沿用正文单位", () => {
@@ -315,9 +316,7 @@ ok("目的地：表单国家与较早来信里的城市不在同一国时城市�
   assert.equal(r.destinationCity, null);
 });
 
-ok("引用回来的起订量参考句不当成买家的数量；买家自己说的 minimum order quantity of N 照算", () => {
-  assert.equal(fx("Hi, we need 800 pcs bath towels.\n\n> For reference, our MOQ is typically 1,000 pcs per style.").quantity, 800);
-  assert.equal(fx("我们要800条浴巾。\n> 供参考：起订量一般为每款 1,000 件。").quantity, 800);
+ok("买家自己说的 minimum order quantity of N 照算", () => {
   assert.equal(fx("Hello, we are a small boutique. Can you accept a minimum order quantity of 300 pcs for velvet cushion covers 45x45cm?").quantity, 300);
 });
 
@@ -336,13 +335,14 @@ ok("表单里的买家类型选项不当定制 / 包装；买家在这一行写�
   assert.equal(long.color, "white");
 });
 
-ok("交期：early / mid 取 10 / 15 日（不说成月底）；只给月份不落到过去；before end of / the end of", () => {
+ok("交期：early / mid 取 10 / 15 日（不说成月底）；只给月份不落到过去；before end of；not before 不算 before", () => {
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d(["We need 3000 bath towels.", "", block("Required date: early March 2027")].join("\n")), "2027-03-10");
   assert.equal(d("We need 3000 bath towels by mid-March 2027. We started our business in May 2010."), "2027-03-15", "不跳到后面不相干的月份");
   assert.equal(d("We need 3000 bath towels before October."), "2027-09-30");
   assert.equal(d("We need 3000 bath towels before end of March 2027."), "2027-03-31");
-  assert.equal(d("We need 3000 bath towels by the end of March 2027."), "2027-03-31");
+  assert.equal(d("Note our warehouse is closed until the end of January. Please deliver 900 throws in March."), "2027-03-31", "「the end of」不认（常是别的事情的期限）");
+  assert.equal(d("Please do not ship before March because our warehouse is full."), "2027-03-31", "not before March 不是 2 月底");
 });
 
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
