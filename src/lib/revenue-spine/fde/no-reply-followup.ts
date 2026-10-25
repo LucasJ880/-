@@ -9,6 +9,7 @@
  */
 
 import { db } from "@/lib/db";
+import { logAudit } from "@/lib/audit/logger";
 import { requestApproval } from "@/lib/approval/request";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { detectInquiryRisks } from "../inquiry-risks";
@@ -26,6 +27,11 @@ const DAY_MS = 86_400_000;
 const MAX_PER_RUN = 50;
 /** 错过跟进时间超过这么多天就不再补起草（上线时不给几周前的老询盘一口气补草稿；长期无动作交给 stale 流程） */
 const MAX_LATE_DAYS = 7;
+/**
+ * 跟进草稿被护栏拦下时写一条审计（AuditLog.afterData 为 JSON），供 SLA 指标"护栏拦截数"计数。
+ * 同一次跟进（idempotencyKey）只记一次：cron 每 15 分钟会重新判断同一商机，不重复写。
+ */
+export const FOLLOW_UP_GUARDRAIL_AUDIT_ACTION = "revenue_spine.followup_draft.guardrail_blocked";
 
 export interface NoReplyFollowUpDue {
   /** 第几次跟进（1 起） */
@@ -296,6 +302,20 @@ export async function draftNoReplyFollowUps(
       const draft = buildNoReplyFollowUpDraft(input(language));
       if (draft.guardrailViolations.length) {
         skip(`guardrail:${draft.guardrailViolations.join(",")}`);
+        const recorded = await db.auditLog.findFirst({
+          where: { orgId, action: FOLLOW_UP_GUARDRAIL_AUDIT_ACTION, targetType: "sales_opportunity", targetId: opp.id, afterData: { contains: idempotencyKey } },
+          select: { id: true },
+        });
+        if (!recorded) {
+          await logAudit({
+            userId: principalUserId,
+            orgId,
+            action: FOLLOW_UP_GUARDRAIL_AUDIT_ACTION,
+            targetType: "sales_opportunity",
+            targetId: opp.id,
+            afterData: { idempotencyKey, step: due.step, guardrailViolations: draft.guardrailViolations.slice(0, 20), employeeKey: FDE_EMPLOYEE_KEY },
+          });
+        }
         continue;
       }
       const reviewZh = language === "en" ? buildNoReplyFollowUpDraft(input("zh")) : null;

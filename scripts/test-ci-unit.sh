@@ -252,6 +252,10 @@ npx tsx src/lib/revenue-spine/__tests__/owner-brief.test.ts
 npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-scope.test.ts
 npx tsx src/lib/messaging/__tests__/binding-preferences.test.ts
 npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts
+# 首响 SLA 分级提醒 / 工作时间日历 / SLA 指标（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts
+npx tsx src/lib/revenue-spine/__tests__/sla-metrics.test.ts
+npx tsx src/lib/revenue-spine/__tests__/sla-tiers-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

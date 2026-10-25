@@ -40,6 +40,13 @@ import { scoreOpportunity, type OpportunityScoreResult } from "../scoring";
 import { transitionOpportunity } from "../transition";
 import { FDE_EMPLOYEE_KEY, updateFdeAction } from "./actions";
 
+/**
+ * 本次 FDE 的草稿结果，写进 SalesAction.inputContext.draftStatus（SLA 指标与超时提醒据此说明"为什么没有草稿"）：
+ *   created / reused = 草稿在审批中心；guardrail_blocked = 草稿触发护栏未进审批（另记 guardrailBlockedAt / guardrailViolations，
+ *   之后重跑成功也保留，供"护栏拦截"指标计数）；out_of_range / disqualified / no_email / cancelled / approval_failed = 没有草稿的原因
+ */
+export type FdeDraftStatus = "created" | "reused" | "guardrail_blocked" | "out_of_range" | "disqualified" | "no_email" | "cancelled" | "approval_failed";
+
 export const FDE_RUN_TYPE = "fde_inbound_sales";
 export const FDE_CHANNEL = "fde";
 export const INQUIRY_REPLY_ACTION_TYPE = "sales.send_inquiry_reply";
@@ -410,6 +417,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     /** 本次新建了草稿（复用同一来信的未决草稿不算），决定是否发微信提醒 */
     let draftCreated = false;
     let reviewZh: ReplyDraft | null = null;
+    let draftStatus: FdeDraftStatus = score.outOfRange ? "out_of_range" : "disqualified";
     // 只命中企业明确不做的类目：不自动起草，留人工判断婉拒或转介（商机与 SLA 行动照常建立）
     if (score.outOfRange) {
       await event("agent.output", "询盘产品是企业明确不做的类目：不自动起草，留人工处理", { decision: "out_of_range", productCategory: fields.productCategory });
@@ -453,7 +461,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）
       const cancelled = await isAgentRunCancelled(orgId, runId);
       if (cancelled) {
+        draftStatus = "cancelled";
         await event("agent.output", "run 已被取消：跳过草稿审批", { decision: "cancelled_before_approval" });
+      } else if (!opp.customer.email) {
+        draftStatus = "no_email";
+      } else if (draft.guardrailViolations.length > 0) {
+        draftStatus = "guardrail_blocked";
+        await event("agent.output", "草稿未通过护栏：不进审批中心，需人工撰写", { decision: "guardrail_blocked", guardrailViolations: draft.guardrailViolations });
       }
       if (!cancelled && opp.customer.email && draft.guardrailViolations.length === 0) {
         approvalRequired = true;
@@ -547,8 +561,10 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         if (approval.ok) {
           pendingActionId = approval.actionIds[0] ?? null;
           draftCreated = !openDraft && !!pendingActionId;
+          draftStatus = openDraft ? "reused" : "created";
           await event("approval.required", openDraft ? "复用未决审批草稿" : "首次回复需人工审批后发送", { pendingActionId, actionType: INQUIRY_REPLY_ACTION_TYPE, to: opp.customer.email, reused: !!openDraft });
         } else {
+          draftStatus = "approval_failed";
           await event("approval.failed", "创建审批草稿失败", { error: approval.error, code: approval.errorCode });
         }
       } else if (!cancelled && !opp.customer.email) {
@@ -583,7 +599,18 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           pendingActionId,
           nextAction,
         },
-        inputContextPatch: { fdeStatus: "completed", agentRunId: runId, rfqId: persisted.rfq.id, assessmentId: assessment.id, research },
+        inputContextPatch: {
+          fdeStatus: "completed",
+          agentRunId: runId,
+          rfqId: persisted.rfq.id,
+          assessmentId: assessment.id,
+          research,
+          draftStatus,
+          // 护栏拦截的持久标记：只在拦截时写入，之后重跑不清除（指标"护栏拦截数"按它计）
+          ...(draftStatus === "guardrail_blocked" && draft
+            ? { guardrailBlockedAt: now.toISOString(), guardrailViolations: draft.guardrailViolations.slice(0, 20) }
+            : {}),
+        },
         ...(score.qualification === "disqualified" ? { close: { status: "auto_resolved", reason: `FDE 判定不合格：${score.recommendedNextActionLabel.zh}` } } : {}),
       });
       await markFdeTouch({ orgId, opportunityId: opp.id, salesActionId, sourced: opp.fdeSourced });

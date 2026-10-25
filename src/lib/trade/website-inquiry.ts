@@ -495,7 +495,7 @@ async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactio
     title: `新询盘：${who}${v.product ? " — " + v.product.slice(0, 60) : ""}`,
     description: v.message.slice(0, 2000),
     priority: "high",
-    dueAt: addBusinessHours(now, policy.salesSla.newInquiryResponseHours),
+    dueAt: addBusinessHours(now, policy.salesSla.newInquiryResponseHours, policy.salesSla.businessHours ?? null),
     signalKey: `inbound:${interactionId}`,
     assignedToId: ownerUserId,
     createdById: ownerUserId,

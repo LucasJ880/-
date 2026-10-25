@@ -8,6 +8,8 @@
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import { isValidTimeZone } from "@/lib/automation/local-time";
+import { parseClockMinutes, type BusinessCalendar } from "./business-days";
 
 export const REVENUE_SPINE_POLICY_VERSION = "revenue-spine-policy/v1";
 
@@ -90,6 +92,20 @@ export interface SalesSlaPolicy {
   newInquiryResponseHours: number;
   /** 客户来信后回复时限（工作小时） */
   customerReplyResponseHours: number;
+  // 首响分级提醒（sla-tiers.ts）。三档任一非 null = 本组织启用分级提醒，Revenue Spine 新询盘的提醒改由分级接管；
+  // 全部 null（默认）= 沿用 inquiry-sla 旧提醒（5 分钟提醒外贸成员、24 小时升级管理员），行为不变。
+  // 分钟数按 businessHours 计（设了工作时间时），否则按自然时间。只提醒，不给买家自动发任何邮件。
+  /** 新询盘 T+N 分钟仍未回复 → 提醒负责人（站内 + 微信） */
+  unclaimedAlertMinutes: number | null;
+  /** T+N 分钟仍未回复 → 升级管理层（站内 + 微信） */
+  ownerEscalationMinutes: number | null;
+  /** T+N 小时仍未回复 → 告诉管理层是否有草稿在审批中心等待（或没有草稿的原因） */
+  overdueDraftHours: number | null;
+  /**
+   * 工作时间（组织当地时区）。null（默认）= V1 口径：SLA 到期按 UTC 周一至周五全天计时，分级提醒按自然时间。
+   * 设置后只影响之后新算出的到期时间（新询盘的 SalesAction.dueAt、回复类下一步），已落库的行动不重算。
+   */
+  businessHours: BusinessCalendar | null;
 }
 
 export interface FollowUpPolicy {
@@ -234,7 +250,14 @@ export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
 export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
   version: REVENUE_SPINE_POLICY_VERSION,
   businessProfile: DEFAULT_BUSINESS_PROFILE,
-  salesSla: { newInquiryResponseHours: 4, customerReplyResponseHours: 8 },
+  salesSla: {
+    newInquiryResponseHours: 4,
+    customerReplyResponseHours: 8,
+    unclaimedAlertMinutes: null,
+    ownerEscalationMinutes: null,
+    overdueDraftHours: null,
+    businessHours: null,
+  },
   followUp: {
     afterReplyNoResponseBusinessDays: 3,
     quoteFollowUpDays: [3, 7, 14],
@@ -375,6 +398,51 @@ function strOrNull(v: unknown, max = 200): string | null {
   return typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
 }
 
+/** 分级提醒的分钟 / 小时上限：7 天（再长就不是"首响"提醒了） */
+export const SLA_TIER_MAX_MINUTES = 7 * 24 * 60;
+export const SLA_TIER_MAX_HOURS = 7 * 24;
+export const DEFAULT_BUSINESS_WORKDAYS = [1, 2, 3, 4, 5];
+
+/**
+ * 工作时间校验：timezone 必须是合法 IANA 时区；start / end 为 "HH:MM"（end 可为 "24:00"，须晚于 start，
+ * 缺省 09:00 / 18:00）；workdays 为 ISO 1..7（缺省周一至周五）。
+ * 返回 null = 显式关闭；undefined = 形状不对（调用方保留原值）。
+ */
+export function parseBusinessCalendar(v: unknown): BusinessCalendar | null | undefined {
+  if (v === null) return null;
+  const o = rec(v);
+  if (!o) return undefined;
+  const timezone = typeof o.timezone === "string" ? o.timezone.trim() : "";
+  if (!isValidTimeZone(timezone)) return undefined;
+  const start = o.start === undefined ? "09:00" : typeof o.start === "string" ? o.start.trim() : "";
+  const end = o.end === undefined ? "18:00" : typeof o.end === "string" ? o.end.trim() : "";
+  const startMin = parseClockMinutes(start);
+  const endMin = parseClockMinutes(end, true);
+  if (startMin === null || endMin === null || endMin <= startMin) return undefined;
+  let workdays = DEFAULT_BUSINESS_WORKDAYS;
+  if (o.workdays !== undefined) {
+    if (!Array.isArray(o.workdays)) return undefined;
+    workdays = [...new Set(o.workdays.filter((d): d is number => typeof d === "number" && Number.isInteger(d) && d >= 1 && d <= 7))].sort((a, b) => a - b);
+    if (!workdays.length) return undefined;
+  }
+  return { timezone, start, end, workdays: [...workdays] };
+}
+
+/** 分级提醒档位：显式 null = 关闭；正数（不超过上限）= 启用；其它形状 = 保留原值 */
+function slaTierValue(o: Rec, key: string, base: number | null, opts: { max: number; integer: boolean }): number | null {
+  if (!(key in o)) return base;
+  const v = o[key];
+  if (v === null) return null;
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return base;
+  const n = opts.integer ? Math.max(1, Math.round(v)) : Math.round(v * 100) / 100;
+  return n > 0 && n <= opts.max ? n : base;
+}
+
+/** 本组织是否启用了首响分级提醒（任一档非 null） */
+export function slaTiersEnabled(sla: Partial<SalesSlaPolicy> | null | undefined): boolean {
+  return !!sla && (sla.unclaimedAlertMinutes != null || sla.ownerEscalationMinutes != null || sla.overdueDraftHours != null);
+}
+
 const STYLE_CODE_CLEAN = (v: string) => v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
 
 /** 商务事实合并：字段级覆盖；显式 null 清空；形状不对的字段忽略（保留 base） */
@@ -486,6 +554,17 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
     salesSla: {
       newInquiryResponseHours: num(sla.newInquiryResponseHours, base.salesSla.newInquiryResponseHours),
       customerReplyResponseHours: num(sla.customerReplyResponseHours, base.salesSla.customerReplyResponseHours),
+      // 以下字段必须在这里逐个列出：不在白名单里的字段会在合并时被丢掉。存量策略没有这些键 → 保持 null（旧行为）
+      unclaimedAlertMinutes: slaTierValue(sla, "unclaimedAlertMinutes", base.salesSla.unclaimedAlertMinutes ?? null, { max: SLA_TIER_MAX_MINUTES, integer: true }),
+      ownerEscalationMinutes: slaTierValue(sla, "ownerEscalationMinutes", base.salesSla.ownerEscalationMinutes ?? null, { max: SLA_TIER_MAX_MINUTES, integer: true }),
+      overdueDraftHours: slaTierValue(sla, "overdueDraftHours", base.salesSla.overdueDraftHours ?? null, { max: SLA_TIER_MAX_HOURS, integer: false }),
+      businessHours:
+        "businessHours" in sla
+          ? (() => {
+              const parsed = parseBusinessCalendar(sla.businessHours);
+              return parsed === undefined ? (base.salesSla.businessHours ?? null) : parsed;
+            })()
+          : (base.salesSla.businessHours ?? null),
     },
     followUp: {
       afterReplyNoResponseBusinessDays: num(fu.afterReplyNoResponseBusinessDays, base.followUp.afterReplyNoResponseBusinessDays),

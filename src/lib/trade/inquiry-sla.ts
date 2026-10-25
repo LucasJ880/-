@@ -1,13 +1,18 @@
 /**
  * 询盘响应时限（SLA）提醒
  *
- * 规则：进线后 5 分钟未回复 → 提醒外贸成员；24 小时未回复 → 升级通知企业管理员/老板。
+ * 旧规则（未启用分级的组织，行为不变）：进线后 5 分钟未回复 → 提醒外贸成员；24 小时未回复 → 升级通知企业管理员/老板。
  * 每条「最后一次进线」只提醒一次（幂等键含 lastInboundAt），买家再次来信会重新计时。
- * Cron 每 10 分钟扫一次，因此 5 分钟档实际在 5–15 分钟内触发。
+ * Cron 每 5 分钟扫一次，因此 5 分钟档实际在 5–10 分钟内触发。
+ *
+ * 分级提醒（revenue-spine/sla-tiers，组织策略 salesSla 配了任一档即启用）：先跑分级；被分级跟踪的 Revenue Spine 询盘，
+ * 旧提醒跳过它关联的外贸线索（同一条询盘只有一个提醒来源），其余线程旧提醒照常。
  */
 
 import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
+import type { PushFn } from "@/lib/revenue-spine/owner-brief";
+import { runRevenueSlaTiers, type RevenueSlaTierOutcome, type SlaTier } from "@/lib/revenue-spine/sla-tiers";
 import { loadInquiryThreads, type InquiryThread } from "@/lib/trade/inbox-service";
 
 export const SLA_FIRST_RESPONSE_MINUTES = 5;
@@ -68,9 +73,52 @@ export interface InquirySlaOutcome {
   pendingThreads: number;
   remindersSent: number;
   escalationsSent: number;
+  /** 分级提醒（只统计启用分级的组织） */
+  tiers: {
+    orgsEnabled: number;
+    tracked: number;
+    fired: Record<SlaTier, number>;
+    notifications: number;
+    wechatDelivered: number;
+    failedOrgs: number;
+    /** 旧提醒因已被分级跟踪而跳过的线程数 */
+    legacyThreadsSkipped: number;
+  };
 }
 
-export async function runInquirySla(): Promise<InquirySlaOutcome> {
+/**
+ * 纯函数：启用分级的组织里，旧线程提醒要跳过的线索 = 链接到被分级跟踪商机的线索。
+ * trackedOpportunityIds 为 undefined（组织未启用分级 / 分级失败）时不跳过任何线程。
+ */
+export function threadsOwnedByTiers(
+  prospects: Array<{ id: string; convertedToSalesOpportunityId: string | null }>,
+  trackedOpportunityIds: ReadonlySet<string> | undefined,
+): Set<string> {
+  const owned = new Set<string>();
+  if (!trackedOpportunityIds?.size) return owned;
+  for (const p of prospects) {
+    if (p.convertedToSalesOpportunityId && trackedOpportunityIds.has(p.convertedToSalesOpportunityId)) owned.add(p.id);
+  }
+  return owned;
+}
+
+export async function runInquirySla(opts?: { now?: Date; push?: PushFn }): Promise<InquirySlaOutcome> {
+  // ── 分级提醒（Revenue Spine 新询盘；只对启用分级的组织生效）──
+  // 分级整体失败时不影响旧提醒：trackedByOrg 为空 → 旧提醒对所有线程照常兜底
+  const tierOutcome: RevenueSlaTierOutcome = await runRevenueSlaTiers({ now: opts?.now, push: opts?.push }).catch((err) => {
+    console.error("[inquiry-sla] SLA 分级提醒失败，本轮由旧提醒兜底：", err instanceof Error ? err.message : err);
+    return {
+      orgsScanned: 0,
+      orgsEnabled: 0,
+      tracked: 0,
+      fired: { unclaimed: 0, escalation: 0, overdue_draft: 0 },
+      notifications: 0,
+      wechatDelivered: 0,
+      failedOrgs: 1,
+      trackedByOrg: new Map<string, Set<string>>(),
+    };
+  });
+
   const since = new Date();
   since.setDate(since.getDate() - 7);
   // 近 7 天有进线的组织
@@ -82,12 +130,39 @@ export async function runInquirySla(): Promise<InquirySlaOutcome> {
   });
   const orgIds = [...new Set(recent.map((r) => r.prospect.orgId))];
 
-  const outcome: InquirySlaOutcome = { orgsScanned: orgIds.length, pendingThreads: 0, remindersSent: 0, escalationsSent: 0 };
+  const outcome: InquirySlaOutcome = {
+    orgsScanned: orgIds.length,
+    pendingThreads: 0,
+    remindersSent: 0,
+    escalationsSent: 0,
+    tiers: {
+      orgsEnabled: tierOutcome.orgsEnabled,
+      tracked: tierOutcome.tracked,
+      fired: tierOutcome.fired,
+      notifications: tierOutcome.notifications,
+      wechatDelivered: tierOutcome.wechatDelivered,
+      failedOrgs: tierOutcome.failedOrgs,
+      legacyThreadsSkipped: 0,
+    },
+  };
 
   for (const orgId of orgIds) {
     const threads = await loadInquiryThreads(orgId, { sinceDays: 7 });
-    const pending = threads.filter((t) => !t.replied);
+    let pending = threads.filter((t) => !t.replied);
     outcome.pendingThreads += pending.length;
+    // 启用分级的组织：被分级跟踪的询盘由分级提醒，旧线程提醒跳过（未启用的组织不多查一次库）
+    const tracked = tierOutcome.trackedByOrg.get(orgId);
+    if (tracked?.size && pending.length) {
+      const linked = await db.tradeProspect.findMany({
+        where: { orgId, id: { in: pending.map((t) => t.prospectId) }, convertedToSalesOpportunityId: { not: null } },
+        select: { id: true, convertedToSalesOpportunityId: true },
+      });
+      const owned = threadsOwnedByTiers(linked, tracked);
+      if (owned.size) {
+        outcome.tiers.legacyThreadsSkipped += pending.filter((t) => owned.has(t.prospectId)).length;
+        pending = pending.filter((t) => !owned.has(t.prospectId));
+      }
+    }
     const reminders = decideInquiryReminders(pending);
     if (reminders.length === 0) continue;
 

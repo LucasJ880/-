@@ -299,8 +299,8 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     policy,
   });
 
-  // ── 8. SalesAction：进入 FDE 工作流（SLA 到期时间来自 policy） ──
-  const dueAt = addBusinessHours(now, policy.salesSla.newInquiryResponseHours);
+  // ── 8. SalesAction：进入 FDE 工作流（SLA 到期时间来自 policy；设了工作时间则按组织当地工作时段计） ──
+  const dueAt = addBusinessHours(now, policy.salesSla.newInquiryResponseHours, policy.salesSla.businessHours ?? null);
   const action = await createFdeAction({
     orgId: input.orgId,
     customerId,
