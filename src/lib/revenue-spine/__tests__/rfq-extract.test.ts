@@ -399,6 +399,22 @@ ok("第十轮审查用例：表单值只能补上或细化，不能改成另一�
   assert.ok(Date.now() - started < 500, "长空白不能让抽取变慢");
 });
 
+ok("第十一轮审查用例：正文里的 5k / 3万 / 2000 robes、by the 15th、medium 都算提到；装箱数不当数量；Queen; 160x200cm；Notes 行与链接", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const same = (t: string, note: string) => assert.deepEqual(fx(t), noForm(t), note);
+  same("Looking for 5k towels for a promo.\n\n— Form details —\nEstimated quantity: 500", "5k");
+  same("Product: 浴巾\n总量3万，请报价。\n\n— Form details —\n预计数量: 3000", "3万");
+  same("Product: Bathrobes\nPlease change it to 2000 robes.\n\n— Form details —\nEstimated quantity: 1500", "2000 robes");
+  same("Product: Bath towels\nMust arrive by the 15th.\n\n— Form details —\nEstimated quantity: 3000 pcs\nRequired date: March 2027", "by the 15th");
+  same("Product: Bathrobes\nMedium is our best seller, please quote medium.\n\n— Form details —\nEstimated quantity: 2000 pcs\nSize / specification: XL", "medium");
+  same("Product: Bath towels\nPlease send your best price.\n\n— Form details —\nEstimated quantity: 1,200 towels in 20 cartons", "装箱数");
+  assert.equal(fx("Product: Bed sheets\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 pcs\nSize / specification: Queen; 160x200cm").size, "160x200cm");
+  const notes = fx("Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 pcs\nBuyer type: Retail & Private Label\nMaterial: 100% cotton terry\nNotes: Need embroidered logo on each towel");
+  assert.equal(notes.customLogo, true, "区块里 Notes 行写的 logo 照算");
+  const link = fx("Product: Bath towels\nProject brief (guided form)\nNotes: Our store: https://www.example-shop.com/collections/logo-towels\n\n— Form details —\nEstimated quantity: 3000 pcs\nBuyer type: Retail & Private Label");
+  assert.doesNotMatch(link.customization ?? "", /example-shop|collections/);
+});
+
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-01");

@@ -229,6 +229,8 @@ const FORM_META_LABELS = new Set([
   "order type", "target market", "construction", "gsm", "target price", "inquiry source", "source page", "landing page",
   "branding", "customization", "customisation", "logo", "packaging", "packing", "certification", "certification needs",
   "sample requirement", "colour", "color", "目标市场", "定制要求", "包装", "认证", "样品",
+  // 青砚自己给网站询盘加的包装行
+  "utm", "来源页", "落地页", "引荐页", "联系人", "国家", "买家网站", "产品", "留言",
 ]);
 const LABELED_LINE_RE = /^[^\S\n]*(?:[-•*][^\S\n]+)?[*_]{0,2}([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[*_]{0,2}[^\S\n]*[:：][*_ \t]{0,3}?(\S(?:[^\n]*\S)?)[^\S\n]*$/gm;
 const FORM_DETAILS_RE = /^[^\S\n]*[—–-]+[^\S\n]*form details[^\S\n]*[—–-]+[^\S\n]*$/gim;
@@ -244,7 +246,7 @@ const QTY_UNIT_RE = new RegExp(
   "i",
 );
 const QTY_MULTIPLIER_RE = /\d\s*[x×*]\s*\d|[x×*]\s*\d+\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\b|\d\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\s*[x×*]/i;
-const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack))\b|样品|起订|试单|每箱/i;
+const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack)|cartons?|ctns?|boxes|pallets?|bales?|containers?)\b|样品|起订|试单|每箱|箱/i;
 /** FDE 把多封来信按时间先后用它拼接（fde/inbound-sales.ts） */
 export const INBOUND_MESSAGE_SEPARATOR = "\n\n---\n\n";
 
@@ -371,7 +373,8 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
       }
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
-      const dims = [...sentence.matchAll(new RegExp(SIZE_RE.source, "gi"))];
+      // 尺寸在整个值里找（「Queen; 160x200cm」的尺寸在分号后）
+      const dims = [...value.matchAll(new RegExp(SIZE_RE.source, "gi"))];
       if (dims.length > 1) return null; // 几个尺寸：交给关键词扫描
       if (dims.length === 1) return [["size", dims[0][0].replace(/\s+/g, " ").trim()]];
       return SIZE_WORDS_ONLY_RE.test(sentence) ? [["size", sentence]] : null;
@@ -401,10 +404,12 @@ function labeledFields(
   blocks: Array<[number, number]>;
   /** 表单区块里认得出字段的行（买家类型行除外）：区块里只有这些是买家填的规格，来源页、着陆页这类不是 */
   specLines: Array<[number, number]>;
+  /** 表单自己的字段 / 元数据行（不算买家写的正文） */
+  formLines: Array<[number, number]>;
   /** 同一封来信里表单字段行之外的文字（正文、P.S.、区块里没有标签的句子）：买家在这里提到的字段以正文为准 */
   outsideText: string;
 } {
-  const none = { hits: [], buyerTypeLines: [], blocks: [], specLines: [], outsideText: "" };
+  const none = { hits: [], buyerTypeLines: [], blocks: [], specLines: [], formLines: [], outsideText: "" };
   // 只用于单独一封来信（有分隔符就是多封，或买家自己打了「---」，都不用）
   if (source.includes(INBOUND_MESSAGE_SEPARATOR)) return none;
   const lastStart = 0;
@@ -438,7 +443,14 @@ function labeledFields(
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw)) continue;
     // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
-    if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5 && raw.trim().length <= 30 && !/[，、；;]/.test(raw)) buyerTypeLines.push([m.index, m.index + m[0].length]);
+    if (
+      field === "buyerType" &&
+      raw.trim().split(/\s+/).length <= 5 &&
+      raw.trim().length <= 30 &&
+      !/[,，、；;]|\b(?:need|want|require\w*|please|logo|print\w*|embroider\w*|box|bag)\b|要|需/i.test(raw)
+    ) {
+      buyerTypeLines.push([m.index, m.index + m[0].length]);
+    }
     if (byField.has(field)) continue;
     const pairs = labeledValue(field, raw, now);
     if (!pairs) continue;
@@ -447,13 +459,13 @@ function labeledFields(
   const outsideText = formLines
     .reduce((t, [a, b]) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b), source)
     .slice(lastStart);
-  return { hits: [...byField.values()], buyerTypeLines, blocks, specLines, outsideText };
+  return { hits: [...byField.values()], buyerTypeLines, blocks, specLines, formLines, outsideText };
 }
 
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
 function mentionedIn(field: RfqField, rawText: string): boolean {
   // 链接里的数字、词（端口、utm_campaign=logo_towels）不是买家说的
-  const text = rawText.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*/gi, " ");
+  const text = rawText.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*|\b(?:source|medium|campaign|content|term)=\S+/gi, " ");
   if (!text.trim()) return false;
   const lower = text.toLowerCase();
   switch (field) {
@@ -461,11 +473,17 @@ function mentionedIn(field: RfqField, rawText: string): boolean {
       // 买家自己写了任何两位以上的数（年份除外）或数量字眼，都算提到了数量（「Notes: total 8,000」）
       return (
         new RegExp(`\\d[\\d,，.]*\\s*(?:k|万|千)?\\s*(?:${UNIT_WORDS})(?![A-Za-z])|\\b(?:quantity|qty|volume|total|increase|reduce|double|half|units?|pieces?)\\b|数量|总共|加量|减量`, "i").test(text) ||
-        /(?<![\d.])(?!(?:19|20)\d{2}(?!\d))\d{2,}|\d{1,3}(?:[,，]\d{3})+/.test(text)
+        /\d+(?:\.\d+)?\s*(?:k|万|千)(?![a-z])|\d{1,3}(?:[,，]\d{3})+/i.test(text) ||
+        [...text.matchAll(/(?<![\d.])\d{2,}(?!\d)/g)].some((n) => {
+          const before = text.slice(Math.max(0, (n.index ?? 0) - 14), n.index);
+          const after = text.slice((n.index ?? 0) + n[0].length, (n.index ?? 0) + n[0].length + 3);
+          const yearLike = /^(?:19|20)\d{2}$/.test(n[0]) && (new RegExp(`${MONTH_WORD}\\.?,?\\s*(?:\\d{1,2},?\\s*)?$`, "i").test(before) || /\b(?:in|by|since|from|until|year|fy)\s*$/i.test(before) || /^\s*[年\-/.]/.test(after));
+          return !yearLike;
+        })
       );
     case "requiredDeliveryDate":
       return (
-        new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time|christmas|xmas|new year|easter|ramadan|eid|diwali|black friday|season|holiday\\w*|q[1-4]|no rush|quarter|spring|summer|autumn|fall|winter)\\b|交期|交货|到货|提前|推迟|延期|春节|圣诞|国庆|节前|年后|以后|季度`, "i").test(text) ||
+        new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time|christmas|xmas|new year|easter|ramadan|eid|diwali|black friday|season|holiday\\w*|q[1-4]|no rush|quarter|spring|summer|autumn|fall|winter|open\\w*|launch\\w*|arriv\\w*|\\d{1,2}(?:st|nd|rd|th))\\b|\\b\\d{1,2}[/.]\\d{1,2}(?:[/.]\\d{2,4})?\\b|交期|交货|到货|提前|推迟|延期|春节|圣诞|国庆|节前|年后|以后|季度`, "i").test(text) ||
         RELATIVE_RE.test(text)
       );
     case "destinationCountry":
@@ -475,7 +493,7 @@ function mentionedIn(field: RfqField, rawText: string): boolean {
     case "material":
       return findKeyword(lower, MATERIAL_KEYWORDS) !== null || /\b(?:material|fabric)\b|面料|材质/i.test(text);
     case "size":
-      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|super ?king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size|size (?:up|down)|bigger|smaller|larger|inch(?:es)?|cm)\b|\b[sml]\s*\/\s*[sml]\b|\b(?:xx?s|s|m|l|xx?l|[2-4]xl)\s*[-–~到]\s*(?:s|m|l|xx?l|[2-4]xl)\b|\d+\s*(?:by|x|×)\s*\d+|尺寸|尺码|规格|大号|中号|小号|均码|大一|小一|码/i.test(text);
+      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|super ?king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size|size (?:up|down)|bigger|smaller|larger|large|small|medium|extra[- ]?large|petite|kids?|children|adults?|inch(?:es)?|cm)\b|加大|大码|小码|\b[sml]\s*\/\s*[sml]\b|\b(?:xx?s|s|m|l|xx?l|[2-4]xl)\s*[-–~到]\s*(?:s|m|l|xx?l|[2-4]xl)\b|\d+\s*(?:by|x|×)\s*\d+|尺寸|尺码|规格|大号|中号|小号|均码|大一|小一|码/i.test(text);
     case "customization":
       return findKeyword(lower, CUSTOMIZATION_KEYWORDS) !== null || CUSTOMIZATION_WORD_RE.test(text) || /定制/.test(text);
     case "packaging":
@@ -735,9 +753,13 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const k = keywordPos.get(field);
     if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
     if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]))) continue;
-    // 在买家自己写的正文和表单里的规格行（Packaging、Material…）里找；区块里的来源页、着陆页、UTM 之类不看
-    let elsewhere = labeled.blocks.reduce((t, [a, b]) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b), lower);
-    for (const [a, b] of labeled.specLines) elsewhere = elsewhere.slice(0, a) + lower.slice(a, b) + elsewhere.slice(b);
+    // 在买家自己写的文字（正文、区块里的 Notes / PS 行）和表单的规格行（Packaging、Material…）里找；
+    // 买家类型行、来源页 / 着陆页这类表单元数据行、链接不看
+    const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
+    const isSpec = ([a]: [number, number]) => labeled.specLines.some(([c]) => c === a);
+    let elsewhere = labeled.formLines.filter((l) => !isSpec(l)).reduce((t, [a, b]) => blank(t, a, b), lower);
+    for (const [a, b] of labeled.buyerTypeLines) elsewhere = blank(elsewhere, a, b);
+    elsewhere = elsewhere.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*|\b(?:source|medium|campaign|content|term)=\S+/g, (u) => " ".repeat(u.length));
     const again = findKeyword(elsewhere, field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS);
     dropEvidence(field);
     if (field === "customization") {
