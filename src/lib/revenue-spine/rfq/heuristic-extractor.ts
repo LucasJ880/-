@@ -203,26 +203,33 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
 /**
  * 网站表单的结构化字段：表单把买家填的字段附在「— Form details —」一行之后，每行一个「Label: value」
  * （约定见 docs/QINGYAN_INTAKE_WEBHOOK.md）。关键词扫描照常跑完后，用这些值覆盖对应字段——
- * "Material: flannel fleece with sherpa back" 不会只剩 flannel fleece，"3,000 pcs per colour" 不会只剩 3000 pcs。
+ * "Material: flannel fleece with sherpa back" 不会只剩 flannel fleece，"3,000 pcs per colour" 不会只剩 3000 pcs，
+ * 「Required date: March 2027」不会读不到。
  *
- * 原则：拿不准就不覆盖，结果与没有这一层时一样（经 8 轮、约 3 万个来信的对抗式回归审查收窄到下面的范围）。
- * - 只用于「刚提交的这一次表单」：来信里只有一个表单区块，且它在最新一封里；之后的回信、多次提交都按原有关键词扫描
- * - 只收能核实、关键词抽得不全的字段（数量、材质、尺寸、定制、包装、目的地、贸易术语、交期、买家类型）；认证、样品不收
- * - 值里有任何否定、条件、推迟、多个候选、表情符号、链接、问句，不采用（见 labeledValue）
- * - 同一封来信里表单字段行之外（正文、P.S.、区块里没有标签的句子）买家提到了该字段，以正文为准
+ * 原则：拿不准就不覆盖，结果与没有这一层时一样（经 9 轮、约 4 万个来信的对抗式回归审查收窄到下面的范围）。
+ * - 只用于单独一封、只含一个表单区块的来信（官网询盘的首封草稿）；有回信、多次提交时完全按原有关键词扫描
+ * - 只收值能核实的字段：数量、尺寸、目的地、贸易术语、交期、买家类型；材质只在值全由面料 / 工艺词组成时收。
+ *   定制、包装、认证、样品是自由文字，否定和附加条件的写法没有穷尽，保持关键词结果
+ * - 同一封来信里表单字段行之外（正文、P.S.、Notes: 之类买家自己写的行）提到了该字段，以正文为准
  */
 const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["quantity", ["quantity", "qty", "estimated quantity", "order quantity", "数量", "采购数量", "预计数量"]],
   ["material", ["material", "materials", "fabric", "material / fabric", "材质", "面料"]],
   ["size", ["size", "sizes", "size / specification", "dimensions", "尺寸", "规格"]],
-  ["customization", ["customization", "customisation", "branding", "logo", "labelling", "labeling", "定制", "定制要求"]],
-  ["packaging", ["packaging", "packing", "包装", "包装要求"]],
   ["destinationCountry", ["destination", "destination country", "ship to", "目的国", "目的地"]],
   ["incoterm", ["incoterm", "incoterms", "trade term", "贸易术语"]],
   ["requiredDeliveryDate", ["required date", "delivery date", "required delivery date", "target delivery date", "交期", "要求交期"]],
   ["buyerType", ["buyer type", "business type", "买家类型"]],
 ];
 const LABEL_FIELD = new Map(FIELD_LABELS.flatMap(([field, labels]) => labels.map((l) => [l, field] as const)));
+// 表单里写规格、但这一层不抽的行（定制、包装…）
+const SPEC_META_LABELS = new Set(["branding", "customization", "customisation", "logo", "packaging", "packing", "construction", "定制要求", "包装"]);
+// 表单区块里其它的表单字段 / 元数据行（不抽，但也不算买家自己写的正文）
+const FORM_META_LABELS = new Set([
+  "order type", "target market", "construction", "gsm", "target price", "inquiry source", "source page", "landing page",
+  "branding", "customization", "customisation", "logo", "packaging", "packing", "certification", "certification needs",
+  "sample requirement", "colour", "color", "目标市场", "定制要求", "包装", "认证", "样品",
+]);
 const LABELED_LINE_RE = /^[^\S\n]*(?:[-•*][^\S\n]+)?[*_]{0,2}([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[*_]{0,2}[^\S\n]*[:：][*_ \t]{0,3}?(\S[^\n]*?)[^\S\n]*$/gm;
 const FORM_DETAILS_RE = /^[^\S\n]*[—–-]+[^\S\n]*form details[^\S\n]*[—–-]+[^\S\n]*$/gim;
 // 一行里还有别的「Label:」：不是单字段值
@@ -303,6 +310,21 @@ const HEDGE_RE =
 // 表情符号（👎 ❎ 🙅 ❌…）常是买家的「不要」：带表情的值整个不采用
 const PICTOGRAPH_RE = /\p{Extended_Pictographic}/u;
 
+const MATERIAL_WORDS = new Set(
+  MATERIAL_KEYWORDS.filter((k) => /^[\x00-\x7f]+$/.test(k)).flatMap((k) => k.toLowerCase().split(/[^a-z]+/)).filter(Boolean),
+);
+const MATERIAL_GLUE = new Set([
+  "with", "and", "back", "backing", "backed", "lining", "lined", "face", "front", "side", "sided", "blend", "blended",
+  "organic", "recycled", "combed", "brushed", "double", "single", "layer", "layers", "ply", "yarn", "dyed", "gsm", "fabric",
+]);
+/** 材质值是否只由面料 / 工艺词、百分比、克重组成（中文值须正好是一个面料词） */
+function isPlainMaterial(value: string): boolean {
+  const v = value.trim();
+  if (/[\u4e00-\u9fff]/.test(v)) return MATERIAL_KEYWORDS.includes(v);
+  const words = v.toLowerCase().replace(/\d+(?:\.\d+)?\s*%|\d+\s*gsm\b/g, " ").split(/[\s,+&/-]+/).filter(Boolean);
+  return words.length > 0 && words.some((w) => MATERIAL_WORDS.has(w)) && words.every((w) => MATERIAL_WORDS.has(w) || MATERIAL_GLUE.has(w));
+}
+
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
   if (PICTOGRAPH_RE.test(raw)) return null;
   const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
@@ -335,16 +357,10 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
       const terms = [...value.matchAll(new RegExp(`\\b(${INCOTERMS.join("|")})\\b`, "gi"))].map((t) => t[1].toUpperCase());
       return new Set(terms).size === 1 ? [["incoterm", terms[0]]] : null;
     }
-    // 下面几项只在值里真有对应的词时采用（「No requirement」「Later」「normal」「无」这类不是答案）
-    case "customization":
-      if (yesNo || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
-      return [["customization", sentence], ["customLogo", true]];
-    case "packaging":
-      return findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS) ? [["packaging", sentence]] : null;
     case "material":
-      // 整词匹配面料词（Woolworths 里的 wool 不算）；带认证、价格字眼的（GOTS certified organic cotton）草稿护栏会整行拿掉，不采用
-      if (findKeyword(sentence.toLowerCase(), CERTIFICATION_KEYWORDS) || /\b(?:certified|approved|price|usd|discount)\b|\$/i.test(sentence)) return null;
-      return findKeyword(sentence.toLowerCase(), MATERIAL_KEYWORDS) ? [["material", sentence]] : null;
+      // 值必须全由面料 / 工艺词组成（「flannel fleece with sherpa back」「100% polyester microfiber」「全棉」）；
+      // 多一句别的（same as our last order、要求30天内交货）就不采用——草稿会复述它
+      return isPlainMaterial(value) ? [["material", value]] : null;
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
       const dims = [...sentence.matchAll(new RegExp(SIZE_RE.source, "gi"))];
@@ -381,8 +397,9 @@ function labeledFields(
   outsideText: string;
 } {
   const none = { hits: [], buyerTypeLines: [], blocks: [], specLines: [], outsideText: "" };
-  const lastSep = source.lastIndexOf(INBOUND_MESSAGE_SEPARATOR);
-  const lastStart = lastSep < 0 ? 0 : lastSep + INBOUND_MESSAGE_SEPARATOR.length;
+  // 只用于单独一封来信（有分隔符就是多封，或买家自己打了「---」，都不用）
+  if (source.includes(INBOUND_MESSAGE_SEPARATOR)) return none;
+  const lastStart = 0;
   // 表单区块：「— Form details —」之后到空行 / 下一封来信为止。只有一个、且在最新一封来信里，才用（刚提交的这一次）
   const blocks: Array<[number, number]> = [];
   FORM_DETAILS_RE.lastIndex = 0;
@@ -403,16 +420,17 @@ function labeledFields(
   LABELED_LINE_RE.lastIndex = 0;
   while ((m = LABELED_LINE_RE.exec(source))) {
     if (m.index <= blockStart || m.index >= blockEnd) continue;
-    // 区块里有标签的行都是表单字段（含来源页、着陆页这类不认的）；没有标签的句子算买家自己写的
-    formLines.push([m.index, m.index + m[0].length]);
     const label = m[1].toLowerCase().replace(/\s*\/\s*/g, " / ").replace(/\s+/g, " ").trim();
+    // 表单自己的字段行（认得的字段 + 来源页、着陆页这类表单元数据）不算买家写的正文；PS: / Notes: / 另：这类算
+    if (LABEL_FIELD.has(label) || FORM_META_LABELS.has(label)) formLines.push([m.index, m.index + m[0].length]);
     const field = LABEL_FIELD.get(label);
+    // 表单里写规格的行（买家类型以外）：买家类型选项作废后，在这些行和正文里重新找定制 / 包装
+    if ((field && field !== "buyerType") || SPEC_META_LABELS.has(label)) specLines.push([m.index, m.index + m[0].length]);
     if (!field) continue;
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw)) continue;
     // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
     if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5) buyerTypeLines.push([m.index, m.index + m[0].length]);
-    if (field !== "buyerType") specLines.push([m.index, m.index + m[0].length]);
     if (byField.has(field)) continue;
     const pairs = labeledValue(field, raw, now);
     if (!pairs) continue;

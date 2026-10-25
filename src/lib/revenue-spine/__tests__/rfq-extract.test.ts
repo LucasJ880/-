@@ -216,7 +216,7 @@ ok("表单区块（— Form details —）：值整行照录，覆盖关键词�
   assert.equal(r.fields.material, "flannel fleece with sherpa back");
   assert.equal(r.fields.quantity, 3000);
   assert.equal(r.fields.unit, "pcs per colour", "单位到 per colour 为止");
-  assert.equal(r.fields.customization, "care label in EN/FR");
+  assert.equal(r.fields.customization, null, "定制不按表单抽（自由文字），买家类型选项也不当定制");
   assert.equal(r.fields.packaging, "polybag + belly band, 12 per carton");
   assert.equal(r.fields.size, "127 x 152 cm");
   assert.equal(r.fields.certification, "OEKO-TEX");
@@ -285,12 +285,11 @@ ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 
   const sets = fx(["We need 3,000 sets of duvet cover sets.", "", block("Estimated quantity: 4000")].join("\n"));
   assert.equal(sets.quantity, 3000, "同一封来信里正文先说的数量为准");
   assert.equal(sets.unit, "sets");
-  const later = fx("We need 3,000 sets of duvet cover sets." + INBOUND_MESSAGE_SEPARATOR + ["Updated brief:", "", block("Estimated quantity: 4000")].join("\n"));
-  assert.equal(later.quantity, 4000, "后一封来信的表单数量");
-  assert.equal(later.unit, "pcs", "只写数字、正文里没有同一个数：不借别的数的单位（24 pcs per carton / 125 cartons 那种会借错）");
+  const carton = fx(["Need bath towels.", "", block("Estimated quantity: 3000", "Packaging: 24 pcs per carton, about 125 cartons")].join("\n"));
+  assert.notEqual(carton.unit, "cartons", "只写数字时不借别的数的单位");
 });
 
-ok("多封来信：表单只在它是最新一封、且只有一份时采用；之后有回信或多次提交，结果与没有表单层时一样", () => {
+ok("多封来信：表单只用于单独一封、只含一个区块的来信；只要有多封，结果与没有表单层时一样", () => {
   const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
   const form = ["Product: Bath towels", "", block("Estimated quantity: 3,000 pcs per colour", "Material: flannel fleece with sherpa back", "Required date: March 2027", "Destination: Toronto, Canada")].join("\n");
   const fresh = fx(form);
@@ -303,14 +302,17 @@ ok("多封来信：表单只在它是最新一封、且只有一份时采用；�
   }
   const twice = block("Estimated quantity: 3,000 pcs") + INBOUND_MESSAGE_SEPARATOR + block("Estimated quantity: 4,000 pcs");
   assert.deepEqual(fx(twice), noForm(twice), "两次提交");
-  const emailThenForm = fx("We need 3,000 sets of duvet cover sets." + INBOUND_MESSAGE_SEPARATOR + ["Updated brief:", "", block("Estimated quantity: 4000 pcs")].join("\n"));
-  assert.equal(emailThenForm.quantity, 4000, "先来邮件、后提交表单：表单是最新一封，照用");
+  const emailThenForm = "We need 3,000 sets of duvet cover sets." + INBOUND_MESSAGE_SEPARATOR + ["Updated brief:", "", block("Estimated quantity: 4000 pcs")].join("\n");
+  assert.deepEqual(fx(emailThenForm), noForm(emailThenForm), "先来邮件、后提交表单：多封来信，也按原有关键词扫描");
 });
 
-ok("目的地：表单国家与较早来信里的城市不在同一国时城市作废", () => {
-  const r = fx("We have stores in Toronto." + INBOUND_MESSAGE_SEPARATOR + ["Need 3000 bath towels.", "", block("Destination: USA")].join("\n"));
-  assert.equal(r.destinationCountry, "United States");
-  assert.equal(r.destinationCity, null);
+ok("目的地：正文里买家提到了交货地就以正文为准；没提时用表单的国家", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const mentioned = ["Need 3000 bath towels, our Toronto team will receive them.", "", block("Destination: USA")].join("\n");
+  assert.deepEqual(fx(mentioned), noForm(mentioned));
+  const formOnly = fx(["Need 3000 bath towels.", "", block("Destination: Vancouver, Canada")].join("\n"));
+  assert.equal(formOnly.destinationCountry, "Canada");
+  assert.equal(formOnly.destinationCity, "Vancouver");
 });
 
 ok("买家自己说的 minimum order quantity of N 照算", () => {

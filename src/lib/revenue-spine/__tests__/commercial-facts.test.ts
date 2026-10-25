@@ -379,7 +379,6 @@ async function main() {
     assert.match(d.body, /- Quantity: 3000 pcs per colour\n/);
     assert.match(d.subject, /\(3000 pcs per colour\)/);
     assert.match(d.body, /- Material: flannel fleece with sherpa back\n/);
-    assert.match(d.body, /- Customization: care label in EN\/FR\n/);
     assert.doesNotMatch(d.body, /Private Label/);
     assert.match(d.body, /- Required delivery date: end of March 2027 \(2027-03-31\)\n/);
     assert.match(d.body, /Regarding pricing and certification: our team will confirm these internally/);
