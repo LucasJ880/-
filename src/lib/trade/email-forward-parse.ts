@@ -242,9 +242,10 @@ function readHeaderBlock(lines: string[], start: number): { headers: Partial<Rec
       last = h.key;
       continue;
     }
-    // 折行的收件人 / 主题
-    if (last && (last === "to" || last === "cc" || last === "subject" || last === "from") && j > start) {
-      headers[last] = `${headers[last] ?? ""} ${line.trim()}`.trim();
+    // 折行的收件人 / 发件人地址（只接像地址的续行；头与正文之间没有空行时不能把正文吞进头里）
+    const prev = last ? headers[last] ?? "" : "";
+    if (last && (last === "to" || last === "cc" || last === "from") && j > start && (line.includes("@") || /[,;]$/.test(prev))) {
+      headers[last] = `${prev} ${line.trim()}`.trim();
       continue;
     }
     break;

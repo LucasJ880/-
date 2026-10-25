@@ -427,6 +427,20 @@ Dear Jane, attached is our catalog.`;
   assert.equal(q.buyer.email, "");
 });
 
+ok("转发头与正文之间没有空行：正文不会被当成折行的收件人吞掉；地址折行仍能接上", () => {
+  const text = `________________________________
+From: Lucas Martin <lucas@nordichotelsupply.example>
+Sent: Tuesday, October 21, 2026 10:42 PM
+To: Kevin Wu <kevin@${FACTORY}>,
+ Anna Li <anna@${FACTORY}>
+Subject: Bathrobes
+Hi Kevin,
+We need 1200 waffle bathrobes.`;
+  const p = parse({ from: `kevin@${FACTORY}`, text });
+  assert.equal(p.buyer.email, "lucas@nordichotelsupply.example");
+  assert.match(p.message, /^Hi Kevin,\nWe need 1200 waffle bathrobes\.$/);
+});
+
 ok("被转发邮件整体带 > 引用前缀时先去掉一层再解析", () => {
   const text = `fyi
 
