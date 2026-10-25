@@ -12,42 +12,39 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isValidTimeZone } from "@/lib/automation/local-time";
+import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 import { assessConfigHealth } from "@/lib/capabilities/config-health/assess";
 import type { ConfigHealthIssue } from "@/lib/capabilities/config-health/types";
-import {
-  isSelectableIndustryPackId,
-  resolveIndustryPack,
-  type IndustryPack,
-  type ProductCategoryCatalogEntry,
-} from "@/lib/industry-packs/registry";
+import { isSelectableIndustryPackId, resolveIndustryPack, type IndustryPack } from "@/lib/industry-packs/registry";
 import { ensureBaselineOrgRules, listOrgConfigIssues } from "@/lib/org-rules/service";
 import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
-import type { OrgRole } from "@/lib/rbac/roles";
 import { INQUIRY_REPLY_ACTION_TYPE } from "@/lib/revenue-spine/fde/inbound-sales";
-import { TERMINAL_STAGES } from "@/lib/revenue-spine/opportunity-stage";
+import { isTerminalStage } from "@/lib/revenue-spine/opportunity-stage";
 import { RULE_KEY_BUSINESS_PROFILE, publishRevenueSpineRule } from "@/lib/revenue-spine/policy";
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
 import { upsertWebsiteChannel } from "@/lib/trade/channel-service";
 import { INBOUND_ALIAS_RE, inboundAddressFor, normalizeInboundDomain, readForwarderAllowlist } from "@/lib/trade/email-inbound-rules";
 import { loadOrgEmailSender } from "@/lib/trade/email-sender";
-import { factoryOwnerRoleProblem,
+import {
+  factoryOwnerRoleProblem,
   ACKNOWLEDGEABLE_STEPS,
   ONBOARDING_SETTINGS_VERSION,
   deriveOnboardingSteps,
   formatInviteCode,
+  isStepDone,
   onboardingTestEventPrefix,
   planBusinessProfileCategories,
   planExistingOrgAdoption,
-  planMembership,
+  rec,
+  upsertMembership,
   validateCategorySelection,
   type AcknowledgeableStep,
   type InviteRequest,
   type OnboardingPatchRequest,
-  type OnboardingStep,
 } from "./onboarding-rules";
 
 export class OnboardingError extends Error {
@@ -63,19 +60,26 @@ export class OnboardingError extends Error {
 
 type Rec = Record<string, unknown>;
 
-function rec(v: unknown): Rec | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null;
-}
-
 function asJson(v: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(v ?? null)) as Prisma.InputJsonValue;
 }
 
 const SALES_PLATFORM_ROLES = new Set(["trade", "sales"]);
 
+const ORG_SELECT = { id: true, name: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true } as const;
+
+/** 按 id 读企业：不存在 → 404；need=active 而未启用、或 need=unarchived 而已归档 → 409 */
+export async function requireOrg(orgId: string, need: "active" | "unarchived") {
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: ORG_SELECT });
+  if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
+  if (need === "active" && org.status !== "active") throw new OnboardingError("CONFLICT", "企业未启用", 409);
+  if (need === "unarchived" && org.status === "archived") throw new OnboardingError("CONFLICT", "企业已归档，不能修改", 409);
+  return org;
+}
+
 // ── 建组织 ───────────────────────────────────────────────────────────────
 
-export interface ProvisionFactoryOrgInput {
+interface ProvisionFactoryOrgInput {
   name: string;
   code: string;
   industryPackId: string;
@@ -83,17 +87,6 @@ export interface ProvisionFactoryOrgInput {
   actorUserId: string;
   /** 工厂老板：组织 ownerId 与 org_owner 成员；空 = 平台管理员暂为 owner */
   ownerUserId?: string | null;
-}
-
-export interface ProvisionFactoryOrgResult {
-  orgId: string;
-  created: boolean;
-  workspacesCreated: string[];
-  memberships: Array<{ userId: string; role: string; action: "create" | "update" | "keep" }>;
-  /** 已存在的组织只补缺不覆盖：被保留的既有值 */
-  keptExisting: string[];
-  /** 本次把企业 owner 交给了工厂老板（新建，或既有企业原由平台管理员暂代） */
-  ownerAssigned: boolean;
 }
 
 /**
@@ -112,28 +105,6 @@ function onboardingSettings(existing: unknown, actorUserId: string, now: Date, m
 
 function provisionedByWizard(settings: Rec): boolean {
   return typeof rec(settings.onboarding)?.provisionedById === "string";
-}
-
-async function upsertMembership(
-  tx: Prisma.TransactionClient,
-  orgId: string,
-  userId: string,
-  role: OrgRole,
-): Promise<{ userId: string; role: string; action: "create" | "update" | "keep" }> {
-  const existing = await tx.organizationMember.findUnique({
-    where: { orgId_userId: { orgId, userId } },
-    select: { role: true, status: true },
-  });
-  const plan = planMembership(existing, role);
-  if (plan.action === "create") {
-    await tx.organizationMember.create({ data: { orgId, userId, role: plan.role, status: "active" } });
-  } else if (plan.action === "update") {
-    await tx.organizationMember.update({
-      where: { orgId_userId: { orgId, userId } },
-      data: { role: plan.role, status: "active" },
-    });
-  }
-  return { userId, role: plan.role, action: plan.action };
 }
 
 async function ensurePackWorkspaces(tx: Prisma.TransactionClient, orgId: string, pack: IndustryPack): Promise<string[]> {
@@ -161,15 +132,6 @@ async function preferOrgAsActive(tx: Prisma.TransactionClient, userId: string, o
   await tx.user.update({ where: { id: userId }, data: { activeOrgId: orgId } });
 }
 
-async function assertActiveUsers(ids: string[]): Promise<void> {
-  const unique = [...new Set(ids)];
-  const rows = await db.user.findMany({ where: { id: { in: unique } }, select: { id: true, status: true } });
-  for (const id of unique) {
-    const row = rows.find((r) => r.id === id);
-    if (!row || row.status !== "active") throw new OnboardingError("USER_NOT_FOUND", "指定的用户不存在或已停用", 400);
-  }
-}
-
 /**
  * 建工厂组织（单事务，按 code 幂等）。
  * - 新建：行业包、显式模块、时区、onboarding 版本、默认工作空间、成员（操作者 org_admin，老板 org_owner）
@@ -179,7 +141,7 @@ async function assertActiveUsers(ids: string[]): Promise<void> {
  *   指定了工厂老板而企业已有别的负责人 → CONFLICT；owner 仍是平台管理员暂代 → 交给工厂老板
  * 事务后补齐平台默认业务规则（已有规则绝不覆盖）。
  */
-export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Promise<ProvisionFactoryOrgResult> {
+export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
   if (!isSelectableIndustryPackId(input.industryPackId)) {
     throw new OnboardingError("INVALID_INPUT", `未知行业包：${input.industryPackId}`);
   }
@@ -188,17 +150,15 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
   const pack = packRes.pack;
   if (!isValidTimeZone(input.timezone)) throw new OnboardingError("INVALID_INPUT", `无效的时区：${input.timezone}`);
   const ownerUserId = input.ownerUserId || null;
-  await assertActiveUsers([input.actorUserId, ...(ownerUserId ? [ownerUserId] : [])]);
 
   const now = new Date();
   const attempt = () =>
     db.$transaction(async (tx) => {
+      /** 已存在的组织只补缺不覆盖：被保留的既有值 */
       const keptExisting: string[] = [];
-      let org = await tx.organization.findUnique({
-        where: { code: input.code },
-        select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true },
-      });
+      let org = await tx.organization.findUnique({ where: { code: input.code }, select: ORG_SELECT });
       let created = false;
+      /** 本次把企业 owner 交给了工厂老板（新建，或既有企业原由平台管理员暂代） */
       let ownerAssigned = false;
       if (org) {
         if (org.status === "archived") throw new OnboardingError("CONFLICT", "该 code 属于已归档的企业，请换一个 code", 409);
@@ -254,7 +214,7 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
             modulesJson: { enabled: [...pack.enabledModules] },
             settingsJson: asJson({ timezone: input.timezone, onboarding: onboardingSettings(null, input.actorUserId, now, "provision") }),
           },
-          select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true },
+          select: ORG_SELECT,
         });
         created = true;
         ownerAssigned = !!ownerUserId;
@@ -268,14 +228,11 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
       return { orgId: org.id, created, workspacesCreated, memberships, keptExisting, ownerAssigned };
     });
 
-  let result: ProvisionFactoryOrgResult;
-  try {
-    result = await attempt();
-  } catch (err) {
-    // 并发同 code：唯一约束冲突后重读即是幂等结果
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") result = await attempt();
-    else throw err;
-  }
+  // 并发同 code：唯一约束冲突后重读即是幂等结果
+  const result = await attempt().catch((err) => {
+    if (isPrismaUniqueViolation(err)) return attempt();
+    throw err;
+  });
 
   const baseline = await ensureBaselineOrgRules({ orgId: result.orgId, userId: input.actorUserId });
   await logAudit({
@@ -303,16 +260,7 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
 
 // ── 品类 ─────────────────────────────────────────────────────────────────
 
-async function loadOrgPack(orgId: string): Promise<{ org: { id: string; name: string; industryPackId: string | null }; pack: IndustryPack }> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, name: true, industryPackId: true, status: true } });
-  if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
-  if (org.status === "archived") throw new OnboardingError("CONFLICT", "企业已归档，不能修改", 409);
-  const pack = resolveIndustryPack(org.industryPackId);
-  if (pack.status !== "ok") throw new OnboardingError("PACK_REQUIRED", "请先为企业配置有效的行业包");
-  return { org, pack: pack.pack };
-}
-
-async function loadActiveBusinessProfile(orgId: string): Promise<{ configJson: unknown; version: number } | null> {
+export async function loadActiveBusinessProfile(orgId: string): Promise<{ configJson: unknown; version: number } | null> {
   return db.orgBusinessRule.findFirst({
     where: { orgId, ruleKey: RULE_KEY_BUSINESS_PROFILE, status: "active" },
     orderBy: { version: "desc" },
@@ -320,7 +268,7 @@ async function loadActiveBusinessProfile(orgId: string): Promise<{ configJson: u
   });
 }
 
-function strArray(v: unknown): string[] {
+export function strArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
@@ -328,13 +276,10 @@ function strArray(v: unknown): string[] {
  * 发布企业品类（revenue_spine.business_profile 新版本）：做 → productCategories，不做 → excludedCategories。
  * 在当前生效配置上只改品类字段，其余商务事实原样保留。
  */
-export async function setOrgProductCategories(
-  orgId: string,
-  input: unknown,
-  actorUserId: string,
-): Promise<{ version: number; make: string[]; dontMake: string[]; excludedCategoryAction: "review" | "decline" }> {
-  const { pack } = await loadOrgPack(orgId);
-  const catalog = pack.productCategoryCatalog;
+export async function setOrgProductCategories(orgId: string, input: unknown, actorUserId: string) {
+  const pack = resolveIndustryPack((await requireOrg(orgId, "unarchived")).industryPackId);
+  if (pack.status !== "ok") throw new OnboardingError("PACK_REQUIRED", "请先为企业配置有效的行业包");
+  const catalog = pack.pack.productCategoryCatalog;
   const v = validateCategorySelection(input, catalog);
   if (!v.ok) throw new OnboardingError("INVALID_INPUT", v.errors.join("；"));
   const current = await loadActiveBusinessProfile(orgId);
@@ -359,30 +304,28 @@ export async function setOrgProductCategories(
 
 // ── 网站渠道 ─────────────────────────────────────────────────────────────
 
-export function maskSecret(secret: string | null | undefined): string | null {
+function maskSecret(secret: string | null | undefined): string | null {
   if (!secret) return null;
   return secret.length > 8 ? `${secret.slice(0, 4)}****${secret.slice(-4)}` : "****";
 }
 
-/** 建 / 复用本企业的网站询盘通道；只返回 website 通道自己的密钥，不读取其他通道 */
-export async function ensureOnboardingWebsiteChannel(
-  orgId: string,
-  actorUserId: string,
-  name?: string | null,
-): Promise<{ created: boolean; channel: { id: string; name: string; status: string; createdAt: Date; updatedAt: Date }; secret: string }> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, status: true } });
-  if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
-  if (org.status !== "active") throw new OnboardingError("CONFLICT", "企业未启用", 409);
+/** 建 / 复用本企业的网站询盘通道（已停用的会重新启用）；只返回 website 通道自己的密钥，不读取其他通道 */
+export async function ensureOnboardingWebsiteChannel(orgId: string, actorUserId: string, name?: string | null) {
+  await requireOrg(orgId, "active");
   const before = await db.tradeChannel.findUnique({
     where: { orgId_channel: { orgId, channel: "website" } },
     select: { id: true, name: true, status: true },
   });
   const ch = await upsertWebsiteChannel({ orgId, name: (name ?? "").trim().slice(0, 60) || before?.name || "官网询盘" });
-  const secret = String((ch.config as Rec | null)?.secret ?? "");
+  const secret = String(rec(ch.config)?.secret ?? "");
   await logAudit({
     userId: actorUserId,
     orgId,
-    action: before ? "onboarding.website_channel.ensure" : "onboarding.website_channel.create",
+    action: !before
+      ? "onboarding.website_channel.create"
+      : before.status === "active"
+        ? "onboarding.website_channel.ensure"
+        : "onboarding.website_channel.reactivate",
     targetType: "trade_channel",
     targetId: ch.id,
     beforeData: before ? { status: before.status, name: before.name } : null,
@@ -398,39 +341,22 @@ export async function ensureOnboardingWebsiteChannel(
 
 // ── 邀请 ─────────────────────────────────────────────────────────────────
 
-export async function createOrgInvites(
-  orgId: string,
-  req: InviteRequest,
-  actorUserId: string,
-): Promise<Array<{ id: string; code: string; role: string; orgRole: string; expiresAt: Date | null; label: string | null }>> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, name: true, status: true } });
-  if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
-  if (org.status !== "active") throw new OnboardingError("CONFLICT", "企业未启用，不能邀请成员", 409);
+export async function createOrgInvites(orgId: string, req: InviteRequest, actorUserId: string) {
+  const org = await requireOrg(orgId, "active");
   const expiresAt = new Date(Date.now() + req.expiresInDays * 24 * 60 * 60 * 1000);
   const label = req.label ?? `${org.name} · ${req.role === "trade" ? "外贸" : "销售"}`;
-  const out: Array<{ id: string; code: string; role: string; orgRole: string; expiresAt: Date | null; label: string | null }> = [];
+  const create = () =>
+    db.inviteCode.create({
+      data: { code: formatInviteCode(randomBytes(8)), role: req.role, label, maxUses: 1, expiresAt, createdById: actorUserId, orgId, orgRole: req.orgRole },
+      select: { id: true, code: true, role: true, orgRole: true, expiresAt: true, label: true },
+    });
+  const out = [];
   for (let i = 0; i < req.count; i++) {
-    let row: { id: string; code: string; role: string; orgRole: string | null; expiresAt: Date | null; label: string | null } | null = null;
-    for (let tries = 0; tries < 5 && !row; tries++) {
-      try {
-        row = await db.inviteCode.create({
-          data: {
-            code: formatInviteCode(randomBytes(8)),
-            role: req.role,
-            label,
-            maxUses: 1,
-            expiresAt,
-            createdById: actorUserId,
-            orgId,
-            orgRole: req.orgRole,
-          },
-          select: { id: true, code: true, role: true, orgRole: true, expiresAt: true, label: true },
-        });
-      } catch (err) {
-        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
-      }
-    }
-    if (!row) throw new Error("邀请码生成冲突，请重试");
+    // 40 bit 随机码几乎不会撞；撞上唯一约束就换一个码再试一次
+    const row = await create().catch((err) => {
+      if (isPrismaUniqueViolation(err)) return create();
+      throw err;
+    });
     out.push({ ...row, orgRole: row.orgRole ?? req.orgRole });
   }
   await logAudit({
@@ -451,13 +377,7 @@ export async function updateOnboardingSettings(
   patch: OnboardingPatchRequest & { ownerUserId?: string | null },
   actorUserId: string,
 ): Promise<void> {
-  const org = await db.organization.findUnique({
-    where: { id: orgId },
-    select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true },
-  });
-  if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
-  if (org.status === "archived") throw new OnboardingError("CONFLICT", "企业已归档，不能修改", 409);
-  if (patch.ownerUserId) await assertActiveUsers([patch.ownerUserId]);
+  const org = await requireOrg(orgId, "unarchived");
   if (patch.leaveOrg) {
     // 交接：只退出操作者本人；企业必须已有别的负责人（org_owner），且操作者不是企业 owner
     const nextOwnerId = patch.ownerUserId ?? org.ownerId;
@@ -489,6 +409,13 @@ export async function updateOnboardingSettings(
   };
   const pack = patch.industryPackId ? resolveIndustryPack(patch.industryPackId) : null;
   if (pack && pack.status !== "ok") throw new OnboardingError("INVALID_INPUT", pack.message);
+  // 更换工厂老板：原外部老板降为企业管理员（不再是 owner）；原 owner 是平台管理员暂代的由交接步骤处理
+  const demotedOwnerId =
+    patch.ownerUserId &&
+    patch.ownerUserId !== org.ownerId &&
+    !isPlatformAdmin((await db.user.findUnique({ where: { id: org.ownerId }, select: { role: true } }))?.role)
+      ? org.ownerId
+      : null;
 
   await db.$transaction(async (tx) => {
     await tx.organization.update({
@@ -503,6 +430,9 @@ export async function updateOnboardingSettings(
     if (patch.ownerUserId) {
       await upsertMembership(tx, orgId, patch.ownerUserId, "org_owner");
       await preferOrgAsActive(tx, patch.ownerUserId, orgId);
+    }
+    if (demotedOwnerId) {
+      await tx.organizationMember.updateMany({ where: { orgId, userId: demotedOwnerId, role: "org_owner" }, data: { role: "org_admin" } });
     }
     if (patch.leaveOrg) {
       await tx.organizationMember.update({ where: { orgId_userId: { orgId, userId: actorUserId } }, data: { status: "inactive" } });
@@ -527,6 +457,7 @@ export async function updateOnboardingSettings(
       industryPackId: pack?.status === "ok" ? pack.pack.id : org.industryPackId,
       modules: pack?.status === "ok" ? pack.pack.enabledModules : undefined,
       ownerId: patch.ownerUserId ?? org.ownerId,
+      ...(demotedOwnerId ? { previousOwnerDemotedToAdmin: demotedOwnerId } : {}),
       acknowledgements: acks,
       ...(patch.leaveOrg ? { actorLeftOrg: true } : {}),
     },
@@ -535,73 +466,23 @@ export async function updateOnboardingSettings(
 
 // ── 状态推导 ─────────────────────────────────────────────────────────────
 
-export type InviteState = "unused" | "used" | "expired" | "disabled";
-
-export function inviteState(row: { isActive: boolean; usedCount: number; maxUses: number | null; expiresAt: Date | null }, now: Date): InviteState {
+function inviteState(
+  row: { isActive: boolean; usedCount: number; maxUses: number | null; expiresAt: Date | null },
+  now: Date,
+): "unused" | "used" | "expired" | "disabled" {
   if (!row.isActive) return "disabled";
   if (row.maxUses !== null && row.usedCount >= row.maxUses) return "used";
   if (row.expiresAt && row.expiresAt <= now) return "expired";
   return "unused";
 }
 
-export interface OnboardingStatus {
-  org: {
-    id: string;
-    name: string;
-    code: string;
-    status: string;
-    industryPackId: string | null;
-    timezone: string | null;
-    modules: string[];
-    owner: { id: string; name: string; email: string };
-    createdAt: Date;
-    onboardingVersion: number | null;
-  };
-  pack: { status: "ok" | "missing" | "invalid" | "incompatible"; id: string | null; name: string | null; message: string | null };
-  catalog: ProductCategoryCatalogEntry[];
-  categories: { published: boolean; version: number | null; make: string[]; dontMake: string[]; excludedCategoryAction: string | null };
-  websiteChannel: { exists: boolean; id: string | null; name: string | null; status: string | null; secretPreview: string | null; updatedAt: Date | null };
-  /** 邮件转发入口：address 仅在平台配置了收信域名且别名有效时生成 */
-  emailInbound: { platformEnabled: boolean; exists: boolean; status: string | null; address: string | null; allowlistCount: number };
-  members: Array<{
-    userId: string;
-    name: string;
-    email: string;
-    platformRole: string;
-    orgRole: string;
-    isSalesRole: boolean;
-    wechatBound: boolean;
-    wechatChannels: string[];
-  }>;
-  invites: Array<{
-    id: string;
-    code: string;
-    role: string;
-    orgRole: string | null;
-    label: string | null;
-    state: InviteState;
-    expiresAt: Date | null;
-    createdAt: Date;
-  }>;
-  testInquiries: Array<{
-    receiptId: string;
-    eventId: string;
-    status: string;
-    firstSeenAt: Date;
-    opportunityId: string | null;
-    opportunityStage: string | null;
-    pendingActionId: string | null;
-    /** 该次测试是否生成过回复草稿（任何状态） */
-    draftGenerated: boolean;
-    openDrafts: number;
-  }>;
-  emailSender: { configured: boolean; fromName: string | null; fromEmail: string | null; replyTo: string | null };
-  acknowledged: Partial<Record<AcknowledgeableStep, { at: string; byUserId: string }>>;
-  configHealth: { overall: string; issues: ConfigHealthIssue[] } | null;
-  steps: OnboardingStep[];
-  ready: boolean;
-  doneRequired: number;
-  totalRequired: number;
+/** 这些用户在本企业可用的微信绑定（active，且属于本企业或未归属企业） */
+export async function activeWeChatBindings(orgId: string, userIds: string[]): Promise<Array<{ userId: string; channel: string }>> {
+  if (!userIds.length) return [];
+  return db.weChatBinding.findMany({
+    where: { userId: { in: userIds }, status: "active", OR: [{ orgId: null }, { orgId }] },
+    select: { userId: true, channel: true },
+  });
 }
 
 async function loadConfigHealth(orgId: string, actorUserId: string): Promise<{ overall: string; issues: ConfigHealthIssue[] }> {
@@ -636,11 +517,8 @@ async function loadConfigHealth(orgId: string, actorUserId: string): Promise<{ o
 }
 
 /** 入驻状态：每一步都从数据库推导；opts.configHealth 时附带中台配置健康问题 */
-export async function getOnboardingStatus(
-  orgId: string,
-  opts?: { configHealth?: boolean; actorUserId?: string; now?: Date },
-): Promise<OnboardingStatus | null> {
-  const now = opts?.now ?? new Date();
+export async function getOnboardingStatus(orgId: string, opts?: { configHealth?: boolean; actorUserId?: string }) {
+  const now = new Date();
   const org = await db.organization.findUnique({
     where: { id: orgId },
     select: {
@@ -656,14 +534,15 @@ export async function getOnboardingStatus(
     },
   });
   if (!org) return null;
-  const { role: ownerPlatformRole, ...ownerPublic } = org.owner;
+  const { owner, modulesJson, settingsJson, ...orgBase } = org;
+  const { role: ownerPlatformRole, ...ownerPublic } = owner;
 
   const packRes = resolveIndustryPack(org.industryPackId);
   const pack = packRes.status === "ok" ? packRes.pack : null;
-  const settings = rec(org.settingsJson) ?? {};
+  const settings = rec(settingsJson) ?? {};
   const onboarding = rec(settings.onboarding) ?? {};
   const timezone = typeof settings.timezone === "string" ? settings.timezone : null;
-  const modules = parseOrgModulesJson(org.modulesJson);
+  const modules = parseOrgModulesJson(modulesJson);
 
   const [profile, channel, memberRows, inviteRows, receipts, sender, configHealth, emailChannel] = await Promise.all([
     loadActiveBusinessProfile(orgId),
@@ -689,7 +568,7 @@ export async function getOnboardingStatus(
       select: { id: true, eventId: true, status: true, firstSeenAt: true, opportunityId: true, pendingActionId: true },
     }),
     loadOrgEmailSender(orgId),
-    opts?.configHealth ? loadConfigHealth(orgId, opts.actorUserId ?? org.owner.id) : Promise.resolve(null),
+    opts?.configHealth ? loadConfigHealth(orgId, opts.actorUserId ?? owner.id) : Promise.resolve(null),
     db.tradeChannel.findUnique({
       where: { orgId_channel: { orgId, channel: "email" } },
       select: { status: true, config: true },
@@ -697,19 +576,15 @@ export async function getOnboardingStatus(
   ]);
   const inboundDomain = normalizeInboundDomain(process.env.INBOUND_EMAIL_DOMAIN);
   const emailAlias = rec(emailChannel?.config)?.inboundAlias;
-  const emailAllowlist = readForwarderAllowlist(emailChannel?.config);
+  /** 邮件转发入口：address 仅在平台配置了收信域名且别名有效时生成 */
+  const emailInbound = {
+    platformEnabled: !!inboundDomain,
+    exists: !!emailChannel,
+    allowlistCount: readForwarderAllowlist(emailChannel?.config).length,
+  };
 
   const activeMembers = memberRows.filter((m) => m.user.status === "active");
-  const bindings = activeMembers.length
-    ? await db.weChatBinding.findMany({
-        where: {
-          userId: { in: activeMembers.map((m) => m.user.id) },
-          status: "active",
-          OR: [{ orgId: null }, { orgId }],
-        },
-        select: { userId: true, channel: true },
-      })
-    : [];
+  const bindings = await activeWeChatBindings(orgId, activeMembers.map((m) => m.user.id));
   const members = activeMembers.map((m) => {
     const channels = [...new Set(bindings.filter((b) => b.userId === m.user.id).map((b) => b.channel))];
     return {
@@ -725,7 +600,7 @@ export async function getOnboardingStatus(
   });
 
   const oppIds = receipts.map((r) => r.opportunityId).filter((x): x is string => !!x);
-  const [opps, openDrafts] = oppIds.length
+  const [opps, oppDrafts] = oppIds.length
     ? await Promise.all([
         db.salesOpportunity.findMany({ where: { orgId, id: { in: oppIds } }, select: { id: true, stage: true } }),
         db.pendingAction.findMany({
@@ -738,61 +613,52 @@ export async function getOnboardingStatus(
         }),
       ])
     : [[], []];
-  const draftsFor = (oppId: string) => openDrafts.filter((d) => (rec(d.payload)?.opportunityId ?? null) === oppId);
-  const openDraftCount = (oppId: string) => draftsFor(oppId).filter((d) => d.status === "pending").length;
-  const testInquiries = receipts.map((r) => ({
-    receiptId: r.id,
-    eventId: r.eventId,
-    status: r.status,
-    firstSeenAt: r.firstSeenAt,
-    opportunityId: r.opportunityId,
-    opportunityStage: opps.find((o) => o.id === r.opportunityId)?.stage ?? null,
-    pendingActionId: r.pendingActionId,
-    draftGenerated: r.opportunityId ? draftsFor(r.opportunityId).length > 0 : false,
-    openDrafts: r.opportunityId ? openDraftCount(r.opportunityId) : 0,
-  }));
+  const testInquiries = receipts.map(({ id: receiptId, ...r }) => {
+    // 该次测试的回复草稿（任何状态）；openDrafts 只数仍待审批的
+    const drafts = r.opportunityId ? oppDrafts.filter((d) => rec(d.payload)?.opportunityId === r.opportunityId) : [];
+    return {
+      receiptId,
+      ...r,
+      opportunityStage: opps.find((o) => o.id === r.opportunityId)?.stage ?? null,
+      draftGenerated: drafts.length > 0,
+      openDrafts: drafts.filter((d) => d.status === "pending").length,
+    };
+  });
   const latest = testInquiries[0] ?? null;
 
   const profileCfg = rec(profile?.configJson) ?? {};
+  const published = !!profile && Array.isArray(profileCfg.productCategories);
   const make = strArray(profileCfg.productCategories);
   const dontMake = strArray(profileCfg.excludedCategories);
   const channelSecret = (rec(channel?.config)?.secret as string | undefined) ?? null;
 
   const ackRaw = rec(onboarding.acknowledgements) ?? {};
-  const acknowledged: OnboardingStatus["acknowledged"] = {};
+  const acknowledged: Partial<Record<AcknowledgeableStep, { at: string; byUserId: string }>> = {};
   for (const step of ACKNOWLEDGEABLE_STEPS) {
     const a = rec(ackRaw[step]);
     if (a && typeof a.at === "string") acknowledged[step] = { at: a.at, byUserId: String(a.byUserId ?? "") };
   }
 
-  const invites = inviteRows.map((row) => ({
-    id: row.id,
-    code: row.code,
-    role: row.role,
-    orgRole: row.orgRole,
-    label: row.label,
-    state: inviteState(row, now),
-    expiresAt: row.expiresAt,
-    createdAt: row.createdAt,
+  const invites = inviteRows.map(({ isActive, usedCount, maxUses, ...row }) => ({
+    ...row,
+    state: inviteState({ isActive, usedCount, maxUses, expiresAt: row.expiresAt }, now),
   }));
 
   const blockingIssues = (configHealth?.issues ?? []).filter((i) => i.scope === "ORGANIZATION" && i.severity === "CRITICAL").length;
   const handoff = {
-    platformAdminMembers: members.filter((m) => isPlatformAdmin(m.platformRole) && m.userId !== org.owner.id).map((m) => m.name || m.email),
+    platformAdminMembers: members.filter((m) => isPlatformAdmin(m.platformRole) && m.userId !== owner.id).map((m) => m.name || m.email),
     ownerIsPlatformAdmin: isPlatformAdmin(ownerPlatformRole),
   };
   const derived = deriveOnboardingSteps({
     pack: { status: packRes.status, id: org.industryPackId, name: pack?.name ?? null, hasCatalog: !!pack?.productCategoryCatalog?.length },
     modulesExplicit: !!modules?.enabled.length,
     timezone,
-    categories: { published: !!profile && Array.isArray(profileCfg.productCategories), make, dontMake },
+    categories: { published, make, dontMake },
     websiteChannel: { exists: !!channel, active: channel?.status === "active", secretSet: !!channelSecret },
     emailInbound: {
-      platformEnabled: !!inboundDomain,
-      exists: !!emailChannel,
+      ...emailInbound,
       active: emailChannel?.status === "active",
       aliasSet: typeof emailAlias === "string" && INBOUND_ALIAS_RE.test(emailAlias),
-      allowlistCount: emailAllowlist.length,
       authVerifyConfigured: !!process.env.INBOUND_EMAIL_AUTHSERV_ID?.trim(),
     },
     members: members.map((m) => ({ isSalesRole: m.isSalesRole, wechatBound: m.wechatBound })),
@@ -801,7 +667,7 @@ export async function getOnboardingStatus(
       count: testInquiries.length,
       latestHasOpportunity: !!latest?.opportunityId,
       latestHadDraft: !!latest?.draftGenerated,
-      latestClosed: !!latest?.opportunityStage && (TERMINAL_STAGES as readonly string[]).includes(latest.opportunityStage) && latest.openDrafts === 0,
+      latestClosed: !!latest?.opportunityStage && isTerminalStage(latest.opportunityStage) && latest.openDrafts === 0,
     },
     emailSender: { configured: !!sender },
     acknowledged: Object.fromEntries(Object.keys(acknowledged).map((k) => [k, true])),
@@ -811,15 +677,10 @@ export async function getOnboardingStatus(
 
   return {
     org: {
-      id: org.id,
-      name: org.name,
-      code: org.code,
-      status: org.status,
-      industryPackId: org.industryPackId,
+      ...orgBase,
       timezone,
       modules: modules?.enabled ?? [],
       owner: ownerPublic,
-      createdAt: org.createdAt,
       onboardingVersion: typeof onboarding.version === "number" ? onboarding.version : null,
     },
     pack: {
@@ -830,7 +691,7 @@ export async function getOnboardingStatus(
     },
     catalog: pack?.productCategoryCatalog ?? [],
     categories: {
-      published: !!profile && Array.isArray(profileCfg.productCategories),
+      published,
       version: profile?.version ?? null,
       make,
       dontMake,
@@ -844,13 +705,7 @@ export async function getOnboardingStatus(
       secretPreview: maskSecret(channelSecret),
       updatedAt: channel?.updatedAt ?? null,
     },
-    emailInbound: {
-      platformEnabled: !!inboundDomain,
-      exists: !!emailChannel,
-      status: emailChannel?.status ?? null,
-      address: inboundAddressFor(emailAlias, inboundDomain),
-      allowlistCount: emailAllowlist.length,
-    },
+    emailInbound: { ...emailInbound, status: emailChannel?.status ?? null, address: inboundAddressFor(emailAlias, inboundDomain) },
     members,
     invites,
     testInquiries,
@@ -866,24 +721,14 @@ export async function getOnboardingStatus(
   };
 }
 
+export type OnboardingStatus = NonNullable<Awaited<ReturnType<typeof getOnboardingStatus>>>;
+
 /**
  * 列表：非归档、非个人工作区的企业 + 必做步骤摘要。
  * 不跑中台配置健康检查，所以只报「必做步骤是否完成」（stepsComplete），不报「就绪」——就绪以详情页为准。
+ * 每家企业约 10 次查询：按 10 家一批并发读取，不逐家串行。
  */
-export async function listOnboardingOrgs(): Promise<
-  Array<{
-    id: string;
-    name: string;
-    code: string;
-    status: string;
-    industryPackId: string | null;
-    createdAt: Date;
-    stepsComplete: boolean;
-    doneRequired: number;
-    totalRequired: number;
-    pendingStep: string | null;
-  }>
-> {
+export async function listOnboardingOrgs() {
   const orgs = await db.organization.findMany({
     where: { status: { not: "archived" }, NOT: { code: { startsWith: "personal-" } } },
     orderBy: { createdAt: "desc" },
@@ -891,22 +736,22 @@ export async function listOnboardingOrgs(): Promise<
     select: { id: true },
   });
   const out = [];
-  for (const o of orgs) {
-    const s = await getOnboardingStatus(o.id);
-    if (!s) continue;
-    const pending = s.steps.find((st) => st.required && !["done", "skipped", "acknowledged"].includes(st.status));
-    out.push({
-      id: s.org.id,
-      name: s.org.name,
-      code: s.org.code,
-      status: s.org.status,
-      industryPackId: s.org.industryPackId,
-      createdAt: s.org.createdAt,
-      stepsComplete: s.doneRequired === s.totalRequired,
-      doneRequired: s.doneRequired,
-      totalRequired: s.totalRequired,
-      pendingStep: pending?.label ?? null,
-    });
+  for (let i = 0; i < orgs.length; i += 10) {
+    for (const s of await Promise.all(orgs.slice(i, i + 10).map((o) => getOnboardingStatus(o.id)))) {
+      if (!s) continue;
+      out.push({
+        id: s.org.id,
+        name: s.org.name,
+        code: s.org.code,
+        status: s.org.status,
+        industryPackId: s.org.industryPackId,
+        createdAt: s.org.createdAt,
+        stepsComplete: s.doneRequired === s.totalRequired,
+        doneRequired: s.doneRequired,
+        totalRequired: s.totalRequired,
+        pendingStep: s.steps.find((st) => st.required && !isStepDone(st))?.label ?? null,
+      });
+    }
   }
   return out;
 }

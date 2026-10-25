@@ -222,6 +222,15 @@ async function main() {
     await updateOnboardingSettings(later1.orgId, { ownerUserId: BOSS2 }, ADMIN);
     const boss2Row = await db.user.findUniqueOrThrow({ where: { id: BOSS2 }, select: { activeOrgId: true } });
     ok(boss2Row.activeOrgId === later1.orgId, "老板停在个人工作区 → 指定为老板后当前工作企业切到该工厂", boss2Row);
+    const laterMembers = await db.organizationMember.findMany({ where: { orgId: later1.orgId, userId: { in: [BOSS, BOSS2] } }, select: { userId: true, role: true, status: true } });
+    const ownerSwapAudit = await db.auditLog.findFirst({ where: { orgId: later1.orgId, action: "onboarding.org.update" }, orderBy: { createdAt: "desc" } });
+    ok(
+      laterMembers.some((m) => m.userId === BOSS2 && m.role === "org_owner") &&
+        laterMembers.some((m) => m.userId === BOSS && m.role === "org_admin" && m.status === "active") &&
+        (ownerSwapAudit?.afterData ?? "").includes("previousOwnerDemotedToAdmin"),
+      "更换工厂老板：原外部老板不再是 org_owner（降为企业管理员），审计记录被降级的原老板",
+      { laterMembers, afterData: ownerSwapAudit?.afterData },
+    );
     await db.organization.update({ where: { id: later1.orgId }, data: { status: "archived" } });
     const archivedCats = await expectConflict(() => setOrgProductCategories(later1.orgId, { make: ["towel"] }, ADMIN));
     const archivedPatch = await expectConflict(() => updateOnboardingSettings(later1.orgId, { timezone: "UTC" }, ADMIN));
@@ -283,6 +292,10 @@ async function main() {
     ok(chRes.status === 200 && chBody.secret === ch1.secret && !JSON.stringify(chBody).includes(`wa-token-${stamp}`), "接口只返回 website 通道自己的密钥，不含 WhatsApp 凭证", chBody);
     const chAudit = await db.auditLog.findFirst({ where: { orgId, action: "onboarding.website_channel.create" } });
     ok(!!chAudit && !(chAudit.afterData ?? "").includes(ch1.secret), "审计里只有密钥掩码", chAudit?.afterData);
+    await db.tradeChannel.update({ where: { id: ch1.channel.id }, data: { status: "inactive" } });
+    const ch3 = await ensureOnboardingWebsiteChannel(orgId, ADMIN);
+    const reactivated = await db.auditLog.findFirst({ where: { orgId, action: "onboarding.website_channel.reactivate" } });
+    ok(ch3.channel.status === "active" && ch3.secret === ch1.secret && !!reactivated, "已停用的网站通道：重新启用（审计记为 reactivate），密钥不变", { status: ch3.channel.status, audit: reactivated?.action });
 
     // ── 4. 企业邀请码注册 ──
     const invites = await createOrgInvites(orgId, { role: "trade", orgRole: "org_member", count: 2, expiresInDays: 7, label: null }, ADMIN);

@@ -5,7 +5,7 @@ import { createSession, setSessionCookie } from "@/lib/auth/session";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { DEFAULT_ENVIRONMENTS } from "@/lib/common/constants";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
-import { checkOrgBoundInvite, planMembership } from "@/lib/organizations/onboarding-rules";
+import { checkOrgBoundInvite, upsertMembership, type OrgBoundOrgRole } from "@/lib/organizations/onboarding-rules";
 
 const REGISTER_RATE_LIMIT = {
   name: "auth-register",
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
   const assignedRole = invite.role;
 
   // 企业邀请码（入驻向导）：只给 trade / sales 平台角色；企业须存在且启用
-  let orgBinding: { orgId: string; orgRole: string } | null = null;
+  let orgBinding: { orgId: string; orgRole: OrgBoundOrgRole } | null = null;
   if (invite.orgId) {
     const check = checkOrgBoundInvite(invite);
     if (!check.ok) {
@@ -194,7 +194,7 @@ async function registerIntoOrg(
   input: {
     invite: { id: string; usedCount: number; role: string; companyIdsJson: string | null };
     orgId: string;
-    orgRole: string;
+    orgRole: OrgBoundOrgRole;
     email: string;
     name: string | undefined;
     displayName: string;
@@ -241,22 +241,8 @@ async function registerIntoOrg(
             select,
           });
 
-      const current = await tx.organizationMember.findUnique({
-        where: { orgId_userId: { orgId: input.orgId, userId: u.id } },
-        select: { role: true, status: true },
-      });
-      const plan = planMembership(current, input.orgRole === "org_admin" ? "org_admin" : "org_member");
-      if (plan.action === "create") {
-        await tx.organizationMember.create({
-          data: { orgId: input.orgId, userId: u.id, role: plan.role, status: "active" },
-        });
-      } else if (plan.action === "update") {
-        await tx.organizationMember.update({
-          where: { orgId_userId: { orgId: input.orgId, userId: u.id } },
-          data: { role: plan.role, status: "active" },
-        });
-      }
-      return { user: u, membershipAction: plan.action, membershipRole: plan.role };
+      const membership = await upsertMembership(tx, input.orgId, u.id, input.orgRole);
+      return { user: u, membershipAction: membership.action, membershipRole: membership.role };
     });
     user = out.user;
     membershipAction = `${out.membershipAction}:${out.membershipRole}`;
