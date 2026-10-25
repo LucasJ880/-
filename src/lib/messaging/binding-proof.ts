@@ -15,6 +15,9 @@
  *    8 位、每位 32 种字符（40 bit），在有效期内暴力猜中不可行。
  * 3. 已被**其他用户**占用且仍 active 的绑定，即使验证码正确也不迁移（decideBindingClaim → conflict），
  *    须原账号先解绑；原账号解绑（status≠active）后，持验证码的新账号才可接手（字段全部重置）。
+ * 4. 企微 UserId 只在同一企业内唯一，而绑定键 (wecom, UserId) 不含企业。验证码只在「收到消息的企微应用」
+ *    就是「青砚之后给这个账号发消息用的应用」时下发（wecomBindCodeAllowed）；组织级旧回调在配置了平台网关时
+ *    不发码（否则会发到平台企业里同名 UserId 的人，或让该组织的企微管理员认领平台企业里同名、未绑定的 UserId）。
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -144,4 +147,24 @@ export function buildUnboundReply(channel: ChannelType, externalId: string, code
     lines.push("绑定验证暂不可用，请联系管理员。");
   }
   return lines.join("\n");
+}
+
+/**
+ * 纯函数：企微未绑定账号能否在这条回复里拿到验证码。
+ * - inboundCredentialOrgId：收到这条消息的企微应用凭证所在 org（平台级回调 = 平台哨兵，组织级回调 = 该组织）；
+ * - sendCredentialOrgId：青砚此后给企微账号发消息用的凭证 org（平台网关优先，未配置平台时为业务组织；解析不到为 null）。
+ * 两者一致才发码：验证码一定送到发消息的本人，且绑定后的推送 / 回复也走同一套应用。
+ */
+export function wecomBindCodeAllowed(inboundCredentialOrgId: string, sendCredentialOrgId: string | null): boolean {
+  return !!sendCredentialOrgId && inboundCredentialOrgId === sendCredentialOrgId;
+}
+
+/** 组织级旧企微应用（与平台应用共用绑定键）：不发验证码，引导改用平台应用或联系管理员 */
+export function buildWecomLegacyCorpUnboundReply(externalId: string): string {
+  return [
+    "你好，我是青砚。",
+    "当前企微账号尚未绑定青砚用户，所以无法进入你的工作组织。",
+    `你的企微 UserId：${externalId}`,
+    "这个企微应用是组织级旧接入，为防止冒绑他人账号，不在这里下发绑定验证码。请改用青砚平台企微应用发消息获取验证码，或联系管理员。",
+  ].join("\n");
 }

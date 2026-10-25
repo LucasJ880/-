@@ -10,7 +10,14 @@
 
 import { db } from "@/lib/db";
 import { findBindingByExternal, resolveBindingOrgId, touchBinding } from "./binding";
-import { bindCodeKeyFromEnv, buildUnboundReply, isPersonalWeChatBindCommand, issueBindCode } from "./binding-proof";
+import {
+  bindCodeKeyFromEnv,
+  buildUnboundReply,
+  buildWecomLegacyCorpUnboundReply,
+  isPersonalWeChatBindCommand,
+  issueBindCode,
+  wecomBindCodeAllowed,
+} from "./binding-proof";
 import { PLATFORM_WECOM_ORG_ID } from "./platform-wecom";
 import type {
   ChannelType,
@@ -47,13 +54,10 @@ export async function ensureSendAdapter(
   if (cached) return cached;
 
   if (channel === "wecom") {
-    const { WeComAdapter } = await import("./adapters/wecom");
     // 优先平台凭证；未配置平台时回退到业务 org 级网关（兼容旧接入）
     const credentialOrgId = await resolveWecomSendCredentialOrgId(orgId);
     if (!credentialOrgId) return null;
-    const adapter = new WeComAdapter(credentialOrgId);
-    await adapter.start();
-    return adapter.getStatus() === "connected" ? adapter : null;
+    return wecomAdapterForCredentialOrg(credentialOrgId);
   }
 
   if (!orgId) return null;
@@ -66,6 +70,32 @@ export async function ensureSendAdapter(
   }
 
   return null;
+}
+
+/** 按凭证所在 org 实例化企微发送 adapter（拉 access_token 成功才返回） */
+async function wecomAdapterForCredentialOrg(credentialOrgId: string): Promise<MessagingAdapter | null> {
+  const { WeComAdapter } = await import("./adapters/wecom");
+  const adapter = new WeComAdapter(credentialOrgId);
+  await adapter.start();
+  return adapter.getStatus() === "connected" ? adapter : null;
+}
+
+/**
+ * 未绑定的企微账号：回复一律走「收到这条消息的那套企微应用」，保证只回给发消息的本人；
+ * 只有该应用也是之后给这个账号发消息用的应用时才附验证码（wecomBindCodeAllowed）。
+ */
+async function replyToUnboundWecom(msg: InboundMessage): Promise<void> {
+  // 平台级回调不带 orgId；组织级回调的 orgId = 该组织网关（凭证所在 org）
+  const inboundCredentialOrgId = msg.orgId ?? PLATFORM_WECOM_ORG_ID;
+  const sendCredentialOrgId = await resolveWecomSendCredentialOrgId(msg.orgId ?? null);
+  const adapter = await wecomAdapterForCredentialOrg(inboundCredentialOrgId);
+  if (!adapter) return;
+  const text = wecomBindCodeAllowed(inboundCredentialOrgId, sendCredentialOrgId)
+    ? buildUnboundReply("wecom", msg.externalUserId, issueBindCode(bindCodeKeyFromEnv(), "wecom", msg.externalUserId))
+    : buildWecomLegacyCorpUnboundReply(msg.externalUserId);
+  await adapter
+    .sendText(msg.externalUserId, text)
+    .catch((e) => console.error("[Gateway] unbound wecom reply failed:", e));
 }
 
 /** 发送侧解析企微凭证所在 org：平台网关优先 */
@@ -166,15 +196,7 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     }
     // 平台助理通道：未绑定也回一句，避免「发了没反应」；附带绑定验证码（只发给这个企微账号本人）
     if (msg.channel === "wecom" && !isGroup) {
-      const adapter = await ensureSendAdapter("wecom", msg.orgId ?? null);
-      if (adapter) {
-        const code = issueBindCode(bindCodeKeyFromEnv(), "wecom", msg.externalUserId);
-        await adapter
-          .sendText(msg.externalUserId, buildUnboundReply("wecom", msg.externalUserId, code))
-          .catch((e) =>
-            console.error("[Gateway] unbound wecom reply failed:", e),
-          );
-      }
+      await replyToUnboundWecom(msg);
     }
     return;
   }

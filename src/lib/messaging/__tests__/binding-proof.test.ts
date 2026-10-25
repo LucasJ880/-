@@ -10,6 +10,7 @@ import {
   BIND_CODE_LENGTH,
   BIND_CODE_WINDOW_MS,
   buildUnboundReply,
+  buildWecomLegacyCorpUnboundReply,
   decideBindingClaim,
   deriveBindCodeKey,
   formatBindCode,
@@ -17,7 +18,9 @@ import {
   issueBindCode,
   normalizeBindCode,
   verifyBindCode,
+  wecomBindCodeAllowed,
 } from "../binding-proof";
+import { PLATFORM_WECOM_ORG_ID } from "../platform-wecom";
 
 let pass = 0;
 function ok(name: string, fn: () => void) {
@@ -116,6 +119,28 @@ ok("绑定接口：创建路径必须带验证码，且不再用 upsert 覆盖 u
   assert.ok(lib.includes("verifyBindCode(key, params.channel, params.externalId, params.bindCode, now)"), "createBinding 内部校验验证码，调用方绕不过");
   // 早先的修复仍在：偏好 / 解绑只作用于本人的绑定
   assert.ok(/updateMany\(\{\s*where: \{ id: bindingId, userId \}/.test(lib), "偏好 / 解绑 where { id, userId }");
+});
+
+ok("企微验证码只在收到消息的应用 = 之后发消息用的应用时下发（UserId 只在同一企业内唯一）", () => {
+  // 平台级回调 + 平台网关：发
+  assert.equal(wecomBindCodeAllowed(PLATFORM_WECOM_ORG_ID, PLATFORM_WECOM_ORG_ID), true);
+  // 组织级旧回调、没有平台网关（发送也走该组织的应用）：发
+  assert.equal(wecomBindCodeAllowed("org_maple", "org_maple"), true);
+  // 组织级旧回调、但配置了平台网关（之后发送走平台企业）：不发
+  assert.equal(wecomBindCodeAllowed("org_maple", PLATFORM_WECOM_ORG_ID), false);
+  // 解析不到发送凭证：不发
+  assert.equal(wecomBindCodeAllowed(PLATFORM_WECOM_ORG_ID, null), false);
+  const legacy = buildWecomLegacyCorpUnboundReply("ZhangSan");
+  assert.ok(legacy.includes("企微 UserId：ZhangSan") && !legacy.includes("绑定验证码：") && legacy.includes("联系管理员"));
+});
+
+ok("网关：未绑定企微的回复走收到消息的那套应用，验证码由 wecomBindCodeAllowed 把关", () => {
+  const root = path.resolve(__dirname, "../../../..");
+  const gw = readFileSync(path.join(root, "src/lib/messaging/gateway.ts"), "utf8");
+  assert.ok(gw.includes("const inboundCredentialOrgId = msg.orgId ?? PLATFORM_WECOM_ORG_ID;"));
+  assert.ok(gw.includes("await wecomAdapterForCredentialOrg(inboundCredentialOrgId)"), "回复用收到消息的应用");
+  assert.ok(gw.includes("wecomBindCodeAllowed(inboundCredentialOrgId, sendCredentialOrgId)"), "发码前校验同一套应用");
+  assert.equal((gw.match(/issueBindCode\(bindCodeKeyFromEnv\(\), "wecom"/g) ?? []).length, 1, "企微验证码只在这一处下发");
 });
 
 console.log(`  ${pass} passed`);
