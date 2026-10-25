@@ -89,7 +89,10 @@ GET /api/trade/webhook/website/status?eventId=<eventId>
 x-qingyan-webhook-secret: <服务端密钥>
 ```
 
-只认请求头里的密钥；返回与 POST 相同的快照字段外加 `receiptStatus`；401 密钥错误 / 400 缺 eventId / 404 未知事件。只给服务器调用，不开放 CORS。
+- 只认请求头里的密钥（不接受 `?secret=` 或请求体）；组织由密钥在服务端解析，查不到他组织的事件。`/api/trade/webhook/*` 在 middleware 公开路径里，鉴权完全在路由内。
+- 返回与 POST 相同的快照字段外加 `receiptStatus`；`busy=true` 表示该事件的请求路径此刻正在处理。
+- 只读：不认领收据、不增加 `attempts`、不安排也不执行 FDE。
+- 401 密钥错误 / 400 缺 eventId / 404 未知事件。只给服务器调用，不开放 CORS。
 
 ### 2.6 密钥轮换（带宽限期）
 
@@ -145,6 +148,8 @@ x-qingyan-webhook-secret: <服务端密钥>
 
 超限返回 429 + `Retry-After`。同一事件的重试（同一 uuid）不占新询盘额度。访客 IP 只以 HMAC（每个通道独立的服务端盐）存进收据载荷 `meta.ipHash`，不进业务指纹，盐从不出服务端。
 
+数据库计数是先查后写（收据在入站时才建）：同一时刻大量并发的新提交可能略超上限，此时仍有请求次数粗筛兜底（单实例内存时只按实例计）。413 按请求头 `Content-Length` 判断（浏览器提交总会带上）；不带 `Content-Length` 的请求由平台的请求体上限兜底。
+
 ### 3.5 响应
 
 | HTTP | 体 | 含义 |
@@ -190,6 +195,6 @@ x-qingyan-webhook-secret: <服务端密钥>
 
 ## 5. 排障
 
-- `WebsiteInquiryReceipt`：`source`（`website` = 服务器转发，`embed` = 嵌入表单，`trade_show` = 展会速记卡）、`eventId`（嵌入表单为 `emb:<uuid>`）、`status`、`attempts`、`conflictCount`；嵌入表单收据的 `payload.meta.ipHash`。
+- `WebsiteInquiryReceipt`：`source`（`website` = 服务器转发，`embed` = 嵌入表单，`trade_show` = 展会速记卡，`email` = 邮件转发，`whatsapp` = WhatsApp 来信，`wechat` = 微信公众号来信（只做平台重试去重），`whatsapp_sender` = WhatsApp 发信人租约（不是事件））、`eventId`（嵌入表单为 `emb:<uuid>`）、`status`、`attempts`、`conflictCount`；嵌入表单收据的 `payload.meta.ipHash`。
 - 嵌入表单提交不了：先看浏览器控制台（脚本会提示检查 `data-key` 与来源白名单），再核对白名单是否与地址栏的来源完全一致（`www`、`https`、端口）。
 - AI 草稿状态与 cron 兜底：见 [QINGYAN_WEBSITE_INTAKE_ASYNC.md §7、§10](./QINGYAN_WEBSITE_INTAKE_ASYNC.md)。
