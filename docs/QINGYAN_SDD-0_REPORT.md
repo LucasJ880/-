@@ -21,7 +21,7 @@ OpenSpec change：`openspec/changes/register-muse-rfq-tests/`（proposal / specs
 
 本机 OpenSpec 全局配置：`telemetry.enabled=false`、`profile=custom`、`workflows` = 上述 12 个。`openspec update --force` 输出 `Updated: Claude Code (v1.15.0)`，24 个文件 md5 全部不变；`openspec doctor` → `OpenSpec root: ok`；`openspec list --json` 的 `root.path` = 仓库根。`.claude/launch.json` 未动。
 
-**与任务书的差异（请审）**：`qingyan-openspec-kit.zip` 不在仓库也不在执行环境里。任务书 §3 文件清单写明命令与技能是 `openspec init` 生成的，所以用同版本 CLI（1.15.0）、同 profile 重新生成；`config.yaml` 的 context / rules 与 `CLAUDE.md` 按任务书 §0、§2.2 描述的来源（TASKFLOW 表头纪律行、T5 preflight §2、Decision A 2026-10-23 = PR #238 邮箱拆分、P1-8 任务书 §2.2/§5）重写。如果 kit 里的版本与这里不同，以 PR 评审意见为准改。
+**与任务书的差异（请审）**：`qingyan-openspec-kit.zip` 不在仓库也不在执行环境里。任务书 §3 文件清单写明命令与技能是 `openspec init` 生成的，所以用同版本 CLI（1.15.0）、同 profile 重新生成；`config.yaml` 的 context / rules 与 `CLAUDE.md` 按任务书 §0、§2.2 描述的来源（TASKFLOW 表头纪律行、T5 preflight §2、Decision A 2026-10-23 = PR #237 Muse 通道允许出供应商落地价、PR #238 邮箱拆分、P1-8 任务书 §2.2/§5）重写。如果 kit 里的版本与这里不同，以 PR 评审意见为准改。
 
 ### B. 状态真相修正
 
@@ -105,7 +105,8 @@ openspec doctor                                      # OpenSpec root: ok
 2. **基线文件 `ci/test-registry-baseline.txt`（76 条）**：是任务书之外的文件。替代方案是把规则缩到两个目录，但那样下一个模块照样漂移。基线条目"已注册或已删除即失败"是故意的——逼着注册时同步删基线。
 3. **"已注册"向下只看一层间接运行器**：目前只有 `test-runtime-architecture.sh` 一个；出现脚本调脚本调脚本时会误报，到时直接写进 `test-all.sh` 或扩一层。
 4. **`openspec/config.yaml` 的 context 第 8 条与工作约定**是本次新加的纪律与约定（"一个 change = 一个 PR"、"archive 同步 TASKFLOW"、"specs 不手写"），Evan 不同意直接删。
-5. **Node 版本**：执行环境只有 Node 22.22（≥ 20.19，满足 OpenSpec 要求），不是 `.nvmrc` 的 24；`npm ci` 对 `engines >=24 <25` 只告警。所有测试数在 Node 22 下取得。
+5. **Decision A 曾写错**：首版 `config.yaml` 把 PR #238 邮箱拆分标成了 Decision A，漏掉了真正的 Decision A（PR #237：Muse 通道允许出供应商落地价，不出的收窄为毛利率 / 项目估值 / 我方最终报价）。已按 PR #237 正文改正 context 第 4、6 条；邮箱分离仍保留为第 6 条纪律，只是去掉错误标签。
+6. **Node 版本**：执行环境只有 Node 22.22（≥ 20.19，满足 OpenSpec 要求），不是 `.nvmrc` 的 24；`npm ci` 对 `engines >=24 <25` 只告警。所有测试数在 Node 22 下取得。
 
 ---
 
