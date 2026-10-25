@@ -216,7 +216,7 @@ ok("表单区块（— Form details —）：值整行照录，覆盖关键词�
   assert.equal(r.fields.material, "flannel fleece with sherpa back");
   assert.equal(r.fields.quantity, 3000);
   assert.equal(r.fields.unit, "pcs per colour", "单位到 per colour 为止");
-  assert.equal(r.fields.customization, null, "定制不按表单抽（自由文字），买家类型选项也不当定制");
+  assert.equal(r.fields.customization, "care label in EN/FR", "买家类型选项不当定制，改用买家自己填的 Branding");
   assert.equal(r.fields.packaging, "polybag + belly band, 12 per carton");
   assert.equal(r.fields.size, "127 x 152 cm");
   assert.equal(r.fields.certification, "OEKO-TEX");
@@ -285,8 +285,8 @@ ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 
   const sets = fx(["We need 3,000 sets of duvet cover sets.", "", block("Estimated quantity: 4000")].join("\n"));
   assert.equal(sets.quantity, 3000, "同一封来信里正文先说的数量为准");
   assert.equal(sets.unit, "sets");
-  const carton = fx(["Need bath towels.", "", block("Estimated quantity: 3000", "Packaging: 24 pcs per carton, about 125 cartons")].join("\n"));
-  assert.notEqual(carton.unit, "cartons", "只写数字时不借别的数的单位");
+  const cartonText = ["Need bath towels.", "", block("Estimated quantity: 3000", "Packaging: 24 pcs per carton, about 125 cartons")].join("\n");
+  assert.deepEqual(fx(cartonText).quantity, fx(cartonText.split("— Form details —").join("Form details")).quantity, "关键词读到了另一个数：表单不改写");
 });
 
 ok("多封来信：表单只用于单独一封、只含一个区块的来信；只要有多封，结果与没有表单层时一样", () => {
@@ -413,6 +413,20 @@ ok("第十一轮审查用例：正文里的 5k / 3万 / 2000 robes、by the 15th
   assert.equal(notes.customLogo, true, "区块里 Notes 行写的 logo 照算");
   const link = fx("Product: Bath towels\nProject brief (guided form)\nNotes: Our store: https://www.example-shop.com/collections/logo-towels\n\n— Form details —\nEstimated quantity: 3000 pcs\nBuyer type: Retail & Private Label");
   assert.doesNotMatch(link.customization ?? "", /example-shop|collections/);
+});
+
+ok("第十二轮审查用例：表单值只能补上或细化关键词结果；买家类型选项的定制 / 包装用买家自己的答案或作废", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const t1 = "Product: Bath towels\nHi, please quote 3000 pcs. Price term=FOB Ningbo.\n\n— Form details —\nIncoterm: CIF";
+  assert.equal(fx(t1).incoterm, noForm(t1).incoterm, "正文的 FOB 不被表单 CIF 改写");
+  const t2 = "Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3,000 bath towels + 20 sets for the lobby";
+  assert.equal(fx(t2).quantity, noForm(t2).quantity, "不读成 20 sets");
+  const ref = fx("Product: Bath towels\nPlease quote.\n\n— Form details —\nBuyer type: Retail & Private Label\nEstimated quantity: 3000 pcs\nReferrer: blog.example.org/custom-logo-towels");
+  assert.doesNotMatch(ref.customization ?? "", /blog\.example/);
+  const poly = "Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 pcs\nBuyer type: Amazon seller polybag";
+  assert.equal(fx(poly).packaging, noForm(poly).packaging, "买家类型行里写了包装要求就不当选项");
+  const zh = "Product: 浴巾\n你好\n\n— Form details —\n预计数量: 3000\n留言：其实我们需要5000条，3月底前到货";
+  assert.equal(fx(zh).quantity, noForm(zh).quantity, "留言行算买家自己写的");
 });
 
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {

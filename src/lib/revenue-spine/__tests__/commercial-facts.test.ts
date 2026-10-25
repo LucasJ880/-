@@ -379,7 +379,7 @@ async function main() {
     assert.match(d.body, /- Quantity: 3000 pcs per colour\n/);
     assert.match(d.subject, /\(3000 pcs per colour\)/);
     assert.match(d.body, /- Material: flannel fleece with sherpa back\n/);
-    assert.doesNotMatch(d.body, /Private Label/);
+    assert.doesNotMatch(d.body, /- Packaging: Retail & Private Label/, "买家类型选项不当包装");
     assert.match(d.body, /- Required delivery date: end of March 2027 \(2027-03-31\)\n/);
     assert.match(d.body, /Regarding pricing and certification: our team will confirm these internally/);
     const zh = buildReplyDraft({ ...base, language: "zh", fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });

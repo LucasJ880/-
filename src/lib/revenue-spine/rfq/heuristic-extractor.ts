@@ -230,7 +230,7 @@ const FORM_META_LABELS = new Set([
   "branding", "customization", "customisation", "logo", "packaging", "packing", "certification", "certification needs",
   "sample requirement", "colour", "color", "目标市场", "定制要求", "包装", "认证", "样品",
   // 青砚自己给网站询盘加的包装行
-  "utm", "来源页", "落地页", "引荐页", "联系人", "国家", "买家网站", "产品", "留言",
+  "utm", "来源页", "落地页", "引荐页", "联系人", "国家", "买家网站",
 ]);
 const LABELED_LINE_RE = /^[^\S\n]*(?:[-•*][^\S\n]+)?[*_]{0,2}([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[*_]{0,2}[^\S\n]*[:：][*_ \t]{0,3}?(\S(?:[^\n]*\S)?)[^\S\n]*$/gm;
 const FORM_DETAILS_RE = /^[^\S\n]*[—–-]+[^\S\n]*form details[^\S\n]*[—–-]+[^\S\n]*$/gim;
@@ -403,7 +403,7 @@ function labeledFields(
   buyerTypeLines: Array<[number, number]>;
   blocks: Array<[number, number]>;
   /** 表单区块里认得出字段的行（买家类型行除外）：区块里只有这些是买家填的规格，来源页、着陆页这类不是 */
-  specLines: Array<[number, number]>;
+  specLines: Array<[number, number, string]>;
   /** 表单自己的字段 / 元数据行（不算买家写的正文） */
   formLines: Array<[number, number]>;
   /** 同一封来信里表单字段行之外的文字（正文、P.S.、区块里没有标签的句子）：买家在这里提到的字段以正文为准 */
@@ -427,7 +427,7 @@ function labeledFields(
 
   const byField = new Map<RfqField, LabeledHit>();
   const buyerTypeLines: Array<[number, number]> = [];
-  const specLines: Array<[number, number]> = [];
+  const specLines: Array<[number, number, string]> = [];
   const formLines: Array<[number, number]> = [[markerStart, blockStart]];
   let m: RegExpExecArray | null;
   LABELED_LINE_RE.lastIndex = 0;
@@ -438,7 +438,7 @@ function labeledFields(
     if (LABEL_FIELD.has(label) || FORM_META_LABELS.has(label)) formLines.push([m.index, m.index + m[0].length]);
     const field = LABEL_FIELD.get(label);
     // 表单里写规格的行（买家类型以外）：买家类型选项作废后，在这些行和正文里重新找定制 / 包装
-    if ((field && field !== "buyerType") || SPEC_META_LABELS.has(label)) specLines.push([m.index, m.index + m[0].length]);
+    if ((field && field !== "buyerType") || SPEC_META_LABELS.has(label)) specLines.push([m.index, m.index + m[0].length, label]);
     if (!field) continue;
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw)) continue;
@@ -447,7 +447,7 @@ function labeledFields(
       field === "buyerType" &&
       raw.trim().split(/\s+/).length <= 5 &&
       raw.trim().length <= 30 &&
-      !/[,，、；;]|\b(?:need|want|require\w*|please|logo|print\w*|embroider\w*|box|bag)\b|要|需/i.test(raw)
+      !/[,，、；;]|\b(?:need|want|require\w*|please|logo|print\w*|embroider\w*|box|bag)\b|polybag|carton|gift|要|需|盒|袋|包装|印|绣/i.test(raw)
     ) {
       buyerTypeLines.push([m.index, m.index + m[0].length]);
     }
@@ -465,7 +465,7 @@ function labeledFields(
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
 function mentionedIn(field: RfqField, rawText: string): boolean {
   // 链接里的数字、词（端口、utm_campaign=logo_towels）不是买家说的
-  const text = rawText.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*|\b(?:source|medium|campaign|content|term)=\S+/gi, " ");
+  const text = rawText.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*/gi, " ");
   if (!text.trim()) return false;
   const lower = text.toLowerCase();
   switch (field) {
@@ -724,13 +724,18 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   const keywordWins = (_hit: LabeledHit, field: RfqField) => mentionedIn(field, labeled.outsideText);
   const keywordQty = { quantity: fields.quantity, unit: fields.unit };
   let labeledCountry = false;
-  // 表单值只能补上或细化关键词结果，不能改成另一个（Birmingham, Alabama 不能把 Target market 的美国改成英国；
-  // Material: cotton 不能把 Construction 行里的 organic cotton 改粗）
+  // 表单值只能补上或细化关键词结果，不能改成另一个——关键词读到的不管来自正文还是表单哪一行，都不会被改写
+  // （Birmingham, Alabama 不能把 Target market 的美国改成英国；Incoterm: CIF 不能改掉正文的 FOB；
+  // 「3,000 bath towels + 20 sets」不能读成 20 sets；Material: cotton 不能把 organic cotton 改粗）
+  const squash = (v: unknown) => String(v).toLowerCase().replace(/\s+/g, "");
   const contradicts = (hit: LabeledHit) => {
     const [field, value] = hit.pairs[0];
-    if (field === "destinationCountry") return fields.destinationCountry !== null && fields.destinationCountry !== value;
-    if (field === "material") return fields.material !== null && !String(value).toLowerCase().includes(fields.material.toLowerCase());
-    return false;
+    const current = (fields as unknown as Record<string, unknown>)[field];
+    if (current === null || current === undefined) return false; // 关键词没读到：表单补上
+    if (current instanceof Date && value instanceof Date) return current.getTime() !== value.getTime();
+    // 关键词读到了：表单值只能是同一个，或更细（3000 → 3000 pcs per colour；flannel fleece → …with sherpa back）
+    if (field === "material" || field === "size") return !squash(value).includes(squash(current));
+    return squash(value) !== squash(current);
   };
   for (const hit of labeled.hits) {
     if (keywordWins(hit, hit.pairs[0][0]) || contradicts(hit)) continue;
@@ -747,32 +752,47 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       if (same) add("unit", same, 0.6, hit.index, hit.length);
     }
   }
-  // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）：从那一行读出的定制 / 包装作废，
-  // 改在别处找——不看买家类型行、表单里别的字段的行（Branding 行里的 label 不是包装）和链接
+  // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）。关键词从那一行读到定制 / 包装时：
+  // 1) 这个字段自己的表单行（Branding / Packaging）有能用的答案 → 用它；
+  // 2) 否则买家在正文或表单其它规格行里提到过 → 保持原结果；
+  // 3) 都没有 → 作废（草稿改为追问）
+  const ownAnswer = (field: RfqField): string | null => {
+    const own = field === "customization" ? /^(?:branding|customi[sz]ation|logo|定制要求)$/ : /^(?:packaging|packing|包装)$/;
+    for (const [a, b, label] of labeled.specLines) {
+      if (!own.test(label)) continue;
+      const raw = source.slice(a, b).replace(/^[^:：]*[:：]/, "");
+      if (PICTOGRAPH_RE.test(raw)) continue;
+      const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
+      if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value)) continue;
+      const sentence = firstSentence(value).split(/[;；]/)[0].trim();
+      if (!sentence) continue;
+      if (field === "customization" ? CUSTOMIZATION_WORD_RE.test(sentence) : findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS)) return sentence;
+    }
+    return null;
+  };
   for (const field of ["customization", "packaging"] as RfqField[]) {
     const k = keywordPos.get(field);
     if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
-    if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]))) continue;
-    // 在买家自己写的文字（正文、区块里的 Notes / PS 行）和表单的规格行（Packaging、Material…）里找；
-    // 买家类型行、来源页 / 着陆页这类表单元数据行、链接不看
-    const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
-    const isSpec = ([a]: [number, number]) => labeled.specLines.some(([c]) => c === a);
-    let elsewhere = labeled.formLines.filter((l) => !isSpec(l)).reduce((t, [a, b]) => blank(t, a, b), lower);
-    for (const [a, b] of labeled.buyerTypeLines) elsewhere = blank(elsewhere, a, b);
-    elsewhere = elsewhere.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*|\b(?:source|medium|campaign|content|term)=\S+/g, (u) => " ".repeat(u.length));
-    const again = findKeyword(elsewhere, field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS);
+    if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]) && !contradicts(h))) continue;
+    const answer = ownAnswer(field);
+    if (!answer) {
+      // 定制看表单所有规格行（包装行里写的 logo 也算定制）；包装只看包装行（Branding 行里的 label 不是包装）
+      const lines = field === "customization" ? labeled.specLines : labeled.specLines.filter(([, , l]) => /^(?:packaging|packing|包装)$/.test(l));
+      const specText = lines.map(([a, b]) => lower.slice(a, b)).join("\n");
+      const words = field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS;
+      const evidence = findKeyword(specText, words) || (field === "customization" && CUSTOMIZATION_WORD_RE.test(specText));
+      if (mentionedIn(field, labeled.outsideText) || evidence) continue;
+    }
+    (fields as unknown as Record<string, unknown>)[field] = answer;
     dropEvidence(field);
     if (field === "customization") {
+      fields.customLogo = answer ? true : null;
       dropEvidence("customLogo");
-      fields.customization = again ? stripLabel(snippet(source, again.index, again.kw.length)) : null;
-      fields.customLogo = again && /logo|embroider|印|绣|brand|label/i.test(again.kw) ? true : null;
-      if (again) {
-        add("customization", fields.customization, 0.7, again.index, again.kw.length);
-        if (fields.customLogo) add("customLogo", true, 0.75, again.index, again.kw.length);
-      }
-    } else {
-      fields.packaging = again ? stripLabel(snippet(source, again.index, again.kw.length)) : null;
-      if (again) add("packaging", fields.packaging, 0.65, again.index, again.kw.length);
+    }
+    if (answer) {
+      const at = source.indexOf(answer, labeled.blocks[0]?.[0] ?? 0);
+      add(field, answer, 0.7, at < 0 ? 0 : at, answer.length);
+      if (field === "customization") add("customLogo", true, 0.7, at < 0 ? 0 : at, answer.length);
     }
   }
   // 表单的目的国与关键词抽到的城市不在同一国（「ship to Toronto」+「Destination: USA」）：城市作废，别拼出错的组合
