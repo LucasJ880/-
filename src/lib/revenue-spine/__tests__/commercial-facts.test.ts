@@ -325,6 +325,44 @@ async function main() {
     assert.equal(r.body, d.body);
   });
 
+  await ok("对外英文公司名：英文草稿主题 / 正文 / 落款用它，中文草稿仍用组织名；未配置时用组织名", () => {
+    const pol = mergeRevenueSpinePolicy(withFacts, { businessProfile: { commercialFacts: { buyerFacingName: "Example Textiles Co." } } });
+    const en = buildReplyDraft({ ...draftBase(pol), orgName: "示例家纺" });
+    assert.match(en.subject, /— Example Textiles Co\.$/);
+    assert.match(en.body, /Thank you for contacting Example Textiles Co\./);
+    assert.match(en.body, /\nExample Textiles Co\.\nWhatsApp/);
+    assert.doesNotMatch(en.body, /示例家纺/);
+    const zh = buildReplyDraft({ ...draftBase(pol, "zh"), orgName: "示例家纺" });
+    assert.match(zh.body, /示例家纺/);
+    const plainEn = buildReplyDraft({ ...draftBase(withFacts), orgName: "示例家纺" });
+    assert.match(plainEn.body, /Thank you for contacting 示例家纺/);
+    const f = buildNoReplyFollowUpDraft({
+      step: 1, total: 2, language: "en", contactName: "Emma", orgName: "示例家纺", senderName: "Lily",
+      previousSubject: null, previousSentAt: new Date("2026-10-01T00:00:00Z"), product: null, event: null, questions: [],
+      buyerFacingName: "Example Textiles Co.",
+    });
+    assert.match(f.subject, /Example Textiles Co\.$/);
+    assert.doesNotMatch(f.body, /示例家纺/);
+  });
+
+  await ok("只剩一项待确认时用单数（this / 不写「以上均」）", () => {
+    const d = buildReplyDraft(draftBase(withFacts));
+    assert.match(d.body, /Regarding pricing: our team will confirm this internally/);
+    const zh = buildReplyDraft({ ...draftBase(withFacts, "zh"), orgName: "示例家纺" });
+    assert.match(zh.body, /关于价格：需内部确认/);
+    const many = buildReplyDraft(draftBase(plain));
+    assert.match(many.body, /our team will confirm these internally/);
+  });
+
+  await ok("抽取片段在长句里不截在半个从句（退到逗号，去掉悬空的 and）", () => {
+    const msg = "We need 3,000 coral fleece bathrobes with shawl collar and our logo embroidered on the chest, sizes S-XL, white and grey, for hotel clients.";
+    const ex = extractRfqHeuristic(msg, { productKeywords: withFacts.businessProfile.productKeywords });
+    const c = ex.fields.customization ?? "";
+    assert.ok(c.length > 0, "customization extracted");
+    assert.doesNotMatch(c, /\b(and|or|with)$/i);
+    assert.doesNotMatch(c, /,$/);
+  });
+
   console.log(`  ${pass} passed`);
 }
 

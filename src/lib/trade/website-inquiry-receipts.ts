@@ -75,7 +75,9 @@ export const RECEIPT_TERMINAL_NO_CHAIN_STATUSES = ["quarantined", "duplicate"] a
 
 /** 业务指纹：联系人 + 公司 + 国家 + 正文 + 产品 + 买家网站。不含来源页 / referrer / 落地页 / UTM / eventId / meta。 */
 export function computePayloadHash(v: NormalizedInquiry): string {
-  const parts = [v.name, v.email, v.phone, v.company, v.country, v.product, v.website, v.message];
+  // 留言现在保留换行；指纹仍按「空白压成一个空格」的形式算，与换行保留之前写入的收据指纹完全一致（重发不判为内容冲突）
+  const message = (v.message ?? "").replace(/\s+/g, " ");
+  const parts = [v.name, v.email, v.phone, v.company, v.country, v.product, v.website, message];
   return createHash("sha256").update(parts.map((x) => (x ?? "").trim()).join(" ")).digest("hex");
 }
 

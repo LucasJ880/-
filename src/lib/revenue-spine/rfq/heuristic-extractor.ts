@@ -57,10 +57,17 @@ function snippet(text: string, index: number, length: number): string {
   if (start > 0 && inWord(start - 1) && inWord(start)) {
     while (start < index && inWord(start)) start++;
   }
+  const cutByWindow = end < text.length && !isBoundary(text, end);
   if (end < text.length && inWord(end - 1) && inWord(end)) {
     while (end > index + length && inWord(end - 1)) end--;
   }
-  return text.slice(start, end).replace(/\s+/g, " ").trim();
+  // 窗口截在句子中间（"…sizes S-XL, white and"）：退到关键词之后最近的逗号 / 分号，不留半截从句
+  if (cutByWindow) {
+    const tail = text.slice(index + length, end);
+    const cut = Math.max(tail.lastIndexOf(","), tail.lastIndexOf(";"), tail.lastIndexOf("，"), tail.lastIndexOf("；"));
+    if (cut > 0) end = index + length + cut;
+  }
+  return text.slice(start, end).replace(/\s+/g, " ").replace(/[\s,，;；]+(and|or|with)?$/i, "").trim();
 }
 
 function escapeRe(s: string): string {

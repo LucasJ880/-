@@ -80,6 +80,8 @@ export interface NoReplyFollowUpInput {
   questions: ClarifyingQuestion[];
   /** 落款附加行：afterName（职位）/ afterOrg（WhatsApp、网站）；企业未配置时为空 */
   signature?: { afterName: string[]; afterOrg: string[] };
+  /** 对外英文公司名；英文跟进用它（为空用 orgName） */
+  buyerFacingName?: string | null;
 }
 
 function fmtDate(d: Date, lang: "en" | "zh"): string {
@@ -91,6 +93,7 @@ function fmtDate(d: Date, lang: "en" | "zh"): string {
 /** 纯函数：跟进草稿正文。第一次追问缺的信息；中间几次问项目是否还在进行；最后一次说明这是最后一封 */
 export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDraft {
   const zh = input.language === "zh";
+  const orgName = zh ? input.orgName : input.buyerFacingName || input.orgName;
   const last = input.step >= input.total;
   const qs = input.questions.slice(0, 3);
   const lines: string[] = [];
@@ -102,8 +105,8 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
         ? `回复：${prev}`
         : `Re: ${prev}`
     : zh
-      ? `跟进：${input.product ?? "您的询盘"} — ${input.orgName}`
-      : `Following up${input.product ? ` on ${input.product}` : ""} — ${input.orgName}`;
+      ? `跟进：${input.product ?? "您的询盘"} — ${orgName}`
+      : `Following up${input.product ? ` on ${input.product}` : ""} — ${orgName}`;
 
   if (zh) {
     lines.push(`${input.contactName ?? "您好"}${input.contactName ? "，您好" : ""}：`);
@@ -132,7 +135,7 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
     lines.push("祝好！");
     lines.push(input.senderName);
     for (const l of input.signature?.afterName ?? []) lines.push(l);
-    lines.push(input.orgName);
+    lines.push(orgName);
     for (const l of input.signature?.afterOrg ?? []) lines.push(l);
   } else {
     lines.push(`Dear ${input.contactName ?? "there"},`);
@@ -165,7 +168,7 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
     lines.push("Best regards,");
     lines.push(input.senderName);
     for (const l of input.signature?.afterName ?? []) lines.push(l);
-    lines.push(input.orgName);
+    lines.push(orgName);
     for (const l of input.signature?.afterOrg ?? []) lines.push(l);
   }
 
@@ -298,6 +301,7 @@ export async function draftNoReplyFollowUps(
         event: booth.fromLatest ? booth.event : null,
         questions: buildClarifyingQuestions(missing, lang, 3),
         signature: signatureLines(policy, lang),
+        buyerFacingName: policy.businessProfile.commercialFacts?.buyerFacingName ?? null,
       });
       const draft = buildNoReplyFollowUpDraft(input(language));
       if (draft.guardrailViolations.length) {

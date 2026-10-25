@@ -56,6 +56,7 @@ run_test "Revenue Spine 阶段状态机" "npx tsx src/lib/revenue-spine/__tests_
 run_test "Revenue Spine RFQ 抽取/缺失信息" "npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts"
 run_test "Revenue Spine 评分/草稿守卫/Next Action" "npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts"
 run_test "Revenue Spine 企业商务事实/参考原句/只发目录" "npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts"
+run_test "网站询盘留言保留换行 + 指纹兼容" "npx tsx src/lib/trade/__tests__/message-normalize.test.ts"
 run_test "Revenue Spine DB 端到端(isolated)" "npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts"
 run_test "老板今日询盘分栏（时区切日/超时/审批/样品报价去重）" "npx tsx src/lib/revenue-spine/__tests__/owner-today.test.ts"
 run_test "老板询盘早报/新草稿提醒（无买家邮箱电话）/策略开关" "npx tsx src/lib/revenue-spine/__tests__/owner-brief.test.ts"

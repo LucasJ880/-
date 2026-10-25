@@ -255,6 +255,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const atEventZh = met?.event ? (/^[A-Za-z0-9]/.test(met.event) ? `在 ${met.event} ` : `在${met.event}`) : "在展会上";
   const styles = allowedStyles(met?.styles ?? [], input.policy);
   const cf = input.policy.businessProfile.commercialFacts;
+  // 英文邮件用对外英文公司名（组织名常是中文）；中文草稿仍用组织名
+  const orgName = lang === "en" ? cf?.buyerFacingName || input.orgName : input.orgName;
   const catalogOnly = Boolean(met && input.boothGrade === "C" && cf?.gradeCCatalogOnly);
   // termLines：正文里渲染的条款原句；referenceLines：守卫白名单（条款原句 + 含数字的样品说明）
   const termLines = catalogOnly ? [] : buildReferenceLines(knowledge, input.policy, lang);
@@ -289,13 +291,13 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   if (lang === "zh") {
     const qty = fields.quantity ? `（${fields.quantity}${fields.unit ?? "件"}）` : "";
     subject = met
-      ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${input.orgName}`
-      : `回复：${product}${qty}询盘 — ${input.orgName}`;
+      ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${orgName}`
+      : `回复：${product}${qty}询盘 — ${orgName}`;
     const lines: string[] = [];
     lines.push(`${greetName}${input.contactName ? "，您好" : ""}：`);
     lines.push("");
     if (met && styles.length) {
-      lines.push(`感谢您${atEventZh}莅临 ${input.orgName} 的展位，很高兴与您交流。`);
+      lines.push(`感谢您${atEventZh}莅临 ${orgName} 的展位，很高兴与您交流。`);
       lines.push("");
       lines.push("您在展位看过的参考款（我们以往做过的款式）：");
       for (const st of styles) lines.push(`- ${styleLabel(st, true)}`);
@@ -303,8 +305,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     } else {
       lines.push(
         met
-          ? `感谢您${atEventZh}莅临 ${input.orgName} 的展位，很高兴与您交流。以下是关于${product}的跟进。`
-          : `感谢您通过官网联系 ${input.orgName}，我们已收到您关于${product}的询盘。`,
+          ? `感谢您${atEventZh}莅临 ${orgName} 的展位，很高兴与您交流。以下是关于${product}的跟进。`
+          : `感谢您通过官网联系 ${orgName}，我们已收到您关于${product}的询盘。`,
       );
     }
     if (confirmFacts.length) {
@@ -325,26 +327,26 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       for (const r of references) lines.push(r.summaryZh);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
-      lines.push(`关于${pending.join("、")}：以上均需内部确认，我们会在收到上述信息后尽快给您正式答复。`);
+      lines.push(`关于${pending.join("、")}：${pending.length > 1 ? "以上均" : ""}需内部确认，我们会在收到上述信息后尽快给您正式答复。`);
     }
     lines.push("");
     lines.push("期待您的回复。");
     lines.push("");
     lines.push(`${input.senderName}`);
     for (const l of sig.afterName) lines.push(l);
-    lines.push(`${input.orgName}`);
+    lines.push(`${orgName}`);
     for (const l of sig.afterOrg) lines.push(l);
     body = lines.join("\n");
   } else {
     const qty = fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
-      ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${input.orgName}`
-      : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${input.orgName}`;
+      ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${orgName}`
+      : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${orgName}`;
     const lines: string[] = [];
     lines.push(`Dear ${greetName},`);
     lines.push("");
     if (met && styles.length) {
-      lines.push(`Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you.`);
+      lines.push(`Thank you for visiting the ${orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you.`);
       lines.push("");
       lines.push("You looked at these reference styles from our past production:");
       for (const st of styles) lines.push(`- ${styleLabel(st, false)}`);
@@ -352,8 +354,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     } else {
       lines.push(
         met
-          ? `Thank you for visiting the ${input.orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you. Here is our follow-up on ${product}.`
-          : `Thank you for contacting ${input.orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry${fields.productName ? ` about ${product}` : ""}.`,
+          ? `Thank you for visiting the ${orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you. Here is our follow-up on ${product}.`
+          : `Thank you for contacting ${orgName}${input.companyName ? ` on behalf of ${input.companyName}` : ""}. We have received your inquiry${fields.productName ? ` about ${product}` : ""}.`,
       );
     }
     if (confirmFacts.length) {
@@ -374,7 +376,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       for (const r of references) lines.push(r.summaryEn);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
-      lines.push(`Regarding ${pending.join(", ")}: our team will confirm these internally once we have the details above and revert to you with a formal reply.`);
+      lines.push(`Regarding ${pending.join(", ")}: our team will confirm ${pending.length > 1 ? "these" : "this"} internally once we have the details above and revert to you with a formal reply.`);
     }
     lines.push("");
     lines.push("We look forward to hearing from you.");
@@ -382,7 +384,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push("Best regards,");
     lines.push(input.senderName);
     for (const l of sig.afterName) lines.push(l);
-    lines.push(input.orgName);
+    lines.push(orgName);
     for (const l of sig.afterOrg) lines.push(l);
     body = lines.join("\n");
   }

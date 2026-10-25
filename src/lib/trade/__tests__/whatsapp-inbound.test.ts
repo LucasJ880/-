@@ -293,7 +293,7 @@ async function main() {
     assert.match(whatsappOrigin, /inquiryAnalysis: false/);
     assert.match(whatsappOrigin, /contentDedupe: false/);
     assert.match(whatsappOrigin, /notifyReturning: false/);
-    assert.match(ingest, /claimInquiryReceipt\(orgId, incoming, now, o\.receiptSource, \{ contentDedupe: o\.contentDedupe \}\)/);
+    assert.match(ingest, /claimInquiryReceipt\(orgId, incoming, now, o\.receiptSource, opts\?\.receiptMeta, \{ contentDedupe: o\.contentDedupe \}\)/);
     assert.match(ingest, /replayKey: "external_id" as const/);
     assert.match(ingest, /if \(o\.inquiryAnalysis\) await scheduleInquiryAnalysis\(\{/);
     const receipts = src("src/lib/trade/website-inquiry-receipts.ts");
@@ -301,7 +301,7 @@ async function main() {
     assert.match(receipts, /export const WECHAT_INBOUND_SOURCE = "wechat";/);
     assert.match(receipts, /export const WHATSAPP_SENDER_LEASE_SOURCE = "whatsapp_sender";/);
     // 业务指纹仍不含来源页 / UTM / eventId
-    assert.match(receipts, /const parts = \[v\.name, v\.email, v\.phone, v\.company, v\.country, v\.product, v\.website, v\.message\];/);
+    assert.match(receipts, /const message = \(v\.message \?\? \"\"\)\.replace\(\/\\s\+\/g, \" \"\);\n\s+const parts = \[v\.name, v\.email, v\.phone, v\.company, v\.country, v\.product, v\.website, message\];/);
   });
 
   await ok("微信路由：按 MsgId 认领收据后才写消息；仍只走 Trade 通道", () => {

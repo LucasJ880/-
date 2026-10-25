@@ -238,6 +238,22 @@ function str(v: unknown, max: number): string {
   return v.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+/**
+ * 留言保留换行（站点把表单明细按行附在留言后，压成一行会让「品牌：…」「包装：…」粘在一起被 RFQ 抽取误读）；
+ * 行内空白压成一个空格，连续空行最多保留一行。收据指纹按压成一行的形式计算（computePayloadHash），与旧数据一致。
+ */
+function messageStr(v: unknown, max: number): string {
+  if (typeof v !== "string") return "";
+  return v
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[^\S\n]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, max);
+}
+
 /** 纯函数：清洗+校验网站表单载荷（JSON 或 form 字段均为字符串） */
 export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult {
   const honeypotTripped = Boolean(str(raw._hp, 50) || str(raw.website_url, 50));
@@ -275,7 +291,7 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
       phone,
       company,
       country: str(raw.country, LIMITS.country),
-      message: str(raw.message ?? raw.inquiry ?? raw.content, LIMITS.message),
+      message: messageStr(raw.message ?? raw.inquiry ?? raw.content, LIMITS.message),
       product: str(raw.product ?? raw.interest, LIMITS.product),
       website: str(raw.website ?? raw.buyerWebsite, LIMITS.website),
       page: str(raw.page ?? raw.landingPage, LIMITS.page),

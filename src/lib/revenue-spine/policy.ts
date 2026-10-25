@@ -73,6 +73,11 @@ export interface CommercialFacts {
   gradeCCatalogOnly: boolean;
   /** 目录链接（gradeCCatalogOnly 时写进草稿；为空则写"目录随后发送"） */
   catalogUrl: string | null;
+  /**
+   * 给海外买家看的英文公司名（如 "Mengxin Home Textile"）。英文草稿的主题、正文、落款用它；
+   * 为空时用组织名。组织名常是中文，直接写进英文邮件会让买家困惑。
+   */
+  buyerFacingName: string | null;
 }
 
 export const EMPTY_COMMERCIAL_FACTS: CommercialFacts = {
@@ -85,6 +90,7 @@ export const EMPTY_COMMERCIAL_FACTS: CommercialFacts = {
   referencePrograms: [],
   gradeCCatalogOnly: false,
   catalogUrl: null,
+  buyerFacingName: null,
 };
 
 export interface SalesSlaPolicy {
@@ -494,6 +500,7 @@ export function mergeCommercialFacts(base: CommercialFacts, override: unknown): 
       .slice(0, 20);
   }
   if ("gradeCCatalogOnly" in o) out.gradeCCatalogOnly = o.gradeCCatalogOnly === true;
+  if ("buyerFacingName" in o) out.buyerFacingName = strOrNull(o.buyerFacingName, 120);
   if ("catalogUrl" in o) {
     const u = strOrNull(o.catalogUrl, 300);
     out.catalogUrl = u && /^https:\/\//.test(u) ? u : null;

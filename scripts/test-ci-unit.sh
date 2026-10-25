@@ -256,6 +256,7 @@ npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
 npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
+npx tsx src/lib/trade/__tests__/message-normalize.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
 # 老板今日询盘 / 早报 / 新草稿提醒；微信回数字不批询盘回复；微信绑定只改本人（DB e2e 无隔离库自动跳过）
 npx tsx src/lib/revenue-spine/__tests__/owner-today.test.ts
