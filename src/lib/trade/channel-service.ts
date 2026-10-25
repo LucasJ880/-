@@ -9,8 +9,17 @@
  * 4. 消息记录
  */
 
-import { randomBytes } from "node:crypto";
+import type { Prisma, TradeChannel } from "@prisma/client";
 import { db } from "@/lib/db";
+import {
+  SECRET_ROTATION_GRACE_MS,
+  ensureWebsiteCredentialConfig,
+  maskChannelConfig,
+  maskCredential,
+  readWebsiteCredentials,
+  rotatePublicKeyConfig,
+  rotateSecretConfig,
+} from "./website-channel-credentials";
 
 // ── Channel Config ──────────────────────────────────────────
 
@@ -39,25 +48,54 @@ export async function upsertChannel(input: ChannelConfig) {
 }
 
 /**
- * 网站询盘通道：密钥由服务端生成；重复保存沿用旧密钥，避免已嵌入网页的代码失效。
- * 外贸渠道页与平台入驻向导共用这一条创建路径。
+ * 网站询盘通道：凭证（服务端密钥、嵌入表单公开 key、IP 盐）全部由服务端生成；
+ * 重复保存沿用已有凭证与来源白名单，避免已部署的代码失效。外贸渠道页与平台入驻向导共用这一条创建路径。
+ * 调用方提交的 config 不写入（website 通道没有可由调用方填写的字段，凭证更不能由调用方指定）。
  */
 export async function upsertWebsiteChannel(input: {
   orgId: string;
   name: string;
-  config?: Record<string, string>;
+  config?: Record<string, unknown>;
 }) {
   const existing = await getChannel(input.orgId, "website");
-  const prevSecret = (existing?.config as Record<string, string> | null)?.secret;
-  return upsertChannel({
-    orgId: input.orgId,
-    channel: "website",
-    name: input.name,
-    config: {
-      ...(input.config ?? {}),
-      secret: prevSecret || randomBytes(18).toString("base64url"),
-    },
+  const config = ensureWebsiteCredentialConfig(existing?.config) as Prisma.InputJsonValue;
+  return db.tradeChannel.upsert({
+    where: { orgId_channel: { orgId: input.orgId, channel: "website" } },
+    create: { orgId: input.orgId, channel: "website", name: input.name, config },
+    update: { name: input.name, config, status: "active" },
   });
+}
+
+/** 通道对外视图：凭证只显示末 4 位（所有通道），服务端专用字段不出现 */
+export function toChannelView(ch: TradeChannel) {
+  return {
+    id: ch.id,
+    orgId: ch.orgId,
+    channel: ch.channel,
+    name: ch.name,
+    status: ch.status,
+    config: maskChannelConfig(ch.config),
+    webhookSecret: ch.webhookSecret ? maskCredential(ch.webhookSecret) : null,
+    lastSyncAt: ch.lastSyncAt,
+    createdAt: ch.createdAt,
+    updatedAt: ch.updatedAt,
+  };
+}
+
+/**
+ * website 通道的完整凭证视图——只给能管理通道的角色（见 channel-access.ts）。
+ * 旧密钥本身不返回，只返回宽限期到期时间（仍有效时）。
+ */
+export function websiteCredentialView(config: unknown, now: Date = new Date()) {
+  const c = readWebsiteCredentials(config);
+  const prevExp = c.secretPrev && c.secretPrevExpiresAt ? Date.parse(c.secretPrevExpiresAt) : NaN;
+  return {
+    secret: c.secret,
+    secretPrevExpiresAt: Number.isFinite(prevExp) && prevExp > now.getTime() ? c.secretPrevExpiresAt : null,
+    publicKey: c.publicKey,
+    allowedOrigins: c.allowedOrigins,
+    embedReady: !!c.publicKey && c.allowedOrigins.length > 0,
+  };
 }
 
 export async function listChannels(orgId: string) {
@@ -65,10 +103,68 @@ export async function listChannels(orgId: string) {
     where: { orgId },
     orderBy: { createdAt: "desc" },
   });
-  return channels.map((ch) => ({
-    ...ch,
-    config: maskConfig(ch.config as Record<string, string>),
-  }));
+  return channels.map(toChannelView);
+}
+
+/** 单个通道：所有角色拿到掩码视图；website 通道且 canManage 时附带完整凭证 */
+export async function getChannelView(orgId: string, channel: string, opts: { canManage: boolean; now?: Date }) {
+  const ch = await getChannel(orgId, channel);
+  if (!ch) return null;
+  return {
+    ...toChannelView(ch),
+    canManage: opts.canManage,
+    ...(ch.channel === "website" && opts.canManage ? { website: websiteCredentialView(ch.config, opts.now) } : {}),
+  };
+}
+
+export class WebsiteChannelError extends Error {
+  constructor(
+    public code: "NOT_FOUND" | "CONCURRENT_UPDATE",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * 改 website 通道 config（读 → 变换 → 按 updatedAt 比较并交换，冲突重读重试）。
+ * 两个管理员同时轮换 / 改白名单时不会互相覆盖。
+ */
+async function mutateWebsiteChannelConfig(
+  orgId: string,
+  mutate: (config: unknown) => Record<string, unknown>,
+): Promise<TradeChannel> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ch = await getChannel(orgId, "website");
+    if (!ch) throw new WebsiteChannelError("NOT_FOUND", "网站询盘通道不存在，请先添加");
+    const next = mutate(ch.config) as Prisma.InputJsonValue;
+    const res = await db.tradeChannel.updateMany({
+      where: { id: ch.id, orgId, updatedAt: ch.updatedAt },
+      data: { config: next },
+    });
+    if (res.count === 1) return db.tradeChannel.findUniqueOrThrow({ where: { id: ch.id } });
+  }
+  throw new WebsiteChannelError("CONCURRENT_UPDATE", "通道配置正被同时修改，请刷新后重试");
+}
+
+/** 轮换服务端密钥：新密钥立即生效；旧密钥在宽限期（默认 72 小时）内仍被 webhook / 状态接口接受 */
+export function rotateWebsiteChannelSecret(orgId: string, now: Date = new Date(), graceMs: number = SECRET_ROTATION_GRACE_MS) {
+  return mutateWebsiteChannelConfig(orgId, (c) => rotateSecretConfig(c, now, graceMs));
+}
+
+/** 启用嵌入表单：补齐公开 key（已有则不变） */
+export function enableWebsiteChannelEmbed(orgId: string) {
+  return mutateWebsiteChannelConfig(orgId, (c) => ensureWebsiteCredentialConfig(c));
+}
+
+/** 轮换嵌入表单公开 key：立即生效 */
+export function rotateWebsiteChannelPublicKey(orgId: string, now: Date = new Date()) {
+  return mutateWebsiteChannelConfig(orgId, (c) => rotatePublicKeyConfig(c, now));
+}
+
+/** 设置嵌入表单来源白名单（调用方已规范化：精确 scheme + host[:port]） */
+export function setWebsiteChannelAllowedOrigins(orgId: string, origins: string[]) {
+  return mutateWebsiteChannelConfig(orgId, (c) => ({ ...ensureWebsiteCredentialConfig(c), allowedOrigins: [...origins] }));
 }
 
 export async function getChannel(orgId: string, channel: string) {
@@ -81,18 +177,6 @@ export async function deleteChannel(orgId: string, channel: string) {
   return db.tradeChannel.delete({
     where: { orgId_channel: { orgId, channel } },
   });
-}
-
-function maskConfig(config: Record<string, string>): Record<string, string> {
-  const masked: Record<string, string> = {};
-  for (const [key, val] of Object.entries(config)) {
-    if (typeof val === "string" && val.length > 8) {
-      masked[key] = val.slice(0, 4) + "****" + val.slice(-4);
-    } else {
-      masked[key] = "****";
-    }
-  }
-  return masked;
 }
 
 // ── Unified Send ────────────────────────────────────────────

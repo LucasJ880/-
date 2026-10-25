@@ -56,6 +56,8 @@ export interface InquiryIntakeInput {
   meta?: {
     page?: string | null;
     referrer?: string | null;
+    /** 首次访问落地页（嵌入表单等前端采集；归因字段） */
+    landing?: string | null;
     utm?: Record<string, string> | null;
     channel?: string | null;
     /** 展会名称（可含展位）；trade_show 来源时写入互动，回复草稿开头引用 */
@@ -289,6 +291,7 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     extra: {
       page: input.meta?.page ?? null,
       referrer: input.meta?.referrer ?? null,
+      ...(input.meta?.landing ? { landing: input.meta.landing } : {}),
       utm: input.meta?.utm ?? null,
       sourceRef: input.sourceRef ?? null,
       ...(input.meta?.event ? { event: input.meta.event } : {}),

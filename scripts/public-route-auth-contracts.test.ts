@@ -67,9 +67,17 @@ async function main() {
     "/api/visualizer/share",
     "/api/health",
     "/api/trade/cron",
+    "/embed",
   ]) {
     ok(publicPaths.includes(p), `PUBLIC_PATHS includes ${p}`);
   }
+  // /embed 只放行静态嵌入脚本：不得有任何页面 / 接口挂在 /embed 下（否则会绕过登录）
+  ok(
+    existsSync(join(root, "public/embed/inquiry.js")) &&
+      !existsSync(join(root, "src/app/embed")) &&
+      !readdirSync(join(root, "src/app")).some((d) => d.startsWith("(") && existsSync(join(root, "src/app", d, "embed"))),
+    "/embed 下只有 public/embed 静态文件，没有 app 路由",
+  );
   ok(
     /function isPublicPath[\s\S]*PUBLIC_PATHS\.some/.test(mw),
     "isPublicPath uses PUBLIC_PATHS prefix match",
@@ -352,6 +360,23 @@ async function main() {
         else process.env[key] = value;
       }
     }
+  }
+
+  console.log("\n嵌入表单提交 /api/trade/webhook/website/embed — 公开 key + Origin 白名单 + 限流，响应最小化");
+  {
+    const embed = read("src/app/api/trade/webhook/website/embed/route.ts");
+    ok(/resolveWebsiteChannelByPublicKey\(key\)/.test(embed) && /status:\s*401|, 401, null\)/.test(embed), "embed: 按公开 key 定位通道，失败 401");
+    ok(/originAllowed\(origin, channel\.allowedOrigins\)/.test(embed) && /, 403, null\)/.test(embed), "embed: Origin 精确匹配白名单，失败 403 且不回显 CORS");
+    ok(/decideEmbedRateLimit\(/.test(embed) && /countEmbedSubmissions\(/.test(embed) && /, 429,/.test(embed), "embed: 数据库计数限流 → 429");
+    ok(/ok: true, receiptId: result\.receiptId \}/.test(embed) && !/prospectId|opportunityId|duplicate|websiteWebhookBody/.test(embed), "embed: 成功响应只有 { ok, receiptId }");
+    ok(/fdeMode: "deferred"/.test(embed) && /kind: "embed"/.test(embed), "embed: 走异步入站（deferred），来源 embed");
+    ok(!/searchParams\.get\(["'](?:secret|key)/.test(embed), "embed: 不从 query 读凭证");
+  }
+
+  console.log("\n动态：middleware 对 /embed/inquiry.js 不要求网页 Session");
+  {
+    const res = await middleware(new NextRequest("http://localhost/embed/inquiry.js"));
+    ok(res.status !== 401 && res.status !== 307 && !res.headers.get("location"), "middleware 放行 /embed/inquiry.js（不重定向登录）");
   }
 
   console.log("\n动态：middleware 对 /api/trade/cron 不要求网页 Session");
