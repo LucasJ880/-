@@ -438,6 +438,24 @@ run_test "Tender T3 企业记忆 schema 契约" "npx tsx --test src/lib/corporat
 run_test "Tender T3 企业记忆纯逻辑（归一/排序/校验）" "npx tsx --test src/lib/corporate-memory/__tests__/t3-pure.test.ts"
 run_test "Tender T3 企业记忆 DB 集成（Buyer/Claim/证据/隔离/检索）" "npx tsx src/lib/corporate-memory/__tests__/t3-integration.test.ts"
 
+# SDD-0 / P0-9：补注册 muse-bridge（Phase 0 + P1-8）与 tender-rfq（P1-1…P1-7）共 13 个测试——此前从未进入 npm test
+run_test "Muse 桥接 纯逻辑（契约/绑定/路由/事件/脱敏）" "npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts"
+run_test "Muse 桥接 建议式回复契约（结论→理由→下一步）" "npx tsx src/lib/muse-bridge/__tests__/advisory.test.ts"
+run_test "Muse 桥接 next_step 确定性查表" "npx tsx src/lib/muse-bridge/__tests__/next-step.test.ts"
+run_test "Muse 桥接 个人偏好记忆（零 schema）" "npx tsx src/lib/muse-bridge/__tests__/prefs.test.ts"
+run_test "招标询价 RFQ 结构化生成器" "npx tsx src/lib/tender-rfq/__tests__/build.test.ts"
+run_test "招标询价 轮次锁/发件人解析（mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/round-pure.test.ts"
+run_test "招标询价 入站解析（证据闸/附件文本化）" "npx tsx src/lib/tender-rfq/__tests__/inbound-parse.test.ts"
+run_test "招标询价 入站写入规则（只填空/幂等/缺字段）" "npx tsx src/lib/tender-rfq/__tests__/inbound-apply.test.ts"
+run_test "招标询价 落地价归一化（币种/Incoterm/四项检查）" "npx tsx src/lib/tender-rfq/__tests__/landed-cost.test.ts"
+run_test "招标询价 比价矩阵+Muse 脱敏投影" "npx tsx src/lib/tender-rfq/__tests__/compare.test.ts"
+run_test "招标询价 [auto] 备注回读" "npx tsx src/lib/tender-rfq/__tests__/notes-parse.test.ts"
+run_test "招标询价 催单/追问决策与模板" "npx tsx src/lib/tender-rfq/__tests__/chase-pure.test.ts"
+run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts"
+
+# 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
+run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
+
 # ── 第二组：TypeScript 编译检查 ──
 
 echo "━━━ TypeScript 编译检查 ━━━"
