@@ -1,9 +1,12 @@
 /**
  * GET /api/cron/revenue-spine — Revenue Spine 定时任务（每 15 分钟）
- *   1. 补跑排队/失败的 Inbound FDE（inputContext.fdeStatus = queued）
- *   2. 重算所有开放商机的 Next Action；到期的生成/刷新 SalesAction 跟进行动 + 通知
- *   3. 长期无动作商机标记进入 stale 队列（不自动流转，只提示）
- *   4. 首封回复后买家没回信：第 3 / 7 / 14 天起草跟进邮件进审批（不发送）
+ *   1. 重算所有开放商机的 Next Action；到期的生成/刷新 SalesAction 跟进行动 + 通知
+ *   2. 长期无动作商机标记进入 stale 队列（不自动流转，只提示）
+ *   3. 首封回复后买家没回信：第 3 / 7 / 14 天起草跟进邮件进审批（不发送）
+ *   4. 兜底执行来信 FDE：queued / run_blocked / failed / 认领过期的 running（failed 与过期 running 有次数上限），
+ *      全部经 runQueuedInboundFde 原子认领（与 webhook 的 after() 回调、站点重发互斥），
+ *      按组织轮转、按墙钟截止（不再按组织固定条数）。放在最后：前几步只有 DB 往返、耗时有界，
+ *      FDE 每个约 90 s，用剩余预算跑。
  */
 import { NextRequest, NextResponse } from "next/server";
 import { runTrackedAutomation } from "@/lib/automation/runner";
@@ -11,43 +14,37 @@ import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
-import { runInboundSalesFde } from "@/lib/revenue-spine/fde/inbound-sales";
+import { drainInboundFdeQueue } from "@/lib/revenue-spine/fde/inbound-queue";
 import { draftNoReplyFollowUps } from "@/lib/revenue-spine/fde/no-reply-followup";
 import { NEXT_ACTION_LABELS, applyNextAction, type NextActionType } from "@/lib/revenue-spine/next-action";
 import { OPEN_STAGES } from "@/lib/revenue-spine/opportunity-stage";
-import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
+import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "@/lib/revenue-spine/policy";
+import { settleReceiptsForSalesAction } from "@/lib/trade/website-inquiry";
 
 export const maxDuration = 300;
 
-const MAX_FDE_PER_ORG = 5;
+/**
+ * 从本次 cron 开始超过此时长就不再启动新的 FDE（已启动的跑完）。单个 FDE ≈ 90 s
+ * （RFQ 抽取 LLM ≤25 s + 草稿润色 LLM ≤20 s + DB），200 s 时起跑的最后一个仍在 maxDuration 300 s 内结束。
+ */
+const FDE_START_DEADLINE_MS = 200_000;
 
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request);
   if (denied) return denied;
 
   const data = await runTrackedAutomation("revenue-spine-sync", async () => {
+    const startedAt = Date.now();
     const now = new Date();
     const orgRows = await db.salesOpportunity.groupBy({ by: ["orgId"], where: { stage: { in: [...OPEN_STAGES] } } });
     const results: Array<Record<string, unknown>> = [];
+    const policies = new Map<string, RevenueSpinePolicy>();
     let failedCount = 0;
     for (const { orgId } of orgRows) {
       try {
         const policy = await loadRevenueSpinePolicy(orgId);
-        // 1. 补跑排队的 FDE
-        const queued = await db.salesAction.findMany({
-          where: { orgId, employeeKey: "inbound_sales_fde", status: { in: ["open", "in_progress"] }, agentRunId: null, opportunityId: { not: null } },
-          orderBy: { createdAt: "asc" },
-          take: MAX_FDE_PER_ORG,
-          select: { id: true, opportunityId: true },
-        });
-        let fdeRan = 0;
-        for (const a of queued) {
-          if (!a.opportunityId) continue;
-          const r = await runInboundSalesFde({ orgId, opportunityId: a.opportunityId, salesActionId: a.id, trigger: "cron", policy });
-          if (r.ok) fdeRan += 1;
-          if (r.errorCode === "QUOTA") break;
-        }
-        // 2. Next action 重算 + 到期行动
+        policies.set(orgId, policy);
+        // 1. Next action 重算 + 到期行动
         const open = await db.salesOpportunity.findMany({
           where: { orgId, stage: { in: [...OPEN_STAGES] }, customer: { archivedAt: null } },
           select: { id: true, customerId: true, title: true, assignedToId: true, createdById: true },
@@ -90,16 +87,33 @@ export async function GET(request: NextRequest) {
             }).catch(() => undefined);
           }
         }
-        // 4. 无回复跟进草稿
+        // 3. 无回复跟进草稿
         const followUps = await draftNoReplyFollowUps(orgId, { policy, now });
-        results.push({ orgId, fdeQueued: queued.length, fdeRan, openOpportunities: open.length, dueActions, followUpDrafts: followUps.drafted });
+        results.push({ orgId, openOpportunities: open.length, dueActions, followUpDrafts: followUps.drafted });
       } catch (error) {
         failedCount += 1;
         results.push({ orgId, error: error instanceof Error ? error.message : String(error) });
       }
     }
+    // 4. 来信 FDE 兜底（每个组织的查询与认领都按 orgId 限定；上面失败的组织照样处理）
+    const drained = await drainInboundFdeQueue({
+      orgIds: orgRows.map((r) => r.orgId),
+      deadlineAt: startedAt + FDE_START_DEADLINE_MS,
+      now,
+      policies,
+      afterRun: async (orgId, salesActionId) => {
+        await settleReceiptsForSalesAction(orgId, salesActionId);
+      },
+    });
+    for (const d of drained.results) {
+      const row = results.find((r) => r.orgId === d.orgId);
+      const fdeFields = { fdeQueued: d.fdeQueued, fdeRan: d.fdeRan, fdeSucceeded: d.fdeSucceeded, fdeSkipped: d.fdeSkipped, ...(d.quotaBlocked ? { fdeQuotaBlocked: true } : {}), ...(d.error ? { fdeError: d.error } : {}) };
+      if (row) Object.assign(row, fdeFields);
+      // 组织级失败只计一次（next action 已失败的组织不重复计）
+      if (d.error && !row?.error) failedCount += 1;
+    }
     return {
-      data: { organizations: results.length, failedCount, results },
+      data: { organizations: results.length, failedCount, fdeDeadlineReached: drained.deadlineReached, results },
       status: failedCount > 0 ? "partial" : "succeeded",
       processedCount: results.length,
       succeededCount: results.length - failedCount,

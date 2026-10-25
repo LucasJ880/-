@@ -920,16 +920,29 @@ async function main() {
       return { status: res.status, body: (await res.json()) as WebhookBody };
     };
     const W = { eventId: evt("w"), name: "Wendy Webhook", email: "wendy@webhook-suites.ca", company: "Webhook Suites", country: "Canada", message: "Need 900 bath towels 70x140cm for a resort in Kelowna. MOQ and price please." };
-    const h1w = await hitWebhook(W);
+    // 异步入站：webhook 请求内不跑 FDE，交给 after()；测试注入调度器，确定性地执行回调
+    const { __setDefaultFdeSchedulerForTest } = await import("@/lib/trade/website-inquiry");
+    const deferredTasks: Array<() => Promise<void>> = [];
+    __setDefaultFdeSchedulerForTest((task) => {
+      deferredTasks.push(task);
+    });
+    let h1w: Awaited<ReturnType<typeof hitWebhook>>;
+    let h2w: Awaited<ReturnType<typeof hitWebhook>>;
+    try {
+      h1w = await hitWebhook(W);
+      ok(
+        h1w.status === 200 && h1w.body.ok === true && h1w.body.eventId === W.eventId && !!h1w.body.receiptId && !!h1w.body.opportunityId && h1w.body.spine === "ok" && h1w.body.complete === false && h1w.body.fde?.status === "queued" && h1w.body.fde?.terminal === false && deferredTasks.length === 1,
+        "I：webhook 首发响应含事件身份 + 主干；FDE 已排队（queued、非终态、未完成），请求内未执行",
+        h1w.body,
+      );
+      while (deferredTasks.length) await deferredTasks.shift()!();
+      h2w = await hitWebhook(W);
+    } finally {
+      __setDefaultFdeSchedulerForTest(null);
+    }
     ok(
-      h1w.status === 200 && h1w.body.ok === true && h1w.body.eventId === W.eventId && !!h1w.body.receiptId && !!h1w.body.opportunityId && h1w.body.spine === "ok" && h1w.body.complete === true && h1w.body.fde?.terminal === true && !!h1w.body.fde?.pendingActionId,
-      "I：webhook 首发响应含事件身份 + 真实 FDE 终态 + complete",
-      h1w.body,
-    );
-    const h2w = await hitWebhook(W);
-    ok(
-      h2w.body.replay === true && h2w.body.recovered === false && h2w.body.messageId === h1w.body.messageId && h2w.body.opportunityId === h1w.body.opportunityId && h2w.body.fde?.pendingActionId === h1w.body.fde?.pendingActionId,
-      "I：webhook 重放返回真实下游 ID 与 FDE 状态",
+      h2w.body.replay === true && h2w.body.recovered === false && h2w.body.messageId === h1w.body.messageId && h2w.body.opportunityId === h1w.body.opportunityId && h2w.body.complete === true && h2w.body.fde?.terminal === true && !!h2w.body.fde?.pendingActionId,
+      "I：after() 回调跑完 FDE 后，webhook 重放返回真实下游 ID、FDE 终态与 complete",
       h2w.body,
     );
     const cW = await wCounts(W.email);
