@@ -151,36 +151,6 @@ function buildCreateData(input: CreateDraftInput) {
   };
 }
 
-/** 按稳定幂等键查找已有草稿（含已执行，防止重试重复写） */
-export async function findDraftByIdempotencyKey(input: {
-  orgId: string;
-  idempotencyKey: string;
-}): Promise<CreatedDraftAction | null> {
-  const action = await db.pendingAction.findFirst({
-    where: {
-      orgId: input.orgId,
-      idempotencyKey: input.idempotencyKey,
-    },
-    select: {
-      id: true,
-      type: true,
-      title: true,
-      preview: true,
-      agentRunId: true,
-      payloadHash: true,
-    },
-  });
-  if (!action) return null;
-  return {
-    actionId: action.id,
-    type: action.type,
-    title: action.title,
-    preview: action.preview,
-    payloadHash: action.payloadHash ?? "",
-    agentRunId: action.agentRunId,
-  };
-}
-
 async function defaultCreateAllInTransaction(
   inputs: CreateDraftInput[],
 ): Promise<CreatedDraftAction[]> {
