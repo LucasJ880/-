@@ -29,7 +29,15 @@ export const MAX_PREVIOUS_SECRETS = 3;
 export const MAX_ALLOWED_ORIGINS = 20;
 
 /** 接口里可以原样返回的非凭证字段；其余字符串一律只显示末 4 位 */
-const NON_SECRET_CONFIG_KEYS = new Set(["allowedOrigins", "secretPrevExpiresAt", "secretRotatedAt", "secretGraceEndedAt", "publicKeyRotatedAt"]);
+const NON_SECRET_CONFIG_KEYS = new Set([
+  "allowedOrigins",
+  "secretPrevExpiresAt",
+  "secretRotatedAt",
+  "secretGraceEndedAt",
+  "publicKeyRotatedAt",
+  // 邮件转发通道：转发人白名单不是凭证（别名 inboundAlias 仍按凭证掩码，完整地址只经 GET /api/trade/channels/email 给出）
+  "forwarderAllowlist",
+]);
 /** 永远不出服务端的字段 */
 const SERVER_ONLY_CONFIG_KEYS = new Set(["ipSalt"]);
 

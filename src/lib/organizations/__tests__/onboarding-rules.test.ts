@@ -370,7 +370,7 @@ ok("全部必做完成 → 就绪；发件身份只是推荐项", () => {
   assert.equal(d.ready, true);
   assert.equal(d.totalRequired, 6);
   assert.equal(d.doneRequired, 6);
-  assert.deepEqual(d.steps.map((s) => s.key), ["pack", "categories", "website_channel", "members", "wechat", "test_inquiry", "email_sender", "handoff"]);
+  assert.deepEqual(d.steps.map((s) => s.key), ["pack", "categories", "website_channel", "email_inbound", "members", "wechat", "test_inquiry", "email_sender", "handoff"]);
   const sender = d.steps.find((s) => s.key === "email_sender")!;
   assert.equal(sender.required, false);
   assert.equal(sender.status, "warning");
@@ -408,6 +408,32 @@ ok("每一步的缺口都会让就绪为 false", () => {
     assert.ok(["todo", "warning"].includes(d.steps.find((s) => s.key === key)!.status), name);
   }
   assert.equal(deriveOnboardingSteps({ ...READY, blockingIssues: 1 }).ready, false, "企业级 CRITICAL 配置问题阻塞就绪");
+});
+
+ok("邮件转发入口是推荐项：平台未开通 → 跳过；未建 / 白名单空 / 停用 / 平台未配发件验证 → 提示；都不阻塞就绪", () => {
+  const step = (f: Partial<OnboardingFacts>) => deriveOnboardingSteps({ ...READY, ...f }).steps.find((s) => s.key === "email_inbound")!;
+  const base = { platformEnabled: true, exists: true, active: true, aliasSet: true, allowlistCount: 2 };
+  assert.equal(step({}).status, "skipped", "缺省（旧调用方）视为平台未开通");
+  assert.equal(step({ emailInbound: { ...base, platformEnabled: false } }).status, "skipped");
+  const done = step({ emailInbound: base });
+  assert.equal(done.status, "done");
+  assert.equal(done.required, false);
+  assert.match(done.detail, /白名单 2 个/);
+  assert.equal(step({ emailInbound: { ...base, exists: false, active: false, aliasSet: false, allowlistCount: 0 } }).status, "todo");
+  assert.equal(step({ emailInbound: { ...base, allowlistCount: 0 } }).status, "warning");
+  assert.match(step({ emailInbound: { ...base, allowlistCount: 0 } }).detail, /隔离/);
+  assert.equal(step({ emailInbound: { ...base, active: false } }).status, "warning");
+  // 平台没配受信 authserv-id：转发都会被隔离（DKIM / DMARC 判定失败即关闭）→ 提示；未传该字段（旧调用方）不提示
+  const noAuth = step({ emailInbound: { ...base, authVerifyConfigured: false } });
+  assert.equal(noAuth.status, "warning");
+  assert.match(noAuth.detail, /INBOUND_EMAIL_AUTHSERV_ID/);
+  assert.equal(step({ emailInbound: { ...base, authVerifyConfigured: true } }).status, "done");
+  assert.equal(step({ emailInbound: { ...base, exists: false, active: false, aliasSet: false, allowlistCount: 0, authVerifyConfigured: false } }).status, "todo");
+  for (const e of [{ ...base, exists: false }, { ...base, allowlistCount: 0 }, { ...base, platformEnabled: false }, { ...base, authVerifyConfigured: false }]) {
+    const d = deriveOnboardingSteps({ ...READY, emailInbound: e });
+    assert.equal(d.ready, true);
+    assert.equal(d.totalRequired, 6);
+  }
 });
 
 ok("管理员确认可跳过微信 / 发件身份；无品类目录的行业包跳过品类步骤", () => {

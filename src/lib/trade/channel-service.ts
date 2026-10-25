@@ -9,6 +9,7 @@
  * 4. 消息记录
  */
 
+import { randomBytes } from "crypto";
 import { Prisma, type TradeChannel } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
@@ -24,6 +25,7 @@ import {
   rotatePublicKeyConfig,
   rotateSecretConfig,
 } from "./website-channel-credentials";
+import { INBOUND_ALIAS_RE, formatInboundAlias } from "./email-inbound-rules";
 
 // ── Channel Config ──────────────────────────────────────────
 
@@ -114,6 +116,32 @@ export function websiteCredentialView(config: unknown, now: Date = new Date()) {
     allowedOrigins: c.allowedOrigins,
     embedReady: !!c.publicKey && c.allowedOrigins.length > 0,
   };
+}
+
+/**
+ * 邮件转发询盘通道：别名（inq- + 10 位随机 base32，与组织 code 无关）由服务端生成且一经生成不变；
+ * 调用方只能改显示名与转发白名单（已归一的小写地址），不能指定别名。
+ */
+export async function upsertEmailChannel(input: { orgId: string; name: string; forwarderAllowlist: string[] }) {
+  const existing = await getChannel(input.orgId, "email");
+  const prevAlias = (existing?.config as Record<string, unknown> | null)?.inboundAlias;
+  const inboundAlias = typeof prevAlias === "string" && INBOUND_ALIAS_RE.test(prevAlias) ? prevAlias : await allocateInboundAlias();
+  const config = { inboundAlias, forwarderAllowlist: input.forwarderAllowlist };
+  return db.tradeChannel.upsert({
+    where: { orgId_channel: { orgId: input.orgId, channel: "email" } },
+    create: { orgId: input.orgId, channel: "email", name: input.name, config },
+    update: { name: input.name, config, status: "active" },
+  });
+}
+
+/** 分配全局未占用的别名（跨组织只比较别名本身，不读取其他组织的任何配置） */
+async function allocateInboundAlias(): Promise<string> {
+  for (let i = 0; i < 5; i++) {
+    const alias = formatInboundAlias(randomBytes(10));
+    const taken = await db.tradeChannel.count({ where: { channel: "email", config: { path: ["inboundAlias"], equals: alias } } });
+    if (taken === 0) return alias;
+  }
+  throw new Error("无法分配询盘邮箱别名，请重试");
 }
 
 export async function listChannels(orgId: string) {

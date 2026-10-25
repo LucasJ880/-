@@ -32,6 +32,7 @@ import { TERMINAL_STAGES } from "@/lib/revenue-spine/opportunity-stage";
 import { RULE_KEY_BUSINESS_PROFILE, publishRevenueSpineRule } from "@/lib/revenue-spine/policy";
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
 import { upsertWebsiteChannel } from "@/lib/trade/channel-service";
+import { INBOUND_ALIAS_RE, inboundAddressFor, normalizeInboundDomain, readForwarderAllowlist } from "@/lib/trade/email-inbound-rules";
 import { loadOrgEmailSender } from "@/lib/trade/email-sender";
 import { factoryOwnerRoleProblem,
   ACKNOWLEDGEABLE_STEPS,
@@ -560,6 +561,8 @@ export interface OnboardingStatus {
   catalog: ProductCategoryCatalogEntry[];
   categories: { published: boolean; version: number | null; make: string[]; dontMake: string[]; excludedCategoryAction: string | null };
   websiteChannel: { exists: boolean; id: string | null; name: string | null; status: string | null; secretPreview: string | null; updatedAt: Date | null };
+  /** 邮件转发入口：address 仅在平台配置了收信域名且别名有效时生成 */
+  emailInbound: { platformEnabled: boolean; exists: boolean; status: string | null; address: string | null; allowlistCount: number };
   members: Array<{
     userId: string;
     name: string;
@@ -662,7 +665,7 @@ export async function getOnboardingStatus(
   const timezone = typeof settings.timezone === "string" ? settings.timezone : null;
   const modules = parseOrgModulesJson(org.modulesJson);
 
-  const [profile, channel, memberRows, inviteRows, receipts, sender, configHealth] = await Promise.all([
+  const [profile, channel, memberRows, inviteRows, receipts, sender, configHealth, emailChannel] = await Promise.all([
     loadActiveBusinessProfile(orgId),
     db.tradeChannel.findUnique({
       where: { orgId_channel: { orgId, channel: "website" } },
@@ -687,7 +690,14 @@ export async function getOnboardingStatus(
     }),
     loadOrgEmailSender(orgId),
     opts?.configHealth ? loadConfigHealth(orgId, opts.actorUserId ?? org.owner.id) : Promise.resolve(null),
+    db.tradeChannel.findUnique({
+      where: { orgId_channel: { orgId, channel: "email" } },
+      select: { status: true, config: true },
+    }),
   ]);
+  const inboundDomain = normalizeInboundDomain(process.env.INBOUND_EMAIL_DOMAIN);
+  const emailAlias = rec(emailChannel?.config)?.inboundAlias;
+  const emailAllowlist = readForwarderAllowlist(emailChannel?.config);
 
   const activeMembers = memberRows.filter((m) => m.user.status === "active");
   const bindings = activeMembers.length
@@ -777,6 +787,14 @@ export async function getOnboardingStatus(
     timezone,
     categories: { published: !!profile && Array.isArray(profileCfg.productCategories), make, dontMake },
     websiteChannel: { exists: !!channel, active: channel?.status === "active", secretSet: !!channelSecret },
+    emailInbound: {
+      platformEnabled: !!inboundDomain,
+      exists: !!emailChannel,
+      active: emailChannel?.status === "active",
+      aliasSet: typeof emailAlias === "string" && INBOUND_ALIAS_RE.test(emailAlias),
+      allowlistCount: emailAllowlist.length,
+      authVerifyConfigured: !!process.env.INBOUND_EMAIL_AUTHSERV_ID?.trim(),
+    },
     members: members.map((m) => ({ isSalesRole: m.isSalesRole, wechatBound: m.wechatBound })),
     pendingInvites: invites.filter((i) => i.state === "unused").length,
     testInquiry: {
@@ -825,6 +843,13 @@ export async function getOnboardingStatus(
       status: channel?.status ?? null,
       secretPreview: maskSecret(channelSecret),
       updatedAt: channel?.updatedAt ?? null,
+    },
+    emailInbound: {
+      platformEnabled: !!inboundDomain,
+      exists: !!emailChannel,
+      status: emailChannel?.status ?? null,
+      address: inboundAddressFor(emailAlias, inboundDomain),
+      allowlistCount: emailAllowlist.length,
     },
     members,
     invites,

@@ -120,6 +120,9 @@ npx tsx src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/embed-intake.test.ts
 npx tsx src/lib/trade/__tests__/embed-intake-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/email-forward-parse.test.ts
+npx tsx src/lib/trade/__tests__/email-inbound.test.ts
+npx tsx src/lib/trade/__tests__/email-inbound-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts

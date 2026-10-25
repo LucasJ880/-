@@ -33,6 +33,7 @@ import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
 import {
   BOOTH_CARD_SOURCE,
   EMBED_INQUIRY_SOURCE,
+  EMAIL_FORWARD_SOURCE,
   RECEIPT_PROCESSING_STALE_MS,
   WEBSITE_INQUIRY_SOURCE,
   claimInquiryReceipt,
@@ -50,13 +51,17 @@ export type { FdeState } from "@/lib/revenue-spine/fde/inbound-queue";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 export const BOOTH_CARD_CAMPAIGN_NAME = "展会速记卡";
+export const EMAIL_FORWARD_CAMPAIGN_NAME = "邮件转发询盘";
 
 /**
- * 线索从哪来：网站表单（默认，站点后端带密钥转发）、青砚托管的嵌入表单（embed，浏览器带公开 key 直接提交），
- * 或展会速记卡（夜间批量录入）。三者走同一条链路，只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
+ * 线索从哪来：网站表单（默认，站点后端带密钥转发）、青砚托管的嵌入表单（embed，浏览器带公开 key 直接提交）、
+ * 展会速记卡（夜间批量录入）或邮件转发（Resend 入站，见 email-inbound.ts）。
+ * 走同一条链路，只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
  */
 export interface IngestOrigin {
-  kind: "website" | "trade_show" | "embed";
+  kind: "website" | "trade_show" | "embed" | "email_forward";
+  /** 原邮件主题（去掉 Fwd:/FW: 前缀）；仅 email_forward，写入主干互动 subject */
+  subject?: string | null;
   /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
   event?: string | null;
   /** 买家在展位看过的参考款（款号 + 参考表里的品类名），草稿逐一点名；仅 trade_show */
@@ -107,6 +112,19 @@ const ORIGINS = {
     interactionChannel: "trade_show",
     // 录入人就是操作者，一晚几十张不逐条通知
     notify: false,
+  },
+  email_forward: {
+    campaign: EMAIL_FORWARD_CAMPAIGN_NAME,
+    campaignDesc: "转发到询盘邮箱的询盘邮件自动归集的线索",
+    receiptSource: EMAIL_FORWARD_SOURCE,
+    prospectSource: "email",
+    messageChannel: "email",
+    label: "邮件转发询盘",
+    pageLabel: "来源页",
+    intakeSource: "email",
+    interactionChannel: "email",
+    // 买家询盘进入系统：与网站询盘一样通知外贸成员
+    notify: true,
   },
 } as const;
 
@@ -388,9 +406,13 @@ function chainComplete(state: ChainState): boolean {
   return Boolean(state.opportunityId && state.salesActionId && state.prospectLinked && state.fde.terminal);
 }
 
-function originOfReceipt(receipt: Pick<WebsiteInquiryReceipt, "source">): IngestOrigin {
+function originOfReceipt(receipt: Pick<WebsiteInquiryReceipt, "source" | "payload">): IngestOrigin {
   if (receipt.source === BOOTH_CARD_SOURCE) return { kind: "trade_show" };
   if (receipt.source === EMBED_INQUIRY_SOURCE) return { kind: "embed" };
+  if (receipt.source === EMAIL_FORWARD_SOURCE) {
+    const meta = ((receipt.payload ?? {}) as { meta?: { subject?: unknown } }).meta;
+    return { kind: "email_forward", subject: typeof meta?.subject === "string" ? meta.subject : null };
+  }
   return { kind: "website" };
 }
 
@@ -438,6 +460,7 @@ function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string,
     contact: { name: v.name, email: v.email, phone: v.phone, company: v.company, country: v.country, website: v.website },
     message: v.message,
     product: v.product,
+    ...(origin.kind === "email_forward" && origin.subject ? { subject: origin.subject } : {}),
     meta: {
       page: v.page,
       ...(v.referrer ? { referrer: v.referrer } : {}),
@@ -560,8 +583,8 @@ export interface IngestOptions {
   fdeMode?: FdeMode;
   /** deferred 模式的调度器，默认 next/server after()（测试可注入以确定性地执行回调） */
   scheduleFde?: FdeScheduler;
-  /** 写进新收据载荷的接收元数据（如嵌入表单的访客 IP HMAC，用于限流计数）；不进业务指纹，也不进业务对象 */
-  receiptMeta?: Record<string, string>;
+  /** 写进新收据载荷的接收元数据（payload.meta）：嵌入表单的访客 IP HMAC（限流计数）、邮件转发的发件人 / 主题 / 解析依据；不进业务指纹，也不进业务对象 */
+  receiptMeta?: Record<string, unknown>;
 }
 
 /**

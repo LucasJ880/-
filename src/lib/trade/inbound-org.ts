@@ -4,6 +4,7 @@
  * 当前 TradeChannel 无独立 providerAccountId 列，沿用各通道 config JSON：
  * - WhatsApp：`config.phoneNumberId` 须与 Meta webhook `metadata.phone_number_id` 一致
  * - 微信：`config.originalId`（或 `toUserName` / `ghId` / `wechatId`）须与入站 XML 的 ToUserName 一致
+ * - 邮件转发：`config.inboundAlias` 须与收件地址 inq-xxxxxxxxxx@<INBOUND_EMAIL_DOMAIN> 的本地部分一致
  *
  * 可选后续迁移（更小优先级）：在 TradeChannel 增加 `inboundKey String?` + `@@index([channel, inboundKey])`
  * 用于 O(1) 查询，避免扫 active 行；当前 MVP 安装规模下 `findMany + 内存比对` 可接受。
@@ -11,6 +12,7 @@
 
 import { db } from "@/lib/db";
 import { logger } from "@/lib/common/logger";
+import { INBOUND_ALIAS_RE, readForwarderAllowlist } from "./email-inbound-rules";
 
 export type TradeInboundProvider = "whatsapp" | "wechat" | "email" | "website_form";
 
@@ -61,6 +63,27 @@ export async function findTradeChannelOrgByWechatToUserName(
 }
 
 /**
+ * 邮件转发询盘：按收件别名（config.inboundAlias，形如 inq-xxxxxxxxxx）解析 org。
+ * 只认 active 的 email 通道；同一别名出现在多条通道上（不应发生）一律拒绝，绝不猜测归属。
+ */
+export async function findTradeChannelOrgByInboundAlias(
+  alias: string,
+): Promise<{ orgId: string; channelId: string; allowlist: string[] } | null> {
+  const a = alias.trim().toLowerCase();
+  if (!INBOUND_ALIAS_RE.test(a)) return null;
+  const rows = await db.tradeChannel.findMany({
+    where: { channel: "email", status: "active", config: { path: ["inboundAlias"], equals: a } },
+    select: { id: true, orgId: true, config: true },
+    take: 2,
+  });
+  if (rows.length !== 1) {
+    if (rows.length > 1) logger.warn("trade.inbound.email_alias_ambiguous", { alias: a, count: rows.length });
+    return null;
+  }
+  return { orgId: rows[0].orgId, channelId: rows[0].id, allowlist: readForwarderAllowlist(rows[0].config) };
+}
+
+/**
  * 统一入口：根据 provider + 账号标识解析 org（禁止信任 payload 内自定义 orgId）
  */
 export async function resolveInboundTradeOrgId(input: {
@@ -68,10 +91,17 @@ export async function resolveInboundTradeOrgId(input: {
   /** WhatsApp: phone_number_id；微信: ToUserName */
   providerAccountId?: string | null;
 }): Promise<ResolveOk | ResolveFail> {
-  if (input.provider === "email" || input.provider === "website_form") {
+  if (input.provider === "website_form") {
     return { ok: false, reason: "provider_not_implemented" };
   }
   const id = input.providerAccountId?.trim() ?? "";
+  if (input.provider === "email") {
+    // 邮件：providerAccountId = 收件别名（inq-xxxxxxxxxx）
+    if (!id) return { ok: false, reason: "missing_inbound_alias" };
+    const row = await findTradeChannelOrgByInboundAlias(id);
+    if (!row) return { ok: false, reason: "channel_not_found" };
+    return { ok: true, orgId: row.orgId, channelId: row.channelId };
+  }
   if (input.provider === "whatsapp") {
     if (!id) return { ok: false, reason: "missing_phone_number_id" };
     const row = await findTradeChannelOrgByWhatsAppPhoneNumberId(id);
@@ -91,7 +121,7 @@ export function logInboundOrgDenial(provider: TradeInboundProvider, reason: stri
   logger.warn("trade.inbound.org_denied", { provider, reason, ...meta });
 }
 
-/** Gmail / 企业邮入站：后续用 connected mailbox 或 channelId 映射 org（占位） */
+/** Gmail / 企业邮直连入站（connected mailbox，占位）；转发到询盘邮箱的邮件见 findTradeChannelOrgByInboundAlias */
 export async function resolveInboundTradeOrgFromEmailStub(): Promise<ResolveFail> {
   return { ok: false, reason: "email_inbound_not_implemented" };
 }

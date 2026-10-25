@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit/logger";
-import { getChannelView, listChannels, toChannelView, upsertChannel, upsertWebsiteChannel } from "@/lib/trade/channel-service";
+import {
+  getChannelView,
+  listChannels,
+  toChannelView,
+  upsertChannel,
+  upsertEmailChannel,
+  upsertWebsiteChannel,
+} from "@/lib/trade/channel-service";
 import { CAN_MANAGE_CHANNELS_HEADER, canManageTradeChannels, channelManageForbiddenResponse } from "@/lib/trade/channel-access";
 import { resolveTradeOrgId } from "@/lib/trade/access";
+import { normalizeForwarderAllowlist } from "@/lib/trade/email-inbound-rules";
 
-const CHANNEL_TYPES = new Set(["whatsapp", "wechat", "wechat_work", "website"]);
+const CHANNEL_TYPES = new Set(["whatsapp", "wechat", "wechat_work", "website", "email"]);
 
 /** 列表：外贸角色都可读，凭证一律只显示末 4 位；能否管理放在响应头里（列表保持数组，兼容既有调用方） */
 export async function GET(request: NextRequest) {
@@ -37,6 +45,29 @@ export async function POST(request: NextRequest) {
   }
   if (!CHANNEL_TYPES.has(String(body.channel))) {
     return NextResponse.json({ error: "不支持的通道类型" }, { status: 400 });
+  }
+
+  // 邮件转发询盘通道：别名由服务端生成且不可指定；请求只能改显示名与转发白名单
+  if (body.channel === "email") {
+    const allow = normalizeForwarderAllowlist(body.config?.forwarderAllowlist);
+    if (!allow.ok) {
+      return NextResponse.json({ error: allow.error, invalid: allow.invalid }, { status: 400 });
+    }
+    const ch = await upsertEmailChannel({
+      orgId: orgRes.orgId,
+      name: String(body.name).trim().slice(0, 60),
+      forwarderAllowlist: allow.value,
+    });
+    await logAudit({
+      userId: auth.user.id,
+      orgId: orgRes.orgId,
+      action: "trade.channel.email.upsert",
+      targetType: "trade_channel",
+      targetId: ch.id,
+      afterData: { name: ch.name, status: ch.status, forwarders: allow.value.length },
+      request,
+    });
+    return NextResponse.json(toChannelView(ch), { status: 201 });
   }
 
   // 网站询盘通道：凭证由服务端生成；重复保存沿用已有凭证与来源白名单，避免网页代码失效

@@ -21,6 +21,7 @@ import {
   parseAllowedOrigins,
   readWebsiteCredentials,
 } from "@/lib/trade/website-channel-credentials";
+import { inboundAddressFor, normalizeInboundDomain } from "@/lib/trade/email-inbound-rules";
 
 type Ctx = { params: Promise<{ channel: string }> };
 
@@ -39,6 +40,13 @@ export async function GET(request: NextRequest, { params }: Ctx) {
   const canManage = await canManageTradeChannels(auth.user, orgRes.orgId);
   const view = await getChannelView(orgRes.orgId, channel, { canManage });
   if (!view) return NextResponse.json({ error: "通道不存在" }, { status: 404 });
+  if (channel === "email") {
+    // 转发地址 = 平台收信域名 + 本企业别名（业务员需要知道往哪转发，所以外贸角色都可见）；域名未配置时不生成地址（页面显示「未开通」）
+    const ch = await getChannel(orgRes.orgId, "email");
+    const domain = normalizeInboundDomain(process.env.INBOUND_EMAIL_DOMAIN);
+    const alias = (ch?.config as Record<string, unknown> | null)?.inboundAlias;
+    return NextResponse.json({ ...view, inbound: { enabled: !!domain, address: inboundAddressFor(alias, domain) } });
+  }
   return NextResponse.json(view);
 }
 

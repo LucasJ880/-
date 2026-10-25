@@ -31,6 +31,8 @@ export const WEBSITE_INQUIRY_SOURCE = "website";
 export const BOOTH_CARD_SOURCE = "trade_show";
 /** 青砚托管的嵌入表单（浏览器带公开 key 直接提交）：事件 id = emb:<浏览器生成的 uuid>，事件身份空间独立 */
 export const EMBED_INQUIRY_SOURCE = "embed";
+/** 邮件转发询盘（Resend 入站，eventId = "email:<Message-ID>"）：同一条链路，事件身份空间独立 */
+export const EMAIL_FORWARD_SOURCE = "email";
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  网站 webhook（deferred）只在请求路径（收据 → Trade → Revenue Spine intake，数秒）持有收据，
@@ -42,7 +44,14 @@ export const RECEIPT_PROCESSING_STALE_MS = 6 * 60_000;
 /** 派生身份（无 eventId 的旧接口）沿用的正文去重窗口 */
 export const RECEIPT_DERIVED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type ReceiptStatus = "received" | "processing" | "linked" | "complete";
+/**
+ * quarantined（邮件转发：来源未验证 / 发件人不在白名单 / 无买家联系方式，未建任何业务对象）与
+ * duplicate（邮件转发：同一询盘已由官网 webhook 入站，只记录、不建商机）是终态，不参与内容重复判定。
+ */
+export type ReceiptStatus = "received" | "processing" | "linked" | "complete" | "quarantined" | "duplicate";
+
+/** 不建业务对象的终态收据：不能被当成「既有事件」去继承下游对象 */
+export const RECEIPT_TERMINAL_NO_CHAIN_STATUSES = ["quarantined", "duplicate"] as const;
 
 /** 业务指纹：联系人 + 公司 + 国家 + 正文 + 产品 + 买家网站。不含来源页 / referrer / 落地页 / UTM / eventId / meta。 */
 export function computePayloadHash(v: NormalizedInquiry): string {
@@ -55,9 +64,9 @@ export function deriveEventId(hash: string, firstSeenAt: Date): string {
 }
 
 /** 收据里持久化的原始载荷（NormalizedInquiry 去掉运行期标记）+ 可选的接收元数据 */
-export type ReceiptPayload = Omit<NormalizedInquiry, "honeypotTripped"> & { meta?: Record<string, string> };
+export type ReceiptPayload = Omit<NormalizedInquiry, "honeypotTripped"> & { meta?: Record<string, unknown> };
 
-export function toReceiptPayload(v: NormalizedInquiry, meta?: Record<string, string>): ReceiptPayload {
+export function toReceiptPayload(v: NormalizedInquiry, meta?: Record<string, unknown>): ReceiptPayload {
   return {
     name: v.name,
     email: v.email,
@@ -116,7 +125,7 @@ export interface ReceiptClaim {
   duplicateOfReceiptId: string | null;
 }
 
-/** 同 org 内、窗口内、相同业务指纹的最新既有事件（派生身份 + 内容重复判定共用） */
+/** 同 org 内、窗口内、相同业务指纹的最新既有事件（派生身份 + 内容重复判定共用；隔离 / 重复收据不算） */
 async function findByPayloadHash(orgId: string, source: string, payloadHash: string, now: Date, windowMs: number) {
   return db.websiteInquiryReceipt.findFirst({
     where: {
@@ -124,6 +133,7 @@ async function findByPayloadHash(orgId: string, source: string, payloadHash: str
       source,
       payloadHash,
       firstSeenAt: { gte: new Date(now.getTime() - windowMs) },
+      status: { notIn: [...RECEIPT_TERMINAL_NO_CHAIN_STATUSES] },
     },
     orderBy: { firstSeenAt: "desc" },
   });
@@ -166,7 +176,8 @@ export async function claimInquiryReceipt(
   v: NormalizedInquiry,
   now: Date = new Date(),
   source: string = WEBSITE_INQUIRY_SOURCE,
-  meta?: Record<string, string>,
+  /** 首次建收据时随载荷保存的来源元数据（payload.meta，不参与业务指纹）：嵌入表单写访客 IP HMAC（限流计数），邮件转发写发件人 / 主题 / 解析依据 */
+  meta?: Record<string, unknown>,
 ): Promise<ReceiptClaim> {
   const hash = computePayloadHash(v);
   const payload = toReceiptPayload(v, meta) as unknown as Prisma.InputJsonValue;
