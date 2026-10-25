@@ -723,7 +723,6 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   // 买家在同一封来信里表单字段行之外提到了这个字段：以正文为准，保持关键词扫描的结果
   const keywordWins = (_hit: LabeledHit, field: RfqField) => mentionedIn(field, labeled.outsideText);
   const keywordQty = { quantity: fields.quantity, unit: fields.unit };
-  let labeledCountry = false;
   // 表单值只能补上或细化关键词结果，不能改成另一个——关键词读到的不管来自正文还是表单哪一行，都不会被改写
   // （Birmingham, Alabama 不能把 Target market 的美国改成英国；Incoterm: CIF 不能改掉正文的 FOB；
   // 「3,000 bath towels + 20 sets」不能读成 20 sets；Material: cotton 不能把 organic cotton 改粗）
@@ -744,7 +743,6 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       dropEvidence(field);
       if (value !== null) add(field, value, 0.85, hit.index, hit.length);
     }
-    if (hit.pairs[0][0] === "destinationCountry") labeledCountry = !hit.pairs.some(([f]) => f === "destinationCity");
     if (hit.pairs[0][0] === "quantity" && fields.unit === null) {
       // 表单只写了数字：正文里同一个数带了单位就沿用（5000 meters），否则有产品时按 pcs
       const same = keywordQty.quantity === fields.quantity && keywordQty.unit ? keywordQty.unit : null;
@@ -775,21 +773,22 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const words = text.toLowerCase().split(/[\s,+&/()-]+/).filter(Boolean);
     return words.length > 0 && words.every((w) => /^\d+(?:\.\d+)?(?:cm|mm|pcs)?$/.test(w) || PLAIN_WORDS[field].has(w));
   };
-  const ownAnswer = (field: RfqField): { text: string; at: number } | null => {
+  const ownAnswer = (field: RfqField): { text: string; at: number; logoLabel: boolean } | null => {
     const own = field === "customization" ? /^(?:branding|customi[sz]ation|logo|定制要求)$/ : /^(?:packaging|packing|包装)$/;
-    for (const [a, b, label] of labeled.specLines) {
-      if (!own.test(label)) continue;
-      const raw = source.slice(a, b).replace(/^[^:：]*[:：]/, "");
-      if (PICTOGRAPH_RE.test(raw)) continue;
-      const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
-      if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value)) continue;
-      // 整个值都要是普通用词（不截句：截掉的后半句可能是改口或附加条件）
-      const sentence = value.trim();
-      if (!isPlainAnswer(field as "customization" | "packaging", sentence)) continue;
-      const at = source.indexOf(sentence, a);
-      if (field === "customization" ? CUSTOMIZATION_WORD_RE.test(sentence) : findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS)) return { text: sentence, at: at >= a && at < b ? at : a };
-    }
-    return null;
+    const lines = labeled.specLines.filter(([, , label]) => own.test(label));
+    // 同一字段填了几行（Branding + Logo + Customization…）：可能互相改口，不采用
+    if (lines.length !== 1) return null;
+    const [a, b, label] = lines[0];
+    const raw = source.slice(a, b).replace(/^[^:：]*[:：]/, "");
+    if (PICTOGRAPH_RE.test(raw)) return null;
+    // 整个值都要检查（不截长度、不截句：截掉的后半句可能是改口或附加条件）
+    const value = raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, "");
+    if (!value || value.length > 160) return null;
+    if (NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value)) return null;
+    if (!isPlainAnswer(field as "customization" | "packaging", value)) return null;
+    if (field === "customization" ? !CUSTOMIZATION_WORD_RE.test(value) : !findKeyword(value.toLowerCase(), PACKAGING_KEYWORDS)) return null;
+    const at = source.indexOf(value, a);
+    return { text: value, at: at >= a && at < b ? at : a, logoLabel: label === "logo" };
   };
   for (const field of ["customization", "packaging"] as RfqField[]) {
     const k = keywordPos.get(field);
@@ -799,16 +798,21 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (mentionedIn(field, labeled.outsideText)) continue;
     const answer = ownAnswer(field);
     if (!answer) {
-      // 定制看表单所有规格行（包装行里写的 logo 也算定制）；包装只看包装行（Branding 行里的 label 不是包装）
-      const lines = field === "customization" ? labeled.specLines : labeled.specLines.filter(([, , l]) => /^(?:packaging|packing|包装)$/.test(l));
-      const specText = lines.map(([a, b]) => lower.slice(a, b)).join("\n");
+      // 买家类型选项行以外，任何一行（含 Colour、Target price 之类）提到了定制 / 包装：保持原结果；
+      // 找包装时 Branding 行不算（care label 的 label 不是包装）；链接、追踪参数不算
+      const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
+      let rest = labeled.buyerTypeLines.reduce((t, [a, b]) => blank(t, a, b), lower);
+      if (field === "packaging") {
+        for (const [a, b, l] of labeled.specLines) if (/^(?:branding|customi[sz]ation|logo|定制要求)$/.test(l)) rest = blank(rest, a, b);
+      }
+      rest = rest.replace(/https?:\/\/[\x21-\x7e]+|www\.[\x21-\x7e]+|[\x21-\x7e]*utm_[\x21-\x7e]*/g, (u) => " ".repeat(u.length));
       const words = field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS;
-      const evidence = findKeyword(specText, words) || (field === "customization" && CUSTOMIZATION_WORD_RE.test(specText));
+      const evidence = findKeyword(rest, words) || (field === "customization" && CUSTOMIZATION_WORD_RE.test(rest));
       if (evidence) continue;
     }
     (fields as unknown as Record<string, unknown>)[field] = answer?.text ?? null;
     dropEvidence(field);
-    const logo = !!answer && /logo|embroider|印|绣/i.test(answer.text);
+    const logo = !!answer && (answer.logoLabel || /logo|embroider|印|绣/i.test(answer.text));
     if (field === "customization") {
       fields.customLogo = logo ? true : null;
       dropEvidence("customLogo");
@@ -818,14 +822,7 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       if (field === "customization" && logo) add("customLogo", true, 0.7, answer.at, answer.text.length);
     }
   }
-  // 表单的目的国与关键词抽到的城市不在同一国（「ship to Toronto」+「Destination: USA」）：城市作废，别拼出错的组合
-  if (labeledCountry && fields.destinationCity) {
-    const cityCountry = detectCountries(fields.destinationCity).find((c) => c.city)?.country ?? null;
-    if (cityCountry && cityCountry !== fields.destinationCountry) {
-      fields.destinationCity = null;
-      dropEvidence("destinationCity");
-    }
-  }
+
 
   return { fields, evidence, language, method: "heuristic", notes };
 }

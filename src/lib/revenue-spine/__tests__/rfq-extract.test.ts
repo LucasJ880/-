@@ -460,6 +460,19 @@ ok("第十四轮审查用例：自己的 Branding / Packaging 答案只收普通
   assert.equal(fx("Product: Blankets\nHello.\n\n— Form details —\nEstimated quantity: 2000 pcs\nSize / specification: 150X200 IN GREY").size, "150X200");
 });
 
+ok("第十五轮审查用例：同一字段多行不采用答案；整值检查；Logo: 行算 logo；其它表单行提到定制保持原结果；城市不被清掉", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const two = "Product: Bath towels\nPlease quote 3000 pcs.\n\n— Form details —\nBuyer type: Retail & Private Label\nBranding: embroidered logo on hem\nCustomization: no logo, plain";
+  assert.deepEqual([fx(two).customization, fx(two).customLogo], [noForm(two).customization, noForm(two).customLogo]);
+  const long = "Product: Bath towels\nHello.\n\n— Form details —\nEstimated quantity: 3000 pcs\nBuyer type: Retail & Private Label\nBranding: Embroidered logo on the chest and woven label on the hem and care label in English and French and hang tag with our logo and printed logo on each towel and patch on the back — scrap that, no logo";
+  assert.deepEqual([fx(long).customization, fx(long).customLogo], [noForm(long).customization, noForm(long).customLogo]);
+  assert.equal(fx("Product: Bath towels\nPlease quote.\n\n— Form details —\nBuyer type: Retail & Private Label\nLogo: printed").customLogo, true);
+  const colour = "Product: Bath towels\nPlease quote.\n\n— Form details —\nBuyer type: Retail & Private Label\nColour: navy with white logo";
+  assert.deepEqual([fx(colour).customization, fx(colour).customLogo], [noForm(colour).customization, noForm(colour).customLogo]);
+  const city = "Product: Towels\nHi.\n\n— Form details —\nEstimated quantity: 2000 pcs\nTarget market: USA (Pacific Northwest, Vancouver WA)\nDestination: USA";
+  assert.equal(fx(city).destinationCity, noForm(city).destinationCity);
+});
+
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-01");
