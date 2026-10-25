@@ -290,24 +290,21 @@ ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 
   assert.equal(later.unit, "pcs", "只写数字、正文里没有同一个数：不借别的数的单位（24 pcs per carton / 125 cartons 那种会借错）");
 });
 
-ok("多封来信：之后的来信提到了该字段就不用表单值（保持关键词结果）；没提就照用表单；追加品类的数量不顶替订单数量", () => {
-  const form = ["Product: Bath towels", "", block("Estimated quantity: 3000", "Required date: March 2027", "Destination: Toronto, Canada")].join("\n");
-  const laterDate = fx(form + INBOUND_MESSAGE_SEPARATOR + "Hi Lily, our launch moved up, we need delivery by Feb 15, 2027.");
-  assert.equal(laterDate.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-15");
-  assert.equal(fx(form + INBOUND_MESSAGE_SEPARATOR + "Hi, after checking with my team we need 5,000 pcs now.").quantity, 5000);
-  assert.equal(fx(form + INBOUND_MESSAGE_SEPARATOR + "Please ship to Seattle, USA instead.").destinationCountry, "United States");
-  const kept = fx(form + INBOUND_MESSAGE_SEPARATOR + "Sizes are 70x140cm please.");
-  assert.equal(kept.quantity, 3000);
-  assert.equal(kept.destinationCity, "Toronto");
-  const sample = fx(["Please send your best offer.", "", block("Estimated quantity: 3000 pcs", "Sample requirement: no")].join("\n") + INBOUND_MESSAGE_SEPARATOR + "Actually, can we get one sample before the order?");
-  assert.equal(sample.sampleRequired, true, "后来要样品，不被表单的 no 压住");
-  const vagueLater = fx(form + INBOUND_MESSAGE_SEPARATOR + "Hi, could you deliver in mid-February instead?");
-  assert.equal(vagueLater.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-15");
-  assert.equal(kept.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
-  const addOn = fx("Hello, we need 5,000 pcs bath towels 70x140cm." + INBOUND_MESSAGE_SEPARATOR + "Hi again, please also quote 1,000 pcs bath mats.");
-  assert.equal(addOn.quantity, 5000, "数量同分时仍取先出现的（追加品类、起订量提问、历史数字不算改口）");
-  const corrected = fx(block("Estimated quantity: 3,000 pcs") + INBOUND_MESSAGE_SEPARATOR + block("Estimated quantity: 4,000 pcs"));
-  assert.equal(corrected.quantity, 4000, "后一封来信的表单区块优先");
+ok("多封来信：表单只在它是最新一封、且只有一份时采用；之后有回信或多次提交，结果与没有表单层时一样", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const form = ["Product: Bath towels", "", block("Estimated quantity: 3,000 pcs per colour", "Material: flannel fleece with sherpa back", "Required date: March 2027", "Destination: Toronto, Canada")].join("\n");
+  const fresh = fx(form);
+  assert.equal(fresh.unit, "pcs per colour");
+  assert.equal(fresh.material, "flannel fleece with sherpa back");
+  assert.equal(fresh.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
+  for (const reply of ["Hi Lily, our launch moved up, we need delivery by Feb 15, 2027.", "Hi, after checking with my team we need 5,000 pcs now.", "Sizes are 70x140cm please."]) {
+    const t = form + INBOUND_MESSAGE_SEPARATOR + reply;
+    assert.deepEqual(fx(t), noForm(t), reply);
+  }
+  const twice = block("Estimated quantity: 3,000 pcs") + INBOUND_MESSAGE_SEPARATOR + block("Estimated quantity: 4,000 pcs");
+  assert.deepEqual(fx(twice), noForm(twice), "两次提交");
+  const emailThenForm = fx("We need 3,000 sets of duvet cover sets." + INBOUND_MESSAGE_SEPARATOR + ["Updated brief:", "", block("Estimated quantity: 4000 pcs")].join("\n"));
+  assert.equal(emailThenForm.quantity, 4000, "先来邮件、后提交表单：表单是最新一封，照用");
 });
 
 ok("目的地：表单国家与较早来信里的城市不在同一国时城市作废", () => {

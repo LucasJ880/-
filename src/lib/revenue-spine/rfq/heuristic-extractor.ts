@@ -205,13 +205,11 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
  * （约定见 docs/QINGYAN_INTAKE_WEBHOOK.md）。关键词扫描照常跑完后，用这些值覆盖对应字段——
  * "Material: flannel fleece with sherpa back" 不会只剩 flannel fleece，"3,000 pcs per colour" 不会只剩 3000 pcs。
  *
- * 原则：拿不准就不覆盖，结果与没有这一层时一样。
- * - 只认表单区块里的行；邮件、聊天里的「Label: value」常是占位、模糊回答或引用的旧内容
- * - 只收能核实、关键词抽得不全的字段（数量、材质、尺寸、定制、包装、目的地、贸易术语、交期、买家类型）；
- *   认证、样品的否定说法太多（BSCI isn't required、Sample: no 但正文要样品），保持关键词结果；
- *   定制只在值里没有任何否定 / 条件 / 推迟的字眼时采用
- * - 值要核实得了（见 labeledValue）；更晚的来信提到了该字段、同一封来信区块之外买家写过、
- *   这次提交点名的是别的产品，都不覆盖（见 extractRfqHeuristic 末尾的 keywordWins）
+ * 原则：拿不准就不覆盖，结果与没有这一层时一样（经 8 轮、约 3 万个来信的对抗式回归审查收窄到下面的范围）。
+ * - 只用于「刚提交的这一次表单」：来信里只有一个表单区块，且它在最新一封里；之后的回信、多次提交都按原有关键词扫描
+ * - 只收能核实、关键词抽得不全的字段（数量、材质、尺寸、定制、包装、目的地、贸易术语、交期、买家类型）；认证、样品不收
+ * - 值里有任何否定、条件、推迟、多个候选、表情符号、链接、问句，不采用（见 labeledValue）
+ * - 同一封来信里表单字段行之外（正文、P.S.、区块里没有标签的句子）买家提到了该字段，以正文为准
  */
 const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["quantity", ["quantity", "qty", "estimated quantity", "order quantity", "数量", "采购数量", "预计数量"]],
@@ -299,17 +297,18 @@ const NOT_A_SPEC_RE = /^(?:no|not|none|without|avoid|never|无|不需要|不用|
 const SIZE_WORDS_ONLY_RE =
   /^(?:(?<![A-Za-z'’])(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-4]xl|one size|queen|king|super king|california king|twin|full|double|single)(?![A-Za-z'’])(?:\s*sizes?)?(?:\s*(?:[,/&+~–-]|and|to)\s*)?)+$/i;
 const CUSTOMIZATION_WORD_RE = /\b(?:logos?|embroider\w*|brand(?:ed|ing)?|labels?|print(?:ed|ing)?|tags?|woven|patch(?:es)?)\b|印|绣|贴牌|商标|吊牌|标签|织标/i;
-// 定制值里有任何否定、条件、推迟的字眼（won't need logos、brandless、logo maybe later、可以不印字、暂不绣花）就不采用
+// 值里有任何否定、条件、推迟、例外的字眼就不采用（won't need logos、brandless、logo maybe later、not FOB、可以不印字、暂不绣花、待定…）
 const HEDGE_RE =
-  /\b(?:no|not|none|nothing|nor|never|without|skip\w*|exclud\w*|zero|unnecessary|optional|maybe|perhaps|later|if|or|either|unless|tbd|tba)\b|n['’]t\b|\w+less\b|-free\b|\byour (?:own )?(?:brand|logo|label)s?\b|[不无没免暂别勿否]/i;
-// ❌ / 🚫 / ⛔ 是买家在表单里打的「不要」：整值不采用
-const NO_MARK_RE = /[❌🚫⛔✖✗✘]/u;
+  /\b(?:no|not|none|nothing|nor|never|without|cannot|unable|skip\w*|exclud\w*|omit\w*|remov\w*|avoid\w*|zero|n\/?a|nah|unnecessary|optional|maybe|perhaps|might|later|after|once|pending|depends?|if|or|either|unless|tb[acd]|to follow|instead|rather|except|un\w+|\w+less|free)\b|n['’]t\b|-free\b|\(n\)|\byour (?:own )?(?:brand|logo|label)s?\b|[不无没免暂别勿否]|待定|以后|看情况|省略|再说/i;
+// 表情符号（👎 ❎ 🙅 ❌…）常是买家的「不要」：带表情的值整个不采用
+const PICTOGRAPH_RE = /\p{Extended_Pictographic}/u;
 
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
-  if (NO_MARK_RE.test(raw)) return null;
-  const value = capWords(raw.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
-  if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value)) return null;
-  const sentence = firstSentence(value);
+  if (PICTOGRAPH_RE.test(raw)) return null;
+  const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
+  if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value)) return null;
+  // 只取第一句、第一个分号之前（「gift box; please send free samples first」后半句不算）
+  const sentence = firstSentence(value).split(/[;；]/)[0].trim();
   if (!sentence || NON_ANSWER_RE.test(sentence) || PLACEHOLDER_RE.test(sentence)) return null;
   const yesNo = YES_NO_RE.test(sentence);
   switch (field) {
@@ -321,7 +320,8 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
     }
     case "destinationCountry": {
       const hits = detectCountries(value);
-      if (!hits.length) return null;
+      // 写了几个国家（总部、国籍、转运地…）：说不清交到哪，不采用
+      if (!hits.length || new Set(hits.map((h) => h.country)).size > 1) return null;
       const city = hits.find((h) => h.city);
       const out: LabeledPairs = [["destinationCountry", hits[0].country]];
       if (city) out.push(["destinationCity", value.substr(city.index, city.matched.length)]);
@@ -332,23 +332,24 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
       return b.type === "unknown" ? null : [["buyerType", b.type]];
     }
     case "incoterm": {
-      const inco = new RegExp(`\\b(${INCOTERMS.join("|")})\\b`, "i").exec(value);
-      return inco ? [["incoterm", inco[1].toUpperCase()]] : null;
+      const terms = [...value.matchAll(new RegExp(`\\b(${INCOTERMS.join("|")})\\b`, "gi"))].map((t) => t[1].toUpperCase());
+      return new Set(terms).size === 1 ? [["incoterm", terms[0]]] : null;
     }
     // 下面几项只在值里真有对应的词时采用（「No requirement」「Later」「normal」「无」这类不是答案）
     case "customization":
-      if (yesNo || NOT_A_SPEC_RE.test(sentence) || HEDGE_RE.test(value) || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
+      if (yesNo || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
       return [["customization", sentence], ["customLogo", true]];
     case "packaging":
-      return !NOT_A_SPEC_RE.test(sentence) && findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS) ? [["packaging", sentence]] : null;
+      return findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS) ? [["packaging", sentence]] : null;
     case "material":
-      // 整词匹配面料词（Woolworths 里的 wool 不算）
-      return !NOT_A_SPEC_RE.test(sentence) && findKeyword(sentence.toLowerCase(), MATERIAL_KEYWORDS) ? [["material", sentence]] : null;
+      // 整词匹配面料词（Woolworths 里的 wool 不算）；带认证、价格字眼的（GOTS certified organic cotton）草稿护栏会整行拿掉，不采用
+      if (findKeyword(sentence.toLowerCase(), CERTIFICATION_KEYWORDS) || /\b(?:certified|approved|price|usd|discount)\b|\$/i.test(sentence)) return null;
+      return findKeyword(sentence.toLowerCase(), MATERIAL_KEYWORDS) ? [["material", sentence]] : null;
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
-      if (NOT_A_SPEC_RE.test(sentence)) return null;
-      const dim = SIZE_RE.exec(sentence);
-      if (dim) return [["size", dim[0].replace(/\s+/g, " ").trim()]];
+      const dims = [...sentence.matchAll(new RegExp(SIZE_RE.source, "gi"))];
+      if (dims.length > 1) return null; // 几个尺寸：交给关键词扫描
+      if (dims.length === 1) return [["size", dims[0][0].replace(/\s+/g, " ").trim()]];
       return SIZE_WORDS_ONLY_RE.test(sentence) ? [["size", sentence]] : null;
     }
     default:
@@ -361,19 +362,11 @@ interface LabeledHit {
   /** 值在原文里的位置（证据片段用） */
   index: number;
   length: number;
-  /** 整行范围：关键词命中落在这一行里，说明就是同一句话 */
-  lineStart: number;
-  lineEnd: number;
-  /** 所在表单区块的范围：同一封来信里区块之外（正文、P.S.）买家写过的，以正文为准 */
-  blockStart: number;
-  blockEnd: number;
-  segment: number;
 }
 
 /**
- * 表单区块里的字段，以及把区块里「买家类型」行抹成空格的文本（下标不变，只给产品规格类关键词扫描用）：
- * 那一行是表单的选项（Retail & Private Label），不是定制要求，也不是零售包装。
- * 同一字段出现在几封来信的表单区块里时取后一封。
+ * 刚提交的表单区块里能用的字段值，以及区块里「买家类型」选项行、规格行的位置（给事后作废定制 / 包装用）：
+ * 买家类型选项（Retail & Private Label）不是定制要求，也不是零售包装。
  */
 function labeledFields(
   source: string,
@@ -384,19 +377,13 @@ function labeledFields(
   blocks: Array<[number, number]>;
   /** 表单区块里认得出字段的行（买家类型行除外）：区块里只有这些是买家填的规格，来源页、着陆页这类不是 */
   specLines: Array<[number, number]>;
-  segmentOf: (index: number) => number;
-  segmentEnd: (segment: number) => number;
+  /** 同一封来信里表单字段行之外的文字（正文、P.S.、区块里没有标签的句子）：买家在这里提到的字段以正文为准 */
+  outsideText: string;
 } {
-  const segStarts = [0];
-  for (let i = source.indexOf(INBOUND_MESSAGE_SEPARATOR); i >= 0; i = source.indexOf(INBOUND_MESSAGE_SEPARATOR, i + 1)) {
-    segStarts.push(i + INBOUND_MESSAGE_SEPARATOR.length);
-  }
-  const segmentOf = (index: number) => {
-    let seg = 0;
-    while (seg + 1 < segStarts.length && segStarts[seg + 1] <= index) seg++;
-    return seg;
-  };
-  // 表单区块：「— Form details —」之后到空行 / 下一封来信为止
+  const none = { hits: [], buyerTypeLines: [], blocks: [], specLines: [], outsideText: "" };
+  const lastSep = source.lastIndexOf(INBOUND_MESSAGE_SEPARATOR);
+  const lastStart = lastSep < 0 ? 0 : lastSep + INBOUND_MESSAGE_SEPARATOR.length;
+  // 表单区块：「— Form details —」之后到空行 / 下一封来信为止。只有一个、且在最新一封来信里，才用（刚提交的这一次）
   const blocks: Array<[number, number]> = [];
   FORM_DETAILS_RE.lastIndex = 0;
   for (const f of source.matchAll(FORM_DETAILS_RE)) {
@@ -404,42 +391,37 @@ function labeledFields(
     const blank = /\n[^\S\n]*\n/.exec(source.slice(start + 1));
     blocks.push([start, blank ? start + 1 + blank.index : source.length]);
   }
-  const blockOf = (i: number) => blocks.find(([a, b]) => i > a && i < b) ?? null;
+  if (blocks.length !== 1 || blocks[0][0] < lastStart) return none;
+  const [blockStart, blockEnd] = blocks[0];
+  const markerStart = source.lastIndexOf("\n", blockStart - 1) + 1;
 
   const byField = new Map<RfqField, LabeledHit>();
   const buyerTypeLines: Array<[number, number]> = [];
   const specLines: Array<[number, number]> = [];
+  const formLines: Array<[number, number]> = [[markerStart, blockStart]];
   let m: RegExpExecArray | null;
   LABELED_LINE_RE.lastIndex = 0;
   while ((m = LABELED_LINE_RE.exec(source))) {
+    if (m.index <= blockStart || m.index >= blockEnd) continue;
+    // 区块里有标签的行都是表单字段（含来源页、着陆页这类不认的）；没有标签的句子算买家自己写的
+    formLines.push([m.index, m.index + m[0].length]);
     const label = m[1].toLowerCase().replace(/\s*\/\s*/g, " / ").replace(/\s+/g, " ").trim();
     const field = LABEL_FIELD.get(label);
     if (!field) continue;
     const raw = m[2];
-    const block = blockOf(m.index);
-    if (SECOND_LABEL_RE.test(raw) || !block) continue;
+    if (SECOND_LABEL_RE.test(raw)) continue;
     // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
     if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5) buyerTypeLines.push([m.index, m.index + m[0].length]);
     if (field !== "buyerType") specLines.push([m.index, m.index + m[0].length]);
-    const segment = segmentOf(m.index);
-    const prev = byField.get(field);
-    if (prev && prev.segment >= segment) continue;
+    if (byField.has(field)) continue;
     const pairs = labeledValue(field, raw, now);
-    const valueStart = m.index + m[0].trimEnd().length - raw.length;
     if (!pairs) continue;
-    byField.set(field, {
-      pairs,
-      index: valueStart,
-      length: raw.length,
-      lineStart: m.index,
-      lineEnd: m.index + m[0].length,
-      blockStart: block[0],
-      blockEnd: block[1],
-      segment,
-    });
+    byField.set(field, { pairs, index: m.index + m[0].trimEnd().length - raw.length, length: raw.length });
   }
-  const segmentEnd = (seg: number) => (seg + 1 < segStarts.length ? segStarts[seg + 1] : source.length);
-  return { hits: [...byField.values()], buyerTypeLines, blocks, specLines, segmentOf, segmentEnd };
+  const outsideText = formLines
+    .reduce((t, [a, b]) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b), source)
+    .slice(lastStart);
+  return { hits: [...byField.values()], buyerTypeLines, blocks, specLines, outsideText };
 }
 
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
@@ -688,32 +670,8 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   const dropEvidence = (field: RfqField) => {
     for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].field === field) evidence.splice(i, 1);
   };
-  const productAt = keywordPos.get("productName");
-  const segmentText = (segment: number) => source.slice(segment === 0 ? 0 : labeled.segmentEnd(segment - 1), labeled.segmentEnd(segment));
-  const productLine = (text: string) => /^[^\S\n]*(?:product(?: name)?|产品)[^\S\n]*[:：][^\S\n]*(\S[^\n]*)$/im.exec(text)?.[1].trim().toLowerCase() ?? null;
-  const otherProduct = (segment: number) => {
-    // 这一封来信点名的是别的产品（产品词在前一封）：两封都有「Product:」行时比整行（Beach towels ≠ Bath towels），否则比产品词
-    if (productAt === undefined || labeled.segmentOf(productAt) === segment) return false;
-    const here = segmentText(segment);
-    const a = productLine(segmentText(labeled.segmentOf(productAt)));
-    const b = productLine(here);
-    // 两封的「Product:」一样且不是「Other / custom textile」这类泛称，才算同一个产品
-    if (a && b) return a !== b || /other|custom|general|misc|其他|其它|定制/i.test(a);
-    const kw = findKeyword(here.toLowerCase(), Object.keys(opts.productKeywords));
-    return kw !== null && kw.kw.toLowerCase() !== (fields.productName ?? "").toLowerCase();
-  };
-  const keywordWins = (hit: LabeledHit, field: RfqField) => {
-    // 第二次提交的是别的产品：不拿它的字段去改前一个产品
-    if (otherProduct(hit.segment)) return true;
-    // 之后的来信里提到了这个字段（不管关键词扫描最后选了哪一处）：买家可能改了说法，保持关键词扫描的结果
-    if (mentionedIn(field, source.slice(labeled.segmentEnd(hit.segment)))) return true;
-    const k = keywordPos.get(field);
-    if (k === undefined || (k >= hit.lineStart && k < hit.lineEnd)) return false;
-    const seg = labeled.segmentOf(k);
-    if (seg !== hit.segment) return seg > hit.segment;
-    // 同一封来信里表单区块之外（之前的正文、之后的 P.S.）买家自己写过：以正文为准，表单只补没写到的
-    return k < hit.blockStart || k >= hit.blockEnd;
-  };
+  // 买家在同一封来信里表单字段行之外提到了这个字段：以正文为准，保持关键词扫描的结果
+  const keywordWins = (_hit: LabeledHit, field: RfqField) => mentionedIn(field, labeled.outsideText);
   const keywordQty = { quantity: fields.quantity, unit: fields.unit };
   let labeledCountry = false;
   for (const hit of labeled.hits) {
