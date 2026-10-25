@@ -20,7 +20,7 @@ import { listIndustryPacks } from "@/lib/industry-packs/registry";
 import { cn } from "@/lib/utils";
 
 type StepStatus = "done" | "todo" | "warning" | "skipped" | "acknowledged";
-type StepKey = "pack" | "categories" | "website_channel" | "members" | "wechat" | "test_inquiry" | "email_sender" | "handoff";
+type StepKey = "pack" | "categories" | "website_channel" | "email_inbound" | "members" | "wechat" | "test_inquiry" | "email_sender" | "handoff";
 
 interface Step {
   key: StepKey;

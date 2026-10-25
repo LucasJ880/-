@@ -28,6 +28,8 @@ import type { NormalizedInquiry } from "./website-inquiry";
 export const WEBSITE_INQUIRY_SOURCE = "website";
 /** 展会速记卡（夜间批量录入）：与网站询盘同一条链路，事件身份空间独立 */
 export const BOOTH_CARD_SOURCE = "trade_show";
+/** 邮件转发询盘（Resend 入站，eventId = "email:<Message-ID>"）：同一条链路，事件身份空间独立 */
+export const EMAIL_FORWARD_SOURCE = "email";
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  网站 webhook（deferred）只在请求路径（收据 → Trade → Revenue Spine intake，数秒）持有收据，
@@ -39,7 +41,14 @@ export const RECEIPT_PROCESSING_STALE_MS = 6 * 60_000;
 /** 派生身份（无 eventId 的旧接口）沿用的正文去重窗口 */
 export const RECEIPT_DERIVED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type ReceiptStatus = "received" | "processing" | "linked" | "complete";
+/**
+ * quarantined（邮件转发：来源未验证 / 发件人不在白名单 / 无买家联系方式，未建任何业务对象）与
+ * duplicate（邮件转发：同一询盘已由官网 webhook 入站，只记录、不建商机）是终态，不参与内容重复判定。
+ */
+export type ReceiptStatus = "received" | "processing" | "linked" | "complete" | "quarantined" | "duplicate";
+
+/** 不建业务对象的终态收据：不能被当成「既有事件」去继承下游对象 */
+export const RECEIPT_TERMINAL_NO_CHAIN_STATUSES = ["quarantined", "duplicate"] as const;
 
 /** 业务指纹：联系人 + 公司 + 国家 + 正文 + 产品 + 买家网站。不含来源页 / UTM / eventId。 */
 export function computePayloadHash(v: NormalizedInquiry): string {
@@ -108,7 +117,7 @@ export interface ReceiptClaim {
   duplicateOfReceiptId: string | null;
 }
 
-/** 同 org 内、窗口内、相同业务指纹的最新既有事件（派生身份 + 内容重复判定共用） */
+/** 同 org 内、窗口内、相同业务指纹的最新既有事件（派生身份 + 内容重复判定共用；隔离 / 重复收据不算） */
 async function findByPayloadHash(orgId: string, source: string, payloadHash: string, now: Date, windowMs: number) {
   return db.websiteInquiryReceipt.findFirst({
     where: {
@@ -116,6 +125,7 @@ async function findByPayloadHash(orgId: string, source: string, payloadHash: str
       source,
       payloadHash,
       firstSeenAt: { gte: new Date(now.getTime() - windowMs) },
+      status: { notIn: [...RECEIPT_TERMINAL_NO_CHAIN_STATUSES] },
     },
     orderBy: { firstSeenAt: "desc" },
   });
@@ -158,9 +168,11 @@ export async function claimInquiryReceipt(
   v: NormalizedInquiry,
   now: Date = new Date(),
   source: string = WEBSITE_INQUIRY_SOURCE,
+  /** 首次建收据时随载荷一起保存的来源元数据（payload.meta；邮件转发的发件人 / 主题 / 解析依据），不参与指纹 */
+  meta?: Record<string, unknown>,
 ): Promise<ReceiptClaim> {
   const hash = computePayloadHash(v);
-  const payload = toReceiptPayload(v) as unknown as Prisma.InputJsonValue;
+  const payload = (meta ? { ...toReceiptPayload(v), meta } : toReceiptPayload(v)) as unknown as Prisma.InputJsonValue;
   const provided = Boolean(v.eventId);
 
   if (provided) {

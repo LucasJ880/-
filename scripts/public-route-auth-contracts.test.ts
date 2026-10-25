@@ -190,6 +190,21 @@ async function main() {
     "webhook/callback signature or token verification present",
   );
 
+  console.log("\n/api/trade/webhook/email — Resend（Svix）验签先于任何 DB 访问");
+  {
+    const emailRoute = read("src/app/api/trade/webhook/email/route.ts");
+    const secretIdx = emailRoute.indexOf("RESEND_INBOUND_WEBHOOK_SECRET");
+    const verifyIdx = emailRoute.indexOf("verifyResendWebhookSignature(");
+    const handleIdx = emailRoute.indexOf("handleResendInboundEvent(");
+    ok(secretIdx >= 0 && /status:\s*503/.test(emailRoute), "email webhook: unset RESEND_INBOUND_WEBHOOK_SECRET → 503");
+    ok(verifyIdx > secretIdx && /status:\s*401/.test(emailRoute), "email webhook: signature verified, invalid → 401");
+    ok(handleIdx > verifyIdx, "email webhook: handler (DB) only after signature verification");
+    ok(!/@\/lib\/db|db\./.test(emailRoute), "email webhook route never touches DB directly");
+    ok(!/searchParams|orgId/.test(emailRoute), "email webhook: org never taken from query/body");
+    const rules = read("src/lib/trade/email-inbound-rules.ts");
+    ok(/webhooks\.verify\(/.test(rules), "email webhook uses resend SDK (Svix) verify (timestamp tolerance)");
+  }
+
   console.log("\nshare routes — token 凭据，错误/缺失 → 404，无跨 org 枚举文案");
   for (const rel of [
     "src/app/api/sales/quotes/share/[token]/route.ts",
@@ -364,6 +379,12 @@ async function main() {
     const authReason = res.headers.get("x-auth-reason");
     ok(res.status !== 401, "middleware does not 401 trade/cron without session");
     ok(authReason !== "session", "middleware does not set session auth-reason");
+  }
+
+  console.log("\n动态：middleware 对 /api/trade/webhook/email 不要求网页 Session");
+  {
+    const res = await middleware(new NextRequest("http://localhost/api/trade/webhook/email", { method: "POST" }));
+    ok(res.status !== 401 && res.headers.get("x-auth-reason") !== "session", "middleware does not 401 trade/webhook/email without session");
   }
 
   console.log("\n覆盖说明");

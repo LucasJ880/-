@@ -476,6 +476,7 @@ export type OnboardingStepKey =
   | "pack"
   | "categories"
   | "website_channel"
+  | "email_inbound"
   | "members"
   | "wechat"
   | "test_inquiry"
@@ -498,6 +499,8 @@ export interface OnboardingFacts {
   timezone: string | null;
   categories: { published: boolean; make: string[]; dontMake: string[] };
   websiteChannel: { exists: boolean; active: boolean; secretSet: boolean };
+  /** 邮件转发入口（推荐项）：platformEnabled = 平台已配置收信域名 INBOUND_EMAIL_DOMAIN；缺省视为平台未开通 */
+  emailInbound?: { platformEnabled: boolean; exists: boolean; active: boolean; aliasSet: boolean; allowlistCount: number };
   members: Array<{ isSalesRole: boolean; wechatBound: boolean }>;
   pendingInvites: number;
   testInquiry: { count: number; latestHasOpportunity: boolean; latestHadDraft: boolean; latestClosed: boolean };
@@ -513,6 +516,7 @@ export const ONBOARDING_STEP_LABELS: Record<OnboardingStepKey, string> = {
   pack: "行业包与时区",
   categories: "产品品类（做 / 不做 / 不确定）",
   website_channel: "网站渠道密钥",
+  email_inbound: "邮件转发入口",
   members: "邀请业务员",
   wechat: "微信绑定",
   test_inquiry: "发送测试询盘",
@@ -561,6 +565,16 @@ export function deriveOnboardingSteps(f: OnboardingFacts): {
     push("website_channel", "warning", f.websiteChannel.active ? "通道缺少密钥，请重新生成" : "网站通道已停用");
   } else {
     push("website_channel", "todo", "尚未创建网站询盘通道");
+  }
+
+  // 3b. 邮件转发入口（推荐项，不阻塞就绪）
+  {
+    const e = f.emailInbound;
+    if (!e?.platformEnabled) push("email_inbound", "skipped", "平台未开通邮件转发入口（未配置收信域名）", false);
+    else if (e.exists && e.active && e.aliasSet && e.allowlistCount > 0) push("email_inbound", "done", `转发地址已生成，白名单 ${e.allowlistCount} 个发件邮箱`, false);
+    else if (e.exists && !e.active) push("email_inbound", "warning", "邮件转发通道已停用", false);
+    else if (e.exists) push("email_inbound", "warning", "转发白名单为空：转发来的邮件都会被隔离，请在「外贸 → 消息通道」添加业务员的发件邮箱", false);
+    else push("email_inbound", "todo", "尚未创建邮件转发通道：在企业的「外贸 → 消息通道」添加「邮件转发询盘」", false);
   }
 
   // 4. 业务员

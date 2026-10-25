@@ -49,6 +49,12 @@ const CHANNEL_INFO: Record<string, { label: string; color: string; fields: { key
     // 密钥由服务端生成，添加后在通道卡片里查看接入代码
     fields: [],
   },
+  email: {
+    label: "邮件转发询盘",
+    color: "bg-amber-500/15 text-amber-500",
+    // 转发地址由服务端生成；添加时只填允许转发的发件邮箱（白名单）
+    fields: [],
+  },
 };
 
 export default function TradeChannelsPage() {
@@ -143,6 +149,8 @@ export default function TradeChannelsPage() {
                 </div>
                 {ch.channel === "website" ? (
                   <WebsiteInquirySetup orgId={orgId} />
+                ) : ch.channel === "email" ? (
+                  <EmailInboundSetup orgId={orgId} name={ch.name} />
                 ) : (
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                     {Object.entries(ch.config).map(([k, v]) => (
@@ -275,11 +283,117 @@ document.getElementById('qy-inquiry').addEventListener('submit', async (e) => {
   );
 }
 
+function EmailInboundSetup({ orgId, name }: { orgId: string; name: string }) {
+  const [address, setAddress] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/api/trade/channels/email?orgId=${encodeURIComponent(orgId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { config?: { forwarderAllowlist?: string[] }; inbound?: { enabled?: boolean; address?: string | null } } | null) => {
+        if (cancelled) return;
+        setEnabled(Boolean(d?.inbound?.enabled));
+        setAddress(d?.inbound?.address ?? null);
+        setDraft((d?.config?.forwarderAllowlist ?? []).join("\n"));
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  const save = async () => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      const res = await apiFetch("/api/trade/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, channel: "email", name, config: { forwarderAllowlist: draft } }),
+      });
+      const d = (await res.json().catch(() => null)) as { error?: string; invalid?: string[]; config?: { forwarderAllowlist?: string[] } } | null;
+      if (res.ok) {
+        setDraft((d?.config?.forwarderAllowlist ?? []).join("\n"));
+        setNotice({ ok: true, text: "转发白名单已保存" });
+      } else {
+        setNotice({ ok: false, text: `${d?.error ?? "保存失败"}${d?.invalid?.length ? `：${d.invalid.join("、")}` : ""}` });
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-3 text-xs">
+      <p className="text-muted">
+        把询盘邮件转发到下面的地址：官网询盘通知、阿里巴巴国际站 / 中国制造网等平台的询盘通知、客户直接发来的邮件都可以。系统识别出买家后进入「线索资产」（活动：邮件转发询盘），自动生成回复草稿并通知销售。
+      </p>
+      <div className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-muted">转发地址</span>
+          {address && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(address);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                } catch {
+                  /* ignore */
+                }
+              }}
+              className="text-accent hover:underline"
+            >
+              {copied ? "已复制" : "复制"}
+            </button>
+          )}
+        </div>
+        <code className="break-all text-foreground">{enabled === null ? "读取中…" : address ?? "未开通（平台尚未配置收信域名）"}</code>
+      </div>
+      <div className="rounded-lg border border-border/60 bg-background/60 p-2.5">
+        <label className="mb-1 block text-muted">允许转发的发件邮箱（每行一个）</label>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          placeholder="sales@your-factory.com"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+        />
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className={cn(notice ? (notice.ok ? "text-emerald-500" : "text-red-400") : "text-muted")}>
+            {notice?.text ?? ""}
+          </span>
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          >
+            {saving && <Loader2 size={12} className="animate-spin" />}保存白名单
+          </button>
+        </div>
+      </div>
+      <p className="text-muted">
+        只接收白名单里的邮箱转发来的邮件。发件人不在白名单、发件域名没通过 DKIM 验证、或识别不出买家邮箱 / 电话的邮件会被隔离并通知企业管理员，不会建线索。官网已经推送过的询盘再转发过来记为重复，不会重复建商机。
+      </p>
+    </div>
+  );
+}
+
 function AddChannelModal({ orgId, onClose, onAdded }: { orgId: string; onClose: () => void; onAdded: () => void }) {
   const [channel, setChannel] = useState("whatsapp");
   const [name, setName] = useState("");
   const [config, setConfig] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const info = CHANNEL_INFO[channel];
 
@@ -287,6 +401,7 @@ function AddChannelModal({ orgId, onClose, onAdded }: { orgId: string; onClose: 
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       const res = await apiFetch("/api/trade/channels", {
         method: "POST",
@@ -294,6 +409,10 @@ function AddChannelModal({ orgId, onClose, onAdded }: { orgId: string; onClose: 
         body: JSON.stringify({ orgId, channel, name, config }),
       });
       if (res.ok) onAdded();
+      else {
+        const d = (await res.json().catch(() => null)) as { error?: string; invalid?: string[] } | null;
+        setError(`${d?.error ?? "保存失败"}${d?.invalid?.length ? `：${d.invalid.join("、")}` : ""}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -331,6 +450,20 @@ function AddChannelModal({ orgId, onClose, onAdded }: { orgId: string; onClose: 
               />
             </div>
           ))}
+          {channel === "email" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-foreground">允许转发的发件邮箱（每行一个）</label>
+              <textarea
+                value={config.forwarderAllowlist ?? ""}
+                onChange={(e) => setConfig({ ...config, forwarderAllowlist: e.target.value })}
+                rows={3}
+                placeholder="sales@your-factory.com"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-blue-500 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-muted">转发地址由系统生成，保存后在通道卡片里查看。</p>
+            </div>
+          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3">
             <p className="text-xs text-amber-400">配置信息将加密存储。Webhook URL 配置完成后会显示在通道详情中。</p>
           </div>
