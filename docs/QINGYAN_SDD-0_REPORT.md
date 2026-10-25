@@ -93,7 +93,7 @@ openspec doctor                                      # OpenSpec root: ok
 | 2 | proposal 含 Out of scope 且写了 TASKFLOW ID | ✅ proposal.md 开头 `TASKFLOW：P0-9 / SDD-0`，末节 `Out of scope` |
 | 3 | `openspec update` 输出 v1.15.0 且 `.claude` / `openspec` 无 diff | ✅ `--force` 重生成后 24 个文件 md5 不变 |
 | 4 | `npm test` 新增 13 个 PASS；改名一个文件后校验退出 1 | ✅ 13 个新项 + "测试注册校验（SDD-0）"在 `npm test` 内全部 PASS；校验脚本改名 / 删注册行 / 基线过期 / 缺基线（rc=2）/ 无 env 六种情形全部按 spec 退出。整体 385/399：14 个失败全部与本 change 无关——10 项 `MISSING_DATABASE_URL`（Agent Trace / Phase3A-2…5 / Governance Hygiene）、`T4 授标情报真实 Postgres 矩阵` 需要 DATABASE_URL、`Gmail Draft OAuth Compose Scope` 与 `Quote Operations 客户报价 PDF 分页布局` 在干净的 origin/main 工作树上同样失败（已实跑复现）、`TypeScript 类型检查` 在默认 2GB 堆下 OOM，单独以 6GB 堆重跑退出 0 |
-| 5 | archive 后 `openspec list --specs` 列出 `qa/test-registry` | ⏳ 等 PR 合并后 `/opsx:archive register-muse-rfq-tests --yes`（独立小 PR）再验 |
+| 5 | archive 后 `openspec list --specs` 列出 `qa/test-registry` | ✅ PR #241 合并（`8284f30`）后执行 `openspec archive register-muse-rfq-tests --yes`：`openspec/specs/qa/test-registry/spec.md` 生成（4 条 Requirement / 8 个 Scenario，Purpose 原样带入），change 目录移至 `openspec/changes/archive/2026-10-25-register-muse-rfq-tests/`；`openspec list --specs` → `qa/test-registry requirements 4`；`openspec validate --specs --strict` 与 `--archived` 均通过。TASKFLOW P0-9 已是 `[x]`，无需再改 |
 | 6 | TASKFLOW P1-7 / P1-8 与 `git log --merges` 一致；P0-9 不带"注册待做" | ✅（P1-4/5/6 一并修正，见 §1-B） |
 | 7 | `.claude/launch.json` 未变 | ✅ `git diff` 无该文件 |
 
@@ -115,7 +115,7 @@ openspec doctor                                      # OpenSpec root: ok
 - **CI 不跑 `test-all.sh`**：`.github/workflows/ci.yml` 跑的是 `npm run test:ci`（`scripts/test-ci-unit.sh`，一个手工子集），所以这 13 个测试仍然不在 CI 门禁里，`check-test-registry.sh` 也不在。把校验脚本加进 `test-ci-unit.sh` 是一行改动，但任务书 §5 禁止在本次顺手改，建议作为下一个 change（`ci-run-test-registry-check`）。
 - **历史欠账 76 个**，按目录：supplier-intel 12、trade 10、sales 9、marketing 7、reminders 4、operations 4、blinds 4、bid-workflow 4、env 3、digital-employees 3，其余 16 个散落在 visualizer / revenue-spine / projects / knowledge 等 12 个目录。建议按模块清欠，每次一个小 change，同时从基线删行。
 - **`test-all.sh` 的 tsc 项没带 `NODE_OPTIONS`**（`npm run build` 用的是 `--max-old-space-size=6144`），在 2GB 默认堆的机器上会 OOM 误报。既有问题，任务书 §5 禁止在本次重构 `test-all.sh`，建议下一个 change 顺手对齐。
-- `/opsx:archive` 要等 PR 合并；archive 时会把 `specs/qa/test-registry/spec.md` 合成 `openspec/specs/qa/test-registry/spec.md`，change 目录移到 `openspec/changes/archive/<日期>-register-muse-rfq-tests/`。
+- archive 已完成（第二个小 PR）：`specs/qa/test-registry/spec.md` 合成为 `openspec/specs/qa/test-registry/spec.md`，change 目录移到 `openspec/changes/archive/2026-10-25-register-muse-rfq-tests/`。这是仓库里第一条归档规格；以后 `openspec show qa/test-registry` 就是"测试注册这件事系统现在应该是什么样"。
 
 ---
 
@@ -139,4 +139,4 @@ openspec doctor                                      # OpenSpec root: ok
 1. 下一个 change 把 `bash scripts/check-test-registry.sh` 加进 `scripts/test-ci-unit.sh`，让注册漂移进 CI 门禁（本任务书禁止顺手改 CI 子集）。
 2. `test-all.sh` 的 tsc 项加 `NODE_OPTIONS=--max-old-space-size=6144` 与 `npm run build` 对齐，避免小内存机器 OOM 误报。
 
-结论：No critical issues. 2 warning(s) to consider. Ready for archive（等 PR 合并后执行）。
+结论：No critical issues. 2 warning(s) to consider. Ready for archive → 已于 PR #241 合并后归档。
