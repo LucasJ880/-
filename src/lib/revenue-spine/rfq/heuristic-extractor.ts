@@ -230,7 +230,7 @@ const FORM_META_LABELS = new Set([
   "branding", "customization", "customisation", "logo", "packaging", "packing", "certification", "certification needs",
   "sample requirement", "colour", "color", "目标市场", "定制要求", "包装", "认证", "样品",
 ]);
-const LABELED_LINE_RE = /^[^\S\n]*(?:[-•*][^\S\n]+)?[*_]{0,2}([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[*_]{0,2}[^\S\n]*[:：][*_ \t]{0,3}?(\S[^\n]*?)[^\S\n]*$/gm;
+const LABELED_LINE_RE = /^[^\S\n]*(?:[-•*][^\S\n]+)?[*_]{0,2}([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[*_]{0,2}[^\S\n]*[:：][*_ \t]{0,3}?(\S(?:[^\n]*\S)?)[^\S\n]*$/gm;
 const FORM_DETAILS_RE = /^[^\S\n]*[—–-]+[^\S\n]*form details[^\S\n]*[—–-]+[^\S\n]*$/gim;
 // 一行里还有别的「Label:」：不是单字段值
 const SECOND_LABEL_RE = /[.;。；,，|｜]\s*[A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?\s*[:：]/;
@@ -315,14 +315,19 @@ const MATERIAL_WORDS = new Set(
 );
 const MATERIAL_GLUE = new Set([
   "with", "and", "back", "backing", "backed", "lining", "lined", "face", "front", "side", "sided", "blend", "blended",
-  "organic", "recycled", "combed", "brushed", "double", "single", "layer", "layers", "ply", "yarn", "dyed", "gsm", "fabric",
+  "organic", "recycled", "combed", "brushed", "double", "single", "layer", "layers", "ply", "yarn", "dyed", "gsm",
 ]);
-/** 材质值是否只由面料 / 工艺词、百分比、克重组成（中文值须正好是一个面料词） */
-function isPlainMaterial(value: string): boolean {
-  const v = value.trim();
-  if (/[\u4e00-\u9fff]/.test(v)) return MATERIAL_KEYWORDS.includes(v);
+/**
+ * 材质值整理后是否只由面料 / 工艺词、百分比、克重组成，且含一个完整的面料词（「Fabric」「Recycled fabric」不算）；
+ * 中文值须正好是一个面料词。返回整理后的值（去掉首尾标点和悬空的 with / and），不合格返回 null
+ */
+function plainMaterial(value: string): string | null {
+  const v = value.trim().replace(/^[\s,;/&+-]+|[\s,;/&+-]+$/g, "").replace(/\s+(?:with|and|&)$/i, "").trim();
+  if (!v) return null;
+  if (/[\u4e00-\u9fff]/.test(v)) return MATERIAL_KEYWORDS.includes(v) ? v : null;
+  if (!findKeyword(v.toLowerCase(), MATERIAL_KEYWORDS)) return null;
   const words = v.toLowerCase().replace(/\d+(?:\.\d+)?\s*%|\d+\s*gsm\b/g, " ").split(/[\s,+&/-]+/).filter(Boolean);
-  return words.length > 0 && words.some((w) => MATERIAL_WORDS.has(w)) && words.every((w) => MATERIAL_WORDS.has(w) || MATERIAL_GLUE.has(w));
+  return words.length > 0 && words.every((w) => MATERIAL_WORDS.has(w) || MATERIAL_GLUE.has(w)) ? v : null;
 }
 
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
@@ -360,7 +365,10 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
     case "material":
       // 值必须全由面料 / 工艺词组成（「flannel fleece with sherpa back」「100% polyester microfiber」「全棉」）；
       // 多一句别的（same as our last order、要求30天内交货）就不采用——草稿会复述它
-      return isPlainMaterial(value) ? [["material", value]] : null;
+      {
+        const m = plainMaterial(value);
+        return m ? [["material", m]] : null;
+      }
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
       const dims = [...sentence.matchAll(new RegExp(SIZE_RE.source, "gi"))];
@@ -430,7 +438,7 @@ function labeledFields(
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw)) continue;
     // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
-    if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5) buyerTypeLines.push([m.index, m.index + m[0].length]);
+    if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5 && raw.trim().length <= 30 && !/[，、；;]/.test(raw)) buyerTypeLines.push([m.index, m.index + m[0].length]);
     if (byField.has(field)) continue;
     const pairs = labeledValue(field, raw, now);
     if (!pairs) continue;
@@ -443,12 +451,18 @@ function labeledFields(
 }
 
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
-function mentionedIn(field: RfqField, text: string): boolean {
+function mentionedIn(field: RfqField, rawText: string): boolean {
+  // 链接里的数字、词（端口、utm_campaign=logo_towels）不是买家说的
+  const text = rawText.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*/gi, " ");
   if (!text.trim()) return false;
   const lower = text.toLowerCase();
   switch (field) {
     case "quantity":
-      return new RegExp(`\\d[\\d,，.]*\\s*(?:k|万|千)?\\s*(?:${UNIT_WORDS})(?![A-Za-z])|\\b(?:quantity|qty|volume|increase|reduce|double|half)\\b|数量|加量|减量`, "i").test(text);
+      // 买家自己写了任何两位以上的数（年份除外）或数量字眼，都算提到了数量（「Notes: total 8,000」）
+      return (
+        new RegExp(`\\d[\\d,，.]*\\s*(?:k|万|千)?\\s*(?:${UNIT_WORDS})(?![A-Za-z])|\\b(?:quantity|qty|volume|total|increase|reduce|double|half|units?|pieces?)\\b|数量|总共|加量|减量`, "i").test(text) ||
+        /(?<![\d.])(?!(?:19|20)\d{2}(?!\d))\d{2,}|\d{1,3}(?:[,，]\d{3})+/.test(text)
+      );
     case "requiredDeliveryDate":
       return (
         new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time|christmas|xmas|new year|easter|ramadan|eid|diwali|black friday|season|holiday\\w*|q[1-4]|no rush|quarter|spring|summer|autumn|fall|winter)\\b|交期|交货|到货|提前|推迟|延期|春节|圣诞|国庆|节前|年后|以后|季度`, "i").test(text) ||
@@ -461,7 +475,7 @@ function mentionedIn(field: RfqField, text: string): boolean {
     case "material":
       return findKeyword(lower, MATERIAL_KEYWORDS) !== null || /\b(?:material|fabric)\b|面料|材质/i.test(text);
     case "size":
-      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|super ?king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size|size (?:up|down)|bigger|smaller|larger|inch(?:es)?|cm)\b|\b[sml]\s*\/\s*[sml]\b|\d+\s*(?:by|x|×)\s*\d+|尺寸|尺码|规格|大号|中号|小号|均码|大一|小一/i.test(text);
+      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|super ?king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size|size (?:up|down)|bigger|smaller|larger|inch(?:es)?|cm)\b|\b[sml]\s*\/\s*[sml]\b|\b(?:xx?s|s|m|l|xx?l|[2-4]xl)\s*[-–~到]\s*(?:s|m|l|xx?l|[2-4]xl)\b|\d+\s*(?:by|x|×)\s*\d+|尺寸|尺码|规格|大号|中号|小号|均码|大一|小一|码/i.test(text);
     case "customization":
       return findKeyword(lower, CUSTOMIZATION_KEYWORDS) !== null || CUSTOMIZATION_WORD_RE.test(text) || /定制/.test(text);
     case "packaging":
@@ -692,8 +706,16 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   const keywordWins = (_hit: LabeledHit, field: RfqField) => mentionedIn(field, labeled.outsideText);
   const keywordQty = { quantity: fields.quantity, unit: fields.unit };
   let labeledCountry = false;
+  // 表单值只能补上或细化关键词结果，不能改成另一个（Birmingham, Alabama 不能把 Target market 的美国改成英国；
+  // Material: cotton 不能把 Construction 行里的 organic cotton 改粗）
+  const contradicts = (hit: LabeledHit) => {
+    const [field, value] = hit.pairs[0];
+    if (field === "destinationCountry") return fields.destinationCountry !== null && fields.destinationCountry !== value;
+    if (field === "material") return fields.material !== null && !String(value).toLowerCase().includes(fields.material.toLowerCase());
+    return false;
+  };
   for (const hit of labeled.hits) {
-    if (keywordWins(hit, hit.pairs[0][0])) continue;
+    if (keywordWins(hit, hit.pairs[0][0]) || contradicts(hit)) continue;
     for (const [field, value] of hit.pairs) {
       (fields as unknown as Record<string, unknown>)[field] = value;
       dropEvidence(field);

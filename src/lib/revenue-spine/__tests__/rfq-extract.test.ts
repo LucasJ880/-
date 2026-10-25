@@ -383,6 +383,22 @@ ok("第七轮审查用例：定制值里的各种否定、认证与样品不按�
   assert.doesNotMatch(fx(q + "Buyer type: Private label\nInquiry source: Logo towels landing page").customization ?? "", /landing page/i);
 });
 
+ok("第十轮审查用例：表单值只能补上或细化，不能改成另一个；正文里任何数量说法都算提到", () => {
+  const q = "Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 pcs\n";
+  assert.equal(fx(q + "Target market: USA\nDestination: Birmingham, Alabama").destinationCountry, "United States", "不把美国改成英国");
+  assert.equal(fx("Product: Bath towels\nHi\n\n— Form details —\nQuantity: 3000\nNotes: total 8,000").quantity, 8000);
+  assert.equal(fx(q + "Material: Fabric").material, null, "Fabric 不是面料");
+  assert.equal(fx(q + "Material: Cotton,").material, "Cotton", "去掉尾部标点");
+  assert.equal(fx(q + "Construction: organic cotton terry, double-layer\nMaterial: cotton").material, "organic cotton", "不把更具体的材质改粗");
+  assert.notEqual(fx("Product: Bathrobes\nBathrobes S-L, 500 each colour.\n\n— Form details —\nEstimated quantity: 2000 pcs\nSize / specification: XL").size, "XL", "正文写了尺码区间");
+  const zh = fx("Product: 毛巾\n您好，请报价。\n\n— Form details —\n买家类型：电商卖家，要印我们的logo，每条独立包装\n数量：3000 条");
+  assert.ok(zh.customization || zh.customLogo, "长句的买家类型行不当选项抹掉");
+  const t = "Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3,000 pcs\nPackaging: polybag" + " ".repeat(19800) + "x";
+  const started = Date.now();
+  fx(t);
+  assert.ok(Date.now() - started < 500, "长空白不能让抽取变慢");
+});
+
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-01");
