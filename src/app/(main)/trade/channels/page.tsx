@@ -210,9 +210,26 @@ export default function TradeChannelsPage() {
   );
 }
 
-function CopyField({ label, value, copyKey, copied, onCopy, children }: {
+/** 复制到剪贴板：返回 [当前已复制的 key, copy]（1.5 s 后复位；剪贴板不可用时静默） */
+function useCopy(): [string | null, (key: string, text: string) => void] {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+  return [copied, copy];
+}
+
+function CopyField({ label, value, empty = "—", copyKey, copied, onCopy, children }: {
   label: string;
   value: string | null;
+  /** value 为空时显示的占位 */
+  empty?: string;
   copyKey: string;
   copied: string | null;
   onCopy: (key: string, text: string) => void;
@@ -228,7 +245,7 @@ function CopyField({ label, value, copyKey, copied, onCopy, children }: {
           </button>
         )}
       </div>
-      <code className="break-all text-foreground">{value ?? "—"}</code>
+      <code className="break-all text-foreground">{value ?? empty}</code>
       {children}
     </div>
   );
@@ -251,7 +268,7 @@ function CodeBlock({ title, code, copyKey, copied, onCopy }: { title: string; co
 function WebsiteInquirySetup({ orgId }: { orgId: string }) {
   const [view, setView] = useState<WebsiteChannelView | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [copied, copy] = useCopy();
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; bad?: boolean } | null>(null);
   const [originsText, setOriginsText] = useState("");
@@ -280,16 +297,6 @@ function WebsiteInquirySetup({ orgId }: { orgId: string }) {
       cancelled = true;
     };
   }, [orgId, apply]);
-
-  const copy = async (key: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-      setTimeout(() => setCopied(null), 1500);
-    } catch {
-      /* ignore */
-    }
-  };
 
   const act = async (action: string, extra?: Record<string, unknown>): Promise<boolean> => {
     setBusy(action);
@@ -490,7 +497,7 @@ function EmailInboundSetup({ orgId, name }: { orgId: string; name: string }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, copy] = useCopy();
 
   useEffect(() => {
     let cancelled = false;
@@ -536,29 +543,14 @@ function EmailInboundSetup({ orgId, name }: { orgId: string; name: string }) {
       <p className="text-muted">
         把询盘邮件转发到下面的地址：官网询盘通知、阿里巴巴国际站 / 中国制造网等平台的询盘通知、客户直接发来的邮件都可以。系统识别出买家后进入「线索资产」（活动：邮件转发询盘），自动生成回复草稿并通知销售。
       </p>
-      <div className="rounded-lg border border-border/60 bg-background/60 p-2.5">
-        <div className="mb-1 flex items-center justify-between">
-          <span className="text-muted">转发地址</span>
-          {address && (
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(address);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                } catch {
-                  /* ignore */
-                }
-              }}
-              className="text-accent hover:underline"
-            >
-              {copied ? "已复制" : "复制"}
-            </button>
-          )}
-        </div>
-        <code className="break-all text-foreground">{enabled === null ? "读取中…" : address ?? "未开通（平台尚未配置收信域名）"}</code>
-      </div>
+      <CopyField
+        label="转发地址"
+        value={address}
+        empty={enabled === null ? "读取中…" : "未开通（平台尚未配置收信域名）"}
+        copyKey="address"
+        copied={copied}
+        onCopy={copy}
+      />
       <div className="rounded-lg border border-border/60 bg-background/60 p-2.5">
         <label className="mb-1 block text-muted">允许转发的发件邮箱（每行一个）</label>
         <textarea

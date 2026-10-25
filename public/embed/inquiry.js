@@ -14,6 +14,7 @@
  * 只存在本标签页的 sessionStorage 里，关掉标签页即清除。
  * 提交成功后在表单宿主元素上派发 `qingyan:inquiry-submitted`（detail: { receiptId }），站点可接自己的统计。
  */
+/* eslint @typescript-eslint/no-unused-vars: ["warn", { caughtErrors: "none" }] -- catch 必须带绑定：optional catch binding 在 EdgeHTML ≤18 / Safari ≤11.0 是语法错误，整个脚本都不会运行 */
 (function () {
   "use strict";
 
@@ -37,7 +38,7 @@
   var API_BASE;
   try {
     API_BASE = new URL(script.getAttribute("data-api") || script.src, window.location.href).origin;
-  } catch {
+  } catch (e) {
     return;
   }
   // 公开 key 同时放进查询参数：浏览器预检不带请求头的值，服务端靠它只为本通道白名单里的来源放行 CORS
@@ -126,7 +127,7 @@
   function session() {
     try {
       return window.sessionStorage;
-    } catch {
+    } catch (e) {
       return null;
     }
   }
@@ -138,7 +139,7 @@
       try {
         var saved = JSON.parse(store.getItem(FIRST_TOUCH_KEY) || "null");
         if (saved && typeof saved === "object") return saved;
-      } catch {
+      } catch (e) {
         /* ignore */
       }
     }
@@ -149,13 +150,13 @@
         var v = q.get(UTM_KEYS[i]);
         if (v) touch[UTM_KEYS[i]] = clip(v, 120);
       }
-    } catch {
+    } catch (e) {
       /* ignore */
     }
     if (store) {
       try {
         store.setItem(FIRST_TOUCH_KEY, JSON.stringify(touch));
-      } catch {
+      } catch (e) {
         /* ignore */
       }
     }
@@ -166,8 +167,7 @@
     var c = window.crypto;
     if (c && typeof c.randomUUID === "function") return c.randomUUID();
     var b = new Uint8Array(16);
-    if (c && c.getRandomValues) c.getRandomValues(b);
-    else for (var i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+    c.getRandomValues(b);
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     var h = [];
@@ -230,7 +230,7 @@
         root.adoptedStyleSheets = [sheet];
         sheetApplied = true;
       }
-    } catch {
+    } catch (e) {
       sheetApplied = false;
     }
     if (!sheetApplied) root.appendChild(el("style", { text: CSS }));
@@ -381,12 +381,12 @@
     wrap.replaceChild(done, form);
     try {
       title.focus();
-    } catch {
+    } catch (e) {
       /* ignore */
     }
     try {
       host.dispatchEvent(new CustomEvent("qingyan:inquiry-submitted", { bubbles: true, composed: true, detail: { receiptId: receiptId || null } }));
-    } catch {
+    } catch (e) {
       /* ignore */
     }
   }
