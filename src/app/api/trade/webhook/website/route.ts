@@ -6,6 +6,12 @@
  * 跨域：网站前端直接 fetch，故放开 CORS（密钥 + 蜜罐防滥用）
  * 事件身份：eventId 在任何业务写入前落收据（WebsiteInquiryReceipt），重发按事件逐项补齐缺失步骤；
  * 同一事件并发到达时后到者返回 busy 不并行执行。响应字段是真实记录，不由 HTTP 状态推断。
+ *
+ * 异步入站：请求内只做 收据 → Trade 线索/消息 → Revenue Spine（客户/商机/互动/行动）就返回 HTTP 200，
+ * 请求路径里没有 LLM。FDE（研究/RFQ 抽取/评分/草稿，约 90 s、2 次 LLM）由 after() 在响应之后执行，
+ * 执行前原子认领（与重发、cron 互斥，同一 FDE 不会跑两次）。首个响应 fde.status=queued、terminal=false、
+ * complete=false；FDE 到终态后，同一 eventId 重发或 GET ./status 返回 complete=true、fde.terminal=true。
+ * 重发从不在请求内执行 FDE：FDE 可重跑且未被认领时只用 after() 安排。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,11 +19,13 @@ import {
   ingestWebsiteInquiry,
   normalizeInquiry,
   resolveWebsiteChannelBySecret,
+  websiteWebhookBody,
 } from "@/lib/trade/website-inquiry";
 
 export const runtime = "nodejs";
-// 同步链：Trade 询盘 → Revenue Spine → FDE（RFQ 抽取 LLM ≤25s + 草稿润色 LLM ≤20s + 数十次 DB 往返）。
-// 隔离分支远程实测 FDE 89–92s、全链 123–141s（含本机→Neon 时延），120s 上限过紧；站点侧转发预算 305s（略大于此值）。
+// 请求路径（收据 + Trade + Revenue Spine intake）只有 DB 往返；after() 里的 FDE（RFQ 抽取 LLM ≤25s +
+// 草稿润色 LLM ≤20s + 数十次 DB 往返，远程实测 89–92s）同样计入本函数的 maxDuration，所以保持 300。
+// 与之耦合：FDE 认领过期 FDE_CLAIM_STALE_MS、收据处理过期 RECEIPT_PROCESSING_STALE_MS 都必须大于 300 s。
 export const maxDuration = 300;
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -82,48 +90,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await ingestWebsiteInquiry(channel.orgId, normalized.value);
+    // deferred：FDE 交给 after()（默认调度器）；HTTP 保持 200（不是 202）以兼容既有站点桥接
+    const result = await ingestWebsiteInquiry(channel.orgId, normalized.value, { fdeMode: "deferred" });
     // fde 取自真实记录（SalesAction / AgentRun / PendingAction）；terminal 告诉调用方是否还需继续恢复。
     // HTTP 200 不代表全链完成：调用方按 spine / opportunityId / complete / fde.terminal 判定。
-    const fde = result.fdeState
-      ? {
-          status: result.fdeState.status,
-          terminal: result.fdeState.terminal,
-          reason: result.fdeState.reason,
-          agentRunId: result.fdeState.agentRunId,
-          pendingActionId: result.fdeState.pendingActionId,
-        }
-      : result.fde
-        ? {
-            status: result.fde.ok ? "completed" : "failed",
-            terminal: false,
-            reason: result.fde.error ?? "FDE just ran",
-            agentRunId: result.fde.agentRunId,
-            pendingActionId: result.fde.pendingActionId,
-          }
-        : null;
-    return json(
-      {
-        ok: true,
-        eventId: result.eventId,
-        receiptId: result.receiptId,
-        prospectId: result.prospectId,
-        messageId: result.messageId,
-        duplicate: result.duplicate,
-        replay: result.replay,
-        recovered: result.recovered,
-        recoveredSteps: result.recoveredSteps,
-        busy: result.busy,
-        conflict: result.conflict,
-        contentDuplicateOf: result.contentDuplicateOf,
-        complete: result.complete,
-        opportunityId: result.spine.ok ? result.spine.opportunityId : null,
-        spine: result.spine.ok ? (result.spine.replay ? "replay" : "ok") : result.spine.code,
-        fde,
-      },
-      200,
-      origin,
-    );
+    return json(websiteWebhookBody(result), 200, origin);
   } catch (err) {
     console.error("[website-inquiry] ingest failed:", err);
     return json({ error: "server error" }, 500, origin);

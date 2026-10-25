@@ -244,6 +244,7 @@
     "src/lib/cockpit/metrics-engine.ts",
     "src/lib/context/search-engine.ts",
     "src/lib/pending-actions/executor.ts",
+    "src/lib/revenue-spine/fde/inbound-queue.ts",
     "src/lib/runtime/tool-executor.ts",
     "src/lib/sales/profile-engine.ts",
     "src/lib/secretary/followup-engine.ts",

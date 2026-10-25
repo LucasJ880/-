@@ -111,11 +111,13 @@ npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
 npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
 npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry-async.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards.test.ts
 npx tsx src/lib/trade/__tests__/booth-summary.test.ts
 npx tsx src/lib/trade/__tests__/style-references.test.ts
 npx tsx src/lib/trade/__tests__/email-sender.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts
