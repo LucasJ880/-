@@ -17,6 +17,8 @@ import { readMuseBindings, resolveBindingPure, withMuseBinding } from "../bindin
 import {
   formatApprovalOutcome,
   formatProjectLine,
+  museApprovalNeedsWebPreview,
+  webPreviewRequiredResponse,
   formatStatusMessage,
   gateIntent,
   notEnabledResponse,
@@ -142,6 +144,11 @@ const row = (over: Partial<StatusProjectRow>): StatusProjectRow => ({
   ok("重复批准 → 标注未重复执行", d.message.includes("未重复执行"));
   const f = formatApprovalOutcome("req-0001-abcdef", "reject", { ok: false, error: "无权操作该草稿" });
   ok("审批失败 → APPROVAL_FAILED + 原因", !f.ok && f.errorCode === "APPROVAL_FAILED" && f.message.includes("无权操作"));
+  ok("询盘回复（给买家的邮件）在 Muse 里不能直接批", museApprovalNeedsWebPreview("sales.send_inquiry_reply"));
+  ok("投标询价 / 催单仍可在 Muse 批（审批卡列出收件供应商与发件邮箱）", !museApprovalNeedsWebPreview("tender.send_rfq") && !museApprovalNeedsWebPreview("tender.send_chase"));
+  ok("查不到类型（不存在 / 跨组织）不在这里拦，交给 ApprovalPort", !museApprovalNeedsWebPreview(undefined) && !museApprovalNeedsWebPreview(null));
+  const w = webPreviewRequiredResponse("req-0001-abcdef");
+  ok("拒批回复指向今日询盘页", !w.ok && w.errorCode === "APPROVAL_FAILED" && w.message.includes("今日询盘"));
 }
 
 console.log("muse-bridge events-pure");

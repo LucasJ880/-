@@ -189,6 +189,21 @@ export type ApprovalDecisionOutcome = {
   duplicate?: boolean;
 };
 
+/**
+ * 只能在能看到完整内容的青砚网页上批准的 PendingAction 类型：Muse 审批卡只有一句标题，
+ * 看不到正文 / 风险提醒 / 中文对照，回"批准"一律拒绝（驳回不受影响）。
+ * 询盘回复 = 给买家的邮件（含无回复跟进），与微信数字确认同一口径。
+ */
+export const MUSE_WEB_ONLY_APPROVAL_TYPES = ["sales.send_inquiry_reply"] as const;
+
+export function museApprovalNeedsWebPreview(type: string | null | undefined): boolean {
+  return !!type && (MUSE_WEB_ONLY_APPROVAL_TYPES as readonly string[]).includes(type);
+}
+
+export function webPreviewRequiredResponse(requestId: string): MuseCommandResponse {
+  return errResponse(requestId, "APPROVAL_FAILED", "给买家的询盘回复需在青砚「今日询盘」页看完草稿后批准，这里不能直接批。");
+}
+
 export function formatApprovalOutcome(
   requestId: string,
   decision: "approve" | "reject",

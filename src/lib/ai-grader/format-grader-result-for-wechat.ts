@@ -11,6 +11,7 @@
 
 import type { GraderResult, RiskLevel } from "./types";
 import type { AdaptedPendingAction } from "./actions/to-pending-action";
+import { isWeChatConfirmableActionType } from "./actions/wechat-confirm-policy";
 
 const MAX_ISSUES = 5;
 const MAX_ACTIONS = 3;
@@ -57,7 +58,11 @@ export function formatGraderResultForWeChat(
     lines.push(`${i + 1}. ${issue.title}`);
   });
 
-  const usable = adaptedActions.filter((a) => a.ok && a.actionId).slice(0, MAX_ACTIONS);
+  // 只给微信可确认（白名单）的动作编号，编号与 wechat-confirm 的批次口径一致；
+  // 其余（对外发送 / 高风险）只列标题，不给编号，引导去网页审批
+  const created = adaptedActions.filter((a) => a.ok && a.actionId);
+  const usable = created.filter((a) => isWeChatConfirmableActionType(a.pendingType)).slice(0, MAX_ACTIONS);
+  const webOnly = created.filter((a) => !isWeChatConfirmableActionType(a.pendingType)).slice(0, MAX_ACTIONS);
   if (usable.length > 0) {
     lines.push("");
     lines.push("可执行：");
@@ -67,6 +72,11 @@ export function formatGraderResultForWeChat(
     });
     lines.push("");
     lines.push("回复编号即可确认，回复\u201c取消\u201d放弃。");
+  }
+  if (webOnly.length > 0) {
+    lines.push("");
+    lines.push("需在青砚网页看完内容后审批：");
+    webOnly.forEach((a) => lines.push(`· ${a.title}`));
   }
 
   return clamp(lines.join("\n"));

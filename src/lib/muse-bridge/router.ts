@@ -36,6 +36,8 @@ import {
   errResponse,
   formatApprovalOutcome,
   gateIntent,
+  museApprovalNeedsWebPreview,
+  webPreviewRequiredResponse,
   preferencesAdvisory,
   priceScenarioAdvisory,
   rfqCandidatesAdvisory,
@@ -82,6 +84,15 @@ export async function handleMuseCommand(
         response = await handleAsk(requestId, identity, command.projectId, command.question);
         break;
       case "approve": {
+        // 给买家的邮件只能在网页上看完草稿后批准（本组织内按 id 查类型；查不到交给 ApprovalPort 报不存在）
+        const target = await db.pendingAction.findFirst({
+          where: { id: command.approvalId, orgId: identity.orgId },
+          select: { type: true },
+        });
+        if (museApprovalNeedsWebPreview(target?.type)) {
+          response = webPreviewRequiredResponse(requestId);
+          break;
+        }
         const outcome = await approveApprovalItem("pending_action", command.approvalId, {
           userId: identity.userId,
           role: identity.role,

@@ -8,8 +8,9 @@
  * 执行时强制传入 orgId，触发 executor 的跨组织防护。
  *
  * 安全边界：
- * - 给买家发邮件的草稿（sales.send_inquiry_reply，含无回复跟进）不进数字确认 / 取消批次：
- *   只能在能看到完整预览（风险提醒 + 正文 + 中文对照）的青砚页面上批准。
+ * - 白名单（wechat-confirm-policy.ts）：只有内部、低风险的动作类型进数字确认 / 取消批次；
+ *   给买家 / 供应商发邮件、活动上线、报价让利等一律不进，只能在能看到完整内容的青砚网页上批准
+ *   （询盘回复：「今日询盘」页的风险提醒 + 正文 + 中文对照）。未知 / 新增类型默认排除。
  * - 只取当前绑定组织的动作（以及没有组织归属的个人旧动作），与网页审批的
  *   canConfirmPendingActionInActiveOrg 同一口径。
  */
@@ -20,6 +21,11 @@ import {
   approveApprovalItem,
   rejectApprovalItem,
 } from "@/lib/approval/port";
+import {
+  INQUIRY_REPLY_TYPE,
+  WECHAT_CONFIRMABLE_ACTION_TYPES,
+  weChatWebOnlyHint,
+} from "./wechat-confirm-policy";
 
 const MAX_BATCH = 3;
 const CANCEL_WORDS = ["取消", "放弃", "cancel", "算了", "不用了"];
@@ -35,10 +41,11 @@ export interface WeChatConfirmResult {
   reply?: string;
 }
 
-/** 不允许在微信里用数字 / 取消处理的动作类型（= INQUIRY_REPLY_ACTION_TYPE；此处不引入 FDE 模块，测试校验两者一致） */
-export const WECHAT_EXCLUDED_ACTION_TYPES = ["sales.send_inquiry_reply"] as const;
+function orgScope(orgId: string | null): Prisma.PendingActionWhereInput[] {
+  return orgId ? [{ orgId }, { orgId: null }] : [{ orgId: null }];
+}
 
-/** 纯函数：微信数字确认的候选范围（本人创建、待处理、未过期、非买家邮件、当前组织或无组织） */
+/** 纯函数：微信数字确认的候选范围（本人创建、待处理、未过期、类型在白名单内、当前组织或无组织） */
 export function weChatPendingActionWhere(
   userId: string,
   orgId: string | null,
@@ -48,8 +55,28 @@ export function weChatPendingActionWhere(
     createdById: userId,
     status: "pending",
     expiresAt: { gt: now },
-    type: { notIn: [...WECHAT_EXCLUDED_ACTION_TYPES] },
-    OR: orgId ? [{ orgId }, { orgId: null }] : [{ orgId: null }],
+    type: { in: [...WECHAT_CONFIRMABLE_ACTION_TYPES] },
+    OR: orgScope(orgId),
+  };
+}
+
+/**
+ * 纯函数：微信里不能处理、但该用户有份（本人发起或指定本人审批）的待审批动作——只用于计数提示，
+ * 组织范围与批次一致（当前组织或无组织）。
+ */
+export function weChatWebOnlyPendingWhere(
+  userId: string,
+  orgId: string | null,
+  now: Date = new Date(),
+): Prisma.PendingActionWhereInput {
+  return {
+    status: "pending",
+    expiresAt: { gt: now },
+    type: { notIn: [...WECHAT_CONFIRMABLE_ACTION_TYPES] },
+    AND: [
+      { OR: orgScope(orgId) },
+      { OR: [{ createdById: userId }, { approverUserId: userId }] },
+    ],
   };
 }
 
@@ -77,21 +104,24 @@ export async function getRecentPendingActionsForWeChat(
   return rows.reverse();
 }
 
-/** 有待审批的询盘回复时，提示去青砚看草稿（微信里不能批准给买家的邮件） */
-async function inquiryReplyHint(ctx: WeChatConfirmContext): Promise<string> {
-  if (!ctx.orgId) return "";
-  const n = await db.pendingAction
-    .count({
-      where: {
-        orgId: ctx.orgId,
-        type: { in: [...WECHAT_EXCLUDED_ACTION_TYPES] },
-        status: "pending",
-        expiresAt: { gt: new Date() },
-        OR: [{ createdById: ctx.userId }, { approverUserId: ctx.userId }],
-      },
-    })
-    .catch(() => 0);
-  return n > 0 ? `\n另有 ${n} 封询盘回复草稿待审批：给买家的邮件需在青砚「今日询盘」页看完草稿后批准。` : "";
+/** 有微信里不能批准的待审批动作时，提示去青砚网页（询盘回复 →「今日询盘」，其余 →「审批中心」） */
+async function webOnlyHint(ctx: WeChatConfirmContext): Promise<string> {
+  try {
+    const rows = await db.pendingAction.groupBy({
+      by: ["type"],
+      where: weChatWebOnlyPendingWhere(ctx.userId, ctx.orgId),
+      _count: { _all: true },
+    });
+    let inquiryReplies = 0;
+    let others = 0;
+    for (const r of rows) {
+      if (r.type === INQUIRY_REPLY_TYPE) inquiryReplies += r._count._all;
+      else others += r._count._all;
+    }
+    return weChatWebOnlyHint({ inquiryReplies, others });
+  } catch {
+    return "";
+  }
 }
 
 function isPureNumber(text: string): number | null {
@@ -129,7 +159,7 @@ export async function handleWeChatPendingReply(
   if (isCancel(text)) {
     const batch = await getRecentPendingActionsForWeChat(ctx.userId, ctx.orgId);
     if (batch.length === 0) {
-      return { handled: true, reply: `当前没有待确认的动作。${await inquiryReplyHint(ctx)}` };
+      return { handled: true, reply: `当前没有待确认的动作。${await webOnlyHint(ctx)}` };
     }
     const role = await loadRole();
     let rejected = 0;
@@ -165,10 +195,10 @@ export async function handleWeChatPendingReply(
 
   const batch = await getRecentPendingActionsForWeChat(ctx.userId, ctx.orgId);
   if (batch.length === 0) {
-    return { handled: true, reply: `没有找到对应的待确认动作，请重新发起。${await inquiryReplyHint(ctx)}` };
+    return { handled: true, reply: `没有找到对应的待确认动作，请重新发起。${await webOnlyHint(ctx)}` };
   }
   if (n < 1 || n > batch.length) {
-    return { handled: true, reply: `没有找到编号 ${n} 对应的待确认动作，请回复 1-${batch.length}。` };
+    return { handled: true, reply: `没有找到编号 ${n} 对应的待确认动作，请回复 1-${batch.length}。${await webOnlyHint(ctx)}` };
   }
 
   const target = batch[n - 1];
