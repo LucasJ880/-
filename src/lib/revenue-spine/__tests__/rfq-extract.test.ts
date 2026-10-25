@@ -325,10 +325,11 @@ ok("第二次提交的是别的产品：不拿它的字段改前一个产品", (
   assert.equal(r.size, "127 x 152 cm");
 });
 
-ok("表单里的买家类型选项不当定制 / 包装；买家在这一行写长句的不动", () => {
-  const opt = fx(["Product: Flannel blankets", "", block("Estimated quantity: 2000 pcs", "Buyer type: Retail & Private Label", "Material: flannel")].join("\n"));
-  assert.equal(opt.customization, null);
-  assert.equal(opt.packaging, null);
+ok("表单里的买家类型选项：没有自己的 Branding / Packaging 答案时保持原结果；买家在这一行写长句的不动", () => {
+  const optText = ["Product: Flannel blankets", "", block("Estimated quantity: 2000 pcs", "Buyer type: Retail & Private Label", "Material: flannel")].join("\n");
+  const opt = fx(optText);
+  const optOld = fx(optText.split("— Form details —").join("Form details"));
+  assert.deepEqual([opt.customization, opt.packaging, opt.customLogo], [optOld.customization, optOld.packaging, optOld.customLogo]);
   const long = fx(["Please send your best offer.", "", block("Estimated quantity: 3000 pcs", "Business type: Hotel supplier, need white 100% cotton towels with embroidered logo")].join("\n"));
   assert.equal(long.material, "100% cotton");
   assert.equal(long.color, "white");
@@ -480,6 +481,8 @@ ok("第十六轮审查用例：数量修饰后跟总数说法只取单位；尺�
   assert.equal(q("3000 pcs/colour"), "pcs per colour");
   for (const v of ["1500 pcs per colour, all colours combined", "1500 pcs per colour (total)", "3000 pcs / size: assorted", "2000 pcs/Colour: White (Total)"]) assert.equal(q(v), "pcs", v);
   assert.equal(q("1500件每色，合计"), "件");
+  assert.equal(q("3000件/色"), "件每色");
+  assert.equal(q("1500 pcs 每色"), "pcs");
   const sz = (lines: string) => {
     const t = `Product: Duvet Covers\nHi, could you quote us please? Regards.\n\n— Form details —\n${lines}`;
     return [fx(t).size, noForm(t).size];

@@ -371,6 +371,7 @@ async function main() {
       "Buyer type: Retail & Private Label",
       "Material: flannel fleece with sherpa back",
       "Branding: care label in EN/FR",
+      "Packaging: polybag + belly band",
       "Required date: March 2027",
     ].join("\n");
     const ex = extractRfqHeuristic(msg, { productKeywords: withFacts.businessProfile.productKeywords });
@@ -379,7 +380,8 @@ async function main() {
     assert.match(d.body, /- Quantity: 3000 pcs per colour\n/);
     assert.match(d.subject, /\(3000 pcs per colour\)/);
     assert.match(d.body, /- Material: flannel fleece with sherpa back\n/);
-    assert.doesNotMatch(d.body, /- Packaging: Retail & Private Label/, "买家类型选项不当包装");
+    assert.match(d.body, /- Customization: care label in EN\/FR\n/, "买家类型选项不当定制，用 Branding 答案");
+    assert.match(d.body, /- Packaging: polybag \+ belly band\n/, "买家类型选项不当包装，用 Packaging 答案");
     assert.match(d.body, /- Required delivery date: end of March 2027 \(2027-03-31\)\n/);
     assert.match(d.body, /Regarding pricing and certification: our team will confirm these internally/);
     const zh = buildReplyDraft({ ...base, language: "zh", fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });

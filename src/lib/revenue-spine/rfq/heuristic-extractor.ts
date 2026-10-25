@@ -286,7 +286,10 @@ function labeledQuantity(value: string): LabeledPairs | null {
     if (u) {
       const word = /^(?:piece|pieces|pc)$/i.test(u[1]) ? "pcs" : u[1].toLowerCase();
       const per = QTY_PER_RE.exec(after.trimStart().slice(u[0].length));
-      unit = word + (per?.[1] ? ` per ${per[1].toLowerCase()}` : per?.[2] ? `每${per[2]}` : "");
+      const q = per?.[1] ?? per?.[2];
+      // 修饰与单位同一种文字才带上：件/色 → 件每色，pcs per colour；「pcs 每色」「件 per colour」只取单位
+      const cjk = (x: string) => /[\u4e00-\u9fff]/.test(x);
+      unit = word + (q && cjk(q) === cjk(word) ? (cjk(q) ? `每${q}` : ` per ${q.toLowerCase()}`) : "");
     }
     candidates.push({ n, unit, rest: after.trim() });
   }
@@ -748,11 +751,9 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       if (same) add("unit", same, 0.6, hit.index, hit.length);
     }
   }
-  // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）。关键词从那一行读到定制 / 包装时：
-  // 1) 买家在正文里提到了这个字段 → 保持原结果；
-  // 2) 这个字段自己的表单行（Branding / Packaging）有能用的答案 → 用它；
-  // 3) 否则买家在表单其它行提到过 → 保持原结果；都没有 → 作废（草稿改为追问，不复述买家类型），
-  //    同一个关键词读出的 customLogo 一起作废。用自己的答案时 customLogo 不动。
+  // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）。关键词从那一行读到定制 / 包装、
+  // 买家在正文里没提这个字段、而这个字段自己的表单行（Branding / Packaging）有能用的答案时，改用这个答案；
+  // 否则保持原结果（不作废：买家可能用关键词不认识的说法在别处提过）。customLogo 不动。
   // 自己的答案只在全由「普通定制 / 包装用词」组成时采用（品牌名、费用、条件、否定、改口一概不收）
   const PLAIN_WORDS: Record<"customization" | "packaging", Set<string>> = {
     customization: new Set(("logo logos embroidered embroidery embroider printed printing print woven label labels tag tags hang care patch patches " +
@@ -789,35 +790,15 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const at = source.indexOf(value, a);
     return { text: value, at: at >= a && at < b ? at : a };
   };
-  // 买家类型选项行以外的任何一行（含 Colour、Notes、Target price）提到了定制 / 包装：宁可多认（关键词表之外的
-  // monogram、personalised、hang tags、袋装…），认到就保持原结果。找包装时 Branding 行不算（care label 不是包装）
-  const MORE_WORDS = {
-    customization:
-      /\b(?:customi[sz]\w*|monogram\w*|personali[sz]\w*|initials|crest|emblem|screen ?prints?|heat ?transfer|own design|logotipo|bordad\w*)\b|标志|標誌|订制|客制|繡|印字|加字|店名|字样/i,
-    packaging:
-      /\b(?:poly ?bags?|bags?|bagged|box(?:es|ed)?|hang ?tags?|cartons?|ctns?|shrink\w*|wrap\w*|belly ?bands?|header ?cards?|inserts?|stickers?)\b|袋|盒|箱|包裝|彩卡|腰封|吊牌|真空/i,
-  };
-  const mentionedOutsideOption = (field: "customization" | "packaging") => {
-    const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
-    let rest = labeled.buyerTypeLines.reduce((t, [a, b]) => blank(t, a, b), source);
-    if (field === "packaging") {
-      for (const [a, b, l] of labeled.specLines) if (/^(?:branding|customi[sz]ation|logo|定制要求)$/.test(l)) rest = blank(rest, a, b);
-    }
-    return mentionedIn(field, rest) || MORE_WORDS[field].test(rest.replace(/https?:\/\/[\x21-\x7e]+|www\.[\x21-\x7e]+|[\x21-\x7e]*utm_[\x21-\x7e]*/gi, " "));
-  };
   for (const field of ["customization", "packaging"] as const) {
     const k = keywordPos.get(field);
     if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
     if (mentionedIn(field, labeled.outsideText)) continue;
     const answer = ownAnswer(field);
-    if (!answer && mentionedOutsideOption(field)) continue;
-    fields[field] = answer?.text ?? null;
+    if (!answer) continue;
+    fields[field] = answer.text;
     dropEvidence(field);
-    if (answer) add(field, answer.text, 0.7, answer.at, answer.text.length);
-    else if (field === "customization") {
-      fields.customLogo = null;
-      dropEvidence("customLogo");
-    }
+    add(field, answer.text, 0.7, answer.at, answer.text.length);
   }
 
   return { fields, evidence, language, method: "heuristic", notes };
