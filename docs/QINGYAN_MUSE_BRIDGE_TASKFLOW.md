@@ -26,7 +26,7 @@
 | P0-6 | 挂钩 ①：PendingAction 创建 → `approval.requested` | P0-5 | `pending-actions/drafts.ts` 末尾 `notifyMuseApprovalRequested` | [x] |
 | P0-7 | 挂钩 ②：分析终态化 → `analysis.ready`（legacy worker FINALIZE + workforce 两个 finalize，三面全接） | P0-5 | `hooks.ts museOnAnalysisFinalized`；`worker.ts` / `tender-workforce/tools.ts` | [x] |
 | P0-8 | 挂钩 ③：inquiry 状态变更 → `reply.received` / `quote.parsed` / `missing_fields` | P0-5 | `hooks.ts museOnInquiryReplied / museOnQuoteRecorded`；`inquiry/service.ts` | [x] |
-| P0-9 | 纯逻辑测试（43 项）；`scripts/test-all.sh` 注册 | P0-1..5 | `__tests__/muse-bridge-pure.test.ts` | [x]（注册待做） |
+| P0-9 | 纯逻辑测试（43 项）；`scripts/test-all.sh` 注册 | P0-1..5 | `__tests__/muse-bridge-pure.test.ts` | [x] |
 | P0-10 | ApiToken 种子：`system=muse-bridge`，`permissions=muse:bridge` | — | 运维步骤（见 §验收） | [ ] |
 
 **GATE-0 验收（Claude 审）**
