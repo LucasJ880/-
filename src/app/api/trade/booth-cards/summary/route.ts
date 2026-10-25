@@ -7,18 +7,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
-import { resolveOrgTimezone } from "@/lib/automation/registry";
-import { db } from "@/lib/db";
+import { loadOrgTimezone } from "@/lib/automation/registry";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { BOOTH_CARD_ROLES } from "@/lib/trade/booth-cards";
 import { boothDayOf, collectBoothSummary, formatBoothSummary, sendBoothSummary } from "@/lib/trade/booth-summary";
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-async function orgTimeZone(orgId: string): Promise<string> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  return resolveOrgTimezone(org?.settingsJson ?? null);
-}
 
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, BOOTH_CARD_ROLES);
@@ -26,7 +20,7 @@ export async function GET(request: NextRequest) {
   const orgRes = await resolveTradeOrgId(request, auth.user);
   if (!orgRes.ok) return orgRes.response;
 
-  const timeZone = await orgTimeZone(orgRes.orgId);
+  const timeZone = await loadOrgTimezone(orgRes.orgId);
   const q = new URL(request.url).searchParams.get("day") ?? "";
   const day = DAY_RE.test(q) ? q : boothDayOf(new Date(), timeZone);
   const summary = await collectBoothSummary(orgRes.orgId, day, timeZone);
@@ -42,7 +36,7 @@ export async function POST(request: NextRequest) {
   });
   if (!orgRes.ok) return orgRes.response;
 
-  const timeZone = await orgTimeZone(orgRes.orgId);
+  const timeZone = await loadOrgTimezone(orgRes.orgId);
   const day = typeof body.day === "string" && DAY_RE.test(body.day) ? body.day : boothDayOf(new Date(), timeZone);
   const r = await sendBoothSummary(orgRes.orgId, day, timeZone);
   return NextResponse.json({ day, ...r });

@@ -386,6 +386,14 @@ async function main() {
     ok(prospectsD === 2 && (interD?.rawMessages ?? "").includes("purchasing@maple-hotels.ca") && (interD?.rawMessages ?? "").includes("Purchasing Dept"), "Case D：Trade 侧保留独立联系人线索，互动保留第二联系人证据", { prospectsD, raw: interD?.rawMessages?.slice(0, 200) });
     const custD = await db.salesCustomer.findUnique({ where: { id: w4.spine.ok ? w4.spine.customerId : "" } });
     ok(custD?.email === "mark@maple-hotels.ca" && custD.contactName === "Mark Chen", "Case D：账户主联系人不被覆盖", custD);
+    const fdeD = await runInboundSalesFde({ orgId: ORG, opportunityId: w4.spine.ok ? w4.spine.opportunityId : "", trigger: "customer_reply", useLlm: false });
+    const paD = fdeD.pendingActionId ? await db.pendingAction.findUnique({ where: { id: fdeD.pendingActionId } }) : null;
+    const payD = (paD?.payload ?? {}) as Record<string, unknown>;
+    ok(
+      payD.to === "mark@maple-hotels.ca" && (paD?.title ?? "").startsWith("⚠") && (paD?.preview ?? "").includes("另一位联系人（Purchasing Dept purchasing@maple-hotels.ca）"),
+      "Case D：收件人仍是账户主联系人（发送端边界不放宽），审批标题与预览提醒最新来信换了人",
+      { to: payD.to, title: paD?.title, preview: (paD?.preview ?? "").slice(0, 200), fde: { ok: fdeD.ok, err: fdeD.error } },
+    );
 
     console.log("\n[12] 授权边界：API org 解析 + supervisor 取消");
     const { NextRequest } = await import("next/server");
@@ -920,16 +928,29 @@ async function main() {
       return { status: res.status, body: (await res.json()) as WebhookBody };
     };
     const W = { eventId: evt("w"), name: "Wendy Webhook", email: "wendy@webhook-suites.ca", company: "Webhook Suites", country: "Canada", message: "Need 900 bath towels 70x140cm for a resort in Kelowna. MOQ and price please." };
-    const h1w = await hitWebhook(W);
+    // 异步入站：webhook 请求内不跑 FDE，交给 after()；测试注入调度器，确定性地执行回调
+    const { __setDefaultFdeSchedulerForTest } = await import("@/lib/trade/website-inquiry");
+    const deferredTasks: Array<() => Promise<void>> = [];
+    __setDefaultFdeSchedulerForTest((task) => {
+      deferredTasks.push(task);
+    });
+    let h1w: Awaited<ReturnType<typeof hitWebhook>>;
+    let h2w: Awaited<ReturnType<typeof hitWebhook>>;
+    try {
+      h1w = await hitWebhook(W);
+      ok(
+        h1w.status === 200 && h1w.body.ok === true && h1w.body.eventId === W.eventId && !!h1w.body.receiptId && !!h1w.body.opportunityId && h1w.body.spine === "ok" && h1w.body.complete === false && h1w.body.fde?.status === "queued" && h1w.body.fde?.terminal === false && deferredTasks.length === 1,
+        "I：webhook 首发响应含事件身份 + 主干；FDE 已排队（queued、非终态、未完成），请求内未执行",
+        h1w.body,
+      );
+      while (deferredTasks.length) await deferredTasks.shift()!();
+      h2w = await hitWebhook(W);
+    } finally {
+      __setDefaultFdeSchedulerForTest(null);
+    }
     ok(
-      h1w.status === 200 && h1w.body.ok === true && h1w.body.eventId === W.eventId && !!h1w.body.receiptId && !!h1w.body.opportunityId && h1w.body.spine === "ok" && h1w.body.complete === true && h1w.body.fde?.terminal === true && !!h1w.body.fde?.pendingActionId,
-      "I：webhook 首发响应含事件身份 + 真实 FDE 终态 + complete",
-      h1w.body,
-    );
-    const h2w = await hitWebhook(W);
-    ok(
-      h2w.body.replay === true && h2w.body.recovered === false && h2w.body.messageId === h1w.body.messageId && h2w.body.opportunityId === h1w.body.opportunityId && h2w.body.fde?.pendingActionId === h1w.body.fde?.pendingActionId,
-      "I：webhook 重放返回真实下游 ID 与 FDE 状态",
+      h2w.body.replay === true && h2w.body.recovered === false && h2w.body.messageId === h1w.body.messageId && h2w.body.opportunityId === h1w.body.opportunityId && h2w.body.complete === true && h2w.body.fde?.terminal === true && !!h2w.body.fde?.pendingActionId,
+      "I：after() 回调跑完 FDE 后，webhook 重放返回真实下游 ID、FDE 终态与 complete",
       h2w.body,
     );
     const cW = await wCounts(W.email);
@@ -1060,6 +1081,22 @@ async function main() {
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });
     ok(audits >= 10, "审计日志覆盖 intake / transition / send / outcome", audits);
+
+    console.log("\n[17] RFQ 合并：目的国换了而这次没说城市 → 旧城市清掉；没说目的国 → 城市保留");
+    const { upsertRfq } = await import("../rfq/persist");
+    const { emptyRfqFields } = await import("../rfq/types");
+    const probe = await intakeInquiry({ orgId: ORG, source: "email", contact: { name: "City Probe", email: "probe@city-probe.example", company: "City Probe Ltd" }, message: "Need 1000 bath towels.", actorUserId: TRADE });
+    if (!probe.ok) throw new Error("city probe intake failed");
+    const ext = (fields: Record<string, unknown>) => ({ fields: { ...emptyRfqFields(), ...fields }, evidence: [], language: "en", method: "heuristic", notes: [] }) as Parameters<typeof upsertRfq>[0]["extraction"];
+    const persist = (fields: Record<string, unknown>) =>
+      upsertRfq({ orgId: ORG, opportunityId: probe.opportunityId, customerId: probe.customerId, extraction: ext(fields), sourceInteractionId: null, sourceKind: "email" });
+    await persist({ quantity: 1000, destinationCountry: "Canada", destinationCity: "Toronto" });
+    await persist({ quantity: 1000 });
+    const kept = await db.salesRfq.findUnique({ where: { opportunityId: probe.opportunityId } });
+    ok(kept?.destinationCountry === "Canada" && kept.destinationCity === "Toronto", "没说目的国：城市保留", kept);
+    await persist({ destinationCountry: "United States" });
+    const moved = await db.salesRfq.findUnique({ where: { opportunityId: probe.opportunityId } });
+    ok(moved?.destinationCountry === "United States" && moved.destinationCity === null && moved.quantity === 1000, "目的国换了：旧城市清掉，其余字段保留", moved);
   } catch (err) {
     // 记下抛出的错误，让 finally 里的诊断能连同它一起落盘，然后原样抛出
     thrownError = err;

@@ -6,7 +6,22 @@ export {
   resolveBindingOrgId,
   updateBindingPreferences,
   removeBinding,
+  sanitizeBindingPreferences,
 } from "./binding";
+export type { BindingPreferences, CreateBindingResult } from "./binding";
+export {
+  BIND_CODE_VALID_MINUTES,
+  PERSONAL_WECHAT_BIND_COMMAND,
+  bindCodeKeyFromEnv,
+  buildUnboundReply,
+  decideBindingClaim,
+  formatBindCode,
+  isPersonalWeChatBindCommand,
+  issueBindCode,
+  normalizeBindCode,
+  verifyBindCode,
+} from "./binding-proof";
+export type { BindingClaimDecision } from "./binding-proof";
 export {
   PLATFORM_WECOM_ORG_ID,
   PLATFORM_WECOM_QUERY,

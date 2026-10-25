@@ -19,7 +19,9 @@ export type InquiryRiskCode =
   | "claimed_agreement"
   | "compensation_claim"
   | "under_invoicing"
-  | "ddp_terms";
+  | "ddp_terms"
+  /** FDE 写入：最新来信人不是账户主联系人（同域复用商机） */
+  | "other_contact";
 
 export interface InquiryRisk {
   code: InquiryRiskCode;
@@ -108,7 +110,7 @@ const RULES: Array<{ code: InquiryRiskCode; test: (t: string) => string | null }
     code: "certification_claim",
     test: (t) =>
       /\b(send|share|provide|attach)\b[^.\n]{0,40}\bcertificat|\bcertificat\w*\b[^.\n]{0,20}\bcop(?:y|ies)\b|\bdo you have\b[^.\n]{0,40}\b(bsci|sedex|smeta|oeko|gots|grs|iso\s?9001|wrap|amfori|certificat)|(提供|发|给).{0,6}(证书|认证)|有没有.{0,10}(证书|认证|验厂)/i.test(t)
-        ? "买家要证书（BSCI / OEKO-TEX / GOTS 等）：只能提供梦馨真实持有的证书，没有的不要说有"
+        ? "买家要证书（BSCI / OEKO-TEX / GOTS 等）：只能提供本厂真实持有、已入档的证书，没有的不要说有"
         : null,
   },
   {

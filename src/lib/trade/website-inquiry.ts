@@ -5,38 +5,65 @@
  *   → 归一化校验 → 归集到「网站询盘」活动 → 按邮箱去重建/复用线索
  *   → 写入 inbound 消息（含 UTM/来源页）→ 线索标为待立即跟进 → 通知销售
  *
- * 密钥放在公开网页里本质是防滥用令牌而非机密：配合蜜罐字段与通道可停用。
+ * 服务端密钥只应放在站点服务器上（见 docs/QINGYAN_INTAKE_WEBHOOK.md）；浏览器直接提交走嵌入表单的
+ * 公开 key + 来源白名单 + 限流（embed-intake.ts，origin=embed）。旧版渠道页曾把密钥写进网页，
+ * 这类站点应迁移到嵌入表单并轮换密钥（旧密钥宽限期后失效）。
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { after } from "next/server";
+import type { WebsiteInquiryReceipt } from "@prisma/client";
 import { db } from "@/lib/db";
 import { createProspect } from "@/lib/trade/service";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { intakeInquiry, type InquiryIntakeInput, type IntakeResult } from "@/lib/revenue-spine/inquiry-intake";
-import type { InquiryLanguage } from "@/lib/revenue-spine/normalize";
-import { INQUIRY_REPLY_ACTION_TYPE, runInboundSalesFde, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
+import { isFreeMailDomain, type InquiryLanguage } from "@/lib/revenue-spine/normalize";
+import { runInboundSalesFde, type FdeTrigger, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
+import {
+  FDE_RERUNNABLE,
+  loadFdeState,
+  runQueuedInboundFde,
+  type FdeClaimant,
+  type FdeState,
+  type QueuedFdeRun,
+  type RunQueuedFdeOptions,
+} from "@/lib/revenue-spine/fde/inbound-queue";
 import { addBusinessHours } from "@/lib/revenue-spine/business-days";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
 import {
   BOOTH_CARD_SOURCE,
+  EMBED_INQUIRY_SOURCE,
+  EMAIL_FORWARD_SOURCE,
+  RECEIPT_PROCESSING_STALE_MS,
   WEBSITE_INQUIRY_SOURCE,
+  WHATSAPP_INBOUND_SOURCE,
   claimInquiryReceipt,
+  findReceiptByEventId,
   fromReceiptPayload,
   linkReceipt,
+  receiptMeta,
   releaseReceipt,
 } from "./website-inquiry-receipts";
 import { ensureOutreachSequence } from "./outreach-sequence";
+import { matchWebsiteSecret } from "./website-channel-credentials";
+import { inboundPlaceholderCompanyName } from "./channel-service";
+import { findActiveWebsiteChannel } from "./embed-intake";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 export const BOOTH_CARD_CAMPAIGN_NAME = "展会速记卡";
+export const EMAIL_FORWARD_CAMPAIGN_NAME = "邮件转发询盘";
+/** 消息通道（WhatsApp / 微信）来信归集的活动；与 channel-service 旧 Trade 通道同名 */
+export const CHANNEL_INQUIRY_CAMPAIGN_NAME = "渠道询盘";
 
 /**
- * 线索从哪来：网站表单（默认），或展会速记卡（夜间批量录入）。两者走同一条链路，
- * 只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
+ * 线索从哪来：网站表单（默认，站点后端带密钥转发）、青砚托管的嵌入表单（embed，浏览器带公开 key 直接提交）、
+ * 展会速记卡（夜间批量录入）、邮件转发（Resend 入站，见 email-inbound.ts）或 WhatsApp 来信（whatsapp-inbound.ts）。
+ * 走同一条链路，只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
  */
 export interface IngestOrigin {
-  kind: "website" | "trade_show";
+  kind: "website" | "trade_show" | "embed" | "email_forward" | "whatsapp";
+  /** 原邮件主题（去掉 Fwd:/FW: 前缀）；仅 email_forward，写入主干互动 subject */
+  subject?: string | null;
   /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
   event?: string | null;
   /** 买家在展位看过的参考款（款号 + 参考表里的品类名），草稿逐一点名；仅 trade_show */
@@ -47,34 +74,79 @@ export interface IngestOrigin {
   sales?: string | null;
 }
 
+/**
+ * 各来源只在这些值上不同，其余走同一条链路：
+ * - channel：TradeProspect.source / TradeMessage.channel / 通知与进线分析的来源；interactionChannel：主干互动 meta.channel；
+ *   intakeSource：Revenue Spine 来源；receiptSource：收据的事件身份空间。
+ * - notify：all = 每次进线都通知外贸成员；new = 只在新建线索时通知（同一号码的后续消息只通知商机负责人，由 intake 发）；
+ *   none = 不通知（展会速记卡：录入人就是操作者，一晚几十张不逐条通知）。
+ * - chat：平台消息 id 唯一、没有邮箱的聊天通道（WhatsApp wamid）。不做内容去重（同一买家两次「ok」是两条消息）、
+ *   不另跑 TradeInquiryAnalysis（单管线：FDE 即分析）、不建外联序列（邮件节奏），线索按「WhatsApp <号码>」占位名复用。
+ */
+const WEBSITE = {
+  campaign: WEBSITE_INQUIRY_CAMPAIGN_NAME,
+  campaignDesc: "独立站表单自动归集的询盘",
+  receiptSource: WEBSITE_INQUIRY_SOURCE,
+  channel: "website",
+  interactionChannel: "website",
+  intakeSource: "website_inquiry",
+  label: "网站询盘",
+  pageLabel: "来源页",
+  notify: "all",
+  chat: false,
+} as const;
+
 const ORIGINS = {
-  website: {
-    campaign: WEBSITE_INQUIRY_CAMPAIGN_NAME,
-    campaignDesc: "独立站表单自动归集的询盘",
-    receiptSource: WEBSITE_INQUIRY_SOURCE,
-    prospectSource: "website",
-    messageChannel: "website",
-    label: "网站询盘",
-    pageLabel: "来源页",
-    intakeSource: "website_inquiry",
-    interactionChannel: "website",
-    // 买家主动来询：通知外贸成员
-    notify: true,
-  },
+  website: WEBSITE,
+  // 嵌入表单 = 网站询盘的另一种接入方式：收据来源独立（事件 id 为 emb:<浏览器生成的 uuid>），标签注明来自嵌入表单
+  embed: { ...WEBSITE, receiptSource: EMBED_INQUIRY_SOURCE, label: "网站询盘（嵌入表单）" },
   trade_show: {
+    ...WEBSITE,
     campaign: BOOTH_CARD_CAMPAIGN_NAME,
     campaignDesc: "展位速记卡（名片 + 勾选项）夜间录入的线索",
     receiptSource: BOOTH_CARD_SOURCE,
-    prospectSource: "exhibition",
-    messageChannel: "exhibition",
+    channel: "exhibition",
+    interactionChannel: "trade_show",
+    intakeSource: "trade_show",
     label: "展会速记卡",
     pageLabel: "展会",
-    intakeSource: "trade_show",
-    interactionChannel: "trade_show",
-    // 录入人就是操作者，一晚几十张不逐条通知
-    notify: false,
+    notify: "none",
+  },
+  whatsapp: {
+    ...WEBSITE,
+    campaign: CHANNEL_INQUIRY_CAMPAIGN_NAME,
+    campaignDesc: "消息通道陌生来信自动归集的询盘",
+    receiptSource: WHATSAPP_INBOUND_SOURCE,
+    channel: "whatsapp",
+    interactionChannel: "whatsapp",
+    intakeSource: "whatsapp",
+    label: "WhatsApp 来信",
+    notify: "new",
+    chat: true,
+  },
+  email_forward: {
+    ...WEBSITE,
+    campaign: EMAIL_FORWARD_CAMPAIGN_NAME,
+    campaignDesc: "转发到询盘邮箱的询盘邮件自动归集的线索",
+    receiptSource: EMAIL_FORWARD_SOURCE,
+    channel: "email",
+    interactionChannel: "email",
+    intakeSource: "email",
+    label: "邮件转发询盘",
   },
 } as const;
+
+/**
+ * 收据 → 来源（恢复 / 状态查询 / 邮件重投重放）：种类按 receiptSource 反查，未知来源按网站询盘。
+ * 邮件转发另带首次收到时记在收据 meta 里的原主题（没有或空串 → null），重放补建主干时互动 subject 与首次一致。
+ */
+export function originOfReceipt(receipt: Pick<WebsiteInquiryReceipt, "source" | "payload">): IngestOrigin {
+  const kinds = Object.keys(ORIGINS) as IngestOrigin["kind"][];
+  const kind = kinds.find((k) => ORIGINS[k].receiptSource === receipt.source) ?? "website";
+  if (kind !== "email_forward") return { kind };
+  const subject = receiptMeta(receipt).subject;
+  return { kind, subject: typeof subject === "string" && subject ? subject : null };
+}
 
 const LIMITS = {
   name: 120,
@@ -86,6 +158,8 @@ const LIMITS = {
   product: 200,
   website: 300,
   page: 500,
+  referrer: 500,
+  landing: 500,
   utm: 120,
   eventId: 120,
 } as const;
@@ -114,6 +188,10 @@ export interface NormalizedInquiry {
   product: string;
   website: string;
   page: string;
+  /** 首次访问时的 document.referrer（归因字段，与 page / UTM 一样不进业务指纹） */
+  referrer: string;
+  /** 首次访问的落地页（归因字段，不进业务指纹） */
+  landing: string;
   utm: { source: string; medium: string; campaign: string; content: string; term: string };
   /** 站点侧原始询盘 id（重发时相同）；存入主干 sourceRef.externalId 并用于按 id 重放 */
   eventId: string;
@@ -129,6 +207,45 @@ function str(v: unknown, max: number): string {
   return v.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+/** 事件 id 的清洗（折叠空白、截到 120 字符）：入站与状态查询共用，否则长 id 查不到收据 */
+export const normalizeEventId = (raw: unknown): string => str(raw, LIMITS.eventId);
+
+/**
+ * 留言保留换行（站点把表单明细按行附在留言后，压成一行会让「品牌：…」「包装：…」粘在一起被 RFQ 抽取误读）；
+ * 行内空白压成一个空格，连续空行最多保留一行。收据指纹按压成一行的形式计算（computePayloadHash），与旧数据一致。
+ */
+function messageStr(v: unknown, max: number): string {
+  if (typeof v !== "string") return "";
+  return v
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[^\S\n]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, max);
+}
+
+/** 空询盘载荷（全部字段为空、未触发蜜罐）：各入站来源只覆盖自己有的字段 */
+export function blankInquiry(eventId: string): NormalizedInquiry {
+  return {
+    name: "",
+    email: "",
+    phone: "",
+    company: "",
+    country: "",
+    message: "",
+    product: "",
+    website: "",
+    page: "",
+    referrer: "",
+    landing: "",
+    utm: { source: "", medium: "", campaign: "", content: "", term: "" },
+    eventId,
+    honeypotTripped: false,
+  };
+}
+
 /** 纯函数：清洗+校验网站表单载荷（JSON 或 form 字段均为字符串） */
 export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult {
   const honeypotTripped = Boolean(str(raw._hp, 50) || str(raw.website_url, 50));
@@ -136,19 +253,10 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
   const phone = str(raw.phone ?? raw.whatsapp, LIMITS.phone);
   const name = str(raw.name ?? raw.contact ?? raw.contactName, LIMITS.name);
   const company = str(raw.company ?? raw.companyName, LIMITS.company);
-  const eventId = str(raw.eventId ?? raw.event_id, LIMITS.eventId);
+  const eventId = normalizeEventId(raw.eventId ?? raw.event_id);
 
   if (honeypotTripped) {
-    return {
-      ok: true,
-      value: {
-        name, email, phone, company,
-        country: "", message: "", product: "", website: "", page: "",
-        utm: { source: "", medium: "", campaign: "", content: "", term: "" },
-        eventId,
-        honeypotTripped: true,
-      },
-    };
+    return { ok: true, value: { ...blankInquiry(eventId), name, email, phone, company, honeypotTripped: true } };
   }
 
   if (!email && !phone) {
@@ -166,10 +274,12 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
       phone,
       company,
       country: str(raw.country, LIMITS.country),
-      message: str(raw.message ?? raw.inquiry ?? raw.content, LIMITS.message),
+      message: messageStr(raw.message ?? raw.inquiry ?? raw.content, LIMITS.message),
       product: str(raw.product ?? raw.interest, LIMITS.product),
       website: str(raw.website ?? raw.buyerWebsite, LIMITS.website),
       page: str(raw.page ?? raw.landingPage, LIMITS.page),
+      referrer: str(raw.referrer ?? raw.referer, LIMITS.referrer),
+      landing: str(raw.landing, LIMITS.landing),
       utm: {
         source: str(raw.utm_source, LIMITS.utm),
         medium: str(raw.utm_medium, LIMITS.utm),
@@ -183,12 +293,12 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
   };
 }
 
-/** 线索公司名兜底：公司 → 姓名 → 邮箱域名 → 固定占位 */
+/** 线索公司名兜底：公司 → 姓名 → 邮箱域名（免费邮箱除外，normalize.isFreeMailDomain）→ 邮箱 / 电话 → 固定占位 */
 export function deriveCompanyName(v: NormalizedInquiry): string {
   if (v.company) return v.company;
   if (v.name) return v.name;
   const domain = v.email.split("@")[1];
-  if (domain && !/^(gmail|yahoo|hotmail|outlook|icloud|qq|163|126)\./i.test(domain)) {
+  if (domain && !isFreeMailDomain(domain)) {
     return domain;
   }
   return v.email || v.phone || "网站询盘";
@@ -208,6 +318,8 @@ export function buildInquiryMessage(
   if (v.country) lines.push(`国家：${v.country}`);
   if (v.website) lines.push(`买家网站：${v.website}`);
   if (v.page) lines.push(`${pageLabel}：${v.page}`);
+  if (v.landing && v.landing !== v.page) lines.push(`落地页：${v.landing}`);
+  if (v.referrer) lines.push(`引荐页：${v.referrer}`);
   const utm = [
     v.utm.source && `source=${v.utm.source}`,
     v.utm.medium && `medium=${v.utm.medium}`,
@@ -219,25 +331,12 @@ export function buildInquiryMessage(
   return lines.join("\n");
 }
 
-function secretMatches(expected: unknown, provided: string): boolean {
-  if (typeof expected !== "string" || !expected || !provided) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(provided);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** 按密钥定位 website 通道（每 org 一条；行数极少，逐条恒时比较） */
-export async function resolveWebsiteChannelBySecret(secret: string) {
-  if (!secret) return null;
-  const channels = await db.tradeChannel.findMany({
-    where: { channel: "website", status: "active" },
-    select: { id: true, orgId: true, config: true },
-  });
-  for (const ch of channels) {
-    const cfg = (ch.config ?? {}) as Record<string, unknown>;
-    if (secretMatches(cfg.secret, secret)) return ch;
-  }
-  return null;
+/**
+ * 按密钥定位 website 通道：当前密钥，或轮换下来的旧密钥且仍在它自己的宽限期内
+ * （config.secretPrev / secretPrevOlder，见 website-channel-credentials.ts）。
+ */
+export async function resolveWebsiteChannelBySecret(secret: string, now: Date = new Date()) {
+  return secret ? findActiveWebsiteChannel((c) => matchWebsiteSecret(c, secret, now) !== null) : null;
 }
 
 export async function ensureInquiryCampaign(
@@ -258,7 +357,7 @@ export async function ensureInquiryCampaign(
     data: {
       orgId,
       name,
-      productDesc: productDesc ?? (name === WEBSITE_INQUIRY_CAMPAIGN_NAME ? ORIGINS.website.campaignDesc : "消息通道陌生来信自动归集的询盘"),
+      productDesc: productDesc ?? (name === WEBSITE_INQUIRY_CAMPAIGN_NAME ? ORIGINS.website.campaignDesc : ORIGINS.whatsapp.campaignDesc),
       targetMarket: "海外（按询盘国家）",
       searchKeywords: [],
       status: "active",
@@ -267,18 +366,6 @@ export async function ensureInquiryCampaign(
     select: { id: true },
   });
   return created.id;
-}
-
-export interface FdeState {
-  /** not_run | queued | running | stale_running | completed | failed | run_blocked | cancelled | already_sent | human_rejected | superseded */
-  status: string;
-  /** true = 接收端不会再自行推进（全链已完成或已被人工/系统终结）；false = 仍需恢复 */
-  terminal: boolean;
-  /** 判定依据（供站点与排障读取，不由 HTTP 状态推断） */
-  reason: string;
-  agentRunId: string | null;
-  pendingActionId: string | null;
-  salesActionId: string | null;
 }
 
 /** 链路逐项核对结果：每一项都由真实记录判定，不由上一项存在推断 */
@@ -301,10 +388,17 @@ export interface IngestResult {
   notified: number;
   /** 同一原始事件再次到达（同 eventId / 派生身份），不新建 Trade 消息 */
   replay: boolean;
-  /** Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库 */
-  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string };
-  /** 本次调用实际执行的 FDE（首次或恢复重跑）；未执行为 null */
+  /**
+   * Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库。
+   * SPINE_FAILED 带 intakeCode = 主干按字段 / 组织配置拒收（重试同一事件不会变好）；不带 = 抛错（可重试）
+   */
+  spine:
+    | IntakeResult
+    | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string; intakeCode?: Extract<IntakeResult, { ok: false }>["code"] };
+  /** 本次调用在请求内实际执行的 FDE（inline 模式的首次或恢复重跑）；未执行为 null */
   fde: InboundFdeResult | null;
+  /** deferred 模式：本次调用把 FDE 交给了调度器（after()），请求内未执行 */
+  fdeScheduled: boolean;
   /** 本次补齐了此前缺失的步骤 */
   recovered: boolean;
   /** 本次补齐的步骤名（trade_message / spine / sales_action / prospect_link / fde） */
@@ -326,10 +420,84 @@ export interface IngestResult {
 
 /** 幂等窗口：同一渲染正文的网站询盘视为重放（浏览器重试 / 双击提交 / 站点重发） */
 export const WEBSITE_INQUIRY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** FDE 处于 running 超过此时长视为被中断（函数被硬杀等），重放时允许重跑 */
-export const FDE_STALE_RUNNING_MS = 10 * 60 * 1000;
-/** 可重跑的 FDE 状态（其余状态要么已完成，要么已被人工/系统终结） */
-const FDE_RERUNNABLE = new Set(["not_run", "queued", "failed", "run_blocked", "stale_running"]);
+
+/**
+ * FDE 在哪里执行：
+ * - inline（默认）：请求内认领并执行（展会速记卡逐张录入、脚本与既有库调用方；页面需要逐张结果）；
+ * - deferred：请求只做到 Revenue Spine intake 就返回，FDE 交给调度器（webhook 用 after()），
+ *   请求路径里没有 LLM。重发同样只安排、不在请求内执行。
+ */
+export type FdeMode = "inline" | "deferred";
+
+/** 调度器：接收一个异步任务，在响应之后执行（默认 next/server after()）。必须同步返回；抛错 = 无法安排。 */
+export type FdeScheduler = (task: () => Promise<void>) => void;
+
+/** 默认调度器：next/server after()——响应发出后在同一函数实例内执行，计入路由 maxDuration（300 s）。 */
+export const scheduleAfterResponse: FdeScheduler = (task) => {
+  after(task);
+};
+
+let schedulerOverrideForTest: FdeScheduler | null = null;
+/** 仅测试：替换 deferred 模式的默认调度器（路由文件只能导出 HTTP 方法与段配置，钩子放在这里） */
+export function __setDefaultFdeSchedulerForTest(fn: FdeScheduler | null): void {
+  schedulerOverrideForTest = fn;
+}
+
+/** 全链终态：业务对象齐全 + 关联已回填 + FDE 终态 */
+function chainComplete(state: ChainState): boolean {
+  return Boolean(state.opportunityId && state.salesActionId && state.prospectLinked && state.fde.terminal);
+}
+
+/** 重放 / 状态查询时的主干快照：字段全部取自真实记录，不臆造负责人/语言 */
+async function spineSnapshot(orgId: string, state: ChainState, replay: boolean): Promise<IngestResult["spine"]> {
+  if (!state.opportunityId || !state.customerId || !state.interactionId) {
+    return { ok: false, code: "INCOMPLETE", error: "revenue spine not established for this event" };
+  }
+  const opp = await db.salesOpportunity.findFirst({
+    where: { id: state.opportunityId, orgId },
+    select: { assignedToId: true, createdById: true },
+  });
+  const interaction = await db.customerInteraction.findFirst({ where: { id: state.interactionId, orgId }, select: { language: true } });
+  return {
+    ok: true,
+    customerId: state.customerId,
+    customerCreated: false,
+    matchLevel: null,
+    opportunityId: state.opportunityId,
+    opportunityCreated: false,
+    attachedToExisting: true,
+    interactionId: state.interactionId,
+    salesActionId: state.salesActionId,
+    ownerUserId: opp?.assignedToId ?? opp?.createdById ?? "",
+    language: (interaction?.language as InquiryLanguage | null) ?? "en",
+    customerReplied: false,
+    replay,
+  };
+}
+
+/** 结果快照：对象 id / FDE 状态 / complete 取自真实记录（收据 + 链路核对）；extra 填本次调用特有的字段 */
+function resultFromChain(receipt: WebsiteInquiryReceipt, state: ChainState, spine: IngestResult["spine"], extra: Partial<IngestResult>): IngestResult {
+  return {
+    prospectId: state.prospectId ?? "",
+    messageId: state.tradeMessageId ?? "",
+    duplicate: false,
+    notified: 0,
+    replay: true,
+    spine,
+    fde: null,
+    fdeScheduled: false,
+    recovered: false,
+    recoveredSteps: [],
+    fdeState: state.opportunityId ? state.fde : null,
+    eventId: receipt.eventId,
+    receiptId: receipt.id,
+    busy: false,
+    conflict: false,
+    contentDuplicateOf: receipt.duplicateOfReceiptId,
+    complete: chainComplete(state),
+    ...extra,
+  };
+}
 
 interface ProspectRef {
   id: string;
@@ -348,8 +516,11 @@ function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string,
     contact: { name: v.name, email: v.email, phone: v.phone, company: v.company, country: v.country, website: v.website },
     message: v.message,
     product: v.product,
+    ...(origin.kind === "email_forward" && origin.subject ? { subject: origin.subject } : {}),
     meta: {
       page: v.page,
+      ...(v.referrer ? { referrer: v.referrer } : {}),
+      ...(v.landing ? { landing: v.landing } : {}),
       utm: v.utm,
       channel: o.interactionChannel,
       ...(origin.kind === "trade_show"
@@ -362,6 +533,8 @@ function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string,
         : {}),
     },
     sourceRef: { tradeProspectId: prospectId, tradeMessageId: messageId, externalId: v.eventId || null },
+    // 平台消息 id 唯一的通道：intake 的 24 小时重放只按 externalId（wamid）判定，不按正文
+    ...(o.chat ? { replayKey: "external_id" as const } : {}),
     actorUserId: null,
     now,
   };
@@ -376,52 +549,8 @@ async function findSpineInteractionByMessage(orgId: string, tradeMessageId: stri
   });
 }
 
-/**
- * FDE 真实状态：SalesAction.inputContext.fdeStatus 为主，再用 AgentRun / PendingAction 的
- * 真实终态覆盖。恢复不得复活已取消、已人工拒绝、已发送或已被系统作废的动作。
- */
-export async function loadFdeState(orgId: string, interactionId: string, now: Date = new Date()): Promise<FdeState> {
-  const action = await db.salesAction.findFirst({
-    where: { orgId, signalKey: `inbound:${interactionId}` },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, agentRunId: true, pendingActionId: true, inputContext: true, updatedAt: true },
-  });
-  if (!action) {
-    return { status: "not_run", terminal: false, reason: "no SalesAction for this inbound", agentRunId: null, pendingActionId: null, salesActionId: null };
-  }
-  const ctx = (action.inputContext ?? {}) as Record<string, unknown>;
-  let status = typeof ctx.fdeStatus === "string" && ctx.fdeStatus ? ctx.fdeStatus : "queued";
-  if (status === "running" && now.getTime() - action.updatedAt.getTime() > FDE_STALE_RUNNING_MS) status = "stale_running";
-  const base = { agentRunId: action.agentRunId, pendingActionId: action.pendingActionId, salesActionId: action.id };
-
-  // 1) 该来信的审批草稿真实状态优先（人工决策与系统作废都是终态，不得靠恢复复活）
-  const drafts = await db.pendingAction.findMany({
-    where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, payload: { path: ["replyToInteractionId"], equals: interactionId } },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, decidedById: true, failureReason: true, expiresAt: true },
-  });
-  const executed = drafts.find((d) => d.status === "executed");
-  if (executed) return { ...base, status: "already_sent", terminal: true, reason: "reply already sent (PendingAction executed)", pendingActionId: executed.id };
-  const pending = drafts.find((d) => d.status === "pending" && d.expiresAt > now);
-  if (pending) return { ...base, status: "completed", terminal: true, reason: "draft awaiting human approval", pendingActionId: pending.id };
-  const rejected = drafts.find((d) => d.status === "rejected" && d.decidedById);
-  if (rejected) return { ...base, status: "human_rejected", terminal: true, reason: "draft rejected by a human", pendingActionId: rejected.id };
-  const superseded = drafts.find((d) => d.status === "failed" && (d.failureReason ?? "").startsWith("SUPERSEDED_"));
-  if (superseded) return { ...base, status: "superseded", terminal: true, reason: "draft superseded by a newer event", pendingActionId: superseded.id };
-
-  // 2) run 被 supervisor 取消 → 终态，恢复不得重跑
-  if (action.agentRunId) {
-    const run = await db.agentRun.findUnique({ where: { id: action.agentRunId }, select: { status: true } });
-    if (run?.status === "cancelled") return { ...base, status: "cancelled", terminal: true, reason: "AgentRun cancelled by supervisor" };
-  }
-
-  if (status === "completed") return { ...base, status, terminal: true, reason: "FDE completed" };
-  if (status === "running") return { ...base, status, terminal: false, reason: "FDE currently running" };
-  return { ...base, status, terminal: false, reason: `FDE not finished (${status})` };
-}
-
 /** 逐项核对七个对象；每一项都用真实记录判定，不由上一项存在推断 */
-export async function inspectChain(orgId: string, receipt: { tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date, origin: IngestOrigin = { kind: "website" }): Promise<ChainState> {
+export async function inspectChain(orgId: string, receipt: { id?: string; tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date, origin: IngestOrigin = { kind: "website" }): Promise<ChainState> {
   const o = ORIGINS[origin.kind];
   const empty: ChainState = {
     prospectId: null, tradeMessageId: null, customerId: null, opportunityId: null, interactionId: null,
@@ -434,17 +563,37 @@ export async function inspectChain(orgId: string, receipt: { tradeMessageId: str
     ? await db.tradeMessage.findFirst({ where: { id: receipt.tradeMessageId, prospect: { orgId } }, select: { id: true, prospect: { select: PROSPECT_REF_SELECT } } })
     : null;
   if (!message) {
-    message = await db.tradeMessage.findFirst({
-      where: {
-        direction: "inbound",
-        channel: o.messageChannel,
-        content: buildInquiryMessage(v, o.label, o.pageLabel),
-        createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
-        prospect: { orgId },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
-    });
+    const sameContent = {
+      direction: "inbound",
+      channel: o.channel,
+      content: buildInquiryMessage(v, o.label, o.pageLabel),
+      createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
+      prospect: { orgId },
+    };
+    if (!o.chat) {
+      message = await db.tradeMessage.findFirst({
+        where: sameContent,
+        orderBy: { createdAt: "desc" },
+        select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
+      });
+    } else {
+      // 平台消息 id 唯一（WhatsApp）：同正文的消息若已登记在别的收据上，属于另一条消息，不能认领；
+      // 只认领没有任何其它收据登记的（本事件上次建了消息、还没来得及回填收据就中断）
+      const rows = await db.tradeMessage.findMany({
+        where: sameContent,
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
+      });
+      if (rows.length) {
+        const owned = await db.websiteInquiryReceipt.findMany({
+          where: { orgId, tradeMessageId: { in: rows.map((r) => r.id) }, ...(receipt.id ? { id: { not: receipt.id } } : {}) },
+          select: { tradeMessageId: true },
+        });
+        const taken = new Set(owned.map((r) => r.tradeMessageId));
+        message = rows.find((r) => !taken.has(r.id)) ?? null;
+      }
+    }
   }
   if (!message) return empty;
 
@@ -495,7 +644,7 @@ async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactio
     title: `新询盘：${who}${v.product ? " — " + v.product.slice(0, 60) : ""}`,
     description: v.message.slice(0, 2000),
     priority: "high",
-    dueAt: addBusinessHours(now, policy.salesSla.newInquiryResponseHours),
+    dueAt: addBusinessHours(now, policy.salesSla.newInquiryResponseHours, policy.salesSla.businessHours ?? null),
     signalKey: `inbound:${interactionId}`,
     assignedToId: ownerUserId,
     createdById: ownerUserId,
@@ -503,21 +652,37 @@ async function recreateFdeAction(orgId: string, v: NormalizedInquiry, interactio
   });
 }
 
+export interface IngestOptions {
+  /** false = 本次既不执行也不安排 FDE（只建链） */
+  runFde?: boolean;
+  now?: Date;
+  origin?: IngestOrigin;
+  /** 默认 inline（见 FdeMode）；网站 webhook 传 deferred */
+  fdeMode?: FdeMode;
+  /** deferred 模式的调度器，默认 next/server after()（测试可注入以确定性地执行回调） */
+  scheduleFde?: FdeScheduler;
+  /** 写进新收据载荷的接收元数据（payload.meta）：嵌入表单的访客 IP HMAC（限流计数）、邮件转发的发件人 / 主题 / 解析依据；不进业务指纹，也不进业务对象 */
+  receiptMeta?: Record<string, unknown>;
+}
+
 /**
  * 网站询盘接收：先认领事件身份（收据），再逐项核对并补齐链路。
  *
  * 首次事件 → 建链；重发 → 只补缺失的步骤，绝不重复创建客户 / 商机 / 互动 / 消息。
  * 同一事件同时到达两次 → 后到者 busy 返回，不并行执行。
+ * FDE：inline 模式在请求内认领并执行；deferred 模式只安排（after()），收据在返回前释放。
+ * 两种模式下 FDE 都经 runQueuedInboundFde 原子认领，与 cron / 其它回调互斥。
  */
 export async function ingestWebsiteInquiry(
   orgId: string,
   incoming: NormalizedInquiry,
-  opts?: { runFde?: boolean; now?: Date; origin?: IngestOrigin },
+  opts?: IngestOptions,
 ): Promise<IngestResult> {
   const now = opts?.now ?? new Date();
   const origin: IngestOrigin = opts?.origin ?? { kind: "website" };
+  const fdeMode: FdeMode = opts?.fdeMode ?? "inline";
   const o = ORIGINS[origin.kind];
-  const claim = await claimInquiryReceipt(orgId, incoming, now, o.receiptSource);
+  const claim = await claimInquiryReceipt(orgId, incoming, { now, source: o.receiptSource, meta: opts?.receiptMeta, contentDedupe: !o.chat });
   const receipt = claim.receipt;
   // 恢复一律按**首次**收到的业务事实重放；本次请求的冲突内容只记录，不覆盖
   const v = fromReceiptPayload(receipt.payload);
@@ -525,57 +690,21 @@ export async function ingestWebsiteInquiry(
   // duplicate 保持原义：该联系人此前已有 Trade 线索（不是"事件重发"，后者是 replay）
   let prospectExisted = !claim.created;
 
-  const snapshot = async (state: ChainState, spine: IngestResult["spine"], fde: InboundFdeResult | null, extra: Partial<IngestResult>): Promise<IngestResult> => ({
-    prospectId: state.prospectId ?? "",
-    messageId: state.tradeMessageId ?? "",
-    duplicate: prospectExisted,
-    notified: 0,
-    replay: !claim.created,
-    spine,
-    fde,
-    recovered: recoveredSteps.length > 0,
-    recoveredSteps: [...recoveredSteps],
-    fdeState: state.opportunityId ? state.fde : null,
-    eventId: receipt.eventId,
-    receiptId: receipt.id,
-    busy: false,
-    conflict: claim.conflict,
-    contentDuplicateOf: claim.duplicateOfReceiptId,
-    complete: Boolean(state.opportunityId && state.salesActionId && state.prospectLinked && state.fde.terminal),
-    ...extra,
-  });
-
-  /** 重放时的主干快照：字段全部取自真实记录，不臆造负责人/语言 */
-  const spineOf = async (state: ChainState, replay: boolean): Promise<IngestResult["spine"]> => {
-    if (!state.opportunityId || !state.customerId || !state.interactionId) {
-      return { ok: false, code: "INCOMPLETE", error: "revenue spine not established for this event" };
-    }
-    const opp = await db.salesOpportunity.findFirst({
-      where: { id: state.opportunityId, orgId },
-      select: { assignedToId: true, createdById: true },
+  const snapshot = (state: ChainState, spine: IngestResult["spine"], fde: InboundFdeResult | null, extra: Partial<IngestResult>) =>
+    resultFromChain(receipt, state, spine, {
+      duplicate: prospectExisted,
+      replay: !claim.created,
+      fde,
+      recovered: recoveredSteps.length > 0,
+      recoveredSteps: [...recoveredSteps],
+      conflict: claim.conflict,
+      ...extra,
     });
-    const interaction = await db.customerInteraction.findUnique({ where: { id: state.interactionId }, select: { language: true } });
-    return {
-      ok: true,
-      customerId: state.customerId,
-      customerCreated: false,
-      matchLevel: null,
-      opportunityId: state.opportunityId,
-      opportunityCreated: false,
-      attachedToExisting: true,
-      interactionId: state.interactionId,
-      salesActionId: state.salesActionId,
-      ownerUserId: opp?.assignedToId ?? opp?.createdById ?? "",
-      language: (interaction?.language as InquiryLanguage | null) ?? "en",
-      customerReplied: false,
-      replay,
-    };
-  };
 
   // 单执行者控制：同一事件正在被处理（首发仍在跑 / 另一次重发在跑）→ 返回当前状态，不并行
   if (claim.busy) {
     const state = await inspectChain(orgId, receipt, v, now, origin);
-    return snapshot(state, await spineOf(state, true), null, { busy: true });
+    return snapshot(state, await spineSnapshot(orgId, state, true), null, { busy: true });
   }
 
   try {
@@ -585,34 +714,41 @@ export async function ingestWebsiteInquiry(
     let notified = 0;
     if (!state.tradeMessageId) {
       const campaignId = await ensureInquiryCampaign(orgId, o.campaign, o.campaignDesc);
+      const placeholder = o.chat ? inboundPlaceholderCompanyName(o.channel, v.phone.replace(/^\+/, "")) : null;
       let prospect: ProspectRef | null = v.email
         ? await db.tradeProspect.findFirst({
             where: { orgId, contactEmail: { equals: v.email, mode: "insensitive" } },
             select: PROSPECT_REF_SELECT,
             orderBy: { createdAt: "desc" },
           })
-        : null;
+        : placeholder
+          ? await db.tradeProspect.findFirst({
+              where: { orgId, companyName: placeholder },
+              select: PROSPECT_REF_SELECT,
+              orderBy: { createdAt: "desc" },
+            })
+          : null;
       const existingProspect = Boolean(prospect);
       if (!prospect) {
         const created = await createProspect({
           campaignId,
           orgId,
-          companyName: deriveCompanyName(v),
+          companyName: placeholder ?? deriveCompanyName(v),
           contactName: v.name || undefined,
           contactEmail: v.email || undefined,
           website: v.website || undefined,
           country: v.country || undefined,
-          source: o.prospectSource,
+          source: o.channel,
           stage: "new",
         });
         prospect = { id: created.id, stage: created.stage, companyName: created.companyName, convertedToSalesOpportunityId: null };
-        await ensureOutreachSequence({ orgId, prospectId: created.id }).catch(() => undefined);
+        if (!o.chat) await ensureOutreachSequence({ orgId, prospectId: created.id }).catch(() => undefined);
       }
       const message = await db.tradeMessage.create({
         data: {
           prospectId: prospect.id,
           direction: "inbound",
-          channel: o.messageChannel,
+          channel: o.channel,
           subject: v.product ? `${o.label}：${v.product}` : o.label,
           content: buildInquiryMessage(v, o.label, o.pageLabel),
         },
@@ -633,24 +769,24 @@ export async function ingestWebsiteInquiry(
         },
       });
 
-      // 第二刀：进线自动分析（响应后执行，失败不影响主链）
+      // 第二刀：进线自动分析（响应后执行，失败不影响主链）；WhatsApp 不跑（单管线：FDE 即分析）
       const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
-      await scheduleInquiryAnalysis({
+      if (!o.chat) await scheduleInquiryAnalysis({
         orgId,
         prospectId: prospect.id,
         messageId: message.id,
         content: [v.product && `Product: ${v.product}`, v.message].filter(Boolean).join("\n") || v.email,
-        channel: o.messageChannel,
+        channel: o.channel,
         meta: { email: v.email || null, companyName: prospect.companyName, phone: v.phone || null, country: v.country || null, website: v.website || null },
       });
 
-      if (o.notify) {
+      if (o.notify === "all" || (o.notify === "new" && !existingProspect)) {
         const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
         notified = await notifyInquiryMembers(orgId, {
           title: `${o.label}：${prospect.companyName}`,
           summary: (summaryBits || v.email || v.phone).slice(0, 140),
           prospectId: prospect.id,
-          source: o.prospectSource,
+          source: o.channel,
           sourceKey: `website-inquiry:${message.id}`,
         });
       }
@@ -670,7 +806,7 @@ export async function ingestWebsiteInquiry(
       }
       if (!intake.ok) {
         await releaseReceipt(receipt.id, "linked", now);
-        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error }, null, { notified });
+        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error, intakeCode: intake.code }, null, { notified });
       }
       state.customerId = intake.customerId;
       state.opportunityId = intake.opportunityId;
@@ -704,31 +840,154 @@ export async function ingestWebsiteInquiry(
 
     // ── 步骤 5：FDE（真实状态判定；不复活已取消 / 已人工终结的动作）──
     let fde: InboundFdeResult | null = null;
+    let fdeTask: (() => Promise<void>) | null = null;
     state.fde = await loadFdeState(orgId, state.interactionId!, now);
     state.salesActionId = state.fde.salesActionId ?? state.salesActionId;
-    const shouldRun = opts?.runFde !== false && !state.fde.terminal && FDE_RERUNNABLE.has(state.fde.status);
-    if (shouldRun) {
-      fde = await runInboundSalesFde({
-        orgId,
-        opportunityId: state.opportunityId!,
-        salesActionId: state.salesActionId,
-        trigger: intake && intake.ok && intake.attachedToExisting ? "customer_reply" : "inquiry",
-        now,
-      });
+    const wantsFde = opts?.runFde !== false && !state.fde.terminal && FDE_RERUNNABLE.has(state.fde.status);
+    const trigger: FdeTrigger = intake && intake.ok && intake.attachedToExisting ? "customer_reply" : "inquiry";
+    if (wantsFde && state.salesActionId) {
+      const salesActionId = state.salesActionId;
+      if (fdeMode === "inline") {
+        // 请求内执行，但同样先认领：cron / after() 回调正在跑同一 FDE 时本次不并行
+        const run = await runQueuedInboundFde(orgId, salesActionId, { by: "inline", trigger, now });
+        fde = run.result;
+        if (run.ran && !claim.created) recoveredSteps.push("fde");
+        state.fde = await loadFdeState(orgId, state.interactionId!, now);
+        await linkReceipt(receipt.id, { agentRunId: state.fde.agentRunId, pendingActionId: state.fde.pendingActionId });
+      } else {
+        // 请求路径不跑 FDE：响应之后由调度器执行（收据此前已释放）；认领在回调里做
+        const by: FdeClaimant = claim.created ? "after" : "replay";
+        fdeTask = async () => {
+          try {
+            await runInboundFdeAndSettle(orgId, salesActionId, { by, trigger, now: opts?.now });
+          } catch (err) {
+            console.error("[website-inquiry] deferred FDE failed:", err instanceof Error ? err.message : err);
+          }
+        };
+      }
+    } else if (wantsFde && fdeMode === "inline") {
+      // 没有可认领的 SalesAction（商机无负责人，行动补建不了）：保持原行为，按商机直接跑一次
+      fde = await runInboundSalesFde({ orgId, opportunityId: state.opportunityId!, salesActionId: null, trigger, now });
       if (!claim.created) recoveredSteps.push("fde");
       state.fde = await loadFdeState(orgId, state.interactionId!, now);
       await linkReceipt(receipt.id, { agentRunId: state.fde.agentRunId, pendingActionId: state.fde.pendingActionId });
     }
 
-    const complete = Boolean(state.opportunityId && state.salesActionId && state.prospectLinked && state.fde.terminal);
+    const complete = chainComplete(state);
     await releaseReceipt(receipt.id, complete ? "complete" : "linked", now);
 
-    const spine: IngestResult["spine"] = intake ?? (await spineOf(state, true));
-    return snapshot(state, spine, fde, { notified, complete });
+    // 收据释放之后才安排：回调在响应之后执行，不与本请求重叠
+    let fdeScheduled = false;
+    if (fdeTask) {
+      try {
+        (opts?.scheduleFde ?? schedulerOverrideForTest ?? scheduleAfterResponse)(fdeTask);
+        fdeScheduled = true;
+      } catch (err) {
+        // 不在请求上下文（脚本）等：留在 queued，由 cron 或下一次重发接手
+        console.warn("[website-inquiry] FDE scheduling unavailable, left for cron/replay:", err instanceof Error ? err.message : err);
+      }
+    }
+
+    const spine: IngestResult["spine"] = intake ?? (await spineSnapshot(orgId, state, true));
+    return snapshot(state, spine, fde, { notified, complete, fdeScheduled });
   } catch (err) {
     await releaseReceipt(receipt.id, "linked", now).catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * FDE 在请求之外执行完后回填收据：链接 run / 草稿 id；全链终态则标 complete。
+ * 正被某个请求处理（processing）的收据不改状态——那个请求结束时会按真实记录自行判定；
+ * 收据状态只是记录，响应里的 complete 一律由 inspectChain 从真实记录算出。
+ */
+export async function settleReceiptsForSalesAction(orgId: string, salesActionId: string, now: Date = new Date()): Promise<number> {
+  const receipts = await db.websiteInquiryReceipt.findMany({ where: { orgId, salesActionId, status: { not: "processing" } } });
+  let completed = 0;
+  for (const r of receipts) {
+    const state = await inspectChain(orgId, r, fromReceiptPayload(r.payload), now, originOfReceipt(r));
+    await linkReceipt(r.id, { agentRunId: state.fde.agentRunId, pendingActionId: state.fde.pendingActionId });
+    if (r.status !== "complete" && chainComplete(state)) {
+      const done = await db.websiteInquiryReceipt.updateMany({
+        where: { id: r.id, orgId, status: { not: "processing" } },
+        data: { status: "complete", processingSince: null, completedAt: now },
+      });
+      completed += done.count;
+    }
+  }
+  return completed;
+}
+
+/** 请求之外的 FDE 执行入口（after() 回调 / cron）：认领 → 执行 → 回填收据 */
+export async function runInboundFdeAndSettle(orgId: string, salesActionId: string, opts: RunQueuedFdeOptions): Promise<QueuedFdeRun> {
+  const run = await runQueuedInboundFde(orgId, salesActionId, opts);
+  if (run.ran) await settleReceiptsForSalesAction(orgId, salesActionId, opts.now ?? new Date());
+  return run;
+}
+
+/**
+ * 只读状态查询（GET /api/trade/webhook/website/status）：按事件 id 读收据并逐项核对真实记录。
+ * 不认领收据、不增加 attempts、不安排或执行任何步骤。未知事件返回 null。
+ */
+export async function readWebsiteInquiryStatus(
+  orgId: string,
+  eventId: string,
+  now: Date = new Date(),
+): Promise<(IngestResult & { receiptStatus: string }) | null> {
+  const receipt = await findReceiptByEventId(orgId, eventId, WEBSITE_INQUIRY_SOURCE);
+  if (!receipt) return null;
+  const state = await inspectChain(orgId, receipt, fromReceiptPayload(receipt.payload), now, originOfReceipt(receipt));
+  const inFlight =
+    receipt.status === "processing" &&
+    !!receipt.processingSince &&
+    now.getTime() - receipt.processingSince.getTime() <= RECEIPT_PROCESSING_STALE_MS;
+  const result = resultFromChain(receipt, state, await spineSnapshot(orgId, state, true), { busy: inFlight, conflict: receipt.conflictCount > 0 });
+  return { ...result, receiptStatus: receipt.status };
+}
+
+/**
+ * webhook 响应体（POST 与状态查询共用）。字段是真实记录，不由 HTTP 状态推断：
+ * 调用方按 spine / opportunityId / complete / fde.terminal 判定，HTTP 200 不代表全链完成。
+ * 官网侧站点桥接（classifyQingyanResponse / processingStateFrom）依赖这些字段名与语义。
+ */
+export function websiteWebhookBody(result: IngestResult) {
+  const fde = result.fdeState
+    ? {
+        status: result.fdeState.status,
+        terminal: result.fdeState.terminal,
+        reason: result.fdeState.reason,
+        agentRunId: result.fdeState.agentRunId,
+        pendingActionId: result.fdeState.pendingActionId,
+        scheduled: result.fdeScheduled,
+      }
+    : result.fde
+      ? {
+          status: result.fde.ok ? "completed" : "failed",
+          terminal: false,
+          reason: result.fde.error ?? "FDE just ran",
+          agentRunId: result.fde.agentRunId,
+          pendingActionId: result.fde.pendingActionId,
+          scheduled: false,
+        }
+      : null;
+  return {
+    ok: true as const,
+    eventId: result.eventId,
+    receiptId: result.receiptId,
+    prospectId: result.prospectId,
+    messageId: result.messageId,
+    duplicate: result.duplicate,
+    replay: result.replay,
+    recovered: result.recovered,
+    recoveredSteps: result.recoveredSteps,
+    busy: result.busy,
+    conflict: result.conflict,
+    contentDuplicateOf: result.contentDuplicateOf,
+    complete: result.complete,
+    opportunityId: result.spine.ok ? result.spine.opportunityId : null,
+    spine: result.spine.ok ? (result.spine.replay ? "replay" : "ok") : result.spine.code,
+    fde,
+  };
 }
 
 /** 通知 org 内外贸相关成员（幂等键防重复） */

@@ -111,11 +111,25 @@ npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
 npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
 npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry-async.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards.test.ts
 npx tsx src/lib/trade/__tests__/booth-summary.test.ts
 npx tsx src/lib/trade/__tests__/style-references.test.ts
 npx tsx src/lib/trade/__tests__/email-sender.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/embed-intake.test.ts
+npx tsx src/lib/trade/__tests__/embed-intake-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/email-forward-parse.test.ts
+npx tsx src/lib/trade/__tests__/email-inbound.test.ts
+npx tsx src/lib/trade/__tests__/email-inbound-db.isolated.test.ts
+# WhatsApp / 微信来信进 Revenue Spine + 电话 E.164 去重（PRD F2.2–F2.4；DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/phone-match.test.ts
+npx tsx src/lib/trade/__tests__/whatsapp-inbound.test.ts
+npx tsx src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts
+# WhatsApp phoneNumberId / 公众号原始 ID 跨组织唯一（保存时检查 + 上线前检查脚本；DB 测试无隔离库自动跳过）
+npx tsx src/lib/trade/__tests__/inbound-org.test.ts
+npx tsx src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts
@@ -244,7 +258,27 @@ npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
+npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
+npx tsx src/lib/trade/__tests__/message-normalize.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
+# 老板今日询盘 / 早报 / 新草稿提醒；微信回数字不批询盘回复；微信绑定只改本人（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/owner-today.test.ts
+npx tsx src/lib/revenue-spine/__tests__/owner-brief.test.ts
+npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-scope.test.ts
+npx tsx src/lib/messaging/__tests__/binding-preferences.test.ts
+npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts
+
+# 厂家入驻向导（PRD F6）：纯函数 + 路由静态契约；DB e2e 无隔离库自动跳过
+npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts
+npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts
+# 首响 SLA 分级提醒 / 工作时间日历 / SLA 指标（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts
+npx tsx src/lib/revenue-spine/__tests__/sla-metrics.test.ts
+npx tsx src/lib/revenue-spine/__tests__/sla-tiers-db.isolated.test.ts
+npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-policy.test.ts
+npx tsx src/lib/messaging/__tests__/binding-proof.test.ts
+npx tsx src/lib/messaging/__tests__/wechat-binding-confirm-db.isolated.test.ts
+npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

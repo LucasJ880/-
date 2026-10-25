@@ -5,7 +5,8 @@
 
 import assert from "node:assert/strict";
 import { buildBoothCardContext, parseBoothCardContext, type BoothCard } from "../booth-cards";
-import { boothDayOf, boothDayWindow, formatBoothSummary, type BoothSummaryCard } from "../booth-summary";
+import { getLocalTimeParts } from "@/lib/automation/local-time";
+import { boothDayOf, boothDayWindow, formatBoothSummary, isManagementMember, type BoothSummaryCard } from "../booth-summary";
 
 let pass = 0;
 function ok(name: string, fn: () => void) {
@@ -33,6 +34,34 @@ ok("展会日：当地 07:00 到次日 07:00；夜里录到凌晨算前一天", 
   assert.equal(w.from.toISOString(), "2026-10-30T23:00:00.000Z");
   assert.equal(w.to.toISOString(), "2026-10-31T23:00:00.000Z");
   assert.equal(boothDayWindow("2026-10-31", "America/Toronto").from.toISOString(), "2026-10-31T11:00:00.000Z");
+});
+
+ok("展会日窗口起点：夏令时切换日也是当地 07:00（曾在 America/Los_Angeles 切换日差一小时）", () => {
+  const LA = "America/Los_Angeles";
+  // 拨快（02:00 → 03:00）当天：07:00 PDT = 14:00Z（旧实现给出 15:00Z = 当地 08:00）
+  assert.equal(boothDayWindow("2024-03-10", LA).from.toISOString(), "2024-03-10T14:00:00.000Z");
+  // 回拨（02:00 → 01:00）当天：07:00 PST = 15:00Z（旧实现给出 14:00Z = 当地 06:00）
+  assert.equal(boothDayWindow("2024-11-03", LA).from.toISOString(), "2024-11-03T15:00:00.000Z");
+  assert.equal(boothDayWindow("2027-03-14", LA).from.toISOString(), "2027-03-14T14:00:00.000Z");
+  // 2024–2027 每一天、UTC 东西两侧有 / 无夏令时的时区：起点的当地时刻都是当天 07:00
+  const zones = [LA, "America/Toronto", "America/Sao_Paulo", "Europe/London", "Europe/Berlin", "Asia/Shanghai", "Asia/Kolkata", "Australia/Sydney", "Pacific/Auckland"];
+  const bad: string[] = [];
+  for (const tz of zones) {
+    for (let t = Date.UTC(2024, 0, 1); t < Date.UTC(2028, 0, 1); t += 86_400_000) {
+      const day = new Date(t).toISOString().slice(0, 10);
+      const p = getLocalTimeParts(boothDayWindow(day, tz).from, tz);
+      if (p.date !== day || p.hour !== 7 || p.minute !== 0) bad.push(`${tz} ${day} → ${p.date} ${p.hour}:${p.minute}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+ok("管理层成员：组织所有者 / 管理员，或平台角色老板 / 经理 / 管理员", () => {
+  assert.equal(isManagementMember({ role: "org_owner", user: { role: "trade" } }), true);
+  assert.equal(isManagementMember({ role: "org_admin", user: { role: "sales" } }), true);
+  for (const r of ["boss", "manager", "admin", "super_admin"]) assert.equal(isManagementMember({ role: "org_member", user: { role: r } }), true, r);
+  assert.equal(isManagementMember({ role: "org_member", user: { role: "trade" } }), false);
+  assert.equal(isManagementMember({ role: "org_viewer", user: { role: null } }), false);
 });
 
 ok("「展会」一行读回：业务员、等级、下一步、备注原文；展会名和日期不误读", () => {

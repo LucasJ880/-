@@ -77,6 +77,8 @@ export interface AdaptedPendingAction {
   note?: string;
   /** 适配失败原因（ok=false 时给出，且不会创建草稿） */
   error?: string;
+  /** 仅 grader.internal_note：备注写入目标（微信能否回数字确认取决于它，见 isWeChatConfirmableAction） */
+  noteTargetType?: InternalNoteTargetType;
 }
 
 /** Grader actionType → 是否允许 + 目标 PendingAction 类型 */
@@ -332,6 +334,7 @@ async function adaptInternalNote(
 
   const supported = (SUPPORTED_INTERNAL_NOTE_TARGETS as readonly string[]).includes(targetType);
   const adapted = fromDraftResult(res, "grader.internal_note", action.label, action.description, supported);
+  adapted.noteTargetType = targetType;
   if (!adapted.ok) return adapted;
   if (!supported) {
     adapted.note = `${targetType} 内部备注暂未接入真实写入，仅作建议。`;

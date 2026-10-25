@@ -3,6 +3,7 @@
  */
 
 import { db } from "@/lib/db";
+import { EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES } from "@/lib/organizations/onboarding-rules";
 import { computeFdeAttribution, type FdeAttributionMetrics } from "./attribution";
 import { OPEN_STAGES, QUALIFIED_PIPELINE_STAGES } from "./opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "./policy";
@@ -36,7 +37,13 @@ export async function computeRevenueCockpit(orgId: string, opts?: { policy?: Rev
   const policy = opts?.policy ?? (await loadRevenueSpinePolicy(orgId));
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const [stageGroups, qualified, quotes, samples, won, wonMonth, attribution, queue, openRows] = await Promise.all([
-    db.salesOpportunity.groupBy({ by: ["stage"], where: { orgId }, _count: { id: true }, _sum: { estimatedValue: true } }),
+    // 阶段分布不含入驻测试单（测试单已 disqualified，其余指标按阶段本来就排除）
+    db.salesOpportunity.groupBy({
+      by: ["stage"],
+      where: { orgId, AND: [EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES] },
+      _count: { id: true },
+      _sum: { estimatedValue: true },
+    }),
     db.salesOpportunity.aggregate({ where: { orgId, stage: { in: [...QUALIFIED_PIPELINE_STAGES] } }, _count: { id: true }, _sum: { estimatedValue: true } }),
     db.salesOpportunity.aggregate({ where: { orgId, stage: { in: ["quoted", "follow_up"] } }, _count: { id: true }, _sum: { estimatedValue: true } }),
     db.salesOpportunity.count({ where: { orgId, stage: "sample" } }),

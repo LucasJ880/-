@@ -7,6 +7,7 @@
 
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
+import { isFreeMailDomain } from "@/lib/revenue-spine/normalize";
 import {
   complianceHints,
   normalizeExtraction,
@@ -89,7 +90,7 @@ export async function extractInquiry(content: string, meta?: AnalyzeInquiryInput
 function domainFromEmail(email?: string | null): string | null {
   const d = email?.split("@")[1]?.toLowerCase();
   if (!d) return null;
-  if (/^(gmail|yahoo|hotmail|outlook|live|icloud|aol|protonmail|proton|qq|163|126|yandex|gmx)\./.test(d)) return null;
+  if (isFreeMailDomain(d)) return null;
   return d;
 }
 

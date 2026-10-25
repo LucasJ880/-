@@ -6,6 +6,8 @@
  * 3. redFlags：外贸常见骗局/低质询盘红旗
  */
 
+import { isFreeMailDomain } from "@/lib/revenue-spine/normalize";
+
 export type InquiryIntent = "rfq" | "sample" | "info" | "partnership" | "spam" | "unclear";
 export type BuyerType = "importer" | "brand" | "hotel" | "retailer" | "agent" | "individual" | "unknown";
 
@@ -215,7 +217,6 @@ export interface RedFlag {
   detail: string;
 }
 
-const FREE_MAIL = /@(gmail|yahoo|hotmail|outlook|live|icloud|aol|proton(mail)?|qq|163|126|yandex|gmx)\./i;
 const FEE_SCAM = /\b(registration fee|notary|notarization|escrow fee|processing fee|clearance fee|customs fee upfront|tax fee)\b|登记费|公证费|手续费/i;
 const URGENCY = /\b(urgent(ly)?|asap|immediately|within 24 hours|right now)\b|加急|马上/i;
 const BIG_QTY = /(\d{2,3}[,，]?\d{3}|\d+\s*(k|thousand|万))\s*(pcs|pieces|units|sets|件|套)?/i;
@@ -229,8 +230,9 @@ export function redFlags(
   const text = meta.freeText;
   const email = meta.email ?? "";
   const company = (meta.companyName ?? "").trim();
+  const freeMail = email.includes("@") && isFreeMailDomain(email.slice(email.lastIndexOf("@") + 1).trim());
 
-  if (email && FREE_MAIL.test(email) && company && !/^(WhatsApp|微信|企业微信|官网)\s/.test(company) && company !== email) {
+  if (freeMail && company && !/^(WhatsApp|微信|企业微信|官网)\s/.test(company) && company !== email) {
     flags.push({
       code: "free_mail_company",
       title: "自称公司却用免费邮箱",

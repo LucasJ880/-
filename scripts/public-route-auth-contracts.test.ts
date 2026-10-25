@@ -67,9 +67,17 @@ async function main() {
     "/api/visualizer/share",
     "/api/health",
     "/api/trade/cron",
+    "/embed",
   ]) {
     ok(publicPaths.includes(p), `PUBLIC_PATHS includes ${p}`);
   }
+  // /embed 只放行静态嵌入脚本：不得有任何页面 / 接口挂在 /embed 下（否则会绕过登录）
+  ok(
+    existsSync(join(root, "public/embed/inquiry.js")) &&
+      !existsSync(join(root, "src/app/embed")) &&
+      !readdirSync(join(root, "src/app")).some((d) => d.startsWith("(") && existsSync(join(root, "src/app", d, "embed"))),
+    "/embed 下只有 public/embed 静态文件，没有 app 路由",
+  );
   ok(
     /function isPublicPath[\s\S]*PUBLIC_PATHS\.some/.test(mw),
     "isPublicPath uses PUBLIC_PATHS prefix match",
@@ -189,6 +197,21 @@ async function main() {
     ),
     "webhook/callback signature or token verification present",
   );
+
+  console.log("\n/api/trade/webhook/email — Resend（Svix）验签先于任何 DB 访问");
+  {
+    const emailRoute = read("src/app/api/trade/webhook/email/route.ts");
+    const secretIdx = emailRoute.indexOf("RESEND_INBOUND_WEBHOOK_SECRET");
+    const verifyIdx = emailRoute.indexOf("verifyResendWebhookSignature(");
+    const handleIdx = emailRoute.indexOf("handleResendInboundEvent(");
+    ok(secretIdx >= 0 && /status:\s*503/.test(emailRoute), "email webhook: unset RESEND_INBOUND_WEBHOOK_SECRET → 503");
+    ok(verifyIdx > secretIdx && /status:\s*401/.test(emailRoute), "email webhook: signature verified, invalid → 401");
+    ok(handleIdx > verifyIdx, "email webhook: handler (DB) only after signature verification");
+    ok(!/@\/lib\/db|db\./.test(emailRoute), "email webhook route never touches DB directly");
+    ok(!/searchParams|orgId/.test(emailRoute), "email webhook: org never taken from query/body");
+    const rules = read("src/lib/trade/email-inbound-rules.ts");
+    ok(/webhooks\.verify\(/.test(rules), "email webhook uses resend SDK (Svix) verify (timestamp tolerance)");
+  }
 
   console.log("\nshare routes — token 凭据，错误/缺失 → 404，无跨 org 枚举文案");
   for (const rel of [
@@ -354,6 +377,23 @@ async function main() {
     }
   }
 
+  console.log("\n嵌入表单提交 /api/trade/webhook/website/embed — 公开 key + Origin 白名单 + 限流，响应最小化");
+  {
+    const embed = read("src/app/api/trade/webhook/website/embed/route.ts");
+    ok(/resolveWebsiteChannelByPublicKey\(key\)/.test(embed) && /status:\s*401|, 401, null\)/.test(embed), "embed: 按公开 key 定位通道，失败 401");
+    ok(/originAllowed\(origin, channel\.allowedOrigins\)/.test(embed) && /, 403, null\)/.test(embed), "embed: Origin 精确匹配白名单，失败 403 且不回显 CORS");
+    ok(/decideEmbedRateLimit\(/.test(embed) && /countEmbedSubmissions\(/.test(embed) && /, 429,/.test(embed), "embed: 数据库计数限流 → 429");
+    ok(/ok: true, receiptId: result\.receiptId \}/.test(embed) && !/prospectId|opportunityId|duplicate|websiteWebhookBody/.test(embed), "embed: 成功响应只有 { ok, receiptId }");
+    ok(/fdeMode: "deferred"/.test(embed) && /kind: "embed"/.test(embed), "embed: 走异步入站（deferred），来源 embed");
+    ok(!/searchParams\.get\(["'](?:secret|key)/.test(embed), "embed: 不从 query 读凭证");
+  }
+
+  console.log("\n动态：middleware 对 /embed/inquiry.js 不要求网页 Session");
+  {
+    const res = await middleware(new NextRequest("http://localhost/embed/inquiry.js"));
+    ok(res.status !== 401 && res.status !== 307 && !res.headers.get("location"), "middleware 放行 /embed/inquiry.js（不重定向登录）");
+  }
+
   console.log("\n动态：middleware 对 /api/trade/cron 不要求网页 Session");
   {
     const req = new NextRequest("http://localhost/api/trade/cron", {
@@ -364,6 +404,12 @@ async function main() {
     const authReason = res.headers.get("x-auth-reason");
     ok(res.status !== 401, "middleware does not 401 trade/cron without session");
     ok(authReason !== "session", "middleware does not set session auth-reason");
+  }
+
+  console.log("\n动态：middleware 对 /api/trade/webhook/email 不要求网页 Session");
+  {
+    const res = await middleware(new NextRequest("http://localhost/api/trade/webhook/email", { method: "POST" }));
+    ok(res.status !== 401 && res.headers.get("x-auth-reason") !== "session", "middleware does not 401 trade/webhook/email without session");
   }
 
   console.log("\n覆盖说明");
