@@ -158,7 +158,8 @@ function fmtValue(field: RfqField, fields: RfqFields, lang: "zh" | "en"): string
     return v.toISOString().slice(0, 10);
   }
   if (typeof v === "boolean") return v ? "yes" : "no";
-  if (field === "quantity") return `${fmtQty(Number(v))}${fields.unit ? " " + fields.unit : ""}`;
+  // 数量照原数字写（不加千分位）：买家回信会带着我们的主题 / 正文，加了千分位的旧数字在抽取打分上会和买家的新数量打平
+  if (field === "quantity") return `${v}${fields.unit ? " " + fields.unit : ""}`;
   if (field === "targetPrice") return `${fields.currency ?? ""} ${v}`.trim();
   return String(v);
 }
@@ -313,7 +314,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   let body: string;
   if (lang === "zh") {
     const unitZh = fields.unit ? (/^[A-Za-z]/.test(fields.unit) ? ` ${fields.unit}` : fields.unit) : "件";
-    const qty = subjectQty ? `（${fmtQty(subjectQty)}${unitZh}）` : "";
+    const qty = subjectQty ? `（${subjectQty}${unitZh}）` : "";
     subject = met
       ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${orgName}`
       : `回复：${product}${qty}询盘 — ${orgName}`;
@@ -359,7 +360,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push(...signOff(input.senderName, orgName, sig));
     body = lines.join("\n");
   } else {
-    const qty = subjectQty ? ` (${fmtQty(subjectQty)}${fields.unit ? " " + fields.unit : " pcs"})` : "";
+    const qty = subjectQty ? ` (${subjectQty}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
       ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${orgName}`
       : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${orgName}`;

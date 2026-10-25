@@ -97,8 +97,6 @@ function parseNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-const CORRECTION_CUE_RE = /\b(now|instead|change[ds]? (?:it )?to|update[ds]? (?:it |the quantity )?to|revised?|correction|actually|make it|final(?:ly)?)\b|改为|改成|更改为|调整为|改到/i;
-
 const UNIT_WORDS =
   "pcs|pieces|piece|pc|units|unit|sets|set|pairs|pair|dozen|cartons|ctns|ctn|rolls|meters|metres|m|yards|kg|件|条|套|个|张|打|箱|双|块|卷|米|码";
 const QTY_RE = new RegExp(
@@ -120,13 +118,13 @@ const DATE_ISO_RE = /\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])
 const DATE_TEXT_RE =
   /\b(?:by|before|until|deliver(?:y|ed)?\s+(?:by|before|in)|需要在|要求)?\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/i;
 const MONTH_WORD = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
-// 「before March」= 2 月底之前；by / until / in /（the）end of 取当月底；early / mid 只说到上旬 / 中旬，不编日子 → 跳过
-const DATE_MONTH_ONLY_RE = new RegExp(`\\b(by|before|until|in)\\s+((?:the\\s+)?end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\b(?:\\.?,?\\s*(20\\d{2}))?`, "gi");
+// 「before March」= 2 月底之前；by / until / in /（the）end of 取当月底；early = 10 日、mid = 15 日（取早不取晚）
+const DATE_MONTH_ONLY_RE = new RegExp(`\\b(by|before|until|in)\\s+((?:the\\s+)?end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\b(?:\\s*(20\\d{2}))?`, "i");
 // 表单字段值常常只写「March 2027」，没有介词：只在「Required date: …」这种标注行里认
 const DATE_BARE_MONTH_RE = new RegExp(`^((?:the\\s+)?end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\.?,?(?:\\s*(20\\d{2}))?[.。]?$`, "i");
 const RELATIVE_RE = /(?:within|in|deliver(?:y)? in|需要在|交期)\s*(\d{1,3})\s*(days?|weeks?|months?|天|周|个月)/i;
-// 2027年3月15日 / 2027年3月底（月底）/ 2027年3月前（上月底）/ 2027年3月（月底）/ 2027年3月中旬（不编日子 → 跳过）
-const CN_DATE_RE = /(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日号]|(前后|左右|底|末|下旬|之前|以前|前|中旬|上旬|月初|初|中))?/g;
+// 2027年3月15日 / 2027年3月底、下旬、前后、只给月份（月底）/ 2027年3月前（上月底）/ 上旬、月初（10 日）/ 中旬（20 日）
+const CN_DATE_RE = /(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日号]|(前后|左右|底|末|下旬|之前|以前|前|中旬|上旬|月初|初))?/;
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11,
@@ -147,47 +145,53 @@ interface ParsedDate {
 
 /** 交期：ISO / 中文日期 / 「March 15」/「by|before|in March」/ 相对天数；bare=true 时再认「March 2027」（标注行的值） */
 function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | null {
+  const nextYearIfPast = (mi: number) => now.getUTCFullYear() + (mi < now.getUTCMonth() ? 1 : 0);
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  // 没写年份：取不早于今天的那一年
-  const notPast = (build: (year: number) => Date, year: number | null) => {
-    if (year !== null) return build(year);
-    const d = build(now.getUTCFullYear());
-    return d.getTime() < today ? build(now.getUTCFullYear() + 1) : d;
+  // 只给月份：月底；before 取上月底；early / mid 取 10 / 15 日。没写年份时取不早于今天的那一年
+  const monthDate = (year: number | null, mi: number, mode: "end" | "before" | "early" | "mid") => {
+    const at = (y: number) =>
+      mode === "early" ? new Date(Date.UTC(y, mi, 10)) : mode === "mid" ? new Date(Date.UTC(y, mi, 15)) : new Date(Date.UTC(y, mode === "before" ? mi : mi + 1, 0));
+    if (year !== null) return at(year);
+    const d = at(now.getUTCFullYear());
+    return d.getTime() < today ? at(now.getUTCFullYear() + 1) : d;
   };
-  // 只给月份：月底；before 取上月底
-  const monthEnd = (year: number | null, mi: number, before: boolean) =>
-    notPast((y) => new Date(Date.UTC(y, before ? mi : mi + 1, 0)), year);
-  const vague = (qualifier: string | undefined) => /^(mid|early)/i.test(qualifier ?? "");
+  const modeOf = (qualifier: string | undefined, before: boolean): "end" | "before" | "early" | "mid" =>
+    /^early/i.test(qualifier ?? "") ? "early" : /^mid/i.test(qualifier ?? "") ? "mid" : before && !qualifier ? "before" : "end";
 
   const iso = DATE_ISO_RE.exec(text);
   if (iso) {
     return { date: new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))), confidence: 0.9, index: iso.index, length: iso[0].length };
   }
-  // 「2027 年 3 月」带空格也认；中旬 / 上旬 / 月初 / 前后 / 左右只是大概，跳过看后面有没有更确切的说法
-  for (const cn of text.matchAll(CN_DATE_RE)) {
-    if (cn[4] && /中旬|上旬|初|^中$|前后|左右/.test(cn[4])) continue;
+  const cn = CN_DATE_RE.exec(text);
+  if (cn) {
     const year = Number(cn[1]);
     const mi = Number(cn[2]) - 1;
-    const date = cn[3] ? new Date(Date.UTC(year, mi, Number(cn[3]))) : monthEnd(year, mi, !!cn[4] && /前/.test(cn[4]));
-    return { date, confidence: cn[3] ? 0.9 : 0.7, index: cn.index ?? 0, length: cn[0].length };
+    const q = cn[4] ?? "";
+    const date = cn[3]
+      ? new Date(Date.UTC(year, mi, Number(cn[3])))
+      : /上旬|初/.test(q)
+        ? new Date(Date.UTC(year, mi, 10))
+        : /中旬/.test(q)
+          ? new Date(Date.UTC(year, mi, 20))
+          : monthDate(year, mi, /^(?:之前|以前|前)$/.test(q) ? "before" : "end");
+    return { date, confidence: cn[3] ? 0.9 : 0.7, index: cn.index, length: cn[0].length };
   }
   const textDate = DATE_TEXT_RE.exec(text);
   if (textDate && monthIndex(textDate[1]) !== null) {
     const mi = monthIndex(textDate[1])!;
-    const date = notPast((y) => new Date(Date.UTC(y, mi, Number(textDate[2]))), textDate[3] ? Number(textDate[3]) : null);
-    return { date, confidence: textDate[3] ? 0.85 : 0.7, index: textDate.index, length: textDate[0].length };
+    const year = textDate[3] ? Number(textDate[3]) : nextYearIfPast(mi);
+    return { date: new Date(Date.UTC(year, mi, Number(textDate[2]))), confidence: textDate[3] ? 0.85 : 0.7, index: textDate.index, length: textDate[0].length };
   }
-  DATE_MONTH_ONLY_RE.lastIndex = 0;
-  for (const mo of text.matchAll(DATE_MONTH_ONLY_RE)) {
-    if (monthIndex(mo[3]) === null || vague(mo[2])) continue;
+  const monthOnly = DATE_MONTH_ONLY_RE.exec(text);
+  if (monthOnly && monthIndex(monthOnly[3]) !== null) {
     // 「before end of March」= 3 月底之前，不是 2 月底
-    const date = monthEnd(mo[4] ? Number(mo[4]) : null, monthIndex(mo[3])!, mo[1].toLowerCase() === "before" && !mo[2]);
-    return { date, confidence: 0.6, index: mo.index ?? 0, length: mo[0].length };
+    const date = monthDate(monthOnly[4] ? Number(monthOnly[4]) : null, monthIndex(monthOnly[3])!, modeOf(monthOnly[2], monthOnly[1].toLowerCase() === "before"));
+    return { date, confidence: 0.6, index: monthOnly.index, length: monthOnly[0].length };
   }
   const bareText = text.trim();
   const bareMonth = bare ? DATE_BARE_MONTH_RE.exec(bareText) : null;
-  if (bareMonth && monthIndex(bareMonth[2]) !== null && !vague(bareMonth[1])) {
-    const date = monthEnd(bareMonth[3] ? Number(bareMonth[3]) : null, monthIndex(bareMonth[2])!, false);
+  if (bareMonth && monthIndex(bareMonth[2]) !== null) {
+    const date = monthDate(bareMonth[3] ? Number(bareMonth[3]) : null, monthIndex(bareMonth[2])!, modeOf(bareMonth[1], false));
     return { date, confidence: 0.6, index: text.indexOf(bareText), length: bareText.length };
   }
   const rel = RELATIVE_RE.exec(text);
@@ -305,11 +309,15 @@ function labeledCertification(value: string): LabeledPairs | null {
   return [["certification", hits.sort((a, b) => a.index - b.index).map((h) => h.text).join(", ")]];
 }
 
+// 只有标点（「-」「/」「...」「?」）或指向别处（see photo、as per drawing、见图）：不是答案
+const PLACEHOLDER_RE =
+  /^[\s\-—–_/\\.?!·•*~]+$|^(?:see|check|refer(?: to)?|per|as (?:shown|per|in)|according to|follow(?:ing)?)\b.{0,40}\b(?:photo|picture|pic|image|file|spec|drawing|sample|link|attach\w*|below|above|email|message|catalog(?:ue)?)\b|^(?:见|按|参考|看|同)(?:图|附件|样品|图片|邮件|上|下)/i;
+
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
   const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
-  if (!value || NON_ANSWER_RE.test(value)) return null;
+  if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value)) return null;
   const sentence = firstSentence(value);
-  if (!sentence || NON_ANSWER_RE.test(sentence)) return null;
+  if (!sentence || NON_ANSWER_RE.test(sentence) || PLACEHOLDER_RE.test(sentence)) return null;
   const yesNo = YES_NO_RE.test(sentence);
   switch (field) {
     case "quantity":
@@ -371,8 +379,8 @@ interface LabeledHit {
 }
 
 /**
- * 表单区块里的字段，以及把「买家类型」单字段行抹成空格的文本（下标不变，只给产品规格类关键词扫描用）：
- * 那一行说的是买家，「Retail & Private Label」不是定制要求，也不是零售包装（官网表单与展会速记卡都会写这一行）。
+ * 表单区块里的字段，以及把区块里「买家类型」行抹成空格的文本（下标不变，只给产品规格类关键词扫描用）：
+ * 那一行是表单的选项（Retail & Private Label），不是定制要求，也不是零售包装。
  * 同一字段出现在几封来信的表单区块里时取后一封。
  */
 /** 表单里没答的行（「Packaging: To be confirmed」）：标签词本身就是关键词，别让关键词扫描从标签里读出一个「答案」 */
@@ -381,7 +389,13 @@ const LABEL_IS_KEYWORD: RfqField[] = ["packaging", "sampleRequired", "customizat
 function labeledFields(
   source: string,
   now: Date,
-): { hits: LabeledHit[]; unanswered: Array<{ field: RfqField; labelStart: number; valueStart: number }>; specScan: string; segmentOf: (index: number) => number } {
+): {
+  hits: LabeledHit[];
+  unanswered: Array<{ field: RfqField; labelStart: number; valueStart: number }>;
+  specScan: string;
+  segmentOf: (index: number) => number;
+  segmentEnd: (segment: number) => number;
+} {
   const segStarts = [0];
   for (let i = source.indexOf(INBOUND_MESSAGE_SEPARATOR); i >= 0; i = source.indexOf(INBOUND_MESSAGE_SEPARATOR, i + 1)) {
     segStarts.push(i + INBOUND_MESSAGE_SEPARATOR.length);
@@ -411,16 +425,15 @@ function labeledFields(
     const field = LABEL_FIELD.get(label);
     if (!field) continue;
     const raw = m[2];
-    if (SECOND_LABEL_RE.test(raw)) continue;
+    if (SECOND_LABEL_RE.test(raw) || !inBlock(m.index)) continue;
     if (field === "buyerType") masked = masked.slice(0, m.index) + " ".repeat(m[0].length) + masked.slice(m.index + m[0].length);
-    if (!inBlock(m.index)) continue;
     const segment = segmentOf(m.index);
     const prev = byField.get(field);
     if (prev && prev.segment >= segment) continue;
     const pairs = labeledValue(field, raw, now);
     const valueStart = m.index + m[0].trimEnd().length - raw.length;
     if (!pairs) {
-      if (LABEL_IS_KEYWORD.includes(field) && NON_ANSWER_RE.test(raw.trim())) unanswered.push({ field, labelStart: m.index, valueStart });
+      if (LABEL_IS_KEYWORD.includes(field) && (NON_ANSWER_RE.test(raw.trim()) || PLACEHOLDER_RE.test(raw.trim()))) unanswered.push({ field, labelStart: m.index, valueStart });
       continue;
     }
     byField.set(field, {
@@ -432,7 +445,40 @@ function labeledFields(
       segment,
     });
   }
-  return { hits: [...byField.values()], unanswered, specScan: masked, segmentOf };
+  const segmentEnd = (seg: number) => (seg + 1 < segStarts.length ? segStarts[seg + 1] : source.length);
+  return { hits: [...byField.values()], unanswered, specScan: masked, segmentOf, segmentEnd };
+}
+
+/** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
+function mentionedIn(field: RfqField, text: string): boolean {
+  if (!text.trim()) return false;
+  const lower = text.toLowerCase();
+  switch (field) {
+    case "quantity":
+      return new RegExp(`\\d[\\d,，.]*\\s*(?:k|万|千)?\\s*(?:${UNIT_WORDS})(?![A-Za-z])|\\b(?:quantity|qty)\\b|数量`, "i").test(text);
+    case "requiredDeliveryDate":
+      return new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month))\\b`, "i").test(text) || RELATIVE_RE.test(text);
+    case "destinationCountry":
+      return detectCountries(text).length > 0;
+    case "incoterm":
+      return new RegExp(`\\b(${INCOTERMS.join("|")})\\b`, "i").test(text);
+    case "material":
+      return findKeyword(lower, MATERIAL_KEYWORDS) !== null;
+    case "size":
+      return SIZE_RE.test(text) || /\bsizes?\b|尺寸|尺码/i.test(text);
+    case "customization":
+      return findKeyword(lower, CUSTOMIZATION_KEYWORDS) !== null;
+    case "packaging":
+      return findKeyword(lower, PACKAGING_KEYWORDS) !== null;
+    case "certification":
+      return findKeyword(lower, CERTIFICATION_KEYWORDS) !== null;
+    case "sampleRequired":
+      return findKeyword(lower, SAMPLE_KEYWORDS) !== null;
+    case "buyerType":
+      return detectBuyerType(text).matched !== null;
+    default:
+      return false;
+  }
 }
 
 export interface HeuristicOptions {
@@ -497,20 +543,12 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (/^\s*(gsm|cm|mm|inch|in\b|"|x|×|\*|%|usd|cad|eur|\$|元|美元|加元)/.test(after)) continue;
     if (/(x|×|\*|\$|€|£|¥|usd|cad|eur)\s*$/.test(before)) continue;
     // 「MOQ is 100 pcs」「起订量 300 件」是对方说的起订量，不是采购数量
-    if (/(moq|minimum order(?: quantity)?|起订量|最小起订量?|起订)\s*(?:is|of|:|：|为|是|=)?\s*$/i.test(source.slice(Math.max(0, m.index - 24), m.index))) continue;
-    // 年份不是数量：没单位、没千分位的 19xx / 20xx，前面是月份或 in / by / since…，或后面跟「年」（「2000 blankets」仍是数量）
-    if (!unit && /^(19|20)\d{2}$/.test(raw.trim())) {
-      const pre = source.slice(Math.max(0, m.index - 14), m.index);
-      const post = source.slice(rawEnd, rawEnd + 3);
-      if (new RegExp(`${MONTH_WORD}\\.?,?\\s*(?:\\d{1,2}(?:st|nd|rd|th)?,?\\s*)?$`, "i").test(pre) || /\b(in|by|since|from|until|till|before|after|year|fy|of)\s+$/i.test(pre) || /^\s*年/.test(post)) continue;
-    }
+    if (/(moq|minimum order(?: quantity)?|起订量|最小起订量?|起订)\s*(?:is|of|:|：|为|是|=)?\s*(?:typically|usually|normally|generally|一般为?|通常为?)?\s*(?:每\s*[款色码个件套条]\s*)?$/i.test(source.slice(Math.max(0, m.index - 36), m.index))) continue;
+    if (/^(19|20)\d{2}$/.test(raw.replace(/[,，]/g, "")) && !unit) continue;
     let score = unit ? 3 : 0;
     if (/[,，]\d{3}/.test(raw) || /k|万|千/i.test(raw)) score += 2;
     if (productKw && Math.abs(productKw.index - (m.index + m[0].length)) <= 3) score += 3;
     if (value >= 50) score += 1;
-    // 买家改口（「we need 5,000 pcs now」「change to 4,000」「改为 5000 件」）：同分时取改口后的数
-    const clause = source.slice(Math.max(0, m.index - 40), m.index + m[0].length + 20);
-    if (CORRECTION_CUE_RE.test(clause)) score += 1;
     if (!unit && value < 10) continue;
     qtyCandidates.push({ value, index: m.index, length: unit ? m[0].length : raw.trimEnd().length, score });
   }
@@ -659,6 +697,8 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].field === field) evidence.splice(i, 1);
   };
   const keywordWins = (hit: LabeledHit, field: RfqField) => {
+    // 之后的来信里提到了这个字段（不管关键词扫描最后选了哪一处）：买家可能改了说法，保持关键词扫描的结果
+    if (mentionedIn(field, source.slice(labeled.segmentEnd(hit.segment)))) return true;
     const k = keywordPos.get(field);
     if (k === undefined || (k >= hit.lineStart && k < hit.lineEnd)) return false;
     const seg = labeled.segmentOf(k);

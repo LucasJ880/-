@@ -122,7 +122,7 @@ ok("回复草稿：只陈述已知事实，缺失项转成问题，MOQ/价格/�
   });
   assert.equal(d.guardrailViolations.length, 0);
   assert.match(d.subject, /blackout curtains/i);
-  assert.match(d.body, /Quantity: 3,000 pcs/);
+  assert.match(d.body, /Quantity: 3000/);
   assert.match(d.body, /Destination country: Canada/);
   assert.match(d.body, /1\. What are the finished sizes/);
   assert.match(d.body, /confirm these internally/i);
@@ -146,7 +146,7 @@ ok("中文草稿", () => {
     knowledge: knowledgeFor("curtain"),
     policy,
   });
-  assert.match(d.body, /数量：3,000/);
+  assert.match(d.body, /数量：3000/);
   assert.match(d.body, /需内部/);
   assert.equal(d.guardrailViolations.length, 0);
 });
