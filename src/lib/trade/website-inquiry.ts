@@ -25,7 +25,7 @@ import {
   type FdeState,
   type QueuedFdeRun,
   type RunQueuedFdeOptions,
-} from "@/lib/revenue-spine/fde/inbound-claim";
+} from "@/lib/revenue-spine/fde/inbound-queue";
 import { addBusinessHours } from "@/lib/revenue-spine/business-days";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
@@ -41,9 +41,9 @@ import {
 } from "./website-inquiry-receipts";
 import { ensureOutreachSequence } from "./outreach-sequence";
 
-// FDE 真实状态读取与认领在 Revenue Spine 层（inbound-claim.ts）；这里保留原导出名，调用方不变
-export { FDE_STALE_RUNNING_MS, loadFdeState } from "@/lib/revenue-spine/fde/inbound-claim";
-export type { FdeState } from "@/lib/revenue-spine/fde/inbound-claim";
+// FDE 真实状态读取与认领在 Revenue Spine 层（inbound-queue.ts）；这里保留原导出名，调用方不变
+export { FDE_STALE_RUNNING_MS, loadFdeState } from "@/lib/revenue-spine/fde/inbound-queue";
+export type { FdeState } from "@/lib/revenue-spine/fde/inbound-queue";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 export const BOOTH_CARD_CAMPAIGN_NAME = "展会速记卡";

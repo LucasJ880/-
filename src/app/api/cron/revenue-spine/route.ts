@@ -14,7 +14,7 @@ import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
-import { drainInboundFdeQueue } from "@/lib/revenue-spine/fde/inbound-claim";
+import { drainInboundFdeQueue } from "@/lib/revenue-spine/fde/inbound-queue";
 import { draftNoReplyFollowUps } from "@/lib/revenue-spine/fde/no-reply-followup";
 import { NEXT_ACTION_LABELS, applyNextAction, type NextActionType } from "@/lib/revenue-spine/next-action";
 import { OPEN_STAGES } from "@/lib/revenue-spine/opportunity-stage";

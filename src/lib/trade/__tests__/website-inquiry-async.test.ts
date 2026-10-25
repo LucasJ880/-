@@ -16,7 +16,7 @@ import {
   FDE_CRON_MAX_ATTEMPTS,
   FDE_RERUNNABLE,
   FDE_STALE_RUNNING_MS,
-} from "@/lib/revenue-spine/fde/inbound-claim";
+} from "@/lib/revenue-spine/fde/inbound-queue";
 import {
   FDE_STALE_RUNNING_MS as REEXPORTED_STALE_MS,
   scheduleAfterResponse,
