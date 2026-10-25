@@ -288,8 +288,9 @@ export default function FactoryOnboardingDetailPage() {
         return (
           <div className="space-y-3">
             <p className="text-xs text-muted">
-              当前：{status.pack.name ?? "未配置"}（{status.org.industryPackId ?? "—"}）· 模块：{status.org.modules.join("、") || "未显式配置"} · 时区：
-              {status.org.timezone ?? "未设置"} · 企业 owner：{status.org.owner.name}（{status.org.owner.email}）
+              当前：{status.pack.name ?? "未配置"}（{status.org.industryPackId ?? "—"}）
+              · 模块：{status.org.modules.length ? status.org.modules.join("、") : "未显式配置"}
+              · 时区：{status.org.timezone ?? "未设置"} · 企业 owner：{status.org.owner.name}（{status.org.owner.email}）
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
