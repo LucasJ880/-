@@ -242,7 +242,7 @@ const NON_ANSWER_RE =
 const YES_NO_RE = /^(?:yes|y|ok|no|n|true|false|required|must have|needed|需要|不需要|是|否|有|没有|要|不要)[.!。]?$/i;
 // 数量后的单位：单位词，可带「per colour」「/size」「每色」；后面的话不算单位
 const QTY_UNIT_RE = new RegExp(
-  `^(${UNIT_WORDS})(?![A-Za-z\\d²³])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?![A-Za-z])(?!\\s*(?:runs?|ranges?|assort\\w*|mix\\w*|sets?))|\\s*每\\s*([色款码]))?`,
+  `^(${UNIT_WORDS})(?![A-Za-z\\d²³])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?=\\s*(?:$|[,.;:，。；：)（(]))|\\s*每\\s*([色款码])(?![\\u4e00-\\u9fff]))?`,
   "i",
 );
 const QTY_MULTIPLIER_RE = /\d\s*[x×*]\s*\d|[x×*]\s*\d+\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\b|\d\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\s*[x×*]/i;
@@ -374,7 +374,7 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
       // 尺寸在整个值里找（「Queen; 160x200cm」的尺寸在分号后）
-      const dims = [...value.matchAll(new RegExp(`${SIZE_RE.source}(?![A-Za-z])`, "gi"))];
+      const dims = [...value.matchAll(new RegExp(`${SIZE_RE.source}(?![A-Za-z])`, "g"))];
       if (dims.length > 1) return null; // 几个尺寸：交给关键词扫描
       if (dims.length === 1) return [["size", dims[0][0].replace(/\s+/g, " ").trim()]];
       return SIZE_WORDS_ONLY_RE.test(sentence) ? [["size", sentence]] : null;
@@ -756,7 +756,25 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   // 1) 这个字段自己的表单行（Branding / Packaging）有能用的答案 → 用它；
   // 2) 否则买家在正文或表单其它规格行里提到过 → 保持原结果；
   // 3) 都没有 → 作废（草稿改为追问）
-  const COMMITMENT_RE = /\b(?:foc|free|charges?d?|cost\w*|price\w*|discount\w*|licen[cs]\w*|trademark\w*|copyright\w*|disney|marvel|sanrio|hello kitty|nike|adidas)\b|免费|费用|价格|授权|商标权/i;
+  // 自己的 Branding / Packaging 答案只在全由「普通定制 / 包装用词」组成时采用（品牌名、费用、条件、否定、改口一概不收）
+  const PLAIN_WORDS: Record<"customization" | "packaging", Set<string>> = {
+    customization: new Set(("logo logos embroidered embroidery embroider printed printing print woven label labels tag tags hang care patch patches " +
+      "screen heat transfer jacquard on in at the a and with chest hem border corner sleeve pocket front back left right side each per " +
+      "towel towels piece pcs our own custom size sizes wash washing instruction instructions content fibre fiber country origin " +
+      "en fr de es it nl english french german spanish cm mm x").split(" ")),
+    packaging: new Set(("polybag polybags poly bag bags opp pp pe belly band bands gift box boxes colour color carton cartons ctn ctns per each " +
+      "individual individually pcs pc piece pieces set sets x with and in a header card cards hanger hangers insert inserts sticker stickers " +
+      "barcode barcodes label labels shrink wrap wrapped vacuum packed packing pack export master inner outer zipper pvc kraft paper ribbon tissue cm").split(" ")),
+  };
+  const PLAIN_CJK: Record<"customization" | "packaging", RegExp> = {
+    customization: /^[印绣花织标吊牌洗水唛领商刺胸前后背左右角边每条件个中英文尺码成分产地logoLOGO\s\d+、，,/（）()]+$/,
+    packaging: /^[袋盒箱条件个套每一二三四五六七八九十两彩礼包装贴纸卡吊牌外内真空拉链透明自封胶PEOPVCpeopvc\s\d+、，,/（）()x×]+$/,
+  };
+  const isPlainAnswer = (field: "customization" | "packaging", text: string) => {
+    if (/[\u4e00-\u9fff]/.test(text)) return PLAIN_CJK[field].test(text);
+    const words = text.toLowerCase().split(/[\s,+&/()-]+/).filter(Boolean);
+    return words.length > 0 && words.every((w) => /^\d+(?:\.\d+)?(?:cm|mm|pcs)?$/.test(w) || PLAIN_WORDS[field].has(w));
+  };
   const ownAnswer = (field: RfqField): { text: string; at: number } | null => {
     const own = field === "customization" ? /^(?:branding|customi[sz]ation|logo|定制要求)$/ : /^(?:packaging|packing|包装)$/;
     for (const [a, b, label] of labeled.specLines) {
@@ -764,9 +782,10 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       const raw = source.slice(a, b).replace(/^[^:：]*[:：]/, "");
       if (PICTOGRAPH_RE.test(raw)) continue;
       const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
-      if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value) || COMMITMENT_RE.test(value)) continue;
-      const sentence = firstSentence(value).split(/[;；]/)[0].trim();
-      if (!sentence) continue;
+      if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value)) continue;
+      // 整个值都要是普通用词（不截句：截掉的后半句可能是改口或附加条件）
+      const sentence = value.trim();
+      if (!isPlainAnswer(field as "customization" | "packaging", sentence)) continue;
       const at = source.indexOf(sentence, a);
       if (field === "customization" ? CUSTOMIZATION_WORD_RE.test(sentence) : findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS)) return { text: sentence, at: at >= a && at < b ? at : a };
     }
@@ -776,6 +795,8 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const k = keywordPos.get(field);
     if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
     if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]) && !contradicts(h))) continue;
+    // 买家在正文里提到了这个字段（包括改口）：保持原结果
+    if (mentionedIn(field, labeled.outsideText)) continue;
     const answer = ownAnswer(field);
     if (!answer) {
       // 定制看表单所有规格行（包装行里写的 logo 也算定制）；包装只看包装行（Branding 行里的 label 不是包装）
@@ -783,11 +804,11 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       const specText = lines.map(([a, b]) => lower.slice(a, b)).join("\n");
       const words = field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS;
       const evidence = findKeyword(specText, words) || (field === "customization" && CUSTOMIZATION_WORD_RE.test(specText));
-      if (mentionedIn(field, labeled.outsideText) || evidence) continue;
+      if (evidence) continue;
     }
     (fields as unknown as Record<string, unknown>)[field] = answer?.text ?? null;
     dropEvidence(field);
-    const logo = !!answer && /logo|embroider|print|印|绣/i.test(answer.text);
+    const logo = !!answer && /logo|embroider|印|绣/i.test(answer.text);
     if (field === "customization") {
       fields.customLogo = logo ? true : null;
       dropEvidence("customLogo");

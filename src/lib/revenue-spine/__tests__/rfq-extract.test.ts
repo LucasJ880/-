@@ -443,6 +443,23 @@ ok("第十三轮审查用例：金额不当数量、m2 不是 m、per size run�
   assert.deepEqual([fx(tags).customization, fx(tags).packaging], [fx(tags.split("— Form details —").join("Form details")).customization, fx(tags.split("— Form details —").join("Form details")).packaging]);
 });
 
+ok("第十四轮审查用例：自己的 Branding / Packaging 答案只收普通用词；单位修饰须收尾；尺寸单位区分大小写", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const b = "Project brief (guided form)\n\n— Form details —\nOrder type: OEM\nEstimated quantity: 3,000 pcs\nBuyer type: Retail & Private Label\nMaterial: cotton terry\n";
+  for (const v of ["Embroidered logo, setup fee waived", "Embroidered Lacoste crocodile logo", "logo-less", "Embroidered logo, no wait, printed"]) {
+    const t = b + `Branding: ${v}`;
+    assert.deepEqual([fx(t).customization, fx(t).customLogo], [noForm(t).customization, noForm(t).customLogo], `Branding: ${v}`);
+  }
+  const plain = fx(b + "Branding: Embroidered logo on hem, 5cm");
+  assert.equal(plain.customization, "Embroidered logo on hem, 5cm");
+  assert.equal(plain.customLogo, true);
+  assert.equal(fx(b + "Branding: printed care label EN/FR").customLogo, null, "洗标不是 logo");
+  assert.equal(fx("Product: 床品\n您好\n\n— Form details —\n包装：礼盒包邮").packaging, noForm("Product: 床品\n您好\n\n— Form details —\n包装：礼盒包邮").packaging);
+  assert.notEqual(fx("Product: Bathrobes\nHello.\n\n— Form details —\nEstimated quantity: 1200 pcs per size curve").unit, "pcs per size");
+  assert.notEqual(fx("Product: 浴袍\n您好，请报价。\n\n— Form details —\n数量: 1000件/码段").unit, "件 per 码");
+  assert.equal(fx("Product: Blankets\nHello.\n\n— Form details —\nEstimated quantity: 2000 pcs\nSize / specification: 150X200 IN GREY").size, "150X200");
+});
+
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-01");
