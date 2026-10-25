@@ -721,4 +721,86 @@ ok("开头的结束语后面是正文 / 买家联系方式时仍不是签名起�
   assert.equal(staffPs.buyer.email, "jane.doe@maplehomegoods.example");
 });
 
+ok("业务员落款后的私人邮箱 / WhatsApp 不当买家信息（结束语后面带外部邮箱的签名行照旧切掉）", () => {
+  const LILY = `Lily Chen <lily@${FACTORY}>`;
+  const note = (text: string) => parse({ from: LILY, subject: "lead", text });
+  // 落款「Lily」下面是业务员的私人邮箱和 WhatsApp：不是买家，宁可没有买家联系方式（按无买家联系方式隔离）
+  const personal = note("Buyer Jane Doe from the fair wants 300 robes, please quote.\n\nThanks,\nLily\nEmail: lily.textile@mailbox.example\nWhatsApp: +86 138 0000 1111");
+  assert.equal(personal.buyer.email, "");
+  assert.equal(personal.buyer.phone, "");
+  assert.equal(personal.message, "Buyer Jane Doe from the fair wants 300 robes, please quote.");
+  // 买家标签块写在前面：买家邮箱照取，业务员 WhatsApp 不因紧挨私人邮箱行而被当成买家电话
+  const labeled = note("Buyer: Jane Doe\nBuyer email: jane.doe@maplehomegoods.example\n300 robes please quote.\n\nThanks,\nLily\nEmail: lily.textile@mailbox.example\nWhatsApp: +86 138 0000 1111");
+  assert.equal(labeled.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(labeled.buyer.phone, "");
+  assert.doesNotMatch(labeled.message, /lily\.textile|138 0000 1111/);
+  // 不带标签的私人邮箱行、中文落款、职位行开头、两个结束语叠在一起、信里只有称呼和落款：都不当买家
+  const variants = [
+    "Please quote the buyer Jane Doe, phone +1 416 555 0134.\n\nThanks,\nLily\nlily.chen.personal@gmail.com",
+    "Please quote buyer Jane Doe.\n\nThanks,\n李丽\nEmail: lily.personal@gmail.com\nWhatsApp: +86 138 0000 1111",
+    "Please quote buyer Jane Doe.\n\nBest regards,\nSales Manager\nlily.personal@gmail.com\nMobile: +86 138 0000 1111",
+    "Please quote buyer Jane Doe.\n\nThanks,\nBest regards,\nLily\nlily.personal@gmail.com\nWhatsApp: +86 138 0000 1111",
+    "Hi team,\nThanks,\nLily\nlily.personal@gmail.com\nWhatsApp: +86 138 0000 1111",
+    "Hi team,\nThanks,\n李丽\nlily.personal@gmail.com\nWhatsApp: +86 138 0000 1111",
+    "Thanks,\nLily\nlily.personal@gmail.com\nWhatsApp: +86 138 0000 1111",
+  ];
+  for (const text of variants) {
+    const p = note(text);
+    assert.equal(p.buyer.email, "", text);
+    assert.equal(p.buyer.phone, "", text);
+    assert.doesNotMatch(p.message, /personal@gmail|138 0000 1111/, text);
+  }
+  // 落款下面接着写的买家信息（Buyer 标签 / P.S. / 询价句）留在正文：只切业务员落款那几行，其中的号码不当买家电话
+  const after = note("Please quote.\n\nThanks,\nLily\nWhatsApp: +86 138 0000 1111\nBuyer email: jane.doe@maplehomegoods.example\nBuyer phone: +1 416 555 0134");
+  assert.equal(after.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(after.buyer.phone, "+1 416 555 0134");
+  assert.equal(after.message, "Please quote.\n\nBuyer email: jane.doe@maplehomegoods.example\nBuyer phone: +1 416 555 0134");
+  const afterOnlyEmail = note("Please quote.\n\nThanks,\nBest regards,\nLily\nWhatsApp: +86 138 0000 1111\nBuyer email: jane.doe@maplehomegoods.example");
+  assert.equal(afterOnlyEmail.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(afterOnlyEmail.buyer.phone, "");
+  const request = note("Hi team,\nThanks,\nLily\nlily.personal@gmail.com\nPlease quote Jane Doe, jane.doe@maplehomegoods.example, 300 robes.");
+  assert.equal(request.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(request.message, "Hi team,\nPlease quote Jane Doe, jane.doe@maplehomegoods.example, 300 robes.");
+  const cn = note("新客户，请报价。\n\n谢谢\n李丽\n手机：138 0000 1111\n客户邮箱：jane.doe@maplehomegoods.example\n客户电话：+1 416 555 0134");
+  assert.equal(cn.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(cn.buyer.phone, "+1 416 555 0134");
+  // 信的开头（只有称呼）紧跟结束语、其后不是业务员落款：外部邮箱行是买家联系方式，不丢
+  const top = note("Hello all,\nThanks!\nJane Doe, Maple Home Goods Inc.\nEmail: jane.doe@maplehomegoods.example\nTel: +1 416 555 0134");
+  assert.equal(top.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(top.buyer.phone, "+1 416 555 0134");
+});
+
+ok("开头的结束语后面只有名字加短句、或直接是 P.S. 时不是落款（标语容忍只在正文之后的像样签名下面）", () => {
+  const fwd = (body: string) => parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "Fwd: robes", text: `${BUYER_HDR}${body}` });
+  const nameThenSentence = fwd("Hi Lily,\nThanks!\nJane\nMy colleague will contact you next week.");
+  assert.equal(nameThenSentence.message, "Hi Lily,\nThanks!\nJane\nMy colleague will contact you next week.");
+  const twoSigLinesThenSentence = fwd("Hi Lily,\nThanks!\nJane Doe\nMaple Home Goods Inc.\nWe are a hotel chain in Toronto.");
+  assert.match(twoSigLinesThenSentence.message, /We are a hotel chain in Toronto\./);
+  const dearSir = fwd("Dear Sir/Madam,\nThanks!\nJane\nMy colleague will contact you next week.");
+  assert.match(dearSir.message, /My colleague will contact you next week\./);
+  // 结束语后面直接是 P.S.（中间没有签名）：P.S. 是正文，留在留言里
+  const ps = fwd("Hello Lily,\nThanks!\nP.S. We need 300 robes, contact me at jane@maple.example.com");
+  assert.equal(ps.message, "Hello Lily,\nThanks!\nP.S. We need 300 robes, contact me at jane@maple.example.com");
+  const psAfterBody = fwd("We need 500 pcs bath towels.\n\nBest regards,\nP.S. Please also send your catalogue.");
+  assert.match(psAfterBody.message, /P\.S\. Please also send your catalogue\./);
+  // 签名只有一个名字、后面是标语：不当落款（与瘦身后的版本一致）
+  const nameSlogan = fwd("We need 500 pcs bath towels.\n\nBest regards,\nJane\nWe are your partner in home comfort");
+  assert.match(nameSlogan.message, /We are your partner in home comfort/);
+  // 平台通知 Message 里同样的写法：短句留在留言里
+  const notice = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: New inquiry from Alibaba.com",
+    text: `---------- Forwarded message ---------\nFrom: Alibaba.com <notice@service.alibaba.com>\nDate: Mon, Oct 20, 2026\nSubject: New inquiry from Alibaba.com\nTo: <lily@${FACTORY}>\n\nYou have a new inquiry on Alibaba.com\nBuyer: Jane Doe\nMessage:\nHello,\nThanks!\nJane\nWe are a hotel chain in Toronto.\nCountry: Canada`,
+  });
+  assert.match(notice.message, /We are a hotel chain in Toronto\./);
+  assert.equal(notice.buyer.country, "Canada");
+  // 正文之后的完整签名 + 标语仍按落款切掉（需求 B4）
+  const signed = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: New inquiry from Alibaba.com",
+    text: `---------- Forwarded message ---------\nFrom: Alibaba.com <notice@service.alibaba.com>\nDate: Mon, Oct 20, 2026\nSubject: New inquiry from Alibaba.com\nTo: <lily@${FACTORY}>\n\nYou have a new inquiry on Alibaba.com\nBuyer: Jane Doe\nMessage:\nHello, we need 500 pcs bath towels, please quote FOB.\nRegards,\nJane Doe\n+1 416 555 0134\nWe are your partner in home comfort\nCountry: Canada`,
+  });
+  assert.equal(signed.message, "Hello, we need 500 pcs bath towels, please quote FOB.");
+});
+
 console.log(`\nemail-forward-parse: ${pass} 通过`);
