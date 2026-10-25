@@ -28,6 +28,13 @@ import type { NormalizedInquiry } from "./website-inquiry";
 export const WEBSITE_INQUIRY_SOURCE = "website";
 /** 展会速记卡（夜间批量录入）：与网站询盘同一条链路，事件身份空间独立 */
 export const BOOTH_CARD_SOURCE = "trade_show";
+/** WhatsApp Cloud API 来信：eventId = wamid；与网站询盘同一条链路（收据 → Trade → Revenue Spine → 异步 FDE） */
+export const WHATSAPP_INBOUND_SOURCE = "whatsapp";
+/**
+ * 微信公众号来信：eventId = MsgId（无 MsgId 时 FromUserName:CreateTime）。只走 Trade 通道
+ * （openid 没有电话 / 邮箱，进不了 Revenue Spine 的客户去重），收据只做平台重试去重，见 claimChannelEventReceipt。
+ */
+export const WECHAT_INBOUND_SOURCE = "wechat";
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  网站 webhook（deferred）只在请求路径（收据 → Trade → Revenue Spine intake，数秒）持有收据，
@@ -282,4 +289,69 @@ export async function findReceiptByEventId(orgId: string, eventId: string, sourc
   return db.websiteInquiryReceipt.findUnique({
     where: { orgId_source_eventId: { orgId, source, eventId } },
   });
+}
+
+export type ChannelEventClaim =
+  | { outcome: "claimed"; receiptId: string; /** 上次处理失败（received）或中断（processing 过期）后再次认领 */ retry: boolean }
+  | { outcome: "duplicate" | "busy"; receiptId: string };
+
+/**
+ * Trade 通道来信（微信公众号）按平台消息 id 认领，在任何业务写入之前调用：
+ *   - 首次出现 → claimed（收据建为 processing）；
+ *   - 已处理完（linked / complete）→ duplicate：平台重试（微信 5 秒没收到回应会重发，共 3 次），不再处理；
+ *   - 另一请求正在处理（processing 且未过期）→ busy：由那个请求处理完；
+ *   - 上次处理抛错（调用方已释放为 received）或处理中断（processing 超过 RECEIPT_PROCESSING_STALE_MS）→ 再次 claimed。
+ * payload 只存定位信息（不存正文：正文在 TradeMessage 里），不参与冲突判定。
+ * 与网站询盘的 claimInquiryReceipt 不同：不做内容去重、不按收据重放——这条通道没有可补齐的下游链路。
+ */
+export async function claimChannelEventReceipt(
+  orgId: string,
+  source: string,
+  eventId: string,
+  payload: Record<string, string>,
+  now: Date = new Date(),
+): Promise<ChannelEventClaim> {
+  const payloadHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  try {
+    const created = await db.websiteInquiryReceipt.create({
+      data: {
+        orgId,
+        source,
+        eventId,
+        eventIdProvided: true,
+        payload: payload as Prisma.InputJsonValue,
+        payloadHash,
+        status: "processing",
+        processingSince: now,
+        firstSeenAt: now,
+      },
+      select: { id: true },
+    });
+    return { outcome: "claimed", receiptId: created.id, retry: false };
+  } catch (err) {
+    if ((err as { code?: string })?.code !== "P2002") throw err;
+  }
+  const existing = await db.websiteInquiryReceipt.findUniqueOrThrow({
+    where: { orgId_source_eventId: { orgId, source, eventId } },
+    select: { id: true },
+  });
+  const reclaimed = await db.websiteInquiryReceipt.updateMany({
+    where: {
+      id: existing.id,
+      status: { notIn: ["linked", "complete"] },
+      OR: [
+        { status: { not: "processing" } },
+        { processingSince: null },
+        { processingSince: { lt: new Date(now.getTime() - RECEIPT_PROCESSING_STALE_MS) } },
+      ],
+    },
+    data: { status: "processing", processingSince: now, attempts: { increment: 1 } },
+  });
+  if (reclaimed.count === 1) return { outcome: "claimed", receiptId: existing.id, retry: true };
+  const cur = await db.websiteInquiryReceipt.update({
+    where: { id: existing.id },
+    data: { attempts: { increment: 1 } },
+    select: { status: true },
+  });
+  return { outcome: cur.status === "linked" || cur.status === "complete" ? "duplicate" : "busy", receiptId: existing.id };
 }

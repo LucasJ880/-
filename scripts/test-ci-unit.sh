@@ -118,8 +118,10 @@ npx tsx src/lib/trade/__tests__/style-references.test.ts
 npx tsx src/lib/trade/__tests__/email-sender.test.ts
 npx tsx src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts
-# 客户去重：电话 E.164 归一 / 比对（PRD F2.3）
+# WhatsApp / 微信来信进 Revenue Spine + 电话 E.164 去重（PRD F2.2–F2.4；DB e2e 无隔离库自动跳过）
 npx tsx src/lib/revenue-spine/__tests__/phone-match.test.ts
+npx tsx src/lib/trade/__tests__/whatsapp-inbound.test.ts
+npx tsx src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts

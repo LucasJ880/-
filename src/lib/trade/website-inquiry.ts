@@ -33,6 +33,7 @@ import {
   BOOTH_CARD_SOURCE,
   RECEIPT_PROCESSING_STALE_MS,
   WEBSITE_INQUIRY_SOURCE,
+  WHATSAPP_INBOUND_SOURCE,
   claimInquiryReceipt,
   findReceiptByEventId,
   fromReceiptPayload,
@@ -40,6 +41,7 @@ import {
   releaseReceipt,
 } from "./website-inquiry-receipts";
 import { ensureOutreachSequence } from "./outreach-sequence";
+import { inboundPlaceholderCompanyName } from "./channel-service";
 
 // FDE 真实状态读取与认领在 Revenue Spine 层（inbound-queue.ts）；这里保留原导出名，调用方不变
 export { FDE_STALE_RUNNING_MS, loadFdeState } from "@/lib/revenue-spine/fde/inbound-queue";
@@ -47,13 +49,15 @@ export type { FdeState } from "@/lib/revenue-spine/fde/inbound-queue";
 
 export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 export const BOOTH_CARD_CAMPAIGN_NAME = "展会速记卡";
+/** 消息通道（WhatsApp / 微信）来信归集的活动；与 channel-service 旧 Trade 通道同名 */
+export const CHANNEL_INQUIRY_CAMPAIGN_NAME = "渠道询盘";
 
 /**
- * 线索从哪来：网站表单（默认），或展会速记卡（夜间批量录入）。两者走同一条链路，
- * 只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
+ * 线索从哪来：网站表单（默认）、展会速记卡（夜间批量录入）或 WhatsApp 来信（whatsapp-inbound.ts）。
+ * 三者走同一条链路，只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
  */
 export interface IngestOrigin {
-  kind: "website" | "trade_show";
+  kind: "website" | "trade_show" | "whatsapp";
   /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
   event?: string | null;
   /** 买家在展位看过的参考款（款号 + 参考表里的品类名），草稿逐一点名；仅 trade_show */
@@ -77,6 +81,10 @@ const ORIGINS = {
     interactionChannel: "website",
     // 买家主动来询：通知外贸成员
     notify: true,
+    // 进线另跑一次 TradeInquiryAnalysis（收件箱摘要）
+    inquiryAnalysis: true,
+    outreachSequence: true,
+    placeholderChannel: null,
   },
   trade_show: {
     campaign: BOOTH_CARD_CAMPAIGN_NAME,
@@ -90,6 +98,27 @@ const ORIGINS = {
     interactionChannel: "trade_show",
     // 录入人就是操作者，一晚几十张不逐条通知
     notify: false,
+    inquiryAnalysis: true,
+    outreachSequence: true,
+    placeholderChannel: null,
+  },
+  whatsapp: {
+    campaign: CHANNEL_INQUIRY_CAMPAIGN_NAME,
+    campaignDesc: "消息通道陌生来信自动归集的询盘",
+    receiptSource: WHATSAPP_INBOUND_SOURCE,
+    prospectSource: "whatsapp",
+    messageChannel: "whatsapp",
+    label: "WhatsApp 来信",
+    pageLabel: "来源页",
+    intakeSource: "whatsapp",
+    interactionChannel: "whatsapp",
+    notify: true,
+    // 单管线：这条来信只走 Revenue Spine intake + 异步 FDE，不再另跑 TradeInquiryAnalysis（省一次 LLM）
+    inquiryAnalysis: false,
+    // 外联序列是邮件节奏；WhatsApp 来信没有邮箱
+    outreachSequence: false,
+    // 没有邮箱可按：Trade 线索按「WhatsApp <号码>」占位名复用（与旧 Trade 通道建的线索同名）
+    placeholderChannel: "whatsapp",
   },
 } as const;
 
@@ -362,7 +391,9 @@ function chainComplete(state: ChainState): boolean {
 }
 
 function originOfReceipt(receipt: Pick<WebsiteInquiryReceipt, "source">): IngestOrigin {
-  return receipt.source === BOOTH_CARD_SOURCE ? { kind: "trade_show" } : { kind: "website" };
+  if (receipt.source === BOOTH_CARD_SOURCE) return { kind: "trade_show" };
+  if (receipt.source === WHATSAPP_INBOUND_SOURCE) return { kind: "whatsapp" };
+  return { kind: "website" };
 }
 
 /** 重放 / 状态查询时的主干快照：字段全部取自真实记录，不臆造负责人/语言 */
@@ -590,19 +621,26 @@ export async function ingestWebsiteInquiry(
     let notified = 0;
     if (!state.tradeMessageId) {
       const campaignId = await ensureInquiryCampaign(orgId, o.campaign, o.campaignDesc);
+      const placeholder = o.placeholderChannel ? inboundPlaceholderCompanyName(o.placeholderChannel, v.phone.replace(/^\+/, "")) : null;
       let prospect: ProspectRef | null = v.email
         ? await db.tradeProspect.findFirst({
             where: { orgId, contactEmail: { equals: v.email, mode: "insensitive" } },
             select: PROSPECT_REF_SELECT,
             orderBy: { createdAt: "desc" },
           })
-        : null;
+        : placeholder
+          ? await db.tradeProspect.findFirst({
+              where: { orgId, companyName: placeholder },
+              select: PROSPECT_REF_SELECT,
+              orderBy: { createdAt: "desc" },
+            })
+          : null;
       const existingProspect = Boolean(prospect);
       if (!prospect) {
         const created = await createProspect({
           campaignId,
           orgId,
-          companyName: deriveCompanyName(v),
+          companyName: placeholder ?? deriveCompanyName(v),
           contactName: v.name || undefined,
           contactEmail: v.email || undefined,
           website: v.website || undefined,
@@ -611,7 +649,7 @@ export async function ingestWebsiteInquiry(
           stage: "new",
         });
         prospect = { id: created.id, stage: created.stage, companyName: created.companyName, convertedToSalesOpportunityId: null };
-        await ensureOutreachSequence({ orgId, prospectId: created.id }).catch(() => undefined);
+        if (o.outreachSequence) await ensureOutreachSequence({ orgId, prospectId: created.id }).catch(() => undefined);
       }
       const message = await db.tradeMessage.create({
         data: {
@@ -638,9 +676,9 @@ export async function ingestWebsiteInquiry(
         },
       });
 
-      // 第二刀：进线自动分析（响应后执行，失败不影响主链）
+      // 第二刀：进线自动分析（响应后执行，失败不影响主链）；WhatsApp 不跑（单管线：FDE 即分析）
       const { scheduleInquiryAnalysis } = await import("@/lib/trade/inquiry-analysis");
-      await scheduleInquiryAnalysis({
+      if (o.inquiryAnalysis) await scheduleInquiryAnalysis({
         orgId,
         prospectId: prospect.id,
         messageId: message.id,
