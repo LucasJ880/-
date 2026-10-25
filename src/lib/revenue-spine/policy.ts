@@ -29,7 +29,54 @@ export interface BusinessProfile {
   defaultIncoterm: string;
   supportedIncoterms: string[];
   samplePolicy: { available: boolean | null; note: string };
+  /**
+   * 企业确认过、可以写进给买家邮件的商务事实。全部为空 = 草稿仍一律写"需内部确认"（V1 行为）。
+   * 只放销售/老板确认过的参考值；价格永远不进这里。
+   */
+  commercialFacts: CommercialFacts;
 }
+
+/** 已获准对外引用的在市参考项目（只放匿名或已获买家书面同意的；内部级别不要配置） */
+export interface ReferenceProgram {
+  /** 对应 productCategories 里的类目 key；null = 不按类目匹配（不会自动出现在草稿里） */
+  category: string | null;
+  /** 一句话，不含买家名称以外的承诺；disclosure = anonymized 时不得出现买家名 */
+  summaryEn: string;
+  summaryZh: string;
+  disclosure: "anonymized" | "named";
+}
+
+export interface CommercialFacts {
+  /** 参考起订量（例：1000 pcs / style），草稿写"参考值，按项目确认" */
+  moq: { quantity: number; unit: string; per: string } | null;
+  /** 样品时效：现货样寄出天数 / 定制样天数区间 */
+  sampleLeadTime: { stockDays: number | null; customDaysMin: number | null; customDaysMax: number | null } | null;
+  /** 大货周期区间与起算点（例：35–45 天，自确认大货样起） */
+  productionLeadTime: { daysMin: number; daysMax: number; startsFrom: string } | null;
+  /** 装运港（只作事实列出，不构成报价条款） */
+  loadingPorts: string[];
+  /** 落款附加行（职位 / WhatsApp / 网站）；姓名仍取发件人 */
+  signature: { title: string | null; whatsapp: string | null; website: string | null } | null;
+  /** 不得写进给买家邮件的款号（即使出现在展会卡或参考表里） */
+  blockedStyleCodes: string[];
+  referencePrograms: ReferenceProgram[];
+  /** 展会 C 级：只发目录、不追问、不进无回复跟进 */
+  gradeCCatalogOnly: boolean;
+  /** 目录链接（gradeCCatalogOnly 时写进草稿；为空则写"目录随后发送"） */
+  catalogUrl: string | null;
+}
+
+export const EMPTY_COMMERCIAL_FACTS: CommercialFacts = {
+  moq: null,
+  sampleLeadTime: null,
+  productionLeadTime: null,
+  loadingPorts: [],
+  signature: null,
+  blockedStyleCodes: [],
+  referencePrograms: [],
+  gradeCCatalogOnly: false,
+  catalogUrl: null,
+};
 
 export interface SalesSlaPolicy {
   /** 新询盘人工处理时限（工作小时） */
@@ -165,6 +212,7 @@ export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   defaultIncoterm: "FOB",
   supportedIncoterms: ["EXW", "FOB", "CIF", "CFR", "DDP", "DAP"],
   samplePolicy: { available: null, note: "" },
+  commercialFacts: EMPTY_COMMERCIAL_FACTS,
 };
 
 export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
@@ -302,6 +350,72 @@ function strMap(v: unknown, fallback: Record<string, string>): Record<string, st
   return out;
 }
 
+function posIntOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+}
+
+function strOrNull(v: unknown, max = 200): string | null {
+  return typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+}
+
+const STYLE_CODE_CLEAN = (v: string) => v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
+
+/** 商务事实合并：字段级覆盖；显式 null 清空；形状不对的字段忽略（保留 base） */
+export function mergeCommercialFacts(base: CommercialFacts, override: unknown): CommercialFacts {
+  const o = rec(override);
+  if (!o) return base;
+  const out: CommercialFacts = { ...base };
+  if ("moq" in o) {
+    const m = rec(o.moq);
+    const quantity = m ? posIntOrNull(m.quantity) : null;
+    out.moq = m && quantity ? { quantity, unit: strOrNull(m.unit, 20) ?? "pcs", per: strOrNull(m.per, 40) ?? "style" } : null;
+  }
+  if ("sampleLeadTime" in o) {
+    const s = rec(o.sampleLeadTime);
+    const v = s
+      ? { stockDays: posIntOrNull(s.stockDays), customDaysMin: posIntOrNull(s.customDaysMin), customDaysMax: posIntOrNull(s.customDaysMax) }
+      : null;
+    out.sampleLeadTime = v && (v.stockDays || v.customDaysMin) ? v : null;
+  }
+  if ("productionLeadTime" in o) {
+    const p = rec(o.productionLeadTime);
+    const daysMin = p ? posIntOrNull(p.daysMin) : null;
+    const daysMax = p ? posIntOrNull(p.daysMax) ?? daysMin : null;
+    out.productionLeadTime =
+      p && daysMin && daysMax && daysMax >= daysMin
+        ? { daysMin, daysMax, startsFrom: strOrNull(p.startsFrom, 120) ?? "pre-production sample approval" }
+        : null;
+  }
+  if ("loadingPorts" in o) out.loadingPorts = strList(o.loadingPorts, []).slice(0, 10);
+  if ("signature" in o) {
+    const s = rec(o.signature);
+    const v = s ? { title: strOrNull(s.title, 80), whatsapp: strOrNull(s.whatsapp, 40), website: strOrNull(s.website, 120) } : null;
+    out.signature = v && (v.title || v.whatsapp || v.website) ? v : null;
+  }
+  if ("blockedStyleCodes" in o) out.blockedStyleCodes = [...new Set(strList(o.blockedStyleCodes, []).map(STYLE_CODE_CLEAN))].slice(0, 500);
+  if ("referencePrograms" in o) {
+    const list = Array.isArray(o.referencePrograms) ? o.referencePrograms : [];
+    out.referencePrograms = list
+      .map((x) => rec(x))
+      .filter((x): x is Rec => !!x)
+      .map((x) => ({
+        category: strOrNull(x.category, 40),
+        summaryEn: strOrNull(x.summaryEn, 300) ?? "",
+        summaryZh: strOrNull(x.summaryZh, 300) ?? "",
+        disclosure: x.disclosure === "named" ? ("named" as const) : x.disclosure === "anonymized" ? ("anonymized" as const) : null,
+      }))
+      // 内部级别（或未声明披露级别）的参考项目一律丢弃：宁可不写，不可外泄
+      .filter((x): x is ReferenceProgram => x.disclosure !== null && !!x.summaryEn && !!x.summaryZh)
+      .slice(0, 20);
+  }
+  if ("gradeCCatalogOnly" in o) out.gradeCCatalogOnly = o.gradeCCatalogOnly === true;
+  if ("catalogUrl" in o) {
+    const u = strOrNull(o.catalogUrl, 300);
+    out.catalogUrl = u && /^https:\/\//.test(u) ? u : null;
+  }
+  return out;
+}
+
 export function mergeBusinessProfile(base: BusinessProfile, override: unknown): BusinessProfile {
   const o = rec(override);
   if (!o) return base;
@@ -324,6 +438,7 @@ export function mergeBusinessProfile(base: BusinessProfile, override: unknown): 
           note: str(sp.note, base.samplePolicy.note),
         }
       : base.samplePolicy,
+    commercialFacts: mergeCommercialFacts(base.commercialFacts ?? EMPTY_COMMERCIAL_FACTS, o.commercialFacts),
   };
 }
 

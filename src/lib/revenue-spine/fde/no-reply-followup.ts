@@ -14,7 +14,7 @@ import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { detectInquiryRisks } from "../inquiry-risks";
 import { toCanonicalStage, type OpportunityStage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
-import { checkDraftGuardrails, type ReplyDraft } from "../reply-draft";
+import { allowedStyles, checkDraftGuardrails, signatureLines, type ReplyDraft } from "../reply-draft";
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
 import { rfqRowToFields } from "../rfq/persist";
 import { FDE_EMPLOYEE_KEY } from "./actions";
@@ -72,6 +72,8 @@ export interface NoReplyFollowUpInput {
   event: string | null;
   /** 还缺的报价信息 */
   questions: ClarifyingQuestion[];
+  /** 落款附加行：afterName（职位）/ afterOrg（WhatsApp、网站）；企业未配置时为空 */
+  signature?: { afterName: string[]; afterOrg: string[] };
 }
 
 function fmtDate(d: Date, lang: "en" | "zh"): string {
@@ -123,7 +125,9 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
     lines.push("");
     lines.push("祝好！");
     lines.push(input.senderName);
+    for (const l of input.signature?.afterName ?? []) lines.push(l);
     lines.push(input.orgName);
+    for (const l of input.signature?.afterOrg ?? []) lines.push(l);
   } else {
     lines.push(`Dear ${input.contactName ?? "there"},`);
     lines.push("");
@@ -154,7 +158,9 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
     lines.push("");
     lines.push("Best regards,");
     lines.push(input.senderName);
+    for (const l of input.signature?.afterName ?? []) lines.push(l);
     lines.push(input.orgName);
+    for (const l of input.signature?.afterOrg ?? []) lines.push(l);
   }
 
   const body = lines.join("\n");
@@ -261,6 +267,11 @@ export async function draftNoReplyFollowUps(
       }
       const language: "en" | "zh" = (lastOut?.language ?? latest.language) === "zh" ? "zh" : "en";
       const booth = boothContext(inbound, latest);
+      // 展会 C 级且企业规定"只发目录、不追问"：不进无回复跟进
+      if (booth.grade === "C" && policy.businessProfile.commercialFacts?.gradeCCatalogOnly) {
+        skip("grade_c_catalog_only");
+        continue;
+      }
       const fields = rfqRow ? rfqRowToFields(rfqRow as unknown as Record<string, unknown>) : null;
       const missing = fields ? computeMissingFields(fields) : [];
       const principalUserId = opp.assignedToId ?? org.ownerId;
@@ -277,9 +288,10 @@ export async function draftNoReplyFollowUps(
         senderName,
         previousSubject: lastOut?.summary ?? null,
         previousSentAt: opp.lastOutboundAt!,
-        product: productLabel(booth.styles, fields?.productName ?? null, lang === "zh"),
+        product: productLabel(allowedStyles(booth.styles, policy), fields?.productName ?? null, lang === "zh"),
         event: booth.fromLatest ? booth.event : null,
         questions: buildClarifyingQuestions(missing, lang, 3),
+        signature: signatureLines(policy, lang),
       });
       const draft = buildNoReplyFollowUpDraft(input(language));
       if (draft.guardrailViolations.length) {

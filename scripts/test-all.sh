@@ -55,6 +55,7 @@ run_test "B0 数据库目标守卫" "npx tsx src/lib/db-safety/__tests__/b0-prod
 run_test "Revenue Spine 阶段状态机" "npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts"
 run_test "Revenue Spine RFQ 抽取/缺失信息" "npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts"
 run_test "Revenue Spine 评分/草稿守卫/Next Action" "npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts"
+run_test "Revenue Spine 企业商务事实/参考原句/只发目录" "npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts"
 run_test "Revenue Spine DB 端到端(isolated)" "npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts"
 run_test "B1 Tenant/AuthZ 安全矩阵" "npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts"
 run_test "B1 租户上下文静态断言" "npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts"

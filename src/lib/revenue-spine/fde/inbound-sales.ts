@@ -409,6 +409,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     if (score.qualification !== "disqualified") {
       const draftInput = {
         tradeShow: booth.fromLatest ? { event: booth.event, styles: booth.styles } : null,
+        boothGrade: booth.grade,
         language: extraction.language,
         contactName: opp.customer.contactName ?? research.contactName,
         companyName: research.companyName ?? opp.customer.name,

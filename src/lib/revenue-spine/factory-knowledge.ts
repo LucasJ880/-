@@ -21,12 +21,22 @@ export interface ProductCapability {
 export interface MoqInfo {
   quantity: number;
   unit: string;
+  /** 计量口径，如 "style"（每款） */
+  per?: string;
   note?: string;
 }
 
 export interface LeadTimeInfo {
+  /** 现货样寄出天数 */
   sampleDays: number | null;
+  /** 大货周期下限（天） */
   productionDays: number | null;
+  /** 大货周期上限（天）；与下限相同 = 单值 */
+  productionDaysMax?: number | null;
+  /** 大货周期起算点，如 "pre-production sample approval" */
+  productionStartsFrom?: string | null;
+  customSampleDaysMin?: number | null;
+  customSampleDaysMax?: number | null;
   note?: string;
 }
 
@@ -87,13 +97,41 @@ export function getProductCapability(policy: RevenueSpinePolicy, category: strin
   };
 }
 
-/** V1：无 MOQ 数据源 → unavailable（V2 Quotation Engineer 接工厂知识库） */
-export function getMOQ(category: string | null): KnowledgeResult<MoqInfo> {
-  return unavailable("getMOQ", `MOQ 数据源尚未接入（类目 ${category ?? "未知"}；V2 Factory Knowledge）`);
+/**
+ * MOQ：企业在 business_profile.commercialFacts.moq 里确认过参考值才 available；
+ * 未配置 → unavailable（草稿写"需内部确认"）。
+ */
+export function getMOQ(category: string | null, policy?: RevenueSpinePolicy): KnowledgeResult<MoqInfo> {
+  const moq = policy?.businessProfile.commercialFacts?.moq ?? null;
+  if (!moq) return unavailable("getMOQ", `MOQ 未配置（类目 ${category ?? "未知"}；revenue_spine.business_profile.commercialFacts.moq）`);
+  return {
+    status: "available",
+    capability: "getMOQ",
+    value: { quantity: moq.quantity, unit: moq.unit, per: moq.per, note: "reference value, confirmed per project" },
+    source: "revenue_spine.business_profile.commercialFacts",
+  };
 }
 
-export function getLeadTime(category: string | null): KnowledgeResult<LeadTimeInfo> {
-  return unavailable("getLeadTime", `生产周期数据源尚未接入（类目 ${category ?? "未知"}；V2 Factory Knowledge）`);
+/** 生产周期：大货周期区间配置过才 available；只有样品时效不算（样品时效走 samplePolicy） */
+export function getLeadTime(category: string | null, policy?: RevenueSpinePolicy): KnowledgeResult<LeadTimeInfo> {
+  const facts = policy?.businessProfile.commercialFacts;
+  const prod = facts?.productionLeadTime ?? null;
+  if (!prod) return unavailable("getLeadTime", `生产周期未配置（类目 ${category ?? "未知"}；revenue_spine.business_profile.commercialFacts.productionLeadTime）`);
+  const sample = facts?.sampleLeadTime ?? null;
+  return {
+    status: "available",
+    capability: "getLeadTime",
+    value: {
+      sampleDays: sample?.stockDays ?? null,
+      productionDays: prod.daysMin,
+      productionDaysMax: prod.daysMax,
+      productionStartsFrom: prod.startsFrom,
+      customSampleDaysMin: sample?.customDaysMin ?? null,
+      customSampleDaysMax: sample?.customDaysMax ?? null,
+      note: "reference value, confirmed per project",
+    },
+    source: "revenue_spine.business_profile.commercialFacts",
+  };
 }
 
 export function getCertification(): KnowledgeResult<CertificationInfo> {
@@ -173,8 +211,8 @@ export async function loadFactoryKnowledge(
   );
   return {
     productCapability: getProductCapability(policy, ctx.productCategory),
-    moq: getMOQ(ctx.productCategory),
-    leadTime: getLeadTime(ctx.productCategory),
+    moq: getMOQ(ctx.productCategory, policy),
+    leadTime: getLeadTime(ctx.productCategory, policy),
     certification: getCertification(),
     samplePolicy: getSamplePolicy(policy),
     historicalQuote,

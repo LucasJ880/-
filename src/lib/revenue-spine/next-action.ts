@@ -66,6 +66,8 @@ export function computeNextAction(opp: NextActionOpportunity, policy: RevenueSpi
   if (stage === "won" || stage === "lost" || stage === "disqualified") return null;
 
   if (stage === "nurture") {
+    // nurtureCheckInDays <= 0 = 企业关闭了培育回访
+    if (fu.nurtureCheckInDays <= 0) return null;
     return {
       type: "nurture_check_in",
       at: new Date(stageAt.getTime() + fu.nurtureCheckInDays * 86_400_000),
