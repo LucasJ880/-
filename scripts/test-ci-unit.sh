@@ -252,6 +252,7 @@ npx tsx src/lib/revenue-spine/__tests__/owner-brief.test.ts
 npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-scope.test.ts
 npx tsx src/lib/messaging/__tests__/binding-preferences.test.ts
 npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts
+npx tsx src/lib/messaging/__tests__/binding-proof.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

@@ -62,6 +62,7 @@ run_test "老板询盘早报/新草稿提醒（无买家邮箱电话）/策略�
 run_test "微信回数字不批询盘回复 + 组织范围" "npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-scope.test.ts"
 run_test "微信绑定偏好白名单" "npx tsx src/lib/messaging/__tests__/binding-preferences.test.ts"
 run_test "老板今日询盘 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts"
+run_test "微信绑定占有证明（验证码）" "npx tsx src/lib/messaging/__tests__/binding-proof.test.ts"
 run_test "B1 Tenant/AuthZ 安全矩阵" "npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts"
 run_test "B1 租户上下文静态断言" "npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts"
 run_test "B2 审批 CAS 静态断言" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts"

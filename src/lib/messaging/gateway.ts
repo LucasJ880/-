@@ -10,6 +10,7 @@
 
 import { db } from "@/lib/db";
 import { findBindingByExternal, resolveBindingOrgId, touchBinding } from "./binding";
+import { bindCodeKeyFromEnv, buildUnboundReply, isPersonalWeChatBindCommand, issueBindCode } from "./binding-proof";
 import { PLATFORM_WECOM_ORG_ID } from "./platform-wecom";
 import type {
   ChannelType,
@@ -134,7 +135,19 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
       externalUserId: msg.externalUserId,
       orgHint: msg.orgId ?? null,
     });
-    if (msg.orgId && !msg.externalUserId.includes("@chatroom")) {
+    const isGroup = msg.externalUserId.includes("@chatroom");
+    // 个人微信「绑定青砚」：只回给发命令的这个微信本人（占有证明），不记入客服会话
+    if (msg.channel === "personal_wechat" && !isGroup && isPersonalWeChatBindCommand(msg.content)) {
+      const adapter = await ensureSendAdapter("personal_wechat", msg.orgId ?? null);
+      if (adapter) {
+        const code = issueBindCode(bindCodeKeyFromEnv(), "personal_wechat", msg.externalUserId);
+        await adapter
+          .sendText(msg.externalUserId, buildUnboundReply("personal_wechat", msg.externalUserId, code))
+          .catch((e) => console.error("[Gateway] personal bind code reply failed:", e));
+      }
+      return;
+    }
+    if (msg.orgId && !isGroup) {
       const { recordCustomerMessage } = await import(
         "@/lib/service-inbox/service"
       );
@@ -151,20 +164,13 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
         console.error("[Gateway] record customer message failed:", e),
       );
     }
-    // 平台助理通道：未绑定也回一句，避免「发了没反应」
-    if (msg.channel === "wecom" && !msg.externalUserId.includes("@chatroom")) {
+    // 平台助理通道：未绑定也回一句，避免「发了没反应」；附带绑定验证码（只发给这个企微账号本人）
+    if (msg.channel === "wecom" && !isGroup) {
       const adapter = await ensureSendAdapter("wecom", msg.orgId ?? null);
       if (adapter) {
+        const code = issueBindCode(bindCodeKeyFromEnv(), "wecom", msg.externalUserId);
         await adapter
-          .sendText(
-            msg.externalUserId,
-            [
-              "你好，我是青砚。",
-              "当前企微账号尚未绑定青砚用户，所以无法进入你的工作组织。",
-              `你的企微 UserId：${msg.externalUserId}`,
-              "请打开青砚 → 设置 → 微信集成，填写上述 UserId 完成绑定后再发消息。",
-            ].join("\n"),
-          )
+          .sendText(msg.externalUserId, buildUnboundReply("wecom", msg.externalUserId, code))
           .catch((e) =>
             console.error("[Gateway] unbound wecom reply failed:", e),
           );
