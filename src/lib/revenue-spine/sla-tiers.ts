@@ -18,12 +18,12 @@
 
 import { db } from "@/lib/db";
 import { resolveAppOrigin } from "@/lib/agent-runtime/workbench-link";
-import { managementOf } from "@/lib/trade/booth-summary";
+import { defaultPush, managementOf, type PushFn } from "@/lib/trade/booth-summary";
 import { addSlaMinutes } from "./business-days";
 import { FDE_EMPLOYEE_KEY } from "./fde/actions";
 import { INQUIRY_REPLY_ACTION_TYPE } from "./fde/inbound-sales";
 import { OPEN_STAGES } from "./opportunity-stage";
-import { buyerLine, defaultPush, isUniqueViolation, pushOutcomeOf, safeBuyerName, type BuyerLine, type PushFn } from "./owner-brief";
+import { buyerLine, isUniqueViolation, pushOutcomeOf, safeBuyerName, type BuyerLine } from "./owner-brief";
 import { loadRevenueSpinePolicy, slaTiersEnabled, type RevenueSpinePolicy, type SalesSlaPolicy } from "./policy";
 import {
   INBOUND_INQUIRY_ACTION_TYPE,

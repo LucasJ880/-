@@ -9,6 +9,7 @@
 import { db } from "@/lib/db";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
 import { createNotification } from "@/lib/notifications/create";
+import { zonedLocalToUtc } from "@/lib/revenue-spine/business-days";
 import { parseBoothCardContext } from "./booth-cards";
 import { fromReceiptPayload } from "./website-inquiry-receipts";
 
@@ -17,23 +18,14 @@ const A_LIST_MAX = 20;
 const MANAGEMENT_ROLES = ["boss", "manager", "admin", "super_admin"];
 const MANAGEMENT_ORG_ROLES = ["org_owner", "org_admin"];
 
-const pad = (n: number) => String(n).padStart(2, "0");
-
 /** 时刻所属的展会日（当地日期，07:00 前算前一天） */
 export function boothDayOf(now: Date, timeZone: string): string {
   return getLocalTimeParts(new Date(now.getTime() - BOOTH_DAY_START_HOUR * 3_600_000), timeZone).date;
 }
 
-/** 当地某天 hh:00 对应的 UTC 时刻（今日询盘视图按当地零点切日也用它） */
-export function zonedHourToUtc(day: string, hour: number, timeZone: string): Date {
-  const guess = Date.parse(`${day}T${pad(hour)}:00:00Z`);
-  const p = getLocalTimeParts(new Date(guess), timeZone);
-  const offset = Date.parse(`${p.date}T${pad(p.hour)}:${pad(p.minute)}:00Z`) - guess;
-  return new Date(guess - offset);
-}
-
+/** 展会日窗口：起点 = 当地 day 07:00（夏令时切换日也准，见 business-days.zonedLocalToUtc），长 24 小时 */
 export function boothDayWindow(day: string, timeZone: string): { from: Date; to: Date } {
-  const from = zonedHourToUtc(day, BOOTH_DAY_START_HOUR, timeZone);
+  const from = zonedLocalToUtc(day, BOOTH_DAY_START_HOUR * 60, timeZone);
   return { from, to: new Date(from.getTime() + 24 * 3_600_000) };
 }
 
@@ -150,14 +142,35 @@ export function formatBoothSummary(s: BoothSummary): { title: string; text: stri
   return { title, text: lines.join("\n") };
 }
 
-/** 管理层：平台角色老板 / 经理 / 管理员，或组织所有者 / 管理员（在职）。老板询盘早报沿用同一规则 */
+/** 管理层成员：组织所有者 / 管理员，或平台角色老板 / 经理 / 管理员（调用方只传在职成员） */
+export function isManagementMember(m: { role: string; user: { role: string | null } }): boolean {
+  return MANAGEMENT_ORG_ROLES.includes(m.role) || MANAGEMENT_ROLES.includes(m.user.role ?? "");
+}
+
+/** 管理层（在职成员里 isManagementMember 的）。老板询盘早报、分级提醒升级、旧 SLA 24 小时升级沿用同一规则 */
 export async function managementOf(orgId: string): Promise<string[]> {
   const members = await db.organizationMember.findMany({
     where: { orgId, status: "active" },
     select: { userId: true, role: true, user: { select: { role: true } } },
   });
-  return members.filter((m) => MANAGEMENT_ORG_ROLES.includes(m.role) || MANAGEMENT_ROLES.includes(m.user.role ?? "")).map((m) => m.userId);
+  return members.filter(isManagementMember).map((m) => m.userId);
 }
+
+/** 与 pushNotification 同形：sent = 实际发出的微信条数，failed = 通道发送失败数（静默时段跳过的两边都不计） */
+export interface PushResult {
+  sent: number;
+  failed: number;
+}
+export type PushFn = (userId: string, title: string, text: string) => Promise<PushResult>;
+
+/**
+ * 缺省微信推送：pushNotification（动态引入，避免把推送服务拉进纯函数测试）。
+ * 展会小结、老板早报、分级提醒共用；放在这里而不是 owner-brief：owner-brief 依赖本文件的 managementOf，反向引用会成环。
+ */
+export const defaultPush: PushFn = async (userId, title, text) => {
+  const { pushNotification } = await import("@/lib/messaging/push-service");
+  return pushNotification(userId, title, text);
+};
 
 /**
  * 发给管理层：青砚通知 + 微信推送。同一天、同样张数只发一次（sourceKey），补录后张数变了再发新的一版。
@@ -173,12 +186,7 @@ export async function sendBoothSummary(
   if (!summary.cards.length) return { total: 0, recipients: 0, sent: 0 };
   const { title, text } = formatBoothSummary(summary);
   const recipients = await managementOf(orgId);
-  const push =
-    opts?.push ??
-    (async (userId: string, t: string, body: string) => {
-      const { pushNotification } = await import("@/lib/messaging/push-service");
-      return pushNotification(userId, t, body);
-    });
+  const push = opts?.push ?? defaultPush;
 
   let sent = 0;
   for (const userId of recipients) {

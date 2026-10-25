@@ -6,7 +6,7 @@
  * - 最多展示 Top 5 issues、Top 3 actions
  * - 不暴露数据库 ID / 内部 payload
  * - 中文短句为主
- * - 动作编号与适配出的 pending actions 顺序一致（与数字回复解析对齐）
+ * - 动作编号按适配出的 pending actions 顺序（只在本条消息内有效，见下方「可执行」处的说明）
  */
 
 import type { GraderResult, RiskLevel } from "./types";
@@ -58,8 +58,9 @@ export function formatGraderResultForWeChat(
     lines.push(`${i + 1}. ${issue.title}`);
   });
 
-  // 只给微信可确认（白名单）的动作编号，编号与 wechat-confirm 的批次口径一致；
-  // 其余（对外发送 / 改买家可见内容如报价备注 / 高风险）只列标题，不给编号，引导去网页审批
+  // 只给微信可确认（白名单）的动作编号；其余（对外发送 / 改买家可见内容如报价备注 / 高风险）只列标题，不给编号，引导去网页审批。
+  // 注意：编号只是本条消息里的顺序。数字回复（wechat-confirm.handleWeChatPendingReply）按该用户此刻最近的一批待确认动作
+  // （按创建时间）解析，并不知道这条消息展示了哪些动作：此前还有未处理的、或之后又生成了新的待确认动作时，编号可能对不上。
   const created = adaptedActions.filter((a) => a.ok && a.actionId);
   const confirmable = (a: AdaptedPendingAction) => isWeChatConfirmableAction(a.pendingType, { targetType: a.noteTargetType });
   const usable = created.filter(confirmable).slice(0, MAX_ACTIONS);

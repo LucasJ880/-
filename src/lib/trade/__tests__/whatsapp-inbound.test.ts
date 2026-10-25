@@ -188,6 +188,14 @@ async function main() {
     assert.equal(v.message, "[image] Quote for 300 pcs?");
     assert.deepEqual(v.utm, { source: "", medium: "", campaign: "", content: "", term: "" });
     assert.equal(v.honeypotTripped, false);
+    // 整个载荷（改用 blankInquiry 之后逐字段不变）
+    assert.deepEqual(v, {
+      name: "Maple Home Goods", email: "", phone: "+16475550142", company: "", country: "", message: "[image] Quote for 300 pcs?",
+      product: "", website: "", page: "", referrer: "", landing: "",
+      utm: { source: "", medium: "", campaign: "", content: "", term: "" },
+      eventId: "wamid.IMG",
+      honeypotTripped: false,
+    });
   });
 
   await ok("未知 phone_number_id：只跳过该条目，已知条目照常处理（不再整批 403）", async () => {

@@ -24,7 +24,7 @@ import { FOLLOW_UP_GUARDRAIL_AUDIT_ACTION } from "./fde/no-reply-followup";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "./policy";
 
 // 入驻测试单的标记只在入驻向导（organizations/onboarding-rules）里定义一处
-import { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_TAG, ONBOARDING_TEST_UTM_SOURCE } from "@/lib/organizations/onboarding-rules";
+import { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_UTM_SOURCE, hasOnboardingTestTag } from "@/lib/organizations/onboarding-rules";
 
 export const INBOUND_INQUIRY_ACTION_TYPE = "inbound_inquiry";
 export const TRADE_SHOW_SOURCE = "trade_show";
@@ -40,18 +40,11 @@ const MAX_ROWS = 5000;
 type Rec = Record<string, unknown>;
 export const rec = (v: unknown): Rec | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
 
-function splitTags(tags: string | null | undefined): string[] {
-  return (tags ?? "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
 /** 入驻向导的端到端测试询盘（不进指标、不触发分级提醒） */
 export function isOnboardingTestInquiry(m: { utmSource?: string | null; customerTags?: string | null; lostReason?: string | null }): boolean {
   return (
     (m.utmSource ?? "").trim().toLowerCase() === ONBOARDING_TEST_UTM_SOURCE ||
-    splitTags(m.customerTags).includes(ONBOARDING_TEST_TAG) ||
+    hasOnboardingTestTag(m.customerTags) ||
     (m.lostReason ?? "").trim() === ONBOARDING_TEST_CLOSE_REASON
   );
 }

@@ -27,7 +27,7 @@ import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { markFdeTouch } from "../attribution";
 import { loadFactoryKnowledge, summarizeKnowledge } from "../factory-knowledge";
 import { applyNextAction } from "../next-action";
-import type { PushFn } from "../owner-brief";
+import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";

@@ -22,7 +22,7 @@
 
 import { logger } from "@/lib/common/logger";
 import { logInboundOrgDenial, resolveInboundTradeOrgId } from "./inbound-org";
-import { ingestWebsiteInquiry, type IngestResult, type NormalizedInquiry } from "./website-inquiry";
+import { blankInquiry, ingestWebsiteInquiry, type IngestResult, type NormalizedInquiry } from "./website-inquiry";
 import { WHATSAPP_SENDER_LEASE_SOURCE, releaseEventLease, tryAcquireEventLease } from "./website-inquiry-receipts";
 
 // 暂不读 timestamp：互动时间与 SLA 从处理时刻起算（Meta 重投可能晚几小时；按消息时间计需 ingest 增加只作用于互动的时间选项）
@@ -183,22 +183,7 @@ export function extractWhatsAppInbound(body: unknown): { items: WhatsAppInboundI
 
 /** 单条消息 → 询盘载荷（纯函数）：电话 "+<wa_id>"（E.164），姓名取 WhatsApp 资料名，eventId = wamid */
 export function toWhatsAppInquiry(item: WhatsAppInboundItem): NormalizedInquiry {
-  return {
-    name: item.profileName,
-    email: "",
-    phone: `+${item.waId}`,
-    company: "",
-    country: "",
-    message: item.text.slice(0, LIMITS.message),
-    product: "",
-    website: "",
-    page: "",
-    referrer: "",
-    landing: "",
-    utm: { source: "", medium: "", campaign: "", content: "", term: "" },
-    eventId: item.wamid,
-    honeypotTripped: false,
-  };
+  return { ...blankInquiry(item.wamid), name: item.profileName, phone: `+${item.waId}`, message: item.text.slice(0, LIMITS.message) };
 }
 
 type ResolveOrgResult = { ok: true; orgId: string } | { ok: false; reason: string };

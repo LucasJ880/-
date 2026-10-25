@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 import { createProspect } from "@/lib/trade/service";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { intakeInquiry, type InquiryIntakeInput, type IntakeResult } from "@/lib/revenue-spine/inquiry-intake";
-import type { InquiryLanguage } from "@/lib/revenue-spine/normalize";
+import { isFreeMailDomain, type InquiryLanguage } from "@/lib/revenue-spine/normalize";
 import { runInboundSalesFde, type FdeTrigger, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
 import {
   FDE_RERUNNABLE,
@@ -41,6 +41,7 @@ import {
   findReceiptByEventId,
   fromReceiptPayload,
   linkReceipt,
+  receiptMeta,
   releaseReceipt,
 } from "./website-inquiry-receipts";
 import { ensureOutreachSequence } from "./outreach-sequence";
@@ -135,10 +136,16 @@ const ORIGINS = {
   },
 } as const;
 
-/** 收据来源 → 来源种类（恢复 / 状态查询只读 ORIGINS[kind]）；未知来源按网站询盘 */
-function originOfReceipt(receipt: { source: string }): IngestOrigin {
+/**
+ * 收据 → 来源（恢复 / 状态查询 / 邮件重投重放）：种类按 receiptSource 反查，未知来源按网站询盘。
+ * 邮件转发另带首次收到时记在收据 meta 里的原主题（没有或空串 → null），重放补建主干时互动 subject 与首次一致。
+ */
+export function originOfReceipt(receipt: Pick<WebsiteInquiryReceipt, "source" | "payload">): IngestOrigin {
   const kinds = Object.keys(ORIGINS) as IngestOrigin["kind"][];
-  return { kind: kinds.find((k) => ORIGINS[k].receiptSource === receipt.source) ?? "website" };
+  const kind = kinds.find((k) => ORIGINS[k].receiptSource === receipt.source) ?? "website";
+  if (kind !== "email_forward") return { kind };
+  const subject = receiptMeta(receipt).subject;
+  return { kind, subject: typeof subject === "string" && subject ? subject : null };
 }
 
 const LIMITS = {
@@ -219,6 +226,26 @@ function messageStr(v: unknown, max: number): string {
     .slice(0, max);
 }
 
+/** 空询盘载荷（全部字段为空、未触发蜜罐）：各入站来源只覆盖自己有的字段 */
+export function blankInquiry(eventId: string): NormalizedInquiry {
+  return {
+    name: "",
+    email: "",
+    phone: "",
+    company: "",
+    country: "",
+    message: "",
+    product: "",
+    website: "",
+    page: "",
+    referrer: "",
+    landing: "",
+    utm: { source: "", medium: "", campaign: "", content: "", term: "" },
+    eventId,
+    honeypotTripped: false,
+  };
+}
+
 /** 纯函数：清洗+校验网站表单载荷（JSON 或 form 字段均为字符串） */
 export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult {
   const honeypotTripped = Boolean(str(raw._hp, 50) || str(raw.website_url, 50));
@@ -229,16 +256,7 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
   const eventId = normalizeEventId(raw.eventId ?? raw.event_id);
 
   if (honeypotTripped) {
-    return {
-      ok: true,
-      value: {
-        name, email, phone, company,
-        country: "", message: "", product: "", website: "", page: "", referrer: "", landing: "",
-        utm: { source: "", medium: "", campaign: "", content: "", term: "" },
-        eventId,
-        honeypotTripped: true,
-      },
-    };
+    return { ok: true, value: { ...blankInquiry(eventId), name, email, phone, company, honeypotTripped: true } };
   }
 
   if (!email && !phone) {
@@ -275,12 +293,12 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
   };
 }
 
-/** 线索公司名兜底：公司 → 姓名 → 邮箱域名 → 固定占位 */
+/** 线索公司名兜底：公司 → 姓名 → 邮箱域名（免费邮箱除外，normalize.isFreeMailDomain）→ 邮箱 / 电话 → 固定占位 */
 export function deriveCompanyName(v: NormalizedInquiry): string {
   if (v.company) return v.company;
   if (v.name) return v.name;
   const domain = v.email.split("@")[1];
-  if (domain && !/^(gmail|yahoo|hotmail|outlook|icloud|qq|163|126)\./i.test(domain)) {
+  if (domain && !isFreeMailDomain(domain)) {
     return domain;
   }
   return v.email || v.phone || "网站询盘";

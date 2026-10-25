@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { decideInquiryReminders, formatWaiting } from "../inquiry-sla";
+import { isManagementMember } from "../booth-summary";
 
 let pass = 0;
 function ok(name: string, fn: () => void) {
@@ -50,6 +51,17 @@ ok("等待时长格式化", () => {
   assert.equal(formatWaiting(7), "7 分钟");
   assert.equal(formatWaiting(180), "3 小时");
   assert.equal(formatWaiting(3000), "2 天");
+});
+
+ok("24 小时升级的接收人：改用 isManagementMember 后与原来的内联规则逐一相同（通知对象不变）", () => {
+  const legacyLeader = (m: { role: string; user: { role: string } }) =>
+    ["org_owner", "org_admin"].includes(m.role) || ["boss", "manager", "admin", "super_admin"].includes(m.user.role);
+  for (const role of ["org_owner", "org_admin", "org_member", "org_viewer", "member", ""]) {
+    for (const userRole of ["boss", "manager", "admin", "super_admin", "trade", "sales", "viewer", "user", ""]) {
+      const m = { role, user: { role: userRole } };
+      assert.equal(isManagementMember(m), legacyLeader(m), `${role} / ${userRole}`);
+    }
+  }
 });
 
 console.log(`\ninquiry-sla: ${pass} 通过`);

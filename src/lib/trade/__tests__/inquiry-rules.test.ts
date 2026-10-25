@@ -110,4 +110,16 @@ ok("红旗：占位公司名（WhatsApp +1…）不算免费邮箱冒充；信�
   assert.equal(riskLevel(flags), "low");
 });
 
+ok("红旗：免费邮箱按统一判定（normalize.isFreeMailDomain）——各国大服务商 / 国内免费邮箱 / 大小写都算，企业域名不算", () => {
+  const x = normalizeExtraction({ intent: "rfq", products: ["bathrobe"] });
+  const flagged = (email: string) =>
+    redFlags(x, { email, companyName: "Hotel Supply Inc", freeText: "Please quote 500 pcs coral fleece bathrobe 280GSM, and send a sample first." }).some((f) => f.code === "free_mail_company");
+  for (const email of ["buyer@gmail.com", "Buyer@GMAIL.COM", "buyer@aol.co.uk", "buyer@protonmail.ch", "buyer@proton.me", "buyer@foxmail.com", "buyer@hotmail.fr", "buyer@gmx.de", "Buyer <buyer@yahoo.com>"]) {
+    assert.ok(flagged(email), email);
+  }
+  for (const email of ["buyer@hotel-supply.com", "buyer@gmailshop.example", "buyer@mail.gmail-imports.example", "not-an-email"]) {
+    assert.ok(!flagged(email), email);
+  }
+});
+
 console.log(`\ninquiry-rules: ${pass} 通过`);

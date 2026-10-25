@@ -19,8 +19,6 @@ import {
   INBOUND_ALIAS_RE,
   WEBSITE_TWIN_MIN_MESSAGE,
   aliasFromRecipient,
-  blankEmailInquiry,
-  buildEmailInquiry,
   emailEventId,
   formatInboundAlias,
   headerFieldsFromRaw,
@@ -37,7 +35,9 @@ import {
   verifyResendWebhookSignature,
 } from "../email-inbound-rules";
 import { bareAddress, parseForwardedEmail, senderAddress } from "../email-forward-parse";
-import { computePayloadHash } from "../website-inquiry-receipts";
+import { computePayloadHash, toReceiptPayload } from "../website-inquiry-receipts";
+import { buildEmailInquiry } from "../email-inbound";
+import { blankInquiry } from "../website-inquiry";
 
 let pass = 0;
 async function ok(name: string, fn: () => void | Promise<void>) {
@@ -346,8 +346,21 @@ async function main() {
     assert.ok(v.message.length <= 4000);
     assert.equal(computePayloadHash(v), computePayloadHash({ ...v, page: "https://x.example", utm: { ...v.utm, source: "google" } }));
     // 白名单以外的发件人：不解析，收据只放空载荷（原主题等在 meta）
-    const blank = blankEmailInquiry("email:spam@x.example");
+    const blank = blankInquiry("email:spam@x.example");
     assert.deepEqual({ name: blank.name, email: blank.email, phone: blank.phone, message: blank.message, eventId: blank.eventId }, { name: "", email: "", phone: "", message: "", eventId: "email:spam@x.example" });
+    // 解析结果没带的字段沿用空载荷
+    const base = blankInquiry("email:abc@x.example");
+    for (const k of ["website", "page", "referrer", "landing", "utm", "eventId", "honeypotTripped"] as const) assert.deepEqual(v[k], base[k], k);
+  });
+
+  await ok("隔离 / 重复收据载荷：toReceiptPayload(v, meta) 与原先的 { ...toReceiptPayload(v), meta } 相同（meta 总是非空）", () => {
+    const v = { ...blankInquiry("email:q@x.example"), email: "jane.doe@maplehomegoods.example", message: "Please quote 500 towels." };
+    for (const meta of [
+      { kind: "email_forward", subject: "RFQ", quarantine: { reasons: ["auth_unverified"], at: "2026-10-20T00:00:00.000Z", notifyKey: null } },
+      { kind: "email_forward", subject: "", parse: null, auth: null, duplicate: { websiteReceiptId: "r1", websiteEventId: "evt-1", matchedBy: "content_twin" } },
+    ]) {
+      assert.deepEqual(toReceiptPayload(v, meta), { ...toReceiptPayload(v), meta });
+    }
   });
 
   await ok("官网询盘孪生：同联系人 + 留言整段（或 80% 词）出现在转发全文 → 是；换人 / 换内容 → 否", () => {
