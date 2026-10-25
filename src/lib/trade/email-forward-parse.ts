@@ -583,7 +583,7 @@ const COMPANY_SUFFIX_RE =
   /\b(co\.?,?\s*ltd\.?|company|inc\.?|incorporated|llc|l\.l\.c\.|gmbh|limited|ltd\.?|corp\.?|corporation|s\.a\.?|s\.r\.l\.?|b\.v\.?|pty|plc|ag|oy|trading|group|enterprises?|industries)\b|有限公司|公司$/i;
 
 export function cleanPhone(raw: string): string {
-  const v = raw.replace(/\s+/g, " ").trim().slice(0, 60);
+  const v = raw.replace(/\s+/g, " ").trim().slice(0, 60).trimEnd();
   const digits = v.replace(/\D/g, "");
   return digits.length >= 7 && digits.length <= 16 ? v : "";
 }
@@ -801,7 +801,7 @@ export function stripSubjectPrefixes(subject: string | null | undefined): string
 // ── 主入口 ──────────────────────────────────────────────────────────────────
 
 function oneLine(s: string, max: number): string {
-  return s.replace(/\s+/g, " ").trim().slice(0, max);
+  return s.replace(/\s+/g, " ").trim().slice(0, max).trimEnd();
 }
 
 function tidyMessage(lines: string[]): string {
