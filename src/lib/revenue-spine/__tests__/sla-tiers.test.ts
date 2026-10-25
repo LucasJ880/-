@@ -261,6 +261,14 @@ ok("自然时间：T+14 不发；T+15 只发第一档；T+2h 两档；T+24h 三�
   assert.deepEqual(decideSlaTiers({ inboundAt: t, responded: true }, TIERS, new Date(t.getTime() + 24 * HOUR)), []);
 });
 
+ok("已被人认领（in_progress）：跳过未认领那一档，升级 / 第三档照常", () => {
+  const t = new Date("2026-09-07T00:00:00Z");
+  const at = (ms: number) => decideSlaTiers({ inboundAt: t, responded: false, claimed: true }, TIERS, new Date(t.getTime() + ms)).map((d) => d.tier);
+  assert.deepEqual(at(16 * MIN), []);
+  assert.deepEqual(at(2 * HOUR), ["escalation"]);
+  assert.deepEqual(at(24 * HOUR), ["escalation", "overdue_draft"]);
+});
+
 ok("错过超过 24 小时的档位不补发（刚启用分级时不给积压询盘补提醒）", () => {
   const t = new Date("2026-09-07T00:00:00Z");
   const at = (ms: number) => decideSlaTiers({ inboundAt: t, responded: false }, TIERS, new Date(t.getTime() + ms)).map((d) => d.tier);

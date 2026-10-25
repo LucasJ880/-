@@ -70,7 +70,7 @@ Content-Type: application/json
 
 | 档位 | 时刻 | 收件人 | 内容 |
 |---|---|---|---|
-| unclaimed | T + `unclaimedAlertMinutes` | 商机负责人（不在组织了则组织所有者） | 未回复提醒 + 商机链接 |
+| unclaimed | T + `unclaimedAlertMinutes` | 商机负责人（不在组织了则组织所有者） | 未回复提醒 + 商机链接；行动已被人认领（`status = in_progress`）则跳过这一档 |
 | escalation | T + `ownerEscalationMinutes` | 管理层（组织所有者 / 管理员，或平台角色老板 / 经理 / 管理员） | 升级 + 负责人姓名 |
 | overdue_draft | T + `overdueDraftHours` | 管理层 | 仍未回复；草稿在审批中心等了多久，或没有草稿的原因（AI 起草失败 / 未完成、不做的类目、护栏拦截、买家没留邮箱、草稿被拒或过期） |
 

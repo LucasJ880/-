@@ -5,7 +5,8 @@
  * 且询盘之后还没有任何回复（与 sla-metrics 同一首次回复口径：已执行的询盘回复草稿 / 外发互动 / 关联外贸线索的外发消息）。
  *
  * 三档（policy.salesSla；某档为 null 即该档关闭，三档全 null = 本组织不启用，完全走 inquiry-sla 旧提醒）：
- *   unclaimed      T + unclaimedAlertMinutes   → 负责人（商机负责人；已不在组织则组织所有者）站内 + 微信
+ *   unclaimed      T + unclaimedAlertMinutes   → 负责人（商机负责人；已不在组织则组织所有者）站内 + 微信；
+ *                  行动已被人认领（status = in_progress）则跳过这一档，升级与第三档照常（认领不等于回复）
  *   escalation     T + ownerEscalationMinutes  → 管理层（managementOf）站内 + 微信
  *   overdue_draft  T + overdueDraftHours       → 管理层：仍未回复，回复草稿是否在审批中心等待（或没有草稿的原因）
  * 设了工作时间（businessHours）按工作时间计，否则按自然时间。只提醒——绝不自动给买家发任何邮件。
@@ -73,13 +74,14 @@ export interface SlaTierDue {
 }
 
 /**
- * 纯函数：这条询盘此刻该发哪些档。已回复 → 不发；未到期 → 不发；错过超过 SLA_TIER_MAX_LATE_MS → 不补发。
- * 每档是否已发过由调用方用 sourceKey 判断（这里不记状态）。
+ * 纯函数：这条询盘此刻该发哪些档。已回复 → 不发；未到期 → 不发；错过超过 SLA_TIER_MAX_LATE_MS → 不补发；
+ * 已被人认领（claimed）→ 不发「未认领」那一档。每档是否已发过由调用方用 sourceKey 判断（这里不记状态）。
  */
-export function decideSlaTiers(input: { inboundAt: Date; responded: boolean }, sla: SlaTierPolicy, now: Date): SlaTierDue[] {
+export function decideSlaTiers(input: { inboundAt: Date; responded: boolean; claimed?: boolean }, sla: SlaTierPolicy, now: Date): SlaTierDue[] {
   if (input.responded) return [];
   const out: SlaTierDue[] = [];
   for (const t of slaTierThresholds(sla)) {
+    if (t.tier === "unclaimed" && input.claimed) continue;
     const dueAt = addSlaMinutes(input.inboundAt, t.minutes, sla.businessHours ?? null);
     const late = now.getTime() - dueAt.getTime();
     if (late >= 0 && late <= SLA_TIER_MAX_LATE_MS) out.push({ tier: t.tier, minutes: t.minutes, dueAt });
@@ -178,6 +180,8 @@ export interface TrackedInquiry {
   actionId: string;
   opportunityId: string;
   inboundAt: Date;
+  /** 行动已被人认领（SalesAction.status = in_progress） */
+  claimed: boolean;
   ownerUserId: string | null;
   buyer: BuyerLine;
   fdeStatus: string | null;
@@ -210,6 +214,7 @@ export async function loadTrackedInquiries(orgId: string, now: Date): Promise<Tr
     select: {
       id: true,
       createdAt: true,
+      status: true,
       inputContext: true,
       assignedToId: true,
       opportunityId: true,
@@ -230,7 +235,8 @@ export async function loadTrackedInquiries(orgId: string, now: Date): Promise<Tr
         },
       },
     },
-    orderBy: { createdAt: "asc" },
+    // 最新的优先：超过上限时截掉的是最老的（它们的档位早已过了补发期限）
+    orderBy: { createdAt: "desc" },
     take: MAX_ACTIONS_PER_ORG,
   });
 
@@ -301,6 +307,7 @@ export async function loadTrackedInquiries(orgId: string, now: Date): Promise<Tr
       actionId: a.id,
       opportunityId: oid,
       inboundAt: a.createdAt,
+      claimed: a.status === "in_progress",
       ownerUserId: o.assignedToId ?? a.assignedToId ?? null,
       buyer: { scoreGrade: o.scoreGrade, score: o.score, market: o.market ?? o.customer.country ?? null, source: o.source, customerName: o.customer.name },
       fdeStatus: strOrNull(ctx?.fdeStatus),
@@ -383,7 +390,7 @@ export async function runSlaTiersForOrg(
   };
 
   for (const t of tracked) {
-    const due = decideSlaTiers({ inboundAt: t.inboundAt, responded: false }, sla, now);
+    const due = decideSlaTiers({ inboundAt: t.inboundAt, responded: false, claimed: t.claimed }, sla, now);
     for (const d of due) {
       const base = slaTierSourceKey(d.tier, orgId, t.actionId);
       const already = await db.notification.findUnique({ where: { sourceKey: base }, select: { id: true } });

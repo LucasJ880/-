@@ -219,6 +219,18 @@ async function main() {
     const rA2 = await runSlaTiersForOrg(ORG_T, { now: new Date(a2.createdAt.getTime() + 16 * MIN), push, origin: ORIGIN });
     ok(!rA2.trackedOpportunityIds.includes(a2Intake.opportunityId) && (await notesWithPrefix(slaTierSourceKey("unclaimed", ORG_T, a2.id))).length === 0, "已回复的询盘不跟踪、不提醒", rA2);
 
+    // 已被人认领（in_progress）：不发第一档，升级照常
+    const a6Intake = await inquiry(ORG_T, "Hazel");
+    if (!a6Intake.ok) throw new Error("intake a6 failed");
+    const a6 = await actionOf(a6Intake.salesActionId);
+    await db.salesAction.update({ where: { id: a6.id }, data: { status: "in_progress", startedAt: new Date() } });
+    await runSlaTiersForOrg(ORG_T, { now: new Date(a6.createdAt.getTime() + 2 * HOUR + MIN), push, origin: ORIGIN });
+    ok(
+      (await notesWithPrefix(slaTierSourceKey("unclaimed", ORG_T, a6.id))).length === 0 &&
+        (await notesWithPrefix(slaTierSourceKey("escalation", ORG_T, a6.id))).length === 2,
+      "已被人认领：不发未认领提醒，2 小时仍未回复照常升级",
+    );
+
     // 入驻测试询盘 / 展会速记卡：不提醒
     const a4Intake = await inquiry(ORG_T, "Onboard", { utm: { source: "qingyan_onboarding_test" } });
     const a5Intake = await inquiry(ORG_T, "Booth", { source: "trade_show" });
@@ -318,9 +330,10 @@ async function main() {
       await db.salesAction.update({ where: { id: a1.id }, data: { inputContext: { ...((cur.inputContext as Record<string, unknown>) ?? {}), guardrailBlockedAt: new Date().toISOString() } } });
 
       const m = await loadSlaMetrics(ORG_T, { now: new Date(Date.now() + MIN) });
-      // ORG_T 的询盘：a1（未回复）、a2（5 分钟回复）、a3（2 小时，外贸消息）、a4（测试，排除）、a5（展会）；[5] 的商机没有 FDE 行动
-      ok(m.inquiries.received === 3, "询盘数：不含测试询盘与展会速记卡", m.inquiries);
-      ok(m.inquiries.answered === 2 && m.inquiries.unanswered === 1, "已回复 2（外发互动 / 外贸消息），未回复 1", m.inquiries);
+      // ORG_T 的询盘：a1（未回复）、a2（5 分钟回复）、a3（2 小时，外贸消息）、a6（已认领未回复）、a4（测试，排除）、a5（展会）；
+      // [5] 的商机没有 FDE 行动
+      ok(m.inquiries.received === 4, "询盘数：不含测试询盘与展会速记卡", m.inquiries);
+      ok(m.inquiries.answered === 2 && m.inquiries.unanswered === 2, "已回复 2（外发互动 / 外贸消息），未回复 2", m.inquiries);
       ok(m.inquiries.medianFirstResponseMinutes !== null && Math.abs(m.inquiries.medianFirstResponseMinutes - 62.5) < 1.5, "首响中位 ≈ (5 + 120) / 2 分钟", m.inquiries.medianFirstResponseMinutes);
       ok(m.tradeShow.received === 1 && m.excludedTests === 1, "展会单列 1 张、排除测试 1 条", { tradeShow: m.tradeShow, excludedTests: m.excludedTests });
       ok(m.guardrail.firstReply === 1 && m.guardrail.followUp === 1 && m.guardrail.total === 2, "护栏拦截：首封 1 + 跟进 1", m.guardrail);
