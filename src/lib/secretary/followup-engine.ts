@@ -9,10 +9,18 @@
  *
  * 对需要跟进的客户，AI 自动生成跟进策略建议和邮件草稿，
  * 写入 Notification 推送给用户。
+ *
+ * 提醒类入口（cron runFollowupEngine、每日简报）不扫描 Revenue Spine 正在跟进的线索：
+ * TradeProspect.convertedToSalesOpportunityId 指向开放阶段（OPEN_STAGES）、客户未归档的商机——
+ * 它们的跟进由 Revenue Spine（下一步提醒、无回复跟进草稿、首响分级提醒）负责，避免同一买家两套提醒。
+ * 仍由这里跟进的：手动「转入销售 CRM」生成的旧阶段商机（如 new_lead）、已成交 / 丢单 / 不合格 / 培育 / 停滞的商机、
+ * 客户已归档的商机（Revenue Spine 的 cron 都不为它们发跟进提醒）。
+ * 助手按需调用的扫描（secretary_scan_followups）传 includeRevenueSpineOwned，列表照旧包含全部线索（只列出、不发通知）。
  */
 
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
+import { OPEN_STAGES } from "@/lib/revenue-spine/opportunity-stage";
 import {
   getTradeProspectStageLabel,
   TRADE_DB_STAGES_CONTACTED_OR_LATER,
@@ -82,10 +90,39 @@ const FOLLOWUP_LADDER = [
 
 // ── 扫描入口 ─────────────────────────────────────────────────────
 
-export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]> {
+/** 单组织最多排除的线索数（Revenue Spine 链接线索 = 历史网站询盘数，远低于此） */
+const MAX_REVENUE_SPINE_OWNED = 5000;
+
+/**
+ * 跟进归 Revenue Spine 的线索：链接到本组织开放阶段、客户未归档商机的线索（与 cron/revenue-spine 的扫描范围一致；按 orgId 限定两次查询）。
+ */
+export async function revenueSpineOwnedProspectIds(orgId: string): Promise<string[]> {
+  const linked = await db.tradeProspect.findMany({
+    where: { orgId, convertedToSalesOpportunityId: { not: null } },
+    select: { id: true, convertedToSalesOpportunityId: true },
+    take: MAX_REVENUE_SPINE_OWNED,
+  });
+  if (!linked.length) return [];
+  const opps = await db.salesOpportunity.findMany({
+    where: {
+      orgId,
+      id: { in: linked.map((p) => p.convertedToSalesOpportunityId as string) },
+      stage: { in: [...OPEN_STAGES] },
+      customer: { archivedAt: null },
+    },
+    select: { id: true },
+  });
+  const owned = new Set(opps.map((o) => o.id));
+  return linked.filter((p) => p.convertedToSalesOpportunityId && owned.has(p.convertedToSalesOpportunityId)).map((p) => p.id);
+}
+
+export async function scanFollowups(orgId: string, opts?: { includeRevenueSpineOwned?: boolean }): Promise<FollowupCandidate[]> {
   const now = new Date();
   const candidates: FollowupCandidate[] = [];
   const seenIds = new Set<string>();
+  // 跟进归 Revenue Spine 的线索不进秘书跟进阶梯（每个扫描都带上，避免它们占满 take 名额）；助手按需查询时照旧全列
+  const ownedByRevenueSpine = opts?.includeRevenueSpineOwned ? [] : await revenueSpineOwnedProspectIds(orgId);
+  const notRevenueSpine = ownedByRevenueSpine.length ? { id: { notIn: ownedByRevenueSpine } } : {};
 
   function addCandidate(c: FollowupCandidate) {
     if (seenIds.has(c.prospectId)) return;
@@ -97,6 +134,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
   const scheduledDue = await db.tradeProspect.findMany({
     where: {
       orgId,
+      ...notRevenueSpine,
       nextFollowUpAt: { lte: now },
       stage: { notIn: ["won", "lost", "unqualified", "new", "no_response"] },
     },
@@ -123,6 +161,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
     const noReply = await db.tradeProspect.findMany({
       where: {
         orgId,
+        ...notRevenueSpine,
         stage: { in: [...TRADE_DB_STAGES_CONTACTED_OR_LATER] },
         followUpCount: ladder.followUpCount,
         lastContactAt: { gt: sinceDate, lt: untilDate },
@@ -147,6 +186,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
   const repliedUnhandled = await db.tradeProspect.findMany({
     where: {
       orgId,
+      ...notRevenueSpine,
       stage: { in: ["replied", "interested", "follow_up"] },
       messages: {
         some: {
@@ -188,6 +228,7 @@ export async function scanFollowups(orgId: string): Promise<FollowupCandidate[]>
   const negotiationStalled = await db.tradeProspect.findMany({
     where: {
       orgId,
+      ...notRevenueSpine,
       stage: { in: ["negotiating"] },
       lastContactAt: { lt: sevenDaysAgo },
     },

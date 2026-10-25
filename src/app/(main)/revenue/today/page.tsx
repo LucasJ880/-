@@ -6,6 +6,7 @@
  * 四栏：今日新询盘 / 回复超时 / 待审批 / 样品与报价到期。单列、手机优先，点卡片进商机详情。
  * 审批：必须先展开看完草稿预览（含风险提醒与中文对照），「批准发送 / 拒绝」才可点；
  * 与商机详情页同一个接口（POST /api/ai/pending-actions/{id}），每次决定后都重新拉取。
+ * 顶部「首响 SLA」卡片（近 30 天）单独请求 /api/revenue/sla-metrics，失败不影响四栏。
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -21,6 +22,7 @@ import {
   Package,
   RefreshCw,
   ShieldCheck,
+  Timer,
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -81,6 +83,28 @@ interface OwnerToday {
 }
 
 type Notice = { tone: "error" | "ok"; text: string } | null;
+
+interface SlaBucket {
+  received: number;
+  answered: number;
+  unanswered: number;
+  closedWithoutReply: number;
+  medianFirstResponseMinutes: number | null;
+  p90FirstResponseMinutes: number | null;
+  within24hEligible: number;
+  answeredWithin24h: number;
+  answeredWithin24hRate: number | null;
+}
+
+interface SlaMetrics {
+  windowDays: number;
+  basis: "business" | "wall_clock";
+  businessHours: { timezone: string; start: string; end: string; workdays: number[] } | null;
+  inquiries: SlaBucket;
+  tradeShow: SlaBucket;
+  excludedTests: number;
+  guardrail: { total: number; firstReply: number; followUp: number };
+}
 
 function gradeTone(grade: string | null): string {
   switch (grade) {
@@ -247,6 +271,65 @@ function ApprovalRow({
   );
 }
 
+function slaDuration(minutes: number | null): string {
+  if (minutes === null) return "—";
+  if (minutes < 60) return `${Math.round(minutes)} 分钟`;
+  if (minutes < 48 * 60) return `${(minutes / 60).toFixed(1)} 小时`;
+  return `${(minutes / 1440).toFixed(1)} 天`;
+}
+
+const WEEKDAY_ZH = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+function workdaysLabel(days: number[]): string {
+  if (days.join(",") === "1,2,3,4,5") return "周一至周五";
+  if (days.join(",") === "1,2,3,4,5,6") return "周一至周六";
+  return days.map((d) => WEEKDAY_ZH[d] ?? "").filter(Boolean).join("、");
+}
+
+function SlaStat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="min-w-0 rounded-lg bg-muted/20 px-2 py-1.5">
+      <div className="truncate text-[11px] text-muted">{label}</div>
+      <div className={`truncate text-base font-semibold tabular-nums ${tone ?? ""}`}>{value}</div>
+    </div>
+  );
+}
+
+/** 首响 SLA（近 30 天）：口径见 src/lib/revenue-spine/sla-metrics.ts */
+function SlaMetricsCard({ metrics }: { metrics: SlaMetrics }) {
+  const q = metrics.inquiries;
+  const booth = metrics.tradeShow;
+  const rate = q.answeredWithin24hRate === null ? "—" : `${Math.round(q.answeredWithin24hRate * 100)}%`;
+  const bh = metrics.businessHours;
+  const basis = bh ? `首响按工作时间计（${bh.timezone} ${workdaysLabel(bh.workdays)} ${bh.start}–${bh.end}）` : "首响按自然时间计";
+  return (
+    <section className="rounded-xl border border-border bg-card px-4 py-3">
+      <header className="flex items-center gap-2 text-sm font-medium">
+        <Timer className="h-4 w-4 text-sky-400" />
+        <span>首响 SLA · 近 {metrics.windowDays} 天</span>
+      </header>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        <SlaStat label="询盘" value={String(q.received)} />
+        <SlaStat label="首响中位" value={slaDuration(q.medianFirstResponseMinutes)} />
+        <SlaStat label="首响 P90" value={slaDuration(q.p90FirstResponseMinutes)} />
+        <SlaStat label="24 小时内回复" value={rate} tone={q.answeredWithin24hRate !== null && q.answeredWithin24hRate < 0.95 ? "text-amber-400" : undefined} />
+        <SlaStat label="未回复" value={String(q.unanswered)} tone={q.unanswered ? "text-red-400" : undefined} />
+        <SlaStat label="护栏拦截" value={String(metrics.guardrail.total)} />
+      </div>
+      {booth.received ? (
+        <div className="mt-2 text-xs text-muted">
+          展会速记卡 {booth.received} 张 · 首响中位 {slaDuration(booth.medianFirstResponseMinutes)} · 未回复 {booth.unanswered}
+        </div>
+      ) : null}
+      <div className="mt-1 text-[11px] leading-relaxed text-muted">
+        {basis}；24 小时回复率按自然时间、只算已满 24 小时的询盘
+        {q.closedWithoutReply ? `；${q.closedWithoutReply} 条已关闭未回复（不合格 / 人工关闭）不计入` : ""}
+        {metrics.excludedTests ? `；已排除 ${metrics.excludedTests} 条入驻测试询盘` : ""}。
+      </div>
+    </section>
+  );
+}
+
 function DueRow({ item, generatedAt, timeZone }: { item: DueItem; generatedAt: string; timeZone: string }) {
   const name = item.opportunity?.customerName ?? item.companyName ?? "未关联客户";
   const kinds = item.kinds.map((k) => (k === "quote" ? "报价" : "样品")).join(" · ");
@@ -282,10 +365,22 @@ export default function OwnerTodayPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  const [sla, setSla] = useState<SlaMetrics | null>(null);
+
+  const loadSla = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/revenue/sla-metrics");
+      if (!res.ok) return;
+      setSla((await res.json()) as SlaMetrics);
+    } catch {
+      // 指标卡片失败不影响今日四栏
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    void loadSla();
     try {
       const res = await apiFetch("/api/revenue/owner-today");
       const body = await res.json().catch(() => ({}));
@@ -296,7 +391,7 @@ export default function OwnerTodayPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadSla]);
 
   useEffect(() => {
     void load();
@@ -370,6 +465,8 @@ export default function OwnerTodayPage() {
           <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
         </div>
       ) : null}
+
+      {sla ? <SlaMetricsCard metrics={sla} /> : null}
 
       {data ? (
         <>
