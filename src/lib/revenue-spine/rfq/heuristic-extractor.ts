@@ -118,7 +118,7 @@ const DATE_ISO_RE = /\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])
 const DATE_TEXT_RE =
   /\b(?:by|before|until|deliver(?:y|ed)?\s+(?:by|before|in)|需要在|要求)?\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/i;
 const MONTH_WORD = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
-// 「before March」= 2 月底之前（「not before March」不算）；by / until / in / end of 取当月底；early = 10 日、mid = 15 日（取早不取晚）
+// by / before / until / in / end of 取当月底；early = 10 日、mid = 15 日（取早不取晚）
 const DATE_MONTH_ONLY_RE = new RegExp(`\\b(by|before|until|in)\\s+(end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\b(?:\\s*(20\\d{2}))?`, "i");
 // 表单字段值常常只写「March 2027」，没有介词：只在「Required date: …」这种标注行里认
 const DATE_BARE_MONTH_RE = new RegExp(`^(end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\.?,?(?:\\s*(20\\d{2}))?[.。]?$`, "i");
@@ -146,16 +146,16 @@ interface ParsedDate {
 function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | null {
   const nextYearIfPast = (mi: number) => now.getUTCFullYear() + (mi < now.getUTCMonth() ? 1 : 0);
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  // 只给月份：月底；before 取上月底；early / mid 取 10 / 15 日。没写年份时取不早于今天的那一年
-  const monthDate = (year: number | null, mi: number, mode: "end" | "before" | "early" | "mid") => {
+  // 只给月份：月底；early / mid 取 10 / 15 日。没写年份时取不早于今天的那一年
+  const monthDate = (year: number | null, mi: number, mode: "end" | "early" | "mid") => {
     const at = (y: number) =>
-      mode === "early" ? new Date(Date.UTC(y, mi, 10)) : mode === "mid" ? new Date(Date.UTC(y, mi, 15)) : new Date(Date.UTC(y, mode === "before" ? mi : mi + 1, 0));
+      mode === "early" ? new Date(Date.UTC(y, mi, 10)) : mode === "mid" ? new Date(Date.UTC(y, mi, 15)) : new Date(Date.UTC(y, mi + 1, 0));
     if (year !== null) return at(year);
     const d = at(now.getUTCFullYear());
     return d.getTime() < today ? at(now.getUTCFullYear() + 1) : d;
   };
-  const modeOf = (qualifier: string | undefined, before: boolean): "end" | "before" | "early" | "mid" =>
-    /^early/i.test(qualifier ?? "") ? "early" : /^mid/i.test(qualifier ?? "") ? "mid" : before && !qualifier ? "before" : "end";
+  const modeOf = (qualifier: string | undefined): "end" | "early" | "mid" =>
+    /^early/i.test(qualifier ?? "") ? "early" : /^mid/i.test(qualifier ?? "") ? "mid" : "end";
 
   const iso = DATE_ISO_RE.exec(text);
   if (iso) {
@@ -174,15 +174,14 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
   const monthOnly = DATE_MONTH_ONLY_RE.exec(text);
   if (monthOnly && monthIndex(monthOnly[3]) !== null) {
     // 「before end of March」= 3 月底之前，不是 2 月底
-    // 「do not ship before March」「not before March」「no earlier than」：买家排除的是三月之前，不是要求二月底
-    const negated = /(?:\b(?:not|never)\b|n't\b)[^.!?\n]{0,24}$|\bno earlier than\s*$/i.test(text.slice(Math.max(0, monthOnly.index - 32), monthOnly.index));
-    const date = monthDate(monthOnly[4] ? Number(monthOnly[4]) : null, monthIndex(monthOnly[3])!, modeOf(monthOnly[2], monthOnly[1].toLowerCase() === "before" && !negated));
+    // before 仍按当月底读：「cannot / don’t / no delivery before March」「before March is too early」里的 before 是排除，按上月底会读反
+    const date = monthDate(monthOnly[4] ? Number(monthOnly[4]) : null, monthIndex(monthOnly[3])!, modeOf(monthOnly[2]));
     return { date, confidence: 0.6, index: monthOnly.index, length: monthOnly[0].length };
   }
   const bareText = text.trim();
   const bareMonth = bare ? DATE_BARE_MONTH_RE.exec(bareText) : null;
   if (bareMonth && monthIndex(bareMonth[2]) !== null) {
-    const date = monthDate(bareMonth[3] ? Number(bareMonth[3]) : null, monthIndex(bareMonth[2])!, modeOf(bareMonth[1], false));
+    const date = monthDate(bareMonth[3] ? Number(bareMonth[3]) : null, monthIndex(bareMonth[2])!, modeOf(bareMonth[1]));
     return { date, confidence: 0.6, index: text.indexOf(bareText), length: bareText.length };
   }
   const rel = RELATIVE_RE.exec(text);
@@ -312,14 +311,16 @@ const PLACEHOLDER_RE =
   /^[\s\-—–_/\\.?!·•*~]+$|^(?:see|check|refer(?: to)?|per|as (?:shown|per|in)|according to|follow(?:ing)?)\b.{0,40}\b(?:photo|picture|pic|image|file|spec|drawing|sample|link|attach\w*|below|above|email|message|catalog(?:ue)?)\b|^(?:见|按|参考|看|同)(?:图|附件|样品|图片|邮件|上|下)/i;
 
 // 否定、问句、链接：不是对规格的回答（「not polybag」「no branding」「OEKO-TEX?」「https://…」）
-const NOT_A_SPEC_RE = /^(?:no|not|none|without|avoid|never|无|不需要|不用|不要|没有)(?![A-Za-z])|\b(?:no|not|without)\s+(?:\w+\s+){0,2}(?:logo|brand\w*|label|print\w*|tag|embroider\w*|polybag|box|carton|cotton|polyester)\b|[?？]|https?:\/\/|www\./i;
+const NOT_A_SPEC_RE = /^(?:no|not|none|without|avoid|never|无|不需要|不用|不要|没有)(?![A-Za-z])|\b(?:no|not|without)\s+(?:\w+\s+){0,2}(?:logos?|brand\w*|labels?|print\w*|tags?|embroider\w*|polybags?|box(?:es)?|cartons?|cotton|polyester)\b|[?？]|https?:\/\/|www\./i;
+// 定制 / 认证的值里只要有否定（「plain, no logos」「CE marking not needed, just OEKO-TEX」「your brand is fine」）就不采用
+const ANY_NEGATION_RE = /\b(?:no|not|none|nothing|without|never|don'?t|don’t|doesn'?t|doesn’t|needn'?t|unable|cannot|can'?t|can’t|free)\b|-free\b|\byour (?:own )?(?:brand|logo|label)s?\b|无|不需要|不要|不用|没有|免/i;
 // 表单尺寸值只由尺码词组成才算（S/M and L/XL、Queen、S-XL）；单个字母要独立成词，不算 it's / let's 里的 s
 const SIZE_WORDS_ONLY_RE =
   /^(?:(?<![A-Za-z'’])(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-4]xl|one size|queen|king|super king|california king|twin|full|double|single)(?![A-Za-z'’])(?:\s*sizes?)?(?:\s*(?:[,/&+~–-]|and|to)\s*)?)+$/i;
 const CUSTOMIZATION_WORD_RE = /\b(?:logos?|embroider\w*|brand(?:ed|ing)?|labels?|print(?:ed|ing)?|tags?|woven|patch(?:es)?)\b|印|绣|贴牌|商标|吊牌|标签|织标/i;
 
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
-  const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
+  const value = capWords(raw.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
   if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value)) return null;
   const sentence = firstSentence(value);
   if (!sentence || NON_ANSWER_RE.test(sentence) || PLACEHOLDER_RE.test(sentence)) return null;
@@ -353,10 +354,10 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
       if (/^(?:no|n|no samples?(?: needed)?|not needed|no need|不需要|不要|否)[.!。]?$/i.test(value)) return [["sampleRequired", false]];
       return null;
     case "certification":
-      return labeledCertification(sentence);
+      return ANY_NEGATION_RE.test(value) ? null : labeledCertification(sentence);
     // 下面几项只在值里真有对应的词时采用（「No requirement」「Later」「normal」「无」「maybe」这类不是答案）
     case "customization":
-      if (yesNo || NOT_A_SPEC_RE.test(sentence) || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
+      if (yesNo || NOT_A_SPEC_RE.test(sentence) || ANY_NEGATION_RE.test(value) || !CUSTOMIZATION_WORD_RE.test(sentence)) return null;
       return [["customization", sentence], ["customLogo", true]];
     case "packaging":
       return !NOT_A_SPEC_RE.test(sentence) && findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS) ? [["packaging", sentence]] : null;
@@ -467,7 +468,7 @@ function mentionedIn(field: RfqField, text: string): boolean {
       return new RegExp(`\\d[\\d,，.]*\\s*(?:k|万|千)?\\s*(?:${UNIT_WORDS})(?![A-Za-z])|\\b(?:quantity|qty|volume|increase|reduce|double|half)\\b|数量|加量|减量`, "i").test(text);
     case "requiredDeliveryDate":
       return (
-        new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time)\\b|交期|交货|到货|提前|推迟|延期`, "i").test(text) ||
+        new RegExp(`\\b${MONTH_WORD}\\b|\\b20\\d{2}[-/.]\\d{1,2}|\\d{1,2}\\s*月|\\b(?:asap|urgent(?:ly)?|next (?:week|month)|earlier|later|sooner|delay\\w*|postpone\\w*|deadline|deliver\\w*|eta|lead ?time|christmas|xmas|new year|easter|ramadan|eid|diwali|black friday|season|holiday\\w*)\\b|交期|交货|到货|提前|推迟|延期|春节|圣诞|国庆|节前`, "i").test(text) ||
         RELATIVE_RE.test(text)
       );
     case "destinationCountry":
@@ -477,7 +478,7 @@ function mentionedIn(field: RfqField, text: string): boolean {
     case "material":
       return findKeyword(lower, MATERIAL_KEYWORDS) !== null || /\b(?:material|fabric)\b|面料|材质/i.test(text);
     case "size":
-      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?)\b|尺寸|尺码|规格/i.test(text);
+      return SIZE_RE.test(text) || /\b(?:sizes?|dimensions?|queen|king|twin|full|double|single|xxs|xs|xl|xxl|xxxl|[2-4]xl|one size)\b|\b[sml]\s*\/\s*[sml]\b|尺寸|尺码|规格|大号|中号|小号|均码/i.test(text);
     case "customization":
       return findKeyword(lower, CUSTOMIZATION_KEYWORDS) !== null || CUSTOMIZATION_WORD_RE.test(text) || /定制/.test(text);
     case "packaging":
@@ -485,7 +486,7 @@ function mentionedIn(field: RfqField, text: string): boolean {
     case "certification":
       return findKeyword(lower, CERTIFICATION_KEYWORDS) !== null || /\bcertif\w*|认证/i.test(text);
     case "sampleRequired":
-      return findKeyword(lower, SAMPLE_KEYWORDS) !== null;
+      return findKeyword(lower, SAMPLE_KEYWORDS) !== null || /\b(?:swatch\w*|test\w*|lab|prototype|send (?:me |us )?(?:\d+|a|one|two|three) (?:pcs?|pieces?))\b|样|寄/i.test(text);
     case "buyerType":
       return detectBuyerType(text).matched !== null;
     default:
@@ -705,12 +706,17 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].field === field) evidence.splice(i, 1);
   };
   const productAt = keywordPos.get("productName");
+  const segmentText = (segment: number) => source.slice(segment === 0 ? 0 : labeled.segmentEnd(segment - 1), labeled.segmentEnd(segment));
+  const productLine = (text: string) => /^[^\S\n]*(?:product(?: name)?|产品)[^\S\n]*[:：][^\S\n]*(\S[^\n]*)$/im.exec(text)?.[1].trim().toLowerCase() ?? null;
   const otherProduct = (segment: number) => {
-    // 这一封来信点名的是别的产品（产品词在前一封、这封的产品词归到别的类目）
+    // 这一封来信点名的是别的产品（产品词在前一封）：两封都有「Product:」行时比整行（Beach towels ≠ Bath towels），否则比产品词
     if (productAt === undefined || labeled.segmentOf(productAt) === segment) return false;
-    const start = segment === 0 ? 0 : labeled.segmentEnd(segment - 1);
-    const kw = findKeyword(source.slice(start, labeled.segmentEnd(segment)).toLowerCase(), Object.keys(opts.productKeywords));
-    return kw !== null && (opts.productKeywords[kw.kw] ?? opts.productKeywords[kw.kw.toLowerCase()] ?? null) !== fields.productCategory;
+    const here = segmentText(segment);
+    const a = productLine(segmentText(labeled.segmentOf(productAt)));
+    const b = productLine(here);
+    if (a && b) return a !== b;
+    const kw = findKeyword(here.toLowerCase(), Object.keys(opts.productKeywords));
+    return kw !== null && kw.kw.toLowerCase() !== (fields.productName ?? "").toLowerCase();
   };
   const keywordWins = (hit: LabeledHit, field: RfqField) => {
     // 第二次提交的是别的产品：不拿它的字段去改前一个产品
@@ -724,7 +730,7 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     // 同一封来信里表单区块之前买家自己写过：以正文为准，表单只补没写到的
     return k < hit.blockStart;
   };
-  const keywordUnit = fields.unit;
+  const keywordQty = { quantity: fields.quantity, unit: fields.unit };
   let labeledCountry = false;
   for (const hit of labeled.hits) {
     if (keywordWins(hit, hit.pairs[0][0])) continue;
@@ -735,9 +741,10 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     }
     if (hit.pairs[0][0] === "destinationCountry") labeledCountry = !hit.pairs.some(([f]) => f === "destinationCity");
     if (hit.pairs[0][0] === "quantity" && fields.unit === null) {
-      // 表单只写了数字：沿用正文里的单位（5000 meters、3,000 sets），否则有产品时按 pcs
-      fields.unit = keywordUnit ?? (fields.productName ? "pcs" : null);
-      if (keywordUnit) add("unit", keywordUnit, 0.6, hit.index, hit.length);
+      // 表单只写了数字：正文里同一个数带了单位就沿用（5000 meters），否则有产品时按 pcs
+      const same = keywordQty.quantity === fields.quantity && keywordQty.unit ? keywordQty.unit : null;
+      fields.unit = same ?? (fields.productName ? "pcs" : null);
+      if (same) add("unit", same, 0.6, hit.index, hit.length);
     }
   }
   // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）：从那一行读出的定制 / 包装作废，
@@ -748,8 +755,9 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]))) continue;
     const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
     let elsewhere = labeled.buyerTypeLines.reduce((t, [a, b]) => blank(t, a, b), lower);
-    for (const l of labeled.fieldLines) if (l.field !== field) elsewhere = blank(elsewhere, l.start, l.end);
-    elsewhere = elsewhere.replace(/[^\n]*(?:https?:\/\/|utm_)[^\n]*/g, (line) => " ".repeat(line.length));
+    // 找包装时不看表单里别的字段的行（Branding 行里的 label 不是包装）；找定制时照看（「Packaging: gift box with our logo printed」）
+    if (field === "packaging") for (const l of labeled.fieldLines) if (l.field !== field) elsewhere = blank(elsewhere, l.start, l.end);
+    elsewhere = elsewhere.replace(/[^\n]*(?:https?:\/\/|www\.|utm|campaign=|source=|来源页|落地页|引荐页)[^\n]*/gi, (line) => " ".repeat(line.length));
     const again = findKeyword(elsewhere, field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS);
     dropEvidence(field);
     if (field === "customization") {

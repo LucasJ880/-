@@ -223,7 +223,7 @@ ok("表单区块（— Form details —）：值整行照录，覆盖关键词�
   assert.equal(r.fields.sampleRequired, true);
   assert.equal(r.fields.destinationCountry, "Canada");
   assert.equal(r.fields.incoterm, "FOB");
-  assert.equal(r.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-28", "同一封来信里正文先说的「before March 2027」为准");
+  assert.equal(r.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31", "同一封来信里正文先说的「before March 2027」为准（按当月底读）");
   const flat = FORM_DETAILS.replace(/\s+/g, " ");
   for (const e of r.evidence) assert.ok(flat.includes(e.evidenceText.replace(/\s+/g, " ")), `${e.field} evidence must come from source`);
   const qty = r.evidence.filter((e) => e.field === "quantity");
@@ -287,7 +287,7 @@ ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 
   assert.equal(sets.unit, "sets");
   const later = fx("We need 3,000 sets of duvet cover sets." + INBOUND_MESSAGE_SEPARATOR + ["Updated brief:", "", block("Estimated quantity: 4000")].join("\n"));
   assert.equal(later.quantity, 4000, "后一封来信的表单数量");
-  assert.equal(later.unit, "sets", "只写数字时沿用正文单位");
+  assert.equal(later.unit, "pcs", "只写数字、正文里没有同一个数：不借别的数的单位（24 pcs per carton / 125 cartons 那种会借错）");
 });
 
 ok("多封来信：之后的来信提到了该字段就不用表单值（保持关键词结果）；没提就照用表单；追加品类的数量不顶替订单数量", () => {
@@ -339,10 +339,32 @@ ok("交期：early / mid 取 10 / 15 日（不说成月底）；只给月份不�
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d(["We need 3000 bath towels.", "", block("Required date: early March 2027")].join("\n")), "2027-03-10");
   assert.equal(d("We need 3000 bath towels by mid-March 2027. We started our business in May 2010."), "2027-03-15", "不跳到后面不相干的月份");
-  assert.equal(d("We need 3000 bath towels before October."), "2027-09-30");
+  assert.equal(d("We need 3000 bath towels before October."), "2026-10-31", "没写年份时取不早于今天的那一年");
+  assert.equal(d("We need 3000 bath towels by September."), "2027-09-30");
+  assert.equal(d("We cannot receive goods before March 2027 (warehouse full). Need 2,000 sheets."), "2027-03-31", "before 一律按当月底，否定句不会读反");
   assert.equal(d("We need 3000 bath towels before end of March 2027."), "2027-03-31");
   assert.equal(d("Note our warehouse is closed until the end of January. Please deliver 900 throws in March."), "2027-03-31", "「the end of」不认（常是别的事情的期限）");
   assert.equal(d("Please do not ship before March because our warehouse is full."), "2027-03-31", "not before March 不是 2 月底");
+});
+
+ok("第六轮审查用例：否定的定制 / 认证、后来的来信改尺码 / 改期 / 要样品、买家类型行、同类别别的产品、表情符号", () => {
+  const q = "Product: Bath towels\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 pcs\n";
+  for (const v of ["plain, no logos", "your brand is fine", "Label-free / no tags", "we don't need labels"]) {
+    const f = fx(q + `Branding: ${v}`);
+    assert.notEqual(f.customization, v, `Branding: ${v}`);
+  }
+  assert.notEqual(fx(q + "Certification: CE marking not needed, just OEKO-TEX").certification, "CE, OEKO-TEX");
+  const later = (form: string, reply: string) => fx(q + form + INBOUND_MESSAGE_SEPARATOR + reply);
+  assert.notEqual(later("Size / specification: Queen", "Hi, please switch everything to King, thanks.").size, "Queen");
+  assert.notEqual(later("Required date: March 2027", "Change of plan: we need them for Christmas.").requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
+  assert.notEqual(later("Sample requirement: No", "Please send 2 pcs for lab testing first.").sampleRequired, false);
+  const logo = fx(q + "Buyer type: Private label\nPackaging: gift box with our logo printed");
+  assert.equal(logo.customLogo, true, "包装行里写的 logo 照算定制");
+  const utm = fx(q + "Buyer type: Retail & Private Label\nUTM：source=google medium=cpc campaign=oem_logo_towels");
+  assert.doesNotMatch(utm.customization ?? "", /campaign|source=/);
+  const twoProducts = fx("Product: Bath towels\nQuote towels.\n\n— Form details —\nEstimated quantity: 3000 pcs" + INBOUND_MESSAGE_SEPARATOR + "Product: Beach towels\nAnd beach towels to Australia.\n\n— Form details —\nEstimated quantity: 1000 pcs");
+  assert.equal(twoProducts.quantity, 3000);
+  assert.equal(fx(q + "Material: Cotton 🙂").material, "Cotton");
 });
 
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
@@ -351,9 +373,9 @@ ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天�
   assert.equal(d("需要3000条浴巾，2027年3月15日交货"), "2027-03-15");
 });
 
-ok("交期：before <月份> 是上月底，by / in 是当月底", () => {
+ok("交期：before / by <月份> 都按当月底（原有读法）", () => {
   const before = extractRfqHeuristic("We need 3,000 blankets before March 2027.", opts);
-  assert.equal(before.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-28");
+  assert.equal(before.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
   const by = extractRfqHeuristic("We need 3,000 blankets by March 2027.", opts);
   assert.equal(by.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
 });
