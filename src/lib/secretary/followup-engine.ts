@@ -96,7 +96,7 @@ const MAX_REVENUE_SPINE_OWNED = 5000;
 /**
  * 跟进归 Revenue Spine 的线索：链接到本组织开放阶段、客户未归档商机的线索（与 cron/revenue-spine 的扫描范围一致；按 orgId 限定两次查询）。
  */
-export async function revenueSpineOwnedProspectIds(orgId: string): Promise<string[]> {
+async function revenueSpineOwnedProspectIds(orgId: string): Promise<string[]> {
   const linked = await db.tradeProspect.findMany({
     where: { orgId, convertedToSalesOpportunityId: { not: null } },
     select: { id: true, convertedToSalesOpportunityId: true },

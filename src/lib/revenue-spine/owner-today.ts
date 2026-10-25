@@ -24,9 +24,9 @@ import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "./policy";
 import { opportunitySourceLabel } from "./source-labels";
 
 /** 超时栏：只看「该回复买家」这两类下一步 */
-export const OVERDUE_ACTION_TYPES = ["reply_inquiry", "reply_customer"] as const;
+const OVERDUE_ACTION_TYPES = ["reply_inquiry", "reply_customer"] as const;
 /** 样品与报价栏：Revenue Spine 的报价 / 样品下一步 */
-export const QUOTE_SAMPLE_ACTION_TYPES = ["send_quote", "quote_follow_up", "sample_follow_up"] as const;
+const QUOTE_SAMPLE_ACTION_TYPES = ["send_quote", "quote_follow_up", "sample_follow_up"] as const;
 /** 外贸报价单：已发出 / 谈判中，且有效期在今天结束 */
 const TRADE_QUOTE_ACTIVE_STATUSES = ["sent", "negotiating"];
 
