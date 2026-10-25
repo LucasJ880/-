@@ -246,6 +246,9 @@ npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
 npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
+# 微信回数字不批询盘回复；微信绑定只改本人
+npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-scope.test.ts
+npx tsx src/lib/messaging/__tests__/binding-preferences.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

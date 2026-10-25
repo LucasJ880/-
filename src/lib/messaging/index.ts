@@ -6,7 +6,9 @@ export {
   resolveBindingOrgId,
   updateBindingPreferences,
   removeBinding,
+  sanitizeBindingPreferences,
 } from "./binding";
+export type { BindingPreferences } from "./binding";
 export {
   PLATFORM_WECOM_ORG_ID,
   PLATFORM_WECOM_QUERY,
