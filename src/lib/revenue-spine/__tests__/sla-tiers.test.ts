@@ -4,7 +4,8 @@
  *   [2] 组织工作时间：时段内计时、跨周末、早于上班、"24:00"、工作日自定义；夏令时（多伦多 / 悉尼）切换周末
  *   [3] 策略合并：默认全 null；合法值、显式 null、非法值保留原值、上限；工作时间校验；合并结果再合并不丢字段
  *   [4] Next action：回复类到期按组织工作时间；未配置时与旧口径一致
- *   [5] 分级决策：自然时间 / 工作时间（含夏令时）、已回复不发、错过太久不补发、幂等键、正文不含买家邮箱电话
+ *   [5] 分级决策：自然时间 / 工作时间（含夏令时）、已回复不发、错过太久不补发、幂等键、正文不含买家邮箱电话；
+ *       第一档按实际草稿状态措辞；旧线程提醒的分工（跟踪中 / 这次进线就是分级询盘 → 跳过，询盘之后再来信 → 照常）
  * 运行：npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts
  *
  * 公开仓库：只用虚构企业。
@@ -36,6 +37,7 @@ import {
   slaTierSourceKey,
   slaTierThresholds,
 } from "../sla-tiers";
+import { guardrailMarkerPatch } from "../fde/inbound-sales";
 import { threadsOwnedByTiers } from "@/lib/trade/inquiry-sla";
 
 let pass = 0;
@@ -135,9 +137,18 @@ ok("夏令时：悉尼拨快周末（2026-10-04），周五 16:30 AEST + 60 分�
   assert.equal(iso(addSlaMinutes(new Date("2026-10-02T06:30:00Z"), 60, SYD)), "2026-10-04T22:30:00.000Z");
 });
 
-ok("当地时刻 → UTC：空档取拨快后的时刻，重叠取较早的一次", () => {
+ok("当地时刻 → UTC：空档取拨快后的时刻，重叠取较早的一次（UTC 以西 / 以东都成立）", () => {
   assert.equal(iso(zonedLocalToUtc("2027-03-14", 2 * 60 + 30, "America/Toronto")), "2027-03-14T07:30:00.000Z");
   assert.equal(iso(zonedLocalToUtc("2026-11-01", 60 + 30, "America/Toronto")), "2026-11-01T05:30:00.000Z");
+  // UTC 以东：柏林 2026-10-25 回拨（03:00 CEST → 02:00 CET），02:30 出现两次 → 取 CEST 那次（00:30Z），不是 CET 的 01:30Z
+  assert.equal(iso(zonedLocalToUtc("2026-10-25", 2 * 60 + 30, "Europe/Berlin")), "2026-10-25T00:30:00.000Z");
+  // 悉尼 2026-04-05 回拨（03:00 AEDT → 02:00 AEST），02:30 → AEDT 那次（04-04 15:30Z）
+  assert.equal(iso(zonedLocalToUtc("2026-04-05", 2 * 60 + 30, "Australia/Sydney")), "2026-04-04T15:30:00.000Z");
+  // 柏林 2026-03-29 拨快（02:00 CET → 03:00 CEST）：02:30 不存在 → 拨快后的 03:30 CEST（01:30Z）
+  assert.equal(iso(zonedLocalToUtc("2026-03-29", 2 * 60 + 30, "Europe/Berlin")), "2026-03-29T01:30:00.000Z");
+  // 非切换日不受影响
+  assert.equal(iso(zonedLocalToUtc("2026-10-26", 9 * 60, "Europe/Berlin")), "2026-10-26T08:00:00.000Z");
+  assert.equal(iso(zonedLocalToUtc("2026-10-24", 9 * 60, "Europe/Berlin")), "2026-10-24T07:00:00.000Z");
   assert.equal(iso(zonedLocalToUtc("2026-11-02", 9 * 60, "America/Toronto")), "2026-11-02T14:00:00.000Z");
   assert.equal(iso(zonedLocalToUtc("2026-09-07", 9 * 60, "Asia/Shanghai")), "2026-09-07T01:00:00.000Z");
 });
@@ -345,15 +356,75 @@ ok("没有草稿的原因：FDE 失败 / 未完成 / 不做类目 / 护栏 / 无
   assert.equal(d("completed", "out_of_range").hasDraft, false);
 });
 
-ok("旧线程提醒的分工：只跳过链接到被分级跟踪商机的线索；组织未启用 / 无跟踪时不跳过", () => {
-  const prospects = [
-    { id: "p1", convertedToSalesOpportunityId: "o1" },
-    { id: "p2", convertedToSalesOpportunityId: "o2" },
-    { id: "p3", convertedToSalesOpportunityId: null },
+ok("第一档措辞按实际草稿状态：有草稿才让人去审批中心；没草稿说原因；不知道时用中性说法", () => {
+  const buyer = { scoreGrade: "WARM", score: 60, market: "Canada", source: "website_inquiry", customerName: "Maple Home Goods" };
+  const now = new Date("2026-09-07T00:20:00Z");
+  const link = "https://app.example.test/revenue/opp1";
+  const withDraft = describeDraftState({ pendingDraftCreatedAt: new Date("2026-09-07T00:10:00Z"), fdeStatus: "completed", draftStatus: "created" }, now);
+  const m1 = formatSlaTierMessage({ tier: "unclaimed", minutes: 15, basis: "wall_clock", buyer, draft: withDraft, link });
+  assert.match(m1.text, /审批中心等待批准/);
+  assert.match(m1.text, /需人工批准后才会发给买家/);
+  for (const [fdeStatus, draftStatus, re] of [
+    ["completed", "no_email", /没有留邮箱/],
+    ["completed", "out_of_range", /不做的类目/],
+    ["completed", "guardrail_blocked", /护栏/],
+    ["failed", null, /AI 起草失败/],
+    ["queued", null, /还没完成起草/],
+  ] as const) {
+    const draft = describeDraftState({ pendingDraftCreatedAt: null, fdeStatus, draftStatus }, now);
+    const m = formatSlaTierMessage({ tier: "unclaimed", minutes: 15, basis: "wall_clock", buyer, draft, link });
+    assert.match(m.text, re, m.text);
+    assert.doesNotMatch(m.text, /回复草稿在审批中心/, m.text);
+    assert.doesNotMatch(m.text, /审批中心等待批准/, m.text);
+  }
+  const neutral = formatSlaTierMessage({ tier: "unclaimed", minutes: 15, basis: "wall_clock", buyer, link });
+  assert.match(neutral.text, /如有回复草稿/);
+});
+
+ok("旧线程提醒的分工：跟踪中 / 这次进线就是分级询盘（已回复、已关闭也算）→ 跳过；询盘之后再来信 → 照常；未启用 → 不跳过", () => {
+  const C = new Date("2026-09-07T10:00:00Z"); // 询盘行动创建
+  const threads = [
+    { prospectId: "p1", lastInboundAt: new Date(C.getTime() - 2_000) }, // 网站询盘：先写外贸消息、再建行动
+    { prospectId: "p2", lastInboundAt: new Date(C.getTime() + 3 * HOUR) }, // 询盘之后客户再来信
+    { prospectId: "p3", lastInboundAt: new Date(C.getTime() + 3 * HOUR) }, // 再来信，但商机仍被跟踪（还没人回）
+    { prospectId: "p4", lastInboundAt: C }, // 没链接商机
+    { prospectId: "p5", lastInboundAt: new Date(C.getTime() - 10 * MIN) }, // 行动晚建（入链延迟 / 重放补建）：线程最后进线仍归这次询盘
+    { prospectId: "p6", lastInboundAt: C.toISOString() }, // 链接到展会卡 / 测试询盘（不在 inquiryAtByOpp）
   ];
-  assert.deepEqual([...threadsOwnedByTiers(prospects, new Set(["o1"]))], ["p1"]);
-  assert.deepEqual([...threadsOwnedByTiers(prospects, undefined)], []);
-  assert.deepEqual([...threadsOwnedByTiers(prospects, new Set())], []);
+  const oppsByProspect = new Map<string, string[]>([
+    ["p1", ["o1"]],
+    ["p2", ["o2"]],
+    ["p3", ["o3"]],
+    ["p5", ["o5"]],
+    ["p6", ["o6"]],
+  ]);
+  const inquiryAtByOpp = new Map<string, Date[]>([
+    ["o1", [C]],
+    ["o2", [C]],
+    ["o3", [C]],
+    ["o5", [C]],
+  ]);
+  // o1 已回复 / 已关闭（不在 tracked），o3 仍在跟踪
+  const owned = threadsOwnedByTiers(threads, oppsByProspect, { tracked: new Set(["o3"]), inquiryAtByOpp });
+  assert.deepEqual([...owned].sort(), ["p1", "p3", "p5"]);
+  // 组织未启用 / 分级本轮失败：不跳过
+  assert.deepEqual([...threadsOwnedByTiers(threads, oppsByProspect, undefined)], []);
+  // 启用但此刻没有跟踪中的商机：已回复 / 已关闭的那次询盘仍然跳过
+  assert.deepEqual([...threadsOwnedByTiers(threads, oppsByProspect, { tracked: new Set(), inquiryAtByOpp })].sort(), ["p1", "p5"]);
+  // 容差边界：进线晚于行动 60 秒以内仍算这次询盘，超过即是再来信
+  const edge = (ms: number) => threadsOwnedByTiers([{ prospectId: "p1", lastInboundAt: new Date(C.getTime() + ms) }], oppsByProspect, { tracked: new Set(), inquiryAtByOpp });
+  assert.equal(edge(60_000).size, 1);
+  assert.equal(edge(60_001).size, 0);
+});
+
+ok("首封护栏标记：护栏拦截写；买家没邮箱但草稿也触发护栏也写（计数不漏）；其它情况不写", () => {
+  const now = new Date("2026-09-07T01:00:00Z");
+  assert.deepEqual(guardrailMarkerPatch("guardrail_blocked", ["price"], now), { guardrailBlockedAt: now.toISOString(), guardrailViolations: ["price"] });
+  assert.deepEqual(guardrailMarkerPatch("no_email", ["moq"], now), { guardrailBlockedAt: now.toISOString(), guardrailViolations: ["moq"] });
+  assert.deepEqual(guardrailMarkerPatch("no_email", [], now), {});
+  assert.deepEqual(guardrailMarkerPatch("created", ["price"], now), {});
+  assert.deepEqual(guardrailMarkerPatch("out_of_range", null, now), {});
+  assert.equal(guardrailMarkerPatch("guardrail_blocked", Array.from({ length: 30 }, (_, i) => `v${i}`), now).guardrailViolations?.length, 20);
 });
 
 console.log(`\nsla-tiers: ${pass} passed`);

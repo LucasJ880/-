@@ -70,7 +70,7 @@ Content-Type: application/json
 
 | 档位 | 时刻 | 收件人 | 内容 |
 |---|---|---|---|
-| unclaimed | T + `unclaimedAlertMinutes` | 商机负责人（不在组织了则组织所有者） | 未回复提醒 + 商机链接；行动已被人认领（`status = in_progress`）则跳过这一档 |
+| unclaimed | T + `unclaimedAlertMinutes` | 商机负责人（不在组织了则组织所有者） | 未回复提醒 + 商机链接；按实际情况说明草稿状态（草稿已在审批中心 / AI 还没起草完 / 起草失败 / 买家没留邮箱 / 不做的类目 / 护栏拦截），没有草稿时不会让人去审批中心白找；行动已被人认领（`status = in_progress`）则跳过这一档 |
 | escalation | T + `ownerEscalationMinutes` | 管理层（组织所有者 / 管理员，或平台角色老板 / 经理 / 管理员） | 升级 + 负责人姓名 |
 | overdue_draft | T + `overdueDraftHours` | 管理层 | 仍未回复；草稿在审批中心等了多久，或没有草稿的原因（AI 起草失败 / 未完成、不做的类目、护栏拦截、买家没留邮箱、草稿被拒或过期） |
 
@@ -83,7 +83,12 @@ Content-Type: application/json
 
 **与旧提醒的分工**（同一条询盘只有一个提醒来源）：
 
-- 启用分级的组织：被分级跟踪的询盘，inquiry-sla 旧线程提醒跳过它关联的外贸线索；其它线程（没进 Revenue Spine 的渠道消息、回复后客户再来信等）旧提醒照常。分级跑失败的组织当次不跳过，旧提醒兜底。
+- 启用分级的组织：分级对象范围内的新询盘**整个生命周期**都归分级负责。inquiry-sla 旧线程提醒（5 分钟 / 24 小时）对关联的外贸线索（`TradeProspect.convertedToSalesOpportunityId` 或 `SalesOpportunity.sourceTradeProspectId`）在以下情况跳过：
+  - 商机此刻仍被分级跟踪（开放、未回复）；或
+  - 线程最后一次进线就是那次询盘：询盘行动的创建时刻 ≥ 最后进线 − 60 秒（网站询盘先写外贸消息、再建行动）。这一条与行动现在的状态无关——电话回复后人工记录外发、行动被完成 / 忽略、商机离开开放阶段之后，旧提醒也**不会**为这条询盘补发。
+- 其它线程旧提醒照常：没进 Revenue Spine 的渠道消息、询盘之后客户再来信（最后进线晚于询盘行动）、展会速记卡与入驻测试询盘（它们不进分级）。
+- 启用分级的判断不依赖「有没有开放询盘」：近 30 天有新询盘行动（任何状态）的组织都会读策略，询盘全部已回复 / 已关闭的启用组织同样跳过。
+- 分级本轮失败的组织（或查归属失败）当次不跳过，旧提醒兜底（宁可多提醒一次，不漏提醒）。
 - `cron/revenue-spine` 本来就不为 `reply_inquiry` 发提醒；`reply_customer` 需要已有外发，而有外发的询盘不在分级对象里，二者天然不重叠。
 - 未启用分级的组织：逐位旧行为。
 
@@ -115,12 +120,14 @@ Content-Type: application/json
 
 护栏拦截的持久标记（无迁移，写在既有 JSON 字段）：
 
-- 首封（Inbound FDE）：`SalesAction.inputContext.draftStatus`（`created` / `reused` / `guardrail_blocked` / `out_of_range` / `disqualified` / `no_email` / `cancelled` / `approval_failed`），拦截时另写 `guardrailBlockedAt` / `guardrailViolations`，之后重跑成功也保留。标记之前的旧数据退回读该次 FDE 的 `AgentRunEvent`（`decision = draft` 且 `guardrailViolations` 非空）。
+- 首封（Inbound FDE）：`SalesAction.inputContext.draftStatus`（`created` / `reused` / `guardrail_blocked` / `out_of_range` / `disqualified` / `no_email` / `cancelled` / `approval_failed`），拦截时另写 `guardrailBlockedAt` / `guardrailViolations`，之后重跑成功也保留。买家没留邮箱、草稿又触发护栏时 `draftStatus = no_email`（没草稿的首要原因），护栏标记照写，拦截数不漏。标记之前的旧数据退回读该次 FDE 的 `AgentRunEvent`（`decision = draft` 且 `guardrailViolations` 非空）。
 - 无回复跟进：`AuditLog`（`action = revenue_spine.followup_draft.guardrail_blocked`，`afterData` 含该次跟进的 idempotencyKey），同一次跟进只记一次。
 
 ## 6. 秘书跟进阶梯去重
 
-`src/lib/secretary/followup-engine.ts` 的四类扫描（到期跟进 / 无回复阶梯 / 回复未处理 / 谈判停滞）不再包含已链接 Revenue Spine 商机（`TradeProspect.convertedToSalesOpportunityId` 指向 canonical 阶段商机）的线索——它们的跟进由 Revenue Spine 负责。手动「转入销售 CRM」生成的旧阶段商机（如 `new_lead`）不在 Revenue Spine 跟进范围内，仍由秘书跟进。
+`src/lib/secretary/followup-engine.ts` 的四类扫描（到期跟进 / 无回复阶梯 / 回复未处理 / 谈判停滞），在**提醒类入口**（cron `runFollowupEngine`、每日简报）不再包含 Revenue Spine 正在跟进的线索：`TradeProspect.convertedToSalesOpportunityId` 指向**开放阶段**（`OPEN_STAGES`）且客户未归档的商机——与 `cron/revenue-spine` 的扫描范围一致，它们的跟进由 Revenue Spine 负责。
+
+仍由秘书跟进：手动「转入销售 CRM」生成的旧阶段商机（如 `new_lead`）、已成交 / 丢单 / 不合格 / 培育 / 停滞的商机（如返单回访）、客户已归档的商机。助手按需调用的 `secretary_scan_followups` 照旧列出全部线索（只列出、不发通知）。
 
 ## 7. 上线检查（人工）
 

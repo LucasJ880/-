@@ -47,6 +47,21 @@ import { FDE_EMPLOYEE_KEY, updateFdeAction } from "./actions";
  */
 export type FdeDraftStatus = "created" | "reused" | "guardrail_blocked" | "out_of_range" | "disqualified" | "no_email" | "cancelled" | "approval_failed";
 
+/**
+ * 首封护栏拦截的持久标记（并进 inputContext；之后重跑不清除，指标"护栏拦截数"按它计）：
+ * 草稿触发护栏没进审批中心；或买家没留邮箱（draftStatus 记 no_email，没草稿的首要原因）但草稿同样触发了护栏——后者也算拦截，计数不漏。
+ */
+export function guardrailMarkerPatch(
+  draftStatus: FdeDraftStatus,
+  violations: readonly string[] | null | undefined,
+  now: Date,
+): { guardrailBlockedAt?: string; guardrailViolations?: string[] } {
+  if ((draftStatus === "guardrail_blocked" || draftStatus === "no_email") && violations && violations.length > 0) {
+    return { guardrailBlockedAt: now.toISOString(), guardrailViolations: violations.slice(0, 20) };
+  }
+  return {};
+}
+
 export const FDE_RUN_TYPE = "fde_inbound_sales";
 export const FDE_CHANNEL = "fde";
 export const INQUIRY_REPLY_ACTION_TYPE = "sales.send_inquiry_reply";
@@ -607,9 +622,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           research,
           draftStatus,
           // 护栏拦截的持久标记：只在拦截时写入，之后重跑不清除（指标"护栏拦截数"按它计）
-          ...(draftStatus === "guardrail_blocked" && draft
-            ? { guardrailBlockedAt: now.toISOString(), guardrailViolations: draft.guardrailViolations.slice(0, 20) }
-            : {}),
+          ...guardrailMarkerPatch(draftStatus, draft?.guardrailViolations, now),
         },
         ...(score.qualification === "disqualified" ? { close: { status: "auto_resolved", reason: `FDE 判定不合格：${score.recommendedNextActionLabel.zh}` } } : {}),
       });

@@ -10,8 +10,6 @@
  * 不是 UTC 工作日口径。
  */
 
-import { getLocalTimeParts } from "@/lib/automation/local-time";
-
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -122,24 +120,61 @@ function isoWeekday(day: string): number {
   return w === 0 ? 7 : w;
 }
 
+/**
+ * 按时区缓存的格式器：new Intl.DateTimeFormat 很贵（每次约 0.1 ms），日历推进每天要算多次，
+ * 分级提醒每 5 分钟对每条在跟踪的询盘都要重算。输出与 automation/local-time 的 getLocalTimeParts 完全相同。
+ */
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function localParts(t: number, timeZone: string): { date: string; hour: number; minute: number } {
+  let f = formatterCache.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    formatterCache.set(timeZone, f);
+  }
+  let year = "";
+  let month = "";
+  let dayOfMonth = "";
+  let hour = 0;
+  let minute = 0;
+  for (const part of f.formatToParts(new Date(t))) {
+    if (part.type === "year") year = part.value;
+    else if (part.type === "month") month = part.value;
+    else if (part.type === "day") dayOfMonth = part.value;
+    else if (part.type === "hour") hour = Number(part.value);
+    else if (part.type === "minute") minute = Number(part.value);
+  }
+  return { date: `${year}-${month}-${dayOfMonth}`, hour, minute };
+}
+
 /** 某时刻在 timeZone 的「墙上时间」按 UTC 解读的毫秒数（精确到分钟） */
 function wallMs(t: number, timeZone: string): number {
-  const p = getLocalTimeParts(new Date(t), timeZone);
+  const p = localParts(t, timeZone);
   return Date.parse(`${p.date}T${pad(p.hour)}:${pad(p.minute)}:00Z`);
 }
 
 /**
- * 当地日期 day 的 minuteOfDay 对应的 UTC 时刻（夏令时安全）。
+ * 当地日期 day 的 minuteOfDay 对应的 UTC 时刻（夏令时安全，UTC 东西两侧的时区都适用）。
  * 重叠（回拨，一个当地时刻出现两次）取较早的一次；空档（拨快，当地时刻不存在）取拨快后的对应时刻
  * （与 Temporal 的 "compatible" 消歧一致）。
+ * 候选 = 目标时刻减去「目标附近、前一天、后一天」各自的 UTC 偏移：切换前后两种偏移都会出现在候选里。
  */
 export function zonedLocalToUtc(day: string, minuteOfDay: number, timeZone: string): Date {
   const target = Date.parse(`${day}T00:00:00Z`) + minuteOfDay * MINUTE_MS;
-  const c1 = target - (wallMs(target, timeZone) - target);
-  const c2 = target - (wallMs(c1, timeZone) - c1);
-  const valid = [c1, c2].filter((c) => wallMs(c, timeZone) === target);
+  const offsetAt = (t: number) => wallMs(t, timeZone) - t;
+  const c1 = target - offsetAt(target);
+  const candidates = new Set([c1, target - offsetAt(c1), target - offsetAt(target - DAY_MS), target - offsetAt(target + DAY_MS)]);
+  const valid = [...candidates].filter((c) => wallMs(c, timeZone) === target);
   if (valid.length) return new Date(Math.min(...valid));
-  return new Date(Math.max(c1, c2));
+  return new Date(Math.max(...candidates));
 }
 
 interface CalendarBounds {
@@ -156,12 +191,22 @@ function calendarBounds(calendar: BusinessCalendar): CalendarBounds | null {
   return { startMin, endMin, workdays };
 }
 
+/** 工作时段缓存：时区规则在进程内不变，同一（时区, 日期, 上下班时刻）的时段只算一次；条目过多时整体清空 */
+const windowCache = new Map<string, { start: number; end: number }>();
+const WINDOW_CACHE_MAX = 20_000;
+
 /** 当地某天的工作时段 [start, end)（UTC 毫秒） */
 function windowOf(day: string, bounds: CalendarBounds, timeZone: string): { start: number; end: number } {
+  const key = `${timeZone}|${day}|${bounds.startMin}|${bounds.endMin}`;
+  const hit = windowCache.get(key);
+  if (hit) return hit;
   const start = zonedLocalToUtc(day, bounds.startMin, timeZone).getTime();
   const end =
     bounds.endMin >= 24 * 60 ? zonedLocalToUtc(nextDay(day), 0, timeZone).getTime() : zonedLocalToUtc(day, bounds.endMin, timeZone).getTime();
-  return { start, end: Math.max(start, end) };
+  const w = { start, end: Math.max(start, end) };
+  if (windowCache.size >= WINDOW_CACHE_MAX) windowCache.clear();
+  windowCache.set(key, w);
+  return w;
 }
 
 /** from 起只计工作时段，前进 ms 毫秒；ms = 0 时落到下一个工作时刻（已在时段内则原样返回） */
@@ -171,7 +216,7 @@ function addCalendarMs(from: Date, ms: number, calendar: BusinessCalendar): Date
   if (!bounds) return new Date(from.getTime() + ms);
   let cursor = from.getTime();
   let remaining = Math.max(0, ms);
-  let day = getLocalTimeParts(from, calendar.timezone).date;
+  let day = localParts(from.getTime(), calendar.timezone).date;
   for (let i = 0; i < MAX_CALENDAR_DAYS; i++) {
     if (bounds.workdays.has(isoWeekday(day))) {
       const w = windowOf(day, bounds, calendar.timezone);
@@ -194,8 +239,8 @@ function calendarMsBetween(from: Date, to: Date, calendar: BusinessCalendar): nu
   const a = from.getTime();
   const b = to.getTime();
   let total = 0;
-  let day = getLocalTimeParts(from, calendar.timezone).date;
-  const lastDay = getLocalTimeParts(to, calendar.timezone).date;
+  let day = localParts(from.getTime(), calendar.timezone).date;
+  const lastDay = localParts(to.getTime(), calendar.timezone).date;
   for (let i = 0; i < MAX_CALENDAR_DAYS; i++) {
     if (bounds.workdays.has(isoWeekday(day))) {
       const w = windowOf(day, bounds, calendar.timezone);
@@ -216,7 +261,7 @@ function addCalendarDays(from: Date, days: number, calendar: BusinessCalendar): 
   if (!bounds) return addBusinessDays(from, days);
   let remaining = Math.max(0, Math.round(days));
   if (remaining === 0) return new Date(from.getTime());
-  const p = getLocalTimeParts(from, calendar.timezone);
+  const p = localParts(from.getTime(), calendar.timezone);
   const subMinute = from.getTime() - Math.floor(from.getTime() / MINUTE_MS) * MINUTE_MS;
   let day = p.date;
   for (let i = 0; i < MAX_CALENDAR_DAYS && remaining > 0; i++) {

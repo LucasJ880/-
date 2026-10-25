@@ -237,6 +237,33 @@ function pushTo(map: Map<string, Date[]>, key: string, at: Date) {
   else map.set(key, [at]);
 }
 
+const REPLY_LOOKUP_CHUNK = 200;
+
+/**
+ * 已执行的询盘回复草稿（PendingAction sales.send_inquiry_reply）按商机分组的执行时刻（升序）。
+ * 只查给定商机（payload.opportunityId），只取商机 id 与 executedAt 两列：不拉邮件正文，
+ * 也不会因为全组织的已执行草稿超过条数上限而漏掉某些商机的回复。按 orgId 限定。
+ */
+export async function loadExecutedInquiryReplyTimes(orgId: string, opportunityIds: readonly string[], since: Date): Promise<Map<string, Date[]>> {
+  const out = new Map<string, Date[]>();
+  const ids = [...new Set(opportunityIds)];
+  for (let i = 0; i < ids.length; i += REPLY_LOOKUP_CHUNK) {
+    const chunk = ids.slice(i, i + REPLY_LOOKUP_CHUNK);
+    const rows = await db.$queryRaw<Array<{ opportunityId: string | null; executedAt: Date | null }>>`
+      SELECT payload->>'opportunityId' AS "opportunityId", "executedAt"
+      FROM "PendingAction"
+      WHERE "orgId" = ${orgId}
+        AND type = ${INQUIRY_REPLY_ACTION_TYPE}
+        AND status = 'executed'
+        AND "executedAt" >= ${since}
+        AND payload->>'opportunityId' = ANY(${chunk}::text[])
+      ORDER BY "executedAt" ASC
+    `;
+    for (const r of rows) if (r.opportunityId && r.executedAt) pushTo(out, r.opportunityId, r.executedAt);
+  }
+  return out;
+}
+
 function eventShowsGuardrailBlock(payload: unknown): boolean {
   const p = rec(payload);
   if (!p) return false;
@@ -290,11 +317,7 @@ export async function loadSlaMetrics(
 
   if (oppIds.length) {
     const [replies, outbound, prospects, auditCount] = await Promise.all([
-      db.pendingAction.findMany({
-        where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, status: "executed", executedAt: { gte: responseFloor } },
-        select: { payload: true, executedAt: true },
-        take: MAX_ROWS,
-      }),
+      loadExecutedInquiryReplyTimes(orgId, oppIds, responseFloor),
       db.customerInteraction.findMany({
         where: { orgId, opportunityId: { in: oppIds }, direction: "outbound", createdAt: { gte: responseFloor } },
         select: { opportunityId: true, createdAt: true },
@@ -306,11 +329,7 @@ export async function loadSlaMetrics(
       }),
       db.auditLog.count({ where: { orgId, action: FOLLOW_UP_GUARDRAIL_AUDIT_ACTION, createdAt: { gte: from, lte: now } } }),
     ]);
-    const oppSet = new Set(oppIds);
-    for (const r of replies) {
-      const oid = rec(r.payload)?.opportunityId;
-      if (typeof oid === "string" && oppSet.has(oid) && r.executedAt) pushTo(executed, oid, r.executedAt);
-    }
+    for (const [oid, ats] of replies) for (const at of ats) pushTo(executed, oid, at);
     for (const i of outbound) if (i.opportunityId) pushTo(interactions, i.opportunityId, i.createdAt);
     const oppByProspect = new Map(prospects.map((p) => [p.id, p.convertedToSalesOpportunityId as string]));
     if (oppByProspect.size) {

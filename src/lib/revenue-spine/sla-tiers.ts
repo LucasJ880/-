@@ -5,7 +5,7 @@
  * 且询盘之后还没有任何回复（与 sla-metrics 同一首次回复口径：已执行的询盘回复草稿 / 外发互动 / 关联外贸线索的外发消息）。
  *
  * 三档（policy.salesSla；某档为 null 即该档关闭，三档全 null = 本组织不启用，完全走 inquiry-sla 旧提醒）：
- *   unclaimed      T + unclaimedAlertMinutes   → 负责人（商机负责人；已不在组织则组织所有者）站内 + 微信；
+ *   unclaimed      T + unclaimedAlertMinutes   → 负责人（商机负责人；已不在组织则组织所有者）站内 + 微信，按实际情况说明草稿状态；
  *                  行动已被人认领（status = in_progress）则跳过这一档，升级与第三档照常（认领不等于回复）
  *   escalation     T + ownerEscalationMinutes  → 管理层（managementOf）站内 + 微信
  *   overdue_draft  T + overdueDraftHours       → 管理层：仍未回复，回复草稿是否在审批中心等待（或没有草稿的原因）
@@ -17,8 +17,11 @@
  * 展会速记卡（trade_show）不进分级：一晚录入几十张，由展会小结统一告知。入驻测试询盘不提醒。
  *
  * 与旧提醒的分工（同一条询盘只有一个提醒来源）：
- *   - 启用分级的组织：被分级跟踪的询盘，inquiry-sla 旧的线程提醒（5 分钟 / 24 小时）跳过它关联的外贸线索；
- *     其它线程（没进 Revenue Spine 的渠道消息、已回复后客户再来信等）旧提醒照常
+ *   - 启用分级的组织：分级对象范围内的新询盘（不论此刻是否还开放 / 已回复 / 已关闭）归分级负责一辈子，
+ *     inquiry-sla 旧的线程提醒（5 分钟 / 24 小时）跳过它关联的外贸线索里「这次询盘」那条进线
+ *     （线程最后一次进线不晚于询盘行动创建 + 容差），以及仍被分级跟踪的商机的线索；
+ *     电话回复后人工记录外发、行动被完成 / 忽略、商机离开开放阶段之后，旧提醒也不会再为这条询盘补发。
+ *     其它线程（没进 Revenue Spine 的渠道消息、询盘之后客户再来信等）旧提醒照常
  *   - cron/revenue-spine 本来就不为 reply_inquiry 发提醒；reply_customer 需要已有外发，而有外发的询盘不在分级对象里，天然不重叠
  *   - 未启用分级的组织：旧行为逐位不变
  */
@@ -32,7 +35,14 @@ import { INQUIRY_REPLY_ACTION_TYPE } from "./fde/inbound-sales";
 import { OPEN_STAGES } from "./opportunity-stage";
 import { buyerLine, pushOutcomeOf, safeBuyerName, type BuyerLine, type PushFn } from "./owner-brief";
 import { loadRevenueSpinePolicy, slaTiersEnabled, type RevenueSpinePolicy, type SalesSlaPolicy } from "./policy";
-import { INBOUND_INQUIRY_ACTION_TYPE, RESPONSE_CLOCK_TOLERANCE_MS, TRADE_SHOW_SOURCE, isOnboardingTestInquiry, utmSourceOf } from "./sla-metrics";
+import {
+  INBOUND_INQUIRY_ACTION_TYPE,
+  RESPONSE_CLOCK_TOLERANCE_MS,
+  TRADE_SHOW_SOURCE,
+  isOnboardingTestInquiry,
+  loadExecutedInquiryReplyTimes,
+  utmSourceOf,
+} from "./sla-metrics";
 
 export const SLA_TIER_SOURCE_PREFIX = "inquiry-sla:v2";
 export const SLA_TIERS = ["unclaimed", "escalation", "overdue_draft"] as const;
@@ -161,7 +171,10 @@ export function formatSlaTierMessage(i: SlaTierMessageInput): { title: string; t
   let title: string;
   if (i.tier === "unclaimed") {
     title = `询盘 ${t} 未回复：${name}`;
-    lines.push("请尽快处理：回复草稿在审批中心，需人工批准后才会发给买家。");
+    // 草稿状态按实际情况说（没有草稿时不能让人去审批中心白找）
+    if (i.draft?.hasDraft) lines.push(`请尽快处理：${i.draft.text}需人工批准后才会发给买家。`);
+    else if (i.draft) lines.push(`请尽快处理。${i.draft.text}`);
+    else lines.push("请尽快回复买家（如有回复草稿，需在审批中心人工批准后才会发出）。");
   } else if (i.tier === "escalation") {
     title = `询盘超 ${t} 无人回复（已升级）：${name}`;
     lines.push(`负责人：${(i.ownerName ?? "").trim() || "未指定"}。请安排人跟进。`);
@@ -194,6 +207,17 @@ function rec(v: unknown): Record<string, unknown> | null {
 
 function strOrNull(v: unknown): string | null {
   return typeof v === "string" && v ? v : null;
+}
+
+/** 分级对象范围：不是展会速记卡、不是入驻测试询盘（与状态 / 阶段 / 是否已回复无关） */
+function isTierEligibleInquiry(a: {
+  inputContext: unknown;
+  opportunity: { source: string | null; lostReason: string | null; customer: { tags: string | null } };
+}): boolean {
+  const o = a.opportunity;
+  const source = o.source ?? strOrNull(rec(a.inputContext)?.source);
+  if (source === TRADE_SHOW_SOURCE) return false;
+  return !isOnboardingTestInquiry({ utmSource: utmSourceOf(a.inputContext), customerTags: o.customer.tags, lostReason: o.lostReason });
 }
 
 /**
@@ -245,31 +269,20 @@ export async function loadTrackedInquiries(orgId: string, now: Date): Promise<Tr
     if (!o || o.orgId !== orgId || !a.opportunityId) return false;
     if (!(OPEN_STAGES as readonly string[]).includes(o.stage)) return false;
     if (o.customer.archivedAt) return false;
-    const source = o.source ?? strOrNull(rec(a.inputContext)?.source);
-    if (source === TRADE_SHOW_SOURCE) return false;
-    return !isOnboardingTestInquiry({ utmSource: utmSourceOf(a.inputContext), customerTags: o.customer.tags, lostReason: o.lostReason });
+    return isTierEligibleInquiry({ inputContext: a.inputContext, opportunity: o });
   });
   if (!candidates.length) return [];
 
   const oppIds = [...new Set(candidates.map((a) => a.opportunityId as string))];
   const earliest = new Date(Math.min(...candidates.map((a) => a.createdAt.getTime())) - RESPONSE_CLOCK_TOLERANCE_MS);
   const sourceProspectIds = candidates.map((a) => a.opportunity?.sourceTradeProspectId).filter((v): v is string => !!v);
-  const [executed, prospects] = await Promise.all([
-    db.pendingAction.findMany({
-      where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, status: "executed", executedAt: { gte: earliest } },
-      select: { payload: true, executedAt: true },
-      take: 2000,
-    }),
+  const [executedByOpp, prospects] = await Promise.all([
+    loadExecutedInquiryReplyTimes(orgId, oppIds, earliest),
     db.tradeProspect.findMany({
       where: { orgId, OR: [{ convertedToSalesOpportunityId: { in: oppIds } }, ...(sourceProspectIds.length ? [{ id: { in: sourceProspectIds } }] : [])] },
       select: { id: true, convertedToSalesOpportunityId: true },
     }),
   ]);
-  const executedByOpp = new Map<string, Date[]>();
-  for (const p of executed) {
-    const oid = rec(p.payload)?.opportunityId;
-    if (typeof oid === "string" && p.executedAt) executedByOpp.set(oid, [...(executedByOpp.get(oid) ?? []), p.executedAt]);
-  }
   // 线索 → 商机：线索回填的链接，或商机记着的来源线索
   const oppsByProspect = new Map<string, Set<string>>();
   const link = (prospectId: string, oppId: string) => oppsByProspect.set(prospectId, new Set([...(oppsByProspect.get(prospectId) ?? []), oppId]));
@@ -313,6 +326,33 @@ export async function loadTrackedInquiries(orgId: string, now: Date): Promise<Tr
       fdeStatus: strOrNull(ctx?.fdeStatus),
       draftStatus: strOrNull(ctx?.draftStatus),
     });
+  }
+  return out;
+}
+
+/**
+ * 启用分级的组织里，给定商机中归分级负责的新询盘：商机 id → 新询盘行动的创建时刻。
+ * 不论行动现在是否还开放、是否已回复、商机是否还在开放阶段（inquiry-sla 旧提醒据此跳过「这次询盘」的进线，
+ * 回复 / 关闭之后也不会再为它补发旧提醒）。展会速记卡与入驻测试询盘不算（它们本就不进分级，旧提醒照常）。按 orgId 限定。
+ */
+export async function loadTierOwnedInquiryTimes(orgId: string, opportunityIds: readonly string[], since: Date): Promise<Map<string, Date[]>> {
+  const out = new Map<string, Date[]>();
+  const ids = [...new Set(opportunityIds)];
+  if (!ids.length) return out;
+  const actions = await db.salesAction.findMany({
+    where: { orgId, employeeKey: FDE_EMPLOYEE_KEY, actionType: INBOUND_INQUIRY_ACTION_TYPE, opportunityId: { in: ids }, createdAt: { gte: since } },
+    select: {
+      createdAt: true,
+      opportunityId: true,
+      inputContext: true,
+      opportunity: { select: { orgId: true, source: true, lostReason: true, customer: { select: { tags: true } } } },
+    },
+    take: MAX_ACTIONS_PER_ORG * 4,
+  });
+  for (const a of actions) {
+    if (!a.opportunityId || !a.opportunity || a.opportunity.orgId !== orgId) continue;
+    if (!isTierEligibleInquiry({ inputContext: a.inputContext, opportunity: a.opportunity })) continue;
+    out.set(a.opportunityId, [...(out.get(a.opportunityId) ?? []), a.createdAt]);
   }
   return out;
 }
@@ -402,8 +442,9 @@ export async function runSlaTiersForOrg(
       if (d.tier === "escalation" && t.ownerUserId) {
         ownerName = (await db.user.findUnique({ where: { id: t.ownerUserId }, select: { name: true } }))?.name ?? null;
       }
+      // 第一档与第三档都按实际草稿状态说明（第一档到期时 FDE 可能还没跑完、失败、或买家没留邮箱）
       let draft: { hasDraft: boolean; text: string } | null = null;
-      if (d.tier === "overdue_draft") {
+      if (d.tier === "unclaimed" || d.tier === "overdue_draft") {
         const pending = await db.pendingAction.findFirst({
           where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", expiresAt: { gt: now }, payload: { path: ["opportunityId"], equals: t.opportunityId } },
           orderBy: { createdAt: "desc" },
@@ -465,14 +506,16 @@ export async function runSlaTiersForOrg(
   return result;
 }
 
-/** 有开放新询盘行动（近 30 天）的组织；是否启用分级由各组织策略决定 */
+/**
+ * 近 30 天有新询盘行动的组织（不论行动状态）；是否启用分级由各组织策略决定。
+ * 不只看开放行动：启用分级的组织即使询盘都已回复 / 关闭，也要进 trackedByOrg，旧提醒才知道这些询盘归分级、不再补发。
+ */
 export async function listSlaTierCandidateOrgIds(now: Date): Promise<string[]> {
   const rows = await db.salesAction.groupBy({
     by: ["orgId"],
     where: {
       employeeKey: FDE_EMPLOYEE_KEY,
       actionType: INBOUND_INQUIRY_ACTION_TYPE,
-      status: { in: OPEN_ACTION_STATUSES },
       createdAt: { gte: new Date(now.getTime() - SLA_TIER_SCAN_DAYS * DAY) },
     },
   });
@@ -487,7 +530,10 @@ export interface RevenueSlaTierOutcome {
   notifications: number;
   wechatDelivered: number;
   failedOrgs: number;
-  /** 启用分级的组织 → 被跟踪的商机（inquiry-sla 旧提醒据此跳过关联线索） */
+  /**
+   * 启用分级（且本轮没失败）的组织 → 此刻被跟踪的商机（可能为空集）。
+   * inquiry-sla 旧提醒只对这些组织做跳过判断：跟踪中的商机 + 归分级负责的询盘进线（loadTierOwnedInquiryTimes）
+   */
   trackedByOrg: Map<string, Set<string>>;
 }
 

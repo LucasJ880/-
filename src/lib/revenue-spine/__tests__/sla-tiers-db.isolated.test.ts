@@ -6,7 +6,9 @@
  *       负责人中途换人不重发；已回复 / 测试询盘 / 展会速记卡不提醒；FDE 写入 draftStatus 标记
  *   [3] 未启用分级的组织：runSlaTiersForOrg 不查不发；inquiry-sla 旧提醒照常（含已进 Revenue Spine 的线索）
  *   [4] 启用分级的组织：inquiry-sla 旧线程提醒跳过被分级跟踪的询盘，其余线程照常；
- *       秘书跟进阶梯不扫描已链接 Revenue Spine 商机的线索（手动转入 CRM 的旧阶段商机仍扫描）
+ *       秘书跟进阶梯不扫描已链接 Revenue Spine 开放阶段商机的线索（手动转入 CRM 的旧阶段 / 已成交商机仍扫描；助手按需查询照旧全列）
+ *   [4b] 分级发过之后：电话回复后人工记录外发 / 行动被完成、组织已没有开放询盘时，旧提醒都不补发；
+ *       询盘之后客户再来信旧提醒照常；两次 cron 并发每档只发一次；已执行的回复草稿算回复（跟踪与指标）
  *   [5] 跟进草稿被护栏拦下：AuditLog 标记只写一次
  *   [6] 指标加载：首次回复三种来源、测试排除、展会单列、护栏计数、跨组织隔离
  *
@@ -66,14 +68,18 @@ async function main() {
   const ORG_T = `slaT_${stamp}`; // 启用分级（自然时间）
   const ORG_L = `slaL_${stamp}`; // 未配置（旧行为）
   const ORG_C = `slaC_${stamp}`; // 工作时间（上海）
-  const ORGS = [ORG_T, ORG_L, ORG_C];
+  const ORG_B = `slaB_${stamp}`; // 启用分级：分级之后的旧提醒 / 并发
+  const ORGS = [ORG_T, ORG_L, ORG_C, ORG_B];
   const OWNER = `slaowner_${stamp}`;
   const REP = `slarep_${stamp}`;
   const MANAGER = `slamgr_${stamp}`;
   const OWNER_L = `slaownerl_${stamp}`;
   const REP_L = `slarepl_${stamp}`;
   const OWNER_C = `slaownerc_${stamp}`;
-  const USERS = [OWNER, REP, MANAGER, OWNER_L, REP_L, OWNER_C];
+  const OWNER_B = `slaownerb_${stamp}`;
+  const REP_B = `slarepb_${stamp}`;
+  const MANAGER_B = `slamgrb_${stamp}`;
+  const USERS = [OWNER, REP, MANAGER, OWNER_L, REP_L, OWNER_C, OWNER_B, REP_B, MANAGER_B];
 
   const pushes: Array<{ userId: string; title: string; text: string }> = [];
   const push = async (userId: string, title: string, text: string) => {
@@ -89,12 +95,16 @@ async function main() {
       { id: OWNER_L, email: `${OWNER_L}@fixture.test`, name: "Legacy Owner", role: "boss" },
       { id: REP_L, email: `${REP_L}@fixture.test`, name: "Legacy Rep", role: "trade" },
       { id: OWNER_C, email: `${OWNER_C}@fixture.test`, name: "Calendar Owner", role: "boss" },
+      { id: OWNER_B, email: `${OWNER_B}@fixture.test`, name: "Birchwood Owner", role: "boss" },
+      { id: REP_B, email: `${REP_B}@fixture.test`, name: "Birchwood Rep", role: "trade" },
+      { id: MANAGER_B, email: `${MANAGER_B}@fixture.test`, name: "Birchwood Manager", role: "manager" },
     ],
   });
   const trade = { enabled: ["trade", "sales"] };
   await db.organization.create({ data: { id: ORG_T, name: "Example Textiles Mill", code: `slat-${stamp}`, ownerId: OWNER, modulesJson: trade, settingsJson: { timezone: "Asia/Shanghai" } } });
   await db.organization.create({ data: { id: ORG_L, name: "Legacy Fixture Mill", code: `slal-${stamp}`, ownerId: OWNER_L, modulesJson: trade, settingsJson: { timezone: "Asia/Shanghai" } } });
   await db.organization.create({ data: { id: ORG_C, name: "Calendar Fixture Mill", code: `slac-${stamp}`, ownerId: OWNER_C, modulesJson: trade, settingsJson: { timezone: "Asia/Shanghai" } } });
+  await db.organization.create({ data: { id: ORG_B, name: "Birchwood Linen Co", code: `slab-${stamp}`, ownerId: OWNER_B, modulesJson: trade, settingsJson: { timezone: "Asia/Shanghai" } } });
   await db.organizationMember.createMany({
     data: [
       { orgId: ORG_T, userId: OWNER, role: "org_owner", status: "active" },
@@ -103,6 +113,9 @@ async function main() {
       { orgId: ORG_L, userId: OWNER_L, role: "org_owner", status: "active" },
       { orgId: ORG_L, userId: REP_L, role: "org_member", status: "active" },
       { orgId: ORG_C, userId: OWNER_C, role: "org_owner", status: "active" },
+      { orgId: ORG_B, userId: OWNER_B, role: "org_owner", status: "active" },
+      { orgId: ORG_B, userId: REP_B, role: "org_member", status: "active" },
+      { orgId: ORG_B, userId: MANAGER_B, role: "org_member", status: "active" },
     ],
   });
   await publishRevenueSpineRule({
@@ -110,6 +123,12 @@ async function main() {
     ruleKey: RULE_KEY_POLICY,
     config: { salesSla: { unclaimedAlertMinutes: 15, ownerEscalationMinutes: 120, overdueDraftHours: 24 } },
     userId: OWNER,
+  });
+  await publishRevenueSpineRule({
+    orgId: ORG_B,
+    ruleKey: RULE_KEY_POLICY,
+    config: { salesSla: { unclaimedAlertMinutes: 15, ownerEscalationMinutes: 120, overdueDraftHours: 24 } },
+    userId: OWNER_B,
   });
   const SH = { timezone: "Asia/Shanghai", start: "09:00", end: "18:00", workdays: [1, 2, 3, 4, 5] };
   await publishRevenueSpineRule({ orgId: ORG_C, ruleKey: RULE_KEY_POLICY, config: { salesSla: { businessHours: SH } }, userId: OWNER_C });
@@ -168,6 +187,7 @@ async function main() {
     ok(pushes.length === 1 && pushes[0].userId === REP && r1.wechatDelivered === 1, "第一档同时推微信给负责人", pushes);
     ok(!EMAIL.test(n1[0]?.summary ?? "") && !EMAIL.test(pushes[0]?.text ?? ""), "正文不含买家邮箱", n1[0]?.summary);
     ok((n1[0]?.summary ?? "").includes(`${ORIGIN}/revenue/${a1Intake.opportunityId}`), "正文带商机链接");
+    ok(!(n1[0]?.summary ?? "").includes("回复草稿在审批中心") && /没有回复草稿/.test(n1[0]?.summary ?? ""), "第一档：FDE 还没起草时不说草稿在审批中心", n1[0]?.summary);
 
     const r1b = await runSlaTiersForOrg(ORG_T, { now: at(20 * MIN), push, origin: ORIGIN });
     ok(r1b.fired.unclaimed === 0 && pushes.length === 1 && (await notesWithPrefix(prefix1("unclaimed"))).length === 1, "再跑一次：第一档不重发", r1b);
@@ -287,15 +307,122 @@ async function main() {
       const legacyCust = await db.salesCustomer.create({ data: { orgId: ORG_T, name: `Poplar Retail ${stamp}`, createdById: OWNER, status: "active" }, select: { id: true } });
       const legacyOpp = await db.salesOpportunity.create({ data: { orgId: ORG_T, customerId: legacyCust.id, title: `Manual convert ${stamp}`, stage: "new_lead", createdById: OWNER }, select: { id: true } });
       const pm = await prospect(ORG_T, cT.id, `Poplar Retail ${stamp}`, legacyOpp.id);
+      // 已成交（canonical 终态）：Revenue Spine 不再跟进 → 秘书照常（如返单回访）
+      const wonCust = await db.salesCustomer.create({ data: { orgId: ORG_T, name: `Larch Retail ${stamp}`, createdById: OWNER, status: "active" }, select: { id: true } });
+      const wonOpp = await db.salesOpportunity.create({ data: { orgId: ORG_T, customerId: wonCust.id, title: `Reorder ${stamp}`, stage: "won", createdById: OWNER }, select: { id: true } });
+      const pw = await prospect(ORG_T, cT.id, `Larch Retail ${stamp}`, wonOpp.id);
       const due = new Date(Date.now() - HOUR);
-      await db.tradeProspect.updateMany({ where: { id: { in: [p1.id, p2.id, pm.id] } }, data: { nextFollowUpAt: due } });
+      await db.tradeProspect.updateMany({ where: { id: { in: [p1.id, p2.id, pm.id, pw.id] } }, data: { nextFollowUpAt: due } });
       const candidates = await scanFollowups(ORG_T);
       const ids = new Set(candidates.map((c) => c.prospectId));
-      ok(!ids.has(p1.id) && ids.has(p2.id) && ids.has(pm.id), "秘书跟进：Revenue Spine 线索排除；未链接 / 旧阶段商机的线索照常", {
+      ok(!ids.has(p1.id) && ids.has(p2.id) && ids.has(pm.id) && ids.has(pw.id), "秘书跟进：Revenue Spine 开放商机的线索排除；未链接 / 旧阶段 / 已成交商机的线索照常", {
         p1: ids.has(p1.id),
         p2: ids.has(p2.id),
         pm: ids.has(pm.id),
+        pw: ids.has(pw.id),
       });
+      const all = new Set((await scanFollowups(ORG_T, { includeRevenueSpineOwned: true })).map((c) => c.prospectId));
+      ok(all.has(p1.id) && all.has(p2.id), "助手按需查询（includeRevenueSpineOwned）：照旧列出全部线索", { p1: all.has(p1.id) });
+    }
+
+    // ── [4b] 分级发过之后的旧提醒 / 并发 / 已执行草稿 ──
+    console.log("\n[4b] 分级之后的旧提醒与并发");
+    {
+      const nowB = new Date();
+      const cB = await campaign(ORG_B, OWNER_B);
+      const legacyAny = (prospectId: string) =>
+        db.notification.count({
+          where: { OR: [{ sourceKey: { startsWith: `inquiry-sla:5m:${prospectId}:` } }, { sourceKey: { startsWith: `inquiry-sla:24h:${prospectId}:` } }] },
+        });
+      // 询盘行动创建于 nowB − agoMs；网站询盘先写外贸消息（早 1 秒）、再建行动
+      const backdated = async (brand: string, agoMs: number) => {
+        const r = await inquiry(ORG_B, brand);
+        if (!r.ok || !r.salesActionId) throw new Error(`intake ${brand} failed`);
+        const createdAt = new Date(nowB.getTime() - agoMs);
+        await db.salesAction.update({ where: { id: r.salesActionId }, data: { createdAt } });
+        const p = await prospect(ORG_B, cB.id, `${brand} Home Goods ${stamp}`, r.opportunityId);
+        await db.tradeMessage.create({ data: { prospectId: p.id, direction: "inbound", channel: "website", subject: "网站询盘", content: "Need towels", createdAt: new Date(createdAt.getTime() - 1000) } });
+        return { opportunityId: r.opportunityId, actionId: r.salesActionId, createdAt, prospectId: p.id };
+      };
+
+      // A：第一档发了 → 业务员电话回复后人工记录外发（没有外贸外发消息）→ 旧提醒不补发
+      const bA = await backdated("Linden", 20 * MIN);
+      // B：第一档发了 → 行动被人完成（没有任何外发）→ 旧提醒不补发
+      const bB = await backdated("Rowan", 20 * MIN);
+      // D：询盘 3 小时前、2 小时前已回复，10 分钟前客户再来信 → 这是新的进线，旧提醒照常
+      const bD = await backdated("Juniper", 3 * HOUR);
+      const dReply = await logRevenueInteraction({ orgId: ORG_B, opportunityId: bD.opportunityId, direction: "outbound", channel: "email", content: "Thanks, quote attached", actorUserId: REP_B, occurredAt: new Date(bD.createdAt.getTime() + HOUR) });
+      await db.customerInteraction.update({ where: { id: dReply.interactionId }, data: { createdAt: new Date(bD.createdAt.getTime() + HOUR) } });
+      await db.tradeMessage.create({ data: { prospectId: bD.prospectId, direction: "inbound", channel: "email", subject: "Re", content: "Can you do 5,000 pcs?", createdAt: new Date(nowB.getTime() - 10 * MIN) } });
+      // F：已执行的询盘回复草稿（3 分钟后批准发出）= 已回复：不跟踪，指标算已回复
+      const bF = await backdated("Magnolia", 20 * MIN);
+      await db.pendingAction.create({
+        data: {
+          orgId: ORG_B,
+          type: INQUIRY_REPLY_ACTION_TYPE,
+          title: "Reply to inquiry",
+          preview: "Fixture executed reply",
+          payload: { opportunityId: bF.opportunityId, to: "fixture@magnolia.test", subject: "Re: towels", body: "Hello" },
+          status: "executed",
+          createdById: OWNER_B,
+          expiresAt: new Date(nowB.getTime() + DAY),
+          executedAt: new Date(bF.createdAt.getTime() + 3 * MIN),
+        },
+      });
+
+      const rB1 = await runSlaTiersForOrg(ORG_B, { now: nowB, push, origin: ORIGIN });
+      const fired = async (tier: "unclaimed" | "escalation" | "overdue_draft", actionId: string) => (await notesWithPrefix(slaTierSourceKey(tier, ORG_B, actionId))).length;
+      ok((await fired("unclaimed", bA.actionId)) === 1 && (await fired("unclaimed", bB.actionId)) === 1, "A / B：T+20 分钟第一档已发", rB1.fired);
+      ok(
+        !rB1.trackedOpportunityIds.includes(bF.opportunityId) && (await fired("unclaimed", bF.actionId)) === 0 && !rB1.trackedOpportunityIds.includes(bD.opportunityId),
+        "F：已执行的回复草稿算已回复（不跟踪、不提醒）；D 已回复不跟踪",
+        rB1.trackedOpportunityIds,
+      );
+
+      await logRevenueInteraction({ orgId: ORG_B, opportunityId: bA.opportunityId, direction: "outbound", channel: "phone", content: "Called the buyer", actorUserId: REP_B, occurredAt: nowB });
+      await db.salesAction.update({ where: { id: bB.actionId }, data: { status: "completed", completedAt: nowB, completedById: REP_B } });
+      const outB = await runInquirySla({ push });
+      ok((await legacyAny(bA.prospectId)) === 0, "A：分级发过、电话回复后人工记录外发 → 旧 5 分钟 / 24 小时提醒不补发", { a: await legacyAny(bA.prospectId) });
+      ok((await legacyAny(bB.prospectId)) === 0, "B：分级发过、行动被完成 → 旧提醒不补发", { b: await legacyAny(bB.prospectId) });
+      ok((await legacyAny(bF.prospectId)) === 0, "F：已执行草稿回复的询盘 → 旧提醒不补发");
+      ok((await legacyAny(bD.prospectId)) > 0, "D：询盘之后客户再来信 → 旧提醒照常", { d: await legacyAny(bD.prospectId), skipped: outB.tiers.legacyThreadsSkipped });
+
+      // C：组织里已没有任何开放的新询盘行动（全部完成 / 忽略），也仍按启用分级处理，旧提醒不补发
+      const bC = await backdated("Alder", 20 * MIN);
+      await db.salesAction.updateMany({
+        where: { orgId: ORG_B, actionType: "inbound_inquiry", status: { in: ["open", "in_progress"] } },
+        data: { status: "dismissed", dismissedAt: nowB, dismissedReason: "fixture" },
+      });
+      const outC = await runInquirySla({ push });
+      ok((await legacyAny(bC.prospectId)) === 0, "C：组织没有开放询盘、分级从未触发的已忽略询盘 → 旧提醒也不补发", { c: await legacyAny(bC.prospectId), tiers: outC.tiers });
+
+      // 并发：两次 cron 同时跑，每档只发一次、每人一条
+      const bE = await backdated("Sequoia", 2 * HOUR + MIN);
+      const pushesBeforeE = pushes.length;
+      const [e1, e2] = await Promise.all([
+        runSlaTiersForOrg(ORG_B, { now: nowB, push, origin: ORIGIN }),
+        runSlaTiersForOrg(ORG_B, { now: nowB, push, origin: ORIGIN }),
+      ]);
+      const eEsc = await notesWithPrefix(slaTierSourceKey("escalation", ORG_B, bE.actionId));
+      const eUnc = await notesWithPrefix(slaTierSourceKey("unclaimed", ORG_B, bE.actionId));
+      ok(
+        e1.fired.escalation + e2.fired.escalation === 1 &&
+          e1.fired.unclaimed + e2.fired.unclaimed === 1 &&
+          eEsc.length === new Set(eEsc.map((n) => n.userId)).size &&
+          eEsc.length >= 2 &&
+          eUnc.length === 1 &&
+          pushes.length - pushesBeforeE === eEsc.length + eUnc.length,
+        "两次 cron 并发：每档只发一次，每位收件人一条、一次微信",
+        { e1: e1.fired, e2: e2.fired, esc: eEsc.map((n) => n.userId), unc: eUnc.length, pushes: pushes.length - pushesBeforeE },
+      );
+
+      // 指标：A（约 20 分钟，电话记录）、D（60 分钟）、F（3 分钟，已执行草稿）已回复
+      const mB = await loadSlaMetrics(ORG_B, { now: new Date(Date.now() + MIN) });
+      ok(
+        mB.inquiries.answered === 3 && mB.inquiries.medianFirstResponseMinutes !== null && Math.abs(mB.inquiries.medianFirstResponseMinutes - 20) < 1.5,
+        "指标：已执行的回复草稿算首次回复（A / D / F 已回复，中位约 20 分钟）",
+        mB.inquiries,
+      );
     }
 
     // ── [5] 跟进草稿护栏标记 ──
