@@ -5,9 +5,12 @@
  *   → ingestWebsiteInquiry(origin=email_forward, deferred)：收据 source=email、eventId=email:<Message-ID>、
  *     Trade 线索 / 商机来源 email、FDE 只排队（注入的调度器捕获 after() 回调，不执行 LLM）
  *   + 别名生成与解析（跨组织不串、停用通道不认）；Resend 重试按 Message-ID 幂等；同内容另一封转发记为内容重复；
- *     正文经注入 fetcher 获取 / 获取失败 502 不落收据；三种隔离（白名单 / DKIM / 无联系方式）+ 管理员通知幂等；
- *     隔离收据不被当成内容孪生；官网已入站的同一询盘（按编号 / 48 小时内内容孪生）记 duplicate 不建商机；
- *     48 小时外不算；别的组织的官网收据不影响本组织；入驻状态的邮件转发步骤。
+ *     正文经注入 fetcher 获取 / 获取失败 502 不落收据；三种隔离（白名单 / DKIM / 无联系方式）+ 管理员通知幂等、
+ *     首次通知失败后重试补发、白名单外的通知按日合并、白名单外不取正文；DKIM/DMARC 只看原始邮件头最上面一条
+ *     （未配置 authserv-id / 没有原始头 / 伪造在下面 → 隔离）；隔离收据不被当成内容孪生；
+ *     官网已入站的同一询盘（按编号 + 同一联系人 / 48 小时内内容孪生）记 duplicate 不建商机并通知管理员；
+ *     买家来信里的同号「RFQ No.」、编号相同但联系人不同、官网空留言后买家的新询盘都照常入链；48 小时外不算；
+ *     同一封另一次投递正在处理 → 409；别的组织的官网收据不影响本组织；入驻状态的邮件转发步骤。
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -46,7 +49,7 @@ async function main() {
   const { db } = await import("@/lib/db");
   const { NextRequest } = await import("next/server");
   const { POST } = await import("@/app/api/trade/webhook/email/route");
-  const { __setInboundEmailFetcherForTest, handleResendInboundEvent } = await import("@/lib/trade/email-inbound");
+  const { __setInboundEmailFetcherForTest, handleResendInboundEvent, senderQuarantineNotifyKey } = await import("@/lib/trade/email-inbound");
   const { __setDefaultFdeSchedulerForTest, ingestWebsiteInquiry, normalizeInquiry, EMAIL_FORWARD_CAMPAIGN_NAME } = await import("@/lib/trade/website-inquiry");
   type FdeScheduler = import("@/lib/trade/website-inquiry").FdeScheduler;
   const { upsertEmailChannel } = await import("@/lib/trade/channel-service");
@@ -64,24 +67,34 @@ async function main() {
   const FACTORY = "exampletextiles.example";
   const LILY = `lily@${FACTORY}`;
   const SECRET = `whsec_${randomBytes(24).toString("base64")}`;
-  const AUTH_OK = { "authentication-results": `mx.${DOMAIN}; dkim=pass header.d=${FACTORY}; spf=pass smtp.mailfrom=${FACTORY}; dmarc=pass header.from=${FACTORY}` };
+  const AUTHSERV = `mx.${DOMAIN}`;
+  // 原始邮件头块（Resend 收信 MTA 在最上面写入自己的 Authentication-Results）
+  const rawHeaders = (ar: string | null, from = LILY) =>
+    [...(ar ? [`Authentication-Results: ${ar}`] : []), `Received: from mail.${FACTORY} by ${AUTHSERV}`, `From: ${from}`, `To: inq@${DOMAIN}`, "Subject: Fwd: x"].join("\r\n");
+  const AUTH_OK_RAW = rawHeaders(`${AUTHSERV}; dkim=pass header.d=${FACTORY}; spf=pass smtp.mailfrom=${FACTORY}; dmarc=pass header.from=${FACTORY}`);
+  // receiving API 的 headers 记录（Record）：只记录排障信息，不参与判定
+  const AUTH_RECORD = { "authentication-results": `${AUTHSERV}; dkim=pass header.d=${FACTORY}; dmarc=pass header.from=${FACTORY}` };
 
   const prevEnv = { secret: process.env.RESEND_INBOUND_WEBHOOK_SECRET, domain: process.env.INBOUND_EMAIL_DOMAIN, authserv: process.env.INBOUND_EMAIL_AUTHSERV_ID };
   process.env.RESEND_INBOUND_WEBHOOK_SECRET = SECRET;
   process.env.INBOUND_EMAIL_DOMAIN = DOMAIN;
-  delete process.env.INBOUND_EMAIL_AUTHSERV_ID;
+  process.env.INBOUND_EMAIL_AUTHSERV_ID = AUTHSERV;
 
   const tasks: Array<() => Promise<void>> = [];
   const capture: FdeScheduler = (task) => {
     tasks.push(task);
   };
   __setDefaultFdeSchedulerForTest(capture);
-  const fetched: string[] = [];
-  let fetchBody: { text: string | null; html: string | null; headers: unknown } | Error = new Error("no fetch expected");
-  __setInboundEmailFetcherForTest(async (id) => {
-    fetched.push(id);
+  const fetched: Array<{ id: string; raw: boolean }> = [];
+  const wasFetched = (msgId: string) => fetched.some((f) => f.id === `em_${msgId}`);
+  // null = 正文在载荷里，fetcher 只给原始头；Error = 模拟 Resend 不可用
+  let fetchBody: { text: string | null; html: string | null; headers: unknown } | Error | null = null;
+  const rawFor = new Map<string, string | null>();
+  __setInboundEmailFetcherForTest(async (id, opts) => {
+    fetched.push({ id, raw: opts.rawHeaders });
     if (fetchBody instanceof Error) throw fetchBody;
-    return fetchBody;
+    const raw = rawFor.has(id) ? rawFor.get(id)! : AUTH_OK_RAW;
+    return { text: fetchBody?.text ?? null, html: fetchBody?.html ?? null, headers: fetchBody?.headers ?? AUTH_RECORD, rawHeaders: opts.rawHeaders ? raw : null };
   });
 
   await db.user.create({ data: { id: OWNER, email: `${OWNER}@fixture.test`, name: "Example Owner", role: "boss" } });
@@ -98,7 +111,11 @@ async function main() {
     const sig = createHmac("sha256", Buffer.from(SECRET.replace(/^whsec_/, ""), "base64")).update(`${id}.${ts}.${body}`).digest("base64");
     return { "svix-id": id, "svix-timestamp": String(ts), "svix-signature": `v1,${sig}` };
   };
-  const event = (o: { msgId: string; from: string; to: string[]; subject: string; text?: string; headers?: unknown; extra?: Record<string, unknown> }) => ({
+  const event = (o: { msgId: string; from: string; to: string[]; subject: string; text?: string; raw?: string | null; headers?: unknown; extra?: Record<string, unknown> }) => {
+    if (o.raw !== undefined) rawFor.set(`em_${o.msgId}`, o.raw);
+    return eventBody(o);
+  };
+  const eventBody = (o: { msgId: string; from: string; to: string[]; subject: string; text?: string; headers?: unknown; extra?: Record<string, unknown> }) => ({
     type: "email.received",
     created_at: new Date().toISOString(),
     data: {
@@ -185,7 +202,6 @@ Tel: +1 416 555 0134`;
       to: [ADDR],
       subject: "Fwd: RFQ bath towels",
       text: gmailForward("Jane Doe", `jane.${stamp}@maplehomegoods.example`, "RFQ bath towels", "We need 5,000 pcs 550gsm bath towels, 3 colors. Please quote FOB."),
-      headers: AUTH_OK,
       extra: { orgId: ORG2 }, // 载荷里的 org 字段一律无效
     });
     const a = await post(evA);
@@ -240,37 +256,76 @@ Tel: +1 416 555 0134`;
     tasks.splice(0);
 
     // ── 正文经 fetcher 获取 ──────────────────────────────────────────────
-    fetchBody = { text: gmailForward("Omar Example", `omar.${stamp}@examplebuyer.example`, "Sheets", "Please quote 1,200 percale sheet sets."), html: null, headers: AUTH_OK };
+    ok(wasFetched(`a-${stamp}`) && fetched.every((f) => f.raw), "载荷自带正文时也经 fetcher 取原始邮件头（配置了受信 authserv-id）", fetched);
+    fetchBody = { text: gmailForward("Omar Example", `omar.${stamp}@examplebuyer.example`, "Sheets", "Please quote 1,200 percale sheet sets."), html: null, headers: null };
     const f1 = await post(event({ msgId: `f-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Sheets" }));
     const rf = await receiptOf(ORG, `f-${stamp}`);
-    ok(f1.body.outcome === "ingested" && fetched.includes(`em_f-${stamp}`) && (rf?.payload as { email?: string })?.email === `omar.${stamp}@examplebuyer.example`, "载荷无正文 → 经注入 fetcher 读 Resend receiving API", { f1, fetched });
+    ok(f1.body.outcome === "ingested" && wasFetched(`f-${stamp}`) && (rf?.payload as { email?: string })?.email === `omar.${stamp}@examplebuyer.example`, "载荷无正文 → 经注入 fetcher 读 Resend receiving API", { f1, fetched });
     fetchBody = new Error("resend down");
-    const f2 = await post(event({ msgId: `f2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: x", headers: AUTH_OK }));
-    ok(f2.status === 502 && !(await receiptOf(ORG, `f2-${stamp}`)), "正文取不到 → 502（Resend 重试），不落收据", f2);
+    const f2 = await post(event({ msgId: `f2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: x" }));
+    ok(f2.status === 502 && !(await receiptOf(ORG, `f2-${stamp}`)), "正文 / 原始头取不到 → 502（Resend 重试），不落收据", f2);
+    fetchBody = null;
     tasks.splice(0);
 
     // ── 隔离 ─────────────────────────────────────────────────────────────
     const c0 = await counts(ORG);
     const benText = gmailForward("Ben Example", `ben.${stamp}@examplefurnishings.example`, "Blankets", "We would like 3000 flannel fleece blankets.");
-    const q1 = await post(event({ msgId: `q1-${stamp}`, from: "Mallory <mallory@evil.example>", to: [ADDR], subject: "Fwd: Blankets", text: benText, headers: { "authentication-results": "mx; dkim=pass header.d=evil.example; dmarc=pass header.from=evil.example" } }));
+    const dayKey = senderQuarantineNotifyKey(ORG, new Date());
+    const dayNotes = () => db.notification.findMany({ where: { orgId: ORG, sourceKey: { startsWith: `${dayKey}:` } }, select: { userId: true, type: true, priority: true } });
+    const q1 = await post(event({ msgId: `q1-${stamp}`, from: "Mallory <mallory@evil.example>", to: [ADDR], subject: "Fwd: Blankets", text: benText, raw: rawHeaders(`${AUTHSERV}; dkim=pass header.d=evil.example; dmarc=pass header.from=evil.example`, "mallory@evil.example") }));
     const rq1 = await receiptOf(ORG, `q1-${stamp}`);
-    const notes1 = rq1 ? await db.notification.findMany({ where: { orgId: ORG, sourceKey: { startsWith: `email-quarantine:${rq1.id}` } }, select: { userId: true, type: true } }) : [];
+    const notes1 = await dayNotes();
     ok(q1.status === 200 && q1.body.outcome === "quarantined" && q1.body.reasons?.join() === "sender_not_allowed", "发件人不在白名单 → 隔离", q1);
     ok(rq1?.status === "quarantined" && !rq1.prospectId && !rq1.opportunityId && JSON.stringify(await counts(ORG)) === JSON.stringify({ ...c0, receipts: c0.receipts + 1 }), "隔离：只记收据，不建线索 / 商机 / 消息", { status: rq1?.status });
-    ok(notes1.length === 1 && notes1[0].userId === OWNER && notes1[0].type === "system", "隔离通知企业 owner / 管理员（不通知普通业务员）", notes1);
+    ok(!wasFetched(`q1-${stamp}`) && (rq1?.payload as { email?: string; message?: string } | null)?.email === "" && (rq1?.payload as { meta?: { parse?: unknown } })?.meta?.parse === null, "白名单以外：不调 Resend、不解析，收据只有空载荷", { fetched: wasFetched(`q1-${stamp}`) });
+    ok(notes1.length === 1 && notes1[0].userId === OWNER && notes1[0].type === "system" && notes1[0].priority === "medium", "隔离通知企业 owner / 管理员（不通知普通业务员）；白名单外按日合并、普通优先级", notes1);
     const q1b = await post(event({ msgId: `q1-${stamp}`, from: "Mallory <mallory@evil.example>", to: [ADDR], subject: "Fwd: Blankets", text: benText }));
-    const notes1b = await db.notification.count({ where: { orgId: ORG, sourceKey: { startsWith: `email-quarantine:${rq1?.id}` } } });
-    ok(q1b.body.outcome === "quarantined" && q1b.body.reasons?.join() === "sender_not_allowed" && notes1b === 1, "隔离邮件重发：原结论，不重复通知", { q1b, notes1b });
+    ok(q1b.body.outcome === "quarantined" && q1b.body.reasons?.join() === "sender_not_allowed" && (await dayNotes()).length === 1, "隔离邮件重发：原结论，不重复通知", { q1b });
+    const q1c = await post(event({ msgId: `q1c-${stamp}`, from: "spam@spammer.example", to: [ADDR], subject: "Cheap leads", text: "buy now" }));
+    ok(q1c.body.outcome === "quarantined" && (await dayNotes()).length === 1, "同一天另一封白名单外的邮件：照样隔离，但不再逐条通知", q1c);
+    // 引号显示名里藏白名单地址 + 伪造的 Authentication-Results：按真实地址判定，不在白名单
+    const q1d = await post(event({ msgId: `q1d-${stamp}`, from: `"<${LILY}>" <mallory@evil.example>`, to: [ADDR], subject: "Fwd: Blankets", text: benText }));
+    ok(q1d.body.outcome === "quarantined" && q1d.body.reasons?.join() === "sender_not_allowed" && !wasFetched(`q1d-${stamp}`), "From 的显示名里藏白名单地址 → 按真实地址判定为不在白名单", q1d);
 
-    const q2 = await post(event({ msgId: `q2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText }));
-    ok(q2.body.outcome === "quarantined" && q2.body.reasons?.join() === "auth_unverified", "白名单发件人但没有 DKIM / DMARC 结果 → 隔离", q2);
+    const q2 = await post(event({ msgId: `q2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText, raw: rawHeaders(null) }));
+    const rq2 = await receiptOf(ORG, `q2-${stamp}`);
+    const q2Notes = () => db.notification.count({ where: { orgId: ORG, sourceKey: { startsWith: `email-quarantine:${rq2?.id}:` } } });
+    ok(q2.body.outcome === "quarantined" && q2.body.reasons?.join() === "auth_unverified" && (await q2Notes()) === 1, "白名单发件人但原始头里没有 Authentication-Results → 隔离，逐封高优先级通知", q2);
+    await db.notification.deleteMany({ where: { orgId: ORG, sourceKey: { startsWith: `email-quarantine:${rq2?.id}:` } } });
+    const q2b = await post(event({ msgId: `q2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText }));
+    ok(q2b.body.outcome === "quarantined" && (await q2Notes()) === 1, "首次通知没发出去（模拟丢失）→ Resend 重试时按同一幂等键补发", q2b);
+    const forgedBelow = [
+      `Authentication-Results: ${AUTHSERV}; dkim=fail header.d=${FACTORY}; dmarc=fail header.from=${FACTORY}`,
+      `Received: from attacker.example by ${AUTHSERV}`,
+      `Authentication-Results: ${AUTHSERV}; dkim=pass header.d=${FACTORY}; dmarc=pass header.from=${FACTORY}`,
+      `From: ${LILY}`,
+    ].join("\r\n");
+    const q2c = await post(event({ msgId: `q2c-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText, raw: forgedBelow }));
+    ok(q2c.body.outcome === "quarantined" && q2c.body.reasons?.join() === "auth_unverified", "伪造的「通过」在收信方结论下面：只看最上面一条 → 隔离", q2c);
+    const q2d = await post(event({ msgId: `q2d-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText, raw: null }));
+    const rq2d = await receiptOf(ORG, `q2d-${stamp}`);
+    ok(
+      q2d.body.reasons?.join() === "auth_unverified" && (rq2d?.payload as { meta?: { auth?: { note?: string; seenAuthServIds?: string[] } } })?.meta?.auth?.note === "raw_headers_unavailable",
+      "拿不到原始头（只有 receiving API 的 headers 记录）→ 隔离，记录看到的 authserv-id 供排障",
+      rq2d && (rq2d.payload as { meta?: unknown }).meta,
+    );
+    delete process.env.INBOUND_EMAIL_AUTHSERV_ID;
+    const q2e = await post(event({ msgId: `q2e-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText }));
+    process.env.INBOUND_EMAIL_AUTHSERV_ID = AUTHSERV;
+    const rq2e = await receiptOf(ORG, `q2e-${stamp}`);
+    ok(
+      q2e.body.reasons?.join() === "auth_unverified" &&
+        (rq2e?.payload as { meta?: { auth?: { note?: string } } })?.meta?.auth?.note === "authserv_id_not_configured" &&
+        !wasFetched(`q2e-${stamp}`),
+      "未配置 INBOUND_EMAIL_AUTHSERV_ID：失败即关闭，全部按 auth_unverified 隔离（不下载原始头）",
+      q2e,
+    );
     const q3 = await post(
       event({
         msgId: `q3-${stamp}`,
         from: LILY,
         to: [ADDR],
         subject: "Fwd: You have a new inquiry",
-        headers: AUTH_OK,
         text: `---------- Forwarded message ---------\nFrom: Alibaba.com <notice@service.alibaba.com>\nDate: Wed, Oct 22, 2026\nSubject: You have a new inquiry\nTo: <${LILY}>\n\nBuyer Name: Ahmed Example\nCompany: Example Trading LLC\nProduct: Bed Sheets\nInquiry ID: 778899\nMessage:\nPlease quote bed sheets.`,
       }),
     );
@@ -280,7 +335,11 @@ Tel: +1 416 555 0134`;
       "平台通知没有买家邮箱 / 电话 → 隔离（解析结论仍留在收据里）",
       q3,
     );
-    const q4 = await post(event({ msgId: `q4-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText, headers: AUTH_OK }));
+    const q3b = await post(
+      event({ msgId: `q3b-${stamp}`, from: `Lily Chen <${LILY}>`, to: [ADDR], subject: "New buyer", text: `Buyer: Maria Example\nCompany: Example Casa\nwants 300 bath sheets\n\nLily | Sales Manager\nExample Textiles Co., Ltd.\nMobile: +86 138 0000 0000` }),
+    );
+    ok(q3b.body.outcome === "quarantined" && q3b.body.reasons?.join() === "no_buyer_contact", "业务员手写只有买家名 + 自己的签名手机：员工号码不算买家联系方式 → 隔离", q3b);
+    const q4 = await post(event({ msgId: `q4-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Blankets", text: benText }));
     const rq4 = await receiptOf(ORG, `q4-${stamp}`);
     ok(q4.body.outcome === "ingested" && rq4?.duplicateOfReceiptId === null && !!rq4?.opportunityId, "同内容此前被隔离过：可信转发照常新建（隔离收据不当内容孪生）", { q4, dup: rq4?.duplicateOfReceiptId });
     tasks.splice(0);
@@ -313,7 +372,7 @@ ${carolMsg}
 
 Inquiry Source: Contact page
 ${eventLine}`;
-    const d1 = await post(event({ msgId: `d1-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: New Website Inquiry", text: notice(`Inquiry ID / eventId: ${webEventId}`), headers: AUTH_OK }));
+    const d1 = await post(event({ msgId: `d1-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: New Website Inquiry", text: notice(`Inquiry ID / eventId: ${webEventId}`) }));
     const rd1 = await receiptOf(ORG, `d1-${stamp}`);
     const c2 = await counts(ORG);
     ok(
@@ -322,16 +381,73 @@ ${eventLine}`;
       { d1, rd1: rd1 && { status: rd1.status, dup: rd1.duplicateOfReceiptId } },
     );
     ok(c2.opps === c1.opps && c2.prospects === c1.prospects && c2.messages === c1.messages && tasks.length === 0, "双重入站不新建线索 / 消息 / 商机，也不排 FDE", { c1, c2 });
-    const d2 = await post(event({ msgId: `d2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: New Website Inquiry", text: notice("Submitted At: 2026-10-20"), headers: AUTH_OK }));
+    const dupNotes = await db.notification.findMany({ where: { orgId: ORG, sourceKey: { startsWith: `email-duplicate:${rd1?.id}:` } }, select: { userId: true } });
+    ok(dupNotes.length === 1 && dupNotes[0].userId === OWNER, "判为重复时通知企业管理员（误判可见、可补救）", dupNotes);
+    const d2 = await post(event({ msgId: `d2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: New Website Inquiry", text: notice("Submitted At: 2026-10-20") }));
     const rd2 = await receiptOf(ORG, `d2-${stamp}`);
     ok(d2.body.outcome === "duplicate" && (rd2?.payload as { meta?: { duplicate?: { matchedBy?: string } } })?.meta?.duplicate?.matchedBy === "content_twin" && (await counts(ORG)).opps === c1.opps, "没有编号：48 小时内内容孪生 → duplicate", d2);
     const later = new Date(Date.now() + 49 * 60 * 60 * 1000);
     const d3 = await handleResendInboundEvent(
-      event({ msgId: `d3-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: New Website Inquiry", text: notice("Submitted At: 2026-10-20"), headers: AUTH_OK }),
-      { domain: DOMAIN, now: later, scheduleFde: () => undefined },
+      event({ msgId: `d3-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: New Website Inquiry", text: notice("Submitted At: 2026-10-20") }),
+      { domain: DOMAIN, trustedAuthServId: AUTHSERV, now: later, scheduleFde: () => undefined },
     );
     const rd3 = await receiptOf(ORG, `d3-${stamp}`);
     ok(d3.body.outcome !== "duplicate" && rd3?.status !== "duplicate" && rd3?.status !== "quarantined", "48 小时以外的内容孪生不算双重入站（正常入链）", { d3: d3.body, status: rd3?.status });
+    tasks.splice(0);
+
+    // 买家来信里的「RFQ No.」恰好等于官网事件编号：不是官网通知，照常入链
+    const n0 = await counts(ORG);
+    const n1 = await post(
+      event({
+        msgId: `n1-${stamp}`,
+        from: LILY,
+        to: [ADDR],
+        subject: "Fwd: RFQ",
+        text: gmailForward("Bob Example", `bob.${stamp}@examplebuyer.example`, "RFQ", `RFQ No.: ${webEventId}\nPlease quote 5000 bath towels, 600gsm, white.`),
+      }),
+    );
+    const n1Counts = await counts(ORG);
+    const rn1 = await receiptOf(ORG, `n1-${stamp}`);
+    // （gmailForward 的签名对所有买家都是同一公司 / 电话，主干按客户匹配归到已有客户，所以这里不断言新商机）
+    ok(
+      n1.body.outcome === "ingested" && n1Counts.messages === n0.messages + 1 && rn1?.status !== "duplicate" && !rn1?.duplicateOfReceiptId && !!rn1?.salesActionId,
+      "买家来信里的单号与官网事件编号相同 → 不判重复，消息与主干行动照常建立",
+      { n1, n0, n1Counts, status: rn1?.status },
+    );
+    // 官网通知格式、编号相同，但联系人不是那条官网询盘的买家 → 不判重复
+    const n3 = await post(
+      event({
+        msgId: `n3-${stamp}`,
+        from: LILY,
+        to: [ADDR],
+        subject: "Fwd: New Website Inquiry",
+        text: notice(`Inquiry ID / eventId: ${webEventId}`).replace(`Email: ${carolEmail}`, `Email: frank.${stamp}@examplefrank.example`).replace("Name: Carol Example", "Name: Frank Example"),
+      }),
+    );
+    ok(n3.body.outcome === "ingested", "官网编号相同但买家联系人不同 → 不判重复", n3);
+    // 官网表单留言为空；同一买家随后发来的详细新询盘被转发 → 不再按「同联系人 + 同产品」吞掉
+    const erinEmail = `erin.${stamp}@exampleerin.example`;
+    const webEmpty = normalizeInquiry({ name: "Erin Example", email: erinEmail, product: "Bath", message: "", eventId: `inq_empty_${stamp}` });
+    if (!webEmpty.ok) throw new Error(webEmpty.error);
+    await ingestWebsiteInquiry(ORG, webEmpty.value, { fdeMode: "deferred", scheduleFde: () => undefined });
+    tasks.splice(0);
+    const e0 = await counts(ORG);
+    const n2 = await post(
+      event({ msgId: `n2-${stamp}`, from: LILY, to: [ADDR], subject: "Fwd: Bath towels RFQ", text: gmailForward("Erin Example", erinEmail, "Bath towels RFQ", "Further to our web form: please quote 5000 bath towels, 600gsm, navy, FOB Ningbo.") }),
+    );
+    ok(n2.body.outcome === "ingested" && (await counts(ORG)).messages === e0.messages + 1, "官网留言为空时买家的新询盘不判重复：内容进入消息与主干", { n2 });
+    // 本厂人员手写（无编号）提到同一买家、官网留言为空：同样不判重复
+    const n4 = await post(event({ msgId: `n4-${stamp}`, from: `Lily Chen <${LILY}>`, to: [ADDR], subject: "Erin called", text: `Name: Erin Example\nEmail: ${erinEmail}\nShe now also needs 2000 bath sheets in grey.` }));
+    ok(n4.body.outcome === "ingested", "官网留言为空时业务员手写的同一买家新需求不判重复", n4);
+    tasks.splice(0);
+
+    // 同一封邮件的另一次投递正在处理 → 409（Resend 稍后重试），不能 200
+    const busyBefore = await receiptOf(ORG, `a-${stamp}`);
+    await db.websiteInquiryReceipt.update({ where: { id: busyBefore!.id }, data: { status: "processing", processingSince: new Date() } });
+    const busy = await post(evA);
+    await db.websiteInquiryReceipt.update({ where: { id: busyBefore!.id }, data: { status: busyBefore!.status, processingSince: null } });
+    ok(busy.status === 409 && busy.body.outcome === "busy", "另一次投递正在处理 → 409 busy（让 Resend 重试）", busy);
+    tasks.splice(0);
 
     // ── 跨组织 ───────────────────────────────────────────────────────────
     const danaEvent = `inq_org2_${stamp}`;
@@ -346,15 +462,14 @@ ${eventLine}`;
         from: LILY,
         to: [ADDR],
         subject: "Fwd: New Website Inquiry",
-        headers: AUTH_OK,
-        text: `---------- Forwarded message ---------\nFrom: Site <website@${FACTORY}>\nDate: Mon, Oct 20, 2026\nSubject: New Website Inquiry\nTo: <${LILY}>\n\nName: Dana Example\nEmail: ${danaEmail}\nMessage:\nNeed 500 cushion covers in linen, natural color, 45x45cm.\n\nInquiry ID / eventId: ${danaEvent}`,
+          text: `---------- Forwarded message ---------\nFrom: Site <website@${FACTORY}>\nDate: Mon, Oct 20, 2026\nSubject: New Website Inquiry\nTo: <${LILY}>\n\nName: Dana Example\nEmail: ${danaEmail}\nMessage:\nNeed 500 cushion covers in linen, natural color, 45x45cm.\n\nInquiry ID / eventId: ${danaEvent}`,
       }),
     );
     ok(x1.body.outcome === "ingested" && JSON.stringify(await counts(ORG2)) === JSON.stringify(org2Before), "别的组织的官网收据不让本组织的转发变成 duplicate，也不写别的组织", { x1 });
-    const x2 = await post(event({ msgId: `x2-${stamp}`, from: LILY, to: [ADDR2], subject: "Fwd: RFQ", text: benText, headers: AUTH_OK }));
+    const x2 = await post(event({ msgId: `x2-${stamp}`, from: LILY, to: [ADDR2], subject: "Fwd: RFQ", text: benText }));
     const rx2 = await db.websiteInquiryReceipt.findFirst({ where: { orgId: ORG2, source: "email" }, select: { status: true } });
     ok(x2.body.outcome === "quarantined" && x2.body.reasons?.includes("sender_not_allowed") && rx2?.status === "quarantined", "发到另一组织别名：按那个组织的白名单判定（本组织白名单不跨用）", x2);
-    const x3 = await post(event({ msgId: `x3-${stamp}`, from: LILY, to: [`inq-zzzzzzzzzz@${DOMAIN}`, "someone@else.example"], subject: "x", text: benText, headers: AUTH_OK }));
+    const x3 = await post(event({ msgId: `x3-${stamp}`, from: LILY, to: [`inq-zzzzzzzzzz@${DOMAIN}`, "someone@else.example"], subject: "x", text: benText }));
     ok(x3.status === 200 && x3.body.outcome === "ignored" && x3.body.reason === "unknown_recipient", "未知收件别名 → 200 ignored，不落收据", x3);
     tasks.splice(0);
 
@@ -362,6 +477,10 @@ ${eventLine}`;
     const s1 = await getOnboardingStatus(ORG);
     const step1 = s1?.steps.find((s) => s.key === "email_inbound");
     ok(s1?.emailInbound.address === ADDR && step1?.status === "done" && step1.required === false, "入驻状态：已配置收信域名 + 有白名单 → 邮件转发步骤完成（推荐项）", { addr: s1?.emailInbound, step1 });
+    delete process.env.INBOUND_EMAIL_AUTHSERV_ID;
+    const sNoAuth = await getOnboardingStatus(ORG);
+    process.env.INBOUND_EMAIL_AUTHSERV_ID = AUTHSERV;
+    ok(sNoAuth?.steps.find((s) => s.key === "email_inbound")?.status === "warning", "平台未配置 INBOUND_EMAIL_AUTHSERV_ID → 邮件转发步骤提示（转发会全部隔离）", sNoAuth?.steps.find((s) => s.key === "email_inbound"));
     delete process.env.INBOUND_EMAIL_DOMAIN;
     const s2 = await getOnboardingStatus(ORG);
     ok(s2?.emailInbound.address === null && s2.steps.find((s) => s.key === "email_inbound")?.status === "skipped", "未配置收信域名：不生成地址，步骤为「平台未开通」", s2?.emailInbound);

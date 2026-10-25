@@ -500,7 +500,8 @@ export interface OnboardingFacts {
   categories: { published: boolean; make: string[]; dontMake: string[] };
   websiteChannel: { exists: boolean; active: boolean; secretSet: boolean };
   /** 邮件转发入口（推荐项）：platformEnabled = 平台已配置收信域名 INBOUND_EMAIL_DOMAIN；缺省视为平台未开通 */
-  emailInbound?: { platformEnabled: boolean; exists: boolean; active: boolean; aliasSet: boolean; allowlistCount: number };
+  /** authVerifyConfigured：平台配置了受信 authserv-id（INBOUND_EMAIL_AUTHSERV_ID）；缺省视为已配置（旧调用方） */
+  emailInbound?: { platformEnabled: boolean; exists: boolean; active: boolean; aliasSet: boolean; allowlistCount: number; authVerifyConfigured?: boolean };
   members: Array<{ isSalesRole: boolean; wechatBound: boolean }>;
   pendingInvites: number;
   testInquiry: { count: number; latestHasOpportunity: boolean; latestHadDraft: boolean; latestClosed: boolean };
@@ -571,6 +572,8 @@ export function deriveOnboardingSteps(f: OnboardingFacts): {
   {
     const e = f.emailInbound;
     if (!e?.platformEnabled) push("email_inbound", "skipped", "平台未开通邮件转发入口（未配置收信域名）", false);
+    else if (e.exists && e.authVerifyConfigured === false)
+      push("email_inbound", "warning", "平台未配置发件验证（INBOUND_EMAIL_AUTHSERV_ID）：转发来的邮件都会按「未通过 DKIM / DMARC 验证」被隔离", false);
     else if (e.exists && e.active && e.aliasSet && e.allowlistCount > 0) push("email_inbound", "done", `转发地址已生成，白名单 ${e.allowlistCount} 个发件邮箱`, false);
     else if (e.exists && !e.active) push("email_inbound", "warning", "邮件转发通道已停用", false);
     else if (e.exists) push("email_inbound", "warning", "转发白名单为空：转发来的邮件都会被隔离，请在「外贸 → 消息通道」添加业务员的发件邮箱", false);

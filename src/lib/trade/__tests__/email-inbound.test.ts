@@ -3,8 +3,10 @@
  *   - Resend（Svix）验签：有效 / 篡改 / 错密钥 / 过期 / 未来时间戳 / 缺头 / 密钥格式错 / 正文非 JSON
  *   - 路由：未配置密钥 503、签名错 401、过期 401（都在任何 DB 访问之前返回）；段配置静态字面量；验签先于处理
  *   - 别名：inq- + 10 位 base32、与 org code 无关；收件地址 → 别名（域名必须一致、+tag、大小写）；未配置域名不生成地址
- *   - 转发白名单归一；DKIM / DMARC 判定（对齐 / 他人代签 / 缺失 / 只信任指定 authserv-id）；隔离原因
- *   - eventId（email:<Message-ID>，超长摘要）；解析结果 → 归一化载荷；官网询盘内容孪生判定
+ *   - 转发白名单归一；发件人严格解析（引号显示名 / 多地址）；DKIM / DMARC 判定（只看原始邮件头最上面一条、
+ *     必须是受信 authserv-id；未配置 / 只有 headers 记录 / 伪造在下面 → 失败即关闭）；隔离原因
+ *   - eventId（email:<Message-ID>，超长摘要）；解析结果 → 归一化载荷；官网询盘内容孪生判定（空 / 短留言不算）；
+ *     双重入站只对官网通知 / 本厂与系统地址判定；busy → 409；白名单判定先于取正文
  * 运行：npx tsx src/lib/trade/__tests__/email-inbound.test.ts
  *
  * 公开仓库：只用虚构企业与保留域名（.example）。
@@ -15,20 +17,26 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   INBOUND_ALIAS_RE,
+  WEBSITE_TWIN_MIN_MESSAGE,
   aliasFromRecipient,
+  blankEmailInquiry,
   buildEmailInquiry,
   emailEventId,
   formatInboundAlias,
+  headerFieldsFromRaw,
   inboundAddressFor,
+  isAllowlistedSender,
   isWebsiteContentTwin,
+  mayBeWebsiteNotification,
   normalizeForwarderAllowlist,
   normalizeInboundDomain,
   parseAuthVerdict,
   quarantineReasons,
   readForwarderAllowlist,
+  sameBuyerContact,
   verifyResendWebhookSignature,
 } from "../email-inbound-rules";
-import { parseForwardedEmail } from "../email-forward-parse";
+import { bareAddress, parseForwardedEmail, senderAddress } from "../email-forward-parse";
 import { computePayloadHash } from "../website-inquiry-receipts";
 
 let pass = 0;
@@ -120,6 +128,11 @@ async function main() {
     const lib = src("src/lib/trade/email-inbound.ts");
     assert.doesNotMatch(lib, /data\.org|body\.org|\.orgId\s*\?\?|payload\.orgId/);
     assert.match(lib, /fdeMode: "deferred"/);
+    // 另一次投递正在处理（busy）返回 409 让 Resend 重试，不能是 200（否则首次处理失败后再没人重试）
+    assert.match(lib, /if \(result\.busy\) return \{ status: 409,/);
+    // 白名单判定在取正文 / 解析之前
+    const allowIdx = lib.indexOf("if (!isAllowlistedSender(sender, channel.allowlist))");
+    assert.ok(allowIdx > 0 && allowIdx < lib.indexOf("fetchInboundEmailFromResend)(resendEmailId") && allowIdx < lib.indexOf("parseForwardedEmail({"), "allowlist before fetch / parse");
     assert.match(src("src/middleware.ts"), /"\/api\/trade\/webhook",/);
   });
 
@@ -211,31 +224,87 @@ async function main() {
     assert.deepEqual(readForwarderAllowlist(null), []);
   });
 
-  await ok("DKIM / DMARC：DMARC 通过或对齐的 DKIM 通过 → pass；他人代签 / 失败 → fail；没有结果 → missing", () => {
+  await ok("DKIM / DMARC（原始邮件头最上面一条 + 受信 authserv-id）：DMARC 通过或对齐的 DKIM 通过 → pass；他人代签 / 失败 → fail；没有结果 → missing", () => {
     const sender = "Lily <lily@exampletextiles.example>";
-    const ar = (v: string) => ({ "Authentication-Results": v });
-    assert.equal(parseAuthVerdict(ar("mx.example; dkim=pass header.d=exampletextiles.example; spf=pass smtp.mailfrom=exampletextiles.example; dmarc=pass header.from=exampletextiles.example"), sender).verdict, "pass");
-    assert.equal(parseAuthVerdict(ar("mx.example; dkim=pass header.i=@mail.exampletextiles.example"), sender).verdict, "pass");
-    assert.equal(parseAuthVerdict(ar("mx.example; dkim=pass header.d=sendgrid.example; dmarc=none"), sender).verdict, "fail");
-    assert.equal(parseAuthVerdict(ar("mx.example; dkim=fail header.d=exampletextiles.example; dmarc=fail header.from=exampletextiles.example"), sender).verdict, "fail");
-    assert.equal(parseAuthVerdict(ar("mx.example; dmarc=pass header.from=other.example"), sender).verdict, "fail");
-    assert.equal(parseAuthVerdict(ar("mx.example; spf=pass smtp.mailfrom=exampletextiles.example"), sender).verdict, "missing");
-    assert.equal(parseAuthVerdict(ar("mx.example; dkim=none"), sender).verdict, "missing");
-    assert.equal(parseAuthVerdict({}, sender).verdict, "missing");
-    assert.equal(parseAuthVerdict(null, sender).verdict, "missing");
-    // 数组形态 / {name,value} 列表；只取最上面一条
-    const list = [
-      { name: "Authentication-Results", value: "mx.receiver.example; dkim=fail header.d=exampletextiles.example" },
-      { name: "authentication-results", value: "forged.example; dkim=pass header.d=exampletextiles.example" },
-    ];
-    assert.equal(parseAuthVerdict(list, sender).verdict, "fail");
-    // 指定 authserv-id：只认收信方写的那条
-    const forgedFirst = { "authentication-results": ["forged.example; dkim=pass header.d=exampletextiles.example", "mx.receiver.example; dkim=fail header.d=exampletextiles.example"] };
-    assert.equal(parseAuthVerdict(forgedFirst, sender).verdict, "pass");
-    assert.equal(parseAuthVerdict(forgedFirst, sender, { trustedAuthServId: "receiver.example" }).verdict, "fail");
-    assert.equal(parseAuthVerdict(forgedFirst, sender, { trustedAuthServId: "nobody.example" }).verdict, "missing");
-    const v = parseAuthVerdict(ar("amazonses.example; spf=pass; dkim=pass header.d=exampletextiles.example; dmarc=pass"), sender);
-    assert.deepEqual({ ...v }, { verdict: "pass", dkim: "pass", dkimDomain: "exampletextiles.example", spf: "pass", dmarc: "pass", authServId: "amazonses.example" });
+    const T = { trustedAuthServId: "mx.receiver.example" };
+    const raw = (...ars: string[]) =>
+      [...ars.map((v) => `Authentication-Results: ${v}`), "Received: from mail.exampletextiles.example by mx.receiver.example", "From: Lily <lily@exampletextiles.example>", "Subject: Fwd: RFQ", "", "body line: Authentication-Results: forged; dmarc=pass"].join("\r\n");
+    const v = (ar: string) => parseAuthVerdict({ rawHeaders: raw(ar) }, sender, T).verdict;
+    assert.equal(v("mx.receiver.example; dkim=pass header.d=exampletextiles.example; spf=pass smtp.mailfrom=exampletextiles.example; dmarc=pass header.from=exampletextiles.example"), "pass");
+    assert.equal(v("mx.receiver.example; dkim=pass header.i=@mail.exampletextiles.example"), "pass");
+    assert.equal(v("mx.receiver.example; dkim=pass header.d=sendgrid.example; dmarc=none"), "fail");
+    assert.equal(v("mx.receiver.example; dkim=fail header.d=exampletextiles.example; dmarc=fail header.from=exampletextiles.example"), "fail");
+    assert.equal(v("mx.receiver.example; dmarc=pass header.from=other.example"), "fail");
+    assert.equal(v("mx.receiver.example; spf=pass smtp.mailfrom=exampletextiles.example"), "missing");
+    assert.equal(v("mx.receiver.example; dkim=none"), "missing");
+    // 折行的头（续行以空白开头）能接上
+    const folded = "Authentication-Results: mx.receiver.example;\r\n\tdkim=pass header.d=exampletextiles.example;\r\n dmarc=pass header.from=exampletextiles.example\r\nFrom: x\r\n\r\n";
+    assert.equal(parseAuthVerdict({ rawHeaders: folded }, sender, T).verdict, "pass");
+    const full = parseAuthVerdict({ rawHeaders: raw("mx.receiver.example; spf=pass; dkim=pass header.d=exampletextiles.example; dmarc=pass") }, sender, T);
+    assert.deepEqual(
+      { ...full },
+      { verdict: "pass", dkim: "pass", dkimDomain: "exampletextiles.example", spf: "pass", dmarc: "pass", authServId: "mx.receiver.example", source: "raw", note: null, seenAuthServIds: ["mx.receiver.example"] },
+    );
+  });
+
+  await ok("DKIM / DMARC 失败即关闭：未配置 authserv-id、只有 receiving API 的 headers 记录、最上面一条不是受信方写的 → missing", () => {
+    const sender = "lily@exampletextiles.example";
+    const good = "Authentication-Results: mx.receiver.example; dkim=pass header.d=exampletextiles.example; dmarc=pass header.from=exampletextiles.example\r\nFrom: x\r\n";
+    // 未配置受信 authserv-id：发件方自己写的 Authentication-Results 也长这样，一律不信（但记下看到的 id 供运维配置）
+    const noTrust = parseAuthVerdict({ rawHeaders: good }, sender, {});
+    assert.equal(noTrust.verdict, "missing");
+    assert.equal(noTrust.note, "authserv_id_not_configured");
+    assert.deepEqual(noTrust.seenAuthServIds, ["mx.receiver.example"]);
+    assert.equal(parseAuthVerdict({ rawHeaders: good }, sender, { trustedAuthServId: "  " }).note, "authserv_id_not_configured");
+    // receiving API 的 headers 是 Record（同名头合并方式未知）：只用于排障，不参与判定
+    const record = parseAuthVerdict({ headers: { "Authentication-Results": "mx.receiver.example; dkim=pass header.d=exampletextiles.example; dmarc=pass" } }, sender, { trustedAuthServId: "mx.receiver.example" });
+    assert.equal(record.verdict, "missing");
+    assert.equal(record.note, "raw_headers_unavailable");
+    assert.deepEqual(record.seenAuthServIds, ["mx.receiver.example"]);
+    assert.equal(parseAuthVerdict({}, sender, { trustedAuthServId: "mx.receiver.example" }).verdict, "missing");
+    assert.equal(parseAuthVerdict({ rawHeaders: "From: x\r\nSubject: y\r\n" }, sender, { trustedAuthServId: "mx.receiver.example" }).note, "no_authentication_results");
+    // 发件方伪造的「通过」在收信方那条下面：只看最上面一条
+    const forgedBelow = [
+      "Authentication-Results: mx.receiver.example; dkim=fail header.d=exampletextiles.example; dmarc=fail header.from=exampletextiles.example",
+      "Received: from attacker.example by mx.receiver.example",
+      "Authentication-Results: mx.receiver.example; dkim=pass header.d=exampletextiles.example; dmarc=pass header.from=exampletextiles.example",
+      "From: lily@exampletextiles.example",
+    ].join("\r\n");
+    assert.equal(parseAuthVerdict({ rawHeaders: forgedBelow }, sender, { trustedAuthServId: "mx.receiver.example" }).verdict, "fail");
+    // 最上面一条是别人写的（收信方没有写自己的结论）→ 不往下找
+    const otherOnTop = ["Authentication-Results: forged.example; dkim=pass header.d=exampletextiles.example; dmarc=pass", "Authentication-Results: mx.receiver.example; dkim=pass header.d=exampletextiles.example"].join("\n");
+    const top = parseAuthVerdict({ rawHeaders: otherOnTop }, sender, { trustedAuthServId: "mx.receiver.example" });
+    assert.equal(top.verdict, "missing");
+    assert.equal(top.note, "topmost_not_trusted");
+    assert.deepEqual(top.seenAuthServIds, ["forged.example", "mx.receiver.example"]);
+    // 受信 id 的子域也认（收信集群的主机名）
+    assert.equal(parseAuthVerdict({ rawHeaders: good }, sender, { trustedAuthServId: "receiver.example" }).verdict, "pass");
+    // 头块在第一个空行结束：正文里的同名行不算
+    assert.deepEqual(headerFieldsFromRaw("A: 1\r\n  folded\r\nB: 2\r\n\r\nAuthentication-Results: x"), [
+      { name: "a", value: "1 folded" },
+      { name: "b", value: "2" },
+    ]);
+  });
+
+  await ok("发件人严格解析：引号里的显示名藏白名单地址、多个地址、未闭合引号 → 不在白名单；DMARC 对齐也用真实地址", () => {
+    const allow = ["lily@exampletextiles.example"];
+    assert.equal(isAllowlistedSender("Lily Chen <lily@exampletextiles.example>", allow), true);
+    assert.equal(isAllowlistedSender("LILY@exampletextiles.example", allow), true);
+    assert.equal(isAllowlistedSender("lily@exampletextiles.example (Lily)", allow), true);
+    assert.equal(isAllowlistedSender('"<lily@exampletextiles.example>" <mallory@evil.example>', allow), false);
+    assert.equal(isAllowlistedSender('"lily@exampletextiles.example" <mallory@evil.example>', allow), false);
+    assert.equal(isAllowlistedSender("lily@exampletextiles.example, mallory@evil.example", allow), false);
+    assert.equal(isAllowlistedSender("<lily@exampletextiles.example> <mallory@evil.example>", allow), false);
+    assert.equal(isAllowlistedSender('"Lily <lily@exampletextiles.example>', allow), false);
+    assert.equal(isAllowlistedSender("", allow), false);
+    assert.equal(senderAddress('"<lily@exampletextiles.example>" <mallory@evil.example>'), "mallory@evil.example");
+    assert.equal(bareAddress('"<lily@exampletextiles.example>" <mallory@evil.example>'), "mallory@evil.example");
+    // 伪造头 + 引号显示名：白名单与 DKIM 对齐都按 mallory 的域名判定 → 双双不通过
+    const forged = 'Authentication-Results: mx.receiver.example; dmarc=pass header.from=exampletextiles.example; dkim=pass header.d=exampletextiles.example\r\n';
+    const from = '"<lily@exampletextiles.example>" <mallory@evil.example>';
+    const auth = parseAuthVerdict({ rawHeaders: forged }, from, { trustedAuthServId: "mx.receiver.example" });
+    assert.equal(auth.verdict, "fail");
+    assert.deepEqual(quarantineReasons({ sender: from, allowlist: allow, auth, buyerEmail: "jane@maple.example", buyerPhone: "" }), ["sender_not_allowed", "auth_unverified"]);
   });
 
   await ok("隔离原因：发件人不在白名单 / 验证未通过 / 无买家联系方式，可同时成立", () => {
@@ -274,6 +343,9 @@ async function main() {
     assert.equal(v.honeypotTripped, false);
     assert.ok(v.message.length <= 4000);
     assert.equal(computePayloadHash(v), computePayloadHash({ ...v, page: "https://x.example", utm: { ...v.utm, source: "google" } }));
+    // 白名单以外的发件人：不解析，收据只放空载荷（原主题等在 meta）
+    const blank = blankEmailInquiry("email:spam@x.example");
+    assert.deepEqual({ name: blank.name, email: blank.email, phone: blank.phone, message: blank.message, eventId: blank.eventId }, { name: "", email: "", phone: "", message: "", eventId: "email:spam@x.example" });
   });
 
   await ok("官网询盘孪生：同联系人 + 留言整段（或 80% 词）出现在转发全文 → 是；换人 / 换内容 → 否", () => {
@@ -288,10 +360,36 @@ async function main() {
     assert.equal(isWebsiteContentTwin(web, { buyerEmail: "other@example.com", buyerPhone: "", fullText: full }), false);
     // 同一买家的另一条新询盘
     assert.equal(isWebsiteContentTwin(web, { buyerEmail: web.email, buyerPhone: "", fullText: "Hello, now we also need 2000 beach towels with printing." }), false);
-    // 官网留言为空：要求产品出现
-    const short = { ...web, message: "" };
-    assert.equal(isWebsiteContentTwin(short, { buyerEmail: web.email, buyerPhone: "", fullText: "Product Interest: Bath Towels" }), true);
-    assert.equal(isWebsiteContentTwin(short, { buyerEmail: web.email, buyerPhone: "", fullText: "Product Interest: Blankets" }), false);
+    // 官网留言为空 / 太短：一律不算孪生（不再退回「同联系人 + 产品出现」——同一买家之后的新询盘会被误判、内容丢失）
+    const empty = { ...web, message: "" };
+    assert.equal(isWebsiteContentTwin(empty, { buyerEmail: web.email, buyerPhone: "", fullText: "Product Interest: Bath Towels" }), false);
+    assert.equal(isWebsiteContentTwin(empty, { buyerEmail: web.email, buyerPhone: "", fullText: "Hi, now please quote 5000 bath towels, 600gsm, navy, FOB Ningbo." }), false);
+    const productOnly = { ...web, message: "Bath", product: "Bath" };
+    assert.equal(isWebsiteContentTwin(productOnly, { buyerEmail: web.email, buyerPhone: "", fullText: "Bath towels RFQ: we need 5000 pcs in navy" }), false);
+    assert.equal(WEBSITE_TWIN_MIN_MESSAGE, 20);
+  });
+
+  await ok("双重入站只对官网通知 / 本厂人员与系统地址发出的邮件判定；买家来信与平台通知永不判重复；联系人一致判定", () => {
+    assert.equal(mayBeWebsiteNotification({ format: "website_notification", platform: null, senderKind: "staff" }), true);
+    assert.equal(mayBeWebsiteNotification({ format: "website_notification", platform: null, senderKind: "buyer" }), true);
+    assert.equal(mayBeWebsiteNotification({ format: "gmail_forward", platform: null, senderKind: "system" }), true);
+    assert.equal(mayBeWebsiteNotification({ format: "plain", platform: null, senderKind: "staff" }), true);
+    assert.equal(mayBeWebsiteNotification({ format: "gmail_forward", platform: null, senderKind: "buyer" }), false);
+    assert.equal(mayBeWebsiteNotification({ format: "outlook_forward", platform: null, senderKind: "unknown" }), false);
+    assert.equal(mayBeWebsiteNotification({ format: "platform_notification", platform: "alibaba", senderKind: "platform" }), false);
+    assert.equal(mayBeWebsiteNotification({ format: "gmail_forward", platform: null, senderKind: "platform" }), false);
+    // 买家来信里的「RFQ No.」不是官网询盘编号
+    const rfq = parseForwardedEmail({
+      from: "lily@exampletextiles.example",
+      text: "---------- Forwarded message ---------\nFrom: Bob Example <bob@examplebuyer.example>\nDate: Mon, Oct 20, 2026\nSubject: RFQ\nTo: <lily@exampletextiles.example>\n\nRFQ No.: 1523\nPlease quote 5000 bath towels.",
+    });
+    assert.equal(rfq.websiteInquiryId, "");
+    assert.equal(rfq.senderKind, "buyer");
+    assert.equal(mayBeWebsiteNotification(rfq), false);
+    assert.equal(sameBuyerContact({ email: "Jane@Maple.example", phone: "" }, { email: "jane@maple.example", phone: "" }), true);
+    assert.equal(sameBuyerContact({ email: "", phone: "+1 (416) 555-0134" }, { email: "x@y.example", phone: "416 555 0134" }), true);
+    assert.equal(sameBuyerContact({ email: "jane@maple.example", phone: "" }, { email: "other@maple.example", phone: "" }), false);
+    assert.equal(sameBuyerContact({ email: "", phone: "" }, { email: "", phone: "" }), false);
   });
 
   console.log(`\nemail-inbound: ${pass} 通过`);

@@ -410,7 +410,7 @@ ok("每一步的缺口都会让就绪为 false", () => {
   assert.equal(deriveOnboardingSteps({ ...READY, blockingIssues: 1 }).ready, false, "企业级 CRITICAL 配置问题阻塞就绪");
 });
 
-ok("邮件转发入口是推荐项：平台未开通 → 跳过；未建 / 白名单空 / 停用 → 提示；都不阻塞就绪", () => {
+ok("邮件转发入口是推荐项：平台未开通 → 跳过；未建 / 白名单空 / 停用 / 平台未配发件验证 → 提示；都不阻塞就绪", () => {
   const step = (f: Partial<OnboardingFacts>) => deriveOnboardingSteps({ ...READY, ...f }).steps.find((s) => s.key === "email_inbound")!;
   const base = { platformEnabled: true, exists: true, active: true, aliasSet: true, allowlistCount: 2 };
   assert.equal(step({}).status, "skipped", "缺省（旧调用方）视为平台未开通");
@@ -423,7 +423,13 @@ ok("邮件转发入口是推荐项：平台未开通 → 跳过；未建 / 白�
   assert.equal(step({ emailInbound: { ...base, allowlistCount: 0 } }).status, "warning");
   assert.match(step({ emailInbound: { ...base, allowlistCount: 0 } }).detail, /隔离/);
   assert.equal(step({ emailInbound: { ...base, active: false } }).status, "warning");
-  for (const e of [{ ...base, exists: false }, { ...base, allowlistCount: 0 }, { ...base, platformEnabled: false }]) {
+  // 平台没配受信 authserv-id：转发都会被隔离（DKIM / DMARC 判定失败即关闭）→ 提示；未传该字段（旧调用方）不提示
+  const noAuth = step({ emailInbound: { ...base, authVerifyConfigured: false } });
+  assert.equal(noAuth.status, "warning");
+  assert.match(noAuth.detail, /INBOUND_EMAIL_AUTHSERV_ID/);
+  assert.equal(step({ emailInbound: { ...base, authVerifyConfigured: true } }).status, "done");
+  assert.equal(step({ emailInbound: { ...base, exists: false, active: false, aliasSet: false, allowlistCount: 0, authVerifyConfigured: false } }).status, "todo");
+  for (const e of [{ ...base, exists: false }, { ...base, allowlistCount: 0 }, { ...base, platformEnabled: false }, { ...base, authVerifyConfigured: false }]) {
     const d = deriveOnboardingSteps({ ...READY, emailInbound: e });
     assert.equal(d.ready, true);
     assert.equal(d.totalRequired, 6);

@@ -793,6 +793,7 @@ export async function getOnboardingStatus(
       active: emailChannel?.status === "active",
       aliasSet: typeof emailAlias === "string" && INBOUND_ALIAS_RE.test(emailAlias),
       allowlistCount: emailAllowlist.length,
+      authVerifyConfigured: !!process.env.INBOUND_EMAIL_AUTHSERV_ID?.trim(),
     },
     members: members.map((m) => ({ isSalesRole: m.isSalesRole, wechatBound: m.wechatBound })),
     pendingInvites: invites.filter((i) => i.state === "unused").length,

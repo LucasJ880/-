@@ -2,7 +2,8 @@
  * 邮件转发询盘解析（PRD F1.2）— 纯函数，无 DB / 网络
  *   Gmail / Outlook / Apple / QQ 转发头拆解、转发套转发、回复链、平台询盘通知（Alibaba.com / Made-in-China 一类）、
  *   官网内部询盘通知（Inquiry ID / eventId）、无转发头的业务员手写、HTML 正文、签名与引用剥离、置信度；
- *   不变量：转发人（及白名单、同企业域名、系统 / 平台地址）永远不会被当成买家。
+ *   不变量：转发人（及白名单、同企业域名、系统 / 平台地址）永远不会被当成买家；业务员手写内容里转发人自己的签名
+ *   电话（没有 "--" / 结束语也一样）不会被当成买家电话；病态输入（无 @ 长串、未闭合标签）线性时间。
  * 运行：npx tsx src/lib/trade/__tests__/email-forward-parse.test.ts
  *
  * 公开仓库：只用虚构企业与保留域名（.example）。
@@ -13,6 +14,7 @@ import {
   displayName,
   htmlToText,
   parseForwardedEmail,
+  senderAddress,
   stripSubjectPrefixes,
   type ForwardedEmailInput,
 } from "../email-forward-parse";
@@ -468,6 +470,104 @@ ok("工具函数：地址 / 显示名 / 主题前缀 / HTML 转文本", () => {
   const t = htmlToText("<style>p{}</style><p>A &amp; B</p><table><tr><td>Name</td><td>Jane</td></tr></table><script>x()</script>");
   assert.equal(t.replace(/\n+/g, "\n"), "A & B\nName\tJane");
   assert.doesNotMatch(t, /p\{\}|x\(\)/);
+});
+
+ok("业务员手写 + 没有 \"--\" / 结束语的签名：转发人的手机号永不当买家电话（英文 / 中文 / 不空行 / 地址 / 口号行）", () => {
+  const from = `Lily Chen <lily@${FACTORY}>`;
+  const notes = [
+    `New buyer: John Smith, john@exampleretail.example, needs 500 towels\nLily | Sales Manager\nExample Textiles Co., Ltd.\nMobile: +86 138 0000 0000`,
+    `New buyer: John Smith, john@exampleretail.example, needs 500 towels\n\nLily | Sales Manager\nExample Textiles Co., Ltd.\nMobile: +86 138 0000 0000`,
+    `新客户：John Smith，john@exampleretail.example，要 500 条毛巾\n\n李丽\n销售经理\n示例纺织有限公司\n手机：138 0000 0000`,
+    `New buyer: John Smith, john@exampleretail.example\n\nLily Chen\nSales Manager\nExample Textiles Co., Ltd.\nNo. 88 Example Road, Ningbo 315000, China\nMobile: +86 138 0000 0000\nwww.exampletextiles.example`,
+    `New buyer: John Smith, john@exampleretail.example, needs 500 towels\n\nLily\nQuality first and on time delivery always\nMobile: +86 138 0000 0000`,
+  ];
+  for (const text of notes) {
+    const p = parse({ from, subject: "New lead", text });
+    assert.equal(p.buyer.email, "john@exampleretail.example", text);
+    assert.equal(p.buyer.phone, "", `staff mobile must not become buyer phone: ${text}`);
+    assert.equal(p.senderKind, "staff");
+  }
+  const first = parse({ from, text: notes[0] });
+  assert.equal(first.message, "New buyer: John Smith, john@exampleretail.example, needs 500 towels");
+  assert.ok(first.signals.includes("staff_signature"));
+  // 另一个买家（新域名、没有公司）也不会拿到同一个员工号码 → Revenue Spine 不会按电话把两个买家并到一起
+  const maria = parse({ from, text: `New buyer Maria, maria@examplecasa.example, wants 300 bath sheets\nLily | Sales Manager\nExample Textiles Co., Ltd.\nMobile: +86 138 0000 0000` });
+  assert.equal(maria.buyer.email, "maria@examplecasa.example");
+  assert.equal(maria.buyer.phone, "");
+  // 只有买家名 / 公司 + 员工签名电话：没有买家联系方式（上游按 no_buyer_contact 隔离）
+  const nameOnly = parse({ from, text: `Buyer: Maria Example\nCompany: Example Casa\n\nLily Chen | Sales Manager\nExample Textiles Co., Ltd.\n\nMobile: +86 138 0000 0000\nWeChat: lily_example` });
+  assert.equal(nameOnly.buyer.name, "Maria Example");
+  assert.equal(nameOnly.buyer.email, "");
+  assert.equal(nameOnly.buyer.phone, "");
+});
+
+ok("业务员手写：买家标签块里的电话照常取（紧挨买家姓名 / 邮箱标签，或标签点明是客户电话）；签名紧跟其后也不误伤", () => {
+  const from = `Lily Chen <lily@${FACTORY}>`;
+  const block = parse({ from, text: `Customer called:\nName: Tom Example\nEmail: tom@examplebuyer.example\nPhone: +61 2 5550 1234\nLily\nExample Textiles Co., Ltd.\nTel: +86 574 0000 2222` });
+  assert.equal(block.buyer.email, "tom@examplebuyer.example");
+  assert.equal(block.buyer.phone, "+61 2 5550 1234");
+  assert.doesNotMatch(block.message, /\+86|Example Textiles Co/);
+  const whatsapp = parse({ from, text: `Buyer: Omar Example\nWhatsApp: +971 50 000 1234\nwants 2000 towels\n\nLily\nExample Textiles Co., Ltd.\nMobile: +86 138 0000 0000` });
+  assert.equal(whatsapp.buyer.phone, "+971 50 000 1234");
+  assert.equal(whatsapp.buyer.name, "Omar Example");
+  const labeled = parse({ from, text: `Met at the fair, wants 800 duvet covers.\nCustomer phone: +49 30 5550 1234\n\nLily | Sales Manager\nMobile: +86 138 0000 0000` });
+  assert.equal(labeled.buyer.phone, "+49 30 5550 1234");
+  // 买家标签块里写的号码恰好等于签名里的号码（业务员误填自己的）：不取
+  const same = parse({ from, text: `Name: Tom Example\nPhone: +86 138 0000 0000\n\nLily\nExample Textiles Co., Ltd.\nMobile: +86 138 0000 0000` });
+  assert.equal(same.buyer.phone, "");
+});
+
+ok("发件人类别 senderKind：买家 / 本厂（含无转发头）/ 平台 / 系统；买家来信里的「RFQ No.」不当官网询盘编号", () => {
+  assert.equal(parse({ from: `Lily Chen <lily@${FACTORY}>`, text: GMAIL_FWD }).senderKind, "buyer");
+  assert.equal(parse({ from: `sales@${FACTORY}`, text: ALIBABA_FWD }).senderKind, "platform");
+  assert.equal(parse({ from: `sales@${FACTORY}`, text: WEBSITE_NOTICE }).senderKind, "staff");
+  assert.equal(parse({ from: `lily@${FACTORY}`, text: "Name: Tom\nEmail: tom@examplebuyer.example" }).senderKind, "staff");
+  const sys = parse({ from: `lily@${FACTORY}`, text: `---------- Forwarded message ---------\nFrom: Site <noreply@sitebuilder.example>\nDate: Mon\nSubject: New inquiry\nTo: <lily@${FACTORY}>\n\nEmail: jane@maple.example` });
+  assert.equal(sys.senderKind, "system");
+  const rfq = parse({ from: `lily@${FACTORY}`, text: `---------- Forwarded message ---------\nFrom: Bob <bob@examplebuyer.example>\nDate: Mon\nSubject: RFQ\nTo: <lily@${FACTORY}>\n\nRFQ No.: 1523\nInquiry No.: 1524\nPlease quote 5000 bath towels.` });
+  assert.equal(rfq.websiteInquiryId, "");
+  assert.equal(rfq.format, "gmail_forward");
+});
+
+ok("地址：引号里的显示名藏着别的地址时取显示名之后的真实地址；严格版对多地址 / 未闭合引号返回空", () => {
+  assert.equal(bareAddress('"<lily@exampletextiles.example>" <mallory@evil.example>'), "mallory@evil.example");
+  assert.equal(bareAddress('"lily@exampletextiles.example" <mallory@evil.example>'), "mallory@evil.example");
+  assert.equal(bareAddress("Jane (Sales <jane@x.example>) <real@maple.example>"), "real@maple.example");
+  assert.equal(bareAddress('"Jane <jane@maple.example>'), "jane@maple.example");
+  assert.equal(senderAddress('"Jane <jane@maple.example>'), "");
+  assert.equal(senderAddress("a@x.example, b@y.example"), "");
+  assert.equal(senderAddress("Jane Doe <Jane@Maple.example>"), "jane@maple.example");
+  assert.equal(senderAddress("jane@maple.example"), "jane@maple.example");
+  assert.equal(senderAddress("Jane [mailto:jane@maple.example]"), "jane@maple.example");
+});
+
+ok("HTML：任意长度的标签（内联 data: URI 图片）整段去掉，不把 base64 填进留言", () => {
+  const html = `<div>We need 500 towels.</div><img src="data:image/png;base64,${"iVBORw0KGgo".repeat(500)}" alt="logo"><div>Thanks</div>`;
+  assert.equal(htmlToText(html).replace(/\n+/g, "\n"), "We need 500 towels.\nThanks");
+  const p = parse({ from: `lily@${FACTORY}`, html: `---------- Forwarded message ---------<br>From: Jane Doe &lt;jane.doe@maplehomegoods.example&gt;<br>Date: Mon<br>Subject: RFQ<br>To: &lt;lily@${FACTORY}&gt;<br><br><div>We need 500 towels.</div>${html}` });
+  assert.doesNotMatch(p.message, /base64|iVBOR/);
+  assert.equal(htmlToText("a < b and c > d"), "a < b and c > d");
+  assert.equal(htmlToText("x <!-- unterminated comment"), "x");
+});
+
+ok("病态输入不会回溯成平方级：20 万个无 @ 的字符、未闭合注释 / 标签 / style、长点号串都在 1 s 内", () => {
+  const cases: ForwardedEmailInput[] = [
+    { from: `lily@${FACTORY}`, text: "a".repeat(199_000) },
+    { from: `lily@${FACTORY}`, html: "a".repeat(199_000) },
+    { from: `lily@${FACTORY}`, html: "<!--".repeat(49_000) },
+    { from: `lily@${FACTORY}`, html: "<p".repeat(99_000) },
+    { from: `lily@${FACTORY}`, html: "<style>".repeat(28_000) },
+    { from: `lily@${FACTORY}`, html: `<a href="${"x".repeat(199_000)}` },
+    { from: `lily@${FACTORY}`, text: `${"a.".repeat(99_000)}@` },
+    { from: `lily@${FACTORY}`, text: `x@${"b".repeat(70)} `.repeat(2_700) },
+    { from: `lily@${FACTORY}`, text: `${"于".repeat(300)}\n`.repeat(600) },
+  ];
+  for (const input of cases) {
+    const started = Date.now();
+    parse(input);
+    const ms = Date.now() - started;
+    assert.ok(ms < 1000, `${(input.text ?? input.html ?? "").slice(0, 12)}… took ${ms} ms`);
+  }
 });
 
 ok("超长输入不会拖垮解析（截断到上限）", () => {
