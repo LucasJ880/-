@@ -22,6 +22,13 @@ export interface BusinessProfile {
   primaryMarkets: string[];
   /** 可生产的产品类目（内部 key，如 bathrobe / blanket / curtain） */
   productCategories: string[];
+  /**
+   * 明确不做的类目（如 bedding / slipper）。询盘只命中这些类目、没有提到任何在做的类目时：
+   * productFit = 0，按 excludedCategoryAction 处理。默认 [] = V1 行为（不在范围只扣一半分）。
+   */
+  excludedCategories: string[];
+  /** review = 不自动起草，留给人工判断婉拒或转介（默认）；decline = 直接判为不合格 */
+  excludedCategoryAction: "review" | "decline";
   /** 产品识别关键词 → 类目（小写，含中英文） */
   productKeywords: Record<string, string>;
   minimumMargin: number | null;
@@ -206,6 +213,8 @@ export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   businessType: "OEM_MANUFACTURER",
   primaryMarkets: ["Canada", "United States", "United Kingdom", "Australia", "Germany"],
   productCategories: ["bathrobe", "blanket", "towel", "bedding", "curtain", "cushion", "table_linen", "slipper"],
+  excludedCategories: [],
+  excludedCategoryAction: "review",
   productKeywords: DEFAULT_PRODUCT_KEYWORDS,
   minimumMargin: null,
   defaultCurrency: "USD",
@@ -427,6 +436,9 @@ export function mergeBusinessProfile(base: BusinessProfile, override: unknown): 
       : base.businessType,
     primaryMarkets: strList(o.primaryMarkets, base.primaryMarkets),
     productCategories: strList(o.productCategories, base.productCategories),
+    excludedCategories: strList(o.excludedCategories, base.excludedCategories ?? []),
+    excludedCategoryAction:
+      o.excludedCategoryAction === "decline" ? "decline" : o.excludedCategoryAction === "review" ? "review" : (base.excludedCategoryAction ?? "review"),
     productKeywords: strMap(o.productKeywords, base.productKeywords),
     minimumMargin: numOrNull(o.minimumMargin, base.minimumMargin),
     defaultCurrency: str(o.defaultCurrency, base.defaultCurrency).toUpperCase(),

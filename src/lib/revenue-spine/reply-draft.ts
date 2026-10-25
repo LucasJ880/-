@@ -256,7 +256,17 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const styles = allowedStyles(met?.styles ?? [], input.policy);
   const cf = input.policy.businessProfile.commercialFacts;
   const catalogOnly = Boolean(met && input.boothGrade === "C" && cf?.gradeCCatalogOnly);
-  const referenceLines = catalogOnly ? [] : buildReferenceLines(knowledge, input.policy, lang);
+  // termLines：正文里渲染的条款原句；referenceLines：守卫白名单（条款原句 + 含数字的样品说明）
+  const termLines = catalogOnly ? [] : buildReferenceLines(knowledge, input.policy, lang);
+  const referenceLines = [...termLines];
+  // 企业配置的样品说明（可能含天数）同样只能以原句出现
+  const sampleLine =
+    !catalogOnly && knowledge.samplePolicy.status === "available" && fields.sampleRequired
+      ? lang === "zh"
+        ? `关于样品：${knowledge.samplePolicy.value.note || (knowledge.samplePolicy.value.available ? "我们可以安排样品，具体方式待确认。" : "样品安排需内部确认。")}`
+        : `Regarding samples: ${knowledge.samplePolicy.value.note || (knowledge.samplePolicy.value.available ? "we can arrange samples; details to be confirmed." : "sample arrangements are subject to internal confirmation.")}`
+      : null;
+  if (sampleLine && /\d/.test(sampleLine)) referenceLines.push(sampleLine);
   const sig = signatureLines(input.policy, lang);
   const references = catalogOnly
     ? []
@@ -313,10 +323,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       lines.push("如有任何感兴趣的款式，随时回复这封邮件即可。");
     } else {
       for (const r of references) lines.push(r.summaryZh);
-      if (referenceLines.length) for (const l of referenceLines) lines.push(l);
-      if (knowledge.samplePolicy.status === "available" && fields.sampleRequired) {
-        lines.push(`关于样品：${knowledge.samplePolicy.value.note || (knowledge.samplePolicy.value.available ? "我们可以安排样品，具体方式待确认。" : "样品安排需内部确认。")}`);
-      }
+      for (const l of termLines) lines.push(l);
+      if (sampleLine) lines.push(sampleLine);
       lines.push(`关于${pending.join("、")}：以上均需内部确认，我们会在收到上述信息后尽快给您正式答复。`);
     }
     lines.push("");
@@ -364,10 +372,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       lines.push("If any of the styles catch your interest, simply reply to this email.");
     } else {
       for (const r of references) lines.push(r.summaryEn);
-      if (referenceLines.length) for (const l of referenceLines) lines.push(l);
-      if (knowledge.samplePolicy.status === "available" && fields.sampleRequired) {
-        lines.push(`Regarding samples: ${knowledge.samplePolicy.value.note || (knowledge.samplePolicy.value.available ? "we can arrange samples; details to be confirmed." : "sample arrangements are subject to internal confirmation.")}`);
-      }
+      for (const l of termLines) lines.push(l);
+      if (sampleLine) lines.push(sampleLine);
       lines.push(`Regarding ${pending.join(", ")}: our team will confirm these internally once we have the details above and revert to you with a formal reply.`);
     }
     lines.push("");
@@ -415,7 +421,7 @@ export async function polishReplyDraftWithLlm(
       systemPrompt:
         "You are a professional B2B OEM sales writer. Rewrite the email body for tone and flow ONLY. " +
         "Do not add, remove or change any facts, numbers, questions or commitments. Never state MOQ, prices, lead times, certifications, payment terms or discounts " +
-        "except where they already appear in the input — any sentence that starts with \"For reference\" or \"供参考\" and any \"Loading ports\" line must be copied verbatim, character for character. " +
+        "except where they already appear in the input — any sentence that starts with \"For reference\", \"供参考\", \"Regarding samples\" or \"关于样品\" and any \"Loading ports\" / \"装运港\" line must be copied verbatim, character for character. " +
         "Keep the sign-off lines (name, title, company, WhatsApp, website) exactly as they are. " +
         "Never promise free samples, exclusivity, price matching, compensation or refunds, and never mention brands or characters. " +
         "Keep the same language as the input. Output only the email body.",
@@ -434,9 +440,8 @@ export async function polishReplyDraftWithLlm(
     // 参考值原句必须一字不差保留；剔除原句后不得再出现任何数字承诺
     if (refs.some((l) => !body.includes(l))) return draft;
     const violations = checkDraftWithReferenceLines(body, refs);
-    if (violations.length) {
-      return { ...draft, guardrailViolations: [], templateOnly: true };
-    }
+    // 润色稿不过守卫：回退模板原样（保留模板自身的守卫结果，不清零）
+    if (violations.length) return draft;
     // 问题数不得减少（润色不能吞掉问题）
     const questionCount = draft.body.split("\n").filter((l) => /^\d+\.\s/.test(l)).length;
     const polishedCount = body.split("\n").filter((l) => /^\d+\.\s/.test(l)).length;

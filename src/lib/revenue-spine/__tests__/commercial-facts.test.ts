@@ -35,6 +35,8 @@ import { buildNoReplyFollowUpDraft } from "../fde/no-reply-followup";
 import { extractRfqHeuristic } from "../rfq/heuristic-extractor";
 import { buildClarifyingQuestions, computeMissingFields } from "../rfq/missing-info";
 import { computeNextAction } from "../next-action";
+import { classifyInquiry } from "../research";
+import { scoreOpportunity } from "../scoring";
 
 let pass = 0;
 async function ok(name: string, fn: () => void | Promise<void>) {
@@ -263,6 +265,64 @@ async function main() {
     assert.equal(computeNextAction(opp, off, new Date("2026-10-01T00:00:00Z")), null);
     const on = computeNextAction(opp, plain, new Date("2026-10-01T00:00:00Z"));
     assert.equal(on?.type, "nurture_check_in");
+  });
+
+
+  await ok("不做的类目：只问床品 → productFit 0、不判不合格、标 outOfRange（默认 review）", () => {
+    const pol = mergeRevenueSpinePolicy(withFacts, { businessProfile: { excludedCategories: ["bedding", "slipper"] } });
+    const msg = "We need 2,000 duvet covers and pillowcases for a hotel in Toronto.";
+    const ex = extractRfqHeuristic(msg, { productKeywords: pol.businessProfile.productKeywords });
+    assert.equal(ex.fields.productCategory, "bedding");
+    const s = scoreOpportunity({ fields: ex.fields, research: classifyInquiry({ name: "A", email: "a@hotelco.ca", company: "HotelCo", message: msg }), message: msg, policy: pol });
+    assert.equal(s.outOfRange, true);
+    assert.equal(s.dimensions.find((d) => d.key === "productFit")!.score, 0);
+    assert.equal(s.qualification, "needs_info");
+    assert.equal(s.recommendedNextAction, "decline");
+  });
+
+  await ok("不做的类目 + decline 模式 → 不合格；混合询盘（浴巾 + 拖鞋）不按不做处理", () => {
+    const pol = mergeRevenueSpinePolicy(withFacts, { businessProfile: { excludedCategories: ["bedding", "slipper"], excludedCategoryAction: "decline" } });
+    const only = "Looking for 5,000 pairs of hotel slippers.";
+    const ex1 = extractRfqHeuristic(only, { productKeywords: pol.businessProfile.productKeywords });
+    const s1 = scoreOpportunity({ fields: ex1.fields, research: classifyInquiry({ name: "A", email: "a@spa.com", company: "Spa", message: only }), message: only, policy: pol });
+    assert.equal(s1.outOfRange, true);
+    assert.equal(s1.qualification, "disqualified");
+    const mixed = "Looking for 5,000 pairs of slippers and 5,000 bath towels.";
+    const ex2 = extractRfqHeuristic(mixed, { productKeywords: pol.businessProfile.productKeywords });
+    const s2 = scoreOpportunity({ fields: ex2.fields, research: classifyInquiry({ name: "A", email: "a@spa.com", company: "Spa", message: mixed }), message: mixed, policy: pol });
+    assert.equal(s2.outOfRange, false);
+    assert.notEqual(s2.qualification, "disqualified");
+  });
+
+  await ok("未配置不做清单：行为与 V1 相同（不在范围扣一半分）", () => {
+    const msg = "We need 2,000 duvet covers for a hotel.";
+    const ex = extractRfqHeuristic(msg, { productKeywords: withFacts.businessProfile.productKeywords });
+    const s = scoreOpportunity({ fields: ex.fields, research: classifyInquiry({ name: "A", email: "a@hotelco.ca", company: "HotelCo", message: msg }), message: msg, policy: withFacts });
+    assert.equal(s.outOfRange, false);
+    assert.equal(s.dimensions.find((d) => d.key === "productFit")!.score, Math.round(withFacts.scoring.weights.productFit * 0.5));
+  });
+
+  await ok("样品说明含天数：作为获准原句写入，守卫通过；润色不得改动", async () => {
+    const pol = mergeRevenueSpinePolicy(withFacts, {
+      businessProfile: { samplePolicy: { available: true, note: "Stock samples are dispatched within 3 days; custom samples take 10–15 days after the specification is confirmed." } },
+    });
+    const base = draftBase(pol);
+    const d = buildReplyDraft({ ...base, fields: { ...base.fields, sampleRequired: true } });
+    const sampleLine = "Regarding samples: Stock samples are dispatched within 3 days; custom samples take 10–15 days after the specification is confirmed.";
+    assert.ok(d.body.includes(sampleLine));
+    assert.equal(d.body.split(sampleLine).length - 1, 1, "sample line appears exactly once");
+    assert.ok((d.referenceLines ?? []).includes(sampleLine));
+    assert.equal(d.guardrailViolations.length, 0);
+    const changed = await polishReplyDraftWithLlm(d, { orgId: "o", userId: "u", complete: async (b) => b.replace("10–15 days", "5 days") });
+    assert.equal(changed.body, d.body);
+  });
+
+  await ok("润色稿不过守卫时回退模板原样：模板自身的守卫结果不被清零", async () => {
+    const d = buildReplyDraft(draftBase(plain));
+    const flagged = { ...d, guardrailViolations: ["示例违规"] };
+    const r = await polishReplyDraftWithLlm(flagged, { orgId: "o", userId: "u", complete: async (b) => `${b}\nOur MOQ is 300 pcs.` });
+    assert.deepEqual(r.guardrailViolations, ["示例违规"]);
+    assert.equal(r.body, d.body);
   });
 
   console.log(`  ${pass} passed`);

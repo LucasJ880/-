@@ -406,7 +406,11 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     let pendingActionId: string | null = null;
     let approvalRequired = false;
     let reviewZh: ReplyDraft | null = null;
-    if (score.qualification !== "disqualified") {
+    // 只命中企业明确不做的类目：不自动起草，留人工判断婉拒或转介（商机与 SLA 行动照常建立）
+    if (score.outOfRange) {
+      await event("agent.output", "询盘产品是企业明确不做的类目：不自动起草，留人工处理", { decision: "out_of_range", productCategory: fields.productCategory });
+    }
+    if (score.qualification !== "disqualified" && !score.outOfRange) {
       const draftInput = {
         tradeShow: booth.fromLatest ? { event: booth.event, styles: booth.styles } : null,
         boothGrade: booth.grade,

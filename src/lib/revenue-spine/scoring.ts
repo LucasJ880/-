@@ -40,6 +40,22 @@ export interface OpportunityScoreResult {
   policyVersion: string;
   /** quantity × targetPrice（两者都有时），供 estimatedValue */
   estimatedValue: number | null;
+  /** 询盘只命中企业明确不做的类目（excludedCategories）；FDE 据此不自动起草 */
+  outOfRange: boolean;
+}
+
+/** 来信里是否也提到了企业在做的类目（"浴袍 + 拖鞋"这类混合询盘不按不做处理） */
+export function mentionsAllowedCategory(lowerMessage: string, policy: RevenueSpinePolicy): boolean {
+  const allowed = new Set(policy.businessProfile.productCategories);
+  const excluded = new Set(policy.businessProfile.excludedCategories ?? []);
+  for (const [kw, category] of Object.entries(policy.businessProfile.productKeywords)) {
+    if (!allowed.has(category) || excluded.has(category)) continue;
+    const k = kw.toLowerCase();
+    const isAscii = /^[\x00-\x7f]+$/.test(k);
+    const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(isAscii ? `(?<![a-z])${escaped}(?![a-z])` : escaped).test(lowerMessage)) return true;
+  }
+  return false;
 }
 
 const ACTION_LABELS: Record<RecommendedAction, { zh: string; en: string }> = {
@@ -71,7 +87,14 @@ export function scoreOpportunity(input: ScoreInput): OpportunityScoreResult {
   const categories = policy.businessProfile.productCategories;
   let productFit = 0;
   let productReason: string;
-  if (fields.productCategory && categories.includes(fields.productCategory)) {
+  const excludedList = policy.businessProfile.excludedCategories ?? [];
+  const outOfRange = Boolean(
+    fields.productCategory && excludedList.includes(fields.productCategory) && !mentionsAllowedCategory(lower, policy),
+  );
+  if (outOfRange) {
+    productFit = 0;
+    productReason = `产品类目「${fields.productCategory}」是企业明确不做的类目，需人工判断婉拒或转介`;
+  } else if (fields.productCategory && categories.includes(fields.productCategory) && !excludedList.includes(fields.productCategory)) {
     productFit = w.productFit;
     productReason = `产品类目「${fields.productCategory}」在工厂能力范围内`;
   } else if (fields.productCategory) {
@@ -174,7 +197,11 @@ export function scoreOpportunity(input: ScoreInput): OpportunityScoreResult {
   let action: RecommendedAction;
   const individualTooSmall =
     buyerType === "individual" && (fields.quantity ?? 0) < policy.scoring.individualMinQuantity;
-  if (productFit === 0 || individualTooSmall) {
+  if (outOfRange && policy.businessProfile.excludedCategoryAction !== "decline" && !individualTooSmall) {
+    // 默认 review：不判不合格（避免误伤），不自动起草，留人工处理
+    qualification = "needs_info";
+    action = "decline";
+  } else if (productFit === 0 || individualTooSmall) {
     qualification = "disqualified";
     action = individualTooSmall ? "nurture" : "decline";
   } else if (feasibilityMissing.length > 0) {
@@ -206,5 +233,6 @@ export function scoreOpportunity(input: ScoreInput): OpportunityScoreResult {
     recommendedNextActionLabel: ACTION_LABELS[action],
     policyVersion: policy.version,
     estimatedValue,
+    outOfRange,
   };
 }
