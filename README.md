@@ -12,7 +12,7 @@
 | 数据库 | PostgreSQL + Prisma 6（本地/线上均为 Postgres；部署见 `docs/DEPLOY_VERCEL.md`） |
 | AI | OpenAI SDK（兼容 DeepSeek / Qwen） |
 | 图标 | Lucide React |
-| 运行时 | Node.js 20 |
+| 运行时 | Node.js 24（以 `.nvmrc` 为准） |
 
 ## 快速开始
 

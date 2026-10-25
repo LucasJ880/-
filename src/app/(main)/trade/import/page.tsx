@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Upload, Loader2, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -81,6 +82,13 @@ export default function TradeImportPage() {
         title="展会/名片导入"
         description="上传 CSV 或 Excel 文件，批量创建线索"
       />
+      <p className="text-xs text-muted">
+        展位速记卡（带卡号、等级、款号）请用{" "}
+        <Link href="/trade/booth-cards" className="text-accent underline-offset-2 hover:underline">
+          展会速记卡 · 夜间录入
+        </Link>
+        ：每张卡直接生成商机和待审批的跟进邮件草稿。
+      </p>
 
       {orgLoading ? (
         <div className="flex justify-center py-20">

@@ -7,6 +7,7 @@ export const TRADE_PROSPECT_SOURCE_LABELS: Record<string, string> = {
   "1688": "1688",
   linkedin: "LinkedIn",
   manual: "手工",
+  email: "邮件转发",
 };
 
 export const TRADE_PROSPECT_SOURCE_TONES: Record<string, string> = {
@@ -18,6 +19,7 @@ export const TRADE_PROSPECT_SOURCE_TONES: Record<string, string> = {
   "1688": "bg-orange-500/20 text-orange-200",
   linkedin: "bg-blue-500/20 text-blue-200",
   manual: "bg-zinc-500/20 text-zinc-200",
+  email: "bg-amber-500/20 text-amber-200",
 };
 
 export function tradeProspectSourceLabel(source?: string | null): string {

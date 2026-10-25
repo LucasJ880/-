@@ -391,15 +391,18 @@ ok(
   // 不变量本意=不得新增第二套 tender **分析/队列** cron（防第二套管线）。
   // tender-watch（2026-08-20 情报运维包）是公告变更通知监视器：零队列消费、
   // 零 run 处理，不在禁区——显式白名单，其余新增 tender cron 依旧拦截。
+  // tender-rfq-inbound（P1-4 询价回信入站）是发件邮箱的 Gmail history 轮询器：
+  // 零分析 run、零队列消费，只把回信报价写进 InquiryItem——同理显式白名单。
   const TENDER_CRON_ALLOWLIST = new Set([
     "tender-auto-analysis",
     "tender-watch",
+    "tender-rfq-inbound",
   ]);
   const tenderCrons = crons.filter((c) => c.includes("tender"));
   ok(
     tenderCrons.every((c) => TENDER_CRON_ALLOWLIST.has(c)) &&
       tenderCrons.includes("tender-auto-analysis"),
-    "P11-BUDGET-06: 无新增 tender 分析/队列 cron（白名单=analysis + watch 通知器）",
+    "P11-BUDGET-06: 无新增 tender 分析/队列 cron（白名单=analysis + watch 通知器 + rfq 回信入站）",
     tenderCrons,
   );
   ok(

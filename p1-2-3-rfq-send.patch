@@ -1,0 +1,1553 @@
+diff --git a/docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md b/docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md
+new file mode 100644
+index 0000000..1693575
+--- /dev/null
++++ b/docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md
+@@ -0,0 +1,113 @@
++# 青砚 × Muse — 招投标优化长任务流（Taskflow v1）
++
++| 项 | 值 |
++|---|---|
++| 日期 | 2026-10-22 |
++| 目标 | 在 Muse 里指挥青砚跑完「抓标 → 分析 → 询价 → 比价 → 定价 → 审批」，青砚保持唯一事实源与审计 |
++| 外部依赖 | `LucasJ880/Muse--Bridge-bot`（预计 2 天内通用化）；本文档的契约（`muse-bridge/v1`）是 Bridge 的开发目标 |
++| 审批人 | 每个 **GATE** 由 Claude 审（代码 diff + 测试输出 + 本文验收项），Evan 拍板合并 |
++| 纪律 | 零 schema（沿用 settingsJson / Notification / AuditLog）；出站动作一律审批；禁止第三套队列（T5 preflight §2 永久禁令）；不爬登录页 |
++
++状态图例：`[ ]` 未开始 · `[~]` 进行中 · `[x]` 完成 · `[G]` 等 Claude 审
++
++---
++
++## Phase 0 — Bridge 打通（本次已交付代码）
++
++目标：三个意图（status / ask / approve|reject）在 Muse 闭环；审批卡从青砚推到 Muse。
++
++| ID | 任务 | 依赖 | 产物 | 状态 |
++|---|---|---|---|---|
++| P0-1 | 契约 `muse-bridge/v1`：命令/响应/事件 zod schema，fail-closed | — | `src/lib/muse-bridge/contract.ts` | [x] |
++| P0-2 | 开关：`MUSE_BRIDGE_ENABLED` / `MUSE_BRIDGE_INTENTS` / `MUSE_BRIDGE_ORG_ALLOWLIST` | P0-1 | `flags.ts` | [x] |
++| P0-3 | 身份绑定（零 schema：`Organization.settingsJson.museBridge.bindings`）+ membership fail-closed | P0-1 | `binding-pure.ts` / `binding.ts` / `api/organizations/[orgId]/muse-bindings` | [x] |
++| P0-4 | 命令路由：幂等账本（AuditLog, 24h）→ 意图门 → status / ask / approve / reject | P0-1..3 | `router-pure.ts` / `router.ts` / `api/bridge/muse/command` | [x] |
++| P0-5 | 事件出站（Notification 作 outbox，`category=muse_bridge`，sourceKey 幂等）+ 拉取端点 | P0-1 | `events-pure.ts` / `events.ts` / `api/bridge/muse/events` | [x] |
++| P0-6 | 挂钩 ①：PendingAction 创建 → `approval.requested` | P0-5 | `pending-actions/drafts.ts` 末尾 `notifyMuseApprovalRequested` | [x] |
++| P0-7 | 挂钩 ②：分析终态化 → `analysis.ready`（legacy worker FINALIZE + workforce 两个 finalize，三面全接） | P0-5 | `hooks.ts museOnAnalysisFinalized`；`worker.ts` / `tender-workforce/tools.ts` | [x] |
++| P0-8 | 挂钩 ③：inquiry 状态变更 → `reply.received` / `quote.parsed` / `missing_fields` | P0-5 | `hooks.ts museOnInquiryReplied / museOnQuoteRecorded`；`inquiry/service.ts` | [x] |
++| P0-9 | 纯逻辑测试（43 项）；`scripts/test-all.sh` 注册 | P0-1..5 | `__tests__/muse-bridge-pure.test.ts` | [x]（注册待做） |
++| P0-10 | ApiToken 种子：`system=muse-bridge`，`permissions=muse:bridge` | — | 运维步骤（见 §验收） | [ ] |
++
++**GATE-0 验收（Claude 审）**
++1. `MUSE_BRIDGE_ENABLED` 未设时，`/api/bridge/muse/*` 全部 503 `BRIDGE_DISABLED`，`emitMuseEvent` 返回 `{emitted:false, reason:"bridge_disabled"}`，现有流程零行为变化。
++2. 未绑定的 `museUserRef` → 403 `USER_NOT_BOUND`；绑定但非 active 成员 → 403 `ORG_MEMBERSHIP_REQUIRED`。
++3. 同一 `requestId` 重放 → 返回首次响应，`approveApprovalItem` 不被二次调用（AuditLog 账本可查）。
++4. `rfq` / `follow_tender` 等未开放意图 → `INTENT_NOT_ENABLED` + `availableInPhase`，不是 500。
++5. 创建任意 PendingAction（带 orgId）→ 指定审批人（否则创建人）的 Notification 里出现一条 `category=muse_bridge` 记录，metadata.museEvent 符合信封 schema；再创建一次（同 actionId）不重复。
++6. 响应/事件文本里出现 `毛利` / `winningBidPrice` 等 → 整段替换为脱敏提示。
++
++**Bridge 侧需要做的（给 Muse--Bridge-bot）**
++- NLU → `MUSE_INTENTS` 词表映射；映射不到 → 让 Muse 问一句，不要猜。
++- 每条命令生成 `requestId`（≥ 8 字符，UUID 即可），失败重试复用同一个 id。
++- 轮询 `GET /api/bridge/muse/events?orgId&museUserRef&since`，把 `since` 持久化；事件里带 `action.command` 的，渲染成一键回复。
++- 收到 `approval.requested` 后，用户回"批准/驳回" → 直接发 `approve/reject` 命令，带 `approvalId`，不要再走 NLU。
++- 绑定：管理员在青砚 `POST /api/organizations/{orgId}/muse-bindings` 完成；Bridge 不保存任何青砚凭证，只保存一个 ApiToken。
++
++---
++
++## Phase 1 — 询价 + 比价（最大体感收益）
++
++| ID | 任务 | 依赖 | 验收 | 状态 |
++|---|---|---|---|---|
++| P1-1 | 结构化 RFQ 生成器：从已确认 `TenderExtractedRequirement` 取行项/数量/Incoterm/目的地/交期/回复截止/编号问题清单；两档出站闸 | P0 | `tender-rfq/build.ts`；21 项单测 | [x] |
++| P1-2 | `rfq` 意图：选供应商 → 生成 → ProjectInquiry(draft)+items → PendingAction `tender.send_rfq` → 审批卡 | P1-1 | `tender-rfq/service.ts` + `muse-bridge/router.ts handleRfq`；批准前零出站；无供应商时回候选列表 | [x]（待 GATE-1 联调） |
++| P1-3 | 执行器 `execTenderSendRfq`：只从组织配置邮箱（Organization.settingsJson.tenderRfq / env，默认 project@sunnyshutter.ca，抬头 Qyan-Sunny Purchasing）Gmail 发出 → `markItemSent` → in_progress；payload hash 防篡改；轮次锁（待批/3 天内已发） | P1-2 | `tender-rfq/execute.ts` + `round-pure.ts`；25 项单测 | [x]（待 GATE-1 联调） |
++| P1-4 | 入站解析：邮件 webhook + 附件（PDF/Excel/图片）→ 结构化报价 → `recordQuote`；保留原文片段作证据；缺字段标记（不猜） | P0-8 | 回邮缺有效期 → `quote.parsed` 事件 summary 明说"缺有效期"，`missing_fields` 事件带追问草稿 | [ ] |
++| P1-5 | 归一化层：币种、Incoterm → 落地成本（复用 `lib/quote/types.ts` shipping/customs）、MOQ/阶梯价、交期 vs 截标日、有效期 vs 开标日 | P1-4 | 纯函数 + 表驱动测试 ≥ 20 例 | [ ] |
++| P1-6 | `compare` 意图：归一化矩阵 + 一句话结论（谁最便宜、谁全合规、谁交期超期） | P1-5 | 响应 ≤ 1200 字，data 带矩阵 | [ ] |
++| P1-7 | `chase` 意图 + 催单调度：N 天无回复 → 草稿 → PendingAction → 审批 → 发送；超期自动 `markItemNoResponse` | P1-3 | cron tick 幂等；同 item 一天最多一张催单卡 | [ ] |
++| P1-8 | `price_scenario` 意图：比价矩阵 → `tender-pricing.buildScenarios`；输出价格分/盈亏平衡，**不输出毛利** | P1-6 | 脱敏测试通过；情景与 UI 数值一致 | [ ] |
++
++**GATE-1 联调前置（运维）**
++- 用拥有 `project@sunnyshutter.ca` 的人登录青砚 → 设置 → 连接 Gmail（需 gmail.compose）；`EmailProvider.accountEmail` 必须等于该邮箱，发送只认它。
++- `MUSE_BRIDGE_INTENTS=status,ask,approve,reject,rfq` 打开 rfq 意图。
++- 非生产环境 `sendGmail` 受 `assertSideEffectOrThrow("email")` 保护：先在允许副作用的 staging 上用一个自己的测试供应商邮箱验证。
++
++**GATE-1 验收**：从 Muse 说「问三家价」到三家报价进表，人工手录字段数 = 0；全程出站动作全部有 PendingAction 记录；Muse 端消息零敏感字段。
++
++---
++
++## Phase 2 — 标讯雷达
++
++| ID | 任务 | 依赖 | 验收 | 状态 |
++|---|---|---|---|---|
++| P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
++| P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
++| P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
++| P2-4 | `watch.ts` 升级为结构化 diff → 触发 `addendum-diff.ts` → `addendum.detected` | P0-5 | 变更≠Addenda 时文案仍诚实 | [ ] |
++
++**GATE-2 验收**：一周内至少 1 条真实新标通过 Muse 早报 → 一键跟进 → 分析完成，全程无人工建项。
++
++---
++
++## Phase 3 — 运行时底座（与 1/2 并行推）
++
++| ID | 任务 | 依赖 | 验收 | 状态 |
++|---|---|---|---|---|
++| P3-1 | server-authored plan（T5 preflight §3 提案）：`createWorkforceJob({ plan })`，`WORKER_STEPS` → `WorkforceTaskSpecV1[]` 纯函数 | Runtime 设计门 | 同一验证路径；`source=server_authored` 可观测 | [ ] |
++| P3-2 | 出站工具 `requiresApproval=true`（send_rfq / chase / 改价 / 锁标），收敛到 ApprovalPort | P1-3 | `tender-workforce/tools.ts` 无 `requiresApproval:false` 的出站工具 | [ ] |
++| P3-3 | 并行度 1 → N；`tender-auto-analysis` 按收敛矩阵包进 workforce adapter | P3-1 | 不新增 queue/lease/scheduler | [ ] |
++| P3-4 | 个人级偏好记忆：常用供应商、默认 Incoterm、催单节奏（存 user settings，零 schema） | P1-7 | `rfq` 不带 supplierIds 时默认取偏好 | [ ] |
++
++---
++
++## 度量（每个 GATE 复测）
++
++| 指标 | 基线（2026-10） | 目标 |
++|---|---|---|
++| 标出现 → Go/No-Go（小时） | 人工，天级 | ≤ 4h |
++| 决定询价 → RFQ 发出（分钟） | 手工写邮件 | ≤ 5 min（含审批） |
++| 报价回收率 | 未统计 | ≥ 80%（含催单） |
++| 人工手录报价字段数 | 5/家 | 0 |
++| 审批平均响应时间 | 站内 | Muse 推送后 ≤ 30 min |
++
++---
++
++## 已决定（2026-10-22）
++
++1. P0-7 三个 finalize 面全接（已实施）。
++2. `analysis.ready` 收件人 = `Project.ownerId` ∪ run.createdById（与站内通知一致，复用 `resolveFailureRecipients`）。
++3. Phase 1 入站邮件走 **Gmail watch**（P1-4 按 Gmail push notification + history.list 形态设计）。
++4. `museUserRef` = **Muse 用户 id**。
++5. ApiToken 种子：待定（P0-10）。
+diff --git a/src/lib/muse-bridge/router.ts b/src/lib/muse-bridge/router.ts
+new file mode 100644
+index 0000000..6f31d20
+--- /dev/null
++++ b/src/lib/muse-bridge/router.ts
+@@ -0,0 +1,340 @@
++/**
++ * Muse Bridge — 命令路由（DB 侧）
++ *
++ * 职责边界：
++ *   - 只调用青砚既有服务（ApprovalPort / tender stage / 分析上下文），不新造业务逻辑；
++ *   - 幂等：同 requestId 在 24h 内重放 → 直接返回首次响应（AuditLog 作账本，零 schema）；
++ *   - 所有格式化走 router-pure.ts；本文件只做取数与编排。
++ *   - Phase 0 只实现 status / ask / approve / reject；其余意图由 gateIntent 诚实拒绝。
++ */
++
++import { db } from "@/lib/db";
++import { logAudit, writeAuditLog } from "@/lib/audit/logger";
++import { approveApprovalItem, rejectApprovalItem, listApprovalInbox } from "@/lib/approval/port";
++import { createCompletion } from "@/lib/ai/client";
++import { isAIConfigured } from "@/lib/ai/config";
++import { buildTenderPackageContext } from "@/lib/tender-auto-analysis/chat-context";
++import { museCommandResponseSchema, type MuseCommandArgs, type MuseCommandEnvelope, type MuseCommandResponse } from "./contract";
++import { enabledMuseIntents } from "./flags";
++import type { MuseIdentity } from "./binding-pure";
++import {
++  errResponse,
++  formatApprovalOutcome,
++  formatStatusMessage,
++  gateIntent,
++  okResponse,
++  type StatusProjectRow,
++} from "./router-pure";
++
++const LEDGER_TARGET_TYPE = "muse_bridge_request" as const;
++const LEDGER_WINDOW_MS = 24 * 60 * 60 * 1000;
++
++const TERMINAL_TENDER_STATUSES = ["won", "lost", "passed", "archived"];
++
++// ── 入口 ────────────────────────────────────────────────────────
++
++export async function handleMuseCommand(
++  envelope: MuseCommandEnvelope,
++  identity: MuseIdentity,
++): Promise<MuseCommandResponse> {
++  const { requestId, command } = envelope;
++
++  // 1. 幂等账本
++  const replay = await findLedgerResponse(requestId, identity);
++  if (replay) return replay;
++
++  // 2. 意图门
++  const gated = gateIntent(requestId, command, enabledMuseIntents());
++  if (gated) return await ledger(envelope, identity, gated);
++
++  // 3. 分发
++  let response: MuseCommandResponse;
++  try {
++    switch (command.intent) {
++      case "status":
++        response = await handleStatus(requestId, identity, command.projectId);
++        break;
++      case "ask":
++        response = await handleAsk(requestId, identity, command.projectId, command.question);
++        break;
++      case "approve": {
++        const outcome = await approveApprovalItem("pending_action", command.approvalId, {
++          userId: identity.userId,
++          role: identity.role,
++          orgId: identity.orgId,
++          note: command.note,
++          acceptedWithRisk: command.acceptedWithRisk,
++        });
++        response = formatApprovalOutcome(requestId, "approve", outcome);
++        break;
++      }
++      case "reject": {
++        const outcome = await rejectApprovalItem("pending_action", command.approvalId, {
++          userId: identity.userId,
++          role: identity.role,
++          orgId: identity.orgId,
++          note: command.reason,
++        });
++        response = formatApprovalOutcome(requestId, "reject", outcome);
++        break;
++      }
++      case "rfq":
++        response = await handleRfq(requestId, identity, command);
++        break;
++      default:
++        // gateIntent 已拦；此处仅类型兜底
++        response = errResponse(requestId, "INTENT_NOT_ENABLED", "该动作尚未开放。");
++    }
++  } catch (err) {
++    console.error("[muse-bridge] command failed:", err);
++    response = errResponse(requestId, "INTERNAL", "青砚处理这条指令时出错了，已记录；请稍后再试或在青砚内操作。");
++  }
++
++  return await ledger(envelope, identity, response);
++}
++
++// ── 幂等账本（AuditLog） ─────────────────────────────────────────
++
++async function findLedgerResponse(requestId: string, identity: MuseIdentity): Promise<MuseCommandResponse | null> {
++  const row = await db.auditLog.findFirst({
++    where: {
++      targetType: LEDGER_TARGET_TYPE,
++      targetId: requestId,
++      orgId: identity.orgId,
++      createdAt: { gt: new Date(Date.now() - LEDGER_WINDOW_MS) },
++    },
++    orderBy: { createdAt: "desc" },
++    select: { afterData: true },
++  });
++  if (!row?.afterData) return null;
++  try {
++    const parsed = museCommandResponseSchema.safeParse(JSON.parse(row.afterData));
++    return parsed.success ? parsed.data : null;
++  } catch {
++    return null;
++  }
++}
++
++async function ledger(
++  envelope: MuseCommandEnvelope,
++  identity: MuseIdentity,
++  response: MuseCommandResponse,
++): Promise<MuseCommandResponse> {
++  try {
++    await writeAuditLog(db, {
++      userId: identity.userId,
++      orgId: identity.orgId,
++      projectId: "projectId" in envelope.command ? envelope.command.projectId ?? null : null,
++      action: `muse:${envelope.command.intent}`,
++      targetType: LEDGER_TARGET_TYPE,
++      targetId: envelope.requestId,
++      beforeData: { museUserRef: envelope.museUserRef, command: envelope.command, utterance: envelope.utterance ?? null },
++      afterData: response,
++    });
++  } catch (err) {
++    // 账本失败不影响回复，但要留痕
++    console.error("[muse-bridge] ledger write failed:", err);
++    void logAudit({ userId: identity.userId, orgId: identity.orgId, action: "muse:ledger_failed", targetType: LEDGER_TARGET_TYPE, targetId: envelope.requestId });
++  }
++  return response;
++}
++
++// ── status ──────────────────────────────────────────────────────
++
++async function handleStatus(requestId: string, identity: MuseIdentity, projectId?: string): Promise<MuseCommandResponse> {
++  const projects = await db.project.findMany({
++    where: {
++      orgId: identity.orgId,
++      workDomain: "tender",
++      ...(projectId ? { id: projectId } : { OR: [{ tenderStatus: null }, { tenderStatus: { notIn: TERMINAL_TENDER_STATUSES } }] }),
++    },
++    orderBy: { closeDate: "asc" },
++    take: 50,
++    select: {
++      id: true,
++      name: true,
++      createdAt: true,
++      tenderStatus: true,
++      publicDate: true,
++      questionCloseDate: true,
++      closeDate: true,
++      dueDate: true,
++      distributedAt: true,
++      dispatchedAt: true,
++      interpretedAt: true,
++      supplierInquiredAt: true,
++      supplierQuotedAt: true,
++      submittedAt: true,
++      awardDate: true,
++      intakeStatus: true,
++      sourceMetadataJson: true,
++      tenderAnalysisRuns: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
++    },
++  });
++  if (projectId && projects.length === 0) {
++    return errResponse(requestId, "PROJECT_NOT_FOUND", "没找到这个项目，或它不属于你的组织。");
++  }
++
++  const inbox = await listApprovalInbox(identity.userId);
++  const pendingByProject = new Map<string, number>();
++  for (const item of inbox) {
++    const pid = item.source.projectId;
++    if (pid) pendingByProject.set(pid, (pendingByProject.get(pid) ?? 0) + 1);
++  }
++
++  const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
++  const rows: StatusProjectRow[] = projects.map((p) => ({
++    id: p.id,
++    name: p.name,
++    createdAt: iso(p.createdAt),
++    tenderStatus: p.tenderStatus,
++    publicDate: iso(p.publicDate),
++    questionCloseDate: iso(p.questionCloseDate),
++    closeDate: iso(p.closeDate),
++    dueDate: iso(p.dueDate),
++    distributedAt: iso(p.distributedAt),
++    dispatchedAt: iso(p.dispatchedAt),
++    interpretedAt: iso(p.interpretedAt),
++    supplierInquiredAt: iso(p.supplierInquiredAt),
++    supplierQuotedAt: iso(p.supplierQuotedAt),
++    submittedAt: iso(p.submittedAt),
++    awardDate: iso(p.awardDate),
++    intakeStatus: p.intakeStatus,
++    sourceMetadataJson: p.sourceMetadataJson,
++    analysisStatus: p.tenderAnalysisRuns[0]?.status ?? null,
++    pendingApprovals: pendingByProject.get(p.id) ?? 0,
++  }));
++
++  const { message, suggestedActions } = formatStatusMessage(rows, new Date());
++  return okResponse(requestId, message, {
++    data: { projects: rows.map((r) => ({ id: r.id, name: r.name, closeDate: r.closeDate, analysisStatus: r.analysisStatus, pendingApprovals: r.pendingApprovals })) },
++    suggestedActions,
++  });
++}
++
++// ── ask（证据接地问答） ─────────────────────────────────────────
++
++const ASK_SYSTEM = [
++  "你是青砚投标助理，通过 Muse 通道回答用户关于一个投标项目的问题。",
++  "硬规则：",
++  "1. 只能依据下面给出的项目上下文作答；上下文没有写的信息一律回答「文档/分析里没有这一项」，绝不推测、绝不编造。",
++  "2. 涉及是否合规、是否满足强制要求的结论，必须指出依据来自哪条要求或哪页；没有依据就说「无证据，需人工确认」。",
++  "3. 不输出任何内部成本、毛利、估值、预算类信息。",
++  "4. 回答控制在 6 句以内，先给结论，再给依据，最后给一个最该做的下一步。用中文。",
++].join("\n");
++
++async function handleAsk(
++  requestId: string,
++  identity: MuseIdentity,
++  projectId: string,
++  question: string,
++): Promise<MuseCommandResponse> {
++  const project = await db.project.findFirst({
++    where: { id: projectId, orgId: identity.orgId },
++    select: { id: true, name: true, workDomain: true },
++  });
++  if (!project) return errResponse(requestId, "PROJECT_NOT_FOUND", "没找到这个项目，或它不属于你的组织。");
++
++  const context = (await buildTenderPackageContext(projectId)) ?? (await fallbackContext(projectId));
++  if (!context) {
++    return okResponse(requestId, `「${project.name}」还没有可用的分析结果，先上传招标文件并等分析完成，再来问我。`, {
++      suggestedActions: [{ label: "看整体状态", command: { intent: "status" } }],
++    });
++  }
++  if (!isAIConfigured()) {
++    return errResponse(requestId, "INTERNAL", "AI 未配置，暂时无法回答；分析结果可在青砚项目页查看。");
++  }
++
++  const answer = await createCompletion({
++    systemPrompt: `${ASK_SYSTEM}\n\n【项目】${project.name}\n【上下文】\n${context.slice(0, 24_000)}`,
++    userPrompt: question,
++    orgId: identity.orgId,
++    userId: identity.userId,
++    temperature: 0.2,
++    maxTokens: 700,
++    workflow: "muse_bridge_ask",
++  });
++
++  return okResponse(requestId, answer.trim(), {
++    suggestedActions: [
++      { label: "还有什么要批", command: { intent: "status" } },
++      { label: "再问一个", command: { intent: "ask", projectId, question: "这个标最大的废标风险是什么？" } },
++    ],
++  });
++}
++
++/** EXPERIENCE 开关关闭时的最小上下文：最新分析 summaryText + 强制要求列表（仍是 canonical 数据）。 */
++async function fallbackContext(projectId: string): Promise<string | null> {
++  const run = await db.tenderAnalysisRun.findFirst({
++    where: { projectId },
++    orderBy: { createdAt: "desc" },
++    select: {
++      status: true,
++      summaryText: true,
++      requirements: {
++        take: 60,
++        orderBy: { createdAt: "asc" },
++        select: { originalRequirement: true, mandatory: true, complianceStatus: true },
++      },
++    },
++  });
++  if (!run) return null;
++  const reqs = run.requirements
++    .map((r, i) => `${i + 1}. [${r.mandatory ? "强制" : "评分"}|${r.complianceStatus}] ${r.originalRequirement.slice(0, 240)}`)
++    .join("\n");
++  return [`分析状态：${run.status}`, run.summaryText ? `摘要：\n${run.summaryText}` : "摘要：无", reqs ? `要求：\n${reqs}` : "要求：无"].join("\n\n");
++}
++
++// ── rfq（P1-2：准备一轮询价 → 审批卡） ──────────────────────────
++
++async function handleRfq(
++  requestId: string,
++  identity: MuseIdentity,
++  command: Extract<MuseCommandArgs, { intent: "rfq" }>,
++): Promise<MuseCommandResponse> {
++  const { prepareRfqRound } = await import("@/lib/tender-rfq/service");
++  const r = await prepareRfqRound({
++    projectId: command.projectId,
++    orgId: identity.orgId,
++    userId: identity.userId,
++    supplierIds: command.supplierIds,
++    supplierHint: command.supplierHint ?? null,
++    scopeNote: command.scope ?? null,
++  });
++
++  if (!r.ok) {
++    if (r.errorCode === "NO_SUPPLIERS" && r.candidates?.length) {
++      const withEmail = r.candidates.filter((c) => !!c.contactEmail);
++      const list = r.candidates.map((c) => `· ${c.name}${c.contactEmail ? "" : "（无邮箱）"}`).join("\n");
++      return okResponse(requestId, `要问哪几家？最近用过的供应商：\n${list}\n直接说名字，或者说「全部有邮箱的」。`, {
++        data: { candidates: r.candidates },
++        suggestedActions: [
++          ...(withEmail.length
++            ? [{ label: `全部有邮箱的 ${withEmail.length} 家`, command: { intent: "rfq" as const, projectId: command.projectId, supplierIds: withEmail.slice(0, 10).map((c) => c.id) } }]
++            : []),
++          ...withEmail.slice(0, 3).map((c) => ({ label: `只问 ${c.name.slice(0, 12)}`, command: { intent: "rfq" as const, projectId: command.projectId, supplierIds: [c.id] } })),
++        ],
++      });
++    }
++    const code = r.errorCode === "PROJECT_NOT_FOUND" ? "PROJECT_NOT_FOUND" : r.errorCode === "ROUND_LOCKED" ? "APPROVAL_FAILED" : "VALIDATION_FAILED";
++    return errResponse(requestId, code, r.message, {
++      suggestedActions: [{ label: "看这个标的状态", command: { intent: "status", projectId: command.projectId } }],
++    });
++  }
++
++  const blocked = r.blockedSuppliers.length
++    ? `\n没发的：${r.blockedSuppliers.map((b) => `${b.name}（${b.reason === "no_email" ? "没邮箱" : "已停用"}）`).join("、")}。`
++    : "";
++  const excluded = r.excludedRequirements > 0 ? `已自动排除 ${r.excludedRequirements} 条非供应商侧/未确认要求。` : "";
++  return okResponse(
++    requestId,
++    `第 ${r.roundNumber} 轮询价草稿好了：${r.suppliers.map((s) => s.name).join("、")}，回复截止 ${r.replyBy ?? "未设"}。${excluded}${blocked}\n发？批准后会从 ${r.fromEmail} 发出。`,
++    {
++      data: { actionId: r.actionId, inquiryId: r.inquiryId, suppliers: r.suppliers, blockedSuppliers: r.blockedSuppliers },
++      suggestedActions: [
++        { label: "发", command: { intent: "approve", approvalId: r.actionId } },
++        { label: "先不发", command: { intent: "reject", approvalId: r.actionId, reason: "暂缓" } },
++      ],
++    },
++  );
++}
+diff --git a/src/lib/pending-actions/executor.ts b/src/lib/pending-actions/executor.ts
+index 1730ad6..ea98dc9 100644
+--- a/src/lib/pending-actions/executor.ts
++++ b/src/lib/pending-actions/executor.ts
+@@ -412,6 +412,14 @@ export async function executePendingAction(
+           ctx,
+         );
+         break;
++      case "tender.send_rfq": {
++        const { execTenderSendRfq } = await import("@/lib/tender-rfq/execute");
++        exec = await execTenderSendRfq(
++          action.payload as unknown as import("@/lib/tender-rfq/types").TenderSendRfqPayload,
++          ctx,
++        );
++        break;
++      }
+       case "marketing.activate_campaign":
+         exec = await execMarketingActivateCampaign(
+           action.payload as unknown as MarketingActivateCampaignPayload,
+diff --git a/src/lib/pending-actions/types.ts b/src/lib/pending-actions/types.ts
+index 61b777b..ecf97c0 100644
+--- a/src/lib/pending-actions/types.ts
++++ b/src/lib/pending-actions/types.ts
+@@ -27,7 +27,9 @@ export type PendingActionType =
+   // ── 营销 Phase2：创建活动草稿（status=draft，不投放）──
+   | "marketing.create_campaign_draft"
+   // ── Revenue Spine：询盘回复发送（FDE 草稿 → 人工批准 → 唯一发送路径）──
+-  | "sales.send_inquiry_reply";
++  | "sales.send_inquiry_reply"
++  // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
++  | "tender.send_rfq";
+ 
+ /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
+ export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
+diff --git a/src/lib/tender-rfq/__tests__/build.test.ts b/src/lib/tender-rfq/__tests__/build.test.ts
+new file mode 100644
+index 0000000..f6387e3
+--- /dev/null
++++ b/src/lib/tender-rfq/__tests__/build.test.ts
+@@ -0,0 +1,75 @@
++/**
++ * P1-1 RFQ 生成器 — 纯逻辑测试
++ * 运行：npx tsx src/lib/tender-rfq/__tests__/build.test.ts
++ */
++import assert from "node:assert/strict";
++import { buildRfqDocument, computeReplyBy, renderRfqEmail, type RfqRequirementInput } from "../build";
++
++let passed = 0;
++function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
++
++const now = new Date("2026-10-22T12:00:00Z");
++const req = (o: Partial<RfqRequirementInput> & { requirementCode: string }): RfqRequirementInput => ({
++  category: "PRODUCT", originalRequirement: "Backpack shall be 1000D Cordura nylon, minimum 30L.", chineseTranslation: "背包须为 1000D 考杜拉尼龙，容量不低于 30L。",
++  mandatory: true, reviewStatus: "CONFIRMED", sourcePage: 12, ...o,
++});
++
++console.log("tender-rfq build");
++
++{
++  const r = buildRfqDocument({ projectName: "RCMP 战术背包", buyerDisplayName: "Sunny Trading Inc.", closeDate: "2026-11-14", now,
++    requirements: [
++      req({ requirementCode: "R-01" }),
++      req({ requirementCode: "R-02", category: "DELIVERY", mandatory: false, originalRequirement: "Delivery within 60 days of PO.", chineseTranslation: "下单后 60 天内交付。", sourcePage: 15 }),
++      req({ requirementCode: "R-03", category: "INSURANCE", originalRequirement: "CGL $5M", chineseTranslation: "商业综合责任险 500 万" }),
++      req({ requirementCode: "R-04", reviewStatus: "AI_EXTRACTED" }),
++      req({ requirementCode: "R-05", category: "SAMPLES", originalRequirement: "Two pre-production samples.", chineseTranslation: "两件产前样。" }),
++    ],
++    facts: [
++      { type: "quantity", contentZh: "最多 1,500 个", contentOriginal: "up to 1,500 units", confidence: "HIGH", manuallyConfirmed: false },
++      { type: "location", contentZh: "Ottawa, ON", contentOriginal: null, confidence: "LOW", manuallyConfirmed: false },
++    ],
++    incoterm: "DDP", destination: "Toronto, ON",
++  });
++  ok("生成成功", r.ok);
++  if (r.ok) {
++    const d = r.doc;
++    ok("只收 CONFIRMED + 供应商侧：R-01/R-02/R-05", d.lineItems.map((i) => i.requirementCode).join(",") === "R-01,R-02,R-05");
++    ok("排除原因可核对", d.excluded.some((e) => e.requirementCode === "R-03" && e.reason === "not_supplier_facing") && d.excluded.some((e) => e.requirementCode === "R-04" && e.reason === "not_confirmed"));
++    ok("行项带来源页码", d.lineItems[0].sourcePage === 12);
++    ok("数量从 HIGH 置信事实解析为 1500", JSON.stringify(d.quantityTiers) === "[1500]");
++    ok("显式 destination 优先于 LOW 置信 location 事实", d.destination === "Toronto, ON");
++    ok("回复截止 = 截标 − 7 天", d.replyBy === "2026-11-07");
++    ok("强制要求派生逐条回复问题，且只含强制项（R-01、R-05）", d.questions[0].relatedCodes.join(",") === "R-01,R-05");
++    ok("SAMPLES → 附件请求", d.attachmentsRequested.some((a) => a.includes("样品")));
++    const mail = renderRfqEmail(d, { supplierName: "王总", roundNumber: 1 });
++    ok("邮件主题含项目/轮次/截止", mail.subject.includes("RCMP 战术背包") && mail.subject.includes("第 1 轮") && mail.subject.includes("2026-11-07"));
++    ok("正文规格保留原文", mail.body.includes("原文：Backpack shall be 1000D"));
++    ok("正文含编号问题", mail.body.includes("Q1.") && mail.body.includes("Q5."));
++    ok("正文无内部字段", !/毛利|estimatedValue|ourBidPrice/i.test(mail.body));
++  }
++}
++{
++  const r = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01", reviewStatus: "AI_EXTRACTED" })], facts: [] });
++  ok("无已确认要求 → NO_CONFIRMED_REQUIREMENTS", !r.ok && r.errorCode === "NO_CONFIRMED_REQUIREMENTS");
++}
++{
++  const r = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01" })], facts: [], scopeNote: "我方 ourBidPrice 上限 60k，请压价" });
++  ok("范围说明泄漏内部字段 → SENSITIVE_LEAK 整体拒绝", !r.ok && r.errorCode === "SENSITIVE_LEAK");
++}
++{
++  const r = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01" })], facts: [], quantityTiers: [500, 100, 100, 1000] });
++  ok("数量阶梯去重排序", r.ok && JSON.stringify(r.doc.quantityTiers) === "[100,500,1000]");
++  const r2 = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01" })], facts: [] });
++  ok("无数量 → 留给供应商注明，不编造", r2.ok && r2.doc.quantityTiers === null && !!r2.doc.quantityNote);
++}
++{
++  const r = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01", originalRequirement: "Replacement parts shall be supplied at no additional cost for 2 years; unit price in CAD $." })], facts: [] });
++  ok("招标原文含 cost / $ 这类合法词不误拒", r.ok);
++  const r2 = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01", chineseTranslation: "我方毛利需保持 30%" })], facts: [] });
++  ok("要求原文被内部字段污染 → 拒绝", !r2.ok && r2.errorCode === "SENSITIVE_LEAK");
++}
++ok("回复截止不早于今天+2", computeReplyBy("2026-10-23", now) === "2026-10-24");
++ok("截标为空 → 无回复截止", computeReplyBy(null, now) === null);
++
++console.log(`\ntender-rfq: ${passed} passed`);
+diff --git a/src/lib/tender-rfq/__tests__/round-pure.test.ts b/src/lib/tender-rfq/__tests__/round-pure.test.ts
+new file mode 100644
+index 0000000..0c69ad7
+--- /dev/null
++++ b/src/lib/tender-rfq/__tests__/round-pure.test.ts
+@@ -0,0 +1,82 @@
++/**
++ * P1-2/P1-3 轮次决策 — 纯逻辑测试
++ * 运行：npx tsx src/lib/tender-rfq/__tests__/round-pure.test.ts
++ */
++import assert from "node:assert/strict";
++import {
++  decideRoundLock, hashRfqPayloadItems, partitionSuppliers, previewRfqPayload,
++  readCriticalFactSlot, readTenderRfqSettings, resolveSender, type ExistingRound,
++} from "../round-pure";
++
++let passed = 0;
++function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
++const now = new Date("2026-10-22T12:00:00Z");
++const round = (o: Partial<ExistingRound>): ExistingRound => ({ inquiryId: "inq", roundNumber: 1, status: "in_progress", createdAt: new Date("2026-10-21T09:00:00Z"), createdByName: "Evan", sentCount: 3, hasPendingSend: false, ...o });
++
++console.log("tender-rfq settings");
++{
++  const s = readTenderRfqSettings(null, {});
++  ok("默认抬头 Qyan-Sunny Purchasing", s.fromName === "Qyan-Sunny Purchasing");
++  ok("默认发件 project@sunnyshutter.ca", s.fromEmail === "project@sunnyshutter.ca");
++  ok("默认回复提前 7 天、轮次锁 3 天", s.replyLeadDays === 7 && s.roundLockDays === 3);
++  const s2 = readTenderRfqSettings({ tenderRfq: { fromName: " 采购部 ", fromEmail: "Buy@Example.com", roundLockDays: 1 } }, { TENDER_RFQ_FROM_NAME: "env-name" });
++  ok("org settings 优先于 env，邮箱小写、抬头去空格", s2.fromName === "采购部" && s2.fromEmail === "buy@example.com" && s2.roundLockDays === 1);
++  const s3 = readTenderRfqSettings({}, { TENDER_RFQ_FROM_NAME: "env-name" });
++  ok("org 未配置时取 env", s3.fromName === "env-name");
++}
++
++console.log("tender-rfq round lock");
++{
++  ok("无轮次 → 不锁", !decideRoundLock([], now, 3).locked);
++  const v1 = decideRoundLock([round({ hasPendingSend: true })], now, 3);
++  ok("已有待批发送 → 锁 pending_approval，文案含创建人", v1.locked && v1.reason === "pending_approval" && v1.message.includes("Evan"));
++  const v2 = decideRoundLock([round({})], now, 3);
++  ok("1 天前发过 3 家 → 锁 recently_sent，文案含家数", v2.locked && v2.reason === "recently_sent" && v2.message.includes("3 家"));
++  ok("超过锁定期 → 不锁", !decideRoundLock([round({ createdAt: new Date("2026-10-15T09:00:00Z") })], now, 3).locked);
++  ok("已完成的轮次不锁", !decideRoundLock([round({ status: "completed" })], now, 3).locked);
++  ok("建了但一家都没发 → 不锁", !decideRoundLock([round({ sentCount: 0 })], now, 3).locked);
++}
++
++console.log("tender-rfq suppliers");
++{
++  const { ready, blocked } = partitionSuppliers([
++    { id: "a", name: "A厂", contactEmail: "a@x.com", status: "active" },
++    { id: "b", name: "B厂", contactEmail: null, status: "active" },
++    { id: "c", name: "C厂", contactEmail: "bad-email", status: "active" },
++    { id: "d", name: "D厂", contactEmail: "d@x.com", status: "inactive" },
++  ]);
++  ok("只有有合法邮箱且 active 的进 ready", ready.map((s) => s.id).join() === "a");
++  ok("无邮箱/坏邮箱/停用分别标记", blocked.map((b) => `${b.id}:${b.reason}`).join() === "b:no_email,c:no_email,d:inactive");
++}
++
++console.log("tender-rfq sender");
++{
++  const scope = (s: string | null) => !!s && s.includes("gmail.compose");
++  const r1 = resolveSender([{ userId: "u9", accountEmail: "Project@SunnyShutter.ca", grantedScopes: "openid gmail.compose" }], "project@sunnyshutter.ca", scope);
++  ok("按邮箱（不区分大小写）找到发件账号", r1.ok && r1.userId === "u9");
++  const r2 = resolveSender([{ userId: "u1", accountEmail: "evan@x.com", grantedScopes: "gmail.compose" }], "project@sunnyshutter.ca", scope);
++  ok("审批人自己的邮箱不算 → SENDER_NOT_CONNECTED", !r2.ok && r2.errorCode === "SENDER_NOT_CONNECTED");
++  const r3 = resolveSender([{ userId: "u9", accountEmail: "project@sunnyshutter.ca", grantedScopes: "openid" }], "project@sunnyshutter.ca", scope);
++  ok("缺 compose scope → SENDER_NO_COMPOSE_SCOPE", !r3.ok && r3.errorCode === "SENDER_NO_COMPOSE_SCOPE");
++}
++
++console.log("tender-rfq critical facts");
++{
++  ok("factId 形状", JSON.stringify(readCriticalFactSlot({ criticalFacts: { quantity: { status: "KNOWN", factId: "f1" } } }, "quantity")) === '{"factId":"f1"}');
++  ok("text 形状", JSON.stringify(readCriticalFactSlot({ criticalFacts: { delivery: { status: "KNOWN", text: "60 天" } } }, "delivery")) === '{"text":"60 天"}');
++  ok("字符串形状", JSON.stringify(readCriticalFactSlot({ criticalFacts: { location: "Ottawa" } }, "location")) === '{"text":"Ottawa"}');
++  ok("UNKNOWN → null", readCriticalFactSlot({ criticalFacts: { quantity: { status: "UNKNOWN" } } }, "quantity") === null);
++  ok("N/A → null", readCriticalFactSlot({ criticalFacts: { quantity: { status: "KNOWN", text: "N/A" } } }, "quantity") === null);
++  ok("脏值不抛", readCriticalFactSlot("garbage", "quantity") === null && readCriticalFactSlot(null, "x") === null);
++}
++
++console.log("tender-rfq payload");
++{
++  const items = [{ inquiryItemId: "i1", supplierId: "s1", supplierName: "A厂", to: "a@x.com", subject: "询价：P", body: "hello" }];
++  const h = hashRfqPayloadItems(items);
++  ok("hash 稳定且 16 位", h.length === 16 && h === hashRfqPayloadItems(items));
++  ok("正文改一字 hash 变", hashRfqPayloadItems([{ ...items[0], body: "hello!" }]) !== h);
++  const pv = previewRfqPayload({ projectId: "p", inquiryId: "i", roundNumber: 2, fromName: "Qyan-Sunny Purchasing", fromEmail: "project@sunnyshutter.ca", items, rfqDocHash: h });
++  ok("预览含轮次/家数/发件人/收件人，不含正文", pv.includes("第 2 轮") && pv.includes("1 封") && pv.includes("project@sunnyshutter.ca") && pv.includes("a@x.com") && !pv.includes("hello"));
++}
++console.log(`\ntender-rfq round-pure: ${passed} passed`);
+diff --git a/src/lib/tender-rfq/build.ts b/src/lib/tender-rfq/build.ts
+new file mode 100644
+index 0000000..8373ce4
+--- /dev/null
++++ b/src/lib/tender-rfq/build.ts
+@@ -0,0 +1,302 @@
++/**
++ * Tender RFQ（P1-1）— 结构化询价单生成器（纯函数，零 DB / 零 LLM）
++ *
++ * 输入：已人工确认的要求（reviewStatus=CONFIRMED）+ 已确认/高置信的关键事实 + 我方抬头。
++ * 输出：供应商可逐行回复的 RFQ 文档——行项带 requirementCode 与来源页码，
++ *       数量阶梯、Incoterm/目的地、交期、回复截止、编号问题清单。
++ *
++ * 纪律：
++ *   1. 只用 CONFIRMED 的要求；AI_EXTRACTED / REJECTED 一律不进供应商视野。
++ *   2. 只收供应商相关类别（产品/技术/交付/质保/样品/安全/包装类），
++ *      行政/投标/保证金/保险等买方侧要求不发给供应商。
++ *   3. 任何字段命中 china-supplier-brief 的敏感模式 → 整个文档 build 失败（不是 scrub）。
++ *      供应商永远看不到估值、我方报价、毛利、预算。
++ *   4. 文档里没写的（数量、交付地）保持 null，渲染为「请报价时注明/按贵司标准」，不编造。
++ */
++
++import type { RequirementCategoryV2 } from "@/lib/tender-understanding/contract";
++import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
++
++export const RFQ_CONTRACT_VERSION = "tender-rfq/v1" as const;
++
++/** 进入供应商视野的要求类别 */
++export const SUPPLIER_FACING_CATEGORIES: readonly RequirementCategoryV2[] = [
++  "PRODUCT",
++  "TECHNICAL",
++  "PERFORMANCE",
++  "DELIVERY",
++  "WARRANTY",
++  "SAMPLES",
++  "SAFETY",
++  "SHOP_DRAWINGS",
++  "INSTALLATION",
++  "TRAINING",
++];
++
++export type RfqRequirementInput = {
++  requirementCode: string;
++  category: string;
++  originalRequirement: string;
++  chineseTranslation: string | null;
++  mandatory: boolean;
++  reviewStatus: string;
++  sourcePage: number | null;
++};
++
++export type RfqFactInput = {
++  /** CRITICAL_FACT_TYPES 之一（quantity / delivery / location / closing_datetime / scope / warranty …） */
++  type: string;
++  contentZh: string;
++  contentOriginal: string | null;
++  confidence: string;
++  manuallyConfirmed: boolean;
++};
++
++export type RfqBuildInput = {
++  projectName: string;
++  /** 我方对供应商的抬头（tenderProfile.quoteHeader.companyName；缺省用项目所属组织名） */
++  buyerDisplayName: string;
++  /** 投标截标日（ISO）；回复截止 = 截标 − replyLeadDays，且不早于今天+2 */
++  closeDate: string | null;
++  now: Date;
++  requirements: RfqRequirementInput[];
++  facts: RfqFactInput[];
++  /** 希望供应商报价的数量阶梯；为空时按事实槽位 quantity 单档，再为空则留给供应商注明 */
++  quantityTiers?: number[];
++  incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
++  destination?: string | null;
++  /** 回复截止提前量（天），默认 7 */
++  replyLeadDays?: number;
++  /** 追加的自定义问题（人工编辑） */
++  extraQuestions?: string[];
++  /** 本轮询价范围说明（人工编辑） */
++  scopeNote?: string | null;
++};
++
++export type RfqLineItem = {
++  seq: number;
++  requirementCode: string;
++  category: string;
++  specZh: string;
++  specOriginal: string;
++  mandatory: boolean;
++  sourcePage: number | null;
++};
++
++export type RfqQuestion = { seq: number; text: string; relatedCodes: string[] };
++
++export type RfqDocument = {
++  contractVersion: typeof RFQ_CONTRACT_VERSION;
++  projectName: string;
++  buyerDisplayName: string;
++  scopeNote: string | null;
++  lineItems: RfqLineItem[];
++  quantityTiers: number[] | null;
++  quantityNote: string | null;
++  incoterm: string | null;
++  destination: string | null;
++  requiredLeadTimeNote: string | null;
++  replyBy: string | null;
++  questions: RfqQuestion[];
++  /** 供应商必须随报价提供的材料（从 SAMPLES / SHOP_DRAWINGS / SAFETY 派生） */
++  attachmentsRequested: string[];
++  /** 被排除的要求（非供应商侧或未确认），便于内部核对不是"漏了" */
++  excluded: Array<{ requirementCode: string; reason: "not_confirmed" | "not_supplier_facing" }>;
++};
++
++export type RfqBuildResult =
++  | { ok: true; doc: RfqDocument }
++  | { ok: false; errorCode: "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK"; message: string; offending?: string[] };
++
++const DAY = 86_400_000;
++
++/** 只属于我方内部、绝不可能合法出现在招标要求原文里的字段/词 */
++const INTERNAL_FIELD_PATTERNS: RegExp[] = [/estimatedValue/i, /ourBidPrice/i, /winningBidPrice/i, /毛利/, /利润率/, /底价/, /我方预算/, /中标概率/];
++
++function iso(d: Date): string {
++  return d.toISOString().slice(0, 10);
++}
++
++function fact(facts: RfqFactInput[], type: string): RfqFactInput | null {
++  const ok = facts.filter(
++    (f) => f.type === type && (f.manuallyConfirmed || f.confidence === "HIGH" || f.confidence === "VERIFIED"),
++  );
++  return ok[0] ?? null;
++}
++
++function parseQuantity(text: string | null): number | null {
++  if (!text) return null;
++  const m = text.replace(/,/g, "").match(/(\d+(?:\.\d+)?)/);
++  if (!m) return null;
++  const n = Number(m[1]);
++  return Number.isFinite(n) && n > 0 ? n : null;
++}
++
++export function computeReplyBy(closeDate: string | null, now: Date, replyLeadDays = 7): string | null {
++  if (!closeDate) return null;
++  const close = new Date(closeDate);
++  if (Number.isNaN(close.getTime())) return null;
++  const candidate = new Date(close.getTime() - replyLeadDays * DAY);
++  const floor = new Date(now.getTime() + 2 * DAY);
++  return iso(candidate < floor ? floor : candidate);
++}
++
++/** 从行项派生标准问题：每条强制要求一个「能否满足」，加上交期/MOQ/有效期/认证四条固定项。 */
++function deriveQuestions(items: RfqLineItem[], extra: string[]): RfqQuestion[] {
++  const out: RfqQuestion[] = [];
++  let seq = 1;
++  const mandatory = items.filter((i) => i.mandatory);
++  if (mandatory.length) {
++    out.push({
++      seq: seq++,
++      text: `以下强制要求请逐条回复「满足 / 部分满足（说明差异）/ 不满足」：${mandatory.map((i) => i.requirementCode).join("、")}`,
++      relatedCodes: mandatory.map((i) => i.requirementCode),
++    });
++  }
++  out.push({ seq: seq++, text: "各数量档的单价（含包装），以及最小起订量（MOQ）。", relatedCodes: [] });
++  out.push({ seq: seq++, text: "收到订单后的生产交期（天），以及是否有现货。", relatedCodes: [] });
++  out.push({ seq: seq++, text: "报价有效期（具体日期）。", relatedCodes: [] });
++  out.push({ seq: seq++, text: "可提供的认证/检测报告清单（如有，请随报价附上）。", relatedCodes: [] });
++  for (const q of extra) {
++    const t = q.trim();
++    if (t) out.push({ seq: seq++, text: t, relatedCodes: [] });
++  }
++  return out;
++}
++
++function deriveAttachments(items: RfqLineItem[]): string[] {
++  const set = new Set<string>();
++  for (const i of items) {
++    if (i.category === "SAMPLES") set.add("样品（按行项说明的规格）");
++    if (i.category === "SHOP_DRAWINGS") set.add("图纸 / 技术资料");
++    if (i.category === "SAFETY") set.add("安全/合规证书或检测报告");
++    if (i.category === "WARRANTY") set.add("质保条款书面说明");
++  }
++  return [...set];
++}
++
++export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
++  const excluded: RfqDocument["excluded"] = [];
++  const items: RfqLineItem[] = [];
++  let seq = 1;
++  for (const r of input.requirements) {
++    if (r.reviewStatus !== "CONFIRMED") {
++      excluded.push({ requirementCode: r.requirementCode, reason: "not_confirmed" });
++      continue;
++    }
++    if (!(SUPPLIER_FACING_CATEGORIES as readonly string[]).includes(r.category)) {
++      excluded.push({ requirementCode: r.requirementCode, reason: "not_supplier_facing" });
++      continue;
++    }
++    items.push({
++      seq: seq++,
++      requirementCode: r.requirementCode,
++      category: r.category,
++      specZh: (r.chineseTranslation ?? "").trim() || r.originalRequirement.trim(),
++      specOriginal: r.originalRequirement.trim(),
++      mandatory: r.mandatory,
++      sourcePage: r.sourcePage,
++    });
++  }
++  if (items.length === 0) {
++    return {
++      ok: false,
++      errorCode: "NO_CONFIRMED_REQUIREMENTS",
++      message: "没有已确认且属于供应商侧的要求，先在青砚「招标要求」里逐条确认后再生成询价。",
++    };
++  }
++
++  const qtyFact = fact(input.facts, "quantity");
++  const tiers =
++    input.quantityTiers && input.quantityTiers.length
++      ? [...new Set(input.quantityTiers.filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b)
++      : (() => {
++          const q = parseQuantity(qtyFact?.contentOriginal ?? qtyFact?.contentZh ?? null);
++          return q ? [q] : null;
++        })();
++  const quantityNote = tiers ? null : "招标文件未明确数量，请按贵司常规阶梯（如 100 / 500 / 1000）分别报价。";
++
++  const deliveryFact = fact(input.facts, "delivery");
++  const locationFact = fact(input.facts, "location");
++  const destination = input.destination ?? locationFact?.contentZh ?? null;
++  const requiredLeadTimeNote = deliveryFact ? deliveryFact.contentZh : null;
++
++  const doc: RfqDocument = {
++    contractVersion: RFQ_CONTRACT_VERSION,
++    projectName: input.projectName,
++    buyerDisplayName: input.buyerDisplayName,
++    scopeNote: input.scopeNote?.trim() || null,
++    lineItems: items,
++    quantityTiers: tiers,
++    quantityNote,
++    incoterm: input.incoterm ?? null,
++    destination,
++    requiredLeadTimeNote,
++    replyBy: computeReplyBy(input.closeDate, input.now, input.replyLeadDays),
++    questions: deriveQuestions(items, input.extraQuestions ?? []),
++    attachmentsRequested: deriveAttachments(items),
++    excluded,
++  };
++
++  // 出站硬闸（两档）：
++  //  - 人工自由文本（范围说明/自定义问题/抬头/目的地）用 china-supplier-brief 的全量模式（含 cost/budget/金额）；
++  //  - 招标原文行项只用"我方内部字段"窄模式——招标文件本身常含 "at no additional cost" / "$" 这类合法词，
++  //    不能因此拒发；而估值/我方报价/毛利/预算这些永远不该出现在要求原文里，出现即说明数据被污染。
++  const freeText = [doc.buyerDisplayName, doc.scopeNote ?? "", doc.destination ?? "", ...(input.extraQuestions ?? [])];
++  const specText = [doc.projectName, doc.requiredLeadTimeNote ?? "", ...doc.lineItems.flatMap((i) => [i.specZh, i.specOriginal])];
++  const offending = [
++    ...freeText.filter((t) => containsSensitiveSupplierBriefText(t)),
++    ...specText.filter((t) => INTERNAL_FIELD_PATTERNS.some((re) => re.test(t))),
++  ];
++  if (offending.length) {
++    return {
++      ok: false,
++      errorCode: "SENSITIVE_LEAK",
++      message: "询价内容含内部财务信息，已拒绝生成；请检查范围说明/自定义问题。",
++      offending: offending.map((t) => t.slice(0, 80)),
++    };
++  }
++  return { ok: true, doc };
++}
++
++/* ---------------------------------- 渲染 ---------------------------------- */
++
++/** 供应商邮件正文（中文为主，规格保留原文以免翻译歧义）。 */
++export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string | null; roundNumber?: number | null }): {
++  subject: string;
++  body: string;
++} {
++  const subject = `询价：${doc.projectName}${opts?.roundNumber ? `（第 ${opts.roundNumber} 轮）` : ""}${doc.replyBy ? ` — 请于 ${doc.replyBy} 前回复` : ""}`;
++  const L: string[] = [];
++  L.push(`${opts?.supplierName ? `${opts.supplierName} ` : ""}您好：`);
++  L.push("");
++  L.push(`${doc.buyerDisplayName} 正在为项目「${doc.projectName}」采购，请按以下清单报价。`);
++  if (doc.scopeNote) L.push(`范围说明：${doc.scopeNote}`);
++  L.push("");
++  L.push("一、规格要求（请逐条确认）");
++  for (const i of doc.lineItems) {
++    const tag = i.mandatory ? "【强制】" : "【评分】";
++    const page = i.sourcePage ? `（招标文件 p.${i.sourcePage}）` : "";
++    L.push(`${i.seq}. ${tag}${i.requirementCode} ${i.specZh}${page}`);
++    if (i.specOriginal && i.specOriginal !== i.specZh) L.push(`   原文：${i.specOriginal}`);
++  }
++  L.push("");
++  L.push("二、商务条件");
++  L.push(`- 数量：${doc.quantityTiers ? doc.quantityTiers.map((n) => `${n}`).join(" / ") + "（请分档报价）" : doc.quantityNote}`);
++  L.push(`- 贸易条款：${doc.incoterm ?? "请注明报价贸易条款"}${doc.destination ? `，目的地 ${doc.destination}` : ""}`);
++  if (doc.requiredLeadTimeNote) L.push(`- 交付要求：${doc.requiredLeadTimeNote}`);
++  L.push(`- 回复截止：${doc.replyBy ?? "请尽快"}`);
++  L.push("");
++  L.push("三、请在回复中逐条回答");
++  for (const q of doc.questions) L.push(`Q${q.seq}. ${q.text}`);
++  if (doc.attachmentsRequested.length) {
++    L.push("");
++    L.push("四、请随报价提供");
++    for (const a of doc.attachmentsRequested) L.push(`- ${a}`);
++  }
++  L.push("");
++  L.push("为便于比对，请按上述编号逐项回复；若某项无法满足请直说，我们更看重准确。");
++  L.push("");
++  L.push(doc.buyerDisplayName);
++  return { subject, body: L.join("\n") };
++}
+diff --git a/src/lib/tender-rfq/execute.ts b/src/lib/tender-rfq/execute.ts
+new file mode 100644
+index 0000000..6e6ad92
+--- /dev/null
++++ b/src/lib/tender-rfq/execute.ts
+@@ -0,0 +1,82 @@
++/**
++ * Tender RFQ（P1-3）— 批准后执行：Gmail 发送 → markItemSent → 轮次 in_progress
++ *
++ * 安全：
++ *   - 只从组织配置的发件邮箱发出（按 accountEmail 查 EmailProvider），与审批人无关；
++ *   - payload 内容 hash 与执行时重算一致，否则拒绝（防止审批后被改）；
++ *   - 逐封发送、逐封记录；某家失败不回滚已发出的（邮件发出即不可撤回），结果如实列出。
++ *   - sendGmail 内部已有 assertSideEffectOrThrow("email")：非生产默认 SIDE_EFFECT_DISABLED。
++ */
++
++import { db } from "@/lib/db";
++import { hasGmailComposeScope, sendGmail } from "@/lib/google-email";
++import { markItemSent } from "@/lib/inquiry/service";
++import { INQUIRY_STATUS } from "@/lib/inquiry/types";
++import { hashRfqPayloadItems, resolveSender } from "./round-pure";
++import type { TenderSendRfqPayload } from "./types";
++
++export type ExecTenderSendRfqContext = { userId: string; role: string | null | undefined; orgId?: string | null };
++export type ExecTenderSendRfqResult = { ok: boolean; resultRef?: string; message?: string; error?: string; errorCode?: string };
++
++export async function execTenderSendRfq(
++  payload: TenderSendRfqPayload,
++  ctx: ExecTenderSendRfqContext,
++  deps: { send?: typeof sendGmail } = {},
++): Promise<ExecTenderSendRfqResult> {
++  if (!payload?.projectId || !payload.inquiryId || !Array.isArray(payload.items) || payload.items.length === 0) {
++    return { ok: false, error: "询价 payload 不完整，拒绝执行", errorCode: "RFQ_PAYLOAD_INVALID" };
++  }
++  if (hashRfqPayloadItems(payload.items) !== payload.rfqDocHash) {
++    return { ok: false, error: "询价内容与审批时不一致，拒绝执行", errorCode: "RFQ_PAYLOAD_TAMPERED" };
++  }
++
++  const project = await db.project.findUnique({ where: { id: payload.projectId }, select: { orgId: true, name: true } });
++  if (!project) return { ok: false, error: "项目不存在", errorCode: "PROJECT_NOT_FOUND" };
++  if (ctx.orgId && project.orgId !== ctx.orgId) return { ok: false, error: "跨组织动作，拒绝执行", errorCode: "CROSS_ORG" };
++
++  // 发件账号：必须是配置的邮箱
++  const providers = await db.emailProvider.findMany({
++    where: { type: "gmail", accountEmail: { equals: payload.fromEmail, mode: "insensitive" } },
++    select: { userId: true, accountEmail: true, grantedScopes: true },
++  });
++  const sender = resolveSender(providers, payload.fromEmail, hasGmailComposeScope);
++  if (!sender.ok) return { ok: false, error: sender.message, errorCode: sender.errorCode };
++
++  const send = deps.send ?? sendGmail;
++  const from = `"${payload.fromName.replace(/"/g, "")}" <${payload.fromEmail}>`;
++  const sent: string[] = [];
++  const failed: Array<{ supplierName: string; error: string }> = [];
++
++  for (const item of payload.items) {
++    // 已发过的跳过（重放保护，与 markItemSent 的状态机一致）
++    const current = await db.inquiryItem.findUnique({ where: { id: item.inquiryItemId }, select: { status: true } });
++    if (!current) {
++      failed.push({ supplierName: item.supplierName, error: "询价项已不存在" });
++      continue;
++    }
++    if (current.status !== "pending") {
++      sent.push(`${item.supplierName}（此前已发）`);
++      continue;
++    }
++    try {
++      const { messageId } = await send(sender.userId, { to: item.to, from, subject: item.subject, body: item.body, replyTo: payload.fromEmail });
++      await markItemSent({ projectId: payload.projectId, inquiryId: payload.inquiryId, itemId: item.inquiryItemId }, { sentVia: "email" });
++      await db.inquiryItem.update({
++        where: { id: item.inquiryItemId },
++        data: { contactNotes: `Gmail messageId=${messageId} · ${new Date().toISOString()}` },
++      });
++      sent.push(item.supplierName);
++    } catch (err) {
++      failed.push({ supplierName: item.supplierName, error: err instanceof Error ? err.message : String(err) });
++    }
++  }
++
++  if (sent.length > 0) {
++    await db.projectInquiry.update({ where: { id: payload.inquiryId }, data: { status: INQUIRY_STATUS.IN_PROGRESS } }).catch(() => undefined);
++    await db.project.update({ where: { id: payload.projectId }, data: { supplierInquiredAt: new Date() } }).catch(() => undefined);
++  }
++
++  const summary = `已发出 ${sent.length}/${payload.items.length}：${sent.join("、") || "无"}` + (failed.length ? `；失败：${failed.map((f) => `${f.supplierName}（${f.error}）`).join("、")}` : "");
++  if (sent.length === 0) return { ok: false, error: summary, errorCode: "RFQ_ALL_FAILED" };
++  return { ok: true, resultRef: payload.inquiryId, message: summary };
++}
+diff --git a/src/lib/tender-rfq/round-pure.ts b/src/lib/tender-rfq/round-pure.ts
+new file mode 100644
+index 0000000..7231b47
+--- /dev/null
++++ b/src/lib/tender-rfq/round-pure.ts
+@@ -0,0 +1,175 @@
++/**
++ * Tender RFQ — 轮次决策（纯函数，零 DB）
++ */
++
++import { createHash } from "node:crypto";
++import type { RfqFactInput } from "./build";
++import { TENDER_RFQ_DEFAULTS, type ResolvedTenderRfqSettings, type TenderSendRfqPayload } from "./types";
++
++const DAY = 86_400_000;
++
++/* ---------------------------------- 组织设置 ---------------------------------- */
++
++export function readTenderRfqSettings(settingsJson: unknown, env: NodeJS.ProcessEnv = process.env): ResolvedTenderRfqSettings {
++  const raw =
++    settingsJson && typeof settingsJson === "object"
++      ? ((settingsJson as Record<string, unknown>).tenderRfq as Record<string, unknown> | undefined)
++      : undefined;
++  const str = (k: string, envKey: string, d: string) => {
++    const v = raw?.[k];
++    if (typeof v === "string" && v.trim()) return v.trim();
++    const e = env[envKey]?.trim();
++    return e || d;
++  };
++  const num = (k: string, d: number) => {
++    const v = raw?.[k];
++    return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : d;
++  };
++  return {
++    fromName: str("fromName", "TENDER_RFQ_FROM_NAME", TENDER_RFQ_DEFAULTS.fromName),
++    fromEmail: str("fromEmail", "TENDER_RFQ_FROM_EMAIL", TENDER_RFQ_DEFAULTS.fromEmail).toLowerCase(),
++    replyLeadDays: num("replyLeadDays", TENDER_RFQ_DEFAULTS.replyLeadDays),
++    roundLockDays: num("roundLockDays", TENDER_RFQ_DEFAULTS.roundLockDays),
++  };
++}
++
++/* ---------------------------------- 轮次锁 ---------------------------------- */
++
++export type ExistingRound = {
++  inquiryId: string;
++  roundNumber: number;
++  status: string;
++  createdAt: Date;
++  createdByName: string | null;
++  /** 该轮已发出的 item 数 */
++  sentCount: number;
++  /** 该轮是否已有待批的 tender.send_rfq */
++  hasPendingSend: boolean;
++};
++
++export type RoundLockVerdict =
++  | { locked: false }
++  | { locked: true; reason: "pending_approval" | "recently_sent"; message: string; inquiryId: string };
++
++/**
++ * 同一项目：
++ *   - 已有待批的发送草稿 → 锁（告知谁、何时建的）
++ *   - 最近 roundLockDays 天内有已发出的轮次且未结束 → 锁（告知谁、何时发的）
++ */
++export function decideRoundLock(rounds: ExistingRound[], now: Date, roundLockDays: number): RoundLockVerdict {
++  const pending = rounds.find((r) => r.hasPendingSend);
++  if (pending) {
++    return {
++      locked: true,
++      reason: "pending_approval",
++      inquiryId: pending.inquiryId,
++      message: `第 ${pending.roundNumber} 轮询价已有一张待批的发送草稿（${pending.createdByName ?? "同事"} 于 ${fmt(pending.createdAt)} 创建），先批或驳回它，不要再建一轮。`,
++    };
++  }
++  const recent = rounds
++    .filter((r) => r.sentCount > 0 && r.status !== "completed" && r.status !== "canceled")
++    .filter((r) => now.getTime() - r.createdAt.getTime() < roundLockDays * DAY)
++    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
++  if (recent) {
++    return {
++      locked: true,
++      reason: "recently_sent",
++      inquiryId: recent.inquiryId,
++      message: `第 ${recent.roundNumber} 轮询价 ${recent.createdByName ?? "同事"} 已于 ${fmt(recent.createdAt)} 发给 ${recent.sentCount} 家，${roundLockDays} 天内不重复发。要补发给新供应商，请在青砚里往这一轮加人。`,
++    };
++  }
++  return { locked: false };
++}
++
++function fmt(d: Date): string {
++  return d.toISOString().slice(0, 16).replace("T", " ");
++}
++
++/* ---------------------------------- 供应商就绪 ---------------------------------- */
++
++export type SupplierCandidate = { id: string; name: string; contactEmail: string | null; status: string };
++
++export function partitionSuppliers(suppliers: SupplierCandidate[]): {
++  ready: Array<SupplierCandidate & { contactEmail: string }>;
++  blocked: Array<{ id: string; name: string; reason: "no_email" | "inactive" }>;
++} {
++  const ready: Array<SupplierCandidate & { contactEmail: string }> = [];
++  const blocked: Array<{ id: string; name: string; reason: "no_email" | "inactive" }> = [];
++  for (const s of suppliers) {
++    if (s.status !== "active") blocked.push({ id: s.id, name: s.name, reason: "inactive" });
++    else if (!s.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.contactEmail)) blocked.push({ id: s.id, name: s.name, reason: "no_email" });
++    else ready.push({ ...s, contactEmail: s.contactEmail.trim() });
++  }
++  return { ready, blocked };
++}
++
++/* ---------------------------------- 发件账号 ---------------------------------- */
++
++export type SenderProvider = { userId: string; accountEmail: string; grantedScopes: string | null };
++
++export type SenderVerdict =
++  | { ok: true; userId: string }
++  | { ok: false; errorCode: "SENDER_NOT_CONNECTED" | "SENDER_NO_COMPOSE_SCOPE"; message: string };
++
++/** 执行时只允许从配置的发件邮箱发出；谁审批不影响发件人。 */
++export function resolveSender(
++  providers: SenderProvider[],
++  fromEmail: string,
++  hasComposeScope: (scopes: string | null) => boolean,
++): SenderVerdict {
++  const p = providers.find((x) => x.accountEmail.toLowerCase() === fromEmail.toLowerCase());
++  if (!p) {
++    return {
++      ok: false,
++      errorCode: "SENDER_NOT_CONNECTED",
++      message: `发件邮箱 ${fromEmail} 还没有连到任何青砚账号。请用拥有该邮箱的人登录青砚 → 设置 → 连接 Gmail，再审批发送。`,
++    };
++  }
++  if (!hasComposeScope(p.grantedScopes)) {
++    return {
++      ok: false,
++      errorCode: "SENDER_NO_COMPOSE_SCOPE",
++      message: `${fromEmail} 的 Gmail 授权缺少 compose 权限，请重新授权后再审批发送。`,
++    };
++  }
++  return { ok: true, userId: p.userId };
++}
++
++/* ---------------------------------- 关键事实读取 ---------------------------------- */
++
++/**
++ * summaryJson.criticalFacts[type] 兼容三种形状：{status:"KNOWN", factId} / {status:"KNOWN", text} / 字符串。
++ * 返回 factId（优先，调用方再查 TenderAnalysisFact 取置信与原文）或直接文本。
++ */
++export function readCriticalFactSlot(summaryJson: unknown, type: string): { factId: string } | { text: string } | null {
++  const cf = (summaryJson as Record<string, unknown> | null)?.criticalFacts as Record<string, unknown> | undefined;
++  const slot = cf?.[type];
++  if (typeof slot === "string") return slot.trim() ? { text: slot.trim() } : null;
++  if (slot && typeof slot === "object") {
++    const o = slot as { status?: unknown; factId?: unknown; text?: unknown; value?: unknown };
++    if (o.status !== undefined && o.status !== "KNOWN") return null;
++    if (typeof o.factId === "string" && o.factId) return { factId: o.factId };
++    const t = typeof o.text === "string" ? o.text : typeof o.value === "string" ? o.value : "";
++    return t.trim() && t.trim().toUpperCase() !== "N/A" ? { text: t.trim() } : null;
++  }
++  return null;
++}
++
++/** 把 slot 文本包装成 RfqFactInput（文本形状视为已确认——它来自人工审阅过的汇总）。 */
++export function factFromText(type: string, text: string): RfqFactInput {
++  return { type, contentZh: text, contentOriginal: null, confidence: "HIGH", manuallyConfirmed: true };
++}
++
++/* ---------------------------------- Payload ---------------------------------- */
++
++export function hashRfqPayloadItems(items: TenderSendRfqPayload["items"]): string {
++  const h = createHash("sha256");
++  for (const i of items) h.update(`${i.inquiryItemId}|${i.to}|${i.subject}|${i.body}\n`);
++  return h.digest("hex").slice(0, 16);
++}
++
++/** 审批卡预览：每家一行，不贴正文（正文在青砚里看）。 */
++export function previewRfqPayload(p: TenderSendRfqPayload): string {
++  const lines = p.items.map((i) => `· ${i.supplierName} <${i.to}>`);
++  return `第 ${p.roundNumber} 轮询价，${p.items.length} 封邮件，发件人 "${p.fromName}" <${p.fromEmail}>：\n${lines.join("\n")}\n主题：${p.items[0]?.subject ?? ""}`;
++}
+diff --git a/src/lib/tender-rfq/service.ts b/src/lib/tender-rfq/service.ts
+new file mode 100644
+index 0000000..465ea93
+--- /dev/null
++++ b/src/lib/tender-rfq/service.ts
+@@ -0,0 +1,245 @@
++/**
++ * Tender RFQ（P1-2）— 准备一轮询价 → PendingAction（tender.send_rfq）
++ *
++ * 流程：项目/组织 → 轮次锁 → 供应商就绪 → 已确认要求 + 关键事实 → buildRfqDocument
++ *       → 创建 ProjectInquiry(draft) + items → 每家渲染邮件 → createDraft（审批卡）
++ *
++ * 本函数零出站。真正发送只在 execute.ts（批准后）。
++ */
++
++import { db } from "@/lib/db";
++import { createDraft } from "@/lib/pending-actions/drafts";
++import { addInquiryItem, createInquiry } from "@/lib/inquiry/service";
++import { buildRfqDocument, renderRfqEmail, type RfqFactInput, type RfqRequirementInput } from "./build";
++import {
++  decideRoundLock,
++  factFromText,
++  hashRfqPayloadItems,
++  partitionSuppliers,
++  previewRfqPayload,
++  readCriticalFactSlot,
++  readTenderRfqSettings,
++  type ExistingRound,
++} from "./round-pure";
++import { TENDER_SEND_RFQ_TYPE, type TenderSendRfqPayload } from "./types";
++
++const RFQ_FACT_TYPES = ["quantity", "delivery", "location", "warranty", "scope"] as const;
++
++export type PrepareRfqInput = {
++  projectId: string;
++  orgId: string;
++  userId: string;
++  supplierIds?: string[];
++  /** 没给 supplierIds 时按名称模糊匹配 */
++  supplierHint?: string | null;
++  scopeNote?: string | null;
++  extraQuestions?: string[];
++  incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
++  destination?: string | null;
++  quantityTiers?: number[];
++  now?: Date;
++};
++
++export type PrepareRfqResult =
++  | {
++      ok: true;
++      actionId: string;
++      inquiryId: string;
++      roundNumber: number;
++      preview: string;
++      replyBy: string | null;
++      fromEmail: string;
++      suppliers: Array<{ id: string; name: string; to: string }>;
++      blockedSuppliers: Array<{ id: string; name: string; reason: "no_email" | "inactive" }>;
++      excludedRequirements: number;
++    }
++  | {
++      ok: false;
++      errorCode:
++        | "PROJECT_NOT_FOUND"
++        | "ROUND_LOCKED"
++        | "NO_SUPPLIERS"
++        | "SUPPLIERS_NOT_READY"
++        | "NO_CONFIRMED_REQUIREMENTS"
++        | "SENSITIVE_LEAK"
++        | "DRAFT_FAILED";
++      message: string;
++      /** NO_SUPPLIERS 时给候选，让 Muse 渲染成可选项 */
++      candidates?: Array<{ id: string; name: string; contactEmail: string | null }>;
++      blockedSuppliers?: Array<{ id: string; name: string; reason: "no_email" | "inactive" }>;
++    };
++
++export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRfqResult> {
++  const now = input.now ?? new Date();
++
++  const project = await db.project.findFirst({
++    where: { id: input.projectId, orgId: input.orgId, workDomain: "tender" },
++    select: { id: true, name: true, closeDate: true, org: { select: { settingsJson: true } } },
++  });
++  if (!project) return { ok: false, errorCode: "PROJECT_NOT_FOUND", message: "没找到这个投标项目，或它不属于你的组织。" };
++  const settings = readTenderRfqSettings(project.org?.settingsJson);
++
++  // ── 轮次锁 ──
++  const rounds = await db.projectInquiry.findMany({
++    where: { projectId: project.id },
++    select: {
++      id: true,
++      roundNumber: true,
++      status: true,
++      createdAt: true,
++      createdById: true,
++      items: { select: { status: true } },
++    },
++  });
++  const pendingSends = await db.pendingAction.findMany({
++    where: { orgId: input.orgId, projectId: project.id, type: TENDER_SEND_RFQ_TYPE, status: { in: ["pending", "approved"] } },
++    select: { payload: true },
++  });
++  const pendingInquiryIds = new Set(pendingSends.map((p) => (p.payload as { inquiryId?: string } | null)?.inquiryId).filter(Boolean));
++  const creatorIds = [...new Set(rounds.map((r) => r.createdById))];
++  const creators = creatorIds.length ? await db.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true } }) : [];
++  const nameOf = new Map(creators.map((u) => [u.id, u.name]));
++  const existing: ExistingRound[] = rounds.map((r) => ({
++    inquiryId: r.id,
++    roundNumber: r.roundNumber,
++    status: r.status,
++    createdAt: r.createdAt,
++    createdByName: nameOf.get(r.createdById) ?? null,
++    sentCount: r.items.filter((i) => i.status !== "pending").length,
++    hasPendingSend: pendingInquiryIds.has(r.id),
++  }));
++  const lock = decideRoundLock(existing, now, settings.roundLockDays);
++  if (lock.locked) return { ok: false, errorCode: "ROUND_LOCKED", message: lock.message };
++
++  // ── 供应商 ──
++  const where = input.supplierIds?.length
++    ? { orgId: input.orgId, id: { in: input.supplierIds } }
++    : input.supplierHint?.trim()
++      ? { orgId: input.orgId, name: { contains: input.supplierHint.trim(), mode: "insensitive" as const } }
++      : null;
++  if (!where) {
++    const candidates = await db.supplier.findMany({
++      where: { orgId: input.orgId, status: "active" },
++      orderBy: { updatedAt: "desc" },
++      take: 8,
++      select: { id: true, name: true, contactEmail: true },
++    });
++    return { ok: false, errorCode: "NO_SUPPLIERS", message: "要问哪几家？", candidates };
++  }
++  const suppliers = await db.supplier.findMany({ where, select: { id: true, name: true, contactEmail: true, status: true } });
++  const { ready, blocked } = partitionSuppliers(suppliers);
++  if (ready.length === 0) {
++    return {
++      ok: false,
++      errorCode: "SUPPLIERS_NOT_READY",
++      message: blocked.length
++        ? `这些供应商还发不了：${blocked.map((b) => `${b.name}（${b.reason === "no_email" ? "没有邮箱" : "已停用"}）`).join("、")}。先在青砚补上联系邮箱。`
++        : "没匹配到供应商。",
++      blockedSuppliers: blocked,
++    };
++  }
++
++  // ── 要求 + 事实（最新非 SUPERSEDED 的 run） ──
++  const run = await db.tenderAnalysisRun.findFirst({
++    where: { projectId: project.id, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
++    orderBy: { createdAt: "desc" },
++    select: {
++      id: true,
++      summaryJson: true,
++      requirements: {
++        select: { requirementCode: true, category: true, originalRequirement: true, chineseTranslation: true, mandatory: true, reviewStatus: true, sourcePage: true },
++        orderBy: { requirementCode: "asc" },
++      },
++    },
++  });
++  const requirements: RfqRequirementInput[] = run?.requirements ?? [];
++
++  const facts: RfqFactInput[] = [];
++  if (run) {
++    const factIds: Array<{ type: string; factId: string }> = [];
++    for (const t of RFQ_FACT_TYPES) {
++      const slot = readCriticalFactSlot(run.summaryJson, t);
++      if (!slot) continue;
++      if ("text" in slot) facts.push(factFromText(t, slot.text));
++      else factIds.push({ type: t, factId: slot.factId });
++    }
++    if (factIds.length) {
++      const rows = await db.tenderAnalysisFact.findMany({
++        where: { id: { in: factIds.map((f) => f.factId) } },
++        select: { id: true, contentZh: true, contentOriginal: true, confidence: true, manuallyConfirmed: true },
++      });
++      for (const f of factIds) {
++        const r = rows.find((x) => x.id === f.factId);
++        if (r) facts.push({ type: f.type, contentZh: r.contentZh, contentOriginal: r.contentOriginal, confidence: r.confidence, manuallyConfirmed: r.manuallyConfirmed });
++      }
++    }
++  }
++
++  const built = buildRfqDocument({
++    projectName: project.name,
++    buyerDisplayName: settings.fromName,
++    closeDate: project.closeDate ? project.closeDate.toISOString() : null,
++    now,
++    requirements,
++    facts,
++    quantityTiers: input.quantityTiers,
++    incoterm: input.incoterm ?? null,
++    destination: input.destination ?? null,
++    replyLeadDays: settings.replyLeadDays,
++    extraQuestions: input.extraQuestions,
++    scopeNote: input.scopeNote ?? null,
++  });
++  if (!built.ok) return { ok: false, errorCode: built.errorCode, message: built.message };
++  const doc = built.doc;
++
++  // ── 建轮次（draft，零出站） ──
++  const inquiry = await createInquiry(
++    { projectId: project.id, title: `第 N 轮询价（Muse）`, scope: doc.scopeNote ?? undefined, dueDate: doc.replyBy ?? undefined },
++    input.userId,
++  );
++  const items: TenderSendRfqPayload["items"] = [];
++  for (const s of ready) {
++    const item = await addInquiryItem({ projectId: project.id, inquiryId: inquiry.id }, s.id, input.userId);
++    const mail = renderRfqEmail(doc, { supplierName: s.name, roundNumber: inquiry.roundNumber });
++    items.push({ inquiryItemId: item.id, supplierId: s.id, supplierName: s.name, to: s.contactEmail, subject: mail.subject, body: mail.body });
++  }
++
++  const payload: TenderSendRfqPayload = {
++    projectId: project.id,
++    inquiryId: inquiry.id,
++    roundNumber: inquiry.roundNumber,
++    fromName: settings.fromName,
++    fromEmail: settings.fromEmail,
++    items,
++    rfqDocHash: hashRfqPayloadItems(items),
++  };
++
++  const draft = await createDraft({
++    type: TENDER_SEND_RFQ_TYPE,
++    title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商 — ${project.name}`,
++    preview: previewRfqPayload(payload),
++    payload: payload as unknown as Record<string, unknown>,
++    userId: input.userId,
++    orgId: input.orgId,
++    projectId: project.id,
++    ttlHours: 72,
++    idempotencyKey: `${TENDER_SEND_RFQ_TYPE}:${inquiry.id}`,
++  });
++  if (!draft.success) {
++    return { ok: false, errorCode: "DRAFT_FAILED", message: `生成审批草稿失败：${draft.error}` };
++  }
++  const actionId = (draft.data as { actionId?: string } | null)?.actionId ?? "";
++
++  return {
++    ok: true,
++    actionId,
++    inquiryId: inquiry.id,
++    roundNumber: inquiry.roundNumber,
++    preview: payload.items.map((i) => `${i.supplierName} <${i.to}>`).join("、"),
++    replyBy: doc.replyBy,
++    fromEmail: settings.fromEmail,
++    suppliers: items.map((i) => ({ id: i.supplierId, name: i.supplierName, to: i.to })),
++    blockedSuppliers: blocked,
++    excludedRequirements: doc.excluded.length,
++  };
++}
+diff --git a/src/lib/tender-rfq/types.ts b/src/lib/tender-rfq/types.ts
+new file mode 100644
+index 0000000..6742e5e
+--- /dev/null
++++ b/src/lib/tender-rfq/types.ts
+@@ -0,0 +1,51 @@
++/**
++ * Tender RFQ（P1-2 / P1-3）— 类型
++ */
++
++export const TENDER_SEND_RFQ_TYPE = "tender.send_rfq" as const;
++
++/** 一封待发的询价邮件（审批卡预览 = 这个数组） */
++export type TenderRfqEmailItem = {
++  inquiryItemId: string;
++  supplierId: string;
++  supplierName: string;
++  to: string;
++  subject: string;
++  body: string;
++};
++
++/** PendingAction.payload（type=tender.send_rfq） */
++export type TenderSendRfqPayload = {
++  projectId: string;
++  inquiryId: string;
++  roundNumber: number;
++  /** 发件抬头与邮箱在准备阶段就固定进 payload，审批时看到的就是执行时用的 */
++  fromName: string;
++  fromEmail: string;
++  items: TenderRfqEmailItem[];
++  /** RFQ 文档内容 hash（sha256 前 16 位），用于审计/防篡改 */
++  rfqDocHash: string;
++};
++
++/**
++ * 组织级 RFQ 设置（零 schema：Organization.settingsJson.tenderRfq）
++ * 缺省回退到环境变量 TENDER_RFQ_FROM_NAME / TENDER_RFQ_FROM_EMAIL。
++ */
++export type TenderRfqOrgSettings = {
++  fromName: string | null;
++  fromEmail: string | null;
++  /** 回复截止提前量（天） */
++  replyLeadDays: number | null;
++  /** 同一项目两轮询价之间的最短间隔（天）；期间再发 → 轮次锁 */
++  roundLockDays: number | null;
++};
++
++/** 读取后已回退到默认值的设置（无 null） */
++export type ResolvedTenderRfqSettings = { fromName: string; fromEmail: string; replyLeadDays: number; roundLockDays: number };
++
++export const TENDER_RFQ_DEFAULTS = {
++  fromName: "Qyan-Sunny Purchasing",
++  fromEmail: "project@sunnyshutter.ca",
++  replyLeadDays: 7,
++  roundLockDays: 3,
++} as const;

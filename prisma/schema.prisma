@@ -235,8 +235,14 @@ model InviteCode {
   /// 公司归属（JSON 数组的 Company.id，可多选）；注册时复制到 User.companyIdsJson
   companyIdsJson String?
 
+  /// 企业邀请码（入驻向导）：注册时加入该企业并设为当前工作企业，不建个人工作区；空 = 旧行为
+  orgId   String?
+  /// 加入企业时的企业内角色：org_member / org_admin（仅 orgId 非空时有效）
+  orgRole String?
+
   @@index([code])
   @@index([role])
+  @@index([orgId])
 }
 
 model Project {

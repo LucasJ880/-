@@ -251,7 +251,7 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
     throw new BusinessError(`当前状态「${item.status}」不允许标记为已回复`);
   }
 
-  return db.inquiryItem.update({
+  const updated = await db.inquiryItem.update({
     where: { id: scope.itemId },
     data: {
       status: ITEM_STATUS.REPLIED,
@@ -260,11 +260,18 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
     },
     include: { supplier: true },
   });
+  // Muse Bridge（P0-8）：best-effort 推 reply.received
+  void import("@/lib/muse-bridge/hooks").then((m) => m.museOnInquiryReplied(scope.itemId)).catch(() => undefined);
+  return updated;
 }
 
 // ── record-quote ──────────────────────────────────────────────
 
-export async function recordQuote(scope: ItemScope, input: RecordQuoteInput) {
+export async function recordQuote(
+  scope: ItemScope,
+  input: RecordQuoteInput,
+  opts: { skipMuseHook?: boolean } = {},
+) {
   const { item } = await resolveItem(scope);
 
   const current = item.status as ItemStatus;
@@ -296,11 +303,26 @@ export async function recordQuote(scope: ItemScope, input: RecordQuoteInput) {
     data.repliedAt = item.repliedAt ?? new Date();
   }
 
-  return db.inquiryItem.update({
+  const updated = await db.inquiryItem.update({
     where: { id: scope.itemId },
     data,
     include: { supplier: true },
   });
+  // Muse Bridge（P0-8）：best-effort 推 quote.parsed / missing_fields（缺字段如实列出）。
+  // skipMuseHook：调用方自己推（如 P1-4 入站，缺字段以解析结果为准），避免重复事件。
+  if (opts.skipMuseHook) return updated;
+  void import("@/lib/muse-bridge/hooks")
+    .then((m) =>
+      m.museOnQuoteRecorded(scope.itemId, {
+        unitPrice: input.unitPrice,
+        totalPrice: input.totalPrice,
+        currency: input.currency ?? updated.currency,
+        deliveryDays: input.deliveryDays ?? updated.deliveryDays,
+        validUntil: input.validUntil ?? updated.validUntil,
+      }),
+    )
+    .catch(() => undefined);
+  return updated;
 }
 
 // ── mark-declined ─────────────────────────────────────────────
@@ -337,13 +359,13 @@ export async function markItemNoResponse(scope: ItemScope) {
 
 // ── select（事务保证同一 inquiry 下仅一个 isSelected） ─────────
 
-export async function selectItem(scope: ItemScope) {
+export async function selectItem(scope: ItemScope, opts: { actorUserId?: string } = {}) {
   const { item } = await resolveItem(scope);
   if (item.status !== ITEM_STATUS.QUOTED) {
     throw new BusinessError("只有已报价的供应商才能被选定");
   }
 
-  return db.$transaction(async (tx) => {
+  const selected = await db.$transaction(async (tx) => {
     await tx.inquiryItem.updateMany({
       where: { inquiryId: item.inquiryId, isSelected: true },
       data: { isSelected: false },
@@ -355,6 +377,14 @@ export async function selectItem(scope: ItemScope) {
       include: { supplier: true },
     });
   });
+  // Muse Bridge（P1-8）：操作者本人的常用供应商挪到最前（best-effort；没有操作者就不学）
+  if (opts.actorUserId) {
+    const actorUserId = opts.actorUserId;
+    void import("@/lib/muse-bridge/prefs")
+      .then((m) => m.learnSupplierPreference({ projectId: scope.projectId, userId: actorUserId, supplierId: selected.supplierId }))
+      .catch(() => undefined);
+  }
+  return selected;
 }
 
 // ── deselect ──────────────────────────────────────────────────

@@ -8,6 +8,8 @@
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import { isValidTimeZone } from "@/lib/automation/local-time";
+import { parseClockMinutes, type BusinessCalendar } from "./business-days";
 
 export const REVENUE_SPINE_POLICY_VERSION = "revenue-spine-policy/v1";
 
@@ -22,6 +24,13 @@ export interface BusinessProfile {
   primaryMarkets: string[];
   /** 可生产的产品类目（内部 key，如 bathrobe / blanket / curtain） */
   productCategories: string[];
+  /**
+   * 明确不做的类目（如 bedding / slipper）。询盘只命中这些类目、没有提到任何在做的类目时：
+   * productFit = 0，按 excludedCategoryAction 处理。默认 [] = V1 行为（不在范围只扣一半分）。
+   */
+  excludedCategories: string[];
+  /** review = 不自动起草，留给人工判断婉拒或转介（默认）；decline = 直接判为不合格 */
+  excludedCategoryAction: "review" | "decline";
   /** 产品识别关键词 → 类目（小写，含中英文） */
   productKeywords: Record<string, string>;
   minimumMargin: number | null;
@@ -29,13 +38,80 @@ export interface BusinessProfile {
   defaultIncoterm: string;
   supportedIncoterms: string[];
   samplePolicy: { available: boolean | null; note: string };
+  /**
+   * 企业确认过、可以写进给买家邮件的商务事实。全部为空 = 草稿仍一律写"需内部确认"（V1 行为）。
+   * 只放销售/老板确认过的参考值；价格永远不进这里。
+   */
+  commercialFacts: CommercialFacts;
 }
+
+/** 已获准对外引用的在市参考项目（只放匿名或已获买家书面同意的；内部级别不要配置） */
+export interface ReferenceProgram {
+  /** 对应 productCategories 里的类目 key；null = 不按类目匹配（不会自动出现在草稿里） */
+  category: string | null;
+  /** 一句话，不含买家名称以外的承诺；disclosure = anonymized 时不得出现买家名 */
+  summaryEn: string;
+  summaryZh: string;
+  disclosure: "anonymized" | "named";
+}
+
+export interface CommercialFacts {
+  /** 参考起订量（例：1000 pcs / style），草稿写"参考值，按项目确认" */
+  moq: { quantity: number; unit: string; per: string } | null;
+  /** 样品时效：现货样寄出天数 / 定制样天数区间 */
+  sampleLeadTime: { stockDays: number | null; customDaysMin: number | null; customDaysMax: number | null } | null;
+  /** 大货周期区间与起算点（例：35–45 天，自确认大货样起） */
+  productionLeadTime: { daysMin: number; daysMax: number; startsFrom: string } | null;
+  /** 装运港（只作事实列出，不构成报价条款） */
+  loadingPorts: string[];
+  /** 落款附加行（职位 / WhatsApp / 网站）；姓名仍取发件人 */
+  signature: { title: string | null; whatsapp: string | null; website: string | null } | null;
+  /** 不得写进给买家邮件的款号（即使出现在展会卡或参考表里） */
+  blockedStyleCodes: string[];
+  referencePrograms: ReferenceProgram[];
+  /** 展会 C 级：只发目录、不追问、不进无回复跟进 */
+  gradeCCatalogOnly: boolean;
+  /** 目录链接（gradeCCatalogOnly 时写进草稿；为空则写"目录随后发送"） */
+  catalogUrl: string | null;
+  /**
+   * 给海外买家看的英文公司名（如 "Example Home Textile"）。英文草稿的主题、正文、落款用它；
+   * 为空时用组织名。组织名常是中文，直接写进英文邮件会让买家困惑。
+   */
+  buyerFacingName: string | null;
+}
+
+export const EMPTY_COMMERCIAL_FACTS: CommercialFacts = {
+  moq: null,
+  sampleLeadTime: null,
+  productionLeadTime: null,
+  loadingPorts: [],
+  signature: null,
+  blockedStyleCodes: [],
+  referencePrograms: [],
+  gradeCCatalogOnly: false,
+  catalogUrl: null,
+  buyerFacingName: null,
+};
 
 export interface SalesSlaPolicy {
   /** 新询盘人工处理时限（工作小时） */
   newInquiryResponseHours: number;
   /** 客户来信后回复时限（工作小时） */
   customerReplyResponseHours: number;
+  // 首响分级提醒（sla-tiers.ts）。三档任一非 null = 本组织启用分级提醒，Revenue Spine 新询盘的提醒改由分级接管；
+  // 全部 null（默认）= 沿用 inquiry-sla 旧提醒（5 分钟提醒外贸成员、24 小时升级管理员），行为不变。
+  // 分钟数按 businessHours 计（设了工作时间时），否则按自然时间。只提醒，不给买家自动发任何邮件。
+  /** 新询盘 T+N 分钟仍未回复 → 提醒负责人（站内 + 微信） */
+  unclaimedAlertMinutes: number | null;
+  /** T+N 分钟仍未回复 → 升级管理层（站内 + 微信） */
+  ownerEscalationMinutes: number | null;
+  /** T+N 小时仍未回复 → 告诉管理层是否有草稿在审批中心等待（或没有草稿的原因） */
+  overdueDraftHours: number | null;
+  /**
+   * 工作时间（组织当地时区）。null（默认）= V1 口径：SLA 到期按 UTC 周一至周五全天计时，分级提醒按自然时间。
+   * 设置后只影响之后新算出的到期时间（新询盘的 SalesAction.dueAt、回复类下一步），已落库的行动不重算。
+   */
+  businessHours: BusinessCalendar | null;
 }
 
 export interface FollowUpPolicy {
@@ -55,6 +131,11 @@ export interface FollowUpPolicy {
   maxQuestionsPerReply: number;
   /** 历史客户复购提示窗口（天，V1 仅数据接口） */
   reorderWindowDays: number;
+  /**
+   * 首封回复后买家一直没回信：在第几天（从首封算起）自动起草跟进邮件进审批；空数组 = 不起草。
+   * 只起草、不发送；买家回信、商机进入报价或之后的阶段即停止。
+   */
+  noReplyFollowUpDays: number[];
 }
 
 export interface ScoringPolicy {
@@ -82,12 +163,19 @@ export interface ScoringPolicy {
   individualMinQuantity: number;
 }
 
+/** 微信提醒开关（按组织）；默认全部关闭，老板显式打开才推 */
+export interface NotifyPolicy {
+  /** FDE 生成新的询盘回复草稿时，微信提醒审批人（每人每小时最多一条，只给链接，不含买家邮箱/电话） */
+  wechatOnNewDraft: boolean;
+}
+
 export interface RevenueSpinePolicy {
   version: string;
   businessProfile: BusinessProfile;
   salesSla: SalesSlaPolicy;
   followUp: FollowUpPolicy;
   scoring: ScoringPolicy;
+  notify: NotifyPolicy;
   /** 阶段 → 成交概率（Expected Revenue 口径） */
   stageWinProbability: Record<string, number>;
 }
@@ -154,18 +242,28 @@ export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   businessType: "OEM_MANUFACTURER",
   primaryMarkets: ["Canada", "United States", "United Kingdom", "Australia", "Germany"],
   productCategories: ["bathrobe", "blanket", "towel", "bedding", "curtain", "cushion", "table_linen", "slipper"],
+  excludedCategories: [],
+  excludedCategoryAction: "review",
   productKeywords: DEFAULT_PRODUCT_KEYWORDS,
   minimumMargin: null,
   defaultCurrency: "USD",
   defaultIncoterm: "FOB",
   supportedIncoterms: ["EXW", "FOB", "CIF", "CFR", "DDP", "DAP"],
   samplePolicy: { available: null, note: "" },
+  commercialFacts: EMPTY_COMMERCIAL_FACTS,
 };
 
 export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
   version: REVENUE_SPINE_POLICY_VERSION,
   businessProfile: DEFAULT_BUSINESS_PROFILE,
-  salesSla: { newInquiryResponseHours: 4, customerReplyResponseHours: 8 },
+  salesSla: {
+    newInquiryResponseHours: 4,
+    customerReplyResponseHours: 8,
+    unclaimedAlertMinutes: null,
+    ownerEscalationMinutes: null,
+    overdueDraftHours: null,
+    businessHours: null,
+  },
   followUp: {
     afterReplyNoResponseBusinessDays: 3,
     quoteFollowUpDays: [3, 7, 14],
@@ -175,6 +273,7 @@ export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
     nurtureCheckInDays: 30,
     maxQuestionsPerReply: 4,
     reorderWindowDays: 180,
+    noReplyFollowUpDays: [3, 7, 14],
   },
   scoring: {
     weights: {
@@ -212,6 +311,7 @@ export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
     largeOrderQuantity: 3000,
     individualMinQuantity: 50,
   },
+  notify: { wechatOnNewDraft: false },
   stageWinProbability: {
     new_inquiry: 0.05,
     enriching: 0.05,
@@ -276,6 +376,11 @@ function numList(v: unknown, fallback: number[]): number[] {
   return out.length ? out : fallback;
 }
 
+/** 固定键的数字表（权重 / 档位）：逐键取覆盖值，形状不对的键保留 base */
+function nums<T extends Record<string, number>>(o: Rec, base: T): T {
+  return Object.fromEntries(Object.entries(base).map(([k, v]) => [k, num(o[k], v)])) as T;
+}
+
 function numMap(v: unknown, fallback: Record<string, number>): Record<string, number> {
   const r = rec(v);
   if (!r) return fallback;
@@ -296,6 +401,119 @@ function strMap(v: unknown, fallback: Record<string, string>): Record<string, st
   return out;
 }
 
+function posIntOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+}
+
+function strOrNull(v: unknown, max = 200): string | null {
+  return typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+}
+
+/** 分级提醒的分钟 / 小时上限：7 天（再长就不是"首响"提醒了） */
+const SLA_TIER_MAX_MINUTES = 7 * 24 * 60;
+const SLA_TIER_MAX_HOURS = 7 * 24;
+const DEFAULT_BUSINESS_WORKDAYS = [1, 2, 3, 4, 5];
+
+/**
+ * 工作时间校验：timezone 必须是合法 IANA 时区；start / end 为 "HH:MM"（end 可为 "24:00"，须晚于 start，
+ * 缺省 09:00 / 18:00）；workdays 为 ISO 1..7（缺省周一至周五）。
+ * 返回 null = 显式关闭；undefined = 形状不对（调用方保留原值）。
+ */
+export function parseBusinessCalendar(v: unknown): BusinessCalendar | null | undefined {
+  if (v === null) return null;
+  const o = rec(v);
+  if (!o) return undefined;
+  const timezone = typeof o.timezone === "string" ? o.timezone.trim() : "";
+  if (!isValidTimeZone(timezone)) return undefined;
+  const start = o.start === undefined ? "09:00" : typeof o.start === "string" ? o.start.trim() : "";
+  const end = o.end === undefined ? "18:00" : typeof o.end === "string" ? o.end.trim() : "";
+  const startMin = parseClockMinutes(start);
+  const endMin = parseClockMinutes(end, true);
+  if (startMin === null || endMin === null || endMin <= startMin) return undefined;
+  let workdays = DEFAULT_BUSINESS_WORKDAYS;
+  if (o.workdays !== undefined) {
+    if (!Array.isArray(o.workdays)) return undefined;
+    workdays = [...new Set(o.workdays.filter((d): d is number => typeof d === "number" && Number.isInteger(d) && d >= 1 && d <= 7))].sort((a, b) => a - b);
+    if (!workdays.length) return undefined;
+  }
+  return { timezone, start, end, workdays: [...workdays] };
+}
+
+/** 分级提醒档位：显式 null = 关闭；正数（不超过上限）= 启用；其它形状 = 保留原值 */
+function slaTierValue(o: Rec, key: string, base: number | null, opts: { max: number; integer: boolean }): number | null {
+  if (!(key in o)) return base;
+  const v = o[key];
+  if (v === null) return null;
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return base;
+  const n = opts.integer ? Math.max(1, Math.round(v)) : Math.round(v * 100) / 100;
+  return n > 0 && n <= opts.max ? n : base;
+}
+
+/** 本组织是否启用了首响分级提醒（任一档非 null） */
+export function slaTiersEnabled(sla: Partial<SalesSlaPolicy> | null | undefined): boolean {
+  return !!sla && (sla.unclaimedAlertMinutes != null || sla.ownerEscalationMinutes != null || sla.overdueDraftHours != null);
+}
+
+/** 款号归一（去空白、各种横线 / 下划线统一为 -、大写）：禁用款号合并时与草稿过滤时同一规则 */
+export const normalizeStyleCode = (v: string) => v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
+
+/** 商务事实合并：字段级覆盖；显式 null 清空；形状不对的字段忽略（保留 base） */
+export function mergeCommercialFacts(base: CommercialFacts, override: unknown): CommercialFacts {
+  const o = rec(override);
+  if (!o) return base;
+  const out: CommercialFacts = { ...base };
+  if ("moq" in o) {
+    const m = rec(o.moq);
+    const quantity = m ? posIntOrNull(m.quantity) : null;
+    out.moq = m && quantity ? { quantity, unit: strOrNull(m.unit, 20) ?? "pcs", per: strOrNull(m.per, 40) ?? "style" } : null;
+  }
+  if ("sampleLeadTime" in o) {
+    const s = rec(o.sampleLeadTime);
+    const v = s
+      ? { stockDays: posIntOrNull(s.stockDays), customDaysMin: posIntOrNull(s.customDaysMin), customDaysMax: posIntOrNull(s.customDaysMax) }
+      : null;
+    out.sampleLeadTime = v && (v.stockDays || v.customDaysMin) ? v : null;
+  }
+  if ("productionLeadTime" in o) {
+    const p = rec(o.productionLeadTime);
+    const daysMin = p ? posIntOrNull(p.daysMin) : null;
+    const daysMax = p ? posIntOrNull(p.daysMax) ?? daysMin : null;
+    out.productionLeadTime =
+      p && daysMin && daysMax && daysMax >= daysMin
+        ? { daysMin, daysMax, startsFrom: strOrNull(p.startsFrom, 120) ?? "pre-production sample approval" }
+        : null;
+  }
+  if ("loadingPorts" in o) out.loadingPorts = strList(o.loadingPorts, []).slice(0, 10);
+  if ("signature" in o) {
+    const s = rec(o.signature);
+    const v = s ? { title: strOrNull(s.title, 80), whatsapp: strOrNull(s.whatsapp, 40), website: strOrNull(s.website, 120) } : null;
+    out.signature = v && (v.title || v.whatsapp || v.website) ? v : null;
+  }
+  if ("blockedStyleCodes" in o) out.blockedStyleCodes = [...new Set(strList(o.blockedStyleCodes, []).map(normalizeStyleCode))].slice(0, 500);
+  if ("referencePrograms" in o) {
+    const list = Array.isArray(o.referencePrograms) ? o.referencePrograms : [];
+    out.referencePrograms = list
+      .map((x) => rec(x))
+      .filter((x): x is Rec => !!x)
+      .map((x) => ({
+        category: strOrNull(x.category, 40),
+        summaryEn: strOrNull(x.summaryEn, 300) ?? "",
+        summaryZh: strOrNull(x.summaryZh, 300) ?? "",
+        disclosure: x.disclosure === "named" ? ("named" as const) : x.disclosure === "anonymized" ? ("anonymized" as const) : null,
+      }))
+      // 内部级别（或未声明披露级别）的参考项目一律丢弃：宁可不写，不可外泄
+      .filter((x): x is ReferenceProgram => x.disclosure !== null && !!x.summaryEn && !!x.summaryZh)
+      .slice(0, 20);
+  }
+  if ("gradeCCatalogOnly" in o) out.gradeCCatalogOnly = o.gradeCCatalogOnly === true;
+  if ("buyerFacingName" in o) out.buyerFacingName = strOrNull(o.buyerFacingName, 120);
+  if ("catalogUrl" in o) {
+    const u = strOrNull(o.catalogUrl, 300);
+    out.catalogUrl = u && /^https:\/\//.test(u) ? u : null;
+  }
+  return out;
+}
+
 export function mergeBusinessProfile(base: BusinessProfile, override: unknown): BusinessProfile {
   const o = rec(override);
   if (!o) return base;
@@ -307,6 +525,8 @@ export function mergeBusinessProfile(base: BusinessProfile, override: unknown): 
       : base.businessType,
     primaryMarkets: strList(o.primaryMarkets, base.primaryMarkets),
     productCategories: strList(o.productCategories, base.productCategories),
+    excludedCategories: strList(o.excludedCategories, base.excludedCategories),
+    excludedCategoryAction: o.excludedCategoryAction === "decline" || o.excludedCategoryAction === "review" ? o.excludedCategoryAction : base.excludedCategoryAction,
     productKeywords: strMap(o.productKeywords, base.productKeywords),
     minimumMargin: numOrNull(o.minimumMargin, base.minimumMargin),
     defaultCurrency: str(o.defaultCurrency, base.defaultCurrency).toUpperCase(),
@@ -318,6 +538,7 @@ export function mergeBusinessProfile(base: BusinessProfile, override: unknown): 
           note: str(sp.note, base.samplePolicy.note),
         }
       : base.samplePolicy,
+    commercialFacts: mergeCommercialFacts(base.commercialFacts, o.commercialFacts),
   };
 }
 
@@ -329,6 +550,8 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
   const sc = rec(o.scoring) ?? {};
   const w = rec(sc.weights) ?? {};
   const g = rec(sc.grades) ?? {};
+  const nt = rec(o.notify) ?? {};
+  const businessHours = "businessHours" in sla ? parseBusinessCalendar(sla.businessHours) : undefined;
   const tiersRaw = Array.isArray(sc.quantityTiers) ? sc.quantityTiers : null;
   const tiers = tiersRaw
     ? tiersRaw
@@ -344,6 +567,12 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
     salesSla: {
       newInquiryResponseHours: num(sla.newInquiryResponseHours, base.salesSla.newInquiryResponseHours),
       customerReplyResponseHours: num(sla.customerReplyResponseHours, base.salesSla.customerReplyResponseHours),
+      // 以下字段必须在这里逐个列出：不在白名单里的字段会在合并时被丢掉。存量策略没有这些键 → 保持 null（旧行为）
+      unclaimedAlertMinutes: slaTierValue(sla, "unclaimedAlertMinutes", base.salesSla.unclaimedAlertMinutes, { max: SLA_TIER_MAX_MINUTES, integer: true }),
+      ownerEscalationMinutes: slaTierValue(sla, "ownerEscalationMinutes", base.salesSla.ownerEscalationMinutes, { max: SLA_TIER_MAX_MINUTES, integer: true }),
+      overdueDraftHours: slaTierValue(sla, "overdueDraftHours", base.salesSla.overdueDraftHours, { max: SLA_TIER_MAX_HOURS, integer: false }),
+      // 键不在 / 形状不对 → 保留 base；显式 null → 关闭
+      businessHours: businessHours === undefined ? base.salesSla.businessHours : businessHours,
     },
     followUp: {
       afterReplyNoResponseBusinessDays: num(fu.afterReplyNoResponseBusinessDays, base.followUp.afterReplyNoResponseBusinessDays),
@@ -354,27 +583,24 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
       nurtureCheckInDays: num(fu.nurtureCheckInDays, base.followUp.nurtureCheckInDays),
       maxQuestionsPerReply: Math.max(1, Math.min(8, num(fu.maxQuestionsPerReply, base.followUp.maxQuestionsPerReply))),
       reorderWindowDays: num(fu.reorderWindowDays, base.followUp.reorderWindowDays),
+      // 显式写 [] 表示关闭；递增排序、去重，最多 5 次
+      noReplyFollowUpDays: Array.isArray(fu.noReplyFollowUpDays)
+        ? [...new Set(numList(fu.noReplyFollowUpDays, []).map((d) => Math.round(d)))].sort((a, b) => a - b).slice(0, 5)
+        : base.followUp.noReplyFollowUpDays,
     },
     scoring: {
-      weights: {
-        productFit: num(w.productFit, base.scoring.weights.productFit),
-        commercialPotential: num(w.commercialPotential, base.scoring.weights.commercialPotential),
-        buyerQuality: num(w.buyerQuality, base.scoring.weights.buyerQuality),
-        intent: num(w.intent, base.scoring.weights.intent),
-        completeness: num(w.completeness, base.scoring.weights.completeness),
-        strategicValue: num(w.strategicValue, base.scoring.weights.strategicValue),
-      },
-      grades: {
-        hot: num(g.hot, base.scoring.grades.hot),
-        high: num(g.high, base.scoring.grades.high),
-        medium: num(g.medium, base.scoring.grades.medium),
-      },
+      weights: nums(w, base.scoring.weights),
+      grades: nums(g, base.scoring.grades),
       buyerTypeScores: numMap(sc.buyerTypeScores, base.scoring.buyerTypeScores),
       quantityTiers: tiers,
       unknownQuantityRatio: num(sc.unknownQuantityRatio, base.scoring.unknownQuantityRatio),
       strategicMarkets: strList(sc.strategicMarkets, base.scoring.strategicMarkets),
       largeOrderQuantity: num(sc.largeOrderQuantity, base.scoring.largeOrderQuantity),
       individualMinQuantity: num(sc.individualMinQuantity, base.scoring.individualMinQuantity),
+    },
+    notify: {
+      // 只认布尔值；存量策略没有 notify 时保持关闭
+      wechatOnNewDraft: typeof nt.wechatOnNewDraft === "boolean" ? nt.wechatOnNewDraft : (base.notify?.wechatOnNewDraft ?? false),
     },
     stageWinProbability: numMap(o.stageWinProbability, base.stageWinProbability),
   };

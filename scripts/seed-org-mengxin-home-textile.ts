@@ -6,12 +6,15 @@
  *   npx tsx scripts/seed-org-mengxin-home-textile.ts --switch-active
  */
 
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { DEFAULT_MENGXIN_MODULES } from "../src/lib/tenancy/modules";
 
 const ORG = {
   code: "mengxin-home-textile",
   name: "梦馨家纺",
+  /** 自动化按组织时区在当地时刻执行（每日简报 07:00、跟进 09:00 / 14:00 等） */
+  timezone: "Asia/Shanghai",
 } as const;
 
 const WORKSPACES = [
@@ -77,6 +80,20 @@ async function main() {
 
   console.log(`modulesJson: ${DEFAULT_MENGXIN_MODULES.join(", ")}`);
   console.log("industryPackId: home_textile_trade_v1");
+
+  const { settingsJson } = await db.organization.findUniqueOrThrow({
+    where: { id: org.id },
+    select: { settingsJson: true },
+  });
+  const settings =
+    settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson)
+      ? (settingsJson as Record<string, unknown>)
+      : {};
+  await db.organization.update({
+    where: { id: org.id },
+    data: { settingsJson: { ...settings, timezone: ORG.timezone } as Prisma.InputJsonValue },
+  });
+  console.log(`settingsJson.timezone: ${ORG.timezone}`);
 
   // 梦馨独立折扣行；解锁码仅来自 MENGXIN_LINE_DISCOUNT_UNLOCK_CODE（无跨企业默认）
   const existingDiscount = await db.quoteDiscountSettings.findUnique({

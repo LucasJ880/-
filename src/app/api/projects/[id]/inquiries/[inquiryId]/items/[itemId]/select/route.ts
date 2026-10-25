@@ -12,7 +12,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (access instanceof NextResponse) return access;
 
   try {
-    const item = await selectItem({ projectId, inquiryId, itemId });
+    const item = await selectItem({ projectId, inquiryId, itemId }, { actorUserId: access.user.id });
     return NextResponse.json(item);
   } catch (err) {
     const { msg, status } = toPrismaHttpError(err);

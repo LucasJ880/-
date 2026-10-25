@@ -30,7 +30,7 @@
     },
     {
       "path": "/api/cron/inquiry-sla",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/sales-actions",
@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/tender-watch",
       "schedule": "25 * * * *"
+    },
+    {
+      "path": "/api/cron/tender-rfq-inbound",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

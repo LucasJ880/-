@@ -34,6 +34,7 @@ import {
   runtimeV2StepStatusLabel,
   topReasons,
 } from "@/lib/assistant/runtime-v2-ui";
+import { FollowupOutcomePanel } from "./followup-outcome-panel";
 
 const STATUS_ICON: Record<
   AssistantTaskStatus,
@@ -88,6 +89,8 @@ type Props = {
   /** 插在分析结果与简化进度之间（Inline Approval Panel） */
   approvalSlot?: ReactNode;
   onRetry?: (run: AssistantRunStatusDto) => void | Promise<void>;
+  /** DURABLE_FOLLOWUP_M1：用户主动取消（仅服务端标记 cancellable 时显示） */
+  onCancel?: (run: AssistantRunStatusDto) => void | Promise<void>;
   className?: string;
 };
 
@@ -97,14 +100,37 @@ export function RuntimeV2Workbench({
   analyzedOpportunityCount,
   approvalSlot,
   onRetry,
+  onCancel,
   className,
 }: Props) {
   const [showAllSteps, setShowAllSteps] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const Icon = STATUS_ICON[run.status];
   const spinning = run.status === "planning" || run.status === "running";
-  const summary = runtimeV2WorkbenchSummary(run, pendingActionCount);
-  const customers = run.prioritizedCustomers ?? [];
+  const followup = run.followup;
+  // 持久跟进任务：标题与摘要只用服务端投影（部分完成绝不显示为"已完成"）
+  const statusLabel = followup ? followup.overallLabel : assistantStatusLabel(run.status);
+  const summary = followup
+    ? followup.headline
+    : runtimeV2WorkbenchSummary(run, pendingActionCount);
+  const customers = followup ? [] : (run.prioritizedCustomers ?? []);
+
+  const handleCancel = async () => {
+    if (!onCancel || cancelling) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("确定取消这个后台任务吗？已经发生的动作不会回滚，未确认的动作将不再执行。")
+    ) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      await onCancel(run);
+    } finally {
+      setCancelling(false);
+    }
+  };
   const progress = deriveUserProgress({
     runStatus:
       typeof (run as { rawStatus?: string }).rawStatus === "string"
@@ -151,8 +177,11 @@ export function RuntimeV2Workbench({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-[13px] font-semibold tracking-tight">
-              {assistantStatusLabel(run.status)}
+            <span
+              className="text-[13px] font-semibold tracking-tight"
+              data-testid="runtime-v2-status-label"
+            >
+              {statusLabel}
             </span>
             <span className="rounded-md bg-card-bg/60 px-1.5 py-0.5 text-[11px] font-medium text-[#4a524e]">
               销售跟进
@@ -178,7 +207,8 @@ export function RuntimeV2Workbench({
         </div>
       </div>
 
-      {/* 2. 分析结果 */}
+      {/* 2. 分析结果（持久跟进任务：成果明细由服务端投影提供） */}
+      {followup ? <FollowupOutcomePanel outcome={followup} /> : null}
       {customers.length > 0 ? (
         <div
           className="border-t border-border bg-card-bg/45 px-3 py-2.5 sm:px-3.5"
@@ -320,6 +350,21 @@ export function RuntimeV2Workbench({
         >
           <span className="font-medium text-muted">验证结果 · </span>
           {run.verificationLabel}
+        </div>
+      ) : null}
+
+      {run.cancellable && onCancel ? (
+        <div className="border-t border-border bg-card-bg/50 px-3 py-2 sm:px-3.5">
+          <button
+            type="button"
+            onClick={() => void handleCancel()}
+            disabled={cancelling}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 text-[12px] font-medium text-muted disabled:opacity-60"
+            data-testid="runtime-v2-cancel"
+          >
+            {cancelling ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+            {cancelling ? "取消中…" : "取消任务"}
+          </button>
         </div>
       ) : null}
 

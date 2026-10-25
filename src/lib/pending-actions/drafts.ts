@@ -119,14 +119,18 @@ function buildCreateData(input: CreateDraftInput) {
     (typeof input.payload.workspaceId === "string"
       ? input.payload.workspaceId
       : undefined);
-  const payloadHash = computePayloadHash(input.payload);
+  // 先归一成落库后的 JSON 形态再算 hash：值为 undefined 的键（Grader 适配的可选字段）落库时会被丢掉、
+  // Date 会变成字符串；直接对内存对象算 hash，执行时对库里的 payload 重算必然不一致
+  // （PAYLOAD_HASH_MISMATCH「审批内容已变化」）。本来就一致的 payload，hash 不变。
+  const payload = JSON.parse(JSON.stringify(input.payload)) as Record<string, unknown>;
+  const payloadHash = computePayloadHash(payload);
   return {
     payloadHash,
     data: {
       type: input.type,
       title: input.title,
       preview: input.preview,
-      payload: input.payload as object,
+      payload: payload as object,
       status: "pending" as const,
       createdById: input.userId,
       orgId: input.orgId,
@@ -144,36 +148,6 @@ function buildCreateData(input: CreateDraftInput) {
       idempotencyKey: input.idempotencyKey ?? null,
       expiresAt,
     },
-  };
-}
-
-/** 按稳定幂等键查找已有草稿（含已执行，防止重试重复写） */
-export async function findDraftByIdempotencyKey(input: {
-  orgId: string;
-  idempotencyKey: string;
-}): Promise<CreatedDraftAction | null> {
-  const action = await db.pendingAction.findFirst({
-    where: {
-      orgId: input.orgId,
-      idempotencyKey: input.idempotencyKey,
-    },
-    select: {
-      id: true,
-      type: true,
-      title: true,
-      preview: true,
-      agentRunId: true,
-      payloadHash: true,
-    },
-  });
-  if (!action) return null;
-  return {
-    actionId: action.id,
-    type: action.type,
-    title: action.title,
-    preview: action.preview,
-    payloadHash: action.payloadHash ?? "",
-    agentRunId: action.agentRunId,
   };
 }
 
@@ -362,6 +336,10 @@ export async function createDraftBatch(
       await impl.markAwaitingApproval(orgId, agentRunId);
     }
 
+    // Muse Bridge（Phase 0）：best-effort 推审批卡；收件人 = 指定审批人，否则创建人。
+    // emitMuseEvent 内部按 MUSE_BRIDGE_ENABLED 开关短路、按 eventId 幂等、绝不上抛。
+    void notifyMuseApprovalRequested(created, inputs);
+
     return { success: true, actions: created };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -407,4 +385,42 @@ export async function createDraft(
       preview: action.preview,
     }),
   };
+}
+
+// ── Muse Bridge 挂钩（Phase 0）──────────────────────────────────
+
+async function notifyMuseApprovalRequested(
+  created: CreatedDraftAction[],
+  inputs: CreateDraftInput[],
+): Promise<void> {
+  try {
+    const { isMuseBridgeEnabled } = await import("@/lib/muse-bridge/flags");
+    if (!isMuseBridgeEnabled()) return;
+    const { emitApprovalRequested } = await import("@/lib/muse-bridge/events");
+    const projectIds = Array.from(new Set(inputs.map((i) => i.projectId).filter((x): x is string => !!x)));
+    const names = projectIds.length
+      ? await db.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true } })
+      : [];
+    const nameOf = new Map<string, string>(
+      (names as Array<{ id: string; name: string }>).map((p) => [p.id, p.name]),
+    );
+    await Promise.all(
+      created.map((action, i) => {
+        const input = inputs[i] ?? inputs[0];
+        if (!input?.orgId) return Promise.resolve();
+        const ttl = input.ttlHours ?? 24;
+        return emitApprovalRequested({
+          actionId: action.actionId,
+          orgId: input.orgId,
+          recipientUserId: input.approverUserId ?? input.userId,
+          projectId: input.projectId ?? null,
+          projectName: input.projectId ? nameOf.get(input.projectId) ?? null : null,
+          title: action.title,
+          expiresAt: new Date(Date.now() + ttl * 3600 * 1000),
+        });
+      }),
+    );
+  } catch (err) {
+    console.error("[muse-bridge] approval.requested hook failed:", err);
+  }
 }

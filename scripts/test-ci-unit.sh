@@ -57,6 +57,8 @@ npx tsx src/lib/workforce-runtime/__tests__/t5-seg25-work-domain.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-seg3-v2-convergence.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts
 npx tsx src/lib/workforce-runtime/__tests__/obs-p1-latency-self-trigger.test.ts
+npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts
+npx tsx src/components/assistant/__tests__/followup-outcome-render.test.tsx
 npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
@@ -99,6 +101,9 @@ npx tsx src/lib/env/__tests__/runtime-isolation.test.ts
 npx tsx src/lib/env/__tests__/runtime-isolation-entrypoints.test.ts
 npx tsx src/lib/env/__tests__/wave15-seed-target-guard.test.ts
 npx tsx scripts/public-route-auth-contracts.test.ts
+npx tsx src/lib/automation/__tests__/local-time.test.ts
+npx tsx src/lib/automation/__tests__/org-timezone.test.ts
+npx tsx src/lib/trade/__tests__/daily-cron-org-scope.isolated.test.ts
 npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
@@ -106,6 +111,25 @@ npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
 npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
 npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry-async.test.ts
+npx tsx src/lib/trade/__tests__/booth-cards.test.ts
+npx tsx src/lib/trade/__tests__/booth-summary.test.ts
+npx tsx src/lib/trade/__tests__/style-references.test.ts
+npx tsx src/lib/trade/__tests__/email-sender.test.ts
+npx tsx src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/embed-intake.test.ts
+npx tsx src/lib/trade/__tests__/embed-intake-db.isolated.test.ts
+npx tsx src/lib/trade/__tests__/email-forward-parse.test.ts
+npx tsx src/lib/trade/__tests__/email-inbound.test.ts
+npx tsx src/lib/trade/__tests__/email-inbound-db.isolated.test.ts
+# WhatsApp / 微信来信进 Revenue Spine + 电话 E.164 去重（PRD F2.2–F2.4；DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/phone-match.test.ts
+npx tsx src/lib/trade/__tests__/whatsapp-inbound.test.ts
+npx tsx src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts
+# WhatsApp phoneNumberId / 公众号原始 ID 跨组织唯一（保存时检查 + 上线前检查脚本；DB 测试无隔离库自动跳过）
+npx tsx src/lib/trade/__tests__/inbound-org.test.ts
+npx tsx src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts
@@ -181,6 +205,7 @@ npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel-static.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel.isolated.test.ts
+npx tsx src/lib/agent-runtime/__tests__/concurrency-slot-release.isolated.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
 # Supplier Intelligence M1-S1（DB 套件无 DATABASE_URL 时自跳过）
@@ -234,7 +259,29 @@ npx tsx src/lib/supplier-intel/__tests__/supplier-intel-s3a-db.isolated.test.ts
 npx tsx src/lib/revenue-spine/__tests__/opportunity-stage.test.ts
 npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
+npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
+npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
+npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
+npx tsx src/lib/trade/__tests__/message-normalize.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
+# 老板今日询盘 / 早报 / 新草稿提醒；微信回数字不批询盘回复；微信绑定只改本人（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/owner-today.test.ts
+npx tsx src/lib/revenue-spine/__tests__/owner-brief.test.ts
+npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-scope.test.ts
+npx tsx src/lib/messaging/__tests__/binding-preferences.test.ts
+npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts
+
+# 厂家入驻向导（PRD F6）：纯函数 + 路由静态契约；DB e2e 无隔离库自动跳过
+npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts
+npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts
+# 首响 SLA 分级提醒 / 工作时间日历 / SLA 指标（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts
+npx tsx src/lib/revenue-spine/__tests__/sla-metrics.test.ts
+npx tsx src/lib/revenue-spine/__tests__/sla-tiers-db.isolated.test.ts
+npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-policy.test.ts
+npx tsx src/lib/messaging/__tests__/binding-proof.test.ts
+npx tsx src/lib/messaging/__tests__/wechat-binding-confirm-db.isolated.test.ts
+npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

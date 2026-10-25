@@ -24,6 +24,8 @@ const PUBLIC_PATHS = [
   "/api/trade/webhook",
   "/api/webhooks/firecrawl",
   "/api/messaging/wecom/callback",
+  // Muse Bridge（server-to-server，route 内 Bearer ApiToken 鉴权：system=muse-bridge + muse:bridge）
+  "/api/bridge/muse",
   // Visualizer 客户分享（token 鉴权在 route 内部，无登录态）
   "/api/visualizer/share",
   "/sales/share/visualizer",
@@ -32,6 +34,8 @@ const PUBLIC_PATHS = [
   "/quote",
   // 大厅展示大屏（纯静态品牌内容，无业务数据）
   "/display",
+  // 嵌入询盘表单脚本（public/embed/inquiry.js，静态文件，无业务数据；提交走 /api/trade/webhook/website/embed）
+  "/embed",
 ];
 
 function isPublicPath(pathname: string): boolean {

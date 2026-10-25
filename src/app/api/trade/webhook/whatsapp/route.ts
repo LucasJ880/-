@@ -1,30 +1,19 @@
 /**
- * WhatsApp Cloud API Webhook
- *
- * GET  — 验证 webhook（Meta 验证请求）
- * POST — 接收消息（须校验 X-Hub-Signature-256 + WHATSAPP_APP_SECRET；org 由 metadata.phone_number_id → TradeChannel 解析）
+ * WhatsApp Cloud API Webhook（处理见 src/lib/trade/whatsapp-inbound.ts；maxDuration 300：after() 里的 FDE 计入本函数时长）
+ * GET  — Meta 验证请求（WHATSAPP_VERIFY_TOKEN；未配置 403）
+ * POST — X-Hub-Signature-256 + WHATSAPP_APP_SECRET（未配置 503，签名错 401，非 JSON 400）；org 由 phone_number_id 解析。
+ *        有条目失败 / busy → 500 让 Meta 重投整批（按收据幂等）；其余 200（未知 phone_number_id 的条目只跳过）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { processInboundMessage } from "@/lib/trade/channel-service";
 import { verifyWhatsAppSignature } from "@/lib/trade/webhook-meta";
-import { logInboundOrgDenial, resolveInboundTradeOrgId } from "@/lib/trade/inbound-org";
+import { processWhatsAppWebhook } from "@/lib/trade/whatsapp-inbound";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET?.trim();
-
-type WaMessage = {
-  type?: string;
-  from?: string;
-  text?: { body?: string };
-  id?: string;
-  timestamp?: string;
-};
-
-type WaValue = {
-  metadata?: { phone_number_id?: string; display_phone_number?: string };
-  messages?: WaMessage[];
-};
 
 export async function GET(request: NextRequest) {
   if (!VERIFY_TOKEN) {
@@ -59,60 +48,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  let body: unknown;
   try {
-    const body = JSON.parse(rawBody) as {
-      entry?: Array<{
-        changes?: Array<{
-          field?: string;
-          value?: WaValue;
-        }>;
-      }>;
-    };
-
-    const entries = body.entry ?? [];
-    for (const entry of entries) {
-      const changes = entry.changes ?? [];
-      for (const change of changes) {
-        if (change.field !== "messages") continue;
-        const value = change.value;
-        const phoneNumberId = value?.metadata?.phone_number_id?.trim();
-        if (!phoneNumberId) {
-          logInboundOrgDenial("whatsapp", "missing_phone_number_id", {});
-          return NextResponse.json(
-            { error: "missing_phone_number_id", detail: "无法将入站消息关联到组织" },
-            { status: 400 },
-          );
-        }
-
-        const resolved = await resolveInboundTradeOrgId({
-          provider: "whatsapp",
-          providerAccountId: phoneNumberId,
-        });
-        if (!resolved.ok) {
-          logInboundOrgDenial("whatsapp", resolved.reason, { phoneNumberId });
-          return NextResponse.json(
-            { error: "unknown_whatsapp_channel", detail: "未找到与 phone_number_id 匹配的 TradeChannel" },
-            { status: 403 },
-          );
-        }
-
-        const messages = value?.messages ?? [];
-        for (const msg of messages) {
-          if (msg.type !== "text") continue;
-          await processInboundMessage(resolved.orgId, {
-            channel: "whatsapp",
-            from: msg.from ?? "",
-            content: msg.text?.body ?? "",
-            externalId: msg.id,
-            timestamp: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : undefined,
-          });
-        }
-      }
-    }
-
-    return NextResponse.json({ status: "ok" });
-  } catch (e) {
-    console.error("WhatsApp webhook error:", e);
-    return NextResponse.json({ status: "ok" });
+    body = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
+
+  const outcome = await processWhatsAppWebhook(body);
+  if (outcome.failed > 0 || outcome.busy > 0) {
+    // 至少一次：让 Meta 重投整批；已处理的条目按收据幂等
+    return NextResponse.json({ status: "retry" }, { status: 500 });
+  }
+  return NextResponse.json({ status: "ok" });
 }

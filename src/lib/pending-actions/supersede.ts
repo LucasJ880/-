@@ -22,6 +22,8 @@ import type { PendingActionType } from "./types";
 export const SYSTEM_SUPERSESSION_REASON_CODES = [
   "SUPERSEDED_BY_MANUAL_REPLY",
   "SUPERSEDED_BY_NEWER_INBOUND",
+  /** 入驻向导的端到端测试询盘：事件本身是合成的，草稿客观上不可发送（触发者 = 运行测试的平台管理员） */
+  "SUPERSEDED_BY_ONBOARDING_TEST",
 ] as const;
 export type SystemSupersessionReasonCode = (typeof SYSTEM_SUPERSESSION_REASON_CODES)[number];
 

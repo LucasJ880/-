@@ -3,7 +3,43 @@
  */
 
 import { db } from "@/lib/db";
+import { AGENT_RUN_TERMINAL_STATUSES } from "@/lib/agent-runtime/types";
 import type { QuotaMetric } from "./types";
+
+/**
+ * 并发预留按 runId 关联 AgentRun。run.ts 的终态路径会立即释放；
+ * v2 / workforce / reconcile 等模块直接写终态，这里在计数前惰性补释放，
+ * 避免已结束的 run 继续占额度直到 5 分钟 TTL。
+ */
+async function releaseEndedRunSlots(orgId: string, at: Date): Promise<void> {
+  const held = await db.capabilityQuotaReservation.findMany({
+    where: {
+      orgId,
+      metric: "MAX_CONCURRENT_RUNS",
+      status: "RESERVED",
+      runId: { not: null },
+    },
+    select: { id: true, runId: true },
+  });
+  if (held.length === 0) return;
+  const ended = await db.agentRun.findMany({
+    where: {
+      orgId,
+      id: { in: held.map((r) => r.runId as string) },
+      status: { in: [...AGENT_RUN_TERMINAL_STATUSES] },
+    },
+    select: { id: true },
+  });
+  if (ended.length === 0) return;
+  const endedRunIds = new Set(ended.map((r) => r.id));
+  await db.capabilityQuotaReservation.updateMany({
+    where: {
+      id: { in: held.filter((r) => endedRunIds.has(r.runId as string)).map((r) => r.id) },
+      status: "RESERVED",
+    },
+    data: { status: "RELEASED", releasedAt: at },
+  });
+}
 
 function startOfDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -34,6 +70,9 @@ export async function getQuotaCurrentUsage(opts: {
     },
     data: { status: "EXPIRED", releasedAt: at },
   });
+  if (opts.metric === "MAX_CONCURRENT_RUNS") {
+    await releaseEndedRunSlots(opts.orgId, at);
+  }
 
   const reservedAgg = await db.capabilityQuotaReservation.aggregate({
     where: {
@@ -49,10 +88,26 @@ export async function getQuotaCurrentUsage(opts: {
 
   switch (opts.metric) {
     case "MAX_CONCURRENT_RUNS": {
+      // 预留仍计入 reserved 的 run，不再按 run 行重复计数（否则进行中的 run 占 2 个额度）；
+      // 预留过期或已释放后，进行中的 run 仍按 run 行计 1 个。条件与 reservedAgg 一致。
+      const heldRunIds = (
+        await db.capabilityQuotaReservation.findMany({
+          where: {
+            orgId: opts.orgId,
+            metric: opts.metric,
+            status: "RESERVED",
+            expiresAt: { gt: at },
+            runId: { not: null },
+            ...wsFilter,
+          },
+          select: { runId: true },
+        })
+      ).map((r) => r.runId as string);
       const running = await db.agentRun.count({
         where: {
           orgId: opts.orgId,
           status: { in: ["running", "claimed", "queued"] },
+          ...(heldRunIds.length > 0 ? { id: { notIn: heldRunIds } } : {}),
           ...(opts.workspaceId
             ? {
                 metadata: {

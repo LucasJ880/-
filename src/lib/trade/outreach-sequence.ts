@@ -6,7 +6,7 @@
 import { db } from "@/lib/db";
 import { generateOutreachEmail, type OutreachDraft } from "@/lib/trade/agents";
 import { getResearchReportForAgents } from "@/lib/trade/research-bundle";
-import { sendEmail } from "@/lib/trade/email";
+import { sendTradeEmailForOrg } from "@/lib/trade/email-sender";
 import { createMessage, updateProspect } from "@/lib/trade/service";
 import { logActivity } from "@/lib/trade/activity-log";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
@@ -250,7 +250,7 @@ export async function sendSequenceStep(input: {
     if (!prospect.contactEmail) {
       return { ok: false, error: "无线索邮箱，只能标记为已发送", status: 400 };
     }
-    const result = await sendEmail({
+    const result = await sendTradeEmailForOrg(input.orgId, {
       to: prospect.contactEmail,
       subject: step.subject,
       body: step.body,
@@ -304,9 +304,13 @@ export async function sendSequenceStep(input: {
   return { ok: true };
 }
 
-export async function draftDueSequenceSteps(now = new Date()): Promise<number> {
+export async function draftDueSequenceSteps(
+  now = new Date(),
+  orgIds?: readonly string[],
+): Promise<number> {
   const due = await db.tradeOutreachStep.findMany({
     where: {
+      ...(orgIds ? { orgId: { in: [...orgIds] } } : {}),
       status: "pending",
       scheduledAt: { lte: now },
       dayOffset: { in: [3, 7] },

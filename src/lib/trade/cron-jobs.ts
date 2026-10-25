@@ -27,8 +27,14 @@ export interface CronResult {
   timestamp: string;
 }
 
-export async function runDailyCron(): Promise<CronResult> {
+/**
+ * orgIds：只处理这些组织（路由按各组织当地 08:00 传入）；缺省处理全部组织。
+ */
+export async function runDailyCron(
+  opts: { orgIds?: readonly string[] } = {},
+): Promise<CronResult> {
   const now = new Date();
+  const orgFilter = opts.orgIds ? { orgId: { in: [...opts.orgIds] } } : {};
   const result: CronResult = {
     overdueFollowUps: 0,
     expiredQuotes: 0,
@@ -44,6 +50,7 @@ export async function runDailyCron(): Promise<CronResult> {
   // ── 1. Overdue follow-ups ──
   const overdueProspects = await db.tradeProspect.findMany({
     where: {
+      ...orgFilter,
       nextFollowUpAt: { lt: now },
       stage: { notIn: [...TRADE_DB_STAGES_SCHEDULED_FOLLOWUP_EXCLUDE] },
     },
@@ -74,6 +81,7 @@ export async function runDailyCron(): Promise<CronResult> {
   // ── 2. Expired quotes ──
   const expiredQuotes = await db.tradeQuote.updateMany({
     where: {
+      ...orgFilter,
       status: { in: ["draft", "sent"] },
       expiresAt: { lt: now },
     },
@@ -87,6 +95,7 @@ export async function runDailyCron(): Promise<CronResult> {
 
   const noResponseProspects = await db.tradeProspect.findMany({
     where: {
+      ...orgFilter,
       stage: { in: ["contacted", "outreach_sent"] },
       outreachSentAt: { lt: sevenDaysAgo },
     },
@@ -103,7 +112,7 @@ export async function runDailyCron(): Promise<CronResult> {
 
   // ── 4. P1-alpha：页面监控（低频批量，与 research 无关）──
   try {
-    const w = await runWatchTargetsCron();
+    const w = await runWatchTargetsCron(opts.orgIds);
     result.watchChecked = w.checked;
     result.watchSignalsCreated = w.signalsCreated;
     result.watchSignalsSuppressed = w.signalsSuppressed;
@@ -114,7 +123,7 @@ export async function runDailyCron(): Promise<CronResult> {
 
   // ── 5. Day 3/7 只起草，不发送 ──
   try {
-    result.sequenceDrafted = await draftDueSequenceSteps(now);
+    result.sequenceDrafted = await draftDueSequenceSteps(now, opts.orgIds);
   } catch (e) {
     console.error("[cron] outreach sequence draft:", e);
   }

@@ -50,7 +50,8 @@ registry.register({
   domain: "secretary",
   parameters: { type: "object", properties: {}, required: [] },
   execute: async (ctx: ToolExecutionContext) => {
-    const candidates = await scanFollowups(ctx.orgId);
+    // 按需查询：照旧列出全部线索（含 Revenue Spine 正在跟进的），只列出、不发通知
+    const candidates = await scanFollowups(ctx.orgId, { includeRevenueSpineOwned: true });
     return ok({
       totalCandidates: candidates.length,
       candidates: candidates.slice(0, 10).map((c) => ({
