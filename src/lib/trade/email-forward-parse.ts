@@ -449,28 +449,168 @@ function isSigBreak(l: string): boolean {
   return l === "--" || l === "—" || l === "__" || MOBILE_FOOTER_RE.test(l);
 }
 
-/**
- * closing[i]：第 i 行是短结束语，且其后直到签名分隔符 / stop(j) 行的非空行都像签名（≤ 60 字、不像句子）。
- * 短邮件开头的「Thanks!」后面还有正文时不算，否则正文和其中的买家联系方式会被当成签名丢掉。从末尾一趟，线性。
- */
-function closingLines(lines: string[], stop: (j: number) => boolean = () => false): boolean[] {
-  const closing = lines.map(() => false);
-  let sigTail = true;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const l = lines[i].trim();
-    closing[i] = sigTail && l.length <= 40 && CLOSING_RE.test(l);
-    sigTail = isSigBreak(l) || stop(i) || (sigTail && (closing[i] || (l.length <= 60 && !SENTENCE_WORD_RE.test(l))));
-  }
-  return closing;
+/** 签名之后的尾巴（P.S.、保密 / 免责声明、环保提示）：从这里起不再看，之前的结束语照样算签名起点 */
+const SIG_TRAILER_RE =
+  /^(p\.?\s?s\b|confidential(ity)?\b|disclaimer\b|legal notice\b|privacy notice\b|please consider the environment|follow us\b|(this|the information (contained )?in this) (e-?mail|message|communication)\b.{0,100}\b(confidential|privileged|intended (solely |only )?for)|免责声明|保密声明)/i;
+/** P.S. 是写信人自己的话：紧跟在结束语后面（中间没有签名行）时结束语不算落款，P.S. 留在正文里 */
+const POSTSCRIPT_RE = /^p\.?\s?s\b/i;
+/** 询价正文的痕迹：数量 / 规格 / 贸易术语 / 问句。签名里不会有，出现了就不是签名（尺寸只认 × / *，ASCII x 会撞上电话分机「x 23」） */
+const BODY_HINT_RE =
+  /\d\s?(pcs|pc|pieces?|sets?|units?|cartons?|ctns?|dozens?|pairs?|rolls?|containers?|gsm|cm|mm|kgs?|tons?)\b|\d\s?[×*]\s?\d|\b(moq|fob|cif|exw|qty|quantity)\b|[?？](\s|$)|\d\s?(件|套|条|个|箱|米|吨)/i;
+/** 请求 / 询价用语：带这些词的句子是正文，不是签名后的标语 */
+const REQUEST_WORD_RE =
+  /\b(please|pls|plz|kindly|ask|call|check|follow|reply|send|need|needs|want|wants|wanted|would like|looking for|interested in|quote)\b|请|麻烦|帮忙|跟进|需要|想要|报价/i;
+/** 只有称呼的行（「Hi team,」「Hello Lily,」「您好，」）：称呼后面紧跟的结束语在信的开头，不是落款 */
+const GREETING_LINE_RE =
+  /^((hi|hello|hey|dear|greetings|good (morning|afternoon|evening|day))\b[\s\w.'/&-]{0,30}|您好|你好|大家好|各位好?|亲爱的[\s\S]{0,10})[\s,，!！:：。.]*$/i;
+
+/** 60 字以上仍像签名的行要有签名的样子：分隔符 / 网址 / 邮箱 / 公司后缀 / 职位 / 带门牌号的地址 / 电话位数 */
+function looksLikeLongSigLine(l: string): boolean {
+  return (
+    /[|•·]|https?:\/\/|www\.|@/i.test(l) ||
+    COMPANY_SUFFIX_RE.test(l) ||
+    TITLE_WORD_RE.test(l) ||
+    (/\d/.test(l) && ADDRESS_HINT_RE.test(l)) ||
+    digitCount(l) >= 7
+  );
 }
 
-/** 切出签名：签名分隔符、手机落款、或结尾 15 行内其后只剩签名的短结束语；返回正文行与签名行 */
-function splitSignature(lines: string[]): { body: string[]; signature: string[] } {
+/**
+ * 结束语之后一行的性质：sig = 像签名（不像句子；≤ 60 字，或 ≤ 100 字且有签名的样子：长地址行、单行签名）；
+ * slogan = 签名下面的短句（「We are your partner in home comfort」），只在结束语之后先有像样的签名时容忍；
+ * body = 正文（过长、带数量规格或问句、带请求用语的句子、「Buyer / 客户」标签的买家字段）。
+ */
+function tailLineKind(l: string): "sig" | "slogan" | "body" {
+  if (l.length > 100 || BODY_HINT_RE.test(l)) return "body";
+  const hit = labelOf(l);
+  if (hit && hit.key !== "meta" && BUYERISH_LABEL_RE.test(hit.label)) return "body";
+  if (!SENTENCE_WORD_RE.test(l)) return l.length <= 60 || looksLikeLongSigLine(l) ? "sig" : "body";
+  return l.length <= 80 && !l.includes("@") && !REQUEST_WORD_RE.test(l) ? "slogan" : "body";
+}
+
+/**
+ * 本厂人员写的内容里，结束语之后的行（见 closingLines 的 staff 参数）：
+ * - kind(j) = "body"：一定是正文（带外部邮箱的 P.S.，或带外部邮箱且行里点明 buyer / customer / 客户）；
+ * - kind(j) = "maybe"：像签名的行里有不属于本厂的邮箱，可能是买家联系方式，也可能是业务员自己的私人邮箱；
+ * - ownSignOff(j)：第 j 行是业务员自己的落款（转发人姓名行、中文姓名行、本厂邮箱行）。
+ */
+interface StaffTail {
+  kind: (j: number) => "body" | "maybe" | null;
+  ownSignOff: (j: number) => boolean;
+}
+
+/**
+ * closing[i]：第 i 行是短结束语，且其后（到签名分隔符 / 签名尾巴 / stop(j) 行为止）没有正文行，第一个非空行像签名
+ * （或直接到了分隔处，但紧跟 P.S. 的不算）；其后有标语时，结束语前面要已有正文（不在信的开头），
+ * 且标语前要有两行以上签名或一行联系方式 / 公司 / 职位行（「Thanks!\nJane\nMy colleague will …」不算落款）。
+ * 短邮件开头的「Thanks!」后面还有正文时不算，否则正文和其中的买家联系方式会被当成签名丢掉；
+ * 签名后面的长地址、单行签名、标语、P.S.、保密声明不妨碍结束语成立。
+ *
+ * staff（本厂人员写的内容）：
+ * - 结束语后第一行是业务员自己的落款：结束语成立，落款下面像签名的行（私人邮箱 / WhatsApp）都是业务员的签名；
+ *   其后若还有正文 / 标语 / P.S.（如「Buyer email: …」），resume[i] 记下正文从哪一行接着开始，签名只切到那里为止，
+ *   不然后面的买家信息会随签名丢掉；
+ *   而让结束语不成立的话，业务员签名里的号码会留在正文、紧挨买家邮箱时被当成买家电话（Revenue Spine 按电话并客户）。
+ * - 否则「maybe」行只在结束语紧跟称呼（「Hi team,\n谢谢\nJane Doe …\njane@…」）时算正文；结束语前面已有正文、
+ *   或结束语就是第一行时，它们是落款后的签名，照旧切掉（宁可漏取买家邮箱，也不把业务员的私人邮箱当买家）。
+ * 从末尾一趟（加一趟从头算「前面只有称呼」），线性。resume[i] = -1：签名一直到末尾。
+ */
+function closingLines(
+  lines: string[],
+  stop: (j: number) => boolean = () => false,
+  staff?: StaffTail,
+): { closing: boolean[]; resume: number[] } {
+  const closing = lines.map(() => false);
+  const resume = lines.map(() => -1);
+  // atTop[i]：第 i 行前面（到上一个 stop 行为止）只有空行 / 称呼；greeted[i]：并且确有称呼
+  const atTop = lines.map(() => true);
+  const greeted = lines.map(() => false);
+  let seen = false;
+  let greeting = false;
+  for (let i = 0; i < lines.length; i++) {
+    atTop[i] = !seen;
+    greeted[i] = !seen && greeting;
+    const l = lines[i].trim();
+    if (stop(i)) seen = greeting = false;
+    else if (l && l.length <= 60 && GREETING_LINE_RE.test(l) && !SENTENCE_WORD_RE.test(l)) greeting = true;
+    else if (l) seen = true;
+  }
+  let clean = true; // 其后到分隔处为止没有正文行
+  let first: "none" | "ps" | "sig" | "other" = "none"; // 其后第一个非空行（ps：直接是 P.S.）
+  let firstIdx = -1;
+  let topOther = -1; // 其后到分隔处为止最上面的非签名行（正文 / 标语）
+  let slogan = false; // 其后有标语
+  let sigRun = 0; // 结束语与（最上面的）标语之间的签名行数
+  let contactSig = false; // 其中有联系方式 / 公司 / 职位行
+  let maybe = false; // 其后有 staff.kind = "maybe" 的行
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i].trim();
+    if (!l) continue;
+    if (l.length <= 40 && CLOSING_RE.test(l)) {
+      const own = !!staff && first === "sig" && staff.ownSignOff(firstIdx);
+      closing[i] =
+        own ||
+        (clean &&
+          (first === "none" || first === "sig") &&
+          (!slogan || (!atTop[i] && (sigRun >= 2 || contactSig))) &&
+          !(maybe && greeted[i]));
+      if (closing[i]) {
+        // 紧跟的下一行也是结束语（「Thanks,\nBest regards,\nLily …」）时沿用它的 resume
+        resume[i] = own ? topOther : firstIdx >= 0 && closing[firstIdx] ? resume[firstIdx] : -1;
+        // 再往上的结束语只看这一行；其下的签名已经归它
+        first = "sig";
+        firstIdx = i;
+        clean = true;
+        topOther = -1;
+        slogan = maybe = contactSig = false;
+        sigRun = 1;
+        continue;
+      }
+    }
+    const sk = staff?.kind(i) ?? null;
+    if (sk !== "body" && (isSigBreak(l) || stop(i) || SIG_TRAILER_RE.test(l))) {
+      clean = true;
+      first = POSTSCRIPT_RE.test(l) ? "ps" : "none";
+      firstIdx = -1;
+      // 业务员落款下面的 P.S. 是业务员自己的话：落款只切到 P.S. 之前（买家签名后的 P.S. 照旧随签名切掉）
+      topOther = staff && first === "ps" ? i : -1;
+      slogan = maybe = contactSig = false;
+      sigRun = 0;
+      continue;
+    }
+    if (sk === "maybe") maybe = true;
+    const kind = sk === "body" ? "body" : tailLineKind(l);
+    if (kind === "body") clean = false;
+    if (kind === "slogan") {
+      slogan = true;
+      sigRun = 0;
+      contactSig = false;
+    } else if (kind === "sig") {
+      sigRun++;
+      contactSig ||= looksLikeLongSigLine(l) || CONTACT_LABEL_RE.test(l);
+    }
+    if (kind !== "sig") topOther = i;
+    first = kind === "sig" ? "sig" : "other";
+    firstIdx = i;
+  }
+  return { closing, resume };
+}
+
+/**
+ * 切出签名：签名分隔符、手机落款、或结尾 15 行内其后只剩签名的短结束语；返回正文行与签名行。
+ * 结束语之后、签名之后的 P.S. 随签名一起切掉、不进留言（与早先的解析器一致；买家的签名区里留下它就得把签名拆成两段）；
+ * 紧跟在结束语后面、前面没有签名行的 P.S. 不算签名尾巴，结束语不成立，P.S. 留在留言里。
+ * 本厂人员写的内容：业务员落款下面接着的正文（resume）留在正文里，只切掉落款那几行。
+ */
+function splitSignature(lines: string[], staff?: StaffTail): { body: string[]; signature: string[] } {
   const nonEmptyIdx = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
   const tailStart = nonEmptyIdx.length > 15 ? nonEmptyIdx[nonEmptyIdx.length - 15] : 0;
-  const closing = closingLines(lines);
+  const { closing, resume } = closingLines(lines, undefined, staff);
   const cut = lines.findIndex((l, i) => isSigBreak(l.trim()) || (i >= tailStart && closing[i]));
-  return cut < 0 ? { body: lines, signature: [] } : { body: lines.slice(0, cut), signature: lines.slice(cut + 1) };
+  if (cut < 0) return { body: lines, signature: [] };
+  const back = closing[cut] ? resume[cut] : -1;
+  if (back < 0) return { body: lines.slice(0, cut), signature: lines.slice(cut + 1) };
+  return { body: [...lines.slice(0, cut), ...lines.slice(back)], signature: lines.slice(cut + 1, back) };
 }
 
 // ── 标签字段（平台通知 / 官网通知 / 签名） ──────────────────────────────────
@@ -517,7 +657,7 @@ const FIELD_ALIASES: Record<string, FieldKey> = {
 
 /** 平台 / 官网通知的页脚套话：多行留言收集到这里为止 */
 const NOTICE_FOOTER_RE =
-  /^(reply to this (inquiry|message)|view (the |this )?(inquiry|message|details)|log ?in to|sign in to|click here|to reply|please reply|unsubscribe|this (e-?mail|message) (was|is) (sent|generated)|do not reply|copyright|©|all rights reserved|回复此询盘|登录.{0,10}(查看|回复)|点击.{0,10}(查看|回复)|本邮件由系统)/i;
+  /^(reply to this (inquiry|message)|view (the |this )?(inquiry|message|details)|log ?in to|sign in to|click here|to reply|please reply|unsubscribe|this (e-?mail|message) (was|is) (sent|generated)|do not reply|copyright|©|all rights reserved|to keep your account (safe|secure)|回复此询盘|登录.{0,10}(查看|回复)|点击.{0,10}(查看|回复)|本邮件由系统)/i;
 
 /** 通知页脚里常见的元数据标签：不取值，但多行留言收集到这里为止 */
 const META_LABELS = new Set([
@@ -552,7 +692,7 @@ function extractLabeledFields(lines: string[]): { fields: Partial<Record<FieldKe
   const labelLines = new Set<number>();
   const labels = lines.map(labelOf);
   // 留言里的结束语：其后到下一个标签 / 通知页脚之间只剩签名才算
-  const closing = closingLines(lines, (j) => !!labels[j] || NOTICE_FOOTER_RE.test(lines[j].trim()));
+  const { closing } = closingLines(lines, (j) => !!labels[j] || NOTICE_FOOTER_RE.test(lines[j].trim()));
   for (let i = 0; i < lines.length; i++) {
     const hit = labels[i];
     if (!hit) continue;
@@ -732,6 +872,34 @@ function staffSignatureStart(lines: string[], id: StaffIdentity): { start: numbe
   return { start, classes };
 }
 
+/**
+ * 业务员自己的落款行：转发人姓名行（「Lily」「Lily Chen | Sales」）、2–4 字中文姓名行（显示名常是英文名，落款用中文名）、
+ * 只有本厂邮箱的行；公司行不算（也可能是买家公司）
+ */
+function isOwnSignOffLine(raw: string, id: StaffIdentity): boolean {
+  const l = raw.trim().replace(/^[|•·]\s*/, "");
+  if (isStaffNameLine(l, id) || /^[一-龥]{2,4}$/.test(l)) return true;
+  const emails = l.match(EMAIL_IN_TEXT_RE) ?? [];
+  return emails.length > 0 && emails.every((e) => id.isStaffAddr(e.toLowerCase()));
+}
+
+/**
+ * 本厂人员写的内容：结束语后面各行的性质（见 closingLines）。买家邮箱只按地址判断不了——业务员签名里的私人邮箱
+ * （Gmail / 163）同样「不是本厂地址」，所以只有带外部邮箱的 P.S.、或带外部邮箱且点明 buyer / customer / 客户的行
+ * 一定是正文，其余像签名的带外部邮箱行交给 closingLines 按位置判断。
+ */
+function staffTail(lines: string[], id: StaffIdentity, isBuyerEmail: (addr: string) => boolean): StaffTail {
+  return {
+    kind: (j) => {
+      const l = lines[j].trim();
+      const emails = l.match(EMAIL_IN_TEXT_RE) ?? [];
+      if (!emails.some((a) => isBuyerEmail(a.toLowerCase()))) return null;
+      return POSTSCRIPT_RE.test(l) || BUYERISH_LABEL_RE.test(l.replace(EMAIL_IN_TEXT_RE, " ")) ? "body" : "maybe";
+    },
+    ownSignOff: (j) => j >= 0 && isOwnSignOffLine(lines[j], id),
+  };
+}
+
 function phoneKeysIn(lines: string[]): Set<string> {
   const keys = new Set<string>();
   for (const line of lines) {
@@ -858,10 +1026,11 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
 
   // 2. 正文：去引用 / 去历史回复 / 切签名
   const bodyLines = stripQuotedReplies(unquoteIfMostlyQuoted(chosen.lines));
-  const split = splitSignature(bodyLines);
   // 选中的是本厂人员自己写的内容（没有转发头 / 整条链都是同事）：签名是转发人的，不能拿来当买家信息；
   // 另外在转发人显示名那一行、以及识别出的签名起始行截断（很多签名没有 "--" 或结束语）
   const chosenFromStaff = !forwarded.length || isStaff(senderAddr);
+  const identity = staffIdentity([input.from, chosen.headers?.from], isStaff);
+  const split = splitSignature(bodyLines, chosenFromStaff ? staffTail(bodyLines, identity, buyerEligible) : undefined);
   let body = split.body;
   let staffPhoneKeys = new Set<string>();
   let sigClasses: SigClass[] = [];
@@ -874,7 +1043,6 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
       cutAway.push(...body.slice(cut));
       body = body.slice(0, cut);
     }
-    const identity = staffIdentity([input.from, chosen.headers?.from], isStaff);
     staffNames = identity.names;
     const sig = staffSignatureStart(body, identity);
     sigClasses = sig.classes;
