@@ -64,6 +64,7 @@ run_test "微信绑定偏好白名单" "npx tsx src/lib/messaging/__tests__/bind
 run_test "老板今日询盘 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts"
 run_test "网站询盘异步入站 响应契约/时间常量" "npx tsx src/lib/trade/__tests__/website-inquiry-async.test.ts"
 run_test "网站询盘异步入站 DB 端到端(isolated)" "npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts"
+run_test "电话 E.164 归一/比对 + 来源渠道映射" "npx tsx src/lib/revenue-spine/__tests__/phone-match.test.ts"
 run_test "厂家入驻向导 校验/就绪推导/路由契约" "npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts"
 run_test "厂家入驻向导 DB 端到端(isolated)" "npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts"
 run_test "B1 Tenant/AuthZ 安全矩阵" "npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts"

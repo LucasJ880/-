@@ -104,6 +104,7 @@ export const STAGE_COLORS: Record<string, string> = {
 export const INTERACTION_ICONS: Record<string, string> = {
   phone_call: "📞",
   wechat: "💬",
+  whatsapp: "💬",
   email: "📧",
   in_person: "🤝",
   note: "📝",

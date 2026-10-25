@@ -18,6 +18,8 @@ export const OPPORTUNITY_SOURCE_LABELS: Record<OpportunitySource, string> = {
   existing_customer: "老客户",
   manual: "手工录入",
   import: "导入",
+  whatsapp: "WhatsApp",
+  wechat: "微信",
 };
 
 /** 不经 inquiry-intake 写入的来源值：trade（sales-conversion 外贸线索转商机）、csv_import（csv-import 未填来源列） */

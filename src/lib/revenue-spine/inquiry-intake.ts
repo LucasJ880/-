@@ -1,8 +1,8 @@
 /**
  * Revenue Spine — 询盘统一入口（PART 2 / Principle 2）
  *
- * 任何来源（website_inquiry / email / trade_show / manual / …）最终都走这里：
- *   normalize → 四级去重 → SalesCustomer 建/联 → SalesOpportunity 建/附 → CustomerInteraction
+ * 任何来源（website_inquiry / email / trade_show / whatsapp / manual / …）最终都走这里：
+ *   normalize → 四级去重（邮箱 → 电话 → 域名 → 公司名）→ SalesCustomer 建/联 → SalesOpportunity 建/附 → CustomerInteraction
  *   → SalesAction（FDE 队列）→ 返回给调用方触发 FDE
  *
  * 同一客户在报价前阶段再次来信 = 补充信息（附到既有商机，记 CUSTOMER_REPLIED），不新建平行商机。
@@ -31,12 +31,39 @@ export const OPPORTUNITY_SOURCES = [
   "manual",
   "import",
   "email",
+  "whatsapp",
+  "wechat",
 ] as const;
 
 export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number];
 
 export function isOpportunitySource(v: unknown): v is OpportunitySource {
   return typeof v === "string" && (OPPORTUNITY_SOURCES as readonly string[]).includes(v);
+}
+
+/** 来源 → 互动渠道（调用方未在 meta.channel 指定时）；未列出的来源记 other */
+const SOURCE_INTERACTION_CHANNEL: Partial<Record<OpportunitySource, string>> = {
+  website_inquiry: "website",
+  email: "email",
+  whatsapp: "whatsapp",
+  wechat: "wechat",
+};
+
+/** 来源 → CustomerInteraction.type；未列出的来源记 note */
+const SOURCE_INTERACTION_TYPE: Partial<Record<OpportunitySource, string>> = {
+  website_inquiry: "web_form",
+  email: "email",
+  trade_show: "in_person",
+  whatsapp: "whatsapp",
+  wechat: "wechat",
+};
+
+export function inquiryInteractionChannel(source: OpportunitySource, metaChannel?: string | null): string {
+  return metaChannel ?? SOURCE_INTERACTION_CHANNEL[source] ?? "other";
+}
+
+export function inquiryInteractionType(source: OpportunitySource): string {
+  return SOURCE_INTERACTION_TYPE[source] ?? "note";
 }
 
 export interface InquiryIntakeInput {
@@ -138,10 +165,10 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
 
   const policy = input.policy ?? (await loadRevenueSpinePolicy(input.orgId));
   const language = detectLanguage([subject, product, message].filter(Boolean).join("\n"));
-  const keys = buildDedupeKeys({ email, company, phone, website });
+  const keys = buildDedupeKeys({ email, company, phone, website, country });
 
-  // ── 1-4. 去重 ──
-  const match = await matchCustomer(input.orgId, { email, company, phone, website });
+  // ── 1-4. 去重（邮箱 → 电话 E.164 → 企业域名 → 公司名）──
+  const match = await matchCustomer(input.orgId, { email, company, phone, website, country });
   let customerId: string;
   let customerCreated = false;
   let ownerUserId: string | null = null;
@@ -277,8 +304,8 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     orgId: input.orgId,
     opportunityId,
     direction: "inbound",
-    channel: input.meta?.channel ?? (input.source === "website_inquiry" ? "website" : input.source === "email" ? "email" : "other"),
-    type: input.source === "website_inquiry" ? "web_form" : input.source === "email" ? "email" : input.source === "trade_show" ? "in_person" : "note",
+    channel: inquiryInteractionChannel(input.source, input.meta?.channel),
+    type: inquiryInteractionType(input.source),
     summary: [subject, product, message].filter(Boolean).join(" — "),
     content: rawMessages[0].content,
     actorUserId: ownerUserId,
