@@ -4,10 +4,12 @@
  * 纯函数、零依赖（不引第三方号码库：本轮不加依赖，规则只覆盖去重需要的部分）：
  *   - 国际格式（+ / 00 / 该国国际冠码）→ "+<国家码><号码>"；
  *   - 本地格式 + 国家提示（询盘里的国家字段、客户档案的国家）→ 去掉国内长途前缀（0 / 北美 1）后加国家码；
- *   - 没有国家提示的本地格式 → 无法确定 E.164，返回 null（比对时另有规则，见 phonesMatch）。
- * 校验只到"国家码存在 + 总长 8–15 位（北美恰 11 位）"，不做号段级合法性判断。
+ *   - 没有国家提示的本地格式 → 无法确定 E.164，返回 null，不参与电话比对；
+ *   - WhatsApp wa_id 的已知写法差异归一：墨西哥手机 +52 1 …（旧手机前缀）→ +52 …，阿根廷手机 +54 9 … → +54 …。
+ * 校验只到"国家码存在 + 总长 8–15 位（北美恰 11 位、区号 / 局号首位 2–9）"，不做号段级合法性判断。
  *
- * 比对宁可漏合并也不误合并：旧规则"取末 10 位"会把不同国家、尾号相同的号码合成一个客户，这里不再这样做。
+ * 比对宁可漏合并也不误合并（phonesMatch）：两边都必须归一成可信的 E.164 且相等；
+ * 网页表单常见的占位号（0000000000、1234567890、9999999 …）不参与比对。
  */
 
 import { detectCountries } from "./lexicon";
@@ -137,15 +139,25 @@ function cleanPhone(raw: string): string {
   return s.trim();
 }
 
-function digitsOf(raw: string | null | undefined): string {
-  return typeof raw === "string" ? cleanPhone(raw).replace(/\D/g, "") : "";
-}
-
 function plausibleInternational(d: string): boolean {
   if (d.length < 8 || d.length > 15) return false;
   const split = splitCallingCode(d);
   if (!split) return false;
-  return split.cc !== "1" || d.length === 11;
+  if (split.cc !== "1") return true;
+  // 北美：恰 10 位国内号码，区号与局号首位都是 2–9（「+1 123 456 7890」不是真实号码）
+  return split.national.length === 10 && /^[2-9]\d\d[2-9]/.test(split.national);
+}
+
+/**
+ * WhatsApp wa_id 与 E.164 的已知差异（同一手机两种写法）→ 统一成一种再比对：
+ *   - 墨西哥：wa_id 常带旧的手机前缀 1（52 1 55 1234 5678），2019 年后的 E.164 是 52 55 1234 5678；
+ *   - 阿根廷：手机国际格式带 9（54 9 11 2345 6789），表单常写成 54 11 2345 6789。
+ * 号段按固话 / 手机分配，同一 10 位国内号码不会既是固话又是手机，去掉前缀不会把两个号码合成一个。
+ */
+function canonicalMobilePrefix(intl: string): string {
+  if (intl.length === 13 && intl.startsWith("521")) return `52${intl.slice(3)}`;
+  if (intl.length === 13 && intl.startsWith("549")) return `54${intl.slice(3)}`;
+  return intl;
 }
 
 function nationalToInternational(d: string, c: DialingCountry): string | null {
@@ -175,7 +187,36 @@ export function toE164(raw: string | null | undefined, countryHint?: string | nu
   else if (hint?.intl && d.startsWith(hint.intl)) intl = d.slice(hint.intl.length);
   else if (d.startsWith("00")) intl = d.slice(2);
   else intl = hint ? nationalToInternational(d, hint) : null;
-  return intl && plausibleInternational(intl) ? `+${intl}` : null;
+  if (!intl) return null;
+  const canonical = canonicalMobilePrefix(intl);
+  return plausibleInternational(canonical) ? `+${canonical}` : null;
+}
+
+/** 严格递增 / 递减的连续数字（允许 9→0 / 0→9 回绕），至少 7 位：1234567890、9876543210 */
+function isDigitRun(s: string): boolean {
+  if (s.length < 7) return false;
+  const step = (Number(s[1]) - Number(s[0]) + 10) % 10;
+  if (step !== 1 && step !== 9) return false;
+  for (let i = 1; i < s.length; i++) {
+    if ((Number(s[i]) - Number(s[i - 1]) + 10) % 10 !== step) return false;
+  }
+  return true;
+}
+
+/**
+ * 网页表单常见的占位 / 乱填号码（不参与客户去重）：国内号码全是同一个数字、含 7 位以上相同数字、
+ * 或整串是连续递增 / 递减数字。真实号码极少满足；判错的代价只是少合并一次。
+ */
+export function isPlaceholderPhone(e164: string): boolean {
+  const d = e164.replace(/\D/g, "");
+  const national = splitCallingCode(d)?.national ?? d;
+  return /^(\d)\1*$/.test(national) || /(\d)\1{6,}/.test(national) || isDigitRun(national) || isDigitRun(d);
+}
+
+/** 可用于客户去重的 E.164：能归一、且不是占位号；否则 null */
+export function matchablePhoneE164(raw: string | null | undefined, countryHint?: string | null): string | null {
+  const e164 = toE164(raw, countryHint);
+  return e164 && !isPlaceholderPhone(e164) ? e164 : null;
 }
 
 export interface PhoneWithHint {
@@ -184,30 +225,11 @@ export interface PhoneWithHint {
 }
 
 /**
- * 两个电话是否同一号码（客户去重用）：
- *   1. 两边都能归一 → E.164 相等；
- *   2. 只有一边能归一、另一边是没写国家码的本地号且没有（或同一个）国家提示 → 借用已知一边的国家码比对
- *      （去掉一位国内长途前缀后等于其国内号码，或数字串等于「国家码 + 号码」）；另一边提示的是别的国家 → 不同号码；
- *   3. 两边都无法归一 → 仅数字串完全相同才算（不再取末 N 位比较）。
+ * 两个电话是否同一号码（客户去重用）：两边都能归一成可信的 E.164（各用自己的国家提示）且相等才算。
+ * 不再借用另一边的国家码去猜本地号，也不比较原始数字串：没有国家提示的本地号、占位号一律不参与比对
+ * （宁可漏合并、建出一个重复客户，也不把别人的询盘挂到另一家公司的商机上）。
  */
 export function phonesMatch(a: PhoneWithHint, b: PhoneWithHint): boolean {
-  const ea = toE164(a.phone, a.country);
-  const eb = toE164(b.phone, b.country);
-  if (ea && eb) return ea === eb;
-  if (ea || eb) {
-    const known = (ea ?? eb)!.slice(1);
-    const other = ea ? b : a;
-    const split = splitCallingCode(known);
-    if (!split) return false;
-    const otherHint = resolveDialingCountry(other.country);
-    if (otherHint && otherHint.cc !== split.cc) return false;
-    const od = digitsOf(other.phone);
-    if (od.length < 7) return false;
-    if (od === known) return true;
-    const trunk = split.cc === "1" ? "1" : otherHint?.trunk ?? "0";
-    const nationals = [od, od.startsWith(trunk) ? od.slice(trunk.length) : null];
-    return nationals.some((n) => n !== null && n.length >= 7 && n === split.national);
-  }
-  const da = digitsOf(a.phone);
-  return da.length >= 7 && da === digitsOf(b.phone);
+  const ea = matchablePhoneE164(a.phone, a.country);
+  return ea !== null && ea === matchablePhoneE164(b.phone, b.country);
 }

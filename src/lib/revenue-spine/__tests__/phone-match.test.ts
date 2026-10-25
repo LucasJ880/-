@@ -5,7 +5,7 @@
  * 公开仓库：号码全是虚构的 555 / 900 测试号段。
  */
 import assert from "node:assert/strict";
-import { phonesMatch, resolveDialingCountry, splitCallingCode, toE164 } from "../phone";
+import { isPlaceholderPhone, matchablePhoneE164, phonesMatch, resolveDialingCountry, splitCallingCode, toE164 } from "../phone";
 import { buildDedupeKeys } from "../customer-match";
 import { OPPORTUNITY_SOURCES, inquiryInteractionChannel, inquiryInteractionType, isOpportunitySource } from "../inquiry-intake";
 import { OPPORTUNITY_SOURCE_LABELS, opportunitySourceLabel } from "../source-labels";
@@ -54,6 +54,8 @@ ok("无法确定时返回 null：本地格式没有国家提示 / 太短 / 国�
   assert.equal(toE164("12345"), null);
   assert.equal(toE164("+0 123 456 789"), null);
   assert.equal(toE164("+1 647 555 014"), null);
+  assert.equal(toE164("+1 123 456 7890"), null, "北美区号首位不能是 0 / 1");
+  assert.equal(toE164("+1 647 155 0142"), null, "北美局号首位不能是 0 / 1");
   assert.equal(toE164(""), null);
   assert.equal(toE164(null), null);
 });
@@ -75,11 +77,16 @@ ok("比对：WhatsApp 号码 vs 网站表单本地号 + 国家 → 同一号码"
   assert.ok(phonesMatch({ phone: "+447700900123" }, { phone: "07700 900123", country: "United Kingdom" }));
 });
 
-ok("比对：一边没有国家提示 → 借用另一边的国家码（去一位长途前缀 / 国家码没写 +）", () => {
-  assert.ok(phonesMatch({ phone: "+16475550142" }, { phone: "647-555-0142" }));
-  assert.ok(phonesMatch({ phone: "+16475550142" }, { phone: "1 647 555 0142" }));
-  assert.ok(phonesMatch({ phone: "+447700900123" }, { phone: "07700 900123" }));
-  assert.ok(phonesMatch({ phone: "447700900123" }, { phone: "+44 7700 900123" }));
+ok("比对：一边是没有国家提示的本地号 → 不借用另一边的国家码去猜（宁可漏合并）", () => {
+  assert.ok(!phonesMatch({ phone: "+16475550142" }, { phone: "647-555-0142" }));
+  assert.ok(!phonesMatch({ phone: "+16475550142" }, { phone: "1 647 555 0142" }));
+  assert.ok(!phonesMatch({ phone: "+447700900123" }, { phone: "07700 900123" }));
+  assert.ok(!phonesMatch({ phone: "447700900123" }, { phone: "+44 7700 900123" }), "没写 + 也没有国家提示");
+  // 评审实测的误合并：英国 WhatsApp 号码 vs 没写国家的美国本地号，数字恰好能拼上
+  assert.ok(!phonesMatch({ phone: "+447700900123" }, { phone: "770-090-0123" }));
+  // 本地号写了国家（与已知一边同一个国家）→ 各自归一后相等
+  assert.ok(phonesMatch({ phone: "+447700900123" }, { phone: "07700 900123", country: "GB" }));
+  assert.ok(phonesMatch({ phone: "447700900123", country: "United Kingdom" }, { phone: "+44 7700 900123" }));
 });
 
 ok("比对：尾号相同但国家不同 → 不是同一号码（旧规则取末 10 位会误合并）", () => {
@@ -88,11 +95,41 @@ ok("比对：尾号相同但国家不同 → 不是同一号码（旧规则取�
   assert.ok(!phonesMatch({ phone: "+447700900123" }, { phone: "+447700900124" }));
 });
 
-ok("比对：两边都无法归一 → 仅数字串完全相同才算", () => {
-  assert.ok(phonesMatch({ phone: "555 0142 777" }, { phone: "555-0142-777" }));
+ok("比对：两边都无法归一 → 不算同一号码（不再比较原始数字串）", () => {
+  assert.ok(!phonesMatch({ phone: "555 0142 777" }, { phone: "555-0142-777" }));
   assert.ok(!phonesMatch({ phone: "6475550142" }, { phone: "16475550142" }));
   assert.ok(!phonesMatch({ phone: "123" }, { phone: "123" }));
   assert.ok(!phonesMatch({ phone: null }, { phone: "+16475550142" }));
+  assert.ok(!phonesMatch({ phone: null }, { phone: null }));
+});
+
+ok("占位号（网页表单乱填）不参与比对：全同数字 / 7 位以上相同数字 / 连续递增递减", () => {
+  assert.ok(!phonesMatch({ phone: "1234567890" }, { phone: "1234567890" }), "评审实测：两家公司都填 1234567890");
+  assert.ok(!phonesMatch({ phone: "0000000000" }, { phone: "0000000000" }));
+  assert.ok(!phonesMatch({ phone: "+44 1234 567890" }, { phone: "01234 567890", country: "UK" }));
+  assert.ok(!phonesMatch({ phone: "+1 222 222 2222" }, { phone: "(222) 222-2222", country: "US" }));
+  assert.ok(!phonesMatch({ phone: "+86 138 0000 0000" }, { phone: "+8613800000000" }));
+  assert.ok(!phonesMatch({ phone: "+91 98765 43210" }, { phone: "+919876543210" }));
+  for (const junk of ["+447777777777", "+8613800000000", "+441234567890", "+919876543210", "+12222222222", "+61123456789"]) {
+    assert.ok(isPlaceholderPhone(junk), junk);
+  }
+  for (const real of ["+16475550142", "+447700900123", "+61412345678", "+8613800138000", "+85228888822", "+390612345678"]) {
+    assert.ok(!isPlaceholderPhone(real), real);
+  }
+  assert.equal(matchablePhoneE164("1234567890", "India"), null);
+  assert.equal(matchablePhoneE164("+44 7700 900123"), "+447700900123");
+});
+
+ok("WhatsApp wa_id 写法差异：墨西哥 +52 1 / 阿根廷 +54 9 与表单的 E.164 写法是同一号码", () => {
+  assert.equal(toE164("+5215512345678"), "+525512345678");
+  assert.equal(toE164("+5491123456789"), "+541123456789");
+  assert.ok(phonesMatch({ phone: "+5215512345678" }, { phone: "+52 55 1234 5678" }), "评审实测：墨西哥 wa_id 带 1");
+  assert.ok(phonesMatch({ phone: "+5215512345678" }, { phone: "55 1234 5678", country: "Mexico" }));
+  assert.ok(phonesMatch({ phone: "+5491123456789" }, { phone: "+54 11 2345 6789" }), "评审实测：阿根廷 wa_id 带 9");
+  assert.ok(phonesMatch({ phone: "+5491123456789" }, { phone: "+54 9 11 2345 6789" }));
+  assert.ok(phonesMatch({ phone: "+5491123456789" }, { phone: "011 2345 6789", country: "Argentina" }));
+  assert.ok(!phonesMatch({ phone: "+5215512345678" }, { phone: "+52 55 1234 5679" }));
+  assert.equal(toE164("+52 55 1234 5678"), "+525512345678", "已是 E.164 的不动");
 });
 
 ok("去重键：旧 phone 键不变（存在性判断），另给出 E.164 键（国家提示）", () => {
@@ -101,6 +138,8 @@ ok("去重键：旧 phone 键不变（存在性判断），另给出 E.164 键�
   assert.equal(k.phoneE164, "+14165550199");
   assert.equal(buildDedupeKeys({ phone: "(416) 555-0199" }).phoneE164, null);
   assert.equal(buildDedupeKeys({ phone: "+16475550142" }).phoneE164, "+16475550142");
+  assert.equal(buildDedupeKeys({ phone: "1234567890", country: "US" }).phoneE164, null, "占位号没有可参与去重的 E.164");
+  assert.equal(buildDedupeKeys({ phone: "1234567890" }).phone, "1234567890", "旧 phone 键仍在（只判断有没有电话）");
 });
 
 ok("来源：whatsapp / wechat 是合法商机来源且有中文标签；互动渠道 / 类型映射", () => {
