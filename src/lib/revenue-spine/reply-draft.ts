@@ -150,12 +150,14 @@ function fmtValue(field: RfqField, fields: RfqFields, lang: "zh" | "en"): string
   const v = fields[field];
   if (v === null || v === undefined || v === "") return null;
   if (v instanceof Date) {
-    // 买家只说了月份（「March 2027」「before March」）时抽取存的是月底：复述成「end of March 2027」，不编出具体日子
+    // 买家只说了月份（「March 2027」「before March」）时抽取存的是月底：先写「end of March 2027」，不让人以为买家说了具体哪天；
+    // 括号里保留 ISO 日期——买家回信引用草稿时，下一轮抽取仍按这个日期读（月份短语的优先级低于邮件头里的日期）
+    const iso = v.toISOString().slice(0, 10);
     const lastDay = new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth() + 1, 0)).getUTCDate();
     if (v.getUTCDate() === lastDay) {
-      return lang === "zh" ? `${v.getUTCFullYear()}年${v.getUTCMonth() + 1}月底` : `end of ${MONTH_NAMES[v.getUTCMonth()]} ${v.getUTCFullYear()}`;
+      return lang === "zh" ? `${v.getUTCFullYear()}年${v.getUTCMonth() + 1}月底（${iso}）` : `end of ${MONTH_NAMES[v.getUTCMonth()]} ${v.getUTCFullYear()} (${iso})`;
     }
-    return v.toISOString().slice(0, 10);
+    return iso;
   }
   if (typeof v === "boolean") return v ? "yes" : "no";
   // 数量照原数字写（不加千分位）：买家回信会带着我们的主题 / 正文，加了千分位的旧数字在抽取打分上会和买家的新数量打平

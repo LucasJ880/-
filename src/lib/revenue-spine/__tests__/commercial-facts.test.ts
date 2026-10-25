@@ -381,10 +381,10 @@ async function main() {
     assert.match(d.body, /- Material: flannel fleece with sherpa back\n/);
     assert.match(d.body, /- Customization: care label in EN\/FR\n/);
     assert.doesNotMatch(d.body, /Private Label/);
-    assert.match(d.body, /- Required delivery date: end of March 2027\n/);
+    assert.match(d.body, /- Required delivery date: end of March 2027 \(2027-03-31\)\n/);
     assert.match(d.body, /Regarding pricing and certification: our team will confirm these internally/);
     const zh = buildReplyDraft({ ...base, language: "zh", fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });
-    assert.match(zh.body, /2027年3月底/);
+    assert.match(zh.body, /2027年3月底（2027-03-31）/);
     assert.match(zh.subject, /（3000 pcs per colour）/, "中文主题里数字和英文单位之间留空格");
     assert.equal(d.guardrailViolations.length, 0, d.guardrailViolations.join("; "));
   });

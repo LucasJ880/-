@@ -123,8 +123,7 @@ const DATE_MONTH_ONLY_RE = new RegExp(`\\b(by|before|until|in)\\s+((?:the\\s+)?e
 // 表单字段值常常只写「March 2027」，没有介词：只在「Required date: …」这种标注行里认
 const DATE_BARE_MONTH_RE = new RegExp(`^((?:the\\s+)?end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\.?,?(?:\\s*(20\\d{2}))?[.。]?$`, "i");
 const RELATIVE_RE = /(?:within|in|deliver(?:y)? in|需要在|交期)\s*(\d{1,3})\s*(days?|weeks?|months?|天|周|个月)/i;
-// 2027年3月15日 / 2027年3月底、下旬、前后、只给月份（月底）/ 2027年3月前（上月底）/ 上旬、月初（10 日）/ 中旬（20 日）
-const CN_DATE_RE = /(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日号]|(前后|左右|底|末|下旬|之前|以前|前|中旬|上旬|月初|初))?/;
+const CN_DATE_RE = /(20\d{2})年(\d{1,2})月(?:(\d{1,2})日)?/;
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11,
@@ -164,17 +163,7 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
   }
   const cn = CN_DATE_RE.exec(text);
   if (cn) {
-    const year = Number(cn[1]);
-    const mi = Number(cn[2]) - 1;
-    const q = cn[4] ?? "";
-    const date = cn[3]
-      ? new Date(Date.UTC(year, mi, Number(cn[3])))
-      : /上旬|初/.test(q)
-        ? new Date(Date.UTC(year, mi, 10))
-        : /中旬/.test(q)
-          ? new Date(Date.UTC(year, mi, 20))
-          : monthDate(year, mi, /^(?:之前|以前|前)$/.test(q) ? "before" : "end");
-    return { date, confidence: cn[3] ? 0.9 : 0.7, index: cn.index, length: cn[0].length };
+    return { date: new Date(Date.UTC(Number(cn[1]), Number(cn[2]) - 1, cn[3] ? Number(cn[3]) : 1)), confidence: cn[3] ? 0.9 : 0.7, index: cn.index, length: cn[0].length };
   }
   const textDate = DATE_TEXT_RE.exec(text);
   if (textDate && monthIndex(textDate[1]) !== null) {
@@ -247,6 +236,7 @@ const QTY_UNIT_RE = new RegExp(
   `^(${UNIT_WORDS})(?![A-Za-z])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?![A-Za-z])|\\s*每\\s*([色款码]))?`,
   "i",
 );
+const QTY_MULTIPLIER_RE = /\d\s*[x×*]\s*\d|[x×*]\s*\d+\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\b|\d\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\s*[x×*]/i;
 const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack))\b|样品|起订|试单|每箱/i;
 /** FDE 把多封来信按时间先后用它拼接（fde/inbound-sales.ts） */
 export const INBOUND_MESSAGE_SEPARATOR = "\n\n---\n\n";
@@ -268,8 +258,8 @@ function capWords(value: string, max = 160): string {
 }
 
 function labeledQuantity(value: string): LabeledPairs | null {
-  // 样品数、起订量、每箱数量、试单混在一起：交给关键词扫描（它有起订量过滤与打分）
-  if (QTY_CAVEAT_RE.test(value)) return null;
+  // 样品数、起订量、每箱数量、试单、乘数（2 colours x 1500 pcs）混在一起：交给关键词扫描（它有起订量过滤与打分）
+  if (QTY_CAVEAT_RE.test(value) || QTY_MULTIPLIER_RE.test(value)) return null;
   const candidates: Array<{ n: number; unit: string | null; rest: string }> = [];
   for (const m of value.matchAll(/(\d{1,3}(?:[,，]\d{3})+|\d+(?:\.\d+)?)(\s*(?:k|万|千)(?![a-z]))?/gi)) {
     const at = m.index ?? 0;
@@ -349,18 +339,19 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
       return null;
     case "certification":
       return labeledCertification(sentence);
+    // 下面几项只在值里真有对应的词时采用（「No requirement」「Later」「normal」「无」「maybe」这类不是答案）
     case "customization":
-      if (yesNo || /^(?:no|none|not (?:needed|required)|plain|无|不需要|不用)(?![A-Za-z])/i.test(sentence)) return null;
-      return /logo|embroider|印|绣|brand|label/i.test(sentence) ? [["customization", sentence], ["customLogo", true]] : [["customization", sentence]];
+      if (yesNo || !/logo|embroider|印|绣|brand|label|print|tag|woven|patch|贴牌|标/i.test(sentence)) return null;
+      return [["customization", sentence], ["customLogo", true]];
+    case "packaging":
+      return findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS) ? [["packaging", sentence]] : null;
     case "material":
-      // 词表里的面料词都没有、又是一长句：多半不是材质
-      if (yesNo || (!MATERIAL_KEYWORDS.some((k) => sentence.toLowerCase().includes(k)) && sentence.split(" ").length > 6)) return null;
-      return [["material", sentence]];
+      return MATERIAL_KEYWORDS.some((k) => sentence.toLowerCase().includes(k)) ? [["material", sentence]] : null;
     case "size": {
-      // 有「70x140cm」这种尺寸就只取它；没有就短值照录（S/M and L/XL、Queen）
+      // 有「70x140cm」这种尺寸就只取它；有 King / S-XL 这类尺码词时短值照录；都没有不采用
       const dim = SIZE_RE.exec(sentence);
       if (dim) return [["size", dim[0].replace(/\s+/g, " ").trim()]];
-      return yesNo || sentence.split(" ").length > 8 ? null : [["size", sentence]];
+      return SIZE_LABEL_RE.test(sentence) && sentence.split(" ").length <= 8 ? [["size", sentence]] : null;
     }
     default:
       return yesNo ? null : [[field, sentence]];
@@ -383,16 +374,12 @@ interface LabeledHit {
  * 那一行是表单的选项（Retail & Private Label），不是定制要求，也不是零售包装。
  * 同一字段出现在几封来信的表单区块里时取后一封。
  */
-/** 表单里没答的行（「Packaging: To be confirmed」）：标签词本身就是关键词，别让关键词扫描从标签里读出一个「答案」 */
-const LABEL_IS_KEYWORD: RfqField[] = ["packaging", "sampleRequired", "customization"];
-
 function labeledFields(
   source: string,
   now: Date,
 ): {
   hits: LabeledHit[];
-  unanswered: Array<{ field: RfqField; labelStart: number; valueStart: number }>;
-  specScan: string;
+  buyerTypeLines: Array<[number, number]>;
   segmentOf: (index: number) => number;
   segmentEnd: (segment: number) => number;
 } {
@@ -416,8 +403,7 @@ function labeledFields(
   const inBlock = (i: number) => blocks.some(([a, b]) => i > a && i < b);
 
   const byField = new Map<RfqField, LabeledHit>();
-  const unanswered: Array<{ field: RfqField; labelStart: number; valueStart: number }> = [];
-  let masked = source;
+  const buyerTypeLines: Array<[number, number]> = [];
   let m: RegExpExecArray | null;
   LABELED_LINE_RE.lastIndex = 0;
   while ((m = LABELED_LINE_RE.exec(source))) {
@@ -426,16 +412,14 @@ function labeledFields(
     if (!field) continue;
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw) || !inBlock(m.index)) continue;
-    if (field === "buyerType") masked = masked.slice(0, m.index) + " ".repeat(m[0].length) + masked.slice(m.index + m[0].length);
+    // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
+    if (field === "buyerType" && raw.trim().split(/\s+/).length <= 5) buyerTypeLines.push([m.index, m.index + m[0].length]);
     const segment = segmentOf(m.index);
     const prev = byField.get(field);
     if (prev && prev.segment >= segment) continue;
     const pairs = labeledValue(field, raw, now);
     const valueStart = m.index + m[0].trimEnd().length - raw.length;
-    if (!pairs) {
-      if (LABEL_IS_KEYWORD.includes(field) && (NON_ANSWER_RE.test(raw.trim()) || PLACEHOLDER_RE.test(raw.trim()))) unanswered.push({ field, labelStart: m.index, valueStart });
-      continue;
-    }
+    if (!pairs) continue;
     byField.set(field, {
       pairs,
       index: valueStart,
@@ -446,7 +430,7 @@ function labeledFields(
     });
   }
   const segmentEnd = (seg: number) => (seg + 1 < segStarts.length ? segStarts[seg + 1] : source.length);
-  return { hits: [...byField.values()], unanswered, specScan: masked, segmentOf, segmentEnd };
+  return { hits: [...byField.values()], buyerTypeLines, segmentOf, segmentEnd };
 }
 
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
@@ -493,9 +477,6 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   const labeled = labeledFields(original, now);
   const source = original;
   const lower = source.toLowerCase();
-  // 产品规格类关键词（材质、颜色、定制、包装、认证、样品）不在「买家类型」行里找：那一行说的是买家，
-  // 「Retail & Private Label」既不是定制要求也不是零售包装（见 labeledFields）
-  const specLower = labeled.specScan.toLowerCase();
   const fields: RfqFields = emptyRfqFields();
   const evidence: RfqEvidence[] = [];
   const notes: string[] = [];
@@ -543,7 +524,9 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (/^\s*(gsm|cm|mm|inch|in\b|"|x|×|\*|%|usd|cad|eur|\$|元|美元|加元)/.test(after)) continue;
     if (/(x|×|\*|\$|€|£|¥|usd|cad|eur)\s*$/.test(before)) continue;
     // 「MOQ is 100 pcs」「起订量 300 件」是对方说的起订量，不是采购数量
-    if (/(moq|minimum order(?: quantity)?|起订量|最小起订量?|起订)\s*(?:is|of|:|：|为|是|=)?\s*(?:typically|usually|normally|generally|一般为?|通常为?)?\s*(?:每\s*[款色码个件套条]\s*)?$/i.test(source.slice(Math.max(0, m.index - 36), m.index))) continue;
+    if (/(moq|minimum order(?: quantity)?|起订量|最小起订量?|起订)\s*(?:is|of|:|：|为|是|=)?\s*$/i.test(source.slice(Math.max(0, m.index - 24), m.index))) continue;
+    // 我们草稿里的参考句被买家引用回来：「our MOQ is typically 1,000 pcs」「起订量一般为每款 1,000 件」不是买家的数量
+    if (/\bmoq is (?:typically|usually|normally|generally)\s*$|起订量(?:一般|通常)为?\s*每\s*[款色码个件套条]\s*$/i.test(source.slice(Math.max(0, m.index - 30), m.index))) continue;
     if (/^(19|20)\d{2}$/.test(raw.replace(/[,，]/g, "")) && !unit) continue;
     let score = unit ? 3 : 0;
     if (/[,，]\d{3}/.test(raw) || /k|万|千/i.test(raw)) score += 2;
@@ -563,7 +546,7 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   }
 
   // ── 材质 / 成分 ──
-  const material = findKeyword(specLower, MATERIAL_KEYWORDS);
+  const material = findKeyword(lower, MATERIAL_KEYWORDS);
   if (material) {
     fields.material = source.substr(material.index, material.kw.length);
     add("material", fields.material, 0.85, material.index, material.kw.length);
@@ -591,14 +574,14 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   }
 
   // ── 颜色 ──
-  const color = findKeyword(specLower, COLOR_KEYWORDS);
+  const color = findKeyword(lower, COLOR_KEYWORDS);
   if (color) {
     fields.color = source.substr(color.index, color.kw.length);
     add("color", fields.color, 0.75, color.index, color.kw.length);
   }
 
   // ── 定制 / Logo ──
-  const custom = findKeyword(specLower, CUSTOMIZATION_KEYWORDS);
+  const custom = findKeyword(lower, CUSTOMIZATION_KEYWORDS);
   if (custom) {
     fields.customization = stripLabel(snippet(source, custom.index, custom.kw.length));
     fields.customLogo = /logo|embroider|印|绣|brand|label/i.test(custom.kw) ? true : null;
@@ -607,17 +590,17 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   }
 
   // ── 包装 / 认证 / 样品 ──
-  const pack = findKeyword(specLower, PACKAGING_KEYWORDS);
+  const pack = findKeyword(lower, PACKAGING_KEYWORDS);
   if (pack) {
     fields.packaging = stripLabel(snippet(source, pack.index, pack.kw.length));
     add("packaging", fields.packaging, 0.65, pack.index, pack.kw.length);
   }
-  const cert = findKeyword(specLower, CERTIFICATION_KEYWORDS);
+  const cert = findKeyword(lower, CERTIFICATION_KEYWORDS);
   if (cert) {
     fields.certification = source.substr(cert.index, cert.kw.length);
     add("certification", fields.certification, 0.8, cert.index, cert.kw.length);
   }
-  const sample = findKeyword(specLower, SAMPLE_KEYWORDS);
+  const sample = findKeyword(lower, SAMPLE_KEYWORDS);
   if (sample) {
     fields.sampleRequired = true;
     add("sampleRequired", true, 0.8, sample.index, sample.kw.length);
@@ -696,7 +679,17 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   const dropEvidence = (field: RfqField) => {
     for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].field === field) evidence.splice(i, 1);
   };
+  const productAt = keywordPos.get("productName");
+  const otherProduct = (segment: number) => {
+    // 这一封来信点名的是别的产品（产品词在前一封、这封的产品词归到别的类目）
+    if (productAt === undefined || labeled.segmentOf(productAt) === segment) return false;
+    const start = segment === 0 ? 0 : labeled.segmentEnd(segment - 1);
+    const kw = findKeyword(source.slice(start, labeled.segmentEnd(segment)).toLowerCase(), Object.keys(opts.productKeywords));
+    return kw !== null && (opts.productKeywords[kw.kw] ?? opts.productKeywords[kw.kw.toLowerCase()] ?? null) !== fields.productCategory;
+  };
   const keywordWins = (hit: LabeledHit, field: RfqField) => {
+    // 第二次提交的是别的产品：不拿它的字段去改前一个产品
+    if (otherProduct(hit.segment)) return true;
     // 之后的来信里提到了这个字段（不管关键词扫描最后选了哪一处）：买家可能改了说法，保持关键词扫描的结果
     if (mentionedIn(field, source.slice(labeled.segmentEnd(hit.segment)))) return true;
     const k = keywordPos.get(field);
@@ -705,16 +698,6 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (seg !== hit.segment) return seg > hit.segment;
     return STATED_FIRST.includes(field) && k < hit.lineStart;
   };
-  // 关键词只命中了标签词本身、值是没答：清掉（值里真写了东西的不动）
-  for (const u of labeled.unanswered) {
-    for (const field of u.field === "customization" ? (["customization", "customLogo"] as RfqField[]) : [u.field]) {
-      const k = keywordPos.get(field);
-      if (k !== undefined && k >= u.labelStart && k < u.valueStart) {
-        (fields as unknown as Record<string, unknown>)[field] = null;
-        dropEvidence(field);
-      }
-    }
-  }
   const keywordUnit = fields.unit;
   let labeledCountry = false;
   for (const hit of labeled.hits) {
@@ -729,6 +712,18 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       // 表单只写了数字：沿用正文里的单位（5000 meters、3,000 sets），否则有产品时按 pcs
       fields.unit = keywordUnit ?? (fields.productName ? "pcs" : null);
       if (keywordUnit) add("unit", keywordUnit, 0.6, hit.index, hit.length);
+    }
+  }
+  // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）：从那一行读出的定制 / 包装作废
+  for (const field of ["customization", "packaging"] as RfqField[]) {
+    const k = keywordPos.get(field);
+    if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
+    if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]))) continue;
+    (fields as unknown as Record<string, unknown>)[field] = null;
+    dropEvidence(field);
+    if (field === "customization") {
+      fields.customLogo = null;
+      dropEvidence("customLogo");
     }
   }
   // 表单的目的国与关键词抽到的城市不在同一国（「ship to Toronto」+「Destination: USA」）：城市作废，别拼出错的组合

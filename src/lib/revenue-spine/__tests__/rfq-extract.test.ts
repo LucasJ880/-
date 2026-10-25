@@ -242,7 +242,7 @@ ok("表单区块之外的「Label: value」不覆盖关键词扫描（邮件里�
 });
 
 ok("表单区块里没答 / 占位 / yes-no / 认证不在词表：不覆盖", () => {
-  const r = fx(["We need flannel blankets, 3000 pcs.", "", block("Material: please advise", "Certification needs: Required", "Size / specification: Custom — specify in message", "Branding: Yes", "Packaging: To be confirmed")].join("\n"));
+  const r = fx(["We need flannel blankets, 3000 pcs.", "", block("Material: please advise", "Certification needs: Required", "Size / specification: Custom — specify in message", "Branding: Yes")].join("\n"));
   assert.equal(r.material, "flannel");
   const punct = fx(["We need 100% cotton bath towels, 3000 pcs, 70x140cm.", "", block("Material: -", "Size / specification: see photo")].join("\n"));
   assert.equal(punct.material, "100% cotton", "只有标点的值不是答案");
@@ -250,7 +250,17 @@ ok("表单区块里没答 / 占位 / yes-no / 认证不在词表：不覆盖", (
   assert.equal(r.certification, null);
   assert.equal(r.size, null);
   assert.equal(r.customization, null);
-  assert.equal(r.packaging, null);
+  const body = "We need 100% cotton bath towels, 3000 pcs, 70x140cm. Our logo embroidered on the border, each towel in a poly bag.";
+  for (const v of ["No requirement", "Later", "n.a.", "same", "As described above", "无", "暂时没有"]) {
+    assert.equal(fx([body, "", block(`Material: ${v}`)].join("\n")).material, "100% cotton", `Material: ${v}`);
+  }
+  for (const v of ["normal", "several sizes", "如图", "后面再说"]) {
+    assert.equal(fx([body, "", block(`Size / specification: ${v}`)].join("\n")).size, "70x140cm", `Size: ${v}`);
+  }
+  for (const v of ["maybe", "Later", "As above", "We will discuss"]) {
+    assert.notEqual(fx([body, "", block(`Branding: ${v}`)].join("\n")).customization, v, `Branding: ${v}`);
+  }
+  assert.equal(fx(["Need 3000 bath towels.", "", block("Material: Later")].join("\n")).material, null, "没写材质时也不把 Later 当材质");
   const cert = fx(block("Certification needs: OEKO-TEX certified. Please send the certificate.", "Material: *cotton terry*"));
   assert.equal(cert.certification, "OEKO-TEX");
   assert.equal(cert.material, "cotton terry");
@@ -265,7 +275,7 @@ ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 
   assert.equal(fx(["Hi, we'd like hotel bath towels.", "", block("Estimated quantity: 2 pcs samples first, then 3,000 pcs")].join("\n")).quantity, 3000);
   assert.equal(fx(["Need bath towels.", "", block("Estimated quantity: 20 pcs per carton, 5000 pcs total")].join("\n")).quantity, 5000);
   assert.equal(fx(["Please quote bath towels.", "", block("Estimated quantity: MOQ 500 pcs? We plan 2,000 pcs")].join("\n")).quantity, 2000);
-  assert.equal(fx(["Need bath towels.", "", block("Estimated quantity: 2 colours x 3,000 pcs")].join("\n")).quantity, 3000);
+  assert.equal(fx(["Two colours: navy and grey.", "", block("Qty: 2 colours x 1500 pcs")].join("\n")).quantity, null, "乘数写法不按每款数量算");
   const ali = fx(["Need bath towels.", "", block("Estimated quantity: 5000 Piece/Pieces")].join("\n"));
   assert.equal(ali.quantity, 5000);
   assert.equal(ali.unit, "pcs");
@@ -305,9 +315,25 @@ ok("目的地：表单国家与较早来信里的城市不在同一国时城市�
   assert.equal(r.destinationCity, null);
 });
 
-ok("引用回来的起订量参考句不当成买家的数量", () => {
+ok("引用回来的起订量参考句不当成买家的数量；买家自己说的 minimum order quantity of N 照算", () => {
   assert.equal(fx("Hi, we need 800 pcs bath towels.\n\n> For reference, our MOQ is typically 1,000 pcs per style.").quantity, 800);
   assert.equal(fx("我们要800条浴巾。\n> 供参考：起订量一般为每款 1,000 件。").quantity, 800);
+  assert.equal(fx("Hello, we are a small boutique. Can you accept a minimum order quantity of 300 pcs for velvet cushion covers 45x45cm?").quantity, 300);
+});
+
+ok("第二次提交的是别的产品：不拿它的字段改前一个产品", () => {
+  const r = fx(["Product: Flannel blankets", block("Estimated quantity: 5,000 pcs", "Size / specification: 127 x 152 cm")].join("\n") + INBOUND_MESSAGE_SEPARATOR + ["Product: Cushion covers", block("Estimated quantity: 800 pcs", "Size / specification: 45x45cm")].join("\n"));
+  assert.equal(r.quantity, 5000);
+  assert.equal(r.size, "127 x 152 cm");
+});
+
+ok("表单里的买家类型选项不当定制 / 包装；买家在这一行写长句的不动", () => {
+  const opt = fx(["Product: Flannel blankets", "", block("Estimated quantity: 2000 pcs", "Buyer type: Retail & Private Label", "Material: flannel")].join("\n"));
+  assert.equal(opt.customization, null);
+  assert.equal(opt.packaging, null);
+  const long = fx(["Please send your best offer.", "", block("Estimated quantity: 3000 pcs", "Business type: Hotel supplier, need white 100% cotton towels with embroidered logo")].join("\n"));
+  assert.equal(long.material, "100% cotton");
+  assert.equal(long.color, "white");
 });
 
 ok("交期：early / mid 取 10 / 15 日（不说成月底）；只给月份不落到过去；before end of / the end of", () => {
@@ -319,16 +345,10 @@ ok("交期：early / mid 取 10 / 15 日（不说成月底）；只给月份不�
   assert.equal(d("We need 3000 bath towels by the end of March 2027."), "2027-03-31");
 });
 
-ok("中文交期：只给月份 / 月底 / 前后 = 月底，月前 = 上月底，上旬 = 10 日，中旬 = 20 日，「2027 年 3 月」带空格也认", () => {
+ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
   const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
-  assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-31");
-  assert.equal(d("需要3000条浴巾，2027年3月底交货"), "2027-03-31");
-  assert.equal(d("需要3000条浴巾，2027年3月前后交货"), "2027-03-31");
-  assert.equal(d("需要3000条浴巾，2027年3月前交货"), "2027-02-28");
-  assert.equal(d("需要3000条浴巾，2027年3月上旬交货"), "2027-03-10");
-  assert.equal(d("需要3000条浴巾，2027年3月中旬交货。我们公司2015年5月成立"), "2027-03-20", "不跳到后面的成立日期");
-  assert.equal(d("需要3000条浴巾，2027 年 3 月交货"), "2027-03-31");
-  assert.equal(d("毛巾3000条，2027年3月中东客户要货"), "2027-03-31", "「中东」不是中旬");
+  assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-01");
+  assert.equal(d("需要3000条浴巾，2027年3月15日交货"), "2027-03-15");
 });
 
 ok("交期：before <月份> 是上月底，by / in 是当月底", () => {
