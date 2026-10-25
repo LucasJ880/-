@@ -10,7 +10,6 @@
 import { createHash } from "node:crypto";
 import { Resend } from "resend";
 import { isValidEmail, normalizePhone } from "@/lib/revenue-spine/normalize";
-import type { NormalizedInquiry } from "./website-inquiry";
 import { bareAddress, cleanPhone, senderAddress, type ParsedForwardedEmail } from "./email-forward-parse";
 
 // ── 验签 ────────────────────────────────────────────────────────────────────
@@ -327,35 +326,6 @@ export function emailEventId(messageId: string | null | undefined, resendEmailId
   }
   const rid = (resendEmailId ?? "").trim();
   return rid ? `email:resend:${rid}`.slice(0, EVENT_ID_MAX) : null;
-}
-
-/**
- * 解析结果 → 与网站询盘同形的归一化载荷（来源页 / UTM 留空：邮件转发不是落地页归因）。
- * 买家字段与产品已由 parseForwardedEmail 压成单行、限长（姓名 120 / 邮箱 200 小写 / 电话 60 / 公司 200 / 国家 80 / 产品 200）。
- */
-export function buildEmailInquiry(parsed: ParsedForwardedEmail, eventId: string): NormalizedInquiry {
-  const message = parsed.message.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4000);
-  return { ...blankEmailInquiry(eventId), ...parsed.buyer, product: parsed.product, message };
-}
-
-/** 空载荷：白名单以外的发件人不取正文、不解析，只记一条隔离收据（原主题等放在 meta） */
-export function blankEmailInquiry(eventId: string): NormalizedInquiry {
-  return {
-    name: "",
-    email: "",
-    phone: "",
-    company: "",
-    country: "",
-    message: "",
-    product: "",
-    website: "",
-    page: "",
-    referrer: "",
-    landing: "",
-    utm: { source: "", medium: "", campaign: "", content: "", term: "" },
-    eventId,
-    honeypotTripped: false,
-  };
 }
 
 // ── 官网询盘孪生（同一询盘已由官网 webhook 入站） ───────────────────────────

@@ -26,6 +26,7 @@ import {
   rotateSecretConfig,
 } from "./website-channel-credentials";
 import { INBOUND_ALIAS_RE, formatInboundAlias } from "./email-inbound-rules";
+import { inboundIdsOf, isInboundIdChannel, type InboundIdChannel } from "./inbound-org";
 
 // ── Channel Config ──────────────────────────────────────────
 
@@ -36,8 +37,29 @@ export interface ChannelConfig {
   config: Record<string, string>;
 }
 
+const inboundIdLabel = (channel: InboundIdChannel, key: string) => (channel === "whatsapp" ? "WhatsApp Phone Number ID" : `公众号原始 ID（${key}）`);
+
+/** 入站标识（WhatsApp phone_number_id / 公众号原始 ID）已被另一组织的启用通道使用：入站消息将无法判断归属 */
+export class ChannelInboundIdConflictError extends Error {
+  readonly code = "INBOUND_ID_CONFLICT";
+  constructor(
+    public channel: InboundIdChannel,
+    public key: string,
+  ) {
+    super(
+      `该${inboundIdLabel(channel, key)}已被其他组织的启用通道使用，不能重复绑定（否则入站消息无法判断属于哪个组织）。请核对是否填错；确属本企业的账号，请联系平台管理员处理。`,
+    );
+    this.name = "ChannelInboundIdConflictError";
+  }
+}
+
+/**
+ * 保存 WhatsApp / 微信等通道（保存即启用）。WhatsApp 的 phoneNumberId、微信的 originalId / toUserName / ghId / wechatId
+ * 是入站解析组织的依据（inbound-org.ts）：与其他组织启用通道里的任一标识相同 → ChannelInboundIdConflictError，不写入。
+ * 检查与写入在同一事务里、按通道类型加事务级 advisory lock，两个组织同时保存同一标识也只有一个能成功。
+ */
 export async function upsertChannel(input: ChannelConfig) {
-  return db.tradeChannel.upsert({
+  const data = {
     where: { orgId_channel: { orgId: input.orgId, channel: input.channel } },
     create: {
       orgId: input.orgId,
@@ -50,6 +72,20 @@ export async function upsertChannel(input: ChannelConfig) {
       config: input.config,
       status: "active",
     },
+  };
+  const channel = input.channel;
+  const ids = isInboundIdChannel(channel) ? inboundIdsOf(channel, input.config) : [];
+  if (!isInboundIdChannel(channel) || !ids.length) return db.tradeChannel.upsert(data);
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`trade-channel-inbound-id:${channel}`}))`;
+    const others = await tx.tradeChannel.findMany({
+      where: { channel, status: "active", orgId: { not: input.orgId } },
+      select: { config: true },
+    });
+    const taken = new Set(others.flatMap((o) => inboundIdsOf(channel, o.config).map((x) => x.value)));
+    const clash = ids.find((x) => taken.has(x.value));
+    if (clash) throw new ChannelInboundIdConflictError(channel, clash.key);
+    return tx.tradeChannel.upsert(data);
   });
 }
 

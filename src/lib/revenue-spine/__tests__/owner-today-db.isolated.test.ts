@@ -185,6 +185,10 @@ async function main() {
     console.log("\n[1] buildOwnerToday（Asia/Shanghai，当地 10:00）");
     const t = await buildOwnerToday(ORG_A, { now: NOW });
     ok(t.timeZone === "Asia/Shanghai" && t.day === "2026-10-24" && t.dayStart.toISOString() === "2026-10-23T16:00:00.000Z", "组织时区来自 settingsJson，当地零点 = UTC 16:00", { tz: t.timeZone, day: t.day, start: t.dayStart });
+    const { loadOrgTimezone, AUTOMATION_TIMEZONE } = await import("@/lib/automation/registry");
+    const tzA = await loadOrgTimezone(ORG_A);
+    const tzMissing = await loadOrgTimezone(`missing_${stamp}`);
+    ok(tzA === "Asia/Shanghai" && tzMissing === AUTOMATION_TIMEZONE, "loadOrgTimezone（今日询盘与展会小结接口共用）：读 settingsJson.timezone；组织不存在回退默认时区", { tzA, tzMissing });
     ok(t.counts.newToday === 1 && t.newToday[0]?.opportunityId === o1.id, "今日新询盘只有 o1（当地昨天 23:00 的 o2 不算；归档客户不算；B 组织不算）", t.newToday.map((c) => c.opportunityId));
     ok(t.newToday[0]?.sourceLabel === "官网" && t.newToday[0]?.market === "Canada" && t.newToday[0]?.ageMinutes === 540, "卡片：来源标签 / 国家 / 已过多久", t.newToday[0]);
     ok(t.counts.overdue === 1 && t.overdue[0]?.opportunityId === o1.id && t.overdue[0]?.overdueMinutes === 60, "回复超时：o1 超时 60 分钟（o2 时限未到）", t.overdue);

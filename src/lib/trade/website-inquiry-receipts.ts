@@ -107,6 +107,12 @@ export function toReceiptPayload(v: NormalizedInquiry, meta?: Record<string, unk
   };
 }
 
+/** 收据载荷里的接收元数据（toReceiptPayload 的 meta；没有或不是对象 → {}）。不属于业务事实，fromReceiptPayload 不还原它 */
+export function receiptMeta(receipt: Pick<WebsiteInquiryReceipt, "payload">): Record<string, unknown> {
+  const meta = ((receipt.payload ?? {}) as { meta?: unknown }).meta;
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+}
+
 /** 从收据还原首次收到的业务事实（恢复时一律用它，而不是本次请求的内容） */
 export function fromReceiptPayload(payload: Prisma.JsonValue): NormalizedInquiry {
   const p = (payload ?? {}) as Partial<ReceiptPayload>;

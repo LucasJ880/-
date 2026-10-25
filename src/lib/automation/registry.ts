@@ -1,3 +1,4 @@
+import { db } from "@/lib/db";
 import { isLocalScheduleHour, isValidTimeZone } from "./local-time";
 
 /** 组织未设置 settingsJson.timezone（或值无效）时的默认时区 */
@@ -85,7 +86,7 @@ export const AUTOMATION_REGISTRY = [
 export type AutomationKey = (typeof AUTOMATION_REGISTRY)[number]["key"];
 
 /**
- * 组织时区：Organization.settingsJson.timezone（IANA 名称，如梦馨 "Asia/Shanghai"）。
+ * 组织时区：Organization.settingsJson.timezone（IANA 名称，如 "Asia/Shanghai"）。
  * 未设置或不是有效 IANA 名称时回退 AUTOMATION_TIMEZONE。
  */
 export function resolveOrgTimezone(settingsJson: unknown): string {
@@ -95,6 +96,12 @@ export function resolveOrgTimezone(settingsJson: unknown): string {
     if (isValidTimeZone(timeZone)) return timeZone;
   }
   return AUTOMATION_TIMEZONE;
+}
+
+/** 按组织 id 读时区（规则同 resolveOrgTimezone；组织不存在也回退 AUTOMATION_TIMEZONE） */
+export async function loadOrgTimezone(orgId: string): Promise<string> {
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
+  return resolveOrgTimezone(org?.settingsJson ?? null);
 }
 
 /**

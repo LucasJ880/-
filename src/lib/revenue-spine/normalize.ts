@@ -2,10 +2,10 @@
  * Revenue Spine — 归一化纯函数（去重键 / 语言识别）
  */
 
-/** 免费邮箱：大服务商的各国域名（gmail.de、yahoo.fr、hotmail.co.uk、outlook.de …）按前缀，其余按全名 */
-const FREE_MAIL_PROVIDER_RE = /^(gmail|yahoo|hotmail|outlook|live|icloud|qq|163|126|gmx|yandex)\./;
+/** 免费邮箱：大服务商的各国域名（gmail.de、yahoo.fr、hotmail.co.uk、outlook.de、aol.de、protonmail.ch …）按前缀，其余按全名 */
+const FREE_MAIL_PROVIDER_RE = /^(gmail|yahoo|hotmail|outlook|live|icloud|aol|proton|protonmail|qq|163|126|gmx|yandex)\./;
 const FREE_MAIL_DOMAINS = new Set([
-  "googlemail.com", "msn.com", "me.com", "aol.com", "protonmail.com", "proton.me", "mail.com",
+  "googlemail.com", "msn.com", "me.com", "mail.com",
   "foxmail.com", "sina.com", "sohu.com", "aliyun.com", "139.com", "yeah.net",
 ]);
 
@@ -28,7 +28,10 @@ export function emailDomain(email: string | null | undefined): string | null {
   return at > 0 ? e.slice(at + 1) : null;
 }
 
-/** 全仓库唯一的免费邮箱判定：客户去重的企业域名、转发人「同域即同事」都用它 */
+/**
+ * 全仓库唯一的免费邮箱判定：客户去重的企业域名、转发人「同域即同事」、线索公司名兜底（website-inquiry.deriveCompanyName）、
+ * 询盘红旗「自称公司却用免费邮箱」（inquiry-rules）、自动研究的公司域名（inquiry-analysis）都用它
+ */
 export function isFreeMailDomain(domain: string | null | undefined): boolean {
   const d = (domain ?? "").toLowerCase();
   return !!d && (FREE_MAIL_PROVIDER_RE.test(d) || FREE_MAIL_DOMAINS.has(d));

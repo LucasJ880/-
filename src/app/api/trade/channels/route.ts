@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit/logger";
-import { channelView, listChannels, toChannelView, upsertChannel, upsertEmailChannel, upsertWebsiteChannel } from "@/lib/trade/channel-service";
+import {
+  ChannelInboundIdConflictError,
+  channelView,
+  listChannels,
+  toChannelView,
+  upsertChannel,
+  upsertEmailChannel,
+  upsertWebsiteChannel,
+} from "@/lib/trade/channel-service";
 import { CAN_MANAGE_CHANNELS_HEADER, canManageTradeChannels, channelManageForbiddenResponse } from "@/lib/trade/channel-access";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { normalizeForwarderAllowlist } from "@/lib/trade/email-inbound-rules";
@@ -76,12 +84,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(channelView(ch, true), { status: 201 });
   }
 
-  const ch = await upsertChannel({
-    orgId: orgRes.orgId,
-    channel: body.channel,
-    name: body.name,
-    config: body.config,
-  });
+  let ch;
+  try {
+    ch = await upsertChannel({
+      orgId: orgRes.orgId,
+      channel: body.channel,
+      name: body.name,
+      config: body.config,
+    });
+  } catch (err) {
+    // WhatsApp phoneNumberId / 公众号原始 ID 已被其他组织的启用通道使用：不写入（不透露是哪个组织）
+    if (err instanceof ChannelInboundIdConflictError) {
+      return NextResponse.json({ error: err.message, code: err.code, field: err.key }, { status: 409 });
+    }
+    throw err;
+  }
   // 响应只回掩码视图：凭证写入后不再原样出服务端
   return NextResponse.json(toChannelView(ch), { status: 201 });
 }

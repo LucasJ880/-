@@ -14,7 +14,7 @@
 
 import { db } from "@/lib/db";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
-import { resolveOrgTimezone } from "@/lib/automation/registry";
+import { loadOrgTimezone } from "@/lib/automation/registry";
 import { isSampleWaitingReply } from "@/lib/trade/sample-constants";
 import { nextDay, zonedLocalToUtc } from "./business-days";
 import { QUEUE_OPPORTUNITY_SELECT, toQueueOpportunity, type QueueOpportunity } from "./daily-actions";
@@ -313,7 +313,7 @@ export async function buildOwnerToday(
   opts?: { now?: Date; timeZone?: string; policy?: RevenueSpinePolicy; limit?: number },
 ): Promise<OwnerToday> {
   const now = opts?.now ?? new Date();
-  const timeZone = opts?.timeZone ?? resolveOrgTimezone((await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson);
+  const timeZone = opts?.timeZone ?? (await loadOrgTimezone(orgId));
   const { day, start: dayStart, end: dayEnd } = localDayBounds(now, timeZone);
   const limit = opts?.limit ?? LIST_LIMIT;
 

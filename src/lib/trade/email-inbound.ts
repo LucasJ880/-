@@ -32,8 +32,6 @@ import {
   QUARANTINE_REASON_LABELS,
   RAW_HEADERS_MAX,
   aliasFromRecipient,
-  blankEmailInquiry,
-  buildEmailInquiry,
   emailEventId,
   isAllowlistedSender,
   isWebsiteContentTwin,
@@ -46,13 +44,14 @@ import {
   type QuarantineReason,
 } from "./email-inbound-rules";
 import { findTradeChannelOrgByInboundAlias } from "./inbound-org";
-import { ingestWebsiteInquiry, type FdeScheduler, type IngestOrigin, type NormalizedInquiry } from "./website-inquiry";
+import { blankInquiry, ingestWebsiteInquiry, originOfReceipt, type FdeScheduler, type NormalizedInquiry } from "./website-inquiry";
 import {
   EMAIL_FORWARD_SOURCE,
   WEBSITE_INQUIRY_SOURCE,
   computePayloadHash,
   findReceiptByEventId,
   fromReceiptPayload,
+  receiptMeta,
   toReceiptPayload,
 } from "./website-inquiry-receipts";
 
@@ -170,6 +169,15 @@ export interface HandleInboundEmailResult {
 
 const ignored = (reason: string): HandleInboundEmailResult => ({ status: 200, body: { ok: true, outcome: "ignored", reason } });
 
+/**
+ * 解析结果 → 与网站询盘同形的归一化载荷（来源页 / UTM 留空：邮件转发不是落地页归因）。
+ * 买家字段与产品已由 parseForwardedEmail 压成单行、限长（姓名 120 / 邮箱 200 小写 / 电话 60 / 公司 200 / 国家 80 / 产品 200）。
+ */
+export function buildEmailInquiry(parsed: ParsedForwardedEmail, eventId: string): NormalizedInquiry {
+  const message = parsed.message.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4000);
+  return { ...blankInquiry(eventId), ...parsed.buyer, product: parsed.product, message };
+}
+
 // ── 收据（隔离 / 重复：终态，不建业务对象） ─────────────────────────────────
 
 async function recordTerminalReceipt(
@@ -187,7 +195,7 @@ async function recordTerminalReceipt(
         source: EMAIL_FORWARD_SOURCE,
         eventId: v.eventId,
         eventIdProvided: true,
-        payload: { ...toReceiptPayload(v), meta } as unknown as Prisma.InputJsonValue,
+        payload: toReceiptPayload(v, meta) as unknown as Prisma.InputJsonValue,
         payloadHash: computePayloadHash(v),
         status,
         processingSince: null,
@@ -208,11 +216,6 @@ async function recordTerminalReceipt(
     }
     throw err;
   }
-}
-
-function receiptMeta(receipt: Pick<WebsiteInquiryReceipt, "payload">): Record<string, unknown> {
-  const meta = ((receipt.payload ?? {}) as { meta?: unknown }).meta;
-  return meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
 }
 
 function storedReasons(receipt: Pick<WebsiteInquiryReceipt, "payload">): QuarantineReason[] {
@@ -383,7 +386,6 @@ export async function handleResendInboundEvent(event: unknown, deps: HandleInbou
   if (!eventId) return ignored("missing_message_id");
   const sender = str(data.from);
   const subject = str(data.subject).slice(0, 300);
-  const origin = (subj: string | null): IngestOrigin => ({ kind: "email_forward", subject: subj || null });
   const trustedAuthServId = (deps.trustedAuthServId ?? "").trim() || null;
   const forwarder = senderAddress(sender) || sender.trim().slice(0, 200);
   const baseMeta: Record<string, unknown> = {
@@ -401,7 +403,7 @@ export async function handleResendInboundEvent(event: unknown, deps: HandleInbou
   if (existing?.status === "quarantined" || existing?.status === "duplicate") return terminal(orgId, existing.status, existing, eventId);
   if (existing) {
     const replay = await ingestWebsiteInquiry(orgId, fromReceiptPayload(existing.payload), {
-      origin: origin(metaStr(receiptMeta(existing), "subject")),
+      origin: originOfReceipt(existing),
       fdeMode: "deferred",
       scheduleFde: deps.scheduleFde,
       now,
@@ -411,7 +413,8 @@ export async function handleResendInboundEvent(event: unknown, deps: HandleInbou
 
   // 3. 白名单只需要信封里的 from：不在白名单 → 不取正文、不解析，直接隔离（垃圾邮件不触发 Resend API 调用与解析）
   if (!isAllowlistedSender(sender, channel.allowlist)) {
-    return quarantine(orgId, blankEmailInquiry(eventId), ["sender_not_allowed"], { ...baseMeta, parse: null, auth: null }, now, senderQuarantineNotifyKey(orgId, now));
+    // 空载荷：不取正文、不解析，只记一条隔离收据（原主题等放在 meta）
+    return quarantine(orgId, blankInquiry(eventId), ["sender_not_allowed"], { ...baseMeta, parse: null, auth: null }, now, senderQuarantineNotifyKey(orgId, now));
   }
 
   // 4. 正文：载荷里有就用，没有就经 fetcher 取；配置了受信 authserv-id 时同时取原始邮件头（失败 → 502，Resend 重试）
@@ -476,7 +479,7 @@ export async function handleResendInboundEvent(event: unknown, deps: HandleInbou
 
   // 7. 入链（deferred：请求内不跑 FDE）
   const result = await ingestWebsiteInquiry(orgId, v, {
-    origin: origin(parsed.originalSubject || subject),
+    origin: { kind: "email_forward", subject: parsed.originalSubject || subject || null },
     fdeMode: "deferred",
     scheduleFde: deps.scheduleFde,
     receiptMeta: meta,

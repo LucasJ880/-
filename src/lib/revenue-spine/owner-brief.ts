@@ -17,16 +17,9 @@ import { db } from "@/lib/db";
 import { resolveAppOrigin } from "@/lib/agent-runtime/workbench-link";
 import { createNotification } from "@/lib/notifications/create";
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
-import { managementOf } from "@/lib/trade/booth-summary";
+import { defaultPush, managementOf, type PushFn, type PushResult } from "@/lib/trade/booth-summary";
 import { buildOwnerToday, type OwnerToday, type OwnerTodayCounts } from "./owner-today";
 import { opportunitySourceLabel } from "./source-labels";
-
-/** 与 pushNotification 同形：sent = 实际发出的微信条数，failed = 通道发送失败数（静默时段跳过的两边都不计） */
-export interface PushResult {
-  sent: number;
-  failed: number;
-}
-export type PushFn = (userId: string, title: string, text: string) => Promise<PushResult>;
 
 type PushOutcome = "delivered" | "no_binding_or_silent" | "push_failed";
 
@@ -116,12 +109,6 @@ export function formatOwnerBrief(today: OwnerToday, opts: { origin: string }): {
 export function orgHasTradeModule(modulesJson: unknown): boolean {
   return parseOrgModulesJson(modulesJson)?.enabled.includes("trade") === true;
 }
-
-/** 缺省推送：pushNotification（动态引入，避免把推送服务拉进纯函数测试）；分级提醒同用 */
-export const defaultPush: PushFn = async (userId, title, text) => {
-  const { pushNotification } = await import("@/lib/messaging/push-service");
-  return pushNotification(userId, title, text);
-};
 
 interface OwnerBriefResult {
   skipped: "no_trade_module" | "empty" | null;
