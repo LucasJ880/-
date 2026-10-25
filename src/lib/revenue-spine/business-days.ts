@@ -107,7 +107,8 @@ export function parseClockMinutes(value: unknown, allow24 = false): number | nul
   return h * 60 + min;
 }
 
-function nextDay(day: string): string {
+/** 日历上的下一天（YYYY-MM-DD） */
+export function nextDay(day: string): string {
   const [y, m, d] = day.split("-").map(Number);
   const t = new Date(Date.UTC(y, m - 1, d + 1));
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
