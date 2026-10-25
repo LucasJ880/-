@@ -201,6 +201,17 @@ export async function handleInboundMessage(msg: InboundMessage): Promise<void> {
     return;
   }
 
+  // 企微 UserId 只在同一企业内唯一：收到消息的应用不是之后给该账号发消息的应用（组织级旧应用 + 平台网关）时，
+  // 同名的 UserId 可能是另一家企业的人，不认这条绑定，按未绑定回复（与 wecomBindCodeAllowed 同一规则）
+  if (
+    msg.channel === "wecom" &&
+    !wecomBindCodeAllowed(msg.orgId ?? PLATFORM_WECOM_ORG_ID, await resolveWecomSendCredentialOrgId(msg.orgId ?? null))
+  ) {
+    console.warn("[Gateway] wecom binding ignored: inbound app differs from send app", { orgHint: msg.orgId ?? null });
+    await replyToUnboundWecom(msg);
+    return;
+  }
+
   const resolvedOrgId = await resolveBindingOrgId(binding);
   if (!resolvedOrgId) {
     const adapter = await ensureSendAdapter(msg.channel, null);
@@ -754,59 +765,6 @@ export async function sendToExternalUser(opts: {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
-}
-
-/**
- * @deprecated Phase-1 起由 executeConversationRun 承接；保留导出以免外部引用断裂。
- */
-export async function processWithAgentCore(
-  userId: string,
-  msg: InboundMessage,
-  bindingOrgId: string | null,
-): Promise<string> {
-  const { getOrCreateAgentSession, createAgentRun, executeConversationRun } =
-    await import("@/lib/agent-runtime");
-  const orgId =
-    bindingOrgId ||
-    (
-      await db.organizationMember.findFirst({
-        where: { userId, status: "active" },
-        select: { orgId: true },
-      })
-    )?.orgId;
-  if (!orgId) {
-    throw new Error(
-      "无法解析所属组织，请先在『设置 / 微信』完成账号与组织绑定后重试。",
-    );
-  }
-  const session = await getOrCreateAgentSession({
-    orgId,
-    userId,
-    channel: msg.channel,
-    channelUserId: msg.externalUserId,
-  });
-  const { run } = await createAgentRun({
-    orgId,
-    sessionId: session.id,
-    runType: "conversation",
-  });
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { role: true, name: true },
-  });
-  const conv = await executeConversationRun({
-    orgId,
-    userId,
-    userRole: user?.role ?? "user",
-    userName: user?.name ?? null,
-    channel: msg.channel,
-    channelUserId: msg.externalUserId,
-    content: msg.content,
-    messageType: msg.messageType,
-    session,
-    runId: run.id,
-  });
-  return conv.text;
 }
 
 /**

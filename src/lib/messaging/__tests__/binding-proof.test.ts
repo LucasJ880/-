@@ -143,4 +143,16 @@ ok("网关：未绑定企微的回复走收到消息的那套应用，验证码�
   assert.equal((gw.match(/issueBindCode\(bindCodeKeyFromEnv\(\), "wecom"/g) ?? []).length, 1, "企微验证码只在这一处下发");
 });
 
+ok("网关：已绑定的企微账号也只认「收到消息的应用 = 之后发消息用的应用」，同名 UserId 不能跨企业驱动别人的绑定", () => {
+  const root = path.resolve(__dirname, "../../../..");
+  const gw = readFileSync(path.join(root, "src/lib/messaging/gateway.ts"), "utf8");
+  const handler = gw.slice(gw.indexOf("export async function handleInboundMessage"));
+  const guard = handler.indexOf(
+    'msg.channel === "wecom" &&\n    !wecomBindCodeAllowed(msg.orgId ?? PLATFORM_WECOM_ORG_ID, await resolveWecomSendCredentialOrgId(msg.orgId ?? null))',
+  );
+  assert.ok(guard > 0, "绑定命中后按 wecomBindCodeAllowed 校验收发应用");
+  assert.ok(guard < handler.indexOf("resolveBindingOrgId(binding)"), "校验在解析组织 / 进入 Agent 与数字确认之前");
+  assert.ok(handler.slice(guard, handler.indexOf("resolveBindingOrgId(binding)")).includes("await replyToUnboundWecom(msg);\n    return;"), "不一致时按未绑定回复并返回");
+});
+
 console.log(`  ${pass} passed`);

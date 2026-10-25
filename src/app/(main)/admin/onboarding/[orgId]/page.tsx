@@ -17,89 +17,16 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { apiJson } from "@/lib/api-fetch";
 import { listIndustryPacks } from "@/lib/industry-packs/registry";
+import type { OnboardingStatus as Status } from "@/lib/organizations/onboarding";
+import {
+  DEFAULT_FACTORY_TIMEZONE,
+  isStepDone,
+  type OnboardingStepKey as StepKey,
+  type OnboardingStepStatus as StepStatus,
+} from "@/lib/organizations/onboarding-rules";
+import type { OnboardingTestInquiryResult as TestResult } from "@/lib/organizations/onboarding-test-inquiry";
+import { orgRoleLabel, platformRoleLabel } from "@/lib/permissions-client";
 import { cn } from "@/lib/utils";
-
-type StepStatus = "done" | "todo" | "warning" | "skipped" | "acknowledged";
-type StepKey = "pack" | "categories" | "website_channel" | "email_inbound" | "members" | "wechat" | "test_inquiry" | "email_sender" | "handoff";
-
-interface Step {
-  key: StepKey;
-  label: string;
-  status: StepStatus;
-  required: boolean;
-  detail: string;
-}
-
-interface CatalogEntry {
-  key: string;
-  labelZh: string;
-  labelEn: string;
-}
-
-interface ConfigIssue {
-  code: string;
-  severity: string;
-  status: string;
-  scope: string;
-  title: string;
-  message: string;
-}
-
-interface Status {
-  org: {
-    id: string;
-    name: string;
-    code: string;
-    status: string;
-    industryPackId: string | null;
-    timezone: string | null;
-    modules: string[];
-    owner: { id: string; name: string; email: string };
-  };
-  pack: { status: string; id: string | null; name: string | null; message: string | null };
-  catalog: CatalogEntry[];
-  categories: { published: boolean; version: number | null; make: string[]; dontMake: string[]; excludedCategoryAction: string | null };
-  websiteChannel: { exists: boolean; name: string | null; status: string | null; secretPreview: string | null };
-  members: Array<{
-    userId: string;
-    name: string;
-    email: string;
-    platformRole: string;
-    orgRole: string;
-    isSalesRole: boolean;
-    wechatBound: boolean;
-    wechatChannels: string[];
-  }>;
-  invites: Array<{ id: string; code: string; role: string; orgRole: string | null; label: string | null; state: string; expiresAt: string | null }>;
-  testInquiries: Array<{
-    receiptId: string;
-    eventId: string;
-    status: string;
-    firstSeenAt: string;
-    opportunityStage: string | null;
-    draftGenerated: boolean;
-    openDrafts: number;
-  }>;
-  emailSender: { configured: boolean; fromName: string | null; fromEmail: string | null; replyTo: string | null };
-  acknowledged: Partial<Record<"wechat" | "email_sender", { at: string }>>;
-  configHealth: { overall: string; issues: ConfigIssue[] } | null;
-  steps: Step[];
-  ready: boolean;
-  doneRequired: number;
-  totalRequired: number;
-}
-
-interface TestStage {
-  ok: boolean;
-  detail: string;
-}
-
-interface TestResult {
-  ok: boolean;
-  eventId: string;
-  error: string | null;
-  stages: Record<"receipt" | "opportunity" | "draft" | "notification" | "closed", TestStage>;
-}
 
 const PACK_OPTIONS = listIndustryPacks().map((p) => ({ id: p.id, name: p.name }));
 
@@ -111,18 +38,6 @@ const STAGE_LABELS: Record<keyof TestResult["stages"], string> = {
   closed: "测试单关闭（不可发送）",
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  trade: "外贸",
-  sales: "销售",
-  admin: "平台管理员",
-  super_admin: "平台管理员",
-  boss: "老板",
-  org_owner: "企业负责人",
-  org_admin: "企业管理员",
-  org_member: "成员",
-  org_viewer: "只读",
-};
-
 const INVITE_STATE_LABELS: Record<string, string> = {
   unused: "未使用",
   used: "已使用",
@@ -130,16 +45,8 @@ const INVITE_STATE_LABELS: Record<string, string> = {
   disabled: "已停用",
 };
 
-/** 入驻向导的步骤顺序（就绪检查是最后的汇总页） */
-const STEPPER: Array<{ key: StepKey | "ready"; title: string }> = [
-  { key: "pack", title: "行业包与时区" },
-  { key: "categories", title: "产品品类（做 / 不做 / 不确定）" },
-  { key: "website_channel", title: "网站渠道密钥" },
-  { key: "members", title: "邀请业务员" },
-  { key: "wechat", title: "微信绑定" },
-  { key: "test_inquiry", title: "发送测试询盘" },
-  { key: "ready", title: "就绪检查" },
-];
+/** 入驻向导的步骤顺序（标题取服务端步骤名；就绪检查是最后的汇总页） */
+const STEPPER = ["pack", "categories", "website_channel", "members", "wechat", "test_inquiry", "ready"] as const;
 
 function StatusIcon({ status }: { status: StepStatus | "ready" | "not_ready" }) {
   if (status === "done" || status === "ready") return <CheckCircle2 size={18} className="text-emerald-600" />;
@@ -207,7 +114,7 @@ export default function FactoryOnboardingDetailPage() {
   const apply = useCallback((s: Status) => {
     setStatus(s);
     setPackId(s.org.industryPackId ?? "home_textile_trade_v1");
-    setTimezone(s.org.timezone ?? "Asia/Shanghai");
+    setTimezone(s.org.timezone ?? DEFAULT_FACTORY_TIMEZONE);
     const next: Record<string, "make" | "dont" | "unsure"> = {};
     for (const c of s.catalog) {
       next[c.key] = s.categories.make.includes(c.key) ? "make" : s.categories.dontMake.includes(c.key) ? "dont" : "unsure";
@@ -222,7 +129,7 @@ export default function FactoryOnboardingDetailPage() {
     try {
       const d = await apiJson<{ status: Status }>(`/api/admin/onboarding/${orgId}`);
       apply(d.status);
-      setOpen((cur) => cur ?? (d.status.steps.find((st) => st.required && !["done", "skipped", "acknowledged"].includes(st.status))?.key ?? "ready"));
+      setOpen((cur) => cur ?? (d.status.steps.find((st) => st.required && !isStepDone(st))?.key ?? "ready"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "读取失败");
     } finally {
@@ -257,15 +164,11 @@ export default function FactoryOnboardingDetailPage() {
     }
   }
 
+  const send = <T,>(path: string, body: unknown, method = "POST") =>
+    apiJson<T>(`/api/admin/onboarding/${orgId}${path}`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
   const patch = (body: Record<string, unknown>, okMsg: string) =>
-    run("patch", async () => {
-      const d = await apiJson<{ status: Status }>(`/api/admin/onboarding/${orgId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      apply(d.status);
-    }, okMsg);
+    run("patch", async () => apply((await send<{ status: Status }>("", body, "PATCH")).status), okMsg);
 
   if (loading && !status) {
     return (
@@ -286,6 +189,7 @@ export default function FactoryOnboardingDetailPage() {
   }
 
   const salesMembers = status.members.filter((m) => m.isSalesRole);
+  const channelActive = status.websiteChannel.status === "active";
   const configIssues = (status.configHealth?.issues ?? []).filter((i) => i.severity !== "INFO");
 
   const body = (key: StepKey | "ready") => {
@@ -334,7 +238,9 @@ export default function FactoryOnboardingDetailPage() {
                   setNotice("没有变化");
                   return;
                 }
-                patch(b, "已保存").then(() => setOwnerEmail(""));
+                patch(b, "已保存").then((r) => {
+                  if (r !== null) setOwnerEmail("");
+                });
               }}
             >
               {busy === "patch" && <Loader2 size={14} className="animate-spin" />}保存
@@ -400,13 +306,8 @@ export default function FactoryOnboardingDetailPage() {
                     async () => {
                       const make = status.catalog.filter((c) => choice[c.key] === "make").map((c) => c.key);
                       const dontMake = status.catalog.filter((c) => choice[c.key] === "dont").map((c) => c.key);
-                      const d = await apiJson<{ status: Status }>(`/api/admin/onboarding/${orgId}/categories`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ make, dontMake, excludedCategoryAction: excludedAction }),
-                      });
+                      await send("/categories", { make, dontMake, excludedCategoryAction: excludedAction });
                       await load();
-                      return d;
                     },
                     "品类已发布",
                   )
@@ -422,7 +323,7 @@ export default function FactoryOnboardingDetailPage() {
           <div className="space-y-3">
             <p className="text-xs text-muted">
               {status.websiteChannel.exists
-                ? `通道「${status.websiteChannel.name}」${status.websiteChannel.status === "active" ? "已启用" : "已停用"}，密钥 ${status.websiteChannel.secretPreview ?? "未生成"}。重复点击沿用原密钥，已嵌入网页的代码不会失效。`
+                ? `通道「${status.websiteChannel.name}」${channelActive ? "已启用" : "已停用（点击按钮会重新启用，恢复接收网站询盘）"}，密钥 ${status.websiteChannel.secretPreview ?? "未生成"}。重复点击沿用原密钥，已嵌入网页的代码不会失效。`
                 : "生成后把接口地址和密钥交给工厂网站开发者（或在企业的「外贸 → 消息通道」页复制接入代码）。"}
             </p>
             <button
@@ -431,17 +332,13 @@ export default function FactoryOnboardingDetailPage() {
               disabled={busy !== null}
               onClick={() =>
                 run("channel", async () => {
-                  const d = await apiJson<{ secret: string; endpointPath: string; header: string }>(
-                    `/api/admin/onboarding/${orgId}/website-channel`,
-                    { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
-                  );
-                  setChannel(d);
+                  setChannel(await send<{ secret: string; endpointPath: string; header: string }>("/website-channel", {}));
                   await load();
                 })
               }
             >
               {busy === "channel" && <Loader2 size={14} className="animate-spin" />}
-              {status.websiteChannel.exists ? "查看密钥" : "生成网站渠道密钥"}
+              {!status.websiteChannel.exists ? "生成网站渠道密钥" : channelActive ? "查看密钥" : "启用并查看密钥"}
             </button>
             {channel && (
               <div className="grid gap-2 text-xs sm:grid-cols-2">
@@ -501,14 +398,12 @@ export default function FactoryOnboardingDetailPage() {
                 run(
                   "invites",
                   async () => {
-                    const d = await apiJson<{ invites: Array<{ code: string; expiresAt: string | null }> }>(
-                      `/api/admin/onboarding/${orgId}/invites`,
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ role: inviteRole, orgRole: inviteOrgRole, count: inviteCount, expiresInDays: inviteDays }),
-                      },
-                    );
+                    const d = await send<{ invites: Array<{ code: string; expiresAt: string | null }> }>("/invites", {
+                      role: inviteRole,
+                      orgRole: inviteOrgRole,
+                      count: inviteCount,
+                      expiresInDays: inviteDays,
+                    });
                     setNewInvites(d.invites);
                     await load();
                   },
@@ -537,7 +432,7 @@ export default function FactoryOnboardingDetailPage() {
                   <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                     <span className="font-mono">{i.code}</span>
                     <span className="text-muted">
-                      {ROLE_LABELS[i.role] ?? i.role} · {ROLE_LABELS[i.orgRole ?? ""] ?? i.orgRole ?? "成员"} ·{" "}
+                      {platformRoleLabel(i.role)} · {orgRoleLabel(i.orgRole ?? "org_member")} ·{" "}
                       {INVITE_STATE_LABELS[i.state] ?? i.state}
                       {i.expiresAt ? ` · 到期 ${new Date(i.expiresAt).toLocaleDateString()}` : ""}
                     </span>
@@ -583,12 +478,7 @@ export default function FactoryOnboardingDetailPage() {
               disabled={busy !== null}
               onClick={() =>
                 run("test", async () => {
-                  const d = await apiJson<{ result: TestResult }>(`/api/admin/onboarding/${orgId}/test-inquiry`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: "{}",
-                  });
-                  setTestResult(d.result);
+                  setTestResult((await send<{ result: TestResult }>("/test-inquiry", {})).result);
                   await load();
                 })
               }
@@ -750,15 +640,15 @@ export default function FactoryOnboardingDetailPage() {
       {notice && <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{notice}</p>}
 
       <ol className="space-y-3">
-        {STEPPER.map((s, idx) => {
-          const st = s.key === "ready" ? null : stepByKey.get(s.key);
-          const iconStatus = s.key === "ready" ? (status.ready ? "ready" : "not_ready") : st?.status ?? "todo";
-          const expanded = open === s.key;
+        {STEPPER.map((key, idx) => {
+          const st = key === "ready" ? null : stepByKey.get(key);
+          const iconStatus = key === "ready" ? (status.ready ? "ready" : "not_ready") : st?.status ?? "todo";
+          const expanded = open === key;
           return (
-            <li key={s.key} className={cn("rounded-xl border bg-card-bg", expanded ? "border-accent/40" : "border-border")}>
+            <li key={key} className={cn("rounded-xl border bg-card-bg", expanded ? "border-accent/40" : "border-border")}>
               <button
                 type="button"
-                onClick={() => setOpen(expanded ? null : s.key)}
+                onClick={() => setOpen(expanded ? null : key)}
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
                 aria-expanded={expanded}
               >
@@ -767,15 +657,15 @@ export default function FactoryOnboardingDetailPage() {
                     {idx + 1}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">{s.title}</span>
+                    <span className="block text-sm font-medium">{key === "ready" ? "就绪检查" : st?.label}</span>
                     <span className="block truncate text-xs text-muted">
-                      {s.key === "ready" ? (status.ready ? "全部必做步骤已完成" : "查看还差哪些步骤") : st?.detail}
+                      {key === "ready" ? (status.ready ? "全部必做步骤已完成" : "查看还差哪些步骤") : st?.detail}
                     </span>
                   </span>
                 </span>
                 <StatusIcon status={iconStatus} />
               </button>
-              {expanded && <div className="border-t border-border/60 px-4 py-4">{body(s.key)}</div>}
+              {expanded && <div className="border-t border-border/60 px-4 py-4">{body(key)}</div>}
             </li>
           );
         })}
@@ -804,8 +694,8 @@ function MembersTable({ members }: { members: Status["members"] }) {
                 {m.name}
                 <span className="ml-2 text-muted">{m.email}</span>
               </td>
-              <td className="px-3 py-2">{ROLE_LABELS[m.platformRole] ?? m.platformRole}</td>
-              <td className="px-3 py-2">{ROLE_LABELS[m.orgRole] ?? m.orgRole}</td>
+              <td className="px-3 py-2">{platformRoleLabel(m.platformRole)}</td>
+              <td className="px-3 py-2">{orgRoleLabel(m.orgRole)}</td>
               <td className="px-3 py-2">
                 {m.wechatBound ? (
                   <span className="inline-flex items-center gap-1 text-emerald-600">

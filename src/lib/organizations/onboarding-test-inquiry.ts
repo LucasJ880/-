@@ -18,11 +18,10 @@ import { buildDedupeKeys } from "@/lib/revenue-spine/customer-match";
 import { updateFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { INQUIRY_REPLY_ACTION_TYPE } from "@/lib/revenue-spine/fde/inbound-sales";
 import { resolveInquiryOwner } from "@/lib/revenue-spine/inquiry-intake";
-import { TERMINAL_STAGES, isOpportunityStage } from "@/lib/revenue-spine/opportunity-stage";
-import { RULE_KEY_BUSINESS_PROFILE } from "@/lib/revenue-spine/policy";
+import { isTerminalStage } from "@/lib/revenue-spine/opportunity-stage";
 import { transitionOpportunity } from "@/lib/revenue-spine/transition";
 import { ingestWebsiteInquiry, normalizeInquiry, type IngestResult } from "@/lib/trade/website-inquiry";
-import { OnboardingError } from "./onboarding";
+import { OnboardingError, activeWeChatBindings, loadActiveBusinessProfile, requireOrg, strArray } from "./onboarding";
 import {
   ONBOARDING_TEST_BUYER_COMPANY,
   ONBOARDING_TEST_BUYER_EMAIL,
@@ -31,10 +30,11 @@ import {
   buildOnboardingTestInquiryPayload,
   nextOnboardingTestCounter,
   onboardingTestEventPrefix,
+  rec,
   withOnboardingTestTag,
 } from "./onboarding-rules";
 
-export interface StageResult {
+interface StageResult {
   ok: boolean;
   detail: string;
 }
@@ -101,49 +101,39 @@ async function ensureTestBuyer(orgId: string): Promise<{ id: string; ownerUserId
 }
 
 async function firstMakeCategoryLabel(orgId: string, industryPackId: string | null): Promise<string | null> {
-  const pack = resolveIndustryPack(industryPackId);
-  const catalog = pack.status === "ok" ? pack.pack.productCategoryCatalog ?? [] : [];
-  const profile = await db.orgBusinessRule.findFirst({
-    where: { orgId, ruleKey: RULE_KEY_BUSINESS_PROFILE, status: "active" },
-    orderBy: { version: "desc" },
-    select: { configJson: true },
-  });
-  const cats = (profile?.configJson as { productCategories?: unknown } | null)?.productCategories;
-  const first = Array.isArray(cats) ? cats.find((c): c is string => typeof c === "string") : undefined;
+  const first = strArray(rec((await loadActiveBusinessProfile(orgId))?.configJson)?.productCategories)[0];
   if (!first) return null;
-  return catalog.find((c) => c.key === first)?.labelEn ?? first.replace(/_/g, " ");
+  const pack = resolveIndustryPack(industryPackId);
+  return (pack.status === "ok" ? pack.pack.productCategoryCatalog?.find((c) => c.key === first)?.labelEn : null) ?? first.replace(/_/g, " ");
 }
 
 /**
  * 让测试单不可发送、不进队列：草稿系统终止、行动关闭、商机 disqualified、买家归档、线索归档。
  * 只处理传入的（同 org 内）测试对象；可重复调用。
  */
-export async function closeOnboardingTestInquiry(input: {
+async function closeOnboardingTestInquiry(input: {
   orgId: string;
   actorUserId: string;
-  opportunityIds: string[];
+  opportunityId: string | null;
   customerId: string | null;
   prospectId: string | null;
-  now?: Date;
+  now: Date;
 }): Promise<OnboardingTestInquiryResult["stages"]["closed"]> {
-  const now = input.now ?? new Date();
-  const { orgId } = input;
-  const oppIds = [...new Set(input.opportunityIds.filter(Boolean))];
-
-  // 1) 回复草稿：经系统作废原语 pending → failed（SUPERSEDED_BY_ONBOARDING_TEST；不写 decidedById，不冒充人工拒绝）
+  const { orgId, opportunityId, now } = input;
   let pendingActionsCancelled = 0;
-  if (oppIds.length) {
+  let salesActionsDismissed = 0;
+  let opportunityStage: string | null = null;
+  let openLeft = 0;
+  if (opportunityId) {
+    const draftsOfOpp = { orgId, status: "pending", payload: { path: ["opportunityId"], equals: opportunityId } };
+    // 1) 回复草稿：经系统作废原语 pending → failed（SUPERSEDED_BY_ONBOARDING_TEST；不写 decidedById，不冒充人工拒绝）
     const drafts = await db.pendingAction.findMany({
-      where: {
-        orgId,
-        type: INQUIRY_REPLY_ACTION_TYPE,
-        status: "pending",
-        OR: oppIds.map((id) => ({ payload: { path: ["opportunityId"], equals: id } })),
-      },
+      where: { ...draftsOfOpp, type: INQUIRY_REPLY_ACTION_TYPE },
       select: { id: true, payload: true },
     });
     for (const d of drafts) {
-      const p = (d.payload ?? {}) as { replyToInteractionId?: unknown; metadata?: { agentRunId?: unknown } };
+      const p = rec(d.payload) ?? {};
+      const agentRunId = rec(p.metadata)?.agentRunId;
       const sup = await supersedePendingAction({
         pendingActionId: d.id,
         orgId,
@@ -153,18 +143,15 @@ export async function closeOnboardingTestInquiry(input: {
         auditActorUserId: input.actorUserId,
         evidence: {
           inboundInteractionId: typeof p.replyToInteractionId === "string" ? p.replyToInteractionId : null,
-          agentRunId: typeof p.metadata?.agentRunId === "string" ? p.metadata.agentRunId : null,
+          agentRunId: typeof agentRunId === "string" ? agentRunId : null,
         },
       });
       if (sup.ok && !sup.duplicate) pendingActionsCancelled++;
     }
-  }
 
-  // 2) FDE / SLA 行动：dismissed，标记 onboardingTest
-  let salesActionsDismissed = 0;
-  if (oppIds.length) {
+    // 2) FDE / SLA 行动：dismissed，标记 onboardingTest
     const actions = await db.salesAction.findMany({
-      where: { orgId, opportunityId: { in: oppIds }, status: { in: ["open", "in_progress"] } },
+      where: { orgId, opportunityId, status: { in: ["open", "in_progress"] } },
       select: { id: true },
     });
     for (const a of actions) {
@@ -176,41 +163,26 @@ export async function closeOnboardingTestInquiry(input: {
       });
       salesActionsDismissed++;
     }
-  }
 
-  // 3) 商机 → disqualified（终态不进 pipeline / 队列）；lostReason 统一为测试标记
-  let opportunityStage: string | null = null;
-  for (const id of oppIds) {
-    const opp = await db.salesOpportunity.findFirst({ where: { id, orgId }, select: { id: true, stage: true } });
-    if (!opp) continue;
-    let stage = opp.stage;
-    if (!(TERMINAL_STAGES as readonly string[]).includes(stage)) {
-      const r = await transitionOpportunity({
-        orgId,
-        opportunityId: id,
-        to: "disqualified",
-        actorUserId: input.actorUserId,
-        source: "system",
-        reason: ONBOARDING_TEST_CLOSE_REASON,
-        now,
-      });
-      if (r.ok) stage = r.to;
-      else if (isOpportunityStage(stage)) {
-        // 报价后阶段不能直接判不合格：退到 lost（测试单不会走到这里，兜底）
-        const lost = await transitionOpportunity({
+    // 3) 商机 → disqualified（终态不进 pipeline / 队列）；lostReason 统一为测试标记
+    const opp = await db.salesOpportunity.findFirst({ where: { id: opportunityId, orgId }, select: { stage: true } });
+    if (opp) {
+      opportunityStage = opp.stage;
+      if (!isTerminalStage(opp.stage)) {
+        const r = await transitionOpportunity({
           orgId,
-          opportunityId: id,
-          to: "lost",
+          opportunityId,
+          to: "disqualified",
           actorUserId: input.actorUserId,
           source: "system",
           reason: ONBOARDING_TEST_CLOSE_REASON,
           now,
         });
-        if (lost.ok) stage = lost.to;
+        if (r.ok) opportunityStage = r.to;
       }
+      await db.salesOpportunity.update({ where: { id: opportunityId }, data: { lostReason: ONBOARDING_TEST_CLOSE_REASON, nextFollowupAt: null } });
     }
-    await db.salesOpportunity.update({ where: { id }, data: { lostReason: ONBOARDING_TEST_CLOSE_REASON, nextFollowupAt: null } });
-    opportunityStage = stage;
+    openLeft = await db.pendingAction.count({ where: draftsOfOpp });
   }
 
   // 4) 测试买家：标记 + 归档（客户列表与去重默认排除）
@@ -240,12 +212,7 @@ export async function closeOnboardingTestInquiry(input: {
     }
   }
 
-  const openLeft = oppIds.length
-    ? await db.pendingAction.count({
-        where: { orgId, status: "pending", OR: oppIds.map((id) => ({ payload: { path: ["opportunityId"], equals: id } })) },
-      })
-    : 0;
-  const closedOk = openLeft === 0 && (oppIds.length === 0 || (!!opportunityStage && (TERMINAL_STAGES as readonly string[]).includes(opportunityStage)));
+  const closedOk = openLeft === 0 && (!opportunityId || (!!opportunityStage && isTerminalStage(opportunityStage)));
   return {
     ok: closedOk,
     detail: closedOk
@@ -260,15 +227,9 @@ export async function closeOnboardingTestInquiry(input: {
 }
 
 /** 发送一条测试询盘并返回逐段结果（收据 → 商机 → 草稿 → 通知 → 关闭） */
-export async function runOnboardingTestInquiry(
-  orgId: string,
-  actorUserId: string,
-  opts?: { now?: Date },
-): Promise<OnboardingTestInquiryResult> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, status: true, industryPackId: true } });
-  if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
-  if (org.status !== "active") throw new OnboardingError("CONFLICT", "企业未启用", 409);
-  const now = opts?.now ?? new Date();
+export async function runOnboardingTestInquiry(orgId: string, actorUserId: string): Promise<OnboardingTestInquiryResult> {
+  const org = await requireOrg(orgId, "active");
+  const now = new Date();
 
   const prior = await db.websiteInquiryReceipt.findMany({
     where: { orgId, eventId: { startsWith: onboardingTestEventPrefix(orgId) } },
@@ -318,24 +279,9 @@ export async function runOnboardingTestInquiry(
       })
     : [];
   const recipients = [...new Set(notifRows.map((n) => n.userId))];
-  const wechatRecipients = recipients.length
-    ? (
-        await db.weChatBinding.findMany({
-          where: { userId: { in: recipients }, status: "active", OR: [{ orgId: null }, { orgId }] },
-          select: { userId: true },
-          distinct: ["userId"],
-        })
-      ).length
-    : 0;
+  const wechatRecipients = new Set((await activeWeChatBindings(orgId, recipients)).map((b) => b.userId)).size;
 
-  const closed = await closeOnboardingTestInquiry({
-    orgId,
-    actorUserId,
-    opportunityIds: opportunityId ? [opportunityId] : [],
-    customerId,
-    prospectId,
-    now,
-  });
+  const closed = await closeOnboardingTestInquiry({ orgId, actorUserId, opportunityId, customerId, prospectId, now });
 
   const stages: OnboardingTestInquiryResult["stages"] = {
     receipt: {

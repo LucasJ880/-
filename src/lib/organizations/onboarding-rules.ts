@@ -2,10 +2,11 @@
  * 厂家入驻向导（PRD F6）— 纯函数层
  *
  * 输入校验、品类发布计划、就绪清单推导、测试询盘载荷与测试标记。
- * 本文件不访问数据库、不引用 Next.js 运行时，可被注册路由 / 发送执行器 / 单测直接引用；
- * DB 编排见 ./onboarding.ts 与 ./onboarding-test-inquiry.ts。
+ * 本文件不引用 db 客户端与 Next.js 运行时（upsertMembership 只用调用方传入的事务），
+ * 可被注册路由 / 发送执行器 / 向导页面 / 单测直接引用；DB 编排见 ./onboarding.ts 与 ./onboarding-test-inquiry.ts。
  */
 
+import type { Prisma } from "@prisma/client";
 import { isValidTimeZone } from "@/lib/automation/local-time";
 import {
   isSelectableIndustryPackId,
@@ -41,7 +42,7 @@ export const ONBOARDING_TEST_PENDING_ACTION_REASON = "SUPERSEDED_BY_ONBOARDING_T
 /** RFC 2606 保留域名：即使误发也不会到达真实买家 */
 export const ONBOARDING_TEST_BUYER_EMAIL = "onboarding-test@example.com";
 export const ONBOARDING_TEST_BUYER_COMPANY = "【入驻测试】Qingyan Test Buyer";
-export const ONBOARDING_TEST_EVENT_PREFIX = "onboarding-test-";
+const ONBOARDING_TEST_EVENT_PREFIX = "onboarding-test-";
 
 export function onboardingTestEventPrefix(orgId: string): string {
   return `${ONBOARDING_TEST_EVENT_PREFIX}${orgId}-`;
@@ -116,7 +117,7 @@ export type Validation<T> = { ok: true; value: T } | { ok: false; errors: string
 const ORG_CODE_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-function rec(v: unknown): Record<string, unknown> | null {
+export function rec(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
@@ -124,7 +125,7 @@ function trimmed(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export interface ProvisionRequest {
+interface ProvisionRequest {
   name: string;
   code: string;
   industryPackId: IndustryPackId;
@@ -213,16 +214,7 @@ export function validateOnboardingPatch(raw: unknown): Validation<OnboardingPatc
     if (o.leaveOrg !== true) errors.push("leaveOrg 只能为 true");
     else out.leaveOrg = true;
   }
-  if (
-    !errors.length &&
-    out.timezone === undefined &&
-    out.industryPackId === undefined &&
-    out.ownerEmail === undefined &&
-    out.acknowledge === undefined &&
-    out.leaveOrg === undefined
-  ) {
-    errors.push("没有可更新的字段");
-  }
+  if (!errors.length && Object.keys(out).length === 0) errors.push("没有可更新的字段");
   return errors.length ? { ok: false, errors } : { ok: true, value: out };
 }
 
@@ -313,7 +305,10 @@ export function planBusinessProfileCategories(
   return out;
 }
 
-export const ORG_BOUND_PLATFORM_ROLES = ["trade", "sales"] as const;
+const ORG_BOUND_PLATFORM_ROLES = ["trade", "sales"] as const;
+const ORG_BOUND_ORG_ROLES = ["org_member", "org_admin"] as const;
+export type OrgBoundPlatformRole = (typeof ORG_BOUND_PLATFORM_ROLES)[number];
+export type OrgBoundOrgRole = (typeof ORG_BOUND_ORG_ROLES)[number];
 
 /**
  * 工厂老板（企业 owner）的平台角色：外部工厂人员只能是 trade / sales。
@@ -331,9 +326,6 @@ export function factoryOwnerRoleProblem(platformRole: string | null | undefined)
   }
   return `该账号的平台角色「${platformRole}」不适合作为工厂老板，请使用外贸（trade）或销售（sales）账号`;
 }
-export const ORG_BOUND_ORG_ROLES = ["org_member", "org_admin"] as const;
-export type OrgBoundPlatformRole = (typeof ORG_BOUND_PLATFORM_ROLES)[number];
-export type OrgBoundOrgRole = (typeof ORG_BOUND_ORG_ROLES)[number];
 
 export interface InviteRequest {
   role: OrgBoundPlatformRole;
@@ -393,13 +385,6 @@ export function checkOrgBoundInvite(invite: {
   return { ok: true, orgId: invite.orgId, orgRole: orgRole as OrgBoundOrgRole };
 }
 
-/**
- * 同 code 的既有企业能否由入驻向导接管（POST 按 code 幂等的前提）：
- * - 不是入驻向导建的企业：owner 与所有在册成员都只能是操作者 / 本次指定的工厂老板 / 平台管理员，
- *   否则 CODE_TAKEN（旧版任何登录用户都能建企业，接管会把原建者留在一家真实工厂里，跨租户）
- * - 指定了工厂老板：企业已有别的（非平台管理员）org_owner，或 owner 是别人 → OWNER_CONFLICT；
- *   owner 仍是平台管理员（含操作者）暂代 → 交给工厂老板（setOwnerId）
- */
 export interface ExistingOrgFacts {
   /** 经入驻向导开通过（settingsJson.onboarding.provisionedById；PATCH 不写） */
   createdByOnboarding: boolean;
@@ -408,10 +393,17 @@ export interface ExistingOrgFacts {
   activeMembers: Array<{ userId: string; orgRole: string; isPlatformAdmin: boolean }>;
 }
 
-export type ExistingOrgAdoption =
+type ExistingOrgAdoption =
   | { ok: true; setOwnerId: string | null }
   | { ok: false; code: "CODE_TAKEN" | "OWNER_CONFLICT"; message: string };
 
+/**
+ * 同 code 的既有企业能否由入驻向导接管（POST 按 code 幂等的前提）：
+ * - 不是入驻向导建的企业：owner 与所有在册成员都只能是操作者 / 本次指定的工厂老板 / 平台管理员，
+ *   否则 CODE_TAKEN（旧版任何登录用户都能建企业，接管会把原建者留在一家真实工厂里，跨租户）
+ * - 指定了工厂老板：企业已有别的（非平台管理员）org_owner，或 owner 是别人 → OWNER_CONFLICT；
+ *   owner 仍是平台管理员（含操作者）暂代 → 交给工厂老板（setOwnerId）
+ */
 export function planExistingOrgAdoption(
   facts: ExistingOrgFacts,
   actorUserId: string,
@@ -459,6 +451,20 @@ export function planMembership(
   if (existing.status !== "active") return { action: "update", role: target };
   if (hasOrgRole(existing.role, target)) return { action: "keep", role: existing.role };
   return { action: "update", role: target };
+}
+
+/** 按 planMembership 幂等写入成员关系（入驻向导与企业邀请码注册共用；事务由调用方传入） */
+export async function upsertMembership(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  userId: string,
+  role: OrgRole,
+): Promise<{ userId: string; role: string; action: "create" | "update" | "keep" }> {
+  const where = { orgId_userId: { orgId, userId } };
+  const plan = planMembership(await tx.organizationMember.findUnique({ where, select: { role: true, status: true } }), role);
+  if (plan.action === "create") await tx.organizationMember.create({ data: { orgId, userId, role: plan.role, status: "active" } });
+  else if (plan.action === "update") await tx.organizationMember.update({ where, data: { role: plan.role, status: "active" } });
+  return { userId, role: plan.role, action: plan.action };
 }
 
 const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -513,7 +519,7 @@ export interface OnboardingFacts {
   handoff: { platformAdminMembers: string[]; ownerIsPlatformAdmin: boolean };
 }
 
-export const ONBOARDING_STEP_LABELS: Record<OnboardingStepKey, string> = {
+const ONBOARDING_STEP_LABELS: Record<OnboardingStepKey, string> = {
   pack: "行业包与时区",
   categories: "产品品类（做 / 不做 / 不确定）",
   website_channel: "网站渠道密钥",
@@ -526,6 +532,11 @@ export const ONBOARDING_STEP_LABELS: Record<OnboardingStepKey, string> = {
 };
 
 const DONE_STATUSES: OnboardingStepStatus[] = ["done", "skipped", "acknowledged"];
+
+/** 已完成（含跳过 / 管理员确认）的步骤 */
+export function isStepDone(step: { status: OnboardingStepStatus }): boolean {
+  return DONE_STATUSES.includes(step.status);
+}
 
 export function deriveOnboardingSteps(f: OnboardingFacts): {
   steps: OnboardingStep[];
@@ -631,7 +642,7 @@ export function deriveOnboardingSteps(f: OnboardingFacts): {
   }
 
   const required = steps.filter((s) => s.required);
-  const doneRequired = required.filter((s) => DONE_STATUSES.includes(s.status)).length;
+  const doneRequired = required.filter(isStepDone).length;
   return {
     steps,
     ready: doneRequired === required.length && f.blockingIssues === 0,

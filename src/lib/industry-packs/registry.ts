@@ -159,7 +159,6 @@ const HOME_TEXTILE_TRADE_V1: IndustryPack = {
     "quote_auto_send",
   ],
   productContentFieldPackId: "home_textile",
-  // 与 scripts/seed-org-mengxin-home-textile.ts 的工作空间一致
   defaultWorkspaces: [
     { slug: "international-trade", name: "International Trade", type: "department" },
     { slug: "product-development", name: "Product Development", type: "department" },
@@ -321,23 +320,4 @@ export function resolveIndustryPack(
     };
   }
   return { status: "ok", pack };
-}
-
-/** @deprecated 使用 resolveIndustryPack；保留抛错版供严格路径 */
-export function getIndustryPackOrThrow(packId: string): IndustryPack {
-  const r = resolveIndustryPack(packId);
-  if (r.status !== "ok" || !r.pack) {
-    throw new Error(
-      r.status === "ok" ? "Industry Pack 解析失败" : r.message,
-    );
-  }
-  return r.pack;
-}
-
-export function isHomeTextileSemantics(pack: IndustryPack): boolean {
-  return (
-    pack.id === "home_textile_trade_v1" ||
-    pack.id === "home_textile" ||
-    pack.productContentFieldPackId === "home_textile"
-  );
 }

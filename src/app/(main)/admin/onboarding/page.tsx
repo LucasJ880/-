@@ -5,22 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, ChevronRight, Factory, Loader2, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
-import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { apiJson } from "@/lib/api-fetch";
+import type { listOnboardingOrgs } from "@/lib/organizations/onboarding";
+import { DEFAULT_FACTORY_TIMEZONE } from "@/lib/organizations/onboarding-rules";
 import { cn } from "@/lib/utils";
 
-interface OrgSummary {
-  id: string;
-  name: string;
-  code: string;
-  status: string;
-  industryPackId: string | null;
-  createdAt: string;
-  /** 必做步骤全部完成（不含配置健康检查；就绪以详情页为准） */
-  stepsComplete: boolean;
-  doneRequired: number;
-  totalRequired: number;
-  pendingStep: string | null;
-}
+type OrgSummary = Awaited<ReturnType<typeof listOnboardingOrgs>>[number];
 
 interface PackOption {
   id: string;
@@ -40,6 +30,8 @@ const COMMON_TIMEZONES = [
   "Europe/London",
   "UTC",
 ];
+
+const inputCls = "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent";
 
 /** 名称 → code 建议（只取 ASCII；中文名需手填） */
 function suggestCode(name: string): string {
@@ -61,7 +53,7 @@ export default function FactoryOnboardingListPage() {
   const [code, setCode] = useState("");
   const [codeTouched, setCodeTouched] = useState(false);
   const [packId, setPackId] = useState("home_textile_trade_v1");
-  const [timezone, setTimezone] = useState("Asia/Shanghai");
+  const [timezone, setTimezone] = useState(DEFAULT_FACTORY_TIMEZONE);
   const [ownerEmail, setOwnerEmail] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -88,7 +80,7 @@ export default function FactoryOnboardingListPage() {
     setError("");
     setCreating(true);
     try {
-      const res = await apiFetch("/api/admin/onboarding", {
+      const data = await apiJson<{ result: { orgId: string; created: boolean } }>("/api/admin/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -99,8 +91,6 @@ export default function FactoryOnboardingListPage() {
           ...(ownerEmail.trim() ? { ownerEmail: ownerEmail.trim() } : {}),
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "创建失败");
       // 同 code 已存在：进入向导时提示「只补齐了缺项」
       router.push(`/admin/onboarding/${data.result.orgId}${data.result.created ? "" : "?existing=1"}`);
     } catch (err) {
@@ -129,7 +119,7 @@ export default function FactoryOnboardingListPage() {
                 if (!codeTouched) setCode(suggestCode(e.target.value));
               }}
               placeholder="例如：Example Textiles"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              className={inputCls}
             />
           </div>
           <div>
@@ -141,7 +131,7 @@ export default function FactoryOnboardingListPage() {
                 setCode(e.target.value);
               }}
               placeholder="example-textiles"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              className={inputCls}
             />
           </div>
           <div>
@@ -149,7 +139,7 @@ export default function FactoryOnboardingListPage() {
             <select
               value={packId}
               onChange={(e) => setPackId(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              className={inputCls}
             >
               {packs.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -164,7 +154,7 @@ export default function FactoryOnboardingListPage() {
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
               list="onboarding-timezones"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              className={inputCls}
             />
             <datalist id="onboarding-timezones">
               {COMMON_TIMEZONES.map((tz) => (
@@ -178,7 +168,7 @@ export default function FactoryOnboardingListPage() {
               value={ownerEmail}
               onChange={(e) => setOwnerEmail(e.target.value)}
               placeholder="boss@example.com"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              className={inputCls}
             />
           </div>
         </div>

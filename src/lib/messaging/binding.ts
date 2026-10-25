@@ -5,6 +5,7 @@
  */
 
 import { db } from "@/lib/db";
+import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 import type { ChannelType, BindingInfo, FilterMode } from "./types";
 import { ROLE_DEFAULT_DOMAINS } from "./types";
 import { bindCodeKeyFromEnv, decideBindingClaim, verifyBindCode } from "./binding-proof";
@@ -32,10 +33,6 @@ function roleDefaults(role: string | null | undefined) {
     pushReport: isTradeRole,
     pushSales: isSalesRole,
   };
-}
-
-function isUniqueViolation(e: unknown): boolean {
-  return (e as { code?: string } | null)?.code === "P2002";
 }
 
 /**
@@ -103,7 +100,7 @@ export async function createBinding(params: {
         return { ok: true, binding: toBindingInfo(created), outcome: "created" };
       } catch (e) {
         // 并发：同一 (channel, externalId) 刚被别处建好 → 重新判定一次
-        if (isUniqueViolation(e)) continue;
+        if (isPrismaUniqueViolation(e)) continue;
         throw e;
       }
     }
