@@ -4,7 +4,8 @@
  *   webhook POST（deferred）→ 收据 + Trade + Revenue Spine 后立即返回（FDE 未执行、queued）
  *   → 注入的调度器确定性地执行 after() 回调 → FDE 原子认领后执行 → 草稿 PendingAction → 收据 complete
  *   + 重发不在请求内执行 FDE；两个回调 / 两个认领并发只有一个执行；cron 兜底接管排队的 FDE（墙钟截止）；
- *   终态（人工拒绝 / 行动已关闭）永不重跑；早退释放认领；只读状态接口；真实响应喂给站点桥接判定逻辑。
+ *   终态（人工拒绝 / 行动已关闭）永不重跑；早退释放认领；只读状态接口；真实响应喂给站点桥接判定逻辑；
+ *   配额 run_blocked 不占重试上限；卡住的候选不挡住后面的排队 FDE；人工入口经认领。
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -65,6 +66,7 @@ async function main() {
   const {
     claimInboundFde,
     runQueuedInboundFde,
+    runInboundFdeForHuman,
     drainInboundFdeQueue,
     listInboundFdeCandidates,
     loadFdeState,
@@ -281,7 +283,7 @@ async function main() {
     const candidates = await listInboundFdeCandidates(ORG, new Date(), 50);
     ok(candidates.some((c) => c.id === actionD) && !candidates.some((c) => c.id === actionB) && !candidates.some((c) => c.id === actionA), "候选：queued 的 D 在；认领中的 B、已完成的 A 不在", candidates.map((c) => c.id));
     const expired = await drainInboundFdeQueue({ orgIds: [ORG], deadlineAt: Date.now() - 1 });
-    ok(expired.deadlineReached && expired.results[0].fdeRan === 0 && (await runsFor(oppD)) === 0, "截止时间已过 → 不启动任何新的 FDE", expired);
+    ok(expired.deadlineReached && expired.results[0].fdeExecuted === 0 && (await runsFor(oppD)) === 0, "截止时间已过 → 不启动任何新的 FDE", expired);
     const drained = await drainInboundFdeQueue({
       orgIds: [ORG],
       deadlineAt: Date.now() + 120_000,
@@ -290,13 +292,13 @@ async function main() {
       },
     });
     const dReceipt = await findReceiptByEventId(ORG, D.eventId);
-    ok(drained.results[0].fdeRan >= 1 && (await runsFor(oppD)) === 1 && (await pendingFor(oppD)) === 1, "cron 认领并执行 D：1 个 run、1 份草稿", drained.results);
+    ok(drained.results[0].fdeExecuted >= 1 && drained.results[0].fdeRan >= 1 && (await runsFor(oppD)) === 1 && (await pendingFor(oppD)) === 1, "cron 认领并执行 D：1 个 run、1 份草稿（fdeRan 仍是成功次数）", drained.results);
     ok(dReceipt?.status === "complete" && !!dReceipt.pendingActionId, "cron 执行后回填收据 complete", dReceipt?.status);
     ok((await ctxOf(actionD)).fdeClaim && ((await ctxOf(actionD)).fdeClaim as Record<string, unknown>).by === "cron", "认领者记录为 cron");
     const sD = await getStatus(D.eventId);
     ok(sD.body.complete === true && sD.body.fde?.terminal === true, "状态接口看到 cron 完成的结果", sD.body.fde);
     const again = await drainInboundFdeQueue({ orgIds: [ORG], deadlineAt: Date.now() + 120_000 });
-    ok((await runsFor(oppD)) === 1 && !again.results.some((r) => r.fdeRan > 0 && r.error), "再跑一次 cron 不重跑已完成的 FDE", again.results);
+    ok((await runsFor(oppD)) === 1 && !again.results.some((r) => r.fdeExecuted > 0 && r.error), "再跑一次 cron 不重跑已完成的 FDE", again.results);
 
     console.log("\n[8] 终态永不重跑：人工拒绝 / 行动已关闭");
     const E = inquiry("e", "Need 600 waffle bathrobes for a spa in Whistler, logo embroidery, April delivery.");
@@ -318,7 +320,7 @@ async function main() {
     const rE = await post(E);
     ok(rejected.ok && !claimE.claimed && claimE.reason === "terminal" && claimE.state?.status === "human_rejected", "人工拒绝后：认领拒绝（terminal / human_rejected）", { reason: claimE.reason, state: claimE.state?.status });
     ok(
-      (await runsFor(oppE)) === runsE && drainE.results[0].fdeRan === 0 && rE.body.fde?.status === "human_rejected" && rE.body.fde.terminal === true && rE.body.fde.scheduled === false && tasks.length === 0,
+      (await runsFor(oppE)) === runsE && drainE.results[0].fdeExecuted === 0 && rE.body.fde?.status === "human_rejected" && rE.body.fde.terminal === true && rE.body.fde.scheduled === false && tasks.length === 0,
       "cron 与重发都不重跑、不安排（human_rejected 终态）",
       { runs: await runsFor(oppE), drain: drainE.results, fde: rE.body.fde, tasks: tasks.length },
     );
@@ -363,7 +365,12 @@ async function main() {
     await setCtx(actionG, { fdeStatus: "running", fdeAttempts: 1 }, [], new Date(Date.now() - FDE_CLAIM_STALE_MS - 60_000));
     ok(await has(actionG), "过期 running（认领者已中断）→ 候选");
     await setCtx(actionG, { fdeStatus: "run_blocked", fdeAttempts: 9 });
-    ok(await has(actionG), "run_blocked（未建 run、未花 LLM）不受重试上限");
+    ok(await has(actionG), "run_blocked（未建 run、未花 LLM）不受 fdeAttempts 上限；没有 fdeBlockedAttempts 的历史行照常是候选");
+    await setCtx(actionG, { fdeBlockedAttempts: FDE_CRON_MAX_ATTEMPTS - 1 });
+    ok(await has(actionG), "非配额 run_blocked 未到上限 → 候选");
+    await setCtx(actionG, { fdeBlockedAttempts: FDE_CRON_MAX_ATTEMPTS });
+    ok(!(await has(actionG)), `非配额 run_blocked 已 ${FDE_CRON_MAX_ATTEMPTS} 次 → 不再自动重试（不会永远排在候选前面）`);
+    await setCtx(actionG, {}, ["fdeBlockedAttempts"]);
     const custA = (await db.salesOpportunity.findUniqueOrThrow({ where: { id: oppA }, select: { customerId: true } })).customerId;
     const nextAction = await createFdeAction({
       orgId: ORG,
@@ -382,6 +389,82 @@ async function main() {
     const otherOrgCandidates = await listInboundFdeCandidates(ORG2, new Date(), 100);
     const crossClaim = await claimInboundFde(ORG2, actionD, { by: "cron" });
     ok(otherOrgCandidates.length === 0 && !crossClaim.claimed && crossClaim.reason === "not_found", "按组织限定：他组织看不到、也认领不了本组织的 FDE", { n: otherOrgCandidates.length, cross: crossClaim.reason });
+
+    // 排队一条来信 FDE（回调丢失，只能靠 cron / 重发 / 人工入口接手）
+    const queuedInquiry = async (key: string, message: string) => {
+      const q = inquiry(key, message);
+      const r = await ingestWebsiteInquiry(ORG, form(q), { fdeMode: "deferred", scheduleFde: drop });
+      const opp = r.spine.ok ? r.spine.opportunityId : "";
+      const action = (await findReceiptByEventId(ORG, q.eventId))?.salesActionId ?? "";
+      if (!opp || !action || r.fdeState?.status !== "queued") throw new Error(`fixture ${key} not queued`);
+      return { opp, action };
+    };
+
+    console.log("\n[11] 配额 run_blocked：不占重试上限；配额恢复后照常执行");
+    const H = await queuedInquiry("h", "Need 1,200 bath sheets 90x180cm for a hotel chain in Calgary, June delivery.");
+    await db.capabilityQuotaPolicy.create({ data: { orgId: ORG, metric: "DAILY_AGENT_RUNS", period: "DAILY", hardLimit: 0, enabled: true } });
+    const quotaRuns: Array<{ ran: boolean; code: string | undefined; attempts: unknown; blocked: unknown; status: unknown; errorCode: unknown }> = [];
+    for (let i = 0; i < FDE_CRON_MAX_ATTEMPTS + 1; i++) {
+      const run = await runQueuedInboundFde(ORG, H.action, { by: "cron", trigger: "cron" });
+      const c = await ctxOf(H.action);
+      quotaRuns.push({ ran: run.ran, code: run.result?.errorCode, attempts: c.fdeAttempts, blocked: c.fdeBlockedAttempts, status: c.fdeStatus, errorCode: c.fdeErrorCode });
+    }
+    ok(
+      quotaRuns.every((q) => q.ran && q.code === "QUOTA" && q.status === "run_blocked" && q.attempts === 0 && q.blocked === undefined && q.errorCode === "QUOTA") && (await runsFor(H.opp)) === 0,
+      `配额耗尽时连续 ${FDE_CRON_MAX_ATTEMPTS + 1} 次认领：每次都 run_blocked，fdeAttempts 退回 0、不计 fdeBlockedAttempts，没有 AgentRun`,
+      quotaRuns,
+    );
+    ok(await has(H.action), "配额 run_blocked 仍是 cron 候选");
+    const drainQ = await drainInboundFdeQueue({ orgIds: [ORG], deadlineAt: Date.now() + 120_000 });
+    ok(drainQ.results[0].quotaBlocked === true && (await ctxOf(H.action)).fdeAttempts === 0, "cron 遇到配额 → 本轮停止该组织的 FDE；计数仍为 0", drainQ.results);
+    await db.capabilityQuotaPolicy.deleteMany({ where: { orgId: ORG } });
+    const runH = await runQueuedInboundFde(ORG, H.action, { by: "cron", trigger: "cron" });
+    const ctxH = await ctxOf(H.action);
+    ok(
+      runH.ran && !!runH.result?.agentRunId && ctxH.fdeStatus === "completed" && ctxH.fdeAttempts === 1 && (await runsFor(H.opp)) === 1 && (await pendingFor(H.opp)) === 1,
+      "配额恢复后：执行一次（fdeAttempts = 1，重试上限完整保留）→ 1 个 run、1 份草稿",
+      { ran: runH.ran, code: runH.result?.errorCode, ctx: { s: ctxH.fdeStatus, a: ctxH.fdeAttempts } },
+    );
+
+    console.log("\n[12] 卡住的候选不挡住后面的排队 FDE（每批只读 1 条也能轮到）");
+    const J1 = await queuedInquiry("j1", "Need 400 linen duvet covers queen size for a B&B group.");
+    const J2 = await queuedInquiry("j2", "Need 250 cotton waffle robes for a gym chain.");
+    const K = await queuedInquiry("k", "Need 3,000 white hotel hand towels 40x70cm 550gsm for Montreal, delivery July.");
+    await db.salesOpportunity.updateMany({ where: { id: { in: [J1.opp, J2.opp] } }, data: { stage: "won" } });
+    const head = await listInboundFdeCandidates(ORG, new Date(), 1);
+    ok(head.length === 1 && head[0].id !== K.action, "按 updatedAt 升序：更早的卡住行排在新排队的 K 前面", head);
+    const drainK = await drainInboundFdeQueue({ orgIds: [ORG], deadlineAt: Date.now() + 120_000, perOrgCandidates: 1 });
+    const kRow = drainK.results[0];
+    ok(
+      (await runsFor(K.opp)) === 1 && (await pendingFor(K.opp)) === 1 && kRow.fdeRan === 1 && kRow.fdeExecuted >= 3 && kRow.fdeSkipped >= 1 && !drainK.deadlineReached,
+      "每批 1 条：跳过的终态行（E）与早退行（J1 / J2）处理后继续读下一批，K 被执行",
+      kRow,
+    );
+    ok((await ctxOf(J1.action)).fdeAttempts === 1 && (await ctxOf(J2.action)).fdeAttempts === 1, "本轮每个候选最多处理一次");
+    const drainK2 = await drainInboundFdeQueue({ orgIds: [ORG], deadlineAt: Date.now() + 120_000, perOrgCandidates: 1 });
+    ok(
+      (await ctxOf(J1.action)).fdeAttempts === 2 && (await ctxOf(J2.action)).fdeAttempts === 2 && (await runsFor(K.opp)) === 1 && drainK2.results[0].fdeRan === 0,
+      "下一轮：早退行各再试一次（计入上限），已完成的 K 不重跑",
+      drainK2.results,
+    );
+
+    console.log("\n[13] 人工入口经认领");
+    const L = await queuedInquiry("l", "Need 700 bamboo bath towels for an eco resort in Tofino.");
+    const claimL = await claimInboundFde(ORG, L.action, { by: "cron" });
+    const manualL = await runInboundFdeForHuman({ orgId: ORG, opportunityId: L.opp, salesActionId: L.action, trigger: "manual", by: "manual", actorUserId: OWNER, rerunFinished: true });
+    ok(claimL.claimed && !manualL.ok && manualL.errorCode === "FDE_IN_FLIGHT" && (await runsFor(L.opp)) === 0, "手动重跑（带 salesActionId）遇到别处正在执行 → FDE_IN_FLIGHT，不并行", manualL.errorCode);
+    const M = await queuedInquiry("m", "Need 1,000 jacquard bath mats for a hotel refurbishment in Ottawa.");
+    const intakeM = await runInboundFdeForHuman({ orgId: ORG, opportunityId: M.opp, salesActionId: M.action, trigger: "inquiry", by: "inline", actorUserId: OWNER, rerunFinished: false });
+    const ctxM = await ctxOf(M.action);
+    ok(
+      intakeM.ok && (await runsFor(M.opp)) === 1 && (ctxM.fdeClaim as Record<string, unknown> | undefined)?.by === "inline" && ctxM.fdeAttempts === 1,
+      "录入询盘：经认领执行（认领者 inline）",
+      { ok: intakeM.ok, claim: ctxM.fdeClaim },
+    );
+    const replayM = await runInboundFdeForHuman({ orgId: ORG, opportunityId: M.opp, salesActionId: M.action, trigger: "inquiry", by: "inline", actorUserId: OWNER, rerunFinished: false });
+    ok(!replayM.ok && replayM.errorCode === "FDE_FINISHED" && (await runsFor(M.opp)) === 1, "重复录入（intake replay）：FDE 已结束 → 不重跑", replayM.errorCode);
+    const rerunM = await runInboundFdeForHuman({ orgId: ORG, opportunityId: M.opp, salesActionId: M.action, trigger: "manual", by: "manual", actorUserId: OWNER, rerunFinished: true });
+    ok(rerunM.ok && (await runsFor(M.opp)) === 2 && (await pendingFor(M.opp)) === 1, "手动重跑已结束的 FDE：按原行为重跑（复用未决草稿，仍只有 1 份）", { ok: rerunM.ok, code: rerunM.errorCode });
   } finally {
     __setDefaultFdeSchedulerForTest(null);
     __setInquiryReplySenderForTest(null);

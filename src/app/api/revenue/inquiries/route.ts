@@ -1,11 +1,12 @@
 /**
  * POST /api/revenue/inquiries — 人工录入询盘（email / trade_show / referral / manual / existing_customer …）
  * 所有来源统一进入 intakeInquiry → SalesCustomer → SalesOpportunity → FDE
+ * FDE 经来信行动的原子认领执行（与 cron / after() 回调互斥）；重复提交（intake replay）不重跑已结束的 FDE。
  */
 import { NextRequest, NextResponse } from "next/server";
 import { safeParseBody } from "@/lib/common/api-helpers";
 import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
-import { runInboundSalesFde } from "@/lib/revenue-spine/fde/inbound-sales";
+import { runInboundFdeForHuman } from "@/lib/revenue-spine/fde/inbound-queue";
 import { intakeInquiry, isOpportunitySource } from "@/lib/revenue-spine/inquiry-intake";
 
 export const maxDuration = 120;
@@ -42,12 +43,14 @@ export async function POST(request: NextRequest) {
   const fde =
     body.runFde === false
       ? null
-      : await runInboundSalesFde({
+      : await runInboundFdeForHuman({
           orgId: access.orgId,
           opportunityId: result.opportunityId,
           salesActionId: result.salesActionId,
           trigger: "inquiry",
+          by: "inline",
           actorUserId: access.auth.user.id,
+          rerunFinished: false,
         });
   return NextResponse.json({ ...result, fde });
 }

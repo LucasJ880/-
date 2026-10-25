@@ -2,8 +2,10 @@
  * 网站询盘异步入站（PRD F3.1–F3.3）纯函数 / 契约测试，无 DB：
  *   - webhook 响应体（websiteWebhookBody）喂给站点桥接的判定逻辑副本：首个响应 delivered + 处理未完成，
  *     FDE 终态后的重发 → 处理完成；busy → partial
- *   - 时间常量耦合：认领过期 / 收据过期 > 路由 maxDuration；cron 截止 + 单个 FDE < maxDuration
- *   - 路由段配置是静态字面量；webhook 走 deferred、展会速记卡仍是 inline；状态接口只认 header 密钥
+ *   - 时间常量耦合：认领过期 / 收据过期 > 路由 maxDuration；cron 先跑 FDE，FDE 截止 + 单个 FDE < 维护截止 < maxDuration
+ *   - run_blocked 记账（纯函数）：不占 LLM 重试上限；非配额原因另计
+ *   - 路由段配置是静态字面量；webhook 走 deferred、展会速记卡仍是 inline；状态接口只认 header 密钥；
+ *     人工入口（录入询盘 / 手动重跑）经认领
  * 运行：npx tsx src/lib/trade/__tests__/website-inquiry-async.test.ts
  *
  * 公开仓库：只用虚构企业。
@@ -16,6 +18,7 @@ import {
   FDE_CRON_MAX_ATTEMPTS,
   FDE_RERUNNABLE,
   FDE_STALE_RUNNING_MS,
+  runBlockedClaimPatch,
 } from "@/lib/revenue-spine/fde/inbound-queue";
 import {
   FDE_STALE_RUNNING_MS as REEXPORTED_STALE_MS,
@@ -180,15 +183,47 @@ ok("状态接口只认 header 密钥（不读 ?secret= / 请求体），不调�
   assert.doesNotMatch(status, /ingestWebsiteInquiry|claimInquiryReceipt|runQueuedInboundFde/);
 });
 
-ok("cron：maxDuration 300 字面量；FDE 按墙钟截止（不再按组织固定条数），截止 + 单个 FDE（≈95 s）< 300 s", () => {
+ok("cron：maxDuration 300 字面量；FDE 先跑、按墙钟截止（不再按组织固定条数）；FDE 截止 + 单个 FDE（≈95 s）< 维护截止 < 300 s", () => {
   const cron = src("src/app/api/cron/revenue-spine/route.ts");
   assert.match(cron, /^export const maxDuration = 300;$/m);
   assert.doesNotMatch(cron, /MAX_FDE_PER_ORG/);
   assert.doesNotMatch(cron, /runInboundSalesFde\(/);
-  const m = cron.match(/^const FDE_START_DEADLINE_MS = ([\d_]+);$/m);
-  assert.ok(m, "FDE_START_DEADLINE_MS literal");
-  const deadline = Number(m[1].replace(/_/g, ""));
-  assert.ok(deadline + 95_000 < ROUTE_MAX_DURATION_MS, String(deadline));
+  const literal = (name: string) => {
+    const m = cron.match(new RegExp(`^const ${name} = ([\\d_]+);$`, "m"));
+    assert.ok(m, `${name} literal`);
+    return Number(m[1].replace(/_/g, ""));
+  };
+  const fdeDeadline = literal("FDE_START_DEADLINE_MS");
+  const maintenanceDeadline = literal("MAINTENANCE_DEADLINE_MS");
+  // FDE 阶段在 next action / 无回复跟进之前：前几步再慢也不会把 FDE 兜底挤掉
+  assert.ok(cron.indexOf("drainInboundFdeQueue({") < cron.indexOf("applyNextAction("), "FDE drain runs before next-action phase");
+  assert.ok(fdeDeadline + 95_000 <= maintenanceDeadline - 30_000, `${fdeDeadline} + 95 s leaves maintenance time`);
+  assert.ok(maintenanceDeadline <= ROUTE_MAX_DURATION_MS - 20_000, String(maintenanceDeadline));
+  assert.match(cron, /pastMaintenanceDeadline\(\)/);
+});
+
+ok("run_blocked 记账：认领计数退回（没花 LLM）；配额原因不计 fdeBlockedAttempts，其它原因 +1；记下错误码", () => {
+  const quota = runBlockedClaimPatch({ fdeAttempts: 3, fdeError: "配额限制：x" }, 3, { errorCode: "QUOTA", error: "配额限制：daily" });
+  assert.deepEqual(quota, { fdeStatus: "run_blocked", fdeErrorCode: "QUOTA", fdeError: "配额限制：daily", fdeAttempts: 2 });
+  const blocked = runBlockedClaimPatch({ fdeAttempts: 1, fdeBlockedAttempts: 1 }, 1, { errorCode: "RUN_CREATE_FAILED", error: "session failed" });
+  assert.deepEqual(blocked, { fdeStatus: "run_blocked", fdeErrorCode: "RUN_CREATE_FAILED", fdeError: "session failed", fdeAttempts: 0, fdeBlockedAttempts: 2 });
+  const legacy = runBlockedClaimPatch({ fdeBlockedAttempts: "x" }, 0, { errorCode: undefined, error: undefined });
+  assert.equal(legacy.fdeAttempts, 0);
+  assert.equal(legacy.fdeBlockedAttempts, 1);
+  assert.equal(legacy.fdeErrorCode, "RUN_CREATE_FAILED");
+});
+
+ok("人工入口经认领：录入询盘不重跑已结束的 FDE；手动重跑带 salesActionId 时与自动执行互斥；cron 不直接调 FDE", () => {
+  const inquiries = src("src/app/api/revenue/inquiries/route.ts");
+  assert.match(inquiries, /runInboundFdeForHuman\(/);
+  assert.match(inquiries, /rerunFinished: false/);
+  assert.doesNotMatch(inquiries, /runInboundSalesFde\(/);
+  const rerun = src("src/app/api/revenue/opportunities/[id]/run-fde/route.ts");
+  assert.match(rerun, /runInboundFdeForHuman\(/);
+  assert.match(rerun, /rerunFinished: true/);
+  assert.doesNotMatch(rerun, /runInboundSalesFde\(/);
+  assert.match(rerun, /^export const maxDuration = 120;$/m);
+  assert.ok(FDE_CLAIM_STALE_MS > 120_000);
 });
 
 ok("/api/trade/webhook/* 在 middleware 公开路径里（状态接口无需登录态，鉴权在路由内）", () => {
