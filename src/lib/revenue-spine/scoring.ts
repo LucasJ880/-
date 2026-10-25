@@ -66,7 +66,7 @@ function keywordSpans(lowerMessage: string, kw: string): Array<[number, number]>
  */
 export function mentionsAllowedCategory(lowerMessage: string, policy: RevenueSpinePolicy): boolean {
   const allowed = new Set(policy.businessProfile.productCategories);
-  const excluded = new Set(policy.businessProfile.excludedCategories ?? []);
+  const excluded = new Set(policy.businessProfile.excludedCategories);
   const entries = Object.entries(policy.businessProfile.productKeywords);
   const excludedSpans = entries.filter(([, category]) => excluded.has(category)).flatMap(([kw]) => keywordSpans(lowerMessage, kw));
   const insideExcluded = ([s, e]: [number, number]) =>
@@ -107,7 +107,7 @@ export function scoreOpportunity(input: ScoreInput): OpportunityScoreResult {
   const categories = policy.businessProfile.productCategories;
   let productFit = 0;
   let productReason: string;
-  const excludedList = policy.businessProfile.excludedCategories ?? [];
+  const excludedList = policy.businessProfile.excludedCategories;
   const outOfRange = Boolean(
     fields.productCategory && excludedList.includes(fields.productCategory) && !mentionsAllowedCategory(lower, policy),
   );

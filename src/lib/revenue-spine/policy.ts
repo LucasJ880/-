@@ -74,7 +74,7 @@ export interface CommercialFacts {
   /** 目录链接（gradeCCatalogOnly 时写进草稿；为空则写"目录随后发送"） */
   catalogUrl: string | null;
   /**
-   * 给海外买家看的英文公司名（如 "Mengxin Home Textile"）。英文草稿的主题、正文、落款用它；
+   * 给海外买家看的英文公司名（如 "Example Home Textile"）。英文草稿的主题、正文、落款用它；
    * 为空时用组织名。组织名常是中文，直接写进英文邮件会让买家困惑。
    */
   buyerFacingName: string | null;
@@ -376,6 +376,11 @@ function numList(v: unknown, fallback: number[]): number[] {
   return out.length ? out : fallback;
 }
 
+/** 固定键的数字表（权重 / 档位）：逐键取覆盖值，形状不对的键保留 base */
+function nums<T extends Record<string, number>>(o: Rec, base: T): T {
+  return Object.fromEntries(Object.entries(base).map(([k, v]) => [k, num(o[k], v)])) as T;
+}
+
 function numMap(v: unknown, fallback: Record<string, number>): Record<string, number> {
   const r = rec(v);
   if (!r) return fallback;
@@ -405,9 +410,9 @@ function strOrNull(v: unknown, max = 200): string | null {
 }
 
 /** 分级提醒的分钟 / 小时上限：7 天（再长就不是"首响"提醒了） */
-export const SLA_TIER_MAX_MINUTES = 7 * 24 * 60;
-export const SLA_TIER_MAX_HOURS = 7 * 24;
-export const DEFAULT_BUSINESS_WORKDAYS = [1, 2, 3, 4, 5];
+const SLA_TIER_MAX_MINUTES = 7 * 24 * 60;
+const SLA_TIER_MAX_HOURS = 7 * 24;
+const DEFAULT_BUSINESS_WORKDAYS = [1, 2, 3, 4, 5];
 
 /**
  * 工作时间校验：timezone 必须是合法 IANA 时区；start / end 为 "HH:MM"（end 可为 "24:00"，须晚于 start，
@@ -449,7 +454,8 @@ export function slaTiersEnabled(sla: Partial<SalesSlaPolicy> | null | undefined)
   return !!sla && (sla.unclaimedAlertMinutes != null || sla.ownerEscalationMinutes != null || sla.overdueDraftHours != null);
 }
 
-const STYLE_CODE_CLEAN = (v: string) => v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
+/** 款号归一（去空白、各种横线 / 下划线统一为 -、大写）：禁用款号合并时与草稿过滤时同一规则 */
+export const normalizeStyleCode = (v: string) => v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
 
 /** 商务事实合并：字段级覆盖；显式 null 清空；形状不对的字段忽略（保留 base） */
 export function mergeCommercialFacts(base: CommercialFacts, override: unknown): CommercialFacts {
@@ -483,7 +489,7 @@ export function mergeCommercialFacts(base: CommercialFacts, override: unknown): 
     const v = s ? { title: strOrNull(s.title, 80), whatsapp: strOrNull(s.whatsapp, 40), website: strOrNull(s.website, 120) } : null;
     out.signature = v && (v.title || v.whatsapp || v.website) ? v : null;
   }
-  if ("blockedStyleCodes" in o) out.blockedStyleCodes = [...new Set(strList(o.blockedStyleCodes, []).map(STYLE_CODE_CLEAN))].slice(0, 500);
+  if ("blockedStyleCodes" in o) out.blockedStyleCodes = [...new Set(strList(o.blockedStyleCodes, []).map(normalizeStyleCode))].slice(0, 500);
   if ("referencePrograms" in o) {
     const list = Array.isArray(o.referencePrograms) ? o.referencePrograms : [];
     out.referencePrograms = list
@@ -519,9 +525,8 @@ export function mergeBusinessProfile(base: BusinessProfile, override: unknown): 
       : base.businessType,
     primaryMarkets: strList(o.primaryMarkets, base.primaryMarkets),
     productCategories: strList(o.productCategories, base.productCategories),
-    excludedCategories: strList(o.excludedCategories, base.excludedCategories ?? []),
-    excludedCategoryAction:
-      o.excludedCategoryAction === "decline" ? "decline" : o.excludedCategoryAction === "review" ? "review" : (base.excludedCategoryAction ?? "review"),
+    excludedCategories: strList(o.excludedCategories, base.excludedCategories),
+    excludedCategoryAction: o.excludedCategoryAction === "decline" || o.excludedCategoryAction === "review" ? o.excludedCategoryAction : base.excludedCategoryAction,
     productKeywords: strMap(o.productKeywords, base.productKeywords),
     minimumMargin: numOrNull(o.minimumMargin, base.minimumMargin),
     defaultCurrency: str(o.defaultCurrency, base.defaultCurrency).toUpperCase(),
@@ -533,7 +538,7 @@ export function mergeBusinessProfile(base: BusinessProfile, override: unknown): 
           note: str(sp.note, base.samplePolicy.note),
         }
       : base.samplePolicy,
-    commercialFacts: mergeCommercialFacts(base.commercialFacts ?? EMPTY_COMMERCIAL_FACTS, o.commercialFacts),
+    commercialFacts: mergeCommercialFacts(base.commercialFacts, o.commercialFacts),
   };
 }
 
@@ -546,6 +551,7 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
   const w = rec(sc.weights) ?? {};
   const g = rec(sc.grades) ?? {};
   const nt = rec(o.notify) ?? {};
+  const businessHours = "businessHours" in sla ? parseBusinessCalendar(sla.businessHours) : undefined;
   const tiersRaw = Array.isArray(sc.quantityTiers) ? sc.quantityTiers : null;
   const tiers = tiersRaw
     ? tiersRaw
@@ -562,16 +568,11 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
       newInquiryResponseHours: num(sla.newInquiryResponseHours, base.salesSla.newInquiryResponseHours),
       customerReplyResponseHours: num(sla.customerReplyResponseHours, base.salesSla.customerReplyResponseHours),
       // 以下字段必须在这里逐个列出：不在白名单里的字段会在合并时被丢掉。存量策略没有这些键 → 保持 null（旧行为）
-      unclaimedAlertMinutes: slaTierValue(sla, "unclaimedAlertMinutes", base.salesSla.unclaimedAlertMinutes ?? null, { max: SLA_TIER_MAX_MINUTES, integer: true }),
-      ownerEscalationMinutes: slaTierValue(sla, "ownerEscalationMinutes", base.salesSla.ownerEscalationMinutes ?? null, { max: SLA_TIER_MAX_MINUTES, integer: true }),
-      overdueDraftHours: slaTierValue(sla, "overdueDraftHours", base.salesSla.overdueDraftHours ?? null, { max: SLA_TIER_MAX_HOURS, integer: false }),
-      businessHours:
-        "businessHours" in sla
-          ? (() => {
-              const parsed = parseBusinessCalendar(sla.businessHours);
-              return parsed === undefined ? (base.salesSla.businessHours ?? null) : parsed;
-            })()
-          : (base.salesSla.businessHours ?? null),
+      unclaimedAlertMinutes: slaTierValue(sla, "unclaimedAlertMinutes", base.salesSla.unclaimedAlertMinutes, { max: SLA_TIER_MAX_MINUTES, integer: true }),
+      ownerEscalationMinutes: slaTierValue(sla, "ownerEscalationMinutes", base.salesSla.ownerEscalationMinutes, { max: SLA_TIER_MAX_MINUTES, integer: true }),
+      overdueDraftHours: slaTierValue(sla, "overdueDraftHours", base.salesSla.overdueDraftHours, { max: SLA_TIER_MAX_HOURS, integer: false }),
+      // 键不在 / 形状不对 → 保留 base；显式 null → 关闭
+      businessHours: businessHours === undefined ? base.salesSla.businessHours : businessHours,
     },
     followUp: {
       afterReplyNoResponseBusinessDays: num(fu.afterReplyNoResponseBusinessDays, base.followUp.afterReplyNoResponseBusinessDays),
@@ -588,19 +589,8 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
         : base.followUp.noReplyFollowUpDays,
     },
     scoring: {
-      weights: {
-        productFit: num(w.productFit, base.scoring.weights.productFit),
-        commercialPotential: num(w.commercialPotential, base.scoring.weights.commercialPotential),
-        buyerQuality: num(w.buyerQuality, base.scoring.weights.buyerQuality),
-        intent: num(w.intent, base.scoring.weights.intent),
-        completeness: num(w.completeness, base.scoring.weights.completeness),
-        strategicValue: num(w.strategicValue, base.scoring.weights.strategicValue),
-      },
-      grades: {
-        hot: num(g.hot, base.scoring.grades.hot),
-        high: num(g.high, base.scoring.grades.high),
-        medium: num(g.medium, base.scoring.grades.medium),
-      },
+      weights: nums(w, base.scoring.weights),
+      grades: nums(g, base.scoring.grades),
       buyerTypeScores: numMap(sc.buyerTypeScores, base.scoring.buyerTypeScores),
       quantityTiers: tiers,
       unknownQuantityRatio: num(sc.unknownQuantityRatio, base.scoring.unknownQuantityRatio),

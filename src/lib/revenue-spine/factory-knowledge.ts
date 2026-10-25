@@ -102,7 +102,7 @@ export function getProductCapability(policy: RevenueSpinePolicy, category: strin
  * 未配置 → unavailable（草稿写"需内部确认"）。
  */
 export function getMOQ(category: string | null, policy?: RevenueSpinePolicy): KnowledgeResult<MoqInfo> {
-  const moq = policy?.businessProfile.commercialFacts?.moq ?? null;
+  const moq = policy?.businessProfile.commercialFacts.moq ?? null;
   if (!moq) return unavailable("getMOQ", `MOQ 未配置（类目 ${category ?? "未知"}；revenue_spine.business_profile.commercialFacts.moq）`);
   return {
     status: "available",

@@ -15,7 +15,7 @@ import { isAIConfigured } from "@/lib/ai/config";
 import type { FactoryKnowledgeBundle } from "./factory-knowledge";
 import { unsafeToRepeat } from "./inquiry-risks";
 import type { InquiryLanguage } from "./normalize";
-import type { RevenueSpinePolicy } from "./policy";
+import { normalizeStyleCode, type RevenueSpinePolicy } from "./policy";
 import type { ClarifyingQuestion } from "./rfq/missing-info";
 import { RFQ_FIELD_LABELS, type RfqField, type RfqFields } from "./rfq/types";
 
@@ -86,7 +86,7 @@ export function buildReferenceLines(knowledge: FactoryKnowledgeBundle, policy: R
       parts.push(`大货生产一般在${from} ${range(lt.productionDays, lt.productionDaysMax)} 天`);
     }
     if (parts.length) lines.push(`供参考：${parts.join("；")}。具体以我们针对您项目的报价为准。`);
-    if (facts?.loadingPorts?.length && parts.length) lines.push(`装运港可选：${facts.loadingPorts.join("、")}。`);
+    if (facts.loadingPorts.length && parts.length) lines.push(`装运港可选：${facts.loadingPorts.join("、")}。`);
   } else {
     const parts: string[] = [];
     if (moq) parts.push(`our MOQ is typically ${fmtQty(moq.quantity)} ${moq.unit} per ${moq.per ?? "style"}`);
@@ -94,14 +94,14 @@ export function buildReferenceLines(knowledge: FactoryKnowledgeBundle, policy: R
       parts.push(`bulk production usually takes ${range(lt.productionDays, lt.productionDaysMax)} days after ${lt.productionStartsFrom ?? "pre-production sample approval"}`);
     }
     if (parts.length) lines.push(`For reference, ${parts.join(", and ")}. Both are confirmed for your project in our quotation.`);
-    if (facts?.loadingPorts?.length && parts.length) lines.push(`Loading ports: ${facts.loadingPorts.join(" or ")}.`);
+    if (facts.loadingPorts.length && parts.length) lines.push(`Loading ports: ${facts.loadingPorts.join(" or ")}.`);
   }
   return lines;
 }
 
 /** 落款附加行（职位 / WhatsApp / 网站） */
 export function signatureLines(policy: RevenueSpinePolicy, lang: "en" | "zh"): { afterName: string[]; afterOrg: string[] } {
-  const sig = policy.businessProfile.commercialFacts?.signature ?? null;
+  const sig = policy.businessProfile.commercialFacts.signature;
   if (!sig) return { afterName: [], afterOrg: [] };
   const afterOrg: string[] = [];
   if (sig.whatsapp) afterOrg.push(`WhatsApp ${sig.whatsapp}`);
@@ -109,12 +109,15 @@ export function signatureLines(policy: RevenueSpinePolicy, lang: "en" | "zh"): {
   return { afterName: sig.title ? [sig.title] : [], afterOrg: lang === "zh" ? afterOrg : afterOrg };
 }
 
-const normStyle = (v: string) => v.replace(/\s+/g, "").replace(/[–—_]/g, "-").toUpperCase();
+/** 落款：发件人、职位、公司名、WhatsApp / 网站（首封与无回复跟进同一格式） */
+export function signOff(senderName: string, orgName: string, sig?: { afterName: string[]; afterOrg: string[] }): string[] {
+  return [senderName, ...(sig?.afterName ?? []), orgName, ...(sig?.afterOrg ?? [])];
+}
 
 /** 去掉企业禁止外发的款号（展会卡上记了也不写进邮件） */
 export function allowedStyles<T extends { code: string }>(styles: readonly T[], policy: RevenueSpinePolicy): T[] {
-  const blocked = new Set((policy.businessProfile.commercialFacts?.blockedStyleCodes ?? []).map(normStyle));
-  return styles.filter((st) => !blocked.has(normStyle(st.code)));
+  const blocked = new Set(policy.businessProfile.commercialFacts.blockedStyleCodes.map(normalizeStyleCode));
+  return styles.filter((st) => !blocked.has(normalizeStyleCode(st.code)));
 }
 
 const CONFIRM_FIELDS: RfqField[] = [
@@ -256,8 +259,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const styles = allowedStyles(met?.styles ?? [], input.policy);
   const cf = input.policy.businessProfile.commercialFacts;
   // 英文邮件用对外英文公司名（组织名常是中文）；中文草稿仍用组织名
-  const orgName = lang === "en" ? cf?.buyerFacingName || input.orgName : input.orgName;
-  const catalogOnly = Boolean(met && input.boothGrade === "C" && cf?.gradeCCatalogOnly);
+  const orgName = lang === "en" ? cf.buyerFacingName || input.orgName : input.orgName;
+  const catalogOnly = Boolean(met && input.boothGrade === "C" && cf.gradeCCatalogOnly);
   // termLines：正文里渲染的条款原句；referenceLines：守卫白名单（条款原句 + 含数字的样品说明）
   const termLines = catalogOnly ? [] : buildReferenceLines(knowledge, input.policy, lang);
   const referenceLines = [...termLines];
@@ -272,7 +275,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const sig = signatureLines(input.policy, lang);
   const references = catalogOnly
     ? []
-    : (cf?.referencePrograms ?? []).filter((r) => r.category && fields.productCategory && r.category === fields.productCategory).slice(0, 1);
+    : cf.referencePrograms.filter((r) => r.category && fields.productCategory && r.category === fields.productCategory).slice(0, 1);
   const styleLabel = (st: { code: string; name: string | null }, zh: boolean) =>
     st.name ? (zh ? `${st.name}（参考款 ${st.code}）` : `${st.name} (ref. ${st.code})`) : st.code;
   const styleSubject = (zh: boolean) =>
@@ -321,7 +324,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     }
     lines.push("");
     if (catalogOnly) {
-      lines.push(cf?.catalogUrl ? `我们的产品目录在这里，供您参考：${cf.catalogUrl}` : "我们会另行把产品目录发给您，供您参考。");
+      lines.push(cf.catalogUrl ? `我们的产品目录在这里，供您参考：${cf.catalogUrl}` : "我们会另行把产品目录发给您，供您参考。");
       lines.push("如有任何感兴趣的款式，随时回复这封邮件即可。");
     } else {
       for (const r of references) lines.push(r.summaryZh);
@@ -332,10 +335,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push("");
     lines.push("期待您的回复。");
     lines.push("");
-    lines.push(`${input.senderName}`);
-    for (const l of sig.afterName) lines.push(l);
-    lines.push(`${orgName}`);
-    for (const l of sig.afterOrg) lines.push(l);
+    lines.push(...signOff(input.senderName, orgName, sig));
     body = lines.join("\n");
   } else {
     const qty = fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : "";
@@ -370,7 +370,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     }
     lines.push("");
     if (catalogOnly) {
-      lines.push(cf?.catalogUrl ? `You can find our product catalogue here: ${cf.catalogUrl}` : "We will send you our product catalogue separately for your reference.");
+      lines.push(cf.catalogUrl ? `You can find our product catalogue here: ${cf.catalogUrl}` : "We will send you our product catalogue separately for your reference.");
       lines.push("If any of the styles catch your interest, simply reply to this email.");
     } else {
       for (const r of references) lines.push(r.summaryEn);
@@ -382,10 +382,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push("We look forward to hearing from you.");
     lines.push("");
     lines.push("Best regards,");
-    lines.push(input.senderName);
-    for (const l of sig.afterName) lines.push(l);
-    lines.push(orgName);
-    for (const l of sig.afterOrg) lines.push(l);
+    lines.push(...signOff(input.senderName, orgName, sig));
     body = lines.join("\n");
   }
 
