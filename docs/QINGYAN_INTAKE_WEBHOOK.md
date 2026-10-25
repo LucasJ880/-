@@ -43,6 +43,22 @@
 
 业务指纹（判断"同一询盘内容"）只看联系人 / 公司 / 国家 / 产品 / 买家网站 / 留言；`page`、`referrer`、`landing`、UTM、`eventId` 变化不算内容变化。
 
+**表单字段区块（可选）**：站点表单有青砚没有对应字段的项（数量单位、材质、尺寸、包装、交期…）时，可以附在 `message` 末尾：先一个空行，再一行 `— Form details —`，之后每行一个 `Label: value`，区块到下一个空行为止。例：
+
+```text
+We need these for our spring catalogue.
+
+— Form details —
+Estimated quantity: 3,000 pcs per colour
+Material: flannel fleece with sherpa back
+Size / specification: 127 x 152 cm
+Packaging: polybag + belly band, 12 per carton
+Required date: March 2027
+Sample requirement: yes
+```
+
+FDE 抽取需求时，区块里能认出的字段（数量、材质、尺寸、定制 / Branding、包装、认证、样品、目的地、贸易术语、交期、买家类型，标签写法见 `src/lib/revenue-spine/rfq/heuristic-extractor.ts` 的 `FIELD_LABELS`）按原文采用，优先于从正文里猜。值是没答或占位（Not sure、please advise、see attached…）时不采用；留言正文里先说过的数量 / 交期 / 目的地，以及买家后来来信改的说法，优先于区块。区块之外的 `Label: value` 行不做这种处理。
+
 ## 2. 方式一：服务器转发
 
 ### 2.1 请求
