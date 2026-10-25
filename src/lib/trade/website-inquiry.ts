@@ -85,6 +85,10 @@ const ORIGINS = {
     inquiryAnalysis: true,
     outreachSequence: true,
     placeholderChannel: null,
+    // 同内容不同 eventId（站点重发换了 id）指向原事件，不重复建对象
+    contentDedupe: true,
+    // 老线索再来询也通知外贸成员
+    notifyReturning: true,
   },
   trade_show: {
     campaign: BOOTH_CARD_CAMPAIGN_NAME,
@@ -101,6 +105,8 @@ const ORIGINS = {
     inquiryAnalysis: true,
     outreachSequence: true,
     placeholderChannel: null,
+    contentDedupe: true,
+    notifyReturning: false,
   },
   whatsapp: {
     campaign: CHANNEL_INQUIRY_CAMPAIGN_NAME,
@@ -119,6 +125,10 @@ const ORIGINS = {
     outreachSequence: false,
     // 没有邮箱可按：Trade 线索按「WhatsApp <号码>」占位名复用（与旧 Trade 通道建的线索同名）
     placeholderChannel: "whatsapp",
+    // wamid 由平台保证唯一：同一买家两次「ok」、两条语音、两张不带说明的图都是不同消息，不做内容去重
+    contentDedupe: false,
+    // 同一号码的后续消息只通知商机负责人（intake 的通知），不再逐条广播给全体外贸成员
+    notifyReturning: false,
   },
 } as const;
 
@@ -454,6 +464,8 @@ function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string,
         : {}),
     },
     sourceRef: { tradeProspectId: prospectId, tradeMessageId: messageId, externalId: v.eventId || null },
+    // 平台消息 id 唯一的通道：intake 的 24 小时重放只按 externalId（wamid）判定，不按正文
+    ...(o.contentDedupe ? {} : { replayKey: "external_id" as const }),
     actorUserId: null,
     now,
   };
@@ -469,7 +481,7 @@ async function findSpineInteractionByMessage(orgId: string, tradeMessageId: stri
 }
 
 /** 逐项核对七个对象；每一项都用真实记录判定，不由上一项存在推断 */
-export async function inspectChain(orgId: string, receipt: { tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date, origin: IngestOrigin = { kind: "website" }): Promise<ChainState> {
+export async function inspectChain(orgId: string, receipt: { id?: string; tradeMessageId: string | null; interactionId: string | null }, v: NormalizedInquiry, now: Date, origin: IngestOrigin = { kind: "website" }): Promise<ChainState> {
   const o = ORIGINS[origin.kind];
   const empty: ChainState = {
     prospectId: null, tradeMessageId: null, customerId: null, opportunityId: null, interactionId: null,
@@ -482,17 +494,37 @@ export async function inspectChain(orgId: string, receipt: { tradeMessageId: str
     ? await db.tradeMessage.findFirst({ where: { id: receipt.tradeMessageId, prospect: { orgId } }, select: { id: true, prospect: { select: PROSPECT_REF_SELECT } } })
     : null;
   if (!message) {
-    message = await db.tradeMessage.findFirst({
-      where: {
-        direction: "inbound",
-        channel: o.messageChannel,
-        content: buildInquiryMessage(v, o.label, o.pageLabel),
-        createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
-        prospect: { orgId },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
-    });
+    const sameContent = {
+      direction: "inbound",
+      channel: o.messageChannel,
+      content: buildInquiryMessage(v, o.label, o.pageLabel),
+      createdAt: { gte: new Date(now.getTime() - WEBSITE_INQUIRY_REPLAY_WINDOW_MS) },
+      prospect: { orgId },
+    };
+    if (o.contentDedupe) {
+      message = await db.tradeMessage.findFirst({
+        where: sameContent,
+        orderBy: { createdAt: "desc" },
+        select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
+      });
+    } else {
+      // 平台消息 id 唯一（WhatsApp）：同正文的消息若已登记在别的收据上，属于另一条消息，不能认领；
+      // 只认领没有任何其它收据登记的（本事件上次建了消息、还没来得及回填收据就中断）
+      const rows = await db.tradeMessage.findMany({
+        where: sameContent,
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: { id: true, prospect: { select: PROSPECT_REF_SELECT } },
+      });
+      if (rows.length) {
+        const owned = await db.websiteInquiryReceipt.findMany({
+          where: { orgId, tradeMessageId: { in: rows.map((r) => r.id) }, ...(receipt.id ? { id: { not: receipt.id } } : {}) },
+          select: { tradeMessageId: true },
+        });
+        const taken = new Set(owned.map((r) => r.tradeMessageId));
+        message = rows.find((r) => !taken.has(r.id)) ?? null;
+      }
+    }
   }
   if (!message) return empty;
 
@@ -579,7 +611,7 @@ export async function ingestWebsiteInquiry(
   const origin: IngestOrigin = opts?.origin ?? { kind: "website" };
   const fdeMode: FdeMode = opts?.fdeMode ?? "inline";
   const o = ORIGINS[origin.kind];
-  const claim = await claimInquiryReceipt(orgId, incoming, now, o.receiptSource);
+  const claim = await claimInquiryReceipt(orgId, incoming, now, o.receiptSource, { contentDedupe: o.contentDedupe });
   const receipt = claim.receipt;
   // 恢复一律按**首次**收到的业务事实重放；本次请求的冲突内容只记录，不覆盖
   const v = fromReceiptPayload(receipt.payload);
@@ -687,7 +719,7 @@ export async function ingestWebsiteInquiry(
         meta: { email: v.email || null, companyName: prospect.companyName, phone: v.phone || null, country: v.country || null, website: v.website || null },
       });
 
-      if (o.notify) {
+      if (o.notify && (o.notifyReturning || !existingProspect)) {
         const summaryBits = [v.product, v.message].filter(Boolean).join(" — ");
         notified = await notifyInquiryMembers(orgId, {
           title: `${o.label}：${prospect.companyName}`,

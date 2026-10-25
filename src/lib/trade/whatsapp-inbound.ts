@@ -9,17 +9,21 @@
  * 批次处理规则：
  *   - 每条消息先认领收据：同一 wamid 再次投递 → 只补缺失步骤，不重复建任何对象（已全部完成 = 空操作）；
  *   - phone_number_id 缺失 / 不属于任何组织的条目只跳过该条目，不让整批 403；
- *   - 表情回应 / 贴纸 / 系统通知等不进询盘；图片 / 文件 / 视频 / 语音 / 按钮 / 列表选择等记「类型标签 + 说明文字」；
- *   - 同一发信人的消息按 (orgId, wa_id) advisory lock 串行（买家一次发几张图会并发投递多个 webhook，
- *     不串行会各自建出新客户 / 新商机）；
- *   - 处理抛错、主干 intake 失败（SPINE_FAILED），或收据被一个已中断的请求占着（busy）→ 路由返回 500
+ *   - 表情回应 / 贴纸 / 系统通知等不进询盘；图片 / 文件 / 视频 / 语音 / 按钮 / 列表选择等记「[类型标签] 说明文字」，
+ *     标签用英文（[image] / [voice message] …）：它是买家消息正文的一部分，会参与语言识别与 RFQ 抽取，
+ *     中文标签会把只发图片 / 语音的外国买家判成中文、FDE 草稿跟着用中文；
+ *   - 不做内容去重：wamid 唯一，同一买家一天里两次「ok」、两条语音、两张不带说明的图各自是一条消息；
+ *   - 同一发信人的消息按 (orgId, wa_id) 租约串行（买家一次发几张图会并发投递多个 webhook，
+ *     不串行会各自建出新客户 / 新商机）。租约是收据表里的一行（WHATSAPP_SENDER_LEASE_SOURCE），
+ *     等待时 sleep 轮询、不占 DB 连接；等不到（SENDER_LEASE_MAX_WAIT_MS）→ 记 busy；
+ *   - 处理抛错、主干 intake 失败（SPINE_FAILED），或收据 / 发信人租约被另一个请求占着（busy）→ 路由返回 500
  *     让 Meta 重投整批；已处理的条目按收据幂等，重投只补缺失步骤。
  */
 
-import { db } from "@/lib/db";
 import { logger } from "@/lib/common/logger";
 import { logInboundOrgDenial, resolveInboundTradeOrgId } from "./inbound-org";
 import { ingestWebsiteInquiry, type IngestResult, type NormalizedInquiry } from "./website-inquiry";
+import { WHATSAPP_SENDER_LEASE_SOURCE, releaseEventLease, tryAcquireEventLease } from "./website-inquiry-receipts";
 
 export type WaMessage = {
   id?: string;
@@ -69,7 +73,8 @@ function labeled(label: string, body: string): string {
 }
 
 /**
- * 消息 → 询盘正文（纯函数）：文字原样；媒体与交互记「[类型] 说明文字」。不进询盘的类型返回 null。
+ * 消息 → 询盘正文（纯函数）：文字原样；媒体与交互记「[type] 说明文字」。不进询盘的类型返回 null。
+ * 标签用英文：正文会进语言识别（detectLanguage 按 CJK 占比）和 RFQ 抽取，中文标签会把外国买家判成中文。
  * 媒体本身不下载（Meta 媒体 id 需要通道 accessToken 换取，且 30 天后失效）：业务员按标签回 WhatsApp 查看。
  */
 export function whatsAppMessageText(msg: WaMessage): string | null {
@@ -79,36 +84,36 @@ export function whatsAppMessageText(msg: WaMessage): string | null {
     case "text":
       return clean(msg.text?.body) || null;
     case "image":
-      return labeled("[图片]", clean(msg.image?.caption));
+      return labeled("[image]", clean(msg.image?.caption));
     case "video":
-      return labeled("[视频]", clean(msg.video?.caption));
+      return labeled("[video]", clean(msg.video?.caption));
     case "document": {
       const name = clean(msg.document?.filename, LIMITS.label);
-      return labeled(name ? `[文件：${name}]` : "[文件]", clean(msg.document?.caption));
+      return labeled(name ? `[document: ${name}]` : "[document]", clean(msg.document?.caption));
     }
     case "audio":
-      return msg.audio?.voice ? "[语音消息]" : "[音频]";
+      return msg.audio?.voice ? "[voice message]" : "[audio]";
     case "location": {
       const l = msg.location ?? {};
       const coords = typeof l.latitude === "number" && typeof l.longitude === "number" ? `(${l.latitude}, ${l.longitude})` : "";
-      return labeled("[位置]", [clean(l.name, LIMITS.label), clean(l.address, LIMITS.label), coords].filter(Boolean).join(" "));
+      return labeled("[location]", [clean(l.name, LIMITS.label), clean(l.address, LIMITS.label), coords].filter(Boolean).join(" "));
     }
     case "contacts": {
       const cards = (msg.contacts ?? [])
         .map((c) => [clean(c.name?.formatted_name, LIMITS.label), ...(c.phones ?? []).map((p) => clean(p.phone, 40))].filter(Boolean).join(" "))
         .filter(Boolean);
-      return labeled("[名片]", cards.join("；"));
+      return labeled("[contact]", cards.join("; "));
     }
     case "button":
-      return labeled("[按钮]", clean(msg.button?.text, LIMITS.label) || clean(msg.button?.payload, LIMITS.label));
+      return labeled("[button]", clean(msg.button?.text, LIMITS.label) || clean(msg.button?.payload, LIMITS.label));
     case "interactive": {
       const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply;
       const desc = msg.interactive?.list_reply?.description;
-      return labeled("[选项]", [clean(reply?.title, LIMITS.label), clean(desc, LIMITS.label)].filter(Boolean).join(" — "));
+      return labeled("[option]", [clean(reply?.title, LIMITS.label), clean(desc, LIMITS.label)].filter(Boolean).join(" — "));
     }
     case "order": {
       const items = msg.order?.product_items ?? [];
-      return items.length ? `[订单] ${items.length} 个商品` : "[订单]";
+      return items.length ? `[order] ${items.length} item(s)` : "[order]";
     }
     default:
       return null;
@@ -199,11 +204,13 @@ export function toWhatsAppInquiry(item: WhatsAppInboundItem): NormalizedInquiry 
 
 export type ResolveOrgResult = { ok: true; orgId: string } | { ok: false; reason: string };
 
+export type SenderLockResult<T> = { acquired: true; value: T } | { acquired: false };
+
 export interface WhatsAppWebhookDeps {
   resolveOrg: (phoneNumberId: string) => Promise<ResolveOrgResult>;
   ingest: (orgId: string, inquiry: NormalizedInquiry) => Promise<IngestResult>;
-  /** 同一发信人串行（测试可替换为直接执行） */
-  withSenderLock: <T>(orgId: string, waId: string, fn: () => Promise<T>) => Promise<T>;
+  /** 同一发信人串行（测试可替换为直接执行）；等不到 → acquired=false（本条记 busy，让 Meta 重投） */
+  withSenderLock: <T>(orgId: string, waId: string, fn: () => Promise<T>) => Promise<SenderLockResult<T>>;
 }
 
 export interface WhatsAppWebhookOutcome {
@@ -211,9 +218,9 @@ export interface WhatsAppWebhookOutcome {
   messages: number;
   /** 首次处理（新事件） */
   processed: number;
-  /** 同一 wamid 再次投递（或内容与 24 小时内既有事件相同）：只补缺失步骤 */
+  /** 同一 wamid 再次投递：只补缺失步骤 */
   replays: number;
-  /** 收据被另一个（多半已中断的）请求占着：本次未处理，需重投 */
+  /** 收据被另一个（多半已中断的）请求占着，或同一发信人的租约等不到：本次未处理，需重投 */
   busy: number;
   /** 抛错，或 Revenue Spine intake 失败（Trade 消息已落、主干未建：重投时按收据补齐） */
   failed: number;
@@ -230,16 +237,45 @@ async function resolveOrgByPhoneNumberId(phoneNumberId: string): Promise<Resolve
   return { ok: true, orgId: r.orgId };
 }
 
-/** 事务级 advisory lock：锁随事务结束释放；回调里的写入走普通连接（与 assistant 跟进任务同一模式） */
-async function withWhatsAppSenderLock<T>(orgId: string, waId: string, fn: () => Promise<T>): Promise<T> {
-  const lockKey = `whatsapp-inbound:${orgId}:${waId}`;
-  return db.$transaction(
-    async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-      return fn();
-    },
-    { timeout: 60_000, maxWait: 10_000 },
-  );
+/**
+ * 发信人租约：持有者中断后多久可被接管。一条消息在请求路径里只做收据 / Trade / Revenue Spine intake（几次 DB 往返，
+ * 通常 1–3 秒，FDE 在响应之后另行认领），2 分钟足够宽；接管只意味着这条消息可能与仍在跑的旧请求并行。
+ */
+export const SENDER_LEASE_STALE_MS = 2 * 60_000;
+/** 等同一发信人前面的消息处理完最多等多久；之后本条记 busy → 500，Meta 稍后重投（收据幂等） */
+export const SENDER_LEASE_MAX_WAIT_MS = 10_000;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 同一 (orgId, wa_id) 串行：非阻塞租约 + sleep 轮询（收据表一行，见 tryAcquireEventLease）。
+ * 不用 pg_advisory_xact_lock：那要一条事务连接从头开到尾，而 ingest 本身走其它连接——并发请求数一到
+ * Prisma connection_limit，所有请求都会在 pool_timeout 后失败（不同发信人、毫无锁竞争时也一样）。
+ */
+export async function withWhatsAppSenderLock<T>(
+  orgId: string,
+  waId: string,
+  fn: () => Promise<T>,
+  opts: { maxWaitMs?: number; staleMs?: number } = {},
+): Promise<SenderLockResult<T>> {
+  const deadline = Date.now() + (opts.maxWaitMs ?? SENDER_LEASE_MAX_WAIT_MS);
+  let delay = 100;
+  for (;;) {
+    const token = await tryAcquireEventLease(orgId, WHATSAPP_SENDER_LEASE_SOURCE, waId, { staleMs: opts.staleMs ?? SENDER_LEASE_STALE_MS });
+    if (token) {
+      try {
+        return { acquired: true, value: await fn() };
+      } finally {
+        await releaseEventLease(orgId, WHATSAPP_SENDER_LEASE_SOURCE, waId, token).catch((err) =>
+          // 释放失败只会让后面的消息多等到租约过期，不影响本条结果
+          logger.warn("trade.inbound.whatsapp_sender_lease_release_failed", { orgId, error: err instanceof Error ? err.message : String(err) }),
+        );
+      }
+    }
+    if (Date.now() + delay > deadline) return { acquired: false };
+    await sleep(delay + Math.floor(Math.random() * 50));
+    delay = Math.min(delay * 2, 1_000);
+  }
 }
 
 const DEFAULT_DEPS: WhatsAppWebhookDeps = {
@@ -272,7 +308,14 @@ export async function processWhatsAppWebhook(body: unknown, deps: Partial<WhatsA
       }
       const orgId = org.orgId;
       outcome.messages += 1;
-      const result = await d.withSenderLock(orgId, item.waId, () => d.ingest(orgId, toWhatsAppInquiry(item)));
+      const locked = await d.withSenderLock(orgId, item.waId, () => d.ingest(orgId, toWhatsAppInquiry(item)));
+      if (!locked.acquired) {
+        // 同一买家前面的消息还在处理（或持有者刚中断、租约未过期）：本条不处理，让 Meta 重投
+        outcome.busy += 1;
+        logger.warn("trade.inbound.whatsapp_sender_busy", { orgId, wamid: item.wamid });
+        continue;
+      }
+      const result = locked.value;
       if (result.busy) {
         outcome.busy += 1;
       } else if (!result.spine.ok && result.spine.code === "SPINE_FAILED") {

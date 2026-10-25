@@ -6,8 +6,8 @@
  *
  * 每条消息：收据（orgId, "whatsapp", wamid）→ Trade 线索 / 消息 → Revenue Spine intake（按电话 E.164 去重）
  * 后立即返回；FDE 由 after() 在响应之后执行（原子认领，cron 兜底），请求路径里没有 LLM。见 whatsapp-inbound.ts。
- * 未知 / 缺失 phone_number_id 的条目只跳过该条目（整批仍 200）。有条目处理失败或收据被占用 → 500，Meta 重投整批，
- * 已处理的条目按收据幂等（不重复建对象）。
+ * 未知 / 缺失 phone_number_id 的条目只跳过该条目（整批仍 200）。有条目处理失败、收据被占用或同一发信人的租约
+ * 等不到 → 500，Meta 重投整批，已处理的条目按收据幂等（不重复建对象）。
  */
 
 import { NextRequest, NextResponse } from "next/server";

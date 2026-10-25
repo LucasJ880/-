@@ -7,6 +7,10 @@
  *   同一买家随后在网站留邮箱 + 本地格式电话 + 国家 → 按 E.164 合并到同一客户、同一商机，FDE 才建审批草稿；
  *   新买家一次并发发几张图 → 仍只有一个客户 / 一个商机（发信人锁）；旧 Trade 通道建的占位线索被复用；
  *   跨组织隔离；收据被中断请求占着 → 500 让 Meta 重投，过期后重投补齐；微信同一 MsgId 重发只写一条消息、不进主干。
+ *   评审修正：同一买家发相同内容（两条语音 / 两张不带说明的图 / 两次 ok，wamid 不同）各自建链、不被内容去重吞掉；
+ *   后续消息只通知商机负责人；整套跑在 connection_limit=3 的小连接池上（发信人租约不占连接：不同发信人并发、
+ *   同一发信人连发 5 条混合媒体都 200）；占位电话 / 不同企业域名的共用电话压不过域名；墨西哥 wa_id（52 1…）与
+ *   表单 E.164 合并；电话预筛不再受「最近 500 个客户」限制；微信收据卡在 processing 超过 4 秒 → 重发再认领写入。
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -34,6 +38,14 @@ process.env.WHATSAPP_APP_SECRET = WA_SECRET;
 process.env.WECHAT_TOKEN = WECHAT_TOKEN;
 // 网站 / 微信路径的 TradeInquiryAnalysis 在请求上下文之外会直接调 LLM：指向本机不可达端口，测试绝不外呼
 process.env.OPENAI_BASE_URL = "http://127.0.0.1:9/v1";
+// 整套跑在小连接池上（评审实测：旧的 advisory lock 实现在 connection_limit=3 时 3 个不同发信人并发全部 500）。
+// 必须在第一次 import @/lib/db 之前设置；只改本进程的环境变量。
+{
+  const u = new URL(process.env.DATABASE_URL!);
+  u.searchParams.set("connection_limit", "3");
+  u.searchParams.set("pool_timeout", "10");
+  process.env.DATABASE_URL = u.toString();
+}
 
 let pass = 0;
 let fail = 0;
@@ -53,7 +65,8 @@ async function main() {
   const { ingestWebsiteInquiry, normalizeInquiry, __setDefaultFdeSchedulerForTest } = await import("@/lib/trade/website-inquiry");
   type FdeScheduler = import("@/lib/trade/website-inquiry").FdeScheduler;
   const { INQUIRY_REPLY_ACTION_TYPE } = await import("@/lib/revenue-spine/fde/inbound-sales");
-  const { findReceiptByEventId, WHATSAPP_INBOUND_SOURCE, WECHAT_INBOUND_SOURCE } = await import("@/lib/trade/website-inquiry-receipts");
+  const { findReceiptByEventId, WHATSAPP_INBOUND_SOURCE, WHATSAPP_SENDER_LEASE_SOURCE, WECHAT_INBOUND_SOURCE } = await import("@/lib/trade/website-inquiry-receipts");
+  const { intakeInquiry } = await import("@/lib/revenue-spine/inquiry-intake");
   const { __setToolPolicyLoaderForTest } = await import("@/lib/pending-actions/executor");
   const { __setInquiryReplySenderForTest } = await import("@/lib/pending-actions/exec-sales-inquiry-reply");
   const { POST: waPost } = await import("@/app/api/trade/webhook/whatsapp/route");
@@ -130,6 +143,8 @@ async function main() {
   });
   const text = (id: string, body: string, from = WA1): Msg => ({ id, from, timestamp: "1790000000", type: "text", text: { body } });
   const image = (id: string, caption: string, from = WA1): Msg => ({ id, from, timestamp: "1790000001", type: "image", image: { caption, id: `media_${id}` } });
+  const bareImage = (id: string, from = WA1): Msg => ({ id, from, timestamp: "1790000002", type: "image", image: { id: `media_${id}` } });
+  const voice = (id: string, from = WA1): Msg => ({ id, from, timestamp: "1790000003", type: "audio", audio: { id: `media_${id}`, voice: true } });
   const wamid = (k: string) => `wamid.${k}.${stamp}`;
 
   const placeholder = (wa: string) => `WhatsApp ${wa}`;
@@ -182,7 +197,7 @@ async function main() {
     ok(r2.status === 200 && receipt1b?.attempts === 2 && receipt1b.id === receipt1?.id, "重投 200，收据 attempts=2", { status: r2.status, attempts: receipt1b?.attempts });
     ok(counts2.msgs === 1 && counts2.interactions === 1 && counts2.opps === 1 && counts2.customers === 1 && counts2.prospects === 1, "消息 / 互动 / 商机 / 客户 / 线索 各仍只有 1 个", counts2);
 
-    console.log("\n[3] 一批里混着未知 phone_number_id：只跳过该条目；图片消息记「[图片] 说明」；表情回应不进");
+    console.log("\n[3] 一批里混着未知 phone_number_id：只跳过该条目；图片消息记「[image] 说明」；表情回应不进");
     const WU = wamid("unknown");
     const W2 = wamid("img");
     const WR = wamid("reaction");
@@ -197,7 +212,7 @@ async function main() {
     ok(unknownReceipts === 0, "未知号码 / 表情回应：没有收据、没有任何对象", unknownReceipts);
     const receipt2 = await findReceiptByEventId(ORG, W2, WHATSAPP_INBOUND_SOURCE);
     const int2 = await db.customerInteraction.findFirst({ where: { id: receipt2?.interactionId ?? "-", orgId: ORG }, select: { content: true, opportunityId: true, customerId: true } });
-    ok(int2?.content === "[图片] This colour, logo on chest" && int2.opportunityId === opp1?.id && int2.customerId === c1?.id, "图片消息：附到同一客户的同一商机（补充信息）", int2);
+    ok(int2?.content === "[image] This colour, logo on chest" && int2.opportunityId === opp1?.id && int2.customerId === c1?.id, "图片消息：附到同一客户的同一商机（补充信息）", int2);
     const msgs3 = await db.tradeMessage.count({ where: { prospectId: p1?.id ?? "-" } });
     ok(msgs3 === 2 && (await prospectsNamed(ORG, placeholder(WA1))).length === 1, "同一 Trade 线索上第 2 条消息（按占位名复用线索）", msgs3);
 
@@ -236,17 +251,31 @@ async function main() {
     const drafts5 = await pendingFor(opp1?.id ?? "-");
     ok(drafts5.length === 1 && drafts5[0].status === "pending" && (drafts5[0].payload as Record<string, unknown>).to === email && sent.length === 0, "有了邮箱：FDE 建 1 份待审批草稿（发往买家邮箱），未自动发送", drafts5.map((d) => ({ status: d.status, to: (d.payload as Record<string, unknown>).to })));
 
-    console.log("\n[6] 新买家一次并发发 3 张图（3 个 webhook 同时到）→ 仍只有 1 个客户 / 1 个商机");
+    console.log("\n[6] 新买家一次并发发 5 条混合媒体（图 / 文件 / 按钮 / 列表选择 / 语音，5 个 webhook 同时到，连接池只有 3）→ 1 个客户 / 1 个商机");
     const contacts2 = [{ profile: { name: "Example Linen Buyer" }, wa_id: WA2 }];
-    const burst = await Promise.all(
-      [1, 2, 3].map((n) => postWa(waBody([{ pnid: PNID, contacts: contacts2, messages: [image(wamid(`burst${n}`), `Towel style ${n}, 600 pcs`, WA2)] }]))),
-    );
+    const burstMsgs: Msg[] = [
+      image(wamid("burst1"), "Towel style 1, 600 pcs", WA2),
+      { id: wamid("burst2"), from: WA2, timestamp: "1790000010", type: "document", document: { id: "media_doc", filename: "towel-spec.pdf", caption: "Our spec sheet" } },
+      { id: wamid("burst3"), from: WA2, timestamp: "1790000011", type: "button", button: { text: "Send catalog", payload: "CATALOG" } },
+      { id: wamid("burst4"), from: WA2, timestamp: "1790000012", type: "interactive", interactive: { type: "list_reply", list_reply: { id: "b", title: "Bath towels", description: "70x140cm" } } },
+      voice(wamid("burst5"), WA2),
+    ];
+    const burst = await Promise.all(burstMsgs.map((m) => postWa(waBody([{ pnid: PNID, contacts: contacts2, messages: [m] }]))));
     const c2 = await customersByPhone(ORG, "+447700900123");
     const opps6 = c2[0] ? await db.salesOpportunity.count({ where: { orgId: ORG, customerId: c2[0].id } }) : -1;
-    const ints6 = c2[0] ? await db.customerInteraction.count({ where: { orgId: ORG, customerId: c2[0].id } }) : -1;
+    const ints6 = c2[0] ? await db.customerInteraction.findMany({ where: { orgId: ORG, customerId: c2[0].id }, select: { content: true } }) : [];
     const pros6 = await prospectsNamed(ORG, placeholder(WA2));
-    ok(burst.every((b) => b.status === 200), "3 个并发投递都 200", burst.map((b) => b.status));
-    ok(c2.length === 1 && opps6 === 1 && ints6 === 3 && pros6.length === 1, "1 个客户、1 个商机、3 条互动、1 个 Trade 线索（发信人锁）", { customers: c2.length, opps6, ints6, prospects: pros6.length });
+    ok(burst.every((b) => b.status === 200), "5 个并发投递都 200（租约等待不占连接）", burst.map((b) => b.status));
+    ok(c2.length === 1 && opps6 === 1 && ints6.length === 5 && pros6.length === 1, "1 个客户、1 个商机、5 条互动、1 个 Trade 线索（发信人租约）", { customers: c2.length, opps6, ints6: ints6.length, prospects: pros6.length });
+    const contents6 = ints6.map((i) => i.content).sort();
+    ok(
+      JSON.stringify(contents6) ===
+        JSON.stringify(["[button] Send catalog", "[document: towel-spec.pdf] Our spec sheet", "[image] Towel style 1, 600 pcs", "[option] Bath towels — 70x140cm", "[voice message]"]),
+      "文件 / 按钮 / 列表选择 / 语音 / 图片的正文映射落库",
+      contents6,
+    );
+    const lease6 = await db.websiteInquiryReceipt.findUnique({ where: { orgId_source_eventId: { orgId: ORG, source: WHATSAPP_SENDER_LEASE_SOURCE, eventId: WA2 } }, select: { status: true, processingSince: true, attempts: true } });
+    ok(lease6?.status === "complete" && lease6.processingSince === null && lease6.attempts >= 5, "发信人租约用完已释放（每条消息认领一次）", lease6);
     tasks.splice(0);
 
     console.log("\n[7] 旧 Trade 通道建的占位线索：新来信复用它，不另建");
@@ -333,6 +362,116 @@ async function main() {
     const wc3 = await postWechat(`${MSG}7`, "另外还要拖鞋");
     const wcMsgs3 = wcProspects[0] ? await db.tradeMessage.count({ where: { prospectId: wcProspects[0].id, channel: "wechat" } }) : -1;
     ok(wc3.text === "success" && wcMsgs3 === 2, "新的 MsgId 照常写入", wcMsgs3);
+
+    console.log("\n[12] 微信收据卡在 processing：4 秒内 → 当作正在处理；超过 4 秒（首个请求已中断）→ 重发再认领并写入");
+    const MSG_FRESH = `${MSG}81`;
+    const MSG_STUCK = `${MSG}82`;
+    for (const [eventId, ageMs] of [[MSG_FRESH, 0], [MSG_STUCK, 6_000]] as const) {
+      await db.websiteInquiryReceipt.create({
+        data: { orgId: ORG, source: WECHAT_INBOUND_SOURCE, eventId, payload: { fromUser: OPENID }, payloadHash: createHash("sha256").update(eventId).digest("hex"), status: "processing", processingSince: new Date(Date.now() - ageMs) },
+      });
+    }
+    const wcFresh = await postWechat(MSG_FRESH, "第一条：卡在处理中");
+    const wcStuck = await postWechat(MSG_STUCK, "第二条：首个请求已中断");
+    const wcContents = wcProspects[0] ? (await db.tradeMessage.findMany({ where: { prospectId: wcProspects[0].id, channel: "wechat" }, select: { content: true } })).map((m) => m.content) : [];
+    const stuckReceipt = await findReceiptByEventId(ORG, MSG_STUCK, WECHAT_INBOUND_SOURCE);
+    ok(wcFresh.text === "success" && wcStuck.text === "success", "两次都回 success");
+    ok(!wcContents.includes("第一条：卡在处理中") && wcContents.includes("第二条：首个请求已中断"), "未过期的不重复写；过期的被重发接管写入（不再永久丢失）", wcContents);
+    ok(stuckReceipt?.status === "complete" && stuckReceipt.attempts === 2 && !!stuckReceipt.tradeMessageId, "接管后的收据 complete、attempts=2", stuckReceipt && { status: stuckReceipt.status, attempts: stuckReceipt.attempts });
+
+    console.log("\n[13] 同一买家发相同内容（wamid 不同）：两条语音 / 两张不带说明的图 / 两次 ok 各自建链，不被 24 小时内容去重吞掉");
+    tasks.splice(0);
+    const counts = async () => ({
+      msgs: await db.tradeMessage.count({ where: { prospectId: p1?.id ?? "-" } }),
+      interactions: await db.customerInteraction.count({ where: { orgId: ORG, customerId: c1?.id ?? "-" } }),
+      actions: await db.salesAction.count({ where: { orgId: ORG, customerId: c1?.id ?? "-", signalKey: { startsWith: "inbound:" } } }),
+      ownerNotes: await db.notification.count({ where: { userId: TRADE, orgId: ORG } }),
+      bossNotes: await db.notification.count({ where: { userId: OWNER, orgId: ORG } }),
+    });
+    const before13 = await counts();
+    const sameContent: Array<[string, Msg]> = [
+      ["v1", voice(wamid("same-v1"))],
+      ["v2", voice(wamid("same-v2"))],
+      ["i1", bareImage(wamid("same-i1"))],
+      ["i2", bareImage(wamid("same-i2"))],
+      ["ok1", text(wamid("same-ok1"), "ok")],
+      ["ok2", text(wamid("same-ok2"), "ok")],
+    ];
+    const statuses13: number[] = [];
+    for (const [, m] of sameContent) statuses13.push((await postWa(waBody([{ pnid: PNID, messages: [m] }]))).status);
+    const after13 = await counts();
+    ok(statuses13.every((st) => st === 200), "6 次投递都 200", statuses13);
+    ok(
+      after13.msgs - before13.msgs === 6 && after13.interactions - before13.interactions === 6 && after13.actions - before13.actions === 6,
+      "6 条 Trade 消息、6 条互动、6 个 FDE 行动（第二条语音 / 第二张图 / 第二个 ok 都在）",
+      { before13, after13 },
+    );
+    const sameReceipts = await db.websiteInquiryReceipt.findMany({
+      where: { orgId: ORG, source: WHATSAPP_INBOUND_SOURCE, eventId: { in: sameContent.map(([, m]) => String(m.id)) } },
+      select: { duplicateOfReceiptId: true, tradeMessageId: true, interactionId: true },
+    });
+    ok(
+      sameReceipts.length === 6 && sameReceipts.every((r) => r.duplicateOfReceiptId === null) && new Set(sameReceipts.map((r) => r.tradeMessageId)).size === 6 && new Set(sameReceipts.map((r) => r.interactionId)).size === 6,
+      "6 张收据互不指向、各自登记自己的消息 / 互动",
+      sameReceipts,
+    );
+    ok(after13.ownerNotes - before13.ownerNotes === 6 && after13.bossNotes === before13.bossNotes, "老号码的后续消息：每条通知商机负责人，不再广播给其他外贸成员", { before13, after13 });
+    // 同一 wamid 重投仍是空操作（externalId 判重放）
+    await postWa(waBody([{ pnid: PNID, messages: [text(wamid("same-ok2"), "ok")] }]));
+    const replay13 = await counts();
+    ok(replay13.msgs === after13.msgs && replay13.interactions === after13.interactions && replay13.actions === after13.actions, "同一 wamid 重投仍不重复建对象", replay13);
+    tasks.splice(0);
+
+    console.log("\n[14] 4 个新买家同时来信（连接池 3）→ 全部 200，各自一个客户");
+    const newSenders = ["16475550161", "16475550162", "16475550163", "16475550164"];
+    const conc = await Promise.all(
+      newSenders.map((wa, n) => postWa(waBody([{ pnid: PNID, contacts: [{ profile: { name: `Example Buyer ${n + 1}` }, wa_id: wa }], messages: [text(wamid(`conc${n}`), `Need ${n + 2}00 hand towels`, wa)] }]))),
+    );
+    const concCustomers = await Promise.all(newSenders.map((wa) => customersByPhone(ORG, `+${wa}`)));
+    ok(conc.every((r) => r.status === 200), "4 个并发投递都 200（评审实测旧实现：[500,500,500]）", conc.map((r) => r.status));
+    ok(concCustomers.every((cs) => cs.length === 1), "每个号码 1 个客户", concCustomers.map((cs) => cs.length));
+    tasks.splice(0);
+
+    console.log("\n[15] 占位电话 / 共用电话压不过企业域名");
+    const alpha = `ann@alpha-x-${stamp}.example`;
+    const bigRetail = `cat@bigretail-x-${stamp}.example`;
+    const intake = (email: string, phone: string, company: string, message: string, country = "") =>
+      intakeInquiry({ orgId: ORG, source: "website_inquiry", contact: { name: company, email, phone, company, country }, message, actorUserId: null });
+    const a = await intake(alpha, "1234567890", "Alpha Linens", "Hotel sheets, 2000 sets");
+    const b = await intake(bigRetail, "", "Big Retail Example", "Kitchen towels for 40 stores");
+    const bob = await intake(`bob@bigretail-x-${stamp}.example`, "1234567890", "Big Retail Example", "Also bath mats");
+    ok(a.ok && b.ok && bob.ok && bob.customerId === b.customerId && bob.matchLevel === "domain", "填了占位号 1234567890 的新询盘按域名归到 Big Retail（不是 Alpha）", { bob, alpha: a.ok && a.customerId, big: b.ok && b.customerId });
+    const zero1 = await intake(`zed@zero-one-${stamp}.example`, "0000000000", "Zero One Example", "Pillows", "United States");
+    const zero2 = await intake(`yan@zero-two-${stamp}.example`, "0000000000", "Zero Two Example", "Duvets", "United States");
+    ok(zero1.ok && zero2.ok && zero1.customerId !== zero2.customerId && zero2.customerCreated, "两家都填 0000000000 → 两个客户", { z1: zero1.ok && zero1.customerId, z2: zero2.ok && zero2.customerId });
+    const gamma = await intake(`gina@gamma-x-${stamp}.example`, "+1 416 555 0123", "Gamma Hospitality", "Robes", "Canada");
+    const delta = await intake(`dan@delta-x-${stamp}.example`, "(416) 555-0123", "Delta Supply Example", "Slippers", "Canada");
+    const freeMail = await intake(`gina.gamma.${stamp}@gmail.com`, "416-555-0123", "", "Robes, sample first", "Canada");
+    ok(gamma.ok && delta.ok && delta.customerCreated && delta.customerId !== gamma.customerId, "同号但企业域名不同（总机 / 代理）→ 不按电话合并", { delta });
+    ok(freeMail.ok && freeMail.customerId === (gamma.ok ? gamma.customerId : "-") && freeMail.matchLevel === "phone", "免费邮箱 + 同号 → 仍按电话合并到 Gamma（守卫只拦两个不同的企业域名）", freeMail);
+
+    console.log("\n[16] 墨西哥买家：wa_id 带旧手机前缀 1（52 1…），随后网站表单写 +52 E.164 → 同一客户 / 同一商机");
+    const WA_MX = "5215512340142";
+    const rMx = await postWa(waBody([{ pnid: PNID, contacts: [{ profile: { name: "Example Hogar MX" }, wa_id: WA_MX }], messages: [text(wamid("mx"), "Hola, need 500 bath towels for Guadalajara", WA_MX)] }]));
+    const mxReceipt = await findReceiptByEventId(ORG, wamid("mx"), WHATSAPP_INBOUND_SOURCE);
+    const mxForm = normalizeInquiry({ eventId: `evt_mx_${stamp}`, name: "Lucia Example", email: `lucia@hogar-mx-${stamp}.example`, phone: "+52 55 1234 0142", company: "Example Hogar MX", country: "Mexico", message: "Following up on WhatsApp: 500 bath towels, quote CIF Manzanillo." });
+    if (!mxForm.ok) throw new Error("fixture normalize failed");
+    const mxWeb = await ingestWebsiteInquiry(ORG, mxForm.value, { fdeMode: "deferred" });
+    ok(rMx.status === 200 && mxWeb.spine.ok && mxWeb.spine.matchLevel === "phone" && mxWeb.spine.customerId === mxReceipt?.customerId && mxWeb.spine.opportunityId === mxReceipt?.opportunityId, "matchLevel=phone：同一客户、同一商机", { spine: mxWeb.spine, wa: mxReceipt && { c: mxReceipt.customerId, o: mxReceipt.opportunityId } });
+    tasks.splice(0);
+
+    console.log("\n[17] 电话预筛不再受「最近 500 个客户」限制：最早的老客户（本地号 + 国家）被 WhatsApp 来信匹配上");
+    const oldCustomer = await db.salesCustomer.create({
+      data: { orgId: ORG2, name: "Example Heritage Linens", phone: "020 7946 0018", country: "United Kingdom", source: "import", status: "active", createdById: OTHER, createdAt: new Date("2020-01-01T00:00:00Z"), updatedAt: new Date("2020-01-01T00:00:00Z") },
+      select: { id: true },
+    });
+    await db.salesCustomer.createMany({
+      data: Array.from({ length: 510 }, (_, i) => ({ orgId: ORG2, name: `Example Imported ${i}`, phone: `+1 416 555 ${String(2000 + i)}`, country: "Canada", source: "import", status: "active", createdById: OTHER })),
+    });
+    const r17 = await postWa(waBody([{ pnid: PNID2, contacts: [{ profile: { name: "Example Heritage Linens" }, wa_id: "442079460018" }], messages: [text(wamid("heritage"), "Reorder of last year's tea towels?", "442079460018")] }]));
+    const heritageReceipt = await findReceiptByEventId(ORG2, wamid("heritage"), WHATSAPP_INBOUND_SOURCE);
+    ok(r17.status === 200 && heritageReceipt?.customerId === oldCustomer.id, "WhatsApp +44 20 7946 0018 → 匹配到 510 个更新客户之后的老客户（020 7946 0018, UK）", { receiptCustomer: heritageReceipt?.customerId, old: oldCustomer.id });
+    tasks.splice(0);
   } finally {
     __setDefaultFdeSchedulerForTest(null);
     __setInquiryReplySenderForTest(null);

@@ -15,6 +15,8 @@
  *   并保留原有 24 小时正文去重窗口语义：窗口外的相同内容是新事件。
  * - 内容与既有事件相同但 eventId 不同 → 建立**独立收据**并指向原事件
  *   （duplicateOfReceiptId），不静默吞掉；业务对象复用原事件的。
+ *   例外：平台消息 id 本身唯一的聊天通道（WhatsApp wamid）不做内容去重（contentDedupe=false）——
+ *   同一买家一天里发两次「ok」、两条语音、两张不带说明的图都是不同的消息，各自建链。
  * - 保存期限：收据不自动清理（无 purge 路径）。只要站点仍可能重发，事件身份就必须在。
  *   若身份未知（收据被人为删除/超出保存期限）→ 先按内容尝试关联既有对象，关联不上
  *   才作为新事件建立，并在响应里标记 unknownEvent，不静默当成全新事件。
@@ -31,10 +33,21 @@ export const BOOTH_CARD_SOURCE = "trade_show";
 /** WhatsApp Cloud API 来信：eventId = wamid；与网站询盘同一条链路（收据 → Trade → Revenue Spine → 异步 FDE） */
 export const WHATSAPP_INBOUND_SOURCE = "whatsapp";
 /**
+ * WhatsApp 发信人租约（不是事件）：eventId = wa_id，一行一个发信人，status=processing 表示有请求正在处理
+ * 该发信人的消息（见 tryAcquireEventLease）。同一买家并发投递的几条消息据此串行，不各自建新客户。
+ */
+export const WHATSAPP_SENDER_LEASE_SOURCE = "whatsapp_sender";
+/**
  * 微信公众号来信：eventId = MsgId（无 MsgId 时 FromUserName:CreateTime）。只走 Trade 通道
  * （openid 没有电话 / 邮箱，进不了 Revenue Spine 的客户去重），收据只做平台重试去重，见 claimChannelEventReceipt。
  */
 export const WECHAT_INBOUND_SOURCE = "wechat";
+/**
+ * 微信收据的 processing 过期时长：微信 5 秒收不到回应就重发（约 5 s / 10 s 各一次）。Trade 通道处理只有几次 DB 写入，
+ * 认领后超过 4 秒仍是 processing 基本可以认定那个请求已中断：重发据此再认领，不再把消息丢掉
+ * （代价：那个请求若只是慢、最后也写完，会多一条重复消息——改动前每次重发都会重复写）。
+ */
+export const WECHAT_RECEIPT_STALE_MS = 4_000;
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  网站 webhook（deferred）只在请求路径（收据 → Trade → Revenue Spine intake，数秒）持有收据，
@@ -165,6 +178,10 @@ export async function claimInquiryReceipt(
   v: NormalizedInquiry,
   now: Date = new Date(),
   source: string = WEBSITE_INQUIRY_SOURCE,
+  opts: {
+    /** false = eventId 由平台保证唯一（WhatsApp wamid）：同内容不同 eventId 是另一条消息，不指向原事件、不继承其对象 */
+    contentDedupe?: boolean;
+  } = {},
 ): Promise<ReceiptClaim> {
   const hash = computePayloadHash(v);
   const payload = toReceiptPayload(v) as unknown as Prisma.InputJsonValue;
@@ -202,7 +219,7 @@ export async function claimInquiryReceipt(
   }
 
   // 新事件：内容与既有事件相同（不同 eventId）→ 记录并指向原事件，不静默吞掉
-  const contentTwin = provided ? await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS) : null;
+  const contentTwin = provided && opts.contentDedupe !== false ? await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS) : null;
   const eventId = provided ? v.eventId : deriveEventId(hash, now);
   try {
     const receipt = await db.websiteInquiryReceipt.create({
@@ -300,7 +317,7 @@ export type ChannelEventClaim =
  *   - 首次出现 → claimed（收据建为 processing）；
  *   - 已处理完（linked / complete）→ duplicate：平台重试（微信 5 秒没收到回应会重发，共 3 次），不再处理；
  *   - 另一请求正在处理（processing 且未过期）→ busy：由那个请求处理完；
- *   - 上次处理抛错（调用方已释放为 received）或处理中断（processing 超过 RECEIPT_PROCESSING_STALE_MS）→ 再次 claimed。
+ *   - 上次处理抛错（调用方已释放为 received）或处理中断（processing 超过 opts.staleMs）→ 再次 claimed。
  * payload 只存定位信息（不存正文：正文在 TradeMessage 里），不参与冲突判定。
  * 与网站询盘的 claimInquiryReceipt 不同：不做内容去重、不按收据重放——这条通道没有可补齐的下游链路。
  */
@@ -309,8 +326,14 @@ export async function claimChannelEventReceipt(
   source: string,
   eventId: string,
   payload: Record<string, string>,
-  now: Date = new Date(),
+  opts: {
+    now?: Date;
+    /** processing 超过此时长视为处理中断、允许再次认领（默认 RECEIPT_PROCESSING_STALE_MS；微信用 WECHAT_RECEIPT_STALE_MS） */
+    staleMs?: number;
+  } = {},
 ): Promise<ChannelEventClaim> {
+  const now = opts.now ?? new Date();
+  const staleMs = opts.staleMs ?? RECEIPT_PROCESSING_STALE_MS;
   const payloadHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   try {
     const created = await db.websiteInquiryReceipt.create({
@@ -342,7 +365,7 @@ export async function claimChannelEventReceipt(
       OR: [
         { status: { not: "processing" } },
         { processingSince: null },
-        { processingSince: { lt: new Date(now.getTime() - RECEIPT_PROCESSING_STALE_MS) } },
+        { processingSince: { lt: new Date(now.getTime() - staleMs) } },
       ],
     },
     data: { status: "processing", processingSince: now, attempts: { increment: 1 } },
@@ -354,4 +377,65 @@ export async function claimChannelEventReceipt(
     select: { status: true },
   });
   return { outcome: cur.status === "linked" || cur.status === "complete" ? "duplicate" : "busy", receiptId: existing.id };
+}
+
+/**
+ * 非阻塞租约（同一 key 同一时刻只有一个持有者），存在收据表里（source 区分，eventId = key），不占用 DB 连接：
+ * 认领只是一条条件 UPDATE / INSERT，等待在调用方用 sleep 轮询完成。与 pg_advisory_xact_lock 相比，
+ * 持有期间不需要一条一直开着的事务连接，并发请求再多也不会把连接池占满。
+ *   - 返回本次持有的令牌（processingSince）；已被别人持有且未过期 → null；
+ *   - 持有者中断（processingSince 超过 staleMs）→ 可被接管。
+ * 释放用 releaseEventLease（按令牌比对，过期后被接管的租约不会被旧持有者误释放）。
+ */
+export async function tryAcquireEventLease(
+  orgId: string,
+  source: string,
+  key: string,
+  opts: { staleMs: number; now?: Date },
+): Promise<Date | null> {
+  const now = opts.now ?? new Date();
+  const taken = await db.websiteInquiryReceipt.updateMany({
+    where: {
+      orgId,
+      source,
+      eventId: key,
+      OR: [
+        { status: { not: "processing" } },
+        { processingSince: null },
+        { processingSince: { lt: new Date(now.getTime() - opts.staleMs) } },
+      ],
+    },
+    data: { status: "processing", processingSince: now, attempts: { increment: 1 } },
+  });
+  if (taken.count === 1) return now;
+  try {
+    await db.websiteInquiryReceipt.create({
+      data: {
+        orgId,
+        source,
+        eventId: key,
+        eventIdProvided: true,
+        payload: { lease: key } as Prisma.InputJsonValue,
+        payloadHash: createHash("sha256").update(`${source}:${key}`).digest("hex"),
+        status: "processing",
+        processingSince: now,
+        firstSeenAt: now,
+      },
+      select: { id: true },
+    });
+    return now;
+  } catch (err) {
+    // 行已存在且被别人持有（或另一请求刚建出来）
+    if ((err as { code?: string })?.code === "P2002") return null;
+    throw err;
+  }
+}
+
+/** 释放租约：只有令牌仍是自己的才释放（返回是否释放了） */
+export async function releaseEventLease(orgId: string, source: string, key: string, token: Date): Promise<boolean> {
+  const r = await db.websiteInquiryReceipt.updateMany({
+    where: { orgId, source, eventId: key, status: "processing", processingSince: token },
+    data: { status: "complete", processingSince: null },
+  });
+  return r.count === 1;
 }

@@ -6,6 +6,8 @@
  *
  * 去重：微信 5 秒内没收到回应会重发同一条消息（共 3 次）。处理前按 MsgId（无则 FromUserName:CreateTime）
  * 认领收据（orgId, "wechat", MsgId）：已处理 / 正在处理 → 直接回 success，不再写第二条消息。
+ * 「正在处理」只认 4 秒（WECHAT_RECEIPT_STALE_MS）：首个请求认领后中断（冷启动超时 / 实例被回收），
+ * 后面的重发据此再认领并写入，消息不会因为收据卡在 processing 而永久丢失。
  * 只走 Trade 通道（processInboundMessage）：公众号来信只有 openid，没有电话 / 邮箱，
  * 进不了 Revenue Spine 的客户去重（邮箱 → 电话 → 域名），故不建 SalesCustomer / 商机。
  */
@@ -14,7 +16,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { processInboundMessage } from "@/lib/trade/channel-service";
 import crypto from "crypto";
 import { logInboundOrgDenial, resolveInboundTradeOrgId } from "@/lib/trade/inbound-org";
-import { WECHAT_INBOUND_SOURCE, claimChannelEventReceipt, linkReceipt, releaseReceipt } from "@/lib/trade/website-inquiry-receipts";
+import {
+  WECHAT_INBOUND_SOURCE,
+  WECHAT_RECEIPT_STALE_MS,
+  claimChannelEventReceipt,
+  linkReceipt,
+  releaseReceipt,
+} from "@/lib/trade/website-inquiry-receipts";
 
 const TOKEN = process.env.WECHAT_TOKEN;
 
@@ -112,13 +120,14 @@ export async function POST(request: NextRequest) {
     if (fromUser && content) {
       const createTime = getTag("CreateTime");
       const eventId = getTag("MsgId") || `${fromUser}:${createTime}`;
-      const claim = await claimChannelEventReceipt(resolved.orgId, WECHAT_INBOUND_SOURCE, eventId, {
-        fromUser,
-        toUser,
-        msgType,
-        createTime,
-      });
-      // 平台重发：已处理 / 正在处理 → 不再写第二条消息
+      const claim = await claimChannelEventReceipt(
+        resolved.orgId,
+        WECHAT_INBOUND_SOURCE,
+        eventId,
+        { fromUser, toUser, msgType, createTime },
+        { staleMs: WECHAT_RECEIPT_STALE_MS },
+      );
+      // 平台重发：已处理 / 正在处理（4 秒内）→ 不再写第二条消息
       if (claim.outcome !== "claimed") return new NextResponse("success", { status: 200 });
       try {
         const r = await processInboundMessage(resolved.orgId, {

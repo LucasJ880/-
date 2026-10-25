@@ -99,6 +99,11 @@ export interface InquiryIntakeInput {
     tradeMessageId?: string | null;
     externalId?: string | null;
   };
+  /**
+   * 重放判定（默认 content：同客户 + 同正文 + 窗口内）。external_id = 来源平台保证消息 id 唯一（WhatsApp wamid）：
+   * 只有同一 sourceRef.externalId 才算重放，同一买家发两次相同内容（「ok」、不带说明的图）是两条消息。
+   */
+  replayKey?: "content" | "external_id";
   /** 人工录入时为操作者；网站询盘为 null（用商机负责人） */
   actorUserId?: string | null;
   /** AI 主动发现的商机（trade_intelligence / outbound by FDE） */
@@ -218,16 +223,18 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
   }
   if (!ownerUserId) return { ok: false, code: "NO_OWNER", error: "组织没有可分配的负责人" };
 
-  // ── 幂等：同客户、同正文、窗口内 → 重放，返回既有对象 ──
+  // ── 幂等：同客户、同正文、窗口内 → 重放，返回既有对象（replayKey=external_id：同一平台消息 id 才算）──
   const renderedContent = [subject ? `Subject: ${subject}` : null, product ? `Product: ${product}` : null, message].filter(Boolean).join("\n");
-  if (!customerCreated) {
+  const externalId = input.replayKey === "external_id" ? input.sourceRef?.externalId || null : null;
+  if (!customerCreated && (input.replayKey !== "external_id" || externalId)) {
     const replayed = await db.customerInteraction.findFirst({
       where: {
         orgId: input.orgId,
         customerId,
         direction: "inbound",
-        content: renderedContent,
-        createdAt: { gte: new Date(now.getTime() - INQUIRY_REPLAY_WINDOW_MS) },
+        ...(externalId
+          ? { analysisResult: { path: ["sourceRef", "externalId"], equals: externalId } }
+          : { content: renderedContent, createdAt: { gte: new Date(now.getTime() - INQUIRY_REPLAY_WINDOW_MS) } }),
       },
       orderBy: { createdAt: "desc" },
       select: { id: true, opportunityId: true },
