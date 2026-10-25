@@ -18,6 +18,7 @@ import {
   formatApprovalOutcome,
   formatProjectLine,
   museApprovalNeedsWebPreview,
+  museCanApproveAction,
   webPreviewRequiredResponse,
   formatStatusMessage,
   gateIntent,
@@ -27,6 +28,7 @@ import {
   type StatusProjectRow,
 } from "../router-pure";
 import { buildMuseEvent } from "../events-pure";
+import { WECHAT_CONFIRM_POLICY } from "@/lib/ai-grader/actions/wechat-confirm-policy";
 
 let passed = 0;
 function ok(name: string, cond: boolean) {
@@ -147,8 +149,41 @@ const row = (over: Partial<StatusProjectRow>): StatusProjectRow => ({
   ok("询盘回复（给买家的邮件）在 Muse 里不能直接批", museApprovalNeedsWebPreview("sales.send_inquiry_reply"));
   ok("投标询价 / 催单仍可在 Muse 批（审批卡列出收件供应商与发件邮箱）", !museApprovalNeedsWebPreview("tender.send_rfq") && !museApprovalNeedsWebPreview("tender.send_chase"));
   ok("查不到类型（不存在 / 跨组织）不在这里拦，交给 ApprovalPort", !museApprovalNeedsWebPreview(undefined) && !museApprovalNeedsWebPreview(null));
-  const w = webPreviewRequiredResponse("req-0001-abcdef");
-  ok("拒批回复指向今日询盘页", !w.ok && w.errorCode === "APPROVAL_FAILED" && w.message.includes("今日询盘"));
+  ok(
+    "白名单：活动上线 / 报价让利 / 研究计划 / 营销上下文覆盖都要去网页批",
+    ["marketing.activate_campaign", "sales.approve_quote_promotion", "marketing.approve_research_plan", "marketing.propose_context_update"].every((t) => museApprovalNeedsWebPreview(t)),
+  );
+  {
+    // 枚举全部已知 PendingAction 类型（分类表 = 联合类型 = executor 分发，见 wechat-confirm-policy.test.ts）
+    const approvable = Object.keys(WECHAT_CONFIRM_POLICY).filter((t) => museCanApproveAction(t, { targetType: "CUSTOMER" })).sort();
+    ok(
+      "Muse 可直接批的已知类型 = 微信白名单 7 个 + 询价 / 催单",
+      approvable.join() ===
+        [
+          "calendar.create_event",
+          "grader.email_draft",
+          "grader.internal_note",
+          "grader.project_task",
+          "marketing.create_campaign_draft",
+          "sales.update_followup",
+          "sales.update_stage",
+          "tender.send_chase",
+          "tender.send_rfq",
+        ].join(),
+    );
+  }
+  ok("白名单：未知 / 新增类型默认要去网页批", museApprovalNeedsWebPreview("marketing.send_blast") && museApprovalNeedsWebPreview("trade.send_whatsapp"));
+  ok("内部低风险动作照常可在 Muse 批", !museApprovalNeedsWebPreview("sales.update_followup") && !museApprovalNeedsWebPreview("grader.project_task"));
+  ok(
+    "内部备注按目标：写报价备注（买家可见）要去网页批，写客户时间线可在 Muse 批",
+    museApprovalNeedsWebPreview("grader.internal_note", { targetType: "QUOTE" }) &&
+      museApprovalNeedsWebPreview("grader.internal_note", {}) &&
+      !museApprovalNeedsWebPreview("grader.internal_note", { targetType: "CUSTOMER" }),
+  );
+  const w = webPreviewRequiredResponse("req-0001-abcdef", "sales.send_inquiry_reply");
+  ok("询盘回复拒批回复指向今日询盘页", !w.ok && w.errorCode === "APPROVAL_FAILED" && w.message.includes("今日询盘"));
+  const w2 = webPreviewRequiredResponse("req-0001-abcdef", "marketing.activate_campaign");
+  ok("其余拒批回复指向审批中心", !w2.ok && w2.errorCode === "APPROVAL_FAILED" && w2.message.includes("审批中心") && !w2.message.includes("今日询盘"));
 }
 
 console.log("muse-bridge events-pure");

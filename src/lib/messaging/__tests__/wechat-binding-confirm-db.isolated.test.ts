@@ -6,6 +6,9 @@
  *       服务端没有密钥时 fail-closed
  *   [2] 微信回数字白名单：对外发送 / 高风险类型（投标询价、活动上线、报价让利、询盘回复）不进批次，
  *       回数字 / 回取消都不会批准或拒绝它们，并提示去网页审批；白名单类型照常进批次
+ *   [3] 内部备注按目标筛：写报价备注（买家在免登录报价页能看到）的不进批次、不编号，回数字 / 取消都碰不到它，
+ *       报价 notes 不变；写商机时间线的照常编号，回「1」真正批准并执行（正向路径）；
+ *       草稿 payloadHash 按落库后的 JSON 计算（含 undefined 可选字段时不误判「审批内容已变化」）
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -42,6 +45,8 @@ async function main() {
   const { createBinding, removeBinding, updateBindingPreferences } = await import("../binding");
   const { BIND_CODE_WINDOW_MS, deriveBindCodeKey, bindCodeKeyFromEnv, issueBindCode } = await import("../binding-proof");
   const { getRecentPendingActionsForWeChat, handleWeChatPendingReply } = await import("@/lib/ai-grader/actions/wechat-confirm");
+  const { graderActionsToPendingActions } = await import("@/lib/ai-grader/actions/to-pending-action");
+  const { formatPendingActionsForWeChat } = await import("@/lib/ai-grader/actions/format-pending-actions-for-wechat");
 
   const stamp = Date.now().toString(36);
   const ORG_X = `wsX_${stamp}`;
@@ -69,14 +74,14 @@ async function main() {
     ],
   });
 
-  const pending = (data: { type: string; createdById?: string; approverUserId?: string; title?: string; orgId?: string | null }) =>
+  const pending = (data: { type: string; createdById?: string; approverUserId?: string; title?: string; orgId?: string | null; payload?: Record<string, unknown> }) =>
     db.pendingAction.create({
       data: {
         orgId: data.orgId === undefined ? ORG_X : data.orgId,
         type: data.type,
         title: data.title ?? data.type,
         preview: "preview",
-        payload: {},
+        payload: (data.payload ?? {}) as object,
         status: "pending",
         createdById: data.createdById ?? VICTIM,
         approverUserId: data.approverUserId ?? data.createdById ?? VICTIM,
@@ -168,9 +173,10 @@ async function main() {
     const afterCancel = await Promise.all([rfq, campaign, promo, inquiry, unknown].map((p) => statusOf(p.id)));
     ok(cancel.handled && afterCancel.every((s) => s === "pending") && /审批中心/.test(cancel.reply ?? ""), "回「取消」：也不会拒掉它们", { reply: cancel.reply, afterCancel });
 
-    const note = await pending({ type: "grader.internal_note", title: "内部备注" });
+    const noTarget = await pending({ type: "grader.internal_note", title: "缺目标的内部备注" });
+    const note = await pending({ type: "grader.internal_note", title: "内部备注", payload: { targetType: "CUSTOMER", targetId: "cust_fixture", note: "n", metadata: { orgId: ORG_X } } });
     const batch = await getRecentPendingActionsForWeChat(VICTIM, ORG_X);
-    ok(batch.length === 1 && batch[0].id === note.id, "白名单类型照常进批次", batch.map((b) => b.type));
+    ok(batch.length === 1 && batch[0].id === note.id, "白名单类型照常进批次（内部备注缺 targetType 的不进）", batch.map((b) => b.type));
     const outOfRange = await handleWeChatPendingReply("2", { userId: VICTIM, orgId: ORG_X });
     ok(
       outOfRange.handled && /请回复 1-1/.test(outOfRange.reply ?? "") && /审批中心/.test(outOfRange.reply ?? "") && (await statusOf(rfq.id)) === "pending" && (await statusOf(note.id)) === "pending",
@@ -181,9 +187,79 @@ async function main() {
     const otherUsers = await pending({ type: "tender.send_rfq", createdById: ATTACKER, approverUserId: ATTACKER, title: "别人的询价" });
     const attackerReply = await handleWeChatPendingReply("1", { userId: ATTACKER, orgId: ORG_X });
     ok(attackerReply.handled && /1 个待审批动作/.test(attackerReply.reply ?? "") && (await statusOf(otherUsers.id)) === "pending", "提示计数只算本人发起 / 指定本人审批的", attackerReply.reply);
+
+    console.log("\n[3] 内部备注按目标筛 + 正向路径");
+    // [2] 留下的草稿收尾，避免干扰编号与计数
+    await db.pendingAction.updateMany({ where: { id: { in: [note.id, noTarget.id, rfq.id, campaign.id, promo.id, inquiry.id, unknown.id] } }, data: { status: "rejected" } });
+    const buyer = await db.salesCustomer.create({ data: { orgId: ORG_X, name: "Maple Home Goods", createdById: VICTIM, status: "active" }, select: { id: true } });
+    const opp = await db.salesOpportunity.create({ data: { orgId: ORG_X, customerId: buyer.id, title: `Bath towels ${stamp}`, createdById: VICTIM, assignedToId: VICTIM }, select: { id: true } });
+    const QUOTE_NOTES = "Delivery in 4 weeks after deposit.";
+    const quote = await db.salesQuote.create({ data: { orgId: ORG_X, customerId: buyer.id, opportunityId: opp.id, createdById: VICTIM, shareToken: `share_${stamp}`, notes: QUOTE_NOTES }, select: { id: true } });
+
+    // 与 quote-risk-grader 产出的 QUOTE 备注同形；第二条写商机时间线
+    const adaptedNotes = await graderActionsToPendingActions(
+      [
+        {
+          actionType: "ADD_INTERNAL_NOTE",
+          label: "记录报价风险备注",
+          description: "报价风险：报价未检测到质保说明。",
+          requiresApproval: true,
+          payload: { targetType: "QUOTE", targetId: quote.id, note: "报价风险：报价未检测到质保说明。", graderType: "QUOTE_RISK", quoteId: quote.id },
+        },
+        {
+          actionType: "ADD_INTERNAL_NOTE",
+          label: "记录商机内部备注",
+          description: "买家要求 OEKO-TEX 证书",
+          requiresApproval: true,
+          payload: { targetType: "OPPORTUNITY", targetId: opp.id, note: "买家要求 OEKO-TEX 证书", opportunityId: opp.id },
+        },
+      ],
+      { orgId: ORG_X, userId: VICTIM, channel: "wecom" },
+    );
+    const [quoteNote, oppNote] = adaptedNotes;
+    ok(
+      quoteNote?.ok && oppNote?.ok && quoteNote.noteTargetType === "QUOTE" && oppNote.noteTargetType === "OPPORTUNITY",
+      "适配结果带上备注目标（格式化编号据此判断）",
+      adaptedNotes,
+    );
+    const { computePayloadHash } = await import("@/lib/capabilities/approvals/integrity");
+    const stored = await db.pendingAction.findMany({ where: { id: { in: adaptedNotes.map((a) => a.actionId!) } }, select: { payload: true, payloadHash: true } });
+    ok(
+      stored.length === 2 && stored.every((r) => !!r.payloadHash && computePayloadHash(r.payload) === r.payloadHash),
+      "草稿 payloadHash 按落库后的 JSON 计算（可选字段为 undefined 时执行不会误报「审批内容已变化」）",
+      stored.map((r) => r.payloadHash),
+    );
+    const text = formatPendingActionsForWeChat(adaptedNotes);
+    ok(text.includes("1 = 记录商机内部备注") && !text.includes("2 =") && text.includes("· 记录报价风险备注"), "微信文案：报价备注不编号、只列标题；商机备注编号 1", text);
+
+    const noteBatch = await getRecentPendingActionsForWeChat(VICTIM, ORG_X);
+    ok(noteBatch.length === 1 && noteBatch[0].id === oppNote.actionId, "批次里只有商机备注（报价备注不进，编号与文案一致）", noteBatch.map((b) => b.title));
+
+    const approveOne = await handleWeChatPendingReply("1", { userId: VICTIM, orgId: ORG_X });
+    const interaction = await db.customerInteraction.findFirst({ where: { orgId: ORG_X, opportunityId: opp.id, channel: "ai_grader" }, select: { content: true } });
+    const quoteAfter = await db.salesQuote.findUnique({ where: { id: quote.id }, select: { notes: true } });
+    ok(
+      approveOne.handled && /已记录内部备注/.test(approveOne.reply ?? "") && (await statusOf(oppNote.actionId!)) === "executed" && !!interaction?.content?.includes("OEKO-TEX"),
+      "正向路径：回「1」批准并执行白名单动作（商机时间线多一条备注）",
+      { reply: approveOne.reply, interaction },
+    );
+    ok((await statusOf(quoteNote.actionId!)) === "pending" && quoteAfter?.notes === QUOTE_NOTES, "报价备注仍待网页审批，买家可见的报价 notes 没被改", { notes: quoteAfter?.notes });
+
+    const again = await handleWeChatPendingReply("1", { userId: VICTIM, orgId: ORG_X });
+    const cancelQuote = await handleWeChatPendingReply("取消", { userId: VICTIM, orgId: ORG_X });
+    ok(
+      again.handled && /审批中心/.test(again.reply ?? "") && cancelQuote.handled && /审批中心/.test(cancelQuote.reply ?? "") &&
+        (await statusOf(quoteNote.actionId!)) === "pending" && (await db.salesQuote.findUnique({ where: { id: quote.id }, select: { notes: true } }))?.notes === QUOTE_NOTES,
+      "再回「1」/「取消」：碰不到报价备注，提示去审批中心",
+      { again: again.reply, cancel: cancelQuote.reply },
+    );
   } finally {
     try {
       await db.pendingAction.deleteMany({ where: { OR: [{ orgId: { in: ORGS } }, { createdById: { in: USERS } }] } });
+      await db.customerInteraction.deleteMany({ where: { orgId: { in: ORGS } } });
+      await db.salesQuote.deleteMany({ where: { orgId: { in: ORGS } } });
+      await db.salesOpportunity.deleteMany({ where: { orgId: { in: ORGS } } });
+      await db.salesCustomer.deleteMany({ where: { orgId: { in: ORGS } } });
       await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: ORGS } }, { userId: { in: USERS } }] } });
       await db.weChatBinding.deleteMany({ where: { userId: { in: USERS } } });
       await db.organizationMember.deleteMany({ where: { orgId: { in: ORGS } } });

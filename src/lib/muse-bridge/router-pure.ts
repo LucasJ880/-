@@ -22,6 +22,7 @@ import type { MuseUserPrefs } from "./prefs-pure";
 import { getProjectStage, resolveCloseDate } from "@/lib/tender/stage";
 import { rowProblemsZh, type CompareMatrix, type MusePricingView } from "@/lib/tender-rfq/compare";
 import type { TenderProject } from "@/lib/tender/types";
+import { INQUIRY_REPLY_TYPE, isWeChatConfirmableAction } from "@/lib/ai-grader/actions/wechat-confirm-policy";
 
 export { advisoryResponse, OUTBOUND_REDACTED, sanitizeOutbound } from "./advisory";
 
@@ -190,18 +191,35 @@ export type ApprovalDecisionOutcome = {
 };
 
 /**
- * 只能在能看到完整内容的青砚网页上批准的 PendingAction 类型：Muse 审批卡只有一句标题，
- * 看不到正文 / 风险提醒 / 中文对照，回"批准"一律拒绝（驳回不受影响）。
- * 询盘回复 = 给买家的邮件（含无回复跟进），与微信数字确认同一口径。
+ * Muse 自己起草、审批前已把要点给用户看过的对外动作：rfq / chase 意图的回复（rfqDraftAdvisory /
+ * chaseAdvisory）列出收件供应商与发件邮箱，再给「发 / 批准」按钮——在 Muse 里批是设计内的流程。
  */
-export const MUSE_WEB_ONLY_APPROVAL_TYPES = ["sales.send_inquiry_reply"] as const;
+export const MUSE_FLOW_APPROVAL_TYPES = ["tender.send_rfq", "tender.send_chase"] as const;
 
-export function museApprovalNeedsWebPreview(type: string | null | undefined): boolean {
-  return !!type && (MUSE_WEB_ONLY_APPROVAL_TYPES as readonly string[]).includes(type);
+/**
+ * 白名单：Muse 里回「批准」可以直接批的动作 = 微信数字确认白名单（内部、低风险，同一套
+ * isWeChatConfirmableAction，含按 payload 的筛选）+ Muse 自己的询价 / 催单。
+ * 其余（询盘回复、活动上线、报价让利、研究计划、营销上下文覆盖、写报价备注、未知 / 新增类型）
+ * 的审批卡只有一句标题，看不到正文 / 风险提醒，只能在青砚网页上批准；驳回不受影响。
+ */
+export function museCanApproveAction(type: string | null | undefined, payload?: unknown): boolean {
+  if (!type) return false;
+  if ((MUSE_FLOW_APPROVAL_TYPES as readonly string[]).includes(type)) return true;
+  return isWeChatConfirmableAction(type, payload);
 }
 
-export function webPreviewRequiredResponse(requestId: string): MuseCommandResponse {
-  return errResponse(requestId, "APPROVAL_FAILED", "给买家的询盘回复需在青砚「今日询盘」页看完草稿后批准，这里不能直接批。");
+/**
+ * 查到了类型、且不在白名单内 → 需去网页审批。查不到（不存在 / 跨组织）不在这里拦，交给 ApprovalPort 报错。
+ */
+export function museApprovalNeedsWebPreview(type: string | null | undefined, payload?: unknown): boolean {
+  return !!type && !museCanApproveAction(type, payload);
+}
+
+export function webPreviewRequiredResponse(requestId: string, type?: string | null): MuseCommandResponse {
+  if (type === INQUIRY_REPLY_TYPE) {
+    return errResponse(requestId, "APPROVAL_FAILED", "给买家的询盘回复需在青砚「今日询盘」页看完草稿后批准，这里不能直接批。");
+  }
+  return errResponse(requestId, "APPROVAL_FAILED", "这条审批会对外发送、改动买家可见的内容或属于高风险操作，需在青砚「审批中心」看完内容后批准，这里不能直接批。");
 }
 
 export function formatApprovalOutcome(

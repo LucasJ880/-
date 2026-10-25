@@ -8,7 +8,7 @@
  */
 
 import type { AdaptedPendingAction } from "./to-pending-action";
-import { isWeChatConfirmableActionType } from "./wechat-confirm-policy";
+import { isWeChatConfirmableAction } from "./wechat-confirm-policy";
 
 const MAX_DISPLAY = 3;
 
@@ -20,9 +20,10 @@ export function formatPendingActionsForWeChat(
   actions: AdaptedPendingAction[],
 ): string {
   const created = actions.filter((a) => a.ok && a.actionId);
-  // 只给微信可确认（白名单）的动作编号；对外发送 / 高风险的只列标题，引导去网页审批
-  const usable = created.filter((a) => isWeChatConfirmableActionType(a.pendingType)).slice(0, MAX_DISPLAY);
-  const webOnly = created.filter((a) => !isWeChatConfirmableActionType(a.pendingType)).slice(0, MAX_DISPLAY);
+  // 只给微信可确认（白名单）的动作编号；对外发送 / 改买家可见内容（如报价备注）/ 高风险的只列标题，引导去网页审批
+  const confirmable = (a: AdaptedPendingAction) => isWeChatConfirmableAction(a.pendingType, { targetType: a.noteTargetType });
+  const usable = created.filter(confirmable).slice(0, MAX_DISPLAY);
+  const webOnly = created.filter((a) => !confirmable(a)).slice(0, MAX_DISPLAY);
   if (usable.length === 0 && webOnly.length === 0) return "";
 
   const out: string[] = [];

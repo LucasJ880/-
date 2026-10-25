@@ -176,7 +176,9 @@ async function main() {
     const paA2 = await pending(ORG_A, { payload: { opportunityId: o2.id }, createdAt: new Date("2026-10-24T01:10:00Z"), expiresAt: new Date(NOW.getTime() + 48 * HOUR) });
     await pending(ORG_A, { payload: { opportunityId: o1.id }, expiresAt: new Date(NOW.getTime() - HOUR) });
     await pending(ORG_A, { payload: { opportunityId: o1.id }, status: "executed" });
-    const paA5 = await pending(ORG_A, { type: "grader.internal_note", title: "内部备注", createdAt: new Date("2026-10-24T01:20:00Z") });
+    // 微信可确认的内部备注须写内部可见目标（写报价备注的不进微信批次），这里用客户时间线
+    const NOTE_PAYLOAD = { targetType: "CUSTOMER", targetId: "cust_fixture", note: "n" };
+    const paA5 = await pending(ORG_A, { type: "grader.internal_note", title: "内部备注", createdAt: new Date("2026-10-24T01:20:00Z"), payload: NOTE_PAYLOAD });
     // B 组织的草稿冒用 A 的商机 id：不能出现在 A，也不能在 B 里关联到 A 的商机
     const paB1 = await pending(ORG_B, { payload: { opportunityId: o1.id }, createdById: OTHER });
 
@@ -283,8 +285,8 @@ async function main() {
     ok(failedCh.reason === "push_failed" && thrown.reason === "push_failed" && thrown.pushed === false && !h8Marker, "通道失败 / 抛错：报告 push_failed，同样释放占位", { failedCh, thrown, marker: h8Marker?.id ?? null });
 
     console.log("\n[4] 微信回数字：询盘回复草稿不进批次，只取当前组织");
-    const paNull = await pending(null, { type: "grader.internal_note", title: "个人备注", createdAt: new Date("2026-10-24T01:30:00Z") });
-    const paB2 = await pending(ORG_B, { type: "grader.internal_note", title: "B 组织备注", createdAt: new Date("2026-10-24T01:40:00Z") });
+    const paNull = await pending(null, { type: "grader.internal_note", title: "个人备注", createdAt: new Date("2026-10-24T01:30:00Z"), payload: NOTE_PAYLOAD });
+    const paB2 = await pending(ORG_B, { type: "grader.internal_note", title: "B 组织备注", createdAt: new Date("2026-10-24T01:40:00Z"), payload: NOTE_PAYLOAD });
     const batch = await getRecentPendingActionsForWeChat(REP, ORG_A);
     const ids = batch.map((b) => b.id);
     ok(ids.includes(paA5.id) && ids.includes(paNull.id) && !ids.includes(paA1.id) && !ids.includes(paA2.id) && !ids.includes(paB2.id), "批次只有 A 组织 / 无组织的非邮件动作（询盘回复与 B 组织的都不在）", { ids, paA5: paA5.id, paNull: paNull.id });

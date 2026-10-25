@@ -11,6 +11,7 @@
  * - 白名单（wechat-confirm-policy.ts）：只有内部、低风险的动作类型进数字确认 / 取消批次；
  *   给买家 / 供应商发邮件、活动上线、报价让利等一律不进，只能在能看到完整内容的青砚网页上批准
  *   （询盘回复：「今日询盘」页的风险提醒 + 正文 + 中文对照）。未知 / 新增类型默认排除。
+ *   内部备注再按 payload.targetType 筛：写报价备注（买家在报价分享页能看到）的不进批次。
  * - 只取当前绑定组织的动作（以及没有组织归属的个人旧动作），与网页审批的
  *   canConfirmPendingActionInActiveOrg 同一口径。
  */
@@ -23,7 +24,10 @@ import {
 } from "@/lib/approval/port";
 import {
   INQUIRY_REPLY_TYPE,
+  INTERNAL_NOTE_TYPE,
   WECHAT_CONFIRMABLE_ACTION_TYPES,
+  WECHAT_CONFIRMABLE_INTERNAL_NOTE_TARGETS,
+  isWeChatConfirmableAction,
   weChatWebOnlyHint,
 } from "./wechat-confirm-policy";
 
@@ -45,7 +49,25 @@ function orgScope(orgId: string | null): Prisma.PendingActionWhereInput[] {
   return orgId ? [{ orgId }, { orgId: null }] : [{ orgId: null }];
 }
 
-/** 纯函数：微信数字确认的候选范围（本人创建、待处理、未过期、类型在白名单内、当前组织或无组织） */
+/**
+ * 纯函数：isWeChatConfirmableAction 的 SQL 版——类型在白名单内；内部备注另须 payload.targetType
+ * 在 WECHAT_CONFIRMABLE_INTERNAL_NOTE_TARGETS 内（写报价备注的、缺 targetType 的都不算）。
+ */
+export function weChatConfirmableActionWhere(): Prisma.PendingActionWhereInput {
+  return {
+    OR: [
+      { type: { in: WECHAT_CONFIRMABLE_ACTION_TYPES.filter((t) => t !== INTERNAL_NOTE_TYPE) } },
+      {
+        type: INTERNAL_NOTE_TYPE,
+        OR: WECHAT_CONFIRMABLE_INTERNAL_NOTE_TARGETS.map((target) => ({
+          payload: { path: ["targetType"], equals: target },
+        })),
+      },
+    ],
+  };
+}
+
+/** 纯函数：微信数字确认的候选范围（本人创建、待处理、未过期、可在微信确认、当前组织或无组织） */
 export function weChatPendingActionWhere(
   userId: string,
   orgId: string | null,
@@ -55,8 +77,7 @@ export function weChatPendingActionWhere(
     createdById: userId,
     status: "pending",
     expiresAt: { gt: now },
-    type: { in: [...WECHAT_CONFIRMABLE_ACTION_TYPES] },
-    OR: orgScope(orgId),
+    AND: [{ OR: orgScope(orgId) }, weChatConfirmableActionWhere()],
   };
 }
 
@@ -72,7 +93,7 @@ export function weChatWebOnlyPendingWhere(
   return {
     status: "pending",
     expiresAt: { gt: now },
-    type: { notIn: [...WECHAT_CONFIRMABLE_ACTION_TYPES] },
+    NOT: weChatConfirmableActionWhere(),
     AND: [
       { OR: orgScope(orgId) },
       { OR: [{ createdById: userId }, { approverUserId: userId }] },
@@ -97,6 +118,7 @@ export async function getRecentPendingActionsForWeChat(
       id: true,
       type: true,
       title: true,
+      payload: true,
       createdAt: true,
       agentRunId: true,
     },
@@ -165,6 +187,7 @@ export async function handleWeChatPendingReply(
     let rejected = 0;
     const runIds = new Set<string>();
     for (const a of batch) {
+      if (!isWeChatConfirmableAction(a.type, a.payload)) continue; // 兜底，同上方批次口径
       const r = await rejectApprovalItem("pending_action", a.id, {
         userId: ctx.userId,
         role,
@@ -202,6 +225,10 @@ export async function handleWeChatPendingReply(
   }
 
   const target = batch[n - 1];
+  // 兜底：SQL 已按白名单筛过，这里按同一规则再判一次，绝不在微信里批准白名单之外的动作
+  if (!isWeChatConfirmableAction(target.type, target.payload)) {
+    return { handled: true, reply: `编号 ${n} 对应的动作需在青砚网页看完内容后审批。${await webOnlyHint(ctx)}` };
+  }
   const role = await loadRole();
   const result = await approveApprovalItem("pending_action", target.id, {
     userId: ctx.userId,

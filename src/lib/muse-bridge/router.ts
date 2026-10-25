@@ -84,13 +84,14 @@ export async function handleMuseCommand(
         response = await handleAsk(requestId, identity, command.projectId, command.question);
         break;
       case "approve": {
-        // 给买家的邮件只能在网页上看完草稿后批准（本组织内按 id 查类型；查不到交给 ApprovalPort 报不存在）
+        // 白名单：只有内部低风险动作和 Muse 自己的询价 / 催单可在这里批；其余须在网页看完内容后批准。
+        // 按 id 在本组织（或无组织的个人旧动作，与 ApprovalPort 同口径）内查类型；查不到交给 ApprovalPort 报不存在
         const target = await db.pendingAction.findFirst({
-          where: { id: command.approvalId, orgId: identity.orgId },
-          select: { type: true },
+          where: { id: command.approvalId, OR: [{ orgId: identity.orgId }, { orgId: null }] },
+          select: { type: true, payload: true },
         });
-        if (museApprovalNeedsWebPreview(target?.type)) {
-          response = webPreviewRequiredResponse(requestId);
+        if (museApprovalNeedsWebPreview(target?.type, target?.payload)) {
+          response = webPreviewRequiredResponse(requestId, target?.type);
           break;
         }
         const outcome = await approveApprovalItem("pending_action", command.approvalId, {
