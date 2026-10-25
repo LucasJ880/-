@@ -64,6 +64,8 @@ run_test "微信绑定偏好白名单" "npx tsx src/lib/messaging/__tests__/bind
 run_test "老板今日询盘 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts"
 run_test "网站询盘异步入站 响应契约/时间常量" "npx tsx src/lib/trade/__tests__/website-inquiry-async.test.ts"
 run_test "网站询盘异步入站 DB 端到端(isolated)" "npx tsx src/lib/trade/__tests__/website-inquiry-async-db.isolated.test.ts"
+run_test "嵌入表单 + 渠道凭证 公开 key/来源白名单/限流判定/轮换宽限期/掩码/静态契约" "npx tsx src/lib/trade/__tests__/embed-intake.test.ts"
+run_test "嵌入表单 + 渠道凭证 DB 端到端(isolated)" "npx tsx src/lib/trade/__tests__/embed-intake-db.isolated.test.ts"
 run_test "厂家入驻向导 校验/就绪推导/路由契约" "npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts"
 run_test "厂家入驻向导 DB 端到端(isolated)" "npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts"
 run_test "首响分级提醒 / 工作时间日历（夏令时）/ 策略字段合并" "npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts"

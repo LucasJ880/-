@@ -3,7 +3,8 @@
  *
  * 鉴权：website 通道密钥（header x-qingyan-webhook-secret / ?secret= / body.secret）
  * 载荷：JSON 或 form-urlencoded / multipart（字段见 website-inquiry.ts）
- * 跨域：网站前端直接 fetch，故放开 CORS（密钥 + 蜜罐防滥用）
+ * 跨域：保留放开的 CORS，只为兼容旧版渠道页那段把密钥写在网页里的前端代码；新接入请用服务器转发
+ *   （密钥只在服务器上）或嵌入表单（./embed，公开 key + 来源白名单 + 限流），见 docs/QINGYAN_INTAKE_WEBHOOK.md
  * 事件身份：eventId 在任何业务写入前落收据（WebsiteInquiryReceipt），重发按事件逐项补齐缺失步骤；
  * 同一事件并发到达时后到者返回 busy 不并行执行。响应字段是真实记录，不由 HTTP 状态推断。
  *

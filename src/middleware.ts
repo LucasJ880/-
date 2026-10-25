@@ -34,6 +34,8 @@ const PUBLIC_PATHS = [
   "/quote",
   // 大厅展示大屏（纯静态品牌内容，无业务数据）
   "/display",
+  // 嵌入询盘表单脚本（public/embed/inquiry.js，静态文件，无业务数据；提交走 /api/trade/webhook/website/embed）
+  "/embed",
 ];
 
 function isPublicPath(pathname: string): boolean {

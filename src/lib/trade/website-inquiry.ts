@@ -5,10 +5,11 @@
  *   → 归一化校验 → 归集到「网站询盘」活动 → 按邮箱去重建/复用线索
  *   → 写入 inbound 消息（含 UTM/来源页）→ 线索标为待立即跟进 → 通知销售
  *
- * 密钥放在公开网页里本质是防滥用令牌而非机密：配合蜜罐字段与通道可停用。
+ * 服务端密钥只应放在站点服务器上（见 docs/QINGYAN_INTAKE_WEBHOOK.md）；浏览器直接提交走嵌入表单的
+ * 公开 key + 来源白名单 + 限流（embed-intake.ts，origin=embed）。旧版渠道页曾把密钥写进网页，
+ * 这类站点应迁移到嵌入表单并轮换密钥（旧密钥宽限期后失效）。
  */
 
-import { timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
 import type { WebsiteInquiryReceipt } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -31,6 +32,7 @@ import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
 import {
   BOOTH_CARD_SOURCE,
+  EMBED_INQUIRY_SOURCE,
   RECEIPT_PROCESSING_STALE_MS,
   WEBSITE_INQUIRY_SOURCE,
   claimInquiryReceipt,
@@ -40,6 +42,7 @@ import {
   releaseReceipt,
 } from "./website-inquiry-receipts";
 import { ensureOutreachSequence } from "./outreach-sequence";
+import { matchWebsiteSecret } from "./website-channel-credentials";
 
 // FDE 真实状态读取与认领在 Revenue Spine 层（inbound-queue.ts）；这里保留原导出名，调用方不变
 export { FDE_STALE_RUNNING_MS, loadFdeState } from "@/lib/revenue-spine/fde/inbound-queue";
@@ -49,11 +52,11 @@ export const WEBSITE_INQUIRY_CAMPAIGN_NAME = "网站询盘";
 export const BOOTH_CARD_CAMPAIGN_NAME = "展会速记卡";
 
 /**
- * 线索从哪来：网站表单（默认），或展会速记卡（夜间批量录入）。两者走同一条链路，
- * 只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
+ * 线索从哪来：网站表单（默认，站点后端带密钥转发）、青砚托管的嵌入表单（embed，浏览器带公开 key 直接提交），
+ * 或展会速记卡（夜间批量录入）。三者走同一条链路，只在活动、标签、Revenue Spine 来源与事件身份空间上区分。
  */
 export interface IngestOrigin {
-  kind: "website" | "trade_show";
+  kind: "website" | "trade_show" | "embed";
   /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
   event?: string | null;
   /** 买家在展位看过的参考款（款号 + 参考表里的品类名），草稿逐一点名；仅 trade_show */
@@ -76,6 +79,20 @@ const ORIGINS = {
     intakeSource: "website_inquiry",
     interactionChannel: "website",
     // 买家主动来询：通知外贸成员
+    notify: true,
+  },
+  // 嵌入表单 = 网站询盘的另一种接入方式：同一活动 / Revenue Spine 来源（website_inquiry），
+  // 收据来源独立（embed，事件 id 为 emb:<浏览器生成的 uuid>），标签注明来自嵌入表单
+  embed: {
+    campaign: WEBSITE_INQUIRY_CAMPAIGN_NAME,
+    campaignDesc: "独立站表单自动归集的询盘",
+    receiptSource: EMBED_INQUIRY_SOURCE,
+    prospectSource: "website",
+    messageChannel: "website",
+    label: "网站询盘（嵌入表单）",
+    pageLabel: "来源页",
+    intakeSource: "website_inquiry",
+    interactionChannel: "website",
     notify: true,
   },
   trade_show: {
@@ -103,6 +120,8 @@ const LIMITS = {
   product: 200,
   website: 300,
   page: 500,
+  referrer: 500,
+  landing: 500,
   utm: 120,
   eventId: 120,
 } as const;
@@ -131,6 +150,10 @@ export interface NormalizedInquiry {
   product: string;
   website: string;
   page: string;
+  /** 首次访问时的 document.referrer（归因字段，与 page / UTM 一样不进业务指纹） */
+  referrer: string;
+  /** 首次访问的落地页（归因字段，不进业务指纹） */
+  landing: string;
   utm: { source: string; medium: string; campaign: string; content: string; term: string };
   /** 站点侧原始询盘 id（重发时相同）；存入主干 sourceRef.externalId 并用于按 id 重放 */
   eventId: string;
@@ -160,7 +183,7 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
       ok: true,
       value: {
         name, email, phone, company,
-        country: "", message: "", product: "", website: "", page: "",
+        country: "", message: "", product: "", website: "", page: "", referrer: "", landing: "",
         utm: { source: "", medium: "", campaign: "", content: "", term: "" },
         eventId,
         honeypotTripped: true,
@@ -187,6 +210,8 @@ export function normalizeInquiry(raw: Record<string, unknown>): NormalizeResult 
       product: str(raw.product ?? raw.interest, LIMITS.product),
       website: str(raw.website ?? raw.buyerWebsite, LIMITS.website),
       page: str(raw.page ?? raw.landingPage, LIMITS.page),
+      referrer: str(raw.referrer ?? raw.referer, LIMITS.referrer),
+      landing: str(raw.landing, LIMITS.landing),
       utm: {
         source: str(raw.utm_source, LIMITS.utm),
         medium: str(raw.utm_medium, LIMITS.utm),
@@ -225,6 +250,8 @@ export function buildInquiryMessage(
   if (v.country) lines.push(`国家：${v.country}`);
   if (v.website) lines.push(`买家网站：${v.website}`);
   if (v.page) lines.push(`${pageLabel}：${v.page}`);
+  if (v.landing && v.landing !== v.page) lines.push(`落地页：${v.landing}`);
+  if (v.referrer) lines.push(`引荐页：${v.referrer}`);
   const utm = [
     v.utm.source && `source=${v.utm.source}`,
     v.utm.medium && `medium=${v.utm.medium}`,
@@ -236,23 +263,18 @@ export function buildInquiryMessage(
   return lines.join("\n");
 }
 
-function secretMatches(expected: unknown, provided: string): boolean {
-  if (typeof expected !== "string" || !expected || !provided) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(provided);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-/** 按密钥定位 website 通道（每 org 一条；行数极少，逐条恒时比较） */
-export async function resolveWebsiteChannelBySecret(secret: string) {
+/**
+ * 按密钥定位 website 通道（每 org 一条；行数极少，逐条恒时比较）。
+ * 当前密钥，或轮换下来的旧密钥且仍在它自己的宽限期内（config.secretPrev / secretPrevOlder，见 website-channel-credentials.ts）。
+ */
+export async function resolveWebsiteChannelBySecret(secret: string, now: Date = new Date()) {
   if (!secret) return null;
   const channels = await db.tradeChannel.findMany({
     where: { channel: "website", status: "active" },
     select: { id: true, orgId: true, config: true },
   });
   for (const ch of channels) {
-    const cfg = (ch.config ?? {}) as Record<string, unknown>;
-    if (secretMatches(cfg.secret, secret)) return ch;
+    if (matchWebsiteSecret(ch.config, secret, now)) return ch;
   }
   return null;
 }
@@ -306,8 +328,13 @@ export interface IngestResult {
   notified: number;
   /** 同一原始事件再次到达（同 eventId / 派生身份），不新建 Trade 消息 */
   replay: boolean;
-  /** Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库 */
-  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string };
+  /**
+   * Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库。
+   * SPINE_FAILED 带 intakeCode = 主干按字段 / 组织配置拒收（重试同一事件不会变好）；不带 = 抛错（可重试）
+   */
+  spine:
+    | IntakeResult
+    | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string; intakeCode?: Extract<IntakeResult, { ok: false }>["code"] };
   /** 本次调用在请求内实际执行的 FDE（inline 模式的首次或恢复重跑）；未执行为 null */
   fde: InboundFdeResult | null;
   /** deferred 模式：本次调用把 FDE 交给了调度器（after()），请求内未执行 */
@@ -362,7 +389,9 @@ function chainComplete(state: ChainState): boolean {
 }
 
 function originOfReceipt(receipt: Pick<WebsiteInquiryReceipt, "source">): IngestOrigin {
-  return receipt.source === BOOTH_CARD_SOURCE ? { kind: "trade_show" } : { kind: "website" };
+  if (receipt.source === BOOTH_CARD_SOURCE) return { kind: "trade_show" };
+  if (receipt.source === EMBED_INQUIRY_SOURCE) return { kind: "embed" };
+  return { kind: "website" };
 }
 
 /** 重放 / 状态查询时的主干快照：字段全部取自真实记录，不臆造负责人/语言 */
@@ -411,6 +440,8 @@ function intakeInputFor(orgId: string, v: NormalizedInquiry, prospectId: string,
     product: v.product,
     meta: {
       page: v.page,
+      ...(v.referrer ? { referrer: v.referrer } : {}),
+      ...(v.landing ? { landing: v.landing } : {}),
       utm: v.utm,
       channel: o.interactionChannel,
       ...(origin.kind === "trade_show"
@@ -529,6 +560,8 @@ export interface IngestOptions {
   fdeMode?: FdeMode;
   /** deferred 模式的调度器，默认 next/server after()（测试可注入以确定性地执行回调） */
   scheduleFde?: FdeScheduler;
+  /** 写进新收据载荷的接收元数据（如嵌入表单的访客 IP HMAC，用于限流计数）；不进业务指纹，也不进业务对象 */
+  receiptMeta?: Record<string, string>;
 }
 
 /**
@@ -548,7 +581,7 @@ export async function ingestWebsiteInquiry(
   const origin: IngestOrigin = opts?.origin ?? { kind: "website" };
   const fdeMode: FdeMode = opts?.fdeMode ?? "inline";
   const o = ORIGINS[origin.kind];
-  const claim = await claimInquiryReceipt(orgId, incoming, now, o.receiptSource);
+  const claim = await claimInquiryReceipt(orgId, incoming, now, o.receiptSource, opts?.receiptMeta);
   const receipt = claim.receipt;
   // 恢复一律按**首次**收到的业务事实重放；本次请求的冲突内容只记录，不覆盖
   const v = fromReceiptPayload(receipt.payload);
@@ -675,7 +708,7 @@ export async function ingestWebsiteInquiry(
       }
       if (!intake.ok) {
         await releaseReceipt(receipt.id, "linked", now);
-        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error }, null, { notified });
+        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error, intakeCode: intake.code }, null, { notified });
       }
       state.customerId = intake.customerId;
       state.opportunityId = intake.opportunityId;

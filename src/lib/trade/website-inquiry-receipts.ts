@@ -10,7 +10,8 @@
  *   调用方（站点表单）不能指定，也不能跨组织。
  * - payload 是**首次**收到的业务事实。同 eventId 携带不同业务内容 → 只记冲突
  *   （conflictCount / lastConflictAt）并按原始事实继续恢复，绝不覆盖。
- * - 来源页 / UTM 不参与业务指纹：它们变化不算冲突，也不回写既有对象。
+ * - 来源页 / UTM / referrer / 落地页不参与业务指纹：它们变化不算冲突，也不回写既有对象。
+ * - 载荷里的 meta（接收元数据，如嵌入表单访客 IP 的 HMAC）同样不参与指纹，也不还原进业务事实。
  * - 站点未提供 eventId（旧接口）→ 服务端按业务指纹派生身份（eventIdProvided=false），
  *   并保留原有 24 小时正文去重窗口语义：窗口外的相同内容是新事件。
  * - 内容与既有事件相同但 eventId 不同 → 建立**独立收据**并指向原事件
@@ -28,6 +29,8 @@ import type { NormalizedInquiry } from "./website-inquiry";
 export const WEBSITE_INQUIRY_SOURCE = "website";
 /** 展会速记卡（夜间批量录入）：与网站询盘同一条链路，事件身份空间独立 */
 export const BOOTH_CARD_SOURCE = "trade_show";
+/** 青砚托管的嵌入表单（浏览器带公开 key 直接提交）：事件 id = emb:<浏览器生成的 uuid>，事件身份空间独立 */
+export const EMBED_INQUIRY_SOURCE = "embed";
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  网站 webhook（deferred）只在请求路径（收据 → Trade → Revenue Spine intake，数秒）持有收据，
@@ -41,7 +44,7 @@ export const RECEIPT_DERIVED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type ReceiptStatus = "received" | "processing" | "linked" | "complete";
 
-/** 业务指纹：联系人 + 公司 + 国家 + 正文 + 产品 + 买家网站。不含来源页 / UTM / eventId。 */
+/** 业务指纹：联系人 + 公司 + 国家 + 正文 + 产品 + 买家网站。不含来源页 / referrer / 落地页 / UTM / eventId / meta。 */
 export function computePayloadHash(v: NormalizedInquiry): string {
   const parts = [v.name, v.email, v.phone, v.company, v.country, v.product, v.website, v.message];
   return createHash("sha256").update(parts.map((x) => (x ?? "").trim()).join(" ")).digest("hex");
@@ -51,10 +54,10 @@ export function deriveEventId(hash: string, firstSeenAt: Date): string {
   return `sha256:${hash.slice(0, 32)}:${firstSeenAt.toISOString()}`;
 }
 
-/** 收据里持久化的原始载荷（NormalizedInquiry 去掉运行期标记） */
-export type ReceiptPayload = Omit<NormalizedInquiry, "honeypotTripped">;
+/** 收据里持久化的原始载荷（NormalizedInquiry 去掉运行期标记）+ 可选的接收元数据 */
+export type ReceiptPayload = Omit<NormalizedInquiry, "honeypotTripped"> & { meta?: Record<string, string> };
 
-export function toReceiptPayload(v: NormalizedInquiry): ReceiptPayload {
+export function toReceiptPayload(v: NormalizedInquiry, meta?: Record<string, string>): ReceiptPayload {
   return {
     name: v.name,
     email: v.email,
@@ -65,8 +68,11 @@ export function toReceiptPayload(v: NormalizedInquiry): ReceiptPayload {
     product: v.product,
     website: v.website,
     page: v.page,
+    referrer: v.referrer,
+    landing: v.landing,
     utm: v.utm,
     eventId: v.eventId,
+    ...(meta && Object.keys(meta).length ? { meta: { ...meta } } : {}),
   };
 }
 
@@ -84,6 +90,8 @@ export function fromReceiptPayload(payload: Prisma.JsonValue): NormalizedInquiry
     product: p.product ?? "",
     website: p.website ?? "",
     page: p.page ?? "",
+    referrer: p.referrer ?? "",
+    landing: p.landing ?? "",
     eventId: p.eventId ?? "",
     utm: {
       source: utm.source ?? "",
@@ -158,9 +166,10 @@ export async function claimInquiryReceipt(
   v: NormalizedInquiry,
   now: Date = new Date(),
   source: string = WEBSITE_INQUIRY_SOURCE,
+  meta?: Record<string, string>,
 ): Promise<ReceiptClaim> {
   const hash = computePayloadHash(v);
-  const payload = toReceiptPayload(v) as unknown as Prisma.InputJsonValue;
+  const payload = toReceiptPayload(v, meta) as unknown as Prisma.InputJsonValue;
   const provided = Boolean(v.eventId);
 
   if (provided) {
