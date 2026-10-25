@@ -114,6 +114,7 @@ export interface Messages {
   nav_project_intake: string;
   nav_user_management: string;
   nav_invite_codes: string;
+  nav_factory_onboarding: string;
   nav_audit_logs: string;
   nav_orders_admin: string;
   nav_help: string;

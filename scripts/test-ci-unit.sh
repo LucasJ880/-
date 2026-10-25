@@ -246,6 +246,10 @@ npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
 npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
+
+# 厂家入驻向导（PRD F6）：纯函数 + 路由静态契约；DB e2e 无隔离库自动跳过
+npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts
+npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

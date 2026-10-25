@@ -111,6 +111,7 @@ export const zh: Messages = {
   nav_project_intake: "待分发项目",
   nav_user_management: "用户管理",
   nav_invite_codes: "邀请码管理",
+  nav_factory_onboarding: "厂家入驻",
   nav_audit_logs: "审计日志",
   nav_orders_admin: "工艺单管理",
   nav_help: "使用说明",
