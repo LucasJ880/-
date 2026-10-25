@@ -242,11 +242,11 @@ const NON_ANSWER_RE =
 const YES_NO_RE = /^(?:yes|y|ok|no|n|true|false|required|must have|needed|需要|不需要|是|否|有|没有|要|不要)[.!。]?$/i;
 // 数量后的单位：单位词，可带「per colour」「/size」「每色」；后面的话不算单位
 const QTY_UNIT_RE = new RegExp(
-  `^(${UNIT_WORDS})(?![A-Za-z])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?![A-Za-z])|\\s*每\\s*([色款码]))?`,
+  `^(${UNIT_WORDS})(?![A-Za-z\\d²³])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?![A-Za-z])(?!\\s*(?:runs?|ranges?|assort\\w*|mix\\w*|sets?))|\\s*每\\s*([色款码]))?`,
   "i",
 );
 const QTY_MULTIPLIER_RE = /\d\s*[x×*]\s*\d|[x×*]\s*\d+\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\b|\d\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\s*[x×*]/i;
-const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack)|cartons?|ctns?|boxes|pallets?|bales?|containers?)\b|样品|起订|试单|每箱|箱/i;
+const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack)|cartons?|ctns?|boxes|pallets?|bales?|containers?|usd|us\$|cad|eur|gbp|aud|rmb|cny|budget|price|value|amount)\b|[$€£¥]|样品|起订|试单|每箱|箱|元|预算|金额/i;
 /** FDE 把多封来信按时间先后用它拼接（fde/inbound-sales.ts） */
 export const INBOUND_MESSAGE_SEPARATOR = "\n\n---\n\n";
 
@@ -308,7 +308,7 @@ const SIZE_WORDS_ONLY_RE =
 const CUSTOMIZATION_WORD_RE = /\b(?:logos?|embroider\w*|brand(?:ed|ing)?|labels?|print(?:ed|ing)?|tags?|woven|patch(?:es)?)\b|印|绣|贴牌|商标|吊牌|标签|织标/i;
 // 值里有任何否定、条件、推迟、例外的字眼就不采用（won't need logos、brandless、logo maybe later、not FOB、可以不印字、暂不绣花、待定…）
 const HEDGE_RE =
-  /\b(?:no|not|none|nothing|nor|never|without|cannot|unable|skip\w*|exclud\w*|omit\w*|remov\w*|avoid\w*|zero|n\/?a|nah|unnecessary|optional|maybe|perhaps|might|later|after|once|pending|depends?|if|or|either|unless|tb[acd]|to follow|instead|rather|except|un\w+|\w+less|free)\b|n['’]t\b|-free\b|\(n\)|\byour (?:own )?(?:brand|logo|label)s?\b|[不无没免暂别勿否]|待定|以后|看情况|省略|再说/i;
+  /\b(?:no|not|none|nothing|nor|never|without|cannot|unable|skip\w*|exclud\w*|omit\w*|remov\w*|avoid\w*|zero|n\/?a|nah|unnecessary|optional|maybe|perhaps|might|later|after|once|pending|depends?|if|or|either|unless|tb[acd]|to follow|instead|rather|except|un\w+|\w+less|free)\b|n['’]t\b|-free\b|\(n\)|\byour (?:own )?(?:brand|logo|label)s?\b|[不无没免暂别勿否]|待定|以后|看情况|省略|再说|取消|不需|\bnope\b|\bcancel\w*|[✗✘✖]/i;
 // 表情符号（👎 ❎ 🙅 ❌…）常是买家的「不要」：带表情的值整个不采用
 const PICTOGRAPH_RE = /\p{Extended_Pictographic}/u;
 
@@ -374,7 +374,7 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
       // 尺寸在整个值里找（「Queen; 160x200cm」的尺寸在分号后）
-      const dims = [...value.matchAll(new RegExp(SIZE_RE.source, "gi"))];
+      const dims = [...value.matchAll(new RegExp(`${SIZE_RE.source}(?![A-Za-z])`, "gi"))];
       if (dims.length > 1) return null; // 几个尺寸：交给关键词扫描
       if (dims.length === 1) return [["size", dims[0][0].replace(/\s+/g, " ").trim()]];
       return SIZE_WORDS_ONLY_RE.test(sentence) ? [["size", sentence]] : null;
@@ -447,7 +447,7 @@ function labeledFields(
       field === "buyerType" &&
       raw.trim().split(/\s+/).length <= 5 &&
       raw.trim().length <= 30 &&
-      !/[,，、；;]|\b(?:need|want|require\w*|please|logo|print\w*|embroider\w*|box|bag)\b|polybag|carton|gift|要|需|盒|袋|包装|印|绣/i.test(raw)
+      !/[,，、；;+]|\b(?:need|want|require\w*|please|with|logos?|print\w*|embroider\w*|box|bag|tags?|hang|woven|patch\w*)\b|polybag|carton|gift|要|需|盒|袋|包装|印|绣|吊牌|标签/i.test(raw)
     ) {
       buyerTypeLines.push([m.index, m.index + m[0].length]);
     }
@@ -465,7 +465,7 @@ function labeledFields(
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
 function mentionedIn(field: RfqField, rawText: string): boolean {
   // 链接里的数字、词（端口、utm_campaign=logo_towels）不是买家说的
-  const text = rawText.replace(/https?:\/\/\S+|www\.\S+|\S*utm_\S*/gi, " ");
+  const text = rawText.replace(/https?:\/\/[\x21-\x7e]+|www\.[\x21-\x7e]+|[\x21-\x7e]*utm_[\x21-\x7e]*/gi, " ");
   if (!text.trim()) return false;
   const lower = text.toLowerCase();
   switch (field) {
@@ -728,15 +728,15 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   // （Birmingham, Alabama 不能把 Target market 的美国改成英国；Incoterm: CIF 不能改掉正文的 FOB；
   // 「3,000 bath towels + 20 sets」不能读成 20 sets；Material: cotton 不能把 organic cotton 改粗）
   const squash = (v: unknown) => String(v).toLowerCase().replace(/\s+/g, "");
-  const contradicts = (hit: LabeledHit) => {
-    const [field, value] = hit.pairs[0];
-    const current = (fields as unknown as Record<string, unknown>)[field];
-    if (current === null || current === undefined) return false; // 关键词没读到：表单补上
-    if (current instanceof Date && value instanceof Date) return current.getTime() !== value.getTime();
-    // 关键词读到了：表单值只能是同一个，或更细（3000 → 3000 pcs per colour；flannel fleece → …with sherpa back）
-    if (field === "material" || field === "size") return !squash(value).includes(squash(current));
-    return squash(value) !== squash(current);
-  };
+  const contradicts = (hit: LabeledHit) =>
+    hit.pairs.some(([field, value]) => {
+      const current = (fields as unknown as Record<string, unknown>)[field];
+      if (current === null || current === undefined || value === null) return false; // 关键词没读到：表单补上
+      if (current instanceof Date && value instanceof Date) return current.getTime() !== value.getTime();
+      // 关键词读到了：表单值只能是同一个，或更细（3000 → 3000 pcs per colour；pcs → pcs per colour；flannel fleece → …with sherpa back）
+      if (field === "material" || field === "size" || field === "unit") return !squash(value).includes(squash(current));
+      return squash(value) !== squash(current);
+    });
   for (const hit of labeled.hits) {
     if (keywordWins(hit, hit.pairs[0][0]) || contradicts(hit)) continue;
     for (const [field, value] of hit.pairs) {
@@ -756,17 +756,19 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   // 1) 这个字段自己的表单行（Branding / Packaging）有能用的答案 → 用它；
   // 2) 否则买家在正文或表单其它规格行里提到过 → 保持原结果；
   // 3) 都没有 → 作废（草稿改为追问）
-  const ownAnswer = (field: RfqField): string | null => {
+  const COMMITMENT_RE = /\b(?:foc|free|charges?d?|cost\w*|price\w*|discount\w*|licen[cs]\w*|trademark\w*|copyright\w*|disney|marvel|sanrio|hello kitty|nike|adidas)\b|免费|费用|价格|授权|商标权/i;
+  const ownAnswer = (field: RfqField): { text: string; at: number } | null => {
     const own = field === "customization" ? /^(?:branding|customi[sz]ation|logo|定制要求)$/ : /^(?:packaging|packing|包装)$/;
     for (const [a, b, label] of labeled.specLines) {
       if (!own.test(label)) continue;
       const raw = source.slice(a, b).replace(/^[^:：]*[:：]/, "");
       if (PICTOGRAPH_RE.test(raw)) continue;
       const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
-      if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value)) continue;
+      if (!value || NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value) || COMMITMENT_RE.test(value)) continue;
       const sentence = firstSentence(value).split(/[;；]/)[0].trim();
       if (!sentence) continue;
-      if (field === "customization" ? CUSTOMIZATION_WORD_RE.test(sentence) : findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS)) return sentence;
+      const at = source.indexOf(sentence, a);
+      if (field === "customization" ? CUSTOMIZATION_WORD_RE.test(sentence) : findKeyword(sentence.toLowerCase(), PACKAGING_KEYWORDS)) return { text: sentence, at: at >= a && at < b ? at : a };
     }
     return null;
   };
@@ -783,16 +785,16 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       const evidence = findKeyword(specText, words) || (field === "customization" && CUSTOMIZATION_WORD_RE.test(specText));
       if (mentionedIn(field, labeled.outsideText) || evidence) continue;
     }
-    (fields as unknown as Record<string, unknown>)[field] = answer;
+    (fields as unknown as Record<string, unknown>)[field] = answer?.text ?? null;
     dropEvidence(field);
+    const logo = !!answer && /logo|embroider|print|印|绣/i.test(answer.text);
     if (field === "customization") {
-      fields.customLogo = answer ? true : null;
+      fields.customLogo = logo ? true : null;
       dropEvidence("customLogo");
     }
     if (answer) {
-      const at = source.indexOf(answer, labeled.blocks[0]?.[0] ?? 0);
-      add(field, answer, 0.7, at < 0 ? 0 : at, answer.length);
-      if (field === "customization") add("customLogo", true, 0.7, at < 0 ? 0 : at, answer.length);
+      add(field, answer.text, 0.7, answer.at, answer.text.length);
+      if (field === "customization" && logo) add("customLogo", true, 0.7, answer.at, answer.text.length);
     }
   }
   // 表单的目的国与关键词抽到的城市不在同一国（「ship to Toronto」+「Destination: USA」）：城市作废，别拼出错的组合

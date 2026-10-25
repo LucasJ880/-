@@ -279,7 +279,7 @@ ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 
   assert.equal(fx(["Two colours: navy and grey.", "", block("Qty: 2 colours x 1500 pcs")].join("\n")).quantity, null, "乘数写法不按每款数量算");
   const ali = fx(["Need bath towels.", "", block("Estimated quantity: 5000 Piece/Pieces")].join("\n"));
   assert.equal(ali.quantity, 5000);
-  assert.equal(ali.unit, "pcs");
+  assert.equal(ali.unit, "piece", "关键词读到了单位：表单不改写（只能细化）");
   const meters = fx(["We need 5000 meters of blackout curtain fabric.", "", block("Estimated quantity: 5000")].join("\n"));
   assert.equal(meters.unit, "meters");
   const sets = fx(["We need 3,000 sets of duvet cover sets.", "", block("Estimated quantity: 4000")].join("\n"));
@@ -427,6 +427,20 @@ ok("第十二轮审查用例：表单值只能补上或细化关键词结果；�
   assert.equal(fx(poly).packaging, noForm(poly).packaging, "买家类型行里写了包装要求就不当选项");
   const zh = "Product: 浴巾\n你好\n\n— Form details —\n预计数量: 3000\n留言：其实我们需要5000条，3月底前到货";
   assert.equal(fx(zh).quantity, noForm(zh).quantity, "留言行算买家自己写的");
+});
+
+ok("第十三轮审查用例：金额不当数量、m2 不是 m、per size run、尺寸后的大写词、中文里的链接、FOC 与授权字眼、带 hang tags 的买家类型", () => {
+  const q = "Product: Blankets\nPlease quote.\n\n— Form details —\n";
+  assert.equal(fx(q + "Estimated quantity: $5,000").quantity, null);
+  assert.equal(fx(q + "Estimated quantity: USD 5000").quantity, null);
+  assert.notEqual(fx("Product: Blackout fabric\nPlease quote.\n\n— Form details —\nEstimated quantity: 3000 m2").unit, "m");
+  assert.notEqual(fx(q + "Estimated quantity: 500 pcs per size run (S-XL)").unit, "pcs per size");
+  assert.equal(fx("Product: Mattress Protectors\nHello.\n\n— Form details —\nEstimated quantity: 2000 pcs\nSize / specification: 160x200 Mattress protector").size, "160x200");
+  assert.equal(fx("您好，我们的网站是https://www.homeco.com：货发到洛杉矶，请报价。\n\n— Form details —\n目的地：美国纽约").destinationCity, "洛杉矶");
+  const foc = fx("Project brief (guided form)\n\n— Form details —\nEstimated quantity: 3,000 pcs\nBuyer type: Retail & Private Label\nMaterial: cotton terry\nBranding: Logo printing FOC");
+  assert.doesNotMatch(foc.customization ?? "", /FOC/);
+  const tags = "Hi, please quote 3,000 bath towels 70x140cm, cotton, to Toronto, Canada by March 2027.\n\n— Form details —\nBuyer type: Private label + hang tags";
+  assert.deepEqual([fx(tags).customization, fx(tags).packaging], [fx(tags.split("— Form details —").join("Form details")).customization, fx(tags.split("— Form details —").join("Form details")).packaging]);
 });
 
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {
