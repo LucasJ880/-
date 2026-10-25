@@ -23,10 +23,9 @@ import { INQUIRY_REPLY_ACTION_TYPE } from "./fde/inbound-sales";
 import { FOLLOW_UP_GUARDRAIL_AUDIT_ACTION } from "./fde/no-reply-followup";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "./policy";
 
-/** 与入驻向导（organizations/onboarding-rules）的测试询盘标记保持一致 */
-export const ONBOARDING_TEST_UTM_SOURCE = "qingyan_onboarding_test";
-export const ONBOARDING_TEST_TAG = "qingyan_onboarding_test";
-export const ONBOARDING_TEST_CLOSE_REASON = "onboarding test";
+// 入驻测试单的标记只在入驻向导（organizations/onboarding-rules）里定义一处
+import { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_TAG, ONBOARDING_TEST_UTM_SOURCE } from "@/lib/organizations/onboarding-rules";
+export { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_TAG, ONBOARDING_TEST_UTM_SOURCE };
 
 export const INBOUND_INQUIRY_ACTION_TYPE = "inbound_inquiry";
 export const TRADE_SHOW_SOURCE = "trade_show";
