@@ -382,6 +382,12 @@ async function main() {
     ok(waCreate.status === 201 && !waText.includes(`wa-new-${stamp}`) && waText.includes("****7788"), "新建 / 更新其他通道：响应只回掩码", waText.slice(0, 200));
     const weird = await channelsRoute.POST(api("/api/trade/channels", { method: "POST", body: { orgId: ORG, channel: "telegram", name: "x", config: {} }, cookie: ownerCookie }));
     ok(weird.status === 400, "不支持的通道类型 → 400", weird.status);
+
+    // 通道停用：公开 key 立即不再被接受，预检也不再回显该来源
+    await db.tradeChannel.update({ where: { orgId_channel: { orgId: ORG2, channel: "website" } }, data: { status: "inactive" } });
+    const inactive = await embedPost(form("inactive"), { key: cred2.publicKey!, origin: SITE2, ip: "198.51.100.77" });
+    const preInactive = await embedRoute.OPTIONS(new NextRequest("http://localhost/api/trade/webhook/website/embed", { method: "OPTIONS", headers: { origin: SITE2 } }));
+    ok(inactive.status === 401 && !preInactive.headers.get("access-control-allow-origin"), "通道停用 → 公开 key 401，预检不回显", { status: inactive.status });
   } finally {
     __setDefaultFdeSchedulerForTest(null);
     try {
