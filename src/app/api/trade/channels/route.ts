@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit/logger";
-import {
-  getChannelView,
-  listChannels,
-  toChannelView,
-  upsertChannel,
-  upsertEmailChannel,
-  upsertWebsiteChannel,
-} from "@/lib/trade/channel-service";
+import { channelView, listChannels, toChannelView, upsertChannel, upsertEmailChannel, upsertWebsiteChannel } from "@/lib/trade/channel-service";
 import { CAN_MANAGE_CHANNELS_HEADER, canManageTradeChannels, channelManageForbiddenResponse } from "@/lib/trade/channel-access";
 import { resolveTradeOrgId } from "@/lib/trade/access";
 import { normalizeForwarderAllowlist } from "@/lib/trade/email-inbound-rules";
@@ -46,6 +39,8 @@ export async function POST(request: NextRequest) {
   if (!CHANNEL_TYPES.has(String(body.channel))) {
     return NextResponse.json({ error: "不支持的通道类型" }, { status: 400 });
   }
+  // 邮件 / 网站通道的显示名（与入驻向导一致：去首尾空白、最多 60 字）
+  const name = String(body.name).trim().slice(0, 60);
 
   // 邮件转发询盘通道：别名由服务端生成且不可指定；请求只能改显示名与转发白名单
   if (body.channel === "email") {
@@ -53,11 +48,7 @@ export async function POST(request: NextRequest) {
     if (!allow.ok) {
       return NextResponse.json({ error: allow.error, invalid: allow.invalid }, { status: 400 });
     }
-    const ch = await upsertEmailChannel({
-      orgId: orgRes.orgId,
-      name: String(body.name).trim().slice(0, 60),
-      forwarderAllowlist: allow.value,
-    });
+    const ch = await upsertEmailChannel({ orgId: orgRes.orgId, name, forwarderAllowlist: allow.value });
     await logAudit({
       userId: auth.user.id,
       orgId: orgRes.orgId,
@@ -72,7 +63,7 @@ export async function POST(request: NextRequest) {
 
   // 网站询盘通道：凭证由服务端生成；重复保存沿用已有凭证与来源白名单，避免网页代码失效
   if (body.channel === "website") {
-    const ch = await upsertWebsiteChannel({ orgId: orgRes.orgId, name: String(body.name) });
+    const ch = await upsertWebsiteChannel({ orgId: orgRes.orgId, name });
     await logAudit({
       userId: auth.user.id,
       orgId: orgRes.orgId,
@@ -82,7 +73,7 @@ export async function POST(request: NextRequest) {
       afterData: { name: ch.name, status: ch.status },
       request,
     });
-    return NextResponse.json(await getChannelView(orgRes.orgId, "website", { canManage: true }), { status: 201 });
+    return NextResponse.json(channelView(ch, true), { status: 201 });
   }
 
   const ch = await upsertChannel({

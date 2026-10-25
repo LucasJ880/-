@@ -287,15 +287,16 @@ async function main() {
     assert.doesNotMatch(code, /pg_advisory|\$transaction/);
     assert.match(lib, /tryAcquireEventLease\(orgId, WHATSAPP_SENDER_LEASE_SOURCE, waId/);
     const ingest = src("src/lib/trade/website-inquiry.ts");
-    const whatsappOrigin = ingest.slice(ingest.indexOf("  whatsapp: {"), ingest.indexOf("} as const;"));
+    const whatsappOrigin = ingest.slice(ingest.indexOf("  whatsapp: {"), ingest.indexOf("  email_forward: {"));
     assert.match(whatsappOrigin, /receiptSource: WHATSAPP_INBOUND_SOURCE/);
     assert.match(whatsappOrigin, /intakeSource: "whatsapp"/);
-    assert.match(whatsappOrigin, /inquiryAnalysis: false/);
-    assert.match(whatsappOrigin, /contentDedupe: false/);
-    assert.match(whatsappOrigin, /notifyReturning: false/);
-    assert.match(ingest, /claimInquiryReceipt\(orgId, incoming, now, o\.receiptSource, opts\?\.receiptMeta, \{ contentDedupe: o\.contentDedupe \}\)/);
-    assert.match(ingest, /replayKey: "external_id" as const/);
-    assert.match(ingest, /if \(o\.inquiryAnalysis\) await scheduleInquiryAnalysis\(\{/);
+    // chat：不另跑 TradeInquiryAnalysis、不做内容去重；notify new：同一号码的后续消息不再广播给全体外贸成员
+    assert.match(whatsappOrigin, /chat: true/);
+    assert.match(whatsappOrigin, /notify: "new"/);
+    assert.match(ingest, /claimInquiryReceipt\(orgId, incoming, \{ now, source: o\.receiptSource, meta: opts\?\.receiptMeta, contentDedupe: !o\.chat \}\)/);
+    assert.match(ingest, /\.\.\.\(o\.chat \? \{ replayKey: "external_id" as const \} : \{\}\)/);
+    assert.match(ingest, /if \(!o\.chat\) await scheduleInquiryAnalysis\(\{/);
+    assert.match(ingest, /o\.notify === "all" \|\| \(o\.notify === "new" && !existingProspect\)/);
     const receipts = src("src/lib/trade/website-inquiry-receipts.ts");
     assert.match(receipts, /export const WHATSAPP_INBOUND_SOURCE = "whatsapp";/);
     assert.match(receipts, /export const WECHAT_INBOUND_SOURCE = "wechat";/);

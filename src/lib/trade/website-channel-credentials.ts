@@ -197,17 +197,10 @@ function constantTimeEquals(expected: string | null, provided: string): boolean 
  */
 export function matchWebsiteSecret(config: unknown, provided: string, now: Date = new Date()): "current" | "previous" | null {
   if (!provided) return null;
-  const cred = readWebsiteCredentials(config);
   // 每个比较都做，耗时不随哪个命中而变
-  const cur = constantTimeEquals(cred.secret, provided);
-  let prev = false;
-  for (const p of cred.previousSecrets) {
-    const hit = constantTimeEquals(p.secret, provided);
-    const exp = Date.parse(p.expiresAt);
-    if (hit && Number.isFinite(exp) && exp > now.getTime()) prev = true;
-  }
-  if (cur) return "current";
-  return prev ? "previous" : null;
+  const cur = constantTimeEquals(readWebsiteCredentials(config).secret, provided);
+  const prev = activePreviousSecrets(config, now).map((p) => constantTimeEquals(p.secret, provided)).includes(true);
+  return cur ? "current" : prev ? "previous" : null;
 }
 
 export function matchPublicKey(config: unknown, provided: string): boolean {

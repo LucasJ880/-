@@ -161,21 +161,33 @@ async function findByPayloadHash(orgId: string, source: string, payloadHash: str
   });
 }
 
-async function claimExisting(
-  existing: WebsiteInquiryReceipt,
-  hash: string,
+/** 可认领：不在处理中，或处理中但超过 staleMs 没有结束（视为处理进程已中断） */
+function claimableWhere(now: Date, staleMs: number): Prisma.WebsiteInquiryReceiptWhereInput {
+  return { OR: [{ status: { not: "processing" } }, { processingSince: null }, { processingSince: { lt: new Date(now.getTime() - staleMs) } }] };
+}
+
+const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === "P2002";
+
+/** 新建一张正在处理（processing）的收据；extra 覆盖默认值（eventIdProvided=true）或补充关联字段 */
+function createProcessingReceipt(
+  orgId: string,
+  source: string,
+  eventId: string,
+  payload: Prisma.InputJsonValue,
+  payloadHash: string,
   now: Date,
-): Promise<{ receipt: WebsiteInquiryReceipt; busy: boolean; conflict: boolean }> {
+  extra: Partial<Prisma.WebsiteInquiryReceiptUncheckedCreateInput> = {},
+) {
+  return db.websiteInquiryReceipt.create({
+    data: { orgId, source, eventId, eventIdProvided: true, payload, payloadHash, status: "processing", processingSince: now, firstSeenAt: now, ...extra },
+  });
+}
+
+/** 认领既有事件（重发路径）：busy = 另一执行者正在处理；conflict = 同一事件带了不同业务内容（只记录，不覆盖） */
+async function claimExisting(existing: WebsiteInquiryReceipt, hash: string, now: Date): Promise<ReceiptClaim> {
   const conflict = existing.payloadHash !== hash;
   const claimed = await db.websiteInquiryReceipt.updateMany({
-    where: {
-      id: existing.id,
-      OR: [
-        { status: { not: "processing" } },
-        { processingSince: null },
-        { processingSince: { lt: new Date(now.getTime() - RECEIPT_PROCESSING_STALE_MS) } },
-      ],
-    },
+    where: { id: existing.id, ...claimableWhere(now, RECEIPT_PROCESSING_STALE_MS) },
     data: {
       status: "processing",
       processingSince: now,
@@ -184,7 +196,7 @@ async function claimExisting(
     },
   });
   const receipt = await db.websiteInquiryReceipt.findUniqueOrThrow({ where: { id: existing.id } });
-  return { receipt, busy: claimed.count === 0, conflict };
+  return { receipt, created: false, conflict, busy: claimed.count === 0, duplicateOfReceiptId: receipt.duplicateOfReceiptId };
 }
 
 /**
@@ -196,93 +208,45 @@ async function claimExisting(
 export async function claimInquiryReceipt(
   orgId: string,
   v: NormalizedInquiry,
-  now: Date = new Date(),
-  source: string = WEBSITE_INQUIRY_SOURCE,
-  /** 首次建收据时随载荷保存的来源元数据（payload.meta，不参与业务指纹）：嵌入表单写访客 IP HMAC（限流计数），邮件转发写发件人 / 主题 / 解析依据 */
-  meta?: Record<string, unknown>,
   opts: {
+    now?: Date;
+    source?: string;
+    /** 首次建收据时随载荷保存的来源元数据（payload.meta，不参与业务指纹）：嵌入表单写访客 IP HMAC（限流计数），邮件转发写发件人 / 主题 / 解析依据 */
+    meta?: Record<string, unknown>;
     /** false = eventId 由平台保证唯一（WhatsApp wamid）：同内容不同 eventId 是另一条消息，不指向原事件、不继承其对象 */
     contentDedupe?: boolean;
   } = {},
 ): Promise<ReceiptClaim> {
+  const { now = new Date(), source = WEBSITE_INQUIRY_SOURCE } = opts;
   const hash = computePayloadHash(v);
-  const payload = toReceiptPayload(v, meta) as unknown as Prisma.InputJsonValue;
   const provided = Boolean(v.eventId);
 
-  if (provided) {
-    const existing = await db.websiteInquiryReceipt.findUnique({
-      where: { orgId_source_eventId: { orgId, source, eventId: v.eventId } },
-    });
-    if (existing) {
-      const c = await claimExisting(existing, hash, now);
-      return {
-        receipt: c.receipt,
-        created: false,
-        conflict: c.conflict,
-        busy: c.busy,
-        duplicateOfReceiptId: c.receipt.duplicateOfReceiptId,
-      };
-    }
-  }
-
-  // 派生身份（无 eventId）：窗口内相同内容视为同一事件，保持旧的正文去重语义
-  if (!provided) {
-    const sameContent = await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS);
-    if (sameContent) {
-      const c = await claimExisting(sameContent, hash, now);
-      return {
-        receipt: c.receipt,
-        created: false,
-        conflict: false,
-        busy: c.busy,
-        duplicateOfReceiptId: c.receipt.duplicateOfReceiptId,
-      };
-    }
-  }
+  // 既有事件：按 eventId；派生身份（无 eventId）则窗口内相同内容视为同一事件，保持旧的正文去重语义
+  const existing = provided
+    ? await findReceiptByEventId(orgId, v.eventId, source)
+    : await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS);
+  if (existing) return claimExisting(existing, hash, now);
 
   // 新事件：内容与既有事件相同（不同 eventId）→ 记录并指向原事件，不静默吞掉
   const contentTwin = provided && opts.contentDedupe !== false ? await findByPayloadHash(orgId, source, hash, now, RECEIPT_DERIVED_WINDOW_MS) : null;
   const eventId = provided ? v.eventId : deriveEventId(hash, now);
   try {
-    const receipt = await db.websiteInquiryReceipt.create({
-      data: {
-        orgId,
-        source,
-        eventId,
-        eventIdProvided: provided,
-        payload,
-        payloadHash: hash,
-        duplicateOfReceiptId: contentTwin?.id ?? null,
-        status: "processing",
-        processingSince: now,
-        firstSeenAt: now,
-        // 内容重复：直接继承原事件已建立的下游对象（业务对象不重复创建）
-        prospectId: contentTwin?.prospectId ?? null,
-        tradeMessageId: contentTwin?.tradeMessageId ?? null,
-        customerId: contentTwin?.customerId ?? null,
-        opportunityId: contentTwin?.opportunityId ?? null,
-        interactionId: contentTwin?.interactionId ?? null,
-        salesActionId: contentTwin?.salesActionId ?? null,
-      },
+    const receipt = await createProcessingReceipt(orgId, source, eventId, toReceiptPayload(v, opts.meta) as unknown as Prisma.InputJsonValue, hash, now, {
+      eventIdProvided: provided,
+      duplicateOfReceiptId: contentTwin?.id ?? null,
+      // 内容重复：直接继承原事件已建立的下游对象（业务对象不重复创建）
+      prospectId: contentTwin?.prospectId ?? null,
+      tradeMessageId: contentTwin?.tradeMessageId ?? null,
+      customerId: contentTwin?.customerId ?? null,
+      opportunityId: contentTwin?.opportunityId ?? null,
+      interactionId: contentTwin?.interactionId ?? null,
+      salesActionId: contentTwin?.salesActionId ?? null,
     });
     return { receipt, created: !contentTwin, conflict: false, busy: false, duplicateOfReceiptId: contentTwin?.id ?? null };
   } catch (err) {
     // 并发首发：另一执行者刚建立了同一事件身份（唯一约束）→ 转为重发路径
-    if ((err as { code?: string })?.code === "P2002") {
-      const existing = await db.websiteInquiryReceipt.findUnique({
-        where: { orgId_source_eventId: { orgId, source, eventId } },
-      });
-      if (existing) {
-        const c = await claimExisting(existing, hash, now);
-        return {
-          receipt: c.receipt,
-          created: false,
-          conflict: c.conflict,
-          busy: c.busy,
-          duplicateOfReceiptId: c.receipt.duplicateOfReceiptId,
-        };
-      }
-    }
+    const raced = isUniqueViolation(err) ? await findReceiptByEventId(orgId, eventId, source) : null;
+    if (raced) return claimExisting(raced, hash, now);
     throw err;
   }
 }
@@ -358,38 +322,17 @@ export async function claimChannelEventReceipt(
   const staleMs = opts.staleMs ?? RECEIPT_PROCESSING_STALE_MS;
   const payloadHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   try {
-    const created = await db.websiteInquiryReceipt.create({
-      data: {
-        orgId,
-        source,
-        eventId,
-        eventIdProvided: true,
-        payload: payload as Prisma.InputJsonValue,
-        payloadHash,
-        status: "processing",
-        processingSince: now,
-        firstSeenAt: now,
-      },
-      select: { id: true },
-    });
+    const created = await createProcessingReceipt(orgId, source, eventId, payload, payloadHash, now);
     return { outcome: "claimed", receiptId: created.id, retry: false };
   } catch (err) {
-    if ((err as { code?: string })?.code !== "P2002") throw err;
+    if (!isUniqueViolation(err)) throw err;
   }
   const existing = await db.websiteInquiryReceipt.findUniqueOrThrow({
     where: { orgId_source_eventId: { orgId, source, eventId } },
     select: { id: true },
   });
   const reclaimed = await db.websiteInquiryReceipt.updateMany({
-    where: {
-      id: existing.id,
-      status: { notIn: ["linked", "complete"] },
-      OR: [
-        { status: { not: "processing" } },
-        { processingSince: null },
-        { processingSince: { lt: new Date(now.getTime() - staleMs) } },
-      ],
-    },
+    where: { id: existing.id, status: { notIn: ["linked", "complete"] }, ...claimableWhere(now, staleMs) },
     data: { status: "processing", processingSince: now, attempts: { increment: 1 } },
   });
   if (reclaimed.count === 1) return { outcome: "claimed", receiptId: existing.id, retry: true };
@@ -417,38 +360,16 @@ export async function tryAcquireEventLease(
 ): Promise<Date | null> {
   const now = opts.now ?? new Date();
   const taken = await db.websiteInquiryReceipt.updateMany({
-    where: {
-      orgId,
-      source,
-      eventId: key,
-      OR: [
-        { status: { not: "processing" } },
-        { processingSince: null },
-        { processingSince: { lt: new Date(now.getTime() - opts.staleMs) } },
-      ],
-    },
+    where: { orgId, source, eventId: key, ...claimableWhere(now, opts.staleMs) },
     data: { status: "processing", processingSince: now, attempts: { increment: 1 } },
   });
   if (taken.count === 1) return now;
   try {
-    await db.websiteInquiryReceipt.create({
-      data: {
-        orgId,
-        source,
-        eventId: key,
-        eventIdProvided: true,
-        payload: { lease: key } as Prisma.InputJsonValue,
-        payloadHash: createHash("sha256").update(`${source}:${key}`).digest("hex"),
-        status: "processing",
-        processingSince: now,
-        firstSeenAt: now,
-      },
-      select: { id: true },
-    });
+    await createProcessingReceipt(orgId, source, key, { lease: key }, createHash("sha256").update(`${source}:${key}`).digest("hex"), now);
     return now;
   } catch (err) {
     // 行已存在且被别人持有（或另一请求刚建出来）
-    if ((err as { code?: string })?.code === "P2002") return null;
+    if (isUniqueViolation(err)) return null;
     throw err;
   }
 }

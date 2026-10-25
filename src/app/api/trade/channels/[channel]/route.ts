@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { TradeChannel } from "@prisma/client";
 import { requireRole } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit/logger";
 import {
   WebsiteChannelError,
+  channelView,
   deleteChannel,
   enableWebsiteChannelEmbed,
   endWebsiteChannelSecretGrace,
   getChannel,
-  getChannelView,
   rotateWebsiteChannelPublicKey,
   rotateWebsiteChannelSecret,
   setWebsiteChannelAllowedOrigins,
@@ -38,13 +39,13 @@ export async function GET(request: NextRequest, { params }: Ctx) {
 
   const { channel } = await params;
   const canManage = await canManageTradeChannels(auth.user, orgRes.orgId);
-  const view = await getChannelView(orgRes.orgId, channel, { canManage });
-  if (!view) return NextResponse.json({ error: "通道不存在" }, { status: 404 });
+  const ch = await getChannel(orgRes.orgId, channel);
+  if (!ch) return NextResponse.json({ error: "通道不存在" }, { status: 404 });
+  const view = channelView(ch, canManage);
   if (channel === "email") {
     // 转发地址 = 平台收信域名 + 本企业别名（业务员需要知道往哪转发，所以外贸角色都可见）；域名未配置时不生成地址（页面显示「未开通」）
-    const ch = await getChannel(orgRes.orgId, "email");
     const domain = normalizeInboundDomain(process.env.INBOUND_EMAIL_DOMAIN);
-    const alias = (ch?.config as Record<string, unknown> | null)?.inboundAlias;
+    const alias = (ch.config as Record<string, unknown> | null)?.inboundAlias;
     return NextResponse.json({ ...view, inbound: { enabled: !!domain, address: inboundAddressFor(alias, domain) } });
   }
   return NextResponse.json(view);
@@ -74,7 +75,23 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
   return NextResponse.json({ success: true });
 }
 
-const WEBSITE_ACTIONS = new Set(["rotate_secret", "end_secret_grace", "enable_embed", "rotate_public_key", "set_allowed_origins"]);
+/** website 通道管理动作 → 服务层（set_allowed_origins 另需校验输入，单独处理） */
+const WEBSITE_ACTIONS = {
+  rotate_secret: rotateWebsiteChannelSecret,
+  end_secret_grace: endWebsiteChannelSecretGrace,
+  enable_embed: enableWebsiteChannelEmbed,
+  rotate_public_key: rotateWebsiteChannelPublicKey,
+};
+
+/** 审计快照（凭证只记掩码）：每个动作只记它改动的字段；轮换密钥的事后快照另带旧密钥宽限期 */
+function auditView(action: string, config: unknown, after: boolean): Record<string, unknown> {
+  const c = readWebsiteCredentials(config);
+  const previousSecrets = () => activePreviousSecrets(config, new Date()).map((p) => maskCredential(p.secret));
+  if (action === "set_allowed_origins") return { allowedOrigins: c.allowedOrigins };
+  if (action === "end_secret_grace") return { previousSecrets: previousSecrets() };
+  if (action !== "rotate_secret") return { publicKey: c.publicKey && maskCredential(c.publicKey) };
+  return { secret: c.secret && maskCredential(c.secret), ...(after ? { secretPrevExpiresAt: c.secretPrevExpiresAt } : {}), previousSecrets: previousSecrets() };
+}
 
 /**
  * website 通道管理动作（仅企业负责人 / 管理员 / 平台管理员）：
@@ -100,28 +117,17 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
 
   const { channel } = await params;
   const action = typeof body.action === "string" ? body.action : "";
-  if (channel !== "website" || !WEBSITE_ACTIONS.has(action)) {
+  if (channel !== "website" || !(Object.hasOwn(WEBSITE_ACTIONS, action) || action === "set_allowed_origins")) {
     return NextResponse.json({ error: "不支持的操作" }, { status: 400 });
   }
 
   const before = await getChannel(orgRes.orgId, "website");
   if (!before) return NextResponse.json({ error: "网站询盘通道不存在，请先添加" }, { status: 404 });
-  const beforeCred = readWebsiteCredentials(before.config);
-  const prevHints = (config: unknown) => activePreviousSecrets(config, new Date()).map((p) => maskCredential(p.secret));
 
+  let ch: TradeChannel;
   try {
-    let afterData: Record<string, unknown>;
-    if (action === "rotate_secret") {
-      const ch = await rotateWebsiteChannelSecret(orgRes.orgId);
-      const c = readWebsiteCredentials(ch.config);
-      afterData = { secret: c.secret ? maskCredential(c.secret) : null, secretPrevExpiresAt: c.secretPrevExpiresAt, previousSecrets: prevHints(ch.config) };
-    } else if (action === "end_secret_grace") {
-      const ch = await endWebsiteChannelSecretGrace(orgRes.orgId);
-      afterData = { previousSecrets: prevHints(ch.config) };
-    } else if (action === "enable_embed" || action === "rotate_public_key") {
-      const ch = action === "enable_embed" ? await enableWebsiteChannelEmbed(orgRes.orgId) : await rotateWebsiteChannelPublicKey(orgRes.orgId);
-      const c = readWebsiteCredentials(ch.config);
-      afterData = { publicKey: c.publicKey ? maskCredential(c.publicKey) : null };
+    if (action !== "set_allowed_origins") {
+      ch = await WEBSITE_ACTIONS[action as keyof typeof WEBSITE_ACTIONS](orgRes.orgId);
     } else {
       const parsed = parseAllowedOrigins(body.allowedOrigins);
       if (parsed.invalid.length) {
@@ -133,8 +139,7 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
       if (parsed.origins.length > MAX_ALLOWED_ORIGINS) {
         return NextResponse.json({ error: `最多 ${MAX_ALLOWED_ORIGINS} 个来源` }, { status: 400 });
       }
-      await setWebsiteChannelAllowedOrigins(orgRes.orgId, parsed.origins);
-      afterData = { allowedOrigins: parsed.origins };
+      ch = await setWebsiteChannelAllowedOrigins(orgRes.orgId, parsed.origins);
     }
     await logAudit({
       userId: auth.user.id,
@@ -142,15 +147,8 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
       action: `trade.channel.website.${action}`,
       targetType: "trade_channel",
       targetId: before.id,
-      beforeData:
-        action === "set_allowed_origins"
-          ? { allowedOrigins: beforeCred.allowedOrigins }
-          : action === "rotate_secret"
-            ? { secret: beforeCred.secret ? maskCredential(beforeCred.secret) : null, previousSecrets: prevHints(before.config) }
-            : action === "end_secret_grace"
-              ? { previousSecrets: prevHints(before.config) }
-              : { publicKey: beforeCred.publicKey ? maskCredential(beforeCred.publicKey) : null },
-      afterData,
+      beforeData: auditView(action, before.config, false),
+      afterData: auditView(action, ch.config, true),
       request,
     });
   } catch (err) {
@@ -160,6 +158,5 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
     throw err;
   }
 
-  const view = await getChannelView(orgRes.orgId, "website", { canManage: true });
-  return NextResponse.json(view);
+  return NextResponse.json(channelView(ch, true));
 }

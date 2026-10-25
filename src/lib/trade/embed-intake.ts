@@ -1,17 +1,11 @@
 /**
- * 嵌入表单接入（PRD F1.1）— POST /api/trade/webhook/website/embed 的服务端部分
- *
- * 与站点后端转发（POST /api/trade/webhook/website，带服务端密钥）的区别：
- * - 浏览器直接提交，凭证是公开 key（x-qingyan-form-key）+ Origin 精确匹配通道的 allowedOrigins；
- * - 限流（数据库计数，见 embed-rate-limit.ts），访客 IP 只以 HMAC 存进收据载荷 meta.ipHash；
- * - 事件 id = emb:<浏览器生成的 uuid>，收据来源 embed（与站点转发的事件身份空间分开）；
- * - 响应只有 { ok, receiptId }：不返回线索 / 商机 / 是否重复等内部信息，防枚举。
- * 入站链路与站点转发相同：ingestWebsiteInquiry(..., { origin: { kind: "embed" }, fdeMode: "deferred" })，请求里没有 LLM。
+ * 嵌入表单接入（PRD F1.1）— POST /api/trade/webhook/website/embed 的服务端部分：按公开 key 定位通道、预检来源、
+ * 载荷白名单与事件 id（emb:<浏览器 uuid>）、限流。也放 website 通道的共用读取（按凭证定位通道、读表单载荷）。
+ * 契约见 docs/QINGYAN_INTAKE_WEBHOOK.md §3。
  */
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
-import { DAY_MS, EMBED_RATE_LIMITS, HOUR_MS, type EmbedRateLimits, type EmbedSubmissionCounts } from "./embed-rate-limit";
 import { hashClientIp, isWellFormedPublicKey, matchPublicKey, originAllowed, readWebsiteCredentials } from "./website-channel-credentials";
 import type { IngestResult, NormalizedInquiry } from "./website-inquiry";
 import { EMBED_INQUIRY_SOURCE } from "./website-inquiry-receipts";
@@ -28,6 +22,49 @@ export const EMBED_MAX_BODY_BYTES = 32 * 1024;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * 限流（公开 key 写在网页里、Origin 可被非浏览器伪造，挡滥用的是限流）。权威计数来自数据库：本组织 source=embed 的收据
+ * （每个新事件一张，访客 IP 的 HMAC 在载荷 meta.ipHash）。先查后写：大量同时到达的新事件可能略超上限（见文档 §3.4）。
+ */
+export interface EmbedRateLimits {
+  /** 每访客 IP（HMAC）窗口内最多新事件数 */
+  perIp: number;
+  perIpWindowMs: number;
+  /** 每组织 1 小时 / 24 小时内最多新事件数 */
+  perOrgHour: number;
+  perOrgDay: number;
+}
+
+export const EMBED_RATE_LIMITS: EmbedRateLimits = { perIp: 5, perIpWindowMs: 10 * 60 * 1000, perOrgHour: 40, perOrgDay: 300 };
+export const HOUR_MS = 60 * 60 * 1000;
+export const DAY_MS = 24 * HOUR_MS;
+
+/** 前置粗筛（checkRateLimitAsync：配了 Upstash 走 Redis，否则内存）：每通道 × 每访客 IP 10 分钟内的请求次数（含无效请求、蜜罐、重发） */
+export const EMBED_ATTEMPT_LIMIT = { name: "trade-embed-attempts", windowMs: 10 * 60 * 1000, maxRequests: 30 } as const;
+
+export interface EmbedSubmissionCounts {
+  ipWindow: number;
+  orgHour: number;
+  orgDay: number;
+}
+
+export type EmbedRateDecision =
+  | { allowed: true }
+  | { allowed: false; reason: "ip" | "org_hour" | "org_day"; retryAfterSec: number };
+
+/** 纯函数：计数 ≥ 上限即拒绝；先 IP（最具体），再组织小时、组织日；retryAfterSec 取对应窗口长度（保守值） */
+export function decideEmbedRateLimit(counts: EmbedSubmissionCounts, limits: EmbedRateLimits = EMBED_RATE_LIMITS): EmbedRateDecision {
+  const checks = [
+    ["ip", counts.ipWindow, limits.perIp, limits.perIpWindowMs],
+    ["org_hour", counts.orgHour, limits.perOrgHour, HOUR_MS],
+    ["org_day", counts.orgDay, limits.perOrgDay, DAY_MS],
+  ] as const;
+  for (const [reason, count, max, windowMs] of checks) {
+    if (count >= max) return { allowed: false, reason, retryAfterSec: Math.ceil(windowMs / 1000) };
+  }
+  return { allowed: true };
+}
+
 export interface EmbedChannel {
   id: string;
   orgId: string;
@@ -35,17 +72,39 @@ export interface EmbedChannel {
   ipSalt: string;
 }
 
-/** 按公开 key 定位 website 通道（行数极少，逐条恒时比较；只认 active 通道） */
-export async function resolveWebsiteChannelByPublicKey(key: string): Promise<EmbedChannel | null> {
-  if (!isWellFormedPublicKey(key)) return null;
+/** 在 active 的 website 通道里找 config 匹配的第一条（每 org 一条，行数极少）；逐条都比较，耗时不随命中位置变化 */
+export async function findActiveWebsiteChannel(match: (config: unknown) => boolean) {
   const channels = await db.tradeChannel.findMany({
     where: { channel: "website", status: "active" },
     select: { id: true, orgId: true, config: true },
   });
   let found: (typeof channels)[number] | null = null;
   for (const ch of channels) {
-    if (matchPublicKey(ch.config, key) && !found) found = ch;
+    if (match(ch.config) && !found) found = ch;
   }
+  return found;
+}
+
+/** 表单载荷：JSON 对象，或 form-urlencoded / multipart 的字符串字段；其余（非对象 JSON、解析失败、其它类型）为 null */
+export async function readInquiryPayload(request: Request): Promise<Record<string, unknown> | null> {
+  if ((request.headers.get("content-type") ?? "").includes("application/json")) {
+    const body = await request.json().catch(() => null);
+    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  }
+  // 非表单类型的 formData() 会抛错 → null
+  const form = await request.formData().catch(() => null);
+  if (!form) return null;
+  const out: Record<string, unknown> = {};
+  form.forEach((value, key) => {
+    if (typeof value === "string") out[key] = value;
+  });
+  return out;
+}
+
+/** 按公开 key 定位 website 通道（只认 active 通道） */
+export async function resolveWebsiteChannelByPublicKey(key: string): Promise<EmbedChannel | null> {
+  if (!isWellFormedPublicKey(key)) return null;
+  const found = await findActiveWebsiteChannel((c) => matchPublicKey(c, key));
   if (!found) return null;
   const cred = readWebsiteCredentials(found.config);
   return {
