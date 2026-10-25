@@ -1,7 +1,7 @@
 /**
  * /api/admin/onboarding/[orgId] — 单个企业的入驻状态（平台管理员专用）
  *   GET   逐步就绪状态（全部从数据库推导）+ 中台配置健康问题
- *   PATCH 时区 / 行业包（重写显式模块）/ 工厂老板 / 手动确认可跳过项
+ *   PATCH 时区 / 行业包（重写显式模块）/ 工厂老板 / 手动确认可跳过项 / 交接（操作者本人退出成员）
  */
 
 import { NextRequest, NextResponse } from "next/server";

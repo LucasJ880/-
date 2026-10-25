@@ -15,14 +15,16 @@ import {
   DEFAULT_PRODUCT_KEYWORDS,
   mergeBusinessProfile,
 } from "@/lib/revenue-spine/policy";
-import { scoreOpportunity } from "@/lib/revenue-spine/scoring";
+import { mentionsAllowedCategory, scoreOpportunity } from "@/lib/revenue-spine/scoring";
 import { DEFAULT_REVENUE_SPINE_POLICY } from "@/lib/revenue-spine/policy";
 import { extractRfqHeuristic } from "@/lib/revenue-spine/rfq/heuristic-extractor";
 import { classifyInquiry } from "@/lib/revenue-spine/research";
 import { detectInquiryRisks } from "@/lib/revenue-spine/inquiry-risks";
 import { normalizeInquiry } from "@/lib/trade/website-inquiry";
 import {
+  EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES,
   ONBOARDING_TEST_BUYER_EMAIL,
+  ONBOARDING_TEST_CLOSE_REASON,
   ONBOARDING_TEST_TAG,
   ONBOARDING_TEST_UTM_SOURCE,
   buildOnboardingTestInquiryPayload,
@@ -34,12 +36,14 @@ import {
   nextOnboardingTestCounter,
   onboardingTestEventId,
   planBusinessProfileCategories,
+  planExistingOrgAdoption,
   planMembership,
   validateCategorySelection,
   validateInviteRequest,
   validateOnboardingPatch,
   validateProvisionRequest,
   withOnboardingTestTag,
+  type ExistingOrgFacts,
   type OnboardingFacts,
 } from "../onboarding-rules";
 
@@ -125,6 +129,10 @@ ok("PATCH：只允许时区 / 行业包 / 老板邮箱 / 可确认步骤；空 p
   assert.ok(!badStep.ok && /不可手动确认/.test(badStep.errors.join()));
   assert.ok(!validateOnboardingPatch({}).ok);
   assert.ok(!validateOnboardingPatch({ industryPackId: "home_textile" }).ok);
+  const leave = validateOnboardingPatch({ leaveOrg: true });
+  assert.ok(leave.ok && leave.value.leaveOrg === true, "交接：退出成员单独可提交");
+  assert.ok(!validateOnboardingPatch({ leaveOrg: false }).ok, "leaveOrg 只能为 true");
+  assert.ok(!validateOnboardingPatch({ leaveOrg: "yes" }).ok);
 });
 
 ok("品类：按目录顺序输出；未知 key / 重叠 / 没有「做」均拒绝", () => {
@@ -189,6 +197,42 @@ ok("发布后的配置被 Revenue Spine 正确读取：做 / 不做 / 识别词�
   assert.equal(score.outOfRange, true, "只询「不做」的品类 → 不自动起草，留人工");
 });
 
+ok("「不做」对复合词生效：baby blankets / pet blankets / hair towels 里的 blankets、towels 不算在做的类目", () => {
+  const sel = validateCategorySelection(
+    { make: ["blanket", "towel", "bathrobe"], dontMake: ["baby", "pet", "textile_accessory", "slipper"], excludedCategoryAction: "decline" },
+    catalog,
+  );
+  assert.ok(sel.ok);
+  const merged = mergeBusinessProfile(DEFAULT_BUSINESS_PROFILE, planBusinessProfileCategories(null, sel.value, catalog));
+  const policy = { ...DEFAULT_REVENUE_SPINE_POLICY, businessProfile: merged };
+  const run = (text: string) => {
+    const extraction = extractRfqHeuristic(text, { productKeywords: merged.productKeywords });
+    const research = classifyInquiry({ name: "Ava", email: "ava@maplehome.example", company: "Maple Home Goods", phone: null, country: "Canada", website: null, message: text });
+    const score = scoreOpportunity({ fields: extraction.fields, research, message: text, policy });
+    return { category: extraction.fields.productCategory, outOfRange: score.outOfRange, next: score.recommendedNextAction };
+  };
+  for (const [text, category] of [
+    ["We need 2000 baby blankets for our stores in Canada.", "baby"],
+    ["Please quote 3000 pet blankets, grey and beige.", "pet"],
+    ["Looking for 5000 hair towels with logo embroidery.", "textile_accessory"],
+    ["我们需要 2000 条婴儿浴巾，请报价。", "baby"],
+  ] as const) {
+    const r = run(text);
+    assert.equal(r.category, category, text);
+    assert.equal(r.outOfRange, true, `${text} → 不做`);
+    assert.equal(r.next, "decline", `${text} → 按 decline 处理`);
+  }
+  // 同时提到在做的类目：仍按混合询盘处理（不判不做）
+  assert.equal(run("We need baby blankets and adult fleece blankets, 1000 pcs each.").outOfRange, false);
+  assert.equal(run("Quote 2000 bathrobes and 2000 slippers for a hotel.").outOfRange, false);
+  assert.equal(run("Need 800 swaddles for a baby store.").outOfRange, true);
+  // 直接测：命中落在更长的「不做」词里才被忽略
+  assert.equal(mentionsAllowedCategory("2000 baby blankets", policy), false);
+  assert.equal(mentionsAllowedCategory("2000 baby blankets and 500 blankets", policy), true);
+  assert.equal(mentionsAllowedCategory("hair towels, bath towels", policy), true);
+  assert.equal(mentionsAllowedCategory("hair towels", policy), false);
+});
+
 console.log("onboarding — invites & membership");
 
 ok("企业邀请码：只能 trade / sales；企业角色只能 org_member / org_admin；数量与有效期有界", () => {
@@ -220,6 +264,52 @@ ok("成员幂等：不降级 owner / admin；停用的按目标角色重新启�
   assert.deepEqual(planMembership({ role: "org_admin", status: "active" }, "org_member"), { action: "keep", role: "org_admin" });
   assert.deepEqual(planMembership({ role: "org_member", status: "active" }, "org_owner"), { action: "update", role: "org_owner" });
   assert.deepEqual(planMembership({ role: "org_admin", status: "inactive" }, "org_member"), { action: "update", role: "org_member" });
+});
+
+ok("同 code 既有企业：只接管入驻向导建的、或只有操作者 / 工厂老板 / 平台管理员的企业", () => {
+  const ADMIN = "u_admin";
+  const BOSS = "u_boss";
+  const base: ExistingOrgFacts = { createdByOnboarding: false, ownerId: ADMIN, ownerIsPlatformAdmin: true, activeMembers: [{ userId: ADMIN, orgRole: "org_owner", isPlatformAdmin: true }] };
+  // 平台管理员自己建的空企业 → 可接管，owner 交给工厂老板
+  assert.deepEqual(planExistingOrgAdoption(base, ADMIN, BOSS), { ok: true, setOwnerId: BOSS });
+  assert.deepEqual(planExistingOrgAdoption(base, ADMIN, null), { ok: true, setOwnerId: null });
+  // 普通用户抢注的企业（owner + org_admin 是他）→ CODE_TAKEN，不论是否指定老板
+  const squat: ExistingOrgFacts = { createdByOnboarding: false, ownerId: "u_plain", ownerIsPlatformAdmin: false, activeMembers: [{ userId: "u_plain", orgRole: "org_admin", isPlatformAdmin: false }] };
+  for (const owner of [BOSS, null]) {
+    const r = planExistingOrgAdoption(squat, ADMIN, owner);
+    assert.ok(!r.ok && r.code === "CODE_TAKEN", `owner=${owner}`);
+  }
+  // owner 是平台管理员，但有别的普通成员（另一家真实企业）→ CODE_TAKEN
+  const live: ExistingOrgFacts = { ...base, activeMembers: [...base.activeMembers, { userId: "u_rep", orgRole: "org_member", isPlatformAdmin: false }] };
+  const liveR = planExistingOrgAdoption(live, ADMIN, BOSS);
+  assert.ok(!liveR.ok && liveR.code === "CODE_TAKEN");
+  // 工厂老板自己建的企业（只有他）→ 可接管，owner 不变
+  const selfMade: ExistingOrgFacts = { createdByOnboarding: false, ownerId: BOSS, ownerIsPlatformAdmin: false, activeMembers: [{ userId: BOSS, orgRole: "org_owner", isPlatformAdmin: false }] };
+  assert.deepEqual(planExistingOrgAdoption(selfMade, ADMIN, BOSS), { ok: true, setOwnerId: null });
+  assert.ok(!planExistingOrgAdoption(selfMade, ADMIN, null).ok, "不指定老板时不接管别人自建的企业");
+});
+
+ok("同 code 既有企业（入驻向导建的）：重复提交可补缺；老板冲突拒绝；平台管理员暂代的 owner 交给工厂老板", () => {
+  const ADMIN = "u_admin";
+  const BOSS = "u_boss";
+  const onboarded: ExistingOrgFacts = {
+    createdByOnboarding: true,
+    ownerId: BOSS,
+    ownerIsPlatformAdmin: false,
+    activeMembers: [
+      { userId: ADMIN, orgRole: "org_admin", isPlatformAdmin: true },
+      { userId: BOSS, orgRole: "org_owner", isPlatformAdmin: false },
+      { userId: "u_rep", orgRole: "org_member", isPlatformAdmin: false },
+    ],
+  };
+  assert.deepEqual(planExistingOrgAdoption(onboarded, ADMIN, BOSS), { ok: true, setOwnerId: null }, "幂等重试");
+  assert.deepEqual(planExistingOrgAdoption(onboarded, ADMIN, null), { ok: true, setOwnerId: null });
+  const other = planExistingOrgAdoption(onboarded, ADMIN, "u_other_boss");
+  assert.ok(!other.ok && other.code === "OWNER_CONFLICT", "已有别的老板 → 不能靠重复提交更换");
+  const adminOwned: ExistingOrgFacts = { createdByOnboarding: true, ownerId: ADMIN, ownerIsPlatformAdmin: true, activeMembers: [{ userId: ADMIN, orgRole: "org_admin", isPlatformAdmin: true }] };
+  assert.deepEqual(planExistingOrgAdoption(adminOwned, ADMIN, BOSS), { ok: true, setOwnerId: BOSS }, "补填老板邮箱 → owner 改为工厂老板");
+  const otherAdminOwned: ExistingOrgFacts = { ...adminOwned, ownerId: "u_admin2" };
+  assert.deepEqual(planExistingOrgAdoption(otherAdminOwned, ADMIN, BOSS), { ok: true, setOwnerId: BOSS }, "别的平台管理员暂代也交出");
 });
 
 ok("邀请码格式：QY- + 8 位易读字符", () => {
@@ -272,6 +362,7 @@ const READY: OnboardingFacts = {
   emailSender: { configured: false },
   acknowledged: {},
   blockingIssues: 0,
+  handoff: { platformAdminMembers: [], ownerIsPlatformAdmin: false },
 };
 
 ok("全部必做完成 → 就绪；发件身份只是推荐项", () => {
@@ -279,10 +370,22 @@ ok("全部必做完成 → 就绪；发件身份只是推荐项", () => {
   assert.equal(d.ready, true);
   assert.equal(d.totalRequired, 6);
   assert.equal(d.doneRequired, 6);
-  assert.deepEqual(d.steps.map((s) => s.key), ["pack", "categories", "website_channel", "members", "wechat", "test_inquiry", "email_sender"]);
+  assert.deepEqual(d.steps.map((s) => s.key), ["pack", "categories", "website_channel", "members", "wechat", "test_inquiry", "email_sender", "handoff"]);
   const sender = d.steps.find((s) => s.key === "email_sender")!;
   assert.equal(sender.required, false);
   assert.equal(sender.status, "warning");
+  assert.equal(d.steps.find((s) => s.key === "handoff")!.status, "done");
+});
+
+ok("交接是推荐项：平台管理员仍在成员里 / owner 仍是平台管理员 → 提示，但不阻塞就绪", () => {
+  const stay = deriveOnboardingSteps({ ...READY, handoff: { platformAdminMembers: ["Platform Admin"], ownerIsPlatformAdmin: false } });
+  const h = stay.steps.find((s) => s.key === "handoff")!;
+  assert.equal(h.required, false);
+  assert.equal(h.status, "warning");
+  assert.match(h.detail, /Platform Admin.*询盘的通知/);
+  assert.equal(stay.ready, true);
+  const ownerAdmin = deriveOnboardingSteps({ ...READY, handoff: { platformAdminMembers: [], ownerIsPlatformAdmin: true } });
+  assert.match(ownerAdmin.steps.find((s) => s.key === "handoff")!.detail, /指定工厂老板/);
 });
 
 ok("每一步的缺口都会让就绪为 false", () => {
@@ -378,6 +481,20 @@ ok("入驻页面包在 PlatformAdminGate 里；导航项为 platformAdminOnly", 
   const item = reg.slice(reg.indexOf('key: "plat-onboarding"'), reg.indexOf('key: "plat-audit"'));
   assert.match(item, /href: "\/admin\/onboarding"/);
   assert.match(item, /platformAdminOnly: true/);
+});
+
+ok("收入驾驶舱阶段分布排除测试商机；排除片段保留 lostReason 为空的真实商机", () => {
+  assert.deepEqual(EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES, { OR: [{ lostReason: null }, { lostReason: { not: ONBOARDING_TEST_CLOSE_REASON } }] });
+  const src = read("src/lib/revenue-spine/cockpit.ts");
+  assert.match(src, /by: \["stage"\],\n\s+where: \{ orgId, AND: \[EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES\] \}/);
+});
+
+ok("入驻列表只报「必做步骤已完成」，不在列表里报就绪（列表不跑配置健康检查）", () => {
+  const lib = read("src/lib/organizations/onboarding.ts");
+  const list = lib.slice(lib.indexOf("export async function listOnboardingOrgs"));
+  assert.match(list, /stepsComplete: s\.doneRequired === s\.totalRequired/);
+  assert.ok(!/ready: s\.ready/.test(list));
+  assert.ok(!/已就绪/.test(read("src/app/(main)/admin/onboarding/page.tsx")));
 });
 
 ok("发送执行器对测试买家一律拒发", () => {

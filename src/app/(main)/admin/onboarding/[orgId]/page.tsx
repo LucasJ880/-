@@ -20,7 +20,7 @@ import { listIndustryPacks } from "@/lib/industry-packs/registry";
 import { cn } from "@/lib/utils";
 
 type StepStatus = "done" | "todo" | "warning" | "skipped" | "acknowledged";
-type StepKey = "pack" | "categories" | "website_channel" | "members" | "wechat" | "test_inquiry" | "email_sender";
+type StepKey = "pack" | "categories" | "website_channel" | "members" | "wechat" | "test_inquiry" | "email_sender" | "handoff";
 
 interface Step {
   key: StepKey;
@@ -183,6 +183,8 @@ export default function FactoryOnboardingDetailPage() {
   const [open, setOpen] = useState<StepKey | "ready" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  // 从「开通新工厂」表单进入、且该 code 的企业已存在（未新建，只补缺）
+  const [reusedExisting, setReusedExisting] = useState(false);
 
   // 步骤 1
   const [packId, setPackId] = useState("");
@@ -231,6 +233,10 @@ export default function FactoryOnboardingDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setReusedExisting(new URLSearchParams(window.location.search).get("existing") === "1");
+  }, []);
 
   const stepByKey = useMemo(() => new Map((status?.steps ?? []).map((s) => [s.key, s])), [status]);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -666,6 +672,25 @@ export default function FactoryOnboardingDetailPage() {
                 </label>
               )}
             </div>
+            {stepByKey.get("handoff")?.status === "warning" && (
+              <div className="rounded-lg border border-border p-3 text-xs">
+                <p className="mb-1 font-medium text-foreground">交接</p>
+                <p className="text-muted">
+                  建企业时你被加为企业管理员，会收到该厂每条真实询盘的站内 / 微信通知。工厂接手后，在这里退出成员即可（仍可从本页继续管理入驻）。
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-border px-3 py-1.5 text-xs hover:border-accent/40 disabled:opacity-50"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (!confirm("退出后你将不再收到该企业的询盘通知，也不再是它的成员。确定？")) return;
+                    patch({ leaveOrg: true }, "已退出该企业成员");
+                  }}
+                >
+                  {busy === "patch" && <Loader2 size={12} className="mr-1 inline animate-spin" />}已交接，我退出该企业成员
+                </button>
+              </div>
+            )}
             <div>
               <p className="mb-1 text-xs font-medium text-foreground">配置健康（中台检查）</p>
               {configIssues.length === 0 ? (
@@ -716,6 +741,11 @@ export default function FactoryOnboardingDetailPage() {
           </span>
         }
       />
+      {reusedExisting && (
+        <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
+          该 code 对应的企业已存在，本次没有新建：只补齐了缺项，既有的名称、行业包、模块、时区未被覆盖。请核对下方各步骤。
+        </p>
+      )}
       {error && <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-[#a63d3d]">{error}</p>}
       {notice && <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{notice}</p>}
 

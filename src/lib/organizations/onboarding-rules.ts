@@ -27,6 +27,13 @@ export const ONBOARDING_TEST_TAG = "qingyan_onboarding_test";
 /** 测试商机关闭原因（SalesOpportunity.lostReason） */
 export const ONBOARDING_TEST_CLOSE_REASON = "onboarding test";
 /**
+ * 指标查询排除测试商机的 where 片段（SalesOpportunity）。lostReason 可空，必须显式保留 NULL 行；
+ * 用法：where: { orgId, AND: [EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES] }
+ */
+export const EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES = {
+  OR: [{ lostReason: null }, { lostReason: { not: ONBOARDING_TEST_CLOSE_REASON } }],
+};
+/**
  * 测试草稿系统终止原因（PendingAction.failureReason 前缀）：经 pending-actions/supersede 的系统作废原语写入，
  * status=failed、不写 decidedById（不是人类拒绝）
  */
@@ -167,6 +174,8 @@ export interface OnboardingPatchRequest {
   ownerEmail?: string;
   /** true = 管理员确认可跳过；false = 撤销确认 */
   acknowledge?: Partial<Record<AcknowledgeableStep, boolean>>;
+  /** 交接：操作者（平台管理员）本人退出该企业成员，不再收该厂询盘通知 */
+  leaveOrg?: true;
 }
 
 export function validateOnboardingPatch(raw: unknown): Validation<OnboardingPatchRequest> {
@@ -200,12 +209,17 @@ export function validateOnboardingPatch(raw: unknown): Validation<OnboardingPatc
       }
     }
   }
+  if (o.leaveOrg !== undefined) {
+    if (o.leaveOrg !== true) errors.push("leaveOrg 只能为 true");
+    else out.leaveOrg = true;
+  }
   if (
     !errors.length &&
     out.timezone === undefined &&
     out.industryPackId === undefined &&
     out.ownerEmail === undefined &&
-    out.acknowledge === undefined
+    out.acknowledge === undefined &&
+    out.leaveOrg === undefined
   ) {
     errors.push("没有可更新的字段");
   }
@@ -363,6 +377,59 @@ export function checkOrgBoundInvite(invite: {
 }
 
 /**
+ * 同 code 的既有企业能否由入驻向导接管（POST 按 code 幂等的前提）：
+ * - 不是入驻向导建的企业：owner 与所有在册成员都只能是操作者 / 本次指定的工厂老板 / 平台管理员，
+ *   否则 CODE_TAKEN（旧版任何登录用户都能建企业，接管会把原建者留在一家真实工厂里，跨租户）
+ * - 指定了工厂老板：企业已有别的（非平台管理员）org_owner，或 owner 是别人 → OWNER_CONFLICT；
+ *   owner 仍是平台管理员（含操作者）暂代 → 交给工厂老板（setOwnerId）
+ */
+export interface ExistingOrgFacts {
+  /** 经入驻向导开通过（settingsJson.onboarding.provisionedById；PATCH 不写） */
+  createdByOnboarding: boolean;
+  ownerId: string;
+  ownerIsPlatformAdmin: boolean;
+  activeMembers: Array<{ userId: string; orgRole: string; isPlatformAdmin: boolean }>;
+}
+
+export type ExistingOrgAdoption =
+  | { ok: true; setOwnerId: string | null }
+  | { ok: false; code: "CODE_TAKEN" | "OWNER_CONFLICT"; message: string };
+
+export function planExistingOrgAdoption(
+  facts: ExistingOrgFacts,
+  actorUserId: string,
+  requestedOwnerUserId: string | null,
+): ExistingOrgAdoption {
+  const trusted = (userId: string, isPlatformAdmin: boolean) =>
+    isPlatformAdmin || userId === actorUserId || (!!requestedOwnerUserId && userId === requestedOwnerUserId);
+  if (!facts.createdByOnboarding) {
+    const outsiders =
+      !trusted(facts.ownerId, facts.ownerIsPlatformAdmin) || facts.activeMembers.some((m) => !trusted(m.userId, m.isPlatformAdmin));
+    if (outsiders) {
+      return {
+        ok: false,
+        code: "CODE_TAKEN",
+        message: "该 code 已被一家不是由入驻向导创建、且有其他成员的企业占用，请换一个 code；如需为该企业补齐配置，请在下方列表点进它的入驻页",
+      };
+    }
+  }
+  if (!requestedOwnerUserId) return { ok: true, setOwnerId: null };
+  const otherOwner = facts.activeMembers.some(
+    (m) => m.orgRole === "org_owner" && !m.isPlatformAdmin && m.userId !== requestedOwnerUserId,
+  );
+  const ownerIsSomeoneElse =
+    facts.ownerId !== requestedOwnerUserId && facts.ownerId !== actorUserId && !facts.ownerIsPlatformAdmin;
+  if (otherOwner || ownerIsSomeoneElse) {
+    return {
+      ok: false,
+      code: "OWNER_CONFLICT",
+      message: "该企业已有别的负责人，重复提交不会更换老板；如确需更换，请在入驻页第 1 步「工厂老板邮箱」里修改",
+    };
+  }
+  return { ok: true, setOwnerId: facts.ownerId === requestedOwnerUserId ? null : requestedOwnerUserId };
+}
+
+/**
  * 成员关系幂等写入计划：
  * - 无记录 → 新建；停用 → 以目标角色重新启用（重新邀请不恢复旧的高角色）
  * - 启用中且角色不低于目标 → 保持（绝不降级 owner / admin）；低于目标 → 升到目标
@@ -395,7 +462,8 @@ export type OnboardingStepKey =
   | "members"
   | "wechat"
   | "test_inquiry"
-  | "email_sender";
+  | "email_sender"
+  | "handoff";
 
 export type OnboardingStepStatus = "done" | "todo" | "warning" | "skipped" | "acknowledged";
 
@@ -420,6 +488,8 @@ export interface OnboardingFacts {
   acknowledged: Partial<Record<AcknowledgeableStep, boolean>>;
   /** 企业级 CRITICAL 配置问题数（平台级问题只提示不阻塞） */
   blockingIssues: number;
+  /** 交接：仍在册的平台管理员（不含企业 owner 本人）；企业 owner 是否仍是平台管理员 */
+  handoff: { platformAdminMembers: string[]; ownerIsPlatformAdmin: boolean };
 }
 
 export const ONBOARDING_STEP_LABELS: Record<OnboardingStepKey, string> = {
@@ -430,6 +500,7 @@ export const ONBOARDING_STEP_LABELS: Record<OnboardingStepKey, string> = {
   wechat: "微信绑定",
   test_inquiry: "发送测试询盘",
   email_sender: "组织发件身份",
+  handoff: "交接（平台管理员退出成员）",
 };
 
 const DONE_STATUSES: OnboardingStepStatus[] = ["done", "skipped", "acknowledged"];
@@ -510,6 +581,20 @@ export function deriveOnboardingSteps(f: OnboardingFacts): {
   if (f.emailSender.configured) push("email_sender", "done", "已配置组织发件身份", false);
   else if (f.acknowledged.email_sender) push("email_sender", "acknowledged", "管理员已确认暂用平台发件地址", false);
   else push("email_sender", "warning", "未配置组织发件身份：批准后的回复将用审批人邮箱或平台地址发出", false);
+
+  // 8. 交接（推荐项）：平台管理员留在成员里会收到该厂每条真实询盘的通知
+  if (f.handoff.ownerIsPlatformAdmin) {
+    push("handoff", "warning", "企业 owner 仍是平台管理员：请先在第 1 步指定工厂老板，交付后再退出成员", false);
+  } else if (f.handoff.platformAdminMembers.length) {
+    push(
+      "handoff",
+      "warning",
+      `${f.handoff.platformAdminMembers.join("、")} 仍是企业成员，会收到该厂每条真实询盘的通知；交付后请退出`,
+      false,
+    );
+  } else {
+    push("handoff", "done", "平台管理员已退出企业成员", false);
+  }
 
   const required = steps.filter((s) => s.required);
   const doneRequired = required.filter((s) => DONE_STATUSES.includes(s.status)).length;

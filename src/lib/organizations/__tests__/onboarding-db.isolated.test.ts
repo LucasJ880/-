@@ -5,7 +5,8 @@
  *   → 品类发布（revenue_spine.business_profile，保留既有商务事实）→ 网站渠道密钥（不回传其他通道凭证）
  *   → 企业邀请码注册（加入企业、不建个人工作区、角色越界拒绝、单次使用）→ 微信绑定状态
  *   → 测试询盘（收据 → 商机 → 草稿 → 通知，随后草稿系统取消、商机 disqualified、买家归档，执行器拒发）
- *   → 就绪推导；POST /api/organizations 仅平台管理员；入驻接口拒绝非平台管理员。
+ *   → 就绪推导 → 交接（平台管理员退出成员）；POST /api/organizations 仅平台管理员；入驻接口拒绝非平台管理员。
+ *   同 code 不接管别人建的企业；补填老板邮箱把平台管理员暂代的 owner 交给工厂老板；已归档企业不可修改。
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -75,15 +76,17 @@ async function main() {
   const stamp = Date.now().toString(36);
   const ADMIN = `obadmin_${stamp}`;
   const BOSS = `obboss_${stamp}`;
+  const BOSS2 = `obboss2_${stamp}`;
   const PLAIN = `obplain_${stamp}`;
   const CODE = `example-textiles-${stamp}`;
-  const createdUserIds: string[] = [ADMIN, BOSS, PLAIN];
+  const createdUserIds: string[] = [ADMIN, BOSS, BOSS2, PLAIN];
   const createdOrgIds: string[] = [];
   const inviteIds: string[] = [];
 
   await db.user.create({ data: { id: ADMIN, email: `${ADMIN}@fixture.test`, name: "Platform Admin", role: "admin" } });
   await db.user.create({ data: { id: BOSS, email: `${BOSS}@fixture.test`, name: "Example Owner", role: "boss" } });
   await db.user.create({ data: { id: PLAIN, email: `${PLAIN}@fixture.test`, name: "Plain User", role: "user" } });
+  await db.user.create({ data: { id: BOSS2, email: `${BOSS2}@fixture.test`, name: "Maple Owner", role: "boss" } });
 
   const session = async (id: string, role: string) => createSession({ sub: id, email: `${id}@fixture.test`, role });
   const adminCookie = `qy_session=${await session(ADMIN, "admin")}`;
@@ -125,6 +128,9 @@ async function main() {
     ok(first.created && !second.created && second.orgId === orgId, "同一 code 提交两次 → 同一企业，第二次不新建", { first, second });
     ok(second.workspacesCreated.length === 0 && second.memberships.every((m) => m.action === "keep"), "第二次不重复建工作空间 / 成员", second);
     ok(second.keptExisting.includes("timezone") && second.keptExisting.includes("modulesJson"), "第二次只补缺：既有时区 / 模块保留", second.keptExisting);
+    ok(first.ownerAssigned && !second.ownerAssigned && second.keptExisting.includes("ownerId"), "新建时 owner 交给老板；重复提交 owner 不变", { first: first.ownerAssigned, second: second.ownerAssigned });
+    const bossRow = await db.user.findUniqueOrThrow({ where: { id: BOSS }, select: { activeOrgId: true } });
+    ok(bossRow.activeOrgId === orgId, "老板还没选过工作企业 → 当前工作企业设为该工厂", bossRow);
 
     const org = await db.organization.findUniqueOrThrow({ where: { id: orgId } });
     const settings = (org.settingsJson ?? {}) as Record<string, unknown>;
@@ -157,6 +163,68 @@ async function main() {
       conflict = err;
     }
     ok(conflict instanceof OnboardingError && conflict.code === "CONFLICT", "同 code 不同行业包 → CONFLICT", String(conflict));
+
+    // ── 1b. 同 code 不接管别人建的企业；补填老板把平台管理员暂代的 owner 交出 ──
+    const expectConflict = async (fn: () => Promise<unknown>): Promise<OnboardingError | null> => {
+      try {
+        await fn();
+        return null;
+      } catch (err) {
+        return err instanceof OnboardingError ? err : null;
+      }
+    };
+    const SQUAT = `maple-home-goods-${stamp}`;
+    const squatOrg = await db.organization.create({ data: { name: "Maple Home Goods", code: SQUAT, ownerId: PLAIN, status: "active" } });
+    createdOrgIds.push(squatOrg.id);
+    await db.organizationMember.create({ data: { orgId: squatOrg.id, userId: PLAIN, role: "org_admin", status: "active" } });
+    // 管理员先从列表点进去改过设置（PATCH 写 settingsJson.onboarding）也不算「向导开通」，仍不接管
+    await updateOnboardingSettings(squatOrg.id, { acknowledge: { wechat: true } }, ADMIN);
+    for (const owner of [BOSS2, null]) {
+      const err = await expectConflict(() =>
+        provisionFactoryOrg({ name: "Maple Home Goods", code: SQUAT, industryPackId: "home_textile_trade_v1", timezone: "America/Toronto", actorUserId: ADMIN, ownerUserId: owner }),
+      );
+      ok(err?.code === "CONFLICT" && err.status === 409 && /code/.test(err.message), `普通用户先占的 code（owner=${owner ? "老板" : "空"}）→ 409，不接管`, err?.message);
+    }
+    const squatAfter = await db.organization.findUniqueOrThrow({ where: { id: squatOrg.id }, include: { members: true } });
+    ok(
+      squatAfter.industryPackId === null && squatAfter.ownerId === PLAIN && squatAfter.members.length === 1 && squatAfter.members[0].userId === PLAIN,
+      "被拒后原企业不变：没加老板 / 平台管理员，没写行业包",
+      { pack: squatAfter.industryPackId, members: squatAfter.members.map((m) => `${m.userId}:${m.role}`) },
+    );
+    const ownerClash = await expectConflict(() =>
+      provisionFactoryOrg({ name: "Example Textiles", code: CODE, industryPackId: "home_textile_trade_v1", timezone: "Asia/Shanghai", actorUserId: ADMIN, ownerUserId: PLAIN }),
+    );
+    ok(
+      ownerClash?.code === "CONFLICT" && !(await db.organizationMember.findUnique({ where: { orgId_userId: { orgId, userId: PLAIN } } })),
+      "已有老板的企业，用别人的邮箱重复提交 → 409，不把他加进企业",
+      ownerClash?.message,
+    );
+
+    const LATER = `example-later-${stamp}`;
+    const later1 = await provisionFactoryOrg({ name: "Example Later", code: LATER, industryPackId: "home_textile_trade_v1", timezone: "Asia/Shanghai", actorUserId: ADMIN });
+    createdOrgIds.push(later1.orgId);
+    const leaveAsOwner = await expectConflict(() => updateOnboardingSettings(later1.orgId, { leaveOrg: true }, ADMIN));
+    ok(leaveAsOwner?.code === "CONFLICT" && /owner/.test(leaveAsOwner.message), "平台管理员仍是 owner 时不能退出成员", leaveAsOwner?.message);
+    const later2 = await provisionFactoryOrg({ name: "Example Later", code: LATER, industryPackId: "home_textile_trade_v1", timezone: "Asia/Shanghai", actorUserId: ADMIN, ownerUserId: BOSS });
+    const laterOrg = await db.organization.findUniqueOrThrow({ where: { id: later1.orgId }, select: { ownerId: true } });
+    ok(
+      !later1.ownerAssigned && later2.orgId === later1.orgId && !later2.created && later2.ownerAssigned && laterOrg.ownerId === BOSS,
+      "先不填老板、再用同一 code 补填老板邮箱 → 企业 owner 改为工厂老板",
+      { ownerId: laterOrg.ownerId, later2 },
+    );
+    const bossAfterLater = await db.user.findUniqueOrThrow({ where: { id: BOSS }, select: { activeOrgId: true } });
+    ok(bossAfterLater.activeOrgId === orgId, "老板已选了别的真实企业 → 当前工作企业不被改", bossAfterLater);
+    const personal2 = await db.organization.create({ data: { name: "Maple Owner 的工作区", code: `personal-ob2${stamp}`, ownerId: BOSS2, status: "active" } });
+    createdOrgIds.push(personal2.id);
+    await db.organizationMember.create({ data: { orgId: personal2.id, userId: BOSS2, role: "org_owner", status: "active" } });
+    await db.user.update({ where: { id: BOSS2 }, data: { activeOrgId: personal2.id } });
+    await updateOnboardingSettings(later1.orgId, { ownerUserId: BOSS2 }, ADMIN);
+    const boss2Row = await db.user.findUniqueOrThrow({ where: { id: BOSS2 }, select: { activeOrgId: true } });
+    ok(boss2Row.activeOrgId === later1.orgId, "老板停在个人工作区 → 指定为老板后当前工作企业切到该工厂", boss2Row);
+    await db.organization.update({ where: { id: later1.orgId }, data: { status: "archived" } });
+    const archivedCats = await expectConflict(() => setOrgProductCategories(later1.orgId, { make: ["towel"] }, ADMIN));
+    const archivedPatch = await expectConflict(() => updateOnboardingSettings(later1.orgId, { timezone: "UTC" }, ADMIN));
+    ok(archivedCats?.code === "CONFLICT" && archivedPatch?.code === "CONFLICT", "已归档企业：品类发布与 PATCH 都拒绝", [archivedCats?.message, archivedPatch?.message]);
 
     const s0 = await getOnboardingStatus(orgId);
     ok(
@@ -281,6 +349,12 @@ async function main() {
     ok(t1.ok, "测试询盘全链路通过", t1);
     ok(t1.eventId === `onboarding-test-${orgId}-1` && t1.stages.receipt.ok, "收据：onboarding-test-<orgId>-1", t1.stages.receipt);
     ok(t1.stages.opportunity.ok && t1.stages.draft.ok && !!t1.stages.draft.pendingActionId, "建出商机，草稿进入审批", { opp: t1.stages.opportunity, draft: t1.stages.draft });
+    const testBuyers = await db.salesCustomer.findMany({ where: { orgId, email: { equals: "onboarding-test@example.com", mode: "insensitive" } }, select: { id: true } });
+    ok(
+      t1.stages.opportunity.customerId === t1.stages.opportunity.preTaggedBuyerId && testBuyers.length === 1,
+      "商机挂在入链前预建、已带测试标记的买家上（草稿生成时就带拒发标记，不是事后补打）",
+      { customerId: t1.stages.opportunity.customerId, preTagged: t1.stages.opportunity.preTaggedBuyerId, buyers: testBuyers.length },
+    );
     ok(t1.stages.notification.ok && t1.stages.notification.recipients >= 2 && t1.stages.notification.wechatRecipients >= 1, "通知了业务员与老板，其中已绑定微信的被统计", t1.stages.notification);
     const draft = await db.pendingAction.findUnique({ where: { id: t1.stages.draft.pendingActionId! } });
     ok(
@@ -329,6 +403,16 @@ async function main() {
     const t2 = await runOnboardingTestInquiry(orgId, ADMIN);
     ok(t2.ok && t2.counter === 2 && t2.stages.opportunity.opportunityId !== t1.stages.opportunity.opportunityId, "第二次测试：序号 2，新商机，同样关闭", t2);
 
+    // 驾驶舱阶段分布：测试单不计入；lostReason 为空 / 其他原因的真实 disqualified 照常计入
+    const realCustomer = await db.salesCustomer.create({ data: { orgId, name: "Maple Home Goods", createdById: BOSS } });
+    for (const lostReason of [null, "price too high"]) {
+      await db.salesOpportunity.create({ data: { orgId, customerId: realCustomer.id, title: "Real inquiry", stage: "disqualified", lostReason, createdById: BOSS } });
+    }
+    const cockpit2 = await computeRevenueCockpit(orgId);
+    const disq = cockpit2.stageCounts.find((g) => g.stage === "disqualified");
+    const disqAll = await db.salesOpportunity.count({ where: { orgId, stage: "disqualified" } });
+    ok(disq?.count === 2 && disqAll === 4, "收入驾驶舱阶段分布排除 2 条测试单，保留 2 条真实 disqualified", { stageCounts: cockpit2.stageCounts, disqAll });
+
     // ── 7. 就绪推导 ──
     const s3 = await getOnboardingStatus(orgId);
     ok(
@@ -337,6 +421,8 @@ async function main() {
       s3?.testInquiries,
     );
     ok(s3?.steps.find((s) => s.key === "test_inquiry")?.status === "done" && s3.ready, "全部必做完成 → 就绪（发件身份为推荐项）", s3?.steps);
+    const h3 = s3?.steps.find((s) => s.key === "handoff");
+    ok(h3?.status === "warning" && h3.required === false && /Platform Admin/.test(h3.detail), "交接提示：平台管理员仍在成员里（推荐项，不阻塞就绪）", h3);
     await updateOnboardingSettings(orgId, { acknowledge: { email_sender: true }, timezone: "Asia/Ho_Chi_Minh" }, ADMIN);
     const s4 = await getOnboardingStatus(orgId, { configHealth: true, actorUserId: ADMIN });
     ok(
@@ -346,7 +432,25 @@ async function main() {
     );
     ok(!!s4?.configHealth && Array.isArray(s4.configHealth.issues) && s4.ready, "附带中台配置健康问题；平台级问题不阻塞就绪", s4?.configHealth?.issues.map((i) => `${i.scope}:${i.severity}:${i.code}`));
     const listed = await listOnboardingOrgs();
-    ok(listed.some((o) => o.id === orgId && o.ready) && !listed.some((o) => o.code.startsWith("personal-")), "列表含该企业（已就绪），不含个人工作区", listed.filter((o) => o.id === orgId));
+    ok(
+      listed.some((o) => o.id === orgId && o.stepsComplete) && !listed.some((o) => o.code.startsWith("personal-")) && !listed.some((o) => o.id === later1.orgId),
+      "列表含该企业（必做步骤已完成），不含个人工作区与已归档企业",
+      listed.filter((o) => o.id === orgId),
+    );
+
+    // 交接：平台管理员本人退出成员（不再收该厂询盘通知），仍可继续管理入驻
+    await updateOnboardingSettings(orgId, { leaveOrg: true }, ADMIN);
+    const adminMember = await db.organizationMember.findUnique({ where: { orgId_userId: { orgId, userId: ADMIN } } });
+    const s5 = await getOnboardingStatus(orgId);
+    ok(
+      adminMember?.status === "inactive" && s5?.steps.find((s) => s.key === "handoff")?.status === "done" && s5.ready && !s5.members.some((m) => m.userId === ADMIN),
+      "交接后平台管理员成员停用，交接步骤完成，仍就绪",
+      { status: adminMember?.status, handoff: s5?.steps.find((s) => s.key === "handoff") },
+    );
+    const leaveTwice = await expectConflict(() => updateOnboardingSettings(orgId, { leaveOrg: true }, ADMIN));
+    ok(leaveTwice?.code === "CONFLICT", "已退出再退出 → 409", leaveTwice?.message);
+    const leaveAudit = await db.auditLog.findFirst({ where: { orgId, action: "onboarding.org.update", userId: ADMIN }, orderBy: { createdAt: "desc" } });
+    ok(!!leaveAudit && (leaveAudit.afterData ?? "").includes("actorLeftOrg"), "交接有审计记录", leaveAudit?.afterData);
 
     // ── 8. 路由鉴权 ──
     const plainCreate = await orgsRoute.POST(req("/api/organizations", { method: "POST", body: { name: "Should Not Exist" }, cookie: plainCookie }));

@@ -45,7 +45,13 @@ export interface OnboardingTestInquiryResult {
   counter: number;
   stages: {
     receipt: StageResult & { receiptId: string | null; replay: boolean; busy: boolean };
-    opportunity: StageResult & { opportunityId: string | null; customerId: string | null; prospectId: string | null };
+    opportunity: StageResult & {
+      opportunityId: string | null;
+      customerId: string | null;
+      prospectId: string | null;
+      /** 入链前预建并打好测试标记的买家；customerId 与之相同 = 草稿生成时买家已带拒发标记 */
+      preTaggedBuyerId: string;
+    };
     draft: StageResult & { pendingActionId: string | null; fdeStatus: string | null; score: number | null; grade: string | null };
     notification: StageResult & { notifications: number; recipients: number; wechatRecipients: number };
     closed: StageResult & {
@@ -341,10 +347,15 @@ export async function runOnboardingTestInquiry(
     },
     opportunity: {
       ok: !!opportunityId,
-      detail: opportunityId ? "已建线索、客户与商机" : ingest && !ingest.spine.ok ? `商机未建出：${ingest.spine.error}` : "商机未建出",
+      detail: opportunityId
+        ? `已建线索、客户与商机${customerId === buyer.id ? "" : "（客户未匹配到预建的测试买家，已在关闭时补打测试标记）"}`
+        : ingest && !ingest.spine.ok
+          ? `商机未建出：${ingest.spine.error}`
+          : "商机未建出",
       opportunityId,
       customerId,
       prospectId,
+      preTaggedBuyerId: buyer.id,
     },
     draft: {
       ok: !!draftRow,

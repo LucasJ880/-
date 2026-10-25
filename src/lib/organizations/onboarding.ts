@@ -25,6 +25,7 @@ import {
   type ProductCategoryCatalogEntry,
 } from "@/lib/industry-packs/registry";
 import { ensureBaselineOrgRules, listOrgConfigIssues } from "@/lib/org-rules/service";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
 import type { OrgRole } from "@/lib/rbac/roles";
 import { INQUIRY_REPLY_ACTION_TYPE } from "@/lib/revenue-spine/fde/inbound-sales";
 import { TERMINAL_STAGES } from "@/lib/revenue-spine/opportunity-stage";
@@ -39,6 +40,7 @@ import {
   formatInviteCode,
   onboardingTestEventPrefix,
   planBusinessProfileCategories,
+  planExistingOrgAdoption,
   planMembership,
   validateCategorySelection,
   type AcknowledgeableStep,
@@ -89,16 +91,26 @@ export interface ProvisionFactoryOrgResult {
   memberships: Array<{ userId: string; role: string; action: "create" | "update" | "keep" }>;
   /** 已存在的组织只补缺不覆盖：被保留的既有值 */
   keptExisting: string[];
+  /** 本次把企业 owner 交给了工厂老板（新建，或既有企业原由平台管理员暂代） */
+  ownerAssigned: boolean;
 }
 
-function onboardingSettings(existing: unknown, actorUserId: string, now: Date): Rec {
+/**
+ * settingsJson.onboarding：provisionedAt / provisionedById 只由 provisionFactoryOrg 写入（= 经入驻向导开通过，
+ * 同 code 重复提交据此判断能否幂等接管）；PATCH 只更新版本号与确认项，不会把别人的企业标成向导开通。
+ */
+function onboardingSettings(existing: unknown, actorUserId: string, now: Date, mode: "provision" | "update"): Rec {
   const prev = rec(existing) ?? {};
-  return {
-    ...prev,
-    version: ONBOARDING_SETTINGS_VERSION,
-    provisionedAt: typeof prev.provisionedAt === "string" ? prev.provisionedAt : now.toISOString(),
-    provisionedById: typeof prev.provisionedById === "string" ? prev.provisionedById : actorUserId,
-  };
+  const out: Rec = { ...prev, version: ONBOARDING_SETTINGS_VERSION };
+  if (mode === "provision") {
+    out.provisionedAt = typeof prev.provisionedAt === "string" ? prev.provisionedAt : now.toISOString();
+    out.provisionedById = typeof prev.provisionedById === "string" ? prev.provisionedById : actorUserId;
+  }
+  return out;
+}
+
+function provisionedByWizard(settings: Rec): boolean {
+  return typeof rec(settings.onboarding)?.provisionedById === "string";
 }
 
 async function upsertMembership(
@@ -134,6 +146,20 @@ async function ensurePackWorkspaces(tx: Prisma.TransactionClient, orgId: string,
   return created;
 }
 
+/**
+ * 工厂老板的「当前工作企业」：还没选过、或停在个人工作区时切到本企业（老板先用普通邀请码注册会带一个个人工作区，
+ * 两个企业且未选择时登录后要手动选）；已选了别的真实企业则不动。
+ */
+async function preferOrgAsActive(tx: Prisma.TransactionClient, userId: string, orgId: string): Promise<void> {
+  const user = await tx.user.findUnique({ where: { id: userId }, select: { activeOrgId: true } });
+  if (!user || user.activeOrgId === orgId) return;
+  if (user.activeOrgId) {
+    const current = await tx.organization.findUnique({ where: { id: user.activeOrgId }, select: { code: true, status: true } });
+    if (current && current.status !== "archived" && !current.code.startsWith("personal-")) return;
+  }
+  await tx.user.update({ where: { id: userId }, data: { activeOrgId: orgId } });
+}
+
 async function assertActiveUsers(ids: string[]): Promise<void> {
   const unique = [...new Set(ids)];
   const rows = await db.user.findMany({ where: { id: { in: unique } }, select: { id: true, status: true } });
@@ -147,7 +173,9 @@ async function assertActiveUsers(ids: string[]): Promise<void> {
  * 建工厂组织（单事务，按 code 幂等）。
  * - 新建：行业包、显式模块、时区、onboarding 版本、默认工作空间、成员（操作者 org_admin，老板 org_owner）
  * - 已存在：只补缺（未配置的行业包 / 模块 / 时区 / 工作空间 / 成员），不覆盖既有值；
- *   行业包与请求不一致或组织已归档 → CONFLICT
+ *   行业包与请求不一致或组织已归档 → CONFLICT；
+ *   不是入驻向导建的、且有操作者 / 工厂老板 / 平台管理员以外的成员 → CONFLICT（不接管别人的企业）；
+ *   指定了工厂老板而企业已有别的负责人 → CONFLICT；owner 仍是平台管理员暂代 → 交给工厂老板
  * 事务后补齐平台默认业务规则（已有规则绝不覆盖）。
  */
 export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Promise<ProvisionFactoryOrgResult> {
@@ -167,9 +195,10 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
       const keptExisting: string[] = [];
       let org = await tx.organization.findUnique({
         where: { code: input.code },
-        select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true },
+        select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true },
       });
       let created = false;
+      let ownerAssigned = false;
       if (org) {
         if (org.status === "archived") throw new OnboardingError("CONFLICT", "该 code 属于已归档的企业，请换一个 code", 409);
         const existingPack = org.industryPackId ? resolveIndustryPack(org.industryPackId) : null;
@@ -177,17 +206,38 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
           throw new OnboardingError("CONFLICT", `该 code 已被占用，且行业包为 ${org.industryPackId}（与所选不同）`, 409);
         }
         const settings = rec(org.settingsJson) ?? {};
-        const nextSettings: Rec = { ...settings, onboarding: onboardingSettings(settings.onboarding, input.actorUserId, now) };
+        const [owner, activeMembers] = await Promise.all([
+          tx.user.findUnique({ where: { id: org.ownerId }, select: { role: true } }),
+          tx.organizationMember.findMany({
+            where: { orgId: org.id, status: "active" },
+            select: { userId: true, role: true, user: { select: { role: true } } },
+          }),
+        ]);
+        const adoption = planExistingOrgAdoption(
+          {
+            createdByOnboarding: provisionedByWizard(settings),
+            ownerId: org.ownerId,
+            ownerIsPlatformAdmin: isPlatformAdmin(owner?.role),
+            activeMembers: activeMembers.map((m) => ({ userId: m.userId, orgRole: m.role, isPlatformAdmin: isPlatformAdmin(m.user.role) })),
+          },
+          input.actorUserId,
+          ownerUserId,
+        );
+        if (!adoption.ok) throw new OnboardingError("CONFLICT", adoption.message, 409);
+        ownerAssigned = !!adoption.setOwnerId;
+        const nextSettings: Rec = { ...settings, onboarding: onboardingSettings(settings.onboarding, input.actorUserId, now, "provision") };
         if (isValidTimeZone(typeof settings.timezone === "string" ? settings.timezone : "")) keptExisting.push("timezone");
         else nextSettings.timezone = input.timezone;
         const modules = parseOrgModulesJson(org.modulesJson);
         if (modules?.enabled.length) keptExisting.push("modulesJson");
         if (org.industryPackId) keptExisting.push("industryPackId");
+        if (!ownerAssigned) keptExisting.push("ownerId");
         await tx.organization.update({
           where: { id: org.id },
           data: {
             ...(org.industryPackId ? {} : { industryPackId: pack.id }),
             ...(modules?.enabled.length ? {} : { modulesJson: { enabled: [...pack.enabledModules] } }),
+            ...(adoption.setOwnerId ? { ownerId: adoption.setOwnerId } : {}),
             settingsJson: asJson(nextSettings),
           },
         });
@@ -201,16 +251,20 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
             planType: "free",
             industryPackId: pack.id,
             modulesJson: { enabled: [...pack.enabledModules] },
-            settingsJson: asJson({ timezone: input.timezone, onboarding: onboardingSettings(null, input.actorUserId, now) }),
+            settingsJson: asJson({ timezone: input.timezone, onboarding: onboardingSettings(null, input.actorUserId, now, "provision") }),
           },
-          select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true },
+          select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true },
         });
         created = true;
+        ownerAssigned = !!ownerUserId;
       }
       const workspacesCreated = await ensurePackWorkspaces(tx, org.id, pack);
       const memberships = [await upsertMembership(tx, org.id, input.actorUserId, "org_admin")];
-      if (ownerUserId) memberships.push(await upsertMembership(tx, org.id, ownerUserId, "org_owner"));
-      return { orgId: org.id, created, workspacesCreated, memberships, keptExisting };
+      if (ownerUserId) {
+        memberships.push(await upsertMembership(tx, org.id, ownerUserId, "org_owner"));
+        await preferOrgAsActive(tx, ownerUserId, org.id);
+      }
+      return { orgId: org.id, created, workspacesCreated, memberships, keptExisting, ownerAssigned };
     });
 
   let result: ProvisionFactoryOrgResult;
@@ -235,6 +289,7 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
       modules: pack.enabledModules,
       timezone: input.timezone,
       ownerUserId,
+      ownerAssigned: result.ownerAssigned,
       created: result.created,
       workspacesCreated: result.workspacesCreated,
       memberships: result.memberships,
@@ -248,8 +303,9 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput): Prom
 // ── 品类 ─────────────────────────────────────────────────────────────────
 
 async function loadOrgPack(orgId: string): Promise<{ org: { id: string; name: string; industryPackId: string | null }; pack: IndustryPack }> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, name: true, industryPackId: true } });
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true, name: true, industryPackId: true, status: true } });
   if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
+  if (org.status === "archived") throw new OnboardingError("CONFLICT", "企业已归档，不能修改", 409);
   const pack = resolveIndustryPack(org.industryPackId);
   if (pack.status !== "ok") throw new OnboardingError("PACK_REQUIRED", "请先为企业配置有效的行业包");
   return { org, pack: pack.pack };
@@ -399,9 +455,27 @@ export async function updateOnboardingSettings(
     select: { id: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true },
   });
   if (!org) throw new OnboardingError("NOT_FOUND", "企业不存在", 404);
+  if (org.status === "archived") throw new OnboardingError("CONFLICT", "企业已归档，不能修改", 409);
   if (patch.ownerUserId) await assertActiveUsers([patch.ownerUserId]);
+  if (patch.leaveOrg) {
+    // 交接：只退出操作者本人；企业必须已有别的负责人（org_owner），且操作者不是企业 owner
+    const nextOwnerId = patch.ownerUserId ?? org.ownerId;
+    if (nextOwnerId === actorUserId) {
+      throw new OnboardingError("CONFLICT", "你仍是企业 owner：请先指定工厂老板，再退出成员", 409);
+    }
+    const [mine, otherOwners] = await Promise.all([
+      db.organizationMember.findUnique({ where: { orgId_userId: { orgId, userId: actorUserId } }, select: { status: true } }),
+      db.organizationMember.count({
+        where: { orgId, status: "active", role: "org_owner", userId: { not: actorUserId }, user: { status: "active" } },
+      }),
+    ]);
+    if (mine?.status !== "active") throw new OnboardingError("CONFLICT", "你不是该企业的在册成员，无需退出", 409);
+    if (otherOwners === 0 && !patch.ownerUserId) {
+      throw new OnboardingError("CONFLICT", "企业还没有工厂老板（企业负责人）：请先指定，再退出成员", 409);
+    }
+  }
   const settings = rec(org.settingsJson) ?? {};
-  const onboarding = onboardingSettings(settings.onboarding, actorUserId, new Date());
+  const onboarding = onboardingSettings(settings.onboarding, actorUserId, new Date(), "update");
   const acks: Rec = { ...(rec(onboarding.acknowledgements) ?? {}) };
   for (const [step, value] of Object.entries(patch.acknowledge ?? {})) {
     if (value) acks[step] = { at: new Date().toISOString(), byUserId: actorUserId };
@@ -425,7 +499,13 @@ export async function updateOnboardingSettings(
       },
     });
     if (pack?.status === "ok") await ensurePackWorkspaces(tx, orgId, pack.pack);
-    if (patch.ownerUserId) await upsertMembership(tx, orgId, patch.ownerUserId, "org_owner");
+    if (patch.ownerUserId) {
+      await upsertMembership(tx, orgId, patch.ownerUserId, "org_owner");
+      await preferOrgAsActive(tx, patch.ownerUserId, orgId);
+    }
+    if (patch.leaveOrg) {
+      await tx.organizationMember.update({ where: { orgId_userId: { orgId, userId: actorUserId } }, data: { status: "inactive" } });
+    }
   });
 
   await logAudit({
@@ -447,6 +527,7 @@ export async function updateOnboardingSettings(
       modules: pack?.status === "ok" ? pack.pack.enabledModules : undefined,
       ownerId: patch.ownerUserId ?? org.ownerId,
       acknowledgements: acks,
+      ...(patch.leaveOrg ? { actorLeftOrg: true } : {}),
     },
   });
 }
@@ -568,10 +649,11 @@ export async function getOnboardingStatus(
       modulesJson: true,
       settingsJson: true,
       createdAt: true,
-      owner: { select: { id: true, name: true, email: true } },
+      owner: { select: { id: true, name: true, email: true, role: true } },
     },
   });
   if (!org) return null;
+  const { role: ownerPlatformRole, ...ownerPublic } = org.owner;
 
   const packRes = resolveIndustryPack(org.industryPackId);
   const pack = packRes.status === "ok" ? packRes.pack : null;
@@ -685,6 +767,10 @@ export async function getOnboardingStatus(
   }));
 
   const blockingIssues = (configHealth?.issues ?? []).filter((i) => i.scope === "ORGANIZATION" && i.severity === "CRITICAL").length;
+  const handoff = {
+    platformAdminMembers: members.filter((m) => isPlatformAdmin(m.platformRole) && m.userId !== org.owner.id).map((m) => m.name || m.email),
+    ownerIsPlatformAdmin: isPlatformAdmin(ownerPlatformRole),
+  };
   const derived = deriveOnboardingSteps({
     pack: { status: packRes.status, id: org.industryPackId, name: pack?.name ?? null, hasCatalog: !!pack?.productCategoryCatalog?.length },
     modulesExplicit: !!modules?.enabled.length,
@@ -702,6 +788,7 @@ export async function getOnboardingStatus(
     emailSender: { configured: !!sender },
     acknowledged: Object.fromEntries(Object.keys(acknowledged).map((k) => [k, true])),
     blockingIssues,
+    handoff,
   });
 
   return {
@@ -713,7 +800,7 @@ export async function getOnboardingStatus(
       industryPackId: org.industryPackId,
       timezone,
       modules: modules?.enabled ?? [],
-      owner: org.owner,
+      owner: ownerPublic,
       createdAt: org.createdAt,
       onboardingVersion: typeof onboarding.version === "number" ? onboarding.version : null,
     },
@@ -754,7 +841,10 @@ export async function getOnboardingStatus(
   };
 }
 
-/** 列表：非归档、非个人工作区的企业 + 就绪摘要（不跑中台健康检查） */
+/**
+ * 列表：非归档、非个人工作区的企业 + 必做步骤摘要。
+ * 不跑中台配置健康检查，所以只报「必做步骤是否完成」（stepsComplete），不报「就绪」——就绪以详情页为准。
+ */
 export async function listOnboardingOrgs(): Promise<
   Array<{
     id: string;
@@ -763,7 +853,7 @@ export async function listOnboardingOrgs(): Promise<
     status: string;
     industryPackId: string | null;
     createdAt: Date;
-    ready: boolean;
+    stepsComplete: boolean;
     doneRequired: number;
     totalRequired: number;
     pendingStep: string | null;
@@ -787,7 +877,7 @@ export async function listOnboardingOrgs(): Promise<
       status: s.org.status,
       industryPackId: s.org.industryPackId,
       createdAt: s.org.createdAt,
-      ready: s.ready,
+      stepsComplete: s.doneRequired === s.totalRequired,
       doneRequired: s.doneRequired,
       totalRequired: s.totalRequired,
       pendingStep: pending?.label ?? null,

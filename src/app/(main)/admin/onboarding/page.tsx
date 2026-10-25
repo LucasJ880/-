@@ -15,7 +15,8 @@ interface OrgSummary {
   status: string;
   industryPackId: string | null;
   createdAt: string;
-  ready: boolean;
+  /** 必做步骤全部完成（不含配置健康检查；就绪以详情页为准） */
+  stepsComplete: boolean;
   doneRequired: number;
   totalRequired: number;
   pendingStep: string | null;
@@ -100,7 +101,8 @@ export default function FactoryOnboardingListPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "创建失败");
-      router.push(`/admin/onboarding/${data.result.orgId}`);
+      // 同 code 已存在：进入向导时提示「只补齐了缺项」
+      router.push(`/admin/onboarding/${data.result.orgId}${data.result.created ? "" : "?existing=1"}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
     } finally {
@@ -131,7 +133,7 @@ export default function FactoryOnboardingListPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted">企业 code *（小写字母 / 数字 / 连字符，重复提交按 code 幂等）</label>
+            <label className="mb-1 block text-xs text-muted">企业 code *（小写字母 / 数字 / 连字符；重复提交按 code 幂等，不会接管别人建的企业）</label>
             <input
               value={code}
               onChange={(e) => {
@@ -228,13 +230,14 @@ export default function FactoryOnboardingListPage() {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span
+                      title="必做步骤完成情况；是否就绪（含配置健康检查）以详情页为准"
                       className={cn(
                         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs",
-                        o.ready ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600",
+                        o.stepsComplete ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600",
                       )}
                     >
-                      {o.ready && <CheckCircle2 size={12} />}
-                      {o.ready ? "已就绪" : `${o.doneRequired}/${o.totalRequired}`}
+                      {o.stepsComplete && <CheckCircle2 size={12} />}
+                      {o.stepsComplete ? "必做步骤已完成" : `${o.doneRequired}/${o.totalRequired}`}
                     </span>
                     <ChevronRight size={16} className="text-muted" />
                   </div>
