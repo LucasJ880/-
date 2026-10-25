@@ -610,4 +610,115 @@ ok("短邮件开头的结束语（Thanks! / Thank you / 谢谢）后面还有正
   assert.equal(signed.buyer.company, "Maple Home Goods Inc.");
 });
 
+const BUYER_HDR = `---------- Forwarded message ---------\nFrom: Jane Doe <jane.doe@maplehomegoods.example>\nDate: Mon, Oct 20, 2026\nSubject: towels\nTo: <lily@${FACTORY}>\n\n`;
+const BUYER_BODY = "We need 500 pcs bath towels, 70x140cm, please quote FOB.";
+const BUYER_SIG = "Best regards,\nJane Doe\nMaple Home Goods Inc.\n+1 416 555 0134";
+
+ok("买家签名后面跟保密声明 / 长地址行 / 单行签名 / 标语 / P.S. 时，结束语仍是签名起点：电话、公司取出，正文不含签名", () => {
+  // P.S. 的取舍：与早先的解析器一致，跟在签名之后的 P.S. 随签名一起切掉、不进留言（它可能是买家的补充要求，
+  // 但要留下就得把签名区拆成不连续的两段，暂不做）
+  const tails: Record<string, string> = {
+    disclaimer: "\n\nCONFIDENTIALITY NOTICE: This email and any attachments are confidential and may be privileged. If you are not the intended recipient, please delete it and notify the sender.",
+    address: "\n1234 Example Boulevard, Suite 500, Toronto, Ontario M5V 2T6, Canada",
+    oneLineSignature: "\nJane Doe | Purchasing | Maple Home Goods Inc. | www.maplehomegoods.example",
+    slogan: "\nWe are your partner in home comfort",
+    postscript: "\n\nP.S. Please also send your catalogue.",
+    ecoFooter: "\n\nPlease consider the environment before printing this email.",
+    thisEmailDisclaimer: "\n\nThis e-mail and any files transmitted with it are confidential and intended solely for the addressee.",
+    faxExtension: "\nFax: +1 416 555 0135 x 23",
+    social: "\nFollow us on LinkedIn: linkedin.example/company/maple-home-goods",
+  };
+  for (const [name, tail] of Object.entries(tails)) {
+    const p = parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "Fwd: towels", text: `${BUYER_HDR}${BUYER_BODY}\n\n${BUYER_SIG}${tail}` });
+    assert.equal(p.message, BUYER_BODY, name);
+    assert.equal(p.buyer.phone, "+1 416 555 0134", name);
+    assert.equal(p.buyer.company, "Maple Home Goods Inc.", name);
+    assert.equal(p.buyer.name, "Jane Doe", name);
+    assert.equal(p.buyer.email, "jane.doe@maplehomegoods.example", name);
+  }
+  // 只有单行签名：签名照样切掉（公司从单行签名里取不到就留空，与之前一致）
+  const oneLine = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: towels",
+    text: `${BUYER_HDR}${BUYER_BODY}\n\nBest regards,\nJane Doe | Purchasing | Maple Home Goods Inc. | www.maplehomegoods.example`,
+  });
+  assert.equal(oneLine.message, BUYER_BODY);
+  assert.equal(oneLine.buyer.company, "");
+});
+
+ok("平台通知「Message」里的结束语后面是买家名字和平台安全提示时，留言停在结束语前", () => {
+  const p = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: New inquiry from Alibaba.com",
+    text: `---------- Forwarded message ---------\nFrom: Alibaba.com <notice@service.alibaba.com>\nDate: Mon, Oct 20, 2026\nSubject: New inquiry from Alibaba.com\nTo: <lily@${FACTORY}>\n\nYou have a new inquiry on Alibaba.com\nBuyer: Jane Doe\nProduct: Bath towel\nMessage:\nHello, we need 500 pcs bath towels, please quote FOB.\nRegards,\nJane\nTo keep your account safe, we will never ask for your password by email.\nCountry: Canada`,
+  });
+  assert.equal(p.format, "platform_notification");
+  assert.equal(p.message, "Hello, we need 500 pcs bath towels, please quote FOB.");
+  assert.equal(p.buyer.country, "Canada");
+  // 没有结束语时，安全提示（通知页脚）也不进留言
+  const bare = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: New inquiry from Alibaba.com",
+    text: `---------- Forwarded message ---------\nFrom: Alibaba.com <notice@service.alibaba.com>\nDate: Mon, Oct 20, 2026\nSubject: New inquiry from Alibaba.com\nTo: <lily@${FACTORY}>\n\nYou have a new inquiry on Alibaba.com\nBuyer: Jane Doe\nProduct: Bath towel\nMessage:\nHello, we need 500 pcs bath towels, please quote FOB.\nTo keep your account safe, we will never ask for your password by email.\nCountry: Canada`,
+  });
+  assert.equal(bare.message, "Hello, we need 500 pcs bath towels, please quote FOB.");
+});
+
+ok("开头的结束语后面是正文 / 买家联系方式时仍不是签名起点（放宽签名识别后回归）", () => {
+  const probe = "Hello Lily,\nThanks!\nWe need 300 robes, contact me at jane@maple.example.com";
+  // 业务员手写（无转发头）
+  const note = parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "lead", text: probe });
+  assert.equal(note.buyer.email, "jane@maple.example.com");
+  assert.match(note.message, /We need 300 robes/);
+  // 买家来信
+  const fwd = parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "Fwd: robes", text: `${BUYER_HDR}${probe}` });
+  assert.match(fwd.message, /We need 300 robes, contact me at jane@maple\.example\.com/);
+  // 业务员备注：结束语后面是带「Buyer / 买家」标签的买家联系方式
+  const labeled = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "lead",
+    text: "Hi team,\nThanks\nBuyer: Jane Doe\nEmail: jane.doe@maplehomegoods.example\nPhone: +1 416 555 0134\nLily",
+  });
+  assert.equal(labeled.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(labeled.buyer.phone, "+1 416 555 0134");
+  assert.match(labeled.message, /Buyer: Jane Doe/);
+  const buyerLabels = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "lead",
+    text: "New lead from the fair.\nThanks!\nBuyer email: jane.doe@maplehomegoods.example\nBuyer phone: +1 416 555 0134\n300 duvet covers, queen size",
+  });
+  assert.equal(buyerLabels.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.equal(buyerLabels.buyer.phone, "+1 416 555 0134");
+  assert.match(buyerLabels.message, /300 duvet covers/);
+  // 业务员备注：结束语后面是不带标签的买家邮箱行（本厂人员写的内容里，买家邮箱所在行不是签名）
+  const bareEmail = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "lead",
+    text: "Hi team,\n谢谢\nJane Doe, Maple Home Goods Inc.\njane.doe@maplehomegoods.example",
+  });
+  assert.equal(bareEmail.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.match(bareEmail.message, /Maple Home Goods Inc\./);
+  // 结束语后第一行像签名、其后是询价句 / 规格行：不算签名
+  const request = parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "Fwd: robes", text: `${BUYER_HDR}Hello Lily,\nThanks!\nJane Doe here\nPlease quote 300 robes, white.` });
+  assert.match(request.message, /Please quote 300 robes/);
+  const spec = parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "Fwd: towels", text: `${BUYER_HDR}Hi Lily,\nThanks!\nBath towels 70x140cm, white and grey, 5000 pcs per color, delivery to Toronto\nJane` });
+  assert.match(spec.message, /Bath towels 70x140cm/);
+  const slogan = parse({ from: `Lily Chen <lily@${FACTORY}>`, subject: "Fwd: towels", text: `${BUYER_HDR}Hello Lily,\nThanks!\nWe are a hotel chain in Toronto.\nJane` });
+  assert.match(slogan.message, /hotel chain in Toronto/);
+  // 60 字以上、没有签名样子（分隔符 / 公司 / 职位 / 地址 / 电话）的行是正文，不因为放宽到 100 字就被当成签名
+  const longSpec = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: robes",
+    text: `${BUYER_HDR}Hi,\nThanks!\nJane\n300 bathrobes white size L/XL embroidered logo delivery Toronto Canada end of March`,
+  });
+  assert.match(longSpec.message, /300 bathrobes white/);
+  // 业务员落款之后的 P.S. 里有买家邮箱：买家邮箱所在行不算签名尾巴，邮箱不随签名丢掉
+  const staffPs = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "lead",
+    text: "New buyer below, please quote.\n\nThanks,\nLily\nP.S. buyer email jane.doe@maplehomegoods.example",
+  });
+  assert.equal(staffPs.buyer.email, "jane.doe@maplehomegoods.example");
+});
+
 console.log(`\nemail-forward-parse: ${pass} 通过`);
