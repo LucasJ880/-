@@ -8,6 +8,7 @@
  * 分级提醒（revenue-spine/sla-tiers，组织策略 salesSla 配了任一档即启用）：先跑分级；启用分级的组织里，
  * 分级负责的 Revenue Spine 询盘（仍在跟踪的，或线程这次进线就是那次询盘——不论之后已回复 / 已关闭）旧提醒跳过它关联的外贸线索
  * （同一条询盘只有一个提醒来源），其余线程（询盘之后客户再来信、没进 Revenue Spine 的渠道消息）旧提醒照常。
+ * cron/revenue-spine 不为 reply_inquiry 发提醒；reply_customer 需要已有外发，与分级对象（尚未回复）天然不重叠。
  */
 
 import { db } from "@/lib/db";
