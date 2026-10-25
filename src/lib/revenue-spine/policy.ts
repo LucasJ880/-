@@ -141,12 +141,19 @@ export interface ScoringPolicy {
   individualMinQuantity: number;
 }
 
+/** 微信提醒开关（按组织）；默认全部关闭，老板显式打开才推 */
+export interface NotifyPolicy {
+  /** FDE 生成新的询盘回复草稿时，微信提醒审批人（每人每小时最多一条，只给链接，不含买家邮箱/电话） */
+  wechatOnNewDraft: boolean;
+}
+
 export interface RevenueSpinePolicy {
   version: string;
   businessProfile: BusinessProfile;
   salesSla: SalesSlaPolicy;
   followUp: FollowUpPolicy;
   scoring: ScoringPolicy;
+  notify: NotifyPolicy;
   /** 阶段 → 成交概率（Expected Revenue 口径） */
   stageWinProbability: Record<string, number>;
 }
@@ -275,6 +282,7 @@ export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
     largeOrderQuantity: 3000,
     individualMinQuantity: 50,
   },
+  notify: { wechatOnNewDraft: false },
   stageWinProbability: {
     new_inquiry: 0.05,
     enriching: 0.05,
@@ -462,6 +470,7 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
   const sc = rec(o.scoring) ?? {};
   const w = rec(sc.weights) ?? {};
   const g = rec(sc.grades) ?? {};
+  const nt = rec(o.notify) ?? {};
   const tiersRaw = Array.isArray(sc.quantityTiers) ? sc.quantityTiers : null;
   const tiers = tiersRaw
     ? tiersRaw
@@ -512,6 +521,10 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
       strategicMarkets: strList(sc.strategicMarkets, base.scoring.strategicMarkets),
       largeOrderQuantity: num(sc.largeOrderQuantity, base.scoring.largeOrderQuantity),
       individualMinQuantity: num(sc.individualMinQuantity, base.scoring.individualMinQuantity),
+    },
+    notify: {
+      // 只认布尔值；存量策略没有 notify 时保持关闭
+      wechatOnNewDraft: typeof nt.wechatOnNewDraft === "boolean" ? nt.wechatOnNewDraft : (base.notify?.wechatOnNewDraft ?? false),
     },
     stageWinProbability: numMap(o.stageWinProbability, base.stageWinProbability),
   };

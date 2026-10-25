@@ -12,6 +12,7 @@ import {
   isGrowthPath,
   isOperationsCenterPath,
   pathMatches,
+  pickActiveNavKey,
   type NavigationFilterContext,
 } from "../index";
 
@@ -221,6 +222,48 @@ ok(
     mengxinLike.some((i) => i.href === "/trade/samples") &&
     mengxinLike.some((i) => i.href === "/trade/products"),
   "外贸模块企业显示询盘收件箱、寄样和货号",
+);
+
+// —— 今日询盘（/revenue/today）：外贸模块 + 与 /revenue 相同的角色（resolveRevenueAccess）——
+const todayItem = NAVIGATION_REGISTRY.find((i) => i.key === "biz-revenue-today");
+ok(
+  todayItem?.href === "/revenue/today" && todayItem.group === "BUSINESS" && todayItem.label === "今日询盘",
+  "今日询盘在业务运营，指向 /revenue/today",
+);
+ok(
+  mengxinLike.some((i) => i.href === "/revenue/today"),
+  "外贸模块企业的外贸员可见今日询盘",
+);
+ok(
+  !sunnyLike.some((i) => i.href === "/revenue/today"),
+  "未启用外贸模块的企业不显示今日询盘",
+);
+const tradeOrgModules: NavigationFilterContext["modules"] = {
+  enabled: ["sales", "trade", "product_content", "supply_chain", "operations", "marketing"],
+};
+const visibleFor = (platformRole: string, href: string) =>
+  resolveNavigationTree(NAVIGATION_REGISTRY, ctx({ platformRole, orgRole: "org_member", modules: tradeOrgModules })).some(
+    (i) => i.href === href || i.children?.some((c) => c.href === href),
+  );
+ok(
+  ["trade", "boss", "manager", "admin"].every((r) => visibleFor(r, "/revenue/today")),
+  "外贸 / 老板 / 总经理 / 管理员可见今日询盘",
+);
+ok(
+  ["trade", "sales", "boss", "manager", "admin", "operations", "user"].every(
+    (r) => visibleFor(r, "/revenue/today") === visibleFor(r, "/revenue"),
+  ),
+  "今日询盘与收入驾驶舱同一可见范围（销售员走销售工作区导航，两者都不在侧栏）",
+);
+ok(
+  !visibleFor("operations", "/revenue/today") && !visibleFor("user", "/revenue/today"),
+  "运营与普通用户不可见今日询盘",
+);
+ok(
+  pickActiveNavKey("/revenue/today", NAVIGATION_REGISTRY) === "biz-revenue-today" &&
+    pickActiveNavKey("/revenue", NAVIGATION_REGISTRY) === "biz-revenue" &&
+    pickActiveNavKey("/revenue/opp123", NAVIGATION_REGISTRY) === "biz-revenue",
+  "/revenue/today 点亮今日询盘；驾驶舱与商机详情仍点亮收入驾驶舱",
 );
 ok(
   !resolveNavigationTree(

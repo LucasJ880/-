@@ -24,8 +24,8 @@ export function boothDayOf(now: Date, timeZone: string): string {
   return getLocalTimeParts(new Date(now.getTime() - BOOTH_DAY_START_HOUR * 3_600_000), timeZone).date;
 }
 
-/** 当地某天 hh:00 对应的 UTC 时刻 */
-function zonedHourToUtc(day: string, hour: number, timeZone: string): Date {
+/** 当地某天 hh:00 对应的 UTC 时刻（今日询盘视图按当地零点切日也用它） */
+export function zonedHourToUtc(day: string, hour: number, timeZone: string): Date {
   const guess = Date.parse(`${day}T${pad(hour)}:00:00Z`);
   const p = getLocalTimeParts(new Date(guess), timeZone);
   const offset = Date.parse(`${p.date}T${pad(p.hour)}:${pad(p.minute)}:00Z`) - guess;
@@ -150,8 +150,8 @@ export function formatBoothSummary(s: BoothSummary): { title: string; text: stri
   return { title, text: lines.join("\n") };
 }
 
-/** 管理层：平台角色老板 / 经理 / 管理员，或组织所有者 / 管理员（在职） */
-async function managementOf(orgId: string): Promise<string[]> {
+/** 管理层：平台角色老板 / 经理 / 管理员，或组织所有者 / 管理员（在职）。老板询盘早报沿用同一规则 */
+export async function managementOf(orgId: string): Promise<string[]> {
   const members = await db.organizationMember.findMany({
     where: { orgId, status: "active" },
     select: { userId: true, role: true, user: { select: { role: true } } },

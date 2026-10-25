@@ -67,6 +67,7 @@ export interface Messages {
   nav_trade_intelligence: string;
   nav_trade_cockpit: string;
   nav_revenue_cockpit: string;
+  nav_revenue_today: string;
   nav_trade_fulfillment: string;
   nav_ai_assistant: string;
   nav_ai_jobs: string;

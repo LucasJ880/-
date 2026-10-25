@@ -56,6 +56,8 @@ export interface RunInboundFdeInput {
   useLlm?: boolean;
   now?: Date;
   policy?: RevenueSpinePolicy;
+  /** 测试注入：新草稿的微信提醒发送函数（policy.notify.wechatOnNewDraft 打开时才会调用；缺省走 pushNotification） */
+  pushNewDraft?: (userId: string, title: string, text: string) => Promise<unknown>;
 }
 
 export interface InboundFdeResult {
@@ -405,6 +407,8 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     let draft: ReplyDraft | null = null;
     let pendingActionId: string | null = null;
     let approvalRequired = false;
+    /** 本次新建了草稿（复用同一来信的未决草稿不算），决定是否发微信提醒 */
+    let draftCreated = false;
     let reviewZh: ReplyDraft | null = null;
     // 只命中企业明确不做的类目：不自动起草，留人工判断婉拒或转介（商机与 SLA 行动照常建立）
     if (score.outOfRange) {
@@ -542,6 +546,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         });
         if (approval.ok) {
           pendingActionId = approval.actionIds[0] ?? null;
+          draftCreated = !openDraft && !!pendingActionId;
           await event("approval.required", openDraft ? "复用未决审批草稿" : "首次回复需人工审批后发送", { pendingActionId, actionType: INQUIRY_REPLY_ACTION_TYPE, to: opp.customer.email, reused: !!openDraft });
         } else {
           await event("approval.failed", "创建审批草稿失败", { error: approval.error, code: approval.errorCode });
@@ -598,6 +603,25 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         metadata: { pendingActionId, opportunityId: opp.id, agentRunId: runId },
         sourceKeyPrefix: `revenue-approval:${pendingActionId}`,
       }).catch(() => undefined);
+
+      // 组织打开了「新草稿微信提醒」：给审批人推一条短消息（每人每小时最多一条；不含买家邮箱 / 电话）
+      if (draftCreated && policy.notify?.wechatOnNewDraft) {
+        try {
+          const { pushNewDraftToApprover } = await import("../owner-brief");
+          const r = await pushNewDraftToApprover({
+            orgId,
+            userId: principalUserId,
+            opportunityId: opp.id,
+            pendingActionId,
+            buyer: { scoreGrade: score.grade, score: score.score, market: opp.market ?? opp.customer.country ?? null, source: opp.source, customerName: opp.customer.name },
+            now,
+            push: input.pushNewDraft,
+          });
+          await event("agent.output", r.pushed ? "已微信提醒审批人" : "微信提醒未发送", { decision: "wechat_new_draft", pushed: r.pushed, reason: r.reason ?? null });
+        } catch (err) {
+          await event("agent.output", "微信提醒失败（不影响草稿）", { decision: "wechat_new_draft", error: err instanceof Error ? err.message : String(err) }).catch(() => undefined);
+        }
+      }
     }
 
     await completeAgentRun(orgId, runId);
