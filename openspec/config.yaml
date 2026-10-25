@@ -1,0 +1,69 @@
+schema: spec-driven
+
+# ─────────────────────────────────────────────────────────────
+# 青砚 OpenSpec 配置（SDD-0 接入）
+# context 会注入每一次 /opsx:*，写的是"硬纪律"，不是项目说明书。
+# 来源：docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md 表头纪律行、
+#       docs/QINGYAN_TENDER_T5_AUTOMATION_CONVERGENCE_PREFLIGHT.md §2、
+#       Decision A（2026-10-23，PR #238 邮箱拆分）、
+#       docs/QINGYAN_TENDER_P1-8_ADVISORY_PREFS_TASKBRIEF.md §2.2 / §5。
+# "一个 change = 一个 PR"与"archive 时同步更新 TASKFLOW 状态"是 SDD-0 提议的约定。
+# ─────────────────────────────────────────────────────────────
+
+context: |
+  项目：青砚（Next.js 16 App Router / TypeScript / Prisma 6 + PostgreSQL / Node 24，见 .nvmrc）。
+  当前主线：青砚 × Muse 招投标优化长任务流，状态唯一事实源是 docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md。
+  所有 OpenSpec 产物（proposal / specs / design / tasks）用中文写；测试名用中文，与 scripts/test-all.sh 现有风格一致。
+
+  硬纪律（违反即 GATE 不过）：
+  1. 零 schema：不新增 Prisma model、不加字段、不写 migration。扩展数据只能落在既有 JSON 位（Organization.settingsJson / User settings）、Notification、AuditLog。
+  2. 出站动作一律先审批：任何对外发送（邮件 / Muse 消息中的动作 / 改价 / 锁标）必须先建 PendingAction，批准后由执行器发出；批准前零出站。
+  3. 禁止第三套队列（T5 preflight §2 永久禁令）：不再创建任何 TenderQueue / TenderWorkerRuntime / TenderJobEngine / TenderPipelineExecutor / TenderScheduler / TenderBackgroundRuntime，也不新增任何 scheduler / queue / lease / approval / worker registry。复用 workforce runtime 与既有 cron。
+  4. 脱敏：发往 Muse 或供应商的任何文本不得出现毛利、winningBidPrice 等内部敏感字段；命中即整段替换为脱敏提示，不做局部遮盖。price_scenario 只输出价格分 / 盈亏平衡，不输出毛利。
+  5. 不爬登录页：外部情报只用开放数据 / 公开页面，不触碰任何需要登录的站点。
+  6. 邮箱分离（Decision A，2026-10-23）：展示发件人 fromEmail（project@）与授权邮箱 mailboxEmail（lucas@）是两个设置；EmailProvider 只按组织设置里的 mailboxEmail 查找，永不从请求 payload 取。
+  7. 确定性优先：next_step 等"下一步"判断是查表，不让 LLM 决定；不增加新的 LLM 调用；偏好记忆里不存任何金额。
+  8. 测试注册：任何 src/lib/**/__tests__/*.test.ts 必须在 scripts/test-all.sh 注册，否则 scripts/check-test-registry.sh 失败；历史欠账在 ci/test-registry-baseline.txt，只能删不能加。
+
+  工作约定：
+  - 一个 change = 一个 PR；PR 合并后才 archive，archive 是另一个小 PR。
+  - archive 时同步把 docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md 对应任务的状态列改成实际值。
+  - openspec/specs/** 只能通过 /opsx:archive 归档进来，禁止手写。
+  - 不删 docs/ 下任何文件；不动 .claude/launch.json。
+  - 换会话续做用 /opsx:continue <change>，不凭记忆重写。
+
+rules:
+  proposal:
+    - 必须有"Out of scope"一节，写清本次不做什么。
+    - 必须写出对应的 TASKFLOW ID（如 P1-7）；没有对应 ID 的基础设施类 change 写"TASKFLOW：无（基础设施）"。
+    - 触碰 muse-bridge 时必须列出受影响的 Muse 意图（status / ask / rfq / compare / chase / price_scenario / next_step …）。
+    - Why 不超过两句；What 用动词开头的要点，每条一个可验证的改动。
+    - 不写"尽量 / 尽可能 / 建议"这类软话；要么是硬要求，要么不写。
+  specs:
+    - 每条 Requirement 用 SHALL / SHALL NOT，不用 should / may。
+    - 每个 Scenario 用 WHEN / THEN，且至少一条 Scenario 对应一个真实测试或可直接执行的命令。
+    - 本次改动的每一个对外可观察行为（API 响应、事件、消息文本、退出码、文件产物）都必须有 Requirement 覆盖，不留"显而易见"的空白。
+    - 涉及敏感字段的能力必须有一条 SHALL NOT 的 Requirement 写明不输出什么。
+    - Requirement 里不写函数名 / 类名 / 实现步骤；文件路径只在它本身就是对外契约时才写（如脚本入口、配置文件）。
+  design:
+    - 必须逐条写明本次改动与八条硬纪律的关系：触碰了哪几条、怎么遵守；没触碰的写"不涉及"。
+    - 每个 Decision 写出至少一个被否决的备选与否决理由。
+    - 必须写验证方式：跑哪个测试 / 哪条命令 / 看哪个输出。
+    - 不动的东西（Non-Goals）要具体到模块或文件，不写"其他不变"。
+  tasks:
+    - 每条 task 自带 verify：一个命令、一个测试或一个可观察产物，写进同一个 checkbox。
+    - 有 TASKFLOW ID 的 change，最后一条 task 固定是"写 docs/QINGYAN_<ID>_REPORT.md + 更新 TASKFLOW 状态列"。
+    - 任何 task 不得直接写 openspec/specs/**。
+    - task 数量不超过 8 条；超过说明 change 切得太大，拆 change。
+
+operations:
+  apply:
+    guidance:
+      - 开始前先跑一遍将要触碰模块的已注册测试，记下基线通过数；结束前再跑一遍并跑 npm run typecheck。
+      - 新增或改名任何 __tests__/*.test.ts 时，同一个 task 里把它注册进 scripts/test-all.sh。
+      - 发现 spec 没覆盖的对外行为时，先停下来补 spec 增量，再继续写代码。
+  archive:
+    guidance:
+      - 只在对应 PR 已合并到 main 之后 archive；未合并不得 archive。
+      - archive 后同步修改 docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md 的状态列，并确认 openspec list --specs 列出新能力。
+      - archive 本身走一个独立的小 PR。
