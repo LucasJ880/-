@@ -1,7 +1,7 @@
 # 网站询盘异步入站（PRD F3.1–F3.3）
 
 适用：`POST /api/trade/webhook/website`、`GET /api/trade/webhook/website/status`、`/api/cron/revenue-spine` 的来信 FDE 兜底，以及共用同一认领的人工入口（`POST /api/revenue/inquiries`、`POST /api/revenue/opportunities/[id]/run-fde`）。
-本文只描述通用机制，不含任何租户数据。
+本文只描述通用机制，不含任何租户数据。WhatsApp 来信复用同一条链路（`origin whatsapp`、`fdeMode deferred`），见 `docs/QINGYAN_CHANNELS_TO_SPINE.md`。
 
 ## 1. 一句话
 
