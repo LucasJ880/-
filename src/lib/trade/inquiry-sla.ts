@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import type { PushFn } from "@/lib/revenue-spine/owner-brief";
 import { RESPONSE_CLOCK_TOLERANCE_MS } from "@/lib/revenue-spine/sla-metrics";
-import { loadTierOwnedInquiryTimes, runRevenueSlaTiers, type RevenueSlaTierOutcome, type SlaTier } from "@/lib/revenue-spine/sla-tiers";
+import { loadTierOwnedInquiryTimes, runRevenueSlaTiers, type SlaTier } from "@/lib/revenue-spine/sla-tiers";
 import { loadInquiryThreads, type InquiryThread } from "@/lib/trade/inbox-service";
 
 export const SLA_FIRST_RESPONSE_MINUTES = 5;
@@ -88,7 +88,7 @@ export interface InquirySlaOutcome {
   };
 }
 
-export interface TierOwnership {
+interface TierOwnership {
   /** 此刻被分级跟踪（开放、未回复）的商机 */
   tracked: ReadonlySet<string>;
   /** 归分级负责的新询盘：商机 → 询盘行动创建时刻（不论现在是否开放 / 已回复） */
@@ -155,20 +155,8 @@ async function loadTierOwnership(
 
 export async function runInquirySla(opts?: { now?: Date; push?: PushFn }): Promise<InquirySlaOutcome> {
   // ── 分级提醒（Revenue Spine 新询盘；只对启用分级的组织生效）──
-  // 分级整体失败时不影响旧提醒：trackedByOrg 为空 → 旧提醒对所有线程照常兜底
-  const tierOutcome: RevenueSlaTierOutcome = await runRevenueSlaTiers({ now: opts?.now, push: opts?.push }).catch((err) => {
-    console.error("[inquiry-sla] SLA 分级提醒失败，本轮由旧提醒兜底：", err instanceof Error ? err.message : err);
-    return {
-      orgsScanned: 0,
-      orgsEnabled: 0,
-      tracked: 0,
-      fired: { unclaimed: 0, escalation: 0, overdue_draft: 0 },
-      notifications: 0,
-      wechatDelivered: 0,
-      failedOrgs: 1,
-      trackedByOrg: new Map<string, Set<string>>(),
-    };
-  });
+  // runRevenueSlaTiers 不抛错；整体失败时 trackedByOrg 为空 → 旧提醒对所有线程照常兜底
+  const tierOutcome = await runRevenueSlaTiers({ now: opts?.now, push: opts?.push });
 
   const since = new Date();
   since.setDate(since.getDate() - 7);

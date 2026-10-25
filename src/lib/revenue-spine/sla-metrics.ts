@@ -25,21 +25,20 @@ import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "./policy";
 
 // 入驻测试单的标记只在入驻向导（organizations/onboarding-rules）里定义一处
 import { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_TAG, ONBOARDING_TEST_UTM_SOURCE } from "@/lib/organizations/onboarding-rules";
-export { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_TAG, ONBOARDING_TEST_UTM_SOURCE };
 
 export const INBOUND_INQUIRY_ACTION_TYPE = "inbound_inquiry";
 export const TRADE_SHOW_SOURCE = "trade_show";
-export const DEFAULT_SLA_WINDOW_DAYS = 30;
-export const MAX_SLA_WINDOW_DAYS = 180;
+const DEFAULT_SLA_WINDOW_DAYS = 30;
+const MAX_SLA_WINDOW_DAYS = 180;
 /** 回复时刻早于询盘时刻这么多以内也算（DB 时钟与应用时钟的偏差） */
 export const RESPONSE_CLOCK_TOLERANCE_MS = 60_000;
 const WITHIN_MS = 24 * 3_600_000;
 const DAY_MS = 86_400_000;
-const OPEN_ACTION_STATUSES = ["open", "in_progress"];
+export const OPEN_ACTION_STATUSES = ["open", "in_progress"];
 const MAX_ROWS = 5000;
 
 type Rec = Record<string, unknown>;
-const rec = (v: unknown): Rec | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
+export const rec = (v: unknown): Rec | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
 
 function splitTags(tags: string | null | undefined): string[] {
   return (tags ?? "")
@@ -263,6 +262,28 @@ export async function loadExecutedInquiryReplyTimes(orgId: string, opportunityId
   return out;
 }
 
+/**
+ * 线索 → 商机（分级提醒与指标同一口径）：线索回填的链接（TradeProspect.convertedToSalesOpportunityId），
+ * 或商机记着的来源线索（SalesOpportunity.sourceTradeProspectId）。按 orgId 限定。
+ */
+export async function loadLinkedProspects(
+  orgId: string,
+  opps: ReadonlyArray<{ id: string; sourceTradeProspectId: string | null }>,
+): Promise<Map<string, Set<string>>> {
+  const oppIds = new Set(opps.map((o) => o.id));
+  const sourceIds = [...new Set(opps.map((o) => o.sourceTradeProspectId).filter((v): v is string => !!v))];
+  const prospects = await db.tradeProspect.findMany({
+    where: { orgId, OR: [{ convertedToSalesOpportunityId: { in: [...oppIds] } }, ...(sourceIds.length ? [{ id: { in: sourceIds } }] : [])] },
+    select: { id: true, convertedToSalesOpportunityId: true },
+  });
+  const out = new Map<string, Set<string>>();
+  const link = (prospectId: string, oppId: string) => out.set(prospectId, (out.get(prospectId) ?? new Set<string>()).add(oppId));
+  for (const p of prospects) if (p.convertedToSalesOpportunityId && oppIds.has(p.convertedToSalesOpportunityId)) link(p.id, p.convertedToSalesOpportunityId);
+  const found = new Set(prospects.map((p) => p.id));
+  for (const o of opps) if (o.sourceTradeProspectId && found.has(o.sourceTradeProspectId)) link(o.sourceTradeProspectId, o.id);
+  return out;
+}
+
 function eventShowsGuardrailBlock(payload: unknown): boolean {
   const p = rec(payload);
   if (!p) return false;
@@ -271,7 +292,8 @@ function eventShowsGuardrailBlock(payload: unknown): boolean {
 }
 
 /**
- * 查询 + 汇总。所有查询按 orgId 限定；外贸消息只查本组织、且链接到窗口内商机的线索。
+ * 查询 + 汇总。所有查询按 orgId 限定；外贸消息只查本组织、且链接到窗口内商机的线索（loadLinkedProspects）。
+ * 外发证据按时间升序取（有条数上限，超限时丢的是最晚的，不影响「最早一次回复」）。
  */
 export async function loadSlaMetrics(
   orgId: string,
@@ -299,7 +321,7 @@ export async function loadSlaMetrics(
       opportunityId: true,
       agentRunId: true,
       inputContext: true,
-      opportunity: { select: { id: true, orgId: true, source: true, lostReason: true, customer: { select: { tags: true } } } },
+      opportunity: { select: { id: true, orgId: true, source: true, lostReason: true, sourceTradeProspectId: true, customer: { select: { tags: true } } } },
     },
     orderBy: { createdAt: "asc" },
     take: MAX_ROWS,
@@ -308,39 +330,34 @@ export async function loadSlaMetrics(
   const scoped = actions.filter((a) => a.opportunityId && a.opportunity && a.opportunity.orgId === orgId);
   const oppIds = [...new Set(scoped.map((a) => a.opportunityId as string))];
 
-  const executed = new Map<string, Date[]>();
+  let executed = new Map<string, Date[]>();
   const interactions = new Map<string, Date[]>();
   const tradeMessages = new Map<string, Date[]>();
   let followUpGuardrailBlocks = 0;
   const eventBlocked = new Set<string>();
 
   if (oppIds.length) {
-    const [replies, outbound, prospects, auditCount] = await Promise.all([
+    const [replies, outbound, oppsByProspect, auditCount] = await Promise.all([
       loadExecutedInquiryReplyTimes(orgId, oppIds, responseFloor),
       db.customerInteraction.findMany({
         where: { orgId, opportunityId: { in: oppIds }, direction: "outbound", createdAt: { gte: responseFloor } },
         select: { opportunityId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
         take: MAX_ROWS * 4,
       }),
-      db.tradeProspect.findMany({
-        where: { orgId, convertedToSalesOpportunityId: { in: oppIds } },
-        select: { id: true, convertedToSalesOpportunityId: true },
-      }),
+      loadLinkedProspects(orgId, scoped.map((a) => ({ id: a.opportunityId as string, sourceTradeProspectId: a.opportunity?.sourceTradeProspectId ?? null }))),
       db.auditLog.count({ where: { orgId, action: FOLLOW_UP_GUARDRAIL_AUDIT_ACTION, createdAt: { gte: from, lte: now } } }),
     ]);
-    for (const [oid, ats] of replies) for (const at of ats) pushTo(executed, oid, at);
+    executed = replies;
     for (const i of outbound) if (i.opportunityId) pushTo(interactions, i.opportunityId, i.createdAt);
-    const oppByProspect = new Map(prospects.map((p) => [p.id, p.convertedToSalesOpportunityId as string]));
-    if (oppByProspect.size) {
+    if (oppsByProspect.size) {
       const msgs = await db.tradeMessage.findMany({
-        where: { prospectId: { in: [...oppByProspect.keys()] }, direction: "outbound", createdAt: { gte: responseFloor } },
+        where: { prospectId: { in: [...oppsByProspect.keys()] }, direction: "outbound", createdAt: { gte: responseFloor } },
         select: { prospectId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
         take: MAX_ROWS * 4,
       });
-      for (const m of msgs) {
-        const oid = oppByProspect.get(m.prospectId);
-        if (oid) pushTo(tradeMessages, oid, m.createdAt);
-      }
+      for (const m of msgs) for (const oid of oppsByProspect.get(m.prospectId) ?? []) pushTo(tradeMessages, oid, m.createdAt);
     }
     followUpGuardrailBlocks = auditCount;
 

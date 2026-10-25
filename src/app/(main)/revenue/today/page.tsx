@@ -29,6 +29,7 @@ import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import { getOpportunityStageLabel } from "@/lib/revenue-spine/opportunity-stage";
+import { formatWaitZh } from "@/lib/revenue-spine/source-labels";
 
 interface Card {
   opportunityId: string;
@@ -121,12 +122,6 @@ function gradeTone(grade: string | null): string {
   }
 }
 
-function duration(minutes: number): string {
-  if (minutes < 60) return `${minutes} 分钟`;
-  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)} 小时`;
-  return `${Math.floor(minutes / 1440)} 天`;
-}
-
 /** 按组织时区显示时刻（「今天」是按组织时区切的，不能用手机本地时区）；时区串无效时退回手机本地 */
 function orgTime(iso: string, timeZone: string): string {
   const d = new Date(iso);
@@ -138,7 +133,7 @@ function orgTime(iso: string, timeZone: string): string {
 }
 
 function ago(minutes: number): string {
-  return minutes < 1 ? "刚刚" : `${duration(minutes)}前`;
+  return minutes < 1 ? "刚刚" : `${formatWaitZh(minutes)}前`;
 }
 
 function GradeBadge({ grade, score }: { grade: string | null; score: number | null }) {
@@ -221,7 +216,7 @@ function ApprovalRow({
         <GradeBadge grade={o?.scoreGrade ?? null} score={o?.score ?? null} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{o?.customerName ?? item.title}</div>
-          <MetaLine parts={[o ? (o.market ?? "国家未知") : null, o?.sourceLabel, `已等 ${duration(item.waitingMinutes)}`]} />
+          <MetaLine parts={[o ? (o.market ?? "国家未知") : null, o?.sourceLabel, `已等 ${formatWaitZh(item.waitingMinutes)}`]} />
         </div>
       </div>
       <button
@@ -347,7 +342,7 @@ function DueRow({ item, generatedAt, timeZone }: { item: DueItem; generatedAt: s
               item.opportunity?.market ?? item.country,
               item.opportunity?.sourceLabel,
               item.overdue ? (
-                <span className="text-red-400">已过期 {duration(overdueMinutes)}</span>
+                <span className="text-red-400">已过期 {formatWaitZh(overdueMinutes)}</span>
               ) : (
                 `今天 ${orgTime(item.dueAt, timeZone)} 到期`
               ),
@@ -487,7 +482,7 @@ export default function OwnerTodayPage() {
 
           <Section id="overdue" icon={<AlertTriangle className="h-4 w-4 text-red-400" />} title="回复超时" count={data.counts.overdue} empty="没有超时未回复的买家">
             {data.overdue.map((o) => (
-              <OpportunityRow key={o.opportunityId} card={o} trailing={<span className="text-red-400">超时 {duration(o.overdueMinutes)}</span>} />
+              <OpportunityRow key={o.opportunityId} card={o} trailing={<span className="text-red-400">超时 {formatWaitZh(o.overdueMinutes)}</span>} />
             ))}
           </Section>
 
