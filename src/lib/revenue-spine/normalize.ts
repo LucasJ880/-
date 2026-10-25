@@ -2,28 +2,11 @@
  * Revenue Spine — 归一化纯函数（去重键 / 语言识别）
  */
 
-export const FREE_MAIL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "yahoo.com",
-  "yahoo.ca",
-  "yahoo.co.uk",
-  "hotmail.com",
-  "hotmail.ca",
-  "outlook.com",
-  "live.com",
-  "msn.com",
-  "icloud.com",
-  "me.com",
-  "aol.com",
-  "protonmail.com",
-  "proton.me",
-  "qq.com",
-  "163.com",
-  "126.com",
-  "foxmail.com",
-  "sina.com",
-  "yeah.net",
+/** 免费邮箱：大服务商的各国域名（gmail.de、yahoo.fr、hotmail.co.uk、outlook.de …）按前缀，其余按全名 */
+const FREE_MAIL_PROVIDER_RE = /^(gmail|yahoo|hotmail|outlook|live|icloud|qq|163|126|gmx|yandex)\./;
+const FREE_MAIL_DOMAINS = new Set([
+  "googlemail.com", "msn.com", "me.com", "aol.com", "protonmail.com", "proton.me", "mail.com",
+  "foxmail.com", "sina.com", "sohu.com", "aliyun.com", "139.com", "yeah.net",
 ]);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -45,9 +28,10 @@ export function emailDomain(email: string | null | undefined): string | null {
   return at > 0 ? e.slice(at + 1) : null;
 }
 
+/** 全仓库唯一的免费邮箱判定：客户去重的企业域名、转发人「同域即同事」都用它 */
 export function isFreeMailDomain(domain: string | null | undefined): boolean {
-  if (!domain) return false;
-  return FREE_MAIL_DOMAINS.has(domain.toLowerCase());
+  const d = (domain ?? "").toLowerCase();
+  return !!d && (FREE_MAIL_PROVIDER_RE.test(d) || FREE_MAIL_DOMAINS.has(d));
 }
 
 /** 可用于去重的公司域名（免费邮箱域名不算） */

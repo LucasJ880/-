@@ -18,6 +18,8 @@
  * 公开仓库：测试与注释只用虚构企业。
  */
 
+import { isFreeMailDomain, isValidEmail } from "@/lib/revenue-spine/normalize";
+
 export type ForwardFormat =
   | "gmail_forward"
   | "outlook_forward"
@@ -86,15 +88,7 @@ const MESSAGE_MAX = 4_000;
 // 有界量词 + 后顾断言：只从字符串的起点尝试、本地部分最长 64、域名每段最长 63。
 // 不加界时，没有 @ 的长串（如 20 万个 a）会在每个起点回溯到串尾，成为平方级（实测 199k 字符 46 s）。
 const EMAIL_IN_TEXT_RE = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}/g;
-const EMAIL_STRICT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ADDRESS_MAX = 254;
-
-/** 免费邮箱域：转发人用这些域时不能把「同域」当成本厂人员 */
-const FREE_MAIL_DOMAINS = new Set([
-  "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com", "outlook.com", "live.com", "msn.com",
-  "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com", "gmx.com", "gmx.de", "mail.com", "yandex.com",
-  "qq.com", "163.com", "126.com", "sina.com", "sohu.com", "foxmail.com", "aliyun.com", "139.com", "yeah.net",
-]);
 
 const PLATFORMS: Array<{ key: B2bPlatform; domains: string[]; name: RegExp }> = [
   { key: "alibaba", domains: ["alibaba.com", "alibaba-inc.com", "alibabagroup.com"], name: /alibaba\.com|阿里巴巴国际站|alibaba international/i },
@@ -107,22 +101,16 @@ const SYSTEM_LOCAL_RE = /^(no-?reply|do-?not-?reply|donotreply|noreply-[\w.-]+|n
 // ── 文本归一 ────────────────────────────────────────────────────────────────
 
 const NAMED_ENTITIES: Record<string, string> = {
-  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", ensp: " ", emsp: " ", thinsp: " ",
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", ensp: " ", emsp: " ", thinsp: " ",
   mdash: "—", ndash: "–", hellip: "…", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', copy: "©", reg: "®",
 };
 
 function decodeEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, (m, body: string) => {
     const key = body.toLowerCase();
-    if (key.startsWith("#x")) {
-      const cp = parseInt(key.slice(2), 16);
-      return Number.isFinite(cp) && cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
-    }
-    if (key.startsWith("#")) {
-      const cp = parseInt(key.slice(1), 10);
-      return Number.isFinite(cp) && cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
-    }
-    return NAMED_ENTITIES[key] ?? m;
+    if (!key.startsWith("#")) return NAMED_ENTITIES[key] ?? m;
+    const cp = key[1] === "x" ? parseInt(key.slice(2), 16) : parseInt(key.slice(1), 10);
+    return Number.isFinite(cp) && cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
   });
 }
 
@@ -241,7 +229,7 @@ function stripQuotedAndComments(raw: string): { text: string; ok: boolean } {
 
 function normalizeAddr(candidate: string): string {
   const addr = candidate.replace(/^mailto:/i, "").trim().toLowerCase();
-  return addr.length <= ADDRESS_MAX && EMAIL_STRICT_RE.test(addr) ? addr : "";
+  return addr.length <= ADDRESS_MAX && isValidEmail(addr) ? addr : "";
 }
 
 const ANGLE_ADDR_RE = /<\s*([^<>\s]{1,320})\s*>/g;
@@ -325,26 +313,23 @@ const HEADER_ALIASES: Record<string, HeaderKey> = {
   "reply-to": "replyTo", "回复至": "replyTo", "答复": "replyTo",
 };
 
-const HEADER_LINE_RE =
-  /^[*_>\s]{0,4}(from|sent|date|to|cc|subject|reply-to|发件人|寄件者|发信人|寄件人|发送时间|发送日期|日期|时间|寄件日期|收件人|收件者|抄送|副本|主题|主旨|回复至|答复)[*_\s]{0,3}[:：][*_\s]{0,3}(.*)$/i;
+// 别名里没有正则元字符；与 HEADER_ALIASES 同源，不会漏改
+const HEADER_LINE_RE = new RegExp(`^[*_>\\s]{0,4}(${Object.keys(HEADER_ALIASES).join("|")})[*_\\s]{0,3}[:：][*_\\s]{0,3}(.*)$`, "i");
 
-type ForwardMarker = "gmail" | "outlook" | "apple" | "qq";
+type ForwardMarker = "gmail" | "outlook" | "apple";
 
+/** 转发分隔行；QQ / Foxmail 的「---- Original ----」按 Outlook 计（Outlook 的「____」分隔行靠其后的 Sent: 识别） */
 function markerOf(line: string): ForwardMarker | null {
   const l = line.replace(/[*_]/g, "").trim();
   if (/^-{2,}\s*(forwarded message|转发的邮件|转发邮件|已转发邮件)\s*-{2,}$/i.test(l)) return "gmail";
   if (/^begin forwarded message:?$/i.test(l) || /^开始转发的邮件[:：]?$/.test(l)) return "apple";
-  if (/^-{2,}\s*(original message|原始邮件|原邮件)\s*-{2,}$/i.test(l)) return "outlook";
-  if (/^-{4,}\s*(original|原始邮件)\s*-{4,}$/i.test(l)) return "qq";
-  if (/^_{10,}$/.test(l)) return "outlook";
+  if (/^-{2,}\s*(original message|原始邮件|原邮件)\s*-{2,}$/i.test(l) || /^-{4,}\s*original\s*-{4,}$/i.test(l)) return "outlook";
   return null;
 }
 
 function headerOf(line: string): { key: HeaderKey; value: string } | null {
   const m = line.match(HEADER_LINE_RE);
-  if (!m) return null;
-  const key = HEADER_ALIASES[m[1].toLowerCase()];
-  return key ? { key, value: m[2].replace(/[*_]+$/g, "").trim() } : null;
+  return m ? { key: HEADER_ALIASES[m[1].toLowerCase()], value: m[2].replace(/[*_]+$/g, "").trim() } : null;
 }
 
 interface Segment {
@@ -459,17 +444,33 @@ const MOBILE_FOOTER_RE = /^(sent from my|sent from (outlook|mail|yahoo)|get outl
 const CLOSING_RE =
   /^((best|kind|warm|warmest|many)\s+(regards|wishes|thanks)|regards|best|thanks?( you)?( (and|&) (best )?regards)?|many thanks|thanks in advance|sincerely( yours)?|yours (sincerely|faithfully|truly)|cheers|br|b\.r\.|best wishes|此致|此致敬礼|祝好|谢谢|顺颂商祺|敬上)[\s,.!，。！]*$/i;
 
-/** 切出签名：签名分隔符 "-- "、手机落款、或结尾 15 行内的短结束语；返回正文行与签名行 */
+/** 签名分隔符 "-- " 或手机落款（已去首尾空白）：其后都是签名 */
+function isSigBreak(l: string): boolean {
+  return l === "--" || l === "—" || l === "__" || MOBILE_FOOTER_RE.test(l);
+}
+
+/**
+ * closing[i]：第 i 行是短结束语，且其后直到签名分隔符 / stop(j) 行的非空行都像签名（≤ 60 字、不像句子）。
+ * 短邮件开头的「Thanks!」后面还有正文时不算，否则正文和其中的买家联系方式会被当成签名丢掉。从末尾一趟，线性。
+ */
+function closingLines(lines: string[], stop: (j: number) => boolean = () => false): boolean[] {
+  const closing = lines.map(() => false);
+  let sigTail = true;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i].trim();
+    closing[i] = sigTail && l.length <= 40 && CLOSING_RE.test(l);
+    sigTail = isSigBreak(l) || stop(i) || (sigTail && (closing[i] || (l.length <= 60 && !SENTENCE_WORD_RE.test(l))));
+  }
+  return closing;
+}
+
+/** 切出签名：签名分隔符、手机落款、或结尾 15 行内其后只剩签名的短结束语；返回正文行与签名行 */
 function splitSignature(lines: string[]): { body: string[]; signature: string[] } {
   const nonEmptyIdx = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
   const tailStart = nonEmptyIdx.length > 15 ? nonEmptyIdx[nonEmptyIdx.length - 15] : 0;
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i].trim();
-    if (l === "--" || l === "-- " || l === "—" || l === "__") return { body: lines.slice(0, i), signature: lines.slice(i + 1) };
-    if (MOBILE_FOOTER_RE.test(l)) return { body: lines.slice(0, i), signature: lines.slice(i + 1) };
-    if (i >= tailStart && l.length <= 40 && CLOSING_RE.test(l)) return { body: lines.slice(0, i), signature: lines.slice(i + 1) };
-  }
-  return { body: lines, signature: [] };
+  const closing = closingLines(lines);
+  const cut = lines.findIndex((l, i) => isSigBreak(l.trim()) || (i >= tailStart && closing[i]));
+  return cut < 0 ? { body: lines, signature: [] } : { body: lines.slice(0, cut), signature: lines.slice(cut + 1) };
 }
 
 // ── 标签字段（平台通知 / 官网通知 / 签名） ──────────────────────────────────
@@ -507,8 +508,8 @@ const FIELD_ALIASES: Record<string, FieldKey> = {
   "quantity required": "quantity", "数量": "quantity", "采购数量": "quantity", "预计数量": "quantity",
   message: "message", inquiry: "message", "inquiry content": "message", "inquiry details": "message", content: "message", details: "message",
   requirements: "message", "message content": "message", "留言": "message", "询盘内容": "message", "内容": "message", "需求": "message", "需求描述": "message",
-  "inquiry id": "inquiryId", "inquiry no": "inquiryId", "inquiry no.": "inquiryId", "inquiry number": "inquiryId", "rfq id": "inquiryId",
-  "rfq no": "inquiryId", "rfq no.": "inquiryId", "询盘编号": "inquiryId", "询盘号": "inquiryId", "询价单号": "inquiryId",
+  "inquiry id": "inquiryId", "inquiry no": "inquiryId", "inquiry number": "inquiryId", "rfq id": "inquiryId",
+  "rfq no": "inquiryId", "询盘编号": "inquiryId", "询盘号": "inquiryId", "询价单号": "inquiryId",
   "inquiry id / eventid": "eventId", "inquiry id/eventid": "eventId", eventid: "eventId", "event id": "eventId",
   contact: "contact", "联系方式": "contact",
   from: "from",
@@ -531,26 +532,29 @@ function normLabel(raw: string): string {
   return raw.toLowerCase().replace(/\s+/g, " ").replace(/\.$/, "").trim();
 }
 
-function labelOf(line: string): { key: FieldKey | "meta"; value: string } | null {
+function labelOf(line: string): { key: FieldKey | "meta"; value: string; label: string } | null {
   const m = line.match(LABEL_LINE_RE);
   if (!m) {
     // HTML 通知里「Message」常单独成行（标题加粗、正文在下一块）
     const bare = line.length <= 40 ? normLabel(line.replace(/[*_:：]/g, "")) : "";
-    return bare && FIELD_ALIASES[bare] === "message" ? { key: "message", value: "" } : null;
+    return bare && FIELD_ALIASES[bare] === "message" ? { key: "message", value: "", label: bare } : null;
   }
   const label = normLabel(m[1]);
-  if (META_LABELS.has(label)) return { key: "meta", value: "" };
+  if (META_LABELS.has(label)) return { key: "meta", value: "", label };
   const key = FIELD_ALIASES[label];
   if (!key) return null;
   const value = m[2].replace(/\t+/g, " ").replace(/[*_]+$/g, "").trim();
-  return { key, value: EMPTY_VALUE_RE.test(value) ? "" : value };
+  return { key, value: EMPTY_VALUE_RE.test(value) ? "" : value, label };
 }
 
 function extractLabeledFields(lines: string[]): { fields: Partial<Record<FieldKey, string>>; labelLines: Set<number> } {
   const fields: Partial<Record<FieldKey, string>> = {};
   const labelLines = new Set<number>();
+  const labels = lines.map(labelOf);
+  // 留言里的结束语：其后到下一个标签 / 通知页脚之间只剩签名才算
+  const closing = closingLines(lines, (j) => !!labels[j] || NOTICE_FOOTER_RE.test(lines[j].trim()));
   for (let i = 0; i < lines.length; i++) {
-    const hit = labelOf(lines[i]);
+    const hit = labels[i];
     if (!hit) continue;
     labelLines.add(i);
     if (hit.key === "meta") continue;
@@ -559,8 +563,7 @@ function extractLabeledFields(lines: string[]): { fields: Partial<Record<FieldKe
       const parts = hit.value ? [hit.value] : [];
       let j = i + 1;
       for (; j < lines.length; j++) {
-        const l = lines[j].trim();
-        if (labelOf(lines[j]) || NOTICE_FOOTER_RE.test(l) || (l.length <= 40 && CLOSING_RE.test(l))) break;
+        if (labels[j] || NOTICE_FOOTER_RE.test(lines[j].trim()) || closing[j]) break;
         parts.push(lines[j]);
         labelLines.add(j);
       }
@@ -580,7 +583,7 @@ const COMPANY_SUFFIX_RE =
   /\b(co\.?,?\s*ltd\.?|company|inc\.?|incorporated|llc|l\.l\.c\.|gmbh|limited|ltd\.?|corp\.?|corporation|s\.a\.?|s\.r\.l\.?|b\.v\.?|pty|plc|ag|oy|trading|group|enterprises?|industries)\b|有限公司|公司$/i;
 
 export function cleanPhone(raw: string): string {
-  const v = raw.replace(/\s+/g, " ").trim().slice(0, 60);
+  const v = raw.replace(/\s+/g, " ").trim().slice(0, 60).trimEnd();
   const digits = v.replace(/\D/g, "");
   return digits.length >= 7 && digits.length <= 16 ? v : "";
 }
@@ -607,15 +610,11 @@ function mineCompany(lines: string[]): string {
   return "";
 }
 
+/** 签名前 3 行里第一个非空行像人名时取它 */
 function mineSignatureName(lines: string[]): string {
-  for (const line of lines.slice(0, 3)) {
-    const l = line.trim();
-    if (!l) continue;
-    if (/^[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,3}$/.test(l) && l.length <= 40 && !COMPANY_SUFFIX_RE.test(l)) return l;
-    if (/^[\u4e00-\u9fa5]{2,4}$/.test(l)) return l;
-    return "";
-  }
-  return "";
+  const l = lines.slice(0, 3).find((x) => x.trim())?.trim() ?? "";
+  const latin = /^[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,3}$/.test(l) && l.length <= 40 && !COMPANY_SUFFIX_RE.test(l);
+  return latin || /^[\u4e00-\u9fa5]{2,4}$/.test(l) ? l : "";
 }
 
 // ── 本厂人员自己写的内容：签名识别 ──────────────────────────────────────────
@@ -726,13 +725,7 @@ function staffSignatureStart(lines: string[], id: StaffIdentity): { start: numbe
     if (classes[i] === "other") break;
     suffix = i;
   }
-  let anchor = -1;
-  for (let i = suffix; i < lines.length; i++) {
-    if (classes[i] === "anchor") {
-      anchor = i;
-      break;
-    }
-  }
+  const anchor = classes.indexOf("anchor", suffix);
   if (anchor < 0) return { start: -1, classes };
   let start = anchor;
   while (start - 1 >= suffix && classes[start - 1] === "namey") start--;
@@ -759,7 +752,6 @@ function phoneKeysIn(lines: string[]): Set<string> {
  */
 function staffNotePhone(
   lines: string[],
-  limit: number,
   classes: SigClass[],
   staffKeys: Set<string>,
   isBuyerEmail: (addr: string) => boolean,
@@ -775,7 +767,7 @@ function staffNotePhone(
   const nearIdentity = (idx: number): boolean => {
     for (const dir of [-1, 1]) {
       let seen = 0;
-      for (let j = idx + dir; j >= 0 && j < limit && seen < 3; j += dir) {
+      for (let j = idx + dir; j >= 0 && j < lines.length && seen < 3; j += dir) {
         if (!lines[j].trim()) continue;
         seen++;
         if (identityAt(j)) return true;
@@ -784,17 +776,12 @@ function staffNotePhone(
     }
     return false;
   };
-  for (let i = 0; i < limit; i++) {
-    const m = lines[i].match(LABEL_LINE_RE);
-    if (!m) continue;
-    const label = normLabel(m[1]);
-    const key = FIELD_ALIASES[label];
-    if (key !== "phone" && key !== "contact") continue;
-    const value = m[2].replace(/\t+/g, " ").replace(/[*_]+$/g, "").trim();
-    if (!value || value.includes("@") || EMPTY_VALUE_RE.test(value)) continue;
-    const phone = cleanPhone(value);
+  for (let i = 0; i < lines.length; i++) {
+    const hit = labelOf(lines[i]);
+    if (!hit || (hit.key !== "phone" && hit.key !== "contact") || !hit.value || hit.value.includes("@")) continue;
+    const phone = cleanPhone(hit.value);
     if (!phone || staffKeys.has(phoneKey(phone))) continue;
-    if (BUYERISH_LABEL_RE.test(label) || nearIdentity(i)) return phone;
+    if (BUYERISH_LABEL_RE.test(hit.label) || nearIdentity(i)) return phone;
   }
   return "";
 }
@@ -813,12 +800,8 @@ export function stripSubjectPrefixes(subject: string | null | undefined): string
 
 // ── 主入口 ──────────────────────────────────────────────────────────────────
 
-function emptyBuyer(): ParsedBuyer {
-  return { name: "", email: "", phone: "", company: "", country: "" };
-}
-
 function oneLine(s: string, max: number): string {
-  return s.replace(/\s+/g, " ").trim().slice(0, max);
+  return s.replace(/\s+/g, " ").trim().slice(0, max).trimEnd();
 }
 
 function tidyMessage(lines: string[]): string {
@@ -846,9 +829,9 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
     const d = domainOf(addr);
     if (excludedDomains.some((base) => domainMatches(d, base))) return true;
     // 转发人用企业邮箱时，同域地址视为本厂同事（免费邮箱域不算）
-    return !!forwarderDomain && !FREE_MAIL_DOMAINS.has(forwarderDomain) && d === forwarderDomain;
+    return !!forwarderDomain && !isFreeMailDomain(forwarderDomain) && d === forwarderDomain;
   };
-  const buyerEligible = (addr: string) => !!addr && EMAIL_STRICT_RE.test(addr) && !isStaff(addr) && !isSystemAddress(addr) && !platformOfAddress(addr);
+  const buyerEligible = (addr: string) => isValidEmail(addr) && !isStaff(addr) && !isSystemAddress(addr) && !platformOfAddress(addr);
 
   // 1. 拆转发头，选第一封不是本厂人员发出的邮件
   const segments = splitSegments(lines);
@@ -861,13 +844,11 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
   const first = forwarded[0];
   const forwardFormat: ParsedForwardedEmail["forwardFormat"] = !first
     ? "plain"
-    : first.marker === "apple"
-      ? "apple_forward"
-      : first.marker === "gmail"
-        ? "gmail_forward"
-        : first.marker === "outlook" || first.marker === "qq" || first.usesSent
-          ? "outlook_forward"
-          : "gmail_forward";
+    : first.marker
+      ? `${first.marker}_forward`
+      : first.usesSent
+        ? "outlook_forward"
+        : "gmail_forward";
 
   const senderRaw = chosen.headers?.from ?? input.from;
   const senderAddr = bareAddress(senderRaw);
@@ -906,10 +887,8 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
   }
   const signature = chosenFromStaff ? [] : split.signature;
   const all = extractLabeledFields(bodyLines);
-  const inBody = extractLabeledFields(body);
 
   // 3. 平台 / 官网通知识别
-  const fullText = text;
   const senderPlatform = platformOfAddress(senderAddr);
   let platform: B2bPlatform | null = senderPlatform;
   if (!platform) {
@@ -933,7 +912,7 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
   else if (looksLikeWebsiteNotice) format = "website_notification";
   const notification = format === "platform_notification" || format === "website_notification";
   // 通知：整段都是结构化字段（结尾的平台落款不会出现在字段之前）；本厂人员自己写的：只看签名之前；买家来信：含签名
-  const { fields, labelLines } = notification ? all : chosenFromStaff ? inBody : all;
+  const { fields, labelLines } = chosenFromStaff && !notification ? extractLabeledFields(body) : all;
 
   // 官网询盘编号只认官网通知里的「Inquiry ID / eventId」；买家来信里的「RFQ No. / Inquiry No.」不算
   // （否则买家自己的单号会和官网事件编号撞上，被误判成双重入站）
@@ -945,7 +924,7 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
   const senderIsBuyer = buyerEligible(senderAddr);
   const senderKind: ParsedForwardedEmail["senderKind"] = !senderAddr
     ? "unknown"
-    : platformOfAddress(senderAddr)
+    : senderPlatform
       ? "platform"
       : isStaff(senderAddr)
         ? "staff"
@@ -960,22 +939,20 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
   const email = candidates.find((c) => buyerEligible(c)) ?? "";
   if (email) signals.push(email === senderAddr ? "buyer_email:sender" : email === labeledEmail ? "buyer_email:labeled" : "buyer_email:body");
 
-  const buyer = emptyBuyer();
-  buyer.email = email.slice(0, 200);
   const contactAsPhone = fields.contact && !fields.contact.includes("@") ? cleanPhone(fields.contact) : "";
-  if (chosenFromStaff) {
-    // 本厂人员写的（或无转发头直接发来的）内容：转发人的签名号码永不入选（见 staffNotePhone）
-    const phoneLines = notification ? bodyLines : body;
-    buyer.phone = staffNotePhone(phoneLines, body.length, sigClasses, staffPhoneKeys, buyerEligible, staffNames);
-  } else {
-    buyer.phone = cleanPhone(fields.phone ?? "") || contactAsPhone || (notification ? "" : minePhone(signature));
-  }
   const contactAsName = fields.contact && !fields.contact.includes("@") && !contactAsPhone ? fields.contact : "";
   const fromAsName = platform && fields.from && !fields.from.includes("@") ? fields.from : "";
   const senderName = email && email === senderAddr ? displayName(senderRaw) : "";
-  buyer.name = oneLine(fields.name ?? (contactAsName || fromAsName || senderName || (notification ? "" : mineSignatureName(signature))), 120);
-  buyer.company = oneLine(fields.company ?? (notification ? "" : mineCompany(signature)), 200);
-  buyer.country = oneLine(fields.country ?? "", 80);
+  const buyer: ParsedBuyer = {
+    name: oneLine(fields.name ?? (contactAsName || fromAsName || senderName || (notification ? "" : mineSignatureName(signature))), 120),
+    email: email.slice(0, 200),
+    // 本厂人员写的（或无转发头直接发来的）内容：转发人的签名号码永不入选（见 staffNotePhone）
+    phone: chosenFromStaff
+      ? staffNotePhone(body, sigClasses, staffPhoneKeys, buyerEligible, staffNames)
+      : cleanPhone(fields.phone ?? "") || contactAsPhone || (notification ? "" : minePhone(signature)),
+    company: oneLine(fields.company ?? (notification ? "" : mineCompany(signature)), 200),
+    country: oneLine(fields.country ?? "", 80),
+  };
 
   // 5. 产品 / 数量 / 留言
   let product = oneLine(fields.product ?? "", 200);
@@ -984,12 +961,7 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
     if (m) product = oneLine(m[1], 200);
   }
   const quantity = oneLine(fields.quantity ?? "", 120);
-  let message: string;
-  if (notification) {
-    message = fields.message ? tidyMessage(fields.message.split("\n")) : tidyMessage(body.filter((_, i) => !labelLines.has(i)));
-  } else {
-    message = tidyMessage(body);
-  }
+  let message = tidyMessage(!notification ? body : fields.message ? fields.message.split("\n") : body.filter((_, i) => !labelLines.has(i)));
   if (quantity && !message.toLowerCase().includes(quantity.toLowerCase())) {
     message = `${message}${message ? "\n" : ""}Quantity: ${quantity}`.slice(0, MESSAGE_MAX);
   }
@@ -1020,6 +992,6 @@ export function parseForwardedEmail(input: ForwardedEmailInput): ParsedForwarded
     websiteInquiryId,
     confidence,
     signals,
-    fullText,
+    fullText: text,
   };
 }

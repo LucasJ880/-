@@ -136,7 +136,7 @@ async function main() {
     assert.match(src("src/middleware.ts"), /"\/api\/trade\/webhook",/);
   });
 
-  await ok("路由（动态）：未配置密钥 503；签名错 / 过期 401；签名对但非 JSON 400 —— 都不碰 DB", async () => {
+  await ok("路由（动态）：未配置密钥 503；超过 5 MB 413；签名错 / 过期 401；签名对但非 JSON 400 —— 都不碰 DB", async () => {
     const { NextRequest } = await import("next/server");
     const { POST } = await import("@/app/api/trade/webhook/email/route");
     const prev = process.env.RESEND_INBOUND_WEBHOOK_SECRET;
@@ -153,6 +153,8 @@ async function main() {
       assert.equal(bad.status, 401);
       assert.doesNotMatch(JSON.stringify(await bad.json()), /whsec_/);
       assert.equal((await POST(req(BODY, {}))).status, 401);
+      // 先看 Content-Length：超大正文不读、不算 HMAC
+      assert.equal((await POST(req(BODY, { "content-length": String(6 * 1024 * 1024) }))).status, 413);
       const old = nowSec() - 600;
       assert.equal((await POST(req(BODY, { "svix-id": "msg_1", "svix-timestamp": String(old), "svix-signature": svixSign(SECRET, "msg_1", old, BODY) }))).status, 401);
       assert.equal((await POST(req("nope", { "svix-id": "msg_1", "svix-timestamp": String(ts), "svix-signature": svixSign(SECRET, "msg_1", ts, "nope") }))).status, 400);

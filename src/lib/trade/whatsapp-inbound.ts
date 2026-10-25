@@ -25,10 +25,10 @@ import { logInboundOrgDenial, resolveInboundTradeOrgId } from "./inbound-org";
 import { ingestWebsiteInquiry, type IngestResult, type NormalizedInquiry } from "./website-inquiry";
 import { WHATSAPP_SENDER_LEASE_SOURCE, releaseEventLease, tryAcquireEventLease } from "./website-inquiry-receipts";
 
-export type WaMessage = {
+// 暂不读 timestamp：互动时间与 SLA 从处理时刻起算（Meta 重投可能晚几小时；按消息时间计需 ingest 增加只作用于互动的时间选项）
+type WaMessage = {
   id?: string;
   from?: string;
-  timestamp?: string;
   type?: string;
   text?: { body?: string };
   image?: { caption?: string };
@@ -54,7 +54,7 @@ type WaValue = {
   messages?: WaMessage[];
 };
 
-export type WaWebhookBody = {
+type WaWebhookBody = {
   object?: string;
   entry?: Array<{ id?: string; changes?: Array<{ field?: string; value?: WaValue }> }>;
 };
@@ -73,14 +73,11 @@ function labeled(label: string, body: string): string {
 }
 
 /**
- * 消息 → 询盘正文（纯函数）：文字原样；媒体与交互记「[type] 说明文字」。不进询盘的类型返回 null。
- * 标签用英文：正文会进语言识别（detectLanguage 按 CJK 占比）和 RFQ 抽取，中文标签会把外国买家判成中文。
+ * 消息 → 询盘正文（纯函数）：文字原样；媒体与交互记「[type] 说明文字」（英文标签，见文件头）。不进询盘的类型返回 null。
  * 媒体本身不下载（Meta 媒体 id 需要通道 accessToken 换取，且 30 天后失效）：业务员按标签回 WhatsApp 查看。
  */
 export function whatsAppMessageText(msg: WaMessage): string | null {
-  const type = msg.type ?? "";
-  if (IGNORED_TYPES.has(type)) return null;
-  switch (type) {
+  switch (msg.type ?? "") {
     case "text":
       return clean(msg.text?.body) || null;
     case "image":
@@ -120,7 +117,7 @@ export function whatsAppMessageText(msg: WaMessage): string | null {
   }
 }
 
-export interface WhatsAppInboundItem {
+interface WhatsAppInboundItem {
   phoneNumberId: string;
   wamid: string;
   /** 发信人 WhatsApp 号码（国际格式数字，不含 +） */
@@ -130,7 +127,7 @@ export interface WhatsAppInboundItem {
   text: string;
 }
 
-export interface WhatsAppSkip {
+interface WhatsAppSkip {
   reason: "missing_phone_number_id" | "missing_id" | "missing_from" | "ignored_type" | "empty_content" | "unknown_channel";
   phoneNumberId?: string;
   wamid?: string;
@@ -204,9 +201,9 @@ export function toWhatsAppInquiry(item: WhatsAppInboundItem): NormalizedInquiry 
   };
 }
 
-export type ResolveOrgResult = { ok: true; orgId: string } | { ok: false; reason: string };
+type ResolveOrgResult = { ok: true; orgId: string } | { ok: false; reason: string };
 
-export type SenderLockResult<T> = { acquired: true; value: T } | { acquired: false };
+type SenderLockResult<T> = { acquired: true; value: T } | { acquired: false };
 
 export interface WhatsAppWebhookDeps {
   resolveOrg: (phoneNumberId: string) => Promise<ResolveOrgResult>;
@@ -215,7 +212,7 @@ export interface WhatsAppWebhookDeps {
   withSenderLock: <T>(orgId: string, waId: string, fn: () => Promise<T>) => Promise<SenderLockResult<T>>;
 }
 
-export interface WhatsAppWebhookOutcome {
+interface WhatsAppWebhookOutcome {
   /** 进入处理的消息数（已扣除跳过的） */
   messages: number;
   /** 首次处理（新事件） */
@@ -232,20 +229,17 @@ export interface WhatsAppWebhookOutcome {
 /** org 按 TradeChannel(whatsapp).config.phoneNumberId 解析；绝不信任载荷里的任何 org 标识 */
 async function resolveOrgByPhoneNumberId(phoneNumberId: string): Promise<ResolveOrgResult> {
   const r = await resolveInboundTradeOrgId({ provider: "whatsapp", providerAccountId: phoneNumberId });
-  if (!r.ok) {
-    logInboundOrgDenial("whatsapp", r.reason, { phoneNumberId });
-    return { ok: false, reason: r.reason };
-  }
-  return { ok: true, orgId: r.orgId };
+  if (!r.ok) logInboundOrgDenial("whatsapp", r.reason, { phoneNumberId });
+  return r;
 }
 
 /**
  * 发信人租约：持有者中断后多久可被接管。一条消息在请求路径里只做收据 / Trade / Revenue Spine intake（几次 DB 往返，
  * 通常 1–3 秒，FDE 在响应之后另行认领），2 分钟足够宽；接管只意味着这条消息可能与仍在跑的旧请求并行。
  */
-export const SENDER_LEASE_STALE_MS = 2 * 60_000;
+const SENDER_LEASE_STALE_MS = 2 * 60_000;
 /** 等同一发信人前面的消息处理完最多等多久；之后本条记 busy → 500，Meta 稍后重投（收据幂等） */
-export const SENDER_LEASE_MAX_WAIT_MS = 10_000;
+const SENDER_LEASE_MAX_WAIT_MS = 10_000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -254,16 +248,11 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * 不用 pg_advisory_xact_lock：那要一条事务连接从头开到尾，而 ingest 本身走其它连接——并发请求数一到
  * Prisma connection_limit，所有请求都会在 pool_timeout 后失败（不同发信人、毫无锁竞争时也一样）。
  */
-export async function withWhatsAppSenderLock<T>(
-  orgId: string,
-  waId: string,
-  fn: () => Promise<T>,
-  opts: { maxWaitMs?: number; staleMs?: number } = {},
-): Promise<SenderLockResult<T>> {
-  const deadline = Date.now() + (opts.maxWaitMs ?? SENDER_LEASE_MAX_WAIT_MS);
+async function withWhatsAppSenderLock<T>(orgId: string, waId: string, fn: () => Promise<T>): Promise<SenderLockResult<T>> {
+  const deadline = Date.now() + SENDER_LEASE_MAX_WAIT_MS;
   let delay = 100;
   for (;;) {
-    const token = await tryAcquireEventLease(orgId, WHATSAPP_SENDER_LEASE_SOURCE, waId, { staleMs: opts.staleMs ?? SENDER_LEASE_STALE_MS });
+    const token = await tryAcquireEventLease(orgId, WHATSAPP_SENDER_LEASE_SOURCE, waId, { staleMs: SENDER_LEASE_STALE_MS });
     if (token) {
       try {
         return { acquired: true, value: await fn() };

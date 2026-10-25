@@ -142,6 +142,15 @@ ok("去重键：旧 phone 键不变（存在性判断），另给出 E.164 键�
   assert.equal(buildDedupeKeys({ phone: "1234567890" }).phone, "1234567890", "旧 phone 键仍在（只判断有没有电话）");
 });
 
+ok("去重键：免费邮箱（含各国域名变体、gmx / yandex / 国内邮箱）不当企业域名；改用官网域名", () => {
+  for (const e of ["a@gmail.com", "a@gmx.de", "a@yandex.com", "a@hotmail.fr", "a@outlook.de", "a@yahoo.ca", "a@aliyun.com", "a@139.com"]) {
+    assert.equal(buildDedupeKeys({ email: e }).domain, null, e);
+    assert.equal(buildDedupeKeys({ email: e, website: "https://www.buyer-co.example/" }).domain, "buyer-co.example", e);
+  }
+  assert.equal(buildDedupeKeys({ email: "a@Buyer-Co.example" }).domain, "buyer-co.example");
+  assert.equal(buildDedupeKeys({ website: "me.com" }).domain, null);
+});
+
 ok("来源：whatsapp / wechat 是合法商机来源且有中文标签；互动渠道 / 类型映射", () => {
   assert.ok(isOpportunitySource("whatsapp") && isOpportunitySource("wechat"));
   for (const s of OPPORTUNITY_SOURCES) assert.ok(OPPORTUNITY_SOURCE_LABELS[s], s);

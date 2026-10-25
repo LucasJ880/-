@@ -472,6 +472,22 @@ async function main() {
     const heritageReceipt = await findReceiptByEventId(ORG2, wamid("heritage"), WHATSAPP_INBOUND_SOURCE);
     ok(r17.status === 200 && heritageReceipt?.customerId === oldCustomer.id, "WhatsApp +44 20 7946 0018 → 匹配到 510 个更新客户之后的老客户（020 7946 0018, UK）", { receiptCustomer: heritageReceipt?.customerId, old: oldCustomer.id });
     tasks.splice(0);
+
+    console.log("\n[18] 同一 phone_number_id / 公众号原始 ID 配在两个组织：拒绝解析（不按行序猜归属），条目跳过、不落收据");
+    const { findTradeChannelOrgByWhatsAppPhoneNumberId, findTradeChannelOrgByWechatToUserName } = await import("@/lib/trade/inbound-org");
+    await db.tradeChannel.updateMany({ where: { orgId: ORG2, channel: "whatsapp" }, data: { config: { phoneNumberId: PNID } } });
+    const wechat2 = await db.tradeChannel.create({ data: { orgId: ORG2, channel: "wechat", name: "other oa", status: "active", config: { ghId: GH } } });
+    const r18 = await postWa(waBody([{ pnid: PNID, messages: [text(wamid("ambiguous"), "Price for 300 duvet covers?")] }]));
+    const amb18 = await db.websiteInquiryReceipt.count({ where: { eventId: wamid("ambiguous") } });
+    const wc18 = await postWechat(`25${Date.now()}`, "想要报价");
+    ok((await findTradeChannelOrgByWhatsAppPhoneNumberId(PNID)) === null && (await findTradeChannelOrgByWechatToUserName(GH)) === null, "两个组织配了同一标识 → 解析不到组织");
+    ok(r18.status === 200 && amb18 === 0 && wc18.status === 403, "WhatsApp 条目跳过（200、不落收据）；微信 403", { r18, amb18, wc18 });
+    await db.tradeChannel.updateMany({ where: { orgId: ORG2, channel: "whatsapp" }, data: { config: { phoneNumberId: PNID2 } } });
+    await db.tradeChannel.delete({ where: { id: wechat2.id } });
+    ok(
+      (await findTradeChannelOrgByWhatsAppPhoneNumberId(PNID))?.orgId === ORG && (await findTradeChannelOrgByWechatToUserName(GH))?.orgId === ORG,
+      "恢复唯一配置后照常解析",
+    );
   } finally {
     __setDefaultFdeSchedulerForTest(null);
     __setInquiryReplySenderForTest(null);

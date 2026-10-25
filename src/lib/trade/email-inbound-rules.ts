@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import { Resend } from "resend";
+import { isValidEmail, normalizePhone } from "@/lib/revenue-spine/normalize";
 import type { NormalizedInquiry } from "./website-inquiry";
 import { bareAddress, cleanPhone, senderAddress, type ParsedForwardedEmail } from "./email-forward-parse";
 
@@ -98,7 +99,6 @@ export function aliasFromRecipient(recipient: string, domainRaw: string | null |
 // ── 转发白名单 ──────────────────────────────────────────────────────────────
 
 export const FORWARDER_ALLOWLIST_MAX = 50;
-const ALLOWLIST_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /** 白名单输入：字符串（逗号 / 分号 / 空白 / 换行分隔）或字符串数组 → 小写去重的地址列表 */
 export function normalizeForwarderAllowlist(input: unknown): { ok: true; value: string[] } | { ok: false; invalid: string[]; error: string } {
@@ -116,7 +116,7 @@ export function normalizeForwarderAllowlist(input: unknown): { ok: true; value: 
     const t = item.trim();
     if (!t) continue;
     const addr = bareAddress(t) || t.toLowerCase();
-    if (!ALLOWLIST_EMAIL_RE.test(addr) || addr.length > 200) {
+    if (!isValidEmail(addr) || addr.length > 200) {
       invalid.push(t.slice(0, 80));
       continue;
     }
@@ -160,7 +160,7 @@ export interface AuthVerdict {
   seenAuthServIds: string[];
 }
 
-const RAW_HEADERS_MAX = 256 * 1024;
+export const RAW_HEADERS_MAX = 256 * 1024;
 
 /** 原始邮件（RFC 5322）头块 → [{name, value}]，保持顺序；折行续接；遇到空行（头块结束）停止 */
 export function headerFieldsFromRaw(raw: string | null | undefined): Array<{ name: string; value: string }> {
@@ -329,33 +329,16 @@ export function emailEventId(messageId: string | null | undefined, resendEmailId
   return rid ? `email:resend:${rid}`.slice(0, EVENT_ID_MAX) : null;
 }
 
-const LIMITS = { name: 120, email: 200, phone: 60, company: 200, country: 80, message: 4000, product: 200 } as const;
-
-function line(s: string, max: number): string {
-  return (s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-/** 解析结果 → 与网站询盘同形的归一化载荷（来源页 / UTM 留空：邮件转发不是落地页归因） */
+/**
+ * 解析结果 → 与网站询盘同形的归一化载荷（来源页 / UTM 留空：邮件转发不是落地页归因）。
+ * 买家字段与产品已由 parseForwardedEmail 压成单行、限长（姓名 120 / 邮箱 200 小写 / 电话 60 / 公司 200 / 国家 80 / 产品 200）。
+ */
 export function buildEmailInquiry(parsed: ParsedForwardedEmail, eventId: string): NormalizedInquiry {
-  return {
-    name: line(parsed.buyer.name, LIMITS.name),
-    email: line(parsed.buyer.email, LIMITS.email).toLowerCase(),
-    phone: line(parsed.buyer.phone, LIMITS.phone),
-    company: line(parsed.buyer.company, LIMITS.company),
-    country: line(parsed.buyer.country, LIMITS.country),
-    message: (parsed.message ?? "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, LIMITS.message),
-    product: line(parsed.product, LIMITS.product),
-    website: "",
-    page: "",
-    referrer: "",
-    landing: "",
-    utm: { source: "", medium: "", campaign: "", content: "", term: "" },
-    eventId,
-    honeypotTripped: false,
-  };
+  const message = parsed.message.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 4000);
+  return { ...blankEmailInquiry(eventId), ...parsed.buyer, product: parsed.product, message };
 }
 
-/** 发件人不在白名单时不取正文、不解析：只记一条空载荷的隔离收据（原主题等放在 meta） */
+/** 空载荷：白名单以外的发件人不取正文、不解析，只记一条隔离收据（原主题等放在 meta） */
 export function blankEmailInquiry(eventId: string): NormalizedInquiry {
   return {
     name: "",
@@ -384,16 +367,11 @@ function normForCompare(s: string): string {
   return (s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 }
 
-function phoneDigits(s: string): string {
-  const d = (cleanPhone(s ?? "") || "").replace(/\D/g, "");
-  return d.length >= 7 ? d.slice(-10) : "";
-}
-
-/** 官网收据与转发解析出的买家是同一联系人：邮箱一致，或电话末 10 位一致 */
+/** 官网收据与转发解析出的买家是同一联系人：邮箱一致，或电话（7–16 位数字）末 10 位一致 */
 export function sameBuyerContact(web: { email: string; phone: string }, fwd: { email: string; phone: string }): boolean {
   const sameEmail = !!web.email && !!fwd.email && web.email.trim().toLowerCase() === fwd.email.trim().toLowerCase();
-  const wp = phoneDigits(web.phone);
-  return sameEmail || (!!wp && wp === phoneDigits(fwd.phone));
+  const wp = normalizePhone(cleanPhone(web.phone ?? ""));
+  return sameEmail || (!!wp && wp === normalizePhone(cleanPhone(fwd.phone ?? "")));
 }
 
 /** 内容孪生要求的官网留言最短长度（规范化后）：更短的留言（或空留言）不足以证明是同一封，宁可不判重复 */

@@ -30,6 +30,7 @@ import { parseForwardedEmail, senderAddress, type ParsedForwardedEmail } from ".
 import {
   EMAIL_WEBSITE_TWIN_WINDOW_MS,
   QUARANTINE_REASON_LABELS,
+  RAW_HEADERS_MAX,
   aliasFromRecipient,
   blankEmailInquiry,
   buildEmailInquiry,
@@ -75,7 +76,6 @@ export type InboundEmailFetcher = (resendEmailId: string, opts: InboundEmailFetc
 
 export class InboundEmailFetchError extends Error {}
 
-const RAW_HEADER_CHARS_MAX = 256 * 1024;
 const RAW_FETCH_TIMEOUT_MS = 10_000;
 
 /** 只读原始邮件的头块：读到第一个空行（或 256 KB）就停，不下载正文与附件 */
@@ -93,7 +93,7 @@ async function readRawHeaderBlock(url: string): Promise<string> {
   const decoder = new TextDecoder("utf-8");
   let acc = "";
   try {
-    while (acc.length < RAW_HEADER_CHARS_MAX) {
+    while (acc.length < RAW_HEADERS_MAX) {
       const { done, value } = await reader.read();
       if (done) break;
       const from = Math.max(0, acc.length - 3);
@@ -104,7 +104,7 @@ async function readRawHeaderBlock(url: string): Promise<string> {
   } finally {
     await reader.cancel().catch(() => undefined);
   }
-  return acc.slice(0, RAW_HEADER_CHARS_MAX);
+  return acc.slice(0, RAW_HEADERS_MAX);
 }
 
 /**
@@ -179,9 +179,9 @@ async function recordTerminalReceipt(
   meta: Record<string, unknown>,
   now: Date,
   link?: Pick<WebsiteInquiryReceipt, "id" | "prospectId" | "customerId" | "opportunityId"> | null,
-): Promise<{ receipt: WebsiteInquiryReceipt; created: boolean }> {
+): Promise<WebsiteInquiryReceipt> {
   try {
-    const receipt = await db.websiteInquiryReceipt.create({
+    return await db.websiteInquiryReceipt.create({
       data: {
         orgId,
         source: EMAIL_FORWARD_SOURCE,
@@ -200,11 +200,11 @@ async function recordTerminalReceipt(
         opportunityId: link?.opportunityId ?? null,
       },
     });
-    return { receipt, created: true };
   } catch (err) {
+    // 同一封邮件的另一次投递先写了收据：用那一份
     if ((err as { code?: string })?.code === "P2002") {
       const existing = await findReceiptByEventId(orgId, v.eventId, EMAIL_FORWARD_SOURCE);
-      if (existing) return { receipt: existing, created: false };
+      if (existing) return existing;
     }
     throw err;
   }
@@ -233,6 +233,20 @@ async function orgAdminIds(orgId: string): Promise<string[]> {
   return org?.ownerId ? [org.ownerId] : [];
 }
 
+/** 站内通知企业管理员（type=system，关联收据）；幂等键 key 由调用方给出 */
+async function notifyAdmins(
+  orgId: string,
+  receiptId: string,
+  n: { title: string; summary: string; priority: "medium" | "high"; key: string; metadata: Record<string, unknown> },
+): Promise<number> {
+  const userIds = await orgAdminIds(orgId);
+  if (!userIds.length) return 0;
+  return createNotificationsForUsers(userIds, {
+    type: "system", title: n.title, summary: n.summary.slice(0, 300), orgId, entityType: "website_inquiry_receipt", entityId: receiptId,
+    priority: n.priority, metadata: { receiptId, source: EMAIL_FORWARD_SOURCE, ...n.metadata }, sourceKeyPrefix: n.key,
+  });
+}
+
 /** 白名单以外发件人的隔离通知按「组织 + UTC 日」合并：泄露的地址被灌垃圾邮件时，管理员每天最多收到一条 */
 export function senderQuarantineNotifyKey(orgId: string, now: Date): string {
   return `email-quarantine:sender:${orgId}:${now.toISOString().slice(0, 10)}`;
@@ -244,8 +258,6 @@ export function senderQuarantineNotifyKey(orgId: string, now: Date): string {
  *   - 白名单发件人但验证未通过 / 识别不出买家（可能是真实询盘卡住了）：逐封、高优先级。
  */
 async function notifyQuarantine(orgId: string, receipt: Pick<WebsiteInquiryReceipt, "id" | "payload">): Promise<number> {
-  const userIds = await orgAdminIds(orgId);
-  if (!userIds.length) return 0;
   const meta = receiptMeta(receipt);
   const q = (meta.quarantine ?? {}) as { notifyKey?: unknown };
   const aggregateKey = typeof q.notifyKey === "string" && q.notifyKey ? q.notifyKey : null;
@@ -253,40 +265,36 @@ async function notifyQuarantine(orgId: string, receipt: Pick<WebsiteInquiryRecei
   const sender = metaStr(meta, "forwarder") || "未知";
   const subject = (metaStr(meta, "subject") || "（无主题）").slice(0, 60);
   const why = reasons.map((r) => QUARANTINE_REASON_LABELS[r]).join("；");
-  return createNotificationsForUsers(userIds, {
-    type: "system",
+  return notifyAdmins(orgId, receipt.id, {
     title: aggregateKey ? "今天有邮件因发件人不在转发白名单被隔离" : `邮件转发询盘已隔离：${subject}`,
-    summary: (aggregateKey
+    summary: aggregateKey
       ? `首封：发件人 ${sender}，主题「${subject}」。当天之后的同类邮件不再逐条通知。若是本企业业务员，请把其邮箱加入转发白名单后让其重新转发；陌生发件人可忽略。`
-      : `转发人 ${sender}。原因：${why}。未建线索 / 商机；确认来源可信后请让业务员重新转发，或直接录入询盘。`
-    ).slice(0, 300),
-    orgId,
-    entityType: "website_inquiry_receipt",
-    entityId: receipt.id,
+      : `转发人 ${sender}。原因：${why}。未建线索 / 商机；确认来源可信后请让业务员重新转发，或直接录入询盘。`,
     priority: aggregateKey ? "medium" : "high",
-    metadata: { receiptId: receipt.id, source: EMAIL_FORWARD_SOURCE, reasons },
-    sourceKeyPrefix: aggregateKey ?? `email-quarantine:${receipt.id}`,
+    metadata: { reasons },
+    key: aggregateKey ?? `email-quarantine:${receipt.id}`,
   });
 }
 
 /** 判为双重入站时告诉管理员（误判时可见、可补救）；幂等键按收据 */
 async function notifyDuplicate(orgId: string, receipt: Pick<WebsiteInquiryReceipt, "id" | "payload">): Promise<number> {
-  const userIds = await orgAdminIds(orgId);
-  if (!userIds.length) return 0;
   const meta = receiptMeta(receipt);
   const dup = (meta.duplicate ?? {}) as { websiteEventId?: unknown; matchedBy?: unknown };
   const websiteEventId = typeof dup.websiteEventId === "string" ? dup.websiteEventId : "";
-  return createNotificationsForUsers(userIds, {
-    type: "system",
+  return notifyAdmins(orgId, receipt.id, {
     title: `转发的询盘与官网询盘重复：${(metaStr(meta, "subject") || "（无主题）").slice(0, 60)}`,
-    summary: `转发人 ${metaStr(meta, "forwarder") || "未知"}。与官网已入站的询盘${websiteEventId ? `（编号 ${websiteEventId.slice(0, 60)}）` : ""}是同一条，已关联到原商机，未新建线索 / 商机。如判断有误（其实是新询盘），请把买家原邮件直接转发或手工录入。`.slice(0, 300),
-    orgId,
-    entityType: "website_inquiry_receipt",
-    entityId: receipt.id,
+    summary: `转发人 ${metaStr(meta, "forwarder") || "未知"}。与官网已入站的询盘${websiteEventId ? `（编号 ${websiteEventId.slice(0, 60)}）` : ""}是同一条，已关联到原商机，未新建线索 / 商机。如判断有误（其实是新询盘），请把买家原邮件直接转发或手工录入。`,
     priority: "medium",
-    metadata: { receiptId: receipt.id, source: EMAIL_FORWARD_SOURCE, matchedBy: typeof dup.matchedBy === "string" ? dup.matchedBy : null },
-    sourceKeyPrefix: `email-duplicate:${receipt.id}`,
+    metadata: { matchedBy: typeof dup.matchedBy === "string" ? dup.matchedBy : null },
+    key: `email-duplicate:${receipt.id}`,
   });
+}
+
+/** 隔离 / 重复是终态：按幂等键（补）发通知，返回原结论（隔离原因取收据里存的那份） */
+async function terminal(orgId: string, outcome: "quarantined" | "duplicate", receipt: WebsiteInquiryReceipt, eventId: string): Promise<HandleInboundEmailResult> {
+  if (outcome === "quarantined") await notifyQuarantine(orgId, receipt);
+  else await notifyDuplicate(orgId, receipt);
+  return { status: 200, body: { ok: true, outcome, ...(outcome === "quarantined" ? { reasons: storedReasons(receipt) } : {}), eventId } };
 }
 
 // ── 双重入站（官网通知被转发） ──────────────────────────────────────────────
@@ -336,9 +344,8 @@ async function quarantine(
   now: Date,
   notifyKey: string | null,
 ): Promise<HandleInboundEmailResult> {
-  const { receipt, created } = await recordTerminalReceipt(orgId, v, "quarantined", { ...meta, quarantine: { reasons, at: now.toISOString(), notifyKey } }, now);
-  await notifyQuarantine(orgId, receipt);
-  return { status: 200, body: { ok: true, outcome: "quarantined", reasons: created ? reasons : storedReasons(receipt), eventId: v.eventId } };
+  const receipt = await recordTerminalReceipt(orgId, v, "quarantined", { ...meta, quarantine: { reasons, at: now.toISOString(), notifyKey } }, now);
+  return terminal(orgId, "quarantined", receipt, v.eventId);
 }
 
 /**
@@ -391,18 +398,10 @@ export async function handleResendInboundEvent(event: unknown, deps: HandleInbou
 
   // 2. 同一封邮件再次送达（Resend 重试）：隔离 / 重复返回原结论（通知按幂等键补发）；已入链的按首次载荷重放
   const existing = await findReceiptByEventId(orgId, eventId, EMAIL_FORWARD_SOURCE);
-  if (existing?.status === "quarantined") {
-    await notifyQuarantine(orgId, existing);
-    return { status: 200, body: { ok: true, outcome: "quarantined", reasons: storedReasons(existing), eventId } };
-  }
-  if (existing?.status === "duplicate") {
-    await notifyDuplicate(orgId, existing);
-    return { status: 200, body: { ok: true, outcome: "duplicate", eventId } };
-  }
+  if (existing?.status === "quarantined" || existing?.status === "duplicate") return terminal(orgId, existing.status, existing, eventId);
   if (existing) {
-    const meta = receiptMeta(existing);
     const replay = await ingestWebsiteInquiry(orgId, fromReceiptPayload(existing.payload), {
-      origin: origin(typeof meta.subject === "string" ? meta.subject : null),
+      origin: origin(metaStr(receiptMeta(existing), "subject")),
       fdeMode: "deferred",
       scheduleFde: deps.scheduleFde,
       now,
@@ -470,16 +469,9 @@ export async function handleResendInboundEvent(event: unknown, deps: HandleInbou
   // 6. 双重入站：只对官网通知 / 本厂人员与系统地址发出的邮件判定（买家来信、平台通知永远不会被记为重复）
   const twin = mayBeWebsiteNotification(parsed) ? await findWebsiteTwin(orgId, parsed, v, now) : null;
   if (twin) {
-    const { receipt } = await recordTerminalReceipt(
-      orgId,
-      v,
-      "duplicate",
-      { ...meta, duplicate: { websiteReceiptId: twin.receipt.id, websiteEventId: twin.receipt.eventId, matchedBy: twin.matchedBy } },
-      now,
-      twin.receipt,
-    );
-    await notifyDuplicate(orgId, receipt);
-    return { status: 200, body: { ok: true, outcome: "duplicate", eventId } };
+    const duplicate = { websiteReceiptId: twin.receipt.id, websiteEventId: twin.receipt.eventId, matchedBy: twin.matchedBy };
+    const receipt = await recordTerminalReceipt(orgId, v, "duplicate", { ...meta, duplicate }, now, twin.receipt);
+    return terminal(orgId, "duplicate", receipt, eventId);
   }
 
   // 7. 入链（deferred：请求内不跑 FDE）

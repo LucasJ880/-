@@ -13,13 +13,10 @@ import { db } from "@/lib/db";
 import { isFreeMailDomain, matchableEmailDomain, normalizeCompanyName, normalizeEmail, normalizePhone, websiteHost } from "./normalize";
 import { matchablePhoneE164, phonesMatch, splitCallingCode } from "./phone";
 
-const FREE_MAIL_RE = /^(gmail|yahoo|hotmail|outlook|icloud|qq|163|126)\./i;
-
 /** 企业邮箱域名（去重用）：免费邮箱不算 */
 function corporateDomain(domain: string | null | undefined): string | null {
-  return domain && !FREE_MAIL_RE.test(domain) && !isFreeMailDomain(domain) ? domain.toLowerCase() : null;
+  return domain && !isFreeMailDomain(domain) ? domain.toLowerCase() : null;
 }
-
 
 export type MatchLevel = "email" | "domain" | "company" | "phone";
 
@@ -71,10 +68,9 @@ export function buildDedupeKeys(input: MatchInput): {
   phoneE164: string | null;
 } {
   const email = normalizeEmail(input.email);
-  const domain = matchableEmailDomain(email) ?? (input.website ? websiteHost(input.website) : null);
   return {
     email,
-    domain: domain && !FREE_MAIL_RE.test(domain) ? domain : null,
+    domain: matchableEmailDomain(email) ?? corporateDomain(websiteHost(input.website)),
     normalizedName: normalizeCompanyName(input.company),
     phone: normalizePhone(input.phone),
     phoneE164: matchablePhoneE164(input.phone, input.country),
@@ -122,13 +118,12 @@ export async function matchCustomer(orgId: string, input: MatchInput): Promise<M
           orderBy: { createdAt: "asc" },
         })
       : [];
-    const incomingDomain = corporateDomain(keys.domain);
     // 同号多个客户：与其它各级一致取最早建立的
     const byPhone = rows.find((r) => {
       if (!phonesMatch({ phone: input.phone, country: input.country }, { phone: r.phone, country: r.country })) return false;
       // 同号但两边是不同的企业邮箱域名（总机 / 代理共用号码）→ 不按电话合并
       const existingDomain = corporateDomain(r.emailDomain);
-      if (incomingDomain && existingDomain && existingDomain !== incomingDomain) {
+      if (keys.domain && existingDomain && existingDomain !== keys.domain) {
         candidates.push({ id: r.id, name: r.name, level: "phone" });
         return false;
       }

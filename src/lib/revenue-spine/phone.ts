@@ -130,7 +130,7 @@ export function splitCallingCode(digits: string): { cc: string; national: string
 }
 
 /** 去掉分机号、多号码的后几个、「+44 (0)20」里不拨的 (0)，全角 + 归一 */
-function cleanPhone(raw: string): string {
+function stripPhoneNoise(raw: string): string {
   let s = raw.replace(/＋/g, "+").trim();
   // 多个号码只取第一个（逗号 / 分号 / 竖线；不按斜杠切：德式「089/1234567」用斜杠隔区号）
   s = s.split(/[,;|]/)[0] ?? "";
@@ -178,7 +178,7 @@ function nationalToInternational(d: string, c: DialingCountry): string | null {
  */
 export function toE164(raw: string | null | undefined, countryHint?: string | null): string | null {
   if (typeof raw !== "string") return null;
-  const s = cleanPhone(raw);
+  const s = stripPhoneNoise(raw);
   const d = s.replace(/\D/g, "");
   if (d.length < 7) return null;
   const hint = resolveDialingCountry(countryHint);
