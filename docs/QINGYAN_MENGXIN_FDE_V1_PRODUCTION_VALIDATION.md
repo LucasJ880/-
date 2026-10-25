@@ -208,6 +208,8 @@ Time budget:
 | site → Qingyan (after response) | `QINGYAN_FORWARD_TIMEOUT_MS` = 305 000 | must exceed the receiver's own limit so a Qingyan timeout surfaces as Qingyan's error, not our abort |
 | Qingyan webhook | `maxDuration = 300` (was 120) | synchronous Trade → Revenue Spine → FDE (RFQ LLM extract cap 25 s + draft polish cap 20 s); measured: see R2-4 |
 
+> **Superseded (2026-10, async intake):** the webhook now answers after the Revenue Spine intake and runs the FDE in `after()` behind an atomic claim; replays never run the FDE inline, and a read-only `GET /api/trade/webhook/website/status` exists. The first response is `delivered` + processing `incomplete`; a later replay reports `complete`. See [QINGYAN_WEBSITE_INTAKE_ASYNC.md](./QINGYAN_WEBSITE_INTAKE_ASYNC.md).
+
 ## R2-3. Receiver-side minimal compatibility (Qingyan, branch `feature/website-bridge-reliable-closure`)
 
 Only `src/lib/trade/website-inquiry.ts` and the webhook route changed (no schema, no migration, no permission change; the route's `maxDuration` goes 120 → 300 after the timing measurement in R2-4):
