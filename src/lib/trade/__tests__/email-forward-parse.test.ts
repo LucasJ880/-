@@ -578,4 +578,36 @@ ok("超长输入不会拖垮解析（截断到上限）", () => {
   assert.ok(p.message.length <= 4000);
 });
 
+ok("短邮件开头的结束语（Thanks! / Thank you / 谢谢）后面还有正文时不是签名起点：正文与买家联系方式不丢", () => {
+  const fwd = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: towels",
+    text: `FYI\n\n---------- Forwarded message ---------\nFrom: Jane Doe <jane.doe@maplehomegoods.example>\nDate: Mon, Oct 20, 2026 at 9:15 AM\nSubject: towels\nTo: <lily@${FACTORY}>\n\nHello Lily,\nThanks!\nWe would like to order 500 pcs bath towels, 70x140cm.\nPlease send price and lead time.\nPhone: +1 416 555 0134\nJane`,
+  });
+  assert.match(fwd.message, /500 pcs bath towels/);
+  assert.match(fwd.message, /price and lead time/);
+  const notice = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: New inquiry from Alibaba.com",
+    text: `---------- Forwarded message ---------\nFrom: Alibaba.com <notice@service.alibaba.com>\nDate: Mon, Oct 20, 2026\nSubject: New inquiry from Alibaba.com\nTo: <lily@${FACTORY}>\n\nYou have a new inquiry on Alibaba.com\nBuyer: Jane Doe\nProduct: Bath towel\nMessage:\nHello,\nThank you\nWe need 500 pcs bath towels, please quote FOB.\nReply to this inquiry`,
+  });
+  assert.equal(notice.format, "platform_notification");
+  assert.match(notice.message, /please quote FOB/);
+  const note = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "lead",
+    text: `Hi team,\nThanks\nBuyer Jane (jane.doe@maplehomegoods.example) needs 300 duvet covers, queen size.\nLily`,
+  });
+  assert.equal(note.buyer.email, "jane.doe@maplehomegoods.example");
+  assert.match(note.message, /300 duvet covers/);
+  // 真正的落款（其后只剩签名 / 手机落款）照旧切掉
+  const signed = parse({
+    from: `Lily Chen <lily@${FACTORY}>`,
+    subject: "Fwd: towels",
+    text: `---------- Forwarded message ---------\nFrom: Jane Doe <jane.doe@maplehomegoods.example>\nDate: Mon, Oct 20, 2026\nSubject: towels\nTo: <lily@${FACTORY}>\n\nWe need 500 pcs bath towels, please quote.\n\nBest regards,\nJane Doe\nMaple Home Goods Inc.\nSent from my iPhone`,
+  });
+  assert.equal(signed.message, "We need 500 pcs bath towels, please quote.");
+  assert.equal(signed.buyer.company, "Maple Home Goods Inc.");
+});
+
 console.log(`\nemail-forward-parse: ${pass} 通过`);
