@@ -181,6 +181,13 @@ export function boothContext(
   };
 }
 
+/** 来信人（intake 写在 analysisResult.contact）；旧数据没有时为空 */
+function inboundWriter(analysis: unknown): { name: string | null; email: string | null } {
+  const c = (analysis as { contact?: Record<string, unknown> } | null)?.contact;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return { name: str(c?.name), email: str(c?.email)?.toLowerCase() ?? null };
+}
+
 export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<InboundFdeResult> {
   const now = input.now ?? new Date();
   const orgId = input.orgId;
@@ -279,6 +286,9 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
 
     // ── Step 1 research ──
     const latest = opp.interactions[0];
+    // 最新来信的人：同公司第二位联系人按同域复用账户与商机时，和账户主联系人不是同一个人
+    const writer = inboundWriter(latest.analysisResult);
+    const otherContact = !!writer.email && !!opp.customer.email && writer.email !== opp.customer.email.toLowerCase();
     const sourceText = opp.interactions
       .slice()
       .reverse()
@@ -323,6 +333,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     const booth = boothContext(opp.interactions, latest);
     // 来信里压价、要折扣、要独家、侵权图案、操控 AI 等要求：草稿不答应，审批时提醒审核人
     const risks = detectInquiryRisks(sourceText);
+    // 收件人仍是账户主联系人（发送端只认客户档案邮箱，网页表单的邮箱未经验证）；换人来信时提醒审核人
+    if (otherContact) {
+      risks.push({
+        code: "other_contact",
+        note: `最新来信来自同公司另一位联系人（${[writer.name, writer.email].filter(Boolean).join(" ")}），草稿收件人是账户主联系人（${opp.customer.email}），且合并了两人的需求：请确认后再批准，必要时改为人工回复`,
+      });
+    }
     if (risks.length) {
       await event("agent.output", `来信风险提醒：${risks.map((r) => r.code).join(", ")}`, { decision: "risk_notes", risks });
     }

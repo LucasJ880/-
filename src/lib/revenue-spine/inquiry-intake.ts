@@ -323,6 +323,8 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     language,
     source: input.source,
     extra: {
+      // 写这封来信的人：同公司第二位联系人复用商机时，FDE 据此提醒审核人（见 fde/inbound-sales.ts）
+      contact: { name: name || null, email: email || null },
       page: input.meta?.page ?? null,
       referrer: input.meta?.referrer ?? null,
       ...(input.meta?.landing ? { landing: input.meta.landing } : {}),

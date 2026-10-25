@@ -188,4 +188,75 @@ ok("语言识别", () => {
   assert.equal(detectLanguage("Hello 你好 world 世界 again"), "mixed");
 });
 
+const FORM_DETAILS = [
+  "Project brief (guided form)",
+  "Certification needs: OEKO-TEX",
+  "Notes: We are an importer. Please quote FOB Ningbo for 2 colours.",
+  "We need the first shipment before March 2027.",
+  "",
+  "— Form details —",
+  "Estimated quantity: 3,000 pcs per colour, 2 colours",
+  "Target market: Canada",
+  "Buyer type: Retail & Private Label",
+  "Construction: double-layer, hemmed edge",
+  "Material: flannel fleece with sherpa back",
+  "GSM: 300 GSM",
+  "Size / specification: 127 x 152 cm",
+  "Branding: care label in EN/FR",
+  "Packaging: polybag + belly band, 12 per carton",
+  "Required date: March 2027",
+  "Sample requirement: yes",
+].join("\n");
+
+ok("标注行（Form details）：值整行照录，覆盖关键词猜测；别的字段的行不串进来", () => {
+  const r = extractRfqHeuristic(FORM_DETAILS, opts);
+  assert.equal(r.fields.material, "flannel fleece with sherpa back");
+  assert.equal(r.fields.quantity, 3000);
+  assert.equal(r.fields.unit, "pcs per colour, 2 colours");
+  assert.equal(r.fields.customization, "care label in EN/FR", "Buyer type 行里的 Private Label 不是定制要求");
+  assert.equal(r.fields.packaging, "polybag + belly band, 12 per carton");
+  assert.equal(r.fields.size, "127 x 152 cm");
+  assert.equal(r.fields.certification, "OEKO-TEX");
+  assert.equal(r.fields.sampleRequired, true);
+  assert.equal(r.fields.destinationCountry, "Canada");
+  assert.equal(r.fields.incoterm, "FOB", "未标注的 Notes 行照常走关键词");
+  assert.equal(r.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31", "标注值「March 2027」= 当月底，优先于留言里的 before March");
+  const flat = FORM_DETAILS.replace(/\s+/g, " ");
+  for (const e of r.evidence) assert.ok(flat.includes(e.evidenceText.replace(/\s+/g, " ")), `${e.field} evidence must come from source`);
+  const qty = r.evidence.filter((e) => e.field === "quantity");
+  assert.equal(qty.length, 1);
+  assert.ok(qty[0].confidence >= 0.95);
+});
+
+ok("标注行：没答 / 认不出的值不硬套；否定的样品答复记为 false", () => {
+  const r = extractRfqHeuristic(
+    ["Need 2,000 bath towels.", "Certification: Not sure yet", "Sample requirement: No sample needed yet", "Quantity: 3,000-5,000 pcs", "Size: n/a"].join("\n"),
+    opts,
+  );
+  assert.equal(r.fields.certification, null);
+  assert.equal(r.fields.size, null);
+  assert.equal(r.fields.sampleRequired, false);
+  assert.equal(r.fields.quantity, 3000, "区间值交还关键词扫描");
+  const zh = extractRfqHeuristic("询价\n数量：5000件\n面料：珊瑚绒 双层\n包装：单条 OPP 袋", opts);
+  assert.equal(zh.fields.quantity, 5000);
+  assert.equal(zh.fields.unit, "件");
+  assert.equal(zh.fields.material, "珊瑚绒 双层");
+  assert.equal(zh.fields.packaging, "单条 OPP 袋");
+});
+
+ok("标注行：同一字段多次出现取最后一次（FDE 按时间拼接多封来信，后来的更正算数）", () => {
+  const thread = ["Quantity: 3,000 pcs", "Material: polyester", "", "---", "", "Sorry, correction:", "Quantity: 5,000 pcs", "Material: organic cotton"].join("\n");
+  const r = extractRfqHeuristic(thread, opts);
+  assert.equal(r.fields.quantity, 5000);
+  assert.equal(r.fields.material, "organic cotton");
+  assert.equal(r.evidence.filter((e) => e.field === "quantity").length, 1);
+});
+
+ok("交期：before <月份> 是上月底，by / in 是当月底", () => {
+  const before = extractRfqHeuristic("We need 3,000 blankets before March 2027.", opts);
+  assert.equal(before.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-28");
+  const by = extractRfqHeuristic("We need 3,000 blankets by March 2027.", opts);
+  assert.equal(by.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
+});
+
 console.log(`\n${pass} passed`);

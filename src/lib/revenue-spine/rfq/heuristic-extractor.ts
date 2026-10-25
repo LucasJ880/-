@@ -117,7 +117,11 @@ const PRICE_CONTEXT_RE = /(target price|target|budget|price point|around|max|max
 const DATE_ISO_RE = /\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/;
 const DATE_TEXT_RE =
   /\b(?:by|before|until|deliver(?:y|ed)?\s+(?:by|before|in)|需要在|要求)?\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(20\d{2}))?\b/i;
-const DATE_MONTH_ONLY_RE = /\b(?:by|before|until|in)\s+(?:end of\s+|mid[- ]|early\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:\s*(20\d{2}))?/i;
+const MONTH_WORD = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+// 「before March」= 2 月底之前；by / until / in 取当月底
+const DATE_MONTH_ONLY_RE = new RegExp(`\\b(by|before|until|in)\\s+(?:end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\b(?:\\s*(20\\d{2}))?`, "i");
+// 表单字段值常常只写「March 2027」，没有介词：只在「Required date: …」这种标注行里认
+const DATE_BARE_MONTH_RE = new RegExp(`^(?:end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\.?,?(?:\\s*(20\\d{2}))?$`, "i");
 const RELATIVE_RE = /(?:within|in|deliver(?:y)? in|需要在|交期)\s*(\d{1,3})\s*(days?|weeks?|months?|天|周|个月)/i;
 const CN_DATE_RE = /(20\d{2})年(\d{1,2})月(?:(\d{1,2})日)?/;
 
@@ -130,6 +134,162 @@ function monthIndex(word: string): number | null {
   return key in MONTHS ? MONTHS[key] : null;
 }
 
+interface ParsedDate {
+  date: Date;
+  confidence: number;
+  index: number;
+  length: number;
+  note?: string;
+}
+
+/** 交期：ISO / 中文日期 / 「March 15」/「by|before|in March」/ 相对天数；bare=true 时再认「March 2027」（标注行的值） */
+function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | null {
+  const nextYearIfPast = (mi: number) => now.getUTCFullYear() + (mi < now.getUTCMonth() ? 1 : 0);
+  const iso = DATE_ISO_RE.exec(text);
+  if (iso) {
+    return { date: new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))), confidence: 0.9, index: iso.index, length: iso[0].length };
+  }
+  const cn = CN_DATE_RE.exec(text);
+  if (cn) {
+    return { date: new Date(Date.UTC(Number(cn[1]), Number(cn[2]) - 1, cn[3] ? Number(cn[3]) : 1)), confidence: cn[3] ? 0.9 : 0.7, index: cn.index, length: cn[0].length };
+  }
+  const textDate = DATE_TEXT_RE.exec(text);
+  if (textDate && monthIndex(textDate[1]) !== null) {
+    const mi = monthIndex(textDate[1])!;
+    const year = textDate[3] ? Number(textDate[3]) : nextYearIfPast(mi);
+    return { date: new Date(Date.UTC(year, mi, Number(textDate[2]))), confidence: textDate[3] ? 0.85 : 0.7, index: textDate.index, length: textDate[0].length };
+  }
+  const monthOnly = DATE_MONTH_ONLY_RE.exec(text);
+  if (monthOnly && monthIndex(monthOnly[2]) !== null) {
+    const mi = monthIndex(monthOnly[2])!;
+    const year = monthOnly[3] ? Number(monthOnly[3]) : nextYearIfPast(mi);
+    // 月末；before 取上月末
+    const date = new Date(Date.UTC(year, monthOnly[1].toLowerCase() === "before" ? mi : mi + 1, 0));
+    return { date, confidence: 0.6, index: monthOnly.index, length: monthOnly[0].length };
+  }
+  const bareMonth = bare ? DATE_BARE_MONTH_RE.exec(text.trim()) : null;
+  if (bareMonth && monthIndex(bareMonth[1]) !== null) {
+    const mi = monthIndex(bareMonth[1])!;
+    const year = bareMonth[2] ? Number(bareMonth[2]) : nextYearIfPast(mi);
+    return { date: new Date(Date.UTC(year, mi + 1, 0)), confidence: 0.6, index: text.indexOf(text.trim()), length: text.trim().length };
+  }
+  const rel = RELATIVE_RE.exec(text);
+  if (rel) {
+    const n = Number(rel[1]);
+    const unit = rel[2].toLowerCase();
+    const days = /week|周/.test(unit) ? n * 7 : /month|个月/.test(unit) ? n * 30 : n;
+    return {
+      date: new Date(now.getTime() + days * 86_400_000),
+      confidence: 0.6,
+      index: rel.index,
+      length: rel[0].length,
+      note: `requiredDeliveryDate 由相对交期「${rel[0].trim()}」按今日推算`,
+    };
+  }
+  return null;
+}
+
+/**
+ * 「Label: value」标注行（官网 / 嵌入表单的 Form details、买家自己列的清单）：标签已经说明是哪个字段，
+ * 值整行照录，优先于关键词猜测；这些行不再参与关键词扫描（"Buyer type: Retail & Private Label" 不会被当成定制要求，
+ * "Material: flannel fleece with sherpa back" 不会只剩 flannel fleece）。
+ */
+const FIELD_LABELS: Array<[RfqField, string[]]> = [
+  ["quantity", ["quantity", "qty", "estimated quantity", "order quantity", "数量", "采购数量", "预计数量"]],
+  ["material", ["material", "materials", "fabric", "material / fabric", "材质", "面料"]],
+  ["composition", ["composition", "gsm", "fabric weight", "成分", "克重"]],
+  ["size", ["size", "sizes", "size / specification", "dimensions", "尺寸", "规格"]],
+  ["color", ["color", "colour", "colors", "colours", "颜色"]],
+  ["customization", ["customization", "customisation", "branding", "logo", "labelling", "labeling", "定制", "定制要求"]],
+  ["packaging", ["packaging", "packing", "包装", "包装要求"]],
+  ["certification", ["certification", "certifications", "certification needs", "certificates", "认证", "认证要求"]],
+  ["sampleRequired", ["sample requirement", "sample required", "samples", "sample", "样品", "样品需求"]],
+  ["destinationCountry", ["target market", "destination", "destination country", "destination market", "目的国", "目标市场"]],
+  ["incoterm", ["incoterm", "incoterms", "trade term", "贸易术语"]],
+  ["requiredDeliveryDate", ["required date", "delivery date", "required delivery date", "target delivery date", "交期", "要求交期"]],
+  ["buyerType", ["buyer type", "business type", "买家类型"]],
+];
+const LABEL_FIELD = new Map(FIELD_LABELS.flatMap(([field, labels]) => labels.map((l) => [l, field] as const)));
+const LABELED_LINE_RE = /^[ \t]*(?:[-*•][ \t]*)?([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[ \t]*[:：][ \t]*(\S[^\n]*?)[ \t]*$/gm;
+const NON_ANSWER_RE = /^(n\/?a|none|no idea|not sure(?: yet)?|tbd|tbc|unknown|-+|待定|不确定|无)$/i;
+
+type LabeledPairs = Array<[RfqField, unknown]>;
+
+function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
+  const value = raw.replace(/\s+/g, " ").slice(0, 160);
+  switch (field) {
+    case "quantity": {
+      const q = /(\d{1,3}(?:[,，]\d{3})+|\d+(?:\.\d+)?(?:\s*(?:k|万|千)(?![a-z]))?)/i.exec(value);
+      const n = q ? parseNumber(q[1]) : null;
+      if (!q || n === null || n <= 0) return null;
+      // 数量后面的话照录成单位（「pcs per colour, 2 colours」），区间等非文字开头的交给关键词扫描
+      const rest = value.slice(q.index + q[0].length).trim();
+      if (rest && !/^[A-Za-z\u4e00-\u9fff]/.test(rest)) return null;
+      return [["quantity", n], ["unit", rest ? rest.slice(0, 60) : null]];
+    }
+    case "requiredDeliveryDate": {
+      const d = parseRequiredDate(value, now, true);
+      return d ? [["requiredDeliveryDate", d.date]] : null;
+    }
+    case "destinationCountry": {
+      const hits = detectCountries(value);
+      if (!hits.length) return null;
+      const city = hits.find((h) => h.city);
+      const out: LabeledPairs = [["destinationCountry", hits[0].country]];
+      if (city) out.push(["destinationCity", value.substr(city.index, city.matched.length)]);
+      return out;
+    }
+    case "buyerType": {
+      const b = detectBuyerType(value);
+      return b.type === "unknown" ? null : [["buyerType", b.type]];
+    }
+    case "incoterm": {
+      const inco = new RegExp(`\\b(${INCOTERMS.join("|")})\\b`, "i").exec(value);
+      return inco ? [["incoterm", inco[1].toUpperCase()]] : null;
+    }
+    case "sampleRequired":
+      if (/^(yes|y|required|needed|需要|要|是)\b/i.test(value)) return [["sampleRequired", true]];
+      if (/^(no|n|not needed|不需要|不要|否)\b/i.test(value)) return [["sampleRequired", false]];
+      return null;
+    case "customization":
+      return /logo|embroider|印|绣|brand|label/i.test(value) ? [["customization", value], ["customLogo", true]] : [["customization", value]];
+    default:
+      return [[field, value]];
+  }
+}
+
+interface LabeledHit {
+  pairs: LabeledPairs;
+  index: number;
+  length: number;
+}
+
+/**
+ * 返回标注行字段 + 把这些行抹成空格的文本（下标不变，关键词扫描只看其余部分）。
+ * 同一字段出现多次取最后一次：FDE 把多封来信按时间先后拼接，后来的更正 / 补充才算数。
+ */
+function labeledFields(source: string, now: Date): { hits: LabeledHit[]; masked: string } {
+  const byField = new Map<RfqField, LabeledHit>();
+  let masked = source;
+  let m: RegExpExecArray | null;
+  LABELED_LINE_RE.lastIndex = 0;
+  while ((m = LABELED_LINE_RE.exec(source))) {
+    const label = m[1].toLowerCase().replace(/\s*\/\s*/g, " / ").replace(/\s+/g, " ").trim();
+    const field = LABEL_FIELD.get(label);
+    if (!field) continue;
+    const raw = m[2];
+    // 一行里还有别的「Label:」（展会速记卡的「Buyer type: …. Packaging: ….」）：不是单字段行，交给关键词按句抽
+    if (/[.;。；]\s*[A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?\s*[:：]/.test(raw)) continue;
+    const pairs = NON_ANSWER_RE.test(raw) ? [] : labeledValue(field, raw, now);
+    if (pairs === null) continue; // 认不出：这行留给关键词扫描
+    masked = masked.slice(0, m.index) + " ".repeat(m[0].length) + masked.slice(m.index + m[0].length);
+    if (!pairs.length) continue;
+    byField.delete(field); // 重新插入：保持「后出现的在后」，覆盖时后者生效
+    byField.set(field, { pairs, index: m.index + m[0].trimEnd().length - raw.length, length: raw.length });
+  }
+  return { hits: [...byField.values()], masked };
+}
+
 export interface HeuristicOptions {
   /** 小写关键词 → 产品类目 */
   productKeywords: Record<string, string>;
@@ -137,18 +297,21 @@ export interface HeuristicOptions {
 }
 
 export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqExtraction {
-  const source = (text ?? "").replace(/\r/g, "");
+  const original = (text ?? "").replace(/\r/g, "");
+  const now = opts.now ?? new Date();
+  const labeled = labeledFields(original, now);
+  // 关键词扫描只看未标注的部分；下标与原文一致，证据片段仍取原文
+  const source = labeled.masked;
   const lower = source.toLowerCase();
   const fields: RfqFields = emptyRfqFields();
   const evidence: RfqEvidence[] = [];
   const notes: string[] = [];
-  const now = opts.now ?? new Date();
-  const language = detectLanguage(source);
+  const language = detectLanguage(original);
 
   const add = (field: RfqField, value: unknown, confidence: number, index: number, length: number) => {
     const str =
       value instanceof Date ? value.toISOString().slice(0, 10) : typeof value === "boolean" ? (value ? "yes" : "no") : String(value);
-    evidence.push({ field, value: str, confidence, evidenceText: snippet(source, index, length), extractedBy: "heuristic" });
+    evidence.push({ field, value: str, confidence, evidenceText: snippet(original, index, length), extractedBy: "heuristic" });
   };
 
   // ── 产品 ──
@@ -309,39 +472,11 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
   }
 
   // ── 要求交期 ──
-  const iso = DATE_ISO_RE.exec(source);
-  const cn = CN_DATE_RE.exec(source);
-  const textDate = DATE_TEXT_RE.exec(source);
-  const monthOnly = DATE_MONTH_ONLY_RE.exec(source);
-  const rel = RELATIVE_RE.exec(source);
-  if (iso) {
-    const d = new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
-    fields.requiredDeliveryDate = d;
-    add("requiredDeliveryDate", d, 0.9, iso.index, iso[0].length);
-  } else if (cn) {
-    const d = new Date(Date.UTC(Number(cn[1]), Number(cn[2]) - 1, cn[3] ? Number(cn[3]) : 1));
-    fields.requiredDeliveryDate = d;
-    add("requiredDeliveryDate", d, cn[3] ? 0.9 : 0.7, cn.index, cn[0].length);
-  } else if (textDate && monthIndex(textDate[1]) !== null) {
-    const mi = monthIndex(textDate[1])!;
-    const year = textDate[3] ? Number(textDate[3]) : now.getUTCFullYear() + (mi < now.getUTCMonth() ? 1 : 0);
-    const d = new Date(Date.UTC(year, mi, Number(textDate[2])));
-    fields.requiredDeliveryDate = d;
-    add("requiredDeliveryDate", d, textDate[3] ? 0.85 : 0.7, textDate.index, textDate[0].length);
-  } else if (monthOnly && monthIndex(monthOnly[1]) !== null) {
-    const mi = monthIndex(monthOnly[1])!;
-    const year = monthOnly[2] ? Number(monthOnly[2]) : now.getUTCFullYear() + (mi < now.getUTCMonth() ? 1 : 0);
-    const d = new Date(Date.UTC(year, mi + 1, 0)); // 月末
-    fields.requiredDeliveryDate = d;
-    add("requiredDeliveryDate", d, 0.6, monthOnly.index, monthOnly[0].length);
-  } else if (rel) {
-    const n = Number(rel[1]);
-    const unit = rel[2].toLowerCase();
-    const days = /week|周/.test(unit) ? n * 7 : /month|个月/.test(unit) ? n * 30 : n;
-    const d = new Date(now.getTime() + days * 86_400_000);
-    fields.requiredDeliveryDate = d;
-    add("requiredDeliveryDate", d, 0.6, rel.index, rel[0].length);
-    notes.push(`requiredDeliveryDate 由相对交期「${rel[0].trim()}」按今日推算`);
+  const due = parseRequiredDate(source, now);
+  if (due) {
+    fields.requiredDeliveryDate = due.date;
+    add("requiredDeliveryDate", due.date, due.confidence, due.index, due.length);
+    if (due.note) notes.push(due.note);
   }
 
   // ── 买家类型 / 用途 ──
@@ -357,6 +492,16 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
       add("application", rule.key, 0.7, hit.index, hit.kw.length);
       break;
     }
+  }
+
+  // ── 标注行：标签说了是哪个字段，覆盖关键词猜测 ──
+  for (const hit of labeled.hits) {
+    for (const [field, value] of hit.pairs) {
+      (fields as unknown as Record<string, unknown>)[field] = value;
+      for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].field === field) evidence.splice(i, 1);
+      if (value !== null) add(field, value, 0.95, hit.index, hit.length);
+    }
+    if (fields.unit === null && hit.pairs.some(([f]) => f === "quantity")) fields.unit = fields.productName ? "pcs" : null;
   }
 
   return { fields, evidence, language, method: "heuristic", notes };

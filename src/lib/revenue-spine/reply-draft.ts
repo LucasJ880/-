@@ -69,13 +69,20 @@ export function checkDraftWithReferenceLines(body: string, referenceLines: reado
   return checkDraftGuardrails(stripped, {});
 }
 
+const fmtQty = (n: number) => n.toLocaleString("en-US");
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** 英文并列：a / a and b / a, b and c */
+function joinEn(items: string[]): string {
+  return items.length <= 2 ? items.join(" and ") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 /** 参考值原句（MOQ / 大货周期 / 装运港）；只用企业配置的数字，不读买家来信 */
 export function buildReferenceLines(knowledge: FactoryKnowledgeBundle, policy: RevenueSpinePolicy, lang: "en" | "zh"): string[] {
   const lines: string[] = [];
   const facts = policy.businessProfile.commercialFacts;
   const moq = knowledge.moq.status === "available" ? knowledge.moq.value : null;
   const lt = knowledge.leadTime.status === "available" ? knowledge.leadTime.value : null;
-  const fmtQty = (n: number) => n.toLocaleString("en-US");
   const range = (a: number | null | undefined, b: number | null | undefined) =>
     a && b && b !== a ? `${a}–${b}` : `${a ?? b}`;
   if (lang === "zh") {
@@ -137,12 +144,19 @@ const CONFIRM_FIELDS: RfqField[] = [
   // 不复述买家的目标价：没必要请对方确认自己的价格，写出来也像是我方接受了这个价
 ];
 
-function fmtValue(field: RfqField, fields: RfqFields): string | null {
+function fmtValue(field: RfqField, fields: RfqFields, lang: "zh" | "en"): string | null {
   const v = fields[field];
   if (v === null || v === undefined || v === "") return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) {
+    // 买家只说了月份（「March 2027」「before March」）时抽取存的是月底：复述成「end of March 2027」，不编出具体日子
+    const lastDay = new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth() + 1, 0)).getUTCDate();
+    if (v.getUTCDate() === lastDay) {
+      return lang === "zh" ? `${v.getUTCFullYear()}年${v.getUTCMonth() + 1}月底` : `end of ${MONTH_NAMES[v.getUTCMonth()]} ${v.getUTCFullYear()}`;
+    }
+    return v.toISOString().slice(0, 10);
+  }
   if (typeof v === "boolean") return v ? "yes" : "no";
-  if (field === "quantity") return `${v}${fields.unit ? " " + fields.unit : ""}`;
+  if (field === "quantity") return `${fmtQty(Number(v))}${fields.unit ? " " + fields.unit : ""}`;
   if (field === "targetPrice") return `${fields.currency ?? ""} ${v}`.trim();
   return String(v);
 }
@@ -240,7 +254,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const styleNames = (input.tradeShow?.styles ?? []).map((st) => st.name?.toLowerCase()).filter((n): n is string => Boolean(n));
   for (const f of CONFIRM_FIELDS) {
     if (styleNames.length && f === "productName") continue;
-    const v = fmtValue(f, fields);
+    const v = fmtValue(f, fields, lang);
     if (!v) continue;
     if (styleNames.some((n) => containsPhrase(n, v.toLowerCase()))) continue;
     // 买家原话里的折扣、定金、索赔、品牌图案、给 AI 的指令等不复述（像是我方认可了），审核提醒里会单独列出
@@ -292,7 +306,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   let subject: string;
   let body: string;
   if (lang === "zh") {
-    const qty = fields.quantity ? `（${fields.quantity}${fields.unit ?? "件"}）` : "";
+    const qty = fields.quantity ? `（${fmtQty(fields.quantity)}${fields.unit ?? "件"}）` : "";
     subject = met
       ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${orgName}`
       : `回复：${product}${qty}询盘 — ${orgName}`;
@@ -338,7 +352,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push(...signOff(input.senderName, orgName, sig));
     body = lines.join("\n");
   } else {
-    const qty = fields.quantity ? ` (${fields.quantity}${fields.unit ? " " + fields.unit : " pcs"})` : "";
+    const qty = fields.quantity ? ` (${fmtQty(fields.quantity)}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
       ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${orgName}`
       : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${orgName}`;
@@ -376,7 +390,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       for (const r of references) lines.push(r.summaryEn);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
-      lines.push(`Regarding ${pending.join(", ")}: our team will confirm ${pending.length > 1 ? "these" : "this"} internally once we have the details above and revert to you with a formal reply.`);
+      lines.push(`Regarding ${joinEn(pending)}: our team will confirm ${pending.length > 1 ? "these" : "this"} internally once we have the details above and revert to you with a formal reply.`);
     }
     lines.push("");
     lines.push("We look forward to hearing from you.");

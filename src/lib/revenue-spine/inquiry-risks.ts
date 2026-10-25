@@ -19,7 +19,9 @@ export type InquiryRiskCode =
   | "claimed_agreement"
   | "compensation_claim"
   | "under_invoicing"
-  | "ddp_terms";
+  | "ddp_terms"
+  /** FDE 写入：最新来信人不是账户主联系人（同域复用商机） */
+  | "other_contact";
 
 export interface InquiryRisk {
   code: InquiryRiskCode;

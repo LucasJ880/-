@@ -386,6 +386,14 @@ async function main() {
     ok(prospectsD === 2 && (interD?.rawMessages ?? "").includes("purchasing@maple-hotels.ca") && (interD?.rawMessages ?? "").includes("Purchasing Dept"), "Case D：Trade 侧保留独立联系人线索，互动保留第二联系人证据", { prospectsD, raw: interD?.rawMessages?.slice(0, 200) });
     const custD = await db.salesCustomer.findUnique({ where: { id: w4.spine.ok ? w4.spine.customerId : "" } });
     ok(custD?.email === "mark@maple-hotels.ca" && custD.contactName === "Mark Chen", "Case D：账户主联系人不被覆盖", custD);
+    const fdeD = await runInboundSalesFde({ orgId: ORG, opportunityId: w4.spine.ok ? w4.spine.opportunityId : "", trigger: "customer_reply", useLlm: false });
+    const paD = fdeD.pendingActionId ? await db.pendingAction.findUnique({ where: { id: fdeD.pendingActionId } }) : null;
+    const payD = (paD?.payload ?? {}) as Record<string, unknown>;
+    ok(
+      payD.to === "mark@maple-hotels.ca" && (paD?.title ?? "").startsWith("⚠") && (paD?.preview ?? "").includes("另一位联系人（Purchasing Dept purchasing@maple-hotels.ca）"),
+      "Case D：收件人仍是账户主联系人（发送端边界不放宽），审批标题与预览提醒最新来信换了人",
+      { to: payD.to, title: paD?.title, preview: (paD?.preview ?? "").slice(0, 200), fde: { ok: fdeD.ok, err: fdeD.error } },
+    );
 
     console.log("\n[12] 授权边界：API org 解析 + supervisor 取消");
     const { NextRequest } = await import("next/server");

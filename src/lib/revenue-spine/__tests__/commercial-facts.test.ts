@@ -363,6 +363,31 @@ async function main() {
     assert.doesNotMatch(c, /,$/);
   });
 
+  await ok("表单标注行进草稿：数量照买家原话带千分位，只给月份的交期写成月底，待确认事项用 and 连接", () => {
+    const msg = [
+      "Notes: please quote OEKO-TEX certified blankets.",
+      "— Form details —",
+      "Estimated quantity: 3,000 pcs per colour, 2 colours",
+      "Buyer type: Retail & Private Label",
+      "Material: flannel fleece with sherpa back",
+      "Branding: care label in EN/FR",
+      "Required date: March 2027",
+    ].join("\n");
+    const ex = extractRfqHeuristic(msg, { productKeywords: withFacts.businessProfile.productKeywords });
+    const base = draftBase(withFacts);
+    const d = buildReplyDraft({ ...base, fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });
+    assert.match(d.body, /- Quantity: 3,000 pcs per colour, 2 colours\n/);
+    assert.match(d.subject, /\(3,000 pcs per colour, 2 colours\)/);
+    assert.match(d.body, /- Material: flannel fleece with sherpa back\n/);
+    assert.match(d.body, /- Customization: care label in EN\/FR\n/);
+    assert.doesNotMatch(d.body, /Private Label/);
+    assert.match(d.body, /- Required delivery date: end of March 2027\n/);
+    assert.match(d.body, /Regarding pricing and certification: our team will confirm these internally/);
+    const zh = buildReplyDraft({ ...base, language: "zh", fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });
+    assert.match(zh.body, /2027年3月底/);
+    assert.equal(d.guardrailViolations.length, 0, d.guardrailViolations.join("; "));
+  });
+
   console.log(`  ${pass} passed`);
 }
 
