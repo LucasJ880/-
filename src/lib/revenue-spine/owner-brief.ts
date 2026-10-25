@@ -28,7 +28,7 @@ export interface PushResult {
 }
 export type PushFn = (userId: string, title: string, text: string) => Promise<PushResult>;
 
-export type PushOutcome = "delivered" | "no_binding_or_silent" | "push_failed";
+type PushOutcome = "delivered" | "no_binding_or_silent" | "push_failed";
 
 /** sent>0 才算送达；全为 0 = 没有可推的绑定或在静默时段；只有 failed = 通道发送失败 */
 export function pushOutcomeOf(r: PushResult | null | undefined): PushOutcome {
@@ -38,7 +38,7 @@ export function pushOutcomeOf(r: PushResult | null | undefined): PushOutcome {
 }
 
 const TOP_APPROVALS = 3;
-export const OWNER_TODAY_PATH = "/revenue/today";
+const OWNER_TODAY_PATH = "/revenue/today";
 
 const EMAIL_RE = /[^\s@<>()[\]"',;:]+@[^\s@<>()[\]"',;:]+/g;
 const PHONE_RE = /\+?\(?\d[\d\s().\-/]{5,}\d/g;
@@ -117,12 +117,13 @@ export function orgHasTradeModule(modulesJson: unknown): boolean {
   return parseOrgModulesJson(modulesJson)?.enabled.includes("trade") === true;
 }
 
-const defaultPush: PushFn = async (userId, title, text) => {
+/** 缺省推送：pushNotification（动态引入，避免把推送服务拉进纯函数测试）；分级提醒同用 */
+export const defaultPush: PushFn = async (userId, title, text) => {
   const { pushNotification } = await import("@/lib/messaging/push-service");
   return pushNotification(userId, title, text);
 };
 
-export interface OwnerBriefResult {
+interface OwnerBriefResult {
   skipped: "no_trade_module" | "empty" | null;
   day: string | null;
   counts: OwnerTodayCounts | null;
@@ -204,7 +205,8 @@ export function formatNewDraftPush(b: BuyerLine, opts: { origin: string }): { ti
   };
 }
 
-function isUniqueViolation(e: unknown): boolean {
+/** Prisma 唯一键冲突（P2002）：通知 sourceKey 占位撞键 = 别的进程已发 */
+export function isUniqueViolation(e: unknown): boolean {
   return !!e && typeof e === "object" && (e as { code?: unknown }).code === "P2002";
 }
 

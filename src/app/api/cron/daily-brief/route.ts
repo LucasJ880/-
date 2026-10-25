@@ -40,21 +40,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ skipped: true, reason: "没有组织处于当地 07:00", checkedAt: now.toISOString() });
   }
 
+  type OwnerBriefFields = { ownerBriefSent?: number; ownerBriefWechatDelivered?: number; ownerBriefSkipped?: string | null };
   const data = await runTrackedAutomation("daily-brief", async () => {
-    const results: Array<{
-      orgId: string;
-      orgName: string;
-      generated?: number;
-      boothSummarySent?: number;
-      ownerBriefSent?: number;
-      ownerBriefWechatDelivered?: number;
-      ownerBriefSkipped?: string | null;
-      error?: string;
-    }> = [];
+    const results: Array<{ orgId: string; orgName: string; generated?: number; boothSummarySent?: number; error?: string } & OwnerBriefFields> = [];
 
     for (const org of orgs) {
       let boothSummarySent: number | undefined;
-      let owner: { ownerBriefSent?: number; ownerBriefWechatDelivered?: number; ownerBriefSkipped?: string | null } = {};
+      let owner: OwnerBriefFields = {};
       try {
         // 07:xx 往前一小时就是刚结束的展会日（07:00 到次日 07:00）
         const day = boothDayOf(new Date(now.getTime() - 3_600_000), org.timezone);

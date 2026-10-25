@@ -6,14 +6,12 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
-import { buildOwnerToday, loadOrgTimezone } from "@/lib/revenue-spine/owner-today";
+import { buildOwnerToday } from "@/lib/revenue-spine/owner-today";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const access = await resolveRevenueAccess(request);
   if (!access.ok) return access.response;
-  const timeZone = await loadOrgTimezone(access.orgId);
-  const today = await buildOwnerToday(access.orgId, { timeZone });
-  return NextResponse.json(today);
+  return NextResponse.json(await buildOwnerToday(access.orgId));
 }

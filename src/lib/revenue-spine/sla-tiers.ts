@@ -1,29 +1,19 @@
 /**
  * Revenue Spine — 新询盘首响 SLA 分级提醒（PRD F3.4–F3.7）
  *
- * 对象：开放的新询盘 FDE 行动（SalesAction.actionType = inbound_inquiry，status open / in_progress，商机在开放阶段），
- * 且询盘之后还没有任何回复（与 sla-metrics 同一首次回复口径：已执行的询盘回复草稿 / 外发互动 / 关联外贸线索的外发消息）。
+ * 对象：开放的新询盘 FDE 行动（inbound_inquiry，open / in_progress，商机在开放阶段），且询盘之后还没有任何回复
+ * （与 sla-metrics 同一首次回复口径）。展会速记卡（由展会小结统一告知）与入驻测试询盘不进分级。
  *
- * 三档（policy.salesSla；某档为 null 即该档关闭，三档全 null = 本组织不启用，完全走 inquiry-sla 旧提醒）：
- *   unclaimed      T + unclaimedAlertMinutes   → 负责人（商机负责人；已不在组织则组织所有者）站内 + 微信，按实际情况说明草稿状态；
- *                  行动已被人认领（status = in_progress）则跳过这一档，升级与第三档照常（认领不等于回复）
- *   escalation     T + ownerEscalationMinutes  → 管理层（managementOf）站内 + 微信
- *   overdue_draft  T + overdueDraftHours       → 管理层：仍未回复，回复草稿是否在审批中心等待（或没有草稿的原因）
- * 设了工作时间（businessHours）按工作时间计，否则按自然时间。只提醒——绝不自动给买家发任何邮件。
- * 微信经 pushNotification（cron / serverless 里唯一能真正发出的通道），静默时段由推送服务跳过；正文不含买家邮箱 / 电话。
+ * 三档（policy.salesSla；某档 null 即关闭，三档全 null = 本组织不启用）：
+ *   unclaimed      T + unclaimedAlertMinutes   → 负责人（已不在组织则组织所有者），按实际情况说明草稿状态；行动已被认领则跳过（认领不等于回复）
+ *   escalation     T + ownerEscalationMinutes  → 管理层（managementOf）
+ *   overdue_draft  T + overdueDraftHours       → 管理层：回复草稿是否在审批中心等待（或没有草稿的原因）
+ * 站内 + 微信（pushNotification，静默时段由推送服务跳过；正文不含买家邮箱 / 电话）。设了 businessHours 按工作时间计，
+ * 否则按自然时间。只提醒，绝不自动给买家发邮件。
  *
  * 幂等：每档每条行动一个 sourceKey（inquiry-sla:v2:<tier>:<orgId>:<actionId>，第一位收件人用它占位，其余收件人再加 :<userId>），
- * 先占位再推送，每档只发一次（负责人中途变了也不重发）。错过超过 24 小时的档位不补发（刚启用时不给积压的老询盘补提醒）。
- * 展会速记卡（trade_show）不进分级：一晚录入几十张，由展会小结统一告知。入驻测试询盘不提醒。
- *
- * 与旧提醒的分工（同一条询盘只有一个提醒来源）：
- *   - 启用分级的组织：分级对象范围内的新询盘（不论此刻是否还开放 / 已回复 / 已关闭）归分级负责一辈子，
- *     inquiry-sla 旧的线程提醒（5 分钟 / 24 小时）跳过它关联的外贸线索里「这次询盘」那条进线
- *     （线程最后一次进线不晚于询盘行动创建 + 容差），以及仍被分级跟踪的商机的线索；
- *     电话回复后人工记录外发、行动被完成 / 忽略、商机离开开放阶段之后，旧提醒也不会再为这条询盘补发。
- *     其它线程（没进 Revenue Spine 的渠道消息、询盘之后客户再来信等）旧提醒照常
- *   - cron/revenue-spine 本来就不为 reply_inquiry 发提醒；reply_customer 需要已有外发，而有外发的询盘不在分级对象里，天然不重叠
- *   - 未启用分级的组织：旧行为逐位不变
+ * 先占位再推送，每档只发一次（负责人中途变了也不重发）；错过超过 24 小时的档位不补发。
+ * 与旧提醒的分工（同一条询盘只有一个提醒来源）见 trade/inquiry-sla.ts。
  */
 
 import { db } from "@/lib/db";
@@ -33,34 +23,31 @@ import { addSlaMinutes } from "./business-days";
 import { FDE_EMPLOYEE_KEY } from "./fde/actions";
 import { INQUIRY_REPLY_ACTION_TYPE } from "./fde/inbound-sales";
 import { OPEN_STAGES } from "./opportunity-stage";
-import { buyerLine, pushOutcomeOf, safeBuyerName, type BuyerLine, type PushFn } from "./owner-brief";
+import { buyerLine, defaultPush, isUniqueViolation, pushOutcomeOf, safeBuyerName, type BuyerLine, type PushFn } from "./owner-brief";
 import { loadRevenueSpinePolicy, slaTiersEnabled, type RevenueSpinePolicy, type SalesSlaPolicy } from "./policy";
 import {
   INBOUND_INQUIRY_ACTION_TYPE,
+  OPEN_ACTION_STATUSES,
   RESPONSE_CLOCK_TOLERANCE_MS,
   TRADE_SHOW_SOURCE,
   isOnboardingTestInquiry,
   loadExecutedInquiryReplyTimes,
+  loadLinkedProspects,
+  rec,
   utmSourceOf,
 } from "./sla-metrics";
+import { formatWaitZh } from "./source-labels";
 
-export const SLA_TIER_SOURCE_PREFIX = "inquiry-sla:v2";
+const SLA_TIER_SOURCE_PREFIX = "inquiry-sla:v2";
 export const SLA_TIERS = ["unclaimed", "escalation", "overdue_draft"] as const;
 export type SlaTier = (typeof SLA_TIERS)[number];
 /** 档位到期后超过这么久还没发（cron 停摆 / 刚启用分级时的积压），不再补发 */
 export const SLA_TIER_MAX_LATE_MS = 24 * 3_600_000;
 /** 只看近 30 天的询盘（overdueDraftHours 上限 7 天，按工作时间折算也远在窗口内） */
-export const SLA_TIER_SCAN_DAYS = 30;
+const SLA_TIER_SCAN_DAYS = 30;
 const MAX_ACTIONS_PER_ORG = 500;
 const MINUTE = 60_000;
 const DAY = 86_400_000;
-const OPEN_ACTION_STATUSES = ["open", "in_progress"];
-
-export const SLA_TIER_LABELS: Record<SlaTier, string> = {
-  unclaimed: "未回复提醒（负责人）",
-  escalation: "升级（管理层）",
-  overdue_draft: "超时 + 草稿状态（管理层）",
-};
 
 type SlaTierPolicy = Pick<SalesSlaPolicy, "unclaimedAlertMinutes" | "ownerEscalationMinutes" | "overdueDraftHours" | "businessHours">;
 
@@ -112,12 +99,6 @@ export function formatThreshold(minutes: number): string {
   return m ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
 }
 
-function formatWait(minutes: number): string {
-  if (minutes < 60) return `${Math.max(0, Math.floor(minutes))} 分钟`;
-  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)} 小时`;
-  return `${Math.floor(minutes / 1440)} 天`;
-}
-
 export interface DraftState {
   /** 待审批、未过期的询盘回复草稿的创建时刻；没有为 null */
   pendingDraftCreatedAt: Date | null;
@@ -130,7 +111,7 @@ export interface DraftState {
 /** 纯函数：第三档里「草稿在哪 / 为什么没有草稿」那一句 */
 export function describeDraftState(s: DraftState, now: Date): { hasDraft: boolean; text: string } {
   if (s.pendingDraftCreatedAt) {
-    return { hasDraft: true, text: `回复草稿已在审批中心等待批准（已等 ${formatWait((now.getTime() - s.pendingDraftCreatedAt.getTime()) / MINUTE)}）。` };
+    return { hasDraft: true, text: `回复草稿已在审批中心等待批准（已等 ${formatWaitZh((now.getTime() - s.pendingDraftCreatedAt.getTime()) / MINUTE)}）。` };
   }
   if (s.fdeStatus === "failed" || s.fdeStatus === "run_blocked") return { hasDraft: false, text: "没有回复草稿：AI 起草失败，需要人工直接回复。" };
   if (s.fdeStatus !== "completed") return { hasDraft: false, text: "没有回复草稿：AI 还没完成起草。" };
@@ -201,10 +182,6 @@ export interface TrackedInquiry {
   draftStatus: string | null;
 }
 
-function rec(v: unknown): Record<string, unknown> | null {
-  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-}
-
 function strOrNull(v: unknown): string | null {
   return typeof v === "string" && v ? v : null;
 }
@@ -224,7 +201,7 @@ function isTierEligibleInquiry(a: {
  * 本组织被分级跟踪的询盘：开放的新询盘行动、商机开放、客户未归档、不是展会速记卡 / 测试询盘、询盘之后还没有回复。
  * 所有查询按 orgId 限定。
  */
-export async function loadTrackedInquiries(orgId: string, now: Date): Promise<TrackedInquiry[]> {
+async function loadTrackedInquiries(orgId: string, now: Date): Promise<TrackedInquiry[]> {
   const since = new Date(now.getTime() - SLA_TIER_SCAN_DAYS * DAY);
   const actions = await db.salesAction.findMany({
     where: {
@@ -275,23 +252,10 @@ export async function loadTrackedInquiries(orgId: string, now: Date): Promise<Tr
 
   const oppIds = [...new Set(candidates.map((a) => a.opportunityId as string))];
   const earliest = new Date(Math.min(...candidates.map((a) => a.createdAt.getTime())) - RESPONSE_CLOCK_TOLERANCE_MS);
-  const sourceProspectIds = candidates.map((a) => a.opportunity?.sourceTradeProspectId).filter((v): v is string => !!v);
-  const [executedByOpp, prospects] = await Promise.all([
+  const [executedByOpp, oppsByProspect] = await Promise.all([
     loadExecutedInquiryReplyTimes(orgId, oppIds, earliest),
-    db.tradeProspect.findMany({
-      where: { orgId, OR: [{ convertedToSalesOpportunityId: { in: oppIds } }, ...(sourceProspectIds.length ? [{ id: { in: sourceProspectIds } }] : [])] },
-      select: { id: true, convertedToSalesOpportunityId: true },
-    }),
+    loadLinkedProspects(orgId, candidates.map((a) => ({ id: a.opportunityId as string, sourceTradeProspectId: a.opportunity?.sourceTradeProspectId ?? null }))),
   ]);
-  // 线索 → 商机：线索回填的链接，或商机记着的来源线索
-  const oppsByProspect = new Map<string, Set<string>>();
-  const link = (prospectId: string, oppId: string) => oppsByProspect.set(prospectId, new Set([...(oppsByProspect.get(prospectId) ?? []), oppId]));
-  for (const p of prospects) if (p.convertedToSalesOpportunityId && oppIds.includes(p.convertedToSalesOpportunityId)) link(p.id, p.convertedToSalesOpportunityId);
-  const prospectIdSet = new Set(prospects.map((p) => p.id));
-  for (const a of candidates) {
-    const sp = a.opportunity?.sourceTradeProspectId;
-    if (sp && prospectIdSet.has(sp)) link(sp, a.opportunityId as string);
-  }
   const lastTradeOutbound = new Map<string, Date>();
   if (oppsByProspect.size) {
     const rows = await db.tradeMessage.groupBy({
@@ -357,7 +321,7 @@ export async function loadTierOwnedInquiryTimes(orgId: string, opportunityIds: r
   return out;
 }
 
-export interface SlaTierOrgResult {
+interface SlaTierOrgResult {
   orgId: string;
   enabled: boolean;
   tracked: number;
@@ -368,15 +332,6 @@ export interface SlaTierOrgResult {
   notifications: number;
   /** 微信实际送达条数（没绑微信 / 静默时段 / 通道失败不算） */
   wechatDelivered: number;
-}
-
-const defaultPush: PushFn = async (userId, title, text) => {
-  const { pushNotification } = await import("@/lib/messaging/push-service");
-  return pushNotification(userId, title, text);
-};
-
-function isUniqueViolation(e: unknown): boolean {
-  return !!e && typeof e === "object" && (e as { code?: unknown }).code === "P2002";
 }
 
 /** 一个组织跑一遍分级（未启用 → 只返回 enabled=false，不查询、不发送） */
@@ -510,7 +465,7 @@ export async function runSlaTiersForOrg(
  * 近 30 天有新询盘行动的组织（不论行动状态）；是否启用分级由各组织策略决定。
  * 不只看开放行动：启用分级的组织即使询盘都已回复 / 关闭，也要进 trackedByOrg，旧提醒才知道这些询盘归分级、不再补发。
  */
-export async function listSlaTierCandidateOrgIds(now: Date): Promise<string[]> {
+async function listSlaTierCandidateOrgIds(now: Date): Promise<string[]> {
   const rows = await db.salesAction.groupBy({
     by: ["orgId"],
     where: {
@@ -537,7 +492,10 @@ export interface RevenueSlaTierOutcome {
   trackedByOrg: Map<string, Set<string>>;
 }
 
-/** cron 入口：逐个组织跑分级；一个组织失败不影响其它组织（失败组织不进 trackedByOrg → 旧提醒照常兜底） */
+/**
+ * cron 入口：逐个组织跑分级；一个组织失败不影响其它组织（失败组织不进 trackedByOrg → 旧提醒照常兜底）。
+ * 不抛错：组织列表都查不到时记 failedOrgs = 1、trackedByOrg 为空，本轮旧提醒对所有线程兜底。
+ */
 export async function runRevenueSlaTiers(opts?: { now?: Date; push?: PushFn; origin?: string }): Promise<RevenueSlaTierOutcome> {
   const now = opts?.now ?? new Date();
   const outcome: RevenueSlaTierOutcome = {
@@ -550,7 +508,11 @@ export async function runRevenueSlaTiers(opts?: { now?: Date; push?: PushFn; ori
     failedOrgs: 0,
     trackedByOrg: new Map(),
   };
-  const orgIds = await listSlaTierCandidateOrgIds(now);
+  const orgIds = await listSlaTierCandidateOrgIds(now).catch((err) => {
+    outcome.failedOrgs++;
+    console.error("[sla-tiers] SLA 分级提醒失败，本轮由旧提醒兜底：", err instanceof Error ? err.message : err);
+    return [] as string[];
+  });
   outcome.orgsScanned = orgIds.length;
   for (const orgId of orgIds) {
     try {

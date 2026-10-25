@@ -1,5 +1,5 @@
 /**
- * Revenue Spine — Mengxin Inbound Sales FDE（PART 4 / 5 / 6 / 15 / 16）
+ * Revenue Spine — Inbound Sales FDE（PART 4 / 5 / 6 / 15 / 16）
  *
  * 确定性流水线（每一步 = AgentRunEvent，可追踪 trigger / input / tools / facts / decision / action / approval）：
  *   research → extract RFQ(+evidence) → knowledge → score → qualify(stage) → missing info → draft
@@ -27,6 +27,7 @@ import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { markFdeTouch } from "../attribution";
 import { loadFactoryKnowledge, summarizeKnowledge } from "../factory-knowledge";
 import { applyNextAction } from "../next-action";
+import type { PushFn } from "../owner-brief";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
@@ -45,7 +46,7 @@ import { FDE_EMPLOYEE_KEY, updateFdeAction } from "./actions";
  *   created / reused = 草稿在审批中心；guardrail_blocked = 草稿触发护栏未进审批（另记 guardrailBlockedAt / guardrailViolations，
  *   之后重跑成功也保留，供"护栏拦截"指标计数）；out_of_range / disqualified / no_email / cancelled / approval_failed = 没有草稿的原因
  */
-export type FdeDraftStatus = "created" | "reused" | "guardrail_blocked" | "out_of_range" | "disqualified" | "no_email" | "cancelled" | "approval_failed";
+type FdeDraftStatus = "created" | "reused" | "guardrail_blocked" | "out_of_range" | "disqualified" | "no_email" | "cancelled" | "approval_failed";
 
 /**
  * 首封护栏拦截的持久标记（并进 inputContext；之后重跑不清除，指标"护栏拦截数"按它计）：
@@ -79,7 +80,7 @@ export interface RunInboundFdeInput {
   now?: Date;
   policy?: RevenueSpinePolicy;
   /** 测试注入：新草稿的微信提醒发送函数（policy.notify.wechatOnNewDraft 打开时才会调用；缺省走 pushNotification） */
-  pushNewDraft?: (userId: string, title: string, text: string) => Promise<{ sent: number; failed: number }>;
+  pushNewDraft?: PushFn;
 }
 
 export interface InboundFdeResult {
@@ -474,17 +475,16 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
 
       // ── Step 7 approval（唯一外部副作用入口）──
       // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）
-      const cancelled = await isAgentRunCancelled(orgId, runId);
-      if (cancelled) {
+      if (await isAgentRunCancelled(orgId, runId)) {
         draftStatus = "cancelled";
         await event("agent.output", "run 已被取消：跳过草稿审批", { decision: "cancelled_before_approval" });
       } else if (!opp.customer.email) {
         draftStatus = "no_email";
+        await event("agent.output", "客户无邮箱，草稿仅供人工复制发送", { decision: "no_email_channel" });
       } else if (draft.guardrailViolations.length > 0) {
         draftStatus = "guardrail_blocked";
         await event("agent.output", "草稿未通过护栏：不进审批中心，需人工撰写", { decision: "guardrail_blocked", guardrailViolations: draft.guardrailViolations });
-      }
-      if (!cancelled && opp.customer.email && draft.guardrailViolations.length === 0) {
+      } else {
         approvalRequired = true;
         // 幂等：同一来信已有未决草稿 → 复用；否则按历史草稿数生成新 key（拒绝/过期后允许重新起草）
         const openDraft = await db.pendingAction.findFirst({
@@ -582,10 +582,9 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           draftStatus = "approval_failed";
           await event("approval.failed", "创建审批草稿失败", { error: approval.error, code: approval.errorCode });
         }
-      } else if (!cancelled && !opp.customer.email) {
-        await event("agent.output", "客户无邮箱，草稿仅供人工复制发送", { decision: "no_email_channel" });
       }
-    } else {
+    } else if (score.qualification === "disqualified") {
+      // 不做类目在默认 review 模式下是 needs_info（不起草但不是不合格），不记「不合格」事件
       await event("agent.output", "商机不合格：不生成客户回复草稿", { decision: "disqualified", reason: score.recommendedNextActionLabel.zh });
     }
     base.pendingActionId = pendingActionId;
@@ -645,7 +644,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       }).catch(() => undefined);
 
       // 组织打开了「新草稿微信提醒」：给审批人推一条短消息（每人每小时最多一条；不含买家邮箱 / 电话）
-      if (draftCreated && policy.notify?.wechatOnNewDraft) {
+      if (draftCreated && policy.notify.wechatOnNewDraft) {
         try {
           const { pushNewDraftToApprover } = await import("../owner-brief");
           const r = await pushNewDraftToApprover({

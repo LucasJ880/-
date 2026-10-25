@@ -15,8 +15,8 @@
 import { db } from "@/lib/db";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
-import { zonedHourToUtc } from "@/lib/trade/booth-summary";
 import { isSampleWaitingReply } from "@/lib/trade/sample-constants";
+import { nextDay, zonedLocalToUtc } from "./business-days";
 import { QUEUE_OPPORTUNITY_SELECT, toQueueOpportunity, type QueueOpportunity } from "./daily-actions";
 import { INQUIRY_REPLY_ACTION_TYPE } from "./fde/inbound-sales";
 import { OPEN_STAGES } from "./opportunity-stage";
@@ -24,9 +24,9 @@ import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "./policy";
 import { opportunitySourceLabel } from "./source-labels";
 
 /** 超时栏：只看「该回复买家」这两类下一步 */
-export const OVERDUE_ACTION_TYPES = ["reply_inquiry", "reply_customer"] as const;
+const OVERDUE_ACTION_TYPES = ["reply_inquiry", "reply_customer"] as const;
 /** 样品与报价栏：Revenue Spine 的报价 / 样品下一步 */
-export const QUOTE_SAMPLE_ACTION_TYPES = ["send_quote", "quote_follow_up", "sample_follow_up"] as const;
+const QUOTE_SAMPLE_ACTION_TYPES = ["send_quote", "quote_follow_up", "sample_follow_up"] as const;
 /** 外贸报价单：已发出 / 谈判中，且有效期在今天结束 */
 const TRADE_QUOTE_ACTIVE_STATUSES = ["sent", "negotiating"];
 
@@ -143,31 +143,10 @@ export interface OwnerToday extends OwnerTodayBuckets {
   dayEnd: Date;
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
-
-function nextDate(day: string): string {
-  const [y, m, d] = day.split("-").map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d + 1));
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
-}
-
-/**
- * 当地某日零点对应的 UTC 时刻。zonedHourToUtc 只在「UTC 零点」取一次时差，
- * UTC 以东的时区在夏令时开始日会早一小时（如 Australia/Sydney 2026-10-04 得到前一天 23:00），
- * 这里按第一次结果处的时差再校正一次；零点本身不存在（零点跳表的时区）时取跳表后的第一刻。
- */
-function localMidnightUtc(day: string, timeZone: string): Date {
-  const first = zonedHourToUtc(day, 0, timeZone);
-  const p = getLocalTimeParts(first, timeZone);
-  const offset = Date.parse(`${p.date}T${pad(p.hour)}:${pad(p.minute)}:00Z`) - first.getTime();
-  const second = new Date(Date.parse(`${day}T00:00:00Z`) - offset);
-  return getLocalTimeParts(second, timeZone).date === day ? second : first;
-}
-
-/** 组织当地的「今天」：当地零点到次日零点（夏令时切换日按实际时长） */
+/** 组织当地的「今天」：当地零点到次日零点（夏令时切换日按实际时长；零点不存在的时区取跳表后的第一刻） */
 export function localDayBounds(now: Date, timeZone: string): { day: string; start: Date; end: Date } {
   const day = getLocalTimeParts(now, timeZone).date;
-  return { day, start: localMidnightUtc(day, timeZone), end: localMidnightUtc(nextDate(day), timeZone) };
+  return { day, start: zonedLocalToUtc(day, 0, timeZone), end: zonedLocalToUtc(nextDay(day), 0, timeZone) };
 }
 
 const minutesBetween = (later: Date, earlier: Date) => Math.max(0, Math.floor((later.getTime() - earlier.getTime()) / MINUTE));
@@ -196,10 +175,7 @@ const isOpenStage = (stage: string) => stage === "stale" || (OPEN_STAGES as read
 const byScoreThenNewest = (a: OwnerTodayCard, b: OwnerTodayCard) =>
   (b.score ?? -1) - (a.score ?? -1) || b.createdAt.getTime() - a.createdAt.getTime();
 
-/**
- * 纯函数分栏。rows 可以多给（查询为关联审批 / 外贸单据补进来的商机），每栏按自己的条件筛。
- * dayEnd 缺省为 dayStart + 24h；buildOwnerToday 总是按组织时区传入真实的次日零点。
- */
+/** 纯函数分栏。rows 可以多给（查询为关联审批 / 外贸单据补进来的商机），每栏按自己的条件筛。dayEnd = 组织当地的次日零点 */
 export function bucketOwnerToday(
   rows: QueueOpportunity[],
   approvals: OwnerApprovalInput[],
@@ -207,7 +183,7 @@ export function bucketOwnerToday(
   policy: RevenueSpinePolicy,
   now: Date,
   dayStart: Date,
-  dayEnd: Date = new Date(dayStart.getTime() + 24 * 3_600_000),
+  dayEnd: Date,
 ): OwnerTodayBuckets {
   const byId = new Map<string, QueueOpportunity>();
   for (const r of rows) if (!byId.has(r.id)) byId.set(r.id, r);
@@ -329,11 +305,6 @@ function payloadOpportunityId(payload: unknown): string | null {
   return typeof v === "string" && v ? v : null;
 }
 
-export async function loadOrgTimezone(orgId: string): Promise<string> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  return resolveOrgTimezone(org?.settingsJson);
-}
-
 /**
  * 查询 + 分栏。所有查询都带 orgId；外贸单据映射到的商机若不属于本组织，按「未映射」处理。
  */
@@ -342,7 +313,7 @@ export async function buildOwnerToday(
   opts?: { now?: Date; timeZone?: string; policy?: RevenueSpinePolicy; limit?: number },
 ): Promise<OwnerToday> {
   const now = opts?.now ?? new Date();
-  const timeZone = opts?.timeZone ?? (await loadOrgTimezone(orgId));
+  const timeZone = opts?.timeZone ?? resolveOrgTimezone((await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson);
   const { day, start: dayStart, end: dayEnd } = localDayBounds(now, timeZone);
   const limit = opts?.limit ?? LIST_LIMIT;
 

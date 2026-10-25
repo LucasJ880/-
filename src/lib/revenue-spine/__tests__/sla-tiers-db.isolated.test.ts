@@ -470,6 +470,13 @@ async function main() {
       ok(mC.basis === "business" && mC.inquiries.received === 1, "工作时间组织：按工作时间口径，只看本组织", mC.inquiries);
       const mL = await loadSlaMetrics(ORG_L, { now: new Date(Date.now() + MIN) });
       ok(mL.inquiries.received === 2 && mL.guardrail.total === 0, "未配置组织：只看本组织（不串 ORG_T 的数据）", mL.inquiries);
+
+      // 只有商机记着来源线索（sourceTradeProspectId，线索没回填 convertedToSalesOpportunityId）：与分级同一口径，外贸外发也算首次回复
+      const pS = await prospect(ORG_T, cT.id, `Hazel Home Goods ${stamp}`, null);
+      await db.salesOpportunity.update({ where: { id: a6Intake.opportunityId }, data: { sourceTradeProspectId: pS.id } });
+      await db.tradeMessage.create({ data: { prospectId: pS.id, direction: "outbound", channel: "email", subject: "Re", content: "Hello", createdAt: new Date(a6.createdAt.getTime() + 30 * MIN) } });
+      const mS = await loadSlaMetrics(ORG_T, { now: new Date(Date.now() + MIN) });
+      ok(mS.inquiries.answered === 3 && mS.inquiries.unanswered === 1, "来源线索链接的外贸外发也算首次回复（与分级同一口径）", mS.inquiries);
     }
   } finally {
     try {

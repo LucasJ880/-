@@ -7,11 +7,9 @@
  * 公开仓库：只用虚构企业。
  */
 import assert from "node:assert/strict";
+import { ONBOARDING_TEST_CLOSE_REASON, ONBOARDING_TEST_TAG, ONBOARDING_TEST_UTM_SOURCE } from "@/lib/organizations/onboarding-rules";
 import type { BusinessCalendar } from "../business-days";
 import {
-  ONBOARDING_TEST_CLOSE_REASON,
-  ONBOARDING_TEST_TAG,
-  ONBOARDING_TEST_UTM_SOURCE,
   clampWindowDays,
   computeSlaMetrics,
   firstResponseAt,
