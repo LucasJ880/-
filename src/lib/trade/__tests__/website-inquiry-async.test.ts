@@ -18,14 +18,11 @@ import {
   FDE_CRON_MAX_ATTEMPTS,
   FDE_RERUNNABLE,
   FDE_STALE_RUNNING_MS,
+  // website-inquiry 原先转出的同名常量已删除（无调用方），改从定义处导入
+  FDE_STALE_RUNNING_MS as REEXPORTED_STALE_MS,
   runBlockedClaimPatch,
 } from "@/lib/revenue-spine/fde/inbound-queue";
-import {
-  FDE_STALE_RUNNING_MS as REEXPORTED_STALE_MS,
-  scheduleAfterResponse,
-  websiteWebhookBody,
-  type IngestResult,
-} from "../website-inquiry";
+import { scheduleAfterResponse, websiteWebhookBody, type IngestResult } from "../website-inquiry";
 import { RECEIPT_PROCESSING_STALE_MS } from "../website-inquiry-receipts";
 import { classifyQingyanResponse, processingStateFrom } from "./fixtures/site-bridge-classify";
 

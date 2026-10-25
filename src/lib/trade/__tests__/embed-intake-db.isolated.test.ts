@@ -57,7 +57,7 @@ async function main() {
   const { __setDefaultFdeSchedulerForTest } = await import("@/lib/trade/website-inquiry");
   const { computePayloadHash, fromReceiptPayload, EMBED_INQUIRY_SOURCE } = await import("@/lib/trade/website-inquiry-receipts");
   const { hashClientIp, readWebsiteCredentials } = await import("@/lib/trade/website-channel-credentials");
-  const { EMBED_RATE_LIMITS } = await import("@/lib/trade/embed-rate-limit");
+  const { EMBED_RATE_LIMITS } = await import("@/lib/trade/embed-intake");
   const { upsertWebsiteChannel, setWebsiteChannelAllowedOrigins, rotateWebsiteChannelSecret, WebsiteChannelError } = await import("@/lib/trade/channel-service");
   const embedRoute = await import("@/app/api/trade/webhook/website/embed/route");
   const webhookRoute = await import("@/app/api/trade/webhook/website/route");

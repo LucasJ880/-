@@ -85,20 +85,11 @@ HTTP 保持 200（不是 202），以兼容已有的站点桥接。是否完成�
 
 > **决定（2026-10-24，CTO）**：接受 `inbound-queue.ts` 作为挂在 SalesAction 行上的领域级认领（带过期的 compare-and-set），并在运行时架构基线 `engineSurfaceFiles` 登记这一个文件。理由：现有 `agent-runtime/queue.ts` 专为后台对话运行（带对话计划载荷）设计，把来信 FDE 迁过去需要重构已有端到端测试保护的整条链路，收益不抵风险。复议条件：运行时底座的租约（claimRunLease 一类）支持 FDE 运行类型后，评估迁移并从基线移除本文件。新增任何队列/租约模块仍须单独评审。
 
-
-这是一个带过期认领（租约语义）的队列面，位于 runtime substrate / agent-runtime-v2 之外。runtime-architecture 守卫 `NEW_ENGINE_SURFACE_FORBIDDEN` 按文件名识别这类面，所以模块用了如实的名字 `inbound-queue.ts`，并在 `runtime-architecture-baseline.json` 的 `engineSurfaceFiles` 里登记一行——按守卫说明，这行基线改动必须经架构负责人评审确认后才能合并。
-
-它没有新建表或执行引擎：`fdeStatus` 状态机与 `stale_running` 判定原本就有，cron 原本也按它补跑；这里只是把状态迁移改成原子的，FDE 本身仍经 agent-runtime 建 AgentRun。若评审要求统一走 agent-runtime 的后台队列（`agent-runtime/queue.ts`），需另起一包（涉及迁移）。
+它没有新建表或执行引擎：`fdeStatus` 状态机与 `stale_running` 判定原本就有，cron 原本也按它补跑；这里只是把状态迁移改成原子的，FDE 本身仍经 agent-runtime 建 AgentRun。
 
 ## 6. 只读状态接口
 
-`GET /api/trade/webhook/website/status?eventId=…`
-
-- 鉴权：**只认** header `x-qingyan-webhook-secret`（website 通道密钥，`resolveWebsiteChannelBySecret`）；不接受 `?secret=` 或请求体。组织由密钥在服务端解析，查不到他组织的事件。
-- `/api/trade/webhook/*` 在 middleware 的 `PUBLIC_PATHS` 里（无需登录态），鉴权完全在路由内。
-- 返回与 POST 相同的快照字段，外加 `receiptStatus`。`busy=true` 表示该事件的请求路径此刻正在处理。
-- 只读：不认领收据、不增加 `attempts`、不安排也不执行 FDE。
-- 401 密钥错误 / 400 缺 eventId / 404 未知事件。只给服务端调用，不开放 CORS。
+`GET /api/trade/webhook/website/status?eventId=…`：见 [QINGYAN_INTAKE_WEBHOOK.md §2.5](./QINGYAN_INTAKE_WEBHOOK.md)。
 
 ## 7. cron 兜底（`/api/cron/revenue-spine`，每 15 分钟）
 

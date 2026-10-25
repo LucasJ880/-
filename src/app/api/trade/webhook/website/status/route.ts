@@ -11,13 +11,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { readWebsiteInquiryStatus, resolveWebsiteChannelBySecret, websiteWebhookBody } from "@/lib/trade/website-inquiry";
+import { normalizeEventId, readWebsiteInquiryStatus, resolveWebsiteChannelBySecret, websiteWebhookBody } from "@/lib/trade/website-inquiry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** 与 normalizeInquiry 对 eventId 的清洗一致（折叠空白、截到 120 字符），否则长 id 查不到收据 */
-const EVENT_ID_MAX = 120;
 
 export async function GET(request: NextRequest) {
   const secret = request.headers.get("x-qingyan-webhook-secret")?.trim() ?? "";
@@ -26,7 +23,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "invalid secret" }, { status: 401 });
   }
 
-  const eventId = (request.nextUrl.searchParams.get("eventId") ?? "").replace(/\s+/g, " ").trim().slice(0, EVENT_ID_MAX);
+  // 与入站时 eventId 的清洗一致，否则长 id 查不到收据
+  const eventId = normalizeEventId(request.nextUrl.searchParams.get("eventId"));
   if (!eventId) {
     return NextResponse.json({ error: "eventId required" }, { status: 400 });
   }

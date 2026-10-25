@@ -1,21 +1,15 @@
 /**
- * POST /api/trade/webhook/website — 独立站询盘表单接入
+ * POST /api/trade/webhook/website — 独立站询盘表单接入（站点后端转发）
  *
- * 鉴权：website 通道密钥（header x-qingyan-webhook-secret / ?secret= / body.secret）
- * 载荷：JSON 或 form-urlencoded / multipart（字段见 website-inquiry.ts）
- * 跨域：保留放开的 CORS，只为兼容旧版渠道页那段把密钥写在网页里的前端代码；新接入请用服务器转发
- *   （密钥只在服务器上）或嵌入表单（./embed，公开 key + 来源白名单 + 限流），见 docs/QINGYAN_INTAKE_WEBHOOK.md
- * 事件身份：eventId 在任何业务写入前落收据（WebsiteInquiryReceipt），重发按事件逐项补齐缺失步骤；
- * 同一事件并发到达时后到者返回 busy 不并行执行。响应字段是真实记录，不由 HTTP 状态推断。
- *
- * 异步入站：请求内只做 收据 → Trade 线索/消息 → Revenue Spine（客户/商机/互动/行动）就返回 HTTP 200，
- * 请求路径里没有 LLM。FDE（研究/RFQ 抽取/评分/草稿，约 90 s、2 次 LLM）由 after() 在响应之后执行，
- * 执行前原子认领（与重发、cron 互斥，同一 FDE 不会跑两次）。首个响应 fde.status=queued、terminal=false、
- * complete=false；FDE 到终态后，同一 eventId 重发或 GET ./status 返回 complete=true、fde.terminal=true。
- * 重发从不在请求内执行 FDE：FDE 可重跑且未被认领时只用 after() 安排。
+ * 鉴权：website 通道密钥（header x-qingyan-webhook-secret；兼容旧接入的 ?secret= / body.secret）。
+ * 载荷：JSON 或 form-urlencoded / multipart（字段见 docs/QINGYAN_INTAKE_WEBHOOK.md §1）。
+ * 跨域：放开的 CORS 只为兼容旧版渠道页那段把密钥写在网页里的前端代码；新接入用服务器转发或嵌入表单（./embed）。
+ * 请求内只做到 Revenue Spine intake 就返回，FDE 由 after() 在响应之后执行；事件身份、重发与响应契约见
+ * docs/QINGYAN_WEBSITE_INTAKE_ASYNC.md §2–§4。
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { readInquiryPayload } from "@/lib/trade/embed-intake";
 import {
   ingestWebsiteInquiry,
   normalizeInquiry,
@@ -50,26 +44,9 @@ export async function OPTIONS(request: NextRequest) {
   });
 }
 
-async function readPayload(request: NextRequest): Promise<Record<string, unknown>> {
-  const ct = request.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    const body = await request.json().catch(() => null);
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : {};
-  }
-  const form = await request.formData().catch(() => null);
-  if (!form) return {};
-  const out: Record<string, unknown> = {};
-  form.forEach((value, key) => {
-    if (typeof value === "string") out[key] = value;
-  });
-  return out;
-}
-
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
-  const payload = await readPayload(request);
+  const payload = (await readInquiryPayload(request)) ?? {};
 
   const secret =
     request.headers.get("x-qingyan-webhook-secret")?.trim() ||

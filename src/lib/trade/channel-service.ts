@@ -56,14 +56,9 @@ export async function upsertChannel(input: ChannelConfig) {
 /**
  * 网站询盘通道：凭证（服务端密钥、嵌入表单公开 key、IP 盐）全部由服务端生成；
  * 重复保存沿用已有凭证与来源白名单，避免已部署的代码失效。外贸渠道页与平台入驻向导共用这一条创建路径。
- * 调用方提交的 config 不写入（website 通道没有可由调用方填写的字段，凭证更不能由调用方指定）。
  * 已有通道走与轮换 / 改白名单相同的比较并交换更新：同时发生的轮换不会被这次保存写回旧值。
  */
-export async function upsertWebsiteChannel(input: {
-  orgId: string;
-  name: string;
-  config?: Record<string, unknown>;
-}): Promise<TradeChannel> {
+export async function upsertWebsiteChannel(input: { orgId: string; name: string }): Promise<TradeChannel> {
   const existing = await getChannel(input.orgId, "website");
   if (!existing) {
     try {
@@ -153,13 +148,11 @@ export async function listChannels(orgId: string) {
 }
 
 /** 单个通道：所有角色拿到掩码视图；website 通道且 canManage 时附带完整凭证 */
-export async function getChannelView(orgId: string, channel: string, opts: { canManage: boolean; now?: Date }) {
-  const ch = await getChannel(orgId, channel);
-  if (!ch) return null;
+export function channelView(ch: TradeChannel, canManage: boolean) {
   return {
     ...toChannelView(ch),
-    canManage: opts.canManage,
-    ...(ch.channel === "website" && opts.canManage ? { website: websiteCredentialView(ch.config, opts.now) } : {}),
+    canManage,
+    ...(ch.channel === "website" && canManage ? { website: websiteCredentialView(ch.config) } : {}),
   };
 }
 

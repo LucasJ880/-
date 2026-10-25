@@ -1,38 +1,18 @@
 /**
  * Revenue Spine — Inbound FDE 队列：真实状态读取 + 原子认领 + 执行 + cron 兜底
  *
- * 一条来信的 FDE（SalesAction.signalKey = inbound:<interactionId>）可能被几处同时想执行：
- *   网站 webhook 响应后的 after() 回调、站点重发（replay）安排的 after() 回调、cron 兜底、
- *   展会速记卡 / 库调用方的同步（inline）路径，以及人工入口（录入询盘、带 salesActionId 的手动重跑）。
- * 任何一处都必须先经 claimInboundFde 认领，认领成功者才调用 runInboundSalesFde：
- *   - 条件：SalesAction 仍开放（open / in_progress）；FDE 存储状态可重跑（queued / failed / run_blocked，
- *     或 running 但超过 FDE_CLAIM_STALE_MS 没有任何写入）；且 loadFdeState 判定该来信不在终态
- *     （草稿已发送 / 待审批 / 人工拒绝 / 系统作废、run 被取消、行动已被关闭）。
- *   - 写入：fdeStatus=running、fdeClaim{token, by, claimedAt, from}、fdeAttempts+1，并把 updatedAt 严格推进。
- *   - 比较并交换的依据是 updatedAt：读取之后任何写入都会改变它，updateMany 命中 0 行 = 认领失败。
- *     Postgres 在 READ COMMITTED 下会对被并发更新的行重新求值 WHERE，所以两个并发认领只有一个命中。
- * 认领失败者不做任何事；调用方读真实记录说明当前状态（running / completed / …）。
+ * 一条来信的 FDE（SalesAction.signalKey = inbound:<interactionId>）可能被 after() 回调、站点重发、cron、
+ * 同步录入与人工入口同时想执行；任何一处都必须先经 claimInboundFde 认领（按 updatedAt 比较并交换，并发认领
+ * 只有一个命中），认领成功者才调用 runInboundSalesFde，失败者什么都不做。认领条件、写入与计数
+ * （fdeAttempts / fdeBlockedAttempts）见 docs/QINGYAN_WEBSITE_INTAKE_ASYNC.md §5、§5.1。
  *
- * 计数（cron 重试上限据此判断，见 listInboundFdeCandidates）：
- *   - fdeAttempts：可能花了 LLM 的执行次数。认领时 +1；结果是 run_blocked（没建 AgentRun、没花 LLM）时退回。
- *   - fdeBlockedAttempts：非配额原因的 run_blocked 次数（例如会话建不出来）。配额原因不计：配额恢复后自然能跑。
- *
- * 时间常量的耦合（改任何一个都要一起看）：
- *   FDE_CLAIM_STALE_MS（10 min）> 任何持有认领者的最长寿命 = 路由 maxDuration（最长 300 s）
- *   （webhook 的 after() 回调、展会速记卡同步录入、cron 是 300 s；人工录入 / 手动重跑是 120 s）。
- *
- * 架构定位：这是一个带过期认领（租约语义）的队列面，位于 runtime substrate / agent-runtime-v2 之外，
- * 因此在 runtime-architecture 基线（engineSurfaceFiles）里登记，按守卫要求须经架构评审确认后才能合并。
- * 它没有新建表或执行引擎：SalesAction.inputContext.fdeStatus 的 queued / running / completed 状态机与
- * stale_running 判定原本就有（原在 trade/website-inquiry.ts），cron 原本也按 fdeStatus 补跑；
- * 本模块把状态迁移改成原子的比较并交换，FDE 本身仍经 agent-runtime 建 AgentRun。
- * 若评审要求统一走 agent-runtime 的后台队列（agent-runtime/queue.ts），需另起一包（涉及迁移）。
+ * 时间耦合：FDE_CLAIM_STALE_MS（10 min）> 任何持有认领者的最长寿命 = 路由 maxDuration（最长 300 s）。
+ * 架构定位：带过期认领的领域级队列面，已在 runtime-architecture 基线 engineSurfaceFiles 登记（决定见 ASYNC §5.4）。
  */
 
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import type { RevenueSpinePolicy } from "../policy";
 import { FDE_EMPLOYEE_KEY } from "./actions";
 import { INQUIRY_REPLY_ACTION_TYPE, runInboundSalesFde, type FdeTrigger, type InboundFdeResult } from "./inbound-sales";
 
@@ -234,19 +214,6 @@ async function patchOwnClaim(
 }
 
 /**
- * 释放自己的认领（只在 FDE 没有自行写出终态时用）：仍是本 token 且仍为 running 才改写，
- * 否则说明 FDE 已写终态或已被他人接管，不动。
- */
-export async function releaseInboundFdeClaim(
-  orgId: string,
-  salesActionId: string,
-  token: string,
-  patch: { fdeStatus: "failed"; fdeError: string; fdeErrorCode: string },
-): Promise<boolean> {
-  return patchOwnClaim(orgId, salesActionId, token, ["running"], () => patch);
-}
-
-/**
  * run_blocked（建 AgentRun 失败：配额 / 会话等）后的记账（纯函数）：
  *   - 这次认领没花 LLM → fdeAttempts 退回认领前的值，不占 failed / 过期 running 的重试上限；
  *   - 非配额原因 → fdeBlockedAttempts + 1（有上限，避免永远排在 cron 候选前面）；配额原因不计；
@@ -278,8 +245,6 @@ export interface RunQueuedFdeOptions {
   by: FdeClaimant;
   trigger: FdeTrigger;
   now?: Date;
-  policy?: RevenueSpinePolicy;
-  useLlm?: boolean;
   /** 人工入口：记录在 AgentRun.metadata.actorUserId */
   actorUserId?: string | null;
 }
@@ -292,6 +257,9 @@ export async function runQueuedInboundFde(orgId: string, salesActionId: string, 
   const claim = await claimInboundFde(orgId, salesActionId, { by: opts.by, now: opts.now });
   if (!claim.claimed || !claim.token || !claim.opportunityId) return { ran: false, claim, result: null };
   const token = claim.token;
+  // FDE 没有自行写出终态时释放自己的认领：仍是本 token 且仍为 running 才改写（否则已写终态或已被他人接管，不动）
+  const releaseFailed = (patch: { fdeError: string; fdeErrorCode: string }) =>
+    patchOwnClaim(orgId, salesActionId, token, ["running"], () => ({ fdeStatus: "failed", ...patch }));
   let result: InboundFdeResult;
   try {
     result = await runInboundSalesFde({
@@ -300,13 +268,11 @@ export async function runQueuedInboundFde(orgId: string, salesActionId: string, 
       salesActionId,
       trigger: opts.trigger,
       now: opts.now,
-      policy: opts.policy,
-      useLlm: opts.useLlm,
       actorUserId: opts.actorUserId ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await releaseInboundFdeClaim(orgId, salesActionId, token, { fdeStatus: "failed", fdeError: message, fdeErrorCode: "FDE_THREW" }).catch(() => undefined);
+    await releaseFailed({ fdeError: message, fdeErrorCode: "FDE_THREW" }).catch(() => undefined);
     throw err;
   }
   if (!result.agentRunId) {
@@ -316,11 +282,7 @@ export async function runQueuedInboundFde(orgId: string, salesActionId: string, 
     } else {
       // 在建 AgentRun 之前返回（NOT_FOUND / LEGACY_STAGE / TERMINAL / NO_INBOUND）时 runInboundSalesFde 不写 SalesAction；
       // 不释放的话 running 会一直挂到过期。这些条件不会自行消失，计入 fdeAttempts（cron 至多再试几次就停）。
-      await releaseInboundFdeClaim(orgId, salesActionId, token, {
-        fdeStatus: "failed",
-        fdeError: result.error ?? "FDE did not start",
-        fdeErrorCode: result.errorCode ?? "NOT_STARTED",
-      }).catch(() => undefined);
+      await releaseFailed({ fdeError: result.error ?? "FDE did not start", fdeErrorCode: result.errorCode ?? "NOT_STARTED" }).catch(() => undefined);
     }
   }
   return { ran: true, claim, result };
@@ -450,12 +412,8 @@ export interface DrainOptions {
   now?: Date;
   /** 每个组织每次读取的候选数（读完再读下一批，直到截止或没有未处理的候选；不是执行上限） */
   perOrgCandidates?: number;
-  policies?: Map<string, RevenueSpinePolicy>;
-  /** 墙钟（测试注入） */
-  clock?: () => number;
   /** 每次实际执行后的回调（例如回填网站询盘收据）；失败不影响队列 */
   afterRun?: (orgId: string, salesActionId: string, run: QueuedFdeRun) => Promise<void>;
-  useLlm?: boolean;
 }
 
 /**
@@ -464,7 +422,6 @@ export interface DrainOptions {
  * 所有执行都经 runQueuedInboundFde 认领，与 after() 回调 / 重发互斥。
  */
 export async function drainInboundFdeQueue(opts: DrainOptions): Promise<{ results: DrainOrgResult[]; deadlineReached: boolean }> {
-  const clock = opts.clock ?? Date.now;
   const now = opts.now ?? new Date();
   const take = opts.perOrgCandidates ?? 25;
   const queues = opts.orgIds.map((orgId) => ({
@@ -496,7 +453,7 @@ export async function drainInboundFdeQueue(opts: DrainOptions): Promise<{ result
       if (q.result.quotaBlocked) continue;
       await refill(q);
       if (q.pending.length === 0) continue;
-      if (clock() >= opts.deadlineAt) {
+      if (Date.now() >= opts.deadlineAt) {
         deadlineReached = true;
         break;
       }
@@ -504,12 +461,7 @@ export async function drainInboundFdeQueue(opts: DrainOptions): Promise<{ result
       q.tried.add(id);
       progressed = true;
       try {
-        const run = await runQueuedInboundFde(q.result.orgId, id, {
-          by: "cron",
-          trigger: "cron",
-          policy: opts.policies?.get(q.result.orgId),
-          useLlm: opts.useLlm,
-        });
+        const run = await runQueuedInboundFde(q.result.orgId, id, { by: "cron", trigger: "cron" });
         if (!run.ran) {
           q.result.fdeSkipped += 1;
           continue;

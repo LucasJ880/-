@@ -36,8 +36,12 @@ import {
   rotatePublicKeyConfig,
   rotateSecretConfig,
 } from "../website-channel-credentials";
-import { DAY_MS, EMBED_ATTEMPT_LIMIT, EMBED_RATE_LIMITS, HOUR_MS, decideEmbedRateLimit } from "../embed-rate-limit";
 import {
+  DAY_MS,
+  EMBED_ATTEMPT_LIMIT,
+  EMBED_RATE_LIMITS,
+  HOUR_MS,
+  decideEmbedRateLimit,
   EMBED_EVENT_PREFIX,
   EMBED_KEY_QUERY,
   clientIpFrom,
@@ -491,12 +495,12 @@ ok("嵌入路由：段配置静态字面量；成功响应只有 { ok, receiptId
   assert.match(src, /receiptMeta: \{ ipHash \}/);
   // 限流在 ingest 之前
   assert.ok(src.indexOf("decideEmbedRateLimit(") < src.indexOf("ingestWebsiteInquiry("));
-  assert.ok(src.indexOf("originAllowed(") < src.indexOf("readPayload(request)"));  // 没有需求内容在入站前 400；503 只给暂时失败（主干拒收不让脚本重试）
+  assert.ok(src.indexOf("originAllowed(") < src.indexOf("readInquiryPayload(request)"));  // 没有需求内容在入站前 400；503 只给暂时失败（主干拒收不让脚本重试）
   assert.match(src, /reply\(\{ ok: false, error: "message_required" \}, 400, allowOrigin\)/);
   assert.ok(src.indexOf("hasInquiryContent(") < src.indexOf("ingestWebsiteInquiry("));
   assert.ok(src.indexOf("isPermanentSpineRejection(result.spine)") < src.indexOf('"temporarily_unavailable"'));
   // 预检按 ?k= 的公开 key 定位通道，只回显该通道白名单里的来源；不再按"任一租户白名单"放行
-  const opts = src.slice(src.indexOf("export async function OPTIONS"), src.indexOf("async function readPayload"));
+  const opts = src.slice(src.indexOf("export async function OPTIONS"), src.indexOf("export async function POST"));
   assert.match(opts, /searchParams\.get\(EMBED_KEY_QUERY\)/);
   assert.match(opts, /preflightAllowedOrigin\(origin, key\)/);
   assert.doesNotMatch(src, /isOriginRegisteredForEmbed/);
@@ -505,7 +509,7 @@ ok("嵌入路由：段配置静态字面量；成功响应只有 { ok, receiptId
 
 ok("服务端密钥解析：webhook 与状态接口共用 resolveWebsiteChannelBySecret，接受宽限期内的旧密钥", () => {
   const lib = read("src/lib/trade/website-inquiry.ts");
-  assert.match(lib, /matchWebsiteSecret\(ch\.config, secret, now\)/);
+  assert.match(lib, /matchWebsiteSecret\(c, secret, now\)/);
   assert.match(read("src/app/api/trade/webhook/website/route.ts"), /resolveWebsiteChannelBySecret\(secret\)/);
   assert.match(read("src/app/api/trade/webhook/website/status/route.ts"), /resolveWebsiteChannelBySecret\(secret\)/);
 });
@@ -556,7 +560,7 @@ ok("渠道接口：GET 单个通道不再原样返回 config；列表与新建�
   const single = read("src/app/api/trade/channels/[channel]/route.ts");
   const list = read("src/app/api/trade/channels/route.ts");
   assert.doesNotMatch(single, /NextResponse\.json\(ch\)/);
-  assert.match(single, /getChannelView\(orgRes\.orgId, channel, \{ canManage \}\)/);
+  assert.match(single, /channelView\(ch, canManage\)/);
   for (const fn of ["DELETE", "PATCH"]) {
     const body = single.slice(single.indexOf(`export async function ${fn}`));
     assert.match(body.slice(0, 1200), /canManageTradeChannels\(auth\.user, orgRes\.orgId\)/, fn);

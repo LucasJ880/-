@@ -1,37 +1,30 @@
 /**
  * POST /api/trade/webhook/website/embed — 青砚托管嵌入表单（public/embed/inquiry.js）的提交入口
  *
- * 鉴权（公开 key 模式）：请求头 x-qingyan-form-key = website 通道的公开 key（qyk_…），
- * 且 Origin 必须与该通道 allowedOrigins 中的某一项精确相等（scheme + host[:port]）。
- * 公开 key 写在网页里、Origin 可被非浏览器伪造，所以挡滥用的是：蜜罐 + 限流（数据库计数：每组织 × 访客 IP
- * 10 分钟、每组织每小时 / 每天；另有按通道 × IP 的请求次数粗筛）。访客 IP 只以 HMAC 存进收据载荷 meta.ipHash。
- * 路径在 /api/trade/webhook/* 下，middleware 已放行（PUBLIC_PATHS），鉴权完全在本路由内。
- *
- * CORS：只回显通过校验的来源。预检按查询参数 ?k=<公开 key> 定位通道，只回显该通道白名单里的来源
- * （没有 k 不回显）；key / 来源不对的响应不带 CORS 头。
- * 响应：成功只有 { ok: true, receiptId }——不返回线索 / 商机 / 是否重复等内部信息（防枚举）。
- * 入站与站点后端转发同一条链路（收据来源 embed，事件 id emb:<浏览器 uuid>），FDE 走 after()，请求里没有 LLM。
- * 必须说明需求（产品 / 数量 / 留言至少一项），否则入站前 400 message_required——主干会拒收空询盘。
- * 主干暂时失败（抛错 / INCOMPLETE）返回 503，脚本用同一事件 id 重试即可补齐（收据幂等）；
- * 主干按字段 / 组织配置拒收时不让重试：Trade 线索与销售通知已落库，按"已收到"返回 200。
+ * 鉴权完全在本路由内（middleware 放行 /api/trade/webhook/*）：请求头公开 key（x-qingyan-form-key）+ Origin 与该通道
+ * allowedOrigins 精确相等；CORS 只回显通过校验的来源（预检按 ?k=<公开 key> 定位通道）。挡滥用的是蜜罐 + 限流。
+ * 成功只回 { ok, receiptId }（防枚举）；入站与站点后端转发同一条链路（收据来源 embed），FDE 走 after()，请求里没有 LLM。
+ * 状态码与重试语义（400 / 429 / 503 / 拒收按"已收到"返回 200）见 docs/QINGYAN_INTAKE_WEBHOOK.md §3.5。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import {
+  EMBED_ATTEMPT_LIMIT,
   EMBED_KEY_HEADER,
   EMBED_KEY_QUERY,
   EMBED_MAX_BODY_BYTES,
   countEmbedSubmissions,
+  decideEmbedRateLimit,
   decoyReceiptId,
   embedIpHash,
   hasInquiryContent,
   isPermanentSpineRejection,
   preflightAllowedOrigin,
+  readInquiryPayload,
   resolveWebsiteChannelByPublicKey,
   toEmbedInquiryRaw,
 } from "@/lib/trade/embed-intake";
-import { EMBED_ATTEMPT_LIMIT, decideEmbedRateLimit } from "@/lib/trade/embed-rate-limit";
 import { originAllowed } from "@/lib/trade/website-channel-credentials";
 import { ingestWebsiteInquiry, normalizeInquiry } from "@/lib/trade/website-inquiry";
 import { EMBED_INQUIRY_SOURCE, findReceiptByEventId } from "@/lib/trade/website-inquiry-receipts";
@@ -66,24 +59,6 @@ export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, { status: 204, headers: corsHeaders(allowed) });
 }
 
-async function readPayload(request: NextRequest): Promise<Record<string, unknown> | null> {
-  const ct = request.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    const body = await request.json().catch(() => null);
-    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
-  }
-  if (ct.includes("application/x-www-form-urlencoded") || ct.includes("multipart/form-data")) {
-    const form = await request.formData().catch(() => null);
-    if (!form) return null;
-    const out: Record<string, unknown> = {};
-    form.forEach((value, k) => {
-      if (typeof value === "string") out[k] = value;
-    });
-    return out;
-  }
-  return null;
-}
-
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
   const key = request.headers.get(EMBED_KEY_HEADER)?.trim() ?? "";
@@ -109,7 +84,7 @@ export async function POST(request: NextRequest) {
   if (Number(request.headers.get("content-length") ?? "0") > EMBED_MAX_BODY_BYTES) {
     return reply({ ok: false, error: "payload_too_large" }, 413, allowOrigin);
   }
-  const payload = await readPayload(request);
+  const payload = await readInquiryPayload(request);
   if (!payload) {
     return reply({ ok: false, error: "invalid_body" }, 400, allowOrigin);
   }
