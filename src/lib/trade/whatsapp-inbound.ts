@@ -157,7 +157,7 @@ export function extractWhatsAppInbound(body: unknown): { items: WhatsAppInboundI
           skipped.push({ reason: "missing_id", phoneNumberId, type });
           continue;
         }
-        const waId = (msg.from ?? "").replace(/\D+/g, "").slice(0, 20);
+        const waId = (typeof msg.from === "string" ? msg.from : "").replace(/\D+/g, "").slice(0, 20);
         if (waId.length < 7) {
           skipped.push({ reason: "missing_from", phoneNumberId, wamid, type });
           continue;
@@ -171,7 +171,7 @@ export function extractWhatsAppInbound(body: unknown): { items: WhatsAppInboundI
           skipped.push({ reason: "empty_content", phoneNumberId, wamid, type });
           continue;
         }
-        const contact = contacts.find((c) => (c?.wa_id ?? "").replace(/\D+/g, "") === waId) ?? (contacts.length === 1 ? contacts[0] : undefined);
+        const contact = contacts.find((c) => typeof c?.wa_id === "string" && c.wa_id.replace(/\D+/g, "") === waId) ?? (contacts.length === 1 ? contacts[0] : undefined);
         items.push({ phoneNumberId, wamid, waId, profileName: clean(contact?.profile?.name, LIMITS.name), type, text });
       }
     }

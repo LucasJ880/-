@@ -164,6 +164,8 @@ async function main() {
     ]);
     assert.deepEqual(extractWhatsAppInbound({ entry: [{ changes: [{ field: "messages", value: { statuses: [{ id: "wamid.S" }] } }] }] }), { items: [], skipped: [] }, "状态回执不是来信");
     assert.deepEqual(extractWhatsAppInbound(null), { items: [], skipped: [] });
+    const odd = extractWhatsAppInbound(payload([{ phoneNumberId: PNID, contacts: [{ wa_id: 16475550142 }], messages: [{ id: "wamid.O1", from: 16475550142, type: "text", text: { body: "x" } }] }]));
+    assert.deepEqual(odd.skipped.map((s) => s.reason), ["missing_from"], "非字符串发信人按缺失处理，不抛错");
     assert.deepEqual(extractWhatsAppInbound({ entry: [{ changes: [{ field: "account_update", value: {} }] }] }), { items: [], skipped: [] });
   });
 
