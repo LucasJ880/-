@@ -1,15 +1,9 @@
 /**
- * WeChat Official Account / WeCom Webhook
- *
+ * WeChat Official Account / WeCom Webhook（WECHAT_TOKEN；未配置 403）
  * GET  — 微信服务器验证（明文：signature + timestamp + nonce）
- * POST — 明文：同上；若检测到加密模式参数（msg_signature / encrypt_type=aes）则返回 501 并 TODO
- *
- * 去重：微信 5 秒内没收到回应会重发同一条消息（共 3 次）。处理前按 MsgId（无则 FromUserName:CreateTime）
- * 认领收据（orgId, "wechat", MsgId）：已处理 / 正在处理 → 直接回 success，不再写第二条消息。
- * 「正在处理」只认 4 秒（WECHAT_RECEIPT_STALE_MS）：首个请求认领后中断（冷启动超时 / 实例被回收），
- * 后面的重发据此再认领并写入，消息不会因为收据卡在 processing 而永久丢失。
- * 只走 Trade 通道（processInboundMessage）：公众号来信只有 openid，没有电话 / 邮箱，
- * 进不了 Revenue Spine 的客户去重（邮箱 → 电话 → 域名），故不建 SalesCustomer / 商机。
+ * POST — 明文验签（缺参数 401，错 403）；加密模式（msg_signature / encrypt_type=aes）501 未实现；ToUserName 解析不到组织 403。
+ *        按 MsgId（无则 FromUserName:CreateTime）认领收据后才写消息，平台重发直接回 success（过期见 WECHAT_RECEIPT_STALE_MS）。
+ * 只走 Trade 通道：公众号来信只有 openid，进不了 Revenue Spine 的客户去重，故不建客户 / 商机。
  */
 
 import { NextRequest, NextResponse } from "next/server";
