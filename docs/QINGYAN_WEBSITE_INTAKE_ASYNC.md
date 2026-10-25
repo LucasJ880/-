@@ -47,7 +47,7 @@ HTTP 保持 200（不是 202），以兼容已有的站点桥接。是否完成�
 - FDE 可重跑（`queued` / `failed` / `run_blocked` / 认领过期的 `running`）且未被认领 → 用调度器安排；正在运行 → 只返回 `running`；终态 → 只返回终态。
 - 多次重发安排多个回调也安全：认领只让一个执行。
 
-## 5. 原子认领（`src/lib/revenue-spine/fde/inbound-queue.ts`）
+## 5. 原子认领（`src/lib/revenue-spine/fde/inbound-claim.ts`）
 
 所有执行入口都经 `runQueuedInboundFde(orgId, salesActionId, { by, trigger })`：
 
@@ -57,6 +57,8 @@ HTTP 保持 200（不是 202），以兼容已有的站点桥接。是否完成�
 - 比较并交换：`updateMany where { id, orgId, status ∈ open, updatedAt = 读取值 }`。读取后任何写入都会改变 `updatedAt`；Postgres 对被并发更新的行重新求值 WHERE，两个并发认领只有一个命中。
 - 没认领到：什么都不做（返回 `ran=false`），状态由真实记录说明。
 - FDE 在建 AgentRun 之前早退（商机已终结 / 无来信 / 跨组织 / 旧阶段）：释放认领为 `failed` + `fdeErrorCode`，不会一直挂在 `running`。
+
+架构定位（待架构评审确认）：没有新建队列表或执行引擎——`fdeStatus` 状态机与 `stale_running` 判定原本就有，cron 原本也按它补跑；这里只是把状态迁移改成原子的。认领带过期时间、语义上接近租约，runtime-architecture 的 `NEW_ENGINE_SURFACE_FORBIDDEN` 守卫按文件名识别（`queue` / `lease` / `scheduler` …），模块因此命名为 `inbound-claim.ts`；若评审认为应统一走 agent-runtime 后台队列，需另起一包（涉及迁移）。
 
 终态（任何入口都不认领，也不复活）：`completed`（草稿待审批或 FDE 完成）、`already_sent`、`human_rejected`、`superseded`、`cancelled`（AgentRun 被取消）、`action_closed`（行动在 FDE 完成前被人工关闭，本次新增）。
 
@@ -87,10 +89,10 @@ HTTP 保持 200（不是 202），以兼容已有的站点桥接。是否完成�
 | 常量 | 值 | 位置 | 约束 |
 |---|---|---|---|
 | webhook / 展会速记卡 / cron 路由 `maxDuration` | 300 s | 各 `route.ts`（静态字面量） | `after()` 里的 FDE 计入 webhook 的 300 s |
-| `FDE_CLAIM_STALE_MS`（= `FDE_STALE_RUNNING_MS`） | 10 min | `inbound-queue.ts` | 必须 > 任何持有认领者的最长寿命（300 s），否则会与仍在执行的 FDE 并行 |
+| `FDE_CLAIM_STALE_MS`（= `FDE_STALE_RUNNING_MS`） | 10 min | `inbound-claim.ts` | 必须 > 任何持有认领者的最长寿命（300 s），否则会与仍在执行的 FDE 并行 |
 | `RECEIPT_PROCESSING_STALE_MS` | 6 min | `website-inquiry-receipts.ts` | webhook 现在只在请求路径持有收据，但 inline 录入仍在持有收据期间跑 FDE，所以仍须 > 300 s |
 | `FDE_START_DEADLINE_MS` | 200 s | cron 路由 | 截止 + 单个 FDE（≈90–95 s）< 300 s |
-| `FDE_CRON_MAX_ATTEMPTS` | 3 | `inbound-queue.ts` | 只限制 `failed` / 过期 `running` 的自动重试（每次都可能花 LLM） |
+| `FDE_CRON_MAX_ATTEMPTS` | 3 | `inbound-claim.ts` | 只限制 `failed` / 过期 `running` 的自动重试（每次都可能花 LLM） |
 | cron 频率 | 15 min | `vercel.json` | 回调丢失时最坏约 15 min 后由 cron 接手 |
 | 站点转发超时 | 站点侧配置（当前 305 s） | 站点仓库 | 首个响应现在只需数秒；保留 305 s 无害，可按需调小 |
 

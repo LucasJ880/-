@@ -31,7 +31,7 @@ export const BOOTH_CARD_SOURCE = "trade_show";
 
 /** 单执行者控制：processing 超过此时长视为处理进程已中断，允许再次认领。
  *  网站 webhook（deferred）只在请求路径（收据 → Trade → Revenue Spine intake，数秒）持有收据，
- *  FDE 在响应之后另行认领（inbound-queue.ts 的 FDE_CLAIM_STALE_MS），不再占用收据；但展会速记卡录入等
+ *  FDE 在响应之后另行认领（inbound-claim.ts 的 FDE_CLAIM_STALE_MS），不再占用收据；但展会速记卡录入等
  *  inline 调用仍在持有收据期间执行 FDE，所以此值仍必须大于这些路由的 maxDuration（300 s），
  *  否则会与仍在执行的请求并行。 */
 export const RECEIPT_PROCESSING_STALE_MS = 6 * 60_000;

@@ -16,6 +16,12 @@
  * 时间常量的耦合（改任何一个都要一起看）：
  *   FDE_CLAIM_STALE_MS（10 min）> 任何持有认领者的最长寿命 = 路由 maxDuration 300 s
  *   （webhook 的 after() 回调、展会速记卡同步录入、cron 都运行在 maxDuration = 300 的路由里）。
+ *
+ * 架构定位（待架构评审确认）：这里没有新建队列表或执行引擎——SalesAction.inputContext.fdeStatus 的
+ * queued / running / completed 状态机与 stale_running 判定原本就有（原在 trade/website-inquiry.ts），
+ * cron 原本也按 fdeStatus 补跑；本模块只是把状态迁移改成原子的比较并交换，FDE 本身仍经 agent-runtime
+ * 建 AgentRun。但认领带过期时间，语义上接近租约，所以 runtime-architecture 的 NEW_ENGINE_SURFACE
+ * 守卫若按语义评审可能要求改走 agent-runtime 的后台队列（agent-runtime/queue.ts）——那需要迁移，不在本次范围。
  */
 
 import { randomUUID } from "node:crypto";

@@ -70,7 +70,7 @@ async function main() {
     loadFdeState,
     FDE_CLAIM_STALE_MS,
     FDE_CRON_MAX_ATTEMPTS,
-  } = await import("@/lib/revenue-spine/fde/inbound-queue");
+  } = await import("@/lib/revenue-spine/fde/inbound-claim");
   const { createFdeAction } = await import("@/lib/revenue-spine/fde/actions");
   const { INQUIRY_REPLY_ACTION_TYPE } = await import("@/lib/revenue-spine/fde/inbound-sales");
   const { findReceiptByEventId } = await import("@/lib/trade/website-inquiry-receipts");
