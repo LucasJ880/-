@@ -453,7 +453,7 @@ ok("第十四轮审查用例：自己的 Branding / Packaging 答案只收普通
   const plain = fx(b + "Branding: Embroidered logo on hem, 5cm");
   assert.equal(plain.customization, "Embroidered logo on hem, 5cm");
   assert.equal(plain.customLogo, true);
-  assert.equal(fx(b + "Branding: printed care label EN/FR").customLogo, null, "洗标不是 logo");
+  assert.equal(fx(b + "Branding: printed care label EN/FR").customLogo, noForm(b + "Branding: printed care label EN/FR").customLogo, "用自己的答案时 customLogo 不动");
   assert.equal(fx("Product: 床品\n您好\n\n— Form details —\n包装：礼盒包邮").packaging, noForm("Product: 床品\n您好\n\n— Form details —\n包装：礼盒包邮").packaging);
   assert.notEqual(fx("Product: Bathrobes\nHello.\n\n— Form details —\nEstimated quantity: 1200 pcs per size curve").unit, "pcs per size");
   assert.notEqual(fx("Product: 浴袍\n您好，请报价。\n\n— Form details —\n数量: 1000件/码段").unit, "件 per 码");
@@ -471,6 +471,43 @@ ok("第十五轮审查用例：同一字段多行不采用答案；整值检查�
   assert.deepEqual([fx(colour).customization, fx(colour).customLogo], [noForm(colour).customization, noForm(colour).customLogo]);
   const city = "Product: Towels\nHi.\n\n— Form details —\nEstimated quantity: 2000 pcs\nTarget market: USA (Pacific Northwest, Vancouver WA)\nDestination: USA";
   assert.equal(fx(city).destinationCity, noForm(city).destinationCity);
+});
+
+ok("第十六轮审查用例：数量修饰后跟总数说法只取单位；尺寸不退半个数、in 后跟词是介词；别处用关键词表外的说法提到定制 / 包装保持原结果；买家类型行写了别的不算选项", () => {
+  const noForm = (t: string) => fx(t.split("— Form details —").join("Form details"));
+  const q = (v: string) => fx(`Product: Towels\nHi, could you quote us please? Regards.\n\n— Form details —\nEstimated quantity: ${v}`).unit;
+  assert.equal(q("3,000 pcs per colour, 2 colours"), "pcs per colour");
+  assert.equal(q("3000 pcs/colour"), "pcs per colour");
+  for (const v of ["1500 pcs per colour, all colours combined", "1500 pcs per colour (total)", "3000 pcs / size: assorted", "2000 pcs/Colour: White (Total)"]) assert.equal(q(v), "pcs", v);
+  assert.equal(q("1500件每色，合计"), "件");
+  const sz = (lines: string) => {
+    const t = `Product: Duvet Covers\nHi, could you quote us please? Regards.\n\n— Form details —\n${lines}`;
+    return [fx(t).size, noForm(t).size];
+  };
+  for (const v of ["220x200CM", "220X200CMS", "140x400cms"]) {
+    const [withForm, without] = sz(`Estimated quantity: 2000 pcs\nConstruction: 20x20 canvas\nSize / specification: ${v}`);
+    assert.equal(withForm, without, v);
+  }
+  assert.equal(sz("Order type: repeat 70x140 bath towels\nSize / specification: 70x140 in cm")[0], "70x140");
+  assert.equal(sz("Size / specification: 50x70 in")[0], "50x70 in");
+  const head = "Product: Bath towels\nPlease quote 3000 pcs bath towels 70x140cm, 100% cotton, white, to Toronto, Canada, by March 2027.";
+  for (const said of [" Each towel should be monogrammed with our hotel initials.", " We want them personalised with our hotel name.", " 毛巾上要有我们的标志。"]) {
+    const t = `${head}${said}\n\n— Form details —\nBuyer type: Retail & Private Label`;
+    assert.deepEqual([fx(t).customization, fx(t).customLogo], [noForm(t).customization, noForm(t).customLogo], said);
+  }
+  for (const said of [" Each set in color boxes with hang tags.", " Poly bags please.", " PE袋独立装。"]) {
+    const t = `${head}${said}\n\n— Form details —\nBuyer type: Retail & Private Label`;
+    assert.equal(fx(t).packaging, noForm(t).packaging, said);
+  }
+  for (const bt of ["Private label in colour boxes", "Private label w/ own labels", "OEM w/ labels", "贴牌织标"]) {
+    const t = `${head}\n\n— Form details —\nBuyer type: ${bt}`;
+    assert.deepEqual([fx(t).customization, fx(t).packaging], [noForm(t).customization, noForm(t).packaging], bt);
+  }
+  const jacquard = "Project brief (guided form)\n\n— Form details —\nEstimated quantity: 3,000 pcs\nBuyer type: Retail & Private Label\nConstruction: jacquard logo border\nMaterial: cotton terry\nBranding: woven label";
+  assert.equal(fx(jacquard).customization, "woven label");
+  assert.equal(fx(jacquard).customLogo, noForm(jacquard).customLogo);
+  const sizeLabel = "Product: Bath towels\nPlease quote 3000 pcs.\n\n— Form details —\nBuyer type: OEM / ODM\n定制要求：印尺码标";
+  assert.equal(fx(sizeLabel).customLogo, noForm(sizeLabel).customLogo);
 });
 
 ok("中文日期保持原有读法（只给月份按 1 日、写了日按当天）", () => {

@@ -224,6 +224,9 @@ const FIELD_LABELS: Array<[RfqField, string[]]> = [
 const LABEL_FIELD = new Map(FIELD_LABELS.flatMap(([field, labels]) => labels.map((l) => [l, field] as const)));
 // 表单里写规格、但这一层不抽的行（定制、包装…）
 const SPEC_META_LABELS = new Set(["branding", "customization", "customisation", "logo", "packaging", "packing", "construction", "定制要求", "包装"]);
+// 表单「买家类型」选项：只由这些词组成（Retail & Private Label、Importer / Wholesaler、OEM / ODM、零售 / 自有品牌）
+const BUYER_TYPE_OPTION_RE =
+  /^(?:(?:retail(?:er)?|private|label|importer|wholesaler?|distributor|hospitality|hotel|project|e-?commerce|amazon|brand|sustainable|program(?:me)?|other|oem|odm|customi[sz]ed|custom|trading|company|agent|store|chain|supermarket|online|seller|零售|自有品牌|品牌|贴牌|进口商|批发商?|经销商|分销商|酒店项目|酒店|电商|亚马逊|可持续项目|其他|定制|贸易商)(?:\s*(?:&|and|\/|、|和|与)\s*|\s+)?)+$/i;
 // 表单区块里其它的表单字段 / 元数据行（不抽，但也不算买家自己写的正文）
 const FORM_META_LABELS = new Set([
   "order type", "target market", "construction", "gsm", "target price", "inquiry source", "source page", "landing page",
@@ -240,11 +243,12 @@ const SECOND_LABEL_RE = /[.;。；,，|｜]\s*[A-Za-z\u4e00-\u9fff][A-Za-z\u4e00
 const NON_ANSWER_RE =
   /^(?:n\/?a|none|nil|no idea|not sure|i'?m not sure|unsure|not (?:yet|decided|now)|don'?t know|tb[acd]|unknown|any|open|flexible|various|standard|-+|\?+)\b|^(?:please (?:advise|suggest|recommend|quote|see)|pls advise|your (?:suggestion|recommendation|standard|choice|advice|call)|open to|no preference|whatever|depends|to be (?:confirmed|discussed|advised|decided)|will (?:confirm|advise|send|share|provide)|see (?:below|above|attached|attachment|the)|as (?:per|follows|attached|discussed)|refer to|details (?:below|to follow)|same as|custom\b.*specify)|^(?:待定|待确认|不确定|暂不确定|还不确定|不清楚|暂无|无要求|都可以|随便|详见|见附件|见样品|按样品|请建议|你们建议)/i;
 const YES_NO_RE = /^(?:yes|y|ok|no|n|true|false|required|must have|needed|需要|不需要|是|否|有|没有|要|不要)[.!。]?$/i;
-// 数量后的单位：单位词，可带「per colour」「/size」「每色」；后面的话不算单位
-const QTY_UNIT_RE = new RegExp(
-  `^(${UNIT_WORDS})(?![A-Za-z\\d²³])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?=\\s*(?:$|[,.;:，。；：)（(]))|\\s*每\\s*([色款码])(?![\\u4e00-\\u9fff]))?`,
-  "i",
-);
+// 数量后的单位词
+const QTY_UNIT_RE = new RegExp(`^(${UNIT_WORDS})(?![A-Za-z\\d²³])`, "i");
+// 单位后的「per colour」「/size」「每色」：只在值收尾、或后面只跟着颜色 / 尺码数（「, 2 colours」「（3个颜色）」）时算——
+// 后面还有别的话（「, all colours combined」「/ size: assorted」「每色，合计」）可能说的是总数，只取单位
+const QTY_PER_RE =
+  /^\s*(?:(?:per|each|\/)\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)|每\s*([色款码]))(?:\s*[,，(（]\s*\d+\s*(?:colou?rs?|sizes?|styles?|designs?|items?|skus?|models?|patterns?|versions?|[个种]?颜色|[个种]?尺码|色|款|码)\s*[)）]?)?\s*[.。]?\s*$/i;
 const QTY_MULTIPLIER_RE = /\d\s*[x×*]\s*\d|[x×*]\s*\d+\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\b|\d\s*(?:colou?rs?|designs?|sizes?|styles?|models?)\s*[x×*]/i;
 const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack)|cartons?|ctns?|boxes|pallets?|bales?|containers?|usd|us\$|cad|eur|gbp|aud|rmb|cny|budget|price|value|amount)\b|[$€£¥]|样品|起订|试单|每箱|箱|元|预算|金额/i;
 /** FDE 把多封来信按时间先后用它拼接（fde/inbound-sales.ts） */
@@ -281,7 +285,8 @@ function labeledQuantity(value: string): LabeledPairs | null {
     let unit: string | null = null;
     if (u) {
       const word = /^(?:piece|pieces|pc)$/i.test(u[1]) ? "pcs" : u[1].toLowerCase();
-      unit = word + (u[2] ? ` per ${u[2].toLowerCase()}` : u[3] ? `每${u[3]}` : "");
+      const per = QTY_PER_RE.exec(after.trimStart().slice(u[0].length));
+      unit = word + (per?.[1] ? ` per ${per[1].toLowerCase()}` : per?.[2] ? `每${per[2]}` : "");
     }
     candidates.push({ n, unit, rest: after.trim() });
   }
@@ -374,9 +379,15 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
     case "size": {
       // 有「70x140cm」这种尺寸就只取它；整个值都是尺码词时照录；都不是不采用
       // 尺寸在整个值里找（「Queen; 160x200cm」的尺寸在分号后）
-      const dims = [...value.matchAll(new RegExp(`${SIZE_RE.source}(?![A-Za-z])`, "g"))];
+      // 尺寸前后不能紧挨数字或字母（「220x200CM」不能退成 220x20）
+      const dims = [...value.matchAll(new RegExp(`(?<![\\d.])${SIZE_RE.source}(?![A-Za-z\\d]|\\.\\d)`, "g"))];
       if (dims.length > 1) return null; // 几个尺寸：交给关键词扫描
-      if (dims.length === 1) return [["size", dims[0][0].replace(/\s+/g, " ").trim()]];
+      if (dims.length === 1) {
+        let dim = dims[0][0];
+        // 「70x140 in cm」「50x70 in white」的 in 是介词，不是英寸
+        if (/\s+in$/.test(dim) && /^\s+\S/.test(value.slice((dims[0].index ?? 0) + dim.length))) dim = dim.replace(/\s+in$/, "");
+        return [["size", dim.replace(/\s+/g, " ").trim()]];
+      }
       return SIZE_WORDS_ONLY_RE.test(sentence) ? [["size", sentence]] : null;
     }
     default:
@@ -392,8 +403,8 @@ interface LabeledHit {
 }
 
 /**
- * 刚提交的表单区块里能用的字段值，以及区块里「买家类型」选项行、规格行的位置（给事后作废定制 / 包装用）：
- * 买家类型选项（Retail & Private Label）不是定制要求，也不是零售包装。
+ * 刚提交的表单区块里能用的字段值，以及区块里「买家类型」选项行、定制 / 包装行的位置：
+ * 买家类型选项（Retail & Private Label）不是定制要求，也不是零售包装，有自己的 Branding / Packaging 答案时改用答案。
  */
 function labeledFields(
   source: string,
@@ -401,19 +412,15 @@ function labeledFields(
 ): {
   hits: LabeledHit[];
   buyerTypeLines: Array<[number, number]>;
-  blocks: Array<[number, number]>;
-  /** 表单区块里认得出字段的行（买家类型行除外）：区块里只有这些是买家填的规格，来源页、着陆页这类不是 */
+  /** 表单区块里定制、包装这类不抽值的规格行（Branding / Packaging…） */
   specLines: Array<[number, number, string]>;
-  /** 表单自己的字段 / 元数据行（不算买家写的正文） */
-  formLines: Array<[number, number]>;
   /** 同一封来信里表单字段行之外的文字（正文、P.S.、区块里没有标签的句子）：买家在这里提到的字段以正文为准 */
   outsideText: string;
 } {
-  const none = { hits: [], buyerTypeLines: [], blocks: [], specLines: [], formLines: [], outsideText: "" };
+  const none = { hits: [], buyerTypeLines: [], specLines: [], outsideText: "" };
   // 只用于单独一封来信（有分隔符就是多封，或买家自己打了「---」，都不用）
   if (source.includes(INBOUND_MESSAGE_SEPARATOR)) return none;
-  const lastStart = 0;
-  // 表单区块：「— Form details —」之后到空行 / 下一封来信为止。只有一个、且在最新一封来信里，才用（刚提交的这一次）
+  // 表单区块：「— Form details —」之后到空行为止。只有一个才用（刚提交的这一次）
   const blocks: Array<[number, number]> = [];
   FORM_DETAILS_RE.lastIndex = 0;
   for (const f of source.matchAll(FORM_DETAILS_RE)) {
@@ -421,7 +428,7 @@ function labeledFields(
     const blank = /\n[^\S\n]*\n/.exec(source.slice(start + 1));
     blocks.push([start, blank ? start + 1 + blank.index : source.length]);
   }
-  if (blocks.length !== 1 || blocks[0][0] < lastStart) return none;
+  if (blocks.length !== 1) return none;
   const [blockStart, blockEnd] = blocks[0];
   const markerStart = source.lastIndexOf("\n", blockStart - 1) + 1;
 
@@ -437,29 +444,20 @@ function labeledFields(
     // 表单自己的字段行（认得的字段 + 来源页、着陆页这类表单元数据）不算买家写的正文；PS: / Notes: / 另：这类算
     if (LABEL_FIELD.has(label) || FORM_META_LABELS.has(label)) formLines.push([m.index, m.index + m[0].length]);
     const field = LABEL_FIELD.get(label);
-    // 表单里写规格的行（买家类型以外）：买家类型选项作废后，在这些行和正文里重新找定制 / 包装
-    if ((field && field !== "buyerType") || SPEC_META_LABELS.has(label)) specLines.push([m.index, m.index + m[0].length, label]);
+    if (SPEC_META_LABELS.has(label)) specLines.push([m.index, m.index + m[0].length, label]);
     if (!field) continue;
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw)) continue;
-    // 表单的买家类型选项（「Retail & Private Label」）：短值才算选项；买家在这一行写长句的不动
-    if (
-      field === "buyerType" &&
-      raw.trim().split(/\s+/).length <= 5 &&
-      raw.trim().length <= 30 &&
-      !/[,，、；;+]|\b(?:need|want|require\w*|please|with|logos?|print\w*|embroider\w*|box|bag|tags?|hang|woven|patch\w*)\b|polybag|carton|gift|要|需|盒|袋|包装|印|绣|吊牌|标签/i.test(raw)
-    ) {
-      buyerTypeLines.push([m.index, m.index + m[0].length]);
-    }
+    // 表单的买家类型选项（「Retail & Private Label」「零售 / 自有品牌」）：全由买家类型用词组成才算选项；
+    // 买家在这一行写了别的（Private label w/ boxes、贴牌织标）不动
+    if (field === "buyerType" && BUYER_TYPE_OPTION_RE.test(raw.trim())) buyerTypeLines.push([m.index, m.index + m[0].length]);
     if (byField.has(field)) continue;
     const pairs = labeledValue(field, raw, now);
     if (!pairs) continue;
     byField.set(field, { pairs, index: m.index + m[0].trimEnd().length - raw.length, length: raw.length });
   }
-  const outsideText = formLines
-    .reduce((t, [a, b]) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b), source)
-    .slice(lastStart);
-  return { hits: [...byField.values()], buyerTypeLines, blocks, specLines, formLines, outsideText };
+  const outsideText = formLines.reduce((t, [a, b]) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b), source);
+  return { hits: [...byField.values()], buyerTypeLines, specLines, outsideText };
 }
 
 /** 这段文字有没有说到这个字段（只判断「提没提」，不抽值） */
@@ -751,10 +749,11 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     }
   }
   // 表单的买家类型选项不是定制要求、也不是零售包装（「Retail & Private Label」）。关键词从那一行读到定制 / 包装时：
-  // 1) 这个字段自己的表单行（Branding / Packaging）有能用的答案 → 用它；
-  // 2) 否则买家在正文或表单其它规格行里提到过 → 保持原结果；
-  // 3) 都没有 → 作废（草稿改为追问）
-  // 自己的 Branding / Packaging 答案只在全由「普通定制 / 包装用词」组成时采用（品牌名、费用、条件、否定、改口一概不收）
+  // 1) 买家在正文里提到了这个字段 → 保持原结果；
+  // 2) 这个字段自己的表单行（Branding / Packaging）有能用的答案 → 用它；
+  // 3) 否则买家在表单其它行提到过 → 保持原结果；都没有 → 作废（草稿改为追问，不复述买家类型），
+  //    同一个关键词读出的 customLogo 一起作废。用自己的答案时 customLogo 不动。
+  // 自己的答案只在全由「普通定制 / 包装用词」组成时采用（品牌名、费用、条件、否定、改口一概不收）
   const PLAIN_WORDS: Record<"customization" | "packaging", Set<string>> = {
     customization: new Set(("logo logos embroidered embroidery embroider printed printing print woven label labels tag tags hang care patch patches " +
       "screen heat transfer jacquard on in at the a and with chest hem border corner sleeve pocket front back left right side each per " +
@@ -773,56 +772,53 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     const words = text.toLowerCase().split(/[\s,+&/()-]+/).filter(Boolean);
     return words.length > 0 && words.every((w) => /^\d+(?:\.\d+)?(?:cm|mm|pcs)?$/.test(w) || PLAIN_WORDS[field].has(w));
   };
-  const ownAnswer = (field: RfqField): { text: string; at: number; logoLabel: boolean } | null => {
+  const ownAnswer = (field: "customization" | "packaging"): { text: string; at: number } | null => {
     const own = field === "customization" ? /^(?:branding|customi[sz]ation|logo|定制要求)$/ : /^(?:packaging|packing|包装)$/;
     const lines = labeled.specLines.filter(([, , label]) => own.test(label));
     // 同一字段填了几行（Branding + Logo + Customization…）：可能互相改口，不采用
     if (lines.length !== 1) return null;
-    const [a, b, label] = lines[0];
+    const [a, b] = lines[0];
     const raw = source.slice(a, b).replace(/^[^:：]*[:：]/, "");
     if (PICTOGRAPH_RE.test(raw)) return null;
     // 整个值都要检查（不截长度、不截句：截掉的后半句可能是改口或附加条件）
     const value = raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, "");
     if (!value || value.length > 160) return null;
     if (NON_ANSWER_RE.test(value) || PLACEHOLDER_RE.test(value) || HEDGE_RE.test(value) || NOT_A_SPEC_RE.test(value) || YES_NO_RE.test(value)) return null;
-    if (!isPlainAnswer(field as "customization" | "packaging", value)) return null;
+    if (!isPlainAnswer(field, value)) return null;
     if (field === "customization" ? !CUSTOMIZATION_WORD_RE.test(value) : !findKeyword(value.toLowerCase(), PACKAGING_KEYWORDS)) return null;
     const at = source.indexOf(value, a);
-    return { text: value, at: at >= a && at < b ? at : a, logoLabel: label === "logo" };
+    return { text: value, at: at >= a && at < b ? at : a };
   };
-  for (const field of ["customization", "packaging"] as RfqField[]) {
+  // 买家类型选项行以外的任何一行（含 Colour、Notes、Target price）提到了定制 / 包装：宁可多认（关键词表之外的
+  // monogram、personalised、hang tags、袋装…），认到就保持原结果。找包装时 Branding 行不算（care label 不是包装）
+  const MORE_WORDS = {
+    customization:
+      /\b(?:customi[sz]\w*|monogram\w*|personali[sz]\w*|initials|crest|emblem|screen ?prints?|heat ?transfer|own design|logotipo|bordad\w*)\b|标志|標誌|订制|客制|繡|印字|加字|店名|字样/i,
+    packaging:
+      /\b(?:poly ?bags?|bags?|bagged|box(?:es|ed)?|hang ?tags?|cartons?|ctns?|shrink\w*|wrap\w*|belly ?bands?|header ?cards?|inserts?|stickers?)\b|袋|盒|箱|包裝|彩卡|腰封|吊牌|真空/i,
+  };
+  const mentionedOutsideOption = (field: "customization" | "packaging") => {
+    const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
+    let rest = labeled.buyerTypeLines.reduce((t, [a, b]) => blank(t, a, b), source);
+    if (field === "packaging") {
+      for (const [a, b, l] of labeled.specLines) if (/^(?:branding|customi[sz]ation|logo|定制要求)$/.test(l)) rest = blank(rest, a, b);
+    }
+    return mentionedIn(field, rest) || MORE_WORDS[field].test(rest.replace(/https?:\/\/[\x21-\x7e]+|www\.[\x21-\x7e]+|[\x21-\x7e]*utm_[\x21-\x7e]*/gi, " "));
+  };
+  for (const field of ["customization", "packaging"] as const) {
     const k = keywordPos.get(field);
     if (k === undefined || !labeled.buyerTypeLines.some(([a, b]) => k >= a && k < b)) continue;
-    if (labeled.hits.some((h) => h.pairs.some(([f]) => f === field) && !keywordWins(h, h.pairs[0][0]) && !contradicts(h))) continue;
-    // 买家在正文里提到了这个字段（包括改口）：保持原结果
     if (mentionedIn(field, labeled.outsideText)) continue;
     const answer = ownAnswer(field);
-    if (!answer) {
-      // 买家类型选项行以外，任何一行（含 Colour、Target price 之类）提到了定制 / 包装：保持原结果；
-      // 找包装时 Branding 行不算（care label 的 label 不是包装）；链接、追踪参数不算
-      const blank = (t: string, a: number, b: number) => t.slice(0, a) + " ".repeat(b - a) + t.slice(b);
-      let rest = labeled.buyerTypeLines.reduce((t, [a, b]) => blank(t, a, b), lower);
-      if (field === "packaging") {
-        for (const [a, b, l] of labeled.specLines) if (/^(?:branding|customi[sz]ation|logo|定制要求)$/.test(l)) rest = blank(rest, a, b);
-      }
-      rest = rest.replace(/https?:\/\/[\x21-\x7e]+|www\.[\x21-\x7e]+|[\x21-\x7e]*utm_[\x21-\x7e]*/g, (u) => " ".repeat(u.length));
-      const words = field === "customization" ? CUSTOMIZATION_KEYWORDS : PACKAGING_KEYWORDS;
-      const evidence = findKeyword(rest, words) || (field === "customization" && CUSTOMIZATION_WORD_RE.test(rest));
-      if (evidence) continue;
-    }
-    (fields as unknown as Record<string, unknown>)[field] = answer?.text ?? null;
+    if (!answer && mentionedOutsideOption(field)) continue;
+    fields[field] = answer?.text ?? null;
     dropEvidence(field);
-    const logo = !!answer && (answer.logoLabel || /logo|embroider|印|绣/i.test(answer.text));
-    if (field === "customization") {
-      fields.customLogo = logo ? true : null;
+    if (answer) add(field, answer.text, 0.7, answer.at, answer.text.length);
+    else if (field === "customization") {
+      fields.customLogo = null;
       dropEvidence("customLogo");
     }
-    if (answer) {
-      add(field, answer.text, 0.7, answer.at, answer.text.length);
-      if (field === "customization" && logo) add("customLogo", true, 0.7, answer.at, answer.text.length);
-    }
   }
-
 
   return { fields, evidence, language, method: "heuristic", notes };
 }
