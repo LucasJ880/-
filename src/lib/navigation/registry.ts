@@ -12,6 +12,7 @@ import {
   Briefcase,
   Building2,
   Cable,
+  CalendarCheck,
   CalendarDays,
   CheckSquare,
   CircleHelp,
@@ -597,6 +598,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
     matchPaths: ["/revenue"],
     displayOrder: 27,
+  },
+  {
+    // 老板 / 外贸手机上看「今天该干什么」；/revenue/today 按最长匹配归到本项，不点亮收入驾驶舱
+    key: "biz-revenue-today",
+    label: "今日询盘",
+    labelKey: "nav_revenue_today",
+    href: "/revenue/today",
+    icon: CalendarCheck,
+    group: "BUSINESS",
+    moduleKey: "trade",
+    requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
+    displayOrder: 20.4,
   },
 
   // ── 项目（一级栏目，不挂在业务运营下）──

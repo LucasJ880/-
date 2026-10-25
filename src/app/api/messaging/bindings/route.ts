@@ -2,13 +2,13 @@
  * 微信绑定管理 API
  *
  * GET  /api/messaging/bindings — 获取当前用户的所有微信绑定
- * POST /api/messaging/bindings — 创建/更新绑定
+ * POST /api/messaging/bindings — 创建/更新绑定；action=update_preferences / remove 只作用于本人的绑定
  */
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { findBindingsByUser, createBinding, updateBindingPreferences, removeBinding } from "@/lib/messaging";
+import { findBindingsByUser, createBinding, updateBindingPreferences, removeBinding, sanitizeBindingPreferences } from "@/lib/messaging";
 
 export const GET = withAuth(async (_req, _ctx, user) => {
   const bindings = await findBindingsByUser(user.id);
@@ -19,17 +19,20 @@ export const POST = withAuth(async (req, _ctx, user) => {
   const body = await req.json();
   const { action } = body;
 
+  // 偏好 / 解绑：只能操作本人的绑定（别人的 bindingId 按不存在处理，不泄露是否存在）
   if (action === "update_preferences") {
-    const { bindingId, ...prefs } = body;
-    if (!bindingId) return NextResponse.json({ error: "缺少 bindingId" }, { status: 400 });
-    await updateBindingPreferences(bindingId, prefs);
+    const { bindingId, ...rest } = body;
+    if (typeof bindingId !== "string" || !bindingId) return NextResponse.json({ error: "缺少 bindingId" }, { status: 400 });
+    const updated = await updateBindingPreferences(user.id, bindingId, sanitizeBindingPreferences(rest));
+    if (!updated) return NextResponse.json({ error: "绑定不存在" }, { status: 404 });
     return NextResponse.json({ ok: true });
   }
 
   if (action === "remove") {
     const { bindingId } = body;
-    if (!bindingId) return NextResponse.json({ error: "缺少 bindingId" }, { status: 400 });
-    await removeBinding(bindingId);
+    if (typeof bindingId !== "string" || !bindingId) return NextResponse.json({ error: "缺少 bindingId" }, { status: 400 });
+    const removed = await removeBinding(user.id, bindingId);
+    if (!removed) return NextResponse.json({ error: "绑定不存在" }, { status: 404 });
     return NextResponse.json({ ok: true });
   }
 
