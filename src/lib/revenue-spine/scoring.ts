@@ -44,16 +44,36 @@ export interface OpportunityScoreResult {
   outOfRange: boolean;
 }
 
-/** 来信里是否也提到了企业在做的类目（"浴袍 + 拖鞋"这类混合询盘不按不做处理） */
+/** 关键词在来信中的全部命中区间 [start, end)（英文词按词边界，中文直接子串） */
+function keywordSpans(lowerMessage: string, kw: string): Array<[number, number]> {
+  const k = kw.toLowerCase();
+  if (!k) return [];
+  const isAscii = /^[\x00-\x7f]+$/.test(k);
+  const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(isAscii ? `(?<![a-z])${escaped}(?![a-z])` : escaped, "g");
+  const spans: Array<[number, number]> = [];
+  for (const m of lowerMessage.matchAll(re)) {
+    const start = m.index ?? 0;
+    spans.push([start, start + m[0].length]);
+  }
+  return spans;
+}
+
+/**
+ * 来信里是否也提到了企业在做的类目（"浴袍 + 拖鞋"这类混合询盘不按不做处理）。
+ * 落在更长的「不做」类目词里面的命中不算：baby blankets / pet blankets / hair towels 里的 blankets、towels
+ * 不能把「不做」的婴童 / 宠物 / 配件类目救回来。
+ */
 export function mentionsAllowedCategory(lowerMessage: string, policy: RevenueSpinePolicy): boolean {
   const allowed = new Set(policy.businessProfile.productCategories);
   const excluded = new Set(policy.businessProfile.excludedCategories ?? []);
-  for (const [kw, category] of Object.entries(policy.businessProfile.productKeywords)) {
+  const entries = Object.entries(policy.businessProfile.productKeywords);
+  const excludedSpans = entries.filter(([, category]) => excluded.has(category)).flatMap(([kw]) => keywordSpans(lowerMessage, kw));
+  const insideExcluded = ([s, e]: [number, number]) =>
+    excludedSpans.some(([xs, xe]) => xs <= s && e <= xe && xe - xs > e - s);
+  for (const [kw, category] of entries) {
     if (!allowed.has(category) || excluded.has(category)) continue;
-    const k = kw.toLowerCase();
-    const isAscii = /^[\x00-\x7f]+$/.test(k);
-    const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(isAscii ? `(?<![a-z])${escaped}(?![a-z])` : escaped).test(lowerMessage)) return true;
+    if (keywordSpans(lowerMessage, kw).some((span) => !insideExcluded(span))) return true;
   }
   return false;
 }

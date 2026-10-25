@@ -9,6 +9,7 @@
  * 4. 消息记录
  */
 
+import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 
 // ── Channel Config ──────────────────────────────────────────
@@ -33,6 +34,28 @@ export async function upsertChannel(input: ChannelConfig) {
       name: input.name,
       config: input.config,
       status: "active",
+    },
+  });
+}
+
+/**
+ * 网站询盘通道：密钥由服务端生成；重复保存沿用旧密钥，避免已嵌入网页的代码失效。
+ * 外贸渠道页与平台入驻向导共用这一条创建路径。
+ */
+export async function upsertWebsiteChannel(input: {
+  orgId: string;
+  name: string;
+  config?: Record<string, string>;
+}) {
+  const existing = await getChannel(input.orgId, "website");
+  const prevSecret = (existing?.config as Record<string, string> | null)?.secret;
+  return upsertChannel({
+    orgId: input.orgId,
+    channel: "website",
+    name: input.name,
+    config: {
+      ...(input.config ?? {}),
+      secret: prevSecret || randomBytes(18).toString("base64url"),
     },
   });
 }

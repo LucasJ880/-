@@ -448,5 +448,34 @@ ok(
   "老板默认不可见 Autopilot（非 owner）",
 );
 
+// —— 平台运营：厂家入驻（仅平台管理员，紧跟邀请码）——
+const platformAdminNav = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({ platformRole: "admin", orgRole: "org_admin", isPlatformAdmin: true }),
+);
+const platformItems = platformAdminNav.filter((i) => i.group === "PLATFORM");
+ok(
+  platformItems.some((i) => i.key === "plat-onboarding" && i.href === "/admin/onboarding" && i.platformAdminOnly === true),
+  "平台管理员可见厂家入驻（/admin/onboarding，platformAdminOnly）",
+);
+ok(
+  platformItems.findIndex((i) => i.key === "plat-onboarding") ===
+    platformItems.findIndex((i) => i.key === "plat-invites") + 1,
+  "厂家入驻排在邀请码之后",
+);
+ok(
+  !resolveNavigationTree(
+    NAVIGATION_REGISTRY,
+    ctx({ platformRole: "boss", orgRole: "org_owner" }),
+  ).some((i) => i.key === "plat-onboarding"),
+  "企业老板 / org_owner 不见厂家入驻",
+);
+ok(
+  !resolveNavigationTree(NAVIGATION_REGISTRY, ctx({ platformRole: "trade" })).some(
+    (i) => i.key === "plat-onboarding",
+  ),
+  "外贸业务员不见厂家入驻",
+);
+
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -112,6 +112,7 @@ export const en: Messages = {
   nav_project_intake: "Project Intake",
   nav_user_management: "User Management",
   nav_invite_codes: "Invite Codes",
+  nav_factory_onboarding: "Factory Onboarding",
   nav_audit_logs: "Audit Logs",
   nav_orders_admin: "Orders Admin",
   nav_help: "Help",

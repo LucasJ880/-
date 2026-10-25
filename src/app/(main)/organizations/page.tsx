@@ -147,8 +147,22 @@ export default function OrganizationsPage() {
         </p>
       </div>
 
+      {!isPlatformAdmin && platformRole !== null && (
+        <p className="rounded-xl border border-border bg-card-bg px-4 py-3 text-sm text-muted">
+          新企业由平台管理员通过「厂家入驻」开通；如需加入其他企业，请向管理员索取企业邀请码。
+        </p>
+      )}
+
+      {isPlatformAdmin && (
       <div className="rounded-xl border border-border bg-card-bg p-5">
         <h2 className="mb-3 text-sm font-semibold">创建组织</h2>
+        <p className="mb-3 text-xs text-muted">
+          工厂企业请用{" "}
+          <Link href="/admin/onboarding" className="font-medium text-accent hover:underline">
+            厂家入驻
+          </Link>
+          （会同时配置行业包、模块、时区与工作空间）；这里只建空白组织。
+        </p>
         <form onSubmit={handleCreate} className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
             <label className="mb-1 block text-xs text-muted">名称 *</label>
@@ -181,6 +195,7 @@ export default function OrganizationsPage() {
           <p className="mt-2 text-sm text-[#a63d3d]">{error}</p>
         )}
       </div>
+      )}
 
       {isPlatformAdmin && (
         <div className="flex items-center justify-between gap-3">

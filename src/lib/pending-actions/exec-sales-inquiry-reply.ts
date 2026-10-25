@@ -16,6 +16,7 @@ import { assertSideEffectOrThrow } from "@/lib/env/runtime-isolation";
 import { logRevenueInteraction } from "@/lib/revenue-spine/interactions";
 import { updateFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { isAdmin } from "@/lib/rbac/roles";
+import { hasOnboardingTestTag } from "@/lib/organizations/onboarding-rules";
 import { createMessage, updateProspect } from "@/lib/trade/service";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
 import type { SalesSendInquiryReplyPayload } from "./types";
@@ -108,10 +109,14 @@ export async function execSalesSendInquiryReply(
 
   const opp = await db.salesOpportunity.findFirst({
     where: { id: payload.opportunityId, orgId },
-    select: { id: true, customerId: true, customer: { select: { email: true } } },
+    select: { id: true, customerId: true, customer: { select: { email: true, tags: true } } },
   });
   if (!opp) return { ok: false, error: "商机不存在或不属于本组织" };
   if (opp.customerId !== payload.customerId) return { ok: false, error: "客户与商机不匹配" };
+  // 入驻向导的测试询盘：买家带测试标记，任何草稿都不得发出（即使测试关闭前被批准）
+  if (hasOnboardingTestTag(opp.customer.tags)) {
+    return { ok: false, error: "入驻测试询盘不会发送给买家", errorCode: "ONBOARDING_TEST" };
+  }
   if (opp.customer.email && opp.customer.email.toLowerCase() !== to.toLowerCase()) {
     return { ok: false, error: "收件人与客户档案邮箱不一致，拒绝发送" };
   }

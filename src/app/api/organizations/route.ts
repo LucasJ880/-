@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAuth } from "@/lib/auth/guards";
+import { requireAuth, requirePlatformAdmin } from "@/lib/auth/guards";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import {
@@ -112,9 +112,12 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/organizations
+ * 仅平台管理员：普通用户自建的组织没有行业包 / 模块 / 时区，且绕开入驻流程。
+ * 注册时的个人工作区由 /api/auth/register（及微信登录回调）直接写库，不经本接口。
+ * 新的工厂企业请走 /api/admin/onboarding（入驻向导）。
  */
 export async function POST(request: NextRequest) {
-  const auth = await requireAuth(request);
+  const auth = await requirePlatformAdmin(request);
   if (auth instanceof NextResponse) return auth;
   const { user } = auth;
 
