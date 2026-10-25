@@ -173,7 +173,7 @@ export default function FactoryOnboardingListPage() {
             </datalist>
           </div>
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs text-muted">工厂老板登录邮箱（可选，须已注册；留空则暂由你担任企业 owner，之后可在详情页指定）</label>
+            <label className="mb-1 block text-xs text-muted">工厂老板登录邮箱（可选，须已注册且为外贸/销售账号，不要给平台 boss 角色；留空则暂由你担任企业 owner，老板用向导生成的邀请码注册后再在详情页指定）</label>
             <input
               value={ownerEmail}
               onChange={(e) => setOwnerEmail(e.target.value)}

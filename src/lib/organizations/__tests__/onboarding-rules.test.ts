@@ -21,7 +21,7 @@ import { extractRfqHeuristic } from "@/lib/revenue-spine/rfq/heuristic-extractor
 import { classifyInquiry } from "@/lib/revenue-spine/research";
 import { detectInquiryRisks } from "@/lib/revenue-spine/inquiry-risks";
 import { normalizeInquiry } from "@/lib/trade/website-inquiry";
-import {
+import { factoryOwnerRoleProblem,
   EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES,
   ONBOARDING_TEST_BUYER_EMAIL,
   ONBOARDING_TEST_CLOSE_REASON,
@@ -501,6 +501,15 @@ ok("发送执行器对测试买家一律拒发", () => {
   const src = read("src/lib/pending-actions/exec-sales-inquiry-reply.ts");
   assert.match(src, /hasOnboardingTestTag\(opp\.customer\.tags\)/);
   assert.match(src, /errorCode: "ONBOARDING_TEST"/);
+});
+
+ok("工厂老板只能是 trade / sales 平台角色：boss / manager / admin 一律拒绝", () => {
+  assert.equal(factoryOwnerRoleProblem("trade"), null);
+  assert.equal(factoryOwnerRoleProblem("sales"), null);
+  for (const r of ["boss", "manager", "admin", "super_admin", "user", null]) {
+    assert.ok(factoryOwnerRoleProblem(r as string | null), `${r} should be refused`);
+  }
+  assert.match(factoryOwnerRoleProblem("boss")!, /跨企业管理用户/);
 });
 
 console.log(`\n${pass} passed`);

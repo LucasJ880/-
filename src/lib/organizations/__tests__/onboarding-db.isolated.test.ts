@@ -48,6 +48,7 @@ async function main() {
   const { createSession } = await import("@/lib/auth/session");
   const {
     OnboardingError,
+    findActiveUserIdByEmail,
     createOrgInvites,
     ensureOnboardingWebsiteChannel,
     getOnboardingStatus,
@@ -84,9 +85,9 @@ async function main() {
   const inviteIds: string[] = [];
 
   await db.user.create({ data: { id: ADMIN, email: `${ADMIN}@fixture.test`, name: "Platform Admin", role: "admin" } });
-  await db.user.create({ data: { id: BOSS, email: `${BOSS}@fixture.test`, name: "Example Owner", role: "boss" } });
+  await db.user.create({ data: { id: BOSS, email: `${BOSS}@fixture.test`, name: "Example Owner", role: "trade" } });
   await db.user.create({ data: { id: PLAIN, email: `${PLAIN}@fixture.test`, name: "Plain User", role: "user" } });
-  await db.user.create({ data: { id: BOSS2, email: `${BOSS2}@fixture.test`, name: "Maple Owner", role: "boss" } });
+  await db.user.create({ data: { id: BOSS2, email: `${BOSS2}@fixture.test`, name: "Maple Owner", role: "trade" } });
 
   const session = async (id: string, role: string) => createSession({ sub: id, email: `${id}@fixture.test`, role });
   const adminCookie = `qy_session=${await session(ADMIN, "admin")}`;
@@ -230,9 +231,11 @@ async function main() {
     ok(
       !!s0 &&
         s0.steps.find((s) => s.key === "pack")?.status === "done" &&
-        ["categories", "website_channel", "members", "wechat", "test_inquiry"].every((k) => s0.steps.find((s) => s.key === k)?.status === "todo") &&
+        // 工厂老板本人是 trade 账号，算作第一位业务员（小厂老板自己接询盘是常态）
+        s0.steps.find((s) => s.key === "members")?.status === "done" &&
+        ["categories", "website_channel", "wechat", "test_inquiry"].every((k) => s0.steps.find((s) => s.key === k)?.status === "todo") &&
         !s0.ready,
-      "刚建好：只有行业包与时区完成，其余待办",
+      "刚建好：行业包与时区完成，老板（trade 账号）算第一位业务员，其余待办",
       s0?.steps,
     );
 
@@ -476,6 +479,19 @@ async function main() {
     ok(badProvision.status === 400, "建企业输入校验（非法 code / 别名包）→ 400", await badProvision.json());
     const missing = await onboardingOrgRoute.GET(req(`/api/admin/onboarding/missing_${stamp}`, { cookie: adminCookie }), ctx(`missing_${stamp}`));
     ok(missing.status === 404, "不存在的企业 → 404", missing.status);
+
+    // 外部工厂老板不能是平台 boss（可跨租户管理用户）：按邮箱指定时拒绝
+    const BOSSROLE = `obbossrole_${stamp}`;
+    await db.user.create({ data: { id: BOSSROLE, email: `${BOSSROLE}@fixture.test`, name: "Boss Role", role: "boss" } });
+    createdUserIds.push(BOSSROLE);
+    let bossRefused: unknown = null;
+    try {
+      await findActiveUserIdByEmail(`${BOSSROLE}@fixture.test`);
+    } catch (err) {
+      bossRefused = err;
+    }
+    ok(bossRefused instanceof OnboardingError && (bossRefused as InstanceType<typeof OnboardingError>).status === 409, "平台 boss 账号不能被指定为工厂老板 → 409", String(bossRefused));
+    ok((await findActiveUserIdByEmail(`${BOSS}@fixture.test`)) === BOSS, "trade 账号可以被指定为工厂老板");
   } finally {
     try {
       const orgIds = createdOrgIds;

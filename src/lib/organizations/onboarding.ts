@@ -33,7 +33,7 @@ import { RULE_KEY_BUSINESS_PROFILE, publishRevenueSpineRule } from "@/lib/revenu
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
 import { upsertWebsiteChannel } from "@/lib/trade/channel-service";
 import { loadOrgEmailSender } from "@/lib/trade/email-sender";
-import {
+import { factoryOwnerRoleProblem,
   ACKNOWLEDGEABLE_STEPS,
   ONBOARDING_SETTINGS_VERSION,
   deriveOnboardingSteps,
@@ -890,10 +890,13 @@ export async function listOnboardingOrgs(): Promise<
 export async function findActiveUserIdByEmail(email: string): Promise<string> {
   const user = await db.user.findFirst({
     where: { email: { equals: email.trim(), mode: "insensitive" } },
-    select: { id: true, status: true },
+    select: { id: true, status: true, role: true },
   });
   if (!user || user.status !== "active") {
     throw new OnboardingError("USER_NOT_FOUND", `该邮箱尚未注册或已停用：${email}`);
   }
+  // 外部工厂老板只能是 trade / sales 平台角色（boss 可跨租户管理用户）
+  const roleProblem = factoryOwnerRoleProblem(user.role);
+  if (roleProblem) throw new OnboardingError("CONFLICT", roleProblem, 409);
   return user.id;
 }

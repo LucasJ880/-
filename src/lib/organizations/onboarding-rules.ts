@@ -314,6 +314,23 @@ export function planBusinessProfileCategories(
 }
 
 export const ORG_BOUND_PLATFORM_ROLES = ["trade", "sales"] as const;
+
+/**
+ * 工厂老板（企业 owner）的平台角色：外部工厂人员只能是 trade / sales。
+ * 平台 boss 可跨租户管理用户（canManageUsers），admin / super_admin 是平台管理员——都不能交给外部工厂。
+ * 返回 null = 可以；否则返回给管理员看的原因。
+ */
+export function factoryOwnerRoleProblem(platformRole: string | null | undefined): string | null {
+  if (!platformRole) return "该账号没有平台角色";
+  if ((ORG_BOUND_PLATFORM_ROLES as readonly string[]).includes(platformRole)) return null;
+  if (platformRole === "boss" || platformRole === "manager") {
+    return `该账号的平台角色是「${platformRole}」，可跨企业管理用户，不能作为外部工厂老板。请让老板用本向导「邀请业务员」生成的外贸邀请码注册（企业管理员），再指定为老板`;
+  }
+  if (platformRole === "admin" || platformRole === "super_admin") {
+    return "平台管理员不能被指定为工厂老板；留空即由你暂代企业 owner";
+  }
+  return `该账号的平台角色「${platformRole}」不适合作为工厂老板，请使用外贸（trade）或销售（sales）账号`;
+}
 export const ORG_BOUND_ORG_ROLES = ["org_member", "org_admin"] as const;
 export type OrgBoundPlatformRole = (typeof ORG_BOUND_PLATFORM_ROLES)[number];
 export type OrgBoundOrgRole = (typeof ORG_BOUND_ORG_ROLES)[number];
