@@ -69,6 +69,28 @@ ok("当地日界：Asia/Shanghai 零点 = 前一天 UTC 16:00；跨过当地零�
   assert.equal(tor.end.toISOString(), "2026-11-02T05:00:00.000Z");
 });
 
+ok("当地日界：UTC 以东的夏令时开始日不早一小时；零点不存在的时区从跳表后第一刻算起", () => {
+  // 悉尼 2026-10-04 02:00 拨快到 03:00：当地零点仍是 +10:00，即 UTC 10/03 14:00（不是 13:00 = 前一天 23:00）
+  const syd = localDayBounds(new Date("2026-10-04T05:00:00Z"), "Australia/Sydney");
+  assert.equal(syd.day, "2026-10-04");
+  assert.equal(syd.start.toISOString(), "2026-10-03T14:00:00.000Z");
+  assert.equal(syd.end.toISOString(), "2026-10-04T13:00:00.000Z"); // 23 小时
+  // 悉尼 2026-04-05 夏令时结束：25 小时
+  const sydEnd = localDayBounds(new Date("2026-04-05T05:00:00Z"), "Australia/Sydney");
+  assert.equal(sydEnd.start.toISOString(), "2026-04-04T13:00:00.000Z");
+  assert.equal(sydEnd.end.toISOString(), "2026-04-05T14:00:00.000Z");
+  // 柏林夏令时开始日
+  const ber = localDayBounds(new Date("2026-03-29T12:00:00Z"), "Europe/Berlin");
+  assert.equal(ber.start.toISOString(), "2026-03-28T23:00:00.000Z");
+  assert.equal(ber.end.toISOString(), "2026-03-29T22:00:00.000Z");
+  // 圣地亚哥 2026-09-06 零点直接跳到 01:00：这一天从 01:00（UTC 04:00）开始
+  const scl = localDayBounds(new Date("2026-09-06T15:00:00Z"), "America/Santiago");
+  assert.equal(scl.start.toISOString(), "2026-09-06T04:00:00.000Z");
+  // 半小时 / 45 分钟时差
+  assert.equal(localDayBounds(NOW, "Asia/Kolkata").start.toISOString(), "2026-10-23T18:30:00.000Z");
+  assert.equal(localDayBounds(NOW, "Asia/Kathmandu").start.toISOString(), "2026-10-23T18:15:00.000Z");
+});
+
 ok("今日新询盘按组织当地零点切：同一个 UTC 日期里，当地昨天 23:59 的不算、当地今天 00:30 的算", () => {
   const rows = [
     opp({ id: "yesterday_local", createdAt: new Date("2026-10-23T15:59:00Z"), score: 95, scoreGrade: "HOT" }), // 当地 10/23 23:59
@@ -165,11 +187,14 @@ ok("rows 里同一商机出现两次（主查询 + 补查）只算一次", () =>
   assert.equal(b.counts.newToday, 1);
 });
 
-ok("来源标签：覆盖 inquiry-intake 的全部来源；未知来源显示「其他」，空值显示「来源未知」", () => {
+ok("来源标签：覆盖 inquiry-intake 的全部来源与 trade / csv_import；未知来源显示「其他」，空值显示「来源未知」", () => {
   for (const s of OPPORTUNITY_SOURCES) assert.ok(OPPORTUNITY_SOURCE_LABELS[s], `缺少 ${s} 的标签`);
   assert.equal(opportunitySourceLabel("website_inquiry"), "官网");
   assert.equal(opportunitySourceLabel("trade_show"), "展会");
   assert.equal(opportunitySourceLabel("email"), "邮件");
+  // 其他入口写入的来源：外贸线索转商机、CRM 表格导入
+  assert.equal(opportunitySourceLabel("trade"), "外贸线索");
+  assert.equal(opportunitySourceLabel("csv_import"), "表格导入");
   assert.equal(opportunitySourceLabel("Some CRM free text"), "其他");
   assert.equal(opportunitySourceLabel(null), "来源未知");
 });

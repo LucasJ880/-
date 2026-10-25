@@ -57,7 +57,7 @@ export interface RunInboundFdeInput {
   now?: Date;
   policy?: RevenueSpinePolicy;
   /** 测试注入：新草稿的微信提醒发送函数（policy.notify.wechatOnNewDraft 打开时才会调用；缺省走 pushNotification） */
-  pushNewDraft?: (userId: string, title: string, text: string) => Promise<unknown>;
+  pushNewDraft?: (userId: string, title: string, text: string) => Promise<{ sent: number; failed: number }>;
 }
 
 export interface InboundFdeResult {
@@ -617,7 +617,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
             now,
             push: input.pushNewDraft,
           });
-          await event("agent.output", r.pushed ? "已微信提醒审批人" : "微信提醒未发送", { decision: "wechat_new_draft", pushed: r.pushed, reason: r.reason ?? null });
+          await event("agent.output", r.pushed ? "已微信提醒审批人" : r.reason === "duplicate_hour" ? "本小时已提醒过，不再推送" : "微信提醒未送达（未绑定 / 静默时段 / 通道失败）", { decision: "wechat_new_draft", pushed: r.pushed, reason: r.reason ?? null });
         } catch (err) {
           await event("agent.output", "微信提醒失败（不影响草稿）", { decision: "wechat_new_draft", error: err instanceof Error ? err.message : String(err) }).catch(() => undefined);
         }

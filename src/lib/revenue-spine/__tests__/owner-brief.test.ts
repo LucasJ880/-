@@ -13,6 +13,7 @@ import {
   newDraftPushSourceKey,
   orgHasTradeModule,
   ownerBriefIsEmpty,
+  pushOutcomeOf,
   safeBuyerName,
   stripContactDetails,
 } from "../owner-brief";
@@ -147,6 +148,14 @@ ok("新草稿提醒：一行买家概要 + 链接，不含邮箱 / 电话；去�
   assert.notEqual(k1, k3);
   assert.notEqual(k1, k4);
   assert.ok(k1.includes("org1") && k1.includes("u1"));
+});
+
+ok("推送结果：sent>0 才算送达；全 0（没绑微信 / 静默时段）与只有 failed（通道失败）都不算", () => {
+  assert.equal(pushOutcomeOf({ sent: 1, failed: 0 }), "delivered");
+  assert.equal(pushOutcomeOf({ sent: 1, failed: 1 }), "delivered");
+  assert.equal(pushOutcomeOf({ sent: 0, failed: 0 }), "no_binding_or_silent");
+  assert.equal(pushOutcomeOf({ sent: 0, failed: 2 }), "push_failed");
+  assert.equal(pushOutcomeOf(null), "no_binding_or_silent");
 });
 
 ok("早报只发给显式启用外贸模块的组织", () => {

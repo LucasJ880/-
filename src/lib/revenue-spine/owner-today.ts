@@ -151,10 +151,23 @@ function nextDate(day: string): string {
   return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
 }
 
+/**
+ * 当地某日零点对应的 UTC 时刻。zonedHourToUtc 只在「UTC 零点」取一次时差，
+ * UTC 以东的时区在夏令时开始日会早一小时（如 Australia/Sydney 2026-10-04 得到前一天 23:00），
+ * 这里按第一次结果处的时差再校正一次；零点本身不存在（零点跳表的时区）时取跳表后的第一刻。
+ */
+function localMidnightUtc(day: string, timeZone: string): Date {
+  const first = zonedHourToUtc(day, 0, timeZone);
+  const p = getLocalTimeParts(first, timeZone);
+  const offset = Date.parse(`${p.date}T${pad(p.hour)}:${pad(p.minute)}:00Z`) - first.getTime();
+  const second = new Date(Date.parse(`${day}T00:00:00Z`) - offset);
+  return getLocalTimeParts(second, timeZone).date === day ? second : first;
+}
+
 /** 组织当地的「今天」：当地零点到次日零点（夏令时切换日按实际时长） */
 export function localDayBounds(now: Date, timeZone: string): { day: string; start: Date; end: Date } {
   const day = getLocalTimeParts(now, timeZone).date;
-  return { day, start: zonedHourToUtc(day, 0, timeZone), end: zonedHourToUtc(nextDate(day), 0, timeZone) };
+  return { day, start: localMidnightUtc(day, timeZone), end: localMidnightUtc(nextDate(day), timeZone) };
 }
 
 const minutesBetween = (later: Date, earlier: Date) => Math.max(0, Math.floor((later.getTime() - earlier.getTime()) / MINUTE));
@@ -333,7 +346,8 @@ export async function buildOwnerToday(
   const { day, start: dayStart, end: dayEnd } = localDayBounds(now, timeZone);
   const limit = opts?.limit ?? LIST_LIMIT;
 
-  const [policy, oppRows, actionRows, sampleRows, quoteRows] = await Promise.all([
+  const approvalWhere = { orgId, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", expiresAt: { gt: now } };
+  const [policy, oppRows, actionRows, approvalTotal, sampleRows, quoteRows] = await Promise.all([
     opts?.policy ? Promise.resolve(opts.policy) : loadRevenueSpinePolicy(orgId),
     db.salesOpportunity.findMany({
       where: {
@@ -352,12 +366,14 @@ export async function buildOwnerToday(
       orderBy: { createdAt: "desc" },
       take: 2000,
     }),
+    // 超过上限时保留最新的草稿（最该处理的），总数另行 count
     db.pendingAction.findMany({
-      where: { orgId, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", expiresAt: { gt: now } },
+      where: approvalWhere,
       select: { id: true, title: true, preview: true, status: true, createdAt: true, expiresAt: true, payload: true },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
       take: 200,
     }),
+    db.pendingAction.count({ where: approvalWhere }),
     db.tradeSample.findMany({
       where: { orgId, status: "shipped", followedUpAt: null, followUpDueAt: { lt: dayEnd } },
       select: { id: true, prospectId: true, productName: true, status: true, shippedAt: true, followedUpAt: true, followUpDueAt: true },
@@ -459,6 +475,7 @@ export async function buildOwnerToday(
     overdue: clip(buckets.overdue),
     approvals: clip(buckets.approvals),
     samplesQuotesDue: clip(buckets.samplesQuotesDue),
-    counts: buckets.counts,
+    // 待审批数用 count（查询有 200 条上限）；取大者，避免两次查询之间新增草稿时计数比列表还少
+    counts: { ...buckets.counts, approvals: Math.max(buckets.counts.approvals, approvalTotal) },
   };
 }

@@ -6,6 +6,9 @@
  *   四栏全为 0 不发；只对显式启用外贸模块的组织发
  * - pushNewDraftToApprover：FDE 生成新草稿时微信提醒审批人（policy.notify.wechatOnNewDraft），每人每小时最多一条
  *
+ * 「发出」看推送结果的 sent：没绑微信 / 静默时段 / 没有可用通道时 pushNotification 不抛错只返回 sent=0，
+ * 这些情况如实报告为未送达，不当成已提醒。
+ *
  * 微信正文绝不出现买家邮箱或电话：只用评分、国家、来源、公司名（公司名里夹带的邮箱 / 电话会被去掉）。
  * 审批一律回青砚页面看完草稿再批，微信里不提供直接批准。
  */
@@ -18,7 +21,21 @@ import { managementOf } from "@/lib/trade/booth-summary";
 import { buildOwnerToday, type OwnerToday, type OwnerTodayCounts } from "./owner-today";
 import { opportunitySourceLabel } from "./source-labels";
 
-export type PushFn = (userId: string, title: string, text: string) => Promise<unknown>;
+/** 与 pushNotification 同形：sent = 实际发出的微信条数，failed = 通道发送失败数（静默时段跳过的两边都不计） */
+export interface PushResult {
+  sent: number;
+  failed: number;
+}
+export type PushFn = (userId: string, title: string, text: string) => Promise<PushResult>;
+
+export type PushOutcome = "delivered" | "no_binding_or_silent" | "push_failed";
+
+/** sent>0 才算送达；全为 0 = 没有可推的绑定或在静默时段；只有 failed = 通道发送失败 */
+export function pushOutcomeOf(r: PushResult | null | undefined): PushOutcome {
+  if (r && r.sent > 0) return "delivered";
+  if (r && r.failed > 0) return "push_failed";
+  return "no_binding_or_silent";
+}
 
 const TOP_APPROVALS = 3;
 export const OWNER_TODAY_PATH = "/revenue/today";
@@ -110,7 +127,10 @@ export interface OwnerBriefResult {
   day: string | null;
   counts: OwnerTodayCounts | null;
   recipients: number;
+  /** 本次新写入的青砚站内通知数（同一当地日期已发过的不算） */
   sent: number;
+  /** 其中微信实际送达的人数（没绑微信 / 静默时段 / 通道失败的不算） */
+  wechatDelivered: number;
 }
 
 /**
@@ -123,16 +143,21 @@ export async function sendOwnerInquiryBrief(
   opts?: { now?: Date; push?: PushFn; origin?: string },
 ): Promise<OwnerBriefResult> {
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { modulesJson: true } });
-  if (!org || !orgHasTradeModule(org.modulesJson)) return { skipped: "no_trade_module", day: null, counts: null, recipients: 0, sent: 0 };
+  if (!org || !orgHasTradeModule(org.modulesJson)) {
+    return { skipped: "no_trade_module", day: null, counts: null, recipients: 0, sent: 0, wechatDelivered: 0 };
+  }
 
   const today = await buildOwnerToday(orgId, { now: opts?.now, timeZone });
-  if (ownerBriefIsEmpty(today.counts)) return { skipped: "empty", day: today.day, counts: today.counts, recipients: 0, sent: 0 };
+  if (ownerBriefIsEmpty(today.counts)) {
+    return { skipped: "empty", day: today.day, counts: today.counts, recipients: 0, sent: 0, wechatDelivered: 0 };
+  }
 
   const { title, text } = formatOwnerBrief(today, { origin: opts?.origin ?? resolveAppOrigin() });
   const recipients = await managementOf(orgId);
   const push = opts?.push ?? defaultPush;
 
   let sent = 0;
+  let wechatDelivered = 0;
   for (const userId of recipients) {
     const sourceKey = `owner-inquiry-brief:${orgId}:${today.day}:${userId}`;
     const existing = await db.notification.findUnique({ where: { sourceKey }, select: { id: true } });
@@ -151,9 +176,15 @@ export async function sendOwnerInquiryBrief(
       metadata: { day: today.day, counts: today.counts },
     });
     sent++;
-    await push(userId, title, text).catch((e) => console.warn("[owner-brief] 微信推送失败：", e instanceof Error ? e.message : e));
+    const result = await push(userId, title, text).catch((e) => {
+      console.warn("[owner-brief] 微信推送失败：", e instanceof Error ? e.message : e);
+      return null;
+    });
+    const outcome = pushOutcomeOf(result);
+    if (outcome === "delivered") wechatDelivered++;
+    else console.warn(`[owner-brief] 早报微信未送达（${outcome}）：org=${orgId} user=${userId}`);
   }
-  return { skipped: null, day: today.day, counts: today.counts, recipients: recipients.length, sent };
+  return { skipped: null, day: today.day, counts: today.counts, recipients: recipients.length, sent, wechatDelivered };
 }
 
 /** 新草稿提醒去重键：同一组织、同一审批人、同一 UTC 小时只推一条 */
@@ -180,6 +211,7 @@ function isUniqueViolation(e: unknown): boolean {
 /**
  * 先占位再推送：用通知的唯一 sourceKey 占住「本小时」，并发的两次 FDE 也只有一次能推。
  * 占位通知标为已读（审批待办通知另有一条），只作去重与留痕。
+ * 没送达（没绑微信 / 静默时段 / 通道失败 / 抛错）就释放占位，本小时下一封新草稿还会再试。
  */
 export async function pushNewDraftToApprover(input: {
   orgId: string;
@@ -190,11 +222,12 @@ export async function pushNewDraftToApprover(input: {
   now?: Date;
   origin?: string;
   push?: PushFn;
-}): Promise<{ pushed: boolean; reason?: "duplicate_hour" | "push_failed" }> {
+}): Promise<{ pushed: boolean; reason?: "duplicate_hour" | Exclude<PushOutcome, "delivered"> }> {
   const now = input.now ?? new Date();
   const { title, text } = formatNewDraftPush(input.buyer, { origin: input.origin ?? resolveAppOrigin() });
+  let markerId: string;
   try {
-    await db.notification.create({
+    const marker = await db.notification.create({
       data: {
         userId: input.userId,
         orgId: input.orgId,
@@ -210,16 +243,24 @@ export async function pushNewDraftToApprover(input: {
         sourceKey: newDraftPushSourceKey(input.orgId, input.userId, now),
         metadata: JSON.stringify({ pendingActionId: input.pendingActionId, opportunityId: input.opportunityId }),
       },
+      select: { id: true },
     });
+    markerId = marker.id;
   } catch (e) {
     if (isUniqueViolation(e)) return { pushed: false, reason: "duplicate_hour" };
     throw e;
   }
+  let outcome: PushOutcome;
   try {
-    await (input.push ?? defaultPush)(input.userId, title, text);
-    return { pushed: true };
+    outcome = pushOutcomeOf(await (input.push ?? defaultPush)(input.userId, title, text));
   } catch (e) {
     console.warn("[owner-brief] 新草稿微信提醒失败：", e instanceof Error ? e.message : e);
-    return { pushed: false, reason: "push_failed" };
+    outcome = "push_failed";
   }
+  if (outcome === "delivered") return { pushed: true };
+  // 只删自己刚建的占位行（按 id + 所属用户 / 组织）
+  await db.notification
+    .deleteMany({ where: { id: markerId, userId: input.userId, orgId: input.orgId, type: "revenue_draft_wechat" } })
+    .catch(() => undefined);
+  return { pushed: false, reason: outcome };
 }

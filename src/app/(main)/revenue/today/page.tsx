@@ -103,6 +103,16 @@ function duration(minutes: number): string {
   return `${Math.floor(minutes / 1440)} 天`;
 }
 
+/** 按组织时区显示时刻（「今天」是按组织时区切的，不能用手机本地时区）；时区串无效时退回手机本地 */
+function orgTime(iso: string, timeZone: string): string {
+  const d = new Date(iso);
+  try {
+    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
+  } catch {
+    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+}
+
 function ago(minutes: number): string {
   return minutes < 1 ? "刚刚" : `${duration(minutes)}前`;
 }
@@ -237,7 +247,7 @@ function ApprovalRow({
   );
 }
 
-function DueRow({ item, generatedAt }: { item: DueItem; generatedAt: string }) {
+function DueRow({ item, generatedAt, timeZone }: { item: DueItem; generatedAt: string; timeZone: string }) {
   const name = item.opportunity?.customerName ?? item.companyName ?? "未关联客户";
   const kinds = item.kinds.map((k) => (k === "quote" ? "报价" : "样品")).join(" · ");
   const due = new Date(item.dueAt);
@@ -256,7 +266,7 @@ function DueRow({ item, generatedAt }: { item: DueItem; generatedAt: string }) {
               item.overdue ? (
                 <span className="text-red-400">已过期 {duration(overdueMinutes)}</span>
               ) : (
-                `今天 ${due.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} 到期`
+                `今天 ${orgTime(item.dueAt, timeZone)} 到期`
               ),
             ]}
           />
@@ -343,7 +353,7 @@ export default function OwnerTodayPage() {
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> 刷新
           </button>
         }
-        meta={data ? <span>按组织当地时间（{data.timeZone}）· 更新于 {new Date(data.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
+        meta={data ? <span>按组织当地时间（{data.timeZone}）· 更新于 {orgTime(data.generatedAt, data.timeZone)}</span> : null}
       />
 
       {notice ? (
@@ -392,7 +402,7 @@ export default function OwnerTodayPage() {
 
           <Section id="samples-quotes" icon={<Package className="h-4 w-4 text-violet-400" />} title="样品与报价到期" count={data.counts.samplesQuotesDue} empty="今天没有到期的样品或报价跟进">
             {data.samplesQuotesDue.map((d) => (
-              <DueRow key={d.key} item={d} generatedAt={data.generatedAt} />
+              <DueRow key={d.key} item={d} generatedAt={data.generatedAt} timeZone={data.timeZone} />
             ))}
           </Section>
 

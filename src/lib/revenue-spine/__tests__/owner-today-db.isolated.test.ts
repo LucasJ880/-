@@ -6,6 +6,7 @@
  *   [3] FDE 新草稿微信提醒：组织开关打开才推；每个审批人每小时最多一条；关掉后不推
  *   [4] 微信回数字：询盘回复草稿不进数字批次（回「1」不会批准给买家的邮件）；只取当前组织
  *   [5] 微信绑定：不能改 / 解绑别人的绑定；偏好接口不能改归属
+ *   [6] 待审批超过查询上限（200）：保留最新的草稿，计数用 count 不截断
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -47,7 +48,7 @@ const RFQ = (company: string) =>
 async function main() {
   const { db } = await import("@/lib/db");
   const { buildOwnerToday } = await import("../owner-today");
-  const { sendOwnerInquiryBrief, pushNewDraftToApprover } = await import("../owner-brief");
+  const { sendOwnerInquiryBrief, pushNewDraftToApprover, newDraftPushSourceKey } = await import("../owner-brief");
   const { INQUIRY_REPLY_ACTION_TYPE, runInboundSalesFde } = await import("../fde/inbound-sales");
   const { intakeInquiry } = await import("../inquiry-intake");
   const { publishRevenueSpineRule, RULE_KEY_POLICY } = await import("../policy");
@@ -62,7 +63,8 @@ async function main() {
   const ORG_C = `otC_${stamp}`;
   const ORG_SALES = `otS_${stamp}`;
   const ORG_EMPTY = `otE_${stamp}`;
-  const ORGS = [ORG_A, ORG_B, ORG_C, ORG_SALES, ORG_EMPTY];
+  const ORG_BULK = `otK_${stamp}`;
+  const ORGS = [ORG_A, ORG_B, ORG_C, ORG_SALES, ORG_EMPTY, ORG_BULK];
   const OWNER = `otowner_${stamp}`;
   const REP = `otrep_${stamp}`;
   const OTHER = `otother_${stamp}`;
@@ -82,6 +84,7 @@ async function main() {
   await db.organization.create({ data: { id: ORG_C, name: "Northwind Fixture Mill", code: `otc-${stamp}`, ownerId: OWNER_C, modulesJson: trade, settingsJson: sh } });
   await db.organization.create({ data: { id: ORG_SALES, name: "Window Fixture Co", code: `ots-${stamp}`, ownerId: OTHER, modulesJson: { enabled: ["sales", "bids", "window_covering"] }, settingsJson: sh } });
   await db.organization.create({ data: { id: ORG_EMPTY, name: "Quiet Fixture Mill", code: `ote-${stamp}`, ownerId: OTHER, modulesJson: trade, settingsJson: sh } });
+  await db.organization.create({ data: { id: ORG_BULK, name: "Busy Fixture Mill", code: `otk-${stamp}`, ownerId: OTHER, modulesJson: trade, settingsJson: sh } });
   await db.organizationMember.createMany({
     data: [
       { orgId: ORG_A, userId: OWNER, role: "org_owner", status: "active" },
@@ -207,9 +210,10 @@ async function main() {
     const pushes: Array<{ userId: string; title: string; text: string }> = [];
     const push = async (userId: string, title: string, text: string) => {
       pushes.push({ userId, title, text });
+      return { sent: 1, failed: 0 };
     };
     const brief = await sendOwnerInquiryBrief(ORG_A, "Asia/Shanghai", { now: NOW, push, origin: ORIGIN });
-    ok(brief.skipped === null && brief.recipients === 1 && brief.sent === 1 && pushes.length === 1 && pushes[0].userId === OWNER, "发给管理层（组织所有者 / 老板），外贸员不收", { brief, to: pushes.map((p) => p.userId) });
+    ok(brief.skipped === null && brief.recipients === 1 && brief.sent === 1 && brief.wechatDelivered === 1 && pushes.length === 1 && pushes[0].userId === OWNER, "发给管理层（组织所有者 / 老板），外贸员不收", { brief, to: pushes.map((p) => p.userId) });
     const text = pushes[0]?.text ?? "";
     ok(text.includes(`HOT 82 · Canada · 官网 · Maple Home Goods ${stamp}`) && text.includes("HIGH 74 · Australia · 展会 · 未留公司名"), "待审批前 3：评分 · 国家 · 来源 · 公司（拿邮箱当名字的客户显示「未留公司名」）", text);
     ok(!EMAIL.test(text) && !EMAIL.test(pushes[0]?.title ?? ""), "早报不含任何邮箱", text);
@@ -222,11 +226,15 @@ async function main() {
     ok(salesOrg.skipped === "no_trade_module" && pushes.length === 1, "未启用外贸模块的组织（有今日商机）不发", salesOrg);
     const empty = await sendOwnerInquiryBrief(ORG_EMPTY, "Asia/Shanghai", { now: NOW, push, origin: ORIGIN });
     ok(empty.skipped === "empty" && empty.sent === 0 && pushes.length === 1, "四栏全为 0 不发", empty);
+    // pushNotification 在没绑微信 / 静默时段时不抛错，只返回 sent=0：通知照写，但不算微信送达
+    const silentBrief = await sendOwnerInquiryBrief(ORG_B, "Asia/Shanghai", { now: NOW, push: async () => ({ sent: 0, failed: 0 }), origin: ORIGIN });
+    ok(silentBrief.skipped === null && silentBrief.sent === 1 && silentBrief.wechatDelivered === 0, "微信没送达（未绑定 / 静默时段）：青砚通知照发，wechatDelivered 如实为 0", silentBrief);
 
     console.log("\n[3] FDE 新草稿微信提醒（按组织开关，每人每小时一条）");
     const draftPushes: Array<{ userId: string; text: string }> = [];
     const pushNewDraft = async (userId: string, _title: string, body: string) => {
       draftPushes.push({ userId, text: body });
+      return { sent: 1, failed: 0 };
     };
     const t0 = new Date("2026-10-19T08:00:00Z");
     const BRANDS = ["Northwind", "Bluewater", "Cedarline", "Driftwood", "Elmstone"];
@@ -260,6 +268,19 @@ async function main() {
     await publishRevenueSpineRule({ orgId: ORG_C, ruleKey: RULE_KEY_POLICY, config: { notify: { wechatOnNewDraft: false } }, userId: OWNER_C });
     const r4 = await runFor(4, new Date(t0.getTime() + 5 * HOUR));
     ok(!!r4.pendingActionId && draftPushes.length === 2, "关掉后不再推", { pushes: draftPushes.length });
+    // 没送达就释放本小时的占位：下一封新草稿还会再试
+    const directArgs = { orgId: ORG_C, userId: REP_C, opportunityId: r3.opportunityId, pendingActionId: r3.pendingActionId!, buyer: { scoreGrade: "HOT", score: 90, market: "Canada", source: "email", customerName: "x" } };
+    const h7 = new Date(t0.getTime() + 7 * HOUR + 5 * 60_000);
+    const silent = await pushNewDraftToApprover({ ...directArgs, now: h7, push: async () => ({ sent: 0, failed: 0 }) });
+    const silentMarker = await db.notification.findUnique({ where: { sourceKey: newDraftPushSourceKey(ORG_C, REP_C, h7) } });
+    ok(silent.pushed === false && silent.reason === "no_binding_or_silent" && !silentMarker, "没绑微信 / 静默时段（sent=0）：不算已提醒，释放本小时占位", { silent, marker: silentMarker?.id ?? null });
+    const retry = await pushNewDraftToApprover({ ...directArgs, now: new Date(h7.getTime() + 20 * 60_000), push: pushNewDraft });
+    ok(retry.pushed === true && draftPushes.length === 3, "同一小时内的下一封新草稿再试一次并送达", { retry, pushes: draftPushes.length });
+    const h8 = new Date(t0.getTime() + 8 * HOUR + 5 * 60_000);
+    const failedCh = await pushNewDraftToApprover({ ...directArgs, now: h8, push: async () => ({ sent: 0, failed: 1 }) });
+    const thrown = await pushNewDraftToApprover({ ...directArgs, now: new Date(h8.getTime() + 10 * 60_000), push: async () => { throw new Error("adapter down"); } });
+    const h8Marker = await db.notification.findUnique({ where: { sourceKey: newDraftPushSourceKey(ORG_C, REP_C, h8) } });
+    ok(failedCh.reason === "push_failed" && thrown.reason === "push_failed" && thrown.pushed === false && !h8Marker, "通道失败 / 抛错：报告 push_failed，同样释放占位", { failedCh, thrown, marker: h8Marker?.id ?? null });
 
     console.log("\n[4] 微信回数字：询盘回复草稿不进批次，只取当前组织");
     const paNull = await pending(null, { type: "grader.internal_note", title: "个人备注", createdAt: new Date("2026-10-24T01:30:00Z") });
@@ -286,6 +307,32 @@ async function main() {
     const repAfter = await db.weChatBinding.findUnique({ where: { id: bRep.id } });
     ok(own && repAfter?.pushBriefing === false && repAfter.userId === REP && repAfter.status === "active", "本人的绑定可改偏好，但改不了归属与状态", repAfter);
     ok((await removeBinding(REP, bRep.id)) && (await db.weChatBinding.findUnique({ where: { id: bRep.id } }))?.status === "disconnected", "本人可以解绑");
+
+    console.log("\n[6] 待审批超过查询上限：保留最新的，计数不截断");
+    const BULK = 205;
+    const bulkBase = new Date("2026-10-20T00:00:00Z").getTime();
+    await db.pendingAction.createMany({
+      data: Array.from({ length: BULK }, (_, i) => ({
+        id: `otk_pa_${stamp}_${String(i).padStart(3, "0")}`,
+        orgId: ORG_BULK,
+        type: INQUIRY_REPLY_ACTION_TYPE,
+        title: `发送询盘回复 #${i}`,
+        preview: "Subject: Re: towels\n\n——— 中文对照（仅供审核，不会发送）———",
+        payload: {},
+        status: "pending",
+        createdById: OTHER,
+        approverUserId: OTHER,
+        createdAt: new Date(bulkBase + i * 60_000),
+        expiresAt: new Date(Math.max(NOW.getTime(), Date.now()) + 72 * HOUR),
+      })),
+    });
+    const bulk = await buildOwnerToday(ORG_BULK, { now: NOW, limit: 1000 });
+    const bulkIds = new Set(bulk.approvals.map((a) => a.pendingActionId));
+    ok(
+      bulk.counts.approvals === BULK && bulk.approvals.length === 200 && bulkIds.has(`otk_pa_${stamp}_204`) && !bulkIds.has(`otk_pa_${stamp}_000`),
+      "超过 200 封：计数是真实总数，列表保留最新的草稿（丢的是最早的）",
+      { count: bulk.counts.approvals, listed: bulk.approvals.length },
+    );
   } finally {
     try {
       for (const orgId of ORGS) {
