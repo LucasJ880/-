@@ -40,7 +40,8 @@
   } catch {
     return;
   }
-  var ENDPOINT = API_BASE + "/api/trade/webhook/website/embed";
+  // 公开 key 同时放进查询参数：浏览器预检不带请求头的值，服务端靠它只为本通道白名单里的来源放行 CORS
+  var ENDPOINT = API_BASE + "/api/trade/webhook/website/embed?k=" + encodeURIComponent(KEY);
   var FIRST_TOUCH_KEY = "qy_embed_first_touch_v1";
   var UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
 
@@ -68,6 +69,7 @@
       successBody: "Your inquiry has been received. We will reply to you by email.",
       errRequired: "Please fill in this field.",
       errEmail: "Please enter a valid email address.",
+      errNeed: "Please tell us what you need: a product, a quantity or a short message.",
       errRate: "Too many submissions from this network. Please try again later.",
       errGeneric: "Sorry, your inquiry could not be sent. Please try again, or contact us by email.",
       errFix: "Please check the highlighted fields.",
@@ -91,6 +93,7 @@
       successBody: "我们已收到您的询盘，将通过邮件回复您。",
       errRequired: "请填写此项。",
       errEmail: "请输入有效的邮箱地址。",
+      errNeed: "请填写感兴趣的产品、数量或留言（至少一项）。",
       errRate: "提交过于频繁，请稍后再试。",
       errGeneric: "抱歉，询盘未能提交。请重试，或直接发邮件联系我们。",
       errFix: "请检查标红的字段。",
@@ -240,13 +243,18 @@
   var grid = el("div", { class: "qy-grid" });
   var inputs = {};
   var errors = {};
+  var tags = {};
+  var srTags = {};
 
   for (var f = 0; f < FIELDS.length; f++) {
     var def = FIELDS[f];
     var id = uid + "-" + def.name;
     var labelChildren = [document.createTextNode(T[def.name])];
-    labelChildren.push(el("span", { class: "qy-tag", text: def.required ? "*" : "(" + T.optional + ")", "aria-hidden": "true" }));
-    if (def.required) labelChildren.push(el("span", { class: "qy-sr", text: " (" + T.required + ")" }));
+    var tagNode = el("span", { class: "qy-tag", text: def.required ? "*" : "(" + T.optional + ")", "aria-hidden": "true" });
+    var srNode = el("span", { class: "qy-sr", text: def.required ? " (" + T.required + ")" : "" });
+    labelChildren.push(tagNode, srNode);
+    tags[def.name] = tagNode;
+    srTags[def.name] = srNode;
     var label = el("label", { class: "qy-label", for: id }, labelChildren);
     var describedBy = [id + "-err"];
     var hintNode = null;
@@ -303,6 +311,21 @@
   // 记录首访归因（脚本加载即记，不等提交）
   firstTouch();
 
+  // 需求内容至少一项（产品 / 数量 / 留言）：产品与数量都空时留言必填，标签与 aria-required 随之切换
+  function needsMessage() {
+    return !inputs.product.value.trim() && !inputs.quantity.value.trim();
+  }
+  function syncMessageRequired() {
+    var req = needsMessage();
+    tags.message.textContent = req ? "*" : "(" + T.optional + ")";
+    srTags.message.textContent = req ? " (" + T.required + ")" : "";
+    if (req) inputs.message.setAttribute("aria-required", "true");
+    else inputs.message.removeAttribute("aria-required");
+  }
+  inputs.product.addEventListener("input", syncMessageRequired);
+  inputs.quantity.addEventListener("input", syncMessageRequired);
+  syncMessageRequired();
+
   function setError(name, msg) {
     errors[name].textContent = msg || "";
     if (msg) inputs[name].setAttribute("aria-invalid", "true");
@@ -317,6 +340,7 @@
       var msg = "";
       if (FIELDS[i].required && !v) msg = T.errRequired;
       else if (name === "email" && v && !EMAIL_RE.test(v)) msg = T.errEmail;
+      else if (name === "message" && !v && needsMessage()) msg = T.errNeed;
       setError(name, msg);
       if (msg && !firstBad) firstBad = inputs[name];
     }
@@ -415,6 +439,11 @@
         if (r.status === 400 && (r.body.error === "invalid_email" || r.body.error === "email_required")) {
           setError("email", r.body.error === "invalid_email" ? T.errEmail : T.errRequired);
           inputs.email.focus();
+          return fail(T.errFix);
+        }
+        if (r.status === 400 && r.body.error === "message_required") {
+          setError("message", T.errNeed);
+          inputs.message.focus();
           return fail(T.errFix);
         }
         fail(T.errGeneric, r.status === 401 || r.status === 403);

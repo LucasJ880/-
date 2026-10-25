@@ -4,7 +4,10 @@
  * 两类凭证，用途不同：
  * - secret（服务端密钥）：站点**后端**调用 POST /api/trade/webhook/website 与状态接口时放在
  *   x-qingyan-webhook-secret 请求头里。不能出现在浏览器里。轮换时旧密钥在宽限期内仍可用
- *   （secretPrev + secretPrevExpiresAt，默认 72 小时），站点后端有时间换上新密钥。
+ *   （最近一个：secretPrev + secretPrevExpiresAt；宽限期内再次轮换时更早的旧密钥移入
+ *   secretPrevOlder[{secret, expiresAt}]，各自按自己的到期时间失效，默认 72 小时），站点后端有时间换上新密钥。
+ *   宽限期内最多同时保留 MAX_PREVIOUS_SECRETS 个旧密钥：再轮换会被拒绝（不挤掉站点可能仍在用的旧密钥），
+ *   需要时可「立即停用旧密钥」（endSecretGraceConfig，密钥泄露时用）。
  * - publicKey（公开 key，"qyk_" + 24 随机字节 base64url）：嵌入表单脚本放在网页里，本来就是公开的；
  *   只有配合 allowedOrigins（精确的 scheme + host[:port]）与限流才有意义。轮换立即生效（滥用时用）。
  *
@@ -20,18 +23,28 @@ export const PUBLIC_KEY_PREFIX = "qyk_";
 export const PUBLIC_KEY_RE = /^qyk_[A-Za-z0-9_-]{32}$/;
 /** 轮换服务端密钥后旧密钥仍被接受的默认时长 */
 export const SECRET_ROTATION_GRACE_MS = 72 * 60 * 60 * 1000;
+/** 宽限期内同时保留的旧密钥上限（含最近一个）；已满时拒绝再轮换 */
+export const MAX_PREVIOUS_SECRETS = 3;
 /** 来源域名白名单上限（防止把白名单当成任意来源） */
 export const MAX_ALLOWED_ORIGINS = 20;
 
 /** 接口里可以原样返回的非凭证字段；其余字符串一律只显示末 4 位 */
-const NON_SECRET_CONFIG_KEYS = new Set(["allowedOrigins", "secretPrevExpiresAt", "secretRotatedAt", "publicKeyRotatedAt"]);
+const NON_SECRET_CONFIG_KEYS = new Set(["allowedOrigins", "secretPrevExpiresAt", "secretRotatedAt", "secretGraceEndedAt", "publicKeyRotatedAt"]);
 /** 永远不出服务端的字段 */
 const SERVER_ONLY_CONFIG_KEYS = new Set(["ipSalt"]);
+
+/** 轮换下来的旧密钥及其宽限期到期时间（ISO） */
+export interface PreviousSecret {
+  secret: string;
+  expiresAt: string;
+}
 
 export interface WebsiteChannelCredentials {
   secret: string | null;
   secretPrev: string | null;
   secretPrevExpiresAt: string | null;
+  /** 全部旧密钥（最近一个在前，含可能已过期的；判断有效用 activePreviousSecrets） */
+  previousSecrets: PreviousSecret[];
   publicKey: string | null;
   allowedOrigins: string[];
   ipSalt: string | null;
@@ -67,10 +80,21 @@ export function isWellFormedPublicKey(v: unknown): v is string {
 export function readWebsiteCredentials(config: unknown): WebsiteChannelCredentials {
   const c = asRec(config);
   const origins = Array.isArray(c.allowedOrigins) ? c.allowedOrigins.filter((x): x is string => typeof x === "string") : [];
+  const secretPrev = strOrNull(c.secretPrev);
+  const secretPrevExpiresAt = strOrNull(c.secretPrevExpiresAt);
+  const previousSecrets: PreviousSecret[] = secretPrev ? [{ secret: secretPrev, expiresAt: secretPrevExpiresAt ?? "" }] : [];
+  if (Array.isArray(c.secretPrevOlder)) {
+    for (const item of c.secretPrevOlder) {
+      const r = asRec(item);
+      const secret = strOrNull(r.secret);
+      if (secret) previousSecrets.push({ secret, expiresAt: strOrNull(r.expiresAt) ?? "" });
+    }
+  }
   return {
     secret: strOrNull(c.secret),
-    secretPrev: strOrNull(c.secretPrev),
-    secretPrevExpiresAt: strOrNull(c.secretPrevExpiresAt),
+    secretPrev,
+    secretPrevExpiresAt,
+    previousSecrets,
     publicKey: strOrNull(c.publicKey),
     allowedOrigins: origins,
     ipSalt: strOrNull(c.ipSalt),
@@ -90,19 +114,57 @@ export function ensureWebsiteCredentialConfig(existing: unknown): Rec {
   return c;
 }
 
-/** 轮换服务端密钥：新密钥立即生效，旧密钥在 graceMs 内仍被接受 */
+/** 宽限期内仍有效的旧密钥（最近一个在前）；到期时间缺失 / 无法解析按已过期处理（宁可拒绝） */
+export function activePreviousSecrets(config: unknown, now: Date): PreviousSecret[] {
+  return readWebsiteCredentials(config).previousSecrets.filter((p) => {
+    const exp = Date.parse(p.expiresAt);
+    return Number.isFinite(exp) && exp > now.getTime();
+  });
+}
+
+function writePreviousSecrets(c: Rec, list: PreviousSecret[]): void {
+  delete c.secretPrev;
+  delete c.secretPrevExpiresAt;
+  delete c.secretPrevOlder;
+  if (list[0]) {
+    c.secretPrev = list[0].secret;
+    c.secretPrevExpiresAt = list[0].expiresAt;
+  }
+  if (list.length > 1) c.secretPrevOlder = list.slice(1).map((p) => ({ secret: p.secret, expiresAt: p.expiresAt }));
+}
+
+/** 宽限期内旧密钥已达上限：拒绝再轮换（retryAt = 最早一个旧密钥到期、腾出名额的时间） */
+export class SecretRotationLimitError extends Error {
+  constructor(public retryAt: string) {
+    super(`secret rotation limit reached until ${retryAt}`);
+  }
+}
+
+/**
+ * 轮换服务端密钥：新密钥立即生效；被换下的密钥在 graceMs 内仍被接受，
+ * 此前仍在宽限期内的旧密钥保留各自的到期时间（宽限期内连续轮换不会让站点仍在用的密钥提前失效）。
+ * 已过期的旧密钥在此清掉。保留数超过 MAX_PREVIOUS_SECRETS → SecretRotationLimitError（不改任何东西）。
+ */
 export function rotateSecretConfig(existing: unknown, now: Date, graceMs: number = SECRET_ROTATION_GRACE_MS): Rec {
   const c = ensureWebsiteCredentialConfig(existing);
   const old = strOrNull(c.secret);
-  c.secret = generateWebsiteSecret();
-  if (old && graceMs > 0) {
-    c.secretPrev = old;
-    c.secretPrevExpiresAt = new Date(now.getTime() + graceMs).toISOString();
-  } else {
-    delete c.secretPrev;
-    delete c.secretPrevExpiresAt;
+  const keep = activePreviousSecrets(c, now);
+  const next = old && graceMs > 0 ? [{ secret: old, expiresAt: new Date(now.getTime() + graceMs).toISOString() }, ...keep] : keep;
+  if (next.length > MAX_PREVIOUS_SECRETS) {
+    const earliest = Math.min(...keep.map((p) => Date.parse(p.expiresAt)));
+    throw new SecretRotationLimitError(new Date(earliest).toISOString());
   }
+  c.secret = generateWebsiteSecret();
+  writePreviousSecrets(c, next);
   c.secretRotatedAt = now.toISOString();
+  return c;
+}
+
+/** 立即停用全部旧密钥（结束宽限期；密钥泄露时用）。当前密钥不变 */
+export function endSecretGraceConfig(existing: unknown, now: Date): Rec {
+  const c = { ...asRec(existing) };
+  writePreviousSecrets(c, []);
+  c.secretGraceEndedAt = now.toISOString();
   return c;
 }
 
@@ -122,21 +184,22 @@ function constantTimeEquals(expected: string | null, provided: string): boolean 
 }
 
 /**
- * 服务端密钥比对：current = 当前密钥；previous = 轮换前的旧密钥且仍在宽限期内；null = 不匹配。
+ * 服务端密钥比对：current = 当前密钥；previous = 某个旧密钥且仍在它自己的宽限期内；null = 不匹配。
  * 宽限期到期时间无法解析时按已过期处理（宁可拒绝）。
  */
 export function matchWebsiteSecret(config: unknown, provided: string, now: Date = new Date()): "current" | "previous" | null {
   if (!provided) return null;
   const cred = readWebsiteCredentials(config);
-  // 两个比较都做，耗时不随哪个命中而变
+  // 每个比较都做，耗时不随哪个命中而变
   const cur = constantTimeEquals(cred.secret, provided);
-  const prevMatch = constantTimeEquals(cred.secretPrev, provided);
-  if (cur) return "current";
-  if (prevMatch) {
-    const exp = cred.secretPrevExpiresAt ? Date.parse(cred.secretPrevExpiresAt) : NaN;
-    if (Number.isFinite(exp) && exp > now.getTime()) return "previous";
+  let prev = false;
+  for (const p of cred.previousSecrets) {
+    const hit = constantTimeEquals(p.secret, provided);
+    const exp = Date.parse(p.expiresAt);
+    if (hit && Number.isFinite(exp) && exp > now.getTime()) prev = true;
   }
-  return null;
+  if (cur) return "current";
+  return prev ? "previous" : null;
 }
 
 export function matchPublicKey(config: unknown, provided: string): boolean {

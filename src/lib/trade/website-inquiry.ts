@@ -265,7 +265,7 @@ export function buildInquiryMessage(
 
 /**
  * 按密钥定位 website 通道（每 org 一条；行数极少，逐条恒时比较）。
- * 当前密钥，或轮换前的旧密钥且仍在宽限期内（config.secretPrev / secretPrevExpiresAt，见 website-channel-credentials.ts）。
+ * 当前密钥，或轮换下来的旧密钥且仍在它自己的宽限期内（config.secretPrev / secretPrevOlder，见 website-channel-credentials.ts）。
  */
 export async function resolveWebsiteChannelBySecret(secret: string, now: Date = new Date()) {
   if (!secret) return null;
@@ -328,8 +328,13 @@ export interface IngestResult {
   notified: number;
   /** 同一原始事件再次到达（同 eventId / 派生身份），不新建 Trade 消息 */
   replay: boolean;
-  /** Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库 */
-  spine: IntakeResult | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string };
+  /**
+   * Revenue Spine 结果；失败时 ok=false 且 Trade 线索仍已落库。
+   * SPINE_FAILED 带 intakeCode = 主干按字段 / 组织配置拒收（重试同一事件不会变好）；不带 = 抛错（可重试）
+   */
+  spine:
+    | IntakeResult
+    | { ok: false; code: "SPINE_FAILED" | "REPLAY" | "INCOMPLETE"; error: string; intakeCode?: Extract<IntakeResult, { ok: false }>["code"] };
   /** 本次调用在请求内实际执行的 FDE（inline 模式的首次或恢复重跑）；未执行为 null */
   fde: InboundFdeResult | null;
   /** deferred 模式：本次调用把 FDE 交给了调度器（after()），请求内未执行 */
@@ -703,7 +708,7 @@ export async function ingestWebsiteInquiry(
       }
       if (!intake.ok) {
         await releaseReceipt(receipt.id, "linked", now);
-        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error }, null, { notified });
+        return snapshot(state, { ok: false, code: "SPINE_FAILED", error: intake.error, intakeCode: intake.code }, null, { notified });
       }
       state.customerId = intake.customerId;
       state.opportunityId = intake.opportunityId;

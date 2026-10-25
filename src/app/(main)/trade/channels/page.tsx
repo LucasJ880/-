@@ -21,6 +21,8 @@ interface Channel {
 interface WebsiteCredentials {
   secret: string | null;
   secretPrevExpiresAt: string | null;
+  /** 仍在宽限期内的旧密钥（只有末 4 位）与各自到期时间 */
+  previousSecrets?: { hint: string; expiresAt: string }[];
   publicKey: string | null;
   allowedOrigins: string[];
   embedReady: boolean;
@@ -303,8 +305,12 @@ function WebsiteInquirySetup({ orgId }: { orgId: string }) {
   };
 
   const rotateSecret = async () => {
-    if (!confirm("轮换后新密钥立即生效；旧密钥在 72 小时内仍可用，请在此期间把网站服务器上的密钥换成新的。继续？")) return;
-    if (await act("rotate_secret")) setNotice({ text: "已生成新密钥。旧密钥 72 小时内仍可用，到期后失效。" });
+    if (!confirm("轮换后新密钥立即生效；当前密钥（以及仍在宽限期内的旧密钥）在各自 72 小时宽限期内仍可用，请在此期间把网站服务器上的密钥换成新的。继续？")) return;
+    if (await act("rotate_secret")) setNotice({ text: "已生成新密钥。旧密钥在各自宽限期内仍可用，到期后失效。" });
+  };
+  const endSecretGrace = async () => {
+    if (!confirm("立即停用所有旧密钥：只有当前密钥还能用，仍在用旧密钥的网站服务器会马上收到 401。确定继续？（密钥泄露时使用）")) return;
+    if (await act("end_secret_grace")) setNotice({ text: "旧密钥已全部停用，只有当前密钥有效。" });
   };
   const rotatePublicKey = async () => {
     if (!confirm("轮换后网页上旧的嵌入代码立即失效，需要把 data-key 换成新值。继续？")) return;
@@ -390,10 +396,17 @@ curl_close($ch);
               <button type="button" disabled={busy !== null} onClick={rotateSecret} className="text-accent hover:underline disabled:opacity-50">
                 {busy === "rotate_secret" ? "轮换中…" : "轮换密钥"}
               </button>
-              {w.secretPrevExpiresAt && (
-                <span className="text-muted">旧密钥有效至 {new Date(w.secretPrevExpiresAt).toLocaleString()}</span>
+              {(w.previousSecrets?.length ?? 0) > 0 && (
+                <button type="button" disabled={busy !== null} onClick={endSecretGrace} className="text-red-400 hover:underline disabled:opacity-50">
+                  {busy === "end_secret_grace" ? "停用中…" : "立即停用旧密钥"}
+                </button>
               )}
             </div>
+            {(w.previousSecrets ?? []).map((p) => (
+              <div key={`${p.hint}-${p.expiresAt}`} className="mt-1 text-muted">
+                旧密钥 {p.hint} 有效至 {new Date(p.expiresAt).toLocaleString()}
+              </div>
+            ))}
           </CopyField>
         </div>
         <p className="text-amber-500">密钥只能放在网站服务器上（环境变量），不要写进网页 HTML 或前端 JS——浏览器里的任何人都能看到。</p>

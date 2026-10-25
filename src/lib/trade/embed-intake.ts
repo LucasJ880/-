@@ -12,10 +12,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { DAY_MS, EMBED_RATE_LIMITS, HOUR_MS, type EmbedRateLimits, type EmbedSubmissionCounts } from "./embed-rate-limit";
-import { hashClientIp, isWellFormedPublicKey, matchPublicKey, readWebsiteCredentials } from "./website-channel-credentials";
+import { hashClientIp, isWellFormedPublicKey, matchPublicKey, originAllowed, readWebsiteCredentials } from "./website-channel-credentials";
+import type { IngestResult, NormalizedInquiry } from "./website-inquiry";
 import { EMBED_INQUIRY_SOURCE } from "./website-inquiry-receipts";
 
 export const EMBED_KEY_HEADER = "x-qingyan-form-key";
+/**
+ * 公开 key 也放在接口地址的查询参数里（/embed?k=qyk_…）：浏览器预检（OPTIONS）不带请求头的值，
+ * 只有这样预检才能按通道判断来源。鉴权仍只认请求头 x-qingyan-form-key。
+ */
+export const EMBED_KEY_QUERY = "k";
 export const EMBED_EVENT_PREFIX = "emb:";
 /** 请求体上限（表单字段总和远小于此；超出直接 413，不解析） */
 export const EMBED_MAX_BODY_BYTES = 32 * 1024;
@@ -52,19 +58,30 @@ export async function resolveWebsiteChannelByPublicKey(key: string): Promise<Emb
 }
 
 /**
- * 预检（OPTIONS）用：浏览器预检不带 key 的值，无法定位通道，所以只判断该来源是否在
- * 任一已启用嵌入表单的通道白名单里。真正的授权在 POST 里按 key 定位通道后精确匹配。
+ * 预检（OPTIONS）：按查询参数里的公开 key 定位通道，Origin 在**该通道**白名单里才回显（返回该来源），
+ * 否则 null。没有 key 不回显——不能拿预检探测哪些来源登记过青砚。真正的授权在 POST 里按请求头的 key 校验。
  */
-export async function isOriginRegisteredForEmbed(origin: string | null): Promise<boolean> {
-  if (!origin || origin === "null") return false;
-  const channels = await db.tradeChannel.findMany({
-    where: { channel: "website", status: "active" },
-    select: { config: true },
-  });
-  return channels.some((ch) => {
-    const cred = readWebsiteCredentials(ch.config);
-    return isWellFormedPublicKey(cred.publicKey) && cred.allowedOrigins.includes(origin);
-  });
+export async function preflightAllowedOrigin(origin: string | null, key: string | null): Promise<string | null> {
+  if (!origin || !key) return null;
+  const channel = await resolveWebsiteChannelByPublicKey(key.trim());
+  return channel && originAllowed(origin, channel.allowedOrigins) ? origin : null;
+}
+
+/** 嵌入表单要求说明需求：感兴趣的产品、数量（已并入留言）、留言至少一项——主干拒收没有内容的询盘 */
+export function hasInquiryContent(v: Pick<NormalizedInquiry, "message" | "product">): boolean {
+  return Boolean(v.message.trim() || v.product.trim());
+}
+
+/**
+ * 主干没建成时区分两种情况：
+ * - 拒收（字段 / 组织配置问题，带 intakeCode 或主干自己的拒收码）：同一事件重试不会变好，不能让脚本重试；
+ * - 暂时失败（抛错 / INCOMPLETE）：用同一事件 id 重试即可补齐（收据幂等）。
+ */
+export function isPermanentSpineRejection(spine: IngestResult["spine"]): boolean {
+  if (spine.ok) return false;
+  if (spine.code === "SPINE_FAILED") return "intakeCode" in spine && Boolean(spine.intakeCode);
+  if (spine.code === "INCOMPLETE" || spine.code === "REPLAY") return false;
+  return true;
 }
 
 /** 访客 IP：Vercel 覆盖写入 x-forwarded-for（首个即客户端），其次 x-real-ip */

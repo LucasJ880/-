@@ -32,7 +32,7 @@
 | `company` | `companyName` | 200 | |
 | `country` | — | 80 | |
 | `product` | `interest` | 200 | 感兴趣的产品 |
-| `message` | `inquiry`、`content` | 4000 | 嵌入表单的「数量」并入留言开头（`Quantity: …`） |
+| `message` | `inquiry`、`content` | 4000 | 嵌入表单的「数量」并入留言开头（`Quantity: …`）。`message` 与 `product` 都为空的询盘建不了商机：嵌入表单要求产品 / 数量 / 留言至少一项（否则 400 `message_required`） |
 | `website` | `buyerWebsite` | 300 | 买家公司网站（仅服务器转发） |
 | `page` | `landingPage` | 500 | 提交时所在页面 |
 | `referrer` | `referer` | 500 | 首访 `document.referrer` |
@@ -93,7 +93,11 @@ x-qingyan-webhook-secret: <服务端密钥>
 
 ### 2.6 密钥轮换（带宽限期）
 
-渠道页「轮换密钥」：新密钥立即生效，**旧密钥在 72 小时内仍被 POST 与状态接口接受**，到期后 401。在宽限期内把网站服务器上的密钥换成新的即可，不丢询盘。渠道页显示旧密钥的到期时间。
+渠道页「轮换密钥」：新密钥立即生效，**被换下的密钥在 72 小时内仍被 POST 与状态接口接受**，到期后 401。在宽限期内把网站服务器上的密钥换成新的即可，不丢询盘。
+
+- 宽限期内再次轮换：此前的旧密钥**保留各自的到期时间**，不会因为又轮换了一次而提前失效（网站服务器上还没换掉的那个密钥照常可用）。渠道页逐个列出仍有效的旧密钥（末 4 位）与到期时间。
+- 宽限期内最多同时保留 3 个旧密钥；已满时再轮换返回 409，并提示最早一个旧密钥何时到期。
+- 「立即停用旧密钥」：马上结束宽限期，只剩当前密钥有效（密钥泄露时用；仍在用旧密钥的服务器会立刻 401）。
 
 > 曾经按旧版渠道页把密钥写在网页前端代码里的站点：请改用方式二（嵌入表单）或服务器转发，然后轮换密钥，让已暴露的旧密钥在宽限期后失效。
 
@@ -123,6 +127,7 @@ x-qingyan-webhook-secret: <服务端密钥>
 
 - 精确匹配 `scheme://host[:port]`：`https://www.example.com` 与 `https://example.com`、`http://` 与 `https://` 是不同来源，需要分别填写；不能带路径、不能用通配符；最多 20 个。
 - 请求的 `Origin` 不在白名单 → 403，且响应不带 CORS 头（浏览器拿不到内容）。缺失 `Origin`（服务器直接调用）也是 403——服务器请用方式一。
+- 预检（`OPTIONS`）不带请求头的值，所以脚本把公开 key 也放在地址里：`POST /api/trade/webhook/website/embed?k=<公开 key>`。预检只在该 key 对应通道的白名单里有这个来源时才回显 CORS；没有 `k` 或 key / 来源不匹配都不回显（不能用预检探测哪些来源登记过）。鉴权仍只认请求头 `x-qingyan-form-key`。自己写前端调用本接口时也要带上 `?k=`。
 - 删除来源后，浏览器缓存的预检最多 10 分钟失效。
 
 ### 3.3 公开 key
@@ -145,13 +150,15 @@ x-qingyan-webhook-secret: <服务端密钥>
 | HTTP | 体 | 含义 |
 |---|---|---|
 | 200 | `{ ok: true, receiptId }` | 已收到（蜜罐命中时也返回同样形状，但不落库） |
-| 400 | `{ ok: false, error: "email_required" \| "invalid_email" \| "invalid_body" }` | 字段问题 |
+| 400 | `{ ok: false, error: "email_required" \| "invalid_email" \| "message_required" \| "invalid_body" }` | 字段问题（`message_required`：产品 / 数量 / 留言都没填），在建线索之前拒绝，什么都不落库 |
 | 401 | `{ ok: false, error: "invalid_key" }`（无 CORS 头） | key 错误 / 通道停用 |
 | 403 | `{ ok: false, error: "origin_not_allowed" }`（无 CORS 头） | 来源不在白名单 |
 | 413 | `{ ok: false, error: "payload_too_large" }` | 请求体超过 32 KB |
 | 429 | `{ ok: false, error: "rate_limited" }` + `Retry-After` | 限流 |
-| 503 | `{ ok: false, error: "temporarily_unavailable" }` + `Retry-After` | 线索已落库但主干未建成，用同一 uuid 重试即可补齐 |
+| 503 | `{ ok: false, error: "temporarily_unavailable" }` + `Retry-After` | 暂时失败：线索已落库但主干处理抛错 / 未建成，用同一 uuid 重试即可补齐 |
 | 500 | `{ ok: false, error: "server_error" }` | 同一 uuid 重试 |
+
+503 只用于重试能补齐的暂时失败。字段问题在入站前就返回 400；万一主干按字段或组织配置拒收（重试同一事件不会变好），Trade 线索与销售通知已经落库，接口按"已收到"返回 200，不让访客重试、也不会因为改了内容重提而重复建询盘。
 
 响应**不返回**线索 / 商机 id、是否重复等内部信息（防枚举）。脚本对 5xx 与网络错误自动用同一 uuid 重试 2 次（约 1.5 s、4 s 后），之后提示访客重试；访客不改内容再次提交仍用同一 uuid（幂等），改了内容则是新询盘。
 
@@ -174,9 +181,9 @@ x-qingyan-webhook-secret: <服务端密钥>
 | 接口 | 谁 | 说明 |
 |---|---|---|
 | `GET /api/trade/channels` | 外贸角色 | 通道列表，凭证一律只显示末 4 位；响应头 `x-qingyan-can-manage-channels: 1/0` |
-| `GET /api/trade/channels/website` | 外贸角色 | 掩码视图；能管理时附 `website{secret, secretPrevExpiresAt, publicKey, allowedOrigins, embedReady}` |
+| `GET /api/trade/channels/website` | 外贸角色 | 掩码视图；能管理时附 `website{secret, secretPrevExpiresAt, previousSecrets[{hint, expiresAt}], publicKey, allowedOrigins, embedReady}`（旧密钥只给末 4 位；`secretPrevExpiresAt` = 全部旧密钥中最晚的到期时间） |
 | `POST /api/trade/channels` | 企业负责人 / 管理员 | 新建 / 更新通道；website 通道的凭证由服务端生成，重复保存沿用 |
-| `PATCH /api/trade/channels/website` | 企业负责人 / 管理员 | `action`：`rotate_secret` / `enable_embed` / `rotate_public_key` / `set_allowed_origins`（带 `allowedOrigins`） |
+| `PATCH /api/trade/channels/website` | 企业负责人 / 管理员 | `action`：`rotate_secret`（宽限期内旧密钥已满 3 个时 409）/ `end_secret_grace`（立即停用全部旧密钥）/ `enable_embed` / `rotate_public_key` / `set_allowed_origins`（带 `allowedOrigins`） |
 | `DELETE /api/trade/channels/[channel]` | 企业负责人 / 管理员 | 删除通道 |
 
 所有管理动作写审计日志，日志里只有凭证掩码。

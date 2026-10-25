@@ -9,10 +9,14 @@
  * 4. 消息记录
  */
 
-import type { Prisma, TradeChannel } from "@prisma/client";
+import { Prisma, type TradeChannel } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
+  MAX_PREVIOUS_SECRETS,
   SECRET_ROTATION_GRACE_MS,
+  SecretRotationLimitError,
+  activePreviousSecrets,
+  endSecretGraceConfig,
   ensureWebsiteCredentialConfig,
   maskChannelConfig,
   maskCredential,
@@ -51,19 +55,30 @@ export async function upsertChannel(input: ChannelConfig) {
  * 网站询盘通道：凭证（服务端密钥、嵌入表单公开 key、IP 盐）全部由服务端生成；
  * 重复保存沿用已有凭证与来源白名单，避免已部署的代码失效。外贸渠道页与平台入驻向导共用这一条创建路径。
  * 调用方提交的 config 不写入（website 通道没有可由调用方填写的字段，凭证更不能由调用方指定）。
+ * 已有通道走与轮换 / 改白名单相同的比较并交换更新：同时发生的轮换不会被这次保存写回旧值。
  */
 export async function upsertWebsiteChannel(input: {
   orgId: string;
   name: string;
   config?: Record<string, unknown>;
-}) {
+}): Promise<TradeChannel> {
   const existing = await getChannel(input.orgId, "website");
-  const config = ensureWebsiteCredentialConfig(existing?.config) as Prisma.InputJsonValue;
-  return db.tradeChannel.upsert({
-    where: { orgId_channel: { orgId: input.orgId, channel: "website" } },
-    create: { orgId: input.orgId, channel: "website", name: input.name, config },
-    update: { name: input.name, config, status: "active" },
-  });
+  if (!existing) {
+    try {
+      return await db.tradeChannel.create({
+        data: {
+          orgId: input.orgId,
+          channel: "website",
+          name: input.name,
+          config: ensureWebsiteCredentialConfig(null) as Prisma.InputJsonValue,
+        },
+      });
+    } catch (err) {
+      // 并发创建：另一请求刚建好同一通道 → 按已有通道更新（沿用它的凭证）
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+    }
+  }
+  return mutateWebsiteChannelConfig(input.orgId, (c) => ensureWebsiteCredentialConfig(c), { name: input.name, status: "active" });
 }
 
 /** 通道对外视图：凭证只显示末 4 位（所有通道），服务端专用字段不出现 */
@@ -84,14 +99,17 @@ export function toChannelView(ch: TradeChannel) {
 
 /**
  * website 通道的完整凭证视图——只给能管理通道的角色（见 channel-access.ts）。
- * 旧密钥本身不返回，只返回宽限期到期时间（仍有效时）。
+ * 旧密钥本身不返回：只返回仍在宽限期内的旧密钥末 4 位与各自到期时间，
+ * secretPrevExpiresAt = 其中最晚的到期时间（全部旧密钥失效的时间；没有则 null）。
  */
 export function websiteCredentialView(config: unknown, now: Date = new Date()) {
   const c = readWebsiteCredentials(config);
-  const prevExp = c.secretPrev && c.secretPrevExpiresAt ? Date.parse(c.secretPrevExpiresAt) : NaN;
+  const prev = activePreviousSecrets(config, now);
+  const latest = prev.reduce<string | null>((acc, p) => (!acc || Date.parse(p.expiresAt) > Date.parse(acc) ? p.expiresAt : acc), null);
   return {
     secret: c.secret,
-    secretPrevExpiresAt: Number.isFinite(prevExp) && prevExp > now.getTime() ? c.secretPrevExpiresAt : null,
+    secretPrevExpiresAt: latest,
+    previousSecrets: prev.map((p) => ({ hint: maskCredential(p.secret), expiresAt: p.expiresAt })),
     publicKey: c.publicKey,
     allowedOrigins: c.allowedOrigins,
     embedReady: !!c.publicKey && c.allowedOrigins.length > 0,
@@ -119,7 +137,7 @@ export async function getChannelView(orgId: string, channel: string, opts: { can
 
 export class WebsiteChannelError extends Error {
   constructor(
-    public code: "NOT_FOUND" | "CONCURRENT_UPDATE",
+    public code: "NOT_FOUND" | "CONCURRENT_UPDATE" | "ROTATION_LIMIT",
     message: string,
   ) {
     super(message);
@@ -128,28 +146,51 @@ export class WebsiteChannelError extends Error {
 
 /**
  * 改 website 通道 config（读 → 变换 → 按 updatedAt 比较并交换，冲突重读重试）。
- * 两个管理员同时轮换 / 改白名单时不会互相覆盖。
+ * 两个管理员同时轮换 / 改白名单 / 重复保存时不会互相覆盖。data：同一次写入里一并更新的名称 / 状态。
  */
 async function mutateWebsiteChannelConfig(
   orgId: string,
   mutate: (config: unknown) => Record<string, unknown>,
+  data?: { name?: string; status?: string },
 ): Promise<TradeChannel> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const ch = await getChannel(orgId, "website");
     if (!ch) throw new WebsiteChannelError("NOT_FOUND", "网站询盘通道不存在，请先添加");
     const next = mutate(ch.config) as Prisma.InputJsonValue;
+    // updatedAt 只有毫秒精度：同一毫秒内的两次写入靠 config 内容比较兜底
+    const sameConfig = ch.config && typeof ch.config === "object" ? { config: { equals: ch.config as Prisma.InputJsonValue } } : {};
     const res = await db.tradeChannel.updateMany({
-      where: { id: ch.id, orgId, updatedAt: ch.updatedAt },
-      data: { config: next },
+      where: { id: ch.id, orgId, updatedAt: ch.updatedAt, ...sameConfig },
+      data: { ...(data ?? {}), config: next },
     });
     if (res.count === 1) return db.tradeChannel.findUniqueOrThrow({ where: { id: ch.id } });
   }
   throw new WebsiteChannelError("CONCURRENT_UPDATE", "通道配置正被同时修改，请刷新后重试");
 }
 
-/** 轮换服务端密钥：新密钥立即生效；旧密钥在宽限期（默认 72 小时）内仍被 webhook / 状态接口接受 */
+/**
+ * 轮换服务端密钥：新密钥立即生效；被换下的密钥与此前仍在宽限期内的旧密钥都按各自到期时间
+ * （默认 72 小时）继续被 webhook / 状态接口接受。宽限期内旧密钥已有 MAX_PREVIOUS_SECRETS 个 → ROTATION_LIMIT。
+ */
 export function rotateWebsiteChannelSecret(orgId: string, now: Date = new Date(), graceMs: number = SECRET_ROTATION_GRACE_MS) {
-  return mutateWebsiteChannelConfig(orgId, (c) => rotateSecretConfig(c, now, graceMs));
+  return mutateWebsiteChannelConfig(orgId, (c) => {
+    try {
+      return rotateSecretConfig(c, now, graceMs);
+    } catch (err) {
+      if (err instanceof SecretRotationLimitError) {
+        throw new WebsiteChannelError(
+          "ROTATION_LIMIT",
+          `宽限期内已保留 ${MAX_PREVIOUS_SECRETS} 个旧密钥，暂不能再轮换（${err.retryAt.replace("T", " ").slice(0, 16)} UTC 后可再轮换）。如需立刻作废旧密钥，请先点「立即停用旧密钥」。`,
+        );
+      }
+      throw err;
+    }
+  });
+}
+
+/** 立即停用全部旧密钥（结束宽限期）：之后只有当前密钥有效 */
+export function endWebsiteChannelSecretGrace(orgId: string, now: Date = new Date()) {
+  return mutateWebsiteChannelConfig(orgId, (c) => endSecretGraceConfig(c, now));
 }
 
 /** 启用嵌入表单：补齐公开 key（已有则不变） */

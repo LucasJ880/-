@@ -1,7 +1,8 @@
 /**
  * 嵌入表单 + 渠道凭证加固（PRD F1.1 / F1.4）— 纯函数与静态契约
  *
- *   公开 key 格式 / 来源规范化与精确匹配 / 限流判定 / 服务端密钥轮换宽限期 / 凭证掩码 /
+ *   公开 key 格式 / 来源规范化与精确匹配 / 限流判定 / 服务端密钥轮换宽限期（宽限期内连续轮换、上限、立即停用）/ 凭证掩码 /
+ *   需求内容校验与主干拒收分类 /
  *   嵌入载荷白名单与事件 id / referrer、落地页不进业务指纹 / 管理角色矩阵 /
  *   路由段配置字面量、响应最小化、脚本不用 cookie 与 localStorage、渠道页不再把密钥放进浏览器。
  *
@@ -14,8 +15,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   MAX_ALLOWED_ORIGINS,
+  MAX_PREVIOUS_SECRETS,
   PUBLIC_KEY_RE,
   SECRET_ROTATION_GRACE_MS,
+  SecretRotationLimitError,
+  activePreviousSecrets,
+  endSecretGraceConfig,
   ensureWebsiteCredentialConfig,
   generatePublicKey,
   hashClientIp,
@@ -32,7 +37,16 @@ import {
   rotateSecretConfig,
 } from "../website-channel-credentials";
 import { DAY_MS, EMBED_ATTEMPT_LIMIT, EMBED_RATE_LIMITS, HOUR_MS, decideEmbedRateLimit } from "../embed-rate-limit";
-import { EMBED_EVENT_PREFIX, clientIpFrom, decoyReceiptId, embedEventId, toEmbedInquiryRaw } from "../embed-intake";
+import {
+  EMBED_EVENT_PREFIX,
+  EMBED_KEY_QUERY,
+  clientIpFrom,
+  decoyReceiptId,
+  embedEventId,
+  hasInquiryContent,
+  isPermanentSpineRejection,
+  toEmbedInquiryRaw,
+} from "../embed-intake";
 import { buildInquiryMessage, normalizeInquiry } from "../website-inquiry";
 import { EMBED_INQUIRY_SOURCE, computePayloadHash, fromReceiptPayload, toReceiptPayload } from "../website-inquiry-receipts";
 import { roleCanManageTradeChannels } from "../channel-access";
@@ -173,10 +187,81 @@ ok("密钥轮换：新密钥立即生效，旧密钥宽限期（默认 72 小时
   assert.equal(matchWebsiteSecret(rotated, "old-secret-value-0001", new Date(now.getTime() + SECRET_ROTATION_GRACE_MS)), null);
   assert.equal(matchWebsiteSecret(rotated, "wrong", now), null);
   assert.equal(matchWebsiteSecret(rotated, "", now), null);
-  // 再轮换一次：上一个"新"密钥成为旧密钥，最早的密钥立即失效
-  const twice = rotateSecretConfig(rotated, new Date(now.getTime() + 1000));
-  assert.equal(matchWebsiteSecret(twice, "old-secret-value-0001", now), null);
-  assert.equal(matchWebsiteSecret(twice, cred.secret!, new Date(now.getTime() + 2000)), "previous");
+});
+
+ok("宽限期内再轮换：最早的旧密钥按自己的到期时间继续有效（站点仍在用的密钥不提前失效），各旧密钥分别到期", () => {
+  const t0 = new Date("2026-10-24T08:00:00.000Z");
+  const s0 = "old-secret-value-0001";
+  const r1 = rotateSecretConfig(ensureWebsiteCredentialConfig({ secret: s0 }), t0);
+  const s1 = readWebsiteCredentials(r1).secret!;
+  const t1 = new Date(t0.getTime() + 60_000);
+  const r2 = rotateSecretConfig(r1, t1);
+  const c2 = readWebsiteCredentials(r2);
+  const s2 = c2.secret!;
+  assert.ok(s2 !== s1 && s2 !== s0);
+  assert.equal(c2.secretPrev, s1, "最近一个旧密钥在 secretPrev");
+  assert.deepEqual(c2.previousSecrets.map((p) => p.secret), [s1, s0], "更早的旧密钥移入 secretPrevOlder");
+  const at = (ms: number) => new Date(ms);
+  // 第二次轮换 1 分钟后：s0 / s1 都仍被接受
+  assert.equal(matchWebsiteSecret(r2, s0, at(t1.getTime() + 60_000)), "previous");
+  assert.equal(matchWebsiteSecret(r2, s1, at(t1.getTime() + 60_000)), "previous");
+  assert.equal(matchWebsiteSecret(r2, s2, at(t1.getTime() + 60_000)), "current");
+  // s0 在它自己的到期时间（t0 + 72h）失效；s1 到 t1 + 72h 才失效
+  assert.equal(matchWebsiteSecret(r2, s0, at(t0.getTime() + SECRET_ROTATION_GRACE_MS - 1)), "previous");
+  assert.equal(matchWebsiteSecret(r2, s0, at(t0.getTime() + SECRET_ROTATION_GRACE_MS)), null);
+  assert.equal(matchWebsiteSecret(r2, s1, at(t0.getTime() + SECRET_ROTATION_GRACE_MS)), "previous");
+  assert.equal(matchWebsiteSecret(r2, s1, at(t1.getTime() + SECRET_ROTATION_GRACE_MS)), null);
+  assert.deepEqual(activePreviousSecrets(r2, at(t0.getTime() + SECRET_ROTATION_GRACE_MS)).map((p) => p.secret), [s1]);
+  // 已过期的旧密钥在下一次轮换时清掉
+  const r3 = rotateSecretConfig(r2, at(t0.getTime() + SECRET_ROTATION_GRACE_MS + 1));
+  assert.deepEqual(readWebsiteCredentials(r3).previousSecrets.map((p) => p.secret), [s2, s1]);
+  assert.ok(!("secretPrevOlder" in endSecretGraceConfig(r3, t0)));
+});
+
+ok("宽限期内旧密钥上限：已有 MAX_PREVIOUS_SECRETS 个时再轮换抛 SecretRotationLimitError（输入不变），最早一个到期后可再轮换", () => {
+  assert.equal(MAX_PREVIOUS_SECRETS, 3);
+  const t0 = new Date("2026-10-24T08:00:00.000Z");
+  let c: Record<string, unknown> = ensureWebsiteCredentialConfig({ secret: "seed-secret-0000" });
+  for (let i = 1; i <= MAX_PREVIOUS_SECRETS; i++) c = rotateSecretConfig(c, new Date(t0.getTime() + i * 1000));
+  assert.equal(activePreviousSecrets(c, new Date(t0.getTime() + 5000)).length, MAX_PREVIOUS_SECRETS);
+  const snapshot = JSON.stringify(c);
+  let err: unknown = null;
+  try {
+    rotateSecretConfig(c, new Date(t0.getTime() + 5000));
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof SecretRotationLimitError);
+  assert.equal((err as SecretRotationLimitError).retryAt, new Date(t0.getTime() + 1000 + SECRET_ROTATION_GRACE_MS).toISOString(), "retryAt = 最早一个旧密钥到期");
+  assert.equal(JSON.stringify(c), snapshot, "被拒的轮换不改 config");
+  assert.equal(matchWebsiteSecret(c, "seed-secret-0000", new Date(t0.getTime() + 5000)), "previous", "最早的密钥仍有效");
+  // 最早一个到期后腾出名额
+  const later = rotateSecretConfig(c, new Date(t0.getTime() + 1000 + SECRET_ROTATION_GRACE_MS));
+  assert.equal(readWebsiteCredentials(later).previousSecrets.length, MAX_PREVIOUS_SECRETS);
+  assert.equal(matchWebsiteSecret(later, "seed-secret-0000", new Date(t0.getTime() + 1000 + SECRET_ROTATION_GRACE_MS)), null);
+});
+
+ok("立即停用旧密钥：所有旧密钥马上失效，当前密钥 / 公开 key / 白名单不变；grace=0 轮换保留此前仍有效的旧密钥", () => {
+  const t0 = new Date("2026-10-24T08:00:00.000Z");
+  const base = ensureWebsiteCredentialConfig({ secret: "old-secret-value-0009", allowedOrigins: ["https://www.example.com"] });
+  const twice = rotateSecretConfig(rotateSecretConfig(base, t0), new Date(t0.getTime() + 1000));
+  const cur = readWebsiteCredentials(twice);
+  const ended = endSecretGraceConfig(twice, new Date(t0.getTime() + 2000));
+  const e = readWebsiteCredentials(ended);
+  assert.equal(e.secret, cur.secret);
+  assert.equal(e.publicKey, cur.publicKey);
+  assert.deepEqual(e.allowedOrigins, cur.allowedOrigins);
+  assert.deepEqual(e.previousSecrets, []);
+  assert.equal(e.secretPrev, null);
+  assert.equal(ended.secretGraceEndedAt, new Date(t0.getTime() + 2000).toISOString());
+  for (const p of cur.previousSecrets) assert.equal(matchWebsiteSecret(ended, p.secret, new Date(t0.getTime() + 3000)), null);
+  assert.equal(matchWebsiteSecret(ended, cur.secret!, new Date(t0.getTime() + 3000)), "current");
+  const noGrace = readWebsiteCredentials(rotateSecretConfig(twice, new Date(t0.getTime() + 2000), 0));
+  assert.deepEqual(noGrace.previousSecrets.map((p) => p.secret), cur.previousSecrets.map((p) => p.secret), "grace=0 只是不保留被换下的那个");
+  // 历史 / 脏数据：secretPrevOlder 里不是对象、缺 secret 的项忽略；缺到期时间按已过期
+  const junk = readWebsiteCredentials({ secret: "cur-aaaaaaaa", secretPrevOlder: [null, 5, { expiresAt: "2099-01-01T00:00:00.000Z" }, { secret: "older-cccccccc" }] });
+  assert.deepEqual(junk.previousSecrets, [{ secret: "older-cccccccc", expiresAt: "" }]);
+  assert.equal(matchWebsiteSecret({ secret: "cur-aaaaaaaa", secretPrevOlder: [{ secret: "older-cccccccc" }] }, "older-cccccccc"), null);
 });
 
 ok("宽限期到期时间缺失 / 无法解析 → 旧密钥按已过期处理；grace=0 不保留旧密钥", () => {
@@ -229,6 +314,7 @@ ok("凭证掩码：只显示末 4 位；ipSalt 不出现；白名单 / 到期时
     ipSalt: "salt-should-never-leave",
     allowedOrigins: ["https://www.example.com"],
     secretPrevExpiresAt: "2026-10-27T08:00:00.000Z",
+    secretPrevOlder: [{ secret: "srv-secret-older-4444", expiresAt: "2026-10-27T07:00:00.000Z" }],
     nested: { a: 1 },
   });
   assert.equal(m.accessToken, "****1234");
@@ -240,6 +326,7 @@ ok("凭证掩码：只显示末 4 位；ipSalt 不出现；白名单 / 到期时
   assert.deepEqual(m.allowedOrigins, ["https://www.example.com"]);
   assert.equal(m.secretPrevExpiresAt, "2026-10-27T08:00:00.000Z");
   assert.equal(m.nested, "****");
+  assert.equal(m.secretPrevOlder, "****");
   const text = JSON.stringify(m);
   for (const leak of ["EAAG-fixture", "srv-secret", "salt-should", "x".repeat(28)]) assert.ok(!text.includes(leak), leak);
 });
@@ -300,6 +387,7 @@ ok("嵌入载荷白名单：数量并入留言；不透传 secret / orgId / webs
     assert.equal(n.value.website, "");
   }
   assert.equal(toEmbedInquiryRaw({ quantity: "200" }).message, "Quantity: 200");
+  assert.equal(toEmbedInquiryRaw({ quantity: "   " }).message, "", "数量只有空白不算内容");
   assert.equal(toEmbedInquiryRaw({ message: "hello" }).message, "hello");
   const bot = normalizeInquiry(toEmbedInquiryRaw({ email: "bot@spam.example", _hp: "http://spam.example" }));
   assert.ok(bot.ok && bot.value.honeypotTripped);
@@ -344,6 +432,37 @@ ok("消息正文：有 referrer / 落地页才出现对应行；落地页与来�
   if (same.ok) assert.doesNotMatch(buildInquiryMessage(same.value), /落地页/);
 });
 
+// ── 需求内容与主干拒收 ──
+ok("需求内容：产品 / 数量（并入留言）/ 留言至少一项；只有姓名 + 邮箱不算", () => {
+  const norm = (p: Record<string, unknown>) => {
+    const n = normalizeInquiry(toEmbedInquiryRaw({ name: "Jane Doe", email: "jane@maple-home.example", ...p }));
+    assert.ok(n.ok);
+    return n.ok ? n.value : null!;
+  };
+  assert.equal(hasInquiryContent(norm({})), false);
+  assert.equal(hasInquiryContent(norm({ message: "   ", product: " ", quantity: "  " })), false);
+  assert.equal(hasInquiryContent(norm({ product: "Waffle bathrobe" })), true);
+  assert.equal(hasInquiryContent(norm({ quantity: "500 pcs" })), true);
+  assert.equal(hasInquiryContent(norm({ message: "Please quote" })), true);
+});
+
+ok("主干结果分类：带 intakeCode 的 SPINE_FAILED / 主干拒收码 = 拒收（不重试）；抛错 / INCOMPLETE = 暂时失败（503 重试）", () => {
+  assert.equal(isPermanentSpineRejection({ ok: false, code: "SPINE_FAILED", error: "询盘内容为空", intakeCode: "EMPTY_MESSAGE" }), true);
+  assert.equal(isPermanentSpineRejection({ ok: false, code: "SPINE_FAILED", error: "组织没有可分配的负责人", intakeCode: "NO_OWNER" }), true);
+  assert.equal(isPermanentSpineRejection({ ok: false, code: "INVALID_EMAIL", error: "x" }), true);
+  assert.equal(isPermanentSpineRejection({ ok: false, code: "SPINE_FAILED", error: "connection reset" }), false);
+  assert.equal(isPermanentSpineRejection({ ok: false, code: "INCOMPLETE", error: "x" }), false);
+  assert.equal(isPermanentSpineRejection({ ok: false, code: "REPLAY", error: "x" }), false);
+  const intakeOk = { ok: true, customerId: "c", opportunityId: "o", interactionId: "i", salesActionId: null } as unknown as Parameters<typeof isPermanentSpineRejection>[0];
+  assert.equal(isPermanentSpineRejection(intakeOk), false);
+});
+
+ok("主干拒收时保留拒收码：ingestWebsiteInquiry 的 SPINE_FAILED 带 intakeCode（抛错路径不带）", () => {
+  const lib = read("src/lib/trade/website-inquiry.ts");
+  assert.match(lib, /code: "SPINE_FAILED", error: intake\.error, intakeCode: intake\.code/);
+  assert.match(lib, /code: "SPINE_FAILED", error: reason \}/);
+});
+
 // ── 管理角色 ──
 ok("管理通道的角色：平台管理员；本组织 active 的 org_owner / org_admin；其余（含外贸 org_member）不行", () => {
   assert.equal(roleCanManageTradeChannels("admin", null, false), true);
@@ -372,7 +491,16 @@ ok("嵌入路由：段配置静态字面量；成功响应只有 { ok, receiptId
   assert.match(src, /receiptMeta: \{ ipHash \}/);
   // 限流在 ingest 之前
   assert.ok(src.indexOf("decideEmbedRateLimit(") < src.indexOf("ingestWebsiteInquiry("));
-  assert.ok(src.indexOf("originAllowed(") < src.indexOf("readPayload(request)"));
+  assert.ok(src.indexOf("originAllowed(") < src.indexOf("readPayload(request)"));  // 没有需求内容在入站前 400；503 只给暂时失败（主干拒收不让脚本重试）
+  assert.match(src, /reply\(\{ ok: false, error: "message_required" \}, 400, allowOrigin\)/);
+  assert.ok(src.indexOf("hasInquiryContent(") < src.indexOf("ingestWebsiteInquiry("));
+  assert.ok(src.indexOf("isPermanentSpineRejection(result.spine)") < src.indexOf('"temporarily_unavailable"'));
+  // 预检按 ?k= 的公开 key 定位通道，只回显该通道白名单里的来源；不再按"任一租户白名单"放行
+  const opts = src.slice(src.indexOf("export async function OPTIONS"), src.indexOf("async function readPayload"));
+  assert.match(opts, /searchParams\.get\(EMBED_KEY_QUERY\)/);
+  assert.match(opts, /preflightAllowedOrigin\(origin, key\)/);
+  assert.doesNotMatch(src, /isOriginRegisteredForEmbed/);
+  assert.equal(EMBED_KEY_QUERY, "k");
 });
 
 ok("服务端密钥解析：webhook 与状态接口共用 resolveWebsiteChannelBySecret，接受宽限期内的旧密钥", () => {
@@ -396,6 +524,11 @@ ok("嵌入脚本：不用 cookie / localStorage；归因只进 sessionStorage；
   assert.match(js, /new URL\(script\.getAttribute\("data-api"\) \|\| script\.src/);
   assert.match(js, /\/api\/trade\/webhook\/website\/embed/);
   assert.match(js, /"x-qingyan-form-key": KEY/);
+  assert.match(js, /\/api\/trade\/webhook\/website\/embed\?k=" \+ encodeURIComponent\(KEY\)/);
+  // 产品 / 数量 / 留言至少一项；服务端 message_required 落到留言字段，中英文提示
+  assert.match(js, /name === "message" && !v && needsMessage\(\)/);
+  assert.match(js, /r\.body\.error === "message_required"/);
+  assert.equal((js.match(/errNeed:/g) ?? []).length, 2);
   assert.match(js, /credentials: "omit"/);
   assert.match(js, /name: "_hp"/);
   for (const f of ["name", "email", "phone", "company", "country", "product", "quantity", "message"]) assert.match(js, new RegExp(`name: "${f}"`), f);
@@ -415,6 +548,8 @@ ok("渠道页：不再把服务端密钥放进浏览器 fetch 示例；服务器
   assert.match(page, /\/embed\/inquiry\.js/);
   assert.match(page, /data-key=/);
   assert.match(page, /set_allowed_origins/);
+  assert.match(page, /end_secret_grace/);
+  assert.match(page, /previousSecrets/);
 });
 
 ok("渠道接口：GET 单个通道不再原样返回 config；列表与新建只回掩码视图；管理动作要求管理角色", () => {
@@ -430,6 +565,16 @@ ok("渠道接口：GET 单个通道不再原样返回 config；列表与新建�
   assert.match(post, /canManageTradeChannels\(auth\.user, orgRes\.orgId\)/);
   assert.match(post, /toChannelView\(ch\)/);
   assert.doesNotMatch(list, /NextResponse\.json\(channel, \{ status: 201 \}\)/);
+});
+
+ok("website 通道重复保存：已有通道走 updatedAt 比较并交换（不整包覆盖，不会写回并发轮换前的凭证）", () => {
+  const svc = read("src/lib/trade/channel-service.ts");
+  const fn = svc.slice(svc.indexOf("export async function upsertWebsiteChannel"), svc.indexOf("/** 通道对外视图"));
+  assert.doesNotMatch(fn, /tradeChannel\.upsert\(/);
+  assert.match(fn, /mutateWebsiteChannelConfig\(input\.orgId, \(c\) => ensureWebsiteCredentialConfig\(c\), \{ name: input\.name, status: "active" \}\)/);
+  assert.match(fn, /P2002/);
+  assert.match(svc, /where: \{ id: ch\.id, orgId, updatedAt: ch\.updatedAt, \.\.\.sameConfig \}/);
+  assert.match(svc, /config: \{ equals: ch\.config as Prisma\.InputJsonValue \}/);
 });
 
 console.log(`\nembed-intake: ${pass} 通过`);

@@ -7,21 +7,27 @@
  * 10 分钟、每组织每小时 / 每天；另有按通道 × IP 的请求次数粗筛）。访客 IP 只以 HMAC 存进收据载荷 meta.ipHash。
  * 路径在 /api/trade/webhook/* 下，middleware 已放行（PUBLIC_PATHS），鉴权完全在本路由内。
  *
- * CORS：只回显通过校验的来源（预检时为任一已启用嵌入表单的通道白名单里的来源）；key / 来源不对的响应不带 CORS 头。
+ * CORS：只回显通过校验的来源。预检按查询参数 ?k=<公开 key> 定位通道，只回显该通道白名单里的来源
+ * （没有 k 不回显）；key / 来源不对的响应不带 CORS 头。
  * 响应：成功只有 { ok: true, receiptId }——不返回线索 / 商机 / 是否重复等内部信息（防枚举）。
  * 入站与站点后端转发同一条链路（收据来源 embed，事件 id emb:<浏览器 uuid>），FDE 走 after()，请求里没有 LLM。
- * 主干未建成（SPINE_FAILED / INCOMPLETE）时返回 503，脚本用同一事件 id 重试即可补齐（收据幂等）。
+ * 必须说明需求（产品 / 数量 / 留言至少一项），否则入站前 400 message_required——主干会拒收空询盘。
+ * 主干暂时失败（抛错 / INCOMPLETE）返回 503，脚本用同一事件 id 重试即可补齐（收据幂等）；
+ * 主干按字段 / 组织配置拒收时不让重试：Trade 线索与销售通知已落库，按"已收到"返回 200。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import {
   EMBED_KEY_HEADER,
+  EMBED_KEY_QUERY,
   EMBED_MAX_BODY_BYTES,
   countEmbedSubmissions,
   decoyReceiptId,
   embedIpHash,
-  isOriginRegisteredForEmbed,
+  hasInquiryContent,
+  isPermanentSpineRejection,
+  preflightAllowedOrigin,
   resolveWebsiteChannelByPublicKey,
   toEmbedInquiryRaw,
 } from "@/lib/trade/embed-intake";
@@ -55,8 +61,9 @@ function reply(body: Record<string, unknown>, status: number, allowedOrigin: str
 
 export async function OPTIONS(request: NextRequest) {
   const origin = request.headers.get("origin");
-  const registered = await isOriginRegisteredForEmbed(origin).catch(() => false);
-  return new NextResponse(null, { status: 204, headers: corsHeaders(registered ? origin : null) });
+  const key = request.nextUrl.searchParams.get(EMBED_KEY_QUERY);
+  const allowed = await preflightAllowedOrigin(origin, key).catch(() => null);
+  return new NextResponse(null, { status: 204, headers: corsHeaders(allowed) });
 }
 
 async function readPayload(request: NextRequest): Promise<Record<string, unknown> | null> {
@@ -118,6 +125,10 @@ export async function POST(request: NextRequest) {
     const code = String(raw.email ?? "").trim() ? "invalid_email" : "email_required";
     return reply({ ok: false, error: code }, 400, allowOrigin);
   }
+  // 没有任何需求内容：主干会拒收（EMPTY_MESSAGE），在入站前挡下，不建线索、不通知
+  if (!hasInquiryContent(normalized.value)) {
+    return reply({ ok: false, error: "message_required" }, 400, allowOrigin);
+  }
 
   try {
     const inquiry = normalized.value;
@@ -137,8 +148,13 @@ export async function POST(request: NextRequest) {
       receiptMeta: { ipHash },
     });
     if (!result.spine.ok && !result.busy) {
-      // Trade 线索已落库但主干未建成：让脚本用同一事件 id 重试补齐（不暴露内部原因）
-      return reply({ ok: false, error: "temporarily_unavailable" }, 503, allowOrigin, { "Retry-After": "5" });
+      if (isPermanentSpineRejection(result.spine)) {
+        // 主干拒收：重试同一事件不会变好；Trade 线索与销售通知已落库，对访客按"已收到"处理（不暴露内部原因）
+        console.warn("[embed-inquiry] revenue spine rejected the inquiry; trade lead kept:", "intakeCode" in result.spine ? result.spine.intakeCode : result.spine.code);
+      } else {
+        // 暂时失败（抛错 / 未建成）：让脚本用同一事件 id 重试补齐
+        return reply({ ok: false, error: "temporarily_unavailable" }, 503, allowOrigin, { "Retry-After": "5" });
+      }
     }
     return reply({ ok: true, receiptId: result.receiptId }, 200, allowOrigin);
   } catch (err) {

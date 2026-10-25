@@ -5,6 +5,7 @@ import {
   WebsiteChannelError,
   deleteChannel,
   enableWebsiteChannelEmbed,
+  endWebsiteChannelSecretGrace,
   getChannel,
   getChannelView,
   rotateWebsiteChannelPublicKey,
@@ -13,7 +14,13 @@ import {
 } from "@/lib/trade/channel-service";
 import { canManageTradeChannels, channelManageForbiddenResponse } from "@/lib/trade/channel-access";
 import { resolveTradeOrgId } from "@/lib/trade/access";
-import { MAX_ALLOWED_ORIGINS, maskCredential, parseAllowedOrigins, readWebsiteCredentials } from "@/lib/trade/website-channel-credentials";
+import {
+  MAX_ALLOWED_ORIGINS,
+  activePreviousSecrets,
+  maskCredential,
+  parseAllowedOrigins,
+  readWebsiteCredentials,
+} from "@/lib/trade/website-channel-credentials";
 
 type Ctx = { params: Promise<{ channel: string }> };
 
@@ -59,11 +66,13 @@ export async function DELETE(request: NextRequest, { params }: Ctx) {
   return NextResponse.json({ success: true });
 }
 
-const WEBSITE_ACTIONS = new Set(["rotate_secret", "enable_embed", "rotate_public_key", "set_allowed_origins"]);
+const WEBSITE_ACTIONS = new Set(["rotate_secret", "end_secret_grace", "enable_embed", "rotate_public_key", "set_allowed_origins"]);
 
 /**
  * website 通道管理动作（仅企业负责人 / 管理员 / 平台管理员）：
- * - rotate_secret：轮换服务端密钥，旧密钥 72 小时内仍可用
+ * - rotate_secret：轮换服务端密钥，被换下的与此前仍在宽限期内的旧密钥各自 72 小时内仍可用；
+ *   宽限期内已有 3 个旧密钥时 409（不挤掉站点可能仍在用的旧密钥）
+ * - end_secret_grace：立即停用全部旧密钥（密钥泄露时用）
  * - enable_embed：生成嵌入表单公开 key（已有则不变）
  * - rotate_public_key：轮换公开 key，立即生效
  * - set_allowed_origins：设置嵌入表单来源白名单（精确 scheme + host[:port]）
@@ -90,13 +99,17 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
   const before = await getChannel(orgRes.orgId, "website");
   if (!before) return NextResponse.json({ error: "网站询盘通道不存在，请先添加" }, { status: 404 });
   const beforeCred = readWebsiteCredentials(before.config);
+  const prevHints = (config: unknown) => activePreviousSecrets(config, new Date()).map((p) => maskCredential(p.secret));
 
   try {
     let afterData: Record<string, unknown>;
     if (action === "rotate_secret") {
       const ch = await rotateWebsiteChannelSecret(orgRes.orgId);
       const c = readWebsiteCredentials(ch.config);
-      afterData = { secret: c.secret ? maskCredential(c.secret) : null, secretPrevExpiresAt: c.secretPrevExpiresAt };
+      afterData = { secret: c.secret ? maskCredential(c.secret) : null, secretPrevExpiresAt: c.secretPrevExpiresAt, previousSecrets: prevHints(ch.config) };
+    } else if (action === "end_secret_grace") {
+      const ch = await endWebsiteChannelSecretGrace(orgRes.orgId);
+      afterData = { previousSecrets: prevHints(ch.config) };
     } else if (action === "enable_embed" || action === "rotate_public_key") {
       const ch = action === "enable_embed" ? await enableWebsiteChannelEmbed(orgRes.orgId) : await rotateWebsiteChannelPublicKey(orgRes.orgId);
       const c = readWebsiteCredentials(ch.config);
@@ -125,8 +138,10 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
         action === "set_allowed_origins"
           ? { allowedOrigins: beforeCred.allowedOrigins }
           : action === "rotate_secret"
-            ? { secret: beforeCred.secret ? maskCredential(beforeCred.secret) : null }
-            : { publicKey: beforeCred.publicKey ? maskCredential(beforeCred.publicKey) : null },
+            ? { secret: beforeCred.secret ? maskCredential(beforeCred.secret) : null, previousSecrets: prevHints(before.config) }
+            : action === "end_secret_grace"
+              ? { previousSecrets: prevHints(before.config) }
+              : { publicKey: beforeCred.publicKey ? maskCredential(beforeCred.publicKey) : null },
       afterData,
       request,
     });
