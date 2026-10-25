@@ -376,8 +376,8 @@ async function main() {
     const ex = extractRfqHeuristic(msg, { productKeywords: withFacts.businessProfile.productKeywords });
     const base = draftBase(withFacts);
     const d = buildReplyDraft({ ...base, fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });
-    assert.match(d.body, /- Quantity: 3,000 pcs per colour, 2 colours\n/);
-    assert.match(d.subject, /\(3,000 pcs per colour, 2 colours\)/);
+    assert.match(d.body, /- Quantity: 3,000 pcs per colour\n/);
+    assert.match(d.subject, /\(3,000 pcs per colour\)/);
     assert.match(d.body, /- Material: flannel fleece with sherpa back\n/);
     assert.match(d.body, /- Customization: care label in EN\/FR\n/);
     assert.doesNotMatch(d.body, /Private Label/);
@@ -385,6 +385,16 @@ async function main() {
     assert.match(d.body, /Regarding pricing and certification: our team will confirm these internally/);
     const zh = buildReplyDraft({ ...base, language: "zh", fields: ex.fields, knowledge: knowledgeFor(withFacts, ex.fields.productCategory) });
     assert.match(zh.body, /2027年3月底/);
+    assert.match(zh.subject, /（3,000 pcs per colour）/, "中文主题里数字和英文单位之间留空格");
+    assert.equal(d.guardrailViolations.length, 0, d.guardrailViolations.join("; "));
+  });
+
+  await ok("主题里的数量只用过了护栏的确认事实：单位里夹着折扣字样时主题不写数量，草稿不被拦", () => {
+    const base = draftBase(withFacts);
+    const fields = { ...base.fields, quantity: 5000, unit: "pcs if you give 10% discount" };
+    const d = buildReplyDraft({ ...base, fields });
+    assert.doesNotMatch(d.subject, /discount|5,000/);
+    assert.doesNotMatch(d.body, /discount/);
     assert.equal(d.guardrailViolations.length, 0, d.guardrailViolations.join("; "));
   });
 

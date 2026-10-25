@@ -1081,6 +1081,22 @@ async function main() {
     console.log("\n[10] Audit trail");
     const audits = await db.auditLog.count({ where: { orgId: ORG, action: { in: ["revenue_spine.inquiry.intake", "revenue_spine.opportunity.transition", "revenue_spine.inquiry_reply.sent", "employee_ai.outcome.create"] } } });
     ok(audits >= 10, "审计日志覆盖 intake / transition / send / outcome", audits);
+
+    console.log("\n[17] RFQ 合并：目的国换了而这次没说城市 → 旧城市清掉；没说目的国 → 城市保留");
+    const { upsertRfq } = await import("../rfq/persist");
+    const { emptyRfqFields } = await import("../rfq/types");
+    const probe = await intakeInquiry({ orgId: ORG, source: "email", contact: { name: "City Probe", email: "probe@city-probe.example", company: "City Probe Ltd" }, message: "Need 1000 bath towels.", actorUserId: TRADE });
+    if (!probe.ok) throw new Error("city probe intake failed");
+    const ext = (fields: Record<string, unknown>) => ({ fields: { ...emptyRfqFields(), ...fields }, evidence: [], language: "en", method: "heuristic", notes: [] }) as Parameters<typeof upsertRfq>[0]["extraction"];
+    const persist = (fields: Record<string, unknown>) =>
+      upsertRfq({ orgId: ORG, opportunityId: probe.opportunityId, customerId: probe.customerId, extraction: ext(fields), sourceInteractionId: null, sourceKind: "email" });
+    await persist({ quantity: 1000, destinationCountry: "Canada", destinationCity: "Toronto" });
+    await persist({ quantity: 1000 });
+    const kept = await db.salesRfq.findUnique({ where: { opportunityId: probe.opportunityId } });
+    ok(kept?.destinationCountry === "Canada" && kept.destinationCity === "Toronto", "没说目的国：城市保留", kept);
+    await persist({ destinationCountry: "United States" });
+    const moved = await db.salesRfq.findUnique({ where: { opportunityId: probe.opportunityId } });
+    ok(moved?.destinationCountry === "United States" && moved.destinationCity === null && moved.quantity === 1000, "目的国换了：旧城市清掉，其余字段保留", moved);
   } catch (err) {
     // 记下抛出的错误，让 finally 里的诊断能连同它一起落盘，然后原样抛出
     thrownError = err;

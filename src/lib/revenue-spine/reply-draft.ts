@@ -72,9 +72,11 @@ export function checkDraftWithReferenceLines(body: string, referenceLines: reado
 const fmtQty = (n: number) => n.toLocaleString("en-US");
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-/** 英文并列：a / a and b / a, b and c */
+/** 英文并列：a / a and b / a, b and c；某一项自带 and 时最后一项前加逗号，免得连着两个 and */
 function joinEn(items: string[]): string {
-  return items.length <= 2 ? items.join(" and ") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  if (items.length <= 2) return items.join(" and ");
+  const head = items.slice(0, -1).join(", ");
+  return `${head}${items.some((i) => / and /.test(i)) ? "," : ""} and ${items[items.length - 1]}`;
 }
 
 /** 参考值原句（MOQ / 大货周期 / 装运港）；只用企业配置的数字，不读买家来信 */
@@ -259,6 +261,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     if (styleNames.some((n) => containsPhrase(n, v.toLowerCase()))) continue;
     // 买家原话里的折扣、定金、索赔、品牌图案、给 AI 的指令等不复述（像是我方认可了），审核提醒里会单独列出
     if (checkDraftGuardrails(v).length || unsafeToRepeat(v)) continue;
+    // 成分 / 克重已经包含在材质里（「Material: 100% cotton, 500gsm」）就不再列一遍
+    if (f === "composition" && facts.some((x) => x.field === "material" && x.value.toLowerCase().includes(v.toLowerCase()))) continue;
     facts.push({ field: f, value: v });
   }
   const pending: string[] = [];
@@ -302,11 +306,14 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const greetName = input.contactName ?? (lang === "zh" ? "您好" : "there");
   const questions = catalogOnly ? [] : input.questions.slice(0, input.policy.followUp.maxQuestionsPerReply);
   const confirmFacts = catalogOnly ? [] : facts;
+  // 主题里的数量只用过了护栏的确认事实（单位里夹着折扣、价格、交期字样时，主题也不写）
+  const subjectQty = facts.some((f) => f.field === "quantity") && fields.quantity ? fields.quantity : null;
 
   let subject: string;
   let body: string;
   if (lang === "zh") {
-    const qty = fields.quantity ? `（${fmtQty(fields.quantity)}${fields.unit ?? "件"}）` : "";
+    const unitZh = fields.unit ? (/^[A-Za-z]/.test(fields.unit) ? ` ${fields.unit}` : fields.unit) : "件";
+    const qty = subjectQty ? `（${fmtQty(subjectQty)}${unitZh}）` : "";
     subject = met
       ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${orgName}`
       : `回复：${product}${qty}询盘 — ${orgName}`;
@@ -352,7 +359,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push(...signOff(input.senderName, orgName, sig));
     body = lines.join("\n");
   } else {
-    const qty = fields.quantity ? ` (${fmtQty(fields.quantity)}${fields.unit ? " " + fields.unit : " pcs"})` : "";
+    const qty = subjectQty ? ` (${fmtQty(subjectQty)}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
       ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${orgName}`
       : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${orgName}`;

@@ -63,6 +63,10 @@ export async function upsertRfq(input: PersistRfqInput) {
           (merged as unknown as Record<string, unknown>)[k] = p === undefined ? null : p;
         }
       }
+      // 目的国换了而这次没说城市：旧城市属于旧国家，不能留下拼成「United States / Toronto」
+      if (extraction.fields.destinationCountry && extraction.fields.destinationCountry !== prev.destinationCountry && !extraction.fields.destinationCity) {
+        merged.destinationCity = null;
+      }
     }
     const missing = computeMissingFields(merged);
     const status = rfqStatusFor(merged);

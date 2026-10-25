@@ -32,6 +32,7 @@ import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } fr
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
+import { INBOUND_MESSAGE_SEPARATOR } from "../rfq/heuristic-extractor";
 import { classifyInquiry, type InquiryResearch } from "../research";
 import { extractRfq } from "../rfq/extract";
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
@@ -294,7 +295,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       .reverse()
       .map((i) => i.content ?? i.summary)
       .filter(Boolean)
-      .join("\n\n---\n\n");
+      .join(INBOUND_MESSAGE_SEPARATOR);
     await event("tool.started", "research: 识别公司/联系人/国家/行业/买家类型", { tool: "classifyInquiry", interactionId: latest.id });
     const research: InquiryResearch = classifyInquiry({
       name: opp.customer.contactName,
