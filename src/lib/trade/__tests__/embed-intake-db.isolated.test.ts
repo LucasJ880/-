@@ -75,6 +75,8 @@ async function main() {
   const SITE = "https://www.example-textiles.example";
   const SITE2 = "https://maple-home.example";
   const users = [OWNER, TRADE, OTHER];
+  // phoneNumberId 跨组织唯一（保存时检查）：每次运行用不同值，避免与残留夹具撞上
+  const WA_PNID = `1002${Date.now()}`;
 
   await db.user.create({ data: { id: OWNER, email: `${OWNER}@fixture.test`, name: "Example Owner", role: "trade" } });
   await db.user.create({ data: { id: TRADE, email: `${TRADE}@fixture.test`, name: "Example Trade Rep", role: "trade" } });
@@ -86,7 +88,7 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG, userId: TRADE, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OTHER, role: "org_owner", status: "active" } });
   await db.tradeChannel.create({
-    data: { orgId: ORG, channel: "whatsapp", name: "WA", config: { accessToken: `wa-token-${stamp}-secret-9911`, phoneNumberId: "100200300" } },
+    data: { orgId: ORG, channel: "whatsapp", name: "WA", config: { accessToken: `wa-token-${stamp}-secret-9911`, phoneNumberId: WA_PNID } },
   });
 
   // 网站通道：走与渠道页 / 入驻向导相同的创建路径，再登记来源白名单
@@ -475,7 +477,7 @@ async function main() {
       "重复保存 website 通道：沿用凭证与白名单，请求里的 config 不能写凭证",
       { status: resave.status },
     );
-    const waCreate = await channelsRoute.POST(api("/api/trade/channels", { method: "POST", body: { orgId: ORG, channel: "whatsapp", name: "WA2", config: { accessToken: `wa-new-${stamp}-token-7788`, phoneNumberId: "100200300" } }, cookie: ownerCookie }));
+    const waCreate = await channelsRoute.POST(api("/api/trade/channels", { method: "POST", body: { orgId: ORG, channel: "whatsapp", name: "WA2", config: { accessToken: `wa-new-${stamp}-token-7788`, phoneNumberId: WA_PNID } }, cookie: ownerCookie }));
     const waText = JSON.stringify(await waCreate.json());
     ok(waCreate.status === 201 && !waText.includes(`wa-new-${stamp}`) && waText.includes("****7788"), "新建 / 更新其他通道：响应只回掩码", waText.slice(0, 200));
     const weird = await channelsRoute.POST(api("/api/trade/channels", { method: "POST", body: { orgId: ORG, channel: "telegram", name: "x", config: {} }, cookie: ownerCookie }));

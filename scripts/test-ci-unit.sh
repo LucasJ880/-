@@ -127,6 +127,9 @@ npx tsx src/lib/trade/__tests__/email-inbound-db.isolated.test.ts
 npx tsx src/lib/revenue-spine/__tests__/phone-match.test.ts
 npx tsx src/lib/trade/__tests__/whatsapp-inbound.test.ts
 npx tsx src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts
+# WhatsApp phoneNumberId / 公众号原始 ID 跨组织唯一（保存时检查 + 上线前检查脚本；DB 测试无隔离库自动跳过）
+npx tsx src/lib/trade/__tests__/inbound-org.test.ts
+npx tsx src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts
 npx tsx src/lib/trade/__tests__/inbox-service.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-rules.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts

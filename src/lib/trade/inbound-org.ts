@@ -16,6 +16,78 @@ import { INBOUND_ALIAS_RE, readForwarderAllowlist } from "./email-inbound-rules"
 
 export type TradeInboundProvider = "whatsapp" | "wechat" | "email" | "website_form";
 
+/**
+ * 入站按 config 里这些字段解析组织（WhatsApp：phone_number_id；微信：ToUserName 可与任一字段相同）。
+ * 保存通道（channel-service.upsertChannel）与上线前检查脚本（scripts/check-duplicate-channel-ids.ts）用同一份。
+ */
+export const INBOUND_ID_KEYS = {
+  whatsapp: ["phoneNumberId"],
+  wechat: ["originalId", "toUserName", "ghId", "wechatId"],
+} as const satisfies Record<"whatsapp" | "wechat", readonly string[]>;
+
+export type InboundIdChannel = keyof typeof INBOUND_ID_KEYS;
+
+export function isInboundIdChannel(channel: string): channel is InboundIdChannel {
+  return Object.prototype.hasOwnProperty.call(INBOUND_ID_KEYS, channel);
+}
+
+/** 通道 config 里参与入站解析的标识（去首尾空白、去空、去重），与下面解析时的比较口径一致 */
+export function inboundIdsOf(channel: InboundIdChannel, config: unknown): Array<{ key: string; value: string }> {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return [];
+  const c = config as Record<string, unknown>;
+  const out: Array<{ key: string; value: string }> = [];
+  for (const key of INBOUND_ID_KEYS[channel]) {
+    const value = String(c[key] ?? "").trim();
+    if (value && !out.some((x) => x.value === value)) out.push({ key, value });
+  }
+  return out;
+}
+
+export interface InboundIdDuplicate {
+  channel: InboundIdChannel;
+  /** 撞上的 config 字段名（不含取值） */
+  keys: string[];
+  channels: Array<{ orgId: string; channelId: string }>;
+}
+
+/**
+ * 纯函数：同一入站标识出现在两个及以上组织的通道上（调用方只传 active 行）。按「通道类型 + 涉及的通道集合」合并，
+ * 只返回字段名与组织 / 通道 id，不返回标识值或任何 config 内容。
+ */
+export function crossOrgInboundIdDuplicates(rows: ReadonlyArray<{ id: string; orgId: string; channel: string; config: unknown }>): InboundIdDuplicate[] {
+  const groups = new Map<string, InboundIdDuplicate>();
+  for (const channel of Object.keys(INBOUND_ID_KEYS) as InboundIdChannel[]) {
+    const byValue = new Map<string, { keys: Set<string>; orgOf: Map<string, string> }>();
+    for (const r of rows) {
+      if (r.channel !== channel) continue;
+      for (const { key, value } of inboundIdsOf(channel, r.config)) {
+        const g = byValue.get(value) ?? { keys: new Set<string>(), orgOf: new Map<string, string>() };
+        g.keys.add(key);
+        g.orgOf.set(r.id, r.orgId);
+        byValue.set(value, g);
+      }
+    }
+    for (const g of byValue.values()) {
+      if (new Set(g.orgOf.values()).size < 2) continue;
+      const channels = [...g.orgOf].map(([channelId, orgId]) => ({ orgId, channelId })).sort((a, b) => a.orgId.localeCompare(b.orgId) || a.channelId.localeCompare(b.channelId));
+      const sig = `${channel}|${channels.map((c) => c.channelId).join(",")}`;
+      const prev = groups.get(sig);
+      const keys = [...new Set([...(prev?.keys ?? []), ...g.keys])].sort();
+      groups.set(sig, { channel, keys, channels });
+    }
+  }
+  return [...groups.values()];
+}
+
+/** 上线前检查（只读，scripts/check-duplicate-channel-ids.ts）：启用的 WhatsApp / 微信通道里跨组织重复的入站标识 */
+export async function listCrossOrgInboundIdDuplicates(): Promise<InboundIdDuplicate[]> {
+  const rows = await db.tradeChannel.findMany({
+    where: { channel: { in: Object.keys(INBOUND_ID_KEYS) }, status: "active" },
+    select: { id: true, orgId: true, channel: true, config: true },
+  });
+  return crossOrgInboundIdDuplicates(rows);
+}
+
 type ResolveOk = { ok: true; orgId: string; channelId: string };
 type ResolveFail = { ok: false; reason: string };
 type ChannelOrg = { orgId: string; channelId: string };
@@ -23,6 +95,7 @@ type ChannelOrg = { orgId: string; channelId: string };
 /**
  * active 通道里 config 命中 matches 的那一条。同一标识配在多个组织的通道上（每个组织每种通道只有一条）一律拒绝、
  * 记 <channel>_channel_ambiguous，绝不按行序猜归属（两条 webhook 都只用一个全局密钥验签，分不出是哪个组织）。
+ * 保存通道时已拒绝跨组织重复（channel-service.upsertChannel）；这里仍失败即关闭，兜住存量数据与绕过接口的写入。
  */
 async function findUniqueChannelOrg(
   channel: "whatsapp" | "wechat",
@@ -50,8 +123,7 @@ export async function findTradeChannelOrgByWhatsAppPhoneNumberId(phoneNumberId: 
 export async function findTradeChannelOrgByWechatToUserName(toUserName: string): Promise<ChannelOrg | null> {
   const t = toUserName.trim();
   if (!t) return null;
-  const keys = ["originalId", "toUserName", "ghId", "wechatId"] as const;
-  return findUniqueChannelOrg("wechat", (c) => keys.some((k) => String(c[k] ?? "").trim() === t), { toUserName: t });
+  return findUniqueChannelOrg("wechat", (c) => INBOUND_ID_KEYS.wechat.some((k) => String(c[k] ?? "").trim() === t), { toUserName: t });
 }
 
 /**

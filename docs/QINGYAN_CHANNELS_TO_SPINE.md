@@ -72,5 +72,7 @@ WhatsApp 每条来信走**一条管线**：收据 → Trade 线索 / 消息 → 
 
 - Meta 后台 webhook 地址：`https://<域名>/api/trade/webhook/whatsapp`，订阅 `messages`；环境变量 `WHATSAPP_VERIFY_TOKEN`、`WHATSAPP_APP_SECRET`（已有）。
 - 每个工厂在外贸渠道页配置 WhatsApp 通道，`config.phoneNumberId` 必须等于 Meta 的 `phone_number_id`。
+- 入站标识跨组织唯一：WhatsApp `phoneNumberId`、公众号 `originalId` / `toUserName` / `ghId` / `wechatId` 与其他组织**启用**通道里的任一标识相同时，保存被拒绝（渠道接口 409，`code: "INBOUND_ID_CONFLICT"`，提示不透露是哪个组织）。入站解析遇到重复仍失败即关闭（WhatsApp 条目跳过、微信 403，日志 `trade.inbound.<channel>_channel_ambiguous`）。
+- **部署前必跑**（只读）：`DATABASE_URL=… npx tsx scripts/check-duplicate-channel-ids.ts`。只打印通道类型、字段名、组织 id 与通道 id（不打印标识值与凭证）；退出码 1 = 有存量重复，先与相关组织核对、改正或停用错误的通道再部署。
 - 发信人串行不再占连接（非阻塞租约），对连接池大小没有额外要求。
-- 测试：`src/lib/revenue-spine/__tests__/phone-match.test.ts`、`src/lib/trade/__tests__/whatsapp-inbound.test.ts`、`src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts`（隔离库）。
+- 测试：`src/lib/revenue-spine/__tests__/phone-match.test.ts`、`src/lib/trade/__tests__/whatsapp-inbound.test.ts`、`src/lib/trade/__tests__/inbound-org.test.ts`、`src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts`、`src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts`（隔离库）。
