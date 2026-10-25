@@ -97,6 +97,8 @@ function parseNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const CORRECTION_CUE_RE = /\b(now|instead|change[ds]? (?:it )?to|update[ds]? (?:it |the quantity )?to|revised?|correction|actually|make it|final(?:ly)?)\b|改为|改成|更改为|调整为|改到/i;
+
 const UNIT_WORDS =
   "pcs|pieces|piece|pc|units|unit|sets|set|pairs|pair|dozen|cartons|ctns|ctn|rolls|meters|metres|m|yards|kg|件|条|套|个|张|打|箱|双|块|卷|米|码";
 const QTY_RE = new RegExp(
@@ -124,7 +126,7 @@ const DATE_MONTH_ONLY_RE = new RegExp(`\\b(by|before|until|in)\\s+((?:the\\s+)?e
 const DATE_BARE_MONTH_RE = new RegExp(`^((?:the\\s+)?end of\\s+|mid[- ]|early\\s+)?${MONTH_WORD}\\.?,?(?:\\s*(20\\d{2}))?[.。]?$`, "i");
 const RELATIVE_RE = /(?:within|in|deliver(?:y)? in|需要在|交期)\s*(\d{1,3})\s*(days?|weeks?|months?|天|周|个月)/i;
 // 2027年3月15日 / 2027年3月底（月底）/ 2027年3月前（上月底）/ 2027年3月（月底）/ 2027年3月中旬（不编日子 → 跳过）
-const CN_DATE_RE = /(20\d{2})年(\d{1,2})月(?:(\d{1,2})[日号]|(底|末|下旬|之前|以前|前|中旬|上旬|月初|初|中))?/;
+const CN_DATE_RE = /(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*[日号]|(前后|左右|底|末|下旬|之前|以前|前|中旬|上旬|月初|初|中))?/g;
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11,
@@ -161,14 +163,13 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
   if (iso) {
     return { date: new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))), confidence: 0.9, index: iso.index, length: iso[0].length };
   }
-  const cn = CN_DATE_RE.exec(text);
-  if (cn && !(cn[4] && /中旬|上旬|初|^中$/.test(cn[4]))) {
+  // 「2027 年 3 月」带空格也认；中旬 / 上旬 / 月初 / 前后 / 左右只是大概，跳过看后面有没有更确切的说法
+  for (const cn of text.matchAll(CN_DATE_RE)) {
+    if (cn[4] && /中旬|上旬|初|^中$|前后|左右/.test(cn[4])) continue;
     const year = Number(cn[1]);
     const mi = Number(cn[2]) - 1;
-    const date = cn[3]
-      ? new Date(Date.UTC(year, mi, Number(cn[3])))
-      : monthEnd(year, mi, !!cn[4] && /前/.test(cn[4]));
-    return { date, confidence: cn[3] ? 0.9 : 0.7, index: cn.index, length: cn[0].length };
+    const date = cn[3] ? new Date(Date.UTC(year, mi, Number(cn[3]))) : monthEnd(year, mi, !!cn[4] && /前/.test(cn[4]));
+    return { date, confidence: cn[3] ? 0.9 : 0.7, index: cn.index ?? 0, length: cn[0].length };
   }
   const textDate = DATE_TEXT_RE.exec(text);
   if (textDate && monthIndex(textDate[1]) !== null) {
@@ -206,11 +207,14 @@ function parseRequiredDate(text: string, now: Date, bare = false): ParsedDate | 
 }
 
 /**
- * 「Label: value」单字段标注行（官网 / 嵌入表单的 Form details、买家自己列的清单）：标签已经说明是哪个字段，
- * 关键词扫描照常跑完后，用标注值覆盖该字段（"Material: flannel fleece with sherpa back" 不会只剩 flannel fleece）。
- * 只收关键词抽得不全或会抽错的字段；颜色、成分、目标市场等关键词本来就抽得准、或不等于交货地的不收。
- * 什么时候不覆盖（见 extractRfqHeuristic 末尾）：更晚的来信里关键词抽到了同一字段（买家后来改口）；
- * 数量 / 交期 / 目的地 / 贸易术语在同一封来信里、标注行之前就说过（正文先说的为准）。
+ * 网站表单的结构化字段：表单把买家填的字段附在「— Form details —」一行之后，每行一个「Label: value」
+ * （约定见 docs/QINGYAN_INTAKE_WEBHOOK.md）。关键词扫描照常跑完后，用这些值覆盖对应字段——
+ * "Material: flannel fleece with sherpa back" 不会只剩 flannel fleece，"3,000 pcs per colour" 不会只剩 3000 pcs。
+ *
+ * 只认这个区块里的行：买家邮件、聊天里的「Label: value」常是占位（see below）、模糊回答或引用的旧内容，交给关键词扫描。
+ * 拿不准就不覆盖（结果与没有这一层时一样）：值是没答 / 占位 / yes-no、数量说不清、认证不在词表里。
+ * 也不覆盖：更晚的来信里关键词抽到了同一字段（买家后来改口）；数量 / 交期 / 目的地 / 贸易术语在同一封来信里
+ * 表单区块之前就说过（正文先说的为准）。
  */
 const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["quantity", ["quantity", "qty", "estimated quantity", "order quantity", "数量", "采购数量", "预计数量"]],
@@ -218,7 +222,7 @@ const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["size", ["size", "sizes", "size / specification", "dimensions", "尺寸", "规格"]],
   ["customization", ["customization", "customisation", "branding", "logo", "labelling", "labeling", "定制", "定制要求"]],
   ["packaging", ["packaging", "packing", "包装", "包装要求"]],
-  ["certification", ["certification", "certifications", "certification needs", "certificates", "认证", "认证要求"]],
+  ["certification", ["certification", "certifications", "certification needs", "certificates", "认证", "认证要求", "认证需求"]],
   ["sampleRequired", ["sample requirement", "sample required", "samples", "sample", "样品", "样品需求"]],
   ["destinationCountry", ["destination", "destination country", "ship to", "目的国", "目的地"]],
   ["incoterm", ["incoterm", "incoterms", "trade term", "贸易术语"]],
@@ -226,31 +230,28 @@ const FIELD_LABELS: Array<[RfqField, string[]]> = [
   ["buyerType", ["buyer type", "business type", "买家类型"]],
 ];
 const LABEL_FIELD = new Map(FIELD_LABELS.flatMap(([field, labels]) => labels.map((l) => [l, field] as const)));
-// 「- Label: value」「*Material:* cotton」「**Size**: L」都算
 const LABELED_LINE_RE = /^[^\S\n]*(?:[-•*][^\S\n]+)?[*_]{0,2}([A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?)[*_]{0,2}[^\S\n]*[:：][*_ \t]{0,3}?(\S[^\n]*?)[^\S\n]*$/gm;
-// 一行里还有别的「Label:」（「Quantity: 3000 pcs, Color: white」、展会速记卡的「Buyer type: …. Packaging: ….」）：不是单字段行
+const FORM_DETAILS_RE = /^[^\S\n]*[—–-]+[^\S\n]*form details[^\S\n]*[—–-]+[^\S\n]*$/gim;
+// 一行里还有别的「Label:」：不是单字段值
 const SECOND_LABEL_RE = /[.;。；,，|｜]\s*[A-Za-z\u4e00-\u9fff][A-Za-z\u4e00-\u9fff &/()-]{0,40}?\s*[:：]/;
-// 买家没答 / 让我们建议：不是事实（不覆盖，也不压掉追问）
+// 没答、占位、让我们建议、待定：不覆盖（关键词扫描的结果照用）
 const NON_ANSWER_RE =
-  /^(?:n\/?a|none|no idea|not sure(?: yet)?|tbd|tbc|unknown|any|open|flexible|-+|\?+|standard|待定|不确定|无|待确认|都可以|随便)[.!。]?$|^(?:please (?:advise|suggest|recommend|quote)|your (?:suggestion|recommendation|standard|choice|advice|call)|open to|no preference|whatever|to be (?:confirmed|discussed|advised|decided)|as per (?:your )?(?:sample|standard|suggestion)|same as (?:the )?sample|depends|请(?:建议|推荐|报价)|你们(?:建议|推荐|定)|按(?:样品|你们))/i;
-const YES_NO_RE = /^(?:yes|y|ok|no|n|true|false|需要|不需要|是|否|有|没有|要|不要)[.!。]?$/i;
-// 数量后的单位：单位词，可带「per colour」「/size」「每色」；后面的话（if you give 10% discount…）不算单位
+  /^(?:n\/?a|none|nil|no idea|not sure|i'?m not sure|unsure|not (?:yet|decided|now)|don'?t know|tb[acd]|unknown|any|open|flexible|various|standard|-+|\?+)\b|^(?:please (?:advise|suggest|recommend|quote|see)|pls advise|your (?:suggestion|recommendation|standard|choice|advice|call)|open to|no preference|whatever|depends|to be (?:confirmed|discussed|advised|decided)|will (?:confirm|advise|send|share|provide)|see (?:below|above|attached|attachment|the)|as (?:per|follows|attached|discussed)|refer to|details (?:below|to follow)|same as|custom\b.*specify)|^(?:待定|待确认|不确定|暂不确定|还不确定|不清楚|暂无|无要求|都可以|随便|详见|见附件|见样品|按样品|请建议|你们建议)/i;
+const YES_NO_RE = /^(?:yes|y|ok|no|n|true|false|required|must have|needed|需要|不需要|是|否|有|没有|要|不要)[.!。]?$/i;
+// 数量后的单位：单位词，可带「per colour」「/size」「每色」；后面的话不算单位
 const QTY_UNIT_RE = new RegExp(
-  `^(${UNIT_WORDS})(?![A-Za-z])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)\\b|\\s*每\\s*([色款码]))?`,
+  `^(${UNIT_WORDS})(?![A-Za-z])(?:\\s*(?:per|each|/)\\s*(colou?r|size|style|design|item|sku|model|pattern|version|款|色|码)(?![A-Za-z])|\\s*每\\s*([色款码]))?`,
   "i",
 );
 const QTY_CAVEAT_RE = /\b(moq|minimum|samples?|trial|per (?:carton|ctn|box|bag|set|pack))\b|样品|起订|试单|每箱/i;
-// 回复里的引用历史从这里开始（Outlook「From:…Sent:」、「-----Original Message-----」、「On … wrote:」、中文客户端）
-const QUOTE_START_RE =
-  /^[>\s]*(?:-{2,}\s*(?:original message|forwarded message|原始邮件|原邮件|转发的邮件)\s*-{2,}|-{4,}\s*original\s*-{4,}|begin forwarded message:?|on .{4,200}wrote:|在.{2,100}写道[:：]|(?:from|发件人)[:：].*\n(?:.*\n){0,3}?[>\s]*(?:sent|date|发送时间|日期)[:：])/im;
-/** FDE 把多封来信按时间先后用它拼接（fde/inbound-sales.ts）；买家正文里几乎不会出现 */
-export const INBOUND_MESSAGE_SEPARATOR = "\n\n----- next message -----\n\n";
+/** FDE 把多封来信按时间先后用它拼接（fde/inbound-sales.ts） */
+export const INBOUND_MESSAGE_SEPARATOR = "\n\n---\n\n";
 
 type LabeledPairs = Array<[RfqField, unknown]>;
 
-/** 句子在这里结束（「OEKO-TEX certified. Please send the certificate.」只取前一句）；2.5、No. 5 不算 */
+/** 句子在这里结束（前面是 ≥4 个字母的词，后面是大写开头的新句子）；Std.、No. 5、2.5 不算 */
 function firstSentence(value: string): string {
-  const m = /[.!?](?=\s+[A-Z\u4e00-\u9fff])|[。！？]/.exec(value);
+  const m = /(?<=\p{L}{4})[.!?](?=\s+[\p{Lu}\u4e00-\u9fff])|[。！？]/u.exec(value);
   return (m ? value.slice(0, m.index) : value).trim();
 }
 
@@ -263,12 +264,12 @@ function capWords(value: string, max = 160): string {
 }
 
 function labeledQuantity(value: string): LabeledPairs | null {
-  // 样品数、起订量、每箱数量混在一起时交给关键词扫描（它有起订量 / 样品过滤与打分）
+  // 样品数、起订量、每箱数量、试单混在一起：交给关键词扫描（它有起订量过滤与打分）
   if (QTY_CAVEAT_RE.test(value)) return null;
   const candidates: Array<{ n: number; unit: string | null; rest: string }> = [];
   for (const m of value.matchAll(/(\d{1,3}(?:[,，]\d{3})+|\d+(?:\.\d+)?)(\s*(?:k|万|千)(?![a-z]))?/gi)) {
     const at = m.index ?? 0;
-    // 型号 / 编号 / 区间后半里的数字不算：40HQ 的 40（前面是 x）、3,000-5,000 的 5,000
+    // 型号 / 编号 / 区间后半里的数字不算：40HQ 的 40、3,000-5,000 的 5,000
     if (/[A-Za-z\-_#/]/.test(value[at - 1] ?? "")) continue;
     const n = parseNumber(m[1] + (m[2] ?? "").trim());
     if (n === null || n <= 0) continue;
@@ -277,15 +278,14 @@ function labeledQuantity(value: string): LabeledPairs | null {
     let unit: string | null = null;
     if (u) {
       const word = /^(?:piece|pieces|pc)$/i.test(u[1]) ? "pcs" : u[1].toLowerCase();
-      const per = u[2] ? ` per ${u[2].toLowerCase()}` : u[3] ? `每${u[3]}` : "";
-      unit = word + per;
+      unit = word + (u[2] ? ` per ${u[2].toLowerCase()}` : u[3] ? `每${u[3]}` : "");
     }
     candidates.push({ n, unit, rest: after.trim() });
   }
   const withUnit = candidates.filter((c) => c.unit);
-  // 只有一个带单位的数才算（「2 colours x 3,000 pcs」「1st order 3,000 pcs」取 3,000）；几个带单位的数（总数、每款、每箱…）交给关键词扫描
+  // 只有一个带单位的数才算（「2 colours x 3,000 pcs」取 3,000）；几个带单位的数交给关键词扫描
   if (withUnit.length === 1) return [["quantity", withUnit[0].n], ["unit", withUnit[0].unit]];
-  // 不带单位：只有一个数、后面没有别的话（「Quantity: 3000」），且不是个位数
+  // 不带单位：只有一个数、后面没有别的话（「3000」），且不是个位数
   if (!withUnit.length && candidates.length === 1 && !candidates[0].rest && candidates[0].n >= 10) {
     return [["quantity", candidates[0].n], ["unit", null]];
   }
@@ -293,7 +293,7 @@ function labeledQuantity(value: string): LabeledPairs | null {
 }
 
 function labeledCertification(value: string): LabeledPairs | null {
-  if (/^(?:no|none|not (?:required|needed|necessary)|n\/a|不需要|无需|没有|不用)(?![A-Za-z])/i.test(value)) return null;
+  // 只认词表里的认证名（OEKO-TEX certified → OEKO-TEX）；Yes / Required / Not needed 之类不覆盖
   const lower = value.toLowerCase();
   const hits: Array<{ index: number; text: string }> = [];
   for (const kw of CERTIFICATION_KEYWORDS) {
@@ -301,15 +301,15 @@ function labeledCertification(value: string): LabeledPairs | null {
     const i = isAscii ? lower.search(new RegExp(`(?<![a-z])${escapeRe(kw.toLowerCase())}(?![a-z])`)) : lower.indexOf(kw.toLowerCase());
     if (i >= 0 && !hits.some((h) => i >= h.index && i < h.index + h.text.length)) hits.push({ index: i, text: value.substr(i, kw.length) });
   }
-  if (hits.length) return [["certification", hits.sort((a, b) => a.index - b.index).map((h) => h.text).join(", ")]];
-  // 词表外的认证名（短、不是问句）照录
-  return value.length <= 40 && !value.includes("?") ? [["certification", value]] : null;
+  if (!hits.length || /^(?:no|not|none|without|不需要|无需|没有|不用)(?![A-Za-z])/i.test(value)) return null;
+  return [["certification", hits.sort((a, b) => a.index - b.index).map((h) => h.text).join(", ")]];
 }
 
 function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | null {
   const value = capWords(raw.replace(/\s+/g, " ").replace(/^[*_\s]+|[*_\s]+$/g, ""));
   if (!value || NON_ANSWER_RE.test(value)) return null;
   const sentence = firstSentence(value);
+  if (!sentence || NON_ANSWER_RE.test(sentence)) return null;
   const yesNo = YES_NO_RE.test(sentence);
   switch (field) {
     case "quantity":
@@ -342,17 +342,14 @@ function labeledValue(field: RfqField, raw: string, now: Date): LabeledPairs | n
     case "certification":
       return labeledCertification(sentence);
     case "customization":
-      // 「Logo: yes」只说明要 logo，不当成定制内容复述
-      if (yesNo) return /^(yes|y|ok|true|需要|是|有|要)/i.test(sentence) ? [["customization", null], ["customLogo", true]] : null;
-      // 「No, plain stock is fine」：不要定制
-      if (/^(?:no|none|not (?:needed|required)|plain|无|不需要|不用)(?![A-Za-z])/i.test(sentence)) return null;
+      if (yesNo || /^(?:no|none|not (?:needed|required)|plain|无|不需要|不用)(?![A-Za-z])/i.test(sentence)) return null;
       return /logo|embroider|印|绣|brand|label/i.test(sentence) ? [["customization", sentence], ["customLogo", true]] : [["customization", sentence]];
     case "material":
-      // 词表里的面料词都没有、又是一长句：多半不是材质，交给关键词扫描
+      // 词表里的面料词都没有、又是一长句：多半不是材质
       if (yesNo || (!MATERIAL_KEYWORDS.some((k) => sentence.toLowerCase().includes(k)) && sentence.split(" ").length > 6)) return null;
       return [["material", sentence]];
     case "size": {
-      // 有「70x140cm」这种尺寸就只取它（后面的克重、成分不算尺寸）；没有就短值照录（S/M and L/XL、Queen）
+      // 有「70x140cm」这种尺寸就只取它；没有就短值照录（S/M and L/XL、Queen）
       const dim = SIZE_RE.exec(sentence);
       if (dim) return [["size", dim[0].replace(/\s+/g, " ").trim()]];
       return yesNo || sentence.split(" ").length > 8 ? null : [["size", sentence]];
@@ -374,17 +371,17 @@ interface LabeledHit {
 }
 
 /**
- * 标注行字段，以及把「买家类型」行抹成空格的文本（下标不变，只给产品规格类关键词扫描用）：
- * 那一行说的是买家，「Retail & Private Label」不是定制要求，也不是零售包装。
- * 同一字段：同一封来信里取第一次，引用历史（QUOTE_START_RE 之后）里的不算；不同来信取后一封。
+ * 表单区块里的字段，以及把「买家类型」单字段行抹成空格的文本（下标不变，只给产品规格类关键词扫描用）：
+ * 那一行说的是买家，「Retail & Private Label」不是定制要求，也不是零售包装（官网表单与展会速记卡都会写这一行）。
+ * 同一字段出现在几封来信的表单区块里时取后一封。
  */
-/** 标注了但没给出可用答案的行（「Packaging: your suggestion」「Logo: no」「Sample requirement: later」）：标签词本身是关键词，不能让关键词扫描从这一行里再读出一个「答案」 */
-const SUPPRESS_WHEN_UNANSWERED: RfqField[] = ["material", "size", "customization", "packaging", "certification", "sampleRequired"];
+/** 表单里没答的行（「Packaging: To be confirmed」）：标签词本身就是关键词，别让关键词扫描从标签里读出一个「答案」 */
+const LABEL_IS_KEYWORD: RfqField[] = ["packaging", "sampleRequired", "customization"];
 
 function labeledFields(
   source: string,
   now: Date,
-): { hits: LabeledHit[]; unanswered: Array<{ field: RfqField; lineStart: number; lineEnd: number }>; specScan: string; segmentOf: (index: number) => number } {
+): { hits: LabeledHit[]; unanswered: Array<{ field: RfqField; labelStart: number; valueStart: number }>; specScan: string; segmentOf: (index: number) => number } {
   const segStarts = [0];
   for (let i = source.indexOf(INBOUND_MESSAGE_SEPARATOR); i >= 0; i = source.indexOf(INBOUND_MESSAGE_SEPARATOR, i + 1)) {
     segStarts.push(i + INBOUND_MESSAGE_SEPARATOR.length);
@@ -394,14 +391,18 @@ function labeledFields(
     while (seg + 1 < segStarts.length && segStarts[seg + 1] <= index) seg++;
     return seg;
   };
-  const quoteAt = segStarts.map((start, seg) => {
-    const end = seg + 1 < segStarts.length ? segStarts[seg + 1] : source.length;
-    const q = QUOTE_START_RE.exec(source.slice(start, end));
-    return q ? start + q.index : Infinity;
-  });
+  // 表单区块：「— Form details —」之后到空行 / 下一封来信为止
+  const blocks: Array<[number, number]> = [];
+  FORM_DETAILS_RE.lastIndex = 0;
+  for (const f of source.matchAll(FORM_DETAILS_RE)) {
+    const start = (f.index ?? 0) + f[0].length;
+    const blank = /\n[^\S\n]*\n/.exec(source.slice(start + 1));
+    blocks.push([start, blank ? start + 1 + blank.index : source.length]);
+  }
+  const inBlock = (i: number) => blocks.some(([a, b]) => i > a && i < b);
 
   const byField = new Map<RfqField, LabeledHit>();
-  const unanswered: Array<{ field: RfqField; lineStart: number; lineEnd: number }> = [];
+  const unanswered: Array<{ field: RfqField; labelStart: number; valueStart: number }> = [];
   let masked = source;
   let m: RegExpExecArray | null;
   LABELED_LINE_RE.lastIndex = 0;
@@ -412,18 +413,19 @@ function labeledFields(
     const raw = m[2];
     if (SECOND_LABEL_RE.test(raw)) continue;
     if (field === "buyerType") masked = masked.slice(0, m.index) + " ".repeat(m[0].length) + masked.slice(m.index + m[0].length);
+    if (!inBlock(m.index)) continue;
     const segment = segmentOf(m.index);
-    if (m.index >= quoteAt[segment]) continue;
     const prev = byField.get(field);
     if (prev && prev.segment >= segment) continue;
     const pairs = labeledValue(field, raw, now);
+    const valueStart = m.index + m[0].trimEnd().length - raw.length;
     if (!pairs) {
-      if (SUPPRESS_WHEN_UNANSWERED.includes(field)) unanswered.push({ field, lineStart: m.index, lineEnd: m.index + m[0].length });
+      if (LABEL_IS_KEYWORD.includes(field) && NON_ANSWER_RE.test(raw.trim())) unanswered.push({ field, labelStart: m.index, valueStart });
       continue;
     }
     byField.set(field, {
       pairs,
-      index: m.index + m[0].trimEnd().length - raw.length,
+      index: valueStart,
       length: raw.length,
       lineStart: m.index,
       lineEnd: m.index + m[0].length,
@@ -496,16 +498,23 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     if (/(x|×|\*|\$|€|£|¥|usd|cad|eur)\s*$/.test(before)) continue;
     // 「MOQ is 100 pcs」「起订量 300 件」是对方说的起订量，不是采购数量
     if (/(moq|minimum order(?: quantity)?|起订量|最小起订量?|起订)\s*(?:is|of|:|：|为|是|=)?\s*$/i.test(source.slice(Math.max(0, m.index - 24), m.index))) continue;
-    if (/^(19|20)\d{2}$/.test(raw.replace(/[,，]/g, "")) && !unit) continue;
+    // 年份不是数量：没单位、没千分位的 19xx / 20xx，前面是月份或 in / by / since…，或后面跟「年」（「2000 blankets」仍是数量）
+    if (!unit && /^(19|20)\d{2}$/.test(raw.trim())) {
+      const pre = source.slice(Math.max(0, m.index - 14), m.index);
+      const post = source.slice(rawEnd, rawEnd + 3);
+      if (new RegExp(`${MONTH_WORD}\\.?,?\\s*(?:\\d{1,2}(?:st|nd|rd|th)?,?\\s*)?$`, "i").test(pre) || /\b(in|by|since|from|until|till|before|after|year|fy|of)\s+$/i.test(pre) || /^\s*年/.test(post)) continue;
+    }
     let score = unit ? 3 : 0;
     if (/[,，]\d{3}/.test(raw) || /k|万|千/i.test(raw)) score += 2;
     if (productKw && Math.abs(productKw.index - (m.index + m[0].length)) <= 3) score += 3;
     if (value >= 50) score += 1;
+    // 买家改口（「we need 5,000 pcs now」「change to 4,000」「改为 5000 件」）：同分时取改口后的数
+    const clause = source.slice(Math.max(0, m.index - 40), m.index + m[0].length + 20);
+    if (CORRECTION_CUE_RE.test(clause)) score += 1;
     if (!unit && value < 10) continue;
     qtyCandidates.push({ value, index: m.index, length: unit ? m[0].length : raw.trimEnd().length, score });
   }
-  // 同分时取更晚的来信里的（FDE 按时间拼接多封来信，后来的数量算数），同一封里取先出现的
-  qtyCandidates.sort((a, b) => b.score - a.score || labeled.segmentOf(b.index) - labeled.segmentOf(a.index) || a.index - b.index);
+  qtyCandidates.sort((a, b) => b.score - a.score || a.index - b.index);
   if (qtyCandidates.length) {
     const best = qtyCandidates[0];
     fields.quantity = best.value;
@@ -643,30 +652,30 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     }
   }
 
-  // ── 标注行：标签说了是哪个字段，覆盖关键词猜测 ──
-  // 不覆盖：更晚的来信里关键词抽到了同一字段（买家后来改口）；数量 / 交期 / 目的地 / 贸易术语在同一封来信里
-  // 标注行之前就说过（正文先说的为准，标注行之后的多是表单其余字段或引用历史）。
+  // ── 表单区块：标签说了是哪个字段，覆盖关键词猜测（何时不覆盖见 FIELD_LABELS 上方说明）──
   const STATED_FIRST: RfqField[] = ["quantity", "requiredDeliveryDate", "destinationCountry", "incoterm"];
+  const keywordPos = new Map(keywordAt);
   const dropEvidence = (field: RfqField) => {
     for (let i = evidence.length - 1; i >= 0; i--) if (evidence[i].field === field) evidence.splice(i, 1);
   };
   const keywordWins = (hit: LabeledHit, field: RfqField) => {
-    const k = keywordAt.get(field);
+    const k = keywordPos.get(field);
     if (k === undefined || (k >= hit.lineStart && k < hit.lineEnd)) return false;
     const seg = labeled.segmentOf(k);
     if (seg !== hit.segment) return seg > hit.segment;
     return STATED_FIRST.includes(field) && k < hit.lineStart;
   };
+  // 关键词只命中了标签词本身、值是没答：清掉（值里真写了东西的不动）
   for (const u of labeled.unanswered) {
     for (const field of u.field === "customization" ? (["customization", "customLogo"] as RfqField[]) : [u.field]) {
-      const k = keywordAt.get(field);
-      if (k !== undefined && k >= u.lineStart && k < u.lineEnd) {
+      const k = keywordPos.get(field);
+      if (k !== undefined && k >= u.labelStart && k < u.valueStart) {
         (fields as unknown as Record<string, unknown>)[field] = null;
         dropEvidence(field);
       }
     }
   }
-  const keywordQty = { quantity: fields.quantity, unit: fields.unit };
+  const keywordUnit = fields.unit;
   let labeledCountry = false;
   for (const hit of labeled.hits) {
     if (keywordWins(hit, hit.pairs[0][0])) continue;
@@ -677,11 +686,12 @@ export function extractRfqHeuristic(text: string, opts: HeuristicOptions): RfqEx
     }
     if (hit.pairs[0][0] === "destinationCountry") labeledCountry = !hit.pairs.some(([f]) => f === "destinationCity");
     if (hit.pairs[0][0] === "quantity" && fields.unit === null) {
-      // 「Qty: 5000」没写单位：沿用正文里同一个数的单位（5000 meters），否则有产品时按 pcs
-      fields.unit = keywordQty.quantity === fields.quantity && keywordQty.unit ? keywordQty.unit : fields.productName ? "pcs" : null;
+      // 表单只写了数字：沿用正文里的单位（5000 meters、3,000 sets），否则有产品时按 pcs
+      fields.unit = keywordUnit ?? (fields.productName ? "pcs" : null);
+      if (keywordUnit) add("unit", keywordUnit, 0.6, hit.index, hit.length);
     }
   }
-  // 标注的目的国与关键词抽到的城市不在同一国（「ship to Toronto」+「Destination: USA」）：城市作废，别拼出错的组合
+  // 表单的目的国与关键词抽到的城市不在同一国（「ship to Toronto」+「Destination: USA」）：城市作废，别拼出错的组合
   if (labeledCountry && fields.destinationCity) {
     const cityCountry = detectCountries(fields.destinationCity).find((c) => c.city)?.country ?? null;
     if (cityCountry && cityCountry !== fields.destinationCountry) {

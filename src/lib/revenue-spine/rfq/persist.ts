@@ -3,6 +3,7 @@
  */
 
 import { db } from "@/lib/db";
+import { detectCountries } from "../lexicon";
 import type { Prisma } from "@prisma/client";
 import { computeMissingFields, rfqStatusFor } from "./missing-info";
 import type { RfqExtraction, RfqFields } from "./types";
@@ -63,8 +64,11 @@ export async function upsertRfq(input: PersistRfqInput) {
           (merged as unknown as Record<string, unknown>)[k] = p === undefined ? null : p;
         }
       }
-      // 目的国换了而这次没说城市：旧城市属于旧国家，不能留下拼成「United States / Toronto」
-      if (extraction.fields.destinationCountry && extraction.fields.destinationCountry !== prev.destinationCountry && !extraction.fields.destinationCity) {
+      // 目的国换了而这次没说城市：旧城市属于旧国家，不能留下拼成「United States / Toronto」（USA / United States 算同一国）
+      const canon = (c: unknown) => (typeof c === "string" && c.trim() ? detectCountries(c)[0]?.country ?? c.trim().toLowerCase() : null);
+      const prevCountry = canon(prev.destinationCountry);
+      const nextCountry = canon(extraction.fields.destinationCountry);
+      if (prevCountry && nextCountry && prevCountry !== nextCountry && !extraction.fields.destinationCity) {
         merged.destinationCity = null;
       }
     }

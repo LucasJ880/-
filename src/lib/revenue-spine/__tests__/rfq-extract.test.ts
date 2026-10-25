@@ -207,163 +207,123 @@ const FORM_DETAILS = [
   "Required date: March 2027",
   "Sample requirement: yes",
 ].join("\n");
+const now25 = new Date("2026-10-25T00:00:00Z");
+const fx = (t: string) => extractRfqHeuristic(t, { ...opts, now: now25 }).fields;
+const block = (...lines: string[]) => ["— Form details —", ...lines].join("\n");
 
-ok("标注行（Form details）：值整行照录，覆盖关键词猜测；别的字段的行不串进来", () => {
+ok("表单区块（— Form details —）：值整行照录，覆盖关键词猜测；买家类型不串进定制 / 包装", () => {
   const r = extractRfqHeuristic(FORM_DETAILS, opts);
   assert.equal(r.fields.material, "flannel fleece with sherpa back");
   assert.equal(r.fields.quantity, 3000);
-  assert.equal(r.fields.unit, "pcs per colour", "单位到 per colour 为止，逗号后的话不进单位");
-  assert.equal(r.fields.customization, "care label in EN/FR", "Buyer type 行里的 Private Label 不是定制要求");
+  assert.equal(r.fields.unit, "pcs per colour", "单位到 per colour 为止");
+  assert.equal(r.fields.customization, "care label in EN/FR");
   assert.equal(r.fields.packaging, "polybag + belly band, 12 per carton");
   assert.equal(r.fields.size, "127 x 152 cm");
   assert.equal(r.fields.certification, "OEKO-TEX");
   assert.equal(r.fields.sampleRequired, true);
   assert.equal(r.fields.destinationCountry, "Canada");
-  assert.equal(r.fields.incoterm, "FOB", "未标注的 Notes 行照常走关键词");
-  assert.equal(r.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-28", "同一封来信里正文先说的「before March 2027」为准，不被下面表单的「March 2027」覆盖");
+  assert.equal(r.fields.incoterm, "FOB");
+  assert.equal(r.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-28", "同一封来信里正文先说的「before March 2027」为准");
   const flat = FORM_DETAILS.replace(/\s+/g, " ");
   for (const e of r.evidence) assert.ok(flat.includes(e.evidenceText.replace(/\s+/g, " ")), `${e.field} evidence must come from source`);
   const qty = r.evidence.filter((e) => e.field === "quantity");
   assert.equal(qty.length, 1);
   assert.ok(qty[0].confidence >= 0.85);
+  const booth = fx("Met at booth 14.3. Wants 2000 bath towels.\nBuyer type: Retail & Private Label");
+  assert.equal(booth.customization, null, "买家类型行在哪都不当定制要求");
+  assert.equal(booth.packaging, null);
 });
 
-ok("标注行：没答 / 认不出的值不硬套；否定的样品答复记为 false", () => {
-  const r = extractRfqHeuristic(
-    ["Need 2,000 bath towels.", "Certification: Not sure yet", "Sample requirement: No sample needed yet", "Quantity: 3,000-5,000 pcs", "Size: n/a"].join("\n"),
-    opts,
-  );
-  assert.equal(r.fields.certification, null);
-  assert.equal(r.fields.size, null);
-  assert.equal(r.fields.sampleRequired, false);
-  assert.equal(r.fields.quantity, 3000, "区间值交还关键词扫描");
-  const zh = extractRfqHeuristic("询价\n数量：5000件\n面料：珊瑚绒 双层\n包装：单条 OPP 袋", opts);
-  assert.equal(zh.fields.quantity, 5000);
-  assert.equal(zh.fields.unit, "件");
-  assert.equal(zh.fields.material, "珊瑚绒 双层");
-  assert.equal(zh.fields.packaging, "单条 OPP 袋");
+ok("表单区块之外的「Label: value」不覆盖关键词扫描（邮件里常是占位、模糊回答、引用旧内容）", () => {
+  const mail = fx("Dear Sir,\nWe would like a quotation for hotel bath linen.\nMaterial: see below\nQuantity: 3,000 pcs\n- Bath towel 70x140cm, 100% cotton terry, 600gsm");
+  assert.notEqual(mail.material, "see below");
+  assert.equal(mail.quantity, 3000);
+  const discount = fx("We need bath towels.\nQuantity: 5000 pcs if you give 10% discount");
+  assert.equal(discount.unit, "pcs");
 });
 
-ok("标注行：同一字段多次出现取最后一次（FDE 按时间拼接多封来信，后来的更正算数）", () => {
-  const thread = ["Quantity: 3,000 pcs", "Material: polyester"].join("\n") + INBOUND_MESSAGE_SEPARATOR + ["Sorry, correction:", "Quantity: 5,000 pcs", "Material: organic cotton"].join("\n");
-  const r = extractRfqHeuristic(thread, opts);
-  assert.equal(r.fields.quantity, 5000);
-  assert.equal(r.fields.material, "organic cotton");
-  assert.equal(r.evidence.filter((e) => e.field === "quantity").length, 1);
+ok("表单区块里没答 / 占位 / yes-no / 认证不在词表：不覆盖", () => {
+  const r = fx(["We need flannel blankets, 3000 pcs.", "", block("Material: please advise", "Certification needs: Required", "Size / specification: Custom — specify in message", "Branding: Yes", "Packaging: To be confirmed")].join("\n"));
+  assert.equal(r.material, "flannel");
+  assert.equal(r.certification, null);
+  assert.equal(r.size, null);
+  assert.equal(r.customization, null);
+  assert.equal(r.packaging, null);
+  const cert = fx(block("Certification needs: OEKO-TEX certified. Please send the certificate.", "Material: *cotton terry*"));
+  assert.equal(cert.certification, "OEKO-TEX");
+  assert.equal(cert.material, "cotton terry");
+  const zh = fx(["需要法兰绒毯2000条。", "", block("Sample requirement: 不需要", "Packaging: 每条一个PE袋，20条一箱")].join("\n"));
+  assert.equal(zh.sampleRequired, false, "中文「不需要」");
+  assert.equal(zh.packaging, "每条一个PE袋，20条一箱");
+  assert.equal(fx(["Need 3000 bath towels.", "", block("Sample requirement: yes")].join("\n")).sampleRequired, true);
+  assert.equal(fx(["Need 3000 bath towels.", "", block("Size / specification: Std. King size")].join("\n")).size, "Std. King size", "缩写的句点不断句");
 });
 
-ok("标注行不吞掉同一行里的其它信息（审查用例）", () => {
-  const f = (t: string) => extractRfqHeuristic(t, { ...opts, now: new Date("2026-10-25T00:00:00Z") }).fields;
-  const discount = f("We need bath towels.\nQuantity: 5000 pcs if you give 10% discount");
-  assert.equal(discount.quantity, 5000);
-  assert.equal(discount.unit, "pcs", "单位后面的条件不进单位");
-  const two = f("We need bath towels.\nQuantity: 3000 pcs, Color: white");
-  assert.equal(two.quantity, 3000);
-  assert.equal(two.color, "white");
-  assert.equal(f("We need bath towels.\nQuantity: 3000 pcs | Size: 70x140cm").size, "70x140cm");
-  const mat = f("We need bath towels, 3000 pcs.\nMaterial: 100% cotton, 500gsm");
-  assert.equal(mat.material, "100% cotton, 500gsm", "材质照录买家这一句；草稿里成分与之重复时不再列（reply-draft）");
-  assert.match(mat.composition ?? "", /100% cotton/);
-  assert.match(f("We need 100% cotton bath towels, 3000 pcs.\n\n— Form details —\nGSM: 500").composition ?? "", /100% cotton/, "GSM 行不覆盖成分");
-  assert.equal(f("We need bath towels, 3000 pcs.\nColor: white with embroidered logo").customLogo, true);
-  assert.equal(f("We need bath towels.\nQuantity: 3000 pcs, target price USD 2.50/pc").targetPrice, 2.5);
-  const trade = f("We need bath towels, 3000 pcs.\nTrade term: FOB Ningbo, ship to Canada");
-  assert.equal(trade.incoterm, "FOB");
-  assert.equal(trade.destinationCountry, "Canada");
-  const prod = f("Hi, please quote.\nQuantity: 3000 bath towels");
-  assert.equal(prod.quantity, 3000);
-  assert.ok(prod.productName, "标注行里的产品词照常识别");
-  assert.equal(f("We need bath towels.\nQuantity: 2 colours x 3,000 pcs").quantity, 3000);
-  assert.equal(f("We need bath towels.\nQuantity: 1st order 3,000 pcs, then monthly").quantity, 3000);
-  assert.notEqual(f("We need bath towels.\nQuantity: 1x40HQ container").quantity, 1);
-  assert.equal(f("We need 3000 bath towels.\nPackaging：polybag\u3000").packaging, "polybag", "全角空格也去掉");
-});
-
-ok("标注行：同一封来信取第一次（Outlook 式回复里没加 > 的引用是旧内容）", () => {
-  const reply = ["Hi Lily,", "Please update:", "Quantity: 5,000 pcs", "", "From: Lily <lily@example.com>", "Sent: Monday", "Subject: RE: towels", "", "Quantity: 3,000 pcs"].join("\n");
-  assert.equal(extractRfqHeuristic(reply, opts).fields.quantity, 5000);
-});
-
-ok("交期：early / mid 不编成月底；标注国家与关键词城市不在同一国时城市作废；没写年份的 before 不落到过去", () => {
-  const now = new Date("2026-10-25T00:00:00Z");
-  const early = extractRfqHeuristic("We need 3000 bath towels.\nDelivery date: early March 2027", { ...opts, now });
-  assert.equal(early.fields.requiredDeliveryDate, null);
-  const mid = extractRfqHeuristic("We need 3000 bath towels by mid-March 2027.", { ...opts, now });
-  assert.equal(mid.fields.requiredDeliveryDate, null);
-  const stated = extractRfqHeuristic("Need 3000 bath towels, ship to Toronto.\nDestination: USA", { ...opts, now });
-  assert.equal(stated.fields.destinationCountry, "Canada", "同一封来信里正文先说的目的地为准");
-  assert.equal(stated.fields.destinationCity, "Toronto");
-  const dest = extractRfqHeuristic("Need 3000 bath towels.\nDestination: USA\nPart of the order may go to our Toronto store.", { ...opts, now });
-  assert.equal(dest.fields.destinationCountry, "United States");
-  assert.equal(dest.fields.destinationCity, null, "标注国家与关键词城市不在同一国：城市作废");
-  const same = extractRfqHeuristic("Need 3000 bath towels, ship to Toronto.\nDestination: Canada", { ...opts, now });
-  assert.equal(same.fields.destinationCity, "Toronto", "同一国的城市保留");
-  const before = extractRfqHeuristic("We need 3000 bath towels before October.", { ...opts, now });
-  assert.equal(before.fields.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-09-30");
-});
-
-ok("标注值不压过买家更新的说法（多封来信 / 正文在前 / 引用历史）", () => {
-  const now = new Date("2026-10-25T00:00:00Z");
-  const f = (t: string) => extractRfqHeuristic(t, { ...opts, now }).fields;
-  const form = "Product: Bath towels\n\n— Form details —\nEstimated quantity: 3,000 pcs\nRequired date: March 2027\nDestination: Toronto, Canada";
-  const laterDate = f(form + INBOUND_MESSAGE_SEPARATOR + "Hi Lily, our launch moved up, we need delivery by Feb 15, 2027.");
-  assert.equal(laterDate.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-15");
-  assert.equal(f(form + INBOUND_MESSAGE_SEPARATOR + "Hi, after checking with my team we need 5,000 pcs now.").quantity, 5000);
-  const moved = f(form + INBOUND_MESSAGE_SEPARATOR + "Please ship to Seattle, USA instead.");
-  assert.equal(moved.destinationCountry, "United States");
-  const quoted = f([
-    "Hi Lisa,", "", "Please update the quantity to 5,000 pcs, delivery in April 2027.", "", "John", "",
-    "-----Original Message-----", "From: Lisa Wang <lisa@factory.example>", "Sent: Monday", "",
-    "Quantity: 3,000 pcs", "Required date: March 2027",
-  ].join("\n"));
-  assert.equal(quoted.quantity, 5000, "引用历史里的标注行不算");
-  assert.equal(quoted.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-04-30");
-  const kept = f(form + INBOUND_MESSAGE_SEPARATOR + "Sizes are 70x140cm please.");
-  assert.equal(kept.quantity, 3000, "后来的信没提数量：表单数量照用");
-  assert.equal(kept.destinationCity, "Toronto");
-});
-
-ok("标注数量只在说得清时采用：样品 / 每箱 / 起订量 / 多个带单位的数交给关键词扫描；单位只到 per colour，Pieces 记成 pcs", () => {
-  const f = (t: string) => extractRfqHeuristic(t, opts).fields;
-  assert.equal(f("Hi, we'd like hotel bath towels.\n- Quantity: 2 pcs samples first, then 3,000 pcs\n- Size: 70x140cm").quantity, 3000);
-  assert.equal(f("Need bath towels.\nQuantity: 20 pcs per carton, 5000 pcs total").quantity, 5000);
-  assert.equal(f("Please quote bath towels.\nQuantity: MOQ 500 pcs? We plan 2,000 pcs for the first order").quantity, 2000);
-  const ali = f("Product Name: bath towel\nQuantity: 5000 Piece/Pieces");
+ok("表单数量只在说得清时采用：样品 / 每箱 / 起订量 / 试单 / 多个带单位的数交给关键词扫描；Pieces 记成 pcs；只写数字时沿用正文单位", () => {
+  assert.equal(fx(["Hi, we'd like hotel bath towels.", "", block("Estimated quantity: 2 pcs samples first, then 3,000 pcs")].join("\n")).quantity, 3000);
+  assert.equal(fx(["Need bath towels.", "", block("Estimated quantity: 20 pcs per carton, 5000 pcs total")].join("\n")).quantity, 5000);
+  assert.equal(fx(["Please quote bath towels.", "", block("Estimated quantity: MOQ 500 pcs? We plan 2,000 pcs")].join("\n")).quantity, 2000);
+  assert.equal(fx(["Need bath towels.", "", block("Estimated quantity: 2 colours x 3,000 pcs")].join("\n")).quantity, 3000);
+  const ali = fx(["Need bath towels.", "", block("Estimated quantity: 5000 Piece/Pieces")].join("\n"));
   assert.equal(ali.quantity, 5000);
   assert.equal(ali.unit, "pcs");
-  const meters = f("We need 5000 meters of blackout curtain fabric.\nQty: 5000");
-  assert.equal(meters.unit, "meters", "表单只写数字时沿用正文里的单位");
-  assert.equal(f("Need 3000 bath towels.\nQuantity: 3000 pcs per colour and size").unit, "pcs per colour");
+  const meters = fx(["We need 5000 meters of blackout curtain fabric.", "", block("Estimated quantity: 5000")].join("\n"));
+  assert.equal(meters.unit, "meters");
+  const sets = fx(["We need 3,000 sets of duvet cover sets.", "", block("Estimated quantity: 4000")].join("\n"));
+  assert.equal(sets.quantity, 3000, "同一封来信里正文先说的数量为准");
+  assert.equal(sets.unit, "sets");
+  const later = fx("We need 3,000 sets of duvet cover sets." + INBOUND_MESSAGE_SEPARATOR + ["Updated brief:", "", block("Estimated quantity: 4000")].join("\n"));
+  assert.equal(later.quantity, 4000, "后一封来信的表单数量");
+  assert.equal(later.unit, "sets", "只写数字时沿用正文单位");
 });
 
-ok("标注值：没答、请我们建议、yes/no、否定的认证都不当事实；*粗体* 标签照认", () => {
-  const f = (t: string) => extractRfqHeuristic(t, opts).fields;
-  assert.equal(f("We need 3000 bath towels.\nMaterial: please advise").material, null);
-  assert.equal(f("We need 3000 bath towels.\nPackaging: your suggestion").packaging, null);
-  assert.equal(f("We need 3000 bath towels.\nCertification: not required").certification, null);
-  assert.equal(f("We need 3000 bath towels.\nCertification: OEKO-TEX certified. Please send the certificate.").certification, "OEKO-TEX");
-  const logo = f("We need 3000 bath towels.\nLogo: yes");
-  assert.equal(logo.customization, null);
-  assert.equal(logo.customLogo, true);
-  assert.equal(f("We need 3000 bath towels.\n*Material:* cotton terry").material, "cotton terry");
-  assert.equal(f("We need 3000 bath towels.\nMaterial: open to your suggestion").material, null);
-  assert.equal(f("We need 3000 bath towels.\nCustomization: No, plain stock is fine").customization, null);
-  assert.equal(f("需要法兰绒毯2000条。\n样品：需要").sampleRequired, true, "中文的「需要」");
-  assert.equal(f("产品：浴袍\n数量：1500件\n样品：不需要").sampleRequired, false);
-  assert.equal(f("We need 3000 bath towels.\nSample requirement: later").sampleRequired, null, "标签里的 sample 不能让关键词扫描读成要样品");
+ok("多封来信：后来的说法优先于先前的表单；后来的信没提就照用表单；追加品类的数量不顶替订单数量", () => {
+  const form = ["Product: Bath towels", "", block("Estimated quantity: 3,000 pcs", "Required date: March 2027", "Destination: Toronto, Canada")].join("\n");
+  const laterDate = fx(form + INBOUND_MESSAGE_SEPARATOR + "Hi Lily, our launch moved up, we need delivery by Feb 15, 2027.");
+  assert.equal(laterDate.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-02-15");
+  assert.equal(fx(form + INBOUND_MESSAGE_SEPARATOR + "Hi, after checking with my team we need 5,000 pcs now.").quantity, 5000);
+  assert.equal(fx(form + INBOUND_MESSAGE_SEPARATOR + "Please ship to Seattle, USA instead.").destinationCountry, "United States");
+  const kept = fx(form + INBOUND_MESSAGE_SEPARATOR + "Sizes are 70x140cm please.");
+  assert.equal(kept.quantity, 3000);
+  assert.equal(kept.destinationCity, "Toronto");
+  assert.equal(kept.requiredDeliveryDate?.toISOString().slice(0, 10), "2027-03-31");
+  const addOn = fx("Hello, we need 5,000 pcs bath towels 70x140cm." + INBOUND_MESSAGE_SEPARATOR + "Hi again, please also quote 1,000 pcs bath mats.");
+  assert.equal(addOn.quantity, 5000, "数量同分时仍取先出现的（追加品类、起订量提问、历史数字不算改口）");
+  const corrected = fx(block("Estimated quantity: 3,000 pcs") + INBOUND_MESSAGE_SEPARATOR + block("Estimated quantity: 4,000 pcs"));
+  assert.equal(corrected.quantity, 4000, "后一封来信的表单区块优先");
 });
 
-ok("交期补充：before end of / the end of、月份后带逗号的年份、中文只给月份、没写年份的具体日子不落到过去", () => {
-  const now = new Date("2026-10-25T00:00:00Z");
-  const d = (t: string) => extractRfqHeuristic(t, { ...opts, now }).fields.requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
+ok("目的地：表单国家与较早来信里的城市不在同一国时城市作废", () => {
+  const r = fx("We have stores in Toronto." + INBOUND_MESSAGE_SEPARATOR + ["Need 3000 bath towels.", "", block("Destination: USA")].join("\n"));
+  assert.equal(r.destinationCountry, "United States");
+  assert.equal(r.destinationCity, null);
+});
+
+ok("数量里的年份：带千分位的 2,000 是数量，「January 2027 at the latest」的 2027 不是", () => {
+  assert.equal(fx("Need bath towels, quantity 2,000.").quantity, 2000);
+  assert.equal(fx("Need 500 bath towels by January 2027 at the latest.").quantity, 500);
+});
+
+ok("交期：early / mid 不编成月底；没写年份不落到过去；before end of / the end of / 逗号后的年份", () => {
+  const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
+  assert.equal(d(["We need 3000 bath towels.", "", block("Required date: early March 2027")].join("\n")), null);
+  assert.equal(d("We need 3000 bath towels by mid-March 2027."), null);
+  assert.equal(d("We need 3000 bath towels before October."), "2027-09-30");
+  assert.equal(d("We need 3000 bath towels by October 20."), "2027-10-20");
   assert.equal(d("We need 3000 bath towels before end of March 2027."), "2027-03-31");
   assert.equal(d("We need 3000 bath towels by the end of March 2027."), "2027-03-31");
   assert.equal(d("We need 3000 bath towels by March, 2028."), "2028-03-31");
+});
+
+ok("中文交期：只给月份 = 月底，月前 = 上月底，中旬 / 前后不编日子，「2027 年 3 月」带空格也认", () => {
+  const d = (t: string) => fx(t).requiredDeliveryDate?.toISOString().slice(0, 10) ?? null;
   assert.equal(d("需要3000条浴巾，2027年3月交货"), "2027-03-31");
   assert.equal(d("需要3000条浴巾，2027年3月底交货"), "2027-03-31");
   assert.equal(d("需要3000条浴巾，2027年3月前交货"), "2027-02-28");
   assert.equal(d("需要3000条浴巾，2027年3月中旬交货"), null);
-  assert.equal(d("We need 3000 bath towels by October 20."), "2027-10-20");
+  assert.equal(d("需要3000条浴巾，2027年3月前后交货"), null);
+  assert.equal(d("需要3000条浴巾，2027年3月中旬先出一批，2027年4月15日全部交完"), "2027-04-15", "大概的说法不挡住后面确切的日子");
+  assert.equal(d("需要3000条浴巾，2027 年 3 月交货"), "2027-03-31");
 });
 
 ok("交期：before <月份> 是上月底，by / in 是当月底", () => {

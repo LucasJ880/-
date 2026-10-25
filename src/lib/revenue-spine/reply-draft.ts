@@ -74,9 +74,9 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 
 /** 英文并列：a / a and b / a, b and c；某一项自带 and 时最后一项前加逗号，免得连着两个 and */
 function joinEn(items: string[]): string {
-  if (items.length <= 2) return items.join(" and ");
-  const head = items.slice(0, -1).join(", ");
-  return `${head}${items.some((i) => / and /.test(i)) ? "," : ""} and ${items[items.length - 1]}`;
+  if (items.length <= 1) return items.join("");
+  const comma = items.some((i) => / and /.test(i)) ? "," : "";
+  return `${items.slice(0, -1).join(", ")}${comma} and ${items[items.length - 1]}`;
 }
 
 /** 参考值原句（MOQ / 大货周期 / 装运港）；只用企业配置的数字，不读买家来信 */
