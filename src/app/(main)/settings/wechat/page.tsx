@@ -83,6 +83,7 @@ export default function WeChatSettingsPage() {
   const [platformWecom, setPlatformWecom] = useState<GatewayInfo | null>(null);
   const [canManagePlatformWecom, setCanManagePlatformWecom] = useState(false);
   const [wecomUserId, setWecomUserId] = useState("");
+  const [wecomBindCode, setWecomBindCode] = useState("");
   const [bindError, setBindError] = useState<string | null>(null);
   const [bindOk, setBindOk] = useState(false);
 
@@ -233,27 +234,51 @@ export default function WeChatSettingsPage() {
 
   const handleBindWecom = async () => {
     const externalId = wecomUserId.trim();
+    const bindCode = wecomBindCode.trim();
     if (!externalId) {
       setBindError("请填写企微 UserId");
+      return;
+    }
+    if (!bindCode) {
+      setBindError("请填写机器人回复给你的验证码");
       return;
     }
     setActionLoading("bind_wecom");
     setBindError(null);
     setBindOk(false);
     try {
-      await apiFetch("/api/messaging/bindings", {
+      // apiJson：非 2xx 抛出服务端的中文错误（验证码错误 / 已被他人绑定等）
+      await apiJson("/api/messaging/bindings", {
         method: "POST",
         body: JSON.stringify({
           channel: "wecom",
           externalId,
+          bindCode,
           displayName: externalId,
         }),
       });
       setWecomUserId("");
+      setWecomBindCode("");
       setBindOk(true);
       await fetchData();
     } catch (e) {
       setBindError(e instanceof Error ? e.message : "绑定失败");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleUnbind = async (bindingId: string) => {
+    if (!window.confirm("解绑后，这个账号发来的消息不再进入你的青砚，推送也会停止。确定解绑？")) return;
+    setActionLoading(`unbind_${bindingId}`);
+    try {
+      await apiJson("/api/messaging/bindings", {
+        method: "POST",
+        body: JSON.stringify({ action: "remove", bindingId }),
+      });
+      await fetchData();
+    } catch (e) {
+      console.error("解绑失败:", e);
     } finally {
       setActionLoading(null);
     }
@@ -498,8 +523,9 @@ export default function WeChatSettingsPage() {
       <div className="rounded-xl border border-border bg-card p-5 space-y-3">
         <h3 className="text-sm font-medium">绑定企业微信账号</h3>
         <p className="text-xs text-muted">
-          必须绑定后，在企微应用里发消息才会进入你的青砚工作组织。UserId 在企微管理后台 → 通讯录 → 成员详情 →「账号」。
-          也可先给 mengxin 发消息，未绑定时机器人会把你的 UserId 回复给你。
+          必须绑定后，在企微应用里发消息才会进入你的青砚工作组织。先在企业微信里给青砚应用发任意一条消息，
+          未绑定时机器人会回复你的 UserId 和绑定验证码（15 分钟内有效），把两者填到下面即可完成绑定。
+          验证码只发给该企微账号本人，用于确认这是你自己的账号。
         </p>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
@@ -508,6 +534,14 @@ export default function WeChatSettingsPage() {
             onChange={(e) => setWecomUserId(e.target.value)}
             placeholder="企微 UserId，例如 ZhangSan"
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted/50 focus:border-accent focus:outline-none"
+          />
+          <input
+            type="text"
+            value={wecomBindCode}
+            onChange={(e) => setWecomBindCode(e.target.value)}
+            placeholder="验证码，例如 ABCD-EFGH"
+            autoComplete="one-time-code"
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted/50 focus:border-accent focus:outline-none sm:w-44"
           />
           <button
             type="button"
@@ -560,6 +594,18 @@ export default function WeChatSettingsPage() {
                       {b.channel === "personal_wechat" ? "个人微信" : "企业微信"}
                     </span>
                     <DomainBadges domains={domains} />
+                    {b.status === "active" ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleUnbind(b.id)}
+                        disabled={actionLoading === `unbind_${b.id}`}
+                        className="ml-auto rounded-lg border border-border px-2 py-0.5 text-[11px] text-muted transition-colors hover:bg-muted/10 hover:text-foreground disabled:opacity-50"
+                      >
+                        解绑
+                      </button>
+                    ) : (
+                      <span className="ml-auto text-[11px] text-muted">已解绑</span>
+                    )}
                   </div>
 
                   {/* 外贸域推送 */}

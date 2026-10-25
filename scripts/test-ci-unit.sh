@@ -262,6 +262,10 @@ npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts
 npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts
 npx tsx src/lib/revenue-spine/__tests__/sla-metrics.test.ts
 npx tsx src/lib/revenue-spine/__tests__/sla-tiers-db.isolated.test.ts
+npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-policy.test.ts
+npx tsx src/lib/messaging/__tests__/binding-proof.test.ts
+npx tsx src/lib/messaging/__tests__/wechat-binding-confirm-db.isolated.test.ts
+npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

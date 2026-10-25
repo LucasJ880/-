@@ -119,14 +119,18 @@ function buildCreateData(input: CreateDraftInput) {
     (typeof input.payload.workspaceId === "string"
       ? input.payload.workspaceId
       : undefined);
-  const payloadHash = computePayloadHash(input.payload);
+  // 先归一成落库后的 JSON 形态再算 hash：值为 undefined 的键（Grader 适配的可选字段）落库时会被丢掉、
+  // Date 会变成字符串；直接对内存对象算 hash，执行时对库里的 payload 重算必然不一致
+  // （PAYLOAD_HASH_MISMATCH「审批内容已变化」）。本来就一致的 payload，hash 不变。
+  const payload = JSON.parse(JSON.stringify(input.payload)) as Record<string, unknown>;
+  const payloadHash = computePayloadHash(payload);
   return {
     payloadHash,
     data: {
       type: input.type,
       title: input.title,
       preview: input.preview,
-      payload: input.payload as object,
+      payload: payload as object,
       status: "pending" as const,
       createdById: input.userId,
       orgId: input.orgId,
