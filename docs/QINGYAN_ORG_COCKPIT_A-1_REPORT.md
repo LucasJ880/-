@@ -29,7 +29,7 @@ OpenSpec change：`openspec/changes/org-cockpit-posts/`（proposal / `specs/cock
 | `ops_knowledge` 运维与知识 | employee-ai-practice-miner、release-drift、agent-runs、autopilot-telemetry、approval-timeout | — | general | — | `getTeamLearningMetrics`（全部历史）：候选方法 count / 生效手册 count / 采纳率 rate | `/ai-activity` |
 | `content` 内容 | aivora-sync | — | — | — | 未接入（无只读读函数） | `/operations/dashboard` |
 
-- **通用动作类型**（4 种，无固定岗位）：`calendar.create_event`、`grader.email_draft`、`grader.internal_note`、`grader.project_task`。按每条动作的上下文归属：所属项目工作域 → 目标类型（PROJECT → projects；CUSTOMER / OPPORTUNITY / QUOTE → inbound_sales）→ 产出 AgentRun 的 runType → 未归属。
+- **通用动作类型**（4 种，无固定岗位）：`calendar.create_event`、`grader.email_draft`、`grader.internal_note`、`grader.project_task`。按每条动作的上下文归属：所属项目工作域（`Project.workDomain` 默认值 `general` 表示未分类，跳过）→ 目标类型（PROJECT → projects；CUSTOMER / OPPORTUNITY / QUOTE → inbound_sales）→ 产出 AgentRun 的 runType → 未归属。
 - **不归属的 runType**：workforce_job（按工作域归属）、conversation、assistant_dispatch、background_conversation、supervisor。
 - 合计：28 个自动化键各归属一个岗位；14 种动作类型中 10 种固定归属、4 种通用；4 个工作域各归属一个岗位；源码写入的 7 个 runType 中 2 个归属、5 个不归属。
 
@@ -37,7 +37,7 @@ OpenSpec change：`openspec/changes/org-cockpit-posts/`（proposal / `specs/cock
 
 | # | 验证 | 结果 |
 |---|---|---|
-| 1 | `npx tsx src/lib/cockpit/__tests__/posts.test.ts` | 217/217 passed，约 3.7 秒 |
+| 1 | `npx tsx src/lib/cockpit/__tests__/posts.test.ts` | 219/219 passed，约 3.7 秒（A-2 实施时补 2 条：未分类项目不归 `ops_knowledge`） |
 | 2 | 运行期反向注入（临时改动，恢复后 `cmp` 逐字节一致）：未归属自动化键 / 同一键归两个岗位 / runType 拼写错误 | 三次都退出 1，分别打印 `["fake-new-automation"]`、`["wechat-push → inbound_sales + tender"]`、`["fde_inbound_salse"]` 与 `["inbound_sales:fde_inbound_salse"]` |
 | 3 | 类型层反向注入（一次注入 4 种错误后局部 `tsc`） | 逐条报 TS2344：`"wechat-push"`、`"tender.send_chase"`、`"inbound_sales:guardrail（非标量）" \| "projects:sections.total"`；恢复后逐字节一致 |
 | 4 | `npm run typecheck`（全量，`--max-old-space-size=6144`） | 退出 0；`--extendedDiagnostics` 内存基线 3.86 GB → 本分支 3.75 GB，类型层校验没有推高编译开销 |
@@ -77,6 +77,8 @@ OpenSpec change：`openspec/changes/org-cockpit-posts/`（proposal / `specs/cock
 | 10 | 小 | 若干检查不可能失败（runType 全集取自清单自身等） | 删除或改为真实全集 |
 
 ## 5. 已知限制 / 留给后续 change
+
+- **A-2 实施时补的修正（提交见 PR #244 最新提交）**：`Project.workDomain` 的默认值是 `general`（未分类项目），初稿按规则（1）会把挂在未分类项目上的通用动作归到 `ops_knowledge`。已改为：项目工作域为 `general` 时跳过规则（1），继续看目标类型 / 产出 run 类型；workforce 作业上的 `general` 仍表示平台级作业、归 `ops_knowledge`。spec 增补 1 个 scenario，测试补 2 条。
 
 - 通用动作类型的上下文字段在各产出方写法不一（`PendingAction.projectId` / `payload.targetType` / `payload.metadata.targetType` / 只有 `agentRunId`），A-2 需要按 design D3 取齐后传入 `postForPendingAction`；取不到的落"未归属"。
 - `listDeliveryProjects` 按查看人可见范围过滤、`take: 500` 封顶；`getTenderPortfolioSummary` 是 N+1，且函数内部不检查 `TENDER_FINANCIAL_CONTROL_ENABLED`（只有路由检查），A-2 必须先过同一开关；`getTeamLearningMetrics` 无上限读取反馈事件、无数据时 `acceptRate` 为 0。

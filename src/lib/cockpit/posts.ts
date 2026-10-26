@@ -330,6 +330,9 @@ export function postForAgentRunType(runType: string): PostKey | null {
   return POST_BY_RUN_TYPE.get(runType) ?? null;
 }
 
+/** Project.workDomain 的默认值（未分类项目）；只有 workforce 作业上的 general 才表示平台级作业 */
+export const UNCLASSIFIED_PROJECT_DOMAIN = "general";
+
 /** 一条待审批动作的归属上下文，由调用方从行与关联表取好传入 */
 export interface PendingActionAttributionInput {
   type: string;
@@ -351,8 +354,9 @@ export function postForPendingAction(input: PendingActionAttributionInput): Post
   if (fixed) return fixed;
   if (!isSharedPendingActionType(input.type)) return null;
 
+  // Project.workDomain 的默认值 general 表示"项目未分类"，不是平台级作业，不据此归属
   const domain = input.projectWorkDomain?.trim().toLowerCase();
-  const byDomain = domain ? postForWorkDomain(domain) : null;
+  const byDomain = domain && domain !== UNCLASSIFIED_PROJECT_DOMAIN ? postForWorkDomain(domain) : null;
   if (byDomain) return byDomain;
 
   const target = input.targetType?.trim().toUpperCase();

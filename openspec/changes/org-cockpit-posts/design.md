@@ -56,7 +56,7 @@
 - **选择**：
   - 自动化：按任务书初版岗位清单；任务书没列的 `wechat-push`、`trade-daily` 归 `inbound_sales`；`approval-timeout` 归 `ops_knowledge`（全组织所有类型的审批过期，用户已认可）。
   - PendingAction 固定归属（10 种）：按命名空间，`sales.*` → `inbound_sales`、`marketing.*` → `marketing`、`tender.*` → `tender`。
-  - PendingAction 通用动作类型（4 种：`calendar.create_event`、`grader.email_draft`、`grader.internal_note`、`grader.project_task`）：没有固定岗位，按每行上下文确定性归属——(1) 所属项目（`PendingAction.projectId`，为空时取目标类型为 `PROJECT` 的 `payload.targetId`）的工作域 → 该工作域的岗位；(2) 目标类型（先取 `payload.targetType`，为空再取 `payload.metadata.targetType`，大写比较）`PROJECT` → `projects`，`CUSTOMER` / `OPPORTUNITY` / `QUOTE` → `inbound_sales`；(3) `agentRunId` 对应 AgentRun 的 runType 所属岗位；(4) 其余 → 未归属。注册表只提供纯函数，入参由调用方（A-2）从行与关联表取好传入。
+  - PendingAction 通用动作类型（4 种：`calendar.create_event`、`grader.email_draft`、`grader.internal_note`、`grader.project_task`）：没有固定岗位，按每行上下文确定性归属——(1) 所属项目（`PendingAction.projectId`，为空时取目标类型为 `PROJECT` 的 `payload.targetId`）的工作域 → 该工作域的岗位（`Project.workDomain` 默认值为 `general` 表示未分类，跳过本条；只有 workforce 作业上的 `general` 才表示平台级作业）；(2) 目标类型（先取 `payload.targetType`，为空再取 `payload.metadata.targetType`，大写比较）`PROJECT` → `projects`，`CUSTOMER` / `OPPORTUNITY` / `QUOTE` → `inbound_sales`；(3) `agentRunId` 对应 AgentRun 的 runType 所属岗位；(4) 其余 → 未归属。注册表只提供纯函数，入参由调用方（A-2）从行与关联表取好传入。
   - 工作域：`sales` → `inbound_sales`、`tender` → `tender`、`delivery` → `projects`、`general` → `ops_knowledge`（`general` 解析为 `system` 工具域，是平台级作业）。
   - runType：`fde_inbound_sales` 与 `runtime_v2` 归 `inbound_sales`；`workforce_job` 按工作域归属；`conversation` / `assistant_dispatch` / `background_conversation` / `supervisor` 不归属（人主动发起的对话、后台对话续跑、已冻结模块）。
 - **否决 A：4 种通用动作固定归 `projects`（本 change 初稿）** —— 前提"只由 ai-grader / proactive-scan 产出"是错的（见 Context）；会把销售跟进的提醒与邮件草稿算到项目卡片上。
