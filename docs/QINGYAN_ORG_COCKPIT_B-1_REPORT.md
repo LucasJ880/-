@@ -45,12 +45,12 @@ OpenSpec change：`openspec/changes/fde-feedback-loop/`（proposal / `specs/reve
 | 5 | 任务书验收 4：手工入口不变 | 不带系统记录标记、驳回无原因仍报原错误；`/api/agent-feedback` 不传新参数 |
 | 6 | 接入点静态断言 | 端口：恰好一处、在重复 / 已终态分支之后、带状态变化 / 生效条件、包在异常保护里；两处创建点非复用分支写快照；定时任务在过期之后补漏；`vercel.json` 仍 23 条 cron |
 | 7 | 局部 `tsc`（`revenue-spine/fde/**`、`employee-ai/**`、`approval/**`、定时任务路由） | 0 错误 |
-| 8 | `npm run typecheck`（全量） | GATE_TSC |
-| 9 | `npm run lint:baseline` | GATE_LINT |
-| 10 | `npm test` 对比 `origin/main` 基线 | GATE_NPM |
-| 11 | `npm run test:ci` | GATE_CI |
+| 8 | `npm run typecheck`（全量） | 退出 0 |
+| 9 | `npm run lint:baseline` | PASS（无新增 error）；改动文件 0 问题 |
+| 10 | `npm test` 对比 `origin/main` 基线 | 基线 411/425 → 本分支 424/438：新增 13 项即 A-1 ~ A-4（11）+ B-1（2）的测试，全 PASS；`Employee AI` 既有 5 项仍 PASS；14 项失败清单与基线逐条一致 |
+| 11 | `npm run test:ci` | `CI unit subset PASS`，含两个 B-1 测试 |
 | 12 | `git diff --stat origin/main -- prisma/ vercel.json` | 空 |
-| 13 | `openspec validate fde-feedback-loop --strict`；`/opsx:verify` | GATE_VERIFY |
+| 13 | `openspec validate fde-feedback-loop --strict`；`/opsx:verify` | valid；`/opsx:verify`：tasks 6/6，8 条 requirement / 20 个 scenario 均有测试断言，design D1–D7 与实现一致，无 CRITICAL / WARNING |
 
 ## 3. 与任务书的偏差（请 GATE 逐条确认，详见 proposal）
 
