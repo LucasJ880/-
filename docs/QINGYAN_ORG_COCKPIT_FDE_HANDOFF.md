@@ -47,10 +47,12 @@
     - 认领前角色门按批准人 `User.role` 判（审批中心传的是组织角色）；批准时在最新配置上重新合并，经 `publishRevenueSpineRule(business_profile)` 写入。
   - **GATE 注意项**：外贸收件箱的外发正文常是收件箱 LLM 草稿被采用；落款只补空缺；并发起卡 / 并发批准；外发同步多一步；补漏 7 天窗口会处理上线前 7 天的作废。
   - staging：见报告第 5 节（boss 在审批中心批准、sales 被拒、驳回后不再起、带价格不起卡）。
-- **进行中：B-3 `fde-preferences-in-draft`**（分支 `claude/fde-preferences-in-draft`，叠在 B-2 上）：四件套 + 金样本 + 实现已推送（tasks 3/5），交叉审查与全量门禁进行中。
-  - 偏好放 `revenue_spine.policy` 的 `fde` 段：`useConfirmedPreferences`（默认 false）+ 问候 / 结束语 / 敬语 / 必问 / 免问 / 禁用词；关闭时草稿逐字节不变（`__tests__/fixtures/draft-golden-pre-b3.json` 用改动前代码生成，10 例）。
-  - 偏好逐条校验（草稿守卫、禁数字等），违规忽略并按组织 + 指纹记一次审计；润色时偏好行必须原样保留、禁用词不得变多，否则回退模板。
-  - 只接首封回复草稿；跟进草稿另开 change（GATE 注意项）。
+- **B-3 `fde-preferences-in-draft`**（分支 `claude/fde-preferences-in-draft`，叠在 B-2 上，PR 见进度表，base = B-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-3_REPORT.md`（偏差 11 条；交叉审查两轮：第一轮 2 阻塞 + 3 应修，第二轮 2 应修，可选项一并处理）。
+  - 偏好放 `revenue_spine.policy` 的 `fde` 段：`useConfirmedPreferences`（默认 false）+ 问候 / 结束语 / 敬语 / 必问 / 免问 / 禁用词；关闭时草稿逐字节不变（金样本 `__tests__/fixtures/draft-golden-pre-b3.json`，10 例，用改动前代码生成）。
+  - 偏好逐条校验（守卫、数字字符、数字词、商务条款用语），违规忽略并按组织 + 指纹记一次审计；禁用词只替换模板句子，保护行与嵌着的专名 / 链接不动；替换后多出守卫违规则本封不替换并按键名记审计。
+  - **GATE 注意项**：没有设置界面（经 `PUT /api/revenue/policy`）；只接首封草稿，跟进草稿不读偏好；数字词宁可多拦；"需内部确认"段整行不替换。
+- **全部 FDE change（A-1..A-4、B-1..B-5）都已 `[G]`**。剩余：A-5 / B-6 决策项；合并后依次归档（B-1 必须先于 B-2）；staging 验证见各报告第 5 节。
+- 后续可做（未开 change）：跟进草稿接入偏好；中文草稿起订量"每color"（已列待办）；A-2 时间线动作中文标签与来源；清理未引用的 `src/components/dashboard/**`（A-3 合并后）。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -65,7 +67,7 @@
 | A-4 | `org-cockpit-workload`（[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支） | ✅ `00080806` | 7/7 | ✅ 422/436，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 5 应修 + 4 小全部处理 | `[G]` |
 | B-1 | `fde-feedback-loop`（[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支） | ✅ `61feec70` | 6/6 | ✅ 424/438，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞 + 6 应修全部处理 | `[G]` |
 | B-2 | `fde-fact-proposals`（[PR #251](https://github.com/LucasJ880/-/pull/251)，base = B-5 分支） | ✅（两轮审查后修订 `b949bce7`） | 5/5 | ✅ 430/444，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：2 阻塞 + 9 应修，第二轮 4 应修，全部处理 | `[G]` |
-| B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
+| B-3 | `fde-preferences-in-draft`（PR 见进度表下一次更新，base = B-2 分支） | ✅（两轮审查后修订 `e1244d62`） | 5/5 | ✅ 431/445，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：2 阻塞 + 3 应修，第二轮 2 应修，全部处理 | `[G]` |
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
 
