@@ -175,7 +175,7 @@ interface PostDefinition {
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| B-1 | 审批动作自动产反馈事件 + 草稿结构化 diff | A-4 | `pending-actions/exec-sales-inquiry-reply.ts`、`approval/*` 挂钩、`employee-ai/diff.ts` 接入 | [ ] |
+| B-1 | 审批动作自动产反馈事件 + 草稿结构化 diff | A-4 | `pending-actions/exec-sales-inquiry-reply.ts`、`approval/*` 挂钩、`employee-ai/diff.ts` 接入 | [~] |
 | B-2 | 人工修改 → 商务事实沉淀（commercialFacts 提案） | B-1 | `revenue-spine/fact-proposals.ts`、新 PendingActionType `revenue_spine.propose_commercial_fact` | [ ] |
 | B-3 | 已确认偏好接入草稿模板层 | B-1 | `revenue-spine/reply-draft.ts` 读 `employee-ai` confirmed 偏好 | [ ] |
 | B-4 | 评分校准报表（只报不改） | A-4 | `revenue-spine/score-calibration.ts` + 面板区块 | [ ] |
