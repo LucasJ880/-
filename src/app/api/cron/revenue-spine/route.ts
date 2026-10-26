@@ -82,11 +82,15 @@ export async function GET(request: NextRequest) {
       }
       try {
         const policy = await loadRevenueSpinePolicy(orgId);
-        // 2. 自动搁置（开关关闭时不查询、不流转）
+        // 2. 自动搁置（开关关闭时不查询、不流转）；单独兜错，失败不影响本组织的 next action 与跟进草稿
         if (policy.autonomy.autoStale) {
-          const autoStale = await runAutoStale(orgId, { policy, now, shouldStop: pastMaintenanceDeadline });
-          row.autoStale = autoStale;
-          if (autoStale.truncated) row.maintenanceTruncated = true;
+          try {
+            const autoStale = await runAutoStale(orgId, { policy, now, shouldStop: pastMaintenanceDeadline });
+            row.autoStale = autoStale;
+            if (autoStale.truncated) row.maintenanceTruncated = true;
+          } catch (error) {
+            row.autoStaleError = error instanceof Error ? error.message : String(error);
+          }
         }
         // 3. Next action 重算 + 到期行动
         const open = await db.salesOpportunity.findMany({

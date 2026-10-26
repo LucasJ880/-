@@ -54,19 +54,35 @@
   - 放进 `Organization.settingsJson`：与其它 Revenue Spine 策略分家，`/api/revenue/policy` 看不到。
   - 环境变量开关：不能按组织开。
 
-### D2 候选查询 + 纯函数复核 + 在途草稿过滤
-1. 先用 `autoStaleCandidateWhere(orgId, cutoff)` 查候选。条件为：开放阶段、客户未归档、`lastInteractionAt < cutoff`（或为空且 `createdAt < cutoff`）、`lastCustomerReplyAt` 为空或 `< cutoff`。
-2. 按 `lastInteractionAt ?? createdAt` 升序，取 201 行，最多处理 200 行。
-3. 再查本组织状态为 `pending` / `approved` 的审批动作，只选 `payload`，用 `opportunityIdOfPayload` 取商机 id，组成在途集合。
-4. 对每个候选再跑纯函数 `decideAutoStale`：复核开关、阶段、`isStale`、来信时间、在途集合，返回流转或跳过原因。
+### D2 候选查询 + 纯函数复核 + 在途审批过滤 + 流转前重读
+1. `autoStaleCandidateWhere(orgId, cutoff)` 查候选：
+   - 开放阶段、客户未归档；
+   - `stageChangedAt` 非空且早于 cutoff；`createdAt` 早于 cutoff；
+   - `lastInteractionAt`、`lastCustomerReplyAt` 为空或早于 cutoff。
+   - 按 `stageChangedAt` 升序最多取 500 行。
+2. 对这些 id 做一次 `CustomerInteraction.groupBy(_max createdAt)`，拿到最新互动记录时间。这一步覆盖不经 `logRevenueInteraction` 的互动入口（报价邮件、外贸收件箱等）。
+3. 在途审批：
+   - 本组织 `pending` / `approved` 的审批动作按创建时间倒序读"上限 + 1"行，读满即本轮不搁置；
+   - `approvalRefsOfPayload` 取商机 id（`opportunityId` / `metadata.opportunityId`）与报价 id（`quoteId`、`targetType` / `resourceType` 为报价的引用）；
+   - 报价再经 `SalesQuote.opportunityId` 映射到商机。
+4. 纯函数 `decideAutoStale` 逐条复核：开关与最低天数、开放阶段、`stageChangedAt` 非空、最后活动时间、买家来信、买家是否在等回复、在途集合。返回流转或跳过原因。
+5. 判定通过后重读一次商机行再判一次，然后流转。被跳过的不占 200 的流转名额。
 
 - 理由：
-  - 查询用索引列 `(orgId, stage)` 缩小范围；
-  - 纯函数复核让判定规则能逐条单测，也防查询条件写错；
-  - 审批动作按组织取一次（在途的很少），比逐个商机查 JSON 路径省查询。
+  - `stageChangedAt` 只有 intake 建单与 `transition.ts` 会写。用它区分 Revenue Spine 商机与 Sunny 窗饰车道（同名阶段 `quoted` / `negotiation`）。
+  - 最后活动取三者最晚，人工推进与其它入口的互动都算"有人在动"。
+  - 在途审批按组织取一次（数量少），比逐个商机查 JSON 路径省查询；读不全时宁可不搁置。
+  - 重读一次把"循环期间刚来信"的竞态降到流转那一刻。
 - **否决**：
-  - 按商机逐个查 `payload.path = opportunityId`：候选多时 N 次 JSON 查询。
-  - 只看 `sales.send_inquiry_reply` 类型：报价、样品等其它在途审批也意味着有人正在处理，同样不该搁置。
+  - 只看 `lastInteractionAt ?? createdAt`（初版）：交叉审查指出它把 Sunny 车道刚报价的商机与刚被人工推进的商机都判为陈旧。
+  - 按商机逐个查 `payload.path = opportunityId`：候选多时 N 次 JSON 查询，且漏报价类审批。
+  - 只看 `sales.send_inquiry_reply` 类型：报价、样品等其它在途审批也意味着有人正在处理。
+
+### D2b 最低天数与"等我们回复"
+- `staleAfterDays < max(14, max(noReplyFollowUpDays) + 7)` 时视为关闭。
+  - 理由：以前这个值只影响展示，写 0 也无害；开启自动搁置后，写 0 会把所有开放商机（包括 FDE 还没跑完的新询盘）按每轮 200 个全部搁置，写小于跟进节奏的值会打断 3 / 7 / 14 天的无回复跟进。
+- 买家来信后我方没外发（`lastCustomerReplyAt` 存在，且 `lastOutboundAt` 为空或更早）时不搁置。
+  - 理由：自动搁置会把 `computeNextAction` 的结果从"回复客户"变成"激活或关闭"。
 
 ### D3 流转经 `transitionOpportunity`，审计加可选 `policyKey`
 - `TransitionInput` 加可选 `policyKey?: string | null`。有值时写进审计 `afterData.policyKey`，没传时审计内容与现在逐字段相同。
@@ -130,8 +146,11 @@
   → 每组织每轮上限 200 + 汇总通知；dogfood 先在 sunny-home-deco 开。
 - **[经已链接线索回信的 stale 商机]**：买家经外贸收件箱回到一个已搁置商机时，它的下一步是"激活或关闭"（`next-action.ts` 的既有 stale 分支），不是"回复客户"。这与人工转 stale 相同。
   → 新询盘本来就新建商机，不受影响；报告列为已知限制。是否让 stale 商机的来信优先于"激活或关闭"，留给后续 change。
-- **[审批载荷没有商机 id]**：这类在途审批识别不到，商机可能被搁置。
-  → FDE 的询盘回复与跟进草稿都带 `payload.opportunityId`；其它类型尽力识别。
+- **[审批载荷没有商机或报价引用]**：这类在途审批识别不到，商机可能被搁置。
+  → FDE 的询盘回复与跟进草稿带 `payload.opportunityId`，报价让利带 `quoteId`，Grader 内部备注带目标引用；其余类型尽力识别。
+- **[company.log 显示负责人为操作人]**：审计 `userId` 有外键，机器流转一直记在负责人名下。
+  → 来源与键名在 `afterData` 里；时间线显示改进留给后续 change（proposal 偏差 7）。
+- **[部分写入]**：`transitionOpportunity` 先写阶段、后重算下一步。后半段抛错时，重读确认阶段已是 `stale`，按已搁置计并通知；原有的 `next_action:*` 行动保持打开，由人处理。
 - **[一轮处理不完]**：上限与预算截断，下一轮继续，结果里有截断标记。
 
 ## 验证方式

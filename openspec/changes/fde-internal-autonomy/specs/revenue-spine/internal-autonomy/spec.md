@@ -21,31 +21,75 @@ policy SHALL 提供 `autonomy.autoStale` 开关，默认 `false`；存量 policy
 - **WHEN** 运行 `npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts`
 - **THEN** 本 spec 全部 scenario 的断言通过，退出码 0
 
-### Requirement: 自动搁置的条件
-开关开启时，既有 Revenue Spine 定时任务 SHALL 在重算下一步之前，把同时满足以下条件的商机流转到 `stale`：
-1. 当前阶段为开放阶段（新询盘到谈判）；
-2. 最后互动时间早于 `followUp.staleAfterDays` 天前；没有互动记录时，按创建时间判断；
-3. 买家最后来信时间为空，或早于同一时点；
-4. 该商机没有状态为 `pending` 或 `approved` 的审批动作（按载荷中的商机 id 匹配）；
-5. 客户未归档。
+### Requirement: 自动搁置的范围
+开关生效时，既有 Revenue Spine 定时任务 SHALL 在重算下一步之前处理自动搁置，只考虑同时满足以下条件的商机：
+- 当前阶段为开放阶段（新询盘到谈判）；
+- 客户未归档；
+- 由 Revenue Spine 维护（阶段变更时间非空）。
 
-不满足任一条件的商机 SHALL NOT 被流转。
+Sunny 窗饰车道的商机虽然也用 `quoted` / `negotiation` 等阶段名，但不写阶段变更时间，SHALL NOT 被处理。范围内的商机还要满足后两条 requirement 才流转到 `stale`。
 
 #### Scenario: 超期且无在途草稿
-- **WHEN** 开关开启，`staleAfterDays = 21`，商机阶段 `follow_up`，最后互动 30 天前，买家从未来信，没有审批动作
+- **WHEN** 开关开启，`staleAfterDays = 21`，商机阶段 `follow_up`，40 天前推进、最后互动 30 天前，买家从未来信，没有审批动作
 - **THEN** 商机流转到 `stale`
 
-#### Scenario: 有在途草稿
-- **WHEN** 同上，但该商机有一个 `pending` 的询盘回复审批
-- **THEN** 商机不流转
-
-#### Scenario: 买家近期来信
-- **WHEN** 同上，但买家 3 天前来信
+#### Scenario: 旧车道商机
+- **WHEN** 商机阶段为 `quoted`，阶段变更时间为空（Sunny 窗饰车道）
 - **THEN** 商机不流转
 
 #### Scenario: 非开放阶段
 - **WHEN** 商机阶段为 `nurture`、`stale` 或 `won`，其余条件满足
 - **THEN** 商机不流转
+
+### Requirement: 自动搁置看最后活动与买家来信
+最后活动时间取以下三者中最晚的一个，三者都没有时取创建时间：
+- 最后互动时间；
+- 阶段变更时间；
+- 该商机最新一条互动记录的时间（包括不经 Revenue Spine 写入的互动）。
+
+商机 SHALL 只在同时满足以下条件时流转：
+- 最后活动时间早于 `followUp.staleAfterDays` 天前；
+- 买家最后来信为空或早于同一时点；
+- 买家没有在等我们回复（没有来信，或来信之后我方有过外发）。
+
+#### Scenario: 近期有人推进
+- **WHEN** 最后互动 25 天前，但 3 天前有人把阶段推进到 `quoting`
+- **THEN** 商机不流转
+
+#### Scenario: 其它入口的互动
+- **WHEN** 最后互动字段 30 天前，但该商机有一条 2 天前的互动记录（报价邮件或外贸收件箱）
+- **THEN** 商机不流转
+
+#### Scenario: 买家近期来信
+- **WHEN** 买家 3 天前来信
+- **THEN** 商机不流转
+
+#### Scenario: 买家在等我们回复
+- **WHEN** 买家 25 天前来信，之后我方没有外发
+- **THEN** 商机不流转
+
+### Requirement: 有在途审批的商机不搁置
+商机有状态为 `pending` 或 `approved` 的审批动作时 SHALL NOT 被搁置。识别依据：
+- 载荷中的商机 id；
+- 载荷中的报价 id（按报价所属商机映射）；
+- 载荷中指向商机或报价的目标 / 资源引用。
+
+在途审批读到上限、无法确认时，本轮该组织 SHALL NOT 搁置任何商机。
+
+#### Scenario: 有在途草稿
+- **WHEN** 商机满足搁置条件，但有一个 `pending` 的询盘回复审批，或它的报价有一个待批的让利审批
+- **THEN** 商机不流转
+
+#### Scenario: 在途审批读不全
+- **WHEN** 本组织在途审批数超过读取上限
+- **THEN** 本轮该组织不搁置任何商机
+
+### Requirement: 自动搁置的最低天数
+`followUp.staleAfterDays` 低于 max(14, 最后一次无回复跟进天数 + 7) 时，自动搁置 SHALL 视为关闭：不查询、不流转、不通知。默认 policy（21 天，跟进 3 / 7 / 14 天）刚好满足。
+
+#### Scenario: 阈值过低
+- **WHEN** 开关开启，`staleAfterDays` 为 0、10 或 20，无回复跟进为 3 / 7 / 14 天
+- **THEN** 自动搁置视为关闭，候选查询没有发生
 
 ### Requirement: 流转方式与审计
 自动搁置 SHALL 经唯一阶段写入口完成，来源为 `system`，SHALL NOT 放宽阶段流转规则。每次流转的审计 SHALL 包含：
@@ -65,7 +109,7 @@ policy SHALL 提供 `autonomy.autoStale` 开关，默认 `false`；存量 policy
 - **THEN** 阶段流转规则表与改动前逐项相同，且每个开放阶段本来就允许转 `stale`
 
 ### Requirement: 通知负责人
-每轮自动搁置后，系统 SHALL 给每个负责人发一条站内通知，类型 `followup`，汇总本轮被搁置的商机数与前三个商机标题。只有一个商机时，通知 SHALL 关联到该商机（点击进入商机详情）；多个时元数据 SHALL 带商机 id 列表。没有负责人的商机 SHALL 计入创建人的通知。通知 SHALL NOT 包含买家邮箱、电话或任何金额。通知失败 SHALL NOT 回滚已完成的流转，也 SHALL NOT 中断本组织的后续步骤。
+每轮自动搁置后，系统 SHALL 给每个负责人发一条站内通知，类型 `followup`，汇总本轮被搁置的商机数与前三个商机标题。只有一个商机时，通知 SHALL 关联到该商机（点击进入商机详情）；多个时元数据 SHALL 带商机 id 列表。没有负责人的商机 SHALL 计入创建人的通知。通知 SHALL NOT 包含买家邮箱、电话或任何金额：商机标题可能就是买家邮箱或电话（新询盘没有公司名与姓名时），通知里 SHALL 遮盖。通知失败 SHALL NOT 回滚已完成的流转，也 SHALL NOT 中断本组织的后续步骤。
 
 #### Scenario: 按负责人汇总
 - **WHEN** 一轮内负责人 A 的 3 个商机、负责人 B 的 1 个商机被搁置
@@ -75,16 +119,32 @@ policy SHALL 提供 `autonomy.autoStale` 开关，默认 `false`；存量 policy
 - **WHEN** 被搁置的商机没有负责人，创建人为 C
 - **THEN** C 收到通知
 
+#### Scenario: 标题含联系方式
+- **WHEN** 被搁置的商机标题为 "Bathrobe — john.smith@acme-home.example" 与 "Towel — +1 (416) 555-0199"
+- **THEN** 通知里这两处显示为 "[邮箱]" 与 "[电话]"；"MOQ 500-1000 pcs" 这类数量区间不被遮盖
+
 ### Requirement: 上限与幂等
-每个组织每轮 SHALL 最多流转 200 个商机，并遵守定时任务既有的维护时间预算；剩余的 SHALL 留到下一轮。已经是 `stale` 的商机 SHALL NOT 再次成为候选。单个商机流转失败 SHALL NOT 中断同组织其它商机。
+每个组织每轮 SHALL 最多读取 500 个候选、最多流转 200 个，并遵守定时任务既有的维护时间预算；被跳过的候选 SHALL NOT 占用流转名额，剩余的 SHALL 留到下一轮。已经是 `stale` 的商机 SHALL NOT 再次成为候选。
+
+流转前 SHALL 重读一次商机并重新判定，循环期间刚发生的来信、推进或删除 SHALL 让它跳过。单个商机流转失败 SHALL NOT 中断同组织其它商机；阶段已写入但流转的后续步骤失败时，SHALL 按已搁置计并通知。
+
+自动搁置整体出错 SHALL NOT 影响同组织本轮的下一步重算与跟进草稿。
 
 #### Scenario: 第二轮
 - **WHEN** 上一轮已把商机 X 搁置，下一轮运行
 - **THEN** X 不再被流转、不再被通知
 
 #### Scenario: 单个失败
-- **WHEN** 一轮有 3 个候选，其中第 2 个流转返回失败
-- **THEN** 第 1、3 个照常流转，结果里记 1 个失败
+- **WHEN** 一轮有 3 个候选，其中第 2 个流转返回失败、第 3 个抛错
+- **THEN** 第 1 个照常流转，结果里记 2 个失败
+
+#### Scenario: 流转前重读
+- **WHEN** 候选在读取后、流转前收到买家来信
+- **THEN** 该商机不流转
+
+#### Scenario: 失败隔离
+- **WHEN** 运行自治测试
+- **THEN** 源码断言定时任务里自动搁置单独兜错，错误写进该组织结果的 `autoStaleError`
 
 ### Requirement: 不产生外部动作
 自治动作 SHALL NOT 创建审批动作、草稿、邮件或任何对外发送，SHALL NOT 自动批准或驳回任何审批，SHALL NOT 新增定时任务或队列。

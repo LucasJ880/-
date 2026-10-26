@@ -7,7 +7,7 @@
   - `decideAutoStale` 判定（含跳过原因）；
   - 依赖可注入的执行器 `runAutoStale`（流转、汇总通知、上限 200、预算、失败隔离）。
   - 新建 `src/lib/revenue-spine/__tests__/autonomy.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
-  - verify：测试退出 0，覆盖以下 spec 的全部 scenario：「自动搁置默认关闭」「自动搁置的条件」「通知负责人」「上限与幂等」。
+  - verify：测试退出 0，覆盖以下 spec 的全部 scenario：「自动搁置默认关闭」「自动搁置的范围」「自动搁置看最后活动与买家来信」「有在途审批的商机不搁置」「自动搁置的最低天数」「通知负责人」「上限与幂等」。
 
 ## 2. 接入
 

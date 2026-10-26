@@ -17,10 +17,11 @@ B-5 让这件事按 policy 自动完成，每次流转留审计、通知负责�
 - **policy 新增 `autonomy.autoStale`（布尔，默认 `false`）**：
   - 存量 policy 没有这一项时视为关闭；
   - 只认布尔值，与 `notify.wechatOnNewDraft` 同一合并规则。
-- **自动转 stale**：开启的组织，在既有 `revenue-spine` 定时任务（每 15 分钟）里对开放商机逐个判定，同时满足以下条件的流转到 `stale`：
-  1. 最后互动（无互动时取创建时间）早于 `followUp.staleAfterDays` 天前；
-  2. 买家在这段时间内没有来信；
-  3. 该商机没有待审批或已批准未执行的审批动作（即没有在途草稿）。
+- **自动转 stale**：开启的组织，在既有 `revenue-spine` 定时任务（每 15 分钟）里对 Revenue Spine 维护的开放商机逐个判定，同时满足以下条件的流转到 `stale`：
+  1. 最后活动（最后互动、阶段变更、最新互动记录三者取最晚）早于 `followUp.staleAfterDays` 天前；
+  2. 买家在这段时间内没有来信，也不在等我们回复；
+  3. 该商机没有待审批或已批准未执行的审批动作（询盘回复、跟进草稿、报价让利等）。
+- **最低天数**：`staleAfterDays` 低于 max(14, 最后一次无回复跟进 + 7) 时视为关闭，避免把刚进来的询盘或跟进中的商机搁置。
 - **流转方式**：
   - 经唯一写入口 `transitionOpportunity`，来源 `system`；
   - 阶段规则 `ALLOWED_TRANSITIONS` 不放宽：所有开放阶段本来就允许转 `stale`；
@@ -53,6 +54,14 @@ B-5 让这件事按 policy 自动完成，每次流转留审计、通知负责�
 4. **"无 pending 草稿"的口径**：该商机没有 `pending` 或 `approved`（已批准未执行）状态的审批动作。按载荷里的商机 id 匹配，与 FDE 跟进草稿的去重口径一致。
 5. **通知类型用既有 `followup`，按负责人汇总**：用户的通知偏好里本来就有这个类型，不新增类型；任务书写"通知负责人"，按负责人每轮一条汇总，不按商机逐条发。
 6. **policy 存在 `OrgBusinessRule`**（`revenue_spine.policy`），不在 `settingsJson`。seed 脚本走既有的发布函数，生成新版本，可回滚。
+7. **【GATE 注意项】company.log 里的操作人是负责人，不是 system**：
+   - `AuditLog.userId` 有外键，`transition.ts` 对机器流转一直记在负责人名下；
+   - 来源 `system` 与 `policyKey` 写在审计 `afterData` 里；
+   - A-2 时间线只显示"操作人 · 动作代码"，所以看上去与人工流转一样。
+   - 开启后第一轮每个组织最多 200 条，会占满时间线前几页。
+   - 建议：A-2 时间线加常见动作的中文标签，并显示来源（HANDOFF 已记录为后续改进点）。本 change 不改时间线。
+8. **只处理 Revenue Spine 维护的商机**（阶段变更时间非空）：Sunny 窗饰车道的商机共用 `quoted` / `negotiation` 等阶段名，但不写这些时间。如果按旧口径处理，它们会被误搁置并从 `/sales` 看板消失。
+9. **买家在等我们回复的商机不搁置**：这类商机该回复或人工关闭。自动搁置会把下一步从"回复客户"变成"激活或关闭"，并让它从老板今日视图的"回复超时"里消失。
 
 ## Capabilities
 
