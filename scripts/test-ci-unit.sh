@@ -293,6 +293,9 @@ npx tsx src/lib/ai/model-policy/__tests__/benchmark-harness.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
+# 组织驾驶舱 A-1 岗位注册表穷举（openspec change org-cockpit-posts；纯逻辑，无 DB）
+npx tsx src/lib/cockpit/__tests__/posts.test.ts
+
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
 
