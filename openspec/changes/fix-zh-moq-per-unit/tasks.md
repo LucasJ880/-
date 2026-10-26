@@ -12,7 +12,9 @@
 
 ## 3. 集成检查
 
-- [ ] 3.1 跑门禁。verify：`npm test` 与 1.1 基线比较新增失败为 0；`npm run lint:baseline` 通过；`bash scripts/check-test-registry.sh` 退出 0；`openspec validate fix-zh-moq-per-unit --strict` 通过；`git diff --stat origin/main` 不含 `prisma/`、`openspec/specs/`。
+- [x] 3.1 跑门禁。verify：`npm test` 与 1.1 基线比较新增失败为 0；`npm run lint:baseline` 通过；`bash scripts/check-test-registry.sh` 退出 0；`openspec validate fix-zh-moq-per-unit --strict` 通过；`git diff --stat origin/main` 不含 `prisma/`、`openspec/specs/`。
+  - 实测（2026-10-26）：`npm test` 410/425，失败清单与 1.1 基线逐项相同（新增失败 0）；`npm run test:ci` PASS；`npm run typecheck`（6 GB 堆）退出 0；`npm run lint:baseline` PASS；`openspec validate --strict` valid；diff 不含 `prisma/`、`openspec/specs/`。
+  - `bash scripts/check-test-registry.sh` 退出 1，但输出与干净 main 逐字相同：两个未注册文件来自 #242（commit a1d951d），不是本 change 引入，按"一个 change = 一个 PR"不在此修。
 
 ## Workflow follow-up
 
