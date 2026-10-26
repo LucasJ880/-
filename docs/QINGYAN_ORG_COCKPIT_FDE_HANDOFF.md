@@ -37,9 +37,15 @@
   - 任务书第 1 条（decline 自动关闭）、第 3 条（配额 `quota_hit` + 通知 admin）既有代码已实现，只补审计键名与静态断言。
   - **GATE 注意项**：company.log 操作人显示为负责人（`AuditLog.userId` 外键），来源与键名只在 `afterData`。建议后续给 A-2 时间线加动作中文标签与来源。
   - staging：先跑 seed 脚本 dry-run，再 `--write`；核对审计、通知，确认 Sunny 窗饰车道商机未被动。
-- **下一步：等决策**。
-  - B-2 等 B-1 的"改稿来源"决策；B-3 等"偏好来源"决策（见下方"B-3 预研事实"）；A-5、B-6 是决策项。
-  - 决策到位前，可做的只有已合并 change 的 archive（`/opsx:archive <change> --yes`，独立小 PR）。
+- **决策已到（用户，2026-10-26）**：B-2 选 (b)，对"人工回复作废草稿"（`SUPERSEDED_BY_MANUAL_REPLY`）做草稿 vs 人工回复的 diff；B-3 选 (b)，偏好放进 `revenue_spine.policy` 新段。
+- **进行中：B-2 `fde-fact-proposals`**。分支 `claude/fde-fact-proposals`，叠在 B-5 上。四件套已写，`openspec validate --strict` 通过。
+  - 归档顺序：先归档 `fde-feedback-loop`，再归档本 change（本 change 修改 B-1 的能力）。
+  - 设计要点：
+    - B-1 记录器加"人工已回复"终态（`replaced_by_manual_reply`，humanDecision edited，diff = 快照 vs 外发互动正文）；
+    - 记录后对改稿类事件起卡：规则化抽取 6 个 commercialFacts 键，价格句整句跳过，先截引用；
+    - 新类型 `revenue_spine.propose_commercial_fact`：审批人为组织所有者，执行器认领前角色门 admin / boss；
+    - 批准经 `publishRevenueSpineRule(business_profile)` 写入。
+- **之后：B-3 `fde-preferences-in-draft`**，叠在 B-2 上，偏好放 policy 新段（见下方"B-3 预研事实"选项 b）。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -135,7 +141,7 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 3. **草稿里已有的可配置项**：落款来自 `businessProfile.commercialFacts.signature`（`reply-draft.ts` `signatureLines` / `signOff`）；追问来自 `rfq/missing-info.ts` `buildClarifyingQuestions`（按缺失字段与 `maxQuestionsPerReply`）。
 4. **守卫**：`reply-draft.ts` `checkDraftGuardrails(body, allowed)`，润色之后再跑。
 5. **开关位置**：任务书写 `settingsJson.revenue_spine.fde.useConfirmedPreferences`，代码里还没有这个键。Revenue Spine 的其它开关在 `OrgBusinessRule(revenue_spine.policy)`。
-6. **待决定**：偏好从哪来。选项：
+6. **已决定（用户，2026-10-26）：选 (b)**。原选项：选项：
    - (a) active `RolePlaybook`（`roleScope = inbound_sales_fde`）的 `templates` 里约定结构化块（问候 / 落款 / 追问顺序 / 禁用词），由管理员在 playbook 里维护；
    - (b) 放进 `revenue_spine.policy` 新段（与 `notify` / `autonomy` 同级），不经 employee-ai；
    - (c) 暂缓，等 B-2 / practice-miner 能产出结构化团队偏好。
