@@ -11,6 +11,8 @@ import {
   DRAFT_SNAPSHOT_AUDIT_ACTION,
   FDE_FEEDBACK_SKILL,
   INQUIRY_REPLY_TYPE,
+  MANUAL_REPLY_REASON,
+  parseSupersessionEvidence,
   buildDraftSnapshot,
   existingFeedbackWhere,
   feedbackSweepWhere,
@@ -22,8 +24,10 @@ import {
   recordInquiryReplyFeedbackSafe,
   sweepInquiryReplyFeedback,
   type DraftSnapshotInput,
+  type AfterRecordedContext,
   type FeedbackActionRow,
   type FeedbackDeps,
+  type ManualReply,
 } from "../draft-feedback";
 
 let pass = 0;
@@ -54,6 +58,26 @@ const BODY = [
   "Sunny Home Deco",
 ].join("\n");
 const BUYER = { contactName: "John Smith", companyName: "Acme Home Ltd", recipientEmail: "buyer@acme.com" };
+
+/** 销售在外贸收件箱的人工回复：比草稿多一段 MOQ，末尾引用买家原信（B-2） */
+const MANUAL_BODY = [
+  "Dear John,",
+  "",
+  "Thank you for contacting Sunny Home Deco on behalf of Acme Home Ltd. Call John Smith at +1 (416) 555-0199.",
+  "",
+  "Our MOQ is 500 pcs per color.",
+  "",
+  "To prepare an accurate quotation, could you please let us know:",
+  "1. Which fabric colours do you need?",
+  "",
+  "Best regards,",
+  "Lucas",
+  "Sunny Home Deco",
+  "",
+  "On Mon, Oct 26, 2026 at 9:00 AM John Smith <buyer@acme.com> wrote:",
+  "> We need 3000 sets, please quote.",
+].join("\n");
+const MANUAL_REASON = `${"SUPERSEDED_BY_MANUAL_REPLY"} tradeMessageId=tm-1 outboundInteractionId=ix-1 triggeredBy=u-sales terminationMode=system_superseded`;
 
 const snapshotInput = (o: Partial<DraftSnapshotInput> = {}): DraftSnapshotInput => ({
   orgId: "org-1",
@@ -87,11 +111,28 @@ function row(o: Partial<FeedbackActionRow> = {}): FeedbackActionRow {
   };
 }
 
-function deps(o: Partial<FeedbackDeps> & { action?: FeedbackActionRow | null; existing?: boolean; snapshot?: ReturnType<typeof buildDraftSnapshot> | null; testInquiry?: boolean } = {}) {
+function deps(
+  o: Partial<FeedbackDeps> & {
+    action?: FeedbackActionRow | null;
+    existing?: boolean;
+    snapshot?: ReturnType<typeof buildDraftSnapshot> | null;
+    testInquiry?: boolean;
+    manual?: ManualReply | null;
+  } = {},
+) {
   const created: CreateFeedbackInput[] = [];
+  const after: AfterRecordedContext[] = [];
+  const manualLoads: Array<[string, string]> = [];
   let locks = 0;
   const d: FeedbackDeps = {
     loadAction: async () => (o.action === undefined ? row() : o.action),
+    loadManualReply: async (orgId, interactionId) => {
+      manualLoads.push([orgId, interactionId]);
+      return o.manual === undefined ? { content: MANUAL_BODY, source: "trade_inbox.reply" } : o.manual;
+    },
+    afterRecorded: async (ctx) => {
+      after.push(ctx);
+    },
     loadSnapshots: async () => (o.snapshot === undefined ? [buildDraftSnapshot(snapshotInput())] : o.snapshot ? [o.snapshot] : []),
     loadBuyer: async () => ({ ...BUYER, testInquiry: o.testInquiry ?? false }),
     hasFeedback: async () => o.existing ?? false,
@@ -105,7 +146,7 @@ function deps(o: Partial<FeedbackDeps> & { action?: FeedbackActionRow | null; ex
     },
     ...o,
   };
-  return { d, created, locks: () => locks };
+  return { d, created, after, manualLoads, locks: () => locks };
 }
 
 async function main() {
@@ -145,7 +186,7 @@ async function main() {
     ["过期", { status: "failed", failureReason: "已过期", decidedById: null }, "expired"],
     ["人工取消 → 不记", { status: "failed", failureReason: "已取消", decidedById: "u" }, null],
     ["新来信作废 → 不记（spec 场景）", { status: "failed", failureReason: "SUPERSEDED_BY_NEWER_INBOUND;inboundInteractionId=i", decidedById: null }, null],
-    ["人工已回复作废 → 不记", { status: "failed", failureReason: "SUPERSEDED_BY_MANUAL_REPLY", decidedById: null }, null],
+    ["人工已回复作废 → manual_reply（B-2）", { status: "failed", failureReason: "SUPERSEDED_BY_MANUAL_REPLY", decidedById: null }, "manual_reply"],
     ["入驻测试作废 → 不记", { status: "failed", failureReason: "SUPERSEDED_BY_ONBOARDING_TEST", decidedById: null }, null],
     ["批量准备失败 → 不记", { status: "failed", failureReason: "BATCH_PREPARE_FAILED", decidedById: "u" }, null],
     ["待审批 → 不记", { status: "pending" }, null],
@@ -291,6 +332,54 @@ async function main() {
     ok(!stripComments(read("src/app/api/agent-feedback/route.ts")).includes("systemRecorded"), "手工入口不传系统记录标记");
   }
 
+  console.log("人工已回复（B-2，修改后 spec「终态自动产生反馈事件」）");
+  {
+    const manualRow = row({ status: "failed", failureReason: MANUAL_REASON, decidedById: null });
+    const { d, created, after, manualLoads } = deps({ action: manualRow });
+    const r = await recordInquiryReplyFeedback("pa-1", d);
+    const e = created[0];
+    const ref = e?.aiOutputRef as Record<string, unknown>;
+    const diff = e?.diffSummary as { sections?: string[]; capturedNumbers?: Array<{ value: number; unit: string }> };
+    ok(r.status === "recorded" && r.feedbackType === "replaced_by_manual_reply" && e.humanDecision === "edited" && e.userId === "u-sales", "人工已回复 → replaced_by_manual_reply / edited，用户为发出人工回复的人（spec 场景）", { r, user: e?.userId });
+    ok(ref.terminal === "manual_reply" && ref.feedbackType === "replaced_by_manual_reply", "引用里带终态与类型");
+    ok(JSON.stringify(manualLoads) === JSON.stringify([["org-1", "ix-1"]]), "按组织读那次外发互动的正文", manualLoads);
+    ok(diff.sections?.join(",") === "facts" && diff.capturedNumbers?.some((n) => n.value === 500 && n.unit === "pcs") === true, "diff：改动只在事实段，捕获 500 pcs；引用的买家原信不算改动", diff);
+    const json = JSON.stringify(e);
+    ok(!json.includes("Our MOQ is 500") && !json.includes("John") && !json.includes("Acme") && !json.includes("buyer@acme.com") && !json.includes("3000 sets"), "事件不含正文句子与买家信息", json.slice(0, 300));
+    ok(after.length === 1 && after[0].feedbackType === "replaced_by_manual_reply" && after[0].principalUserId === "u-sales" && after[0].sourcePendingActionId === "pa-1" && after[0].opportunityId === "opp-1", "记录后触发商务事实提案（来源草稿 / 商机 / 创建人）", after[0]);
+    ok(after[0]?.sentRaw.includes("Our MOQ is 500 pcs per color.") && !after[0]?.sentRaw.includes("3000 sets") && after[0]?.snapshotBody?.includes("{{buyer_contact}}") === true, "交给提案的是截掉引用后的原文 + 草稿快照");
+
+    const outreach = deps({ action: manualRow, manual: { content: MANUAL_BODY, source: "trade_outreach.send" } });
+    const r2 = await recordInquiryReplyFeedback("pa-1", outreach.d);
+    ok(r2.status === "recorded" && outreach.after.length === 0, "开发信作废：照样记事件，但不从模板里抽商务事实");
+
+    const noText = deps({ action: manualRow, manual: null });
+    await recordInquiryReplyFeedback("pa-1", noText.d);
+    const noTextDiff = noText.created[0]?.diffSummary as { noManualReply?: boolean; changed?: boolean };
+    ok(noTextDiff.noManualReply === true && noTextDiff.changed === false && noText.after.length === 0, "找不到外发正文：空 diff 并注明，不起提案");
+
+    const asIs = deps();
+    await recordInquiryReplyFeedback("pa-1", asIs.d);
+    ok(asIs.after.length === 0, "照发批准不触发提案（只有改稿类事件）");
+
+    const boom = deps({ action: manualRow, afterRecorded: async () => { throw new Error("boom"); } });
+    const r3 = await recordInquiryReplyFeedback("pa-1", boom.d);
+    ok(r3.status === "recorded", "提案失败不影响事件记录");
+
+    const dup = deps({ action: manualRow, existing: true });
+    const r4 = await recordInquiryReplyFeedback("pa-1", dup.d);
+    ok(r4.status === "skipped" && dup.after.length === 0, "已有同终态事件：不重复记，也不重复起提案");
+
+    const tested = deps({ action: manualRow, testInquiry: true });
+    ok((await recordInquiryReplyFeedback("pa-1", tested.d)).status === "skipped" && tested.after.length === 0, "入驻测试询盘：不记、不起提案");
+
+    ok(JSON.stringify(parseSupersessionEvidence(MANUAL_REASON)) === JSON.stringify({ outboundInteractionId: "ix-1", triggeredBy: "u-sales" }), "解析作废证据");
+    ok(JSON.stringify(parseSupersessionEvidence("SUPERSEDED_BY_MANUAL_REPLY triggeredBy=none")) === JSON.stringify({ outboundInteractionId: null, triggeredBy: null }) && parseSupersessionEvidence(null).triggeredBy === null, "缺证据 / triggeredBy=none → null");
+    const noTrigger = deps({ action: row({ status: "failed", failureReason: "SUPERSEDED_BY_MANUAL_REPLY outboundInteractionId=ix-1 triggeredBy=none", decidedById: null }) });
+    await recordInquiryReplyFeedback("pa-1", noTrigger.d);
+    ok(noTrigger.created[0]?.userId === "u-approver", "没有触发人：回退到审批人");
+  }
+
   console.log("补漏扫描");
   {
     const now = new Date("2026-10-26T12:00:00Z");
@@ -298,6 +387,7 @@ async function main() {
     const json = JSON.stringify(w.OR);
     ok(w.type === INQUIRY_REPLY_TYPE && json.includes('"status":"executed"') && json.includes('"failureReason":"已过期"') && json.includes('"startsWith":"关联任务已取消"') && json.includes('"startsWith":"BATCH_PREPARE_FAILED"') && json.includes('"startsWith":"SUPERSEDED_"') && json.includes('"failureReason":"已取消"'), "查询里就排除不会产事件的终态（取消 / 作废 / 批量失败 / 关联任务取消）", json);
     ok(w.updatedAt.lte.getTime() === now.getTime() - 10 * 60_000 && w.updatedAt.gte.getTime() === now.getTime() - 7 * 86_400_000, "近 7 天、终态已超过 10 分钟");
+    ok(json.includes('{"status":"failed","failureReason":{"startsWith":"SUPERSEDED_BY_MANUAL_REPLY"}}'), "补漏也覆盖人工已回复的作废（B-2）", json);
     ok(JSON.stringify(existingFeedbackWhere(["a"])) === JSON.stringify({ skillSlug: FDE_FEEDBACK_SKILL, pendingActionId: { in: ["a"] } }), "已有事件按员工键 + 审批 id 查");
     const recorded: string[] = [];
     const res = await sweepInquiryReplyFeedback(now, {
@@ -367,6 +457,11 @@ async function main() {
     ok(/const pendingActionId = approval\.actionIds\[0\];\s*out\.drafted \+= 1;\s*if \(pendingActionId\) \{\s*await recordInquiryDraftSnapshotSafe\(/.test(follow) && /followUpStep: due\.step/.test(follow), "跟进草稿：新建后写快照，带第几次跟进");
     const route = stripComments(read("src/app/api/cron/approval-timeout/route.ts"));
     ok(/try \{[\s\S]*sweepInquiryReplyFeedback\(now\)[\s\S]*\} catch/.test(route) && route.indexOf("sweepInquiryReplyFeedback(") > route.indexOf("expireOverdueApprovals(now)"), "approval-timeout：过期之后补漏，包在异常保护里");
+    const sync = stripComments(read("src/lib/trade/outbound-sync.ts"));
+    const main = sync.slice(sync.indexOf("export async function syncTradeOutboundToRevenueSpine"));
+    ok(/const sup = await supersedePendingInquiryReplies\(\{[\s\S]*?\}\);\s*if \(sup\.superseded\.length\) await recordManualReplyFeedback\(sup\.superseded\);/.test(main), "外贸外发同步：作废成功后为被作废的草稿记反馈（B-2）");
+    const syncHelper = sync.slice(sync.indexOf("async function recordManualReplyFeedback"), sync.indexOf("export async function syncTradeOutboundToRevenueSpine"));
+    ok(/try \{\s*const \{ recordInquiryReplyFeedbackSafe \} = await import\("@\/lib\/revenue-spine\/fde\/draft-feedback"\);[\s\S]*recordInquiryReplyFeedbackSafe\(id, \{ type: INQUIRY_REPLY_ACTION_TYPE \}\)[\s\S]*\} catch/.test(syncHelper), "外贸外发同步：动态导入、包在异常保护里（不影响外发同步结果）");
     const vercel = read("vercel.json");
     ok(!/feedback/i.test(vercel) && (vercel.match(/"path":/g) ?? []).length === 23, "不新增定时任务（vercel.json 仍是 23 条 cron）");
   }
@@ -374,6 +469,7 @@ async function main() {
   console.log("常量与写入方一致");
   ok(read("src/lib/revenue-spine/fde/inbound-sales.ts").includes(`INQUIRY_REPLY_ACTION_TYPE = "${INQUIRY_REPLY_TYPE}"`), "询盘回复动作类型");
   ok(read("src/lib/revenue-spine/fde/actions.ts").includes(`FDE_EMPLOYEE_KEY = "${FDE_FEEDBACK_SKILL}"`), "员工键");
+  ok(read("src/lib/trade/outbound-sync.ts").includes(`SUPERSEDED_BY_MANUAL_REPLY = "${MANUAL_REPLY_REASON}"`), "人工已回复作废原因（B-2）");
 
   console.log(`\nFDE 询盘回复反馈闭环: ${pass}/${pass + fail} passed`);
   if (fail > 0) process.exit(1);

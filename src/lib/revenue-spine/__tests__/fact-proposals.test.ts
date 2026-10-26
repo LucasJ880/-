@@ -283,6 +283,56 @@ async function main() {
     assert.match(src, /select: \{ ownerId: true \}/);
   });
 
+  await ok("端到端：人工回复作废 → 记录器写改稿事件 → 起 moq / 样品 / 落款卡（假依赖）", async () => {
+    const { recordInquiryReplyFeedback, buildDraftSnapshot } = await import("../fde/draft-feedback");
+    const snapshot = buildDraftSnapshot({
+      orgId: ORG,
+      actorUserId: "u_owner",
+      pendingActionId: "pa_draft_1",
+      opportunityId: "opp_1",
+      followUpStep: null,
+      subject: "Re: bathrobes",
+      body: DRAFT.replace("{{buyer_contact}}", "John"),
+      language: "en",
+      buyer: BUYER,
+      guardrailViolations: [],
+      factsUsed: [],
+      pendingInternalConfirmation: [],
+      templateOnly: true,
+    });
+    const f = fakeProposalDeps();
+    const events: unknown[] = [];
+    const r = await recordInquiryReplyFeedback("pa_draft_1", {
+      loadAction: async () => ({
+        id: "pa_draft_1",
+        orgId: ORG,
+        type: "sales.send_inquiry_reply",
+        status: "failed",
+        failureReason: "SUPERSEDED_BY_MANUAL_REPLY tradeMessageId=tm outboundInteractionId=ix triggeredBy=u_sales terminationMode=system_superseded",
+        decidedById: null,
+        approverUserId: "u_owner",
+        createdById: "u_owner",
+        payload: { opportunityId: "opp_1", body: DRAFT, metadata: { orgId: ORG } },
+      }),
+      loadManualReply: async () => ({ content: MANUAL, source: "trade_inbox.reply" }),
+      loadSnapshots: async () => [snapshot],
+      loadBuyer: async () => ({ ...BUYER, testInquiry: false }),
+      hasFeedback: async () => false,
+      createFeedback: async (input) => {
+        events.push(input);
+        return { id: "ev_1" };
+      },
+      withLock: async (_id, fn) => fn(),
+      afterRecorded: async (ctx) => {
+        await proposeCommercialFacts({ ...ctx, now: NOW }, f.deps);
+      },
+    });
+    assert.equal(r.status, "recorded");
+    assert.equal(events.length, 1);
+    assert.deepEqual(f.created.map((c) => c.payload.field), ["moq", "sampleLeadTime", "signature"]);
+    assert.ok(f.created.every((c) => c.principalUserId === "u_sales" && c.payload.sourcePendingActionId === "pa_draft_1"));
+  });
+
   console.log("\n审批权限");
 
   await ok("场景「销售角色批准」：sales / trade / manager 被拒；admin / super_admin / boss 放行；其它类型不受影响", () => {

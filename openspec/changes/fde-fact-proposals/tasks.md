@@ -23,7 +23,7 @@
 
 ## 3. 人工回复作废的反馈事件与接入
 
-- [ ] 3.1 B-1 记录器与接入：
+- [x] 3.1 B-1 记录器与接入：
   - `fde/draft-feedback.ts`：人工回复终态、读外发正文、userId、补漏条件、记录后触发起卡；
   - `trade/outbound-sync.ts`：作废成功后尽力而为地记录。
   - `draft-feedback.test.ts` 补对应断言（含外发同步接入点的静态断言）。
