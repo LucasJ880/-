@@ -60,7 +60,7 @@
   - 改进项按推荐顺序做。
 - **长任务队列**（每项一个 change、一个分支、一个 PR，按顺序叠加；每项都走 propose → apply → 测试 → verify → 交叉审查 → 报告 → PR → 本文件）：
   1. **C-2 `fde-preferences-in-followup`**（分支 `claude/fde-preferences-in-followup`，叠在 B-3 上，[PR #253](https://github.com/LucasJ880/-/pull/253)，base = B-3 分支）：**完成**。报告 `docs/QINGYAN_ORG_COCKPIT_C-2_REPORT.md`。无回复跟进草稿读 `policy.fde` 偏好，关闭时逐字节不变（跟进金样本 `followup-golden-pre-c2.json`）；交叉审查 1 阻塞 + 5 应修全部处理。GATE 注意项：只缺免问字段时第 1 次跟进退到兜底问句。
-  2. **A-3b `org-cockpit-proactive-notify`**（分支 `claude/org-cockpit-proactive-notify`，叠在 C-2 上）：实现 + 交叉审查修正已推（`4ddefa9c`），等第二轮审查与全量门禁，再写报告开 PR。
+  2. **A-3b `org-cockpit-proactive-notify`**（分支 `claude/org-cockpit-proactive-notify`，叠在 C-2 上，[PR #254](https://github.com/LucasJ880/-/pull/254)，base = C-2 分支）：**完成**。报告 `docs/QINGYAN_ORG_COCKPIT_A-3b_REPORT.md`。交叉审查两轮各 1 阻塞 + 3 应修全部处理；门禁 433/447 = 基线、test:ci / typecheck / lint 绿。
      - 交叉审查阻塞：`Notification.sourceKey` 全局唯一，旧 key `proactive:{dedupeKey}` 不含用户 → 同组织第二位管理层永远收不到同一条提醒。已改 `proactive:{userId}:{dedupeKey}`，本人名下旧 key 视为已发（**GATE 注意项**：上线后被别人占掉的提醒会补发本人一次）。
      - 轮转改为游标续排（`AutomationRun.metadataJson.notifyOnlyResumeAfter`，本定时任务自己的运行记录）；补发整轮出错计入失败（运行记 partial）；两轮主体抽成 `runProactiveScanCron(deps)`。
   3. **A-5 `org-cockpit-daily-digest`**（模板版，零 LLM）：**等用户选**。Corporate Memory 写入只允许人工（`assertWritableActorType` 拒 system / ai / agent，`MEMORY_WRITE_PERMISSION = CONSERVATIVE_ADMIN_ONLY`），"夜间日结 → MemoryClaim"与之冲突。选项：(1) 为日结开 system 写入窄例外（需 Evan 批）；(2)（推荐）日结写 `AuditLog cockpit.post_daily_digest`，每组织每天一条、只含计数，不进 MemoryClaim；(3) 暂缓。
@@ -86,6 +86,7 @@
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
 | C-2 | `fde-preferences-in-followup`（[PR #253](https://github.com/LucasJ880/-/pull/253)，base = B-3 分支） | ✅（审查后修订 `c877dd77`） | 5/5 | ✅ 432/446，失败清单 = 基线；test:ci PASS；typecheck 0；lint PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | 沿用 B-3 |
+| A-3b | `org-cockpit-proactive-notify`（[PR #254](https://github.com/LucasJ880/-/pull/254)，base = C-2 分支） | ✅（两轮审查后修订 `19cc8d8b`） | 6/6 | ✅ 433/447，失败清单 = 基线；test:ci PASS；typecheck 0；lint PASS | ✅ 无 WARNING | ✅ 两轮：各 1 阻塞 + 3 应修，全部处理 | 沿用 A-3 |
 
 A-5、B-6 原为决策项；用户 2026-10-26 第二轮决定开始：B-6 按只读就绪度开 change（`fde-v2-readiness`），A-5 等 Corporate Memory 写入口径的选择（见当前位置长任务队列第 3 项）。C-2 / A-3b 是改进项，状态沿用 B-3 / A-3 行。
 
