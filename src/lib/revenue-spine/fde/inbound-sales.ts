@@ -31,7 +31,7 @@ import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
-import { recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
+import { BANNED_PHRASES_SKIPPED, recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
 import { INBOUND_MESSAGE_SEPARATOR } from "../rfq/heuristic-extractor";
@@ -510,8 +510,25 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         pendingInternalConfirmation: draft.pendingInternalConfirmation,
         guardrailViolations: draft.guardrailViolations,
         // 只记偏好键名（不记文案）；开关关闭时不出现
-        ...(draftPrefs ? { draftPreferences: { applied: draftPrefs.applied, ignored: draftPrefs.ignored.map((i) => i.key) } } : {}),
+        ...(draftPrefs
+          ? {
+              draftPreferences: {
+                applied: draftPrefs.applied,
+                ignored: draftPrefs.ignored.map((i) => i.key),
+                ...(draft.preferences?.bannedPhrasesSkipped ? { bannedPhrasesSkipped: true } : {}),
+              },
+            }
+          : {}),
       });
+      // 禁用词替换后拼出了承诺、这一封没替换：记一次审计（同组织同一组只记一次），让管理员能发现配置问题
+      if (draft.preferences?.bannedPhrasesSkipped) {
+        await recordIgnoredDraftPreferencesSafe({
+          orgId,
+          userId: principalUserId,
+          ignored: [BANNED_PHRASES_SKIPPED],
+          employeeKey: FDE_EMPLOYEE_KEY,
+        });
+      }
 
       // ── Step 7 approval（唯一外部副作用入口）──
       // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）

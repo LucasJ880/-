@@ -4,8 +4,8 @@
  * 来源：revenue_spine.policy 的 fde 段（老板 / 管理员经 PUT /api/revenue/policy 写入即"已确认"），不经 employee-ai。
  * - 开关 fde.useConfirmedPreferences 关闭（默认）→ resolveDraftPreferences 返回 null，调用方不传偏好，草稿逐字节不变；
  * - 开启 → 逐条校验，违规项忽略、其余照用：
- *   文案（问候 / 结束语 / 敬语 / 替换词）过草稿守卫与买家原话风险检查，不含数字、换行，不超长；
- *   问候含且只含一个 {name}，其它文案不含花括号；禁用词不含数字、换行；
+ *   文案（问候 / 结束语 / 敬语 / 替换词）过草稿守卫与买家原话风险检查，不含数字（含全角）与数字词、换行，不超长；
+ *   问候含且只含一个 {name}，其它文案不含花括号；禁用词不含数字、换行；替换词不能含任何禁用词（免得链式替换）；
  *   必问 / 免问必须是可追问的 RFQ 字段，必填不能免问，与必问冲突的免问忽略，重复只算一次。
  * - 违规偏好写一条审计（只记键名与原因，不记文案），同一组织同一组违规只记一次；失败不影响起草。
  *
@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { unsafeToRepeat } from "./inquiry-risks";
 import type { DraftPreferenceText, RevenueSpinePolicy } from "./policy";
-import { checkDraftGuardrails, type DraftTemplatePreferences } from "./reply-draft";
+import { checkDraftGuardrails, countBannedPhrases, type DraftTemplatePreferences } from "./reply-draft";
 import { MISSING_FIELD_TIERS, type QuestionPreferences } from "./rfq/missing-info";
 import type { RfqField } from "./rfq/types";
 
@@ -43,10 +43,25 @@ export interface ResolvedDraftPreferences extends DraftTemplatePreferences, Ques
 const ASKABLE = new Map(MISSING_FIELD_TIERS.map((t) => [t.field as string, t]));
 const LANGS = ["zh", "en"] as const;
 
+/** 任何数字（含全角"２４"、阿拉伯-印度数字等 Unicode 十进制数字） */
+const ANY_DIGIT_RE = /\p{Nd}/u;
+/** 控制字符（换行另报） */
+const CONTROL_RE = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
+/**
+ * 数字词：偏好里不许写出天数 / 数量 / 金额（"within three days"、"ten dollars"、"三天内发货"、"五美元一件"）。
+ * 宁可多拦：误拦只是这条偏好被忽略并记审计，管理员换个说法即可。
+ */
+const NUMBER_WORD_EN_RE =
+  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozens?|half|twice|double|triple)\b/i;
+const NUMBER_WORD_ZH_RE =
+  /[〇零一二两三四五六七八九十百千万亿半]+\s*(?:天|日|周|星期|个月|月|年|小时|钟头|分钟|件|个|套|米|码|箱|只|条|张|双|对|美元|美金|元|块|欧元|英镑|成|折|%|％)|百分之/;
+
 /** 文案的共同规则；返回违规原因，合规返回 null。{name} 由调用方先去掉 */
 function textProblem(text: string): string | null {
   if (/[\r\n]/.test(text)) return "含换行";
-  if (/\d/.test(text)) return "含数字";
+  if (CONTROL_RE.test(text)) return "含控制字符";
+  if (ANY_DIGIT_RE.test(text)) return "含数字";
+  if (NUMBER_WORD_EN_RE.test(text) || NUMBER_WORD_ZH_RE.test(text)) return "含数字词";
   if (text.length > DRAFT_PREFERENCE_TEXT_MAX) return `超过 ${DRAFT_PREFERENCE_TEXT_MAX} 字`;
   const violations = checkDraftGuardrails(text);
   if (violations.length) return `含商务承诺：${violations.join("、")}`;
@@ -121,30 +136,41 @@ export function resolveDraftPreferences(policy: Pick<RevenueSpinePolicy, "fde">)
   if (priorityQuestions.length) applied.push("priorityQuestions");
   if (skippedQuestions.length) applied.push("skippedQuestions");
 
-  const bannedPhrases: Array<{ phrase: string; replacement: string }> = [];
+  const candidates: Array<{ key: string; phrase: string; replacement: string }> = [];
   p.bannedPhrases.forEach((b, i) => {
     const key = `bannedPhrases[${i}]`;
     const phrase = b.phrase.trim();
     const replacement = b.replacement.trim();
     let problem: string | null = null;
-    if (bannedPhrases.length >= BANNED_PHRASES_LIMIT) problem = `超出上限（${BANNED_PHRASES_LIMIT} 条）`;
+    if (candidates.length >= BANNED_PHRASES_LIMIT) problem = `超出上限（${BANNED_PHRASES_LIMIT} 条）`;
     else if (/[\r\n]/.test(phrase)) problem = "禁用词含换行";
-    else if (/\d/.test(phrase)) problem = "禁用词含数字";
+    else if (CONTROL_RE.test(phrase)) problem = "禁用词含控制字符";
+    else if (ANY_DIGIT_RE.test(phrase)) problem = "禁用词含数字";
     else if (phrase.length < BANNED_PHRASE_MIN || phrase.length > BANNED_PHRASE_MAX) problem = `禁用词长度须为 ${BANNED_PHRASE_MIN}–${BANNED_PHRASE_MAX} 字`;
-    else if (bannedPhrases.some((x) => x.phrase.toLowerCase() === phrase.toLowerCase())) problem = "重复";
+    else if (candidates.some((x) => x.phrase.toLowerCase() === phrase.toLowerCase())) problem = "重复";
     else if (replacement) {
       const r = plainTextProblem(replacement);
       if (r) problem = `替换词${r}`;
     }
     if (problem) ignored.push({ key, reason: problem });
-    else bannedPhrases.push({ phrase, replacement });
+    else candidates.push({ key, phrase, replacement });
   });
+  // 替换词里含任何禁用词（含自己）会链式替换（A→B 之后 B→C），这样的条目整条忽略
+  const allPhrases = candidates.map((c) => c.phrase);
+  const bannedPhrases: Array<{ phrase: string; replacement: string }> = [];
+  for (const c of candidates) {
+    if (c.replacement && countBannedPhrases(c.replacement, allPhrases) > 0) ignored.push({ key: c.key, reason: "替换词含禁用词" });
+    else bannedPhrases.push({ phrase: c.phrase, replacement: c.replacement });
+  }
   if (bannedPhrases.length) applied.push("bannedPhrases");
 
   return { greeting, closing, valediction, priorityQuestions, skippedQuestions, bannedPhrases, applied, ignored };
 }
 
 // ── 违规审计 ───────────────────────────────────────────────
+
+/** 禁用词替换后草稿过不了守卫、这一封没做替换（buildReplyDraft 的 bannedPhrasesSkipped）时记的条目 */
+export const BANNED_PHRASES_SKIPPED: IgnoredPreference = { key: "bannedPhrases", reason: "替换后草稿过不了守卫，本封未替换" };
 
 /** 同一组违规的指纹（与顺序无关） */
 export function ignoredFingerprint(ignored: readonly IgnoredPreference[]): string {
