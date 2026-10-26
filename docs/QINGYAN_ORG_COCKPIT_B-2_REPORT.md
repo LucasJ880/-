@@ -60,8 +60,8 @@ OpenSpec change：`openspec/changes/fde-fact-proposals/`（proposal / `specs/rev
 | 7 | 无外发 / 无新队列 / 无 LLM | 抽取与起卡全是规则；起卡在既有外发同步与 `approval-timeout` 补漏调用链里同步完成 |
 | 8 | `npm run typecheck`（全量） | 退出 0 |
 | 9 | `npm run lint:baseline` | PASS |
-| 10 | `npm test` 对比基线 | （全量门禁运行中，结果随下一次提交补上） |
-| 11 | `npm run test:ci` | （同上） |
+| 10 | `npm test` 对比基线 | 本分支 430/444（B-5 分支 428/442 + B-2 新增 2 项，全 PASS）；14 项失败与基线逐条一致 |
+| 11 | `npm run test:ci` | `CI unit subset PASS`，含 B-2 两个新测试 |
 | 12 | `bash scripts/check-test-registry.sh` | B-2 新测试已注册；仍有 `main` 上既有的 2 个 trade 测试未注册（不是本 change 引入） |
 | 13 | `git diff --stat claude/fde-internal-autonomy -- prisma/ vercel.json` | 空 |
 | 14 | `openspec validate fde-fact-proposals --strict`；`/opsx:verify` | valid。verify 结果：<br>- tasks 5 / 5；<br>- 新增 7 条 requirement / 26 个 scenario、修改 B-1 的 3 条 / 10 个 scenario，均有测试断言；<br>- design D1–D6 与实现一致（第二轮审查后 D3 已同步）；<br>- 无 CRITICAL / WARNING。<br>未验证：真实 DB 下的 Prisma 查询与审批中心全链路（容器无 DB），留 staging |
