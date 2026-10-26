@@ -2,7 +2,7 @@
 
 ## 1. 补发逻辑
 
-- [ ] 1.1 扫描选项与补发模块：
+- [x] 1.1 扫描选项与补发模块：
   - `src/lib/proactive/run-scan.ts`：可选 `{ autoActions?: boolean }`，默认 `true`；
   - 新建 `src/lib/proactive/manager-notify.ts`：`managerCandidateWhere`、`planManagerNotifyRun`（去重、排除、轮转、上限）、依赖可注入的 `runManagerNotify`（时间预算、单人失败隔离、只提醒）。
   - 新建 `src/lib/proactive/__tests__/manager-notify.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
@@ -10,7 +10,7 @@
 
 ## 2. 定时任务接入
 
-- [ ] 2.1 `/api/cron/proactive-scan`：
+- [x] 2.1 `/api/cron/proactive-scan`：
   - 自动化一轮结果加 `mode`；
   - 补发一轮（排除已处理、时间预算）；
   - 合并结果与元数据。
