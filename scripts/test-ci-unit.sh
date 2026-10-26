@@ -298,6 +298,7 @@ npx tsx src/lib/cockpit/__tests__/posts.test.ts
 npx tsx src/lib/cockpit/__tests__/schedule.test.ts
 npx tsx src/lib/cockpit/__tests__/waiting.test.ts
 npx tsx src/lib/cockpit/__tests__/timeline.test.ts
+npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

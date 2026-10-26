@@ -9,7 +9,7 @@
  */
 
 import { containsOutboundSensitive } from "@/lib/muse-bridge/contract";
-import { POST_KEYS, postForPendingAction, postForWorkDomain, type PostKey } from "./posts";
+import { POST_KEYS, UNCLASSIFIED_PROJECT_DOMAIN, postForPendingAction, postForWorkDomain, type PostKey } from "./posts";
 
 // ── 脱敏 ──────────────────────────────────────────────────────
 
@@ -108,9 +108,9 @@ export function lookupIdsFor(rows: Iterable<PendingActionRow>, extraProjectIds: 
 export function attributePendingMine(item: PendingMineInput, lookups: AttributionLookups): PostKey | null {
   if (item.sourceType === "PRODUCT_CONTENT") return "content";
   if (item.sourceType === "APPROVAL_REQUEST") {
-    const domain = item.projectId ? lookups.projectWorkDomains.get(item.projectId) : undefined;
-    // ApprovalRequest 由 project-inspection 的旧任务流产生，判定不出工作域时归项目交付
-    return (domain ? postForWorkDomain(domain.trim().toLowerCase()) : null) ?? "projects";
+    const domain = item.projectId ? lookups.projectWorkDomains.get(item.projectId)?.trim().toLowerCase() : undefined;
+    // ApprovalRequest 由 project-inspection 的旧任务流产生；判定不出工作域（含未分类项目）时归项目交付
+    return (domain && domain !== UNCLASSIFIED_PROJECT_DOMAIN ? postForWorkDomain(domain) : null) ?? "projects";
   }
   if (item.sourceType !== "PENDING_ACTION") return null;
 

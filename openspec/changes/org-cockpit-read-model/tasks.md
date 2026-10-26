@@ -14,7 +14,7 @@
 
 ## 4. 读模型装配与 API
 
-- [ ] 4.1 新建 `src/lib/cockpit/posts-read-model.ts`：`getOrgPostsCockpit` / `getOrgCompanyLog`（依赖可注入；默认实现只读、按 orgId 限定的 Prisma 查询；类型化 KPI 加载器，投标先过财务开关）；新建 `src/app/api/cockpit/posts/route.ts` 与 `src/app/api/cockpit/timeline/route.ts`（`withAuth` → `resolveWorkforceApiOrgForUser` → 管理层判定）；新建 `src/lib/cockpit/__tests__/posts-read-model.test.ts` 并注册。verify：`npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts` 退出 0，含假依赖装配（七岗位顺序、KPI ok / unavailable / disabled / error、配额抬升、财务开关关闭时投标加载器未被调用）与静态断言（只读、`db.<model>.` 查询带 `orgId`（AutomationRun 除外）、无 `resolvePreferredOrgId`、路由三段式访问控制）；`npm run typecheck` 退出 0。
+- [x] 4.1 新建 `src/lib/cockpit/posts-read-model.ts`：`getOrgPostsCockpit` / `getOrgCompanyLog`（依赖可注入；默认实现只读、按 orgId 限定的 Prisma 查询；类型化 KPI 加载器，投标先过财务开关）；新建 `src/app/api/cockpit/posts/route.ts` 与 `src/app/api/cockpit/timeline/route.ts`（`withAuth` → `resolveWorkforceApiOrgForUser` → 管理层判定）；新建 `src/lib/cockpit/__tests__/posts-read-model.test.ts` 并注册。verify：`npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts` 退出 0，含假依赖装配（七岗位顺序、KPI ok / unavailable / disabled / error、配额抬升、财务开关关闭时投标加载器未被调用）与静态断言（只读、`db.<model>.` 查询带 `orgId`（AutomationRun 除外）、无 `resolvePreferredOrgId`、路由三段式访问控制）；`npm run typecheck` 退出 0。
 
 ## 5. 门禁
 

@@ -103,7 +103,7 @@
 - **THEN** 它作为 `kind: "workforce_job"` 计入 `total`，`href` 为 `/workforce/<作业 id>`
 
 ### Requirement: 待审批与需要你按岗位归属
-每个岗位的 `pendingApprovals` SHALL 是 `waitingForYou` 第 (1) 部分里归属该岗位的条数：PendingAction 按岗位注册表的动作归属规则（通用动作类型按行上下文）；ApprovalRequest 按其项目工作域，无法判定时归 `projects`；产品内容审批归 `content`。每个岗位的 `needsYou` SHALL 是第 (2) 部分里工作域归属该岗位的作业数（不受去重影响）；工作域缺失的旧作业 SHALL 按既有的有效工作域解析规则判定，判定不出不归属任何岗位。
+每个岗位的 `pendingApprovals` SHALL 是 `waitingForYou` 第 (1) 部分里归属该岗位的条数：PendingAction 按岗位注册表的动作归属规则（通用动作类型按行上下文）；ApprovalRequest 按其项目工作域，无法判定或项目未分类（工作域为默认值 `general`）时归 `projects`；产品内容审批归 `content`。每个岗位的 `needsYou` SHALL 是第 (2) 部分里工作域归属该岗位的作业数（不受去重影响）；工作域缺失的旧作业 SHALL 按既有的有效工作域解析规则判定，判定不出不归属任何岗位。
 
 #### Scenario: 通用动作按上下文归属
 - **WHEN** 待我审批里有一条 `grader.email_draft`，payload 的 `targetType` 为 `CUSTOMER`

@@ -96,6 +96,11 @@ ok(attributePendingMine(pm({ sourceId: "a6", actionType: "calendar.create_event"
 ok(attributePendingMine(pm({ sourceId: "a7", actionType: "calendar.create_event" }), lookups()) === null, "取不到 PendingAction 行时通用类型 → 未归属");
 ok(attributePendingMine(pm({ sourceId: "r1", sourceType: "APPROVAL_REQUEST", actionType: "send_email", projectId: "p1" }), lookups({ projects: { p1: "tender" } })) === "tender", "ApprovalRequest 按项目工作域");
 ok(attributePendingMine(pm({ sourceId: "r2", sourceType: "APPROVAL_REQUEST", actionType: "x", projectId: "p404" }), lookups()) === "projects", "ApprovalRequest 判定不出 → projects");
+ok(attributePendingMine(pm({ sourceId: "r3", sourceType: "APPROVAL_REQUEST", actionType: "x", projectId: "pg" }), lookups({ projects: { pg: "general" } })) === "projects", "ApprovalRequest 挂在未分类项目（general）→ projects，不是 ops_knowledge");
+ok(
+  attributePendingMine(pm({ sourceId: "a8", actionType: "grader.project_task" }), lookups({ pas: { a8: row({ type: "grader.project_task", projectId: "pg", payload: { targetType: "PROJECT", targetId: "pg" } }) }, projects: { pg: "general" } })) === "projects",
+  "通用动作挂在未分类项目 → 落到目标类型 PROJECT → projects",
+);
 ok(attributePendingMine(pm({ sourceId: "c1", sourceType: "PRODUCT_CONTENT", actionType: "publish" }), lookups()) === "content", "产品内容审批 → content");
 ok(attributePendingMine(pm({ sourceId: "o1", sourceType: "OTHER", actionType: "x" }), lookups()) === null, "OTHER → null");
 ok(attributeNeedsYouJob(job({ jobId: "j1", workDomain: "sales" })) === "inbound_sales", "需要你作业 sales → inbound_sales");
