@@ -20,6 +20,7 @@ import {
 import { errorKindFrom, serverNow } from "@/lib/cockpit/presentation";
 import type { CompanyLogResponse, PostsCockpitResponse } from "@/lib/cockpit/posts-read-model";
 import { OrgCockpitView } from "./org-cockpit-view";
+import { OrgCockpitWorkload } from "./org-cockpit-workload";
 
 const POSTS_URL = "/api/cockpit/posts";
 const TIMELINE_URL = "/api/cockpit/timeline";
@@ -112,6 +113,7 @@ export function OrgCockpitHome() {
       onRetry={() => void loadPosts(true)}
       onRetryTimeline={() => void loadTimeline(true)}
       onLoadMore={() => void loadMore()}
+      workloadSlot={<OrgCockpitWorkload />}
     />
   );
 }

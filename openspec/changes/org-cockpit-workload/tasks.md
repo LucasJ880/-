@@ -19,13 +19,13 @@
 
 ## 3. 首页工作量区块
 
-- [ ] 3.1 新建 `src/components/cockpit/org-cockpit-workload.tsx`（客户端容器：收起 / 加载中 / 失败 / 就绪，点击才请求；无 hooks 的 `WorkloadPanel`：表格 + 14 天走势 SVG + 规则原因 + 说明），`OrgCockpitView` 增加 `workloadSlot`，`OrgCockpitHome` 传入区块；新建 `src/components/cockpit/__tests__/org-cockpit-workload.test.tsx` 并注册。
+- [x] 3.1 新建 `src/components/cockpit/org-cockpit-workload.tsx`（客户端容器：收起 / 加载中 / 失败 / 就绪，点击才请求；无 hooks 的 `WorkloadPanel`：表格 + 14 天走势 SVG + 规则原因 + 说明），`OrgCockpitView` 增加 `workloadSlot`，`OrgCockpitHome` 传入区块；新建 `src/components/cockpit/__tests__/org-cockpit-workload.test.tsx` 并注册。
   - 实施前加载 `dataviz` 技能核对走势小图的配色与可读性。
   - verify：渲染测试退出 0，覆盖 spec「首页工作量区块」全部 scenario。A-3 渲染测试 `org-cockpit-view.test.tsx` 仍全部通过。`npm run typecheck` 退出 0。
 
 ## 4. 视觉核对
 
-- [ ] 4.1 用 A-3 的离线渲染流程（真实主题样式 + 模拟 240px 侧栏）渲染区块的就绪态，覆盖含规则命中、未入账、展会行三种情况，截 1280 / 820 / 390。
+- [x] 4.1 用 A-3 的离线渲染流程（真实主题样式 + 模拟 240px 侧栏）渲染区块的就绪态，覆盖含规则命中、未入账、展会行三种情况，截 1280 / 820 / 390。
   - verify：截图生成于 scratch 目录，无横向滚动、最小点击高度 44px，人工核对后在报告中描述。
 
 ## 5. 门禁
