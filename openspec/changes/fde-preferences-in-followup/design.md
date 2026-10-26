@@ -83,6 +83,7 @@ export function applyBannedPhrasesSafely(input: {
   - 配满偏好但关闭；
   - 开启但全空。
 - B-3 的首封金样本与 `draft-preferences.test.ts` 照跑，证明 D1 的抽取不改首封。
+- **否决**：只用"开启后的期望输出"写断言、不留实施前样本。那样只能证明新行为对，证明不了关闭时与原来一模一样。
 
 ## 与八条硬纪律的关系
 
