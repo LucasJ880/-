@@ -6,11 +6,11 @@
 
 ## 2. 等你 N 件（纯函数）
 
-- [ ] 2.1 新建 `src/lib/cockpit/waiting.ts`：`redactCockpitText`（复用 `containsOutboundSensitive` strict，整段替换）、待我审批条目与需要你作业的岗位归属、去重、按时间倒序取前 10、`unattributed` / `truncated` 计算、岗位 `pendingApprovals` / `needsYou` 计数；新建 `src/lib/cockpit/__tests__/waiting.test.ts` 并注册。verify：`npx tsx src/lib/cockpit/__tests__/waiting.test.ts` 退出 0，覆盖 spec「等你 N 件」「按岗位归属」「不输出敏感字段」的全部 scenario。
+- [x] 2.1 新建 `src/lib/cockpit/waiting.ts`：`redactCockpitText`（复用 `containsOutboundSensitive` strict，整段替换）、待我审批条目与需要你作业的岗位归属、去重、按时间倒序取前 10、`unattributed` / `truncated` 计算、岗位 `pendingApprovals` / `needsYou` 计数；新建 `src/lib/cockpit/__tests__/waiting.test.ts` 并注册。verify：`npx tsx src/lib/cockpit/__tests__/waiting.test.ts` 退出 0，覆盖 spec「等你 N 件」「按岗位归属」「不输出敏感字段」的全部 scenario。
 
 ## 3. company.log 时间线（纯函数）
 
-- [ ] 3.1 新建 `src/lib/cockpit/timeline.ts`：三路信封构造（含岗位归属与 `href`）、AgentRunEvent 事件白名单、AutomationRun 入选规则、`(at, id)` 倒序归并、游标编解码、`limit` / `days` / `cursor` 参数校验、摘要脱敏；新建 `src/lib/cockpit/__tests__/timeline.test.ts` 并注册。verify：`npx tsx src/lib/cockpit/__tests__/timeline.test.ts` 退出 0，含 7 条交错数据以 `limit=3` 翻页 3/3/1 不重不漏、越界参数返回校验错误。
+- [x] 3.1 新建 `src/lib/cockpit/timeline.ts`：三路信封构造（含岗位归属与 `href`）、AgentRunEvent 事件白名单、AutomationRun 入选规则、`(at, id)` 倒序归并、游标编解码、`limit` / `days` / `cursor` 参数校验、摘要脱敏；新建 `src/lib/cockpit/__tests__/timeline.test.ts` 并注册。verify：`npx tsx src/lib/cockpit/__tests__/timeline.test.ts` 退出 0，含 7 条交错数据以 `limit=3` 翻页 3/3/1 不重不漏、越界参数返回校验错误。
 
 ## 4. 读模型装配与 API
 
