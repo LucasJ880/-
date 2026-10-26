@@ -82,8 +82,8 @@ FDE 首封回复草稿的团队偏好：老板或管理员在 `revenue_spine.pol
 - **THEN** 链接与专名原样保留，模板自己的词照常替换
 
 #### Scenario: 替换后拼出承诺
-- **WHEN** 禁用词为 `have received → guarantee`，替换后句子变成 "We guarantee your inquiry"
-- **THEN** 这一封不做替换、草稿照常进审批，并记一次审计
+- **WHEN** 买家产品名为 "samples kit"，禁用词为 `inquiry about → free`，替换后句子变成 "We have received your free samples kit."
+- **THEN** 这一封不做替换、草稿照常进审批，并以这条禁用词的键名记一次审计
 
 ### Requirement: 偏好值经守卫校验，违规项逐条忽略
 
@@ -138,8 +138,8 @@ FDE 首封回复草稿的团队偏好：老板或管理员在 `revenue_spine.pol
 开关开启且有违规偏好时，系统 SHALL 在 FDE 起草时写一条 AuditLog `revenue_spine.draft_preferences.ignored`：只记偏好键名与原因，不记文案；同一组织同一组违规只记一次。审计失败 MUST NOT 影响起草。开关关闭时不校验、不记审计。
 
 #### Scenario: 首次遇到违规
-- **WHEN** 开启偏好，结束语含数字
-- **THEN** 产生一条审计，内容含键名 `closing.zh` 与原因，不含结束语原文
+- **WHEN** 开启偏好，英文结束语含数字
+- **THEN** 产生一条审计，内容含键名 `closing.en` 与原因，不含结束语原文
 
 #### Scenario: 同一组违规不重复记
 - **WHEN** 同一组织后续询盘再次起草，违规偏好没变

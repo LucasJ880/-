@@ -543,7 +543,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   }
 
   let violations = checkDraftWithReferenceLines(`${subject}\n${body}`, referenceLines);
-  // 禁用词替换后多出了守卫违规（如 "have received → guarantee" 拼成 "We guarantee …"）：这一封不做替换，回到替换前的正文
+  // 禁用词替换后多出了守卫违规（如买家产品名 "samples kit" 遇上 "inquiry about → free" 拼成 "your free samples kit"）：这一封不做替换，回到替换前的正文
   // （替换前就有的违规照常保留——不掩盖买家原文带来的问题；不让配置错误把每封草稿都拦在审批中心外）。
   // 逐条试出是哪几条禁用词引起的，调用方据此按键名记审计
   let bannedPhrasesSkipped: string[] = [];
