@@ -17,6 +17,12 @@
   - 测试补静态断言：两轮顺序、`autoActions: false`、`POST` 接口未改。
   - verify：测试退出 0；`npm run typecheck` 退出 0。
 
+- [x] 2.2 交叉审查修正（阻塞 1 + 应修 3 + 可选 O1–O5）：
+  - `src/lib/proactive/notify.ts`：sourceKey 带 userId，旧格式在本人名下视为已发，返回实际新建条数，依赖可注入；
+  - `manager-notify.ts`：游标续排（记在本定时任务运行记录 metadata）替换按小时轮转；候选按 userId 排序、读满标截断、组织须在用；两轮主体 `runProactiveScanCron` 依赖可注入，整轮出错失败计数 +1；
+  - `route.ts` 改为调用两轮主体；proposal / spec / design 同步（偏差 5、6，D2 / D3 / D5，新增 4 个 scenario）。
+  - verify：`manager-notify.test.ts` 20 条全过；6 处变异（旧 key、计数、失败计入、游标、enabledUsers 位置、游标沿用）各至少 1 条断言失败；scoped `tsc` 退出 0；`openspec validate org-cockpit-proactive-notify --strict` 通过。
+
 ## 3. 门禁与交付
 
 - [ ] 3.1 跑全部门禁并做独立交叉审查：
