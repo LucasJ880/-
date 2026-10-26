@@ -14,10 +14,8 @@
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
 - **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上，[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。**GATE 决策项**：旧首页每 5 分钟 `POST /api/proactive/scan` 随替换停止，未开自动化偏好的管理层不再收到主动提醒——接受，或另开 change 让定时任务为管理层同步通知（等用户 / Evan 回复）。
-- **下一步：A-4 `org-cockpit-workload`**，从 `claude/org-cockpit-home` 开新分支 `claude/org-cockpit-workload`（页面区块在首页上）。先读下面"A-4 预研事实"。待决的设计点：
-  - 工作量区块若再加一个接口，会违反 A-3"首屏 ≤ 2 个请求"——考虑按需加载（展开 / 首屏后），或把信号并进既有接口；
-  - `edited` 在 B-1 前无数据，显示"未接入"；
-  - GATE-A2 的 `/ai-activity` 对账口径需改。
+- **A-4 `org-cockpit-workload`**（分支 `claude/org-cockpit-workload`，叠在 A-3 上）：四件套 ✅；apply 4/6（`workload.ts` 纯函数 85 条、`workload-read-model.ts` + `GET /api/cockpit/workload` 82 条、首页区块 `org-cockpit-workload.tsx` 44 条、视觉核对）。进行中：task 5.1 全量门禁、独立交叉审查；之后 6.1 报告 + `[G]` + PR（base = `claude/org-cockpit-home`）。
+  - 设计要点：区块默认收起、点击才请求（首屏仍 2 个请求；A-3 spec 已在 PR #246 放宽措辞）。近 7 天 AI 运行与岗位卡片逐岗位相等（同一组查询条件，测试断言）。`edited` 未接入（B-1）、`auto_executed` 不适用。成本大多"未入账"（用量账本只有对话与产品内容带组织写入）。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -29,7 +27,7 @@
 | A-1 | `org-cockpit-posts`（[PR #244](https://github.com/LucasJ880/-/pull/244)，base `main`） | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
 | A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
 | A-3 | `org-cockpit-home`（[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支） | ✅ `c7f4b57`（两轮审查后修订） | 8/8 | ✅ 419/433，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：1 阻塞（列为 GATE 决策项）+ 8 应修 + 第二轮 4 项，全部处理 | `[G]` |
-| A-4 | `org-cockpit-workload`（分支 `claude/org-cockpit-workload`，叠在 A-3 上） | ✅ 四件套 | 0/6 | — | — | — | `[~]` |
+| A-4 | `org-cockpit-workload`（分支 `claude/org-cockpit-workload`，叠在 A-3 上） | ✅ 四件套 `00080806` | 4/6 | 进行中（单测 85 + 82 + 44） | — | 进行中 | `[~]` |
 | B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
