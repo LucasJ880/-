@@ -5,19 +5,20 @@
 | 项 | 值 |
 |---|---|
 | 任务书 | `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md`（状态列是 A / B 阶段的事实源） |
-| 工作分支 | `claude/awesome-turing-dorqeg`（基线 `origin/main` @ `51cc62c`，PR #243 合并后） |
+| 工作分支 | A-1：`claude/awesome-turing-dorqeg`（基线 `origin/main` @ `51cc62c`，PR #243 合并后）；A-2 起见 PR 策略 |
 | PR 策略 | **已定（用户，2026-10-26）**：每个 change 一个独立分支、一个 PR。A-1 用 `claude/awesome-turing-dorqeg`；之后的 change 用 `claude/<change-name>`，从前一个 change 的分支切出（叠加），PR base 指向前一个 change 的分支，前一个合并进 `main` 后把 base 改回 `main`。archive 另走 `claude/archive-<change-name>` 小 PR |
 | 每个 change 的完成定义 | 四件套 `openspec validate --strict` 通过 → apply 全部 task 打勾 → 本 change 测试 + typecheck + lint:baseline 绿 → `/opsx:verify` 报告 → 独立审查代理交叉验证（只给代码与规格）并处理发现 → 写 REPORT + 状态列 `[G]` → 提交推送 → 更新本文件 |
 
 ## 当前位置
 
-- **A-1 `org-cockpit-posts`**：四件套 ✅；apply task 1.1 / 2.1 ✅（`posts.ts` + 158 条断言测试 + 注册；typecheck、lint:baseline 通过）。进行中：task 3.1 全量 `npm test` 与基线比对（基线 `origin/main` = 411/425，14 项环境性失败，清单见报告）、独立交叉审查；之后 task 4.1 补完 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md` §2 并把状态列改 `[G]`。
+- **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
+- **下一步：A-2 `org-cockpit-read-model`**，从 `claude/awesome-turing-dorqeg` 切出 `claude/org-cockpit-read-model`。A-2 设计输入（已调研，写 design 时逐条回源码核实）：AutomationRun 实际全是平台级（`orgId` 恒为空）；没有任何 cadence 解析，按组织本地时刻的 cron 在非当值小时不写记录；`/inbox` 是快速捕获页，待审批队列在 `/assistant` 的 PendingInbox（`GET /api/ai/pending-actions`，组织内 + 可见性 OR + 未过期），角标计数跨组织；AuditLog / AgentRunEvent 没有 `(orgId, createdAt)` 索引；`DAILY_AGENT_RUNS` 命中在系统发起时只有 Notification（`type=quota_hard_limit`, `entityId=DAILY_AGENT_RUNS`）可靠；Muse 脱敏用 `muse-bridge/advisory.ts#sanitizeOutbound` / `contract.ts#containsOutboundSensitive`；只读 GET 模板 `src/app/api/workforce/jobs/route.ts`（`withAuth` + `resolveWorkforceApiOrgForUser`，不要用会写库的 `resolvePreferredOrgId`）；`getTenderPortfolioSummary` 调用前必须过 `TENDER_FINANCIAL_CONTROL_ENABLED`。
 
 ## 进度表
 
 | ID | change | 四件套 | apply | 测试 | verify | 交叉验证 | 状态列 |
 |---|---|---|---|---|---|---|---|
-| A-1 | `org-cockpit-posts` | ✅ `06d4392` | 2/4 | 进行中 | — | 进行中 | `[~]` |
+| A-1 | `org-cockpit-posts` | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
 | A-2 | `org-cockpit-read-model` | — | — | — | — | — | `[ ]` |
 | A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
 | A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
@@ -33,7 +34,7 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 
 1. 代码现状是 28 项自动化、14 种 PendingAction（任务书写 23 / 12）；A-1 按代码现状穷举。
 2. `approval-timeout` 归 `ops_knowledge`，不归 `tender`（它处理全组织所有类型的审批过期）。**已认可（用户，2026-10-26）**。
-3. `grader.*` 与 `calendar.create_event` 归 `projects`（只由 ai-grader / proactive-scan 产出）。
+3. ~~`grader.*` 与 `calendar.create_event` 归 `projects`~~（交叉审查证伪：多条链路产出）→ 改为**通用动作类型**，按行上下文归属（项目工作域 → 目标类型 → 产出 runType → 未归属）。`runtime_v2` 归 `inbound_sales`。
 4. 工作域：`sales`→`inbound_sales`、`tender`→`tender`、`delivery`→`projects`、`general`→`ops_knowledge`。
 5. `service`、`content` 没有既有只读读函数，A-1 的 KPI 标"未接入"；A-2 决定是否把路由里的内联查询原样抽成读函数。
 6. `tender` 的 KPI 来源 `getTenderPortfolioSummary`、`marketing` 的 `getMarketingDashboard` 返回值含毛利 / 利润 / 估值 / 中标金额，KPI 只取白名单计数字段。

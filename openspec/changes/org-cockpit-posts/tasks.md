@@ -10,11 +10,11 @@
 
 ## 3. 门禁
 
-- [ ] 3.1 跑全量门禁。verify：`npm run lint:baseline` 退出 0；`npm test` 中"组织驾驶舱 岗位注册表（A-1）"为 PASS，其余失败项与 `origin/main` 基线逐条一致（记入报告）；`git diff --stat origin/main -- prisma/ vercel.json` 为空；`openspec validate org-cockpit-posts --strict` 通过。
+- [x] 3.1 跑全量门禁。verify：`npm run lint:baseline` 退出 0；`npm test` 中"组织驾驶舱 岗位注册表（A-1）"为 PASS，其余失败项与 `origin/main` 基线逐条一致（记入报告）；`git diff --stat origin/main -- prisma/ vercel.json` 为空；`openspec validate org-cockpit-posts --strict` 通过。
 
 ## 4. 收尾
 
-- [ ] 4.1 写 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`（做了什么 / 怎么验 / 与任务书的偏差 / 交叉审查发现与处理 / 已知限制）+ 更新 TASKFLOW 状态列（`docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase A 表 A-1 → `[G]`）。verify：报告文件存在；`grep -n "^| A-1 " docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 的状态列为 `[G]`。
+- [x] 4.1 写 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`（做了什么 / 怎么验 / 与任务书的偏差 / 交叉审查发现与处理 / 已知限制）+ 更新 TASKFLOW 状态列（`docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase A 表 A-1 → `[G]`）。verify：报告文件存在；`grep -n "^| A-1 " docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 的状态列为 `[G]`。
 
 ## Workflow follow-up
 
