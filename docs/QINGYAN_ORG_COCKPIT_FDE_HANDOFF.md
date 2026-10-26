@@ -15,11 +15,13 @@
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
 - **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上，[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。**GATE 决策项**：旧首页每 5 分钟 `POST /api/proactive/scan` 随替换停止，未开自动化偏好的管理层不再收到主动提醒——接受，或另开 change 让定时任务为管理层同步通知（等用户 / Evan 回复）。
 - **A-4 `org-cockpit-workload`**（分支 `claude/org-cockpit-workload`，叠在 A-3 上，[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-4_REPORT.md`（偏差 9 条，交叉审查 5 应修 + 4 小全部处理）。
-- **下一步：B-1 `fde-feedback-loop`**，从 `claude/org-cockpit-workload` 开新分支 `claude/fde-feedback-loop`。任务书 §B-1：
-  - 询盘回复审批创建时把原始草稿快照写 AuditLog；
-  - 终态时用 `employee-ai/diff.ts` 的 StructuredDiff 产 `HumanFeedbackEvent`（幂等键 = actionId + 终态）；
-  - A-4 的 `edited` 从这里接。
-  - 先读 `src/lib/employee-ai/{diff,feedback-service}.ts`、`src/lib/pending-actions/executor.ts` 终态入口、`autopilot/sanitize.ts`。
+- **B-1 `fde-feedback-loop`**（分支 `claude/fde-feedback-loop`，叠在 A-4 上）：四件套 ✅；apply 3/5（`draft-diff.ts` 35 条、`draft-feedback.ts` + 接入 61 条）。进行中：task 4.1 全量门禁、独立交叉审查；之后 5.1 报告 + `[G]` + PR（base = `claude/org-cockpit-workload`）。
+  - **GATE 决策项（阻塞 B-2）**：现有代码没有"审批时改稿"的路径。`payloadVersion` 恒为 1、审批中心校验 `payloadHash`、批准接口只收决定 + 备注、执行器发载荷正文。所以 `approved_edited` 不会出现，而 B-2 以它为触发。选项：
+    - (a) 审批时允许改稿；
+    - (b) 对"人工回复作废草稿"（`SUPERSEDED_BY_MANUAL_REPLY`）做草稿 vs 人工回复的 diff；
+    - (c) B-2 暂缓。
+    - 等用户 / Evan 拍板，未拍板前不开 B-2；B-3 / B-4 / B-5 不依赖它，可先做。
+  - 设计要点：终态映射复用 `cockpit/workload.ts` 的 `pendingActionOutcome`；端口批准 / 驳回非重复分支 + 过期赢家 + `approval-timeout` 内补漏（10 分钟沉淀）三路写入时间不重叠，先查后写。事件 `skillSlug = inbound_sales_fde`、`feedbackScope = team_candidate`、`aiOutputRef.terminal/feedbackType`。快照里买家信息替换为占位符，只保留收件人邮箱；事件里连收件人邮箱也不留。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -32,7 +34,7 @@
 | A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
 | A-3 | `org-cockpit-home`（[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支） | ✅ `c7f4b57`（两轮审查后修订） | 8/8 | ✅ 419/433，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：1 阻塞（列为 GATE 决策项）+ 8 应修 + 第二轮 4 项，全部处理 | `[G]` |
 | A-4 | `org-cockpit-workload`（[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支） | ✅ `00080806` | 7/7 | ✅ 422/436，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 5 应修 + 4 小全部处理 | `[G]` |
-| B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
+| B-1 | `fde-feedback-loop`（分支 `claude/fde-feedback-loop`，叠在 A-4 上） | ✅ 四件套 `61feec70` | 3/5 | 进行中 | — | 进行中 | `[~]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
 | B-4 | `fde-score-calibration` | — | — | — | — | — | `[ ]` |
