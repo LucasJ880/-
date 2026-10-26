@@ -1,0 +1,112 @@
+[
+  {
+    "id": "en-website-contact-default-policy",
+    "subject": "Re: Your inquiry about hotel bathrobes (3000 pcs) — 示例家纺",
+    "body": "Dear Mark,\n\nThank you for contacting 示例家纺 on behalf of Northwind Hotels. We have received your inquiry about hotel bathrobes.\n\nHere is our understanding of your requirement — please confirm:\n- Product: hotel bathrobes\n- Quantity: 3000 pcs\n- Material: cotton terry\n- Destination country: Canada\n\nTo prepare an accurate quotation, could you please let us know:\n1. What are the finished sizes (width × length, or size range)?\n2. What is the delivery destination (city or port)?\n3. When do you need the goods delivered by?\n4. Could you share the composition and weight (e.g. 100% polyester, 280 GSM)?\n\nRegarding MOQ, production lead time and delivery schedule, pricing, and sample arrangement: our team will confirm these internally once we have the details above and revert to you with a formal reply.\n\nWe look forward to hearing from you.\n\nBest regards,\nLucy\n示例家纺",
+    "questionFields": [
+      "size",
+      "destinationCity",
+      "requiredDeliveryDate",
+      "composition"
+    ]
+  },
+  {
+    "id": "en-website-no-contact-default-policy",
+    "subject": "Re: Your inquiry about blackout curtains (1200 panels) — 示例家纺",
+    "body": "Dear there,\n\nThank you for contacting 示例家纺. We have received your inquiry about blackout curtains.\n\nHere is our understanding of your requirement — please confirm:\n- Product: blackout curtains\n- Quantity: 1200 panels\n- Color: grey\n- Required delivery date: end of March 2027 (2027-03-31)\n\nTo prepare an accurate quotation, could you please let us know:\n1. What are the finished sizes (width × length, or size range)?\n2. What material or fabric do you require (e.g. cotton, polyester, coral fleece)?\n3. Which country should the goods be delivered to?\n4. What is the delivery destination (city or port)?\n\nRegarding MOQ, production lead time and delivery schedule, and pricing: our team will confirm these internally once we have the details above and revert to you with a formal reply.\n\nWe look forward to hearing from you.\n\nBest regards,\nLucy\n示例家纺",
+    "questionFields": [
+      "size",
+      "material",
+      "destinationCountry",
+      "destinationCity"
+    ]
+  },
+  {
+    "id": "zh-website-contact-default-policy",
+    "subject": "回复：hotel bathrobes（3000 pcs）询盘 — 示例家纺",
+    "body": "王先生，您好：\n\n感谢您通过官网联系 示例家纺，我们已收到您关于hotel bathrobes的询盘。\n\n我们对需求的理解如下，请确认：\n- 产品：hotel bathrobes\n- 数量：3000 pcs\n- 材质：cotton terry\n- 目的国：Canada\n\n为便于准确核算并给您报价，请补充以下信息：\n1. 请提供成品尺寸（长 × 宽，或尺码范围）。\n2. 请告知交货目的地（城市或港口）。\n3. 请告知要求的交货日期。\n4. 请提供成分与克重要求（例如 100% 涤纶 280GSM）。\n\n关于MOQ、生产周期与交期、价格、样品安排：以上均需内部确认，我们会在收到上述信息后尽快给您正式答复。\n\n期待您的回复。\n\nLucy\n示例家纺",
+    "questionFields": [
+      "size",
+      "destinationCity",
+      "requiredDeliveryDate",
+      "composition"
+    ]
+  },
+  {
+    "id": "zh-website-no-contact-default-policy",
+    "subject": "回复：blackout curtains（1200 panels）询盘 — 示例家纺",
+    "body": "您好：\n\n感谢您通过官网联系 示例家纺，我们已收到您关于blackout curtains的询盘。\n\n我们对需求的理解如下，请确认：\n- 产品：blackout curtains\n- 数量：1200 panels\n- 颜色：grey\n- 要求交期：2027年3月底（2027-03-31）\n\n为便于准确核算并给您报价，请补充以下信息：\n1. 请提供成品尺寸（长 × 宽，或尺码范围）。\n2. 请确认面料/材质要求（例如纯棉、涤纶、珊瑚绒）。\n3. 请告知货物目的国。\n4. 请告知交货目的地（城市或港口）。\n\n关于MOQ、生产周期与交期、价格：以上均需内部确认，我们会在收到上述信息后尽快给您正式答复。\n\n期待您的回复。\n\nLucy\n示例家纺",
+    "questionFields": [
+      "size",
+      "material",
+      "destinationCountry",
+      "destinationCity"
+    ]
+  },
+  {
+    "id": "en-website-configured-facts",
+    "subject": "Re: Your inquiry about hotel bathrobes (3000 pcs) — Example Home Textile",
+    "body": "Dear Mark,\n\nThank you for contacting Example Home Textile on behalf of Northwind Hotels. We have received your inquiry about hotel bathrobes.\n\nHere is our understanding of your requirement — please confirm:\n- Product: hotel bathrobes\n- Quantity: 3000 pcs\n- Material: cotton terry\n- Destination country: Canada\n\nTo prepare an accurate quotation, could you please let us know:\n1. What are the finished sizes (width × length, or size range)?\n2. What is the delivery destination (city or port)?\n3. When do you need the goods delivered by?\n4. Could you share the composition and weight (e.g. 100% polyester, 280 GSM)?\n\nWe have produced hotel bathrobes for a Canadian hotel group.\nFor reference, our MOQ is typically 500 pcs per color, and bulk production usually takes 35–45 days after pre-production sample approval. Both are confirmed for your project in our quotation.\nLoading ports: Ningbo or Shanghai.\nRegarding samples: We can send stock samples within 3 days; custom samples take 7-10 days.\nRegarding pricing: our team will confirm this internally once we have the details above and revert to you with a formal reply.\n\nWe look forward to hearing from you.\n\nBest regards,\nLucy\nSales Manager\nExample Home Textile\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "size",
+      "destinationCity",
+      "requiredDeliveryDate",
+      "composition"
+    ]
+  },
+  {
+    "id": "zh-website-configured-facts",
+    "subject": "回复：hotel bathrobes（3000 pcs）询盘 — 示例家纺",
+    "body": "王先生，您好：\n\n感谢您通过官网联系 示例家纺，我们已收到您关于hotel bathrobes的询盘。\n\n我们对需求的理解如下，请确认：\n- 产品：hotel bathrobes\n- 数量：3000 pcs\n- 材质：cotton terry\n- 目的国：Canada\n\n为便于准确核算并给您报价，请补充以下信息：\n1. 请提供成品尺寸（长 × 宽，或尺码范围）。\n2. 请告知交货目的地（城市或港口）。\n3. 请告知要求的交货日期。\n4. 请提供成分与克重要求（例如 100% 涤纶 280GSM）。\n\n我们为一家加拿大酒店集团做过酒店浴袍。\n供参考：起订量一般为每color 500 件；大货生产一般在确认大货样后 35–45 天。具体以我们针对您项目的报价为准。\n装运港可选：Ningbo、Shanghai。\n关于样品：We can send stock samples within 3 days; custom samples take 7-10 days.\n关于价格：需内部确认，我们会在收到上述信息后尽快给您正式答复。\n\n期待您的回复。\n\nLucy\nSales Manager\n示例家纺\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "size",
+      "destinationCity",
+      "requiredDeliveryDate",
+      "composition"
+    ]
+  },
+  {
+    "id": "en-trade-show-styles-configured",
+    "subject": "Great meeting you at the Canton Fair (Booth 14.3E07) — Flannel Throw and 1 more (800 pcs) — Example Home Textile",
+    "body": "Dear Mark,\n\nThank you for visiting the Example Home Textile booth at the Canton Fair (Booth 14.3E07) — it was a pleasure meeting you.\n\nYou looked at these reference styles from our past production:\n- Flannel Throw (ref. BL-2201)\n- BL-2207\nEach of them can be made to your own specification — size, fabric, weight, colour, branding and packing.\n\nHere is our understanding of your requirement — please confirm:\n- Quantity: 800 pcs\n\nTo prepare an accurate quotation, could you please let us know:\n1. Which specific product are you looking for?\n2. What are the finished sizes (width × length, or size range)?\n3. What material or fabric do you require (e.g. cotton, polyester, coral fleece)?\n4. Which country should the goods be delivered to?\n\nFor reference, our MOQ is typically 500 pcs per color, and bulk production usually takes 35–45 days after pre-production sample approval. Both are confirmed for your project in our quotation.\nLoading ports: Ningbo or Shanghai.\nRegarding pricing: our team will confirm this internally once we have the details above and revert to you with a formal reply.\n\nWe look forward to hearing from you.\n\nBest regards,\nLucy\nSales Manager\nExample Home Textile\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "productName",
+      "size",
+      "material",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "zh-trade-show-event-only-default",
+    "subject": "感谢展位来访：blackout curtains（1200 panels） — 示例家纺",
+    "body": "王先生，您好：\n\n感谢您在广交会莅临 示例家纺 的展位，很高兴与您交流。以下是关于blackout curtains的跟进。\n\n我们对需求的理解如下，请确认：\n- 产品：blackout curtains\n- 数量：1200 panels\n- 颜色：grey\n- 要求交期：2027年3月底（2027-03-31）\n\n为便于准确核算并给您报价，请补充以下信息：\n1. 请提供成品尺寸（长 × 宽，或尺码范围）。\n2. 请确认面料/材质要求（例如纯棉、涤纶、珊瑚绒）。\n3. 请告知货物目的国。\n4. 请告知交货目的地（城市或港口）。\n\n关于MOQ、生产周期与交期、价格：以上均需内部确认，我们会在收到上述信息后尽快给您正式答复。\n\n期待您的回复。\n\nLucy\n示例家纺",
+    "questionFields": [
+      "size",
+      "material",
+      "destinationCountry",
+      "destinationCity"
+    ]
+  },
+  {
+    "id": "en-trade-show-grade-c-catalog-only",
+    "subject": "Great meeting you at Heimtextil — Flannel Throw — Example Home Textile",
+    "body": "Dear Mark,\n\nThank you for visiting the Example Home Textile booth at Heimtextil — it was a pleasure meeting you.\n\nYou looked at these reference styles from our past production:\n- Flannel Throw (ref. BL-2201)\nEach of them can be made to your own specification — size, fabric, weight, colour, branding and packing.\n\nYou can find our product catalogue here: https://www.example-home.example/catalog\nIf any of the styles catch your interest, simply reply to this email.\n\nWe look forward to hearing from you.\n\nBest regards,\nLucy\nSales Manager\nExample Home Textile\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "productName",
+      "quantity",
+      "size",
+      "material"
+    ]
+  },
+  {
+    "id": "zh-trade-show-grade-c-catalog-only",
+    "subject": "感谢展位来访：您感兴趣的产品 — 示例家纺",
+    "body": "您好：\n\n感谢您在 Heimtextil 莅临 示例家纺 的展位，很高兴与您交流。以下是关于您感兴趣的产品的跟进。\n\n我们的产品目录在这里，供您参考：https://www.example-home.example/catalog\n如有任何感兴趣的款式，随时回复这封邮件即可。\n\n期待您的回复。\n\nLucy\nSales Manager\n示例家纺\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "productName",
+      "quantity",
+      "size",
+      "material"
+    ]
+  }
+]
