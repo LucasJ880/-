@@ -59,11 +59,13 @@
   - 合并后再做归档（B-1 先于 B-2）；
   - 改进项按推荐顺序做。
 - **长任务队列**（每项一个 change、一个分支、一个 PR，按顺序叠加；每项都走 propose → apply → 测试 → verify → 交叉审查 → 报告 → PR → 本文件）：
-  1. **C-2 `fde-preferences-in-followup`**（进行中，分支 `claude/fde-preferences-in-followup`，叠在 B-3 上）：无回复跟进草稿也读 `policy.fde` 偏好；
-  2. **A-3b `org-cockpit-proactive-notify`**；
-  3. **A-5 `org-cockpit-daily-digest`**（模板版，零 LLM）；
-  4. **B-6 `fde-v2-readiness`**（只读就绪度）；
-  5. **`org-cockpit-timeline-labels`**（A-2 时间线常见动作中文标签与来源）。
+  1. **C-2 `fde-preferences-in-followup`**（分支 `claude/fde-preferences-in-followup`，叠在 B-3 上，[PR #253](https://github.com/LucasJ880/-/pull/253)，base = B-3 分支）：**完成**。报告 `docs/QINGYAN_ORG_COCKPIT_C-2_REPORT.md`。无回复跟进草稿读 `policy.fde` 偏好，关闭时逐字节不变（跟进金样本 `followup-golden-pre-c2.json`）；交叉审查 1 阻塞 + 5 应修全部处理。GATE 注意项：只缺免问字段时第 1 次跟进退到兜底问句。
+  2. **A-3b `org-cockpit-proactive-notify`**（分支 `claude/org-cockpit-proactive-notify`，叠在 C-2 上）：实现 + 交叉审查修正已推（`4ddefa9c`），等第二轮审查与全量门禁，再写报告开 PR。
+     - 交叉审查阻塞：`Notification.sourceKey` 全局唯一，旧 key `proactive:{dedupeKey}` 不含用户 → 同组织第二位管理层永远收不到同一条提醒。已改 `proactive:{userId}:{dedupeKey}`，本人名下旧 key 视为已发（**GATE 注意项**：上线后被别人占掉的提醒会补发本人一次）。
+     - 轮转改为游标续排（`AutomationRun.metadataJson.notifyOnlyResumeAfter`，本定时任务自己的运行记录）；补发整轮出错计入失败（运行记 partial）；两轮主体抽成 `runProactiveScanCron(deps)`。
+  3. **A-5 `org-cockpit-daily-digest`**（模板版，零 LLM）：**等用户选**。Corporate Memory 写入只允许人工（`assertWritableActorType` 拒 system / ai / agent，`MEMORY_WRITE_PERMISSION = CONSERVATIVE_ADMIN_ONLY`），"夜间日结 → MemoryClaim"与之冲突。选项：(1) 为日结开 system 写入窄例外（需 Evan 批）；(2)（推荐）日结写 `AuditLog cockpit.post_daily_digest`，每组织每天一条、只含计数，不进 MemoryClaim；(3) 暂缓。
+  4. **B-6 `fde-v2-readiness`**（分支 `claude/fde-v2-readiness`，叠在 A-3b 上）：四件套 + 实现已推（`3398ddc7`），交叉审查进行中。只读：四条条件（事实提案满 30 天 / MOQ 可引用 / 生产周期可引用 / 至少 3 个类目——组织级口径固定"无法度量"）+ 依据计数；`GET /api/revenue/v2-readiness`；`/revenue` 收起区块。任务书 B-6 状态列计划改为 `[~]`（指标已交，V2 启动待条件满足后由 Evan 决定）。
+  5. **`org-cockpit-timeline-labels`**（A-2 时间线常见动作中文标签与来源）：未开始。
 - **其它会话在做的（不要重复）**：
   - "每color"：会话 "Fix 每color MOQ wording" 已在分支 `claude/trusting-rubin-uqc5k9`（基于 `main`，change `fix-zh-moq-per-unit`）改好、测试绿，等用户同意开 PR。**与 B-3 金样本的关系**：B-3 的 `draft-golden-pre-b3.json` 里 `zh-website-configured-facts` 一例记的是旧文案"每color"，两者谁后合并，谁按 `draft-golden-cases.ts` 头注释的命令重生成金样本并在 PR 里说明。
   - 清理未引用的 `src/components/dashboard/**`：会话 "Remove unused old homepage dashboard components" 在等 A-3 合并。
@@ -84,7 +86,9 @@
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
 
-A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行决定是否启动）。
+A-5、B-6 原为决策项；用户 2026-10-26 第二轮决定开始：B-6 按只读就绪度开 change（`fde-v2-readiness`），A-5 等 Corporate Memory 写入口径的选择（见当前位置长任务队列第 3 项）。C-2 / A-3b 是改进项，状态沿用 B-3 / A-3 行。
+
+| C-2 | `fde-preferences-in-followup`（[PR #253](https://github.com/LucasJ880/-/pull/253)，base = B-3 分支） | ✅（审查后修订 `c877dd77`） | 5/5 | ✅ 432/446，失败清单 = 基线；test:ci PASS；typecheck 0；lint PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | 沿用 B-3 |
 
 ## 已做的判断（GATE 审核时逐条确认；详见各 change 的 proposal "偏差"一节）
 
