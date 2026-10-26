@@ -59,6 +59,7 @@ export interface ReadinessCondition {
   detail: string;
 }
 
+/** applied = 已批准并执行（含值未变、未发布新版本的）；expired 含超时任务清理过的（failed + 已过期）；other = 取消 / 作废 / 执行失败 / 认领中 */
 export type ProposalBucket = "pending" | "applied" | "rejected" | "expired" | "other";
 
 export interface FactProvenance {
@@ -72,13 +73,13 @@ export interface FactProvenance {
 export interface V2ReadinessInput {
   now: Date;
   firstProposalAt: Date | null;
-  /** 近 30 天新建的事实提案（只取状态、有效期与字段） */
-  proposals: ReadonlyArray<{ status: string; expiresAt: Date; field: string | null }>;
+  /** 近 30 天新建的事实提案：读模型已按审批终态口径归好桶（见 v2-readiness-read-model.ts proposalBucketOf） */
+  proposals: ReadonlyArray<{ bucket: ProposalBucket; field: string | null }>;
   proposalsTruncated: boolean;
   /** 写入审计（commercial_fact.applied）里的字段；解析不出为 null */
   appliedFields: ReadonlyArray<string | null>;
   appliedTruncated: boolean;
-  /** 近 30 天草稿快照（只取跟进序号与待确认项），最多 V2_SNAPSHOT_LIMIT 条 */
+  /** 近 30 天草稿快照（只取跟进序号与待确认项；同一审批只留一份），最多 V2_SNAPSHOT_LIMIT 条 */
   snapshots: ReadonlyArray<{ followUpStep: number | null; pendingInternalConfirmation: readonly string[] }>;
   snapshotsTruncated: boolean;
   /** 与草稿同一口径（factory-knowledge.ts）的可用状态 */
@@ -108,7 +109,10 @@ export interface V2ReadinessReport {
     appliedAuditTruncated: boolean;
   };
   drafts: {
+    /** 进了审批的首封回复草稿（不含只发目录的） */
     firstReplies: number;
+    /** 只发目录的首封（展会 C 级 + 只发目录：没有任何待确认项），不进占比分母 */
+    catalogOnlyReplies: number;
     pendingMoq: number;
     pendingMoqShare: number | null;
     pendingLeadTime: number;
@@ -127,14 +131,6 @@ export interface V2ReadinessReport {
 }
 
 const isFactField = (f: string | null): f is V2FactField => f !== null && (V2_FACT_FIELDS as readonly string[]).includes(f);
-
-/** PendingAction 状态 → 计数桶：executed 已写入；pending 过有效期即已过期；approved（认领中）/ failed 记其他 */
-export function proposalBucket(p: { status: string; expiresAt: Date }, now: Date): ProposalBucket {
-  if (p.status === "executed") return "applied";
-  if (p.status === "rejected") return "rejected";
-  if (p.status === "pending") return p.expiresAt.getTime() <= now.getTime() ? "expired" : "pending";
-  return "other";
-}
 
 function provenance(available: boolean, applied: number): FactProvenance {
   return { available, appliedViaProposal: applied, source: available ? (applied > 0 ? "proposal" : "manual") : null };
@@ -202,7 +198,7 @@ export function computeV2Readiness(input: V2ReadinessInput): V2ReadinessReport {
   const window: Record<ProposalBucket, number> & { created: number } = { created: 0, pending: 0, applied: 0, rejected: 0, expired: 0, other: 0 };
   const byField = new Map<V2FactField, { created: number; applied: number; rejected: number }>(V2_FACT_FIELDS.map((f) => [f, { created: 0, applied: 0, rejected: 0 }]));
   for (const p of input.proposals) {
-    const bucket = proposalBucket(p, now);
+    const bucket = p.bucket;
     window.created++;
     window[bucket]++;
     if (!isFactField(p.field)) continue;
@@ -212,8 +208,9 @@ export function computeV2Readiness(input: V2ReadinessInput): V2ReadinessReport {
     if (bucket === "rejected") row.rejected++;
   }
 
-  // 首封草稿：只看 followUpStep 为空的快照
-  const firsts = input.snapshots.filter((s) => s.followUpStep === null);
+  // 首封草稿：只看 followUpStep 为空的快照；非目录首封至少有"价格"一项待确认，待确认项为空 = 只发目录，单独计数、不进分母
+  const allFirsts = input.snapshots.filter((s) => s.followUpStep === null);
+  const firsts = allFirsts.filter((s) => s.pendingInternalConfirmation.length > 0);
   const has = (s: { pendingInternalConfirmation: readonly string[] }, labels: readonly string[]) => s.pendingInternalConfirmation.some((p) => labels.includes(p));
   const pendingMoq = firsts.filter((s) => has(s, PENDING_MOQ_LABELS)).length;
   const pendingLeadTime = firsts.filter((s) => has(s, PENDING_LEAD_TIME_LABELS)).length;
@@ -234,6 +231,7 @@ export function computeV2Readiness(input: V2ReadinessInput): V2ReadinessReport {
     },
     drafts: {
       firstReplies: firsts.length,
+      catalogOnlyReplies: allFirsts.length - firsts.length,
       pendingMoq,
       pendingMoqShare: share(pendingMoq, firsts.length),
       pendingLeadTime,

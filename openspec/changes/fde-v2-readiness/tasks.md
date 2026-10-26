@@ -8,7 +8,7 @@
   - 首封草稿占比（只看首封；MOQ / 周期待确认的固定文案与 `reply-draft.ts` 一致）；
   - V2 其余数据源（认证、成本基础、样品政策、最低毛利是否配置、历史报价条数、类目数）。
   - 新建 `src/lib/revenue-spine/__tests__/v2-readiness.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
-  - verify：测试退出 0，覆盖 spec「四条启动条件与结论」「依据计数」「不输出商务值与个人信息」的全部 scenario。
+  - verify：测试退出 0，覆盖 spec「四条启动条件与结论」「事实提案计数」「首封草稿占比」「其余数据源与读取上限」「不输出商务值与个人信息」的全部 scenario。
 - [x] 1.2 新建 `src/lib/revenue-spine/v2-readiness-read-model.ts`（where 构造函数 + 依赖可注入的 `getV2Readiness(orgId, deps)`，提案 2000 / 审计 2000 / 快照 300 上限并标记）与 `src/app/api/revenue/v2-readiness/route.ts`（`resolveRevenueAccess` + `force-dynamic`）。
   - 测试补到 `v2-readiness.test.ts`：假依赖端到端、查询条件限定组织与窗口、读模型与接口只读（源码静态断言）。
   - verify：测试退出 0，覆盖 spec「只读就绪度接口」scenario；`npm run typecheck` 退出 0。
