@@ -18,7 +18,7 @@
 - **THEN** 静态断言 `src/app/(main)/page.tsx` 仍调用 `resolveHomeRedirect` 与登录检查，且不再引用 `ManagementDashboardClient`，退出码 0
 
 ### Requirement: 首屏只调用两个只读接口
-首屏 SHALL 只并发调用 `GET /api/cockpit/posts` 与 `GET /api/cockpit/timeline` 两个接口，页面上的全部数据 SHALL 来自这两个接口的响应，SHALL NOT 使用写死或模拟数据。时间线后续页 SHALL 只在用户点击"加载更多"时按 `nextCursor` 请求。页面 SHALL NOT 发出任何非 GET 请求。
+首屏 SHALL 只并发调用 `GET /api/cockpit/posts` 与 `GET /api/cockpit/timeline` 两个接口，首屏的全部数据 SHALL 来自这两个接口的响应，SHALL NOT 使用写死或模拟数据。时间线后续页 SHALL 只在用户点击"加载更多"时按 `nextCursor` 请求；首屏之外由用户点击展开的区块 SHALL 只在点击后请求各自的只读接口，SHALL NOT 在首屏自动请求。页面 SHALL NOT 发出任何非 GET 请求。
 
 #### Scenario: 首屏请求
 - **WHEN** 首页客户端组件挂载
