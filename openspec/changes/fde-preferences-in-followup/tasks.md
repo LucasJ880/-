@@ -9,7 +9,7 @@
 
 ## 2. 跟进模板与起草接入
 
-- [ ] 2.1 跟进模板与起草接入：
+- [x] 2.1 跟进模板与起草接入：
   - `fde/no-reply-followup.ts`：`NoReplyFollowUpInput.preferences`；问候 / 结束语 / 敬语 / 禁用词（共用函数）；
   - `draftNoReplyFollowUps`：组织级解析偏好、违规审计、追问与草稿（含中文对照）传入偏好、`bannedPhrasesSkipped` 审计。
   - 新建 `src/lib/revenue-spine/__tests__/followup-preferences.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。

@@ -6,6 +6,8 @@
  * 同一封外发之后的同一次跟进只起草一次（被拒绝、过期也不重复起草）。
  *
  * 跟进只追问报价需要的信息，不写价格 / MOQ / 交期等任何承诺，与首封同一套守卫；英文草稿附中文对照给审核人。
+ * 企业确认的草稿偏好（policy.fde，默认关闭）与首封用同一份解析结果：问候 / 结束语 / 敬语 / 必问免问 / 禁用词；
+ * 不传偏好时每一行逻辑与接入前相同（金样本 __tests__/fixtures/followup-golden-pre-c2.json 锁定）。
  */
 
 import { db } from "@/lib/db";
@@ -14,8 +16,17 @@ import { requestApproval } from "@/lib/approval/request";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { detectInquiryRisks } from "../inquiry-risks";
 import { toCanonicalStage, type OpportunityStage } from "../opportunity-stage";
+import { BANNED_PHRASE_SKIPPED_REASON, recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
-import { allowedStyles, checkDraftGuardrails, signOff, signatureLines, type ReplyDraft } from "../reply-draft";
+import {
+  allowedStyles,
+  applyBannedPhrasesSafely,
+  checkDraftGuardrails,
+  signOff,
+  signatureLines,
+  type DraftTemplatePreferences,
+  type ReplyDraft,
+} from "../reply-draft";
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
 import { rfqRowToFields } from "../rfq/persist";
 import { FDE_EMPLOYEE_KEY } from "./actions";
@@ -83,6 +94,8 @@ export interface NoReplyFollowUpInput {
   signature?: { afterName: string[]; afterOrg: string[] };
   /** 对外英文公司名；英文跟进用它（为空用 orgName） */
   buyerFacingName?: string | null;
+  /** 企业确认的草稿偏好（已校验，见 draft-preferences.ts）；不传 / null = 默认模板 */
+  preferences?: DraftTemplatePreferences | null;
 }
 
 function fmtDate(d: Date, lang: "en" | "zh"): string {
@@ -109,8 +122,20 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
       ? `跟进：${input.product ?? "您的询盘"} — ${orgName}`
       : `Following up${input.product ? ` on ${input.product}` : ""} — ${orgName}`;
 
+  const lang: "en" | "zh" = zh ? "zh" : "en";
+  const prefs = input.preferences ?? null;
+  // 偏好问候只在有联系人名时用；函数形式替换，联系人名里的 "$" 不当替换模式
+  const prefGreeting = prefs && input.contactName && prefs.greeting[lang] ? prefs.greeting[lang]!.replace("{name}", () => input.contactName!) : null;
+  const prefClosing = prefs?.closing[lang] ?? null;
+  const prefValediction = prefs?.valediction[lang] ?? null;
+  /** 跟进默认没有结束语行；配置了结束语偏好才在敬语前加一行 */
+  const closeWith = (defaultValediction: string) => {
+    if (prefClosing) lines.push(prefClosing);
+    lines.push(prefValediction ?? defaultValediction);
+  };
+
   if (zh) {
-    lines.push(`${input.contactName ?? "您好"}${input.contactName ? "，您好" : ""}：`);
+    lines.push(prefGreeting ?? `${input.contactName ?? "您好"}${input.contactName ? "，您好" : ""}：`);
     lines.push("");
     if (input.step === 1) {
       lines.push(input.event ? `希望您从${/^[A-Za-z0-9]/.test(input.event) ? ` ${input.event} ` : input.event}回去一路顺利。` : `再次感谢您的询盘${input.product ? `（${input.product}）` : ""}。`);
@@ -133,10 +158,10 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
       lines.push(`如果现在时机不合适，告诉我们什么时候再联系您就好${input.product ? `；${input.product}` : ""}有任何需要，我们随时乐意协助。`);
     }
     lines.push("");
-    lines.push("祝好！");
+    closeWith("祝好！");
     lines.push(...signOff(input.senderName, orgName, input.signature));
   } else {
-    lines.push(`Dear ${input.contactName ?? "there"},`);
+    lines.push(prefGreeting ?? `Dear ${input.contactName ?? "there"},`);
     lines.push("");
     if (input.step === 1) {
       lines.push(input.event ? `I hope you had a good trip back from ${input.event}.` : `Thank you again for your inquiry${input.product ? ` about ${input.product}` : ""}.`);
@@ -163,19 +188,49 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
       );
     }
     lines.push("");
-    lines.push("Best regards,");
+    closeWith("Best regards,");
     lines.push(...signOff(input.senderName, orgName, input.signature));
   }
 
-  const body = lines.join("\n");
+  if (!prefs) {
+    const body = lines.join("\n");
+    return {
+      subject,
+      body,
+      language: input.language,
+      factsUsed: [],
+      pendingInternalConfirmation: [],
+      guardrailViolations: checkDraftGuardrails(`${subject}\n${body}`),
+      templateOnly: true,
+    };
+  }
+  // 偏好（与首封同一规则）：署名块与偏好行不替换；嵌着的专名与链接挡住；替换后多出守卫违规则这一封不替换
+  const preferenceLines = [prefGreeting, prefClosing, prefValediction].filter((l): l is string => Boolean(l));
+  const kept = new Set<string>([...signOff(input.senderName, orgName, input.signature), ...preferenceLines]);
+  const banned = prefs.bannedPhrases.length
+    ? applyBannedPhrasesSafely({
+        lines,
+        phrases: prefs.bannedPhrases,
+        kept,
+        keepTerms: [orgName, input.orgName, input.buyerFacingName, input.contactName, input.product, input.event],
+        violationsOf: (b) => checkDraftGuardrails(`${subject}\n${b}`),
+      })
+    : null;
+  const body = banned ? banned.body : lines.join("\n");
   return {
     subject,
     body,
     language: input.language,
     factsUsed: [],
     pendingInternalConfirmation: [],
-    guardrailViolations: checkDraftGuardrails(`${subject}\n${body}`),
+    guardrailViolations: banned ? banned.violations : checkDraftGuardrails(`${subject}\n${body}`),
     templateOnly: true,
+    preferences: {
+      lines: preferenceLines,
+      bannedPhrases: prefs.bannedPhrases.map((b) => b.phrase),
+      keptLines: [...kept],
+      ...(banned?.skipped.length ? { bannedPhrasesSkipped: banned.skipped } : {}),
+    },
   };
 }
 
@@ -223,6 +278,9 @@ export async function draftNoReplyFollowUps(
   });
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, ownerId: true } });
   if (!org) return out;
+  // 企业确认的草稿偏好（与首封同一份解析）：开关关闭时为 null，跟进走默认模板，逐字节不变
+  const draftPrefs = resolveDraftPreferences(policy);
+  let prefsAudited = false;
 
   for (const opp of candidates) {
     if (out.drafted >= MAX_PER_RUN) break;
@@ -294,11 +352,26 @@ export async function draftNoReplyFollowUps(
         previousSentAt: opp.lastOutboundAt!,
         product: productLabel(allowedStyles(booth.styles, policy), fields?.productName ?? null, lang === "zh"),
         event: booth.fromLatest ? booth.event : null,
-        questions: buildClarifyingQuestions(missing, lang, 3),
+        questions: buildClarifyingQuestions(missing, lang, 3, draftPrefs),
         signature: signatureLines(policy, lang),
         buyerFacingName: policy.businessProfile.commercialFacts.buyerFacingName,
+        preferences: draftPrefs,
       });
+      // 违规偏好：本轮有到期跟进时记一次（同组织同一组违规只记一次，审计只含键名与原因）
+      if (draftPrefs?.ignored.length && !prefsAudited) {
+        prefsAudited = true;
+        await recordIgnoredDraftPreferencesSafe({ orgId, userId: principalUserId, ignored: draftPrefs.ignored, employeeKey: FDE_EMPLOYEE_KEY });
+      }
       const draft = buildNoReplyFollowUpDraft(input(language));
+      const skippedBanned = draft.preferences?.bannedPhrasesSkipped ?? [];
+      if (skippedBanned.length) {
+        await recordIgnoredDraftPreferencesSafe({
+          orgId,
+          userId: principalUserId,
+          ignored: skippedBanned.map((key) => ({ key, reason: BANNED_PHRASE_SKIPPED_REASON })),
+          employeeKey: FDE_EMPLOYEE_KEY,
+        });
+      }
       if (draft.guardrailViolations.length) {
         skip(`guardrail:${draft.guardrailViolations.join(",")}`);
         const recorded = await db.auditLog.findFirst({
