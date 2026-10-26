@@ -2,7 +2,7 @@
 
 ## 1. 结构化 diff 与买家信息替换（纯函数）
 
-- [ ] 1.1 新建 `src/lib/revenue-spine/fde/draft-diff.ts`：
+- [x] 1.1 新建 `src/lib/revenue-spine/fde/draft-diff.ts`：
   - 内容：正文归一（与执行器一致）、段落分类、行级 diff（改动段落类型 / 改动占比）、事实段新增行的数值捕获、`maskBuyerPii`。
   - 新建 `src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
   - verify：`npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts` 退出 0，覆盖 spec「草稿结构化 diff」全部 scenario 与「草稿创建时留存脱敏快照」的买家信息替换 scenario。
