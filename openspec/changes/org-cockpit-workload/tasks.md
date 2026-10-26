@@ -9,7 +9,7 @@
 
 ## 2. 读模型与接口
 
-- [ ] 2.1 新建 `src/lib/cockpit/workload-read-model.ts`（依赖可注入、查询条件为导出纯函数、每类来源行数上限）与 `src/app/api/cockpit/workload/route.ts`（`withAuth` → `resolveCockpitViewer` → 参数校验 → 读模型），并新建 `src/lib/cockpit/__tests__/workload-read-model.test.ts` 且注册。
+- [x] 2.1 新建 `src/lib/cockpit/workload-read-model.ts`（依赖可注入、查询条件为导出纯函数、每类来源行数上限）与 `src/app/api/cockpit/workload/route.ts`（`withAuth` → `resolveCockpitViewer` → 参数校验 → 读模型），并新建 `src/lib/cockpit/__tests__/workload-read-model.test.ts` 且注册。
   - verify：测试退出 0，覆盖以下 scenario：
     - 「工作量接口只读且与岗位总览同一套访问规则」全部；
     - 「AI 运行与平台自动化运行」：同一批运行，工作量近 7 天与岗位总览的 `actions7d.agentRuns` 相等；
