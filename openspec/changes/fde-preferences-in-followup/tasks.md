@@ -2,7 +2,7 @@
 
 ## 1. 金样本与共用函数
 
-- [ ] 1.1 先锁定现状，再抽共用函数：
+- [x] 1.1 先锁定现状，再抽共用函数：
   - 先提交 `src/lib/revenue-spine/__tests__/fixtures/followup-golden-cases.ts` 与用**未改动代码**生成的 `followup-golden-pre-c2.json`（单独提交）；
   - 在 `reply-draft.ts` 抽出 `applyBannedPhrasesSafely`，`buildReplyDraft` 改为调用它。
   - verify：`draft-preferences.test.ts` 45 条全过（含首封金样本）；`scoring-draft.test.ts`、`tricky-inquiries.test.ts` 全过。

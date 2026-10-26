@@ -324,6 +324,31 @@ export function countBannedPhrases(text: string, phrases: readonly string[]): nu
   return phrases.reduce((n, p) => n + (text.match(bannedPhraseRe(p))?.length ?? 0), 0);
 }
 
+/**
+ * 保护行之外替换禁用词（首封与无回复跟进共用）。替换后比替换前多出守卫违规（替换前就有的不算）时，
+ * 退回替换前的正文与违规，并逐条试出引起违规的禁用词键名；单条都不引起、组合才引起时记全部。
+ */
+export function applyBannedPhrasesSafely(input: {
+  lines: readonly string[];
+  phrases: ReadonlyArray<{ phrase: string; replacement: string; key?: string }>;
+  kept: ReadonlySet<string>;
+  keepTerms: readonly (string | null | undefined)[];
+  violationsOf: (body: string) => string[];
+}): { body: string; violations: string[]; skipped: string[] } {
+  const apply = (phrases: ReadonlyArray<{ phrase: string; replacement: string }>) =>
+    input.lines.map((l) => (input.kept.has(l) ? l : replaceBannedPhrases(l, phrases, input.keepTerms))).join("\n");
+  const plainBody = input.lines.join("\n");
+  const body = apply(input.phrases);
+  const violations = input.violationsOf(body);
+  if (body === plainBody) return { body, violations, skipped: [] };
+  const plain = input.violationsOf(plainBody);
+  const adds = (v: string[]) => v.some((x) => !plain.includes(x));
+  if (!adds(violations)) return { body, violations, skipped: [] };
+  const keyOf = (b: { key?: string }, i: number) => b.key ?? `bannedPhrases[${i}]`;
+  const culprits = input.phrases.flatMap((b, i) => (adds(input.violationsOf(apply([b]))) ? [keyOf(b, i)] : []));
+  return { body: plainBody, violations: plain, skipped: culprits.length ? culprits : input.phrases.map(keyOf) };
+}
+
 /** 去掉保护行后的文本（润色判定禁用词时只看模板自己的句子） */
 function withoutLines(text: string, kept: ReadonlySet<string>): string {
   return text
@@ -421,12 +446,9 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
    */
   const kept = new Set<string>();
   const keepTerms = [orgName, input.orgName, input.companyName, fields.productName, met?.event, input.contactName, ...styles.flatMap((st) => [st.name, st.code])];
-  const applyBanned = (lines: readonly string[], phrases: ReadonlyArray<{ phrase: string; replacement: string }>) =>
-    lines.map((l) => (kept.has(l) ? l : replaceBannedPhrases(l, phrases, keepTerms))).join("\n");
-  /** 替换前的正文行（替换后多出守卫违规时退回它） */
-  const raw: { lines: string[] | null } = { lines: null };
-  const finishBody = (lines: string[]): string => {
-    raw.lines = lines;
+  /** 替换后多出守卫违规、这一封退回时，引起违规的禁用词键名 */
+  let bannedPhrasesSkipped: string[] = [];
+  const finishBody = (lines: string[], subjectLine: string): string => {
     if (!prefs?.bannedPhrases.length) return lines.join("\n");
     const zh = lang === "zh";
     for (const l of [
@@ -440,7 +462,17 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       ...preferenceLines,
     ])
       kept.add(l);
-    return applyBanned(lines, prefs.bannedPhrases);
+    // 替换后多出了守卫违规（如买家产品名 "samples kit" 遇上 "inquiry about → free" 拼成 "your free samples kit"）：这一封不做替换
+    // （替换前就有的违规照常保留——不掩盖买家原文带来的问题；不让配置错误把每封草稿都拦在审批中心外）
+    const r = applyBannedPhrasesSafely({
+      lines,
+      phrases: prefs.bannedPhrases,
+      kept,
+      keepTerms,
+      violationsOf: (b) => checkDraftWithReferenceLines(`${subjectLine}\n${b}`, referenceLines),
+    });
+    bannedPhrasesSkipped = r.skipped;
+    return r.body;
   };
 
   let subject: string;
@@ -492,7 +524,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push("");
     if (prefValediction) lines.push(prefValediction);
     lines.push(...signOff(input.senderName, orgName, sig));
-    body = finishBody(lines);
+    body = finishBody(lines, subject);
   } else {
     const qty = subjectQty ? ` (${subjectQty}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
@@ -539,33 +571,10 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     lines.push("");
     lines.push(prefValediction ?? "Best regards,");
     lines.push(...signOff(input.senderName, orgName, sig));
-    body = finishBody(lines);
+    body = finishBody(lines, subject);
   }
 
-  let violations = checkDraftWithReferenceLines(`${subject}\n${body}`, referenceLines);
-  // 禁用词替换后多出了守卫违规（如买家产品名 "samples kit" 遇上 "inquiry about → free" 拼成 "your free samples kit"）：这一封不做替换，回到替换前的正文
-  // （替换前就有的违规照常保留——不掩盖买家原文带来的问题；不让配置错误把每封草稿都拦在审批中心外）。
-  // 逐条试出是哪几条禁用词引起的，调用方据此按键名记审计
-  let bannedPhrasesSkipped: string[] = [];
-  const rawLines = raw.lines;
-  if (prefs?.bannedPhrases.length && rawLines) {
-    const plainBody = rawLines.join("\n");
-    if (plainBody !== body) {
-      const plain = checkDraftWithReferenceLines(`${subject}\n${plainBody}`, referenceLines);
-      const adds = (v: string[]) => v.some((x) => !plain.includes(x));
-      if (adds(violations)) {
-        const keyOf = (b: { key?: string }, i: number) => b.key ?? `bannedPhrases[${i}]`;
-        const culprits = prefs.bannedPhrases
-          .map((b, i) => ({ key: keyOf(b, i), adds: adds(checkDraftWithReferenceLines(`${subject}\n${applyBanned(rawLines, [b])}`, referenceLines)) }))
-          .filter((c) => c.adds)
-          .map((c) => c.key);
-        body = plainBody;
-        violations = plain;
-        // 单条都不引起、组合才引起时，记全部
-        bannedPhrasesSkipped = culprits.length ? culprits : prefs.bannedPhrases.map(keyOf);
-      }
-    }
-  }
+  const violations = checkDraftWithReferenceLines(`${subject}\n${body}`, referenceLines);
   return {
     subject,
     body,

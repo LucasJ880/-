@@ -562,7 +562,8 @@ async function main() {
     assert.ok(polish.indexOf("checkDraftWithReferenceLines(body, refs)") > polish.indexOf("createCompletion("));
     // 模板的守卫在禁用词替换之后对最终正文运行
     const build = src.slice(src.indexOf("export function buildReplyDraft"), src.indexOf("export async function polishReplyDraftWithLlm"));
-    assert.ok(build.lastIndexOf("checkDraftWithReferenceLines(`${subject}\\n${body}`, referenceLines)") > build.lastIndexOf("body = finishBody(lines);"));
+    const finish = build.lastIndexOf("body = finishBody(lines, subject);");
+    assert.ok(finish > 0 && build.lastIndexOf("checkDraftWithReferenceLines(`${subject}\\n${body}`, referenceLines)") > finish);
   });
 
   console.log("\n违规审计");
