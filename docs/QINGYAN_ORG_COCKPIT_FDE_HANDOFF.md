@@ -22,8 +22,12 @@
     - (c) B-2 暂缓。
     - 等用户 / Evan 拍板，未拍板前不开 B-2。
   - GATE 注意项：`metrics.ts` 采纳率与 `preference-learner` 的 40 条窗口会受系统事件影响（读者未改）。
-- **下一步：B-4 `fde-score-calibration`**，从 `claude/fde-feedback-loop` 开新分支 `claude/fde-score-calibration`；先读上面"B-4 预研事实"。之后 B-5、B-3。
-  - 设计要点：终态映射复用 `cockpit/workload.ts` 的 `pendingActionOutcome`；端口批准 / 驳回非重复分支 + 过期赢家 + `approval-timeout` 内补漏（10 分钟沉淀）三路写入时间不重叠，先查后写。事件 `skillSlug = inbound_sales_fde`、`feedbackScope = team_candidate`、`aiOutputRef.terminal/feedbackType`。快照里买家信息替换为占位符，只保留收件人邮箱；事件里连收件人邮箱也不留。
+  - B-1 设计要点：终态映射复用 `cockpit/workload.ts` 的 `pendingActionOutcome`；端口批准 / 驳回非重复分支 + 过期赢家 + `approval-timeout` 内补漏（10 分钟沉淀）三路写入时间不重叠，先查后写。事件 `skillSlug = inbound_sales_fde`、`feedbackScope = team_candidate`、`aiOutputRef.terminal/feedbackType`。快照里买家信息替换为占位符，只保留收件人邮箱；事件里连收件人邮箱也不留。
+- **B-4 `fde-score-calibration`**（分支 `claude/fde-score-calibration`，叠在 B-1 上，PR 见进度表，base = B-1 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-4_REPORT.md`（偏差 8 条，交叉审查 1 阻塞 + 2 应修 + 5 可选全部处理）。
+  - 做了什么：`GET /api/revenue/score-calibration?days=`（30–180，缺省 90）+ `/revenue` 底部点开才加载的"评分校准（只报不改）"区块。首次评估六维（得分 ÷ 当时满分）对商机当前阶段：分桶赢单率 / 报价率、命中率、区分度、等级表、建议权重；"复制为 policy 片段"只写剪贴板。
+  - **GATE 决策项**：建议权重有下限——productFit ≥ 3、其余可评估维度 ≥ 1。productFit = 0 会让评分把所有询盘判不合格并自动关闭；任一维为 0 后永远无法再校准。测试锁定"粘贴建议不改变不合格判定"。
+  - 口径：结局取 `SalesOpportunity.stage`（与 `/revenue` 同）；QUOTE_SENT 只当"报过价"证据；disqualified 与入驻测试排除且计数；门槛按已定（won + lost）≥ 30。
+- **下一步：B-5 `fde-internal-autonomy`**，从 `claude/fde-score-calibration` 开新分支 `claude/fde-internal-autonomy`。先读任务书 §B-5、`src/lib/revenue-spine/transition.ts`（`ALLOWED_TRANSITIONS` 不放宽）、`policy.ts` 的 `followUp.staleAfterDays` / `excludedCategoryAction`、A-2 的 health（`quota_hit`）与 `DAILY_AGENT_RUNS` 配额实现。之后 B-3。B-2 仍等 B-1 的决策项。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -39,7 +43,7 @@
 | B-1 | `fde-feedback-loop`（[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支） | ✅ `61feec70` | 6/6 | ✅ 424/438，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞 + 6 应修全部处理 | `[G]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
-| B-4 | `fde-score-calibration` | — | — | — | — | — | `[ ]` |
+| B-4 | `fde-score-calibration`（PR 待开，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy` | — | — | — | — | — | `[ ]` |
 
 A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行决定是否启动）。
