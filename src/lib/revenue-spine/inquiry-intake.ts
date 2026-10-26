@@ -1,8 +1,8 @@
 /**
  * Revenue Spine — 询盘统一入口（PART 2 / Principle 2）
  *
- * 任何来源（website_inquiry / email / trade_show / manual / …）最终都走这里：
- *   normalize → 四级去重 → SalesCustomer 建/联 → SalesOpportunity 建/附 → CustomerInteraction
+ * 任何来源（website_inquiry / email / trade_show / whatsapp / manual / …）最终都走这里：
+ *   normalize → 四级去重（邮箱 → 电话 → 域名 → 公司名）→ SalesCustomer 建/联 → SalesOpportunity 建/附 → CustomerInteraction
  *   → SalesAction（FDE 队列）→ 返回给调用方触发 FDE
  *
  * 同一客户在报价前阶段再次来信 = 补充信息（附到既有商机，记 CUSTOMER_REPLIED），不新建平行商机。
@@ -31,12 +31,39 @@ export const OPPORTUNITY_SOURCES = [
   "manual",
   "import",
   "email",
+  "whatsapp",
+  "wechat",
 ] as const;
 
 export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number];
 
 export function isOpportunitySource(v: unknown): v is OpportunitySource {
   return typeof v === "string" && (OPPORTUNITY_SOURCES as readonly string[]).includes(v);
+}
+
+/** 来源 → 互动渠道（调用方未在 meta.channel 指定时）；未列出的来源记 other */
+const SOURCE_INTERACTION_CHANNEL: Partial<Record<OpportunitySource, string>> = {
+  website_inquiry: "website",
+  email: "email",
+  whatsapp: "whatsapp",
+  wechat: "wechat",
+};
+
+/** 来源 → CustomerInteraction.type；未列出的来源记 note */
+const SOURCE_INTERACTION_TYPE: Partial<Record<OpportunitySource, string>> = {
+  website_inquiry: "web_form",
+  email: "email",
+  trade_show: "in_person",
+  whatsapp: "whatsapp",
+  wechat: "wechat",
+};
+
+export function inquiryInteractionChannel(source: OpportunitySource, metaChannel?: string | null): string {
+  return metaChannel ?? SOURCE_INTERACTION_CHANNEL[source] ?? "other";
+}
+
+export function inquiryInteractionType(source: OpportunitySource): string {
+  return SOURCE_INTERACTION_TYPE[source] ?? "note";
 }
 
 export interface InquiryIntakeInput {
@@ -56,6 +83,8 @@ export interface InquiryIntakeInput {
   meta?: {
     page?: string | null;
     referrer?: string | null;
+    /** 首次访问落地页（嵌入表单等前端采集；归因字段） */
+    landing?: string | null;
     utm?: Record<string, string> | null;
     channel?: string | null;
     /** 展会名称（可含展位）；trade_show 来源时写入互动，回复草稿开头引用 */
@@ -72,6 +101,11 @@ export interface InquiryIntakeInput {
     tradeMessageId?: string | null;
     externalId?: string | null;
   };
+  /**
+   * 重放判定（默认 content：同客户 + 同正文 + 窗口内）。external_id = 来源平台保证消息 id 唯一（WhatsApp wamid）：
+   * 只有同一 sourceRef.externalId 才算重放，同一买家发两次相同内容（「ok」、不带说明的图）是两条消息。
+   */
+  replayKey?: "content" | "external_id";
   /** 人工录入时为操作者；网站询盘为 null（用商机负责人） */
   actorUserId?: string | null;
   /** AI 主动发现的商机（trade_intelligence / outbound by FDE） */
@@ -138,10 +172,10 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
 
   const policy = input.policy ?? (await loadRevenueSpinePolicy(input.orgId));
   const language = detectLanguage([subject, product, message].filter(Boolean).join("\n"));
-  const keys = buildDedupeKeys({ email, company, phone, website });
+  const keys = buildDedupeKeys({ email, company, phone, website, country });
 
-  // ── 1-4. 去重 ──
-  const match = await matchCustomer(input.orgId, { email, company, phone, website });
+  // ── 1-4. 去重（邮箱 → 电话 E.164 → 企业域名 → 公司名）──
+  const match = await matchCustomer(input.orgId, { email, company, phone, website, country });
   let customerId: string;
   let customerCreated = false;
   let ownerUserId: string | null = null;
@@ -191,16 +225,18 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
   }
   if (!ownerUserId) return { ok: false, code: "NO_OWNER", error: "组织没有可分配的负责人" };
 
-  // ── 幂等：同客户、同正文、窗口内 → 重放，返回既有对象 ──
+  // ── 幂等：同客户、同正文、窗口内 → 重放，返回既有对象（replayKey=external_id：同一平台消息 id 才算）──
   const renderedContent = [subject ? `Subject: ${subject}` : null, product ? `Product: ${product}` : null, message].filter(Boolean).join("\n");
-  if (!customerCreated) {
+  const externalId = input.replayKey === "external_id" ? input.sourceRef?.externalId || null : null;
+  if (!customerCreated && (input.replayKey !== "external_id" || externalId)) {
     const replayed = await db.customerInteraction.findFirst({
       where: {
         orgId: input.orgId,
         customerId,
         direction: "inbound",
-        content: renderedContent,
-        createdAt: { gte: new Date(now.getTime() - INQUIRY_REPLAY_WINDOW_MS) },
+        ...(externalId
+          ? { analysisResult: { path: ["sourceRef", "externalId"], equals: externalId } }
+          : { content: renderedContent, createdAt: { gte: new Date(now.getTime() - INQUIRY_REPLAY_WINDOW_MS) } }),
       },
       orderBy: { createdAt: "desc" },
       select: { id: true, opportunityId: true },
@@ -277,8 +313,8 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     orgId: input.orgId,
     opportunityId,
     direction: "inbound",
-    channel: input.meta?.channel ?? (input.source === "website_inquiry" ? "website" : input.source === "email" ? "email" : "other"),
-    type: input.source === "website_inquiry" ? "web_form" : input.source === "email" ? "email" : input.source === "trade_show" ? "in_person" : "note",
+    channel: inquiryInteractionChannel(input.source, input.meta?.channel),
+    type: inquiryInteractionType(input.source),
     summary: [subject, product, message].filter(Boolean).join(" — "),
     content: rawMessages[0].content,
     actorUserId: ownerUserId,
@@ -287,8 +323,11 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     language,
     source: input.source,
     extra: {
+      // 写这封来信的人：同公司第二位联系人复用商机时，FDE 据此提醒审核人（见 fde/inbound-sales.ts）
+      contact: { name: name || null, email: email || null },
       page: input.meta?.page ?? null,
       referrer: input.meta?.referrer ?? null,
+      ...(input.meta?.landing ? { landing: input.meta.landing } : {}),
       utm: input.meta?.utm ?? null,
       sourceRef: input.sourceRef ?? null,
       ...(input.meta?.event ? { event: input.meta.event } : {}),
@@ -299,8 +338,8 @@ export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeRe
     policy,
   });
 
-  // ── 8. SalesAction：进入 FDE 工作流（SLA 到期时间来自 policy） ──
-  const dueAt = addBusinessHours(now, policy.salesSla.newInquiryResponseHours);
+  // ── 8. SalesAction：进入 FDE 工作流（SLA 到期时间来自 policy；设了工作时间则按组织当地工作时段计） ──
+  const dueAt = addBusinessHours(now, policy.salesSla.newInquiryResponseHours, policy.salesSla.businessHours ?? null);
   const action = await createFdeAction({
     orgId: input.orgId,
     customerId,

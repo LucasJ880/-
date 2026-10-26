@@ -1,3 +1,4 @@
+import { db } from "@/lib/db";
 import { isLocalScheduleHour, isValidTimeZone } from "./local-time";
 
 /** 组织未设置 settingsJson.timezone（或值无效）时的默认时区 */
@@ -24,7 +25,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: ORG_TIMEZONE },
   { key: "progress-summary", name: "项目进度摘要", category: "projects", cadence: "每日", timezone: "UTC" },
   { key: "service-inbox-sla", name: "客服 SLA 提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
-  { key: "inquiry-sla", name: "询盘响应提醒", category: "service", cadence: "每 10 分钟", timezone: AUTOMATION_TIMEZONE },
+  { key: "inquiry-sla", name: "询盘响应提醒（含首响分级提醒）", category: "service", cadence: "每 5 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "market-intelligence", name: "市场情报分析", category: "marketing", cadence: "每 15 分钟", timezone: "UTC", requiredEnv: ["FIRECRAWL_API_KEY"] },
   { key: "marketing-channel-sync", name: "增长中心渠道同步", category: "marketing", cadence: "每日 4 次，Activepieces 执行", timezone: AUTOMATION_TIMEZONE, requiredEnv: ["ACTIVEPIECES_WEBHOOK_SECRET", "ACTIVEPIECES_MARKETING_SYNC_WEBHOOK_URL"] },
   { key: "marketing-crm-attribution", name: "CRM 营销反馈归总", category: "marketing", cadence: "每日 07:00", timezone: AUTOMATION_TIMEZONE },
@@ -73,12 +74,19 @@ export const AUTOMATION_REGISTRY = [
     cadence: "每小时",
     timezone: "UTC",
   },
+  {
+    key: "tender-rfq-inbound",
+    name: "询价回信入站（报价自动入表）",
+    category: "projects",
+    cadence: "每 10 分钟",
+    timezone: "UTC",
+  },
 ] as const satisfies readonly AutomationDefinition[];
 
 export type AutomationKey = (typeof AUTOMATION_REGISTRY)[number]["key"];
 
 /**
- * 组织时区：Organization.settingsJson.timezone（IANA 名称，如梦馨 "Asia/Shanghai"）。
+ * 组织时区：Organization.settingsJson.timezone（IANA 名称，如 "Asia/Shanghai"）。
  * 未设置或不是有效 IANA 名称时回退 AUTOMATION_TIMEZONE。
  */
 export function resolveOrgTimezone(settingsJson: unknown): string {
@@ -88,6 +96,12 @@ export function resolveOrgTimezone(settingsJson: unknown): string {
     if (isValidTimeZone(timeZone)) return timeZone;
   }
   return AUTOMATION_TIMEZONE;
+}
+
+/** 按组织 id 读时区（规则同 resolveOrgTimezone；组织不存在也回退 AUTOMATION_TIMEZONE） */
+export async function loadOrgTimezone(orgId: string): Promise<string> {
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
+  return resolveOrgTimezone(org?.settingsJson ?? null);
 }
 
 /**

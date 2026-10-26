@@ -12,6 +12,7 @@
  */
 
 import { db } from "@/lib/db";
+import { logAudit } from "@/lib/audit/logger";
 import { requestApproval } from "@/lib/approval/request";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { composeFollowUpEmail, footerLines, type BoothEmailContext } from "../booth-email";
@@ -20,7 +21,7 @@ import { loadEmailBranding, signatureFor } from "../email-profile";
 import { detectInquiryRisks } from "../inquiry-risks";
 import { toCanonicalStage, type OpportunityStage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
-import { checkDraftGuardrails, type ReplyDraft } from "../reply-draft";
+import { allowedStyles, checkDraftGuardrails, signOff, signatureLines, type ReplyDraft } from "../reply-draft";
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
 import { rfqRowToFields } from "../rfq/persist";
 import { FDE_EMPLOYEE_KEY } from "./actions";
@@ -34,6 +35,11 @@ const MAX_PER_RUN = 50;
 const MAX_LATE_DAYS = 7;
 /** 买家的回信可能直接进了业务员邮箱或 WhatsApp，青砚看不到：发跟进前让审核人确认 */
 export const FOLLOW_UP_REMINDER = "发送前确认买家这几天没有通过邮件或 WhatsApp 直接回复过业务员。回复过就在商机页点「买家已回复」，这封作废，之后也不再自动跟进";
+/**
+ * 跟进草稿被护栏拦下时写一条审计（AuditLog.afterData 为 JSON），供 SLA 指标"护栏拦截数"计数。
+ * 同一次跟进（idempotencyKey）只记一次：cron 每 15 分钟会重新判断同一商机，不重复写。
+ */
+export const FOLLOW_UP_GUARDRAIL_AUDIT_ACTION = "revenue_spine.followup_draft.guardrail_blocked";
 
 export interface NoReplyFollowUpDue {
   /** 第几次跟进（1 起） */
@@ -80,6 +86,10 @@ export interface NoReplyFollowUpInput {
   event: string | null;
   /** 还缺的报价信息 */
   questions: ClarifyingQuestion[];
+  /** 落款附加行：afterName（职位）/ afterOrg（WhatsApp、网站）；企业未配置时为空 */
+  signature?: { afterName: string[]; afterOrg: string[] };
+  /** 对外英文公司名；英文跟进用它（为空用 orgName） */
+  buyerFacingName?: string | null;
 }
 
 function fmtDate(d: Date, lang: "en" | "zh"): string {
@@ -91,6 +101,7 @@ function fmtDate(d: Date, lang: "en" | "zh"): string {
 /** 纯函数：跟进草稿正文。第一次追问缺的信息；中间几次问项目是否还在进行；最后一次说明这是最后一封 */
 export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDraft {
   const zh = input.language === "zh";
+  const orgName = zh ? input.orgName : input.buyerFacingName || input.orgName;
   const last = input.step >= input.total;
   const qs = input.questions.slice(0, 3);
   const lines: string[] = [];
@@ -102,8 +113,8 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
         ? `回复：${prev}`
         : `Re: ${prev}`
     : zh
-      ? `跟进：${input.product ?? "您的询盘"} — ${input.orgName}`
-      : `Following up${input.product ? ` on ${input.product}` : ""} — ${input.orgName}`;
+      ? `跟进：${input.product ?? "您的询盘"} — ${orgName}`
+      : `Following up${input.product ? ` on ${input.product}` : ""} — ${orgName}`;
 
   if (zh) {
     lines.push(`${input.contactName ?? "您好"}${input.contactName ? "，您好" : ""}：`);
@@ -130,8 +141,7 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
     }
     lines.push("");
     lines.push("祝好！");
-    lines.push(input.senderName);
-    lines.push(input.orgName);
+    lines.push(...signOff(input.senderName, orgName, input.signature));
   } else {
     lines.push(`Dear ${input.contactName ?? "there"},`);
     lines.push("");
@@ -161,8 +171,7 @@ export function buildNoReplyFollowUpDraft(input: NoReplyFollowUpInput): ReplyDra
     }
     lines.push("");
     lines.push("Best regards,");
-    lines.push(input.senderName);
-    lines.push(input.orgName);
+    lines.push(...signOff(input.senderName, orgName, input.signature));
   }
 
   const body = lines.join("\n");
@@ -283,6 +292,11 @@ export async function draftNoReplyFollowUps(
       }
       const language: "en" | "zh" = (lastOut?.language ?? latest.language) === "zh" ? "zh" : "en";
       const booth = boothContext(inbound, latest);
+      // 展会 C 级且企业规定"只发目录、不追问"：不进无回复跟进
+      if (booth.grade === "C" && policy.businessProfile.commercialFacts.gradeCCatalogOnly) {
+        skip("grade_c_catalog_only");
+        continue;
+      }
       const fields = rfqRow ? rfqRowToFields(rfqRow as unknown as Record<string, unknown>) : null;
       const missing = fields ? computeMissingFields(fields) : [];
       const principalUserId = opp.assignedToId ?? org.ownerId;
@@ -299,9 +313,11 @@ export async function draftNoReplyFollowUps(
         senderName,
         previousSubject: lastOut?.summary ?? null,
         previousSentAt: opp.lastOutboundAt!,
-        product: productLabel(booth.styles, fields?.productName ?? null, lang === "zh"),
+        product: productLabel(allowedStyles(booth.styles, policy), fields?.productName ?? null, lang === "zh"),
         event: booth.fromLatest ? booth.event : null,
         questions: buildClarifyingQuestions(missing, lang, 3),
+        signature: signatureLines(policy, lang),
+        buyerFacingName: policy.businessProfile.commercialFacts.buyerFacingName,
       });
       const event = booth.fromLatest ? booth.event : null;
       let draft: ReplyDraft;
@@ -331,6 +347,20 @@ export async function draftNoReplyFollowUps(
       }
       if (draft.guardrailViolations.length) {
         skip(`guardrail:${draft.guardrailViolations.join(",")}`);
+        const recorded = await db.auditLog.findFirst({
+          where: { orgId, action: FOLLOW_UP_GUARDRAIL_AUDIT_ACTION, targetType: "sales_opportunity", targetId: opp.id, afterData: { contains: idempotencyKey } },
+          select: { id: true },
+        });
+        if (!recorded) {
+          await logAudit({
+            userId: principalUserId,
+            orgId,
+            action: FOLLOW_UP_GUARDRAIL_AUDIT_ACTION,
+            targetType: "sales_opportunity",
+            targetId: opp.id,
+            afterData: { idempotencyKey, step: due.step, guardrailViolations: draft.guardrailViolations.slice(0, 20), employeeKey: FDE_EMPLOYEE_KEY },
+          });
+        }
         continue;
       }
 

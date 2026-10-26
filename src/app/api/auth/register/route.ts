@@ -5,6 +5,7 @@ import { createSession, setSessionCookie } from "@/lib/auth/session";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { DEFAULT_ENVIRONMENTS } from "@/lib/common/constants";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
+import { checkOrgBoundInvite, upsertMembership, type OrgBoundOrgRole } from "@/lib/organizations/onboarding-rules";
 
 const REGISTER_RATE_LIMIT = {
   name: "auth-register",
@@ -71,6 +72,23 @@ export async function POST(request: NextRequest) {
 
   const assignedRole = invite.role;
 
+  // 企业邀请码（入驻向导）：只给 trade / sales 平台角色；企业须存在且启用
+  let orgBinding: { orgId: string; orgRole: OrgBoundOrgRole } | null = null;
+  if (invite.orgId) {
+    const check = checkOrgBoundInvite(invite);
+    if (!check.ok) {
+      return NextResponse.json({ error: "邀请码配置无效，请联系管理员" }, { status: 400 });
+    }
+    const org = await db.organization.findUnique({
+      where: { id: check.orgId },
+      select: { id: true, status: true },
+    });
+    if (!org || org.status !== "active") {
+      return NextResponse.json({ error: "邀请码对应的企业不可用，请联系管理员" }, { status: 400 });
+    }
+    orgBinding = { orgId: org.id, orgRole: check.orgRole };
+  }
+
   const existing = await db.user.findUnique({ where: { email } });
 
   if (existing?.passwordHash) {
@@ -79,6 +97,19 @@ export async function POST(request: NextRequest) {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const displayName = name || email.split("@")[0];
+
+  if (orgBinding) {
+    return registerIntoOrg(request, {
+      invite: { id: invite.id, usedCount: invite.usedCount, role: assignedRole, companyIdsJson: invite.companyIdsJson },
+      orgId: orgBinding.orgId,
+      orgRole: orgBinding.orgRole,
+      email,
+      name,
+      displayName,
+      passwordHash,
+      existing: existing ? { id: existing.id, name: existing.name } : null,
+    });
+  }
 
   let user;
   let isNewUser = false;
@@ -146,6 +177,96 @@ export async function POST(request: NextRequest) {
     action: existing ? AUDIT_ACTIONS.LOGIN : AUDIT_ACTIONS.CREATE,
     targetType: AUDIT_TARGETS.USER,
     targetId: user.id,
+    request,
+  });
+
+  return response;
+}
+
+class InviteAlreadyUsedError extends Error {}
+
+/**
+ * 企业邀请码注册：单事务内原子占用邀请码（按读到的 usedCount 做 CAS，单次使用）→ 建 / 补用户
+ * → 加入企业（不降级既有更高角色）→ 设为当前工作企业。不建个人工作区。
+ */
+async function registerIntoOrg(
+  request: NextRequest,
+  input: {
+    invite: { id: string; usedCount: number; role: string; companyIdsJson: string | null };
+    orgId: string;
+    orgRole: OrgBoundOrgRole;
+    email: string;
+    name: string | undefined;
+    displayName: string;
+    passwordHash: string;
+    existing: { id: string; name: string } | null;
+  },
+) {
+  let user: { id: string; email: string; name: string; role: string };
+  let membershipAction: string;
+  try {
+    const out = await db.$transaction(async (tx) => {
+      const claimed = await tx.inviteCode.updateMany({
+        where: { id: input.invite.id, isActive: true, usedCount: input.invite.usedCount },
+        data: { usedCount: { increment: 1 } },
+      });
+      if (claimed.count !== 1) throw new InviteAlreadyUsedError();
+
+      const select = { id: true, email: true, name: true, role: true } as const;
+      const u = input.existing
+        ? await tx.user.update({
+            where: { id: input.existing.id },
+            data: {
+              passwordHash: input.passwordHash,
+              name: input.name || input.existing.name,
+              role: input.invite.role,
+              inviteCodeId: input.invite.id,
+              companyIdsJson: input.invite.companyIdsJson,
+              activeOrgId: input.orgId,
+              lastLoginAt: new Date(),
+            },
+            select,
+          })
+        : await tx.user.create({
+            data: {
+              email: input.email,
+              passwordHash: input.passwordHash,
+              name: input.displayName,
+              role: input.invite.role,
+              inviteCodeId: input.invite.id,
+              companyIdsJson: input.invite.companyIdsJson,
+              activeOrgId: input.orgId,
+              status: "active",
+            },
+            select,
+          });
+
+      const membership = await upsertMembership(tx, input.orgId, u.id, input.orgRole);
+      return { user: u, membershipAction: membership.action, membershipRole: membership.role };
+    });
+    user = out.user;
+    membershipAction = `${out.membershipAction}:${out.membershipRole}`;
+  } catch (err) {
+    if (err instanceof InviteAlreadyUsedError) {
+      return NextResponse.json({ error: "邀请码已达使用上限" }, { status: 400 });
+    }
+    throw err;
+  }
+
+  const token = await createSession({ sub: user.id, email: user.email, role: user.role });
+  const response = NextResponse.json({
+    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    organization: { id: input.orgId },
+  });
+  setSessionCookie(response, token);
+
+  await logAudit({
+    userId: user.id,
+    orgId: input.orgId,
+    action: input.existing ? AUDIT_ACTIONS.LOGIN : AUDIT_ACTIONS.CREATE,
+    targetType: AUDIT_TARGETS.USER,
+    targetId: user.id,
+    afterData: { inviteCodeId: input.invite.id, orgBound: true, membership: membershipAction },
     request,
   });
 

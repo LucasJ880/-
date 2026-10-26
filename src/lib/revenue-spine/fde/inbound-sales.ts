@@ -1,5 +1,5 @@
 /**
- * Revenue Spine — Mengxin Inbound Sales FDE（PART 4 / 5 / 6 / 15 / 16）
+ * Revenue Spine — Inbound Sales FDE（PART 4 / 5 / 6 / 15 / 16）
  *
  * 确定性流水线（每一步 = AgentRunEvent，可追踪 trigger / input / tools / facts / decision / action / approval）：
  *   research → extract RFQ(+evidence) → knowledge → score → qualify(stage) → missing info → draft
@@ -27,6 +27,7 @@ import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { markFdeTouch } from "../attribution";
 import { loadFactoryKnowledge, summarizeKnowledge } from "../factory-knowledge";
 import { applyNextAction } from "../next-action";
+import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
@@ -34,6 +35,7 @@ import { composeBoothFirstEmail, footerLines, notedFacts } from "../booth-email"
 import { renderPlainEmailHtml } from "../email-layout";
 import { loadEmailBranding, signatureFor } from "../email-profile";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
+import { INBOUND_MESSAGE_SEPARATOR } from "../rfq/heuristic-extractor";
 import { classifyInquiry, type InquiryResearch } from "../research";
 import { extractRfq } from "../rfq/extract";
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
@@ -42,6 +44,28 @@ import type { RfqField, RfqFields } from "../rfq/types";
 import { scoreOpportunity, type OpportunityScoreResult } from "../scoring";
 import { transitionOpportunity } from "../transition";
 import { FDE_EMPLOYEE_KEY, updateFdeAction } from "./actions";
+
+/**
+ * 本次 FDE 的草稿结果，写进 SalesAction.inputContext.draftStatus（SLA 指标与超时提醒据此说明"为什么没有草稿"）：
+ *   created / reused = 草稿在审批中心；guardrail_blocked = 草稿触发护栏未进审批（另记 guardrailBlockedAt / guardrailViolations，
+ *   之后重跑成功也保留，供"护栏拦截"指标计数）；out_of_range / disqualified / no_email / cancelled / approval_failed = 没有草稿的原因
+ */
+type FdeDraftStatus = "created" | "reused" | "guardrail_blocked" | "out_of_range" | "disqualified" | "no_email" | "cancelled" | "approval_failed";
+
+/**
+ * 首封护栏拦截的持久标记（并进 inputContext；之后重跑不清除，指标"护栏拦截数"按它计）：
+ * 草稿触发护栏没进审批中心；或买家没留邮箱（draftStatus 记 no_email，没草稿的首要原因）但草稿同样触发了护栏——后者也算拦截，计数不漏。
+ */
+export function guardrailMarkerPatch(
+  draftStatus: FdeDraftStatus,
+  violations: readonly string[] | null | undefined,
+  now: Date,
+): { guardrailBlockedAt?: string; guardrailViolations?: string[] } {
+  if ((draftStatus === "guardrail_blocked" || draftStatus === "no_email") && violations && violations.length > 0) {
+    return { guardrailBlockedAt: now.toISOString(), guardrailViolations: violations.slice(0, 20) };
+  }
+  return {};
+}
 
 export const FDE_RUN_TYPE = "fde_inbound_sales";
 export const FDE_CHANNEL = "fde";
@@ -59,6 +83,8 @@ export interface RunInboundFdeInput {
   useLlm?: boolean;
   now?: Date;
   policy?: RevenueSpinePolicy;
+  /** 测试注入：新草稿的微信提醒发送函数（policy.notify.wechatOnNewDraft 打开时才会调用；缺省走 pushNotification） */
+  pushNewDraft?: PushFn;
 }
 
 export interface InboundFdeResult {
@@ -165,6 +191,13 @@ export function boothContext(
   };
 }
 
+/** 来信人（intake 写在 analysisResult.contact）；旧数据没有时为空 */
+function inboundWriter(analysis: unknown): { name: string | null; email: string | null } {
+  const c = (analysis as { contact?: Record<string, unknown> } | null)?.contact;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return { name: str(c?.name), email: str(c?.email)?.toLowerCase() ?? null };
+}
+
 export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<InboundFdeResult> {
   const now = input.now ?? new Date();
   const orgId = input.orgId;
@@ -263,12 +296,15 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
 
     // ── Step 1 research ──
     const latest = opp.interactions[0];
+    // 最新来信的人：同公司第二位联系人按同域复用账户与商机时，和账户主联系人不是同一个人
+    const writer = inboundWriter(latest.analysisResult);
+    const otherContact = !!writer.email && !!opp.customer.email && writer.email !== opp.customer.email.toLowerCase();
     const sourceText = opp.interactions
       .slice()
       .reverse()
       .map((i) => i.content ?? i.summary)
       .filter(Boolean)
-      .join("\n\n---\n\n");
+      .join(INBOUND_MESSAGE_SEPARATOR);
     await event("tool.started", "research: 识别公司/联系人/国家/行业/买家类型", { tool: "classifyInquiry", interactionId: latest.id });
     const research: InquiryResearch = classifyInquiry({
       name: opp.customer.contactName,
@@ -307,6 +343,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     const booth = boothContext(opp.interactions, latest);
     // 来信里压价、要折扣、要独家、侵权图案、操控 AI 等要求：草稿不答应，审批时提醒审核人
     const risks = detectInquiryRisks(sourceText);
+    // 收件人仍是账户主联系人（发送端只认客户档案邮箱，网页表单的邮箱未经验证）；换人来信时提醒审核人
+    if (otherContact) {
+      risks.push({
+        code: "other_contact",
+        note: `最新来信来自同公司另一位联系人（${[writer.name, writer.email].filter(Boolean).join(" ")}），草稿收件人是账户主联系人（${opp.customer.email}），且合并了两人的需求：请确认后再批准，必要时改为人工回复`,
+      });
+    }
     if (risks.length) {
       await event("agent.output", `来信风险提醒：${risks.map((r) => r.code).join(", ")}`, { decision: "risk_notes", risks });
     }
@@ -414,12 +457,20 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     let draft: ReplyDraft | null = null;
     let pendingActionId: string | null = null;
     let approvalRequired = false;
+    /** 本次新建了草稿（复用同一来信的未决草稿不算），决定是否发微信提醒 */
+    let draftCreated = false;
     let reviewZh: ReplyDraft | null = null;
     let html: string | null = null;
-    if (score.qualification !== "disqualified") {
+    let draftStatus: FdeDraftStatus = score.outOfRange ? "out_of_range" : "disqualified";
+    // 只命中企业明确不做的类目：不自动起草，留人工判断婉拒或转介（商机与 SLA 行动照常建立）
+    if (score.outOfRange) {
+      await event("agent.output", "询盘产品是企业明确不做的类目：不自动起草，留人工处理", { decision: "out_of_range", productCategory: fields.productCategory });
+    }
+    if (score.qualification !== "disqualified" && !score.outOfRange) {
       const branding = await loadEmailBranding(orgId, org.name);
       const draftInput = {
         tradeShow: booth.fromLatest ? { event: booth.event, styles: booth.styles } : null,
+        boothGrade: booth.grade,
         language: extraction.language,
         contactName: opp.customer.contactName ?? research.contactName,
         companyName: research.companyName ?? opp.customer.name,
@@ -475,11 +526,16 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
 
       // ── Step 7 approval（唯一外部副作用入口）──
       // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）
-      const cancelled = await isAgentRunCancelled(orgId, runId);
-      if (cancelled) {
+      if (await isAgentRunCancelled(orgId, runId)) {
+        draftStatus = "cancelled";
         await event("agent.output", "run 已被取消：跳过草稿审批", { decision: "cancelled_before_approval" });
-      }
-      if (!cancelled && opp.customer.email && draft.guardrailViolations.length === 0) {
+      } else if (!opp.customer.email) {
+        draftStatus = "no_email";
+        await event("agent.output", "客户无邮箱，草稿仅供人工复制发送", { decision: "no_email_channel" });
+      } else if (draft.guardrailViolations.length > 0) {
+        draftStatus = "guardrail_blocked";
+        await event("agent.output", "草稿未通过护栏：不进审批中心，需人工撰写", { decision: "guardrail_blocked", guardrailViolations: draft.guardrailViolations });
+      } else {
         approvalRequired = true;
         // 幂等：同一来信已有未决草稿 → 复用；否则按历史草稿数生成新 key（拒绝/过期后允许重新起草）
         const openDraft = await db.pendingAction.findFirst({
@@ -571,14 +627,16 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         });
         if (approval.ok) {
           pendingActionId = approval.actionIds[0] ?? null;
+          draftCreated = !openDraft && !!pendingActionId;
+          draftStatus = openDraft ? "reused" : "created";
           await event("approval.required", openDraft ? "复用未决审批草稿" : "首次回复需人工审批后发送", { pendingActionId, actionType: INQUIRY_REPLY_ACTION_TYPE, to: opp.customer.email, reused: !!openDraft });
         } else {
+          draftStatus = "approval_failed";
           await event("approval.failed", "创建审批草稿失败", { error: approval.error, code: approval.errorCode });
         }
-      } else if (!cancelled && !opp.customer.email) {
-        await event("agent.output", "客户无邮箱，草稿仅供人工复制发送", { decision: "no_email_channel" });
       }
-    } else {
+    } else if (score.qualification === "disqualified") {
+      // 不做类目在默认 review 模式下是 needs_info（不起草但不是不合格），不记「不合格」事件
       await event("agent.output", "商机不合格：不生成客户回复草稿", { decision: "disqualified", reason: score.recommendedNextActionLabel.zh });
     }
     base.pendingActionId = pendingActionId;
@@ -607,7 +665,16 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           pendingActionId,
           nextAction,
         },
-        inputContextPatch: { fdeStatus: "completed", agentRunId: runId, rfqId: persisted.rfq.id, assessmentId: assessment.id, research },
+        inputContextPatch: {
+          fdeStatus: "completed",
+          agentRunId: runId,
+          rfqId: persisted.rfq.id,
+          assessmentId: assessment.id,
+          research,
+          draftStatus,
+          // 护栏拦截的持久标记：只在拦截时写入，之后重跑不清除（指标"护栏拦截数"按它计）
+          ...guardrailMarkerPatch(draftStatus, draft?.guardrailViolations, now),
+        },
         ...(score.qualification === "disqualified" ? { close: { status: "auto_resolved", reason: `FDE 判定不合格：${score.recommendedNextActionLabel.zh}` } } : {}),
       });
       await markFdeTouch({ orgId, opportunityId: opp.id, salesActionId, sourced: opp.fdeSourced });
@@ -627,6 +694,25 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         metadata: { pendingActionId, opportunityId: opp.id, agentRunId: runId },
         sourceKeyPrefix: `revenue-approval:${pendingActionId}`,
       }).catch(() => undefined);
+
+      // 组织打开了「新草稿微信提醒」：给审批人推一条短消息（每人每小时最多一条；不含买家邮箱 / 电话）
+      if (draftCreated && policy.notify.wechatOnNewDraft) {
+        try {
+          const { pushNewDraftToApprover } = await import("../owner-brief");
+          const r = await pushNewDraftToApprover({
+            orgId,
+            userId: principalUserId,
+            opportunityId: opp.id,
+            pendingActionId,
+            buyer: { scoreGrade: score.grade, score: score.score, market: opp.market ?? opp.customer.country ?? null, source: opp.source, customerName: opp.customer.name },
+            now,
+            push: input.pushNewDraft,
+          });
+          await event("agent.output", r.pushed ? "已微信提醒审批人" : r.reason === "duplicate_hour" ? "本小时已提醒过，不再推送" : "微信提醒未送达（未绑定 / 静默时段 / 通道失败）", { decision: "wechat_new_draft", pushed: r.pushed, reason: r.reason ?? null });
+        } catch (err) {
+          await event("agent.output", "微信提醒失败（不影响草稿）", { decision: "wechat_new_draft", error: err instanceof Error ? err.message : String(err) }).catch(() => undefined);
+        }
+      }
     }
 
     await completeAgentRun(orgId, runId);

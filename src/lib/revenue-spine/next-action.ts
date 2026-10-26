@@ -66,6 +66,8 @@ export function computeNextAction(opp: NextActionOpportunity, policy: RevenueSpi
   if (stage === "won" || stage === "lost" || stage === "disqualified") return null;
 
   if (stage === "nurture") {
+    // nurtureCheckInDays <= 0 = 企业关闭了培育回访
+    if (fu.nurtureCheckInDays <= 0) return null;
     return {
       type: "nurture_check_in",
       at: new Date(stageAt.getTime() + fu.nurtureCheckInDays * 86_400_000),
@@ -76,11 +78,14 @@ export function computeNextAction(opp: NextActionOpportunity, policy: RevenueSpi
     return { type: "revive_or_close", at: now, reason: "长期无动作商机需决定激活或关闭" };
   }
 
+  // 回复类 SLA 按组织工作时间计（policy.salesSla.businessHours；null = V1 的 UTC 工作日口径）
+  const calendar = sla.businessHours ?? null;
+
   // 客户来信后我们未回复：最高优先级
   if (customerWaiting) {
     return {
       type: "reply_customer",
-      at: addBusinessHours(opp.lastCustomerReplyAt!, sla.customerReplyResponseHours),
+      at: addBusinessHours(opp.lastCustomerReplyAt!, sla.customerReplyResponseHours, calendar),
       reason: `客户 ${opp.lastCustomerReplyAt!.toISOString().slice(0, 16)} 来信，SLA ${sla.customerReplyResponseHours} 工作小时内回复`,
     };
   }
@@ -94,7 +99,7 @@ export function computeNextAction(opp: NextActionOpportunity, policy: RevenueSpi
       if (!opp.lastOutboundAt) {
         return {
           type: "reply_inquiry",
-          at: addBusinessHours(opp.lastCustomerReplyAt ?? opp.createdAt, sla.newInquiryResponseHours),
+          at: addBusinessHours(opp.lastCustomerReplyAt ?? opp.createdAt, sla.newInquiryResponseHours, calendar),
           reason: `新询盘 ${sla.newInquiryResponseHours} 工作小时内人工处理`,
         };
       }

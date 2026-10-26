@@ -38,6 +38,8 @@ export interface QueueOpportunity {
   followUpCount: number;
   fdeInfluenced: boolean;
   fdeSourced: boolean;
+  /** 商机来源（website_inquiry / trade_show / email …，见 inquiry-intake OPPORTUNITY_SOURCES）；旧夹具可不填 */
+  source?: string | null;
 }
 
 export interface RevenueQueue {
@@ -79,6 +81,7 @@ const SELECT = {
   followUpCount: true,
   fdeInfluenced: true,
   fdeSourced: true,
+  source: true,
 } as const;
 
 type Row = {
@@ -86,7 +89,7 @@ type Row = {
   score: number | null; scoreGrade: string | null; priority: string | null; estimatedValue: number | null; market: string | null; buyerType: string | null;
   assignedToId: string | null; createdAt: Date; updatedAt: Date; stageChangedAt: Date | null; lastInteractionAt: Date | null;
   lastCustomerReplyAt: Date | null; lastOutboundAt: Date | null; nextFollowupAt: Date | null; nextActionType: string | null;
-  nextActionReason: string | null; followUpCount: number; fdeInfluenced: boolean; fdeSourced: boolean;
+  nextActionReason: string | null; followUpCount: number; fdeInfluenced: boolean; fdeSourced: boolean; source: string | null;
 };
 
 function toQueue(r: Row): QueueOpportunity {
@@ -116,8 +119,12 @@ function toQueue(r: Row): QueueOpportunity {
     followUpCount: r.followUpCount,
     fdeInfluenced: r.fdeInfluenced,
     fdeSourced: r.fdeSourced,
+    source: r.source,
   };
 }
+
+/** 与今日询盘视图（owner-today）共用同一套字段与映射 */
+export { SELECT as QUEUE_OPPORTUNITY_SELECT, toQueue as toQueueOpportunity };
 
 /** 纯函数分桶（可单测） */
 export function bucketOpportunities(rows: QueueOpportunity[], policy: RevenueSpinePolicy, now: Date) {

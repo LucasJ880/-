@@ -1,23 +1,26 @@
 /**
- * POST /api/trade/webhook/website — 独立站询盘表单接入
+ * POST /api/trade/webhook/website — 独立站询盘表单接入（站点后端转发）
  *
- * 鉴权：website 通道密钥（header x-qingyan-webhook-secret / ?secret= / body.secret）
- * 载荷：JSON 或 form-urlencoded / multipart（字段见 website-inquiry.ts）
- * 跨域：网站前端直接 fetch，故放开 CORS（密钥 + 蜜罐防滥用）
- * 事件身份：eventId 在任何业务写入前落收据（WebsiteInquiryReceipt），重发按事件逐项补齐缺失步骤；
- * 同一事件并发到达时后到者返回 busy 不并行执行。响应字段是真实记录，不由 HTTP 状态推断。
+ * 鉴权：website 通道密钥（header x-qingyan-webhook-secret；兼容旧接入的 ?secret= / body.secret）。
+ * 载荷：JSON 或 form-urlencoded / multipart（字段见 docs/QINGYAN_INTAKE_WEBHOOK.md §1）。
+ * 跨域：放开的 CORS 只为兼容旧版渠道页那段把密钥写在网页里的前端代码；新接入用服务器转发或嵌入表单（./embed）。
+ * 请求内只做到 Revenue Spine intake 就返回，FDE 由 after() 在响应之后执行；事件身份、重发与响应契约见
+ * docs/QINGYAN_WEBSITE_INTAKE_ASYNC.md §2–§4。
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { readInquiryPayload } from "@/lib/trade/embed-intake";
 import {
   ingestWebsiteInquiry,
   normalizeInquiry,
   resolveWebsiteChannelBySecret,
+  websiteWebhookBody,
 } from "@/lib/trade/website-inquiry";
 
 export const runtime = "nodejs";
-// 同步链：Trade 询盘 → Revenue Spine → FDE（RFQ 抽取 LLM ≤25s + 草稿润色 LLM ≤20s + 数十次 DB 往返）。
-// 隔离分支远程实测 FDE 89–92s、全链 123–141s（含本机→Neon 时延），120s 上限过紧；站点侧转发预算 305s（略大于此值）。
+// 请求路径（收据 + Trade + Revenue Spine intake）只有 DB 往返；after() 里的 FDE（RFQ 抽取 LLM ≤25s +
+// 草稿润色 LLM ≤20s + 数十次 DB 往返，远程实测 89–92s）同样计入本函数的 maxDuration，所以保持 300。
+// 与之耦合：FDE 认领过期 FDE_CLAIM_STALE_MS、收据处理过期 RECEIPT_PROCESSING_STALE_MS 都必须大于 300 s。
 export const maxDuration = 300;
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -41,26 +44,9 @@ export async function OPTIONS(request: NextRequest) {
   });
 }
 
-async function readPayload(request: NextRequest): Promise<Record<string, unknown>> {
-  const ct = request.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    const body = await request.json().catch(() => null);
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : {};
-  }
-  const form = await request.formData().catch(() => null);
-  if (!form) return {};
-  const out: Record<string, unknown> = {};
-  form.forEach((value, key) => {
-    if (typeof value === "string") out[key] = value;
-  });
-  return out;
-}
-
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
-  const payload = await readPayload(request);
+  const payload = (await readInquiryPayload(request)) ?? {};
 
   const secret =
     request.headers.get("x-qingyan-webhook-secret")?.trim() ||
@@ -82,48 +68,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await ingestWebsiteInquiry(channel.orgId, normalized.value);
+    // deferred：FDE 交给 after()（默认调度器）；HTTP 保持 200（不是 202）以兼容既有站点桥接
+    const result = await ingestWebsiteInquiry(channel.orgId, normalized.value, { fdeMode: "deferred" });
     // fde 取自真实记录（SalesAction / AgentRun / PendingAction）；terminal 告诉调用方是否还需继续恢复。
     // HTTP 200 不代表全链完成：调用方按 spine / opportunityId / complete / fde.terminal 判定。
-    const fde = result.fdeState
-      ? {
-          status: result.fdeState.status,
-          terminal: result.fdeState.terminal,
-          reason: result.fdeState.reason,
-          agentRunId: result.fdeState.agentRunId,
-          pendingActionId: result.fdeState.pendingActionId,
-        }
-      : result.fde
-        ? {
-            status: result.fde.ok ? "completed" : "failed",
-            terminal: false,
-            reason: result.fde.error ?? "FDE just ran",
-            agentRunId: result.fde.agentRunId,
-            pendingActionId: result.fde.pendingActionId,
-          }
-        : null;
-    return json(
-      {
-        ok: true,
-        eventId: result.eventId,
-        receiptId: result.receiptId,
-        prospectId: result.prospectId,
-        messageId: result.messageId,
-        duplicate: result.duplicate,
-        replay: result.replay,
-        recovered: result.recovered,
-        recoveredSteps: result.recoveredSteps,
-        busy: result.busy,
-        conflict: result.conflict,
-        contentDuplicateOf: result.contentDuplicateOf,
-        complete: result.complete,
-        opportunityId: result.spine.ok ? result.spine.opportunityId : null,
-        spine: result.spine.ok ? (result.spine.replay ? "replay" : "ok") : result.spine.code,
-        fde,
-      },
-      200,
-      origin,
-    );
+    return json(websiteWebhookBody(result), 200, origin);
   } catch (err) {
     console.error("[website-inquiry] ingest failed:", err);
     return json({ error: "server error" }, 500, origin);

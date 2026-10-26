@@ -5,9 +5,6 @@ import { isSuperAdmin } from "@/lib/rbac/roles";
 import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isValidPlanType } from "@/lib/organizations/utils";
-import { resolveOrgTimezone } from "@/lib/automation/registry";
-import { isValidTimeZone } from "@/lib/automation/local-time";
-import type { Prisma } from "@prisma/client";
 
 type RouteCtx = { params: Promise<{ orgId: string }> };
 
@@ -64,10 +61,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
   });
 }
 
-/**
- * PUT：org_admin / super_admin；code 不可改；status 仅 super_admin。
- * timezone（IANA，如 "Asia/Shanghai"）写进 settingsJson.timezone：每日简报 / 展会小结 07:00、外贸每日检查等按组织当地时间执行
- */
+/** PUT：org_admin / super_admin；code 不可改；status 仅 super_admin */
 export async function PUT(request: NextRequest, ctx: RouteCtx) {
   const { orgId } = await ctx.params;
 
@@ -85,7 +79,6 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
     name?: string;
     planType?: string;
     status?: string;
-    settingsJson?: Prisma.InputJsonValue;
   } = {};
 
   if (body.name !== undefined) {
@@ -118,15 +111,6 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
     data.status = s;
   }
 
-  if (body.timezone !== undefined) {
-    const tz = String(body.timezone).trim();
-    if (!isValidTimeZone(tz)) {
-      return NextResponse.json({ error: "无效的时区（请用 IANA 名称，如 Asia/Shanghai）" }, { status: 400 });
-    }
-    const settings = org.settingsJson && typeof org.settingsJson === "object" && !Array.isArray(org.settingsJson) ? (org.settingsJson as Record<string, unknown>) : {};
-    data.settingsJson = { ...settings, timezone: tz } as Prisma.InputJsonValue;
-  }
-
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "没有可更新的字段" }, { status: 400 });
   }
@@ -135,7 +119,6 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
     name: org.name,
     planType: org.planType,
     status: org.status,
-    timezone: resolveOrgTimezone(org.settingsJson),
   };
 
   const updated = await db.organization.update({
@@ -154,7 +137,6 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
       name: updated.name,
       planType: updated.planType,
       status: updated.status,
-      timezone: resolveOrgTimezone(updated.settingsJson),
     },
     request,
   });
@@ -166,7 +148,6 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
       code: updated.code,
       status: updated.status,
       planType: updated.planType,
-      timezone: resolveOrgTimezone(updated.settingsJson),
       ownerId: updated.ownerId,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,

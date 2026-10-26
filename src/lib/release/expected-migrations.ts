@@ -51,6 +51,7 @@ export const EXPECTED_ACTIVE_MIGRATIONS = [
   "20260921120000_add_trade_outreach_step",
   "20260921130000_add_trade_quote_product_and_sample",
   "20260921160000_add_trade_sample_follow_up",
+  "20261024120000_invite_code_org_binding",
 ] as const;
 
 export type ExpectedMigrationName = (typeof EXPECTED_ACTIVE_MIGRATIONS)[number];

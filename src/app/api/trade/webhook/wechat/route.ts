@@ -1,14 +1,22 @@
 /**
- * WeChat Official Account / WeCom Webhook
- *
+ * WeChat Official Account / WeCom Webhook（WECHAT_TOKEN；未配置 403）
  * GET  — 微信服务器验证（明文：signature + timestamp + nonce）
- * POST — 明文：同上；若检测到加密模式参数（msg_signature / encrypt_type=aes）则返回 501 并 TODO
+ * POST — 明文验签（缺参数 401，错 403）；加密模式（msg_signature / encrypt_type=aes）501 未实现；ToUserName 解析不到组织 403。
+ *        按 MsgId（无则 FromUserName:CreateTime）认领收据后才写消息，平台重发直接回 success（过期见 WECHAT_RECEIPT_STALE_MS）。
+ * 只走 Trade 通道：公众号来信只有 openid，进不了 Revenue Spine 的客户去重，故不建客户 / 商机。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { processInboundMessage } from "@/lib/trade/channel-service";
 import crypto from "crypto";
 import { logInboundOrgDenial, resolveInboundTradeOrgId } from "@/lib/trade/inbound-org";
+import {
+  WECHAT_INBOUND_SOURCE,
+  WECHAT_RECEIPT_STALE_MS,
+  claimChannelEventReceipt,
+  linkReceipt,
+  releaseReceipt,
+} from "@/lib/trade/website-inquiry-receipts";
 
 const TOKEN = process.env.WECHAT_TOKEN;
 
@@ -104,11 +112,31 @@ export async function POST(request: NextRequest) {
     const content = getTag("Content");
 
     if (fromUser && content) {
-      await processInboundMessage(resolved.orgId, {
-        channel: "wechat",
-        from: fromUser,
-        content,
-      });
+      const createTime = getTag("CreateTime");
+      const eventId = getTag("MsgId") || `${fromUser}:${createTime}`;
+      const claim = await claimChannelEventReceipt(
+        resolved.orgId,
+        WECHAT_INBOUND_SOURCE,
+        eventId,
+        { fromUser, toUser, msgType, createTime },
+        { staleMs: WECHAT_RECEIPT_STALE_MS },
+      );
+      // 平台重发：已处理 / 正在处理（4 秒内）→ 不再写第二条消息
+      if (claim.outcome !== "claimed") return new NextResponse("success", { status: 200 });
+      try {
+        const r = await processInboundMessage(resolved.orgId, {
+          channel: "wechat",
+          from: fromUser,
+          content,
+          externalId: eventId,
+        });
+        await linkReceipt(claim.receiptId, { prospectId: r.prospectId, tradeMessageId: r.messageId });
+        await releaseReceipt(claim.receiptId, "complete");
+      } catch (err) {
+        // 释放为 received：微信若还在重试窗口内重发，可以再处理一次
+        await releaseReceipt(claim.receiptId, "received").catch(() => undefined);
+        throw err;
+      }
     }
 
     return new NextResponse("success", { status: 200 });
