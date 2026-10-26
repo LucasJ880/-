@@ -2,7 +2,7 @@
 
 ## 1. 校准统计（纯函数）
 
-- [ ] 1.1 新建 `src/lib/revenue-spine/score-calibration.ts`，包含：
+- [x] 1.1 新建 `src/lib/revenue-spine/score-calibration.ts`，包含：
   - 维度顺序与标签、窗口解析（30–180，默认 90）；
   - 结局与报价判定（引用 `opportunity-stage.ts` 的阶段常量）；
   - 归一与分桶、命中率、区分度、等级表；
