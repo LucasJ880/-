@@ -36,12 +36,13 @@ OpenSpec change：`openspec/changes/org-cockpit-home/`（proposal / `specs/cockp
 |---|---|---|
 | 1 | 三个新测试单独运行 | presentation 59/59、home-state 21/21、渲染 78/78 |
 | 2 | 局部 `tsc`（`src/lib/cockpit/**` + `src/components/cockpit/**` + 首页） | 0 错误 |
-| 3 | `npm run typecheck`（全量） | GATE_TSC |
-| 4 | `npm run lint:baseline`；新文件 `npx eslint` | GATE_LINT |
-| 5 | `npm test` 对比 `origin/main` 基线 | GATE_NPM |
-| 6 | `npm run test:ci` | GATE_CI |
+| 2b | `bash scripts/check-test-registry.sh` | 只列出 main 上既有的 2 个 trade 测试（与本分支无关） |
+| 3 | `npm run typecheck`（全量） | 退出 0 |
+| 4 | `npm run lint:baseline`；新文件 `npx eslint` | PASS（无新增 error，相对基线减少 14 处）；新文件 0 问题 |
+| 5 | `npm test` 对比 `origin/main` 基线 | 基线 411/425 → 本分支 419/433：新增 8 项即 A-1（1）+ A-2（4）+ A-3（3）的测试，全 PASS；14 项失败清单与基线逐条一致（环境性既有问题，见 A-1 报告） |
+| 6 | `npm run test:ci` | `CI unit subset PASS`，含 8 个驾驶舱测试 |
 | 7 | `git diff --stat origin/main -- prisma/ vercel.json` | 空 |
-| 8 | `openspec validate org-cockpit-home --strict`；`/opsx:verify` | GATE_VERIFY |
+| 8 | `openspec validate org-cockpit-home --strict`；`/opsx:verify` | valid；`/opsx:verify`：tasks 8/8，7/7 requirement、17/17 scenario 有测试覆盖，design D1–D6 一致，无 CRITICAL / WARNING |
 | 9 | 视觉核对（见 §3） | 五档宽度无横向滚动，最小点击高度 44px |
 
 ## 3. 视觉核对
