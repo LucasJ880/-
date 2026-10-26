@@ -7,12 +7,15 @@ import {
   KPI_STATUS_LABELS,
   abnormalAutomations,
   actorLabel,
+  errorKindFrom,
+  formatCount,
   formatKpiValue,
   formatRelativeTime,
   healthPresentation,
   isPostKey,
   kpiWindowLabel,
   postName,
+  serverNow,
   waitingCountLabel,
 } from "../presentation";
 import { POST_HEALTH_ORDER } from "../schedule";
@@ -43,7 +46,10 @@ const cases: Array<[number | string | null, Parameters<typeof formatKpiValue>[1]
   [1234, "count", "1,234"],
   [0, "count", "0"],
   [0.8, "rate", "80%"],
-  [0.666, "rate", "67%"],
+  [0.666, "rate", "66.6%"],
+  [0.57, "rate", "57%"],
+  [0.9996, "rate", "99.9%"],
+  [1, "rate", "100%"],
   [0, "rate", "0%"],
   ["25.0", "percentage_string", "25.0%"],
   [42, "minutes", "42 分钟"],
@@ -79,7 +85,25 @@ ok(rel("2026-10-27T11:00:00Z") === "23 小时后", "23 小时后");
 ok(rel("2026-10-26T12:00:20Z") === "1 分钟内", "20 秒后 → 1 分钟内");
 ok(rel(null) === "—" && rel("not-a-date") === "—", "空 / 非法 → —");
 
+console.log("页面时钟");
+{
+  const generatedAt = "2026-10-26T12:00:00.000Z";
+  const received = Date.parse("2026-10-26T12:05:00.000Z"); // 客户端时钟快 5 分钟
+  ok(serverNow(generatedAt, received, received).toISOString() === generatedAt, "以服务端 generatedAt 为准，不受客户端时钟偏差影响");
+  ok(serverNow(generatedAt, received, received + 3 * 60_000).toISOString() === "2026-10-26T12:03:00.000Z", "收到响应后流逝的时间累加上去");
+  ok(serverNow(generatedAt, received, received - 60_000).toISOString() === generatedAt, "客户端时钟回拨不倒退");
+  ok(serverNow("bad", received, received + 1).getTime() === received + 1, "generatedAt 非法 → 回退客户端时间");
+}
+
+console.log("错误类型");
+ok(errorKindFrom(401, null) === "session_expired", "401 → 登录已过期");
+ok(errorKindFrom(403, { error: "请先选择工作组织", needsSelection: true }) === "org_selection", "403 needsSelection → 需选择组织");
+ok(errorKindFrom(403, { error: "无组织" }) === "no_org", "403 无组织 → 无组织");
+ok(errorKindFrom(403, { error: "仅管理层可查看岗位视图" }) === "forbidden" && errorKindFrom(403, null) === "forbidden", "其余 403 → 无权限");
+ok(errorKindFrom(500, { error: "x" }) === "server" && errorKindFrom(400, null) === "server" && errorKindFrom(0, null) === "server", "其余 → 服务端错误");
+
 console.log("操作者、计数、岗位名");
+ok(formatCount(1234567) === "1,234,567" && formatCount(0) === "0" && formatCount(Number.NaN) === "—", "计数千分位");
 ok(actorLabel("system", null) === "系统" && actorLabel("ai", null) === "AI", "system → 系统，ai → AI");
 ok(actorLabel("u1", "Lucas") === "Lucas" && actorLabel("u1", null) === "成员" && actorLabel("u1", "  ") === "成员", "用户 → 名字，无名字 → 成员");
 ok(waitingCountLabel(5, false) === "5" && waitingCountLabel(100, true) === "100+", "截断时加 +");

@@ -117,7 +117,7 @@ const entries: TimelineEntry[] = [
 ];
 
 const render = (posts: PostsState, timeline: TimelineState, extra: Partial<React.ComponentProps<typeof OrgCockpitView>> = {}) =>
-  renderToStaticMarkup(<OrgCockpitView now={NOW} posts={posts} timeline={timeline} onRefresh={() => {}} onRetry={() => {}} onLoadMore={() => {}} {...extra} />);
+  renderToStaticMarkup(<OrgCockpitView now={NOW} posts={posts} timeline={timeline} onRefresh={() => {}} onRetry={() => {}} onRetryTimeline={() => {}} onLoadMore={() => {}} {...extra} />);
 
 // ── 完整渲染 ──────────────────────────────────────────────────
 console.log("完整渲染");
@@ -129,28 +129,34 @@ const html = render({ status: "ready", data: fixture() }, { status: "ready", ite
     const anchor = html.match(new RegExp(`<a[^>]*data-post="${p.key}"[^>]*>`))?.[0] ?? "";
     ok(anchor.includes(`href="${p.nav}"`), `${p.key} 卡片链接到 ${p.nav}`, anchor);
   }
-  ok(html.includes("心跳为平台级"), "页头注明心跳为平台级");
+  ok(html.includes("心跳与自动化次数为平台级"), "页头注明心跳与自动化次数为平台级");
+  const shuffled = fixture();
+  shuffled.posts = [...shuffled.posts].reverse();
+  const shuffledOrder = [...render({ status: "ready", data: shuffled }, { status: "loading" }).matchAll(/data-post="([a-z_]+)"/g)].map((m) => m[1]);
+  ok(JSON.stringify(shuffledOrder) === JSON.stringify(shuffled.posts.map((p) => p.key)), "卡片顺序跟随接口返回，组件不自行排序", shuffledOrder);
+  ok(/<section[^>]*aria-labelledby="cockpit-posts-heading"[^>]*class="@container/.test(html) && html.includes("@2xl:grid-cols-2") && html.includes("@4xl:grid-cols-[repeat(3,minmax(0,1fr))]"), "卡片列数按内容区宽度（container query）");
+  ok(/<h2 id="cockpit-posts-heading" class="sr-only">岗位<\/h2>/.test(html), "岗位区有读屏标题");
   ok(html.includes("时区 America/Toronto") && html.includes("更新于 1 分钟前"), "页头显示时区与更新时间");
 }
 console.log("等你 N 件横幅");
 {
-  ok(/data-testid="waiting-count"[^>]*>5</.test(html), "横幅显示总数 5");
+  ok(/data-waiting-count=""[^>]*>5</.test(html), "横幅显示总数 5");
   ok(html.includes('href="/capabilities/approvals"') && html.includes("去审批"), "横幅链接到 /capabilities/approvals");
   ok(html.includes("回复 ACME 询盘") && html.includes('href="/workforce/job-2"'), "列出条目，作业条目跳自己的页面");
   ok(html.includes("30 分钟前") && html.includes("询盘销售"), "条目带岗位名与时间");
   ok(html.includes("其中 1 件暂无法归到具体岗位"), "未归属条数提示");
   ok(html.includes(COCKPIT_REDACTED), "脱敏提示原样显示");
   const truncated = render({ status: "ready", data: fixture({ waitingForYou: { ...fixture().waitingForYou, total: 100, truncated: true } }) }, { status: "ready", items: [], nextCursor: null });
-  ok(/data-testid="waiting-count"[^>]*>100\+</.test(truncated), "被截断 → 显示 100+");
+  ok(/data-waiting-count=""[^>]*>100\+</.test(truncated), "被截断 → 显示 100+");
   const none = render({ status: "ready", data: fixture({ waitingForYou: { total: 0, truncated: false, unattributed: 0, items: [], href: "/capabilities/approvals" } }) }, { status: "ready", items: [], nextCursor: null });
-  ok(none.includes("暂无待你处理的事项") && /data-testid="waiting-count"[^>]*>0</.test(none), "总数为 0 → 暂无待你处理的事项");
+  ok(none.includes("暂无待你处理的事项") && /data-waiting-count=""[^>]*>0</.test(none), "总数为 0 → 暂无待你处理的事项");
 }
 console.log("岗位卡片");
 {
   const card = (key: string) => {
     const start = html.indexOf(`data-post="${key}"`);
     const next = html.indexOf("data-post=", start + 10);
-    return html.slice(start, next === -1 ? html.indexOf('aria-label="company.log"') : next);
+    return html.slice(start, next === -1 ? html.indexOf('aria-labelledby="cockpit-log-heading"') : next);
   };
   const tender = card("tender");
   ok(tender.includes("失败") && tender.includes("bg-danger-bg text-danger"), "投标失败 → 危险色『失败』");
@@ -160,7 +166,11 @@ console.log("岗位卡片");
   ok(sales.includes("正常") && sales.includes("bg-success-bg text-success"), "正常 → 成功色");
   ok(sales.includes(">42 分钟<") && sales.includes(">80%<") && sales.includes("近 30 天"), "询盘 KPI 格式化");
   ok(/<dl class="grid grid-cols-\[repeat\(3,minmax\(0,1fr\)\)\]/.test(sales) && !/<dl class="[^"]*\bgrid-cols-3\b/.test(html), "KPI 行不用 grid-cols-3（globals.css 在 iPad 宽度把它强制改成两列）");
-  ok(sales.includes("待审批 2") && sales.includes("需要你 1") && sales.includes("7 天 12 次动作"), "待审批 / 需要你 / 近 7 天动作");
+  ok(sales.includes("待审批 2") && sales.includes("需要你 1"), "待审批 / 需要你");
+  ok(sales.includes("7 天 AI 2 次 · 平台自动化 10 次"), "近 7 天 AI 次数与平台自动化次数分开显示，不相加");
+  const big = render({ status: "ready", data: fixture({ posts: [post("inbound_sales", { pendingApprovals: 1200, actions7d: { automationRuns: 12345, agentRuns: 2048 } })] }) }, { status: "loading" });
+  ok(big.includes("待审批 1,200") && big.includes("AI 2,048 次") && big.includes("平台自动化 12,345 次"), "计数带千分位");
+  ok(/<dt class="line-clamp-2[^"]*" title="首响中位（分钟）">/.test(sales), "KPI 标签最多两行，悬停看全称");
   ok(sales.includes("心跳 5 分钟前") && sales.includes("下次 10 分钟后"), "心跳相对时间与下次应跑");
   ok(card("marketing").includes('data-kpi-status="error"') && card("marketing").includes("KPI 暂不可用"), "KPI error → 暂不可用");
   ok(card("service").includes("KPI 未接入"), "KPI unavailable → 未接入");
@@ -187,17 +197,25 @@ console.log("company.log");
   ok(empty.includes("最近 7 天暂无记录") && !empty.includes("加载更多"), "无条目 → 最近 7 天暂无记录");
   const logError = render({ status: "ready", data: fixture() }, { status: "error", error: "server" });
   ok(logError.includes("时间线加载失败") && logError.includes("data-post="), "时间线失败不影响岗位卡片");
+  const logErrorNoRetry = render({ status: "ready", data: fixture() }, { status: "error", error: "server" }, { onRetryTimeline: undefined });
+  ok(logError.includes("时间线加载失败</span><button") && logErrorNoRetry.includes("时间线加载失败</span></div>"), "时间线重试走独立回调（不传则不显示按钮）");
+  const moreFailed = render({ status: "ready", data: fixture() }, { status: "ready", items: entries, nextCursor: "c1", loadMoreFailed: true });
+  ok(moreFailed.includes("加载失败，点此重试") && moreFailed.includes("作业等待人工"), "加载更多失败 → 保留已加载条目，按钮变为重试");
 }
 console.log("空态与错误态");
 {
   const selection = render({ status: "error", error: "org_selection" }, { status: "error", error: "org_selection" });
   ok(selection.includes("请先选择工作组织") && !selection.includes("data-post="), "需要选择组织 → 提示且不显示卡片");
   const forbidden = render({ status: "error", error: "forbidden" }, { status: "error", error: "forbidden" });
-  ok(forbidden.includes("暂无权限查看岗位视图"), "无权限 / 无组织 → 提示");
+  ok(forbidden.includes("暂无权限查看岗位视图") && !forbidden.includes("重试"), "无权限 → 提示，不给重试");
+  const noOrg = render({ status: "error", error: "no_org" }, { status: "error", error: "no_org" });
+  ok(noOrg.includes("你还没有加入任何组织") && !noOrg.includes("重试"), "无组织 → 提示，不给重试");
+  const expired = render({ status: "error", error: "session_expired" }, { status: "error", error: "session_expired" });
+  ok(expired.includes("登录已过期") && expired.includes('href="/login?next=%2F"'), "登录过期 → 重新登录链接");
   const server = render({ status: "error", error: "server" }, { status: "loading" });
   ok(server.includes("岗位视图加载失败") && server.includes("重试"), "服务端错误 → 错误态 + 重试");
   const loading = render({ status: "loading" }, { status: "loading" });
-  ok(loading.includes("animate-pulse") && !loading.includes("data-post="), "加载中 → 骨架屏");
+  ok(loading.includes("animate-pulse") && !loading.includes("data-post=") && (loading.match(/aria-busy="true"/g) ?? []).length === 2, "加载中 → 骨架屏，两块区域标 aria-busy");
 }
 console.log("页面只读");
 {
@@ -216,7 +234,9 @@ console.log("首页与容器源码");
   const apis = [...new Set([...home.matchAll(/["'`](\/api\/[^"'`?$]+)/g)].map((m) => m[1]))].sort();
   ok(JSON.stringify(apis) === '["/api/cockpit/posts","/api/cockpit/timeline"]', "容器只调用两个接口", apis);
   ok(!/method:\s*["'](POST|PUT|PATCH|DELETE)/i.test(home), "容器不发非 GET 请求");
-  ok(/Promise\.all\(\[\s*apiFetch\("\/api\/cockpit\/posts"\),\s*apiFetch\(TIMELINE_URL\)/.test(home), "首屏两个接口并发请求");
+  ok(/Promise\.all\(\[loadPosts\(\), loadTimeline\(\)\]\)/.test(home) && /getJson<PostsCockpitResponse>\(POSTS_URL\)/.test(home) && /getJson<CompanyLogResponse>\(TIMELINE_URL\)/.test(home), "首屏两个接口并发请求，各自独立");
+  ok((home.match(/if \(gen !== timelineGeneration\.current\) return;/g) ?? []).length === 2 && /if \(gen !== postsGeneration\.current\) return;/.test(home), "过期响应（含加载更多）被丢弃");
+  ok(/res\.json\(\)\.catch\(/.test(home) && /errorKindFrom\(res\.status, body\)/.test(home), "JSON 解析失败与错误码各自兜底");
   ok(/^"use client";/.test(read("src/components/cockpit/org-cockpit-home.tsx")), "容器是客户端组件");
   const view = stripComments(read("src/components/cockpit/org-cockpit-view.tsx"));
   ok(!/\buse(State|Effect|Callback|Memo|Ref|SyncExternalStore)\b/.test(view), "展示组件无 hooks");

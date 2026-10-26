@@ -14,7 +14,8 @@
 
 ## 4. 视觉核对
 
-- [x] 4.1 离线渲染夹具 + 用 `@tailwindcss/postcss` 编译项目主题样式 + Playwright 截 1280 / 820 / 390 三档。verify：三张截图生成于 scratch 目录，人工核对后在报告中描述层级与响应式表现（无横向滚动、卡片列数 3 / 2 / 1）。
+- [x] 4.1 离线渲染夹具 + 用 `@tailwindcss/postcss` 编译项目主题样式 + Playwright 截图（夹具外套与 `AppShell` 一致的 240px 侧栏与内容区内边距），宽度 1440 / 1280 / 1024 / 820 / 390。verify：截图生成于 scratch 目录，人工核对后在报告中描述层级与响应式表现（无横向滚动；卡片列数按内容区宽度 3 / 3 / 2 / 1 / 1）。
+- [x] 4.2 处理独立交叉审查的应修项：容器两接口各自兜底与过期响应丢弃、时间线单独重试与"加载更多"失败可重试、`errorKindFrom`（401 / 无组织）与 `serverNow` 纯函数、动作数拆分与千分位、container query 列数、可访问性与样式细节；同步 proposal（偏差 2、新增偏差 5 GATE 决策项）、design（D2 / D4）、spec。verify：展示规则测试与渲染测试退出 0；`npx eslint src/components/cockpit src/lib/cockpit/presentation.ts` 无报错；`openspec validate org-cockpit-home --strict` 通过。
 
 ## 5. 门禁
 

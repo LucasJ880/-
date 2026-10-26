@@ -28,21 +28,29 @@ export function healthPresentation(health: string): { label: string; tone: Cockp
 const EMPTY = "—";
 const count = new Intl.NumberFormat("en-US");
 
+/** 计数千分位（非有限数显示 —） */
+export function formatCount(value: number): string {
+  return Number.isFinite(value) ? count.format(Math.round(value)) : EMPTY;
+}
+
 function finite(value: number | string | null): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
   return null;
 }
 
-/** count 千分位；rate 0..1 → 百分比；percentage_string 原值加 %；minutes → 分钟 / 小时；score 取整 */
+/** count 千分位；rate 0..1 → 百分比（一位小数、向下取）；percentage_string 原值加 %；minutes → 分钟 / 小时；score 取整 */
 export function formatKpiValue(value: number | string | null, format: PostKpiFormat): string {
   const n = finite(value);
   if (n === null) return EMPTY;
   switch (format) {
     case "count":
       return count.format(Math.round(n));
-    case "rate":
-      return `${Math.round(n * 100)}%`;
+    case "rate": {
+      // 最多一位小数且向下取，避免 0.9996 被四舍五入成 100%；1e-9 抵消 0.57 * 1000 这类浮点误差
+      const pct = Math.floor(n * 1000 + 1e-9) / 10;
+      return `${Number.isInteger(pct) ? pct : pct.toFixed(1)}%`;
+    }
     case "percentage_string":
       return `${typeof value === "string" ? value.trim() : n}%`;
     case "minutes": {
@@ -92,6 +100,28 @@ export function formatRelativeTime(iso: string | null | undefined, now: Date): s
   if (abs < HOUR) return `${Math.floor(abs / MINUTE)} 分钟${suffix}`;
   if (abs < DAY) return `${Math.floor(abs / HOUR)} 小时${suffix}`;
   return `${Math.floor(abs / DAY)} 天${suffix}`;
+}
+
+/**
+ * 页面上的"现在"：以服务端生成时间为基准，加上收到响应之后流逝的时间，
+ * 避免客户端时钟偏差把过去的事显示成"x 分钟后"，也能让"更新于"随时间变旧。
+ */
+export function serverNow(generatedAt: string, receivedAtMs: number, nowMs: number): Date {
+  const base = Date.parse(generatedAt);
+  if (Number.isNaN(base)) return new Date(nowMs);
+  return new Date(base + Math.max(0, nowMs - receivedAtMs));
+}
+
+export type CockpitLoadError = "org_selection" | "no_org" | "forbidden" | "session_expired" | "server";
+
+/** 接口失败 → 页面错误类型：401 登录过期；403 按响应体区分需选择组织 / 无组织 / 无权限；其余为服务端错误 */
+export function errorKindFrom(status: number, body: unknown): CockpitLoadError {
+  if (status === 401) return "session_expired";
+  if (status !== 403) return "server";
+  const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  if (b.needsSelection === true) return "org_selection";
+  if (b.error === "无组织") return "no_org";
+  return "forbidden";
 }
 
 export function actorLabel(actor: string, actorName: string | null): string {

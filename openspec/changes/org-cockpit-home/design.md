@@ -29,7 +29,10 @@
 - **否决：一个组件里边取数边渲染** —— 服务端静态渲染不执行 effect，只能测到加载态；拆开后展示逻辑可以直接喂夹具测。
 
 ### D2 取数：首屏两个并发请求，翻页按需
-- **选择**：挂载时 `Promise.all([apiFetch("/api/cockpit/posts"), apiFetch("/api/cockpit/timeline")])`；"加载更多"用 `?cursor=<nextCursor>` 追加；"刷新"重取两者。错误映射：403 + `needsSelection` → `org_selection`；其他 403 → `forbidden`（无组织或非管理层）；其他非 2xx 或网络错误 → `server`（可重试）。时间线失败不影响岗位卡片（各自显示错误）。
+- **选择**：挂载时两个接口并发（`Promise.all([loadPosts(), loadTimeline()])`），每个接口的请求、状态码、JSON 解析各自兜底，谁先到谁先渲染，一个失败不影响另一个；"加载更多"用 `?cursor=<nextCursor>` 追加；"刷新"重取两者；时间线出错时可只重试时间线。
+- **错误映射**（纯函数 `errorKindFrom(status, body)`，在 `presentation.ts`）：401 → `session_expired`（给"重新登录"链接；`apiFetch` 只在响应带 session 标记时自动跳登录）；403 + `needsSelection` → `org_selection`；403 + `error === "无组织"` → `no_org`；其他 403 → `forbidden`（非管理层）；其他非 2xx、网络错误或响应不是 JSON → `server`（可重试）。
+- **过期响应**：岗位总览与时间线各有一个代数计数器（`useRef`），每次重新请求加一；响应回来时代数已变就丢弃。这样"刷新"之后，还在路上的"加载更多"不会把旧游标的条目拼到新列表上。"加载更多"失败保留已加载条目，按钮变成"加载失败，点此重试"。
+- **页面时钟**：相对时间以服务端 `generatedAt` 为基准，加上收到响应后流逝的时间（`serverNow`），避免客户端时钟偏差把过去的事显示成"x 分钟后"；每 60 秒本地走一次，"更新于 x 分钟前"会随时间变旧。不重新请求接口。
 - **否决 A：服务端组件里直接调读模型** —— 首页服务端组件解析组织用的是 `resolvePreferredOrgId`（会写库），与 A-2 接口的只读组织解析口径不同，可能出现"首页显示 A 组织、点进去是 B 组织"；统一走接口保证口径一致。
 - **否决 B：时间线也首屏拉多页** —— 违反"首屏 ≤ 2 个请求"。
 
@@ -38,7 +41,10 @@
 - **否决：写在组件文件里** —— 组件测试只能间接覆盖分支，且 `src/components/**` 不在测试注册校验范围内。
 
 ### D4 布局与样式按 DESIGN.md
-- **选择**：`PageHeader`（标题"岗位视图"、组织时区与生成时间、刷新按钮）→ 横幅（`warning-bg` 底，总数大号数字，前 5 条列表，"去审批"链接用 accent）→ 卡片网格（`grid-cols-1 sm:grid-cols-2 xl:grid-cols-3`，`bg-card` + `border-border/60` + 12px 圆角，悬停边框加深）→ 时间线（单列列表）。健康度用 `StatusBadge`；卡片整卡是 `Link`（最小高度满足 44px）；字重最高 `font-semibold`（600）。
+- **选择**：`PageHeader`（标题"岗位视图"、生成时间、时区、"心跳与自动化次数为平台级"、刷新按钮）→ 横幅（`bg-card` 卡片，`warning` 色图标，总数大号数字，前 5 条列表，"去审批"链接用 `accent` 底 + `--on-accent` 字色）→ 卡片网格 → 时间线（单列列表，窄屏时间 / 岗位 / 操作者一行、摘要另起一行）。健康度用 `StatusBadge`；卡片整卡是 `Link`（最小高度满足 44px）；字重最高 `font-semibold`（600）。
+- **卡片列数按内容区宽度而不是视口**：桌面侧栏固定 240px（`md` 起显示，可折叠到 60px），视口断点会在 1280 宽时只剩约 990px 内容区。用 Tailwind 4 自带的 container query：网格外层 `@container`，`grid-cols-1 @2xl:grid-cols-2 @4xl:grid-cols-[repeat(3,minmax(0,1fr))]`（内容区 ≥ 672px 两列，≥ 896px 三列）。三列和 KPI 行都用任意值写法，避开 `globals.css` 在 768–1024px 视口把 `.grid-cols-3` 强制改成两列的 `!important` 覆盖。KPI 标签最多两行（`line-clamp-2`），悬停 `title` 显示全称。
+- **计数**：待审批、需要你、近 7 天次数一律千分位（`formatCount`）。近 7 天的 AI 运行数（按本组织）与自动化运行数（平台级）分两段写，不相加。
+- **可访问性**：岗位区有读屏标题（`sr-only` 的 h2），加载中的区域标 `aria-busy`。
 - **否决：新建一套颜色 / 组件** —— DESIGN.md 要求复用既有 token；`StatusBadge` 已覆盖五种语义色调。
 
 ### D5 视觉核对用离线渲染 + 真实主题样式 + Playwright 截图
@@ -67,13 +73,14 @@
 - [旧首页的简报 / 日历 / 任务 / AI 建议入口消失] → D-2 已决定；能力在 `/assistant`、`/sales/calendar`、`/tasks` 仍可用，报告列出供 Evan 知悉。
 - [多组织用户：客户端选中的组织（localStorage）与数据库活动组织不一致时，岗位视图显示的是活动组织] → 与 `/workforce` 同口径；页头显示组织 id 对应的时区与生成时间，GATE 时在 staging 验证切换组织后的表现。
 - [首屏等待 A-2 接口（KPI 最长 5 秒超时）] → 骨架屏 + 时间线与卡片各自独立加载。
+- [旧首页每 5 分钟触发的主动提醒扫描（`POST /api/proactive/scan`）随替换停止；定时任务只覆盖开了自动化偏好的用户] → 新页面只读，不补发；在 proposal 偏差 5 中列为 GATE 决策项，可选后续 change 让定时任务为管理层同步提醒通知（不执行自动动作）。
 - [离线截图不等于真页面] → 布局与样式用真实主题编译；交互与数据在 staging 走 GATE-A 第 3 条。
 
 ## 验证方式
 
 - `npx tsx src/lib/cockpit/__tests__/presentation.test.ts`：健康度映射、KPI 各格式、窗口口径、相对时间、操作者、计数文案。
 - `npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx`：夹具渲染（七张卡顺序与链接、健康度文案与色调类、KPI 数值与"未接入 / 未开启 / 暂不可用"、横幅计数与截断"+"、未归属提示、配额提示、时间线条目与链接、空时间线、脱敏提示原样显示、无"批准 / 驳回 / 执行"按钮）；错误态 / 选择组织态 / 加载态渲染；源码静态断言（首页保留重定向且不再引用旧组件、容器只调用两个接口且只用 GET）。
-- 截图：1280 / 820 / 390 三档，人工核对层级、色调、留白与无横向滚动。
+- 截图：1440 / 1280 / 1024 / 820 / 390 五档，夹具外面套一个与 `AppShell` 一致的 240px 侧栏和内容区内边距，人工核对层级、色调、留白、列数与无横向滚动。
 - `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`（与基线比对）。
 - `openspec validate org-cockpit-home --strict`。
 

@@ -15,8 +15,10 @@ import {
   HandHelping,
   History,
   Loader2,
+  LogIn,
   RefreshCw,
   ShieldAlert,
+  UserX,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -26,17 +28,19 @@ import {
   KPI_STATUS_LABELS,
   abnormalAutomations,
   actorLabel,
+  formatCount,
   formatKpiValue,
   formatRelativeTime,
   healthPresentation,
   kpiWindowLabel,
   postName,
   waitingCountLabel,
+  type CockpitLoadError,
 } from "@/lib/cockpit/presentation";
 import type { TimelineEntry } from "@/lib/cockpit/timeline";
 import { cn } from "@/lib/utils";
 
-export type CockpitLoadError = "org_selection" | "forbidden" | "server";
+export type { CockpitLoadError };
 
 export type PostsState =
   | { status: "loading" }
@@ -46,7 +50,7 @@ export type PostsState =
 export type TimelineState =
   | { status: "loading" }
   | { status: "error"; error: CockpitLoadError }
-  | { status: "ready"; items: TimelineEntry[]; nextCursor: string | null; loadingMore?: boolean };
+  | { status: "ready"; items: TimelineEntry[]; nextCursor: string | null; loadingMore?: boolean; loadMoreFailed?: boolean };
 
 export interface OrgCockpitViewProps {
   now: Date;
@@ -54,13 +58,25 @@ export interface OrgCockpitViewProps {
   timeline: TimelineState;
   refreshing?: boolean;
   onRefresh?: () => void;
+  /** 岗位总览失败时重试（整页重新加载） */
   onRetry?: () => void;
+  /** 只重试时间线，不影响已加载的岗位卡片 */
+  onRetryTimeline?: () => void;
   onLoadMore?: () => void;
 }
 
 const WAITING_PREVIEW = 5;
 
-export function OrgCockpitView({ now, posts, timeline, refreshing, onRefresh, onRetry, onLoadMore }: OrgCockpitViewProps) {
+export function OrgCockpitView({
+  now,
+  posts,
+  timeline,
+  refreshing,
+  onRefresh,
+  onRetry,
+  onRetryTimeline,
+  onLoadMore,
+}: OrgCockpitViewProps) {
   const data = posts.status === "ready" ? posts.data : null;
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -74,7 +90,7 @@ export function OrgCockpitView({ now, posts, timeline, refreshing, onRefresh, on
               <span aria-hidden="true">·</span>
               <span>时区 {data.timezone}</span>
               <span aria-hidden="true">·</span>
-              <span>心跳为平台级</span>
+              <span>心跳与自动化次数为平台级</span>
             </>
           ) : null
         }
@@ -84,7 +100,7 @@ export function OrgCockpitView({ now, posts, timeline, refreshing, onRefresh, on
               type="button"
               onClick={onRefresh}
               disabled={posts.status === "loading" || refreshing}
-              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-muted transition-colors hover:bg-muted/5 hover:text-foreground disabled:opacity-50 sm:min-h-0 sm:py-1.5"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-muted transition-colors hover:bg-muted/5 hover:text-foreground disabled:opacity-50"
             >
               <RefreshCw size={13} className={cn(refreshing && "animate-spin")} />
               刷新
@@ -108,17 +124,25 @@ export function OrgCockpitView({ now, posts, timeline, refreshing, onRefresh, on
 
           <div className="mt-5">{data ? <WaitingBanner data={data} now={now} /> : <BannerSkeleton />}</div>
 
-          <section aria-label="岗位" className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {data ? data.posts.map((post) => <PostCard key={post.key} post={post} now={now} />) : <CardsSkeleton />}
+          {/* 列数按内容区宽度（container query）而不是视口：桌面侧栏 240px 会吃掉一大块宽度 */}
+          <section aria-labelledby="cockpit-posts-heading" aria-busy={data ? undefined : true} className="@container mt-5">
+            <h2 id="cockpit-posts-heading" className="sr-only">
+              岗位
+            </h2>
+            <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @4xl:grid-cols-[repeat(3,minmax(0,1fr))]">
+              {data ? data.posts.map((post) => <PostCard key={post.key} post={post} now={now} />) : <CardsSkeleton />}
+            </div>
           </section>
 
-          <section aria-label="company.log" className="mt-8">
+          <section aria-labelledby="cockpit-log-heading" aria-busy={timeline.status === "loading" ? true : undefined} className="mt-8">
             <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-sm font-semibold text-foreground">company.log</h2>
+              <h2 id="cockpit-log-heading" className="text-sm font-semibold text-foreground">
+                company.log
+              </h2>
               <span className="text-xs text-muted">最近 7 天 · 系统、AI 与成员的动作</span>
             </div>
             <div className="mt-3">
-              <CompanyLog timeline={timeline} now={now} onRetry={onRetry} onLoadMore={onLoadMore} />
+              <CompanyLog timeline={timeline} now={now} onRetry={onRetryTimeline} onLoadMore={onLoadMore} />
             </div>
           </section>
         </>
@@ -138,14 +162,14 @@ export function WaitingBanner({ data, now }: { data: PostsCockpitResponse; now: 
         <div className="flex items-baseline gap-2">
           <HandHelping size={18} className="self-center text-warning" />
           <span className="text-sm text-muted">等你拍板</span>
-          <span className="text-3xl font-semibold tracking-[-0.5px] text-foreground" data-testid="waiting-count">
+          <span className="text-3xl font-semibold tracking-[-0.5px] text-foreground" data-waiting-count="">
             {waitingCountLabel(waiting.total, waiting.truncated)}
           </span>
           <span className="text-sm text-muted">件</span>
         </div>
         <Link
           href={waiting.href}
-          className="inline-flex min-h-[44px] items-center gap-1 rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          className="inline-flex min-h-[44px] items-center gap-1 rounded-lg bg-accent px-4 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover"
         >
           去审批
           <ChevronRight size={14} />
@@ -158,7 +182,7 @@ export function WaitingBanner({ data, now }: { data: PostsCockpitResponse; now: 
         <ul className="mt-3 divide-y divide-border/60">
           {items.map((item) => (
             <li key={`${item.kind}:${item.id}`}>
-              <Link href={item.href} className="flex min-h-[44px] items-center gap-3 py-2 text-sm hover:text-accent">
+              <Link href={item.href} className="-mx-2 flex min-h-[44px] items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted/5">
                 <span className="min-w-0 flex-1 truncate text-foreground">{item.title}</span>
                 <span className="shrink-0 text-xs text-muted">{postName(item.post)}</span>
                 <span className="w-20 shrink-0 text-right text-xs text-muted">{formatRelativeTime(item.at, now)}</span>
@@ -179,7 +203,6 @@ export function WaitingBanner({ data, now }: { data: PostsCockpitResponse; now: 
 export function PostCard({ post, now }: { post: PostCardView; now: Date }) {
   const health = healthPresentation(post.health);
   const abnormal = abnormalAutomations(post.automations);
-  const actions = post.actions7d.agentRuns + post.actions7d.automationRuns;
   return (
     <Link
       href={post.nav}
@@ -188,7 +211,7 @@ export function PostCard({ post, now }: { post: PostCardView; now: Date }) {
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-[15px] font-semibold tracking-[-0.1px] text-foreground">{post.name}</h3>
-        <StatusBadge status={post.health} label={health.label} tone={health.tone} showDot />
+        <StatusBadge status={post.health} label={health.label} tone={health.tone} showDot className="shrink-0 whitespace-nowrap" />
       </div>
 
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -206,7 +229,9 @@ export function PostCard({ post, now }: { post: PostCardView; now: Date }) {
             <dl className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2">
               {post.kpi.metrics.map((metric) => (
                 <div key={metric.label} className="min-w-0">
-                  <dt className="truncate text-[11px] text-muted">{metric.label}</dt>
+                  <dt className="line-clamp-2 text-[11px] leading-tight text-muted" title={metric.label}>
+                    {metric.label}
+                  </dt>
                   <dd className="mt-0.5 text-lg font-semibold tracking-[-0.3px] text-foreground">
                     {formatKpiValue(metric.value, metric.format)}
                   </dd>
@@ -224,12 +249,15 @@ export function PostCard({ post, now }: { post: PostCardView; now: Date }) {
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
         <span className={cn("rounded-full px-2 py-0.5", post.pendingApprovals > 0 ? "bg-warning-bg text-warning" : "bg-foreground/[0.05] text-muted")}>
-          待审批 {post.pendingApprovals}
+          待审批 {formatCount(post.pendingApprovals)}
         </span>
         <span className={cn("rounded-full px-2 py-0.5", post.needsYou > 0 ? "bg-warning-bg text-warning" : "bg-foreground/[0.05] text-muted")}>
-          需要你 {post.needsYou}
+          需要你 {formatCount(post.needsYou)}
         </span>
-        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">7 天 {actions} 次动作</span>
+        {/* AI 运行按本组织统计；自动化运行是平台级，两者分开写，不相加 */}
+        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
+          7 天 AI {formatCount(post.actions7d.agentRuns)} 次 · 平台自动化 {formatCount(post.actions7d.automationRuns)} 次
+        </span>
       </div>
 
       {abnormal.length > 0 ? (
@@ -237,7 +265,9 @@ export function PostCard({ post, now }: { post: PostCardView; now: Date }) {
           {abnormal.map((a) => (
             <li key={a.name} className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate text-foreground/90">{a.name}</span>
-              <span className={a.health === "failed" ? "text-danger" : "text-warning"}>{healthPresentation(a.health).label}</span>
+              <span className={cn("shrink-0 whitespace-nowrap", a.health === "failed" ? "text-danger" : "text-warning")}>
+                {healthPresentation(a.health).label}
+              </span>
             </li>
           ))}
         </ul>
@@ -270,7 +300,7 @@ export function CompanyLog({
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm text-muted">
         <span>时间线加载失败</span>
         {onRetry ? (
-          <button type="button" onClick={onRetry} className="min-h-[44px] rounded-lg border border-border px-3 text-xs hover:bg-muted/5 sm:min-h-0 sm:py-1.5">
+          <button type="button" onClick={onRetry} className="min-h-[44px] rounded-lg border border-border px-3 text-xs hover:bg-muted/5">
             重试
           </button>
         ) : null}
@@ -314,10 +344,19 @@ export function CompanyLog({
             type="button"
             onClick={onLoadMore}
             disabled={timeline.loadingMore}
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border px-4 text-sm text-muted hover:bg-muted/5 disabled:opacity-50"
+            className={cn(
+              "inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-4 text-sm hover:bg-muted/5 disabled:opacity-50",
+              timeline.loadMoreFailed ? "border-danger/30 text-danger" : "border-border text-muted",
+            )}
           >
-            {timeline.loadingMore ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={14} />}
-            加载更多
+            {timeline.loadingMore ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : timeline.loadMoreFailed ? (
+              <RefreshCw size={14} />
+            ) : (
+              <ChevronDown size={14} />
+            )}
+            {timeline.loadMoreFailed && !timeline.loadingMore ? "加载失败，点此重试" : "加载更多"}
           </button>
         </div>
       ) : null}
@@ -327,26 +366,39 @@ export function CompanyLog({
 
 // ── 状态 ──────────────────────────────────────────────────────
 
-const ERROR_COPY: Record<CockpitLoadError, { title: string; description: string }> = {
-  org_selection: { title: "请先选择工作组织", description: "你可使用多个组织，请先在左上角切换到要查看的组织，再刷新本页。" },
-  forbidden: { title: "暂无权限查看岗位视图", description: "岗位视图只对组织管理员开放；如需开通请联系组织负责人。" },
-  server: { title: "岗位视图加载失败", description: "请稍后重试；若持续失败，请把时间点告诉管理员排查。" },
+const ERROR_COPY: Record<CockpitLoadError, { title: string; description: string; icon: typeof AlertTriangle }> = {
+  org_selection: {
+    title: "请先选择工作组织",
+    description: "你可使用多个组织，请先在左上角切换到要查看的组织，再刷新本页。",
+    icon: Building2,
+  },
+  no_org: { title: "你还没有加入任何组织", description: "岗位视图按组织展示；请联系组织负责人邀请你加入。", icon: UserX },
+  forbidden: { title: "暂无权限查看岗位视图", description: "岗位视图只对组织管理员开放；如需开通请联系组织负责人。", icon: ShieldAlert },
+  session_expired: { title: "登录已过期", description: "请重新登录后再查看岗位视图。", icon: LogIn },
+  server: { title: "岗位视图加载失败", description: "请稍后重试；若持续失败，请把时间点告诉管理员排查。", icon: AlertTriangle },
 };
 
 export function CockpitErrorState({ error, onRetry }: { error: CockpitLoadError; onRetry?: () => void }) {
   const copy = ERROR_COPY[error];
-  const Icon = error === "org_selection" ? Building2 : error === "forbidden" ? ShieldAlert : AlertTriangle;
   return (
     <EmptyState
-      icon={Icon}
+      icon={copy.icon}
       title={copy.title}
       description={copy.description}
       action={
-        error === "server" && onRetry ? (
+        error === "session_expired" ? (
+          <Link
+            href="/login?next=%2F"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
+          >
+            <LogIn size={14} />
+            重新登录
+          </Link>
+        ) : error === "server" && onRetry ? (
           <button
             type="button"
             onClick={onRetry}
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover"
           >
             <RefreshCw size={14} />
             重试
