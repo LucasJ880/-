@@ -1,7 +1,8 @@
 /**
  * Revenue Spine — 评分校准（B-4）纯函数测试，无 DB。
  *   结局口径（won / lost / 未定、报价判定）、维度归一与分桶边界、命中率与区分度、无法评估、等级表、
- *   建议权重（最大余数法、保留无法评估维度、和恒等于现有总额）、样本不足 / 无信号、policy 片段可合并、确定性
+ *   建议权重（下限、最大余数法、保留无法评估维度、和恒等于现有总额、不改变不合格判定）、样本不足 / 无信号及原因、
+ *   policy 片段可合并、确定性
  * 运行：npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts
  *
  * 公开仓库：只用虚构数据。
@@ -10,9 +11,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_REVENUE_SPINE_POLICY, mergeRevenueSpinePolicy } from "../policy";
+import { scoreOpportunity, type ScoreInput } from "../scoring";
 import {
   CALIBRATION_DIMENSIONS,
   CALIBRATION_MIN_DECIDED,
+  CALIBRATION_MIN_WEIGHTS,
   QUOTE_REACHED_STAGES,
   bucketOf,
   calibrationPolicySnippet,
@@ -279,20 +282,56 @@ ok("场景「等级表」：HOT 3 赢 2、LOW 5 赢 0", () => {
 
 console.log("\n建议权重");
 
-ok("固定样本：完整度无法评估保留 10，其余 90 按区分度正部分配 → 21 / 21 / 27 / 21 / 10 / 0", () => {
+ok("固定样本：完整度无法评估保留 10；其余先拿下限 3 / 1 / 1 / 1 / 1，剩 83 按区分度正部分配 → 23 / 20 / 26 / 20 / 10 / 1", () => {
+  // 83 × 28/120 = 19.37（三维）、83 × 36/120 = 24.9、战略 0 → floor 19 / 19 / 24 / 19 / 0，余 2 补给 Buyer Quality（.9）与 Product Fit（.37 并列取靠前）
   assert.equal(report.status, "ok");
+  assert.equal(report.noSignalReason, null);
   assert.deepEqual(report.suggestedWeights, {
-    productFit: 21,
-    commercialPotential: 21,
-    buyerQuality: 27,
-    intent: 21,
+    productFit: 23,
+    commercialPotential: 20,
+    buyerQuality: 26,
+    intent: 20,
     completeness: 10,
-    strategicValue: 0,
+    strategicValue: 1,
   });
   assert.deepEqual(
     report.dimensions.map((d) => d.suggestedWeight),
-    [21, 21, 27, 21, 10, 0],
+    [23, 20, 26, 20, 10, 1],
   );
+});
+
+ok("场景「建议不低于下限」：区分度为负的维度只拿下限（战略 1），不会被清零", () => {
+  assert.equal(dim(report, "strategicValue").lift! < 0, true);
+  assert.equal(report.suggestedWeights!.strategicValue, CALIBRATION_MIN_WEIGHTS.strategicValue);
+  assert.deepEqual(CALIBRATION_MIN_WEIGHTS, { productFit: 3, commercialPotential: 1, buyerQuality: 1, intent: 1, completeness: 1, strategicValue: 1 });
+});
+
+ok("场景「Product Fit 区分度不为正」：建议 Product Fit = 3；粘贴后不合格判定与默认 policy 一致（审查复现用例）", () => {
+  const win = { productFit: 10, commercialPotential: 20, buyerQuality: 20, intent: 15, completeness: 10, strategicValue: 10 };
+  const lose = { productFit: 25, commercialPotential: 4, buyerQuality: 4, intent: 3, completeness: 2, strategicValue: 0 };
+  const r = computeScoreCalibration(
+    [...times(15, () => row({ stage: "won", dimensions: dims(win), quoteSent: true })), ...times(15, () => row({ stage: "lost", dimensions: dims(lose), quoteSent: true }))],
+    { weights: W, windowDays: 90, now: NOW },
+  );
+  assert.equal(r.status, "ok");
+  assert.ok(dim(r, "productFit").lift! <= 0);
+  assert.equal(r.suggestedWeights!.productFit, 3);
+  assert.equal(Object.values(r.suggestedWeights!).reduce((a, b) => a + b, 0), 100);
+  const published = mergeRevenueSpinePolicy(DEFAULT_REVENUE_SPINE_POLICY, r.policySnippet);
+  const cat = DEFAULT_REVENUE_SPINE_POLICY.businessProfile.productCategories[0];
+  const research = { buyerType: "importer", isFreeMail: false } as unknown as ScoreInput["research"];
+  const cases: Array<ScoreInput["fields"]> = [
+    { productCategory: cat, productName: "x", quantity: 5000 } as ScoreInput["fields"], // 能力范围内：满分
+    { productCategory: "unlisted_category", quantity: 5000 } as ScoreInput["fields"], // 不在能力范围：× 0.5
+    { productName: "something", quantity: 5000 } as ScoreInput["fields"], // 只有产品名：× 0.4
+    { quantity: 5000 } as ScoreInput["fields"], // 未识别产品：× 0.2
+  ];
+  for (const fields of cases) {
+    const before = scoreOpportunity({ fields, research, message: "price moq", policy: DEFAULT_REVENUE_SPINE_POLICY });
+    const after = scoreOpportunity({ fields, research, message: "price moq", policy: published });
+    assert.equal(after.qualification, before.qualification, JSON.stringify(fields));
+    assert.ok(after.dimensions.find((d) => d.key === "productFit")!.score >= 1, JSON.stringify(fields));
+  }
 });
 
 ok("场景「保留无法评估维度」：完整度现有 10 → 建议仍 10，其余五维之和 90", () => {
@@ -301,13 +340,14 @@ ok("场景「保留无法评估维度」：完整度现有 10 → 建议仍 10�
   assert.equal(KEYS.filter((k) => k !== "completeness").reduce((a, k) => a + s[k], 0), 90);
 });
 
-ok("场景「达到门槛」：30 个已定、六维区分度均为正 → 正常，六个整数和为 100（最大余数按维度顺序）", () => {
+ok("场景「达到门槛」：30 个已定、六维区分度均为正 → 正常，六个整数和为 100（下限 + 最大余数按维度顺序）", () => {
   const all = (v: number) => dims({ productFit: 25 * v, commercialPotential: 20 * v, buyerQuality: 20 * v, intent: 15 * v, completeness: 10 * v, strategicValue: 10 * v });
   const rows = [...times(15, () => row({ stage: "won", dimensions: all(1) })), ...times(15, () => row({ stage: "lost", dimensions: all(0) }))];
   const r = computeScoreCalibration(rows, { weights: W, windowDays: 90, now: NOW });
   assert.equal(r.sample.decided, CALIBRATION_MIN_DECIDED);
   assert.equal(r.status, "ok");
-  assert.deepEqual(Object.values(r.suggestedWeights!), [17, 17, 17, 17, 16, 16]);
+  // 下限合计 8，剩 92 均分 15.33 → floor 15 × 6 = 90，余 2 按维度顺序补给前两维
+  assert.deepEqual(Object.values(r.suggestedWeights!), [19, 17, 16, 16, 16, 16]);
   for (const v of Object.values(r.suggestedWeights!)) assert.ok(Number.isInteger(v) && v >= 0);
 });
 
@@ -330,6 +370,7 @@ ok("场景「无信号」：30 个已定、可评估维度区分度都 ≤ 0 →
   const rows = [...times(15, () => row({ stage: "won", dimensions: all(0) })), ...times(15, () => row({ stage: "lost", dimensions: all(1) }))];
   const r = computeScoreCalibration(rows, { weights: W, windowDays: 90, now: NOW });
   assert.equal(r.status, "no_signal");
+  assert.equal(r.noSignalReason, "no_positive_lift");
   assert.equal(r.suggestedWeights, null);
   assert.equal(r.policySnippet, null);
 });
@@ -342,6 +383,7 @@ ok("没有可评估维度（已定商机各维全部看好）→ 无信号；唯
   );
   assert.equal(none.dimensions.filter((d) => d.evaluable).length, 0);
   assert.equal(none.status, "no_signal");
+  assert.equal(none.noSignalReason, "no_evaluable");
   // 战略维度：看好组只有输、不看好组只有赢 → 可评估但为负；其余维度全部看好 → 无法评估
   const neg = computeScoreCalibration(
     [...times(20, () => row({ stage: "won", dimensions: dims(A) })), ...times(10, () => row({ stage: "lost", dimensions: allFav }))],
@@ -349,20 +391,52 @@ ok("没有可评估维度（已定商机各维全部看好）→ 无信号；唯
   );
   assert.deepEqual(neg.dimensions.filter((d) => d.evaluable).map((d) => d.key), ["strategicValue"]);
   assert.equal(neg.status, "no_signal");
+  assert.equal(neg.noSignalReason, "no_positive_lift");
 });
 
-ok("suggestWeights：余数并列按固定维度顺序补 1；和恒等于现有总额；自定义总额 110 保持", () => {
+ok("suggestWeights：下限 + 余数并列按固定维度顺序补 1；和恒等于现有总额；自定义总额 110 保持", () => {
   const ks = KEYS;
-  const eq = suggestWeights(ks.map((key, i) => ({ key, lift: i < 3 ? 0.2 : null, currentWeight: 0 })));
-  assert.deepEqual(eq, { productFit: 0, commercialPotential: 0, buyerQuality: 0, intent: 0, completeness: 0, strategicValue: 0 });
+  const total = (w: Record<string, number>) => Object.values(w).reduce((a, b) => a + b, 0);
+  // 总额 0 不够分下限（3 + 1 + 1）→ budget
+  const broke = suggestWeights(ks.map((key, i) => ({ key, lift: i < 3 ? 0.2 : null, currentWeight: 0 })));
+  assert.deepEqual(broke, { weights: null, reason: "budget" });
+  // 前三维可评估、区分度相同、总额 100：下限 5，剩 95 → 31.67 × 3，余 2 补前两维
   const three = suggestWeights(ks.map((key, i) => ({ key, lift: i < 3 ? 0.1 : null, currentWeight: i < 3 ? 100 / 3 : 0 })));
-  assert.deepEqual(Object.values(three!), [34, 33, 33, 0, 0, 0]);
+  assert.deepEqual(Object.values(three.weights!), [35, 33, 32, 0, 0, 0]);
+  // 自定义总额 110：下限 8，剩 102 → 51 / 17 / 17 / 8.5 / 0 / 8.5，余 1 按顺序给 Intent
   const custom = suggestWeights(ks.map((key, i) => ({ key, lift: [0.3, 0.1, 0.1, 0.05, -0.2, 0.05][i], currentWeight: [30, 20, 20, 20, 10, 10][i] })));
-  assert.equal(Object.values(custom!).reduce((a, b) => a + b, 0), 110);
-  // 0.3 / 0.6 × 110 = 55；0.1 → 18.33；0.05 → 9.17；负 → 0
-  assert.deepEqual(Object.values(custom!), [55, 19, 18, 9, 0, 9]);
-  assert.equal(suggestWeights(ks.map((key) => ({ key, lift: null, currentWeight: 10 }))), null);
-  assert.equal(suggestWeights(ks.map((key) => ({ key, lift: 0, currentWeight: 10 }))), null);
+  assert.equal(total(custom.weights!), 110);
+  assert.deepEqual(Object.values(custom.weights!), [54, 18, 18, 10, 1, 9]);
+  assert.deepEqual(suggestWeights(ks.map((key) => ({ key, lift: null, currentWeight: 10 }))), { weights: null, reason: "no_evaluable" });
+  assert.deepEqual(suggestWeights(ks.map((key) => ({ key, lift: 0, currentWeight: 10 }))), { weights: null, reason: "no_positive_lift" });
+});
+
+ok("现有权重为负：按 0 计入总额，无法评估时保留 0，建议仍为非负整数", () => {
+  const r = suggestWeights(KEYS.map((key, i) => ({ key, lift: i === 5 ? null : [0.2, 0.1, 0.1, 0.1, 0.1][i], currentWeight: [25, 20, 20, 15, 10, -5][i] })));
+  assert.equal(r.weights!.strategicValue, 0);
+  assert.equal(Object.values(r.weights!).reduce((a, b) => a + b, 0), 90);
+  for (const v of Object.values(r.weights!)) assert.ok(Number.isInteger(v) && v >= 0);
+});
+
+ok("随机压测：非负整数、和恒等于总额、可评估维度不低于下限（2000 组，固定种子）", () => {
+  let seed = 20261026;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  for (let n = 0; n < 2000; n++) {
+    const dimsIn = KEYS.map((key) => ({
+      key,
+      lift: rand() < 0.2 ? null : rand() * 2 - 1,
+      currentWeight: Math.round(rand() * 40 * 10) / 10,
+    }));
+    const r = suggestWeights(dimsIn);
+    if (!r.weights) continue;
+    const t = Math.round(dimsIn.reduce((s, d) => s + Math.max(0, d.currentWeight), 0));
+    assert.equal(Object.values(r.weights).reduce((a, b) => a + b, 0), t);
+    for (const d of dimsIn) {
+      const v = r.weights[d.key];
+      assert.ok(Number.isInteger(v) && v >= 0);
+      if (d.lift !== null) assert.ok(v >= CALIBRATION_MIN_WEIGHTS[d.key]);
+    }
+  }
 });
 
 console.log("\npolicy 片段");
@@ -380,7 +454,7 @@ ok("片段文本为两空格缩进 JSON，可原样解析回片段", () => {
   const snippet = calibrationPolicySnippet(report.suggestedWeights!);
   const text = calibrationSnippetText(snippet);
   assert.deepEqual(JSON.parse(text), snippet);
-  assert.match(text, /^\{\n {2}"scoring": \{\n {4}"weights": \{\n {6}"productFit": 21,/);
+  assert.match(text, /^\{\n {2}"scoring": \{\n {4}"weights": \{\n {6}"productFit": 23,/);
 });
 
 console.log("\n窗口、确定性、输出形状");
@@ -416,6 +490,7 @@ ok("输出不含 NaN / Infinity；现有权重来自 policy、缺失记 0；截�
   assert.equal(r.windowDays, 30);
   assert.equal(r.generatedAt, NOW.toISOString());
   assert.equal(r.status, "insufficient");
+  assert.equal(r.noSignalReason, null);
 });
 
 ok("报告只含计数、比率与权重：不含理由文本", () => {

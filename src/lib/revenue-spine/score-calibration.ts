@@ -4,7 +4,8 @@
  * 把询盘分诊时的首次评估（六维得分 / 当时满分）与商机当前阶段对账：
  * - 结局与 /revenue 同口径：won = 赢、lost = 输，其余未定；报价看阶段 + QUOTE_SENT（只当布尔证据）
  * - 入驻测试与 disqualified 不进比率（disqualified 由评分自己决定，拿来校准是循环论证）
- * - 建议权重：区分度正部按比例分配，最大余数法取整，和恒等于现有权重之和；只展示，不改 policy
+ * - 建议权重：可评估维度先拿下限（Product Fit 3、其余 1），剩余按区分度正部比例分配，最大余数法取整，
+ *   和恒等于现有权重之和；只展示，不改 policy
  *
  * 只吃统计需要的字段（等级、维度分、阶段、是否测试、是否报价），拿不到客户信息与金额。
  */
@@ -163,6 +164,8 @@ export interface ScoreCalibrationReport {
   windowDays: number;
   minDecided: number;
   status: CalibrationStatus;
+  /** 状态为无信号时的原因，其余为空 */
+  noSignalReason: NoSignalReason | null;
   truncated: boolean;
   sample: CalibrationTally & {
     lost: number;
@@ -216,30 +219,54 @@ export function calibrationWeightsOf(weights: Partial<Record<string, unknown>> |
 }
 
 /**
+ * 可评估维度的建议权重下限：
+ * - Product Fit 3：评分对"未识别到产品"按 round(权重 × 0.2) 给分，而 Product Fit = 0 会被判不合格（scoring.ts）；
+ *   权重 ≥ 3 时这一档仍得 1 分，粘贴建议后不合格的判定与现在一致；
+ * - 其余 1：权重一旦为 0，之后的评估满分为 0、该维永远无法评估，校准再也救不回来。
+ */
+export const CALIBRATION_MIN_WEIGHTS: Readonly<CalibrationWeights> = {
+  productFit: 3,
+  commercialPotential: 1,
+  buyerQuality: 1,
+  intent: 1,
+  completeness: 1,
+  strategicValue: 1,
+};
+
+/** 无信号的原因：没有可评估维度 / 区分度都不为正 / 总额不够分下限 */
+export type NoSignalReason = "no_evaluable" | "no_positive_lift" | "budget";
+
+export type WeightSuggestion = { weights: CalibrationWeights; reason: null } | { weights: null; reason: NoSignalReason };
+
+/**
  * 建议权重：
- * 1. 总额 T = round(Σ 现有权重)；
- * 2. 无法评估的维度保留 round(现有权重)；
- * 3. 剩余在可评估维度间按 max(0, 区分度) 比例分配，floor 后差额按小数部分从大到小补 1（并列按固定维度顺序）。
- * 没有可评估维度、或区分度正部之和为 0 时返回 null（无信号）。
+ * 1. 总额 T = round(Σ max(0, 现有权重))；
+ * 2. 无法评估的维度保留 round(max(0, 现有权重))；
+ * 3. 可评估维度先各拿下限（CALIBRATION_MIN_WEIGHTS），剩余按 max(0, 区分度) 比例分配，
+ *    floor 后差额按小数部分从大到小补 1（并列按固定维度顺序）。
+ * 没有可评估维度、区分度正部之和为 0、或总额不够分下限时不给建议（无信号）。
  */
 export function suggestWeights(
   dims: ReadonlyArray<{ key: CalibrationDimensionKey; lift: number | null; currentWeight: number }>,
-): CalibrationWeights | null {
-  const total = Math.round(dims.reduce((s, d) => s + d.currentWeight, 0));
+): WeightSuggestion {
+  const total = Math.round(dims.reduce((s, d) => s + Math.max(0, d.currentWeight), 0));
   const out = {} as CalibrationWeights;
-  let kept = 0;
+  let reserved = 0;
   const evaluable: Array<{ key: CalibrationDimensionKey; pos: number; order: number }> = [];
   dims.forEach((d, order) => {
     if (d.lift === null) {
-      out[d.key] = Math.round(d.currentWeight);
-      kept += out[d.key];
+      out[d.key] = Math.round(Math.max(0, d.currentWeight));
+      reserved += out[d.key];
     } else {
       evaluable.push({ key: d.key, pos: Math.max(0, d.lift), order });
+      reserved += CALIBRATION_MIN_WEIGHTS[d.key];
     }
   });
+  if (evaluable.length === 0) return { weights: null, reason: "no_evaluable" };
   const posSum = evaluable.reduce((s, d) => s + d.pos, 0);
-  const budget = total - kept;
-  if (evaluable.length === 0 || posSum <= EPS || budget < 0) return null;
+  if (posSum <= EPS) return { weights: null, reason: "no_positive_lift" };
+  const budget = total - reserved;
+  if (budget < 0) return { weights: null, reason: "budget" };
   const parts = evaluable.map((d) => {
     const raw = (budget * d.pos) / posSum;
     const base = Math.floor(raw + EPS);
@@ -252,11 +279,11 @@ export function suggestWeights(
     p.base += 1;
     rest -= 1;
   }
-  for (const p of parts) out[p.key] = p.base;
+  for (const p of parts) out[p.key] = CALIBRATION_MIN_WEIGHTS[p.key] + p.base;
   // 按固定维度顺序重排键
   const ordered = {} as CalibrationWeights;
   for (const { key } of CALIBRATION_DIMENSIONS) if (key in out) ordered[key] = out[key];
-  return ordered;
+  return { weights: ordered, reason: null };
 }
 
 export function calibrationPolicySnippet(weights: CalibrationWeights): CalibrationPolicySnippet {
@@ -343,11 +370,14 @@ export function computeScoreCalibration(
   }
 
   let status: CalibrationStatus;
+  let noSignalReason: NoSignalReason | null = null;
   let suggestedWeights: CalibrationWeights | null = null;
   if (sample.decided < CALIBRATION_MIN_DECIDED) {
     status = "insufficient";
   } else {
-    suggestedWeights = suggestWeights(dims);
+    const suggestion = suggestWeights(dims);
+    suggestedWeights = suggestion.weights;
+    noSignalReason = suggestion.reason;
     status = suggestedWeights ? "ok" : "no_signal";
   }
   if (suggestedWeights) for (const d of dims) d.suggestedWeight = suggestedWeights[d.key];
@@ -357,6 +387,7 @@ export function computeScoreCalibration(
     windowDays: opts.windowDays,
     minDecided: CALIBRATION_MIN_DECIDED,
     status,
+    noSignalReason,
     truncated: opts.truncated === true,
     sample,
     currentWeights,

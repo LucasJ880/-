@@ -13,9 +13,11 @@ import { ChevronDown, ChevronUp, ClipboardCopy, Loader2, RefreshCw, Scale } from
 import { apiFetch } from "@/lib/api-fetch";
 import {
   CALIBRATION_BUCKETS,
+  CALIBRATION_MIN_WEIGHTS,
   calibrationSnippetText,
   type CalibrationTally,
   type DimensionCalibration,
+  type NoSignalReason,
   type ScoreCalibrationReport,
 } from "@/lib/revenue-spine/score-calibration";
 import { cn } from "@/lib/utils";
@@ -50,8 +52,9 @@ export function ScoreCalibrationPanel() {
     }
   }, []);
 
-  // 收起只隐藏，不丢已加载的数据；再展开不重复请求（没加载过或上次失败才请求）
+  // 收起只隐藏，不丢已加载的数据；再展开不重复请求（没加载过或上次失败才请求）；复制提示不跨开合保留
   const toggle = useCallback(() => {
+    setCopyState("idle");
     if (expanded) {
       setExpanded(false);
       return;
@@ -235,7 +238,9 @@ export function ScoreCalibrationReportView({
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-muted">每格：赢单率（已定商机） / 报价率 · 样本数。归一 = 该维得分 ÷ 打分当时的满分。</p>
+      <p className="text-[11px] text-muted">
+        每格：赢单率（分母为已定商机数） / 报价率（分母为报价已见分晓数）· 该桶样本总数（含未定）。归一 = 该维得分 ÷ 打分当时的满分。
+      </p>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[420px] border-collapse text-left text-xs">
@@ -285,6 +290,7 @@ export function ScoreCalibrationReportView({
           </pre>
           <p className="text-[11px] text-muted">
             片段可作为策略发布的 policy 值，由企业负责人或管理员人工判断后发布；本区块不会修改任何设置。
+            建议权重有下限：Product Fit 不低于 {CALIBRATION_MIN_WEIGHTS.productFit}（更低时「未识别到产品」的询盘会被判不合格），其余维度不低于 1（为 0 的维度以后无法再校准）。
           </p>
         </div>
       ) : null}
@@ -297,10 +303,16 @@ export function ScoreCalibrationReportView({
   );
 }
 
+const NO_SIGNAL_TEXT: Record<NoSignalReason, string> = {
+  no_evaluable: "无信号：没有可评估的维度（已定商机在每一维上都只落在同一侧），暂不给建议权重。",
+  no_positive_lift: "无信号：可评估维度的区分度都不为正，暂不给建议权重。",
+  budget: "无信号：现有权重之和不够分配各维度的最低权重，暂不给建议权重。",
+};
+
 function StatusNote({ data }: { data: ScoreCalibrationReport }) {
   const notes: string[] = [];
   if (data.status === "insufficient") notes.push(`样本不足：已定 ${data.sample.decided} / ${data.minDecided}，暂不给建议权重。`);
-  else if (data.status === "no_signal") notes.push("无信号：可评估维度的区分度都不为正，暂不给建议权重。");
+  else if (data.status === "no_signal") notes.push(NO_SIGNAL_TEXT[data.noSignalReason ?? "no_positive_lift"]);
   else notes.push("建议权重仅供参考：样本小、波动大，请人工判断后再发布。");
   if (data.truncated) notes.push("窗口内评估超过 5000 条，只统计了最早的 5000 条。");
   return (
@@ -327,9 +339,11 @@ function Chip({ label, value }: { label: string; value: string }) {
 function BucketCell({ t }: { t: CalibrationTally }) {
   return (
     <td className="py-2 pr-3 align-top tabular-nums">
-      <div>{formatShare(t.winRate)}</div>
+      <div>
+        {formatShare(t.winRate)} <span className="text-[11px] text-muted">已定 {t.decided}</span>
+      </div>
       <div className="text-[11px] text-muted">
-        报价 {formatShare(t.quoteRate)} · {t.n} 个
+        报价 {formatShare(t.quoteRate)}（{t.quoteResolved}）· 共 {t.n}
       </div>
     </td>
   );

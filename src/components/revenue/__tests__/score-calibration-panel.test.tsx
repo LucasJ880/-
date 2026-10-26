@@ -46,7 +46,7 @@ const row = (stage: string, s: Partial<Record<CalibrationDimensionKey, number>>,
   onboardingTest: false,
 });
 
-// 与 score-calibration.test.ts 的固定样本同构：建议 21 / 21 / 27 / 21 / 10 / 0
+// 与 score-calibration.test.ts 的固定样本同构（不含排除行）：建议 23 / 20 / 26 / 20 / 10 / 1
 const A = { productFit: 25, commercialPotential: 20, buyerQuality: 14, intent: 15, completeness: 10, strategicValue: 0 };
 const B = { productFit: 5, commercialPotential: 8, buyerQuality: 10, intent: 3, completeness: 10, strategicValue: 0 };
 const C = { productFit: 5, commercialPotential: 8, buyerQuality: 6, intent: 3, completeness: 10, strategicValue: 10 };
@@ -55,6 +55,10 @@ const OK_ROWS = [
   ...times(2, () => row("won", B, "MEDIUM")),
   ...times(15, (i) => row("lost", C, "LOW", i < 5)),
   ...times(5, () => row("lost", A, "HIGH", true)),
+  // 未定：只进样本数与报价分母，不进赢单率
+  row("rfq_ready", A, "HOT"),
+  row("quoted", A, "HOT"),
+  row("nurture", A, "HOT"),
 ];
 const report = (rows: CalibrationRow[], truncated = false): ScoreCalibrationReport =>
   computeScoreCalibration(rows, { weights: W, windowDays: 90, now: NOW, truncated });
@@ -105,7 +109,11 @@ console.log("\n样本不足 / 无信号");
 }
 {
   const h = html({ status: "ready", data: NO_SIGNAL });
-  ok(h.includes("无信号") && h.includes("区分度都不为正"), "无信号：显示原因");
+  ok(h.includes("无信号") && h.includes("区分度都不为正"), "无信号：显示原因（区分度都不为正）");
+  const none = html({ status: "ready", data: { ...NO_SIGNAL, noSignalReason: "no_evaluable" } });
+  ok(none.includes("没有可评估的维度"), "无信号：没有可评估维度时显示对应原因");
+  const budget = html({ status: "ready", data: { ...NO_SIGNAL, noSignalReason: "budget" } });
+  ok(budget.includes("不够分配各维度的最低权重"), "无信号：总额不够分下限时显示对应原因");
   ok(!h.includes("复制为 policy 片段") && !h.includes("建议权重</th>"), "无信号：无建议列、无复制按钮");
 }
 
@@ -115,8 +123,10 @@ console.log("\n正常态");
   ok(CALIBRATION_DIMENSIONS.every((d) => h.includes(d.label)), "六维都在");
   ok(h.includes("建议权重</th>") && h.includes("复制为 policy 片段"), "有建议列与复制按钮");
   ok(h.includes("仅供参考") && h.includes("人工判断后再发布"), "提示建议仅供参考");
-  ok(h.includes(">27<") && h.includes("+7") && h.includes("−4") && h.includes("−10") && h.includes("不变"), "建议值与相对现有权重的变化（27 / +7 / −4 / −10 / 不变）");
-  ok(h.includes("&quot;scoring&quot;") && h.includes("&quot;buyerQuality&quot;: 27"), "片段显示在只读 <pre> 里");
+  ok(h.includes(">26<") && h.includes("+6") && h.includes("−2") && h.includes("−9") && h.includes("不变"), "建议值与相对现有权重的变化（26 / +6 / −2 / −9 / 不变）");
+  ok(h.includes("&quot;scoring&quot;") && h.includes("&quot;buyerQuality&quot;: 26"), "片段显示在只读 <pre> 里");
+  ok(h.includes("Product Fit 不低于 3") && h.includes("其余维度不低于 1"), "说明建议权重下限");
+  ok(h.includes("66.7%") && h.includes("已定 15") && h.includes("报价 94.1%（17）· 共 18"), "分桶格显示两个比率各自的分母与样本总数（Product Fit 高桶：已定 15 / 已见分晓 17 / 共 18）");
   ok(h.includes("近 90 天首次评分") && h.includes("32 个") && h.includes("赢 12 / 输 20") && h.includes("37.5%"), "样本计数与总赢单率");
   ok(h.includes("入驻测试 0 · 不合格 0"), "排除计数");
   ok(h.includes("+54.9 个百分点") && h.includes("−70.6 个百分点") && h.includes("无法评估"), "区分度带符号；完整度无法评估");
@@ -144,6 +154,7 @@ console.log("\n源码静态断言");
   const panel = stripComments(read("src/components/revenue/score-calibration-panel.tsx"));
   ok(!/\buseEffect\b/.test(panel), "区块没有 useEffect：不会在打开 /revenue 时自动请求");
   ok(/if \(state\.status === "idle" \|\| state\.status === "error"\) void load\(\);/.test(panel), "再展开只在未加载或失败时请求");
+  ok(/const toggle = useCallback\(\(\) => \{\s*setCopyState\("idle"\);/.test(panel), "收起 / 展开时复位复制提示");
   ok((panel.match(/void load\(\)/g) ?? []).length === 2, "load 只由展开与重试触发", panel.match(/void load\(\)/g));
   ok(/navigator\.clipboard\.writeText\(calibrationSnippetText\(state\.data\.policySnippet\)\)/.test(panel), "复制按钮只写剪贴板");
   ok(panel.includes('"/api/revenue/score-calibration"') && !/method:/.test(panel), "只发 GET 请求校准接口");

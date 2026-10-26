@@ -90,21 +90,30 @@
   - 按中位数切两半：分数离散，大量并列落在中位数上，两半样本数不稳定，且换一批数据阈值就变，不好解释。
   - 用高桶 − 低桶赢单率当区分度：中桶样本被浪费，且任一端空桶就无法评估。
 
-### D5 建议权重：区分度正部按比例分配，最大余数法取整
+### D5 建议权重：下限 + 区分度正部按比例分配，最大余数法取整
 - 计算步骤：
-  1. 总额 T = round(Σ 现有权重)。
-  2. 无法评估的维度保留 round(现有权重)。
-  3. 剩余 B = T − Σ保留，按 max(0, 区分度) 在可评估维度间按比例分配。
-  4. 先取 floor，差额按小数部分从大到小补 1，并列时按固定维度顺序。
-- 样本门槛为已定 30 个；可评估维度的区分度正部之和为 0 时状态为"无信号"。
+  1. 总额 T = round(Σ max(0, 现有权重))。
+  2. 无法评估的维度保留 round(max(0, 现有权重))。
+  3. 可评估维度先各得下限：productFit 3，其余 1。
+  4. 剩余 B = T − Σ保留 − Σ下限，按 max(0, 区分度) 在可评估维度间按比例分配。
+  5. 先取 floor，差额按小数部分从大到小补 1，并列时按固定维度顺序。
+- 样本门槛为已定 30 个。无信号分三种原因：
+  - `no_evaluable`：没有可评估维度；
+  - `no_positive_lift`：区分度正部之和为 0；
+  - `budget`：B < 0。
+- 下限（交叉审查阻塞项）：
+  - `scoring.ts` 在 productFit 得 0 时判不合格；"未识别到产品"一档得 round(权重 × 0.2)。productFit 权重为 0 时，所有询盘都判不合格；权重 1–2 时，这一档也判不合格。权重 ≥ 3 时这一档得 1 分，粘贴建议不改变不合格判定。测试用四类询盘对比默认 policy 锁定。
+  - 任一维为 0 后，该维以后的评估满分为 0、永远无法评估，校准形成吸收态。因此每个可评估维度至少为 1。
 - 理由：
   - 确定性，可手算复核；
   - 和恒等于现有总额，粘贴后不改变总分量纲；
-  - 不可评估的维度没有证据，不该被清零。
+  - 不可评估的维度没有证据，不该被清零；
+  - 区分度为负的维度只降到下限，不会因为一次小样本噪声把评分逻辑改掉。
 - **否决**：
   - 按高桶赢单率归一（任务书举例）：基础赢单率高的组织每一维都高，分不出哪一维有用。
   - 与现有权重做 50/50 平滑：多一个需要解释的超参数，且建议列与现有权重并排展示，人能看出差距自行折中。
   - 门槛按每维样本数：口径复杂，任务书明确是"样本 < 30"。
+  - 不设下限、只在区块上警告 0 值：一旦粘贴，所有新询盘都被判不合格并自动关闭，代价远大于下限带来的偏差。
 
 ### D6 读模型：五个只读查询，依赖可注入
 - 依赖注入：`deps` 注入 `findAssessments` / `findEarlierAssessmentOpportunities` / `findOpportunities` / `findFirstInquiries` / `findQuoteSentOpportunities` / `loadPolicy`；生产实现用 `db.*.findMany` 与 `loadRevenueSpinePolicy`。
@@ -155,6 +164,10 @@
   → 同时给区分度；区块脚注说明命中率要和区分度一起看。
 - **[阶段被改回]**：`lost → nurture` 会让商机从"输"变"未定"。
   → 与 `/revenue` 同口径，是有意选择（D2）。
+- **[下限偏差]**：区分度为负的维度仍拿下限（productFit 3、其余 1），建议不是纯比例。
+  → 下限之和只有 8，影响有限；区块写明下限与理由。
+- **[已有 0 权重]**：现有 policy 若已把某维设为 0，该维无法评估，建议保留 0。
+  → 这是人工配置，本 change 不改；报告列为已知限制。
 - **[截断]**：窗口内评估超过 5000 行时只统计最早的 5000 行。
   → 响应带截断标记，区块显示提示。梦馨规模远低于此。
 - **[查询量]**：一次请求五个查询，IN 列表分批。
@@ -167,19 +180,20 @@
 | 纯函数 | `npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts` | 断言全部通过（见下） |
 | 读模型与接口 | `npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts` | 断言全部通过（见下） |
 | 区块 | `npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx` | 收起态、加载中、错误重试、样本不足、无信号、正常态、截断提示、"—"空值渲染均正确 |
-| 门禁 | `npm test`（与基线比较，新增失败为 0）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh` | 全部通过 |
+| 门禁 | `npm test`（与基线比较，新增失败为 0）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh` | 前四项通过；注册校验除 base 已有的 2 个 trade 欠账外无新增 |
 | 改动范围 | `git diff --stat` | 无 `prisma/` 与 `vercel.json` 改动 |
 | 视觉 | scratchpad 的 Playwright 截图（375 / 768 / 1280 宽） | 无横向滚动，表格可横向滑动 |
 
 纯函数测试的断言：
 - 固定 32 个商机样本，逐个核对分桶、命中率、区分度、等级表与建议权重；
-- 样本不足（29）与无信号路径；
+- 样本不足（29）与无信号三种原因；
+- 下限：productFit 区分度不为正时建议为 3，合并后四类询盘的不合格判定与默认 policy 一致；随机 2000 组输入的和、非负、下限不变式；
 - 片段经 `mergeRevenueSpinePolicy` 合并后权重相等；
 - 阶段常量与 `opportunity-stage.ts` 一致；
 - `transition.ts` 的 quoted → QUOTE_SENT 源码断言。
 
 读模型与接口测试的断言：
-- where 条件限定组织与窗口；
+- where 条件限定组织与窗口，生产查询的 where 全部来自构造函数（源码断言，变异验证）；
 - 首评选取与窗口前剔除；
 - 测试 / 不合格计数；
 - 序列化结果不含客户名、邮箱、金额、理由文本与商机 id；

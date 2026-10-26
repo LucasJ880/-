@@ -63,12 +63,13 @@ interface World {
 
 interface Calls {
   assessments: Array<{ orgId: string; since: Date; now: Date; limit: number }>;
+  earlierSince: Date[];
   batches: Record<string, number[]>;
   orgIds: Set<string>;
 }
 
 function fakeDeps(w: World): { deps: CalibrationDeps; calls: Calls } {
-  const calls: Calls = { assessments: [], batches: { earlier: [], opportunities: [], inquiries: [], quotes: [] }, orgIds: new Set() };
+  const calls: Calls = { assessments: [], earlierSince: [], batches: { earlier: [], opportunities: [], inquiries: [], quotes: [] }, orgIds: new Set() };
   const deps: CalibrationDeps = {
     now: () => NOW,
     loadWeights: async (orgId) => {
@@ -80,8 +81,9 @@ function fakeDeps(w: World): { deps: CalibrationDeps; calls: Calls } {
       calls.orgIds.add(orgId);
       return w.assessments.slice(0, limit);
     },
-    earlierAssessed: async (orgId, ids) => {
+    earlierAssessed: async (orgId, ids, since) => {
       calls.batches.earlier.push(ids.length);
+      calls.earlierSince.push(since);
       calls.orgIds.add(orgId);
       return (w.earlier ?? []).filter((id) => ids.includes(id));
     },
@@ -254,6 +256,10 @@ async function main() {
       assert.equal(calls.assessments[0].since.getTime(), NOW.getTime() - expected * DAY);
       assert.equal(calls.assessments[0].now.getTime(), NOW.getTime());
     }
+    // 窗口前查询用同一个 since（误传 now 会把窗口内的商机全部剔除）
+    const { deps, calls } = fakeDeps({ assessments: [assessment("o1", t(10))], opportunities: [opp("o1", "won")] });
+    await getScoreCalibration(ORG, "60", deps);
+    assert.deepEqual(calls.earlierSince.map((d) => d.getTime()), [NOW.getTime() - 60 * DAY]);
   });
 
   await ok("截断：评估读满上限 + 1 → truncated，只统计前 5000 行", async () => {
@@ -323,6 +329,7 @@ async function main() {
       "generatedAt",
       "grades",
       "minDecided",
+      "noSignalReason",
       "policySnippet",
       "sample",
       "status",
@@ -330,6 +337,22 @@ async function main() {
       "truncated",
       "windowDays",
     ]);
+  });
+
+  await ok("生产查询的 where 全部来自上面的构造函数（组织 / 窗口限定不会被绕开），评估查询带 take 上限", () => {
+    const src = strip(read("src/lib/revenue-spine/score-calibration-read-model.ts"));
+    const deps = src.slice(src.indexOf("export function defaultCalibrationDeps"));
+    const wheres = [...deps.matchAll(/where: (\w+\([^)]*\)),/g)].map((m) => m[1]);
+    assert.deepEqual(wheres, [
+      "calibrationAssessmentWhere(orgId, since, now)",
+      "earlierAssessmentWhere(orgId, opportunityIds, since)",
+      "calibrationOpportunityWhere(orgId, opportunityIds)",
+      "calibrationInquiryWhere(orgId, opportunityIds)",
+      "quoteSentOutcomeWhere(orgId, opportunityIds)",
+    ]);
+    assert.equal((deps.match(/findMany\(/g) ?? []).length, 5);
+    assert.equal((deps.match(/where:/g) ?? []).length, 5);
+    assert.match(deps, /orderBy: \[\{ createdAt: "asc" \}, \{ id: "asc" \}\],\s*take: limit,/);
   });
 
   await ok("生产查询只选统计所需列：读模型源码不选客户名 / 邮箱 / 金额 / 标题 / 理由", () => {
@@ -359,13 +382,14 @@ async function main() {
     }
   });
 
-  await ok("路由：resolveRevenueAccess 解析组织、force-dynamic、只导出 GET、不读请求里的 orgId", () => {
+  await ok("路由：resolveRevenueAccess 解析组织（与 /api/revenue/* 同规则）、force-dynamic、只导出 GET", () => {
     const src = strip(read("src/app/api/revenue/score-calibration/route.ts"));
     assert.match(src, /export const dynamic = "force-dynamic"/);
     assert.match(src, /const access = await resolveRevenueAccess\(request\);\s*if \(!access\.ok\) return access\.response;/);
     assert.match(src, /getScoreCalibration\(access\.orgId, request\.nextUrl\.searchParams\.get\("days"\)\)/);
     assert.doesNotMatch(src, /export (async )?function (POST|PUT|PATCH|DELETE)/);
-    assert.doesNotMatch(src, /searchParams\.get\("orgId"\)|bodyOrgId/);
+    // 组织只经 resolveRevenueAccess 解析，路由不自己读组织参数
+    assert.doesNotMatch(src, /orgId"|bodyOrgId/);
   });
 
   console.log(`\nscore-calibration-read-model: ${pass} passed`);
