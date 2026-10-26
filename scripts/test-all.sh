@@ -503,6 +503,8 @@ run_test "FDE 评分校准读模型与接口（B-4）" "npx tsx src/lib/revenue-
 run_test "FDE 评分校准区块渲染（B-4）" "npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx"
 # FDE B-5（openspec change fde-internal-autonomy）：分级自治（自动搁置 / 审计键名 / 配额链路 / dogfood 计划）——纯逻辑 + 假依赖 + 源码断言，无 DB
 run_test "FDE 分级自治（B-5）" "npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts"
+# FDE B-2（openspec change fde-fact-proposals）：人工回复 → 商务事实提案——纯逻辑 + 假依赖 + 源码断言，无 DB
+run_test "FDE 商务事实规则化抽取（B-2）" "npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

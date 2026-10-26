@@ -141,7 +141,7 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 3. **草稿里已有的可配置项**：落款来自 `businessProfile.commercialFacts.signature`（`reply-draft.ts` `signatureLines` / `signOff`）；追问来自 `rfq/missing-info.ts` `buildClarifyingQuestions`（按缺失字段与 `maxQuestionsPerReply`）。
 4. **守卫**：`reply-draft.ts` `checkDraftGuardrails(body, allowed)`，润色之后再跑。
 5. **开关位置**：任务书写 `settingsJson.revenue_spine.fde.useConfirmedPreferences`，代码里还没有这个键。Revenue Spine 的其它开关在 `OrgBusinessRule(revenue_spine.policy)`。
-6. **已决定（用户，2026-10-26）：选 (b)**。原选项：选项：
+6. **已决定（用户，2026-10-26）：选 (b)**。原选项：
    - (a) active `RolePlaybook`（`roleScope = inbound_sales_fde`）的 `templates` 里约定结构化块（问候 / 落款 / 追问顺序 / 禁用词），由管理员在 playbook 里维护；
    - (b) 放进 `revenue_spine.policy` 新段（与 `notify` / `autonomy` 同级），不经 employee-ai；
    - (c) 暂缓，等 B-2 / practice-miner 能产出结构化团队偏好。

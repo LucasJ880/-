@@ -2,7 +2,7 @@
 
 ## 1. 规则化抽取（纯函数）
 
-- [ ] 1.1 新建 `src/lib/revenue-spine/fact-extract.ts`，包含：
+- [x] 1.1 新建 `src/lib/revenue-spine/fact-extract.ts`，包含：
   - 截引用；
   - 价格句过滤；
   - 六个字段的抽取规则与规范键；

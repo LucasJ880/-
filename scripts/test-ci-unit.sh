@@ -311,6 +311,7 @@ npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts
 npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts
 npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx
 npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts
+npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
