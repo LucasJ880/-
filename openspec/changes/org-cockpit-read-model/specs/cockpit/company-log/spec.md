@@ -32,7 +32,7 @@
 - **THEN** 条目 `post` 为 `null`
 
 ### Requirement: 来源范围有界
-时间线 SHALL 只取本组织的审计日志与 AI 运行事件；AI 运行事件 SHALL 只取对用户可见、且事件类型在白名单内的（`run.completed`、`run.failed`、`run.cancelled`、`run.needs_human`、`job.completed`、`job.failed`、`job.waiting_human`、`job.resume_blocked`、`approval.required`）。自动化运行是平台级的，SHALL 只取失败或部分失败的运行，以及最长正常间隔不小于 24 小时的自动化的运行。审计日志的变更前后数据 SHALL NOT 出现在条目里。
+时间线 SHALL 只取本组织的审计日志与 AI 运行事件。审计日志 SHALL 排除记账 / 查看类动作（配额预留 / 提交 / 释放 / 结算、模型供应商状态查看、敏感审批查看）。AI 运行事件 SHALL 只取有岗位归属的 run（岗位认领的 runType 或 workforce 作业）的、对用户可见且事件类型在白名单内的事件（`run.completed`、`run.failed`、`run.cancelled`、`run.needs_human`、`job.completed`、`job.failed`、`job.cancelled`、`job.waiting_human`、`approval.required`、`verification.needs_human`）。自动化运行是平台级的，SHALL 只取失败或部分失败的运行，以及最长正常间隔不小于 24 小时的自动化的运行。审计日志的变更前后数据 SHALL NOT 出现在条目里。
 
 #### Scenario: 高频成功运行不进时间线
 - **WHEN** `agent-runs`（每 2 分钟）近 7 天有大量成功运行和 1 次失败
@@ -42,6 +42,10 @@
 - **WHEN** `release-drift`（每日）成功运行一次
 - **THEN** 时间线里出现这次运行
 
+#### Scenario: 对话与配额记账不刷屏
+- **WHEN** 一次网页对话 run 完成（写 `run.completed`），并写了配额预留 / 提交 / 释放审计
+- **THEN** 这些都不进时间线；配额硬上限命中（`QUOTA_HARD_LIMIT_BLOCKED`）照常进
+
 ### Requirement: 倒序游标分页且有窗口与条数上限
 条目 SHALL 按 `(at, id)` 严格倒序；查询参数 `limit` 默认 20、取值 1..50，`days` 默认 7、取值 1..7，超出范围或格式错误 SHALL 返回 400；`cursor` 为上一页返回的 `nextCursor`，格式错误 SHALL 返回 400。翻页 SHALL NOT 重复或遗漏条目；最后一页 `nextCursor` 为 `null`。响应 SHALL 含 `window: {from, to}`。每个来源每次查询 SHALL 最多取 `limit + 1` 条。
 
@@ -50,12 +54,12 @@
 - **THEN** 依次得到 3、3、1 条，合起来恰好是 7 条且按时间倒序，最后一页 `nextCursor` 为 `null`
 
 #### Scenario: 参数越界
-- **WHEN** 请求 `limit=51` 或 `days=8` 或 `cursor=not-a-cursor`
+- **WHEN** 请求 `limit=51` 或 `days=8` 或 `cursor=not-a-cursor` 或 `cursor=`（空）
 - **THEN** 返回 400
 
 ### Requirement: 时间线文本脱敏
-条目的 `summary` 命中敏感词检测（毛利、利润、估值、`winningBidPrice`、`ourBidPrice`、内部成本等）时 SHALL 整段替换为固定提示，不做局部遮盖；自动化运行的错误信息 SHALL 截断后再经同一检测。
+条目的 `summary` 命中敏感词检测（毛利、利润、估值、标的额、我方报价、最终报价、中标金额、`winningBidPrice`、`ourBidPrice`、内部成本等）时 SHALL 整段替换为固定提示，不做局部遮盖。自动化运行的错误信息 SHALL NOT 出现在条目里（平台级运行流的错误文本可能带出其他组织的数据），条目只显示自动化名与状态。
 
-#### Scenario: 运行错误里含利润字样
-- **WHEN** 一次失败运行的错误信息含"利润"
-- **THEN** 该条目 `summary` 为驾驶舱脱敏提示
+#### Scenario: 运行错误不出现
+- **WHEN** 一次失败运行的错误信息含其他组织的 id 或"利润"字样
+- **THEN** 该条目 `summary` 只有"<自动化名>：失败"，不含错误信息

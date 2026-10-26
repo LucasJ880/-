@@ -9,7 +9,15 @@ import { join } from "node:path";
 import type { AuthUser } from "@/lib/auth";
 import {
   COCKPIT_FORBIDDEN_BODY,
+  agentEventTimelineWhere,
+  agentRunTypeCountWhere,
+  auditTimelineWhere,
+  automationRunTimelineWhere,
   cursorWhere,
+  quotaAuditWhere,
+  quotaNotificationWhere,
+  timelineRunScopeWhere,
+  workforceDomainCountWhere,
   getOrgCompanyLog,
   getOrgPostsCockpit,
   resolveCockpitViewer,
@@ -20,7 +28,15 @@ import {
   type PostsCockpitDeps,
 } from "../posts-read-model";
 import type { LastRunSnapshot } from "../schedule";
-import { decodeTimelineCursor, encodeTimelineCursor, sourceCursorBound } from "../timeline";
+import {
+  TIMELINE_AUDIT_ACTION_DENYLIST,
+  TIMELINE_EVENT_TYPES,
+  decodeTimelineCursor,
+  encodeTimelineCursor,
+  isTimelineAutomationRun,
+  lowFrequencyAutomationKeys,
+  sourceCursorBound,
+} from "../timeline";
 import { COCKPIT_REDACTED } from "../waiting";
 
 let pass = 0;
@@ -174,6 +190,9 @@ async function main() {
     ok(res.posts.find((p) => p.key === "content")?.pendingApprovals === 1, "产品内容审批归 content");
     ok(res.posts.find((p) => p.key === "ops_knowledge")?.automations.find((a) => a.key === "release-drift")?.health === "on_time", "release-drift 3 小时前（每日）→ on_time");
     ok(res.posts.find((p) => p.key === "marketing")?.automations.find((a) => a.key === "marketing-mmm")?.health === "n/a", "按需自动化 n/a");
+    const aivora = res.posts.find((p) => p.key === "content")?.automations.find((a) => a.key === "aivora-sync");
+    ok(aivora?.health === "not_configured" && aivora.nextDueAt === null, "未配置的自动化：not_configured 且不给下次应跑时间", aivora);
+    ok(res.waitingForYou.items.every((i) => typeof i.at === "string"), "等你 N 件条目带 at");
 
     // 等你 N 件
     ok(res.waitingForYou.total === 5, "等你 N 件：4 条待我审批 + 1 个未被覆盖的需要你作业（job-1 的审批已在列表里）", res.waitingForYou);
@@ -206,6 +225,11 @@ async function main() {
   {
     const res = await getOrgPostsCockpit(viewer, deps({ kpiLoaders: kpiLoaders({ marketing: async () => { throw new Error("boom"); } }) }));
     ok(res.posts[2].kpi.status === "error" && res.posts[0].kpi.status === "ok" && res.posts[1].kpi.status === "ok", "营销读函数抛错 → 只有 marketing.kpi 为 error，其余照常");
+  }
+  {
+    const started = Date.now();
+    const res = await getOrgPostsCockpit(viewer, deps({ kpiTimeoutMs: 30, kpiLoaders: kpiLoaders({ sla: () => new Promise(() => {}) }) }));
+    ok(res.posts[0].kpi.status === "error" && res.posts[2].kpi.status === "ok" && Date.now() - started < 2000, "KPI 读函数超时 → 该岗位 error，接口不被拖住");
   }
   {
     const res = await getOrgPostsCockpit(viewer, deps({ quotaHitToday: async () => true, latestAutomationRuns: async () => new Map() }));
@@ -279,6 +303,34 @@ async function main() {
     );
   }
 
+  // ── 生产查询条件（纯函数） ──────────────────────────────────
+  console.log("生产查询条件");
+  {
+    const since = new Date("2026-10-19T12:00:00Z");
+    const from = since;
+    const window = { from, bound: sourceCursorBound("audit:", null) };
+    ok(JSON.stringify(agentRunTypeCountWhere("org-1", since, ["fde_inbound_sales", "runtime_v2"])) === JSON.stringify({ orgId: "org-1", createdAt: { gte: since }, runType: { in: ["fde_inbound_sales", "runtime_v2"] } }), "AgentRun 计数：按组织 + 窗口 + 已归属 runType");
+    ok(
+      JSON.stringify(workforceDomainCountWhere("org-1", since, "sales")) ===
+        JSON.stringify({ orgId: "org-1", runType: "workforce_job", createdAt: { gte: since }, metadata: { path: ["workDomain"], equals: "sales" } }),
+      "workforce 作业计数：按 metadata.workDomain JSON 路径",
+    );
+    ok(JSON.stringify(quotaAuditWhere("org-1", since)) === JSON.stringify({ orgId: "org-1", action: "QUOTA_HARD_LIMIT_BLOCKED", targetType: "quota", targetId: "DAILY_AGENT_RUNS", createdAt: { gte: since } }), "配额审计条件");
+    ok(JSON.stringify(quotaNotificationWhere("org-1", "u1", since)) === JSON.stringify({ orgId: "org-1", userId: "u1", type: "quota_hard_limit", entityId: "DAILY_AGENT_RUNS", createdAt: { gte: since } }), "配额通知条件（查看人自己的通知）");
+    const audit = auditTimelineWhere("org-1", window);
+    ok(audit.orgId === "org-1" && JSON.stringify(audit.action) === JSON.stringify({ notIn: [...TIMELINE_AUDIT_ACTION_DENYLIST] }), "审计日志：按组织且排除记账类动作");
+    const scope = timelineRunScopeWhere("org-1", from);
+    ok(scope.orgId === "org-1" && !scope.runType.in.includes("conversation") && scope.runType.in.includes("workforce_job") && scope.updatedAt.gte === from, "事件来源 run：按组织 + 有归属的 runType + 窗口内更新过");
+    const events = agentEventTimelineWhere("org-1", ["r1", "r2"], window);
+    ok(
+      events.orgId === "org-1" && JSON.stringify(events.runId) === '{"in":["r1","r2"]}' && events.visibleToUser === true && JSON.stringify(events.eventType) === JSON.stringify({ in: [...TIMELINE_EVENT_TYPES] }),
+      "AI 事件：按组织 + runId 走索引 + 可见 + 事件白名单",
+    );
+    const runs = automationRunTimelineWhere({ from, bound: sourceCursorBound("run:", null) }, lowFrequencyAutomationKeys());
+    ok(JSON.stringify(runs.AND[1]) === JSON.stringify({ OR: [{ status: { in: ["failed", "partial"] } }, { automationKey: { in: lowFrequencyAutomationKeys() } }] }), "自动化运行：失败 / 部分失败或低频");
+    ok(!isTimelineAutomationRun({ automationKey: "agent-runs", status: "succeeded" }) && isTimelineAutomationRun({ automationKey: "agent-runs", status: "failed" }), "取回后再按同一规则过滤一次");
+  }
+
   // ── 静态断言：只读 / 按 orgId / 访问控制 ─────────────────────
   console.log("静态断言");
   const modelSrc = stripComments(read("src/lib/cockpit/posts-read-model.ts"));
@@ -321,6 +373,13 @@ async function main() {
   ok(/financialControlEnabled: isFinancialControlEnabled/.test(modelSrc), "投标 KPI 与 tender-portfolio 路由同一财务开关");
   ok(/pickKpiMetrics\(kpi, result\)/.test(modelSrc) && !/kpi: result|\.\.\.result/.test(modelSrc), "KPI 结果只经 pickKpiMetrics 取值，不整体透出");
   ok(!/beforeData|afterData/.test(modelSrc), "审计日志不读变更前后数据");
+  for (const builder of ["agentRunTypeCountWhere(", "workforceDomainCountWhere(", "quotaAuditWhere(", "quotaNotificationWhere(", "auditTimelineWhere(", "timelineRunScopeWhere(", "agentEventTimelineWhere(", "automationRunTimelineWhere("]) {
+    ok(modelSrc.split(builder).length >= 3, `默认依赖实际使用 ${builder.slice(0, -1)}（定义 + 调用）`);
+  }
+  ok(!/select: \{ id: true, startedAt: true, automationKey: true, status: true, error: true/.test(modelSrc) && !/error: true/.test(modelSrc), "自动化运行不取 error 列");
+  ok(/rows\.filter\(isTimelineAutomationRun\)/.test(modelSrc), "自动化运行取回后按同一规则过滤");
+  ok(/instanceof CapabilitiesAccessError\)\) throw err/.test(modelSrc), "待我审批只吞访问类错误，其余照常抛出");
+  ok(/withTimeout\(loader\(/.test(modelSrc), "KPI 读函数带超时");
 }
 
 main().then(

@@ -4,6 +4,8 @@
  * 运行：npx tsx src/lib/cockpit/__tests__/timeline.test.ts
  */
 import {
+  TIMELINE_AGENT_RUN_TYPES,
+  TIMELINE_AUDIT_ACTION_DENYLIST,
   TIMELINE_EVENT_TYPES,
   agentEventEntry,
   auditEntry,
@@ -15,6 +17,7 @@ import {
   mergeTimeline,
   parseTimelineParams,
   sourceCursorBound,
+  type AutomationRunRow,
   type TimelineCursor,
   type TimelineEntry,
   type TimelineLookups,
@@ -61,6 +64,8 @@ console.log("统一信封");
   ok(a3.post === null, "目标不是待审批动作 → post 为 null，不按文本推断");
   const a4 = auditEntry({ id: "a4", createdAt: T("2026-10-26T10:00:00Z"), userId: "u1", userName: null, action: "X", targetType: "pending_action", targetId: "gone" }, lookups);
   ok(a4.post === null, "动作行已不存在 → null");
+  const a5 = auditEntry({ id: "a5", createdAt: T("2026-10-26T10:00:00Z"), userId: "u1", userName: null, action: "最终报价已调整", targetType: "project_quote", targetId: "q1" }, lookups);
+  ok(a5.summary === COCKPIT_REDACTED, "审计摘要含「最终报价」→ 整段替换");
 }
 {
   const e = agentEventEntry({ id: "e1", createdAt: T("2026-10-26T10:00:00Z"), runId: "run-wf", eventType: "job.waiting_human", title: null }, lookups);
@@ -75,18 +80,23 @@ console.log("统一信封");
   ok(e4.post === null && e4.href === "/workforce/run-legacy", "缺工作域的旧作业不归属，但仍可跳转");
 }
 {
-  const r = automationRunEntry({ id: "r1", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "release-drift", status: "succeeded", error: null });
+  const r = automationRunEntry({ id: "r1", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "release-drift", status: "succeeded" });
   ok(r.id === "run:r1" && r.kind === "automation_run" && r.actor === "system" && r.post === "ops_knowledge", "自动化运行：id 前缀 / actor = system / 按自动化归属");
   ok(r.summary === "发布漂移检查（代码 vs 生产库迁移）：成功", "摘要 = 自动化名 + 状态", r.summary);
-  const r2 = automationRunEntry({ id: "r2", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "agent-runs", status: "failed", error: "数据库超时 ".repeat(100) });
-  ok(r2.summary.length <= 300 && r2.summary.startsWith("Agent 后台任务队列：失败（"), "错误信息截断后带入摘要");
-  const r3 = automationRunEntry({ id: "r3", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "tender-auto-analysis", status: "failed", error: "计算利润时出错" });
-  ok(r3.summary === COCKPIT_REDACTED, "错误信息含利润 → 整段替换");
+  // 平台级运行流的错误文本可能带出其他组织的数据：即使行里带了 error 也不进摘要
+  const withError = { id: "r2", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "agent-runs", status: "failed", error: "org_other 数据库超时" } as AutomationRunRow;
+  const r2 = automationRunEntry(withError);
+  ok(r2.summary === "Agent 后台任务队列：失败" && !r2.summary.includes("org_other"), "错误信息不进摘要，只显示状态", r2.summary);
 }
 
 // ── 入选规则 ──────────────────────────────────────────────────
 console.log("来源范围");
-ok(TIMELINE_EVENT_TYPES.length === 9 && !(TIMELINE_EVENT_TYPES as readonly string[]).includes("tool.completed"), "事件白名单 9 种，不含工具级事件");
+ok(TIMELINE_EVENT_TYPES.length === 10 && !(TIMELINE_EVENT_TYPES as readonly string[]).includes("tool.completed"), "事件白名单 10 种，不含工具级事件");
+ok(!(TIMELINE_EVENT_TYPES as readonly string[]).includes("job.resume_blocked"), "不含 workforce 读模型排除的内部事件 job.resume_blocked");
+ok(TIMELINE_AGENT_RUN_TYPES.includes("fde_inbound_sales") && TIMELINE_AGENT_RUN_TYPES.includes("runtime_v2") && TIMELINE_AGENT_RUN_TYPES.includes("workforce_job"), "事件只取有岗位归属的 run 类型", TIMELINE_AGENT_RUN_TYPES);
+ok(!["conversation", "assistant_dispatch", "background_conversation", "supervisor"].some((t) => TIMELINE_AGENT_RUN_TYPES.includes(t)), "对话类 run 的事件不进（每次对话都会写 run.completed）");
+ok(["QUOTA_RESERVED", "QUOTA_COMMITTED", "QUOTA_RELEASED"].every((a) => (TIMELINE_AUDIT_ACTION_DENYLIST as readonly string[]).includes(a)), "配额记账类审计动作不进时间线");
+ok(!(TIMELINE_AUDIT_ACTION_DENYLIST as readonly string[]).includes("QUOTA_HARD_LIMIT_BLOCKED"), "配额硬上限命中照常进时间线");
 const lowFreq = lowFrequencyAutomationKeys();
 ok(lowFreq.includes("release-drift") && lowFreq.includes("employee-ai-practice-miner") && lowFreq.includes("daily-brief") && lowFreq.includes("marketing-mmm"), "低频：每日 / 每周 / 按需", lowFreq);
 ok(!lowFreq.includes("agent-runs") && !lowFreq.includes("inquiry-sla") && !lowFreq.includes("marketing-channel-sync"), "高频不在低频清单");
@@ -111,12 +121,12 @@ console.log("游标");
 
 // ── 参数 ──────────────────────────────────────────────────────
 console.log("参数校验");
-const params = (q: Record<string, string>) => ({ get: (k: string) => (k in q ? q[k] : null) });
+const params = (q: Record<string, string | undefined>) => ({ get: (k: string) => q[k] ?? null });
 {
   const d = parseTimelineParams(params({}));
   ok(d.ok && d.value.limit === 20 && d.value.days === 7 && d.value.cursor === null, "默认 limit 20 / days 7");
   ok(parseTimelineParams(params({ limit: "50", days: "1" })).ok, "边界值 50 / 1 合法");
-  for (const q of [{ limit: "51" }, { limit: "0" }, { limit: "3.5" }, { limit: "abc" }, { days: "8" }, { days: "-1" }, { cursor: "not-a-cursor" }]) {
+  for (const q of [{ limit: "51" }, { limit: "0" }, { limit: "3.5" }, { limit: "abc" }, { days: "8" }, { days: "-1" }, { cursor: "not-a-cursor" }, { cursor: "" }]) {
     ok(!parseTimelineParams(params(q)).ok, `非法参数 ${JSON.stringify(q)} → 校验失败（路由返回 400）`);
   }
 }

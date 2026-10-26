@@ -16,11 +16,27 @@ import { POST_KEYS, UNCLASSIFIED_PROJECT_DOMAIN, postForPendingAction, postForWo
 export const COCKPIT_REDACTED = "（该内容含内部财务信息，驾驶舱不展示，请到对应页面查看。）";
 const TEXT_MAX = 300;
 
-/** 截断后经 Muse 的敏感词检测（strict），命中整段替换，不做局部遮盖 */
+/**
+ * Muse 的检测覆盖 estimatedValue / ourBidPrice / winningBidPrice / margin / 毛利 / 内部成本 / 预算上限（strict 再加利润 / profit），
+ * 但不含估值、标的额、我方报价、最终报价、中标金额等中文说法——驾驶舱在本地补上（不改 muse-bridge）。
+ */
+export const COCKPIT_SENSITIVE_PATTERNS: readonly RegExp[] = [
+  /估值/,
+  /\bvaluation\b/i,
+  /标的额/,
+  /我方(最终)?报价/,
+  /最终报价/,
+  /中标(金额|价)/,
+  /成交价/,
+  /\bbid\s*price\b/i,
+];
+
+/** 截断后经 Muse 的敏感词检测（strict）与驾驶舱补充词表，命中整段替换，不做局部遮盖 */
 export function redactCockpitText(text: string | null | undefined): string {
   const raw = (text ?? "").trim();
   const clipped = raw.length > TEXT_MAX ? `${raw.slice(0, TEXT_MAX - 1)}…` : raw;
-  return containsOutboundSensitive(clipped, { strict: true }) ? COCKPIT_REDACTED : clipped;
+  const sensitive = containsOutboundSensitive(clipped, { strict: true }) || COCKPIT_SENSITIVE_PATTERNS.some((p) => p.test(clipped));
+  return sensitive ? COCKPIT_REDACTED : clipped;
 }
 
 // ── 输入形状 ──────────────────────────────────────────────────
@@ -138,7 +154,8 @@ export interface WaitingItem {
   id: string;
   title: string;
   post: PostKey | null;
-  createdAt: string;
+  /** 排序时刻：审批为创建时间，需要你作业为最近活动时间 */
+  at: string;
   href: string;
 }
 
@@ -166,7 +183,7 @@ const KIND_BY_SOURCE: Record<ApprovalSource, WaitingKind | null> = {
 };
 
 function byNewest(a: WaitingItem, b: WaitingItem): number {
-  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  if (a.at !== b.at) return a.at < b.at ? 1 : -1;
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 
@@ -196,7 +213,7 @@ export function buildWaitingForYou(input: {
       id: approval.sourceId,
       title: redactCockpitText(approval.title ?? approval.actionType),
       post,
-      createdAt: approval.createdAt,
+      at: approval.createdAt,
       href: WAITING_HREF,
     });
   }
@@ -217,7 +234,7 @@ export function buildWaitingForYou(input: {
       id: job.jobId,
       title: redactCockpitText(job.title ?? job.needsYouTitle),
       post,
-      createdAt: job.lastActivityAt,
+      at: job.lastActivityAt,
       href: `/workforce/${job.jobId}`,
     });
   }

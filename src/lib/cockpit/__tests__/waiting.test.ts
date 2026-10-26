@@ -59,6 +59,10 @@ ok(redactCockpitText("请审批本单毛利 32%") === COCKPIT_REDACTED, "含毛�
 ok(redactCockpitText("预计利润 5 万") === COCKPIT_REDACTED, "strict：含利润 → 整段替换");
 ok(redactCockpitText("winningBidPrice=1000") === COCKPIT_REDACTED, "含 winningBidPrice → 整段替换");
 ok(redactCockpitText("给 ACME 发询盘回复") === "给 ACME 发询盘回复", "普通文本原样");
+for (const t of ["项目估值 120 万", "valuation 3m", "标的额 500 万", "我方报价 $88,000", "我方最终报价 99000", "最终报价 99000", "中标金额 880000 CAD", "中标价 12 万", "成交价 10 万", "our bid price is 9k"]) {
+  ok(redactCockpitText(t) === COCKPIT_REDACTED, `驾驶舱补充词表拦截「${t}」`);
+}
+ok(redactCockpitText("已中标，等待合同") === "已中标，等待合同", "单独的「中标」不误伤");
 ok(redactCockpitText(null) === "" && redactCockpitText("  ") === "", "空值 → 空串");
 ok(redactCockpitText("长".repeat(500)).length === 300, "超长截断到 300 字");
 ok(!COCKPIT_REDACTED.includes("Muse"), "替换文案是驾驶舱自己的，不提 Muse 通道");
@@ -139,7 +143,8 @@ console.log("合并与去重");
   const many = Array.from({ length: 15 }, (_, i) => pm({ sourceId: `pa${String(i).padStart(2, "0")}`, createdAt: `2026-10-26T${String(i).padStart(2, "0")}:00:00.000Z` }));
   const r = buildWaitingForYou({ pendingMine: many, pendingMineTotal: 15, pendingMineTruncated: false, jobs: [], jobsTruncated: false, lookups: lookups() });
   ok(r.waitingForYou.items.length === 10, "items 只取前 10 条");
-  ok(r.waitingForYou.items[0].id === "pa14" && r.waitingForYou.items[9].id === "pa05", "按创建时间倒序");
+  ok(r.waitingForYou.items[0].id === "pa14" && r.waitingForYou.items[9].id === "pa05", "按时间倒序（审批取创建时间）");
+  ok(r.waitingForYou.items[0].at === "2026-10-26T14:00:00.000Z", "条目的 at 字段");
   ok(r.waitingForYou.total === 15 && r.waitingForYou.truncated === false, "total 为全部条数，未截断");
   ok(r.waitingForYou.items.every((i) => i.href === WAITING_HREF), "审批条目跳 /capabilities/approvals");
 }

@@ -32,11 +32,15 @@ import {
   type PostHealth,
 } from "./schedule";
 import {
+  TIMELINE_AGENT_RUN_TYPES,
+  TIMELINE_AUDIT_ACTION_DENYLIST,
   TIMELINE_EVENT_TYPES,
+  TIMELINE_RUN_SCAN_LIMIT,
   TIMELINE_RUN_STATUSES,
   agentEventEntry,
   auditEntry,
   automationRunEntry,
+  isTimelineAutomationRun,
   lowFrequencyAutomationKeys,
   mergeTimeline,
   sourceCursorBound,
@@ -189,6 +193,25 @@ export interface PostsCockpitDeps {
   attributionLookups(orgId: string, pendingActionIds: readonly string[], extraProjectIds: readonly string[]): Promise<AttributionLookups>;
   financialControlEnabled(): boolean;
   kpiLoaders: KpiLoaders;
+  /** 单个 KPI 读函数的超时（毫秒），超时记为 error，不拖住整个接口；缺省 KPI_TIMEOUT_MS */
+  kpiTimeoutMs?: number;
+}
+
+export const KPI_TIMEOUT_MS = 5000;
+
+class KpiTimeoutError extends Error {
+  constructor() {
+    super("KPI 读取超时");
+    this.name = "KpiTimeoutError";
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new KpiTimeoutError()), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // ── 岗位总览：拼装（纯） ──────────────────────────────────────
@@ -217,11 +240,13 @@ export function assemblePostsCockpit(input: {
     const automations = post.automationKeys.map((key): AutomationStatusView => {
       const schedule = AUTOMATION_SCHEDULES[key];
       const lastRun = input.latestRuns.get(key) ?? null;
-      const due = nextDueAt(schedule, input.now, input.timezone);
+      const configured = isAutomationConfigured(key, input.env);
+      // 未配置 / 开关未开的自动化不会按计划跑，不给下次应跑时间
+      const due = configured ? nextDueAt(schedule, input.now, input.timezone) : null;
       return {
         key,
         name: AUTOMATION_REGISTRY.find((d) => d.key === key)?.name ?? key,
-        health: automationHealth({ schedule, configured: isAutomationConfigured(key, input.env), lastRun, now: input.now }),
+        health: automationHealth({ schedule, configured, lastRun, now: input.now }),
         lastRun: lastRun
           ? { status: lastRun.status, startedAt: lastRun.startedAt.toISOString(), completedAt: lastRun.completedAt?.toISOString() ?? null }
           : null,
@@ -281,7 +306,7 @@ async function loadPostKpi(post: PostRegistryEntry, viewer: CockpitViewer, now: 
   }
   try {
     const loader = deps.kpiLoaders[kpi.source] as (ctx: KpiLoadContext) => Promise<unknown>;
-    const result = await loader({ orgId: viewer.orgId, viewer, now, window: kpi.window });
+    const result = await withTimeout(loader({ orgId: viewer.orgId, viewer, now, window: kpi.window }), deps.kpiTimeoutMs ?? KPI_TIMEOUT_MS);
     const metrics = (pickKpiMetrics(kpi, result) ?? []).map(({ label, format, value }) => ({ label, format, value }));
     return { status: "ok", window: kpi.window, metrics };
   } catch (err) {
@@ -335,6 +360,24 @@ export async function getOrgPostsCockpit(
   return assemblePostsCockpit({ orgId: viewer.orgId, now, timezone, env: deps.env, latestRuns, runCounts, agentRunCounts, quotaHit, waiting, kpis });
 }
 
+// ── 查询条件（纯函数，测试直接对其断言） ──────────────────────
+
+export function agentRunTypeCountWhere(orgId: string, since: Date, runTypes: readonly string[]) {
+  return { orgId, createdAt: { gte: since }, runType: { in: [...runTypes] } };
+}
+
+export function workforceDomainCountWhere(orgId: string, since: Date, workDomain: string) {
+  return { orgId, runType: "workforce_job", createdAt: { gte: since }, metadata: { path: ["workDomain"], equals: workDomain } };
+}
+
+export function quotaAuditWhere(orgId: string, dayStart: Date) {
+  return { orgId, action: "QUOTA_HARD_LIMIT_BLOCKED", targetType: "quota", targetId: "DAILY_AGENT_RUNS", createdAt: { gte: dayStart } };
+}
+
+export function quotaNotificationWhere(orgId: string, userId: string, dayStart: Date) {
+  return { orgId, userId, type: "quota_hard_limit", entityId: "DAILY_AGENT_RUNS", createdAt: { gte: dayStart } };
+}
+
 // ── 岗位总览：默认依赖（Prisma，只读） ────────────────────────
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -383,15 +426,11 @@ export function defaultPostsCockpitDeps(): PostsCockpitDeps {
         runTypes.length
           ? db.agentRun.groupBy({
               by: ["runType"],
-              where: { orgId, createdAt: { gte: since }, runType: { in: [...runTypes] } },
+              where: agentRunTypeCountWhere(orgId, since, runTypes),
               _count: { _all: true },
             })
           : Promise.resolve([] as Array<{ runType: string; _count: { _all: number } }>),
-        ...workDomains.map((domain) =>
-          db.agentRun.count({
-            where: { orgId, runType: "workforce_job", createdAt: { gte: since }, metadata: { path: ["workDomain"], equals: domain } },
-          }),
-        ),
+        ...workDomains.map((domain) => db.agentRun.count({ where: workforceDomainCountWhere(orgId, since, domain) })),
       ]);
       return {
         byRunType: new Map(byType.map((g) => [g.runType, g._count._all])),
@@ -403,21 +442,15 @@ export function defaultPostsCockpitDeps(): PostsCockpitDeps {
     quotaHitToday: async (orgId, userId, dayStart) => {
       const { db } = await import("@/lib/db");
       const [audit, notification] = await Promise.all([
-        db.auditLog.findFirst({
-          where: { orgId, action: "QUOTA_HARD_LIMIT_BLOCKED", targetType: "quota", targetId: "DAILY_AGENT_RUNS", createdAt: { gte: dayStart } },
-          select: { id: true },
-        }),
-        db.notification.findFirst({
-          where: { orgId, userId, type: "quota_hard_limit", entityId: "DAILY_AGENT_RUNS", createdAt: { gte: dayStart } },
-          select: { id: true },
-        }),
+        db.auditLog.findFirst({ where: quotaAuditWhere(orgId, dayStart), select: { id: true } }),
+        db.notification.findFirst({ where: quotaNotificationWhere(orgId, userId, dayStart), select: { id: true } }),
       ]);
       return Boolean(audit || notification);
     },
 
     // 与 /capabilities/approvals 的"待我审批"同一口径
     pendingMine: async (viewer) => {
-      const [{ buildCapabilitiesAccess }, { listCapabilityApprovals }, { isSuperAdmin }] = await Promise.all([
+      const [{ buildCapabilitiesAccess, CapabilitiesAccessError }, { listCapabilityApprovals }, { isSuperAdmin }] = await Promise.all([
         import("@/lib/capabilities/access"),
         import("@/lib/capabilities/approvals/query"),
         import("@/lib/rbac/roles"),
@@ -444,8 +477,8 @@ export function defaultPostsCockpitDeps(): PostsCockpitDeps {
           truncated: result.hasMore,
         };
       } catch (err) {
-        // 无成员身份等：这一块记为截断的空集，不让整个接口失败
-        console.error("[cockpit] 待我审批读取失败", err instanceof Error ? err.name : typeof err);
+        // 只吞访问类错误（如平台管理员无成员身份）：这一块记为截断的空集；数据库故障等照常抛出
+        if (!(err instanceof CapabilitiesAccessError)) throw err;
         return { items: [], total: 0, truncated: true };
       }
     },
@@ -456,37 +489,32 @@ export function defaultPostsCockpitDeps(): PostsCockpitDeps {
         import("@/lib/workforce-runtime/work-domain"),
         import("@/lib/db"),
       ]);
-      try {
-        const page = await listWorkforceJobViews({ orgId, status: "needs_you", limit: 50 });
-        const ids = page.items.map((i) => i.jobId);
-        const runs = ids.length
-          ? await db.agentRun.findMany({ where: { id: { in: ids }, orgId }, select: { id: true, metadata: true } })
-          : [];
-        const metadataById = new Map(runs.map((r) => [r.id, record(r.metadata)]));
-        const items = await Promise.all(
-          page.items.map(async (item): Promise<NeedsYouJobInput> => {
-            const metadata = metadataById.get(item.jobId) ?? null;
-            let workDomain: string | null = normalizeWorkDomain(metadata?.workDomain);
-            if (!workDomain) {
-              // 旧作业没有显式工作域：走既有的有效工作域解析（只读），判定不出就不归属
-              const resolved = await resolveEffectiveWorkDomain({ orgId, runId: item.jobId, runMetadata: metadata });
-              workDomain = resolved.ok ? resolved.workDomain : null;
-            }
-            return {
-              jobId: item.jobId,
-              title: item.title ?? null,
-              needsYouTitle: item.needsYou?.title ?? "需要你处理",
-              pendingActionIds: item.needsYou?.pendingActionIds ?? [],
-              lastActivityAt: item.lastActivityAt,
-              workDomain,
-            };
-          }),
-        );
-        return { items, truncated: page.nextCursor !== null };
-      } catch (err) {
-        console.error("[cockpit] 需要你作业读取失败", err instanceof Error ? err.name : typeof err);
-        return { items: [], truncated: true };
-      }
+      const page = await listWorkforceJobViews({ orgId, status: "needs_you", limit: 50 });
+      const ids = page.items.map((i) => i.jobId);
+      const runs = ids.length
+        ? await db.agentRun.findMany({ where: { id: { in: ids }, orgId }, select: { id: true, metadata: true } })
+        : [];
+      const metadataById = new Map(runs.map((r) => [r.id, record(r.metadata)]));
+      const items = await Promise.all(
+        page.items.map(async (item): Promise<NeedsYouJobInput> => {
+          const metadata = metadataById.get(item.jobId) ?? null;
+          let workDomain: string | null = normalizeWorkDomain(metadata?.workDomain);
+          if (!workDomain) {
+            // 旧作业没有显式工作域：走既有的有效工作域解析（只读），判定不出就不归属
+            const resolved = await resolveEffectiveWorkDomain({ orgId, runId: item.jobId, runMetadata: metadata });
+            workDomain = resolved.ok ? resolved.workDomain : null;
+          }
+          return {
+            jobId: item.jobId,
+            title: item.title ?? null,
+            needsYouTitle: item.needsYou?.title ?? "需要你处理",
+            pendingActionIds: item.needsYou?.pendingActionIds ?? [],
+            lastActivityAt: item.lastActivityAt,
+            workDomain,
+          };
+        }),
+      );
+      return { items, truncated: page.nextCursor !== null };
     },
 
     attributionLookups: async (orgId, pendingActionIds, extraProjectIds) => {
@@ -577,6 +605,35 @@ export function cursorWhere<F extends "createdAt" | "startedAt">(field: F, windo
   };
 }
 
+export function auditTimelineWhere(orgId: string, window: SourceWindow) {
+  return { orgId, action: { notIn: [...TIMELINE_AUDIT_ACTION_DENYLIST] }, ...cursorWhere("createdAt", window) };
+}
+
+/** 窗口内更新过、且有岗位归属的 run（取它们的事件；对话类 run 不进） */
+export function timelineRunScopeWhere(orgId: string, from: Date) {
+  return { orgId, runType: { in: [...TIMELINE_AGENT_RUN_TYPES] }, updatedAt: { gte: from } };
+}
+
+export function agentEventTimelineWhere(orgId: string, runIds: readonly string[], window: SourceWindow) {
+  return {
+    orgId,
+    runId: { in: [...runIds] },
+    visibleToUser: true,
+    eventType: { in: [...TIMELINE_EVENT_TYPES] },
+    ...cursorWhere("createdAt", window),
+  };
+}
+
+/** 平台级运行流：只取失败 / 部分失败，以及低频自动化的运行 */
+export function automationRunTimelineWhere(window: SourceWindow, lowFrequencyKeys: readonly string[]) {
+  return {
+    AND: [
+      cursorWhere("startedAt", window),
+      { OR: [{ status: { in: [...TIMELINE_RUN_STATUSES] } }, { automationKey: { in: [...lowFrequencyKeys] } }] },
+    ],
+  };
+}
+
 export interface CompanyLogResponse {
   items: TimelineEntry[];
   nextCursor: string | null;
@@ -625,7 +682,7 @@ export function defaultCompanyLogDeps(): CompanyLogDeps {
     auditRows: async (orgId, window, take) => {
       const { db } = await import("@/lib/db");
       const rows = await db.auditLog.findMany({
-        where: { orgId, ...cursorWhere("createdAt", window) },
+        where: auditTimelineWhere(orgId, window),
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take,
         select: { id: true, createdAt: true, userId: true, action: true, targetType: true, targetId: true, user: { select: { name: true } } },
@@ -641,30 +698,34 @@ export function defaultCompanyLogDeps(): CompanyLogDeps {
       }));
     },
 
+    // AgentRunEvent 只有 (orgId, runId) 索引：先取窗口内最近更新的有归属 run，再按 runId 查事件
     agentEventRows: async (orgId, window, take) => {
       const { db } = await import("@/lib/db");
+      const runs = await db.agentRun.findMany({
+        where: timelineRunScopeWhere(orgId, window.from),
+        orderBy: { updatedAt: "desc" },
+        take: TIMELINE_RUN_SCAN_LIMIT,
+        select: { id: true },
+      });
+      if (runs.length === 0) return [];
       return db.agentRunEvent.findMany({
-        where: { orgId, visibleToUser: true, eventType: { in: [...TIMELINE_EVENT_TYPES] }, ...cursorWhere("createdAt", window) },
+        where: agentEventTimelineWhere(orgId, runs.map((r) => r.id), window),
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take,
         select: { id: true, createdAt: true, runId: true, eventType: true, title: true },
       });
     },
 
-    // 平台级运行流：只取失败 / 部分失败，以及低频自动化的运行
+    // 不取 error：平台级运行流的错误文本可能带出其他组织的数据
     automationRunRows: async (window, take, lowFrequencyKeys) => {
       const { db } = await import("@/lib/db");
-      return db.automationRun.findMany({
-        where: {
-          AND: [
-            cursorWhere("startedAt", window),
-            { OR: [{ status: { in: [...TIMELINE_RUN_STATUSES] } }, { automationKey: { in: [...lowFrequencyKeys] } }] },
-          ],
-        },
+      const rows = await db.automationRun.findMany({
+        where: automationRunTimelineWhere(window, lowFrequencyKeys),
         orderBy: [{ startedAt: "desc" }, { id: "desc" }],
         take,
-        select: { id: true, startedAt: true, automationKey: true, status: true, error: true },
+        select: { id: true, startedAt: true, automationKey: true, status: true },
       });
+      return rows.filter(isTimelineAutomationRun);
     },
 
     timelineLookups: async (orgId, pendingActionIds, runIds) => {

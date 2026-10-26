@@ -6,7 +6,7 @@
  */
 
 import { AUTOMATION_REGISTRY, type AutomationKey } from "@/lib/automation/registry";
-import { postForAgentRunType, postForAutomation, postForPendingAction, postForWorkDomain, type PostKey } from "./posts";
+import { POST_REGISTRY, postForAgentRunType, postForAutomation, postForPendingAction, postForWorkDomain, type PostKey } from "./posts";
 import { AUTOMATION_SCHEDULES, maxGapMinutes } from "./schedule";
 import { projectIdOf, redactCockpitText, targetTypeOf, type PendingActionRow } from "./waiting";
 
@@ -17,7 +17,10 @@ export const TIMELINE_MAX_LIMIT = 50;
 export const TIMELINE_DEFAULT_DAYS = 7;
 export const TIMELINE_MAX_DAYS = 7;
 
-/** AgentRunEvent 只取这些 run / 作业级结果事件 */
+/**
+ * AgentRunEvent 只取这些 run / 作业级结果事件（与 workforce 读模型的用户可见事件表取交集：
+ * job.resume_blocked 等内部机制事件不进）。visibleToUser 列与白名单双重把关。
+ */
 export const TIMELINE_EVENT_TYPES = [
   "run.completed",
   "run.failed",
@@ -25,9 +28,10 @@ export const TIMELINE_EVENT_TYPES = [
   "run.needs_human",
   "job.completed",
   "job.failed",
+  "job.cancelled",
   "job.waiting_human",
-  "job.resume_blocked",
   "approval.required",
+  "verification.needs_human",
 ] as const;
 
 const EVENT_LABELS: Record<(typeof TIMELINE_EVENT_TYPES)[number], string> = {
@@ -37,10 +41,32 @@ const EVENT_LABELS: Record<(typeof TIMELINE_EVENT_TYPES)[number], string> = {
   "run.needs_human": "AI 运行需要人工处理",
   "job.completed": "作业完成",
   "job.failed": "作业失败",
+  "job.cancelled": "作业已取消",
   "job.waiting_human": "作业等待人工",
-  "job.resume_blocked": "作业恢复受阻",
   "approval.required": "需要审批",
+  "verification.needs_human": "核验需要人工",
 };
+
+/**
+ * 只取有岗位归属的 run 的事件：岗位认领的 runType + workforce 作业（按工作域归属）。
+ * 对话类 run（conversation / assistant_dispatch / background_conversation）每次都会写 run.completed，进来会刷屏。
+ */
+export const TIMELINE_AGENT_RUN_TYPES: readonly string[] = [
+  ...new Set([...POST_REGISTRY.flatMap((p) => p.agentRunTypes as readonly string[]), "workforce_job"]),
+];
+/** 先取窗口内最近更新的这么多个 run，再按 runId 查事件（AgentRunEvent 没有 (orgId, createdAt) 索引） */
+export const TIMELINE_RUN_SCAN_LIMIT = 2000;
+
+/** 审计日志里的记账 / 查看类动作：每次 AI 运行都会写多条，不进 company.log */
+export const TIMELINE_AUDIT_ACTION_DENYLIST = [
+  "QUOTA_RESERVED",
+  "QUOTA_COMMITTED",
+  "QUOTA_RELEASED",
+  "QUOTA_SETTLED",
+  "QUOTA_SETTLED_RELEASED",
+  "PROVIDER_STATUS_VIEWED",
+  "APPROVAL_VIEWED_SENSITIVE",
+] as const;
 
 const RUN_STATUS_LABELS: Record<string, string> = {
   succeeded: "成功",
@@ -129,7 +155,7 @@ export function parseTimelineParams(
   if (days === null) return { ok: false, error: `days 须为 1..${TIMELINE_MAX_DAYS} 的整数` };
   const rawCursor = params.get("cursor");
   let cursor: TimelineCursor | null = null;
-  if (rawCursor) {
+  if (rawCursor !== null) {
     cursor = decodeTimelineCursor(rawCursor);
     if (!cursor) return { ok: false, error: "cursor 无效" };
   }
@@ -170,12 +196,12 @@ export interface AgentEventRow {
   title: string | null;
 }
 
+/** 不含错误信息：平台级运行流的错误文本可能带出其他组织的数据，company.log 只显示状态 */
 export interface AutomationRunRow {
   id: string;
   startedAt: Date;
   automationKey: string;
   status: string;
-  error: string | null;
 }
 
 export interface TimelineLookups {
@@ -237,12 +263,9 @@ export function agentEventEntry(row: AgentEventRow, lookups: TimelineLookups): T
   };
 }
 
-const RUN_ERROR_MAX = 200;
-
 export function automationRunEntry(row: AutomationRunRow): TimelineEntry {
   const name = AUTOMATION_REGISTRY.find((d) => d.key === row.automationKey)?.name ?? row.automationKey;
   const status = RUN_STATUS_LABELS[row.status] ?? row.status;
-  const error = row.error?.trim() ? `（${row.error.trim().slice(0, RUN_ERROR_MAX)}）` : "";
   return {
     id: `${ID_PREFIX.automation_run}${row.id}`,
     at: row.startedAt.toISOString(),
@@ -250,7 +273,7 @@ export function automationRunEntry(row: AutomationRunRow): TimelineEntry {
     actor: "system",
     actorName: null,
     kind: "automation_run",
-    summary: redactCockpitText(`${name}：${status}${error}`),
+    summary: redactCockpitText(`${name}：${status}`),
     href: null,
   };
 }

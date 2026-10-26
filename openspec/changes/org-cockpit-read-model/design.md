@@ -38,7 +38,7 @@
 - **否决 C：用 "上次开始 + 周期" 推下次** —— 对门控型（只在本地 7 点记录）与"每小时第 25 分"类不准；按 cron 触发时刻推才与实际一致。
 
 ### D2 健康度：先判"不该有心跳"，再判"心跳坏了"，最后判"心跳慢了"
-- **选择**：单自动化顺序 `n/a` → `not_configured` → `never_ran` → `failed`（含 running 超 30 分钟，与 runner 的僵尸回收阈值一致）→ `late`（距上次开始 > 最长正常间隔 × 1.5）→ `on_time`。`partial` 与 `skipped` 视为跑过。岗位取最严重者，顺序 `failed > quota_hit > late > never_ran > not_configured > on_time > n/a`；配额命中只抬升有 AgentRun 工作的岗位。
+- **选择**：单自动化顺序 `n/a` → `not_configured`（未配置且最近没跑过；未配置但最近确实在跑时按运行判定——营销流的路由只检查 flow URL，注册表还要求 webhook secret，口径不一致时不能掩盖失败）→ `never_ran` → `failed`（含 running 超 30 分钟，与 runner 的僵尸回收阈值一致）→ `late`（距上次开始 > 最长正常间隔 × 1.5）→ `on_time`。未配置的自动化不给 `nextDueAt`。`partial` 与 `skipped` 视为跑过。岗位取最严重者，顺序 `failed > quota_hit > late > never_ran > not_configured > on_time > n/a`；配额命中只抬升有 AgentRun 工作的岗位。
 - 最长正常间隔：cron 型在 8 天窗口内枚举触发时刻取最大相邻差（模块级按表达式缓存）；门控型取门控小时的最大环形间隔（带星期为 7 天），不随 DST 微调（1.5 倍系数吸收 ±1 小时）。
 - **否决 A：late 用固定 1 小时宽限** —— 对每 2 分钟的队列太宽、对每周任务太窄。
 - **否决 B：`partial` 算 `failed`** —— partial 是"部分组织 / 条目失败"，整条流水线在跑；卡片会长期标红，失去信号。明细里保留 `lastRun.status` 供人判断。
@@ -52,7 +52,10 @@
 
 ### D4 时间线：三路各取 `limit + 1`，按 `(at, id)` 倒序归并，游标编码 `(at, id)`
 - **选择**：每路查询条件 = 本组织（AutomationRun 除外）+ `at ≥ now - days` + 严格早于游标（`at < c.at` 或 `at = c.at 且 id < c.id`），`orderBy [at desc, id desc]`，`take limit + 1`；纯函数归并后取前 `limit`，若合并结果多于 `limit` 则 `nextCursor = 第 limit 条的 (at, id)`。三路的 `id` 加前缀（`audit:` / `event:` / `run:`）保证全局唯一与稳定排序。游标为 base64url JSON `{t, i}`，解码失败 400。
-- AgentRunEvent 只取 `visibleToUser` 且在 9 种事件类型白名单内的；AutomationRun 只取 `failed / partial` 或最长正常间隔 ≥ 24 小时的键。岗位归属与 `href` 按 spec，批量查 `AgentRun(id, runType, metadata)` 与 `PendingAction(id, type, projectId, agentRunId, payload)`。审计日志摘要只用 `action` 与 `targetType`，不读 `beforeData / afterData`。
+- AgentRunEvent：先取本组织窗口内更新过、runType 有岗位归属（`fde_inbound_sales` / `runtime_v2` / `workforce_job`）的 run（按 `updatedAt` 倒序最多 2000 个），再按 `runId IN (…)` 查事件（走 `(runId, sequence)` 索引，避免对整组织事件按时间扫描），且只取 `visibleToUser` 且在 10 种事件类型白名单内的（与 workforce 读模型的用户可见事件表取交集，不含 `job.resume_blocked` 等内部事件）。对话类 run 每次都写 `run.completed`，不纳入。
+- AuditLog：排除配额记账（`QUOTA_RESERVED / COMMITTED / RELEASED / SETTLED / SETTLED_RELEASED`，每次 AI 运行都会写 4–5 条）与查看类动作；摘要只用 `action` 与 `targetType`，不读 `beforeData / afterData`。
+- AutomationRun：只取 `failed / partial` 或最长正常间隔 ≥ 24 小时的键，取回后再按同一规则过滤一次；**不取 `error` 列**——平台级运行流的错误文本来自遍历所有组织的任务，可能含其他组织的 id / 数据，company.log 只显示"自动化名：状态"。
+- 所有 `where` 由导出的纯函数构造（`auditTimelineWhere` / `timelineRunScopeWhere` / `agentEventTimelineWhere` / `automationRunTimelineWhere` / `cursorWhere`，以及岗位总览的 `agentRunTypeCountWhere` / `workforceDomainCountWhere` / `quotaAuditWhere` / `quotaNotificationWhere`），测试直接对其断言。岗位归属与 `href` 按 spec，批量查 `AgentRun(id, runType, metadata)` 与 `PendingAction(id, type, projectId, agentRunId, payload)`。
 - **否决 A：offset 分页** —— 新条目写入时页码漂移，翻页会重复或遗漏。
 - **否决 B：只取 AuditLog** —— AI 与自动化的动作大多不进 AuditLog，company.log 会只剩人的操作。
 - **否决 C：给 AuditLog / AgentRunEvent 加 `(orgId, createdAt)` 索引** —— 违反零 schema；以窗口 + 条数上限 + 白名单兜底，并把 `EXPLAIN` 列为 staging 验证项。
@@ -63,11 +66,11 @@
 - **否决 B：沿用旧 `/api/cockpit` 的 `organizationMember.findFirst({ userId })`** —— 多组织时任意取一个，跨组织风险。
 
 ### D6 KPI 取数：类型化加载器 + `pickKpiMetrics` + 各自隔离
-- **选择**：`KPI_LOADERS: { [S in PostKpiSource]: (ctx) => Promise<PostKpiSourceResults[S]> }`，漏配一个来源 tsc 报错；`Promise.allSettled` 并发，失败的岗位记 `error` 并 `console.error`（不带结果内容）。投标加载器先查 `isFinancialControlEnabled()`，关闭时直接返回 `disabled` 不调用；窗口取注册表声明的 365 天。项目加载器用 `{ view: "team", pageSize: 1 }`（`sections` 在分页前统计）。返回前一律经 `pickKpiMetrics`。
+- **选择**：`KPI_LOADERS: { [S in PostKpiSource]: (ctx) => Promise<PostKpiSourceResults[S]> }`，漏配一个来源 tsc 报错；并发执行，每个加载器套 5 秒超时（`kpiTimeoutMs` 可注入），抛错或超时的岗位记 `error` 并 `console.error`（只记错误类型，不带结果内容）——投标汇总是按项目逐个查询的 N+1，不能让它拖住首页。待我审批只吞 `CapabilitiesAccessError`（如平台管理员无成员身份），数据库故障等照常抛出。投标加载器先查 `isFinancialControlEnabled()`，关闭时直接返回 `disabled` 不调用；窗口取注册表声明的 365 天。项目加载器用 `{ view: "team", pageSize: 1 }`（`sections` 在分页前统计）。返回前一律经 `pickKpiMetrics`。
 - **否决：为每个 KPI 新写精简查询** —— 违反任务书"指向既有读函数，不新写查询"。
 
 ### D7 脱敏：复用 Muse 检测函数，驾驶舱自己的替换文案
-- **选择**：`redactCockpitText(text)`：截断到 300 字，`containsOutboundSensitive(text, { strict: true })` 命中则返回 `COCKPIT_REDACTED`（"（该内容含内部财务信息，驾驶舱不展示，请到对应页面查看。）"）。作用于等你 N 件的标题、时间线摘要与自动化错误信息。
+- **选择**：`redactCockpitText(text)`：截断到 300 字，`containsOutboundSensitive(text, { strict: true })` 或驾驶舱补充词表（估值 / valuation / 标的额 / 我方（最终）报价 / 最终报价 / 中标金额 / 中标价 / 成交价 / bid price）命中则返回 `COCKPIT_REDACTED`（"（该内容含内部财务信息，驾驶舱不展示，请到对应页面查看。）"）。作用于等你 N 件的标题与时间线摘要。Muse 的词表不含这些中文说法（交叉审查实测"项目估值 120 万""我方报价 $88,000"原样通过），补充词表放在驾驶舱本地，不改 muse-bridge。
 - **否决：直接用 `sanitizeOutbound`** —— 其替换文案写的是"不通过 Muse 通道输出，请在青砚内查看"，在青砚自己的首页上语义错误。
 
 ## 与八条硬纪律的关系
@@ -85,12 +88,17 @@
 
 ## Risks / Trade-offs
 
-- [接口一次调用多个重读函数（投标 N+1、营销看板、待我审批逐行判权、28 次最近运行）] → 首页只在打开时调用；各块 `allSettled` 隔离；A-3 若实测慢再加短缓存（另开 change）。
-- [AuditLog / AgentRunEvent 无 `(orgId, createdAt)` 索引] → 7 天窗口 + `limit + 1` + 事件白名单；staging 上跑 `EXPLAIN ANALYZE` 记入报告；不达标再评估是否申请 schema 例外。
+- [接口一次调用多个重读函数（投标 N+1、营销看板、待我审批逐行判权、28 次最近运行）] → 首页只在打开时调用；KPI 各自超时隔离；A-3 若实测慢再加短缓存（另开 change）。
+- [AuditLog / AgentRunEvent 无 `(orgId, createdAt)` 索引] → AgentRunEvent 改为先取近期 run 再按 runId 查（走索引）；AuditLog 用 7 天窗口 + `limit + 1` + 记账动作排除；staging 上跑 `EXPLAIN ANALYZE` 记入报告；不达标再评估是否申请 schema 例外。
 - [平台级心跳：别的组织的运行也会刷新本组织卡片的心跳] → 响应标 `heartbeatScope: "platform"`，A-3 卡片注明"平台级"。
 - [配额命中两路信号都可能漏（系统发起的审计写入失败、非管理员收不到通知）] → 驾驶舱只对管理层开放，查看人本身就是通知收件人；平台超管 / 高管若非组织管理员则只能依赖审计记录。
 - [待我审批的 PendingAction 只看 30 天窗口] → PendingAction 默认 24 小时过期，30 天外的待审批实际已过期；与 `/capabilities/approvals` 口径一致。
 - [`resolveEffectiveWorkDomain` 对缺工作域的旧作业逐个查询] → 只对需要你作业（≤ 50）做，且只在缺失时。
+- [`listCapabilityApprovals` 每个来源先取 200 行再按状态过滤] → 待我审批总数在极端情况下偏低且无截断信号；与 `/capabilities/approvals` 页面同口径，不在本 change 修。待我审批被截断（> 100 条）时作业去重可能不完整（`truncated: true` 已标示）。
+- [时间线事件只看窗口内最近更新的 2000 个有归属 run] → 一周内超过 2000 个 FDE / 分诊 / 作业 run 的组织会漏掉最早一批事件；FDE 受 `DAILY_AGENT_RUNS` 每日 200 上限约束，当前量级不会触发。
+- [游标分页依赖数据库与 JS 对 cuid 字符串的排序一致] → cuid 为小写字母数字，两者一致；`days` 窗口按每次请求的 now 重算，翻页时窗口下沿的条目可能在页间消失，可接受。
+- [平台 `admin` 角色（`isSuperAdmin` 含之）可经 `canUserUseOrg` 进入任意组织] → 与 workforce API 现状一致，不是 A-2 引入；记入报告供安全评审。
+- [`quota_hit` 只看 `DAILY_AGENT_RUNS`，不含 `MAX_CONCURRENT_RUNS` / `MONTHLY_AI_COST`] → 符合 spec 现有范围，B-5 再评估。
 
 ## 验证方式
 

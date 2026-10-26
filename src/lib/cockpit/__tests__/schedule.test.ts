@@ -152,6 +152,9 @@ const health = (key: AutomationKey, lastRun: LastRunSnapshot | null, configured 
   automationHealth({ schedule: S[key], configured, lastRun, now: NOW });
 ok(health("marketing-mmm", null) === "n/a", "按需 → n/a（先于一切）");
 ok(health("aivora-sync", null, false) === "not_configured", "未配置 → not_configured，不是 never_ran");
+ok(health("aivora-sync", run(2 * 24 * 60), false) === "not_configured", "未配置且最近没跑过（2 天前的旧运行）→ not_configured");
+ok(health("marketing-health", run(3, "failed"), false) === "failed", "未配置但最近确实在跑且失败 → failed（不掩盖失败）");
+ok(health("marketing-health", run(3), false) === "on_time", "未配置但最近确实在跑且成功 → on_time");
 ok(health("inquiry-sla", null) === "never_ran", "从未运行 → never_ran");
 ok(health("inquiry-sla", run(3, "failed")) === "failed", "最近一次失败 → failed");
 ok(health("inquiry-sla", run(31, "running")) === "failed", "running 超过 30 分钟 → failed（卡住）");

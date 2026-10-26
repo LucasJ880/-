@@ -280,13 +280,15 @@ export function automationHealth(input: {
   now: Date;
 }): AutomationHealth {
   if (input.schedule.kind === "on_demand") return "n/a";
-  if (!input.configured) return "not_configured";
-  if (!input.lastRun) return "never_ran";
-  const sinceStartMinutes = (input.now.getTime() - input.lastRun.startedAt.getTime()) / MINUTE_MS;
+  const gap = maxGapMinutes(input.schedule);
+  const sinceStartMinutes = input.lastRun ? (input.now.getTime() - input.lastRun.startedAt.getTime()) / MINUTE_MS : null;
+  const recentlyRan = sinceStartMinutes !== null && (gap === null || sinceStartMinutes <= gap * LATE_FACTOR);
+  // 未配置且最近没跑过 → not_configured；未配置但最近确实在跑（路由与注册表的必需变量口径不一致时）→ 按运行判定，不掩盖失败
+  if (!input.configured && !recentlyRan) return "not_configured";
+  if (!input.lastRun || sinceStartMinutes === null) return "never_ran";
   if (input.lastRun.status === "failed") return "failed";
   if (input.lastRun.status === "running" && sinceStartMinutes > STALLED_RUN_MINUTES) return "failed";
-  const gap = maxGapMinutes(input.schedule);
-  if (gap !== null && sinceStartMinutes > gap * LATE_FACTOR) return "late";
+  if (!recentlyRan) return "late";
   return "on_time";
 }
 

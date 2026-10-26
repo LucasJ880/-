@@ -24,8 +24,8 @@
 3. **迟到按真实调度判断**：`cadence` 是给人看的中文文本，仓库里没有任何解析它的代码。本 change 维护一张类型化调度表，测试逐项对照 `vercel.json` 与路由源码里的本地时刻数组；late 定义为距上次开始超过"最长正常间隔 × 1.5"。
 4. **"等你 N 件"的口径**：任务书 GATE-A 写"与 `/inbox` 一致、点击跳 `/inbox`"，但 `/inbox` 是快速捕获页，与审批无关。本 change 用仓库里最完整的现成定义——`/capabilities/approvals` 的"待我审批"（PendingAction + ApprovalRequest + 产品内容审批，按决策权过滤），再并上 workforce 的需要你作业；作业关联的 PendingAction 已在待我审批里时去重。需决策类 Notification 不另计：已核实它们都是这些条目的提醒（`metadata.pendingActionId` / `entityType=approval_request`），另计就重复。A-3 的跳转目标相应改为 `/capabilities/approvals`。
 5. **时间线索引**：零 schema 前提下，AuditLog 与 AgentRunEvent 都没有 `(orgId, createdAt)` 索引（只有 `(orgId)`、`(createdAt)`、`(orgId, runId)` 等）。本 change 用 7 天窗口 + 每路 `limit + 1` + AgentRunEvent 事件类型白名单兜底；任务书验收 3 的 `EXPLAIN` 在本容器无库可跑，列为 staging 验证项。
-6. **AutomationRun 进时间线的范围**：只放失败 / 部分失败的运行，以及最长正常间隔 ≥ 24 小时的低频自动化的运行；否则每 2 分钟一次的队列 cron 会淹没 company.log。
-7. **脱敏**：复用 Muse 的检测函数 `containsOutboundSensitive`（strict），替换文案用驾驶舱自己的，不用 Muse 那句"不通过 Muse 通道输出"。KPI 数值经 A-1 的 `pickKpiMetrics` 只取声明路径。
+6. **时间线防刷屏与防泄漏**：AutomationRun 只放失败 / 部分失败的运行与低频自动化的运行，且**不带错误文本**（平台级运行流的错误可能含其他组织数据）；AuditLog 排除配额记账与查看类动作（每次 AI 运行写 4–5 条）；AgentRunEvent 只取有岗位归属的 run（FDE / 销售跟进分诊 / workforce 作业），对话类 run 不进。
+7. **脱敏**：复用 Muse 的检测函数 `containsOutboundSensitive`（strict），并在驾驶舱本地补上 Muse 词表没有的估值 / 标的额 / 我方报价 / 最终报价 / 中标金额 / 成交价等说法；替换文案用驾驶舱自己的，不用 Muse 那句"不通过 Muse 通道输出"。KPI 数值经 A-1 的 `pickKpiMetrics` 只取声明路径。
 8. **访问控制收紧到管理层**：任务书写"复用 withAuth + 组织解析"。岗位视图汇总了投标中标数、营销线索、全组织审批与日志，本 change 按首页 `/` 的同一判定只放行管理层，其他成员 403。
 9. **配额命中的判定**：`DAILY_AGENT_RUNS` 硬上限命中时，系统发起的 run 写 AuditLog 会失败（`userId` 外键），只有 Notification 可靠。本 change 两路都看：当天（UTC）的 AuditLog `QUOTA_HARD_LIMIT_BLOCKED`，加查看人自己收到的 `quota_hard_limit` 通知；命中则让有 AgentRun 工作的岗位（有 runType 或工作域归属）显示 `quota_hit`。
 10. **KPI 取数的条件**：投标 KPI 只在 `TENDER_FINANCIAL_CONTROL_ENABLED` 开启时调用，与 `/api/org/tender-portfolio` 同门，关闭时返回 `disabled`。项目 KPI 按查看人的可见范围统计。`service` / `content` 保持"未接入"，不在本 change 里抽取路由内联查询，因为那会改动既有 API。
