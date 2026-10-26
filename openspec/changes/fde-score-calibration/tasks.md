@@ -22,7 +22,7 @@
 
 ## 3. /revenue 区块
 
-- [ ] 3.1 新建 `src/components/revenue/score-calibration-panel.tsx`（容器 + 无 hook 视图），并在 `src/app/(main)/revenue/page.tsx` 的队列网格之后挂载。
+- [x] 3.1 新建 `src/components/revenue/score-calibration-panel.tsx`（容器 + 无 hook 视图），并在 `src/app/(main)/revenue/page.tsx` 的队列网格之后挂载。
   - 新建 `src/components/revenue/__tests__/score-calibration-panel.test.tsx` 并注册。
   - verify：测试退出 0，覆盖 spec「/revenue 评分校准区块」：
     - 收起态无统计、页面首屏不请求；
