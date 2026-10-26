@@ -2,7 +2,7 @@
 
 ## 1. 调度与健康度（纯函数）
 
-- [ ] 1.1 新建 `src/lib/cockpit/schedule.ts`：`AUTOMATION_SCHEDULES`（`Record<AutomationKey, AutomationSchedule>`，按 design Context 的真实调度）、受支持子集的 cron 解析、`nextDueAt` / 最长正常间隔 / 单自动化健康度 / 岗位健康度纯函数；新建 `src/lib/cockpit/__tests__/schedule.test.ts` 并在同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：`npx tsx src/lib/cockpit/__tests__/schedule.test.ts` 退出 0，含调度表 vs `vercel.json` / 路由源码交叉核对、上海 / 多伦多 / 2026-11-01 DST / 周一门控 / 按需 / 迟到 / 卡住 / 未配置 / 配额抬升各用例。
+- [x] 1.1 新建 `src/lib/cockpit/schedule.ts`：`AUTOMATION_SCHEDULES`（`Record<AutomationKey, AutomationSchedule>`，按 design Context 的真实调度）、受支持子集的 cron 解析、`nextDueAt` / 最长正常间隔 / 单自动化健康度 / 岗位健康度纯函数；新建 `src/lib/cockpit/__tests__/schedule.test.ts` 并在同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：`npx tsx src/lib/cockpit/__tests__/schedule.test.ts` 退出 0，含调度表 vs `vercel.json` / 路由源码交叉核对、上海 / 多伦多 / 2026-11-01 DST / 周一门控 / 按需 / 迟到 / 卡住 / 未配置 / 配额抬升各用例。
 
 ## 2. 等你 N 件（纯函数）
 
