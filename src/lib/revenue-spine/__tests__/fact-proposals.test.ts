@@ -119,6 +119,24 @@ async function main() {
     assert.ok(got.some((f) => f.field === "loadingPorts"));
   });
 
+  await ok("结束语与草稿相同（不在新增行里）：签名里的口号不当事实抽", () => {
+    const draft = "Hi {{buyer_contact}},\n\nThank you for your inquiry.\n\nBest regards,\nLily";
+    const sent = [
+      "Hi John,",
+      "",
+      "Thank you for your inquiry.",
+      "",
+      "Best regards,",
+      "Lily",
+      "Sunny Home Deco Co., Ltd.",
+      "15 years curtain factory | fast delivery in 15 days",
+      "Shipping from Ningbo port worldwide",
+      "MOQ 100 pcs | 7-day sampling | FOB Shanghai",
+    ].join("\n");
+    const got = extractFromReply({ snapshotBody: draft, sentRaw: sent, buyer: BUYER });
+    assert.deepEqual(got.map((f) => f.field), [], JSON.stringify(got));
+  });
+
   await ok("含价格的新增行不产任何事实", () => {
     const sent = DRAFT.replace("Loading ports: Ningbo.", "Loading ports: Ningbo.\nMOQ 500 pcs, unit price USD 4.80.");
     assert.deepEqual(extractFromReply({ snapshotBody: DRAFT, sentRaw: sent, buyer: BUYER }), []);
@@ -210,6 +228,16 @@ async function main() {
     // 起订量没写按什么计：沿用当前；当前也没有时用合并规则的默认 style
     assert.deepEqual(proposedValueFor("moq", { quantity: 800, unit: "pcs", per: null }, cur.moq), { quantity: 800, unit: "pcs", per: "style" });
     assert.deepEqual(proposedValueFor("moq", { quantity: 800, unit: "pcs", per: null }, null), { quantity: 800, unit: "pcs", per: "style" });
+  });
+
+  await ok("卡片标出按默认值补上的部分：起订量没写按什么计、当前也没有 → 预览注明默认 style", () => {
+    const [p] = planFactProposals({ facts: [fact({ field: "moq", value: { quantity: 500, unit: "pcs", per: null } })], current: facts(), ...noLimits }).proposals;
+    const card = buildFactProposalApproval(p, { orgId: ORG, opportunityId: null, sourcePendingActionId: "pa_draft_1" });
+    assert.equal(card.title, "商务事实提案：起订量 500 pcs / style");
+    assert.match(card.preview, /\n回复里没写、按默认值补上：按什么计（默认 style）\n/);
+    // 当前有值时沿用当前，不算默认
+    const [q] = planFactProposals({ facts: [fact({ field: "moq", value: { quantity: 800, unit: "pcs", per: null } })], current: facts({ moq: { quantity: 500, unit: "pcs", per: "color" } }), ...noLimits }).proposals;
+    assert.doesNotMatch(buildFactProposalApproval(q, { orgId: ORG, opportunityId: null, sourcePendingActionId: "pa_draft_1" }).preview, /默认值/);
   });
 
   await ok("过不了商务事实合并规则的提议值不起卡（批准后才失败会把卡消耗成 failed）", () => {
@@ -362,8 +390,11 @@ async function main() {
     assert.match(src, /ttlHours: FACT_PROPOSAL_TTL_HOURS,/);
     assert.match(src, /approver: \{ approverUserId: input\.approverUserId \?\? undefined, requiredRole: "boss" \}/);
     assert.match(src, /idempotencyKey: input\.idempotencyKey,/);
-    assert.match(src, /select: \{ ownerId: true, owner: \{ select: \{ role: true \} \} \}/);
-    assert.match(src, /where: \{ orgId, status: "active", user: \{ role: \{ in: \["boss", "admin", "super_admin"\] \} \} \}/);
+    assert.match(src, /db\.organization\.findUnique\(\{ where: \{ id: orgId \}, select: \{ ownerId: true \} \}\)/);
+    assert.match(src, /where: \{ orgId, status: "active", user: \{ status: "active", role: \{ in: \["boss", "admin", "super_admin"\] \} \} \}/);
+    // 不在在职成员结果里的所有者（停用 / 非成员）不当审批人：执行器认领后才查成员身份
+    const candidates = src.slice(src.indexOf("approverCandidates: async"), src.indexOf("createApproval: async"));
+    assert.doesNotMatch(candidates, /\.push\(/);
   });
 
   await ok("端到端：人工回复作废 → 记录器写改稿事件 → 起 moq / 样品 / 落款卡（假依赖）", async () => {
