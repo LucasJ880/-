@@ -24,7 +24,8 @@
 - 问候：有联系人名时用偏好问候模板，否则用默认问候；
 - 敬语：英文替换 "Best regards,"，中文替换"祝好！"；
 - 结束语：配置后在敬语前加一行，未配置时不加；
-- 追问：必问字段先问、免问字段不问，上限仍为 3，问题文案与第 2 次跟进里列出的字段名同步变化。
+- 追问：必问字段先问、免问字段不问，上限仍为 3，问题文案与第 2 次跟进里列出的字段名同步变化；
+- 英文跟进附带的审核用中文对照 SHALL 使用中文偏好（中文问候、结束语、敬语）。
 
 #### Scenario: 问候与敬语
 - **WHEN** 英文问候偏好为 `Hi {name},`、敬语为 `Kind regards,`，联系人为 Mark
@@ -33,6 +34,10 @@
 #### Scenario: 中文敬语与结束语
 - **WHEN** 中文敬语为 `顺祝商祺`、中文结束语为 `盼复。`
 - **THEN** 中文跟进把"祝好！"换成"顺祝商祺"，并在其前加一行"盼复。"
+
+#### Scenario: 中文对照用中文偏好
+- **WHEN** 英文跟进开启偏好，同时配了中英文问候、结束语与敬语
+- **THEN** 审核用中文对照使用中文问候、结束语与敬语，不出现英文偏好行
 
 #### Scenario: 免问字段不问
 - **WHEN** 免问为 `["targetPrice"]`，目标价缺失
@@ -50,8 +55,12 @@
 - **WHEN** 禁用词出现在产品说法、展会名或署名块里
 - **THEN** 这些内容原样保留
 
+#### Scenario: 偏好行不替换
+- **WHEN** 问候偏好为 `Hi {name}, thanks`、结束语为 `Looking forward to working with you.`，禁用词为 `thanks → cheers`、`working → dealing`
+- **THEN** 跟进里这两行原样保留
+
 #### Scenario: 替换后拼出承诺
-- **WHEN** 产品说法为 "samples kit"，禁用词为 `about → free`，替换后句子变成 "your email of November 1 free samples kit"
+- **WHEN** 产品说法为 "samples kit"，禁用词为 `about → free`，替换后句子变成 "my email of November 1 free samples kit"
 - **THEN** 这一封不做替换，并以这条禁用词的键名记一次审计
 
 ### Requirement: 跟进起草时的偏好审计不输出文案

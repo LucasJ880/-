@@ -141,6 +141,46 @@ ok("场景「专名与署名不替换」：产品说法、展会名、署名块�
   assert.equal(draft.body, draftFor(c, DEFAULT_REVENUE_SPINE_POLICY).draft.body);
 });
 
+ok("场景「偏好行不替换」：问候 / 结束语里含禁用词也原样保留，模板句照常替换", () => {
+  const c = caseById("en-step1-event-contact-signature");
+  const prefs = {
+    greeting: { en: "Hi {name}, thanks" },
+    closing: { en: "Looking forward to working with you." },
+    bannedPhrases: [
+      { phrase: "working", replacement: "dealing" },
+      { phrase: "thanks", replacement: "cheers" },
+    ],
+  };
+  assert.deepEqual(resolveDraftPreferences(withPrefs(prefs))!.ignored, []);
+  const { draft } = draftFor(c, withPrefs(prefs));
+  const lines = draft.body.split("\n");
+  assert.equal(lines[0], "Hi Mark, thanks");
+  assert.ok(lines.includes("Looking forward to working with you."), draft.body);
+  assert.ok(!draft.body.includes("cheers") && !draft.body.includes("dealing"), draft.body);
+});
+
+ok("场景「中文对照用中文偏好」：同一份输入换成中文（draftNoReplyFollowUps 的 input(\"zh\")）用中文问候 / 结束语 / 敬语", () => {
+  const c = caseById("en-step1-event-contact-signature");
+  const prefs = resolveDraftPreferences(on);
+  const zh = buildNoReplyFollowUpDraft({ ...c.input, language: "zh", questions: buildClarifyingQuestions(c.missing, "zh", 3, prefs), preferences: prefs });
+  assert.equal(zh.body.split("\n")[0], "尊敬的Mark：");
+  assert.ok(zh.body.includes("\n盼复。\n顺祝商祺\n"), zh.body);
+  assert.ok(!zh.body.includes("Kind regards,") && !zh.body.includes("Looking forward"), zh.body);
+  assert.deepEqual(zh.preferences!.lines, ["尊敬的Mark：", "盼复。", "顺祝商祺"]);
+});
+
+ok("中文专名不替换：展会名、组织名、产品说法里的禁用词原样保留", () => {
+  const base = caseById("zh-step1-latin-event");
+  const c: FollowUpGoldenCase = { ...base, input: { ...base.input, event: "广交会", product: "询盘样品" } };
+  const banned = withPrefs({ bannedPhrases: [{ phrase: "广交", replacement: "某" }, { phrase: "示例", replacement: "某" }, { phrase: "询盘", replacement: "某" }] });
+  const { draft } = draftFor(c, banned);
+  const plain = draftFor(c, DEFAULT_REVENUE_SPINE_POLICY).draft;
+  for (const term of ["广交会", "示例家纺", "询盘样品"]) {
+    assert.ok(plain.body.includes(term), term);
+    assert.equal(draft.body.split(term).length, plain.body.split(term).length, term);
+  }
+});
+
 ok("场景「替换后拼出承诺」：这一封不替换，记下引起违规的键名；守卫违规仍为空", () => {
   const base = caseById("en-step1-event-contact-signature");
   const c: FollowUpGoldenCase = { ...base, input: { ...base.input, product: "samples kit", event: null } };
@@ -163,8 +203,10 @@ ok("draftNoReplyFollowUps：组织级解析一次偏好；追问与草稿（含�
   const src = strip(read("src/lib/revenue-spine/fde/no-reply-followup.ts"));
   const run = src.slice(src.indexOf("export async function draftNoReplyFollowUps"));
   assert.equal(run.match(/resolveDraftPreferences\(/g)?.length, 1);
-  // 解析在循环之外
-  assert.ok(run.indexOf("const draftPrefs = resolveDraftPreferences(policy);") < run.indexOf("for (const opp of candidates)"));
+  // 解析在循环之外（先确认两处都在，避免 -1 让比较恒真）
+  const resolveAt = run.indexOf("const draftPrefs = resolveDraftPreferences(policy);");
+  const loopAt = run.indexOf("for (const opp of candidates)");
+  assert.ok(resolveAt > 0 && loopAt > resolveAt, JSON.stringify({ resolveAt, loopAt }));
   assert.match(run, /questions: buildClarifyingQuestions\(missing, lang, 3, draftPrefs\),/);
   assert.match(run, /preferences: draftPrefs,\s*\}\);/);
   // 中文对照走同一个 input()：同样带偏好
@@ -172,7 +214,9 @@ ok("draftNoReplyFollowUps：组织级解析一次偏好；追问与草稿（含�
   assert.match(run, /if \(draftPrefs\?\.ignored\.length && !prefsAudited\) \{\s*prefsAudited = true;\s*await recordIgnoredDraftPreferencesSafe\(\{ orgId, userId: principalUserId, ignored: draftPrefs\.ignored, employeeKey: FDE_EMPLOYEE_KEY \}\);/);
   assert.match(run, /ignored: skippedBanned\.map\(\(key\) => \(\{ key, reason: BANNED_PHRASE_SKIPPED_REASON \}\)\),/);
   // 守卫判定与原先相同：仍在建审批之前
-  assert.ok(run.indexOf("if (draft.guardrailViolations.length)") < run.indexOf("await requestApproval("));
+  const guardAt = run.indexOf("if (draft.guardrailViolations.length) {");
+  const approvalAt = run.indexOf("await requestApproval(");
+  assert.ok(guardAt > 0 && approvalAt > guardAt, JSON.stringify({ guardAt, approvalAt }));
 });
 
 ok("首封与跟进共用同一个保护行替换函数（不复制规则）", () => {

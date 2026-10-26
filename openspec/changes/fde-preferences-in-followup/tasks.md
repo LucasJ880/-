@@ -13,7 +13,7 @@
   - `fde/no-reply-followup.ts`：`NoReplyFollowUpInput.preferences`；问候 / 结束语 / 敬语 / 禁用词（共用函数）；
   - `draftNoReplyFollowUps`：组织级解析偏好、违规审计、追问与草稿（含中文对照）传入偏好、`bannedPhrasesSkipped` 审计。
   - 新建 `src/lib/revenue-spine/__tests__/followup-preferences.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
-  - verify：测试退出 0，覆盖 spec 全部 scenario，跟进金样本三种情况比对通过；`no-reply-followup.test.ts` 全过；`npm run typecheck` 退出 0。
+  - verify：测试退出 0，覆盖 spec 全部 scenario，跟进金样本三种情况比对通过；`no-reply-followup.test.ts` 全过；`draft-preferences.test.ts` 45 条全过（其"不碰的模块"断言改为跟进只经 `resolveDraftPreferences` 读偏好）；`npm run typecheck` 退出 0。
 
 ## 3. 门禁与交付
 
