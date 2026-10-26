@@ -23,6 +23,8 @@ OpenSpec change：`openspec/changes/org-cockpit-proactive-notify/`（proposal / 
 
 ## 2. 怎么验的
 
+门禁在独立 worktree 的 `19cc8d8b`（含两轮审查修正）上跑。
+
 | # | 验证 | 结果 |
 |---|---|---|
 | 1 | `manager-notify.test.ts` 单独运行 | 23 / 23 |
@@ -32,13 +34,13 @@ OpenSpec change：`openspec/changes/org-cockpit-proactive-notify/`（proposal / 
 | 5 | 通知按用户去重 | 假 Notification 表按全局唯一 sourceKey 语义：同组织两位管理层各一条；连续两轮不重复；本人名下旧 key 视为已发、别人名下旧 key 不挡本人；冲突跳过的不计入返回值 |
 | 6 | 只提醒不执行自动动作；既有调用方 | 默认依赖调 `runProactiveScanForUser(..., { autoActions: false })`；`POST /api/proactive/scan` 文件未改；自动化一轮查询 / 排序 / 上限 / 调用与原先一致；`vercel.json` 仍只有一条 `15 * * * *` |
 | 7 | 变异检查 | 旧 key、计数、整轮失败计入、游标、enabledUsers 位置、游标沿用、剩余预算、now、partial：各至少 1 条断言失败 |
-| 8 | `npm run typecheck`（全量） | （门禁跑完后补） |
-| 9 | `npm run lint:baseline` | （门禁跑完后补） |
-| 10 | `npm test` 对比基线 | （门禁跑完后补） |
+| 8 | `npm run typecheck`（全量） | 退出 0 |
+| 9 | `npm run lint:baseline` | PASS（无新增 error fingerprint；相对基线减少 14 处） |
+| 10 | `npm test` 对比基线 | 433 / 447；14 项失败与基线逐条一致（本 change 新增 1 项，全过） |
 | 11 | `npm run test:ci` | 退出 0，`CI unit subset PASS`（含 `schedule.test.ts` 182 条——第二轮审查发现的阻塞已修） |
-| 12 | `bash scripts/check-test-registry.sh` | （门禁跑完后补） |
-| 13 | `git diff --stat claude/fde-preferences-in-followup -- prisma/ vercel.json` | （门禁跑完后补） |
-| 14 | `openspec validate org-cockpit-proactive-notify --strict`；`/opsx:verify` | valid。verify：tasks 待 3.x 勾选后 6 / 6；4 条 requirement / 15 个 scenario 均有测试断言（「已归档组织」「长期未登录」为查询条件断言）；design D1–D5 与实现一致；无 CRITICAL / WARNING。未验证：真实 DB 下的定时任务全链路（容器无 DB），留 staging |
+| 12 | `bash scripts/check-test-registry.sh` | 本 change 测试已注册；仍有 `main` 上既有的 2 个 trade 测试未注册（不是本 change 引入） |
+| 13 | `git diff --stat claude/fde-preferences-in-followup -- prisma/ vercel.json` | 空 |
+| 14 | `openspec validate org-cockpit-proactive-notify --strict`；`/opsx:verify` | valid。verify：tasks 6 / 6；4 条 requirement / 15 个 scenario 均有测试断言（「已归档组织」「长期未登录」为查询条件断言）；design D1–D5 与实现一致；无 CRITICAL / WARNING。未验证：真实 DB 下的定时任务全链路（容器无 DB），留 staging |
 
 ## 3. 与任务书的偏差（请 GATE 逐条确认，详见 proposal）
 
