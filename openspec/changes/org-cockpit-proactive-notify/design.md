@@ -4,7 +4,7 @@
 
 - `runProactiveScanForUser(userId, role)`（`src/lib/proactive/run-scan.ts`）分三步：
   1. 扫项目（`scanProjectsForUser`）和销售（`scanSalesForUser`）；
-  2. `syncSuggestionsToNotifications` 把 `urgent` / `warning` 建议写进 `Notification`，按 `proactive:{dedupeKey}` 去重；
+  2. `syncSuggestionsToNotifications` 把 `urgent` / `warning` 建议写进 `Notification`，按 `proactive:{dedupeKey}` 去重。`Notification.sourceKey` 是全局唯一索引，而 dedupeKey 不含用户（如 `deadline:{projectId}:3d`）：先写到的人占住 key，后面的人 `createMany(skipDuplicates)` 被静默跳过，函数仍按待写条数返回；
   3. 用户开了自动化偏好时，`executeAutoActions` 执行低风险自动动作。
 - 调用方只有两个：
   - `POST /api/proactive/scan`：旧首页挂载时及每 5 分钟调用，A-3 之后没有调用方了；
@@ -21,7 +21,8 @@
 - 既有两个调用方的行为不变。
 
 **Non-Goals**
-- 不改 `src/lib/proactive/scanner.ts`、`sales-scanner.ts`、`notify.ts`、`auto-actions.ts`、`automation-prefs.ts`；
+- 不改 `src/lib/proactive/scanner.ts`、`sales-scanner.ts`、`auto-actions.ts`、`automation-prefs.ts`、`types.ts`；
+- 不改 `src/lib/automation/runner.ts`、`registry.ts`，不迁移已有 `Notification` 行；
 - 不改 `src/app/api/proactive/scan/route.ts`、`src/app/(main)/page.tsx`、`src/components/cockpit/**`；
 - 不改 `vercel.json`。
 
@@ -46,12 +47,15 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
   - 账号 `status = active`、`lastLoginAt ≥ now − 30 天`；
   - 组织角色 `org_owner` / `org_admin`，或平台角色 `boss` / `manager`；
   - 平台角色不是 `admin` / `super_admin`。
-- `planManagerNotifyRun({ candidates, alreadyScanned, cap, now })`：
+- 成员所在组织须为 `status = active`（与 `trade/access.ts` 同口径），只在已归档组织里是管理员的人不补发。
+- `planManagerNotifyRun({ candidates, alreadyScanned, resumeAfter, cap })`：
   - 按 userId 去重；
   - 去掉已在自动化一轮处理过的；
   - 再次排除平台管理员（双保险）；
-  - 按 userId 排序，起点 = `(当前小时序号 × cap) mod 人数`，取 `cap` 人。无状态轮转：人数 ≤ cap 时每轮全覆盖；超过时 ⌈人数 / cap⌉ 轮覆盖全部。
-- `runManagerNotify(deps, { now, alreadyScanned, budgetMs })`：
+  - 按 userId 排序，从第一个 `userId > resumeAfter` 的人开始循环取 `cap` 人；没有游标或游标在末尾时从头开始。
+- 游标：本轮最后处理（含失败）的 userId 记进本次运行的 `AutomationRun.metadataJson.notifyOnlyResumeAfter`；下一轮读本定时任务最近一次已完成（`succeeded` / `partial`）的运行。一个都没处理时沿用上一轮游标。
+- 候选读取按 `userId` 排序、上限 2000 行，读满时 metadata 标 `notifyOnlyCandidatesTruncated`。
+- `runManagerNotify({ now, alreadyScanned, budgetMs, resumeAfter }, deps)`：
   - 依赖可注入：取候选、单人扫描、时钟；
   - 逐个调用 `runProactiveScanForUser(userId, role, { autoActions: false })`；
   - 时间预算用完就停；
@@ -59,11 +63,12 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
   - 返回每人的 `{ userId, mode: "notify_only", suggestions, notifications | error }`。
 - **否决**：
   - 按最近登录排序取前 100：人数超过上限时，排在后面的人永远轮不到；
-  - 在 `UserNotificationPreference` 里记"上次补发时间"：要写偏好表，改了别的功能的数据。
+  - 按小时序号轮转起点（无状态）：起点每轮固定前进 `cap`，与本轮实际处理了多少人无关；时间预算截断时会固定漏掉一批人（交叉审查实测：80 人、每轮只够 40 人时，后 40 人一周内从未被处理）；
+  - 在 `UserNotificationPreference` 里记"上次补发时间"：要写偏好表，改了别的功能的数据。游标记在本定时任务自己的运行记录里，不涉及别的功能。
 
 ### D3：定时任务接入
 
-`/api/cron/proactive-scan` 分两轮：
+两轮主体抽成 `runProactiveScanCron(deps)`（同在 `manager-notify.ts`，依赖可注入），路由只负责 cron 鉴权与 `runTrackedAutomation("proactive-scan", …)`。`/api/cron/proactive-scan` 分两轮：
 - 自动化一轮照旧，结果每条加 `mode: "automation"`；
 - 再跑 `runManagerNotify`：
   - `alreadyScanned` 传自动化一轮处理过的 userId；
@@ -71,9 +76,13 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
 
 结果合并后，计数与元数据如下：
 - `processedCount` = 两轮人数之和；
-- `metadata.enabledUsers` 保留原义（自动化一轮人数），新增 `metadata.notifyOnlyUsers`。
+- `metadata.enabledUsers` 保留原义（自动化一轮人数），新增 `notifyOnlyUsers`、`notifyOnlyPlanned`、`notifyOnlyStoppedByBudget`、`notifyOnlyCandidatesTruncated`、`notifyOnlyResumeAfter`；
+- 补发整轮出错：记 `notifyOnlyError`，`failedCount` 加 1，运行由 `runTrackedAutomation` 记为 `partial`（岗位心跳与时间线只看 status，记成 `succeeded` 会看不到）；
+- 自动化一轮的结果条目补上 `notifications`，两轮字段对称。
 
-**否决**：放进 `revenue-spine` 或 `daily-brief` 等别的定时任务。主动提醒的运行应记在 `proactive-scan` 名下，A-1 / A-2 的岗位心跳按这个 key 看。
+**否决**：
+- 放进 `revenue-spine` 或 `daily-brief` 等别的定时任务。主动提醒的运行应记在 `proactive-scan` 名下，A-1 / A-2 的岗位心跳按这个 key 看；
+- 主体留在路由里：两轮计数与失败计入只能做源码静态断言，交叉审查的变异测试证明那样测不出计数错位。
 
 ### D4：平台管理员排除
 
@@ -81,9 +90,17 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
 - 他们在旧首页上也会这样，但那是本人打开首页时才触发。定时补发不应替他们做。
 - 他们开了自动化偏好的，仍走原有一轮。
 
+### D5：通知 sourceKey 带 userId
+
+- `notify.ts` 的 key 改为 `proactive:{userId}:{dedupeKey}`；查本人名下已有的 key 时同时查新旧两种，旧格式在本人名下视为已发；返回 `createMany` 的实际 `count`。
+- 上线后：本人已收到过的不重发；过去被别人占掉 key、本人从没收到的，会补发一次。
+- **否决**：
+  - 不改代码，只把规格改成"每条提醒全平台只写一次，先扫到者得"：补发的目的就是让管理层收到提醒，固定扫描顺序会让同一批人永远收不到；
+  - 迁移已有通知的 sourceKey：要批量改别人的数据，旧格式只需识别、不需改写。
+
 ## 与八条硬纪律的关系
 
-1. **零 schema**：只读既有表（`OrganizationMember`、`User`），写既有 `Notification`；不加列、不加表。
+1. **零 schema**：只读既有表（`OrganizationMember`、`User`、`AutomationRun`），写既有 `Notification`；游标写进本定时任务自己运行记录的既有 `metadataJson`；不加列、不加表。
 2. **出站先审批**：只写站内通知，不发邮件、不发微信，不执行自动动作，没有外发。
 3. **禁止第三套队列**：沿用 `vercel.json` 里既有的 `proactive-scan`（每小时），不新增 cron / 队列。
 4. **脱敏**：通知内容与旧首页相同（建议标题与描述），不新增字段；运行结果只记 userId、计数与错误信息。
@@ -105,8 +122,10 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
 ## Risks / Trade-offs
 
 - **[覆盖比旧首页略宽]**：30 天内登录过的管理层都会收到提醒，不管当天开没开首页。去重保证同一条只出现一次。列为 GATE 注意项。
-- **[30 天窗口]**：`lastLoginAt` 只在登录时更新，会话长期不过期的人可能被误判为不活跃。
-- **[时间预算]**：自动化一轮人多时，补发一轮可能处理不完，靠轮转在后续几轮补齐。
+- **[30 天窗口]**：`lastLoginAt` 在每次登录时更新（会话最长 7 天），活跃用户不会被误判；为空的主要是微信首次注册、从未走过登录的新账号，不在补发范围内。
+- **[上线时补发一次]**：D5 之后，过去被同组织别人占掉 key 的提醒会给本人补发一次；之后按用户去重。列为 GATE 注意项。
+- **[时间预算]**：自动化一轮人多时，补发一轮可能处理不完，靠游标在后续几轮补齐；游标读取失败时从头开始，不会跳人。
+- **[候选上限]**：管理层成员行超过 2000 时只在前 2000 行（按 userId）里轮转，metadata 标出截断。
 
 ## Migration Plan
 
