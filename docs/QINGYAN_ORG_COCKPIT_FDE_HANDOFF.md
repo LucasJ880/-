@@ -47,6 +47,34 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 9. （A-2）"等你 N 件" = `/capabilities/approvals` 待我审批（PendingAction + ApprovalRequest + 产品内容审批，带决策权）∪ workforce 需要你，作业的审批已列出则去重；通知不另计。**A-3 的跳转目标是 `/capabilities/approvals`，不是 `/inbox`**（`/inbox` 是快速捕获页）。
 10. （A-2）两个 API 只对首页同口径管理层开放；时间线无 `(orgId, createdAt)` 索引，靠 7 天窗口 + limit+1 + 事件白名单，`EXPLAIN` 留到 staging。
 
+## A-4 预研事实（只读调研结果，写 proposal 前先核对一遍）
+
+任务书 A-4 的口径与代码现状有几处对不上，propose 时要逐条写成"偏差"：
+
+1. **AutomationRun** 有 `orgId String?` 列和 `[orgId, automationKey, startedAt]` 索引，但唯一写入方 `runTrackedAutomation`（`src/lib/automation/runner.ts`）的 45 个调用点都不传 orgId → 实际恒为 null，仍按平台级处理。**AgentRun** `orgId` 必填，但没有 `(orgId, createdAt)` 索引（有 `[orgId, status]`）。
+2. **PendingAction 状态只有** pending / approved（执行中的占位）/ executed / failed / rejected。
+   - 没有 `expired` / `edited` / `auto_executed`。
+   - 过期 = `status: "failed"` 且 `failureReason: "已过期"`、无 `decidedById`（`expireOverdueApprovals`，`src/lib/approval/port.ts`；执行器懒过期 `executor.ts`）。
+   - 人工取消 = failed + "已取消"（有 decidedById）；关联任务取消 = rejected + "关联任务已取消…"。
+   - 其他 failed 原因：BATCH_PREPARE_FAILED、未接入执行器、报价让利已变化、`SUPERSEDED_BY_ONBOARDING_TEST` 前缀。
+   - **没有"编辑后批准"信号**：PendingAction 无 editedPayload，审批接口只收 decision + reason。`humanDecision: "edited"` 属于 employee-ai 反馈系统（`src/lib/employee-ai/feedback-service.ts`），不是 PendingAction。
+   - 没有自动执行路径（报价路由直接 pending→executed 也带 decidedById）。
+   - 索引 `[orgId, status, createdAt]`。
+3. **SalesAction.inputContext.guardrailBlockedAt**：ISO 字符串，`guardrailMarkerPatch`（`src/lib/revenue-spine/fde/inbound-sales.ts`）在 draftStatus 为 guardrail_blocked / no_email 且有违规时写入，重跑不清除；SalesAction `orgId` 必填。
+4. **AiUsageLedger 没有 runType**。
+   - `sourceType` 取值：AGENT_RUNTIME / PRODUCT_CONTENT / IMAGE_ENGINE / SUPERVISOR / WORKFLOW / MANUAL_IMPORT。
+   - 只能经 `runId → AgentRun.runType` 归岗位，而且 runId 经常为空（`ai/usage-ledger-bridge.ts` 不填）。
+   - 字段：`costAmount Decimal(18,6)`、`inputTokens` / `outputTokens`。索引 `[orgId, occurredAt]`。
+5. **Organization.settingsJson**（`Json?`）目前没有 `cockpit` 键；仓库惯例是每个键一个纯函数读取 `settingsJson: unknown`（如 `resolveOrgTimezone`、`runVisibilityFromOrgSettings`）。
+6. **sla-metrics.ts**（`src/lib/revenue-spine/sla-metrics.ts`）已导出可复用的判定：
+   - `isOnboardingTestInquiry({utmSource, customerTags, lostReason})`；
+   - `utmSourceOf(inputContext)`；
+   - `TRADE_SHOW_SOURCE = "trade_show"`，来源取 `opportunity.source ?? inputContext.source`。
+   - 统计范围：`employeeKey = FDE_EMPLOYEE_KEY`、`actionType = "inbound_inquiry"`，先按商机去重，再排除测试询盘，再把展会单列。
+   - `sla-tiers.ts` 已在复用这些判定。
+7. **`/ai-activity` 不显示任何运行计数**：它按**当前用户**分页读 AuditLog（`ai_generate` / `ai_send` / `ai_analyze`），浏览器本地时区分天。GATE-A2"14 天工作量图与 `/ai-activity` 的运行计数一致"按字面无法满足，需改口径。
+8. **按天分桶**：组织时区来自 `settingsJson.timezone`（`resolveOrgTimezone`，默认 America/Toronto），`getLocalTimeParts(date, tz).date` 给 YYYY-MM-DD，`localDayBounds` / `zonedLocalToUtc` 在 `revenue-spine/owner-today.ts`、`business-days.ts`；没有现成的多天分桶函数。
+
 ## 环境（云端容器每次都是新的，照做即可）
 
 ```bash
