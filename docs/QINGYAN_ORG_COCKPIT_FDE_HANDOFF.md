@@ -21,7 +21,7 @@
 | ID | change | 四件套 | apply | 测试 | verify | 交叉验证 | 状态列 |
 |---|---|---|---|---|---|---|---|
 | A-1 | `org-cockpit-posts`（[PR #244](https://github.com/LucasJ880/-/pull/244)，base `main`） | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
-| A-2 | `org-cockpit-read-model`（PR 见下） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
+| A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
 | A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
 | A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
 | B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
