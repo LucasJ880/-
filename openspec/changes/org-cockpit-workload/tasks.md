@@ -2,7 +2,7 @@
 
 ## 1. 工作量汇总（纯函数）
 
-- [ ] 1.1 新建 `src/lib/cockpit/workload.ts`：
+- [x] 1.1 新建 `src/lib/cockpit/workload.ts`：
   - 内容：阈值默认值与逐项校验；本地日序列与分桶；待审批结局规则表；AI 运行 / 用量 / 待审批 / 询盘的归属；按岗位 × 天汇总与近 7 天合计；四条规则与原因文案；"未接入 / 不适用 / 未入账"标记。
   - 新建 `src/lib/cockpit/__tests__/workload.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
   - verify：`npx tsx src/lib/cockpit/__tests__/workload.test.ts` 退出 0，含 ≥ 15 个表驱动用例。用例须覆盖 spec「待审批动作的结局判定」「按组织本地日分桶」「疑似无用功规则」「阈值可按组织覆盖」「询盘销售口径与 SLA 指标一致」「AI 用量与成本归属」「未接入的指标明示」的全部 scenario。
