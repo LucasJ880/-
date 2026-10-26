@@ -38,7 +38,7 @@
   - **GATE 注意项**：company.log 操作人显示为负责人（`AuditLog.userId` 外键），来源与键名只在 `afterData`。建议后续给 A-2 时间线加动作中文标签与来源。
   - staging：先跑 seed 脚本 dry-run，再 `--write`；核对审计、通知，确认 Sunny 窗饰车道商机未被动。
 - **决策已到（用户，2026-10-26）**：B-2 选 (b)，对"人工回复作废草稿"（`SUPERSEDED_BY_MANUAL_REPLY`）做草稿 vs 人工回复的 diff；B-3 选 (b)，偏好放进 `revenue_spine.policy` 新段。
-- **B-2 `fde-fact-proposals`**（分支 `claude/fde-fact-proposals`，叠在 B-5 上，PR 见进度表，base = B-5 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-2_REPORT.md`（偏差 13 条；交叉审查两轮：第一轮 2 阻塞 + 9 应修，第二轮 4 应修，全部处理）。
+- **B-2 `fde-fact-proposals`**（分支 `claude/fde-fact-proposals`，叠在 B-5 上，[PR #251](https://github.com/LucasJ880/-/pull/251)，base = B-5 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-2_REPORT.md`（偏差 13 条；交叉审查两轮：第一轮 2 阻塞 + 9 应修，第二轮 4 应修，全部处理）。
   - 归档顺序：先归档 `fde-feedback-loop`，再归档本 change（本 change 修改 B-1 的能力）。
   - 做了什么：
     - B-1 记录器加"人工已回复"终态（`replaced_by_manual_reply`，humanDecision edited，diff = 快照 vs 外发互动正文）；开发信与线索页手工留痕只记事件、不抽；
@@ -64,7 +64,7 @@
 | A-3 | `org-cockpit-home`（[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支） | ✅ `c7f4b57`（两轮审查后修订） | 8/8 | ✅ 419/433，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：1 阻塞（列为 GATE 决策项）+ 8 应修 + 第二轮 4 项，全部处理 | `[G]` |
 | A-4 | `org-cockpit-workload`（[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支） | ✅ `00080806` | 7/7 | ✅ 422/436，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 5 应修 + 4 小全部处理 | `[G]` |
 | B-1 | `fde-feedback-loop`（[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支） | ✅ `61feec70` | 6/6 | ✅ 424/438，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞 + 6 应修全部处理 | `[G]` |
-| B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
+| B-2 | `fde-fact-proposals`（[PR #251](https://github.com/LucasJ880/-/pull/251)，base = B-5 分支） | ✅（两轮审查后修订 `b949bce7`） | 5/5 | ✅ 430/444，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：2 阻塞 + 9 应修，第二轮 4 应修，全部处理 | `[G]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
