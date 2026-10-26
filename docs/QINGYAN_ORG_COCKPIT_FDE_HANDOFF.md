@@ -13,7 +13,9 @@
 
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
-- **下一步：A-3 `org-cockpit-home`**，从 `claude/org-cockpit-read-model` 切出 `claude/org-cockpit-home`。输入：首页 `src/app/(main)/page.tsx` 是服务端组件（`resolveWorkspaceContextFromCookies` + `resolveHomeRedirect`，非管理层重定向，保留）；客户端用 `apiFetch` 调 `/api/cockpit/posts` 与 `/api/cockpit/timeline`（这两个前缀不在 `ORG_SCOPED_API_PREFIXES`，服务端按 DB 活动组织解析，与 `/workforce` 一致）；"等你 N 件"跳 `/capabilities/approvals`；卡片标注心跳平台级、`unattributed` 计数、KPI 的 `window` 口径；视觉按 `DESIGN.md`（宣纸 #f2f0eb / 玉白 #faf8f4、半透明边框、黛青仅用于交互、最重 600、44px 触控）。D-2：直接替换旧首页 `ManagementDashboardClient`。
+- **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上）：四件套 ✅（`c7f4b57`）；apply 4/6（`presentation.ts` 41 条、`org-cockpit-view.tsx` 渲染测试 59 条、容器 `org-cockpit-home.tsx`、首页替换；视觉核对三档截图在 scratch，已发用户；修了窄屏时间线排版与 globals.css 在 iPad 把 `.grid-cols-3` 强制两列的问题）。进行中：task 5.1 全量门禁、独立交叉审查；之后 6.1 报告 + `[G]` + PR（base = `claude/org-cockpit-read-model`）。
+- 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
+- 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
 
 ## 进度表
@@ -22,7 +24,7 @@
 |---|---|---|---|---|---|---|---|
 | A-1 | `org-cockpit-posts`（[PR #244](https://github.com/LucasJ880/-/pull/244)，base `main`） | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
 | A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
-| A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
+| A-3 | `org-cockpit-home` | ✅ `c7f4b57` | 4/6 | 进行中 | — | 进行中 | `[~]` |
 | A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
 | B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
