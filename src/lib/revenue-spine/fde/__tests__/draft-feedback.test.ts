@@ -267,6 +267,38 @@ async function main() {
     ok(recorded.join(",") === "a,c" && res.scanned === 3 && res.recorded === 1 && res.skipped === 1, "已有事件的跳过，其余逐个记录", { recorded, res });
   }
 
+  console.log("接入点（spec「接入点覆盖全部审批入口并有补漏」）");
+  {
+    const port = stripComments(read("src/lib/approval/port.ts"));
+    const helper = port.slice(port.indexOf("async function recordFdeDraftFeedback"), port.indexOf("export async function approveApprovalItem"));
+    ok(/if \(type && type !== INQUIRY_REPLY_ACTION\) return;/.test(helper) && /try \{[\s\S]*recordInquiryReplyFeedbackSafe\(actionId, \{ type \}\)[\s\S]*\} catch/.test(helper), "端口钩子：非询盘回复不加载、包在异常保护里");
+    const approve = port.slice(port.indexOf("export async function approveApprovalItem"), port.indexOf("export async function rejectApprovalItem"));
+    const reject = port.slice(port.indexOf("export async function rejectApprovalItem"), port.indexOf("export async function expireOverdueApprovals"));
+    for (const [name, fn, call] of [["批准", approve, "executePendingAction("], ["驳回", reject, "rejectPendingAction("]] as const) {
+      const hook = fn.indexOf("await recordFdeDraftFeedback(id, before?.type);");
+      const lastDuplicate = fn.lastIndexOf("duplicate: true");
+      ok(hook !== -1 && fn.split("recordFdeDraftFeedback(").length === 2, `${name}：恰好一处调用`);
+      ok(hook > fn.indexOf(call) && hook > lastDuplicate, `${name}：在执行之后、所有重复 / 已终态分支之后（重复请求不调用，spec 场景）`);
+    }
+    ok(/select: \{ agentRunId: true, orgId: true, status: true, type: true \}/.test(reject), "驳回前读出类型，非询盘回复不加载模块");
+    const expire = port.slice(port.indexOf("export async function expireOverdueApprovals"));
+    ok(/for \(const row of expiredWinners\) \{\s*if \(row\.type === INQUIRY_REPLY_ACTION\) await recordFdeDraftFeedback\(row\.id, row\.type\);/.test(expire), "过期：只对本轮赢家调用");
+    ok(expire.indexOf("recordFdeDraftFeedback(") > expire.indexOf("reconcileWorkforceRunsAfterApprovalExpiry(expiredWinners)"), "过期：放在 run 收敛之后");
+    ok(/select: \{ id: true, orgId: true, agentRunId: true, type: true \}/.test(expire), "过期候选带类型");
+
+    const inbound = stripComments(read("src/lib/revenue-spine/fde/inbound-sales.ts"));
+    const snap = inbound.indexOf("await recordInquiryDraftSnapshotSafe(");
+    ok(snap !== -1 && inbound.split("recordInquiryDraftSnapshotSafe(").length === 2, "首封回复：一处写快照");
+    ok(/if \(draftCreated && pendingActionId\) \{\s*await recordInquiryDraftSnapshotSafe\(/.test(inbound) && /draftCreated = !openDraft && !!pendingActionId;/.test(inbound), "首封回复：只在新建（非复用）时写快照（spec 场景）");
+    ok(/buyer: \{ contactName: draftInput\.contactName, companyName: opp\.customer\.name, recipientEmail: opp\.customer\.email \}/.test(inbound), "首封回复：买家信息传给替换");
+    const follow = stripComments(read("src/lib/revenue-spine/fde/no-reply-followup.ts"));
+    ok(/const pendingActionId = approval\.actionIds\[0\];\s*out\.drafted \+= 1;\s*if \(pendingActionId\) \{\s*await recordInquiryDraftSnapshotSafe\(/.test(follow) && /followUpStep: due\.step/.test(follow), "跟进草稿：新建后写快照，带第几次跟进");
+    const route = stripComments(read("src/app/api/cron/approval-timeout/route.ts"));
+    ok(/try \{[\s\S]*sweepInquiryReplyFeedback\(now\)[\s\S]*\} catch/.test(route) && route.indexOf("sweepInquiryReplyFeedback(") > route.indexOf("expireOverdueApprovals(now)"), "approval-timeout：过期之后补漏，包在异常保护里");
+    const vercel = read("vercel.json");
+    ok(!/feedback/i.test(vercel) && (vercel.match(/"path":/g) ?? []).length === 23, "不新增定时任务（vercel.json 仍是 23 条 cron）");
+  }
+
   console.log("常量与写入方一致");
   ok(read("src/lib/revenue-spine/fde/inbound-sales.ts").includes(`INQUIRY_REPLY_ACTION_TYPE = "${INQUIRY_REPLY_TYPE}"`), "询盘回复动作类型");
   ok(read("src/lib/revenue-spine/fde/actions.ts").includes(`FDE_EMPLOYEE_KEY = "${FDE_FEEDBACK_SKILL}"`), "员工键");

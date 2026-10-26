@@ -22,7 +22,7 @@
 
 ## 3. 接入
 
-- [ ] 3.1 接入点如下，均为尽力而为：
+- [x] 3.1 接入点如下，均为尽力而为：
   - `inbound-sales.ts` 与 `no-reply-followup.ts`：审批新建成功（非复用）后写快照；
   - `approval/port.ts`：批准 / 驳回的非重复分支与过期赢家调用记录器；
   - `api/cron/approval-timeout/route.ts`：追加补漏扫描。

@@ -20,6 +20,14 @@ export async function GET(request: NextRequest) {
   const data = await runTrackedAutomation("approval-timeout", async () => {
     const now = new Date();
     const result = await expireOverdueApprovals(now);
+    // B-1：补漏扫描——终态超过 10 分钟仍无反馈事件的 FDE 询盘回复审批（尽力而为，不影响本任务结果）
+    let feedbackSweep: { scanned: number; recorded: number; skipped: number } | null = null;
+    try {
+      const { sweepInquiryReplyFeedback } = await import("@/lib/revenue-spine/fde/draft-feedback");
+      feedbackSweep = await sweepInquiryReplyFeedback(now);
+    } catch (err) {
+      console.error("[approval-timeout] FDE 反馈补漏失败:", err instanceof Error ? err.name : typeof err);
+    }
     const processedCount = result.expiredPendingActions + result.escalatedApprovals + result.staleApprovals;
 
     return {
@@ -29,6 +37,7 @@ export async function GET(request: NextRequest) {
         escalatedCount: result.escalatedApprovals,
         staleCount: result.staleApprovals,
         remindedCount: result.remindedApprovals,
+        feedbackSweep,
       },
       processedCount,
       succeededCount: processedCount,

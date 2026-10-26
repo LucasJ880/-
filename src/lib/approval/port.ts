@@ -181,6 +181,22 @@ async function reconcileAfterPendingAction(input: {
   }
 }
 
+/**
+ * B-1（fde-feedback-loop）：FDE 询盘回复草稿到达终态后产生团队反馈事件。
+ * 只在改变了状态的那一次调用里触发（重复 / 已终态分支不调用）；尽力而为，任何异常只记日志，
+ * 不改变审批结果与返回值。非询盘回复类型不加载模块。
+ */
+const INQUIRY_REPLY_ACTION = "sales.send_inquiry_reply";
+async function recordFdeDraftFeedback(actionId: string, type: string | null | undefined): Promise<void> {
+  if (type && type !== INQUIRY_REPLY_ACTION) return;
+  try {
+    const { recordInquiryReplyFeedbackSafe } = await import("@/lib/revenue-spine/fde/draft-feedback");
+    await recordInquiryReplyFeedbackSafe(actionId, { type });
+  } catch (err) {
+    console.error("[approval.port] FDE 反馈事件记录失败:", err instanceof Error ? err.name : typeof err);
+  }
+}
+
 export async function approveApprovalItem(
   kind: ApprovalKind,
   id: string,
@@ -276,6 +292,8 @@ export async function approveApprovalItem(
         : result.error?.includes("过期")
           ? "expired"
           : "failed";
+
+    await recordFdeDraftFeedback(id, before?.type);
 
     const run = await reconcileAfterPendingAction({
       actionId: id,
@@ -398,7 +416,7 @@ export async function rejectApprovalItem(
   if (kind === "pending_action") {
     const before = await db.pendingAction.findUnique({
       where: { id },
-      select: { agentRunId: true, orgId: true, status: true },
+      select: { agentRunId: true, orgId: true, status: true, type: true },
     });
 
     if (before && before.status === "rejected") {
@@ -461,6 +479,8 @@ export async function rejectApprovalItem(
         run,
       };
     }
+
+    await recordFdeDraftFeedback(id, before?.type);
 
     const run = await reconcileAfterPendingAction({
       actionId: id,
@@ -584,7 +604,7 @@ export async function expireOverdueApprovals(
   //    run —— 过期 PendingAction 不得让 run 永久卡在 awaiting_approval。
   const expiredCandidates = await db.pendingAction.findMany({
     where: { status: "pending", expiresAt: { lte: now } },
-    select: { id: true, orgId: true, agentRunId: true },
+    select: { id: true, orgId: true, agentRunId: true, type: true },
     take: 500,
   });
   // 原子 winner 判定：candidate 快照与标记之间 approve/reject/execute 可能先赢
@@ -613,6 +633,11 @@ export async function expireOverdueApprovals(
   } catch (e) {
     // reconcile 失败不阻断既有过期/升级/提醒流程（下轮 cron 可重试，幂等）
     console.error("[approval.port] workforce expiry reconcile failed:", e);
+  }
+
+  // B-1：本轮过期的询盘回复草稿 → 反馈事件（只处理赢家；放在 run 收敛之后，尽力而为）
+  for (const row of expiredWinners) {
+    if (row.type === INQUIRY_REPLY_ACTION) await recordFdeDraftFeedback(row.id, row.type);
   }
 
   // 2) 超过 deadline 的步骤级审批：逐个升级 + 通知（复用现有 escalation）
