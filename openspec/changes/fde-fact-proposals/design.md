@@ -82,22 +82,28 @@
   - `-----Original Message-----`；
   - `From:` / `发件人：` / `发件人:` 开头的邮件头；
   - `在 … 写道：`。
-- **新增行**：`draft-diff.ts` 导出 `addedLines(original, sent)`（复用多重集差），返回带段落类型的行。没有快照时取外发正文的全部行。
+- **新增行**：`draft-diff.ts` 导出 `sectionedLines(body)` 与 `addedLineIndexes(original, sent)`（复用多重集差），得到带段落类型的新增行。没有快照时取外发正文的全部行。
+- **结束语**：按**整封回复**判有没有结束语（复用 `draft-diff.ts` 的 `isClosing`，一份词表）。照抄草稿的 "Best regards," 不在新增行里，只看新增行会误判成"没有结束语"。
+  - 有结束语：结束语之后是签名段，只抽落款，签名里的口号（"fast delivery in 15 days"）不当事实；
+  - 没有结束语：最后一段会被兜底判成签名，这一段也按事实段抽（"Hi Mark,\n\nMOQ is 500 pcs per color." 这种短回复）。
 - **价格过滤** `isPriceLine`：命中以下任一即整句跳过：
-  - 币种符号或代码（`$ US$ USD ¥ RMB CNY EUR € £ GBP`）；
-  - 价格类词（`price / pricing / quote(d) price / unit price / cost / discount / rebate / commission / payment / T/T / L/C / 报价 / 价格 / 单价 / 折扣 / 返点 / 佣金 / 付款 / 账期`）；
-  - 百分号。
-- **逐字段规则**（只看非价格行）：
+  - 币种符号与百分号（`$ ¥ ￥ € £ %`）；
+  - 币种代码 `USD / RMB / CNY / EUR / GBP`，后面紧跟数字也算（`USD4.80`、`RMB25/pc`）；`CAD / AUD / HKD` 只在紧挨数字时算（窗饰行业常说"CAD 图纸"）；
+  - 价格、费用与条款词：`price(s/d) / pricing / cost(s) / discount / rebate / commission / payment / quotation / quoted / dollar / euro / cent / fee / charge（"in charge" 除外）/ credit / T/T / L/C / O/A / D/P / net N`、`free sample(s)`；
+  - 中文：`报价 / 价格 / 单价 / 价钱 / 折扣 / 优惠 / 返点 / 佣金 / 付款 / 账期 / 货款 / 人民币 / 美元 / 欧元 …`；"元"只在紧挨数字或后跟"/ 每"时算（"元旦"不算）；"块"只在后跟"钱 / 一 / 每 / /"时算（"样品 3 块"不算）；"费"只认具体费用词（`费用 / 运费 / 样品费 / 模具费 / 手续费 / 收费 / 免费 …`，"消费者"不算）。
+  - 宁可多跳：误杀只是少抽一个事实，漏拦会把价格写进卡片。
+- **逐字段规则**（只看非价格行；每行按分句判断）：
 
 | 字段 | 触发词 | 取值规则 |
 |---|---|---|
-| `moq` | `MOQ / minimum order (quantity) / 起订量 / 最小起订` | 用 `captureNumbers` 取第一个件数类单位的数，per 取 color / style / design / size 或 每色 / 每款 |
-| `sampleLeadTime` | `sample / 样品 / 打样` + 天数或区间 | 句中有 `stock / ready / existing / 现货` → 现货天数；否则 → 定制样区间 |
-| `productionLeadTime` | `production / lead time / bulk / mass production / delivery / 大货 / 生产周期 / 交期` + 天数区间，周换算 ×7 | 起算点识别 `PP sample / pre-production sample / 产前样 / 大货样`、`deposit / 定金`、`order confirmation / 确认订单`，否则用默认起算点 |
-| `loadingPorts` | `port / loading port / ship from / FOB / 装运港 / 港口` | 匹配固定中国主要港口词表（中英） |
-| `catalogUrl` | `catalog / catalogue / brochure / 目录 / 产品册` | 同句的 URL |
-| `signature` | 只看签名段 | `WhatsApp` 号码、网站 URL、职位行（`manager / director / executive / representative / specialist / coordinator / 经理 / 总监 / 主管 / 专员`，无数字、≤ 60 字） |
+| `moq` | `MOQ / minimum order (quantity) / min. order / 起订量 / 最小起订 / 起订` | 取关键词**之后**最近的件数类数字；之后没有时，只取**紧挨**在关键词前面的数字（"500 pcs MOQ"），且句子不含 `below / less than / under / 低于 / 不到 / 少于`。per 取 color / style / design / size 或 每色 / 每款，没写记为 null |
+| `sampleLeadTime` | `sample / 样品 / 打样` + 天数或区间（产前样字样不算） | `stock sample / in stock / existing sample / ready-made / 现货` → 现货天数（`ready in N days` 的 ready 不算现货）；否则 → 定制样区间 |
+| `productionLeadTime` | `production / lead time / bulk / mass production / delivery / 大货 / 生产周期 / 交期`（先去掉产前样字样）+ 天数区间，周换算 ×7 | 运输时间不算（`by sea / transit / to your warehouse / 海运 …`）；起算点识别 `PP sample / pre-production sample / 产前样 / 大货样`、`deposit / 定金`、`order confirmation / 确认订单`，没写记为 null |
+| `loadingPorts` | `port / loading / ship from / FOB / 装运港 / 起运港 / 港口` | 匹配固定中国主要港口词表（中英，"Ningbo Port" / "宁波港"规范成 Ningbo）；含 `destination / discharge / POD / 目的港 / 卸货港` 的句子不算 |
+| `catalogUrl` | `catalog / catalogue / brochure / 目录 / 产品册 / 画册` | 同句的 URL；`https://` 原样（scheme 转小写），`www.` 补 `https://`，`http://` 不收 |
+| `signature` | 只看签名段 | `WhatsApp`（含 `WhatsApp/WeChat` 合写）号码、网站 URL（社交主页不算）、职位行（职位词，无数字，≤ 60 字、≤ 6 个词，`P.S.` 开头的不算）；证据句取第一个抽到子字段的行 |
 
+- 回复里没写的部分记为 null，**不在抽取时补默认值**；起卡时先沿用企业当前值，当前也没有时才用合并规则的默认值（起订量 per = style、默认起算点），卡片预览注明"按默认值补上"。
 - 买家排除：网址与 WhatsApp 不取买家邮箱同域或与买家邮箱 / 电话相同的值。
 - 理由：
   - 确定性、可表驱动测；

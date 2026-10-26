@@ -62,6 +62,20 @@ const CASES: Case[] = [
   },
   { name: "中文：您要的 300 件低于起订量 500 件", text: reply("您要的300件低于我们的起订量500件"), expect: { moq: { quantity: 500, unit: "pcs", per: null } } },
   { name: "数字在关键词之前：500 pcs MOQ per color", text: reply("500 pcs MOQ per color"), expect: { moq: { quantity: 500, unit: "pcs", per: "color" } } },
+  { name: "中文：每色500件起订（数字紧挨关键词）", text: reply("每色500件起订"), expect: { moq: { quantity: 500, unit: "pcs", per: "color" } } },
+  { name: "低于起订量（关键词后没有数字）：不取买家的 300", text: reply("Sorry, 300 pcs is below our MOQ."), expect: {}, absent: ["moq"] },
+  { name: "低于起订量 + 分句后才给 500：不取 300", text: reply("300 pcs is below our MOQ, could you increase to 500 pcs?"), expect: {}, absent: ["moq"] },
+  { name: "中文：300件低于起订量，建议每色 500 件 → 不取 300", text: reply("300件低于我们的起订量，建议每色 500 件。"), expect: {}, absent: ["moq"] },
+  {
+    name: "中文长句：消费者 / 宁波港 不误杀，起订量与大货周期照抽",
+    text: reply("您好，我们是宁波的窗帘工厂，产品深受欧美消费者喜爱，起订量每色500件，大货周期30天，从宁波港出货。"),
+    expect: { moq: { quantity: 500, unit: "pcs", per: "color" }, productionLeadTime: { daysMin: 30, daysMax: 30, startsFrom: null } },
+  },
+  {
+    name: "in charge of / CAD drawing 不误杀",
+    text: reply("Thanks for your inquiry. I am in charge of your account. Our MOQ is 500 pcs per color and lead time is 30-35 days."),
+    expect: { moq: { quantity: 500, unit: "pcs", per: "color" }, productionLeadTime: { daysMin: 30, daysMax: 35, startsFrom: null } },
+  },
   // ── 样品 ──
   { name: "定制样 7-10 天", text: reply("Samples can be ready in 7-10 days."), expect: { sampleLeadTime: { stockDays: null, customDaysMin: 7, customDaysMax: 10 } } },
   { name: "现货样 3 天", text: reply("Stock samples ship within 3 days."), expect: { sampleLeadTime: { stockDays: 3, customDaysMin: null, customDaysMax: null } } },
@@ -98,6 +112,7 @@ const CASES: Case[] = [
   { name: "目录链接", text: reply("Please find our catalog here: https://example-home.example/catalog.pdf."), expect: { catalogUrl: "https://example-home.example/catalog.pdf" } },
   { name: "中文：产品目录 www 链接 → 补 https://", text: reply("产品目录：www.example-home.example/catalog"), expect: { catalogUrl: "https://www.example-home.example/catalog" } },
   { name: "http:// 目录链接不收（合并规则只收 https）", text: reply("Catalog: http://example-home.example/catalog"), expect: {}, absent: ["catalogUrl"] },
+  { name: "大写 HTTPS:// 目录链接 → scheme 转小写", text: reply("Catalog: HTTPS://example-home.example/Catalog"), expect: { catalogUrl: "https://example-home.example/Catalog" } },
   // ── 落款 ──
   {
     name: "落款：职位 / WhatsApp / 网站",
@@ -114,6 +129,12 @@ const CASES: Case[] = [
     text: reply("Noted.", "Best regards,\nLucy\nP.S. Our sales manager will call you tomorrow"),
     expect: {},
     absent: ["signature"],
+  },
+  {
+    name: "Yours faithfully 也算结束语：签名口号不当事实抽",
+    text: reply("Noted.", "Yours faithfully,\nLily\nFast delivery in 15 days | Ship from Ningbo port"),
+    expect: {},
+    absent: ["productionLeadTime", "loadingPorts"],
   },
   {
     name: "没有结束语的短回复：最后一段不当签名跳过",
@@ -211,9 +232,32 @@ ok("isPriceLine：币种（含紧贴数字）/ 金额单位 / 价格与费用词
     "price list",
     "free sample",
     "样品免费",
+    "free of charge",
+    "CAD 25",
+    "25 CAD",
+    "HKD100",
+    "30块一件",
+    "25元每件",
+    "样品费 50",
+    "收费标准",
   ])
     assert.equal(isPriceLine(l), true, l);
-  for (const l of ["FOB Ningbo", "MOQ 500 pcs", "交期 30 天", "after deposit", "Europe market", "Lead time 30-35 days after deposit received"]) assert.equal(isPriceLine(l), false, l);
+  for (const l of [
+    "FOB Ningbo",
+    "MOQ 500 pcs",
+    "交期 30 天",
+    "after deposit",
+    "Europe market",
+    "Lead time 30-35 days after deposit received",
+    "产品深受欧美消费者喜爱",
+    "我们的电子元件起订量 1000 个，交期 25 天。",
+    "元旦前可以安排生产，大货周期 30 天。",
+    "样品 3 块，7 天寄出。",
+    "Please send the CAD drawing, samples ready in 7 days, bulk 30 days.",
+    "I am in charge of your account.",
+    "元丰家纺",
+  ])
+    assert.equal(isPriceLine(l), false, l);
 });
 
 ok("dayRange：区间 / 单值 / 周换算 / 倒置区间无效", () => {

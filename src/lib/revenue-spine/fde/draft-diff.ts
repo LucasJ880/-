@@ -60,7 +60,8 @@ function isGreeting(lines: string[]): boolean {
   return lines.length <= 2 && (GREETING_RE.test(lines[0]) || GREETING_ZH_RE.test(lines[0]));
 }
 
-function isClosing(line: string): boolean {
+/** 结束语行（"Best regards," / "Yours faithfully," / "顺祝商祺"）；商务事实抽取判"有没有结束语"也用它，只维护一份词表 */
+export function isClosing(line: string): boolean {
   return CLOSING_RE.test(line) || CLOSING_ZH_RE.test(line);
 }
 

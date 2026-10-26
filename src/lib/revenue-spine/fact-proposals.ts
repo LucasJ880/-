@@ -28,7 +28,7 @@ import {
   type ExtractedFact,
   type FactField,
 } from "./fact-extract";
-import { addedLineIndexes, maskBuyerPii, sectionedLines, type BuyerPiiTerms } from "./fde/draft-diff";
+import { addedLineIndexes, isClosing, maskBuyerPii, sectionedLines, type BuyerPiiTerms } from "./fde/draft-diff";
 import { mergeBusinessProfile, mergeCommercialFacts, type BusinessProfile, type CommercialFacts, type RevenueSpinePolicy } from "./policy";
 
 export const FACT_PROPOSAL_TYPE = FACT_PROPOSAL_ACTION_TYPE;
@@ -65,7 +65,9 @@ export function extractFromReply(input: { snapshotBody: string | null; sentRaw: 
   const aligned = rawLines.length === diffLines.length && evidenceLines.length === diffLines.length;
   const indexes = input.snapshotBody ? addedLineIndexes(input.snapshotBody, forDiff) : diffLines.map((_, i) => i);
   const factLines = indexes.map((i) => ({ line: (aligned ? rawLines[i] : diffLines[i]).line, section: diffLines[i].section }));
-  return extractFacts(factLines, { buyerEmail: input.buyer.recipientEmail, buyerPhone: input.buyer.phone }).map((f) => ({
+  // 有没有结束语按整封回复判（照抄草稿的 "Best regards," 不在新增行里）
+  const signatureHasClosing = diffLines.some((l) => l.section === "signature" && isClosing(l.line));
+  return extractFacts(factLines, { buyerEmail: input.buyer.recipientEmail, buyerPhone: input.buyer.phone, signatureHasClosing }).map((f) => ({
     ...f,
     evidence: (aligned ? evidenceLines[indexes[f.lineIndex]] : diffLines[indexes[f.lineIndex]]).line.slice(0, EVIDENCE_MAX),
   }));
@@ -195,16 +197,27 @@ export interface FactProposalPayload {
   metadata: { orgId: string; opportunityId: string | null; sourcePendingActionId: string };
 }
 
+/** 回复里没写、当前也没有，只能按商务事实合并规则的默认值补上的部分（卡片里标出来，让老板知道不是销售写的） */
+export function defaultedParts(field: FactField, extracted: unknown, current: unknown): string[] {
+  const ext = recOf(extracted);
+  const cur = recOf(current);
+  if (field === "moq" && ext && !ext.per && !cur?.per) return ["按什么计（默认 style）"];
+  if (field === "productionLeadTime" && ext && !ext.startsFrom && !cur?.startsFrom) return [`起算点（默认 ${DEFAULT_PRODUCTION_STARTS_FROM}）`];
+  return [];
+}
+
 export function buildFactProposalApproval(
   p: PlannedProposal,
   ctx: { orgId: string; opportunityId: string | null; sourcePendingActionId: string },
 ): { title: string; preview: string; payload: FactProposalPayload; idempotencyKey: string } {
   const label = FACT_FIELD_LABELS[p.field];
   const proposed = factValueLabel(p.field, p.proposedValue);
+  const defaulted = defaultedParts(p.field, p.extractedValue, p.currentValue);
   return {
     title: `商务事实提案：${label} ${proposed}`.slice(0, 160),
     preview: [
       `${label}：当前 ${factValueLabel(p.field, p.currentValue)} → 提议 ${proposed}`,
+      ...(defaulted.length ? [`回复里没写、按默认值补上：${defaulted.join("；")}`] : []),
       "",
       "依据（发给买家的外发正文原句，已隐去买家信息）：",
       p.evidence,
@@ -383,26 +396,23 @@ export function defaultFactProposalDeps(): FactProposalDeps {
     approverCandidates: async (orgId) => {
       const { db } = await import("@/lib/db");
       const [org, members] = await Promise.all([
-        db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true, owner: { select: { role: true } } } }),
+        db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true } }),
         db.organizationMember.findMany({
-          where: { orgId, status: "active", user: { role: { in: ["boss", "admin", "super_admin"] } } },
+          where: { orgId, status: "active", user: { status: "active", role: { in: ["boss", "admin", "super_admin"] } } },
           select: { userId: true, joinedAt: true, user: { select: { role: true } } },
           orderBy: { joinedAt: "asc" },
           take: 50,
         }),
       ]);
-      const out: ApproverCandidate[] = members.map((m) => ({
+      // 只取在职成员：所有者账号停用、成员停用或不在成员表时都不当审批人
+      // （执行器在认领后才查成员身份，非成员批准会把卡消耗成 failed）
+      return members.map((m) => ({
         userId: m.userId,
         platformRole: m.user.role,
         isOwner: m.userId === org?.ownerId,
         active: true,
         joinedAt: m.joinedAt,
       }));
-      if (org?.ownerId && !out.some((c) => c.isOwner)) {
-        const ownerMember = await db.organizationMember.findUnique({ where: { orgId_userId: { orgId, userId: org.ownerId } }, select: { status: true } });
-        out.push({ userId: org.ownerId, platformRole: org.owner?.role ?? null, isOwner: true, active: !ownerMember || ownerMember.status === "active", joinedAt: null });
-      }
-      return out;
     },
     createApproval: async (input) => {
       const { requestApproval } = await import("@/lib/approval/request");

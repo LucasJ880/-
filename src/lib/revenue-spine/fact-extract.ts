@@ -9,7 +9,7 @@
  * - 网址 / WhatsApp 不取买家邮箱同域或与买家联系方式相同的值。
  */
 
-import { captureNumbers, type DraftSection } from "./fde/draft-diff";
+import { captureNumbers, isClosing, type DraftSection } from "./fde/draft-diff";
 
 export type FactField = "moq" | "sampleLeadTime" | "productionLeadTime" | "loadingPorts" | "signature" | "catalogUrl";
 export const FACT_FIELDS: readonly FactField[] = ["moq", "sampleLeadTime", "productionLeadTime", "loadingPorts", "signature", "catalogUrl"];
@@ -84,11 +84,16 @@ const PRICE_RE = new RegExp(
     // 币种符号与百分比
     String.raw`\$|¥|￥|€|£|%`,
     // 币种代码：后面紧跟数字也算（"USD4.80"、"RMB25/pc"）；"Europe" 不算
-    String.raw`\b(?:usd|rmb|cny|eur|gbp|cad|aud|hkd)(?![a-z])`,
-    // 价格、费用、付款与账期（"60 days credit"、"net 30"）
-    String.raw`\b(?:price[sd]?|pricing|costs?|discounts?|rebates?|commissions?|payments?|quotations?|quoted|dollars?|euros?|cents?|fees?|charges?|credit|t\/t|l\/c|o\/a|d\/p|net\s*\d+)\b`,
+    String.raw`\b(?:usd|rmb|cny|eur|gbp)(?![a-z])`,
+    // CAD / AUD / HKD 只在紧挨数字时算（窗饰行业常说"CAD 图纸"）
+    String.raw`\b(?:cad|aud|hkd)\s*\$?\d|\d[\d.,]*\s*(?:cad|aud|hkd)\b`,
+    // 价格、费用、付款与账期（"60 days credit"、"net 30"）；"in charge of" 不算
+    String.raw`\b(?:price[sd]?|pricing|costs?|discounts?|rebates?|commissions?|payments?|quotations?|quoted|dollars?|euros?|cents?|fees?|credit|t\/t|l\/c|o\/a|d\/p|net\s*\d+)\b|(?<!\bin\s)\bcharges?\b`,
     String.raw`\bfree\s+samples?\b|\bsamples?\s+(?:are|is)\s+free\b`,
-    String.raw`报价|价格|单价|价钱|折扣|优惠|返点|佣金|付款|账期|货款|元|人民币|美金|英镑|港币|块钱|\d\s*块|费|免费`,
+    // 中文：金额单位只在紧挨数字或后跟"/ 每"时算（"元旦"、"元丰"不算）；"块"还可能是件数（"样品 3 块"），
+    // 只在后跟"钱 / 一 / 每 / /"时算（"30块一件"）；"费"只认具体费用词（"消费者"不算）
+    String.raw`报价|价格|单价|价钱|折扣|优惠|返点|佣金|付款|账期|货款|人民币|美元|美金|欧元|英镑|港币|港元|日元|块钱|\d\s*元|\d\s*块\s*(?:钱|一|每|[/／])|(?:元|块)\s*[/／每]`,
+    String.raw`费用|运费|样品费|打样费|模具费|开版费|版费|手续费|快递费|收费|免费`,
   ].join("|"),
   "i",
 );
@@ -180,15 +185,21 @@ const PER_NORMALIZE: Record<string, string> = {
 /** 数字后没紧跟"per …"时，在整句里找"每色 / 每款 / 500件/色 / per colour" */
 const PER_FALLBACK_RE = /每\s*(色|款|个颜色|个尺码)|[/／]\s*(色|款)|\bper\s+(colou?r|style|design|size|sku|item)\b/i;
 
+/** "低于 / below" 句式里关键词前面的数字是买家的数量，不是起订量 */
+const BELOW_RE = /\b(?:below|less\s+than|under|lower\s+than|short\s+of)\b|低于|不到|少于|不足|达不到/i;
+/** 关键词前紧挨着的"数字 + 单位（+ 按什么计）"（"500 pcs MOQ"、"每色500件起订"） */
+const NUMBER_BEFORE_KEYWORD_RE = /(\d[\d,]*(?:\.\d+)?\s*[A-Za-z件个套米]+(?:\s*[/／]\s*[A-Za-z色款]+|\s+per\s+[A-Za-z]+)?)\s*$/;
+
 /**
  * 起订量取关键词之后最近的数字（"Your order of 300 pcs is below our MOQ of 500 pcs" → 500）；
- * 关键词之后没有数字时取它之前最近的一个（"500 pcs MOQ"）。
+ * 关键词之后没有数字时，只取紧挨在关键词前面的那个（"500 pcs MOQ"），且句子不是"低于起订量"句式。
  */
 function moqOf(clause: string): MoqValue | null {
   const k = MOQ_RE.exec(clause);
   if (!k) return null;
   const valid = (n: { unit: string; value: number }) => !!MOQ_UNITS[n.unit] && Number.isInteger(n.value) && n.value > 0;
-  const n = captureNumbers(clause.slice(k.index)).find(valid) ?? captureNumbers(clause.slice(0, k.index)).filter(valid).pop();
+  const adjacent = BELOW_RE.test(clause) ? null : NUMBER_BEFORE_KEYWORD_RE.exec(clause.slice(0, k.index))?.[1];
+  const n = captureNumbers(clause.slice(k.index)).find(valid) ?? (adjacent ? captureNumbers(adjacent).find(valid) : undefined);
   if (!n) return null;
   let per = n.per ? PER_NORMALIZE[n.per] : undefined;
   if (!per) {
@@ -286,7 +297,7 @@ const CATALOG_RE = /\bcatalog(?:ue)?s?\b|\bbrochure\b|目录|产品册|画册/i;
 
 /** 目录链接只收 https（与商务事实合并规则一致）：www. 开头补 https://；http:// 不收（无法确认支持 https） */
 export function normalizeCatalogUrl(url: string): string | null {
-  if (/^https:\/\//i.test(url)) return url;
+  if (/^https:\/\//i.test(url)) return `https://${url.slice("https://".length)}`;
   if (/^www\./i.test(url)) return `https://${url}`;
   return null;
 }
@@ -296,7 +307,6 @@ const SOCIAL_HOST_RE = /(^|\.)(linkedin\.com|facebook\.com|instagram\.com|twitte
 
 const TITLE_RE =
   /\b(sales|export|marketing|account|business\s+development|general|purchasing|product|project)?\s*(manager|director|executive|representative|specialist|coordinator|assistant|ceo|founder)\b|经理|总监|主管|专员|业务员|总经理/i;
-const CLOSING_LINE_RE = /^(best regards|kind regards|warm regards|regards|best wishes|sincerely|yours sincerely|many thanks|thanks|thank you|cheers|此致|祝好|顺祝商祺|谢谢)/i;
 /** "WhatsApp: +86…"、"WhatsApp/WeChat: +86…"、"WhatsApp & WeChat +86…" */
 const WHATSAPP_RE = /whats\s*app(?:\s*[/&,，、]\s*(?:we\s*chat|微信|viber|line))?\s*[:：]?\s*(\+?\d[\d\s()-]{6,}\d)/i;
 const POSTSCRIPT_RE = /^p\.?\s?s\.?(?:\s|:|：)/i;
@@ -309,7 +319,7 @@ function signatureOf(lines: readonly string[], domain: string | null, buyerPhone
   let first = -1;
   lines.forEach((raw, i) => {
     const line = raw.trim();
-    if (!line || CLOSING_LINE_RE.test(line) || POSTSCRIPT_RE.test(line)) return;
+    if (!line || isClosing(line) || POSTSCRIPT_RE.test(line)) return;
     const hit = () => {
       if (first < 0) first = i;
     };
@@ -345,6 +355,11 @@ export interface ExtractOptions {
   buyerEmail?: string | null;
   /** 买家电话（WhatsApp 与之相同则排除） */
   buyerPhone?: string | null;
+  /**
+   * 整封回复里有没有结束语。只传新增行时必须由调用方按整封回复判：
+   * 结束语和草稿一样时不算新增，只看传进来的行会误以为没有结束语，把签名口号当事实抽。
+   */
+  signatureHasClosing?: boolean;
 }
 
 /**
@@ -361,7 +376,7 @@ export function extractFacts(lines: readonly FactLine[], opts: ExtractOptions = 
     if (!found.has(f.field)) found.set(f.field, f);
   };
 
-  const signatureHasClosing = lines.some((l) => l.section === "signature" && CLOSING_LINE_RE.test(l.line.trim()));
+  const signatureHasClosing = opts.signatureHasClosing ?? lines.some((l) => l.section === "signature" && isClosing(l.line.trim()));
   lines.forEach(({ line, section }, lineIndex) => {
     if ((section === "signature" && signatureHasClosing) || isPriceLine(line)) return;
     for (const clause of clauses(line)) {
