@@ -83,6 +83,28 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 7. **`/ai-activity` 不显示任何运行计数**：它按**当前用户**分页读 AuditLog（`ai_generate` / `ai_send` / `ai_analyze`），浏览器本地时区分天。GATE-A2"14 天工作量图与 `/ai-activity` 的运行计数一致"按字面无法满足，需改口径。
 8. **按天分桶**：组织时区来自 `settingsJson.timezone`（`resolveOrgTimezone`，默认 America/Toronto），`getLocalTimeParts(date, tz).date` 给 YYYY-MM-DD，`localDayBounds` / `zonedLocalToUtc` 在 `revenue-spine/owner-today.ts`、`business-days.ts`；没有现成的多天分桶函数。
 
+## B-4 预研事实（评分校准，写 proposal 前核对）
+
+1. **评估记录**：`SalesOpportunityAssessment`。
+   - 六维分数只在 `dimensionsJson`：`[{key,label,score,max,reason}]`，key 为 productFit / commercialPotential / buyerQuality / intent / completeness / strategicValue。
+   - **`max` = 打分当时的 policy 权重**：要按 score/max 归一。`policyVersion` 恒为 v1，不能据此区分权重。
+   - 唯一写入方 `fde/inbound-sales.ts`；一个商机可有多条，"当前" = `createdAt` 最新（与商机详情页一致）。
+   - `qualification` 不落在评估上。
+2. **权重**：`policy.scoring.weights`，默认 25/20/20/15/10/10。总分 = min(100, 各维之和)。分级阈值 hot 90 / high 70 / medium 50。
+3. **结果真值**：
+   - `BusinessOutcome` 经 `entityType="sales_opportunity"` + `entityId` 关联。写入的类型有 CUSTOMER_REPLIED / RFQ_RECEIVED / QUOTE_SENT / SAMPLE_REQUESTED / NEGOTIATION_STARTED / DEAL_WON / DEAL_LOST / REVENUE_RECORDED。
+   - **没有 disqualified 结果**；`sourceId` 带时间戳，会重复写。
+   - **`/revenue` 用 `SalesOpportunity.stage` + `wonAt` / `lostAt` / `lostReason`**（`revenue-spine/cockpit.ts`），校准应与之同口径。
+   - **disqualified 是循环的**：由 `score.qualification` 自己决定，不能拿来校准评分。
+4. **`/revenue` 页没有胜率 / 转化率 / 分级分布 / 时间窗口**。
+   - 只有 stageCounts 排除测试商机，用 `EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES`，只看 lostReason；
+   - SLA 指标用更严的 `isOnboardingTestInquiry`。
+5. **policy 不在 `settingsJson`**：在 `OrgBusinessRule`（`ruleKey = "revenue_spine.policy"`，最高版本，`loadRevenueSpinePolicy`）。
+   - 权重片段形状：`{"scoring":{"weights":{...}}}`；
+   - 应用方式：`PUT /api/revenue/policy` `{ policy: <片段> }`，boss / admin，发布新版本。
+6. **面板位置**：`/revenue` 是单个客户端页（`src/app/(main)/revenue/page.tsx`），可在队列网格后加只读区块。
+   - API 惯例：`resolveRevenueAccess(request)` + `force-dynamic` + `?days=` + `clampWindowDays`（默认 30、上限 180，需另设 90 默认）。
+
 ## 环境（云端容器每次都是新的，照做即可）
 
 ```bash
