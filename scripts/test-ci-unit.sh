@@ -310,6 +310,8 @@ npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts
 npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts
 npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts
 npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx
+npx tsx src/lib/revenue-spine/__tests__/v2-readiness.test.ts
+npx tsx src/components/revenue/__tests__/v2-readiness-panel.test.tsx
 npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts
 npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts
