@@ -6,6 +6,7 @@
  * 提案载荷与快照正文只在这里解析出字段 / 待确认项，不进入响应。
  */
 
+import { pendingActionOutcome } from "@/lib/cockpit/workload";
 import type { RevenueSpinePolicy } from "./policy";
 import {
   V2_APPLIED_AUDIT_LIMIT,
@@ -13,6 +14,7 @@ import {
   V2_READINESS_WINDOW_DAYS,
   V2_SNAPSHOT_LIMIT,
   computeV2Readiness,
+  type ProposalBucket,
   type V2ReadinessReport,
 } from "./v2-readiness";
 
@@ -73,6 +75,37 @@ export function appliedFieldOf(afterData: string | null | undefined): string | n
   return typeof f === "string" ? f : null;
 }
 
+/**
+ * 提案终态 → 计数桶，与 A-4 工作量面板同一口径（cockpit/workload.ts pendingActionOutcome）：
+ * - 已过期 = 超时任务清理过的（failed + "已过期"），或还没被清理、已过有效期的待审批；
+ * - 已批准 = 执行完成（含值未变、未发布新版本的）；认领中、执行失败、取消、作废记其他。
+ */
+export function proposalBucketOf(
+  row: { status: string; expiresAt: Date; failureReason: string | null; decidedById: string | null },
+  now: Date,
+): ProposalBucket {
+  const { outcome, executionFailed } = pendingActionOutcome({ status: row.status, failureReason: row.failureReason, decidedById: row.decidedById });
+  if (outcome === "pending") return row.expiresAt.getTime() <= now.getTime() ? "expired" : "pending";
+  if (outcome === "expired") return "expired";
+  if (outcome === "rejected") return "rejected";
+  if (outcome === "approved" && !executionFailed && row.status === "executed") return "applied";
+  return "other";
+}
+
+/** 同一审批只留一份快照（并发重跑同一封来信可能给同一审批写两份）：按 targetId 去重，保留最新的（输入已按时间倒序） */
+export function dedupeSnapshots<T extends { targetId: string | null }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    if (r.targetId) {
+      if (seen.has(r.targetId)) continue;
+      seen.add(r.targetId);
+    }
+    out.push(r);
+  }
+  return out;
+}
+
 /** 快照 afterData → 跟进序号与待确认项；版本不符或缺字段 → null（不计入） */
 export function snapshotSummaryOf(afterData: string | null | undefined): { followUpStep: number | null; pendingInternalConfirmation: string[] } | null {
   const v = parseJsonText(afterData);
@@ -95,9 +128,13 @@ export interface V2KnowledgeStatus {
 export interface V2ReadinessDeps {
   now(): Date;
   firstProposalAt(orgId: string): Promise<Date | null>;
-  windowProposals(orgId: string, since: Date, limit: number): Promise<Array<{ status: string; expiresAt: Date; payload: unknown }>>;
+  windowProposals(
+    orgId: string,
+    since: Date,
+    limit: number,
+  ): Promise<Array<{ status: string; expiresAt: Date; failureReason: string | null; decidedById: string | null; payload: unknown }>>;
   appliedAudits(orgId: string, limit: number): Promise<Array<{ afterData: string | null }>>;
-  snapshots(orgId: string, since: Date, limit: number): Promise<Array<{ afterData: string | null }>>;
+  snapshots(orgId: string, since: Date, limit: number): Promise<Array<{ targetId: string | null; afterData: string | null }>>;
   historicalQuoteCount(orgId: string): Promise<number>;
   loadPolicy(orgId: string): Promise<RevenueSpinePolicy>;
   /** 与草稿同一口径：factory-knowledge.ts 的 getMOQ / getLeadTime / getCertification / getCostBasis / getSamplePolicy */
@@ -121,12 +158,11 @@ export async function getV2Readiness(orgId: string, deps: V2ReadinessDeps = defa
   return computeV2Readiness({
     now,
     firstProposalAt,
-    proposals: proposals.slice(0, V2_PROPOSAL_LIMIT).map((p) => ({ status: p.status, expiresAt: p.expiresAt, field: proposalFieldOfPayload(p.payload) })),
+    proposals: proposals.slice(0, V2_PROPOSAL_LIMIT).map((p) => ({ bucket: proposalBucketOf(p, now), field: proposalFieldOfPayload(p.payload) })),
     proposalsTruncated: proposals.length > V2_PROPOSAL_LIMIT,
     appliedFields: applied.slice(0, V2_APPLIED_AUDIT_LIMIT).map((a) => appliedFieldOf(a.afterData)),
     appliedTruncated: applied.length > V2_APPLIED_AUDIT_LIMIT,
-    snapshots: snapshots
-      .slice(0, V2_SNAPSHOT_LIMIT)
+    snapshots: dedupeSnapshots(snapshots.slice(0, V2_SNAPSHOT_LIMIT))
       .map((s) => snapshotSummaryOf(s.afterData))
       .filter((s): s is NonNullable<typeof s> => s !== null),
     snapshotsTruncated: snapshots.length > V2_SNAPSHOT_LIMIT,
@@ -151,7 +187,7 @@ export function defaultV2ReadinessDeps(): V2ReadinessDeps {
       const { db } = await import("@/lib/db");
       return db.pendingAction.findMany({
         where: windowProposalWhere(orgId, since),
-        select: { status: true, expiresAt: true, payload: true },
+        select: { status: true, expiresAt: true, failureReason: true, decidedById: true, payload: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit,
       });
@@ -171,7 +207,7 @@ export function defaultV2ReadinessDeps(): V2ReadinessDeps {
       const { db } = await import("@/lib/db");
       return db.auditLog.findMany({
         where: snapshotAuditWhere(orgId, since),
-        select: { afterData: true },
+        select: { targetId: true, afterData: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit,
       });

@@ -20,7 +20,6 @@ import {
   V2_FACT_FIELDS,
   V2_SNAPSHOT_LIMIT,
   computeV2Readiness,
-  proposalBucket,
   type V2ReadinessInput,
 } from "../v2-readiness";
 import {
@@ -30,8 +29,10 @@ import {
   anyProposalWhere,
   appliedAuditWhere,
   appliedFieldOf,
+  dedupeSnapshots,
   defaultV2ReadinessDeps,
   getV2Readiness,
+  proposalBucketOf,
   quoteCountWhere,
   snapshotAuditWhere,
   snapshotSummaryOf,
@@ -136,16 +137,16 @@ async function main() {
 
   console.log("\n依据计数");
 
-  await ok("场景「提案状态计数」：MOQ 3 张（已写入 / 已驳回 / 待审批但过期）→ 已写入 1、驳回 1、过期 1；按字段分列；认领中与失败记其他", () => {
+  await ok("场景「提案状态计数」：MOQ 3 张（已批准 / 已驳回 / 已过期）→ 已批准 1、驳回 1、过期 1；按字段分列；未知字段只计总数", () => {
     const r = computeV2Readiness(
       input({
         proposals: [
-          { status: "executed", expiresAt: later, field: "moq" },
-          { status: "rejected", expiresAt: later, field: "moq" },
-          { status: "pending", expiresAt: daysAgo(1), field: "moq" },
-          { status: "pending", expiresAt: later, field: "loadingPorts" },
-          { status: "approved", expiresAt: later, field: "catalogUrl" },
-          { status: "failed", expiresAt: later, field: "unknown_field" },
+          { bucket: "applied", field: "moq" },
+          { bucket: "rejected", field: "moq" },
+          { bucket: "expired", field: "moq" },
+          { bucket: "pending", field: "loadingPorts" },
+          { bucket: "other", field: "catalogUrl" },
+          { bucket: "other", field: "unknown_field" },
         ],
       }),
     );
@@ -153,10 +154,9 @@ async function main() {
     assert.deepEqual(r.proposals.byField.find((f) => f.field === "moq"), { field: "moq", label: "起订量", created: 3, applied: 1, rejected: 1 });
     assert.deepEqual(r.proposals.byField.map((f) => f.field), [...V2_FACT_FIELDS]);
     assert.equal(r.proposals.byField.reduce((n, f) => n + f.created, 0), 5); // 未知字段不分列
-    assert.equal(proposalBucket({ status: "pending", expiresAt: NOW }, NOW), "expired");
   });
 
-  await ok("场景「首封草稿占比」：4 封首封 + 2 封跟进，首封 3 封仍写 MOQ → 首封 4、MOQ 3 封 75%；周期中英两种文案都算；没有首封时占比为空", () => {
+  await ok("场景「首封草稿占比」/「只发目录不进占比」：4 封首封 + 2 封只发目录 + 2 封跟进，首封 3 封仍写 MOQ → 首封 4、MOQ 3 封 75%、只发目录 2；周期中英两种文案都算；没有首封时占比为空", () => {
     const first = (p: string[]) => ({ followUpStep: null, pendingInternalConfirmation: p });
     const r = computeV2Readiness(
       input({
@@ -165,14 +165,30 @@ async function main() {
           first(["MOQ", "production lead time and delivery schedule", "pricing"]),
           first(["MOQ", "pricing"]),
           first(["价格"]),
+          first([]),
+          first([]),
           { followUpStep: 1, pendingInternalConfirmation: ["MOQ"] },
           { followUpStep: 2, pendingInternalConfirmation: [] },
         ],
       }),
     );
-    assert.deepEqual(r.drafts, { firstReplies: 4, pendingMoq: 3, pendingMoqShare: 0.75, pendingLeadTime: 2, pendingLeadTimeShare: 0.5, sampled: false, sampleLimit: V2_SNAPSHOT_LIMIT });
+    // 待确认项为空的首封 = 只发目录：单独计数，不进分母（否则 MOQ 未配置时占比被拉低）
+    assert.deepEqual(r.drafts, { firstReplies: 4, catalogOnlyReplies: 2, pendingMoq: 3, pendingMoqShare: 0.75, pendingLeadTime: 2, pendingLeadTimeShare: 0.5, sampled: false, sampleLimit: V2_SNAPSHOT_LIMIT });
     const empty = computeV2Readiness(input({ snapshots: [{ followUpStep: 1, pendingInternalConfirmation: ["MOQ"] }] }));
     assert.deepEqual([empty.drafts.firstReplies, empty.drafts.pendingMoqShare, empty.drafts.pendingLeadTimeShare], [0, null, null]);
+  });
+
+  await ok("场景「只发目录不进占比」：MOQ 未配置，1 封普通首封 + 3 封只发目录 → 首封 1、只发目录 3、MOQ 占比 100%", () => {
+    const r = computeV2Readiness(
+      input({
+        knowledge: { ...ALL_KNOWN, moq: false },
+        snapshots: [
+          { followUpStep: null, pendingInternalConfirmation: ["MOQ", "pricing"] },
+          ...Array.from({ length: 3 }, () => ({ followUpStep: null, pendingInternalConfirmation: [] as string[] })),
+        ],
+      }),
+    );
+    assert.deepEqual([r.drafts.firstReplies, r.drafts.catalogOnlyReplies, r.drafts.pendingMoqShare], [1, 3, 1]);
   });
 
   await ok("V2 其余数据源：认证 / 成本基础可用性、样品政策 / 最低毛利是否配置、历史报价条数、类目数原样带出", () => {
@@ -237,9 +253,12 @@ async function main() {
       firstProposalAt: async (orgId) => (log("firstProposalAt", orgId), daysAgo(40)),
       windowProposals: async (orgId, since, limit) => {
         log("windowProposals", orgId, since, limit);
+        // i=0 已执行；i=1 被超时任务清理成"已过期"；其余待审批
         return Array.from({ length: over.proposals ?? 3 }, (_, i) => ({
-          status: i === 0 ? "executed" : "pending",
-          expiresAt: later,
+          status: i === 0 ? "executed" : i === 1 ? "failed" : "pending",
+          expiresAt: i === 1 ? daysAgo(1) : later,
+          failureReason: i === 1 ? "已过期" : null,
+          decidedById: i === 0 ? "u_boss" : null,
           payload: { field: "moq", proposedValue: { quantity: 555555, unit: "pcs", per: "colour" }, evidence: "evidence: buyer said 555555", opportunityId: "opp_1" },
         }));
       },
@@ -249,7 +268,7 @@ async function main() {
       },
       snapshots: async (orgId, since, limit) => {
         log("snapshots", orgId, since, limit);
-        return Array.from({ length: over.snapshots ?? 6 }, (_, i) => ({ afterData: snapshot(i) }));
+        return Array.from({ length: over.snapshots ?? 6 }, (_, i) => ({ targetId: `pa_${i}`, afterData: snapshot(i) }));
       },
       historicalQuoteCount: async (orgId) => (log("historicalQuoteCount", orgId), 9),
       loadPolicy: async (orgId) => (log("loadPolicy", orgId), over.policy ?? POLICY),
@@ -271,11 +290,58 @@ async function main() {
     assert.deepEqual(r.otherSources, { certificationAvailable: false, costBasisAvailable: false, samplePolicyConfigured: true, minimumMarginConfigured: true, historicalQuotes: 9, productCategories: 2 });
     // 6 份快照：i=2、5 是跟进；首封 i=0,1,3,4，其中 i=0、4 含 MOQ
     assert.deepEqual([r.drafts.firstReplies, r.drafts.pendingMoq], [4, 2]);
-    assert.deepEqual(r.proposals.window, { created: 3, pending: 2, applied: 1, rejected: 0, expired: 0, other: 0 });
+    assert.deepEqual(r.proposals.window, { created: 3, pending: 1, applied: 1, rejected: 0, expired: 1, other: 0 });
     // 默认 policy（什么都没配）→ MOQ / 周期不可引用、样品政策未配置、最低毛利未配置
     const bare = await getV2Readiness("org_srv", fakeDeps({ policy: DEFAULT_REVENUE_SPINE_POLICY }).deps);
     assert.deepEqual(bare.verdict.unmet, ["moq_available", "production_lead_time_available"]);
     assert.deepEqual([bare.otherSources.samplePolicyConfigured, bare.otherSources.minimumMarginConfigured], [false, false]);
+    // 只配了样品时效、没配大货周期：条件 2 已满足、条件 3 未满足
+    const sampleOnly: RevenueSpinePolicy = {
+      ...DEFAULT_REVENUE_SPINE_POLICY,
+      businessProfile: mergeBusinessProfile(DEFAULT_REVENUE_SPINE_POLICY.businessProfile, {
+        commercialFacts: { moq: { quantity: 100, unit: "pcs", per: "style" }, sampleLeadTime: { stockDays: 3, customDaysMin: 7, customDaysMax: 10 } },
+      }),
+    };
+    const so = await getV2Readiness("org_srv", fakeDeps({ policy: sampleOnly }).deps);
+    assert.deepEqual(
+      so.conditions.map((c) => c.status),
+      ["met", "met", "not_met", "not_measurable"],
+    );
+  });
+
+  await ok("提案终态口径与 A-4 工作量面板一致：超时清理的 failed + 已过期算过期；取消 / 作废 / 执行失败 / 认领中记其他；值未变的执行完成算已批准", () => {
+    const row = (status: string, failureReason: string | null = null, decidedById: string | null = null, expiresAt = later) => ({ status, failureReason, decidedById, expiresAt });
+    const cases: Array<[ReturnType<typeof row>, string]> = [
+      [row("executed", null, "u1"), "applied"],
+      [row("rejected", null, "u1"), "rejected"],
+      [row("pending"), "pending"],
+      [row("pending", null, null, daysAgo(1)), "expired"], // 已过有效期、还没被清理
+      [row("pending", null, null, NOW), "expired"],
+      [row("failed", "已过期", null, daysAgo(1)), "expired"], // approval-timeout 清理过的
+      [row("failed", "已取消", "u1"), "other"],
+      [row("failed", "执行失败：网络", "u1"), "other"],
+      [row("approved", null, "u1"), "other"],
+      [row("rejected", "关联任务已取消（run cancelled）", "u1"), "other"],
+    ];
+    for (const [r, want] of cases) assert.equal(proposalBucketOf(r, NOW), want, JSON.stringify(r));
+  });
+
+  await ok("同一审批两份快照只算一份（保留最新）；没有 targetId 的照算", () => {
+    const rows = [
+      { targetId: "pa1", afterData: "new" },
+      { targetId: "pa1", afterData: "old" },
+      { targetId: null, afterData: "x" },
+      { targetId: null, afterData: "y" },
+      { targetId: "pa2", afterData: "z" },
+    ];
+    assert.deepEqual(dedupeSnapshots(rows).map((r) => r.afterData), ["new", "x", "y", "z"]);
+  });
+
+  await ok("端到端：同一审批的两份快照只计一封首封", async () => {
+    const base = fakeDeps().deps;
+    const snap = JSON.stringify({ version: 1, followUpStep: null, pendingInternalConfirmation: ["MOQ", "pricing"] });
+    const r = await getV2Readiness("org_srv", { ...base, snapshots: async () => [{ targetId: "pa1", afterData: snap }, { targetId: "pa1", afterData: snap }, { targetId: "pa2", afterData: snap }] });
+    assert.deepEqual([r.drafts.firstReplies, r.drafts.pendingMoq], [2, 2]);
   });
 
   await ok("读取上限：快照 301 条只统计最近 300 条并标 sampled；提案 / 写入审计读满标截断", async () => {
@@ -306,8 +372,19 @@ async function main() {
     assert.match(route, /export const dynamic = "force-dynamic";/);
     assert.doesNotMatch(route, /searchParams|request\.json|export async function (POST|PUT|PATCH|DELETE)/);
     // 只取统计需要的列
-    assert.match(model, /select: \{ status: true, expiresAt: true, payload: true \}/);
-    assert.equal(model.match(/select: \{ afterData: true \}/g)?.length, 2);
+    assert.match(model, /select: \{ status: true, expiresAt: true, failureReason: true, decidedById: true, payload: true \}/);
+    assert.match(model, /select: \{ afterData: true \}/);
+    assert.match(model, /select: \{ targetId: true, afterData: true \}/);
+    // 每个默认查询都经带 orgId 的条件构造函数（防止回归成不带组织的字面量）
+    for (const re of [
+      /db\.pendingAction\.findFirst\(\{ where: anyProposalWhere\(orgId\),/,
+      /db\.pendingAction\.findMany\(\{\s*where: windowProposalWhere\(orgId, since\),/,
+      /db\.auditLog\.findMany\(\{\s*where: appliedAuditWhere\(orgId\),/,
+      /db\.auditLog\.findMany\(\{\s*where: snapshotAuditWhere\(orgId, since\),/,
+    ]) {
+      assert.match(model, re);
+    }
+    assert.equal(model.match(/db\.(pendingAction|auditLog|tradeQuote|salesQuote)\.(findFirst|findMany|count)\(/g)?.length, 6);
     assert.match(model, /db\.tradeQuote\.count\(\{ where: quoteCountWhere\(orgId\) \}\), db\.salesQuote\.count\(\{ where: quoteCountWhere\(orgId\) \}\)/);
   });
 

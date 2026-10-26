@@ -54,7 +54,8 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
   - 再次排除平台管理员（双保险）；
   - 按 userId 排序，从第一个 `userId > resumeAfter` 的人开始循环取 `cap` 人；没有游标或游标在末尾时从头开始。
 - 游标：本轮最后处理（含失败）的 userId 记进本次运行的 `AutomationRun.metadataJson.notifyOnlyResumeAfter`；下一轮读本定时任务最近一次已完成（`succeeded` / `partial`）的运行。一个都没处理时沿用上一轮游标。
-- 候选读取按 `userId` 排序、上限 2000 行，读满时 metadata 标 `notifyOnlyCandidatesTruncated`。
+- 候选读取分两段：`userId > 游标` 一段、`userId ≤ 游标` 一段（循环用），各按 `userId` 升序、上限 2000 行；没有游标时只读从头一段。任一段读满时 metadata 标 `notifyOnlyCandidatesTruncated`。游标在查询里，所以读取上限不会让排在后面的人永远轮不到（第二轮审查实测：只在内存里用游标时，2100 人里最后 100 人一周都轮不到）。
+- 读游标失败：从头开始，并在 metadata 记 `notifyOnlyResumeError`。
 - `runManagerNotify({ now, alreadyScanned, budgetMs, resumeAfter }, deps)`：
   - 依赖可注入：取候选、单人扫描、时钟；
   - 逐个调用 `runProactiveScanForUser(userId, role, { autoActions: false })`；
@@ -68,7 +69,7 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
 
 ### D3：定时任务接入
 
-两轮主体抽成 `runProactiveScanCron(deps)`（同在 `manager-notify.ts`，依赖可注入），路由只负责 cron 鉴权与 `runTrackedAutomation("proactive-scan", …)`。`/api/cron/proactive-scan` 分两轮：
+两轮主体抽成 `runProactiveScanCron(deps)`（同在 `manager-notify.ts`，依赖可注入），路由只负责 cron 鉴权与 `runTrackedAutomation("proactive-scan", …)`（key 必须写成字面量：`cockpit/__tests__/schedule.test.ts` 按路由文件里的字面量核对调度）。`/api/cron/proactive-scan` 分两轮：
 - 自动化一轮照旧，结果每条加 `mode: "automation"`；
 - 再跑 `runManagerNotify`：
   - `alreadyScanned` 传自动化一轮处理过的 userId；
@@ -77,7 +78,7 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
 结果合并后，计数与元数据如下：
 - `processedCount` = 两轮人数之和；
 - `metadata.enabledUsers` 保留原义（自动化一轮人数），新增 `notifyOnlyUsers`、`notifyOnlyPlanned`、`notifyOnlyStoppedByBudget`、`notifyOnlyCandidatesTruncated`、`notifyOnlyResumeAfter`；
-- 补发整轮出错：记 `notifyOnlyError`，`failedCount` 加 1，运行由 `runTrackedAutomation` 记为 `partial`（岗位心跳与时间线只看 status，记成 `succeeded` 会看不到）；
+- 补发整轮出错：记 `notifyOnlyError`，返回 `status: "partial"`（岗位心跳与时间线只看 status，记成 `succeeded` 会看不到）；成功 / 失败计数仍按人，加得起来；
 - 自动化一轮的结果条目补上 `notifications`，两轮字段对称。
 
 **否决**：
@@ -125,8 +126,9 @@ runProactiveScanForUser(userId, role, options?: { autoActions?: boolean })
 - **[30 天窗口]**：`lastLoginAt` 在每次登录时更新（会话最长 7 天），活跃用户不会被误判；为空的主要是微信首次注册、从未走过登录的新账号，不在补发范围内。
 - **[上线时补发一次]**：D5 之后，过去被同组织别人占掉 key 的提醒会给本人补发一次；之后按用户去重。列为 GATE 注意项。
 - **[时间预算]**：自动化一轮人多时，补发一轮可能处理不完，靠游标在后续几轮补齐；游标读取失败时从头开始，不会跳人。
-- **[候选上限]**：管理层成员行超过 2000 时只在前 2000 行（按 userId）里轮转，metadata 标出截断。
+- **[候选上限]**：游标在查询里，候选超过 2000 行也会轮到；metadata 仍标出截断，便于观察规模。
+- **[单人扫描耗时]**：预算在每人开始前检查，单人扫描没有超时；预算留了 60 秒余量（240 / 300 秒）。若某人扫描超过余量，函数会被平台终止，这次运行被下一轮关成 failed、不写游标，下一轮从同一位置重来。单人扫描是既有的只读查询，正常远低于 60 秒；列为 GATE 注意项。
 
 ## Migration Plan
 
-无数据迁移。上线后第一轮定时任务即开始补发。回滚：撤销 PR。补发写入的通知是普通通知，用户可正常已读或删除。
+无数据迁移。上线后第一轮定时任务即开始补发。回滚：撤销 PR。补发写入的通知是普通通知，用户可正常已读或删除。回滚风险：旧代码只认旧格式 key，回滚后仍有效的提醒会给每人再写一条旧格式通知（每条提醒每人最多一次）。

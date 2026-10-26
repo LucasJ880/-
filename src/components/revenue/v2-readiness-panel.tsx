@@ -178,11 +178,13 @@ export function V2ReadinessReportView({ data }: { data: V2ReadinessReport }) {
       </ul>
 
       <div className="space-y-2">
+        <dl className="flex flex-wrap gap-2 text-xs">
+          <Chip label="第一张事实提案" value={p.runningDays === null ? "尚无" : `${p.runningDays} 天前`} />
+        </dl>
         <h3 className="text-xs font-medium">事实提案（近 {data.windowDays} 天）</h3>
         <dl className="flex flex-wrap gap-2 text-xs">
-          <Chip label="首张提案" value={p.runningDays === null ? "尚无" : `${p.runningDays} 天前`} />
           <Chip label="新建" value={`${p.window.created} 张`} />
-          <Chip label="已写入" value={`${p.window.applied}`} />
+          <Chip label="已批准" value={`${p.window.applied}`} />
           <Chip label="已驳回" value={`${p.window.rejected}`} />
           <Chip label="待审批" value={`${p.window.pending}`} />
           <Chip label="已过期" value={`${p.window.expired}`} />
@@ -190,12 +192,12 @@ export function V2ReadinessReportView({ data }: { data: V2ReadinessReport }) {
         </dl>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[360px] border-collapse text-left text-xs">
-            <caption className="sr-only">各字段的事实提案新建、已写入、已驳回张数</caption>
+            <caption className="sr-only">各字段的事实提案新建、已批准、已驳回张数</caption>
             <thead className="text-muted">
               <tr className="border-b border-border">
                 <th scope="col" className="py-2 pr-3 font-medium">字段</th>
                 <th scope="col" className="py-2 pr-3 text-right font-medium">新建</th>
-                <th scope="col" className="py-2 pr-3 text-right font-medium">已写入</th>
+                <th scope="col" className="py-2 pr-3 text-right font-medium">已批准</th>
                 <th scope="col" className="py-2 text-right font-medium">已驳回</th>
               </tr>
             </thead>
@@ -221,6 +223,7 @@ export function V2ReadinessReportView({ data }: { data: V2ReadinessReport }) {
         <h3 className="text-xs font-medium">首封回复草稿（近 {data.windowDays} 天）</h3>
         <dl className="flex flex-wrap gap-2 text-xs">
           <Chip label="首封草稿" value={`${d.firstReplies} 封`} />
+          {d.catalogOnlyReplies ? <Chip label="只发目录（不计入占比）" value={`${d.catalogOnlyReplies} 封`} /> : null}
           <Chip label="仍写「需内部确认 MOQ」" value={`${d.pendingMoq} 封 · ${formatReadinessShare(d.pendingMoqShare)}`} />
           <Chip label="仍写「需内部确认生产周期」" value={`${d.pendingLeadTime} 封 · ${formatReadinessShare(d.pendingLeadTimeShare)}`} />
         </dl>
@@ -247,7 +250,7 @@ export function V2ReadinessReportView({ data }: { data: V2ReadinessReport }) {
       ) : null}
 
       <p className="text-[11px] leading-relaxed text-muted">
-        口径：「可引用」与回复草稿相同（企业确认过的商务事实）；条件按组织计算，不显示任何具体数值。是否启动 V2 由负责人按这些条件决定，本区块不会修改任何设置。
+        口径：「可引用」与回复草稿相同（企业确认过的商务事实）；条件按组织计算，不显示任何具体数值。「已批准」含批准时值已相同、未发布新版本的提案；首封草稿只算进了审批的。是否启动 V2 由负责人按这些条件决定，本区块不会修改任何设置。
         生成于 {new Date(data.generatedAt).toLocaleString()}，统计窗口 {V2_READINESS_WINDOW_DAYS} 天。
       </p>
     </div>

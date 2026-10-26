@@ -28,16 +28,15 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 const NOW = new Date("2026-10-26T16:00:00Z");
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
-const later = new Date(NOW.getTime() + 86_400_000);
 
 function input(over: Partial<V2ReadinessInput> = {}): V2ReadinessInput {
   return {
     now: NOW,
     firstProposalAt: daysAgo(10),
     proposals: [
-      { status: "executed", expiresAt: later, field: "moq" },
-      { status: "rejected", expiresAt: later, field: "moq" },
-      { status: "pending", expiresAt: daysAgo(1), field: "loadingPorts" },
+      { bucket: "applied", field: "moq" },
+      { bucket: "rejected", field: "moq" },
+      { bucket: "expired", field: "loadingPorts" },
     ],
     proposalsTruncated: false,
     appliedFields: ["moq"],
@@ -46,6 +45,7 @@ function input(over: Partial<V2ReadinessInput> = {}): V2ReadinessInput {
       { followUpStep: null, pendingInternalConfirmation: ["MOQ", "生产周期与交期"] },
       { followUpStep: null, pendingInternalConfirmation: ["pricing"] },
       { followUpStep: null, pendingInternalConfirmation: ["MOQ"] },
+      { followUpStep: null, pendingInternalConfirmation: ["价格"] },
       { followUpStep: null, pendingInternalConfirmation: [] },
       { followUpStep: 1, pendingInternalConfirmation: ["MOQ"] },
     ],
@@ -101,11 +101,14 @@ console.log("\n就绪态");
   );
   ok(h.includes("已满足") && h.includes("未满足") && h.includes("无法度量"), "状态有文字，不只靠颜色");
   ok(h.includes("商务事实目前是组织级、不分类目"), "条件 4 原样显示组织级说明");
-  ok(h.includes("10 天前") && h.includes("新建</dt><dd class=\"tabular-nums\">3 张"), "提案依据：首张天数与新建张数");
+  ok(h.includes("第一张事实提案</dt><dd class=\"tabular-nums\">10 天前") && h.includes("新建</dt><dd class=\"tabular-nums\">3 张"), "提案依据：第一张提案天数（不在近 30 天标题下）与新建张数");
+  ok(h.indexOf("第一张事实提案") < h.indexOf("事实提案（近 30 天）"), "第一张提案的天数放在近 30 天统计之前");
+  ok(h.includes("已批准</dt><dd class=\"tabular-nums\">1") && h.includes("已批准</th>") && !h.includes("已写入"), "已批准（含值未变）而不是已写入");
   ok(h.includes("已过期</dt><dd class=\"tabular-nums\">1"), "提案依据：过期张数");
   ok(h.includes("起订量") && h.includes("装运港") && h.includes("目录链接"), "按字段分列六个字段");
   ok(h.includes("经提案写入过 1 次") && h.includes("大货周期来源</dt><dd class=\"tabular-nums\">未配置"), "来源：提案 / 未配置");
-  ok(h.includes("首封草稿</dt><dd class=\"tabular-nums\">4 封") && h.includes("2 封 · 50.0%") && h.includes("1 封 · 25.0%"), "首封草稿：封数与占比（跟进不计）");
+  ok(h.includes("首封草稿</dt><dd class=\"tabular-nums\">4 封") && h.includes("2 封 · 50.0%") && h.includes("1 封 · 25.0%"), "首封草稿：封数与占比（跟进与只发目录不计）");
+  ok(h.includes("只发目录（不计入占比）</dt><dd class=\"tabular-nums\">1 封"), "只发目录单独计数");
   ok(h.includes("认证清单</dt><dd class=\"tabular-nums\">未接入") && h.includes("最低毛利</dt><dd class=\"tabular-nums\">已配置") && h.includes("历史报价</dt><dd class=\"tabular-nums\">7 条"), "V2 其余数据源：只显示可用 / 已配置与条数");
   ok(!h.includes("读取上限") && !h.includes("只看最近"), "未截断时不显示截断提示");
 }
@@ -115,7 +118,8 @@ console.log("\n就绪态");
 }
 {
   const h = html({ status: "ready", data: EMPTY });
-  ok(h.includes("尚无事实提案") && h.includes("首张提案</dt><dd class=\"tabular-nums\">尚无"), "没有提案：尚无");
+  ok(h.includes("尚无事实提案") && h.includes("第一张事实提案</dt><dd class=\"tabular-nums\">尚无"), "没有提案：尚无");
+  ok(!h.includes("只发目录"), "没有只发目录的首封时不显示该项");
   ok(h.includes("0 封 · —"), "没有首封草稿：占比显示 —");
   ok(formatReadinessShare(null) === "—" && formatReadinessShare(0.75) === "75.0%", "占比格式");
 }

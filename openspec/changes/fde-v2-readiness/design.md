@@ -11,7 +11,7 @@
    - `getCertification`、`getCostBasis` 目前恒为 unavailable。
 2. **事实提案（B-2）**：
    - `PendingAction(type = revenue_spine.propose_commercial_fact)`，`payload.field` 是六个字段之一；
-   - 状态：`pending`（`expiresAt` 过了即视为过期，没有单独的过期状态）、`approved`（认领中）、`executed`、`rejected`、`failed`；
+   - 状态：`pending`、`approved`（认领中）、`executed`、`rejected`、`failed`。过期没有单独状态：`approval-timeout`（每 2 小时）把过期的待审批改成 `failed` + `failureReason = "已过期"`，执行器懒过期写法相同；清理前的过期仍是 `pending` 且 `expiresAt` 已过。A-4 的 `cockpit/workload.ts` `pendingActionOutcome` 已把这些终态归好类；
    - 写入成功记 `AuditLog(action = revenue_spine.commercial_fact.applied)`，`afterData` 是 JSON 字符串，含 `field`、`valueKey`、`version`；值相同不写新版本时不记这条审计。
 3. **草稿快照（B-1）**：
    - `AuditLog(action = revenue_spine.inquiry_reply.draft_snapshot, targetType = pending_action)`，`afterData` 是 JSON 字符串；
@@ -62,6 +62,8 @@
 
 - 近 30 天 `draft_snapshot` 审计，按创建时间倒序最多读 301 条；超过 300 条只统计最近 300 封并标记。
 - 只解析 `followUpStep` 与 `pendingInternalConfirmation`，正文读出后即丢弃，不进入响应。
+- 同一审批（`targetId`）只留最新一份快照：并发重跑同一封来信时 `requestApproval` 会返回已有审批，但快照照写。
+- 只发目录的首封（展会 C 级 + `gradeCCatalogOnly`）`pendingInternalConfirmation` 为空；非目录首封一定含"价格 / pricing"。所以"待确认项为空的首封"单独计为只发目录，不进占比分母，否则 MOQ 未配置时占比会被拉低、与条件 2 的依据矛盾。
 - MOQ 匹配 `"MOQ"`；周期匹配"生产周期与交期"或 "production lead time and delivery schedule"（与 `reply-draft.ts` 的两个固定文案逐字一致，测试对照源码）。
 - **否决**：从 `AgentRun` 事件 `agent.output` 读 `pendingInternalConfirmation`。事件也写首封之外的路径（复用未决草稿等），与"进了审批的首封"口径不一致；快照是 B-1 专门为审批草稿留的。
 
@@ -69,12 +71,13 @@
 
 - 查询：
   1. 第一张提案（`orderBy createdAt asc`，`take 1`）；
-  2. 近 30 天提案（只取 `status`、`expiresAt`、`payload`，最多 2001 条，超出标记截断）；
-  3. 写入审计（只取 `afterData`，最多 2000 条）；
-  4. 近 30 天快照（只取 `afterData`，最多 301 条）；
+  2. 近 30 天提案（只取 `status`、`expiresAt`、`failureReason`、`decidedById`、`payload`，读 2001 条判断是否超过 2000，超出标记截断）；
+  3. 写入审计（只取 `afterData`，读 2001 条判断是否超过 2000）；
+  4. 近 30 天快照（只取 `targetId`、`afterData`，读 301 条判断是否超过 300）；
   5. 历史报价计数（`TradeQuote.count` + `SalesQuote.count`，只要条数）；
   6. policy（`loadRevenueSpinePolicy`）。
-- 查询条件由读模型导出的纯函数构造，全部带服务端解析出的 `orgId`。
+- 查询条件由读模型导出的纯函数构造，全部带服务端解析出的 `orgId`；测试用源码断言锁定每个默认查询都经这些构造函数。
+- 提案按 `pendingActionOutcome` 归桶（与 A-4 同一口径），再交给纯函数；纯函数只认桶，不认原始状态。
 - **否决**：在接口里直接写 Prisma 查询。无法在无 DB 测试里锁定组织范围与窗口。
 
 ### D6 区块：容器 + 无 hook 视图，点开才请求
@@ -97,7 +100,8 @@
 ## Risks / Trade-offs
 
 - **[条件 1 偏晚]**：第一张提案要等销售第一次改草稿加入事实才会出现，比 B-2 上线晚。偏保守，可接受；依据里写明口径。
-- **[快照封顶]**：近 30 天首封超过 300 封时只看最近 300 封；占比反映近况，标记里写明。
+- **[快照封顶]**：近 30 天首封超过 300 封时只看最近 300 封；占比反映近况，标记里写明。每次点开最多读约 3MB 快照（正文 ≤ 10k × 301），点开才算，可接受。
+- **[平台管理员]**：与 B-4 相同，`resolveRevenueAccess` 要求平台 admin 显式带 `orgId`，区块不带，平台 admin 打开会显示加载失败；组织成员不受影响。
 - **[审计里的来源]**：值相同未写新版本时不记审计，"经提案写入"次数可能少于提案批准数；依据写"经提案写入过 N 次"，不写"批准 N 次"。
 
 ## 验证方式

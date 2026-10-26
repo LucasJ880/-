@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { runTrackedAutomation } from "@/lib/automation/runner";
-import { PROACTIVE_SCAN_AUTOMATION_KEY, runProactiveScanCron } from "@/lib/proactive/manager-notify";
+import { runProactiveScanCron } from "@/lib/proactive/manager-notify";
 
 /**
  * 每小时主动提醒（vercel.json `15 * * * *`）：
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request);
   if (denied) return denied;
 
-  const data = await runTrackedAutomation(PROACTIVE_SCAN_AUTOMATION_KEY, () => runProactiveScanCron());
+  const data = await runTrackedAutomation("proactive-scan", () => runProactiveScanCron());
 
   return NextResponse.json(data);
 }
