@@ -11,12 +11,14 @@ OpenSpec change：`openspec/changes/org-cockpit-home/`（proposal / `specs/cockp
 | 文件 | 内容 |
 |---|---|
 | `src/app/(main)/page.tsx`（改） | 只把渲染的客户端组件从 `ManagementDashboardClient` 换成 `OrgCockpitHome`；登录检查与非管理层重定向（`resolveHomeRedirect`）原样保留 |
-| `src/components/cockpit/org-cockpit-home.tsx`（新） | 客户端容器：首屏并发 `GET /api/cockpit/posts` 与 `GET /api/cockpit/timeline`，各自兜底（状态码、JSON 解析、网络错误）、谁先到谁先渲染；"加载更多"按 `nextCursor` 追加；刷新；时间线单独重试；代数计数器丢弃过期响应；页面时钟以服务端 `generatedAt` 为基准、每 60 秒走一次 |
-| `src/components/cockpit/org-cockpit-view.tsx`（新） | 无 hooks 的展示组件：页头（更新时间 / 时区 / "心跳与自动化次数为平台级" / 刷新）→ "等你拍板 N 件"横幅 → 七张岗位卡片 → company.log；加载骨架；需选择组织 / 无组织 / 无权限 / 登录过期 / 服务端错误五种错误态 |
+| `src/components/cockpit/org-cockpit-home.tsx`（新） | 客户端容器：首屏并发 `GET /api/cockpit/posts` 与 `GET /api/cockpit/timeline`，各自兜底（状态码、JSON 解析、网络错误、30 秒超时）、谁先到谁先渲染；"加载更多"按 `nextCursor` 追加；刷新；两块各自重试；页面时钟以服务端 `generatedAt` 为基准、每 60 秒走一次 |
+| `src/lib/cockpit/home-state.ts`（新） | 取数状态的纯 reducer：每块只接受最近一次请求的响应；"加载更多"只在列表仍停在发请求那一页时拼接（按 id 去重），刷新 / 重试替换列表后旧游标结果丢弃；鉴权类错误收起整页、服务端错误只影响出错的那块 |
+| `src/components/cockpit/org-cockpit-view.tsx`（新） | 无 hooks 的展示组件：页头（更新时间 / 时区 / "心跳与自动化次数为平台级" / 刷新）→ "等你拍板 N 件"横幅 → 七张岗位卡片 → company.log；加载骨架；需选择组织 / 无组织 / 无权限 / 账号停用 / 登录过期 / 服务端错误六种错误态 |
 | `src/lib/cockpit/presentation.ts`（新） | 纯函数：健康度标签与色调、KPI 格式化（计数千分位 / 比率一位小数向下取 / 百分比字符串 / 分钟 / 得分）、窗口口径、KPI 状态文案、相对时间、`serverNow`、`errorKindFrom`、操作者、截断计数、岗位名、异常自动化排序 |
-| `src/lib/cockpit/__tests__/presentation.test.ts`（新） | 54 条断言 |
-| `src/components/cockpit/__tests__/org-cockpit-view.test.tsx`（新） | 71 条断言：`renderToStaticMarkup` 夹具渲染 + 首页与容器源码静态断言 |
-| `scripts/test-all.sh` / `scripts/test-ci-unit.sh` | 各注册 2 条 |
+| `src/lib/cockpit/__tests__/presentation.test.ts`（新） | 59 条断言（错误文案对照 `workforceOrgFailureHttp` 与 `guards.ts` 原文核对） |
+| `src/lib/cockpit/__tests__/home-state.test.ts`（新） | 21 条断言：首屏 / 翻页 / 去重 / 失败重试，以及刷新与加载更多的四种交错顺序 |
+| `src/components/cockpit/__tests__/org-cockpit-view.test.tsx`（新） | 78 条断言：`renderToStaticMarkup` 夹具渲染 + 首页与容器源码静态断言 |
+| `scripts/test-all.sh` / `scripts/test-ci-unit.sh` | 各注册 3 条 |
 
 页面上每个元素的数据来源：
 
@@ -32,7 +34,7 @@ OpenSpec change：`openspec/changes/org-cockpit-home/`（proposal / `specs/cockp
 
 | # | 验证 | 结果 |
 |---|---|---|
-| 1 | 两个新测试单独运行 | presentation 54/54、渲染 71/71 |
+| 1 | 三个新测试单独运行 | presentation 59/59、home-state 21/21、渲染 78/78 |
 | 2 | 局部 `tsc`（`src/lib/cockpit/**` + `src/components/cockpit/**` + 首页） | 0 错误 |
 | 3 | `npm run typecheck`（全量） | GATE_TSC |
 | 4 | `npm run lint:baseline`；新文件 `npx eslint` | GATE_LINT |
@@ -85,7 +87,17 @@ OpenSpec change：`openspec/changes/org-cockpit-home/`（proposal / `specs/cockp
 | — | 不改 | 用 localStorage 里的组织与响应 `orgId` 比对给出不一致提示 | `/api/cockpit/*` 按数据库活动组织解析，与 `/workforce` 同口径；组织切换器同时写两处，不一致只在异常情况下出现，staging 验证切换组织后的表现 |
 | — | 记录 | KPI 标签"首响中位（分钟）"的单位与格式化后的"x 分钟 / x 小时 y 分"重复；"中标率"口径来自投标财务模块；A-2 时间线审计条目摘要显示原始动作码（如 `PENDING_ACTION_APPROVED`） | A-1 注册表 / A-2 读模型的文案，不在本 change 改；列为后续小改 |
 
-REVIEW_ROUND2
+第二轮（只审本轮修复的 diff，另起审查代理）：无阻塞项。
+
+| # | 级别 | 发现 | 处理 |
+|---|---|---|---|
+| R2-1 | 中 | 刷新在途时点"加载更多"：刷新响应先到、旧游标响应后到，代数没变 → 旧第 2 页拼到新第 1 页后面（新增事件会漏、再点会出现重复 id） | 状态转移抽成纯 reducer `home-state.ts`：只有列表仍停在发请求那一页时才拼接，并按 id 去重；四种交错顺序做成表驱动测试 |
+| R2-2 | 中低 | 岗位总览 500（如 KPI 超时）时整个时间线也被收起，"重试"连时间线一起重置，与 spec"各自独立"不符 | 服务端错误只占岗位区；鉴权类错误才收起整页；两块各自重试 |
+| R2-3 | 低 | 首屏的 `load` 晚于刷新结束时提前清掉"刷新中"，按钮提前可点 | `loadGen` 编号，只有最近一次刷新完成才清；请求加 30 秒超时，不会永远转圈 |
+| R2-4 | 低 | 容器测试只数源码字符串，带着 R2-1 也能通过 | 行为由 `home-state.test.ts` 覆盖；源码断言只核对容器确实走 reducer |
+| — | 小 | design D3 比率口径过时；横幅计数无千分位；停用账号的 403 被说成"只对组织管理员开放"；时间线鉴权类错误给了无效的"重试"；"无组织"文案字面耦合；岗位总览未到时时间线用客户端时钟 | 全部修正（文案做成常量并在测试里对照原函数 / 源码；时间线先用自己响应的 `window.to` 作基准） |
+
+审查同时独立确认了：Tailwind 4.2.2 实际生成 `@container` / `@2xl:` / `@4xl:` 任意值类且不受 `.grid-cols-3 !important` 影响、`--on-accent` 两套主题都有定义、错误映射与真实响应体一致、`serverNow` 偏差与回拨处理正确、比率格式化对 0–1 每个千分位都正确、hooks 规则与 StrictMode 双挂载无问题、无水合风险、不可能发出非 GET 请求。
 
 ## 6. staging 待验项（GATE-A）
 
