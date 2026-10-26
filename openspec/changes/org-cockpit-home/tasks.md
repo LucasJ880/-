@@ -2,15 +2,15 @@
 
 ## 1. 展示规则（纯函数）
 
-- [ ] 1.1 新建 `src/lib/cockpit/presentation.ts`（健康度标签与色调、KPI 格式化、窗口口径、相对时间、操作者、等你 N 件计数文案、岗位名查找）与 `src/lib/cockpit/__tests__/presentation.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：`npx tsx src/lib/cockpit/__tests__/presentation.test.ts` 退出 0，覆盖七种健康度、五种 KPI 格式含 null、四种窗口、相对时间边界。
+- [x] 1.1 新建 `src/lib/cockpit/presentation.ts`（健康度标签与色调、KPI 格式化、窗口口径、相对时间、操作者、等你 N 件计数文案、岗位名查找）与 `src/lib/cockpit/__tests__/presentation.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：`npx tsx src/lib/cockpit/__tests__/presentation.test.ts` 退出 0，覆盖七种健康度、五种 KPI 格式含 null、四种窗口、相对时间边界。
 
 ## 2. 展示组件
 
-- [ ] 2.1 新建 `src/components/cockpit/org-cockpit-view.tsx`（`OrgCockpitView` 及横幅、岗位卡片、时间线、加载 / 错误 / 选择组织 / 无权限各状态，均无 hooks）与 `src/components/cockpit/__tests__/org-cockpit-view.test.tsx`（`renderToStaticMarkup` 夹具渲染），并注册。verify：`npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx` 退出 0，覆盖 spec「等你 N 件横幅」「七个岗位卡片」「company.log 时间线」「空态与错误态」「页面只读」的全部 scenario。
+- [x] 2.1 新建 `src/components/cockpit/org-cockpit-view.tsx`（`OrgCockpitView` 及横幅、岗位卡片、时间线、加载 / 错误 / 选择组织 / 无权限各状态，均无 hooks）与 `src/components/cockpit/__tests__/org-cockpit-view.test.tsx`（`renderToStaticMarkup` 夹具渲染），并注册。verify：`npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx` 退出 0，覆盖 spec「等你 N 件横幅」「七个岗位卡片」「company.log 时间线」「空态与错误态」「页面只读」的全部 scenario。
 
 ## 3. 容器与首页替换
 
-- [ ] 3.1 新建 `src/components/cockpit/org-cockpit-home.tsx`（`"use client"`：首屏并发取两个接口、错误映射、加载更多、刷新），`src/app/(main)/page.tsx` 改为渲染 `OrgCockpitHome`（重定向逻辑不动）；在渲染测试里补源码静态断言。verify：渲染测试中静态断言通过（首页保留 `resolveHomeRedirect` 与登录检查、不再引用 `ManagementDashboardClient`；容器只出现 `/api/cockpit/posts` 与 `/api/cockpit/timeline` 两个接口、无非 GET 方法）；`npm run typecheck` 退出 0。
+- [x] 3.1 新建 `src/components/cockpit/org-cockpit-home.tsx`（`"use client"`：首屏并发取两个接口、错误映射、加载更多、刷新），`src/app/(main)/page.tsx` 改为渲染 `OrgCockpitHome`（重定向逻辑不动）；在渲染测试里补源码静态断言。verify：渲染测试中静态断言通过（首页保留 `resolveHomeRedirect` 与登录检查、不再引用 `ManagementDashboardClient`；容器只出现 `/api/cockpit/posts` 与 `/api/cockpit/timeline` 两个接口、无非 GET 方法）；`npm run typecheck` 退出 0。
 
 ## 4. 视觉核对
 
