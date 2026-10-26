@@ -32,11 +32,11 @@
 
 ## 4. 门禁与交付
 
-- [ ] 4.1 跑全部门禁并做独立交叉审查：
+- [x] 4.1 跑全部门禁并做独立交叉审查：
   - 门禁：`npm test` 与基线比较新增失败为 0；`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh` 无新增未注册（base 已有的 2 个 trade 欠账如实记录）；`openspec validate fde-score-calibration --strict` 通过；`git diff --stat` 无 `prisma/` 与 `vercel.json`。
   - 交叉审查：独立审查代理审查实现，处理其阻塞与应修项。
   - verify：上述命令输出与审查结论写进报告。
-- [ ] 4.2 写 `docs/QINGYAN_ORG_COCKPIT_B-4_REPORT.md`，并把 `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` B-4 状态列改为 `[G]`，同步 `docs/QINGYAN_ORG_COCKPIT_FDE_HANDOFF.md` 进度表。
+- [x] 4.2 写 `docs/QINGYAN_ORG_COCKPIT_B-4_REPORT.md`，并把 `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` B-4 状态列改为 `[G]`，同步 `docs/QINGYAN_ORG_COCKPIT_FDE_HANDOFF.md` 进度表。
   - verify：三个文件已提交，报告包含门禁结果与 GATE 待确认项。
 
 ## Workflow follow-up

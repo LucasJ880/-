@@ -43,7 +43,7 @@
 | B-1 | `fde-feedback-loop`（[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支） | ✅ `61feec70` | 6/6 | ✅ 424/438，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞 + 6 应修全部处理 | `[G]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
-| B-4 | `fde-score-calibration`（PR 待开，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
+| B-4 | `fde-score-calibration`（PR 见下，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy` | — | — | — | — | — | `[ ]` |
 
 A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行决定是否启动）。
