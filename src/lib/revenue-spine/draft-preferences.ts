@@ -1,0 +1,217 @@
+/**
+ * Revenue Spine — FDE 首封回复草稿的团队偏好（B-3，openspec change fde-preferences-in-draft）
+ *
+ * 来源：revenue_spine.policy 的 fde 段（老板 / 管理员经 PUT /api/revenue/policy 写入即"已确认"），不经 employee-ai。
+ * - 开关 fde.useConfirmedPreferences 关闭（默认）→ resolveDraftPreferences 返回 null，调用方不传偏好，草稿逐字节不变；
+ * - 开启 → 逐条校验，违规项忽略、其余照用：
+ *   文案（问候 / 结束语 / 敬语 / 替换词）过草稿守卫与买家原话风险检查，不含数字、换行，不超长；
+ *   问候含且只含一个 {name}，其它文案不含花括号；禁用词不含数字、换行；
+ *   必问 / 免问必须是可追问的 RFQ 字段，必填不能免问，与必问冲突的免问忽略，重复只算一次。
+ * - 违规偏好写一条审计（只记键名与原因，不记文案），同一组织同一组违规只记一次；失败不影响起草。
+ *
+ * 纯函数 + 依赖可注入的审计；不调用 LLM。
+ */
+
+import { createHash } from "node:crypto";
+import { unsafeToRepeat } from "./inquiry-risks";
+import type { DraftPreferenceText, RevenueSpinePolicy } from "./policy";
+import { checkDraftGuardrails, type DraftTemplatePreferences } from "./reply-draft";
+import { MISSING_FIELD_TIERS, type QuestionPreferences } from "./rfq/missing-info";
+import type { RfqField } from "./rfq/types";
+
+export const DRAFT_PREFERENCE_TEXT_MAX = 120;
+export const BANNED_PHRASE_MIN = 2;
+export const BANNED_PHRASE_MAX = 60;
+export const BANNED_PHRASES_LIMIT = 30;
+export const DRAFT_PREFERENCES_IGNORED_AUDIT_ACTION = "revenue_spine.draft_preferences.ignored";
+export const DRAFT_PREFERENCES_AUDIT_TARGET = "revenue_spine_policy";
+
+export interface IgnoredPreference {
+  key: string;
+  reason: string;
+}
+
+export interface ResolvedDraftPreferences extends DraftTemplatePreferences, QuestionPreferences {
+  priorityQuestions: RfqField[];
+  skippedQuestions: RfqField[];
+  /** 生效的偏好键名 */
+  applied: string[];
+  /** 被忽略的偏好：键名与原因（不含文案） */
+  ignored: IgnoredPreference[];
+}
+
+const ASKABLE = new Map(MISSING_FIELD_TIERS.map((t) => [t.field as string, t]));
+const LANGS = ["zh", "en"] as const;
+
+/** 文案的共同规则；返回违规原因，合规返回 null。{name} 由调用方先去掉 */
+function textProblem(text: string): string | null {
+  if (/[\r\n]/.test(text)) return "含换行";
+  if (/\d/.test(text)) return "含数字";
+  if (text.length > DRAFT_PREFERENCE_TEXT_MAX) return `超过 ${DRAFT_PREFERENCE_TEXT_MAX} 字`;
+  const violations = checkDraftGuardrails(text);
+  if (violations.length) return `含商务承诺：${violations.join("、")}`;
+  if (unsafeToRepeat(text)) return "含不宜写进邮件的内容";
+  return null;
+}
+
+function greetingProblem(text: string): string | null {
+  const names = text.split("{name}").length - 1;
+  if (names === 0) return "缺少 {name}";
+  if (names > 1) return "{name} 只能出现一次";
+  const rest = text.replace("{name}", "");
+  if (/[{}]/.test(rest)) return "不能含其它花括号";
+  return textProblem(rest);
+}
+
+function plainTextProblem(text: string): string | null {
+  if (/[{}]/.test(text)) return "不能含花括号";
+  return textProblem(text);
+}
+
+/**
+ * 解析并校验偏好。开关关闭返回 null（调用方据此完全不改草稿）。
+ * 确定性：同一 policy 永远得到同一结果，ignored 按偏好出现顺序。
+ */
+export function resolveDraftPreferences(policy: Pick<RevenueSpinePolicy, "fde">): ResolvedDraftPreferences | null {
+  const fde = policy.fde;
+  if (!fde?.useConfirmedPreferences) return null;
+  const p = fde.preferences;
+  const applied: string[] = [];
+  const ignored: IgnoredPreference[] = [];
+
+  const texts = (name: "greeting" | "closing" | "valediction", check: (t: string) => string | null): DraftPreferenceText => {
+    const out: DraftPreferenceText = { zh: null, en: null };
+    for (const lang of LANGS) {
+      const raw = p[name]?.[lang];
+      if (raw === null || raw === undefined) continue;
+      const key = `${name}.${lang}`;
+      const value = raw.trim();
+      const problem = value ? check(value) : "为空";
+      if (problem) ignored.push({ key, reason: problem });
+      else {
+        out[lang] = value;
+        applied.push(key);
+      }
+    }
+    return out;
+  };
+  const greeting = texts("greeting", greetingProblem);
+  const closing = texts("closing", plainTextProblem);
+  const valediction = texts("valediction", plainTextProblem);
+
+  const priorityQuestions: RfqField[] = [];
+  p.priorityQuestions.forEach((raw, i) => {
+    const key = `priorityQuestions[${i}]`;
+    const f = raw.trim();
+    if (!ASKABLE.has(f)) ignored.push({ key, reason: "不是可追问的字段" });
+    else if (priorityQuestions.includes(f as RfqField)) ignored.push({ key, reason: "重复" });
+    else priorityQuestions.push(f as RfqField);
+  });
+  const skippedQuestions: RfqField[] = [];
+  p.skippedQuestions.forEach((raw, i) => {
+    const key = `skippedQuestions[${i}]`;
+    const f = raw.trim();
+    const tier = ASKABLE.get(f);
+    if (!tier) ignored.push({ key, reason: "不是可追问的字段" });
+    else if (tier.required) ignored.push({ key, reason: "必填字段不能免问" });
+    else if (priorityQuestions.includes(f as RfqField)) ignored.push({ key, reason: "与必问冲突" });
+    else if (skippedQuestions.includes(f as RfqField)) ignored.push({ key, reason: "重复" });
+    else skippedQuestions.push(f as RfqField);
+  });
+  if (priorityQuestions.length) applied.push("priorityQuestions");
+  if (skippedQuestions.length) applied.push("skippedQuestions");
+
+  const bannedPhrases: Array<{ phrase: string; replacement: string }> = [];
+  p.bannedPhrases.forEach((b, i) => {
+    const key = `bannedPhrases[${i}]`;
+    const phrase = b.phrase.trim();
+    const replacement = b.replacement.trim();
+    let problem: string | null = null;
+    if (bannedPhrases.length >= BANNED_PHRASES_LIMIT) problem = `超出上限（${BANNED_PHRASES_LIMIT} 条）`;
+    else if (/[\r\n]/.test(phrase)) problem = "禁用词含换行";
+    else if (/\d/.test(phrase)) problem = "禁用词含数字";
+    else if (phrase.length < BANNED_PHRASE_MIN || phrase.length > BANNED_PHRASE_MAX) problem = `禁用词长度须为 ${BANNED_PHRASE_MIN}–${BANNED_PHRASE_MAX} 字`;
+    else if (bannedPhrases.some((x) => x.phrase.toLowerCase() === phrase.toLowerCase())) problem = "重复";
+    else if (replacement) {
+      const r = plainTextProblem(replacement);
+      if (r) problem = `替换词${r}`;
+    }
+    if (problem) ignored.push({ key, reason: problem });
+    else bannedPhrases.push({ phrase, replacement });
+  });
+  if (bannedPhrases.length) applied.push("bannedPhrases");
+
+  return { greeting, closing, valediction, priorityQuestions, skippedQuestions, bannedPhrases, applied, ignored };
+}
+
+// ── 违规审计 ───────────────────────────────────────────────
+
+/** 同一组违规的指纹（与顺序无关） */
+export function ignoredFingerprint(ignored: readonly IgnoredPreference[]): string {
+  const canon = ignored.map((i) => `${i.key}|${i.reason}`).sort().join("\n");
+  return `prefs-ignored:${createHash("sha256").update(canon).digest("hex").slice(0, 16)}`;
+}
+
+export function ignoredAuditWhere(orgId: string, fingerprint: string) {
+  return {
+    orgId,
+    action: DRAFT_PREFERENCES_IGNORED_AUDIT_ACTION,
+    targetType: DRAFT_PREFERENCES_AUDIT_TARGET,
+    targetId: orgId,
+    afterData: { contains: fingerprint },
+  };
+}
+
+export interface IgnoredAuditDeps {
+  alreadyRecorded(orgId: string, fingerprint: string): Promise<boolean>;
+  audit(input: { userId: string; orgId: string; afterData: Record<string, unknown> }): Promise<void>;
+}
+
+/** 有违规偏好时记一条审计（同组织同一组违规只记一次）；返回是否新写了审计 */
+export async function recordIgnoredDraftPreferences(
+  input: { orgId: string; userId: string; ignored: readonly IgnoredPreference[]; employeeKey: string },
+  deps: IgnoredAuditDeps = defaultIgnoredAuditDeps(),
+): Promise<boolean> {
+  if (!input.ignored.length) return false;
+  const fingerprint = ignoredFingerprint(input.ignored);
+  if (await deps.alreadyRecorded(input.orgId, fingerprint)) return false;
+  await deps.audit({
+    userId: input.userId,
+    orgId: input.orgId,
+    afterData: { fingerprint, ignored: input.ignored.slice(0, 50).map((i) => ({ key: i.key, reason: i.reason })), employeeKey: input.employeeKey },
+  });
+  return true;
+}
+
+/** 尽力而为：审计失败只记日志，不影响起草 */
+export async function recordIgnoredDraftPreferencesSafe(
+  input: Parameters<typeof recordIgnoredDraftPreferences>[0],
+  deps?: IgnoredAuditDeps,
+): Promise<boolean> {
+  try {
+    return await recordIgnoredDraftPreferences(input, deps);
+  } catch (err) {
+    console.warn("[draft-preferences] 违规偏好审计失败", input.orgId, err instanceof Error ? err.name : typeof err);
+    return false;
+  }
+}
+
+export function defaultIgnoredAuditDeps(): IgnoredAuditDeps {
+  return {
+    alreadyRecorded: async (orgId, fingerprint) => {
+      const { db } = await import("@/lib/db");
+      return Boolean(await db.auditLog.findFirst({ where: ignoredAuditWhere(orgId, fingerprint), select: { id: true } }));
+    },
+    audit: async (input) => {
+      const { logAudit } = await import("@/lib/audit/logger");
+      await logAudit({
+        userId: input.userId,
+        orgId: input.orgId,
+        action: DRAFT_PREFERENCES_IGNORED_AUDIT_ACTION,
+        targetType: DRAFT_PREFERENCES_AUDIT_TARGET,
+        targetId: input.orgId,
+        afterData: input.afterData,
+      });
+    },
+  };
+}

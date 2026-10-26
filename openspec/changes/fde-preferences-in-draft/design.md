@@ -101,20 +101,20 @@ interface FdePolicy { useConfirmedPreferences: boolean; preferences: FdeDraftPre
 
 ### D4：模板层应用偏好
 
-- `ReplyDraftInput` 新增可选 `preferences?: ResolvedDraftPreferences | null`。不传或为 `null` 时一行逻辑都不变。
+- `ReplyDraftInput` 新增可选 `preferences?: DraftTemplatePreferences | null`（问候 / 结束语 / 敬语 / 禁用词，`ResolvedDraftPreferences` 是它的超集）。不传或为 `null` 时一行逻辑都不变。
 - 问候：偏好存在且有联系人名时，用模板替换 `{name}`；否则走默认问候。
 - 结束语：替换默认结束语行。
 - 敬语：英文替换 `Best regards,`；中文在署名前插一行。
 - 禁用词：
   - 正文拼完后，对非保护行逐条替换。
-  - 保护行在拼装时登记，包括：需求复述行、展会参考款行、参考项目、条款原句与样品说明（即 `referenceLines` 及 `termLines`）、署名块。
+  - 保护行按拼装用的同一组值算出，包括：需求复述行、展会参考款行、参考项目、条款原句与样品说明（`termLines` 与样品行）、署名块，以及偏好行本身（企业自己写的，不再替换）。
+  - 嵌在模板句子里的产品名（如 "We have received your inquiry about hotel bathrobes."）会随句子一起替换。
   - 主题不替换：主题由产品名（买家原话）与公司名组成，且用于邮件线程。
   - 匹配规则：英文整词、不区分大小写，边界同 `containsPhrase`；含中文的词按子串。按列出顺序逐条替换。
-- 草稿对象新增可选 `preferences`：
+- 草稿对象新增可选 `preferences`，只在传入偏好时出现：
   - `lines`：实际用到的问候、结束语、敬语行；
-  - `bannedPhrases`；
-  - `applied` / `ignored` 键名。
-  - 只在传入偏好时出现。
+  - `bannedPhrases`：禁用词列表。
+  - 生效 / 忽略键名不进草稿对象，由 `inbound-sales` 直接写进运行事件。
 - **否决**：
   - `buildReplyDraft` 内部自己读 `policy.fde`：追问在草稿之前已经生成，两处各读一次可能不一致；由调用方解析一次、显式传入，关闭时的路径也更容易证明不变。
   - 禁用词对整封正文替换：会改到买家的需求复述和参考值原句，前者改变买家原意，后者破坏"原句一字不差"的守卫前提。
@@ -123,7 +123,7 @@ interface FdePolicy { useConfirmedPreferences: boolean; preferences: FdeDraftPre
 
 `polishReplyDraftWithLlm` 只在 `draft.preferences` 存在时追加两条判定：
 - `lines` 里每一行必须原样出现在润色稿里；
-- 润色稿不得命中任何禁用词（同一匹配函数）。
+- 润色稿里禁用词的出现次数不得多于模板草稿（同一匹配函数）。模板草稿里禁用词只会留在保护行里（如买家需求复述），按"不得新增"判，免得保护行里合法出现的词让润色永远被回退。
 
 提示词只在这时追加一句：原样保留问候、结束语、敬语，且不得使用禁用词。开关关闭时提示词逐字不变。守卫仍在润色后运行。
 - **否决**：润色后再做一次禁用词替换。替换后的句子没有经过 LLM 与守卫的同一轮判定，顺序就变成"润色 → 替换 → 守卫"，偏离任务书"守卫顺序不变"；回退模板更简单。

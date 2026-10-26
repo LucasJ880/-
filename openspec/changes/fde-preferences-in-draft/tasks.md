@@ -2,7 +2,7 @@
 
 ## 1. 金样本与偏好解析（先锁定现状）
 
-- [ ] 1.1 先锁定现状，再写偏好段与解析：
+- [x] 1.1 先锁定现状，再写偏好段与解析：
   - 先提交：新建 `src/lib/revenue-spine/__tests__/fixtures/draft-golden-cases.ts`，用**未改动的代码**生成 `draft-golden-pre-b3.json`，单独提交；
   - 再实现 `policy.ts` 的 `fde` 段（类型、默认值、合并）与新建 `src/lib/revenue-spine/draft-preferences.ts`（`resolveDraftPreferences`、禁用词匹配、违规审计 `recordIgnoredDraftPreferencesSafe`，依赖可注入）；
   - 新建 `src/lib/revenue-spine/__tests__/draft-preferences.test.ts`，同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
@@ -10,7 +10,7 @@
 
 ## 2. 追问与草稿模板接入
 
-- [ ] 2.1 追问与草稿模板接入：
+- [x] 2.1 追问与草稿模板接入：
   - `rfq/missing-info.ts` `buildClarifyingQuestions` 加可选偏好参数；
   - `reply-draft.ts`：可选 `preferences` 输入（问候 / 结束语 / 敬语 / 禁用词保护行），以及 `polishReplyDraftWithLlm` 的两条回退判定与追加提示；
   - `draft-preferences.test.ts` 补模板、排序、禁用词、润色回退（注入 `complete`）与金样本三种比对。
@@ -18,7 +18,7 @@
 
 ## 3. FDE 接入
 
-- [ ] 3.1 `fde/inbound-sales.ts` 接入：
+- [x] 3.1 `fde/inbound-sales.ts` 接入：
   - 解析一次偏好，用于追问、草稿与审核用中文版；
   - 违规时调用审计；
   - "回复草稿已生成"事件追加偏好键名。

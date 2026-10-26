@@ -31,6 +31,7 @@ import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
+import { recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
 import { INBOUND_MESSAGE_SEPARATOR } from "../rfq/heuristic-extractor";
@@ -447,8 +448,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     await event("agent.output", `阶段 → ${stage}`, { decision: "qualify", stage, qualification: score.qualification });
 
     // ── Step 5 missing info ──
+    // 企业确认的草稿偏好（B-3）：开关关闭时为 null，追问与草稿走默认模板，逐字节不变
+    const draftPrefs = resolveDraftPreferences(policy);
+    if (draftPrefs?.ignored.length) {
+      await recordIgnoredDraftPreferencesSafe({ orgId, userId: principalUserId, ignored: draftPrefs.ignored, employeeKey: FDE_EMPLOYEE_KEY });
+    }
     const missing = computeMissingFields(fields);
-    const questions = buildClarifyingQuestions(missing, extraction.language, policy.followUp.maxQuestionsPerReply);
+    const questions = buildClarifyingQuestions(missing, extraction.language, policy.followUp.maxQuestionsPerReply, draftPrefs);
     base.missing = missing;
     base.questions = questions;
     await event("agent.output", `缺失信息 ${missing.length} 项，拟问 ${questions.length} 个问题`, {
@@ -483,6 +489,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         questions,
         knowledge,
         policy,
+        preferences: draftPrefs,
       };
       draft = buildReplyDraft(draftInput);
       if (input.useLlm !== false) draft = await polishReplyDraftWithLlm(draft, { orgId, userId: principalUserId, agentRunId: runId });
@@ -491,7 +498,7 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         reviewZh = buildReplyDraft({
           ...draftInput,
           language: "zh",
-          questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply),
+          questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply, draftPrefs),
         });
       }
       base.draft = draft;
@@ -502,6 +509,8 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         factsUsed: draft.factsUsed,
         pendingInternalConfirmation: draft.pendingInternalConfirmation,
         guardrailViolations: draft.guardrailViolations,
+        // 只记偏好键名（不记文案）；开关关闭时不出现
+        ...(draftPrefs ? { draftPreferences: { applied: draftPrefs.applied, ignored: draftPrefs.ignored.map((i) => i.key) } } : {}),
       });
 
       // ── Step 7 approval（唯一外部副作用入口）──
