@@ -27,7 +27,7 @@
   - 做了什么：`GET /api/revenue/score-calibration?days=`（30–180，缺省 90）+ `/revenue` 底部点开才加载的"评分校准（只报不改）"区块。首次评估六维（得分 ÷ 当时满分）对商机当前阶段：分桶赢单率 / 报价率、命中率、区分度、等级表、建议权重；"复制为 policy 片段"只写剪贴板。
   - **GATE 决策项**：建议权重有下限——productFit ≥ 3、其余可评估维度 ≥ 1。productFit = 0 会让评分把所有询盘判不合格并自动关闭；任一维为 0 后永远无法再校准。测试锁定"粘贴建议不改变不合格判定"。
   - 口径：结局取 `SalesOpportunity.stage`（与 `/revenue` 同）；QUOTE_SENT 只当"报过价"证据；disqualified 与入驻测试排除且计数；门槛按已定（won + lost）≥ 30。
-- **B-5 `fde-internal-autonomy`**（分支 `claude/fde-internal-autonomy`，叠在 B-4 上，PR 见进度表，base = B-4 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-5_REPORT.md`（偏差 10 条，交叉审查 2 阻塞 + 5 应修 + 可选项全部处理）。
+- **B-5 `fde-internal-autonomy`**（分支 `claude/fde-internal-autonomy`，叠在 B-4 上，[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-5_REPORT.md`（偏差 10 条，交叉审查 2 阻塞 + 5 应修 + 可选项全部处理）。
   - 做了什么：
     - `policy.autonomy.autoStale`（默认关）；
     - `revenue-spine` 定时任务在 next action 之前自动搁置 Revenue Spine 维护的商机：`stageChangedAt` 非空，最后活动 = max(最后互动, 阶段变更, 最新互动记录) 超过 `staleAfterDays`，买家未来信且不在等我们回复，无在途审批（含报价让利）；
@@ -56,7 +56,7 @@
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
-| B-5 | `fde-internal-autonomy`（PR 待开，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
+| B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
 
 A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行决定是否启动）。
 
