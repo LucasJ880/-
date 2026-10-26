@@ -35,12 +35,12 @@ OpenSpec change：`openspec/changes/org-cockpit-workload/`（proposal / `specs/c
 | 4 | 分天 | 上海、多伦多；2026-11-01 夏令时结束日 25 小时；缓存格式化器与 `automation/local-time` 在四个时区（含 Lord Howe 半小时夏令时）逐点一致 |
 | 5 | 性能 | 行数上限（AI 运行 25000、待审批 5000、用量 5000）汇总约 0.15 秒，测试断言 < 1.5 秒（修复前审查实测 3.4 秒） |
 | 6 | 局部 `tsc`（驾驶舱全部文件 + 首页） | 0 错误 |
-| 7 | `npm run typecheck`（全量） | GATE_TSC |
-| 8 | `npm run lint:baseline`；新文件 `npx eslint` | GATE_LINT |
-| 9 | `npm test` 对比 `origin/main` 基线 | GATE_NPM |
-| 10 | `npm run test:ci` | GATE_CI |
+| 7 | `npm run typecheck`（全量） | 退出 0 |
+| 8 | `npm run lint:baseline`；新文件 `npx eslint` | PASS（无新增 error）；新文件 0 问题 |
+| 9 | `npm test` 对比 `origin/main` 基线 | 基线 411/425 → 本分支 422/436：新增 11 项即 A-1（1）+ A-2（4）+ A-3（3）+ A-4（3）的测试，全 PASS；14 项失败清单与基线逐条一致（环境性既有问题） |
+| 10 | `npm run test:ci` | `CI unit subset PASS`，含 11 个驾驶舱测试 |
 | 11 | `git diff --stat origin/main -- prisma/ vercel.json` | 空 |
-| 12 | `openspec validate org-cockpit-workload --strict`；`/opsx:verify` | GATE_VERIFY |
+| 12 | `openspec validate org-cockpit-workload --strict`；`/opsx:verify` | valid；`/opsx:verify`：tasks 7/7，12 条 requirement / 28 个 scenario 均有测试断言，design D1–D8 与实现一致，无 CRITICAL / WARNING |
 | 13 | 走势小图配色 | dataviz 校验脚本：浅色主题 AI 运行灰（≈ `muted` 60%）与强调色正常视力 ΔE 29.9、色盲 ΔE 28.1；灰对底色对比度 2.1 的 WARN 由数值表格兜底（表格是主信息，小图只给形状），并有图例与每天悬停数值。深色（glass）主题同样通过分辨度检查 |
 
 ## 3. 视觉核对

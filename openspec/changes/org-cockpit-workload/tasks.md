@@ -39,7 +39,7 @@
 
 ## 5. 门禁
 
-- [ ] 5.1 跑全量门禁。verify：
+- [x] 5.1 跑全量门禁。verify：
   - `npm run lint:baseline` 退出 0；
   - `npm run test:ci` 输出 `CI unit subset PASS`；
   - `npm test` 中驾驶舱各测试全部 PASS，其余失败项与 `origin/main` 基线逐条一致；
@@ -49,7 +49,7 @@
 
 ## 6. 收尾
 
-- [ ] 6.1 写 `docs/QINGYAN_ORG_COCKPIT_A-4_REPORT.md`（做了什么 / 怎么验 / 截图说明 / 与任务书的偏差 / 交叉审查发现与处理 / staging 待验项），并在 `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase A 表把 A-4 状态列更新为 `[G]`。
+- [x] 6.1 写 `docs/QINGYAN_ORG_COCKPIT_A-4_REPORT.md`（做了什么 / 怎么验 / 截图说明 / 与任务书的偏差 / 交叉审查发现与处理 / staging 待验项），并在 `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase A 表把 A-4 状态列更新为 `[G]`。
   - verify：报告文件存在；`grep -n "^| A-4 " docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 的状态列为 `[G]`。
 
 ## Workflow follow-up
