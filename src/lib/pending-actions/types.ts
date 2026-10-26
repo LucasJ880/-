@@ -31,7 +31,9 @@ export type PendingActionType =
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
   | "tender.send_rfq"
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
-  | "tender.send_chase";
+  | "tender.send_chase"
+  // ── Revenue Spine：商务事实提案（B-2；人工回复里抽到的事实，批准后写入 business_profile.commercialFacts；只有 admin / boss 能批）──
+  | "revenue_spine.propose_commercial_fact";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -252,7 +254,22 @@ export type PendingActionPayload =
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
   | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
   | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
-  | ({ type: "marketing.create_campaign_draft" } & MarketingCreateCampaignDraftPayload);
+  | ({ type: "marketing.create_campaign_draft" } & MarketingCreateCampaignDraftPayload)
+  | ({ type: "revenue_spine.propose_commercial_fact" } & RevenueSpineProposeCommercialFactPayload);
+
+// ── 商务事实提案（revenue_spine.propose_commercial_fact，B-2） ────────
+export interface RevenueSpineProposeCommercialFactPayload {
+  field: "moq" | "sampleLeadTime" | "productionLeadTime" | "loadingPorts" | "signature" | "catalogUrl";
+  proposedValue: unknown;
+  currentValue: unknown;
+  /** 规范键：比较与驳回去重用（fact-extract.ts factValueKey） */
+  valueKey: string;
+  /** 触发该字段的那一句（已替换买家信息） */
+  evidence: string;
+  opportunityId: string | null;
+  sourcePendingActionId: string;
+  metadata: PendingActionMetadata & { orgId: string; opportunityId: string | null; sourcePendingActionId: string };
+}
 
 // ── 工具返回给 AI 的"草稿已创建"结构 ───────────────────────────
 

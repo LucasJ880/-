@@ -152,7 +152,7 @@ ok(actionTypes.length >= 14, `从 pending-actions/types.ts 读到 ${actionTypes.
   });
   const bad = fixedOrShared.filter((x) => x.ways !== 1);
   ok(bad.length === 0, "每个动作类型恰好一种归属方式（固定一个岗位，或通用动作类型）", bad);
-  ok(fixedOrShared.filter((x) => x.fixedPosts.length === 1 && !x.shared).length === 10, "10 个固定归属");
+  ok(fixedOrShared.filter((x) => x.fixedPosts.length === 1 && !x.shared).length === 11, "11 个固定归属");
   ok(fixedOrShared.filter((x) => x.shared && x.fixedPosts.length === 0).length === 4, "4 个通用动作类型");
   const listed = [...POST_REGISTRY.flatMap((p) => p.pendingActionTypes as readonly string[]), ...SHARED_PENDING_ACTION_TYPES];
   const outside = listed.filter((t) => !actionTypes.includes(t));
@@ -164,7 +164,8 @@ ok(postForPendingActionType("marketing.activate_campaign") === "marketing", "mar
 for (const t of SHARED_PENDING_ACTION_TYPES) {
   ok(postForPendingActionType(t) === null && isSharedPendingActionType(t), `${t} 没有固定岗位（通用动作类型）`);
 }
-ok(postForPendingActionType("revenue_spine.propose_commercial_fact") === null, "尚未加入联合的类型 → null");
+ok(postForPendingActionType("revenue_spine.propose_commercial_fact") === "inbound_sales", "revenue_spine.propose_commercial_fact → inbound_sales（B-2）");
+ok(postForPendingActionType("revenue_spine.not_a_type") === null, "联合之外的类型 → null");
 
 // ── 通用动作类型按行上下文归属 ────────────────────────────────
 console.log("通用动作按上下文归属");

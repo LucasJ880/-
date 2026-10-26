@@ -47,6 +47,7 @@ import {
 import { execSalesSendInquiryReply } from "./exec-sales-inquiry-reply";
 import type { SalesSendInquiryReplyPayload } from "./types";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
+import { approverRoleDenial } from "./approver-roles";
 import { createNotification } from "@/lib/notifications/create";
 import { pushMessage } from "@/lib/messaging/gateway";
 
@@ -180,6 +181,12 @@ export async function executePendingAction(
 
   if (!(await canDecideTeamApproval(action, ctx))) {
     return { ok: false, error: "无权操作该草稿" };
+  }
+
+  // 按类型的批准角色门（B-2 商务事实提案：admin / boss）。在认领之前判：无权时审批保持待审批，不被消耗
+  const roleDenial = approverRoleDenial(action.type, ctx.role);
+  if (roleDenial) {
+    return { ok: false, error: roleDenial };
   }
 
   // Phase 3B-A：列上的 orgId 与调用方 activeOrg 必须一致（保留 metadata 二次校验）
@@ -459,6 +466,15 @@ export async function executePendingAction(
           action.id,
         );
         break;
+      case "revenue_spine.propose_commercial_fact": {
+        const { execProposeCommercialFact } = await import("@/lib/revenue-spine/fact-proposals");
+        exec = await execProposeCommercialFact(
+          action.payload as unknown as import("./types").RevenueSpineProposeCommercialFactPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      }
       default:
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }

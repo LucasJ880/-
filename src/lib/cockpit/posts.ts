@@ -110,6 +110,7 @@ export const POST_REGISTRY = [
       "sales.update_stage",
       "sales.approve_quote_promotion",
       "sales.send_inquiry_reply",
+      "revenue_spine.propose_commercial_fact",
     ],
     workDomains: ["sales"],
     // runtime_v2 唯一写入点（agent-runtime-v2/process.ts）的 intent 固定为 sales_followup_triage

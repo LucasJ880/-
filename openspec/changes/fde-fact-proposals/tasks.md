@@ -13,7 +13,7 @@
 
 ## 2. 起卡、审批类型与执行器
 
-- [ ] 2.1 新建 `src/lib/revenue-spine/fact-proposals.ts`，包含：
+- [x] 2.1 新建 `src/lib/revenue-spine/fact-proposals.ts`，包含：
   - 起卡判定纯函数与依赖可注入的起卡器；
   - 卡片内容与脱敏；
   - 执行器合并函数与角色判定。
