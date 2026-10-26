@@ -7,7 +7,8 @@
 1. **时间线审计条目**（`src/lib/cockpit/timeline.ts` `auditEntry`）：摘要 = `redactCockpitText(action · targetType)`，操作者 = `AuditLog.userId`；读模型（`posts-read-model.ts` `defaultCompanyLogDeps().auditRows`）只取 id / 时间 / 操作人 / 动作 / 目标，不读 `beforeData` / `afterData`。
 2. **以负责人名义写的审计**（`AuditLog.userId` 是外键，系统写入只能挂一个真人）：
    - FDE：`revenue_spine.inquiry_reply.draft_snapshot`（`fde/draft-feedback.ts`）、`revenue_spine.followup_draft.guardrail_blocked`（`fde/no-reply-followup.ts`）、`revenue_spine.draft_preferences.ignored`（`draft-preferences.ts`）；
-   - 系统：`APPROVAL_SYSTEM_SUPERSEDED`（`pending-actions/supersede.ts`，人工回复 / 入驻测试等触发的作废）；
+   - 系统：`APPROVAL_SYSTEM_SUPERSEDED`（`pending-actions/supersede.ts`，人工回复 / 入驻测试等触发的作废）、配额守卫 `QUOTA_HARD_LIMIT_BLOCKED` / `QUOTA_SOFT_LIMIT_REACHED` / `QUOTA_WARNING`（`capabilities/governance/evaluate.ts`）、询价邮件自动录入 `rfq_inbound:applied` / `rfq_inbound:failed`（`tender-rfq/inbound-sync.ts`，只由定时任务写，挂名邮箱主人）、人工外发镜像 `revenue_spine.trade_outbound.mirrored`（`trade/outbound-sync.ts`）；
+   - 发起审批 `APPROVAL_CREATED`（`pending-actions/drafts.ts`）：FDE 回复草稿、跟进草稿、商务事实提案都以 `principal.actorType = "agent"` 发起，`approval/request.ts` 把它写进审批载荷 `metadata.principalActorType`；时间线读模型为岗位归属本就读取了 `pending_action` 目标的载荷；
    - 商机阶段变更 `revenue_spine.opportunity.transition`（`revenue-spine/transition.ts`）：`afterData = { stage, source: human | fde | system, reason, salesActionId, policyKey? }`，`beforeData = { stage }`；`reason` 可能是自由文本。
 3. **操作者显示**：`presentation.ts` `actorLabel(actor, actorName)`：`system` → 系统，`ai` → AI，其余显示姓名。
 4. **阶段中文名**：`revenue-spine/opportunity-stage.ts` `toCanonicalStage` + `OPPORTUNITY_STAGE_LABELS`（`/revenue` 同一份）。
@@ -32,16 +33,18 @@
 - `AUDIT_ACTION_LABELS`：通用动作（`audit/logger.ts` 的 `AUDIT_ACTIONS` 中常见项）、审批生命周期（`capabilities/approvals/decision.ts`、`pending-actions/*` 写的 `APPROVAL_*`）、Revenue Spine 动作；
 - `AUDIT_TARGET_LABELS`：常见目标类型（`AUDIT_TARGETS` 常见项 + `pending_action` / `approval` / `approval_request` / `sales_opportunity` / `organization`）；
 - 摘要：动作有标签 → `标签 · 目标名`；没有 → 原始 `action · targetType`（目标有中文名也保留原始，避免半中半英的误读）。
+- 查表只认自有键（`Object.hasOwn`），原型链上的 `toString` / `constructor` 不会被当成标签。
 - **否决**：按前缀或关键词猜（如含 `approve` 就叫"批准"）。`tender_analysis_approve`、`quote_promotion_approved` 等语义各异，猜错比不翻更糟。
 
 ### D2 来源按动作固定 + 商机阶段变更读记录
 
-- `auditSource(action, transition?)`：
-  - FDE 固定动作 → `ai`；`APPROVAL_SYSTEM_SUPERSEDED` → `system`；
+- `auditSource(action, transition?, principalActorType?)`：
+  - FDE 固定动作 → `ai`；系统固定动作（作废、配额守卫、询价邮件自动录入、外发镜像）→ `system`；
   - 商机阶段变更：`source` 为 `fde` → `ai`，`system` → `system`，其余（含缺失）→ `human`；
+  - 发起审批：审批载荷里的发起方为 `agent` → `ai`；批准 / 驳回等决定不看发起方，始终 `human`；
   - 其它 → `human`。
 - `TimelineEntry` 新增 `source`；`actor` / `actorName` 语义不变（接口向后兼容，只加字段）。
-- **否决**：所有审计都读 `afterData.source`。只有商机阶段变更写了这个字段；为它读全部审计的变更数据（草稿留底一条就近 10k）既贵又扩大了泄露面。
+- **否决**：所有审计都读 `afterData.source`。各写入方的 `source` 含义不同（商机阶段变更是流转来源；询盘录入是询盘渠道），而且为它读全部审计的变更数据（草稿留底一条就近 10k）既贵又扩大了泄露面。
 
 ### D3 白名单字段走第二次小查询
 
@@ -70,7 +73,9 @@
 
 - **[标签覆盖面]**：动作代码分散在 48 个文件里，表只覆盖常见项；没覆盖的照旧显示代码。后续发现高频未覆盖项再补表，不需要改结构。
 - **[多一次查询]**：每页最多一次 `id in (≤ 51)` 的主键查询，代价很小；没有商机阶段变更时不查。
-- **[来源依赖写入方口径]**：如果以后有新的系统写入动作没进固定表，会显示成人工。表在一个文件里，测试列出了当前全部固定项。
+- **[来源依赖写入方口径]**：系统 / AI 写入动作靠固定表识别，新动作没进表会显示成人工。表在一个文件里，测试逐条对照写入方源码。
+- **[混合来源的动作]**：`revenue_spine.inquiry.intake` 网站询盘 webhook 写入时挂名负责人（`actorUserId` 为空），人工录入时是本人，固定表分不开，显示为人工；入驻测试关闭询盘与人工回复触发的作废，挂名的其实是触发者，提示"以 X 名义记录"略不准。列为 GATE 注意项。
+- **[名义提示的可达性]**："以 X 名义记录"放在 `title`（悬停）与读屏文字里，触屏与键盘用户看不到；操作者列显示"AI / 系统"已能区分，名义细节留给悬停。
 
 ## 验证方式
 

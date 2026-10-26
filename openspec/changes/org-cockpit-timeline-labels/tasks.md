@@ -15,6 +15,12 @@
   - 既有 `timeline.test.ts`、`posts-read-model.test.ts`、`presentation.test.ts`、`home-state.test.ts`、`src/components/cockpit/__tests__/org-cockpit-view.test.tsx` 补断言与 `source` 字段。
   - verify：上述三个测试与 `audit-labels.test.ts` 退出 0，覆盖 spec「统一信封」「时间线显示来源」scenario；`npm run typecheck` 退出 0。
 
+- [x] 2.2 交叉审查修正（应修 3 + 可选）：
+  - A-2「来源范围有界」MODIFIED，写明商机阶段变更白名单枚举是唯一例外；
+  - 发起审批按审批载荷里的发起方判来源（FDE 发起 = ai）；配额守卫、询价邮件自动录入、人工外发镜像进系统固定表并配标签；补 `revenue_spine_policy` / `product_content_approval` / `quota` / `rfq_inbound_message` 目标中文名；查表只认自有键；
+  - spec / design / proposal 措辞与风险同步。
+  - verify：`audit-labels.test.ts` 与 5 个既有测试退出 0；`openspec validate --strict` 通过。
+
 ## 3. 门禁与交付
 
 - [ ] 3.1 跑全部门禁并做独立交叉审查：

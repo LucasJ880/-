@@ -10,14 +10,14 @@ company.log 时间线里的审计条目直接显示原始动作代码（如 `rev
 
 ## What Changes
 
-- **审计条目中文摘要**：常见动作（通用增删改、登录与成员、审批生命周期、Revenue Spine 商机 / 商务事实 / 草稿相关）与常见目标类型配中文标签；没有标签的动作照旧显示原始代码，不丢信息。
-- **商机阶段变更显示前后阶段**：`revenue_spine.opportunity.transition` 显示为"商机阶段：<原阶段> → <新阶段>"，按策略自动流转时追加"（按策略自动）"。阶段只认已知阶段值，其它值不显示。
-- **条目来源**：每条时间线条目新增 `source`：
+- **给审计条目配中文摘要**：常见动作（通用增删改、登录与成员、审批生命周期、Revenue Spine 商机 / 商务事实 / 草稿相关）与常见目标类型配中文标签；没有标签的动作照旧显示原始代码，不丢信息。
+- **为商机阶段变更显示前后阶段**：`revenue_spine.opportunity.transition` 显示为"商机阶段：<原阶段> → <新阶段>"，按策略自动流转时追加"（按策略自动）"。阶段只认已知阶段值，其它值不显示。
+- **给每条时间线条目标出来源** `source`：
   - AI 运行事件 = `ai`，自动化运行 = `system`；
-  - 审计条目默认 `human`；固定由 FDE 写的动作（草稿留底、跟进草稿被守卫拦下、草稿偏好被忽略）= `ai`；审批被系统作废 = `system`；商机阶段变更按审计里记录的流转来源（人工 / FDE / 系统）。
-- **只读白名单字段**：只为商机阶段变更这一种审计额外读取 `source`、`policyKey` 是否存在与前后 `stage` 三个字段，且只接受已知枚举值；其它审计仍不读变更前后数据。
-- **时间线显示来源**：操作者列对 `ai` / `system` 来源的审计显示"AI"/"系统"，并提示"以 <负责人> 名义记录"；人工条目照旧显示姓名。
-- **新增测试**：标签与回退、来源判定、白名单解析（异常值不显示）、读模型额外查询的组织范围、界面渲染；注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+  - 审计条目默认 `human`；固定由 FDE 写的动作（草稿留底、跟进草稿被守卫拦下、草稿偏好被忽略）= `ai`；固定由系统写的动作（审批被系统作废、配额守卫、询价邮件自动录入、人工外发镜像）= `system`；商机阶段变更按审计里记录的流转来源（人工 / FDE / 系统）；发起审批按审批记录里的发起方（FDE 发起 = `ai`）。
+- **只读白名单字段**：只为商机阶段变更这一种审计额外读取变更数据、只解析 `source`、`policyKey` 是否存在与前后 `stage` 三个字段，且只接受已知枚举值；其它审计仍不读变更前后数据。
+- **在时间线显示来源**：操作者列对 `ai` / `system` 来源的审计显示"AI"/"系统"，并提示"以 <负责人> 名义记录"；人工条目照旧显示姓名。
+- **补测试**：标签与回退、来源判定、白名单解析（异常值不显示）、读模型额外查询的组织范围、界面渲染；注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
 
 **与任务书的偏差（GATE 审核时请逐条确认）：**
 1. **不是任务书条目**：A-2 HANDOFF 记录的改进点与 B-5 GATE 注意项。
@@ -40,7 +40,7 @@ company.log 时间线里的审计条目直接显示原始动作代码（如 `rev
   - `src/lib/cockpit/posts-read-model.ts`（商机阶段变更的白名单字段额外查询）；
   - `src/lib/cockpit/presentation.ts`（来源感知的操作者标签）；
   - `src/components/cockpit/org-cockpit-view.tsx`（操作者列）；
-  - 既有测试 `timeline.test.ts`、`posts-read-model.test.ts`、`presentation.test.ts` 补断言；
+  - 既有测试 `timeline.test.ts`、`posts-read-model.test.ts`、`presentation.test.ts`、`home-state.test.ts`、`src/components/cockpit/__tests__/org-cockpit-view.test.tsx` 补断言与 `source` 字段；
   - `scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
 - 零 schema；不新增 cron / 队列；无 LLM 调用；无外发。
 

@@ -7,7 +7,7 @@
 
 import { AUTOMATION_REGISTRY, type AutomationKey } from "@/lib/automation/registry";
 import { POST_REGISTRY, postForAgentRunType, postForAutomation, postForPendingAction, postForWorkDomain, type PostKey } from "./posts";
-import { auditSource, auditSummaryText, type TimelineSource, type TransitionDetail } from "./audit-labels";
+import { auditSource, auditSummaryText, principalActorTypeOf, type TimelineSource, type TransitionDetail } from "./audit-labels";
 import { AUTOMATION_SCHEDULES, maxGapMinutes } from "./schedule";
 import { projectIdOf, redactCockpitText, targetTypeOf, type PendingActionRow } from "./waiting";
 
@@ -227,9 +227,11 @@ function postForRun(run: { runType: string; workDomain: string | null } | undefi
 
 export function auditEntry(row: AuditRow, lookups: TimelineLookups): TimelineEntry {
   let post: PostKey | null = null;
+  let principalActorType: string | null = null;
   if (row.targetType.trim().toLowerCase() === "pending_action" && row.targetId) {
     const pa = lookups.pendingActions.get(row.targetId);
     if (pa) {
+      principalActorType = principalActorTypeOf(pa.payload);
       const projectId = projectIdOf(pa);
       const agentRunType = pa.agentRunId ? lookups.agentRuns.get(pa.agentRunId)?.runType ?? null : null;
       post = postForPendingAction({
@@ -247,7 +249,7 @@ export function auditEntry(row: AuditRow, lookups: TimelineLookups): TimelineEnt
     actor: row.userId,
     actorName: row.userName,
     kind: "audit",
-    source: auditSource(row.action, row.transition),
+    source: auditSource(row.action, row.transition, principalActorType),
     // 只用 action、目标类型与商机阶段变更的白名单枚举，不读其它变更前后数据
     summary: redactCockpitText(auditSummaryText(row.action, row.targetType, row.transition)),
     href: null,

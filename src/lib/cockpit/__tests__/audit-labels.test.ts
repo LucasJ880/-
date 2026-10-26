@@ -13,6 +13,7 @@ import {
   SYSTEM_AUDIT_ACTIONS,
   auditSource,
   auditSummaryText,
+  principalActorTypeOf,
   transitionDetailOf,
 } from "../audit-labels";
 import { auditEntry, type TimelineLookups } from "../timeline";
@@ -46,6 +47,14 @@ ok("场景「未知动作」：原样显示代码；有标签的动作 + 未知�
   // 未知动作即使目标有中文名也保留原始目标类型，避免半中半英
   assert.equal(auditSummaryText("tender_analysis_approve", "project"), "tender_analysis_approve · project");
   assert.equal(auditSummaryText("create", "blinds_order_v2"), "新建 · blinds_order_v2");
+  // 写入方实际用的目标类型都有中文名（不出现半中半英）
+  assert.equal(auditSummaryText("revenue_spine.draft_preferences.ignored", "revenue_spine_policy"), "草稿偏好有项被忽略 · Revenue Spine 策略");
+  assert.equal(auditSummaryText("APPROVAL_APPROVED", "product_content_approval"), "批准 · 产品内容审批");
+  assert.equal(auditSummaryText("rfq_inbound:applied", "rfq_inbound_message"), "询价邮件已自动录入 · 询价邮件");
+  assert.equal(auditSummaryText("QUOTA_HARD_LIMIT_BLOCKED", "quota"), "配额用尽被拦下 · 配额");
+  // 原型链上的键不当标签（toString / constructor）
+  assert.equal(auditSummaryText("toString", "project"), "toString · project");
+  assert.equal(auditSummaryText("create", "constructor"), "新建 · constructor");
 });
 
 ok("动作代码与写入方源码一致（标签表里的审批 / Revenue Spine 动作确实被写入）", () => {
@@ -60,6 +69,12 @@ ok("动作代码与写入方源码一致（标签表里的审批 / Revenue Spine
   assert.ok(read("src/lib/revenue-spine/fde/draft-feedback.ts").includes('DRAFT_SNAPSHOT_AUDIT_ACTION = "revenue_spine.inquiry_reply.draft_snapshot"'));
   assert.ok(read("src/lib/revenue-spine/fde/no-reply-followup.ts").includes("revenue_spine.followup_draft.guardrail_blocked"));
   assert.ok(read("src/lib/revenue-spine/draft-preferences.ts").includes('"revenue_spine.draft_preferences.ignored"'));
+  const tenderRfq = read("src/lib/tender-rfq/inbound-sync.ts");
+  assert.ok(tenderRfq.includes('action: "rfq_inbound:applied"') && tenderRfq.includes('action: "rfq_inbound:failed"') && tenderRfq.includes('INBOUND_AUDIT_TARGET = "rfq_inbound_message"'));
+  const quota = read("src/lib/capabilities/governance/evaluate.ts");
+  for (const a of ["QUOTA_HARD_LIMIT_BLOCKED", "QUOTA_SOFT_LIMIT_REACHED", "QUOTA_WARNING"]) assert.ok(quota.includes(`"${a}"`), a);
+  assert.ok(read("src/lib/trade/outbound-sync.ts").includes('action: "revenue_spine.trade_outbound.mirrored"'));
+  assert.ok(read("src/lib/approval/request.ts").includes('principalActorType: input.principal.actorType ?? "user"'));
   // 固定来源表里的动作都有中文标签
   for (const a of [...AI_AUDIT_ACTIONS, ...SYSTEM_AUDIT_ACTIONS]) assert.ok(AUDIT_ACTION_LABELS[a], a);
 });
@@ -76,13 +91,15 @@ ok("场景「自动搁置」：follow_up → stale、来源 system、带策略�
   assert.equal(auditSource(OPPORTUNITY_TRANSITION_ACTION, d), "system");
 });
 
-ok("人工阶段变更：来源 human、不带策略键 → 不加（按策略自动）；FDE 流转 → ai；旧阶段值按 /revenue 同一归一", () => {
+ok("人工阶段变更：来源 human、不带策略键 → 不加（按策略自动）；FDE 流转 → ai；旧阶段值（Sunny 车道）按 /revenue 同一归一", () => {
   const human = transitionDetailOf(before("quoted"), after({ stage: "won", source: "human" }));
   assert.equal(auditSummaryText(OPPORTUNITY_TRANSITION_ACTION, "sales_opportunity", human), "商机阶段：已报价 → 成交");
   assert.equal(auditSource(OPPORTUNITY_TRANSITION_ACTION, human), "human");
   const fde = transitionDetailOf(before("new_inquiry"), after({ stage: "disqualified", source: "fde", policyKey: "businessProfile.excludedCategoryAction" }));
   assert.equal(auditSource(OPPORTUNITY_TRANSITION_ACTION, fde), "ai");
   assert.equal(auditSummaryText(OPPORTUNITY_TRANSITION_ACTION, "sales_opportunity", fde), "商机阶段：新询盘 → 不合格（按策略自动）");
+  const legacy = transitionDetailOf(before("measure_booked"), after({ stage: "signed", source: "human" }));
+  assert.equal(auditSummaryText(OPPORTUNITY_TRANSITION_ACTION, "sales_opportunity", legacy), "商机阶段：RFQ 就绪 → 成交");
 });
 
 ok("场景「异常阶段值」：自由文本 / 缺失 / 坏 JSON → 退回「商机阶段变更 · 商机」，不出现该文本；来源缺失或未知 → human", () => {
@@ -98,6 +115,7 @@ ok("场景「异常阶段值」：自由文本 / 缺失 / 坏 JSON → 退回「
     assert.equal(text, "商机阶段变更 · 商机", `${b} ${a}`);
   }
   assert.equal(transitionDetailOf(before("quoted"), after({ stage: "won", source: "robot" })).source, null);
+  assert.equal(transitionDetailOf(null, after({ source: "constructor" })).source, null);
   assert.equal(auditSource(OPPORTUNITY_TRANSITION_ACTION, transitionDetailOf(null, after({ source: "robot" }))), "human");
   assert.equal(auditSource(OPPORTUNITY_TRANSITION_ACTION, null), "human");
   // 策略键只看是否为非空字符串
@@ -116,6 +134,30 @@ ok("场景「FDE 留底」/ 固定表：FDE 写的三个动作 → ai；审批�
     EMPTY,
   );
   assert.deepEqual([e.source, e.actor, e.actorName, e.summary], ["ai", "u_owner", "Lin", "FDE 草稿留底 · 审批"]);
+  // 固定由系统写入：配额守卫、询价邮件自动录入、人工外发镜像
+  for (const a of ["QUOTA_HARD_LIMIT_BLOCKED", "QUOTA_SOFT_LIMIT_REACHED", "QUOTA_WARNING", "rfq_inbound:applied", "rfq_inbound:failed", "revenue_spine.trade_outbound.mirrored"]) {
+    assert.equal(auditSource(a), "system", a);
+  }
+  // 人工驳回 AI 草稿、询盘回复发送（审批后执行）仍是人工
+  assert.equal(auditSource("ai_draft_reject"), "human");
+  assert.equal(auditSource("revenue_spine.inquiry_reply.sent"), "human");
+});
+
+ok("场景「FDE 发起的审批」：发起审批按审批载荷里的发起方——agent → ai，user / 缺失 → human；只对发起审批生效", () => {
+  const lookups = (actorType: string | null): TimelineLookups => ({
+    ...EMPTY,
+    pendingActions: new Map([["pa1", { type: "sales.send_inquiry_reply", projectId: null, agentRunId: null, payload: { to: "x", metadata: actorType ? { principalActorType: actorType } : {} } }]]),
+  });
+  const row = (action: string) => ({ id: "a1", createdAt: new Date("2026-10-26T10:00:00Z"), userId: "u_owner", userName: "Lin", action, targetType: "pending_action", targetId: "pa1" });
+  const ai = auditEntry(row("APPROVAL_CREATED"), lookups("agent"));
+  assert.deepEqual([ai.source, ai.actor, ai.summary], ["ai", "u_owner", "发起审批 · 审批"]);
+  assert.equal(auditEntry(row("APPROVAL_CREATED"), lookups("user")).source, "human");
+  assert.equal(auditEntry(row("APPROVAL_CREATED"), lookups(null)).source, "human");
+  assert.equal(auditEntry(row("APPROVAL_CREATED"), EMPTY).source, "human"); // 找不到审批
+  // 批准 / 驳回是人的决定，发起方是 agent 也仍是人工
+  assert.equal(auditEntry(row("APPROVAL_APPROVED"), lookups("agent")).source, "human");
+  assert.equal(principalActorTypeOf({ metadata: { principalActorType: 3 } }), null);
+  assert.equal(principalActorTypeOf(["x"]), null);
 });
 
 console.log("\n脱敏");
