@@ -93,8 +93,8 @@
 ### D5 通知按负责人每轮汇总
 - 流转成功的商机按 `assignedToId ?? createdById` 分组，每组一条 `createNotificationsForUsers`：
   - 类型 `followup`，优先级 `medium`；
-  - `entityType = "revenue_opportunity"`；
-  - 元数据带最多 50 个商机 id 与 `actionHref = "/revenue"`；
+  - 只有一个商机时 `entityType = "revenue_opportunity"`、`entityId = 商机 id`：通知中心与页头按这对字段跳商机详情。多个时不设 `entityId`，用户从 `/revenue` 的 Stale 队列看全部；
+  - 元数据带最多 50 个商机 id 与 policy 键名；
   - 摘要列前 3 个商机标题；
   - `sourceKeyPrefix = revenue-auto-stale:{orgId}:{本轮时刻}`。
 - 通知失败吞掉，记入结果。
@@ -105,7 +105,7 @@
 
 ### D6 dogfood 用 seed 脚本发布 policy 新版本
 - 纯函数 `planAutonomyEnable(currentConfig)`：已开启返回 `null`；否则返回 `{ ...current, autonomy: { ...current.autonomy, autoStale: true } }`。
-- 脚本按 `Organization.code` 找组织（缺省 `sunny-home-deco`，`--org` 可改），默认只打印计划，`--apply` 才调用 `publishRevenueSpineRule`。
+- 脚本按 `Organization.code` 找组织（缺省 `sunny-home-deco`，`--org-code` 可改），默认只打印计划，`--write` 才调用 `publishRevenueSpineRule`。
 - 理由：
   - D-4 明确"通过 seed 脚本写 policy，不改默认值"；
   - 发布新版本可回滚，保留其它 policy。
@@ -160,5 +160,5 @@
 ## Migration Plan
 
 部署后默认零行为。
-- **dogfood**：在 staging 对 sunny-home-deco 跑 `npx tsx scripts/seed-revenue-autonomy.ts`（看计划）→ `--apply`。
+- **dogfood**：在 staging 对 sunny-home-deco 跑 `npx tsx scripts/seed-revenue-autonomy.ts`（看计划）→ `--write`。
 - **回滚**：发布一版 `autonomy.autoStale = false` 的 policy（或撤销本 PR）。已搁置的商机可按既有规则人工转回。

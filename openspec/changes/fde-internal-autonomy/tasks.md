@@ -2,7 +2,7 @@
 
 ## 1. policy 开关与判定（纯函数）
 
-- [ ] 1.1 `src/lib/revenue-spine/policy.ts` 加 `autonomy.autoStale`（默认 `false`、只认布尔值），并新建 `src/lib/revenue-spine/autonomy.ts`，包含：
+- [x] 1.1 `src/lib/revenue-spine/policy.ts` 加 `autonomy.autoStale`（默认 `false`、只认布尔值），并新建 `src/lib/revenue-spine/autonomy.ts`，包含：
   - 候选查询条件、在途审批查询条件；
   - `decideAutoStale` 判定（含跳过原因）；
   - 依赖可注入的执行器 `runAutoStale`（流转、汇总通知、上限 200、预算、失败隔离）。
@@ -11,7 +11,7 @@
 
 ## 2. 接入
 
-- [ ] 2.1 接入三处，并在 `autonomy.test.ts` 补静态断言：
+- [x] 2.1 接入三处，并在 `autonomy.test.ts` 补静态断言：
   - `transition.ts`：可选 `policyKey` 写进审计；
   - `fde/inbound-sales.ts`：decline 判不合格时透传 `policyKey`；
   - `api/cron/revenue-spine/route.ts`：开关保护的自动搁置步骤放在 next action 之前，并修正头注释。
@@ -19,7 +19,7 @@
 
 ## 3. dogfood 脚本
 
-- [ ] 3.1 新建 `scripts/seed-revenue-autonomy.ts`（默认只打印计划、`--apply` 才发布、缺省 `sunny-home-deco`），计划函数放在 `autonomy.ts` 并在 `autonomy.test.ts` 覆盖。
+- [x] 3.1 新建 `scripts/seed-revenue-autonomy.ts`（默认只打印计划、`--write` 才发布、缺省 `sunny-home-deco`），计划函数放在 `autonomy.ts` 并在 `autonomy.test.ts` 覆盖。
   - verify：覆盖 spec「dogfood 开启脚本」两个 scenario；`npx tsx scripts/seed-revenue-autonomy.ts --help` 退出 0。
 
 ## 4. 门禁与交付

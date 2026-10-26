@@ -65,7 +65,7 @@ policy SHALL 提供 `autonomy.autoStale` 开关，默认 `false`；存量 policy
 - **THEN** 阶段流转规则表与改动前逐项相同，且每个开放阶段本来就允许转 `stale`
 
 ### Requirement: 通知负责人
-每轮自动搁置后，系统 SHALL 给每个负责人发一条站内通知，类型 `followup`，汇总本轮被搁置的商机数与前几个商机标题，链接到 `/revenue`。没有负责人的商机 SHALL 计入创建人的通知。通知 SHALL NOT 包含买家邮箱、电话或任何金额。通知失败 SHALL NOT 回滚已完成的流转，也 SHALL NOT 中断本组织的后续步骤。
+每轮自动搁置后，系统 SHALL 给每个负责人发一条站内通知，类型 `followup`，汇总本轮被搁置的商机数与前三个商机标题。只有一个商机时，通知 SHALL 关联到该商机（点击进入商机详情）；多个时元数据 SHALL 带商机 id 列表。没有负责人的商机 SHALL 计入创建人的通知。通知 SHALL NOT 包含买家邮箱、电话或任何金额。通知失败 SHALL NOT 回滚已完成的流转，也 SHALL NOT 中断本组织的后续步骤。
 
 #### Scenario: 按负责人汇总
 - **WHEN** 一轮内负责人 A 的 3 个商机、负责人 B 的 1 个商机被搁置
@@ -112,7 +112,7 @@ FDE 运行 SHALL 继续经过 `DAILY_AGENT_RUNS` 配额预留。硬限额命中�
   - 岗位健康度读取该审计或通知。
 
 ### Requirement: dogfood 开启脚本
-`scripts/seed-revenue-autonomy.ts` SHALL 默认只打印计划不写入；带 `--apply` 时 SHALL 为指定组织（缺省 `sunny-home-deco`）发布一版 policy，只把 `autonomy.autoStale` 设为 `true`，其余 policy 保持原值。已开启时 SHALL NOT 重复发布。代码里的默认值 SHALL 保持关闭。
+`scripts/seed-revenue-autonomy.ts` SHALL 默认只打印计划不写入；带 `--write` 时 SHALL 为指定组织（缺省 `sunny-home-deco`）发布一版 policy，只把 `autonomy.autoStale` 设为 `true`，其余 policy 保持原值。已开启时 SHALL NOT 重复发布。代码里的默认值 SHALL 保持关闭。
 
 #### Scenario: 计划
 - **WHEN** 现有 policy 覆盖为 `{"followUp":{"staleAfterDays":30}}`，计算开启计划

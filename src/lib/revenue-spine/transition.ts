@@ -26,6 +26,8 @@ export interface TransitionInput {
   estimatedValue?: number | null;
   salesActionId?: string | null;
   agentRunId?: string | null;
+  /** 按 policy 自动流转时的 policy 键名（如 autonomy.autoStale），写进审计；人工流转不传 */
+  policyKey?: string | null;
   policy?: RevenueSpinePolicy;
   now?: Date;
 }
@@ -120,7 +122,13 @@ export async function transitionOpportunity(input: TransitionInput): Promise<Tra
     targetType: "sales_opportunity",
     targetId: opp.id,
     beforeData: { stage: from },
-    afterData: { stage: input.to, source: input.source, reason: input.reason ?? null, salesActionId: input.salesActionId ?? null },
+    afterData: {
+      stage: input.to,
+      source: input.source,
+      reason: input.reason ?? null,
+      salesActionId: input.salesActionId ?? null,
+      ...(input.policyKey ? { policyKey: input.policyKey } : {}),
+    },
   });
 
   const nextAction = await applyNextAction(input.orgId, opp.id, { policy: input.policy, now });

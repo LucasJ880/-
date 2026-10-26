@@ -25,6 +25,7 @@ import {
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { markFdeTouch } from "../attribution";
+import { DECLINE_POLICY_KEY } from "../autonomy";
 import { loadFactoryKnowledge, summarizeKnowledge } from "../factory-knowledge";
 import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
@@ -111,7 +112,7 @@ async function safeTransition(
   orgId: string,
   opportunityId: string,
   to: Stage,
-  ctx: { salesActionId: string | null; agentRunId: string; policy: RevenueSpinePolicy; now: Date; reason?: string },
+  ctx: { salesActionId: string | null; agentRunId: string; policy: RevenueSpinePolicy; now: Date; reason?: string; policyKey?: string | null },
 ): Promise<string> {
   const r = await transitionOpportunity({
     orgId,
@@ -122,6 +123,7 @@ async function safeTransition(
     reason: ctx.reason ?? null,
     salesActionId: ctx.salesActionId,
     agentRunId: ctx.agentRunId,
+    policyKey: ctx.policyKey ?? null,
     policy: ctx.policy,
     now: ctx.now,
   });
@@ -427,7 +429,17 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           ? OpportunityStage.NEEDS_INFO
           : OpportunityStage.QUALIFIED;
     if (stage !== target) {
-      stage = await safeTransition(orgId, opp.id, target, { salesActionId, agentRunId: runId, policy, now, reason: score.recommendedNextActionLabel.zh });
+      // 只命中不做类目、企业选了"婉拒"→ 按 policy 判不合格：审计记下 policy 键名（B-5）
+      const declinedByPolicy =
+        target === OpportunityStage.DISQUALIFIED && score.outOfRange && policy.businessProfile.excludedCategoryAction === "decline";
+      stage = await safeTransition(orgId, opp.id, target, {
+        salesActionId,
+        agentRunId: runId,
+        policy,
+        now,
+        reason: score.recommendedNextActionLabel.zh,
+        policyKey: declinedByPolicy ? DECLINE_POLICY_KEY : null,
+      });
     }
     if (score.qualification === "rfq_ready" && stage === OpportunityStage.QUALIFIED) {
       stage = await safeTransition(orgId, opp.id, OpportunityStage.RFQ_READY, { salesActionId, agentRunId: runId, policy, now });

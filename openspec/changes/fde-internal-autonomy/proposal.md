@@ -26,7 +26,7 @@ B-5 让这件事按 policy 自动完成，每次流转留审计、通知负责�
   - 阶段规则 `ALLOWED_TRANSITIONS` 不放宽：所有开放阶段本来就允许转 `stale`；
   - 审计记录新增 `policyKey = "autonomy.autoStale"` 与原因（含天数）。
 - **通知负责人**：
-  - 每轮每个负责人一条站内汇总通知（类型 `followup`）："已自动搁置 N 个长期无互动商机"，列出前几个商机标题，链接到 `/revenue`；
+  - 每轮每个负责人一条站内汇总通知（类型 `followup`）："已自动搁置 N 个长期无互动商机"，列出前三个商机标题；只有一个商机时点击直达该商机；
   - 无负责人的商机通知其创建人；
   - 开启后第一轮可能一次搁置几十个，按负责人汇总避免刷屏。
 - **每轮上限**：每个组织每轮最多流转 200 个，在既有维护时间预算内执行；超出部分下一轮继续。
@@ -34,7 +34,7 @@ B-5 让这件事按 policy 自动完成，每次流转留审计、通知负责�
   - FDE 在 `excludedCategoryAction = "decline"` 时把只命中不做类目的询盘判为不合格、转 `disqualified`、不起草、关闭 FDE 行动。这条链路**已经存在**。
   - 本 change 只给这次流转的审计记录补 `policyKey = "businessProfile.excludedCategoryAction"`。
 - **seed 脚本**：`scripts/seed-revenue-autonomy.ts`。
-  - 默认只打印计划；带 `--apply` 时为指定组织（默认 `sunny-home-deco`）发布一版 policy，只把 `autonomy.autoStale` 设为 `true`，其余 policy 不变；
+  - 默认只打印计划；带 `--write` 时为指定组织（默认 `sunny-home-deco`）发布一版 policy，只把 `autonomy.autoStale` 设为 `true`，其余 policy 不变；
   - 已开启时不重复发布。
 - **新增测试**：自治判定与执行（纯函数 + 假依赖）、seed 计划函数、接入点与配额链路的静态断言，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
 - 写 `docs/QINGYAN_ORG_COCKPIT_B-5_REPORT.md` 并更新状态列。
