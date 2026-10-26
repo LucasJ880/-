@@ -26,10 +26,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { hidesWholePage, type PostsState, type TimelineState } from "@/lib/cockpit/home-state";
 import type { PostCardView, PostsCockpitResponse } from "@/lib/cockpit/posts-read-model";
+import type { TimelineEntry } from "@/lib/cockpit/timeline";
 import {
   KPI_STATUS_LABELS,
   abnormalAutomations,
-  actorLabel,
+  entryActorLabel,
   formatCount,
   formatKpiValue,
   formatRelativeTime,
@@ -326,7 +327,7 @@ export function CompanyLog({
               <div className="flex gap-2 text-xs text-muted sm:contents">
                 <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">{formatRelativeTime(entry.at, now)}</span>
                 <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">{postName(entry.post)}</span>
-                <span className="sm:w-14 sm:shrink-0 sm:pt-0.5">{actorLabel(entry.actor, entry.actorName)}</span>
+                <ActorCell entry={entry} />
               </div>
               <span className="min-w-0 flex-1 break-words text-foreground/90 [overflow-wrap:anywhere]">{entry.summary}</span>
             </div>
@@ -436,6 +437,17 @@ function CardsSkeleton() {
         </div>
       ))}
     </>
+  );
+}
+
+/** 操作者列：系统 / FDE 以负责人名义写的审计显示"系统"/"AI"，悬停提示挂名的人 */
+function ActorCell({ entry }: { entry: TimelineEntry }) {
+  const { label, title } = entryActorLabel(entry);
+  return (
+    <span className="sm:w-14 sm:shrink-0 sm:pt-0.5" title={title ?? undefined}>
+      {label}
+      {title ? <span className="sr-only">（{title}）</span> : null}
+    </span>
   );
 }
 

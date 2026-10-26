@@ -138,6 +138,17 @@ export function actorLabel(actor: string, actorName: string | null): string {
   return actorName?.trim() || "成员";
 }
 
+/**
+ * 时间线操作者列（org-cockpit-timeline-labels）：系统 / FDE 以负责人名义写的审计显示"系统"/"AI"，
+ * 并提示挂名的人；其余条目同 actorLabel。
+ */
+export function entryActorLabel(entry: { kind: string; actor: string; actorName: string | null; source?: string }): { label: string; title: string | null } {
+  if (entry.kind === "audit" && (entry.source === "ai" || entry.source === "system")) {
+    return { label: entry.source === "ai" ? "AI" : "系统", title: `以${entry.actorName?.trim() || "成员"}名义记录` };
+  }
+  return { label: actorLabel(entry.actor, entry.actorName), title: null };
+}
+
 /** 千分位；来源被截断时显示"N+" */
 export function waitingCountLabel(total: number, truncated: boolean): string {
   return truncated ? `${formatCount(total)}+` : formatCount(total);
