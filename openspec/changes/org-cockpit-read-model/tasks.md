@@ -18,7 +18,7 @@
 
 ## 5. 门禁
 
-- [ ] 5.1 跑全量门禁。verify：`npm run lint:baseline` 退出 0；`npm run test:ci` 输出 `CI unit subset PASS`；`npm test` 中 A-1 与本 change 的 4 个新测试全部 PASS，其余失败项与 `origin/main` 基线逐条一致；`npm run test:runtime-architecture` 通过；`git diff --stat origin/main -- prisma/ vercel.json` 为空；`openspec validate org-cockpit-read-model --strict` 通过。
+- [x] 5.1 跑全量门禁。verify：`npm run lint:baseline` 退出 0；`npm run test:ci` 输出 `CI unit subset PASS`；`npm test` 中 A-1 与本 change 的 4 个新测试全部 PASS，其余失败项与 `origin/main` 基线逐条一致；`npm run test:runtime-architecture` 通过；`git diff --stat origin/main -- prisma/ vercel.json` 为空；`openspec validate org-cockpit-read-model --strict` 通过。
 
 ## 6. 收尾
 
