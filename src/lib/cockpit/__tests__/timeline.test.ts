@@ -56,6 +56,7 @@ console.log("统一信封");
 {
   const a = auditEntry({ id: "a1", createdAt: T("2026-10-26T10:00:00Z"), userId: "u1", userName: "Lucas", action: "PENDING_ACTION_APPROVED", targetType: "pending_action", targetId: "pa1" }, lookups);
   ok(a.id === "audit:a1" && a.kind === "audit" && a.actor === "u1" && a.actorName === "Lucas" && a.href === null, "审计日志：id 前缀 / kind / actor = 用户 id");
+  ok(a.source === "human", "审计日志默认来源 human");
   ok(a.post === "tender", "目标为待审批动作的审计日志按动作归属（tender.send_rfq → tender）");
   ok(a.summary === "PENDING_ACTION_APPROVED · pending_action", "摘要只用 action 与目标类型", a.summary);
   const a2 = auditEntry({ id: "a2", createdAt: T("2026-10-26T10:00:00Z"), userId: "u1", userName: null, action: "X", targetType: "pending_action", targetId: "pa2" }, lookups);
@@ -69,7 +70,7 @@ console.log("统一信封");
 }
 {
   const e = agentEventEntry({ id: "e1", createdAt: T("2026-10-26T10:00:00Z"), runId: "run-wf", eventType: "job.waiting_human", title: null }, lookups);
-  ok(e.id === "event:e1" && e.kind === "agent_event" && e.actor === "ai", "AI 运行事件：id 前缀 / kind / actor = ai");
+  ok(e.id === "event:e1" && e.kind === "agent_event" && e.actor === "ai" && e.source === "ai", "AI 运行事件：id 前缀 / kind / actor = ai / source = ai");
   ok(e.post === "tender" && e.href === "/workforce/run-wf", "workforce 作业事件按工作域归属，href = /workforce/<run id>");
   ok(e.summary === "作业等待人工", "事件类型有中文标签", e.summary);
   const e2 = agentEventEntry({ id: "e2", createdAt: T("2026-10-26T10:00:00Z"), runId: "run-fde", eventType: "run.failed", title: "询盘 ACME" }, lookups);
@@ -81,7 +82,7 @@ console.log("统一信封");
 }
 {
   const r = automationRunEntry({ id: "r1", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "release-drift", status: "succeeded" });
-  ok(r.id === "run:r1" && r.kind === "automation_run" && r.actor === "system" && r.post === "ops_knowledge", "自动化运行：id 前缀 / actor = system / 按自动化归属");
+  ok(r.id === "run:r1" && r.kind === "automation_run" && r.actor === "system" && r.source === "system" && r.post === "ops_knowledge", "自动化运行：id 前缀 / actor = system / source = system / 按自动化归属");
   ok(r.summary === "发布漂移检查（代码 vs 生产库迁移）：成功", "摘要 = 自动化名 + 状态", r.summary);
   // 平台级运行流的错误文本可能带出其他组织的数据：即使行里带了 error 也不进摘要
   const withError = { id: "r2", startedAt: T("2026-10-26T09:00:00Z"), automationKey: "agent-runs", status: "failed", error: "org_other 数据库超时" } as AutomationRunRow;
@@ -143,7 +144,7 @@ console.log("归并翻页");
     { id: "audit:a2", at: "2026-10-26T08:00:00.000Z" },
     { id: "run:r2", at: "2026-10-25T08:00:00.000Z" },
     { id: "audit:a3", at: "2026-10-20T08:00:00.000Z" },
-  ].map((e) => ({ ...e, post: null, actor: "system", actorName: null, kind: "audit" as const, summary: "", href: null }));
+  ].map((e) => ({ ...e, post: null, actor: "system", actorName: null, kind: "audit" as const, source: "human" as const, summary: "", href: null }));
   const from = T("2026-10-19T12:00:00Z");
   const prefixOf = (id: string) => (id.startsWith("audit:") ? "audit:" : id.startsWith("event:") ? "event:" : "run:") as "audit:" | "event:" | "run:";
   // 模拟装配层：每路按 sourceCursorBound 过滤、倒序取 limit + 1

@@ -300,6 +300,7 @@ npx tsx src/lib/cockpit/__tests__/waiting.test.ts
 npx tsx src/lib/cockpit/__tests__/timeline.test.ts
 npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts
 npx tsx src/lib/cockpit/__tests__/presentation.test.ts
+npx tsx src/lib/cockpit/__tests__/audit-labels.test.ts
 npx tsx src/lib/cockpit/__tests__/home-state.test.ts
 npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx
 npx tsx src/lib/cockpit/__tests__/workload.test.ts

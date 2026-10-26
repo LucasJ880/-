@@ -34,6 +34,7 @@ const entry = (id: string): TimelineEntry => ({
   actor: "system",
   actorName: null,
   kind: "automation_run",
+  source: "system",
   summary: id,
   href: null,
 });

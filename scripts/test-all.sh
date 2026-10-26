@@ -488,6 +488,8 @@ run_test "组织驾驶舱 company.log 时间线（A-2）" "npx tsx src/lib/cockp
 run_test "组织驾驶舱 读模型与 API（A-2）" "npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts"
 # 组织驾驶舱 A-3（openspec change org-cockpit-home）：首页展示规则、取数状态机与岗位视图渲染——纯逻辑 / 服务端静态渲染，无 DB
 run_test "组织驾驶舱 首页展示规则（A-3）" "npx tsx src/lib/cockpit/__tests__/presentation.test.ts"
+# A-2 后续（openspec change org-cockpit-timeline-labels）：时间线审计中文摘要与来源——纯逻辑，无 DB
+run_test "组织驾驶舱 时间线审计中文摘要与来源" "npx tsx src/lib/cockpit/__tests__/audit-labels.test.ts"
 run_test "组织驾驶舱 首页取数状态机（A-3）" "npx tsx src/lib/cockpit/__tests__/home-state.test.ts"
 run_test "组织驾驶舱 岗位视图渲染（A-3）" "npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx"
 # 组织驾驶舱 A-4（openspec change org-cockpit-workload）：工作量 / 无用功汇总、读模型与首页区块——纯逻辑 + 假依赖 + 服务端静态渲染，无 DB

@@ -12,6 +12,7 @@ import {
   KPI_STATUS_LABELS,
   abnormalAutomations,
   actorLabel,
+  entryActorLabel,
   errorKindFrom,
   formatCount,
   formatKpiValue,
@@ -117,6 +118,18 @@ ok(errorKindFrom(500, { error: "x" }) === "server" && errorKindFrom(400, null) =
 console.log("操作者、计数、岗位名");
 ok(formatCount(1234567) === "1,234,567" && formatCount(0) === "0" && formatCount(Number.NaN) === "—", "计数千分位");
 ok(actorLabel("system", null) === "系统" && actorLabel("ai", null) === "AI", "system → 系统，ai → AI");
+{
+  // org-cockpit-timeline-labels：系统 / FDE 以负责人名义写的审计
+  const audit = (source: string, actorName: string | null) => ({ kind: "audit", actor: "u_owner", actorName, source });
+  const ai = entryActorLabel(audit("ai", "Lin"));
+  const sys = entryActorLabel(audit("system", null));
+  const human = entryActorLabel(audit("human", "Lin"));
+  ok(ai.label === "AI" && ai.title === "以Lin名义记录", "AI 来源的审计：显示 AI，提示挂名的人", ai);
+  ok(sys.label === "系统" && sys.title === "以成员名义记录", "系统来源的审计：显示系统；没有姓名时提示以成员名义", sys);
+  ok(human.label === "Lin" && human.title === null, "人工条目照旧显示姓名、无提示");
+  ok(entryActorLabel({ kind: "agent_event", actor: "ai", actorName: null, source: "ai" }).label === "AI" && entryActorLabel({ kind: "automation_run", actor: "system", actorName: null, source: "system" }).title === null, "AI 运行事件 / 自动化运行照旧，无名义提示");
+  ok(entryActorLabel({ kind: "audit", actor: "u1", actorName: "Ann" }).label === "Ann", "旧响应没有 source 字段时按人工显示");
+}
 ok(actorLabel("u1", "Lucas") === "Lucas" && actorLabel("u1", null) === "成员" && actorLabel("u1", "  ") === "成员", "用户 → 名字，无名字 → 成员");
 ok(waitingCountLabel(5, false) === "5" && waitingCountLabel(100, true) === "100+", "截断时加 +");
 ok(waitingCountLabel(1200, false) === "1,200" && waitingCountLabel(1200, true) === "1,200+", "计数千分位");
