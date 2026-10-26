@@ -496,6 +496,7 @@ run_test "组织驾驶舱 工作量读模型与接口（A-4）" "npx tsx src/lib
 run_test "组织驾驶舱 工作量区块渲染（A-4）" "npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx"
 # FDE B-1（openspec change fde-feedback-loop）：询盘回复草稿结构化 diff 与终态反馈事件——纯逻辑 + 假依赖，无 DB
 run_test "FDE 询盘回复草稿 diff（B-1）" "npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts"
+run_test "FDE 询盘回复反馈闭环（B-1）" "npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

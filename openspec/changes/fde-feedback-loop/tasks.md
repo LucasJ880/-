@@ -9,7 +9,7 @@
 
 ## 2. 终态反馈记录
 
-- [ ] 2.1 新建 `src/lib/revenue-spine/fde/draft-feedback.ts`：
+- [x] 2.1 新建 `src/lib/revenue-spine/fde/draft-feedback.ts`：
   - 快照内容构造与写入；
   - 终态映射；
   - 幂等键；
