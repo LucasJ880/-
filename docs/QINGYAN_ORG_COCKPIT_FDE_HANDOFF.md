@@ -1,0 +1,63 @@
+# 组织驾驶舱 × Inbound Sales FDE — 交接记录（换会话从这里接）
+
+> 每完成一个 change 的一个阶段就更新本文件并推送。新会话开工顺序：先读 `CLAUDE.md` §1，再读本文件"当前位置"，再 `openspec list` 看进行中的 change，用 `/opsx:continue <change>` 接着做，不凭记忆重写。
+
+| 项 | 值 |
+|---|---|
+| 任务书 | `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md`（状态列是 A / B 阶段的事实源） |
+| 工作分支 | `claude/awesome-turing-dorqeg`（基线 `origin/main` @ `51cc62c`，PR #243 合并后） |
+| PR 策略 | **未定**：仓库约定"一个 change = 一个 PR"，但本会话只被授权推这一个分支。目前各 change 按提交顺序叠在同一分支，每个 change 的提交前缀为 `<change-name>:`，便于将来拆 PR。需要 Evan / 用户决定：每个 change 开独立分支（需授权推别的分支），或接受叠加分支按 change 逐个开 PR |
+| 每个 change 的完成定义 | 四件套 `openspec validate --strict` 通过 → apply 全部 task 打勾 → 本 change 测试 + typecheck + lint:baseline 绿 → `/opsx:verify` 报告 → 独立审查代理交叉验证（只给代码与规格）并处理发现 → 写 REPORT + 状态列 `[G]` → 提交推送 → 更新本文件 |
+
+## 当前位置
+
+- **A-1 `org-cockpit-posts`**：四件套 ✅；apply task 1.1 / 2.1 ✅（`posts.ts` + 158 条断言测试 + 注册；typecheck、lint:baseline 通过）。进行中：task 3.1 全量 `npm test` 与基线比对（基线 `origin/main` = 411/425，14 项环境性失败，清单见报告）、独立交叉审查；之后 task 4.1 补完 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md` §2 并把状态列改 `[G]`。
+
+## 进度表
+
+| ID | change | 四件套 | apply | 测试 | verify | 交叉验证 | 状态列 |
+|---|---|---|---|---|---|---|---|
+| A-1 | `org-cockpit-posts` | ✅ `06d4392` | 2/4 | 进行中 | — | 进行中 | `[~]` |
+| A-2 | `org-cockpit-read-model` | — | — | — | — | — | `[ ]` |
+| A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
+| A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
+| B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
+| B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
+| B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
+| B-4 | `fde-score-calibration` | — | — | — | — | — | `[ ]` |
+| B-5 | `fde-internal-autonomy` | — | — | — | — | — | `[ ]` |
+
+A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行决定是否启动）。
+
+## 已做的判断（GATE 审核时逐条确认；详见各 change 的 proposal "偏差"一节）
+
+1. 代码现状是 28 项自动化、14 种 PendingAction（任务书写 23 / 12）；A-1 按代码现状穷举。
+2. `approval-timeout` 归 `ops_knowledge`，不归 `tender`（它处理全组织所有类型的审批过期）。
+3. `grader.*` 与 `calendar.create_event` 归 `projects`（只由 ai-grader / proactive-scan 产出）。
+4. 工作域：`sales`→`inbound_sales`、`tender`→`tender`、`delivery`→`projects`、`general`→`ops_knowledge`。
+5. `service`、`content` 没有既有只读读函数，A-1 的 KPI 标"未接入"；A-2 决定是否把路由里的内联查询原样抽成读函数。
+6. `tender` 的 KPI 来源 `getTenderPortfolioSummary`、`marketing` 的 `getMarketingDashboard` 返回值含毛利 / 利润 / 估值 / 中标金额，KPI 只取白名单计数字段。
+7. `ops_knowledge` 卡片跳 `/ai-activity`（不跳 `/ai/autopilot`，后者有权限门与开关）。
+
+## 环境（云端容器每次都是新的，照做即可）
+
+```bash
+# Node 24（容器自带 v22，项目要求 >=24 <25）
+mkdir -p /opt/node24 && cd /opt/node24 \
+  && curl -sS -O https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz \
+  && tar -xJf node-v24.22.1-linux-x64.tar.xz && rm node-v24.22.1-linux-x64.tar.xz
+export PATH=/opt/node24/node-v24.22.1-linux-x64/bin:$PATH
+
+cd <repo> && npm ci
+# npm 11 默认不跑依赖的 install 脚本，手动补三步：
+(cd node_modules/esbuild && node install.js)
+(cd node_modules/@prisma/engines && node scripts/postinstall.js)
+npx prisma generate
+
+npm i -g @fission-ai/openspec@1.15.0   # openspec CLI
+```
+
+## 已知的既有问题（不是本任务引入，不在本任务修）
+
+- `bash scripts/check-test-registry.sh` 在 `main` 上已失败：PR #242 带入 `src/lib/trade/__tests__/inbound-org.test.ts`、`src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts` 未注册。另一会话的 `register-acquisition-hub-tests` change（分支 `claude/affectionate-ptolemy-81vzuy`）在处理。
+- 容器里没有 Postgres：DB 集成测试会以 MISSING_DATABASE_URL 失败或跳过；`npm test` 的失败项要与基线逐条比对，只认新增失败。
