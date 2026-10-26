@@ -30,10 +30,10 @@ import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
-import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
-import { composeBoothFirstEmail, footerLines, notedFacts } from "../booth-email";
+import { allowedStyles, buildReferenceLines, buildReplyDraft, polishReplyDraftWithLlm, referenceProgramLines, sampleLineFor, type ReplyDraft } from "../reply-draft";
+import { buyerFacingOrgName, composeBoothFirstEmail, footerLines, notedFacts, policySignature, type BoothEmailTerms } from "../booth-email";
 import { renderPlainEmailHtml } from "../email-layout";
-import { loadEmailBranding, signatureFor } from "../email-profile";
+import { loadEmailBranding } from "../email-profile";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
 import { INBOUND_MESSAGE_SEPARATOR } from "../rfq/heuristic-extractor";
 import { classifyInquiry, type InquiryResearch } from "../research";
@@ -353,10 +353,12 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     if (risks.length) {
       await event("agent.output", `来信风险提醒：${risks.map((r) => r.code).join(", ")}`, { decision: "risk_notes", risks });
     }
-    // 卡上记了参考款但 RFQ 没认出产品时，用参考款名，不再追问"您要哪个产品"
+    // 卡上记了参考款但 RFQ 没认出产品时，用参考款名，不再追问"您要哪个产品"；
+    // 只用可对外的款（commercialFacts.blockedStyleCodes 剔除后），否则被禁的款名会以"产品"写进邮件
+    const shownStyles = allowedStyles(booth.styles, policy);
     const fields: RfqFields =
-      booth.styles.length && !persisted.fields.productName
-        ? { ...persisted.fields, productName: booth.styles.map((st) => st.name ?? st.code).join(", ") }
+      shownStyles.length && !persisted.fields.productName
+        ? { ...persisted.fields, productName: shownStyles.map((st) => st.name ?? st.code).join(", ") }
         : persisted.fields;
     base.rfqId = persisted.rfq.id;
     await event("tool.completed", "RFQ 抽取完成", {
@@ -467,7 +469,6 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       await event("agent.output", "询盘产品是企业明确不做的类目：不自动起草，留人工处理", { decision: "out_of_range", productCategory: fields.productCategory });
     }
     if (score.qualification !== "disqualified" && !score.outOfRange) {
-      const branding = await loadEmailBranding(orgId, org.name);
       const draftInput = {
         tradeShow: booth.fromLatest ? { event: booth.event, styles: booth.styles } : null,
         boothGrade: booth.grade,
@@ -484,33 +485,51 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
       };
       const zhInput = { ...draftInput, language: "zh" as const, questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply) };
       draft = buildReplyDraft(draftInput);
-      if (booth.fromLatest && draft.language === "en") {
+      const facingName = buyerFacingOrgName(policy, org.name, draft.language);
+      const branding = await loadEmailBranding(orgId, facingName);
+      if (booth.fromLatest && draft.language === "en" && !draft.catalogOnly) {
         // 展位来访的英文买家：新版首封（参考款卡片 + 报价只问三点 + 回复 / WhatsApp 按钮），文字和 HTML 出自同一份内容；
-        // 不过 AI 润色（版式和措辞已定稿）。「记下的要点」沿用模板过滤过的 factsUsed。
-        const ctx = (lang: "en" | "zh", facts: ReplyDraft["factsUsed"]) => ({
-          orgName: org.name,
-          contactName: draftInput.contactName,
-          event: booth.event,
-          product: fields.productName,
-          styles: booth.styles,
-          noted: notedFacts(facts, lang),
-          missing,
-          signature: signatureFor(branding.profile, draftInput.senderName, org.name),
-          profile: branding.profile,
-          replyEmail: branding.replyEmail,
-        });
-        const zhFacts = buildReplyDraft(zhInput).factsUsed;
-        const composed = composeBoothFirstEmail(ctx("en", draft.factsUsed), "en");
+        // 不过 AI 润色（版式和措辞已定稿）。商务内容与纯文本模板同一来源：对外公司名、不对外款号已剔除、
+        // commercialFacts 落款与参考原句（守卫白名单同 reply-draft）；「记下的要点」沿用模板过滤过的 factsUsed。
+        const zhDraft = buildReplyDraft(zhInput);
+        const terms = (lang: "en" | "zh", pending: string[]): BoothEmailTerms => {
+          const termLines = buildReferenceLines(knowledge, policy, lang);
+          const sampleLine = sampleLineFor(knowledge, fields, lang);
+          return {
+            termLines,
+            sampleLine,
+            references: referenceProgramLines(policy, fields, lang),
+            pending,
+            referenceLines: [...termLines, ...(sampleLine && /\d/.test(sampleLine) ? [sampleLine] : [])],
+          };
+        };
+        const ctx = (lang: "en" | "zh", facts: ReplyDraft["factsUsed"], pending: string[]) => {
+          const name = buyerFacingOrgName(policy, org.name, lang);
+          return {
+            orgName: name,
+            contactName: draftInput.contactName,
+            event: booth.event,
+            product: fields.productName,
+            styles: allowedStyles(booth.styles, policy),
+            noted: notedFacts(facts, lang),
+            missing,
+            signature: policySignature(policy, draftInput.senderName, name),
+            profile: branding.profile,
+            replyEmail: branding.replyEmail,
+            terms: terms(lang, pending),
+          };
+        };
+        const composed = composeBoothFirstEmail(ctx("en", draft.factsUsed, draft.pendingInternalConfirmation), "en");
         draft = { ...composed.draft, factsUsed: draft.factsUsed, pendingInternalConfirmation: draft.pendingInternalConfirmation };
         html = composed.html;
-        reviewZh = composeBoothFirstEmail(ctx("zh", zhFacts), "zh").draft;
+        reviewZh = composeBoothFirstEmail(ctx("zh", zhDraft.factsUsed, zhDraft.pendingInternalConfirmation), "zh").draft;
       } else {
         if (input.useLlm !== false) draft = await polishReplyDraftWithLlm(draft, { orgId, userId: principalUserId, agentRunId: runId });
         // 审核的人看中文：英文草稿附同一模板的中文版，只进审批预览，不进发送正文
         if (draft.language === "en") reviewZh = buildReplyDraft(zhInput);
-        // 官网询盘等：正文不变，套同一个外框（抬头 + 页脚）
+        // 官网询盘、展会 C 级目录稿、中文买家：正文不变，套同一个外框（抬头 + 页脚）
         html = renderPlainEmailHtml(
-          { subject: draft.subject, body: draft.body, footer: footerLines({ orgName: org.name, event: booth.fromLatest ? booth.event : null, profile: branding.profile }, draft.language) },
+          { subject: draft.subject, body: draft.body, footer: footerLines({ orgName: facingName, event: booth.fromLatest ? booth.event : null, profile: branding.profile }, draft.language) },
           branding.brand,
         );
       }

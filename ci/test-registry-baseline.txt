@@ -40,8 +40,6 @@ src/lib/reminders/__tests__/canonical-key.test.ts
 src/lib/reminders/__tests__/focus-keys.test.ts
 src/lib/reminders/__tests__/multi-user-read.test.ts
 src/lib/reminders/__tests__/remove-from-layers.test.ts
-src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
-src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 src/lib/sales/__tests__/action-effectiveness.test.ts
 src/lib/sales/__tests__/action-loop-contract.test.ts
 src/lib/sales/__tests__/action-loop.test.ts
@@ -72,7 +70,6 @@ src/lib/trade/__tests__/inbox-service.test.ts
 src/lib/trade/__tests__/inquiry-design-rules.test.ts
 src/lib/trade/__tests__/inquiry-rules.test.ts
 src/lib/trade/__tests__/inquiry-sla.test.ts
-src/lib/trade/__tests__/style-references.test.ts
 src/lib/trade/__tests__/website-inquiry.test.ts
 src/lib/users/__tests__/list-status.test.ts
 src/lib/visualizer/__tests__/render-job.test.ts

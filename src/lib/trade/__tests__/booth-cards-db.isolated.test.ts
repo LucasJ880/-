@@ -362,6 +362,80 @@ async function main() {
     ok(markedIn?.direction === "inbound" && /买家已通过邮件回复（内容不在青砚）：要 3 月交货的报价/.test(markedIn.content ?? "") && oppAfterReply?.nextActionType !== "reply_customer", "记下来信渠道和备注；勾了「我们也已回复」不挂在待回复队列", { markedIn, oppAfterReply });
     const afterReply = await draftNoReplyFollowUps(ORG, { now: new Date(Date.now() + 7 * DAY + 60_000) });
     ok(!afterReply.pendingActionIds.length && afterReply.skipped.some((x) => x.opportunityId === oppA?.id && x.reason === "buyer_replied"), "买家回过信后不再自动跟进（即使之后又有外发）", afterReply);
+
+    // ── 新版首封按企业商务事实写：对外公司名、落款、MOQ / 大货周期参考原句、不对外的款号剔除；C 级只发目录 ──
+    const { publishRevenueSpineRule, RULE_KEY_BUSINESS_PROFILE } = await import("@/lib/revenue-spine/policy");
+    await publishRevenueSpineRule({
+      orgId: ORG,
+      ruleKey: RULE_KEY_BUSINESS_PROFILE,
+      config: {
+        commercialFacts: {
+          moq: { quantity: 1000, unit: "pcs", per: "style" },
+          productionLeadTime: { daysMin: 35, daysMax: 45, startsFrom: "pre-production sample approval" },
+          signature: { title: "Sales Representative", whatsapp: "+86 100 0000 0000", website: "example-textiles.com" },
+          blockedStyleCodes: ["MX-BR-001"],
+          gradeCCatalogOnly: true,
+          buyerFacingName: "Example Home Textile",
+        },
+      },
+      userId: OWNER,
+    });
+    const factsCsv = [
+      csv.split("\n")[0],
+      `CF140-0101,11/1,Cathy,Birch Lane ${stamp},Ava Stone,Buyer,ava.${stamp}@birchlane-${stamp}.ca,,Canada,零售/自有品牌,"MX-BL-001, MX-BR-001",,1-5柜,3个月内,报价,A,,,`,
+      `CF140-0102,11/1,Cathy,Elm Row ${stamp},Noah Park,Buyer,noah.${stamp}@elmrow-${stamp}.ca,,Canada,零售/自有品牌,MX-BL-002,,<1柜,先了解,只发目录,C,,,`,
+      `CF140-0103,11/1,Cathy,Oak Hill ${stamp},Mia Grant,Buyer,mia.${stamp}@oakhill-${stamp}.ca,,Canada,零售/自有品牌,MX-BR-001,,1-5柜,3个月内,报价,A,,,`,
+    ].join("\n");
+    const factsCards = parseBoothCardSheet(factsCsv);
+    const ingestFacts = async (i: number) => {
+      const card = factsCards.cards[i].card;
+      const styles = resolveStyles(card.styles, refs);
+      const n = boothCardToInquiry(card, EVENT, styles);
+      if (!n.ok) throw new Error(n.error);
+      return ingestWebsiteInquiry(ORG, n.value, { origin: boothCardOrigin(card, EVENT, styles) });
+    };
+    const draftOf = async (r: Awaited<ReturnType<typeof ingestFacts>>) => {
+      const pa = r.spine.ok
+        ? await db.pendingAction.findFirst({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: r.spine.opportunityId } } })
+        : null;
+      const p = (pa?.payload ?? {}) as Record<string, unknown>;
+      return { pa, subject: String(p.subject ?? ""), body: String(p.body ?? ""), html: String(p.html ?? "") };
+    };
+    const fa = await draftOf(await ingestFacts(0));
+    ok(
+      fa.subject === "Ava, your Canton Fair picks + full specs" &&
+        /- Flannel \/ Coral Fleece Blanket \(ref\. MX-BL-001\)/.test(fa.body) &&
+        !/MX-BR-001|Bathrobes/.test(fa.body) &&
+        !/MX-BR-001/.test(fa.html),
+      "商务事实：不对外的款号（MX-BR-001）不进新版首封的正文和 HTML",
+      { subject: fa.subject, body: fa.body.split("\n") },
+    );
+    ok(
+      fa.body.includes("For reference, our MOQ is typically 1,000 pcs per style, and bulk production usually takes 35–45 days after pre-production sample approval.") &&
+        /\nBest regards,\nCathy\nSales Representative · Example Home Textile\nWhatsApp \+86 100 0000 0000 · example-textiles\.com$/.test(fa.body) &&
+        fa.html.includes("EXAMPLE HOME TEXTILE") &&
+        fa.html.includes('href="https://example-textiles.com"') &&
+        !!fa.pa,
+      "商务事实：MOQ / 大货周期参考原句原样写出且草稿进了审批（守卫按原句白名单）；落款职位 · 对外公司名 · WhatsApp · 网站；HTML 抬头用对外公司名",
+      { body: fa.body.split("\n").slice(-12), pa: !!fa.pa },
+    );
+    const fc = await draftOf(await ingestFacts(1));
+    ok(
+      !!fc.pa &&
+        /^Dear Noah Park,/.test(fc.body) &&
+        /We will send you our product catalogue separately/.test(fc.body) &&
+        !/costing|For reference/.test(fc.body) &&
+        fc.html.startsWith("<!doctype html>") &&
+        fc.html.includes("EXAMPLE HOME TEXTILE"),
+      "展会 C 级（只发目录）：沿用纯文本目录稿、不追问不报参考值，套公司外框",
+      { body: fc.body.split("\n"), pa: !!fc.pa },
+    );
+    const fb = await draftOf(await ingestFacts(2));
+    ok(
+      !!fb.pa && !/MX-BR-001|Spa Bathrobe/i.test(`${fb.subject}\n${fb.body}\n${fb.html}`),
+      "卡上只有不对外的款：款号和参考款名都不进邮件（品类说法如 Bathrobes 来自来信抽取，可以写）",
+      { subject: fb.subject, body: fb.body.split("\n") },
+    );
   } finally {
     try {
       const oppIds = (await db.salesOpportunity.findMany({ where: { orgId: ORG }, select: { id: true } })).map((o) => o.id);

@@ -15,9 +15,9 @@ import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { requestApproval } from "@/lib/approval/request";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
-import { composeFollowUpEmail, footerLines, type BoothEmailContext } from "../booth-email";
+import { buyerFacingOrgName, composeFollowUpEmail, footerLines, policySignature, type BoothEmailContext } from "../booth-email";
 import { renderPlainEmailHtml } from "../email-layout";
-import { loadEmailBranding, signatureFor } from "../email-profile";
+import { loadEmailBranding } from "../email-profile";
 import { detectInquiryRisks } from "../inquiry-risks";
 import { toCanonicalStage, type OpportunityStage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
@@ -230,7 +230,8 @@ export async function draftNoReplyFollowUps(
   });
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true, ownerId: true } });
   if (!org) return out;
-  const branding = await loadEmailBranding(orgId, org.name);
+  // 邮件抬头 / 落款用对外公司名（英文 buyerFacingName）；中文跟进仍用组织名
+  const branding = await loadEmailBranding(orgId, buyerFacingOrgName(policy, org.name, "en"));
 
   for (const opp of candidates) {
     if (out.drafted >= MAX_PER_RUN) break;
@@ -325,14 +326,14 @@ export async function draftNoReplyFollowUps(
       let html: string | null;
       if (language === "en") {
         const ctx: BoothEmailContext = {
-          orgName: org.name,
+          orgName: buyerFacingOrgName(policy, org.name, "en"),
           contactName: opp.customer.contactName,
           event,
           product: fields?.productName ?? null,
-          styles: booth.fromLatest ? booth.styles : [],
+          styles: booth.fromLatest ? allowedStyles(booth.styles, policy) : [],
           noted: [],
           missing,
-          signature: signatureFor(branding.profile, senderName, org.name),
+          signature: policySignature(policy, senderName, buyerFacingOrgName(policy, org.name, "en")),
           profile: branding.profile,
           replyEmail: branding.replyEmail,
         };
@@ -343,7 +344,10 @@ export async function draftNoReplyFollowUps(
         reviewZh = composeFollowUpEmail(ctx, opts, "zh").draft;
       } else {
         draft = buildNoReplyFollowUpDraft(input(language));
-        html = renderPlainEmailHtml({ subject: draft.subject, body: draft.body, footer: footerLines({ orgName: org.name, event, profile: branding.profile }, "zh") }, branding.brand);
+        html = renderPlainEmailHtml(
+          { subject: draft.subject, body: draft.body, footer: footerLines({ orgName: org.name, event, profile: branding.profile }, "zh") },
+          { ...branding.brand, orgName: org.name },
+        );
       }
       if (draft.guardrailViolations.length) {
         skip(`guardrail:${draft.guardrailViolations.join(",")}`);

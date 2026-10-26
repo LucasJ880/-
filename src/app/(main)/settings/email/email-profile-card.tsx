@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * 跟进邮件里的公司资料：公司介绍、数字、工厂照片、业务员全名职务 WhatsApp、规格书口径、视频看样。
- * 不填的项邮件里就不出现。数据：/api/trade/email-profile（组织级，按版本发布）
+ * 跟进邮件里的公司资料：Logo、主色、公司介绍、数字、工厂照片、页脚地址、视频看样。
+ * 不填的项邮件里就不出现。落款 / 对外公司名 / MOQ 交期参考值在策略的商务事实（commercialFacts）里。
+ * 数据：/api/trade/email-profile（组织级，按版本发布）
  */
 
 import { useEffect, useState } from "react";
@@ -13,29 +14,21 @@ import { Label } from "@/components/ui/label";
 interface ProfileForm {
   accent: string;
   logoUrl: string | null;
-  website: string | null;
-  whatsapp: string | null;
   companyLine: string | null;
   facts: string;
   factImageUrl: string | null;
   address: string | null;
-  specWording: boolean;
   videoCall: boolean;
-  team: string;
 }
 
 const EMPTY: ProfileForm = {
   accent: "#8E6657",
   logoUrl: null,
-  website: null,
-  whatsapp: null,
   companyLine: null,
   facts: "",
   factImageUrl: null,
   address: null,
-  specWording: false,
   videoCall: false,
-  team: "",
 };
 
 const inputCls = "w-full rounded-lg border border-border bg-card-bg/80 px-3 py-2 text-sm";
@@ -124,7 +117,8 @@ export function EmailProfileCard({ orgId }: { orgId: string | null }) {
           <div>
             <h3 className="text-sm font-semibold text-foreground">邮件里的公司资料</h3>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              展会跟进邮件里给买家看的公司介绍、数字和业务员落款。都要公司确认过再填；没填的项邮件里不出现，邮件照常起草。保存后只影响之后起草的邮件。
+              展会跟进邮件里给买家看的公司介绍、数字和工厂照片。都要公司确认过再填；没填的项邮件里不出现，邮件照常起草。保存后只影响之后起草的邮件。
+              落款（职位 / WhatsApp / 网站）、对外英文公司名、起订量和大货周期参考值、不对外的款号在收入策略的「商务事实」里，不在这里改。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -132,21 +126,9 @@ export function EmailProfileCard({ orgId }: { orgId: string | null }) {
               <Label htmlFor="ep-line">公司一句话介绍（英文）</Label>
               <input id="ep-line" className={inputCls} value={text("companyLine")} onChange={(e) => set("companyLine", e.target.value)} placeholder="Mengxin is a home textile manufacturer in Jiande, Zhejiang, making …" />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="ep-facts">公司数字（一行一个「数值 | 说明」，最多 4 个）</Label>
-              <textarea id="ep-facts" rows={4} className={inputCls} value={form.facts} onChange={(e) => set("facts", e.target.value)} placeholder={"2008 | established in Jiande, Zhejiang\n22 | reference styles in our range"} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="ep-team">业务员（一行一位「卡上名字 | 全名 | 职务 | WhatsApp」）</Label>
-              <textarea id="ep-team" rows={4} className={inputCls} value={form.team} onChange={(e) => set("team", e.target.value)} placeholder={"Cathy | Cathy Wang | Sales Manager | +86 138 0000 0000"} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="ep-site">官网</Label>
-              <input id="ep-site" className={inputCls} value={text("website")} onChange={(e) => set("website", e.target.value)} placeholder="https://www.mengxinhometextile.com" />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="ep-wa">公司 WhatsApp（业务员没填时用）</Label>
-              <input id="ep-wa" className={inputCls} value={text("whatsapp")} onChange={(e) => set("whatsapp", e.target.value)} placeholder="+86 …" />
+              <textarea id="ep-facts" rows={4} className={inputCls} value={form.facts} onChange={(e) => set("facts", e.target.value)} placeholder={"2008 | established in Jiande, Zhejiang\n≈10,000 m² | factory floor area"} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="ep-logo">Logo 图片链接</Label>
@@ -166,13 +148,6 @@ export function EmailProfileCard({ orgId }: { orgId: string | null }) {
             </div>
           </div>
           <div className="space-y-2 text-sm">
-            <label className="flex items-start gap-2">
-              <input type="checkbox" className="mt-1" checked={form.specWording} onChange={(e) => set("specWording", e.target.checked)} />
-              <span>
-                起订量和交期用规格书的说法
-                <span className="block text-xs text-muted-foreground">「MOQ is project-dependent and quoted after specification review. Production lead time is confirmed after sample approval.」不勾 = 写「价格、起订量和交期在报价里一并确认」。</span>
-              </span>
-            </label>
             <label className="flex items-start gap-2">
               <input type="checkbox" className="mt-1" checked={form.videoCall} onChange={(e) => set("videoCall", e.target.checked)} />
               <span>

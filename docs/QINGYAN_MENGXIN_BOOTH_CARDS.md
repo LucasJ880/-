@@ -36,8 +36,11 @@
   - 「What we noted at the booth」：卡上可以复述的要点（如包装、认证），英文邮件不放中文原话
   - 参考款卡片（照片、品类名、款号、规格页链接），下面一句“都可按您的规格定做”
   - 「Next step · your costing」：报价只问还缺的（数量 / 尺寸和面料 / 目的地，最多三点），按钮「Reply with my details」（回到公司发件身份的回复地址）和「Chat on WhatsApp」
-  - 公司介绍、数字、视频看样、规格书口径：在「邮件里的公司资料」填了才出现（见下）
-  - 不写价格、MOQ、交期、认证、付款条件等任何承诺；没填规格书口径时写 “Pricing, MOQ and lead time depend on your specification, so we will confirm them in your costing.”
+  - 商务内容和纯文本模板同一来源——收入策略的「商务事实」（commercialFacts）：英文公司名（buyerFacingName）、落款的职位 / WhatsApp / 网站、
+    MOQ / 大货周期 / 装运港参考原句（原样写出）；不对外的款号（blockedStyleCodes）不出现在卡片里；其余（如价格）写 “… depends on your specification, so we will confirm it in your costing.”
+  - 展会 C 级且商务事实开了「只发目录」：不用新版，沿用纯文本目录稿（不追问、不报参考值），同样套公司外框
+  - 公司介绍、数字、工厂照片、视频看样：在「邮件里的公司资料」填了才出现（见下）
+  - 除商务事实里的参考原句外，不写价格、MOQ、交期、认证、付款条件等任何承诺
 - 审批预览里是纯文本版；点草稿下的「查看邮件效果（买家看到的样子）」看 HTML 版。上线前起草的草稿只有纯文本
 - 审批预览里英文邮件下面附一份**中文对照**（同一模板的中文版，标明「仅供审核，不会发送」），看中文的同事据此审核；真正发出去的只有英文
 - 落款是卡上的业务员（买家在展位见到的人，如 Cathy）；业务员栏写的是中文名时，落款用商机负责人的名字
@@ -54,10 +57,10 @@ AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分�
 
 青砚 → 设置 → 邮箱绑定 →「邮件里的公司资料」（老板 / 经理可改，按版本保存，只影响之后起草的邮件）。**每一项都要梦馨确认过再填，不填就不出现**：
 - 公司一句话介绍（英文）、公司数字（最多 4 个，一行「数值 | 说明」，如 `2008 | established in Jiande, Zhejiang`）、工厂照片链接
-- 业务员（一行「卡上名字 | 全名 | 职务 | WhatsApp」）：卡上写 Cathy 的，落款就是全名、职务、WhatsApp，邮件里多一个 WhatsApp 按钮
-- 官网（落款里显示）、公司 WhatsApp（业务员没填时用）、Logo 图片链接、页脚地址、主色
-- 「起订量和交期用规格书的说法」：勾了写 “MOQ is project-dependent and quoted after specification review. Production lead time is confirmed after sample approval.”
+- Logo 图片链接、页脚地址、主色
 - 「首封里提供视频看样」：确认样品间能安排再勾
+- 落款（职位 / WhatsApp / 网站）、英文公司名、MOQ / 大货周期参考值、不对外的款号**不在这里**，在收入策略的「商务事实」里（和纯文本模板共用）
+- 公司介绍和数字里写了价格、交期、认证这类承诺，保存时会被挡住（否则每封草稿都会被守卫拦下）
 - 「预览样例邮件」按已保存的资料渲染一封样例首封
 - 「Reply with my details」按钮回到「公司发件身份」的回复地址（没填回复地址用发件地址）；没设发件身份就不放这个按钮
 
@@ -144,7 +147,9 @@ AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分�
 - 新版邮件：`src/lib/revenue-spine/email-layout.ts`（`EmailDoc` → `renderEmailText` / `renderEmailHtml`，表格布局 + 内联样式；文字一律转义，链接只收 https / mailto；
   `renderPlainEmailHtml` 给官网询盘的纯文本回复套同一个外框）、`booth-email.ts`（`composeBoothFirstEmail` / `composeFollowUpEmail`，英文发送 + 中文对照）、
   `email-profile.ts`（OrgBusinessRule `trade.email_profile`，接口 `/api/trade/email-profile`，`?sample=1` 出样例）。
-  FDE：最新来信是展位面谈且草稿是英文 → 新版首封（不过 AI 润色）；其它草稿照旧（模板 + 可选润色）再套外框。
+  FDE：最新来信是展位面谈、草稿是英文、且不是 C 级只发目录 → 新版首封（不过 AI 润色）；其它草稿照旧（模板 + 可选润色）再套外框。
+  商务内容取自 commercialFacts，和 reply-draft 共用 `buildReferenceLines` / `sampleLineFor` / `referenceProgramLines` / `allowedStyles`，
+  守卫用 `checkDraftWithReferenceLines`（参考原句白名单）；落款 `policySignature`、对外公司名 `buyerFacingOrgName`。
   审批不能改内容，所以 HTML 在起草时就渲染好放进 `payload.html`；`exec-sales-inquiry-reply` 经 Resend 发 text + html，Gmail 通道只发 text。
   预览：`/api/revenue/opportunities/[id]/email-preview?pendingActionId=`，页面放进 `sandbox` iframe
 - 测试：`src/lib/trade/__tests__/booth-cards.test.ts`、`booth-cards-db.isolated.test.ts`（隔离库端到端）、`src/lib/revenue-spine/__tests__/scoring-draft.test.ts`、

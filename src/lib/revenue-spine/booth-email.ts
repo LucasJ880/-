@@ -5,17 +5,36 @@
  * - 主题像人写的、点名；开头一句话说清楚为什么写信
  * - 参考款做成卡片：图片、款号、规格页链接；说明都能按买家规格定做
  * - 报价只要三条（缺什么问什么），按钮回复 / WhatsApp
- * - 公司数字、规格书口径、视频看样只在公司确认（填进 email_profile）后出现
- * - 不写价格 / MOQ / 交期等任何承诺；守卫照常检查
+ * - 商务内容一律来自策略的 commercialFacts，和纯文本模板（reply-draft）同一来源：对外公司名、
+ *   不对外的款号（调用方先用 allowedStyles 过滤）、落款、MOQ / 大货周期 / 样品参考原句（守卫白名单同 reply-draft）
+ * - 公司介绍、数字、工厂照片、视频看样只在公司确认（填进 email_profile）后出现
+ * - 除参考原句外不写价格 / MOQ / 交期等任何承诺；守卫照常检查
  * 英文发给买家；中文只给审核人看（同一结构，不发送）。
+ * 展会 C 级只发目录（gradeCCatalogOnly）不走这里：沿用 reply-draft 的目录稿。
  */
 
 import { RFQ_FIELD_LABELS, type RfqField } from "./rfq/types";
 import { renderEmailHtml, renderEmailText, whatsappLink, type EmailBlock, type EmailDoc, type EmailSignature, type EmailStyleCard } from "./email-layout";
-import { SPEC_WORDING, type EmailProfile } from "./email-profile";
-import { checkDraftGuardrails, type ReplyDraft } from "./reply-draft";
+import type { EmailProfile } from "./email-profile";
+import type { RevenueSpinePolicy } from "./policy";
+import { checkDraftWithReferenceLines, joinEn, type ReplyDraft } from "./reply-draft";
+
+/** 首封里的商务原句：与 reply-draft 同一来源（buildReferenceLines / 样品说明 / referencePrograms / 需内部确认的项） */
+export interface BoothEmailTerms {
+  /** MOQ / 大货周期 / 装运港参考原句（企业配置的数字），原样写进正文 */
+  termLines: string[];
+  /** 企业配置的样品说明（买家要样品时） */
+  sampleLine: string | null;
+  /** 已获准引用的在市参考项目一句话 */
+  references: string[];
+  /** 需内部确认、写进报价的项（如 pricing） */
+  pending: string[];
+  /** 守卫白名单：termLines + 含数字的样品说明 */
+  referenceLines: string[];
+}
 
 export interface BoothEmailContext {
+  /** 对外公司名（英文用 commercialFacts.buyerFacingName，没有再用组织名） */
   orgName: string;
   contactName: string | null;
   /** 展会名（含展位）；null = 网站询盘等非展会来源 */
@@ -30,6 +49,26 @@ export interface BoothEmailContext {
   profile: EmailProfile;
   /** 买家点「回复」时的地址（组织发件身份）；没有就不放 mailto 按钮 */
   replyEmail: string | null;
+  /** 首封的商务原句；跟进不用 */
+  terms?: BoothEmailTerms | null;
+}
+
+/** 英文邮件用对外英文公司名（组织名常是中文）；中文仍用组织名 —— 与 reply-draft 一致 */
+export function buyerFacingOrgName(policy: RevenueSpinePolicy, orgName: string, lang: Lang): string {
+  return lang === "en" ? policy.businessProfile.commercialFacts.buyerFacingName || orgName : orgName;
+}
+
+/** 落款：发件人 + commercialFacts.signature（职位 / WhatsApp / 网站）—— 与纯文本模板的 signOff 同一来源 */
+export function policySignature(policy: RevenueSpinePolicy, senderName: string, orgName: string): EmailSignature {
+  const sig = policy.businessProfile.commercialFacts.signature;
+  const site = sig?.website?.trim() || null;
+  return {
+    name: senderName,
+    title: sig?.title ?? null,
+    org: orgName,
+    whatsapp: sig?.whatsapp ?? null,
+    website: site ? (/^https?:\/\//i.test(site) ? site : `https://${site}`) : null,
+  };
 }
 
 export type Lang = "en" | "zh";
@@ -110,6 +149,7 @@ export function footerLines(ctx: Pick<BoothEmailContext, "orgName" | "event" | "
 function finish(composed: EmailDoc, ctx: BoothEmailContext, lang: Lang): ComposedEmail {
   const doc: EmailDoc = { ...composed, lang };
   const body = renderEmailText(doc);
+  const referenceLines = ctx.terms?.referenceLines ?? [];
   return {
     doc,
     html: lang === "en" ? renderEmailHtml(doc, { orgName: ctx.orgName, logoUrl: ctx.profile.logoUrl, accent: ctx.profile.accent }) : null,
@@ -119,8 +159,10 @@ function finish(composed: EmailDoc, ctx: BoothEmailContext, lang: Lang): Compose
       language: lang,
       factsUsed: [],
       pendingInternalConfirmation: [],
-      guardrailViolations: checkDraftGuardrails(`${doc.subject}\n${body}`),
+      guardrailViolations: checkDraftWithReferenceLines(`${doc.subject}\n${body}`, referenceLines),
       templateOnly: true,
+      referenceLines,
+      catalogOnly: false,
     },
   };
 }
@@ -190,15 +232,16 @@ export function composeBoothFirstEmail(ctx: BoothEmailContext, lang: Lang): Comp
 
   if (ctx.profile.companyLine) blocks.push({ kind: "paragraph", text: ctx.profile.companyLine });
   if (ctx.profile.facts.length) blocks.push({ kind: "facts", imageUrl: ctx.profile.factImageUrl, items: ctx.profile.facts });
+  for (const r of ctx.terms?.references ?? []) blocks.push({ kind: "paragraph", text: r });
+  // 参考原句原样写出（守卫按原句白名单剔除后再查），然后是需在报价里确认的项
+  for (const l of ctx.terms?.termLines ?? []) blocks.push({ kind: "note", text: l });
+  if (ctx.terms?.sampleLine) blocks.push({ kind: "note", text: ctx.terms.sampleLine });
+  const pending = ctx.terms?.pending.length ? ctx.terms.pending : zh ? ["价格", "起订量", "交期"] : ["pricing", "MOQ", "lead time"];
   blocks.push({
     kind: "note",
-    text: ctx.profile.specWording
-      ? zh
-        ? "起订量按项目，在审核规格后报价；生产周期在样品确认后确定。"
-        : SPEC_WORDING
-      : zh
-        ? "价格、起订量和交期取决于您的规格，我们会在报价里一并确认。"
-        : "Pricing, MOQ and lead time depend on your specification, so we will confirm them in your costing.",
+    text: zh
+      ? `${pending.join("、")}取决于您的规格，我们会在报价里一并确认。`
+      : `${joinEn(pending).replace(/^./, (c) => c.toUpperCase())} ${pending.length > 1 ? "depend" : "depends"} on your specification, so we will confirm ${pending.length > 1 ? "them" : "it"} in your costing.`,
   });
 
   return finish(
@@ -227,7 +270,9 @@ export function composeFollowUpEmail(
 ): ComposedEmail {
   const zh = lang === "zh";
   const name = firstName(ctx.contactName);
-  const last = opts.step >= opts.total;
+  // 「要不要关掉档案」只在至少 3 次跟进时做最后一封；只跟进两次（如第 3、7 天）时第 2 封发包装方案——
+  // 展后一周买家常还在路上，太早问"关档案"显得急
+  const last = opts.step >= opts.total && opts.total >= 3;
   const prev = opts.previousSubject?.trim() || null;
   const reSubject = prev ? (/^(re|回复)[:：]/i.test(prev) ? prev : `${zh ? "回复：" : "Re: "}${prev}`) : null;
   const greeting = zh ? `${ctx.contactName ?? ""}${ctx.contactName ? "，" : ""}您好：` : `Hi ${name ?? "there"},`;
