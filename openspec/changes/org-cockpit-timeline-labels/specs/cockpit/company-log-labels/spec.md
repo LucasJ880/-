@@ -1,0 +1,73 @@
+# Spec Delta
+
+## Purpose
+
+company.log 时间线的审计条目用中文说明发生了什么，并标出每条记录来自人工、AI 还是系统；系统或 AI 以负责人名义写的审计不再显示成负责人本人操作。
+
+## ADDED Requirements
+
+### Requirement: 审计条目的中文摘要
+
+时间线审计条目的摘要 SHALL 对常见动作显示中文标签，对常见目标类型显示中文名，格式为"<动作标签> · <目标名>"。常见动作至少包括：
+- 通用：新建、更新、删除、登录、退出登录、邀请成员、移除、变更角色、变更状态、导出；
+- 审批：发起审批、批准、驳回、取消审批、开始执行、执行完成、执行失败、执行被拦下、被系统作废；
+- Revenue Spine：商机阶段变更、商务事实写入、FDE 草稿留底、跟进草稿被守卫拦下、草稿偏好有项被忽略。
+
+没有中文标签的动作 SHALL 照旧显示原始动作代码；没有中文名的目标类型 SHALL 显示原始目标类型。摘要 SHALL 继续经过时间线既有的敏感词整段替换。
+
+#### Scenario: 常见动作
+- **WHEN** 一条审计的动作为 `APPROVAL_REJECTED`、目标类型为 `pending_action`
+- **THEN** 摘要为"驳回 · 审批"
+
+#### Scenario: 未知动作
+- **WHEN** 一条审计的动作为 `supplier_intel.run.created`、目标类型为 `supplier_intel_run`
+- **THEN** 摘要为 "supplier_intel.run.created · supplier_intel_run"
+
+#### Scenario: 测试
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/audit-labels.test.ts`
+- **THEN** 全部断言通过，退出码 0
+
+### Requirement: 商机阶段变更显示前后阶段
+
+商机阶段变更审计的摘要 SHALL 为"商机阶段：<原阶段中文名> → <新阶段中文名>"；按策略自动流转（审计记录了策略键）时 SHALL 追加"（按策略自动）"。原阶段或新阶段不是已知阶段值时，系统 SHALL NOT 显示该值，摘要退回"商机阶段变更 · 商机"。
+
+#### Scenario: 自动搁置
+- **WHEN** 一条商机阶段变更审计记录原阶段 `follow_up`、新阶段 `stale`、来源 `system`、带策略键
+- **THEN** 摘要为"商机阶段：跟进中 → 搁置（按策略自动）"（阶段中文名与 `/revenue` 的商机阶段标签一致），来源为 `system`
+
+#### Scenario: 异常阶段值
+- **WHEN** 审计里的新阶段是任意自由文本
+- **THEN** 摘要退回"商机阶段变更 · 商机"，不出现该文本
+
+### Requirement: 条目来源
+
+时间线条目 SHALL 按以下规则标出来源：
+- AI 运行事件为 `ai`，自动化运行为 `system`；
+- 审计条目默认为 `human`；
+- 固定由 FDE 写入的审计（FDE 草稿留底、跟进草稿被守卫拦下、草稿偏好有项被忽略）为 `ai`；
+- 审批被系统作废为 `system`；
+- 商机阶段变更按审计记录的流转来源：人工为 `human`、FDE 为 `ai`、系统为 `system`；记录缺失或不是已知值时为 `human`。
+
+#### Scenario: FDE 留底
+- **WHEN** 一条审计动作为 FDE 草稿留底，操作人是负责人
+- **THEN** 该条目 `source` 为 `ai`，`actor` 仍为负责人的用户 id
+
+#### Scenario: 人工阶段变更
+- **WHEN** 商机阶段变更审计记录来源为人工
+- **THEN** 该条目 `source` 为 `human`
+
+### Requirement: 审计只读白名单字段
+
+时间线 SHALL 只为商机阶段变更审计额外读取三项：流转来源、是否带策略键、前后阶段；且只接受已知枚举值。时间线 SHALL NOT 读取或输出任何其他审计的变更前后数据，SHALL NOT 输出流转原因、策略键本身、金额或其他自由文本。额外读取 SHALL 限定在当前组织、当前页的审计条目内。
+
+#### Scenario: 不输出原因与金额
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/audit-labels.test.ts`
+- **THEN** 审计里带原因文本、预估金额与策略键时，时间线条目序列化后不含这些值；额外查询限定组织与本页 id，退出码 0
+
+### Requirement: 时间线显示来源
+
+company.log 时间线的操作者列 SHALL 对来源为 `ai` 的审计显示"AI"、来源为 `system` 的审计显示"系统"，并提示"以 <负责人姓名> 名义记录"（没有姓名时提示"以成员名义记录"）；来源为 `human` 的条目照旧显示操作人姓名。
+
+#### Scenario: 渲染
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/presentation.test.ts`
+- **THEN** AI / 系统来源的审计显示"AI"/"系统"并带名义提示，人工条目显示姓名，退出码 0
