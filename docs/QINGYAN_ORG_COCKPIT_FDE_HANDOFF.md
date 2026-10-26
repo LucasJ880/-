@@ -111,6 +111,23 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 6. **面板位置**：`/revenue` 是单个客户端页（`src/app/(main)/revenue/page.tsx`），可在队列网格后加只读区块。
    - API 惯例：`resolveRevenueAccess(request)` + `force-dynamic` + `?days=` + `clampWindowDays`（默认 30、上限 180，需另设 90 默认）。
 
+## B-3 预研事实（偏好接入草稿；**开 change 前先等来源决定**）
+
+1. **任务书前提与代码不符**：
+   - `preference-learner.ts` 只产**个人**、**自由文本**偏好，且只有两条规则：`email_concise_default`、`no_discount_first_touch`。
+   - 这些偏好写进 `EmployeeAiProfile.learnedPreferences.inferred`，员工确认后才进 `manuallyConfirmedPreferences.confirmed`。
+   - 没有"问候 / 落款 / 必问字段 / 禁用语"这类结构化偏好，也没有团队范围的偏好存储。
+2. **employee-ai 里"团队范围"的东西**：
+   - 链路是 `practice-miner` → `CandidatePractice`（`/settings/digital-employees/team-learning` 审批）→ 发布为 `RolePlaybook`（`status=active`，有 `rules` / `workflows` / `templates` 自由 JSON）。
+   - `context-builder.ts` 把 active playbook 摘要拼进 LLM 提示；`roleScope` 缺省为 `sales`，没有 `inbound_sales_fde`。
+3. **草稿里已有的可配置项**：落款来自 `businessProfile.commercialFacts.signature`（`reply-draft.ts` `signatureLines` / `signOff`）；追问来自 `rfq/missing-info.ts` `buildClarifyingQuestions`（按缺失字段与 `maxQuestionsPerReply`）。
+4. **守卫**：`reply-draft.ts` `checkDraftGuardrails(body, allowed)`，润色之后再跑。
+5. **开关位置**：任务书写 `settingsJson.revenue_spine.fde.useConfirmedPreferences`，代码里还没有这个键。Revenue Spine 的其它开关在 `OrgBusinessRule(revenue_spine.policy)`。
+6. **待决定**：偏好从哪来。选项：
+   - (a) active `RolePlaybook`（`roleScope = inbound_sales_fde`）的 `templates` 里约定结构化块（问候 / 落款 / 追问顺序 / 禁用词），由管理员在 playbook 里维护；
+   - (b) 放进 `revenue_spine.policy` 新段（与 `notify` / `autonomy` 同级），不经 employee-ai；
+   - (c) 暂缓，等 B-2 / practice-miner 能产出结构化团队偏好。
+
 ## 环境（云端容器每次都是新的，照做即可）
 
 ```bash
