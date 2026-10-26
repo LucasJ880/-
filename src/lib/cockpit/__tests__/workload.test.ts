@@ -4,12 +4,15 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { POST_REGISTRY } from "../posts";
+import { getLocalTimeParts } from "@/lib/automation/local-time";
+import { POST_REGISTRY, postForPendingAction } from "../posts";
 import {
   DEFAULT_WORKLOAD_THRESHOLDS,
+  PENDING_BATCH_PREPARE_FAILED,
   PENDING_CANCELLED_REASON,
   PENDING_EXPIRED_REASON,
   PENDING_ONBOARDING_TEST_SUPERSEDED,
+  PENDING_QUOTE_CHANGED_PREFIX,
   PENDING_RUN_CANCELLED_PREFIX,
   PENDING_SYSTEM_SUPERSEDED_CODES,
   TRADE_SHOW_ROW,
@@ -25,6 +28,7 @@ import {
   pendingActionOutcome,
   pendingOutcomeAt,
   postForAgentRun,
+  rowCanPropose,
   workloadThresholdsFromOrgSettings,
   type WorkloadAgentRunRow,
   type WorkloadInput,
@@ -152,6 +156,14 @@ ok(localDayOf(new Date("2026-10-26T03:59:00Z"), TZ) === "2026-10-25" && localDay
   const next = localDayStart("2026-11-02", TZ).getTime();
   ok(start === Date.parse("2026-11-01T04:00:00Z") && next - start === 25 * 3_600_000, "2026-11-01 多伦多一天 25 小时", { start, next });
   ok(localDayOf(new Date("2026-11-02T04:30:00Z"), TZ) === "2026-11-01", "夏令时结束当晚 23:30（EST）仍计入 11-01");
+  const mismatch: string[] = [];
+  for (const tz of ["America/Toronto", "Asia/Shanghai", "UTC", "Australia/Lord_Howe"]) {
+    for (let t = Date.parse("2026-03-01T00:00:00Z"); t < Date.parse("2026-12-01T00:00:00Z"); t += 7 * 3_600_000 + 13 * 60_000) {
+      const d = new Date(t);
+      if (localDayOf(d, tz) !== getLocalTimeParts(d, tz).date) mismatch.push(`${tz} ${d.toISOString()}`);
+    }
+  }
+  ok(mismatch.length === 0, "缓存格式化器的本地日与 automation/local-time 逐点一致（四个时区、含夏令时）", mismatch.slice(0, 3));
 }
 
 // ── 结局判定 ──────────────────────────────────────────────────
@@ -168,7 +180,8 @@ const outcomeCases: Array<[string, Parameters<typeof pendingActionOutcome>[0], s
   ["客户又来信 → 作废", { status: "failed", failureReason: "SUPERSEDED_BY_NEWER_INBOUND;inboundInteractionId=i1", decidedById: null }, "superseded", false],
   ["入驻测试作废 → 整条不计（spec 场景）", { status: "failed", failureReason: "SUPERSEDED_BY_ONBOARDING_TEST;triggeredBy=admin", decidedById: null }, "excluded", false],
   ["批准后执行失败（spec 场景）", { status: "failed", failureReason: "SMTP 550", decidedById: "u1" }, "approved", true],
-  ["批量准备失败 → 系统失败", { status: "failed", failureReason: "BATCH_PREPARE_FAILED", decidedById: null }, "system_failed", false],
+  ["批量准备失败（写入方带决策人）→ 系统失败，不算批准（spec 场景）", { status: "failed", failureReason: "BATCH_PREPARE_FAILED", decidedById: "u1" }, "system_failed", false],
+  ["报价让利内容已变化 → 作废", { status: "failed", failureReason: "报价让利内容已变化，请重新提交审批", decidedById: null }, "superseded", false],
   ["未接入执行器 → 系统失败", { status: "failed", failureReason: "该动作类型暂未接入执行器", decidedById: null }, "system_failed", false],
   ["未知状态 → 系统失败", { status: "weird", failureReason: null, decidedById: null }, "system_failed", false],
 ];
@@ -194,6 +207,9 @@ console.log("写入方文案核对（防漂移）");
   ok(read("src/lib/approval/port.ts").includes(`failureReason: "${PENDING_EXPIRED_REASON}"`) && read("src/lib/pending-actions/executor.ts").includes(`failureReason: "${PENDING_EXPIRED_REASON}"`), "过期文案与写入方一致");
   ok(read("src/lib/capabilities/approvals/decision.ts").includes(`failureReason: "${PENDING_CANCELLED_REASON}"`), "人工取消文案与写入方一致");
   ok(read("src/lib/pending-actions/executor.ts").includes(`failureReason: "${PENDING_RUN_CANCELLED_PREFIX}`), "关联任务取消文案与写入方一致");
+  const drafts = read("src/lib/pending-actions/drafts.ts");
+  ok(drafts.includes(`input.reason ?? "${PENDING_BATCH_PREPARE_FAILED}"`) && /decidedById: input\.userId/.test(drafts), "批量准备失败文案与写入方一致（且写入方确实带决策人）");
+  ok(read("src/app/api/sales/quotes/[quoteId]/route.ts").includes(`failureReason: "${PENDING_QUOTE_CHANGED_PREFIX}`), "报价变化作废文案与写入方一致");
 }
 
 // ── AI 运行归属（与岗位卡片同一规则） ────────────────────────
@@ -303,11 +319,16 @@ console.log("护栏拦截（与 SLA 指标同口径）");
         inquiry("o5", 5, { guardrailBlocked: false }),
         inquiry("o5", 4), // 同一商机的后一条被拦也不算：SLA 指标按最早一条判定
       ],
-      followUpGuardrailBlocks: [hoursAgo(6), hoursAgo(300)],
+      followUpGuardrailBlocks: [
+        { at: hoursAgo(6), inquiry: null },
+        { at: hoursAgo(300), inquiry: null },
+        { at: hoursAgo(7), inquiry: { testInquiry: true, tradeShow: false } },
+        { at: hoursAgo(8), inquiry: { testInquiry: false, tradeShow: true } },
+      ],
     }),
   );
   ok(row(r.rows, "inbound_sales").last7.guardrailBlocked === 2, "首封护栏按商机去重 + 跟进护栏审计；测试询盘排除", row(r.rows, "inbound_sales").last7);
-  ok(row(r.rows, TRADE_SHOW_ROW).last7.guardrailBlocked === 1, "展会询盘的护栏拦截计入展会行");
+  ok(row(r.rows, TRADE_SHOW_ROW).last7.guardrailBlocked === 2, "展会询盘的首封与跟进护栏都计入展会行；测试询盘的跟进护栏不计");
   ok(row(r.rows, "inbound_sales").daily.reduce((s, d) => s + d.guardrailBlocked, 0) === 3, "14 天窗口内的跟进护栏也进日序列");
 }
 
@@ -391,10 +412,53 @@ ok(!row(withCounts({ inbound_sales: { approved: 2, rejected: 2 } }).rows, "inbou
   ok(costPerApproved({ last7: { ...row(r.rows, "tender").last7, approved: 0 }, costRecorded: true }) === null, "批准为 0 时没有每次批准成本");
 }
 {
+  const r = computeWorkload(
+    baseInput({
+      agentRuns: [
+        { at: hoursAgo(1), runType: "workforce_job", workDomain: "general" },
+        { at: hoursAgo(2), runType: "fde_inbound_sales", workDomain: null },
+      ],
+      pendingActions: [pa({ type: "sales.send_inquiry_reply", inquiry: { testInquiry: false, tradeShow: true } })],
+    }),
+  );
+  ok(!row(r.rows, "ops_knowledge").signals.some((s) => s.code === "idle") && row(r.rows, "ops_knowledge").last7.agentRuns === 1, "运维与知识收不到待审批：有 AI 运行也不判空转");
+  ok(!row(r.rows, "inbound_sales").signals.some((s) => s.code === "idle"), "询盘销售的提出连同展会行一起看：只有展会草稿时不算空转");
+  ok(
+    POST_REGISTRY.filter((p) => !rowCanPropose(p.key)).map((p) => p.key).join(",") === "service,ops_knowledge,content" && rowCanPropose(TRADE_SHOW_ROW) && !rowCanPropose(UNATTRIBUTED_ROW),
+    "收不到待审批的行：客服、运维与知识、内容",
+  );
+  // 反证：注册表里任何动作类型 / 目标类型 / 项目工作域 / 产出 run 类型都归不到这两行
+  const reach = new Set<string>();
+  const types = POST_REGISTRY.flatMap((p) => p.pendingActionTypes as readonly string[]).concat(["calendar.create_event", "grader.email_draft"]);
+  const domains = POST_REGISTRY.flatMap((p) => p.workDomains as readonly string[]);
+  const runTypes = POST_REGISTRY.flatMap((p) => p.agentRunTypes as readonly string[]);
+  for (const type of types) {
+    for (const targetType of ["PROJECT", "CUSTOMER", "OPPORTUNITY", "QUOTE", null]) {
+      for (const projectWorkDomain of [...domains, null]) {
+        for (const agentRunType of [...runTypes, null]) {
+          const post = postForPendingAction({ type, targetType, projectWorkDomain, agentRunType });
+          if (post) reach.add(post);
+        }
+      }
+    }
+  }
+  ok(POST_REGISTRY.every((p) => reach.has(p.key) === rowCanPropose(p.key)), "rowCanPropose 与 A-1 归属规则实际可达的岗位一致", [...reach]);
+}
+{
   const r = computeWorkload(baseInput({ agentRuns: [{ at: hoursAgo(1), runType: "workforce_job", workDomain: "nope" }] }));
   ok(row(r.rows, UNATTRIBUTED_ROW).last7.agentRuns === 1 && row(r.rows, UNATTRIBUTED_ROW).signals.length === 0, "未归属行不判规则");
 }
 ok(computeWorkload(baseInput({ truncated: true })).truncated === true, "truncated 原样透出");
+{
+  // 行数上限时的 CPU：各来源读满（AI 运行 5 组 × 5000、待审批 5000、用量 5000）
+  const agentRuns = Array.from({ length: 25_000 }, (_, i) => ({ at: hoursAgo((i % 330) + 0.5), runType: "fde_inbound_sales", workDomain: null }));
+  const pendingActions = Array.from({ length: 5000 }, (_, i) => pa({ type: "tender.send_rfq", status: i % 2 ? "executed" : "pending", decidedById: "u", decidedAt: hoursAgo(i % 300) }));
+  const usage = Array.from({ length: 5000 }, (_, i) => ({ at: hoursAgo(i % 300), runId: null, sourceType: "PRODUCT_CONTENT", inputTokens: 1, outputTokens: 1, cost: 0.01, currency: "USD" }));
+  const t0 = performance.now();
+  computeWorkload(baseInput({ agentRuns, pendingActions, usage }));
+  const ms = performance.now() - t0;
+  ok(ms < 1500, `读满上限时汇总耗时 ${Math.round(ms)}ms（< 1.5s）`);
+}
 
 console.log(`\n组织驾驶舱工作量汇总: ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);

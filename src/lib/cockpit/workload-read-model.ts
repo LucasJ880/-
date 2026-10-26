@@ -20,6 +20,7 @@ import {
   workloadThresholdsFromOrgSettings,
   type InquiryFlags,
   type WorkloadAgentRunRow,
+  type WorkloadFollowUpBlock,
   type WorkloadAutomationCount,
   type WorkloadInquiryRow,
   type WorkloadPendingRow,
@@ -62,7 +63,7 @@ export interface InquirySource {
   opportunityId: string | null;
   createdAt: Date;
   inputContext: unknown;
-  opportunity: { source: string | null; lostReason: string | null; customer: { tags: string | null } | null } | null;
+  opportunity: { orgId: string; source: string | null; lostReason: string | null; customer: { tags: string | null } | null } | null;
 }
 
 /** SLA 指标的测试询盘 / 展会判定（默认依赖从 sla-metrics.ts 取同一组函数） */
@@ -86,7 +87,10 @@ export interface WorkloadDeps {
   /** 询盘回复动作 id → 关联的 FDE 询盘 */
   inquiryLinks(orgId: string, pendingActionIds: readonly string[]): Promise<ReadonlyMap<string, InquirySource>>;
   inquiries(orgId: string, since: Date, now: Date, limit: number): Promise<WorkloadQueryResult<InquirySource>>;
-  followUpGuardrailBlocks(orgId: string, since: Date, limit: number): Promise<WorkloadQueryResult<Date>>;
+  /** 跟进护栏审计：时间 + 商机 id（审计的 targetId） */
+  followUpGuardrailBlocks(orgId: string, since: Date, limit: number): Promise<WorkloadQueryResult<{ at: Date; opportunityId: string | null }>>;
+  /** 商机 id → 判定测试 / 展会所需字段（商机本身 + 该商机最早一条 FDE 询盘的 inputContext） */
+  opportunityInquiries(orgId: string, opportunityIds: readonly string[]): Promise<ReadonlyMap<string, InquirySource>>;
   usage(orgId: string, since: Date, limit: number): Promise<WorkloadQueryResult<WorkloadUsageRow>>;
   usageRuns(orgId: string, runIds: readonly string[]): Promise<ReadonlyMap<string, { runType: string; workDomain: string | null }>>;
   inquiryClassifier(): Promise<InquiryClassifier>;
@@ -144,8 +148,16 @@ export const INQUIRY_SELECT = {
   opportunityId: true,
   createdAt: true,
   inputContext: true,
-  opportunity: { select: { source: true, lostReason: true, customer: { select: { tags: true } } } },
+  opportunity: { select: { orgId: true, source: true, lostReason: true, customer: { select: { tags: true } } } },
 } as const;
+
+export function opportunityLookupWhere(orgId: string, ids: readonly string[]) {
+  return { orgId, id: { in: [...ids] } };
+}
+
+export function opportunityFirstInquiryWhere(orgId: string, opportunityIds: readonly string[]) {
+  return { orgId, employeeKey: WORKLOAD_FDE_EMPLOYEE_KEY, actionType: WORKLOAD_INQUIRY_ACTION_TYPE, opportunityId: { in: [...opportunityIds] } };
+}
 
 // ── 询盘判定（复用 SLA 指标的函数） ──────────────────────────
 
@@ -166,14 +178,51 @@ export function inquiryFlagsOf(src: InquirySource, sla: InquiryClassifier): Inqu
   };
 }
 
-export function toInquiryRow(src: InquirySource, sla: InquiryClassifier): WorkloadInquiryRow | null {
-  if (!src.opportunityId) return null;
+/** 与 SLA 指标一致：无商机、或商机不属于本组织（防御性）的询盘不计 */
+export function toInquiryRow(src: InquirySource, sla: InquiryClassifier, orgId: string): WorkloadInquiryRow | null {
+  if (!src.opportunityId || !src.opportunity || src.opportunity.orgId !== orgId) return null;
   return {
     opportunityId: src.opportunityId,
     createdAt: src.createdAt,
     guardrailBlocked: typeof record(src.inputContext)?.guardrailBlockedAt === "string",
     ...inquiryFlagsOf(src, sla),
   };
+}
+
+/** 询盘回复动作载荷里的商机 id（payload.opportunityId，缺失时取 payload.metadata.opportunityId） */
+export function opportunityIdOfPayload(payload: unknown): string | null {
+  const p = record(payload);
+  const id = p?.opportunityId ?? record(p?.metadata)?.opportunityId;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+// ── 行数上限 ──────────────────────────────────────────────────
+
+export const capped = <T>(rows: T[], limit: number): WorkloadQueryResult<T> => ({ rows, truncated: rows.length >= limit });
+
+/** AI 运行两组查询（运行类型 / 各工作域）的合并；任一组读满即触顶 */
+export function mergeAgentRunRows(
+  typed: ReadonlyArray<{ createdAt: Date; runType: string }>,
+  byDomain: ReadonlyArray<ReadonlyArray<{ createdAt: Date }>>,
+  workDomains: readonly string[],
+  limit: number,
+): WorkloadQueryResult<WorkloadAgentRunRow> {
+  return {
+    rows: [
+      ...typed.map((r) => ({ at: r.createdAt, runType: r.runType, workDomain: null })),
+      ...byDomain.flatMap((list, i) => list.map((r) => ({ at: r.createdAt, runType: "workforce_job", workDomain: workDomains[i] }))),
+    ],
+    truncated: typed.length >= limit || byDomain.some((list) => list.length >= limit),
+  };
+}
+
+/** 平台自动化逐日计数：分批并发，避免 30 天时一次占满连接池 */
+export const AUTOMATION_DAY_QUERY_BATCH = 6;
+
+async function inBatches<T, R>(items: readonly T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+  return out;
 }
 
 // ── 入口 ──────────────────────────────────────────────────────
@@ -199,8 +248,8 @@ export async function getOrgWorkload(
 
   const [agentRuns, automationDaily, automationLast7, pending, inquiries, followUps, usage, classifier] = await Promise.all([
     deps.agentRuns(orgId, windowStart, runTypes, workDomains, WORKLOAD_ROW_LIMIT),
-    Promise.all(
-      dayKeys.map(async (day) => [day, await deps.automationCounts(AUTOMATION_KEYS, localDayStart(day, timeZone), localDayStart(nextDay(day), timeZone))] as const),
+    inBatches(dayKeys, AUTOMATION_DAY_QUERY_BATCH, async (day) =>
+      [day, await deps.automationCounts(AUTOMATION_KEYS, localDayStart(day, timeZone), localDayStart(nextDay(day), timeZone))] as const,
     ),
     deps.automationCounts(AUTOMATION_KEYS, since7, null),
     deps.pendingActions(orgId, windowStart, WORKLOAD_ROW_LIMIT),
@@ -210,25 +259,43 @@ export async function getOrgWorkload(
     deps.inquiryClassifier(),
   ]);
 
-  const needPayload = pending.rows.filter((r) => !r.projectId && SHARED_TYPES_NEEDING_PAYLOAD.has(r.type)).map((r) => r.id);
+  // 询盘回复动作：首封回复由询盘 SalesAction.pendingActionId 关联；跟进草稿没有关联，按载荷里的商机判定
+  const replyIds = pending.rows.filter((r) => r.type === WORKLOAD_INQUIRY_REPLY_TYPE).map((r) => r.id);
+  const links = replyIds.length ? await deps.inquiryLinks(orgId, replyIds) : new Map<string, InquirySource>();
+  const needPayload = pending.rows
+    .filter((r) => (!r.projectId && SHARED_TYPES_NEEDING_PAYLOAD.has(r.type)) || (r.type === WORKLOAD_INQUIRY_REPLY_TYPE && !links.has(r.id)))
+    .map((r) => r.id);
   const payloads = needPayload.length ? await deps.pendingPayloads(orgId, needPayload) : new Map<string, unknown>();
   const actionRows: Array<WorkloadPendingSource & PendingActionRow> = pending.rows.map((r) => ({ ...r, payload: payloads.get(r.id) ?? null }));
 
+  const replyOpportunity = new Map<string, string>();
+  for (const r of actionRows) {
+    if (r.type !== WORKLOAD_INQUIRY_REPLY_TYPE || links.has(r.id)) continue;
+    const oppId = opportunityIdOfPayload(r.payload);
+    if (oppId) replyOpportunity.set(r.id, oppId);
+  }
+  const opportunityIds = [...new Set([...replyOpportunity.values(), ...followUps.rows.map((f) => f.opportunityId).filter((id): id is string => !!id)])];
+
   const { projectIds, agentRunIds } = lookupIdsFor(actionRows);
-  const replyIds = actionRows.filter((r) => r.type === WORKLOAD_INQUIRY_REPLY_TYPE).map((r) => r.id);
   const usageRunIds = [...new Set(usage.rows.map((u) => u.runId).filter((id): id is string => !!id))];
-  const [projectWorkDomains, agentRunTypes, links, usageRuns] = await Promise.all([
+  const [projectWorkDomains, agentRunTypes, opportunities, usageRuns] = await Promise.all([
     projectIds.length ? deps.projectWorkDomains(orgId, projectIds) : new Map<string, string>(),
     agentRunIds.length ? deps.agentRunTypes(orgId, agentRunIds) : new Map<string, string>(),
-    replyIds.length ? deps.inquiryLinks(orgId, replyIds) : new Map<string, InquirySource>(),
+    opportunityIds.length ? deps.opportunityInquiries(orgId, opportunityIds) : new Map<string, InquirySource>(),
     usageRunIds.length ? deps.usageRuns(orgId, usageRunIds) : new Map<string, { runType: string; workDomain: string | null }>(),
   ]);
 
+  const flagsOf = (src: InquirySource | undefined): InquiryFlags | null => (src ? inquiryFlagsOf(src, classifier) : null);
   const attribution: AttributionLookups = { pendingActions: new Map(), projectWorkDomains, agentRunTypes };
+  // 载荷只用来判定归属，不进入汇总输入之外的任何地方
   const pendingActions: WorkloadPendingRow[] = actionRows.map(({ id, ...row }) => {
-    const link = links.get(id);
-    return { ...row, inquiry: link ? inquiryFlagsOf(link, classifier) : null };
+    const src = links.get(id) ?? opportunities.get(replyOpportunity.get(id) ?? "");
+    return { ...row, inquiry: row.type === WORKLOAD_INQUIRY_REPLY_TYPE ? flagsOf(src) : null };
   });
+  const followUpGuardrailBlocks: WorkloadFollowUpBlock[] = followUps.rows.map((f) => ({
+    at: f.at,
+    inquiry: flagsOf(f.opportunityId ? opportunities.get(f.opportunityId) : undefined),
+  }));
 
   const result = computeWorkload({
     now,
@@ -241,10 +308,10 @@ export async function getOrgWorkload(
     pendingActions,
     attribution,
     inquiries: inquiries.rows
-      .map((src) => toInquiryRow(src, classifier))
+      .map((src) => toInquiryRow(src, classifier, orgId))
       .filter((r): r is WorkloadInquiryRow => r !== null)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
-    followUpGuardrailBlocks: followUps.rows,
+    followUpGuardrailBlocks,
     usage: usage.rows,
     usageRuns,
     truncated: [agentRuns, pending, inquiries, followUps, usage].some((r) => r.truncated),
@@ -254,8 +321,6 @@ export async function getOrgWorkload(
 }
 
 // ── 默认依赖（Prisma，只读） ──────────────────────────────────
-
-const capped = <T>(rows: T[], limit: number): WorkloadQueryResult<T> => ({ rows, truncated: rows.length >= limit });
 
 export function defaultWorkloadDeps(): WorkloadDeps {
   return {
@@ -288,11 +353,7 @@ export function defaultWorkloadDeps(): WorkloadDeps {
           }),
         ),
       ]);
-      const rows: WorkloadAgentRunRow[] = [
-        ...typed.map((r) => ({ at: r.createdAt, runType: r.runType, workDomain: null })),
-        ...byDomain.flatMap((list, i) => list.map((r) => ({ at: r.createdAt, runType: "workforce_job", workDomain: workDomains[i] }))),
-      ];
-      return { rows, truncated: typed.length >= limit || byDomain.some((list) => list.length >= limit) };
+      return mergeAgentRunRows(typed, byDomain, workDomains, limit);
     },
 
     // AutomationRun 是平台级运行流；按 (automationKey, startedAt) 索引分组计数
@@ -360,10 +421,11 @@ export function defaultWorkloadDeps(): WorkloadDeps {
 
     inquiries: async (orgId, since, now, limit) => {
       const { db } = await import("@/lib/db");
+      // 触顶时丢最早的（与其他来源一致），装配处再按时间升序去重
       const rows = await db.salesAction.findMany({
         where: workloadInquiryWhere(orgId, since, now),
         select: INQUIRY_SELECT,
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         take: limit,
       });
       return capped(rows, limit);
@@ -373,13 +435,44 @@ export function defaultWorkloadDeps(): WorkloadDeps {
       const { db } = await import("@/lib/db");
       const rows = await db.auditLog.findMany({
         where: followUpGuardrailWhere(orgId, since),
-        select: { createdAt: true },
+        select: { createdAt: true, targetType: true, targetId: true },
         orderBy: { createdAt: "desc" },
         take: limit,
       });
       return capped(
-        rows.map((r) => r.createdAt),
+        rows.map((r) => ({ at: r.createdAt, opportunityId: r.targetType === "sales_opportunity" ? r.targetId : null })),
         limit,
+      );
+    },
+
+    opportunityInquiries: async (orgId, opportunityIds) => {
+      const { db } = await import("@/lib/db");
+      const [opps, firsts] = await Promise.all([
+        db.salesOpportunity.findMany({
+          where: opportunityLookupWhere(orgId, opportunityIds),
+          select: { id: true, orgId: true, source: true, lostReason: true, customer: { select: { tags: true } } },
+        }),
+        db.salesAction.findMany({
+          where: opportunityFirstInquiryWhere(orgId, opportunityIds),
+          select: { opportunityId: true, createdAt: true, inputContext: true },
+          orderBy: { createdAt: "asc" },
+        }),
+      ]);
+      const first = new Map<string, { createdAt: Date; inputContext: unknown }>();
+      for (const a of firsts) if (a.opportunityId && !first.has(a.opportunityId)) first.set(a.opportunityId, a);
+      return new Map(
+        opps.map((o) => {
+          const f = first.get(o.id);
+          return [
+            o.id,
+            {
+              opportunityId: o.id,
+              createdAt: f?.createdAt ?? new Date(0),
+              inputContext: f?.inputContext ?? null,
+              opportunity: { orgId: o.orgId, source: o.source, lostReason: o.lostReason, customer: o.customer },
+            },
+          ] as const;
+        }),
       );
     },
 

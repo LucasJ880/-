@@ -84,7 +84,7 @@ function response(o: Partial<WorkloadResponse> = {}): WorkloadResponse {
   };
 }
 
-const html = renderToStaticMarkup(<WorkloadPanel data={response()} onCollapse={() => {}} />);
+const html = renderToStaticMarkup(<WorkloadPanel data={response()} />);
 const rowHtml = (key: string) => {
   const start = html.indexOf(`data-workload-row="${key}"`);
   const end = html.indexOf("</tr>", start);
@@ -93,15 +93,19 @@ const rowHtml = (key: string) => {
 
 console.log("收起 / 加载中 / 失败");
 {
-  const collapsed = renderToStaticMarkup(<WorkloadSection state={{ status: "collapsed" }} onExpand={() => {}} />);
-  ok(collapsed.includes("查看近 14 天工作量") && !collapsed.includes("<table"), "默认收起：只有按钮，没有表格（spec 场景）");
+  const collapsed = renderToStaticMarkup(<WorkloadSection expanded={false} state={{ status: "idle" }} onToggle={() => {}} />);
+  ok(collapsed.includes("查看近 14 天工作量") && !collapsed.includes("<table") && !collapsed.includes("正在汇总"), "默认收起：只有按钮，没有表格（spec 场景）");
+  ok(/aria-expanded="false"[^>]*aria-controls="cockpit-workload-body"/.test(collapsed), "展开按钮带 aria-expanded / aria-controls");
+  const collapsedWithData = renderToStaticMarkup(<WorkloadSection expanded={false} state={{ status: "ready", data: response() }} onToggle={() => {}} />);
+  ok(!collapsedWithData.includes("<table") && collapsedWithData.includes("查看近 14 天工作量"), "收起后不显示内容（数据由容器保留）");
   ok(collapsed.includes('aria-labelledby="cockpit-workload-heading"') && collapsed.includes(">工作量</h2>"), "区块有标题");
-  const loading = renderToStaticMarkup(<WorkloadSection state={{ status: "loading" }} />);
-  ok(loading.includes("正在汇总") && loading.includes('aria-busy="true"'), "加载中：提示 + aria-busy");
-  const error = renderToStaticMarkup(<WorkloadSection state={{ status: "error" }} onRetry={() => {}} />);
-  ok(error.includes("工作量加载失败") && error.includes("重试"), "加载失败：错误态 + 重试（spec 场景）");
-  const ready = renderToStaticMarkup(<WorkloadSection state={{ status: "ready", data: response() }} onCollapse={() => {}} />);
-  ok(ready.includes("<table") && ready.includes("收起"), "就绪：表格 + 收起");
+  const loading = renderToStaticMarkup(<WorkloadSection expanded state={{ status: "loading" }} onToggle={() => {}} />);
+  ok(loading.includes("正在汇总") && loading.includes('aria-busy="true"') && /role="status"[^>]*>[\s\S]*正在汇总/.test(loading), "加载中：提示 + aria-busy + 读屏播报");
+  const error = renderToStaticMarkup(<WorkloadSection expanded state={{ status: "error" }} onToggle={() => {}} onRetry={() => {}} />);
+  ok(error.includes('<span role="status">工作量加载失败</span>') && error.includes("重试"), "加载失败：错误态 + 重试 + 读屏播报（spec 场景）");
+  const ready = renderToStaticMarkup(<WorkloadSection expanded state={{ status: "ready", data: response() }} onToggle={() => {}} />);
+  ok(ready.includes("<table") && /aria-expanded="true"[^>]*>收起/.test(ready) && ready.includes('id="cockpit-workload-body"'), "就绪：表格；同一个按钮变成收起（焦点不丢）");
+  ok(/<p role="status"[^>]*>近 7 天合计/.test(ready), "加载完成播报汇总句");
 }
 
 console.log("表格");
@@ -178,7 +182,7 @@ console.log("页面只读与首页接入");
       now={NOW}
       posts={{ status: "loading" }}
       timeline={{ status: "loading" }}
-      workloadSlot={<WorkloadSection state={{ status: "collapsed" }} />}
+      workloadSlot={<WorkloadSection expanded={false} state={{ status: "idle" }} />}
     />,
   );
   const cards = page.indexOf("cockpit-posts-heading");
@@ -199,6 +203,7 @@ console.log("源码静态断言");
   ok(!home.includes("/api/cockpit/workload") && /workloadSlot=\{<OrgCockpitWorkload \/>\}/.test(home), "首页容器不直接请求工作量接口，只放入区块（首屏仍两个请求，spec 场景）");
   const loadIdx = src.indexOf("const load = useCallback");
   ok(loadIdx !== -1 && !/useEffect/.test(src), "没有挂载即请求的 effect：只在点击后加载");
+  ok(/if \(state\.status === "idle" \|\| state\.status === "error"\) void load\(\);/.test(src) && /setExpanded\(false\);\s*return;/.test(src), "收起只隐藏；再展开只在没加载过或失败时请求");
   const panel = src.slice(src.indexOf("export function WorkloadSection"));
   ok(!/\buse(State|Effect|Callback|Memo|Ref|Reducer)\b/.test(panel), "展示部分（WorkloadSection 及以下）无 hooks");
   ok(!/from "@\/lib\/cockpit\/(workload|workload-read-model)"/.test(src.replace(/import type[^;]+;/g, "")), "只以 import type 引用工作量模块（不把读模型打进浏览器）");

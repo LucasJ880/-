@@ -59,7 +59,8 @@
 - **选择**：`where: { orgId, updatedAt: { gte: from } }`，因为窗口内创建或决策的动作，其 `updatedAt` 都 ≥ 窗口起点。
   - 只选结局判定与归属需要的列：`type`、`status`、`failureReason`、`decidedById`、`createdAt`、`decidedAt`、`executedAt`、`updatedAt`、`projectId`、`agentRunId`、`payload`。其中 `payload` 只用来取目标类型与目标 id，不进响应。
   - 归属查找表复用 A-2 的 `lookupIdsFor` + 项目工作域 / 运行类型查询。
-  - 询盘回复动作再用 `SalesAction.pendingActionId in (...)` 取询盘上下文，判定测试与展会。
+  - 询盘回复动作先用 `SalesAction.pendingActionId in (...)` 取首封回复关联的询盘；没关联上的（跟进草稿，`no-reply-followup.ts` 建审批时不回写询盘）取载荷里的 `opportunityId`，再查商机本身与该商机最早一条 FDE 询盘的 `inputContext`，用同一组 SLA 函数判定测试与展会。跟进护栏审计的 `targetId` 就是商机 id，走同一个查找。
+  - 载荷只为两类动作取：无项目的通用动作（读目标类型 / 目标 id）与没关联上询盘的回复动作（读商机 id）；载荷不进入响应。
 - **否决：`OR(createdAt, decidedAt, executedAt)`**：三个条件拼 OR 同样走不了索引，还更啰嗦。`(orgId, updatedAt)` 没有索引，列入 staging `EXPLAIN` 待验项。
 
 ### D5 结局判定是一张有序规则表
@@ -70,11 +71,20 @@
   4. `rejected` 且原因以"关联任务已取消"开头 → 取消；其余 `rejected` → 驳回；
   5. `failed` 且原因为"已过期" → 过期；
   6. `failed` 且原因为"已取消" → 取消；
-  7. `failed` 且原因以另外两个系统作废码开头 → 作废；
-  8. `failed` 且有决策人 → 批准 + 执行失败；
-  9. 其余 `failed` → 系统失败。
-  - 作废码列表直接引用 `SYSTEM_SUPERSESSION_REASON_CODES`。"已过期""已取消""关联任务已取消"三个字面量放成常量，测试读写入方源码核对，防止漂移。
+  7. `failed` 且原因以另外两个系统作废码或"报价让利内容已变化"开头 → 作废；
+  8. `failed` 且原因以 `BATCH_PREPARE_FAILED` 开头 → 系统失败（写入方 `pending-actions/drafts.ts` 会写决策人，必须排在第 9 条之前）；
+  9. `failed` 且有决策人 → 批准 + 执行失败；
+  10. 其余 `failed` → 系统失败。
+  - 作废码与各失败原因字面量放成本地常量（纯函数不 import 数据库模块），测试读写入方源码逐条核对，防止漂移。
 - **否决：按 `decidedById` 是否为空区分人工 / 系统**：`approval-timeout` 的过期与人工取消都要靠失败原因才能分开。
+
+### D5b 空转规则只判能收到待审批的行
+- **选择**：按 A-1 归属规则算出每行能否收到待审批动作（固定动作类型、产出 run 类型、非 `general` 的工作域、目标类型映射），收不到的行（客服、运维与知识、内容）不判空转。询盘销售的提出数连同展会行一起算：展会询盘的 FDE 运行按运行类型记在询盘销售，草稿却记在展会行。测试用 A-1 的 `postForPendingAction` 穷举反证这三行确实收不到。
+- **否决：按 `SalesAction.agentRunId` 把展会的 FDE 运行挪到展会行**：会让近 7 天 AI 运行与岗位卡片不再相等（卡片按运行类型统计）。
+
+### D5c 分天的性能
+- **选择**：每个时区缓存一个 `Intl.DateTimeFormat`，每个事件只分一次天。行数上限时（AI 运行 25000、待审批 5000、用量 5000）汇总约 0.15 秒；测试断言 < 1.5 秒。平台自动化的逐日 `groupBy` 每批 6 个并发，30 天时不一次占满连接池。
+- **否决：逐次调用 `getLocalTimeParts`**：每次新建格式化器，交叉审查实测行数上限时同步占用 3.4 秒 CPU。
 
 ### D6 用量归属与"未入账"
 - **选择**：取窗口内本组织记账行：`occurredAt`、`runId`、`sourceType`、`inputTokens`、`outputTokens`、`costAmount`、`currency`。
@@ -124,7 +134,8 @@
 - [成本基本"未入账"] → 如实显示"未入账"；补记账另开 change（让 FDE / 定时任务的 AI 调用带组织入账）。
 - [空转规则对"本来就不产待审批"的 AI 运行会误报] → 默认最小运行数 1 照任务书；组织可调高 `idleMinRuns`；标红只是信号。
 - [按 `updatedAt` 取的结局日：过期动作没有决策时间，取最后更新时间] → 过期由定时任务一次性写入，之后不再更新，最后更新时间即过期时间。
-- [跟进护栏审计无法区分测试 / 展会] → 全计入询盘销售行，与 SLA 指标的 `guardrail.followUp` 同口径。
+- [首封护栏不含 SLA 指标对旧数据的事件回读] → SLA 指标对没有护栏标记的旧询盘会读 `AgentRunEvent` 判定；14 天窗口内的询盘都已写护栏标记，本 change 不做回读，报告注明。
+- [跟进护栏审计找不到商机（`targetType` 不是商机）] → 计入询盘销售行。
 
 ## 验证方式
 

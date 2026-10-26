@@ -3,8 +3,8 @@
 /**
  * 组织驾驶舱首页 — 工作量区块（A-4，openspec change org-cockpit-workload）
  *
- * 默认收起；用户点"查看近 14 天工作量"后才请求 GET /api/cockpit/workload（首屏请求数不变）。
- * WorkloadPanel / WorkloadSection 无 hooks，便于服务端静态渲染测试；OrgCockpitWorkload 只管点击加载。
+ * 默认收起；用户点"查看近 14 天工作量"后才请求 GET /api/cockpit/workload（首屏请求数不变），收起后再展开不重复请求。
+ * WorkloadPanel / WorkloadSection 无 hooks，便于服务端静态渲染测试；OrgCockpitWorkload 只管展开状态与点击加载。
  * 只读：规则命中只标红并给出原因，不提供任何改变数据的操作。
  */
 
@@ -21,15 +21,18 @@ const WORKLOAD_URL = "/api/cockpit/workload";
 const HIDE_WHEN_EMPTY: ReadonlySet<string> = new Set(["inbound_sales_trade_show", "unattributed"]);
 
 export type WorkloadState =
-  | { status: "collapsed" }
+  | { status: "idle" }
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; data: WorkloadResponse };
 
+const BODY_ID = "cockpit-workload-body";
+
 // ── 容器 ──────────────────────────────────────────────────────
 
 export function OrgCockpitWorkload() {
-  const [state, setState] = useState<WorkloadState>({ status: "collapsed" });
+  const [expanded, setExpanded] = useState(false);
+  const [state, setState] = useState<WorkloadState>({ status: "idle" });
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -42,60 +45,86 @@ export function OrgCockpitWorkload() {
     }
   }, []);
 
-  return <WorkloadSection state={state} onExpand={() => void load()} onRetry={() => void load()} onCollapse={() => setState({ status: "collapsed" })} />;
+  // 收起只隐藏，不丢已加载的数据；再展开不重复请求（没加载过或上次失败才请求）
+  const toggle = useCallback(() => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    if (state.status === "idle" || state.status === "error") void load();
+  }, [expanded, state.status, load]);
+
+  return <WorkloadSection expanded={expanded} state={state} onToggle={toggle} onRetry={() => void load()} />;
 }
 
-// ── 区块外框（收起 / 加载中 / 失败 / 就绪） ────────────────────
+// ── 区块外框：标题 + 常驻的展开 / 收起按钮（焦点不丢）+ 内容 ──
 
 export function WorkloadSection({
+  expanded,
   state,
-  onExpand,
+  onToggle,
   onRetry,
-  onCollapse,
 }: {
+  expanded: boolean;
   state: WorkloadState;
-  onExpand?: () => void;
+  onToggle?: () => void;
   onRetry?: () => void;
-  onCollapse?: () => void;
 }) {
   return (
-    <section aria-labelledby="cockpit-workload-heading" aria-busy={state.status === "loading" ? true : undefined} className="mt-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 id="cockpit-workload-heading" className="text-sm font-semibold text-foreground">
-          工作量
-        </h2>
-        <span className="text-xs text-muted">AI 干了多少活、多少被采纳、哪些疑似白干</span>
-      </div>
-      <div className="mt-3">
-        {state.status === "collapsed" ? (
+    <section aria-labelledby="cockpit-workload-heading" aria-busy={expanded && state.status === "loading" ? true : undefined} className="mt-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id="cockpit-workload-heading" className="text-sm font-semibold text-foreground">
+            工作量
+          </h2>
+          <span className="text-xs text-muted">AI 干了多少活、多少被采纳、哪些疑似白干</span>
+        </div>
+        {onToggle ? (
           <button
             type="button"
-            onClick={onExpand}
-            className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong bg-card px-4 text-sm text-muted transition-colors hover:bg-muted/5 hover:text-foreground"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            aria-controls={BODY_ID}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs text-muted transition-colors hover:bg-muted/5 hover:text-foreground"
           >
-            <BarChart3 size={15} />
-            查看近 14 天工作量
-            <ChevronDown size={14} />
+            {expanded ? (
+              <>
+                收起
+                <ChevronUp size={13} />
+              </>
+            ) : (
+              <>
+                <BarChart3 size={14} />
+                查看近 14 天工作量
+                <ChevronDown size={13} />
+              </>
+            )}
           </button>
-        ) : state.status === "loading" ? (
-          <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-border/60 bg-card text-sm text-muted">
-            <Loader2 size={16} className="mr-2 animate-spin" />
-            正在汇总近 14 天工作量…
-          </div>
-        ) : state.status === "error" ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm text-muted">
-            <span>工作量加载失败</span>
-            {onRetry ? (
-              <button type="button" onClick={onRetry} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border px-3 text-xs hover:bg-muted/5">
-                <RefreshCw size={13} />
-                重试
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <WorkloadPanel data={state.data} onCollapse={onCollapse} />
-        )}
+        ) : null}
       </div>
+      {expanded ? (
+        <div id={BODY_ID} className="mt-3">
+          {state.status === "ready" ? (
+            <WorkloadPanel data={state.data} />
+          ) : state.status === "error" ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm text-muted">
+              <span role="status">工作量加载失败</span>
+              {onRetry ? (
+                <button type="button" onClick={onRetry} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border px-3 text-xs hover:bg-muted/5">
+                  <RefreshCw size={13} />
+                  重试
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div role="status" className="flex min-h-[120px] items-center justify-center rounded-xl border border-border/60 bg-card text-sm text-muted">
+              <Loader2 size={16} className="mr-2 animate-spin" aria-hidden="true" />
+              正在汇总近 14 天工作量…
+            </div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -132,23 +161,18 @@ const COLUMNS: Array<{ key: keyof WorkloadCounts; label: string; title: string }
   { key: "guardrailBlocked", label: "护栏拦截", title: "首封回复与跟进草稿被护栏拦下" },
 ];
 
-export function WorkloadPanel({ data, onCollapse }: { data: WorkloadResponse; onCollapse?: () => void }) {
+export function WorkloadPanel({ data }: { data: WorkloadResponse }) {
   const rows = data.rows.filter((row) => !(HIDE_WHEN_EMPTY.has(row.key) && isEmptyRow(row)));
   const t = data.thresholds;
   const flagged = rows.filter((r) => r.signals.length > 0).length;
   return (
     <div className="rounded-xl border border-border/60 bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
-        <p className="text-xs text-muted">
+      <div className="border-b border-border/60 px-4 py-3">
+        {/* 加载完成时读屏会播报这一句 */}
+        <p role="status" className="text-xs text-muted">
           近 {data.signalWindowDays} 天合计 · 走势 {data.days.length} 天（{data.days[0]} 至 {data.days[data.days.length - 1]}，{data.timezone}）
           {flagged > 0 ? <span className="ml-2 text-danger">{flagged} 个岗位疑似无用功</span> : <span className="ml-2">暂无疑似无用功</span>}
         </p>
-        {onCollapse ? (
-          <button type="button" onClick={onCollapse} className="inline-flex min-h-[44px] items-center gap-1 rounded-lg px-2 text-xs text-muted hover:text-foreground">
-            收起
-            <ChevronUp size={13} />
-          </button>
-        ) : null}
       </div>
 
       {data.truncated ? (

@@ -27,7 +27,11 @@ import {
   automationRunRangeWhere,
   followUpGuardrailWhere,
   getOrgWorkload,
+  capped,
+  inquiryFlagsOf,
   inquiryLinkWhere,
+  mergeAgentRunRows,
+  opportunityIdOfPayload,
   toInquiryRow,
   workloadInquiryWhere,
   workloadPendingActionWhere,
@@ -71,6 +75,7 @@ function fakeDeps(o: Partial<WorkloadDeps> = {}): WorkloadDeps {
     inquiryLinks: async () => new Map(),
     inquiries: async () => ({ rows: [], truncated: false }),
     followUpGuardrailBlocks: async () => ({ rows: [], truncated: false }),
+    opportunityInquiries: async () => new Map(),
     usage: async () => ({ rows: [], truncated: false }),
     usageRuns: async () => new Map(),
     inquiryClassifier: async () => sla,
@@ -99,7 +104,14 @@ const inquiry = (o: Partial<InquirySource> = {}): InquirySource => ({
   opportunityId: "opp-1",
   createdAt: hoursAgo(12),
   inputContext: {},
-  opportunity: { source: "website", lostReason: null, customer: { tags: null } },
+  opportunity: { orgId: "org-1", source: "website", lostReason: null, customer: { tags: null } },
+  ...o,
+});
+const opp = (o: Partial<NonNullable<InquirySource["opportunity"]>> = {}): NonNullable<InquirySource["opportunity"]> => ({
+  orgId: "org-1",
+  source: "website",
+  lostReason: null,
+  customer: null,
   ...o,
 });
 
@@ -119,13 +131,15 @@ async function main() {
   }
 
   console.log("询盘判定复用 SLA 指标");
-  ok(toInquiryRow(inquiry({ inputContext: { meta: { utm: { source: "qingyan_onboarding_test" } } } }), sla)?.testInquiry === true, "UTM 来源为入驻测试 → 测试询盘（spec 场景）");
-  ok(toInquiryRow(inquiry({ opportunity: { source: "website", lostReason: null, customer: { tags: "vip,qingyan_onboarding_test" } } }), sla)?.testInquiry === true, "客户标签含入驻测试 → 测试询盘");
-  ok(toInquiryRow(inquiry({ opportunity: { source: "website", lostReason: "onboarding test", customer: null } }), sla)?.testInquiry === true, "丢单原因为入驻测试 → 测试询盘");
-  ok(toInquiryRow(inquiry({ opportunity: { source: "trade_show", lostReason: null, customer: null } }), sla)?.tradeShow === true, "商机来源 trade_show → 展会（spec 场景）");
-  ok(toInquiryRow(inquiry({ opportunity: null, inputContext: { source: "trade_show" } }), sla)?.tradeShow === true, "商机来源缺失时取 inputContext.source");
-  ok(toInquiryRow(inquiry({ inputContext: { guardrailBlockedAt: "2026-10-25T10:00:00Z" } }), sla)?.guardrailBlocked === true && toInquiryRow(inquiry(), sla)?.guardrailBlocked === false, "护栏标记取 inputContext.guardrailBlockedAt");
-  ok(toInquiryRow(inquiry({ opportunityId: null }), sla) === null, "无商机的询盘不计（与 SLA 指标同条件）");
+  ok(toInquiryRow(inquiry({ inputContext: { meta: { utm: { source: "qingyan_onboarding_test" } } } }), sla, "org-1")?.testInquiry === true, "UTM 来源为入驻测试 → 测试询盘（spec 场景）");
+  ok(toInquiryRow(inquiry({ opportunity: opp({ customer: { tags: "vip,qingyan_onboarding_test" } }) }), sla, "org-1")?.testInquiry === true, "客户标签含入驻测试 → 测试询盘");
+  ok(toInquiryRow(inquiry({ opportunity: opp({ lostReason: "onboarding test" }) }), sla, "org-1")?.testInquiry === true, "丢单原因为入驻测试 → 测试询盘");
+  ok(toInquiryRow(inquiry({ opportunity: opp({ source: "trade_show" }) }), sla, "org-1")?.tradeShow === true, "商机来源 trade_show → 展会（spec 场景）");
+  ok(inquiryFlagsOf(inquiry({ opportunity: opp({ source: null }), inputContext: { source: "trade_show" } }), sla).tradeShow === true, "商机来源缺失时取 inputContext.source");
+  ok(toInquiryRow(inquiry({ inputContext: { guardrailBlockedAt: "2026-10-25T10:00:00Z" } }), sla, "org-1")?.guardrailBlocked === true && toInquiryRow(inquiry(), sla, "org-1")?.guardrailBlocked === false, "护栏标记取 inputContext.guardrailBlockedAt");
+  ok(toInquiryRow(inquiry({ opportunityId: null }), sla, "org-1") === null && toInquiryRow(inquiry({ opportunity: null }), sla, "org-1") === null, "无商机的询盘不计（与 SLA 指标同条件）");
+  ok(toInquiryRow(inquiry({ opportunity: opp({ orgId: "org-2" }) }), sla, "org-1") === null, "商机不属于本组织的询盘不计（与 SLA 指标同条件）");
+  ok(opportunityIdOfPayload({ opportunityId: "o1" }) === "o1" && opportunityIdOfPayload({ metadata: { opportunityId: "o2" } }) === "o2" && opportunityIdOfPayload({}) === null && opportunityIdOfPayload(null) === null, "回复动作载荷里的商机 id");
 
   console.log("装配");
   {
@@ -163,7 +177,7 @@ async function main() {
         },
         inquiryLinks: async (_orgId, ids) => {
           calls.push(`links:${ids.join(",")}`);
-          return new Map([["pa-3", inquiry({ opportunity: { source: "trade_show", lostReason: null, customer: null }, inputContext: { email: "buyer@acme.com", quote: 12345 } })]]);
+          return new Map([["pa-3", inquiry({ opportunity: opp({ source: "trade_show" }), inputContext: { email: "buyer@acme.com", quote: 12345 } })]]);
         },
       }),
     );
@@ -172,7 +186,7 @@ async function main() {
     ok(res.thresholds.minDecisions === 2 && res.thresholds.rejectRate === 0.5, "阈值取组织设置覆盖后的生效值");
     ok(calls.includes(`agentRuns:org-1:fde_inbound_sales,runtime_v2:sales,tender,delivery,general:${WORKLOAD_ROW_LIMIT}`), "AI 运行按注册表的运行类型与工作域读取，带上限", calls);
     ok(calls.filter((c) => c === "automation:day").length === 14 && calls.includes("automation:last7"), "平台自动化：每个本地日一次 + 近 7 天一次");
-    ok(calls.includes("payloads:pa-4") && !calls.some((c) => c.startsWith("payloads:") && c.includes("pa-1")), "只为无项目的通用动作取载荷，询盘回复等的载荷（草稿正文）不读");
+    ok(calls.includes("payloads:pa-1,pa-2,pa-4"), "只为无项目的通用动作、以及没有询盘关联的回复动作（跟进草稿）取载荷；已关联与有项目的不读", calls);
     ok(calls.includes("projects:p-9") && calls.includes("links:pa-1,pa-2,pa-3"), "项目工作域与询盘关联按需批量取");
     ok(row("inbound_sales").last7.rejected === 2 && row("inbound_sales").signals.some((s) => s.code === "high_reject_rate"), "驳回 2/2 在最小决策数 2 下命中驳回率");
     ok(row(TRADE_SHOW_ROW).last7.proposed === 1, "关联展会询盘的回复动作计入展会行");
@@ -181,6 +195,59 @@ async function main() {
     const json = JSON.stringify(res);
     ok(!json.includes("buyer@acme.com") && !json.includes("12,345") && !json.includes("12345"), "响应不含夹具载荷 / 询盘上下文里的邮箱与金额（spec 场景）");
     ok(!/failureReason|payload|title/.test(json), "响应不含失败原因、载荷、标题字段");
+  }
+
+  console.log("跟进草稿与跟进护栏按商机判定（测试排除、展会单列）");
+  {
+    const res = await getOrgWorkload(
+      viewer,
+      14,
+      fakeDeps({
+        pendingActions: async () => ({
+          rows: [pending("f-trade"), pending("f-test"), pending("f-plain"), pending("f-noopp")],
+          truncated: false,
+        }),
+        pendingPayloads: async () =>
+          new Map<string, unknown>([
+            ["f-trade", { opportunityId: "o-trade", body: "Hi" }],
+            ["f-test", { metadata: { opportunityId: "o-test" } }],
+            ["f-plain", { opportunityId: "o-plain" }],
+            ["f-noopp", {}],
+          ]),
+        followUpGuardrailBlocks: async () => ({
+          rows: [
+            { at: hoursAgo(5), opportunityId: "o-trade" },
+            { at: hoursAgo(6), opportunityId: "o-test" },
+            { at: hoursAgo(7), opportunityId: "o-plain" },
+            { at: hoursAgo(8), opportunityId: null },
+          ],
+          truncated: false,
+        }),
+        opportunityInquiries: async (_orgId, ids) =>
+          new Map(
+            ids.map((id) => [
+              id,
+              inquiry({
+                opportunityId: id,
+                opportunity: opp({ source: id === "o-trade" ? "trade_show" : "website" }),
+                inputContext: id === "o-test" ? { meta: { utm: { source: "qingyan_onboarding_test" } } } : {},
+              }),
+            ]),
+          ),
+      }),
+    );
+    const row = (key: string) => res.rows.find((r) => r.key === key)!.last7;
+    ok(row(TRADE_SHOW_ROW).proposed === 1 && row("inbound_sales").proposed === 2, "跟进草稿：展会商机计入展会行；测试询盘商机不计；查不到商机的计入询盘销售（spec 场景）", { trade: row(TRADE_SHOW_ROW), sales: row("inbound_sales") });
+    ok(row(TRADE_SHOW_ROW).guardrailBlocked === 1 && row("inbound_sales").guardrailBlocked === 2, "跟进护栏审计：同样按商机排除测试、展会单列");
+  }
+
+  console.log("行数上限的判定");
+  {
+    ok(capped([1, 2, 3], 3).truncated && !capped([1, 2], 3).truncated, "读满上限即触顶");
+    const t = { createdAt: NOW, runType: "fde_inbound_sales" };
+    const merged = mergeAgentRunRows([t, t], [[{ createdAt: NOW }], [{ createdAt: NOW }, { createdAt: NOW }]], ["sales", "tender"], 2);
+    ok(merged.rows.length === 5 && merged.truncated && merged.rows.filter((r) => r.workDomain === "tender").length === 2, "AI 运行：任一组读满即触顶，工作域按查询标注");
+    ok(!mergeAgentRunRows([t], [[{ createdAt: NOW }]], ["sales"], 2).truncated, "都未读满 → 不触顶");
   }
 
   console.log("数据量上限");

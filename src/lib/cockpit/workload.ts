@@ -6,10 +6,10 @@
  * 本文件不 import 任何数据库代码；需要数据库模块常量的地方用本地常量，测试对照写入方源码核对。
  */
 
-import { getLocalTimeParts } from "@/lib/automation/local-time";
 import { zonedLocalToUtc } from "@/lib/revenue-spine/business-days";
 import {
   POST_REGISTRY,
+  UNCLASSIFIED_PROJECT_DOMAIN,
   postForAgentRunType,
   postForAutomation,
   postForPendingAction,
@@ -94,8 +94,19 @@ export function workloadThresholdsFromOrgSettings(settingsJson: unknown): Worklo
 
 // ── 组织本地日 ────────────────────────────────────────────────
 
+// 每个时区复用一个格式化器：每条事件都要分天，逐次 new Intl.DateTimeFormat 在上万行时会占用数秒 CPU
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** 组织本地日 YYYY-MM-DD（与 automation/local-time.ts getLocalTimeParts().date 同一格式化参数） */
 export function localDayOf(at: Date, timeZone: string): string {
-  return getLocalTimeParts(at, timeZone).date;
+  let fmt = dayFormatters.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    dayFormatters.set(timeZone, fmt);
+  }
+  const parts = fmt.formatToParts(at);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function previousDay(day: string): string {
@@ -123,6 +134,10 @@ export const PENDING_EXPIRED_REASON = "已过期";
 export const PENDING_CANCELLED_REASON = "已取消";
 /** 写入方：pending-actions/executor.ts、agent-runtime/pending-link.ts（关联 run 被取消） */
 export const PENDING_RUN_CANCELLED_PREFIX = "关联任务已取消";
+/** 写入方：pending-actions/drafts.ts compensateBatchPrepareFailure（带决策人，但动作从未被批准） */
+export const PENDING_BATCH_PREPARE_FAILED = "BATCH_PREPARE_FAILED";
+/** 写入方：api/sales/quotes/[quoteId]/route.ts（报价改了，旧审批作废） */
+export const PENDING_QUOTE_CHANGED_PREFIX = "报价让利内容已变化";
 /** 与 pending-actions/supersede.ts SYSTEM_SUPERSESSION_REASON_CODES 一致（测试对照源码） */
 export const PENDING_ONBOARDING_TEST_SUPERSEDED = "SUPERSEDED_BY_ONBOARDING_TEST";
 export const PENDING_SYSTEM_SUPERSEDED_CODES = ["SUPERSEDED_BY_MANUAL_REPLY", "SUPERSEDED_BY_NEWER_INBOUND"] as const;
@@ -158,7 +173,11 @@ export function pendingActionOutcome(row: PendingOutcomeInput): { outcome: Pendi
     case "failed":
       if (reason === PENDING_EXPIRED_REASON) return { outcome: "expired", executionFailed: false };
       if (reason === PENDING_CANCELLED_REASON) return { outcome: "cancelled", executionFailed: false };
-      if (PENDING_SYSTEM_SUPERSEDED_CODES.some((code) => reason.startsWith(code))) return { outcome: "superseded", executionFailed: false };
+      if (PENDING_SYSTEM_SUPERSEDED_CODES.some((code) => reason.startsWith(code)) || reason.startsWith(PENDING_QUOTE_CHANGED_PREFIX)) {
+        return { outcome: "superseded", executionFailed: false };
+      }
+      // 批量准备失败也写决策人（发起审批的人），但动作从未被批准，必须在"有决策人 → 批准后执行失败"之前判定
+      if (reason.startsWith(PENDING_BATCH_PREPARE_FAILED)) return { outcome: "system_failed", executionFailed: false };
       if (row.decidedById) return { outcome: "approved", executionFailed: true };
       return { outcome: "system_failed", executionFailed: false };
     default:
@@ -242,6 +261,12 @@ export interface WorkloadInquiryRow extends InquiryFlags {
   guardrailBlocked: boolean;
 }
 
+/** 跟进草稿被护栏拦下的审计事件（按商机判定测试 / 展会；商机查不到时为 null） */
+export interface WorkloadFollowUpBlock {
+  at: Date;
+  inquiry: InquiryFlags | null;
+}
+
 export interface WorkloadUsageRow {
   at: Date;
   runId: string | null;
@@ -265,7 +290,7 @@ export interface WorkloadInput {
   attribution: AttributionLookups;
   /** 窗口内的 FDE 询盘（按创建时间升序） */
   inquiries: readonly WorkloadInquiryRow[];
-  followUpGuardrailBlocks: readonly Date[];
+  followUpGuardrailBlocks: readonly WorkloadFollowUpBlock[];
   usage: readonly WorkloadUsageRow[];
   /** 用量记账 runId → 运行类型 / 工作域 */
   usageRuns: ReadonlyMap<string, { runType: string; workDomain: string | null }>;
@@ -409,12 +434,15 @@ export function computeWorkload(input: WorkloadInput): WorkloadResult {
     WORKLOAD_ROW_ORDER.map((key) => [key, { daily: days.map(emptyCounts), last7: emptyCounts(), costRecorded: false }]),
   );
 
-  const add = (key: WorkloadRowKey, at: Date, field: CountKey, amount = 1) => {
+  // 每个事件只分一次天：先算桶，再往桶里加多个字段
+  type Bucket = { day: number | undefined; recent: boolean };
+  const bucket = (at: Date): Bucket => ({ day: dayIndex.get(localDayOf(at, timeZone)), recent: at.getTime() >= since7 });
+  const addTo = (key: WorkloadRowKey, b: Bucket, field: CountKey, amount = 1) => {
     const row = rows.get(key)!;
-    const i = dayIndex.get(localDayOf(at, timeZone));
-    if (i !== undefined) row.daily[i][field] += amount;
-    if (at.getTime() >= since7) row.last7[field] += amount;
+    if (b.day !== undefined) row.daily[b.day][field] += amount;
+    if (b.recent) row.last7[field] += amount;
   };
+  const add = (key: WorkloadRowKey, at: Date, field: CountKey, amount = 1) => addTo(key, bucket(at), field, amount);
 
   // AI 运行（本组织）
   for (const run of input.agentRuns) add(postForAgentRun(run.runType, run.workDomain) ?? UNATTRIBUTED_ROW, run.at, "agentRuns");
@@ -435,9 +463,9 @@ export function computeWorkload(input: WorkloadInput): WorkloadResult {
     add(key, row.createdAt, "proposed");
     const field = OUTCOME_FIELD[outcome];
     if (!field) continue;
-    const at = pendingOutcomeAt(row);
-    add(key, at, field);
-    if (executionFailed) add(key, at, "executionFailed");
+    const at = bucket(pendingOutcomeAt(row));
+    addTo(key, at, field);
+    if (executionFailed) addTo(key, at, "executionFailed");
   }
 
   // 首封护栏：与 SLA 指标同口径——按商机去重（取最早一条）、排除测试询盘、展会单列，按询盘创建日分桶
@@ -448,16 +476,20 @@ export function computeWorkload(input: WorkloadInput): WorkloadResult {
     if (inquiry.testInquiry || !inquiry.guardrailBlocked) continue;
     add(inquiry.tradeShow ? TRADE_SHOW_ROW : "inbound_sales", inquiry.createdAt, "guardrailBlocked");
   }
-  // 跟进护栏审计：无法区分测试 / 展会，全计入询盘销售（与 SLA 指标 guardrail.followUp 同口径）
-  for (const at of input.followUpGuardrailBlocks) add("inbound_sales", at, "guardrailBlocked");
+  // 跟进护栏审计：按审计时间分桶；按其商机排除测试询盘、展会单列（商机查不到时计入询盘销售）
+  for (const block of input.followUpGuardrailBlocks) {
+    if (block.inquiry?.testInquiry) continue;
+    add(block.inquiry?.tradeShow ? TRADE_SHOW_ROW : "inbound_sales", block.at, "guardrailBlocked");
+  }
 
   // 用量与成本
   for (const usage of input.usage) {
     const key = usageRowKey(usage, input.usageRuns);
+    const at = bucket(usage.at);
     rows.get(key)!.costRecorded = true;
-    add(key, usage.at, "inputTokens", usage.inputTokens ?? 0);
-    add(key, usage.at, "outputTokens", usage.outputTokens ?? 0);
-    if (usage.currency === USAGE_COST_CURRENCY && Number.isFinite(usage.cost)) add(key, usage.at, "cost", usage.cost);
+    addTo(key, at, "inputTokens", usage.inputTokens ?? 0);
+    addTo(key, at, "outputTokens", usage.outputTokens ?? 0);
+    if (usage.currency === USAGE_COST_CURRENCY && Number.isFinite(usage.cost)) addTo(key, at, "cost", usage.cost);
   }
 
   const built: WorkloadRow[] = WORKLOAD_ROW_ORDER.map((key) => {
@@ -489,6 +521,26 @@ export function computeWorkload(input: WorkloadInput): WorkloadResult {
 
 // ── 疑似无用功规则 ────────────────────────────────────────────
 
+/** 目标类型会把通用动作归到的岗位（与 posts.ts postForPendingAction 的目标类型表一致，测试核对） */
+const TARGET_TYPE_POSTS: ReadonlySet<string> = new Set(["projects", "inbound_sales"]);
+
+/**
+ * 这一行在归属规则上能不能收到待审批动作。收不到的行（如运维与知识：只有平台级 general 作业；内容：审批走产品内容审批，
+ * 不是待审批动作）不判空转——否则只要有 AI 运行就必然命中。客服同理（没有任何待审批动作类型）。
+ */
+export function rowCanPropose(key: WorkloadRowKey): boolean {
+  if (key === TRADE_SHOW_ROW) return true;
+  if (key === UNATTRIBUTED_ROW) return false;
+  const post = POST_REGISTRY.find((p) => p.key === key);
+  if (!post) return false;
+  return (
+    post.pendingActionTypes.length > 0 ||
+    post.agentRunTypes.length > 0 ||
+    (post.workDomains as readonly string[]).some((d) => d !== UNCLASSIFIED_PROJECT_DOMAIN) ||
+    TARGET_TYPE_POSTS.has(post.key)
+  );
+}
+
 /** 每次批准成本：批准 > 0 且有成本的行才有值 */
 export function costPerApproved(row: Pick<WorkloadRow, "last7" | "costRecorded">): number | null {
   const { approved, cost } = row.last7;
@@ -497,6 +549,8 @@ export function costPerApproved(row: Pick<WorkloadRow, "last7" | "costRecorded">
 
 export function applySignals(rows: WorkloadRow[], thresholds: WorkloadThresholds): void {
   const judged = rows.filter((r) => r.key !== UNATTRIBUTED_ROW);
+  // 展会询盘的 FDE 运行按运行类型记在询盘销售，草稿却记在展会行：询盘销售的"提出"要连同展会行一起看
+  const tradeShowProposed = rows.find((r) => r.key === TRADE_SHOW_ROW)?.last7.proposed ?? 0;
 
   for (const row of judged) {
     const c = row.last7;
@@ -514,7 +568,8 @@ export function applySignals(rows: WorkloadRow[], thresholds: WorkloadThresholds
         message: `近 7 天过期 ${c.expired}/${closed}（${percent(c.expired / closed)}），审批没人及时处理`,
       });
     }
-    if (c.proposed === 0 && c.agentRuns >= thresholds.idleMinRuns) {
+    const proposed = row.key === "inbound_sales" ? c.proposed + tradeShowProposed : c.proposed;
+    if (rowCanPropose(row.key) && proposed === 0 && c.agentRuns >= thresholds.idleMinRuns) {
       row.signals.push({ code: "idle", message: `近 7 天 AI 运行 ${c.agentRuns} 次，没有提出任何待审批` });
     }
   }
