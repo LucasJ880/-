@@ -85,10 +85,9 @@
 | B-3 | `fde-preferences-in-draft`（[PR #252](https://github.com/LucasJ880/-/pull/252)，base = B-2 分支） | ✅（两轮审查后修订 `e1244d62`） | 5/5 | ✅ 431/445，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：2 阻塞 + 3 应修，第二轮 2 应修，全部处理 | `[G]` |
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
+| C-2 | `fde-preferences-in-followup`（[PR #253](https://github.com/LucasJ880/-/pull/253)，base = B-3 分支） | ✅（审查后修订 `c877dd77`） | 5/5 | ✅ 432/446，失败清单 = 基线；test:ci PASS；typecheck 0；lint PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | 沿用 B-3 |
 
 A-5、B-6 原为决策项；用户 2026-10-26 第二轮决定开始：B-6 按只读就绪度开 change（`fde-v2-readiness`），A-5 等 Corporate Memory 写入口径的选择（见当前位置长任务队列第 3 项）。C-2 / A-3b 是改进项，状态沿用 B-3 / A-3 行。
-
-| C-2 | `fde-preferences-in-followup`（[PR #253](https://github.com/LucasJ880/-/pull/253)，base = B-3 分支） | ✅（审查后修订 `c877dd77`） | 5/5 | ✅ 432/446，失败清单 = 基线；test:ci PASS；typecheck 0；lint PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | 沿用 B-3 |
 
 ## 已做的判断（GATE 审核时逐条确认；详见各 change 的 proposal "偏差"一节）
 
