@@ -31,7 +31,7 @@ import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
-import { BANNED_PHRASES_SKIPPED, recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
+import { BANNED_PHRASE_SKIPPED_REASON, recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
 import { buildReplyDraft, polishReplyDraftWithLlm, type ReplyDraft } from "../reply-draft";
 import { detectInquiryRisks, formatRiskNotes, type InquiryRisk } from "../inquiry-risks";
 import { INBOUND_MESSAGE_SEPARATOR } from "../rfq/heuristic-extractor";
@@ -515,17 +515,18 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
               draftPreferences: {
                 applied: draftPrefs.applied,
                 ignored: draftPrefs.ignored.map((i) => i.key),
-                ...(draft.preferences?.bannedPhrasesSkipped ? { bannedPhrasesSkipped: true } : {}),
+                ...(draft.preferences?.bannedPhrasesSkipped ? { bannedPhrasesSkipped: draft.preferences.bannedPhrasesSkipped } : {}),
               },
             }
           : {}),
       });
-      // 禁用词替换后拼出了承诺、这一封没替换：记一次审计（同组织同一组只记一次），让管理员能发现配置问题
-      if (draft.preferences?.bannedPhrasesSkipped) {
+      // 禁用词替换后多出守卫违规、这一封没替换：按引起违规的键名记审计（同组织同一组只记一次），让管理员能发现是哪一条
+      const skippedBanned = draft.preferences?.bannedPhrasesSkipped ?? [];
+      if (skippedBanned.length) {
         await recordIgnoredDraftPreferencesSafe({
           orgId,
           userId: principalUserId,
-          ignored: [BANNED_PHRASES_SKIPPED],
+          ignored: skippedBanned.map((key) => ({ key, reason: BANNED_PHRASE_SKIPPED_REASON })),
           employeeKey: FDE_EMPLOYEE_KEY,
         });
       }

@@ -34,6 +34,7 @@ export interface IgnoredPreference {
 export interface ResolvedDraftPreferences extends DraftTemplatePreferences, QuestionPreferences {
   priorityQuestions: RfqField[];
   skippedQuestions: RfqField[];
+  bannedPhrases: Array<{ phrase: string; replacement: string; key: string }>;
   /** 生效的偏好键名 */
   applied: string[];
   /** 被忽略的偏好：键名与原因（不含文案） */
@@ -43,28 +44,41 @@ export interface ResolvedDraftPreferences extends DraftTemplatePreferences, Ques
 const ASKABLE = new Map(MISSING_FIELD_TIERS.map((t) => [t.field as string, t]));
 const LANGS = ["zh", "en"] as const;
 
-/** 任何数字（含全角"２４"、阿拉伯-印度数字等 Unicode 十进制数字） */
-const ANY_DIGIT_RE = /\p{Nd}/u;
-/** 控制字符（换行另报） */
-const CONTROL_RE = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
+/** 任何数字字符：含全角"２４"、阿拉伯-印度数字、"½"、"③"、"Ⅲ"（Unicode 数字类 \p{N}） */
+const ANY_DIGIT_RE = /\p{N}/u;
+/** 控制字符（换行另报），以及草稿模板挡住片段用的私用区分隔符 U+E000 / U+E001 */
+const CONTROL_RE = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f\uE000\uE001]/;
+
 /**
- * 数字词：偏好里不许写出天数 / 数量 / 金额（"within three days"、"ten dollars"、"三天内发货"、"五美元一件"）。
- * 宁可多拦：误拦只是这条偏好被忽略并记审计，管理员换个说法即可。
+ * 偏好文案（问候 / 结束语 / 敬语 / 替换词）只是措辞，不许写出天数、数量、金额或任何商务条款。
+ * 三道规则，宁可多拦：误拦只是这条偏好被忽略并记审计，管理员换个说法即可。
+ * 先去掉常见的客套用语（"祝您一天愉快"、"No one"、"double-check"），免得误拦。
  */
+const NUMBER_WORD_ALLOW_RE =
+  /一天愉快|新的一年|一路顺风|一切|一起|一直|一定|一些|一下|一点|统一|唯一|第一时间|万事如意|十分(?!钟)|万分|千万(?![件个套米码箱只条张双对元块美欧英])|\bno one\b|\bone more\b|\bone-stop\b|\bone of\b|\bdouble[- ]check\w*/gi;
+/** 英文数字词与"a week"这类数量说法 */
 const NUMBER_WORD_EN_RE =
-  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozens?|half|twice|double|triple)\b/i;
-const NUMBER_WORD_ZH_RE =
-  /[〇零一二两三四五六七八九十百千万亿半]+\s*(?:天|日|周|星期|个月|月|年|小时|钟头|分钟|件|个|套|米|码|箱|只|条|张|双|对|美元|美金|元|块|欧元|英镑|成|折|%|％)|百分之/;
+  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozens?|half|twice|double|triple|fortnight|couple|third|quarter)\b|\b(?:a|an|per|each)\s+(?:day|week|month|year|hour)s?\b/i;
+/** 中文数词（含大写）：后跟单位，或连着两个以上（"五百"、"一千"、"十五"、"壹佰"） */
+const ZH_NUMERAL = "〇零一二两三四五六七八九十百千万亿半壹贰叁肆伍陆柒捌玖拾佰仟";
+const NUMBER_WORD_ZH_RE = new RegExp(
+  `[${ZH_NUMERAL}]\\s*(?:来|多|余|几)?\\s*(?:天|日|周|星期|个月|月|年|小时|钟头|分钟|件|个|套|米|码|箱|只|条|张|双|对|美元|美金|元|块|欧元|英镑|成|折|%|％)|[${ZH_NUMERAL}]{2,}|百分之`,
+);
+/** 商务条款用语：起订 / 交期 / 价格 / 折扣 / 赠送 / 样品 / 运费 / 付款 / 保证 … */
+const COMMERCIAL_TERM_RE =
+  /起订|交期|交货|发货|出货|货期|价|折|送(?!上)|赠|免费|包邮|样品|打样|运费|付款|定金|订金|账期|保证|质保|退款|赔偿|\b(?:moq|minimum order|prices?|pricing|cost|costs|discounts?|samples?|deliver(?:y|ed|ies)?|ship(?:ping|ped|ment)?|lead[- ]time|production|payments?|deposit|warranty|guarantee[sd]?|refunds?|quot(?:e|es|ed|ation))\b|\bfree\s+(?:of|samples?|shipping|delivery)\b/i;
 
 /** 文案的共同规则；返回违规原因，合规返回 null。{name} 由调用方先去掉 */
 function textProblem(text: string): string | null {
   if (/[\r\n]/.test(text)) return "含换行";
   if (CONTROL_RE.test(text)) return "含控制字符";
   if (ANY_DIGIT_RE.test(text)) return "含数字";
-  if (NUMBER_WORD_EN_RE.test(text) || NUMBER_WORD_ZH_RE.test(text)) return "含数字词";
+  const plain = text.replace(NUMBER_WORD_ALLOW_RE, " ");
+  if (NUMBER_WORD_EN_RE.test(plain) || NUMBER_WORD_ZH_RE.test(plain)) return "含数字词";
   if (text.length > DRAFT_PREFERENCE_TEXT_MAX) return `超过 ${DRAFT_PREFERENCE_TEXT_MAX} 字`;
   const violations = checkDraftGuardrails(text);
   if (violations.length) return `含商务承诺：${violations.join("、")}`;
+  if (COMMERCIAL_TERM_RE.test(text)) return "含商务条款用语";
   if (unsafeToRepeat(text)) return "含不宜写进邮件的内容";
   return null;
 }
@@ -155,13 +169,18 @@ export function resolveDraftPreferences(policy: Pick<RevenueSpinePolicy, "fde">)
     if (problem) ignored.push({ key, reason: problem });
     else candidates.push({ key, phrase, replacement });
   });
-  // 替换词里含任何禁用词（含自己）会链式替换（A→B 之后 B→C），这样的条目整条忽略
+  // 替换词里含任何禁用词（含自己）会链式替换（A→B 之后 B→C），这样的条目整条忽略。
+  // 上限按通过前面规则的条数算（链式被拒的也占名额）
   const allPhrases = candidates.map((c) => c.phrase);
-  const bannedPhrases: Array<{ phrase: string; replacement: string }> = [];
+  const bannedPhrases: Array<{ phrase: string; replacement: string; key: string }> = [];
   for (const c of candidates) {
     if (c.replacement && countBannedPhrases(c.replacement, allPhrases) > 0) ignored.push({ key: c.key, reason: "替换词含禁用词" });
-    else bannedPhrases.push({ phrase: c.phrase, replacement: c.replacement });
+    else bannedPhrases.push(c);
   }
+  // ignored 按偏好出现顺序：禁用词的条目按下标排回原位
+  const bannedIndex = (k: string) => Number(/^bannedPhrases\[(\d+)\]$/.exec(k)?.[1] ?? -1);
+  const firstBanned = ignored.findIndex((i) => bannedIndex(i.key) >= 0);
+  if (firstBanned >= 0) ignored.splice(firstBanned, ignored.length - firstBanned, ...ignored.slice(firstBanned).sort((a, b) => bannedIndex(a.key) - bannedIndex(b.key)));
   if (bannedPhrases.length) applied.push("bannedPhrases");
 
   return { greeting, closing, valediction, priorityQuestions, skippedQuestions, bannedPhrases, applied, ignored };
@@ -169,8 +188,8 @@ export function resolveDraftPreferences(policy: Pick<RevenueSpinePolicy, "fde">)
 
 // ── 违规审计 ───────────────────────────────────────────────
 
-/** 禁用词替换后草稿过不了守卫、这一封没做替换（buildReplyDraft 的 bannedPhrasesSkipped）时记的条目 */
-export const BANNED_PHRASES_SKIPPED: IgnoredPreference = { key: "bannedPhrases", reason: "替换后草稿过不了守卫，本封未替换" };
+/** 禁用词替换后草稿多出守卫违规、这一封没做替换（buildReplyDraft 的 bannedPhrasesSkipped，按引起违规的键名）时记的原因 */
+export const BANNED_PHRASE_SKIPPED_REASON = "替换后草稿多出守卫违规，本封未替换";
 
 /** 同一组违规的指纹（与顺序无关） */
 export function ignoredFingerprint(ignored: readonly IgnoredPreference[]): string {

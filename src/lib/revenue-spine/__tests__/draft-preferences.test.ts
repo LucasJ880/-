@@ -208,6 +208,26 @@ async function main() {
     assert.equal(fw.ignored[0].reason, "禁用词含数字");
   });
 
+  await ok("数字词补漏：中文无单位数词 / 大写数字 / 非十进制数字 / a week；赠送折扣等商务条款用语；常见客套话不误拦", () => {
+    const reasonOf = (t: string) => resolveDraftPreferences(withPrefs({ closing: { zh: t } }))!.ignored[0]?.reason ?? null;
+    for (const t of ["每款起订五百，交期十五，盼复。", "MOQ一千起。", "起订量一百。", "十来天交货。", "壹佰件起订", "within a week", "a fortnight", "a couple of weeks", "a third off", "十分钟内回复", "千万件现货"])
+      assert.equal(reasonOf(t), "含数字词", t);
+    for (const t of ["½ off", "③ days", "Ⅲ天"]) assert.equal(reasonOf(t), "含数字", t);
+    for (const t of ["买一送一", "可以打对折", "价格优惠", "Fast delivery guaranteed", "We offer the best prices"]) assert.equal(reasonOf(t), "含商务条款用语", t);
+    for (const t of ["One more thing, thanks", "Please double-check the details", "Your one-stop supplier", "祝您一天愉快", "祝新的一年万事如意", "十分感谢", "百忙之中", "第一时间回复您", "Feel free to contact me.", "谨送上祝福"])
+      assert.equal(reasonOf(t), null, t);
+    // 私用区分隔符不能出现在禁用词 / 替换词里
+    assert.equal(resolveDraftPreferences(withPrefs({ bannedPhrases: [{ phrase: "in\uE000quiry", replacement: "" }] }))!.ignored[0].reason, "禁用词含控制字符");
+  });
+
+  await ok("ignored 按偏好出现顺序：链式被拒的条目排回原位", () => {
+    const r = resolveDraftPreferences(withPrefs({ bannedPhrases: [{ phrase: "inquiry", replacement: "request" }, { phrase: "INQUIRY", replacement: "x" }, { phrase: "request", replacement: "ask" }] }))!;
+    assert.deepEqual(r.ignored, [
+      { key: "bannedPhrases[0]", reason: "替换词含禁用词" },
+      { key: "bannedPhrases[1]", reason: "重复" },
+    ]);
+  });
+
   await ok("替换词含禁用词（会链式替换）→ 整条忽略", () => {
     const r = resolveDraftPreferences(
       withPrefs({
@@ -218,7 +238,7 @@ async function main() {
         ],
       }),
     )!;
-    assert.deepEqual(r.bannedPhrases, [{ phrase: "request", replacement: "ask" }]);
+    assert.deepEqual(r.bannedPhrases, [{ key: "bannedPhrases[1]", phrase: "request", replacement: "ask" }]);
     assert.deepEqual(r.ignored, [
       { key: "bannedPhrases[0]", reason: "替换词含禁用词" },
       { key: "bannedPhrases[2]", reason: "替换词含禁用词" },
@@ -239,8 +259,8 @@ async function main() {
       }),
     )!;
     assert.deepEqual(r.bannedPhrases, [
-      { phrase: "inquiry", replacement: "request" },
-      { phrase: "kindly", replacement: "" },
+      { key: "bannedPhrases[2]", phrase: "inquiry", replacement: "request" },
+      { key: "bannedPhrases[5]", phrase: "kindly", replacement: "" },
     ]);
     assert.deepEqual(
       r.ignored.map((i) => [i.key, i.reason.replace(/：.*$/, "")]),
@@ -408,13 +428,30 @@ async function main() {
     assert.match(web.body, /Thank you for contacting Example Home Textile on behalf of Northwind Hotels\. We have received your inquiry about hotel bathrobes\./);
   });
 
-  await ok("禁用词替换后拼出承诺：这一封不做替换（不被守卫拦在审批外），标记 bannedPhrasesSkipped", () => {
-    // "guarantee" 单独过得了守卫，拼进 "We have received your inquiry" 就成了 "We guarantee your inquiry"
-    assert.ok(resolveDraftPreferences(withPrefs({ bannedPhrases: [{ phrase: "have received", replacement: "guarantee" }] }))!.ignored.length === 0);
-    const d = draftFor(EN, withPrefs({ bannedPhrases: [{ phrase: "have received", replacement: "guarantee" }] }, true, CONFIGURED_POLICY)).draft;
+  await ok("禁用词替换后拼出承诺：这一封不做替换（不被守卫拦在审批外），记下引起违规的那一条", () => {
+    // "free" 单独过得了校验，替换进 "your inquiry about samples kit" 就成了 "your free samples kit"
+    const c = { ...EN, input: { ...EN.input, fields: { ...EN.input.fields, productName: "samples kit" } } };
+    const prefs = { bannedPhrases: [{ phrase: "Thank you", replacement: "Thanks" }, { phrase: "inquiry about", replacement: "free" }] };
+    assert.deepEqual(resolveDraftPreferences(withPrefs(prefs))!.ignored, []);
+    const base = draftFor(c, CONFIGURED_POLICY).draft;
+    assert.deepEqual(base.guardrailViolations, []);
+    const d = draftFor(c, withPrefs(prefs, true, CONFIGURED_POLICY)).draft;
     assert.deepEqual(d.guardrailViolations, []);
-    assert.equal(d.preferences!.bannedPhrasesSkipped, true);
-    assert.equal(d.body, draftFor(EN, CONFIGURED_POLICY).draft.body);
+    assert.deepEqual(d.preferences!.bannedPhrasesSkipped, ["bannedPhrases[1]"]);
+    assert.equal(d.body, base.body);
+  });
+
+  await ok("替换前就有违规时仍退回、替换前的违规照常保留；单条都不引起、组合才引起时记全部键名", () => {
+    // 买家产品名带"free samples"：不传偏好就有违规；prepare→beat + quotation→offer 组合拼出 "beat an accurate offer"（比价）
+    const c = { ...EN, input: { ...EN.input, fields: { ...EN.input.fields, productName: "free samples towels" } } };
+    const base = draftFor(c, CONFIGURED_POLICY).draft;
+    assert.ok(base.guardrailViolations.length > 0);
+    const prefs = { bannedPhrases: [{ phrase: "prepare", replacement: "beat" }, { phrase: "quotation", replacement: "offer" }] };
+    assert.deepEqual(resolveDraftPreferences(withPrefs(prefs))!.ignored, []);
+    const d = draftFor(c, withPrefs(prefs, true, CONFIGURED_POLICY)).draft;
+    assert.deepEqual(d.guardrailViolations, base.guardrailViolations);
+    assert.equal(d.body, base.body);
+    assert.deepEqual(d.preferences!.bannedPhrasesSkipped, ["bannedPhrases[0]", "bannedPhrases[1]"]);
   });
 
   await ok("$ 不当替换模式：联系人名与替换词里的 $ 原样写出", () => {
@@ -432,6 +469,14 @@ async function main() {
     assert.equal(replaceBannedPhrases("no change here", [{ phrase: "inquiry", replacement: "x" }]), "no change here");
     assert.equal(replaceBannedPhrases("Kindly note the MOQ", [{ phrase: "kindly", replacement: "" }]), "note the MOQ");
     assert.equal(replaceBannedPhrases("see www.inquiry.example/inquiry", [{ phrase: "inquiry", replacement: "x" }]), "see www.inquiry.example/inquiry");
+    // 专名按词边界挡：专名 "Re" / "an" 不挡住 received / accurate
+    assert.equal(replaceBannedPhrases("We received an accurate list", [{ phrase: "received", replacement: "got" }, { phrase: "accurate", replacement: "precise" }], ["Re", "an", "ce"]), "We got an precise list");
+    assert.equal(replaceBannedPhrases("Dear Dear,", [{ phrase: "Dear", replacement: "Hello" }], ["Dear"]), "Dear Dear,");
+    // 输入里本来就像占位符的片段原样保留；纯数字款号与多个专名不拆坏占位符
+    assert.equal(replaceBannedPhrases("foo \uE0000\uE001 inquiry", [{ phrase: "inquiry", replacement: "request" }]), "foo \uE0000\uE001 request");
+    const terms = ["10", ...Array.from({ length: 12 }, (_, i) => `Term${String.fromCharCode(65 + i)}`)];
+    const line = `${terms.join(" ")} inquiry 10`;
+    assert.equal(replaceBannedPhrases(line, [{ phrase: "inquiry", replacement: "request" }], terms), `${terms.join(" ")} request 10`);
     assert.equal(countBannedPhrases("Inquiry, inquiry; INQUIRY! inquiryForm", ["inquiry"]), 3);
   });
 
@@ -597,7 +642,7 @@ async function main() {
     assert.match(src, /policy,\s*preferences: draftPrefs,\s*\};\s*draft = buildReplyDraft\(draftInput\);/);
     assert.match(src, /\.\.\.\(draftPrefs\s*\?\s*\{\s*draftPreferences: \{\s*applied: draftPrefs\.applied,\s*ignored: draftPrefs\.ignored\.map\(\(i\) => i\.key\),/);
     // 替换后过不了守卫、这封没替换：同一套去重审计记一次
-    assert.match(src, /if \(draft\.preferences\?\.bannedPhrasesSkipped\) \{\s*await recordIgnoredDraftPreferencesSafe\(\{\s*orgId,\s*userId: principalUserId,\s*ignored: \[BANNED_PHRASES_SKIPPED\],/);
+    assert.match(src, /const skippedBanned = draft\.preferences\?\.bannedPhrasesSkipped \?\? \[\];\s*if \(skippedBanned\.length\) \{\s*await recordIgnoredDraftPreferencesSafe\(\{\s*orgId,\s*userId: principalUserId,\s*ignored: skippedBanned\.map\(\(key\) => \(\{ key, reason: BANNED_PHRASE_SKIPPED_REASON \}\)\),/);
     // 顺序：模板 → 润色 → 守卫判定
     const build = src.indexOf("draft = buildReplyDraft(draftInput);");
     const polish = src.indexOf("draft = await polishReplyDraftWithLlm(draft");

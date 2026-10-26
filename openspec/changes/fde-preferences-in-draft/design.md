@@ -76,7 +76,7 @@ interface FdePolicy { useConfirmedPreferences: boolean; preferences: FdeDraftPre
 
 | 对象 | 规则 |
 |---|---|
-| 问候 / 结束语 / 敬语 / 替换词 | 去首尾空白；≤ 120 字符；不含换行、控制字符、任何 Unicode 十进制数字（`\p{Nd}`，含全角）与数字词（英文 one…ninety / hundred / thousand / dozen / half…，中文 `[〇零一二两三四五六七八九十百千万亿半]` 后跟天 / 周 / 件 / 美元 / 元 / % 等单位，`百分之`）；`checkDraftGuardrails` 无违规；`unsafeToRepeat` 为假 |
+| 问候 / 结束语 / 敬语 / 替换词 | 去首尾空白；≤ 120 字符；不含换行、控制字符（含私用区分隔符 U+E000 / U+E001）、任何 Unicode 数字字符（`\p{N}`：全角、½、③、Ⅲ）；不含数字词（先去掉白名单客套话：英文 one…ninety / hundred / thousand / dozen / half / fortnight / couple / third / quarter、`a|an|per|each` + day/week/month/year/hour；中文数词含大写，后跟单位或连着两个以上，`百分之`）；`checkDraftGuardrails` 无违规；不含商务条款用语（起订 / 交期 / 价 / 折 / 送 / 赠 / 免费 / 样品 / 运费 / 付款 / 保证 …，MOQ / price / discount / sample / delivery / shipping / lead time / payment / guarantee / quote …）；`unsafeToRepeat` 为假 |
 | 问候 | 含且只含一个 `{name}` |
 | 结束语 / 敬语 / 替换词 | 不含 `{` `}` |
 | 禁用词 | 2–60 字符；不含换行、控制字符与数字；同一词只算一次；替换词含任何禁用词（含自己）的整条忽略（防链式替换） |
@@ -108,16 +108,16 @@ interface FdePolicy { useConfirmedPreferences: boolean; preferences: FdeDraftPre
 - 禁用词：
   - 正文拼完后，对非保护行逐条替换。
   - 保护行按拼装用的同一组值算出，包括：需求复述行、展会参考款行、参考项目、条款原句与样品说明（`termLines` 与样品行）、"需内部确认"段、署名块，以及偏好行本身（企业自己写的，不再替换）。
-  - 非保护行里先挡住链接（`https?://…`、`www.…`）与嵌着的专名（组织名、对外英文名、买家公司名、买家产品名、展会名、联系人名、参考款名与款号），替换完再放回。
+  - 非保护行里先一次扫描挡住链接（`https?://…`、`www.…`）与嵌着的专名（组织名、对外英文名、买家公司名、买家产品名、展会名、联系人名、参考款名与款号），替换完再放回。拉丁字母专名按词边界匹配（专名 "Re" 不挡住 "received"）；分隔符用私用区字符 U+E000 / U+E001，偏好校验禁止它们出现，还原时找不到编号的原样保留。
   - 替换用函数形式，联系人名与替换词里的 `$` 不当替换模式。
-  - 替换后草稿过不了守卫、替换前能过时：这一封退回替换前的正文，`preferences.bannedPhrasesSkipped = true`，`inbound-sales` 记一次审计（同一套指纹去重）。
+  - 替换后草稿比替换前多出守卫违规（替换前就有的违规不算）时：这一封退回替换前的正文（保留替换前的违规），逐条试出引起违规的禁用词，`preferences.bannedPhrasesSkipped = [键名…]`（单条都不引起、组合才引起时为全部键名）；`inbound-sales` 按这些键名记审计（同一套指纹去重）。
   - 主题不替换：主题由产品名（买家原话）与公司名组成，且用于邮件线程。
   - 匹配规则：英文整词、不区分大小写，边界同 `containsPhrase`；含中文的词按子串。按列出顺序逐条替换。
 - 草稿对象新增可选 `preferences`，只在传入偏好时出现：
   - `lines`：实际用到的问候、结束语、敬语行；
   - `bannedPhrases`：禁用词列表；
   - `keptLines`：保护行（润色判定时排除）；
-  - `bannedPhrasesSkipped`：这一封没做替换。
+  - `bannedPhrasesSkipped`：这一封没做替换时，引起违规的禁用词键名。
   - 生效 / 忽略键名不进草稿对象，由 `inbound-sales` 直接写进运行事件。
 - **否决**：
   - `buildReplyDraft` 内部自己读 `policy.fde`：追问在草稿之前已经生成，两处各读一次可能不一致；由调用方解析一次、显式传入，关闭时的路径也更容易证明不变。
