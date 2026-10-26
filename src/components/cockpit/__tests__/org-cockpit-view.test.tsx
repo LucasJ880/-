@@ -159,6 +159,7 @@ console.log("岗位卡片");
   const sales = card("inbound_sales");
   ok(sales.includes("正常") && sales.includes("bg-success-bg text-success"), "正常 → 成功色");
   ok(sales.includes(">42 分钟<") && sales.includes(">80%<") && sales.includes("近 30 天"), "询盘 KPI 格式化");
+  ok(/<dl class="grid grid-cols-\[repeat\(3,minmax\(0,1fr\)\)\]/.test(sales) && !/<dl class="[^"]*\bgrid-cols-3\b/.test(html), "KPI 行不用 grid-cols-3（globals.css 在 iPad 宽度把它强制改成两列）");
   ok(sales.includes("待审批 2") && sales.includes("需要你 1") && sales.includes("7 天 12 次动作"), "待审批 / 需要你 / 近 7 天动作");
   ok(sales.includes("心跳 5 分钟前") && sales.includes("下次 10 分钟后"), "心跳相对时间与下次应跑");
   ok(card("marketing").includes('data-kpi-status="error"') && card("marketing").includes("KPI 暂不可用"), "KPI error → 暂不可用");

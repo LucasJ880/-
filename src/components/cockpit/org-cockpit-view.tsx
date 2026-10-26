@@ -202,7 +202,8 @@ export function PostCard({ post, now }: { post: PostCardView; now: Date }) {
       <div className="mt-3 min-h-[64px]">
         {post.kpi.status === "ok" ? (
           <>
-            <dl className="grid grid-cols-3 gap-2">
+            {/* 不用 grid-cols-3：globals.css 在 768–1024px 把 .grid-cols-3 强制改成两列，KPI 必须三列并排 */}
+            <dl className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2">
               {post.kpi.metrics.map((metric) => (
                 <div key={metric.label} className="min-w-0">
                   <dt className="truncate text-[11px] text-muted">{metric.label}</dt>
@@ -284,11 +285,14 @@ export function CompanyLog({
       <ol className="divide-y divide-border/60 rounded-xl border border-border/60 bg-card">
         {timeline.items.map((entry) => {
           const row = (
-            <div className="flex min-h-[44px] items-start gap-3 px-4 py-2.5 text-sm">
-              <span className="w-20 shrink-0 pt-0.5 text-xs text-muted">{formatRelativeTime(entry.at, now)}</span>
-              <span className="w-20 shrink-0 pt-0.5 text-xs text-muted">{postName(entry.post)}</span>
-              <span className="w-14 shrink-0 pt-0.5 text-xs text-muted">{actorLabel(entry.actor, entry.actorName)}</span>
-              <span className="min-w-0 flex-1 break-words text-foreground/90">{entry.summary}</span>
+            <div className="flex min-h-[44px] flex-col gap-0.5 px-4 py-2.5 text-sm sm:flex-row sm:items-start sm:gap-3">
+              {/* 窄屏：时间 / 岗位 / 操作者排一行、摘要另起一行；sm 以上 contents 展开成四列 */}
+              <div className="flex gap-2 text-xs text-muted sm:contents">
+                <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">{formatRelativeTime(entry.at, now)}</span>
+                <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">{postName(entry.post)}</span>
+                <span className="sm:w-14 sm:shrink-0 sm:pt-0.5">{actorLabel(entry.actor, entry.actorName)}</span>
+              </div>
+              <span className="min-w-0 flex-1 break-words text-foreground/90 [overflow-wrap:anywhere]">{entry.summary}</span>
             </div>
           );
           return (
