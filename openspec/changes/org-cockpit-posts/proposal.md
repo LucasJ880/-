@@ -18,7 +18,7 @@
 **与任务书的偏差（GATE 审核时请逐条确认）：**
 1. 任务书写"23 项自动化、12 种 PendingAction"，代码现状是 28 项与 14 种；本 change 按代码现状穷举。
 2. 任务书初版岗位清单没有列出的 `wechat-push`、`trade-daily` 归入 `inbound_sales`（两者都是销售线的每日推送 / 检查）；`marketing-*` 展开为 6 项。
-3. `approval-timeout` 归入 `ops_knowledge`，不放 `tender`：它统一处理全组织所有类型 PendingAction 的过期与审批升级，放在投标岗位会让投标卡片的心跳 / 健康被与投标无关的失败染红。
+3. `approval-timeout` 归入 `ops_knowledge`，不放 `tender`（**已认可，用户 2026-10-26**）：它统一处理全组织所有类型 PendingAction 的过期与审批升级，放在投标岗位会让投标卡片的心跳 / 健康被与投标无关的失败染红。
 4. 任务书未指定的 PendingAction 归属：`grader.*` 三种与 `calendar.create_event` 都只由 ai-grader（`proactive-scan` 巡视分级）产出，归入 `projects`；`sales.*` 四种归入 `inbound_sales`；`marketing.*` 四种归入 `marketing`；`tender.*` 两种归入 `tender`。
 5. `service` 与 `content` 两个岗位目前没有任何"只读、按组织"的既有读函数（只有写入型 cron 函数，计数内联在 API 路由里），KPI 声明为"未接入"并写明原因，不在本 change 新写查询；A-2 再决定是否把路由内联查询原样抽成读函数。
 

@@ -54,7 +54,7 @@
   - PendingAction：按产出方归属。`grader.*` 与 `calendar.create_event` 只由 `ai-grader/actions/to-pending-action.ts` 产出（`proactive-scan` 的分级结果），归 `projects`；其余按命名空间（`sales.*` → `inbound_sales`、`marketing.*` → `marketing`、`tender.*` → `tender`）。
   - 工作域：`sales` → `inbound_sales`、`tender` → `tender`、`delivery` → `projects`、`general` → `ops_knowledge`（`general` 解析为 `system` 工具域，是平台级作业）。
   - runType：只有 `fde_inbound_sales` 归属（`inbound_sales`）；`workforce_job` 不按 runType 归属；`conversation` / `assistant_dispatch` / `supervisor` 是人主动发起的对话或已冻结模块，不归任何岗位。
-- **否决：`approval-timeout` 按任务书放 `tender`** —— 该 cron 失败时会把投标卡片染成 failed，而失败原因可能是营销草稿过期处理出错；岗位健康必须只反映本岗位的活。改回去只需移动一行，GATE 若坚持原方案可直接改。
+- **否决：`approval-timeout` 按任务书放 `tender`** —— 该 cron 失败时会把投标卡片染成 failed，而失败原因可能是营销草稿过期处理出错；岗位健康必须只反映本岗位的活。该归属已由用户认可（2026-10-26）。
 - **否决：按 `AUTOMATION_REGISTRY.category` 自动推导岗位** —— category 与岗位口径不同（见 Context），推导会把三个 tender 自动化分进 `projects`。
 
 ### D4 KPI 声明是"指针"，取数留给 A-2

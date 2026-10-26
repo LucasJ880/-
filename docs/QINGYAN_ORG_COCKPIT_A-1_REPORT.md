@@ -38,7 +38,7 @@ OpenSpec change：`openspec/changes/org-cockpit-posts/`（proposal / `specs/cock
 
 1. **数量**：任务书写"23 项自动化、12 种 PendingAction"，代码现状 28 / 14，按代码现状穷举。
 2. **未列出的自动化**：`wechat-push`（微信补推简报 / 跟进）、`trade-daily`（外贸每日检查）归 `inbound_sales`。
-3. **`approval-timeout` 归 `ops_knowledge`**（任务书写在 `tender`）：它统一处理全组织所有类型 PendingAction 的过期与审批升级（`src/app/api/cron/approval-timeout/route.ts`），放在投标会让投标卡片的健康被与投标无关的失败染红。若 GATE 坚持原方案，只需把这一行挪到 `tender`，测试里对应断言同步改。
+3. **`approval-timeout` 归 `ops_knowledge`**（任务书写在 `tender`）：它统一处理全组织所有类型 PendingAction 的过期与审批升级（`src/app/api/cron/approval-timeout/route.ts`），放在投标会让投标卡片的健康被与投标无关的失败染红。**已认可（用户，2026-10-26）**。
 4. **PendingAction 归属**（任务书未指定）：按产出方——`grader.*` 与 `calendar.create_event` 只由 `src/lib/ai-grader/actions/to-pending-action.ts` 产出，归 `projects`；其余按命名空间。
 5. **`service` / `content` KPI 未接入**：两条线都只有写入型 cron 函数，计数内联在 API 路由里。A-1 不新写查询；A-2 决定是否把路由里的内联查询原样抽成读函数。
 6. **`ops_knowledge` 跳 `/ai-activity`** 而非 `/ai/autopilot`：后者需要 `autopilot.view` 权限且受观察开关控制。

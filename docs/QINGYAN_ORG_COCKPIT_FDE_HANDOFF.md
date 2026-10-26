@@ -6,7 +6,7 @@
 |---|---|
 | 任务书 | `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md`（状态列是 A / B 阶段的事实源） |
 | 工作分支 | `claude/awesome-turing-dorqeg`（基线 `origin/main` @ `51cc62c`，PR #243 合并后） |
-| PR 策略 | **未定**：仓库约定"一个 change = 一个 PR"，但本会话只被授权推这一个分支。目前各 change 按提交顺序叠在同一分支，每个 change 的提交前缀为 `<change-name>:`，便于将来拆 PR。需要 Evan / 用户决定：每个 change 开独立分支（需授权推别的分支），或接受叠加分支按 change 逐个开 PR |
+| PR 策略 | **已定（用户，2026-10-26）**：每个 change 一个独立分支、一个 PR。A-1 用 `claude/awesome-turing-dorqeg`；之后的 change 用 `claude/<change-name>`，从前一个 change 的分支切出（叠加），PR base 指向前一个 change 的分支，前一个合并进 `main` 后把 base 改回 `main`。archive 另走 `claude/archive-<change-name>` 小 PR |
 | 每个 change 的完成定义 | 四件套 `openspec validate --strict` 通过 → apply 全部 task 打勾 → 本 change 测试 + typecheck + lint:baseline 绿 → `/opsx:verify` 报告 → 独立审查代理交叉验证（只给代码与规格）并处理发现 → 写 REPORT + 状态列 `[G]` → 提交推送 → 更新本文件 |
 
 ## 当前位置
@@ -32,7 +32,7 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 ## 已做的判断（GATE 审核时逐条确认；详见各 change 的 proposal "偏差"一节）
 
 1. 代码现状是 28 项自动化、14 种 PendingAction（任务书写 23 / 12）；A-1 按代码现状穷举。
-2. `approval-timeout` 归 `ops_knowledge`，不归 `tender`（它处理全组织所有类型的审批过期）。
+2. `approval-timeout` 归 `ops_knowledge`，不归 `tender`（它处理全组织所有类型的审批过期）。**已认可（用户，2026-10-26）**。
 3. `grader.*` 与 `calendar.create_event` 归 `projects`（只由 ai-grader / proactive-scan 产出）。
 4. 工作域：`sales`→`inbound_sales`、`tender`→`tender`、`delivery`→`projects`、`general`→`ops_knowledge`。
 5. `service`、`content` 没有既有只读读函数，A-1 的 KPI 标"未接入"；A-2 决定是否把路由里的内联查询原样抽成读函数。
