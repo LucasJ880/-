@@ -52,8 +52,21 @@
   - 偏好逐条校验（守卫、数字字符、数字词、商务条款用语），违规忽略并按组织 + 指纹记一次审计；禁用词只替换模板句子，保护行与嵌着的专名 / 链接不动；替换后多出守卫违规则本封不替换并按键名记审计。
   - **GATE 注意项**：没有设置界面（经 `PUT /api/revenue/policy`）；只接首封草稿，跟进草稿不读偏好；数字词宁可多拦；"需内部确认"段整行不替换。
 - **全部 FDE change（A-1..A-4、B-1..B-5）都已 `[G]`**。剩余：A-5 / B-6 决策项；合并后依次归档（B-1 必须先于 B-2）；staging 验证见各报告第 5 节。
-- 后续可做（未开 change）：跟进草稿接入偏好；中文草稿起订量"每color"（已列待办）；A-2 时间线动作中文标签与来源；清理未引用的 `src/components/dashboard/**`（A-3 合并后）。
-- 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
+- **决策已到（用户，2026-10-26 第二轮）**：
+  - A-3 的"旧首页主动扫描停止"→ **另开 change**（`org-cockpit-proactive-notify`），让既有定时任务为管理层同步提醒，不新增 cron；
+  - **A-5、B-6 开始**（A-5 按 D-1 只做模板版；B-6 先做只读就绪度指标，不启动 V2 本身）；
+  - **盯 PR**：#244–#252 已订阅活动事件，安全网 check-in 已排（50 分钟后，之后约 4 小时一次）；
+  - 合并后再做归档（B-1 先于 B-2）；
+  - 改进项按推荐顺序做。
+- **长任务队列**（每项一个 change、一个分支、一个 PR，按顺序叠加；每项都走 propose → apply → 测试 → verify → 交叉审查 → 报告 → PR → 本文件）：
+  1. **C-2 `fde-preferences-in-followup`**（进行中，分支 `claude/fde-preferences-in-followup`，叠在 B-3 上）：无回复跟进草稿也读 `policy.fde` 偏好；
+  2. **A-3b `org-cockpit-proactive-notify`**；
+  3. **A-5 `org-cockpit-daily-digest`**（模板版，零 LLM）；
+  4. **B-6 `fde-v2-readiness`**（只读就绪度）；
+  5. **`org-cockpit-timeline-labels`**（A-2 时间线常见动作中文标签与来源）。
+- **其它会话在做的（不要重复）**：
+  - "每color"：会话 "Fix 每color MOQ wording" 已在分支 `claude/trusting-rubin-uqc5k9`（基于 `main`，change `fix-zh-moq-per-unit`）改好、测试绿，等用户同意开 PR。**与 B-3 金样本的关系**：B-3 的 `draft-golden-pre-b3.json` 里 `zh-website-configured-facts` 一例记的是旧文案"每color"，两者谁后合并，谁按 `draft-golden-cases.ts` 头注释的命令重生成金样本并在 PR 里说明。
+  - 清理未引用的 `src/components/dashboard/**`：会话 "Remove unused old homepage dashboard components" 在等 A-3 合并。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
 
