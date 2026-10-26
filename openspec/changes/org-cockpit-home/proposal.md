@@ -18,7 +18,8 @@
     - 底部 company.log 时间线。
   - 加载、无组织、需选择组织、无权限、登录过期、出错、无数据各有明确的空态 / 错误态，不报错白屏；时间线出错可单独重试，"加载更多"失败保留已加载条目并可重试。
 - 新增 `src/lib/cockpit/presentation.ts`：健康度标签与色调、KPI 数值格式化（计数 / 比率 / 百分比字符串 / 分钟 / 得分）、窗口口径文案、相对时间、时间线操作者文案等纯函数。
-- 新增测试：`src/lib/cockpit/__tests__/presentation.test.ts`（纯函数）与 `src/components/cockpit/__tests__/org-cockpit-view.test.tsx`（服务端静态渲染 + 源码静态断言），注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+- 新增 `src/lib/cockpit/home-state.ts`：取数状态的纯 reducer（过期响应丢弃、"加载更多"与刷新交错、按 id 去重）。
+- 新增测试：`src/lib/cockpit/__tests__/presentation.test.ts`（纯函数）、`src/lib/cockpit/__tests__/home-state.test.ts`（状态机交错顺序）与 `src/components/cockpit/__tests__/org-cockpit-view.test.tsx`（服务端静态渲染 + 源码静态断言），注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
 - 视觉核对：用 A-2 接口形状的夹具数据离线渲染，配合项目自己的 Tailwind 主题编译出样式，用 Playwright 截桌面 / iPad / 手机三种宽度，截图随报告附上（不入库）。
 - 写 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md` 并更新状态列。
 
@@ -40,8 +41,8 @@
 ## Impact
 
 - 改动：`src/app/(main)/page.tsx`（只换渲染的组件，重定向逻辑不变）。
-- 新文件：`src/components/cockpit/{org-cockpit-home,org-cockpit-view}.tsx`、`src/lib/cockpit/presentation.ts`、两个测试、`docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。
-- `scripts/test-all.sh` / `scripts/test-ci-unit.sh`：各追加 2 条。
+- 新文件：`src/components/cockpit/{org-cockpit-home,org-cockpit-view}.tsx`、`src/lib/cockpit/{presentation,home-state}.ts`、三个测试、`docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。
+- `scripts/test-all.sh` / `scripts/test-ci-unit.sh`：各追加 3 条。
 - 行为变化：管理层打开 `/` 看到岗位视图而不是旧仪表盘；非管理层的重定向不变；其余页面与 API 的代码零改动。间接变化：首页不再触发 `POST /api/proactive/scan`，未开自动化偏好的管理层不再收到主动提醒通知（偏差 5，GATE 决策项）。
 - 不新增顶层导航项，不改侧栏。
 

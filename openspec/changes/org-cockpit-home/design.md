@@ -30,14 +30,15 @@
 
 ### D2 取数：首屏两个并发请求，翻页按需
 - **选择**：挂载时两个接口并发（`Promise.all([loadPosts(), loadTimeline()])`），每个接口的请求、状态码、JSON 解析各自兜底，谁先到谁先渲染，一个失败不影响另一个；"加载更多"用 `?cursor=<nextCursor>` 追加；"刷新"重取两者；时间线出错时可只重试时间线。
-- **错误映射**（纯函数 `errorKindFrom(status, body)`，在 `presentation.ts`）：401 → `session_expired`（给"重新登录"链接；`apiFetch` 只在响应带 session 标记时自动跳登录）；403 + `needsSelection` → `org_selection`；403 + `error === "无组织"` → `no_org`；其他 403 → `forbidden`（非管理层）；其他非 2xx、网络错误或响应不是 JSON → `server`（可重试）。
-- **过期响应**：岗位总览与时间线各有一个代数计数器（`useRef`），每次重新请求加一；响应回来时代数已变就丢弃。这样"刷新"之后，还在路上的"加载更多"不会把旧游标的条目拼到新列表上。"加载更多"失败保留已加载条目，按钮变成"加载失败，点此重试"。
-- **页面时钟**：相对时间以服务端 `generatedAt` 为基准，加上收到响应后流逝的时间（`serverNow`），避免客户端时钟偏差把过去的事显示成"x 分钟后"；每 60 秒本地走一次，"更新于 x 分钟前"会随时间变旧。不重新请求接口。
+- **错误映射**（纯函数 `errorKindFrom(status, body)`，在 `presentation.ts`）：401 → `session_expired`（给"重新登录"链接；`apiFetch` 只在响应带 session 标记时自动跳登录）；403 + `needsSelection` → `org_selection`；403 + `error === "无组织"` → `no_org`；403 + `error === "账号已停用"`（`withAuth`）→ `account_disabled`；其他 403 → `forbidden`（非管理层）；其他非 2xx、网络错误、30 秒超时或响应不是 JSON → `server`（可重试）。两处文案做成常量，测试对照 `workforceOrgFailureHttp` 与 `guards.ts` 核对。
+- **错误范围**：鉴权类错误（两个接口同一套鉴权）收起整页；岗位总览的 `server` 错误只占岗位区，时间线照常显示；时间线的鉴权类错误只显示原因、不给重试。"重试"只重载出错的那个接口。
+- **状态机**（纯 reducer，`src/lib/cockpit/home-state.ts`，表驱动测试覆盖交错顺序）：岗位总览与时间线各存"最近一次请求编号"，编号不等的响应丢弃（首屏慢于刷新时不会覆盖）。"加载更多"的响应只在列表仍停在发请求那一页（`nextCursor` 相同且仍在加载中）时拼接，并按 `id` 去重；期间刷新或单独重试替换了列表，旧游标结果直接丢弃——不会把旧第 2 页拼到新第 1 页后面。"加载更多"失败保留已加载条目，按钮变成"加载失败，点此重试"。"刷新中"只在最近一次刷新完成时结束。
+- **页面时钟**：相对时间以服务端 `generatedAt` 为基准（岗位总览未到时先用时间线响应的 `window.to`），加上收到响应后流逝的时间（`serverNow`），避免客户端时钟偏差把过去的事显示成"x 分钟后"；每 60 秒本地走一次，"更新于 x 分钟前"会随时间变旧。不重新请求接口。
 - **否决 A：服务端组件里直接调读模型** —— 首页服务端组件解析组织用的是 `resolvePreferredOrgId`（会写库），与 A-2 接口的只读组织解析口径不同，可能出现"首页显示 A 组织、点进去是 B 组织"；统一走接口保证口径一致。
 - **否决 B：时间线也首屏拉多页** —— 违反"首屏 ≤ 2 个请求"。
 
 ### D3 展示规则放 `src/lib/cockpit/presentation.ts`
-- **选择**：健康度 → `{label, tone}`（`failed` 失败 / `quota_hit` 配额已满 → danger；`late` 迟到 / `never_ran` 未运行过 → warning；`on_time` 正常 → success；`not_configured` 未配置 / `n/a` 按需 → neutral）；KPI 格式化（count 千分位、rate ×100 取整加 %、percentage_string 原值加 %、minutes 转"x 小时 y 分"、score 原值、null → "—"）；窗口口径（近 N 天 / 本月至今 / 当前 / 全部）；相对时间；操作者（system → 系统、ai → AI、用户 → actorName 或"成员"）；等你 N 件计数文案（截断加 +）。纯函数，测试注册受 `qa/test-registry` 约束。
+- **选择**：健康度 → `{label, tone}`（`failed` 失败 / `quota_hit` 配额已满 → danger；`late` 迟到 / `never_ran` 未运行过 → warning；`on_time` 正常 → success；`not_configured` 未配置 / `n/a` 按需 → neutral）；KPI 格式化（count 千分位、rate ×100 保留一位小数向下取（0.9996 → 99.9%，不会把未满显示成 100%）、percentage_string 原值加 %、minutes 转"x 小时 y 分"、score 取整、null → "—"）；窗口口径（近 N 天 / 本月至今 / 当前 / 全部）；相对时间；操作者（system → 系统、ai → AI、用户 → actorName 或"成员"）；等你 N 件计数文案（截断加 +）。纯函数，测试注册受 `qa/test-registry` 约束。
 - **否决：写在组件文件里** —— 组件测试只能间接覆盖分支，且 `src/components/**` 不在测试注册校验范围内。
 
 ### D4 布局与样式按 DESIGN.md

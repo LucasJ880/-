@@ -486,8 +486,9 @@ run_test "组织驾驶舱 调度与健康度（A-2）" "npx tsx src/lib/cockpit/
 run_test "组织驾驶舱 等你 N 件（A-2）" "npx tsx src/lib/cockpit/__tests__/waiting.test.ts"
 run_test "组织驾驶舱 company.log 时间线（A-2）" "npx tsx src/lib/cockpit/__tests__/timeline.test.ts"
 run_test "组织驾驶舱 读模型与 API（A-2）" "npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts"
-# 组织驾驶舱 A-3（openspec change org-cockpit-home）：首页展示规则与岗位视图渲染——纯逻辑 / 服务端静态渲染，无 DB
+# 组织驾驶舱 A-3（openspec change org-cockpit-home）：首页展示规则、取数状态机与岗位视图渲染——纯逻辑 / 服务端静态渲染，无 DB
 run_test "组织驾驶舱 首页展示规则（A-3）" "npx tsx src/lib/cockpit/__tests__/presentation.test.ts"
+run_test "组织驾驶舱 首页取数状态机（A-3）" "npx tsx src/lib/cockpit/__tests__/home-state.test.ts"
 run_test "组织驾驶舱 岗位视图渲染（A-3）" "npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败

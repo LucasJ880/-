@@ -2,8 +2,13 @@
  * A-3 首页展示规则（openspec change org-cockpit-home，spec cockpit/home-view）
  * 运行：npx tsx src/lib/cockpit/__tests__/presentation.test.ts
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { workforceOrgFailureHttp } from "@/lib/workforce-runtime/read-model/api-org";
 import {
+  ACCOUNT_DISABLED_ERROR,
   HEALTH_PRESENTATION,
+  NO_ORG_ERROR,
   KPI_STATUS_LABELS,
   abnormalAutomations,
   actorLabel,
@@ -98,7 +103,14 @@ console.log("页面时钟");
 console.log("错误类型");
 ok(errorKindFrom(401, null) === "session_expired", "401 → 登录已过期");
 ok(errorKindFrom(403, { error: "请先选择工作组织", needsSelection: true }) === "org_selection", "403 needsSelection → 需选择组织");
-ok(errorKindFrom(403, { error: "无组织" }) === "no_org", "403 无组织 → 无组织");
+ok(errorKindFrom(403, workforceOrgFailureHttp("NO_ORG").body) === "no_org", "403 无组织（workforce 组织解析的真实响应体）→ 无组织");
+ok(errorKindFrom(403, workforceOrgFailureHttp("ORG_SELECTION_REQUIRED").body) === "org_selection", "403 需选择组织（真实响应体）→ 需选择组织");
+ok(workforceOrgFailureHttp("NO_ORG").body.error === NO_ORG_ERROR, "无组织文案与 workforce 组织解析一致");
+ok(
+  readFileSync(join(process.cwd(), "src/lib/auth/guards.ts"), "utf8").includes(`{ error: "${ACCOUNT_DISABLED_ERROR}" }, { status: 403 }`),
+  "停用账号文案与 withAuth 一致",
+);
+ok(errorKindFrom(403, { error: ACCOUNT_DISABLED_ERROR }) === "account_disabled", "403 账号已停用 → 账号停用");
 ok(errorKindFrom(403, { error: "仅管理层可查看岗位视图" }) === "forbidden" && errorKindFrom(403, null) === "forbidden", "其余 403 → 无权限");
 ok(errorKindFrom(500, { error: "x" }) === "server" && errorKindFrom(400, null) === "server" && errorKindFrom(0, null) === "server", "其余 → 服务端错误");
 
@@ -107,6 +119,7 @@ ok(formatCount(1234567) === "1,234,567" && formatCount(0) === "0" && formatCount
 ok(actorLabel("system", null) === "系统" && actorLabel("ai", null) === "AI", "system → 系统，ai → AI");
 ok(actorLabel("u1", "Lucas") === "Lucas" && actorLabel("u1", null) === "成员" && actorLabel("u1", "  ") === "成员", "用户 → 名字，无名字 → 成员");
 ok(waitingCountLabel(5, false) === "5" && waitingCountLabel(100, true) === "100+", "截断时加 +");
+ok(waitingCountLabel(1200, false) === "1,200" && waitingCountLabel(1200, true) === "1,200+", "计数千分位");
 ok(postName("tender") === "投标" && postName(null) === "未归属" && postName("ceo") === "ceo", "岗位名查找");
 ok(isPostKey("content") && !isPostKey("ceo"), "岗位键判定");
 

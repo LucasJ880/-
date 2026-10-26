@@ -23,6 +23,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { hidesWholePage, type PostsState, type TimelineState } from "@/lib/cockpit/home-state";
 import type { PostCardView, PostsCockpitResponse } from "@/lib/cockpit/posts-read-model";
 import {
   KPI_STATUS_LABELS,
@@ -37,20 +38,9 @@ import {
   waitingCountLabel,
   type CockpitLoadError,
 } from "@/lib/cockpit/presentation";
-import type { TimelineEntry } from "@/lib/cockpit/timeline";
 import { cn } from "@/lib/utils";
 
-export type { CockpitLoadError };
-
-export type PostsState =
-  | { status: "loading" }
-  | { status: "error"; error: CockpitLoadError }
-  | { status: "ready"; data: PostsCockpitResponse };
-
-export type TimelineState =
-  | { status: "loading" }
-  | { status: "error"; error: CockpitLoadError }
-  | { status: "ready"; items: TimelineEntry[]; nextCursor: string | null; loadingMore?: boolean; loadMoreFailed?: boolean };
+export type { CockpitLoadError, PostsState, TimelineState };
 
 export interface OrgCockpitViewProps {
   now: Date;
@@ -58,7 +48,7 @@ export interface OrgCockpitViewProps {
   timeline: TimelineState;
   refreshing?: boolean;
   onRefresh?: () => void;
-  /** 岗位总览失败时重试（整页重新加载） */
+  /** 只重试岗位总览，不影响已加载的时间线 */
   onRetry?: () => void;
   /** 只重试时间线，不影响已加载的岗位卡片 */
   onRetryTimeline?: () => void;
@@ -109,12 +99,18 @@ export function OrgCockpitView({
         }
       />
 
-      {posts.status === "error" ? (
+      {posts.status === "error" && hidesWholePage(posts.error) ? (
         <div className="mt-6">
           <CockpitErrorState error={posts.error} onRetry={onRetry} />
         </div>
       ) : (
         <>
+          {posts.status === "error" ? (
+            <div className="mt-6">
+              <CockpitErrorState error={posts.error} onRetry={onRetry} />
+            </div>
+          ) : null}
+
           {data?.quotaHit ? (
             <div className="mt-5 flex items-start gap-2 rounded-xl border border-danger/20 bg-danger-bg px-4 py-3 text-sm text-danger" role="status">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -122,17 +118,21 @@ export function OrgCockpitView({
             </div>
           ) : null}
 
-          <div className="mt-5">{data ? <WaitingBanner data={data} now={now} /> : <BannerSkeleton />}</div>
+          {posts.status !== "error" ? (
+            <>
+              <div className="mt-5">{data ? <WaitingBanner data={data} now={now} /> : <BannerSkeleton />}</div>
 
-          {/* 列数按内容区宽度（container query）而不是视口：桌面侧栏 240px 会吃掉一大块宽度 */}
-          <section aria-labelledby="cockpit-posts-heading" aria-busy={data ? undefined : true} className="@container mt-5">
-            <h2 id="cockpit-posts-heading" className="sr-only">
-              岗位
-            </h2>
-            <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @4xl:grid-cols-[repeat(3,minmax(0,1fr))]">
-              {data ? data.posts.map((post) => <PostCard key={post.key} post={post} now={now} />) : <CardsSkeleton />}
-            </div>
-          </section>
+              {/* 列数按内容区宽度（container query）而不是视口：桌面侧栏 240px 会吃掉一大块宽度 */}
+              <section aria-labelledby="cockpit-posts-heading" aria-busy={data ? undefined : true} className="@container mt-5">
+                <h2 id="cockpit-posts-heading" className="sr-only">
+                  岗位
+                </h2>
+                <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @4xl:grid-cols-[repeat(3,minmax(0,1fr))]">
+                  {data ? data.posts.map((post) => <PostCard key={post.key} post={post} now={now} />) : <CardsSkeleton />}
+                </div>
+              </section>
+            </>
+          ) : null}
 
           <section aria-labelledby="cockpit-log-heading" aria-busy={timeline.status === "loading" ? true : undefined} className="mt-8">
             <div className="flex items-baseline justify-between gap-3">
@@ -298,8 +298,8 @@ export function CompanyLog({
   if (timeline.status === "error") {
     return (
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm text-muted">
-        <span>时间线加载失败</span>
-        {onRetry ? (
+        <span>{timeline.error === "server" ? "时间线加载失败" : `时间线：${ERROR_COPY[timeline.error].title}`}</span>
+        {timeline.error === "server" && onRetry ? (
           <button type="button" onClick={onRetry} className="min-h-[44px] rounded-lg border border-border px-3 text-xs hover:bg-muted/5">
             重试
           </button>
@@ -374,6 +374,7 @@ const ERROR_COPY: Record<CockpitLoadError, { title: string; description: string;
   },
   no_org: { title: "你还没有加入任何组织", description: "岗位视图按组织展示；请联系组织负责人邀请你加入。", icon: UserX },
   forbidden: { title: "暂无权限查看岗位视图", description: "岗位视图只对组织管理员开放；如需开通请联系组织负责人。", icon: ShieldAlert },
+  account_disabled: { title: "账号已停用", description: "你的账号已被停用；如有疑问请联系组织负责人。", icon: UserX },
   session_expired: { title: "登录已过期", description: "请重新登录后再查看岗位视图。", icon: LogIn },
   server: { title: "岗位视图加载失败", description: "请稍后重试；若持续失败，请把时间点告诉管理员排查。", icon: AlertTriangle },
 };

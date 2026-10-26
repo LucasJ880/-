@@ -300,6 +300,7 @@ npx tsx src/lib/cockpit/__tests__/waiting.test.ts
 npx tsx src/lib/cockpit/__tests__/timeline.test.ts
 npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts
 npx tsx src/lib/cockpit/__tests__/presentation.test.ts
+npx tsx src/lib/cockpit/__tests__/home-state.test.ts
 npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）

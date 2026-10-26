@@ -16,6 +16,7 @@
 
 - [x] 4.1 离线渲染夹具 + 用 `@tailwindcss/postcss` 编译项目主题样式 + Playwright 截图（夹具外套与 `AppShell` 一致的 240px 侧栏与内容区内边距），宽度 1440 / 1280 / 1024 / 820 / 390。verify：截图生成于 scratch 目录，人工核对后在报告中描述层级与响应式表现（无横向滚动；卡片列数按内容区宽度 3 / 3 / 2 / 1 / 1）。
 - [x] 4.2 处理独立交叉审查的应修项：容器两接口各自兜底与过期响应丢弃、时间线单独重试与"加载更多"失败可重试、`errorKindFrom`（401 / 无组织）与 `serverNow` 纯函数、动作数拆分与千分位、container query 列数、可访问性与样式细节；同步 proposal（偏差 2、新增偏差 5 GATE 决策项）、design（D2 / D4）、spec。verify：展示规则测试与渲染测试退出 0；`npx eslint src/components/cockpit src/lib/cockpit/presentation.ts` 无报错；`openspec validate org-cockpit-home --strict` 通过。
+- [x] 4.3 处理第二轮交叉审查：取数状态转移抽成纯 reducer `src/lib/cockpit/home-state.ts`（刷新与加载更多交错、旧编号响应丢弃、按 id 去重）+ `src/lib/cockpit/__tests__/home-state.test.ts`，同一 task 注册进两个测试脚本；岗位总览服务端错误不再收起时间线、重试只重载出错的接口；"刷新中"只在最近一次刷新完成时结束；请求 30 秒超时；停用账号错误态；时间线鉴权类错误不给重试；横幅计数千分位；design D3 比率口径。verify：`npx tsx src/lib/cockpit/__tests__/home-state.test.ts` 退出 0 且含"刷新后到达的旧游标结果被丢弃"；`bash scripts/check-test-registry.sh` 只列出 main 上既有的 2 个 trade 测试。
 
 ## 5. 门禁
 

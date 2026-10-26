@@ -112,15 +112,23 @@ export function serverNow(generatedAt: string, receivedAtMs: number, nowMs: numb
   return new Date(base + Math.max(0, nowMs - receivedAtMs));
 }
 
-export type CockpitLoadError = "org_selection" | "no_org" | "forbidden" | "session_expired" | "server";
+export type CockpitLoadError = "org_selection" | "no_org" | "forbidden" | "account_disabled" | "session_expired" | "server";
 
-/** 接口失败 → 页面错误类型：401 登录过期；403 按响应体区分需选择组织 / 无组织 / 无权限；其余为服务端错误 */
+/**
+ * 403 响应体里的错误文案（来源：workforce 组织解析 `workforceOrgFailureHttp("NO_ORG")`、
+ * `withAuth` 的停用账号分支 `src/lib/auth/guards.ts`）；测试里对照原函数 / 源码核对，防止两边漂移。
+ */
+export const NO_ORG_ERROR = "无组织";
+export const ACCOUNT_DISABLED_ERROR = "账号已停用";
+
+/** 接口失败 → 页面错误类型：401 登录过期；403 按响应体区分需选择组织 / 无组织 / 账号停用 / 无权限；其余为服务端错误 */
 export function errorKindFrom(status: number, body: unknown): CockpitLoadError {
   if (status === 401) return "session_expired";
   if (status !== 403) return "server";
   const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   if (b.needsSelection === true) return "org_selection";
-  if (b.error === "无组织") return "no_org";
+  if (b.error === NO_ORG_ERROR) return "no_org";
+  if (b.error === ACCOUNT_DISABLED_ERROR) return "account_disabled";
   return "forbidden";
 }
 
@@ -130,9 +138,9 @@ export function actorLabel(actor: string, actorName: string | null): string {
   return actorName?.trim() || "成员";
 }
 
-/** 来源被截断时显示"N+" */
+/** 千分位；来源被截断时显示"N+" */
 export function waitingCountLabel(total: number, truncated: boolean): string {
-  return truncated ? `${total}+` : String(total);
+  return truncated ? `${formatCount(total)}+` : formatCount(total);
 }
 
 export function postName(key: string | null): string {

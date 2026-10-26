@@ -55,26 +55,30 @@
 - **THEN** 页面显示今日 AI 运行配额已满的提示
 
 ### Requirement: company.log 时间线
-页面底部 SHALL 按接口顺序显示时间线条目（时间、岗位、操作者——"系统" / "AI" / 用户名、摘要），有 `href` 的条目 SHALL 可点击；有 `nextCursor` 时 SHALL 显示"加载更多"；"加载更多"失败时 SHALL 保留已加载条目并提供重试；刷新后 SHALL 丢弃刷新前发出的"加载更多"响应；无条目时 SHALL 显示"最近 7 天暂无记录"。相对时间 SHALL 以接口的 `generatedAt` 为基准计算。
+页面底部 SHALL 按接口顺序显示时间线条目（时间、岗位、操作者——"系统" / "AI" / 用户名、摘要），有 `href` 的条目 SHALL 可点击；有 `nextCursor` 时 SHALL 显示"加载更多"；"加载更多"失败时 SHALL 保留已加载条目并提供重试；列表被刷新或重试替换后，替换前发出的"加载更多"响应 SHALL 被丢弃；无条目时 SHALL 显示"最近 7 天暂无记录"。相对时间 SHALL 以接口的 `generatedAt` 为基准计算。
 
 #### Scenario: 时间线条目
 - **WHEN** 接口返回一条 `actor = "ai"`、`post = "tender"`、`href = "/workforce/run-1"` 的条目
 - **THEN** 显示"AI"、"投标"，并链接到 `/workforce/run-1`
+
+#### Scenario: 刷新与加载更多交错
+- **WHEN** 刷新请求在途时用户点击"加载更多"，刷新响应先到、旧游标的"加载更多"响应后到
+- **THEN** 列表只包含刷新后的第一页，旧游标的条目不被拼接
 
 #### Scenario: 加载更多失败
 - **WHEN** 时间线已显示若干条目，点击"加载更多"后接口失败
 - **THEN** 已显示的条目保留，按钮变为"加载失败，点此重试"
 
 ### Requirement: 空态与错误态
-接口返回 403 且 `needsSelection` 时 SHALL 显示"请先选择工作组织"；返回 403 且 `error` 为"无组织"时 SHALL 显示无组织提示；其他 403（非管理层）SHALL 显示无权限提示；返回 401 时 SHALL 显示"登录已过期"与重新登录链接；其他失败（含响应不是 JSON）时 SHALL 显示可重试的错误态；岗位总览与时间线 SHALL 各自独立显示错误，时间线 SHALL 可单独重试；加载中 SHALL 显示骨架。任何状态下页面 SHALL NOT 白屏或抛出未捕获异常。
+接口返回 403 且 `needsSelection` 时 SHALL 显示"请先选择工作组织"；返回 403 且 `error` 为"无组织"时 SHALL 显示无组织提示；返回 403 且 `error` 为"账号已停用"时 SHALL 显示账号停用提示；其他 403（非管理层）SHALL 显示无权限提示；返回 401 时 SHALL 显示"登录已过期"与重新登录链接；以上鉴权类错误 SHALL 收起整页且不提供重试。其他失败（含响应不是 JSON、请求超时）时 SHALL 显示可重试的错误态；岗位总览的这类错误 SHALL NOT 影响时间线显示；岗位总览与时间线 SHALL 各自重试；加载中 SHALL 显示骨架。任何状态下页面 SHALL NOT 白屏或抛出未捕获异常。
 
 #### Scenario: 需要选择组织
 - **WHEN** 岗位总览接口返回 403 `{needsSelection: true}`
 - **THEN** 显示"请先选择工作组织"，不显示卡片
 
 #### Scenario: 服务端错误
-- **WHEN** 岗位总览接口返回 500
-- **THEN** 显示错误态与"重试"按钮
+- **WHEN** 岗位总览接口返回 500，时间线接口正常
+- **THEN** 岗位区显示错误态与"重试"按钮，时间线照常显示
 
 #### Scenario: 登录过期
 - **WHEN** 接口返回 401
