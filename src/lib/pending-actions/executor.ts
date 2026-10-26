@@ -47,7 +47,7 @@ import {
 import { execSalesSendInquiryReply } from "./exec-sales-inquiry-reply";
 import type { SalesSendInquiryReplyPayload } from "./types";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
-import { approverRoleDenial } from "./approver-roles";
+import { approverRoleDenial, requiresPlatformApproverRole } from "./approver-roles";
 import { createNotification } from "@/lib/notifications/create";
 import { pushMessage } from "@/lib/messaging/gateway";
 
@@ -183,10 +183,14 @@ export async function executePendingAction(
     return { ok: false, error: "无权操作该草稿" };
   }
 
-  // 按类型的批准角色门（B-2 商务事实提案：admin / boss）。在认领之前判：无权时审批保持待审批，不被消耗
-  const roleDenial = approverRoleDenial(action.type, ctx.role);
-  if (roleDenial) {
-    return { ok: false, error: roleDenial };
+  // 按类型的批准角色门（B-2 商务事实提案：admin / boss）。在认领之前判：无权时审批保持待审批，不被消耗。
+  // 按 userId 读平台角色：审批中心传进来的 ctx.role 是组织成员角色（org_owner …），不能用来判
+  if (requiresPlatformApproverRole(action.type)) {
+    const approver = await db.user.findUnique({ where: { id: ctx.userId }, select: { role: true } });
+    const roleDenial = approverRoleDenial(action.type, approver?.role);
+    if (roleDenial) {
+      return { ok: false, error: roleDenial };
+    }
   }
 
   // Phase 3B-A：列上的 orgId 与调用方 activeOrg 必须一致（保留 metadata 二次校验）

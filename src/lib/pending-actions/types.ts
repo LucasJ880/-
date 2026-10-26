@@ -260,6 +260,9 @@ export type PendingActionPayload =
 // ── 商务事实提案（revenue_spine.propose_commercial_fact，B-2） ────────
 export interface RevenueSpineProposeCommercialFactPayload {
   field: "moq" | "sampleLeadTime" | "productionLeadTime" | "loadingPorts" | "signature" | "catalogUrl";
+  /** 回复里抽到的原值（没写的子字段为 null）；执行时在最新商务事实上重新合并 */
+  extractedValue?: unknown;
+  /** 起卡时按当前值合并出的提议值（卡片展示用） */
   proposedValue: unknown;
   currentValue: unknown;
   /** 规范键：比较与驳回去重用（fact-extract.ts factValueKey） */

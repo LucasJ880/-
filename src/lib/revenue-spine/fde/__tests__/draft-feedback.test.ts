@@ -12,6 +12,7 @@ import {
   FDE_FEEDBACK_SKILL,
   INQUIRY_REPLY_TYPE,
   MANUAL_REPLY_REASON,
+  isFactProposalSource,
   parseSupersessionEvidence,
   buildDraftSnapshot,
   existingFeedbackWhere,
@@ -352,6 +353,15 @@ async function main() {
     const outreach = deps({ action: manualRow, manual: { content: MANUAL_BODY, source: "trade_outreach.send" } });
     const r2 = await recordInquiryReplyFeedback("pa-1", outreach.d);
     ok(r2.status === "recorded" && outreach.after.length === 0, "开发信作废：照样记事件，但不从模板里抽商务事实");
+
+    const note = deps({ action: manualRow, manual: { content: MANUAL_BODY, source: "trade_prospect.manual_outbound" } });
+    const rNote = await recordInquiryReplyFeedback("pa-1", note.d);
+    ok(rNote.status === "recorded" && note.after.length === 0, "线索页手工留痕作废：照样记事件，但不抽商务事实（留痕里常是买家的数字）");
+    ok(isFactProposalSource("trade_inbox.reply") && isFactProposalSource("trade_inbox.mark_sent") && isFactProposalSource(null) && !isFactProposalSource("trade_outreach.send") && !isFactProposalSource("trade_prospect.manual_outbound"), "提案来源判定：收件箱回复 / 标记已发算，开发信与手工留痕不算");
+
+    const withPhone = deps({ action: manualRow, loadBuyer: async () => ({ ...BUYER, phone: "+1 416 555 0199", testInquiry: false }) });
+    await recordInquiryReplyFeedback("pa-1", withPhone.d);
+    ok(withPhone.after[0]?.buyer.phone === "+1 416 555 0199" && !JSON.stringify(withPhone.created[0]).includes("555 0199"), "买家电话只交给提案（排除 WhatsApp），不进事件", withPhone.after[0]?.buyer);
 
     const noText = deps({ action: manualRow, manual: null });
     await recordInquiryReplyFeedback("pa-1", noText.d);

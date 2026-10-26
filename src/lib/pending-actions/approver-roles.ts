@@ -4,6 +4,10 @@
  * 通用门 canDecideTeamApproval（超管 / 指定审批人 / 组织所有者 / org_admin / 项目负责人）之外，
  * 少数类型还要求平台角色。必须在 CAS 认领之前判定：认领后才失败会把审批变成 failed，等于替人驳回。
  * 只管批准；驳回仍走既有审批权限（rejectPendingAction）。
+ *
+ * 平台角色必须按 userId 读 User.role：调用方传进执行器的 ctx.role 不统一——
+ * 审批中心（capabilities/approvals/decision.ts）传的是组织成员角色 org_owner / org_admin / org_member，
+ * 助手收件箱传的是平台角色。拿 ctx.role 判会让审批中心里谁都批不了。
  */
 
 import { isAdmin } from "@/lib/rbac/roles";
@@ -18,8 +22,13 @@ export function canApproveCommercialFact(role: string | null | undefined): boole
   return isAdmin(role) || role === "boss";
 }
 
-/** 无权批准时返回给调用方的错误文案；有权或该类型没有额外角色门时返回 null */
-export function approverRoleDenial(type: string, role: string | null | undefined): string | null {
-  if (type === FACT_PROPOSAL_ACTION_TYPE && !canApproveCommercialFact(role)) return FACT_PROPOSAL_DENIED;
+/** 该类型批准时是否要按平台角色（User.role）再判一次 */
+export function requiresPlatformApproverRole(type: string): boolean {
+  return type === FACT_PROPOSAL_ACTION_TYPE;
+}
+
+/** 无权批准时返回给调用方的错误文案；有权或该类型没有额外角色门时返回 null。platformRole = 批准人的 User.role */
+export function approverRoleDenial(type: string, platformRole: string | null | undefined): string | null {
+  if (type === FACT_PROPOSAL_ACTION_TYPE && !canApproveCommercialFact(platformRole)) return FACT_PROPOSAL_DENIED;
   return null;
 }

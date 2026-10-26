@@ -4,10 +4,12 @@
  * 触发：B-1 记录器写完改稿类反馈事件（人工回复作废草稿 replaced_by_manual_reply；将来的 approved_edited）之后。
  * 1. 人工回复先截引用，与草稿快照逐行比较，只看新增的行（事实段 + 签名段）；
  * 2. fact-extract.ts 规则化抽取 6 个 commercialFacts 键，价格类句子整句跳过；
- * 3. 与企业当前值比较：为空或不同才起卡；同字段已有待审批卡 / 24 小时内起过卡 / 同提议值被驳回过都不起；
- * 4. 卡片 revenue_spine.propose_commercial_fact：审批人为组织所有者，只有 admin / boss 能批（执行器认领前判定）；
- * 5. 批准 → 合并进 revenue_spine.business_profile 并发布新版本（与 PUT /api/revenue/policy 同一写入口），
- *    此后 FDE 草稿按 factory-knowledge.ts 的既有口径引用。
+ * 3. 与企业当前值比较（回复里没写的子字段沿用当前值）：为空或不同才起卡；同字段已有待审批卡 / 24 小时内起过卡 /
+ *    同提议值被驳回过 / 提议值过不了商务事实合并规则 / 组织里没有能批的人，都不起；
+ * 4. 卡片 revenue_spine.propose_commercial_fact：审批人优先组织所有者（平台角色须为 admin / boss），否则在职的 boss、admin；
+ *    只有平台角色 admin / boss 能批（执行器认领前按 User.role 判定）；
+ * 5. 批准 → 在批准时的最新商务事实上重新合并抽取值，写进 revenue_spine.business_profile 并发布新版本
+ *    （与 PUT /api/revenue/policy 同一写入口），此后 FDE 草稿按 factory-knowledge.ts 的既有口径引用。
  *
  * 起卡判定与执行器合并都是纯函数；起卡器与执行器依赖可注入。不调用 LLM，不抽价格 / 折扣 / 付款条款。
  */
@@ -15,6 +17,7 @@
 import { FACT_PROPOSAL_ACTION_TYPE, canApproveCommercialFact, FACT_PROPOSAL_DENIED } from "@/lib/pending-actions/approver-roles";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import {
+  DEFAULT_PRODUCTION_STARTS_FROM,
   FACT_FIELDS,
   FACT_FIELD_LABELS,
   canonicalPort,
@@ -26,7 +29,7 @@ import {
   type FactField,
 } from "./fact-extract";
 import { addedLineIndexes, maskBuyerPii, sectionedLines, type BuyerPiiTerms } from "./fde/draft-diff";
-import { mergeBusinessProfile, type BusinessProfile, type CommercialFacts, type RevenueSpinePolicy } from "./policy";
+import { mergeBusinessProfile, mergeCommercialFacts, type BusinessProfile, type CommercialFacts, type RevenueSpinePolicy } from "./policy";
 
 export const FACT_PROPOSAL_TYPE = FACT_PROPOSAL_ACTION_TYPE;
 export const FACT_PROPOSAL_TTL_HOURS = 168;
@@ -72,30 +75,68 @@ export function extractFromReply(input: { snapshotBody: string | null; sentRaw: 
 
 export interface PlannedProposal {
   field: FactField;
+  /** 回复里抽到的原值（没写的子字段为 null）；批准时在最新商务事实上重新合并 */
+  extractedValue: unknown;
+  /** 起卡时按当前值合并出的提议值（卡片展示用） */
   proposedValue: unknown;
   currentValue: unknown;
   valueKey: string;
   evidence: string;
 }
 
-export type ProposalSkipReason = "same" | "pending" | "cooldown" | "rejected";
+export type ProposalSkipReason = "same" | "pending" | "cooldown" | "rejected" | "invalid" | "no_approver";
 
 const isEmpty = (v: unknown) => v === null || v === undefined || (Array.isArray(v) && v.length === 0);
 
-/** 列表字段（装运港）：现有 ∪ 新增；签名：按子字段合并到现有签名上 */
+type Rec = Record<string, unknown>;
+const recOf = (v: unknown): Rec | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
+
+/**
+ * 抽取值 → 提议值（回复里没写的部分沿用企业当前值，不清空、不改成默认）：
+ * - 装运港：现有 ∪ 新增；
+ * - 起订量：没写"按什么计"沿用当前，当前也没有时用合并规则的默认（style）；
+ * - 样品时效：现货样、定制样两组各自合并，没写的那组沿用当前；
+ * - 大货周期：没写起算点沿用当前，当前也没有时用默认起算点；
+ * - 落款：只补当前为空的子字段（落款全组织共用、每个销售的 WhatsApp 不同，已配置的不来回改）。
+ */
 export function proposedValueFor(field: FactField, extracted: unknown, current: unknown): unknown {
-  if (field === "loadingPorts") {
-    const have = (current as string[] | null) ?? [];
-    const haveCanon = new Set(have.map((p) => canonicalPort(p) ?? p.trim()));
-    const add = (extracted as string[]).filter((p) => !haveCanon.has(canonicalPort(p) ?? p));
-    return [...have, ...add];
+  const ext = recOf(extracted);
+  const cur = recOf(current);
+  switch (field) {
+    case "loadingPorts": {
+      const have = Array.isArray(current) ? (current as string[]) : [];
+      const haveCanon = new Set(have.map((p) => canonicalPort(p) ?? p.trim()));
+      const add = (extracted as string[]).filter((p) => !haveCanon.has(canonicalPort(p) ?? p));
+      return [...have, ...add];
+    }
+    case "moq":
+      return ext ? { quantity: ext.quantity, unit: ext.unit, per: ext.per ?? cur?.per ?? "style" } : extracted;
+    case "sampleLeadTime": {
+      if (!ext) return extracted;
+      const hasCustom = ext.customDaysMin !== null && ext.customDaysMin !== undefined;
+      return {
+        stockDays: ext.stockDays ?? cur?.stockDays ?? null,
+        customDaysMin: hasCustom ? ext.customDaysMin : (cur?.customDaysMin ?? null),
+        customDaysMax: hasCustom ? (ext.customDaysMax ?? null) : (cur?.customDaysMax ?? null),
+      };
+    }
+    case "productionLeadTime":
+      return ext ? { daysMin: ext.daysMin, daysMax: ext.daysMax, startsFrom: ext.startsFrom ?? cur?.startsFrom ?? DEFAULT_PRODUCTION_STARTS_FROM } : extracted;
+    case "signature": {
+      if (!ext) return extracted;
+      const sub = (k: "title" | "whatsapp" | "website") => cur?.[k] ?? ext[k] ?? null;
+      return { title: sub("title"), whatsapp: sub("whatsapp"), website: sub("website") };
+    }
+    case "catalogUrl":
+      return extracted;
   }
-  if (field === "signature") {
-    const cur = (current as { title: string | null; whatsapp: string | null; website: string | null } | null) ?? null;
-    const ext = extracted as { title: string | null; whatsapp: string | null; website: string | null };
-    return { title: ext.title ?? cur?.title ?? null, whatsapp: ext.whatsapp ?? cur?.whatsapp ?? null, website: ext.website ?? cur?.website ?? null };
-  }
-  return extracted;
+}
+
+/** 提议值能原样通过商务事实合并规则（与批准时执行器写入同一规则）；不能的不起卡，免得批准后才失败 */
+export function proposalAppliesCleanly(current: CommercialFacts, field: FactField, value: unknown): boolean {
+  const merged = mergeCommercialFacts(current, { [field]: value });
+  const got = (merged as unknown as Rec)[field];
+  return !isEmpty(got) && factValueKey(field, got) === factValueKey(field, value);
 }
 
 export function rejectedKey(field: FactField, valueKey: string): string {
@@ -109,6 +150,7 @@ export function planFactProposals(input: {
   recentFields: ReadonlySet<string>;
   rejectedKeys: ReadonlySet<string>;
 }): { proposals: PlannedProposal[]; skipped: Array<{ field: FactField; reason: ProposalSkipReason }> } {
+  // 抽取值原样留在提议里，批准时在最新配置上重新合并
   const proposals: PlannedProposal[] = [];
   const skipped: Array<{ field: FactField; reason: ProposalSkipReason }> = [];
   const seen = new Set<FactField>();
@@ -120,11 +162,20 @@ export function planFactProposals(input: {
     const valueKey = factValueKey(fact.field, proposedValue);
     let reason: ProposalSkipReason | null = null;
     if (!isEmpty(currentValue) && factValueKey(fact.field, currentValue) === valueKey) reason = "same";
+    else if (!proposalAppliesCleanly(input.current, fact.field, proposedValue)) reason = "invalid";
     else if (input.pendingFields.has(fact.field)) reason = "pending";
     else if (input.recentFields.has(fact.field)) reason = "cooldown";
     else if (input.rejectedKeys.has(rejectedKey(fact.field, valueKey))) reason = "rejected";
     if (reason) skipped.push({ field: fact.field, reason });
-    else proposals.push({ field: fact.field, proposedValue, currentValue: isEmpty(currentValue) ? null : currentValue, valueKey, evidence: fact.evidence });
+    else
+      proposals.push({
+        field: fact.field,
+        extractedValue: fact.value,
+        proposedValue,
+        currentValue: isEmpty(currentValue) ? null : currentValue,
+        valueKey,
+        evidence: fact.evidence,
+      });
   }
   return { proposals, skipped };
 }
@@ -133,6 +184,8 @@ export function planFactProposals(input: {
 
 export interface FactProposalPayload {
   field: FactField;
+  /** 旧载荷可能没有；执行器退回用 proposedValue */
+  extractedValue?: unknown;
   proposedValue: unknown;
   currentValue: unknown;
   valueKey: string;
@@ -153,13 +206,14 @@ export function buildFactProposalApproval(
     preview: [
       `${label}：当前 ${factValueLabel(p.field, p.currentValue)} → 提议 ${proposed}`,
       "",
-      "依据（销售人工回复买家时写的原句，已隐去买家信息）：",
+      "依据（发给买家的外发正文原句，已隐去买家信息）：",
       p.evidence,
       "",
-      "批准后写入企业商务事实，此后 FDE 草稿直接引用；驳回后同一提议不再出现。",
+      "批准时以届时的最新配置为准重新合并（回复里没写的部分不改）；批准后写入企业商务事实，此后 FDE 草稿直接引用；驳回后同一提议不再出现。",
     ].join("\n"),
     payload: {
       field: p.field,
+      extractedValue: p.extractedValue,
       proposedValue: p.proposedValue,
       currentValue: p.currentValue,
       valueKey: p.valueKey,
@@ -186,10 +240,8 @@ export function rejectedProposalWhere(orgId: string) {
   return { orgId, type: FACT_PROPOSAL_TYPE, status: "rejected" };
 }
 
-const rec = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
-
 export function proposalFieldOf(payload: unknown): FactField | null {
-  const f = rec(payload)?.field;
+  const f = recOf(payload)?.field;
   return typeof f === "string" && (FACT_FIELDS as readonly string[]).includes(f) ? (f as FactField) : null;
 }
 
@@ -214,7 +266,8 @@ export interface FactProposalDeps {
   pendingFields(orgId: string, now: Date): Promise<string[]>;
   recentFields(orgId: string, since: Date): Promise<string[]>;
   rejectedKeys(orgId: string): Promise<string[]>;
-  ownerUserId(orgId: string): Promise<string | null>;
+  /** 组织所有者与在职成员（含平台角色），用于挑审批人 */
+  approverCandidates(orgId: string): Promise<ApproverCandidate[]>;
   createApproval(input: {
     orgId: string;
     principalUserId: string;
@@ -224,6 +277,27 @@ export interface FactProposalDeps {
     payload: FactProposalPayload;
     idempotencyKey: string;
   }): Promise<{ ok: true; id: string | null } | { ok: false; error: string }>;
+}
+
+export interface ApproverCandidate {
+  userId: string;
+  /** 平台角色 User.role */
+  platformRole: string | null;
+  isOwner: boolean;
+  /** 在职成员（所有者不在成员表里时按在职算） */
+  active: boolean;
+  joinedAt: Date | null;
+}
+
+/**
+ * 挑审批人：所有者（平台角色能批时）→ 在职 boss → 在职 admin，同类按入职先后。
+ * 审批人必须本身能批：所有者平台角色不是 admin / boss 时卡会永远批不了。没有合格的人返回 null（不起卡）。
+ */
+export function pickFactApprover(candidates: readonly ApproverCandidate[]): string | null {
+  const ok = candidates.filter((c) => c.active && canApproveCommercialFact(c.platformRole));
+  const rank = (c: ApproverCandidate) => (c.isOwner ? 0 : c.platformRole === "boss" ? 1 : 2);
+  const sorted = [...ok].sort((a, b) => rank(a) - rank(b) || (a.joinedAt?.getTime() ?? 0) - (b.joinedAt?.getTime() ?? 0));
+  return sorted[0]?.userId ?? null;
 }
 
 export interface ProposeResult {
@@ -237,19 +311,24 @@ export async function proposeCommercialFacts(input: ProposeInput, deps: FactProp
   const facts = extractFromReply({ snapshotBody: input.snapshotBody, sentRaw: input.sentRaw, buyer: input.buyer });
   const out: ProposeResult = { extracted: facts.length, created: [], failed: 0, skipped: [] };
   if (!facts.length) return out;
-  const [current, pending, recent, rejected, owner] = await Promise.all([
+  const [current, pending, recent, rejected, candidates] = await Promise.all([
     deps.loadCurrentFacts(input.orgId),
     deps.pendingFields(input.orgId, input.now),
     deps.recentFields(input.orgId, new Date(input.now.getTime() - FACT_PROPOSAL_COOLDOWN_MS)),
     deps.rejectedKeys(input.orgId),
-    deps.ownerUserId(input.orgId),
+    deps.approverCandidates(input.orgId),
   ]);
   const plan = planFactProposals({ facts, current, pendingFields: new Set(pending), recentFields: new Set(recent), rejectedKeys: new Set(rejected) });
   out.skipped = plan.skipped;
+  const approver = pickFactApprover(candidates);
+  if (!approver) {
+    out.skipped.push(...plan.proposals.map((p) => ({ field: p.field, reason: "no_approver" as const })));
+    return out;
+  }
   for (const p of plan.proposals) {
     const card = buildFactProposalApproval(p, { orgId: input.orgId, opportunityId: input.opportunityId, sourcePendingActionId: input.sourcePendingActionId });
     try {
-      const r = await deps.createApproval({ orgId: input.orgId, principalUserId: input.principalUserId, approverUserId: owner, ...card });
+      const r = await deps.createApproval({ orgId: input.orgId, principalUserId: input.principalUserId, approverUserId: approver, ...card });
       if (r.ok && r.id) out.created.push(r.id);
       else out.failed += 1;
     } catch {
@@ -296,15 +375,34 @@ export function defaultFactProposalDeps(): FactProposalDeps {
       return rows
         .map((r) => {
           const field = proposalFieldOf(r.payload);
-          const key = rec(r.payload)?.valueKey;
+          const key = recOf(r.payload)?.valueKey;
           return field && typeof key === "string" ? rejectedKey(field, key) : null;
         })
         .filter((k): k is string => k !== null);
     },
-    ownerUserId: async (orgId) => {
+    approverCandidates: async (orgId) => {
       const { db } = await import("@/lib/db");
-      const org = await db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true } });
-      return org?.ownerId ?? null;
+      const [org, members] = await Promise.all([
+        db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true, owner: { select: { role: true } } } }),
+        db.organizationMember.findMany({
+          where: { orgId, status: "active", user: { role: { in: ["boss", "admin", "super_admin"] } } },
+          select: { userId: true, joinedAt: true, user: { select: { role: true } } },
+          orderBy: { joinedAt: "asc" },
+          take: 50,
+        }),
+      ]);
+      const out: ApproverCandidate[] = members.map((m) => ({
+        userId: m.userId,
+        platformRole: m.user.role,
+        isOwner: m.userId === org?.ownerId,
+        active: true,
+        joinedAt: m.joinedAt,
+      }));
+      if (org?.ownerId && !out.some((c) => c.isOwner)) {
+        const ownerMember = await db.organizationMember.findUnique({ where: { orgId_userId: { orgId, userId: org.ownerId } }, select: { status: true } });
+        out.push({ userId: org.ownerId, platformRole: org.owner?.role ?? null, isOwner: true, active: !ownerMember || ownerMember.status === "active", joinedAt: null });
+      }
+      return out;
     },
     createApproval: async (input) => {
       const { requestApproval } = await import("@/lib/approval/request");
@@ -341,6 +439,8 @@ export function factAppliedCleanly(merged: BusinessProfile, field: FactField, va
 }
 
 export interface FactExecDeps {
+  /** 批准人的平台角色 User.role（ctx.role 可能是组织成员角色，不能用） */
+  platformRole(userId: string): Promise<string | null>;
   membershipActive(userId: string, orgId: string): Promise<boolean>;
   isSuperAdmin(role: string | null | undefined): boolean;
   loadPolicy(orgId: string): Promise<RevenueSpinePolicy>;
@@ -357,17 +457,25 @@ export async function execProposeCommercialFact(
   const orgId = payload?.metadata?.orgId;
   if (!orgId) return { ok: false, error: "缺少组织信息，拒绝执行" };
   if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
-  // 认领前已判过；这里再判一次（纵深防御）
-  if (!canApproveCommercialFact(ctx.role)) return { ok: false, error: FACT_PROPOSAL_DENIED };
-  if (!deps.isSuperAdmin(ctx.role) && !(await deps.membershipActive(ctx.userId, orgId))) return { ok: false, error: "无权更新该组织的商务事实" };
+  // 认领前已按平台角色判过；这里再判一次（纵深防御），同样按 userId 读平台角色
+  const platformRole = await deps.platformRole(ctx.userId);
+  if (!canApproveCommercialFact(platformRole)) return { ok: false, error: FACT_PROPOSAL_DENIED };
+  if (!deps.isSuperAdmin(platformRole) && !(await deps.membershipActive(ctx.userId, orgId))) return { ok: false, error: "无权更新该组织的商务事实" };
   const field = payload?.field;
   if (!field || !(FACT_FIELDS as readonly string[]).includes(field)) return { ok: false, error: "未知的商务事实字段" };
-  if (isEmpty(payload?.proposedValue)) return { ok: false, error: "缺少提议值" };
+  // 没有抽取原值的旧载荷退回用提议值
+  const extracted = payload?.extractedValue ?? payload?.proposedValue;
+  if (isEmpty(extracted)) return { ok: false, error: "缺少提议值" };
 
+  // 在批准时的最新配置上重新合并：起卡后老板改过的港口 / 落款等不会被起卡时算好的值覆盖
   const policy = await deps.loadPolicy(orgId);
   const before = (policy.businessProfile.commercialFacts as unknown as Record<string, unknown>)[field] ?? null;
-  const merged = applyCommercialFact(policy.businessProfile, field, payload!.proposedValue);
-  if (!factAppliedCleanly(merged, field, payload!.proposedValue)) return { ok: false, error: "提议值不合法，未写入商务事实" };
+  const value = proposedValueFor(field, extracted, before);
+  if (!isEmpty(before) && factValueKey(field, before) === factValueKey(field, value)) {
+    return { ok: true, resultRef: "business_profile:unchanged", message: `${FACT_FIELD_LABELS[field]}已是该值，未发布新版本` };
+  }
+  const merged = applyCommercialFact(policy.businessProfile, field, value);
+  if (!factAppliedCleanly(merged, field, value)) return { ok: false, error: "提议值不合法，未写入商务事实" };
   const { version } = await deps.publishProfile(orgId, merged, ctx.userId);
   await deps.audit({
     userId: ctx.userId,
@@ -376,7 +484,7 @@ export async function execProposeCommercialFact(
     beforeData: { field, valueKey: isEmpty(before) ? null : factValueKey(field, before) },
     afterData: {
       field,
-      valueKey: factValueKey(field, payload!.proposedValue),
+      valueKey: factValueKey(field, value),
       version,
       pendingActionId: actionId,
       sourcePendingActionId: payload?.sourcePendingActionId ?? null,
@@ -388,6 +496,10 @@ export async function execProposeCommercialFact(
 
 export function defaultFactExecDeps(): FactExecDeps {
   return {
+    platformRole: async (userId) => {
+      const { db } = await import("@/lib/db");
+      return (await db.user.findUnique({ where: { id: userId }, select: { role: true } }))?.role ?? null;
+    },
     membershipActive: async (userId, orgId) => {
       const { getOrgMembership } = await import("@/lib/auth");
       return (await getOrgMembership(userId, orgId))?.status === "active";

@@ -4,7 +4,7 @@
  * 纯函数，不调用 LLM。目标字段只限 commercialFacts 既有的 6 个键：
  *   moq / sampleLeadTime / productionLeadTime / loadingPorts / signature / catalogUrl
  * - 先截掉回复里引用的历史邮件（买家原信里的网址 / 电话不能当成我方事实）；
- * - 含币种、价格、折扣、佣金、付款条款或百分比的行整行跳过（价格永远"需内部确认"，见 reply-draft.ts）；
+ * - 含币种、金额、价格、费用、折扣、佣金、付款或账期条款、百分比的行整行跳过（价格永远"需内部确认"，见 reply-draft.ts）；
  * - 每行按分句判断（"样品 7 天，大货 30-35 天"拆开看），每个字段只取第一个值；
  * - 网址 / WhatsApp 不取买家邮箱同域或与买家联系方式相同的值。
  */
@@ -17,7 +17,8 @@ export const FACT_FIELDS: readonly FactField[] = ["moq", "sampleLeadTime", "prod
 export interface MoqValue {
   quantity: number;
   unit: string;
-  per: string;
+  /** 按什么计（色 / 款 / 单）；回复里没写时为 null，起卡时沿用企业当前值 */
+  per: string | null;
 }
 export interface SampleLeadTimeValue {
   stockDays: number | null;
@@ -27,7 +28,8 @@ export interface SampleLeadTimeValue {
 export interface ProductionLeadTimeValue {
   daysMin: number;
   daysMax: number;
-  startsFrom: string;
+  /** 起算点；回复里没写时为 null，起卡时沿用企业当前值 */
+  startsFrom: string | null;
 }
 export interface SignatureValue {
   title: string | null;
@@ -77,8 +79,19 @@ export function stripQuotedReply(text: string): string {
 
 // ── 价格行 ────────────────────────────────────────────────
 
-const PRICE_RE =
-  /(\$|US\$|\bUSD\b|¥|\bRMB\b|\bCNY\b|\bEUR\b|€|£|\bGBP\b|%|\b(price|prices|pricing|priced|cost|costs|discount|discounts|rebate|commission|payment|payments|t\/t|l\/c|quotation|quoted)\b|报价|价格|单价|价钱|折扣|优惠|返点|佣金|付款|账期|货款)/i;
+const PRICE_RE = new RegExp(
+  [
+    // 币种符号与百分比
+    String.raw`\$|¥|￥|€|£|%`,
+    // 币种代码：后面紧跟数字也算（"USD4.80"、"RMB25/pc"）；"Europe" 不算
+    String.raw`\b(?:usd|rmb|cny|eur|gbp|cad|aud|hkd)(?![a-z])`,
+    // 价格、费用、付款与账期（"60 days credit"、"net 30"）
+    String.raw`\b(?:price[sd]?|pricing|costs?|discounts?|rebates?|commissions?|payments?|quotations?|quoted|dollars?|euros?|cents?|fees?|charges?|credit|t\/t|l\/c|o\/a|d\/p|net\s*\d+)\b`,
+    String.raw`\bfree\s+samples?\b|\bsamples?\s+(?:are|is)\s+free\b`,
+    String.raw`报价|价格|单价|价钱|折扣|优惠|返点|佣金|付款|账期|货款|元|人民币|美金|英镑|港币|块钱|\d\s*块|费|免费`,
+  ].join("|"),
+  "i",
+);
 
 export function isPriceLine(line: string): boolean {
   return PRICE_RE.test(line);
@@ -167,20 +180,23 @@ const PER_NORMALIZE: Record<string, string> = {
 /** 数字后没紧跟"per …"时，在整句里找"每色 / 每款 / 500件/色 / per colour" */
 const PER_FALLBACK_RE = /每\s*(色|款|个颜色|个尺码)|[/／]\s*(色|款)|\bper\s+(colou?r|style|design|size|sku|item)\b/i;
 
+/**
+ * 起订量取关键词之后最近的数字（"Your order of 300 pcs is below our MOQ of 500 pcs" → 500）；
+ * 关键词之后没有数字时取它之前最近的一个（"500 pcs MOQ"）。
+ */
 function moqOf(clause: string): MoqValue | null {
-  if (!MOQ_RE.test(clause)) return null;
-  for (const n of captureNumbers(clause)) {
-    const unit = MOQ_UNITS[n.unit];
-    if (!unit || !Number.isInteger(n.value) || n.value <= 0) continue;
-    let per = n.per ? PER_NORMALIZE[n.per] : undefined;
-    if (!per) {
-      const m = PER_FALLBACK_RE.exec(clause);
-      const word = (m?.[1] ?? m?.[2] ?? m?.[3])?.toLowerCase().replace("colour", "color");
-      per = word ? PER_NORMALIZE[word] : undefined;
-    }
-    return { quantity: n.value, unit, per: per ?? "order" };
+  const k = MOQ_RE.exec(clause);
+  if (!k) return null;
+  const valid = (n: { unit: string; value: number }) => !!MOQ_UNITS[n.unit] && Number.isInteger(n.value) && n.value > 0;
+  const n = captureNumbers(clause.slice(k.index)).find(valid) ?? captureNumbers(clause.slice(0, k.index)).filter(valid).pop();
+  if (!n) return null;
+  let per = n.per ? PER_NORMALIZE[n.per] : undefined;
+  if (!per) {
+    const m = PER_FALLBACK_RE.exec(clause);
+    const word = (m?.[1] ?? m?.[2] ?? m?.[3])?.toLowerCase().replace("colour", "color");
+    per = word ? PER_NORMALIZE[word] : undefined;
   }
-  return null;
+  return { quantity: n.value, unit: MOQ_UNITS[n.unit], per: per ?? null };
 }
 
 const SAMPLE_RE = /\bsamples?\b|\bsampling\b|样品|打样|样板|寄样/i;
@@ -189,6 +205,8 @@ const STOCK_RE = /\bstock\s+samples?\b|\bin[-\s]stock\b|\bexisting\s+samples?\b|
 /** 大货起算点里的"样品"字样（"after PP sample approval"）不算样品时效 */
 const PP_SAMPLE_RE = /\b(pp|pre-?production)\s+samples?(\s+approval)?\b|产前样|大货样|确认样/gi;
 const PRODUCTION_RE = /\bproduction\b|lead\s*time|\bbulk\b|mass\s+production|\bdelivery\b|大货|生产周期|生产时间|交期|货期/i;
+/** 运输时间不是大货周期（"Delivery to your warehouse takes 25-30 days by sea"） */
+const TRANSIT_RE = /\bby\s+(?:sea|air|rail|train|truck|express|courier)\b|\btransit\b|\bsailing\b|\bvoyage\b|\bshipping\s+time\b|\bto\s+your\s+(?:port|warehouse|door|address|country)\b|\bdoor[-\s]to[-\s]door\b|海运|空运|铁路|快递|船期|航程|运输时间|在途|到港/i;
 
 function sampleOf(clause: string): SampleLeadTimeValue | null {
   const withoutPp = clause.replace(PP_SAMPLE_RE, " ");
@@ -199,17 +217,20 @@ function sampleOf(clause: string): SampleLeadTimeValue | null {
   return { stockDays: null, customDaysMin: range.min, customDaysMax: range.max };
 }
 
-function startsFromOf(clause: string): string {
+/** 起算点；句子里没写时返回 null（不猜，起卡时沿用企业当前值） */
+function startsFromOf(clause: string): string | null {
   if (/\b(pp|pre-?production)\s+sample|产前样|大货样|确认样/i.test(clause)) return DEFAULT_PRODUCTION_STARTS_FROM;
   if (/\bdeposit\b|定金|订金/i.test(clause)) return "deposit received";
   if (/order\s+confirmation|confirm(?:ed|ing)?\s+(?:the\s+)?order|确认订单|下单/i.test(clause)) return "order confirmation";
-  return DEFAULT_PRODUCTION_STARTS_FROM;
+  return null;
 }
 
 function productionOf(clause: string): ProductionLeadTimeValue | null {
-  if (!PRODUCTION_RE.test(clause)) return null;
+  const withoutPp = clause.replace(PP_SAMPLE_RE, " ");
+  // "Pre-production sample takes 5 days" 里的 production 是产前样的，不是大货
+  if (!PRODUCTION_RE.test(withoutPp) || TRANSIT_RE.test(clause)) return null;
   // 去掉起算点后仍提到样品 → 这一句说的是样品时效，不是大货
-  if (SAMPLE_RE.test(clause.replace(PP_SAMPLE_RE, " "))) return null;
+  if (SAMPLE_RE.test(withoutPp)) return null;
   const range = dayRange(clause);
   if (!range) return null;
   return { daysMin: range.min, daysMax: range.max, startsFrom: startsFromOf(clause) };
@@ -235,15 +256,17 @@ export const LOADING_PORTS: ReadonlyArray<{ name: string; aliases: string[] }> =
 ];
 
 const PORT_CONTEXT_RE = /\bports?\b|\bloading\b|ship(?:ped|ping)?\s+from|\bfob\b|装运港|起运港|港口|出运港/i;
+/** 目的港 / 卸货港不是我方装运港 */
+const DESTINATION_PORT_RE = /\bdestination\b|\bdischarge\b|\bpod\b|\bport\s+of\s+(?:destination|discharge|entry)\b|\bto\s+(?:the\s+)?port\s+of\b|\bdeliver(?:ed|y)?\s+to\b|目的港|卸货港|到港|目的地/i;
 
-/** 港口名（任何写法）→ 英文规范名；不认识返回 null */
+/** 港口名（任何写法，含 "Ningbo Port" / "宁波港"）→ 英文规范名；不认识返回 null */
 export function canonicalPort(name: string): string | null {
-  const n = name.trim().toLowerCase();
+  const n = name.trim().toLowerCase().replace(/\s*(?:port|harbou?r|港)$/, "").trim();
   return LOADING_PORTS.find((p) => p.name.toLowerCase() === n || p.aliases.includes(n))?.name ?? null;
 }
 
 function portsOf(clause: string): string[] {
-  if (!PORT_CONTEXT_RE.test(clause)) return [];
+  if (!PORT_CONTEXT_RE.test(clause) || DESTINATION_PORT_RE.test(clause)) return [];
   const lower = clause.toLowerCase();
   const hits: Array<{ name: string; at: number }> = [];
   for (const p of LOADING_PORTS) {
@@ -261,32 +284,60 @@ function portsOf(clause: string): string[] {
 
 const CATALOG_RE = /\bcatalog(?:ue)?s?\b|\bbrochure\b|目录|产品册|画册/i;
 
+/** 目录链接只收 https（与商务事实合并规则一致）：www. 开头补 https://；http:// 不收（无法确认支持 https） */
+export function normalizeCatalogUrl(url: string): string | null {
+  if (/^https:\/\//i.test(url)) return url;
+  if (/^www\./i.test(url)) return `https://${url}`;
+  return null;
+}
+
+/** 社交主页不是企业网站 */
+const SOCIAL_HOST_RE = /(^|\.)(linkedin\.com|facebook\.com|instagram\.com|twitter\.com|x\.com|youtube\.com|tiktok\.com|wa\.me|weixin\.qq\.com)$/i;
+
 const TITLE_RE =
   /\b(sales|export|marketing|account|business\s+development|general|purchasing|product|project)?\s*(manager|director|executive|representative|specialist|coordinator|assistant|ceo|founder)\b|经理|总监|主管|专员|业务员|总经理/i;
 const CLOSING_LINE_RE = /^(best regards|kind regards|warm regards|regards|best wishes|sincerely|yours sincerely|many thanks|thanks|thank you|cheers|此致|祝好|顺祝商祺|谢谢)/i;
-const WHATSAPP_RE = /whats\s*app\s*[:：]?\s*(\+?\d[\d\s()-]{6,}\d)/i;
+/** "WhatsApp: +86…"、"WhatsApp/WeChat: +86…"、"WhatsApp & WeChat +86…" */
+const WHATSAPP_RE = /whats\s*app(?:\s*[/&,，、]\s*(?:we\s*chat|微信|viber|line))?\s*[:：]?\s*(\+?\d[\d\s()-]{6,}\d)/i;
+const POSTSCRIPT_RE = /^p\.?\s?s\.?(?:\s|:|：)/i;
 
-function signatureOf(lines: readonly string[], domain: string | null, buyerPhoneDigits: string | null): SignatureValue | null {
+/** 签名段里的职位 / WhatsApp / 网站；lineIndex 是第一个抽到的子字段所在的行（作证据句） */
+function signatureOf(lines: readonly string[], domain: string | null, buyerPhoneDigits: string | null): { value: SignatureValue; lineIndex: number } | null {
   let title: string | null = null;
   let whatsapp: string | null = null;
   let website: string | null = null;
-  for (const raw of lines) {
+  let first = -1;
+  lines.forEach((raw, i) => {
     const line = raw.trim();
-    if (!line || CLOSING_LINE_RE.test(line)) continue;
+    if (!line || CLOSING_LINE_RE.test(line) || POSTSCRIPT_RE.test(line)) return;
+    const hit = () => {
+      if (first < 0) first = i;
+    };
     const wa = WHATSAPP_RE.exec(line);
-    if (wa && !whatsapp) {
+    if (wa) {
       const v = wa[1].replace(/\s+/g, " ").trim();
-      if (!buyerPhoneDigits || digitsOf(v) !== buyerPhoneDigits) whatsapp = v;
-      continue;
+      if (!whatsapp && (!buyerPhoneDigits || digitsOf(v) !== buyerPhoneDigits)) {
+        whatsapp = v;
+        hit();
+      }
+      return;
     }
     const url = firstUrl(line);
-    if (url && !website && !CATALOG_RE.test(line) && !line.includes("@")) {
-      if (!isBuyerUrl(url, domain)) website = url;
-      continue;
+    if (url && !CATALOG_RE.test(line) && !line.includes("@")) {
+      const host = hostOf(url);
+      if (!website && !isBuyerUrl(url, domain) && !(host && SOCIAL_HOST_RE.test(host))) {
+        website = url;
+        hit();
+      }
+      return;
     }
-    if (!title && line.length <= 60 && TITLE_RE.test(line) && !/\d|@|https?:|www\./i.test(line)) title = line.replace(/[,，]$/, "");
-  }
-  return title || whatsapp || website ? { title, whatsapp, website } : null;
+    // 职位是短行（不超过 6 个词），不是一句话
+    if (!title && line.length <= 60 && line.split(/\s+/).length <= 6 && TITLE_RE.test(line) && !/\d|@|https?:|www\./i.test(line)) {
+      title = line.replace(/[,，]$/, "");
+      hit();
+    }
+  });
+  return title || whatsapp || website ? { value: { title, whatsapp, website }, lineIndex: first } : null;
 }
 
 export interface ExtractOptions {
@@ -299,6 +350,8 @@ export interface ExtractOptions {
 /**
  * 从带段落类型的行里抽取商务事实（行应已截掉引用）。每个字段只取第一个值；lineIndex 指向触发它的那一行。
  * 事实段 / 追问段 / 问候段里的行都看前 5 个字段；签名只看签名段。
+ * 签名段里没有结束语时（"Hi Mark,\n\nMOQ is 500 pcs per color." 这种短回复，最后一段会被兜底判成签名），
+ * 签名段的行也看前 5 个字段。
  */
 export function extractFacts(lines: readonly FactLine[], opts: ExtractOptions = {}): ExtractedFact[] {
   const domain = buyerDomain(opts.buyerEmail);
@@ -308,8 +361,9 @@ export function extractFacts(lines: readonly FactLine[], opts: ExtractOptions = 
     if (!found.has(f.field)) found.set(f.field, f);
   };
 
+  const signatureHasClosing = lines.some((l) => l.section === "signature" && CLOSING_LINE_RE.test(l.line.trim()));
   lines.forEach(({ line, section }, lineIndex) => {
-    if (section === "signature" || isPriceLine(line)) return;
+    if ((section === "signature" && signatureHasClosing) || isPriceLine(line)) return;
     for (const clause of clauses(line)) {
       const moq = moqOf(clause);
       if (moq) put({ field: "moq", value: moq, lineIndex });
@@ -321,7 +375,8 @@ export function extractFacts(lines: readonly FactLine[], opts: ExtractOptions = 
       if (ports.length) put({ field: "loadingPorts", value: ports, lineIndex });
     }
     if (CATALOG_RE.test(line)) {
-      const url = firstUrl(line);
+      const rawUrl = firstUrl(line);
+      const url = rawUrl ? normalizeCatalogUrl(rawUrl) : null;
       if (url && !isBuyerUrl(url, domain)) put({ field: "catalogUrl", value: url, lineIndex });
     }
   });
@@ -333,7 +388,7 @@ export function extractFacts(lines: readonly FactLine[], opts: ExtractOptions = 
       domain,
       buyerPhoneDigits,
     );
-    if (sig) put({ field: "signature", value: sig, lineIndex: sigIndexes[0] });
+    if (sig) put({ field: "signature", value: sig.value, lineIndex: sigIndexes[sig.lineIndex] });
   }
   return FACT_FIELDS.map((f) => found.get(f)).filter((f): f is ExtractedFact => !!f);
 }
@@ -345,11 +400,11 @@ export function factValueKey(field: FactField, value: unknown): string {
   const v = value as Record<string, unknown> & unknown[];
   switch (field) {
     case "moq":
-      return `${v.quantity}|${String(v.unit).toLowerCase()}|${String(v.per).toLowerCase()}`;
+      return `${v.quantity}|${String(v.unit).toLowerCase()}|${v.per ? String(v.per).toLowerCase() : "-"}`;
     case "sampleLeadTime":
       return `${v.stockDays ?? "-"}|${v.customDaysMin ?? "-"}|${v.customDaysMax ?? "-"}`;
     case "productionLeadTime":
-      return `${v.daysMin}|${v.daysMax}|${String(v.startsFrom).toLowerCase()}`;
+      return `${v.daysMin}|${v.daysMax}|${v.startsFrom ? String(v.startsFrom).toLowerCase() : "-"}`;
     case "loadingPorts":
       return [...new Set((value as string[]).map((p) => canonicalPort(p) ?? p.trim()))].sort().join("|");
     case "signature":
@@ -374,7 +429,7 @@ export function factValueLabel(field: FactField, value: unknown): string {
   const v = value as Record<string, unknown>;
   switch (field) {
     case "moq":
-      return `${v.quantity} ${v.unit} / ${v.per}`;
+      return v.per ? `${v.quantity} ${v.unit} / ${v.per}` : `${v.quantity} ${v.unit}`;
     case "sampleLeadTime": {
       const parts: string[] = [];
       if (v.stockDays) parts.push(`现货样 ${v.stockDays} 天`);
@@ -382,7 +437,7 @@ export function factValueLabel(field: FactField, value: unknown): string {
       return parts.join("，") || "未配置";
     }
     case "productionLeadTime":
-      return `${v.daysMin}${v.daysMax !== v.daysMin ? `–${v.daysMax}` : ""} 天（自 ${v.startsFrom} 起）`;
+      return `${v.daysMin}${v.daysMax !== v.daysMin ? `–${v.daysMax}` : ""} 天${v.startsFrom ? `（自 ${v.startsFrom} 起）` : ""}`;
     case "loadingPorts":
       return (value as string[]).join("、");
     case "signature":

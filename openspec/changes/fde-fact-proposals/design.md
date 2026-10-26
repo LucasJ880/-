@@ -31,7 +31,7 @@
 **Goals:**
 - 抽取、起卡判定、执行器合并都是纯函数，可表驱动测。
 - B-1 记录器只多一个终态分支与一个"记录后"回调，原有四种终态行为逐字段不变。
-- 外贸外发同步的返回值与时延基本不变：记录走尽力而为，失败吞掉。
+- 外贸外发同步的返回值不变；作废成功后多一步同步记录事件与起卡（几次查询 + 建审批），回复接口略慢。记录走尽力而为，失败吞掉。
 
 **Non-Goals:**
 - 不改以下文件：
@@ -111,21 +111,24 @@
 - `planFactProposals({ extracted, current, pendingFields, recentFields, rejectedKeys })` → 待起卡列表。规则：
   - 每字段取第一个抽取值；
   - 规范键 `valueKey` 用于比较与驳回去重；
+  - 回复里没写的部分先用当前值补齐再比较（`proposedValueFor`）：起订量的"按什么计"、大货起算点、样品的现货 / 定制两组各自合并；
   - 列表字段算并集，无新增不起；
-  - 签名按子字段合并到现有签名后比较。
+  - 签名只补当前为空的子字段：落款全组织共用，每个销售的 WhatsApp 不同，已配置的不来回改；
+  - 提议值过不了 `mergeCommercialFacts`（如非 https 目录链接、数量 0）不起卡，记 `invalid`。
 - `proposeCommercialFacts(input, deps)` 的依赖：
   - `loadCurrentFacts`；
   - `pendingFields`（待审批且未过期的同类型卡）；
   - `recentFields`（24 小时内建过的）；
   - `rejectedKeys`（驳回过的字段 + 规范键）；
-  - `ownerUserId`（组织所有者）；
+  - `approverCandidates`（所有者与在职成员及其平台角色）→ `pickFactApprover`：所有者能批时给所有者，否则在职 boss，再否则在职 admin，同类按入职先后；没有合格的人不起卡（`no_approver`）；
   - `createApproval`（`requestApproval` 封装）。
 - 卡片：
   - `risk = { vocabulary: "agent-core.tool-risk", value: "l2_soft", requiresApproval: true }`；
   - `ttlHours = 168`；
   - `idempotencyKey = revenue-spine:fact:{field}:{valueKey}:{来源审批 id}`；
-  - 审批人为组织所有者；
-  - 证据句再经 `maskBuyerPii`（不保留收件人邮箱），截 300 字。
+  - 审批人按上面的规则挑选，`requiredRole = "boss"` 照记；
+  - 载荷同时存抽取原值（`extractedValue`）与起卡时的提议值（卡片展示）；
+  - 证据句再经 `maskBuyerPii`（不保留收件人邮箱），截 300 字；落款的证据句取第一个抽到子字段的那一行。
 - **否决**：
   - 按天写死"自然日"：时区不一，滚动 24 小时更简单。
   - 每次抽到都起卡、靠审批人去重：卡片会刷屏。
@@ -135,7 +138,8 @@
   - `PendingActionType` 加 `revenue_spine.propose_commercial_fact`；
   - `WECHAT_CONFIRM_POLICY` 给 `web_only_review`；
   - `cockpit/posts.ts` 的 `inbound_sales` 岗位认领该类型。
-- 角色门：执行器在 `canDecideTeamApproval` 之后、CAS 认领之前，按类型检查 `canApprovePendingActionType(type, role)`。该类型要求 `isAdmin(role) || role === "boss"`，否则返回 `{ ok: false, error: "仅企业负责人或管理员可批准商务事实提案" }`，不改状态。
+- 角色门：执行器在 `canDecideTeamApproval` 之后、CAS 认领之前，对 `requiresPlatformApproverRole(type)` 的类型按 `ctx.userId` 读 `User.role`，再判 `approverRoleDenial(type, platformRole)`。该类型要求 `isAdmin(role) || role === "boss"`，否则返回 `{ ok: false, error: "仅企业负责人或管理员可批准商务事实提案" }`，不改状态。
+- 不用 `ctx.role`：审批中心传进执行器的是组织成员角色（`org_owner` / `org_admin` / `org_member`），助手收件箱传的是平台角色，口径不统一。
 - 理由：
   - 认领后才失败会把卡变成 `failed`，等于替人驳回；
   - 规则与 `PUT /api/revenue/policy` 一致，同一类人能改 policy、能批提案。
@@ -145,9 +149,9 @@
 
 ### D6 执行器：合并、校验、发布、审计
 - 执行步骤：
-  1. 校验组织与成员身份（同其它执行器）；
-  2. 读 `loadRevenueSpinePolicy`，用 `applyCommercialFact(profile, field, value)` 得到合并后的业务画像；
-  3. 校验 `merged.commercialFacts[field]` 与提议值规范键一致，不一致视为提议值被合并规则丢弃，返回失败；
+  1. 校验组织、平台角色（按 userId 读）与成员身份（同其它执行器）；
+  2. 读 `loadRevenueSpinePolicy`，在**批准时的最新**商务事实上用 `proposedValueFor` 重新合并抽取原值：起卡后老板经 `PUT` 改过的港口 / 落款不会被起卡时算好的值覆盖；已是该值时返回成功、不发布（`business_profile:unchanged`）；
+  3. 用 `applyCommercialFact(profile, field, value)` 得到合并后的业务画像，校验 `merged.commercialFacts[field]` 与该值规范键一致，不一致视为被合并规则丢弃，返回失败；
   4. 经 `publishRevenueSpineRule(business_profile)` 发布新版本；
   5. 写审计 `revenue_spine.commercial_fact.applied`（字段、前后规范键、版本、来源审批 id、商机 id）。
 - `resultRef = business_profile:v{版本}`。
@@ -175,8 +179,10 @@
   → 宁漏不误：价格句整句跳过、只认词表内港口、只看新增行；
   → 误抽只会起一张卡，驳回后不再起。
 - **[引用格式五花八门]**：截引用规则覆盖常见邮件客户端格式。漏截时，买家同域网址与买家电话仍会被排除。
-- **[审批人不是 boss]**：卡片发给组织所有者。组织所有者若不是 boss / admin，界面能看到但批准会被角色门拒绝，需要由平台 admin 处理。
-  → 报告列为已知限制。
+- **[审批人不是 boss]**：所有者平台角色不是 boss / admin 时，卡片改发在职的 boss / admin；组织里一个都没有时不起卡。
+- **[外发正文不全是手写]**：外贸收件箱的回复正文常是收件箱 LLM 草稿被采用后发出；已由销售确认并外发，起卡仍需老板批准。线索页手工留痕不抽（常记买家的数字）。
+- **[并发]**：两封人工回复几乎同时到，可能为同一字段各起一张卡；两张卡同时批准时读取与发布不在同一事务，后批的可能撞版本号唯一约束而失败。频率低，不加锁，报告列为已知限制。
+- **[补漏窗口]**：沿用 B-1 的 7 天窗口，上线后第一次扫描会处理上线前 7 天内的人工回复作废。
 - **[archive 顺序]**：修改 B-1 的能力，须先归档 `fde-feedback-loop`。
 
 ## 验证方式

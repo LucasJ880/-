@@ -54,7 +54,14 @@ const CASES: Case[] = [
   { name: "Minimum order quantity 1,000 pieces per design", text: reply("Minimum order quantity is 1,000 pieces per design."), expect: { moq: { quantity: 1000, unit: "pcs", per: "design" } } },
   { name: "中文：起订量 300 件/色", text: reply("起订量 300件/色。"), expect: { moq: { quantity: 300, unit: "pcs", per: "color" } } },
   { name: "中文：每款起订 200 套", text: reply("每款起订200套"), expect: { moq: { quantity: 200, unit: "sets", per: "style" } } },
-  { name: "MOQ 无 per → order", text: reply("MOQ 2000 m for this fabric."), expect: { moq: { quantity: 2000, unit: "m", per: "order" } } },
+  { name: "MOQ 没写按什么计 → per 为 null（起卡时沿用当前值）", text: reply("MOQ 2000 m for this fabric."), expect: { moq: { quantity: 2000, unit: "m", per: null } } },
+  {
+    name: "低于起订量：取关键词之后的数字，不取买家的数量",
+    text: reply("Your order of 300 pcs is below our MOQ of 500 pcs per color."),
+    expect: { moq: { quantity: 500, unit: "pcs", per: "color" } },
+  },
+  { name: "中文：您要的 300 件低于起订量 500 件", text: reply("您要的300件低于我们的起订量500件"), expect: { moq: { quantity: 500, unit: "pcs", per: null } } },
+  { name: "数字在关键词之前：500 pcs MOQ per color", text: reply("500 pcs MOQ per color"), expect: { moq: { quantity: 500, unit: "pcs", per: "color" } } },
   // ── 样品 ──
   { name: "定制样 7-10 天", text: reply("Samples can be ready in 7-10 days."), expect: { sampleLeadTime: { stockDays: null, customDaysMin: 7, customDaysMax: 10 } } },
   { name: "现货样 3 天", text: reply("Stock samples ship within 3 days."), expect: { sampleLeadTime: { stockDays: 3, customDaysMin: null, customDaysMax: null } } },
@@ -75,20 +82,43 @@ const CASES: Case[] = [
   {
     name: "同一行样品与大货分句",
     text: reply("样品7天，大货交期25-30天。"),
-    expect: { sampleLeadTime: { stockDays: null, customDaysMin: 7, customDaysMax: 7 }, productionLeadTime: { daysMin: 25, daysMax: 30, startsFrom: DEFAULT_PRODUCTION_STARTS_FROM } },
+    expect: { sampleLeadTime: { stockDays: null, customDaysMin: 7, customDaysMax: 7 }, productionLeadTime: { daysMin: 25, daysMax: 30, startsFrom: null } },
   },
+  { name: "账期不是大货周期：60 days credit after delivery", text: reply("We can offer 60 days credit after delivery."), expect: {}, absent: ["productionLeadTime"] },
+  { name: "海运时间不是大货周期", text: reply("Delivery to your warehouse takes 25-30 days by sea."), expect: {}, absent: ["productionLeadTime"] },
+  { name: "中文：海运 25 天不是大货周期", text: reply("海运到港大约25天。"), expect: {}, absent: ["productionLeadTime"] },
+  { name: "产前样时效不是大货周期", text: reply("Pre-production sample takes 5 days."), expect: {}, absent: ["productionLeadTime", "sampleLeadTime"] },
   // ── 装运港 ──
   { name: "FOB Ningbo or Shanghai（无价格）", text: reply("We ship FOB Ningbo or Shanghai."), expect: { loadingPorts: ["Ningbo", "Shanghai"] } },
   { name: "中文：装运港青岛", text: reply("装运港：青岛"), expect: { loadingPorts: ["Qingdao"] } },
   { name: "提到城市但不是港口语境 → 不抽", text: reply("Our factory is in Shanghai."), expect: {}, absent: ["loadingPorts"] },
+  { name: "目的港不是装运港", text: reply("Destination port: Hong Kong."), expect: {}, absent: ["loadingPorts"] },
+  { name: "中文：目的港香港", text: reply("目的港：香港"), expect: {}, absent: ["loadingPorts"] },
   // ── 目录 ──
   { name: "目录链接", text: reply("Please find our catalog here: https://example-home.example/catalog.pdf."), expect: { catalogUrl: "https://example-home.example/catalog.pdf" } },
-  { name: "中文：产品目录 www 链接", text: reply("产品目录：www.example-home.example/catalog"), expect: { catalogUrl: "www.example-home.example/catalog" } },
+  { name: "中文：产品目录 www 链接 → 补 https://", text: reply("产品目录：www.example-home.example/catalog"), expect: { catalogUrl: "https://www.example-home.example/catalog" } },
+  { name: "http:// 目录链接不收（合并规则只收 https）", text: reply("Catalog: http://example-home.example/catalog"), expect: {}, absent: ["catalogUrl"] },
   // ── 落款 ──
   {
     name: "落款：职位 / WhatsApp / 网站",
     text: reply("Thanks for your inquiry.", "Best regards,\nLucy Wang\nSales Manager\nWhatsApp: +86 138 0013 8000\nwww.example-home.example"),
     expect: { signature: { title: "Sales Manager", whatsapp: "+86 138 0013 8000", website: "www.example-home.example" } },
+  },
+  {
+    name: "落款：WhatsApp/WeChat 合写；LinkedIn 不当网站",
+    text: reply("Thanks.", "Best regards,\nLucy\nWhatsApp/WeChat: +86 138 0013 8000\nhttps://www.linkedin.com/in/lucy-example\nwww.example-home.example"),
+    expect: { signature: { title: null, whatsapp: "+86 138 0013 8000", website: "www.example-home.example" } },
+  },
+  {
+    name: "P.S. 一句话不当职位",
+    text: reply("Noted.", "Best regards,\nLucy\nP.S. Our sales manager will call you tomorrow"),
+    expect: {},
+    absent: ["signature"],
+  },
+  {
+    name: "没有结束语的短回复：最后一段不当签名跳过",
+    text: "Hi Mark,\n\nMOQ is 500 pcs per color.",
+    expect: { moq: { quantity: 500, unit: "pcs", per: "color" } },
   },
   {
     name: "落款里邮箱行与电话行不当网站 / 职位",
@@ -101,6 +131,10 @@ const CASES: Case[] = [
   { name: "付款条款与百分比：不抽大货周期", text: reply("30% deposit, balance before shipment, production 30 days."), expect: {}, absent: ["productionLeadTime"] },
   { name: "中文报价句：起订量 500 件，单价 25 元", text: reply("起订量500件，单价25元。"), expect: {}, absent: ["moq"] },
   { name: "折扣句", text: reply("For MOQ 1000 pcs we can offer a 5 discount."), expect: {}, absent: ["moq"] },
+  { name: "币种紧贴数字：MOQ 500 pcs at USD4.80 FOB Ningbo", text: reply("MOQ 500 pcs at USD4.80 FOB Ningbo."), expect: {}, absent: ["moq", "loadingPorts"] },
+  { name: "中文：起订量 500 件，25 元/件", text: reply("起订量500件，25元/件。"), expect: {}, absent: ["moq"] },
+  { name: "样品费句：不抽样品时效", text: reply("Sample fee is 50, samples ready in 7 days."), expect: {}, absent: ["sampleLeadTime"] },
+  { name: "免费样品句：不抽样品时效", text: reply("Free samples within 7 days."), expect: {}, absent: ["sampleLeadTime"] },
   // ── 引用截断与买家排除 ──
   {
     name: "引用的买家原信：不抽买家网站 / 港口",
@@ -152,9 +186,34 @@ ok("stripQuotedReply：> / On … wrote: / Original Message / 发件人： / 在
   assert.equal(stripQuotedReply("a\nb"), "a\nb");
 });
 
-ok("isPriceLine：币种 / 价格词 / 百分号；FOB 本身不是价格", () => {
-  for (const l of ["USD 4.8", "$5", "unit price 3", "报价如下", "10% off", "payment by T/T", "佣金 3 个点", "price list"]) assert.equal(isPriceLine(l), true, l);
-  for (const l of ["FOB Ningbo", "MOQ 500 pcs", "交期 30 天", "after deposit"]) assert.equal(isPriceLine(l), false, l);
+ok("isPriceLine：币种（含紧贴数字）/ 金额单位 / 价格与费用词 / 账期 / 百分号；FOB 本身不是价格", () => {
+  for (const l of [
+    "USD 4.8",
+    "USD4.80 FOB",
+    "RMB25/pc",
+    "EUR4.8/pc",
+    "CNY 30",
+    "4.8美元/件",
+    "人民币25一件",
+    "25元/件",
+    "30块一件",
+    "4.80 dollars each",
+    "Sample fee is 50",
+    "运费另计",
+    "$5",
+    "unit price 3",
+    "报价如下",
+    "10% off",
+    "payment by T/T",
+    "60 days credit",
+    "net 30",
+    "佣金 3 个点",
+    "price list",
+    "free sample",
+    "样品免费",
+  ])
+    assert.equal(isPriceLine(l), true, l);
+  for (const l of ["FOB Ningbo", "MOQ 500 pcs", "交期 30 天", "after deposit", "Europe market", "Lead time 30-35 days after deposit received"]) assert.equal(isPriceLine(l), false, l);
 });
 
 ok("dayRange：区间 / 单值 / 周换算 / 倒置区间无效", () => {
@@ -170,6 +229,8 @@ ok("canonicalPort / buyerDomain", () => {
   assert.equal(canonicalPort("宁波"), "Ningbo");
   assert.equal(canonicalPort(" ningbo "), "Ningbo");
   assert.equal(canonicalPort("Hamburg"), null);
+  assert.equal(canonicalPort("Ningbo Port"), "Ningbo");
+  assert.equal(canonicalPort("宁波港"), "Ningbo");
   assert.equal(buyerDomain("mark@buyer-shop.example"), "buyer-shop.example");
   assert.equal(buyerDomain("mark@gmail.com"), null);
   assert.equal(buyerDomain(null), null);
@@ -190,6 +251,8 @@ ok("中文展示：未配置 / 起订量 / 周期 / 港口 / 落款", () => {
   assert.equal(factValueLabel("sampleLeadTime", { stockDays: 3, customDaysMin: 7, customDaysMax: 10 }), "现货样 3 天，定制样 7–10 天");
   assert.equal(factValueLabel("loadingPorts", ["Ningbo", "Shanghai"]), "Ningbo、Shanghai");
   assert.equal(factValueLabel("signature", { title: "Sales Manager", whatsapp: null, website: null }), "职位 Sales Manager");
+  assert.equal(factValueLabel("moq", { quantity: 500, unit: "pcs", per: null }), "500 pcs");
+  assert.equal(factValueLabel("productionLeadTime", { daysMin: 30, daysMax: 30, startsFrom: null }), "30 天");
 });
 
 ok("确定性：同一输入两次抽取结果相同；lineIndex 指向触发行", () => {
@@ -201,6 +264,10 @@ ok("确定性：同一输入两次抽取结果相同；lineIndex 指向触发行
   assert.match(lines[moq.lineIndex].line, /MOQ/);
   const prod = a.find((f) => f.field === "productionLeadTime")!;
   assert.match(lines[prod.lineIndex].line, /Lead time/);
+  // 落款的证据行是第一个抽到子字段的行，不是 "Best regards,"
+  const sigLines = sectionedLines(reply("Thanks.", "Best regards,\nLucy Wang\nSales Manager\nwww.example-home.example"));
+  const sig = extractFacts(sigLines).find((f) => f.field === "signature")!;
+  assert.equal(sigLines[sig.lineIndex].line, "Sales Manager");
 });
 
 console.log(`\nfact-extract: ${pass} passed`);

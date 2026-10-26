@@ -189,6 +189,8 @@ export interface FeedbackActionRow {
 }
 
 export interface FeedbackBuyer extends BuyerPiiTerms {
+  /** 买家电话：只交给商务事实提案排除 WhatsApp，不进事件 */
+  phone?: string | null;
   /** 入驻测试询盘（与询盘 SLA 指标同一判定）：不产学习事件 */
   testInquiry: boolean;
 }
@@ -209,7 +211,7 @@ export interface AfterRecordedContext {
   snapshotBody: string | null;
   /** 发给买家的原文（人工回复或执行正文），未替换买家信息 */
   sentRaw: string;
-  buyer: BuyerPiiTerms;
+  buyer: BuyerPiiTerms & { phone?: string | null };
 }
 
 export interface FeedbackDeps {
@@ -227,8 +229,16 @@ export interface FeedbackDeps {
   afterRecorded?(ctx: AfterRecordedContext): Promise<void>;
 }
 
-/** 开发信是模板外发，不是销售对这封询盘写的回复：只记事件，不从中抽商务事实 */
-const NOT_A_REPLY_SOURCE_PREFIX = "trade_outreach.";
+/**
+ * 不是销售写给买家的回复，只记事件、不从中抽商务事实：
+ * - 开发信（trade_outreach.*）是模板外发；
+ * - 线索页手工留痕（trade_prospect.manual_outbound）是沟通记录，常记着买家说的数字（"电话：客户要 300 件"）。
+ */
+const NOT_A_REPLY_SOURCE_PREFIXES: readonly string[] = ["trade_outreach.", "trade_prospect.manual_outbound"];
+
+export function isFactProposalSource(source: string | null | undefined): boolean {
+  return !NOT_A_REPLY_SOURCE_PREFIXES.some((p) => (source ?? "").startsWith(p));
+}
 
 export type RecordResult =
   | { status: "recorded"; feedbackType: FeedbackType; eventId: string }
@@ -271,7 +281,8 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
   const opportunityId = str(payload?.opportunityId) ?? str(metadata?.opportunityId);
   const loaded = opportunityId ? await deps.loadBuyer(orgId, opportunityId) : null;
   if (loaded?.testInquiry) return { status: "skipped", reason: "onboarding_test" };
-  const buyer: BuyerPiiTerms = loaded ?? {};
+  // 事件只用联系人名 / 公司 / 收件人邮箱做替换；电话单独留给商务事实提案
+  const buyer: BuyerPiiTerms = loaded ? { contactName: loaded.contactName, companyName: loaded.companyName, recipientEmail: loaded.recipientEmail } : {};
 
   let feedbackType: FeedbackType = terminal === "approved" ? "approved_as_is" : terminal === "manual_reply" ? "replaced_by_manual_reply" : terminal;
   let diffSummary: Record<string, unknown> = EMPTY_DIFF(feedbackType);
@@ -351,10 +362,19 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
     deps.afterRecorded &&
     sentRaw &&
     FACT_PROPOSAL_FEEDBACK_TYPES.includes(feedbackType) &&
-    !(sentSource ?? "").startsWith(NOT_A_REPLY_SOURCE_PREFIX)
+    isFactProposalSource(sentSource)
   ) {
     try {
-      await deps.afterRecorded({ orgId, opportunityId, sourcePendingActionId: row.id, principalUserId: userId, feedbackType, snapshotBody, sentRaw, buyer });
+      await deps.afterRecorded({
+        orgId,
+        opportunityId,
+        sourcePendingActionId: row.id,
+        principalUserId: userId,
+        feedbackType,
+        snapshotBody,
+        sentRaw,
+        buyer: { ...buyer, phone: loaded?.phone ?? null },
+      });
     } catch (err) {
       console.error("[fde.feedback] 商务事实提案失败", row.id, err instanceof Error ? err.name : typeof err);
     }
@@ -492,7 +512,7 @@ export function defaultFeedbackDeps(): FeedbackDeps {
       const [opp, firstInquiry] = await Promise.all([
         db.salesOpportunity.findFirst({
           where: { id: opportunityId, orgId },
-          select: { lostReason: true, customer: { select: { name: true, contactName: true, email: true, tags: true } } },
+          select: { lostReason: true, customer: { select: { name: true, contactName: true, email: true, phone: true, tags: true } } },
         }),
         db.salesAction.findFirst({
           where: { orgId, opportunityId, employeeKey: FDE_FEEDBACK_SKILL, actionType: sla.INBOUND_INQUIRY_ACTION_TYPE },
@@ -505,6 +525,7 @@ export function defaultFeedbackDeps(): FeedbackDeps {
         companyName: opp.customer.name,
         contactName: opp.customer.contactName,
         recipientEmail: opp.customer.email,
+        phone: opp.customer.phone,
         testInquiry: sla.isOnboardingTestInquiry({
           utmSource: sla.utmSourceOf(firstInquiry?.inputContext ?? null),
           customerTags: opp.customer.tags,
