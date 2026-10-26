@@ -35,9 +35,10 @@ const GREETING_RE = /^(dear|hi|hello|good (morning|afternoon|evening))\b/i;
 const GREETING_ZH_RE = /^(尊敬的|您好|你好)|(您好|你好)[：:，,]?$/;
 const CLOSING_RE = /^(best regards|kind regards|warm regards|regards|best wishes|sincerely|yours sincerely|yours faithfully|many thanks|thanks|thank you|cheers)[,，!！.]?$/i;
 const CLOSING_ZH_RE = /^(此致|祝好|顺祝商祺|祝商祺|谢谢|敬上|顺颂商祺)[！!，,。.]?/;
-const NUMBERED_RE = /^\d{1,2}[.、)）]\s*/;
+// 编号列表项（"1. " / "2、"）；"10.5 cm" 这类小数不算
+const NUMBERED_RE = /^\d{1,2}[.、)）](?!\d)/;
 const QUESTION_END_RE = /[?？]$/;
-const SENTENCE_END_RE = /[。.!！?？:：;；]$/;
+const SENTENCE_END_RE = /[。!！?？:：;；]$/;
 
 function splitParagraphs(body: string): string[][] {
   const out: string[][] = [];
@@ -63,9 +64,12 @@ function isClosing(line: string): boolean {
   return CLOSING_RE.test(line) || CLOSING_ZH_RE.test(line);
 }
 
-/** 没有结束语时，最后一段若全是不以句读结尾的短行（姓名 / 职位 / 公司 / 联系方式），视为签名 */
+/**
+ * 没有结束语时，最后一段若全是短行（姓名 / 职位 / 公司 / 联系方式）视为签名：
+ * 不以句读结尾；以英文句点结尾的只允许是短的名称（如 "Sunny Home Deco Co., Ltd."，不超过 6 个词）。
+ */
 function looksLikeSignatureBlock(lines: string[]): boolean {
-  return lines.every((l) => l.length <= 80 && !SENTENCE_END_RE.test(l));
+  return lines.every((l) => l.length <= 80 && !SENTENCE_END_RE.test(l) && (!l.endsWith(".") || l.split(/\s+/).length <= 6));
 }
 
 export function classifyParagraphs(body: string): DraftParagraph[] {
@@ -236,26 +240,50 @@ export const PII_PLACEHOLDERS = {
 } as const;
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-// 电话：可带 + / 括号 / 空格 / 横线 / 点，至少 7 位数字；日期（2026-10-26）不算
-const PHONE_RE = /(?<![\w.])\+?\(?\d[\d\s().-]{5,}\d(?![\w])/g;
-const DATE_RE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/;
+const EMAIL_SENTINEL = (i: number) => `\u0001E${i}\u0001`;
+const EMAIL_SENTINEL_RE = /\u0001E(\d+)\u0001/g;
 
+// 电话必须有电话的结构：+ 开头、括号区号、三段式分隔、中国手机 / 座机；数量区间（500-1000）、日期、金额不算
+const PHONE_RES: readonly RegExp[] = [
+  /\+\d[\d\s().-]{6,}\d/g,
+  /\(\d{2,4}\)\s*\d[\d\s.-]{4,}\d/g,
+  /(?<!\d)(?<!\d[.,])\d{3,4}[\s.-]\d{3,4}[\s.-]\d{3,5}(?!\d)(?![.,]\d)/g,
+  /(?<!\d)(?<!\d[.,])0\d{2,3}-\d{7,8}(?!\d)/g,
+  /(?<!\d)(?<!\d[.,])1[3-9]\d{9}(?!\d)/g,
+];
+const UNIT_AFTER_RE = new RegExp(`^\\s*(?:${UNIT_PATTERN})(?![A-Za-z])`, "i");
+const CURRENCY_BEFORE_PHONE_RE = /(?:\$|US\$|USD|¥|RMB|CNY|EUR|€|£|GBP)\s*$/i;
+
+// 联系人名拆开后不单独替换的常见词（"Purchasing Team" 不能让每个 team 都被替换）
+const NAME_TOKEN_STOPWORDS: ReadonlySet<string> = new Set([
+  "team", "sales", "purchasing", "purchase", "procurement", "sourcing", "buyer", "buying", "manager", "department", "dept",
+  "office", "import", "export", "company", "group", "the", "and", "for", "with", "from", "info", "admin", "contact",
+  "service", "support", "home", "ltd", "inc", "llc", "corp", "limited", "trading",
+]);
 const HONORIFICS: ReadonlySet<string> = new Set(["mr", "mrs", "ms", "miss", "dr", "sir", "madam", "mx", "prof"]);
+const HAS_HAN_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function nameRe(name: string): RegExp {
-  const escaped = escapeRe(name);
-  // 拉丁字母名按词边界、忽略大小写；含中日韩文字的按子串
-  return /^[\x20-\x7e]+$/.test(name) ? new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "gi") : new RegExp(escaped, "g");
+/** 字母名按 Unicode 词边界匹配；中日韩文字按子串。单个名字只认原样与全大写（"John" / "JOHN"），不认小写常用词 */
+function nameRe(name: string, caseSensitive: boolean): RegExp {
+  if (HAS_HAN_RE.test(name)) return new RegExp(escapeRe(name), "gu");
+  const body = caseSensitive ? `(?:${escapeRe(name)}|${escapeRe(name.toUpperCase())})` : escapeRe(name);
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, caseSensitive ? "gu" : "giu");
 }
 
 export function maskBuyerPii(text: string | null | undefined, terms: BuyerPiiTerms): string {
-  let out = text ?? "";
   const recipient = terms.recipientEmail?.trim().toLowerCase() ?? null;
-  out = out.replace(EMAIL_RE, (m) => (recipient && m.toLowerCase() === recipient ? m : PII_PLACEHOLDERS.email));
+  // 先把邮箱整体换成占位，避免名字替换把 john@acme.com 拆坏
+  const emails: string[] = [];
+  let out = (text ?? "").replace(EMAIL_RE, (m) => {
+    emails.push(m);
+    return EMAIL_SENTINEL(emails.length - 1);
+  });
+
+  // 整名：忽略大小写；长的先换
   const names = [
     { value: terms.companyName, placeholder: PII_PLACEHOLDERS.company },
     { value: terms.contactName, placeholder: PII_PLACEHOLDERS.contact },
@@ -263,18 +291,30 @@ export function maskBuyerPii(text: string | null | undefined, terms: BuyerPiiTer
     .map((n) => ({ value: n.value?.trim() ?? "", placeholder: n.placeholder }))
     .filter((n) => n.value.length >= 2)
     .sort((x, y) => y.value.length - x.value.length);
-  for (const n of names) out = out.replace(nameRe(n.value), n.placeholder);
-  // 联系人名的单个名字（如只写 "John"）也替换；称谓与过短的片段不替换；公司名的单词（Home / Ltd）不拆开替换
+  for (const n of names) out = out.replace(nameRe(n.value, false), n.placeholder);
+
+  // 联系人名的单个名字（如只写 "John"）：区分大小写、≥ 3 个字母、不是称谓或常见词
   const contact = terms.contactName?.trim() ?? "";
-  if (/^[\x20-\x7e]+$/.test(contact)) {
-    for (const token of contact.split(/[\s.,]+/)) {
-      if (token.length >= 2 && !HONORIFICS.has(token.toLowerCase())) out = out.replace(nameRe(token), PII_PLACEHOLDERS.contact);
+  if (contact && !HAS_HAN_RE.test(contact)) {
+    for (const token of contact.split(/[\s,]+/).map((t) => t.replace(/\.$/, ""))) {
+      const lower = token.toLowerCase();
+      if (token.length >= 3 && /^\p{L}/u.test(token) && !HONORIFICS.has(lower) && !NAME_TOKEN_STOPWORDS.has(lower)) {
+        out = out.replace(nameRe(token, true), PII_PLACEHOLDERS.contact);
+      }
     }
   }
-  out = out.replace(PHONE_RE, (m) => {
-    const digits = m.replace(/\D/g, "");
-    if (digits.length < 7 || DATE_RE.test(m.trim())) return m;
-    return PII_PLACEHOLDERS.phone;
+
+  for (const re of PHONE_RES) {
+    out = out.replace(re, (m: string, offset: number, whole: string) => {
+      if (m.replace(/\D/g, "").length < 7) return m;
+      if (CURRENCY_BEFORE_PHONE_RE.test(whole.slice(0, offset))) return m;
+      if (UNIT_AFTER_RE.test(whole.slice(offset + m.length))) return m;
+      return PII_PLACEHOLDERS.phone;
+    });
+  }
+
+  return out.replace(EMAIL_SENTINEL_RE, (_m, i: string) => {
+    const email = emails[Number(i)];
+    return recipient && email.toLowerCase() === recipient ? email : PII_PLACEHOLDERS.email;
   });
-  return out;
 }

@@ -9,7 +9,14 @@
  * 结局判定复用驾驶舱工作量的同一张规则表（cockpit/workload.ts pendingActionOutcome），两边口径一致。
  */
 
-import { pendingActionOutcome } from "@/lib/cockpit/workload";
+import {
+  PENDING_BATCH_PREPARE_FAILED,
+  PENDING_CANCELLED_REASON,
+  PENDING_EXPIRED_REASON,
+  PENDING_QUOTE_CHANGED_PREFIX,
+  PENDING_RUN_CANCELLED_PREFIX,
+  pendingActionOutcome,
+} from "@/lib/cockpit/workload";
 import type { CreateFeedbackInput } from "@/lib/employee-ai/feedback-service";
 import { buildDraftDiff, draftContentHash, maskBuyerPii, normalizeDraftBody, type BuyerPiiTerms } from "./draft-diff";
 
@@ -17,7 +24,8 @@ import { buildDraftDiff, draftContentHash, maskBuyerPii, normalizeDraftBody, typ
 export const INQUIRY_REPLY_TYPE = "sales.send_inquiry_reply";
 /** 与 fde/actions.ts FDE_EMPLOYEE_KEY 一致：写入 HumanFeedbackEvent.skillSlug */
 export const FDE_FEEDBACK_SKILL = "inbound_sales_fde";
-export const FDE_FEEDBACK_TASK_TYPE = "inquiry_reply";
+/** 含 "email"：与 practice-miner / preference-learner 识别邮件类反馈的规则对得上 */
+export const FDE_FEEDBACK_TASK_TYPE = "fde_email_reply";
 export const DRAFT_SNAPSHOT_AUDIT_ACTION = "revenue_spine.inquiry_reply.draft_snapshot";
 const REASON_MAX = 500;
 
@@ -75,9 +83,17 @@ export function buildDraftSnapshot(input: DraftSnapshotInput): DraftSnapshot {
   };
 }
 
-/** 审计里读回的快照（字段不全或版本不符视为没有快照） */
+/** 审计里读回的快照：AuditLog.afterData 是 JSON 字符串；字段不全或版本不符视为没有快照 */
 export function parseDraftSnapshot(value: unknown): DraftSnapshot | null {
-  const v = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  const v = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
   if (!v || v.version !== 1 || typeof v.body !== "string" || typeof v.bodyHash !== "string") return null;
   return v as unknown as DraftSnapshot;
 }
@@ -151,17 +167,30 @@ export interface FeedbackActionRow {
   payload: unknown;
 }
 
+export interface FeedbackBuyer extends BuyerPiiTerms {
+  /** 入驻测试询盘（与询盘 SLA 指标同一判定）：不产学习事件 */
+  testInquiry: boolean;
+}
+
 export interface FeedbackDeps {
   loadAction(actionId: string): Promise<FeedbackActionRow | null>;
-  loadSnapshot(orgId: string, actionId: string): Promise<DraftSnapshot | null>;
-  loadBuyer(orgId: string, opportunityId: string): Promise<BuyerPiiTerms | null>;
+  /** 该审批的全部快照（按写入先后）；并发重放可能写了不止一份 */
+  loadSnapshots(orgId: string, actionId: string): Promise<DraftSnapshot[]>;
+  loadBuyer(orgId: string, opportunityId: string): Promise<FeedbackBuyer | null>;
   hasFeedback(actionId: string, terminal: FeedbackTerminal): Promise<boolean>;
   createFeedback(input: CreateFeedbackInput): Promise<{ id: string }>;
+  /** 同一审批串行化"先查后写"（生产：事务内 pg_advisory_xact_lock） */
+  withLock<T>(actionId: string, fn: () => Promise<T>): Promise<T>;
 }
 
 export type RecordResult =
   | { status: "recorded"; feedbackType: FeedbackType; eventId: string }
-  | { status: "skipped"; reason: "not_found" | "not_inquiry_reply" | "no_org" | "not_terminal" | "duplicate" };
+  | { status: "skipped"; reason: "not_found" | "not_inquiry_reply" | "no_org" | "not_terminal" | "onboarding_test" | "duplicate" };
+
+/** 多份快照时取正文哈希与执行正文一致的那份（照发）；都不一致取最早一份（FDE 最初的草稿） */
+export function pickSnapshot(snapshots: readonly DraftSnapshot[], sentHash: string): DraftSnapshot | null {
+  return snapshots.find((s) => s.bodyHash === sentHash) ?? snapshots[0] ?? null;
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -188,18 +217,20 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
   if (!row.orgId) return { status: "skipped", reason: "no_org" };
   const terminal = feedbackTerminal(row);
   if (!terminal) return { status: "skipped", reason: "not_terminal" };
-  if (await deps.hasFeedback(row.id, terminal)) return { status: "skipped", reason: "duplicate" };
+  const orgId = row.orgId;
 
   const payload = record(row.payload);
   const metadata = record(payload?.metadata);
   const opportunityId = str(payload?.opportunityId) ?? str(metadata?.opportunityId);
-  const buyer: BuyerPiiTerms = (opportunityId ? await deps.loadBuyer(row.orgId, opportunityId) : null) ?? {};
+  const loaded = opportunityId ? await deps.loadBuyer(orgId, opportunityId) : null;
+  if (loaded?.testInquiry) return { status: "skipped", reason: "onboarding_test" };
+  const buyer: BuyerPiiTerms = loaded ?? {};
 
   let feedbackType: FeedbackType = terminal === "approved" ? "approved_as_is" : terminal;
   let diffSummary: Record<string, unknown> = EMPTY_DIFF(feedbackType);
   if (terminal === "approved") {
-    const snapshot = await deps.loadSnapshot(row.orgId, row.id);
     const sent = normalizeDraftBody(str(payload?.body) ?? "");
+    const snapshot = pickSnapshot(await deps.loadSnapshots(orgId, row.id), draftContentHash(sent));
     if (!snapshot) {
       diffSummary = EMPTY_DIFF("无快照", { noSnapshot: true });
     } else if (draftContentHash(sent) !== snapshot.bodyHash) {
@@ -214,31 +245,35 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
   // 事件里连收件人邮箱也不留（快照才允许保留收件人邮箱）
   const reason = terminal === "rejected" && row.failureReason ? maskBuyerPii(row.failureReason, { ...buyer, recipientEmail: null }).slice(0, REASON_MAX) : null;
   const followUpStep = typeof payload?.followUpStep === "number" ? payload.followUpStep : null;
-  const event = await deps.createFeedback({
-    orgId: row.orgId,
-    userId: row.decidedById ?? row.approverUserId ?? row.createdById,
-    taskType: FDE_FEEDBACK_TASK_TYPE,
-    humanDecision: HUMAN_DECISION_BY_FEEDBACK[feedbackType],
-    aiOutputRef: {
-      type: "pending_action",
-      id: row.id,
-      terminal,
-      feedbackType,
-      opportunityId,
-      followUpStep,
-      agentRunId: str(metadata?.agentRunId),
-    },
-    reasonCode: null,
-    reasonText: reason,
-    feedbackScope: "team_candidate",
-    consentConfirmed: true,
-    pendingActionId: row.id,
-    skillSlug: FDE_FEEDBACK_SKILL,
-    workerType: "fde",
-    systemRecorded: true,
-    diffSummary,
+  // 先查后写在同一把锁里：端口、过期、补漏乃至重叠的定时任务同时到达也只写一条
+  return deps.withLock(row.id, async (): Promise<RecordResult> => {
+    if (await deps.hasFeedback(row.id, terminal)) return { status: "skipped", reason: "duplicate" };
+    const event = await deps.createFeedback({
+      orgId,
+      userId: row.decidedById ?? row.approverUserId ?? row.createdById,
+      taskType: FDE_FEEDBACK_TASK_TYPE,
+      humanDecision: HUMAN_DECISION_BY_FEEDBACK[feedbackType],
+      aiOutputRef: {
+        type: "pending_action",
+        id: row.id,
+        terminal,
+        feedbackType,
+        opportunityId,
+        followUpStep,
+        agentRunId: str(metadata?.agentRunId),
+      },
+      reasonCode: null,
+      reasonText: reason,
+      feedbackScope: "team_candidate",
+      consentConfirmed: true,
+      pendingActionId: row.id,
+      skillSlug: FDE_FEEDBACK_SKILL,
+      workerType: "fde",
+      systemRecorded: true,
+      diffSummary,
+    });
+    return { status: "recorded", feedbackType, eventId: event.id };
   });
-  return { status: "recorded", feedbackType, eventId: event.id };
 }
 
 /**
@@ -261,17 +296,37 @@ export async function recordInquiryReplyFeedbackSafe(
 
 export const FEEDBACK_SWEEP_SETTLE_MS = 10 * 60_000;
 export const FEEDBACK_SWEEP_LOOKBACK_DAYS = 7;
-export const FEEDBACK_SWEEP_LIMIT = 200;
+export const FEEDBACK_SWEEP_PAGE = 200;
+export const FEEDBACK_SWEEP_MAX_PAGES = 10;
+/** 每轮最多处理（记录或判定跳过）的条数，避免一次定时任务跑太久 */
+export const FEEDBACK_SWEEP_MAX_RECORDS = 100;
 
-/** 近 7 天、终态已超过 10 分钟的询盘回复审批（避开端口与过期赢家正在写的那一刻） */
+/**
+ * 近 7 天、终态已超过 10 分钟（避开端口与过期赢家正在写的那一刻）、可能产事件的询盘回复审批。
+ * 在查询里就排除不会产事件的终态（取消 / 作废 / 批量准备失败 / 关联任务取消），不让它们挤占每页名额。
+ */
 export function feedbackSweepWhere(now: Date) {
   return {
     type: INQUIRY_REPLY_TYPE,
-    status: { in: ["executed", "rejected", "failed"] },
     updatedAt: {
       gte: new Date(now.getTime() - FEEDBACK_SWEEP_LOOKBACK_DAYS * 86_400_000),
       lte: new Date(now.getTime() - FEEDBACK_SWEEP_SETTLE_MS),
     },
+    OR: [
+      { status: "executed" },
+      { status: "rejected", OR: [{ failureReason: null }, { NOT: { failureReason: { startsWith: PENDING_RUN_CANCELLED_PREFIX } } }] },
+      { status: "failed", failureReason: PENDING_EXPIRED_REASON },
+      {
+        status: "failed",
+        decidedById: { not: null },
+        NOT: [
+          { failureReason: PENDING_CANCELLED_REASON },
+          { failureReason: { startsWith: PENDING_BATCH_PREPARE_FAILED } },
+          { failureReason: { startsWith: "SUPERSEDED_" } },
+          { failureReason: { startsWith: PENDING_QUOTE_CHANGED_PREFIX } },
+        ],
+      },
+    ],
   };
 }
 
@@ -280,24 +335,37 @@ export function existingFeedbackWhere(actionIds: readonly string[]) {
 }
 
 export interface SweepDeps {
-  listCandidates(now: Date, limit: number): Promise<string[]>;
+  /** 按 (updatedAt, id) 升序分页；cursorId 为上一页最后一条 */
+  listCandidates(now: Date, limit: number, cursorId: string | null): Promise<string[]>;
   /** 已有 B-1 反馈事件的审批 id */
   withFeedback(actionIds: readonly string[]): Promise<ReadonlySet<string>>;
   record(actionId: string): Promise<RecordResult | null>;
 }
 
+/** 从最早的开始翻页，已有事件的跳过；处理满上限或翻完为止（旧的漏记不会被新的挤掉） */
 export async function sweepInquiryReplyFeedback(now: Date, deps: SweepDeps = defaultSweepDeps()) {
-  const candidates = await deps.listCandidates(now, FEEDBACK_SWEEP_LIMIT);
-  const done = candidates.length ? await deps.withFeedback(candidates) : new Set<string>();
+  let cursor: string | null = null;
+  let scanned = 0;
   let recorded = 0;
   let skipped = 0;
-  for (const id of candidates) {
-    if (done.has(id)) continue;
-    const result = await deps.record(id);
-    if (result?.status === "recorded") recorded++;
-    else skipped++;
+  let pages = 0;
+  while (pages < FEEDBACK_SWEEP_MAX_PAGES && recorded + skipped < FEEDBACK_SWEEP_MAX_RECORDS) {
+    const ids = await deps.listCandidates(now, FEEDBACK_SWEEP_PAGE, cursor);
+    pages++;
+    if (!ids.length) break;
+    scanned += ids.length;
+    const done = await deps.withFeedback(ids);
+    for (const id of ids) {
+      if (done.has(id)) continue;
+      if (recorded + skipped >= FEEDBACK_SWEEP_MAX_RECORDS) break;
+      const result = await deps.record(id);
+      if (result?.status === "recorded") recorded++;
+      else skipped++;
+    }
+    cursor = ids[ids.length - 1];
+    if (ids.length < FEEDBACK_SWEEP_PAGE) break;
   }
-  return { scanned: candidates.length, recorded, skipped };
+  return { scanned, recorded, skipped, pages };
 }
 
 // ── 默认依赖（Prisma；读 + 只经反馈服务写） ──────────────────
@@ -311,22 +379,40 @@ export function defaultFeedbackDeps(): FeedbackDeps {
         select: { id: true, orgId: true, type: true, status: true, failureReason: true, decidedById: true, approverUserId: true, createdById: true, payload: true },
       });
     },
-    loadSnapshot: async (orgId, actionId) => {
+    loadSnapshots: async (orgId, actionId) => {
       const { db } = await import("@/lib/db");
-      const audit = await db.auditLog.findFirst({
+      const audits = await db.auditLog.findMany({
         where: { orgId, action: DRAFT_SNAPSHOT_AUDIT_ACTION, targetType: "pending_action", targetId: actionId },
-        orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: "asc" },
         select: { afterData: true },
+        take: 5,
       });
-      return parseDraftSnapshot(audit?.afterData);
+      return audits.map((a) => parseDraftSnapshot(a.afterData)).filter((s): s is DraftSnapshot => s !== null);
     },
     loadBuyer: async (orgId, opportunityId) => {
-      const { db } = await import("@/lib/db");
-      const opp = await db.salesOpportunity.findFirst({
-        where: { id: opportunityId, orgId },
-        select: { customer: { select: { name: true, contactName: true, email: true } } },
-      });
-      return opp ? { companyName: opp.customer.name, contactName: opp.customer.contactName, recipientEmail: opp.customer.email } : null;
+      const [{ db }, sla] = await Promise.all([import("@/lib/db"), import("@/lib/revenue-spine/sla-metrics")]);
+      const [opp, firstInquiry] = await Promise.all([
+        db.salesOpportunity.findFirst({
+          where: { id: opportunityId, orgId },
+          select: { lostReason: true, customer: { select: { name: true, contactName: true, email: true, tags: true } } },
+        }),
+        db.salesAction.findFirst({
+          where: { orgId, opportunityId, employeeKey: FDE_FEEDBACK_SKILL, actionType: sla.INBOUND_INQUIRY_ACTION_TYPE },
+          orderBy: { createdAt: "asc" },
+          select: { inputContext: true },
+        }),
+      ]);
+      if (!opp) return null;
+      return {
+        companyName: opp.customer.name,
+        contactName: opp.customer.contactName,
+        recipientEmail: opp.customer.email,
+        testInquiry: sla.isOnboardingTestInquiry({
+          utmSource: sla.utmSourceOf(firstInquiry?.inputContext ?? null),
+          customerTags: opp.customer.tags,
+          lostReason: opp.lostReason,
+        }),
+      };
     },
     hasFeedback: async (actionId, terminal) => {
       const { db } = await import("@/lib/db");
@@ -340,14 +426,31 @@ export function defaultFeedbackDeps(): FeedbackDeps {
       const { createHumanFeedbackEvent } = await import("@/lib/employee-ai/feedback-service");
       return createHumanFeedbackEvent(input);
     },
+    // 与 assistant/followup-task.ts、tender-workforce 同一模式：事务内 advisory lock 串行化先查后写
+    withLock: async (actionId, fn) => {
+      const { db } = await import("@/lib/db");
+      return db.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`fde-draft-feedback:${actionId}`}))`;
+          return fn();
+        },
+        { timeout: 15_000, maxWait: 5_000 },
+      );
+    },
   };
 }
 
 function defaultSweepDeps(): SweepDeps {
   return {
-    listCandidates: async (now, limit) => {
+    listCandidates: async (now, limit, cursorId) => {
       const { db } = await import("@/lib/db");
-      const rows = await db.pendingAction.findMany({ where: feedbackSweepWhere(now), select: { id: true }, orderBy: { updatedAt: "desc" }, take: limit });
+      const rows = await db.pendingAction.findMany({
+        where: feedbackSweepWhere(now),
+        select: { id: true },
+        orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+        take: limit,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
       return rows.map((r) => r.id);
     },
     withFeedback: async (actionIds) => {

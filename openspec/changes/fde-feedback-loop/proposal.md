@@ -44,14 +44,19 @@ FDE 询盘回复草稿的批准、驳回、过期今天都不留任何学习信�
    - `HumanFeedbackEvent.humanDecision` 只有 accepted / edited / rejected / deferred / not_applicable。映射为：approved_as_is → accepted，approved_edited → edited，rejected → rejected，expired → deferred。
    - 任务书的四种 feedbackType 原样写在 `aiOutputRef.feedbackType`。
    - 任务书的 `employeeKey = inbound_sales_fde` 写入 `skillSlug`（有 `(orgId, skillSlug, createdAt)` 索引）。`scope = team` 对应 `feedbackScope = "team_candidate"`，这也是 `practice-miner` 读取的范围。
+   - `taskType = "fde_email_reply"`：含 email，`practice-miner` / `preference-learner` 才会把将来的改稿事件识别为邮件类反馈。
 3. **过期事件的 userId**：
    - 表上 `userId` 必填，过期没有决策人，取审批指定的审批人，没有则取创建人（FDE 的负责人）。
    - 人工取消（"已取消"）与系统作废（新来信 / 人工已回复 / 入驻测试）不在任务书的四种终态里，不产事件。
 4. **驳回原因**：审批中心的驳回备注就是 `PendingAction.failureReason`，原样带入 `reasonText`，只把买家信息换成占位符；`reasonCode` 不猜，留空。
-5. **补漏扫描放在既有 `approval-timeout` 定时任务里**（每 2 小时），不新增 cron。三类写入时间上互不重叠，配合"先查后写"做到同一终态只产一条：
-   - 批准 / 驳回：端口内的 CAS 赢家立即记；
-   - 过期：定时任务的过期赢家记；
-   - 补漏：只看终态超过 10 分钟的。
+5. **补漏扫描放在既有 `approval-timeout` 定时任务里**（每 2 小时），不新增 cron。同一终态只产一条靠两层：
+   - 三类写入时机基本不重叠：批准 / 驳回只在端口确实改变状态时记，过期由定时任务的过期赢家记，补漏只看终态超过 10 分钟的；
+   - 边角重叠由记录器在按审批的事务锁（`pg_advisory_xact_lock`，仓库已有同一用法）里先查后写兜底。
+6. **入驻测试询盘不产学习事件**：与询盘 SLA 指标、工作量面板同一判定（UTM / 客户标签 / 丢单原因）。
+7. **【GATE 注意项】下游读者口径会变**：
+   - `metrics.ts` 的团队采纳率分母计入全部事件，岗位视图"运维与知识"的"采纳率"KPI 会开始包含 FDE 草稿的照发 / 驳回 / 过期；
+   - `preference-learner` 只读每人最近 40 条事件，审批人的系统事件会占据这个窗口。
+   - 本 change 不改这两个读者（任务书只要求产事件）。建议后续在读者侧按 `humanDecision` / `skillSlug` 过滤，请 GATE 确认。
 
 ## Capabilities
 

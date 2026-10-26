@@ -138,12 +138,30 @@ console.log("买家信息替换（spec 场景）");
   ok(masked.includes("buyer@acme.com"), "收件人邮箱保留（大小写不敏感比较）");
   ok(masked.includes("2026-10-26"), "日期不当电话");
   const first = maskBuyerPii("语气太硬，John 是老客户；JOHN 也这么说", { contactName: "John Smith", companyName: null });
-  ok(!/john/i.test(first) && first.includes(PII_PLACEHOLDERS.contact), "联系人的名字单独出现也替换（忽略大小写）", first);
+  ok(!/john/i.test(first) && first.includes(PII_PLACEHOLDERS.contact), "联系人的名字单独出现也替换（原样与全大写）", first);
   ok(maskBuyerPii("Johnson & Co", { contactName: "John" }) === "Johnson & Co", "按词边界：Johnson 不被误替换");
   ok(maskBuyerPii("张先生，您好：张伟说", { contactName: "张伟", companyName: "上海某某家居有限公司" }).includes(PII_PLACEHOLDERS.contact), "中文名按子串替换");
   ok(maskBuyerPii("Mr Smith from Home Ltd", { contactName: "Mr Smith", companyName: "Home Ltd" }) === `${PII_PLACEHOLDERS.contact} from ${PII_PLACEHOLDERS.company}`, "称谓不单独替换，整名替换");
   ok(maskBuyerPii(null, {}) === "" && maskBuyerPii("no pii here", {}) === "no pii here", "空值与无信息原样");
 }
+
+console.log("买家信息替换：不过度替换、不漏（交叉审查用例）");
+{
+  const keep = ["MOQ 500-1000 pcs per color", "Total USD 12000.50", "Ship on 12.01.2026", "Window 2026-12-01 - 2027-01-15", "Order 2,000 sets", "Lead time 25-30 days"];
+  for (const t of keep) ok(maskBuyerPii(t, { contactName: "John Smith" }) === t, `不当电话：${t}`, maskBuyerPii(t, { contactName: "John Smith" }));
+  for (const t of ["+86 138 0013 8000", "(416) 555-0199", "416-555-0199", "0571-88881234", "13800138000"]) {
+    ok(maskBuyerPii(`Tel ${t}.`, {}) === `Tel ${PII_PLACEHOLDERS.phone}.`, `电话：${t}`, maskBuyerPii(`Tel ${t}.`, {}));
+  }
+  ok(maskBuyerPii("We will ship an order to the team", { contactName: "Will An", companyName: "Purchasing Team" }) === "We will ship an order to the team", "小写常用词不因联系人 / 公司名被替换（区分大小写、≥ 3 字母、常见词表）");
+  ok(maskBuyerPii("Hi Will, the Purchasing Team says hi", { contactName: "Will An", companyName: "Purchasing Team" }) === `Hi ${PII_PLACEHOLDERS.contact}, the ${PII_PLACEHOLDERS.company} says hi`, "首字母大写的名字与整名照常替换");
+  ok(maskBuyerPii("Smith said ok; José agreed", { contactName: "José Smith" }) === `${PII_PLACEHOLDERS.contact} said ok; ${PII_PLACEHOLDERS.contact} agreed`, "非 ASCII 拉丁名拆开替换");
+  ok(maskBuyerPii("Reply to john@acme.com, cc John at Acme", { contactName: "John", companyName: "Acme", recipientEmail: "john@acme.com" }) === `Reply to john@acme.com, cc ${PII_PLACEHOLDERS.contact} at ${PII_PLACEHOLDERS.company}`, "收件人邮箱不被名字替换拆坏");
+  ok(maskBuyerPii("ping john.private@gmail.com", { contactName: "John" }) === `ping ${PII_PLACEHOLDERS.email}`, "其他邮箱整体替换");
+}
+
+console.log("段落分类边界");
+ok(JSON.stringify(sectionsOf(["Dear Ann,", "", "Size options:", "10.5 cm wide", "", "Best regards,", "Lucas"].join("\n"))) === JSON.stringify(["greeting", "facts", "signature"]), "\"10.5 cm\" 不算编号追问");
+ok(JSON.stringify(sectionsOf(["张先生，您好：", "", "感谢您的询盘。", "", "期待您的回复。", "", "李明", "Sunny Home Deco Co., Ltd."].join("\n"))) === JSON.stringify(["greeting", "facts", "facts", "signature"]), "以 Co., Ltd. 结尾的公司名仍算签名块");
 
 console.log(`\nFDE 询盘回复草稿 diff: ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);

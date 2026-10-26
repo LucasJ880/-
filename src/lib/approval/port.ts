@@ -183,7 +183,8 @@ async function reconcileAfterPendingAction(input: {
 
 /**
  * B-1（fde-feedback-loop）：FDE 询盘回复草稿到达终态后产生团队反馈事件。
- * 只在改变了状态的那一次调用里触发（重复 / 已终态分支不调用）；尽力而为，任何异常只记日志，
+ * 只在改变了状态的那一次调用里触发（重复 / 已终态 / 无权等未改状态的分支不调用；记录器内另有锁内先查后写）；
+ * 尽力而为，任何异常只记日志，
  * 不改变审批结果与返回值。非询盘回复类型不加载模块。
  */
 const INQUIRY_REPLY_ACTION = "sales.send_inquiry_reply";
@@ -293,7 +294,8 @@ export async function approveApprovalItem(
           ? "expired"
           : "failed";
 
-    await recordFdeDraftFeedback(id, before?.type);
+    // 只在本次调用确实改变了状态时记（无权 / 隔离 / 跨组织等拒绝执行的错误不会改状态）
+    if (before && after && after.status !== before.status) await recordFdeDraftFeedback(id, before.type);
 
     const run = await reconcileAfterPendingAction({
       actionId: id,
@@ -480,7 +482,8 @@ export async function rejectApprovalItem(
       };
     }
 
-    await recordFdeDraftFeedback(id, before?.type);
+    // 只在驳回真正生效时记
+    if (result.ok) await recordFdeDraftFeedback(id, before?.type);
 
     const run = await reconcileAfterPendingAction({
       actionId: id,

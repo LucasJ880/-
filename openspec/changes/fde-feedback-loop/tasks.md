@@ -29,6 +29,15 @@
   - 在 `draft-feedback.test.ts` 里补源码静态断言。
   - verify：静态断言通过（接入在非重复分支、包在异常保护里，复用草稿不写快照，`vercel.json` 无改动），覆盖 spec「接入点覆盖全部审批入口并有补漏」「复用草稿不重复写」「重复批准请求」；既有 `src/lib/approval/__tests__` 与 FDE 相关测试仍全部通过；`npm run typecheck` 退出 0。
 
+- [x] 3.2 处理独立交叉审查（1 阻塞 + 6 应修）：
+  - 快照从 `AuditLog.afterData`（JSON 字符串）读回时解析，并有往返测试；
+  - 入驻测试询盘跳过；`taskType` 改为 `fde_email_reply`；
+  - 批准只在状态确实变化时记、驳回只在生效时记，记录器加按审批的 advisory lock；
+  - 补漏查询排除不会产事件的终态，从最早翻页、每轮上限；
+  - 买家信息替换：电话要求电话结构、单个名字区分大小写并排除常见词、Unicode 名、邮箱先保护；
+  - 多份快照取哈希一致的那份；段落分类边界（小数、Co., Ltd.）。
+  - verify：两个 B-1 测试退出 0；`openspec validate fde-feedback-loop --strict` 通过。
+
 ## 4. 门禁
 
 - [ ] 4.1 跑全量门禁。verify：

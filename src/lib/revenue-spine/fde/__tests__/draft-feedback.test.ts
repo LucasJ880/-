@@ -16,6 +16,7 @@ import {
   feedbackSweepWhere,
   feedbackTerminal,
   parseDraftSnapshot,
+  pickSnapshot,
   recordInquiryDraftSnapshotSafe,
   recordInquiryReplyFeedback,
   recordInquiryReplyFeedbackSafe,
@@ -86,20 +87,25 @@ function row(o: Partial<FeedbackActionRow> = {}): FeedbackActionRow {
   };
 }
 
-function deps(o: Partial<FeedbackDeps> & { action?: FeedbackActionRow | null; existing?: boolean; snapshot?: ReturnType<typeof buildDraftSnapshot> | null } = {}) {
+function deps(o: Partial<FeedbackDeps> & { action?: FeedbackActionRow | null; existing?: boolean; snapshot?: ReturnType<typeof buildDraftSnapshot> | null; testInquiry?: boolean } = {}) {
   const created: CreateFeedbackInput[] = [];
+  let locks = 0;
   const d: FeedbackDeps = {
     loadAction: async () => (o.action === undefined ? row() : o.action),
-    loadSnapshot: async () => (o.snapshot === undefined ? buildDraftSnapshot(snapshotInput()) : o.snapshot),
-    loadBuyer: async () => BUYER,
+    loadSnapshots: async () => (o.snapshot === undefined ? [buildDraftSnapshot(snapshotInput())] : o.snapshot ? [o.snapshot] : []),
+    loadBuyer: async () => ({ ...BUYER, testInquiry: o.testInquiry ?? false }),
     hasFeedback: async () => o.existing ?? false,
     createFeedback: async (input) => {
       created.push(input);
       return { id: `ev-${created.length}` };
     },
+    withLock: async (_id, fn) => {
+      locks++;
+      return fn();
+    },
     ...o,
   };
-  return { d, created };
+  return { d, created, locks: () => locks };
 }
 
 async function main() {
@@ -113,6 +119,9 @@ async function main() {
     ok(s.guardrail.passed && s.guardrail.violations.length === 0 && s.pendingInternalConfirmation.join(",") === "MOQ,pricing" && s.templateOnly === true, "护栏结果、待内部确认项、是否模板");
     ok(buildDraftSnapshot(snapshotInput({ body: "x".repeat(12_000) })).body.length === 10_000, "正文截断 10k（与执行器一致）");
     ok(parseDraftSnapshot(s)?.bodyHash === s.bodyHash && parseDraftSnapshot({ version: 2 }) === null && parseDraftSnapshot(null) === null, "读回快照：版本或字段不符视为没有");
+    ok(parseDraftSnapshot(JSON.stringify(s))?.bodyHash === s.bodyHash && parseDraftSnapshot("not json") === null, "AuditLog.afterData 是 JSON 字符串：读回时解析（交叉审查阻塞项）");
+    const other = buildDraftSnapshot(snapshotInput({ body: `${BODY}\nP.S.` }));
+    ok(pickSnapshot([other, s], s.bodyHash) === s && pickSnapshot([other, s], "zzz") === other && pickSnapshot([], "x") === null, "多份快照：取正文哈希一致的，否则最早一份");
     const written: unknown[] = [];
     await recordInquiryDraftSnapshotSafe(snapshotInput(), { writeAudit: async (p) => void written.push(p) });
     const w = written[0] as { action: string; targetType: string; targetId: string; userId: string };
@@ -152,7 +161,10 @@ async function main() {
     const r = await recordInquiryReplyFeedback("pa-1", d);
     const e = created[0];
     ok(r.status === "recorded" && r.feedbackType === "approved_as_is" && e.humanDecision === "accepted" && e.userId === "u-decider", "照发批准 → approved_as_is / accepted，用户为决策人（spec 场景）", { r, e });
-    ok(e.feedbackScope === "team_candidate" && e.skillSlug === FDE_FEEDBACK_SKILL && e.taskType === "inquiry_reply" && e.pendingActionId === "pa-1" && e.systemRecorded === true, "团队候选范围、员工键、审批 id、系统记录");
+    ok(e.feedbackScope === "team_candidate" && e.skillSlug === FDE_FEEDBACK_SKILL && e.pendingActionId === "pa-1" && e.systemRecorded === true, "团队候选范围、员工键、审批 id、系统记录");
+    const miner = read("src/lib/employee-ai/practice-miner.ts");
+    const learner = read("src/lib/employee-ai/preference-learner.ts");
+    ok(/\/follow\|跟进\|mail\|email\|quote\/i\.test\(e\.taskType\)/.test(miner) && /follow|跟进|mail|email|quote/i.test(e.taskType) && /\/mail\|email\|跟进\|draft\/i\.test\(e\.taskType\)/.test(learner) && /mail|email|跟进|draft/i.test(e.taskType), "taskType 能被 practice-miner / preference-learner 识别为邮件类反馈", e.taskType);
     const ref = e.aiOutputRef as Record<string, unknown>;
     ok(ref.terminal === "approved" && ref.feedbackType === "approved_as_is" && ref.opportunityId === "opp-1" && ref.agentRunId === "run-9" && ref.type === "pending_action", "引用：终态、类型、商机、FDE 运行");
     ok(!("aiOutputSnapshot" in e) && !("humanEditedOutput" in e) && (e.diffSummary as { changed: boolean }).changed === false, "不传正文快照与修改结果；diff 为无修改");
@@ -185,6 +197,37 @@ async function main() {
   }
 
   console.log("不记的情况与幂等（spec「同一审批同一终态只产一条事件」）");
+  {
+    const test = deps({ testInquiry: true });
+    const r = await recordInquiryReplyFeedback("pa-1", test.d);
+    ok(r.status === "skipped" && r.reason === "onboarding_test" && test.created.length === 0, "入驻测试询盘的草稿不产学习事件（与工作量 / SLA 同一判定）");
+    // 两路同时到达：锁内先查后写，只写一条
+    const store = new Set<string>();
+    let chain = Promise.resolve();
+    const created: string[] = [];
+    const shared: Partial<FeedbackDeps> = {
+      hasFeedback: async (id, terminal) => store.has(`${id}:${terminal}`),
+      createFeedback: async (input) => {
+        await new Promise((res) => setTimeout(res, 5));
+        const ref = input.aiOutputRef as { id: string; terminal: string };
+        store.add(`${ref.id}:${ref.terminal}`);
+        created.push(ref.id);
+        return { id: "e" };
+      },
+      withLock: async (_id, fn) => {
+        const run = chain.then(fn);
+        chain = run.then(() => undefined, () => undefined);
+        return run;
+      },
+    };
+    await Promise.all([recordInquiryReplyFeedback("pa-1", deps(shared).d), recordInquiryReplyFeedback("pa-1", deps(shared).d)]);
+    ok(created.length === 1, "端口与补漏同时到达：锁内先查后写只产一条", created);
+    const counted = deps();
+    await recordInquiryReplyFeedback("pa-1", counted.d);
+    ok(counted.locks() === 1, "写入走锁");
+    const feedbackSrc = stripComments(read("src/lib/revenue-spine/fde/draft-feedback.ts"));
+    ok(/tx\.\$executeRaw`SELECT pg_advisory_xact_lock\(hashtext\(\$\{`fde-draft-feedback:\$\{actionId\}`\}\)\)`/.test(feedbackSrc), "生产锁：事务内 pg_advisory_xact_lock（与仓库既有模式一致）");
+  }
   {
     const { d, created } = deps({ existing: true });
     const r = await recordInquiryReplyFeedback("pa-1", d);
@@ -252,12 +295,13 @@ async function main() {
   {
     const now = new Date("2026-10-26T12:00:00Z");
     const w = feedbackSweepWhere(now);
-    ok(w.type === INQUIRY_REPLY_TYPE && JSON.stringify(w.status) === '{"in":["executed","rejected","failed"]}', "只看询盘回复的终态");
+    const json = JSON.stringify(w.OR);
+    ok(w.type === INQUIRY_REPLY_TYPE && json.includes('"status":"executed"') && json.includes('"failureReason":"已过期"') && json.includes('"startsWith":"关联任务已取消"') && json.includes('"startsWith":"BATCH_PREPARE_FAILED"') && json.includes('"startsWith":"SUPERSEDED_"') && json.includes('"failureReason":"已取消"'), "查询里就排除不会产事件的终态（取消 / 作废 / 批量失败 / 关联任务取消）", json);
     ok(w.updatedAt.lte.getTime() === now.getTime() - 10 * 60_000 && w.updatedAt.gte.getTime() === now.getTime() - 7 * 86_400_000, "近 7 天、终态已超过 10 分钟");
     ok(JSON.stringify(existingFeedbackWhere(["a"])) === JSON.stringify({ skillSlug: FDE_FEEDBACK_SKILL, pendingActionId: { in: ["a"] } }), "已有事件按员工键 + 审批 id 查");
     const recorded: string[] = [];
     const res = await sweepInquiryReplyFeedback(now, {
-      listCandidates: async () => ["a", "b", "c"],
+      listCandidates: async (_now, _limit, cursor) => (cursor ? [] : ["a", "b", "c"]),
       withFeedback: async () => new Set(["b"]),
       record: async (id) => {
         recorded.push(id);
@@ -265,6 +309,32 @@ async function main() {
       },
     });
     ok(recorded.join(",") === "a,c" && res.scanned === 3 && res.recorded === 1 && res.skipped === 1, "已有事件的跳过，其余逐个记录", { recorded, res });
+    // 分页：最早的一页全已有事件，不能让后面的漏记饿死
+    const all = Array.from({ length: 450 }, (_, i) => `id${String(i).padStart(3, "0")}`);
+    const cursors: Array<string | null> = [];
+    const got: string[] = [];
+    const paged = await sweepInquiryReplyFeedback(now, {
+      listCandidates: async (_now, limit, cursor) => {
+        cursors.push(cursor);
+        const from = cursor ? all.indexOf(cursor) + 1 : 0;
+        return all.slice(from, from + limit);
+      },
+      withFeedback: async (ids) => new Set(ids.filter((id) => Number(id.slice(2)) < 400)),
+      record: async (id) => {
+        got.push(id);
+        return { status: "recorded", feedbackType: "expired", eventId: "e" };
+      },
+    });
+    ok(got.length === 50 && got[0] === "id400" && paged.pages === 3 && JSON.stringify(cursors) === JSON.stringify([null, "id199", "id399"]), "从最早翻页：前两页都已有事件也会翻到后面的漏记", { got: got.length, first: got[0], cursors, paged });
+    const capped = await sweepInquiryReplyFeedback(now, {
+      listCandidates: async (_now, limit, cursor) => {
+        const from = cursor ? all.indexOf(cursor) + 1 : 0;
+        return all.slice(from, from + limit);
+      },
+      withFeedback: async () => new Set(),
+      record: async () => ({ status: "recorded", feedbackType: "expired", eventId: "e" }),
+    });
+    ok(capped.recorded === 100, "每轮最多处理 100 条", capped);
   }
 
   console.log("接入点（spec「接入点覆盖全部审批入口并有补漏」）");
@@ -275,11 +345,13 @@ async function main() {
     const approve = port.slice(port.indexOf("export async function approveApprovalItem"), port.indexOf("export async function rejectApprovalItem"));
     const reject = port.slice(port.indexOf("export async function rejectApprovalItem"), port.indexOf("export async function expireOverdueApprovals"));
     for (const [name, fn, call] of [["批准", approve, "executePendingAction("], ["驳回", reject, "rejectPendingAction("]] as const) {
-      const hook = fn.indexOf("await recordFdeDraftFeedback(id, before?.type);");
+      const hook = fn.indexOf("recordFdeDraftFeedback(");
       const lastDuplicate = fn.lastIndexOf("duplicate: true");
       ok(hook !== -1 && fn.split("recordFdeDraftFeedback(").length === 2, `${name}：恰好一处调用`);
       ok(hook > fn.indexOf(call) && hook > lastDuplicate, `${name}：在执行之后、所有重复 / 已终态分支之后（重复请求不调用，spec 场景）`);
     }
+    ok(/if \(before && after && after\.status !== before\.status\) await recordFdeDraftFeedback\(id, before\.type\);/.test(approve), "批准：只在本次调用确实改变了状态时记（无权 / 隔离 / 跨组织不记）");
+    ok(/if \(result\.ok\) await recordFdeDraftFeedback\(id, before\?\.type\);/.test(reject), "驳回：只在驳回真正生效时记");
     ok(/select: \{ agentRunId: true, orgId: true, status: true, type: true \}/.test(reject), "驳回前读出类型，非询盘回复不加载模块");
     const expire = port.slice(port.indexOf("export async function expireOverdueApprovals"));
     ok(/for \(const row of expiredWinners\) \{\s*if \(row\.type === INQUIRY_REPLY_ACTION\) await recordFdeDraftFeedback\(row\.id, row\.type\);/.test(expire), "过期：只对本轮赢家调用");
