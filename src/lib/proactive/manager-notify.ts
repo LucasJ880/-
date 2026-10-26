@@ -7,6 +7,7 @@
  * - 排除：自动化一轮已处理的人；平台 admin / super_admin（项目可见性是全平台）；
  * - 上限：每轮 100 人，另有时间预算。按 userId 排序，从上一轮最后处理的人之后接着排（游标记在本定时任务自己的运行记录
  *   metadata.notifyOnlyResumeAfter）；人数超上限或预算截断时，后面几轮接着处理，不会固定漏掉一批人。
+ *   候选查询本身也从游标之后读（再从头补一段用于循环），所以候选行数上限不会让排在后面的人永远轮不到。
  */
 
 import type { AutomationOutcome } from "@/lib/automation/runner";
@@ -15,7 +16,7 @@ const DAY_MS = 86_400_000;
 
 export const MANAGER_NOTIFY_CAP = 100;
 export const MANAGER_ACTIVE_WINDOW_DAYS = 30;
-/** 候选成员行读取上限；读满即在 metadata 标 notifyOnlyCandidatesTruncated */
+/** 每段候选成员行读取上限（游标之后一段 + 从头一段）；读满即在 metadata 标 notifyOnlyCandidatesTruncated */
 export const MANAGER_CANDIDATE_LIMIT = 2000;
 export const MANAGER_ORG_ROLES = ["org_owner", "org_admin"] as const;
 export const MANAGER_PLATFORM_ROLES = ["boss", "manager"] as const;
@@ -43,6 +44,11 @@ export function managerCandidateWhere(now: Date) {
     },
     OR: [{ role: { in: [...MANAGER_ORG_ROLES] } }, { user: { role: { in: [...MANAGER_PLATFORM_ROLES] } } }],
   };
+}
+
+/** 候选分段：游标之后（gt）/ 从头到游标（lte）/ 不分段（null） */
+export function candidateSegmentWhere(now: Date, userId: { gt: string } | { lte: string } | null) {
+  return userId ? { ...managerCandidateWhere(now), userId } : managerCandidateWhere(now);
 }
 
 /** 上一轮游标所在的运行记录：本定时任务最近一次完成（成功 / 部分成功）的运行；正在跑的这一轮是 running，不会读到自己 */
@@ -98,7 +104,8 @@ export interface ManagerNotifyRun {
 }
 
 export interface ManagerNotifyDeps {
-  loadCandidates(now: Date): Promise<{ candidates: ManagerCandidate[]; truncated: boolean }>;
+  /** 候选：游标之后的一段 + 从头的一段（循环用）；没有游标时只读从头的一段 */
+  loadCandidates(now: Date, resumeAfter: string | null): Promise<{ candidates: ManagerCandidate[]; truncated: boolean }>;
   /** 只扫描、只写通知（runProactiveScanForUser(..., { autoActions: false })） */
   scanNotifyOnly(userId: string, platformRole: string): Promise<{ suggestions: number; notifications: number }>;
   nowMs(): number;
@@ -110,7 +117,7 @@ export async function runManagerNotify(
   deps: ManagerNotifyDeps = defaultManagerNotifyDeps(),
 ): Promise<ManagerNotifyRun> {
   const startedAt = deps.nowMs();
-  const loaded = await deps.loadCandidates(input.now);
+  const loaded = await deps.loadCandidates(input.now, input.resumeAfter);
   const plan = planManagerNotifyRun({ candidates: loaded.candidates, alreadyScanned: input.alreadyScanned, resumeAfter: input.resumeAfter });
   const results: ManagerNotifyResult[] = [];
   const done = (stoppedByBudget: boolean): ManagerNotifyRun => ({
@@ -134,15 +141,24 @@ export async function runManagerNotify(
 
 export function defaultManagerNotifyDeps(): ManagerNotifyDeps {
   return {
-    loadCandidates: async (now) => {
+    loadCandidates: async (now, resumeAfter) => {
       const { db } = await import("@/lib/db");
-      const rows = await db.organizationMember.findMany({
-        where: managerCandidateWhere(now),
-        select: { userId: true, user: { select: { role: true } } },
-        orderBy: [{ userId: "asc" }, { id: "asc" }],
-        take: MANAGER_CANDIDATE_LIMIT,
-      });
-      return { candidates: rows.map((r) => ({ userId: r.userId, platformRole: r.user.role })), truncated: rows.length >= MANAGER_CANDIDATE_LIMIT };
+      const segment = (where: ReturnType<typeof candidateSegmentWhere>) =>
+        db.organizationMember.findMany({
+          where,
+          select: { userId: true, user: { select: { role: true } } },
+          orderBy: [{ userId: "asc" }, { id: "asc" }],
+          take: MANAGER_CANDIDATE_LIMIT,
+        });
+      const [after, head] = await Promise.all([
+        resumeAfter ? segment(candidateSegmentWhere(now, { gt: resumeAfter })) : Promise.resolve([]),
+        segment(candidateSegmentWhere(now, resumeAfter ? { lte: resumeAfter } : null)),
+      ]);
+      const rows = [...after, ...head];
+      return {
+        candidates: rows.map((r) => ({ userId: r.userId, platformRole: r.user.role })),
+        truncated: after.length >= MANAGER_CANDIDATE_LIMIT || head.length >= MANAGER_CANDIDATE_LIMIT,
+      };
     },
     scanNotifyOnly: async (userId, platformRole) => {
       const { runProactiveScanForUser } = await import("./run-scan");
@@ -198,7 +214,11 @@ export async function runProactiveScanCron(
   }
   const automationUsers = results.length;
 
-  const resumeAfter = await deps.loadResumeAfter().catch(() => null);
+  let resumeError: string | null = null;
+  const resumeAfter = await deps.loadResumeAfter().catch((error: unknown) => {
+    resumeError = error instanceof Error ? error.message : String(error);
+    return null;
+  });
   let managers: ManagerNotifyRun = { results: [], planned: 0, stoppedByBudget: false, candidatesTruncated: false, lastUserId: null };
   let notifyOnlyError: string | null = null;
   try {
@@ -213,14 +233,15 @@ export async function runProactiveScanCron(
   }
   results.push(...managers.results);
 
-  const failedUsers = results.filter((r) => r.error).length;
-  const failedCount = failedUsers + (notifyOnlyError ? 1 : 0);
+  const failedCount = results.filter((r) => r.error).length;
   // 这一轮一个都没补发（出错 / 预算为 0 / 没人）时沿用上一轮游标，不回到开头
   const nextResumeAfter = managers.lastUserId ?? resumeAfter;
   return {
     data: { scannedAt: new Date(deps.nowMs()).toISOString(), users: results },
+    // 补发整轮出错：运行记部分成功（计数仍按人，加得起来）
+    ...(notifyOnlyError ? { status: "partial" as const } : {}),
     processedCount: results.length,
-    succeededCount: results.length - failedUsers,
+    succeededCount: results.length - failedCount,
     failedCount,
     metadata: {
       enabledUsers: automationUsers,
@@ -230,6 +251,7 @@ export async function runProactiveScanCron(
       notifyOnlyCandidatesTruncated: managers.candidatesTruncated,
       ...(nextResumeAfter ? { notifyOnlyResumeAfter: nextResumeAfter } : {}),
       ...(notifyOnlyError ? { notifyOnlyError } : {}),
+      ...(resumeError ? { notifyOnlyResumeError: resumeError } : {}),
     },
   };
 }

@@ -23,6 +23,12 @@
   - `route.ts` 改为调用两轮主体；proposal / spec / design 同步（偏差 5、6，D2 / D3 / D5，新增 4 个 scenario）。
   - verify：`manager-notify.test.ts` 20 条全过；6 处变异（旧 key、计数、失败计入、游标、enabledUsers 位置、游标沿用）各至少 1 条断言失败；scoped `tsc` 退出 0；`openspec validate org-cockpit-proactive-notify --strict` 通过。
 
+- [x] 2.3 第二轮交叉审查修正（阻塞 1 + 应修 3 + 可选 O2–O6）：
+  - 路由写回字面量 `runTrackedAutomation("proactive-scan", …)`（`schedule.test.ts` 依赖）；
+  - 候选查询分段读（游标之后 + 从头），读取上限不再永久跳人；读游标失败记 `notifyOnlyResumeError`；整轮出错改为返回 `status: "partial"`、计数按人；
+  - 测试：2100 人分段假 DB、剩余预算与 now 接线、通知默认依赖静态断言；spec / proposal / design 同步。
+  - verify：`manager-notify.test.ts` 23 条、`schedule.test.ts` 182 条全过；预算 / now / partial 三处变异各至少 1 条断言失败；scoped `tsc` 退出 0；`openspec validate --strict` 通过。
+
 ## 3. 门禁与交付
 
 - [ ] 3.1 跑全部门禁并做独立交叉审查：

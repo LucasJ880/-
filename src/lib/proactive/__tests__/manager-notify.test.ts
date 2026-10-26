@@ -12,6 +12,7 @@ import {
   MANAGER_CANDIDATE_LIMIT,
   MANAGER_NOTIFY_CAP,
   PROACTIVE_RUN_BUDGET_MS,
+  candidateSegmentWhere,
   managerCandidateWhere,
   planManagerNotifyRun,
   resumeAfterOf,
@@ -205,13 +206,15 @@ async function main() {
 
   console.log("\n定时任务两轮");
 
-  function fakeCron(over: Partial<{ automation: string[]; disabled: string[]; failAutomation: string; notify: (input: Parameters<ProactiveCronDeps["notifyManagers"]>[0]) => Promise<ManagerNotifyRun>; resumeAfter: string | null; resumeFails: boolean }> = {}) {
+  function fakeCron(over: Partial<{ automation: string[]; disabled: string[]; failAutomation: string; notify: (input: Parameters<ProactiveCronDeps["notifyManagers"]>[0]) => Promise<ManagerNotifyRun>; resumeAfter: string | null; resumeFails: boolean; automationMs: number }> = {}) {
     const seen: Array<Parameters<ProactiveCronDeps["notifyManagers"]>[0]> = [];
+    let clock = NOW.getTime();
     const deps: ProactiveCronDeps = {
-      nowMs: () => NOW.getTime(),
+      nowMs: () => clock,
       loadAutomationUsers: async () => (over.automation ?? ["a1", "a2", "a3"]).map((userId) => ({ userId, role: "user" })),
       automationEnabled: async (userId) => !(over.disabled ?? []).includes(userId),
       scanWithAutomation: async (userId) => {
+        clock += over.automationMs ?? 0;
         if (userId === over.failAutomation) throw new Error("scan failed");
         return { suggestions: 2, actions: 1, notifications: 1 };
       },
@@ -246,6 +249,17 @@ async function main() {
     assert.deepEqual([...f.seen[0].alreadyScanned], ["a1", "a2", "a3"]);
     assert.equal(f.seen[0].budgetMs, PROACTIVE_RUN_BUDGET_MS);
     assert.equal(f.seen[0].resumeAfter, "m0");
+    assert.equal(f.seen[0].now.getTime(), NOW.getTime());
+  });
+
+  await ok("补发用剩余预算与当前时刻：自动化一轮用掉 150 秒 → 补发预算 90 秒，now 为补发开始时刻；用超了预算为 0", async () => {
+    const f = fakeCron({ automationMs: 50_000 });
+    await runProactiveScanCron(f.deps);
+    assert.equal(f.seen[0].budgetMs, PROACTIVE_RUN_BUDGET_MS - 150_000);
+    assert.equal(f.seen[0].now.getTime(), NOW.getTime() + 150_000);
+    const over = fakeCron({ automationMs: 100_000 });
+    await runProactiveScanCron(over.deps);
+    assert.equal(over.seen[0].budgetMs, 0);
   });
 
   await ok("自动化一轮：关了自动化的跳过；单人失败记 error 且计失败、仍进入已处理名单", async () => {
@@ -257,7 +271,7 @@ async function main() {
     assert.deepEqual([...f.seen[0].alreadyScanned], ["a1", "a3"]);
   });
 
-  await ok("补发整轮出错：记 notifyOnlyError、失败计数 +1（运行记 partial），自动化一轮结果保留，游标沿用上一轮", async () => {
+  await ok("补发整轮出错：记 notifyOnlyError、运行记 partial（计数仍按人），自动化一轮结果保留，游标沿用上一轮", async () => {
     const f = fakeCron({
       resumeAfter: "m2",
       notify: async () => {
@@ -266,18 +280,46 @@ async function main() {
     });
     const out = await runProactiveScanCron(f.deps);
     assert.equal(out.data.users.length, 3);
-    assert.deepEqual([out.processedCount, out.succeededCount, out.failedCount], [3, 3, 1]);
+    assert.equal(out.status, "partial");
+    assert.deepEqual([out.processedCount, out.succeededCount, out.failedCount], [3, 3, 0]);
     assert.equal(out.metadata!.notifyOnlyError, "candidates query failed");
     assert.equal(out.metadata!.notifyOnlyResumeAfter, "m2");
   });
 
-  await ok("游标读不到时从头开始、不影响本轮；一个都没补发时沿用上一轮游标", async () => {
+  await ok("游标读不到时从头开始、不影响本轮并在元数据记下；一个都没补发时沿用上一轮游标；正常时不标 partial", async () => {
     const f = fakeCron({ resumeFails: true });
-    await runProactiveScanCron(f.deps);
+    const failed = await runProactiveScanCron(f.deps);
     assert.equal(f.seen[0].resumeAfter, null);
+    assert.equal(failed.metadata!.notifyOnlyResumeError, "db down");
+    assert.equal(failed.status, undefined);
     const empty = fakeCron({ resumeAfter: "m3", notify: async () => ({ results: [], planned: 0, stoppedByBudget: true, candidatesTruncated: false, lastUserId: null }) });
     const out = await runProactiveScanCron(empty.deps);
     assert.equal(out.metadata!.notifyOnlyResumeAfter, "m3");
+  });
+
+  await ok("候选分段：游标之后（gt）/ 从头到游标（lte）/ 不分段", () => {
+    assert.deepEqual(candidateSegmentWhere(NOW, { gt: "u5" }), { ...managerCandidateWhere(NOW), userId: { gt: "u5" } });
+    assert.deepEqual(candidateSegmentWhere(NOW, { lte: "u5" }), { ...managerCandidateWhere(NOW), userId: { lte: "u5" } });
+    assert.deepEqual(candidateSegmentWhere(NOW, null), managerCandidateWhere(NOW));
+  });
+
+  await ok("场景「候选超过读取上限」：2100 位管理层、每段只读 2000 行 → 游标在查询里，21 轮内每个人都被处理（排在最后的 100 人不被永久跳过）", async () => {
+    const all = users(2100);
+    // 假 DB：与默认依赖同一分段规则（游标之后一段 + 从头一段，各按 userId 升序取 MANAGER_CANDIDATE_LIMIT 行）
+    const loadCandidates: ManagerNotifyDeps["loadCandidates"] = async (_now, resumeAfter) => {
+      const after = resumeAfter ? all.filter((x) => x.userId > resumeAfter).slice(0, MANAGER_CANDIDATE_LIMIT) : [];
+      const head = all.filter((x) => resumeAfter === null || x.userId <= resumeAfter).slice(0, MANAGER_CANDIDATE_LIMIT);
+      return { candidates: [...after, ...head], truncated: after.length >= MANAGER_CANDIDATE_LIMIT || head.length >= MANAGER_CANDIDATE_LIMIT };
+    };
+    const seen = new Set<string>();
+    let resumeAfter: string | null = null;
+    for (let hour = 0; hour < 21; hour++) {
+      const r = await runManagerNotify({ now: NOW, alreadyScanned: new Set(), budgetMs: 10_000, resumeAfter }, { ...fakeNotifyDeps().deps, loadCandidates });
+      for (const x of r.results) seen.add(x.userId);
+      resumeAfter = r.lastUserId ?? resumeAfter;
+    }
+    assert.equal(seen.size, 2100);
+    assert.ok(seen.has("u2099"));
   });
 
   await ok("多轮定时任务端到端：游标经运行记录 metadata 传到下一轮，预算截断下若干小时内每位管理层都被处理", async () => {
@@ -345,8 +387,13 @@ async function main() {
   await ok("默认依赖：补发调 runProactiveScanForUser(..., { autoActions: false })；候选按 userId 排序、带上限；自动化一轮查询与调用不变", () => {
     const src = strip(read("src/lib/proactive/manager-notify.ts"));
     assert.match(src, /runProactiveScanForUser\(userId, platformRole, \{ autoActions: false \}\)/);
-    assert.match(src, /where: managerCandidateWhere\(now\),/);
     assert.match(src, /orderBy: \[\{ userId: "asc" \}, \{ id: "asc" \}\],\s*take: MANAGER_CANDIDATE_LIMIT,/);
+    assert.match(src, /resumeAfter \? segment\(candidateSegmentWhere\(now, \{ gt: resumeAfter \}\)\) : Promise\.resolve\(\[\]\),\s*segment\(candidateSegmentWhere\(now, resumeAfter \? \{ lte: resumeAfter \} : null\)\),/);
+    assert.match(src, /truncated: after\.length >= MANAGER_CANDIDATE_LIMIT \|\| head\.length >= MANAGER_CANDIDATE_LIMIT,/);
+    // 通知默认依赖：只查本人名下的 key（否则别人名下的旧 key 会挡住本人）；冲突跳过并返回实际条数
+    const notifySrc = strip(read("src/lib/proactive/notify.ts"));
+    assert.match(notifySrc, /db\.notification\.findMany\(\{ where: \{ userId, sourceKey: \{ in: keys \} \}, select: \{ sourceKey: true \} \}\)/);
+    assert.match(notifySrc, /const \{ count \} = await db\.notification\.createMany\(\{ data: rows, skipDuplicates: true \}\);\s*return count;/);
     assert.equal(MANAGER_CANDIDATE_LIMIT, 2000);
     assert.match(src, /where: \{ metadata: \{ not: null \}, user: \{ status: "active" \} \},\s*select: \{ userId: true, user: \{ select: \{ role: true \} \} \},\s*orderBy: \{ updatedAt: "asc" \},\s*take: 100,/);
     assert.match(src, /const r = await runProactiveScanForUser\(userId, role\);/);
@@ -368,7 +415,8 @@ async function main() {
 
   await ok("定时任务接入：runTrackedAutomation(\"proactive-scan\") 包住两轮主体；不新增 cron", () => {
     const src = strip(read("src/app/api/cron/proactive-scan/route.ts"));
-    assert.match(src, /const data = await runTrackedAutomation\(PROACTIVE_SCAN_AUTOMATION_KEY, \(\) => runProactiveScanCron\(\)\);/);
+    // 字面量 "proactive-scan"：schedule.test.ts 按路由文件里的 key 字面量核对调度
+    assert.match(src, /const data = await runTrackedAutomation\("proactive-scan", \(\) => runProactiveScanCron\(\)\);/);
     assert.match(src, /export const maxDuration = 300;/);
     const vercel = JSON.parse(read("vercel.json")) as { crons: Array<{ path: string; schedule: string }> };
     assert.deepEqual(vercel.crons.filter((x) => x.path === "/api/cron/proactive-scan"), [{ path: "/api/cron/proactive-scan", schedule: "15 * * * *" }]);
