@@ -1,0 +1,90 @@
+[
+  {
+    "id": "en-step1-event-contact-signature",
+    "subject": "Re: Great meeting you at Heimtextil — Flannel Throw — Example Home Textile",
+    "body": "Dear Mark,\n\nI hope you had a good trip back from Heimtextil.\n\nI am following up on my email of November 1 about Flannel Throw. To prepare an accurate quotation for you, we only need a few details:\n1. What quantity are you planning to order?\n2. What are the finished sizes (width × length, or size range)?\n3. Which country should the goods be delivered to?\n\nIf it is easier, just reply with your quantity and the delivery date you have in mind, and we will take it from there.\n\nBest regards,\nLucy\nSales Manager\nExample Home Textile\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "quantity",
+      "size",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "en-step1-no-contact-no-event-no-questions",
+    "subject": "Following up — Example Home Textile",
+    "body": "Dear there,\n\nThank you again for your inquiry.\n\nI am following up on my email of November 1. To prepare an accurate quotation for you, we only need a few details:\n1. What quantity are you planning to order, and when would you like the goods delivered?\n\nIf it is easier, just reply with your quantity and the delivery date you have in mind, and we will take it from there.\n\nBest regards,\nLucy\nExample Home Textile",
+    "questionFields": []
+  },
+  {
+    "id": "en-step2-event-questions",
+    "subject": "Re: Your inquiry about hotel bathrobes — Example Home Textile",
+    "body": "Dear Mark,\n\nI wanted to check whether your project for hotel bathrobes is still active.\nWe can share more photos and details of the reference styles you saw at our booth, and each of them can be made to your own specification.\nAs soon as we know your quantity, size, destination country, we will prepare a quotation for you.\n\nBest regards,\nLucy\nSales Manager\nExample Home Textile\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "quantity",
+      "size",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "en-step2-no-product-no-questions",
+    "subject": "Following up — Example Home Textile",
+    "body": "Dear Mark,\n\nI wanted to check whether your project is still active.\nWhenever you are ready, we will be glad to prepare a quotation for you.\n\nBest regards,\nLucy\nExample Home Textile",
+    "questionFields": []
+  },
+  {
+    "id": "en-step3-last",
+    "subject": "Re: Your inquiry",
+    "body": "Dear Mark,\n\nI do not want to fill up your inbox, so this will be my last follow-up for now.\nIf the timing is not right, simply let me know when it would be better to get back in touch — we will be happy to help whenever you are ready with hotel bathrobes.\n\nBest regards,\nLucy\nSales Manager\nExample Home Textile\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "quantity",
+      "size",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "zh-step1-latin-event",
+    "subject": "回复：感谢展位来访：法兰绒毯 — 示例家纺",
+    "body": "王先生，您好：\n\n希望您从 Heimtextil 回去一路顺利。\n\n跟进一下我在 11 月 1 日 发给您的邮件（法兰绒毯）。为了给您准确报价，还需要以下几点信息：\n1. 请告知本次预计采购数量。\n2. 请提供成品尺寸（长 × 宽，或尺码范围）。\n3. 请告知货物目的国。\n\n如果方便，直接回复数量和期望交期即可，其余我们来跟进。\n\n祝好！\nLucy\nSales Manager\n示例家纺\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": [
+      "quantity",
+      "size",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "zh-step1-no-event-product",
+    "subject": "跟进：酒店浴袍 — 示例家纺",
+    "body": "您好：\n\n再次感谢您的询盘（酒店浴袍）。\n\n跟进一下我在 11 月 1 日 发给您的邮件（酒店浴袍）。为了给您准确报价，还需要以下几点信息：\n1. 请告知本次预计采购数量。\n2. 请提供成品尺寸（长 × 宽，或尺码范围）。\n3. 请告知货物目的国。\n\n如果方便，直接回复数量和期望交期即可，其余我们来跟进。\n\n祝好！\nLucy\n示例家纺",
+    "questionFields": [
+      "quantity",
+      "size",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "zh-step2-questions",
+    "subject": "回复：酒店浴袍询盘 — 示例家纺",
+    "body": "王先生，您好：\n\n想确认一下您关于酒店浴袍的项目是否还在进行。\n您在展位看过的参考款，我们可以再发更多图片和细节；每一款都可以按您的规格定做。\n只要您告知数量、尺寸、目的国，我们就为您准备报价。\n\n祝好！\nLucy\n示例家纺",
+    "questionFields": [
+      "quantity",
+      "size",
+      "destinationCountry"
+    ]
+  },
+  {
+    "id": "zh-step3-last",
+    "subject": "跟进：您的询盘 — 示例家纺",
+    "body": "王先生，您好：\n\n不想打扰您太多，这是我近期最后一次跟进。\n如果现在时机不合适，告诉我们什么时候再联系您就好有任何需要，我们随时乐意协助。\n\n祝好！\nLucy\nSales Manager\n示例家纺\nWhatsApp +86 138 0013 8000\nwww.example-home.example",
+    "questionFields": []
+  },
+  {
+    "id": "en-step1-no-buyer-facing-name",
+    "subject": "Re: inquiry",
+    "body": "Dear Mark,\n\nThank you again for your inquiry about blackout curtains.\n\nI am following up on my email of November 1 about blackout curtains. To prepare an accurate quotation for you, we only need a few details:\n1. What quantity are you planning to order?\n2. What packaging do you require (unit packaging, cartons, hang tags)?\n3. Which trade term do you prefer (FOB / CIF / DDP)?\n\nIf it is easier, just reply with your quantity and the delivery date you have in mind, and we will take it from there.\n\nBest regards,\nLucy\n示例家纺",
+    "questionFields": [
+      "quantity",
+      "packaging",
+      "incoterm"
+    ]
+  }
+]
