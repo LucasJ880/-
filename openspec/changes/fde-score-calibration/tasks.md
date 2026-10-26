@@ -12,7 +12,7 @@
 
 ## 2. 读模型与接口
 
-- [ ] 2.1 新建 `src/lib/revenue-spine/score-calibration-read-model.ts`，包含：
+- [x] 2.1 新建 `src/lib/revenue-spine/score-calibration-read-model.ts`，包含：
   - where 构造函数；
   - 行拼装：取首评、剔除窗口前、合并阶段 / 测试 / 报价；
   - 依赖可注入的 `getScoreCalibration(orgId, days, deps)`，评估 5000 行上限并标记截断，IN 分批。
