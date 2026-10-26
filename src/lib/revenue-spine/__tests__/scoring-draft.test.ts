@@ -8,7 +8,7 @@ import { extractRfqHeuristic } from "../rfq/heuristic-extractor";
 import { buildClarifyingQuestions, computeMissingFields } from "../rfq/missing-info";
 import { classifyInquiry } from "../research";
 import { scoreOpportunity } from "../scoring";
-import { buildReplyDraft, checkDraftGuardrails } from "../reply-draft";
+import { buildReferenceLines, buildReplyDraft, checkDraftGuardrails, checkDraftWithReferenceLines } from "../reply-draft";
 import { computeNextAction } from "../next-action";
 import { addBusinessDays, addBusinessHours } from "../business-days";
 import { buildDedupeKeys } from "../customer-match";
@@ -149,6 +149,49 @@ ok("中文草稿", () => {
   assert.match(d.body, /数量：3000/);
   assert.match(d.body, /需内部/);
   assert.equal(d.guardrailViolations.length, 0);
+});
+
+ok("中文参考原句：起订量口径与单位写成中文（每色 / 每尺码 / 每款 / 每单），英文原句不变", () => {
+  const withMoq = (moq: { quantity: number; unit: string; per: string }) => {
+    const p = mergeRevenueSpinePolicy(policy, { businessProfile: { commercialFacts: { moq } } });
+    return { p, k: { ...knowledgeFor("towel"), moq: getMOQ("towel", p) } };
+  };
+  const cases: Array<[per: string, unit: string, zh: string]> = [
+    ["color", "pcs", "起订量一般为每色 500 件"],
+    ["size", "sets", "起订量一般为每尺码 500 套"],
+    ["style", "m", "起订量一般为每款 500 米"],
+    ["order", "pcs", "起订量一般为每单 500 件"],
+  ];
+  for (const [per, unit, zh] of cases) {
+    const { p, k } = withMoq({ quantity: 500, unit, per });
+    assert.deepEqual(buildReferenceLines(k, p, "zh"), [`供参考：${zh}。具体以我们针对您项目的报价为准。`], per);
+    assert.deepEqual(buildReferenceLines(k, p, "en"), [`For reference, our MOQ is typically 500 ${unit} per ${per}. Both are confirmed for your project in our quotation.`], per);
+  }
+  // 未知口径 / 单位原样保留（含原型链上的键名）；大小写与首尾空格不影响查表
+  const odd = withMoq({ quantity: 200, unit: "rolls", per: "fabric" });
+  assert.deepEqual(buildReferenceLines(odd.k, odd.p, "zh"), ["供参考：起订量一般为每fabric 200 rolls。具体以我们针对您项目的报价为准。"]);
+  const proto = withMoq({ quantity: 200, unit: "toString", per: "constructor" });
+  assert.deepEqual(buildReferenceLines(proto.k, proto.p, "zh"), ["供参考：起订量一般为每constructor 200 toString。具体以我们针对您项目的报价为准。"]);
+  const cased = withMoq({ quantity: 200, unit: "PCS", per: " Color " });
+  assert.match(buildReferenceLines(cased.k, cased.p, "zh")[0], /起订量一般为每色 200 件/);
+  // 整封中文草稿：原句进正文、不再夹英文口径，守卫按原句白名单通过
+  const { p, k } = withMoq({ quantity: 500, unit: "pcs", per: "color" });
+  const ex = extractRfqHeuristic("我们需要3000条遮光窗帘，请报价。", { productKeywords: DEFAULT_PRODUCT_KEYWORDS });
+  const draftIn = {
+    contactName: "王经理", companyName: null, orgName: "梦馨家纺", senderName: "销售部",
+    fields: ex.fields, questions: [], knowledge: k, policy: p,
+  };
+  const d = buildReplyDraft({ ...draftIn, language: "zh" });
+  assert.ok(d.body.includes("起订量一般为每色 500 件"), d.body);
+  assert.doesNotMatch(d.body, /每color/);
+  assert.deepEqual(d.referenceLines, ["供参考：起订量一般为每色 500 件。具体以我们针对您项目的报价为准。"]);
+  assert.deepEqual(d.guardrailViolations, []);
+  assert.deepEqual(checkDraftWithReferenceLines(d.body, d.referenceLines), []);
+  // 英文草稿的审批预览：中文对照用同一句中文原句，英文部分照配置原样
+  const [en, zhPart] = approvalPreview(buildReplyDraft({ ...draftIn, language: "en" }), d).split("——— 中文对照");
+  assert.match(en, /500 pcs per color/);
+  assert.ok(zhPart.includes("起订量一般为每色 500 件"), zhPart);
+  assert.doesNotMatch(zhPart, /每color/);
 });
 
 ok("展会速记卡线索：开头写展位来访与展会名，不写“通过官网联系”；守卫与问题照旧", () => {

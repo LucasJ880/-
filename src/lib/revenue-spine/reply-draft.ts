@@ -70,6 +70,14 @@ export function checkDraftWithReferenceLines(body: string, referenceLines: reado
 }
 
 const fmtQty = (n: number) => n.toLocaleString("en-US");
+/** 起订量计量口径 → 中文（取值同商务事实提案归一化后的口径）；未知口径原样保留 */
+const MOQ_PER_ZH: Record<string, string> = { color: "色", size: "尺码", design: "款式", style: "款", sku: "SKU", item: "品", order: "单" };
+/** 起订量单位 → 中文量词；未知单位原样保留 */
+const MOQ_UNIT_ZH: Record<string, string> = { pcs: "件", units: "件", sets: "套", m: "米", kg: "公斤" };
+const zhTerm = (map: Record<string, string>, v: string) => {
+  const k = v.trim().toLowerCase();
+  return Object.hasOwn(map, k) ? map[k] : v;
+};
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** 英文并列：a / a and b / a, b and c；某一项自带 and 时最后一项前加逗号，免得连着两个 and */
@@ -89,7 +97,7 @@ export function buildReferenceLines(knowledge: FactoryKnowledgeBundle, policy: R
     a && b && b !== a ? `${a}–${b}` : `${a ?? b}`;
   if (lang === "zh") {
     const parts: string[] = [];
-    if (moq) parts.push(`起订量一般为每${moq.per === "style" ? "款" : moq.per ?? "款"} ${fmtQty(moq.quantity)} ${moq.unit === "pcs" ? "件" : moq.unit}`);
+    if (moq) parts.push(`起订量一般为每${zhTerm(MOQ_PER_ZH, moq.per ?? "style")} ${fmtQty(moq.quantity)} ${zhTerm(MOQ_UNIT_ZH, moq.unit)}`);
     if (lt?.productionDays) {
       const from = lt.productionStartsFrom && /pre-production|bulk sample|大货样/i.test(lt.productionStartsFrom) ? "确认大货样后" : `${lt.productionStartsFrom ?? "确认大货样"}后`;
       parts.push(`大货生产一般在${from} ${range(lt.productionDays, lt.productionDaysMax)} 天`);
