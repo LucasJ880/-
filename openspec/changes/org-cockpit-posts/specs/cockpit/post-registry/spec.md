@@ -52,11 +52,15 @@ PendingAction 类型联合中的每一个类型 SHALL 恰好满足以下之一�
 - **THEN** 返回"无固定归属"
 
 ### Requirement: 通用动作类型按行上下文确定性归属
-对一条通用动作类型的待审批动作，系统 SHALL 按以下顺序确定岗位，第一条命中即停：(1) 所属项目的工作域 → 该工作域的岗位；(2) 动作目标类型 `PROJECT` → `projects`，`CUSTOMER` / `OPPORTUNITY` / `QUOTE` → `inbound_sales`（不区分大小写）；(3) 产出它的 AgentRun 类型所归属的岗位；(4) 都不命中 → "未归属"。系统 SHALL NOT 用标题、正文或任何自然语言推断岗位；固定归属的类型 SHALL 始终返回其固定岗位，不受上下文影响。
+对一条通用动作类型的待审批动作，系统 SHALL 按以下顺序确定岗位，第一条命中即停：(1) 所属项目的工作域 → 该工作域的岗位（项目工作域为默认值 `general`，即未分类时，跳过本条）；(2) 动作目标类型 `PROJECT` → `projects`，`CUSTOMER` / `OPPORTUNITY` / `QUOTE` → `inbound_sales`（不区分大小写）；(3) 产出它的 AgentRun 类型所归属的岗位；(4) 都不命中 → "未归属"。系统 SHALL NOT 用标题、正文或任何自然语言推断岗位；固定归属的类型 SHALL 始终返回其固定岗位，不受上下文影响。
 
 #### Scenario: 按项目工作域归属
 - **WHEN** 一条 `grader.project_task` 所属项目的工作域为 `tender`
 - **THEN** 归属 `tender`
+
+#### Scenario: 未分类项目不归运维与知识
+- **WHEN** 一条 `grader.internal_note` 所属项目的工作域为默认值 `general`，目标类型为 `PROJECT`
+- **THEN** 归属 `projects`，不是 `ops_knowledge`
 
 #### Scenario: 按目标类型归属
 - **WHEN** 一条 `grader.email_draft` 没有项目、目标类型为 `customer`

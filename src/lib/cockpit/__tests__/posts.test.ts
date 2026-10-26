@@ -174,6 +174,8 @@ ok(postForPendingAction({ type: "grader.email_draft", targetType: "customer" }) 
 ok(postForPendingAction({ type: "grader.internal_note", targetType: "QUOTE" }) === "inbound_sales", "目标类型 QUOTE → inbound_sales");
 ok(postForPendingAction({ type: "grader.internal_note", targetType: "PROJECT" }) === "projects", "目标类型 PROJECT（工作域未知）→ projects");
 ok(postForPendingAction({ type: "calendar.create_event", agentRunType: "runtime_v2" }) === "inbound_sales", "产出 run 类型 runtime_v2 → inbound_sales");
+ok(postForPendingAction({ type: "grader.internal_note", projectWorkDomain: "general", targetType: "PROJECT" }) === "projects", "未分类项目（general）不归 ops_knowledge，落到目标类型规则");
+ok(postForPendingAction({ type: "grader.project_task", projectWorkDomain: "general" }) === null, "未分类项目且无其他上下文 → 未归属");
 ok(postForPendingAction({ type: "calendar.create_event", targetType: "UNKNOWN", agentRunType: "fde_inbound_sales" }) === "inbound_sales", "未知目标类型落到下一条规则");
 ok(postForPendingAction({ type: "calendar.create_event", projectWorkDomain: "nonsense", agentRunType: "conversation" }) === null, "未知工作域 + 不归属的 run 类型 → 未归属");
 ok(postForPendingAction({ type: "calendar.create_event" }) === null, "无上下文 → 未归属，不回退默认岗位");
