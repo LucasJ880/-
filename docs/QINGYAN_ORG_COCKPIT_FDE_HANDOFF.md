@@ -12,7 +12,8 @@
 ## 当前位置
 
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
-- **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：四件套 ✅（`d7b7255`）；apply 4/6（`schedule.ts` 179 条、`waiting.ts` 46 条、`timeline.ts` 46 条、`posts-read-model.ts` + 两个路由 100 条，均已注册进 test-all / test-ci-unit）。进行中：task 5.1 全量门禁、独立交叉审查；之后 task 6.1 报告 + 状态列 `[G]` + 开 PR（base = `claude/awesome-turing-dorqeg`）。
+- **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
+- **下一步：A-3 `org-cockpit-home`**，从 `claude/org-cockpit-read-model` 切出 `claude/org-cockpit-home`。输入：首页 `src/app/(main)/page.tsx` 是服务端组件（`resolveWorkspaceContextFromCookies` + `resolveHomeRedirect`，非管理层重定向，保留）；客户端用 `apiFetch` 调 `/api/cockpit/posts` 与 `/api/cockpit/timeline`（这两个前缀不在 `ORG_SCOPED_API_PREFIXES`，服务端按 DB 活动组织解析，与 `/workforce` 一致）；"等你 N 件"跳 `/capabilities/approvals`；卡片标注心跳平台级、`unattributed` 计数、KPI 的 `window` 口径；视觉按 `DESIGN.md`（宣纸 #f2f0eb / 玉白 #faf8f4、半透明边框、黛青仅用于交互、最重 600、44px 触控）。D-2：直接替换旧首页 `ManagementDashboardClient`。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
 
 ## 进度表
@@ -20,7 +21,7 @@
 | ID | change | 四件套 | apply | 测试 | verify | 交叉验证 | 状态列 |
 |---|---|---|---|---|---|---|---|
 | A-1 | `org-cockpit-posts`（[PR #244](https://github.com/LucasJ880/-/pull/244)，base `main`） | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
-| A-2 | `org-cockpit-read-model` | ✅ `d7b7255` | 4/6 | 进行中 | — | 进行中 | `[~]` |
+| A-2 | `org-cockpit-read-model`（PR 见下） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
 | A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
 | A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
 | B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |

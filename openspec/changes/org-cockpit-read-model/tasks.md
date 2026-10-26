@@ -22,7 +22,7 @@
 
 ## 6. 收尾
 
-- [ ] 6.1 写 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（做了什么 / 怎么验 / 与任务书的偏差 / 交叉审查发现与处理 / staging 待验项 / 已知限制）+ 更新 TASKFLOW 状态列（`docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase A 表 A-2 → `[G]`）。verify：报告文件存在；`grep -n "^| A-2 " docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 的状态列为 `[G]`。
+- [x] 6.1 写 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（做了什么 / 怎么验 / 与任务书的偏差 / 交叉审查发现与处理 / staging 待验项 / 已知限制）+ 更新 TASKFLOW 状态列（`docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase A 表 A-2 → `[G]`）。verify：报告文件存在；`grep -n "^| A-2 " docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 的状态列为 `[G]`。
 
 ## Workflow follow-up
 
