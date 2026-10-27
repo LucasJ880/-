@@ -130,7 +130,7 @@ function parseJson(s: string | null | undefined): Record<string, unknown> | null
   }
 }
 
-async function findLinkedOrder(db: Pick<ProcessOrderDb, "auditLog" | "blindsOrder">, quoteId: string) {
+async function findLinkedOrder(db: Pick<ProcessOrderDb, "auditLog" | "blindsOrder">, quoteId: string): Promise<{ id: string; code: string } | null> {
   const link = await db.auditLog.findFirst({
     where: { targetType: AUDIT_TARGET_QUOTE, targetId: quoteId, action: AUDIT_ACTION_GENERATED },
     orderBy: { createdAt: "desc" },
@@ -170,8 +170,6 @@ export async function generateProcessOrderForSignedQuote(
     const form = parseJson(quote.formDataJson) ?? {};
     const customerName = String(quote.customer?.name || form.customerName || "未命名客户");
     const baseCode = String(quote.orderNumber || form.orderNumber || `Q-${quoteId}`).slice(0, 120);
-    const taken = await db.blindsOrder.findUnique({ where: { code: baseCode }, select: { id: true } });
-    const code = taken ? `${baseCode}-Q${quoteId.slice(-6)}` : baseCode;
 
     const spec: ProcessSpec = {
       ...mapped.spec,
@@ -186,7 +184,14 @@ export async function generateProcessOrderForSignedQuote(
 
     let order: { id: string; code: string };
     try {
-      order = await db.$transaction(async (tx) => {
+      const outcome = await db.$transaction(async (tx) => {
+        // 同一报价的生成串行化：事务级 advisory lock，锁内再查一次关联与编号占用
+        // （否则两个并发请求都没查到关联、后到者把先到者的单当成"编号被占用"改用后缀，会生成两张单）
+        await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`sunny-process-order:${quoteId}`}))) AS l`;
+        const linked = await findLinkedOrder(tx, quoteId);
+        if (linked) return { kind: "existing" as const, order: linked };
+        const taken = await tx.blindsOrder.findUnique({ where: { code: baseCode }, select: { id: true } });
+        const code = taken ? `${baseCode}-Q${quoteId.slice(-6)}` : baseCode;
         const created = await tx.blindsOrder.create({
           data: {
             code,
@@ -223,8 +228,12 @@ export async function generateProcessOrderForSignedQuote(
             afterData: JSON.stringify({ orderId: created.id, code: created.code }),
           },
         });
-        return created;
+        return { kind: "created" as const, order: created as { id: string; code: string } };
       });
+      if (outcome.kind === "existing") {
+        return { created: false, reason: "ALREADY_GENERATED", id: outcome.order.id, code: outcome.order.code };
+      }
+      order = outcome.order;
     } catch (err) {
       if (isUniqueViolation(err)) {
         const again = await findLinkedOrder(db, quoteId);
@@ -233,8 +242,13 @@ export async function generateProcessOrderForSignedQuote(
       throw err;
     }
 
-    const issues = computeIssues(mapped.blindsItems as never, spec, order.code);
-    const blockingCount = blockingIssues(issues).length;
+    // 工艺单已落库：之后的任何异常都不能再报 GENERATION_FAILED
+    let blockingCount = 0;
+    try {
+      blockingCount = blockingIssues(computeIssues(mapped.blindsItems as never, spec, order.code)).length;
+    } catch (err) {
+      console.error(`[process-order] issue check failed order=${order.id}:`, err);
+    }
     if (deps.notify) {
       await deps
         .notify({
@@ -246,7 +260,7 @@ export async function generateProcessOrderForSignedQuote(
           entityType: "blinds_order",
           entityId: order.id,
           priority: blockingCount > 0 ? "high" : "medium",
-          sourceKey: `${NOTIFICATION_TYPE}:${quoteId}`,
+          sourceKey: `${NOTIFICATION_TYPE}:${order.id}`,
           metadata: { href: `/blinds-orders/${order.id}`, quoteId, blockingCount },
         })
         .catch((err) => console.error("[process-order] notify failed:", err));
@@ -278,11 +292,16 @@ export async function saveProcessSpec(
   orderId: string,
   payload: unknown,
   actor: { userId: string; orgId: string | null },
+  opts: { baseVersion?: number | null } = {},
 ): Promise<SaveSpecResult> {
   const order = await db.blindsOrder.findUnique({ where: { id: orderId }, select: { id: true, status: true } });
   if (!order) return { ok: false, status: 404, error: "工艺单不存在" };
   if (order.status !== "draft") return { ok: false, status: 409, error: "只有草稿状态的工艺单可以修改工艺参数" };
   const current = await loadProcessSpec(db, orderId);
+  // 乐观锁：编辑基于的版本已不是最新 → 拒绝，防止两人同时改时后保存的人悄悄覆盖
+  if (typeof opts.baseVersion === "number" && opts.baseVersion !== current.version) {
+    return { ok: false, status: 409, error: `工艺参数已被他人更新到 v${current.version}，请刷新后再改` };
+  }
   const next = sanitizeSpec(payload, current);
   next.version = current.version + 1;
   await db.auditLog.create({

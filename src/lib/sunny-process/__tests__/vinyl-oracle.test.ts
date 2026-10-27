@@ -10,7 +10,7 @@ import {
   type VinylHeader,
   type VinylWindowInput,
   type VinylWindowResult,
-} from "../vinyl-engine";
+} from "../vinyl-calc";
 import { isExcelError, loadFixture, Tally, type ExcelValue } from "./oracle-helpers";
 
 interface VinylCase {

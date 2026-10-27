@@ -19,9 +19,9 @@ src/lib/blinds/deduction-rules.ts      盖盒Ref 减尺表、拉绳分档表、�
 src/lib/blinds/excel-export.ts         导出入口：Blinds 四表 + 调 sunny-process/workbook 出其余表
 src/lib/sunny-process/
   excel-fns.ts        ROUNDUP / ROUNDDOWN / ROUND / TEXT("# ??/16") 等 Excel 语义
-  domestic-engine.ts  国内下单表
-  drapes-engine.ts    窗帘 6cm / 7cm
-  vinyl-engine.ts     Vinyl 单窗工艺 / 下料总表 / 标签（NaN = 原件 #N/A）
+  domestic-calc.ts  国内下单表
+  drapes-calc.ts    窗帘 6cm / 7cm
+  vinyl-calc.ts     Vinyl 单窗工艺 / 下料总表 / 标签（NaN = 原件 #N/A）
   deviations.ts       与原件的有意偏离登记 X-1…X-5（测试与报告共用）
   process-spec.ts     非 Blinds 工艺参数 JSON 结构 + 入参清洗
   quote-mapping.ts    报价 Order Form → 工艺输入（四项拍板都在这里）
@@ -52,7 +52,7 @@ src/app/(main)/blinds-orders/[id]/{page,process-sections}.tsx       工艺单页
 | X-1 拍板为"无绳/电动也计拉绳" | `calculation-engine.ts` 的 `calcCordLength`；删除 `deviations.ts` 里的 X-1，并去掉 `blinds-oracle.test.ts` 的 X-1 分支 | `blinds-oracle.test.ts`（应全部直接比对） |
 | 报价 SKU → 斑马帘布纱比对照表 | 在 `quote-mapping.ts` 斑马帘分支查表；查到就不写 3:2 默认提示 | `quote-mapping.test.ts` |
 | 原件 Excel 更新了 | 把新原件 SHA-256 填进 `oracle.py` 的 `SOURCES`，跑 `oracle.py --all --scan-blinds-slots`，看夹具 diff；引擎按新公式改到对照测试 0 失败 | 4 个 `*-oracle.test.ts` |
-| 新增产品线模板（如 Wooden） | 照 `drapes-engine.ts` 写引擎 + 在 `oracle.py` 加生成器 + `*-oracle.test.ts`；`quote-mapping.ts` 把 `unsupported` 改成新段；`process-spec.ts` / `issues.ts` / `workbook.ts` / `process-sections.tsx` 各加一段 | 新对照测试 + `autogen-db.isolated.test.ts` |
+| 新增产品线模板（如 Wooden） | 照 `drapes-calc.ts` 写引擎 + 在 `oracle.py` 加生成器 + `*-oracle.test.ts`；`quote-mapping.ts` 把 `unsupported` 改成新段；`process-spec.ts` / `issues.ts` / `workbook.ts` / `process-sections.tsx` 各加一段 | 新对照测试 + `autogen-db.isolated.test.ts` |
 
 ## 5. 本地重跑金标准 / 端到端
 

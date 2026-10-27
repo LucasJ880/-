@@ -15,7 +15,7 @@
  */
 
 import { DEFAULT_ZEBRA_RATIO } from "@/lib/blinds/deduction-rules";
-import { DEFAULT_DRAPE_VERSION } from "./drapes-engine";
+import { DEFAULT_DRAPE_VERSION } from "./drapes-calc";
 import {
   PROCESS_SPEC_SCHEMA,
   type DomesticSpecRow,
@@ -148,12 +148,19 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
   const formValance = s(form.shadeValanceType);
   const formBracket = s(form.shadeBracketType);
 
+  // 报价里填了内容但缺产品 / 宽 / 高的行不进工艺单（与报价计价一致），在订单级提示里计数，避免窗户悄悄消失
+  const skipped: Record<"shade" | "shutter" | "drape", string[]> = { shade: [], shutter: [], drape: [] };
+  const touched = (l: Obj, keys: string[]) => keys.some((k) => s(l[k]) !== "" && s(l[k]) !== "0");
+
   // ── Shades ──
   for (const l of list(form.shadeOrders)) {
     const product = s(l.product);
     const width = inchesOf(l.widthWhole, l.widthFrac);
     const height = inchesOf(l.heightWhole, l.heightFrac);
-    if (!product || !(width > 0) || !(height > 0)) continue;
+    if (!product || !(width > 0) || !(height > 0)) {
+      if (touched(l, ["location", "sku", "widthWhole", "heightWhole"])) skipped.shade.push(s(l.location) || "（无位置）");
+      continue;
+    }
     const location = s(l.location);
     const lift = s(l.lift);
     const mount = s(l.mount);
@@ -217,7 +224,11 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
   const louver = louverOf(louverQuote);
   const shutterLines = list(form.shutterOrders)
     .map((l) => ({ l, width: inchesOf(l.widthWhole, l.widthFrac), height: inchesOf(l.heightWhole, l.heightFrac) }))
-    .filter((x) => x.width > 0 && x.height > 0);
+    .filter((x) => {
+      if (x.width > 0 && x.height > 0) return true;
+      if (touched(x.l, ["location", "widthWhole", "heightWhole", "frame"])) skipped.shutter.push(s(x.l.location) || "（无位置）");
+      return false;
+    });
   for (const { l, width, height } of shutterLines) {
     const location = s(l.location);
     if (material === "Wooden") {
@@ -226,7 +237,7 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
     }
     const line = vinyl.length + 1;
     const add = (field: string, value: string | number | null, messageZh: string) => notes.push({ section: "vinyl", line, field, value, messageZh });
-    const panels = Math.max(0, Math.trunc(Number(l.panelCount) || 0));
+    const panels = Math.min(20, Math.max(0, Math.trunc(Number(l.panelCount) || 0)));
     const dir = s(l.openDirection);
     const openCode = deriveOpenCode(dir, panels);
     if (openCode) add("openCode", openCode, `开合编码由 Open Dir ${dir} + ${panels} 扇推导为 ${openCode}，请核对（含 T 柱时需改）`);
@@ -255,6 +266,9 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
     const hasDrape = !!s(l.drapeFabricSku) && inchesOf(l.drapeWidthWhole, l.drapeWidthFrac) > 0 && inchesOf(l.drapeHeightWhole, l.drapeHeightFrac) > 0;
     const hasSheer = !!s(l.sheerFabricSku) && inchesOf(l.sheerWidthWhole, l.sheerWidthFrac) > 0 && inchesOf(l.sheerHeightWhole, l.sheerHeightFrac) > 0;
     const rod = hasDrape && hasSheer ? "方双轨" : "方单轨";
+    if (!hasDrape && !hasSheer && touched(l, ["location", "drapeFabricSku", "sheerFabricSku", "drapeWidthWhole", "sheerWidthWhole"])) {
+      skipped.drape.push(location || "（无位置）");
+    }
     const parts: { part: "drape" | "sheer"; p: string }[] = [];
     if (hasDrape) parts.push({ part: "drape", p: "drape" });
     if (hasSheer) parts.push({ part: "sheer", p: "sheer" });
@@ -279,6 +293,16 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
         location, part, widthIn, heightIn, sku: s(l[`${p}FabricSku`]), qty: s(l[`${p}Panels`]) === "D" ? 2 : 1,
         craft, layer: part === "drape" ? "布" : "纱", liner: part === "drape" && l.drapeLiner === true ? "是" : "否",
         fullness, mount, rod: mount === "墙装W" ? rod : "", rodColor: "",
+      });
+    }
+  }
+
+  const SKIP_LABEL = { shade: "帘子", shutter: "百叶", drape: "窗帘" } as const;
+  for (const k of ["shade", "shutter", "drape"] as const) {
+    if (skipped[k].length > 0) {
+      notes.push({
+        section: "order", line: 0, field: `skipped.${k}`, value: skipped[k].length,
+        messageZh: `报价 Order Form 有 ${skipped[k].length} 行${SKIP_LABEL[k]}缺产品/宽/高未进工艺单：${skipped[k].join("、")}，请与销售确认`,
       });
     }
   }

@@ -21,7 +21,7 @@ const ok = (c: boolean, n: string, d?: unknown) => { if (c) { pass++; console.lo
 interface Order { id: string; code: string; status: string; items: Record<string, unknown>[]; [k: string]: unknown }
 interface Audit { id: string; action: string; targetType: string; targetId: string; afterData: string | null; userId: string; orgId: string | null; createdAt: Date }
 
-function fakeDb(quotes: Record<string, Record<string, unknown>>, opts: { failCreate?: unknown; beforeCreate?: () => void } = {}) {
+function fakeDb(quotes: Record<string, Record<string, unknown>>, opts: { failCreate?: unknown; beforeCreate?: () => void; beforeTx?: () => void } = {}) {
   const orders: Order[] = [];
   const audits: Audit[] = [];
   let seq = 0;
@@ -52,7 +52,10 @@ function fakeDb(quotes: Record<string, Record<string, unknown>>, opts: { failCre
         return a;
       },
     },
+    // advisory lock 在内存假体里无事可做（串行执行）
+    $queryRaw: async () => [{ "?column?": 1 }],
     async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+      opts.beforeTx?.();
       const o = orders.length, a = audits.length;
       try {
         return await fn(db);
@@ -158,6 +161,32 @@ const notify: NotifyFn = async (n) => { sent.push(n); };
   void racer;
 }
 
+// AG-05b 审查发现 #2 的交错：B 的事务外预检没看到关联 → A 完整提交 → B 进事务。锁内复查必须拦住，不得用后缀再建一张
+{
+  let fired = false;
+  let dbRef: ProcessOrderDb | null = null;
+  const made = fakeDb({ q1: quote() }, {
+    beforeTx: () => {
+      if (fired) return;
+      fired = true;
+      pendingA = generateProcessOrderForSignedQuote("q1", { db: dbRef! });
+    },
+  });
+  let pendingA: Promise<unknown> | null = null;
+  dbRef = made.db;
+  // beforeTx 只同步触发 A；为了让 A 先于 B 的事务体完成，把 B 的事务体延后到 A 完成之后
+  const origTx = made.db.$transaction.bind(made.db);
+  (made.db as unknown as { $transaction: unknown }).$transaction = async <T,>(fn: (tx: unknown) => Promise<T>) => {
+    const r = origTx(async (tx) => {
+      if (pendingA) { const a = pendingA; pendingA = null; await a; }
+      return fn(tx);
+    });
+    return r;
+  };
+  const b = await generateProcessOrderForSignedQuote("q1", { db: made.db });
+  ok(b.created === false && b.reason === "ALREADY_GENERATED" && made.orders.length === 1 && !made.orders.some((o) => o.code.includes("-Q")), "AG-05b: 并发交错下锁内复查关联，不会用后缀建第二张单", { b, codes: made.orders.map((o) => o.code) });
+}
+
 // AG-06 编号被无关的手工工艺单占用 → 加后缀
 {
   const { db, orders } = fakeDb({ q1: quote() });
@@ -182,9 +211,19 @@ const notify: NotifyFn = async (n) => { sent.push(n); };
   const v2 = await loadProcessSpec(db, o.id);
   ok(v2.version === 2 && v2.vinyl[0]!.frame === "L" && v2.source?.quoteId === "q1" && v2.notes.length === v1.notes.length, "AG-07c: 读取取最新；来源与默认提示不被入参覆盖", v2.source);
   ok(blockingIssues(orderIssues(o, v2)).length === 0, "AG-07d: 补 L 框后无阻断，可确认", blockingIssues(orderIssues(o, v2)));
+  // 审查发现 #6：基于旧版本的保存被拒
+  const stale = await saveProcessSpec(db, o.id, fixed, { userId: "u3", orgId: "org1" }, { baseVersion: 1 });
+  ok(!stale.ok && stale.status === 409 && (await loadProcessSpec(db, o.id)).version === 2, "AG-07g: baseVersion 落后 → 409，不覆盖", stale);
+  const fresh = await saveProcessSpec(db, o.id, fixed, { userId: "u3", orgId: "org1" }, { baseVersion: 2 });
+  ok(fresh.ok && fresh.spec.version === 3, "AG-07h: baseVersion 一致 → 保存 v3");
   o.status = "confirmed";
   const locked = await saveProcessSpec(db, o.id, fixed, { userId: "u2", orgId: "org1" });
   ok(!locked.ok && locked.status === 409, "AG-07e: 非草稿不可改参数（409）");
+  // 审查发现 #8：手工单（无来源）也不能经 PUT 伪造来源报价
+  await db.blindsOrder.create({ data: { code: "MANUAL-1", status: "draft" } });
+  const manual = orders.find((x) => x.code === "MANUAL-1")!;
+  const forged = await saveProcessSpec(db, manual.id, { ...fixed, source: { quoteId: "evil", orderNumber: "FAKE", signedAt: null, customerName: "x" } }, { userId: "u2", orgId: null });
+  ok(forged.ok && forged.spec.source === null, "AG-07i: 入参里的 source 被忽略（手工单仍无来源）", forged);
   const missing = await saveProcessSpec(db, "nope", fixed, { userId: "u2", orgId: "org1" });
   ok(!missing.ok && missing.status === 404, "AG-07f: 工艺单不存在（404）");
   void r;

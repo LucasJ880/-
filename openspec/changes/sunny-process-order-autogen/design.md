@@ -37,13 +37,13 @@
 
 ### D2. 零 schema 下的存储
 - 工艺单头 + Blinds 行：沿用 `BlindsOrder`（status=draft，customerId / opportunityId 取自报价，creatorId = 报价创建人）与 `BlindsOrderItem`。
-- 报价关联 + 非 Blinds 工艺参数（国内下单行、窗帘行、Vinyl 窗、单头设置、待核对快照）：写 `AuditLog`，`targetType="blinds_order"`、`targetId=<orderId>`、`action="process_order.spec"`，`afterData` = `{ version, sourceQuoteId, sourceOrderNumber, signedAt, settings, domestic[], drapes[], vinyl[] }`；每次编辑追加一条新版本，读取取最新。另写一条 `targetType="sales_quote"`、`targetId=<quoteId>`、`action="process_order.generated"` 供按报价反查（幂等判定）。
+- 报价关联 + 非 Blinds 工艺参数（国内下单行、窗帘行、Vinyl 窗、单头设置、待核对快照）：写 `AuditLog`，`targetType="blinds_order"`、`targetId=<orderId>`、`action="process_order.spec"`，`afterData` = `{ schema, version, source: { quoteId, orderNumber, signedAt, customerName }, settings, domestic[], drapes[], vinyl[], unsupported[], notes[] }`（`source` 只由生成服务写入，保存接口一律沿用旧值）；每次编辑追加一条新版本，读取取最新。另写一条 `targetType="sales_quote"`、`targetId=<quoteId>`、`action="process_order.generated"` 供按报价反查（幂等判定）。
 - 否决：给 `BlindsOrder` 加 `quoteId` / `specJson` 字段——违反硬纪律 1。
 - 否决：把 Vinyl/窗帘塞进 `BlindsOrderItem` 复用列（如把杆型塞 headrailType）——语义错位，现有页面与导出会误读。
 - 否决：导出时现读报价 formDataJson——报价签字后仍可能被编辑，工艺单必须冻结签字时刻的数据并允许工厂改参数。
 
 ### D3. 幂等
-生成在一个事务里：先查 `AuditLog(targetType=sales_quote, targetId=quoteId, action=process_order.generated)`，有则返回既有工艺单；否则创建工艺单 + 两条 AuditLog。工艺单编号确定性取 `quote.orderNumber`（为空时 `Q-<quoteId>`）；编号已被其他无关工艺单占用时取 `<编号>-Q<quoteId 后 6 位>`。并发下第二个事务因 `BlindsOrder.code` 唯一约束失败，捕获后按报价反查返回既有单。
+生成在一个事务里：先取事务级 `pg_advisory_xact_lock(hashtext('sunny-process-order:'+quoteId))` 串行化同一报价，锁内查 `AuditLog(targetType=sales_quote, targetId=quoteId, action=process_order.generated)`，有则返回既有工艺单；否则锁内判断编号占用并创建工艺单 + 两条 AuditLog（独立审查发现：只在事务外预检时，后到者会把先到者的单当成"编号被占用"而加后缀另建一张）。工艺单编号确定性取 `quote.orderNumber`（为空时 `Q-<quoteId>`）；编号已被其他无关工艺单占用时取 `<编号>-Q<quoteId 后 6 位>`。并发下第二个事务因 `BlindsOrder.code` 唯一约束失败，捕获后按报价反查返回既有单。
 - 否决：用 `remarks` 文本里写报价号来判重——可被人编辑，不可靠。
 
 ### D4. 触发点
@@ -62,7 +62,7 @@
 - Vinyl：百叶尺寸 2-1/2"→2.5、3-1/2"→3.5，其余阻断；颜色默认"白色"；外框 L/Z 直接映射，其余（S/G/M/Casing/空）留空并阻断；外框数默认 4；结构默认有框；开合编码由 Open Dir + 扇数推导（L→全 L，R→全 R，LR→前 ⌈n/2⌉ 个 L、其余 R），提示级；Mid Rail 文本能解析成正数时作为第一档底部(in)，否则提示；Wooden 材质整段阻断。
 
 ### D7. 引擎形态
-纯函数、无 I/O：`src/lib/blinds/calculation-engine.ts`（修正）、`src/lib/sunny-process/{domestic,drapes,vinyl}-engine.ts`。Excel 语义按原件逐一复刻：ROUNDUP 远离零、ROUNDDOWN 趋零、`IF(x, …)` 以非零为真、`LEFT(H5,1)` 产生文本参与算术、`NA()` 映射为阻断问题。
+纯函数、无 I/O：`src/lib/blinds/calculation-engine.ts`（修正）、`src/lib/sunny-process/{domestic,drapes,vinyl}-calc.ts`（文件名不用 engine：R1 架构守卫把 `src/lib` 下带 engine 的文件名视为新执行面，硬纪律 3）。Excel 语义按原件逐一复刻：ROUNDUP 远离零、ROUNDDOWN 趋零、`IF(x, …)` 以非零为真、`LEFT(H5,1)` 产生文本参与算术、`NA()` 映射为阻断问题。
 - 否决：把公式写成通用 Excel 解释器——过度设计且不可读。
 
 ### D8a. 门禁覆盖两条改状态路径（实施中补充）

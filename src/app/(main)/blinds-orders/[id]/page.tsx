@@ -129,11 +129,13 @@ export default function BlindsOrderDetailPage({
       const res = await apiFetch(`/api/blinds-orders/${id}/spec`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec }),
+        body: JSON.stringify({ spec, baseVersion: spec.version }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(data.error || "保存失败");
+        // 版本冲突：重新加载最新参数（本地未保存的修改会丢弃，提示里已说明）
+        if (res.status === 409) void loadOrder();
         return;
       }
       setSpec(data.spec);

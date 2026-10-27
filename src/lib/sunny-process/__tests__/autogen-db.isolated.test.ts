@@ -62,6 +62,7 @@ async function main() {
   const publicSign = await import("@/app/api/sales/quotes/share/[token]/sign/route");
   const transition = await import("@/app/api/blinds-orders/[id]/transition/route");
   const orderRoute = await import("@/app/api/blinds-orders/[id]/route");
+  const listRoute = await import("@/app/api/blinds-orders/route");
   const specRoute = await import("@/app/api/blinds-orders/[id]/spec/route");
   const exportRoute = await import("@/app/api/blinds-orders/[id]/export/route");
 
@@ -133,19 +134,32 @@ async function main() {
     ok(t1.status === 409 && t1.body?.code === "PROCESS_ORDER_BLOCKED" && issues.some((i) => i.section === "vinyl" && i.messageZh === "缺外框类型"), "transition → 409 PROCESS_ORDER_BLOCKED（Vinyl 缺外框类型）", t1.body);
     const p1 = await call(orderRoute.PUT as never, req(`/api/blinds-orders/${orderId}`, cFactory, "PUT", { status: "confirmed" }), { id: orderId });
     ok(p1.status === 409 && p1.body?.code === "PROCESS_ORDER_BLOCKED", "PUT {status:confirmed} 同样 409", p1.body);
+    for (const st of ["in_production", "completed", "ready"]) {
+      const px = await call(orderRoute.PUT as never, req(`/api/blinds-orders/${orderId}`, cFactory, "PUT", { status: st }), { id: orderId });
+      ok(px.status === 409 && px.body?.code === "PROCESS_ORDER_BLOCKED", `PUT {status:${st}} 也被门禁拦下（不可绕过）`, px.body);
+    }
     ok((await db.blindsOrder.findUnique({ where: { id: orderId } }))?.status === "draft", "工艺单仍为 draft");
 
     console.log("\n[4] 其他组织用户：参数 / 导出 404");
     const o1 = await call(specRoute.GET as never, req(`/api/blinds-orders/${orderId}/spec`, cOut), { id: orderId });
     const o2 = await call(exportRoute.GET as never, req(`/api/blinds-orders/${orderId}/export`, cOut), { id: orderId });
     ok(o1.status === 404 && o2.status === 404, "外部组织 GET spec / export → 404", { o1: o1.status, o2: o2.status });
+    const o3 = await call(orderRoute.GET as never, req(`/api/blinds-orders/${orderId}`, cOut), { id: orderId });
+    ok(o3.status === 404, "外部组织 GET 工艺单详情 → 404（含客户电话地址）", o3.status);
+    const listOut = await listRoute.GET(req(`/api/blinds-orders`, cOut), { params: Promise.resolve({}) } as never);
+    const listFac = await listRoute.GET(req(`/api/blinds-orders`, cFactory), { params: Promise.resolve({}) } as never);
+    const idsOut = ((await listOut.json()) as { id: string }[]).map((o) => o.id);
+    const idsFac = ((await listFac.json()) as { id: string }[]).map((o) => o.id);
+    ok(idsFac.includes(orderId) && !idsOut.includes(orderId), "工艺单列表：同组织工厂能看到自动生成的单，外部组织看不到", { fac: idsFac.includes(orderId), out: idsOut.includes(orderId) });
 
     console.log("\n[5] 工厂补外框 → 版本 +1 → 可确认 → 确认后参数锁定");
     const g = await call(specRoute.GET as never, req(`/api/blinds-orders/${orderId}/spec`, cFactory), { id: orderId });
     const spec = g.body?.spec as { version: number; vinyl: Record<string, unknown>[]; drapes: unknown[]; domestic: unknown[] };
     ok(g.status === 200 && spec.version === 1 && spec.vinyl.length === 1 && spec.drapes.length === 1 && spec.domestic.length === 1, "GET spec：v1，Vinyl 1 / 窗帘 1 / 国内下单 1", g.body);
     spec.vinyl[0]!.frame = "L";
-    const put = await call(specRoute.PUT as never, req(`/api/blinds-orders/${orderId}/spec`, cFactory, "PUT", { spec }), { id: orderId });
+    const stale = await call(specRoute.PUT as never, req(`/api/blinds-orders/${orderId}/spec`, cFactory, "PUT", { spec, baseVersion: 0 }), { id: orderId });
+    ok(stale.status === 409, "PUT spec 基于过期版本 → 409", stale.body);
+    const put = await call(specRoute.PUT as never, req(`/api/blinds-orders/${orderId}/spec`, cFactory, "PUT", { spec, baseVersion: 1 }), { id: orderId });
     ok(put.status === 200 && (put.body?.spec as { version: number }).version === 2, "PUT spec → 200，版本 2", put.body);
     const blockedLeft = ((put.body?.issues ?? []) as { level: string }[]).filter((i) => i.level === "block");
     ok(blockedLeft.length === 0, "补外框后无阻断项", blockedLeft);

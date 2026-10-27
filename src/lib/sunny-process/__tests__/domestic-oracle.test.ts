@@ -2,7 +2,7 @@
  * 国内下单表 × Excel 原件逐值对照（厘米换算 / 平方 / 标签）
  * 运行：npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts
  */
-import { buildDomesticLabels, computeDomesticRow, type DomesticRowInput } from "../domestic-engine";
+import { buildDomesticLabels, computeDomesticRow, type DomesticRowInput } from "../domestic-calc";
 import { loadFixture, Tally } from "./oracle-helpers";
 
 interface DomesticCase {

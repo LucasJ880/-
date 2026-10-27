@@ -4,9 +4,9 @@
  */
 
 import { CONTROL_TYPES, HEADRAIL_TYPES, MEASURE_TYPES, PRODUCT_TYPES } from "@/lib/blinds/deduction-rules";
-import { DRAPE_CRAFTS, DRAPE_MOUNTS } from "./drapes-engine";
+import { DRAPE_CRAFTS, DRAPE_MOUNTS } from "./drapes-calc";
 import type { ProcessSpec } from "./process-spec";
-import { SPLIT_ERROR_ZH, computeVinylWindow, type VinylHeader } from "./vinyl-engine";
+import { SPLIT_ERROR_ZH, computeVinylWindow, type VinylHeader } from "./vinyl-calc";
 
 export type IssueLevel = "info" | "block";
 export type IssueSection = "blinds" | "domestic" | "drapes" | "vinyl" | "unsupported" | "order";
@@ -63,7 +63,7 @@ export function computeIssues(items: BlindsItemLike[], spec: ProcessSpec, orderN
   for (const n of spec.notes) {
     let current: unknown;
     if (n.section === "blinds") current = (items[n.line - 1] as unknown as Record<string, unknown> | undefined)?.[n.field];
-    else if (n.section === "order") current = n.field === "vinyl.color" ? spec.settings.vinyl.color : undefined;
+    else if (n.section === "order") current = n.field === "vinyl.color" ? spec.settings.vinyl.color : n.value;
     else current = (spec[n.section][n.line - 1] as unknown as Record<string, unknown> | undefined)?.[n.field];
     if (current === n.value || (current == null && n.value == null)) {
       out.push({ level: "info", section: n.section, line: n.line, field: n.field, messageZh: n.messageZh });
@@ -133,6 +133,18 @@ export function computeIssues(items: BlindsItemLike[], spec: ProcessSpec, orderN
     block("unsupported", i + 1, "line", `${u.location || "（无位置）"} ${u.widthIn}×${u.heightIn}：${u.reasonZh}，请人工处理后删除此行`);
   });
 
+  return out;
+}
+
+/**
+ * 可进下料总表 / 标签的 Vinyl 窗号（1 起）：该窗无阻断，且订单级百叶尺寸受支持。
+ * 有阻断的窗原件也只会算出 0 / 负数 / 错误，不能交给工厂下料。
+ */
+export function cuttableVinylLines(spec: ProcessSpec, issues: ProcessIssue[]): Set<number> {
+  const out = new Set<number>();
+  if (issues.some((i) => i.level === "block" && i.section === "order" && i.field === "vinyl.louver")) return out;
+  const blocked = new Set(issues.filter((i) => i.level === "block" && i.section === "vinyl").map((i) => i.line));
+  spec.vinyl.forEach((_, k) => { if (!blocked.has(k + 1)) out.add(k + 1); });
   return out;
 }
 

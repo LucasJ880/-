@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
-import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { withAuth } from "@/lib/common/api-helpers";
 import { itemCreateData, loadProcessSpec, orderIssues } from "@/lib/sunny-process/autogen";
 import { blockingIssues } from "@/lib/sunny-process/issues";
@@ -18,15 +17,9 @@ export const GET = withAuth(async (request, ctx, user) => {
     },
   });
 
-  if (!order) {
+  // 与导出 / 参数 / 状态同一可见性规则（工单含客户电话地址，不能跨租户可读）
+  if (!order || !(await canViewBlindsOrder(order, user))) {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-  }
-
-  if (order.projectId) {
-    const visibleIds = await getVisibleProjectIds(user.id, user.role);
-    if (visibleIds !== null && !visibleIds.includes(order.projectId)) {
-      return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-    }
   }
 
   return NextResponse.json(order);
@@ -52,8 +45,16 @@ export const PUT = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 
-  // 确认门禁（与 transition 路由同一规则）：详情页"确认工艺单"按钮走这里改状态
-  if (existing.status === "draft" && body.status === "confirmed") {
+  // 确认门禁（与 transition 路由同一规则）：详情页"确认工艺单"按钮走这里改状态。
+  // 从草稿 / 已取消 改到任何"进入生产链"的状态（confirmed / in_production / completed …）都要过门禁，
+  // 防止 PUT {status:"in_production"} 之类绕过
+  const leavesDraft =
+    body.status !== undefined &&
+    body.status !== existing.status &&
+    (existing.status === "draft" || existing.status === "cancelled") &&
+    body.status !== "draft" &&
+    body.status !== "cancelled";
+  if (leavesDraft) {
     const current = await db.blindsOrder.findUnique({
       where: { id },
       include: { items: { orderBy: { itemNumber: "asc" } } },

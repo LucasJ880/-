@@ -18,14 +18,14 @@
 - **THEN** 不生成工艺单，响应体 `processOrder` 为 `{ created: false, reason: "NO_PRODUCIBLE_LINES" }`
 
 ### Requirement: 自动生成幂等
-同一报价 SHALL 至多对应一张自动生成的工艺单；重复签字调用、两条签字路径先后触发或并发触发时，系统 SHALL 返回已存在的工艺单而不再创建。
+同一报价 SHALL 至多对应一张自动生成的工艺单；重复签字调用、两条签字路径先后触发或并发触发（含一方已提交后另一方才进入创建）时，系统 SHALL 返回已存在的工艺单而不再创建，也 SHALL NOT 以编号后缀另建一张。
 
 #### Scenario: 重复调用
 - **WHEN** 对同一报价连续两次调用 mark-signed
 - **THEN** 第二次响应 `processOrder.created` 为 false 且 `id` 与第一次相同，工艺单总数不变
 
 ### Requirement: 生成失败不阻断签字
-自动生成过程中的任何错误 SHALL NOT 改变签字接口的成功状态码与报价的 signed 状态；错误 SHALL 记录到服务端日志，响应体 `processOrder` 为 `{ created: false, reason: "GENERATION_FAILED" }`。
+自动生成过程中的任何错误 SHALL NOT 改变签字接口的成功状态码与报价的 signed 状态；错误 SHALL 记录到服务端日志。`mark-signed` 响应体 `processOrder` 为 `{ created: false, reason: "GENERATION_FAILED" }`；公开签字接口面向客户，SHALL NOT 在响应中返回任何工艺单信息。
 
 #### Scenario: 映射抛错
 - **WHEN** Order Form 数据损坏导致生成抛错
@@ -50,7 +50,7 @@
 - **THEN** 页面顶部列出全部待核对项，阻断级项以醒目样式标出并给出所在产品段与行号
 
 ### Requirement: 确认门禁
-工艺单从 draft 转为 confirmed 时，若仍存在阻断级待核对项，`POST /api/blinds-orders/{id}/transition` 与 `PUT /api/blinds-orders/{id}`（body.status=confirmed）SHALL 都返回 409，错误码 `PROCESS_ORDER_BLOCKED`，并在响应中列出全部阻断项；无阻断项时按原逻辑转换。
+工艺单从 draft（或 cancelled）改到任何非 draft / 非 cancelled 状态时，若仍存在阻断级待核对项，`POST /api/blinds-orders/{id}/transition` 与 `PUT /api/blinds-orders/{id}`（任何 body.status）SHALL 都返回 409，错误码 `PROCESS_ORDER_BLOCKED`，并在响应中列出全部阻断项；无阻断项时按原逻辑转换。
 
 #### Scenario: 缺外框类型
 - **WHEN** 工艺单中某 Vinyl 窗外框类型为空，调用 transition 到 confirmed
@@ -61,11 +61,25 @@
 - **THEN** 同样返回 409 `PROCESS_ORDER_BLOCKED`（`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts` 第 [3] 段）
 
 ### Requirement: 非 Blinds 工艺参数可编辑
-draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` 修改国内下单 / 窗帘 / Vinyl 的工艺参数与单头设置（Vinyl 颜色、百叶尺寸、默认控制杆、窗帘版本）；每次保存 SHALL 留存为新版本，读取以最新版本为准；非 draft 状态 SHALL 返回 409。
+draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` 修改国内下单 / 窗帘 / Vinyl 的工艺参数与单头设置；每次保存 SHALL 留存为新版本，读取以最新版本为准；非 draft 状态、或请求带的 `baseVersion` 不是最新版本时 SHALL 返回 409；来源报价 SHALL NOT 可经此接口修改。
 
 #### Scenario: 补外框后可确认
 - **WHEN** 对上一场景的工艺单 PUT spec 补上外框类型 L，再调用 transition 到 confirmed
 - **THEN** PUT 返回 200 且版本号 +1，transition 返回 200，工艺单为 confirmed
+
+### Requirement: 有阻断的窗不进下料
+有阻断级待核对项的 Vinyl 窗（及百叶尺寸不受支持时的全部 Vinyl 窗）SHALL NOT 出现在下料总表与标签中；下料总表表头 SHALL 注明被排除的窗数。
+
+#### Scenario: 缺外框的窗
+- **WHEN** 两个 Vinyl 窗中第 1 窗缺外框类型，导出工艺单
+- **THEN** Vinyl 下料总表与 Vinyl 标签只含第 2 窗，表头含"1 窗有阻断"（`export-workbook.test.ts` EX-03d）
+
+### Requirement: 工艺单对同组织成员可见
+自动生成的工艺单 SHALL 出现在关联客户所在组织活跃成员的工艺单列表与详情中；其他组织的用户 SHALL NOT 能在列表、详情、参数、导出中看到它。
+
+#### Scenario: 工厂看得到、外部看不到
+- **WHEN** 同组织的工厂用户与另一组织的用户分别请求 `GET /api/blinds-orders` 与 `GET /api/blinds-orders/{id}`
+- **THEN** 工厂列表含该单，外部用户列表不含、详情返回 404（`autogen-db.isolated.test.ts` 第 [4] 段）
 
 ### Requirement: 工艺单导出
 `GET /api/blinds-orders/{id}/export` SHALL 只对能查看该工艺单的用户返回 xlsx，按实际存在的产品线包含：开料表、工艺单、开料表（布料）、Blinds 标签、国内下单表、国内下单标签、窗帘工艺单、窗帘物料、Vinyl 工艺单、Vinyl 下料总表、Vinyl 标签、待核对；无任何行时返回 400。

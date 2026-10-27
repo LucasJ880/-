@@ -20,7 +20,7 @@ export const GET = withAuth(async (_request, ctx, user) => {
   }
 
   const spec = await loadProcessSpec(processOrderDb, id);
-  const lineCount = order.items.length + spec.domestic.length + spec.drapes.length + spec.vinyl.length;
+  const lineCount = order.items.length + spec.domestic.length + spec.drapes.length + spec.vinyl.length + spec.unsupported.length;
   if (lineCount === 0) {
     return NextResponse.json({ error: "工艺单无窗户数据，无法导出" }, { status: 400 });
   }

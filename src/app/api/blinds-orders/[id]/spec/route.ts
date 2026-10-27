@@ -33,10 +33,14 @@ export const PUT = withAuth(async (request, ctx, user) => {
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "参数格式错误" }, { status: 400 });
   }
-  const res = await saveProcessSpec(processOrderDb, id, (body as { spec?: unknown }).spec ?? body, {
-    userId: user.id,
-    orgId: await orderOrgId(order),
-  });
+  const b = body as { spec?: unknown; baseVersion?: unknown };
+  const res = await saveProcessSpec(
+    processOrderDb,
+    id,
+    b.spec ?? body,
+    { userId: user.id, orgId: await orderOrgId(order) },
+    { baseVersion: typeof b.baseVersion === "number" ? b.baseVersion : null },
+  );
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
   return NextResponse.json({ spec: res.spec, issues: orderIssues(order, res.spec) });
 });

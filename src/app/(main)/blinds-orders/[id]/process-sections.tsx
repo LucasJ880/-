@@ -5,8 +5,9 @@
  * 参数存于 /api/blinds-orders/[id]/spec（AuditLog 版本化）；计算用与导出相同的纯函数实时重算。
  */
 
+import { useState } from "react";
 import { AlertTriangle, Info, Plus, Trash2 } from "lucide-react";
-import { computeDomesticRow, DOMESTIC_CONTROLS, DOMESTIC_MEASURES, DOMESTIC_MOUNTS, DOMESTIC_PRODUCTS, DOMESTIC_SIDES } from "@/lib/sunny-process/domestic-engine";
+import { computeDomesticRow, DOMESTIC_CONTROLS, DOMESTIC_MEASURES, DOMESTIC_MOUNTS, DOMESTIC_PRODUCTS, DOMESTIC_SIDES } from "@/lib/sunny-process/domestic-calc";
 import {
   computeDrapeRow,
   DRAPE_CRAFTS,
@@ -18,8 +19,8 @@ import {
   DRAPE_VERSIONS,
   totalDrapeMaterials,
   type DrapeVersion,
-} from "@/lib/sunny-process/drapes-engine";
-import { SECTION_LABEL_ZH, vinylHeaderOf, type ProcessIssue } from "@/lib/sunny-process/issues";
+} from "@/lib/sunny-process/drapes-calc";
+import { SECTION_LABEL_ZH, cuttableVinylLines, vinylHeaderOf, type ProcessIssue } from "@/lib/sunny-process/issues";
 import type { DomesticSpecRow, DrapeSpecRow, ProcessSpec, VinylSpecWindow } from "@/lib/sunny-process/process-spec";
 import {
   buildVinylCutList,
@@ -31,7 +32,7 @@ import {
   VINYL_RODS,
   VINYL_SPLITS,
   VINYL_STRUCTURES,
-} from "@/lib/sunny-process/vinyl-engine";
+} from "@/lib/sunny-process/vinyl-calc";
 import { sixteenthsText } from "@/lib/sunny-process/excel-fns";
 
 // ── 通用可编辑表格 ──
@@ -61,16 +62,40 @@ function EditCell<T extends object>({ col, row, onChange, disabled }: { col: Col
       </select>
     );
   }
+  if (col.type === "number") return <NumberInput value={v} disabled={disabled} onCommit={onChange} />;
+  return <input className={inputCls} disabled={disabled} value={v == null ? "" : String(v)} onChange={(e) => onChange(e.target.value)} />;
+}
+
+/**
+ * 数字输入：编辑中保留原始文本（"1."、"0.0" 这类中间态不被 Number() 吞掉小数点），
+ * 文本是完整数字时才回写数值；失焦时以文本为准（非法 / 空 → null，由待核对拦下）。
+ */
+function NumberInput({ value, disabled, onCommit }: { value: unknown; disabled: boolean; onCommit: (v: number | null) => void }) {
+  const external = value == null ? "" : String(value);
+  const [draft, setDraft] = useState<string | null>(null);
+  const parse = (t: string): number | null | undefined => {
+    const x = t.trim();
+    if (x === "") return null;
+    return /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : undefined;
+  };
   return (
     <input
       className={inputCls}
       disabled={disabled}
-      inputMode={col.type === "number" ? "decimal" : undefined}
-      value={v == null ? "" : String(v)}
+      inputMode="decimal"
+      value={draft ?? external}
+      onFocus={() => setDraft(external)}
       onChange={(e) => {
-        if (col.type !== "number") return onChange(e.target.value);
-        const t = e.target.value.trim();
-        onChange(t === "" ? null : Number.isFinite(Number(t)) ? Number(t) : t);
+        setDraft(e.target.value);
+        const n = parse(e.target.value);
+        if (n !== undefined) onCommit(n);
+      }}
+      onBlur={() => {
+        if (draft !== null) {
+          const n = parse(draft);
+          onCommit(n === undefined ? null : n);
+        }
+        setDraft(null);
       }}
     />
   );
@@ -292,7 +317,9 @@ const VINYL_COLS: Col<VinylSpecWindow>[] = [
 export function VinylSection({ spec, onChange, editable, issues, orderCode }: SectionProps & { orderCode: string }) {
   const header = vinylHeaderOf(spec, orderCode);
   const computed = spec.vinyl.map((w, k) => ({ input: w, result: computeVinylWindow(w, header), windowNo: k + 1 }));
-  const cut = buildVinylCutList(computed, header, { includePosts: true });
+  const cuttable = cuttableVinylLines(spec, issues);
+  const cut = buildVinylCutList(computed.filter((c) => cuttable.has(c.windowNo)), header, { includePosts: true });
+  const excluded = computed.length - cuttable.size;
   const sv = spec.settings.vinyl;
   const setV = (patch: Partial<ProcessSpec["settings"]["vinyl"]>) => onChange({ ...spec, settings: { ...spec.settings, vinyl: { ...sv, ...patch } } });
   return (
@@ -332,7 +359,9 @@ export function VinylSection({ spec, onChange, editable, issues, orderCode }: Se
       />
       {cut.length > 0 && (
         <details className="rounded-xl border border-border bg-card-bg px-4 py-3 text-xs">
-          <summary className="cursor-pointer font-medium text-foreground/80">下料总表（{cut.length} 行，合计 {cut.reduce((s, c) => s + c.qty, 0)} 件）</summary>
+          <summary className="cursor-pointer font-medium text-foreground/80">
+            下料总表（{cut.length} 行，合计 {cut.reduce((s, c) => s + c.qty, 0)} 件{excluded > 0 ? `；${excluded} 窗有阻断未计入` : ""}）
+          </summary>
           <table className="mt-2 w-full">
             <thead><tr className="text-left text-muted"><th>顺序</th><th>料型</th><th>规格</th><th>长度</th><th>数量</th><th>端头</th><th>窗号×数量</th></tr></thead>
             <tbody>

@@ -2,7 +2,7 @@
  * 窗帘工艺引擎 × Excel 原件逐值对照（6cm / 7cm 两版）
  * 运行：npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts
  */
-import { computeDrapeRow, totalDrapeMaterials, type DrapeRowInput, type DrapeVersion } from "../drapes-engine";
+import { computeDrapeRow, totalDrapeMaterials, type DrapeRowInput, type DrapeVersion } from "../drapes-calc";
 import { loadFixture, Tally, type ExcelValue } from "./oracle-helpers";
 
 interface DrapeCase {

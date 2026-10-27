@@ -92,17 +92,17 @@ npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts     # 9488 / 0
 npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts   # 2211 / 0
 npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts     # 11267 / 0
 npx tsx src/lib/sunny-process/__tests__/vinyl-oracle.test.ts      # 89401 / 0
-npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts     # 36 / 0
-npx tsx src/lib/sunny-process/__tests__/autogen.test.ts           # 27 / 0（幂等 / 并发 / 失败隔离 / 版本 / 门禁 / 接线守卫）
-npx tsx src/lib/sunny-process/__tests__/export-workbook.test.ts   # 8 / 0
+npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts     # 38 / 0
+npx tsx src/lib/sunny-process/__tests__/autogen.test.ts           # 31 / 0（幂等 / 并发交错 / 失败隔离 / 版本乐观锁 / 门禁 / 接线守卫）
+npx tsx src/lib/sunny-process/__tests__/export-workbook.test.ts   # 9 / 0
 # 真实数据库 + 真实路由端到端（本地隔离 Postgres 16 + pgvector）
 DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
-  npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts   # 19 / 0
+  npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts   # 25 / 0
 # 重新生成金标准（离线；需要 LibreOffice + python3-uno + 原件目录）
 python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan-blinds-slots
 ```
 
-门禁结果：`npm run typecheck` 0 错；`npm run lint:baseline` PASS（error 比基线少 14，无新增指纹）；`bash scripts/check-test-registry.sh` OK（422 个已注册）；`openspec validate sunny-process-order-autogen --strict` 通过；`next build` 与 `npm test` 的结果见 §7。
+门禁结果：`npm run typecheck` 0 错；`npm run lint:baseline` PASS（error 比基线少 14，无新增指纹）；`bash scripts/check-test-registry.sh` OK（422 个已注册）；R1 架构守卫 PASS；`openspec validate sunny-process-order-autogen --strict` 通过；`next build` 与 `npm test` 的结果见 §7 附录。
 
 ## 6. 待拍板（Lucas）
 
@@ -121,6 +121,30 @@ python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan
 - 下料总表 / 标签 / 窗型示意图的打印宏（原件 `print_*.cmd`）和窗帘结算单金额区不复刻。
 - 构建与全量测试：见下方附录（由本次会话实际运行结果填写）。
 
-### 附录：构建与全量测试
+### 附录：构建与全量测试（实际运行结果）
 
-（见 §7 末尾追加记录）
+- `next build --webpack`：exit 0（只有既有的 webpack / Edge Runtime 警告）。
+- 用 `next build` 起服务，接本地隔离库，浏览器实测：签字 → 打开工艺单 → 选外框 L → 阻断清零 → 保存 → 确认 → 导出 12 张表。同一 Vinyl 窗的下料总表与原件重算逐行一致（7 行 / 96 件）。
+- `npm test`（无 DATABASE_URL）：424/439。本 change 自己的问题有两项，已修复：
+  - TypeScript：跑测试时代码正在修改，抓到了中间状态；现在 `tsc --noEmit` 退出 0。
+  - R1 架构守卫：`*-engine.ts` 文件名命中"新执行面"禁令，已改名 `*-calc.ts`，守卫 PASS。
+- 其余 13 项与本 change 无关：11 项 `MISSING_DATABASE_URL`（Phase3A / Governance / Agent Trace / T4，这些测试需要隔离库），另外 Gmail OAuth 与 Chromium PDF 两项在 SDD-0 报告里已记录在干净 main 上同样失败。全部 Sunny 测试通过。
+
+## 8. 独立审查与修复
+
+在实现之外另起一个审查代理，只读审查本 change 的 spec 覆盖与代码缺陷，共报 12 项。处理如下：
+
+| # | 发现 | 处理 | 证据 |
+|---|---|---|---|
+| 1 | `PUT {status:"in_production"/"completed"}` 能绕过确认门禁 | 已修复：从 draft / cancelled 改到任何生产链状态都过门禁 | 隔离库测试 [3]：3 种状态都返回 409 |
+| 2 | 并发交错下同一报价可能生成两张单（后到者把先到者的单当"编号被占用"，加后缀另建） | 已修复：事务内 `pg_advisory_xact_lock` + 锁内复查 | AG-05b；去掉修复则失败，加上则通过（反证） |
+| 3 | 数字输入框吞小数点：输入 1.8 存成 18、36.5 存成 365（**会直接造成错尺寸**） | 已修复：编辑中保留原文，失焦以文本为准 | 浏览器实测输入 36.5 / 1.8，存库值一致 |
+| 4 | 工厂在工艺单列表看不到自动生成的单 | 已修复：列表加"关联客户所在组织成员"可见 | 隔离库测试 [4] |
+| 5 | 工艺单详情 GET 可跨租户读取（含客户电话地址） | 已修复：GET 也用 `canViewBlindsOrder` | 隔离库测试 [4] |
+| 6 | 两人同时改参数，后保存的人覆盖前者 | 已修复：`baseVersion` 乐观锁，冲突返回 409 并刷新 | AG-07g/h、隔离库测试 [5] |
+| 7 | 删行后默认推导提示按行号错位 | 未修，记为已知限制：只影响提示级，不影响阻断与计算 | — |
+| 8 | 手工单可经 PUT spec 伪造"来源报价" | 已修复：入参里的 source 一律忽略 | AG-07i |
+| 9 | 有阻断的 Vinyl 窗仍进下料总表与标签 | 已修复：导出与页面都排除，表头注明排除窗数 | EX-03d |
+| 10 | 扇数等无上限（大值可撑爆标签生成）；Vinyl 窗读取截到 60 个 | 已修复：扇数 / 窗帘数量上限 20（>9 由待核对阻断），窗数上限统一 300 | QM-07h |
+| 11 | 报价里缺宽高的行静默不进工艺单 | 已修复：订单级提示点名这些行 | QM-07g |
+| 12 | 杂项：生成后算待核对出错会误报失败；通知去重键按报价（删单重生成不再通知）；只有无模板行时导出 400；报价页旧链接不清 | 全部修复 | — |

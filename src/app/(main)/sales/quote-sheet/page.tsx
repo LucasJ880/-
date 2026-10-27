@@ -1255,6 +1255,7 @@ function QuoteSheetPageInner() {
     }
 
     setGenerating(true);
+    setProcessOrderLink(null);
     try {
       const saved = await handleSave();
       if (!saved?.quoteId) {

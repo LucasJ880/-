@@ -6,9 +6,9 @@
  * 这里只定义结构与入参清洗，不做 I/O。
  */
 
-import { DEFAULT_DRAPE_VERSION, DRAPE_VERSIONS, type DrapeRowInput, type DrapeVersion } from "./drapes-engine";
-import type { DomesticRowInput } from "./domestic-engine";
-import type { VinylWindowInput } from "./vinyl-engine";
+import { DEFAULT_DRAPE_VERSION, DRAPE_VERSIONS, type DrapeRowInput, type DrapeVersion } from "./drapes-calc";
+import type { DomesticRowInput } from "./domestic-calc";
+import type { VinylWindowInput } from "./vinyl-calc";
 
 export const PROCESS_SPEC_SCHEMA = "sunny-process-order-spec/v1";
 export const AUDIT_ACTION_SPEC = "process_order.spec";
@@ -84,6 +84,10 @@ export interface ProcessSpec {
   notes: MappingNote[];
 }
 
+/** 入参上限：扇数超 9 由待核对阻断（原件 1–9），这里只防异常大值撑爆标签 / 下料生成 */
+const MAX_PANELS_INPUT = 20;
+const MAX_DRAPE_QTY = 20;
+
 export function emptySpec(): ProcessSpec {
   return {
     schema: PROCESS_SPEC_SCHEMA,
@@ -132,7 +136,8 @@ export function sanitizeSpec(raw: unknown, base?: ProcessSpec): ProcessSpec {
   return {
     schema: PROCESS_SPEC_SCHEMA,
     version: Math.max(0, Math.trunc(num(r.version))),
-    source: base?.source ?? (r.source ? sanitizeSource(r.source) : null),
+    // 来源报价只认服务端写入的那份：有 base（保存路径）时一律沿用 base，入参里的 source 被忽略
+    source: base ? base.source : r.source ? sanitizeSource(r.source) : null,
     settings: {
       drapeVersion,
       vinyl: {
@@ -155,15 +160,15 @@ export function sanitizeSpec(raw: unknown, base?: ProcessSpec): ProcessSpec {
       const o = obj(x);
       return {
         location: str(o.location), part: o.part === "sheer" ? "sheer" : "drape",
-        widthIn: num(o.widthIn), heightIn: num(o.heightIn), sku: str(o.sku, 80), qty: num(o.qty),
+        widthIn: num(o.widthIn), heightIn: num(o.heightIn), sku: str(o.sku, 80), qty: Math.min(MAX_DRAPE_QTY, Math.max(0, num(o.qty))),
         craft: str(o.craft, 20), layer: str(o.layer, 10), liner: str(o.liner, 10), fullness: num(o.fullness),
         mount: str(o.mount, 20), rod: str(o.rod, 20), rodColor: str(o.rodColor, 20),
       } satisfies DrapeSpecRow;
     }),
-    vinyl: !("vinyl" in r) ? fallback.vinyl : arr(r.vinyl, 60).map((x) => {
+    vinyl: !("vinyl" in r) ? fallback.vinyl : arr(r.vinyl).map((x) => {
       const o = obj(x);
       return {
-        location: str(o.location), width: num(o.width), height: num(o.height), panels: Math.trunc(num(o.panels)),
+        location: str(o.location), width: num(o.width), height: num(o.height), panels: Math.min(MAX_PANELS_INPUT, Math.max(0, Math.trunc(num(o.panels)))),
         openCode: str(o.openCode, 30).toUpperCase(), posts: str(o.posts, 4).toUpperCase(),
         rail1In: numOrNull(o.rail1In), rail1Ratio: numOrNull(o.rail1Ratio), rod: str(o.rod, 40),
         split: str(o.split, 20), frame: str(o.frame, 10), frameCount: frameCountOf(o.frameCount),

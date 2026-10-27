@@ -107,6 +107,18 @@ console.log("报价 → 工艺单映射");
   ok(blockingIssues(computeIssues([], specOf(m))).some((i) => i.section === "drapes" && i.line === 3 && i.field === "craft"), "QM-07f: 未选工艺 → 阻断");
 }
 
+// QM-07g 审查发现 #11：填了内容但缺宽高的行不进工艺单，但在订单级提示里点名
+{
+  const m = mapQuoteFormToProcessOrder(form({
+    shadeOrders: [shade({ location: "Attic", heightWhole: "" }), shade({})],
+    shutterOrders: [{ location: "Bath", widthWhole: "30", widthFrac: "0", heightWhole: "", heightFrac: "0", frame: "L", openDirection: "L", mountType: "I", midRail: "", panelCount: 1 }],
+  }));
+  const notes = computeIssues(m.blindsItems as never, specOf(m)).filter((i) => i.section === "order" && i.field.startsWith("skipped."));
+  ok(m.blindsItems.length === 1 && notes.length === 2 && notes[0]!.messageZh.includes("Attic") && notes[1]!.messageZh.includes("Bath"), "QM-07g: 缺宽高的帘子 / 百叶行在待核对里点名", notes);
+  const big = mapQuoteFormToProcessOrder(form({ shutterOrders: [{ location: "X", widthWhole: "30", widthFrac: "0", heightWhole: "40", heightFrac: "0", frame: "L", openDirection: "L", mountType: "I", midRail: "", panelCount: 10000000 }] }));
+  ok(big.spec.vinyl[0]!.panels === 20, "QM-07h: 异常大的扇数被截到 20（>9 由待核对阻断）", big.spec.vinyl[0]!.panels);
+}
+
 // QM-08 空工艺单是阻断
 ok(blockingIssues(computeIssues([], emptySpec())).some((i) => i.field === "lines"), "QM-08: 无任何行 → 阻断");
 

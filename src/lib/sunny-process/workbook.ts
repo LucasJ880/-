@@ -4,11 +4,11 @@
  */
 
 import type ExcelJS from "exceljs";
-import { buildDomesticLabels, computeDomesticRow } from "./domestic-engine";
-import { DRAPE_NOTES_ZH, computeDrapeRow, totalDrapeMaterials } from "./drapes-engine";
-import { SECTION_LABEL_ZH, vinylHeaderOf, type ProcessIssue } from "./issues";
+import { buildDomesticLabels, computeDomesticRow } from "./domestic-calc";
+import { DRAPE_NOTES_ZH, computeDrapeRow, totalDrapeMaterials } from "./drapes-calc";
+import { SECTION_LABEL_ZH, cuttableVinylLines, vinylHeaderOf, type ProcessIssue } from "./issues";
 import type { ProcessSpec } from "./process-spec";
-import { buildVinylCutList, buildVinylLabels, computeVinylWindow } from "./vinyl-engine";
+import { buildVinylCutList, buildVinylLabels, computeVinylWindow } from "./vinyl-calc";
 import { sixteenthsText } from "./excel-fns";
 
 export const FONT_DEFAULT: Partial<ExcelJS.Font> = { name: "微软雅黑", size: 10 };
@@ -183,15 +183,19 @@ export function addVinylSheets(wb: ExcelJS.Workbook, order: ExportOrderHeader, s
     r++;
   }
 
-  const cut = buildVinylCutList(computed, header, { includePosts: true });
+  // 有阻断的窗不进下料总表与标签
+  const ok = cuttableVinylLines(spec, issues);
+  const cuttable = computed.filter((c) => ok.has(c.windowNo));
+  const excluded = computed.length - cuttable.length;
+  const cut = buildVinylCutList(cuttable, header, { includePosts: true });
   const wc = wb.addWorksheet("Vinyl 下料总表", { pageSetup: { orientation: "portrait", fitToPage: true, fitToWidth: 1 } });
   const total = cut.reduce((s, c) => s + c.qty, 0);
-  table(wc, "生产下料总表", `订单：${order.code}   窗：${spec.vinyl.filter((w) => w.panels > 0).length}   下料总数量：${total}   同料型先长后短；相同1/16长度及端头合并数量（含 T柱 / 挂柱，见报告偏离 X-4）`,
+  table(wc, "生产下料总表", `订单：${order.code}   窗：${cuttable.filter((c) => c.input.panels > 0).length}${excluded > 0 ? `（另有 ${excluded} 窗有阻断，未计入）` : ""}   下料总数量：${total}   同料型先长后短；相同1/16长度及端头合并数量（含 T柱 / 挂柱，见报告偏离 X-4）`,
     ["顺序", "料型", "规格", "长度(in)", "16分", "数量", "端头角度", "对应窗号×数量", "完成"],
     cut.map((c) => [c.seq, c.type, c.spec, c.length, sixteenthsText(c.length), c.qty, c.ends, c.windows, ""] as Cell[]),
     [6, 10, 10, 10, 10, 7, 10, 40, 6]);
 
-  labelsSheet(wb, "Vinyl 标签", buildVinylLabels(computed, header).map((l) => l.lines));
+  labelsSheet(wb, "Vinyl 标签", buildVinylLabels(cuttable, header).map((l) => l.lines));
 }
 
 export function addIssuesSheet(wb: ExcelJS.Workbook, order: ExportOrderHeader, issues: ProcessIssue[]) {

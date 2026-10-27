@@ -57,6 +57,18 @@ async function main() {
   const bead = wb.getWorksheet("窗帘工艺单")!.getRow(5).getCell(16).value;
   ok(bead === "6cm", "EX-03c: 蛇形帘走珠扣 6cm", bead);
 
+  // EX-03d 审查发现 #9：有阻断的 Vinyl 窗不进下料总表与标签
+  {
+    const blocked: ProcessSpec = { ...spec, vinyl: [{ ...spec.vinyl[0]!, frame: "" }, { ...spec.vinyl[0]!, location: "Guest", posts: "", openCode: "LLRR" }] };
+    const wbB = await sheetsOf(await generateBlindsExcel(order, { spec: blocked, issues: computeIssues(items, blocked, order.code) }));
+    let windowsCol = "";
+    wbB.getWorksheet("Vinyl 下料总表")!.eachRow((row, i) => { if (i >= 5) windowsCol += ` ${String(row.getCell(8).value ?? "")}`; });
+    let labelText = "";
+    wbB.getWorksheet("Vinyl 标签")!.eachRow((row) => { labelText += ` ${String(row.getCell(2).value ?? "")}`; });
+    const header = String(wbB.getWorksheet("Vinyl 下料总表")!.getCell(2, 1).value);
+    ok(!windowsCol.includes("#1×") && windowsCol.includes("#2×") && !labelText.includes("#1 ") && labelText.includes("#2 ") && header.includes("1 窗有阻断"), "EX-03d: 缺外框的 #1 窗不进下料总表 / 标签，表头注明", { windowsCol, header });
+  }
+
   // EX-04 只含窗帘 → 三张表
   const onlyDrapes: ProcessSpec = { ...spec, domestic: [], vinyl: [], unsupported: [] };
   const wb2 = await sheetsOf(await generateBlindsExcel({ ...order, items: [] }, { spec: onlyDrapes, issues: computeIssues([], onlyDrapes) }));
