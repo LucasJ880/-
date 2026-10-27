@@ -7,6 +7,7 @@
  */
 
 import { db } from "@/lib/db";
+import { PERMISSION_REGISTRY } from "./permissions";
 import { SYSTEM_ROLE_PROFILES } from "./role-defaults";
 import type { BindingEffect, DataScope, PrincipalRef } from "./types";
 
@@ -16,6 +17,20 @@ export type EffectiveBinding = {
   effect: BindingEffect;
   source: string;
 };
+
+/**
+ * PERM-1：平台管理员（User.role = super_admin）在任何企业内全权——
+ * Registry 全部权限 × ORG，来源标记 platform_admin（审计可与 binding:* / compat:* 区分）。
+ * 平台 admin / boss / manager 不在此列。
+ */
+export function platformAdminBindings(): EffectiveBinding[] {
+  return PERMISSION_REGISTRY.map((p) => ({
+    permissionKey: p.key,
+    dataScope: "ORG" as DataScope,
+    effect: "ALLOW" as BindingEffect,
+    source: `platform_admin:${p.key}`,
+  }));
+}
 
 function membershipRoleToProfileKey(role: string): string | null {
   if (role === "org_owner") return "org_owner";
@@ -45,6 +60,14 @@ export async function resolveEffectiveBindings(
   principal: PrincipalRef,
 ): Promise<EffectiveBinding[]> {
   if (principal.type !== "HUMAN") return [];
+
+  const user = await db.user.findUnique({
+    where: { id: principal.id },
+    select: { role: true },
+  });
+  if (user?.role === "super_admin") {
+    return platformAdminBindings();
+  }
 
   const now = new Date();
   const rows = await db.principalRoleBinding.findMany({
@@ -88,10 +111,6 @@ export async function resolveEffectiveBindings(
   });
   if (!member || member.status !== "active") return [];
 
-  const user = await db.user.findUnique({
-    where: { id: principal.id },
-    select: { role: true },
-  });
   const profileKey = compatProfileKeyForMembership({
     orgRole: member.role,
     platformRole: user?.role ?? "",

@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Sunny 岗位绑定（设计稿 docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md §3）。",
+    "键是成员邮箱（必须是企业 active 成员）；值是岗位 key 列表，一人多岗取并集。",
+    "以 TODO: 开头的键是未填邮箱的占位，脚本遇到任一占位整文件拒绝（退出 2）。",
+    "执行：ALLOW_POSITION_BINDING=true npx tsx scripts/bind-positions.ts --org <Sunny 的 Organization.code> --file config/positions/sunny.json --actor lucas@sunnyshutter.ca --dry-run",
+    "确认计划后去掉 --dry-run 再执行一次。"
+  ],
+  "bindings": {
+    "lucas@sunnyshutter.ca": ["owner", "bids"],
+    "alex@sunnyshutter.ca": ["sales_rep"],
+    "TODO:Bob": ["owner", "fulfillment_drapery"],
+    "TODO:Bill": ["owner", "bids", "fulfillment_vinyl"],
+    "TODO:Miki": ["owner", "pricing_lead", "accounting"],
+    "TODO:Lynn": ["sales_rep"],
+    "TODO:Marty": ["ops_lead"],
+    "TODO:Maggie": ["ops_staff"],
+    "TODO:蒋晨": ["bids", "fulfillment_drapery"],
+    "TODO:小叶": ["fulfillment_shades"]
+  }
+}
