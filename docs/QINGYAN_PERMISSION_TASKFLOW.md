@@ -40,7 +40,7 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| INSTALL-1 | `installer` 岗位与 5 个 `install.*` 权限键；`/install` 安装任务（只看分配给自己的）与日历；逐窗拍照收口（AuditLog + 私有 Blob）；完成收口推进工艺单 `installed` | PERM-1 | 任务书 `docs/QINGYAN_INSTALL-1_INSTALLER_TASKBRIEF.md`；change `install-1-installer-position`；`docs/QINGYAN_INSTALL-1_REPORT.md` | [G]（代码完成，PR 待开） |
+| INSTALL-1 | `installer` 岗位与 5 个 `install.*` 权限键；`/install` 安装任务（只看分配给自己的）与日历；逐窗拍照收口（AuditLog + 私有 Blob）；完成收口推进工艺单 `installed` | PERM-1 | 任务书 `docs/QINGYAN_INSTALL-1_INSTALLER_TASKBRIEF.md`；change `install-1-installer-position`；`docs/QINGYAN_INSTALL-1_REPORT.md` | [x]（#268；archive 见 `openspec/changes/archive/2026-10-27-install-1-installer-position`） |
 
 ## PERM-5 — 会计视图与数字员工
 
