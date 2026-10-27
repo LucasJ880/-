@@ -14,7 +14,7 @@
 
 ## 4. 网页入口
 
-- [x] 4.1 `GET/POST /api/sales/inquiries/[id]`、页面 `/sales/inquiries/[id]`、`header.tsx` 通知跳转。verify：`tsc --noEmit` 退出 0；本地 dev 打开页面能看到问题与表单。
+- [x] 4.1 `GET/POST /api/sales/inquiries/[id]`、页面 `/sales/inquiries/[id]`、`header.tsx` 通知跳转。verify：`tsc --noEmit` 退出 0；服务层由 5.1 隔离库测试覆盖。浏览器内登录后打开页面的人工检查未做（需要本机登录态），见报告 §4。
 
 ## 5. 隔离库端到端
 
