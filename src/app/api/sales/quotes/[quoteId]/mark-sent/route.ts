@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import { authorize, humanPrincipal } from "@/lib/authorization";
 import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
 
@@ -13,6 +13,9 @@ import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
  *   - 不推进 opportunity 阶段：quote 在创建时已经把商机推进到 quoted，
  *     这里仅是"销售已经把报价交付给客户"的业务留痕
  *   - 已经 signed 的不回退，也不重复覆盖 sentAt
+ *
+ * PERM-2：发送权限 = authorize(sales.quote.send)（销售本人 / 合价全企业 / 平台管理员）；
+ * 超限折扣未批一律 409，不区分角色。
  */
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
@@ -28,15 +31,20 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
-    return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
+  const sendAuthz = await authorize({
+    principal: humanPrincipal(user, orgRes.orgId),
+    orgId: orgRes.orgId,
+    permission: "sales.quote.send",
+    resource: { type: "sales_quote", id: quote.id, ownerId: quote.createdById, orgId: orgRes.orgId },
+  });
+  if (!sendAuthz.allowed) {
+    return NextResponse.json({ error: "无权发送此报价单", code: sendAuthz.reasonCode }, { status: 403 });
   }
-  if (!isSuperAdmin(user.role)) {
-    const settings = await db.quoteDiscountSettings.findUnique({ where: { orgId: orgRes.orgId }, select: { promoMaxPct: true } });
-    const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
-    if (promotion.required && !promotion.approved) {
-      return NextResponse.json({ error: promotion.reason, code: "PROMOTION_APPROVAL_REQUIRED" }, { status: 409 });
-    }
+
+  const settings = await db.quoteDiscountSettings.findUnique({ where: { orgId: orgRes.orgId }, select: { promoMaxPct: true } });
+  const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
+  if (promotion.required && !promotion.approved) {
+    return NextResponse.json({ error: promotion.reason, code: "PROMOTION_APPROVAL_REQUIRED" }, { status: 409 });
   }
 
   if (quote.status === "signed") {

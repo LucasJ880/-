@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { authorize, humanPrincipal } from "@/lib/authorization";
-import { isAdmin } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
+import { loadPricingPolicy } from "@/lib/sales/pricing-policy";
+import { decideDiscountTier } from "@/lib/sales/discount-tier";
 import {
   resolveSalesOrgIdForRequest,
   resolveSalesScope,
@@ -48,7 +50,8 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  if (!isAdmin(user.role)) {
+  {
+    // PERM-2：不再因平台 admin 跳过；super_admin 由平台管理员全权解析覆盖
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -153,7 +156,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
   }
 
   const scope = await resolveSalesScope(user, orgRes.orgId, "sales.quote.update");
-  if (!isAdmin(user.role)) {
+  {
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -206,7 +209,20 @@ export const PUT = withAuth(async (request, ctx, user) => {
     && existing.promotionApprovalRatio != null
     && Math.abs(existing.promotionApprovalAmount - nextPromotionAmount) <= 0.0001
     && Math.abs(existing.promotionApprovalRatio - nextPromotionRatio) <= 0.0001;
-  const adminPromotionApproval = isAdmin(user.role) && nextPromotionRatio > quoteSettings.promoMaxPct;
+  // PERM-2：折扣三档；直批只来自 lead_direct / platform_self_approved
+  const pricingPolicy = await loadPricingPolicy(orgRes.orgId, quoteSettings.promoMaxPct);
+  const overLimitSubmit = await authorize({
+    principal: humanPrincipal(user, orgRes.orgId),
+    orgId: orgRes.orgId,
+    permission: "sales.quote.discount.over_limit.submit",
+  });
+  const tierDecision = decideDiscountTier({
+    ratio: nextPromotionRatio,
+    promoMaxPct: pricingPolicy.promoMaxPct,
+    leadMaxPct: pricingPolicy.leadMaxPct,
+    actor: { isPlatformSuperAdmin: isPlatformSuperAdmin(user.role), canSubmitOverLimit: overLimitSubmit.allowed },
+  });
+  const adminPromotionApproval = tierDecision.auditVia !== null;
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
@@ -431,7 +447,15 @@ export const PUT = withAuth(async (request, ctx, user) => {
       action: "quote_promotion_approved",
       targetType: "sales_quote",
       targetId: quoteId,
-      afterData: { via: "admin_direct_confirmation", promotionAmount: nextPromotionAmount, promotionRatio: nextPromotionRatio, maxPct: quoteSettings.promoMaxPct },
+      afterData: {
+        via: tierDecision.auditVia,
+        tier: tierDecision.tier,
+        selfApproved: tierDecision.selfApproved,
+        promotionAmount: nextPromotionAmount,
+        promotionRatio: nextPromotionRatio,
+        maxPct: quoteSettings.promoMaxPct,
+        leadMaxPct: pricingPolicy.leadMaxPct,
+      },
     });
   }
 

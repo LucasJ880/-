@@ -68,6 +68,7 @@
 | `fulfillment_vinyl` | 出单·Vinyl | Bill | 该品类订单与工艺单修改、状态推进 | CATEGORY=vinyl | 其他品类 |
 | `fulfillment_drapery` | 出单·布帘 | 蒋晨（中国）, Bob（加拿大） | 同上 | CATEGORY=drapery（+ 产地） | 其他品类 |
 | `fulfillment_shades` | 出单·Roller/Zebra/Roman | 小叶 | 同上 | CATEGORY=roller, zebra, roman_shade | 其他品类 |
+| `installer` | 安装工 | （待定） | 看分配给自己的安装任务与日历；开始 / 完成安装；按工艺单逐窗拍照收口 | ASSIGNED（只有分配给本人的任务） | 销售、报价、客户列表；他人任务；安排 / 改派安装 |
 | （平台）`platform_admin` | 平台管理员 | Lucas | 两家企业账号、模块、运维；成员管理与岗位分配；跨企业全权 | 跨企业 | — |
 
 一人多岗实际绑定：Miki = owner + pricing_lead + accounting；Bill = owner + bids + fulfillment_vinyl；Bob = owner + fulfillment_drapery；Lucas = platform_admin（平台）+ owner + bids。
@@ -114,5 +115,8 @@
 | PERM-3 | 出单按品类：订单与工艺单品类归属与出单人过滤；库存改动限运营主管 | 中 | 待写 |
 | PERM-4 | 收口平台角色：导航 / 默认工作区 / 各模块角色字符串判定逐模块换 `authorize`（顺序：销售 → 运营 → 招投标） | 大，分多 PR | 待写 |
 | PERM-5 | 会计视图（成交、提成、项目结算与销售分开）；数字员工岗位绑定与工具授权 | 中 | 待写 |
+| INSTALL-1 | 安装工岗位；安装任务只看自己的 + 日历；逐窗拍照收口（Appointment + AuditLog + 私有 Blob，零 schema） | 中 | `QINGYAN_INSTALL-1_INSTALLER_TASKBRIEF.md` |
+
+决定（2026-10-27 追加，Lucas）：11. 新增岗位"安装工"，只看分配给自己的安装任务，日历显示安装时间，按工艺单逐窗拍照上传用于收口。
 
 每阶段一个 change（`/opsx:propose`），GATE 审核项含 `openspec validate` 与 specs 增量覆盖全部对外行为变化。

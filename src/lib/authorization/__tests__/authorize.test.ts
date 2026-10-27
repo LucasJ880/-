@@ -251,6 +251,11 @@ const multiRead = decideFromBindings({
 ok(multiRead.allowed && multiRead.matchedScope === "ORG", "多岗并集：sales.quote.read 匹配 ORG");
 ok(decideFromBindings({ principal, permission: "sales.quote.discount.over_limit.approve", bindings: multi }).allowed, "多岗并集：可审批超限");
 
+ok(
+  !has(bindingsFromSystemProfile("org_owner"), "identity.member.manage") && !has(bindingsFromSystemProfile("org_owner"), "identity.role.manage") && !has(bindingsFromSystemProfile("org_owner"), "authorization.policy.manage") && has(bindingsFromSystemProfile("org_owner"), "audit.read", "ORG"),
+  "PERM-2：org_owner 系统模板不含成员 / 岗位 / 策略管理，仍含 audit.read",
+);
+
 console.log("PERM-1 平台管理员全权");
 const pa = platformAdminBindings();
 ok(pa.length === PERMISSION_REGISTRY.length && pa.every((b) => b.source.startsWith("platform_admin")), "platformAdminBindings：条数 = Registry，来源 platform_admin");

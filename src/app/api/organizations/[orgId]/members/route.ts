@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAuth, requireOrgRole } from "@/lib/auth/guards";
+import { requireAuth, requirePlatformAdmin } from "@/lib/auth/guards";
 import { isOrgSystemAdmin, isSuperAdmin } from "@/lib/rbac/roles";
 import { getOrgMembership } from "@/lib/auth";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
@@ -78,7 +78,8 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
 export async function POST(request: NextRequest, ctx: RouteCtx) {
   const { orgId } = await ctx.params;
 
-  const auth = await requireOrgRole(request, orgId, "org_admin");
+  // PERM-2：成员新增仅平台管理员
+  const auth = await requirePlatformAdmin(request);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json();

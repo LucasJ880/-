@@ -28,6 +28,8 @@ export type PendingActionType =
   | "marketing.create_campaign_draft"
   // ── Revenue Spine：询盘回复发送（FDE 草稿 → 人工批准 → 唯一发送路径）──
   | "sales.send_inquiry_reply"
+  // ── PERM-2：销售设置（折扣表 / 费用 / 解锁码）修改，另一位持设置权的人批准后执行 ──
+  | "sales.update_quote_settings"
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
   | "tender.send_rfq"
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
@@ -102,6 +104,23 @@ export interface SalesApproveQuotePromotionPayload {
   resourceId: string;
   riskLevel: "HIGH";
   metadata: PendingActionMetadata & { orgId: string; quoteId: string; customerId: string };
+}
+
+/** PERM-2：销售设置修改审批。只含数值 diff / 成本率 / 解锁码哈希，绝不含明文码。 */
+export interface SalesUpdateQuoteSettingsPayload {
+  orgId: string;
+  requestedById: string;
+  /** 提交时的设置版本；执行时版本已变则拒绝 */
+  settingsVersion: number;
+  numericPatch: Record<string, number>;
+  costRates?: Record<string, number>;
+  /** undefined=不改；null=清空；string=bcrypt 哈希 */
+  depositOverrideCodeHash?: string | null;
+  lineDiscountUnlockCodeHash?: string | null;
+  resourceType: "quote_discount_settings";
+  resourceId: string;
+  riskLevel: "CRITICAL";
+  metadata: PendingActionMetadata & { orgId: string };
 }
 
 export interface CalendarCreateEventPayload {
@@ -244,6 +263,7 @@ export type PendingActionPayload =
   | ({ type: "sales.update_followup" } & SalesUpdateFollowupPayload)
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
   | ({ type: "sales.approve_quote_promotion" } & SalesApproveQuotePromotionPayload)
+  | ({ type: "sales.update_quote_settings" } & SalesUpdateQuoteSettingsPayload)
   | ({ type: "calendar.create_event" } & CalendarCreateEventPayload)
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)

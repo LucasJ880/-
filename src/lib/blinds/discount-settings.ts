@@ -262,6 +262,9 @@ export type DiscountSavePatch = Partial<
   depositOverrideCodePlain?: string | null;
   /** 明文入参；落库前哈希到 lineDiscountUnlockCodeHash */
   lineDiscountUnlockCodePlain?: string | null;
+  /** PERM-2：已哈希入参（审批执行器用；与明文字段互斥，明文优先）；null=清空 */
+  depositOverrideCodeHashed?: string | null;
+  lineDiscountUnlockCodeHashed?: string | null;
 };
 
 export async function saveDiscountsForOrg(params: {
@@ -278,6 +281,8 @@ export async function saveDiscountsForOrg(params: {
   const {
     depositOverrideCodePlain,
     lineDiscountUnlockCodePlain,
+    depositOverrideCodeHashed,
+    lineDiscountUnlockCodeHashed,
     costRates,
     ...numericPatch
   } = params.patch;
@@ -285,6 +290,13 @@ export async function saveDiscountsForOrg(params: {
   const data: Record<string, unknown> = { ...numericPatch };
   if (costRates !== undefined) {
     data.costRatesJson = costRates;
+  }
+
+  if (depositOverrideCodePlain === undefined && depositOverrideCodeHashed !== undefined) {
+    data.depositOverrideCode = depositOverrideCodeHashed;
+  }
+  if (lineDiscountUnlockCodePlain === undefined && lineDiscountUnlockCodeHashed !== undefined) {
+    data.lineDiscountUnlockCodeHash = lineDiscountUnlockCodeHashed;
   }
 
   if (depositOverrideCodePlain !== undefined) {
