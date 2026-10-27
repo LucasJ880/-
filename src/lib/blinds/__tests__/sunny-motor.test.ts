@@ -28,10 +28,10 @@ const motorized = calculateQuoteTotal({
   taxRate: 0,
   sunnyMotorPrice: 150,
 });
-assert.equal(motorized.merchSubtotal - base.merchSubtotal, 150);
-assert.equal(
-  motorized.itemResults[0].msrp - base.itemResults[0].msrp,
-  150,
+// October MSRP values retain full decimal precision; ignore only binary floating-point noise.
+assert.ok(Math.abs(motorized.merchSubtotal - base.merchSubtotal - 150) < 1e-9);
+assert.ok(
+  Math.abs(motorized.itemResults[0].msrp - base.itemResults[0].msrp - 150) < 1e-9,
   "Motor 加价不参与产品折扣，MSRP 与成交价同时增加",
 );
 
@@ -42,7 +42,7 @@ const customMotor = calculateQuoteTotal({
   taxRate: 0,
   sunnyMotorPrice: 225.5,
 });
-assert.equal(customMotor.merchSubtotal - base.merchSubtotal, 225.5);
+assert.ok(Math.abs(customMotor.merchSubtotal - base.merchSubtotal - 225.5) < 1e-9);
 
 const manualMotor = calculateQuoteTotal({
   items: [
