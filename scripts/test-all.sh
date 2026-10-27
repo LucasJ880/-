@@ -275,6 +275,7 @@ run_test "Security-1 Org Switch Audit" "npx tsx src/lib/organizations/__tests__/
 run_test "Security-1 Owner/Manager" "npx tsx src/lib/rbac/__tests__/security1-owner-manager.test.ts"
 run_test "Platform Admin Diagnostics Gate" "npx tsx src/lib/rbac/__tests__/platform-admin-diagnostics-gate.test.ts"
 run_test "Security-1 Authorization" "npx tsx src/lib/authorization/__tests__/authorize.test.ts"
+run_test "岗位绑定脚本纯函数（PERM-1）" "npx tsx src/lib/authorization/__tests__/position-binding.test.ts"
 run_test "Security-1 Sales Authz" "npx tsx src/lib/sales/__tests__/security1-sales-authz.test.ts"
 run_test "销售账号营销数字员工权限" "npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts"
 run_test "归档客户销售工作区可见性" "npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts"
