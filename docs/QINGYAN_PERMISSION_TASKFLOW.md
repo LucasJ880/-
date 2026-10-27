@@ -26,15 +26,15 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-3 | 订单 / 工艺单品类归属与出单人过滤（零 schema）；库存改动限运营主管 | PERM-1 | 待写任务书 | [ ] |
+| PERM-3 | 订单 / 工艺单品类归属与出单人过滤（零 schema）；库存改动限运营主管；作废走审批 | PERM-1/2、INSTALL-1 | 任务书 `docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`；change `perm-3-fulfillment-by-category`（待 propose） | [ ] |
 
 ## PERM-4 — 收口平台角色
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-4a | 销售模块：`withAuth` 角色字符串判定 → `authorize` | PERM-2 | 待写 | [ ] |
-| PERM-4b | 运营模块：同上，`canManageUsers` 捆绑的运营配置接口转 `ops_lead` | PERM-4a | 待写 | [ ] |
-| PERM-4c | 招投标模块 + 导航 / 默认工作区按岗位 | PERM-4b | 待写 | [ ] |
+| PERM-4a | 销售模块：`isAdmin` 短路 → `authorize`；签约单改金额走审批；报价行级出单编辑接品类 | PERM-3 | 任务书 `docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`；change `perm-4a-sales-authorize` | [ ] |
+| PERM-4b | 运营模块：`canManageUsers` ×11 → `operations.manage / read`；marketing access-policy；客户端门禁读 permissionKeys | PERM-4a | 同上；change `perm-4b-ops-authorize` | [ ] |
+| PERM-4c | 招投标 / 项目财务 → `project.finance.*`；导航 `requiredPermissions` 铺开、删 `requiredPlatformRoles / NAV_ROLES_*`；默认工作区去平台角色；平台角色压扁脚本（数据） | PERM-4b | 同上；change `perm-4c-nav-by-position` | [ ] |
 
 ## INSTALL-1 — 安装工岗位 + 安装任务 + 逐窗拍照收口
 

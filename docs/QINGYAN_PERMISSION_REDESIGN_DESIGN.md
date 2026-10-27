@@ -112,9 +112,9 @@
 |---|---|---|---|
 | PERM-1 | Sunny 岗位模板 + 人员绑定脚本（仅平台管理员可跑）；销售"只看本人"启用 | 小（模板常量 + 脚本） | `QINGYAN_PERM-1-2_POSITIONS_DISCOUNT_TASKBRIEF.md` |
 | PERM-2 | 折扣表 / 超限审批 / 解锁码 / 报价发送按岗位；删 admin 直批；加合价上限 35%；成员管理仅平台管理员 | 中（1 个 change） | 同上 |
-| PERM-3 | 出单按品类：订单与工艺单品类归属与出单人过滤；库存改动限运营主管 | 中 | 待写 |
-| PERM-4 | 收口平台角色：导航 / 默认工作区 / 各模块角色字符串判定逐模块换 `authorize`（顺序：销售 → 运营 → 招投标） | 大，分多 PR | 待写 |
-| PERM-5 | 会计视图（成交、提成、项目结算与销售分开）；数字员工岗位绑定与工具授权 | 中 | 待写 |
+| PERM-3 | 出单按品类：订单与工艺单品类归属与出单人过滤；库存改动限运营主管；作废走审批 | 中 | `QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md` |
+| PERM-4 | 收口平台角色：导航 / 默认工作区 / 各模块角色字符串判定逐模块换 `authorize`（顺序：销售 → 运营 → 招投标）；平台角色压扁为 user（数据脚本） | 大，分 3 个 change | `QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md` |
+| PERM-5 | 会计视图（成交、提成、项目结算与销售分开）；数字员工岗位绑定与工具授权 | 中，分 2 个 change | `QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md` |
 | INSTALL-1 | 安装工岗位；安装任务只看自己的 + 日历；逐窗拍照收口（Appointment + AuditLog + 私有 Blob，零 schema） | 中 | `QINGYAN_INSTALL-1_INSTALLER_TASKBRIEF.md` |
 
 决定（2026-10-27 追加，Lucas）：11. 新增岗位"安装工"，只看分配给自己的安装任务，日历显示安装时间，按工艺单逐窗拍照上传用于收口。12. 可以安排安装（指定安装工与时间）的人由运营和会计决定：`install.task.assign` 给运营主管、会计（老板保留）；出单岗与基础运营不能安排安装。
