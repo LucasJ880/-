@@ -107,8 +107,10 @@ function EditableTable<T extends object>({
           <thead>
             <tr className="border-b border-border bg-[rgba(26,36,32,0.02)] text-left text-muted">
               <th className="px-2 py-2 font-medium">#</th>
-              {cols.map((c) => <th key={c.key} className="px-2 py-2 font-medium" style={{ minWidth: c.width }}>{c.label}</th>)}
-              {resultCols?.map((c) => <th key={c} className="bg-[rgba(43,96,85,0.04)] px-2 py-2 font-medium text-accent">{c}</th>)}
+              {cols.map((c) => (
+                <th key={c.key} className="whitespace-nowrap px-2 py-2 font-medium" style={{ minWidth: c.width ?? (c.type === "select" ? "92px" : undefined) }}>{c.label}</th>
+              ))}
+              {resultCols?.map((c) => <th key={c} className="whitespace-nowrap bg-[rgba(43,96,85,0.04)] px-2 py-2 font-medium text-accent">{c}</th>)}
               {editable && <th className="px-2 py-2" />}
             </tr>
           </thead>
@@ -122,7 +124,7 @@ function EditableTable<T extends object>({
                   </td>
                 ))}
                 {results?.[i]?.map((v, k) => (
-                  <td key={k} className="bg-[rgba(43,96,85,0.02)] px-2 py-1 font-mono text-foreground/80">{v ?? "-"}</td>
+                  <td key={k} className="whitespace-nowrap bg-[rgba(43,96,85,0.02)] px-2 py-1 font-mono text-foreground/80">{v ?? "-"}</td>
                 ))}
                 {editable && (
                   <td className="px-1 py-1">
@@ -314,13 +316,17 @@ export function VinylSection({ spec, onChange, editable, issues, orderCode }: Se
       <EditableTable
         rows={spec.vinyl} cols={VINYL_COLS} editable={editable} issues={issues} section="vinyl"
         onChange={(vinyl) => onChange({ ...spec, vinyl })}
-        results={computed.map(({ result: r }) => [
-          r.frameSupported ? `${num(r.innerWidth)}×${num(r.innerHeight)}` : "-",
-          r.frameSupported ? `${num(r.panelWidth)}×${num(r.panelHeight)}` : "-",
-          Number.isFinite(r.louverTotal) ? `${r.louverUpper}/${r.louverLower}${r.rail2 ? `/${r.louverMiddle}` : ""}` : "错误",
-          num(r.pitch),
-          r.openKey === 0 ? "-" : r.openKey,
-        ])}
+        results={computed.map(({ result: r }, k) => {
+          // 有阻断的窗不显示计算值（原件此时也只会算出 0 / 负数）
+          if (issues.some((i) => i.section === "vinyl" && i.line === k + 1 && i.level === "block")) return ["-", "-", "-", "-", "-"];
+          return [
+            `${num(r.innerWidth)}×${num(r.innerHeight)}`,
+            `${num(r.panelWidth)}×${num(r.panelHeight)}`,
+            Number.isFinite(r.louverTotal) ? `${r.louverUpper}/${r.louverLower}${r.rail2 ? `/${r.louverMiddle}` : ""}` : "错误",
+            num(r.pitch),
+            r.openKey === 0 ? "-" : r.openKey,
+          ];
+        })}
         resultCols={["内空宽×高", "扇宽×高", "百叶 上/下(/中)", "孔距", "开启代码"]}
         newRow={(): VinylSpecWindow => ({ location: "", width: 0, height: 0, panels: 2, openCode: "LR", posts: "", rail1In: null, rail1Ratio: null, rod: "", split: "不切分", frame: "L", frameCount: 4, inOut: "IN", structure: "有框", rail2In: null, quoteFrame: "", quoteOpenDirection: "", quoteMidRail: "" })}
       />
