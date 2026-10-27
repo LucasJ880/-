@@ -10,7 +10,7 @@ import { calcFabricArea, calculateItem, type CuttingResults } from "./calculatio
 import { RULE_VERSION } from "./deduction-rules";
 import type { ProcessIssue } from "@/lib/sunny-process/issues";
 import type { ProcessSpec } from "@/lib/sunny-process/process-spec";
-import { addDomesticSheets, addDrapeSheets, addIssuesSheet, addVinylSheets } from "@/lib/sunny-process/workbook";
+import { addDomesticSheets, addDrapeSheets, addIssuesSheet, addPurchaseSheet, addVinylSheets } from "@/lib/sunny-process/workbook";
 
 interface OrderData {
   code: string;
@@ -125,6 +125,7 @@ export async function generateBlindsExcel(
     addDomesticSheets(wb, order, opts.spec);
     addDrapeSheets(wb, order, opts.spec);
     addVinylSheets(wb, order, opts.spec, opts.issues ?? []);
+    addPurchaseSheet(wb, order, opts.spec);
   }
   if (opts?.issues) addIssuesSheet(wb, order, opts.issues);
 

@@ -1,5 +1,5 @@
 /**
- * 工艺单导出：国内下单 / 窗帘 / Vinyl / 标签 / 待核对 工作表（Blinds 三表在 src/lib/blinds/excel-export.ts）。
+ * 工艺单导出：国内下单 / 窗帘 / Vinyl / 外采购单 / 标签 / 待核对 工作表（Blinds 三表在 src/lib/blinds/excel-export.ts）。
  * 导出时从最新工艺参数重新计算，不读任何存储的计算值；不输出任何价格 / 成本 / 定金。
  */
 
@@ -196,6 +196,20 @@ export function addVinylSheets(wb: ExcelJS.Workbook, order: ExportOrderHeader, s
     [6, 10, 10, 10, 10, 7, 10, 40, 6]);
 
   labelsSheet(wb, "Vinyl 标签", buildVinylLabels(cuttable, header).map((l) => l.lines));
+}
+
+/** 外采购单：按销售在报价 Order Form 上写的原样列出，不做工艺计算 */
+export function addPurchaseSheet(wb: ExcelJS.Workbook, order: ExportOrderHeader, spec: ProcessSpec) {
+  if (spec.purchase.length === 0) return;
+  const ws = wb.addWorksheet("外采购单", { pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1 } });
+  const rows = spec.purchase.map((p, i) => [
+    i + 1, p.categoryZh, p.location, p.widthIn, p.heightIn, p.qty,
+    p.fields.map((f) => `${f.label}: ${f.value}`).join("；"), p.reasonZh, p.remark,
+  ] as Cell[]);
+  table(ws, `外采购单 — ${order.code}`, `客户: ${order.customerName}  |  按销售在报价单上填写的内容原样生成，未做工艺计算，请外采购按供应商要求下单`,
+    ["序号", "品类", "位置", "宽(in)", "高(in)", "数量", "销售填写（报价 Order Form 原值）", "外采购原因", "备注"],
+    rows, [5, 16, 14, 9, 9, 6, 70, 26, 22]);
+  rows.forEach((_, i) => { ws.getRow(5 + i).getCell(7).alignment = { wrapText: true, vertical: "top" }; });
 }
 
 export function addIssuesSheet(wb: ExcelJS.Workbook, order: ExportOrderHeader, issues: ProcessIssue[]) {

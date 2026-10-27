@@ -16,9 +16,11 @@ const form = JSON.stringify({
   shadeOrders: [
     { location: "Living", widthWhole: "36", widthFrac: "8", heightWhole: "60", heightFrac: "0", product: "Zebra", sku: "ZB-1", mount: "I", lift: "L", bracket: "C", valance: "Cassette", note: "", price: 321.45 },
     { location: "Den", widthWhole: "30", widthFrac: "0", heightWhole: "40", heightFrac: "0", product: "Cordless Cellular", sku: "CEL-1", mount: "I", lift: "", bracket: "C", valance: "", note: "" },
+    { location: "Loft", widthWhole: "50", widthFrac: "4", heightWhole: "70", heightFrac: "0", product: "Vertical", sku: "VT-9", mount: "O", lift: "L", bracket: "W", valance: "", note: "客户要灰色", manualPrice: "321.45" },
   ],
   shutterOrders: [{ location: "Bed", widthWhole: "48", widthFrac: "0", heightWhole: "60", heightFrac: "0", frame: "L", openDirection: "LR", mountType: "I", midRail: "30", panelCount: 4, draft: "" }],
-  drapeOrders: [{ location: "Dining", drapeWidthWhole: "100", drapeWidthFrac: "0", drapeHeightWhole: "96", drapeHeightFrac: "0", drapeFabricSku: "635", drapeFullness: "230", drapePanels: "D", drapePleatStyle: "R", drapeLiner: false, drapeBracket: "C", sheerWidthWhole: "", sheerHeightWhole: "", sheerFabricSku: "" }],
+  drapeOrders: [{ location: "Dining", drapeWidthWhole: "100", drapeWidthFrac: "0", drapeHeightWhole: "96", drapeHeightFrac: "0", drapeFabricSku: "635", drapeFullness: "230", drapePanels: "D", drapePleatStyle: "R", drapeLiner: false, drapeBracket: "C", sheerWidthWhole: "", sheerHeightWhole: "", sheerFabricSku: "" },
+    { location: "Study", drapeWidthWhole: "80", drapeWidthFrac: "0", drapeHeightWhole: "90", drapeHeightFrac: "0", drapeFabricSku: "650", drapeFullness: "180", drapePanels: "S", drapePleatStyle: "G", drapeLiner: true, drapeBracket: "W", sheerWidthWhole: "", sheerHeightWhole: "", sheerFabricSku: "", accessoriesSku: "RING-8", note: "" }],
   shutterMaterial: "Vinyl", shutterLouverSize: '3-1/2"', depositAmount: "777.77", partALines: [{ msrp: 8888.88, price: 6666.66 }],
 });
 
@@ -40,8 +42,23 @@ async function main() {
   // EX-01 全产品线
   const wb = await sheetsOf(await generateBlindsExcel(order, { spec, issues }));
   const names = wb.worksheets.map((w) => w.name);
-  const want = ["开料表", "工艺单", "开料表（布料）", "Blinds 标签", "国内下单表", "国内下单标签", "窗帘工艺单", "窗帘物料", "Vinyl 工艺单", "Vinyl 下料总表", "Vinyl 标签", "待核对"];
-  ok(JSON.stringify(names) === JSON.stringify(want), "EX-01a: 全产品线 12 张表齐全且顺序固定", names);
+  const want = ["开料表", "工艺单", "开料表（布料）", "Blinds 标签", "国内下单表", "国内下单标签", "窗帘工艺单", "窗帘物料", "Vinyl 工艺单", "Vinyl 下料总表", "Vinyl 标签", "外采购单", "待核对"];
+  ok(JSON.stringify(names) === JSON.stringify(want), "EX-01a: 全产品线 13 张表齐全且顺序固定", names);
+
+  // EX-01b 外采购单：按销售填写原样
+  const pur = wb.getWorksheet("外采购单")!;
+  const pr = (r: number) => [2, 3, 4, 5, 6, 7].map((c) => pur.getRow(r).getCell(c).value);
+  const p1 = pr(5), p2 = pr(6);
+  ok(p1[0] === "帘子 Vertical" && p1[1] === "Loft" && p1[2] === 50.25 && String(p1[5]).includes("SKU: VT-9") && String(p1[5]).includes("Note: 客户要灰色") && String(p1[5]).includes("Width: 50 4/16"), "EX-01b: 外采购单列出无模板帘子的销售填写原值", p1);
+  ok(p2[0] === "打孔窗帘（Grommet）" && p2[4] === 1 && String(p2[5]).includes("Accessories SKU: RING-8") && String(p2[5]).includes("Liner: Yes"), "EX-01c: 打孔窗帘进外采购单", p2);
+
+  // EX-01d 窗帘：成品帘子高 = 成品高 − 2；底部说明为新版 7 条
+  const dws = wb.getWorksheet("窗帘工艺单")!;
+  const fh = dws.getRow(5).getCell(6).value, fin = dws.getRow(5).getCell(9).value;
+  let notesText = "";
+  dws.eachRow((row) => { notesText += ` ${String(row.getCell(1).value ?? "")}`; });
+  ok(typeof fh === "number" && fin === fh - 2 && fh === Math.round(96 * 2.54 - 6), "EX-01d: 顶装 96in → 成品高 238、成品帘子高 236", { fh, fin });
+  ok(notesText.includes("6.纱帘均加铅块") && notesText.includes("7.成品检查注意") && !notesText.includes("不要寄过来"), "EX-01e: 窗帘工艺单底部为新版 7 条说明");
 
   // EX-02 不含价格 / 定金
   let text = "";
@@ -70,7 +87,7 @@ async function main() {
   }
 
   // EX-04 只含窗帘 → 三张表
-  const onlyDrapes: ProcessSpec = { ...spec, domestic: [], vinyl: [], unsupported: [] };
+  const onlyDrapes: ProcessSpec = { ...spec, domestic: [], vinyl: [], purchase: [] };
   const wb2 = await sheetsOf(await generateBlindsExcel({ ...order, items: [] }, { spec: onlyDrapes, issues: computeIssues([], onlyDrapes) }));
   ok(JSON.stringify(wb2.worksheets.map((w) => w.name)) === JSON.stringify(["窗帘工艺单", "窗帘物料", "待核对"]), "EX-04: 只有窗帘 → 窗帘工艺单 / 窗帘物料 / 待核对", wb2.worksheets.map((w) => w.name));
 

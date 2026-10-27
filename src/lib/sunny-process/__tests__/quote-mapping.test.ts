@@ -1,10 +1,11 @@
 /**
  * 报价 Order Form → 工艺单映射 + 待核对清单（QM-01..）
- * 口径：2026-10-27 Lucas 拍板（L/R=普通拉绳、M=电动；罩盒默认映射；草稿；窗帘默认 6cm）
+ * 口径：2026-10-27 Lucas 拍板（L/R=普通拉绳、M=电动；罩盒默认映射；草稿；窗帘默认 6cm；
+ *       Wooden / S·G·M·Casing 外框 / 4-1/2"·Arch / 打孔窗帘 / 无模板帘子 → 外采购，按销售填写原样生成、不阻断）
  * 运行：npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts
  */
 import { blockingIssues, computeIssues } from "../issues";
-import { emptySpec, type ProcessSpec } from "../process-spec";
+import { emptySpec, sanitizeSpec, type ProcessSpec } from "../process-spec";
 import { deriveOpenCode, mapQuoteFormToProcessOrder } from "../quote-mapping";
 
 let pass = 0, fail = 0;
@@ -58,21 +59,33 @@ console.log("报价 → 工艺单映射");
   ok(d[3]!.remark.includes("天窗"), "QM-04e: Skylight 备注天窗蜂窝帘");
 }
 
-// QM-05 缺宽高的行跳过；未知产品 → 无模板（阻断）
+// QM-05 缺宽高的行跳过；未知产品 → 外采购（不阻断）
 {
-  const m = mapQuoteFormToProcessOrder(form({ shadeOrders: [shade({ widthWhole: "" }), shade({ product: "Vertical" })] }));
-  ok(m.blindsItems.length === 0 && m.spec.unsupported.length === 1 && m.producible, "QM-05a: 缺宽跳过；未知产品进无模板段");
-  ok(blockingIssues(computeIssues([], specOf(m))).some((i) => i.section === "unsupported"), "QM-05b: 无模板行是阻断项");
+  const m = mapQuoteFormToProcessOrder(form({ shadeOrders: [shade({ widthWhole: "" }), shade({ product: "Vertical", note: "客户自带罩盒" })] }));
+  const p = m.spec.purchase[0];
+  ok(m.blindsItems.length === 0 && m.spec.purchase.length === 1 && m.producible, "QM-05a: 缺宽跳过；未知产品进外采购段");
+  ok(p?.section === "shade" && p.categoryZh === "帘子 Vertical" && p.fields.some((f) => f.label === "SKU" && f.value === "ZB-1") && p.fields.some((f) => f.label === "Note" && f.value === "客户自带罩盒") && p.fields.some((f) => f.label === "Width" && f.value === "36 8/16"), "QM-05b: 外采购行带销售填写原值（SKU / Note / 尺寸原样）", p);
+  const issues = computeIssues([], specOf(m));
+  ok(blockingIssues(issues).length === 0 && issues.some((i) => i.level === "info" && i.section === "purchase"), "QM-05c0: 外采购不阻断，只提示一次", issues);
   ok(!mapQuoteFormToProcessOrder("{not json").producible && !mapQuoteFormToProcessOrder(null).producible, "QM-05c: 坏 JSON / 空 → 无可生产行");
+  const legacy = sanitizeSpec({ unsupported: [{ section: "drape", location: "Den", widthIn: 80, heightIn: 90, reasonZh: "布帘 Grommet（打孔）工艺没有模板" }] });
+  ok(legacy.purchase.length === 1 && legacy.purchase[0]!.categoryZh === "窗帘" && legacy.purchase[0]!.qty === 1 && !("unsupported" in legacy), "QM-05d: v1 的无模板行读成外采购行", legacy.purchase);
 }
 
 // QM-06 Vinyl
 {
   const sh = (o: Record<string, unknown>) => ({ id: "s", location: "Bed", widthWhole: "48", widthFrac: "0", heightWhole: "60", heightFrac: "0", frame: "L", openDirection: "LR", mountType: "I", midRail: "30", panelCount: 4, draft: "", ...o });
-  const m = mapQuoteFormToProcessOrder(form({ shutterOrders: [sh({}), sh({ frame: "S", midRail: "中间", openDirection: "L", panelCount: 2, mountType: "O" })] }));
+  const m = mapQuoteFormToProcessOrder(form({ shutterOrders: [sh({}), sh({ frame: "", midRail: "中间", openDirection: "L", panelCount: 2, mountType: "O" }), sh({ frame: "Casing", location: "Hall" })] }));
   const [a, b] = m.spec.vinyl;
   ok(m.spec.settings.vinyl.louver === 3.5 && a!.openCode === "LLRR" && a!.frame === "L" && a!.rail1In === 30 && a!.inOut === "IN" && a!.frameCount === 4 && a!.structure === "有框", "QM-06a: 3-1/2\" → 3.5；LR×4 → LLRR；Mid Rail 30 → 第一档 30\"", a);
-  ok(b!.frame === "" && b!.quoteFrame === "S" && b!.openCode === "LL" && b!.rail1In === null && b!.inOut === "OUT", "QM-06b: S 框留空；L×2 → LL；Mid Rail 文本不解析", b);
+  ok(b!.frame === "" && b!.quoteFrame === "" && b!.openCode === "LL" && b!.rail1In === null && b!.inOut === "OUT", "QM-06b: 未选外框留空；L×2 → LL；Mid Rail 文本不解析", b);
+  const cas = m.spec.purchase[0];
+  ok(m.spec.vinyl.length === 2 && cas?.categoryZh === "Wooden 百叶" && cas.reasonZh.includes("Casing") && cas.fields.some((f) => f.label === "Frame" && f.value === "Casing") && cas.fields.some((f) => f.label === "# Panels" && f.value === "4"), "QM-06b2: Vinyl 选了 Casing 外框 → 按 Wooden 转外采购，带销售填写原值", cas);
+  ok(m.spec.notes.some((n) => n.section === "order" && n.messageZh.includes("Hall") && n.messageZh.includes("Casing")), "QM-06b3: Vinyl 材质却选 Wooden 外框 → 订单级提示与销售确认");
+  for (const f of ["S", "G", "M"]) {
+    const x = mapQuoteFormToProcessOrder(form({ shutterOrders: [sh({ frame: f })] }));
+    ok(x.spec.vinyl.length === 0 && x.spec.purchase[0]?.reasonZh === `外框 ${f} 属于 Wooden 百叶，外采购`, `QM-06b4: 外框 ${f} → 外采购`);
+  }
   const issues = computeIssues([], specOf(m));
   ok(blockingIssues(issues).some((i) => i.section === "vinyl" && i.line === 2 && i.field === "frame" && i.messageZh === "缺外框类型"), "QM-06c: 缺外框类型是阻断项", issues);
   ok(issues.some((i) => i.level === "info" && i.section === "vinyl" && i.line === 2 && i.field === "rail1In"), "QM-06d: Mid Rail 不可解析 → 提示");
@@ -88,10 +101,16 @@ console.log("报价 → 工艺单映射");
   mm.vinyl[0] = { ...mm.vinyl[0]!, openCode: "LLR" };
   ok(blockingIssues(computeIssues([], mm)).some((i) => i.line === 1 && i.messageZh === "扇数/开合不匹配"), "QM-06g: 开合与扇数不符 → 阻断");
   ok(deriveOpenCode("LR", 3) === "LLR" && deriveOpenCode("R", 2) === "RR" && deriveOpenCode("", 2) === "", "QM-06h: 开合编码推导");
-  const w = mapQuoteFormToProcessOrder(form({ shutterMaterial: "Wooden", shutterOrders: [sh({})] }));
-  ok(w.spec.vinyl.length === 0 && w.spec.unsupported[0]?.reasonZh.includes("Wooden"), "QM-06i: Wooden 百叶 → 无模板（阻断）");
-  const big = mapQuoteFormToProcessOrder(form({ shutterLouverSize: '4-1/2"', shutterOrders: [sh({})] }));
-  ok(big.spec.settings.vinyl.louver === null && blockingIssues(computeIssues([], specOf(big))).some((i) => i.field === "vinyl.louver"), "QM-06j: 4-1/2\" 百叶 → 阻断");
+  const w = mapQuoteFormToProcessOrder(form({ shutterMaterial: "Wooden", shutterOrders: [sh({ draft: "data:image/png;base64,AAAA" })] }));
+  const wp = w.spec.purchase[0];
+  ok(w.spec.vinyl.length === 0 && wp?.categoryZh === "Wooden 百叶" && wp.fields.some((f) => f.label === "Material" && f.value === "Wooden") && wp.fields.some((f) => f.label === "Louver" && f.value === '3-1/2"'), "QM-06i: Wooden 百叶 → 外采购（材质 / 百叶尺寸原值）", wp);
+  ok(!wp?.fields.some((f) => f.label === "Draft") && blockingIssues(computeIssues([], specOf(w))).length === 0, "QM-06i2: 草图 data URL 不进外采购单；Wooden 不阻断");
+  for (const size of ['4-1/2"', "Arch"]) {
+    const big = mapQuoteFormToProcessOrder(form({ shutterLouverSize: size, shutterOrders: [sh({}), sh({ location: "Kid" })] }));
+    ok(big.spec.vinyl.length === 0 && big.spec.purchase.length === 2 && big.spec.purchase.every((p) => p.categoryZh === `Vinyl 百叶 ${size}`) && blockingIssues(computeIssues([], specOf(big))).length === 0, `QM-06j: ${size} 百叶 → 整单百叶外采购（不阻断）`);
+  }
+  const none = mapQuoteFormToProcessOrder(form({ shutterLouverSize: "", shutterOrders: [sh({})] }));
+  ok(none.spec.vinyl.length === 1 && blockingIssues(computeIssues([], specOf(none))).some((i) => i.field === "vinyl.louver"), "QM-06k: 未选百叶尺寸仍留在 Vinyl 段阻断");
 }
 
 // QM-07 窗帘
@@ -102,7 +121,8 @@ console.log("报价 → 工艺单映射");
   ok(m.spec.settings.drapeVersion === "6cm", "QM-07a: 窗帘版本默认 6cm");
   ok(a!.part === "drape" && a!.craft === "韩褶P" && a!.fullness === 2.3 && a!.qty === 2 && a!.liner === "是" && a!.mount === "墙装W" && a!.rod === "方双轨" && a!.layer === "布", "QM-07b: 布帘 P/230/D/liner/W → 韩褶P/2.3/2/是/墙装W/方双轨", a);
   ok(b!.part === "sheer" && b!.craft === "蛇型R" && b!.fullness === 1.8 && b!.qty === 1 && b!.liner === "否" && b!.layer === "纱", "QM-07c: 纱帘 R/180/S → 蛇型R/1.8/1/纱", b);
-  ok(m.spec.unsupported.some((u) => u.section === "drape" && u.reasonZh.includes("Grommet")), "QM-07d: Grommet → 无模板（阻断）");
+  const g = m.spec.purchase.find((u) => u.section === "drape");
+  ok(!!g && g.categoryZh === "打孔窗帘（Grommet）" && g.qty === 2 && g.fields.some((f) => f.label === "Fabric SKU" && f.value === "635") && g.fields.some((f) => f.label === "Liner" && f.value === "Yes") && g.fields.some((f) => f.label === "Fullness" && f.value === "230"), "QM-07d: Grommet → 外采购（扇数 / 面料 / 底布 / 倍数原值）", g);
   ok(c!.mount === "顶装C" && c!.rod === "" && c!.craft === "", "QM-07e: 顶装不需杆型；未选工艺留空", c);
   ok(blockingIssues(computeIssues([], specOf(m))).some((i) => i.section === "drapes" && i.line === 3 && i.field === "craft"), "QM-07f: 未选工艺 → 阻断");
 }

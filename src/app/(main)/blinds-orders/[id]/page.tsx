@@ -20,8 +20,8 @@ import {
   DomesticSection,
   DrapesSection,
   IssuesPanel,
+  PurchaseSection,
   SourceBanner,
-  UnsupportedSection,
   VinylSection,
 } from "./process-sections";
 
@@ -94,7 +94,7 @@ export default function BlindsOrderDetailPage({
   const router = useRouter();
   const [order, setOrder] = useState<BlindsOrder | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "parts" | "fabric" | "domestic" | "drapes" | "vinyl">("overview");
+  const [tab, setTab] = useState<"overview" | "parts" | "fabric" | "domestic" | "drapes" | "vinyl" | "purchase">("overview");
   const [exporting, setExporting] = useState(false);
   const [spec, setSpec] = useState<ProcessSpec | null>(null);
   const [specDirty, setSpecDirty] = useState(false);
@@ -148,6 +148,31 @@ export default function BlindsOrderDetailPage({
   useEffect(() => {
     void loadOrder();
   }, [loadOrder]);
+
+  /** 发给国内 / 退回自产：草稿内挪行，服务端一次事务写自产行 + 新一版工艺参数；不对外发送 */
+  async function moveLines(body: Record<string, unknown>, confirmText: string) {
+    if (!spec) return;
+    if (specDirty) {
+      alert("工艺参数有未保存的修改，请先保存");
+      return;
+    }
+    if (!confirm(confirmText)) return;
+    const res = await apiFetch(`/api/blinds-orders/${id}/move-lines`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, baseVersion: spec.version }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "操作失败");
+      if (res.status === 409) void loadOrder();
+      return;
+    }
+    setOrder(data.order);
+    setSpec(data.spec);
+    setSpecDirty(false);
+    if (body.to === "domestic") setTab("domestic");
+  }
 
   async function updateStatus(newStatus: string) {
     if (specDirty) {
@@ -227,7 +252,7 @@ export default function BlindsOrderDetailPage({
   const totalSF = order.items.reduce((sum, item) => sum + (item.squareFeet || 0), 0);
   const editable = order.status === "draft";
   const blockedCount = blockingIssues(issues).length;
-  const lineCount = order.items.length + (spec ? spec.domestic.length + spec.drapes.length + spec.vinyl.length : 0);
+  const lineCount = order.items.length + (spec ? spec.domestic.length + spec.drapes.length + spec.vinyl.length + spec.purchase.length : 0);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -330,6 +355,7 @@ export default function BlindsOrderDetailPage({
           { key: "domestic" as const, label: `国内下单 (${spec?.domestic.length ?? 0})`, icon: FileText, show: !!spec?.domestic.length },
           { key: "drapes" as const, label: `窗帘 (${spec?.drapes.length ?? 0})`, icon: Scissors, show: !!spec?.drapes.length },
           { key: "vinyl" as const, label: `Vinyl 百叶 (${spec?.vinyl.length ?? 0})`, icon: Ruler, show: !!spec?.vinyl.length },
+          { key: "purchase" as const, label: `外采购 (${spec?.purchase.length ?? 0})`, icon: FileText, show: !!spec?.purchase.length },
         ].filter((t) => t.show).map((t) => (
           <button
             key={t.key}
@@ -347,20 +373,46 @@ export default function BlindsOrderDetailPage({
       </div>
 
       {/* Tab content */}
-      {tab === "overview" && <OverviewTab order={order} />}
+      {tab === "overview" && (
+        <OverviewTab
+          order={order}
+          canMove={editable && !!spec}
+          onSendDomestic={(itemIds, label) => void moveLines(
+            { to: "domestic", itemIds },
+            `把${label}移到「国内下单表」？\n\n按销售填写的内容原样生成，交外采购下单；这些行不再按自产工艺计算。\n不会自动发送给任何人，需要时可在国内下单页「退回自产」。`,
+          )}
+        />
+      )}
       {tab === "parts" && <PartsCuttingTab items={order.items} />}
       {tab === "fabric" && <FabricCuttingTab items={order.items} />}
-      {spec && tab === "domestic" && <DomesticSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
+      {spec && tab === "domestic" && (
+        <DomesticSection
+          spec={spec} onChange={editSpec} editable={editable} issues={issues}
+          onReturnInHouse={(line) => void moveLines({ to: "in_house", domesticLines: [line] }, `把国内下单第 ${line} 行退回 Blinds 自产？\n\n将按自产工艺重新计算开料；斑马帘布纱比按对照表取值。`)}
+        />
+      )}
       {spec && tab === "drapes" && <DrapesSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
       {spec && tab === "vinyl" && <VinylSection spec={spec} onChange={editSpec} editable={editable} issues={issues} orderCode={order.code} />}
-      {spec && <UnsupportedSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
+      {spec && tab === "purchase" && <PurchaseSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
     </div>
   );
 }
 
-function OverviewTab({ order }: { order: BlindsOrder }) {
+function OverviewTab({ order, canMove, onSendDomestic }: { order: BlindsOrder; canMove: boolean; onSendDomestic: (itemIds: string[] | "all", label: string) => void }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card-bg shadow-sm">
+      {canMove && order.items.length > 0 && (
+        <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs text-muted">
+          <span>自产 Blinds 行（卷帘 / 斑马帘 / 香格里拉）。要交国内供应商做的，点「发给国内」移到国内下单表（按销售填写原样，交外采购；不会自动发送）。</span>
+          <button
+            type="button"
+            onClick={() => onSendDomestic("all", `全部 ${order.items.length} 行自产 Blinds`)}
+            className="shrink-0 rounded-lg border border-accent px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent-soft"
+          >
+            全部发给国内
+          </button>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -378,6 +430,7 @@ function OverviewTab({ order }: { order: BlindsOrder }) {
               <th className="px-3 py-2.5 font-medium">底杆覆盖</th>
               <th className="px-3 py-2.5 font-medium">SF</th>
               <th className="px-3 py-2.5 font-medium">备注</th>
+              {canMove && <th className="px-3 py-2.5" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -396,6 +449,13 @@ function OverviewTab({ order }: { order: BlindsOrder }) {
                 <td className="px-3 py-2 font-mono">{item.bottomBarWidth ?? "-"}</td>
                 <td className="px-3 py-2 font-mono">{item.squareFeet?.toFixed(2) ?? "-"}</td>
                 <td className="px-3 py-2 text-muted">{item.itemRemark || "-"}</td>
+                {canMove && (
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <button type="button" className="text-accent hover:underline" onClick={() => onSendDomestic([item.id], `第 ${item.itemNumber} 行（${item.location || item.productType}）`)}>
+                      发给国内
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

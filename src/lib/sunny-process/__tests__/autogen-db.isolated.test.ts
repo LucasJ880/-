@@ -43,7 +43,7 @@ const formData = (orderNumber: string) => JSON.stringify({
     { location: "Den", widthWhole: "30", widthFrac: "0", heightWhole: "40", heightFrac: "0", product: "Cordless Cellular", sku: "CEL-FIXTURE", mount: "I", lift: "", bracket: "C", valance: "", note: "" },
   ],
   shutterOrders: [
-    { location: "Bed", widthWhole: "48", widthFrac: "0", heightWhole: "60", heightFrac: "0", frame: "S", openDirection: "LR", mountType: "I", midRail: "30", panelCount: 4, draft: "" },
+    { location: "Bed", widthWhole: "48", widthFrac: "0", heightWhole: "60", heightFrac: "0", frame: "", openDirection: "LR", mountType: "I", midRail: "30", panelCount: 4, draft: "" },
   ],
   drapeOrders: [
     { location: "Dining", drapeWidthWhole: "100", drapeWidthFrac: "0", drapeHeightWhole: "96", drapeHeightFrac: "0", drapeFabricSku: "635", drapeFullness: "230", drapePanels: "D", drapePleatStyle: "R", drapeLiner: false, drapeBracket: "C", sheerFabricSku: "" },
@@ -65,6 +65,8 @@ async function main() {
   const listRoute = await import("@/app/api/blinds-orders/route");
   const specRoute = await import("@/app/api/blinds-orders/[id]/spec/route");
   const exportRoute = await import("@/app/api/blinds-orders/[id]/export/route");
+  const moveRoute = await import("@/app/api/blinds-orders/[id]/move-lines/route");
+  const ratioRoute = await import("@/app/api/sunny-process/zebra-ratios/route");
 
   const stamp = Date.now().toString(36);
   const SALES = `spsales_${stamp}`;
@@ -163,6 +165,31 @@ async function main() {
     ok(put.status === 200 && (put.body?.spec as { version: number }).version === 2, "PUT spec → 200，版本 2", put.body);
     const blockedLeft = ((put.body?.issues ?? []) as { level: string }[]).filter((i) => i.level === "block");
     ok(blockedLeft.length === 0, "补外框后无阻断项", blockedLeft);
+
+    console.log("\n[5b] 布纱比对照表（组织 settingsJson）+ 发给国内 / 退回自产");
+    const r0 = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cFactory), {});
+    ok(r0.status === 200 && r0.body?.seeded === true && (r0.body?.entries as unknown[]).length === 24 && r0.body?.orgId === ORG, "GET 对照表：未保存过 → 原件种子 24 条", r0.body?.seeded);
+    const r1 = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [{ codes: ["ZB-FIXTURE"], fabric: "3 4/16", silk: "2 3/16", noteZh: "e2e" }, { codes: [], fabric: 3, silk: 2 }] }), {});
+    ok(r1.status === 200 && (r1.body?.entries as unknown[]).length === 1 && r1.body?.dropped === 1, "PUT 对照表：保存 1 条，非法行丢弃", r1.body);
+    const orgRow = await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
+    const ratioAudit = await db.auditLog.count({ where: { targetType: "organization", targetId: ORG, action: "sunny_process.zebra_ratios" } });
+    ok(JSON.stringify(orgRow?.settingsJson).includes("ZB-FIXTURE") && ratioAudit === 1, "落在 Organization.settingsJson.sunnyProcess.zebraRatios，记 AuditLog", { ratioAudit });
+    const rOut = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cOut), {});
+    ok(rOut.status === 200 && rOut.body?.orgId === ORG_X && rOut.body?.seeded === true, "外部组织读到的是自己的表（种子），看不到本组织的", rOut.body?.orgId);
+
+    const mOut = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cOut, "POST", { to: "domestic", itemIds: "all", baseVersion: 2 }), { id: orderId });
+    ok(mOut.status === 404, "外部组织挪行 → 404", mOut.status);
+    const mStale = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cFactory, "POST", { to: "domestic", itemIds: "all", baseVersion: 1 }), { id: orderId });
+    ok(mStale.status === 409 && (await db.blindsOrderItem.count({ where: { orderId } })) === 1, "挪行基于过期版本 → 409，自产行不动", mStale.body);
+    const m1 = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cFactory, "POST", { to: "domestic", itemIds: "all", baseVersion: 2 }), { id: orderId });
+    const m1spec = m1.body?.spec as { version: number; domestic: { productType: string; sku: string; code: string; control: string; side: string }[] };
+    const sent = m1spec?.domestic.find((d) => d.productType === "斑马帘");
+    ok(m1.status === 200 && m1spec.version === 3 && (await db.blindsOrderItem.count({ where: { orderId } })) === 0 && !!sent && sent.sku === "ZB-FIXTURE" && sent.code === "Living" && sent.control === "普通" && sent.side === "左", "全部发给国内 → 自产行清空、国内下单表多一行斑马帘（销售填写原样），参数 v3", m1.body);
+    const zebraLine = m1spec.domestic.findIndex((d) => d.productType === "斑马帘") + 1;
+    const m2 = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cFactory, "POST", { to: "in_house", domesticLines: [zebraLine], baseVersion: 3 }), { id: orderId });
+    const back = await db.blindsOrderItem.findMany({ where: { orderId } });
+    ok(m2.status === 200 && (m2.body?.spec as { version: number }).version === 4 && back.length === 1 && back[0]!.productType === "斑马帘" && back[0]!.fabricRatio === 3.25 && back[0]!.silkRatio === 2.1875 && back[0]!.cutZebraBar !== null, "退回自产 → 自产行重建、布纱比按对照表 3 4/16 : 2 3/16、开料重新计算，参数 v4", { status: m2.status, back });
+    spec.version = 4;
     const xls = await call(exportRoute.GET as never, req(`/api/blinds-orders/${orderId}/export`, cFactory), { id: orderId });
     const wb = new ExcelJS.Workbook();
     if (xls.raw) await wb.xlsx.load(xls.raw as unknown as ArrayBuffer);

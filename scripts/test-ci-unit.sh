@@ -182,6 +182,8 @@ npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/real-orders.test.ts
+npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts
+npx tsx src/lib/sunny-process/__tests__/line-moves.test.ts
 npx tsx src/lib/sunny-process/__tests__/vinyl-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts
 npx tsx src/lib/sunny-process/__tests__/autogen.test.ts

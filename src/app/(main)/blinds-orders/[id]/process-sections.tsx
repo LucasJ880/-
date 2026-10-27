@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * 工艺单详情：来源报价 / 待核对 / 国内下单 / 窗帘 / Vinyl / 无模板行
+ * 工艺单详情：来源报价 / 待核对 / 国内下单 / 窗帘 / Vinyl / 外采购
  * 参数存于 /api/blinds-orders/[id]/spec（AuditLog 版本化）；计算用与导出相同的纯函数实时重算。
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AlertTriangle, Info, Plus, Trash2 } from "lucide-react";
 import { computeDomesticRow, DOMESTIC_CONTROLS, DOMESTIC_MEASURES, DOMESTIC_MOUNTS, DOMESTIC_PRODUCTS, DOMESTIC_SIDES } from "@/lib/sunny-process/domestic-calc";
 import {
@@ -21,7 +21,8 @@ import {
   type DrapeVersion,
 } from "@/lib/sunny-process/drapes-calc";
 import { SECTION_LABEL_ZH, cuttableVinylLines, vinylHeaderOf, type ProcessIssue } from "@/lib/sunny-process/issues";
-import type { DomesticSpecRow, DrapeSpecRow, ProcessSpec, VinylSpecWindow } from "@/lib/sunny-process/process-spec";
+import { canReturnToInHouse } from "@/lib/sunny-process/line-moves";
+import type { DomesticSpecRow, DrapeSpecRow, ProcessSpec, PurchaseLine, VinylSpecWindow } from "@/lib/sunny-process/process-spec";
 import {
   buildVinylCutList,
   computeVinylWindow,
@@ -113,7 +114,7 @@ function issueMarks(issues: ProcessIssue[], section: ProcessIssue["section"], li
 }
 
 function EditableTable<T extends object>({
-  rows, cols, onChange, editable, issues, section, results, resultCols, newRow,
+  rows, cols, onChange, editable, issues, section, results, resultCols, newRow, rowAction, wrapResults,
 }: {
   rows: T[];
   cols: Col<T>[];
@@ -124,6 +125,10 @@ function EditableTable<T extends object>({
   results?: (string | number | null)[][];
   resultCols?: string[];
   newRow?: () => T;
+  /** 行尾额外操作（如「退回自产」） */
+  rowAction?: (row: T, index: number) => ReactNode;
+  /** 结果列为长文本时换行显示（外采购的销售填写原值） */
+  wrapResults?: boolean;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card-bg shadow-sm">
@@ -132,6 +137,7 @@ function EditableTable<T extends object>({
           <thead>
             <tr className="border-b border-border bg-[rgba(26,36,32,0.02)] text-left text-muted">
               <th className="px-2 py-2 font-medium">#</th>
+              {editable && rowAction && <th className="px-2 py-2" />}
               {cols.map((c) => (
                 <th key={c.key} className="whitespace-nowrap px-2 py-2 font-medium" style={{ minWidth: c.width ?? (c.type === "select" ? "92px" : undefined) }}>{c.label}</th>
               ))}
@@ -143,13 +149,14 @@ function EditableTable<T extends object>({
             {rows.map((row, i) => (
               <tr key={i}>
                 <td className="px-2 py-1 text-muted"><span className="flex items-center gap-1">{i + 1}{issueMarks(issues, section, i + 1)}</span></td>
+                {editable && rowAction && <td className="whitespace-nowrap px-1 py-1">{rowAction(row, i)}</td>}
                 {cols.map((c) => (
                   <td key={c.key} className="px-1 py-1">
                     <EditCell col={c} row={row} disabled={!editable} onChange={(v) => onChange(rows.map((r, k) => (k === i ? ({ ...r, [c.key]: v } as T) : r)))} />
                   </td>
                 ))}
                 {results?.[i]?.map((v, k) => (
-                  <td key={k} className="whitespace-nowrap bg-[rgba(43,96,85,0.02)] px-2 py-1 font-mono text-foreground/80">{v ?? "-"}</td>
+                  <td key={k} className={`${wrapResults ? "min-w-[220px] max-w-[420px] whitespace-normal break-words" : "whitespace-nowrap font-mono"} bg-[rgba(43,96,85,0.02)] px-2 py-1 text-foreground/80`}>{v ?? "-"}</td>
                 ))}
                 {editable && (
                   <td className="px-1 py-1">
@@ -234,7 +241,7 @@ const DOMESTIC_COLS: Col<DomesticSpecRow>[] = [
   { key: "remark", label: "备注", type: "text", width: "120px" },
 ];
 
-export function DomesticSection({ spec, onChange, editable, issues }: SectionProps) {
+export function DomesticSection({ spec, onChange, editable, issues, onReturnInHouse }: SectionProps & { onReturnInHouse?: (line: number) => void }) {
   const results = spec.domestic.map((d) => {
     const r = computeDomesticRow(d);
     return [num(r.widthCm, 2), num(r.heightCm, 2), num(r.sqm, 3)];
@@ -244,6 +251,9 @@ export function DomesticSection({ spec, onChange, editable, issues }: SectionPro
       rows={spec.domestic} cols={DOMESTIC_COLS} editable={editable} issues={issues} section="domestic"
       onChange={(domestic) => onChange({ ...spec, domestic })}
       results={results} resultCols={["宽(cm)", "高(cm)", "平方(㎡)"]}
+      rowAction={onReturnInHouse ? (row, i) => (canReturnToInHouse(row)
+        ? <button type="button" className="text-xs text-accent hover:underline" title="移回 Blinds 自产行（按自产工艺计算）" onClick={() => onReturnInHouse(i + 1)}>退回自产</button>
+        : null) : undefined}
       newRow={(): DomesticSpecRow => ({ location: "", code: "", widthIn: 0, heightIn: 0, productType: "蜂窝帘", sku: "", measure: "内装", control: "普通", side: "左", headrail: "", mount: "顶装", remark: "", quoteProduct: "" })}
     />
   );
@@ -378,25 +388,30 @@ export function VinylSection({ spec, onChange, editable, issues, orderCode }: Se
   );
 }
 
-// ── 无模板行 ──
+// ── 外采购 ──
 
-export function UnsupportedSection({ spec, onChange, editable }: SectionProps) {
-  if (spec.unsupported.length === 0) return null;
+const PURCHASE_COLS: Col<PurchaseLine>[] = [
+  { key: "categoryZh", label: "品类", type: "text", width: "150px" },
+  { key: "location", label: "位置", type: "text", width: "100px" },
+  { key: "widthIn", label: "宽(in)", type: "number", width: "60px" },
+  { key: "heightIn", label: "高(in)", type: "number", width: "60px" },
+  { key: "qty", label: "数量", type: "number", width: "44px" },
+  { key: "remark", label: "备注", type: "text", width: "140px" },
+];
+
+/** 外采购行：按销售在报价单上写的原样生成，不做工艺计算、不阻断确认 */
+export function PurchaseSection({ spec, onChange, editable, issues }: SectionProps) {
   return (
-    <div className="rounded-xl border border-[rgba(166,61,61,0.25)] bg-card-bg p-4 text-xs">
-      <div className="mb-2 font-medium text-danger">无工艺模板的行（阻断）：人工下单后删除</div>
-      <ul className="space-y-1">
-        {spec.unsupported.map((u, i) => (
-          <li key={i} className="flex items-center justify-between gap-2">
-            <span>{u.location || "（无位置）"} · {u.widthIn}×{u.heightIn} in · {u.reasonZh}</span>
-            {editable && (
-              <button type="button" className="text-muted hover:text-danger" onClick={() => onChange({ ...spec, unsupported: spec.unsupported.filter((_, k) => k !== i) })}>
-                <Trash2 size={13} />
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-2">
+      <p className="text-xs text-muted">Wooden 百叶（含 S/G/M/Casing 外框）、打孔窗帘、4-1/2&quot; / Arch 百叶和没有工艺模板的帘子按销售填写原样列出，导出为「外采购单」，交外采购下单。</p>
+      <EditableTable
+        rows={spec.purchase} cols={PURCHASE_COLS} editable={editable} issues={issues} section="purchase"
+        onChange={(purchase) => onChange({ ...spec, purchase })}
+        results={spec.purchase.map((p) => [p.fields.map((f) => `${f.label}: ${f.value}`).join("；") || null, p.reasonZh || null])}
+        resultCols={["销售填写（报价原值）", "外采购原因"]}
+        wrapResults
+        newRow={(): PurchaseLine => ({ section: "shutter", categoryZh: "", location: "", widthIn: 0, heightIn: 0, qty: 1, fields: [], reasonZh: "工厂手工添加", remark: "" })}
+      />
     </div>
   );
 }

@@ -77,7 +77,7 @@ const formData = JSON.stringify({
     { location: "Kitchen", widthWhole: "30", widthFrac: "0", heightWhole: "40", heightFrac: "0", product: "Roller", sku: "RL-1", mount: "O", lift: "M", bracket: "W", valance: "None", note: "" },
   ],
   shutterOrders: [
-    { location: "Bed", widthWhole: "48", widthFrac: "0", heightWhole: "60", heightFrac: "0", frame: "S", openDirection: "LR", mountType: "I", midRail: "30", panelCount: 4, draft: "" },
+    { location: "Bed", widthWhole: "48", widthFrac: "0", heightWhole: "60", heightFrac: "0", frame: "", openDirection: "LR", mountType: "I", midRail: "30", panelCount: 4, draft: "" },
   ],
   drapeOrders: [],
   shutterMaterial: "Vinyl",
@@ -108,7 +108,7 @@ const notify: NotifyFn = async (n) => { sent.push(n); };
   const spec = await loadProcessSpec(db, o.id);
   ok(spec.version === 1 && spec.vinyl.length === 1 && spec.source?.quoteId === "q1" && spec.source.signedAt === "2026-10-27T10:00:00.000Z", "AG-01d: Vinyl 窗进工艺参数 v1，来源报价可追溯", spec.source);
   ok(audits.some((a) => a.targetType === "sales_quote" && a.targetId === "q1" && a.action === "process_order.generated"), "AG-01e: 按报价 id 可反查关联");
-  ok((r.blockingCount ?? 0) >= 1, "AG-01f: S 框 → 至少 1 项阻断", r.blockingCount);
+  ok((r.blockingCount ?? 0) >= 1, "AG-01f: 未选外框 → 至少 1 项阻断", r.blockingCount);
   const n = sent[0]!;
   ok(sent.length === 1 && n.type === "process_order_generated" && n.userId === "u1" && n.title.includes("Alice") && n.entityType === "blinds_order" && n.entityId === o.id && (n.metadata as { href: string }).href === `/blinds-orders/${o.id}`, "AG-01g: 通知报价创建人，链接指向工艺单", n);
   const dump = JSON.stringify({ order: o, audits });

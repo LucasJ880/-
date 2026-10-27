@@ -1,5 +1,5 @@
 /**
- * 工艺单的非 Blinds 工艺参数（国内下单 / 窗帘 / Vinyl / 无模板行）与单头设置。
+ * 工艺单的非 Blinds 工艺参数（国内下单 / 窗帘 / Vinyl / 外采购）与单头设置。
  *
  * 零 schema：这份 JSON 作为 AuditLog（targetType=blinds_order, action=process_order.spec）的 afterData
  * 追加保存，每次编辑一个新版本，读取取最新版本（见 design D2）。
@@ -10,7 +10,8 @@ import { DEFAULT_DRAPE_VERSION, DRAPE_VERSIONS, type DrapeRowInput, type DrapeVe
 import type { DomesticRowInput } from "./domestic-calc";
 import type { VinylWindowInput } from "./vinyl-calc";
 
-export const PROCESS_SPEC_SCHEMA = "sunny-process-order-spec/v1";
+/** v2：无模板行（unsupported，阻断）改为外采购行（purchase，不阻断）；读 v1 时自动转换 */
+export const PROCESS_SPEC_SCHEMA = "sunny-process-order-spec/v2";
 export const AUDIT_ACTION_SPEC = "process_order.spec";
 export const AUDIT_ACTION_GENERATED = "process_order.generated";
 export const AUDIT_TARGET_ORDER = "blinds_order";
@@ -42,13 +43,31 @@ export interface VinylSpecWindow extends VinylWindowInput {
   quoteMidRail: string;
 }
 
-/** 没有工艺模板的行（Wooden 百叶、Grommet 窗帘、4-1/2" / Arch 百叶 …）：阻断，工厂处理后删除 */
-export interface UnsupportedLine {
+export interface PurchaseField {
+  /** 报价 Order Form 的列名（Frame / Open Dir / Fabric SKU …） */
+  label: string;
+  value: string;
+}
+
+/**
+ * 外采购行（Wooden 百叶及其 S/G/M/Casing 外框、打孔窗帘、4-1/2" / Arch 百叶、没有工艺模板的帘子）：
+ * 2026-10-27 拍板——不做工艺计算，按销售在报价 Order Form 上写的原样生成，交外采购；不阻断确认。
+ */
+export interface PurchaseLine {
   section: "shutter" | "drape" | "shade";
+  /** 品类：Wooden 百叶 / Vinyl 百叶 4-1/2" / 打孔窗帘（Grommet）/ 帘子 <产品> */
+  categoryZh: string;
   location: string;
   widthIn: number;
   heightIn: number;
+  /** 窗帘为扇数，其余为 1 */
+  qty: number;
+  /** 销售填写的原值，按 Order Form 列顺序 */
+  fields: PurchaseField[];
+  /** 为什么走外采购 */
   reasonZh: string;
+  /** 工厂 / 外采购补充 */
+  remark: string;
 }
 
 /** 映射时套用默认值的记录；当前值仍等于默认值时在待核对中提示 */
@@ -80,7 +99,7 @@ export interface ProcessSpec {
   domestic: DomesticSpecRow[];
   drapes: DrapeSpecRow[];
   vinyl: VinylSpecWindow[];
-  unsupported: UnsupportedLine[];
+  purchase: PurchaseLine[];
   notes: MappingNote[];
 }
 
@@ -97,7 +116,7 @@ export function emptySpec(): ProcessSpec {
     domestic: [],
     drapes: [],
     vinyl: [],
-    unsupported: [],
+    purchase: [],
     notes: [],
   };
 }
@@ -177,11 +196,7 @@ export function sanitizeSpec(raw: unknown, base?: ProcessSpec): ProcessSpec {
         quoteFrame: str(o.quoteFrame, 20), quoteOpenDirection: str(o.quoteOpenDirection, 20), quoteMidRail: str(o.quoteMidRail, 100),
       } satisfies VinylSpecWindow;
     }),
-    unsupported: !("unsupported" in r) ? fallback.unsupported : arr(r.unsupported).map((x) => {
-      const o = obj(x);
-      const section = o.section === "drape" ? "drape" : o.section === "shade" ? "shade" : "shutter";
-      return { section, location: str(o.location), widthIn: num(o.widthIn), heightIn: num(o.heightIn), reasonZh: str(o.reasonZh, 200) } as UnsupportedLine;
-    }),
+    purchase: "purchase" in r ? arr(r.purchase).map(sanitizePurchase) : "unsupported" in r ? arr(r.unsupported).map(sanitizePurchase) : fallback.purchase,
     notes: base?.notes ?? arr(r.notes, 500).map((x) => {
       const o = obj(x);
       const sec = str(o.section);
@@ -192,6 +207,25 @@ export function sanitizeSpec(raw: unknown, base?: ProcessSpec): ProcessSpec {
         messageZh: str(o.messageZh, 300),
       };
     }),
+  };
+}
+
+const PURCHASE_CATEGORY_V1: Record<PurchaseLine["section"], string> = { shutter: "百叶", drape: "窗帘", shade: "帘子" };
+
+/** 外采购行；也接受 v1 的无模板行（只有 section/location/宽高/reasonZh） */
+function sanitizePurchase(x: unknown): PurchaseLine {
+  const o = obj(x);
+  const section = o.section === "drape" ? "drape" : o.section === "shade" ? "shade" : "shutter";
+  return {
+    section,
+    categoryZh: str(o.categoryZh, 60) || PURCHASE_CATEGORY_V1[section],
+    location: str(o.location),
+    widthIn: num(o.widthIn),
+    heightIn: num(o.heightIn),
+    qty: "qty" in o ? Math.min(MAX_DRAPE_QTY, Math.max(0, num(o.qty))) : 1,
+    fields: arr(o.fields, 30).map((f) => ({ label: str(obj(f).label, 40), value: str(obj(f).value, 300) })),
+    reasonZh: str(o.reasonZh, 200),
+    remark: str(o.remark, 500),
   };
 }
 

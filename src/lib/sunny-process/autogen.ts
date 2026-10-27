@@ -23,7 +23,9 @@ import {
   sanitizeSpec,
   type ProcessSpec,
 } from "./process-spec";
+import { planLineMove, type MovableItem, type MoveRequest } from "./line-moves";
 import { mapQuoteFormToProcessOrder, type BlindsItemDraft } from "./quote-mapping";
+import { readZebraRatios, type ZebraRatioEntry } from "./zebra-ratios";
 
 export const NOTIFICATION_TYPE = "process_order_generated";
 
@@ -53,7 +55,10 @@ interface AuditRow {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface ProcessOrderDb {
   salesQuote: { findUnique(args: any): Promise<any> };
-  blindsOrder: { findUnique(args: any): Promise<any>; create(args: any): Promise<any> };
+  /** 读斑马帘布纱比对照表（settingsJson）；缺省 = 用原件种子 */
+  organization?: { findUnique(args: any): Promise<any> };
+  blindsOrder: { findUnique(args: any): Promise<any>; create(args: any): Promise<any>; update?(args: any): Promise<any> };
+  blindsOrderItem?: { deleteMany(args: any): Promise<unknown> };
   auditLog: { findFirst(args: any): Promise<AuditRow | null>; create(args: any): Promise<unknown> };
   $transaction<T>(fn: (tx: any) => Promise<T>): Promise<T>;
 }
@@ -74,7 +79,7 @@ export interface NotifyFn {
   }): Promise<unknown>;
 }
 
-export function itemCreateData(it: BlindsItemDraft | Record<string, unknown>, index: number) {
+export function itemCreateData(it: BlindsItemDraft | MovableItem | Record<string, unknown>, index: number) {
   const src = it as Record<string, unknown>;
   const input = {
     width: Number(src.width),
@@ -164,7 +169,10 @@ export async function generateProcessOrderForSignedQuote(
     const existing = await findLinkedOrder(db, quoteId);
     if (existing) return { created: false, reason: "ALREADY_GENERATED", id: existing.id, code: existing.code };
 
-    const mapped = mapQuoteFormToProcessOrder(quote.formDataJson);
+    const org = quote.orgId && db.organization
+      ? await db.organization.findUnique({ where: { id: quote.orgId }, select: { settingsJson: true } })
+      : null;
+    const mapped = mapQuoteFormToProcessOrder(quote.formDataJson, { zebraRatios: readZebraRatios(org?.settingsJson ?? null).entries });
     if (!mapped.producible) return { created: false, reason: "NO_PRODUCIBLE_LINES" };
 
     const form = parseJson(quote.formDataJson) ?? {};
@@ -287,34 +295,90 @@ export type SaveSpecResult =
   | { ok: true; spec: ProcessSpec }
   | { ok: false; status: 404 | 409; error: string };
 
+/** 同一工艺单的参数写入串行化（保存参数 / 挪行），锁内再做版本校验 */
+async function lockOrderSpec(tx: { $queryRaw: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> }, orderId: string) {
+  await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`sunny-process-spec:${orderId}`}))) AS l`;
+}
+
 export async function saveProcessSpec(
-  db: Pick<ProcessOrderDb, "auditLog" | "blindsOrder">,
+  db: Pick<ProcessOrderDb, "auditLog" | "blindsOrder" | "$transaction">,
   orderId: string,
   payload: unknown,
   actor: { userId: string; orgId: string | null },
   opts: { baseVersion?: number | null } = {},
 ): Promise<SaveSpecResult> {
-  const order = await db.blindsOrder.findUnique({ where: { id: orderId }, select: { id: true, status: true } });
-  if (!order) return { ok: false, status: 404, error: "工艺单不存在" };
-  if (order.status !== "draft") return { ok: false, status: 409, error: "只有草稿状态的工艺单可以修改工艺参数" };
-  const current = await loadProcessSpec(db, orderId);
-  // 乐观锁：编辑基于的版本已不是最新 → 拒绝，防止两人同时改时后保存的人悄悄覆盖
-  if (typeof opts.baseVersion === "number" && opts.baseVersion !== current.version) {
-    return { ok: false, status: 409, error: `工艺参数已被他人更新到 v${current.version}，请刷新后再改` };
-  }
-  const next = sanitizeSpec(payload, current);
-  next.version = current.version + 1;
-  await db.auditLog.create({
-    data: {
-      userId: actor.userId,
-      orgId: actor.orgId,
-      action: AUDIT_ACTION_SPEC,
-      targetType: AUDIT_TARGET_ORDER,
-      targetId: orderId,
-      afterData: JSON.stringify(next),
-    },
+  return db.$transaction(async (tx): Promise<SaveSpecResult> => {
+    await lockOrderSpec(tx, orderId);
+    const order = await tx.blindsOrder.findUnique({ where: { id: orderId }, select: { id: true, status: true } });
+    if (!order) return { ok: false, status: 404, error: "工艺单不存在" };
+    if (order.status !== "draft") return { ok: false, status: 409, error: "只有草稿状态的工艺单可以修改工艺参数" };
+    const current = await loadProcessSpec(tx, orderId);
+    // 乐观锁：编辑基于的版本已不是最新 → 拒绝，防止两人同时改时后保存的人悄悄覆盖
+    if (typeof opts.baseVersion === "number" && opts.baseVersion !== current.version) {
+      return { ok: false, status: 409, error: `工艺参数已被他人更新到 v${current.version}，请刷新后再改` };
+    }
+    const next = sanitizeSpec(payload, current);
+    next.version = current.version + 1;
+    await tx.auditLog.create({
+      data: {
+        userId: actor.userId,
+        orgId: actor.orgId,
+        action: AUDIT_ACTION_SPEC,
+        targetType: AUDIT_TARGET_ORDER,
+        targetId: orderId,
+        afterData: JSON.stringify(next),
+      },
+    });
+    return { ok: true, spec: next };
   });
-  return { ok: true, spec: next };
+}
+
+export type MoveLinesResult =
+  | { ok: true; spec: ProcessSpec; moved: number }
+  | { ok: false; status: 400 | 404 | 409; error: string };
+
+/**
+ * 发给国内（自产行 → 国内下单表）/ 退回自产（国内下单表 → 自产行），草稿内一次事务完成：
+ * 重写 BlindsOrderItem（与 PUT 工艺单同一写法）+ 追加一版工艺参数。不对外发送任何东西。
+ */
+export async function moveProcessOrderLines(
+  db: ProcessOrderDb,
+  orderId: string,
+  req: MoveRequest,
+  actor: { userId: string; orgId: string | null },
+  opts: { baseVersion?: number | null; zebraRatios?: readonly ZebraRatioEntry[] } = {},
+): Promise<MoveLinesResult> {
+  return db.$transaction(async (tx): Promise<MoveLinesResult> => {
+    await lockOrderSpec(tx, orderId);
+    const order = await tx.blindsOrder.findUnique({ where: { id: orderId }, include: { items: { orderBy: { itemNumber: "asc" } } } });
+    if (!order) return { ok: false, status: 404, error: "工艺单不存在" };
+    if (order.status !== "draft") return { ok: false, status: 409, error: "只有草稿状态的工艺单可以挪行" };
+    const current = await loadProcessSpec(tx, orderId);
+    if (typeof opts.baseVersion === "number" && opts.baseVersion !== current.version) {
+      return { ok: false, status: 409, error: `工艺参数已被他人更新到 v${current.version}，请刷新后再操作` };
+    }
+    const plan = planLineMove(order.items as MovableItem[], current, req, opts.zebraRatios);
+    if (plan.moved === 0) {
+      return { ok: false, status: 400, error: req.to === "domestic" ? "没有选中可发给国内的自产行" : "没有选中可退回自产的行（仅卷帘 / 斑马帘 / 香格里拉）" };
+    }
+    await tx.blindsOrderItem.deleteMany({ where: { orderId } });
+    await tx.blindsOrder.update({
+      where: { id: orderId },
+      data: { ruleVersion: RULE_VERSION, items: { create: plan.items.map((it, i) => itemCreateData(it, i)) } },
+    });
+    const next: ProcessSpec = { ...plan.spec, version: current.version + 1 };
+    await tx.auditLog.create({
+      data: {
+        userId: actor.userId,
+        orgId: actor.orgId,
+        action: AUDIT_ACTION_SPEC,
+        targetType: AUDIT_TARGET_ORDER,
+        targetId: orderId,
+        afterData: JSON.stringify(next),
+      },
+    });
+    return { ok: true, spec: next, moved: plan.moved };
+  });
 }
 
 export function orderIssues(order: { code: string; items: unknown[] }, spec: ProcessSpec): ProcessIssue[] {

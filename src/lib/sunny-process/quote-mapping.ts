@@ -5,16 +5,16 @@
  *   Lift L/R → 普通拉绳（拉杆位置 L/R），Lift M → 电动（拉杆位置默认 R，提示）
  *   Mount I/O → IN/OUT；Bracket C/W → 顶装/墙装（行内空时取单头 Brackets Type，再空默认顶装，提示）
  *   Valance Cassette → 亮白插片圆盒、Fascia → 哑白方型罩盒、None → 单轨无盒（均提示，草稿可改）
- *   斑马帘布纱比默认 3:2（提示）
- *   窗帘：Pleat P → 韩褶P、R → 蛇型R、G → 无模板（阻断）；Fullness 180/230 → 1.8/2.3；Panels S/D → 1/2；
+ *   斑马帘布纱比：查组织的「面料编码 → 布:纱」对照表（zebra-ratios.ts）；查不到默认 3:2（提示）
+ *   窗帘：Pleat P → 韩褶P、R → 蛇型R；Fullness 180/230 → 1.8/2.3；Panels S/D → 1/2；
  *         Bracket C/W → 顶装C/墙装W；杆型 同行布+纱 → 方双轨、否则方单轨（提示）；版本默认 6cm
- *   Vinyl：百叶 2-1/2" → 2.5、3-1/2" → 3.5、其余阻断；外框 L/Z 直映，其余留空（阻断）；外框数 4；有框；
+ *   Vinyl：百叶 2-1/2" → 2.5、3-1/2" → 3.5；外框 L/Z 直映；外框数 4；有框；
  *          开合编码由 Open Dir + 扇数推导（提示）；Mid Rail 能解析成正数 → 第一档底部(in)
- *   Wooden 百叶 → 无模板（阻断）
+ *   外采购（2026-10-27 拍板，按销售填写原样生成、不阻断）：Wooden 百叶；外框 S/G/M/Casing（属于 Wooden 百叶）；
+ *          百叶 4-1/2" / Arch；Pleat G（打孔窗帘）；没有工艺模板的帘子产品
  * 纯函数，不做 I/O；所有默认推导写 MappingNote。
  */
 
-import { DEFAULT_ZEBRA_RATIO } from "@/lib/blinds/deduction-rules";
 import { DEFAULT_DRAPE_VERSION } from "./drapes-calc";
 import {
   PROCESS_SPEC_SCHEMA,
@@ -22,9 +22,11 @@ import {
   type DrapeSpecRow,
   type MappingNote,
   type ProcessSpec,
-  type UnsupportedLine,
+  type PurchaseField,
+  type PurchaseLine,
   type VinylSpecWindow,
 } from "./process-spec";
+import { ratioPartText, zebraRatioFor, type ZebraRatioEntry } from "./zebra-ratios";
 
 /** Blinds 自产行（落 BlindsOrderItem，计算由 calculateItem 完成） */
 export interface BlindsItemDraft {
@@ -46,7 +48,7 @@ export interface BlindsItemDraft {
 export interface QuoteMappingResult {
   blindsItems: BlindsItemDraft[];
   spec: Omit<ProcessSpec, "version" | "source">;
-  /** 有任一可生产行（含无模板行，它们也需要工厂处理） */
+  /** 有任一可生产行（含外采购行，它们也要下单） */
   producible: boolean;
 }
 
@@ -118,6 +120,24 @@ export function deriveOpenCode(dir: string, panels: number): string {
   return "";
 }
 
+/** 外框 S / G / M / Casing 属于 Wooden 百叶（2026-10-27 拍板），走外采购 */
+export const WOODEN_FRAMES = ["S", "G", "M", "Casing"] as const;
+
+/** 报价尺寸原样：整数 + 1/16 分数（"36" / "36 8/16"） */
+function sizeText(whole: unknown, frac: unknown): string {
+  const w = s(whole);
+  const f = s(frac);
+  return f && f !== "0" ? `${w} ${f}/16` : w;
+}
+
+/** 销售填写的字段，去掉空值；草图（data: URL）不进外采购单 */
+function fieldsOf(pairs: [string, unknown][]): PurchaseField[] {
+  return pairs
+    .map(([label, v]) => ({ label, value: typeof v === "boolean" ? (v ? "Yes" : "No") : s(v) }))
+    .filter((f) => f.value !== "" && !f.value.startsWith("data:"))
+    .map((f) => ({ label: f.label, value: f.value.slice(0, 300) }));
+}
+
 function louverOf(raw: string): number | null {
   const v = raw.replace(/\s/g, "");
   if (v === '2-1/2"' || v === "2.5" || v === '2.5"') return 2.5;
@@ -132,7 +152,12 @@ function midRailInches(raw: string): number | null {
   return v > 0 ? v : null;
 }
 
-export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefined): QuoteMappingResult {
+export interface QuoteMappingOptions {
+  /** 斑马帘布纱比对照表；不传 = 一律默认 3:2 */
+  zebraRatios?: readonly ZebraRatioEntry[];
+}
+
+export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefined, opts: QuoteMappingOptions = {}): QuoteMappingResult {
   let form: Obj = {};
   try {
     form = obj(formDataJson ? JSON.parse(formDataJson) : {});
@@ -144,7 +169,7 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
   const domestic: DomesticSpecRow[] = [];
   const drapes: DrapeSpecRow[] = [];
   const vinyl: VinylSpecWindow[] = [];
-  const unsupported: UnsupportedLine[] = [];
+  const purchase: PurchaseLine[] = [];
   const formValance = s(form.shadeValanceType);
   const formBracket = s(form.shadeBracketType);
 
@@ -185,9 +210,14 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
       let fabricRatio: number | null = null;
       let silkRatio: number | null = null;
       if (pt === "斑马帘") {
-        fabricRatio = DEFAULT_ZEBRA_RATIO.fabric;
-        silkRatio = DEFAULT_ZEBRA_RATIO.silk;
-        add("fabricRatio", fabricRatio, "斑马帘布纱比默认 3:2，请按面料核对（影响裁剪位）");
+        const r = zebraRatioFor(opts.zebraRatios, s(l.sku));
+        fabricRatio = r.fabric;
+        silkRatio = r.silk;
+        if (r.match) {
+          add("fabricRatio", fabricRatio, `斑马帘布纱比取自对照表「${r.match.code}」：${ratioPartText(r.fabric)} : ${ratioPartText(r.silk)}`);
+        } else {
+          add("fabricRatio", fabricRatio, `面料 ${s(l.sku) || "（未填）"} 不在布纱比对照表里，斑马帘布纱比默认 3:2，请按面料核对（影响裁剪位）`);
+        }
       }
       blindsItems.push({
         location, width, height, fabricSku: s(l.sku), productType: pt, measureType, controlType, controlSide,
@@ -199,7 +229,15 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
 
     const dp = DOMESTIC_PRODUCT[product];
     if (!dp) {
-      unsupported.push({ section: "shade", location, widthIn: width, heightIn: height, reasonZh: `产品 ${product} 没有工艺模板` });
+      purchase.push({
+        section: "shade", categoryZh: `帘子 ${product}`, location, widthIn: width, heightIn: height, qty: 1,
+        fields: fieldsOf([
+          ["Width", sizeText(l.widthWhole, l.widthFrac)], ["Height", sizeText(l.heightWhole, l.heightFrac)],
+          ["Product", product], ["SKU", l.sku], ["Mount", mount], ["Lift", lift], ["Bracket", s(l.bracket) || formBracket],
+          ["Valance", valance], ["Note", noteText],
+        ]),
+        reasonZh: `产品 ${product} 没有工艺模板，按销售填写外采购`, remark: "",
+      });
       continue;
     }
     const line = domestic.length + 1;
@@ -222,6 +260,8 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
   const material = s(form.shutterMaterial) || "Vinyl";
   const louverQuote = s(form.shutterLouverSize);
   const louver = louverOf(louverQuote);
+  // 选了百叶尺寸、但不是 2-1/2" / 3-1/2"（4-1/2"、Arch）：没有工艺模板，整单百叶走外采购；未选仍留在 Vinyl 段阻断
+  const louverPurchase = louverQuote !== "" && louver === null;
   const shutterLines = list(form.shutterOrders)
     .map((l) => ({ l, width: inchesOf(l.widthWhole, l.widthFrac), height: inchesOf(l.heightWhole, l.heightFrac) }))
     .filter((x) => {
@@ -231,8 +271,29 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
     });
   for (const { l, width, height } of shutterLines) {
     const location = s(l.location);
-    if (material === "Wooden") {
-      unsupported.push({ section: "shutter", location, widthIn: width, heightIn: height, reasonZh: "Wooden（实木）百叶没有工艺模板" });
+    const qFrameRaw = s(l.frame);
+    const woodenFrame = (WOODEN_FRAMES as readonly string[]).includes(qFrameRaw);
+    if (material === "Wooden" || woodenFrame || louverPurchase) {
+      const reasonZh = material === "Wooden"
+        ? "Wooden（实木）百叶外采购"
+        : woodenFrame
+          ? `外框 ${qFrameRaw} 属于 Wooden 百叶，外采购`
+          : `百叶尺寸 ${louverQuote} 没有工艺模板，外采购`;
+      purchase.push({
+        section: "shutter",
+        categoryZh: material === "Wooden" || woodenFrame ? "Wooden 百叶" : `Vinyl 百叶 ${louverQuote}`,
+        location, widthIn: width, heightIn: height, qty: 1,
+        fields: fieldsOf([
+          ["Material", material], ["Louver", louverQuote],
+          ["Width", sizeText(l.widthWhole, l.widthFrac)], ["Height", sizeText(l.heightWhole, l.heightFrac)],
+          ["Frame", qFrameRaw], ["Open Dir", l.openDirection], ["Mount", l.mountType], ["Mid Rail", l.midRail],
+          ["# Panels", l.panelCount], ["Draft", l.draft],
+        ]),
+        reasonZh, remark: "",
+      });
+      if (material !== "Wooden" && woodenFrame) {
+        notes.push({ section: "order", line: 0, field: `purchase.frame.${purchase.length}`, value: qFrameRaw, messageZh: `报价材质 Vinyl，但 ${location || "（无位置）"} 选了外框 ${qFrameRaw}（Wooden 百叶外框），已按 Wooden 转外采购，请与销售确认` });
+      }
       continue;
     }
     const line = vinyl.length + 1;
@@ -277,7 +338,17 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
       const heightIn = inchesOf(l[`${p}HeightWhole`], l[`${p}HeightFrac`]);
       const pleat = s(l[`${p}PleatStyle`]);
       if (pleat === "G") {
-        unsupported.push({ section: "drape", location, widthIn, heightIn, reasonZh: `${part === "drape" ? "布帘" : "纱帘"} Grommet（打孔）工艺没有模板` });
+        purchase.push({
+          section: "drape", categoryZh: "打孔窗帘（Grommet）", location, widthIn, heightIn, qty: s(l[`${p}Panels`]) === "D" ? 2 : 1,
+          fields: fieldsOf([
+            ["Part", part === "drape" ? "Drape" : "Sheer"],
+            ["Width", sizeText(l[`${p}WidthWhole`], l[`${p}WidthFrac`])], ["Height", sizeText(l[`${p}HeightWhole`], l[`${p}HeightFrac`])],
+            ["Fabric SKU", l[`${p}FabricSku`]], ["Fullness", l[`${p}Fullness`]], ["Panels", l[`${p}Panels`]], ["Pleat", "G"],
+            ...(part === "drape" ? ([["Liner", l.drapeLiner === true]] as [string, unknown][]) : []),
+            ["Bracket", l[`${p}Bracket`]], ["Accessories SKU", l.accessoriesSku], ["Note", l.note],
+          ]),
+          reasonZh: `${part === "drape" ? "布帘" : "纱帘"} Grommet（打孔）没有工艺模板，按销售填写外采购`, remark: "",
+        });
         continue;
       }
       const line = drapes.length + 1;
@@ -307,7 +378,7 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
     }
   }
 
-  const producible = blindsItems.length + domestic.length + drapes.length + vinyl.length + unsupported.length > 0;
+  const producible = blindsItems.length + domestic.length + drapes.length + vinyl.length + purchase.length > 0;
   return {
     blindsItems,
     producible,
@@ -320,7 +391,7 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
       domestic,
       drapes,
       vinyl,
-      unsupported,
+      purchase,
       notes,
     },
   };

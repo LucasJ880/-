@@ -183,6 +183,8 @@ run_test "Sunny 工艺单 Blinds × 原件逐值对照" "npx tsx src/lib/sunny-p
 run_test "Sunny 工艺单 国内下单 × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts"
 run_test "Sunny 工艺单 窗帘 6cm/7cm × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts"
 run_test "Sunny 工艺单 真实订单回归（G0927 / G1024 / G1025）" "npx tsx src/lib/sunny-process/__tests__/real-orders.test.ts"
+run_test "Sunny 工艺单 斑马帘布纱比对照表（种子/匹配/查表）" "npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts"
+run_test "Sunny 工艺单 发给国内 / 退回自产（挪行/提示重排/事务/门禁）" "npx tsx src/lib/sunny-process/__tests__/line-moves.test.ts"
 run_test "Sunny 工艺单 Vinyl 百叶 × 原件逐值对照（单窗/下料总表/标签）" "npx tsx src/lib/sunny-process/__tests__/vinyl-oracle.test.ts"
 run_test "Sunny 工艺单 报价映射与待核对" "npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts"
 run_test "Sunny 工艺单 签字自动生成（幂等/并发/失败隔离/门禁）" "npx tsx src/lib/sunny-process/__tests__/autogen.test.ts"

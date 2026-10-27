@@ -9,7 +9,7 @@ import type { ProcessSpec } from "./process-spec";
 import { SPLIT_ERROR_ZH, computeVinylWindow, type VinylHeader } from "./vinyl-calc";
 
 export type IssueLevel = "info" | "block";
-export type IssueSection = "blinds" | "domestic" | "drapes" | "vinyl" | "unsupported" | "order";
+export type IssueSection = "blinds" | "domestic" | "drapes" | "vinyl" | "purchase" | "order";
 
 export interface ProcessIssue {
   level: IssueLevel;
@@ -25,7 +25,7 @@ export const SECTION_LABEL_ZH: Record<IssueSection, string> = {
   domestic: "国内下单",
   drapes: "窗帘",
   vinyl: "Vinyl 百叶",
-  unsupported: "无工艺模板",
+  purchase: "外采购",
   order: "订单",
 };
 
@@ -70,7 +70,7 @@ export function computeIssues(items: BlindsItemLike[], spec: ProcessSpec, orderN
     }
   }
 
-  if (items.length + spec.domestic.length + spec.drapes.length + spec.vinyl.length + spec.unsupported.length === 0) {
+  if (items.length + spec.domestic.length + spec.drapes.length + spec.vinyl.length + spec.purchase.length === 0) {
     block("order", 0, "lines", "工艺单没有任何行");
   }
 
@@ -129,8 +129,12 @@ export function computeIssues(items: BlindsItemLike[], spec: ProcessSpec, orderN
     });
   }
 
-  spec.unsupported.forEach((u, i) => {
-    block("unsupported", i + 1, "line", `${u.location || "（无位置）"} ${u.widthIn}×${u.heightIn}：${u.reasonZh}，请人工处理后删除此行`);
+  // 外采购行按销售填写原样下单，不阻断；只提示一次
+  if (spec.purchase.length > 0) {
+    out.push({ level: "info", section: "purchase", line: 0, field: "purchase", messageZh: `${spec.purchase.length} 行走外采购（按销售填写原样生成，不做工艺计算），请外采购按「外采购单」下单` });
+  }
+  spec.purchase.forEach((p, i) => {
+    if (!(p.widthIn > 0) || !(p.heightIn > 0)) block("purchase", i + 1, "size", "宽或高无效");
   });
 
   return out;
