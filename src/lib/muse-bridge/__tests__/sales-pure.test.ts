@@ -192,6 +192,7 @@ console.log("opportunity_status");
       { id: "a2", title: "约会议", status: "in_progress", priority: "medium", dueAt: null, source: "manual", assignee: null },
     ],
     nextActionLabel: "报价后跟进",
+    inquiries: [],
     staleAfterDays: 21,
     now: NOW,
   });
@@ -209,13 +210,13 @@ console.log("opportunity_status");
   ok("未结束行动标出逾期", d.openActions[0].overdue && !d.openActions[1].overdue);
   ok("互动区分商机级 / 客户级", d.interactions[0].level === "opportunity" && d.interactions[1].level === "customer");
   ok("系统建议标注来源", d.suggestions[0].source === "revenue_spine" && d.suggestions[0].label === "报价后跟进");
-  ok("员工确认本批次为空数组", Array.isArray(d.employeeConfirmations) && d.employeeConfirmations.length === 0);
+  ok("没有询问时员工确认为空数组", Array.isArray(d.employeeConfirmations) && d.employeeConfirmations.length === 0);
   ok("理由与排序一致", !!d.priority && d.priority.reasons.includes("约定跟进日已过 1 天"));
   ok("结论含阶段与负责人", st.advisory.conclusion === "「Opportunity s1」已报价，负责人Rep A");
-  ok("本批次没有下一步按钮（询问在 S2）", st.advisory.nextStep === null);
+  ok("S2：管理者的下一步是带默认问题的「问负责人」", st.advisory.nextStep?.command.intent === "ask_colleague" && (st.advisory.nextStep.command as { questions: string[] }).questions.some((q) => q.includes("约定的跟进")));
 }
 {
-  const st = buildOpportunityStatus({ scope: OWN, row: opp("s2", { stage: "won", estimatedValue: 9_999 }), interactions: [], actions: [], nextActionLabel: null, staleAfterDays: 21, now: NOW });
+  const st = buildOpportunityStatus({ scope: OWN, row: opp("s2", { stage: "won", estimatedValue: 9_999 }), interactions: [], actions: [], nextActionLabel: null, inquiries: [], staleAfterDays: 21, now: NOW });
   const d = st.data as { priority: unknown; opportunity: Record<string, unknown> };
   ok("终态商机：说明不再排序、priority 为 null", st.advisory.reasons[0] === "商机已处于「成交」，不再进入推进排序" && d.priority === null);
   ok("销售范围：状态视图不带 amount", !("amount" in d.opportunity) && !JSON.stringify(st).includes("9999"));

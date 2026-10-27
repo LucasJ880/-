@@ -33,6 +33,9 @@ export const MUSE_INTENTS = [
   // TASKFLOW S1（Sales Pilot）：只读销售意图
   "sales_overview",
   "opportunity_status",
+  // TASKFLOW S2：跨助理询问与回复（内部写，预授权）
+  "ask_colleague",
+  "reply_inquiry",
 ] as const;
 export type MuseIntent = (typeof MUSE_INTENTS)[number];
 
@@ -66,12 +69,18 @@ export const MUSE_INTENT_PHASE: Record<MuseIntent, 0 | 1 | 2 | 3> = {
   // Sales Pilot（TASKFLOW Phase S）与招投标 Phase 1 同期按需开放
   sales_overview: 1,
   opportunity_status: 1,
+  ask_colleague: 1,
+  reply_inquiry: 1,
 };
 
 const trimmed = (max: number) =>
   z.preprocess((v) => (typeof v === "string" ? v.trim().slice(0, max) : v), z.string().min(1));
 
 const idField = z.string().min(1).max(64);
+
+/** S2：负责人回复时可勾选的支持需求 */
+export const MUSE_INQUIRY_NEEDS = ["material", "meeting", "sample", "quote_revision", "other"] as const;
+export type MuseInquiryNeed = (typeof MUSE_INQUIRY_NEEDS)[number];
 
 // ── 下行：命令 ──────────────────────────────────────────────────
 
@@ -134,6 +143,28 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
     })
     .strip(),
   z.object({ intent: z.literal("opportunity_status"), opportunityId: idField }).strip(),
+  // S2：收件人由服务端取商机负责人，请求不能指定
+  z
+    .object({
+      intent: z.literal("ask_colleague"),
+      opportunityId: idField,
+      questions: z.array(trimmed(300)).min(1).max(5),
+      replyBy: z.string().datetime().optional(),
+      note: trimmed(500).optional(),
+    })
+    .strip(),
+  z
+    .object({
+      intent: z.literal("reply_inquiry"),
+      inquiryId: idField,
+      nextStep: trimmed(300),
+      customerFeedback: trimmed(1000).optional(),
+      lastContactAt: z.string().datetime().optional(),
+      nextStepDueAt: z.string().datetime().optional(),
+      needs: z.array(z.enum(MUSE_INQUIRY_NEEDS)).max(5).optional(),
+      note: trimmed(1000).optional(),
+    })
+    .strip(),
 ]);
 export type MuseCommandArgs = z.infer<typeof museCommandArgsSchema>;
 
@@ -169,6 +200,10 @@ export const MUSE_ERROR_CODES = [
   // S1：销售意图
   "PERMISSION_DENIED",
   "OPPORTUNITY_NOT_FOUND",
+  // S2：询问与回复
+  "INQUIRY_NOT_FOUND",
+  "INQUIRY_CLOSED",
+  "OPPORTUNITY_UNASSIGNED",
 ] as const;
 export type MuseErrorCode = (typeof MUSE_ERROR_CODES)[number];
 
@@ -213,6 +248,10 @@ export const MUSE_EVENT_TYPES = [
   "deadline.approaching",
   /** P1-7：催满两次（或截止已过）仍没回 → 已标未响应 */
   "no_response",
+  /** S2：询问收件人 / 发起人；inquiry.overdue 由 S3 的逾期扫描发出 */
+  "inquiry.received",
+  "inquiry.replied",
+  "inquiry.overdue",
 ] as const;
 export type MuseEventType = (typeof MUSE_EVENT_TYPES)[number];
 
@@ -227,6 +266,9 @@ export const museEventEnvelopeSchema = z
     userId: idField,
     projectId: idField.optional(),
     projectName: z.string().max(200).optional(),
+    /** S2：销售协作事件的关联对象 */
+    opportunityId: idField.optional(),
+    inquiryId: idField.optional(),
     /** 一句话摘要（≤ 300 字），已脱敏。 */
     summary: z.string().min(1).max(300),
     /** 一条可直接回复的动作（审批卡 / 下一个建议意图）。 */

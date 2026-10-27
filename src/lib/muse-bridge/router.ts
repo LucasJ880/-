@@ -28,6 +28,7 @@ import { resolveCloseDate } from "@/lib/tender/stage";
 import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
 import { parseChaseNotes, resolveChaseAfterDays } from "@/lib/tender-rfq/chase-pure";
 import { opportunityStatus, salesOverview, type SalesIntentResult } from "./sales";
+import { askColleague, replyInquiry, type InquiryResult } from "./inquiry";
 import {
   ASK_OUTPUT_INSTRUCTIONS,
   askAdvisory,
@@ -142,6 +143,15 @@ export async function handleMuseCommand(
       case "opportunity_status":
         response = salesResponse(requestId, await opportunityStatus(identity, command));
         break;
+      case "ask_colleague":
+        response = salesResponse(requestId, await askColleague(identity, command, { requestId }));
+        break;
+      case "reply_inquiry":
+        response = salesResponse(
+          requestId,
+          await replyInquiry({ userId: identity.userId, orgId: identity.orgId }, command, "muse"),
+        );
+        break;
       default:
         // gateIntent 已拦；此处仅类型兜底
         response = errResponse(requestId, "INTENT_NOT_ENABLED", "该动作尚未开放。");
@@ -155,7 +165,7 @@ export async function handleMuseCommand(
 }
 
 /** S1 销售意图：取数层返回 Advisory 或错误，这里统一走 respond / errResponse */
-function salesResponse(requestId: string, r: SalesIntentResult): MuseCommandResponse {
+function salesResponse(requestId: string, r: SalesIntentResult | InquiryResult): MuseCommandResponse {
   return r.ok ? respond(requestId, r.advisory, { data: r.data }) : errResponse(requestId, r.errorCode, r.message);
 }
 

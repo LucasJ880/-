@@ -11,6 +11,7 @@ import { NEXT_ACTION_LABELS, NEXT_ACTION_TYPES, type NextActionType } from "@/li
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
 import type { Advisory } from "./advisory";
 import type { MuseIdentity } from "./binding-pure";
+import { loadInquiries } from "./inquiry";
 import {
   OPEN_STAGE_RAW_VALUES,
   OPPORTUNITY_NOT_FOUND_MESSAGE,
@@ -155,7 +156,7 @@ export async function opportunityStatus(
   });
   if (!record) return { ok: false, errorCode: "OPPORTUNITY_NOT_FOUND", message: OPPORTUNITY_NOT_FOUND_MESSAGE };
 
-  const [interactions, actions, counts, policy] = await Promise.all([
+  const [interactions, actions, counts, policy, inquiries] = await Promise.all([
     // 记在客户上、没挂商机的互动也算这条商机的事实（标 level=customer），否则会把"有联系"误判为"CRM 无互动"
     db.customerInteraction.findMany({
       where: {
@@ -174,6 +175,7 @@ export async function opportunityStatus(
     }),
     countOpenActions(identity.orgId, [record.id], now),
     loadRevenueSpinePolicy(identity.orgId),
+    loadInquiries(record.id),
   ]);
 
   const { advisory, data } = buildOpportunityStatus({
@@ -182,6 +184,7 @@ export async function opportunityStatus(
     interactions,
     actions: actions.map(({ assignedTo, ...a }) => ({ ...a, assignee: assignedTo })),
     nextActionLabel: nextActionLabel(record.nextActionType),
+    inquiries,
     staleAfterDays: policy.followUp.staleAfterDays,
     now,
   });
