@@ -186,6 +186,7 @@ run_test "Sunny 工艺单 Vinyl 百叶 × 原件逐值对照（单窗/下料总�
 run_test "Sunny 工艺单 报价映射与待核对" "npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts"
 run_test "Sunny 工艺单 签字自动生成（幂等/并发/失败隔离/门禁）" "npx tsx src/lib/sunny-process/__tests__/autogen.test.ts"
 run_test "Sunny 工艺单 导出工作簿（按产品线出表/无价格）" "npx tsx src/lib/sunny-process/__tests__/export-workbook.test.ts"
+run_test "Sunny 工艺单 签字→草稿→门禁→确认→导出 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts"
 run_test "乱码时代生成文档列表作废（jsPDF/回落件隐藏）" "npx tsx src/lib/projects/generate/__tests__/legacy-doc-filter.test.ts"
 run_test "Supplier Intel S1 评分契约 supplier-score-v1（T10 零 LLM）" "npx tsx src/lib/supplier-intel/__tests__/score-contract.test.ts"
 run_test "Supplier Intel S1 提交解析器（T3/T19 SSRF 守卫）" "npx tsx src/lib/supplier-intel/__tests__/submission-parser.test.ts"

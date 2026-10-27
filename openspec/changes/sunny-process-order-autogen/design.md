@@ -56,7 +56,7 @@
 ### D6. 映射口径与待核对
 按 proposal 的四项拍板实现；每个默认推导写一条待核对项 `{ section, line, field, level: "info" | "block", messageZh }`。待核对在读取时由"当前参数 + 引擎校验"重新计算（不是只存快照），所以工厂修正参数后阻断项自动消失。
 - 罩盒：Cassette→亮白插片圆盒、Fascia→哑白方型罩盒、None→单轨无盒；Zebra/香格里拉缺 valance 时用亮白插片圆盒。均为提示级。
-- 斑马帘布纱比：按原件 Sheet1 W 列面料备注表（SKU → 布:纱）带出，查不到默认 3:2 并提示。
+- 斑马帘布纱比：默认 3:2 并提示。原件 Sheet1 W 列的面料备注表用的是工厂面料号（如 SD-ZB-F1091），报价单 SKU 是另一套编码（如 AQUAWIDE3-BEIGE-LF），无法可靠对应，不做猜测性匹配（实施中修订）。
 - 电动：拉杆位置默认 R 并提示。
 - 窗帘杆型：同一行同时有布和纱 → 方双轨，否则方单轨；杆色空；均为提示级。Grommet → 阻断级。
 - Vinyl：百叶尺寸 2-1/2"→2.5、3-1/2"→3.5，其余阻断；颜色默认"白色"；外框 L/Z 直接映射，其余（S/G/M/Casing/空）留空并阻断；外框数默认 4；结构默认有框；开合编码由 Open Dir + 扇数推导（L→全 L，R→全 R，LR→前 ⌈n/2⌉ 个 L、其余 R），提示级；Mid Rail 文本能解析成正数时作为第一档底部(in)，否则提示；Wooden 材质整段阻断。
@@ -64,6 +64,14 @@
 ### D7. 引擎形态
 纯函数、无 I/O：`src/lib/blinds/calculation-engine.ts`（修正）、`src/lib/sunny-process/{domestic,drapes,vinyl}-engine.ts`。Excel 语义按原件逐一复刻：ROUNDUP 远离零、ROUNDDOWN 趋零、`IF(x, …)` 以非零为真、`LEFT(H5,1)` 产生文本参与算术、`NA()` 映射为阻断问题。
 - 否决：把公式写成通用 Excel 解释器——过度设计且不可读。
+
+### D8a. 门禁覆盖两条改状态路径（实施中补充）
+详情页"确认工艺单"按钮走 `PUT /api/blinds-orders/{id}`（body.status），不经 transition 路由；门禁因此在 PUT 与 transition 两处用同一个函数判定，否则门禁可被绕过。
+- 否决：只改详情页改走 transition——PUT 仍可被直接调用绕过。
+
+### D8b. 可见性（实施中补充）
+自动生成的工艺单无项目、创建人是销售，原 PUT 规则"无项目只许平台管理员改"会让工厂无法核对。新增 `canViewBlindsOrder`：平台管理员 / 创建人 / 项目可见 / 关联客户所在组织的活跃成员；用于 PUT、DELETE、transition、spec、export。GET 详情维持原规则不动。
+- 否决：给工艺单加 orgId 字段——违反硬纪律 1。
 
 ### D8. 导出
 `excel-export.ts` 改为按产品线组装工作簿；非 Blinds 段落从最新 spec 版本重算（不读存储的计算值，延续既有"导出时重新计算"的约定）。导出路由补上与 GET 详情相同的可见性校验（既有路由缺失）。

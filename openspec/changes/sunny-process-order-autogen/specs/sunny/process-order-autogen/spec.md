@@ -50,11 +50,15 @@
 - **THEN** 页面顶部列出全部待核对项，阻断级项以醒目样式标出并给出所在产品段与行号
 
 ### Requirement: 确认门禁
-工艺单从 draft 转为 confirmed 时，若仍存在阻断级待核对项，`POST /api/blinds-orders/{id}/transition` SHALL 返回 409，错误码 `PROCESS_ORDER_BLOCKED`，并在响应中列出全部阻断项；无阻断项时按既有状态机转换。
+工艺单从 draft 转为 confirmed 时，若仍存在阻断级待核对项，`POST /api/blinds-orders/{id}/transition` 与 `PUT /api/blinds-orders/{id}`（body.status=confirmed）SHALL 都返回 409，错误码 `PROCESS_ORDER_BLOCKED`，并在响应中列出全部阻断项；无阻断项时按原逻辑转换。
 
 #### Scenario: 缺外框类型
 - **WHEN** 工艺单中某 Vinyl 窗外框类型为空，调用 transition 到 confirmed
 - **THEN** 返回 409、`code: "PROCESS_ORDER_BLOCKED"`，`issues` 中含该窗"缺外框类型"，工艺单仍为 draft
+
+#### Scenario: 详情页按钮路径
+- **WHEN** 同一工艺单以 `PUT /api/blinds-orders/{id}` 提交 `{ "status": "confirmed" }`
+- **THEN** 同样返回 409 `PROCESS_ORDER_BLOCKED`（`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts` 第 [3] 段）
 
 ### Requirement: 非 Blinds 工艺参数可编辑
 draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` 修改国内下单 / 窗帘 / Vinyl 的工艺参数与单头设置（Vinyl 颜色、百叶尺寸、默认控制杆、窗帘版本）；每次保存 SHALL 留存为新版本，读取以最新版本为准；非 draft 状态 SHALL 返回 409。
@@ -71,7 +75,7 @@ draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` �
 - **THEN** 导出文件只含窗帘工艺单、窗帘物料与待核对三张表
 
 #### Scenario: 无权查看
-- **WHEN** 非管理员、非创建人、且不在工艺单项目内的用户请求导出
+- **WHEN** 非管理员、非创建人、不在工艺单项目内、且不是关联客户所在组织成员的用户请求导出
 - **THEN** 返回 404，不返回文件
 
 ### Requirement: 生成通知与来源可追溯
