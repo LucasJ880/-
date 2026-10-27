@@ -31,7 +31,7 @@
 ### A. 岗位与权限键
 - Registry 新增：`install.task.read`（ASSIGNED / ORG）、`install.task.update`（ASSIGNED / ORG：开始 / 完成 / 备注）、`install.window.complete`（ASSIGNED / ORG：逐窗拍照）、`install.task.assign`（ORG：安排安装、指定安装工）、`install.photo.read`（ORG：看收口照片）。
 - 窗饰岗位集新增 `installer`（安装工）：`install.task.read`、`install.task.update`、`install.window.complete` 均 **ASSIGNED**；不含任何 `sales.*` 读写、不含 `install.task.assign`。
-- `owner`、`ops_lead`、三个 `fulfillment_*` 追加 `install.task.assign`、`install.task.read`（ORG）、`install.photo.read`（ORG）；`accounting` 追加 `install.photo.read`（ORG）（收口是结算依据）。
+- **安排安装的人 = 运营 + 会计**（Lucas 2026-10-27 追加决定）：`ops_lead`、`accounting` 追加 `install.task.assign`、`install.task.read`、`install.photo.read`（均 ORG）；`owner` 同样追加（全看全改）。三个 `fulfillment_*` 只追加 `install.task.read`、`install.photo.read`（ORG），**不含** `install.task.assign`；`ops_staff`（基础运营）不追加安排权。
 - `config/positions/sunny.json` 加 `"TODO:安装工": ["installer"]` 占位。
 
 ### B. 安装任务只看自己的 + 日历

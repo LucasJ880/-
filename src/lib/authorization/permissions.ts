@@ -197,6 +197,13 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     supportedScopes: ["ORG"],
     riskLevel: "CRITICAL",
   },
+
+  // INSTALL-1：安装工岗位 / 安装任务 / 逐窗收口
+  def("install.task.read", "install.task", "read", "查看安装任务", "查看安装任务（ASSIGNED=只看分配给本人的）", ["ASSIGNED", "ORG"], "LOW"),
+  def("install.task.update", "install.task", "update", "推进安装任务", "开始安装 / 完成收口 / 备注", ["ASSIGNED", "ORG"], "MEDIUM"),
+  def("install.window.complete", "install.window", "complete", "逐窗拍照收口", "按工艺单逐窗上传完工照片", ["ASSIGNED", "ORG"], "MEDIUM"),
+  def("install.task.assign", "install.task", "assign", "安排安装", "指定安装工与安装时间（运营 / 会计）", ["ORG"], "HIGH"),
+  def("install.photo.read", "install.photo", "read", "查看收口照片", "查看工艺单的逐窗收口照片", ["ORG"], "MEDIUM"),
 ];
 
 const BY_KEY = new Map(PERMISSION_REGISTRY.map((p) => [p.key, p]));
