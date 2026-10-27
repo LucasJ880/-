@@ -21,13 +21,10 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
   {
     key: "org_owner",
     name: "企业负责人",
-    description: "企业业务负责人：权限蓝图 + 组织级业务只读",
+    description: "企业业务负责人：组织级业务只读 + 审计；成员 / 岗位 / 策略管理仅平台管理员（PERM-2）",
     bindings: [
       { permissionKey: "identity.member.read", dataScope: "ORG" },
-      { permissionKey: "identity.member.manage", dataScope: "ORG" },
-      { permissionKey: "identity.role.manage", dataScope: "ORG" },
       { permissionKey: "authorization.policy.read", dataScope: "ORG" },
-      { permissionKey: "authorization.policy.manage", dataScope: "ORG" },
       { permissionKey: "audit.read", dataScope: "ORG" },
       { permissionKey: "sales.customer.read", dataScope: "ORG" },
       { permissionKey: "sales.opportunity.read", dataScope: "ORG" },

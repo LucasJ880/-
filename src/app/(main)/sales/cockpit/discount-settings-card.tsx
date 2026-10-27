@@ -167,7 +167,7 @@ export function DiscountSettingsCard() {
   const [draft, setDraft] = useState<DraftMap | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<"saved" | null>(null);
+  const [flash, setFlash] = useState<"saved" | "pending" | null>(null);
   // 品类成本率草稿（%字符串；空串=未配置该品类）
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -289,6 +289,14 @@ export function DiscountSettingsCard() {
         setError(data.error || "保存失败");
         return;
       }
+      // PERM-2：非平台管理员的修改进入审批，当前生效值不变
+      if (res.status === 202 && data?.pending) {
+        if (current) setDraft(toDraftMap(current));
+        setEditing(false);
+        setFlash("pending");
+        setTimeout(() => setFlash(null), 8000);
+        return;
+      }
       setCurrent(data);
       setDraft(toDraftMap(data));
       setEditing(false);
@@ -335,6 +343,11 @@ export function DiscountSettingsCard() {
           {flash === "saved" && (
             <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
               <Check size={12} /> 已保存
+            </span>
+          )}
+          {flash === "pending" && (
+            <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+              <ShieldCheck size={12} /> 已提交审批，等待另一位老板批准后生效
             </span>
           )}
           <button

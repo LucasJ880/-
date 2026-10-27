@@ -10869,6 +10869,12 @@ window._qy_collectPayload = function(){
         try{
           window.parent && window.parent.postMessage({ type:'QINGYAN_DISCOUNT_REQUEST' }, '*');
         }catch(_e){}
+      }else if(e.data.pending){
+        // PERM-2：修改已提交审批，当前生效值不变——回拉一次，避免本地显示成"已生效"
+        try{ showMiniToast('折扣修改已提交审批，等待另一位老板批准后生效', true); }catch(_e){}
+        try{
+          window.parent && window.parent.postMessage({ type:'QINGYAN_DISCOUNT_REQUEST' }, '*');
+        }catch(_e){}
       }
     }
 

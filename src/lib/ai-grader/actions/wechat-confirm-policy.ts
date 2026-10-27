@@ -69,6 +69,8 @@ export const WECHAT_CONFIRM_POLICY: Readonly<Record<PendingActionType, WeChatCon
   "marketing.approve_research_plan": "web_only_review",
   /** 覆盖已确认的产品营销上下文（影响此后所有营销内容，须看完差异） */
   "marketing.propose_context_update": "web_only_review",
+  // PERM-2：销售设置修改只在 Web 审批中心审（含解锁码变更，不走微信确认）
+  "sales.update_quote_settings": "web_only_review",
 };
 
 /** 可在微信里回数字确认 / 回取消的类型（白名单；部分类型还要按 payload 再筛，见 isWeChatConfirmableAction） */
