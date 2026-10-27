@@ -35,6 +35,9 @@ interface GptQuotePlan {
 }
 
 const PRODUCT_ALIASES: Record<string, ProductName> = {
+  "roman shade": "Roman Shade",
+  "roman shades": "Roman Shade",
+  "罗马帘": "Roman Shade",
   zebra: "Zebra",
   roller: "Roller",
   drapery: "Drapery",
