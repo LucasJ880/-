@@ -5,8 +5,10 @@
   python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all
   python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --only blinds,vinyl
   python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --scan-blinds-slots
+  python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --only drapes-6cm,drapes-7cm --real-orders
 
-原件按 SHA-256 识别（文件名随意），见 SOURCES。输出写到
+原件按 SHA-256 识别（文件名随意，.xlsx / .xls / .et 均可），见 SOURCES；拍板后写进原件的公式补丁见 PATCHES，
+真实订单见 REAL_ORDERS（--real-orders：原样只读保存值，写 fixtures/real-orders.json）。输出写到
 src/lib/sunny-process/__tests__/fixtures/<name>.json。用例由固定随机种子生成，
 同一原件重跑结果逐字节一致；夹具出现 diff 即说明原件或生成器变了。
 """

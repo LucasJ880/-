@@ -42,8 +42,41 @@
 - **WHEN** 卷帘行 Lift=M
 - **THEN** 操控方式为电动，且待核对中有一条"电机侧默认 R"提示
 
+### Requirement: 斑马帘布纱比对照表
+系统 SHALL 维护组织级的斑马帘「面料编码 → 布:纱」对照表（存于 `Organization.settingsJson.sunnyProcess.zebraRatios`，组织从未保存时以原件《Blinds 工艺单》Sheet1 W 列 24 条为种子），经 `GET/PUT /api/sunny-process/zebra-ratios` 与页面 `/blinds-orders/zebra-ratios` 查看与整表编辑，每次保存记一条 AuditLog。生成工艺单与退回自产时，斑马帘 SHALL 按报价 SKU 查表：编码与 SKU 完全相同优先，否则编码作为完整一段出现在 SKU 中即命中（空格 / 下划线 / 斜杠视同连字符），多条命中取最长编码；命中时用表中布纱比并在待核对写明来源，未命中时默认 3:2 并提示核对。
+
+#### Scenario: 系列名命中
+- **WHEN** 对照表有 `AQUAWIDE3 → 3 4/16 : 2 3/16`，报价斑马帘 SKU 为 `AQUAWIDE3-GRAY-LF`
+- **THEN** 工艺单该行布纱比为 3.25 : 2.1875，待核对提示含"对照表「AQUAWIDE3」"
+
+#### Scenario: 未命中
+- **WHEN** 报价斑马帘 SKU 不在对照表中
+- **THEN** 布纱比为 3 : 2，待核对提示"不在布纱比对照表里…请按面料核对"
+
+#### Scenario: 组织隔离
+- **WHEN** 另一组织的用户读取对照表
+- **THEN** 读到的是该用户自己组织的表（未保存则为种子），看不到本组织的条目（`autogen-db.isolated.test.ts` 第 [5b] 段）
+
+### Requirement: 外采购行
+报价中 Wooden 百叶、外框为 S / G / M / Casing 的百叶（属于 Wooden 百叶）、百叶尺寸为 4-1/2" 或 Arch 的百叶、Pleat 为 G 的打孔窗帘、以及没有工艺模板的帘子产品，系统 SHALL 不做工艺计算，按销售在 Order Form 上填写的原值（尺寸原样、各列原值，不含价格与草图）生成外采购行，SHALL NOT 产生阻断项；导出 SHALL 含「外采购单」工作表。Vinyl 材质却选了 Wooden 外框时 SHALL 另给一条订单级提示请与销售确认。
+
+#### Scenario: Wooden 外框
+- **WHEN** Vinyl 报价的一扇百叶外框为 Casing
+- **THEN** 该窗不进 Vinyl 段，进外采购行（品类 Wooden 百叶、销售填写含 `Frame: Casing`），待核对无阻断，另有一条订单级提示
+
+#### Scenario: 4-1/2" 百叶
+- **WHEN** 报价百叶尺寸为 4-1/2" 或 Arch
+- **THEN** 全部百叶行进外采购行，工艺单可确认
+
+### Requirement: 发给国内与退回自产
+draft 工艺单 SHALL 支持 `POST /api/blinds-orders/{id}/move-lines`：`{ to: "domestic", itemIds | "all" }` 把自产 Blinds 行按其当前字段原样移到国内下单表（测量 IN/OUT/Tight → 内装/外装（Tight 写入备注），电动 → 电机，L/R → 左/右，罩盒 / 货号 / 安装 / 备注原样）；`{ to: "in_house", domesticLines }` 把国内下单表里的卷帘 / 斑马帘 / 香格里拉行退回自产行（罩盒不在减尺表时取默认并提示，斑马帘查布纱比对照表）。操作 SHALL 在一个事务内重写自产行并追加一版工艺参数，跟随该行的待核对提示随行重排；非 draft、`baseVersion` 不是最新版本时 SHALL 返回 409，无可挪的行返回 400，无权查看该工艺单的用户返回 404；SHALL NOT 发送任何外部消息。
+
+#### Scenario: 全部发给国内后再退回
+- **WHEN** 工厂对含 1 个斑马帘自产行的工艺单（参数 v2）提交 `{ to: "domestic", itemIds: "all", baseVersion: 2 }`，再提交 `{ to: "in_house", domesticLines: [该行], baseVersion: 3 }`
+- **THEN** 第一次后自产行为 0、国内下单表多一行斑马帘（货号与位置同销售填写）、参数 v3；第二次后自产行恢复为 1 行、布纱比按对照表、开料重新计算、参数 v4（`autogen-db.isolated.test.ts` 第 [5b] 段）
+
 ### Requirement: 待核对清单
-每一个由默认值推导、原件不支持或缺失的工艺输入 SHALL 产生一条待核对项，含行号、字段、原因与级别（提示 / 阻断）。罩盒默认映射、斑马帘默认 3:2 布纱比、窗帘杆型默认、Vinyl 开合编码推导为提示级；Vinyl 缺外框类型、外框组合不受支持、开合与扇数不符、切分非法、Wooden 百叶、Grommet 窗帘、不受支持的百叶尺寸为阻断级。
+每一个由默认值推导、原件不支持或缺失的工艺输入 SHALL 产生一条待核对项，含行号、字段、原因与级别（提示 / 阻断）。罩盒默认映射、斑马帘布纱比（查表来源或默认 3:2）、窗帘杆型默认、Vinyl 开合编码推导、外采购行为提示级；Vinyl 缺外框类型、外框组合不受支持、开合与扇数不符、切分非法、未选百叶尺寸为阻断级。
 
 #### Scenario: 详情页可见
 - **WHEN** 打开一张自动生成的工艺单详情页
@@ -82,7 +115,7 @@ draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` �
 - **THEN** 工厂列表含该单，外部用户列表不含、详情返回 404（`autogen-db.isolated.test.ts` 第 [4] 段）
 
 ### Requirement: 工艺单导出
-`GET /api/blinds-orders/{id}/export` SHALL 只对能查看该工艺单的用户返回 xlsx，按实际存在的产品线包含：开料表、工艺单、开料表（布料）、Blinds 标签、国内下单表、国内下单标签、窗帘工艺单、窗帘物料、Vinyl 工艺单、Vinyl 下料总表、Vinyl 标签、待核对；无任何行时返回 400。
+`GET /api/blinds-orders/{id}/export` SHALL 只对能查看该工艺单的用户返回 xlsx，按实际存在的产品线包含：开料表、工艺单、开料表（布料）、Blinds 标签、国内下单表、国内下单标签、窗帘工艺单、窗帘物料、Vinyl 工艺单、Vinyl 下料总表、Vinyl 标签、外采购单、待核对；无任何行时返回 400。
 
 #### Scenario: 只含窗帘
 - **WHEN** 工艺单只有窗帘行
@@ -100,7 +133,7 @@ draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` �
 - **THEN** 报价创建人收到一条 `process_order_generated` 通知，标题含客户名，链接指向 `/blinds-orders/{id}`
 
 ### Requirement: 不触发任何对外发送
-自动生成、编辑参数、确认门禁与导出 SHALL NOT 发送邮件、微信或任何外部消息，也 SHALL NOT 修改报价金额与状态。
+自动生成、编辑参数、发给国内 / 退回自产、编辑布纱比对照表、确认门禁与导出 SHALL NOT 发送邮件、微信或任何外部消息，也 SHALL NOT 修改报价金额与状态。
 
 #### Scenario: 生成不发邮件
 - **WHEN** mark-signed 触发自动生成
