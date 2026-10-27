@@ -11,9 +11,13 @@ import {
   Ruler,
   Scissors,
   Download,
+  CalendarCheck,
+  Camera,
+  Loader2,
 } from "lucide-react";
 import { getCordLengthTier } from "@/lib/blinds/calculation-engine";
 import { apiFetch } from "@/lib/api-fetch";
+import type { InstallTaskDetailData } from "@/components/install/install-types";
 
 interface BlindsOrderItem {
   id: string;
@@ -57,6 +61,8 @@ interface BlindsOrder {
   address: string | null;
   installDate: string | null;
   remarks: string | null;
+  appointmentId: string | null;
+  customerId: string | null;
   createdAt: string;
   updatedAt: string;
   items: BlindsOrderItem[];
@@ -67,8 +73,16 @@ interface BlindsOrder {
 const STATUS_MAP: Record<string, { label: string; color: string; next?: string; nextLabel?: string }> = {
   draft: { label: "草稿", color: "bg-[rgba(110,125,118,0.08)] text-[#6e7d76]", next: "confirmed", nextLabel: "确认工艺单" },
   confirmed: { label: "已确认", color: "bg-accent-soft text-accent", next: "completed", nextLabel: "标记完成" },
+  in_production: { label: "生产中", color: "bg-[rgba(79,70,229,0.08)] text-[#4f46e5]" },
+  ready: { label: "待安装", color: "bg-[rgba(201,138,34,0.12)] text-[#9a6a12]" },
+  scheduled: { label: "已排期", color: "bg-[rgba(8,145,178,0.1)] text-[#0e7490]" },
+  installed: { label: "已安装", color: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]", next: "completed", nextLabel: "标记完成" },
   completed: { label: "已完成", color: "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]" },
+  cancelled: { label: "已取消", color: "bg-[rgba(166,61,61,0.08)] text-danger" },
 };
+
+/** INSTALL-1：可从这些状态直接"安排安装" */
+const CAN_SCHEDULE_FROM = new Set(["confirmed", "in_production", "ready"]);
 
 function fmt(v: number | null | undefined): string {
   if (v == null) return "-";
@@ -84,8 +98,11 @@ export default function BlindsOrderDetailPage({
   const router = useRouter();
   const [order, setOrder] = useState<BlindsOrder | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "parts" | "fabric">("overview");
+  const [tab, setTab] = useState<"overview" | "parts" | "fabric" | "closeout">("overview");
   const [exporting, setExporting] = useState(false);
+  // INSTALL-1：安排安装 + 收口标签
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [closeout, setCloseout] = useState<InstallTaskDetailData | null>(null);
 
   const loadOrder = useCallback(async () => {
     const res = await apiFetch(`/api/blinds-orders/${id}`);
@@ -98,6 +115,32 @@ export default function BlindsOrderDetailPage({
   useEffect(() => {
     void loadOrder();
   }, [loadOrder]);
+
+  // 收口标签只对持 install.photo.read（或被分配人）显示：接口 403 时不显示标签
+  useEffect(() => {
+    const apptId = order?.appointmentId;
+    if (!apptId) {
+      setCloseout(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/install/tasks/${apptId}`);
+        if (!res.ok) {
+          if (!cancelled) setCloseout(null);
+          return;
+        }
+        const data = (await res.json()) as { task: InstallTaskDetailData };
+        if (!cancelled) setCloseout(data.task);
+      } catch {
+        if (!cancelled) setCloseout(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [order?.appointmentId, order?.status]);
 
   async function updateStatus(newStatus: string) {
     const res = await apiFetch(`/api/blinds-orders/${id}`, {
@@ -193,6 +236,15 @@ export default function BlindsOrderDetailPage({
             <Download size={14} />
             {exporting ? "导出中..." : "导出 Excel"}
           </button>
+          {CAN_SCHEDULE_FROM.has(order.status) && (
+            <button
+              onClick={() => setScheduleOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-[rgba(43,96,85,0.25)] bg-[rgba(43,96,85,0.06)] px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.1)]"
+            >
+              <CalendarCheck size={14} />
+              安排安装
+            </button>
+          )}
           {st.next && (
             <button
               onClick={() => updateStatus(st.next!)}
@@ -248,6 +300,9 @@ export default function BlindsOrderDetailPage({
           { key: "overview" as const, label: "订单总览", icon: FileText },
           { key: "parts" as const, label: "配件开料表", icon: Ruler },
           { key: "fabric" as const, label: "面料开料表", icon: Scissors },
+          ...(closeout
+            ? [{ key: "closeout" as const, label: `收口 ${closeout.closeout.completed}/${closeout.closeout.total}`, icon: Camera }]
+            : []),
         ].map((t) => (
           <button
             key={t.key}
@@ -268,6 +323,236 @@ export default function BlindsOrderDetailPage({
       {tab === "overview" && <OverviewTab order={order} />}
       {tab === "parts" && <PartsCuttingTab items={order.items} />}
       {tab === "fabric" && <FabricCuttingTab items={order.items} />}
+      {tab === "closeout" && closeout && <CloseoutTab task={closeout} />}
+
+      {scheduleOpen && (
+        <ScheduleInstallDialog
+          orderId={order.id}
+          hasCustomer={Boolean(order.customerId)}
+          defaultDate={order.installDate}
+          onClose={() => setScheduleOpen(false)}
+          onScheduled={async () => {
+            setScheduleOpen(false);
+            await loadOrder();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * INSTALL-1：安排安装——选安装工（/api/install/installers）+ 安装时间 → transition scheduled
+ * 只有持 install.task.assign（运营 / 会计 / 老板）的人能提交成功；否则接口 403。
+ */
+function ScheduleInstallDialog({
+  orderId,
+  hasCustomer,
+  defaultDate,
+  onClose,
+  onScheduled,
+}: {
+  orderId: string;
+  hasCustomer: boolean;
+  defaultDate: string | null;
+  onClose: () => void;
+  onScheduled: () => Promise<void>;
+}) {
+  const [installers, setInstallers] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [assignedToId, setAssignedToId] = useState("");
+  const [installAt, setInstallAt] = useState(() =>
+    defaultDate && /^\d{4}-\d{2}-\d{2}$/.test(defaultDate) ? `${defaultDate}T09:00` : "",
+  );
+  const [err, setErr] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch("/api/install/installers");
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!cancelled) {
+            setInstallers([]);
+            setErr(data.error || (res.status === 403 ? "只有运营 / 会计 / 老板岗位可以安排安装" : "无法加载安装工名单"));
+          }
+          return;
+        }
+        const data = (await res.json()) as { installers: Array<{ id: string; name: string }> };
+        if (!cancelled) {
+          setInstallers(data.installers);
+          if (data.installers.length === 1) setAssignedToId(data.installers[0].id);
+        }
+      } catch {
+        if (!cancelled) {
+          setInstallers([]);
+          setErr("网络错误");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function submit() {
+    setErr(null);
+    if (!hasCustomer) {
+      setErr("工艺单未关联客户，请先编辑工艺单选择客户");
+      return;
+    }
+    if (!assignedToId) {
+      setErr("请选择安装工");
+      return;
+    }
+    if (!installAt) {
+      setErr("请选择安装时间");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await apiFetch(`/api/blinds-orders/${orderId}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toStatus: "scheduled",
+          installDate: new Date(installAt).toISOString(),
+          assignedToId,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setErr(data.error || "安排失败");
+        return;
+      }
+      await onScheduled();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 md:items-center md:p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-t-2xl bg-card-bg p-5 shadow-xl md:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <h3 className="text-base font-semibold text-foreground">安排安装</h3>
+        <p className="mt-1 text-xs text-muted">选择安装工与安装时间；安装工会在「安装任务」里看到，并可逐窗拍照收口。</p>
+
+        <label className="mt-4 block text-xs font-medium text-muted">安装工</label>
+        {installers === null ? (
+          <div className="mt-1 flex items-center gap-2 text-sm text-muted">
+            <Loader2 size={14} className="animate-spin" /> 加载中…
+          </div>
+        ) : installers.length === 0 ? (
+          <div className="mt-1 text-sm text-muted">企业内还没有安装工岗位的人，请先在岗位绑定里加上。</div>
+        ) : (
+          <select
+            value={assignedToId}
+            onChange={(e) => setAssignedToId(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            <option value="">请选择</option>
+            {installers.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <label className="mt-3 block text-xs font-medium text-muted">安装时间（默认 2 小时）</label>
+        <input
+          type="datetime-local"
+          value={installAt}
+          onChange={(e) => setInstallAt(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-accent"
+        />
+
+        {err && <div className="mt-3 text-sm text-danger">{err}</div>}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-border px-4 py-2 text-sm text-foreground"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={submitting || !installers?.length}
+            onClick={submit}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] disabled:opacity-50"
+          >
+            {submitting && <Loader2 size={14} className="animate-spin" />}
+            确认安排
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** INSTALL-1：收口标签——每窗缩略图 / 时间 / 张数（持 install.photo.read 才拿得到数据） */
+function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+        <span>
+          安装：<b className="text-foreground">{task.assignedTo.name}</b>
+        </span>
+        <span>
+          {new Date(task.startAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
+        </span>
+        <span>
+          已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 扇
+        </span>
+        {task.completedAt && (
+          <span className="text-[#2e7a56]">
+            完成于 {new Date(task.completedAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {task.windows.map((w) => (
+          <div key={w.itemId} className="rounded-xl border border-border bg-card-bg p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-foreground">
+                #{w.itemNumber} {w.location}
+              </span>
+              <span className={`text-xs ${w.photoCount > 0 ? "text-[#2e7a56]" : "text-muted"}`}>
+                {w.photoCount > 0 ? `${w.photoCount} 张` : "未收口"}
+              </span>
+            </div>
+            <div className="mt-0.5 text-xs text-muted">
+              {w.width} × {w.height} · {w.productType} · {w.fabricSku}
+            </div>
+            {w.latest ? (
+              <a href={w.latest.proxyUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={w.latest.proxyUrl}
+                  alt={`窗 ${w.itemNumber} 收口照片`}
+                  className="h-40 w-full rounded-lg border border-border object-cover"
+                />
+                <div className="mt-1 text-xs text-muted">
+                  {new Date(w.latest.at).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
+                  {w.latest.note ? ` · ${w.latest.note}` : ""}
+                </div>
+              </a>
+            ) : (
+              <div className="mt-2 flex h-40 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted">
+                尚无照片
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

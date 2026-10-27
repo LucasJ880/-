@@ -9,7 +9,7 @@ Sunny 的安装环节没有系统岗位：安装工看不到只属于自己的�
 
 ## What Changes
 
-- 新增岗位 `installer`（安装工）进窗饰岗位模板集，所有权限为 ASSIGNED 范围；新增 5 个权限键 `install.task.read / install.task.update / install.window.complete / install.task.assign / install.photo.read`；`owner`、`ops_lead`、三个出单岗追加安排与查看权，`accounting` 追加照片查看权。
+- 新增岗位 `installer`（安装工）进窗饰岗位模板集，所有权限为 ASSIGNED 范围；新增 5 个权限键 `install.task.read / install.task.update / install.window.complete / install.task.assign / install.photo.read`。安排安装的人由运营和会计决定：`ops_lead`、`accounting`、`owner` 追加安排 + 查看 + 照片查看（ORG）；三个出单岗只追加查看 + 照片查看，不能安排；`ops_staff` 不追加。
 - 安装任务复用既有 `Appointment`（`type=install`，`assignedToId` 为安装工）与 `BlindsOrder.appointmentId`，不建新表。新增 `GET /api/install/tasks`（只返回分配给本人的；持 ORG 范围者返回全企业）、`GET /api/install/tasks/{id}`（含工艺单每扇窗与收口状态）、`GET /api/install/installers`（持安装任务读权的人，供安排安装时选择）。
 - 新增安装工页面 `/install`（按日期分组的我的安装任务，含周视图）与 `/install/{id}`（窗列表、逐窗拍照、开始安装、完成收口）；手机底栏与侧栏加"安装"入口；安装工默认工作区 `/install`。
 - 逐窗拍照：`POST /api/install/tasks/{id}/items/{itemId}/photo` 把图片存私有 Blob `install-photos/{orgId}/{orderId}/{itemId}/{ts}.jpg`，收口记录写 AuditLog（`install.window.completed`，目标 `blinds_order_item`）；同一窗可补拍，以最新为准。文件代理对 `install-photos/` 前缀按"被分配人或持照片查看权"放行。

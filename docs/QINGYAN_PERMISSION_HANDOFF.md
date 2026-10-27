@@ -16,7 +16,7 @@
 |---|---|---|
 | `perm-1-positions` | 已合并 main；已 archive（specs 合入 `authorization/platform-admin-authority`、`position-binding`、`position-catalog`） | #264 ✅ |
 | `perm-2-discount-by-position` | 已合并 main；已 archive（specs 合入 `identity/member-management`、`sales/discount-tiering`、`sales/quote-delivery-gate`、`sales/quote-settings-approval`） | #265 ✅ |
-| `install-1-installer-position` | 四件套 validate 通过；代码在本会话已实现（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签），typecheck / eslint / test:ci 全绿；等 archive PR 合并后从 main 重建分支提交 | archive PR 之后开 PR |
+| `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | PR 开出等 CI；合并后独立小 PR archive |
 
 ## 交叉测试结果（会话 1，2026-10-27）
 
@@ -26,8 +26,8 @@
 ## 下一步（按顺序）
 
 1. ~~PERM-2 PR~~ 已合并（#265）。
-2. archive 小 PR（本 PR）：PERM-1 / PERM-2 已 archive，`openspec list --specs` 出现 7 个新能力 + 既有 `qa/test-registry`；TASKFLOW 两行改 `[x]`；附交叉测试报告 `docs/QINGYAN_PERM-1-2_REPORT.md`。CI 绿合并。
-3. INSTALL-1：archive PR 合并后从 main 重建分支，`git stash pop` 取回已实现代码（stash 名 `install-1-wip`；若会话丢失，代码需按 `openspec/changes/install-1-installer-position/tasks.md` 重做），跑 typecheck / lint:baseline / test:ci / registry，`/opsx:verify install-1-installer-position`，写 `docs/QINGYAN_INSTALL-1_REPORT.md`，TASKFLOW INSTALL-1 改 `[G]`，开 PR，CI 绿合并，再独立小 PR archive。
+2. ~~archive 小 PR~~ 已合并（#267）：7 个新能力已在 `openspec/specs/**`。
+3. INSTALL-1：PR 开在 `claude/youthful-davinci-8n1we3`（从 #267 后的 main 重建）；CI 绿合并；合并后独立小 PR `/opsx:archive install-1-installer-position --yes`，确认 `openspec list --specs` 出现 `installation/install-tasks`、`installation/window-closeout`，TASKFLOW INSTALL-1 改 `[x]`。
 4. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板（含 installer）；补 `config/positions/sunny.json` 邮箱（含 `TODO:安装工`）；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
 5. PERM-3 / PERM-4 / PERM-5：写任务书（设计稿 §6 阶段表），逐个 `/opsx:propose`。
 6. PERM-3 起：先写任务书（设计稿 §6），再 `/opsx:propose`。

@@ -16,6 +16,7 @@
     "TODO:Marty": ["ops_lead"],
     "TODO:Maggie": ["ops_staff"],
     "TODO:蒋晨": ["bids", "fulfillment_drapery"],
-    "TODO:小叶": ["fulfillment_shades"]
+    "TODO:小叶": ["fulfillment_shades"],
+    "TODO:安装工": ["installer"]
   }
 }

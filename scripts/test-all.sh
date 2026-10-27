@@ -280,6 +280,8 @@ run_test "Security-1 Sales Authz" "npx tsx src/lib/sales/__tests__/security1-sal
 run_test "合价上限读取（PERM-2）" "npx tsx src/lib/sales/__tests__/pricing-policy.test.ts"
 run_test "折扣三档决策表（PERM-2）" "npx tsx src/lib/sales/__tests__/discount-tier.test.ts"
 run_test "审批人选择与设置审批 payload（PERM-2）" "npx tsx src/lib/sales/__tests__/quote-settings-approval.test.ts"
+run_test "安装收口聚合与照片校验（INSTALL-1）" "npx tsx src/lib/install/__tests__/closeout.test.ts"
+run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"
 run_test "销售账号营销数字员工权限" "npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts"
 run_test "归档客户销售工作区可见性" "npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts"
 run_test "Phase3B-A AiThread Org Bind" "npx tsx src/lib/assistant/__tests__/thread-org-policy.test.ts"

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { canTransition, timestampField } from "@/lib/blinds/order-state-machine";
 import { withAuth } from "@/lib/common/api-helpers";
+import { authorize, humanPrincipal } from "@/lib/authorization";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -37,12 +38,55 @@ export const POST = withAuth(async (request, ctx, user) => {
     updateData.cancelReason = cancelReason;
   }
 
-  if (toStatus === "scheduled" && installDate) {
-    const startAt = new Date(installDate);
+  if (toStatus === "scheduled") {
+    // INSTALL-1：安排安装 = 建安装预约。执行者须持 install.task.assign（运营 / 会计 / 老板），
+    // assignedToId 必须是持 install.task.read 的安装岗；工艺单必须有客户（预约靠 customer.orgId 定企业）。
+    if (!order.customerId) {
+      return NextResponse.json(
+        { error: "工艺单未关联客户，无法安排安装（请先在工艺单上选择客户）", code: "NO_CUSTOMER" },
+        { status: 400 },
+      );
+    }
+    const customer = await db.salesCustomer.findUnique({
+      where: { id: order.customerId },
+      select: { id: true, orgId: true },
+    });
+    if (!customer) {
+      return NextResponse.json({ error: "工艺单关联的客户不存在", code: "NO_CUSTOMER" }, { status: 400 });
+    }
+    const startAt = installDate ? new Date(installDate) : null;
+    if (!startAt || Number.isNaN(startAt.getTime())) {
+      return NextResponse.json({ error: "请选择安装时间", code: "NO_INSTALL_DATE" }, { status: 400 });
+    }
+    const assignee = (assignedToId ?? "").trim();
+    if (!assignee) {
+      return NextResponse.json({ error: "必须选择安装岗位的人", code: "NO_INSTALLER" }, { status: 400 });
+    }
+
+    const canAssign = await authorize({
+      principal: humanPrincipal(user, customer.orgId),
+      orgId: customer.orgId,
+      permission: "install.task.assign",
+    });
+    if (!canAssign.allowed) {
+      return NextResponse.json({ error: "只有运营 / 会计 / 老板岗位可以安排安装" }, { status: 403 });
+    }
+    const assigneeCanRead = await authorize({
+      principal: { type: "HUMAN", id: assignee, orgId: customer.orgId },
+      orgId: customer.orgId,
+      permission: "install.task.read",
+    });
+    if (!assigneeCanRead.allowed) {
+      return NextResponse.json(
+        { error: "必须选择安装岗位的人（所选用户不持安装任务权限）", code: "NOT_INSTALLER" },
+        { status: 400 },
+      );
+    }
+
     const endAt = new Date(startAt.getTime() + 2 * 60 * 60 * 1000);
     const appt = await db.appointment.create({
       data: {
-        customerId: order.customerId || "",
+        customerId: customer.id,
         opportunityId: order.opportunityId || null,
         type: "install",
         title: `安装 — ${order.customerName} (${order.code})`,
@@ -52,12 +96,13 @@ export const POST = withAuth(async (request, ctx, user) => {
         address: order.address || null,
         contactPhone: order.phone || null,
         status: "scheduled",
-        assignedToId: assignedToId || user.id,
+        assignedToId: assignee,
         createdById: user.id,
       },
     });
     updateData.appointmentId = appt.id;
     updateData.expectedInstallDate = startAt;
+    updateData.installDate = startAt.toISOString().slice(0, 10);
   }
 
   const updated = await db.blindsOrder.update({

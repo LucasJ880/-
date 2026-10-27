@@ -55,7 +55,7 @@ export type NavigationItem = {
    * Phase 1 工作区门禁：与 workspace-policy 对齐。
    * 未设置时不额外按工作区过滤。
    */
-  workspaceAccess?: "management" | "operations" | "bids" | "sales";
+  workspaceAccess?: "management" | "operations" | "bids" | "sales" | "install";
 };
 
 export type NavigationFilterContext = {
@@ -72,6 +72,8 @@ export type NavigationFilterContext = {
   autopilotAllowed?: boolean;
   /** 有效项目成员关系等投标能力信号（来自 active-org） */
   hasBidCapability?: boolean;
+  /** INSTALL-1：岗位权限键（来自 active-org），用于按权限放行的工作区（如 /install） */
+  permissionKeys?: readonly string[] | null;
 };
 
 export type ResolvedNavItem = Omit<NavigationItem, "children"> & {

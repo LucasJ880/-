@@ -9,6 +9,7 @@ import {
 } from "@/lib/rbac/nav-role-policy";
 import {
   canAccessBidWorkspace,
+  canAccessInstallWorkspace,
   canAccessManagementWorkspace,
   canAccessOperationsWorkspace,
   canAccessSalesWorkspace,
@@ -37,6 +38,7 @@ function workspaceAccessOk(
     modules: ctx.modules,
     hasMembership: ctx.hasMembership,
     hasBidCapability: ctx.hasBidCapability,
+    permissionKeys: ctx.permissionKeys,
   });
   switch (item.workspaceAccess) {
     case "management":
@@ -47,6 +49,8 @@ function workspaceAccessOk(
       return canAccessBidWorkspace(ws);
     case "sales":
       return canAccessSalesWorkspace(ws);
+    case "install":
+      return canAccessInstallWorkspace(ws);
     default:
       return true;
   }
