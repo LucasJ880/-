@@ -82,3 +82,6 @@ fixtures/private/
 
 # S3-A 本地验收截图（不入库）
 .s3a-screenshots/
+
+# Python bytecode（scripts/sunny-process-oracle 等离线工具）
+__pycache__/
