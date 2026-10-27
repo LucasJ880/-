@@ -15,7 +15,13 @@
 | change | 状态 | PR |
 |---|---|---|
 | `perm-1-positions` | 已合并 main；待 archive | #264 ✅ |
-| `perm-2-discount-by-position` | 代码完成、11/11 tasks 打勾、typecheck / lint / test:ci 全绿；待 PR → 合并 → archive | 待开 / 见 git log |
+| `perm-2-discount-by-position` | 代码完成、11/11 tasks 打勾、typecheck / lint / test:ci 全绿；PR 开出等 CI | #265 |
+| `install-1-installer-position` | 四件套已生成并 validate 通过（planning only，代码未开始）；任务书 `docs/QINGYAN_INSTALL-1_INSTALLER_TASKBRIEF.md` | 待 #265 合并 + archive PR 后开始 apply |
+
+## 交叉测试结果（会话 1，2026-10-27）
+
+- 全量 `npm test`：422/435，13 个失败与 `docs/QINGYAN_SDD-0_REPORT.md` §3 用例 4 的环境性基线完全一致（10 项 MISSING_DATABASE_URL、T4 需 DATABASE_URL、Gmail OAuth、PDF 页脚），无新增失败；TypeScript 检查通过。
+- `npm run build`：见 `docs/QINGYAN_PERM-1-2_REPORT.md`（待写）。
 
 ## 下一步（按顺序）
 
@@ -23,7 +29,8 @@
 2. 合并后一个独立小 PR：`/opsx:bulk-archive`（或分别 `/opsx:archive perm-1-positions --yes` 与 `perm-2-discount-by-position --yes`），确认 `openspec list --specs` 出现 7 个新能力；TASKFLOW PERM-1 / PERM-2 改 `[x]`。
 3. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板；补 `config/positions/sunny.json` 邮箱；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
 4. 交叉测试与报告 `docs/QINGYAN_PERM-1-2_REPORT.md`：全量 `npm test`、`npm run build`，按岗位走查（步骤见 PERM-2 报告 §4-3）。
-5. PERM-3 起：先写任务书（设计稿 §6），再 `/opsx:propose`。
+5. INSTALL-1：archive PR 合并后从 main 重建分支，`/opsx:apply install-1-installer-position`（四件套已在 `openspec/changes/install-1-installer-position/`），流程同 PERM-2。
+6. PERM-3 起：先写任务书（设计稿 §6），再 `/opsx:propose`。
 
 ## 环境注意
 

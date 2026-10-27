@@ -36,6 +36,12 @@
 | PERM-4b | 运营模块：同上，`canManageUsers` 捆绑的运营配置接口转 `ops_lead` | PERM-4a | 待写 | [ ] |
 | PERM-4c | 招投标模块 + 导航 / 默认工作区按岗位 | PERM-4b | 待写 | [ ] |
 
+## INSTALL-1 — 安装工岗位 + 安装任务 + 逐窗拍照收口
+
+| ID | 任务 | 依赖 | 产物 | 状态 |
+|---|---|---|---|---|
+| INSTALL-1 | `installer` 岗位与 5 个 `install.*` 权限键；`/install` 安装任务（只看分配给自己的）与日历；逐窗拍照收口（AuditLog + 私有 Blob）；完成收口推进工艺单 `installed` | PERM-1 | 任务书 `docs/QINGYAN_INSTALL-1_INSTALLER_TASKBRIEF.md`；change `install-1-installer-position` | [ ] |
+
 ## PERM-5 — 会计视图与数字员工
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
