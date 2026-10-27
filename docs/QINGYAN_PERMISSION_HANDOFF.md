@@ -29,8 +29,8 @@
 2. ~~archive 小 PR~~ 已合并（#267）：7 个新能力已在 `openspec/specs/**`。
 3. ~~INSTALL-1~~ 已合并（#268）并 archive（本 PR）。
 4. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板（含 installer）；补 `config/positions/sunny.json` 邮箱（含 `TODO:安装工`）；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
-5. PERM-3 / PERM-4 / PERM-5：写任务书（设计稿 §6 阶段表），逐个 `/opsx:propose`。
-6. PERM-3 起：先写任务书（设计稿 §6），再 `/opsx:propose`。
+5. ~~PERM-3 / PERM-4 / PERM-5 任务书~~ 已写：`docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`、`docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`、`docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`。每份末尾有「判断点」，**先让 Lucas 拍板再 propose**。
+6. 顺序：PERM-3 → PERM-4a → 4b → 4c → PERM-5a；PERM-5b 只依赖 PERM-1，可与 PERM-3 并行。每个 change：`/opsx:propose <name>` → 四件套回传审核 → `/opsx:apply` → 测试 → `/opsx:verify` → PR → 合并后独立小 PR archive。
 
 ## 环境注意
 
