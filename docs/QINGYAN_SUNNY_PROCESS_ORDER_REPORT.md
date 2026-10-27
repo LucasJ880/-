@@ -210,4 +210,5 @@ python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan
 - 现象：qingyan-staging 预览三次在 `next build --webpack` 编译阶段 OOM（堆 ~6.1GB，撞上 `max-old-space-size=6144`）。
 - 本地实测单进程峰值 RSS：main 8033MB，本分支 8074MB（+0.5%）。main 已顶在上限边缘，本 PR 只是第一个越线的。
 - 处理（Lucas 拍板"上调到 7GB 先试"）：`package.json` build 脚本堆上限 6144 → 7168。上限只决定"最多能用多少"，实际用量不变；若 Vercel 容器因此被 SIGKILL，改回并改用 Enhanced Build Machine。合并后生产构建使用同一值。
+- 结果：qingyan-staging 预览 Ready（约 4.5 分钟，未被 SIGKILL）；#266 合并（`611965d`）后生产部署 Ready（Lucas 2026-10-27 确认）。
 
