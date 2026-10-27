@@ -17,11 +17,15 @@
 - **THEN** 判定结果不是 `UNKNOWN_PERMISSION`
 
 ### Requirement: 既有岗位追加安装权
-`owner`、`ops_lead`、`fulfillment_vinyl`、`fulfillment_drapery`、`fulfillment_shades` SHALL 追加 `install.task.assign`、`install.task.read`、`install.photo.read`（ORG）；`accounting` SHALL 追加 `install.photo.read`（ORG）；`sales_rep` SHALL NOT 追加任何 `install.*`。
+安排安装（指定安装工与时间）的权限 `install.task.assign` SHALL 只追加给 `owner`、`ops_lead`、`accounting`（ORG），三者同时追加 `install.task.read` 与 `install.photo.read`（ORG）。`fulfillment_vinyl`、`fulfillment_drapery`、`fulfillment_shades` SHALL 追加 `install.task.read` 与 `install.photo.read`（ORG），SHALL NOT 追加 `install.task.assign`。`ops_staff` 与 `sales_rep` SHALL NOT 追加任何 `install.*`。
 
-#### Scenario: 出单岗可安排安装
+#### Scenario: 运营与会计可安排安装
+- **WHEN** 读取 `ops_lead` 与 `accounting` 模板
+- **THEN** 两者都包含 `install.task.assign`（ORG）与 `install.photo.read`（ORG）
+
+#### Scenario: 出单岗只能看不能安排
 - **WHEN** 读取 `fulfillment_vinyl` 模板
-- **THEN** 包含 `install.task.assign`（ORG）与 `install.photo.read`（ORG）
+- **THEN** 包含 `install.task.read`（ORG）与 `install.photo.read`（ORG），不包含 `install.task.assign`
 
 #### Scenario: 销售不参与安装
 - **WHEN** 读取 `sales_rep` 并集绑定

@@ -37,10 +37,13 @@ export type WorkspaceId =
   | "operations"
   | "bids"
   | "sales"
+  | "install"
   | "none";
 
 const BID_MODULES = ["bids", "projects"] as const;
 const OPS_PERMISSIONS = ["operations.read", "operations.manage"] as const;
+/** INSTALL-1：安装工作区按岗位权限放行（安装工 ASSIGNED / 运营 / 会计 / 老板 ORG） */
+const INSTALL_PERMISSIONS = ["install.task.read"] as const;
 const BID_PERMISSIONS = [
   "project.read",
   "project.create",
@@ -142,6 +145,13 @@ export function canAccessSalesWorkspace(
  * 4. 招投标专职（可进 bids 且非运营专职）→ /bids
  * 5. 其余 → /（仅管理层应停留；非管理层请用 resolveHomeRedirect）
  */
+/**
+ * INSTALL-1：安装工作区 /install —— 持 install.task.read（任一范围）即可进
+ */
+export function canAccessInstallWorkspace(ctx: WorkspacePolicyContext): boolean {
+  return hasAnyPermission(ctx, INSTALL_PERMISSIONS);
+}
+
 export function getDefaultWorkspace(ctx: WorkspacePolicyContext): string {
   if (isManagementWorkspaceUser(ctx)) return "/";
 
@@ -164,6 +174,16 @@ export function getDefaultWorkspace(ctx: WorkspacePolicyContext): string {
     return "/bids";
   }
 
+  // INSTALL-1：安装工（非销售 / 运营 / 招投标专职）默认进安装工作区
+  if (
+    canAccessInstallWorkspace(ctx) &&
+    !isOperationsStaff(ctx.platformRole) &&
+    !isSalesStaff(ctx.platformRole) &&
+    !canAccessOperationsWorkspace(ctx)
+  ) {
+    return "/install";
+  }
+
   return "/";
 }
 
@@ -178,6 +198,7 @@ export function resolveHomeRedirect(ctx: WorkspacePolicyContext): string | null 
   if (canAccessOperationsWorkspace(ctx)) return "/ops";
   if (canAccessBidWorkspace(ctx)) return "/bids";
   if (canAccessSalesWorkspace(ctx)) return "/sales/home";
+  if (canAccessInstallWorkspace(ctx)) return "/install";
   return "/tasks";
 }
 
@@ -189,6 +210,7 @@ export function getAccessibleWorkspaces(
   if (canAccessOperationsWorkspace(ctx)) out.push("operations");
   if (canAccessBidWorkspace(ctx)) out.push("bids");
   if (canAccessSalesWorkspace(ctx)) out.push("sales");
+  if (canAccessInstallWorkspace(ctx)) out.push("install");
   return out.length ? out : ["none"];
 }
 

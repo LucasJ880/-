@@ -51,12 +51,16 @@
 工艺单转为"已排期"时提交的 `assignedToId` SHALL 是持 `install.task.read`（任一范围）的用户，否则返回 400 说明"必须选择安装岗位的人"；执行转换的人 SHALL 持 `install.task.assign`。`GET /api/install/installers` SHALL 返回当前企业持 `install.task.read` 的用户（id、姓名），供安排安装时选择。
 
 #### Scenario: 选了非安装岗
-- **WHEN** 出单人把工艺单转 scheduled 并指定一位销售为 assignedToId
+- **WHEN** 运营主管把工艺单转 scheduled 并指定一位销售为 assignedToId
 - **THEN** 返回 400，工艺单状态不变
 
 #### Scenario: 正常安排
-- **WHEN** 出单人指定安装工小王与安装时间
+- **WHEN** 运营主管或会计指定安装工小王与安装时间
 - **THEN** 创建类型为安装、分配给小王的预约，工艺单进入 scheduled 并记录预计安装时间
+
+#### Scenario: 出单人不能安排
+- **WHEN** 只持出单岗位（无 `install.task.assign`）的人把工艺单转 scheduled
+- **THEN** 返回 403
 
 #### Scenario: 安装工候选列表
 - **WHEN** 请求 `GET /api/install/installers`

@@ -66,8 +66,16 @@
 - 否决：等 PERM-4 统一改导航再做。理由：没有入口安装工用不了。
 
 ### D7 上传实现
-沿用 `src/lib/chat-attachments/upload-image.ts` 的 multipart 处理与限流思路，但独立实现 `src/lib/install/photo-upload.ts`（类型白名单 jpeg/png/webp、≤ 8MB、pathname 生成纯函数 `installPhotoPathname({ orgId, orderId, itemId, now, ext })`）。
+multipart 直接在路由里处理（`request.formData()` → `validatePhotoUpload` → `putPrivateBlob`），纯函数（类型白名单 jpeg/png/webp、≤ 8MB、`installPhotoPathname`、`parseInstallPhotoPath`）放在 `src/lib/install/closeout.ts`，不另建 `photo-upload.ts`；限流 `install-photo` 30 次/分钟。
 - 否决：直接复用 chat 上传函数。理由：它绑定 AI_CHAT_BLOB_ROOT 与对话附件语义。
+
+### D8 工艺单状态机：confirmed / in_production 可直接转 scheduled（实施时补充）
+现网工艺单详情页只走 draft → confirmed → completed，不单独维护 ready（"待安装"）。若坚持 ready → scheduled，"安排安装"按钮对 Sunny 实际流程永远不可用。因此 `TRANSITIONS` 增加 `confirmed → ready | scheduled`、`in_production → scheduled`，其余边不变；`complete` 收口仍按 `canTransition(order.status, "installed")`（scheduled → installed）。
+- 否决：改详情页先手动转 ready 再排期。理由：多一步无业务含义的点击。
+- 顺带：详情页 `STATUS_MAP` 补 in_production / ready / scheduled / installed / cancelled 标签；installed 的下一步是"标记完成"。
+
+### D9 `permissionKeys` 注入点（实施时补充）
+服务端 `resolveWorkspaceContextFromCookies` 与 `GET /api/auth/active-org` 都用 `resolveEffectiveBindings` 算出 ALLOW 键集合注入 `permissionKeys`；侧栏 / 抽屉 / 底栏从 active-org 读取后传给 `workspaceContextFromNav`；`NavigationItem.workspaceAccess` 新增 `"install"`。`/install` 两页服务端用 `canAccessInstallWorkspace || isManagementWorkspaceUser` 放行。
 
 ## Risks / Trade-offs
 

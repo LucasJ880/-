@@ -183,7 +183,7 @@ import { platformAdminBindings } from "../resolve-effective-permissions";
 console.log("PERM-1 岗位目录");
 const WC = "window_covering_services_v1";
 const wcKeys = profilesForIndustryPack(WC).map((p) => p.key);
-ok(wcKeys.length === 9 && profileKeysForIndustryPack(WC).length === 16, "窗饰行业包：9 个追加模板，并集 16 个 key");
+ok(wcKeys.length === 10 && profileKeysForIndustryPack(WC).length === 17, "窗饰行业包：10 个追加模板（含安装工），并集 17 个 key");
 ok(profilesForIndustryPack(null).length === 0 && profilesForIndustryPack("other_pack").length === 0, "非窗饰行业包：0 个追加模板");
 for (const k of [
   "sales.quote.pricing_close",
@@ -255,6 +255,27 @@ ok(
   !has(bindingsFromSystemProfile("org_owner"), "identity.member.manage") && !has(bindingsFromSystemProfile("org_owner"), "identity.role.manage") && !has(bindingsFromSystemProfile("org_owner"), "authorization.policy.manage") && has(bindingsFromSystemProfile("org_owner"), "audit.read", "ORG"),
   "PERM-2：org_owner 系统模板不含成员 / 岗位 / 策略管理，仍含 audit.read",
 );
+
+console.log("INSTALL-1 安装工岗位");
+for (const k of ["install.task.read", "install.task.update", "install.window.complete", "install.task.assign", "install.photo.read"]) {
+  ok(isKnownPermission(k), `权限键已登记：${k}`);
+}
+const inst = mergedProfileBindings(WC, "installer");
+ok(
+  inst.length === 3 && inst.every((b) => b.permissionKey.startsWith("install.") && b.dataScope === "ASSIGNED"),
+  "installer：三个 install.* 键均 ASSIGNED",
+);
+ok(!has(inst, "install.task.assign") && !has(inst, "install.photo.read") && !inst.some((b) => b.permissionKey.startsWith("sales.")), "installer 不含安排 / 照片查看 / sales.*");
+for (const k of ["ops_lead", "accounting", "owner"]) {
+  const b = mergedProfileBindings(WC, k);
+  ok(has(b, "install.task.assign", "ORG") && has(b, "install.task.read", "ORG") && has(b, "install.photo.read", "ORG"), `${k} 可安排安装 + 看任务 + 看照片`);
+}
+for (const k of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+  const b = mergedProfileBindings(WC, k);
+  ok(has(b, "install.task.read", "ORG") && has(b, "install.photo.read", "ORG") && !has(b, "install.task.assign"), `${k} 只看不排`);
+}
+ok(!mergedProfileBindings(WC, "sales_rep").some((b) => b.permissionKey.startsWith("install.")), "sales_rep 无 install.*");
+ok(!mergedProfileBindings(WC, "ops_staff").some((b) => b.permissionKey.startsWith("install.")), "ops_staff 无 install.*");
 
 console.log("PERM-1 平台管理员全权");
 const pa = platformAdminBindings();

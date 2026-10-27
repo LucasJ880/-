@@ -12,6 +12,7 @@ import {
 } from "@/lib/organizations/org-access";
 import { db } from "@/lib/db";
 import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy";
+import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
 
 /**
  * GET /api/auth/active-org
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
   let workspaceIds: string[] = [];
   let orgRole: string | null = null;
   let hasBidCapability = false;
+  let permissionKeys: string[] = [];
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
@@ -78,6 +80,19 @@ export async function GET(request: NextRequest) {
     if (member?.status === "active") orgRole = member.role;
     workspaceIds = workspaces.map((w) => w.workspaceId);
     hasBidCapability = Boolean(projectMember);
+    // INSTALL-1：岗位权限键（ALLOW），供侧栏 / 底栏按权限显示工作区入口
+    try {
+      const bindings = await resolveEffectiveBindings({
+        type: "HUMAN",
+        id: user.id,
+        orgId: resolved.orgId,
+      });
+      permissionKeys = [
+        ...new Set(bindings.filter((b) => b.effect === "ALLOW").map((b) => b.permissionKey)),
+      ];
+    } catch {
+      permissionKeys = [];
+    }
   }
 
   const canSwitch = access ? canSelfSwitchOrganizations(access) : false;
@@ -94,6 +109,7 @@ export async function GET(request: NextRequest) {
     workspaceIds,
     hasMembership: Boolean(orgRole),
     hasBidCapability,
+    permissionKeys,
     needsSelection,
     orgAccessMode: access?.orgAccessMode ?? "FIXED",
     canSelfSwitchOrg: access?.canSelfSwitchOrg ?? false,

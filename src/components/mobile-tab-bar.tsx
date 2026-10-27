@@ -14,6 +14,7 @@ import {
   PackageCheck,
   Plus,
   Users,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
@@ -23,6 +24,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import type { OrgModulesConfig } from "@/lib/tenancy/modules";
 import {
   canAccessBidWorkspace,
+  canAccessInstallWorkspace,
   canAccessOperationsWorkspace,
   getDefaultWorkspace,
   workspaceContextFromNav,
@@ -55,6 +57,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
   const [orgRole, setOrgRole] = useState<string | null>(null);
   const [hasMembership, setHasMembership] = useState(false);
   const [hasBidCapability, setHasBidCapability] = useState(false);
+  const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -73,12 +76,14 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
           orgRole?: string | null;
           hasMembership?: boolean;
           hasBidCapability?: boolean;
+          permissionKeys?: string[];
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
           setOrgRole(data.orgRole ?? null);
           setHasMembership(Boolean(data.hasMembership ?? data.orgRole));
           setHasBidCapability(Boolean(data.hasBidCapability));
+          setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
         }
       } catch {
         /* ignore */
@@ -104,6 +109,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
           hasMembership ||
           Boolean(organizations.find((o) => o.id === storedOrgId)?.myRole),
         hasBidCapability,
+        permissionKeys,
       }),
     [
       user?.role,
@@ -111,6 +117,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
       orgModules,
       hasMembership,
       hasBidCapability,
+      permissionKeys,
       organizations,
       storedOrgId,
     ],
@@ -232,10 +239,19 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
   const defaultHref = getDefaultWorkspace(wsCtx);
   const showOps = canAccessOperationsWorkspace(wsCtx);
   const showBids = canAccessBidWorkspace(wsCtx);
+  const showInstall = canAccessInstallWorkspace(wsCtx);
 
   const items: TabItem[] = [];
 
-  if (defaultHref === "/ops") {
+  if (defaultHref === "/install") {
+    // INSTALL-1：安装工——首栏即安装任务
+    items.push({
+      href: "/install",
+      label: "安装",
+      icon: Wrench,
+      match: (p) => p.startsWith("/install"),
+    });
+  } else if (defaultHref === "/ops") {
     items.push({
       href: "/ops",
       label: "运营",
@@ -277,6 +293,15 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
       label: "招投标",
       icon: FolderKanban,
       match: (p) => p.startsWith("/bids"),
+    });
+  }
+
+  if (showInstall && defaultHref !== "/install") {
+    items.push({
+      href: "/install",
+      label: "安装",
+      icon: Wrench,
+      match: (p) => p.startsWith("/install"),
     });
   }
 

@@ -154,6 +154,7 @@ export const WINDOW_COVERING_INDUSTRY_PACK = "window_covering_services_v1" as co
 
 const ORG = "ORG" as const;
 const PRINCIPAL = "PRINCIPAL" as const;
+const ASSIGNED = "ASSIGNED" as const;
 
 function org(...keys: string[]): DefaultBinding[] {
   return keys.map((permissionKey) => ({ permissionKey, dataScope: ORG }));
@@ -163,6 +164,9 @@ const FULFILLMENT_BINDINGS: DefaultBinding[] = org(
   "orders.fulfillment.update",
   "project.read",
   "sales.quote.read",
+  // INSTALL-1：出单岗可看安装任务与收口照片，不能安排安装
+  "install.task.read",
+  "install.photo.read",
 );
 
 export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
@@ -190,6 +194,10 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "sales.settings.manage",
       "sales.quote.discount.over_limit.submit",
       "sales.quote.discount.over_limit.approve",
+      // INSTALL-1：老板全看全改，含安排安装
+      "install.task.assign",
+      "install.task.read",
+      "install.photo.read",
     ),
   },
   {
@@ -231,6 +239,10 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "operations.projects.create",
       "inventory.manage",
       "identity.member.read",
+      // INSTALL-1：安排安装由运营 + 会计决定
+      "install.task.assign",
+      "install.task.read",
+      "install.photo.read",
     ),
   },
   {
@@ -243,6 +255,10 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "sales.quote.read",
       "sales.customer.read",
       "project.read",
+      // INSTALL-1：安排安装由运营 + 会计决定；收口照片是结算依据
+      "install.task.assign",
+      "install.task.read",
+      "install.photo.read",
     ),
   },
   {
@@ -261,6 +277,17 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
   { key: "fulfillment_vinyl", name: "出单·Vinyl", description: "Vinyl 品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
   { key: "fulfillment_drapery", name: "出单·布帘", description: "布帘品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
   { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman", description: "Roller / Zebra / Roman Shade 品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
+  {
+    // INSTALL-1：安装工——只看分配给本人的安装任务；逐窗拍照收口；不碰销售
+    key: "installer",
+    name: "安装工",
+    description: "只看分配给自己的安装任务与日历；开始 / 完成安装；按工艺单逐窗拍照收口",
+    bindings: [
+      { permissionKey: "install.task.read", dataScope: ASSIGNED },
+      { permissionKey: "install.task.update", dataScope: ASSIGNED },
+      { permissionKey: "install.window.complete", dataScope: ASSIGNED },
+    ],
+  },
 ];
 
 export const WINDOW_COVERING_POSITION_TEMPLATES: Array<{
@@ -276,6 +303,7 @@ export const WINDOW_COVERING_POSITION_TEMPLATES: Array<{
   { key: "fulfillment_vinyl", name: "出单·Vinyl", roleProfileKey: "fulfillment_vinyl" },
   { key: "fulfillment_drapery", name: "出单·布帘", roleProfileKey: "fulfillment_drapery" },
   { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman", roleProfileKey: "fulfillment_shades" },
+  { key: "installer", name: "安装工", roleProfileKey: "installer" },
 ];
 
 /** 行业包 id → 追加岗位模板集；未登记的行业包为空 */
