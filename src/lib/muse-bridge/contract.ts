@@ -41,6 +41,9 @@ export const MUSE_PHASE0_INTENTS: readonly MuseIntent[] = ["status", "ask", "app
 
 /** 个人偏好可改的键（偏好里不存任何金额） */
 export const MUSE_PREF_KEYS = ["defaultSupplierIds", "defaultIncoterm", "chaseAfterDays"] as const;
+
+/** 询价可用的贸易条款（rfq 意图的 incoterm 参数与偏好 defaultIncoterm 共用） */
+export const MUSE_INCOTERMS = ["EXW", "FOB", "CIF", "DDP", "DAP"] as const;
 export type MusePrefKey = (typeof MUSE_PREF_KEYS)[number];
 
 /** 各意图所属阶段（文档 + 错误提示用；路由拒绝时如实告知"哪一阶段才有"）。 */
@@ -89,6 +92,8 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
       supplierIds: z.array(idField).min(1).max(10).optional(),
       supplierHint: trimmed(300).optional(),
       scope: trimmed(2000).optional(),
+      // 显式指定 > 个人偏好 defaultIncoterm；大小写不敏感
+      incoterm: z.preprocess((v) => (typeof v === "string" ? v.trim().toUpperCase() : v), z.enum(MUSE_INCOTERMS)).optional(),
     })
     .strip(),
   // P1-7：不指定 inquiryId → 最新一轮；不指定 itemIds → 该轮所有该催 / 该追问的

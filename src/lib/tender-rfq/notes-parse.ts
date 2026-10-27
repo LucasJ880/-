@@ -10,8 +10,7 @@
  *   - 过渡方案：等 schema 升级迁列后删除，本任务不加列。
  */
 
-import { INBOUND_MISSING_LABEL } from "./inbound-apply";
-import type { InboundMissingField } from "./inbound-contract";
+import { INBOUND_MISSING_LABEL, type InboundMissingField } from "./inbound-contract";
 
 export type AutoNotesTier = { quantity: number | null; unitPrice: number | null; totalPrice: number | null };
 export type AutoNotesAnswer = { requirementCode: string; answer: "满足" | "部分满足" | "不满足" | "未答"; evidence: string | null };
