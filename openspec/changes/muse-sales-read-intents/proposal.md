@@ -15,7 +15,7 @@
 - `sales_overview` 返回：结论 + 前三条商机的理由 + "看第 1 条详情"的下一步；`data` 带统计（进行中、停滞、跟进日已过、客户在等回复、窗口内新建 / 成交 / 丢单）与排序列表（CRM 事实、理由、未核实字段）。
 - `opportunity_status` 返回：单个商机的 CRM 事实（含记录 ID 与 `updatedAt`）、最近 5 条互动、未结束的跟进行动、系统建议的下一步、优先级理由、未核实字段；`employeeConfirmations` 先返回空数组，供 S2 填充。
 - 决定 B：商机金额只对管理角色输出（`data` 里的 `amount` 字段与理由文字），销售角色的响应里不出现金额；招投标的决定 A（毛利率、项目估值、我方最终报价不出）不变。写进 `openspec/config.yaml` 第 4 条与 TASKFLOW "已决定"。
-- `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 新增 Phase S 表（S1–S4）；`.env.example` 与开关注释写明两个新意图默认不开。
+- `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 新增 Phase S 表（S1–S4）；开关注释（`flags.ts`）写明两个新意图默认不开。
 - 新增纯逻辑测试与隔离库端到端测试并注册；写 `docs/QINGYAN_S1_REPORT.md`。
 
 ## Capabilities
@@ -34,7 +34,7 @@
 - 新文件 `src/lib/muse-bridge/sales-pure.ts`（纯函数）、`src/lib/muse-bridge/sales.ts`（取数）；`router.ts` 分发表加两个 case；`router-pure.ts` 的未开放意图标签表加两项。
 - 新测试 `src/lib/muse-bridge/__tests__/sales-pure.test.ts`、`sales-db.isolated.test.ts`；`muse-bridge-pure.test.ts` 的意图数量断言 12 → 14。
 - `scripts/test-all.sh` 加两条 `run_test`；`scripts/test-ci-unit.sh` 加纯逻辑那一条。
-- `openspec/config.yaml` 第 4 条补决定 B；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加 Phase S；`.env.example`、`flags.ts` 注释。
+- `openspec/config.yaml` 第 4 条补决定 B；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加 Phase S；`flags.ts` 注释。
 - 生产行为零变化：两个意图不在默认放行集里，必须显式写进 `MUSE_BRIDGE_INTENTS` 才可用。
 
 ## Out of scope

@@ -61,6 +61,8 @@ export function notEnabledResponse(requestId: string, intent: MuseIntent): MuseC
     next_step: "下一步建议",
     set_preference: "设置个人偏好",
     preferences: "查看个人偏好",
+    sales_overview: "销售概览",
+    opportunity_status: "查看商机状态",
   };
   return errResponse(
     requestId,

@@ -19,7 +19,7 @@ context: |
   1. 零 schema：不新增 Prisma model、不加字段、不写 migration。扩展数据只能落在既有 JSON 位（Organization.settingsJson / User settings）、Notification、AuditLog。
   2. 出站动作一律先审批：任何对外发送（邮件 / Muse 消息中的动作 / 改价 / 锁标）必须先建 PendingAction，批准后由执行器发出；批准前零出站。
   3. 禁止第三套队列（T5 preflight §2 永久禁令）：不再创建任何 TenderQueue / TenderWorkerRuntime / TenderJobEngine / TenderPipelineExecutor / TenderScheduler / TenderBackgroundRuntime，也不新增任何 scheduler / queue / lease / approval / worker registry。复用 workforce runtime 与既有 cron。
-  4. 脱敏（Decision A，2026-10-23，PR #237）：Muse 通道不出的只有三样——毛利率、项目估值、我方最终报价（winningBidPrice）；所选供应商的落地价允许出。命中敏感内容即整段替换为脱敏提示，不做局部遮盖。price_scenario 不把目标毛利传进情景计算，成本线就是落地价本身，避免用两价反推毛利率；noteZh / assumptionsZh 仍不出。
+  4. 脱敏（Decision A，2026-10-23，PR #237）：Muse 通道不出的只有三样——毛利率、项目估值、我方最终报价（winningBidPrice）；所选供应商的落地价允许出。命中敏感内容即整段替换为脱敏提示，不做局部遮盖。price_scenario 不把目标毛利传进情景计算，成本线就是落地价本身，避免用两价反推毛利率；noteZh / assumptionsZh 仍不出。决定 B（2026-10-27，TASKFLOW S1）：销售意图只对管理角色输出商机金额，销售角色不输出。
   5. 不爬登录页：外部情报只用开放数据 / 公开页面，不触碰任何需要登录的站点。
   6. 邮箱分离（2026-10-23，PR #238）：展示发件人 fromEmail（project@）与授权邮箱 mailboxEmail（lucas@）是两个设置；EmailProvider 只按组织设置里的 mailboxEmail 查找，永不从请求 payload 取。
   7. 确定性优先：next_step 等"下一步"判断是查表，不让 LLM 决定；不增加新的 LLM 调用；偏好记忆里不存任何金额。
