@@ -53,6 +53,7 @@ console.log("斑马帘布纱比对照表");
 {
   ok(parseRatioPart("3 2/16") === 3.125 && parseRatioPart("3") === 3 && parseRatioPart("2.5") === 2.5 && parseRatioPart("abc") === null && parseRatioPart("0") === null, "ZR-03a: 解析 3 2/16 / 3 / 2.5；拒绝非法");
   ok(ratioPartText(3.125) === "3 2/16" && ratioPartText(2) === "2" && ratioPartText(1 + 15 / 16) === "1 15/16", "ZR-03b: 回写为原件 16 分写法");
+  ok(ratioPartText(3.1) === "3.1" && parseRatioPart(ratioPartText(3.1)) === 3.1 && parseRatioPart(ratioPartText(2.1875)) === 2.1875, "ZR-03b2: 非整 1/16 的小数原样显示，回存不漂移（审查发现）");
   const clean = sanitizeZebraRatios([
     { codes: " AQUAWIDE3 , AQUA3 ", fabric: "3 4/16", silk: "2 3/16", noteZh: "x" },
     { codes: [], fabric: 3, silk: 2 },

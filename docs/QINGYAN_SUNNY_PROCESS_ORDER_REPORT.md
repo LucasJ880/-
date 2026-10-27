@@ -118,19 +118,19 @@ npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts   # 2211 / 0
 npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts     # 11267 / 0
 npx tsx src/lib/sunny-process/__tests__/vinyl-oracle.test.ts      # 89401 / 0
 npx tsx src/lib/sunny-process/__tests__/real-orders.test.ts       # 164 / 0（G0927 / G1024 / G1025）
-npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts      # 22 / 0（种子 / 匹配 / 清洗 / 映射查表）
-npx tsx src/lib/sunny-process/__tests__/line-moves.test.ts        # 22 / 0（发给国内 / 退回自产 / 提示重排 / 事务 / 门禁 / 不外发守卫）
+npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts      # 23 / 0（种子 / 匹配 / 清洗 / 小数回存不漂移 / 映射查表）
+npx tsx src/lib/sunny-process/__tests__/line-moves.test.ts        # 27 / 0（发给国内 / 退回自产 / 字段不丢 / 提示跟行 / 事务 / 门禁 / 不外发守卫）
 npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts     # 48 / 0
 npx tsx src/lib/sunny-process/__tests__/autogen.test.ts           # 31 / 0（幂等 / 并发交错 / 失败隔离 / 版本乐观锁 / 门禁 / 接线守卫）
 npx tsx src/lib/sunny-process/__tests__/export-workbook.test.ts   # 13 / 0（含外采购单、窗帘 −2、新版说明）
 # 真实数据库 + 真实路由端到端（本地隔离 Postgres 16 + pgvector）
 DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
-  npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts   # 33 / 0（新增 [5b] 布纱比表 + 发给国内 / 退回自产）
+  npx tsx src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts   # 35 / 0（新增 [5b] 布纱比表权限 + 发给国内 / 退回自产 + 旧编辑页覆盖拦截）
 # 重新生成金标准（离线；需要 LibreOffice + python3-uno + 原件目录；原件与真实订单按 SHA-256 识别，.et / .xls / .xlsx 都行）
 python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan-blinds-slots --real-orders
 ```
 
-门禁结果：`npm run typecheck` 0 错；`npm run lint:baseline` PASS（error 比基线少 14，无新增指纹）；`bash scripts/check-test-registry.sh` OK（422 个已注册）；R1 架构守卫 PASS；`openspec validate sunny-process-order-autogen --strict` 通过；`next build` 与 `npm test` 的结果见 §7 附录。
+门禁结果：`npm run typecheck` 0 错；`npm run lint:baseline` PASS（error 比基线少 14，无新增指纹）；`bash scripts/check-test-registry.sh` OK（425 个已注册）；R1 架构守卫 PASS；`openspec validate sunny-process-order-autogen --strict` 通过；`next build` 与 `npm test` 的结果见 §7 附录。
 
 ## 6. 拍板记录（Lucas，2026-10-27）与仍待确认
 
@@ -167,6 +167,8 @@ python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan
   - TypeScript：跑测试时代码正在修改，抓到了中间状态；现在 `tsc --noEmit` 退出 0。
   - R1 架构守卫：`*-engine.ts` 文件名命中"新执行面"禁令，已改名 `*-calc.ts`，守卫 PASS。
 - 其余 13 项与本 change 无关：11 项 `MISSING_DATABASE_URL`（Phase3A / Governance / Agent Trace / T4，这些测试需要隔离库），另外 Gmail OAuth 与 Chromium PDF 两项在 SDD-0 报告里已记录在干净 main 上同样失败。全部 Sunny 测试通过。
+- **第二、三轮复跑** `npm test`（无 DATABASE_URL）：428/442。Sunny 全部 12 项通过（含新增真实订单 / 布纱比 / 挪行）。14 项失败 = 上面同样的 13 项 + 「TypeScript 类型检查」在 npm test 默认 Node 堆内存下 OOM（环境问题；`NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit` 退出 0）。
+- 第二、三轮浏览器实测（next dev + 本地隔离库）：签字生成 → 总览「发给国内」→ 国内下单「退回自产」→ 工艺参数 v3 → 导出 13 张表（含外采购单）；外采购分页列出 Wooden（外框 S）与打孔窗帘的销售原值；布纱比页试查 AQUAWIDE3-GRAY-LF 命中，列出 31 个未配置系列。
 
 ## 8. 独立审查与修复
 
@@ -186,3 +188,20 @@ python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan
 | 10 | 扇数等无上限（大值可撑爆标签生成）；Vinyl 窗读取截到 60 个 | 已修复：扇数 / 窗帘数量上限 20（>9 由待核对阻断），窗数上限统一 300 | QM-07h |
 | 11 | 报价里缺宽高的行静默不进工艺单 | 已修复：订单级提示点名这些行 | QM-07g |
 | 12 | 杂项：生成后算待核对出错会误报失败；通知去重键按报价（删单重生成不再通知）；只有无模板行时导出 400；报价页旧链接不清 | 全部修复 | — |
+
+### 8.1 第二轮独立审查（外采购 / 发给国内 / 布纱比表 / 窗帘新公式）
+
+另起审查代理只读审查本轮 diff，确认无 schema 改动、无对外发送、外采购行不含价格与草图、窗帘四舍五入在 .5 与浮点边界上与 Excel 一致、提示重排正确；报 9 项：
+
+| # | 发现 | 处理 | 证据 |
+|---|---|---|---|
+| 1 | 编辑页（整表 PUT 自产行）不受挪行锁保护：开着旧编辑页的人保存，会把已「发给国内」的行写回自产，同一窗做两次 | 已修复：PUT 与挪行同一把锁；编辑页带打开时的 `updatedAt`，不一致 → 409 `ORDER_STALE` | 隔离库 [5b] |
+| 2 | 发给国内时丢字段：侧装变顶装、拉杆 M 变无、底杆覆盖与手改布纱比丢失 | 已修复：国内下单表没有的列写成备注标记（安装 侧装 / 拉杆 M / 底杆覆盖 / 布纱比），退回自产原样解析回来 | LM-01c/d |
+| 3 | 任何组织成员都能改全组织的布纱比表 | 已修复：保存需 org_admin 及以上（或平台管理员），成员只读 | 隔离库 [5b] 403 |
+| 4 | 小数布纱比（3.1）回显成 3 2/16，再保存漂移成 3.125 | 已修复：非整 1/16 的小数原样显示 | ZR-03b2 |
+| 5 | settingsJson 整对象读改写，并发保存可互相覆盖 | 已修复：保存时 `SELECT … FOR UPDATE` 行锁（muse-bridge 偏好写入不在本 change 范围，仍是无锁写） | — |
+| 6 | 发给国内时该行的默认推导提示被丢掉 | 已修复：提示跟着行到国内下单（字段 / 值换算），退回时再跟回来 | LM-02f/g/h |
+| 7 | v1 无模板行读成外采购后不再阻断 | 不改：v1 只在本未合并分支上出现过，生产没有这类数据 | — |
+| 8 | 状态转换与挪行不串行，确认可能夹在挪行中间 | 已修复：transition 与 PUT 状态都在同一把锁内重读再判门禁 | — |
+| 9 | 分页的行被挪空后分页按钮隐藏，但仍停在空分页 | 已修复：回到总览 | 浏览器 |
+

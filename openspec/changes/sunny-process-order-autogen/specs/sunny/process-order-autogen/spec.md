@@ -43,7 +43,7 @@
 - **THEN** 操控方式为电动，且待核对中有一条"电机侧默认 R"提示
 
 ### Requirement: 斑马帘布纱比对照表
-系统 SHALL 维护组织级的斑马帘「面料编码 → 布:纱」对照表（存于 `Organization.settingsJson.sunnyProcess.zebraRatios`，组织从未保存时以原件《Blinds 工艺单》Sheet1 W 列 24 条为种子），经 `GET/PUT /api/sunny-process/zebra-ratios` 与页面 `/blinds-orders/zebra-ratios` 查看与整表编辑，每次保存记一条 AuditLog。生成工艺单与退回自产时，斑马帘 SHALL 按报价 SKU 查表：编码与 SKU 完全相同优先，否则编码作为完整一段出现在 SKU 中即命中（空格 / 下划线 / 斜杠视同连字符），多条命中取最长编码；命中时用表中布纱比并在待核对写明来源，未命中时默认 3:2 并提示核对。
+系统 SHALL 维护组织级的斑马帘「面料编码 → 布:纱」对照表（存于 `Organization.settingsJson.sunnyProcess.zebraRatios`，组织从未保存时以原件《Blinds 工艺单》Sheet1 W 列 24 条为种子），经 `GET/PUT /api/sunny-process/zebra-ratios` 与页面 `/blinds-orders/zebra-ratios` 查看与整表编辑；组织成员可读，保存 SHALL 需要 org_admin 及以上组织角色（或平台管理员），否则 403；每次保存记一条 AuditLog。生成工艺单与退回自产时，斑马帘 SHALL 按报价 SKU 查表：编码与 SKU 完全相同优先，否则编码作为完整一段出现在 SKU 中即命中（空格 / 下划线 / 斜杠视同连字符），多条命中取最长编码；命中时用表中布纱比并在待核对写明来源，未命中时默认 3:2 并提示核对。
 
 #### Scenario: 系列名命中
 - **WHEN** 对照表有 `AQUAWIDE3 → 3 4/16 : 2 3/16`，报价斑马帘 SKU 为 `AQUAWIDE3-GRAY-LF`
@@ -69,11 +69,26 @@
 - **THEN** 全部百叶行进外采购行，工艺单可确认
 
 ### Requirement: 发给国内与退回自产
-draft 工艺单 SHALL 支持 `POST /api/blinds-orders/{id}/move-lines`：`{ to: "domestic", itemIds | "all" }` 把自产 Blinds 行按其当前字段原样移到国内下单表（测量 IN/OUT/Tight → 内装/外装（Tight 写入备注），电动 → 电机，L/R → 左/右，罩盒 / 货号 / 安装 / 备注原样）；`{ to: "in_house", domesticLines }` 把国内下单表里的卷帘 / 斑马帘 / 香格里拉行退回自产行（罩盒不在减尺表时取默认并提示，斑马帘查布纱比对照表）。操作 SHALL 在一个事务内重写自产行并追加一版工艺参数，跟随该行的待核对提示随行重排；非 draft、`baseVersion` 不是最新版本时 SHALL 返回 409，无可挪的行返回 400，无权查看该工艺单的用户返回 404；SHALL NOT 发送任何外部消息。
+draft 工艺单 SHALL 支持 `POST /api/blinds-orders/{id}/move-lines`：`{ to: "domestic", itemIds | "all" }` 把自产 Blinds 行按当前字段原样移到国内下单表；`{ to: "in_house", domesticLines }` 把国内下单表里的卷帘 / 斑马帘 / 香格里拉退回自产行。国内下单表没有对应列的值 SHALL 写成备注标记并在退回时原样还原。操作 SHALL 在一个事务内重写自产行并追加一版工艺参数，待核对提示随行搬段。非 draft 或 `baseVersion` 过期返回 409，无可挪的行返回 400，无权查看者 404；SHALL NOT 发送任何外部消息。
+
+#### Scenario: 字段换算
+- **WHEN** 卷帘行 OUT / 电动 / R / 单轨无盒 / 墙装 发给国内
+- **THEN** 国内下单行为 外装 / 电机 / 右 / 单轨无盒 / 墙装，货号与位置同销售填写；该行"电机侧默认 R"提示跟到国内下单段（`line-moves.test.ts` LM-01a、LM-02f）
+
+#### Scenario: 国内下单表没有的列不丢
+- **WHEN** 一个侧装、拉杆 M、底杆覆盖 39.5、布纱比 3.3:2.1 的斑马帘行发给国内后再退回自产
+- **THEN** 国内下单行的安装为空、备注含"安装 侧装；拉杆 M；底杆覆盖 39.5；布纱比 3.3:2.1"；退回后这些字段与原值完全相同（`line-moves.test.ts` LM-01c/d）
 
 #### Scenario: 全部发给国内后再退回
 - **WHEN** 工厂对含 1 个斑马帘自产行的工艺单（参数 v2）提交 `{ to: "domestic", itemIds: "all", baseVersion: 2 }`，再提交 `{ to: "in_house", domesticLines: [该行], baseVersion: 3 }`
-- **THEN** 第一次后自产行为 0、国内下单表多一行斑马帘（货号与位置同销售填写）、参数 v3；第二次后自产行恢复为 1 行、布纱比按对照表、开料重新计算、参数 v4（`autogen-db.isolated.test.ts` 第 [5b] 段）
+- **THEN** 第一次后自产行为 0、国内下单表多一行斑马帘（货号与位置同销售填写）、参数 v3；第二次后自产行恢复为 1 行、布纱比为发出去前的值（之后保存的对照表不回写已生成的行）、开料重新计算、参数 v4（`autogen-db.isolated.test.ts` 第 [5b] 段）
+
+### Requirement: 挪行与改写串行
+挪行、保存工艺参数、整表改写自产行（`PUT /api/blinds-orders/{id}` 带 items）与状态转换 SHALL 在同一把工艺单级锁内串行，并在锁内重读状态再判定门禁；整表改写时若请求带的 `baseUpdatedAt` 与工艺单当前 updatedAt 不一致（期间有人挪过行或另存过），SHALL 返回 409 `ORDER_STALE` 且不写入。
+
+#### Scenario: 旧编辑页不能把挪走的行写回
+- **WHEN** 编辑页打开后有人把全部自产行发给国内，编辑页随后带旧 `baseUpdatedAt` 保存
+- **THEN** 返回 409 `ORDER_STALE`，自产行仍为 0（`autogen-db.isolated.test.ts` 第 [5b] 段）
 
 ### Requirement: 待核对清单
 每一个由默认值推导、原件不支持或缺失的工艺输入 SHALL 产生一条待核对项，含行号、字段、原因与级别（提示 / 阻断）。罩盒默认映射、斑马帘布纱比（查表来源或默认 3:2）、窗帘杆型默认、Vinyl 开合编码推导、外采购行为提示级；Vinyl 缺外框类型、外框组合不受支持、开合与扇数不符、切分非法、未选百叶尺寸为阻断级。

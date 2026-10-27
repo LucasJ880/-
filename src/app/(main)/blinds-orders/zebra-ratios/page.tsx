@@ -36,6 +36,7 @@ const familyOf = (sku: string) => sku.split("-")[0]!.trim();
 export default function ZebraRatiosPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [seeded, setSeeded] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -53,6 +54,7 @@ export default function ZebraRatiosPage() {
     } else {
       setRows((data.entries as ZebraRatioEntry[]).map(toRow));
       setSeeded(!!data.seeded);
+      setCanEdit(!!data.canEdit);
       setDirty(false);
       setError(null);
     }
@@ -116,7 +118,8 @@ export default function ZebraRatiosPage() {
         </div>
         <button
           onClick={save}
-          disabled={saving || loading || (!dirty && !seeded)}
+          disabled={!canEdit || saving || loading || (!dirty && !seeded)}
+          title={canEdit ? undefined : "需要组织管理员才能修改"}
           className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
         >
           {saving ? "保存中..." : seeded && !dirty ? "启用为本组织对照表" : "保存"}
@@ -124,6 +127,9 @@ export default function ZebraRatiosPage() {
       </div>
 
       {error && <div className="rounded-lg border border-[rgba(166,61,61,0.25)] px-4 py-2 text-sm text-danger">{error}</div>}
+      {!loading && !error && !canEdit && (
+        <div className="rounded-lg border border-border px-4 py-2 text-xs text-muted">只读：这张表影响全组织之后所有斑马帘的裁剪位，需要组织管理员修改。</div>
+      )}
       {seeded && !error && (
         <div className="rounded-lg border border-[rgba(154,106,47,0.25)] bg-[rgba(154,106,47,0.04)] px-4 py-2 text-xs text-[#9a6a2f]">
           当前是原件《Blinds 工艺单》Sheet1 备注里的工厂面料编码（未保存）。报价单用的是销售目录 SKU（如 AQUAWIDE3-BEIGE-LF），
@@ -141,7 +147,7 @@ export default function ZebraRatiosPage() {
             </span>
           )}
         </div>
-        {missingFamilies.length > 0 && (
+        {canEdit && missingFamilies.length > 0 && (
           <div className="mt-3">
             <div className="mb-1 text-muted">报价目录里还没配布纱比的斑马帘系列（{missingFamilies.length}）：点一下加一行</div>
             <div className="flex flex-wrap gap-1.5">
@@ -174,12 +180,12 @@ export default function ZebraRatiosPage() {
             ) : rows.map((r, i) => (
               <tr key={i} className={entries[i] ? "" : "bg-[rgba(166,61,61,0.03)]"}>
                 <td className="px-2 py-1 text-muted">{i + 1}</td>
-                <td className="px-1 py-1"><input value={r.codes} onChange={(e) => edit(i, { codes: e.target.value })} className={inputCls} /></td>
-                <td className="px-1 py-1"><input value={r.fabric} onChange={(e) => edit(i, { fabric: e.target.value })} placeholder="3 2/16" className={inputCls} /></td>
-                <td className="px-1 py-1"><input value={r.silk} onChange={(e) => edit(i, { silk: e.target.value })} placeholder="2 2/16" className={inputCls} /></td>
-                <td className="px-1 py-1"><input value={r.noteZh} onChange={(e) => edit(i, { noteZh: e.target.value })} className={inputCls} /></td>
+                <td className="px-1 py-1"><input value={r.codes} onChange={(e) => edit(i, { codes: e.target.value })} disabled={!canEdit} className={inputCls} /></td>
+                <td className="px-1 py-1"><input value={r.fabric} onChange={(e) => edit(i, { fabric: e.target.value })} placeholder="3 2/16" disabled={!canEdit} className={inputCls} /></td>
+                <td className="px-1 py-1"><input value={r.silk} onChange={(e) => edit(i, { silk: e.target.value })} placeholder="2 2/16" disabled={!canEdit} className={inputCls} /></td>
+                <td className="px-1 py-1"><input value={r.noteZh} onChange={(e) => edit(i, { noteZh: e.target.value })} disabled={!canEdit} className={inputCls} /></td>
                 <td className="px-1 py-1">
-                  <button type="button" title="删除此行" className="text-muted hover:text-danger" onClick={() => { setRows((rs) => rs.filter((_, k) => k !== i)); setDirty(true); }}>
+                  <button type="button" title="删除此行" disabled={!canEdit} className="text-muted hover:text-danger disabled:opacity-30" onClick={() => { setRows((rs) => rs.filter((_, k) => k !== i)); setDirty(true); }}>
                     <Trash2 size={13} />
                   </button>
                 </td>
@@ -187,10 +193,10 @@ export default function ZebraRatiosPage() {
             ))}
           </tbody>
         </table>
-        <button type="button" onClick={() => { setRows((rs) => [...rs, { codes: "", fabric: "", silk: "", noteZh: "" }]); setDirty(true); }}
+        {canEdit && <button type="button" onClick={() => { setRows((rs) => [...rs, { codes: "", fabric: "", silk: "", noteZh: "" }]); setDirty(true); }}
           className="flex w-full items-center justify-center gap-1 border-t border-border py-2 text-xs text-accent hover:bg-accent-soft">
           <Plus size={13} /> 添加一行
-        </button>
+        </button>}
       </div>
       <p className="text-xs text-muted">布 / 纱按原件写法填 16 分（如 3 2/16），也可填小数。匹配：完全相同优先；否则编码作为完整一段出现在 SKU 里即命中（AQUAWIDE3 ↔ AQUAWIDE3-GRAY-LF），多条命中取最长的。</p>
     </div>

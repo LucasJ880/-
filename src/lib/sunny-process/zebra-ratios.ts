@@ -90,10 +90,11 @@ export function parseRatioPart(text: string): number | null {
   return v > 0 && v < 20 ? v : null;
 }
 
-/** 数值 → "3 2/16"（16 分制，与原件备注同写法） */
+/** 数值 → "3 2/16"（16 分制，与原件备注同写法）；不是整 1/16 的小数原样写（避免回存时被取整成 1/16） */
 export function ratioPartText(v: number): string {
   const whole = Math.floor(v + 1e-9);
   const six = Math.round((v - whole) * 16);
+  if (Math.abs((v - whole) * 16 - six) > 1e-9) return String(v);
   if (six === 16) return String(whole + 1);
   return six === 0 ? String(whole) : `${whole} ${six}/16`;
 }

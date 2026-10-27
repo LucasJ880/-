@@ -31,7 +31,13 @@ console.log("发给国内 / 退回自产");
 {
   const d = itemToDomesticRow(items[1]!);
   ok(d.code === "Kitchen" && d.widthIn === 36.5 && d.heightIn === 60 && d.productType === "卷帘" && d.sku === "RL-7" && d.measure === "外装" && d.control === "电机" && d.side === "右" && d.headrail === "单轨无盒" && d.mount === "墙装" && d.quoteProduct === "Roller", "LM-01a: 卷帘 OUT/电动/R/单轨无盒/墙装 → 外装/电机/右/单轨无盒/墙装", d);
-  ok(itemToDomesticRow(items[0]!).remark === "客户要求静音" && itemToDomesticRow({ ...items[0]!, measureType: "Tight" }).remark === "测量 Tight；客户要求静音", "LM-01b: 备注带过去；Tight 写进备注（国内下单表只有内装/外装）");
+  ok(itemToDomesticRow(items[1]!).remark === "" && itemToDomesticRow(items[0]!).remark === "布纱比 3:2；客户要求静音" && itemToDomesticRow({ ...items[0]!, measureType: "Tight" }).remark === "测量 Tight；布纱比 3:2；客户要求静音", "LM-01b: 备注带过去；Tight / 布纱比写进备注标记（国内下单表没有这两列）");
+  // 审查发现：国内下单表没有对应列的值不能丢，发出去再退回要原样回来
+  const odd: MovableItem = { ...items[0]!, mountType: "侧装", controlSide: "M", bottomBarWidth: 39.5, fabricRatio: 3.3, silkRatio: 2.1, measureType: "Tight" };
+  const od = itemToDomesticRow(odd);
+  ok(od.mount === "" && od.side === "无" && od.remark === "测量 Tight；安装 侧装；拉杆 M；底杆覆盖 39.5；布纱比 3.3:2.1；客户要求静音", "LM-01c: 侧装 / 拉杆 M / 底杆覆盖 / 手改布纱比写进备注，不伪装成顶装", od);
+  const ob = domesticRowToItem(od).item;
+  ok(ob.mountType === "侧装" && ob.controlSide === "M" && ob.bottomBarWidth === 39.5 && ob.fabricRatio === 3.3 && ob.silkRatio === 2.1 && ob.measureType === "Tight" && ob.itemRemark === "客户要求静音", "LM-01d: 退回自产时这些值原样解析回来", ob);
 }
 
 // LM-02 发给国内：选中行移走、提示随行重排
@@ -45,6 +51,13 @@ console.log("发给国内 / 退回自产");
   const all = planLineMove(items, spec, { to: "domestic", itemIds: items.map((i) => i.id) });
   ok(all.moved === 3 && all.items.length === 0 && all.spec.domestic.length === 3 && !all.spec.notes.some((n) => n.section === "blinds"), "LM-02d: 全部发给国内");
   ok(planLineMove(items, spec, { to: "domestic", itemIds: ["nope"] }).moved === 0, "LM-02e: 未知行 → 不挪");
+  // 审查发现：发给国内时默认推导提示不能丢，跟到国内下单的对应字段
+  const k = planLineMove(items, spec, { to: "domestic", itemIds: ["it2"] });
+  const carried = k.spec.notes.filter((n) => n.section === "domestic" && n.line === 1);
+  ok(carried.some((n) => n.field === "side" && n.value === "右" && n.messageZh.includes("电机侧默认 R")) && carried.some((n) => n.field === "headrail" && n.value === "单轨无盒"), "LM-02f: 提示跟着行到国内下单（字段 / 值换成国内写法）", carried);
+  ok(computeIssues(k.items as never, k.spec).some((i) => i.level === "info" && i.section === "domestic" && i.line === 1 && i.field === "side"), "LM-02g: 国内下单段待核对仍显示该提示");
+  const kb = planLineMove(k.items as MovableItem[], k.spec, { to: "in_house", domesticLines: [1] });
+  ok(kb.spec.notes.some((n) => n.section === "blinds" && n.line === 3 && n.field === "controlSide" && n.value === "R"), "LM-02h: 退回自产时提示再跟回来", kb.spec.notes);
 }
 
 // LM-03 退回自产：只有卷帘 / 斑马帘 / 香格里拉；斑马帘查布纱比
@@ -54,8 +67,11 @@ console.log("发给国内 / 退回自产");
   const back = planLineMove(sent.items as MovableItem[], withCell, { to: "in_house", domesticLines: [1, 3] }, [{ codes: ["ZB"], fabric: 3.25, silk: 2.1875, noteZh: "" }]);
   ok(back.moved === 1 && back.items.length === 2 && back.spec.domestic.length === 2 && back.spec.domestic.some((r) => r.productType === "蜂窝帘"), "LM-03a: 斑马帘退回自产；蜂窝帘不能退回", back.spec.domestic);
   const z = back.items[1] as ReturnType<typeof domesticRowToItem>["item"];
-  ok(z.productType === "斑马帘" && z.measureType === "IN" && z.controlType === "普通" && z.controlSide === "L" && z.headrailType === "亮白插片圆盒" && z.fabricRatio === 3.25 && z.silkRatio === 2.1875 && z.itemRemark === "客户要求静音", "LM-03b: 字段换回自产写法；布纱比查表（ZB ↔ ZB-1）", z);
-  ok(back.spec.notes.some((n) => n.section === "blinds" && n.line === 2 && n.field === "fabricRatio" && n.messageZh.includes("对照表「ZB」")), "LM-03c: 退回行的布纱比来源写进待核对", back.spec.notes);
+  ok(z.productType === "斑马帘" && z.measureType === "IN" && z.controlType === "普通" && z.controlSide === "L" && z.headrailType === "亮白插片圆盒" && z.fabricRatio === 3 && z.silkRatio === 2 && z.itemRemark === "客户要求静音", "LM-03b: 字段换回自产写法；发出去前的布纱比原样带回（不重新查表）", z);
+  const manual: ProcessSpec = { ...withCell, domestic: [{ ...withCell.domestic[0]!, remark: "国内补录" }] };
+  const mb = planLineMove([], manual, { to: "in_house", domesticLines: [1] }, [{ codes: ["ZB"], fabric: 3.25, silk: 2.1875, noteZh: "" }]);
+  const mz = mb.items[0] as ReturnType<typeof domesticRowToItem>["item"];
+  ok(mz.fabricRatio === 3.25 && mz.silkRatio === 2.1875 && mb.spec.notes.some((n) => n.section === "blinds" && n.line === 1 && n.field === "fabricRatio" && n.messageZh.includes("对照表「ZB」")), "LM-03c: 没有布纱比标记的斑马帘（国内补录）退回时查表，来源写进待核对", mb.spec.notes);
   const odd = domesticRowToItem({ ...withCell.domestic[0]!, headrail: "木盒", remark: "测量 Tight；客户要求静音" });
   ok(odd.item.headrailType === "亮白插片圆盒" && odd.defaults.some((d) => d.field === "headrailType") && odd.item.measureType === "Tight" && odd.item.itemRemark === "客户要求静音", "LM-03d: 罩盒不在减尺表 → 默认 + 提示；Tight 从备注还原", odd);
   const round = planLineMove(items, spec, { to: "domestic", itemIds: ["it2"] });
@@ -104,7 +120,7 @@ async function main() {
     const stale = await moveProcessOrderLines(f.db, "o1", { to: "domestic", itemIds: ["new1"] }, { userId: "u1", orgId: "org1" }, { baseVersion: 1 });
     ok(!stale.ok && stale.status === 409 && f.order.items.length === 2, "LM-04d: baseVersion 落后 → 409，不动数据", stale);
     const back = await moveProcessOrderLines(f.db, "o1", { to: "in_house", domesticLines: [1] }, { userId: "u1", orgId: "org1" }, { baseVersion: 2 });
-    ok(back.ok && back.spec.version === 3 && back.spec.domestic.length === 0 && f.order.items.length === 3 && f.order.items[2]!.productType === "斑马帘" && f.order.items[2]!.fabricRatio === 3, "LM-04e: 退回自产 → v3，斑马帘回到第 3 行（未命中对照表默认 3:2）", f.order.items[2]);
+    ok(back.ok && back.spec.version === 3 && back.spec.domestic.length === 0 && f.order.items.length === 3 && f.order.items[2]!.productType === "斑马帘" && f.order.items[2]!.fabricRatio === 3, "LM-04e: 退回自产 → v3，斑马帘回到第 3 行（布纱比按发出去前的 3:2 带回）", f.order.items[2]);
     const none = await moveProcessOrderLines(f.db, "o1", { to: "in_house", domesticLines: [9] }, { userId: "u1", orgId: "org1" });
     ok(!none.ok && none.status === 400, "LM-04f: 没有可挪的行 → 400");
   }

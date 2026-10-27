@@ -82,10 +82,12 @@
 ### D9. 发给国内 / 退回自产（拍板："多开一个按钮…一键发给国内…只需要将销售写的直接生成就行"）
 `POST /api/blinds-orders/[id]/move-lines`，纯函数 `line-moves.ts` 规划 + `autogen.ts moveProcessOrderLines` 落库：一个事务内先取 `pg_advisory_xact_lock(hashtext('sunny-process-spec:'+orderId))`（保存参数 `saveProcessSpec` 同锁），锁内校验 draft 与 `baseVersion`，删除并按新顺序重建 `BlindsOrderItem`（与 PUT 工艺单同一写法 `itemCreateData`），追加一版 spec；`notes` 中跟随被挪行的提示丢弃、其余按新行号重排，退回行新增布纱比 / 罩盒默认提示。
 - 只在工艺单内部挪行：不调用 PendingAction、邮件、通知（硬纪律 2；发给供应商仍由人导出后处理）。
+- 国内下单表没有的列（Tight / 侧装 / 拉杆 M / 底杆覆盖 / 布纱比）写成备注标记，退回时解析还原；提示随行换算搬段。
+- 整表 PUT 自产行（编辑页）、状态转换与挪行同一把锁；编辑页带打开时的 `updatedAt`，不一致 409（第二轮审查 #1 #8）。
 - 否决：前端改完 spec 再 PUT 工艺单 items 两步走——两次写之间失败会丢行或重复，且提示行号无法同步。
 
 ### D10. 斑马帘布纱比对照表（拍板：做成可编辑的对照表页）
-存 `Organization.settingsJson.sunnyProcess.zebraRatios = [{ codes[], fabric, silk, noteZh }]`（零 schema），`GET/PUT /api/sunny-process/zebra-ratios`（组织按销售模块 `resolveSalesOrgIdForRequest` 解析），整表覆盖写并记 `AuditLog(action="sunny_process.zebra_ratios", targetType="organization")`。从未保存 → 原件 Sheet1 W2:W29 转录的 24 条种子（括号别名并入同一条；W17/W22 对 SC-ZD-XZ74-1 不一致，取 W17 并在备注标注请核对）。匹配：大写、空格/下划线/斜杠视同 `-`；完全相同优先，否则编码作为完整一段出现在 SKU 中，多条取最长。页面列出报价目录（`public/sku-catalog.csv`）里尚未命中的斑马帘系列，点一下加一行。
+存 `Organization.settingsJson.sunnyProcess.zebraRatios = [{ codes[], fabric, silk, noteZh }]`（零 schema），`GET/PUT /api/sunny-process/zebra-ratios`（组织按销售模块 `resolveSalesOrgIdForRequest` 解析），整表覆盖写（`SELECT … FOR UPDATE` 行锁）并记 `AuditLog(action="sunny_process.zebra_ratios", targetType="organization")`；成员可读，保存需 org_admin 及以上（影响全组织裁剪位）。从未保存 → 原件 Sheet1 W2:W29 转录的 24 条种子（括号别名并入同一条；W17/W22 对 SC-ZD-XZ74-1 不一致，取 W17 并在备注标注请核对）。匹配：大写、空格/下划线/斜杠视同 `-`；完全相同优先，否则编码作为完整一段出现在 SKU 中，多条取最长。页面列出报价目录（`public/sku-catalog.csv`）里尚未命中的斑马帘系列，点一下加一行。
 - 否决：模糊 / 子串匹配——F1091 会误中 F10912，布纱比错了裁剪位就错。
 - 只影响之后生成 / 退回自产的行，已生成的布纱比不回写（避免静默改动工厂已核对的值）。
 

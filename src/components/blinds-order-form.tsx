@@ -64,6 +64,8 @@ interface Props {
   orderId?: string;
   mode?: "create" | "edit";
   orderStatus?: string;
+  /** 编辑：打开时工艺单的 updatedAt；期间被人改过（如发给国内）则服务端 409，不整表覆盖 */
+  baseUpdatedAt?: string;
 }
 
 const DEFAULT_ITEM: () => OrderItem = () => ({
@@ -95,6 +97,7 @@ export function BlindsOrderForm({
   orderId,
   mode = "create",
   orderStatus,
+  baseUpdatedAt,
 }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -242,6 +245,7 @@ export function BlindsOrderForm({
     try {
       const payload = {
         ...form,
+        ...(mode === "edit" && baseUpdatedAt ? { baseUpdatedAt } : {}),
         items: items.map((item) => ({
           location: item.location,
           width: parseFloat(item.width),

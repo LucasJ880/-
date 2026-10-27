@@ -26,7 +26,8 @@
 - [x] 5.2 外采购行替换无模板阻断（Wooden / S·G·M·Casing / 4-1/2"·Arch / Grommet / 无模板帘子），导出「外采购单」，v1 数据兼容。verify：`quote-mapping.test.ts`、`export-workbook.test.ts` 退出 0。
 - [x] 5.3 斑马帘布纱比对照表（settingsJson + API + 页面 + 映射查表）。verify：`zebra-ratios.test.ts` 退出 0；隔离库 [5b] 段通过。
 - [x] 5.4 发给国内 / 退回自产（move-lines 路由 + 事务服务 + 按钮），保存参数同锁。verify：`line-moves.test.ts` 退出 0；隔离库 [5b] 段通过；浏览器走通 发给国内 → 退回自产 → 导出。
-- [x] 5.5 X-1 拍板关闭；报告 §3 / §6 / §8 与交接文档更新。verify：`openspec validate sunny-process-order-autogen --strict` 通过。
+- [x] 5.5 第二轮独立审查 9 项：8 项修复（编辑页覆盖拦截、字段不丢、对照表需管理员、小数不漂移、settingsJson 行锁、提示跟行、状态转换同锁、空分页回总览），v1 兼容项说明不改。verify：`line-moves.test.ts` 27/0、`zebra-ratios.test.ts` 23/0、隔离库 35/0。
+- [x] 5.6 X-1 拍板关闭；报告 §3 / §6 / §8 与交接文档更新。verify：`openspec validate sunny-process-order-autogen --strict` 通过。
 
 ## Workflow follow-up
 
@@ -37,4 +38,4 @@
 - 对照：Blinds 9488 / 国内下单 2211 / 窗帘 11267 / Vinyl 89401 项，0 失败；隔离库端到端 19/19（`autogen-db.isolated.test.ts`，已注册）。
 - 实施中修订（已同步 design / specs）：斑马帘布纱比先按默认 3:2，第二轮拍板后改为可编辑对照表（D10）；门禁同时覆盖 `PUT /api/blinds-orders/[id]` 的 status（详情页按钮走这条）；新增 `canViewBlindsOrder` 用于 PUT / DELETE / transition / spec / export。
 - 顺带：补注册 a1d951d 漏注册的 2 个 trade 测试（main 上 `check-test-registry.sh` 因此失败）。
-- 第二、三轮（同日）：窗帘 11267 / 真实订单 164 / 布纱比 22 / 挪行 22 / 映射 48 / 导出 13 项，0 失败；隔离库端到端 33/33（新增 [5b] 布纱比 + 挪行）。
+- 第二、三轮（同日）：窗帘 11267 / 真实订单 164 / 布纱比 22 / 挪行 22 / 映射 48 / 导出 13 项，0 失败；隔离库端到端 35/35（新增 [5b] 布纱比 + 挪行 + 审查修复）；`npm test` 428/442，失败均为环境项（见报告 §7）。

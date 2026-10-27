@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { withAuth } from "@/lib/common/api-helpers";
-import { itemCreateData, loadProcessSpec, orderIssues } from "@/lib/sunny-process/autogen";
+import { itemCreateData, loadProcessSpec, lockOrderSpec, orderIssues } from "@/lib/sunny-process/autogen";
 import { blockingIssues } from "@/lib/sunny-process/issues";
-import { canViewBlindsOrder, processOrderDb } from "@/lib/sunny-process/server";
+import { canViewBlindsOrder } from "@/lib/sunny-process/server";
 
 export const GET = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -45,31 +45,6 @@ export const PUT = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 
-  // 确认门禁（与 transition 路由同一规则）：详情页"确认工艺单"按钮走这里改状态。
-  // 从草稿 / 已取消 改到任何"进入生产链"的状态（confirmed / in_production / completed …）都要过门禁，
-  // 防止 PUT {status:"in_production"} 之类绕过
-  const leavesDraft =
-    body.status !== undefined &&
-    body.status !== existing.status &&
-    (existing.status === "draft" || existing.status === "cancelled") &&
-    body.status !== "draft" &&
-    body.status !== "cancelled";
-  if (leavesDraft) {
-    const current = await db.blindsOrder.findUnique({
-      where: { id },
-      include: { items: { orderBy: { itemNumber: "asc" } } },
-    });
-    const spec = await loadProcessSpec(processOrderDb, id);
-    const pending = body.items ? { code: existing.code, items: body.items as unknown[] } : current!;
-    const blocked = blockingIssues(orderIssues(pending, spec));
-    if (blocked.length > 0) {
-      return NextResponse.json(
-        { error: `还有 ${blocked.length} 项阻断待核对，不能确认`, code: "PROCESS_ORDER_BLOCKED", issues: blocked },
-        { status: 409 },
-      );
-    }
-  }
-
   if (body.code && body.code !== existing.code) {
     const dup = await db.blindsOrder.findUnique({
       where: { code: body.code },
@@ -82,39 +57,79 @@ export const PUT = withAuth(async (request, ctx, user) => {
     }
   }
 
-  if (body.items) {
-    await db.blindsOrderItem.deleteMany({ where: { orderId: id } });
-  }
-
   const items = body.items
     ? (body.items as Record<string, unknown>[]).map((item, index) => itemCreateData(item, index))
     : undefined;
 
-  const order = await db.blindsOrder.update({
-    where: { id },
-    data: {
-      ...(body.code !== undefined && { code: body.code }),
-      ...(body.customerName !== undefined && {
-        customerName: body.customerName,
-      }),
-      ...(body.phone !== undefined && { phone: body.phone || null }),
-      ...(body.address !== undefined && { address: body.address || null }),
-      ...(body.installDate !== undefined && {
-        installDate: body.installDate || null,
-      }),
-      ...(body.remarks !== undefined && { remarks: body.remarks || null }),
-      ...(body.status !== undefined && { status: body.status }),
-      ...(body.projectId !== undefined && {
-        projectId: body.projectId || null,
-      }),
-      ruleVersion: RULE_VERSION,
-      ...(items && { items: { create: items } }),
-    },
-    include: {
-      items: { orderBy: { itemNumber: "asc" } },
-      project: { select: { id: true, name: true, color: true } },
-    },
+  // 与保存工艺参数 / 发给国内同一把锁：门禁判定、版本校验与改写在同一事务里串行
+  const result = await db.$transaction(async (tx) => {
+    await lockOrderSpec(tx, id);
+    const current = await tx.blindsOrder.findUnique({
+      where: { id },
+      include: { items: { orderBy: { itemNumber: "asc" } } },
+    });
+    if (!current) return { ok: false as const, res: NextResponse.json({ error: "工艺单不存在" }, { status: 404 }) };
+
+    // 编辑页带着打开时的 updatedAt：期间有人「发给国内 / 退回自产」或另存过，拒绝整表覆盖，
+    // 否则已挪到国内下单表的行会被旧的自产行写回来（同一窗做两次）
+    if (body.items && typeof body.baseUpdatedAt === "string" && new Date(body.baseUpdatedAt).getTime() !== current.updatedAt.getTime()) {
+      return { ok: false as const, res: NextResponse.json({ error: "工艺单已被他人修改（如发给国内 / 退回自产），请刷新后再改", code: "ORDER_STALE" }, { status: 409 }) };
+    }
+
+    // 确认门禁（与 transition 路由同一规则）：详情页"确认工艺单"按钮走这里改状态。
+    // 从草稿 / 已取消 改到任何"进入生产链"的状态（confirmed / in_production / completed …）都要过门禁，
+    // 防止 PUT {status:"in_production"} 之类绕过
+    const leavesDraft =
+      body.status !== undefined &&
+      body.status !== current.status &&
+      (current.status === "draft" || current.status === "cancelled") &&
+      body.status !== "draft" &&
+      body.status !== "cancelled";
+    if (leavesDraft) {
+      const spec = await loadProcessSpec(tx, id);
+      const pending = body.items ? { code: current.code, items: body.items as unknown[] } : current;
+      const blocked = blockingIssues(orderIssues(pending, spec));
+      if (blocked.length > 0) {
+        return {
+          ok: false as const,
+          res: NextResponse.json(
+            { error: `还有 ${blocked.length} 项阻断待核对，不能确认`, code: "PROCESS_ORDER_BLOCKED", issues: blocked },
+            { status: 409 },
+          ),
+        };
+      }
+    }
+
+    if (items) await tx.blindsOrderItem.deleteMany({ where: { orderId: id } });
+    const order = await tx.blindsOrder.update({
+      where: { id },
+      data: {
+        ...(body.code !== undefined && { code: body.code }),
+        ...(body.customerName !== undefined && {
+          customerName: body.customerName,
+        }),
+        ...(body.phone !== undefined && { phone: body.phone || null }),
+        ...(body.address !== undefined && { address: body.address || null }),
+        ...(body.installDate !== undefined && {
+          installDate: body.installDate || null,
+        }),
+        ...(body.remarks !== undefined && { remarks: body.remarks || null }),
+        ...(body.status !== undefined && { status: body.status }),
+        ...(body.projectId !== undefined && {
+          projectId: body.projectId || null,
+        }),
+        ruleVersion: RULE_VERSION,
+        ...(items && { items: { create: items } }),
+      },
+      include: {
+        items: { orderBy: { itemNumber: "asc" } },
+        project: { select: { id: true, name: true, color: true } },
+      },
+    });
+    return { ok: true as const, order };
   });
+  if (!result.ok) return result.res;
+  const order = result.order;
 
   return NextResponse.json(order);
 });

@@ -168,8 +168,10 @@ async function main() {
 
     console.log("\n[5b] 布纱比对照表（组织 settingsJson）+ 发给国内 / 退回自产");
     const r0 = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cFactory), {});
-    ok(r0.status === 200 && r0.body?.seeded === true && (r0.body?.entries as unknown[]).length === 24 && r0.body?.orgId === ORG, "GET 对照表：未保存过 → 原件种子 24 条", r0.body?.seeded);
-    const r1 = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [{ codes: ["ZB-FIXTURE"], fabric: "3 4/16", silk: "2 3/16", noteZh: "e2e" }, { codes: [], fabric: 3, silk: 2 }] }), {});
+    ok(r0.status === 200 && r0.body?.seeded === true && (r0.body?.entries as unknown[]).length === 24 && r0.body?.orgId === ORG && r0.body?.canEdit === false, "GET 对照表：未保存过 → 原件种子 24 条；普通成员只读", r0.body?.seeded);
+    const rDenied = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [] }), {});
+    ok(rDenied.status === 403, "普通成员保存对照表 → 403（影响全组织裁剪位，需组织管理员）", rDenied.body);
+    const r1 = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cSales, "PUT", { entries: [{ codes: ["ZB-FIXTURE"], fabric: "3 4/16", silk: "2 3/16", noteZh: "e2e" }, { codes: [], fabric: 3, silk: 2 }] }), {});
     ok(r1.status === 200 && (r1.body?.entries as unknown[]).length === 1 && r1.body?.dropped === 1, "PUT 对照表：保存 1 条，非法行丢弃", r1.body);
     const orgRow = await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
     const ratioAudit = await db.auditLog.count({ where: { targetType: "organization", targetId: ORG, action: "sunny_process.zebra_ratios" } });
@@ -181,14 +183,18 @@ async function main() {
     ok(mOut.status === 404, "外部组织挪行 → 404", mOut.status);
     const mStale = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cFactory, "POST", { to: "domestic", itemIds: "all", baseVersion: 1 }), { id: orderId });
     ok(mStale.status === 409 && (await db.blindsOrderItem.count({ where: { orderId } })) === 1, "挪行基于过期版本 → 409，自产行不动", mStale.body);
+    const beforeMove = (await db.blindsOrder.findUnique({ where: { id: orderId } }))!.updatedAt.toISOString();
+    const oldItems = (await db.blindsOrderItem.findMany({ where: { orderId } })).map((it) => ({ ...it, id: undefined }));
     const m1 = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cFactory, "POST", { to: "domestic", itemIds: "all", baseVersion: 2 }), { id: orderId });
     const m1spec = m1.body?.spec as { version: number; domestic: { productType: string; sku: string; code: string; control: string; side: string }[] };
     const sent = m1spec?.domestic.find((d) => d.productType === "斑马帘");
     ok(m1.status === 200 && m1spec.version === 3 && (await db.blindsOrderItem.count({ where: { orderId } })) === 0 && !!sent && sent.sku === "ZB-FIXTURE" && sent.code === "Living" && sent.control === "普通" && sent.side === "左", "全部发给国内 → 自产行清空、国内下单表多一行斑马帘（销售填写原样），参数 v3", m1.body);
+    const staleEdit = await call(orderRoute.PUT as never, req(`/api/blinds-orders/${orderId}`, cFactory, "PUT", { items: oldItems, baseUpdatedAt: beforeMove }), { id: orderId });
+    ok(staleEdit.status === 409 && staleEdit.body?.code === "ORDER_STALE" && (await db.blindsOrderItem.count({ where: { orderId } })) === 0, "发给国内后，旧编辑页整表保存 → 409，不把已挪走的行写回（审查发现）", staleEdit.body);
     const zebraLine = m1spec.domestic.findIndex((d) => d.productType === "斑马帘") + 1;
     const m2 = await call(moveRoute.POST as never, req(`/api/blinds-orders/${orderId}/move-lines`, cFactory, "POST", { to: "in_house", domesticLines: [zebraLine], baseVersion: 3 }), { id: orderId });
     const back = await db.blindsOrderItem.findMany({ where: { orderId } });
-    ok(m2.status === 200 && (m2.body?.spec as { version: number }).version === 4 && back.length === 1 && back[0]!.productType === "斑马帘" && back[0]!.fabricRatio === 3.25 && back[0]!.silkRatio === 2.1875 && back[0]!.cutZebraBar !== null, "退回自产 → 自产行重建、布纱比按对照表 3 4/16 : 2 3/16、开料重新计算，参数 v4", { status: m2.status, back });
+    ok(m2.status === 200 && (m2.body?.spec as { version: number }).version === 4 && back.length === 1 && back[0]!.productType === "斑马帘" && back[0]!.fabricRatio === 3 && back[0]!.silkRatio === 2 && back[0]!.cutZebraBar !== null, "退回自产 → 自产行重建、布纱比按发出去前的值带回（对照表后来改了也不回写已生成的行）、开料重新计算，参数 v4", { status: m2.status, back });
     spec.version = 4;
     const xls = await call(exportRoute.GET as never, req(`/api/blinds-orders/${orderId}/export`, cFactory), { id: orderId });
     const wb = new ExcelJS.Workbook();

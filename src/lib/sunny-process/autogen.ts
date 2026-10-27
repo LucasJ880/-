@@ -23,7 +23,7 @@ import {
   sanitizeSpec,
   type ProcessSpec,
 } from "./process-spec";
-import { planLineMove, type MovableItem, type MoveRequest } from "./line-moves";
+import { planLineMove, type MovableItem, type MoveRequest, type ReturnedItem } from "./line-moves";
 import { mapQuoteFormToProcessOrder, type BlindsItemDraft } from "./quote-mapping";
 import { readZebraRatios, type ZebraRatioEntry } from "./zebra-ratios";
 
@@ -79,7 +79,7 @@ export interface NotifyFn {
   }): Promise<unknown>;
 }
 
-export function itemCreateData(it: BlindsItemDraft | MovableItem | Record<string, unknown>, index: number) {
+export function itemCreateData(it: BlindsItemDraft | MovableItem | ReturnedItem | Record<string, unknown>, index: number) {
   const src = it as Record<string, unknown>;
   const input = {
     width: Number(src.width),
@@ -296,7 +296,7 @@ export type SaveSpecResult =
   | { ok: false; status: 404 | 409; error: string };
 
 /** 同一工艺单的参数写入串行化（保存参数 / 挪行），锁内再做版本校验 */
-async function lockOrderSpec(tx: { $queryRaw: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> }, orderId: string) {
+export async function lockOrderSpec(tx: { $queryRaw: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> }, orderId: string) {
   await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`sunny-process-spec:${orderId}`}))) AS l`;
 }
 

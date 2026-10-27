@@ -253,6 +253,17 @@ export default function BlindsOrderDetailPage({
   const editable = order.status === "draft";
   const blockedCount = blockingIssues(issues).length;
   const lineCount = order.items.length + (spec ? spec.domestic.length + spec.drapes.length + spec.vinyl.length + spec.purchase.length : 0);
+  // 当前分页的行被挪空 / 删空后分页按钮会隐藏：回到总览，避免停在看不见的分页上
+  const tabHasRows: Record<typeof tab, boolean> = {
+    overview: true,
+    parts: order.items.length > 0,
+    fabric: order.items.length > 0,
+    domestic: !!spec?.domestic.length,
+    drapes: !!spec?.drapes.length,
+    vinyl: !!spec?.vinyl.length,
+    purchase: !!spec?.purchase.length,
+  };
+  const view = tabHasRows[tab] ? tab : "overview";
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -361,7 +372,7 @@ export default function BlindsOrderDetailPage({
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-              tab === t.key
+              view === t.key
                 ? "border-accent text-accent"
                 : "border-transparent text-muted hover:text-foreground/80"
             }`}
@@ -373,7 +384,7 @@ export default function BlindsOrderDetailPage({
       </div>
 
       {/* Tab content */}
-      {tab === "overview" && (
+      {view === "overview" && (
         <OverviewTab
           order={order}
           canMove={editable && !!spec}
@@ -383,17 +394,17 @@ export default function BlindsOrderDetailPage({
           )}
         />
       )}
-      {tab === "parts" && <PartsCuttingTab items={order.items} />}
-      {tab === "fabric" && <FabricCuttingTab items={order.items} />}
-      {spec && tab === "domestic" && (
+      {view === "parts" && <PartsCuttingTab items={order.items} />}
+      {view === "fabric" && <FabricCuttingTab items={order.items} />}
+      {spec && view === "domestic" && (
         <DomesticSection
           spec={spec} onChange={editSpec} editable={editable} issues={issues}
           onReturnInHouse={(line) => void moveLines({ to: "in_house", domesticLines: [line] }, `把国内下单第 ${line} 行退回 Blinds 自产？\n\n将按自产工艺重新计算开料；斑马帘布纱比按对照表取值。`)}
         />
       )}
-      {spec && tab === "drapes" && <DrapesSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
-      {spec && tab === "vinyl" && <VinylSection spec={spec} onChange={editSpec} editable={editable} issues={issues} orderCode={order.code} />}
-      {spec && tab === "purchase" && <PurchaseSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
+      {spec && view === "drapes" && <DrapesSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
+      {spec && view === "vinyl" && <VinylSection spec={spec} onChange={editSpec} editable={editable} issues={issues} orderCode={order.code} />}
+      {spec && view === "purchase" && <PurchaseSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
     </div>
   );
 }
