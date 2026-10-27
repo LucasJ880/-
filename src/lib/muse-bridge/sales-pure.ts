@@ -11,7 +11,8 @@
  */
 
 import { containsOutboundSensitive } from "./contract";
-import { OUTBOUND_REDACTED, type Advisory, type AdvisoryNextStep } from "./advisory";
+import { OUTBOUND_REDACTED, clip, oneLine, type Advisory, type AdvisoryNextStep } from "./advisory";
+import { money } from "./router-pure";
 import type { MuseIdentity } from "./binding-pure";
 import {
   LEGACY_STAGE_MAP,
@@ -143,8 +144,6 @@ const PRIORITY_WEIGHT: Record<string, number> = { hot: 10, warm: 4 };
 /** 金额分位加分达到这个值才写进理由 */
 const VALUE_REASON_MIN = 7;
 
-const money = (n: number) => Math.round(n).toLocaleString("en-US");
-
 /** 金额在候选集里的位置 → 0–10（严格小于它的已知金额个数 / (n-1)）；未知金额不加分 */
 function valueBoosts(rows: SalesOppRow[]): Map<string, number> {
   const known = rows.filter((r) => typeof r.estimatedValue === "number" && r.estimatedValue > 0);
@@ -237,8 +236,6 @@ export function rankOpportunities(rows: SalesOppRow[], opts: RankOptions): Ranke
 // ── 视图（data 一律是 JSON 原生类型，重放与首发逐字相同） ──────────────
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
-const oneLine = (s: string) => s.replace(/\s*\n+\s*/g, " ").trim();
-const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const shortName = (s: string, n: number) => clip(oneLine(s), n);
 
 /** 出 Muse 的自由文本片段：命中敏感模式整段替换，否则单行截断 */
@@ -340,7 +337,16 @@ export function buildSalesOverview(input: SalesOverviewInput): { advisory: Advis
   return { advisory, data };
 }
 
-export type InteractionRow = { id: string; type: string; direction: string | null; channel: string | null; summary: string; createdAt: Date };
+export type InteractionRow = {
+  id: string;
+  type: string;
+  direction: string | null;
+  channel: string | null;
+  summary: string;
+  createdAt: Date;
+  /** null = 记在客户上、没挂商机 */
+  opportunityId: string | null;
+};
 export type ActionRow = { id: string; title: string; status: string; priority: string; dueAt: Date | null; source: string; assignee: SalesPerson | null };
 
 export type OpportunityStatusInput = {
@@ -384,9 +390,12 @@ export function buildOpportunityStatus(input: OpportunityStatusInput): { advisor
       type: i.type,
       direction: i.direction,
       channel: i.channel,
+      level: i.opportunityId ? "opportunity" : "customer",
       at: i.createdAt.toISOString(),
       summary: safeSnippet(i.summary, 200),
     })),
+    /** 未结束行动总数；openActions 最多列 10 条 */
+    openActionsTotal: row.openActionCount,
     openActions: input.actions.map((a) => ({
       id: a.id,
       title: safeSnippet(a.title, 120),

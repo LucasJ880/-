@@ -27,8 +27,8 @@
 |---|---|
 | `npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts` | 61 passed（开工前 53；新增 8 条契约用例，意图数断言 12 → 14） |
 | `npx tsx src/lib/muse-bridge/__tests__/advisory.test.ts` / `next-step.test.ts` / `prefs.test.ts` | 70 / 59 / 30 passed（未改动） |
-| `npx tsx src/lib/muse-bridge/__tests__/sales-pure.test.ts` | 70 passed |
-| `NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=… DIRECT_URL=… npx tsx src/lib/muse-bridge/__tests__/sales-db.isolated.test.ts` | 26 passed, 0 failed（本地 Docker `pgvector/pgvector:pg16`，`npm run db:migrate:deploy` 建全量 41 个迁移） |
+| `npx tsx src/lib/muse-bridge/__tests__/sales-pure.test.ts` | 73 passed |
+| `NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=… DIRECT_URL=… npx tsx src/lib/muse-bridge/__tests__/sales-db.isolated.test.ts` | 27 passed, 0 failed（本地 Docker `pgvector/pgvector:pg16`，`npm run db:migrate:deploy` 建全量 41 个迁移） |
 | 同上但不设 `DATABASE_URL` | 输出跳过，退出 0 |
 | `tsc --noEmit`（6 GB 堆） | 退出 0 |
 | `npx eslint src/lib/muse-bridge` | 无输出 |
@@ -44,10 +44,19 @@
 3. **金额仍参与销售本人的排序**，只是不输出数字——只影响他自己商机之间的相对顺序。
 4. **两个新意图的 `availableInPhase` 填 1**：契约里阶段只能是 0–3，Phase S 与招投标 Phase 1 同期开放。
 
-## 4. 已知限制
+## 4. 代码审查（/code-review high）后的修正
+
+- 候选上限超出时原来保留"最近更新"的商机，正好丢掉最该推进的停滞商机 → 改为按最久没互动优先保留，上限 500 → 2000。
+- 阶段过滤原来大小写敏感，与排序层的投影不一致 → 改为大小写不敏感。
+- 状态视图原来只取挂在商机上的互动 → 同一客户未挂商机的互动也计入，标 `level=customer`。
+- 未开放提示原来说"属于 Phase 1"（招投标询价阶段）→ 销售意图改为"属于 Sales Pilot（Phase S）"。
+- 跟进行动计数改为一次查询；状态视图的总数不再被前 10 条截断（新增 `openActionsTotal`）。
+- `oneLine` / `clip` / `money` 改为复用 `advisory.ts` / `router-pure.ts` 的导出。
+
+## 5. 已知限制
 
 - `scripts/check-test-registry.sh` 在 origin/main 上本来就失败：`src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts`、`src/lib/trade/__tests__/inbound-org.test.ts` 未注册也不在基线（与本 change 无关，未顺手修）。本 change 新增的两个测试均已注册。
 - `.env.example` 未改：执行环境的权限设置禁止读取 `.env*` 文件；开关说明写在 `flags.ts` 注释里。
-- 阶段过滤在数据库侧是精确匹配；如果有商机的 `stage` 存成大写或带空格，会被漏掉（现有写入都走小写词表）。
-- 排序候选上限 500 条，超出时 `data.truncated = true`。
+- 阶段过滤在数据库侧大小写不敏感，但不去首尾空格；`stage` 带空格的商机会被漏掉（现有写入都走词表）。
+- 排序候选上限 2000 条，超出时优先保留最久没互动的商机，并标 `data.truncated = true`。
 - 本批次没有写操作；`opportunity_status` 的下一步按钮留给 S2（`ask_colleague`）。

@@ -108,7 +108,7 @@ async function main() {
       lastInteractionAt: ago(40), createdAt: ago(60),
     });
     const b1 = await opportunity({
-      orgId: ORG_A, customerId: cB.id, title: "Model home drapery", stage: "follow_up", estimatedValue: 5000, createdById: MGR,
+      orgId: ORG_A, customerId: cB.id, title: "Model home drapery", stage: "Follow_Up", estimatedValue: 5000, createdById: MGR,
       assignedToId: REP_B, nextFollowupAt: ago(3), lastInteractionAt: ago(5),
     });
     await opportunity({ orgId: ORG_A, customerId: cB.id, title: "Signed showroom", stage: "won", wonAt: ago(5), createdById: MGR, assignedToId: REP_A });
@@ -117,6 +117,8 @@ async function main() {
       data: [
         { orgId: ORG_A, customerId: cA.id, opportunityId: a1.id, type: "email", direction: "inbound", channel: "email", summary: "Customer asked for a revised quote", createdById: REP_A, createdAt: ago(1) },
         { orgId: ORG_A, customerId: cA.id, opportunityId: a1.id, type: "note", summary: "内部备注：这单毛利 32%", createdById: MGR, createdAt: ago(3) },
+        { orgId: ORG_A, customerId: cA.id, type: "phone_call", summary: "Called about the lobby install date", createdById: REP_A, createdAt: ago(2) },
+        { orgId: ORG_A, customerId: cB.id, type: "note", summary: "Other customer note", createdById: REP_B, createdAt: ago(1) },
       ],
     });
     await db.salesAction.create({
@@ -149,7 +151,7 @@ async function main() {
       ok(res.ok, "[2] 管理者 sales_overview 成功", res);
       ok(got.includes(a1.id) && got.includes(a2.id) && got.includes(b1.id), "[2] 包含本组织三个开放商机", got);
       ok(!got.includes(x1.id), "[2] 不含其他组织的商机");
-      ok(got.length === 3, "[2] 成交商机不进排序", got);
+      ok(got.length === 3, "[2] 成交商机不进排序；大小写不同的阶段（Follow_Up）照样进入", got);
       ok(got[0] === a1.id, "[2] 客户在等回复的排第一", got);
       ok(d.amountsVisible && d.opportunities[0].crm.amount === 12000, "[2] 决定 B：管理者看得到金额", d.opportunities[0]);
       ok(d.summary.wonInWindow === 1 && d.summary.customerWaiting === 1, "[2] 窗口成交与等回复统计", d.summary);
@@ -186,13 +188,15 @@ async function main() {
       const { res } = await send("muse:mgr", { intent: "opportunity_status", opportunityId: a1.id });
       const d = res.data as {
         opportunity: { id: string; updatedAt: string; amount?: number };
-        interactions: Array<{ summary: string }>;
+        interactions: Array<{ summary: string; level: string }>;
+        openActionsTotal: number;
         openActions: Array<{ overdue: boolean }>;
         employeeConfirmations: unknown[];
       };
       ok(res.ok && d.opportunity.id === a1.id && d.opportunity.updatedAt === a1.updatedAt.toISOString(), "[5] 引用真实记录 ID 与 updatedAt", d?.opportunity);
-      ok(d.interactions.length === 2 && d.interactions.some((i) => i.summary === OUTBOUND_REDACTED), "[5] 含毛利的互动摘要被整段脱敏", d.interactions);
-      ok(d.openActions.length === 1 && d.openActions[0].overdue, "[5] 未结束行动且标出逾期", d.openActions);
+      ok(d.interactions.length === 3 && d.interactions.some((i) => i.summary === OUTBOUND_REDACTED), "[5] 含毛利的互动摘要被整段脱敏", d.interactions);
+      ok(d.interactions.filter((i) => i.level === "customer").length === 1, "[5] 同一客户未挂商机的互动计入（level=customer），别的客户的不计入", d.interactions);
+      ok(d.openActions.length === 1 && d.openActions[0].overdue && d.openActionsTotal === 1, "[5] 未结束行动且标出逾期", d.openActions);
       ok(Array.isArray(d.employeeConfirmations) && d.employeeConfirmations.length === 0, "[5] 员工确认为空数组");
       ok(d.opportunity.amount === 12000, "[5] 管理者状态视图带金额");
     }

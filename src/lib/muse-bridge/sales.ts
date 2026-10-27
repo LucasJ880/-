@@ -28,8 +28,16 @@ export type SalesIntentResult =
   | { ok: false; errorCode: "PERMISSION_DENIED" | "OPPORTUNITY_NOT_FOUND"; message: string };
 
 const OPEN_ACTION_STATUSES = ["open", "in_progress"];
-/** 排序候选上限；Pilot 组织远小于此，超出时 data.truncated = true */
-const OVERVIEW_FETCH_CAP = 500;
+/**
+ * 排序候选上限；Pilot 组织远小于此，超出时 data.truncated = true。
+ * 超出时按"最久没互动"优先保留——停滞的商机正是排序要找出来的。
+ */
+const OVERVIEW_FETCH_CAP = 2000;
+
+/** 阶段是自由字符串：按词表大小写不敏感匹配（排序层还会再 trim + 小写投影一次） */
+const openStageWhere: Prisma.SalesOpportunityWhereInput = {
+  OR: OPEN_STAGE_RAW_VALUES.map((stage) => ({ stage: { equals: stage, mode: "insensitive" as const } })),
+};
 const DEFAULT_DAYS = 30;
 const DEFAULT_LIMIT = 10;
 
@@ -59,19 +67,20 @@ function toRow(o: OpportunityRecord, counts: { open: number; overdue: number }):
   return { ...rest, assignee: assignedTo, openActionCount: counts.open, overdueActionCount: counts.overdue };
 }
 
-/** 每个商机未结束 / 已逾期的跟进行动数 */
+/** 每个商机未结束 / 已逾期的跟进行动数（一次查询，两个数出自同一份快照） */
 async function countOpenActions(orgId: string, opportunityIds: string[], now: Date): Promise<Map<string, { open: number; overdue: number }>> {
   const out = new Map<string, { open: number; overdue: number }>();
   if (opportunityIds.length === 0) return out;
-  const where = { orgId, opportunityId: { in: opportunityIds }, status: { in: OPEN_ACTION_STATUSES } };
-  const [open, overdue] = await Promise.all([
-    db.salesAction.groupBy({ by: ["opportunityId"], where, _count: { _all: true } }),
-    db.salesAction.groupBy({ by: ["opportunityId"], where: { ...where, dueAt: { lt: now } }, _count: { _all: true } }),
-  ]);
-  for (const g of open) if (g.opportunityId) out.set(g.opportunityId, { open: g._count._all, overdue: 0 });
-  for (const g of overdue) {
-    if (!g.opportunityId) continue;
-    out.set(g.opportunityId, { open: out.get(g.opportunityId)?.open ?? g._count._all, overdue: g._count._all });
+  const rows = await db.salesAction.findMany({
+    where: { orgId, opportunityId: { in: opportunityIds }, status: { in: OPEN_ACTION_STATUSES } },
+    select: { opportunityId: true, dueAt: true },
+  });
+  for (const r of rows) {
+    if (!r.opportunityId) continue;
+    const c = out.get(r.opportunityId) ?? { open: 0, overdue: 0 };
+    c.open += 1;
+    if (r.dueAt && r.dueAt.getTime() < now.getTime()) c.overdue += 1;
+    out.set(r.opportunityId, c);
   }
   return out;
 }
@@ -101,9 +110,9 @@ export async function salesOverview(
 
   const [records, newInWindow, wonInWindow, lostInWindow, policy] = await Promise.all([
     db.salesOpportunity.findMany({
-      where: { ...base, stage: { in: [...OPEN_STAGE_RAW_VALUES] } },
+      where: { ...base, ...openStageWhere },
       select: opportunitySelect,
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+      orderBy: [{ lastInteractionAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
       take: OVERVIEW_FETCH_CAP + 1,
     }),
     db.salesOpportunity.count({ where: { ...base, createdAt: { gte: since } } }),
@@ -146,12 +155,16 @@ export async function opportunityStatus(
   });
   if (!record) return { ok: false, errorCode: "OPPORTUNITY_NOT_FOUND", message: OPPORTUNITY_NOT_FOUND_MESSAGE };
 
-  const [interactions, actions, policy] = await Promise.all([
+  const [interactions, actions, counts, policy] = await Promise.all([
+    // 记在客户上、没挂商机的互动也算这条商机的事实（标 level=customer），否则会把"有联系"误判为"CRM 无互动"
     db.customerInteraction.findMany({
-      where: { orgId: identity.orgId, opportunityId: record.id },
+      where: {
+        orgId: identity.orgId,
+        OR: [{ opportunityId: record.id }, { customerId: record.customer.id, opportunityId: null }],
+      },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: 5,
-      select: { id: true, type: true, direction: true, channel: true, summary: true, createdAt: true },
+      select: { id: true, type: true, direction: true, channel: true, summary: true, createdAt: true, opportunityId: true },
     }),
     db.salesAction.findMany({
       where: { orgId: identity.orgId, opportunityId: record.id, status: { in: OPEN_ACTION_STATUSES } },
@@ -159,13 +172,13 @@ export async function opportunityStatus(
       take: 10,
       select: { id: true, title: true, status: true, priority: true, dueAt: true, source: true, assignedTo: { select: { id: true, name: true } } },
     }),
+    countOpenActions(identity.orgId, [record.id], now),
     loadRevenueSpinePolicy(identity.orgId),
   ]);
-  const overdue = actions.filter((a) => a.dueAt && a.dueAt.getTime() < now.getTime()).length;
 
   const { advisory, data } = buildOpportunityStatus({
     scope,
-    row: toRow(record, { open: actions.length, overdue }),
+    row: toRow(record, counts.get(record.id) ?? { open: 0, overdue: 0 }),
     interactions,
     actions: actions.map(({ assignedTo, ...a }) => ({ ...a, assignee: assignedTo })),
     nextActionLabel: nextActionLabel(record.nextActionType),

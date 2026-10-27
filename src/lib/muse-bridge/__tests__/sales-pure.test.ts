@@ -184,8 +184,8 @@ console.log("opportunity_status");
     scope: ORG,
     row,
     interactions: [
-      { id: "i1", type: "email", direction: "outbound", channel: "email", summary: "发了报价单", createdAt: daysAgo(4) },
-      { id: "i2", type: "note", direction: null, channel: null, summary: "内部：这单毛利 30%", createdAt: daysAgo(3) },
+      { id: "i1", type: "email", direction: "outbound", channel: "email", summary: "发了报价单", createdAt: daysAgo(4), opportunityId: "s1" },
+      { id: "i2", type: "note", direction: null, channel: null, summary: "内部：这单毛利 30%", createdAt: daysAgo(3), opportunityId: null },
     ],
     actions: [
       { id: "a1", title: "确认样板", status: "open", priority: "high", dueAt: daysAgo(1), source: "digital_employee_auto", assignee: { id: "u_rep", name: "Rep A" } },
@@ -197,7 +197,8 @@ console.log("opportunity_status");
   });
   const d = st.data as {
     opportunity: { id: string; amount?: number };
-    interactions: Array<{ summary: string }>;
+    interactions: Array<{ summary: string; level: string }>;
+    openActionsTotal: number;
     openActions: Array<{ id: string; overdue: boolean }>;
     suggestions: Array<{ source: string; label: string }>;
     employeeConfirmations: unknown[];
@@ -206,6 +207,7 @@ console.log("opportunity_status");
   ok("CRM 事实带商机 ID 与金额（管理者）", d.opportunity.id === "s1" && d.opportunity.amount === 8_000);
   ok("互动摘要含敏感词 → 整段脱敏", d.interactions[1].summary === OUTBOUND_REDACTED && d.interactions[0].summary === "发了报价单");
   ok("未结束行动标出逾期", d.openActions[0].overdue && !d.openActions[1].overdue);
+  ok("互动区分商机级 / 客户级", d.interactions[0].level === "opportunity" && d.interactions[1].level === "customer");
   ok("系统建议标注来源", d.suggestions[0].source === "revenue_spine" && d.suggestions[0].label === "报价后跟进");
   ok("员工确认本批次为空数组", Array.isArray(d.employeeConfirmations) && d.employeeConfirmations.length === 0);
   ok("理由与排序一致", !!d.priority && d.priority.reasons.includes("约定跟进日已过 1 天"));
@@ -223,6 +225,9 @@ console.log("intent gate");
 {
   const r = gateIntent("req-gate-0001", { intent: "sales_overview" }, enabledMuseIntents({} as NodeJS.ProcessEnv));
   ok("默认配置下销售意图被诚实拒绝", !!r && r.errorCode === "INTENT_NOT_ENABLED" && r.availableInPhase === 1);
+  ok("拒绝消息说属于 Sales Pilot，不说招投标 Phase 1", !!r && r.message.includes("Sales Pilot（Phase S）") && !r.message.includes("Phase 1"));
+  const tender = gateIntent("req-gate-0003", { intent: "rfq", projectId: "p1" }, enabledMuseIntents({} as NodeJS.ProcessEnv));
+  ok("招投标意图的阶段文字不变", !!tender && tender.message.includes("Phase 1"));
   const on = enabledMuseIntents({ MUSE_BRIDGE_INTENTS: "status,sales_overview,opportunity_status" } as unknown as NodeJS.ProcessEnv);
   ok("显式配置后放行", gateIntent("req-gate-0002", { intent: "opportunity_status", opportunityId: "o1" }, on) === null);
 }
