@@ -381,6 +381,7 @@ async function handleRfq(
     supplierIds: command.supplierIds,
     supplierHint: command.supplierHint ?? null,
     scopeNote: command.scope ?? null,
+    incoterm: command.incoterm ?? null,
   });
 
   if (!r.ok) {

@@ -16,6 +16,7 @@ import { computeShadeLinePrice, type DiscountsOverride } from "./pricing-helpers
 import { SkuSelect } from "./sku-select";
 
 const SHADE_PRODUCTS: ProductName[] = [
+  "Roman Shade",
   "Zebra",
   "Roller",
   "SHANGRILA",

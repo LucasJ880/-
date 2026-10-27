@@ -81,6 +81,7 @@ export function getProductCategory(product: ProductName | ""): ProductCategory |
     case "SkylightHoneycomb":
     case "Allusion":
     case "Roman":
+    case "Roman Shade":
       return "shade";
     case "Shutters":
       return "shutter";
@@ -100,6 +101,7 @@ export const PRODUCT_CODE_MAP: Record<string, string> = {
   SkylightHoneycomb: "H",
   Allusion: "A",
   Roman: "N",
+  "Roman Shade": "N",
   Drapery: "D",
   Sheer: "S",
   Shutters: "V",

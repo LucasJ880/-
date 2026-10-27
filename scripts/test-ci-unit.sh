@@ -261,6 +261,7 @@ npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
+npx tsx src/lib/revenue-spine/__tests__/booth-email.test.ts
 npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
 npx tsx src/lib/trade/__tests__/message-normalize.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
@@ -298,6 +299,9 @@ npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
+
+# 测试注册校验（fix-taskflow-status-drift）：只加进本 CI 子集、没注册进 scripts/test-all.sh 的测试文件直接让 CI 失败
+bash scripts/check-test-registry.sh
 
 echo ""
 echo "CI unit subset PASS"

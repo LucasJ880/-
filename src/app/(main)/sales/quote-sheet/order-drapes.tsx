@@ -16,7 +16,7 @@ import {
   type DiscountsOverride,
 } from "./pricing-helpers";
 
-/** July 2026 窗帘价表档位（pricing-data MSRP keys） */
+/** October 2026 窗帘价表档位（pricing-data MSRP keys） */
 const DRAPERY_FABRICS = getAvailableFabrics("Drapery");
 const SHEER_FABRICS = getAvailableFabrics("Sheer").filter((f) => f !== "Door Screen Sheer");
 const SHEER_OPTIONS = [...SHEER_FABRICS, "Door Screen Sheer"];
@@ -124,7 +124,7 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
     [lines, onChange]
   );
 
-  /** Liner ↔ July 价表两档同步，避免开关与面料脱节导致「算不出价」 */
+  /** Liner ↔ October 价表两档同步，避免开关与面料脱节导致「算不出价」 */
   const setDrapeLiner = useCallback(
     (id: string, liner: boolean) => {
       onChange(
@@ -176,7 +176,7 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
         <div>
           <h2 className="text-lg font-bold">DRAPES & SHEER — ORDER FORM</h2>
           <p className="text-xs text-muted-foreground">
-            自动计价：PRICE TABLE 窗帘报价 2026.July（35% OFF）· Warranty: 1yr labour / 5yr fabric / 15yr components
+            自动计价：PRICE TABLE 窗帘报价 2026.October（35% OFF）· Warranty: 1yr labour / 5yr fabric / 15yr components
           </p>
         </div>
         <button
@@ -411,7 +411,7 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
       </div>
 
       <div className="text-xs text-muted-foreground space-y-0.5 bg-muted/10 rounded-lg p-3">
-        <p><strong>价档来源:</strong> PRICE TABLE 窗帘报价 2026.July（与快速报价同一套 MSRP）</p>
+        <p><strong>价档来源:</strong> PRICE TABLE 窗帘报价 2026.October（与快速报价同一套 MSRP）</p>
         <p><strong>Pleat Style:</strong> G = Grommet, P = Pinch Pleat, R = Ripple Fold</p>
         <p><strong>Bracket:</strong> C = Ceiling, W = Wall</p>
         <p><strong>Fullness:</strong> Standard 180%, Premium 230%（订单信息；当前不改 MSRP）</p>

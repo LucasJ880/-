@@ -39,6 +39,7 @@ const ZERO_DISCOUNTS: DiscountsOverride = {
   SkylightHoneycomb: 0,
   Allusion: 0,
   Roman: 0,
+  "Roman Shade": 0,
 };
 
 export function sumAllMsrp(
@@ -201,7 +202,7 @@ export interface DrapeLinePrice {
   error: string | null;
 }
 
-/** July 窗帘价表档位：Liner Y/N ↔ MSRP key（与 PRICE TABLE 窗帘报价2026.July 一致） */
+/** October 窗帘价表档位：Liner Y/N ↔ MSRP key（与 PRICE TABLE 窗帘报价2026.October 一致） */
 export function draperyFabricFromLiner(liner: boolean): string {
   return liner ? "With liner (Black out)" : "Without liner";
 }
@@ -210,7 +211,7 @@ export function draperyLinerFromFabric(fabric: string): boolean {
   return /with\s*liner/i.test(fabric);
 }
 
-/** 优先用手填/下拉面料；空时按 Liner 开关落到 July 两档 */
+/** 优先用手填/下拉面料；空时按 Liner 开关落到 October 两档 */
 export function resolveDraperyFabric(line: Pick<DrapeOrderLine, "drapeFabricSku" | "drapeLiner">): string {
   const sku = line.drapeFabricSku?.trim() ?? "";
   if (sku) return sku;

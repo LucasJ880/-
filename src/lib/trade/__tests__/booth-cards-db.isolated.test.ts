@@ -49,6 +49,7 @@ async function main() {
   const { saveOrgEmailSender, sendAsOrg, sendTradeEmailForOrg } = await import("@/lib/trade/email-sender");
   const { boothDayOf, collectBoothSummary, formatBoothSummary, sendBoothSummary } = await import("@/lib/trade/booth-summary");
   const { draftNoReplyFollowUps } = await import("@/lib/revenue-spine/fde/no-reply-followup");
+  const { markCustomerRepliedOutside } = await import("@/lib/revenue-spine/customer-replied");
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
 
   const stamp = Date.now().toString(36);
@@ -120,22 +121,28 @@ async function main() {
     ok(oppA2?.priority === "hot" && !!oppA2.scoreGrade, "FDE 评分后优先级仍按卡上等级", oppA2);
     const gradeEvent = await db.agentRunEvent.findFirst({ where: { orgId: ORG, title: { startsWith: "展会卡上等级 A" } } });
     ok(!!gradeEvent, "运行记录里写明按卡上等级定优先级", gradeEvent?.title);
-    ok(/Thank you for visiting the Mengxin Home Textile booth at the 140th Canton Fair \(Booth 14\.3E07\)/.test(bodyA) && !/received your inquiry/i.test(bodyA), "草稿开头是展位来访，不是“收到询盘”", bodyA.slice(0, 240));
-    ok(/^Great meeting you at the 140th Canton Fair/.test(subjectA), "草稿主题：Great meeting you at …", subjectA);
+    ok(/^Hi Emma,\n\nGreat meeting you at Booth 14\.3E07 during the 140th Canton Fair — thanks for stopping by\./.test(bodyA) && !/received your inquiry/i.test(bodyA), "草稿开头是展位来访，不是“收到询盘”", bodyA.slice(0, 240));
+    ok(subjectA === "Emma, your Canton Fair picks + full specs", "草稿主题点名买家：Emma, your Canton Fair picks + full specs", subjectA);
     ok(
-      /- Certification: OEKO-TEX/.test(bodyA) && /- Packaging: Wants own-brand gift box packaging/.test(bodyA) && !/- (Quantity|Customization|Required delivery)/i.test(bodyA) && !/- Material/.test(bodyA) && !/CF140|grade/i.test(bodyA),
+      /What we noted at the booth:\n\n(- .+\n)*- Certification: OEKO-TEX/.test(bodyA) && /- Packaging: Wants own-brand gift box packaging/.test(bodyA) && !/- (Quantity|Customization|Required delivery)/i.test(bodyA) && !/- Material/.test(bodyA) && !/CF140|grade/i.test(bodyA),
       "草稿里的需求要点只有卡上的真实信息：认证、包装；没有从编号里读出的数量 / 从参考款名读出的材质 / 虚构交期 / 内部信息",
       bodyA.split("\n"),
     );
     ok(
-      /You looked at these reference styles from our past production:\n- Flannel \/ Coral Fleece Blanket \(ref\. MX-BL-001\)\n- Solid \/ Hotel \/ Spa Bathrobes \(ref\. MX-BR-001\)\nEach of them can be made to your own specification/.test(bodyA) &&
+      /The styles you picked\n\n- Flannel \/ Coral Fleece Blanket \(ref\. MX-BL-001\)\n- Solid \/ Hotel \/ Spa Bathrobes \(ref\. MX-BR-001\)\n\nThese are reference styles — made to your spec/.test(bodyA) &&
         !/Which specific product/.test(bodyA),
       "草稿逐一点名参考款（OEM：做过的款式、按买家规格定做），不再问“要哪个产品”",
       bodyA.split("\n"),
     );
     ok(/Best regards,\nCathy\nMengxin Home Textile\s*$/.test(bodyA), "落款是卡上接待的业务员（买家在展位见到的人）", bodyA.slice(-80));
+    const htmlA = String(payloadA.html ?? "");
     ok(
-      /——— 中文对照（仅供审核，不会发送/.test(draftA?.preview ?? "") && /感谢您在 the 140th Canton Fair \(Booth 14\.3E07\) 莅临/.test(draftA?.preview ?? "") && !/中文对照/.test(bodyA),
+      htmlA.startsWith("<!doctype html>") && htmlA.includes("Flannel / Coral Fleece Blanket") && htmlA.includes("Canton Fair · Booth 14.3E07") && !htmlA.includes("要自有品牌"),
+      "草稿同时存了 HTML 版（参考款卡片、展位号抬头），不含中文备注",
+      htmlA.slice(0, 200),
+    );
+    ok(
+      /——— 中文对照（仅供审核，不会发送）———\nEmma，您在广交会上看中的款式和完整规格/.test(draftA?.preview ?? "") && /很高兴在展位见到您（广交会 14\.3E07）/.test(draftA?.preview ?? "") && !/中文对照/.test(bodyA),
       "审批预览附中文对照给审核人看；发送正文里没有",
       (draftA?.preview ?? "").slice(-400),
     );
@@ -250,9 +257,9 @@ async function main() {
     const ORG_FROM = '"Cathy | Mengxin Home Textile" <cathy@hlmbedding.com>';
     const PLATFORM_FROM = '"Cathy | Mengxin Home Textile" <noreply@qingyan.ai>';
     await saveOrgEmailSender(ORG, { fromName: "Cathy | Mengxin Home Textile", fromEmail: CATHY, replyTo: CATHY, bcc: [CATHY] }, OWNER);
-    const sends: Array<{ to: string; from?: string; replyTo?: string; bcc?: string[] }> = [];
-    const unverifiedResend = async (m: { to: string; from?: string; replyTo?: string; bcc?: string[] }) => {
-      sends.push({ to: m.to, from: m.from, replyTo: m.replyTo, bcc: m.bcc });
+    const sends: Array<{ to: string; from?: string; replyTo?: string; bcc?: string[]; html?: string }> = [];
+    const unverifiedResend = async (m: { to: string; from?: string; replyTo?: string; bcc?: string[]; html?: string }) => {
+      sends.push({ to: m.to, from: m.from, replyTo: m.replyTo, bcc: m.bcc, html: m.html });
       return m.from?.includes("@hlmbedding.com")
         ? { success: false, error: "The hlmbedding.com domain is not verified. Please, add and verify your domain on https://resend.com/domains", errorName: "validation_error" }
         : { success: true, messageId: `re_${sends.length}` };
@@ -276,8 +283,9 @@ async function main() {
         sends.length === 2 && sends[0].from === ORG_FROM && sends[1].from === PLATFORM_FROM &&
           sends.every((x) => x.replyTo === CATHY && x.bcc?.[0] === CATHY),
         "域名未验证：先试 cathy@hlmbedding.com，被拒后平台地址代发；显示名、回复地址、密送不变",
-        sends,
+        sends.map(({ html, ...x }) => ({ ...x, html: html?.slice(0, 30) })),
       );
+      ok(sends.every((x) => x.html?.startsWith("<!doctype html>")), "HTML 版随纯文本一起发出（两次尝试都带）", sends.map((x) => x.html?.slice(0, 30)));
       const outA = await db.customerInteraction.findFirst({ where: { orgId: ORG, opportunityId: oppA?.id ?? "", direction: "outbound" }, orderBy: { createdAt: "desc" } });
       const outExtra = (outA?.analysisResult ?? {}) as Record<string, unknown>;
       ok(outExtra.sentFrom === PLATFORM_FROM && outExtra.senderFallback === true, "时间线记下实际发件人、是否代发", outExtra);
@@ -313,10 +321,11 @@ async function main() {
     );
     const fu1Body = String(fu1Payload.body ?? "");
     ok(
-      /^Re: Great meeting you at the 140th Canton Fair/.test(String(fu1Payload.subject)) &&
-        /I hope you had a good trip back from the 140th Canton Fair/.test(fu1Body) &&
+      /^Re: Emma, your Canton Fair picks \+ full specs$/.test(String(fu1Payload.subject)) &&
+        /^Hi Emma,\n\nBringing this back to the top of your inbox\./.test(fu1Body) &&
         /Best regards,\nCathy\nMengxin Home Textile$/.test(fu1Body) &&
-        /——— 中文对照（仅供审核，不会发送）———\n回复：Great meeting you/.test(fu1?.preview ?? ""),
+        String(fu1Payload.html ?? "").startsWith("<!doctype html>") &&
+        /——— 中文对照（仅供审核，不会发送）———\n回复：Emma, your Canton Fair picks/.test(fu1?.preview ?? ""),
       "跟进草稿：沿用首封主题、展会口吻、Cathy 落款，预览附中文对照",
       { subject: fu1Payload.subject, body: fu1Body },
     );
@@ -336,12 +345,97 @@ async function main() {
     ok(afterFu1?.followUpCount === 2 && !day6.skipped.some((x) => x.opportunityId === oppA?.id) && day6.drafted === 0, "第 1 次跟进发出后 3 天：还不到第 2 次（间隔 4 天）", { afterFu1, day6 });
     const day7 = await draftNoReplyFollowUps(ORG, { now: new Date(fu1SentAt.getTime() + 4 * DAY + 60_000) });
     const fu2 = await db.pendingAction.findFirst({ where: { id: { in: day7.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } });
-    ok(!!fu2 && /^跟进第 2\/3 次.*7 天未回复/.test(fu2.title) && /still active/.test(String((fu2.payload as Record<string, unknown>).body)), "第 7 天：起草第 2 次跟进（问项目是否还在进行）", fu2?.title);
+    ok(
+      !!fu2 && /^跟进第 2\/3 次.*7 天未回复/.test(fu2.title) && (fu2.payload as Record<string, unknown>).subject === "3 packing formats for your range, Emma" && /Is the project still on for this season\?/.test(String((fu2.payload as Record<string, unknown>).body)),
+      "第 7 天：起草第 2 次跟进（三种包装方案 + 问项目是否还在进行）",
+      fu2?.title,
+    );
 
-    // 买家回信：之后不再起草；已起草的第 2 次因来信更新而过时（executor 发送前拒发）
-    await db.salesOpportunity.update({ where: { id: oppA?.id ?? "" }, data: { lastCustomerReplyAt: new Date(fu1SentAt.getTime() + 5 * DAY) } });
-    const afterReply = await draftNoReplyFollowUps(ORG, { now: new Date(fu1SentAt.getTime() + 30 * DAY) });
-    ok(!afterReply.pendingActionIds.length || !(await db.pendingAction.count({ where: { id: { in: afterReply.pendingActionIds }, payload: { path: ["opportunityId"], equals: oppA?.id ?? "" } } })), "买家回信后不再起草跟进", afterReply);
+    ok((fu2?.preview ?? "").startsWith("⚠ 审核提醒（不会发送）：\n- 发送前确认买家这几天没有通过邮件或 WhatsApp 直接回复过业务员"), "跟进草稿预览最上面提醒：确认买家没在邮箱 / WhatsApp 回过", (fu2?.preview ?? "").slice(0, 120));
+
+    // 买家直接回到 Cathy 邮箱：业务点「买家已回复」→ 未批的第 2 次跟进作废；之后不再自动跟进
+    const replied = await markCustomerRepliedOutside({ orgId: ORG, opportunityId: oppA?.id ?? "", channel: "email", alsoReplied: true, note: "要 3 月交货的报价", actorUserId: OWNER });
+    const fu2After = fu2 ? await db.pendingAction.findUnique({ where: { id: fu2.id }, select: { status: true, failureReason: true } }) : null;
+    ok(replied.superseded === 1 && fu2After?.status === "failed" && /^SUPERSEDED_BY_NEWER_INBOUND/.test(fu2After.failureReason ?? ""), "点「买家已回复」：未批的跟进草稿系统作废", { replied, fu2After });
+    const markedIn = await db.customerInteraction.findUnique({ where: { id: replied.interactionId }, select: { direction: true, channel: true, content: true } });
+    const oppAfterReply = await db.salesOpportunity.findUnique({ where: { id: oppA?.id ?? "" }, select: { nextActionType: true } });
+    ok(markedIn?.direction === "inbound" && /买家已通过邮件回复（内容不在青砚）：要 3 月交货的报价/.test(markedIn.content ?? "") && oppAfterReply?.nextActionType !== "reply_customer", "记下来信渠道和备注；勾了「我们也已回复」不挂在待回复队列", { markedIn, oppAfterReply });
+    const afterReply = await draftNoReplyFollowUps(ORG, { now: new Date(Date.now() + 7 * DAY + 60_000) });
+    ok(!afterReply.pendingActionIds.length && afterReply.skipped.some((x) => x.opportunityId === oppA?.id && x.reason === "buyer_replied"), "买家回过信后不再自动跟进（即使之后又有外发）", afterReply);
+
+    // ── 新版首封按企业商务事实写：对外公司名、落款、MOQ / 大货周期参考原句、不对外的款号剔除；C 级只发目录 ──
+    const { publishRevenueSpineRule, RULE_KEY_BUSINESS_PROFILE } = await import("@/lib/revenue-spine/policy");
+    await publishRevenueSpineRule({
+      orgId: ORG,
+      ruleKey: RULE_KEY_BUSINESS_PROFILE,
+      config: {
+        commercialFacts: {
+          moq: { quantity: 1000, unit: "pcs", per: "style" },
+          productionLeadTime: { daysMin: 35, daysMax: 45, startsFrom: "pre-production sample approval" },
+          signature: { title: "Sales Representative", whatsapp: "+86 100 0000 0000", website: "example-textiles.com" },
+          blockedStyleCodes: ["MX-BR-001"],
+          gradeCCatalogOnly: true,
+          buyerFacingName: "Example Home Textile",
+        },
+      },
+      userId: OWNER,
+    });
+    const factsCsv = [
+      csv.split("\n")[0],
+      `CF140-0101,11/1,Cathy,Birch Lane ${stamp},Ava Stone,Buyer,ava.${stamp}@birchlane-${stamp}.ca,,Canada,零售/自有品牌,"MX-BL-001, MX-BR-001",,1-5柜,3个月内,报价,A,,,`,
+      `CF140-0102,11/1,Cathy,Elm Row ${stamp},Noah Park,Buyer,noah.${stamp}@elmrow-${stamp}.ca,,Canada,零售/自有品牌,MX-BL-002,,<1柜,先了解,只发目录,C,,,`,
+      `CF140-0103,11/1,Cathy,Oak Hill ${stamp},Mia Grant,Buyer,mia.${stamp}@oakhill-${stamp}.ca,,Canada,零售/自有品牌,MX-BR-001,,1-5柜,3个月内,报价,A,,,`,
+    ].join("\n");
+    const factsCards = parseBoothCardSheet(factsCsv);
+    const ingestFacts = async (i: number) => {
+      const card = factsCards.cards[i].card;
+      const styles = resolveStyles(card.styles, refs);
+      const n = boothCardToInquiry(card, EVENT, styles);
+      if (!n.ok) throw new Error(n.error);
+      return ingestWebsiteInquiry(ORG, n.value, { origin: boothCardOrigin(card, EVENT, styles) });
+    };
+    const draftOf = async (r: Awaited<ReturnType<typeof ingestFacts>>) => {
+      const pa = r.spine.ok
+        ? await db.pendingAction.findFirst({ where: { orgId: ORG, type: INQUIRY_REPLY_ACTION_TYPE, status: "pending", payload: { path: ["opportunityId"], equals: r.spine.opportunityId } } })
+        : null;
+      const p = (pa?.payload ?? {}) as Record<string, unknown>;
+      return { pa, subject: String(p.subject ?? ""), body: String(p.body ?? ""), html: String(p.html ?? "") };
+    };
+    const fa = await draftOf(await ingestFacts(0));
+    ok(
+      fa.subject === "Ava, your Canton Fair picks + full specs" &&
+        /- Flannel \/ Coral Fleece Blanket \(ref\. MX-BL-001\)/.test(fa.body) &&
+        !/MX-BR-001|Bathrobes/.test(fa.body) &&
+        !/MX-BR-001/.test(fa.html),
+      "商务事实：不对外的款号（MX-BR-001）不进新版首封的正文和 HTML",
+      { subject: fa.subject, body: fa.body.split("\n") },
+    );
+    ok(
+      fa.body.includes("For reference, our MOQ is typically 1,000 pcs per style, and bulk production usually takes 35–45 days after pre-production sample approval.") &&
+        /\nBest regards,\nCathy\nSales Representative · Example Home Textile\nWhatsApp \+86 100 0000 0000 · example-textiles\.com$/.test(fa.body) &&
+        fa.html.includes("EXAMPLE HOME TEXTILE") &&
+        fa.html.includes('href="https://example-textiles.com"') &&
+        !!fa.pa,
+      "商务事实：MOQ / 大货周期参考原句原样写出且草稿进了审批（守卫按原句白名单）；落款职位 · 对外公司名 · WhatsApp · 网站；HTML 抬头用对外公司名",
+      { body: fa.body.split("\n").slice(-12), pa: !!fa.pa },
+    );
+    const fc = await draftOf(await ingestFacts(1));
+    ok(
+      !!fc.pa &&
+        /^Dear Noah Park,/.test(fc.body) &&
+        /We will send you our product catalogue separately/.test(fc.body) &&
+        !/costing|For reference/.test(fc.body) &&
+        fc.html.startsWith("<!doctype html>") &&
+        fc.html.includes("EXAMPLE HOME TEXTILE"),
+      "展会 C 级（只发目录）：沿用纯文本目录稿、不追问不报参考值，套公司外框",
+      { body: fc.body.split("\n"), pa: !!fc.pa },
+    );
+    const fb = await draftOf(await ingestFacts(2));
+    ok(
+      !!fb.pa && !/MX-BR-001|Spa Bathrobe/i.test(`${fb.subject}\n${fb.body}\n${fb.html}`),
+      "卡上只有不对外的款：款号和参考款名都不进邮件（品类说法如 Bathrobes 来自来信抽取，可以写）",
+      { subject: fb.subject, body: fb.body.split("\n") },
+    );
   } finally {
     try {
       const oppIds = (await db.salesOpportunity.findMany({ where: { orgId: ORG }, select: { id: true } })).map((o) => o.id);

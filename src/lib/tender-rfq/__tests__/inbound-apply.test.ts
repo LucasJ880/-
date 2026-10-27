@@ -284,6 +284,26 @@ console.log("tender-rfq inbound (§5 acceptance)");
   ok("§5-12 失败的信下次不重试", again.duplicates === 3 && again.failed === 0);
 }
 
+// 已标未响应后才到的回信：先改回 sent，再按 sent 规则入表（不再漏掉晚回的供应商）
+{
+  const world = makeWorld();
+  const revived: string[] = [];
+  const m = msg("m-late", "thread-A", "抱歉晚回，单价 CAD 10.00/个。");
+  const quoteParse: InboundSyncDeps["parse"] = (input) =>
+    parseInboundQuote(input, { complete: llm({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 10, totalPrice: null, evidence: "单价 CAD 10.00" }] }) });
+  const deps = { ...makeDeps(world, { messages: [m], parse: quoteParse }), reviveNoResponse: async (it: InboundItemRow) => { revived.push(`${it.id}:${it.status}`); } };
+  const r = await syncOrgInbound(org([item({ status: "no_response" })]), deps);
+  ok("晚回信：先把 no_response 改回 sent", revived.join() === "item-1:no_response");
+  ok("晚回信：按 sent 规划并入表（quoted）", r.quoted === 1 && world.applied[0]?.plan.transition === "quoted", world.applied);
+  ok("晚回信：AuditLog 标 revivedFromNoResponse", world.audits.some((a) => a.messageId === "m-late" && a.data.revivedFromNoResponse === true));
+  const world2 = makeWorld();
+  const reply = await syncOrgInbound(org([item({ status: "no_response" })]), { ...makeDeps(world2, { messages: [msg("m-late2", "thread-A", "收到，下周报价。")] }), reviveNoResponse: async () => {} });
+  ok("晚回信（只是回复）：入表为 replied", reply.replied === 1 && world2.applied[0]?.plan.transition === "replied");
+  const world3 = makeWorld();
+  const noHook = await syncOrgInbound(org([item({ status: "no_response" })]), makeDeps(world3, { messages: [msg("m-late3", "thread-A", "收到")] }));
+  ok("没有 reviveNoResponse 依赖 → 不认领（不写库）", noHook.ignored === 1 && world3.applied.length === 0);
+}
+
 // 邮箱拆分：显示地址 project@ 与授权账号 lucas@ 发出的信都算"我们自己的"
 {
   const own = ["project@sunnyshutter.ca", "lucas@sunnyshutter.ca"];

@@ -1,4 +1,5 @@
 export type ProductName =
+  | 'Roman Shade'
   | 'Zebra'
   | 'SHANGRILA'
   | 'Cordless Cellular'

@@ -51,7 +51,7 @@ npx tsx src/lib/muse-bridge/__tests__/prefs.test.ts       # 26 passed（§4-8…
 4. **"截标 ≤ 3 天"只算未来 0–3 天**；已过截标不触发这一行（继续往下判断）。
 5. **`status` 多项目回复**：理由只列前 3 个项目（契约上限），结论注明"另 N 个见列表"，完整列表在 `data.projects`；下一步是排第一的那个标的 `next_step`。
 6. **`ask` 的 LLM 不按 JSON 输出时**：第一行当结论、后面最多 3 行当理由、`nextStep = null`（不猜）。
-7. **Muse 的 `rfq` 意图没有 `incoterm` 参数**（任务书只加三个意图），所以通过 Muse 起草的询价，条款只来自偏好；"批准后学习条款"主要服务于从青砚其它入口传了条款的情况。
+7. ~~**Muse 的 `rfq` 意图没有 `incoterm` 参数**~~：后续已补 `incoterm?`（EXW/FOB/CIF/DDP/DAP），显式 > 偏好。
 8. **`selectItem` 加了可选 `{ actorUserId }`**，只有 select 路由传（操作者 = 登录用户）；没有操作者就不学习。
 9. **`MUSE_BRIDGE_INTENTS` 显式配置时不会并入默认集**：GATE-1 的值要写全：`status,ask,approve,reject,next_step,set_preference,preferences,rfq,compare,price_scenario`。
 

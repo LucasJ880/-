@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 电子报价单内的 Rough Quote 面板（合入 July sunny-quote UI，不另开导航类目）。
+ * 电子报价单内的 Rough Quote 面板（合入 October sunny-quote UI，不另开导航类目）。
  * 通过 iframe + 青砚 Bridge 保存到 /api/sales/quotes。
  */
 
@@ -74,7 +74,7 @@ export function RoughQuotePanel({
     autoLinked?: boolean;
   } | null>(null);
   const [copied, setCopied] = useState(false);
-  // cache-bust once per mount so July HTML updates show after deploy
+  // cache-bust once per mount so October HTML updates show after deploy
   const [src] = useState(
     () => `/sunny-quote.html?v=${Date.now()}${isMobile ? "&m=1" : ""}`,
   );
@@ -121,6 +121,7 @@ export function RoughQuotePanel({
             sheer: number;
             shutters: number;
             honeycomb: number;
+            romanShade?: number;
           }>("/api/sales/quote-settings/discounts");
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -134,6 +135,7 @@ export function RoughQuotePanel({
                 Sheer: d.sheer,
                 Shutters: d.shutters,
                 SkylightHoneycomb: d.honeycomb,
+                "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
               },
             },
             "*",
@@ -159,6 +161,7 @@ export function RoughQuotePanel({
               sheer: after.Sheer,
               shutters: after.Shutters,
               honeycomb: after.SkylightHoneycomb,
+              romanShade: after["Roman Shade"],
             }),
           });
           const body = await res.json().catch(() => null);
@@ -276,7 +279,7 @@ export function RoughQuotePanel({
     <div className="flex min-h-[70dvh] flex-col overflow-hidden rounded-xl border border-border bg-card-bg">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
         <span className="font-medium text-muted-foreground">
-          July Rough Quote · 保存后进入「全部报价」
+          October Rough Quote · 保存后进入「全部报价」
         </span>
         {saving && (
           <span className="animate-pulse text-muted-foreground">保存中…</span>

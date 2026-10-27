@@ -97,7 +97,7 @@ import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
 type TabId = "partB" | "shades" | "shutters" | "drapes";
-/** 电子报价单工作区：快速报价 = July Rough Quote；详细订单 = 现有 Order Form */
+/** 电子报价单工作区：快速报价 = October Rough Quote；详细订单 = 现有 Order Form */
 type WorkspaceMode = "rough" | "order";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
@@ -155,7 +155,7 @@ function makeDrapeLines(count: number): DrapeOrderLine[] {
   return Array.from({ length: count }, () => ({
     id: crypto.randomUUID(), location: "",
     drapeWidthWhole: "", drapeWidthFrac: "0", drapeHeightWhole: "", drapeHeightFrac: "0",
-    // July 价表默认档：Without liner（与 Liner=N 同步）
+    // October 价表默认档：Without liner（与 Liner=N 同步）
     drapeFabricSku: "Without liner", drapeFullness: "180" as const, drapePanels: "S" as const,
     drapePleatStyle: "" as const, drapeLiner: false, drapeBracket: "" as const,
     sheerWidthWhole: "", sheerWidthFrac: "0", sheerHeightWhole: "", sheerHeightFrac: "0",
@@ -378,6 +378,7 @@ function QuoteSheetPageInner() {
         const d = await apiJson<{
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
+          romanShade?: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -393,6 +394,7 @@ function QuoteSheetPageInner() {
           Sheer: d.sheer,
           Shutters: d.shutters,
           SkylightHoneycomb: d.honeycomb,
+          "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
         });
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
@@ -1558,7 +1560,7 @@ function QuoteSheetPageInner() {
           editingQuoteId
             ? "正在修改已保存的报价单；保存后会覆盖原报价单（不会新建版本）"
             : workspaceMode === "rough"
-              ? "快速报价（July Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
+              ? "快速报价（October Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
               : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />

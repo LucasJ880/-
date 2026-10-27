@@ -88,6 +88,8 @@ const IMMUTABLE: Record<string, string> = {
     "09f8a730a8f590b11c3e2119d3ce63c02f1dd43d77eef4e225f91596b765ca4b",
   "20261024120000_invite_code_org_binding":
     "2a0c8282f9c18bd7443b49afea0ed9caddf33574d13b8e0051f7ada9b158611e",
+  "20261027180000_quote_discount_roman_shade":
+    "a3af46f9a68de6c5b403f1d2f80d02301c575cf8780995541fd09cb6afbb9250",
 };
 
 let passed = 0;
