@@ -9,6 +9,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import { isCordlessEligible } from "@/lib/blinds/pricing-engine";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById } from "./order-helpers";
 import { computeShadeLinePrice, type DiscountsOverride } from "./pricing-helpers";
@@ -106,6 +107,11 @@ export function OrderShadesForm({
     [lines, onChange]
   );
 
+  /** 换产品后残留的无效无绳选择：C 仍存着但该产品没有无绳价目表 */
+  const invalidCordless = lines.filter(
+    (l) => l.lift === "C" && l.product && !isCordlessEligible(l.product),
+  );
+
   const addLine = () => onChange([...lines, emptyLine()]);
 
   const removeLine = (id: string) => {
@@ -138,6 +144,14 @@ export function OrderShadesForm({
           <Plus className="h-3.5 w-3.5" /> Add Row
         </button>
       </div>
+
+      {invalidCordless.length > 0 && (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+          有 {invalidCordless.length} 行选了 Cordless(C)，但
+          {[...new Set(invalidCordless.map((l) => l.product))].join("、")}
+          没有无绳价目表 —— 这几行会算不出价，请改成 L / R / M。
+        </div>
+      )}
 
       <div className="border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-xs min-w-[1120px]">
@@ -263,9 +277,18 @@ export function OrderShadesForm({
                     />
                   </td>
                   <td className="px-1 py-0.5">
+                    {/*
+                      L/R=拉绳(含拉杆位置)、M=电动、C=无绳。
+                      C 只对定价引擎认可无绳的产品开放（Zebra / Roller）——
+                      其余产品没有无绳价目表，选了会算不出价。
+                    */}
                     <RadioGroup
                       value={line.lift}
-                      options={["L", "R", "M"]}
+                      options={
+                        isCordlessEligible(line.product) || line.lift === "C"
+                          ? ["L", "R", "M", "C"]
+                          : ["L", "R", "M"]
+                      }
                       onChange={(v) => updateLine(line.id, "lift", v)}
                     />
                   </td>

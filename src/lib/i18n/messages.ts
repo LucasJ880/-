@@ -59,6 +59,7 @@ export interface Messages {
   nav_field_measure: string;
   nav_cockpit: string;
   nav_work_orders: string;
+  nav_vinyl_work_orders: string;
   nav_fabric_inventory: string;
   nav_sales_knowledge: string;
   nav_quote_sheet: string;

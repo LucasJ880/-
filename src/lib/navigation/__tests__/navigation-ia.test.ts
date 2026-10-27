@@ -299,7 +299,7 @@ ok(
   "梦馨销售保留销售首页/客户/日历",
 );
 ok(
-  ["/sales/quote-sheet", "/sales/quotes", "/sales/cockpit", "/blinds-orders", "/inventory"].every(
+  ["/sales/quote-sheet", "/sales/quotes", "/sales/cockpit", "/blinds-orders", "/vinyl-orders", "/inventory"].every(
     (h) => !mengxinSalesHrefs.includes(h),
   ),
   "梦馨销售不见电子报价单/全部报价/驾驶舱/工艺单/库存（窗饰域）",

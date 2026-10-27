@@ -2,12 +2,27 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { FileText, Send, AlertTriangle, Pencil, Wallet, CheckCircle2, ImageIcon } from "lucide-react";
+import { FileText, Send, AlertTriangle, Pencil, Wallet, CheckCircle2, ImageIcon, Factory, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Quote } from "./types";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { RecordDepositDialog } from "@/components/sales/record-deposit-dialog";
 import { getDepositPaymentMethodLabel } from "@/lib/sales/deposit-payment-methods";
+import { apiFetch } from "@/lib/api-fetch";
+
+/** 手动生成工艺单的结果（POST /api/sales/quotes/[id]/generate-work-order 的返回） */
+interface WorkOrderResult {
+  vinylOrderId: string | null;
+  vinylOrderCode: string | null;
+  blindsOrderId: string | null;
+  blindsOrderCode: string | null;
+  skipped: string | null;
+  skipMessage: string | null;
+  todoCount: number;
+  defaultCount: number;
+  pending: string[];
+  error?: string;
+}
 
 /** 来自 customer 页的 opp→封面映射（展示方案效果图用） */
 export type OppCoverMap = Record<
@@ -57,6 +72,34 @@ export function QuotesList({
   const { isSuperAdmin } = useCurrentUser();
   const [quotes, setQuotes] = useState<Quote[]>(initialQuotes);
   const [depositTarget, setDepositTarget] = useState<Quote | null>(null);
+  const [woBusy, setWoBusy] = useState<string | null>(null);
+  const [woResult, setWoResult] = useState<Record<string, WorkOrderResult>>({});
+
+  /**
+   * 手动生成/补生成工艺单。
+   * 幂等：已生成过会直接返回那张单，不会建第二张。
+   * 手动触发不受签名自动生成的 flag 门控 —— 灰度期可以先手动跑几单验证。
+   */
+  async function handleGenerateWorkOrder(quoteId: string) {
+    setWoBusy(quoteId);
+    try {
+      const res = await apiFetch(`/api/sales/quotes/${quoteId}/generate-work-order`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => null)) as WorkOrderResult | null;
+      setWoResult((p) => ({
+        ...p,
+        [quoteId]: data ?? { error: `HTTP ${res.status}` } as WorkOrderResult,
+      }));
+    } catch (e) {
+      setWoResult((p) => ({
+        ...p,
+        [quoteId]: { error: e instanceof Error ? e.message : "请求失败" } as WorkOrderResult,
+      }));
+    } finally {
+      setWoBusy(null);
+    }
+  }
 
   if (quotes.length === 0) {
     return (
@@ -164,6 +207,21 @@ export function QuotesList({
                   编辑
                 </Link>
               )}
+              {signedLike && (
+                <button
+                  onClick={() => handleGenerateWorkOrder(q.id)}
+                  disabled={woBusy === q.id}
+                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-indigo-50/60 px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-40"
+                  title="按此报价单生成工厂工艺单（已生成过则直接定位到那张单）"
+                >
+                  {woBusy === q.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Factory className="h-3 w-3" />
+                  )}
+                  生成工艺单
+                </button>
+              )}
               {q.status === "draft" && customerEmail && (
                 <button
                   onClick={() => onSendEmail(q.id)}
@@ -265,6 +323,67 @@ export function QuotesList({
               </pre>
             </details>
           )}
+          {woResult[q.id] && (() => {
+            const r = woResult[q.id];
+            if (r.error) {
+              return (
+                <div className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                  生成工艺单失败：{r.error}
+                </div>
+              );
+            }
+            const made = [
+              r.blindsOrderCode
+                ? { href: `/blinds-orders/${r.blindsOrderId}`, code: r.blindsOrderCode, label: "Blinds" }
+                : null,
+              r.vinylOrderCode
+                ? { href: `/vinyl-orders/${r.vinylOrderId}`, code: r.vinylOrderCode, label: "Vinyl" }
+                : null,
+            ].filter((x): x is { href: string; code: string; label: string } => x !== null);
+            if (made.length === 0) {
+              return (
+                <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  未生成工艺单：{r.skipMessage || r.skipped}
+                  {r.pending?.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 opacity-90">
+                      {r.pending.map((p, i) => <li key={i}>· {p}</li>)}
+                    </ul>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <div className="mt-2 rounded-md border border-indigo-300 bg-indigo-50 px-3 py-2 text-[11px] text-indigo-800">
+                工艺单{" "}
+                {made.map((x, i) => (
+                  <span key={x.code}>
+                    {i > 0 && "、"}
+                    <Link href={x.href} className="font-mono font-semibold underline">
+                      {x.code}
+                    </Link>
+                    <span className="ml-0.5 opacity-70">({x.label})</span>
+                  </span>
+                ))}{" "}
+                {r.skipped === "ALREADY_GENERATED" ? "（此前已生成）" : "已生成"}
+                {r.todoCount > 0 && (
+                  <span className="ml-1 font-semibold text-red-700">
+                    · {r.todoCount} 项待你补齐
+                  </span>
+                )}
+                {r.defaultCount > 0 && (
+                  <span className="ml-1 text-amber-800">
+                    · {r.defaultCount} 项用了默认值待确认
+                  </span>
+                )}
+                {r.pending?.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 opacity-90">
+                    {r.pending.map((p, i) => <li key={i}>· {p}</li>)}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
+
         </div>
         );
       })}

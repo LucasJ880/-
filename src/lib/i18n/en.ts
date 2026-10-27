@@ -56,6 +56,7 @@ export const en: Messages = {
   nav_field_measure: "Field Measure",
   nav_cockpit: "Sales Analytics",
   nav_work_orders: "Work Orders",
+  nav_vinyl_work_orders: "Vinyl Work Orders",
   nav_fabric_inventory: "Fabric Inventory",
   nav_sales_knowledge: "Sales Knowledge",
   nav_quote_sheet: "Quote Sheet",

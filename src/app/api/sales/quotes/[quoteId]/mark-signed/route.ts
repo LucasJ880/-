@@ -74,11 +74,31 @@ export const POST = withAuth(async (request, ctx, user) => {
     return null;
   });
 
+  // 自动生成工艺单（flag 门控，default OFF），失败不阻断成单
+  const { ensureWorkOrdersFromSignedQuoteSafe } = await import(
+    "@/lib/work-orders/from-signed-quote"
+  );
+  const workOrder = await ensureWorkOrdersFromSignedQuoteSafe(quoteId);
+
   return NextResponse.json({
     ok: true,
     quoteId,
     opportunityId: quote.opportunityId,
     stageAdvanced: lifecycle?.advanced ?? false,
     newStage: lifecycle?.newStage ?? null,
+    // 销售端可据此提示「工艺单已生成，N 项待确认」
+    workOrder: workOrder
+      ? {
+          vinylOrderId: workOrder.vinylOrderId,
+          vinylOrderCode: workOrder.vinylOrderCode,
+          blindsOrderId: workOrder.blindsOrderId,
+          blindsOrderCode: workOrder.blindsOrderCode,
+          todoCount: workOrder.todoCount,
+          defaultCount: workOrder.defaultCount,
+          skipped: workOrder.skipped,
+          skipMessage: workOrder.skipMessage,
+          pending: workOrder.pending,
+        }
+      : null,
   });
 });

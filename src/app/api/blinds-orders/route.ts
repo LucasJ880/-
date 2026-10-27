@@ -4,14 +4,20 @@ import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireTenantContext } from "@/lib/tenancy";
+import { NextResponse as TenantResponse } from "next/server";
 
 export const GET = withAuth(async (request, ctx, user) => {
+  // 2026-08-29 起 BlindsOrder 带 orgId：先按组织收口，再叠加原有项目可见性
+  const tenant = await requireTenantContext(request);
+  if (tenant instanceof TenantResponse) return tenant;
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
 
   const projectIds = await getVisibleProjectIds(user.id, user.role);
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { orgId: tenant.orgId };
   if (status) where.status = status;
 
   if (projectIds !== null) {
@@ -34,6 +40,9 @@ export const GET = withAuth(async (request, ctx, user) => {
 });
 
 export const POST = withAuth(async (request, ctx, user) => {
+  const tenant = await requireTenantContext(request);
+  if (tenant instanceof TenantResponse) return tenant;
+
   const body = await request.json();
 
   if (!body.code || !body.customerName) {
@@ -66,8 +75,10 @@ export const POST = withAuth(async (request, ctx, user) => {
         silkRatio: item.silkRatio != null ? Number(item.silkRatio) : null,
         bottomBarWidth:
           item.bottomBarWidth != null ? Number(item.bottomBarWidth) : null,
+        fabricSku: item.fabricSku != null ? String(item.fabricSku) : null,
       };
-      const calc = calculateItem(input);
+      // 新建单一律用当前规则版本
+      const calc = calculateItem(input, RULE_VERSION);
 
       return {
         itemNumber: index + 1,
@@ -81,8 +92,9 @@ export const POST = withAuth(async (request, ctx, user) => {
         controlSide: String(item.controlSide || "R"),
         headrailType: input.headrailType,
         mountType: String(item.mountType || "顶装"),
-        fabricRatio: input.fabricRatio,
-        silkRatio: input.silkRatio,
+        // 布纱比：人工没填时落库目录查出来的值，让工单自带完整工艺参数
+        fabricRatio: calc.fabricRatioUsed,
+        silkRatio: calc.silkRatioUsed,
         bottomBarWidth: input.bottomBarWidth,
         itemRemark: item.itemRemark ? String(item.itemRemark) : null,
         cutHeadrail: calc.cutHeadrail,
@@ -104,6 +116,7 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const order = await db.blindsOrder.create({
     data: {
+      orgId: tenant.orgId,
       code: body.code,
       customerName: body.customerName,
       phone: body.phone || null,

@@ -50,6 +50,7 @@ export const NAV_HREF_MODULES: Record<string, OrgModule[]> = {
   "/sales/cockpit": ["window_covering"],
   "/sales/knowledge": ["sales"],
   "/blinds-orders": ["window_covering"],
+  "/vinyl-orders": ["window_covering"],
   "/inventory": ["window_covering"],
   "/trade": ["trade"],
   "/trade/prospects": ["trade"],

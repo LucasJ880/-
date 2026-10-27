@@ -30,6 +30,10 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/supplier-intel/",
   // Revenue Spine（Mengxin FDE V1）：全部按当前企业隔离
   "/api/revenue/",
+  // Vinyl 工艺单与开启状态编码表：VinylOrder/VinylPanelCode 均按 orgId 隔离
+  "/api/vinyl/",
+  // Blinds 工艺单：2026-08-29 补 orgId 后同样按组织隔离
+  "/api/blinds-orders",
 ];
 
 function isOrgScopedPath(pathname: string): boolean {
