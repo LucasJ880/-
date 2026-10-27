@@ -205,3 +205,9 @@ python3 scripts/sunny-process-oracle/oracle.py --src <原件目录> --all --scan
 | 8 | 状态转换与挪行不串行，确认可能夹在挪行中间 | 已修复：transition 与 PUT 状态都在同一把锁内重读再判门禁 | — |
 | 9 | 分页的行被挪空后分页按钮隐藏，但仍停在空分页 | 已修复：回到总览 | 浏览器 |
 
+### 8.2 Vercel 预览构建内存溢出（合并前）
+
+- 现象：qingyan-staging 预览三次在 `next build --webpack` 编译阶段 OOM（堆 ~6.1GB，撞上 `max-old-space-size=6144`）。
+- 本地实测单进程峰值 RSS：main 8033MB，本分支 8074MB（+0.5%）。main 已顶在上限边缘，本 PR 只是第一个越线的。
+- 处理（Lucas 拍板"上调到 7GB 先试"）：`package.json` build 脚本堆上限 6144 → 7168。上限只决定"最多能用多少"，实际用量不变；若 Vercel 容器因此被 SIGKILL，改回并改用 Enhanced Build Machine。合并后生产构建使用同一值。
+
