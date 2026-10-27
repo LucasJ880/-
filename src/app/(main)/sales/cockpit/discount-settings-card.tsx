@@ -23,6 +23,7 @@ interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
+  romanShade: number;
   sunnyMotorPrice: number;
   minInstallFee: number;
   deliveryFee: number;
@@ -49,6 +50,7 @@ const FIELDS: { key: keyof DiscountsDto; label: string }[] = [
   { key: "sheer", label: "Sheer" },
   { key: "shutters", label: "Shutters" },
   { key: "honeycomb", label: "Skylight Honeycomb" },
+  { key: "romanShade", label: "Roman Shade" },
 ];
 
 const THRESHOLD_FIELDS: { key: "promoWarnPct" | "promoDangerPct" | "promoMaxPct"; label: string; hint: string }[] = [
@@ -97,7 +99,7 @@ const COMMISSION_FIELDS: { key: "commissionMarginRate" | "commissionRate"; label
 
 type NumericDraftKey =
   | "zebra" | "shangrila" | "cellular" | "roller"
-  | "drapery" | "sheer" | "shutters" | "honeycomb"
+  | "drapery" | "sheer" | "shutters" | "honeycomb" | "romanShade"
   | "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
   | "depositWarnPct" | "depositMinPct"
   | "commissionMarginRate" | "commissionRate";
@@ -111,6 +113,7 @@ interface DraftMap {
   sheer: string;
   shutters: string;
   honeycomb: string;
+  romanShade: string;
   promoWarnPct: string;
   promoDangerPct: string;
   promoMaxPct: string;
@@ -136,6 +139,7 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     sheer: Math.round(d.sheer * 100).toString(),
     shutters: Math.round(d.shutters * 100).toString(),
     honeycomb: Math.round(d.honeycomb * 100).toString(),
+    romanShade: Math.round(d.romanShade * 100).toString(),
     promoWarnPct: Math.round(d.promoWarnPct * 100).toString(),
     promoDangerPct: Math.round(d.promoDangerPct * 100).toString(),
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),
