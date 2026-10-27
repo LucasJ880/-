@@ -44,6 +44,7 @@ import {
   TrendingUp,
   Upload,
   Users,
+  Wrench,
 } from "lucide-react";
 import type { NavigationGroup, NavigationItem } from "./types";
 import {
@@ -124,6 +125,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     requireMembership: true,
     matchPaths: ["/ops/projects"],
     displayOrder: 13,
+  },
+  {
+    key: "ws-install",
+    label: "安装任务",
+    href: "/install",
+    icon: Wrench,
+    group: "WORK",
+    moduleKey: "window_covering",
+    workspaceAccess: "install",
+    requireMembership: true,
+    matchPaths: ["/install"],
+    displayOrder: 15,
   },
   {
     key: "ws-bids",

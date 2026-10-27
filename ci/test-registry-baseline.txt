@@ -8,7 +8,6 @@ src/lib/bid-workflow/__tests__/china-supplier-brief.test.ts
 src/lib/bid-workflow/__tests__/schema-drift.test.ts
 src/lib/bid-workflow/__tests__/supplier-link-idempotency.test.ts
 src/lib/blinds/__tests__/cost-rates.test.ts
-src/lib/blinds/__tests__/discount-permissions.test.ts
 src/lib/blinds/__tests__/quote-fees.test.ts
 src/lib/blinds/__tests__/sunny-motor.test.ts
 src/lib/common/__tests__/with-auth-schema-drift.test.ts

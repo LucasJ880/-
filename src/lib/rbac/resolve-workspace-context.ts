@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
 import type { WorkspacePolicyContext } from "@/lib/rbac/workspace-policy";
+import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
 
 const COOKIE_NAME = "qy_session";
 
@@ -35,6 +36,7 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
   let orgRole: string | null = null;
   let hasMembership = false;
   let hasBidCapability = false;
+  let permissionKeys: string[] | null = null;
 
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
@@ -65,6 +67,20 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
       select: { id: true },
     });
     hasBidCapability = Boolean(projectMember);
+
+    // INSTALL-1：岗位权限键（ALLOW）注入工作区策略，用于 /install 等按权限放行的工作区
+    try {
+      const bindings = await resolveEffectiveBindings({
+        type: "HUMAN",
+        id: user.id,
+        orgId: resolved.orgId,
+      });
+      permissionKeys = [
+        ...new Set(bindings.filter((b) => b.effect === "ALLOW").map((b) => b.permissionKey)),
+      ];
+    } catch {
+      permissionKeys = null;
+    }
   }
 
   return {
@@ -75,7 +91,7 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
       enabledModules,
       hasMembership,
       hasBidCapability,
-      permissionKeys: null,
+      permissionKeys,
     },
   };
 }

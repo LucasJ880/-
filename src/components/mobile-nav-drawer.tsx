@@ -59,6 +59,7 @@ export function MobileNavDrawer({
   const [orgRole, setOrgRole] = useState<string | null>(null);
   const [hasMembership, setHasMembership] = useState(false);
   const [hasBidCapability, setHasBidCapability] = useState(false);
+  const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -97,6 +98,7 @@ export function MobileNavDrawer({
           orgRole?: string | null;
           hasMembership?: boolean;
           hasBidCapability?: boolean;
+          permissionKeys?: string[];
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
@@ -104,6 +106,7 @@ export function MobileNavDrawer({
           setOrgRole(data.orgRole ?? null);
           setHasMembership(Boolean(data.hasMembership ?? data.orgRole));
           setHasBidCapability(Boolean(data.hasBidCapability));
+          setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
         }
       } catch {
         /* ignore */
@@ -133,6 +136,7 @@ export function MobileNavDrawer({
       modules: orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      permissionKeys,
       autopilotAllowed: user?.autopilotAllowed === true,
     }),
     [
@@ -145,6 +149,7 @@ export function MobileNavDrawer({
       orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      permissionKeys,
       organizations,
       storedOrgId,
       user?.autopilotAllowed,

@@ -18,15 +18,15 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| P0-1 | 契约 `muse-bridge/v1`：命令/响应/事件 zod schema，fail-closed | — | `src/lib/muse-bridge/contract.ts` | [x] |
-| P0-2 | 开关：`MUSE_BRIDGE_ENABLED` / `MUSE_BRIDGE_INTENTS` / `MUSE_BRIDGE_ORG_ALLOWLIST` | P0-1 | `flags.ts` | [x] |
-| P0-3 | 身份绑定（零 schema：`Organization.settingsJson.museBridge.bindings`）+ membership fail-closed | P0-1 | `binding-pure.ts` / `binding.ts` / `api/organizations/[orgId]/muse-bindings` | [x] |
-| P0-4 | 命令路由：幂等账本（AuditLog, 24h）→ 意图门 → status / ask / approve / reject | P0-1..3 | `router-pure.ts` / `router.ts` / `api/bridge/muse/command` | [x] |
-| P0-5 | 事件出站（Notification 作 outbox，`category=muse_bridge`，sourceKey 幂等）+ 拉取端点 | P0-1 | `events-pure.ts` / `events.ts` / `api/bridge/muse/events` | [x] |
-| P0-6 | 挂钩 ①：PendingAction 创建 → `approval.requested` | P0-5 | `pending-actions/drafts.ts` 末尾 `notifyMuseApprovalRequested` | [x] |
-| P0-7 | 挂钩 ②：分析终态化 → `analysis.ready`（legacy worker FINALIZE + workforce 两个 finalize，三面全接） | P0-5 | `hooks.ts museOnAnalysisFinalized`；`worker.ts` / `tender-workforce/tools.ts` | [x] |
-| P0-8 | 挂钩 ③：inquiry 状态变更 → `reply.received` / `quote.parsed` / `missing_fields` | P0-5 | `hooks.ts museOnInquiryReplied / museOnQuoteRecorded`；`inquiry/service.ts` | [x] |
-| P0-9 | 纯逻辑测试（43 项）；`scripts/test-all.sh` 注册 | P0-1..5 | `__tests__/muse-bridge-pure.test.ts` | [x] |
+| P0-1 | 契约 `muse-bridge/v1`：命令/响应/事件 zod schema，fail-closed | — | `src/lib/muse-bridge/contract.ts` | [x]（#232） |
+| P0-2 | 开关：`MUSE_BRIDGE_ENABLED` / `MUSE_BRIDGE_INTENTS` / `MUSE_BRIDGE_ORG_ALLOWLIST` | P0-1 | `flags.ts` | [x]（#232） |
+| P0-3 | 身份绑定（零 schema：`Organization.settingsJson.museBridge.bindings`）+ membership fail-closed | P0-1 | `binding-pure.ts` / `binding.ts` / `api/organizations/[orgId]/muse-bindings` | [x]（#232） |
+| P0-4 | 命令路由：幂等账本（AuditLog, 24h）→ 意图门 → status / ask / approve / reject | P0-1..3 | `router-pure.ts` / `router.ts` / `api/bridge/muse/command` | [x]（#232） |
+| P0-5 | 事件出站（Notification 作 outbox，`category=muse_bridge`，sourceKey 幂等）+ 拉取端点 | P0-1 | `events-pure.ts` / `events.ts` / `api/bridge/muse/events` | [x]（#232） |
+| P0-6 | 挂钩 ①：PendingAction 创建 → `approval.requested` | P0-5 | `pending-actions/drafts.ts` 末尾 `notifyMuseApprovalRequested` | [x]（#232） |
+| P0-7 | 挂钩 ②：分析终态化 → `analysis.ready`（legacy worker FINALIZE + workforce 两个 finalize，三面全接） | P0-5 | `hooks.ts museOnAnalysisFinalized`；`worker.ts` / `tender-workforce/tools.ts` | [x]（#232） |
+| P0-8 | 挂钩 ③：inquiry 状态变更 → `reply.received` / `quote.parsed` / `missing_fields` | P0-5 | `hooks.ts museOnInquiryReplied / museOnQuoteRecorded`；`inquiry/service.ts` | [x]（#232） |
+| P0-9 | 纯逻辑测试（43 项）；`scripts/test-all.sh` 注册 | P0-1..5 | `__tests__/muse-bridge-pure.test.ts` | [x]（#232；注册进 npm test 见 #241） |
 | P0-10 | ApiToken 种子：`system=muse-bridge`，`permissions=muse:bridge` | — | 运维步骤（见 §验收） | [ ] |
 
 **GATE-0 验收（Claude 审）**
@@ -50,19 +50,22 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| P1-1 | 结构化 RFQ 生成器：从已确认 `TenderExtractedRequirement` 取行项/数量/Incoterm/目的地/交期/回复截止/编号问题清单；两档出站闸 | P0 | `tender-rfq/build.ts`；21 项单测 | [x] |
-| P1-2 | `rfq` 意图：选供应商 → 生成 → ProjectInquiry(draft)+items → PendingAction `tender.send_rfq` → 审批卡 | P1-1 | `tender-rfq/service.ts` + `muse-bridge/router.ts handleRfq`；批准前零出站；无供应商时回候选列表 | [x]（待 GATE-1 联调） |
-| P1-3 | 执行器 `execTenderSendRfq`：只从组织配置邮箱（Organization.settingsJson.tenderRfq / env，默认 project@sunnyshutter.ca，抬头 Qyan-Sunny Purchasing）Gmail 发出 → `markItemSent` → in_progress；payload hash 防篡改；轮次锁（待批/3 天内已发） | P1-2 | `tender-rfq/execute.ts` + `round-pure.ts`；25 项单测 | [x]（待 GATE-1 联调） |
-| P1-4 | 入站解析：邮件 webhook + 附件（PDF/Excel/图片）→ 结构化报价 → `recordQuote`；保留原文片段作证据；缺字段标记（不猜） | P0-8 | 回邮缺有效期 → `quote.parsed` 事件 summary 明说"缺有效期"，`missing_fields` 事件带追问草稿 | [x] |
-| P1-5 | 归一化层：币种、Incoterm → 落地成本（复用 `lib/quote/types.ts` shipping/customs）、MOQ/阶梯价、交期 vs 截标日、有效期 vs 开标日 | P1-4 | 纯函数 + 表驱动测试 ≥ 20 例 | [x] |
-| P1-6 | `compare` 意图：归一化矩阵 + 一句话结论（谁最便宜、谁全合规、谁交期超期） | P1-5 | 响应 ≤ 1200 字，data 带矩阵 | [x] |
-| P1-7 | `chase` 意图 + 催单调度：N 天无回复 → 草稿 → PendingAction → 审批 → 发送；超期自动 `markItemNoResponse` | P1-3 | cron tick 幂等；同 item 一天最多一张催单卡 | [x] |
-| P1-8 | `price_scenario` 意图：比价矩阵 → `tender-pricing.buildScenarios`；输出价格分/盈亏平衡，**不输出毛利** | P1-6 | 脱敏测试通过；情景与 UI 数值一致 | [x] |
+| P1-1 | 结构化 RFQ 生成器：从已确认 `TenderExtractedRequirement` 取行项/数量/Incoterm/目的地/交期/回复截止/编号问题清单；两档出站闸 | P0 | `tender-rfq/build.ts`；21 项单测 | [x]（待 GATE-1 联调；#232） |
+| P1-2 | `rfq` 意图：选供应商 → 生成 → ProjectInquiry(draft)+items → PendingAction `tender.send_rfq` → 审批卡；可带 `incoterm`（#258） | P1-1 | `tender-rfq/service.ts` + `muse-bridge/router.ts handleRfq`；批准前零出站；无供应商时回候选列表 | [x]（待 GATE-1 联调；#232、#258） |
+| P1-3 | 执行器 `execTenderSendRfq`：显示发件人 `fromEmail`（默认 project@sunnyshutter.ca，抬头 Qyan-Sunny Purchasing）、授权邮箱 `mailboxEmail`（#238）从组织设置读取；Gmail 发出（text/plain，#240）→ `markItemSent` → in_progress；payload hash 防篡改；轮次锁（待批/3 天内已发） | P1-2 | `tender-rfq/execute.ts` + `round-pure.ts`；25 项单测 | [x]（待 GATE-1 联调；#232、#238、#240） |
+| P1-4 | 入站解析：Gmail history 游标轮询（cron `tender-rfq-inbound`，每 10 分钟，按 threadId 认领）+ 附件（PDF/Excel/图片）→ 结构化报价 → `recordQuote`；保留原文片段作证据；缺字段标记（不猜） | P0-8 | 回邮缺有效期 → `quote.parsed` 事件 summary 明说"缺有效期"，`missing_fields` 事件带追问草稿 | [x]（待 GATE-1 联调；#234） |
+| P1-5 | 归一化层：币种、Incoterm → 落地成本（复用 `lib/quote/types.ts` shipping/customs）、MOQ/阶梯价、交期 vs 截标日、有效期 vs 开标日 | P1-4 | 纯函数 + 表驱动测试 ≥ 20 例 | [x]（待 GATE-1 联调；#235） |
+| P1-6 | `compare` 意图：归一化矩阵 + 一句话结论（谁最便宜、谁全合规、谁交期超期）；`price_scenario` 意图：比价矩阵 → `tender-pricing.buildScenarios`，输出价格分 / 打平价 / 所选供应商落地价，**不输出毛利率、项目估值、我方最终报价**（决定 A，#237） | P1-5 | 响应 ≤ 1200 字，data 带矩阵；脱敏测试通过 | [x]（待 GATE-1 联调；#235、#237） |
+| P1-7 | `chase` 意图 + 催单调度：N 天无回复 → 草稿 → PendingAction `tender.send_chase` → 审批 → 原询价线程回复发出；催满两次 / 回复截止已过 → 自动 `markItemNoResponse` + `no_response` 事件；缺字段追问（含贸易条款 / 起订量，#258）；未响应后晚到的回信照样入表（#258） | P1-3 | cron tick 幂等；同 item 同一时刻最多一张待批催单卡 | [x]（待 GATE-1 联调；#239、#258） |
+| P1-8 | 建议式回复契约（结论 → 理由 → 下一步）+ `next_step` 意图（确定性查表，零 LLM）+ 个人偏好记忆（常用供应商 / 默认 Incoterm / 催单天数，`preferences` / `set_preference` 意图） | P1-6 | 每条 ok 回复第一行 ≤ 60 字且 `suggestedActions[0]` = 下一步；偏好里不存任何金额 | [x]（待 GATE-1 联调；#236） |
 
 **GATE-1 联调前置（运维）**
-- 用拥有 `project@sunnyshutter.ca` 的人登录青砚 → 设置 → 连接 Gmail（需 gmail.compose）；`EmailProvider.accountEmail` 必须等于该邮箱，发送只认它。
-- `MUSE_BRIDGE_INTENTS=status,ask,approve,reject,rfq` 打开 rfq 意图。
-- 非生产环境 `sendGmail` 受 `assertSideEffectOrThrow("email")` 保护：先在允许副作用的 staging 上用一个自己的测试供应商邮箱验证。
+- 授权邮箱 `mailboxEmail`（lucas@sunnyshutter.ca）的拥有者登录青砚 → 设置 → 连接 Gmail，授权须同时含 gmail.compose（发信）与 gmail.readonly（读回信）；`EmailProvider` 只按组织设置里的 `mailboxEmail` 查找（邮箱分离，#238）。
+- 在 lucas@ 的 Gmail 里把 `project@sunnyshutter.ca` 设为「以此地址发送」并完成验证；否则供应商看到的发件人会被 Gmail 改写成 lucas@。
+- org_admin 调 `PUT /api/organizations/<orgId>/tender-rfq-settings`，body：`{"fromName":"Qyan-Sunny Purchasing","fromEmail":"project@sunnyshutter.ca","mailboxEmail":"lucas@sunnyshutter.ca"}`；staging 与生产各配一次。
+- `MUSE_BRIDGE_INTENTS=status,ask,approve,reject,next_step,preferences,set_preference,rfq,compare,price_scenario,chase`（显式配置不会并入默认集，须写全 11 个），改完重新部署。
+- 非生产环境 `sendGmail` 受 `assertSideEffectOrThrow("email")` 保护：staging 须打开 `QINGYAN_ALLOW_REAL_EMAIL_NON_PROD=1` 与 `QINGYAN_ALLOW_CRON_NON_PROD=1`，并用自己的测试供应商邮箱验证。
+- `staging` 分支已于 2026-10-27 快进同步到 main（含 #232–#240、#258）。
 
 **GATE-1 验收**：从 Muse 说「问三家价」到三家报价进表，人工手录字段数 = 0；全程出站动作全部有 PendingAction 记录；Muse 端消息零敏感字段。
 
@@ -88,7 +91,7 @@
 | P3-1 | server-authored plan（T5 preflight §3 提案）：`createWorkforceJob({ plan })`，`WORKER_STEPS` → `WorkforceTaskSpecV1[]` 纯函数 | Runtime 设计门 | 同一验证路径；`source=server_authored` 可观测 | [ ] |
 | P3-2 | 出站工具 `requiresApproval=true`（send_rfq / chase / 改价 / 锁标），收敛到 ApprovalPort | P1-3 | `tender-workforce/tools.ts` 无 `requiresApproval:false` 的出站工具 | [ ] |
 | P3-3 | 并行度 1 → N；`tender-auto-analysis` 按收敛矩阵包进 workforce adapter | P3-1 | 不新增 queue/lease/scheduler | [ ] |
-| P3-4 | 个人级偏好记忆：常用供应商、默认 Incoterm、催单节奏（存 user settings，零 schema） | P1-7 | `rfq` 不带 supplierIds 时默认取偏好 | [ ] |
+| P3-4 | 个人级偏好记忆：常用供应商、默认 Incoterm、催单节奏（存 `Organization.settingsJson.museBridge.userPrefs`，零 schema） | P1-7 | `rfq` 不带 supplierIds 时默认取偏好 | [x]（随 P1-8 交付，#236） |
 
 ---
 
@@ -121,7 +124,10 @@
 
 1. P0-7 三个 finalize 面全接（已实施）。
 2. `analysis.ready` 收件人 = `Project.ownerId` ∪ run.createdById（与站内通知一致，复用 `resolveFailureRecipients`）。
-3. Phase 1 入站邮件走 **Gmail watch**（P1-4 按 Gmail push notification + history.list 形态设计）。
+3. Phase 1 入站邮件走 **Gmail history 游标轮询**：复用 cron `tender-rfq-inbound`（每 10 分钟），按 threadId 认领回信，游标存 `Organization.settingsJson.tenderRfq.inbound`；不用 Pub/Sub watch，不新增队列（P1-4，#234）。
 4. `museUserRef` = **Muse 用户 id**。
 5. ApiToken 种子：待定（P0-10）。
-6. **决定 B**（2026-10-27，S1）：销售意图只对管理角色（平台 admin / super_admin / boss / manager，或组织 org_owner / org_admin）输出商机金额（`SalesOpportunity.estimatedValue`）；销售角色的响应不带金额。招投标的决定 A 不变。
+6. 决定 A（2026-10-23，#237）：Muse 通道不出的只有毛利率、项目估值、我方最终报价；所选供应商的落地价可以出。`price_scenario` 不把目标毛利传进情景计算，成本线就是落地价本身。
+7. 邮箱分离（2026-10-23，#238）：显示发件人 `fromEmail`（project@）与授权邮箱 `mailboxEmail`（lucas@）是两个设置；授权账号只从组织设置读取，永不取自请求 payload。
+8. 询价 / 催单正文按 text/plain 发出（2026-10-23，#240），换行原样保留；其它调用方仍默认 text/html。
+9. **决定 B**（2026-10-27，S1）：销售意图只对管理角色（平台 admin / super_admin / boss / manager，或组织 org_owner / org_admin）输出商机金额（`SalesOpportunity.estimatedValue`）；销售角色的响应不带金额。招投标的决定 A 不变。

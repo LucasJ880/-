@@ -18,7 +18,7 @@
 
 ## 5. 纪律与文档
 
-- [x] 5.1 `openspec/config.yaml` 第 4 条补决定 B；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 新增 Phase S（S1–S4）与"已决定"第 6 条；`flags.ts` 注释写明两个意图默认不开。verify：`grep -n "决定 B" openspec/config.yaml docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 各至少 1 行；`npx -y @fission-ai/openspec@1.15.0 validate muse-sales-read-intents` 通过。
+- [x] 5.1 `openspec/config.yaml` 第 4 条补决定 B；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 新增 Phase S（S1–S4）与"已决定"第 9 条；`flags.ts` 注释写明两个意图默认不开。verify：`grep -n "决定 B" openspec/config.yaml docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 各至少 1 行；`npx -y @fission-ai/openspec@1.15.0 validate muse-sales-read-intents` 通过。
 
 ## 6. 收尾
 

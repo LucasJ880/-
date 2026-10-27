@@ -144,6 +144,8 @@ function NotificationsContent() {
         router.push(`/tasks/${item.entityId}`);
       } else if (item.entityType === "project" && item.entityId) {
         router.push(`/projects/${item.entityId}`);
+      } else if (item.entityType === "blinds_order" && item.entityId) {
+        router.push(`/blinds-orders/${encodeURIComponent(item.entityId)}`);
       } else if (item.entityType === "sales_quote" && item.entityId) {
         if (item.orgId) persistSelectedOrgId(item.orgId);
         const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";

@@ -12,7 +12,10 @@ import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { canSeeResource } from "@/lib/rbac/data-scope";
 import { getOrgMembership, getProjectMembership } from "@/lib/auth";
-import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
+import { isSuperAdmin, hasOrgRole, isPlatformSuperAdmin } from "@/lib/rbac/roles";
+import { authorize } from "@/lib/authorization";
+import { checkApproverEligibility, hasPermissionHoldersInOrg } from "@/lib/sales/approvers";
+import { loadDiscountsDto, saveDiscountsForOrg, type DiscountSavePatch } from "@/lib/blinds/discount-settings";
 import { onAiInternalNote } from "@/lib/project-discussion/system-events";
 import {
   getEmailProvider,
@@ -26,6 +29,7 @@ import type {
   SalesUpdateFollowupPayload,
   SalesUpdateStagePayload,
   SalesApproveQuotePromotionPayload,
+  SalesUpdateQuoteSettingsPayload,
   CalendarCreateEventPayload,
   InternalNotePayload,
   ProjectTaskPayload,
@@ -384,6 +388,13 @@ export async function executePendingAction(
       case "sales.approve_quote_promotion":
         exec = await execSalesApproveQuotePromotion(
           action.payload as unknown as SalesApproveQuotePromotionPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      case "sales.update_quote_settings":
+        exec = await execSalesUpdateQuoteSettings(
+          action.payload as unknown as SalesUpdateQuoteSettingsPayload,
           ctx,
           action.id,
         );
@@ -959,6 +970,9 @@ async function execSalesApproveQuotePromotion(
     return { ok: false, error: "报价让利审批参数不完整" };
   }
   if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  // PERM-2：批准人资格——不能自批；企业已有人持审批权时须持权（super_admin 例外，自批留痕）
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "sales.quote.discount.over_limit.approve");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
   const quote = await db.salesQuote.findFirst({
     where: { id: payload.quoteId, orgId },
     select: {
@@ -1001,6 +1015,8 @@ async function execSalesApproveQuotePromotion(
       promotionAmount: payload.promotionAmount,
       promotionRatio: payload.promotionRatio,
       maxPct: payload.maxPct,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
     },
   });
   if (payload.requestedById !== ctx.userId) {
@@ -1018,6 +1034,103 @@ async function execSalesApproveQuotePromotion(
     });
   }
   return { ok: true, resultRef: quote.id, message: "超额让利已批准，报价可以发送" };
+}
+
+/**
+ * PERM-2：批准人资格（纯函数 checkApproverEligibility 的 DB 包装）
+ * enforcement = 企业内已有人持该权限（岗位绑定已跑）；否则过渡态只拒自批。
+ */
+async function checkQuoteApprover(
+  ctx: ExecuteContext,
+  orgId: string,
+  requesterId: string | null | undefined,
+  permissionKey: string,
+): Promise<{ ok: true; selfApproved: boolean } | { ok: false; reason: string }> {
+  const isPlatform = isPlatformSuperAdmin(ctx.role);
+  const enforcement = await hasPermissionHoldersInOrg(orgId, permissionKey);
+  const hasPermission = isPlatform
+    ? true
+    : (
+        await authorize({
+          principal: { type: "HUMAN", id: ctx.userId, orgId },
+          orgId,
+          permission: permissionKey,
+        })
+      ).allowed;
+  return checkApproverEligibility({
+    approverId: ctx.userId,
+    requesterId,
+    isPlatformSuperAdmin: isPlatform,
+    hasPermission,
+    enforcement,
+  });
+}
+
+/**
+ * PERM-2：销售设置修改审批执行——批准人校验 → 版本一致 → 落库 → 审计 → 通知提交人
+ */
+async function execSalesUpdateQuoteSettings(
+  payload: SalesUpdateQuoteSettingsPayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId ?? payload.orgId;
+  if (!orgId || payload.resourceType !== "quote_discount_settings" || !payload.requestedById) {
+    return { ok: false, error: "销售设置审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "sales.settings.manage");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
+
+  const current = await loadDiscountsDto(orgId);
+  if (current.version !== payload.settingsVersion) {
+    return { ok: false, error: "销售设置已被其他修改更新，请提交人重新提交" };
+  }
+
+  const patch: DiscountSavePatch = {
+    ...(payload.numericPatch as DiscountSavePatch),
+  };
+  if (payload.costRates !== undefined) patch.costRates = payload.costRates;
+  if (payload.depositOverrideCodeHash !== undefined) patch.depositOverrideCodeHashed = payload.depositOverrideCodeHash;
+  if (payload.lineDiscountUnlockCodeHash !== undefined) patch.lineDiscountUnlockCodeHashed = payload.lineDiscountUnlockCodeHash;
+
+  const after = await saveDiscountsForOrg({ orgId, userId: payload.requestedById, patch });
+
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "quote_settings_updated",
+    targetType: "quote_discount_settings",
+    targetId: orgId,
+    beforeData: { version: current.version },
+    afterData: {
+      version: after.version,
+      numericPatch: payload.numericPatch,
+      ...(payload.costRates !== undefined ? { costRates: payload.costRates } : {}),
+      depositUnlockCodeChanged: payload.depositOverrideCodeHash !== undefined,
+      lineDiscountUnlockCodeChanged: payload.lineDiscountUnlockCodeHash !== undefined,
+      requestedById: payload.requestedById,
+      approvedById: ctx.userId,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
+      actionId,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "quote_settings_approved",
+      category: "approval",
+      title: "销售设置修改已批准并生效",
+      summary: `设置版本 ${after.version} 已生效。`,
+      entityType: "quote_discount_settings",
+      entityId: orgId,
+      priority: "high",
+      sourceKey: `quote-settings:${orgId}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: orgId, message: `销售设置已更新到版本 ${after.version}` };
 }
 
 async function execSalesUpdateFollowup(

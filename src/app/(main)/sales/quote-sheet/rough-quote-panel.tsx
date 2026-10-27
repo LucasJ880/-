@@ -121,6 +121,7 @@ export function RoughQuotePanel({
             sheer: number;
             shutters: number;
             honeycomb: number;
+            romanShade?: number;
           }>("/api/sales/quote-settings/discounts");
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -134,6 +135,7 @@ export function RoughQuotePanel({
                 Sheer: d.sheer,
                 Shutters: d.shutters,
                 SkylightHoneycomb: d.honeycomb,
+                "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
               },
             },
             "*",
@@ -159,6 +161,7 @@ export function RoughQuotePanel({
               sheer: after.Sheer,
               shutters: after.Shutters,
               honeycomb: after.SkylightHoneycomb,
+              romanShade: after["Roman Shade"],
             }),
           });
           const body = await res.json().catch(() => null);
@@ -166,6 +169,8 @@ export function RoughQuotePanel({
             {
               type: "QINGYAN_DISCOUNT_SAVE_RESULT",
               success: res.ok,
+              // PERM-2：202 = 已提交审批，当前生效值不变
+              pending: res.status === 202 && !!body?.pending,
               error: res.ok ? null : body?.error || "保存失败",
             },
             "*",

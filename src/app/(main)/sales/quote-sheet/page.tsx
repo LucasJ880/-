@@ -201,6 +201,8 @@ function QuoteSheetPageInner() {
   const [promotionApprovalExpiresAt, setPromotionApprovalExpiresAt] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatedFlash, setGeneratedFlash] = useState<string | null>(null);
+  /** 签字后自动生成的草稿工艺单（mark-signed 回传） */
+  const [processOrderLink, setProcessOrderLink] = useState<{ id: string; code: string; blockingCount?: number } | null>(null);
   // 发送 Quote 弹窗（让销售选择：发邮件 / 本地保存 PDF）
   const [sendQuoteOpen, setSendQuoteOpen] = useState(false);
   const [sendQuoteBusy, setSendQuoteBusy] = useState<null | "email" | "local">(null);
@@ -378,6 +380,7 @@ function QuoteSheetPageInner() {
         const d = await apiJson<{
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
+          romanShade?: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -393,6 +396,7 @@ function QuoteSheetPageInner() {
           Sheer: d.sheer,
           Shutters: d.shutters,
           SkylightHoneycomb: d.honeycomb,
+          "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
         });
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
@@ -1253,6 +1257,7 @@ function QuoteSheetPageInner() {
     }
 
     setGenerating(true);
+    setProcessOrderLink(null);
     try {
       const saved = await handleSave();
       if (!saved?.quoteId) {
@@ -1274,6 +1279,8 @@ function QuoteSheetPageInner() {
           const data = await res.json().catch(() => ({}));
           if (res.ok) {
             stageAdvanced = Boolean(data.stageAdvanced);
+            const po = data.processOrder as { id?: string; code?: string; blockingCount?: number } | undefined;
+            if (po?.id && po.code) setProcessOrderLink({ id: po.id, code: po.code, blockingCount: po.blockingCount });
           } else {
             const msg = data?.error || `HTTP ${res.status}`;
             console.error("mark-signed failed:", data);
@@ -1310,7 +1317,8 @@ function QuoteSheetPageInner() {
           ? "订单已生成 · 客户状态已更新为「已成单」"
           : "订单已生成 · Order Form PDF 已导出",
       );
-      setTimeout(() => setGeneratedFlash(null), 5000);
+      // 带工艺单链接时多留几秒，便于点开核对
+      setTimeout(() => setGeneratedFlash(null), 10000);
     } catch (err) {
       console.error("Generate order failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -2091,6 +2099,12 @@ function QuoteSheetPageInner() {
         >
           <CheckCircle className="h-4 w-4" />
           {generatedFlash}
+          {processOrderLink && (
+            <a href={`/blinds-orders/${processOrderLink.id}`} className="underline underline-offset-2">
+              工艺单草稿 {processOrderLink.code}
+              {processOrderLink.blockingCount ? `（${processOrderLink.blockingCount} 项待补）` : ""}
+            </a>
+          )}
         </div>
       )}
 

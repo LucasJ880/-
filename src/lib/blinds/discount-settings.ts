@@ -28,6 +28,7 @@ const FIELD_TO_PRODUCT: Record<string, ProductName> = {
   sheer: "Sheer",
   shutters: "Shutters",
   honeycomb: "SkylightHoneycomb",
+  romanShade: "Roman Shade",
 };
 
 export const PRODUCT_TO_FIELD: Record<ProductName, string> = Object.fromEntries(
@@ -47,6 +48,7 @@ export interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
+  romanShade: number;
   sunnyMotorPrice: number;
   /** 最低安装费（CAD）：installation 模式下行内安装费不足时补足到此金额 */
   minInstallFee: number;
@@ -80,6 +82,7 @@ const PRODUCT_KEYS = [
   "sheer",
   "shutters",
   "honeycomb",
+  "romanShade",
 ] as const;
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
 const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
@@ -197,6 +200,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       sheer: DEFAULT_DISCOUNTS.Sheer,
       shutters: DEFAULT_DISCOUNTS.Shutters,
       honeycomb: DEFAULT_DISCOUNTS.SkylightHoneycomb,
+      romanShade: DEFAULT_DISCOUNTS["Roman Shade"],
       sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
       minInstallFee: INSTALL_RULES.minimumTotal,
       deliveryFee: DEFAULT_DELIVERY_FEE,
@@ -228,6 +232,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     sheer: row.sheer,
     shutters: row.shutters,
     honeycomb: row.honeycomb,
+    romanShade: row.romanShade,
     sunnyMotorPrice: row.sunnyMotorPrice,
     minInstallFee: row.minInstallFee,
     deliveryFee: row.deliveryFee,
@@ -257,6 +262,9 @@ export type DiscountSavePatch = Partial<
   depositOverrideCodePlain?: string | null;
   /** 明文入参；落库前哈希到 lineDiscountUnlockCodeHash */
   lineDiscountUnlockCodePlain?: string | null;
+  /** PERM-2：已哈希入参（审批执行器用；与明文字段互斥，明文优先）；null=清空 */
+  depositOverrideCodeHashed?: string | null;
+  lineDiscountUnlockCodeHashed?: string | null;
 };
 
 export async function saveDiscountsForOrg(params: {
@@ -273,6 +281,8 @@ export async function saveDiscountsForOrg(params: {
   const {
     depositOverrideCodePlain,
     lineDiscountUnlockCodePlain,
+    depositOverrideCodeHashed,
+    lineDiscountUnlockCodeHashed,
     costRates,
     ...numericPatch
   } = params.patch;
@@ -280,6 +290,13 @@ export async function saveDiscountsForOrg(params: {
   const data: Record<string, unknown> = { ...numericPatch };
   if (costRates !== undefined) {
     data.costRatesJson = costRates;
+  }
+
+  if (depositOverrideCodePlain === undefined && depositOverrideCodeHashed !== undefined) {
+    data.depositOverrideCode = depositOverrideCodeHashed;
+  }
+  if (lineDiscountUnlockCodePlain === undefined && lineDiscountUnlockCodeHashed !== undefined) {
+    data.lineDiscountUnlockCodeHash = lineDiscountUnlockCodeHashed;
   }
 
   if (depositOverrideCodePlain !== undefined) {
@@ -334,6 +351,7 @@ export async function saveDiscountsForOrg(params: {
       sheer: updated.sheer,
       shutters: updated.shutters,
       honeycomb: updated.honeycomb,
+      romanShade: updated.romanShade,
       sunnyMotorPrice: updated.sunnyMotorPrice,
       minInstallFee: updated.minInstallFee,
       deliveryFee: updated.deliveryFee,

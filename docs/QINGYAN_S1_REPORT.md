@@ -19,7 +19,7 @@
   - `opportunity_status` 的 data 分开返回 CRM 事实（带 `updatedAt` 作记录版本）、最近 5 条互动（敏感摘要整段脱敏）、未结束行动（标逾期）、Revenue Spine 建议（标来源）、优先级理由、`unverified`、`employeeConfirmations: []`。
 - `src/lib/muse-bridge/sales.ts`（取数）：所有查询带 `orgId`，销售角色加 `assignedToId`；跨范围与不存在同一口径 `OPPORTUNITY_NOT_FOUND`；停滞阈值读组织 Revenue Spine policy。
 - `router.ts` 只加两个 case 与一个 `salesResponse`；沿用既有账本、意图门、建议式回复与整段脱敏。
-- 纪律与文档：`openspec/config.yaml` 第 4 条补决定 B；TASKFLOW 新增 Phase S（S1–S4）与"已决定"第 6 条；`flags.ts` 注释。
+- 纪律与文档：`openspec/config.yaml` 第 4 条补决定 B；TASKFLOW 新增 Phase S（S1–S4）与"已决定"第 9 条；`flags.ts` 注释。
 
 ## 2. 怎么验
 

@@ -6,6 +6,7 @@ import { isSuperAdmin } from "@/lib/rbac/roles";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
+import { generateForSignedQuote } from "@/lib/sunny-process/server";
 
 /**
  * POST /api/sales/quotes/[quoteId]/mark-signed
@@ -13,6 +14,7 @@ import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
  * 现场销售看到客户当面签字后调用：
  *   1) 把 SalesQuote 标记为 signed（记录签名时间）
  *   2) 通过 onQuoteSigned 把关联的 Opportunity 推进到 stage=signed（已成单），并回填 wonAt
+ *   3) 自动生成草稿工艺单（幂等；失败不影响签字，结果在 processOrder 里回传）
  */
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
@@ -74,11 +76,14 @@ export const POST = withAuth(async (request, ctx, user) => {
     return null;
   });
 
+  const processOrder = await generateForSignedQuote(quoteId);
+
   return NextResponse.json({
     ok: true,
     quoteId,
     opportunityId: quote.opportunityId,
     stageAdvanced: lifecycle?.advanced ?? false,
     newStage: lifecycle?.newStage ?? null,
+    processOrder,
   });
 });
