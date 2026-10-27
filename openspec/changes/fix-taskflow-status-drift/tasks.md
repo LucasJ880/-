@@ -12,7 +12,8 @@
 
 ## 3. 收尾
 
-- [ ] 3.1 全量回归与规格校验。verify：`npm test` 中"测试注册校验"项与新增 2 项 PASS（其余失败项若有，逐条确认与本 change 无关并记录在 PR 描述）；`NODE_OPTIONS=--max-old-space-size=7168 npm run typecheck` 退出 0；`npx -y @fission-ai/openspec@1.15.0 validate fix-taskflow-status-drift` 通过。
+- [x] 3.1 全量回归与规格校验。verify：`npm test` 中"测试注册校验"项与新增 2 项 PASS（其余失败项若有，逐条确认与本 change 无关并记录在 PR 描述）；`NODE_OPTIONS=--max-old-space-size=7168 npm run typecheck` 退出 0；`npx -y @fission-ai/openspec@1.15.0 validate fix-taskflow-status-drift` 通过。
+  - 实测（2026-10-27，本地 Postgres 未运行）：`npm test` 415/431；新增 2 项与「测试注册校验」PASS。16 个失败均与本 change 无关：12 项连不上 localhost:5432（DB 套件，含 T4）、test-all 内 tsc 默认堆 OOM（`npm run typecheck` 7GB 堆退出 0）、Gmail Draft OAuth Compose Scope 与 PDF 分页布局两项与 SDD-0 报告记录的既有失败相同。`openspec validate --strict` 通过。
 
 ## Workflow follow-up
 

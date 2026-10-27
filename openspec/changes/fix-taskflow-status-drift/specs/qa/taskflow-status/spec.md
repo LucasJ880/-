@@ -22,7 +22,7 @@ TASKFLOW 表中状态为 `[x]` 的任务行 SHALL 在状态列或验收列写出
 - **THEN** 状态为 `[x]`，写明随 P1-8（#236）交付，存储位置为 `Organization.settingsJson.museBridge.userPrefs`
 
 ### Requirement: 任务描述与实际交付一致
-TASKFLOW 任务行的描述 SHALL 与该行引用的 PR 实际交付的内容一致；同一项交付 SHALL NOT 同时出现在两个任务行的描述里，也 SHALL NOT 出现在不是交付它的那个任务行里。
+TASKFLOW 任务行的描述 SHALL 与该行引用的 PR 实际交付的内容一致；同一项交付 SHALL NOT 作为两个任务行各自的交付出现，也 SHALL NOT 出现在不是交付它的那个任务行里。例外：计划中的任务行被另一行提前交付时，该行 SHALL 在状态列写明「随 <另一行 ID> 交付」与对应 PR，而不是重复记一次交付。
 
 #### Scenario: P1-8 描述实际交付
 - **WHEN** 读取 TASKFLOW Phase 1 表的 P1-8 行
