@@ -14,15 +14,16 @@
 
 | change | 状态 | PR |
 |---|---|---|
-| `perm-1-positions` | 代码完成、8/8 tasks 打勾、测试全绿；待 PR → 合并 → archive | 待开 |
-| `perm-2-discount-by-position` | 未开始 | — |
+| `perm-1-positions` | 已合并 main；待 archive | #264 ✅ |
+| `perm-2-discount-by-position` | 代码完成、11/11 tasks 打勾、typecheck / lint / test:ci 全绿；待 PR → 合并 → archive | 待开 / 见 git log |
 
 ## 下一步（按顺序）
 
-1. PERM-1：若 PR 还没开，在分支 `claude/youthful-davinci-8n1we3` 上 `git log` 确认提交后开 PR；CI 绿合并；再 `/opsx:archive perm-1-positions --yes`（独立小 PR），TASKFLOW PERM-1 改 `[x]`。
-2. 合并后生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板；补 `config/positions/sunny.json` 邮箱；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）。
-3. PERM-2：`/opsx:propose perm-2-discount-by-position`（任务书 PERM-2 部分 + 设计稿 §4、§5 C2 / C3 / C7；另加：从 `org_owner` 系统模板移除 `identity.member.manage` / `identity.role.manage` / `authorization.policy.manage`，见 PERM-1 报告 §4-1）→ 自审 → `/opsx:apply` → `npm test` → `/opsx:verify` → PR → 合并 → archive。
-4. 交叉测试与报告 `docs/QINGYAN_PERM-1-2_REPORT.md`。
+1. PERM-2：PR 开在 `claude/youthful-davinci-8n1we3`（从 #264 后的 main 重建）；CI 绿合并。
+2. 合并后一个独立小 PR：`/opsx:bulk-archive`（或分别 `/opsx:archive perm-1-positions --yes` 与 `perm-2-discount-by-position --yes`），确认 `openspec list --specs` 出现 7 个新能力；TASKFLOW PERM-1 / PERM-2 改 `[x]`。
+3. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板；补 `config/positions/sunny.json` 邮箱；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
+4. 交叉测试与报告 `docs/QINGYAN_PERM-1-2_REPORT.md`：全量 `npm test`、`npm run build`，按岗位走查（步骤见 PERM-2 报告 §4-3）。
+5. PERM-3 起：先写任务书（设计稿 §6），再 `/opsx:propose`。
 
 ## 环境注意
 

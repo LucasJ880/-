@@ -14,13 +14,13 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-1 | Sunny 岗位模板 + Permission Registry 新 key + `scripts/bind-positions.ts` 绑定脚本 + 平台管理员全权解析 | #260 | change `perm-1-positions`；`config/positions/sunny.json`；`docs/QINGYAN_PERM-1_REPORT.md` | [G] |
+| PERM-1 | Sunny 岗位模板 + Permission Registry 新 key + `scripts/bind-positions.ts` 绑定脚本 + 平台管理员全权解析 | #260 | change `perm-1-positions`；`config/positions/sunny.json`；`docs/QINGYAN_PERM-1_REPORT.md` | [x]（#264，待 archive） |
 
 ## PERM-2 — 折扣 / 审批 / 解锁码 / 发送按岗位
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-2 | 折扣三档（销售上限 / 合价 35% / 老板互审）；折扣表修改走 PendingAction；三处发送出口拦超限未批；成员管理仅平台管理员 | PERM-1 | change `perm-2-discount-by-position` | [ ] |
+| PERM-2 | 折扣三档（销售上限 / 合价 35% / 老板互审）；折扣表修改走 PendingAction；三处发送出口拦超限未批；成员管理仅平台管理员 | PERM-1 | change `perm-2-discount-by-position`；`docs/QINGYAN_PERM-2_REPORT.md` | [G] |
 
 ## PERM-3 — 出单按品类
 

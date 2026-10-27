@@ -169,6 +169,8 @@ export function RoughQuotePanel({
             {
               type: "QINGYAN_DISCOUNT_SAVE_RESULT",
               success: res.ok,
+              // PERM-2：202 = 已提交审批，当前生效值不变
+              pending: res.status === 202 && !!body?.pending,
               error: res.ok ? null : body?.error || "保存失败",
             },
             "*",
