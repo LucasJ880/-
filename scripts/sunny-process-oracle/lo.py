@@ -82,6 +82,13 @@ class Workbook:
         else:
             c.setString(str(value))
 
+    def set_formula(self, sheet, cell, formula):
+        # XCell.setFormula 走 API 语法：英文函数名、分号分隔
+        self.sheet(sheet).getCellRangeByName(cell).setFormula(formula.replace(",", ";"))
+
+    def is_formula(self, sheet, cell):
+        return self.sheet(sheet).getCellRangeByName(cell).Type.value == CELL_FORMULA
+
     def clear(self, sheet, rng):
         # VALUE(1)|DATETIME(2)|STRING(4)：只清常量，保留公式
         self.sheet(sheet).getCellRangeByName(rng).clearContents(1 | 2 | 4)

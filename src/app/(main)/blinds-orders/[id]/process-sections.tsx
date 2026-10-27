@@ -284,7 +284,7 @@ export function DrapesSection({ spec, onChange, editable, issues }: SectionProps
         rows={spec.drapes} cols={DRAPE_COLS} editable={editable} issues={issues} section="drapes"
         onChange={(drapes) => onChange({ ...spec, drapes })}
         results={computed.map((r) => [r.widthCm, r.heightCm, r.pleatTopCm || null, r.finishedWidthCm, r.finishedHeightCm, r.beadBagCount || null, r.beadClip])}
-        resultCols={["宽cm", "成品高cm", "韩褶上端cm", "成品宽cm/扇", "成品帘高cm", "走珠布袋/扇", "走珠扣"]}
+        resultCols={["宽cm", "成品高cm", "韩褶上端cm", "成品宽cm/扇", "成品帘高cm(−2)", "走珠布袋/扇", "走珠扣"]}
         newRow={(): DrapeSpecRow => ({ location: "", part: "drape", widthIn: 0, heightIn: 0, sku: "", qty: 1, craft: "蛇型R", layer: "布", liner: "否", fullness: 1.8, mount: "顶装C", rod: "", rodColor: "" })}
       />
       <div className="text-xs text-muted">

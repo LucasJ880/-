@@ -26,15 +26,41 @@ FIXTURES = os.path.join(REPO, "src", "lib", "sunny-process", "__tests__", "fixtu
 SOURCES = {
     "blinds": "85d45d6277624e35091b5e433e828cdde4d58c103bbc2319f29c6a4d56871e0c",
     "domestic": "32830359e00d273b0d35ad60dda36b2776673cf934051c9f601709a438cf1f90",
-    "drapes-6cm": "9ec1b57e7ba9f344757fc54e4fdbcefd2038a2c19e7542a181ed77508e1b0586",
+    # 6cm 改用新版模板（真实订单 G1024 所在工作簿，2026-10-26；成品高按 cm 扣减 + ROUND）。
+    # 旧版 6cm 原件 9ec1b57e…（2025-09-18，按英寸扣减 + ROUNDDOWN）已退役，见报告 §3.4。
+    "drapes-6cm": "c10789aba32e3134abfaeb8535f1297130858d76e1bb52fec1a1d3201485f886",
+    # 7cm 仍是旧版原件；新版公式由 PATCHES 按拍板（U-1）写入后重算
     "drapes-7cm": "acb309364313d09736f78d8e738e91d25c32b54cfc819566db2a5f84bd5312a8",
     "vinyl": "70fc3cdb5c9535cbfbf352169eb851e2ebbde4405b05f4c2e3f249f0398ef13c",
+}
+
+# 真实订单（只读已保存的值，不写输入、不重算）——回归对照用
+REAL_ORDERS = {
+    "G0927": ("domestic", "f6ffe11ad373ae925329c78b727138ae1dcfad9e0add217c7f2b7902f05ff457"),
+    "G1024": ("drapes-6cm", "c10789aba32e3134abfaeb8535f1297130858d76e1bb52fec1a1d3201485f886"),
+    "G1025": ("drapes-6cm", "f76a3119780dd8df41c9a80d2c7da2ae4311185ebe9ac60968f3f8c1d7e421af"),
+}
+
+DRAPE_ROWS = range(5, 20)
+DRAPE_HEIGHT_NEW = ('=IF(D{r}>0,ROUND(D{r}*2.54-IF(R{r}="顶装C",6,IF(OR(S{r}="方单轨",S{r}="圆单轨"),8,'
+                    'IF(S{r}="圆双轨",9,IF(S{r}="方双轨",6,0)))),0),0)')
+DRAPE_FINISHED_MINUS2 = "=IF(F{r}>0,F{r}-2,0)"
+
+# 拍板后写进原件再重算的公式补丁（夹具 source.patches 里逐条记录）
+PATCHES = {
+    "drapes-6cm": [
+        ("U-1 成品帘子高 = 成品高 − 2cm（韩褶 / 蛇形一样）", "工艺单", "I{r}", DRAPE_FINISHED_MINUS2, DRAPE_ROWS),
+    ],
+    "drapes-7cm": [
+        ("U-1 成品高改用新版公式（cm 扣减 + ROUND，同 6cm 新版）", "工艺单", "F{r}", DRAPE_HEIGHT_NEW, DRAPE_ROWS),
+        ("U-1 成品帘子高 = 成品高 − 2cm（韩褶 / 蛇形一样）", "工艺单", "I{r}", DRAPE_FINISHED_MINUS2, DRAPE_ROWS),
+    ],
 }
 
 SOURCE_TITLES = {
     "blinds": "Blinds 工艺单_圆盒侧盖加厚标准版（20241007 新）",
     "domestic": "Blinds 国内下单表（斑马帘 卷帘 香格里拉帘 蜂窝帘 梦幻帘）1",
-    "drapes-6cm": "6cm 窗帘工艺单（Drapes and Sheer）",
+    "drapes-6cm": "6cm 窗帘工艺单（Drapes and Sheer）新版 · G1024-02R4S8AL139-458",
     "drapes-7cm": "7cm 窗帘工艺单（Drapes and Sheer）",
     "vinyl": "Vinyl shutters 工艺单 AIV1（整合版）",
 }
@@ -48,17 +74,32 @@ def sha256(path):
     return h.hexdigest()
 
 
-def find_sources(src_dir):
+SPREADSHEET_EXT = (".xlsx", ".xls", ".et")
+
+
+def find_sources(src_dir, table=None):
+    """按 SHA-256 识别；table = {key: sha}（默认 SOURCES）。"""
+    table = table or SOURCES
     found = {}
     for name in sorted(os.listdir(src_dir)):
         p = os.path.join(src_dir, name)
-        if not name.lower().endswith(".xlsx") or not os.path.isfile(p):
+        if not name.lower().endswith(SPREADSHEET_EXT) or not os.path.isfile(p):
             continue
         digest = sha256(p)
-        for key, want in SOURCES.items():
+        for key, want in table.items():
             if digest == want:
                 found[key] = p
     return found
+
+
+def apply_patches(wb, name):
+    applied = []
+    for label, sheet, cell, formula, rows in PATCHES.get(name, []):
+        for r in rows:
+            wb.set_formula(sheet, cell.format(r=r), formula.format(r=r))
+        applied.append({"label": label, "sheet": sheet, "cells": f"{cell.format(r=rows[0])}:{cell.format(r=rows[-1])}",
+                        "formula": formula.format(r=rows[0])})
+    return applied
 
 
 def sixteenth(rng, lo_in, hi_in):
@@ -72,10 +113,13 @@ def norm(v):
     return v
 
 
-def write_fixture(name, path, cases, extra=None):
+def write_fixture(name, path, cases, extra=None, patches=None):
     os.makedirs(FIXTURES, exist_ok=True)
+    source = {"title": SOURCE_TITLES[name], "sha256": SOURCES[name]}
+    if patches:
+        source["patches"] = patches
     doc = {
-        "source": {"title": SOURCE_TITLES[name], "sha256": SOURCES[name]},
+        "source": source,
         "generator": "scripts/sunny-process-oracle/oracle.py",
         "cases": cases,
     }
@@ -347,6 +391,7 @@ def run_drapes(sess, path, name):
     rng = random.Random(6 if name == "drapes-6cm" else 7)
     count_col = "W" if name == "drapes-6cm" else "V"
     wb = sess.open(path)
+    patches = apply_patches(wb, name)
     cases = []
     for ci in range(40):
         rows = []
@@ -387,7 +432,74 @@ def run_drapes(sess, path, name):
         cases.append({"id": f"{'C6' if name == 'drapes-6cm' else 'C7'}-{ci + 1:03d}",
                       "input": {"rows": rows}, "expected": {"rows": exp_rows, "totals": totals}})
     wb.close()
-    write_fixture(name, path, cases)
+    write_fixture(name, path, cases, patches=patches)
+
+
+def read_drape_order(wb):
+    rows, saved = [], []
+    cols = {"widthIn": "C", "heightIn": "D", "sku": "J", "qty": "K", "craft": "L", "layer": "M",
+            "liner": "N", "fullness": "Q", "mount": "R", "rod": "S", "rodColor": "T"}
+    for k, rr in enumerate(DRAPE_ROWS):
+        if wb.get("工艺单", f"C{rr}") in (None, ""):
+            continue
+        g = lambda c: wb.get("工艺单", f"{c}{rr}")  # noqa: E731
+        m = lambda c: wb.get("Sheet1", f"{c}{3 + k}")  # noqa: E731
+        rows.append({key: ("" if g(col) is None else g(col)) for key, col in cols.items()} | {"code": g("B") or ""})
+        saved.append({
+            "widthCm": g("E"), "heightCm": g("F"), "pleatTopCm": g("G"), "finishedWidthCm": g("H"),
+            "finishedHeightCm": g("I"), "finishedHeightIsFormula": wb.is_formula("工艺单", f"I{rr}"),
+            "beadBagCount": g("O"), "beadClip": g("P"), "beadCount": g("W"),
+            "materials": {"rodM": m("B"), "fabricSqm": m("C"), "beadBagM": m("D"), "hooks": m("E"),
+                          "pleatBeads": m("F")},
+        })
+    totals = {k: wb.get("Sheet1", f"{c}18") for k, c in
+              (("rodM", "B"), ("fabricSqm", "C"), ("beadBagM", "D"), ("hooks", "E"), ("pleatBeads", "F"))}
+    return {"orderNo": wb.get("工艺单", "C2"), "rows": rows}, {"rows": saved, "totals": totals}
+
+
+def read_domestic_order(wb):
+    rows, saved = [], []
+    cols = {"code": "B", "widthIn": "C", "heightIn": "D", "productType": "G", "sku": "H", "measure": "I",
+            "control": "J", "side": "K", "headrail": "L", "mount": "M", "remark": "N"}
+    for rr in range(6, 58):
+        if wb.get("工艺单", f"C{rr}") in (None, "") and wb.get("工艺单", f"B{rr}") in (None, ""):
+            continue
+        rows.append({key: ("" if wb.get("工艺单", f"{col}{rr}") is None else wb.get("工艺单", f"{col}{rr}"))
+                     for key, col in cols.items()})
+        saved.append({"widthCm": wb.get("工艺单", f"E{rr}"), "heightCm": wb.get("工艺单", f"F{rr}"),
+                      "sqm": wb.get("工艺单", f"P{rr}")})
+    labels = []
+    for k in range(52):
+        lines = [wb.get("LABEL PRINT", f"A{4 * k + j}") for j in range(1, 5)]
+        if not any(lines):
+            break
+        labels.append(lines)
+    order_no = wb.get("工艺单", "C2")
+    return {"orderNo": order_no, "rows": rows}, {"rows": saved, "labels": labels}
+
+
+def run_real_orders(sess, src_dir):
+    """真实订单：原样打开、只读保存值（不改输入、不打补丁）。"""
+    found = find_sources(src_dir, {k: sha for k, (_, sha) in REAL_ORDERS.items()})
+    missing = [k for k in REAL_ORDERS if k not in found]
+    if missing:
+        print("missing real orders (by sha256):", ", ".join(missing))
+        sys.exit(2)
+    cases = []
+    for key, (kind, digest) in REAL_ORDERS.items():
+        wb = sess.open(found[key])
+        inp, saved = read_domestic_order(wb) if kind == "domestic" else read_drape_order(wb)
+        wb.close()
+        cases.append({"id": key, "kind": kind, "sha256": digest, "input": inp, "saved": saved})
+        print(f"  {key}: {kind} {len(inp['rows'])} 行")
+    os.makedirs(FIXTURES, exist_ok=True)
+    out = os.path.join(FIXTURES, "real-orders.json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump({"source": {"title": "Sunny 真实订单（G0927 梦幻帘 / G1024 蛇形 / G1025 韩褶）", "sha256": "per-case"},
+                   "generator": "scripts/sunny-process-oracle/oracle.py --real-orders", "cases": cases},
+                  f, ensure_ascii=False, separators=(",", ":"))
+        f.write("\n")
+    print(f"  wrote {os.path.relpath(out, REPO)} ({len(cases)} cases)")
 
 
 # ─────────────────────────── Vinyl ───────────────────────────
@@ -474,6 +586,7 @@ def vinyl_case(rng, ci):
 def run_vinyl(sess, path):
     rng = random.Random(30)
     wb = sess.open(path)
+    patches = apply_patches(wb, name)
     cases = []
     for ci in range(40):
         header, windows = vinyl_case(rng, ci)
@@ -526,6 +639,7 @@ def main():
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--only", default="")
     ap.add_argument("--scan-blinds-slots", action="store_true")
+    ap.add_argument("--real-orders", action="store_true", help="同时读取 REAL_ORDERS 里的真实订单")
     ap.add_argument("--port", type=int, default=2011)
     args = ap.parse_args()
     found = find_sources(args.src)
@@ -549,6 +663,9 @@ def main():
         if args.scan_blinds_slots:
             print("[blinds slots]")
             scan_blinds_slots(sess, found["blinds"])
+        if args.real_orders:
+            print("[real orders]")
+            run_real_orders(sess, args.src)
     finally:
         sess.close()
 

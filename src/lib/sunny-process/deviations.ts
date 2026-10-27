@@ -13,6 +13,8 @@ export interface Deviation {
   systemZh: string;
   /** 是否需要 Lucas 拍板（true = 系统先按更安全的一侧做，待确认） */
   needsDecision: boolean;
+  /** 已拍板的记录（日期 + 原话），needsDecision=false 且来自拍板时填写 */
+  decidedZh?: string;
 }
 
 export const DEVIATIONS: readonly Deviation[] = [
@@ -22,7 +24,8 @@ export const DEVIATIONS: readonly Deviation[] = [
     titleZh: "拉绳长度只算普通操控",
     excelZh: "《开料表（布料）》J/K 列对所有操控方式都按 高×2×3/4×0.0254 计拉绳与绳套",
     systemZh: "仅普通操控计拉绳与绳套；无绳 / 电动为空（与工艺组装 K 列拉绳分档只对普通生效一致）",
-    needsDecision: true,
+    needsDecision: false,
+    decidedZh: "2026-10-27 Lucas：不用算拉绳米数",
   },
   {
     id: "X-2",
@@ -55,6 +58,15 @@ export const DEVIATIONS: readonly Deviation[] = [
     excelZh: "第 1 窗位 G3 的 2.5\" 分支把 4/2 写作 LRTR/LLR/LIR，其余 29 个窗位写作 LRTR/LTLR/LIR",
     systemZh: "2.5\" 分支取两者并集（LRTR/LLR/LIR/LTLR → 4/2）；对照只用第 2–30 窗位的写法校验 LTLR、用第 1 窗位校验 LLR",
     needsDecision: false,
+  },
+  {
+    id: "X-6",
+    workbook: "drapes",
+    titleZh: "成品帘子高统一减 2cm",
+    excelZh: "工艺单 I 列 = F 列（成品高原样带过来）；真实订单 G1025 由人工把 268 改成 266，G1024 未改",
+    systemZh: "成品帘子高 = 成品高 − 2cm，韩褶与蛇形一样；布料平方随之按减后的高计算。对照夹具在原件 I 列写入同一公式后重算（夹具 source.patches 有记录）",
+    needsDecision: false,
+    decidedZh: "2026-10-27 Lucas：测量尺寸是268，所有帘子我们默认减2cm，韩褶和蛇形是一样的",
   },
 ];
 

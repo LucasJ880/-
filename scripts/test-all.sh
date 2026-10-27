@@ -182,6 +182,7 @@ run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra �
 run_test "Sunny 工艺单 Blinds × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts"
 run_test "Sunny 工艺单 国内下单 × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts"
 run_test "Sunny 工艺单 窗帘 6cm/7cm × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts"
+run_test "Sunny 工艺单 真实订单回归（G0927 / G1024 / G1025）" "npx tsx src/lib/sunny-process/__tests__/real-orders.test.ts"
 run_test "Sunny 工艺单 Vinyl 百叶 × 原件逐值对照（单窗/下料总表/标签）" "npx tsx src/lib/sunny-process/__tests__/vinyl-oracle.test.ts"
 run_test "Sunny 工艺单 报价映射与待核对" "npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts"
 run_test "Sunny 工艺单 签字自动生成（幂等/并发/失败隔离/门禁）" "npx tsx src/lib/sunny-process/__tests__/autogen.test.ts"
