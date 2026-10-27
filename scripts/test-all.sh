@@ -77,6 +77,9 @@ run_test "邮件转发入站 DB 端到端(isolated)" "npx tsx src/lib/trade/__te
 run_test "电话 E.164 归一/比对 + 来源渠道映射" "npx tsx src/lib/revenue-spine/__tests__/phone-match.test.ts"
 run_test "WhatsApp 来信进 Revenue Spine 映射/批次/路由契约" "npx tsx src/lib/trade/__tests__/whatsapp-inbound.test.ts"
 run_test "WhatsApp/微信来信进 Revenue Spine DB 端到端(isolated)" "NODE_ENV=test npx tsx src/lib/trade/__tests__/channels-to-spine-db.isolated.test.ts"
+# 通道入站标识（WhatsApp phoneNumberId / 公众号原始 ID）跨组织唯一（fix-taskflow-status-drift 补注册）
+run_test "通道入站标识 跨组织唯一 纯函数" "npx tsx src/lib/trade/__tests__/inbound-org.test.ts"
+run_test "通道入站标识 跨组织唯一 DB 测试（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts"
 run_test "厂家入驻向导 校验/就绪推导/路由契约" "npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts"
 run_test "厂家入驻向导 DB 端到端(isolated)" "npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts"
 run_test "首响分级提醒 / 工作时间日历（夏令时）/ 策略字段合并" "npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts"
@@ -284,6 +287,7 @@ run_test "Security-1 Org Switch Audit" "npx tsx src/lib/organizations/__tests__/
 run_test "Security-1 Owner/Manager" "npx tsx src/lib/rbac/__tests__/security1-owner-manager.test.ts"
 run_test "Platform Admin Diagnostics Gate" "npx tsx src/lib/rbac/__tests__/platform-admin-diagnostics-gate.test.ts"
 run_test "Security-1 Authorization" "npx tsx src/lib/authorization/__tests__/authorize.test.ts"
+run_test "岗位绑定脚本纯函数（PERM-1）" "npx tsx src/lib/authorization/__tests__/position-binding.test.ts"
 run_test "Security-1 Sales Authz" "npx tsx src/lib/sales/__tests__/security1-sales-authz.test.ts"
 run_test "销售账号营销数字员工权限" "npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts"
 run_test "归档客户销售工作区可见性" "npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts"

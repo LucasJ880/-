@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import {
   SYSTEM_POSITION_TEMPLATES,
   SYSTEM_ROLE_PROFILES,
+  positionTemplatesForIndustryPack,
+  profilesForIndustryPack,
 } from "./role-defaults";
 
 export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
@@ -20,7 +22,16 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
 
   const profileIdByKey = new Map<string, string>();
 
-  for (const p of SYSTEM_ROLE_PROFILES) {
+  // PERM-1：行业包岗位模板集（窗饰企业追加 owner / pricing_lead / ... ；非窗饰企业为空）
+  const orgRow = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { industryPackId: true },
+  });
+  const industryPackId = orgRow?.industryPackId ?? null;
+  const allProfiles = [...SYSTEM_ROLE_PROFILES, ...profilesForIndustryPack(industryPackId)];
+  const allTemplates = [...SYSTEM_POSITION_TEMPLATES, ...positionTemplatesForIndustryPack(industryPackId)];
+
+  for (const p of allProfiles) {
     const row = await db.roleProfile.upsert({
       where: { orgId_key: { orgId, key: p.key } },
       create: {
@@ -66,7 +77,7 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
     }
   }
 
-  for (const t of SYSTEM_POSITION_TEMPLATES) {
+  for (const t of allTemplates) {
     const roleProfileId = profileIdByKey.get(t.roleProfileKey) ?? null;
     await db.positionTemplate.upsert({
       where: { orgId_key: { orgId, key: t.key } },

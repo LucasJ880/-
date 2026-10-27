@@ -380,6 +380,7 @@ function QuoteSheetPageInner() {
         const d = await apiJson<{
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
+          romanShade?: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -395,6 +396,7 @@ function QuoteSheetPageInner() {
           Sheer: d.sheer,
           Shutters: d.shutters,
           SkylightHoneycomb: d.honeycomb,
+          "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
         });
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);

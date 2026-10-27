@@ -4680,6 +4680,8 @@ model QuoteDiscountSettings {
   sheer                      Float        @default(0.35)
   shutters                   Float        @default(0.35)
   honeycomb                  Float        @default(0.35)
+  /// Roman Shade 品类折扣（2026-10 价表新增；与 zebra 等同级字段）
+  romanShade                 Float        @default(0.3)
   /// Shade Order Form 选择 Lift=M 时，每行税前加收的电机价格（CAD）
   sunnyMotorPrice            Float        @default(150)
   /// 最低安装费（CAD）：installation 模式下行内安装费合计不足时补足到此金额
