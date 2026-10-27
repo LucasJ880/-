@@ -161,6 +161,42 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     ["ORG"],
     "CRITICAL",
   ),
+
+  // PERM-1：岗位制新增（设计稿 docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md §2.3 / §3）
+  def("sales.quote.pricing_close", "sales.quote", "pricing_close", "关合价", "对报价做最终合价确认", ["ORG"], "HIGH"),
+  def(
+    "sales.quote.discount.over_limit.submit",
+    "sales.quote.discount",
+    "over_limit.submit",
+    "提交超限折扣",
+    "给出超过销售上限的折扣（合价上限内直接生效，超出则提交审批）",
+    ["ORG"],
+    "HIGH",
+  ),
+  def(
+    "sales.quote.discount.over_limit.approve",
+    "sales.quote.discount",
+    "over_limit.approve",
+    "审批超限折扣",
+    "批准他人提交的超限折扣；提交人不得自批",
+    ["ORG"],
+    "CRITICAL",
+  ),
+  def("sales.settings.manage", "sales.settings", "manage", "管理销售设置", "修改折扣表 / 费用 / 税率 / 解锁码（走审批）", ["ORG"], "CRITICAL"),
+  def("sales.order.create", "sales.order", "create", "创建订单", "从报价建立订单", ["PRINCIPAL", "ORG"], "MEDIUM"),
+  def("orders.fulfillment.update", "orders.fulfillment", "update", "出单修改", "修改订单与工艺单、推进状态（按品类范围留后续）", ["ORG"], "HIGH"),
+  def("inventory.manage", "inventory", "manage", "管理面料库存", "库存增减与盘点", ["ORG"], "HIGH"),
+  def("accounting.read", "accounting", "read", "查看财务", "查看成交金额、提成与项目结算", ["ORG"], "HIGH"),
+  {
+    key: "identity.position.manage",
+    resource: "identity.position",
+    action: "manage",
+    label: "管理岗位绑定",
+    description: "把人绑定到岗位 / 解除绑定；仅平台管理员，数字员工不可持有",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "CRITICAL",
+  },
 ];
 
 const BY_KEY = new Map(PERMISSION_REGISTRY.map((p) => [p.key, p]));

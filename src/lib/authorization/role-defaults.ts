@@ -146,3 +146,190 @@ export const SYSTEM_POSITION_TEMPLATES: Array<{
   { key: "project_manager", name: "项目经理", roleProfileKey: "project_manager" },
   { key: "viewer", name: "只读观察员", roleProfileKey: "viewer" },
 ];
+
+// ─────────────────────────────────────────────────────────────
+// PERM-1：按行业包落地的岗位模板集（设计稿 §3）
+// 窗饰企业（industryPackId = window_covering_services_v1）在系统模板之上追加下列岗位；
+// 同 key 的条目与系统模板做并集（seed 只 upsert、不删）。
+// ─────────────────────────────────────────────────────────────
+
+export const WINDOW_COVERING_INDUSTRY_PACK = "window_covering_services_v1" as const;
+
+const ORG = "ORG" as const;
+const PRINCIPAL = "PRINCIPAL" as const;
+
+function org(...keys: string[]): DefaultBinding[] {
+  return keys.map((permissionKey) => ({ permissionKey, dataScope: ORG }));
+}
+
+const FULFILLMENT_BINDINGS: DefaultBinding[] = org(
+  "orders.fulfillment.update",
+  "project.read",
+  "sales.quote.read",
+);
+
+export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
+  {
+    key: "owner",
+    name: "老板",
+    description: "全看全改；审批超限折扣与敏感设置；不含成员 / 岗位管理（仅平台管理员）",
+    bindings: org(
+      "organization.read",
+      "identity.member.read",
+      "sales.customer.read",
+      "sales.opportunity.read",
+      "sales.quote.read",
+      "sales.analytics.read",
+      "operations.read",
+      "operations.tasks.team.read",
+      "operations.projects.team.read",
+      "project.read",
+      "bids.handoff.preview",
+      "bids.handoff.execute",
+      "bids.handoff.override",
+      "accounting.read",
+      "audit.read",
+      "authorization.policy.read",
+      "sales.settings.manage",
+      "sales.quote.discount.over_limit.submit",
+      "sales.quote.discount.over_limit.approve",
+    ),
+  },
+  {
+    // 与系统模板 sales_rep 并集：补发送与建单
+    key: "sales_rep",
+    name: "销售人员",
+    description: "仅本人创建 / 分配的销售数据；可发报价、建订单",
+    bindings: [
+      { permissionKey: "sales.quote.send", dataScope: PRINCIPAL },
+      { permissionKey: "sales.order.create", dataScope: PRINCIPAL },
+    ],
+  },
+  {
+    key: "pricing_lead",
+    name: "销售合价",
+    description: "看全部报价、关合价；合价上限内折扣直接生效，超出提交老板审批",
+    bindings: org(
+      "sales.quote.read",
+      "sales.quote.update",
+      "sales.customer.read",
+      "sales.opportunity.read",
+      "sales.quote.pricing_close",
+      "sales.quote.discount.over_limit.submit",
+      "sales.quote.send",
+      "sales.analytics.read",
+    ),
+  },
+  {
+    key: "ops_lead",
+    name: "运营主管",
+    description: "运营任务、品牌内容、营销计划；面料库存",
+    bindings: org(
+      "operations.read",
+      "operations.manage",
+      "operations.tasks.team.read",
+      "operations.tasks.team.manage",
+      "operations.projects.team.read",
+      "operations.projects.manage",
+      "operations.projects.create",
+      "inventory.manage",
+      "identity.member.read",
+    ),
+  },
+  {
+    key: "accounting",
+    name: "会计",
+    description: "成交金额、提成、报价全过程只读；项目财务另走项目角色",
+    bindings: org(
+      "accounting.read",
+      "sales.analytics.read",
+      "sales.quote.read",
+      "sales.customer.read",
+      "project.read",
+    ),
+  },
+  {
+    key: "bids",
+    name: "招投标",
+    description: "投标项目全流程；中标交接到执行",
+    bindings: org(
+      "project.read",
+      "project.create",
+      "project.update",
+      "bids.handoff.preview",
+      "bids.handoff.execute",
+      "operations.projects.create",
+    ),
+  },
+  { key: "fulfillment_vinyl", name: "出单·Vinyl", description: "Vinyl 品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
+  { key: "fulfillment_drapery", name: "出单·布帘", description: "布帘品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
+  { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman", description: "Roller / Zebra / Roman Shade 品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
+];
+
+export const WINDOW_COVERING_POSITION_TEMPLATES: Array<{
+  key: string;
+  name: string;
+  roleProfileKey: string;
+}> = [
+  { key: "owner", name: "老板", roleProfileKey: "owner" },
+  { key: "pricing_lead", name: "销售合价", roleProfileKey: "pricing_lead" },
+  { key: "ops_lead", name: "运营主管", roleProfileKey: "ops_lead" },
+  { key: "accounting", name: "会计", roleProfileKey: "accounting" },
+  { key: "bids", name: "招投标", roleProfileKey: "bids" },
+  { key: "fulfillment_vinyl", name: "出单·Vinyl", roleProfileKey: "fulfillment_vinyl" },
+  { key: "fulfillment_drapery", name: "出单·布帘", roleProfileKey: "fulfillment_drapery" },
+  { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman", roleProfileKey: "fulfillment_shades" },
+];
+
+/** 行业包 id → 追加岗位模板集；未登记的行业包为空 */
+export const POSITION_PROFILE_SETS: Record<string, DefaultRoleProfile[]> = {
+  [WINDOW_COVERING_INDUSTRY_PACK]: WINDOW_COVERING_ROLE_PROFILES,
+};
+
+export const POSITION_TEMPLATE_SETS: Record<
+  string,
+  Array<{ key: string; name: string; roleProfileKey: string }>
+> = {
+  [WINDOW_COVERING_INDUSTRY_PACK]: WINDOW_COVERING_POSITION_TEMPLATES,
+};
+
+export function profilesForIndustryPack(
+  industryPackId: string | null | undefined,
+): DefaultRoleProfile[] {
+  if (!industryPackId) return [];
+  return POSITION_PROFILE_SETS[industryPackId] ?? [];
+}
+
+export function positionTemplatesForIndustryPack(
+  industryPackId: string | null | undefined,
+): Array<{ key: string; name: string; roleProfileKey: string }> {
+  if (!industryPackId) return [];
+  return POSITION_TEMPLATE_SETS[industryPackId] ?? [];
+}
+
+/** 系统模板 + 行业包模板按 key 并集后的绑定（与 seed 落库后的实际内容一致，供测试与脚本） */
+export function mergedProfileBindings(
+  industryPackId: string | null | undefined,
+  key: string,
+): DefaultBinding[] {
+  const sys = SYSTEM_ROLE_PROFILES.find((p) => p.key === key)?.bindings ?? [];
+  const pack = profilesForIndustryPack(industryPackId).find((p) => p.key === key)?.bindings ?? [];
+  const seen = new Set<string>();
+  const out: DefaultBinding[] = [];
+  for (const b of [...sys, ...pack]) {
+    const id = `${b.permissionKey}|${b.dataScope}|${b.effect ?? "ALLOW"}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(b);
+  }
+  return out;
+}
+
+/** 该行业包下企业应存在的全部岗位 key（系统 + 行业包，去重） */
+export function profileKeysForIndustryPack(
+  industryPackId: string | null | undefined,
+): string[] {
+  const keys = new Set<string>(SYSTEM_ROLE_PROFILES.map((p) => p.key));
+  for (const p of profilesForIndustryPack(industryPackId)) keys.add(p.key);
+  return [...keys];
+}
