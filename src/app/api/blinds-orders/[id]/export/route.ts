@@ -2,18 +2,26 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateBlindsExcel } from "@/lib/blinds/excel-export";
 import { withAuth } from "@/lib/common/api-helpers";
+import { resolveOrderAccess, type OrderAccessRow } from "@/lib/fulfillment/service";
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
 
   const order = await db.blindsOrder.findUnique({
     where: { id },
     include: {
       items: { orderBy: { itemNumber: "asc" } },
+      customer: { select: { orgId: true } },
+      project: { select: { orgId: true } },
     },
   });
 
   if (!order) {
+    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+  }
+  // PERM-3：导出与读同范围
+  const access = await resolveOrderAccess(user, order as unknown as OrderAccessRow);
+  if (!access.canRead) {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 

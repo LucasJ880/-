@@ -60,9 +60,17 @@
 ### Requirement: 入口可见性
 导航中"工艺单"条目 SHALL 对持 `orders.fulfillment.read` 或 `sales.order.create` 的人显示，"面料库存"条目 SHALL 对持 `inventory.manage` 或 `inventory.read` 的人显示；原平台角色条件 SHALL 继续作为回退放行条件。工艺单详情页 SHALL 对无修改权的人隐藏编辑与删除操作，并显示本单品类集合与负责该品类的岗位名。
 
-#### Scenario: 出单人看到入口
-- **WHEN** 平台角色为 `user`、持 `fulfillment_drapery` 岗位的人加载导航
+#### Scenario: 持工艺单读权的人看到入口
+- **WHEN** 平台角色为 `user`、权限键只有 `orders.fulfillment.read` 的人加载导航
 - **THEN** 导航含"工艺单"，不含"面料库存"
+
+#### Scenario: 出单岗位看到两个入口
+- **WHEN** 平台角色为 `user`、持 `fulfillment_drapery` 岗位（含 `orders.fulfillment.read` 与 `inventory.read`）的人加载导航
+- **THEN** 导航含"工艺单"与"面料库存"
+
+#### Scenario: 无权限键的普通成员
+- **WHEN** 平台角色为 `user`、无任何权限键的企业成员加载导航
+- **THEN** 导航不含"工艺单"，不含"面料库存"
 
 #### Scenario: 无权者看到只读详情
 - **WHEN** Bill 打开品类 `{shades}` 的工艺单详情

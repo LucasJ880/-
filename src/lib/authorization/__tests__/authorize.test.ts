@@ -183,7 +183,7 @@ import { platformAdminBindings } from "../resolve-effective-permissions";
 console.log("PERM-1 岗位目录");
 const WC = "window_covering_services_v1";
 const wcKeys = profilesForIndustryPack(WC).map((p) => p.key);
-ok(wcKeys.length === 10 && profileKeysForIndustryPack(WC).length === 17, "窗饰行业包：10 个追加模板（含安装工），并集 17 个 key");
+ok(wcKeys.length === 11 && profileKeysForIndustryPack(WC).length === 17, "窗饰行业包：11 个追加模板（含安装工、ops_staff 并集），17 个岗位 key");
 ok(profilesForIndustryPack(null).length === 0 && profilesForIndustryPack("other_pack").length === 0, "非窗饰行业包：0 个追加模板");
 for (const k of [
   "sales.quote.pricing_close",
@@ -192,7 +192,13 @@ for (const k of [
   "sales.settings.manage",
   "sales.order.create",
   "orders.fulfillment.update",
+  "orders.fulfillment.update.vinyl",
+  "orders.fulfillment.update.drapery",
+  "orders.fulfillment.update.shades",
+  "orders.fulfillment.read",
+  "orders.cancel",
   "inventory.manage",
+  "inventory.read",
   "accounting.read",
   "identity.position.manage",
 ]) {
@@ -229,13 +235,24 @@ ok(
 );
 const bids = mergedProfileBindings(WC, "bids");
 ok(has(bids, "bids.handoff.execute", "ORG") && !has(bids, "bids.handoff.override"), "bids 可交接、不可 override");
-for (const k of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+// PERM-3：出单岗只持自己品类的更新键 + read；不持伞键 / 作废 / 库存管理
+const CATEGORY_OF = { fulfillment_vinyl: "vinyl", fulfillment_drapery: "drapery", fulfillment_shades: "shades" } as const;
+for (const k of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"] as const) {
   const f = mergedProfileBindings(WC, k);
+  const mine = `orders.fulfillment.update.${CATEGORY_OF[k]}`;
+  const others = ["vinyl", "drapery", "shades"].filter((c) => c !== CATEGORY_OF[k]).map((c) => `orders.fulfillment.update.${c}`);
   ok(
-    has(f, "orders.fulfillment.update", "ORG") && !has(f, "sales.quote.create") && !has(f, "sales.quote.update") && !has(f, "sales.customer.create") && !has(f, "sales.customer.update"),
-    `${k} 含出单修改、不含销售写权`,
+    has(f, mine, "ORG") && has(f, "orders.fulfillment.read", "ORG") && has(f, "inventory.read", "ORG") &&
+      others.every((o) => !has(f, o)) && !has(f, "orders.fulfillment.update") && !has(f, "orders.cancel") && !has(f, "inventory.manage") &&
+      !has(f, "sales.quote.create") && !has(f, "sales.quote.update") && !has(f, "sales.customer.create") && !has(f, "sales.customer.update"),
+    `${k} 只含 ${CATEGORY_OF[k]} 品类更新键 + read，不含他品类 / 伞键 / 作废 / 库存管理 / 销售写权`,
   );
 }
+const ownerB = mergedProfileBindings(WC, "owner");
+ok(has(ownerB, "orders.fulfillment.update", "ORG") && has(ownerB, "orders.cancel", "ORG") && has(ownerB, "inventory.manage", "ORG") && has(ownerB, "orders.fulfillment.read", "ORG"), "owner 持全品类伞键 + 作废 + 库存管理 + 全企业读");
+ok(has(mergedProfileBindings(WC, "ops_staff"), "inventory.read", "ORG") && !has(mergedProfileBindings(WC, "ops_staff"), "inventory.manage"), "ops_staff 只读库存");
+ok(has(mergedProfileBindings(WC, "sales_rep"), "inventory.read", "ORG"), "sales_rep 只读库存");
+ok(has(mergedProfileBindings(WC, "ops_lead"), "orders.fulfillment.read", "ORG") && has(mergedProfileBindings(WC, "ops_lead"), "inventory.read", "ORG"), "ops_lead 读工艺单 + 读库存");
 ok(WINDOW_COVERING_ROLE_PROFILES.every((p) => p.name && p.description), "窗饰模板均有中文名与说明");
 
 // 多岗并集：owner + pricing_lead + accounting

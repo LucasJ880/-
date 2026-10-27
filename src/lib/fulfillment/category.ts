@@ -1,0 +1,72 @@
+/**
+ * PERM-3：品类判定（纯函数）
+ *
+ * 品类 = 出单岗位的责任边界：vinyl / drapery / shades。
+ * 零 schema：品类由单据行的产品类型推导，不落列；权限键按品类拆分（orders.fulfillment.update.<category>）。
+ * 新增品类只改这一张表 + 权限键 + 岗位模板。
+ */
+
+export const CATEGORIES = ["vinyl", "drapery", "shades"] as const;
+export type FulfillmentCategory = (typeof CATEGORIES)[number];
+
+/** 工艺单行 productType（src/lib/blinds/deduction-rules.ts PRODUCT_TYPES）→ 品类 */
+const PRODUCT_TYPE_CATEGORY: Record<string, FulfillmentCategory> = {
+  卷帘: "shades",
+  斑马帘: "shades",
+  香格里拉: "shades",
+};
+
+/** 报价行 product（src/lib/blinds/pricing-types.ts ProductName）→ 品类（Shutters → vinyl 为任务书判断点 2 的默认值） */
+const QUOTE_PRODUCT_CATEGORY: Record<string, FulfillmentCategory> = {
+  Zebra: "shades",
+  Roller: "shades",
+  SHANGRILA: "shades",
+  "Cordless Cellular": "shades",
+  SkylightHoneycomb: "shades",
+  "Roman Shade": "shades",
+  Roman: "shades",
+  Allusion: "shades",
+  Drapery: "drapery",
+  Sheer: "drapery",
+  Shutters: "vinyl",
+};
+
+export const CATEGORY_LABEL: Record<FulfillmentCategory, string> = {
+  vinyl: "Vinyl",
+  drapery: "布帘",
+  shades: "Roller/Zebra/Roman",
+};
+
+/** 负责该品类的岗位模板 key 与名称（与 role-defaults 的 fulfillment_* 对应） */
+export const CATEGORY_POSITION: Record<FulfillmentCategory, { key: string; name: string }> = {
+  vinyl: { key: "fulfillment_vinyl", name: "出单·Vinyl" },
+  drapery: { key: "fulfillment_drapery", name: "出单·布帘" },
+  shades: { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman" },
+};
+
+export function updateKeyFor(category: FulfillmentCategory): string {
+  return `orders.fulfillment.update.${category}`;
+}
+
+/** 全品类伞键（仅 owner / 平台管理员） */
+export const FULFILLMENT_UMBRELLA_KEY = "orders.fulfillment.update";
+
+export function categoryOfProductType(productType: string | null | undefined): FulfillmentCategory | null {
+  if (!productType) return null;
+  return PRODUCT_TYPE_CATEGORY[productType.trim()] ?? null;
+}
+
+export function categoryOfQuoteProduct(product: string | null | undefined): FulfillmentCategory | null {
+  if (!product) return null;
+  return QUOTE_PRODUCT_CATEGORY[product.trim()] ?? null;
+}
+
+/** 一张单的品类集合 = 各行品类去重（未知类型不计入），按 CATEGORIES 顺序 */
+export function orderCategories(items: ReadonlyArray<{ productType: string }>): FulfillmentCategory[] {
+  const set = new Set<FulfillmentCategory>();
+  for (const it of items) {
+    const c = categoryOfProductType(it.productType);
+    if (c) set.add(c);
+  }
+  return CATEGORIES.filter((c) => set.has(c));
+}

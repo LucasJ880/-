@@ -30,6 +30,8 @@ export type PendingActionType =
   | "sales.send_inquiry_reply"
   // ── PERM-2：销售设置（折扣表 / 费用 / 解锁码）修改，另一位持设置权的人批准后执行 ──
   | "sales.update_quote_settings"
+  // ── PERM-3：作废工艺单，持 orders.cancel 的另一位老板批准后执行 ──
+  | "orders.cancel_blinds_order"
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
   | "tender.send_rfq"
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
@@ -107,6 +109,19 @@ export interface SalesApproveQuotePromotionPayload {
 }
 
 /** PERM-2：销售设置修改审批。只含数值 diff / 成本率 / 解锁码哈希，绝不含明文码。 */
+export interface OrdersCancelBlindsOrderPayload {
+  orgId: string;
+  requestedById: string;
+  orderId: string;
+  code: string;
+  fromStatus: string;
+  reason: string;
+  resourceType: "blinds_order";
+  resourceId: string;
+  riskLevel: "CRITICAL";
+  metadata: PendingActionMetadata & { orgId: string };
+}
+
 export interface SalesUpdateQuoteSettingsPayload {
   orgId: string;
   requestedById: string;
@@ -264,6 +279,7 @@ export type PendingActionPayload =
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
   | ({ type: "sales.approve_quote_promotion" } & SalesApproveQuotePromotionPayload)
   | ({ type: "sales.update_quote_settings" } & SalesUpdateQuoteSettingsPayload)
+  | ({ type: "orders.cancel_blinds_order" } & OrdersCancelBlindsOrderPayload)
   | ({ type: "calendar.create_event" } & CalendarCreateEventPayload)
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)

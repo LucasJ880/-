@@ -63,6 +63,13 @@ interface BlindsOrder {
   remarks: string | null;
   appointmentId: string | null;
   customerId: string | null;
+  /** PERM-3：按品类的修改权摘要（由详情接口附带） */
+  access?: {
+    canEdit: boolean;
+    categories: string[];
+    missingCategories: string[];
+    responsiblePositions: string[];
+  };
   createdAt: string;
   updatedAt: string;
   items: BlindsOrderItem[];
@@ -177,6 +184,27 @@ export default function BlindsOrderDetailPage({
     }
   }
 
+  /** PERM-3：作废走审批（老板提交 → 另一位老板批准）；平台管理员直接生效 */
+  async function handleCancel() {
+    const reason = prompt("作废原因（将提交另一位老板审批）：");
+    if (reason === null) return;
+    const res = await apiFetch(`/api/blinds-orders/${id}/transition`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toStatus: "cancelled", cancelReason: reason.trim() }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string; pending?: boolean; message?: string };
+    if (res.status === 202) {
+      alert(data.message || "作废申请已提交，等待另一位老板批准");
+      return;
+    }
+    if (!res.ok) {
+      alert(data.error || "作废失败");
+      return;
+    }
+    await loadOrder();
+  }
+
   async function handleDelete() {
     if (!confirm("确定删除此工艺单？此操作不可恢复。")) return;
     const res = await apiFetch(`/api/blinds-orders/${id}`, { method: "DELETE" });
@@ -206,6 +234,13 @@ export default function BlindsOrderDetailPage({
 
   const st = STATUS_MAP[order.status] || STATUS_MAP.draft;
   const totalSF = order.items.reduce((sum, item) => sum + (item.squareFeet || 0), 0);
+  // 旧接口无 access 字段时按可编辑处理（服务端仍会拦）
+  const canEdit = order.access ? order.access.canEdit : true;
+  const CATEGORY_LABEL: Record<string, string> = { vinyl: "Vinyl", drapery: "布帘", shades: "Roller/Zebra/Roman" };
+  const categoryText = order.access?.categories.length
+    ? order.access.categories.map((c) => CATEGORY_LABEL[c] ?? c).join("、")
+    : "未识别";
+  const canCancel = canEdit && !["cancelled", "completed"].includes(order.status);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -226,6 +261,13 @@ export default function BlindsOrderDetailPage({
             {order.address ? ` · ${order.address}` : ""}
             {order.installDate ? ` · 安装: ${order.installDate}` : ""}
           </p>
+          {order.access && (
+            <p className="mt-0.5 ml-8 text-xs text-muted">
+              本单品类：{categoryText}
+              {order.access.responsiblePositions.length > 0 ? ` · 负责岗位：${order.access.responsiblePositions.join("、")}` : ""}
+              {!canEdit && <span className="ml-2 rounded bg-[rgba(26,36,32,0.06)] px-1.5 py-0.5">只读</span>}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -236,7 +278,7 @@ export default function BlindsOrderDetailPage({
             <Download size={14} />
             {exporting ? "导出中..." : "导出 Excel"}
           </button>
-          {CAN_SCHEDULE_FROM.has(order.status) && (
+          {canEdit && CAN_SCHEDULE_FROM.has(order.status) && (
             <button
               onClick={() => setScheduleOpen(true)}
               className="flex items-center gap-1.5 rounded-lg border border-[rgba(43,96,85,0.25)] bg-[rgba(43,96,85,0.06)] px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.1)]"
@@ -245,7 +287,7 @@ export default function BlindsOrderDetailPage({
               安排安装
             </button>
           )}
-          {st.next && (
+          {canEdit && st.next && (
             <button
               onClick={() => updateStatus(st.next!)}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90"
@@ -253,20 +295,33 @@ export default function BlindsOrderDetailPage({
               {st.nextLabel}
             </button>
           )}
-          <Link
-            href={`/blinds-orders/${id}/edit`}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-[rgba(26,36,32,0.03)]"
-          >
-            <Edit size={14} />
-            编辑
-          </Link>
-          <button
-            onClick={handleDelete}
-            className="flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.15)] px-3 py-2 text-sm text-danger transition-colors hover:bg-[rgba(166,61,61,0.04)]"
-          >
-            <Trash2 size={14} />
-            删除
-          </button>
+          {canEdit && (
+            <Link
+              href={`/blinds-orders/${id}/edit`}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-[rgba(26,36,32,0.03)]"
+            >
+              <Edit size={14} />
+              编辑
+            </Link>
+          )}
+          {canCancel && (
+            <button
+              onClick={handleCancel}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-muted transition-colors hover:bg-[rgba(26,36,32,0.03)]"
+              title="提交作废申请（需另一位老板批准）"
+            >
+              作废
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={handleDelete}
+              className="flex items-center gap-1.5 rounded-lg border border-[rgba(166,61,61,0.15)] px-3 py-2 text-sm text-danger transition-colors hover:bg-[rgba(166,61,61,0.04)]"
+            >
+              <Trash2 size={14} />
+              删除
+            </button>
+          )}
         </div>
       </div>
 

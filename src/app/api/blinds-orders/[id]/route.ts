@@ -2,32 +2,50 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
-import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { withAuth } from "@/lib/common/api-helpers";
+import { ORDER_ACCESS_SELECT, resolveOrderAccess, type OrderAccessRow } from "@/lib/fulfillment/service";
 
-export const GET = withAuth(async (request, ctx, user) => {
+const notFound = () => NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+const forbiddenEdit = (access: Awaited<ReturnType<typeof resolveOrderAccess>>) =>
+  NextResponse.json(
+    {
+      error:
+        access.summary.missingCategories.length > 0
+          ? `无权修改本单：缺少品类 ${access.summary.missingCategories.join("、")} 的出单权限`
+          : "无权修改本单（需要全品类出单权限）",
+      code: "FULFILLMENT_CATEGORY_FORBIDDEN",
+      missingCategories: access.summary.missingCategories,
+      categories: access.summary.categories,
+      responsiblePositions: access.summary.responsiblePositions,
+    },
+    { status: 403 },
+  );
+
+export const GET = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
   const order = await db.blindsOrder.findUnique({
     where: { id },
     include: {
       items: { orderBy: { itemNumber: "asc" } },
-      project: { select: { id: true, name: true, color: true } },
+      project: { select: { id: true, name: true, color: true, orgId: true } },
       creator: { select: { id: true, name: true } },
+      customer: { select: { orgId: true } },
     },
   });
 
-  if (!order) {
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-  }
+  if (!order) return notFound();
 
-  if (order.projectId) {
-    const visibleIds = await getVisibleProjectIds(user.id, user.role);
-    if (visibleIds !== null && !visibleIds.includes(order.projectId)) {
-      return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-    }
-  }
+  // PERM-3：读范围 = orders.fulfillment.read（全企业）或旧范围；跨企业统一 404
+  const access = await resolveOrderAccess(user, order as unknown as OrderAccessRow);
+  if (!access.canRead) return notFound();
 
-  return NextResponse.json(order);
+  const { customer: _customer, ...rest } = order;
+  void _customer;
+  return NextResponse.json({
+    ...rest,
+    project: order.project ? { id: order.project.id, name: order.project.name, color: order.project.color } : null,
+    access: access.summary,
+  });
 });
 
 export const PUT = withAuth(async (request, ctx, user) => {
@@ -36,25 +54,14 @@ export const PUT = withAuth(async (request, ctx, user) => {
 
   const existing = await db.blindsOrder.findUnique({
     where: { id },
-    select: {
-      id: true,
-      code: true,
-      projectId: true,
-    },
+    select: { ...ORDER_ACCESS_SELECT, code: true },
   });
-  if (!existing) {
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-  }
+  if (!existing) return notFound();
 
-  if (existing.projectId) {
-    const visibleIds = await getVisibleProjectIds(user.id, user.role);
-    if (visibleIds !== null && !visibleIds.includes(existing.projectId)) {
-      return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-    }
-  } else if (!["admin", "super_admin"].includes(user.role)) {
-    // 无项目归属的历史单：仅平台管理员可改
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-  }
+  // PERM-3：修改权按品类（缺品类 403 + 清单）；项目可见性仍是附加条件（不可见 → 404）
+  const access = await resolveOrderAccess(user, existing as unknown as OrderAccessRow);
+  if (!access.canRead) return notFound();
+  if (!access.edit.allowed) return forbiddenEdit(access);
 
   if (body.code && body.code !== existing.code) {
     const dup = await db.blindsOrder.findUnique({
@@ -153,8 +160,13 @@ export const PUT = withAuth(async (request, ctx, user) => {
   return NextResponse.json(order);
 });
 
-export const DELETE = withAuth(async (_request, ctx) => {
+export const DELETE = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
+  const existing = await db.blindsOrder.findUnique({ where: { id }, select: ORDER_ACCESS_SELECT });
+  if (!existing) return notFound();
+  const access = await resolveOrderAccess(user, existing as unknown as OrderAccessRow);
+  if (!access.canRead) return notFound();
+  if (!access.edit.allowed) return forbiddenEdit(access);
   await db.blindsOrder.delete({ where: { id } });
   return NextResponse.json({ success: true });
 });

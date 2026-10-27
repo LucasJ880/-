@@ -15,6 +15,7 @@ import { getOrgMembership, getProjectMembership } from "@/lib/auth";
 import { isSuperAdmin, hasOrgRole, isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import { authorize } from "@/lib/authorization";
 import { checkApproverEligibility, hasPermissionHoldersInOrg } from "@/lib/sales/approvers";
+import { applyOrderTransition } from "@/lib/fulfillment/order-access";
 import { loadDiscountsDto, saveDiscountsForOrg, type DiscountSavePatch } from "@/lib/blinds/discount-settings";
 import { onAiInternalNote } from "@/lib/project-discussion/system-events";
 import {
@@ -26,6 +27,7 @@ import {
 import type {
   PendingActionType,
   PendingActionMetadata,
+  OrdersCancelBlindsOrderPayload,
   SalesUpdateFollowupPayload,
   SalesUpdateStagePayload,
   SalesApproveQuotePromotionPayload,
@@ -395,6 +397,13 @@ export async function executePendingAction(
       case "sales.update_quote_settings":
         exec = await execSalesUpdateQuoteSettings(
           action.payload as unknown as SalesUpdateQuoteSettingsPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      case "orders.cancel_blinds_order":
+        exec = await execOrdersCancelBlindsOrder(
+          action.payload as unknown as OrdersCancelBlindsOrderPayload,
           ctx,
           action.id,
         );
@@ -1064,6 +1073,66 @@ async function checkQuoteApprover(
     hasPermission,
     enforcement,
   });
+}
+
+/**
+ * PERM-3：作废工艺单审批执行——批准人 ≠ 提交人且持 orders.cancel → 状态机转 cancelled + OrderStatusLog + 审计
+ * 已 cancelled → 幂等成功；completed → 拒绝
+ */
+async function execOrdersCancelBlindsOrder(
+  payload: OrdersCancelBlindsOrderPayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId ?? payload.orgId;
+  if (!orgId || payload.resourceType !== "blinds_order" || !payload.requestedById || !payload.orderId) {
+    return { ok: false, error: "作废审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "orders.cancel");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
+
+  const order = await db.blindsOrder.findUnique({ where: { id: payload.orderId }, select: { id: true, code: true, status: true } });
+  if (!order) return { ok: false, error: "工艺单不存在" };
+  if (order.status === "cancelled") return { ok: true, resultRef: order.id, message: `工艺单 ${order.code} 已是作废状态` };
+  if (order.status === "completed") return { ok: false, error: "工艺单已完工，不能作废" };
+
+  const note = `作废（提交 ${payload.requestedById}，批准 ${ctx.userId}）${payload.reason ? "：" + payload.reason : ""}`;
+  await db.$transaction((tx) =>
+    applyOrderTransition(tx, order, "cancelled", payload.requestedById, note, { cancelReason: payload.reason || null }),
+  );
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "blinds_order_cancelled",
+    targetType: "blinds_order",
+    targetId: order.id,
+    beforeData: { status: order.status },
+    afterData: {
+      status: "cancelled",
+      reason: payload.reason,
+      requestedById: payload.requestedById,
+      approvedById: ctx.userId,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
+      actionId,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "blinds_order_cancel_approved",
+      category: "approval",
+      title: `工艺单 ${order.code} 作废已批准`,
+      summary: payload.reason ? `原因：${payload.reason}` : "作废已生效。",
+      entityType: "blinds_order",
+      entityId: order.id,
+      priority: "high",
+      sourceKey: `blinds-order-cancel:${order.id}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: order.id, message: `工艺单 ${order.code} 已作废` };
 }
 
 /**
