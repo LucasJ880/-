@@ -1084,6 +1084,7 @@
       <div class="field">
         <label for="fabric">Fabric</label>
         <select id="fabric"></select>
+        <div id="romanSizeHint" class="hint" hidden>Cordless included · Max 72″ W × 72″ H. Sizes round up to the next bracket.</div>
       </div>
       <div class="field">
         <label>Width (in)</label>
@@ -1266,6 +1267,7 @@
         <h3>Pricing Settings</h3>
         <div class="muted">Set discounts (% OFF), Add-on / Delivery prices, AI endpoint, and AI access code. Saved locally in this browser.</div>
         <div class="grid-2">
+          <div><label for="discRoman">Roman Shade (%)</label><input id="discRoman" max="90" min="0" step="1" type="number" value="30"/></div>
           <div><label for="discZebra">Zebra (%)</label><input id="discZebra" max="90" min="0" step="1" type="number" value="45"/></div>
           <div><label for="discRoller">Roller (%)</label><input id="discRoller" max="90" min="0" step="1" type="number" value="45"/></div>
           <div><label for="discDrapery">Drapery (%)</label><input id="discDrapery" max="90" min="0" step="1" type="number" value="35"/></div>
@@ -5450,7 +5452,7 @@ function parseQtyAndCordlessTokens(parts, qtyIndex, fallbackQty=1){
   const cordless = parseCordlessTokens(list.slice(tailStart));
   return { qty, cordless };
 }
-function formatCordlessForDisplay(item){ if(!item || !isCordlessEligibleProduct(item.product)) return '—'; return item.cordless ? 'Cordless' : 'Standard'; }
+function formatCordlessForDisplay(item){ if(item && item.product === 'Roman Shade') return 'Cordless included'; if(!item || !isCordlessEligibleProduct(item.product)) return '—'; return item.cordless ? 'Cordless' : 'Standard'; }
 function buildFracOptions(sel){ for(let i=0;i<16;i++){ const o=document.createElement('option'); o.value=i; o.textContent=`${i}/16`; sel.appendChild(o);} sel.value=0; }
 
 buildFracOptions(document.getElementById('widthFrac')); 
@@ -6020,6 +6022,7 @@ function forceFullQuoteRecalc(){
 function updateSubheading(){
   const pct = p => Math.round(((DISCOUNTS[p]||0)*100));
   const line =
+    `Roman Shade ${pct('Roman Shade')}% OFF (cordless included); ` +
     `Zebra ${pct('Zebra')}% OFF; ` +
     `SHANGRILA ${pct('SHANGRILA')}% OFF; ` +
     `Cordless Cellular ${pct('Cordless Cellular')}% OFF; ` +
@@ -6066,6 +6069,7 @@ function loadSettings(){
   updateSubheading();
 
   const ids = {
+    discRoman:'Roman Shade',
     discZebra:'Zebra',
     discRoller:'Roller',
     discDrapery:'Drapery',
@@ -6111,6 +6115,7 @@ function loadSettings(){
 function saveSettingsFromUI(){
   const getPct = id => Math.max(0, Math.min(0.9, (parseFloat(document.getElementById(id).value)||0)/100));
   DISCOUNTS = {
+    'Roman Shade':getPct('discRoman'),
     Zebra:getPct('discZebra'),
     Roller:getPct('discRoller'),
     Drapery:getPct('discDrapery'),
@@ -6258,6 +6263,8 @@ function updateAddonStatusText(){
 
 // -------- Fabric options (IMPORTANT) --------
 function setFabricOptions(product){
+  const hint=document.getElementById('romanSizeHint');
+  if(hint)hint.hidden=product!=='Roman Shade';
   const sel = document.getElementById('fabric');
   sel.innerHTML = '';
   if(product === 'Roller'){
@@ -7695,6 +7702,7 @@ if(bulkAdd) bulkAdd.addEventListener('click', ()=>{
 
 function priceFor(product, fabric, w, h, discountOverridePct = null, cordlessRequested = false){
   const prod = DATA.products[product];
+  if(product === 'Roman Shade' && (!(Number(w)>0) || !(Number(h)>0) || !Number.isFinite(Number(w)) || !Number.isFinite(Number(h)))) return {error:'Enter a valid positive width and height.'};
   const cordless = normalizeCordlessFlag(product, cordlessRequested);
   if(cordless && !isCordlessWithinLimit(w, h)) return {error:'Cordless is only available for width and height up to 75".'};
   const widths = prod.brackets.widths;
@@ -7801,7 +7809,7 @@ function getInstallRuleSummaryHtml(){
   const examplePanels = Math.ceil(75 / (cfg.shutter_panel_width_in || 35));
   const exampleTotal = examplePanels * (cfg.shutter_panel_price || 18);
   return [
-    `Zebra/Roller: ${escHtml(money(cfg.regular || 0))} standard, ${escHtml(money(cfg.wide || 0))} if width &gt; ${escHtml(String(cfg.wide_threshold_in || 0))}"`,
+    `Zebra/Roller/Roman Shade: ${escHtml(money(cfg.regular || 0))} standard, ${escHtml(money(cfg.wide || 0))} if width &gt; ${escHtml(String(cfg.wide_threshold_in || 0))}"`,
     `Drapery/Sheer: ${escHtml(money(cfg.drapery_regular || 0))} if &le;${escHtml(String(cfg.wide_threshold_in || 0))}", ${escHtml(money(cfg.drapery_wide || 0))} if &gt;${escHtml(String(cfg.wide_threshold_in || 0))}"`,
     `Shutters: ${escHtml(money(cfg.shutter_panel_price || 0))} per ${escHtml(String(cfg.shutter_panel_width_in || 0))}" panel (e.g., 75" &rarr; ${escHtml(String(examplePanels))} panels = ${escHtml(money(exampleTotal))})`
   ].join('; ');
@@ -8362,7 +8370,7 @@ function isKnownSku(product, sku){
 
 function skuCellHtml(it, idx){
   const product = it.product;
-  const list = getSkuList(product);
+  const list = getSkuList(product).filter(x => product !== 'Roman Shade' || x.sku.endsWith(it.fabric === 'Blackout' ? '-BO' : '-LF'));
   const raw = String(it.sku || 'TBD').trim() || 'TBD';
   const isKnown = raw !== 'TBD' && list.some(x => x.sku === raw);
   const isCustom = raw !== 'TBD' && !isKnown;
@@ -8537,6 +8545,7 @@ Promise.all([loadSkuCsv(), loadFabricCsv(), loadAddonCatalog()]).then(()=>{
 });
 
 function cordlessCellHtml(it, idx){
+  if(it && it.product === 'Roman Shade') return '<span class="hint">Cordless included</span>';
   if(!isCordlessEligibleProduct(it && it.product)) return '<span class="hint">—</span>';
   return `<input class="cordless-toggle" data-cordless-idx="${idx}" type="checkbox" ${it && it.cordless ? 'checked' : ''} aria-label="Cordless for item ${idx+1}" title="Cordless"/>`;
 }
@@ -9064,6 +9073,7 @@ function aiDetectCordlessIntent(text){
 }
 function aiProductAliases(){
   return {
+    'Roman Shade':['roman shade','roman shades','roman blind','roman blinds','roman','罗马帘','羅馬簾'],
     'Zebra':['zebra','zebra blind','zebra blinds'],
     'SHANGRILA':['shangrila','shangri la','shangri-la'],
     'Cordless Cellular':['cordless cellular','cellular','honeycomb','cellular shades'],
@@ -10817,7 +10827,7 @@ window._qy_collectPayload = function(){
           try{ updateSubheading(); }catch(_e){}
           try{
             const ids = {
-              discZebra:'Zebra', discRoller:'Roller', discDrapery:'Drapery',
+              discRoman:'Roman Shade', discZebra:'Zebra', discRoller:'Roller', discDrapery:'Drapery',
               discSheer:'Sheer', discShutters:'Shutters', discSHANGRILA:'SHANGRILA',
               discCordlessCellular:'Cordless Cellular', discSkylightHoneycomb:'SkylightHoneycomb'
             };
@@ -10839,7 +10849,7 @@ window._qy_collectPayload = function(){
         try{ applyDiscountsToData(); }catch(_e){}
         try{ updateSubheading(); }catch(_e){}
         const ids = {
-          discZebra:'Zebra', discRoller:'Roller', discDrapery:'Drapery',
+          discRoman:'Roman Shade', discZebra:'Zebra', discRoller:'Roller', discDrapery:'Drapery',
           discSheer:'Sheer', discShutters:'Shutters', discSHANGRILA:'SHANGRILA',
           discCordlessCellular:'Cordless Cellular', discSkylightHoneycomb:'SkylightHoneycomb'
         };
