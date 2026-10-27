@@ -16,7 +16,7 @@
 |---|---|---|
 | `perm-1-positions` | 已合并 main；已 archive（specs 合入 `authorization/platform-admin-authority`、`position-binding`、`position-catalog`） | #264 ✅ |
 | `perm-2-discount-by-position` | 已合并 main；已 archive（specs 合入 `identity/member-management`、`sales/discount-tiering`、`sales/quote-delivery-gate`、`sales/quote-settings-approval`） | #265 ✅ |
-| `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | PR 开出等 CI；合并后独立小 PR archive |
+| `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果（会话 1，2026-10-27）
 
@@ -27,7 +27,7 @@
 
 1. ~~PERM-2 PR~~ 已合并（#265）。
 2. ~~archive 小 PR~~ 已合并（#267）：7 个新能力已在 `openspec/specs/**`。
-3. INSTALL-1：PR 开在 `claude/youthful-davinci-8n1we3`（从 #267 后的 main 重建）；CI 绿合并；合并后独立小 PR `/opsx:archive install-1-installer-position --yes`，确认 `openspec list --specs` 出现 `installation/install-tasks`、`installation/window-closeout`，TASKFLOW INSTALL-1 改 `[x]`。
+3. ~~INSTALL-1~~ 已合并（#268）并 archive（本 PR）。
 4. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板（含 installer）；补 `config/positions/sunny.json` 邮箱（含 `TODO:安装工`）；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
 5. PERM-3 / PERM-4 / PERM-5：写任务书（设计稿 §6 阶段表），逐个 `/opsx:propose`。
 6. PERM-3 起：先写任务书（设计稿 §6），再 `/opsx:propose`。
