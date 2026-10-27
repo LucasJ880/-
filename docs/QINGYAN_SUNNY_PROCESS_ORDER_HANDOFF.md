@@ -48,7 +48,7 @@ src/app/(main)/blinds-orders/zebra-ratios/page.tsx                  布纱比对
 - 报价 → 工艺单关联：`AuditLog(targetType="sales_quote", targetId=<quoteId>, action="process_order.generated", afterData={orderId, code})`。
 - 非 Blinds 工艺参数：`AuditLog(targetType="blinds_order", targetId=<orderId>, action="process_order.spec", afterData=<ProcessSpec JSON>)`，每次保存追加一条，取最新。**不要清理这两类 AuditLog**，否则工艺单会丢参数、报价会重复生成。
 - 通知：`Notification(type="process_order_generated", entityType="blinds_order")`，`sourceKey` 去重。
-- 斑马帘布纱比对照表：`Organization.settingsJson.sunnyProcess.zebraRatios`（整表覆盖写；从未保存过 = 用原件种子），每次保存记 `AuditLog(action="sunny_process.zebra_ratios", targetType="organization")`；成员可读，保存需 org_admin 及以上（或平台管理员）。改 settingsJson 的其它代码不要整对象覆盖掉 `sunnyProcess` 键。
+- 斑马帘布纱比对照表：`Organization.settingsJson.sunnyProcess.zebraRatios`（整表覆盖写；从未保存过 = 用原件种子），每次保存记 `AuditLog(action="sunny_process.zebra_ratios", targetType="organization")`；成员可读；保存需出单岗位（持 `orders.fulfillment.update`）、org_admin 及以上或平台管理员（change `sunny-zebra-ratio-fulfillment-permission`）。改 settingsJson 的其它代码不要整对象覆盖掉 `sunnyProcess` 键。
 - 并发：生成用 `pg_advisory_xact_lock('sunny-process-order:'+quoteId)`；保存参数、挪行、整表 PUT 自产行、状态转换共用 `pg_advisory_xact_lock('sunny-process-spec:'+orderId)`（`autogen.ts lockOrderSpec`）；参数用 `baseVersion`，编辑页整表 PUT 用 `baseUpdatedAt`。
 - 发给国内的备注标记（`测量 Tight` / `安装 侧装` / `拉杆 M` / `底杆覆盖 39.5` / `布纱比 3.3:2.1`）是退回自产时还原字段用的，改格式要同步 `line-moves.ts` 的 `MARK` 与 LM-01c/d。
 

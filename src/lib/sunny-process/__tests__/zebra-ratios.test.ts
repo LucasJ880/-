@@ -27,7 +27,7 @@ console.log("斑马帘布纱比对照表");
   ok(by("ZE-215-F1091")?.fabric === 3.125 && by("ZE-215-F1091")?.silk === 2.125 && by("SD-ZB-F1091") === by("ZE-215-F1091"), "ZR-01b: ZE-215-F1091 3 2/16:2 2/16，括号别名 SD-ZB-F1091 同一条");
   ok(by("SA-ZC-A19-3")?.fabric === 4 + 13 / 16 && by("SA-ZC-A19-3")?.silk === 3.5, "ZR-01c: SA-ZC-A19-3 4 13/16:3 8/16");
   ok(by("YJ85-221-4")?.fabric === 3 && by("YJ85-221-4")?.silk === 2.125, "ZR-01d: YJ85-221-4 3:2 2/16");
-  ok(by("SC-ZD-XZ74-1")!.noteZh.includes("两处不一致"), "ZR-01e: 原件两处不一致的 SC-ZD-XZ74-1 标注请核对");
+  ok(by("SC-ZD-XZ74-1")!.fabric === 3 + 9 / 16 && by("SC-ZD-XZ74-1")!.silk === 2 + 5 / 16 && by("SC-ZD-XZ74-1")!.noteZh.includes("确认用 W17"), "ZR-01e: 原件两处不一致的 SC-ZD-XZ74-1 按拍板用 W17（3 9/16 : 2 5/16）并记录");
   ok(new Set(ZEBRA_RATIO_SEED.flatMap((e) => e.codes.map((c) => c.toUpperCase()))).size === ZEBRA_RATIO_SEED.flatMap((e) => e.codes).length, "ZR-01f: 种子编码不重复");
 }
 

@@ -119,7 +119,7 @@ export default function ZebraRatiosPage() {
         <button
           onClick={save}
           disabled={!canEdit || saving || loading || (!dirty && !seeded)}
-          title={canEdit ? undefined : "需要组织管理员才能修改"}
+          title={canEdit ? undefined : "需要出单岗位或组织管理员才能修改"}
           className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent/90 disabled:opacity-50"
         >
           {saving ? "保存中..." : seeded && !dirty ? "启用为本组织对照表" : "保存"}
@@ -128,7 +128,7 @@ export default function ZebraRatiosPage() {
 
       {error && <div className="rounded-lg border border-[rgba(166,61,61,0.25)] px-4 py-2 text-sm text-danger">{error}</div>}
       {!loading && !error && !canEdit && (
-        <div className="rounded-lg border border-border px-4 py-2 text-xs text-muted">只读：这张表影响全组织之后所有斑马帘的裁剪位，需要组织管理员修改。</div>
+        <div className="rounded-lg border border-border px-4 py-2 text-xs text-muted">只读：这张表影响全组织之后所有斑马帘的裁剪位，需要出单岗位（出工艺单的人）或组织管理员修改。</div>
       )}
       {seeded && !error && (
         <div className="rounded-lg border border-[rgba(154,106,47,0.25)] bg-[rgba(154,106,47,0.04)] px-4 py-2 text-xs text-[#9a6a2f]">

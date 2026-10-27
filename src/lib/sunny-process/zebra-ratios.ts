@@ -47,7 +47,7 @@ export const ZEBRA_RATIO_SEED: readonly ZebraRatioEntry[] = [
   { codes: ["SA-ZD-20237-0"], fabric: 3 + 7 / 16, silk: 2 + 5 / 16, noteZh: "原件 W14" },
   { codes: ["SC-ZD-XZ78-6"], fabric: 2 + 15 / 16, silk: 1 + 15 / 16, noteZh: "原件 W15" },
   { codes: ["SG-ZD-IO"], fabric: 3 + 15 / 16, silk: 2 + 12 / 16, noteZh: "原件 W16" },
-  { codes: ["SC-ZD-XZ74-1"], fabric: 3 + 9 / 16, silk: 2 + 5 / 16, noteZh: "原件 W17 = 3 9/16:2 5/16，W22 = 3 6/16:2 5/16，两处不一致，请工厂核对" },
+  { codes: ["SC-ZD-XZ74-1"], fabric: 3 + 9 / 16, silk: 2 + 5 / 16, noteZh: "原件 W17 = 3 9/16:2 5/16，W22 = 3 6/16:2 5/16，两处不一致；2026-10-27 Lucas 确认用 W17" },
   { codes: ["SA-ZC-A19-3"], fabric: 4 + 13 / 16, silk: 3 + 8 / 16, noteZh: "原件 W18" },
   { codes: ["SA-ZD-A162-1"], fabric: 3, silk: 1 + 15 / 16, noteZh: "原件 W19" },
   { codes: ["SA-ZD-A162-2"], fabric: 3, silk: 2 + 5 / 16, noteZh: "原件 W20" },
