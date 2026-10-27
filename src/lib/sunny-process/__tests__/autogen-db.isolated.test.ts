@@ -170,9 +170,19 @@ async function main() {
     const r0 = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cFactory), {});
     ok(r0.status === 200 && r0.body?.seeded === true && (r0.body?.entries as unknown[]).length === 24 && r0.body?.orgId === ORG && r0.body?.canEdit === false, "GET 对照表：未保存过 → 原件种子 24 条；普通成员只读", r0.body?.seeded);
     const rDenied = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [] }), {});
-    ok(rDenied.status === 403, "普通成员保存对照表 → 403（影响全组织裁剪位，需组织管理员）", rDenied.body);
-    const r1 = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cSales, "PUT", { entries: [{ codes: ["ZB-FIXTURE"], fabric: "3 4/16", silk: "2 3/16", noteZh: "e2e" }, { codes: [], fabric: 3, silk: 2 }] }), {});
-    ok(r1.status === 200 && (r1.body?.entries as unknown[]).length === 1 && r1.body?.dropped === 1, "PUT 对照表：保存 1 条，非法行丢弃", r1.body);
+    ok(rDenied.status === 403, "未绑定出单岗位的普通成员保存对照表 → 403（影响全组织裁剪位）", rDenied.body);
+    // 2026-10-27 Lucas：权限给出工艺单的人 → 绑定「出单·Roller/Zebra/Roman」岗位（持 orders.fulfillment.update）后可保存
+    await db.organization.update({ where: { id: ORG }, data: { industryPackId: "window_covering_services_v1" } });
+    const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
+    await seedOrgAuthorizationProfiles(ORG);
+    const shades = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "fulfillment_shades" } } });
+    await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FACTORY, roleProfileId: shades!.id, status: "active" } });
+    const rBound = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cFactory), {});
+    ok(rBound.status === 200 && rBound.body?.canEdit === true, "绑定出单岗位后 GET canEdit = true", rBound.body?.canEdit);
+    const r1 = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [{ codes: ["ZB-FIXTURE"], fabric: "3 4/16", silk: "2 3/16", noteZh: "e2e" }, { codes: [], fabric: 3, silk: 2 }] }), {});
+    ok(r1.status === 200 && (r1.body?.entries as unknown[]).length === 1 && r1.body?.dropped === 1, "出单岗位成员 PUT 对照表 → 200：保存 1 条，非法行丢弃", r1.body);
+    const rOwner = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cSales), {});
+    ok(rOwner.body?.canEdit === true, "组织负责人（org_owner）仍可编辑", rOwner.body?.canEdit);
     const orgRow = await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
     const ratioAudit = await db.auditLog.count({ where: { targetType: "organization", targetId: ORG, action: "sunny_process.zebra_ratios" } });
     ok(JSON.stringify(orgRow?.settingsJson).includes("ZB-FIXTURE") && ratioAudit === 1, "落在 Organization.settingsJson.sunnyProcess.zebraRatios，记 AuditLog", { ratioAudit });
