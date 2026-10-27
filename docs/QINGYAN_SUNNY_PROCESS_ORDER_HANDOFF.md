@@ -1,14 +1,14 @@
 # Sunny 工艺单 · 交接（HANDOFF）
 
-接手人先读：`docs/QINGYAN_SUNNY_PROCESS_ORDER_REPORT.md`（做了什么、对照结果、待拍板），再读 `openspec/changes/sunny-process-order-autogen/`（proposal / specs / design / tasks）。续做用 `/opsx:continue sunny-process-order-autogen`，不要凭记忆重写。
+接手人先读：`docs/QINGYAN_SUNNY_PROCESS_ORDER_REPORT.md`（做了什么、对照结果、待拍板），再读 `openspec/specs/sunny/`（现行规格）与 `openspec/changes/archive/2026-10-27-sunny-process-order-autogen/`（当时的 proposal / design / tasks）。续做请 `/opsx:propose` 新 change，不要凭记忆重写。
 
 ## 1. 现在的状态
 
 | 项 | 状态 |
 |---|---|
 | 分支 | `claude/sunny-sales-process-order-update-n1si3x`（已推送） |
-| OpenSpec | `sunny-process-order-autogen`，tasks 全部完成，`validate --strict` 通过；**未 archive**（PR 合并后另开小 PR 做 `/opsx:archive sunny-process-order-autogen --yes`） |
-| PR | 未开（等 Lucas / Evan 决定） |
+| OpenSpec | `sunny-process-order-autogen` 已于 2026-10-27 归档（`openspec/changes/archive/2026-10-27-sunny-process-order-autogen/`）；规格已合入 `openspec/specs/sunny/process-order-autogen`（16 条）与 `sunny/process-order-engines`（12 条）。新需求请开新 change，不要改归档目录 |
+| PR | [LucasJ880/-#266](https://github.com/LucasJ880/-/pull/266) 已合并（merge commit `611965d`） |
 | 拍板 | 报告 §6：8 项已拍板并落地（第二、三轮：外采购、发给国内、布纱比对照表、窗帘新公式与 −2cm）；剩 3 件小事待确认（布纱比表补报价 SKU、SC-ZD-XZ74-1 原件两处不一致、G1024 历史单） |
 
 ## 2. 代码地图
