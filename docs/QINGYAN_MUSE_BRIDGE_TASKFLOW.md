@@ -95,6 +95,19 @@
 
 ---
 
+## Phase S — Sales Pilot（管理者 Muse ↔ 销售协作闭环）
+
+上位文档：`LucasJ880/Muse--Bridge-bot` 的 `docs/prd/sales-pilot-prd.md`。纪律同上：零 schema、不加队列、对外动作一律审批；询问 = `Task`，跟进 = `SalesAction`，事件走 `Notification(category=muse_bridge)`。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| S1 | 只读销售意图 `sales_overview` / `opportunity_status`：服务端读范围（管理全组织 / 销售仅本人）、可解释确定性排序、决定 B 金额可见性 | P0 | OpenSpec change `muse-sales-read-intents`；`sales-pure` + `sales-db.isolated` 测试；报告 `docs/QINGYAN_S1_REPORT.md` | [G] |
+| S2 | 跨助理询问 `ask_colleague` / `reply_inquiry`：询问 Task + 通知 + `inquiry.*` 事件；任务页回复面板 | S1 | 两个绑定用户完成一次询问与回复，事件双向可见 | [ ] |
+| S3 | 跟进引擎 `create_followup` / `update_followup`：SalesAction（source=muse_followup）+ 挂既有 `sales-actions` cron 的到期提醒 / 逾期升级 + 商机协作追踪 + 证据导出脚本 | S2 | staging 自动化跑完 10 步验收 | [ ] |
+| S4 | Pilot 上线：对 1 个组织开开关、绑定 2 个用户、签发 Connector Token、真实 10 步验收 | S3 | 一条真实商机经私人助理推进到下一步并可追踪 | [ ] |
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
@@ -117,3 +130,4 @@
 6. 决定 A（2026-10-23，#237）：Muse 通道不出的只有毛利率、项目估值、我方最终报价；所选供应商的落地价可以出。`price_scenario` 不把目标毛利传进情景计算，成本线就是落地价本身。
 7. 邮箱分离（2026-10-23，#238）：显示发件人 `fromEmail`（project@）与授权邮箱 `mailboxEmail`（lucas@）是两个设置；授权账号只从组织设置读取，永不取自请求 payload。
 8. 询价 / 催单正文按 text/plain 发出（2026-10-23，#240），换行原样保留；其它调用方仍默认 text/html。
+9. **决定 B**（2026-10-27，S1）：销售意图只对管理角色（平台 admin / super_admin / boss / manager，或组织 org_owner / org_admin）输出商机金额（`SalesOpportunity.estimatedValue`）；销售角色的响应不带金额。招投标的决定 A 不变。

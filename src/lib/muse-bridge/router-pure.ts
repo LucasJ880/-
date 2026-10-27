@@ -45,6 +45,8 @@ export function errResponse(
   };
 }
 
+const SALES_PILOT_INTENTS: ReadonlySet<MuseIntent> = new Set<MuseIntent>(["sales_overview", "opportunity_status"]);
+
 /** 未启用意图的统一回复（诚实告知阶段）。 */
 export function notEnabledResponse(requestId: string, intent: MuseIntent): MuseCommandResponse {
   const phase = MUSE_INTENT_PHASE[intent];
@@ -61,17 +63,21 @@ export function notEnabledResponse(requestId: string, intent: MuseIntent): MuseC
     next_step: "下一步建议",
     set_preference: "设置个人偏好",
     preferences: "查看个人偏好",
+    sales_overview: "销售概览",
+    opportunity_status: "查看商机状态",
   };
+  // 销售意图属于 TASKFLOW Phase S（Sales Pilot），不是招投标的 Phase 1；契约里的数字阶段只能是 0–3
+  const phaseText = SALES_PILOT_INTENTS.has(intent) ? "Sales Pilot（Phase S）" : `Phase ${phase}`;
   return errResponse(
     requestId,
     "INTENT_NOT_ENABLED",
-    `「${label[intent]}」这个动作当前还没在 Muse 通道开放（属于 Phase ${phase}），请先在青砚里操作。`,
+    `「${label[intent]}」这个动作当前还没在 Muse 通道开放（属于 ${phaseText}），请先在青砚里操作。`,
     { availableInPhase: phase },
   );
 }
 
 const shortName = (s: string, n = 12) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const money = (n: number) => Math.round(n).toLocaleString("en-US");
+export const money = (n: number) => Math.round(n).toLocaleString("en-US");
 const nextStepOf = (projectId: string, name: string): AdvisoryNextStep => ({
   label: `「${shortName(name, 14)}」下一步做什么`,
   command: { intent: "next_step", projectId },

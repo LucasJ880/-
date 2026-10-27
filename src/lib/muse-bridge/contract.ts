@@ -30,6 +30,9 @@ export const MUSE_INTENTS = [
   "next_step",
   "set_preference",
   "preferences",
+  // TASKFLOW S1（Sales Pilot）：只读销售意图
+  "sales_overview",
+  "opportunity_status",
 ] as const;
 export type MuseIntent = (typeof MUSE_INTENTS)[number];
 
@@ -60,6 +63,9 @@ export const MUSE_INTENT_PHASE: Record<MuseIntent, 0 | 1 | 2 | 3> = {
   set_preference: 0,
   preferences: 0,
   follow_tender: 2,
+  // Sales Pilot（TASKFLOW Phase S）与招投标 Phase 1 同期按需开放
+  sales_overview: 1,
+  opportunity_status: 1,
 };
 
 const trimmed = (max: number) =>
@@ -118,6 +124,16 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
     })
     .strip(),
   z.object({ intent: z.literal("preferences") }).strip(),
+  // S1：读范围由服务端角色决定；assigneeUserId 只是过滤条件，不提升权限
+  z
+    .object({
+      intent: z.literal("sales_overview"),
+      days: z.number().int().min(1).max(90).optional(),
+      assigneeUserId: idField.optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    })
+    .strip(),
+  z.object({ intent: z.literal("opportunity_status"), opportunityId: idField }).strip(),
 ]);
 export type MuseCommandArgs = z.infer<typeof museCommandArgsSchema>;
 
@@ -150,6 +166,9 @@ export const MUSE_ERROR_CODES = [
   "VALIDATION_FAILED",
   "DUPLICATE_REQUEST",
   "INTERNAL",
+  // S1：销售意图
+  "PERMISSION_DENIED",
+  "OPPORTUNITY_NOT_FOUND",
 ] as const;
 export type MuseErrorCode = (typeof MUSE_ERROR_CODES)[number];
 

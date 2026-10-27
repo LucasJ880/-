@@ -497,6 +497,9 @@ run_test "Muse 桥接 纯逻辑（契约/绑定/路由/事件/脱敏）" "npx ts
 run_test "Muse 桥接 建议式回复契约（结论→理由→下一步）" "npx tsx src/lib/muse-bridge/__tests__/advisory.test.ts"
 run_test "Muse 桥接 next_step 确定性查表" "npx tsx src/lib/muse-bridge/__tests__/next-step.test.ts"
 run_test "Muse 桥接 个人偏好记忆（零 schema）" "npx tsx src/lib/muse-bridge/__tests__/prefs.test.ts"
+# TASKFLOW S1：Sales Pilot 只读销售意图
+run_test "Muse 桥接 销售意图（读范围/可解释排序/决定 B 金额可见性）" "npx tsx src/lib/muse-bridge/__tests__/sales-pure.test.ts"
+run_test "Muse 桥接 销售意图 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/muse-bridge/__tests__/sales-db.isolated.test.ts"
 run_test "招标询价 RFQ 结构化生成器" "npx tsx src/lib/tender-rfq/__tests__/build.test.ts"
 run_test "招标询价 轮次锁/发件人解析（mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/round-pure.test.ts"
 run_test "招标询价 入站解析（证据闸/附件文本化）" "npx tsx src/lib/tender-rfq/__tests__/inbound-parse.test.ts"
