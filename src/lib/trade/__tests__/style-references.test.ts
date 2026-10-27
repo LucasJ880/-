@@ -66,4 +66,28 @@ ok("对照：按卡上顺序，不在表里的款号 name = null；写法「品�
   assert.deepEqual(resolveStyles("", refs), []);
 });
 
+ok("链接列（可选）：规格页、图片；品类名里有逗号也不受影响；非 https 报错；往返不丢", () => {
+  const { refs, errors } = parseStyleReferenceText(
+    [
+      "MX-BL-001, Flannel / Coral Fleece Blanket, https://www.mengxinhometextile.com/products/blankets/flannel-coral-fleece-blanket, https://www.mengxinhometextile.com/email/styles/MX-BL-001.jpg",
+      "MX-CP-001, Cushions, Pillows & Throws, https://www.mengxinhometextile.com/products/cushions-pillows/x",
+    ].join("\n"),
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(refs, [
+    {
+      code: "MX-BL-001",
+      name: "Flannel / Coral Fleece Blanket",
+      specUrl: "https://www.mengxinhometextile.com/products/blankets/flannel-coral-fleece-blanket",
+      imageUrl: "https://www.mengxinhometextile.com/email/styles/MX-BL-001.jpg",
+    },
+    { code: "MX-CP-001", name: "Cushions, Pillows & Throws", specUrl: "https://www.mengxinhometextile.com/products/cushions-pillows/x" },
+  ]);
+  assert.deepEqual(parseStyleReferenceText(formatStyleReferenceText(refs)).refs, refs);
+  assert.match(parseStyleReferenceText("MX-BL-001, Blanket, http://example.com/x").errors[0], /要以 https:\/\/ 开头/);
+  const r = resolveStyles("MX-BL-001, MX-CP-001", refs);
+  assert.equal(r[0].imageUrl, "https://www.mengxinhometextile.com/email/styles/MX-BL-001.jpg");
+  assert.equal(r[1].specUrl, "https://www.mengxinhometextile.com/products/cushions-pillows/x");
+});
+
 console.log(`\n${pass} passed`);

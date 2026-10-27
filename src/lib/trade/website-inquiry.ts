@@ -67,7 +67,7 @@ export interface IngestOrigin {
   /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
   event?: string | null;
   /** 买家在展位看过的参考款（款号 + 参考表里的品类名），草稿逐一点名；仅 trade_show */
-  styles?: Array<{ code: string; name: string | null }>;
+  styles?: Array<{ code: string; name: string | null; specUrl?: string | null; imageUrl?: string | null }>;
   /** 业务员在卡上判的等级 A/B/C：决定商机优先级与审批标题；仅 trade_show */
   grade?: string | null;
   /** 展位上接待的业务员（卡上署名），跟进邮件落款；仅 trade_show */

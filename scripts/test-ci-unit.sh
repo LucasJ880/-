@@ -258,6 +258,7 @@ npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
+npx tsx src/lib/revenue-spine/__tests__/booth-email.test.ts
 npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
 npx tsx src/lib/trade/__tests__/message-normalize.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
