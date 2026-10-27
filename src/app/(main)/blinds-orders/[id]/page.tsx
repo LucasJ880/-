@@ -12,8 +12,18 @@ import {
   Scissors,
   Download,
 } from "lucide-react";
-import { getCordLengthTier } from "@/lib/blinds/calculation-engine";
+import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { apiFetch } from "@/lib/api-fetch";
+import { blockingIssues, computeIssues, type ProcessIssue } from "@/lib/sunny-process/issues";
+import type { ProcessSpec } from "@/lib/sunny-process/process-spec";
+import {
+  DomesticSection,
+  DrapesSection,
+  IssuesPanel,
+  SourceBanner,
+  UnsupportedSection,
+  VinylSection,
+} from "./process-sections";
 
 interface BlindsOrderItem {
   id: string;
@@ -84,29 +94,79 @@ export default function BlindsOrderDetailPage({
   const router = useRouter();
   const [order, setOrder] = useState<BlindsOrder | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "parts" | "fabric">("overview");
+  const [tab, setTab] = useState<"overview" | "parts" | "fabric" | "domestic" | "drapes" | "vinyl">("overview");
   const [exporting, setExporting] = useState(false);
+  const [spec, setSpec] = useState<ProcessSpec | null>(null);
+  const [specDirty, setSpecDirty] = useState(false);
+  const [savingSpec, setSavingSpec] = useState(false);
 
   const loadOrder = useCallback(async () => {
     const res = await apiFetch(`/api/blinds-orders/${id}`);
     if (res.ok) {
       setOrder(await res.json());
     }
+    const sres = await apiFetch(`/api/blinds-orders/${id}/spec`);
+    if (sres.ok) {
+      const data = (await sres.json()) as { spec: ProcessSpec };
+      setSpec(data.spec);
+      setSpecDirty(false);
+    }
     setLoading(false);
   }, [id]);
+
+  // 待核对：用当前（含未保存的）参数实时重算，与服务端门禁同一函数
+  const issues: ProcessIssue[] = order && spec ? computeIssues(order.items, spec, order.code) : [];
+
+  function editSpec(next: ProcessSpec) {
+    setSpec(next);
+    setSpecDirty(true);
+  }
+
+  async function saveSpec() {
+    if (!spec) return;
+    setSavingSpec(true);
+    try {
+      const res = await apiFetch(`/api/blinds-orders/${id}/spec`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spec }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "保存失败");
+        return;
+      }
+      setSpec(data.spec);
+      setSpecDirty(false);
+    } finally {
+      setSavingSpec(false);
+    }
+  }
 
   useEffect(() => {
     void loadOrder();
   }, [loadOrder]);
 
   async function updateStatus(newStatus: string) {
+    if (specDirty) {
+      alert("工艺参数有未保存的修改，请先保存");
+      return;
+    }
     const res = await apiFetch(`/api/blinds-orders/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     });
     if (res.ok) {
-      setOrder(await res.json());
+      const updated = await res.json();
+      setOrder((prev) => (prev ? { ...prev, ...updated } : updated));
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (data.code === "PROCESS_ORDER_BLOCKED") {
+      alert(`${data.error}：\n\n${(data.issues as ProcessIssue[]).map((i) => `· ${i.messageZh}`).join("\n")}`);
+    } else {
+      alert(data.error || "状态更新失败");
     }
   }
 
@@ -163,6 +223,9 @@ export default function BlindsOrderDetailPage({
 
   const st = STATUS_MAP[order.status] || STATUS_MAP.draft;
   const totalSF = order.items.reduce((sum, item) => sum + (item.squareFeet || 0), 0);
+  const editable = order.status === "draft";
+  const blockedCount = blockingIssues(issues).length;
+  const lineCount = order.items.length + (spec ? spec.domestic.length + spec.drapes.length + spec.vinyl.length : 0);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -193,10 +256,21 @@ export default function BlindsOrderDetailPage({
             <Download size={14} />
             {exporting ? "导出中..." : "导出 Excel"}
           </button>
+          {specDirty && (
+            <button
+              onClick={saveSpec}
+              disabled={savingSpec}
+              className="rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
+            >
+              {savingSpec ? "保存中..." : "保存工艺参数"}
+            </button>
+          )}
           {st.next && (
             <button
               onClick={() => updateStatus(st.next!)}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90"
+              disabled={order.status === "draft" && blockedCount > 0}
+              title={order.status === "draft" && blockedCount > 0 ? `还有 ${blockedCount} 项阻断待核对` : undefined}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {st.nextLabel}
             </button>
@@ -218,11 +292,14 @@ export default function BlindsOrderDetailPage({
         </div>
       </div>
 
+      <SourceBanner spec={spec} />
+      {spec && <IssuesPanel issues={issues} />}
+
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
         <div className="rounded-lg border border-border bg-card-bg p-4">
           <div className="text-xs text-muted">窗户数</div>
-          <div className="mt-1 text-2xl font-bold text-foreground">{order.items.length}</div>
+          <div className="mt-1 text-2xl font-bold text-foreground">{lineCount}</div>
         </div>
         <div className="rounded-lg border border-border bg-card-bg p-4">
           <div className="text-xs text-muted">总面积</div>
@@ -245,10 +322,13 @@ export default function BlindsOrderDetailPage({
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {[
-          { key: "overview" as const, label: "订单总览", icon: FileText },
-          { key: "parts" as const, label: "配件开料表", icon: Ruler },
-          { key: "fabric" as const, label: "面料开料表", icon: Scissors },
-        ].map((t) => (
+          { key: "overview" as const, label: "订单总览", icon: FileText, show: true },
+          { key: "parts" as const, label: "配件开料表", icon: Ruler, show: order.items.length > 0 },
+          { key: "fabric" as const, label: "面料开料表", icon: Scissors, show: order.items.length > 0 },
+          { key: "domestic" as const, label: `国内下单 (${spec?.domestic.length ?? 0})`, icon: FileText, show: !!spec?.domestic.length },
+          { key: "drapes" as const, label: `窗帘 (${spec?.drapes.length ?? 0})`, icon: Scissors, show: !!spec?.drapes.length },
+          { key: "vinyl" as const, label: `Vinyl 百叶 (${spec?.vinyl.length ?? 0})`, icon: Ruler, show: !!spec?.vinyl.length },
+        ].filter((t) => t.show).map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -268,6 +348,10 @@ export default function BlindsOrderDetailPage({
       {tab === "overview" && <OverviewTab order={order} />}
       {tab === "parts" && <PartsCuttingTab items={order.items} />}
       {tab === "fabric" && <FabricCuttingTab items={order.items} />}
+      {spec && tab === "domestic" && <DomesticSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
+      {spec && tab === "drapes" && <DrapesSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
+      {spec && tab === "vinyl" && <VinylSection spec={spec} onChange={editSpec} editable={editable} issues={issues} orderCode={order.code} />}
+      {spec && <UnsupportedSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
     </div>
   );
 }
@@ -339,7 +423,8 @@ function PartsCuttingTab({ items }: { items: BlindsOrderItem[] }) {
               <th className="px-3 py-2.5 font-medium">圆芯杆</th>
               <th className="px-3 py-2.5 font-medium">面料宽</th>
               <th className="px-3 py-2.5 font-medium">插片</th>
-              <th className="px-3 py-2.5 font-medium">数量</th>
+              <th className="px-3 py-2.5 font-medium">件数</th>
+              <th className="px-3 py-2.5 font-medium">切割类型</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -352,6 +437,7 @@ function PartsCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                 item.productType === "卷帘" ? item.cutRollerBar
                 : item.productType === "斑马帘" ? item.cutZebraBar
                 : item.cutShangrilaBar;
+              const calc = calculateItem(item);
 
               return (
                 <tr key={item.id} className="hover:bg-[rgba(43,96,85,0.02)]">
@@ -368,7 +454,8 @@ function PartsCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                   <td className="px-3 py-2 font-mono">{fmt(item.cutCoreRod)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cutFabricWidth)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.insertSize)}</td>
-                  <td className="px-3 py-2">1</td>
+                  <td className="px-3 py-2">{calc.quantities.tube38}</td>
+                  <td className="px-3 py-2">{calc.cutCategory}</td>
                 </tr>
               );
             })}
@@ -400,6 +487,7 @@ function FabricCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                 <th className="px-3 py-2.5 font-medium">拉绳分档</th>
                 <th className="px-3 py-2.5 font-medium">操控侧</th>
                 <th className="px-3 py-2.5 font-medium">位置</th>
+                <th className="px-3 py-2.5 font-medium">斑马帘裁剪位</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -412,10 +500,11 @@ function FabricCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                   <td className="px-3 py-2 font-mono">{fmt(item.cordLength)}</td>
                   <td className="px-3 py-2 font-mono">{fmt(item.cordSleeveLen)}</td>
                   <td className="px-3 py-2">
-                    {getCordLengthTier(item.height, item.controlType) || "-"}
+                    {calculateItem(item).cordTier || "-"}
                   </td>
                   <td className="px-3 py-2">{item.controlSide}</td>
                   <td className="px-3 py-2 text-muted">{item.location}</td>
+                  <td className="px-3 py-2 font-mono">{fmt(calculateItem(item).zebraCutPos)}</td>
                 </tr>
               ))}
             </tbody>
@@ -424,7 +513,7 @@ function FabricCuttingTab({ items }: { items: BlindsOrderItem[] }) {
                 <td className="px-3 py-2" colSpan={4}>合计</td>
                 <td className="px-3 py-2 font-mono">{totalCord.toFixed(4)} m</td>
                 <td className="px-3 py-2 font-mono">{totalSleeve.toFixed(4)} m</td>
-                <td colSpan={3}></td>
+                <td colSpan={4}></td>
               </tr>
             </tfoot>
           </table>

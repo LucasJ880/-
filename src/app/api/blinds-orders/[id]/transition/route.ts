@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { canTransition, timestampField } from "@/lib/blinds/order-state-machine";
 import { withAuth } from "@/lib/common/api-helpers";
+import { loadProcessSpec, orderIssues } from "@/lib/sunny-process/autogen";
+import { blockingIssues } from "@/lib/sunny-process/issues";
+import { canViewBlindsOrder, processOrderDb } from "@/lib/sunny-process/server";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -12,14 +15,28 @@ export const POST = withAuth(async (request, ctx, user) => {
     cancelReason?: string;
   };
 
-  const order = await db.blindsOrder.findUnique({ where: { id } });
-  if (!order) return NextResponse.json({ error: "工单不存在" }, { status: 404 });
+  const order = await db.blindsOrder.findUnique({ where: { id }, include: { items: { orderBy: { itemNumber: "asc" } } } });
+  if (!order || !(await canViewBlindsOrder(order, user))) {
+    return NextResponse.json({ error: "工单不存在" }, { status: 404 });
+  }
 
   if (!canTransition(order.status, toStatus)) {
     return NextResponse.json(
       { error: `不能从 ${order.status} 转到 ${toStatus}` },
       { status: 400 },
     );
+  }
+
+  // 确认门禁：草稿 → 已确认 前，阻断级待核对项必须清零
+  if (order.status === "draft" && toStatus === "confirmed") {
+    const spec = await loadProcessSpec(processOrderDb, id);
+    const blocked = blockingIssues(orderIssues(order, spec));
+    if (blocked.length > 0) {
+      return NextResponse.json(
+        { error: `还有 ${blocked.length} 项阻断待核对，不能确认`, code: "PROCESS_ORDER_BLOCKED", issues: blocked },
+        { status: 409 },
+      );
+    }
   }
 
   const { installDate, assignedToId } = body as {

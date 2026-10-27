@@ -553,6 +553,8 @@ export function Header() {
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
     if (item.entityType === "task" && item.entityId) {
       window.location.href = `/tasks?open=${item.entityId}`;
+    } else if (item.entityType === "blinds_order" && item.entityId) {
+      window.location.href = `/blinds-orders/${encodeURIComponent(item.entityId)}`;
     } else if (item.entityType === "sales_quote" && item.entityId) {
       if (item.orgId) persistSelectedOrgId(item.orgId);
       const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";

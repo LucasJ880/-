@@ -12,7 +12,7 @@
 
 ## 3. 生成与门禁
 
-- [ ] 3.1 新增报价映射 + 待核对 + 自动生成服务（AuditLog 版本化 spec、幂等、通知），接入 mark-signed 与公开 sign 两路由；写 `quote-mapping.test.ts`、`autogen.test.ts`（注入式 db 假体）并注册。verify：两个测试退出 0；`grep -n "generateProcessOrderForSignedQuote" src/app/api/sales/quotes -r` 命中两处。
+- [ ] 3.1 新增报价映射 + 待核对 + 自动生成服务（AuditLog 版本化 spec、幂等、通知），接入 mark-signed 与公开 sign 两路由；写 `quote-mapping.test.ts`、`autogen.test.ts`（注入式 db 假体）并注册。verify：两个测试退出 0；`grep -rn "generateForSignedQuote" src/app/api/sales/quotes` 命中两处。
 - [ ] 3.2 新增 `PUT/GET /api/blinds-orders/[id]/spec`，transition 加 draft→confirmed 阻断门禁，export 补可见性校验并输出全部产品线工作表。verify：`autogen.test.ts` 中门禁与 spec 版本用例通过；导出用例生成的 xlsx 用 ExcelJS 读回含预期工作表名。
 
 ## 4. 界面与收尾

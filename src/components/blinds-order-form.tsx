@@ -11,7 +11,6 @@ import {
   CONTROL_SIDES,
   MOUNT_TYPES,
   RULE_VERSION,
-  SUPPORTED_FABRIC_RATIOS,
 } from "@/lib/blinds/deduction-rules";
 import { apiFetch } from "@/lib/api-fetch";
 
@@ -307,7 +306,7 @@ export function BlindsOrderForm({
         <span>规则版本:</span>
         <span className="rounded bg-card-bg px-2 py-0.5 font-mono">{RULE_VERSION}</span>
         <span className="mx-2">|</span>
-        <span>布纱比: 仅支持 {SUPPORTED_FABRIC_RATIOS.join(", ")}</span>
+        <span>布纱比: 支持任意布:纱（如 3.125 : 2.125），用于斑马帘裁剪位</span>
         <span className="mx-2">|</span>
         <span>单位: 英寸（内部）</span>
       </div>
@@ -602,7 +601,7 @@ export function BlindsOrderForm({
               裁切计算结果预览
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              规则版本: {RULE_VERSION} · 仅支持 3:2 布纱比自动计算
+              规则版本: {RULE_VERSION} · 斑马帘裁剪位按任意布纱比计算
             </p>
           </div>
           <div className="overflow-x-auto">

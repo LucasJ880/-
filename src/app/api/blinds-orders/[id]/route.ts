@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { withAuth } from "@/lib/common/api-helpers";
+import { itemCreateData, loadProcessSpec, orderIssues } from "@/lib/sunny-process/autogen";
+import { blockingIssues } from "@/lib/sunny-process/issues";
+import { canViewBlindsOrder, processOrderDb } from "@/lib/sunny-process/server";
 
 export const GET = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -39,21 +41,32 @@ export const PUT = withAuth(async (request, ctx, user) => {
     select: {
       id: true,
       code: true,
+      status: true,
       projectId: true,
+      creatorId: true,
+      customerId: true,
     },
   });
-  if (!existing) {
+  // 可见性：管理员 / 创建人 / 项目可见 / 关联客户所在组织成员（自动生成的草稿要由工厂核对修改）
+  if (!existing || !(await canViewBlindsOrder(existing, user))) {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 
-  if (existing.projectId) {
-    const visibleIds = await getVisibleProjectIds(user.id, user.role);
-    if (visibleIds !== null && !visibleIds.includes(existing.projectId)) {
-      return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+  // 确认门禁（与 transition 路由同一规则）：详情页"确认工艺单"按钮走这里改状态
+  if (existing.status === "draft" && body.status === "confirmed") {
+    const current = await db.blindsOrder.findUnique({
+      where: { id },
+      include: { items: { orderBy: { itemNumber: "asc" } } },
+    });
+    const spec = await loadProcessSpec(processOrderDb, id);
+    const pending = body.items ? { code: existing.code, items: body.items as unknown[] } : current!;
+    const blocked = blockingIssues(orderIssues(pending, spec));
+    if (blocked.length > 0) {
+      return NextResponse.json(
+        { error: `还有 ${blocked.length} 项阻断待核对，不能确认`, code: "PROCESS_ORDER_BLOCKED", issues: blocked },
+        { status: 409 },
+      );
     }
-  } else if (!["admin", "super_admin"].includes(user.role)) {
-    // 无项目归属的历史单：仅平台管理员可改
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 
   if (body.code && body.code !== existing.code) {
@@ -73,55 +86,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
   }
 
   const items = body.items
-    ? (body.items as Record<string, unknown>[]).map(
-        (item: Record<string, unknown>, index: number) => {
-          const input = {
-            width: Number(item.width),
-            height: Number(item.height),
-            productType: String(item.productType),
-            measureType: String(item.measureType),
-            controlType: String(item.controlType),
-            headrailType: String(item.headrailType),
-            fabricRatio:
-              item.fabricRatio != null ? Number(item.fabricRatio) : null,
-            silkRatio: item.silkRatio != null ? Number(item.silkRatio) : null,
-            bottomBarWidth:
-              item.bottomBarWidth != null ? Number(item.bottomBarWidth) : null,
-          };
-          const calc = calculateItem(input);
-
-          return {
-            itemNumber: index + 1,
-            location: String(item.location || ""),
-            width: input.width,
-            height: input.height,
-            fabricSku: String(item.fabricSku || ""),
-            productType: input.productType,
-            measureType: input.measureType,
-            controlType: input.controlType,
-            controlSide: String(item.controlSide || "R"),
-            headrailType: input.headrailType,
-            mountType: String(item.mountType || "顶装"),
-            fabricRatio: input.fabricRatio,
-            silkRatio: input.silkRatio,
-            bottomBarWidth: input.bottomBarWidth,
-            itemRemark: item.itemRemark ? String(item.itemRemark) : null,
-            cutHeadrail: calc.cutHeadrail,
-            cutTube38: calc.cutTube38,
-            cutRollerBar: calc.cutRollerBar,
-            cutZebraBar: calc.cutZebraBar,
-            cutCoreRod: calc.cutCoreRod,
-            cutShangrilaBar: calc.cutShangrilaBar,
-            cutFabricWidth: calc.cutFabricWidth,
-            cutFabricLength: calc.cutFabricLength,
-            insertSize: calc.insertSize,
-            cordLength: calc.cordLength,
-            cordSleeveLen: calc.cordSleeveLen,
-            squareFeet: calc.squareFeet,
-            sortOrder: calc.sortOrder,
-          };
-        }
-      )
+    ? (body.items as Record<string, unknown>[]).map((item, index) => itemCreateData(item, index))
     : undefined;
 
   const order = await db.blindsOrder.update({
@@ -153,8 +118,15 @@ export const PUT = withAuth(async (request, ctx, user) => {
   return NextResponse.json(order);
 });
 
-export const DELETE = withAuth(async (_request, ctx) => {
+export const DELETE = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
+  const existing = await db.blindsOrder.findUnique({
+    where: { id },
+    select: { projectId: true, creatorId: true, customerId: true },
+  });
+  if (!existing || !(await canViewBlindsOrder(existing, user))) {
+    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+  }
   await db.blindsOrder.delete({ where: { id } });
   return NextResponse.json({ success: true });
 });
