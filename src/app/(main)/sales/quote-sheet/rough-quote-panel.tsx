@@ -121,6 +121,7 @@ export function RoughQuotePanel({
             sheer: number;
             shutters: number;
             honeycomb: number;
+            romanShade?: number;
           }>("/api/sales/quote-settings/discounts");
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -134,6 +135,7 @@ export function RoughQuotePanel({
                 Sheer: d.sheer,
                 Shutters: d.shutters,
                 SkylightHoneycomb: d.honeycomb,
+                "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
               },
             },
             "*",
@@ -159,6 +161,7 @@ export function RoughQuotePanel({
               sheer: after.Sheer,
               shutters: after.Shutters,
               honeycomb: after.SkylightHoneycomb,
+              romanShade: after["Roman Shade"],
             }),
           });
           const body = await res.json().catch(() => null);
