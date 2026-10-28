@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
-import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
+import { assertSalesQuoteUpdatable, resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
 import { generateForSignedQuote } from "@/lib/sunny-process/server";
 
@@ -43,11 +43,11 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  // 权限：只能是创建者或超管
-  if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
-    return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
-  }
-  if (!isSuperAdmin(user.role)) {
+  // PERM-4a：对该报价持 sales.quote.update（本人范围 = 本人创建；合价 / 老板 ORG）
+  const denied = await assertSalesQuoteUpdatable(user, orgRes.orgId, quote);
+  if (denied) return denied;
+  // 超限未批拦截只对平台 super_admin 放行（PERM-2 自批口径；平台 admin 不放行）
+  if (!isPlatformSuperAdmin(user.role)) {
     const settings = await db.quoteDiscountSettings.findUnique({ where: { orgId: orgRes.orgId }, select: { promoMaxPct: true } });
     const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
     if (promotion.required && !promotion.approved) {

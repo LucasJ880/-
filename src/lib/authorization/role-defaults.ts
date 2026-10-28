@@ -209,6 +209,12 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "orders.cancel",
       "inventory.manage",
       "inventory.read",
+      // PERM-4a："全看全改"落到权限键（不再靠平台 admin 短路）；签约单改总价的审批权
+      "sales.customer.update",
+      "sales.customer.archive",
+      "sales.opportunity.update",
+      "sales.quote.update",
+      "sales.quote.signed_amount.approve",
     ),
   },
   {

@@ -17,6 +17,7 @@
 | `perm-1-positions` | 已合并 main；已 archive（specs 合入 `authorization/platform-admin-authority`、`position-binding`、`position-catalog`） | #264 ✅ |
 | `perm-2-discount-by-position` | 已合并 main；已 archive（specs 合入 `identity/member-management`、`sales/discount-tiering`、`sales/quote-delivery-gate`、`sales/quote-settings-approval`） | #265 ✅ |
 | `perm-3-fulfillment-by-category` | 8/8 tasks；代码完成（品类键 / 出单岗模板 / `src/lib/fulfillment` / 工艺单与库存路由 / 作废审批 / 导航 requiredPermissions / 详情页只读态）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_PERM-3_REPORT.md`；TASKFLOW `[x]`；合并 main 时与 sunny-process 整合（报告 §5b / design D8） | #274 ✅；已 archive（specs 合入 `fulfillment/order-category-access`、`fulfillment/order-cancellation-approval`、`inventory/fabric-stock-access`，`authorization/position-catalog` 与 `sunny/process-order-autogen` 增量） |
+| `perm-4a-sales-authorize` | 8/8 tasks；代码完成（新键 `sales.quote.signed_amount.approve` / owner +5 键 / 销售区去平台角色短路 / 测量与定金补企业边界 / 签约单改总价审批 + 执行器 / 报价页 202 提示）；typecheck / lint:baseline / test:ci / registry 全绿；签约改价隔离库 e2e 20/20；报告 `docs/QINGYAN_PERM-4a_REPORT.md`；TASKFLOW `[G]` | 本地分支 `perm-4a-propose`（基于 #276）；#276 合并后 rebase 到 main、推 `claude/amazing-goldberg-s89rlq` 开 PR |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果（会话 1，2026-10-27）
@@ -32,7 +33,9 @@
 4. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板（含 installer）；补 `config/positions/sunny.json` 邮箱（含 `TODO:安装工`）；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
 5. ~~PERM-3 / PERM-4 / PERM-5 任务书~~ 已写：`docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`、`docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`、`docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`。每份末尾有「判断点」，**先让 Lucas 拍板再 propose**。
 6. ~~PERM-3~~ 已合并（#274）并 archive（本 PR）。**生产动作**：对 Sunny 重跑 `seedOrgAuthorizationProfiles`（出单模板变了），并确认工厂人员已绑定对应 `fulfillment_*` 岗位——自动生成工艺单的草稿核对（改参数 / 挪行 / 确认）现在要求本单全部品类键（报告 §5b）。
-7. 顺序：PERM-4a → 4b → 4c → PERM-5a；PERM-5b 只依赖 PERM-1，可随时并行。每个 change：`/opsx:propose <name>` → 四件套回传审核 → `/opsx:apply` → 测试 → `/opsx:verify` → PR → 合并后独立小 PR archive。
+7. PERM-4a 上线：**合并前**查平台 `admin` 账号补岗位（平台 admin 在销售区不再有隐含权限）；**合并后**对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner +5 键）。Sunny 若只有一位老板，签约单改总价会 409 `NO_APPROVER`，只能 Lucas 直接改。
+   PERM-4a 判断点已拍板（任务书末尾"拍板结果"）：签约单改金额纳入 4a；报价行级出单编辑移出；owner 补销售改权；4c 先压 Sunny、梦馨不动；Sunny 无人用 `manager`。续做用 `/opsx:apply perm-4a-sales-authorize`，按 tasks.md 未勾选项继续。
+8. 顺序：PERM-4a → 4b → 4c → PERM-5a；PERM-5b 只依赖 PERM-1，可随时并行。每个 change：`/opsx:propose <name>` → 四件套回传审核 → `/opsx:apply` → 测试 → `/opsx:verify` → PR → 合并后独立小 PR archive。
 
 ## 环境注意
 
@@ -47,4 +50,7 @@
 - `resolveEffectiveBindings` 无绑定时按 `OrganizationMember.role` 兼容回退；PERM-1 绑定后 Sunny 全员应走绑定，别再依赖回退。
 - `seedOrgAuthorizationProfiles` 会把 org_owner / org_admin / 平台 sales 自动绑到系统模板；新模板加入后要确认它不会给梦馨绑 Sunny 岗位。
 - 工艺单读写判定只有一处：`src/lib/fulfillment/service.ts` `resolveOrderAccess`（`canViewBlindsOrder` / `blindsOrderAccess` 都委托它）；品类含 sunny 参数行（`specCategories`）。新增工艺单写接口必须判 `access.edit.allowed`。
+- 报价保存只有一处实现：`src/lib/sales/quote-update.ts`（PUT 与签约改价执行器共用）；超限折扣审批收口写在 `src/lib/pending-actions/quote-promotion-settle.ts`。改报价保存逻辑改这两处，不要在路由里再写一份。
+- drafts 层（`requestApproval`）按幂等键去重**不看状态**：新审批的幂等键要能区分"被拒后再提交"，否则会拿回已终结的审批（PERM-4a 用"该报价已有审批条数"）。
+- 隔离库 e2e 本地跑法：容器重启后 Postgres 会停，`su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/qy-pg/data -o '-p 5433 -k /var/tmp/qy-pg' -l /var/tmp/qy-pg/log start"`；若数据目录没了按"环境注意"重建（`initdb` → `create database qy_test` → `prisma migrate deploy`）。
 - 唯一 org_owner 保护在 `organizations/[orgId]/members/[memberId]/route.ts`；老板做成岗位 `owner`，不改这条保护。

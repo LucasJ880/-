@@ -1027,6 +1027,14 @@ function QuoteSheetPageInner() {
       }
 
       const res = await apiResponse.json();
+      // PERM-4a：已签约报价改了总价 → 服务端不落库，生成审批（202）；批准前报价保持原签约内容，本地草稿保留
+      if (apiResponse.status === 202 && res.pending) {
+        alert(
+          `${res.message || "改价已提交审批，批准后生效"}\n\n` +
+            `批准前报价保持原签约内容；批准后原签名作废，报价回到草稿，需重新发送客户签署。`,
+        );
+        return null;
+      }
       const quoteId: string | undefined = res.quote?.id;
       if (!quoteId) {
         // 2xx 但没返回 quoteId：异常情况，坚决不要清草稿
