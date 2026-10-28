@@ -59,7 +59,7 @@
 
 - 沙箱 Node 是 22，仓库要 24：`source ~/.nvm/nvm.sh && nvm use 24`（若 nvm 不在，`node -v` 为 22 也能跑 tsx，但 `tsc` 要 `NODE_OPTIONS=--max-old-space-size=8192`）。
 - 沙箱无 Postgres 服务，但装有 Postgres 16：`apt-get install -y postgresql-16-pgvector` 后以 postgres 用户 `initdb` + `pg_ctl`（数据目录放 postgres 可写处，如 `/var/tmp/qy-pg`），`prisma migrate deploy` 后可用 `DATABASE_ENVIRONMENT=isolated NODE_ENV=test` 跑 `*.isolated.test.ts`。未起库时带 DB 的测试在 `npm test` 里因 MISSING_DATABASE_URL 失败，属环境性；CI 子集 `npm run test:ci` 不含它们。
-- `openspec validate --specs --strict` 在 PERM-3 archive 后有 3 条 WARNING（`authorization/position-catalog`、`sunny/process-order-autogen` 需求文本 >500 字；`inventory/fabric-stock-access` Purpose 过短）。规格只从 change 归档进来，下次碰这些能力的 change 顺手拆分。
+- `openspec validate --specs --strict` 有 4 条 WARNING（`authorization/position-catalog`、`sunny/process-order-autogen` 需求文本 >500 字；`inventory/fabric-stock-access`、`accounting/workspace` Purpose 过短——中文少于 50 字符，PERM-5a 引入）。规格只从 change 归档进来，下次碰这些能力的 change 顺手拆分。
 - 生产库迁移是手工受控的（见 `docs/DEPLOY_VERCEL.md`）；本主线零 schema，不应再有迁移。
 - 沙箱访问不到 qingyan.ca 与 Neon；线上核对由 Lucas 做。
 
