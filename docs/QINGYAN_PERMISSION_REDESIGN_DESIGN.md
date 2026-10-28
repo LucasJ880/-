@@ -119,4 +119,7 @@
 
 决定（2026-10-27 追加，Lucas）：11. 新增岗位"安装工"，只看分配给自己的安装任务，日历显示安装时间，按工艺单逐窗拍照上传用于收口。12. 可以安排安装（指定安装工与时间）的人由运营和会计决定：`install.task.assign` 给运营主管、会计（老板保留）；出单岗与基础运营不能安排安装。
 
+决定（2026-10-28 追加，Lucas）：13. 签约单改总价走审批（`sales.update_signed_quote`，新键 `sales.quote.signed_amount.approve` 只给老板，提交人不得自批；总价不变的修改照旧），纳入 PERM-4a。14. 报价行级出单编辑不做：出单人只在工艺单上按品类改。15. 老板岗位"全看全改"落到权限键（客户改 / 归档、商机改、报价改），不再依赖平台 admin 角色。16. PERM-4c 平台角色压扁先只压 Sunny，梦馨落模板与绑定后另行压扁；Sunny 无人用 `manager`，直接压成 `user`。
+整合记录（2026-10-28，PERM-3 × sunny-process #266 / #272）：工艺单读写判定合一到 `resolveOrderAccess`（旧范围含"无项目时关联客户所在企业成员"）；品类含 sunny 参数行（国内下单 / 窗帘 / Vinyl / 外采购）；参数保存与挪行也按品类；斑马帘对照表保存改 `orders.fulfillment.update.shades` 或伞键。
+
 每阶段一个 change（`/opsx:propose`），GATE 审核项含 `openspec validate` 与 specs 增量覆盖全部对外行为变化。

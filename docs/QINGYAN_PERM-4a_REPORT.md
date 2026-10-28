@@ -77,7 +77,9 @@ e2e 发现并修复：drafts 层按幂等键去重不看状态，原幂等键 `q
 
 ## 5. 全量测试
 
-见 HANDOFF 进度行与本节补记（全量 `npm test` 在本地无 DB 环境跑，失败项应与 `docs/QINGYAN_SDD-0_REPORT.md` §3 用例 4 的环境性基线一致）。
+全量 `npm test`（本地无 DB，rebase 到 #275 / #277 之后的 main 上跑）：**446 / 459**。13 个失败与 `docs/QINGYAN_SDD-0_REPORT.md` §3 用例 4 的环境性基线完全一致，无新增：
+Agent Trace 只读查询、Phase3A-2 Ledger DB、Phase3A-2 Smoke Access、Phase3A-3 Approvals Smoke、Governance Hygiene Gate、Governance Hygiene Concurrency Gate、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Phase3A-5 Settle DB、Phase3A-5 Overview Acceptance（以上 10 项 MISSING_DATABASE_URL）、T4 授标情报真实 Postgres 矩阵（需 DATABASE_URL）、Gmail Draft OAuth Compose Scope、Quote Operations 客户报价 PDF 分页布局（页脚 2 条断言）。
+合并 #278 后在 PR 头上再跑 typecheck / lint:baseline / test:ci / registry（442）与两条隔离库 e2e（20/20、15/15），CI `validate-lint-typecheck-test-build` 绿；#279 合并于 `445d58e`。
 
 ## 6. 合并后
 

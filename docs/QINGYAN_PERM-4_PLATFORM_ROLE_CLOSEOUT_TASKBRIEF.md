@@ -100,3 +100,7 @@
 1. "签约单改金额走审批"**纳入 4a**。
 2. 4c 压扁**先 Sunny，梦馨不动**（梦馨落模板与绑定后另行压扁）。
 3. Sunny **没人用** `manager` 平台角色：4c 直接按 `user` 压扁，不为 `manager` 做岗位映射。
+4. 4a 第 5 条"报价行级出单编辑"**移出 4a**（propose 时拍板）：报价行无工艺字段，签字后由 sunny-process 生成工艺单，出单人在工艺单上按品类改（PERM-3 已覆盖）。
+5. 去掉 `isAdmin` 短路后 `owner` **补销售改权**（propose 时拍板）：`sales.customer.update / archive`、`sales.opportunity.update`、`sales.quote.update`（ORG）；签约单改总价对老板同样要另一位审批人。
+
+4a 已于 2026-10-28 合并（#279），见 `docs/QINGYAN_PERM-4a_REPORT.md`。
