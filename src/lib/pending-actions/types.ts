@@ -32,6 +32,8 @@ export type PendingActionType =
   | "sales.update_quote_settings"
   // ── PERM-3：作废工艺单，持 orders.cancel 的另一位老板批准后执行 ──
   | "orders.cancel_blinds_order"
+  // ── PERM-4a：已签约报价改总价，另一位持 sales.quote.signed_amount.approve 的人批准后按提交内容落库 ──
+  | "sales.update_signed_quote"
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
   | "tender.send_rfq"
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
@@ -120,6 +122,25 @@ export interface OrdersCancelBlindsOrderPayload {
   resourceId: string;
   riskLevel: "CRITICAL";
   metadata: PendingActionMetadata & { orgId: string };
+}
+
+/**
+ * PERM-4a：已签约报价改总价审批。body = 提交时的报价修改内容（与 PUT 同构），执行时按提交人身份重算并落库。
+ * 只含报价单本身的内容；不含行级成本快照（成本在落库时由服务端按成本率重算）。
+ */
+export interface SalesUpdateSignedQuotePayload {
+  orgId: string;
+  requestedById: string;
+  quoteId: string;
+  /** 提交时报价的 updatedAt（ISO）；执行时不一致则拒绝 */
+  baseUpdatedAt: string;
+  beforeTotal: number;
+  afterTotal: number;
+  body: Record<string, unknown>;
+  resourceType: "sales_quote";
+  resourceId: string;
+  riskLevel: "HIGH";
+  metadata: PendingActionMetadata & { orgId: string; quoteId: string };
 }
 
 export interface SalesUpdateQuoteSettingsPayload {
@@ -280,6 +301,7 @@ export type PendingActionPayload =
   | ({ type: "sales.approve_quote_promotion" } & SalesApproveQuotePromotionPayload)
   | ({ type: "sales.update_quote_settings" } & SalesUpdateQuoteSettingsPayload)
   | ({ type: "orders.cancel_blinds_order" } & OrdersCancelBlindsOrderPayload)
+  | ({ type: "sales.update_signed_quote" } & SalesUpdateSignedQuotePayload)
   | ({ type: "calendar.create_event" } & CalendarCreateEventPayload)
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)

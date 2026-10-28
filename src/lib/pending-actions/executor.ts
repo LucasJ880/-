@@ -28,6 +28,7 @@ import type {
   PendingActionType,
   PendingActionMetadata,
   OrdersCancelBlindsOrderPayload,
+  SalesUpdateSignedQuotePayload,
   SalesUpdateFollowupPayload,
   SalesUpdateStagePayload,
   SalesApproveQuotePromotionPayload,
@@ -54,6 +55,12 @@ import { execSalesSendInquiryReply } from "./exec-sales-inquiry-reply";
 import type { SalesSendInquiryReplyPayload } from "./types";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
 import { createNotification } from "@/lib/notifications/create";
+import {
+  QUOTE_UPDATE_EXISTING_SELECT,
+  commitQuoteUpdate,
+  prepareQuoteUpdate,
+  type QuoteUpdateBody,
+} from "@/lib/sales/quote-update";
 import { pushMessage } from "@/lib/messaging/gateway";
 
 interface ExecuteContext {
@@ -404,6 +411,13 @@ export async function executePendingAction(
       case "orders.cancel_blinds_order":
         exec = await execOrdersCancelBlindsOrder(
           action.payload as unknown as OrdersCancelBlindsOrderPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      case "sales.update_signed_quote":
+        exec = await execSalesUpdateSignedQuote(
+          action.payload as unknown as SalesUpdateSignedQuotePayload,
           ctx,
           action.id,
         );
@@ -1133,6 +1147,81 @@ async function execOrdersCancelBlindsOrder(
     });
   }
   return { ok: true, resultRef: order.id, message: `工艺单 ${order.code} 已作废` };
+}
+
+/**
+ * PERM-4a：签约单改总价审批执行——批准人 ≠ 提交人且持 sales.quote.signed_amount.approve（super_admin 可自批）
+ * → 报价仍在本企业且版本（updatedAt）未变 → 按提交内容重算落库（折扣三档按提交人身份）→ 审计 → 通知提交人
+ */
+async function execSalesUpdateSignedQuote(
+  payload: SalesUpdateSignedQuotePayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId ?? payload.orgId;
+  if (!orgId || payload.resourceType !== "sales_quote" || !payload.requestedById || !payload.quoteId || !payload.body) {
+    return { ok: false, error: "签约单改价审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "sales.quote.signed_amount.approve");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
+
+  const existing = await db.salesQuote.findFirst({ where: { id: payload.quoteId, orgId }, select: QUOTE_UPDATE_EXISTING_SELECT });
+  if (!existing) return { ok: false, error: "报价单不存在" };
+  if (existing.updatedAt.toISOString() !== payload.baseUpdatedAt) {
+    return { ok: false, error: "报价已变化，请重新提交" };
+  }
+
+  // 折扣三档按提交人身份判定（审批人只决定"金额改不改"，不替提交人获得合价直批）
+  const requester = await db.user.findUnique({ where: { id: payload.requestedById }, select: { role: true } });
+  const overLimitSubmit = await authorize({
+    principal: { type: "HUMAN", id: payload.requestedById, orgId },
+    orgId,
+    permission: "sales.quote.discount.over_limit.submit",
+  });
+  const actor = {
+    userId: payload.requestedById,
+    isPlatformSuperAdmin: isPlatformSuperAdmin(requester?.role),
+    canSubmitOverLimit: overLimitSubmit.allowed,
+  };
+  const body = payload.body as unknown as QuoteUpdateBody;
+  const prepared = await prepareQuoteUpdate({ orgId, existing, body, actor });
+  const result = await commitQuoteUpdate({ orgId, quoteId: existing.id, existing, body, prepared, actor });
+
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "sales.signed_quote.amount_changed",
+    targetType: "sales_quote",
+    targetId: existing.id,
+    beforeData: { grandTotal: existing.grandTotal, status: existing.status },
+    afterData: {
+      grandTotal: prepared.calc.grandTotal,
+      submittedTotal: payload.afterTotal,
+      status: result.quote.status,
+      requestedById: payload.requestedById,
+      approvedById: ctx.userId,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
+      actionId,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    const label = existing.orderNumber?.trim() || "（无单号）";
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "signed_quote_amount_approved",
+      category: "approval",
+      title: `签约单 ${label} 改价已批准`,
+      summary: `总价已改为 $${prepared.calc.grandTotal.toFixed(2)}；原签名已作废，请重新发送客户签署。`,
+      entityType: "sales_quote",
+      entityId: existing.id,
+      priority: "high",
+      sourceKey: `signed-quote-amount:${existing.id}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: existing.id, message: `签约单 ${existing.orderNumber ?? existing.id} 改价已生效` };
 }
 
 /**
