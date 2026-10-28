@@ -21,7 +21,7 @@
 ## 5. 测试与收尾
 
 - [x] 5.1 新建 `src/lib/operations/__tests__/ops-access.test.ts`（`selfApprovalBlocked` 决策表 + 路由源码断言：无 `canManageUsers(`、权限函数均被 `await`）注册 test-all 与 test:ci；新建 `src/lib/operations/__tests__/ops-authorize-db.isolated.test.ts`（design 验证方式所列场景）注册 test-all。verify：本地 Postgres 16 + pgvector 隔离库跑通；`bash scripts/check-test-registry.sh` 通过。
-- [ ] 5.2 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate perm-4b-ops-authorize --strict` 通过；写 `docs/QINGYAN_PERM-4b_REPORT.md`（做了什么 / 怎么验 / BREAKING 与上线顺序 / 已知限制：无判定的运营接口、唯一运营主管的内容由老板批）；`docs/QINGYAN_PERMISSION_TASKFLOW.md` PERM-4b 改 `[G]`；更新 `docs/QINGYAN_PERMISSION_HANDOFF.md`。verify：四条命令退出 0；`grep -c "PERM-4b .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
+- [x] 5.2 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate perm-4b-ops-authorize --strict` 通过；写 `docs/QINGYAN_PERM-4b_REPORT.md`（做了什么 / 怎么验 / BREAKING 与上线顺序 / 已知限制：无判定的运营接口、唯一运营主管的内容由老板批）；`docs/QINGYAN_PERMISSION_TASKFLOW.md` PERM-4b 改 `[G]`；更新 `docs/QINGYAN_PERMISSION_HANDOFF.md`。verify：四条命令退出 0；`grep -c "PERM-4b .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
 
 ## Workflow follow-up
 
