@@ -32,6 +32,14 @@ const pkg = code("package.json");
 ok(pkg.includes("next build --webpack"), "BP-7a: 生产构建必须走 webpack（Next 16 Turbopack 忽略 outputFileTracingIncludes → Chromium/字体/logo 全不进函数包，2026-08-25 vercel build 实证）");
 ok(pkg.includes("--max-old-space-size"), "BP-7b: webpack 全量构建需提堆（默认堆 OOM，本地实测）");
 ok(pkg.includes("--max-old-space-size=$(node scripts/build-heap-mb.mjs)"), "BP-7c: 堆上限按构建机内存取值（scripts/build-heap-mb.mjs）");
+{
+  const build = (JSON.parse(pkg) as { scripts: Record<string, string> }).scripts.build;
+  ok(
+    build.indexOf("npm run typecheck") >= 0 && build.indexOf("npm run typecheck") < build.indexOf("next build"),
+    "BP-7f: 构建先单独跑类型检查再编译（Next 内置检查已关，见 next.config 注释）",
+  );
+  ok(/ignoreBuildErrors:\s*true/.test(cfg), "BP-7g: Next 内置类型检查关闭——前提是 BP-7f 成立");
+}
 const GIB = 1024 ** 3;
 ok(buildHeapMb(16 * GIB) === 7168 && buildHeapMb(8 * GIB) === 7168, "BP-7d: 16GB 及以下构建机保持 7168（生产 Enhanced 已验证）");
 ok(buildHeapMb(32 * GIB) === 16384 && buildHeapMb(60 * GIB) === 16384, "BP-7e: 32GB 及以上构建机放到 16384（staging Turbo 60GB 在 7168 下 OOM）");
