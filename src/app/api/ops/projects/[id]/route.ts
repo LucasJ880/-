@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { loadPermissionKeys } from "@/lib/rbac/permission-keys";
+import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { PROJECT_WORK_DOMAIN } from "@/lib/projects/work-domain";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
@@ -49,6 +49,7 @@ async function buildOpsCtx(
     orgRole,
     hasMembership: Boolean(orgRole),
     permissionKeys: await loadPermissionKeys(user.id, orgId),
+    positionMode: await loadPositionMode(orgId),
   };
   return { wsCtx, opsCtx: { ...wsCtx, userId: user.id } };
 }

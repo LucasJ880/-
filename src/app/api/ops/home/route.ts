@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { loadPermissionKeys } from "@/lib/rbac/permission-keys";
+import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { buildOpsDashboard } from "@/lib/operations/dashboard";
 import {
@@ -45,6 +45,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
     hasMembership: Boolean(orgRole),
     enabledModules: null as string[] | null,
     permissionKeys: await loadPermissionKeys(user.id, resolved.orgId),
+    positionMode: await loadPositionMode(resolved.orgId),
   };
   const opsCtx: OpsAccessContext = {
     ...wsCtx,

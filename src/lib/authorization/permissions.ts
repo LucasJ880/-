@@ -28,6 +28,17 @@ function def(
 const REGISTRY_ENTRIES: PermissionDefinition[] = [
   def("organization.read", "organization", "read", "查看企业", "查看企业基础信息", ["ORG"], "LOW"),
   def("organization.settings.manage", "organization", "manage", "管理企业设置", "修改企业配置", ["ORG"], "HIGH"),
+  {
+    // PERM-4c2：管理层唯一岗位信号（岗位模式下的企业经营总览、驾驶舱、AI 能力入口）；只给 owner
+    key: "organization.dashboard.read",
+    resource: "organization.dashboard",
+    action: "read",
+    label: "查看企业经营总览",
+    description: "管理层：企业经营总览、经营驾驶舱、AI 能力等入口",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "MEDIUM",
+  },
 
   def("identity.member.read", "identity.member", "read", "查看成员", "查看企业成员目录", ["ORG"], "LOW"),
   def("identity.member.manage", "identity.member", "manage", "管理成员", "邀请/移除/改角色", ["ORG"], "HIGH"),

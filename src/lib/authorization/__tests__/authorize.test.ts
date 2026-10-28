@@ -178,6 +178,7 @@ import {
   mergedProfileBindings,
   profilesForIndustryPack,
   profileKeysForIndustryPack,
+  hasPositionTemplates,
 } from "../role-defaults";
 import { PERMISSION_REGISTRY, getPermissionDefinition, isKnownPermission } from "../permissions";
 import { platformAdminBindings } from "../resolve-effective-permissions";
@@ -314,6 +315,16 @@ ok(
   !has(bindingsFromSystemProfile("org_owner"), "identity.member.manage") && !has(bindingsFromSystemProfile("org_owner"), "identity.role.manage") && !has(bindingsFromSystemProfile("org_owner"), "authorization.policy.manage") && has(bindingsFromSystemProfile("org_owner"), "audit.read", "ORG"),
   "PERM-2：org_owner 系统模板不含成员 / 岗位 / 策略管理，仍含 audit.read",
 );
+
+console.log("PERM-4c2 企业经营总览权限键与岗位模式");
+{
+  const dk = getPermissionDefinition("organization.dashboard.read");
+  ok(!!dk && dk.riskLevel === "MEDIUM" && dk.supportedScopes.join() === "ORG" && dk.allowedPrincipalTypes.join() === "HUMAN", "organization.dashboard.read 已登记（MEDIUM，ORG，仅人类）");
+  const holders = profileKeysForIndustryPack(WC).filter((k) => has(mergedProfileBindings(WC, k), "organization.dashboard.read"));
+  ok(holders.join() === "owner", "窗饰岗位只有 owner 含 organization.dashboard.read", holders);
+  ok(!has(bindingsFromSystemProfile("org_owner"), "organization.dashboard.read") && !has(bindingsFromSystemProfile("org_admin"), "organization.dashboard.read"), "系统模板 org_owner / org_admin 不含");
+  ok(hasPositionTemplates(WC) && !hasPositionTemplates(null) && !hasPositionTemplates("unknown_pack"), "岗位模式：窗饰行业包是，无行业包 / 未知行业包否");
+}
 
 console.log("PERM-4c1 项目财务管理权限键");
 {
