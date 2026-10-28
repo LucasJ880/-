@@ -2,11 +2,11 @@
 
 ## 1. 权限键、岗位与判定 helper
 
-- [ ] 1.1 `permissions.ts` 新增 `operations.content.draft`（"起草运营内容"，MEDIUM，`["ORG"]`）与 `operations.content.approve`（"批准运营内容"，HIGH，`["ORG"]`，`allowedPrincipalTypes: ["HUMAN"]`）；`role-defaults.ts`：`ops_staff`（窗饰并集）+ draft，`ops_lead` + draft + approve，`owner` + approve；`authorize.test.ts` 加两键登记、三个模板快照、其余模板不含。新建 `src/lib/operations/access.ts`（`holdsOpsPermission` / `requireOpsPermission` / 纯函数 `selfApprovalBlocked`，design D1）。verify：`npx tsx src/lib/authorization/__tests__/authorize.test.ts` 通过；typecheck。
+- [x] 1.1 `permissions.ts` 新增 `operations.content.draft`（"起草运营内容"，MEDIUM，`["ORG"]`）与 `operations.content.approve`（"批准运营内容"，HIGH，`["ORG"]`，`allowedPrincipalTypes: ["HUMAN"]`）；`role-defaults.ts`：`ops_staff`（窗饰并集）+ draft，`ops_lead` + draft + approve，`owner` + approve；`authorize.test.ts` 加两键登记、三个模板快照、其余模板不含。新建 `src/lib/operations/access.ts`（`holdsOpsPermission` / `requireOpsPermission` / 纯函数 `selfApprovalBlocked`，design D1）。verify：`npx tsx src/lib/authorization/__tests__/authorize.test.ts` 通过；typecheck。
 
 ## 2. 运营配置与入口
 
-- [ ] 2.1 13 个配置路由去掉 `canManageUsers`：brand-profile、content-plan（route / [id] / generate / [id]/dispatch）、matrix-accounts（route / [id]）、postiz/integrations、tender-profile、video-assets（route / sync / [id]/fanout）——读 `operations.read`、写 `operations.manage`；content-plan 起草 / 编辑 / 删除 / 生成 `operations.content.draft`，改为 `approved` `operations.content.approve`（D4），派发 `operations.manage`；tender-profile 读 `operations.read | project.read`、写 `operations.manage | project.update`（D5）；`tender-profile.test.ts` TP-05 源码断言同步。verify：`grep -rn "canManageUsers(" src/app/api/operations` 为空；`npx tsx src/lib/tender-profile/__tests__/tender-profile.test.ts` 通过；typecheck。
+- [x] 2.1 13 个配置路由去掉 `canManageUsers`：brand-profile、content-plan（route / [id] / generate / [id]/dispatch）、matrix-accounts（route / [id]）、postiz/integrations、tender-profile、video-assets（route / sync / [id]/fanout）——读 `operations.read`、写 `operations.manage`；content-plan 起草 / 编辑 / 删除 / 生成 `operations.content.draft`，改为 `approved` `operations.content.approve`（D4），派发 `operations.manage`；tender-profile 读 `operations.read | project.read`、写 `operations.manage | project.update`（D5）；`tender-profile.test.ts` TP-05 源码断言同步。verify：`grep -rn "canManageUsers(" src/app/api/operations` 为空；`npx tsx src/lib/tender-profile/__tests__/tender-profile.test.ts` 通过；typecheck。
 - [ ] 2.2 `workspace-policy.ts` `canAccessOperationsWorkspace` 去掉 `isOperationsStaff`；抽出 `loadPermissionKeys(userId, orgId)` 共用函数（与 `resolve-workspace-context.ts` 同取法），`/api/ops/home`、`/api/ops/projects/[id]` 的 `wsCtx` 注入 `permissionKeys`；`projects/access.ts` 删除 `canManageUsers` 行（D7）。verify：`navigation-workspace.test.ts` 与 ops 相关已注册测试通过；typecheck。
 
 ## 3. 运营内容分权

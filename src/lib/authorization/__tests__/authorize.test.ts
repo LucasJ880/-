@@ -202,6 +202,8 @@ for (const k of [
   "accounting.read",
   "identity.position.manage",
   "sales.quote.signed_amount.approve",
+  "operations.content.draft",
+  "operations.content.approve",
 ]) {
   ok(isKnownPermission(k), `权限键已登记：${k}`);
 }
@@ -272,6 +274,25 @@ ok(
 {
   const d = PERMISSION_REGISTRY.find((p) => p.key === "sales.quote.signed_amount.approve");
   ok(!!d && d.allowedPrincipalTypes.length === 1 && d.allowedPrincipalTypes[0] === "HUMAN" && d.supportedScopes.join() === "ORG" && d.riskLevel === "HIGH", "PERM-4a：sales.quote.signed_amount.approve 仅人类 / ORG / HIGH");
+}
+
+// PERM-4b：运营内容分权
+{
+  const st = mergedProfileBindings(WC, "ops_staff");
+  ok(has(st, "operations.content.draft", "ORG") && has(st, "operations.read", "ORG") && !has(st, "operations.content.approve") && !has(st, "operations.manage"), "PERM-4b：ops_staff 起草 + 读，不批准、不管理");
+  const lead = mergedProfileBindings(WC, "ops_lead");
+  ok(has(lead, "operations.content.draft", "ORG") && has(lead, "operations.content.approve", "ORG") && has(lead, "operations.manage", "ORG"), "PERM-4b：ops_lead 起草 + 批准 + 管理");
+  const ow = mergedProfileBindings(WC, "owner");
+  ok(has(ow, "operations.content.approve", "ORG") && has(ow, "operations.read", "ORG") && !has(ow, "operations.manage") && !has(ow, "operations.content.draft"), "PERM-4b：owner 只批不改");
+  ok(
+    profileKeysForIndustryPack(WC).filter((k) => !["ops_staff", "ops_lead", "owner"].includes(k)).every((k) => {
+      const bs = mergedProfileBindings(WC, k);
+      return !has(bs, "operations.content.draft") && !has(bs, "operations.content.approve");
+    }),
+    "PERM-4b：其余模板（含 sales_rep）不含运营内容键",
+  );
+  const ap = PERMISSION_REGISTRY.find((p) => p.key === "operations.content.approve");
+  ok(!!ap && ap.allowedPrincipalTypes.join() === "HUMAN" && ap.riskLevel === "HIGH", "PERM-4b：operations.content.approve 仅人类 / HIGH");
 }
 
 // 多岗并集：owner + pricing_lead + accounting

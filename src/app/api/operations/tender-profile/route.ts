@@ -5,25 +5,26 @@
  */
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_MANAGE, OPS_READ_KEYS } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 import { TENDER_PROFILE_FIELDS, tenderProfileSchema, type TenderProfile } from "@/lib/tender-profile/contract";
 import { getTenderProfile, saveTenderProfile } from "@/lib/tender-profile/store";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, [...OPS_READ_KEYS, "project.read"], "无权查看投标档案");
+  if (denied) return denied;
   const profile = await getTenderProfile(orgRes.orgId);
   return NextResponse.json({ profile, fields: TENDER_PROFILE_FIELDS });
 });
 
 export const PUT = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权维护投标档案" }, { status: 403 });
-  }
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const orgRes = await resolveRequestOrgIdForUser(user, typeof body.orgId === "string" ? body.orgId : null);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, [OPS_MANAGE, "project.update"], "无权维护投标档案（需要运营管理或招投标岗）");
+  if (denied) return denied;
   const patch: Partial<TenderProfile> = {};
   for (const f of TENDER_PROFILE_FIELDS) {
     const raw = body[f.key];
