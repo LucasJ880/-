@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1 / 4c2 已合并并 archive；下一个 4c3 先 propose；现场续接见下一节；验收清单见文末） |
+| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1 / 4c2 已合并并 archive；4c3 四件套已出、**待用户审核**；现场续接见下一节；验收清单见文末） |
 | 主线文档 | `docs/QINGYAN_PERMISSION_TASKFLOW.md`（状态列）、`docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md`（设计与已决定） |
 | 任务书 | `docs/QINGYAN_PERM-1-2_POSITIONS_DISCOUNT_TASKBRIEF.md` |
 | 工作分支 | 会话 1：`claude/youthful-davinci-8n1we3`；会话 2：`claude/amazing-goldberg-s89rlq`（每个 change 合并后从 main 重建同名分支） |
@@ -19,7 +19,9 @@
 | 4c1 | #290 合并；archive #291 合并 |
 | 4c2 | #292 合并；archive 本 PR（specs 新增 `navigation/position-based-visibility`，`authorization/position-catalog`、`accounting/workspace` 增量） |
 | 工作方式 | 工作树 `/home/user/p4c`（本地分支 `local/perm-4c`，`node_modules` 软链主仓库）；推送 `git push -f origin local/perm-4c:claude/amazing-goldberg-s89rlq`；PR 用 merge 方式；开 PR 后订阅 + `send_later` 兜底 |
-| 再之后 | `perm-4c3-collapse-platform-roles`：只 propose 四件套，**回传用户审核后**再实施（拍板：先压 Sunny、`trade` 不动、梦馨不动、窗饰企业关闭成员角色兼容回退） |
+| 4c3 | 四件套已写（`openspec/changes/perm-4c3-collapse-platform-roles/`，validate --strict 通过，7 tasks），**等用户审核，未实施**。要点：压扁脚本 + 纯函数规划 + `--restore`（AuditLog 存前后角色）；前置拒绝：非岗位模式 / 缺绑定 / 同时是旧模式企业（梦馨）成员；**写库闸门常量 `PLATFORM_ROLE_COLLAPSE_READY = false`**；岗位模式企业关闭兼容回退（合并即生效）。 |
+| 4c3 审核要点 | propose 前盘点发现约 25 处导航之外的平台角色读点（AI 工具 / 晨报 / Muse 决定 B / 任务 / 运营项目 / 交接 / 审批执行 / 通知收件人 / 管理总览模块…），Sunny 压扁后会立刻失效——清单在 design D6（实施时落成 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`）。建议新增 `perm-4c4-ai-tools-by-position`、`perm-4c5-management-reads-by-position`，最后一个把闸门改 true 后才执行压扁。需用户拍板：拆分方式；外贸通道（revenue-spine、trade 收件人）Sunny 是否在用（不用则留 PERM-6）。 |
+| 顺带发现 | `visualizer/access.ts` 对 dataScope=all（平台 admin / boss）不按企业过滤，跨企业可见——已提独立任务卡；`sunny-process/autogen-db.isolated` 在 main 上失败（NO_BINDING）——已提任务卡 |
 
 续接要点：
 - 每个 change：propose → 用户审四件套 → apply → typecheck（`NODE_OPTIONS=--max-old-space-size=8192`）/ `lint:baseline` / `test:ci` / `check-test-registry.sh` / `openspec validate <change> --strict` → 报告 + TASKFLOW `[G]` + 本文件 → PR → 绿灯合并 → archive 小 PR（`[x]`）→ 合并。
