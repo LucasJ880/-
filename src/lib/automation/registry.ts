@@ -21,6 +21,7 @@ export const AUTOMATION_REGISTRY = [
   { key: "approval-timeout", name: "审批超时检查", category: "operations", cadence: "每 2 小时", timezone: "UTC" },
   { key: "trade-followup", name: "客户跟进建议", category: "sales", cadence: "每日 09:00、14:00", timezone: ORG_TIMEZONE },
   { key: "sales-action-sync", name: "销售行动自动同步", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
+  { key: "muse-reminder-scan", name: "Muse 跟进与询问提醒扫描", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "revenue-spine-sync", name: "收入主干同步（询盘 FDE / 跟进到期）", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "wechat-push", name: "微信消息补推", category: "sales", cadence: "每日 07:30", timezone: ORG_TIMEZONE },
   { key: "progress-summary", name: "项目进度摘要", category: "projects", cadence: "每日", timezone: "UTC" },

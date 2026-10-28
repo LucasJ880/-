@@ -56,7 +56,7 @@ ok("ask 缺 question 拒绝", !parseMuseCommand({ ...base, command: { intent: "a
   const r = parseMuseCommand({ ...base, command: { intent: "status", extraField: 1 }, foo: "bar" });
   ok("多余字段被 strip（不泄漏到路由）", r.ok && !("foo" in r.value) && !("extraField" in r.value.command));
 }
-ok("意图集包含 16 个意图（P1-8 加 next_step / set_preference / preferences；S1 加 sales_overview / opportunity_status；S2 加 ask_colleague / reply_inquiry）", MUSE_INTENTS.length === 16);
+ok("意图集包含 18 个意图（P1-8 加 next_step / set_preference / preferences；S1 加 sales_overview / opportunity_status；S2 加 ask_colleague / reply_inquiry；S3 加 create_followup / update_followup）", MUSE_INTENTS.length === 18);
 ok("S1：sales_overview 可带 days / assigneeUserId / limit", parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 30, assigneeUserId: "u_a", limit: 5 } }).ok);
 ok("S1：sales_overview 无参数也合法", parseMuseCommand({ ...base, command: { intent: "sales_overview" } }).ok);
 ok("S1：days=0 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 0 } }).ok);

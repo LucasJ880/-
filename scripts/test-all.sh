@@ -505,6 +505,8 @@ run_test "Muse 桥接 销售意图 DB 端到端（隔离库执行，否则跳过
 # TASKFLOW S2：跨助理询问与回复
 run_test "Muse 桥接 询问与回复（权限/默认问题/事件/员工确认）" "npx tsx src/lib/muse-bridge/__tests__/inquiry-pure.test.ts"
 run_test "Muse 桥接 询问与回复 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/muse-bridge/__tests__/inquiry-db.isolated.test.ts"
+run_test "Muse 桥接 跟进（权限/状态/提醒计划/建议动作）" "npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts"
+run_test "Muse 桥接 跟进 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/muse-bridge/__tests__/followup-db.isolated.test.ts"
 run_test "招标询价 RFQ 结构化生成器" "npx tsx src/lib/tender-rfq/__tests__/build.test.ts"
 run_test "招标询价 轮次锁/发件人解析（mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/round-pure.test.ts"
 run_test "招标询价 入站解析（证据闸/附件文本化）" "npx tsx src/lib/tender-rfq/__tests__/inbound-parse.test.ts"
