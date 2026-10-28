@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   balanceMismatch,
   installNotificationHref,
+  isAwaitingBalance,
   parseBalanceRecord,
   quoteBalanceDue,
   sumBalanceDue,
@@ -90,6 +91,18 @@ ok(installNotificationHref({ type: "install_completed", entityType: "install_bal
     const src = readFileSync(path.join(root, rel), "utf8");
     ok(/installNotificationHref\(/.test(src) && /from "@\/lib\/install\/balance"/.test(src), `${rel} 调用 installNotificationHref`);
   }
+}
+
+console.log("INSTALL-2b 待收尾款判定（任务书 §12 Q11）");
+{
+  const closed = new Set(["appt-sys"]);
+  const none = { confirmed: false, closedOutAppointmentIds: closed };
+  ok(isAwaitingBalance({ status: "installed", appointmentId: null }, none), "已安装、未确认 → 待收尾款");
+  ok(isAwaitingBalance({ status: "completed", appointmentId: "appt-sys" }, none), "已完工、当前预约有完成收口记录 → 待收尾款");
+  ok(!isAwaitingBalance({ status: "completed", appointmentId: "appt-legacy" }, none), "已完工、当前预约无收口记录（历史手工完工）→ 不算");
+  ok(!isAwaitingBalance({ status: "completed", appointmentId: null }, none), "已完工、没有安装预约 → 不算");
+  ok(!isAwaitingBalance({ status: "installed", appointmentId: null }, { ...none, confirmed: true }), "已确认 → 不算");
+  ok(!isAwaitingBalance({ status: "scheduled", appointmentId: "appt-sys" }, none), "已排期 → 不算");
 }
 
 console.log("INSTALL-2b 时区当天");

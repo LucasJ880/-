@@ -2,7 +2,7 @@
  * INSTALL-2b：装完待收尾款——真实 DB（隔离库）+ 真实路由端到端
  *
  *   [1] 收口 → 会计 / 老板（持 install.balance.confirm）收到 install_completed（落会计页签），销售收到（落工艺单）；重复收口不重复通知
- *   [2] 列表：销售 403；会计 200，pending 只含本企业已安装 / 已完成未确认的单，应收口径正确，手工单应收为空；不出敏感字段
+ *   [2] 列表：销售 403；会计 200，pending 只含本企业已安装 / 走过收口后已完成、未确认的单（历史手工完工不含），应收口径正确，手工单应收为空；不出敏感字段
  *   [3] 确认校验：销售 403、他企业 404、未安装 409、非法 400、差额无说明 400 NOTE_REQUIRED
  *   [4] 确认：200 → completed + 状态日志操作人为会计 + 审计一条；销售收到 install_balance_confirmed（无金额）；重复 → idempotent；并发 → 一条
  *   [5] 已 completed 未确认的单：确认后状态不变、不加状态日志
@@ -179,7 +179,12 @@ async function main() {
     console.log("\n[2] 列表");
     const oPending = await makeOrder(`I2B-2-${stamp}`, "scheduled");
     const oManual = await makeOrder(`I2B-3-${stamp}`, "installed", { creatorId: BOSS });
-    const oDone = await makeOrder(`I2B-4-${stamp}`, "completed");
+    // 走过系统收口、之后被出单手工推到已完成 → 仍待收尾款；历史手工完工（无收口记录）→ 不进列表（任务书 §12 Q11）
+    const oDone = await makeOrder(`I2B-4-${stamp}`, "completed", { withTask: true });
+    await db.auditLog.create({
+      data: { userId: XW, orgId: ORG, action: "install.task.completed", targetType: "appointment", targetId: oDone.appointmentId!, afterData: JSON.stringify({ orderId: oDone.id, orderStatus: "installed" }) },
+    });
+    const oLegacy = await makeOrder(`I2B-6-${stamp}`, "completed", { withTask: true });
     const oOther = await makeOrder(`I2B-5-${stamp}`, "installed", { customerId: cust2.id, creatorId: OTHER });
     const l403 = await listAs(ALEX);
     ok(l403.status === 403, "销售请求列表 → 403", l403.status);
@@ -187,8 +192,9 @@ async function main() {
     const pending = (l.body?.pending ?? []) as Array<Record<string, unknown>>;
     const ids = pending.map((p) => p.orderId);
     const row1 = pending.find((p) => p.orderId === o1.id) as { expectedBalance: number; quoteId: string; closeout: { total: number; completed: number }; salesName: string } | undefined;
-    ok(l.status === 200 && ids.includes(o1.id) && ids.includes(oManual.id) && ids.includes(oDone.id), "会计 200：已安装 / 已完成未确认的单都在 pending", ids);
+    ok(l.status === 200 && ids.includes(o1.id) && ids.includes(oManual.id) && ids.includes(oDone.id), "会计 200：已安装 / 走过收口后已完成、未确认的单都在 pending", ids);
     ok(!ids.includes(oPending.id) && !ids.includes(oOther.id), "排期中的单与他企业的单不在 pending");
+    ok(!ids.includes(oLegacy.id), "历史手工完工（当前预约无收口记录）不在 pending", ids);
     ok(row1?.expectedBalance === 1000 && row1.quoteId === q1.id && row1.closeout.total === 1 && row1.closeout.completed === 1 && row1.salesName === `Example i2balex`, "应收 = 约定尾款 1000，关联报价，收口 1/1，销售姓名", row1);
     ok((pending.find((p) => p.orderId === oManual.id) as { expectedBalance: unknown })?.expectedBalance === null, "手工单应收为空");
     ok(!/costPrice|margin|commission|"phone"|"email"|formDataJson|internal note fixture/.test(l.text), "列表不含成本 / 毛利 / 提成 / 联系方式 / 报价备注");

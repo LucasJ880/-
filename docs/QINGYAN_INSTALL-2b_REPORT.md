@@ -33,9 +33,9 @@ change：`openspec/changes/install-2b-balance-confirm/`（proposal / specs ×4 /
 
 | 项 | 结果 |
 |---|---|
-| `npx tsx src/lib/install/__tests__/balance.test.ts` | 36 passed |
+| `npx tsx src/lib/install/__tests__/balance.test.ts` | 36 passed（Q11 修正后 44，含 2c 落点断言） |
 | `npx tsx src/lib/authorization/__tests__/authorize.test.ts` | 174 passed（基线 159） |
-| 隔离库 + 真实路由 `balance-db.isolated.test.ts` | 35 passed（见 §3.1） |
+| 隔离库 + 真实路由 `balance-db.isolated.test.ts` | 35 passed（见 §3.1；Q11 修正后 36） |
 | INSTALL-2a 回归 `closeout*.test.ts` / `closeout-db.isolated.test.ts` | 见 §3.2 全量 |
 | 浏览器走查（本地 `next dev` + Playwright，会计 / 销售两个会话） | 见 §3.3 |
 | `npm run typecheck` | 0 error |
@@ -67,7 +67,7 @@ change：`openspec/changes/install-2b-balance-confirm/`（proposal / specs ×4 /
 
 ## 4. 判断点（审核请重点看）
 
-1. **"已确认"看记录不看状态**（D2）：出单仍可按品类键把单手动推到"已完成"；这样的单仍留在"待收尾款"里，直到会计确认。
+1. **"已确认"看记录不看状态**（D2）：出单仍可按品类键把单手动推到"已完成"；走过系统收口的这类单仍留在"待收尾款"里，直到会计确认。**上线前就手工推到"已完成"、没走过系统收口的历史单不进列表**（2026-10-28 propose 2d 时发现，Lucas 拍板"只算走过系统收口的"，任务书 §12 Q11；`isAwaitingBalance`，纯测试 +6、隔离库 +1）。
 2. **会计推进"已完成"不要品类键**（`fulfillment/order-category-access` 增量）：只经尾款确认接口，且要 `install.balance.confirm`。
 3. **收款方式不含 e-transfer**（D10）：方案 Q6 原建议加；读代码发现定金登记已有意下线 e-transfer，本 change 沿用定金四种，方案 §12 已改。要加回请告诉我。
 4. **销售首页数字会变**（D3）：逐单口径修掉了旧聚合在"部分报价有约定尾款"时的漏算；再加上剔除已确认，数字会和改前不同。

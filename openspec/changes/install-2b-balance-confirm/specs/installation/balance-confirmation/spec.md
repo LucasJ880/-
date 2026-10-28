@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: 待收尾款列表
-`GET /api/accounting/balance` SHALL 要求调用者在当前企业持 ORG 范围的 `install.balance.confirm`，否则返回 403。响应 SHALL 含 `pending`：本企业（按客户所属企业）状态为 `installed` 或 `completed`、且没有尾款确认记录的工艺单，每条含工艺单 id、单号、客户名、销售、安装完成时间、安装任务 id、收口单元数与已收口数、关联报价 id、应收尾款；以及 `recentConfirmed`：最近 30 条已确认记录（实收、方式、收款日期、确认人、确认时间）。
+`GET /api/accounting/balance` SHALL 要求调用者在当前企业持 ORG 范围的 `install.balance.confirm`，否则返回 403。响应 SHALL 含 `pending`：本企业（按客户所属企业）没有尾款确认记录、且状态为 `installed`，或状态为 `completed` 且当前安装预约有完成收口记录（`install.task.completed`）的工艺单，每条含工艺单 id、单号、客户名、销售、安装完成时间、安装任务 id、收口单元数与已收口数、关联报价 id、应收尾款；以及 `recentConfirmed`：最近 30 条已确认记录（实收、方式、收款日期、确认人、确认时间）。
 
 #### Scenario: 会计看到待收尾款
 - **WHEN** 本企业有 1 张已安装未确认、1 张安装中的工艺单，会计请求列表
@@ -22,8 +22,12 @@
 - **THEN** 本企业会计的 `pending` 不含该单
 
 #### Scenario: 出单已手动推到已完成但未确认尾款
-- **WHEN** 工艺单状态为 `completed`、没有尾款确认记录
-- **THEN** 该单仍在 `pending` 中
+- **WHEN** 工艺单走过系统收口后被出单手动推到 `completed`，没有尾款确认记录
+- **THEN** 该单仍在 `pending` 中（`balance-db.isolated.test.ts`）
+
+#### Scenario: 历史手工完工不进列表
+- **WHEN** 工艺单状态为 `completed`、当前安装预约没有完成收口记录（上线前手工推到已完成），没有尾款确认记录
+- **THEN** 该单不在 `pending` 中（`balance.test.ts`、`balance-db.isolated.test.ts`）
 
 ### Requirement: 应收尾款口径
 一张工艺单的应收尾款 SHALL 取其签字自动生成时关联的报价：有约定尾款（`agreedBalanceAmount`）时取约定尾款；否则为报价总价减已登记定金（未登记按 0），不小于 0。没有关联报价的工艺单应收尾款 SHALL 为空。会计页与销售首页 SHALL 使用同一口径。

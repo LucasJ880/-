@@ -20,6 +20,7 @@ import {
   BALANCE_TARGET_TYPE,
   ENTITY_INSTALL_BALANCE,
   INSTALL_BALANCE_CONFIRMED,
+  isAwaitingBalance,
   NOTIFY_BALANCE_CONFIRMED,
   NOTIFY_INSTALL_COMPLETED,
   parseBalanceRecord,
@@ -29,6 +30,7 @@ import {
   type BalanceRecord,
   type QuoteMoney,
 } from "./balance";
+import { INSTALL_TASK_COMPLETED } from "./closeout";
 import { INSTALL_ORDER_SELECT, loadOrdersCloseout, type InstallOrderRow } from "./service";
 
 export const BALANCE_PERMISSION = "install.balance.confirm";
@@ -164,15 +166,31 @@ export type BalanceConfirmedRow = {
   confirmedAt: string;
 };
 
+/** 有完成收口记录（install.task.completed）的安装预约 id */
+export async function loadClosedOutAppointmentIds(appointmentIds: Array<string | null>): Promise<Set<string>> {
+  const ids = [...new Set(appointmentIds.filter((x): x is string => !!x))];
+  if (ids.length === 0) return new Set();
+  const rows = await db.auditLog.findMany({
+    where: { action: INSTALL_TASK_COMPLETED, targetType: "appointment", targetId: { in: ids } },
+    select: { targetId: true },
+  });
+  return new Set(rows.map((r) => r.targetId).filter((x): x is string => !!x));
+}
+
 /** 待收尾款列表（spec「待收尾款列表」） */
 export async function listBalance(orgId: string): Promise<{ pending: BalancePendingRow[]; recentConfirmed: BalanceConfirmedRow[] }> {
   // 先只取 id 剔除已确认，再取明细：已完成的单会越积越多，不能先截断再剔除（否则老的未确认单会掉出列表）
   const candidates = await db.blindsOrder.findMany({
     where: { status: { in: INSTALLED_STATUSES }, customer: { orgId } },
-    select: { id: true },
+    select: { id: true, status: true, appointmentId: true },
   });
-  const records = await loadBalanceRecords(candidates.map((o) => o.id));
-  const pendingIds = candidates.map((o) => o.id).filter((id) => !records.has(id));
+  const [records, closedOut] = await Promise.all([
+    loadBalanceRecords(candidates.map((o) => o.id)),
+    loadClosedOutAppointmentIds(candidates.filter((o) => o.status === "completed").map((o) => o.appointmentId)),
+  ]);
+  const pendingIds = candidates
+    .filter((o) => isAwaitingBalance(o, { confirmed: records.has(o.id), closedOutAppointmentIds: closedOut }))
+    .map((o) => o.id);
   const pendingOrders = (await db.blindsOrder.findMany({
     where: { id: { in: pendingIds } },
     orderBy: [{ installedAt: "desc" }, { updatedAt: "desc" }],

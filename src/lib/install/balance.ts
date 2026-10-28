@@ -139,6 +139,20 @@ export function parseBalanceRecord(row: { afterData: string | null; createdAt: D
   }
 }
 
+/**
+ * 是否算"待收尾款"（spec「待收尾款列表」；任务书 §12 Q11）：没有尾款确认记录，且
+ * 状态 installed，或状态 completed 且当前安装预约有完成收口记录（走过系统收口后才被推到已完成）。
+ * 历史上手工推到 completed、没有系统收口的单不算，避免上线时把历史单全部列进来。
+ */
+export function isAwaitingBalance(
+  order: { status: string; appointmentId: string | null },
+  ctx: { confirmed: boolean; closedOutAppointmentIds: ReadonlySet<string> },
+): boolean {
+  if (ctx.confirmed) return false;
+  if (order.status === "installed") return true;
+  return order.status === "completed" && !!order.appointmentId && ctx.closedOutAppointmentIds.has(order.appointmentId);
+}
+
 /** 销售首页待收尾款（spec「销售首页待收尾款」）：逐单应收之和，剔除已确认的报价 */
 export function sumBalanceDue(quotes: Array<QuoteMoney & { id: string }>, confirmedQuoteIds: ReadonlySet<string>): number {
   return round2(

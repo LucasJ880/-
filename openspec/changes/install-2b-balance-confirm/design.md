@@ -47,8 +47,10 @@
 - 否决：目标设为报价——手工单无报价，且一张报价理论上可对应重新生成的单。
 
 ### D2 "已确认"由记录是否存在判定，不看工艺单状态
-出单持品类键仍能经 transition 把单手动推到 `completed`；若以状态判定，这类单会从会计列表里"消失"而钱没确认。列表 = 状态 `installed` 或 `completed` 且无确认记录；确认时只在 `installed` 才推进状态。
+出单持品类键仍能经 transition 把单手动推到 `completed`；若以状态判定，这类单会从会计列表里"消失"而钱没确认。列表 = 无确认记录，且状态 `installed`，或状态 `completed` 且当前安装预约有完成收口记录（`install.task.completed`）；确认时只在 `installed` 才推进状态。
+补充（2026-10-28，任务书 §12 Q11，Lucas 拍板"只算走过系统收口的"）：上线前就被手工推到 `completed`、没走过系统收口的历史单不算，否则上线当天会计列表会被历史单淹没。
 - 否决：禁止出单手动推 `completed`——要改 transition 路由与既有规格，超出本 change。
+- 否决：`completed` 无记录一律算——历史手工完工单全部进列表。
 
 ### D3 应收口径逐单计算，会计页与销售首页共用
 `quoteBalanceDue(q) = agreedBalanceAmount ?? max(0, grandTotal − (depositAmount ?? 0))`。销售首页改为取本月签约报价逐单求和，并剔除已确认的单（Q10）。
