@@ -10,20 +10,20 @@
 
 ## 0. 质保条款来源与核实状态（防幻觉）
 
-`https://sunnyshutter.ca/warranty-service/` 在本次会话的网络策略里被拒（DNS / 代理 403），**原文未能直接读取**。下表只写检索摘要里能对上的内容，其余一律留 `{{待确认}}`，上线前由 Lucas / Evan 对着官网原文填。
+`https://sunnyshutter.ca/warranty-service/` 在本次会话的网络策略里被拒（DNS / 代理 403；用户 2026-10-28 再次给出链接后重试仍被拒），**原文未能直接读取**。下表只写检索摘要里能对上的内容，其余一律留 `{{待确认}}`，上线前由 Lucas / Evan 对着官网原文填。
 
 **三个来源互相矛盾（方案 Q1 必须拍板）**：
 
 | 条款 | 报价 PDF / Order Form（客户签字版，仓库已核实） | 官网检索摘要 | 官网 warranty-service 原文 |
 |---|---|---|---|
-| 帘类（Zebra / Roller / Drapes / Sheer …） | 1 year labour · 5 years fabric · 15 years components（`src/app/(main)/sales/quote-sheet/quote-pdf.ts:99,166`、`order-shades.tsx:131`、`order-drapes.tsx:179`） | 5 years（"other window covering solutions like Zebra and roller shades"） | 本会话无法访问 |
+| 帘类（Zebra / Roller / Drapes / Sheer …） | 1 year labour · 5 years fabric · 15 years components（`src/app/(main)/sales/quote-sheet/quote-pdf.ts:99,166`、`order-shades.tsx:131`、`order-drapes.tsx:179`） | `warranty-registration`：5 years（"other window covering solutions like Zebra and roller shades"）；`light-filtering-blinds-toronto`：Zebra / Roller 1.4mm 铝弧形盖盒 15-year warranty（与报价 PDF 的 "15 years components" 对得上） | 本会话无法访问 |
 | Shutters | 1 year labour / 5 years components（`quote-pdf.ts:128`） | 25 years（"all of its shutter products"） | 同上 |
-| 电机 / 遥控 / 充电器 | 未单列（归"components"？） | 官网另有 "Sunny motor support plan" 页，内容未取到 | 同左 |
+| 电机 / 遥控 / 充电器 | 未单列（归"components"？） | `motorized-window-shades`："10 Years Warranty"（未写明指电机还是整套）+ 厂家质保 + Sunny 在 GTA 的服务支持；另有 "Sunny motor support plan" 页，内容未取到 | 同左 |
 | 不保范围 / 起算日 / 转让 | 未写 | 未取到 | 同左 |
 
 | 其它项 | 取值 | 状态 |
 |---|---|---|
-| 报修电话 / 邮箱 | 647-857-8669 / sales@sunnyshutter.ca | 检索摘要，需对原文 |
+| 报修电话 / 邮箱 | 647-857-8669；邮箱检索到两个：sales@sunnyshutter.ca、service@sunnyshutter.ca（质保报修更可能是 service@） | 检索摘要，需对原文 |
 | 公司地址 | 2-680 Progress Avenue, Scarborough, ON M1H 3A5 | 维修单 PDF 抬头，已确认 |
 | 品牌 | 维修单 = SUNNY SHUTTER INC；现有客户邮件模板 = SUNNY HOME & DECO（`src/lib/email/templates.ts:13-26`） | 方案 Q3 待定 |
 | 质保起算日 | 安装完成日（多次安装取最后一次完成） | 行业惯例，需对原文 |
