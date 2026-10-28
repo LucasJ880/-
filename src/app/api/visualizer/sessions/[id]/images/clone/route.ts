@@ -3,8 +3,10 @@ import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   SESSION_ACCESS_SELECT,
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import type { VisualizerSourceImageSummary } from "@/lib/visualizer/types";
 
 /**
@@ -24,6 +26,8 @@ interface CloneBody {
 }
 
 export const POST = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id: sessionId } = await ctx.params;
 
   const target = await db.visualizerSession.findUnique({
@@ -33,9 +37,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (!target) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(target, user)) {
-    return NextResponse.json({ error: "无权操作该可视化方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(target, user, orgRes.orgId),
+    "无权操作该可视化方案",
+  );
+  if (denied) return denied;
 
   const body = await safeParseBody<CloneBody>(request);
   const ids = Array.isArray(body?.sourceImageIds)
@@ -70,7 +76,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     if (!c.session) return false;
     if (c.sessionId === sessionId) return false;
     if (c.session.customerId !== target.customerId) return false;
-    if (!canSeeVisualizerSession(c.session, user)) return false;
+    if (visualizerSessionAccess(c.session, user, orgRes.orgId) !== "ok") return false;
     return true;
   });
 

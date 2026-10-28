@@ -190,6 +190,7 @@ npx tsx src/lib/sunny-process/__tests__/autogen.test.ts
 npx tsx src/lib/sunny-process/__tests__/export-workbook.test.ts
 npx tsx src/lib/visualizer/__tests__/render-job.test.ts
 npx tsx src/lib/visualizer/__tests__/texture-fill.test.ts
+npx tsx src/lib/visualizer/__tests__/access-policy.test.ts
 npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts
 npx tsx src/lib/bid-workflow/__tests__/schema-drift.test.ts
 npx tsx src/lib/bid-workflow/__tests__/supplier-link-idempotency.test.ts

@@ -3,8 +3,10 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   SESSION_ACCESS_SELECT,
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
 import {
   VISUALIZER_ALLOWED_IMAGE_EXTS,
@@ -24,6 +26,8 @@ import { logger } from "@/lib/common/logger";
  *   - measurementPhotoId?: string  （弱耦合回链）
  */
 export const POST = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id: sessionId } = await ctx.params;
 
   const session = await db.visualizerSession.findUnique({
@@ -33,9 +37,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (!session) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
-    return NextResponse.json({ error: "无权操作该可视化方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(session, user, orgRes.orgId),
+    "无权操作该可视化方案",
+  );
+  if (denied) return denied;
 
   let formData: FormData;
   try {

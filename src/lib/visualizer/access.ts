@@ -1,79 +1,62 @@
 /**
- * Visualizer 数据可见性 / 权限 helper
+ * Visualizer 数据可见性 / 权限 helper（db 读取 + HTTP 映射）
  *
- * 原则（与 src/lib/rbac/data-scope.ts 对齐）：
- * - admin / super_admin：看全部
- * - 其他角色（sales / trade / user）：只看
- *   1) 自己创建的 session（createdById = me）
- *   2) 自己作为 salesOwner 的 session（salesOwnerId = me）
- *   3) 所属 customer 是自己创建的
- *
- * 这样能覆盖：销售 A 创建客户后，销售 B 代做方案 → B 建 session 后 A 仍可见。
- * （创建 session 也必须先通过客户可见性校验）
+ * 判定规则在 ./access-policy（纯函数）：先企业、后范围。
+ * 所有调用方必须传入当前企业 orgId（见 ./org-context resolveVisualizerOrgId）；
+ * 企业归属 = session.customer.orgId（零 schema，session 无 orgId 列）。
  */
 
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isGlobalScope } from "@/lib/rbac/data-scope";
+import {
+  customerCreateAccess,
+  type MinimalUser,
+  type VisualizerAccess,
+} from "./access-policy";
 
-type MinimalUser = { id: string; role: string | null | undefined };
-
-/** 列表查询 where 片段；admin 返回 null（不过滤） */
-export function visualizerSessionListScope(
-  user: MinimalUser,
-): Record<string, unknown> | null {
-  if (isGlobalScope(user.role)) return null;
-  return {
-    OR: [
-      { createdById: user.id },
-      { salesOwnerId: user.id },
-      { customer: { createdById: user.id } },
-    ],
-  };
-}
+export {
+  customerCreateAccess,
+  visualizerSessionAccess,
+  visualizerSessionListScope,
+  type MinimalUser,
+  type VisualizerAccess,
+} from "./access-policy";
 
 /**
- * 单条 session 可见性校验
- * 传入已查出的 session（含 createdById / salesOwnerId / customer.createdById）
+ * 三态 → 响应：not_found（含跨企业）404，forbidden 403，ok 返回 null。
+ * notFoundMessage 必须与该路由"资源不存在"文案一致，跨企业不暴露存在性。
  */
-export function canSeeVisualizerSession(
-  session: {
-    createdById: string;
-    salesOwnerId: string | null;
-    customer: { createdById: string | null };
-  },
-  user: MinimalUser,
-): boolean {
-  if (isGlobalScope(user.role)) return true;
-  if (session.createdById === user.id) return true;
-  if (session.salesOwnerId && session.salesOwnerId === user.id) return true;
-  if (session.customer.createdById === user.id) return true;
-  return false;
+export function visualizerAccessResponse(
+  access: VisualizerAccess,
+  forbiddenMessage = "无权访问该可视化方案",
+  notFoundMessage = "可视化方案不存在",
+): NextResponse | null {
+  if (access === "not_found") {
+    return NextResponse.json({ error: notFoundMessage }, { status: 404 });
+  }
+  if (access === "forbidden") {
+    return NextResponse.json({ error: forbiddenMessage }, { status: 403 });
+  }
+  return null;
 }
 
 /**
- * 创建 session 前的前置校验：
- * - 客户存在且未归档
- * - 非 admin 必须是客户创建人
- * 返回 null 表示通过，string 为错误信息
+ * 创建 / 打开 session 前的前置校验：
+ * - 客户存在、属于当前企业（否则 404，与不存在同文案）且未归档
+ * - 非全企业范围必须是客户创建人
  */
 export async function validateCustomerAccessForCreate(
   customerId: string,
   user: MinimalUser,
+  orgId: string,
 ): Promise<{ ok: true; customer: { id: string; name: string } } | { ok: false; reason: string; status: number }> {
   const customer = await db.salesCustomer.findUnique({
     where: { id: customerId },
-    select: { id: true, name: true, archivedAt: true, createdById: true },
+    select: { id: true, name: true, orgId: true, archivedAt: true, createdById: true },
   });
-  if (!customer) {
-    return { ok: false, reason: "客户不存在", status: 404 };
-  }
-  if (customer.archivedAt) {
-    return { ok: false, reason: "该客户已归档，无法创建可视化方案", status: 400 };
-  }
-  if (!isGlobalScope(user.role) && customer.createdById !== user.id) {
-    return { ok: false, reason: "无权为该客户创建可视化方案", status: 403 };
-  }
-  return { ok: true, customer: { id: customer.id, name: customer.name } };
+  const decision = customerCreateAccess(customer, user, orgId);
+  if (!decision.ok) return decision;
+  return { ok: true, customer: { id: customer!.id, name: customer!.name } };
 }
 
 /**
@@ -89,7 +72,7 @@ export const SESSION_ACCESS_SELECT = {
   createdById: true,
   salesOwnerId: true,
   customerId: true,
-  customer: { select: { createdById: true } },
+  customer: { select: { createdById: true, orgId: true } },
 } as const;
 
 export type SessionAccessShape = {
@@ -97,7 +80,7 @@ export type SessionAccessShape = {
   createdById: string;
   salesOwnerId: string | null;
   customerId: string;
-  customer: { createdById: string | null };
+  customer: { createdById: string | null; orgId: string };
 };
 
 /** 通过 sourceImageId 反查 session（用于图片/region 权限校验） */

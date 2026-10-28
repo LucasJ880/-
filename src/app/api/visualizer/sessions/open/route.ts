@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
+  visualizerSessionAccess,
   validateCustomerAccessForCreate,
   validateSessionLinks,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import type { VisualizerSessionSummary } from "@/lib/visualizer/types";
 
 /**
@@ -31,6 +32,10 @@ interface OpenBody {
 }
 
 export const POST = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
+  const orgId = orgRes.orgId;
+
   const body = await safeParseBody<OpenBody>(request);
   if (!body) {
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
@@ -40,7 +45,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "customerId 必填" }, { status: 400 });
   }
 
-  const customerCheck = await validateCustomerAccessForCreate(customerId, user);
+  const customerCheck = await validateCustomerAccessForCreate(customerId, user, orgId);
   if (!customerCheck.ok) {
     return NextResponse.json({ error: customerCheck.reason }, { status: customerCheck.status });
   }
@@ -54,7 +59,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     },
     orderBy: { updatedAt: "desc" },
     include: {
-      customer: { select: { id: true, name: true, createdById: true } },
+      customer: { select: { id: true, name: true, createdById: true, orgId: true } },
       opportunity: { select: { id: true, title: true } },
       _count: { select: { sourceImages: true, variants: true } },
       variants: {
@@ -66,7 +71,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     },
   });
 
-  if (existing && canSeeVisualizerSession(existing, user)) {
+  if (existing && visualizerSessionAccess(existing, user, orgId) === "ok") {
     const summary: VisualizerSessionSummary = {
       id: existing.id,
       title: existing.title,

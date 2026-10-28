@@ -3,9 +3,11 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
   SESSION_ACCESS_SELECT,
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
   visualizerSessionListScope,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 
 /**
  * GET /api/visualizer/sessions/[id]/reuse-candidates
@@ -15,7 +17,7 @@ import {
  *
  * 权限：
  * - 目标 session 必须能看到
- * - 源 session 也必须能看到（通过 visualizerSessionListScope 过滤，admin 不受限）
+ * - 源 session 也必须能看到（通过 visualizerSessionListScope 过滤，始终限定当前企业）
  *
  * 响应：
  * {
@@ -26,8 +28,10 @@ import {
  * }
  */
 
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id: sessionId } = await ctx.params;
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
 
   const target = await db.visualizerSession.findUnique({
     where: { id: sessionId },
@@ -36,17 +40,17 @@ export const GET = withAuth(async (_request, ctx, user) => {
   if (!target) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(target, user)) {
-    return NextResponse.json({ error: "无权访问该可视化方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(target, user, orgRes.orgId),
+  );
+  if (denied) return denied;
 
-  const scope = visualizerSessionListScope(user);
   const otherSessions = await db.visualizerSession.findMany({
     where: {
       customerId: target.customerId,
       id: { not: sessionId },
       status: { not: "archived" },
-      ...(scope ?? {}),
+      ...visualizerSessionListScope(user, orgRes.orgId),
     },
     orderBy: { updatedAt: "desc" },
     select: {

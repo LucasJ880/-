@@ -6,6 +6,7 @@ import {
   validateCustomerAccessForCreate,
   validateSessionLinks,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import type {
   CreateVisualizerSessionRequest,
   VisualizerSessionSummary,
@@ -13,16 +14,18 @@ import type {
 
 /**
  * GET /api/visualizer/sessions?customerId=&opportunityId=&quoteId=
- * 列出当前用户可见的 session（默认按更新时间倒序）
+ * 列出当前用户在当前企业内可见的 session（默认按更新时间倒序）
  */
 export const GET = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
   const customerId = queryString(request, "customerId");
   const opportunityId = queryString(request, "opportunityId");
   const quoteId = queryString(request, "quoteId");
 
-  const scope = visualizerSessionListScope(user);
   const where: Record<string, unknown> = {
-    ...(scope ?? {}),
+    ...visualizerSessionListScope(user, orgRes.orgId),
   };
   if (customerId) where.customerId = customerId;
   if (opportunityId) where.opportunityId = opportunityId;
@@ -75,6 +78,9 @@ export const GET = withAuth(async (request, _ctx, user) => {
  * body: { customerId, title?, opportunityId?, quoteId?, measurementRecordId? }
  */
 export const POST = withAuth(async (request, _ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
+
   const body = await safeParseBody<CreateVisualizerSessionRequest>(request);
   if (!body) {
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
@@ -83,7 +89,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "customerId 必填" }, { status: 400 });
   }
 
-  const customerCheck = await validateCustomerAccessForCreate(body.customerId, user);
+  const customerCheck = await validateCustomerAccessForCreate(body.customerId, user, orgRes.orgId);
   if (!customerCheck.ok) {
     return NextResponse.json({ error: customerCheck.reason }, { status: customerCheck.status });
   }

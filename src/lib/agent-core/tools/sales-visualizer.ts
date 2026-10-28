@@ -17,9 +17,9 @@ import { db } from "@/lib/db";
 import { ok } from "./sales-helpers";
 import { salesCreatedScope } from "@/lib/rbac/data-scope";
 import {
-  canSeeVisualizerSession,
   validateCustomerAccessForCreate,
   validateSessionLinks,
+  visualizerSessionAccess,
   visualizerSessionListScope,
 } from "@/lib/visualizer/access";
 
@@ -62,6 +62,7 @@ registry.register({
         where: {
           name: { contains: customerName, mode: "insensitive" },
           archivedAt: null,
+          orgId: ctx.orgId,
           ...(ownerScope ?? {}),
         },
         select: { id: true, name: true, phone: true, email: true },
@@ -96,6 +97,7 @@ registry.register({
     const customerCheck = await validateCustomerAccessForCreate(
       resolvedCustomerId,
       { id: ctx.userId, role: ctx.role },
+      ctx.orgId,
     );
     if (!customerCheck.ok) {
       return { success: false, data: { error: customerCheck.reason } };
@@ -110,14 +112,14 @@ registry.register({
       },
       orderBy: { updatedAt: "desc" },
       include: {
-        customer: { select: { id: true, name: true, createdById: true } },
+        customer: { select: { id: true, name: true, createdById: true, orgId: true } },
         opportunity: { select: { id: true, title: true } },
       },
     });
 
     if (
       existing &&
-      canSeeVisualizerSession(existing, { id: ctx.userId, role: ctx.role })
+      visualizerSessionAccess(existing, { id: ctx.userId, role: ctx.role }, ctx.orgId) === "ok"
     ) {
       return ok({
         sessionId: existing.id,
@@ -218,6 +220,7 @@ registry.register({
         where: {
           name: { contains: customerName, mode: "insensitive" },
           archivedAt: null,
+          orgId: ctx.orgId,
           ...(ownerScope ?? {}),
         },
         select: { id: true, name: true, phone: true, email: true },
@@ -249,15 +252,15 @@ registry.register({
     }
 
     // 可见性：有些 sales 不是客户创建人，但可能是 session 的 owner；
-    // 所以不强制客户可见性前置校验，直接走 visualizerSessionListScope 过滤
-    const scope = visualizerSessionListScope({ id: ctx.userId, role: ctx.role });
+    // 所以不强制客户可见性前置校验，直接走 visualizerSessionListScope 过滤（始终限定当前企业）
+    const scope = visualizerSessionListScope({ id: ctx.userId, role: ctx.role }, ctx.orgId);
 
     const sessions = await db.visualizerSession.findMany({
       where: {
         customerId: resolvedCustomerId,
         status: { not: "archived" },
         ...(opportunityId ? { opportunityId } : {}),
-        ...(scope ?? {}),
+        ...scope,
       },
       orderBy: { updatedAt: "desc" },
       select: {

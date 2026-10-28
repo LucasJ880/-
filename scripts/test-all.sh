@@ -389,6 +389,7 @@ run_test "销售可视化HD主输入选择" "npx tsx src/lib/visualizer/__tests_
 run_test "销售可视化HD mask padding" "npx tsx src/lib/visualizer/__tests__/mask-padding.test.ts"
 run_test "销售可视化HD窗户mask" "npx tsx src/lib/visualizer/__tests__/hd-window-mask.test.ts"
 run_test "销售可视化HD render核心" "npx tsx src/lib/visualizer/__tests__/hd-render-core.test.ts"
+run_test "销售可视化企业边界" "npx tsx src/lib/visualizer/__tests__/access-policy.test.ts"
 run_test "全站 UI 主题框架" "npx tsx src/lib/theme/__tests__/theme.test.ts"
 run_test "自动流本地时区调度" "npx tsx src/lib/automation/__tests__/local-time.test.ts"
 run_test "自动流组织时区调度" "npx tsx src/lib/automation/__tests__/org-timezone.test.ts"

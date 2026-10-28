@@ -32,6 +32,8 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/revenue/",
   // PERM-5a：会计视图按当前企业隔离
   "/api/accounting/",
+  // visualizer-org-boundary：可视化方案按当前企业隔离（平台管理员需显式 orgId）
+  "/api/visualizer/",
 ];
 
 function isOrgScopedPath(pathname: string): boolean {

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { sendSalesEmail } from "@/lib/email/sender";
-import { canSeeVisualizerSession } from "@/lib/visualizer/access";
+import { visualizerAccessResponse, visualizerSessionAccess } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import { isShareLive } from "@/lib/visualizer/share";
 
 type EmailShareBody = { to?: string };
@@ -23,6 +24,8 @@ function escapeHtml(value: string): string {
 }
 
 export const POST = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id } = await ctx.params;
   const body = await safeParseBody<EmailShareBody>(request);
   const to = body?.to?.trim().toLowerCase() ?? "";
@@ -39,15 +42,17 @@ export const POST = withAuth(async (request, ctx, user) => {
       salesOwnerId: true,
       shareToken: true,
       shareExpiresAt: true,
-      customer: { select: { name: true, createdById: true } },
+      customer: { select: { name: true, createdById: true, orgId: true } },
     },
   });
   if (!session) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
-    return NextResponse.json({ error: "无权发送该方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(session, user, orgRes.orgId),
+    "无权发送该方案",
+  );
+  if (denied) return denied;
   if (!isShareLive(session.shareToken, session.shareExpiresAt)) {
     return NextResponse.json({ error: "分享链接尚未生成或已经过期" }, { status: 409 });
   }

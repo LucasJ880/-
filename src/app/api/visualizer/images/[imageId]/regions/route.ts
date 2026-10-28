@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
   loadSessionBySourceImage,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import {
   VISUALIZER_REGION_SHAPES,
   validateRegionPoints,
@@ -20,15 +22,20 @@ import type {
  * body: { shape, points, label?, widthIn?, heightIn?, measurementWindowId? }
  */
 export const POST = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { imageId } = await ctx.params;
 
   const session = await loadSessionBySourceImage(imageId);
   if (!session) {
     return NextResponse.json({ error: "图片不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
-    return NextResponse.json({ error: "无权操作该图片" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(session, user, orgRes.orgId),
+    "无权操作该图片",
+    "图片不存在",
+  );
+  if (denied) return denied;
 
   const body = await safeParseBody<CreateRegionRequest>(request);
   if (!body) {

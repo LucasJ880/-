@@ -10,7 +10,7 @@
  * - ai-chat/{orgId}/...                → org 成员（主助手 / 项目问青砚 / 收件箱的图片附件原图）
  * - trade/intelligence/{orgId}/...      → org 成员
  * - visualizer/catalog/{orgId}/...      → org 成员
- * - visualizer/sessions/{sessionId}/... → session 可见性（创建人/负责人/客户创建人/admin）
+ * - visualizer/sessions/{sessionId}/... → 方案所属企业成员 + 企业内可见性（创建人/负责人/客户创建人/全企业范围）
  * - visualizer/templates/...            → 登录即可（平台 AI 标准安装模板底图）
  * - projects/{projectId}/...            → 项目读权限
  * - install-photos/{orgId}/{orderId}/... → org 成员 + （install.photo.read ORG 或该工艺单预约的被分配人）
@@ -27,9 +27,10 @@ import { getOrgMembership } from "@/lib/auth";
 import { isAdmin } from "@/lib/rbac/roles";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
   SESSION_ACCESS_SELECT,
+  visualizerSessionAccess,
 } from "@/lib/visualizer/access";
+import { canUseVisualizerOrg } from "@/lib/visualizer/org-context";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { readBlobStream } from "@/lib/files/blob-access";
 import { authorize, humanPrincipal } from "@/lib/authorization";
@@ -82,7 +83,10 @@ async function authorizeBlobPath(
           select: SESSION_ACCESS_SELECT,
         });
         if (!session) return "forbidden";
-        return canSeeVisualizerSession(session, user) ? "ok" : "forbidden";
+        // <img> 无法带 orgId：以方案所属企业为上下文，要求该企业活跃成员（super_admin 例外）
+        const orgId = session.customer.orgId;
+        if (!(await canUseVisualizerOrg(user, orgId))) return "forbidden";
+        return visualizerSessionAccess(session, user, orgId) === "ok" ? "ok" : "forbidden";
       }
       // 平台标准安装模板底图：无组织敏感数据，登录即可读
       if (second === "templates") {

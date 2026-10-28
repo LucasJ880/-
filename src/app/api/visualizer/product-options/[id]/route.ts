@@ -3,9 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
   loadSessionByProductOption,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import { findCatalogProductForUse } from "@/lib/visualizer/catalog";
 import {
   validateOpacity,
@@ -32,15 +34,20 @@ function parseTransform(raw: unknown): VisualizerProductOptionTransform | null {
 
 /** PATCH /api/visualizer/product-options/[id] */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id } = await ctx.params;
 
   const found = await loadSessionByProductOption(id);
   if (!found) {
     return NextResponse.json({ error: "产品叠加不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
-    return NextResponse.json({ error: "无权操作该产品叠加" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(found.session, user, orgRes.orgId),
+    "无权操作该产品叠加",
+    "产品叠加不存在",
+  );
+  if (denied) return denied;
 
   const body = await safeParseBody<UpdateProductOptionRequest>(request);
   if (!body) {
@@ -124,16 +131,21 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 });
 
 /** DELETE /api/visualizer/product-options/[id] */
-export const DELETE = withAuth(async (_request, ctx, user) => {
+export const DELETE = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id } = await ctx.params;
 
   const found = await loadSessionByProductOption(id);
   if (!found) {
     return NextResponse.json({ error: "产品叠加不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
-    return NextResponse.json({ error: "无权删除该产品叠加" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(found.session, user, orgRes.orgId),
+    "无权删除该产品叠加",
+    "产品叠加不存在",
+  );
+  if (denied) return denied;
 
   await db.visualizerProductOption.delete({ where: { id } });
   await db.visualizerSession.update({

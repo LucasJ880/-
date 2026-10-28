@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
   validateSessionLinks,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import { summarizeRenderJob } from "@/lib/visualizer/render-job";
 import type {
   UpdateVisualizerSessionRequest,
@@ -54,13 +56,15 @@ const ALLOWED_STATUS: VisualizerSessionStatus[] = ["draft", "active", "archived"
  * GET /api/visualizer/sessions/[id]
  * 返回会话详情，包含图片与方案摘要（不含 region/productOption 明细，留给 PR #2）
  */
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id } = await ctx.params;
 
   const session = await db.visualizerSession.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, email: true, createdById: true } },
+      customer: { select: { id: true, name: true, email: true, createdById: true, orgId: true } },
       opportunity: { select: { id: true, title: true, stage: true } },
       quote: { select: { id: true, version: true, status: true } },
       sourceImages: {
@@ -93,9 +97,11 @@ export const GET = withAuth(async (_request, ctx, user) => {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
 
-  if (!canSeeVisualizerSession(session, user)) {
-    return NextResponse.json({ error: "无权访问该可视化方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(session, user, orgRes.orgId),
+    "无权访问该可视化方案",
+  );
+  if (denied) return denied;
 
   // 面料纹理：按 productCatalogId 批量取目录 textureUrl（mock 产品查不到 → null 回退色块）
   const catalogIds = [
@@ -239,6 +245,8 @@ export const GET = withAuth(async (_request, ctx, user) => {
  * body: { title?, status?, salesOwnerId?, opportunityId?, quoteId?, measurementRecordId? }
  */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id } = await ctx.params;
 
   const body = await safeParseBody<UpdateVisualizerSessionRequest>(request);
@@ -249,15 +257,17 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   const session = await db.visualizerSession.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, createdById: true } },
+      customer: { select: { id: true, name: true, createdById: true, orgId: true } },
     },
   });
   if (!session) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
-    return NextResponse.json({ error: "无权修改该可视化方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(session, user, orgRes.orgId),
+    "无权修改该可视化方案",
+  );
+  if (denied) return denied;
 
   const data: Record<string, unknown> = {};
 

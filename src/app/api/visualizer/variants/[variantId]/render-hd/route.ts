@@ -2,9 +2,11 @@ import { after, NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
   loadSessionByVariant,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import {
   fetchBuffer,
   runImageEditDetailed,
@@ -47,12 +49,17 @@ type RenderBody = {
  * 弱网/切页/锁屏不再导致渲染作废；防重入靠原子 claim + 陈旧阈值。
  */
 export const POST = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { variantId } = await ctx.params;
   const found = await loadSessionByVariant(variantId);
   if (!found) return NextResponse.json({ error: "方案不存在" }, { status: 404 });
-  if (!canSeeVisualizerSession(found.session, user)) {
-    return NextResponse.json({ error: "无权操作该方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(found.session, user, orgRes.orgId),
+    "无权操作该方案",
+    "方案不存在",
+  );
+  if (denied) return denied;
 
   const body = (await safeParseBody<RenderBody>(request)) ?? {};
   if (body.dataUrl) {

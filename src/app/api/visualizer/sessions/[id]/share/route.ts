@@ -11,7 +11,8 @@
 import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { canSeeVisualizerSession } from "@/lib/visualizer/access";
+import { visualizerAccessResponse, visualizerSessionAccess } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import {
   generateVisualizerShareToken,
   makeShareExpiresAt,
@@ -24,6 +25,8 @@ function buildShareUrl(req: Request, token: string): string {
 }
 
 export const POST = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { id } = await ctx.params;
 
   const session = await db.visualizerSession.findUnique({
@@ -34,15 +37,17 @@ export const POST = withAuth(async (request, ctx, user) => {
       salesOwnerId: true,
       shareToken: true,
       shareExpiresAt: true,
-      customer: { select: { createdById: true } },
+      customer: { select: { createdById: true, orgId: true } },
     },
   });
   if (!session) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
-    return NextResponse.json({ error: "无权操作该方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(session, user, orgRes.orgId),
+    "无权操作该方案",
+  );
+  if (denied) return denied;
 
   const body = await safeParseBody<CreateVisualizerShareRequest>(request);
 

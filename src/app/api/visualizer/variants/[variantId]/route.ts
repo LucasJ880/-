@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
-  canSeeVisualizerSession,
+  visualizerAccessResponse,
+  visualizerSessionAccess,
   loadSessionByVariant,
 } from "@/lib/visualizer/access";
+import { resolveVisualizerOrgId } from "@/lib/visualizer/org-context";
 import type { UpdateVariantRequest } from "@/lib/visualizer/types";
 import { summarizeRenderJob } from "@/lib/visualizer/render-job";
 
@@ -12,16 +14,21 @@ import { summarizeRenderJob } from "@/lib/visualizer/render-job";
  * GET /api/visualizer/variants/[variantId]
  * 轻量轮询端点：异步 HD 渲染的状态 + 最新效果图地址。
  */
-export const GET = withAuth(async (_request, ctx, user) => {
+export const GET = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { variantId } = await ctx.params;
 
   const found = await loadSessionByVariant(variantId);
   if (!found) {
     return NextResponse.json({ error: "方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
-    return NextResponse.json({ error: "无权查看该方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(found.session, user, orgRes.orgId),
+    "无权查看该方案",
+    "方案不存在",
+  );
+  if (denied) return denied;
 
   const variant = await db.visualizerVariant.findUnique({
     where: { id: variantId },
@@ -49,15 +56,20 @@ export const GET = withAuth(async (_request, ctx, user) => {
 
 /** PATCH /api/visualizer/variants/[variantId] */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { variantId } = await ctx.params;
 
   const found = await loadSessionByVariant(variantId);
   if (!found) {
     return NextResponse.json({ error: "方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
-    return NextResponse.json({ error: "无权操作该方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(found.session, user, orgRes.orgId),
+    "无权操作该方案",
+    "方案不存在",
+  );
+  if (denied) return denied;
 
   const body = await safeParseBody<UpdateVariantRequest>(request);
   if (!body) {
@@ -111,16 +123,21 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 });
 
 /** DELETE /api/visualizer/variants/[variantId] */
-export const DELETE = withAuth(async (_request, ctx, user) => {
+export const DELETE = withAuth(async (request, ctx, user) => {
+  const orgRes = await resolveVisualizerOrgId(request, user);
+  if (!orgRes.ok) return orgRes.response;
   const { variantId } = await ctx.params;
 
   const found = await loadSessionByVariant(variantId);
   if (!found) {
     return NextResponse.json({ error: "方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
-    return NextResponse.json({ error: "无权删除该方案" }, { status: 403 });
-  }
+  const denied = visualizerAccessResponse(
+    visualizerSessionAccess(found.session, user, orgRes.orgId),
+    "无权删除该方案",
+    "方案不存在",
+  );
+  if (denied) return denied;
 
   await db.visualizerVariant.delete({ where: { id: variantId } });
   await db.visualizerSession.update({
