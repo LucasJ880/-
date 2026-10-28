@@ -32,7 +32,7 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-4a | 销售模块：`isAdmin` 短路 → `authorize`；签约单改金额走审批（报价行级出单编辑 2026-10-28 拍板移出） | PERM-3 | 任务书 `docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`；change `perm-4a-sales-authorize`；`docs/QINGYAN_PERM-4a_REPORT.md` | [G]（代码完成，PR 待开） |
+| PERM-4a | 销售模块：`isAdmin` 短路 → `authorize`；签约单改金额走审批（报价行级出单编辑 2026-10-28 拍板移出） | PERM-3 | 任务书 `docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`；change `perm-4a-sales-authorize`；`docs/QINGYAN_PERM-4a_REPORT.md` | [x]（#279；archive 见 `openspec/changes/archive/2026-10-28-perm-4a-sales-authorize`） |
 | PERM-4b | 运营模块：`canManageUsers` ×11 → `operations.manage / read`；marketing access-policy；客户端门禁读 permissionKeys | PERM-4a | 同上；change `perm-4b-ops-authorize` | [ ] |
 | PERM-4c | 招投标 / 项目财务 → `project.finance.*`；导航 `requiredPermissions` 铺开、删 `requiredPlatformRoles / NAV_ROLES_*`；默认工作区去平台角色；平台角色压扁脚本（数据） | PERM-4b | 同上；change `perm-4c-nav-by-position` | [ ] |
 
