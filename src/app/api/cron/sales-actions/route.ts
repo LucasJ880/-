@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runTrackedAutomation } from "@/lib/automation/runner";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
+import { scanMuseReminders } from "@/lib/muse-bridge/reminder-scan";
 import { syncSalesAutoActions } from "@/lib/sales/auto-action-sync";
 
 export const maxDuration = 300;
@@ -45,5 +46,17 @@ export async function GET(request: NextRequest) {
       metadata: { organizations: results.length, failedCount },
     };
   });
-  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data });
+  // TASKFLOW S3：Muse 跟进到期 / 逾期与询问逾期提醒；单独记一条运行记录，便于验收第 8 步取证
+  const museReminders = await runTrackedAutomation("muse-reminder-scan", async () => {
+    const result = await scanMuseReminders();
+    return {
+      data: result,
+      status: result.skipped ? "skipped" : result.failed > 0 ? "partial" : "succeeded",
+      processedCount: result.planned,
+      succeededCount: result.emitted,
+      failedCount: result.failed,
+      metadata: result,
+    };
+  });
+  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders });
 }

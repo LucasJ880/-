@@ -9,6 +9,7 @@ import { MUSE_BRIDGE_CONTRACT_VERSION, MUSE_PHASE0_INTENTS, parseMuseCommand } f
 import { buildMuseEvent } from "../events-pure";
 import { enabledMuseIntents } from "../flags";
 import {
+  collaborationTrail,
   followupAssignedEventInput,
   followupUpdatedEventInput,
   followupsView,
@@ -143,6 +144,24 @@ console.log("views");
   ok("逾期标记只给未结束的", view[0].overdue && !view[1].overdue && !view[2].overdue);
   ok("证据只在完成时出现，原因只在搁置时出现", view[2].evidence === "已确认" && view[3].evidence === null && view[3].reason === "客户延期");
   ok("带出 workflowId", view.every((v) => v.workflowId === "wf_1"));
+}
+
+console.log("collaboration trail");
+{
+  const trail = collaborationTrail(
+    [{
+      id: "q1", createdAt: later(-10), creator: { id: "u_m", name: "Morgan" },
+      createdDetail: { workflowId: "wf_1", questions: ["客户怎么说？", "下一步？"] },
+      reply: { at: later(-8), by: { id: "u_a", name: "Avery" }, detail: { nextStep: "周五电话", channel: "muse" } },
+    }],
+    [{
+      id: "f1", title: "周五电话", status: "completed", dueAt: later(-2), createdAt: later(-7), completedAt: later(-3), dismissedAt: null,
+      resolutionNote: "客户确认周三收样", dismissedReason: null, assignedTo: { id: "u_a", name: "Avery" }, createdBy: { id: "u_m", name: "Morgan" }, inputContext: { workflowId: "wf_1" },
+    }],
+  );
+  ok("时间线按时间正序：问 → 答 → 建跟进 → 完成", trail.map((t) => t.kind).join(",") === "inquiry.asked,inquiry.replied,followup.created,followup.completed");
+  ok("回复标注渠道", trail[1].text.includes("经助理"));
+  ok("完成项带证据与同一 workflowId", trail[3].text === "客户确认周三收样" && trail.every((t) => t.workflowId === "wf_1"));
 }
 
 console.log(`\nfollowup-pure: ${passed} passed`);

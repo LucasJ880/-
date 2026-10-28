@@ -110,7 +110,7 @@ console.log("status views");
     lastCustomerReplyAt: null, lastOutboundAt: null, nextFollowupAt: null, nextActionType: null, nextActionReason: null,
     customer: { id: "c1", name: "Northwind" }, assignee: { id: "u_rep", name: "Avery" }, openActionCount: 0, overdueActionCount: 0,
   };
-  const common = { row, interactions: [], actions: [], nextActionLabel: null, staleAfterDays: 21, now: NOW };
+  const common = { row, interactions: [], actions: [], nextActionLabel: null, followups: [], staleAfterDays: 21, now: NOW };
   const withOpen = buildOpportunityStatus({ ...common, scope: { kind: "org", orgId: "org_1" }, inquiries: records });
   ok("已有未结束询问时不再建议发起新询问", withOpen.advisory.nextStep === null);
   const fresh = buildOpportunityStatus({ ...common, scope: { kind: "org", orgId: "org_1" }, inquiries: [] });

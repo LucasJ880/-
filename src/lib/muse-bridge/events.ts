@@ -111,24 +111,42 @@ function titleFor(e: MuseEventEnvelope): string {
 }
 
 /** Bridge 拉取：按 createdAt 游标，只返回该用户 + 该 org 的 muse 事件。 */
+/** S3：复合游标 `<ISO>|<通知 id>`；格式不对返回 null */
+export function parseEventCursor(raw: string): { at: Date; id: string } | null {
+  const sep = raw.lastIndexOf("|");
+  if (sep <= 0) return null;
+  const at = new Date(raw.slice(0, sep));
+  const id = raw.slice(sep + 1);
+  return Number.isNaN(at.getTime()) || !/^[A-Za-z0-9_-]{1,64}$/.test(id) ? null : { at, id };
+}
+
+export const formatEventCursor = (at: Date, id: string) => `${at.toISOString()}|${id}`;
+
 export async function listMuseEvents(input: {
   userId: string;
   orgId: string;
   sinceIso?: string | null;
+  /** S3：优先于 sinceIso；按 (createdAt, id) 翻页，同一毫秒的事件不会落在页缝里 */
+  cursor?: { at: Date; id: string } | null;
   limit?: number;
-}): Promise<{ events: MuseEventEnvelope[]; nextSince: string | null }> {
+}): Promise<{ events: MuseEventEnvelope[]; nextSince: string | null; nextCursor: string | null }> {
   const since = input.sinceIso ? new Date(input.sinceIso) : null;
   const take = Math.min(Math.max(input.limit ?? 50, 1), 200);
+  const after = input.cursor
+    ? { OR: [{ createdAt: { gt: input.cursor.at } }, { createdAt: input.cursor.at, id: { gt: input.cursor.id } }] }
+    : since && !Number.isNaN(since.getTime())
+      ? { createdAt: { gt: since } }
+      : {};
   const rows = await db.notification.findMany({
     where: {
       userId: input.userId,
       orgId: input.orgId,
       category: MUSE_EVENT_CATEGORY,
-      ...(since && !Number.isNaN(since.getTime()) ? { createdAt: { gt: since } } : {}),
+      ...after,
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take,
-    select: { metadata: true, createdAt: true },
+    select: { id: true, metadata: true, createdAt: true },
   });
   const events: MuseEventEnvelope[] = [];
   for (const r of rows) {
@@ -140,8 +158,14 @@ export async function listMuseEvents(input: {
       /* 坏行跳过，不影响其它事件 */
     }
   }
-  const nextSince = rows.length ? rows[rows.length - 1].createdAt.toISOString() : input.sinceIso ?? null;
-  return { events, nextSince };
+  const last = rows[rows.length - 1];
+  const nextSince = last ? last.createdAt.toISOString() : input.sinceIso ?? null;
+  const nextCursor = last
+    ? formatEventCursor(last.createdAt, last.id)
+    : input.cursor
+      ? formatEventCursor(input.cursor.at, input.cursor.id)
+      : null;
+  return { events, nextSince, nextCursor };
 }
 
 // ── 挂钩点 helper（供 drafts.ts / 分析终态化 / inquiry 状态变更调用，均 best-effort）──

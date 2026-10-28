@@ -193,6 +193,7 @@ console.log("opportunity_status");
     ],
     nextActionLabel: "报价后跟进",
     inquiries: [],
+    followups: [],
     staleAfterDays: 21,
     now: NOW,
   });
@@ -216,7 +217,7 @@ console.log("opportunity_status");
   ok("S2：管理者的下一步是带默认问题的「问负责人」", st.advisory.nextStep?.command.intent === "ask_colleague" && (st.advisory.nextStep.command as { questions: string[] }).questions.some((q) => q.includes("约定的跟进")));
 }
 {
-  const st = buildOpportunityStatus({ scope: OWN, row: opp("s2", { stage: "won", estimatedValue: 9_999 }), interactions: [], actions: [], nextActionLabel: null, inquiries: [], staleAfterDays: 21, now: NOW });
+  const st = buildOpportunityStatus({ scope: OWN, row: opp("s2", { stage: "won", estimatedValue: 9_999 }), interactions: [], actions: [], nextActionLabel: null, inquiries: [], followups: [], staleAfterDays: 21, now: NOW });
   const d = st.data as { priority: unknown; opportunity: Record<string, unknown> };
   ok("终态商机：说明不再排序、priority 为 null", st.advisory.reasons[0] === "商机已处于「成交」，不再进入推进排序" && d.priority === null);
   ok("销售范围：状态视图不带 amount", !("amount" in d.opportunity) && !JSON.stringify(st).includes("9999"));

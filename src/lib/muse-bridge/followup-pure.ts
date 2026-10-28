@@ -291,3 +291,68 @@ export function updateFollowupAdvisory(input: { title: string; status: string; o
     nextStep: statusStep(input.opportunityId),
   };
 }
+
+// ── 协作追踪（商机页时间线） ────────────────────────────────────
+
+export type TrailItem = {
+  at: string;
+  kind: "inquiry.asked" | "inquiry.replied" | "followup.created" | "followup.completed" | "followup.dismissed";
+  actor: { id: string; name: string } | null;
+  text: string;
+  inquiryId?: string;
+  followupId?: string;
+  workflowId: string | null;
+};
+
+/** 询问、回复、跟进按时间正序排成一条线；网页登录用户已有商机权限，这里不做 Muse 通道脱敏 */
+export function collaborationTrail(
+  inquiries: Array<{
+    id: string;
+    createdAt: Date;
+    creator: { id: string; name: string };
+    createdDetail: { workflowId: string; questions: string[] } | null;
+    reply: { at: Date; by: { id: string; name: string }; detail: { nextStep: string; channel: string } } | null;
+  }>,
+  followups: FollowupRecord[],
+): TrailItem[] {
+  const items: TrailItem[] = [];
+  for (const q of inquiries) {
+    const workflowId = q.createdDetail?.workflowId ?? null;
+    items.push({
+      at: q.createdAt.toISOString(),
+      kind: "inquiry.asked",
+      actor: q.creator,
+      text: (q.createdDetail?.questions ?? []).join("；") || "发起询问",
+      inquiryId: q.id,
+      workflowId,
+    });
+    if (q.reply) {
+      items.push({
+        at: q.reply.at.toISOString(),
+        kind: "inquiry.replied",
+        actor: q.reply.by,
+        text: `${q.reply.detail.nextStep}（${q.reply.detail.channel === "muse" ? "经助理" : "网页"}回复）`,
+        inquiryId: q.id,
+        workflowId,
+      });
+    }
+  }
+  for (const f of followups) {
+    const workflowId = workflowIdOf(f.inputContext);
+    items.push({
+      at: f.createdAt.toISOString(),
+      kind: "followup.created",
+      actor: f.createdBy,
+      text: `${f.title}（负责人 ${f.assignedTo?.name ?? "未分配"}${f.dueAt ? `，${f.dueAt.toISOString().slice(0, 10)} 前` : ""}）`,
+      followupId: f.id,
+      workflowId,
+    });
+    if (f.status === "completed" && f.completedAt) {
+      items.push({ at: f.completedAt.toISOString(), kind: "followup.completed", actor: f.assignedTo, text: f.resolutionNote ?? "已完成", followupId: f.id, workflowId });
+    }
+    if (f.status === "dismissed" && f.dismissedAt) {
+      items.push({ at: f.dismissedAt.toISOString(), kind: "followup.dismissed", actor: f.assignedTo, text: f.dismissedReason ?? "已搁置", followupId: f.id, workflowId });
+    }
+  }
+  return items.sort((a, b) => a.at.localeCompare(b.at));
+}

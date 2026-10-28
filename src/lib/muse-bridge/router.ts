@@ -28,6 +28,7 @@ import { resolveCloseDate } from "@/lib/tender/stage";
 import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
 import { parseChaseNotes, resolveChaseAfterDays } from "@/lib/tender-rfq/chase-pure";
 import { opportunityStatus, salesOverview, type SalesIntentResult } from "./sales";
+import { createFollowup, updateFollowup, type FollowupResult } from "./followup";
 import { askColleague, replyInquiry, type InquiryResult } from "./inquiry";
 import {
   ASK_OUTPUT_INSTRUCTIONS,
@@ -152,6 +153,12 @@ export async function handleMuseCommand(
           await replyInquiry({ userId: identity.userId, orgId: identity.orgId }, command, "muse"),
         );
         break;
+      case "create_followup":
+        response = salesResponse(requestId, await createFollowup(identity, command, { requestId }));
+        break;
+      case "update_followup":
+        response = salesResponse(requestId, await updateFollowup(identity, command));
+        break;
       default:
         // gateIntent 已拦；此处仅类型兜底
         response = errResponse(requestId, "INTENT_NOT_ENABLED", "该动作尚未开放。");
@@ -165,11 +172,16 @@ export async function handleMuseCommand(
 }
 
 /** S1 销售意图：取数层返回 Advisory 或错误，这里统一走 respond / errResponse */
-function salesResponse(requestId: string, r: SalesIntentResult | InquiryResult): MuseCommandResponse {
+function salesResponse(requestId: string, r: SalesIntentResult | InquiryResult | FollowupResult): MuseCommandResponse {
   return r.ok ? respond(requestId, r.advisory, { data: r.data }) : errResponse(requestId, r.errorCode, r.message);
 }
 
 // ── 幂等账本（AuditLog） ─────────────────────────────────────────
+
+function workflowIdOfResponse(response: MuseCommandResponse): string | undefined {
+  const v = (response.data as { workflowId?: unknown } | undefined)?.workflowId;
+  return typeof v === "string" && v ? v : undefined;
+}
 
 async function findLedgerResponse(requestId: string, identity: MuseIdentity): Promise<MuseCommandResponse | null> {
   const row = await db.auditLog.findFirst({
@@ -206,6 +218,8 @@ async function ledger(
       targetId: envelope.requestId,
       beforeData: { museUserRef: envelope.museUserRef, command: envelope.command, utterance: envelope.utterance ?? null },
       afterData: response,
+      // S3：写入链路的响应带 workflowId → traceId，证据脚本按它把整条链串起来
+      traceId: workflowIdOfResponse(response),
     });
   } catch (err) {
     // 账本失败不影响回复，但要留痕
