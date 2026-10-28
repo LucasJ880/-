@@ -142,8 +142,8 @@ async function main() {
     const r6 = await run({ dryRun: true });
     ok(r6.exitCode === 0, "dry-run：无阻断 → 退出 0", r6.lines);
     ok(r6.lines.some((l) => l === `压扁 ${email(SALES)}：sales → user`), "dry-run 打印 邮箱：前角色 → user", r6.lines);
-    ok(r6.lines.some((l) => l.includes(email(TRADE)) && l.includes("不在压扁范围")), "trade 列为跳过", r6.lines);
-    ok(r6.lines.some((l) => l === "待压扁 5，跳过 2，阻断 0"), "汇总：5 人待压扁（boss / sales / operations / 补绑的 sales / manager）", r6.lines);
+    ok(r6.lines.some((l) => l === `压扁 ${email(TRADE)}：trade → user`), "PERM-6c：trade（seed 自动绑 trade_rep）纳入压扁", r6.lines);
+    ok(r6.lines.some((l) => l === "待压扁 6，跳过 1，阻断 0"), "汇总：6 人待压扁（boss / sales / operations / trade / 补绑的 sales / manager）", r6.lines);
     ok(JSON.stringify(await roles()) === JSON.stringify(before), "dry-run 不写库");
     const r7 = await run({});
     ok(r7.exitCode === 1 && r7.lines.some((l) => l.includes("PLATFORM_ROLE_COLLAPSE_READY")), "闸门关闭：写入退出 1 并提示闸门", r7.lines);
@@ -154,11 +154,11 @@ async function main() {
     const r8 = await run({ ready: true });
     ok(r8.exitCode === 0, "闸门打开：压扁成功", r8.lines);
     const after = await roles();
-    ok([BOSS, SALES, OPS, LATE_SALES, CROSS].every((id) => after[id] === "user"), "boss / sales / operations / manager → user", after);
-    ok(after[TRADE] === "trade" && after[SA] === "super_admin" && after[ADM] === "admin" && after[NOBIND_OWNER] === "user", "trade / super_admin / admin / user 不变", after);
+    ok([BOSS, SALES, OPS, TRADE, LATE_SALES, CROSS].every((id) => after[id] === "user"), "boss / sales / operations / trade / manager → user", after);
+    ok(after[SA] === "super_admin" && after[ADM] === "admin" && after[NOBIND_OWNER] === "user", "super_admin / admin / user 不变", after);
     ok(after[LEGACY_OWNER] === "boss", "非目标企业成员不受影响", after);
     const audits = await db.auditLog.findMany({ where: { orgId: WC, action: COLLAPSE_AUDIT_ACTION }, select: { targetId: true, afterData: true, userId: true } });
-    ok(audits.length === 5, "每人一条压扁审计", audits.length);
+    ok(audits.length === 6, "每人一条压扁审计", audits.length);
     const salesAudit = audits.find((a) => a.targetId === SALES);
     const salesAfter = salesAudit?.afterData ? JSON.parse(salesAudit.afterData) : {};
     ok(salesAfter.fromRole === "sales" && salesAfter.toRole === "user" && salesAudit?.userId === SA, "审计含前后角色与执行者", salesAfter);
@@ -168,7 +168,7 @@ async function main() {
     // ── 再跑无变化 ──
     const r9 = await run({ ready: true });
     ok(r9.exitCode === 0 && r9.lines.some((l) => l.startsWith("待压扁 0")), "再跑一次：0 人待压扁", r9.lines);
-    ok((await auditCount(COLLAPSE_AUDIT_ACTION)) === 5, "再跑一次：不新增审计");
+    ok((await auditCount(COLLAPSE_AUDIT_ACTION)) === 6, "再跑一次：不新增审计");
 
     // ── 还原（不受闸门限制） ──
     await db.user.update({ where: { id: OPS }, data: { role: "trade" } }); // 压扁后被另行调整
@@ -178,9 +178,9 @@ async function main() {
     const r11 = await run({ restore: true });
     ok(r11.exitCode === 0, "闸门关闭时 --restore 可执行", r11.lines);
     const restored = await roles();
-    ok(restored[BOSS] === "boss" && restored[SALES] === "sales" && restored[LATE_SALES] === "sales" && restored[CROSS] === "manager", "还原为压扁前角色", restored);
+    ok(restored[BOSS] === "boss" && restored[SALES] === "sales" && restored[TRADE] === "trade" && restored[LATE_SALES] === "sales" && restored[CROSS] === "manager", "还原为压扁前角色（含 trade）", restored);
     ok(restored[OPS] === "trade" && r11.lines.some((l) => l.includes(email(OPS)) && l.includes("不还原")), "当前不是 user 的人跳过", r11.lines);
-    ok((await auditCount(RESTORE_AUDIT_ACTION)) === 4, "每人一条还原审计");
+    ok((await auditCount(RESTORE_AUDIT_ACTION)) === 5, "每人一条还原审计");
   } finally {
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: { in: [WC, LEGACY] } }] } });
     await db.principalRoleBinding.deleteMany({ where: { orgId: { in: [WC, LEGACY] } } });

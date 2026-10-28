@@ -402,7 +402,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     })).filter((g) => g.items.length > 0);
   }, [resolved]);
 
-  const tradeLayout = usesTradeLayout(platformRole);
+  // PERM-6c：外贸两段式布局按岗位派生平台角色（压扁后外贸业务员的 role 是 user、effectiveRole 是 trade）
+  const tradeLayout = usesTradeLayout(user?.effectiveRole ?? platformRole);
   const tradePartition = useMemo(
     () => (tradeLayout ? partitionTradeNav(resolved) : null),
     [tradeLayout, resolved],

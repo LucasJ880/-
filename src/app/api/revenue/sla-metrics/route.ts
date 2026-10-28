@@ -5,13 +5,13 @@
  * 组织由 resolveRevenueAccess 在服务端解析（activeOrg + 在职成员），不接受请求里的 orgId；days 只决定窗口（1–180 天）。
  */
 import { NextRequest, NextResponse } from "next/server";
-import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
+import { REVENUE_READ_KEYS, resolveRevenueAccess } from "@/lib/revenue-spine/access";
 import { clampWindowDays, loadSlaMetrics } from "@/lib/revenue-spine/sla-metrics";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const access = await resolveRevenueAccess(request);
+  const access = await resolveRevenueAccess(request, REVENUE_READ_KEYS);
   if (!access.ok) return access.response;
   const windowDays = clampWindowDays(request.nextUrl.searchParams.get("days"));
   const metrics = await loadSlaMetrics(access.orgId, { windowDays });

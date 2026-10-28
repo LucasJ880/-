@@ -302,6 +302,7 @@ npx tsx src/lib/authorization/__tests__/digital-employee.test.ts
 npx tsx src/lib/authorization/__tests__/platform-role-collapse.test.ts
 npx tsx src/lib/authorization/__tests__/residual-reads.test.ts
 npx tsx src/lib/trade/__tests__/trade-access.test.ts
+npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
 npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts
 # PERM-5a：会计视图（提成口径 / 时间窗口 / 工作区导航 / 接口源码断言）
 npx tsx src/lib/accounting/__tests__/accounting.test.ts

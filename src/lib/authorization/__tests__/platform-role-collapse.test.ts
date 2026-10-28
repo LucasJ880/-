@@ -39,7 +39,7 @@ const src = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 console.log("platform-role-collapse（PERM-4c3）");
 
 // ── 常量 ──
-ok(COLLAPSIBLE_PLATFORM_ROLES.join(",") === "boss,manager,operations,sales", "压扁范围 = boss / manager / operations / sales");
+ok(COLLAPSIBLE_PLATFORM_ROLES.join(",") === "boss,manager,operations,sales,trade", "压扁范围 = boss / manager / operations / sales / trade（PERM-6c 加 trade）");
 ok(PLATFORM_ROLE_COLLAPSE_READY === true, "写库闸门已打开（PERM-4c5 残留读点收口完成）");
 ok(RESIDUAL_ROLE_READS_DOC === "docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md", "闸门提示指向残留清单文档");
 
@@ -62,14 +62,14 @@ ok(RESIDUAL_ROLE_READS_DOC === "docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md", "
     otherMemberships: [],
   });
   ok(plan.blockers.length === 0, "全员有绑定、无跨企业 → 无阻断");
-  ok(plan.change.map((c) => c.userId).join(",") === "boss1,mgr1,ops1,sales1", "只改四种旧角色");
+  ok(plan.change.map((c) => c.userId).join(",") === "boss1,mgr1,ops1,sales1,trade1", "只改五种旧角色（含 trade）");
   ok(plan.change.every((c) => c.fromRole !== "user"), "计划记录前角色");
   const skippedIds = plan.skipped.map((s) => s.userId);
-  ok(["trade1", "sa1", "adm1", "user1"].every((id) => skippedIds.includes(id)), "trade / super_admin / admin / user 跳过");
+  ok(["sa1", "adm1", "user1"].every((id) => skippedIds.includes(id)) && !skippedIds.includes("trade1"), "super_admin / admin / user 跳过；trade 不跳过");
   ok(plan.skipped.find((s) => s.userId === "gone1")?.reason === "非 active 成员", "非 active 成员跳过（即使是 sales）");
   const lines = summarizeCollapse(plan);
   ok(lines.some((l) => l === "压扁 sales1@x.test：sales → user"), "输出行：邮箱 前角色 → user");
-  ok(lines[lines.length - 1] === "待压扁 4，跳过 5，阻断 0", "输出汇总行");
+  ok(lines[lines.length - 1] === "待压扁 5，跳过 4，阻断 0", "输出汇总行");
   ok(!lines.join("\n").match(/password|hash|token|postgres/i), "输出不含密码哈希 / token / 连接串");
 }
 
@@ -78,7 +78,7 @@ ok(RESIDUAL_ROLE_READS_DOC === "docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md", "
   const plan = planCollapse({
     orgCode: "sunny",
     positionMode: true,
-    members: [member("a", "user"), member("b", "user"), member("c", "trade")],
+    members: [member("a", "user"), member("b", "user"), member("c", "admin")],
     otherMemberships: [],
   });
   ok(plan.change.length === 0 && plan.blockers.length === 0, "已压扁后再跑：0 人待改、无阻断");
@@ -123,10 +123,20 @@ ok(RESIDUAL_ROLE_READS_DOC === "docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md", "
   const plan = planCollapse({
     orgCode: "sunny",
     positionMode: true,
-    members: [member("trade1", "trade", { activeBindingCount: 0 }), member("u1", "user", { activeBindingCount: 0 })],
-    otherMemberships: [{ userId: "trade1", orgCode: "mengxin", positionMode: false, status: "active" }],
+    members: [member("adm1", "admin", { activeBindingCount: 0 }), member("u1", "user", { activeBindingCount: 0 })],
+    otherMemberships: [{ userId: "adm1", orgCode: "mengxin", positionMode: false, status: "active" }],
   });
   ok(plan.blockers.length === 0, "不在压扁范围的人不参与前置校验");
+}
+{
+  // PERM-6c：trade 纳入压扁后同样走前置校验（缺绑定 / 同时是旧模式企业成员）
+  const plan = planCollapse({
+    orgCode: "sunny",
+    positionMode: true,
+    members: [member("trade1", "trade", { activeBindingCount: 0 }), member("trade2", "trade")],
+    otherMemberships: [{ userId: "trade2", orgCode: "mengxin", positionMode: false, status: "active" }],
+  });
+  ok(plan.blockers.some((b) => b.includes("trade1")) && plan.blockers.some((b) => b.includes("trade2") && b.includes("mengxin")), "外贸成员缺绑定 / 同时在梦馨 → 阻断");
 }
 
 // ── 还原计划 ──

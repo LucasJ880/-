@@ -5,13 +5,13 @@
  * 「今天」按组织时区（settingsJson.timezone）的当地零点切分。
  */
 import { NextRequest, NextResponse } from "next/server";
-import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
+import { REVENUE_READ_KEYS, resolveRevenueAccess } from "@/lib/revenue-spine/access";
 import { buildOwnerToday } from "@/lib/revenue-spine/owner-today";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const access = await resolveRevenueAccess(request);
+  const access = await resolveRevenueAccess(request, REVENUE_READ_KEYS);
   if (!access.ok) return access.response;
   return NextResponse.json(await buildOwnerToday(access.orgId));
 }

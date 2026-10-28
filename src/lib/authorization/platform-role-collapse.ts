@@ -1,16 +1,16 @@
 /**
  * PERM-4c3：平台角色压扁（纯函数规划；连库执行见 platform-role-collapse-run.ts）
  *
- * 把岗位模式企业 active 成员的旧平台角色（boss / manager / operations / sales）压成 user。
- * super_admin / admin / trade / user 不动；非 active 成员不动。
+ * 把岗位模式企业 active 成员的旧平台角色（boss / manager / operations / sales / trade）压成 user。
+ * super_admin / admin / user 不动；非 active 成员不动。PERM-6c 起 trade 纳入（外贸读点已按岗位，见残留清单 F 组）。
  * 前置校验任一不满足 → 整批不写（D2 / D3）。前后角色存 AuditLog，--restore 按审计还原（D4）。
  */
 
-export const COLLAPSIBLE_PLATFORM_ROLES = ["boss", "manager", "operations", "sales"] as const;
+export const COLLAPSIBLE_PLATFORM_ROLES = ["boss", "manager", "operations", "sales", "trade"] as const;
 
 /**
  * 写库闸门（D1）：残留平台角色读点（docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md）收口前为 false，
- * 脚本只允许 --dry-run 与 --restore。PERM-4c5 收口 A / B / C / D1 / D5 后改为 true（外贸 D2–D4 归 PERM-6，Sunny 暂不用外贸）。
+ * 脚本只允许 --dry-run 与 --restore。PERM-4c5 收口 A / B / C / D1 / D5 后改为 true；外贸 D2–D4 与 F 组 PERM-6c 收口。
  */
 export const PLATFORM_ROLE_COLLAPSE_READY = true;
 
