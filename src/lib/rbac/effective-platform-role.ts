@@ -14,12 +14,14 @@ const RESERVED_PLATFORM_ROLES = ["super_admin", "admin", "trade"] as const;
 const MANAGEMENT_KEYS = ["organization.dashboard.read"] as const;
 const SALES_WORK_KEYS = ["sales.quote.create", "sales.quote.pricing_close"] as const;
 const OPERATIONS_KEYS = ["operations.read", "operations.manage"] as const;
+/** PERM-6a：外贸业务员（岗位模式企业的 trade_rep） */
+const TRADE_KEYS = ["trade.read"] as const;
 
 function hasAny(keys: readonly string[] | null | undefined, wanted: readonly string[]): boolean {
   return Boolean(keys?.length) && wanted.some((k) => keys!.includes(k));
 }
 
-/** 纯函数：派生规则（D1 / D2）——多岗取最高一项：管理层 > 销售 > 运营 > user */
+/** 纯函数：派生规则（D1 / D2）——多岗取最高一项：管理层 > 销售 > 运营 > 外贸（PERM-6a）> user */
 export function deriveEffectivePlatformRole(input: {
   platformRole: string | null | undefined;
   positionMode: boolean;
@@ -31,6 +33,7 @@ export function deriveEffectivePlatformRole(input: {
   if (hasAny(input.permissionKeys, MANAGEMENT_KEYS)) return "boss";
   if (hasAny(input.permissionKeys, SALES_WORK_KEYS)) return "sales";
   if (hasAny(input.permissionKeys, OPERATIONS_KEYS)) return "operations";
+  if (hasAny(input.permissionKeys, TRADE_KEYS)) return "trade";
   return "user";
 }
 

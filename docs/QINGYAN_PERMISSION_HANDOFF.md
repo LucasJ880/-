@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1–4c4 已合并并 archive；4c5 已合并并 archive（#298；含视觉方案跨企业泄露修复、写库闸门打开）；下一阶段 PERM-6（6a 进行中）；现场续接见下一节；验收清单见文末） |
+| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1–4c4 已合并并 archive；4c5 已合并并 archive（#298 / #299；含视觉方案跨企业泄露修复、写库闸门打开）；PERM-6 拆 6a / 6b / 6c，6a 已实施（本 PR）；现场续接见下一节；验收清单见文末） |
 | 主线文档 | `docs/QINGYAN_PERMISSION_TASKFLOW.md`（状态列）、`docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md`（设计与已决定） |
 | 任务书 | `docs/QINGYAN_PERM-1-2_POSITIONS_DISCOUNT_TASKBRIEF.md` |
 | 工作分支 | 会话 1：`claude/youthful-davinci-8n1we3`；会话 2：`claude/amazing-goldberg-s89rlq`（每个 change 合并后从 main 重建同名分支） |
@@ -21,7 +21,8 @@
 | 工作方式 | 工作树 `/home/user/p4c`（本地分支 `local/perm-4c`，`node_modules` 软链主仓库）；推送 `git push -f origin local/perm-4c:claude/amazing-goldberg-s89rlq`；PR 用 merge 方式；开 PR 后订阅 + `send_later` 兜底 |
 | 4c3 | **#294 合并；archive #295 合并**（tasks 7/7；typecheck / lint:baseline / test:ci / registry 453 / validate --strict 全绿；纯 36/36、隔离库 38/38，窗饰相关既有 e2e 全过）；报告 `docs/QINGYAN_PERM-4c3_REPORT.md`、残留清单 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`；TASKFLOW `[G]`。4c4 已接着做 |
 | 4c4 | **#296 合并；archive #297**（tasks 8/8；typecheck / lint:baseline / test:ci / registry 455 / validate --strict 全绿；纯 63/63、隔离库 17/17；相关目录 88 个测试文件 87 过、1 个需 DB）；方案：岗位派生平台角色 `src/lib/rbac/effective-platform-role.ts`（owner→boss、销售键→sales、运营键→operations、其余 user；super_admin/admin/trade 与旧模式原样），接入 `runAgent`/`runAgentStream`、AI 线程路由、微信、runtime-v2、supervisor、Muse（岗位模式忽略 org_owner）、晨报、AI 上下文、营销数字员工；报告 `docs/QINGYAN_PERM-4c4_REPORT.md`；TASKFLOW `[G]`。4c5 已接着做 |
-| 4c5 | **#298 合并；archive 本 PR**（tasks 8/8；typecheck / lint:baseline / test:ci / registry 457 / validate --strict 全绿；纯 76/76、隔离库 13/13——同一隔离库测试在 main 上 9 败，含泄露复现；受影响目录 137 个测试 133 过、4 个为本地缺双租户种子）。内容：任务 / 运营项目 / 交接上下文注入岗位信号（`loadWorkspaceSignals`）；审批、营销工作区（layout + 15 个 GET 守卫）、微信绑定、入职清单、开关白名单用派生角色；`/api/auth/me` 加 `effectiveRole`；**视觉方案跨企业泄露已修**（`resolveVisualizerViewer`）；**写库闸门 `PLATFORM_ROLE_COLLAPSE_READY = true`**。报告 `docs/QINGYAN_PERM-4c5_REPORT.md`；TASKFLOW `[G]`。之后 Lucas 按残留清单"生产执行压扁"执行；下一阶段 PERM-6（外贸，任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`） |
+| 4c5 | **#298 合并；archive #299 合并**（tasks 8/8；typecheck / lint:baseline / test:ci / registry 457 / validate --strict 全绿；纯 76/76、隔离库 13/13——同一隔离库测试在 main 上 9 败，含泄露复现；受影响目录 137 个测试 133 过、4 个为本地缺双租户种子）。内容：任务 / 运营项目 / 交接上下文注入岗位信号（`loadWorkspaceSignals`）；审批、营销工作区（layout + 15 个 GET 守卫）、微信绑定、入职清单、开关白名单用派生角色；`/api/auth/me` 加 `effectiveRole`；**视觉方案跨企业泄露已修**（`resolveVisualizerViewer`）；**写库闸门 `PLATFORM_ROLE_COLLAPSE_READY = true`**。报告 `docs/QINGYAN_PERM-4c5_REPORT.md`；TASKFLOW `[G]`。之后 Lucas 按残留清单"生产执行压扁"执行；下一阶段 PERM-6（外贸，任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`） |
+| 6a | **本 PR**（tasks 6/6；typecheck / lint:baseline / test:ci / registry 459 / validate --strict 全绿；纯 127/127、隔离库 27/27；受影响目录 89 个测试文件全过）。内容：外贸三键 + `trade_rep` 模板（`org_owner` 三键、`org_admin` 只设置键、窗饰 `owner` 三键）；旧模式平台 `trade` 兼容回退 / seed 自动绑 `trade_rep`；`src/app/api/trade/**` 110 处 `requireRole` → `requireTradePermission`（GET 读键、其余写键、通道入口三键任一 + `canManageTradeChannels`、发件设置 → 设置键、删除发件人 → super_admin）；`resolveTradeOrgId` 显式企业只给 super_admin（平台 admin 收回）；派生角色 `trade` 档；岗位模式外贸入口认 `trade.read`。报告 `docs/QINGYAN_PERM-6a_REPORT.md`；TASKFLOW `[G]`。下一个 6b 需梦馨人员与邮箱 |
 | 顺带发现 | 视觉方案跨企业泄露——**4c5 已修**（用户拍板并入；原任务卡已被用户从卡片启动，开 4c5 PR 前查过无并行 PR）；`sunny-process/autogen-db.isolated` 在 main 上失败（NO_BINDING）——已提任务卡，未处理 |
 
 续接要点：
@@ -46,6 +47,7 @@
 | `perm-4c3-collapse-platform-roles` | 7/7 tasks；代码完成（压扁工具 `scripts/collapse-platform-roles.ts` + 规划 / 执行器 + `--restore`；写库闸门 `PLATFORM_ROLE_COLLAPSE_READY=false`；前置拒绝：非岗位模式 / 缺绑定 / 同时是旧模式企业成员；岗位模式企业关闭成员角色兼容回退；残留清单 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`）；typecheck / lint:baseline / test:ci / registry 全绿；纯 36/36、隔离库 38/38；报告 `docs/QINGYAN_PERM-4c3_REPORT.md`；已 archive（specs 新增 `authorization/platform-role-collapse`，`authorization/position-binding`、`platform-admin-authority` 增量） | #294 ✅；archive #295 ✅ |
 | `perm-4c4-ai-tools-by-position` | 8/8 tasks；代码完成（岗位派生平台角色；AI 工具 / 能力 / 微信域 / Muse 决定 B / 晨报 / AI 上下文 / 营销数字员工按岗位，压扁前后等价）；typecheck / lint:baseline / test:ci / registry 全绿；纯 63/63、隔离库 17/17；报告 `docs/QINGYAN_PERM-4c4_REPORT.md`；已 archive（specs 新增 `agents/position-derived-role`，`agents/tool-authorization` 增量） | #296 ✅；archive #297 ✅ |
 | `perm-4c5-management-reads-by-position` | 8/8 tasks；代码完成（管理层 / 招投标交接 / 审批 / 视觉方案 / 管理总览 / 营销工作区 / 微信绑定 / 入职清单 / 开关白名单按岗位；视觉方案跨企业泄露修复；写库闸门打开）；typecheck / lint:baseline / test:ci / registry 全绿；纯 76/76、隔离库 13/13；报告 `docs/QINGYAN_PERM-4c5_REPORT.md`；已 archive（specs 新增 `authorization/position-mode-residual-reads`，`authorization/platform-role-collapse`、`projects/handoff-access`、`marketing/growth-center-access` 增量） | #298 ✅；archive 本 PR |
+| `perm-6a-trade-keys` | 6/6 tasks；代码完成（外贸三键 + `trade_rep`；外贸接口 110 处按键；平台 admin 不再隐含外贸、企业解析显式 orgId 只给 super_admin；通道管理按设置键；派生角色 `trade` 档；岗位模式外贸入口认 `trade.read`）；typecheck / lint:baseline / test:ci / registry 全绿；纯 127/127、隔离库 27/27；报告 `docs/QINGYAN_PERM-6a_REPORT.md`；TASKFLOW `[G]` | 本 PR |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
@@ -83,6 +85,11 @@
    - ~~4c3~~ 已合并（#294）并 archive（#295）（压扁工具 + 写库闸门 + 岗位模式企业关闭兼容回退 + 残留清单）。**生产动作**：合并即生效的只有兼容回退收口——合并前后对 Sunny 跑 `bind-positions --dry-run` 确认全员有 active 绑定（`config/positions/sunny.json` 的 `TODO:` 先填）；可跑 `ALLOW_ROLE_COLLAPSE=true npx tsx scripts/collapse-platform-roles.ts --org <sunny> --actor <lucas> --dry-run` 核对名单与阻断（尤其有没有人同时在梦馨）。**不要**执行真正压扁（闸门会拒绝）。
    - ~~4c4~~ 已合并（#296）并 archive（#297）（AI 一侧按岗位：岗位派生平台角色）。**生产动作**：合并即生效——Sunny 的 AI 工具 / Muse / 晨报按岗位；没绑 `owner` 的 `org_owner` 在 Muse 失去全组织与金额；核对生产 `*_ROLE_ALLOWLIST` 环境变量（见 4c4 报告 §4）。
    - ~~4c5~~ 已合并（#298）并 archive（本 PR）（残留读点收口 + 视觉方案泄露修复 + 打开写库闸门）。**生产动作**：合并即生效——平台 boss 未绑 owner 失去团队任务 / 运营项目 / 审批执行的管理范围；平台 admin / boss 不再看到其他企业的视觉方案（安全修复）。合并后可执行压扁（见验收清单 B 第 6 步）。
+11. 进行中：**PERM-6**（外贸，拆 6a / 6b / 6c，拍板见任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`"拍板结果 · PERM-6"；owner 界面绑岗位另立 PERM-7）。
+   - 6a 已实施（本 PR）。**生产动作**：合并后对梦馨与 Sunny 重跑 `seedOrgAuthorizationProfiles`（梦馨外贸业务员自动绑 `trade_rep`；`org_owner` / `org_admin` / 窗饰 `owner` 拿到外贸键）；查 `User.role='admin'` 的账号——需要外贸又不是 `org_owner` 的绑 `trade_rep` 或改 super_admin；平台 admin 不能再用显式 orgId 进非成员企业。
+   - 6b `perm-6b-mengxin-positions`：开工前要 Lucas 确认梦馨人员（目前生产：老板 = 平台 admin + `org_owner`；1 名平台 `trade` 业务员）与邮箱。
+   - 6c `perm-6c-revenue-and-trade-recipients`：营收中心 `requireRole`（`src/lib/revenue-spine/access.ts`）与外贸收件人读点（残留清单 D2–D4）。
+   - PERM-7：owner 在成员管理界面绑岗位。
    - ~~`fix-taskflow-status-drift` 未 archive~~：提交已在 main，2026-10-28 补 archive（specs 新增 `qa/taskflow-status`，`qa/test-registry` 增量）。
 
 ## 环境注意
@@ -107,6 +114,7 @@
 - 导航字段语义：`positionPermissions` 只在岗位模式生效；`requiredPermissions` 两种模式都生效（旧模式命中即放行，**不要拿它给旧模式入口加门槛**，会改梦馨菜单）；`tradeEntry` = 岗位模式下平台 `trade` 或管理层；`superAdminOnly` 两种模式都只 super_admin。新增导航入口在岗位模式下要配 `positionPermissions`，否则对所有成员可见。
 - 岗位模式管理层信号只有 `organization.dashboard.read`（只绑窗饰 `owner`）。**不要挂到系统模板 `org_owner` / `org_admin`**——seed 会把这两类成员自动绑过去（4c1 踩过）。"销售专职"用 `sales.quote.create` / `sales.quote.pricing_close`，不用读键（会计、出单岗也有读键）；安装落地用 `install.task.update`（出单岗也有 `install.task.read`）。
 - 平台 super_admin 在任何企业持全部键（`platformAdminBindings`），岗位模式菜单完整；平台 admin / boss / manager 没有任何隐含键。
+- **外贸（PERM-6a）**：外贸接口一律 `requireTradePermission(request, TRADE_*_KEYS)`（`src/lib/trade/access.ts`）；新写外贸路由按方法选键（GET 读键、其余写键），`trade-access.test` 的路由表断言会拦漏写或写错。通道管理再经 `canManageTradeChannels`（设置键）。`resolveTradeOrgId` 被销售 / 租户上下文 / 秘书 / 营收共用，显式 orgId 只对 super_admin 开放。
 - 唯一 org_owner 保护在 `organizations/[orgId]/members/[memberId]/route.ts`；老板做成岗位 `owner`，不改这条保护。
 
 ## Lucas 验收清单（2026-10-28 夜间：PERM-4b / 5b / 5a 全部合并并 archive）
@@ -121,7 +129,8 @@
 | #292 / #293 | PERM-4c2 导航 / 默认落地 / 底栏按岗位（+ archive） |
 | #294 / #295 | PERM-4c3 平台角色压扁工具（闸门关闭）+ 窗饰企业关闭兼容回退（+ archive） |
 | #296 / #297 | PERM-4c4 AI 一侧按岗位（岗位派生平台角色）（+ archive） |
-| #298 / 本 PR | PERM-4c5 管理层与残留读点按岗位、视觉方案跨企业泄露修复、打开压扁写库闸门（+ archive） |
+| #298 / #299 | PERM-4c5 管理层与残留读点按岗位、视觉方案跨企业泄露修复、打开压扁写库闸门（+ archive） |
+| 本 PR | PERM-6a 外贸接口按岗位权限键；平台 admin 不再隐含外贸（archive 随后） |
 
 每个 PR：CI `validate-lint-typecheck-test-build` 绿；本地 typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e：4b 32/32、5b 34/34、5a 27/27（5a rebase 后三套一起复跑通过）；`openspec validate --strict` 通过。
 
@@ -133,6 +142,8 @@
 5. 数字员工（5b）：**不需要动作**。真要启用时再填 `config/positions/sunny-digital-employees.json`。
 6. **执行平台角色压扁（4c5 合并后）**：按 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md` 末节"生产执行压扁"——先 `bind-positions --dry-run`（全员有绑定）→ `ALLOW_ROLE_COLLAPSE=true npx tsx scripts/collapse-platform-roles.ts --org <sunny> --actor <lucas> --dry-run`（核对名单、无阻断，尤其没人同时在梦馨）→ 去掉 `--dry-run` 执行 → 通知被压扁的人重新登录 → 出问题 `--restore`。
 
+7. **PERM-6a 合并后**：对梦馨与 Sunny 重跑 `seedOrgAuthorizationProfiles`；查 `User.role='admin'` 的账号，需要外贸又不是 `org_owner` 的绑 `trade_rep`（或按需改 super_admin，例如 `lucas@sunnyshutter.ca`）。
+
 ### C. 线上点验（5 分钟）
 - 用 Maggie 登录：能进 `/ops`、能起草提交内容、批准按钮 403；改品牌档案 403。
 - 用 Marty 登录：能改运营配置、能批 Maggie 的发布任务、不能批自己建的（403 `SELF_APPROVAL`）。
@@ -142,10 +153,12 @@
 - 4c2 合并后：老板账号首页停在管理总览、侧栏有企业经营 / AI 能力；Alex（销售岗）落 `/sales/home`、侧栏只有销售条目、手机底栏是销售布局；Maggie 落 `/ops`、看不到销售中心；Miki 落 `/accounting`；安装工落 `/install`。
 - 压扁后（4c5）：老板首页管理总览含销售模块、Muse 能看金额、团队任务可见；Alex 落 `/sales/home`、AI 有销售工具、打开 `/operations/growth` 被带回 `/sales`；Marty 能看运营项目列表；Bill（招投标）能预览交接；平台 admin 的视觉方案列表只剩本企业。
 
+- 6a 合并后：梦馨老板与外贸业务员照常进外贸（询盘 / 线索 / 报价 / 消息通道列表）；业务员改消息通道仍提示"仅企业负责人或企业管理员"；不是 `org_owner` 的平台 admin 打开外贸 403。
+
 ### D. 需要你知道的取舍
 - 5a 没改单项目财务页授权（会计不是项目成员仍进不去）——这属 PERM-4c 的 `project.finance.*` 收口（5a 报告 §3 D4）。
 - 5b 今天没有运行时以数字员工身份执行；交付的是授权通路 + 禁区 + 审批入口 + 审计标记（5b 报告 §4）。
 - 5b 审批人 = 数字员工的 sponsor（Agent 创建人），不是"该岗位所有人"——PendingAction 只有一个审批人列（5b 报告 §3）。
 
 ### E. 下一个
-PERM-4 平台角色收尾完成（4c5 #298 已合并）。Lucas 在生产执行压扁（验收清单 B 第 6 步）。下一阶段 PERM-6：外贸 `requireRole`（`src/app/api/trade/**`）与外贸通道读点（残留清单 D2–D4），Sunny 启用外贸前必须先做。
+PERM-4 平台角色收尾完成（4c5 #298 / #299 已合并）。Lucas 在生产执行压扁（验收清单 B 第 6 步）。PERM-6a（外贸接口按键）本 PR；合并后 archive。下一个 6b 需要梦馨人员与邮箱；6c（营收中心与外贸收件人）不依赖梦馨信息，可先做。

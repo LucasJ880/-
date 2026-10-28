@@ -1,30 +1,33 @@
 /**
  * 外贸消息通道 — 谁能管理（查看 / 轮换凭证、增删通道、改嵌入表单来源白名单）
  *
- * 读通道列表仍是外贸角色都可以（凭证一律只显示末 4 位）；管理只给：
- * - 平台管理员（admin / super_admin；组织须显式指定，由 resolveTradeOrgId 校验）
- * - 本组织的企业负责人 / 管理员（org_owner / org_admin，成员身份 active）
- * 组织一律由 resolveTradeOrgId 在服务端解析，这里只按解析出的 orgId 查成员身份。
+ * 读通道列表：外贸读写或设置键任一（凭证一律只显示末 4 位）；管理只给：
+ * - 平台 super_admin（组织须显式指定，由 resolveTradeOrgId 校验）
+ * - 本组织持 trade.settings.manage 的人（PERM-6a：系统模板 org_owner / org_admin、窗饰 owner）
+ * 组织一律由 resolveTradeOrgId 在服务端解析。
  */
 
 import { NextResponse } from "next/server";
-import { getOrgMembership, type AuthUser } from "@/lib/auth";
-import { isAdmin, isOrgSystemAdmin } from "@/lib/rbac/roles";
+import type { AuthUser } from "@/lib/auth";
+import { holdsTradePermission, TRADE_SETTINGS_MANAGE } from "@/lib/trade/access";
+import { isOrgSystemAdmin, isPlatformSuperAdmin } from "@/lib/rbac/roles";
 
-/** 纯函数：角色矩阵（供单测） */
+/**
+ * 纯函数：旧模式企业的等价角色矩阵（供单测；运行时判定见 canManageTradeChannels，按权限键）。
+ * PERM-6a：平台 admin 不再隐含；企业 org_owner / org_admin 经系统模板持 trade.settings.manage。
+ */
 export function roleCanManageTradeChannels(
   platformRole: string | null | undefined,
   orgRole: string | null | undefined,
   membershipActive: boolean,
 ): boolean {
-  if (isAdmin(platformRole)) return true;
+  if (isPlatformSuperAdmin(platformRole)) return true;
   return membershipActive && isOrgSystemAdmin(orgRole);
 }
 
 export async function canManageTradeChannels(user: AuthUser, orgId: string): Promise<boolean> {
-  if (isAdmin(user.role)) return true;
-  const m = await getOrgMembership(user.id, orgId);
-  return roleCanManageTradeChannels(user.role, m?.role ?? null, m?.status === "active");
+  // PERM-6a：按岗位权限键（平台 admin 不再隐含；super_admin 恒真）
+  return holdsTradePermission(user, orgId, [TRADE_SETTINGS_MANAGE]);
 }
 
 export function channelManageForbiddenResponse(): NextResponse {
