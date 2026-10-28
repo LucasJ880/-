@@ -84,7 +84,8 @@ async function main(): Promise<number> {
 
   // 到这里才连库（前面的拒绝路径不需要 DATABASE_URL）
   const { db } = await import("@/lib/db");
-  const { logAuthorizationChange } = await import("@/lib/authorization/audit");
+  // PERM-7：读模板 / 现有绑定与写入 + 审计改由共用服务完成（岗位绑定界面同用）
+  const { loadBindingContext, executeBindingPlan } = await import("@/lib/authorization/position-binding-service");
 
   const actor = await db.user.findUnique({
     where: { email: actorEmail.toLowerCase() },
@@ -104,17 +105,8 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const [profiles, existingRows] = await Promise.all([
-    db.roleProfile.findMany({
-      where: { orgId: org.id, status: "active" },
-      select: { id: true, key: true },
-    }),
-    db.principalRoleBinding.findMany({
-      where: { orgId: org.id, principalType },
-      select: { id: true, principalId: true, status: true, roleProfile: { select: { key: true } } },
-    }),
-  ]);
-  const profileIdByKey = new Map(profiles.map((p) => [p.key, p.id]));
+  const ctx = await loadBindingContext(org.id, principalType);
+  const { profileIdByKey, existingRows } = ctx;
 
   let validated: ValidateResult;
   if (principalType === "DIGITAL_EMPLOYEE") {
@@ -168,49 +160,14 @@ async function main(): Promise<number> {
   console.log(`  新增 ${summary.created}，已存在 ${plan.keep.length}，停用 ${summary.deactivated}`);
   if (dryRun) return 0;
 
-  for (const c of plan.create) {
-    const roleProfileId = profileIdByKey.get(c.profileKey)!;
-    const inactive = existingRows.find(
-      (r) => r.principalId === c.userId && r.roleProfile.key === c.profileKey && r.status !== "active",
-    );
-    if (inactive) {
-      await db.principalRoleBinding.update({ where: { id: inactive.id }, data: { status: "active" } });
-    } else {
-      await db.principalRoleBinding.create({
-        data: { orgId: org.id, principalType, principalId: c.userId, roleProfileId, status: "active" },
-      });
-    }
-    await logAuthorizationChange({
-      actorUserId: actor.id,
-      orgId: org.id,
-      action: "authorization.position.bind",
-      targetType: "principal_role_binding",
-      targetPrincipalId: c.userId,
-      after:
-        principalType === "DIGITAL_EMPLOYEE"
-          ? { principalType, agentName: c.email, profileKey: c.profileKey, via: "scripts/bind-positions.ts" }
-          : { email: c.email, profileKey: c.profileKey, via: "scripts/bind-positions.ts" },
-    });
-  }
-  for (const d of plan.deactivate) {
-    const row = existingRows.find(
-      (r) => r.principalId === d.userId && r.roleProfile.key === d.profileKey && r.status === "active",
-    );
-    if (!row) continue;
-    await db.principalRoleBinding.update({ where: { id: row.id }, data: { status: "inactive" } });
-    await logAuthorizationChange({
-      actorUserId: actor.id,
-      orgId: org.id,
-      action: "authorization.position.unbind",
-      targetType: "principal_role_binding",
-      targetPrincipalId: d.userId,
-      before:
-        principalType === "DIGITAL_EMPLOYEE"
-          ? { principalType, agentName: d.email, profileKey: d.profileKey }
-          : { email: d.email, profileKey: d.profileKey },
-      after: { status: "inactive", via: "scripts/bind-positions.ts" },
-    });
-  }
+  await executeBindingPlan({
+    orgId: org.id,
+    actorUserId: actor.id,
+    principalType,
+    plan,
+    ctx,
+    via: "scripts/bind-positions.ts",
+  });
   console.log("[bind-positions] 完成");
   return 0;
 }
