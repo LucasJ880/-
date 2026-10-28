@@ -13,6 +13,7 @@
   - 持 `organization.dashboard.read` → `boss`；
   - 持 `sales.quote.create` 或 `sales.quote.pricing_close` → `sales`；
   - 持 `operations.read` 或 `operations.manage` → `operations`；
+  - 持 `trade.read` → `trade`；
   - 其余 → `user`。
 
 派生角色 SHALL NOT 写回 `User.role`；有效权限键解析失败时 SHALL 按无权限键处理（派生为 `user`）。
@@ -36,6 +37,10 @@
 #### Scenario: 旧模式企业不变
 - **WHEN** 无岗位模板企业中平台角色为 `sales` 的成员
 - **THEN** 派生角色为 `sales`，与岗位绑定无关
+
+#### Scenario: 岗位模式外贸业务员
+- **WHEN** 岗位模式企业中平台角色为 `user`、只绑定 `trade_rep` 的成员
+- **THEN** 派生角色为 `trade`
 
 ### Requirement: AI 入口使用派生角色
 在岗位模式企业中，下列 AI 入口凡是按平台角色判定的地方 SHALL 使用派生角色：
