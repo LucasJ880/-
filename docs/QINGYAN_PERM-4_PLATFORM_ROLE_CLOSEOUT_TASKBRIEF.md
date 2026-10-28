@@ -104,3 +104,10 @@
 5. 去掉 `isAdmin` 短路后 `owner` **补销售改权**（propose 时拍板）：`sales.customer.update / archive`、`sales.opportunity.update`、`sales.quote.update`（ORG）；签约单改总价对老板同样要另一位审批人。
 
 4a 已于 2026-10-28 合并（#279），见 `docs/QINGYAN_PERM-4a_REPORT.md`。
+
+### 拍板结果 · PERM-4b（2026-10-28，propose 前）
+1. 运营配置只读接口（品牌档案、内容计划、矩阵账号、postiz、视频资产、投标档案）**收紧到 `operations.read`**，写要 `operations.manage`；销售网页读不到运营配置（服务端 AI 读品牌上下文不受影响）。
+2. 平台用户管理接口 `/api/users`、`/api/users/[id]` **只限平台 super_admin**；`/admin/users` 页面同步只对 super_admin 显示。
+3. 增长中心（营销）写操作**改为 `operations.manage`**；普通成员只读。
+4. 发布任务审核与 Playbook 批准：**新键 `operations.content.approve`**，绑 `ops_lead` 与 `owner`；创建人 / 提交人**不得自批**，只有平台 super_admin 例外（Maggie 写的 Marty 批，Marty 写的老板批）。
+5. 起草 / 改草稿 / 提交审核：**新键 `operations.content.draft`**，绑 `ops_staff` 与 `ops_lead`；不能批准，也不能改品牌档案、矩阵账号等配置（这些要 `operations.manage`）。
