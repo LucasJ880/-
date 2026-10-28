@@ -1,4 +1,9 @@
-## ADDED Requirements
+# trade/notification-recipients Specification
+
+## Purpose
+外贸提醒与默认询盘负责人的选人规则：工作提醒发给持外贸读写键的人，管理层提醒发给持外贸键的管理层，默认负责人按岗位派生平台角色选外贸 / 销售人员；旧模式与岗位模式（压扁前后）结果一致。
+
+## Requirements
 
 ### Requirement: 外贸工作收件人按外贸键
 询盘首次待回复提醒、网站 / 邮件 / 通道询盘到达通知 SHALL 发给本企业中持 `trade.read` 或 `trade.manage` 的 active 成员（有效权限含岗位绑定、旧模式企业的兼容回退与平台 super_admin 全权）。平台角色 `boss`、`manager`、`admin` SHALL NOT 单独构成收件资格。

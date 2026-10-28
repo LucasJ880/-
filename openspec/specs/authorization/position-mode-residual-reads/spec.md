@@ -50,11 +50,15 @@
 - **THEN** `role` 为 `user`，`effectiveRole` 为 `sales`
 
 ### Requirement: 微信绑定默认推送与入职清单按岗位
-在岗位模式企业中，新建或重绑微信 / 企微账号的默认推送设置 SHALL 按岗位派生平台角色决定。管理员入职清单的"业务员"判定 SHALL 按是否持 `sales.quote.create` 或 `sales.quote.pricing_close`。
+在岗位模式企业中，新建或重绑微信 / 企微账号的默认推送设置 SHALL 按岗位派生平台角色决定。管理员入职清单的"业务员"判定 SHALL 按是否持 `sales.quote.create`、`sales.quote.pricing_close` 或 `trade.manage`。
 
 #### Scenario: 压扁后的销售绑定微信
 - **WHEN** 岗位模式企业中平台角色为 `user`、绑定 `sales_rep` 的成员新绑定微信
 - **THEN** 默认开启销售推送，与压扁前平台角色 `sales` 时相同
+
+#### Scenario: 压扁后的外贸业务员算业务员
+- **WHEN** 岗位模式企业中平台角色为 `user`、只绑定 `trade_rep` 的成员，生成管理员入职清单
+- **THEN** 该成员计入"业务员"，与压扁前平台角色 `trade` 时相同
 
 ### Requirement: 功能开关角色白名单使用派生角色
 在岗位模式企业中，按角色白名单判定的功能开关（agent-supervisor、持久跟进、workforce runtime 等）SHALL 以岗位派生平台角色匹配白名单。
@@ -62,3 +66,14 @@
 #### Scenario: 白名单含 sales
 - **WHEN** 某功能开关白名单为 `sales`，岗位模式企业中平台角色为 `user`、绑定 `sales_rep` 的成员触发该功能
 - **THEN** 命中白名单
+
+### Requirement: 外贸侧栏布局按派生角色
+侧栏的外贸"核心 + 更多"两段式布局 SHALL 按 `/api/auth/me` 返回的岗位派生平台角色（`effectiveRole`）判定；派生角色为 `trade` 时启用。旧模式企业的派生角色即平台角色，行为不变。
+
+#### Scenario: 压扁后的外贸业务员
+- **WHEN** 岗位模式企业中平台角色为 `user`、绑定 `trade_rep`（派生角色 `trade`）的成员加载侧栏
+- **THEN** 使用外贸两段式布局，与压扁前平台角色 `trade` 时相同
+
+#### Scenario: 老板不用外贸布局
+- **WHEN** 岗位模式企业中绑定 `owner`（派生角色 `boss`）的成员加载侧栏
+- **THEN** 使用常规布局

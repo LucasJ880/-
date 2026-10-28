@@ -17,15 +17,23 @@
 - **THEN** 退出码 1，不写入
 
 ### Requirement: 压扁范围
-脚本 SHALL 只处理目标企业 active 成员中平台角色为 `boss`、`manager`、`operations`、`sales` 的人，把其平台角色改为 `user`。平台角色为 `super_admin`、`admin`、`trade`、`user` 的人 SHALL NOT 被修改，非 active 成员 SHALL NOT 被修改。
+脚本 SHALL 只处理目标企业 active 成员中平台角色为 `boss`、`manager`、`operations`、`sales`、`trade` 的人，把其平台角色改为 `user`。平台角色为 `super_admin`、`admin`、`user` 的人 SHALL NOT 被修改，非 active 成员 SHALL NOT 被修改。`trade` 自 PERM-6c 起纳入（外贸接口、营收中心、外贸收件人与外贸侧栏布局已按岗位判定）；前置校验对 `trade` 成员同样适用。
 
 #### Scenario: 只改四种旧角色
-- **WHEN** 企业成员平台角色分别为 `boss`、`sales`、`trade`、`super_admin`、`admin`、`user`，执行压扁
+- **WHEN** 企业成员平台角色分别为 `boss`、`sales`、`super_admin`、`admin`、`user`，执行压扁
 - **THEN** 只有 `boss` 与 `sales` 两人变为 `user`，其余不变
+
+#### Scenario: 外贸成员一并压扁
+- **WHEN** 企业成员平台角色分别为 `boss`、`trade`、`super_admin`、`admin`，`trade` 成员有 active 岗位绑定，执行压扁
+- **THEN** `boss` 与 `trade` 两人变为 `user`，`super_admin` 与 `admin` 不变
 
 #### Scenario: 再跑一次无变化
 - **WHEN** 压扁成功后对同一企业再执行一次
 - **THEN** 计划为 0 人待改，不新增审计记录
+
+#### Scenario: 外贸成员缺岗位绑定
+- **WHEN** 待改的平台 `trade` 成员在该企业没有任何 active 岗位绑定
+- **THEN** 退出码 2，列出该成员"无岗位绑定"，任何人都不被修改
 
 ### Requirement: 前置校验
 写入前脚本 SHALL 对整批计划做校验，任一条不满足 SHALL 整批不写、退出码 2 并列出不满足的人与原因：

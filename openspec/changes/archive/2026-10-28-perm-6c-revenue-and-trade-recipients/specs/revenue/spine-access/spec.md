@@ -1,3 +1,7 @@
+## Purpose
+
+营收中心（Revenue Spine，`/api/revenue/**`）的授权口径：与外贸接口同一套外贸权限键（读 / 写 / 设置）与企业解析，平台角色不带来隐含权限（平台 super_admin 除外）；导航与接口口径一致。
+
 ## ADDED Requirements
 
 ### Requirement: 营收中心接口按外贸权限键
