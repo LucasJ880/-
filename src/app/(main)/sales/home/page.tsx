@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import type { SalesHomeResponse } from "@/lib/sales/home";
 import { SalesHomeHeader } from "@/components/sales-command-center/sales-home-header";
@@ -12,6 +12,7 @@ import { SalesTodayAppointments } from "@/components/sales-command-center/sales-
 import { SalesFunnelSummary } from "@/components/sales-command-center/sales-funnel-summary";
 import { SalesQuoteActivity } from "@/components/sales-command-center/sales-quote-activity";
 import { SalesPaymentSummary } from "@/components/sales-command-center/sales-payment-summary";
+import { SalesPeriodPanel } from "@/components/sales-command-center/sales-period-panel";
 
 type BlockStatus = "loading" | "empty" | "error" | "ready";
 
@@ -83,6 +84,11 @@ export default function SalesCommandCenterPage() {
       />
 
       <SalesPerformanceHero data={data} onTargetSaved={load} />
+
+      {/* KPI-1：期间面板（useSearchParams 需 Suspense 边界；无 sales.analytics.read 时组件自行不渲染） */}
+      <Suspense fallback={null}>
+        <SalesPeriodPanel />
+      </Suspense>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1.2fr_1.2fr]">
         <SalesPriorityList

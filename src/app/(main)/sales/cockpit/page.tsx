@@ -167,7 +167,7 @@ export default function SalesCockpitPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         {[
-          { label: "本月签约", value: `$${(data.kpi.signedValue / 1000).toFixed(1)}k`, sub: `${data.kpi.signedCount} 单`, icon: DollarSign, color: "text-emerald-600" },
+          { label: "本月签约（商机估值）", value: `$${(data.kpi.signedValue / 1000).toFixed(1)}k`, sub: `${data.kpi.signedCount} 单`, icon: DollarSign, color: "text-emerald-600" },
           { label: "新线索", value: data.kpi.newLeads, sub: "本月", icon: Users, color: "text-blue-600" },
           { label: "报价单", value: data.kpi.quotes, sub: "本月", icon: FileText, color: "text-purple-600" },
           { label: "预约", value: data.kpi.appointments, sub: "本月", icon: CalendarDays, color: "text-cyan-600" },
