@@ -5,15 +5,20 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { requireRole } from "@/lib/auth/guards";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  TRADE_READ_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { db } from "@/lib/db";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_READ_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);
@@ -48,7 +53,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;

@@ -5,12 +5,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  TRADE_READ_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_READ_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);
@@ -29,7 +33,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => ({}));

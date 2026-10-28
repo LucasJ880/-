@@ -38,7 +38,7 @@
 | PERM-4c2 | 导航 `requiredPermissions` 铺开、`requiredPlatformRoles / NAV_ROLES_*` 只留外贸；默认工作区 / 底栏按岗位（窗饰企业）；管理层 = 老板岗位 | PERM-4c1 | change `perm-4c2-nav-by-position`；`docs/QINGYAN_PERM-4c2_REPORT.md` | [x]（#292；archive 见 `openspec/changes/archive/2026-10-28-perm-4c2-nav-by-position`） |
 | PERM-4c3 | 平台角色压扁脚本（数据，先 Sunny，`trade` 不动；写库闸门 `PLATFORM_ROLE_COLLAPSE_READY=false`）；窗饰企业关闭成员角色兼容回退；残留平台角色读点清单 | PERM-4c2 | change `perm-4c3-collapse-platform-roles`；`docs/QINGYAN_PERM-4c3_REPORT.md`；`docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md` | [x]（#294；archive 见 `openspec/changes/archive/2026-10-28-perm-4c3-collapse-platform-roles`；写库闸门仍关闭） |
 | PERM-4c4 | 残留读点 A 组：AI 工具域 / 能力矩阵 / 晨报 / Muse 范围（决定 B 管理层 = `organization.dashboard.read`）/ AI 上下文客户 / 营销放行按岗位（岗位模式） | PERM-4c3 | 拍板见任务书"拍板结果 · PERM-4c3"；清单 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md` A 组；change `perm-4c4-ai-tools-by-position`；`docs/QINGYAN_PERM-4c4_REPORT.md` | [x]（#296；archive 见 `openspec/changes/archive/2026-10-28-perm-4c4-ai-tools-by-position`） |
-| PERM-4c5 | 残留读点 B / C / D1 / D5 + A 组余项（中间件 / 工作台按钮 / dataScope / 开关白名单复核）：任务 / 运营项目 / 招投标交接 / 审批执行 / 管理总览 / 微信推送域按岗位；最后合并者把写库闸门改 true，之后生产执行压扁 | PERM-4c3 | 清单 B / C / D 组；change `perm-4c5-management-reads-by-position`；`docs/QINGYAN_PERM-4c5_REPORT.md`（含视觉方案跨企业泄露修复；写库闸门已打开）（外贸收件人 / revenue-spine 留 PERM-6） | [G] |
+| PERM-4c5 | 残留读点 B / C / D1 / D5 + A 组余项（中间件 / 工作台按钮 / dataScope / 开关白名单复核）：任务 / 运营项目 / 招投标交接 / 审批执行 / 管理总览 / 微信推送域按岗位；最后合并者把写库闸门改 true，之后生产执行压扁 | PERM-4c3 | 清单 B / C / D 组；change `perm-4c5-management-reads-by-position`；`docs/QINGYAN_PERM-4c5_REPORT.md`（含视觉方案跨企业泄露修复；写库闸门已打开）（外贸收件人 / revenue-spine 留 PERM-6） | [x]（#298；archive 见 `openspec/changes/archive/2026-10-28-perm-4c5-management-reads-by-position`） |
 
 ## INSTALL-1 — 安装工岗位 + 安装任务 + 逐窗拍照收口
 
@@ -63,6 +63,20 @@
 |---|---|---|---|---|
 | PERM-5a | 会计视图：成交、提成、项目结算与销售分开 | PERM-4a | 任务书 `docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`；change `perm-5a-accounting-view`；`docs/QINGYAN_PERM-5a_REPORT.md` | [x]（#287；archive 见 `openspec/changes/archive/2026-10-28-perm-5a-accounting-view`） |
 | PERM-5b | 数字员工岗位绑定 + 工具授权走 `authorize` | PERM-1 | 任务书 `docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`；change `perm-5b-digital-employee-positions`；`docs/QINGYAN_PERM-5b_REPORT.md` | [x]（#285；archive 见 `openspec/changes/archive/2026-10-28-perm-5b-digital-employee-positions`） |
+
+## PERM-6 — 外贸按岗位
+
+| ID | 任务 | 依赖 | 产物 | 状态 |
+|---|---|---|---|---|
+| PERM-6a | 外贸三键（`trade.read` / `trade.manage` / `trade.settings.manage`）+ `trade_rep` 模板；`src/app/api/trade/**` 110 处 `requireRole` → `requireTradePermission`（范围仍 `ORG`）；平台 admin 不再隐含外贸（企业解析显式 orgId 只给 super_admin）；消息通道管理按设置键；派生角色 `trade` 档、岗位模式外贸入口认 `trade.read` | PERM-4c5 | 任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`（拍板见"拍板结果 · PERM-6"）；change `perm-6a-trade-keys`；`docs/QINGYAN_PERM-6a_REPORT.md` | [x]（#300；archive 见 `openspec/changes/archive/2026-10-28-perm-6a-trade-keys`） |
+| PERM-6b | 梦馨落岗位：按分工细分外贸岗位与数据范围（按负责人收窄）；绑定文件 | PERM-6a；梦馨人员与邮箱 | change `perm-6b-mengxin-positions` | [ ] |
+| PERM-6c | 营收中心（revenue-spine `requireRole`）与外贸收件人读点（残留清单 D2–D4）按岗位 | PERM-6a | change `perm-6c-revenue-and-trade-recipients` | [ ] |
+
+## PERM-7 — owner 在界面上绑岗位
+
+| ID | 任务 | 依赖 | 产物 | 状态 |
+|---|---|---|---|---|
+| PERM-7 | 企业 owner 在成员管理界面给人绑 / 解绑岗位（PERM-5b 留下的项；涉及界面与审批） | PERM-6a | 待写任务书 | [ ] |
 
 ---
 

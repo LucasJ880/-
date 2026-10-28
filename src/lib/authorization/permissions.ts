@@ -252,6 +252,38 @@ const REGISTRY_ENTRIES: PermissionDefinition[] = [
     riskLevel: "CRITICAL",
   },
 
+  // PERM-6a：外贸模块（/api/trade/**）——读 / 写 / 设置（消息通道、发件档案、发件人）；只允许人类主体
+  {
+    key: "trade.read",
+    resource: "trade",
+    action: "read",
+    label: "查看外贸",
+    description: "查看外贸客户、询盘、活动、报价、样品、情报等",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "MEDIUM",
+  },
+  {
+    key: "trade.manage",
+    resource: "trade",
+    action: "manage",
+    label: "处理外贸",
+    description: "新建 / 修改外贸客户、询盘回复、活动、报价、样品、展会卡等",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+  {
+    key: "trade.settings.manage",
+    resource: "trade.settings",
+    action: "manage",
+    label: "管理外贸设置",
+    description: "管理外贸消息通道（含查看 / 轮换凭证）、发件档案、发件人",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+
   // INSTALL-1：安装工岗位 / 安装任务 / 逐窗收口
   def("install.task.read", "install.task", "read", "查看安装任务", "查看安装任务（ASSIGNED=只看分配给本人的）", ["ASSIGNED", "ORG"], "LOW"),
   def("install.task.update", "install.task", "update", "推进安装任务", "开始安装 / 完成收口 / 备注", ["ASSIGNED", "ORG"], "MEDIUM"),

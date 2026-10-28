@@ -7,7 +7,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
 import { buyerFacingOrgName, composeBoothFirstEmail, policySignature } from "@/lib/revenue-spine/booth-email";
 import { emailProfileToForm, loadEmailBranding, parseEmailProfile, profileGuardrailErrors, saveEmailProfile } from "@/lib/revenue-spine/email-profile";
@@ -15,9 +14,11 @@ import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
 import { allowedStyles, buildReferenceLines } from "@/lib/revenue-spine/reply-draft";
 import { loadFactoryKnowledge } from "@/lib/revenue-spine/factory-knowledge";
 import { loadStyleReferences } from "@/lib/trade/style-references";
-import { resolveTradeOrgId } from "@/lib/trade/access";
-
-const PROFILE_ROLES = ["boss", "manager", "admin"];
+import {
+  resolveTradeOrgId,
+  TRADE_SETTINGS_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 
 async function sample(orgId: string, orgName: string): Promise<string | null> {
   const policy = await loadRevenueSpinePolicy(orgId);
@@ -48,7 +49,7 @@ async function sample(orgId: string, orgName: string): Promise<string | null> {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, PROFILE_ROLES);
+  const auth = await requireTradePermission(request, TRADE_SETTINGS_KEYS);
   if (auth instanceof NextResponse) return auth;
   const orgRes = await resolveTradeOrgId(request, auth.user);
   if (!orgRes.ok) return orgRes.response;
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = await requireRole(request, PROFILE_ROLES);
+  const auth = await requireTradePermission(request, TRADE_SETTINGS_KEYS);
   if (auth instanceof NextResponse) return auth;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "请求体不是 JSON" }, { status: 400 });

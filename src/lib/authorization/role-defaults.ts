@@ -36,6 +36,10 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
       { permissionKey: "bids.handoff.execute", dataScope: "ORG" },
       { permissionKey: "bids.handoff.override", dataScope: "ORG" },
       { permissionKey: "operations.projects.create", dataScope: "ORG" },
+      // PERM-6a：企业负责人看 / 处理外贸，管理外贸设置
+      { permissionKey: "trade.read", dataScope: "ORG" },
+      { permissionKey: "trade.manage", dataScope: "ORG" },
+      { permissionKey: "trade.settings.manage", dataScope: "ORG" },
     ],
   },
   {
@@ -49,6 +53,8 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
       { permissionKey: "identity.member.manage", dataScope: "ORG" },
       { permissionKey: "identity.role.manage", dataScope: "ORG" },
       { permissionKey: "authorization.policy.read", dataScope: "ORG" },
+      // PERM-6a：企业管理员只管外贸设置（消息通道 / 发件档案 / 发件人），不含外贸业务数据
+      { permissionKey: "trade.settings.manage", dataScope: "ORG" },
     ],
   },
   {
@@ -119,6 +125,16 @@ export const SYSTEM_ROLE_PROFILES: DefaultRoleProfile[] = [
     ],
   },
   {
+    // PERM-6a：外贸业务员（全企业外贸数据读写；按负责人收窄留 6b）
+    key: "trade_rep",
+    name: "外贸业务员",
+    description: "外贸客户 / 询盘 / 活动 / 报价 / 样品读写（全企业）",
+    bindings: [
+      { permissionKey: "trade.read", dataScope: "ORG" },
+      { permissionKey: "trade.manage", dataScope: "ORG" },
+    ],
+  },
+  {
     key: "viewer",
     name: "只读观察员",
     description: "最小只读",
@@ -141,6 +157,7 @@ export const SYSTEM_POSITION_TEMPLATES: Array<{
   { key: "ops_manager", name: "运营经理", roleProfileKey: "ops_manager" },
   { key: "ops_staff", name: "运营人员", roleProfileKey: "ops_staff" },
   { key: "project_manager", name: "项目经理", roleProfileKey: "project_manager" },
+  { key: "trade_rep", name: "外贸业务员", roleProfileKey: "trade_rep" },
   { key: "viewer", name: "只读观察员", roleProfileKey: "viewer" },
 ];
 
@@ -223,6 +240,10 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "project.finance.manage",
       // PERM-4c2：管理层信号（岗位模式导航 / 默认落地）
       "organization.dashboard.read",
+      // PERM-6a：外贸（Sunny 开外贸模块后老板可用）
+      "trade.read",
+      "trade.manage",
+      "trade.settings.manage",
     ),
   },
   {

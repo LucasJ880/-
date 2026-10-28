@@ -53,6 +53,10 @@ export function compatProfileKeyForMembership(opts: {
   if (opts.orgRole === "org_member" && opts.platformRole === "sales") {
     return "sales_rep";
   }
+  // PERM-6a：旧模式企业的平台 trade 成员 → 外贸业务员（岗位模式企业不做兼容回退，见 compatFallbackAllowed）
+  if (opts.orgRole === "org_member" && opts.platformRole === "trade") {
+    return "trade_rep";
+  }
   return null;
 }
 
