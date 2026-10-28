@@ -6,7 +6,7 @@
 | 收件人 | 客户档案邮箱（`SalesCustomer.email`，经 `BlindsOrder.customerId`）；不抄送销售，改发站内通知（方案 Q4） |
 | 发件人 | 组织发件身份，只从组织设置取，不从请求 / payload 取（硬纪律 6）；用哪套设置见方案 Q3 |
 | 语言 | 英文正文（多伦多客户）；中文只在本文件做说明，不进邮件 |
-| 方案 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` §3（变更 INSTALL-2b） |
+| 方案 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` §3（变更 INSTALL-2c；尾款确认在 INSTALL-2b） |
 
 ## 0. 质保条款来源与核实状态（防幻觉）
 

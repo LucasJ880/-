@@ -244,14 +244,17 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 
 ---
 
-## 9. 拆分（4 个 change，按顺序；每个 ≤ 8 task）
+## 9. 拆分（5 个 change，按顺序；每个 ≤ 8 task）
+
+> 2026-10-28 propose 2b 时原"尾款 + 质保邮件"超过 8 条 task，按纪律拆成 2b（尾款确认）与 2c（质保邮件）；原 2c / 2d 顺延为 2d / 2e。
 
 | ID | change | 做什么 | 依赖 | 为什么这个顺序 |
 |---|---|---|---|---|
 | INSTALL-2a | `install-2a-closeout-all-lines` | 收口单元覆盖 ProcessSpec 各段（修 F2 点不上）；零单元单给出明确 409 与页面说明；收口记录写入失败时不再假成功（现为 `logAudit` 吞错） | INSTALL-1 | **今天 Shutters 单就收不了口**，后面两条路都建立在"能收口"上 |
-| INSTALL-2b | `install-2b-balance-warranty` | `install.balance.confirm`；会计「待收尾款」页签（URL 页签，修 F11）；确认尾款 → `completed`；`install.send_warranty_email` 审批 + 执行器 + 模板；`sunnyWarranty` 设置页；完成收口 / 尾款 / 邮件通知；应收尾款计算抽成共用函数 | 2a | 路径 ① 最短、直接产生回款价值 |
-| INSTALL-2c | `install-2c-repair-form` | 逐单元 ✅ / ⚠ 二选一；维修单提交（数字模板 + 打印版）；问题类型表；返修目标日；预约结果 `needs_repair`；`installStage` 推导；通知（出单按品类 / 运营 / 会计 / 销售）；`/install/repairs` 列表与详情；销售状态卡 | 2a | 路径 ② 前半 |
-| INSTALL-2d | `install-2d-repair-dispatch` | 出单「已出单 + 预计备好日」；安排返修（新预约、不走状态机）；二次安装只收口维修行；按访次聚合 + 照片代理放行任一访次被分配人（修 F5）；全部关闭 → `installed` 接回 2b；逾期提醒挂既有 cron | 2b、2c | 路径 ② 后半，闭环 |
+| INSTALL-2b | `install-2b-balance-confirm` | `install.balance.confirm`；会计「待收尾款」页签（URL 页签，修 F11）；确认尾款 → `completed`（差额必填说明、幂等）；完工 / 尾款确认站内通知与落点；销售首页待收尾款逐单口径并剔除已确认（Q10） | 2a | 路径 ① 前半：钱的确认 |
+| INSTALL-2c | `install-2c-warranty-email` | `sunnyWarranty` 质保表（种子 = 报价单口径）与设置页；完工 + 质保邮件模板；`install.send_warranty_email` 审批 + 执行器；尾款确认后生成审批、会计批准发送；发送结果通知 | 2b | 路径 ① 后半：客户邮件 |
+| INSTALL-2d | `install-2d-repair-form` | 逐单元 ✅ / ⚠ 二选一；维修单提交（数字模板 + 打印版）；问题类型查表；返修目标日；预约结果 `needs_repair`；`installStage` 推导；通知（出单按品类 / 运营 / 会计 / 销售）；`/install/repairs`；销售状态卡 | 2a | 路径 ② 前半 |
+| INSTALL-2e | `install-2e-repair-dispatch` | 出单「已出单 + 预计备好日」；安排返修（新预约、不走状态机）；二次安装只收口维修行；按访次聚合 + 照片代理放行任一访次被分配人（修 F5）；全部关闭 → `installed` 接回 2b；逾期提醒挂既有 cron | 2b、2d | 路径 ② 后半，闭环 |
 
 每个 change 照常：`/opsx:propose` → 四件套回传审 → `/opsx:apply` → `npm test` → `/opsx:verify` → PR → 合并 → archive 小 PR。规格增量要动的既有能力：`installation/window-closeout`、`installation/install-tasks`、`fulfillment/order-category-access`（会计推进 `completed` 的例外）、`accounting/workspace`（新页签）、`accounting/quote-process-view`（"会计只读"需改为"除尾款确认外只读"）。
 
@@ -297,7 +300,7 @@ Lucas："质保以报价单为主，按照你的方案去进行开发"。Q1 明�
 | Q3 | 用哪个发件箱 / 品牌？现有客户邮件品牌是 SUNNY HOME & DECO，维修单是 SUNNY SHUTTER INC | 组织发件身份（Resend，同询价回复），品牌 Sunny Shutter Inc；不回退个人 Gmail |
 | Q4 | 质保邮件要不要抄送销售？ | 不抄送，改发站内通知 |
 | Q5 | 要不要中文质保邮件？ | v1 只英文 |
-| Q6 | 尾款收款方式要不要加 e-transfer？ | 加 |
+| Q6 | 尾款收款方式要不要加 e-transfer？ | ~~加~~ → **沿用定金四种（Cash / Visa / 支票 / Finance）**：读代码发现 e-transfer 已被有意从定金登记下线（`src/lib/sales/deposit-payment-methods.ts`），不加回（2b design D10） |
 | Q7 | 质保表谁能改？ | 老板（`sales.settings.manage`） |
 | Q8 | "默认 1 周" 是 7 个日历日还是 5 个工作日？ | 7 个日历日 |
 | Q10 | 销售首页"待收尾款"现在是本月签单尾款合计；2b 之后要不要改成"已装完、未确认收款"的真实应收？ | 改，放进 2b（共用应收函数） |
