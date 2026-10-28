@@ -53,6 +53,20 @@
 | PERM-5a | 会计视图：成交、提成、项目结算与销售分开 | PERM-4a | 任务书 `docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`；change `perm-5a-accounting-view`；`docs/QINGYAN_PERM-5a_REPORT.md` | [x]（#287；archive 见 `openspec/changes/archive/2026-10-28-perm-5a-accounting-view`） |
 | PERM-5b | 数字员工岗位绑定 + 工具授权走 `authorize` | PERM-1 | 任务书 `docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`；change `perm-5b-digital-employee-positions`；`docs/QINGYAN_PERM-5b_REPORT.md` | [x]（#285；archive 见 `openspec/changes/archive/2026-10-28-perm-5b-digital-employee-positions`） |
 
+## PERM-6 — 外贸按岗位
+
+| ID | 任务 | 依赖 | 产物 | 状态 |
+|---|---|---|---|---|
+| PERM-6a | 外贸三键（`trade.read` / `trade.manage` / `trade.settings.manage`）+ `trade_rep` 模板；`src/app/api/trade/**` 110 处 `requireRole` → `requireTradePermission`（范围仍 `ORG`）；平台 admin 不再隐含外贸（企业解析显式 orgId 只给 super_admin）；消息通道管理按设置键；派生角色 `trade` 档、岗位模式外贸入口认 `trade.read` | PERM-4c5 | 任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`（拍板见"拍板结果 · PERM-6"）；change `perm-6a-trade-keys`；`docs/QINGYAN_PERM-6a_REPORT.md` | [G] |
+| PERM-6b | 梦馨落岗位：按分工细分外贸岗位与数据范围（按负责人收窄）；绑定文件 | PERM-6a；梦馨人员与邮箱 | change `perm-6b-mengxin-positions` | [ ] |
+| PERM-6c | 营收中心（revenue-spine `requireRole`）与外贸收件人读点（残留清单 D2–D4）按岗位 | PERM-6a | change `perm-6c-revenue-and-trade-recipients` | [ ] |
+
+## PERM-7 — owner 在界面上绑岗位
+
+| ID | 任务 | 依赖 | 产物 | 状态 |
+|---|---|---|---|---|
+| PERM-7 | 企业 owner 在成员管理界面给人绑 / 解绑岗位（PERM-5b 留下的项；涉及界面与审批） | PERM-6a | 待写任务书 | [ ] |
+
 ---
 
 ## 已决定（2026-10-27，Lucas）

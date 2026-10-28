@@ -60,8 +60,12 @@ ok(
 );
 ok(
   compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "trade" }) ===
-    null,
-  "trade + org_member → 无销售权限",
+    "trade_rep",
+  "trade + org_member → 兼容 trade_rep（PERM-6a），不是 sales_rep",
+);
+ok(
+  (SYSTEM_ROLE_PROFILES.find((p) => p.key === "trade_rep")?.bindings ?? []).every((b) => !b.permissionKey.startsWith("sales.")),
+  "trade_rep 无销售权限",
 );
 ok(
   compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "user" }) ===
@@ -174,6 +178,7 @@ ok(allowOnly.allowed && allowOnly.matchedScope === "ORG", "仅 ALLOW:ORG → 允
 
 // ── PERM-1：岗位目录 / 平台管理员全权 ──
 import {
+  SYSTEM_ROLE_PROFILES,
   WINDOW_COVERING_ROLE_PROFILES,
   mergedProfileBindings,
   profilesForIndustryPack,
@@ -186,7 +191,7 @@ import { platformAdminBindings } from "../resolve-effective-permissions";
 console.log("PERM-1 岗位目录");
 const WC = "window_covering_services_v1";
 const wcKeys = profilesForIndustryPack(WC).map((p) => p.key);
-ok(wcKeys.length === 11 && profileKeysForIndustryPack(WC).length === 17, "窗饰行业包：11 个追加模板（含安装工、ops_staff 并集），17 个岗位 key");
+ok(wcKeys.length === 11 && profileKeysForIndustryPack(WC).length === 18, "窗饰行业包：11 个追加模板（含安装工、ops_staff 并集），18 个岗位 key（PERM-6a 系统模板加 trade_rep）");
 ok(profilesForIndustryPack(null).length === 0 && profilesForIndustryPack("other_pack").length === 0, "非窗饰行业包：0 个追加模板");
 for (const k of [
   "sales.quote.pricing_close",
@@ -465,6 +470,21 @@ console.log("PERM-5b 数字员工禁区与 sponsor 范围");
     permission: "sales.customer.read",
   });
   ok(digiAuth.reasonCode === "SPONSOR_REQUIRED", "PERM-5b：DIGITAL_EMPLOYEE 无 sponsor authorize fail closed（不读库）");
+
+  console.log("PERM-6a 外贸权限键与模板");
+  {
+    const tradeKeys = ["trade.read", "trade.manage", "trade.settings.manage"];
+    ok(tradeKeys.every((k) => isKnownPermission(k)), "外贸三键已登记");
+    ok(tradeKeys.every((k) => JSON.stringify(getPermissionDefinition(k)?.allowedPrincipalTypes) === '["HUMAN"]'), "外贸三键只允许人类主体");
+    ok(tradeKeys.every((k) => JSON.stringify(getPermissionDefinition(k)?.supportedScopes) === '["ORG"]'), "外贸三键范围 ORG");
+    const sys = (key: string) => new Set((SYSTEM_ROLE_PROFILES.find((p) => p.key === key)?.bindings ?? []).map((b) => b.permissionKey));
+    ok(sys("trade_rep").has("trade.read") && sys("trade_rep").has("trade.manage") && !sys("trade_rep").has("trade.settings.manage"), "trade_rep：读写，无设置");
+    ok(tradeKeys.every((k) => sys("org_owner").has(k)), "系统 org_owner：外贸三键");
+    ok(sys("org_admin").has("trade.settings.manage") && !sys("org_admin").has("trade.read") && !sys("org_admin").has("trade.manage"), "系统 org_admin：只有外贸设置键");
+    const owner = new Set(mergedProfileBindings(WC, "owner").map((b) => b.permissionKey));
+    ok(tradeKeys.every((k) => owner.has(k)), "窗饰 owner：外贸三键");
+    ok(!new Set(mergedProfileBindings(WC, "sales_rep").map((b) => b.permissionKey)).has("trade.read"), "窗饰 sales_rep：无外贸");
+  }
 
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

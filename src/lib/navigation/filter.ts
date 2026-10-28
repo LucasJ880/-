@@ -104,7 +104,12 @@ function navWorkspaceCtx(ctx: NavigationFilterContext) {
 function positionPermissionOk(item: NavigationItem, ctx: NavigationFilterContext): boolean {
   if (item.platformAdminOnly) return ctx.isPlatformAdmin;
   if (item.tradeEntry) {
-    return ctx.platformRole === "trade" || isManagementWorkspaceUser(navWorkspaceCtx(ctx));
+    // PERM-6a：岗位模式下也认外贸岗位键 trade.read
+    return (
+      ctx.platformRole === "trade" ||
+      isManagementWorkspaceUser(navWorkspaceCtx(ctx)) ||
+      (ctx.permissionKeys ?? []).includes("trade.read")
+    );
   }
   if (item.positionPermissions?.length) {
     return (ctx.permissionKeys ?? []).some((k) => item.positionPermissions!.includes(k));

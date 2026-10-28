@@ -144,16 +144,20 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
     }
   }
 
-  // 平台 role=sales 的 active org_member → sales_rep（不覆盖已有 owner/admin 绑定）
-  // trade 不自动绑销售岗位
-  const salesProfileId = profileIdByKey.get("sales_rep");
-  if (salesProfileId) {
+  // 平台 role=sales 的 active org_member → sales_rep；PERM-6a：平台 role=trade → trade_rep
+  // （不覆盖已有任何绑定；trade 不绑销售岗位）
+  const autoBindProfileIds: Record<string, string | undefined> = {
+    sales: profileIdByKey.get("sales_rep"),
+    trade: profileIdByKey.get("trade_rep"),
+  };
+  if (autoBindProfileIds.sales || autoBindProfileIds.trade) {
     const members = await db.organizationMember.findMany({
       where: { orgId, status: "active", role: "org_member" },
       select: { userId: true, user: { select: { role: true } } },
     });
     for (const m of members) {
-      if (m.user.role !== "sales") continue;
+      const autoProfileId = autoBindProfileIds[m.user.role];
+      if (!autoProfileId) continue;
       const hasAny = await db.principalRoleBinding.findFirst({
         where: {
           orgId,
@@ -164,7 +168,7 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
         select: { id: true },
       });
       if (!hasAny) {
-        await ensurePrincipalBinding(orgId, m.userId, salesProfileId);
+        await ensurePrincipalBinding(orgId, m.userId, autoProfileId);
       }
     }
   }
