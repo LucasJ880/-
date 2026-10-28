@@ -51,7 +51,7 @@
 - 否决：`sales.settings.manage`。理由：该键走设置审批流程（PERM-2），设目标不需要审批；看全员业绩的人（老板 / 合价 / 会计 / 销售经理）就是会给人定目标的人。会计也持该键——目标不是金钱出账，接受。
 
 ### D5 签约改价：PUT 内判定 + 共用落库函数
-把 PUT 的"计算 + 事务落库"抽成 `src/lib/sales/quote-update.ts` 的 `applyQuoteUpdate(input)`（输入：企业、报价、提交内容、操作者身份用于折扣三档），PUT 与执行器共用。PUT 先算出新总价：已签约且总价变化且操作者不是 super_admin → 查重（已有待批 → 409）→ 选收件人（持 `sales.quote.signed_amount.approve` 者优先，排除提交人；空则企业 owner / org_admin 兜底；仍空 → 409 `NO_APPROVER`）→ `requestApproval(sales.update_signed_quote)` → 202。载荷：提交内容原样、`baseUpdatedAt`、改前 / 改后总价、提交人。
+把 PUT 的"计算 + 事务落库"抽成 `src/lib/sales/quote-update.ts` 的 `prepareQuoteUpdate`（只算，不写）+ `commitQuoteUpdate`（事务落库）两步（输入：企业、报价、提交内容、操作者身份用于折扣三档），PUT 与执行器共用；拆两步是因为 PUT 要先拿到新总价再决定走审批还是落库。超限折扣审批收口的 PendingAction 写入放 `src/lib/pending-actions/quote-promotion-settle.ts`（runtime-architecture 守卫要求审批存储归口 `pending-actions/`）。PUT 先算出新总价：已签约且总价变化且操作者不是 super_admin → 查重（已有待批 → 409）→ 选收件人（持 `sales.quote.signed_amount.approve` 者优先，排除提交人；空则企业 owner / org_admin 兜底；仍空 → 409 `NO_APPROVER`）→ `requestApproval(sales.update_signed_quote)` → 202。载荷：提交内容原样、`baseUpdatedAt`、改前 / 改后总价、提交人。
 - 执行器：`checkQuoteApprover(..., "sales.quote.signed_amount.approve")`（批准人 ≠ 提交人，super_admin 可自批）→ 报价仍在本企业、`updatedAt === baseUpdatedAt`，否则失败"报价已变化，请重新提交" → `applyQuoteUpdate`（折扣三档按**提交人**身份判定）→ 审计 `sales.signed_quote.amount_changed` → 通知提交人。
 - 否决 A：执行器内部再调一次 PUT 路由。理由：执行器没有 request 上下文，且架构守卫禁止旁路 HTTP。
 - 否决 B：只存"金额差"在批准后打补丁。理由：总价由行与附加项算出，只改总价会与行不一致。

@@ -11,14 +11,14 @@
 
 ## 3. 签约单改总价走审批
 
-- [x] 3.1 抽出 `src/lib/sales/quote-update.ts` `applyQuoteUpdate`：把 `quotes/[quoteId]/route.ts` PUT 的定价计算 + 事务落库原样搬入（折扣三档按传入的操作者身份判定），PUT 改为调用它，行为不变（D5）。verify：`discount-tier.test.ts`、`promotion-approval.test.ts`、`quote-settings-approval.test.ts`、`phase5-contract.test.ts`、`src/lib/quote-engine/__tests__/quote-ops-contract.test.ts` 全过；typecheck。
+- [x] 3.1 抽出 `src/lib/sales/quote-update.ts`（`prepareQuoteUpdate` / `commitQuoteUpdate`，design D5）：把 `quotes/[quoteId]/route.ts` PUT 的定价计算 + 事务落库原样搬入（折扣三档按传入的操作者身份判定），PUT 改为调用它，行为不变（D5）。verify：`discount-tier.test.ts`、`promotion-approval.test.ts`、`quote-settings-approval.test.ts`、`phase5-contract.test.ts`、`src/lib/quote-engine/__tests__/quote-ops-contract.test.ts` 全过；typecheck。
 - [x] 3.2 PUT 签约改价分支：已签约 + 新总价与当前差 > 0.005 + 非 super_admin → 已有待批 `sales.update_signed_quote` 则 409 `SIGNED_QUOTE_APPROVAL_PENDING`；收件人（持新键者排除提交人 → owner / org_admin 兜底 → 空则 409 `NO_APPROVER`）；`requestApproval`，载荷 = 提交内容 + `baseUpdatedAt` + 改前 / 改后总价 + 提交人，预览不含成本；返回 202 `{ pending, approvalId }`；super_admin 直接生效并审计自批。`pending-actions/types.ts` 加类型与载荷；`wechat-confirm-policy.ts` 加 `web_only_review`；新建 `src/lib/sales/__tests__/signed-quote-amount.test.ts`（纯函数：是否需审批阈值、收件人选择、预览不含成本字段）并在 `scripts/test-all.sh` / `scripts/test-ci-unit.sh` 注册。verify：新测试与 `wechat-confirm-policy.test.ts` 通过；`bash scripts/check-test-registry.sh`。
 - [x] 3.3 `pending-actions/executor.ts` 加 `sales.update_signed_quote` 执行：`checkQuoteApprover(sales.quote.signed_amount.approve)` → 报价在本企业且 `updatedAt === baseUpdatedAt`（否则失败"报价已变化，请重新提交"）→ `applyQuoteUpdate`（折扣三档按提交人身份）→ 审计 `sales.signed_quote.amount_changed`（提交人 / 批准人 / 改前改后总价 / selfApproved）→ 通知提交人；新建 `src/lib/sales/__tests__/signed-quote-amount-db.isolated.test.ts`（202 → 另一老板批准 → 总价更新且 `draft`；自批拒绝；提交后改备注再批准失败；唯一老板 409 `NO_APPROVER`）并注册（无隔离库自动跳过）。verify：本地 Postgres 16 + pgvector 隔离库跑通该测试。
-- [ ] 3.4 `src/app/(main)/sales/quote-sheet/page.tsx` 保存：202 提示"改价已提交审批，批准后生效"；409 `SIGNED_QUOTE_APPROVAL_PENDING` / `NO_APPROVER` 显示服务端文案。verify：typecheck；`npx eslint "src/app/(main)/sales/quote-sheet/page.tsx"` 无新增 error。
+- [x] 3.4 `src/app/(main)/sales/quote-sheet/page.tsx` 保存：202 提示"改价已提交审批，批准后生效"；409 `SIGNED_QUOTE_APPROVAL_PENDING` / `NO_APPROVER` 显示服务端文案。verify：typecheck；`npx eslint "src/app/(main)/sales/quote-sheet/page.tsx"` 无新增 error。
 
 ## 4. 收尾
 
-- [ ] 4.1 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate perm-4a-sales-authorize --strict` 通过；写 `docs/QINGYAN_PERM-4a_REPORT.md`（做了什么 / 怎么验 / BREAKING 与上线顺序 / 已知限制：唯一老板无人可批）；`docs/QINGYAN_PERMISSION_TASKFLOW.md` PERM-4a 改 `[G]`；更新 `docs/QINGYAN_PERMISSION_HANDOFF.md`。verify：四条命令退出 0；`grep -c "PERM-4a .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
+- [x] 4.1 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate perm-4a-sales-authorize --strict` 通过；写 `docs/QINGYAN_PERM-4a_REPORT.md`（做了什么 / 怎么验 / BREAKING 与上线顺序 / 已知限制：唯一老板无人可批）；`docs/QINGYAN_PERMISSION_TASKFLOW.md` PERM-4a 改 `[G]`；更新 `docs/QINGYAN_PERMISSION_HANDOFF.md`。verify：四条命令退出 0；`grep -c "PERM-4a .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
 
 ## Workflow follow-up
 
