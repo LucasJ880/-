@@ -15,6 +15,12 @@ import { OUTBOUND_REDACTED, clip, oneLine, type Advisory, type AdvisoryNextStep 
 import { money } from "./router-pure";
 import type { MuseIdentity } from "./binding-pure";
 import {
+  defaultInquiryQuestions,
+  employeeConfirmationsView,
+  openInquiriesView,
+  type InquiryRecord,
+} from "./inquiry-pure";
+import {
   LEGACY_STAGE_MAP,
   OPEN_STAGES,
   getOpportunityStageLabel,
@@ -356,6 +362,8 @@ export type OpportunityStatusInput = {
   actions: ActionRow[];
   /** 系统建议下一步的中文名（由取数层按 nextActionType 查表；未知类型为 null） */
   nextActionLabel: string | null;
+  /** S2：该商机上的询问（已回复的进 employeeConfirmations，未结束的进 openInquiries） */
+  inquiries: InquiryRecord[];
   staleAfterDays: number;
   now: Date;
 };
@@ -378,6 +386,18 @@ export function buildOpportunityStatus(input: OpportunityStatusInput): { advisor
     reasons,
     nextStep: null,
   };
+  const openInquiries = openInquiriesView(input.inquiries, now);
+  // S2：管理角色、开放商机、有负责人且没有未结束的询问 → 下一步是带默认问题的"问负责人"
+  if (input.scope.kind === "org" && ranked && row.assignee && openInquiries.length === 0) {
+    advisory.nextStep = {
+      label: `问${shortName(row.assignee.name, 8)}最新进展`,
+      command: {
+        intent: "ask_colleague",
+        opportunityId: row.id,
+        questions: defaultInquiryQuestions(ranked.signals),
+      },
+    };
+  }
 
   const data = {
     observedAt: now.toISOString(),
@@ -417,8 +437,9 @@ export function buildOpportunityStatus(input: OpportunityStatusInput): { advisor
           },
         ]
       : [],
-    /** S2 填充：负责人对询问的回复 */
-    employeeConfirmations: [] as unknown[],
+    /** 员工确认：负责人对询问的回复，与 CRM 事实分开 */
+    employeeConfirmations: employeeConfirmationsView(input.inquiries),
+    openInquiries,
   };
   return { advisory, data };
 }

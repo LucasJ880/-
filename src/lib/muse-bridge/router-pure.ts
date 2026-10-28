@@ -45,7 +45,12 @@ export function errResponse(
   };
 }
 
-const SALES_PILOT_INTENTS: ReadonlySet<MuseIntent> = new Set<MuseIntent>(["sales_overview", "opportunity_status"]);
+const SALES_PILOT_INTENTS: ReadonlySet<MuseIntent> = new Set<MuseIntent>([
+  "sales_overview",
+  "opportunity_status",
+  "ask_colleague",
+  "reply_inquiry",
+]);
 
 /** 未启用意图的统一回复（诚实告知阶段）。 */
 export function notEnabledResponse(requestId: string, intent: MuseIntent): MuseCommandResponse {
@@ -65,6 +70,8 @@ export function notEnabledResponse(requestId: string, intent: MuseIntent): MuseC
     preferences: "查看个人偏好",
     sales_overview: "销售概览",
     opportunity_status: "查看商机状态",
+    ask_colleague: "询问商机负责人",
+    reply_inquiry: "回复询问",
   };
   // 销售意图属于 TASKFLOW Phase S（Sales Pilot），不是招投标的 Phase 1；契约里的数字阶段只能是 0–3
   const phaseText = SALES_PILOT_INTENTS.has(intent) ? "Sales Pilot（Phase S）" : `Phase ${phase}`;

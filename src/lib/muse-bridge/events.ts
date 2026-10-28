@@ -50,8 +50,15 @@ export async function emitMuseEvent(
       category: MUSE_EVENT_CATEGORY,
       title: titleFor(envelope),
       summary: envelope.summary,
-      entityType: envelope.approval ? envelope.approval.kind : envelope.projectId ? "project" : undefined,
-      entityId: envelope.approval?.approvalId ?? envelope.projectId,
+      // S2：询问事件点开即到网页回复页（header.tsx 按 entityType=muse_inquiry 跳转）
+      entityType: envelope.approval
+        ? envelope.approval.kind
+        : envelope.inquiryId
+          ? "muse_inquiry"
+          : envelope.projectId
+            ? "project"
+            : undefined,
+      entityId: envelope.approval?.approvalId ?? envelope.inquiryId ?? envelope.projectId,
       priority: envelope.type === "approval.requested" || envelope.type === "deadline.approaching" ? "high" : "medium",
       sourceKey,
       metadata: { museEvent: envelope },
@@ -86,6 +93,12 @@ function titleFor(e: MuseEventEnvelope): string {
       return `${name}有供应商未响应`;
     case "brief.daily":
       return "今日投标早报";
+    case "inquiry.received":
+      return "有一条商机询问等你回复";
+    case "inquiry.replied":
+      return "你的商机询问有回复了";
+    case "inquiry.overdue":
+      return "商机询问已逾期";
   }
 }
 
