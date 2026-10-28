@@ -19,7 +19,7 @@
 | `perm-3-fulfillment-by-category` | 已合并 main；已 archive（specs 新增 `fulfillment/order-category-access`、`fulfillment/order-cancellation-approval`、`inventory/fabric-stock-access`，`authorization/position-catalog`、`sunny/process-order-autogen` 增量）；合并 main 时与 sunny-process 整合（报告 §5b / design D8） | #274 ✅；archive #276 ✅ |
 | `perm-4a-sales-authorize` | 已合并 main；已 archive（specs 新增 `sales/record-access`、`sales/signed-quote-amount-approval`，`authorization/position-catalog` 增量）；报告 `docs/QINGYAN_PERM-4a_REPORT.md` | #279 ✅ |
 | `perm-4b-ops-authorize` | 已合并 main（新键 `operations.content.draft / approve`；运营配置 12 路由、Playbook 12 路由、发布任务 3 路由按岗位；增长中心写 `operations.manage`；平台用户管理仅 super_admin；`/ops` 入口按岗位、ops API 注入权限键）；typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e 32/32；全量 `npm test` 450/463（13 条为既有环境性失败，与基线一致）；报告 `docs/QINGYAN_PERM-4b_REPORT.md`；已 archive（specs 新增 `operations/config-access`、`operations/content-approval`、`marketing/growth-center-access`） | #283 ✅；archive 本 PR |
-| `perm-5b-digital-employee-positions` | 7/7 tasks；代码完成（数字员工主体解析 / 自身绑定无回退 / sponsor 范围 / 禁区元数据；`canInvokeTool` 主体 + `requiredPermission`；数字员工审批归属与审批人 = sponsor；审计 `actorDisplay`；绑定脚本 `--principal-type DIGITAL_EMPLOYEE`）；typecheck / lint:baseline / test:ci / registry / 架构守卫全绿；authorize 120、纯测试 50/50、隔离库 e2e 34/34；报告 `docs/QINGYAN_PERM-5b_REPORT.md`；TASKFLOW `[G]` | PR 待开 |
+| `perm-5b-digital-employee-positions` | 已合并 main；已 archive（specs 新增 `authorization/digital-employee-principal`、`agents/tool-authorization`、`agents/digital-employee-approval`，`authorization/position-binding`、`position-catalog` 增量）（数字员工主体解析 / 自身绑定无回退 / sponsor 范围 / 禁区元数据；`canInvokeTool` 主体 + `requiredPermission`；数字员工审批归属与审批人 = sponsor；审计 `actorDisplay`；绑定脚本 `--principal-type DIGITAL_EMPLOYEE`）；typecheck / lint:baseline / test:ci / registry / 架构守卫全绿；authorize 120、纯测试 50/50、隔离库 e2e 34/34；报告 `docs/QINGYAN_PERM-5b_REPORT.md` | #285 ✅；archive 本 PR |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
@@ -44,7 +44,7 @@
 7. ~~PERM-4a~~ 已合并（#279）并 archive（本 PR）。**生产动作**：合并前应已查平台 `admin` 账号补岗位（平台 admin 在销售区不再有隐含权限）——若未做，尽快补；对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner +5 键）。Sunny 若只有一位老板，签约单改总价会 409 `NO_APPROVER`，只能 Lucas 直接改。
 8. ~~PERM-4b~~ 已合并（#283）并 archive（本 PR）。**生产动作**：对 Sunny 重跑 `seedOrgAuthorizationProfiles`（ops_staff / ops_lead / owner 模板变了），确认 Marty（`ops_lead`）/ Maggie（`ops_staff`）绑定生效，否则 Maggie 进不了运营中心。老板改不了运营配置 / 增长中心（只看 + 批内容）。
 9. 进行中：PERM-5（用户 2026-10-28："5a 和 5b 都按推荐做"，拍板见任务书末尾"拍板结果 · PERM-5"）。顺序：5b 先（只依赖 PERM-1），5a 后（自带 `project.finance.read` 一个键，不等 4c）。4c 排在 5 之后。
-   - PERM-5b 代码完成待 PR。**生产动作**：无（没有数字员工绑定 = 和今天一样全拒）。启用某个数字员工：填 `config/positions/sunny-digital-employees.json` 的 Agent id（sponsor = Agent 创建人），`--principal-type DIGITAL_EMPLOYEE --dry-run` 后执行。已知：今天没有运行时以数字员工为主体执行；现有工具都没声明 `requiredPermission`，数字员工调用会 `permission_required`（报告 §4）。
+   - ~~PERM-5b~~ 已合并（#285）并 archive（本 PR）。**生产动作**：无（没有数字员工绑定 = 和今天一样全拒）。启用某个数字员工：填 `config/positions/sunny-digital-employees.json` 的 Agent id（sponsor = Agent 创建人），`--principal-type DIGITAL_EMPLOYEE --dry-run` 后执行。已知：今天没有运行时以数字员工为主体执行；现有工具都没声明 `requiredPermission`，数字员工调用会 `permission_required`（报告 §4）。
 
 ## 环境注意
 
