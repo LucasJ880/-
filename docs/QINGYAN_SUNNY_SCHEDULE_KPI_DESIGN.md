@@ -39,12 +39,12 @@
 
 | 现有口径 | 位置 | 问题 |
 |---|---|---|
-| 销售驾驶舱：成单 = `SalesOpportunity.stage ∈ {signed, completed}` 且 `wonAt ≥ 本月 1 日`，金额 = `estimatedValue` | `src/app/api/sales/cockpit/route.ts:108-111` | 用的是商机**估值**，不是签字金额 |
-| 销售首页：成单 = `SalesQuote.status ∈ {signed, accepted}` 且 `signedAt ≥ 本月 1 日`，金额 = `grandTotal`；报价按 `createdAt ≥ 本月 1 日` | `src/lib/sales/home/build-home.ts:53, 233-247, 353` | 口径对，但**固定从 1 号起**，没有自选期间；"报出去多少钱"按创建日而不是发送日 |
+| 销售驾驶舱"本月签约"：`SalesOpportunity.stage ∈ {signed, completed}` 且 `wonAt ≥ 本月 1 日`，金额 = `estimatedValue`；另有按人 `teamPerformance`（同一口径） | `src/app/api/sales/cockpit/route.ts:108-111`、`:86` | 用的是商机**估值**，不是签字金额；固定从 1 日起 |
+| 销售首页英雄区"本月签约"：**与驾驶舱同一口径**（`wonAt` + `estimatedValue`） | `src/lib/sales/home/build-home.ts:94-104, 261-262` | 同上；首页的报价签字查询（`:239-248`）只用于定金 / 尾款，报价数按 `createdAt`（`:348-356`）而不是发送日 |
 | Muse `sales_overview` | `src/lib/muse-bridge/sales-pure.ts:301` | 只有 30 天内赢 / 输计数，**不算金额和**；决定 B 管金额可见性 |
 | 周报 AI | `src/app/api/sales/cockpit/weekly-report/route.ts` | 直接 `new OpenAI()`、固定 7 天、把原始数据丢给模型自己算 |
 
-结论：同一个"本月成单"在两个页面是两个数；要加期间参数和"按人"，先把口径收成一个纯函数，所有出口（看板 / Muse / 叙述）只认它。
+结论：现有"本月签约"都按商机**估值**、固定从 1 日起算；没有"按签字金额、可选期间"的成单汇总，也没有"报出去多少钱"。先把口径收成一个纯函数，所有出口（看板 / Muse / 叙述）只认它。（2026-10-28 交叉核对更正：初稿误写"首页按报价签字金额、两页两个数"。）
 
 ---
 
@@ -164,9 +164,10 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 
 | 指标 | 定义 | 备注 |
 |---|---|---|
-| **成单数** | `SalesQuote.status ∈ {signed, accepted}` 且 `signedAt ∈ 期间`；同一 `opportunityId` 多份已签只计最新 `signedAt` 的一份；无商机的按报价计 | 判断点 3、5 |
+| **成单数** | `SalesQuote.status ∈ {signed, accepted}` 且 `signedAt ∈ 期间`；**每份已签报价各计一份，不去重**（已签报价被修改时是同一行清签字回 draft，`src/lib/sales/quote-update.ts:298-302`；每份已签报价各生成一张工艺单，所以同一商机下两份已签 = 两张合同） | 判断点 3、5（已更正） |
 | **成单金额** | 上述报价 `grandTotal` 之和（含税 CAD）；另给 `preTaxTotal` 和 | |
-| **报价数（报出去）** | `SalesQuote.sentAt ∈ 期间` 且 `status ≠ draft`；同一 `opportunityId` 多版本只计最新 `sentAt` 的一份 | sent / viewed / accepted / signed / rejected / expired 都算"报出去了" |
+| **报价数（报出去）** | `SalesQuote.sentAt ∈ 期间` 且 `status ≠ draft`；按 `opportunityId` 分组：组内已签的每份都计，未签的只计 `sentAt` 最新一份（视为同一提案的修订版）；无商机的每份各计 | sent / viewed / accepted / signed / rejected / expired 都算"报出去了" |
+| **客户范围** | 所有指标排除已归档客户（`customer.archivedAt = null`），与首页约定一致（`src/lib/sales/__tests__/archived-customer-visibility.test.ts` 强制） | |
 | **报价金额（报出去多少钱）** | 上述报价 `grandTotal` 之和 | 就是用户问的"一共报了多少钱出去" |
 | **转化率** | 成单数 / 报价数 | 非同批，页面标注"同期口径" |
 | **在手未签** | `sentAt ∈ 期间`、`signedAt = null`、`status ∈ {sent, viewed}` 的数量与金额，以及其中 `sentAt` 距今 > 14 天的子集 | 给洞察 I3 用 |
@@ -266,7 +267,7 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 
 ### KPI-1 `sales-period-summary` — 先做（没有外部依赖，用户最急的"10 月 1 日到 28 日"）
 
-**Why**：同一个"本月成单"在两个页面是两个数，且都不能选期间、不能按人、没有"报出去多少钱"。
+**Why**：现有"本月签约"都按商机估值、固定从 1 日起算，没有按签字金额、可选期间的成单汇总，也没有"报出去多少钱"。
 
 **What**
 - 新增纯函数 `summarizeSalesPeriod`（§3.1 口径）与 `buildPeriodInsights`（§3.4 规则表），`src/lib/sales/period/`。
@@ -323,7 +324,7 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 | 2 | book-now 插件写日历的身份是什么（创建者邮箱 / 固定字样）？ | 运维前置第 2 条查一下，填进配置即可，不改代码 |
 | 3 | 成单口径：报价签字 `grandTotal`（含税） vs 商机 `wonAt + estimatedValue` | **报价签字**；页面同时给税前 |
 | 4 | "按人"归属：报价创建人 vs 商机负责人 | **报价创建人**（钱是谁报的、谁签的） |
-| 5 | 同一商机多版本报价：成单与报价各只计最新一份 | **是**；已签后改价回 draft 的旧版本不计 |
+| 5 | 同一商机多份报价怎么计 | **已更正（2026-10-28 交叉核对）**：成单不去重，每份已签报价各计一份；报价按商机去重，但已签的每份都计、未签的只计最新一份。原推荐"成单只计最新一份"基于错误前提（以为存在"已签旧版本"），实际改价是同一行回 draft，按原推荐会少算真实签单额。**待 Evan / Lucas 复核** |
 | 6 | 是否做 LLM 叙述（KPI-2），为此在 config.yaml 第 7 条开一个例外 | 先交付 KPI-1；KPI-2 开关默认关，拍板后再 propose |
 | 7 | 变更通知收件人 | **owner + ops_lead**（可配置）；不是全员，避免噪音 |
 | 8 | 通知渠道 | 站内；Muse / 微信留 CAL-2 |

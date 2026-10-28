@@ -4,12 +4,12 @@
 
 ### Requirement: 契约只追加
 
-`muse-bridge/v1` SHALL 接受 `sales_overview`（可选 `days` 1–90、`assigneeUserId`、`limit` 1–20、可选 `period`：`{ from, to }` 两个 `YYYY-MM-DD` 当地日期，`to` 不早于 `from` 且跨度不超过 366 天）与 `opportunity_status`（必填 `opportunityId`）；越界或缺参 SHALL 整包拒绝为 `VALIDATION_FAILED`；未知字段 SHALL 被丢弃；既有 12 个意图的解析结果 SHALL 不变。
+`muse-bridge/v1` SHALL 接受 `sales_overview`（可选 `days` 1–90、`assigneeUserId`、`limit` 1–20、可选 `period`：`{ from, to }` 两个 `YYYY-MM-DD` 当地日期，`to` 不早于 `from` 且跨度不超过 366 天）与 `opportunity_status`（必填 `opportunityId`）；越界或缺参 SHALL 整包拒绝为 `VALIDATION_FAILED`；未知字段 SHALL 被丢弃；其余意图与不带 `period` 的 `sales_overview` 的解析结果 SHALL 不变。
 
 #### Scenario: 合法与非法参数
 
 - **WHEN** 解析 `{intent:"sales_overview", days:30}`、`{intent:"sales_overview", days:0}`、`{intent:"opportunity_status"}`
-- **THEN** 第一条成功，后两条失败；`npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts` 断言意图总数为 14
+- **THEN** 第一条成功，后两条失败；`npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts` 断言意图总数为 18（S2、S3 各加 2 个意图后的现状；本 change 不新增意图）
 
 #### Scenario: period 参数校验
 

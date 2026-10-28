@@ -8,7 +8,8 @@
 - 期间要按组织当地日解释。已有 `resolveOrgTimezone`（`src/lib/automation/registry.ts:93`，默认多伦多）与 `zonedLocalToUtc` / `nextDay`（`src/lib/revenue-spine/business-days.ts:111,171`），不再造日期工具。
 - 销售区授权统一走 `authorize()`：`resolveSalesScope(user, orgId, permission)`（`src/lib/sales/org-context.ts:51`）返回 `ownOnly`；`sales.analytics.read` 键已存在（`src/lib/authorization/permissions.ts:61`，范围 PRINCIPAL / ORG），`sales_rep`、`pricing_lead`、`accounting`、`owner` 岗位已绑定。
 - Muse 侧 `sales_overview` 的读范围由 `resolveSalesScope(identity)`（`src/lib/muse-bridge/sales-pure.ts:47`）决定，金额可见性由 `amountsVisible` 决定（决定 B）；契约在 `src/lib/muse-bridge/contract.ts:146-153`，zod `.strip()`。
-- 报价多版本：`SalesQuote.version` 递增但同一商机可能有多条 `SalesQuote` 行（含已签后改价回 `draft` 的旧版本），所以"按商机取最新一份"必须在口径里写死。
+- 报价版本：`SalesQuote.version` = 该**客户**已有报价数 + 1（`src/app/api/sales/quotes/route.ts:213,222`、`measurements/[id]/generate-quote/route.ts:81,97`），不是按商机的版本号。客户要求修改时销售新建一行报价，旧行保持 sent / viewed；已签报价被修改时是**同一行**清签字回 `draft`（`src/lib/sales/quote-update.ts:298-302`），仓库里没有复制报价的路径。所以：同一商机下多份**已签**报价 = 多张合同（每份各生成一张工艺单，`openspec/specs/sunny/process-order-autogen`）；多份**未签**报价 = 同一提案的修订版。
+- 销售首页与统计排除已归档客户（`customer.archivedAt = null`），由 `src/lib/sales/__tests__/archived-customer-visibility.test.ts` 强制；本口径跟随。
 - 设计稿 `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md` §3 的判断点已拍板：成单按报价签字 `grandTotal`，按人按报价创建人，多版本只计最新一份，LLM 叙述不在本 change。
 
 ## Goals / Non-Goals
@@ -29,14 +30,16 @@
 
 ### D1 口径层是纯函数，取数层只负责捞行
 - `src/lib/sales/period/summary-pure.ts`：输入 = 期间（UTC 边界 + 当地日字符串）、`now`、范围（`org | own`，own 时带 `userId`）、报价行数组（`id / opportunityId / createdById / status / sentAt / signedAt / grandTotal / preTaxTotal / depositAmount / depositCollectedAt / updatedAt`），输出 `PeriodSummary`（`totals / byRep / comparison`）。去重、分桶、对比都在这里。
-- `src/lib/sales/period/load.ts`：按 `orgId`（own 时再加 `createdById`）一次 `findMany` 捞出 `signedAt`、`sentAt` 或 `depositCollectedAt` 落在 **本期 ∪ 对比期** 内的报价（`OR` 三段 + `status != draft`），再把行交给纯函数分别算本期与对比期。只捞一次，不按期分两次查。
-- 否决：直接在 Prisma `aggregate` 里算和 —— 去重规则（按商机取最新一份）在 SQL 里要窗口函数，Prisma 不支持；且 Muse 与看板会各写一遍查询，口径又分叉。
+- `src/lib/sales/period/load.ts`：按 `orgId` + `customer: { archivedAt: null }`（own 时再加 `createdById`）一次 `findMany` 捞出 `signedAt`、`sentAt` 或 `depositCollectedAt` 落在 **本期 ∪ 对比期** 内的报价（`OR` 三段 + `status != draft`），再把行交给纯函数分别算本期与对比期。只捞一次，不按期分两次查。
+- 否决：直接在 Prisma `aggregate` 里算和 —— 报价侧"未签只取每商机最新一份"在 SQL 里要窗口函数，Prisma `aggregate` 不支持；且 Muse 与看板会各写一遍查询，口径又分叉。
 
 ### D2 去重规则写进口径
-- 成单：按 `opportunityId` 分组，组内取 `signedAt` 最大（并列取 `updatedAt` 最大，再并列取 `id` 字典序最大）；`opportunityId` 为空的每行一组。
-- 报价：同样分组，组内取 `sentAt` 最大。
-- 在手未签与定金不去重（它们本来就是按行的事实）。
-- 否决：按 `SalesQuote.version` 最大 —— `version` 是报价自身版本号，同一商机的两条 `SalesQuote` 行各自从 1 起，不可比。
+- 成单：**不去重**，每份 `signedAt` 落在期间的已签报价各计一份（见 Context：同商机多份已签 = 多张合同）。
+- 报价：`sentAt` 落在期间的非 draft 报价按 `opportunityId` 分组；组内已签的每份都计，未签的只取 `sentAt` 最大的一份（并列取 `updatedAt` 最大，再并列取 `id` 字典序最大）；`opportunityId` 为空的每行各计。
+- 在手未签：取上一步"报价"所计集合中 `signedAt` 为空、状态 sent / viewed 的，避免同一提案的旧修订版重复计入在手金额。
+- 定金：按行，不去重（每笔是真实收款）。
+- 否决 1：成单也按商机只取最新一份（设计稿初版推荐） —— 前提错误，会把同一客户分两次签的两张合同算成一张，少算真实签单额。
+- 否决 2：按 `SalesQuote.version` 最大去重 —— `version` 是按客户计数的序号，一个客户可有多个商机，不能代表某商机内的新旧。
 
 ### D3 期间边界用既有时区工具
 - `periodBounds(from, to, timeZone)` = `[zonedLocalToUtc(from, 0, tz), zonedLocalToUtc(nextDay(to), 0, tz))`；`days` = 当地日数差 + 1。
@@ -64,8 +67,9 @@
 
 ### D7 看板面板独立组件
 - `src/components/sales-command-center/sales-period-panel.tsx`：自管 `from / to / compare` 状态，初始值来自 URL 查询参数（`useSearchParams`），变化时 `router.replace` 写回；自己 `apiFetch("/api/sales/period-summary?…")`；预设按钮用组织时区的当地今天由服务端 `period` 回显校正（首屏用浏览器日期，响应回来后以 `period.from/to` 为准）。
-- `page.tsx` 只在 `SalesPerformanceHero` 下方插入 `<SalesPeriodPanel ownOnly={...} />`，不改其它组件 props。
-- 金额展示复用现有 `quote-display-amounts.ts` 的格式化（若其导出不适用，组件内用 `Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" })`）。
+- `page.tsx` 只在 `SalesPerformanceHero` 下方插入 `<Suspense fallback={null}><SalesPeriodPanel /></Suspense>`（`useSearchParams` 需要 Suspense 边界，否则 `next build` 报错；先例 `src/app/(main)/sales/quotes/page.tsx:80`），不改其它组件 props。首页响应里没有范围信息，面板以接口返回的 `scope` 决定是否显示按人表。
+- 面板请求返回 403 时**整块不渲染**、不弹错误：首页按 `sales.customer.read` 放行，而面板按 `sales.analytics.read`，持前者不持后者的人打开首页必须与改动前一致（2026-10-28 枚举 `role-defaults.ts` 全部 20 个默认模板，没有这种组合；只可能来自自定义岗位，属防御性要求）。其它错误显示面板内一行"期间数据暂不可用"，不影响首页其余部分。
+- 金额展示复用首页已有的 `formatSalesMoney`（`src/lib/sales/home/formatters.ts:3`），与英雄区格式一致。
 - 否决：改 `SalesPerformanceHero` 加期间 —— 它绑定 `/api/sales/home` 的月度目标与 `monthStart`，改它会改首页既有行为。
 
 ### D8 驾驶舱标签
@@ -86,7 +90,8 @@
 
 ## Risks / Trade-offs
 
-- [`sentAt` 为空的非 draft 报价（线下签字、从未"发送"）不计入报价数，但若已签会计入成单，转化率可能 > 100%] → 口径文档写明；页面上转化率 > 1 时显示"同期口径"提示而不截断；`period-pure.test.ts` 有该用例。
+- [转化率可能 > 100%：`sentAt` 为空的已签报价（线下签字、从未"发送"）计入成单不计入报价；上期发出、本期签字的也一样] → 口径文档写明；页面上转化率 > 1 时显示"同期口径"提示而不截断；`period-pure.test.ts` 有该用例。
+- [排除已归档客户后，历史期间的成单额会随归档操作变小] → 与首页约定一致，报告"已知限制"写明；若老板要"财务口径不随归档变化"，另开 change。
 - [同一商机"最新一份"规则与首页 `recentSigned` 列表（逐行）数字不一致] → 首页列表是明细不是汇总，报告 §判断点写明；驾驶舱标签已标"商机估值"。
 - [`OR` 三段取数在大企业可能捞出数千行] → 单次查询只选 11 个标量字段；Sunny 年报价量在千级，内存聚合可接受；上限 20,000 行，超出返回 `truncated: true` 并在 `insights` 加一条 warn（不静默）。
 - [浏览器日期与组织时区不同（出差）导致预设"本月至今"首屏差一天] → 以服务端返回的 `period` 为准回显（D7）。

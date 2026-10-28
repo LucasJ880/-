@@ -7,33 +7,48 @@
 ## ADDED Requirements
 
 ### Requirement: 成单口径
-期间汇总的"成单"SHALL 只计状态为 `signed` 或 `accepted`、且 `signedAt` 落在期间内的报价；同一商机有多份已签报价时 SHALL 只计 `signedAt` 最新的一份；没有关联商机的报价各自计一份。成单金额 SHALL 为上述报价 `grandTotal`（含税）之和，并同时给出 `preTaxTotal` 之和。成单金额 SHALL NOT 取商机的估值字段。
+期间汇总的"成单"SHALL 只计状态为 `signed` 或 `accepted`、且 `signedAt` 落在期间内的报价，每份已签报价各计一份（同一商机下多份已签报价是多张合同）。成单金额 SHALL 为上述报价 `grandTotal`（含税）之和，并同时给出 `preTaxTotal` 之和。成单金额 SHALL NOT 取商机的估值字段。
 
-#### Scenario: 同一商机两份已签报价只计最新
+#### Scenario: 同一商机两份已签报价都计
 - **WHEN** 某商机有两份已签报价，`signedAt` 分别为 10 月 3 日与 10 月 20 日，期间为 10 月 1 日至 28 日
-- **THEN** 成单数为 1，成单金额等于 10 月 20 日那份的 `grandTotal`；`npx tsx src/lib/sales/__tests__/period-pure.test.ts` 覆盖
+- **THEN** 成单数为 2，成单金额为两份 `grandTotal` 之和；`npx tsx src/lib/sales/__tests__/period-pure.test.ts` 覆盖
 
-#### Scenario: 改价回 draft 的旧版本不计
-- **WHEN** 一份报价签字后被改价、状态回到 `draft`
+#### Scenario: 签字后被修改回 draft 的报价不计
+- **WHEN** 一份报价签字后被修改，签字作废、状态回到 `draft`
 - **THEN** 该报价不计入成单
 
+#### Scenario: 估值不进入成单金额
+- **WHEN** 商机 `estimatedValue` 为 9,999，其唯一已签报价 `grandTotal` 为 5,000
+- **THEN** 成单金额为 5,000
+
 ### Requirement: 报价口径
-期间汇总的"报价"（报出去的）SHALL 只计 `sentAt` 落在期间内、且状态不是 `draft` 的报价（sent / viewed / accepted / signed / rejected / expired 均计）；同一商机多版本 SHALL 只计 `sentAt` 最新的一份。报价金额 SHALL 为其 `grandTotal` 之和。转化率 SHALL 为同期成单数除以报价数，报价数为 0 时 SHALL 为 `null`。
+期间汇总的"报价"（报出去的）SHALL 只计 `sentAt` 落在期间内、且状态不是 `draft` 的报价（sent / viewed / accepted / signed / rejected / expired 均计）。同一商机的报价中，已签（`signed` / `accepted`）的 SHALL 每份都计，未签的 SHALL 只计 `sentAt` 最新的一份；没有关联商机的报价各计一份。报价金额 SHALL 为所计报价 `grandTotal` 之和。转化率 SHALL 为同期成单数除以报价数，报价数为 0 时 SHALL 为 `null`。
 
 #### Scenario: 已过期与已拒绝的报价也算报出去
 - **WHEN** 期间内发出的报价有 2 份 `expired`、1 份 `rejected`、3 份 `sent`
 - **THEN** 报价数为 6，报价金额为六份 `grandTotal` 之和；`period-pure.test.ts` 覆盖
+
+#### Scenario: 同一商机的修订版只计最新
+- **WHEN** 某商机期间内先后发出未签报价 A（10 月 5 日）与 B（10 月 12 日），以及已签报价 C（10 月 20 日发出）
+- **THEN** 报价数为 2（B 与 C），报价金额为 B 与 C 的 `grandTotal` 之和；`period-pure.test.ts` 覆盖
 
 #### Scenario: 没有报价时转化率为空
 - **WHEN** 期间内报价数为 0
 - **THEN** `conversionRate` 为 `null`，不是 0 也不是错误
 
 ### Requirement: 在手未签与定金
-期间汇总 SHALL 给出在手未签（`sentAt` 落在期间、`signedAt` 为空、状态为 `sent` 或 `viewed`）的数量与金额，以及其中发出已超过 14 天的子集数量与金额；SHALL 给出 `depositCollectedAt` 落在期间内的 `depositAmount` 之和。
+期间汇总 SHALL 给出在手未签的数量与金额：取报价口径所计报价中 `signedAt` 为空、状态为 `sent` 或 `viewed` 的（同一提案的旧修订版不重复计），以及其中发出已超过 14 天的子集数量与金额；SHALL 给出 `depositCollectedAt` 落在期间内的 `depositAmount` 之和。
 
 #### Scenario: 超过 14 天的子集
 - **WHEN** 在手未签 5 份，其中 2 份 `sentAt` 距统计时刻超过 14 天
 - **THEN** `openQuotedCount` 为 5，`staleOpenCount` 为 2，两者金额各自为对应报价 `grandTotal` 之和；`period-pure.test.ts` 覆盖
+
+### Requirement: 排除已归档客户
+期间汇总的全部指标 SHALL 只计客户未归档（`archivedAt` 为空）的报价，与销售首页一致。
+
+#### Scenario: 归档客户的已签报价不计
+- **WHEN** 期间内某已签报价的客户已被归档
+- **THEN** 该报价不计入成单、报价、在手与定金；`period-db.isolated.test.ts` 覆盖
 
 ### Requirement: 期间按组织时区的当地日解释
 `from` 与 `to` SHALL 为 `YYYY-MM-DD` 的当地日期，期间 SHALL 为组织时区下 `from` 当日零点（含）到 `to` 次日零点（不含）；组织未设置时区时 SHALL 用系统默认时区（多伦多）。缺省期间 SHALL 为组织当地的本月 1 日至今天。
@@ -98,6 +113,10 @@ PRINCIPAL 范围的响应 SHALL NOT 含 `I5_REP_SILENT` 与 `I6_REP_CONCENTRATIO
 
 ### Requirement: 看板展示
 `/sales/home` SHALL 提供期间选择（本月至今、上月、本季、最近 30 天、自定义），选择 SHALL 体现在 URL 查询参数并在刷新后保留；SHALL 展示成单数、成单金额、报价数、报价金额、转化率、在手未签六个指标及其对比期变化；ORG 范围 SHALL 展示按人表，PRINCIPAL 范围 SHALL 只展示本人一行；SHALL 按 `severity` 展示洞察列表。销售驾驶舱"本月签约"瓦片 SHALL 标注为"商机估值"。
+
+#### Scenario: 无分析权限时首页不受影响
+- **WHEN** 持 `sales.customer.read`、不持 `sales.analytics.read` 的用户打开 `/sales/home`
+- **THEN** 期间面板不显示，页面不出现错误提示，首页其余内容与改动前相同
 
 #### Scenario: 刷新保留期间
 - **WHEN** 用户在 `/sales/home` 选择"上月"后刷新页面
