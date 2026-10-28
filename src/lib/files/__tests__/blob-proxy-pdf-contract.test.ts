@@ -9,6 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildHeapMb } from "../../../../scripts/build-heap-mb.mjs";
 
 const root = join(__dirname, "../../../..");
 const code = (rel: string) => readFileSync(join(root, rel), "utf-8");
@@ -30,6 +31,10 @@ ok(/serverExternalPackages[^\n]*@sparticuz\/chromium/.test(cfg), "BP-6: @spartic
 const pkg = code("package.json");
 ok(pkg.includes("next build --webpack"), "BP-7a: 生产构建必须走 webpack（Next 16 Turbopack 忽略 outputFileTracingIncludes → Chromium/字体/logo 全不进函数包，2026-08-25 vercel build 实证）");
 ok(pkg.includes("--max-old-space-size"), "BP-7b: webpack 全量构建需提堆（默认堆 OOM，本地实测）");
+ok(pkg.includes("--max-old-space-size=$(node scripts/build-heap-mb.mjs)"), "BP-7c: 堆上限按构建机内存取值（scripts/build-heap-mb.mjs）");
+const GIB = 1024 ** 3;
+ok(buildHeapMb(16 * GIB) === 7168 && buildHeapMb(8 * GIB) === 7168, "BP-7d: 16GB 及以下构建机保持 7168（生产 Enhanced 已验证）");
+ok(buildHeapMb(32 * GIB) === 16384 && buildHeapMb(60 * GIB) === 16384, "BP-7e: 32GB 及以上构建机放到 16384（staging Turbo 60GB 在 7168 下 OOM）");
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);
