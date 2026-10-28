@@ -65,7 +65,7 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-7 | 岗位绑定界面（平台 super_admin 在企业详情页看 / 改成员与数字员工岗位，与脚本共用校验 / 差异 / 审计；最后一个 owner 护栏）；成员增删改只认 super_admin（修正与 spec 不一致） | PERM-6a | 任务书 `docs/QINGYAN_PERM-7_POSITION_BINDING_UI_TASKBRIEF.md`（拍板见"拍板结果 · PERM-7"）；change `perm-7-position-binding-ui`；`docs/QINGYAN_PERM-7_REPORT.md` | [G] |
+| PERM-7 | 岗位绑定界面（平台 super_admin 在企业详情页看 / 改成员与数字员工岗位，与脚本共用校验 / 差异 / 审计；最后一个 owner 护栏）；成员增删改只认 super_admin（修正与 spec 不一致） | PERM-6a | 任务书 `docs/QINGYAN_PERM-7_POSITION_BINDING_UI_TASKBRIEF.md`（拍板见"拍板结果 · PERM-7"）；change `perm-7-position-binding-ui`；`docs/QINGYAN_PERM-7_REPORT.md` | [x]（#305；archive 见 `openspec/changes/archive/2026-10-28-perm-7-position-binding-ui`） |
 | PERM-7b | AI 工具策略的平台 `admin` 档（派生角色原样透传 admin）；企业列表 / 新建企业等仍认平台 admin 的入口（`requirePlatformAdmin` 其余 10 个文件） | PERM-7 | 待写任务书 | [ ] |
 
 ---
