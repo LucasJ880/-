@@ -122,3 +122,8 @@
 1. **按推荐拆分**：4c3 只交付压扁工具（写库闸门 `PLATFORM_ROLE_COLLAPSE_READY = false`）+ 岗位模式企业关闭兼容回退；残留平台角色读点拆为 `perm-4c4-ai-tools-by-position`（AI 工具 / 晨报 / Muse）与 `perm-4c5-management-reads-by-position`（任务 / 运营项目 / 交接 / 审批执行 / 通知 / 管理总览），最后合并的那个把闸门改为 true，之后才在生产执行压扁。
 2. **Sunny 暂不需要外贸**：外贸通道（`revenue-spine` 的 `/api/revenue/*`、`trade/*` 询盘与展会收件人、默认询盘负责人）留 PERM-6，不进 4c4 / 4c5。
 3. **Sunny 需要招投标项目**：招投标相关读点（`projects/handoff/access.ts` 交接、`/api/ops/projects` 列表 / 创建等）在 4c5 收口，且必须在打开闸门之前完成。
+
+### 拍板结果 · PERM-4c4（2026-10-28，审核四件套后："按照你推荐的方案开始实施"）
+1. **用"岗位派生平台角色"做桥**：岗位模式企业 AI 一侧按有效权限键映射回 `boss` / `sales` / `operations` / `user`（`super_admin` / `admin` / `trade` 原样），工具策略表不改；工具改权限键另立 change。
+2. **多岗取最高一项**：持老板岗位（`organization.dashboard.read`）即派生为 `boss`，兼销售也不额外给销售工具（与今天平台 `boss` 一致）。
+3. **Muse 岗位模式只看派生角色**：`org_owner` / `org_admin` 本身不带来全组织范围与金额。

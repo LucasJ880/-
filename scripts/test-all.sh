@@ -270,6 +270,8 @@ run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-a
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
 run_test "Default Workspace" "npx tsx src/lib/rbac/__tests__/default-workspace.test.ts"
 run_test "Home Redirect" "npx tsx src/lib/rbac/__tests__/home-redirect.test.ts"
+run_test "岗位派生平台角色（PERM-4c4）" "npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts"
+run_test "岗位派生平台角色 DB 端到端（PERM-4c4；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/rbac/__tests__/effective-platform-role-db.isolated.test.ts"
 run_test "Ops Dashboard Classify" "npx tsx src/lib/operations/dashboard/__tests__/classify.test.ts"
 run_test "Task Status Transition" "npx tsx src/lib/tasks/__tests__/status-transition.test.ts"
 run_test "Phase5 Handoff Domain" "npx tsx src/lib/projects/handoff/__tests__/handoff-domain.test.ts"

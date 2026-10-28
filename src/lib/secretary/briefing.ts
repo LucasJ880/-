@@ -6,6 +6,7 @@
  * 3. 写入 Notification 推送给用户
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
 import { scanTradeDomain } from "./domains/trade";
@@ -19,14 +20,14 @@ import {
 import type { DailyBriefing, DomainScanResult, BriefingItem } from "./types";
 
 /**
- * 根据用户角色决定扫描哪些域
+ * 根据用户角色决定扫描哪些域（PERM-4c4：岗位模式企业取岗位派生平台角色）
  */
-async function getUserDomains(userId: string): Promise<string[]> {
+async function getUserDomains(userId: string, orgId: string): Promise<string[]> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { role: true },
   });
-  const role = user?.role ?? "user";
+  const role = await resolveEffectivePlatformRole({ userId, orgId, platformRole: user?.role ?? "user" });
 
   switch (role) {
     case "admin":
@@ -46,7 +47,7 @@ export async function generateDailyBriefing(
   orgId: string,
 ): Promise<DailyBriefing> {
   const domains: DomainScanResult[] = [];
-  const userDomains = await getUserDomains(userId);
+  const userDomains = await getUserDomains(userId, orgId);
   const isAdmin = userDomains.includes("trade") && userDomains.includes("sales");
 
   // ── 外贸域扫描 ──

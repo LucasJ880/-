@@ -47,6 +47,7 @@ import { fireToolCallHook, fireToolStartHook } from "./run-hooks";
 
 // 确保工具已注册
 import "./tools";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 
 const MAX_TOOL_ROUNDS_DEFAULT = 5;
 const PER_ROUND_TIMEOUT_MS = 30_000;
@@ -276,7 +277,18 @@ async function executeToolUnified(
   return registry.execute(name, ctx);
 }
 
-export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
+async function withEffectiveRole(options: AgentRunOptions): Promise<AgentRunOptions> {
+  const role = await resolveEffectivePlatformRole({
+    userId: options.userId,
+    orgId: options.orgId,
+    platformRole: options.role,
+  });
+  return role === options.role ? options : { ...options, role };
+}
+
+export async function runAgent(rawOptions: AgentRunOptions): Promise<AgentRunResult> {
+  // PERM-4c4：岗位模式企业的工具列表过滤与工具执行上下文取岗位派生平台角色（幂等）
+  const options = await withEffectiveRole(rawOptions);
   const {
     systemPrompt,
     messages: inputMessages,
@@ -527,8 +539,10 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function* runAgentStream(
-  options: AgentRunOptions,
+  rawOptions: AgentRunOptions,
 ): AsyncGenerator<AgentStreamEvent, void, unknown> {
+  // PERM-4c4：同 runAgent
+  const options = await withEffectiveRole(rawOptions);
   const {
     systemPrompt,
     messages: inputMessages,
