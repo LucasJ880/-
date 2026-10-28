@@ -53,7 +53,7 @@
    - ~~PERM-5b~~ 已合并（#285）并 archive（#286）。**生产动作**：无（没有数字员工绑定 = 和今天一样全拒）。启用某个数字员工：填 `config/positions/sunny-digital-employees.json` 的 Agent id（sponsor = Agent 创建人），`--principal-type DIGITAL_EMPLOYEE --dry-run` 后执行。已知：今天没有运行时以数字员工为主体执行；现有工具都没声明 `requiredPermission`，数字员工调用会 `permission_required`（报告 §4）。
    - ~~PERM-5a~~ 已合并（#287）并 archive（本 PR）。**生产动作**：合并后对 Sunny 重跑 `seedOrgAuthorizationProfiles`（accounting / owner / bids 加了 `project.finance.read`），确认 Miki 绑了 `accounting`。项目结算页签在生产显示"项目财务控制未启用"（`TENDER_FINANCIAL_CONTROL_ENABLED` 默认关）；会计仍进不了单项目财务页（不是项目成员，属 4c，报告 §3 D4）。
 10. 下一个：**PERM-4c**（判断点已拍板：先压 Sunny、梦馨不动、Sunny 无人用 `manager`）——项目财务 `project.finance.*` 收口（含会计进单项目财务页、`requireProjectReadAccess` 口径）、导航 `requiredPermissions` 铺开删 `requiredPlatformRoles / NAV_ROLES_*`、默认工作区去平台角色、平台角色压扁脚本、删除 `canManageUsers`（含 `src/lib/projects/handoff/access.ts`）。先 `/opsx:propose perm-4c-nav-by-position`，四件套回传审核。
-   - `openspec list` 里还有一个 `fix-taskflow-status-drift`（✓ Complete，非本会话产物）未 archive——下次确认其 PR 已合并后再 archive。
+   - ~~`fix-taskflow-status-drift` 未 archive~~：提交已在 main，2026-10-28 补 archive（specs 新增 `qa/taskflow-status`，`qa/test-registry` 增量）。
 
 ## 环境注意
 
