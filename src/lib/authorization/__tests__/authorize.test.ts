@@ -201,6 +201,7 @@ for (const k of [
   "inventory.read",
   "accounting.read",
   "identity.position.manage",
+  "sales.quote.signed_amount.approve",
 ]) {
   ok(isKnownPermission(k), `权限键已登记：${k}`);
 }
@@ -254,6 +255,24 @@ ok(has(mergedProfileBindings(WC, "ops_staff"), "inventory.read", "ORG") && !has(
 ok(has(mergedProfileBindings(WC, "sales_rep"), "inventory.read", "ORG"), "sales_rep 只读库存");
 ok(has(mergedProfileBindings(WC, "ops_lead"), "orders.fulfillment.read", "ORG") && has(mergedProfileBindings(WC, "ops_lead"), "inventory.read", "ORG"), "ops_lead 读工艺单 + 读库存");
 ok(WINDOW_COVERING_ROLE_PROFILES.every((p) => p.name && p.description), "窗饰模板均有中文名与说明");
+
+// PERM-4a：owner 销售改权 + 签约改价审批权；其余岗位不持新审批键 / 归档键
+const ownerS = mergedProfileBindings(WC, "owner");
+ok(
+  ["sales.customer.update", "sales.customer.archive", "sales.opportunity.update", "sales.quote.update", "sales.quote.signed_amount.approve"].every((k) => has(ownerS, k, "ORG")),
+  "PERM-4a：owner 以 ORG 持客户改 / 归档、商机改、报价改、签约改价审批",
+);
+ok(
+  profileKeysForIndustryPack(WC).filter((k) => k !== "owner").every((k) => {
+    const bs = mergedProfileBindings(WC, k);
+    return !has(bs, "sales.quote.signed_amount.approve") && !has(bs, "sales.customer.archive");
+  }),
+  "PERM-4a：除 owner 外的岗位模板（含 pricing_lead）不含签约改价审批键与归档键",
+);
+{
+  const d = PERMISSION_REGISTRY.find((p) => p.key === "sales.quote.signed_amount.approve");
+  ok(!!d && d.allowedPrincipalTypes.length === 1 && d.allowedPrincipalTypes[0] === "HUMAN" && d.supportedScopes.join() === "ORG" && d.riskLevel === "HIGH", "PERM-4a：sales.quote.signed_amount.approve 仅人类 / ORG / HIGH");
+}
 
 // 多岗并集：owner + pricing_lead + accounting
 const multi = ["owner", "pricing_lead", "accounting"].flatMap((k) =>

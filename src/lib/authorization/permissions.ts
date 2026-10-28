@@ -182,6 +182,17 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     ["ORG"],
     "CRITICAL",
   ),
+  {
+    // PERM-4a：已签约报价改总价的第二人把关；只给老板，数字员工不可持有
+    key: "sales.quote.signed_amount.approve",
+    resource: "sales.quote",
+    action: "signed_amount.approve",
+    label: "批准签约单改价",
+    description: "批准他人提交的已签约报价改总价；提交人不得自批",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
   def("sales.settings.manage", "sales.settings", "manage", "管理销售设置", "修改折扣表 / 费用 / 税率 / 解锁码（走审批）", ["ORG"], "CRITICAL"),
   def("sales.order.create", "sales.order", "create", "创建订单", "从报价建立订单", ["PRINCIPAL", "ORG"], "MEDIUM"),
   def("orders.fulfillment.update", "orders.fulfillment", "update", "出单修改（全品类）", "修改任意品类的工艺单、推进状态；仅老板与平台管理员", ["ORG"], "HIGH"),
