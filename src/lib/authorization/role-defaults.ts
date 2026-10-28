@@ -219,6 +219,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "operations.content.approve",
       // PERM-5a：项目结算汇总（全企业）
       "project.finance.read",
+      // PERM-4c1：项目财务特权（取代 org_admin 直通）
+      "project.finance.manage",
     ),
   },
   {

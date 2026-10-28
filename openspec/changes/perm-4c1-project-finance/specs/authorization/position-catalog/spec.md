@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: 项目财务管理权限键
-权限目录 SHALL 包含 `project.finance.manage`（中文标签"管理项目财务"，风险 HIGH，`ORG`，只允许人类主体）。`owner` 岗位模板与系统模板 `org_owner`、`org_admin` SHALL 以 `ORG` 范围绑定它；`bids`、`accounting`、`sales_rep`、`pricing_lead`、`ops_staff`、`ops_lead`、`installer` 与出单模板 SHALL NOT 绑定它。
+权限目录 SHALL 包含 `project.finance.manage`（中文标签"管理项目财务"，风险 HIGH，`ORG`，只允许人类主体）。`owner` 岗位模板 SHALL 以 `ORG` 范围绑定它；系统模板 `org_owner`、`org_admin` 以及 `bids`、`accounting`、`sales_rep`、`pricing_lead`、`ops_staff`、`ops_lead`、`installer` 与出单模板 SHALL NOT 绑定它。
 
 #### Scenario: 老板可管
 - **WHEN** 读取窗饰行业包合并后的 `owner` 模板
@@ -11,6 +11,10 @@
 
 #### Scenario: 会计与招投标不可管
 - **WHEN** 读取 `accounting` 与 `bids` 模板
+- **THEN** 都不包含 `project.finance.manage`
+
+#### Scenario: 企业管理员系统模板不可管
+- **WHEN** 读取系统模板 `org_owner` 与 `org_admin`
 - **THEN** 都不包含 `project.finance.manage`
 
 #### Scenario: 数字员工不可持有

@@ -47,14 +47,6 @@ export function isPlatformSuperAdmin(platformRole: string | null | undefined): b
 }
 
 /**
- * @deprecated PERM-4b：用户管理页改用 isPlatformSuperAdmin；PERM-4c 删除。
- * SYNC: 与 src/lib/rbac/roles.ts canManageUsers 保持一致。
- */
-export function canManageUsers(platformRole: string | null | undefined): boolean {
-  return isAdmin(platformRole) || platformRole === "boss";
-}
-
-/**
  * 检查前端模块可见性
  * SYNC: MODULE_ROLES 映射与 src/lib/rbac/role-access.ts MODULE_VISIBILITY 同源。
  */

@@ -19,10 +19,11 @@
 
 ## Decisions
 
-### D1 新键 `project.finance.manage`，`owner` + 系统模板 `org_owner` / `org_admin`
-`org_owner` / `org_admin` 系统模板只在"成员没有任何岗位绑定"时经兼容回退生效；把键挂在它们上面，梦馨（无岗位）现有 `org_admin` 财务特权不变，Sunny（有岗位）按岗位。`bids` 不绑（拍板 3）。HUMAN only。
+### D1 新键 `project.finance.manage`，只给 `owner`
+HUMAN only，ORG。`bids` 不绑（拍板 3）。系统模板 `org_owner` / `org_admin` 不绑。
+- 否决：挂在系统模板 `org_owner` / `org_admin` 上保持梦馨现状——`seedOrgAuthorizationProfiles` 会把每个 `org_owner` / `org_admin` 成员**自动绑定**到同名系统模板（真实绑定，不只是兼容回退），挂上去等于在 Sunny 也保留 `org_admin` 特权（实施时隔离库 e2e 发现）。项目财务与报价引擎在生产默认关闭（`TENDER_FINANCIAL_CONTROL_ENABLED` / `TENDER_QUOTE_ENGINE_ENABLED`），梦馨当前无线上影响；启用前给梦馨落 `owner` 岗位。
 - 否决：给 `bids` 绑 ORG 的 manage——招投标会看到所有项目的逐笔费用与收据，违反 PERM-5a 拍板 3；招投标在自己项目里的权限仍按项目角色。
-- 否决：财务判定里保留 `org_admin` 分支只对非窗饰企业生效——两套口径散在路由里；兼容回退模板已经是"无岗位企业"的唯一入口。
+- 否决：财务判定里保留 `org_admin` 分支只对非窗饰企业生效——两套口径散在路由里。
 
 ### D2 集中判定 `resolveFinancePrivilege`，路由只读结果
 `requireCostAccess` 在通过访问校验后算出 `finance = { privileged, canReadAll }` 并挂到返回的上下文：
@@ -57,7 +58,7 @@
 
 ## Risks / Trade-offs
 
-- **BREAKING（窗饰企业）**：只靠 `org_admin` 成员角色、无 `owner` 岗位的人失去财务与报价引擎特权。Sunny 上线前按 4a / 4b 同口径核对：需要的人绑 `owner`。
+- **BREAKING**：只靠 `org_admin` / `org_owner` 成员角色、无 `owner` 岗位的人失去财务与报价引擎特权（所有企业）。两个功能在生产默认关闭，当前无线上影响；启用前核对谁需要 `owner`。Sunny 上线前按 4a / 4b 同口径核对：需要的人绑 `owner`。
 - 平台 admin 失去交接管理者身份（与 4a / 4b 一致）。
 - `requireCostAccess` 每次多 1–2 次 authorize 查询；财务接口低频，可接受。
 
@@ -65,7 +66,7 @@
 
 - `npx tsx src/lib/authorization/__tests__/authorize.test.ts`（新键登记与模板）
 - `npx tsx src/lib/project-finance/__tests__/finance-access.test.ts`（新，纯：特权 / 只读全量 / perm 判定决策表、源码断言 5 个路由不再出现 `org_admin`、QE 特权）
-- `src/lib/project-finance/__tests__/finance-access-db.isolated.test.ts`（新，隔离库，财务开关打开：老板非成员审核费用 200、会计非成员看全部费用 200 / 审核 403、org_admin 无岗位只见本人、销售非成员 403、跨企业不可见、负责人编辑预算）
+- `src/lib/project-finance/__tests__/finance-access-db.isolated.test.ts`（新，隔离库，财务开关打开：老板非成员审核费用 200、会计非成员看全部费用 200 / 审核 403、org_admin（有 / 无岗位）均无特权、销售非成员 403、跨企业不可见、负责人编辑预算）
 - 回归：`p15-authz-contract`、`p16-authz-contract`、`quote-engine-contract`、`quote-ops-contract`、`security1-owner-manager`、`ops-access`、handoff 相关测试
 - `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate perm-4c1-project-finance --strict`
 - 验收 grep：`grep -rn 'orgRole === "org_admin"' src/app/api/projects src/lib/project-finance src/lib/quote-engine`（非测试）为空；`grep -rn "canManageUsers\|canDeleteUsers" src`（非测试）为空

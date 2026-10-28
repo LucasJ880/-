@@ -329,6 +329,8 @@ run_test "数字员工岗位绑定与工具授权（PERM-5b）" "npx tsx src/lib
 run_test "数字员工 DB 端到端（PERM-5b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/authorization/__tests__/digital-employee-db.isolated.test.ts"
 run_test "会计视图（PERM-5a）" "npx tsx src/lib/accounting/__tests__/accounting.test.ts"
 run_test "会计视图 DB 端到端（PERM-5a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/accounting/__tests__/accounting-db.isolated.test.ts"
+run_test "项目财务 / 报价引擎按岗位（PERM-4c1）" "npx tsx src/lib/project-finance/__tests__/finance-access.test.ts"
+run_test "项目财务按岗位 DB 端到端（PERM-4c1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-access-db.isolated.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "Aivora 契约适配器" "npx tsx src/lib/operations/__tests__/aivora.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

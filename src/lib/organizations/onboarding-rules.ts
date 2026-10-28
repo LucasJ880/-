@@ -312,7 +312,7 @@ export type OrgBoundOrgRole = (typeof ORG_BOUND_ORG_ROLES)[number];
 
 /**
  * 工厂老板（企业 owner）的平台角色：外部工厂人员只能是 trade / sales。
- * 平台 boss 可跨租户管理用户（canManageUsers），admin / super_admin 是平台管理员——都不能交给外部工厂。
+ * 平台 boss（历史上曾可跨租户管理用户），admin / super_admin 是平台管理员——都不能交给外部工厂。
  * 返回 null = 可以；否则返回给管理员看的原因。
  */
 export function factoryOwnerRoleProblem(platformRole: string | null | undefined): string | null {

@@ -300,6 +300,8 @@ npx tsx src/lib/operations/__tests__/ops-access.test.ts
 npx tsx src/lib/authorization/__tests__/digital-employee.test.ts
 # PERM-5a：会计视图（提成口径 / 时间窗口 / 工作区导航 / 接口源码断言）
 npx tsx src/lib/accounting/__tests__/accounting.test.ts
+# PERM-4c1：项目财务 / 报价引擎按岗位（决策表 + 源码断言）
+npx tsx src/lib/project-finance/__tests__/finance-access.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts

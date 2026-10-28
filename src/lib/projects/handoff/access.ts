@@ -2,11 +2,7 @@
  * 中标交接权限
  */
 
-import {
-  canManageUsers,
-  isOrgSystemAdmin,
-  isSuperAdmin,
-} from "@/lib/rbac/roles";
+import { isOrgSystemAdmin, isSuperAdmin } from "@/lib/rbac/roles";
 import {
   isManagementWorkspaceUser,
   type WorkspacePolicyContext,
@@ -31,7 +27,6 @@ function hasKey(ctx: HandoffAccessContext, key: string): boolean {
 function isManager(ctx: HandoffAccessContext): boolean {
   if (isManagementWorkspaceUser(ctx)) return true;
   if (isSuperAdmin(ctx.platformRole)) return true;
-  if (canManageUsers(ctx.platformRole)) return true;
   if (isOrgSystemAdmin(ctx.orgRole)) return true;
   return false;
 }

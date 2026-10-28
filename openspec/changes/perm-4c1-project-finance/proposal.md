@@ -8,8 +8,8 @@ TASKFLOW：PERM-4c1（`docs/QINGYAN_PERMISSION_TASKFLOW.md`）；任务书 `docs
 
 ## What Changes
 
-- 新增权限键 `project.finance.manage`（"管理项目财务"，HIGH，ORG，只允许人类）：`owner` 岗位绑定；系统模板 `org_owner` / `org_admin` 也绑定（只对没有岗位绑定、走成员角色兼容回退的企业生效，保持梦馨现状）。
-- 项目财务接口（`/api/projects/{id}/finance/**`）的特权判定从"平台 super_admin 或 `org_admin` 或项目负责人"改为"平台 super_admin 或在该企业持 `project.finance.manage`（ORG）或项目负责人"：可编辑预算、审核费用、登记付款、替他人提交 / 上传票据、看全部费用与应付。**BREAKING**：只靠 `org_admin` 成员角色、不持该键的人失去财务特权（窗饰企业）。
+- 新增权限键 `project.finance.manage`（"管理项目财务"，HIGH，ORG，只允许人类）：只绑定 `owner` 岗位（系统模板 `org_owner` / `org_admin` 不绑——seed 会把企业管理员成员自动绑到这两个模板，绑上就等于保留 `org_admin` 特权）。
+- 项目财务接口（`/api/projects/{id}/finance/**`）的特权判定从"平台 super_admin 或 `org_admin` 或项目负责人"改为"平台 super_admin 或在该企业持 `project.finance.manage`（ORG）或项目负责人"：可编辑预算、审核费用、登记付款、替他人提交 / 上传票据、看全部费用与应付。**BREAKING**：只靠 `org_admin` / `org_owner` 成员角色、不持 `owner` 岗位的人失去财务与报价引擎特权（所有企业；项目财务与报价引擎在生产默认关闭，当前无线上影响）。
 - 持 `project.finance.read`（ORG）的人（会计、老板）在该企业已派发项目上可只读访问项目财务接口，**即使不是项目成员**：能看预算、全部费用、全部应付、收入、汇总、表现；不能编辑预算、审核费用、登记付款、替他人操作。
 - 报价引擎（`/api/projects/{id}/quote-engine/**`）的特权同样改为平台 super_admin / `project.finance.manage`（ORG）/ 项目负责人；项目成员按项目角色的规则不变。
 - 招投标交接（`src/lib/projects/handoff/access.ts`）的管理者判定去掉 `canManageUsers`（平台 admin / boss）；删除 `src/lib/rbac/roles.ts` 与 `src/lib/permissions-client.ts` 的 `canManageUsers` / `canDeleteUsers`。**BREAKING**：平台 `admin`（非 super_admin）不再是交接管理者。
@@ -39,4 +39,4 @@ TASKFLOW：PERM-4c1（`docs/QINGYAN_PERMISSION_TASKFLOW.md`）；任务书 `docs
 - `src/lib/quote-engine/access.ts`（`resolveQuoteCapabilities` 改为接收岗位特权输入）
 - `src/lib/projects/handoff/access.ts`、`src/lib/rbac/roles.ts`、`src/lib/permissions-client.ts`
 - 测试：`quote-engine-contract.test`（QE-02 改语义）、`security1-owner-manager.test`（删 `canManageUsers` 用例）、新增纯测试与隔离库 e2e
-- 零 schema；上线需对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner 加了 `project.finance.manage`）
+- 零 schema；上线需对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner 加了 `project.finance.manage`）；梦馨的 `org_admin` 同样失去财务特权，但财务 / 报价引擎开关在生产关闭，启用前需给梦馨落 `owner` 岗位

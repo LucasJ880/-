@@ -34,7 +34,7 @@
 |---|---|---|---|---|
 | PERM-4a | 销售模块：`isAdmin` 短路 → `authorize`；签约单改金额走审批（报价行级出单编辑 2026-10-28 拍板移出） | PERM-3 | 任务书 `docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`；change `perm-4a-sales-authorize`；`docs/QINGYAN_PERM-4a_REPORT.md` | [x]（#279；archive 见 `openspec/changes/archive/2026-10-28-perm-4a-sales-authorize`） |
 | PERM-4b | 运营模块：`canManageUsers` → `operations.read / manage`；内容起草 / 批准键（不得自批）；增长中心写 `operations.manage`；平台用户管理仅 super_admin；`/ops` 入口按岗位 | PERM-4a | 同上；change `perm-4b-ops-authorize`；`docs/QINGYAN_PERM-4b_REPORT.md` | [x]（#283；archive 见 `openspec/changes/archive/2026-10-28-perm-4b-ops-authorize`） |
-| PERM-4c1 | 项目财务 / 报价引擎按岗位（`project.finance.manage`，`org_admin` 特权 → 岗位键）；会计（`project.finance.read` ORG）进单项目财务页只读；删除 `canManageUsers` | PERM-4b、PERM-5a | 任务书 PERM-4c 段（拍板见"拍板结果 · PERM-4c"）；change `perm-4c1-project-finance` | [~] |
+| PERM-4c1 | 项目财务 / 报价引擎按岗位（`project.finance.manage`，`org_admin` 特权 → 岗位键）；会计（`project.finance.read` ORG）进单项目财务页只读；删除 `canManageUsers` | PERM-4b、PERM-5a | 任务书 PERM-4c 段（拍板见"拍板结果 · PERM-4c"）；change `perm-4c1-project-finance`；`docs/QINGYAN_PERM-4c1_REPORT.md` | [G]（代码完成，PR 待开） |
 | PERM-4c2 | 导航 `requiredPermissions` 铺开、`requiredPlatformRoles / NAV_ROLES_*` 只留外贸；默认工作区 / 底栏按岗位（窗饰企业）；管理层 = 老板岗位 | PERM-4c1 | change `perm-4c2-nav-by-position` | [ ] |
 | PERM-4c3 | 平台角色压扁脚本（数据，先 Sunny，`trade` 不动）；窗饰企业关闭成员角色兼容回退 | PERM-4c2 | change `perm-4c3-collapse-platform-roles` | [ ] |
 

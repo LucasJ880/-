@@ -5,15 +5,19 @@
 ## ADDED Requirements
 
 ### Requirement: 项目财务特权
-在项目财务接口中，平台 super_admin、在项目所属企业持 `ORG` 范围 `project.finance.manage` 的人、项目负责人 SHALL 拥有财务特权：可编辑预算、审核费用、登记付款、替他人提交费用与上传票据、看全部费用与全部应付。企业成员角色 `org_admin` / `org_owner` 本身 SHALL NOT 构成财务特权（经岗位或兼容回退持有 `project.finance.manage` 时除外）。
+在项目财务接口中，平台 super_admin、在项目所属企业持 `ORG` 范围 `project.finance.manage` 的人、项目负责人 SHALL 拥有财务特权：可编辑预算、审核费用、登记付款、替他人提交费用与上传票据、看全部费用与全部应付。企业成员角色 `org_admin` / `org_owner` SHALL NOT 构成财务特权。
 
 #### Scenario: 老板岗位审核费用
 - **WHEN** 持 `owner` 岗位、不是项目成员、企业成员角色为 `org_member` 的老板审核一笔已提交费用
 - **THEN** 请求被允许
 
 #### Scenario: 只有 org_admin 不再有特权
-- **WHEN** 窗饰企业里企业成员角色为 `org_admin`、无任何岗位绑定的项目成员（项目角色无审核权）请求费用列表
+- **WHEN** 企业成员角色为 `org_admin`、绑定了 `sales_rep` 岗位（不持 `project.finance.manage`）的项目成员（项目角色无审核权）请求费用列表
 - **THEN** 只返回本人提交的费用，响应标明不可审核
+
+#### Scenario: 无岗位的 org_admin 也无特权
+- **WHEN** 企业成员角色为 `org_admin`、没有业务岗位、不是项目成员的人审核费用
+- **THEN** 返回 403
 
 #### Scenario: 项目负责人仍有特权
 - **WHEN** 项目负责人编辑预算
