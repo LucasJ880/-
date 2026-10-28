@@ -9,7 +9,9 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { NEXT_ACTION_LABELS, NEXT_ACTION_TYPES, type NextActionType } from "@/lib/revenue-spine/next-action";
 import { loadRevenueSpinePolicy } from "@/lib/revenue-spine/policy";
+import { loadSalesPeriodSummary } from "@/lib/sales/period/load";
 import type { Advisory } from "./advisory";
+import type { PeriodInfo, PeriodTotals } from "@/lib/sales/period/types";
 import type { MuseIdentity } from "./binding-pure";
 import { loadFollowups } from "./followup";
 import { loadInquiries } from "./inquiry";
@@ -27,7 +29,7 @@ import {
 
 export type SalesIntentResult =
   | { ok: true; advisory: Advisory; data: unknown }
-  | { ok: false; errorCode: "PERMISSION_DENIED" | "OPPORTUNITY_NOT_FOUND"; message: string };
+  | { ok: false; errorCode: "PERMISSION_DENIED" | "OPPORTUNITY_NOT_FOUND" | "VALIDATION_FAILED"; message: string };
 
 const OPEN_ACTION_STATUSES = ["open", "in_progress"];
 /**
@@ -95,7 +97,7 @@ const denied = (message: string): SalesIntentResult => ({ ok: false, errorCode: 
 
 export async function salesOverview(
   identity: MuseIdentity,
-  args: { days?: number; assigneeUserId?: string; limit?: number },
+  args: { days?: number; assigneeUserId?: string; limit?: number; period?: { from: string; to: string } },
   now: Date = new Date(),
 ): Promise<SalesIntentResult> {
   const scope = resolveSalesScope(identity);
@@ -125,6 +127,21 @@ export async function salesOverview(
   const kept = records.slice(0, OVERVIEW_FETCH_CAP);
   const actions = await countOpenActions(identity.orgId, kept.map((o) => o.id), now);
 
+  // KPI-1：带 period 时附期间汇总（同网页口径）。管理范围 = 全企业；销售范围 = 本人创建的报价。契约已校验期间。
+  let period: { info: PeriodInfo; totals: PeriodTotals } | undefined;
+  if (args.period) {
+    const res = await loadSalesPeriodSummary({
+      orgId: identity.orgId,
+      scope: scope.kind === "org" ? { kind: "org" } : { kind: "own", userId: scope.userId },
+      from: args.period.from,
+      to: args.period.to,
+      now,
+    });
+    // 正式入口已过契约校验；绕过契约的内部调用方传了非法期间时显式报错，不静默丢掉 period
+    if (!res.ok) return { ok: false, errorCode: "VALIDATION_FAILED", message: `期间参数不合法（${res.problem}）：from / to 须为 YYYY-MM-DD，to 不早于 from，跨度不超过 366 天。` };
+    period = { info: res.data.period, totals: res.data.totals };
+  }
+
   const { advisory, data } = buildSalesOverview({
     scope,
     filteredByAssignee: scope.kind === "org" && !!filter.assigneeId,
@@ -135,6 +152,7 @@ export async function salesOverview(
     staleAfterDays: policy.followUp.staleAfterDays,
     truncated: records.length > OVERVIEW_FETCH_CAP,
     now,
+    period,
   });
   return { ok: true, advisory, data };
 }

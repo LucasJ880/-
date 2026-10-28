@@ -62,6 +62,15 @@ ok("S1：sales_overview 无参数也合法", parseMuseCommand({ ...base, command
 ok("S1：days=0 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 0 } }).ok);
 ok("S1：days=91 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 91 } }).ok);
 ok("S1：limit=21 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", limit: 21 } }).ok);
+ok("KPI-1：sales_overview 可带 period", parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026-10-01", to: "2026-10-28" } } }).ok);
+ok("KPI-1：period to 早于 from 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026-10-28", to: "2026-10-01" } } }).ok);
+ok("KPI-1：period 日期格式错误拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026/10/01", to: "2026-10-28" } } }).ok);
+ok("KPI-1：period 跨度 367 天拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2025-01-01", to: "2026-01-02" } } }).ok);
+ok("KPI-1：period 缺 to 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026-10-01" } } }).ok);
+{
+  const parsed = parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 30, period: { from: "2026-10-01", to: "2026-10-28", extra: 1 } } });
+  ok("KPI-1：period 未知字段被丢弃，其它参数不受影响", parsed.ok && JSON.stringify((parsed.value.command as { period?: unknown }).period) === JSON.stringify({ from: "2026-10-01", to: "2026-10-28" }), parsed);
+}
 ok("S1：opportunity_status 缺 opportunityId 拒绝", !parseMuseCommand({ ...base, command: { intent: "opportunity_status" } }).ok);
 {
   const r = parseMuseCommand({ ...base, command: { intent: "opportunity_status", opportunityId: "opp_1", userId: "u_boss", role: "admin" } });

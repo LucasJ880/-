@@ -29,7 +29,7 @@
 #### Scenario: 范围沿用 S1 规则
 
 - **WHEN** 只持合价岗位的用户（Muse 按岗位派生为销售角色）调用 `sales_overview` 并带 `period`
-- **THEN** `data.period` 只含本人创建的报价计数、不含金额键；Muse 范围不因 `sales.analytics.read` 改变
+- **THEN** `data.period` 只含本人创建的报价计数、不含金额键；Muse 范围不因 `sales.analytics.read` 改变；`sales-pure.test.ts` 以真实岗位派生覆盖（合价岗 → 本人范围，会计岗 → 拒绝）
 
 #### Scenario: 不带 period 时不变
 

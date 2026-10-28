@@ -16,7 +16,7 @@
 
 ## 4. Muse 只追加
 
-- [ ] 4.1 `src/lib/muse-bridge/contract.ts` 给 `sales_overview` 加可选 `period`（`YYYY-MM-DD` 正则 + `superRefine` 跨度 / 先后）；`src/lib/muse-bridge/sales.ts salesOverview` 有 `period` 时经 `load.ts` + `summarizeSalesPeriod` 挂 `data.period`，`amountsVisible(scope)=false` 时剔除全部 `*Amount` / `*PreTax` 键，`advisory.reasons` 追加一句期间汇总（销售范围只有计数）；无 `period` 路径不变。在 `muse-bridge-pure.test.ts`（period 三例校验，意图总数仍为 18）、`sales-pure.test.ts`（不带 period 无 `data.period`；剔除金额键）、`sales-db.isolated.test.ts`（管理者带 period 的数字与 `/api/sales/period-summary` 一致；sales 带 period 响应 JSON 不含 `grandTotal` 数字）各加用例。verify：三个测试分别 `npx tsx …` 退出 0，既有用例数不减（2026-10-28 基线：muse-bridge-pure 61、sales-pure 73，sales-db.isolated 需隔离库）。
+- [x] 4.1 `src/lib/muse-bridge/contract.ts` 给 `sales_overview` 加可选 `period`（`YYYY-MM-DD` 正则 + `superRefine` 跨度 / 先后）；`src/lib/muse-bridge/sales.ts salesOverview` 有 `period` 时经 `load.ts` + `summarizeSalesPeriod` 挂 `data.period`，`amountsVisible(scope)=false` 时剔除全部 `*Amount` / `*PreTax` 键，`advisory.reasons` 追加一句期间汇总（销售范围只有计数）；无 `period` 路径不变。在 `muse-bridge-pure.test.ts`（period 三例校验，意图总数仍为 18）、`sales-pure.test.ts`（不带 period 无 `data.period`；剔除金额键）、`sales-db.isolated.test.ts`（管理者带 period 的数字与 `/api/sales/period-summary` 一致；sales 带 period 响应 JSON 不含 `grandTotal` 数字）各加用例。verify：三个测试分别 `npx tsx …` 退出 0，既有用例数不减（2026-10-28 基线：muse-bridge-pure 61、sales-pure 73，sales-db.isolated 需隔离库）。
 
 ## 5. 收口
 

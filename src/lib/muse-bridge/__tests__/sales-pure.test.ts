@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { advisoryResponse, OUTBOUND_REDACTED } from "../advisory";
 import { enabledMuseIntents } from "../flags";
 import { gateIntent } from "../router-pure";
+import { deriveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import {
   OPEN_STAGE_RAW_VALUES,
   amountsVisible,
@@ -171,6 +172,51 @@ console.log("sales_overview");
   ok("销售范围：data 不出现 amount 键", !json.includes('"amount"'));
   ok("销售范围：不出现金额数字", !json.includes("12000") && !json.includes("12,000") && !json.includes("3,000"));
   ok("销售范围：结论说你负责的", rep.advisory.conclusion.startsWith("你负责的"));
+}
+
+console.log("sales_overview + period（KPI-1）");
+{
+  const rows = [
+    opp("a", { lastCustomerReplyAt: daysAgo(1), lastOutboundAt: daysAgo(3), estimatedValue: 12_000 }),
+    opp("b", { nextFollowupAt: daysAgo(2), estimatedValue: 3_000 }),
+    opp("d"),
+  ];
+  const input = { filteredByAssignee: false, rows, counts: { newInWindow: 2, wonInWindow: 1, lostInWindow: 1 }, days: 30, limit: 3, staleAfterDays: 21, truncated: false, now: NOW };
+  const period = {
+    info: { from: "2026-10-01", to: "2026-10-28", days: 28, timezone: "America/Toronto" },
+    totals: {
+      wonCount: 23, wonAmount: 61230.5, wonPreTax: 54186.3, quotedCount: 57, quotedAmount: 182400, conversionRate: 23 / 57,
+      openQuotedCount: 21, openQuotedAmount: 70100, staleOpenCount: 6, staleOpenAmount: 19800, depositAmount: 18200,
+      wonWithoutDepositCount: 4, wonWithoutDepositAmount: 9100, nonCadExcludedCount: 0,
+    },
+  };
+  const plainMgr = buildSalesOverview({ ...input, scope: ORG });
+  ok("不带 period：data 没有 period 键", !("period" in (plainMgr.data as object)));
+  const withMgr = buildSalesOverview({ ...input, scope: ORG, period });
+  const dm = withMgr.data as { period: { from: string; totals: Record<string, number> } };
+  ok("管理范围带 period：data.period.totals 含金额", dm.period.from === "2026-10-01" && dm.period.totals.wonAmount === 61230.5 && dm.period.totals.quotedAmount === 182400);
+  ok("管理范围：第一条理由是期间汇总且含金额", withMgr.advisory.reasons[0] === "期间 2026-10-01 至 2026-10-28：成单 23 单 61,231，报出 57 份 182,400");
+  ok("理由仍 ≤ 3 条，商机理由保留前两条", withMgr.advisory.reasons.length === 3 && withMgr.advisory.reasons[1] === plainMgr.advisory.reasons[0] && withMgr.advisory.reasons[2] === plainMgr.advisory.reasons[1]);
+  ok("带 period 不改结论与下一步", withMgr.advisory.conclusion === plainMgr.advisory.conclusion && JSON.stringify(withMgr.advisory.nextStep) === JSON.stringify(plainMgr.advisory.nextStep));
+  const restWith: Record<string, unknown> = { ...(withMgr.data as Record<string, unknown>) };
+  delete restWith.period;
+  ok("带 period 时其余 data 与不带时相同", JSON.stringify(restWith) === JSON.stringify(plainMgr.data));
+
+  const withRep = buildSalesOverview({ ...input, scope: OWN, period });
+  const dr = withRep.data as { period: { totals: Record<string, number> } };
+  const keys = Object.keys(dr.period.totals);
+  ok("销售范围（决定 B）：剔除全部 *Amount / *PreTax 键", keys.length > 0 && keys.every((k) => !/(Amount|PreTax)$/.test(k)) && dr.period.totals.wonCount === 23 && dr.period.totals.quotedCount === 57);
+  const rj = JSON.stringify(withRep);
+  ok("销售范围：响应不含期间金额数字", !rj.includes("61230") && !rj.includes("61,231") && !rj.includes("182400") && !rj.includes("182,400"));
+  ok("销售范围：期间汇总句只有计数", withRep.advisory.reasons[0] === "期间 2026-10-01 至 2026-10-28：成单 23 单，报出 57 份");
+}
+{
+  // spec muse-bridge/sales-intents"范围沿用 S1"：合价岗按岗位派生为销售 → Muse 本人范围、不出金额；会计岗派生为 user → 拒绝
+  const pricingRole = deriveEffectivePlatformRole({ platformRole: "user", positionMode: true, permissionKeys: ["sales.quote.read", "sales.quote.pricing_close", "sales.analytics.read"] });
+  const pricingScope = resolveSalesScope({ userId: "u_lead", orgId: "o1", role: pricingRole, orgRole: "org_member", positionMode: true });
+  ok("合价岗派生为销售 → Muse 本人范围（不因 sales.analytics.read 变全企业）", pricingRole === "sales" && pricingScope?.kind === "own");
+  const acctRole = deriveEffectivePlatformRole({ platformRole: "user", positionMode: true, permissionKeys: ["accounting.read", "sales.quote.read", "sales.analytics.read"] });
+  ok("会计岗派生为 user → Muse 拒绝", acctRole === "user" && resolveSalesScope({ userId: "u_acct", orgId: "o1", role: acctRole, orgRole: "org_member", positionMode: true }) === null);
 }
 {
   const empty = buildSalesOverview({ scope: ORG, filteredByAssignee: true, rows: [opp("w", { stage: "won" })], counts: { newInWindow: 0, wonInWindow: 1, lostInWindow: 0 }, days: 14, limit: 10, staleAfterDays: 21, truncated: false, now: NOW });
