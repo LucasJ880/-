@@ -87,7 +87,12 @@ function platformRoleOk(
   if (item.platformAdminOnly) {
     return ctx.isPlatformAdmin;
   }
-  if (!item.requiredPlatformRoles?.length) return true;
+  // PERM-3：岗位权限键命中即可见；只配了权限键而未命中 → 不可见
+  const permOk = item.requiredPermissions?.length
+    ? (ctx.permissionKeys ?? []).some((k) => item.requiredPermissions!.includes(k))
+    : null;
+  if (permOk === true) return true;
+  if (!item.requiredPlatformRoles?.length) return permOk !== false;
   const role = ctx.platformRole ?? "";
   return item.requiredPlatformRoles.includes(role);
 }

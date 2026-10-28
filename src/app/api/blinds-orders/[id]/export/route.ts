@@ -15,6 +15,7 @@ export const GET = withAuth(async (_request, ctx, user) => {
     },
   });
 
+  // PERM-3：导出与读同范围（canViewBlindsOrder = resolveOrderAccess().canRead）
   if (!order || !(await canViewBlindsOrder(order, user))) {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }

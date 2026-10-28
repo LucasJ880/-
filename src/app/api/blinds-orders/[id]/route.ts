@@ -4,9 +4,26 @@ import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { withAuth } from "@/lib/common/api-helpers";
 import { itemCreateData, loadProcessSpec, lockOrderSpec, orderIssues } from "@/lib/sunny-process/autogen";
 import { blockingIssues } from "@/lib/sunny-process/issues";
-import { canViewBlindsOrder } from "@/lib/sunny-process/server";
+import { blindsOrderAccess } from "@/lib/sunny-process/server";
+import type { OrderAccess } from "@/lib/fulfillment/service";
 
-export const GET = withAuth(async (request, ctx, user) => {
+const notFound = () => NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+const forbiddenEdit = (access: OrderAccess) =>
+  NextResponse.json(
+    {
+      error:
+        access.summary.missingCategories.length > 0
+          ? `无权修改本单：缺少品类 ${access.summary.missingCategories.join("、")} 的出单权限`
+          : "无权修改本单（需要全品类出单权限）",
+      code: "FULFILLMENT_CATEGORY_FORBIDDEN",
+      missingCategories: access.summary.missingCategories,
+      categories: access.summary.categories,
+      responsiblePositions: access.summary.responsiblePositions,
+    },
+    { status: 403 },
+  );
+
+export const GET = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
   const order = await db.blindsOrder.findUnique({
     where: { id },
@@ -17,12 +34,13 @@ export const GET = withAuth(async (request, ctx, user) => {
     },
   });
 
-  // 与导出 / 参数 / 状态同一可见性规则（工单含客户电话地址，不能跨租户可读）
-  if (!order || !(await canViewBlindsOrder(order, user))) {
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-  }
+  if (!order) return notFound();
 
-  return NextResponse.json(order);
+  // PERM-3：读范围 = orders.fulfillment.read（全企业）或旧范围；跨企业统一 404（工单含客户电话地址）
+  const access = await blindsOrderAccess(id, user);
+  if (!access?.canRead) return notFound();
+
+  return NextResponse.json({ ...order, access: access.summary });
 });
 
 export const PUT = withAuth(async (request, ctx, user) => {
@@ -31,18 +49,20 @@ export const PUT = withAuth(async (request, ctx, user) => {
 
   const existing = await db.blindsOrder.findUnique({
     where: { id },
-    select: {
-      id: true,
-      code: true,
-      status: true,
-      projectId: true,
-      creatorId: true,
-      customerId: true,
-    },
+    select: { id: true, code: true, status: true },
   });
-  // 可见性：管理员 / 创建人 / 项目可见 / 关联客户所在组织成员（自动生成的草稿要由工厂核对修改）
-  if (!existing || !(await canViewBlindsOrder(existing, user))) {
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
+  if (!existing) return notFound();
+
+  // PERM-3：修改权按品类（缺品类 403 + 清单）；不可读 → 404。自动生成的草稿由持对应品类键的出单岗核对修改
+  const access = await blindsOrderAccess(id, user);
+  if (!access?.canRead) return notFound();
+  if (!access.edit.allowed) return forbiddenEdit(access);
+  // 作废走审批、安排安装要 install.task.assign：都只能经 transition 路由，PUT 不能绕过
+  if ((body.status === "cancelled" || body.status === "scheduled") && body.status !== existing.status) {
+    return NextResponse.json(
+      { error: body.status === "cancelled" ? "作废需走审批（使用\"作废\"操作）" : "安排安装请使用\"安排安装\"操作", code: "USE_TRANSITION" },
+      { status: 409 },
+    );
   }
 
   if (body.code && body.code !== existing.code) {
@@ -136,13 +156,9 @@ export const PUT = withAuth(async (request, ctx, user) => {
 
 export const DELETE = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
-  const existing = await db.blindsOrder.findUnique({
-    where: { id },
-    select: { projectId: true, creatorId: true, customerId: true },
-  });
-  if (!existing || !(await canViewBlindsOrder(existing, user))) {
-    return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-  }
+  const access = await blindsOrderAccess(id, user);
+  if (!access?.canRead) return notFound();
+  if (!access.edit.allowed) return forbiddenEdit(access);
   await db.blindsOrder.delete({ where: { id } });
   return NextResponse.json({ success: true });
 });

@@ -72,13 +72,14 @@ async function main() {
   const SALES = `spsales_${stamp}`;
   const FACTORY = `spfactory_${stamp}`;
   const OUTSIDER = `spout_${stamp}`;
+  const PLAIN = `spplain_${stamp}`;
   const ORG = `sporg_${stamp}`;
   const ORG_X = `sporgx_${stamp}`;
   const CUST = `spcust_${stamp}`;
   const Q1 = `spq1_${stamp}`;
   const Q2 = `spq2_${stamp}`;
   const TOKEN = `sptoken_${stamp}`;
-  const users = [SALES, FACTORY, OUTSIDER];
+  const users = [SALES, FACTORY, OUTSIDER, PLAIN];
 
   for (const id of users) {
     await db.user.create({ data: { id, email: `${id}@fixture.test`, name: `Example ${id}`, role: "sales" } });
@@ -87,6 +88,7 @@ async function main() {
   await db.organization.create({ data: { id: ORG_X, name: "Other Blinds Fixture", code: `spx-${stamp}`, ownerId: OUTSIDER } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: SALES, role: "org_owner", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: FACTORY, role: "org_member", status: "active" } });
+  await db.organizationMember.create({ data: { orgId: ORG, userId: PLAIN, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG_X, userId: OUTSIDER, role: "org_owner", status: "active" } });
   await db.salesCustomer.create({ data: { id: CUST, orgId: ORG, name: "Example Homeowner", phone: "000-000-0000", address: "1 Example St", createdById: SALES } });
   await db.salesQuote.create({ data: { id: Q1, orgId: ORG, customerId: CUST, status: "sent", orderNumber: `G1027-E2E-${stamp}`, formDataJson: formData(`G1027-E2E-${stamp}`), grandTotal: 1234.5, createdById: SALES } });
@@ -96,6 +98,7 @@ async function main() {
   const cSales = await cookie(SALES);
   const cFactory = await cookie(FACTORY);
   const cOut = await cookie(OUTSIDER);
+  const cPlain = await cookie(PLAIN);
   const req = (url: string, c: string, method = "GET", body?: unknown) =>
     new NextRequest(`http://localhost${url}`, {
       method,
@@ -129,6 +132,21 @@ async function main() {
     const po2 = s2.body?.processOrder as { created: boolean; id: string; reason: string } | undefined;
     ok(s2.status === 200 && po2?.created === false && po2.reason === "ALREADY_GENERATED" && po2.id === orderId, "第二次返回既有单", s2.body);
     ok((await db.blindsOrder.count({ where: { customerId: CUST } })) === 1, "工艺单仍只有 1 张");
+
+    console.log("\n[2b] PERM-3：改单 / 推进按品类（品类含参数行），工厂绑定三个出单岗位");
+    const t0 = await call(transition.POST as never, req(`/api/blinds-orders/${orderId}/transition`, cFactory, "POST", { toStatus: "confirmed" }), { id: orderId });
+    ok(t0.status === 403 && t0.body?.code === "FULFILLMENT_CATEGORY_FORBIDDEN" && (t0.body?.missingCategories as string[]).join(",") === "vinyl,drapery,shades", "未绑定出单岗位的同组织成员推进 → 403，缺 vinyl / drapery（参数行）+ shades（斑马帘行）", t0.body);
+    const d0 = await call(orderRoute.GET as never, req(`/api/blinds-orders/${orderId}`, cPlain), { id: orderId });
+    ok(d0.status === 200 && (d0.body?.access as { canEdit: boolean }).canEdit === false, "同组织普通成员仍可读详情（只读）", d0.body?.access);
+    await db.organization.update({ where: { id: ORG }, data: { industryPackId: "window_covering_services_v1" } });
+    const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
+    await seedOrgAuthorizationProfiles(ORG);
+    for (const key of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+      const profile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key } } });
+      await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FACTORY, roleProfileId: profile!.id, status: "active" } });
+    }
+    const pc = await call(orderRoute.PUT as never, req(`/api/blinds-orders/${orderId}`, cFactory, "PUT", { status: "cancelled" }), { id: orderId });
+    ok(pc.status === 409 && pc.body?.code === "USE_TRANSITION", "PUT {status:cancelled} 不能绕过作废审批 → 409", pc.body);
 
     console.log("\n[3] 阻断项存在时确认被拒（transition 与 PUT status 同一门禁）");
     const t1 = await call(transition.POST as never, req(`/api/blinds-orders/${orderId}/transition`, cFactory, "POST", { toStatus: "confirmed" }), { id: orderId });
@@ -167,16 +185,15 @@ async function main() {
     ok(blockedLeft.length === 0, "补外框后无阻断项", blockedLeft);
 
     console.log("\n[5b] 布纱比对照表（组织 settingsJson）+ 发给国内 / 退回自产");
-    const r0 = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cFactory), {});
+    const r0 = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cPlain), {});
     ok(r0.status === 200 && r0.body?.seeded === true && (r0.body?.entries as unknown[]).length === 24 && r0.body?.orgId === ORG && r0.body?.canEdit === false, "GET 对照表：未保存过 → 原件种子 24 条；普通成员只读", r0.body?.seeded);
-    const rDenied = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [] }), {});
+    const rDenied = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cPlain, "PUT", { entries: [] }), {});
     ok(rDenied.status === 403, "未绑定出单岗位的普通成员保存对照表 → 403（影响全组织裁剪位）", rDenied.body);
-    // 2026-10-27 Lucas：权限给出工艺单的人 → 绑定「出单·Roller/Zebra/Roman」岗位（持 orders.fulfillment.update）后可保存
-    await db.organization.update({ where: { id: ORG }, data: { industryPackId: "window_covering_services_v1" } });
-    const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
-    await seedOrgAuthorizationProfiles(ORG);
-    const shades = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "fulfillment_shades" } } });
-    await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FACTORY, roleProfileId: shades!.id, status: "active" } });
+    const vinylProfile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "fulfillment_vinyl" } } });
+    await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: PLAIN, roleProfileId: vinylProfile!.id, status: "active" } });
+    const rVinyl = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cPlain, "PUT", { entries: [] }), {});
+    ok(rVinyl.status === 403, "只持出单·Vinyl（orders.fulfillment.update.vinyl）保存斑马帘对照表 → 403（斑马帘属 shades）", rVinyl.body);
+    // 2026-10-27 Lucas：权限给出工艺单的人 → 绑定「出单·Roller/Zebra/Roman」岗位（PERM-3 起持 orders.fulfillment.update.shades）后可保存（[2b] 已绑定）
     const rBound = await call(ratioRoute.GET as never, req(`/api/sunny-process/zebra-ratios`, cFactory), {});
     ok(rBound.status === 200 && rBound.body?.canEdit === true, "绑定出单岗位后 GET canEdit = true", rBound.body?.canEdit);
     const r1 = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cFactory, "PUT", { entries: [{ codes: ["ZB-FIXTURE"], fabric: "3 4/16", silk: "2 3/16", noteZh: "e2e" }, { codes: [], fabric: 3, silk: 2 }] }), {});

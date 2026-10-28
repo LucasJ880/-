@@ -16,6 +16,7 @@
 |---|---|---|
 | `perm-1-positions` | 已合并 main；已 archive（specs 合入 `authorization/platform-admin-authority`、`position-binding`、`position-catalog`） | #264 ✅ |
 | `perm-2-discount-by-position` | 已合并 main；已 archive（specs 合入 `identity/member-management`、`sales/discount-tiering`、`sales/quote-delivery-gate`、`sales/quote-settings-approval`） | #265 ✅ |
+| `perm-3-fulfillment-by-category` | 8/8 tasks；代码完成（品类键 / 出单岗模板 / `src/lib/fulfillment` / 工艺单与库存路由 / 作废审批 / 导航 requiredPermissions / 详情页只读态）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_PERM-3_REPORT.md`；TASKFLOW `[G]` | PR 开出等 CI；合并后独立小 PR archive |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果（会话 1，2026-10-27）
@@ -30,7 +31,8 @@
 3. ~~INSTALL-1~~ 已合并（#268）并 archive（本 PR）。
 4. 生产动作（Lucas 本机）：对 Sunny 跑 `seedOrgAuthorizationProfiles` 落地模板（含 installer）；补 `config/positions/sunny.json` 邮箱（含 `TODO:安装工`）；`--dry-run` 后执行绑定脚本（命令见 `docs/QINGYAN_PERM-1_REPORT.md` §4）；查 `User.role='admin'` 账号（PERM-2 报告 §4-1）。
 5. ~~PERM-3 / PERM-4 / PERM-5 任务书~~ 已写：`docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`、`docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`、`docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`。每份末尾有「判断点」，**先让 Lucas 拍板再 propose**。
-6. 顺序：PERM-3 → PERM-4a → 4b → 4c → PERM-5a；PERM-5b 只依赖 PERM-1，可与 PERM-3 并行。每个 change：`/opsx:propose <name>` → 四件套回传审核 → `/opsx:apply` → 测试 → `/opsx:verify` → PR → 合并后独立小 PR archive。
+6. PERM-3：四个判断点按任务书推荐默认值实施（品类 = 权限键后缀；Shutters→vinyl；出单人只退回不作废；库存不隔离）；PR 等 CI，合并后 `/opsx:archive perm-3-fulfillment-by-category --yes` 独立小 PR，再对 Sunny 重跑 `seedOrgAuthorizationProfiles`（出单模板变了）。
+7. 顺序：PERM-4a → 4b → 4c → PERM-5a；PERM-5b 只依赖 PERM-1，可随时并行。每个 change：`/opsx:propose <name>` → 四件套回传审核 → `/opsx:apply` → 测试 → `/opsx:verify` → PR → 合并后独立小 PR archive。
 
 ## 环境注意
 

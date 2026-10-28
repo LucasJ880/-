@@ -184,8 +184,15 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
   ),
   def("sales.settings.manage", "sales.settings", "manage", "管理销售设置", "修改折扣表 / 费用 / 税率 / 解锁码（走审批）", ["ORG"], "CRITICAL"),
   def("sales.order.create", "sales.order", "create", "创建订单", "从报价建立订单", ["PRINCIPAL", "ORG"], "MEDIUM"),
-  def("orders.fulfillment.update", "orders.fulfillment", "update", "出单修改", "修改订单与工艺单、推进状态（按品类范围留后续）", ["ORG"], "HIGH"),
+  def("orders.fulfillment.update", "orders.fulfillment", "update", "出单修改（全品类）", "修改任意品类的工艺单、推进状态；仅老板与平台管理员", ["ORG"], "HIGH"),
+  // PERM-3：品类按权限键拆分（零 schema：绑定表无属性列，品类不能做 scope）
+  def("orders.fulfillment.update.vinyl", "orders.fulfillment", "update.vinyl", "出单修改·Vinyl", "修改 Vinyl 品类工艺单、推进状态", ["ORG"], "HIGH"),
+  def("orders.fulfillment.update.drapery", "orders.fulfillment", "update.drapery", "出单修改·布帘", "修改布帘品类工艺单、推进状态", ["ORG"], "HIGH"),
+  def("orders.fulfillment.update.shades", "orders.fulfillment", "update.shades", "出单修改·Roller/Zebra/Roman", "修改 Roller / Zebra / Roman 品类工艺单、推进状态", ["ORG"], "HIGH"),
+  def("orders.fulfillment.read", "orders.fulfillment", "read", "查看全企业工艺单", "列表 / 详情 / 导出企业内全部工艺单", ["ORG"], "MEDIUM"),
+  def("orders.cancel", "orders", "cancel", "作废工艺单", "提交作废（另一位老板批准后生效）", ["ORG"], "CRITICAL"),
   def("inventory.manage", "inventory", "manage", "管理面料库存", "库存增减与盘点", ["ORG"], "HIGH"),
+  def("inventory.read", "inventory", "read", "查看面料库存", "只读库存列表", ["ORG"], "LOW"),
   def("accounting.read", "accounting", "read", "查看财务", "查看成交金额、提成与项目结算", ["ORG"], "HIGH"),
   {
     key: "identity.position.manage",

@@ -4,32 +4,47 @@ import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { withAuth } from "@/lib/common/api-helpers";
+import { authorize, humanPrincipal } from "@/lib/authorization";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
+import { orgWideOrderFilter } from "@/lib/fulfillment/service";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 
-export const GET = withAuth(async (request, ctx, user) => {
+/**
+ * GET /api/blinds-orders?status&orgId
+ * PERM-3：持 orders.fulfillment.read（ORG）→ 全企业工艺单；否则旧范围（可见项目 + 本人创建 + 无项目时关联客户所在组织）。
+ */
+export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
-
-  const projectIds = await getVisibleProjectIds(user.id, user.role);
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
 
-  if (projectIds !== null) {
-    // 自动生成的工艺单无项目、创建人是销售：同组织（经关联客户）的成员也要能在列表里看到（工厂核对）
-    const memberOrgIds = (
-      await db.organizationMember.findMany({
-        where: { userId: user.id, status: "active" },
-        select: { orgId: true },
-      })
-    ).map((m) => m.orgId);
-    where.OR = [
-      { projectId: { in: projectIds } },
-      { projectId: null, creatorId: user.id },
-      ...(memberOrgIds.length > 0 ? [{ projectId: null, customer: { orgId: { in: memberOrgIds } } }] : []),
-    ];
+  // 企业解析失败（多企业未指定 orgId）→ 走旧范围，不报错
+  const orgRes = await resolveRequestOrgIdForUser(user, searchParams.get("orgId"));
+  const orgWide = orgRes.ok ? await orgWideOrderFilter(user, orgRes.orgId) : null;
+
+  if (orgWide) {
+    Object.assign(where, orgWide.where);
+  } else if (!isPlatformSuperAdmin(user.role)) {
+    const projectIds = await getVisibleProjectIds(user.id, user.role);
+    if (projectIds !== null) {
+      // 自动生成的工艺单无项目、创建人是销售：同组织（经关联客户）的成员也要能在列表里看到（工厂核对）
+      const memberOrgIds = (
+        await db.organizationMember.findMany({
+          where: { userId: user.id, status: "active" },
+          select: { orgId: true },
+        })
+      ).map((m) => m.orgId);
+      where.OR = [
+        { projectId: { in: projectIds } },
+        { projectId: null, creatorId: user.id },
+        ...(memberOrgIds.length > 0 ? [{ projectId: null, customer: { orgId: { in: memberOrgIds } } }] : []),
+      ];
+    }
   }
 
-  const orders = await db.blindsOrder.findMany({
+  const rows = await db.blindsOrder.findMany({
     where,
     include: {
       _count: { select: { items: true } },
@@ -38,10 +53,19 @@ export const GET = withAuth(async (request, ctx, user) => {
     orderBy: { createdAt: "desc" },
   });
 
+  let orders = rows;
+  if (orgWide) {
+    const drop = await orgWide.postFilter(rows);
+    if (drop.size) {
+      orders = rows.filter((r) => !( !r.customerId && !r.projectId && drop.has(r.creatorId) ));
+    }
+  }
+
   return NextResponse.json(orders);
 });
 
-export const POST = withAuth(async (request, ctx, user) => {
+/** POST /api/blinds-orders — PERM-3：要求 sales.order.create（任一范围） */
+export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json();
 
   if (!body.code || !body.customerName) {
@@ -49,6 +73,17 @@ export const POST = withAuth(async (request, ctx, user) => {
       { error: "订单号和客户名称为必填项" },
       { status: 400 }
     );
+  }
+
+  const orgRes = await resolveRequestOrgIdForUser(user, typeof body.orgId === "string" ? body.orgId : null);
+  if (!orgRes.ok) return orgRes.response;
+  const canCreate = await authorize({
+    principal: humanPrincipal(user, orgRes.orgId),
+    orgId: orgRes.orgId,
+    permission: "sales.order.create",
+  });
+  if (!canCreate.allowed) {
+    return NextResponse.json({ error: "无权创建工艺单（需要销售 / 老板岗位）" }, { status: 403 });
   }
 
   const existing = await db.blindsOrder.findUnique({

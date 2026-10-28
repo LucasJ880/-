@@ -160,14 +160,19 @@ function org(...keys: string[]): DefaultBinding[] {
   return keys.map((permissionKey) => ({ permissionKey, dataScope: ORG }));
 }
 
-const FULFILLMENT_BINDINGS: DefaultBinding[] = org(
-  "orders.fulfillment.update",
+// PERM-3：出单岗只持自己品类的更新键；全品类伞键只给 owner
+const FULFILLMENT_COMMON: string[] = [
+  "orders.fulfillment.read",
+  "inventory.read",
   "project.read",
   "sales.quote.read",
   // INSTALL-1：出单岗可看安装任务与收口照片，不能安排安装
   "install.task.read",
   "install.photo.read",
-);
+];
+function fulfillment(category: "vinyl" | "drapery" | "shades"): DefaultBinding[] {
+  return org(`orders.fulfillment.update.${category}`, ...FULFILLMENT_COMMON);
+}
 
 export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
   {
@@ -198,6 +203,12 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "install.task.assign",
       "install.task.read",
       "install.photo.read",
+      // PERM-3：全品类出单伞键、作废（走审批）、库存
+      "orders.fulfillment.update",
+      "orders.fulfillment.read",
+      "orders.cancel",
+      "inventory.manage",
+      "inventory.read",
     ),
   },
   {
@@ -208,6 +219,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
     bindings: [
       { permissionKey: "sales.quote.send", dataScope: PRINCIPAL },
       { permissionKey: "sales.order.create", dataScope: PRINCIPAL },
+      // PERM-3：只读库存（报价时查面料）
+      { permissionKey: "inventory.read", dataScope: ORG },
     ],
   },
   {
@@ -238,6 +251,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "operations.projects.manage",
       "operations.projects.create",
       "inventory.manage",
+      "inventory.read",
+      "orders.fulfillment.read",
       "identity.member.read",
       // INSTALL-1：安排安装由运营 + 会计决定
       "install.task.assign",
@@ -274,9 +289,16 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "operations.projects.create",
     ),
   },
-  { key: "fulfillment_vinyl", name: "出单·Vinyl", description: "Vinyl 品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
-  { key: "fulfillment_drapery", name: "出单·布帘", description: "布帘品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
-  { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman", description: "Roller / Zebra / Roman Shade 品类订单与工艺单", bindings: FULFILLMENT_BINDINGS },
+  {
+    // 与系统模板 ops_staff 并集：PERM-3 只读库存
+    key: "ops_staff",
+    name: "运营人员",
+    description: "运营任务执行、内容起草；库存只读",
+    bindings: org("inventory.read"),
+  },
+  { key: "fulfillment_vinyl", name: "出单·Vinyl", description: "Vinyl 品类订单与工艺单", bindings: fulfillment("vinyl") },
+  { key: "fulfillment_drapery", name: "出单·布帘", description: "布帘品类订单与工艺单", bindings: fulfillment("drapery") },
+  { key: "fulfillment_shades", name: "出单·Roller/Zebra/Roman", description: "Roller / Zebra / Roman Shade 品类订单与工艺单", bindings: fulfillment("shades") },
   {
     // INSTALL-1：安装工——只看分配给本人的安装任务；逐窗拍照收口；不碰销售
     key: "installer",

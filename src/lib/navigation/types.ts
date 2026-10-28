@@ -26,8 +26,13 @@ export type NavigationItem = {
   group: NavigationGroup;
   children?: NavigationItem[];
   moduleKey?: OrgModule | OrgModule[];
-  /** 平台账号角色（兼容现有 user.role） */
+  /** 平台账号角色（兼容现有 user.role；PERM-4c 删除） */
   requiredPlatformRoles?: string[];
+  /**
+   * PERM-3：岗位权限键（任一命中即可见）。与 requiredPlatformRoles 并存时二者任一命中即可；
+   * 单独存在时必须命中。
+   */
+  requiredPermissions?: string[];
   /** 企业成员角色 OrganizationMember.role */
   requiredOrgRoles?: string[];
   /** 需要至少一条企业 membership */

@@ -21,14 +21,18 @@ import {
  * 组织按销售模块同一规则解析（activeOrgId；平台管理员须带 ?orgId=）。只影响之后生成 / 退回自产的工艺单，
  * 已生成的工艺单布纱比不回写。整表影响全组织之后所有斑马帘裁剪位 → 保存需出工艺单的人（出单岗位，
  * 持 orders.fulfillment.update）或 org_admin 及以上 / 平台管理员（2026-10-27 Lucas：权限给出工艺单的人），其余成员只读。
+ * PERM-3 起出单键按品类拆分：斑马帘属 shades → 持 orders.fulfillment.update.shades（出单·Roller/Zebra/Roman）
+ * 或全品类键 orders.fulfillment.update（老板）。
  */
 async function canEditOrgTable(user: AuthUser, orgId: string): Promise<boolean> {
   if (isAdmin(user.role)) return true;
   const m = await getOrgMembership(user.id, orgId);
   if (!m || m.status !== "active") return false;
   if (hasOrgRole(m.role, "org_admin")) return true;
-  const decision = await authorize({ principal: humanPrincipal(user, orgId), orgId, permission: "orders.fulfillment.update" });
-  return decision.allowed;
+  for (const permission of ["orders.fulfillment.update.shades", "orders.fulfillment.update"]) {
+    if ((await authorize({ principal: humanPrincipal(user, orgId), orgId, permission })).allowed) return true;
+  }
+  return false;
 }
 
 export const GET = withAuth(async (request, _ctx, user) => {

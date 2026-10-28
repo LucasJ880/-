@@ -451,8 +451,9 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: ClipboardList,
     group: "BUSINESS",
     moduleKey: "window_covering",
-    // 销售工作区不暴露；运营/高管仍可见
+    // 销售工作区不暴露；运营/高管仍可见；PERM-3：出单 / 老板 / 运营主管按权限键可见
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
+    requiredPermissions: ["orders.fulfillment.read", "sales.order.create"],
     badgeKey: "sidebar_badge_industry",
     displayOrder: 17,
   },
@@ -465,6 +466,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "window_covering",
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
+    // PERM-3：库存按权限键可见（运营主管管、其他岗位只读）
+    requiredPermissions: ["inventory.manage", "inventory.read"],
     displayOrder: 17,
   },
 
