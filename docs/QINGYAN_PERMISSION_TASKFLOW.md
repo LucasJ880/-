@@ -52,7 +52,7 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| INSTALL-2a | 收口单元覆盖 ProcessSpec 各段（修零窗单收不了口）；零单元明确 409；收口记录写失败不再假成功 | INSTALL-1 | change `install-2a-closeout-all-lines` | [ ] |
+| INSTALL-2a | 收口单元覆盖 ProcessSpec 各段（修零窗单收不了口）；零单元明确 409；收口记录写失败不再假成功 | INSTALL-1 | change `install-2a-closeout-all-lines`；`docs/QINGYAN_INSTALL-2a_REPORT.md` | [G] |
 | INSTALL-2b | `install.balance.confirm`；会计「待收尾款」页签；确认尾款 → `completed`；质保邮件 PendingAction + 执行器；`sunnyWarranty` 设置；完工 / 收款 / 发信通知 | INSTALL-2a | change `install-2b-balance-warranty` | [ ] |
 | INSTALL-2c | 逐单元完成 / 有问题；维修单（数字化纸质模板 + 打印版）；问题类型查表；返修目标日（默认 +7 天）；`installStage` 推导；出单按品类 / 运营 / 会计 / 销售通知；`/install/repairs` | INSTALL-2a | change `install-2c-repair-form` | [ ] |
 | INSTALL-2d | 出单「已出单 + 预计备好日」；安排返修（新预约）；二次安装只收口维修行；按访次聚合 + 照片代理任一访次；关闭后 `installed` 接回 2b；逾期提醒挂既有 cron | INSTALL-2b、2c | change `install-2d-repair-dispatch` | [ ] |

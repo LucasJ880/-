@@ -10,12 +10,12 @@
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
 | 分支 | `claude/vigilant-edison-73bk9i`（本会话，只含文档） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
-| 状态 | 方案已拍板（2026-10-28：质保以报价单为准，其余按建议，见任务书 §12）。`install-2a-closeout-all-lines` 四件套已 propose（`openspec validate --strict` 通过），**待审后 `/opsx:apply`**；未改代码 |
+| 状态 | 方案已拍板（2026-10-28：质保以报价单为准，其余按建议，见任务书 §12）。**INSTALL-2a 已实施**（tasks 6/6；纯 27 + 隔离库 26 + 浏览器走查全过；typecheck / lint:baseline / test:ci / registry / validate --strict 全绿；报告 `docs/QINGYAN_INSTALL-2a_REPORT.md`；TASKFLOW `[G]`），待 PR 合并 → archive → propose 2b |
 
 ## 1. 下一步（按顺序）
 
 1. ~~拍板~~（已完成，任务书 §12）。
-2. 审 `openspec/changes/install-2a-closeout-all-lines/`（proposal / specs ×2 / design D1–D7 / tasks 6 条）→ `/opsx:apply install-2a-closeout-all-lines`。**先做 2a**：今天只有 Shutters / 窗帘 / 国内下单 / 外采购行的单收不了口（F2），这是现网"点不上"。
+2. ~~2a propose + apply~~（已完成，见报告）。下一步：2a 开 PR → 合并 → 独立小 PR `/opsx:archive install-2a-closeout-all-lines --yes`（TASKFLOW `[x]`）→ `/opsx:propose install-2b-balance-warranty`。
 3. 2a 合并 + archive 后依次 2b（尾款 + 质保邮件）→ 2c（维修单）→ 2d（出单 + 二次安装 + 逾期提醒）。每个 change 一个 PR，archive 独立小 PR，同步 `docs/QINGYAN_PERMISSION_TASKFLOW.md` INSTALL-2 段状态列。
 
 ## 2. 外部信息的可信度（防幻觉）
@@ -51,6 +51,20 @@
 - 改 `Organization.settingsJson` 时只动 `sunnyWarranty` 键，不整对象覆盖（会抹掉 `sunnyProcess` / `tenderRfq`）。
 - 通知链接不要指向收件人进不去的页面；会计页签先支持 URL 参数再发带 `?tab=` 的链接（F11）。
 
+## 4b. 本地隔离库（复跑端到端用）
+
+```bash
+apt-get install -y postgresql-16-pgvector   # 沙箱默认没有 pgvector，schema 需要
+su postgres -s /bin/bash -c "/usr/lib/postgresql/16/bin/initdb -D /var/lib/postgresql/i2a -U postgres --auth=trust -E UTF8 && \
+  /usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/i2a -o '-p 55432 -k /var/lib/postgresql' -l /var/lib/postgresql/i2a.log start && \
+  /usr/lib/postgresql/16/bin/createdb -h 127.0.0.1 -p 55432 -U postgres qy_i2a"
+export DATABASE_URL=postgresql://postgres@127.0.0.1:55432/qy_i2a DIRECT_URL=$DATABASE_URL
+npx prisma db push --skip-generate
+NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/install/__tests__/closeout-db.isolated.test.ts
+```
+
+`db push` 不建迁移里的原生 CHECK 约束，所以 Mention Gateway M2-A Identity DB 在这种库上有 3 条环境性失败（见 2a 报告 §3）。
+
 ## 5. 本会话做了什么
 
 | 产物 | 说明 |
@@ -58,4 +72,4 @@
 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` | 方案：现状 F1–F15、两条业务流、U-Haul 借鉴、通知矩阵、零 schema 落点、4 个 change 拆分、交叉验证 V1–V9、待拍板 Q0–Q10 |
 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` | 完工 + 质保邮件英文模板与变量表；条款来源冲突表 |
 | `docs/QINGYAN_PERMISSION_TASKFLOW.md` | 新增 INSTALL-2 段（2a–2d，状态 `[ ]`） |
-| 代码 | 未改 |
+| 代码（INSTALL-2a） | `src/lib/install/{closeout,service}.ts`、`src/app/api/install/tasks/**`、`src/components/install/*`、`blinds-orders/[id]/page.tsx` 收口标签；测试 2 个（已注册） |

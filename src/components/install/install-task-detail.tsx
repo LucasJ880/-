@@ -5,6 +5,8 @@
  * — 任务头：时间 / 客户 / 地址 / 开始安装
  * — 每扇窗：序号 / 位置 / 尺寸 / 产品 / 面料 / 拍照（原生相机）/ 缩略图 + 时间 + 张数
  * — 全部收口后"完成收口"；409 时列出未收口窗
+ * INSTALL-2a：收口单元含工艺参数行（Vinyl / 窗帘 / 国内下单 / 外采购，显示段标签）；位置已变提示补拍；
+ * 零单元显示"工艺单没有可收口的行"，不显示"还差 0 扇"。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,6 +21,7 @@ import {
   type InstallPhoto,
   type InstallTaskDetailData,
   type InstallWindow,
+  unitSpecLine,
 } from "./install-types";
 
 type MissingWindow = { itemNumber: number; location: string };
@@ -82,6 +85,7 @@ export function InstallTaskDetail({ id }: { id: string }) {
         code?: string;
         missing?: MissingWindow[];
       };
+      // NO_UNITS / ORDER_STATUS 等其余错误原样提示（落到下面 !res.ok）
       if (res.status === 409 && data.code === "WINDOWS_MISSING") {
         setMissing(data.missing ?? []);
         return;
@@ -102,7 +106,7 @@ export function InstallTaskDetail({ id }: { id: string }) {
       if (!prev) return prev;
       const windows = prev.windows.map((w) =>
         w.itemId === itemId
-          ? { ...w, photoCount, latest, photos: [latest, ...w.photos] }
+          ? { ...w, photoCount, latest, photos: [latest, ...w.photos], locationChanged: null }
           : w,
       );
       const completed = windows.filter((w) => w.photoCount > 0).length;
@@ -139,6 +143,7 @@ export function InstallTaskDetail({ id }: { id: string }) {
   const canStart = task.status === "scheduled" || task.status === "confirmed";
   const isDone = task.status === "completed";
   const canUpload = !isDone && task.status !== "cancelled";
+  const noUnits = task.closeout.total === 0;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 pb-24">
@@ -179,7 +184,7 @@ export function InstallTaskDetail({ id }: { id: string }) {
           {task.order && <span className="font-mono">工艺单 {task.order.code}</span>}
           <span>安装：{task.assignedTo.name}</span>
           <span>
-            已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 扇
+            已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 项
           </span>
         </div>
         {(task.remarks || task.notes) && (
@@ -203,12 +208,18 @@ export function InstallTaskDetail({ id }: { id: string }) {
       )}
       {missing && missing.length > 0 && (
         <div className="rounded-lg border border-[rgba(201,138,34,0.4)] bg-[rgba(201,138,34,0.08)] px-3 py-2 text-sm text-foreground">
-          还有 {missing.length} 扇窗没有照片：
+          还有 {missing.length} 项没有照片：
           {missing.map((m) => `#${m.itemNumber} ${m.location}`).join("、")}
         </div>
       )}
 
-      {/* 窗列表 */}
+      {noUnits && !isDone && (
+        <div className="rounded-lg border border-[rgba(201,138,34,0.4)] bg-[rgba(201,138,34,0.08)] px-3 py-2 text-sm text-foreground">
+          工艺单没有可收口的行，请联系出单补齐后再收口。
+        </div>
+      )}
+
+      {/* 收口单元列表 */}
       <div className="space-y-2">
         {task.windows.map((w) => (
           <WindowRow
@@ -222,7 +233,7 @@ export function InstallTaskDetail({ id }: { id: string }) {
       </div>
 
       {/* 完成收口 */}
-      {!isDone && (
+      {!isDone && !noUnits && (
         <div className="fixed inset-x-0 bottom-[calc(var(--mobile-tabbar-height,56px)+env(safe-area-inset-bottom,0px))] z-20 border-t border-border bg-[rgba(250,248,244,0.95)] p-3 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0">
           <button
             type="button"
@@ -237,7 +248,7 @@ export function InstallTaskDetail({ id }: { id: string }) {
             {busy === "complete" ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
             {task.closeout.allCompleted
               ? "完成收口"
-              : `完成收口（还差 ${task.closeout.total - task.closeout.completed} 扇）`}
+              : `完成收口（还差 ${task.closeout.total - task.closeout.completed} 项）`}
           </button>
         </div>
       )}
@@ -313,16 +324,23 @@ function WindowRow({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-foreground">{w.location}</span>
+            <span className="truncate text-sm font-semibold text-foreground">{w.location || "（未写位置）"}</span>
             <span className="font-mono text-xs text-muted">
               {w.width} × {w.height}
             </span>
+            {w.section !== "blinds" && (
+              <span className="shrink-0 rounded-full bg-[rgba(26,36,32,0.06)] px-1.5 py-0.5 text-[10px] text-muted">
+                {w.sectionLabel}
+              </span>
+            )}
           </div>
-          <div className="mt-0.5 text-xs text-muted">
-            {w.productType} · {w.fabricSku} · {w.controlType}
-            {w.controlSide ? `/${w.controlSide}` : ""} · {w.mountType}
-          </div>
+          <div className="mt-0.5 text-xs text-muted">{unitSpecLine(w)}</div>
           {w.itemRemark && <div className="mt-0.5 text-xs text-muted">备注：{w.itemRemark}</div>}
+          {w.locationChanged && (
+            <div className="mt-1 text-xs text-[#a86a12]">
+              位置已变（拍照时：{w.locationChanged.previousLocation || "—"}），请补拍
+            </div>
+          )}
           {w.latest && (
             <div className="mt-2 flex items-center gap-2">
               <button

@@ -39,7 +39,7 @@
 ## Decisions
 
 ### D1 单元 id：`spec-<段>-<下标>`，审计目标 `<orderId>:<段>:<下标>`
-工艺参数行没有 id，用"段 + 段内下标"定位；URL 段用连字符（`spec-vinyl-0`，cuid 不含连字符，不会和 Blinds 行 id 冲突），审计目标带上工艺单 id，便于按 `targetId startsWith "<orderId>:"` 一次查出整单。
+工艺参数行没有 id，用"段 + 段内下标"定位；URL 段用连字符（`spec-vinyl-0`，cuid 不含连字符，不会和 Blinds 行 id 冲突），审计目标带上工艺单 id，跨单不会撞号，审计中心也能一眼看出属于哪张单。
 - 否决：给工艺参数行加 `uid` 字段——要改 `process-spec.ts`、`sanitizeSpec`、挪行与 oracle 夹具，属于另一个 change，且旧参数没有 uid 仍要回退到下标。
 - 否决：目标类型仍用 `blinds_order_item`、目标填单元 id——同一列混两种 id 语义，按 itemId 查询时会误命中。
 
@@ -61,7 +61,7 @@ Blinds 行按行序号在前；工艺参数按 国内下单 → 窗帘 → Vinyl
 - 否决：Blob 与审计放进同一事务——Blob 不在数据库事务内，做不到原子；先写审计再传 Blob 又会出现"有记录没文件"，更糟。
 
 ### D6 批量读取
-列表接口一次查出所有相关工艺单的最新工艺参数（`findMany` + 按单取最新）与两类收口记录（`blinds_order_item` 按 itemId `in`；`blinds_order_unit` 按 `targetId startsWith` 每单一个 OR 条件），避免 N+1。详情 / 上传 / 完成走同一函数，传单张单。
+列表接口一次查出所有相关工艺单的最新工艺参数（`findMany` + `distinct targetId` 按单取最新）与两类收口记录（一条查询：`blinds_order_item` 按 itemId `in` OR `blinds_order_unit` 按单元审计目标 `in`——单元构建后目标是确定的，不需要前缀匹配），避免 N+1。详情 / 上传 / 完成走同一函数，传单张单。
 - 否决：列表逐单调用 `loadProcessSpec`——300 条任务时 300 次查询。
 
 ### D7 零单元的 409 `NO_UNITS`
@@ -85,7 +85,7 @@ Blinds 行按行序号在前；工艺参数按 国内下单 → 窗帘 → Vinyl
 - [出单在安装后删行导致下标整体前移] → 位置比对使后面的单元变成未收口并提示补拍；现场成本是补拍几张，不会误判完成。
 - [审计表继续承载业务记录] → `blinds_order_unit` 目标类型加入 INSTALL-1 的"不可清理"清单（报告写明）。
 - [Blob 写成功、审计失败留下孤儿文件] → 私有、无引用、无鉴权外泄面；接受。
-- [列表接口 `startsWith` OR 条件随任务数增长] → 列表上限 300 条（既有 `take: 300`），可接受；超过时再按工艺单分批。
+- [列表接口 `in` 列表随任务数增长] → 列表上限 300 条（既有 `take: 300`），走 `(targetType, targetId)` 索引，可接受；超过时再按工艺单分批。
 
 ## Migration Plan
 
