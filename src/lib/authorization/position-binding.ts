@@ -162,3 +162,73 @@ export function summarizePlan(plan: BindingPlan): { lines: string[]; created: nu
     .map(([email, keys]) => `${email}: ${[...keys].join(", ")}`);
   return { lines, created: plan.create.length, deactivated: plan.deactivate.length };
 }
+
+// ─────────────────────────────────────────────────────────────
+// PERM-5b：数字员工绑定（--principal-type DIGITAL_EMPLOYEE）
+// 绑定文件键 = Agent id；只允许绑四个数字员工岗位；Agent 必须 active 且属于本企业项目。
+// ─────────────────────────────────────────────────────────────
+
+export type BindingPrincipalType = "HUMAN" | "DIGITAL_EMPLOYEE";
+
+export function parsePrincipalType(raw: string | null): BindingPrincipalType | null {
+  if (raw === null || raw === "HUMAN") return "HUMAN";
+  if (raw === "DIGITAL_EMPLOYEE") return "DIGITAL_EMPLOYEE";
+  return null;
+}
+
+export type AgentInfo = { id: string; name: string; status: string; orgId: string | null };
+
+export type ValidateDigitalEmployeeInput = {
+  file: BindingFile;
+  orgId: string;
+  knownProfileKeys: readonly string[];
+  /** 数字员工允许的岗位（DIGITAL_EMPLOYEE_POSITION_KEYS） */
+  allowedPositionKeys: readonly string[];
+  /** Agent id → 信息；不在表里 = Agent 不存在 */
+  agentsById: Record<string, AgentInfo>;
+};
+
+/**
+ * 校验数字员工绑定：TODO 占位 / Agent 不存在 / 非 active / 跨企业 / 岗位不在四岗或未落地。
+ * resolved 的 email 字段放 Agent 名（脚本输出与审计用），userId 放 Agent id。
+ */
+export function validateDigitalEmployeeBindings(input: ValidateDigitalEmployeeInput): ValidateResult {
+  const errors: string[] = [];
+  const known = new Set(input.knownProfileKeys);
+  const allowed = new Set(input.allowedPositionKeys);
+  const resolved: Array<{ email: string; userId: string; keys: string[] }> = [];
+
+  const placeholders = Object.keys(input.file.bindings).filter((k) => k.startsWith(TODO_PREFIX));
+  if (placeholders.length) {
+    errors.push(`存在未填 Agent id 的占位：${placeholders.join("、")}`);
+  }
+
+  for (const [agentId, keys] of Object.entries(input.file.bindings)) {
+    if (agentId.startsWith(TODO_PREFIX)) continue;
+    const notAllowed = keys.filter((k) => !allowed.has(k));
+    if (notAllowed.length) {
+      errors.push(`${agentId}：数字员工不能绑岗位 ${notAllowed.join("、")}（只允许 ${[...allowed].join(" / ")}）`);
+    }
+    const unknown = keys.filter((k) => allowed.has(k) && !known.has(k));
+    if (unknown.length) {
+      errors.push(`${agentId}：本企业未落地岗位 ${unknown.join("、")}`);
+    }
+    const agent = input.agentsById[agentId];
+    if (!agent) {
+      errors.push(`${agentId}：Agent 不存在`);
+      continue;
+    }
+    if (agent.orgId !== input.orgId) {
+      errors.push(`${agentId}：Agent 不属于本企业`);
+      continue;
+    }
+    if (agent.status !== "active") {
+      errors.push(`${agentId}：Agent 状态为 ${agent.status}，不是 active`);
+      continue;
+    }
+    if (!notAllowed.length && !unknown.length) resolved.push({ email: agent.name, userId: agent.id, keys });
+  }
+
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, resolved };
+}

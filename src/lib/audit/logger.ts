@@ -33,6 +33,11 @@ export interface AuditLogParams {
     agentId?: string;
     jobId?: string;
     taskId?: string;
+    /** PERM-5b：digital_employee 时审计中心显示"数字员工 X 代 岗位 Y" */
+    actorKind?: string;
+    agentName?: string;
+    positionKey?: string;
+    sponsorUserId?: string;
   };
 }
 

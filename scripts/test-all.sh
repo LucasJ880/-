@@ -325,6 +325,8 @@ run_test "Matrix Playbook 权限/校验/合并" "npx tsx src/lib/operations/__te
 run_test "Publish Pipeline Phase C" "npx tsx src/lib/operations/__tests__/publish-pipeline.test.ts"
 run_test "运营 / 增长中心 / 平台用户管理权限判定（PERM-4b）" "npx tsx src/lib/operations/__tests__/ops-access.test.ts"
 run_test "运营权限 DB 端到端（PERM-4b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/operations/__tests__/ops-authorize-db.isolated.test.ts"
+run_test "数字员工岗位绑定与工具授权（PERM-5b）" "npx tsx src/lib/authorization/__tests__/digital-employee.test.ts"
+run_test "数字员工 DB 端到端（PERM-5b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/authorization/__tests__/digital-employee-db.isolated.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "Aivora 契约适配器" "npx tsx src/lib/operations/__tests__/aivora.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

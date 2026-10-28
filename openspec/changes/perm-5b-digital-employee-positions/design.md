@@ -21,7 +21,7 @@
 ## Decisions
 
 ### D1 禁区放进权限目录元数据，授权判定统一读 `allowedPrincipalTypes`
-`permissions.ts` 新增 `DIGITAL_EMPLOYEE_DENIED`（键前缀 / 后缀 / 精确键规则），`def()` 按规则把命中键的 `allowedPrincipalTypes` 设为 `["HUMAN"]`。`decideFromBindings` 在看绑定之前查定义：主体类型不在允许列表 → `PRINCIPAL_TYPE_NOT_ALLOWED`。`grep 'principal.type !== "HUMAN"' src/lib/authorization` 只剩 sponsor 范围那一处。
+`permissions.ts` 新增 `DIGITAL_EMPLOYEE_DENIED`（键前缀 / 后缀 / 精确键规则），`def()` 按规则把命中键的 `allowedPrincipalTypes` 设为 `["HUMAN"]`。`decideFromBindings` 在看绑定之前查定义：主体类型不在允许列表 → `PRINCIPAL_TYPE_NOT_ALLOWED`。`grep 'principal.type !== "HUMAN"' src/lib/authorization` 只剩 `resolveEffectiveBindings` 对未知主体类型 fail-closed 那一处（sponsor 范围用 `=== "HUMAN"`）。
 - 否决：在 `authorize()` 里另写一个硬编码 deny 列表——会与目录里已有的三个 HUMAN-only 键形成两套口径。
 - 否决：从岗位模板里删掉禁区键（如 `accounting` 去掉 `install.task.assign`）——人类会计需要它，模板是人和数字员工共用的。
 
@@ -32,7 +32,7 @@
 - 已知限制：Agent 由谁创建，sponsor 就是谁；要让 Alex 当 sponsor，Agent 需由 Alex 创建（报告写明）。
 
 ### D3 数字员工有效权限：只读自己的绑定，无回退
-`resolveEffectiveBindings` 对 `DIGITAL_EMPLOYEE` 只查 `principalType = "DIGITAL_EMPLOYEE"` 的 active 绑定；不查 `User.role`（无平台管理员全权）、不走 `OrganizationMember.role` 兼容回退。另加 `resolvePermissionKeys(principal)`：把有效绑定压成"允许键集合"（去掉 DENY 与主体类型不允许的键），给工具授权用。
+`resolveEffectiveBindings` 对 `DIGITAL_EMPLOYEE` 只查 `principalType = "DIGITAL_EMPLOYEE"` 的 active 绑定；不查 `User.role`（无平台管理员全权）、不走 `OrganizationMember.role` 兼容回退。另加 `resolveAllowedPermissionKeys(principal)`：把有效绑定压成"允许键集合"（去掉 DENY 与主体类型不允许的键），给工具授权用。
 - 否决：数字员工权限 = sponsor 权限 ∩ 岗位——任务书要求"绑岗位"，sponsor 换岗会让数字员工权限隐式漂移。
 
 ### D4 工具授权：`principal` 可选输入 + `requiredPermission`
@@ -77,4 +77,4 @@
 - `src/lib/authorization/__tests__/digital-employee-db.isolated.test.ts`（新，隔离库：主体解析四种失败、绑定后授权、无回退、审批归属 / 审批人、审计 correlation、脚本校验）
 - 既有回归：tool-auth / tenancy 相关测试、`position-binding.test`、`runtime-architecture` 守卫
 - `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate perm-5b-digital-employee-positions --strict`
-- 验收 grep：`grep -rn 'principal.type !== "HUMAN"' src/lib/authorization`（非测试）只剩 sponsor 范围一处
+- 验收 grep：`grep -rn 'principal.type !== "HUMAN"' src/lib/authorization`（非测试）只剩未知主体类型 fail-closed 一处
