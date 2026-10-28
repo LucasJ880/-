@@ -11,7 +11,7 @@ change：`openspec/changes/perm-5a-accounting-view/`（proposal / specs ×5 / de
 |---|---|---|
 | `project.finance.read`（新，HIGH，"查看项目结算"） | `ASSIGNED` / `ORG` | `accounting`、`owner`（ORG）；`bids`（ASSIGNED = 本人是成员 / 负责人的项目） |
 
-`authorize.test` 88 → 101。PERM-4c 其余 `project.finance.*` 键不在本次。
+`authorize.test` 120（含 5b）→ 133。PERM-4c 其余 `project.finance.*` 键不在本次。
 
 ### 1.2 提成口径唯一
 `src/lib/accounting/commission.ts` `summarizeCommission` / `groupCommissionBySales`（逐行照搬原内联逻辑）。`/api/sales/commission-summary` 改用它，**响应字段不变**（销售本人业绩页不受影响）。
