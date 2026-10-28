@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { loadPermissionKeys } from "@/lib/rbac/permission-keys";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { PROJECT_WORK_DOMAIN } from "@/lib/projects/work-domain";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
@@ -42,10 +43,12 @@ async function buildOpsCtx(
   orgId: string,
 ): Promise<{ wsCtx: WorkspacePolicyContext; opsCtx: OpsAccessContext }> {
   const orgRole = await resolveOrgRole(user.id, orgId);
+  // PERM-4b：入口与团队权限按岗位权限键判定（不再认平台角色 operations）
   const wsCtx: WorkspacePolicyContext = {
     platformRole: user.role,
     orgRole,
     hasMembership: Boolean(orgRole),
+    permissionKeys: await loadPermissionKeys(user.id, orgId),
   };
   return { wsCtx, opsCtx: { ...wsCtx, userId: user.id } };
 }

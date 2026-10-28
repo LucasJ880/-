@@ -91,14 +91,13 @@ export function canAccessManagementWorkspace(
 
 /**
  * 运营中心 /ops
- * — 管理层；或平台 operations；或持有 operations.* 权限
+ * — 管理层；或持有 operations.* 权限（PERM-4b：平台角色 operations 不再单独放行）
  * — 不以 bids/projects 模块单独放行（避免与招投标混淆）
  */
 export function canAccessOperationsWorkspace(
   ctx: WorkspacePolicyContext,
 ): boolean {
   if (isManagementWorkspaceUser(ctx)) return true;
-  if (isOperationsStaff(ctx.platformRole)) return true;
   if (hasAnyPermission(ctx, OPS_PERMISSIONS)) return true;
   return false;
 }

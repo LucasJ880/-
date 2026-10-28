@@ -25,8 +25,13 @@ ok(
   "销售专职 → /sales/home",
 );
 ok(
-  getDefaultWorkspace({ platformRole: "operations" }) === "/ops",
-  "运营专职 → /ops",
+  getDefaultWorkspace({ platformRole: "operations", permissionKeys: ["operations.read"] }) === "/ops",
+  "运营专职（持 operations.read）→ /ops",
+);
+// PERM-4b：平台角色 operations 无运营权限键不再进 /ops
+ok(
+  getDefaultWorkspace({ platformRole: "operations" }) !== "/ops",
+  "平台角色 operations 无岗位权限 → 不进 /ops",
 );
 ok(
   getDefaultWorkspace({

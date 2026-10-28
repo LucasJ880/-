@@ -41,8 +41,8 @@ ok(
 );
 
 ok(
-  resolveHomeRedirect({ platformRole: "operations" }) === "/ops",
-  "运营人员直接访问 / → /ops",
+  resolveHomeRedirect({ platformRole: "operations", permissionKeys: ["operations.read"] }) === "/ops",
+  "运营人员（持 operations.read）直接访问 / → /ops",
 );
 ok(
   resolveHomeRedirect({ platformRole: "sales" }) === "/sales/home",
@@ -76,8 +76,8 @@ ok(
 );
 
 ok(
-  getDefaultWorkspace({ platformRole: "operations" }) === "/ops",
-  "getDefaultWorkspace 运营=/ops",
+  getDefaultWorkspace({ platformRole: "operations", permissionKeys: ["operations.read"] }) === "/ops",
+  "getDefaultWorkspace 运营（持 operations.read）=/ops",
 );
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
