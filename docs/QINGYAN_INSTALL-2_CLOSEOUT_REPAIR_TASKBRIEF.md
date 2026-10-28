@@ -247,6 +247,7 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 ## 9. 拆分（5 个 change，按顺序；每个 ≤ 8 task）
 
 > 2026-10-28 propose 2b 时原"尾款 + 质保邮件"超过 8 条 task，按纪律拆成 2b（尾款确认）与 2c（质保邮件）；原 2c / 2d 顺延为 2d / 2e。
+> 2026-10-28 propose 2e 时"出单 + 排返修 + 返修收口 + 作废 / 关闭 + 逾期提醒"超过 8 条 task，拆成 2e（调度闭环）与 2f（作废 / 关闭不返修、逾期提醒）。2d 与 2e 同批上线。
 
 | ID | change | 做什么 | 依赖 | 为什么这个顺序 |
 |---|---|---|---|---|
@@ -254,7 +255,8 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 | INSTALL-2b | `install-2b-balance-confirm` | `install.balance.confirm`；会计「待收尾款」页签（URL 页签，修 F11）；确认尾款 → `completed`（差额必填说明、幂等）；完工 / 尾款确认站内通知与落点；销售首页待收尾款逐单口径并剔除已确认（Q10） | 2a | 路径 ① 前半：钱的确认 |
 | INSTALL-2c | `install-2c-warranty-email` | `sunnyWarranty` 质保表（种子 = 报价单口径）与设置页；完工 + 质保邮件模板；`install.send_warranty_email` 审批 + 执行器；尾款确认后生成审批、会计批准发送；发送结果通知 | 2b | 路径 ① 后半：客户邮件 |
 | INSTALL-2d | `install-2d-repair-form` | 逐单元 ✅ / ⚠ 二选一；维修单提交（数字模板 + 打印版）；问题类型查表；返修目标日；预约结果 `needs_repair`；`installStage` 推导；通知（出单按品类 / 运营 / 会计 / 销售）；`/install/repairs`；销售状态卡 | 2a | 路径 ② 前半 |
-| INSTALL-2e | `install-2e-repair-dispatch` | 出单「已出单 + 预计备好日」；安排返修（新预约、不走状态机）；二次安装只收口维修行；按访次聚合 + 照片代理放行任一访次被分配人（修 F5）；全部关闭 → `installed` 接回 2b；逾期提醒挂既有 cron | 2b、2d | 路径 ② 后半，闭环 |
+| INSTALL-2e | `install-2e-repair-dispatch` | 出单按品类登记「已出单 + 预计备好日」；安排返修 / 改期（新预约、不走状态机）；返修预约只收口维修行；照片代理放行任一安装预约被分配人（修 F5）；返修完成 → `installed` 接回 2b；返修中再发现问题 → 新维修单、原单转入 | 2b、2d | 路径 ② 后半，闭环 |
+| INSTALL-2f | `install-2f-repair-close` | 维修单作废（提交错了：恢复首装预约）/ 关闭不返修（客户接受现状：转已安装）；逾期提醒挂既有每日 cron | 2e | 例外出口与提醒 |
 
 每个 change 照常：`/opsx:propose` → 四件套回传审 → `/opsx:apply` → `npm test` → `/opsx:verify` → PR → 合并 → archive 小 PR。规格增量要动的既有能力：`installation/window-closeout`、`installation/install-tasks`、`fulfillment/order-category-access`（会计推进 `completed` 的例外）、`accounting/workspace`（新页签）、`accounting/quote-process-view`（"会计只读"需改为"除尾款确认外只读"）。
 
