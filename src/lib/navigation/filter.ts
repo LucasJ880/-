@@ -10,6 +10,7 @@ import {
 import {
   canAccessBidWorkspace,
   canAccessInstallWorkspace,
+  canAccessAccountingWorkspace,
   canAccessManagementWorkspace,
   canAccessOperationsWorkspace,
   canAccessSalesWorkspace,
@@ -51,6 +52,8 @@ function workspaceAccessOk(
       return canAccessSalesWorkspace(ws);
     case "install":
       return canAccessInstallWorkspace(ws);
+    case "accounting":
+      return canAccessAccountingWorkspace(ws);
     default:
       return true;
   }

@@ -217,6 +217,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "sales.quote.signed_amount.approve",
       // PERM-4b：老板批准运营内容（不改运营配置：无 operations.manage）
       "operations.content.approve",
+      // PERM-5a：项目结算汇总（全企业）
+      "project.finance.read",
     ),
   },
   {
@@ -274,7 +276,7 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
   {
     key: "accounting",
     name: "会计",
-    description: "成交金额、提成、报价全过程只读；项目财务另走项目角色",
+    description: "成交金额、提成、报价全过程、项目结算只读",
     bindings: org(
       "accounting.read",
       "sales.analytics.read",
@@ -285,20 +287,26 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "install.task.assign",
       "install.task.read",
       "install.photo.read",
+      // PERM-5a：项目结算汇总（全企业，/accounting 项目结算页签）
+      "project.finance.read",
     ),
   },
   {
     key: "bids",
     name: "招投标",
     description: "投标项目全流程；中标交接到执行",
-    bindings: org(
-      "project.read",
-      "project.create",
-      "project.update",
-      "bids.handoff.preview",
-      "bids.handoff.execute",
-      "operations.projects.create",
-    ),
+    bindings: [
+      ...org(
+        "project.read",
+        "project.create",
+        "project.update",
+        "bids.handoff.preview",
+        "bids.handoff.execute",
+        "operations.projects.create",
+      ),
+      // PERM-5a：参与方知道价格即可——只看自己参与项目的结算汇总（拍板 3）
+      { permissionKey: "project.finance.read", dataScope: ASSIGNED },
+    ],
   },
   {
     // 与系统模板 ops_staff 并集：PERM-3 只读库存

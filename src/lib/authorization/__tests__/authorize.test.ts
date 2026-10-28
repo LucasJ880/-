@@ -315,6 +315,25 @@ ok(
   "PERM-2：org_owner 系统模板不含成员 / 岗位 / 策略管理，仍含 audit.read",
 );
 
+console.log("PERM-5a 项目结算权限键");
+{
+  const pf = getPermissionDefinition("project.finance.read");
+  ok(!!pf && pf.riskLevel === "HIGH" && pf.supportedScopes.join() === "ASSIGNED,ORG", "project.finance.read 已登记（HIGH，ASSIGNED / ORG）");
+  ok(has(mergedProfileBindings(WC, "accounting"), "project.finance.read", "ORG"), "accounting：project.finance.read ORG");
+  ok(has(mergedProfileBindings(WC, "owner"), "project.finance.read", "ORG"), "owner：project.finance.read ORG");
+  const bidsB = mergedProfileBindings(WC, "bids");
+  ok(has(bidsB, "project.finance.read", "ASSIGNED") && !has(bidsB, "project.finance.read", "ORG"), "bids：project.finance.read 只 ASSIGNED");
+  for (const k of ["sales_rep", "pricing_lead", "ops_staff", "ops_lead", "installer", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    ok(!has(mergedProfileBindings(WC, k), "project.finance.read"), `${k} 不含 project.finance.read`);
+  }
+  const bidsDecision = decideFromBindings({
+    principal,
+    permission: "project.finance.read",
+    bindings: bidsB.map((b, i) => ({ permissionKey: b.permissionKey, dataScope: b.dataScope, effect: "ALLOW" as const, source: `t:bids:${i}` })),
+  });
+  ok(bidsDecision.allowed && bidsDecision.matchedScope === "ASSIGNED", "bids 不带资源判定 → ASSIGNED");
+}
+
 console.log("INSTALL-1 安装工岗位");
 for (const k of ["install.task.read", "install.task.update", "install.window.complete", "install.task.assign", "install.photo.read"]) {
   ok(isKnownPermission(k), `权限键已登记：${k}`);
