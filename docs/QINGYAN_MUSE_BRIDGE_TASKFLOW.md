@@ -103,7 +103,7 @@
 |---|---|---|---|---|
 | S1 | 只读销售意图 `sales_overview` / `opportunity_status`：服务端读范围（管理全组织 / 销售仅本人）、可解释确定性排序、决定 B 金额可见性 | P0 | OpenSpec change `muse-sales-read-intents`；`sales-pure` + `sales-db.isolated` 测试；报告 `docs/QINGYAN_S1_REPORT.md` | [x]（#262；已归档） |
 | S2 | 跨助理询问 `ask_colleague` / `reply_inquiry`：询问 Task + 通知 + `inquiry.*` 事件；网页回复页 `/sales/inquiries/[id]` | S1 | OpenSpec change `muse-sales-inquiry-loop`；`inquiry-pure` + `inquiry-db.isolated` 测试；报告 `docs/QINGYAN_S2_REPORT.md` | [x]（#275；已归档） |
-| S3 | 跟进引擎 `create_followup` / `update_followup`：SalesAction（source=muse_followup）+ 挂既有 `sales-actions` cron 的到期提醒 / 逾期升级 + 商机协作追踪 + 证据导出脚本 | S2 | OpenSpec change `muse-sales-followup-loop`；`followup-pure` + `followup-db.isolated` 测试；报告 `docs/QINGYAN_S3_REPORT.md`；staging 10 步验收随 G3 | [G] |
+| S3 | 跟进引擎 `create_followup` / `update_followup`：SalesAction（source=muse_followup）+ 挂既有 `sales-actions` cron 的到期提醒 / 逾期升级 + 商机协作追踪 + 证据导出脚本 | S2 | OpenSpec change `muse-sales-followup-loop`；`followup-pure` + `followup-db.isolated` 测试；报告 `docs/QINGYAN_S3_REPORT.md`；staging 10 步验收随 G3 | [x]（#278；已归档；staging 10 步验收随 G3） |
 | S4 | Pilot 上线：对 1 个组织开开关、绑定 2 个用户、签发 Connector Token、真实 10 步验收 | S3 | 一条真实商机经私人助理推进到下一步并可追踪 | [ ] |
 
 ---
