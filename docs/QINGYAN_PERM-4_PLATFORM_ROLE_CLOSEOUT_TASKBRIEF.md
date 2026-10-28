@@ -111,3 +111,9 @@
 3. 增长中心（营销）写操作**改为 `operations.manage`**；普通成员只读。
 4. 发布任务审核与 Playbook 批准：**新键 `operations.content.approve`**，绑 `ops_lead` 与 `owner`；创建人 / 提交人**不得自批**，只有平台 super_admin 例外（Maggie 写的 Marty 批，Marty 写的老板批）。
 5. 起草 / 改草稿 / 提交审核：**新键 `operations.content.draft`**，绑 `ops_staff` 与 `ops_lead`；不能批准，也不能改品牌档案、矩阵账号等配置（这些要 `operations.manage`）。
+
+### 拍板结果 · PERM-4c（2026-10-28，propose 前）
+1. **拆成三个 change**（一个 change 不超过 8 条 task）：`perm-4c1-project-finance`（项目财务 / 报价引擎按岗位、会计进单项目财务页、删除 `canManageUsers`）→ `perm-4c2-nav-by-position`（导航 / 默认工作区 / 底栏按岗位）→ `perm-4c3-collapse-platform-roles`（平台角色压扁脚本 + 窗饰企业关闭兼容回退）。按此顺序各一个 PR。
+2. **梦馨保留旧规则**：窗饰行业包企业（Sunny）按岗位权限键；其他企业（梦馨，无岗位绑定）导航与默认工作区继续按平台角色，等梦馨落岗位后再切。项目财务对无岗位企业由系统模板 `org_owner` / `org_admin` 的兼容回退保持原有特权。
+3. **外贸入口保留平台角色**：只有 `/trade/**` 相关导航入口继续按平台角色 `trade` 判断，压扁脚本也不动 `trade`；外贸整体改造留 PERM-6。
+4. **管理层 = 老板岗位或平台 super_admin**：新增只给 `owner` 的权限键（4c-2 定名，如 `organization.dashboard.read`），导航与工作区都看这个键。
