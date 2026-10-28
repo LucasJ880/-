@@ -40,9 +40,15 @@ export type SalesScope = { kind: "org"; orgId: string } | { kind: "own"; orgId: 
 
 const has = (list: readonly string[], v: string | null | undefined) => !!v && list.includes(v);
 
-/** 管理角色（平台或组织任一侧）→ 全组织；销售角色 → 仅本人；其余 → null（拒绝）。 */
-export function resolveSalesScope(identity: Pick<MuseIdentity, "userId" | "orgId" | "role" | "orgRole">): SalesScope | null {
-  if (has(SALES_MANAGER_PLATFORM_ROLES, identity.role) || has(SALES_MANAGER_ORG_ROLES, identity.orgRole)) {
+/**
+ * 管理角色（平台或组织任一侧）→ 全组织；销售角色 → 仅本人；其余 → null（拒绝）。
+ * PERM-4c4：岗位模式企业只看岗位派生平台角色（管理层 = 老板岗位），企业成员角色 org_owner / org_admin 本身不带来全组织。
+ */
+export function resolveSalesScope(
+  identity: Pick<MuseIdentity, "userId" | "orgId" | "role" | "orgRole" | "positionMode">,
+): SalesScope | null {
+  const orgManager = !identity.positionMode && has(SALES_MANAGER_ORG_ROLES, identity.orgRole);
+  if (has(SALES_MANAGER_PLATFORM_ROLES, identity.role) || orgManager) {
     return { kind: "org", orgId: identity.orgId };
   }
   if (has(SALES_REP_PLATFORM_ROLES, identity.role)) {

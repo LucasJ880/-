@@ -25,18 +25,21 @@
   - sales：全部 `sales_*` / `secretary_*` / `project_*` → 只剩通用工具。
   - boss / operations / manager：已归一为 `user`，不变。
 - **建议**：岗位模式下工具域按岗位键（销售工作键 → sales / secretary；`project.read` → project）。
+- **状态**：**4c4 已收口**——`runAgent` / `runAgentStream` 开头取岗位派生平台角色，覆盖网页 / @提及 / 微信 / `/api/agent-core/chat`；`/api/agent-core/tools` 列表同样处理。工具策略表未改（改权限键另立 change）。
 
 ### A2 能力矩阵按平台角色
 - **位置**：`src/lib/rbac/capabilities.ts`（`aiDomains` / `uiModules` / `dataScope` / `canWrite`），`getCapabilities(role)`。
 - **门槛**：AI 域、界面模块、数据范围（`rbac/data-scope.ts`）。
 - **压扁前后**：sales / boss 的域与 `dataScope` 变成 `user` 的。
 - **建议**：岗位模式下按岗位键派生；`dataScope=all` 只给管理层（`organization.dashboard.read`），并且**必须按企业过滤**——另见独立任务"visualizer 跨企业泄露"。
+- **状态**：**4c4 部分收口**——AI 线程路由的 `getCapabilities` 取派生角色；`dataScope`（视觉方案、审批执行等非 AI 读点）归 B4 / B5（4c5）。
 
 ### A3 晨报
 - **位置**：`src/lib/secretary/briefing.ts:24-41`。
 - **门槛**：晨报扫描域。
 - **压扁前后**：sales 的销售域晨报变空。
 - **建议**：按岗位键。
+- **状态**：**4c4 已收口**——`getUserDomains(userId, orgId)` 取派生角色。
 
 ### A4 Muse 销售查询（决定 B）
 - **位置**：`src/lib/muse-bridge/sales-pure.ts:35-52` `resolveSalesScope`。调用方：`sales.ts`、`followup.ts`、`inquiry.ts`。
@@ -45,30 +48,35 @@
   - sales：本人 → 拒绝；
   - boss / manager：全组织 + 金额 → 只有 `org_owner` / `org_admin` 才保留，否则拒绝。
 - **建议**：管理层 = `organization.dashboard.read`（金额照决定 B 只给管理层）；本人范围 = 销售工作键。
+- **状态**：**4c4 已收口**——`resolveMuseBinding` 身份带派生角色与 `positionMode`；岗位模式 `resolveSalesScope` 忽略企业成员角色。
 
 ### A5 放宽：AI 上下文可挂客户
 - **位置**：`src/lib/agent-scope/resolve.ts:89`。
 - **门槛**：AI 上下文可挂的客户。
 - **压扁前后**：sales 只能挂自己的客户 → 可挂全企业客户。
 - **建议**：按 `sales.customer.read` 的数据范围。
+- **状态**：**4c4 已收口**——`resolveAgentScope` 客户限制取派生角色。
 
 ### A6 放宽：营销数字员工与营销页
 - **位置**：`src/lib/marketing/access.ts:40`、`marketing/route-access.ts:22`（`middleware.ts:81`）。
 - **门槛**：营销数字员工、`/marketing`、`/operations/growth` 深链。
 - **压扁前后**：sales 被挡 → 放行。
 - **建议**：按 `operations.read` / `operations.manage`。
+- **状态**：**4c4 部分收口**——`/api/marketing/employee` 与微信入口取派生角色（压扁后销售仍被挡）；页面中间件 `middleware.ts` / `route-access.ts`（读 JWT）与工作台按钮显示归 4c5。
 
 ### A7 仅提示词
 - **位置**：`ai/prompts/common.ts:268-281`、`agent-core/prompts/operator-system.ts:25-27,62`。
 - **门槛**：提示词里的角色说明与知识包。
 - **压扁前后**：sales 失去窗饰知识包，提示变成"普通用户"。
 - **建议**：按岗位键。
+- **状态**：**4c4 已收口（经入口）**——AI 线程路由、`/api/ai/chat` 的提示词取派生角色；未经这些入口的提示词调用方由 4c5 复核。
 
 ### A8 环境变量角色白名单
 - **位置**：`feature-flags.ts:51`、`workforce-runtime/flags.ts:49`、`agent-supervisor/flags.ts:55`、`ai/model-policy/flags.ts:92`、`employee-ai/flags`、`digital-employees/activation`、`agent-runtime-v2/flags`、`assistant/followup-flags`。
 - **门槛**：按角色白名单开功能（如 `DIGITAL_EMPLOYEE_ROLE_ALLOWLIST=admin,sales`）。
 - **压扁前后**：取决于生产环境变量值。
 - **建议**：核对生产值；改为按岗位键或加 `user`。
+- **状态**：**4c4 部分收口**——AI 线程路由 `isOperatorEnabled` 取派生角色；agent-supervisor 入口传派生角色。其余开关（`DIGITAL_EMPLOYEE_ROLE_ALLOWLIST`、`WORKFORCE_RUNTIME_ROLE_ALLOWLIST`、`ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST`、`ASSISTANT_DURABLE_FOLLOWUP_ROLE_ALLOWLIST`）的调用方未改：Lucas 核对生产值，含 `sales` 者压扁后需同时有派生入口或改为按用户 id；4c5 收尾时复核。
 
 ## B. 接口授权 → `perm-4c5-management-reads-by-position`（含招投标，Sunny 需要）
 
@@ -167,6 +175,10 @@
 - **门槛**：兼容回退。
 - **压扁前后**：**4c3 已关闭（岗位模式企业）**。
 - **建议**：—
+
+## 收口进度
+
+- 2026-10-28 `perm-4c4-ai-tools-by-position`：A1 / A3 / A4 / A5 / A7 已收口；A2 / A6 / A8 部分收口（余项见各条"状态"，归 4c5）。
 
 ## 打开闸门的条件
 

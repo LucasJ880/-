@@ -30,6 +30,7 @@ import { enqueueBackgroundAgentRun } from "./queue";
 import { completeAgentRunRespectingApprovals } from "./pending-link";
 import type { AgentSession } from "@prisma/client";
 import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import {
   emitAgentOutputEvent,
   newModelCallId,
@@ -63,7 +64,7 @@ function pickMarketingSkillSlug(plan: AgentPlan): string | null {
   return null;
 }
 
-export async function executeConversationRun(input: {
+export async function executeConversationRun(rawInput: {
   orgId: string;
   userId: string;
   userRole: string;
@@ -80,6 +81,15 @@ export async function executeConversationRun(input: {
   /** worker 复用已规划结果，避免二次 Plan */
   precomputedPlan?: AgentPlan;
 }): Promise<ConversationRunResult> {
+  // PERM-4c4：岗位模式企业的域选择 / 营销数字员工 / 提示词 / 工具取岗位派生平台角色
+  const input = {
+    ...rawInput,
+    userRole: await resolveEffectivePlatformRole({
+      userId: rawInput.userId,
+      orgId: rawInput.orgId,
+      platformRole: rawInput.userRole,
+    }),
+  };
   const { orgId, userId, runId } = input;
   const channelUserId =
     input.channelUserId || input.session.channelUserId || "";
