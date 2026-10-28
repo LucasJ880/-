@@ -1,5 +1,6 @@
 /**
  * INSTALL-2a：收口单元（Blinds 行 + 工艺参数四段）构建 / 编号 / id 编解码 / 位置快照比对
+ * INSTALL-2d：问题记录与收口记录取最新一条（有问题 / 已收口 / 未处理）
  * 运行：npx tsx src/lib/install/__tests__/closeout-units.test.ts
  */
 import {
@@ -9,6 +10,7 @@ import {
   parseSpecUnitId,
   sameLocation,
   specUnitId,
+  unhandledUnits,
   specUnitLogTargetId,
   type BlindsRowInput,
   type CloseoutLog,
@@ -131,6 +133,36 @@ console.log("INSTALL-2a 位置快照比对");
   ok(agg.allCompleted && agg.windows[0].locationChanged === null, "Blinds 行（INSTALL-1 记录无位置快照）照旧计入");
   const other = aggregateCloseout(units, [unitLog("o8:vinyl:0", "2026-10-28T10:00:00Z", "Hall")]);
   ok(!other.allCompleted, "别的单元的记录不计入");
+}
+
+console.log("INSTALL-2d 问题记录与收口记录取最新");
+{
+  const issueLog = (targetId: string, at: string, location: string | undefined, extra: Record<string, unknown> = {}): CloseoutLog => ({
+    ...unitLog(targetId, at, location, 9),
+    action: "install.window.issue",
+    afterData: JSON.stringify({
+      pathname: "install-photos/org/o1/x/i.jpg", proxyUrl: "/api/files/install-photos/org/o1/x/i.jpg", note: "",
+      issueType: "wrong_size", needsFactory: true, description: "高度短 2cm", ...(location !== undefined ? { location } : {}), ...extra,
+    }),
+  });
+  const units = buildCloseoutUnits("o9", [blinds("b1", 1, "Hall"), blinds("b2", 2, "Den"), blinds("b3", 3, "Kitchen")], null);
+  const later = aggregateCloseout(units, [unitLog("b1", "2026-10-28T10:00:00Z", undefined), unitLog("b3", "2026-10-28T10:00:00Z", undefined), issueLog("b3", "2026-10-28T10:30:00Z", undefined)]);
+  const w3 = later.windows[2];
+  ok(w3.state === "issue" && w3.issue?.issueTypeLabel === "尺寸不符需重做" && w3.issue.needsFactory && w3.issue.description === "高度短 2cm" && w3.issue.photos.length === 1, "3 号窗先拍完工照后标问题 → 有问题，带类型名 / 描述 / 问题照", w3);
+  ok(later.completed === 1 && later.issueCount === 1 && !later.allCompleted, "有问题不计入已收口：已收口 1，有问题 1", later);
+  ok(unhandledUnits(later).map((u) => u.itemNumber).join() === "2" && missingWindows(later).map((u) => u.itemNumber).join() === "2,3", "未处理只含 2 号；未收口清单含 2、3 号");
+  const fixed = aggregateCloseout(units, [issueLog("b3", "2026-10-28T10:00:00Z", undefined), unitLog("b3", "2026-10-28T10:40:00Z", undefined)]);
+  ok(fixed.windows[2].state === "done" && fixed.windows[2].issue === null && fixed.issueCount === 0 && fixed.completed === 1, "3 号窗先标问题、修好后补拍完工照 → 已收口，有问题数 0", fixed.windows[2]);
+  const twice = aggregateCloseout(units, [issueLog("b2", "2026-10-28T10:00:00Z", undefined), issueLog("b2", "2026-10-28T10:10:00Z", undefined, { description: "补充：漏发支架" })]);
+  ok(twice.windows[1].issue?.description === "补充：漏发支架" && twice.windows[1].issue.photos.length === 2, "同一单元再标问题：取最新描述，问题照累积");
+  ok(twice.windows[0].state === "pending" && twice.windows[0].issue === null, "没有记录 → 未处理");
+  const bad = aggregateCloseout(units, [issueLog("b1", "2026-10-28T10:00:00Z", undefined, { issueType: "bogus" })]);
+  ok(bad.windows[0].state === "pending", "未知问题类型的记录不计入");
+  const specUnits = buildCloseoutUnits("o10", [], spec({ vinyl: [vinyl("次卧")] }));
+  const stale = aggregateCloseout(specUnits, [issueLog("o10:vinyl:0", "2026-10-28T10:00:00Z", "主卧")]);
+  ok(stale.windows[0].state === "pending" && stale.windows[0].locationChanged?.previousLocation === "主卧", "工艺参数单元：问题记录位置已变 → 不计入，标记位置已变");
+  const match = aggregateCloseout(specUnits, [issueLog("o10:vinyl:0", "2026-10-28T10:00:00Z", " 次卧 ")]);
+  ok(match.windows[0].state === "issue", "工艺参数单元：问题记录位置一致 → 有问题");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

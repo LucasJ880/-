@@ -31,6 +31,7 @@ import {
   type QuoteMoney,
 } from "./balance";
 import { INSTALL_TASK_COMPLETED } from "./closeout";
+import { ENTITY_INSTALL_REPAIR, REPAIR_OUTCOME } from "./repair";
 import { INSTALL_ORDER_SELECT, loadOrdersCloseout, type InstallOrderRow } from "./service";
 
 export const BALANCE_PERMISSION = "install.balance.confirm";
@@ -166,12 +167,17 @@ export type BalanceConfirmedRow = {
   confirmedAt: string;
 };
 
-/** 有完成收口记录（install.task.completed）的安装预约 id */
+/** 有完成收口记录（install.task.completed，结果不是 INSTALL-2d 的 needs_repair）的安装预约 id */
 export async function loadClosedOutAppointmentIds(appointmentIds: Array<string | null>): Promise<Set<string>> {
   const ids = [...new Set(appointmentIds.filter((x): x is string => !!x))];
   if (ids.length === 0) return new Set();
   const rows = await db.auditLog.findMany({
-    where: { action: INSTALL_TASK_COMPLETED, targetType: "appointment", targetId: { in: ids } },
+    where: {
+      action: INSTALL_TASK_COMPLETED,
+      targetType: "appointment",
+      targetId: { in: ids },
+      NOT: { afterData: { contains: `"outcome":"${REPAIR_OUTCOME}"` } },
+    },
     select: { targetId: true },
   });
   return new Set(rows.map((r) => r.targetId).filter((x): x is string => !!x));
@@ -261,7 +267,9 @@ export type InstallNotice = {
   summary: string;
   orgId: string;
   orderId: string;
-  entityType: typeof ENTITY_INSTALL_BALANCE | "blinds_order";
+  entityType: typeof ENTITY_INSTALL_BALANCE | typeof ENTITY_INSTALL_REPAIR | "blinds_order";
+  /** 通知实体 id；缺省 = orderId（INSTALL-2d 维修单通知传维修单 id） */
+  entityId?: string;
   /** 去重粒度细到"每次尝试"时传（如审批 id）；不传 = 同一单同一人同一类型只发一次 */
   dedupeKey?: string;
 };
@@ -278,10 +286,10 @@ export async function notifyInstallUser(userId: string, n: InstallNotice): Promi
       summary: n.summary,
       orgId: n.orgId,
       entityType: n.entityType,
-      entityId: n.orderId,
+      entityId: n.entityId ?? n.orderId,
       priority: "medium",
       // 同一单同一人只发一次（spec「完工通知」「尾款确认通知」）；带 dedupeKey 时每次尝试一条
-      sourceKey: `${n.type}:${n.orderId}:${userId}${n.dedupeKey ? `:${n.dedupeKey}` : ""}`,
+      sourceKey: `${n.type}:${n.entityId ?? n.orderId}:${userId}${n.dedupeKey ? `:${n.dedupeKey}` : ""}`,
     });
   } catch (err) {
     console.error(`[install/balance] 通知失败 ${n.type} ${n.orderId} → ${userId}`, err);

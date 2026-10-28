@@ -24,6 +24,7 @@ export const TYPE_INTRODUCED_AT: Record<string, string> = {
   install_balance_confirmed: "2026-10-28T00:00:00Z",
   install_warranty_sent: "2026-10-28T00:00:00Z",
   install_warranty_failed: "2026-10-28T00:00:00Z",
+  install_repair_submitted: "2026-10-28T00:00:00Z",
 };
 
 /** 纯函数：类型是否开启（含 grandfather 判定），供测试 */

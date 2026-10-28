@@ -36,8 +36,8 @@
 - **THEN** 返回 200，阶段 `repair_open`，含单号与目标日，各行有位置与问题类型名（`repair-db.isolated.test.ts`）
 
 #### Scenario: 无读权
-- **WHEN** 另一位不是创建人的销售请求该单
-- **THEN** 返回 404
+- **WHEN** 另一企业的成员请求该单（读范围见 `fulfillment/order-category-access`「工艺单读范围」）
+- **THEN** 返回 404（`repair-db.isolated.test.ts`）
 
 ### Requirement: 工艺单详情的安装状态卡
 工艺单详情页 SHALL 在顶部显示安装状态卡：阶段名与销售文案；有未关闭维修单时列出单号、目标日、是否已和客户确认与各行位置和问题类型名。能打开该页的人都 SHALL 看到（包括作为创建人的销售）；接口失败时 SHALL 不显示卡片且不影响页面其他内容。

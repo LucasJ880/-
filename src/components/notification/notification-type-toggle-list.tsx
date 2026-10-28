@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
   install_balance_confirmed: "尾款已确认",
   install_warranty_sent: "质保邮件已发出",
   install_warranty_failed: "质保邮件未发出",
+  install_repair_submitted: "返修单已提交",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);

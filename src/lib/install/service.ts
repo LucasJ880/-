@@ -3,6 +3,8 @@
  *
  * 任务 = Appointment(type=install)；工艺单 = BlindsOrder(appointmentId)；收口记录 = AuditLog。
  * INSTALL-2a：收口单元 = Blinds 行 + 最新工艺参数四段（buildCloseoutUnits），列表 / 详情 / 上传 / 完成共用。
+ * INSTALL-2d：收口日志同时读问题记录（install.window.issue）；列表 / 详情带有问题数与单元问题；
+ * 因维修单完成的任务详情带维修单摘要。
  * 这里只做读取与序列化，不返回金额 / 成本 / 原始存储 URL。
  */
 
@@ -28,6 +30,7 @@ import {
   type CloseoutUnit,
   type WindowItem,
 } from "./closeout";
+import { INSTALL_WINDOW_ISSUE } from "./repair";
 import { installScopeFromDecision, type InstallScope } from "./scope";
 
 export const INSTALL_TASK_SELECT = {
@@ -178,7 +181,7 @@ export async function loadLatestSpecs(orderIds: string[]): Promise<Map<string, P
   return out;
 }
 
-/** 两类收口记录：Blinds 行（blinds_order_item）与工艺参数单元（blinds_order_unit） */
+/** 两类目标：Blinds 行（blinds_order_item）与工艺参数单元（blinds_order_unit）；两种记录：收口与问题（INSTALL-2d） */
 export async function loadCloseoutLogs(units: Array<Pick<CloseoutUnit, "section" | "logTargetId">>): Promise<CloseoutLog[]> {
   const itemIds = units.filter((u) => u.section === "blinds").map((u) => u.logTargetId);
   const unitTargets = units.filter((u) => u.section !== "blinds").map((u) => u.logTargetId);
@@ -188,8 +191,8 @@ export async function loadCloseoutLogs(units: Array<Pick<CloseoutUnit, "section"
   ];
   if (or.length === 0) return [];
   const rows = await db.auditLog.findMany({
-    where: { action: INSTALL_WINDOW_COMPLETED, OR: or },
-    select: { targetId: true, createdAt: true, userId: true, afterData: true },
+    where: { action: { in: [INSTALL_WINDOW_COMPLETED, INSTALL_WINDOW_ISSUE] }, OR: or },
+    select: { targetId: true, createdAt: true, userId: true, afterData: true, action: true },
     orderBy: { createdAt: "desc" },
   });
   return rows;
@@ -251,17 +254,22 @@ export function serializeTaskSummary(
           status: order.status,
           windowCount: summary?.total ?? 0,
           completedCount: summary?.completed ?? 0,
+          issueCount: summary?.issueCount ?? 0,
           allCompleted: summary?.allCompleted ?? false,
         }
       : null,
   };
 }
 
-/** 详情：摘要 + 每个收口单元 + 每单元收口 */
+/** INSTALL-2d：因提交维修单而完成的任务，详情里带的维修单摘要 */
+export type TaskRepairSummary = { id: string; repairNo: string; targetDate: string; rowCount: number };
+
+/** 详情：摘要 + 每个收口单元 + 每单元收口 / 问题 */
 export function serializeTaskDetail(
   task: InstallTaskRow,
   order: InstallOrderRow,
   closeout: OrderCloseout,
+  repair: TaskRepairSummary | null = null,
 ) {
   const { units, summary } = closeout;
   const byUnit = new Map(summary.windows.map((w) => [w.itemId, w]));
@@ -289,9 +297,12 @@ export function serializeTaskDetail(
         latest: c?.latest ?? null,
         photos: c?.photos ?? [],
         locationChanged: c?.locationChanged ?? null,
+        state: c?.state ?? "pending",
+        issue: c?.issue ?? null,
       };
     }),
-    closeout: { total: summary.total, completed: summary.completed, allCompleted: summary.allCompleted },
+    closeout: { total: summary.total, completed: summary.completed, issueCount: summary.issueCount, allCompleted: summary.allCompleted },
+    repair,
   };
 }
 

@@ -28,6 +28,7 @@ import {
   VinylSection,
 } from "./process-sections";
 import type { InstallTaskDetailData } from "@/components/install/install-types";
+import { InstallStatusCard } from "@/components/install/install-status-card";
 
 interface BlindsOrderItem {
   id: string;
@@ -442,6 +443,9 @@ export default function BlindsOrderDetailPage({
       <SourceBanner spec={spec} />
       {spec && <IssuesPanel issues={issues} />}
 
+      {/* INSTALL-2d：安装状态卡（销售从返修通知落到这里） */}
+      <InstallStatusCard orderId={order.id} refreshKey={order.status} />
+
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
         <div className="rounded-lg border border-border bg-card-bg p-4">
@@ -706,7 +710,21 @@ function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
         <span>
           已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 项
         </span>
-        {task.completedAt && (
+        {task.closeout.issueCount > 0 && (
+          <span className="text-[#a86a12]">
+            有问题 <b>{task.closeout.issueCount}</b> 项
+          </span>
+        )}
+        {task.completedAt && task.repair && (
+          <span className="text-[#a86a12]">
+            {new Date(task.completedAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })} 提交维修单{" "}
+            <Link href={`/install/repairs/${task.repair.id}`} className="font-mono underline">
+              {task.repair.repairNo}
+            </Link>
+            ，目标 {task.repair.targetDate}
+          </span>
+        )}
+        {task.completedAt && !task.repair && (
           <span className="text-[#2e7a56]">
             完成于 {new Date(task.completedAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
           </span>
@@ -724,14 +742,34 @@ function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
                   </span>
                 )}
               </span>
-              <span className={`text-xs ${w.photoCount > 0 ? "text-[#2e7a56]" : "text-muted"}`}>
-                {w.photoCount > 0 ? `${w.photoCount} 张` : w.locationChanged ? "位置已变" : "未收口"}
+              <span
+                className={`text-xs ${w.state === "done" ? "text-[#2e7a56]" : w.state === "issue" ? "text-[#a86a12]" : "text-muted"}`}
+              >
+                {w.state === "done"
+                  ? `${w.photoCount} 张`
+                  : w.state === "issue"
+                    ? `有问题：${w.issue?.issueTypeLabel ?? ""}`
+                    : w.locationChanged
+                      ? "位置已变"
+                      : "未收口"}
               </span>
             </div>
             <div className="mt-0.5 text-xs text-muted">
               {[`${w.width} × ${w.height}`, w.productType, w.fabricSku].filter((p) => p && p.trim()).join(" · ")}
             </div>
-            {w.latest ? (
+            {w.state === "issue" && w.issue ? (
+              <a href={w.issue.photos[0]?.proxyUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                {w.issue.photos[0] && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={w.issue.photos[0].proxyUrl}
+                    alt={`窗 ${w.itemNumber} 问题照片`}
+                    className="h-40 w-full rounded-lg border border-[rgba(201,138,34,0.5)] object-cover"
+                  />
+                )}
+                <div className="mt-1 text-xs text-foreground">{w.issue.description}</div>
+              </a>
+            ) : w.latest && w.state === "done" ? (
               <a href={w.latest.proxyUrl} target="_blank" rel="noreferrer" className="mt-2 block">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img

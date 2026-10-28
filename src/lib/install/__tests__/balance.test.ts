@@ -87,6 +87,9 @@ ok(installNotificationHref({ type: "process_order_generated", entityType: "blind
 ok(installNotificationHref({ type: "install_warranty_sent", entityType: "blinds_order", entityId: "o5" }) === "/blinds-orders/o5", "质保邮件已发出（销售）→ 工艺单详情");
 ok(installNotificationHref({ type: "install_warranty_failed", entityType: "install_balance", entityId: "o6" }) === "/accounting?tab=balance&order=o6", "质保邮件未发出（批准人）→ 会计待收尾款页签");
 ok(installNotificationHref({ type: "install_completed", entityType: "install_balance", entityId: null }) === null, "无实体 id → null");
+// INSTALL-2d：维修单通知
+ok(installNotificationHref({ type: "install_repair_submitted", entityType: "install_repair", entityId: "rep 1" }) === "/install/repairs/rep%201", "出单 / 运营 / 会计：install_repair → 维修单详情");
+ok(installNotificationHref({ type: "install_repair_submitted", entityType: "blinds_order", entityId: "o7" }) === "/blinds-orders/o7", "销售：维修单已提交 + blinds_order → 工艺单详情状态卡");
 {
   // 头部通知下拉与通知页必须都先调同一个落点函数（spec「通知落点」：两处同一规则）
   const root = path.resolve(__dirname, "../../../..");

@@ -34,6 +34,7 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   install_balance_confirmed: Wallet,
   install_warranty_sent: MailCheck,
   install_warranty_failed: MailWarning,
+  install_repair_submitted: Wrench,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {

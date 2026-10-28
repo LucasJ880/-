@@ -6,6 +6,8 @@
  * "已确认"只看记录是否存在，不看工艺单状态（design D2）。
  */
 
+import { ENTITY_INSTALL_REPAIR, NOTIFY_REPAIR_SUBMITTED } from "./repair";
+
 export const INSTALL_BALANCE_CONFIRMED = "install.balance.confirmed" as const;
 export const BALANCE_TARGET_TYPE = "blinds_order" as const;
 
@@ -163,7 +165,8 @@ export function sumBalanceDue(quotes: Array<QuoteMoney & { id: string }>, confir
 /**
  * INSTALL-2b 通知落点（design D6）：头部通知下拉与通知页在既有分支之前先调这里。
  * 发给持 install.balance.confirm 者 → 会计"待收尾款"页签；发给销售 → 工艺单详情（创建人可读）。
- * 不是 INSTALL-2b 的通知 → null（走既有分支）。
+ * INSTALL-2d：维修单通知——实体 install_repair → 维修单详情；发给销售的（实体 blinds_order）→ 工艺单详情。
+ * 不是安装相关的通知 → null（走既有分支）。
  */
 export function installNotificationHref(item: {
   type?: string | null;
@@ -173,12 +176,14 @@ export function installNotificationHref(item: {
   if (!item.entityId) return null;
   const id = encodeURIComponent(item.entityId);
   if (item.entityType === ENTITY_INSTALL_BALANCE) return `/accounting?tab=balance&order=${id}`;
+  if (item.entityType === ENTITY_INSTALL_REPAIR) return `/install/repairs/${id}`;
   if (
     item.entityType === "blinds_order" &&
     (item.type === NOTIFY_INSTALL_COMPLETED ||
       item.type === NOTIFY_BALANCE_CONFIRMED ||
       item.type === "install_warranty_sent" ||
-      item.type === "install_warranty_failed")
+      item.type === "install_warranty_failed" ||
+      item.type === NOTIFY_REPAIR_SUBMITTED)
   ) {
     return `/blinds-orders/${id}`;
   }

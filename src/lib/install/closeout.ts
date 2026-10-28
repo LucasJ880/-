@@ -8,10 +8,14 @@
  * INSTALL-2a：收口单元 = Blinds 行 + 工艺参数 国内下单 / 窗帘 / Vinyl / 外采购 各行。
  * 工艺参数行没有稳定 id：单元 id `spec-<段>-<下标>`，审计目标 targetType "blinds_order_unit"、
  * targetId `<orderId>:<段>:<下标>`，afterData 另存拍照时的 location；位置与当前不一致的照片不计入（design D1 / D2）。
+ *
+ * INSTALL-2d：问题记录 action "install.window.issue" 与收口记录同目标；单元状态取两者中最新一条：
+ * 收口 → done，问题 → issue（不计入已收口），都没有 → pending（2d design D1）。
  */
 
 import type { ProcessSpec } from "@/lib/sunny-process/process-spec";
 import { categoryOfProductType, PURCHASE_SECTION_CATEGORY, type FulfillmentCategory } from "@/lib/fulfillment/category";
+import { INSTALL_WINDOW_ISSUE, ISSUE_TYPE_LABEL, isIssueType, type IssueType } from "./repair";
 
 export const INSTALL_WINDOW_COMPLETED = "install.window.completed" as const;
 export const INSTALL_TASK_STARTED = "install.task.started" as const;
@@ -81,6 +85,8 @@ export type CloseoutLog = {
   createdAt: Date | string;
   userId: string;
   afterData: string | null;
+  /** INSTALL-2d：install.window.issue = 问题记录；缺省 = 收口记录（install.window.completed） */
+  action?: string;
 };
 
 export type CloseoutPhoto = {
@@ -93,21 +99,40 @@ export type CloseoutPhoto = {
   location?: string | null;
 };
 
+/** INSTALL-2d：单元当前的问题（最新一条问题记录；照片 = 上次收口之后的全部问题照） */
+export type UnitIssue = {
+  issueType: IssueType;
+  issueTypeLabel: string;
+  needsFactory: boolean;
+  description: string;
+  at: string;
+  byUserId: string;
+  photos: CloseoutPhoto[];
+};
+
+/** done = 已收口；issue = 有问题；pending = 未处理 */
+export type UnitState = "done" | "issue" | "pending";
+
 export type WindowCloseout = {
   itemId: string;
   itemNumber: number;
   location: string;
+  /** 计入的收口照片（state 为 issue 时仍保留历史收口照，但不算已收口） */
   photoCount: number;
   latest: CloseoutPhoto | null;
   photos: CloseoutPhoto[];
   /** 有照片但位置都与当前不一致（工艺参数被改）→ 未收口，给出拍照时的位置 */
   locationChanged: { previousLocation: string } | null;
+  state: UnitState;
+  issue: UnitIssue | null;
 };
 
 export type CloseoutSummary = {
   windows: WindowCloseout[];
   total: number;
   completed: number;
+  /** INSTALL-2d：有问题的单元数 */
+  issueCount: number;
   allCompleted: boolean;
 };
 
@@ -131,39 +156,89 @@ function parsePhoto(log: CloseoutLog): CloseoutPhoto | null {
   }
 }
 
+type IssueEntry = CloseoutPhoto & { issueType: IssueType; needsFactory: boolean; description: string };
+
+function parseIssue(log: CloseoutLog): IssueEntry | null {
+  const photo = parsePhoto(log);
+  if (!photo || !log.afterData) return null;
+  try {
+    const d = JSON.parse(log.afterData) as Record<string, unknown>;
+    if (!isIssueType(d.issueType)) return null;
+    return {
+      ...photo,
+      issueType: d.issueType,
+      needsFactory: d.needsFactory === true,
+      description: typeof d.description === "string" ? d.description : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+const newestFirst = <T extends { at: string }>(list: T[]) => list.sort((a, b) => b.at.localeCompare(a.at));
+
 /** 位置比对口径：去首尾空白、不区分大小写（design D2） */
 export function sameLocation(a: string | null | undefined, b: string | null | undefined): boolean {
   return (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
 }
 
-/** 每个单元最新 / 张数；没有计入的记录 = 未收口；零单元不算完成 */
+/** 每个单元最新 / 张数 / 状态；问题记录比最新收口记录新 → 有问题；零单元不算完成 */
 export function aggregateCloseout(items: WindowItem[], logs: CloseoutLog[]): CloseoutSummary {
-  const byTarget = new Map<string, CloseoutPhoto[]>();
+  const doneByTarget = new Map<string, CloseoutPhoto[]>();
+  const issuesByTarget = new Map<string, IssueEntry[]>();
   for (const log of logs) {
     if (!log.targetId) continue;
+    if (log.action === INSTALL_WINDOW_ISSUE) {
+      const issue = parseIssue(log);
+      if (!issue) continue;
+      if (!issuesByTarget.has(log.targetId)) issuesByTarget.set(log.targetId, []);
+      issuesByTarget.get(log.targetId)!.push(issue);
+      continue;
+    }
     const photo = parsePhoto(log);
     if (!photo) continue;
-    if (!byTarget.has(log.targetId)) byTarget.set(log.targetId, []);
-    byTarget.get(log.targetId)!.push(photo);
+    if (!doneByTarget.has(log.targetId)) doneByTarget.set(log.targetId, []);
+    doneByTarget.get(log.targetId)!.push(photo);
   }
   const windows: WindowCloseout[] = [...items]
     .sort((a, b) => a.itemNumber - b.itemNumber)
     .map((it) => {
-      const all = (byTarget.get(it.logTargetId ?? it.id) ?? []).sort((a, b) => b.at.localeCompare(a.at));
+      const target = it.logTargetId ?? it.id;
+      const all = newestFirst([...(doneByTarget.get(target) ?? [])]);
+      const allIssues = newestFirst([...(issuesByTarget.get(target) ?? [])]);
       const photos = it.matchLocation ? all.filter((p) => sameLocation(p.location, it.location)) : all;
-      const stale = it.matchLocation && photos.length === 0 ? all[0] : undefined;
+      const issues = it.matchLocation ? allIssues.filter((p) => sameLocation(p.location, it.location)) : allIssues;
+      const latest = photos[0] ?? null;
+      const openIssues = issues.filter((i) => !latest || i.at > latest.at);
+      const state: UnitState = openIssues.length > 0 ? "issue" : photos.length > 0 ? "done" : "pending";
+      // 位置已变：计入的记录一条都没有、但有位置不一致的记录 → 给出最近一条的拍照位置
+      const staleRecord = it.matchLocation && state === "pending" ? newestFirst([...all, ...allIssues])[0] : undefined;
+      const head = openIssues[0];
       return {
         itemId: it.id,
         itemNumber: it.itemNumber,
         location: it.location,
         photoCount: photos.length,
-        latest: photos[0] ?? null,
+        latest,
         photos,
-        locationChanged: stale ? { previousLocation: stale.location ?? "" } : null,
+        locationChanged: staleRecord ? { previousLocation: staleRecord.location ?? "" } : null,
+        state,
+        issue: head
+          ? {
+              issueType: head.issueType,
+              issueTypeLabel: ISSUE_TYPE_LABEL[head.issueType],
+              needsFactory: head.needsFactory,
+              description: head.description,
+              at: head.at,
+              byUserId: head.byUserId,
+              photos: openIssues.map(({ proxyUrl, pathname, note, at, byUserId, location }) => ({ proxyUrl, pathname, note, at, byUserId, location })),
+            }
+          : null,
       };
     });
-  const completed = windows.filter((w) => w.photoCount > 0).length;
-  return { windows, total: windows.length, completed, allCompleted: windows.length > 0 && completed === windows.length };
+  const completed = windows.filter((w) => w.state === "done").length;
+  const issueCount = windows.filter((w) => w.state === "issue").length;
+  return { windows, total: windows.length, completed, issueCount, allCompleted: windows.length > 0 && completed === windows.length };
 }
 
 // ─────────────────────────── 收口单元（INSTALL-2a） ───────────────────────────
@@ -285,9 +360,14 @@ export function buildCloseoutUnits(
   return units;
 }
 
-/** 完成收口前的未收口清单（序号 + 位置） */
+/** 完成收口前的未收口清单（序号 + 位置；有问题的单元也算未收口） */
 export function missingWindows(summary: CloseoutSummary): Array<{ itemNumber: number; location: string }> {
-  return summary.windows.filter((w) => w.photoCount === 0).map((w) => ({ itemNumber: w.itemNumber, location: w.location }));
+  return summary.windows.filter((w) => w.state !== "done").map((w) => ({ itemNumber: w.itemNumber, location: w.location }));
+}
+
+/** INSTALL-2d：既没收口也没标问题的单元（提交维修单前须为空） */
+export function unhandledUnits(summary: CloseoutSummary): Array<{ itemNumber: number; location: string }> {
+  return summary.windows.filter((w) => w.state === "pending").map((w) => ({ itemNumber: w.itemNumber, location: w.location }));
 }
 
 /** 私有 Blob 路径：install-photos/{orgId}/{orderId}/{itemId}/{ts}.{ext} */

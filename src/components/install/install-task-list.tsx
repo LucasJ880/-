@@ -4,11 +4,12 @@
  * INSTALL-1：安装任务列表（手机优先）
  * — 按日期分组的列表 / 周视图切换；数据来自 /api/install/tasks
  * — 安装工只会拿到分配给自己的；运营 / 会计 / 老板看全企业
+ * INSTALL-2d：全企业范围显示"返修单"入口；因维修单完成的任务标"需返修"
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, List, Loader2, MapPin, Wrench } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, List, Loader2, MapPin, Wrench } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { groupByDay } from "@/lib/install/scope";
 import {
@@ -96,6 +97,11 @@ export function InstallTaskList() {
           <p className="mt-0.5 text-xs text-muted">
             {scope === "org" ? "全企业安装排期" : "分配给我的安装任务"}
           </p>
+          {scope === "org" && (
+            <Link href="/install/repairs" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[#a86a12]">
+              <ClipboardList size={13} /> 返修单
+            </Link>
+          )}
         </div>
         <div className="flex rounded-lg border border-border bg-card-bg p-0.5 text-xs">
           <button
@@ -231,7 +237,14 @@ function TaskCard({ task }: { task: InstallTaskSummary }) {
           </div>
         )}
       </div>
-      <div className="mt-2 text-[11px] text-muted">安装：{task.assignedTo.name}</div>
+      <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
+        <span>安装：{task.assignedTo.name}</span>
+        {task.order && task.order.issueCount > 0 && (
+          <span className="rounded-full bg-[rgba(201,138,34,0.12)] px-1.5 py-0.5 text-[#a86a12]">
+            {task.status === "completed" ? "需返修" : "有问题"} · {task.order.issueCount} 项
+          </span>
+        )}
+      </div>
     </Link>
   );
 }

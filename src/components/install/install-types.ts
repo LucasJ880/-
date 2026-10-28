@@ -1,5 +1,7 @@
 /** INSTALL-1：/api/install 响应类型（客户端共用） */
 
+import type { IssueType } from "@/lib/install/repair";
+
 export type InstallTaskSummary = {
   id: string;
   title: string;
@@ -18,6 +20,8 @@ export type InstallTaskSummary = {
     status: string;
     windowCount: number;
     completedCount: number;
+    /** INSTALL-2d：有问题的单元数 */
+    issueCount: number;
     allCompleted: boolean;
   } | null;
 };
@@ -34,6 +38,20 @@ export type InstallPhoto = {
 
 /** INSTALL-2a：收口单元所属段（blinds = 工艺单行；其余为工艺参数段） */
 export type InstallUnitSection = "blinds" | "domestic" | "drapes" | "vinyl" | "purchase";
+
+/** INSTALL-2d：单元当前的问题 */
+export type InstallUnitIssue = {
+  issueType: IssueType;
+  issueTypeLabel: string;
+  needsFactory: boolean;
+  description: string;
+  at: string;
+  byUserId: string;
+  photos: InstallPhoto[];
+};
+
+/** done = 已收口；issue = 有问题；pending = 未处理 */
+export type InstallUnitState = "done" | "issue" | "pending";
 
 /** 收口单元（INSTALL-1 时只有 Blinds 行，字段名沿用 window / itemId） */
 export type InstallWindow = {
@@ -55,6 +73,8 @@ export type InstallWindow = {
   photos: InstallPhoto[];
   /** 有照片但位置与当前不一致（工艺参数被改）→ 未收口，需补拍 */
   locationChanged: { previousLocation: string } | null;
+  state: InstallUnitState;
+  issue: InstallUnitIssue | null;
 };
 
 /** 单元的产品描述行：空字段不显示 */
@@ -67,8 +87,17 @@ export type InstallTaskDetailData = InstallTaskSummary & {
   notes: string | null;
   remarks: string | null;
   windows: InstallWindow[];
-  closeout: { total: number; completed: number; allCompleted: boolean };
+  closeout: { total: number; completed: number; issueCount: number; allCompleted: boolean };
+  /** INSTALL-2d：因提交维修单而完成的任务 */
+  repair: { id: string; repairNo: string; targetDate: string; rowCount: number } | null;
 };
+
+/** 由单元状态重算汇总（前端乐观更新用，口径同服务端聚合） */
+export function closeoutCounts(windows: Array<Pick<InstallWindow, "state">>): InstallTaskDetailData["closeout"] {
+  const completed = windows.filter((w) => w.state === "done").length;
+  const issueCount = windows.filter((w) => w.state === "issue").length;
+  return { total: windows.length, completed, issueCount, allCompleted: windows.length > 0 && completed === windows.length };
+}
 
 export const INSTALL_STATUS_LABEL: Record<string, string> = {
   scheduled: "已排期",
@@ -134,4 +163,55 @@ export async function compressImage(file: File, maxEdge = 1600, quality = 0.85):
   } catch {
     return file;
   }
+}
+
+/** INSTALL-2d：GET /api/install/repairs 列表项 */
+export type RepairListItem = {
+  id: string;
+  repairNo: string;
+  orderId: string;
+  orderCode: string;
+  customerName: string;
+  takenBy: { id: string; name: string | null };
+  fillDate: string;
+  targetDate: string;
+  overdue: boolean;
+  rowCount: number;
+  factory: { any: boolean; unknown: boolean; categories: Array<{ key: string; label: string }> };
+  customerConfirmed: boolean;
+  stage: string;
+  stageLabel: string;
+};
+
+/** INSTALL-2d：GET /api/install/repairs/[id] 详情（打印版同一数据） */
+export type RepairDetailData = RepairListItem & {
+  phone: string;
+  notes: string;
+  customerPreferredDate: string | null;
+  submittedAt: string;
+  appointmentId: string;
+  company: { name: string; address: string };
+  rows: Array<{
+    n: number;
+    unitId: string;
+    itemNumber: number;
+    section: string;
+    sectionLabel: string;
+    location: string;
+    description: string;
+    issueType: string;
+    issueTypeLabel: string;
+    needsFactory: boolean;
+    category: string | null;
+    categoryLabel: string | null;
+    photos: Array<{ proxyUrl: string; at: string }>;
+  }>;
+};
+
+/** 需工厂品类文案：Vinyl、布帘 / 品类待确认 / 无需工厂 */
+export function factoryText(f: RepairListItem["factory"]): string {
+  if (!f.any) return "无需工厂";
+  const labels = f.categories.map((c) => c.label);
+  if (f.unknown) labels.push("品类待确认");
+  return labels.join("、");
 }

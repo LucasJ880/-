@@ -34,6 +34,8 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/accounting/",
   // INSTALL-2c：质保设置按当前企业读写
   "/api/install/warranty-settings",
+  // INSTALL-2d：维修单列表 / 详情按当前企业
+  "/api/install/repairs",
 ];
 
 function isOrgScopedPath(pathname: string): boolean {
