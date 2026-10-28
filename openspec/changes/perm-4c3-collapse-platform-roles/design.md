@@ -92,11 +92,11 @@
 **E. 数据**
 - `seed-org-profiles.ts:156`：平台 `sales` 自动绑 `sales_rep` 在压扁后不再生效（已绑定的不受影响）。
 
-**建议拆分（审核时定）**，按 ≤ 8 tasks / change：
+**拆分（2026-10-28 已拍板，见任务书"拍板结果 · PERM-4c3"）**，按 ≤ 8 tasks / change：
 - `perm-4c4-ai-tools-by-position`：A 组，按岗位键给工具域与 Muse 范围，决定 B 的"管理层"改为 `organization.dashboard.read`；
 - `perm-4c5-management-reads-by-position`：B / C / D 组，wsCtx 注入 `permissionKeys` / `positionMode`、审批执行与通知收件人按岗位；最后一个合并的 change 把 `PLATFORM_ROLE_COLLAPSE_READY` 改为 true。
 
-外贸相关（`revenue-spine`、`trade/*` 收件人）若 Sunny 不用，可留 PERM-6；否则并入 4c5。
+外贸相关（`revenue-spine`、`trade/*` 收件人、默认询盘负责人）：Sunny 暂不需要外贸 → 留 PERM-6，不阻挡闸门。招投标相关（交接、`/api/ops/projects`）：Sunny 需要 → 4c5 必须覆盖。
 
 ## 与八条硬纪律的关系
 

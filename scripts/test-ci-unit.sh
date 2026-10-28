@@ -299,6 +299,7 @@ npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
 npx tsx src/lib/operations/__tests__/ops-access.test.ts
 # PERM-5b：数字员工岗位绑定与工具授权（纯函数 + 源码断言）
 npx tsx src/lib/authorization/__tests__/digital-employee.test.ts
+npx tsx src/lib/authorization/__tests__/platform-role-collapse.test.ts
 # PERM-5a：会计视图（提成口径 / 时间窗口 / 工作区导航 / 接口源码断言）
 npx tsx src/lib/accounting/__tests__/accounting.test.ts
 # PERM-4c1：项目财务 / 报价引擎按岗位（决策表 + 源码断言）

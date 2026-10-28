@@ -117,3 +117,8 @@
 2. **梦馨保留旧规则**：窗饰行业包企业（Sunny）按岗位权限键；其他企业（梦馨，无岗位绑定）导航与默认工作区继续按平台角色，等梦馨落岗位后再切。项目财务对无岗位企业由系统模板 `org_owner` / `org_admin` 的兼容回退保持原有特权。
 3. **外贸入口保留平台角色**：只有 `/trade/**` 相关导航入口继续按平台角色 `trade` 判断，压扁脚本也不动 `trade`；外贸整体改造留 PERM-6。
 4. **管理层 = 老板岗位或平台 super_admin**：新增只给 `owner` 的权限键（4c-2 定名，如 `organization.dashboard.read`），导航与工作区都看这个键。
+
+### 拍板结果 · PERM-4c3（2026-10-28，审核四件套后）
+1. **按推荐拆分**：4c3 只交付压扁工具（写库闸门 `PLATFORM_ROLE_COLLAPSE_READY = false`）+ 岗位模式企业关闭兼容回退；残留平台角色读点拆为 `perm-4c4-ai-tools-by-position`（AI 工具 / 晨报 / Muse）与 `perm-4c5-management-reads-by-position`（任务 / 运营项目 / 交接 / 审批执行 / 通知 / 管理总览），最后合并的那个把闸门改为 true，之后才在生产执行压扁。
+2. **Sunny 暂不需要外贸**：外贸通道（`revenue-spine` 的 `/api/revenue/*`、`trade/*` 询盘与展会收件人、默认询盘负责人）留 PERM-6，不进 4c4 / 4c5。
+3. **Sunny 需要招投标项目**：招投标相关读点（`projects/handoff/access.ts` 交接、`/api/ops/projects` 列表 / 创建等）在 4c5 收口，且必须在打开闸门之前完成。

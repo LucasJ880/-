@@ -2,13 +2,13 @@
 
 ## 1. 压扁工具
 
-- [ ] 1.1 新建 `src/lib/authorization/platform-role-collapse.ts`（纯）：
+- [x] 1.1 新建 `src/lib/authorization/platform-role-collapse.ts`（纯）：
   - 常量 `COLLAPSIBLE_PLATFORM_ROLES = ["boss","manager","operations","sales"]`、`PLATFORM_ROLE_COLLAPSE_READY = false`（D1）；
   - `planCollapse({ positionMode, members, otherMemberships })` → `{ change[], skipped[], blockers[] }`（范围 + 三类前置校验，D2 / D3）；
   - `planRestore({ auditRecords, currentRoles })` → `{ restore[], skipped[] }`（每人取最新一条，当前非 `user` 跳过，D4）；
   - `summarizeCollapse(...)` 输出行（只含邮箱与角色名）。
   - verify：typecheck。
-- [ ] 1.2 新建执行器 `runPlatformRoleCollapse({ orgCode, actorEmail, dryRun, restore, ready })`（同文件或 `platform-role-collapse-run.ts`，连库）：
+- [x] 1.2 新建执行器 `runPlatformRoleCollapse({ orgCode, actorEmail, dryRun, restore, ready })`（同文件或 `platform-role-collapse-run.ts`，连库）：
   - 双闸中的 super_admin 校验、企业查找与岗位模式判定、读成员 / 绑定 / 其他企业成员关系；
   - 闸门为 false 且非 dry-run / restore → 退出 1；
   - 写 `User.role` 与审计 `authorization.platform_role.collapse` / `restore`（`logAuthorizationChange`）；
@@ -18,7 +18,7 @@
 
 ## 2. 兼容回退收口
 
-- [ ] 2.1 `resolve-effective-permissions.ts`：
+- [x] 2.1 `resolve-effective-permissions.ts`：
   - 新增纯函数 `compatFallbackAllowed(industryPackId)`（= `!hasPositionTemplates`）；
   - 人类主体无 active 绑定时查企业 `industryPackId`，岗位模式返回空，旧模式照旧回退（D5）；
   - super_admin 与数字员工路径不变。
@@ -26,15 +26,15 @@
 
 ## 3. 测试、文档与收尾
 
-- [ ] 3.1 新建 `src/lib/authorization/__tests__/platform-role-collapse.test.ts`（纯，见 design 验证方式），注册 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+- [x] 3.1 新建 `src/lib/authorization/__tests__/platform-role-collapse.test.ts`（纯，见 design 验证方式），注册 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
   - verify：`npx tsx src/lib/authorization/__tests__/platform-role-collapse.test.ts` 通过；`bash scripts/check-test-registry.sh` 通过。
-- [ ] 3.2 新建 `src/lib/authorization/__tests__/platform-role-collapse-db.isolated.test.ts`（隔离库，见 design 验证方式；闸门打开的场景通过执行器参数 `ready: true` 覆盖），注册 `scripts/test-all.sh`。
+- [x] 3.2 新建 `src/lib/authorization/__tests__/platform-role-collapse-db.isolated.test.ts`（隔离库，见 design 验证方式；闸门打开的场景通过执行器参数 `ready: true` 覆盖），注册 `scripts/test-all.sh`。
   - verify：本地隔离库 `DATABASE_ENVIRONMENT=isolated NODE_ENV=test npx tsx <file>` 全过。
-- [ ] 3.3 新建 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`：
+- [x] 3.3 新建 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`：
   - 按 design D6 五组逐条写 file:line、门槛、压扁前后差异（boss / manager / operations / sales）、建议改法、归属 change；
   - 末尾写"打开闸门的条件"（所列 A / B / C / D 项均已合并或明确归 PERM-6，且 Sunny 的 dry-run 无阻断）。
   - verify：文档存在；`grep -c "PLATFORM_ROLE_COLLAPSE_READY" docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md` ≥ 1。
-- [ ] 3.4 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate perm-4c3-collapse-platform-roles --strict` 通过；写 `docs/QINGYAN_PERM-4c3_REPORT.md`；`docs/QINGYAN_PERMISSION_TASKFLOW.md` PERM-4c3 改 `[G]`，并按审核结果新增后续残留收口行；更新 `docs/QINGYAN_PERMISSION_HANDOFF.md`。
+- [x] 3.4 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate perm-4c3-collapse-platform-roles --strict` 通过；写 `docs/QINGYAN_PERM-4c3_REPORT.md`；`docs/QINGYAN_PERMISSION_TASKFLOW.md` PERM-4c3 改 `[G]`，并按审核结果新增后续残留收口行；更新 `docs/QINGYAN_PERMISSION_HANDOFF.md`。
   - verify：四条命令退出 0；`grep -c "PERM-4c3 .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
 
 ## Workflow follow-up
