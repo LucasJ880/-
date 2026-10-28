@@ -27,6 +27,7 @@ import { applyPreference } from "./prefs-pure";
 import { resolveCloseDate } from "@/lib/tender/stage";
 import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
 import { parseChaseNotes, resolveChaseAfterDays } from "@/lib/tender-rfq/chase-pure";
+import { opportunityStatus, salesOverview, type SalesIntentResult } from "./sales";
 import {
   ASK_OUTPUT_INSTRUCTIONS,
   askAdvisory,
@@ -135,6 +136,12 @@ export async function handleMuseCommand(
       case "set_preference":
         response = await handleSetPreference(requestId, identity, command);
         break;
+      case "sales_overview":
+        response = salesResponse(requestId, await salesOverview(identity, command));
+        break;
+      case "opportunity_status":
+        response = salesResponse(requestId, await opportunityStatus(identity, command));
+        break;
       default:
         // gateIntent 已拦；此处仅类型兜底
         response = errResponse(requestId, "INTENT_NOT_ENABLED", "该动作尚未开放。");
@@ -145,6 +152,11 @@ export async function handleMuseCommand(
   }
 
   return await ledger(envelope, identity, response);
+}
+
+/** S1 销售意图：取数层返回 Advisory 或错误，这里统一走 respond / errResponse */
+function salesResponse(requestId: string, r: SalesIntentResult): MuseCommandResponse {
+  return r.ok ? respond(requestId, r.advisory, { data: r.data }) : errResponse(requestId, r.errorCode, r.message);
 }
 
 // ── 幂等账本（AuditLog） ─────────────────────────────────────────

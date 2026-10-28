@@ -11,7 +11,7 @@ import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 
 /**
  * GET /api/blinds-orders?status&orgId
- * PERM-3：持 orders.fulfillment.read（ORG）→ 全企业工艺单；否则旧范围（可见项目 + 本人创建）。
+ * PERM-3：持 orders.fulfillment.read（ORG）→ 全企业工艺单；否则旧范围（可见项目 + 本人创建 + 无项目时关联客户所在组织）。
  */
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
@@ -29,9 +29,17 @@ export const GET = withAuth(async (request, _ctx, user) => {
   } else if (!isPlatformSuperAdmin(user.role)) {
     const projectIds = await getVisibleProjectIds(user.id, user.role);
     if (projectIds !== null) {
+      // 自动生成的工艺单无项目、创建人是销售：同组织（经关联客户）的成员也要能在列表里看到（工厂核对）
+      const memberOrgIds = (
+        await db.organizationMember.findMany({
+          where: { userId: user.id, status: "active" },
+          select: { orgId: true },
+        })
+      ).map((m) => m.orgId);
       where.OR = [
         { projectId: { in: projectIds } },
         { projectId: null, creatorId: user.id },
+        ...(memberOrgIds.length > 0 ? [{ projectId: null, customer: { orgId: { in: memberOrgIds } } }] : []),
       ];
     }
   }

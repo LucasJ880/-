@@ -26,6 +26,12 @@
 
 - [x] 6.1 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；写 `docs/QINGYAN_PERM-3_REPORT.md`（做了什么 / 怎么验 / 判断点含四个假设 / 已知限制：全局库存表、归属推导、BREAKING 上线顺序 + 受影响单的 SQL）；TASKFLOW PERM-3 改 `[G]`；更新 HANDOFF。verify：四条命令退出 0；`grep -c "PERM-3 .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1；`openspec validate perm-3-fulfillment-by-category --strict` 通过。
 
+## 7. 合并 main（sunny-process #266 / #272）整合（design D8）
+
+- [x] 7.1 解 5 个冲突文件（列表 / 详情 / 导出 / transition / 详情页）：读范围合一（`canViewBlindsOrder` → `resolveOrderAccess().canRead`，旧范围含关联客户所在企业成员）；品类含参数行（`specCategories` / `orderCategoriesWithSpec`，category.test 12→18）；`PUT spec` 与 `move-lines` 按品类 403；PUT 禁止直接改 `cancelled` / `scheduled`；transition 保留锁与确认门禁。verify：typecheck；`category.test` / `order-access.test` / `autogen.test` / `line-moves.test` / `authorize.test` 通过。
+- [x] 7.2 对照表保存键改为 `orders.fulfillment.update.shades` 或伞键；`specs/sunny/process-order-autogen` MODIFIED 增量。verify：`openspec validate perm-3-fulfillment-by-category --strict`。
+- [x] 7.3 `autogen-db.isolated.test.ts` 夹具：工厂先断言未绑定 403，再绑定三个出单岗；对照表 403 用另一名未绑定成员 + 只持 Vinyl 键的情形。verify：本地 Postgres 16 + pgvector 隔离库 41/41。
+
 ## Workflow follow-up
 
 - PR 合并到 main 后 `/opsx:archive perm-3-fulfillment-by-category --yes`（独立小 PR）；确认 `openspec list --specs` 出现 `fulfillment/order-category-access`、`fulfillment/order-cancellation-approval`、`inventory/fabric-stock-access`。

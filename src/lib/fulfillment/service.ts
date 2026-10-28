@@ -2,7 +2,8 @@
  * PERM-3：工艺单访问（数据库侧）
  * - heldKeys：一次解析用户在企业内的 ALLOW 权限键（平台 super_admin 经 platformAdminBindings 拿到全部）
  * - resolveOrderOrgId：客户企业 → 项目企业 → 创建人唯一活跃企业 → null
- * - resolveOrderAccess：canRead（全企业读键 或 旧范围：可见项目 / 本人创建）+ canEditOrder
+ * - resolveOrderAccess：canRead（全企业读键 或 旧范围：可见项目 / 本人创建 / 无项目时关联客户所在企业的活跃成员）+ canEditOrder
+ * - 品类 = 工艺单行 + sunny-process 参数行（国内下单 / 窗帘 / Vinyl / 外采购）的并集
  */
 
 import { db } from "@/lib/db";
@@ -10,7 +11,8 @@ import type { AuthUser } from "@/lib/auth";
 import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
-import { orderCategories, type FulfillmentCategory } from "./category";
+import { loadProcessSpec, type ProcessOrderDb } from "@/lib/sunny-process/autogen";
+import { orderCategoriesWithSpec, type FulfillmentCategory } from "./category";
 import { canEditOrder, pickOrderOrgId, responsiblePositions, type OrderEditDecision } from "./order-access";
 
 export const ORDER_ACCESS_SELECT = {
@@ -63,7 +65,8 @@ export type OrderAccess = {
 
 export async function resolveOrderAccess(user: AuthUser, order: OrderAccessRow): Promise<OrderAccess> {
   const orgId = await resolveOrderOrgId(order);
-  const categories = orderCategories(order.items);
+  const spec = await loadProcessSpec(db as unknown as Pick<ProcessOrderDb, "auditLog">, order.id);
+  const categories = orderCategoriesWithSpec(order.items, spec);
   const heldKeys = orgId ? await loadHeldKeys(user, orgId) : new Set<string>();
   const isPlatformAdmin = isPlatformSuperAdmin(user.role);
 
@@ -74,6 +77,9 @@ export async function resolveOrderAccess(user: AuthUser, order: OrderAccessRow):
     const visible = await getVisibleProjectIds(user.id, user.role);
     projectOk = visible === null || visible.includes(order.projectId);
     legacyVisible = legacyVisible || projectOk;
+  } else if (!legacyVisible && order.customer?.orgId) {
+    // sunny-process：自动生成的单无项目、创建人是销售 → 关联客户所在企业的活跃成员可读（工厂核对）
+    legacyVisible = (await activeOrgIdsOf(user.id)).includes(order.customer.orgId);
   }
   const orgRead = Boolean(orgId) && heldKeys.has("orders.fulfillment.read");
   const canRead = isPlatformAdmin || ((orgRead || legacyVisible) && projectOk);

@@ -92,5 +92,22 @@ change：`openspec/changes/perm-3-fulfillment-by-category/`（proposal / specs �
 5. Alex（销售）：工艺单列表只见本人创建；新建工艺单 200；安装工新建 → 403。
 6. Lucas（super_admin）：任意单可改；作废立即生效且审计 `selfApproved: true`。
 
+## 5b. 合并 main 的整合（2026-10-28，design D8 / tasks §7）
+
+PR 开出后 main 合入了 sunny-process 签字自动生成工艺单（#266 / #272），5 个文件冲突，GitHub 因此没跑 CI。合并 `origin/main` 后的语义整合：
+
+| 冲突点 | 处理 |
+|---|---|
+| 可见性两套（`canViewBlindsOrder` vs `resolveOrderAccess`） | 合一：`canViewBlindsOrder` 委托 `canRead`；旧范围加"无项目时关联客户所在企业成员"（sunny 规格） |
+| 品类只看 `items` | 加参数行：国内下单 → shades、窗帘 → drapery、Vinyl → vinyl、外采购按段；全部发给国内后不退化为空集合 |
+| sunny 新写接口（`PUT spec` / `move-lines`）只判可见 | 按品类 403 |
+| PUT `status` 可直接改 `cancelled` / `scheduled` | 409 `USE_TRANSITION`（防绕过作废审批与 `install.task.assign`） |
+| 对照表保存判 `orders.fulfillment.update`（出单岗已不持） | `orders.fulfillment.update.shades` 或伞键；sunny 规格 MODIFIED 增量 |
+| transition 锁 + 确认门禁 vs `applyOrderTransition` | 锁内重读 → `isPlainTransition` / 门禁 → `applyOrderTransition` |
+
+验证：typecheck / `lint:baseline` / `test:ci` / registry 全绿；category 18、order-access 17、autogen 31、line-moves 27、authorize 77；`autogen-db.isolated.test.ts` 在本地 Postgres 16 + pgvector 隔离库 **41/41**（夹具：工厂先断言未绑定 403 再绑三个出单岗；对照表 403 用另一名未绑定成员 + 只持 Vinyl 键的情形）。
+
+**行为变化（上线须知）**：sunny 自动生成单的草稿核对（改参数 / 挪行 / 确认）从"同组织任何成员"收紧为"持本单全部品类键的出单岗"。Sunny 需先重跑 seed 并确认工厂人员已绑定对应 `fulfillment_*` 岗位。
+
 ## 6. 合并后
 `/opsx:archive perm-3-fulfillment-by-category --yes` 独立小 PR；`openspec list --specs` 应出现 `fulfillment/order-category-access`、`fulfillment/order-cancellation-approval`、`inventory/fabric-stock-access`。

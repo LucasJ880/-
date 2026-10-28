@@ -72,6 +72,14 @@
 把"置状态 + 时间戳字段 + OrderStatusLog"抽成 `applyOrderTransition(tx, order, toStatus, operatorId, note)`，transition 路由与作废执行器共用，避免两份状态写法。
 - 否决：执行器内部再 fetch 一次 transition 路由。理由：执行器无 request 上下文，且架构守卫禁止旁路。
 
+### D8 与 main 上 sunny-process（#266 / #272）合并整合
+PERM-3 开发期间 main 合入了签字自动生成工艺单：Vinyl / 窗帘 / 国内下单 / 外采购行存在参数（AuditLog 版本化 ProcessSpec）里而不是 `BlindsOrderItem`；可见性用 `canViewBlindsOrder`（创建人 / 项目 / 关联客户所在组织成员）；对照表保存判 `orders.fulfillment.update`。
+- 品类 = 工艺单行 ∪ 参数行（`specCategories`；外采购按段，百叶 → vinyl 与 `Shutters → vinyl` 同一默认值）。否决：只看 `items`。理由：自动生成单的 Vinyl / 窗帘行不在 items，全部发给国内后 items 为空 → 品类空集合 → 只有老板能改。
+- 读范围合一：`canViewBlindsOrder` 改为委托 `resolveOrderAccess().canRead`，旧范围加"无项目时关联客户所在企业的活跃成员"（sunny 已归档规格"工艺单对同组织成员可见"）。否决：两套判定 AND。理由：持 `orders.fulfillment.read` 的出单人会被 `canViewBlindsOrder` 挡掉创建人唯一企业的单。
+- 写操作一律按品类：参数保存（`PUT spec`）与挪行（`move-lines`）也要求全部品类键；修改接口不能直接把状态改成 `cancelled` / `scheduled`（409 `USE_TRANSITION`）。
+- 对照表保存：`orders.fulfillment.update.shades`（斑马帘属 shades）或伞键；规格以 MODIFIED 增量写入 `sunny/process-order-autogen`。
+- 门禁与锁：transition 保留 sunny 的 `lockOrderSpec` + 确认门禁，锁内重读后用 `isPlainTransition` / `applyOrderTransition` 写状态。
+
 ## Risks / Trade-offs
 
 - [旧工艺单多数无 customerId / projectId，归属靠创建人] → 创建人多企业的单推不出企业，只有创建人与平台管理员可见；REPORT 列出 Sunny 现网受影响条数的查询 SQL，必要时由平台管理员补 `projectId`。

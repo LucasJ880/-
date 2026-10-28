@@ -70,3 +70,43 @@ export function orderCategories(items: ReadonlyArray<{ productType: string }>): 
   }
   return CATEGORIES.filter((c) => set.has(c));
 }
+
+/**
+ * 自动生成工艺单的参数行（sunny-process ProcessSpec）也是"单据行"：国内下单表 → shades、窗帘 → drapery、
+ * Vinyl → vinyl；外采购按段（shutter → vinyl，与 Shutters → vinyl 同一默认值；drape → drapery；shade → shades）。
+ * 结构类型，不依赖 sunny-process。
+ */
+export type SpecLinesForCategory = {
+  domestic: ReadonlyArray<unknown>;
+  drapes: ReadonlyArray<unknown>;
+  vinyl: ReadonlyArray<unknown>;
+  purchase: ReadonlyArray<{ section: string }>;
+};
+
+const PURCHASE_SECTION_CATEGORY: Record<string, FulfillmentCategory> = {
+  shutter: "vinyl",
+  drape: "drapery",
+  shade: "shades",
+};
+
+export function specCategories(spec: SpecLinesForCategory | null | undefined): FulfillmentCategory[] {
+  if (!spec) return [];
+  const set = new Set<FulfillmentCategory>();
+  if (spec.domestic.length > 0) set.add("shades");
+  if (spec.drapes.length > 0) set.add("drapery");
+  if (spec.vinyl.length > 0) set.add("vinyl");
+  for (const p of spec.purchase) {
+    const c = PURCHASE_SECTION_CATEGORY[p.section];
+    if (c) set.add(c);
+  }
+  return CATEGORIES.filter((c) => set.has(c));
+}
+
+/** 工艺单行 + 参数行 的品类并集，按 CATEGORIES 顺序 */
+export function orderCategoriesWithSpec(
+  items: ReadonlyArray<{ productType: string }>,
+  spec: SpecLinesForCategory | null | undefined,
+): FulfillmentCategory[] {
+  const set = new Set<FulfillmentCategory>([...orderCategories(items), ...specCategories(spec)]);
+  return CATEGORIES.filter((c) => set.has(c));
+}

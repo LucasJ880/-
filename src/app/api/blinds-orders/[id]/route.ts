@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { RULE_VERSION } from "@/lib/blinds/deduction-rules";
 import { withAuth } from "@/lib/common/api-helpers";
-import { ORDER_ACCESS_SELECT, resolveOrderAccess, type OrderAccessRow } from "@/lib/fulfillment/service";
+import { itemCreateData, loadProcessSpec, lockOrderSpec, orderIssues } from "@/lib/sunny-process/autogen";
+import { blockingIssues } from "@/lib/sunny-process/issues";
+import { blindsOrderAccess } from "@/lib/sunny-process/server";
+import type { OrderAccess } from "@/lib/fulfillment/service";
 
 const notFound = () => NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
-const forbiddenEdit = (access: Awaited<ReturnType<typeof resolveOrderAccess>>) =>
+const forbiddenEdit = (access: OrderAccess) =>
   NextResponse.json(
     {
       error:
@@ -27,25 +29,18 @@ export const GET = withAuth(async (_request, ctx, user) => {
     where: { id },
     include: {
       items: { orderBy: { itemNumber: "asc" } },
-      project: { select: { id: true, name: true, color: true, orgId: true } },
+      project: { select: { id: true, name: true, color: true } },
       creator: { select: { id: true, name: true } },
-      customer: { select: { orgId: true } },
     },
   });
 
   if (!order) return notFound();
 
-  // PERM-3：读范围 = orders.fulfillment.read（全企业）或旧范围；跨企业统一 404
-  const access = await resolveOrderAccess(user, order as unknown as OrderAccessRow);
-  if (!access.canRead) return notFound();
+  // PERM-3：读范围 = orders.fulfillment.read（全企业）或旧范围；跨企业统一 404（工单含客户电话地址）
+  const access = await blindsOrderAccess(id, user);
+  if (!access?.canRead) return notFound();
 
-  const { customer: _customer, ...rest } = order;
-  void _customer;
-  return NextResponse.json({
-    ...rest,
-    project: order.project ? { id: order.project.id, name: order.project.name, color: order.project.color } : null,
-    access: access.summary,
-  });
+  return NextResponse.json({ ...order, access: access.summary });
 });
 
 export const PUT = withAuth(async (request, ctx, user) => {
@@ -54,14 +49,21 @@ export const PUT = withAuth(async (request, ctx, user) => {
 
   const existing = await db.blindsOrder.findUnique({
     where: { id },
-    select: { ...ORDER_ACCESS_SELECT, code: true },
+    select: { id: true, code: true, status: true },
   });
   if (!existing) return notFound();
 
-  // PERM-3：修改权按品类（缺品类 403 + 清单）；项目可见性仍是附加条件（不可见 → 404）
-  const access = await resolveOrderAccess(user, existing as unknown as OrderAccessRow);
-  if (!access.canRead) return notFound();
+  // PERM-3：修改权按品类（缺品类 403 + 清单）；不可读 → 404。自动生成的草稿由持对应品类键的出单岗核对修改
+  const access = await blindsOrderAccess(id, user);
+  if (!access?.canRead) return notFound();
   if (!access.edit.allowed) return forbiddenEdit(access);
+  // 作废走审批、安排安装要 install.task.assign：都只能经 transition 路由，PUT 不能绕过
+  if ((body.status === "cancelled" || body.status === "scheduled") && body.status !== existing.status) {
+    return NextResponse.json(
+      { error: body.status === "cancelled" ? "作废需走审批（使用\"作废\"操作）" : "安排安装请使用\"安排安装\"操作", code: "USE_TRANSITION" },
+      { status: 409 },
+    );
+  }
 
   if (body.code && body.code !== existing.code) {
     const dup = await db.blindsOrder.findUnique({
@@ -75,97 +77,87 @@ export const PUT = withAuth(async (request, ctx, user) => {
     }
   }
 
-  if (body.items) {
-    await db.blindsOrderItem.deleteMany({ where: { orderId: id } });
-  }
-
   const items = body.items
-    ? (body.items as Record<string, unknown>[]).map(
-        (item: Record<string, unknown>, index: number) => {
-          const input = {
-            width: Number(item.width),
-            height: Number(item.height),
-            productType: String(item.productType),
-            measureType: String(item.measureType),
-            controlType: String(item.controlType),
-            headrailType: String(item.headrailType),
-            fabricRatio:
-              item.fabricRatio != null ? Number(item.fabricRatio) : null,
-            silkRatio: item.silkRatio != null ? Number(item.silkRatio) : null,
-            bottomBarWidth:
-              item.bottomBarWidth != null ? Number(item.bottomBarWidth) : null,
-          };
-          const calc = calculateItem(input);
-
-          return {
-            itemNumber: index + 1,
-            location: String(item.location || ""),
-            width: input.width,
-            height: input.height,
-            fabricSku: String(item.fabricSku || ""),
-            productType: input.productType,
-            measureType: input.measureType,
-            controlType: input.controlType,
-            controlSide: String(item.controlSide || "R"),
-            headrailType: input.headrailType,
-            mountType: String(item.mountType || "顶装"),
-            fabricRatio: input.fabricRatio,
-            silkRatio: input.silkRatio,
-            bottomBarWidth: input.bottomBarWidth,
-            itemRemark: item.itemRemark ? String(item.itemRemark) : null,
-            cutHeadrail: calc.cutHeadrail,
-            cutTube38: calc.cutTube38,
-            cutRollerBar: calc.cutRollerBar,
-            cutZebraBar: calc.cutZebraBar,
-            cutCoreRod: calc.cutCoreRod,
-            cutShangrilaBar: calc.cutShangrilaBar,
-            cutFabricWidth: calc.cutFabricWidth,
-            cutFabricLength: calc.cutFabricLength,
-            insertSize: calc.insertSize,
-            cordLength: calc.cordLength,
-            cordSleeveLen: calc.cordSleeveLen,
-            squareFeet: calc.squareFeet,
-            sortOrder: calc.sortOrder,
-          };
-        }
-      )
+    ? (body.items as Record<string, unknown>[]).map((item, index) => itemCreateData(item, index))
     : undefined;
 
-  const order = await db.blindsOrder.update({
-    where: { id },
-    data: {
-      ...(body.code !== undefined && { code: body.code }),
-      ...(body.customerName !== undefined && {
-        customerName: body.customerName,
-      }),
-      ...(body.phone !== undefined && { phone: body.phone || null }),
-      ...(body.address !== undefined && { address: body.address || null }),
-      ...(body.installDate !== undefined && {
-        installDate: body.installDate || null,
-      }),
-      ...(body.remarks !== undefined && { remarks: body.remarks || null }),
-      ...(body.status !== undefined && { status: body.status }),
-      ...(body.projectId !== undefined && {
-        projectId: body.projectId || null,
-      }),
-      ruleVersion: RULE_VERSION,
-      ...(items && { items: { create: items } }),
-    },
-    include: {
-      items: { orderBy: { itemNumber: "asc" } },
-      project: { select: { id: true, name: true, color: true } },
-    },
+  // 与保存工艺参数 / 发给国内同一把锁：门禁判定、版本校验与改写在同一事务里串行
+  const result = await db.$transaction(async (tx) => {
+    await lockOrderSpec(tx, id);
+    const current = await tx.blindsOrder.findUnique({
+      where: { id },
+      include: { items: { orderBy: { itemNumber: "asc" } } },
+    });
+    if (!current) return { ok: false as const, res: NextResponse.json({ error: "工艺单不存在" }, { status: 404 }) };
+
+    // 编辑页带着打开时的 updatedAt：期间有人「发给国内 / 退回自产」或另存过，拒绝整表覆盖，
+    // 否则已挪到国内下单表的行会被旧的自产行写回来（同一窗做两次）
+    if (body.items && typeof body.baseUpdatedAt === "string" && new Date(body.baseUpdatedAt).getTime() !== current.updatedAt.getTime()) {
+      return { ok: false as const, res: NextResponse.json({ error: "工艺单已被他人修改（如发给国内 / 退回自产），请刷新后再改", code: "ORDER_STALE" }, { status: 409 }) };
+    }
+
+    // 确认门禁（与 transition 路由同一规则）：详情页"确认工艺单"按钮走这里改状态。
+    // 从草稿 / 已取消 改到任何"进入生产链"的状态（confirmed / in_production / completed …）都要过门禁，
+    // 防止 PUT {status:"in_production"} 之类绕过
+    const leavesDraft =
+      body.status !== undefined &&
+      body.status !== current.status &&
+      (current.status === "draft" || current.status === "cancelled") &&
+      body.status !== "draft" &&
+      body.status !== "cancelled";
+    if (leavesDraft) {
+      const spec = await loadProcessSpec(tx, id);
+      const pending = body.items ? { code: current.code, items: body.items as unknown[] } : current;
+      const blocked = blockingIssues(orderIssues(pending, spec));
+      if (blocked.length > 0) {
+        return {
+          ok: false as const,
+          res: NextResponse.json(
+            { error: `还有 ${blocked.length} 项阻断待核对，不能确认`, code: "PROCESS_ORDER_BLOCKED", issues: blocked },
+            { status: 409 },
+          ),
+        };
+      }
+    }
+
+    if (items) await tx.blindsOrderItem.deleteMany({ where: { orderId: id } });
+    const order = await tx.blindsOrder.update({
+      where: { id },
+      data: {
+        ...(body.code !== undefined && { code: body.code }),
+        ...(body.customerName !== undefined && {
+          customerName: body.customerName,
+        }),
+        ...(body.phone !== undefined && { phone: body.phone || null }),
+        ...(body.address !== undefined && { address: body.address || null }),
+        ...(body.installDate !== undefined && {
+          installDate: body.installDate || null,
+        }),
+        ...(body.remarks !== undefined && { remarks: body.remarks || null }),
+        ...(body.status !== undefined && { status: body.status }),
+        ...(body.projectId !== undefined && {
+          projectId: body.projectId || null,
+        }),
+        ruleVersion: RULE_VERSION,
+        ...(items && { items: { create: items } }),
+      },
+      include: {
+        items: { orderBy: { itemNumber: "asc" } },
+        project: { select: { id: true, name: true, color: true } },
+      },
+    });
+    return { ok: true as const, order };
   });
+  if (!result.ok) return result.res;
+  const order = result.order;
 
   return NextResponse.json(order);
 });
 
 export const DELETE = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
-  const existing = await db.blindsOrder.findUnique({ where: { id }, select: ORDER_ACCESS_SELECT });
-  if (!existing) return notFound();
-  const access = await resolveOrderAccess(user, existing as unknown as OrderAccessRow);
-  if (!access.canRead) return notFound();
+  const access = await blindsOrderAccess(id, user);
+  if (!access?.canRead) return notFound();
   if (!access.edit.allowed) return forbiddenEdit(access);
   await db.blindsOrder.delete({ where: { id } });
   return NextResponse.json({ success: true });

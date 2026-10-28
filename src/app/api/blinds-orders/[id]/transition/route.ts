@@ -7,9 +7,11 @@ import { logAudit } from "@/lib/audit/logger";
 import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import { requestApproval } from "@/lib/approval/port";
 import { listUsersWithPermission } from "@/lib/sales/approvers";
-import { ORDER_ACCESS_SELECT, resolveOrderAccess, type OrderAccessRow } from "@/lib/fulfillment/service";
 import { applyOrderTransition, isPlainTransition } from "@/lib/fulfillment/order-access";
 import type { OrdersCancelBlindsOrderPayload } from "@/lib/pending-actions/types";
+import { loadProcessSpec, lockOrderSpec, orderIssues } from "@/lib/sunny-process/autogen";
+import { blockingIssues } from "@/lib/sunny-process/issues";
+import { blindsOrderAccess } from "@/lib/sunny-process/server";
 
 const CANCEL_ACTION_TYPE = "orders.cancel_blinds_order" as const;
 
@@ -23,12 +25,11 @@ export const POST = withAuth(async (request, ctx, user) => {
   };
 
   const order = await db.blindsOrder.findUnique({ where: { id } });
-  if (!order) return NextResponse.json({ error: "工单不存在" }, { status: 404 });
-
-  // PERM-3：读范围 + 品类修改权
-  const accessRow = await db.blindsOrder.findUnique({ where: { id }, select: ORDER_ACCESS_SELECT });
-  const access = await resolveOrderAccess(user, accessRow as unknown as OrderAccessRow);
-  if (!access.canRead) return NextResponse.json({ error: "工单不存在" }, { status: 404 });
+  // PERM-3：读范围 + 品类修改权（品类含 sunny-process 参数行）
+  const access = order ? await blindsOrderAccess(id, user) : null;
+  if (!order || !access?.canRead) {
+    return NextResponse.json({ error: "工单不存在" }, { status: 404 });
+  }
 
   // ── 作废：持 orders.cancel 的老板提交 → 另一位老板批准（fulfillment/order-cancellation-approval）──
   if (toStatus === "cancelled") {
@@ -117,8 +118,8 @@ export const POST = withAuth(async (request, ctx, user) => {
     assignedToId?: string;
   };
 
-  const updateData: Record<string, unknown> = {};
-
+  // 安排安装的校验（只读）放在锁外；预约与状态在锁内一起写
+  let install: { customerId: string; startAt: Date; assignee: string } | null = null;
   if (toStatus === "scheduled") {
     // INSTALL-1：安排安装 = 建安装预约。执行者须持 install.task.assign（运营 / 会计 / 老板），
     // assignedToId 必须是持 install.task.read 的安装岗；工艺单必须有客户（预约靠 customer.orgId 定企业）。
@@ -163,32 +164,64 @@ export const POST = withAuth(async (request, ctx, user) => {
         { status: 400 },
       );
     }
-
-    const endAt = new Date(startAt.getTime() + 2 * 60 * 60 * 1000);
-    const appt = await db.appointment.create({
-      data: {
-        customerId: customer.id,
-        opportunityId: order.opportunityId || null,
-        type: "install",
-        title: `安装 — ${order.customerName} (${order.code})`,
-        description: `工单 ${order.code} 安装排期`,
-        startAt,
-        endAt,
-        address: order.address || null,
-        contactPhone: order.phone || null,
-        status: "scheduled",
-        assignedToId: assignee,
-        createdById: user.id,
-      },
-    });
-    updateData.appointmentId = appt.id;
-    updateData.expectedInstallDate = startAt;
-    updateData.installDate = startAt.toISOString().slice(0, 10);
+    install = { customerId: customer.id, startAt, assignee };
   }
 
-  // design D7：状态 + 时间戳 + OrderStatusLog 统一由 applyOrderTransition 写
-  await db.$transaction((tx) => applyOrderTransition(tx, order, toStatus, user.id, note || null, updateData));
-  const updated = await db.blindsOrder.findUnique({ where: { id } });
+  // 与保存工艺参数 / 发给国内同一把锁：锁内重读状态与行再做门禁，避免确认与挪行交错
+  const result = await db.$transaction(async (tx) => {
+    await lockOrderSpec(tx, id);
+    const cur = await tx.blindsOrder.findUnique({ where: { id }, include: { items: { orderBy: { itemNumber: "asc" } } } });
+    if (!cur) return { ok: false as const, res: NextResponse.json({ error: "工单不存在" }, { status: 404 }) };
+    const allowed = toStatus === "scheduled" ? canTransition(cur.status, toStatus) : isPlainTransition(cur.status, toStatus);
+    if (!allowed) {
+      return { ok: false as const, res: NextResponse.json({ error: `不能从 ${cur.status} 转到 ${toStatus}` }, { status: 400 }) };
+    }
 
-  return NextResponse.json({ order: updated });
+    // 确认门禁：草稿 → 已确认 前，阻断级待核对项必须清零
+    if (cur.status === "draft" && toStatus === "confirmed") {
+      const spec = await loadProcessSpec(tx, id);
+      const blocked = blockingIssues(orderIssues(cur, spec));
+      if (blocked.length > 0) {
+        return {
+          ok: false as const,
+          res: NextResponse.json(
+            { error: `还有 ${blocked.length} 项阻断待核对，不能确认`, code: "PROCESS_ORDER_BLOCKED", issues: blocked },
+            { status: 409 },
+          ),
+        };
+      }
+    }
+
+    const updateData: Record<string, unknown> = {};
+    if (install) {
+      const endAt = new Date(install.startAt.getTime() + 2 * 60 * 60 * 1000);
+      const appt = await tx.appointment.create({
+        data: {
+          customerId: install.customerId,
+          opportunityId: cur.opportunityId || null,
+          type: "install",
+          title: `安装 — ${cur.customerName} (${cur.code})`,
+          description: `工单 ${cur.code} 安装排期`,
+          startAt: install.startAt,
+          endAt,
+          address: cur.address || null,
+          contactPhone: cur.phone || null,
+          status: "scheduled",
+          assignedToId: install.assignee,
+          createdById: user.id,
+        },
+      });
+      updateData.appointmentId = appt.id;
+      updateData.expectedInstallDate = install.startAt;
+      updateData.installDate = install.startAt.toISOString().slice(0, 10);
+    }
+
+    // design D7：状态 + 时间戳 + OrderStatusLog 统一由 applyOrderTransition 写
+    await applyOrderTransition(tx, cur, toStatus, user.id, note || null, updateData);
+    const updated = await tx.blindsOrder.findUnique({ where: { id } });
+    return { ok: true as const, updated };
+  });
+  if (!result.ok) return result.res;
+
+  return NextResponse.json({ order: result.updated });
 });
