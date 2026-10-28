@@ -66,7 +66,8 @@ function asJson(v: unknown): Prisma.InputJsonValue {
 }
 
 const SALES_PLATFORM_ROLES = new Set(["trade", "sales"]);
-const SALES_WORK_KEYS = ["sales.quote.create", "sales.quote.pricing_close"];
+/** 岗位模式"业务员"：销售工作键；PERM-6c 起外贸业务员（trade.manage）也算，不再看平台 trade */
+const SALES_WORK_KEYS = ["sales.quote.create", "sales.quote.pricing_close", "trade.manage"];
 function hasSalesWorkKey(keys: readonly string[] | null): boolean {
   return Boolean(keys?.some((k) => SALES_WORK_KEYS.includes(k)));
 }
@@ -604,7 +605,7 @@ export async function getOnboardingStatus(orgId: string, opts?: { configHealth?:
       platformRole: m.user.role,
       orgRole: m.role,
       isSalesRole: memberKeys
-        ? m.user.role === "trade" || hasSalesWorkKey(memberKeys[i])
+        ? hasSalesWorkKey(memberKeys[i])
         : SALES_PLATFORM_ROLES.has(m.user.role),
       wechatBound: channels.length > 0,
       wechatChannels: channels,

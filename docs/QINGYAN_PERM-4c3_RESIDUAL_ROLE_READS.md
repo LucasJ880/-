@@ -1,6 +1,6 @@
 # PERM-4c3 残留平台角色读点清单
 
-> 用途：Sunny（岗位模式企业）把平台角色 `boss / manager / operations / sales` 压成 `user` **之前**必须收口的读点。
+> 用途：岗位模式企业把平台角色 `boss / manager / operations / sales`（PERM-6c 起含 `trade`，见 F 组）压成 `user` **之前**必须收口的读点。
 > 压扁脚本 `scripts/collapse-platform-roles.ts` 的写库闸门 `PLATFORM_ROLE_COLLAPSE_READY`（`src/lib/authorization/platform-role-collapse.ts`）在本清单收口前保持 `false`。
 > 行号以 main@2b44fc4f 为准；改动前先 grep 复核。拍板见任务书 `docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`"拍板结果 · PERM-4c3"。
 
@@ -152,21 +152,21 @@
 - **门槛**：老板询盘晨报、SLA 升级、展会汇总、询盘通知。
 - **压扁前后**：boss / manager 收不到。
 - **建议**：**PERM-6**（Sunny 暂不需要外贸）。
-- **状态**：归 **PERM-6**（Sunny 暂不需要外贸，2026-10-28 拍板）。
+- **状态**：**PERM-6c 已收口**——新 `src/lib/trade/recipients.ts`：工作收件人 = 持外贸读或写键；管理层收件人 = 管理层且持外贸键（见 F2）。
 
 ### D3 默认询盘负责人
 - **位置**：`src/lib/revenue-spine/inquiry-intake.ts:147`。
 - **门槛**：默认询盘负责人。
 - **压扁前后**：不再选到销售。
 - **建议**：**PERM-6**。
-- **状态**：归 **PERM-6**。
+- **状态**：**PERM-6c 已收口**——按岗位派生平台角色（`trade` / `sales`）选最早加入的人（见 F3）。
 
 ### D4 营收中心接口
 - **位置**：`src/lib/revenue-spine/access.ts:14,19`（13 个 `/api/revenue/*`）、`api/revenue/policy/route.ts:32`。
 - **门槛**：营收中心接口。
 - **压扁前后**：sales / boss → 403。
 - **建议**：**PERM-6**。
-- **状态**：归 **PERM-6**。
+- **状态**：**PERM-6c 已收口**——按外贸键（拍板：平台 `sales` 不再进营收中心，见 F1）。
 
 ### D5 管理员入职清单
 - **位置**：`src/lib/organizations/onboarding.ts:596`、`onboarding-rules.ts:321,595`。
@@ -190,7 +190,43 @@
 - **压扁前后**：**4c3 已关闭（岗位模式企业）**。
 - **建议**：—
 
+## F. 外贸（压扁 `trade` 的前提）→ `perm-6c-revenue-and-trade-recipients`
+
+压扁范围原来不含 `trade`。PERM-6a 已让外贸接口、导航外贸入口、派生角色（`trade` 档）按岗位；以下是压扁 `trade` 前剩下的读点。
+
+### F1 营收中心接口（= D4）
+- **位置**：`src/lib/revenue-spine/access.ts`、`src/app/api/revenue/**`（13 个文件）。
+- **状态**：**6c 已收口**——
+  - 读 = `trade.read` / `trade.manage`，写 = `trade.manage`，发布策略 = `trade.settings.manage`（读策略三键任一）；
+  - 旧模式导航营收入口去掉平台 `sales`。
+
+### F2 外贸收件人（= D2）
+- **位置**：`trade/inquiry-sla.ts`、`trade/website-inquiry.ts`、`trade/booth-summary.ts`（`managementOf`，早报 / 展会小结 / SLA 分级共用）。
+- **状态**：**6c 已收口**——见 D2。
+
+### F3 默认询盘负责人（= D3）
+- **状态**：**6c 已收口**——见 D3。
+
+### F4 侧栏外贸两段式布局
+- **位置**：`src/components/sidebar.tsx`（`usesTradeLayout`）。
+- **门槛**：原按 `user.role === "trade"`。
+- **状态**：**6c 已收口**——按 `/api/auth/me` 的 `effectiveRole`。
+
+### F5 入职清单"业务员"
+- **位置**：`src/lib/organizations/onboarding.ts`。
+- **门槛**：岗位模式原来"或平台 `trade`"。
+- **状态**：**6c 已收口**——认销售工作键或 `trade.manage`。
+
+### 不需要改（复核过）
+- 管理总览：读 `effectiveRole`（4c5）。
+- AI 晨报 / agent-runtime / Muse / 微信绑定默认推送：经 `resolveEffectivePlatformRole`（4c4 / 4c5）。
+- `nav-role-policy`：只在旧模式生效。
+- 兼容回退里的平台 `trade` → `trade_rep`：只在旧模式企业生效。
+- AI 工具策略里的平台 `admin` 档跨所有域，不属外贸，另议。
+
 ## 收口进度
+
+- 2026-10-28 `perm-6c-revenue-and-trade-recipients`：D2–D4 与 F1–F5 已收口；压扁范围加入 `trade`（只对岗位模式企业生效；梦馨要 6b 后才是岗位模式）。
 
 - 2026-10-28 `perm-4c5-management-reads-by-position`：B1–B5、C1、D1、D5 与 A2 / A6 / A8 余项已收口，视觉方案跨企业泄露已修；B6 / B7 / E1 保留（无影响）；D2–D4 归 PERM-6。**写库闸门 `PLATFORM_ROLE_COLLAPSE_READY` 已改为 true。**
 - 2026-10-28 `perm-4c4-ai-tools-by-position`：A1 / A3 / A4 / A5 / A7 已收口；A2 / A6 / A8 部分收口（余项见各条"状态"，归 4c5）。

@@ -655,7 +655,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: TrendingUp,
     group: "BUSINESS",
     moduleKey: ["trade", "sales"],
-    requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
+    // PERM-6c：营收中心只认外贸键，旧模式不再因平台 sales 显示
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
     tradeEntry: true,
     matchPaths: ["/revenue"],
     displayOrder: 27,
@@ -669,7 +670,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: CalendarCheck,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
+    // PERM-6c：营收中心只认外贸键，旧模式不再因平台 sales 显示
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
     tradeEntry: true,
     displayOrder: 20.4,
   },

@@ -4,13 +4,13 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
+import { REVENUE_READ_KEYS, resolveRevenueAccess } from "@/lib/revenue-spine/access";
 import { INQUIRY_REPLY_ACTION_TYPE } from "@/lib/revenue-spine/fde/inbound-sales";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const access = await resolveRevenueAccess(request);
+  const access = await resolveRevenueAccess(request, REVENUE_READ_KEYS);
   if (!access.ok) return access.response;
   const { id } = await ctx.params;
   const paId = request.nextUrl.searchParams.get("pendingActionId") ?? "";

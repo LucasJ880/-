@@ -85,3 +85,9 @@ PERM-1 至 PERM-4c5 已让销售、运营、招投标、会计、安装、导航
 3. **平台 `admin`（非 super_admin）收回外贸隐含权限**：只认平台 super_admin 与岗位键；`resolveTradeOrgId` 的"显式 orgId 访问任意企业"只留给 super_admin。梦馨老板（平台 admin、`org_owner`）经系统模板 `org_owner` 获得外贸键，不受影响。
 4. **梦馨人员**：6b 开工前提供（目前生产为老板 + 1 名外贸业务员）。
 5. **owner 界面绑岗位**另立 **PERM-7**。
+
+### 拍板结果 · PERM-6c（2026-10-28："合并后先做6C 的proposal"；"按照你推荐的方式开始实施6C"）
+顺序：6c 先于 6b（6b 等梦馨人员与邮箱）。change `perm-6c-revenue-and-trade-recipients` 的三个待拍板全部按推荐：
+1. **营收中心只认外贸键**：平台 `sales` 不再进营收中心（Sunny 销售车道不经此 API；同时堵住销售员经营收中心看全企业商机）。
+2. **外贸管理层收件人要求持外贸读或写键**：只持设置键的 `org_admin`、不是企业负责人的平台 boss / manager / admin 不再收外贸升级与早报。
+3. **压扁范围加 `trade` 放在 6c**：6b 只需落岗位与执行压扁。

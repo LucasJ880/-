@@ -4,13 +4,13 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { safeParseBody } from "@/lib/common/api-helpers";
-import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
+import { REVENUE_MANAGE_KEYS, resolveRevenueAccess } from "@/lib/revenue-spine/access";
 import { isOpportunityStage } from "@/lib/revenue-spine/opportunity-stage";
 import { transitionOpportunity } from "@/lib/revenue-spine/transition";
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const body = (await safeParseBody<Record<string, unknown>>(request)) ?? {};
-  const access = await resolveRevenueAccess(request, { bodyOrgId: typeof body.orgId === "string" ? body.orgId : null });
+  const access = await resolveRevenueAccess(request, REVENUE_MANAGE_KEYS, { bodyOrgId: typeof body.orgId === "string" ? body.orgId : null });
   if (!access.ok) return access.response;
   const { id } = await ctx.params;
   const to = body.to;
