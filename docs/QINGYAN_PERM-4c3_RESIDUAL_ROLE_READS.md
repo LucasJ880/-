@@ -32,7 +32,7 @@
 - **门槛**：AI 域、界面模块、数据范围（`rbac/data-scope.ts`）。
 - **压扁前后**：sales / boss 的域与 `dataScope` 变成 `user` 的。
 - **建议**：岗位模式下按岗位键派生；`dataScope=all` 只给管理层（`organization.dashboard.read`），并且**必须按企业过滤**——另见独立任务"visualizer 跨企业泄露"。
-- **状态**：**4c4 部分收口**——AI 线程路由的 `getCapabilities` 取派生角色；`dataScope`（视觉方案、审批执行等非 AI 读点）归 B4 / B5（4c5）。
+- **状态**：**已收口（4c4 + 4c5）**——AI 线程路由的 `getCapabilities` 取派生角色（4c4）；视觉方案 / 审批执行的 `dataScope` 4c5 收口。原文：`dataScope`（视觉方案、审批执行等非 AI 读点）归 B4 / B5（4c5）。
 
 ### A3 晨报
 - **位置**：`src/lib/secretary/briefing.ts:24-41`。
@@ -62,7 +62,7 @@
 - **门槛**：营销数字员工、`/marketing`、`/operations/growth` 深链。
 - **压扁前后**：sales 被挡 → 放行。
 - **建议**：按 `operations.read` / `operations.manage`。
-- **状态**：**4c4 部分收口**——`/api/marketing/employee` 与微信入口取派生角色（压扁后销售仍被挡）；页面中间件 `middleware.ts` / `route-access.ts`（读 JWT）与工作台按钮显示归 4c5。
+- **状态**：**已收口（4c4 + 4c5）**——4c5 新增营销工作区服务端 layout（`/marketing`、`/operations/growth`）与 `requireMarketingReadAccess`（16 个 GET）、工作台按钮读 `effectiveRole`；4c4：`/api/marketing/employee` 与微信入口取派生角色（压扁后销售仍被挡）；页面中间件 `middleware.ts` / `route-access.ts`（读 JWT）与工作台按钮显示归 4c5。
 
 ### A7 仅提示词
 - **位置**：`ai/prompts/common.ts:268-281`、`agent-core/prompts/operator-system.ts:25-27,62`。
@@ -76,7 +76,7 @@
 - **门槛**：按角色白名单开功能（如 `DIGITAL_EMPLOYEE_ROLE_ALLOWLIST=admin,sales`）。
 - **压扁前后**：取决于生产环境变量值。
 - **建议**：核对生产值；改为按岗位键或加 `user`。
-- **状态**：**4c4 部分收口**——AI 线程路由 `isOperatorEnabled` 取派生角色；agent-supervisor 入口传派生角色。其余开关（`DIGITAL_EMPLOYEE_ROLE_ALLOWLIST`、`WORKFORCE_RUNTIME_ROLE_ALLOWLIST`、`ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST`、`ASSISTANT_DURABLE_FOLLOWUP_ROLE_ALLOWLIST`）的调用方未改：Lucas 核对生产值，含 `sales` 者压扁后需同时有派生入口或改为按用户 id；4c5 收尾时复核。
+- **状态**：**已收口（4c4 + 4c5）**——4c5：`/api/agent-supervisor/runs`、持久跟进、workforce job 的开关传派生角色；生产环境变量值仍请 Lucas 核对。4c4：AI 线程路由 `isOperatorEnabled` 取派生角色；agent-supervisor 入口传派生角色。其余开关（`DIGITAL_EMPLOYEE_ROLE_ALLOWLIST`、`WORKFORCE_RUNTIME_ROLE_ALLOWLIST`、`ENABLE_GPT6_ASTRA_ROLE_ALLOWLIST`、`ASSISTANT_DURABLE_FOLLOWUP_ROLE_ALLOWLIST`）的调用方未改：Lucas 核对生产值，含 `sales` 者压扁后需同时有派生入口或改为按用户 id；4c5 收尾时复核。
 
 ## B. 接口授权 → `perm-4c5-management-reads-by-position`（含招投标，Sunny 需要）
 
@@ -85,42 +85,49 @@
 - **门槛**：团队视图、指派他人、改他人任务。
 - **压扁前后**：boss / manager 若不是 `org_owner` / `org_admin` 就失去。
 - **建议**：wsCtx 注入 `permissionKeys` + `positionMode`（同 4b `/api/ops/home`）。
+- **状态**：**4c5 已收口**——上下文注入 `loadWorkspaceSignals`（`permissionKeys` + `positionMode`）。
 
 ### B2 运营项目列表 / 创建
 - **位置**：`src/app/api/ops/projects/route.ts:37-51`（`buildOpsCtx`）。
 - **门槛**：列表 / 创建。
 - **压扁前后**：同 B1。
 - **建议**：同 B1。
+- **状态**：**4c5 已收口**——同 B1。
 
 ### B3 招投标交接
 - **位置**：`src/lib/projects/handoff/access.ts:27-31,79`，`api/projects/[id]/handoff{,/preview,/execute}`。
 - **门槛**：中标交接。
 - **压扁前后**：同 B1。`bids.handoff.*` 键已有但 wsCtx 无键，够不到。
 - **建议**：wsCtx 注入键，按 `bids.handoff.*`。
+- **状态**：**4c5 已收口**——三个交接路由注入岗位信号，`bids.handoff.*` 键可达。
 
 ### B4 审批执行
 - **位置**：`src/lib/pending-actions/executor.ts:1310,1351,1534,1561,1604,1862-1879` `canSeeResource(ctx.role…)`。
 - **门槛**：审批执行时对资源的可见性。
 - **压扁前后**：boss 批 / 执行销售的商机 / 报价 / 客户动作被拒。
 - **建议**：按岗位键的数据范围（`authorize`）。
+- **状态**：**4c5 已收口**——`/api/ai/pending-actions/[id]`、agent 任务步骤审批、微信确认用派生角色；Muse 审批 4c4 已派生；能力中台审批传的是企业成员角色，不受压扁影响。
 
 ### B5 视觉方案
 - **位置**：`src/lib/visualizer/access.ts:24,46,73`（`rbac/data-scope.ts`）。
 - **门槛**：视觉方案可见范围。
 - **压扁前后**：boss 全部 → 本人。
 - **建议**：随 A2；**另有既有跨企业泄露（独立任务）**。
+- **状态**：**4c5 已收口**——`resolveVisualizerViewer`：按企业 + 派生角色判定"看全部"，**跨企业泄露已修**（`dataScope=all` 只在可看全部的企业内生效；平台 super_admin 仍全部）。
 
 ### B6 市场情报
 - **位置**：`src/lib/market-intelligence/access.ts:9`（5 个 `api/operations/market-intelligence*`）。
 - **门槛**：市场情报。
 - **压扁前后**：manager（Sunny 无人用）。
 - **建议**：按 `operations.*`。
+- **状态**：保留——Sunny 无 `manager`，派生角色不产生 `manager`，压扁无影响。
 
 ### B7 团队学习审核
 - **位置**：`src/lib/employee-ai/access.ts:50` `canReviewTeamLearning`（5 个 `api/team/*`）。
 - **门槛**：团队学习审核。
 - **压扁前后**：manager（Sunny 无人用）。
 - **建议**：按管理层键。
+- **状态**：保留——同 B6。
 
 ## C. 仅界面 → `perm-4c5`
 
@@ -129,6 +136,7 @@
 - **门槛**：管理总览里销售 / 外贸模块与每日简报的显示。
 - **压扁前后**：boss 首页这几块消失。
 - **建议**：按 `organization.dashboard.read`（外贸模块随 PERM-6）。
+- **状态**：**4c5 已收口**——`/api/auth/me` 返回 `effectiveRole`，管理总览按它显示模块。
 
 ## D. 通知 / 收件人 / 路由
 
@@ -137,30 +145,35 @@
 - **门槛**：新绑定 / 重绑微信的推送域。
 - **压扁前后**：前销售不再推销售消息（已有绑定不受影响）。
 - **建议**：按岗位键 → **4c5**。
+- **状态**：**4c5 已收口**——新绑定默认推送按派生角色。
 
 ### D2 外贸管理层收件人
 - **位置**：`src/lib/trade/booth-summary.ts:18,146-157`、`trade/inquiry-sla.ts:216`、`trade/website-inquiry.ts:1002`。
 - **门槛**：老板询盘晨报、SLA 升级、展会汇总、询盘通知。
 - **压扁前后**：boss / manager 收不到。
 - **建议**：**PERM-6**（Sunny 暂不需要外贸）。
+- **状态**：归 **PERM-6**（Sunny 暂不需要外贸，2026-10-28 拍板）。
 
 ### D3 默认询盘负责人
 - **位置**：`src/lib/revenue-spine/inquiry-intake.ts:147`。
 - **门槛**：默认询盘负责人。
 - **压扁前后**：不再选到销售。
 - **建议**：**PERM-6**。
+- **状态**：归 **PERM-6**。
 
 ### D4 营收中心接口
 - **位置**：`src/lib/revenue-spine/access.ts:14,19`（13 个 `/api/revenue/*`）、`api/revenue/policy/route.ts:32`。
 - **门槛**：营收中心接口。
 - **压扁前后**：sales / boss → 403。
 - **建议**：**PERM-6**。
+- **状态**：归 **PERM-6**。
 
 ### D5 管理员入职清单
 - **位置**：`src/lib/organizations/onboarding.ts:596`、`onboarding-rules.ts:321,595`。
 - **门槛**：管理员入职清单。
 - **压扁前后**：两步回到待办。
 - **建议**：按岗位键 → **4c5**（低优先）。
+- **状态**：**4c5 已收口**——岗位模式"业务员"按销售工作键。
 
 ## E. 数据
 
@@ -169,6 +182,7 @@
 - **门槛**：平台 `sales` 成员自动绑 `sales_rep`。
 - **压扁前后**：压扁后不再触发（已绑定的不受影响）。
 - **建议**：可保留；新人走 `bind-positions`。
+- **状态**：保留——新人走 `bind-positions`。
 
 ### E2 兼容回退
 - **位置**：`src/lib/authorization/resolve-effective-permissions.ts`。
@@ -178,12 +192,23 @@
 
 ## 收口进度
 
+- 2026-10-28 `perm-4c5-management-reads-by-position`：B1–B5、C1、D1、D5 与 A2 / A6 / A8 余项已收口，视觉方案跨企业泄露已修；B6 / B7 / E1 保留（无影响）；D2–D4 归 PERM-6。**写库闸门 `PLATFORM_ROLE_COLLAPSE_READY` 已改为 true。**
 - 2026-10-28 `perm-4c4-ai-tools-by-position`：A1 / A3 / A4 / A5 / A7 已收口；A2 / A6 / A8 部分收口（余项见各条"状态"，归 4c5）。
 
-## 打开闸门的条件
+## 打开闸门的条件（2026-10-28 已满足 1 / 2；3 / 4 是生产执行前的核对）
 
 把 `PLATFORM_ROLE_COLLAPSE_READY` 改为 `true`（在最后一个合并的残留收口 change 里改，并在该 change 的测试里断言）前，须同时满足：
 1. A 组全部、B 组全部、C1、D1、D5 已在 `perm-4c4-ai-tools-by-position` / `perm-4c5-management-reads-by-position` 合并。
 2. D2 / D3 / D4 明确归 PERM-6（Sunny 暂不需要外贸，2026-10-28 拍板）。
 3. 生产对 Sunny 跑 `bind-positions --dry-run` 全员有 active 绑定，跑 `collapse-platform-roles --dry-run` 无阻断。
 4. A8 的生产环境变量已核对。
+
+
+## 生产执行压扁（Lucas，闸门已打开）
+
+1. `ALLOW_POSITION_BINDING=true npx tsx scripts/bind-positions.ts --org <sunny> --file config/positions/sunny.json --actor <lucas> --dry-run`：Sunny 全员有 active 绑定（`TODO:` 先填）；有缺口先去掉 `--dry-run` 绑定。
+2. `ALLOW_ROLE_COLLAPSE=true npx tsx scripts/collapse-platform-roles.ts --org <sunny> --actor <lucas> --dry-run`：核对待压扁名单（应为 Sunny 的 boss / sales / operations 成员）与阻断项（尤其是否有人同时在梦馨）；退出码 0 才继续。
+3. 去掉 `--dry-run` 执行；输出"已压扁 N 人"。
+4. 通知被压扁的成员重新登录（中间件读登录时签发的角色）。
+5. 抽查：老板首页停在管理总览、AI 有原工具、Muse 能看金额；销售落 `/sales/home`、AI 有销售工具、进不了增长中心；运营进 `/ops`。
+6. 出问题：`ALLOW_ROLE_COLLAPSE=true npx tsx scripts/collapse-platform-roles.ts --org <sunny> --actor <lucas> --restore`（先加 `--dry-run` 看计划）。

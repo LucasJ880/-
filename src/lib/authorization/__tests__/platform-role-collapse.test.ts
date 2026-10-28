@@ -40,7 +40,7 @@ console.log("platform-role-collapse（PERM-4c3）");
 
 // ── 常量 ──
 ok(COLLAPSIBLE_PLATFORM_ROLES.join(",") === "boss,manager,operations,sales", "压扁范围 = boss / manager / operations / sales");
-ok(PLATFORM_ROLE_COLLAPSE_READY === false, "写库闸门默认关闭（残留读点未收口）");
+ok(PLATFORM_ROLE_COLLAPSE_READY === true, "写库闸门已打开（PERM-4c5 残留读点收口完成）");
 ok(RESIDUAL_ROLE_READS_DOC === "docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md", "闸门提示指向残留清单文档");
 
 // ── 范围 ──

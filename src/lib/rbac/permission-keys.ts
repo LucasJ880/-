@@ -29,3 +29,19 @@ export async function loadPositionMode(orgId: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * PERM-4c5：自建工作区上下文的岗位信号（有效权限键 + 岗位模式），供 `{ ...ctx, ...signals }` 展开。
+ * orgId 为空时无信号（旧行为）。
+ */
+export async function loadWorkspaceSignals(
+  userId: string,
+  orgId: string | null | undefined,
+): Promise<{ permissionKeys: string[] | null; positionMode: boolean }> {
+  if (!orgId) return { permissionKeys: null, positionMode: false };
+  const [permissionKeys, positionMode] = await Promise.all([
+    loadPermissionKeys(userId, orgId),
+    loadPositionMode(orgId),
+  ]);
+  return { permissionKeys, positionMode };
+}

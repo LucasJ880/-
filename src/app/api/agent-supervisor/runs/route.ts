@@ -44,7 +44,8 @@ export const POST = withAuth(async (req, _ctx, user) => {
   if (
     !isSupervisorEnabled({
       userId: user.id,
-      role: user.role,
+      // PERM-4c5：功能开关角色白名单按岗位派生平台角色匹配
+      role: await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role }),
       orgId,
       orgCode: org?.code,
     })

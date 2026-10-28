@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   loadSessionBySourceImage,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import {
   normalizeDetectedRegionCandidates,
@@ -26,13 +27,15 @@ import { readBlobBuffer } from "@/lib/files/blob-access";
  * 2. GPT 视觉回退 — 语言模型报坐标有漂移，仅在 DINO 未配置或调用失败时使用
  */
 export const POST = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { imageId } = await ctx.params;
 
   const session = await loadSessionBySourceImage(imageId);
   if (!session) {
     return NextResponse.json({ error: "图片不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
+  if (!canSeeVisualizerSession(session, viewer)) {
     return NextResponse.json({ error: "无权操作该图片" }, { status: 403 });
   }
 

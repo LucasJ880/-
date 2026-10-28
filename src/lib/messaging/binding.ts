@@ -4,6 +4,7 @@
  * 管理微信用户 ID ↔ 青砚用户的映射关系。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { db } from "@/lib/db";
 import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 import type { ChannelType, BindingInfo, FilterMode } from "./types";
@@ -71,7 +72,10 @@ export async function createBinding(params: {
     where: { id: params.userId },
     select: { role: true },
   });
-  const defaults = roleDefaults(user?.role);
+  // PERM-4c5：岗位模式企业按岗位派生平台角色决定默认推送（压扁后销售仍默认推销售消息）
+  const defaults = roleDefaults(
+    await resolveEffectivePlatformRole({ userId: params.userId, orgId: params.orgId, platformRole: user?.role }),
+  );
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const existing = await db.weChatBinding.findUnique({
