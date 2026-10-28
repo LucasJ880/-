@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import { withAuth, safeParseBody } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { canSeeVisualizerSession } from "@/lib/visualizer/access";
+import { canSeeVisualizerSession, resolveVisualizerViewer } from "@/lib/visualizer/access";
 import {
   generateVisualizerShareToken,
   makeShareExpiresAt,
@@ -24,6 +24,8 @@ function buildShareUrl(req: Request, token: string): string {
 }
 
 export const POST = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id } = await ctx.params;
 
   const session = await db.visualizerSession.findUnique({
@@ -34,13 +36,13 @@ export const POST = withAuth(async (request, ctx, user) => {
       salesOwnerId: true,
       shareToken: true,
       shareExpiresAt: true,
-      customer: { select: { createdById: true } },
+      customer: { select: { createdById: true, orgId: true } },
     },
   });
   if (!session) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
+  if (!canSeeVisualizerSession(session, viewer)) {
     return NextResponse.json({ error: "无权操作该方案" }, { status: 403 });
   }
 

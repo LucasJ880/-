@@ -29,6 +29,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   SESSION_ACCESS_SELECT,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { readBlobStream } from "@/lib/files/blob-access";
@@ -82,7 +83,8 @@ async function authorizeBlobPath(
           select: SESSION_ACCESS_SELECT,
         });
         if (!session) return "forbidden";
-        return canSeeVisualizerSession(session, user) ? "ok" : "forbidden";
+        // PERM-4c5：按企业 + 岗位派生角色判定"看全部"
+        return canSeeVisualizerSession(session, await resolveVisualizerViewer(user)) ? "ok" : "forbidden";
       }
       // 平台标准安装模板底图：无组织敏感数据，登录即可读
       if (second === "templates") {

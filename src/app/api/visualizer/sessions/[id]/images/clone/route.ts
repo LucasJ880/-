@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   SESSION_ACCESS_SELECT,
   canSeeVisualizerSession,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import type { VisualizerSourceImageSummary } from "@/lib/visualizer/types";
 
@@ -24,6 +25,8 @@ interface CloneBody {
 }
 
 export const POST = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id: sessionId } = await ctx.params;
 
   const target = await db.visualizerSession.findUnique({
@@ -33,7 +36,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (!target) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(target, user)) {
+  if (!canSeeVisualizerSession(target, viewer)) {
     return NextResponse.json({ error: "无权操作该可视化方案" }, { status: 403 });
   }
 
@@ -70,7 +73,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     if (!c.session) return false;
     if (c.sessionId === sessionId) return false;
     if (c.session.customerId !== target.customerId) return false;
-    if (!canSeeVisualizerSession(c.session, user)) return false;
+    if (!canSeeVisualizerSession(c.session, viewer)) return false;
     return true;
   });
 

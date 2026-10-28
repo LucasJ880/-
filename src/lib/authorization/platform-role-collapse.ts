@@ -10,9 +10,9 @@ export const COLLAPSIBLE_PLATFORM_ROLES = ["boss", "manager", "operations", "sal
 
 /**
  * 写库闸门（D1）：残留平台角色读点（docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md）收口前为 false，
- * 脚本只允许 --dry-run 与 --restore。由最后一个残留收口 change（4c4 / 4c5）改为 true。
+ * 脚本只允许 --dry-run 与 --restore。PERM-4c5 收口 A / B / C / D1 / D5 后改为 true（外贸 D2–D4 归 PERM-6，Sunny 暂不用外贸）。
  */
-export const PLATFORM_ROLE_COLLAPSE_READY = false;
+export const PLATFORM_ROLE_COLLAPSE_READY = true;
 
 export const RESIDUAL_ROLE_READS_DOC = "docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md";
 

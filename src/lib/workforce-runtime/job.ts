@@ -11,6 +11,7 @@
  * Phase 2A 不创建 AI Job Owner。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { db } from "@/lib/db";
 import {
   createAgentRun,
@@ -149,7 +150,8 @@ export async function createWorkforceJob(
   if (
     !isWorkforceRuntimeEnabled({
       userId: input.userId,
-      role: input.role,
+      // PERM-4c5：功能开关角色白名单按岗位派生平台角色匹配
+      role: await resolveEffectivePlatformRole({ userId: input.userId, orgId: input.orgId, platformRole: input.role }),
       orgId: input.orgId,
     })
   ) {
