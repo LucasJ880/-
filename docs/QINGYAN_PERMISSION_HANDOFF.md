@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-28（会话 2，PERM-4a archive 后） |
+| 最后更新 | 2026-10-28（会话 2，PERM-4b / 5b / 5a 全部合并并 archive 后；验收清单见文末） |
 | 主线文档 | `docs/QINGYAN_PERMISSION_TASKFLOW.md`（状态列）、`docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md`（设计与已决定） |
 | 任务书 | `docs/QINGYAN_PERM-1-2_POSITIONS_DISCOUNT_TASKBRIEF.md` |
 | 工作分支 | 会话 1：`claude/youthful-davinci-8n1we3`；会话 2：`claude/amazing-goldberg-s89rlq`（每个 change 合并后从 main 重建同名分支） |
@@ -20,10 +20,15 @@
 | `perm-4a-sales-authorize` | 已合并 main；已 archive（specs 新增 `sales/record-access`、`sales/signed-quote-amount-approval`，`authorization/position-catalog` 增量）；报告 `docs/QINGYAN_PERM-4a_REPORT.md` | #279 ✅ |
 | `perm-4b-ops-authorize` | 已合并 main（新键 `operations.content.draft / approve`；运营配置 12 路由、Playbook 12 路由、发布任务 3 路由按岗位；增长中心写 `operations.manage`；平台用户管理仅 super_admin；`/ops` 入口按岗位、ops API 注入权限键）；typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e 32/32；全量 `npm test` 450/463（13 条为既有环境性失败，与基线一致）；报告 `docs/QINGYAN_PERM-4b_REPORT.md`；已 archive（specs 新增 `operations/config-access`、`operations/content-approval`、`marketing/growth-center-access`） | #283 ✅；archive 本 PR |
 | `perm-5b-digital-employee-positions` | 已合并 main；已 archive（specs 新增 `authorization/digital-employee-principal`、`agents/tool-authorization`、`agents/digital-employee-approval`，`authorization/position-binding`、`position-catalog` 增量）（数字员工主体解析 / 自身绑定无回退 / sponsor 范围 / 禁区元数据；`canInvokeTool` 主体 + `requiredPermission`；数字员工审批归属与审批人 = sponsor；审计 `actorDisplay`；绑定脚本 `--principal-type DIGITAL_EMPLOYEE`）；typecheck / lint:baseline / test:ci / registry / 架构守卫全绿；authorize 120、纯测试 50/50、隔离库 e2e 34/34；报告 `docs/QINGYAN_PERM-5b_REPORT.md` | #285 ✅；archive 本 PR |
-| `perm-5a-accounting-view` | 7/7 tasks；代码完成（新键 `project.finance.read`；提成口径唯一 `summarizeCommission`；`/api/accounting/{sales-summary,quotes,projects}`；`/accounting` 三页签 + 导航 + 会计默认落地）；typecheck / lint:baseline / test:ci / registry 全绿；authorize 133、accounting 38/38、隔离库 e2e 27/27；报告 `docs/QINGYAN_PERM-5a_REPORT.md`；TASKFLOW `[G]` | PR 待开 |
+| `perm-5a-accounting-view` | 已合并 main；已 archive（specs 新增 `accounting/sales-commission-view`、`accounting/quote-process-view`、`accounting/project-settlement-view`、`accounting/workspace`，`authorization/position-catalog` 增量）（新键 `project.finance.read`；提成口径唯一 `summarizeCommission`；`/api/accounting/{sales-summary,quotes,projects}`；`/accounting` 三页签 + 导航 + 会计默认落地）；typecheck / lint:baseline / test:ci / registry 全绿；authorize 133、accounting 38/38、隔离库 e2e 27/27；报告 `docs/QINGYAN_PERM-5a_REPORT.md` | #287 ✅；archive 本 PR |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
+
+### 会话 2（2026-10-28 夜间，PERM-4b / 5b / 5a）
+- 全量 `npm test`（无 DB，PERM-4b 合并前）：450/463，13 个失败与基线同一批环境性失败，无新增。
+- 每个 change 合并前：typecheck / lint:baseline / `npm run test:ci` / registry 全绿；CI `validate-lint-typecheck-test-build` 绿。
+- 隔离库（本地 Postgres 16）：`ops-authorize-db.isolated` 32/32、`digital-employee-db.isolated` 34/34、`accounting-db.isolated` 27/27（5a rebase 到含 5b 的 main 后三套一起复跑通过）。
 
 ### 会话 2（2026-10-28，PERM-4a 合并前）
 - 全量 `npm test`（无 DB）：446/459，13 个失败与会话 1 同一批环境性失败（清单见 `docs/QINGYAN_PERM-4a_REPORT.md` §5），无新增。
@@ -44,15 +49,17 @@
 6. ~~PERM-3~~ 已合并（#274）并 archive（#276）。**生产动作**：对 Sunny 重跑 `seedOrgAuthorizationProfiles`（出单模板变了），并确认工厂人员已绑定对应 `fulfillment_*` 岗位——自动生成工艺单的草稿核对（改参数 / 挪行 / 确认）现在要求本单全部品类键（报告 §5b）。
 7. ~~PERM-4a~~ 已合并（#279）并 archive（本 PR）。**生产动作**：合并前应已查平台 `admin` 账号补岗位（平台 admin 在销售区不再有隐含权限）——若未做，尽快补；对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner +5 键）。Sunny 若只有一位老板，签约单改总价会 409 `NO_APPROVER`，只能 Lucas 直接改。
 8. ~~PERM-4b~~ 已合并（#283）并 archive（本 PR）。**生产动作**：对 Sunny 重跑 `seedOrgAuthorizationProfiles`（ops_staff / ops_lead / owner 模板变了），确认 Marty（`ops_lead`）/ Maggie（`ops_staff`）绑定生效，否则 Maggie 进不了运营中心。老板改不了运营配置 / 增长中心（只看 + 批内容）。
-9. 进行中：PERM-5（用户 2026-10-28："5a 和 5b 都按推荐做"，拍板见任务书末尾"拍板结果 · PERM-5"）。顺序：5b 先（只依赖 PERM-1），5a 后（自带 `project.finance.read` 一个键，不等 4c）。4c 排在 5 之后。
+9. ~~PERM-5~~ 已完成（用户 2026-10-28："5a 和 5b 都按推荐做"，拍板见任务书末尾"拍板结果 · PERM-5"）。顺序：5b 先（只依赖 PERM-1），5a 后（自带 `project.finance.read` 一个键，不等 4c）。4c 排在 5 之后。
    - ~~PERM-5b~~ 已合并（#285）并 archive（#286）。**生产动作**：无（没有数字员工绑定 = 和今天一样全拒）。启用某个数字员工：填 `config/positions/sunny-digital-employees.json` 的 Agent id（sponsor = Agent 创建人），`--principal-type DIGITAL_EMPLOYEE --dry-run` 后执行。已知：今天没有运行时以数字员工为主体执行；现有工具都没声明 `requiredPermission`，数字员工调用会 `permission_required`（报告 §4）。
-   - PERM-5a 代码完成待 PR。**生产动作**：合并后对 Sunny 重跑 `seedOrgAuthorizationProfiles`（accounting / owner / bids 加了 `project.finance.read`），确认 Miki 绑了 `accounting`。项目结算页签在生产显示"项目财务控制未启用"（`TENDER_FINANCIAL_CONTROL_ENABLED` 默认关）；会计仍进不了单项目财务页（不是项目成员，属 4c，报告 §3 D4）。
+   - ~~PERM-5a~~ 已合并（#287）并 archive（本 PR）。**生产动作**：合并后对 Sunny 重跑 `seedOrgAuthorizationProfiles`（accounting / owner / bids 加了 `project.finance.read`），确认 Miki 绑了 `accounting`。项目结算页签在生产显示"项目财务控制未启用"（`TENDER_FINANCIAL_CONTROL_ENABLED` 默认关）；会计仍进不了单项目财务页（不是项目成员，属 4c，报告 §3 D4）。
+10. 下一个：**PERM-4c**（判断点已拍板：先压 Sunny、梦馨不动、Sunny 无人用 `manager`）——项目财务 `project.finance.*` 收口（含会计进单项目财务页、`requireProjectReadAccess` 口径）、导航 `requiredPermissions` 铺开删 `requiredPlatformRoles / NAV_ROLES_*`、默认工作区去平台角色、平台角色压扁脚本、删除 `canManageUsers`（含 `src/lib/projects/handoff/access.ts`）。先 `/opsx:propose perm-4c-nav-by-position`，四件套回传审核。
+   - `openspec list` 里还有一个 `fix-taskflow-status-drift`（✓ Complete，非本会话产物）未 archive——下次确认其 PR 已合并后再 archive。
 
 ## 环境注意
 
 - 沙箱 Node 是 22，仓库要 24：`source ~/.nvm/nvm.sh && nvm use 24`（若 nvm 不在，`node -v` 为 22 也能跑 tsx，但 `tsc` 要 `NODE_OPTIONS=--max-old-space-size=8192`）。
 - 沙箱无 Postgres 服务，但装有 Postgres 16：`apt-get install -y postgresql-16-pgvector` 后以 postgres 用户 `initdb` + `pg_ctl`（数据目录放 postgres 可写处，如 `/var/tmp/qy-pg`），`prisma migrate deploy` 后可用 `DATABASE_ENVIRONMENT=isolated NODE_ENV=test` 跑 `*.isolated.test.ts`。未起库时带 DB 的测试在 `npm test` 里因 MISSING_DATABASE_URL 失败，属环境性；CI 子集 `npm run test:ci` 不含它们。
-- `openspec validate --specs --strict` 在 PERM-3 archive 后有 3 条 WARNING（`authorization/position-catalog`、`sunny/process-order-autogen` 需求文本 >500 字；`inventory/fabric-stock-access` Purpose 过短）。规格只从 change 归档进来，下次碰这些能力的 change 顺手拆分。
+- `openspec validate --specs --strict` 有 4 条 WARNING（`authorization/position-catalog`、`sunny/process-order-autogen` 需求文本 >500 字；`inventory/fabric-stock-access`、`accounting/workspace` Purpose 过短——中文少于 50 字符，PERM-5a 引入）。规格只从 change 归档进来，下次碰这些能力的 change 顺手拆分。
 - 生产库迁移是手工受控的（见 `docs/DEPLOY_VERCEL.md`）；本主线零 schema，不应再有迁移。
 - 沙箱访问不到 qingyan.ca 与 Neon；线上核对由 Lucas 做。
 
@@ -67,3 +74,35 @@
 - 运营 / 增长中心权限判定只有一处：`src/lib/operations/access.ts`（`requireOpsPermission` / `selfApprovalBlocked`）；Playbook 权限函数是异步的，**漏 await 会把 Promise 当真值放行**（`ops-access.test` 有源码断言兜底）。
 - 工作区上下文的权限键用 `src/lib/rbac/permission-keys.ts` `loadPermissionKeys`；新写的 `/api/ops/*` 之类按工作区放行的 API 必须注入，否则按岗位放行的人会被拦。
 - 唯一 org_owner 保护在 `organizations/[orgId]/members/[memberId]/route.ts`；老板做成岗位 `owner`，不改这条保护。
+
+## Lucas 验收清单（2026-10-28 夜间：PERM-4b / 5b / 5a 全部合并并 archive）
+
+### A. 已合并的 PR（按顺序）
+| PR | 内容 |
+|---|---|
+| #283 / #284 | PERM-4b 运营 / 增长中心 / 平台用户管理按岗位（+ archive） |
+| #285 / #286 | PERM-5b 数字员工岗位绑定与工具授权（+ archive） |
+| #287 / 本 PR | PERM-5a 会计视图（+ archive） |
+
+每个 PR：CI `validate-lint-typecheck-test-build` 绿；本地 typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e：4b 32/32、5b 34/34、5a 27/27（5a rebase 后三套一起复跑通过）；`openspec validate --strict` 通过。
+
+### B. 生产动作（只能你在本机 / 线上做，按顺序）
+1. 对 Sunny 重跑 `seedOrgAuthorizationProfiles`——一次覆盖 4b（ops_staff / ops_lead / owner）与 5a（accounting / owner / bids 加 `project.finance.read`）的模板变化。
+2. 确认岗位绑定：Marty = `ops_lead`、Maggie = `ops_staff`（否则 Maggie 进不了运营中心）、Miki = `accounting`（`config/positions/sunny.json` 里仍是 `TODO:` 的先补邮箱，`--dry-run` 后执行）。
+3. 查 `User.role='admin'` 的平台账号：4a / 4b 后平台 admin 不再有销售区、运营配置、平台用户管理的隐含权限，需要的补岗位。
+4. 数字员工（5b）：**不需要动作**。真要启用时再填 `config/positions/sunny-digital-employees.json`。
+
+### C. 线上点验（5 分钟）
+- 用 Maggie 登录：能进 `/ops`、能起草提交内容、批准按钮 403；改品牌档案 403。
+- 用 Marty 登录：能改运营配置、能批 Maggie 的发布任务、不能批自己建的（403 `SELF_APPROVAL`）。
+- 用老板账号：运营配置只读、能批 Marty 的内容；`/admin/users` 看不到（只剩平台 super_admin）。
+- 用 Miki 登录：首页落到 `/accounting`；"成交与提成"按人列出本月签约 / 提成（与 Alex 业绩页本人数字一致）；"导出 CSV"能下载；"报价过程"看到超限审批的批准人与时间、没有客户电话邮箱；"项目结算"显示"项目财务控制未启用"（生产开关默认关，属正常）。
+- 用 Alex 登录：导航里没有"会计视图"；业绩页提成数字与之前一致。
+
+### D. 需要你知道的取舍
+- 5a 没改单项目财务页授权（会计不是项目成员仍进不去）——这属 PERM-4c 的 `project.finance.*` 收口（5a 报告 §3 D4）。
+- 5b 今天没有运行时以数字员工身份执行；交付的是授权通路 + 禁区 + 审批入口 + 审计标记（5b 报告 §4）。
+- 5b 审批人 = 数字员工的 sponsor（Agent 创建人），不是"该岗位所有人"——PendingAction 只有一个审批人列（5b 报告 §3）。
+
+### E. 下一个
+PERM-4c（判断点已拍板：先压 Sunny、梦馨不动、Sunny 无人用 `manager`）：项目财务 `project.finance.*` 收口（含会计进单项目财务页）、导航 `requiredPermissions` 铺开删 `requiredPlatformRoles`、默认工作区去平台角色、平台角色压扁脚本、`canManageUsers` 删除、`projects/handoff/access.ts`。开工前先 `/opsx:propose perm-4c-nav-by-position`。
