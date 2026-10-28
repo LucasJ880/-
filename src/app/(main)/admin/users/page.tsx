@@ -17,7 +17,7 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { canManageUsers, isAdmin } from "@/lib/permissions-client";
+import { isAdmin, isPlatformSuperAdmin } from "@/lib/permissions-client";
 
 interface UserRow {
   id: string;
@@ -124,7 +124,7 @@ function UsersContent() {
 
   useEffect(() => {
     if (userLoading) return;
-    if (!canManageUsers(currentUser?.role)) return;
+    if (!isPlatformSuperAdmin(currentUser?.role)) return;
     loadUsers();
   }, [loadUsers, userLoading, currentUser?.role]);
 
@@ -325,13 +325,13 @@ function UsersContent() {
     );
   }
 
-  if (!canManageUsers(currentUser?.role)) {
+  if (!isPlatformSuperAdmin(currentUser?.role)) {
     return (
       <div className="mx-auto max-w-2xl">
         <div className="flex flex-col items-center gap-3 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] py-12">
           <Shield className="h-10 w-10 text-[#a63d3d]" />
           <p className="text-sm font-medium text-[#a63d3d]">无权限访问</p>
-          <p className="text-sm text-[#a63d3d]">此页面仅管理员或总经理可查看</p>
+          <p className="text-sm text-[#a63d3d]">此页面仅平台管理员可查看</p>
         </div>
       </div>
     );

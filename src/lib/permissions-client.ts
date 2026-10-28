@@ -39,7 +39,15 @@ export function canViewAdminPages(platformRole: string | null | undefined): bool
 }
 
 /**
- * 用户账号管理（用户管理页 / 删除账号）— 平台 admin + 老板 boss。
+ * 平台 super_admin（PERM-4b：平台用户管理只认它）。
+ * SYNC: 与 src/lib/rbac/roles.ts isPlatformSuperAdmin 保持一致。
+ */
+export function isPlatformSuperAdmin(platformRole: string | null | undefined): boolean {
+  return platformRole === "super_admin";
+}
+
+/**
+ * @deprecated PERM-4b：用户管理页改用 isPlatformSuperAdmin；PERM-4c 删除。
  * SYNC: 与 src/lib/rbac/roles.ts canManageUsers 保持一致。
  */
 export function canManageUsers(platformRole: string | null | undefined): boolean {

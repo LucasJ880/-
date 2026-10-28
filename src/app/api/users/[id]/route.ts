@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
-import { isSuperAdmin, canManageUsers, canDeleteUsers } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin, isSuperAdmin } from "@/lib/rbac/roles";
 import { getUserById, updateUserProfile, updateUserStatus, updateUserRole, softDeleteUser } from "@/lib/users/service";
 import { validateUserProfile, isValidUserStatus } from "@/lib/users/validation";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
@@ -10,7 +10,7 @@ type RouteCtx = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/users/[id]
- * admin / 总经理可查看任意用户；普通用户只能查看自己
+ * PERM-4b：平台 super_admin 可查看任意用户；其他人只能查看自己
  */
 export async function GET(request: NextRequest, ctx: RouteCtx) {
   const { id } = await ctx.params;
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
   if (auth instanceof NextResponse) return auth;
   const { user: currentUser } = auth;
 
-  if (currentUser.id !== id && !canManageUsers(currentUser.role)) {
+  if (currentUser.id !== id && !isPlatformSuperAdmin(currentUser.role)) {
     return NextResponse.json({ error: "无权查看该用户信息" }, { status: 403 });
   }
 
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx) {
  * PATCH /api/users/[id]
  * 更新用户基础信息 / 状态
  * - 用户本人可更新自己的 name/nickname/avatar/phone
- * - super_admin 可额外更新 status/role
+ * - 平台 super_admin 可修改他人，并可额外更新 status/role（PERM-4b：平台 admin 不再可以）
  */
 export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   const { id } = await ctx.params;
@@ -45,7 +45,7 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   const { user: currentUser } = auth;
 
   const isSelf = currentUser.id === id;
-  const isAdmin = isSuperAdmin(currentUser.role);
+  const isAdmin = isPlatformSuperAdmin(currentUser.role);
 
   if (!isSelf && !isAdmin) {
     return NextResponse.json({ error: "无权修改该用户信息" }, { status: 403 });
@@ -234,8 +234,9 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx) {
   if (auth instanceof NextResponse) return auth;
   const { user: currentUser } = auth;
 
-  if (!canDeleteUsers(currentUser.role)) {
-    return NextResponse.json({ error: "需要管理员或总经理权限" }, { status: 403 });
+  // PERM-4b：全局账号删除仅平台 super_admin（下方对目标账号角色的保护保持不变）
+  if (!isPlatformSuperAdmin(currentUser.role)) {
+    return NextResponse.json({ error: "需要平台管理员权限", code: "PLATFORM_ADMIN_REQUIRED" }, { status: 403 });
   }
   if (currentUser.id === id) {
     return NextResponse.json({ error: "不能删除自己的账号" }, { status: 400 });

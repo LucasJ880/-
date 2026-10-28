@@ -13,7 +13,7 @@ export async function getMarketingBrandProfileAccess(
     select: { role: true, status: true },
   });
   return {
-    canEdit: canEditMarketingBrandProfile(user.role, membership),
+    canEdit: await canEditMarketingBrandProfile(user, orgId),
     membershipRole: membership?.status === "active" ? membership.role : null,
   };
 }

@@ -16,7 +16,7 @@
 
 ## 4. 增长中心与平台用户管理
 
-- [ ] 4.1 `marketing/access-policy.ts` `canEditMarketingBrandProfile` 改为 `(user, orgId)` 异步判 `operations.manage`，`access.ts` 同步（D6）；`growth-center.test.ts` 第 111–115 行改为岗位键用例。`users/route.ts`、`users/[id]/route.ts` 的 `canManageUsers` / `isSuperAdmin` / `canDeleteUsers` → `isPlatformSuperAdmin`；`permissions-client.ts` 新增 `isPlatformSuperAdmin`，`/admin/users` 页面改用它；`roles.ts` 的 `canManageUsers` / `canDeleteUsers` 加 `@deprecated`（D8）。verify：`npx tsx src/lib/marketing/__tests__/growth-center.test.ts`、`security1-owner-manager.test.ts` 通过；`grep -rn "canManageUsers(" src/app/api` 为空；`npx eslint "src/app/(main)/admin/users/page.tsx"` 无新增 error。
+- [x] 4.1 `marketing/access-policy.ts` `canEditMarketingBrandProfile` 改为 `(user, orgId)` 异步判 `operations.manage`，`access.ts` 同步（D6）；`growth-center.test.ts` 第 111–115 行改为岗位键用例。`users/route.ts`、`users/[id]/route.ts` 的 `canManageUsers` / `isSuperAdmin` / `canDeleteUsers` → `isPlatformSuperAdmin`；`permissions-client.ts` 新增 `isPlatformSuperAdmin`，`/admin/users` 页面改用它；`roles.ts` 的 `canManageUsers` / `canDeleteUsers` 加 `@deprecated`（D8）。verify：`npx tsx src/lib/marketing/__tests__/growth-center.test.ts`、`security1-owner-manager.test.ts` 通过；`grep -rn "canManageUsers(" src/app/api` 为空；`npx eslint "src/app/(main)/admin/users/page.tsx"` 无新增 error。
 
 ## 5. 测试与收尾
 
