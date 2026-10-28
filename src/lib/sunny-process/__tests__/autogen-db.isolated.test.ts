@@ -84,12 +84,20 @@ async function main() {
   for (const id of users) {
     await db.user.create({ data: { id, email: `${id}@fixture.test`, name: `Example ${id}`, role: "sales" } });
   }
-  await db.organization.create({ data: { id: ORG, name: "Example Shutters Fixture", code: `spo-${stamp}`, ownerId: SALES } });
+  await db.organization.create({ data: { id: ORG, name: "Example Shutters Fixture", code: `spo-${stamp}`, ownerId: SALES, industryPackId: "window_covering_services_v1" } });
   await db.organization.create({ data: { id: ORG_X, name: "Other Blinds Fixture", code: `spx-${stamp}`, ownerId: OUTSIDER } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: SALES, role: "org_owner", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: FACTORY, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: PLAIN, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG_X, userId: OUTSIDER, role: "org_owner", status: "active" } });
+  // PERM-4a：mark-signed 走 authorize(sales.quote.update)——报价创建人须持岗位（销售人员 = 本人范围）
+  const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
+  await seedOrgAuthorizationProfiles(ORG);
+  const bind = async (userId: string, key: string) => {
+    const profile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key } } });
+    await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: userId, roleProfileId: profile!.id, status: "active" } });
+  };
+  await bind(SALES, "sales_rep");
   await db.salesCustomer.create({ data: { id: CUST, orgId: ORG, name: "Example Homeowner", phone: "000-000-0000", address: "1 Example St", createdById: SALES } });
   await db.salesQuote.create({ data: { id: Q1, orgId: ORG, customerId: CUST, status: "sent", orderNumber: `G1027-E2E-${stamp}`, formDataJson: formData(`G1027-E2E-${stamp}`), grandTotal: 1234.5, createdById: SALES } });
   await db.salesQuote.create({ data: { id: Q2, orgId: ORG, customerId: CUST, status: "sent", orderNumber: `G1027-PUB-${stamp}`, formDataJson: formData(`G1027-PUB-${stamp}`), grandTotal: 999, shareToken: TOKEN, createdById: SALES } });
@@ -138,13 +146,7 @@ async function main() {
     ok(t0.status === 403 && t0.body?.code === "FULFILLMENT_CATEGORY_FORBIDDEN" && (t0.body?.missingCategories as string[]).join(",") === "vinyl,drapery,shades", "未绑定出单岗位的同组织成员推进 → 403，缺 vinyl / drapery（参数行）+ shades（斑马帘行）", t0.body);
     const d0 = await call(orderRoute.GET as never, req(`/api/blinds-orders/${orderId}`, cPlain), { id: orderId });
     ok(d0.status === 200 && (d0.body?.access as { canEdit: boolean }).canEdit === false, "同组织普通成员仍可读详情（只读）", d0.body?.access);
-    await db.organization.update({ where: { id: ORG }, data: { industryPackId: "window_covering_services_v1" } });
-    const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
-    await seedOrgAuthorizationProfiles(ORG);
-    for (const key of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
-      const profile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key } } });
-      await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FACTORY, roleProfileId: profile!.id, status: "active" } });
-    }
+    for (const key of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) await bind(FACTORY, key);
     const pc = await call(orderRoute.PUT as never, req(`/api/blinds-orders/${orderId}`, cFactory, "PUT", { status: "cancelled" }), { id: orderId });
     ok(pc.status === 409 && pc.body?.code === "USE_TRANSITION", "PUT {status:cancelled} 不能绕过作废审批 → 409", pc.body);
 
@@ -189,8 +191,7 @@ async function main() {
     ok(r0.status === 200 && r0.body?.seeded === true && (r0.body?.entries as unknown[]).length === 24 && r0.body?.orgId === ORG && r0.body?.canEdit === false, "GET 对照表：未保存过 → 原件种子 24 条；普通成员只读", r0.body?.seeded);
     const rDenied = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cPlain, "PUT", { entries: [] }), {});
     ok(rDenied.status === 403, "未绑定出单岗位的普通成员保存对照表 → 403（影响全组织裁剪位）", rDenied.body);
-    const vinylProfile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "fulfillment_vinyl" } } });
-    await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: PLAIN, roleProfileId: vinylProfile!.id, status: "active" } });
+    await bind(PLAIN, "fulfillment_vinyl");
     const rVinyl = await call(ratioRoute.PUT as never, req(`/api/sunny-process/zebra-ratios`, cPlain, "PUT", { entries: [] }), {});
     ok(rVinyl.status === 403, "只持出单·Vinyl（orders.fulfillment.update.vinyl）保存斑马帘对照表 → 403（斑马帘属 shades）", rVinyl.body);
     // 2026-10-27 Lucas：权限给出工艺单的人 → 绑定「出单·Roller/Zebra/Roman」岗位（PERM-3 起持 orders.fulfillment.update.shades）后可保存（[2b] 已绑定）
