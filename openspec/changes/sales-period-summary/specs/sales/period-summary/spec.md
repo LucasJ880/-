@@ -43,6 +43,13 @@
 - **WHEN** 在手未签 5 份，其中 2 份 `sentAt` 距统计时刻超过 14 天
 - **THEN** `openQuotedCount` 为 5，`staleOpenCount` 为 2，两者金额各自为对应报价 `grandTotal` 之和；`period-pure.test.ts` 覆盖
 
+### Requirement: 只汇总 CAD 报价
+期间汇总的金额与计数 SHALL 只计币种为 CAD 的报价；落在期间内的非 CAD 报价 SHALL NOT 计入任何指标，其行数 SHALL 在 `totals.nonCadExcludedCount` 中给出。
+
+#### Scenario: 外贸转入的美元报价
+- **WHEN** 期间内有一份币种为 USD 的已签报价
+- **THEN** 成单数与成单金额不含它，`nonCadExcludedCount` 为 1；`period-pure.test.ts` 覆盖
+
 ### Requirement: 排除已归档客户
 期间汇总的全部指标 SHALL 只计客户未归档（`archivedAt` 为空）的报价，与销售首页一致。
 
@@ -87,7 +94,7 @@
 - **THEN** 响应中不含本企业任何报价的数字
 
 ### Requirement: 响应结构
-成功响应 SHALL 含 `period`（from / to / days / timezone）、`scope`（`org` 或 `own`）、`totals`、`comparison`（kind / period / totals / delta）、`byRep`、`insights`、`calendar`（本 change 固定为 `null`）、`narrative`（本 change 固定为 `null`）。`totals` SHALL 含 `wonCount`、`wonAmount`、`wonPreTax`、`quotedCount`、`quotedAmount`、`conversionRate`、`openQuotedCount`、`openQuotedAmount`、`staleOpenCount`、`staleOpenAmount`、`depositAmount`；金额单位为 CAD。
+成功响应 SHALL 含 `period`（from / to / days / timezone）、`scope`（`org` 或 `own`）、`totals`、`comparison`（kind / period / totals / delta）、`byRep`、`insights`、`calendar`（本 change 固定为 `null`）、`narrative`（本 change 固定为 `null`）。`totals` SHALL 含 `wonCount`、`wonAmount`、`wonPreTax`、`quotedCount`、`quotedAmount`、`conversionRate`、`openQuotedCount`、`openQuotedAmount`、`staleOpenCount`、`staleOpenAmount`、`depositAmount`、`nonCadExcludedCount`；金额单位为 CAD。
 
 #### Scenario: 字段齐全
 - **WHEN** 老板请求 `from=2026-10-01&to=2026-10-28`
@@ -97,8 +104,12 @@
 响应 `insights` SHALL 只由期间汇总的数字按固定规则表生成，SHALL NOT 调用任何模型，同样输入 SHALL 得到同样输出。每条洞察 SHALL 含 `code`、`severity`（info / warn）、`text`、`evidence`。规则为：成单金额环比达 ±20%（I1）、报价金额环比达 ±20%（I2）、超 14 天未签金额占在手 30% 以上或条数达 5（I3）、报价数达 10 且转化率低于 30%（I4）、某创建人本期报价为 0 而上一期大于 0（I5）、单人成单金额占全企业 60% 以上且企业成单数达 5（I6）、已签未登记定金达 3 份（I7）、日程不明来源大于 0（I8）、网站预约占新建日程 40% 以上（I9）。
 
 #### Scenario: 环比触发
-- **WHEN** 本期成单金额 61,230、对比期 51,900
-- **THEN** 出现 `code=I1_WON_DELTA`、`severity=info` 的洞察，`evidence` 含两期金额；对比期为 0 时不出现 I1；`npx tsx src/lib/sales/__tests__/period-insights.test.ts` 覆盖
+- **WHEN** 本期成单金额 63,000、对比期 51,900（+21.4%）
+- **THEN** 出现 `code=I1_WON_DELTA`、`severity=info` 的洞察，`evidence` 含两期金额；`npx tsx src/lib/sales/__tests__/period-insights.test.ts` 覆盖
+
+#### Scenario: 环比未达阈值不触发
+- **WHEN** 本期成单金额 61,230、对比期 51,900（+18.0%），或对比期为 0
+- **THEN** 不出现 `I1_WON_DELTA`
 
 #### Scenario: 日程数据缺失时不出日程洞察
 - **WHEN** `calendar` 为 `null`
@@ -112,7 +123,7 @@ PRINCIPAL 范围的响应 SHALL NOT 含 `I5_REP_SILENT` 与 `I6_REP_CONCENTRATIO
 - **THEN** 响应 `insights` 不含 `I6_REP_CONCENTRATION`；`period-insights.test.ts` 覆盖
 
 ### Requirement: 看板展示
-`/sales/home` SHALL 提供期间选择（本月至今、上月、本季、最近 30 天、自定义），选择 SHALL 体现在 URL 查询参数并在刷新后保留；SHALL 展示成单数、成单金额、报价数、报价金额、转化率、在手未签六个指标及其对比期变化；ORG 范围 SHALL 展示按人表，PRINCIPAL 范围 SHALL 只展示本人一行；SHALL 按 `severity` 展示洞察列表。销售驾驶舱"本月签约"瓦片 SHALL 标注为"商机估值"。
+`/sales/home` SHALL 提供期间选择（本月至今、上月、本季、最近 30 天、自定义），选择 SHALL 体现在 URL 查询参数并在刷新后保留；SHALL 展示成单数、成单金额、报价数、报价金额、转化率、在手未签六个指标及其对比期变化；ORG 范围 SHALL 展示按人表，PRINCIPAL 范围 SHALL 只展示本人一行；SHALL 按 `severity` 展示洞察列表。销售驾驶舱"本月签约"瓦片的标签 SHALL 改为"本月签约（商机估值）"，计算不变。
 
 #### Scenario: 无分析权限时首页不受影响
 - **WHEN** 持 `sales.customer.read`、不持 `sales.analytics.read` 的用户打开 `/sales/home`

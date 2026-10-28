@@ -40,7 +40,9 @@
 | 现有口径 | 位置 | 问题 |
 |---|---|---|
 | 销售驾驶舱"本月签约"：`SalesOpportunity.stage ∈ {signed, completed}` 且 `wonAt ≥ 本月 1 日`，金额 = `estimatedValue`；另有按人 `teamPerformance`（同一口径） | `src/app/api/sales/cockpit/route.ts:108-111`、`:86` | 用的是商机**估值**，不是签字金额；固定从 1 日起 |
-| 销售首页英雄区"本月签约"：**与驾驶舱同一口径**（`wonAt` + `estimatedValue`） | `src/lib/sales/home/build-home.ts:94-104, 261-262` | 同上；首页的报价签字查询（`:239-248`）只用于定金 / 尾款，报价数按 `createdAt`（`:348-356`）而不是发送日 |
+| 销售首页英雄区"本月已签 / 本月签单"：**与驾驶舱同一口径**（`wonAt` + `estimatedValue`） | `src/lib/sales/home/build-home.ts:94-104, 261-262`；标签 `src/components/sales-command-center/sales-performance-hero.tsx:45,58` | 同上；首页的报价签字查询（`:239-248`）只用于定金 / 尾款，报价数按 `createdAt`（`:348-356`）而不是发送日 |
+| 驾驶舱折扣统计 | `src/app/api/sales/cockpit/discount-stats/route.ts:53-95` | 有可选期间、`signedAt` + `grandTotal`、上一期对比、按创建人；但只计 `finalDiscountPct` 非空的报价、按服务器时区、不排除归档客户 |
+| 会计提成 `loadSalesSummary` | `src/lib/accounting/service.ts:16-28` | 按会计月、只计 `status = "signed"`（不含 accepted）、按创建人、不排除归档客户 |
 | Muse `sales_overview` | `src/lib/muse-bridge/sales-pure.ts:301` | 只有 30 天内赢 / 输计数，**不算金额和**；决定 B 管金额可见性 |
 | 周报 AI | `src/app/api/sales/cockpit/weekly-report/route.ts` | 直接 `new OpenAI()`、固定 7 天、把原始数据丢给模型自己算 |
 
@@ -83,7 +85,7 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 ```
 
 - 配置入口：`PUT /api/organizations/[orgId]/calendar-watch-settings`（org_admin 及以上，同 `tender-rfq-settings` 样式），每次保存写 AuditLog。
-- 账本：`AuditLog`（`orgId`、`action=calendar.watch.observed`、`targetType=google_calendar_event`、`targetId={calendarId}/{eventId}`、`afterData` = 下表 JSON）。**不建镜像表**；统计从账本算。
+- 账本：`AuditLog`（`orgId`、`action=calendar.watch.observed`、`targetType=google_calendar_event`、`targetId={calendarId}/{eventId}`、`afterData` = 下表 JSON）。**不建镜像表**；统计从账本算。注意：`AuditLog.userId` 必填（`prisma/schema.prisma` AuditLog 模型），cron 写入时填 `readerUserId`，真正的归因人放 `afterData.attribution.userId`；`afterData` 是 `String` 不是 JSON 列，统计须按 `orgId + action + createdAt` 取行后在应用内解析（CAL-1 design 要给出量级与上限）。
 - 通知：`Notification`，`sourceKey` 唯一做幂等；`metadata` 带归因与 `htmlLink`。
 
 账本 `afterData` 固定字段：
@@ -104,7 +106,7 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 
 | # | 条件 | 归因 |
 |---|---|---|
-| R1 | `eventId` 命中任一 `Appointment.googleEventId` | `qingyan`，userId = 该预约 `createdById`，bucket 按岗位派生 |
+| R1 | `eventId` 命中任一 `Appointment.googleEventId` | `qingyan`，userId = 该预约 `createdById`，bucket 按岗位派生（**前置缺陷**：`pushEventToGoogle` 把逗号分隔的多日历 ID 整串当作一个日历写入，`src/lib/google-calendar.ts:403`，其它三处都先取第一个 `:442,513,556`；选了多个日历的人从青砚建的预约推不进 Google 且不报错、拿不到 `googleEventId`。CAL-1 前须先修） |
 | R2 | `creatorEmail` 命中组织活跃成员的 `User.email` 或其 `CalendarProvider.accountEmail`（大小写不敏感） | `member`，userId = 该成员；bucket 用 `src/lib/rbac/effective-platform-role.ts` 的派生角色：`sales` → sales、`operations` → ops、`boss` → management、其余 → other |
 | R3 | `creatorEmail` ∈ `websiteBookerEmails`，或 `summary / description` 命中任一 `websiteMarkers` | `website` |
 | R4 | 其余 | `unknown`（单列展示，附 creatorEmail 供人补规则） |
@@ -115,7 +117,7 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 
 ### 2.4 变更通知
 
-- 收件人 = `notifyPositions` 岗位持有人（复用 `src/lib/trade/recipients.ts` 的"按岗位找人"方式） ∪ R1 命中时该预约的 `assignedToId`；创建者本人不收自己的 `created`。
+- 收件人 = `notifyPositions` 岗位的持有人 ∪ R1 命中时该预约的 `assignedToId`；创建者本人不收自己的 `created`。"按岗位找人"仓库里没有现成函数（`src/lib/trade/recipients.ts` 按权限键而不是岗位找人；`src/lib/authorization/position-binding-service.ts` 的 `loadBindingContext` 可读绑定），CAL-1 design 里定实现。
 - 文案（≤ 60 字首行，沿用 Muse 建议式回复风格）：
   - `created`：`【网站预约】10/30 14:00–15:00 量房 — Smith（Google 侧新建）`
   - `updated`：`【日程改动】10/30 量房 14:00 → 16:00（Google 侧改动，修改人未知）`
@@ -164,10 +166,12 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 
 | 指标 | 定义 | 备注 |
 |---|---|---|
-| **成单数** | `SalesQuote.status ∈ {signed, accepted}` 且 `signedAt ∈ 期间`；**每份已签报价各计一份，不去重**（已签报价被修改时是同一行清签字回 draft，`src/lib/sales/quote-update.ts:298-302`；每份已签报价各生成一张工艺单，所以同一商机下两份已签 = 两张合同） | 判断点 3、5（已更正） |
+| **成单数** | `SalesQuote.status ∈ {signed, accepted}` 且 `signedAt ∈ 期间`；**每份已签报价各计一份，不去重**（已签报价被修改时是同一行清签字回 draft，`src/lib/sales/quote-update.ts:298-302`；每份已签报价各自走签字后工艺单生成（有可生产行时各一张），所以同一商机下两份已签 = 两张合同） | 判断点 3、5（已更正） |
 | **成单金额** | 上述报价 `grandTotal` 之和（含税 CAD）；另给 `preTaxTotal` 和 | |
 | **报价数（报出去）** | `SalesQuote.sentAt ∈ 期间` 且 `status ≠ draft`；按 `opportunityId` 分组：组内已签的每份都计，未签的只计 `sentAt` 最新一份（视为同一提案的修订版）；无商机的每份各计 | sent / viewed / accepted / signed / rejected / expired 都算"报出去了" |
 | **客户范围** | 所有指标排除已归档客户（`customer.archivedAt = null`），与首页约定一致（`src/lib/sales/__tests__/archived-customer-visibility.test.ts` 强制） | |
+| **币种** | 只汇总 `currency = "CAD"`；外贸转入的报价可能是其它币种（`src/lib/trade/trade-quote-sales-quote.ts:446`），排除并给出 `nonCadExcludedCount` | |
+| **sentAt 的含义** | 邮件发送会覆盖 `sentAt`、"标记已发送"保留首次（`send-email/route.ts:126`、`mark-sent/route.ts:63`）；重发会让旧报价计入重发所在期间 | 已知限制 |
 | **报价金额（报出去多少钱）** | 上述报价 `grandTotal` 之和 | 就是用户问的"一共报了多少钱出去" |
 | **转化率** | 成单数 / 报价数 | 非同批，页面标注"同期口径" |
 | **在手未签** | `sentAt ∈ 期间`、`signedAt = null`、`status ∈ {sent, viewed}` 的数量与金额，以及其中 `sentAt` 距今 > 14 天的子集 | 给洞察 I3 用 |
@@ -192,7 +196,7 @@ attributeCalendarEvent()  纯函数查表（§2.3）
   "comparison": { "kind": "prev_period", "period": {...}, "totals": {...}, "delta": { "wonAmount": 0.18, "quotedAmount": -0.07, ... } },
   "byRep": [ { "userId": "...", "name": "Alex", "wonCount": 9, "wonAmount": 24100, "quotedCount": 20, "quotedAmount": 66000, "conversionRate": 0.45 } ],
   "calendar": { "bySource": {...}, "byActor": [...] },      // CAL-1 未启用时为 null
-  "insights": [ { "code": "I1_WON_UP", "severity": "info", "text": "本期成单金额 61,231，较上一期 +18%", "evidence": { "wonAmount": 61230.5, "prevWonAmount": 51900 } } ],
+  "insights": [ { "code": "I3_STALE_OPEN", "severity": "warn", "text": "6 份报价报出超过 14 天未签，合计 19,800", "evidence": { "staleOpenCount": 6, "staleOpenAmount": 19800 } } ],
   "narrative": null                                          // KPI-2 才有
 }
 ```
@@ -272,13 +276,13 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 **What**
 - 新增纯函数 `summarizeSalesPeriod`（§3.1 口径）与 `buildPeriodInsights`（§3.4 规则表），`src/lib/sales/period/`。
 - 新增 `GET /api/sales/period-summary`（§3.2），`authorize(sales.analytics.read)`，期间用组织时区。
-- `/sales/home` 加期间选择器 + 六瓦片 + 按人表 + 洞察列表（§3.3）；驾驶舱 `signedValue` 标签改为"商机估值（估）"。
+- `/sales/home` 加期间选择器 + 六瓦片 + 按人表 + 洞察列表（§3.3）；驾驶舱"本月签约"标签改为"本月签约（商机估值）"（与首页 `sales-payment-summary.tsx:44` 既有写法一致）。
 - `sales_overview` 可选 `period` 参数，契约只追加（§3.6）。
 - 测试：`period-pure.test.ts`（口径：去重 / 边界日 / 时区 / 对比期 / 范围）+ `period-insights.test.ts`（九条规则各三例）+ `period-db.isolated.test.ts`（ORG vs PRINCIPAL、跨企业不可见、Muse 金额决定 B）。
 
 **Out of scope**：不动 `build-home.ts` 现有面板；不改驾驶舱口径（只改标签）；不做 LLM 叙述（KPI-2）；不做导出。
 
-**验收**：`from=2026-10-01&to=2026-10-28` 返回的 `wonAmount` = 手工 SQL `SUM(grandTotal) WHERE status IN ('signed','accepted') AND signedAt BETWEEN …`（去重后）逐分一致；销售账号拿不到他人行；`openspec validate --strict` 通过；specs 增量覆盖：口径、范围、期间参数校验、洞察输出、Muse 附加数据五项对外行为。
+**验收**：`from=2026-10-01&to=2026-10-28` 返回的 `wonAmount` = 手工 SQL `SUM(grandTotal) WHERE status IN ('signed','accepted') AND signedAt BETWEEN … AND currency = 'CAD'`（客户未归档，不去重）逐分一致；销售账号拿不到他人行；`openspec validate --strict` 通过；specs 增量覆盖：口径、范围、期间参数校验、洞察输出、Muse 附加数据五项对外行为。
 
 ### CAL-1 `calendar-watch-attribution` — 需先答判断点 1、2
 

@@ -23,8 +23,13 @@
 
 #### Scenario: 管理者带 period
 
-- **WHEN** 管理角色调用 `sales_overview` 并带 `period`
-- **THEN** `data.period.totals` 含 `wonCount`、`wonAmount`、`quotedCount`、`quotedAmount`、`conversionRate`、`openQuotedCount`，数字与 `GET /api/sales/period-summary` 同期同范围一致；隔离库测试 `sales-db.isolated.test.ts` 覆盖
+- **WHEN** 老板（Muse 管理范围，网页 `sales.analytics.read` 为全企业）调用 `sales_overview` 并带 `period`
+- **THEN** `data.period.totals` 含 `wonCount`、`wonAmount`、`quotedCount`、`quotedAmount`、`conversionRate`、`openQuotedCount`，数字与该老板同期请求 `GET /api/sales/period-summary` 的 `totals` 一致；隔离库测试 `sales-db.isolated.test.ts` 覆盖
+
+#### Scenario: 范围沿用 S1 规则
+
+- **WHEN** 只持合价岗位的用户（Muse 按岗位派生为销售角色）调用 `sales_overview` 并带 `period`
+- **THEN** `data.period` 只含本人创建的报价计数、不含金额键；Muse 范围不因 `sales.analytics.read` 改变
 
 #### Scenario: 不带 period 时不变
 
