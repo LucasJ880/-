@@ -64,6 +64,9 @@ async function main() {
   const pjApproveRoute = await import("@/app/api/operations/publish-jobs/[id]/approve/route");
   const pjRejectRoute = await import("@/app/api/operations/publish-jobs/[id]/reject/route");
   const growthBrandRoute = await import("@/app/api/marketing/brand-profile/route");
+  const campaignsRoute = await import("@/app/api/marketing/campaigns/route");
+  const contentPlanItemRoute = await import("@/app/api/operations/content-plan/[id]/route");
+  const userDetailRoute = await import("@/app/api/users/[id]/route");
   const usersRoute = await import("@/app/api/users/route");
   const opsHomeRoute = await import("@/app/api/ops/home/route");
 
@@ -140,6 +143,14 @@ async function main() {
     const t2 = await call(tenderRoute.GET as unknown as Handler, REP, `/api/operations/tender-profile`);
     ok(t2.status === 403, "销售读投标档案 → 403", t2.status);
 
+    const c1 = await call(contentPlanRoute.POST as unknown as Handler, REP, `/api/operations/content-plan`, "POST", { topic: "x", groupName: "默认组", plannedDate: "2026-11-01" });
+    ok(c1.status === 403, "销售新建内容选题 → 403", c1.status);
+    const item = await db.contentPlanItem.create({ data: { orgId: ORG, plannedDate: new Date("2026-11-02"), groupName: "默认组", topic: "Fixture topic" } });
+    const c2 = await call(contentPlanItemRoute.PATCH as unknown as Handler, BOSS, `/api/operations/content-plan/${item.id}`, "PATCH", { status: "approved" }, { id: item.id });
+    ok(c2.status === 200 && (await db.contentPlanItem.findUnique({ where: { id: item.id } }))?.status === "approved", "老板把选题改为已通过 → 200", c2);
+    const c3 = await call(contentPlanItemRoute.PATCH as unknown as Handler, MAGGIE, `/api/operations/content-plan/${item.id}`, "PATCH", { status: "approved" }, { id: item.id });
+    ok(c3.status === 403, "Maggie（无批准权）把选题改为已通过 → 403", c3.status);
+
     console.log("\n[2] Playbook 分权");
     const pr = await call(pbListRoute.GET as unknown as Handler, REP, `/api/operations/matrix-accounts/${account.id}/playbooks`, "GET", undefined, { id: account.id });
     ok(pr.status === 403, "销售读 Playbook → 403", pr.status);
@@ -176,6 +187,8 @@ async function main() {
     ok(g2.status === 200, "Marty（ops_lead）写增长中心品牌事实 → 200", g2.status);
     const g5 = await call(growthBrandRoute.PUT as unknown as Handler, PADMIN, `/api/marketing/brand-profile`, "PUT", { legalName: "Example Co" });
     ok(g5.status === 403, "平台 admin、无 operations.manage 写增长中心 → 403", g5.status);
+    const g6 = await call(campaignsRoute.POST as unknown as Handler, REP, `/api/marketing/campaigns`, "POST", { name: "Fixture campaign" });
+    ok(g6.status === 403, "普通成员（销售）新建营销活动 → 403", g6.status);
     const g3 = await call(growthBrandRoute.GET as unknown as Handler, MAGGIE, `/api/marketing/brand-profile`);
     ok(g3.status === 200 && (g3.body?.permissions as { canEdit?: boolean })?.canEdit === false, "Maggie 读增长中心：canEdit=false", g3.body?.permissions);
     const g4 = await call(growthBrandRoute.GET as unknown as Handler, MARTY, `/api/marketing/brand-profile`);
@@ -186,6 +199,15 @@ async function main() {
     ok(u1.status === 403 && u1.body?.code === "PLATFORM_ADMIN_REQUIRED", "平台 admin 列平台用户 → 403", u1);
     const u2 = await call(usersRoute.GET as unknown as Handler, BOSS, `/api/users`);
     ok(u2.status === 403, "boss 列平台用户 → 403", u2.status);
+    const callUser = async (method: "GET" | "PATCH", uid: string, targetId: string, body?: unknown) => {
+      const cookie = `qy_session=${await createSession({ sub: uid, email: `${uid}@fixture.test`, role: roleOf[uid] })}`;
+      const r = new NextRequest(`http://localhost/api/users/${targetId}`, { method, headers: { "content-type": "application/json", cookie, "x-forwarded-for": "10.31.0.6" }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const res = await (userDetailRoute[method] as unknown as Handler)(r, { params: Promise.resolve({ id: targetId }) });
+      return res.status;
+    };
+    ok((await callUser("GET", BOSS, REP)) === 403, "boss 查看他人详情 → 403");
+    ok((await callUser("PATCH", PADMIN, REP, { status: "inactive" })) === 403 && (await db.user.findUnique({ where: { id: REP } }))?.status === "active", "平台 admin 停用他人 → 403，状态不变");
+    ok((await callUser("PATCH", REP, REP, { nickname: "Fixture" })) === 200, "本人改昵称 → 200");
     const h1 = await call(opsHomeRoute.GET as unknown as Handler, OPSNOKEY, `/api/ops/home`);
     ok(h1.status === 403, "平台角色 operations、无岗位 → 运营中心 403", h1);
     const h2 = await call(opsHomeRoute.GET as unknown as Handler, MAGGIE, `/api/ops/home`);
@@ -194,6 +216,8 @@ async function main() {
     await db.publishJobStatusEvent.deleteMany({ where: { job: { orgId: ORG } } }).catch(() => undefined);
     await db.publishJob.deleteMany({ where: { orgId: ORG } });
     await db.matrixAccountPlaybook.deleteMany({ where: { orgId: ORG } });
+    await db.contentPlanItem.deleteMany({ where: { orgId: ORG } });
+    await db.marketingCampaign.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);
     await db.matrixAccount.deleteMany({ where: { orgId: ORG } });
     await db.videoAsset.deleteMany({ where: { orgId: ORG } });
     await db.brandProfile.deleteMany({ where: { orgId: ORG } });
