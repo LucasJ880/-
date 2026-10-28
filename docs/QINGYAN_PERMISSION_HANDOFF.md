@@ -159,7 +159,7 @@
 9. **PERM-7 合并后**：无数据动作。之后调岗在企业详情页"岗位"一节（只有 super_admin 可见）完成，不必再本机跑 `bind-positions`；平台 admin 账号不能再增删改成员（`lucas@sunnyshutter.ca` 需先改为 super_admin）。
 
 10. **PERM-6b（BREAKING，合并即对梦馨生效）**，按 `docs/QINGYAN_PERM-6b_REPORT.md` §4：
-    1. **合并前**：对梦馨跑一次 `seedOrgAuthorizationProfiles`，确认 Cathy（`cathy@hlmbedding.com`）有 active `trade_rep` 绑定（企业详情页"岗位"一节，或 `bind-positions --org <梦馨> --file config/positions/mengxin.json --dry-run`），然后告诉我，我再合并。
+    1. **合并前**：对梦馨跑一次 `seedOrgAuthorizationProfiles`（仓库里没有专门脚本，用 `docs/QINGYAN_PERM-6b_REPORT.md` §4 第 1 步的一次性 `npx tsx -e` 命令，会顺带列出全部 active 绑定），确认 Cathy（`cathy@hlmbedding.com`）有 `trade_rep`（也可在企业详情页"岗位"一节看），然后告诉我，我再合并。合并前不能用 `bind-positions --file config/positions/mengxin.json` 核对（文件只在 6b 分支、`owner` 模板未落地）。
     2. **合并后**：再跑一次 seed（落家纺 `owner` 模板），在企业详情页给 Lucas 勾选 `owner`（或执行绑定文件）；Lucas 已是 super_admin 则不受影响。
     3. 可选：对梦馨压扁（Cathy `trade → user`），先 `--dry-run`，执行后通知 Cathy 重新登录。
     4. 漏了第 1 步：Cathy 会 403，补跑 seed 即恢复，不用回滚。

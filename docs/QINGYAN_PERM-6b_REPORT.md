@@ -75,10 +75,30 @@ Lucas 若仍是平台 admin 且**未绑 `owner`**，岗位模式下不是管理�
 
 ## 4. 上线顺序（BREAKING：合并即对梦馨生效）
 
-1. **合并前（Lucas）**：对梦馨跑一次 `seedOrgAuthorizationProfiles`（6a 代码已在线）。之后确认 Cathy 有 active `trade_rep` 绑定，例如用 `bind-positions --org <梦馨> --file config/positions/mengxin.json --dry-run` 查看，或在 PERM-7 合并后的企业详情页"岗位"一节查看。
+1. **合并前（Lucas）**：对梦馨跑一次 `seedOrgAuthorizationProfiles`（6a 代码已在线），确认 Cathy 有 active `trade_rep` 绑定。
+   在仓库根目录（main），用生产库连接执行（仓库里没有专门的 seed 脚本，这是一次性命令；seed 只做 upsert、可重复跑）：
+   ```bash
+   DATABASE_URL='<生产库连接串>' DIRECT_URL='<生产库直连串>' npx tsx -e '
+   const CODE = "mengxin-home-textile";
+   (async () => {
+     const m1 = await import("@/lib/db"); const db = m1.db ?? m1.default.db;
+     const m2 = await import("@/lib/authorization/seed-org-profiles"); const seed = m2.seedOrgAuthorizationProfiles ?? m2.default.seedOrgAuthorizationProfiles;
+     const org = await db.organization.findUnique({ where: { code: CODE }, select: { id: true, name: true } });
+     if (!org) { console.error("找不到企业 code=" + CODE); process.exit(2); }
+     console.log(org.name, await seed(org.id));
+     const rows = await db.principalRoleBinding.findMany({ where: { orgId: org.id, status: "active" }, select: { principalId: true, roleProfile: { select: { key: true } } } });
+     const users = await db.user.findMany({ where: { id: { in: rows.map((r) => r.principalId) } }, select: { id: true, email: true } });
+     for (const r of rows) console.log(users.find((u) => u.id === r.principalId)?.email ?? r.principalId, "→", r.roleProfile.key);
+     await db.$disconnect();
+   })();'
+   ```
+   - `CODE` 以库里梦馨的 `Organization.code` 为准（预置脚本里是 `mengxin-home-textile`）；
+   - 输出里应有 `cathy@hlmbedding.com → trade_rep`（Lucas 是 `org_owner` 成员时还有 `→ org_owner`）；也可在企业详情页"岗位"一节查看；
+   - 若 Cathy 之前已有别的绑定，seed 不会再自动绑 `trade_rep`，在"岗位"一节给她勾选"外贸业务员"即可；
+   - 注意：合并前不能用 `bind-positions --file config/positions/mengxin.json` 核对——该文件只在本分支，`owner` 模板也要合并后 seed 才落地。
 2. Lucas 确认后我再合并 6b PR。
 3. **合并后**：
-   - 再跑一次 seed（落家纺 `owner` 模板）；
+   - 再跑一次 seed（落家纺 `owner` 模板；同上命令）；
    - 在企业详情页"岗位"一节给 Lucas 勾选 `owner`（或执行 `bind-positions` 绑定文件）；
    - Lucas 若已执行 super_admin SQL，则无论有无绑定都持全部键。
 4. 可选：对梦馨执行压扁，把 Cathy 从 `trade` 改为 `user`（`collapse-platform-roles --org <梦馨> --dry-run` 再执行），然后通知 Cathy 重新登录。
