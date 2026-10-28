@@ -48,6 +48,7 @@ import { fireToolCallHook, fireToolStartHook } from "./run-hooks";
 // 确保工具已注册
 import "./tools";
 import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 const MAX_TOOL_ROUNDS_DEFAULT = 5;
 const PER_ROUND_TIMEOUT_MS = 30_000;
@@ -237,7 +238,7 @@ async function executeExtraToolGuarded(
         userId: ctx.userId,
         orgId: ctx.orgId,
         orgRole: ctx.orgRole ?? "org_viewer",
-        isPlatformAdmin: ctx.role === "admin" || ctx.role === "super_admin",
+        isPlatformAdmin: isSuperAdmin(ctx.role),
         workspaceIds: ctx.workspaceIds,
       },
       hasMembership: ctx.hasMembership === true,

@@ -5,6 +5,7 @@ import {
   isSuperAdmin,
   isAdmin,
   isPlatformSuperAdmin,
+  platformTier,
   hasOrgRole,
   hasProjectRole,
   type OrgRole,
@@ -64,7 +65,7 @@ export async function requireAuth(
 }
 
 /**
- * 平台管理员校验。
+ * 平台管理员校验（PERM-7b：只认 super_admin）。
  * 错误码：PLATFORM_ADMIN_REQUIRED
  * org_owner / org_admin 不通过。
  */
@@ -86,8 +87,8 @@ export async function requirePlatformAdmin(
 }
 
 /**
- * PERM-7：只认平台 super_admin（requirePlatformAdmin 还放行平台 admin）。
- * 用于成员增删改、岗位绑定界面等"平台管理员才能做"且 spec 写明 super_admin 的入口。
+ * PERM-7：只认平台 super_admin。
+ * PERM-7b 起 requirePlatformAdmin 同样只认 super_admin，两者同义。
  */
 export async function requirePlatformSuperAdmin(
   request: NextRequest
@@ -106,7 +107,7 @@ export async function requirePlatformSuperAdmin(
   return result;
 }
 
-/** @deprecated 使用 requirePlatformAdmin */
+/** @deprecated 使用 requirePlatformAdmin（PERM-7b：同样只认 super_admin） */
 export async function requireSuperAdmin(
   request: NextRequest
 ): Promise<AuthResult | NextResponse> {
@@ -115,7 +116,7 @@ export async function requireSuperAdmin(
 
 /**
  * 平台角色校验 — 按允许的角色列表鉴权
- * admin / super_admin 始终通过
+ * super_admin 始终通过（PERM-7b：平台 admin 不再始终通过）
  *
  * @example
  * const auth = await requireRole(request, ["sales", "admin"]);
@@ -129,7 +130,8 @@ export async function requireRole(
   if (result instanceof NextResponse) return result;
 
   const { user } = result;
-  const normalizedRole = user.role === "super_admin" ? "admin" : user.role;
+  // PERM-7b：只有 super_admin 归入 admin 档并直接放行；平台 admin 按 user
+  const normalizedRole = platformTier(user.role);
 
   if (isAdmin(user.role)) return result;
 

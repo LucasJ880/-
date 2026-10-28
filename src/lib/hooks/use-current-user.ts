@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import { isSuperAdmin } from "@/lib/permissions-client";
 
 export interface CurrentUser {
   id: string;
@@ -73,8 +74,8 @@ export function useCurrentUser(): UseCurrentUserReturn {
     });
   }, []);
 
-  const isPlatformAdmin =
-    user?.role === "super_admin" || user?.role === "admin";
+  // PERM-7b：只认 super_admin（平台 admin 等同 user）
+  const isPlatformAdmin = isSuperAdmin(user?.role);
 
   return {
     user,

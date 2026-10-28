@@ -6,13 +6,14 @@ import {
   formatOrgKnowledgeHits,
   searchOrgKnowledge,
 } from "@/lib/knowledge/org-knowledge";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const POST = withAuth(async (request, _ctx, user) => {
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
 
-  if (user.role !== "admin" && user.role !== "super_admin") {
+  if (!isSuperAdmin(user.role)) {
     const membership = await db.organizationMember.findUnique({
       where: { orgId_userId: { orgId: orgRes.orgId, userId: user.id } },
       select: { status: true },

@@ -62,11 +62,12 @@ ok(derive("operations", ["sales_rep"]) === "sales", "平台 operations + sales_r
 ok(derive(null, ["sales_rep"]) === "sales", "平台角色缺省按 user 处理");
 ok(deriveEffectivePlatformRole({ platformRole: "user", positionMode: true, permissionKeys: null }) === "user", "权限键解析失败（null）→ user");
 
-// ── 保留角色 ──
-for (const r of ["super_admin", "admin", "trade"]) {
-  ok(derive(r, []) === r && derive(r, ["owner"]) === r, `保留角色 ${r} 原样`);
-  ok(isReservedPlatformRole(r), `isReservedPlatformRole(${r})`);
-}
+// ── 保留角色（PERM-7b：只剩 super_admin；平台 admin / trade 按岗位派生） ──
+ok(derive("super_admin", []) === "super_admin" && derive("super_admin", ["owner"]) === "super_admin", "保留角色 super_admin 原样");
+ok(isReservedPlatformRole("super_admin"), "isReservedPlatformRole(super_admin)");
+ok(derive("admin", []) === "user" && derive("admin", ["owner"]) === "boss", "PERM-7b：平台 admin 按岗位派生（无绑定 user、owner → boss）");
+ok(derive("trade", ["trade_rep"]) === "trade" && derive("trade", ["owner"]) === "boss", "PERM-7b：平台 trade 按岗位派生（trade_rep → trade）");
+ok(!isReservedPlatformRole("admin") && !isReservedPlatformRole("trade"), "PERM-7b：admin / trade 不再是保留角色");
 ok(!isReservedPlatformRole("boss") && !isReservedPlatformRole("sales"), "boss / sales 不是保留角色");
 
 // ── 旧模式 ──
@@ -103,8 +104,9 @@ const id = (role: string | null, orgRole: string, positionMode?: boolean) => ({ 
   ok(rep?.kind === "own" && !amountsVisible(rep), "岗位模式：sales_rep（派生 sales）→ 本人，无金额");
   ok(resolveSalesScope(id(derive("user", ["ops_lead"]), "org_owner", true)) === null, "岗位模式：org_owner + ops_lead → 拒绝（企业角色不带全组织）");
   ok(resolveSalesScope(id(derive("user", ["accounting"]), "org_admin", true)) === null, "岗位模式：org_admin + accounting → 拒绝");
-  const adm = resolveSalesScope(id("admin", "org_member", true));
-  ok(adm?.kind === "org", "岗位模式：平台 admin 仍全组织");
+  // PERM-7b：平台 admin 不带平台特权——岗位模式先派生（无绑定 → user → 拒绝）
+  ok(resolveSalesScope(id(derive("admin", []), "org_member", true)) === null, "岗位模式：平台 admin 无绑定 → 拒绝");
+  ok(resolveSalesScope(id("super_admin", "org_member", true))?.kind === "org", "岗位模式：super_admin 仍全组织");
   const legacyOwner = resolveSalesScope(id("user", "org_owner"));
   ok(legacyOwner?.kind === "org" && amountsVisible(legacyOwner), "旧模式：org_owner → 全组织 + 金额（不变）");
   ok(resolveSalesScope(id("sales", "org_member"))?.kind === "own", "旧模式：平台 sales → 本人（不变）");

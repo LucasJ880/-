@@ -3,13 +3,14 @@
  *
  * 岗位模式企业（行业包有岗位模板）里，AI 一侧凡按平台角色判定的地方改用本函数的结果：
  * 按有效权限键映射回今天的平台角色词汇，下游（工具策略表、能力矩阵、提示词、晨报、Muse、开关白名单）不改，
- * 平台角色压扁（4c3）前后行为一致。旧模式企业（梦馨）与 super_admin / admin / trade 原样。
+ * 平台角色压扁（4c3）前后行为一致。旧模式企业与 super_admin 原样。
+ * PERM-7b：平台 admin 与 trade 不再保留，岗位模式下同样按键派生（admin 不带平台特权；trade 业务员绑 trade_rep，派生结果不变）。
  */
 
 import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
 
-/** 平台管理口径与外贸（PERM-6）不派生 */
-const RESERVED_PLATFORM_ROLES = ["super_admin", "admin", "trade"] as const;
+/** 只有平台管理员（super_admin）不派生（PERM-7b） */
+const RESERVED_PLATFORM_ROLES = ["super_admin"] as const;
 
 const MANAGEMENT_KEYS = ["organization.dashboard.read"] as const;
 const SALES_WORK_KEYS = ["sales.quote.create", "sales.quote.pricing_close"] as const;

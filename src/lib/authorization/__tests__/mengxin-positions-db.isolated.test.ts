@@ -128,7 +128,7 @@ async function main() {
     ok(sorted(await tradeWorkRecipients(ORG)) === sorted([LUCAS, CATHY]), "工作收件人 = Lucas + Cathy");
     ok((await call(policyRoute.PUT, LUCAS, "PUT", "/api/revenue/policy", {})).status === 200, "Lucas：发布营收策略 200");
     const meL = (await json(await call(meRoute.GET, LUCAS, "GET", "/api/auth/me"))) as { user?: { effectiveRole?: string } };
-    ok(meL.user?.effectiveRole === "admin", "Lucas（平台 admin）派生角色原样 admin（保留角色，7b 另议）", meL.user);
+    ok(meL.user?.effectiveRole === "boss", "Lucas（平台 admin）绑 owner：派生角色 boss（PERM-7b：admin 按岗位派生）", meL.user);
 
     // ── 新工厂入驻（D5）：落岗位、指定老板绑 owner ──
     {
@@ -148,7 +148,7 @@ async function main() {
     // ── 压扁 dry-run ──
     const plan = await runPlatformRoleCollapse({ orgCode: ORG_CODE, actorEmail: email(SA), dryRun: true, restore: false, ready: true });
     ok(plan.exitCode === 0 && plan.lines.some((l) => l === `压扁 ${email(CATHY)}：trade → user`), "压扁计划：Cathy trade → user，无阻断", plan.lines);
-    ok(!plan.lines.some((l) => l.startsWith(`压扁 ${email(LUCAS)}`)), "Lucas（平台 admin）不在压扁范围");
+    ok(plan.lines.some((l) => l === `压扁 ${email(LUCAS)}：admin → user`), "PERM-7b：Lucas（平台 admin，已绑岗位）一并进压扁计划", plan.lines);
     ok((await db.user.findUnique({ where: { id: CATHY }, select: { role: true } }))?.role === "trade", "dry-run 不写库");
   } finally {
     if (newOrgId) {

@@ -34,7 +34,8 @@ import {
 
 // ── 读范围 ──────────────────────────────────────────────────────
 
-export const SALES_MANAGER_PLATFORM_ROLES = ["admin", "super_admin", "boss", "manager"] as const;
+/** PERM-7b：平台 admin 不再算销售管理层（等同 user） */
+export const SALES_MANAGER_PLATFORM_ROLES = ["super_admin", "boss", "manager"] as const;
 export const SALES_MANAGER_ORG_ROLES = ["org_owner", "org_admin"] as const;
 export const SALES_REP_PLATFORM_ROLES = ["sales", "trade"] as const;
 

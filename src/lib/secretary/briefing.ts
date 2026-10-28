@@ -30,7 +30,7 @@ async function getUserDomains(userId: string, orgId: string): Promise<string[]> 
   const role = await resolveEffectivePlatformRole({ userId, orgId, platformRole: user?.role ?? "user" });
 
   switch (role) {
-    case "admin":
+    // PERM-7b：平台 admin 等同 user（岗位模式已按岗位派生）
     case "super_admin":
       return ["trade", "sales"];
     case "trade":

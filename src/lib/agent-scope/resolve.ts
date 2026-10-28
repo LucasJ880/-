@@ -14,6 +14,7 @@ import type {
   AgentScopeDenyCode,
   ResolveAgentScopeResult,
 } from "./types";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export interface ResolveAgentScopeInput {
   /** 服务端 session 解析出的用户（AuthUser 的 id/role） */
@@ -116,7 +117,7 @@ export async function resolveAgentScope(
   const userId = input.user.id;
   const platformRole = input.user.role;
   const isPlatformAdmin =
-    platformRole === "admin" || platformRole === "super_admin";
+    isSuperAdmin(platformRole);
 
   const orgId = (input.orgId ?? "").trim();
   if (!orgId) {

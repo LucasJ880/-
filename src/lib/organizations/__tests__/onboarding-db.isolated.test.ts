@@ -84,13 +84,13 @@ async function main() {
   const createdOrgIds: string[] = [];
   const inviteIds: string[] = [];
 
-  await db.user.create({ data: { id: ADMIN, email: `${ADMIN}@fixture.test`, name: "Platform Admin", role: "admin" } });
+  await db.user.create({ data: { id: ADMIN, email: `${ADMIN}@fixture.test`, name: "Platform Admin", role: "super_admin" } });
   await db.user.create({ data: { id: BOSS, email: `${BOSS}@fixture.test`, name: "Example Owner", role: "trade" } });
   await db.user.create({ data: { id: PLAIN, email: `${PLAIN}@fixture.test`, name: "Plain User", role: "user" } });
   await db.user.create({ data: { id: BOSS2, email: `${BOSS2}@fixture.test`, name: "Maple Owner", role: "trade" } });
 
   const session = async (id: string, role: string) => createSession({ sub: id, email: `${id}@fixture.test`, role });
-  const adminCookie = `qy_session=${await session(ADMIN, "admin")}`;
+  const adminCookie = `qy_session=${await session(ADMIN, "super_admin")}`;
   const plainCookie = `qy_session=${await session(PLAIN, "user")}`;
   let ipSeq = 1;
   const req = (url: string, init: { method?: string; body?: unknown; cookie?: string } = {}) =>
@@ -397,10 +397,10 @@ async function main() {
     });
     try {
       const payload = draft!.payload as Parameters<typeof execSalesSendInquiryReply>[0];
-      const exec = await execSalesSendInquiryReply(payload, { userId: ADMIN, role: "admin", orgId }, draft!.id);
+      const exec = await execSalesSendInquiryReply(payload, { userId: ADMIN, role: "super_admin", orgId }, draft!.id);
       ok(!exec.ok && exec.errorCode === "ONBOARDING_TEST" && sent === 0, "执行器对测试买家拒发（ONBOARDING_TEST）", exec);
       const { approveApprovalItem } = await import("@/lib/approval/port");
-      const approved = await approveApprovalItem("pending_action", draft!.id, { userId: ADMIN, role: "admin", orgId });
+      const approved = await approveApprovalItem("pending_action", draft!.id, { userId: ADMIN, role: "super_admin", orgId });
       ok(!approved.ok && sent === 0, "已终止的草稿无法再批准发送", approved);
     } finally {
       __setInquiryReplySenderForTest(null);
