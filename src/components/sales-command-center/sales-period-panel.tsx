@@ -199,7 +199,8 @@ export function SalesPeriodPanel() {
   );
 
   return (
-    <SalesCard title="期间成单与报价" action={presetButtons}>
+    <SalesCard title="期间成单与报价">
+      <div className="mb-3">{presetButtons}</div>
       {customOpen ? (
         <form
           className="mb-3 flex flex-wrap items-center gap-2 text-[12px]"
