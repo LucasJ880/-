@@ -306,6 +306,7 @@ run_test "销售区记录访问 DB 端到端（PERM-4a；隔离库执行，否�
 # KPI-1 sales-period-summary：期间汇总口径 / 确定性洞察 / API 端到端
 run_test "销售期间汇总口径（KPI-1）" "npx tsx src/lib/sales/__tests__/period-pure.test.ts"
 run_test "销售期间汇总确定性洞察（KPI-1）" "npx tsx src/lib/sales/__tests__/period-insights.test.ts"
+run_test "销售期间汇总 DB 端到端（KPI-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/period-db.isolated.test.ts"
 run_test "安装收口聚合与照片校验（INSTALL-1）" "npx tsx src/lib/install/__tests__/closeout.test.ts"
 run_test "PERM-3 Fulfillment Category" "npx tsx src/lib/fulfillment/__tests__/category.test.ts"
 run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-access.test.ts"
