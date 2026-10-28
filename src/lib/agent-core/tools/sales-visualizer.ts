@@ -21,6 +21,7 @@ import {
   validateCustomerAccessForCreate,
   validateSessionLinks,
   visualizerSessionListScope,
+  visualizerViewerForOrg,
 } from "@/lib/visualizer/access";
 
 registry.register({
@@ -95,7 +96,7 @@ registry.register({
     // 2) 校验客户可见性
     const customerCheck = await validateCustomerAccessForCreate(
       resolvedCustomerId,
-      { id: ctx.userId, role: ctx.role },
+      visualizerViewerForOrg({ id: ctx.userId, role: ctx.role }, ctx.orgId),
     );
     if (!customerCheck.ok) {
       return { success: false, data: { error: customerCheck.reason } };
@@ -110,14 +111,14 @@ registry.register({
       },
       orderBy: { updatedAt: "desc" },
       include: {
-        customer: { select: { id: true, name: true, createdById: true } },
+        customer: { select: { id: true, name: true, createdById: true, orgId: true } },
         opportunity: { select: { id: true, title: true } },
       },
     });
 
     if (
       existing &&
-      canSeeVisualizerSession(existing, { id: ctx.userId, role: ctx.role })
+      canSeeVisualizerSession(existing, visualizerViewerForOrg({ id: ctx.userId, role: ctx.role }, ctx.orgId))
     ) {
       return ok({
         sessionId: existing.id,
@@ -250,7 +251,7 @@ registry.register({
 
     // 可见性：有些 sales 不是客户创建人，但可能是 session 的 owner；
     // 所以不强制客户可见性前置校验，直接走 visualizerSessionListScope 过滤
-    const scope = visualizerSessionListScope({ id: ctx.userId, role: ctx.role });
+    const scope = visualizerSessionListScope(visualizerViewerForOrg({ id: ctx.userId, role: ctx.role }, ctx.orgId));
 
     const sessions = await db.visualizerSession.findMany({
       where: {

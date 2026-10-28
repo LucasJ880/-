@@ -17,6 +17,8 @@ export interface CurrentUser {
   companies?: { id: string; name: string; slug: string; logoUrl: string }[];
   /** 服务端计算：是否可见 Autopilot。不含 owner id 列表。 */
   autopilotAllowed?: boolean;
+  /** PERM-4c5：当前企业的岗位派生平台角色（按业务角色显示模块用；平台管理判定仍用 role） */
+  effectiveRole?: string;
 }
 
 interface UseCurrentUserReturn {
