@@ -10,12 +10,12 @@
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
 | 分支 | `claude/vigilant-edison-73bk9i`（本会话，只含文档） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
-| 状态 | **方案待 Lucas 审 + 回答任务书 §12 的 Q0–Q10**；尚未 propose 任何 change，未改任何代码 |
+| 状态 | 方案已拍板（2026-10-28：质保以报价单为准，其余按建议，见任务书 §12）。`install-2a-closeout-all-lines` 四件套已 propose（`openspec validate --strict` 通过），**待审后 `/opsx:apply`**；未改代码 |
 
 ## 1. 下一步（按顺序）
 
-1. 等 Lucas 审方案、回答 Q0–Q10（尤其 **Q1 质保年限口径**、**Q3 发件身份 / 品牌**、**Q9 少付怎么办**）。答案写进任务书 §12 的"拍板"列，不另起文件。
-2. `/opsx:propose install-2a-closeout-all-lines`（任务书 §9 第一行）→ 四件套回传审。**先做 2a**：今天只有 Shutters / 窗帘 / 国内下单 / 外采购行的单收不了口（F2），这是现网"点不上"。
+1. ~~拍板~~（已完成，任务书 §12）。
+2. 审 `openspec/changes/install-2a-closeout-all-lines/`（proposal / specs ×2 / design D1–D7 / tasks 6 条）→ `/opsx:apply install-2a-closeout-all-lines`。**先做 2a**：今天只有 Shutters / 窗帘 / 国内下单 / 外采购行的单收不了口（F2），这是现网"点不上"。
 3. 2a 合并 + archive 后依次 2b（尾款 + 质保邮件）→ 2c（维修单）→ 2d（出单 + 二次安装 + 逾期提醒）。每个 change 一个 PR，archive 独立小 PR，同步 `docs/QINGYAN_PERMISSION_TASKFLOW.md` INSTALL-2 段状态列。
 
 ## 2. 外部信息的可信度（防幻觉）

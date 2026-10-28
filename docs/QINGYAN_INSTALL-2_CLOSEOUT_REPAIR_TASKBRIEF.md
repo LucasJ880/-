@@ -4,7 +4,7 @@
 |---|---|
 | 编号 | INSTALL-2（权限主线 `docs/QINGYAN_PERMISSION_TASKFLOW.md` 新增段，接 INSTALL-1） |
 | 动机 | Lucas（Sunny FDE）2026-10-28：安装后两种结果。① 顺利完成 → 安装工传完工照 → 会计可见 → 会计确认收到尾款 → 客户收到完工 + 质保邮件；② 没完成 → 安装工传完工照 + 未完成照 + 提交维修单（纸质模板见 §4.2）→ 与客户约返修时间（可选，默认 1 周）→ 管理安装的人排第二次安装；工厂出单人收到通知负责出单；会计、销售知道状态（完成 = 收尾款；没完成 = 销售知道哪天再去） |
-| 状态 | **方案待审**（本文件）。审过后按 §9 拆 4 个 change，逐个 `/opsx:propose` |
+| 状态 | **已拍板（2026-10-28，Lucas）**："质保以报价单为主，按照你的方案去进行开发"——Q1 = 报价单；其余 Q 采用本文建议（§12 拍板列）。按 §9 逐个 `/opsx:propose` → apply |
 | 配套 | 质保邮件模板 `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md`；交接 `docs/QINGYAN_INSTALL-2_HANDOFF.md` |
 | 纪律 | `openspec/config.yaml` 八条，逐条对照见 §8 |
 
@@ -248,10 +248,10 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 
 | ID | change | 做什么 | 依赖 | 为什么这个顺序 |
 |---|---|---|---|---|
-| INSTALL-2a | `install-2a-closeout-all-lines` | 收口单元覆盖 ProcessSpec 各段（修 F2 点不上）；逐单元 ✅ / ⚠ 二选一（⚠ 先只记录，不出维修单）；按访次聚合（修 F5）；照片代理放行任一访次被分配人 | INSTALL-1 | **今天 Shutters 单就收不了口**，后面两条路都建立在"能收口"上 |
+| INSTALL-2a | `install-2a-closeout-all-lines` | 收口单元覆盖 ProcessSpec 各段（修 F2 点不上）；零单元单给出明确 409 与页面说明；收口记录写入失败时不再假成功（现为 `logAudit` 吞错） | INSTALL-1 | **今天 Shutters 单就收不了口**，后面两条路都建立在"能收口"上 |
 | INSTALL-2b | `install-2b-balance-warranty` | `install.balance.confirm`；会计「待收尾款」页签（URL 页签，修 F11）；确认尾款 → `completed`；`install.send_warranty_email` 审批 + 执行器 + 模板；`sunnyWarranty` 设置页；完成收口 / 尾款 / 邮件通知；应收尾款计算抽成共用函数 | 2a | 路径 ① 最短、直接产生回款价值 |
-| INSTALL-2c | `install-2c-repair-form` | 维修单提交（数字模板 + 打印版）；问题类型表；返修目标日；预约结果 `needs_repair`；`installStage` 推导；通知（出单按品类 / 运营 / 会计 / 销售）；`/install/repairs` 列表与详情；销售状态卡 | 2a | 路径 ② 前半 |
-| INSTALL-2d | `install-2d-repair-dispatch` | 出单「已出单 + 预计备好日」；安排返修（新预约、不走状态机）；二次安装只收口维修行；全部关闭 → `installed` 接回 2b；逾期提醒挂既有 cron | 2b、2c | 路径 ② 后半，闭环 |
+| INSTALL-2c | `install-2c-repair-form` | 逐单元 ✅ / ⚠ 二选一；维修单提交（数字模板 + 打印版）；问题类型表；返修目标日；预约结果 `needs_repair`；`installStage` 推导；通知（出单按品类 / 运营 / 会计 / 销售）；`/install/repairs` 列表与详情；销售状态卡 | 2a | 路径 ② 前半 |
+| INSTALL-2d | `install-2d-repair-dispatch` | 出单「已出单 + 预计备好日」；安排返修（新预约、不走状态机）；二次安装只收口维修行；按访次聚合 + 照片代理放行任一访次被分配人（修 F5）；全部关闭 → `installed` 接回 2b；逾期提醒挂既有 cron | 2b、2c | 路径 ② 后半，闭环 |
 
 每个 change 照常：`/opsx:propose` → 四件套回传审 → `/opsx:apply` → `npm test` → `/opsx:verify` → PR → 合并 → archive 小 PR。规格增量要动的既有能力：`installation/window-closeout`、`installation/install-tasks`、`fulfillment/order-category-access`（会计推进 `completed` 的例外）、`accounting/workspace`（新页签）、`accounting/quote-process-view`（"会计只读"需改为"除尾款确认外只读"）。
 
@@ -285,12 +285,14 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 
 ---
 
-## 12. 待拍板（审方案时一并回答）
+## 12. 拍板结果（2026-10-28）
 
-| # | 问题 | 我的建议 |
+Lucas："质保以报价单为主，按照你的方案去进行开发"。Q1 明确拍板；其余按"按照你的方案"采用下表建议列，实施中如需改，改这里并在对应 change 的 design 里写明。
+
+| # | 问题 | 建议 = 拍板 |
 |---|---|---|
 | Q0 | "U-HEAL" 是不是 U-Haul 自助还车？ | 按 U-Haul 理解（§2） |
-| Q1 | 质保年限以哪个为准：报价 PDF（1/5/15、1/5）还是官网（25 / 5）？ | 以客户签字的报价 PDF 为种子；官网若不同，先统一官网或报价单 |
+| Q1 | 质保年限以哪个为准：报价 PDF（1/5/15、1/5）还是官网（25 / 5）？ | **拍板：以报价单为准**（帘类 人工 1 / 面料 5 / 部件 15；Shutters 人工 1 / 部件 5） |
 | Q2 | 质保邮件谁批准？ | 确认尾款的会计本人（两次点击）；或指定老板 |
 | Q3 | 用哪个发件箱 / 品牌？现有客户邮件品牌是 SUNNY HOME & DECO，维修单是 SUNNY SHUTTER INC | 组织发件身份（Resend，同询价回复），品牌 Sunny Shutter Inc；不回退个人 Gmail |
 | Q4 | 质保邮件要不要抄送销售？ | 不抄送，改发站内通知 |
@@ -298,8 +300,8 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 | Q6 | 尾款收款方式要不要加 e-transfer？ | 加 |
 | Q7 | 质保表谁能改？ | 老板（`sales.settings.manage`） |
 | Q8 | "默认 1 周" 是 7 个日历日还是 5 个工作日？ | 7 个日历日 |
-| Q10 | 销售首页"待收尾款"现在是本月签单尾款合计；2b 之后要不要改成"已装完、未确认收款"的真实应收？ | 改：否则销售和会计看到两个不同的"待收尾款"。放进 2b 的 Out of scope 还是 task，由你定 |
-| Q9 | 实收 < 应收（客户少付）时，工艺单还转 `completed`、还发质保吗？ | 必填差额说明后照常完成；或改为"部分收款"不发质保——请定 |
+| Q10 | 销售首页"待收尾款"现在是本月签单尾款合计；2b 之后要不要改成"已装完、未确认收款"的真实应收？ | 改，放进 2b（共用应收函数） |
+| Q9 | 实收 < 应收（客户少付）时，工艺单还转 `completed`、还发质保吗？ | 必填差额说明后照常完成并发质保 |
 
 ---
 
