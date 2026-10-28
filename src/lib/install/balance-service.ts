@@ -255,16 +255,19 @@ export async function listBalance(orgId: string): Promise<{ pending: BalancePend
 
 // ─────────────────────────── 通知（design D8：失败不影响主动作） ───────────────────────────
 
-type InstallNotice = {
-  type: typeof NOTIFY_INSTALL_COMPLETED | typeof NOTIFY_BALANCE_CONFIRMED;
+export type InstallNotice = {
+  type: string;
   title: string;
   summary: string;
   orgId: string;
   orderId: string;
   entityType: typeof ENTITY_INSTALL_BALANCE | "blinds_order";
+  /** 去重粒度细到"每次尝试"时传（如审批 id）；不传 = 同一单同一人同一类型只发一次 */
+  dedupeKey?: string;
 };
 
-async function notifyOne(userId: string, n: InstallNotice): Promise<void> {
+/** 单人站内通知：尊重通知偏好；同一单同一人同一类型只发一次（除非带 dedupeKey）；失败只记日志（INSTALL-2c 执行器也用） */
+export async function notifyInstallUser(userId: string, n: InstallNotice): Promise<void> {
   try {
     if (!(await shouldDeliverInApp(userId, { type: n.type, priority: "medium" }))) return;
     await createNotification({
@@ -277,8 +280,8 @@ async function notifyOne(userId: string, n: InstallNotice): Promise<void> {
       entityType: n.entityType,
       entityId: n.orderId,
       priority: "medium",
-      // 同一单同一人只发一次（spec「完工通知」「尾款确认通知」）
-      sourceKey: `${n.type}:${n.orderId}:${userId}`,
+      // 同一单同一人只发一次（spec「完工通知」「尾款确认通知」）；带 dedupeKey 时每次尝试一条
+      sourceKey: `${n.type}:${n.orderId}:${userId}${n.dedupeKey ? `:${n.dedupeKey}` : ""}`,
     });
   } catch (err) {
     console.error(`[install/balance] 通知失败 ${n.type} ${n.orderId} → ${userId}`, err);
@@ -293,7 +296,7 @@ export async function notifyInstallCompleted(orgId: string, orderId: string): Pr
     const holders = await listUsersWithPermission(orgId, BALANCE_PERMISSION);
     const base = { type: NOTIFY_INSTALL_COMPLETED, orgId, orderId } as const;
     for (const uid of holders) {
-      await notifyOne(uid, {
+      await notifyInstallUser(uid, {
         ...base,
         entityType: ENTITY_INSTALL_BALANCE,
         title: `待收尾款：${order.customerName}（${order.code}）`,
@@ -301,7 +304,7 @@ export async function notifyInstallCompleted(orgId: string, orderId: string): Pr
       });
     }
     if (!holders.includes(order.creatorId)) {
-      await notifyOne(order.creatorId, {
+      await notifyInstallUser(order.creatorId, {
         ...base,
         entityType: "blinds_order",
         title: `已装完：${order.customerName}（${order.code}）`,
@@ -314,7 +317,7 @@ export async function notifyInstallCompleted(orgId: string, orderId: string): Pr
 }
 
 async function notifyBalanceConfirmed(orgId: string, order: { id: string; code: string; customerName: string; creatorId: string }) {
-  await notifyOne(order.creatorId, {
+  await notifyInstallUser(order.creatorId, {
     type: NOTIFY_BALANCE_CONFIRMED,
     orgId,
     orderId: order.id,

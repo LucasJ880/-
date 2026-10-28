@@ -15,6 +15,9 @@ export const NOTIFICATION_TYPE_KEYS = [
   // INSTALL-2b：装完待收尾款 / 尾款已确认
   "install_completed",
   "install_balance_confirmed",
+  // INSTALL-2c：质保邮件已发出 / 未发出
+  "install_warranty_sent",
+  "install_warranty_failed",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];

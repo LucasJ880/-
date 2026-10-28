@@ -15,6 +15,8 @@ const LABELS: Record<string, string> = {
   sales_daily_briefing: "每日销售简报",
   install_completed: "安装完工（待收尾款）",
   install_balance_confirmed: "尾款已确认",
+  install_warranty_sent: "质保邮件已发出",
+  install_warranty_failed: "质保邮件未发出",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);

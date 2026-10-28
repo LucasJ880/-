@@ -313,6 +313,8 @@ run_test "收口单元覆盖全部产品线与位置快照（INSTALL-2a）" "npx
 run_test "收口单元 DB 端到端（INSTALL-2a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/closeout-db.isolated.test.ts"
 run_test "尾款口径 / 确认校验 / 通知落点（INSTALL-2b）" "npx tsx src/lib/install/__tests__/balance.test.ts"
 run_test "尾款确认 DB 端到端（INSTALL-2b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/balance-db.isolated.test.ts"
+run_test "质保设置 / 邮件渲染 / 生成条件 / 状态（INSTALL-2c）" "npx tsx src/lib/install/__tests__/warranty.test.ts"
+run_test "质保邮件 DB 端到端（INSTALL-2c；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/warranty-db.isolated.test.ts"
 run_test "PERM-3 Fulfillment Category" "npx tsx src/lib/fulfillment/__tests__/category.test.ts"
 run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-access.test.ts"
 run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"
