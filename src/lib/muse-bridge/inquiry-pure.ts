@@ -6,7 +6,7 @@
  * 员工确认与 CRM 事实分开呈现；默认问题查表生成，不让模型决定问什么。
  */
 
-import type { MuseInquiryNeed } from "./contract";
+import { containsOutboundSensitive, type MuseInquiryNeed } from "./contract";
 import { clip, eventSummary, oneLine, type Advisory } from "./advisory";
 import type { EmitMuseEventInput } from "./events-pure";
 import type { SalesSignals } from "./sales-pure";
@@ -15,6 +15,8 @@ export const INQUIRY_SOURCE_TYPE = "muse_inquiry" as const;
 export const INQUIRY_CREATED_ACTION = "muse_inquiry.created" as const;
 export const INQUIRY_REPLIED_ACTION = "muse_inquiry.replied" as const;
 export const DEFAULT_REPLY_HOURS = 24;
+/** 与 followup-pure 的缺省跟进期限一致（这里不 import，避免两个纯模块互相依赖） */
+const DEFAULT_FOLLOWUP_HOURS = 72;
 export const CLOSED_TASK_STATUSES = ["done", "cancelled"] as const;
 
 export const inquirySourceTemplateKey = (requestId: string) => `inq:${requestId}`;
@@ -173,6 +175,33 @@ export function inquiryReceivedEventInput(input: {
   };
 }
 
+/** S3：回复后的建议动作是"按回复的下一步建跟进"；标题含敏感内容时换成通用标题（命令不经过摘要脱敏） */
+export function followupSuggestion(input: {
+  opportunityId: string;
+  opportunityTitle: string;
+  inquiryId: string;
+  nextStep: string;
+  nextStepDueAt: string | null;
+  now: Date;
+}) {
+  const due = input.nextStepDueAt && new Date(input.nextStepDueAt).getTime() > input.now.getTime()
+    ? input.nextStepDueAt
+    : new Date(input.now.getTime() + DEFAULT_FOLLOWUP_HOURS * 3_600_000).toISOString();
+  const title = containsOutboundSensitive(input.nextStep)
+    ? `跟进「${clip(oneLine(input.opportunityTitle), 40)}」`
+    : clip(oneLine(input.nextStep), 200);
+  return {
+    label: "按回复建跟进",
+    command: {
+      intent: "create_followup" as const,
+      opportunityId: input.opportunityId,
+      title,
+      dueAt: due,
+      fromInquiryId: input.inquiryId,
+    },
+  };
+}
+
 export function inquiryRepliedEventInput(input: {
   orgId: string;
   askerUserId: string;
@@ -181,6 +210,8 @@ export function inquiryRepliedEventInput(input: {
   opportunityTitle: string;
   replierName: string;
   nextStep: string;
+  nextStepDueAt?: string | null;
+  now?: Date;
 }): EmitMuseEventInput {
   return {
     eventId: `inquiry.replied:${input.inquiryId}`,
@@ -193,7 +224,14 @@ export function inquiryRepliedEventInput(input: {
       `${clip(oneLine(input.replierName), 12)} 回复了「${clip(oneLine(input.opportunityTitle), 20)}」`,
       `下一步：${oneLine(input.nextStep)}`,
     ),
-    action: statusStep(input.opportunityId),
+    action: followupSuggestion({
+      opportunityId: input.opportunityId,
+      opportunityTitle: input.opportunityTitle,
+      inquiryId: input.inquiryId,
+      nextStep: input.nextStep,
+      nextStepDueAt: input.nextStepDueAt ?? null,
+      now: input.now ?? new Date(),
+    }),
   };
 }
 

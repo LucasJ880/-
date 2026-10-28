@@ -254,6 +254,7 @@ export async function replyInquiry(
       opportunityTitle: opp.title,
       replierName,
       nextStep: reply.nextStep,
+      nextStepDueAt: reply.nextStepDueAt,
     }),
   );
 

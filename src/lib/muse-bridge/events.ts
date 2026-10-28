@@ -99,6 +99,14 @@ function titleFor(e: MuseEventEnvelope): string {
       return "你的商机询问有回复了";
     case "inquiry.overdue":
       return "商机询问已逾期";
+    case "followup.assigned":
+      return "有一条跟进分配给你";
+    case "followup.due":
+      return "跟进即将到期";
+    case "followup.overdue":
+      return "跟进已逾期";
+    case "followup.updated":
+      return "你布置的跟进有更新";
   }
 }
 
