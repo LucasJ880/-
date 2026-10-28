@@ -100,9 +100,8 @@ export function isPlatformSuperAdmin(role: string | null | undefined): boolean {
 }
 
 /**
- * 平台用户管理（/api/users、全局软删）。
- * Security-1：平台 admin / super_admin；老板 boss 可管账号（企业最高业务权限）。
- * manager 不再拥有跨组织用户列表；企业内成员管理走 /organizations/[orgId]/members。
+ * @deprecated PERM-4b：平台用户管理改为仅平台 super_admin（isPlatformSuperAdmin）；
+ * 运营 / 增长中心改按岗位权限键。服务端 src/app/api 已无调用，PERM-4c 删除。
  */
 export function canManageUsers(role: string | null | undefined): boolean {
   return isAdmin(role ?? "") || role === "boss";
@@ -114,7 +113,7 @@ export function isBoss(role: string | null | undefined): boolean {
 }
 
 /**
- * 全局账号软删除：仅平台管理员。
+ * @deprecated PERM-4b：全局账号删除改为仅平台 super_admin（isPlatformSuperAdmin），PERM-4c 删除。
  * 企业侧移除员工只能 inactive OrganizationMember，不能删全局 User。
  */
 export function canDeleteUsers(role: string | null | undefined): boolean {

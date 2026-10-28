@@ -64,9 +64,10 @@ const growth = NAVIGATION_REGISTRY.find((i) => i.key === "growth-hub");
 ok(growth?.group === "GROWTH", "内容增长归属品牌增长");
 ok(growth?.label === "品牌增长", "品牌增长文案");
 
+// PERM-4b：运营中心入口按 operations.* 权限（平台角色 operations 不再单独放行）
 const opsNav = resolveNavigationTree(
   NAVIGATION_REGISTRY,
-  ctx({ platformRole: "operations" }),
+  ctx({ platformRole: "operations", permissionKeys: ["operations.read"] }),
 );
 ok(opsNav.some((i) => i.key === "ws-ops"), "运营可见运营中心");
 ok(!opsNav.some((i) => i.key === "ws-bids"), "运营默认不看招投标中心");

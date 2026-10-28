@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
 import type { WorkspacePolicyContext } from "@/lib/rbac/workspace-policy";
-import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
+import { loadPermissionKeys } from "@/lib/rbac/permission-keys";
 
 const COOKIE_NAME = "qy_session";
 
@@ -69,18 +69,7 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
     hasBidCapability = Boolean(projectMember);
 
     // INSTALL-1：岗位权限键（ALLOW）注入工作区策略，用于 /install 等按权限放行的工作区
-    try {
-      const bindings = await resolveEffectiveBindings({
-        type: "HUMAN",
-        id: user.id,
-        orgId: resolved.orgId,
-      });
-      permissionKeys = [
-        ...new Set(bindings.filter((b) => b.effect === "ALLOW").map((b) => b.permissionKey)),
-      ];
-    } catch {
-      permissionKeys = null;
-    }
+    permissionKeys = await loadPermissionKeys(user.id, resolved.orgId);
   }
 
   return {

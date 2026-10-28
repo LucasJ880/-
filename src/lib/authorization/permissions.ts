@@ -51,6 +51,18 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
 
   def("operations.read", "operations", "read", "查看运营", "查看运营数据", ["ORG"], "LOW"),
   def("operations.manage", "operations", "manage", "管理运营", "修改运营配置", ["ORG"], "HIGH"),
+  // PERM-4b：运营内容分权——运营人员 / 主管起草提交，主管 / 老板批准（不得自批）
+  def("operations.content.draft", "operations.content", "draft", "起草运营内容", "起草 / 修改选题与 Playbook 草稿、提交审核", ["ORG"], "MEDIUM"),
+  {
+    key: "operations.content.approve",
+    resource: "operations.content",
+    action: "approve",
+    label: "批准运营内容",
+    description: "批准 / 驳回发布任务与 Playbook、通过选题；提交人 / 创建人不得自批",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
   def(
     "operations.tasks.team.read",
     "operations.tasks",

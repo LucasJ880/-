@@ -56,8 +56,17 @@ ok(
 );
 
 ok(
-  canAccessOperationsWorkspace(ctx({ platformRole: "operations" })),
-  "运营角色可进 /ops",
+  canAccessOperationsWorkspace(ctx({ platformRole: "operations", permissionKeys: ["operations.read"] })),
+  "运营角色（持 operations.read）可进 /ops",
+);
+// PERM-4b：平台角色 operations 不再单独放行
+ok(
+  !canAccessOperationsWorkspace(ctx({ platformRole: "operations" })),
+  "平台角色 operations 无运营权限键 → 不可进 /ops",
+);
+ok(
+  canAccessOperationsWorkspace(ctx({ platformRole: "user", permissionKeys: ["operations.read"] })),
+  "平台角色 user + operations.read → 可进 /ops",
 );
 ok(
   canAccessOperationsWorkspace(ctx({ platformRole: "boss" })),
@@ -137,8 +146,8 @@ ok(
   "销售默认 /sales/home",
 );
 ok(
-  getDefaultWorkspace(ctx({ platformRole: "operations" })) === "/ops",
-  "运营默认 /ops",
+  getDefaultWorkspace(ctx({ platformRole: "operations", permissionKeys: ["operations.read"] })) === "/ops",
+  "运营（持 operations.read）默认 /ops",
 );
 ok(
   getDefaultWorkspace(
@@ -164,7 +173,7 @@ ok(
   getDefaultWorkspace(
     ctx({
       platformRole: "operations",
-      permissionKeys: ["project.read"],
+      permissionKeys: ["project.read", "operations.read"],
     }),
   ) === "/ops",
   "运营兼投标能力时仍优先运营专职入口 /ops",
