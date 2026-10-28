@@ -12,6 +12,7 @@
  */
 
 import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
+import { ensureDefaultPositions } from "@/lib/authorization/onboarding-positions";
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -240,6 +241,8 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
     throw err;
   });
 
+  // PERM-6b：岗位模式企业（家纺外贸 / 窗饰）没有绑定即无权限——建好成员后落岗位模板、自动绑，并把指定负责人绑 owner
+  const positions = await ensureDefaultPositions({ orgId: result.orgId, actorUserId: input.actorUserId, ownerUserId });
   const baseline = await ensureBaselineOrgRules({ orgId: result.orgId, userId: input.actorUserId });
   await logAudit({
     userId: input.actorUserId,
@@ -258,6 +261,7 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
       workspacesCreated: result.workspacesCreated,
       memberships: result.memberships,
       keptExisting: result.keptExisting,
+      ownerPositionBound: positions.ownerBound,
       baselineRules: baseline.map((b) => `${b.ruleKey}:${b.status}`),
     },
   });
@@ -444,6 +448,9 @@ export async function updateOnboardingSettings(
       await tx.organizationMember.update({ where: { orgId_userId: { orgId, userId: actorUserId } }, data: { status: "inactive" } });
     }
   });
+
+  // PERM-6b：交接给新负责人后同样落岗位（新负责人绑 owner；旧负责人的岗位由平台管理员在「岗位」一节调整）
+  if (patch.ownerUserId) await ensureDefaultPositions({ orgId, actorUserId, ownerUserId: patch.ownerUserId });
 
   await logAudit({
     userId: actorUserId,
