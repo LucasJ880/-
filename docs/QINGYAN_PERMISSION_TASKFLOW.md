@@ -26,7 +26,7 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-3 | 订单 / 工艺单品类归属与出单人过滤（零 schema）；库存改动限运营主管；作废走审批 | PERM-1/2、INSTALL-1 | 任务书 `docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`；change `perm-3-fulfillment-by-category`；`docs/QINGYAN_PERM-3_REPORT.md` | [G]（代码完成，PR 待开） |
+| PERM-3 | 订单 / 工艺单品类归属与出单人过滤（零 schema）；库存改动限运营主管；作废走审批 | PERM-1/2、INSTALL-1 | 任务书 `docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`；change `perm-3-fulfillment-by-category`；`docs/QINGYAN_PERM-3_REPORT.md` | [x]（#274；archive 见 `openspec/changes/archive/2026-10-28-perm-3-fulfillment-by-category`） |
 
 ## PERM-4 — 收口平台角色
 
