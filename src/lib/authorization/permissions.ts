@@ -217,6 +217,8 @@ const REGISTRY_ENTRIES: PermissionDefinition[] = [
   def("inventory.manage", "inventory", "manage", "管理面料库存", "库存增减与盘点", ["ORG"], "HIGH"),
   def("inventory.read", "inventory", "read", "查看面料库存", "只读库存列表", ["ORG"], "LOW"),
   def("accounting.read", "accounting", "read", "查看财务", "查看成交金额、提成与项目结算", ["ORG"], "HIGH"),
+  // PERM-5a：项目结算汇总；ASSIGNED = 本人参与（成员 / 负责人）的项目
+  def("project.finance.read", "project.finance", "read", "查看项目结算", "查看项目收入 / 费用 / 应付 / 结余汇总", ["ASSIGNED", "ORG"], "HIGH"),
   {
     key: "identity.position.manage",
     resource: "identity.position",

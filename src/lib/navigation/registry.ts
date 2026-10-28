@@ -45,6 +45,7 @@ import {
   Upload,
   Users,
   Wrench,
+  Calculator,
 } from "lucide-react";
 import type { NavigationGroup, NavigationItem } from "./types";
 import {
@@ -455,6 +456,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
     requiredPermissions: ["orders.fulfillment.read", "sales.order.create"],
     badgeKey: "sidebar_badge_industry",
+    displayOrder: 17,
+  },
+  {
+    // PERM-5a：会计视图（成交与提成 / 报价过程 / 项目结算）；按岗位键可见
+    key: "biz-accounting",
+    label: "会计视图",
+    href: "/accounting",
+    icon: Calculator,
+    group: "BUSINESS",
+    workspaceAccess: "accounting",
+    requireMembership: true,
+    matchPaths: ["/accounting"],
     displayOrder: 17,
   },
   {

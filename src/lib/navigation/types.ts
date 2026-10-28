@@ -60,7 +60,7 @@ export type NavigationItem = {
    * Phase 1 工作区门禁：与 workspace-policy 对齐。
    * 未设置时不额外按工作区过滤。
    */
-  workspaceAccess?: "management" | "operations" | "bids" | "sales" | "install";
+  workspaceAccess?: "management" | "operations" | "bids" | "sales" | "install" | "accounting";
 };
 
 export type NavigationFilterContext = {

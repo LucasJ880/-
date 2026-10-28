@@ -38,12 +38,22 @@ export type WorkspaceId =
   | "bids"
   | "sales"
   | "install"
+  | "accounting"
   | "none";
 
 const BID_MODULES = ["bids", "projects"] as const;
 const OPS_PERMISSIONS = ["operations.read", "operations.manage"] as const;
 /** INSTALL-1：安装工作区按岗位权限放行（安装工 ASSIGNED / 运营 / 会计 / 老板 ORG） */
 const INSTALL_PERMISSIONS = ["install.task.read"] as const;
+/** PERM-5a：会计视图——会计看全员成交 / 报价 / 项目结算；招投标参与方只看项目结算 */
+const ACCOUNTING_PERMISSIONS = ["accounting.read", "project.finance.read"] as const;
+/** 持这些键说明另有主工作区（运营 / 招投标），不默认落地会计页 */
+const NON_ACCOUNTING_HOME_PERMISSIONS = [
+  "operations.read",
+  "operations.manage",
+  "project.create",
+  "project.update",
+] as const;
 const BID_PERMISSIONS = [
   "project.read",
   "project.create",
@@ -151,6 +161,21 @@ export function canAccessInstallWorkspace(ctx: WorkspacePolicyContext): boolean 
   return hasAnyPermission(ctx, INSTALL_PERMISSIONS);
 }
 
+/** PERM-5a：会计视图 /accounting —— 持 accounting.read 或 project.finance.read 即可进 */
+export function canAccessAccountingWorkspace(ctx: WorkspacePolicyContext): boolean {
+  return hasAnyPermission(ctx, ACCOUNTING_PERMISSIONS);
+}
+
+/** PERM-5a：纯会计（持 accounting.read、非销售 / 运营专职、不持运营 / 招投标写键）默认落地 /accounting */
+function isAccountingHomeUser(ctx: WorkspacePolicyContext): boolean {
+  return (
+    hasAnyPermission(ctx, ["accounting.read"]) &&
+    !isOperationsStaff(ctx.platformRole) &&
+    !isSalesStaff(ctx.platformRole) &&
+    !hasAnyPermission(ctx, NON_ACCOUNTING_HOME_PERMISSIONS)
+  );
+}
+
 export function getDefaultWorkspace(ctx: WorkspacePolicyContext): string {
   if (isManagementWorkspaceUser(ctx)) return "/";
 
@@ -164,6 +189,9 @@ export function getDefaultWorkspace(ctx: WorkspacePolicyContext): string {
   ) {
     return "/ops";
   }
+
+  // PERM-5a：会计岗持 project.read（只读）也能进招投标，先判纯会计
+  if (isAccountingHomeUser(ctx)) return "/accounting";
 
   if (
     canAccessBidWorkspace(ctx) &&
@@ -198,6 +226,7 @@ export function resolveHomeRedirect(ctx: WorkspacePolicyContext): string | null 
   if (canAccessBidWorkspace(ctx)) return "/bids";
   if (canAccessSalesWorkspace(ctx)) return "/sales/home";
   if (canAccessInstallWorkspace(ctx)) return "/install";
+  if (canAccessAccountingWorkspace(ctx)) return "/accounting";
   return "/tasks";
 }
 
@@ -210,6 +239,7 @@ export function getAccessibleWorkspaces(
   if (canAccessBidWorkspace(ctx)) out.push("bids");
   if (canAccessSalesWorkspace(ctx)) out.push("sales");
   if (canAccessInstallWorkspace(ctx)) out.push("install");
+  if (canAccessAccountingWorkspace(ctx)) out.push("accounting");
   return out.length ? out : ["none"];
 }
 

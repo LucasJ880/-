@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { resolveSalesOrgIdForRequest, resolveSalesScope } from "@/lib/sales/org-context";
 import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { summarizeCommission } from "@/lib/accounting/commission";
 
 /**
  * GET /api/sales/commission-summary
@@ -14,6 +15,7 @@ import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
  * 统计窗口与业绩页一致：本自然月（服务器本地），按 signedAt 落月、
  * status=signed、createdById=本人。历史单无成本快照 → 计入 uncosted，
  * 前端如实展示覆盖率，绝不虚构。
+ * PERM-5a：计算抽到 summarizeCommission（与会计全员汇总同一口径），响应字段不变。
  */
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveSalesOrgIdForRequest(request, user);
@@ -43,34 +45,17 @@ export const GET = withAuth(async (request, _ctx, user) => {
     }),
   ]);
 
-  let realMargin = 0;
-  let quotesWithCost = 0;
-  let itemsCosted = 0;
-  let itemsTotal = 0;
-  for (const quote of quotes) {
-    let quoteCosted = false;
-    for (const item of quote.items) {
-      itemsTotal += 1;
-      if (item.costPrice != null) {
-        realMargin += item.price - item.costPrice;
-        itemsCosted += 1;
-        quoteCosted = true;
-      }
-    }
-    if (quoteCosted) quotesWithCost += 1;
-  }
-  realMargin = Math.round(realMargin * 100) / 100;
-
   const commissionRate = settings.commissionRate;
+  const summary = summarizeCommission(quotes, commissionRate);
   return NextResponse.json({
     monthStart: monthStart.toISOString(),
-    quotesSigned: quotes.length,
-    quotesWithCost,
-    itemsCosted,
-    itemsTotal,
-    realMargin,
+    quotesSigned: summary.quotesSigned,
+    quotesWithCost: summary.quotesWithCost,
+    itemsCosted: summary.itemsCosted,
+    itemsTotal: summary.itemsTotal,
+    realMargin: summary.realMargin,
     commissionRate,
-    realCommission: Math.round(realMargin * commissionRate * 100) / 100,
+    realCommission: summary.realCommission,
     costRatesConfigured: Object.keys(settings.costRates).length > 0,
   });
 });

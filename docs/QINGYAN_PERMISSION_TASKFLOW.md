@@ -46,7 +46,7 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| PERM-5a | 会计视图：成交、提成、项目结算与销售分开 | PERM-4a | 待写 | [ ] |
+| PERM-5a | 会计视图：成交、提成、项目结算与销售分开 | PERM-4a | 任务书 `docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`；change `perm-5a-accounting-view`；`docs/QINGYAN_PERM-5a_REPORT.md` | [G]（代码完成，PR 待开） |
 | PERM-5b | 数字员工岗位绑定 + 工具授权走 `authorize` | PERM-1 | 任务书 `docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`；change `perm-5b-digital-employee-positions`；`docs/QINGYAN_PERM-5b_REPORT.md` | [x]（#285；archive 见 `openspec/changes/archive/2026-10-28-perm-5b-digital-employee-positions`） |
 
 ---
