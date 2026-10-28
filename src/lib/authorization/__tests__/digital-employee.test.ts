@@ -180,7 +180,14 @@ console.log("PERM-5b 绑定校验");
   const notSeeded = validateDigitalEmployeeBindings({ file: { bindings: { ag1: ["bids"] } }, orgId: "org1", knownProfileKeys: ["sales_rep"], allowedPositionKeys: DIGITAL_EMPLOYEE_POSITION_KEYS, agentsById: agents });
   ok(!notSeeded.ok && notSeeded.errors.some((e) => e.includes("未落地")), "本企业未落地的岗位拒绝");
   const script = readFileSync(join(ROOT, "scripts/bind-positions.ts"), "utf-8");
-  ok(/where: \{ orgId: org\.id, principalType \}/.test(script) && /principalType, principalId: c\.userId/.test(script), "脚本按主体类型读写绑定（人类 / 数字员工互不影响）");
+  // PERM-7：读写移到脚本与岗位绑定界面共用的服务
+  const svc = readFileSync(join(ROOT, "src/lib/authorization/position-binding-service.ts"), "utf-8");
+  ok(
+    /loadBindingContext\(org\.id, principalType\)/.test(script) &&
+      /where: \{ orgId, principalType \}/.test(svc) &&
+      /principalType, principalId: c\.userId/.test(svc),
+    "脚本按主体类型读写绑定（人类 / 数字员工互不影响）",
+  );
 }
 
 console.log("PERM-5b 助手模式主体 = 操作者");

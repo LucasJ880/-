@@ -4,6 +4,7 @@ import type { AuthUser } from "./index";
 import {
   isSuperAdmin,
   isAdmin,
+  isPlatformSuperAdmin,
   hasOrgRole,
   hasProjectRole,
   type OrgRole,
@@ -73,6 +74,27 @@ export async function requirePlatformAdmin(
   const result = await requireAuth(request);
   if (result instanceof NextResponse) return result;
   if (!isPlatformAdmin(result.user)) {
+    return NextResponse.json(
+      {
+        error: PLATFORM_ADMIN_ERROR_MESSAGE,
+        code: PLATFORM_ADMIN_REQUIRED,
+      },
+      { status: 403 },
+    );
+  }
+  return result;
+}
+
+/**
+ * PERM-7：只认平台 super_admin（requirePlatformAdmin 还放行平台 admin）。
+ * 用于成员增删改、岗位绑定界面等"平台管理员才能做"且 spec 写明 super_admin 的入口。
+ */
+export async function requirePlatformSuperAdmin(
+  request: NextRequest
+): Promise<AuthResult | NextResponse> {
+  const result = await requireAuth(request);
+  if (result instanceof NextResponse) return result;
+  if (!isPlatformSuperAdmin(result.user.role)) {
     return NextResponse.json(
       {
         error: PLATFORM_ADMIN_ERROR_MESSAGE,

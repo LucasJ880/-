@@ -232,3 +232,25 @@ export function validateDigitalEmployeeBindings(input: ValidateDigitalEmployeeIn
   if (errors.length) return { ok: false, errors };
   return { ok: true, resolved };
 }
+
+// ─────────────────────────────────────────────────────────────
+// PERM-7：岗位绑定界面护栏
+// ─────────────────────────────────────────────────────────────
+
+/** 岗位模式企业的老板岗位（管理层信号的唯一来源，4c2） */
+export const OWNER_POSITION_KEY = "owner";
+
+/**
+ * 岗位模式企业中，这次变更会不会停掉本企业最后一个 active 的人类 owner 绑定。
+ * otherActiveOwnerCount = 本企业除目标主体外、仍是 active 成员且持 active owner 绑定的人数。
+ */
+export function wouldRemoveLastOwnerBinding(input: {
+  positionMode: boolean;
+  principalType: BindingPrincipalType;
+  plan: BindingPlan;
+  otherActiveOwnerCount: number;
+}): boolean {
+  if (!input.positionMode || input.principalType !== "HUMAN") return false;
+  if (!input.plan.deactivate.some((d) => d.profileKey === OWNER_POSITION_KEY)) return false;
+  return input.otherActiveOwnerCount === 0;
+}
