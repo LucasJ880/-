@@ -294,6 +294,8 @@ npx tsx src/lib/muse-bridge/__tests__/inquiry-pure.test.ts
 npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts
 # PERM-4a：签约单改总价审批判定（纯函数）
 npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
+# PERM-4b：运营 / 增长中心 / 平台用户管理权限判定（纯函数 + 源码断言）
+npx tsx src/lib/operations/__tests__/ops-access.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts
