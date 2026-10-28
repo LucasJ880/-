@@ -3,12 +3,12 @@
  *
  * 来源优先级：
  * 1) PrincipalRoleBinding → RolePermissionBinding
- * 2) 兼容回退：OrganizationMember.role → 系统 RoleProfile key（无 DB 绑定时）
+ * 2) 兼容回退：OrganizationMember.role → 系统 RoleProfile key（无 DB 绑定时；PERM-4c3：只在旧模式企业）
  */
 
 import { db } from "@/lib/db";
 import { PERMISSION_REGISTRY } from "./permissions";
-import { SYSTEM_ROLE_PROFILES } from "./role-defaults";
+import { SYSTEM_ROLE_PROFILES, hasPositionTemplates } from "./role-defaults";
 import type { BindingEffect, DataScope, PrincipalRef } from "./types";
 
 export type EffectiveBinding = {
@@ -54,6 +54,13 @@ export function compatProfileKeyForMembership(opts: {
     return "sales_rep";
   }
   return null;
+}
+
+/**
+ * PERM-4c3：岗位模式企业（行业包有岗位模板）只认岗位绑定，不做成员角色兼容回退；旧模式企业（梦馨）照旧。
+ */
+export function compatFallbackAllowed(industryPackId: string | null | undefined): boolean {
+  return !hasPositionTemplates(industryPackId);
 }
 
 async function loadProfileBindings(
@@ -109,6 +116,13 @@ export async function resolveEffectiveBindings(
 
   const out = await loadProfileBindings(principal);
   if (out.length > 0) return out;
+
+  // PERM-4c3：岗位模式企业无绑定 = 无权限
+  const org = await db.organization.findUnique({
+    where: { id: principal.orgId },
+    select: { industryPackId: true },
+  });
+  if (!compatFallbackAllowed(org?.industryPackId)) return [];
 
   // 兼容回退：按 OrganizationMember.role 映射系统模板（内存，不要求 DB RoleProfile）
   const member = await db.organizationMember.findUnique({
