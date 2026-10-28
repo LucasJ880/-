@@ -20,6 +20,7 @@ import {
   openInquiriesView,
   type InquiryRecord,
 } from "./inquiry-pure";
+import { followupsView, type FollowupRecord } from "./followup-pure";
 import {
   LEGACY_STAGE_MAP,
   OPEN_STAGES,
@@ -364,6 +365,8 @@ export type OpportunityStatusInput = {
   nextActionLabel: string | null;
   /** S2：该商机上的询问（已回复的进 employeeConfirmations，未结束的进 openInquiries） */
   inquiries: InquiryRecord[];
+  /** S3：该商机上的 Muse 跟进 */
+  followups: FollowupRecord[];
   staleAfterDays: number;
   now: Date;
 };
@@ -440,6 +443,13 @@ export function buildOpportunityStatus(input: OpportunityStatusInput): { advisor
     /** 员工确认：负责人对询问的回复，与 CRM 事实分开 */
     employeeConfirmations: employeeConfirmationsView(input.inquiries),
     openInquiries,
+    /** S3：跟进（未结束在前）；标题、证据、原因与行动标题同样脱敏 */
+    followups: followupsView(input.followups, now).map((f) => ({
+      ...f,
+      title: safeSnippet(f.title, 120),
+      evidence: f.evidence ? safeSnippet(f.evidence, 300) : null,
+      reason: f.reason ? safeSnippet(f.reason, 300) : null,
+    })),
   };
   return { advisory, data };
 }

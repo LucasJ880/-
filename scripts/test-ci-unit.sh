@@ -291,6 +291,7 @@ npx tsx src/lib/messaging/__tests__/wechat-binding-confirm-db.isolated.test.ts
 npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts
 npx tsx src/lib/muse-bridge/__tests__/sales-pure.test.ts
 npx tsx src/lib/muse-bridge/__tests__/inquiry-pure.test.ts
+npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts
 # PERM-4a：签约单改总价审批判定（纯函数）
 npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only

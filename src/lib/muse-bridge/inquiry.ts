@@ -206,7 +206,7 @@ export async function replyInquiry(
 ): Promise<InquiryResult> {
   const task = await db.task.findFirst({
     where: { id: input.inquiryId, sourceType: INQUIRY_SOURCE_TYPE, assigneeId: replier.userId },
-    select: { id: true, status: true, sourceId: true, creatorId: true },
+    select: { id: true, status: true, sourceId: true, creatorId: true, sourceBatchKey: true },
   });
   if (!task?.sourceId) return fail("INQUIRY_NOT_FOUND", INQUIRY_NOT_FOUND_MESSAGE);
   const opp = await db.salesOpportunity.findFirst({
@@ -254,13 +254,14 @@ export async function replyInquiry(
       opportunityTitle: opp.title,
       replierName,
       nextStep: reply.nextStep,
+      nextStepDueAt: reply.nextStepDueAt,
     }),
   );
 
   return {
     ok: true,
     advisory: replyInquiryAdvisory({ opportunityTitle: opp.title, askerName, opportunityId: opp.id }),
-    data: { inquiryId: task.id, opportunityId: opp.id, status: "done", channel },
+    data: { inquiryId: task.id, workflowId: task.sourceBatchKey, opportunityId: opp.id, status: "done", channel },
   };
 }
 
