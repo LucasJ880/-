@@ -3,25 +3,32 @@
 | 项 | 值 |
 |---|---|
 | 用途 | 安装顺利完成 → 会计确认尾款到账 → 系统生成本邮件（PendingAction，审批后发出，硬纪律 2） |
-| 收件人 | 订单客户邮箱（`Customer.email`）；抄送 = 该单销售（可选，待拍板 Q3） |
-| 发件人 | 组织设置 `fromEmail`（展示）/ `mailboxEmail`（授权），不从请求取（硬纪律 6） |
+| 收件人 | 客户档案邮箱（`SalesCustomer.email`，经 `BlindsOrder.customerId`）；不抄送销售，改发站内通知（方案 Q4） |
+| 发件人 | 组织发件身份，只从组织设置取，不从请求 / payload 取（硬纪律 6）；用哪套设置见方案 Q3 |
 | 语言 | 英文正文（多伦多客户）；中文只在本文件做说明，不进邮件 |
-| 方案 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` §3 |
+| 方案 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` §3（变更 INSTALL-2b） |
 
 ## 0. 质保条款来源与核实状态（防幻觉）
 
 `https://sunnyshutter.ca/warranty-service/` 在本次会话的网络策略里被拒（DNS / 代理 403），**原文未能直接读取**。下表只写检索摘要里能对上的内容，其余一律留 `{{待确认}}`，上线前由 Lucas / Evan 对着官网原文填。
 
-| 条款 | 本模板取值 | 来源 | 状态 |
+**三个来源互相矛盾（方案 Q1 必须拍板）**：
+
+| 条款 | 报价 PDF / Order Form（客户签字版，仓库已核实） | 官网检索摘要 | 官网 warranty-service 原文 |
 |---|---|---|---|
-| Shutters 质保年限 | 25 years | 官网 `warranty-registration` 页检索摘要："25-year guarantee on all of its shutter products" | 检索摘要，需对原文 |
-| 其它窗饰（Zebra / Roller 等）质保年限 | 5 years | 同上："5-year guarantee for other window covering solutions like Zebra and roller shades" | 检索摘要，需对原文 |
-| 电机 / 遥控 / 充电器 | `{{待确认}}` | 官网有单独 "Sunny motor support plan" 页，内容未取到 | **未知，不得猜** |
-| 人工 / 上门维修费 | `{{待确认}}` | 未取到 | **未知，不得猜** |
-| 质保起算日 | 安装完成日（`installedAt`） | 行业惯例；官网未核实 | 需对原文 |
-| 不保范围（人为损坏、改装、日晒褪色、自行拆装等） | `{{待确认}}` | 未取到 | **未知，不得猜**——模板只放链接，不自己写条款 |
-| 报修联系方式 | 647-857-8669 / sales@sunnyshutter.ca | 检索摘要 | 需对原文 |
-| 公司地址 | 2-680 Progress Avenue, Scarborough, ON M1H 3A5 | 维修单 PDF 抬头（用户提供） | 已确认 |
+| 帘类（Zebra / Roller / Drapes / Sheer …） | 1 year labour · 5 years fabric · 15 years components（`src/app/(main)/sales/quote-sheet/quote-pdf.ts:99,166`、`order-shades.tsx:131`、`order-drapes.tsx:179`） | 5 years（"other window covering solutions like Zebra and roller shades"） | 本会话无法访问 |
+| Shutters | 1 year labour / 5 years components（`quote-pdf.ts:128`） | 25 years（"all of its shutter products"） | 同上 |
+| 电机 / 遥控 / 充电器 | 未单列（归"components"？） | 官网另有 "Sunny motor support plan" 页，内容未取到 | 同左 |
+| 不保范围 / 起算日 / 转让 | 未写 | 未取到 | 同左 |
+
+| 其它项 | 取值 | 状态 |
+|---|---|---|
+| 报修电话 / 邮箱 | 647-857-8669 / sales@sunnyshutter.ca | 检索摘要，需对原文 |
+| 公司地址 | 2-680 Progress Avenue, Scarborough, ON M1H 3A5 | 维修单 PDF 抬头，已确认 |
+| 品牌 | 维修单 = SUNNY SHUTTER INC；现有客户邮件模板 = SUNNY HOME & DECO（`src/lib/email/templates.ts:13-26`） | 方案 Q3 待定 |
+| 质保起算日 | 安装完成日（多次安装取最后一次完成） | 行业惯例，需对原文 |
+
+**建议**：种子取客户签字的报价 PDF（合同口径），并按 **品类 × 部件** 存（labour / fabric / components / motor），不是一个产品一个年限；官网若写的是另一套，先把官网与报价单统一，再改种子。未拍板前所有年限保持 `{{待确认}}`，系统遇到未配置品类一律阻断生成。
 
 **原则**：邮件正文只列"产品 + 年限 + 起算日 + 怎么报修"，条款细则全部链接回官网 `warranty-service` 页，系统不复述、不改写条款——官网改了条款，邮件不会过时也不会和官网矛盾。
 
@@ -29,16 +36,17 @@
 
 | 变量 | 取值来源 | 缺失时 |
 |---|---|---|
-| `{{customerName}}` | `Customer.name`（工艺单 `customerName` 兜底） | 阻断生成，进会计待办"缺客户信息" |
-| `{{customerEmail}}` | `Customer.email` | **阻断生成**，提示会计/销售补邮箱 |
-| `{{installAddress}}` | `Customer.address`（工艺单地址兜底） | 显示 "—" |
+| `{{customerName}}` | `SalesCustomer.name`（工艺单 `customerName` 兜底） | 阻断生成，进会计待办"缺客户信息" |
+| `{{customerEmail}}` | `SalesCustomer.email` | **阻断生成**，提示会计/销售补邮箱 |
+| `{{installAddress}}` | `SalesCustomer.address`（工艺单 `address` 兜底） | 显示 "—" |
 | `{{orderNumber}}` | `BlindsOrder.code`（= 报价 orderNumber） | 阻断 |
 | `{{installDate}}` | `BlindsOrder.installedAt`（多次安装取**最后一次完成**的日期，即返修完成日） | 阻断 |
 | `{{warrantyNo}}` | `W-{{orderNumber}}`（确定性生成，不新增编号器） | — |
-| `{{items[]}}` | `BlindsOrderItem`：`location` / 产品线 / 面料或颜色 / 尺寸 | 至少 1 行，否则阻断 |
-| `{{items[].warrantyYears}}` | 产品线 → 年限查表（`Organization.settingsJson.sunnyWarranty.terms`，会计/老板可改；种子 = 上表） | 产品线未配置 → 阻断，提示补质保表，**不默认任何年限** |
-| `{{items[].warrantyUntil}}` | `installDate + warrantyYears`（日期计算，确定性） | — |
-| `{{salesName}}` | 报价创建人 / 负责人姓名 | 省略该行 |
+| `{{items[]}}` | 收口单元：`BlindsOrderItem`（`location` / `productType` / `fabricSku`）+ ProcessSpec 各段行（Vinyl 窗 / 窗帘 / 国内下单 / 外采购，都有 `location`） | 至少 1 行，否则阻断 |
+| `{{items[].category}}` | 品类推导复用 `src/lib/fulfillment/category.ts`（vinyl / drapery / shades） | 无品类 → 阻断 |
+| `{{items[].terms[]}}` | 品类 → `[{part: labour/fabric/components/motor, years}]`，查 `Organization.settingsJson.sunnyWarranty.terms`（老板可改，改动记审计） | 品类未配置 → 阻断，提示补质保表，**不默认任何年限** |
+| `{{items[].terms[].until}}` | `installDate + years`（日期计算，确定性） | — |
+| `{{salesName}}` | 工艺单 `creatorId`（自动生成单 = 报价创建人）姓名 | 省略该行 |
 | `{{companyPhone}}` / `{{companyEmail}}` / `{{companyAddress}}` / `{{warrantyUrl}}` | `Organization.settingsJson.sunnyWarranty.contact` | 阻断 |
 
 **不出现在邮件里的**：任何金额（合同价、尾款、折扣、已付）、成本、毛利、内部备注、安装照片原始 URL、返修历史内部描述。尾款收据另走会计既有渠道，不和质保邮件混发（避免一封邮件里出现金额）。
@@ -62,10 +70,15 @@ WARRANTY CONFIRMATION
   Installed on:   {{installDate}}  (warranty starts on this date)
 
 COVERED PRODUCTS
-  #  | Location          | Product            | Warranty  | Covered until
+  #  | Location          | Product
   {{#items}}
-  {{index}}  | {{location}} | {{productLine}} {{fabricOrColor}} | {{warrantyYears}} years | {{warrantyUntil}}
+  {{index}}  | {{location}} | {{productLine}} {{fabricOrColor}}
   {{/items}}
+
+WARRANTY COVERAGE (from {{installDate}})
+  {{#categories}}
+  {{categoryLabel}}:  {{#terms}}{{partLabel}} {{years}} yr (until {{until}}){{sep}}{{/terms}}
+  {{/categories}}
 
 Full warranty terms, coverage and exclusions:
 {{warrantyUrl}}
@@ -95,11 +108,11 @@ Sunny Shutter Inc.
 
 - 单列、600px 宽、内联样式，表格用 `<table>`（邮件客户端兼容）；Logo 用组织设置里的公开 URL，没有就纯文字抬头。
 - 产品表每行一扇窗，与工艺单行一一对应（客户报修时能说"Living Room 左边那扇"）。
-- 附件（v2，待拍板 Q4）：`Warranty-{{warrantyNo}}.pdf`，复用报价 PDF 的渲染链路；v1 只发正文 + 链接，不做 PDF。
+- 附件：现有发信链路（Gmail / Resend）都没有附件能力，v1 只发正文 + 官网条款链接；PDF 附件留 v2。
 
 ## 4. 返修后的质保邮件
 
-返修完成且会计确认后发**同一封**模板，`{{installDate}}` 取返修完成日；不发两封（一单一封，`sourceKey = warranty:{{orderNumber}}` 去重）。是否在首装完成、返修未完成时先发一封"部分完成"通知 → **不发**，避免客户拿到一份不完整的质保。
+返修完成且会计确认后发**同一封**模板，`{{installDate}}` 取返修完成日；不发两封（一单一封，PendingAction `idempotencyKey = install-warranty:{orderId}`）。是否在首装完成、返修未完成时先发一封"部分完成"通知 → **不发**，避免客户拿到一份不完整的质保。
 
 ## 5. 中文版（如需要发给中文客户，待拍板 Q5）
 
