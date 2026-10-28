@@ -381,6 +381,17 @@ for (const k of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades
   ok(has(b, "install.task.read", "ORG") && has(b, "install.photo.read", "ORG") && !has(b, "install.task.assign"), `${k} 只看不排`);
 }
 ok(!mergedProfileBindings(WC, "sales_rep").some((b) => b.permissionKey.startsWith("install.")), "sales_rep 无 install.*");
+// INSTALL-2b：确认收到尾款只给会计与老板
+{
+  const def = getPermissionDefinition("install.balance.confirm");
+  ok(!!def && def.label === "确认收到尾款" && def.riskLevel === "HIGH" && def.supportedScopes.join() === "ORG", "登记 install.balance.confirm（确认收到尾款 / HIGH / ORG）");
+  for (const k of ["accounting", "owner"]) {
+    ok(has(mergedProfileBindings(WC, k), "install.balance.confirm", "ORG"), `${k}：install.balance.confirm ORG`);
+  }
+  for (const k of ["sales_rep", "pricing_lead", "ops_lead", "ops_staff", "bids", "installer", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    ok(!mergedProfileBindings(WC, k).some((b) => b.permissionKey === "install.balance.confirm"), `${k} 不含 install.balance.confirm`);
+  }
+}
 ok(!mergedProfileBindings(WC, "ops_staff").some((b) => b.permissionKey.startsWith("install.")), "ops_staff 无 install.*");
 
 console.log("PERM-1 平台管理员全权");
@@ -410,6 +421,7 @@ console.log("PERM-5b 数字员工禁区与 sponsor 范围");
     "identity.role.manage",
     "identity.position.manage",
     "install.task.assign",
+    "install.balance.confirm",
     "orders.cancel",
     "inventory.manage",
     "operations.manage",
@@ -431,6 +443,10 @@ console.log("PERM-5b 数字员工禁区与 sponsor 范围");
   const deAssign = decideFromBindings({ principal: de, permission: "install.task.assign", bindings: accB });
   ok(!deAssign.allowed && deAssign.reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED", "数字员工绑了 accounting 也不能安排安装");
   ok(decideFromBindings({ principal, permission: "install.task.assign", bindings: accB }).allowed, "人类 accounting 可安排安装（不受禁区影响）");
+  // INSTALL-2b：尾款确认同属禁区
+  const deBalance = decideFromBindings({ principal: de, permission: "install.balance.confirm", bindings: accB });
+  ok(!deBalance.allowed && deBalance.reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED", "数字员工绑了 accounting 也不能确认尾款");
+  ok(decideFromBindings({ principal, permission: "install.balance.confirm", bindings: accB }).allowed, "人类 accounting 可确认尾款");
   ok(
     decideFromBindings({ principal: de, permission: "sales.quote.discount.over_limit.approve", bindings: multi }).reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED",
     "数字员工永不审批（即使绑了老板岗）",

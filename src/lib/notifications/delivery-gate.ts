@@ -6,7 +6,8 @@
  * 关掉类型，通知照发。本模块补齐：enableInAppNotifications、类型开关、
  * 仅高优先级、静默时段（urgent/high 可打破）全部生效。
  *
- * Grandfather：quote_signed / sales_daily_briefing 两类是 2026-08-29 才
+ * Grandfather：quote_signed / sales_daily_briefing 两类是 2026-08-29 才（install_completed /
+ * install_balance_confirmed 是 2026-10-28）
  * 进注册表的——在此之前保存过偏好清单的用户，清单里天然没有它们，
  * 不能当作"显式关闭"。判定：清单最后保存时间早于类型引入时间 → 视为开启。
  */
@@ -18,6 +19,9 @@ import { buildPreferenceContext, isInQuietHours, breaksQuietHours } from "./filt
 export const TYPE_INTRODUCED_AT: Record<string, string> = {
   quote_signed: "2026-08-29T00:00:00Z",
   sales_daily_briefing: "2026-08-29T00:00:00Z",
+  // INSTALL-2b：之前保存过偏好清单的用户没见过这两个开关，不算显式关闭
+  install_completed: "2026-10-28T00:00:00Z",
+  install_balance_confirmed: "2026-10-28T00:00:00Z",
 };
 
 /** 纯函数：类型是否开启（含 grandfather 判定），供测试 */

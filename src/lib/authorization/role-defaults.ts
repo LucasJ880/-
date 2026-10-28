@@ -220,6 +220,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "install.task.assign",
       "install.task.read",
       "install.photo.read",
+      // INSTALL-2b：确认收到尾款
+      "install.balance.confirm",
       // PERM-3：全品类出单伞键、作废（走审批）、库存
       "orders.fulfillment.update",
       "orders.fulfillment.read",
@@ -301,7 +303,7 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
   {
     key: "accounting",
     name: "会计",
-    description: "成交金额、提成、报价全过程、项目结算只读",
+    description: "成交金额、提成、报价全过程、项目结算只读；确认装完尾款",
     bindings: org(
       "accounting.read",
       "sales.analytics.read",
@@ -312,6 +314,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "install.task.assign",
       "install.task.read",
       "install.photo.read",
+      // INSTALL-2b：确认收到尾款（工艺单转已完成）
+      "install.balance.confirm",
       // PERM-5a：项目结算汇总（全企业，/accounting 项目结算页签）
       "project.finance.read",
     ),

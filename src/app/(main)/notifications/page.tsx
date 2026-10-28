@@ -19,6 +19,7 @@ import { NotificationListItem } from "@/components/notification/notification-lis
 import type { NotificationItem } from "@/components/notification/types";
 import { Suspense } from "react";
 import { persistSelectedOrgId } from "@/lib/org-selection";
+import { installNotificationHref } from "@/lib/install/balance";
 
 function NotificationsContent() {
   const router = useRouter();
@@ -140,7 +141,12 @@ function NotificationsContent() {
       if (item.status === "unread") {
         apiFetch(`/api/notifications/${item.id}/read`, { method: "PATCH" });
       }
-      if (item.entityType === "task" && item.entityId) {
+      // INSTALL-2b：完工 / 尾款确认通知的落点（与头部通知下拉同一规则）
+      const installHref = installNotificationHref(item);
+      if (installHref) {
+        if (item.orgId) persistSelectedOrgId(item.orgId);
+        router.push(installHref);
+      } else if (item.entityType === "task" && item.entityId) {
         router.push(`/tasks/${item.entityId}`);
       } else if (item.entityType === "project" && item.entityId) {
         router.push(`/projects/${item.entityId}`);
