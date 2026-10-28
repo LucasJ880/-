@@ -61,6 +61,7 @@ change：`openspec/changes/install-2b-balance-confirm/`（proposal / specs ×4 /
 | 头部铃铛下拉点同一通知 | 同一落点；该单已确认时页面提示"尾款已于…确认" |
 | 销售在通知页点"已装完"通知 | 打开工艺单详情（创建人可读） |
 | 销售打开 `/accounting?tab=balance` | 被重定向，看不到"待收尾款" |
+| 只持 `bids` 的人打开 `/accounting?tab=balance`（spec「无权页签的 URL 参数」） | **未在浏览器里单独走**：页签选择是"URL 指定且可见 → 否则第一个可见页签"（`accounting-view.tsx` load 内），`balance` 接口对 bids 返回 403 → 页签不可见 → 落到"项目结算"；按代码审查判定 |
 
 截图：`docs/install-2b-screenshots/01-balance-tab.png`、`02-confirm-dialog-mismatch.png`、`03-after-confirm.png`、`04-bell-landing.png`、`05-sales-order-detail.png`。
 
