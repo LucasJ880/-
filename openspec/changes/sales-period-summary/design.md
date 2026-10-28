@@ -12,7 +12,7 @@
 - 报价版本：`SalesQuote.version` = 该**客户**已有报价数 + 1（`src/app/api/sales/quotes/route.ts:213,222`、`measurements/[id]/generate-quote/route.ts:81,97`），不是按商机的版本号。客户要求修改时销售新建一行报价，旧行保持 sent / viewed；已签报价被修改时是**同一行**清签字回 `draft`（`src/lib/sales/quote-update.ts:298-302`），仓库里没有复制报价的路径。所以：同一商机下多份**已签**报价 = 多张合同（每份各自走签字后工艺单生成，有可生产行时各生成一张，`openspec/specs/sunny/process-order-autogen`）；多份**未签**报价 = 同一提案的修订版。
 - `sentAt` 语义不纯：`mark-sent` 保留首次 `sentAt`（`mark-sent/route.ts:63`），邮件发送与邮件撰写会覆盖为当下（`send-email/route.ts:126`、`src/app/api/sales/email-compose/route.ts:158`）；已签报价被修改回 draft 时 `sentAt` 保留（`quote-update.ts` 不写 `sentAt`）。外贸转入的销售报价复制外贸状态与币种、不写 `sentAt` / `signedAt`（`src/lib/trade/trade-quote-sales-quote.ts:403,435,446`），币种可能不是 CAD。
 - 销售首页与统计排除已归档客户（`customer.archivedAt = null`），由 `src/lib/sales/__tests__/archived-customer-visibility.test.ts` 强制；本口径跟随。
-- 设计稿 `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md` §7 的判断点已拍板：成单按报价签字 `grandTotal`，按人按报价创建人，LLM 叙述不在本 change；判断点 5 经交叉核对更正为 D2 的规则（待复核）。
+- 设计稿 `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md` §7 的判断点已拍板：成单按报价签字 `grandTotal`，按人按报价创建人，LLM 叙述不在本 change；判断点 5 经交叉核对更正为 D2 的规则，2026-10-28 用户确认。
 
 ## Goals / Non-Goals
 
@@ -52,7 +52,9 @@
 
 ### D4 洞察是规则表
 - `src/lib/sales/period/insights.ts` 导出 `INSIGHT_RULES: InsightRule[]`，每条 `{ code, scope: "org" | "any", when(summary, calendar) => evidence | null, text(evidence) => string, severity(evidence) }`；`buildPeriodInsights(summary, calendar, scope)` 顺序遍历、过滤 `scope`。阈值（20% / 14 天 / 30% / 10 / 60% / 5 / 3 / 40%）作为常量放在同一文件顶部。
-- I5 / I6 标 `scope: "org"`，PRINCIPAL 范围永不出现；I3 / I4 / I7 在 own 范围只用本人数字。
+- I5 / I6 标 `scope: "org"`，PRINCIPAL 范围永不出现；I3 / I4 / I7 在 own 范围只用本人数字。I8 / I9 也标 `org`：日程来源是企业级数据（I8 的证据含他人创建者邮箱），CAL-1 接入时再评估销售范围是否开放。
+- I5 需要上一期的按人数据：口径层内部同时算出上一期 byRep 供洞察使用，不进入 API 响应。
+- I7 读 `totals.wonWithoutDepositCount` / `wonWithoutDepositAmount`（spec"在手未签与定金"要求）。
 - I8 / I9 读 `calendar` 参数，本 change 传 `null` → 永不触发；CAL-1 接入时只改调用方传参。
 - 否决：把洞察写在 React 组件里 —— Muse 与 KPI-2 拿不到。
 
@@ -104,7 +106,7 @@
 - [外贸转入的报价没有 `sentAt` / `signedAt`，不进入任何指标；非 CAD 报价不汇总] → `totals.nonCadExcludedCount` 显示被排除的行数；报告写明。
 - [排除已归档客户后，历史期间的成单额会随归档操作变小] → 与首页约定一致，报告"已知限制"写明；若老板要"财务口径不随归档变化"，另开 change。
 - [同一商机"最新一份"规则与首页 `recentSigned` 列表（逐行）数字不一致] → 首页列表是明细不是汇总，报告 §判断点写明；驾驶舱标签已标"商机估值"。
-- [`OR` 三段取数在大企业可能捞出数千行] → 单次查询只选 12 个标量字段；Sunny 年报价量在千级，内存聚合可接受；上限 20,000 行，超出返回 `truncated: true` 并在 `insights` 加一条 warn（不静默）。
+- [`OR` 三段取数在大企业可能捞出数千行] → 单次查询只选 12 个标量字段；Sunny 年报价量在千级，内存聚合可接受；上限 20,000 行，超出返回 `truncated: true`，面板显示"数据量超过上限，结果不完整"（不静默；不另加洞察码，洞察只按 spec 的九条规则）。
 - [浏览器日期与组织时区不同（出差）导致预设"本月至今"首屏差一天] → 以服务端返回的 `period` 为准回显（D7）。
 - [Muse 契约加 `superRefine` 可能影响既有 `VALIDATION_FAILED` 错误文案] → 只在 `period` 存在时触发；`muse-bridge-pure.test.ts` 既有 61 条用例须全部不变。
 

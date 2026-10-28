@@ -5,7 +5,7 @@
 | 项 | 值 |
 |---|---|
 | 最后更新 | 2026-10-28（会话 1：设计稿 + KPI-1 四件套 + 三轮交叉核对，共更正 17 处；**未写任何代码**） |
-| 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板，判断点 5 已更正、待复核） |
+| 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
 | 进行中的 change | `openspec/changes/sales-period-summary/`（KPI-1；四件套齐，`validate --strict` 通过；**等审，未 apply**） |
 | 工作分支 | `claude/magical-shannon-keegzr`（基于 origin/main `ed3b55f`，2026-10-28 核对时 main 未前进） |
@@ -37,7 +37,7 @@
 | 2 | book-now 写日历的身份：**未知**，运维前置第 2 条去查 | 待查 |
 | 3 | 成单按报价签字 `grandTotal`（含税），同时给税前 | 按推荐 |
 | 4 | 按人归属 = 报价创建人 `createdById` | 按推荐 |
-| 5 | **已更正，待 Evan / Lucas 复核**：成单不去重（每份已签报价各计）；报价按商机去重，但已签每份都计、未签只计最新一份 | 交叉核对后更正（见 §4-③） |
+| 5 | **已更正，2026-10-28 用户确认（"判断点5按更正后的来"）**：成单不去重（每份已签报价各计）；报价按商机去重，但已签每份都计、未签只计最新一份 | 交叉核对后更正（见 §4-③） |
 | 6 | LLM 叙述单独做 KPI-2，默认关 | 按推荐 |
 | 7 | 日程变更通知收件人 = owner + ops_lead（可配置） | 按推荐 |
 | 8 | 通知只走站内，Muse / 微信留 CAL-2 | 按推荐 |

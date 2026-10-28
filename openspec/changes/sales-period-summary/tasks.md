@@ -2,8 +2,8 @@
 
 ## 1. 口径与洞察（纯函数）
 
-- [ ] 1.1 新建 `src/lib/sales/period/summary-pure.ts`（`periodBounds` / `defaultPeriod` / `comparisonPeriod` / `summarizeSalesPeriod`，含 D2 去重、D3 时区边界、own 范围、`truncated`）与 `src/lib/sales/period/types.ts`；写 `src/lib/sales/__tests__/period-pure.test.ts`（同商机两份已签都计、签字后修改回 draft 不计、估值不进成单金额、同商机未签修订版只计最新而已签每份都计、在手未签不重复计旧修订版、expired / rejected 计入报价、USD 报价不汇总且 `nonCadExcludedCount` 计 1、报价数 0 转化率 null、当地 23:30 计入 / 次日 00:10 不计、prev_period / prev_month 含 3 月 31 日→2 月 28 日、sentAt 空的已签报价、own 范围只含本人）并在 `scripts/test-all.sh` 注册。verify：`npx tsx src/lib/sales/__tests__/period-pure.test.ts` 退出 0；`scripts/check-test-registry.sh` 通过。
-- [ ] 1.2 新建 `src/lib/sales/period/insights.ts`（`INSIGHT_RULES` 九条 + `buildPeriodInsights`，阈值常量集中在文件顶部，I5 / I6 标 `scope: "org"`，I8 / I9 读 `calendar`）；写 `src/lib/sales/__tests__/period-insights.test.ts`（每条规则 触发 / 不触发 / 边界 三例；own 范围不出 I5 / I6；`calendar=null` 不出 I8 / I9；对比期为 0 不出 I1 / I2）并注册。verify：`npx tsx src/lib/sales/__tests__/period-insights.test.ts` 退出 0。
+- [x] 1.1 新建 `src/lib/sales/period/summary-pure.ts`（`periodBounds` / `defaultPeriod` / `comparisonPeriod` / `summarizeSalesPeriod`，含 D2 去重、D3 时区边界、own 范围、`truncated`）与 `src/lib/sales/period/types.ts`；写 `src/lib/sales/__tests__/period-pure.test.ts`（同商机两份已签都计、签字后修改回 draft 不计、估值不进成单金额、同商机未签修订版只计最新而已签每份都计、在手未签不重复计旧修订版、expired / rejected 计入报价、USD 报价不汇总且 `nonCadExcludedCount` 计 1、报价数 0 转化率 null、当地 23:30 计入 / 次日 00:10 不计、prev_period / prev_month 含 3 月 31 日→2 月 28 日、sentAt 空的已签报价、own 范围只含本人）并在 `scripts/test-all.sh` 注册。verify：`npx tsx src/lib/sales/__tests__/period-pure.test.ts` 退出 0；`scripts/check-test-registry.sh` 通过。
+- [x] 1.2 新建 `src/lib/sales/period/insights.ts`（`INSIGHT_RULES` 九条 + `buildPeriodInsights`，阈值常量集中在文件顶部，I5 / I6 标 `scope: "org"`，I8 / I9 读 `calendar`）；写 `src/lib/sales/__tests__/period-insights.test.ts`（每条规则 触发 / 不触发 / 边界 三例；own 范围不出 I5 / I6；`calendar=null` 不出 I8 / I9；对比期为 0 不出 I1 / I2）并注册。verify：`npx tsx src/lib/sales/__tests__/period-insights.test.ts` 退出 0。
 
 ## 2. 取数与 API
 

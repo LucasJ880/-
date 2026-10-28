@@ -37,11 +37,15 @@
 - **THEN** `conversionRate` 为 `null`，不是 0 也不是错误
 
 ### Requirement: 在手未签与定金
-期间汇总 SHALL 给出在手未签的数量与金额：取报价口径所计报价中 `signedAt` 为空、状态为 `sent` 或 `viewed` 的（同一提案的旧修订版不重复计），以及其中发出已超过 14 天的子集数量与金额；SHALL 给出 `depositCollectedAt` 落在期间内的 `depositAmount` 之和。
+期间汇总 SHALL 给出在手未签的数量与金额：取报价口径所计报价中 `signedAt` 为空、状态为 `sent` 或 `viewed` 的（同一提案的旧修订版不重复计），以及其中发出已超过 14 天的子集数量与金额；SHALL 给出 `depositCollectedAt` 落在期间内的 `depositAmount` 之和；SHALL 给出本期成单中 `depositCollectedAt` 为空（未登记定金）的数量与金额。
 
 #### Scenario: 超过 14 天的子集
 - **WHEN** 在手未签 5 份，其中 2 份 `sentAt` 距统计时刻超过 14 天
 - **THEN** `openQuotedCount` 为 5，`staleOpenCount` 为 2，两者金额各自为对应报价 `grandTotal` 之和；`period-pure.test.ts` 覆盖
+
+#### Scenario: 已签未登记定金
+- **WHEN** 本期成单 4 份，其中 1 份已登记定金
+- **THEN** `wonWithoutDepositCount` 为 3，`wonWithoutDepositAmount` 为另 3 份 `grandTotal` 之和；`period-pure.test.ts` 覆盖
 
 ### Requirement: 只汇总 CAD 报价
 期间汇总的金额与计数 SHALL 只计币种为 CAD 的报价；落在期间内的非 CAD 报价 SHALL NOT 计入任何指标，其行数 SHALL 在 `totals.nonCadExcludedCount` 中给出。
@@ -94,11 +98,18 @@
 - **THEN** 响应中不含本企业任何报价的数字
 
 ### Requirement: 响应结构
-成功响应 SHALL 含 `period`（from / to / days / timezone）、`scope`（`org` 或 `own`）、`totals`、`comparison`（kind / period / totals / delta）、`byRep`、`insights`、`calendar`（本 change 固定为 `null`）、`narrative`（本 change 固定为 `null`）。`totals` SHALL 含 `wonCount`、`wonAmount`、`wonPreTax`、`quotedCount`、`quotedAmount`、`conversionRate`、`openQuotedCount`、`openQuotedAmount`、`staleOpenCount`、`staleOpenAmount`、`depositAmount`、`nonCadExcludedCount`；金额单位为 CAD。
+成功响应 SHALL 含 `period`（from / to / days / timezone）、`scope`（`org` 或 `own`）、`totals`、`comparison`（kind / period / totals / delta）、`byRep`、`insights`、`calendar`（本 change 固定为 `null`）、`narrative`（本 change 固定为 `null`）。`totals` SHALL 含 `wonCount`、`wonAmount`、`wonPreTax`、`quotedCount`、`quotedAmount`、`conversionRate`、`openQuotedCount`、`openQuotedAmount`、`staleOpenCount`、`staleOpenAmount`、`depositAmount`、`wonWithoutDepositCount`、`wonWithoutDepositAmount`、`nonCadExcludedCount`；金额单位为 CAD。
 
 #### Scenario: 字段齐全
 - **WHEN** 老板请求 `from=2026-10-01&to=2026-10-28`
 - **THEN** 响应含上述全部键，`period.days` 为 28，`calendar` 与 `narrative` 为 `null`；`period-db.isolated.test.ts` 覆盖
+
+### Requirement: 取数上限不静默
+单次期间汇总取数 SHALL 有行数上限（20,000 行）；命中上限时响应 SHALL 带 `truncated: true` 且看板 SHALL 显示结果不完整的提示，未命中时 `truncated` 为 `false`。
+
+#### Scenario: 未命中上限
+- **WHEN** 老板请求 10 月期间汇总，企业 10 月报价远少于上限
+- **THEN** 响应 `truncated` 为 `false`；`period-pure.test.ts` 覆盖透传
 
 ### Requirement: 确定性洞察
 响应 `insights` SHALL 只由期间汇总的数字按固定规则表生成，SHALL NOT 调用任何模型，同样输入 SHALL 得到同样输出。每条洞察 SHALL 含 `code`、`severity`（info / warn）、`text`、`evidence`。规则为：成单金额环比达 ±20%（I1）、报价金额环比达 ±20%（I2）、超 14 天未签金额占在手 30% 以上或条数达 5（I3）、报价数达 10 且转化率低于 30%（I4）、某创建人本期报价为 0 而上一期大于 0（I5）、单人成单金额占全企业 60% 以上且企业成单数达 5（I6）、已签未登记定金达 3 份（I7）、日程不明来源大于 0（I8）、网站预约占新建日程 40% 以上（I9）。

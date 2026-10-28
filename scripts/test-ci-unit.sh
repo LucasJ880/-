@@ -295,6 +295,8 @@ npx tsx src/lib/muse-bridge/__tests__/inquiry-pure.test.ts
 npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts
 # PERM-4a：签约单改总价审批判定（纯函数）
 npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
+npx tsx src/lib/sales/__tests__/period-pure.test.ts
+npx tsx src/lib/sales/__tests__/period-insights.test.ts
 # PERM-4b：运营 / 增长中心 / 平台用户管理权限判定（纯函数 + 源码断言）
 npx tsx src/lib/operations/__tests__/ops-access.test.ts
 # PERM-5b：数字员工岗位绑定与工具授权（纯函数 + 源码断言）
