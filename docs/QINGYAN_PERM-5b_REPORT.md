@@ -1,6 +1,6 @@
 # PERM-5b 报告 — 数字员工岗位绑定与工具授权
 
-change：`openspec/changes/perm-5b-digital-employee-positions/`（proposal / specs ×5 / design / tasks 8/8）
+change：`openspec/changes/perm-5b-digital-employee-positions/`（proposal / specs ×5 / design / tasks 7/7）
 任务书：`docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md` PERM-5b 段（拍板见末尾"拍板结果 · PERM-5"）
 零 schema：数字员工复用 `Agent`；绑定用既有 `PrincipalRoleBinding.principalType` 字符串；sponsor 用 `Agent.createdById`；审计标记落 `AuditLog.afterData._runtimeCorrelation`。
 
