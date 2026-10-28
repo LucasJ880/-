@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1 / 4c2 / 4c3 已合并并 archive；4c4 已实施、PR 进行中（用户："按照你推荐的方案开始实施"）；现场续接见下一节；验收清单见文末） |
+| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1 / 4c2 / 4c3 已合并并 archive；4c4 已合并并 archive（#296）；下一个 4c5 先 propose（用户："合并后直接写 4C-5 的 proposal"）；现场续接见下一节；验收清单见文末） |
 | 主线文档 | `docs/QINGYAN_PERMISSION_TASKFLOW.md`（状态列）、`docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md`（设计与已决定） |
 | 任务书 | `docs/QINGYAN_PERM-1-2_POSITIONS_DISCOUNT_TASKBRIEF.md` |
 | 工作分支 | 会话 1：`claude/youthful-davinci-8n1we3`；会话 2：`claude/amazing-goldberg-s89rlq`（每个 change 合并后从 main 重建同名分支） |
@@ -20,7 +20,7 @@
 | 4c2 | #292 合并；archive #293 合并（specs 新增 `navigation/position-based-visibility`，`authorization/position-catalog`、`accounting/workspace` 增量） |
 | 工作方式 | 工作树 `/home/user/p4c`（本地分支 `local/perm-4c`，`node_modules` 软链主仓库）；推送 `git push -f origin local/perm-4c:claude/amazing-goldberg-s89rlq`；PR 用 merge 方式；开 PR 后订阅 + `send_later` 兜底 |
 | 4c3 | **#294 合并；archive #295 合并**（tasks 7/7；typecheck / lint:baseline / test:ci / registry 453 / validate --strict 全绿；纯 36/36、隔离库 38/38，窗饰相关既有 e2e 全过）；报告 `docs/QINGYAN_PERM-4c3_REPORT.md`、残留清单 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`；TASKFLOW `[G]`。4c4 已接着做 |
-| 4c4 | **已实施**（tasks 8/8；typecheck / lint:baseline / test:ci / registry 455 / validate --strict 全绿；纯 63/63、隔离库 17/17；相关目录 88 个测试文件 87 过、1 个需 DB）；方案：岗位派生平台角色 `src/lib/rbac/effective-platform-role.ts`（owner→boss、销售键→sales、运营键→operations、其余 user；super_admin/admin/trade 与旧模式原样），接入 `runAgent`/`runAgentStream`、AI 线程路由、微信、runtime-v2、supervisor、Muse（岗位模式忽略 org_owner）、晨报、AI 上下文、营销数字员工；报告 `docs/QINGYAN_PERM-4c4_REPORT.md`；TASKFLOW `[G]`。下一步：PR → 绿灯合并 → archive 小 PR → 合并 → propose `perm-4c5-management-reads-by-position`（回传审核） |
+| 4c4 | **#296 合并；archive 本 PR**（tasks 8/8；typecheck / lint:baseline / test:ci / registry 455 / validate --strict 全绿；纯 63/63、隔离库 17/17；相关目录 88 个测试文件 87 过、1 个需 DB）；方案：岗位派生平台角色 `src/lib/rbac/effective-platform-role.ts`（owner→boss、销售键→sales、运营键→operations、其余 user；super_admin/admin/trade 与旧模式原样），接入 `runAgent`/`runAgentStream`、AI 线程路由、微信、runtime-v2、supervisor、Muse（岗位模式忽略 org_owner）、晨报、AI 上下文、营销数字员工；报告 `docs/QINGYAN_PERM-4c4_REPORT.md`；TASKFLOW `[G]`。下一步：propose `perm-4c5-management-reads-by-position`（回传审核） |
 | 4c3 → 4c4 / 4c5 | 写库闸门 `PLATFORM_ROLE_COLLAPSE_READY=false`（`src/lib/authorization/platform-role-collapse.ts`）：4c4（清单 A 组，已实施；A2 / A6 / A8 余项转 4c5）→ 4c5（B / C / D1 / D5 + A 组余项：任务 / 运营项目 / 招投标交接 / 审批执行 / 管理总览 / 微信推送域），4c5 最后把闸门改 true 并断言；外贸（D2–D4）留 PERM-6。闸门打开前**生产不得执行压扁**。 |
 | 顺带发现 | `visualizer/access.ts` 对 dataScope=all（平台 admin / boss）不按企业过滤，跨企业可见——已提独立任务卡；`sunny-process/autogen-db.isolated` 在 main 上失败（NO_BINDING）——已提任务卡 |
 
@@ -44,7 +44,7 @@
 | `perm-4c1-project-finance` | 已合并 main；已 archive（specs 新增 `projects/finance-access`、`projects/handoff-access`，`authorization/position-catalog` 增量）（新键 `project.finance.manage` 只给 owner；财务 / 报价引擎特权不再认 `org_admin`；会计非成员只读进单项目财务；删 `canManageUsers`）；typecheck / lint:baseline / test:ci / registry 全绿；authorize 146、finance-access 27/27、隔离库 e2e 18/18；报告 `docs/QINGYAN_PERM-4c1_REPORT.md` | #290 ✅；archive #291 ✅ |
 | `perm-4c2-nav-by-position` | 6/6 tasks；代码完成（新键 `organization.dashboard.read` 只给 owner；岗位模式 = 行业包有岗位模板；岗位模式下管理层 / 销售工作区 / 默认落地 / 侧栏 / 底栏全部按键，外贸入口按平台 `trade` 或管理层；平台用户管理两种模式只 super_admin；旧模式与 main 96 组合对比只差该入口）；typecheck / lint:baseline / test:ci / registry 全绿；authorize 150、position-nav 86/86；报告 `docs/QINGYAN_PERM-4c2_REPORT.md`；已 archive（specs 新增 `navigation/position-based-visibility`，`authorization/position-catalog`、`accounting/workspace` 增量） | #292 ✅；archive #293 ✅ |
 | `perm-4c3-collapse-platform-roles` | 7/7 tasks；代码完成（压扁工具 `scripts/collapse-platform-roles.ts` + 规划 / 执行器 + `--restore`；写库闸门 `PLATFORM_ROLE_COLLAPSE_READY=false`；前置拒绝：非岗位模式 / 缺绑定 / 同时是旧模式企业成员；岗位模式企业关闭成员角色兼容回退；残留清单 `docs/QINGYAN_PERM-4c3_RESIDUAL_ROLE_READS.md`）；typecheck / lint:baseline / test:ci / registry 全绿；纯 36/36、隔离库 38/38；报告 `docs/QINGYAN_PERM-4c3_REPORT.md`；已 archive（specs 新增 `authorization/platform-role-collapse`，`authorization/position-binding`、`platform-admin-authority` 增量） | #294 ✅；archive #295 ✅ |
-| `perm-4c4-ai-tools-by-position` | 8/8 tasks；代码完成（岗位派生平台角色；AI 工具 / 能力 / 微信域 / Muse 决定 B / 晨报 / AI 上下文 / 营销数字员工按岗位，压扁前后等价）；typecheck / lint:baseline / test:ci / registry 全绿；纯 63/63、隔离库 17/17；报告 `docs/QINGYAN_PERM-4c4_REPORT.md`；TASKFLOW `[G]` | 本 PR |
+| `perm-4c4-ai-tools-by-position` | 8/8 tasks；代码完成（岗位派生平台角色；AI 工具 / 能力 / 微信域 / Muse 决定 B / 晨报 / AI 上下文 / 营销数字员工按岗位，压扁前后等价）；typecheck / lint:baseline / test:ci / registry 全绿；纯 63/63、隔离库 17/17；报告 `docs/QINGYAN_PERM-4c4_REPORT.md`；已 archive（specs 新增 `agents/position-derived-role`，`agents/tool-authorization` 增量） | #296 ✅；archive 本 PR |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
@@ -80,7 +80,7 @@
 10. 进行中：**PERM-4c**（拆为 4c1 / 4c2 / 4c3，拍板见任务书"拍板结果 · PERM-4c"）。~~4c1~~ 已合并（#290）并 archive（#291）：**生产动作**——合并后对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner 加 `project.finance.manage`）；只靠 `org_admin` 的人失去项目财务 / 报价引擎特权（两功能生产默认关，当前无线上影响），启用前给需要的人（含梦馨）绑 `owner`。原计划（判断点已拍板：先压 Sunny、梦馨不动、Sunny 无人用 `manager`）——项目财务 `project.finance.*` 收口（含会计进单项目财务页、`requireProjectReadAccess` 口径）、导航 `requiredPermissions` 铺开删 `requiredPlatformRoles / NAV_ROLES_*`、默认工作区去平台角色、平台角色压扁脚本、删除 `canManageUsers`（含 `src/lib/projects/handoff/access.ts`）。先 `/opsx:propose perm-4c-nav-by-position`，四件套回传审核。
    - ~~4c2~~ 已合并（#292）并 archive（#293）（导航 / 落地 / 底栏按岗位）。**生产动作**：合并后对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner 加 `organization.dashboard.read`）；确认 Sunny 老板都绑了 `owner`、Sunny `industryPackId = window_covering_services_v1`——否则老板合并后落到各自岗位工作区、看不到企业经营。平台 admin / boss / manager 在任何企业都不再看到"平台用户管理"入口（接口自 4b 起就只认 super_admin）。下一个 4c3（压扁脚本 + 窗饰企业关闭兼容回退），先 propose。
    - ~~4c3~~ 已合并（#294）并 archive（#295）（压扁工具 + 写库闸门 + 岗位模式企业关闭兼容回退 + 残留清单）。**生产动作**：合并即生效的只有兼容回退收口——合并前后对 Sunny 跑 `bind-positions --dry-run` 确认全员有 active 绑定（`config/positions/sunny.json` 的 `TODO:` 先填）；可跑 `ALLOW_ROLE_COLLAPSE=true npx tsx scripts/collapse-platform-roles.ts --org <sunny> --actor <lucas> --dry-run` 核对名单与阻断（尤其有没有人同时在梦馨）。**不要**执行真正压扁（闸门会拒绝）。
-   - **4c4** 本 PR（AI 一侧按岗位：岗位派生平台角色）。**生产动作**：合并即生效——Sunny 的 AI 工具 / Muse / 晨报按岗位；没绑 `owner` 的 `org_owner` 在 Muse 失去全组织与金额；核对生产 `*_ROLE_ALLOWLIST` 环境变量（见 4c4 报告 §4）。
+   - ~~4c4~~ 已合并（#296）并 archive（本 PR）（AI 一侧按岗位：岗位派生平台角色）。**生产动作**：合并即生效——Sunny 的 AI 工具 / Muse / 晨报按岗位；没绑 `owner` 的 `org_owner` 在 Muse 失去全组织与金额；核对生产 `*_ROLE_ALLOWLIST` 环境变量（见 4c4 报告 §4）。
    - ~~`fix-taskflow-status-drift` 未 archive~~：提交已在 main，2026-10-28 补 archive（specs 新增 `qa/taskflow-status`，`qa/test-registry` 增量）。
 
 ## 环境注意
@@ -118,7 +118,7 @@
 | #290 / #291 | PERM-4c1 项目财务 / 报价引擎按岗位（+ archive） |
 | #292 / #293 | PERM-4c2 导航 / 默认落地 / 底栏按岗位（+ archive） |
 | #294 / #295 | PERM-4c3 平台角色压扁工具（闸门关闭）+ 窗饰企业关闭兼容回退（+ archive） |
-| 4c4 PR | PERM-4c4 AI 一侧按岗位（岗位派生平台角色） |
+| #296 / 本 PR | PERM-4c4 AI 一侧按岗位（岗位派生平台角色）（+ archive） |
 
 每个 PR：CI `validate-lint-typecheck-test-build` 绿；本地 typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e：4b 32/32、5b 34/34、5a 27/27（5a rebase 后三套一起复跑通过）；`openspec validate --strict` 通过。
 
@@ -143,4 +143,4 @@
 - 5b 审批人 = 数字员工的 sponsor（Agent 创建人），不是"该岗位所有人"——PendingAction 只有一个审批人列（5b 报告 §3）。
 
 ### E. 下一个
-4c4 PR 合并 + archive 后：`perm-4c5-management-reads-by-position`（清单 B / C / D1 / D5 + A 组余项，含招投标交接）先 propose 回传审核；4c5 打开写库闸门；之后 Lucas 在生产执行压扁（先 dry-run）。外贸收件人 / revenue-spine 留 PERM-6。
+下一个：`perm-4c5-management-reads-by-position`（清单 B / C / D1 / D5 + A 组余项，含招投标交接）先 propose 回传审核；4c5 打开写库闸门；之后 Lucas 在生产执行压扁（先 dry-run）。外贸收件人 / revenue-spine 留 PERM-6。
