@@ -315,6 +315,18 @@ ok(
   "PERM-2：org_owner 系统模板不含成员 / 岗位 / 策略管理，仍含 audit.read",
 );
 
+console.log("PERM-4c1 项目财务管理权限键");
+{
+  const pm = getPermissionDefinition("project.finance.manage");
+  ok(!!pm && pm.riskLevel === "HIGH" && pm.supportedScopes.join() === "ORG" && pm.allowedPrincipalTypes.join() === "HUMAN", "project.finance.manage 已登记（HIGH，ORG，仅人类）");
+  ok(has(mergedProfileBindings(WC, "owner"), "project.finance.manage", "ORG"), "owner：project.finance.manage ORG");
+  // seed 会把 org_owner / org_admin 成员自动绑到同名系统模板——挂在模板上等于保留 org_admin 特权
+  ok(!has(bindingsFromSystemProfile("org_owner"), "project.finance.manage") && !has(bindingsFromSystemProfile("org_admin"), "project.finance.manage"), "系统模板 org_owner / org_admin 不含 project.finance.manage");
+  for (const k of ["bids", "accounting", "sales_rep", "pricing_lead", "ops_staff", "ops_lead", "installer", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    ok(!has(mergedProfileBindings(WC, k), "project.finance.manage"), `${k} 不含 project.finance.manage`);
+  }
+}
+
 console.log("PERM-5a 项目结算权限键");
 {
   const pf = getPermissionDefinition("project.finance.read");

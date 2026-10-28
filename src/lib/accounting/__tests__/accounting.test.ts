@@ -185,7 +185,9 @@ console.log("PERM-5a 接口源码：权限与不输出字段");
   ok(/resolveProjectFinanceScope\(user, orgRes\.orgId\)/.test(pr), "项目结算按 project.finance.read 范围");
   const access = read("src/lib/accounting/access.ts");
   ok(/d\.scopes\.includes\("ORG"\)/.test(access), "成交 / 报价要求 ORG 范围");
-  ok(!/project\.finance\.read|accounting/.test(read("src/lib/project-finance/access.ts")), "既有单项目财务授权未改（D4）");
+  // 5a D4 把"会计进单项目财务页"留给 PERM-4c1：现在单项目财务守卫按结算只读键放行读（不放行写）
+  const pfAccess = read("src/lib/project-finance/access.ts");
+  ok(/PROJECT_FINANCE_READ = "project\.finance\.read"/.test(pfAccess) && /input\.permission === PERMISSIONS\.PROJECT_COST_READ/.test(pfAccess), "单项目财务：结算只读键只放行读（PERM-4c1 接手 5a D4）");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

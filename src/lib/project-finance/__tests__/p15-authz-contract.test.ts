@@ -137,7 +137,9 @@ test("§BLOCKER2/3 freezeAwardBaseline：中标资格 + 来源当前 ACTIVE + �
 
 test("requireCostAccess 叠加细粒度权限并在缺权时 403（feature dark → 404）", () => {
   const access = read("access.ts", LIB);
-  assert.ok(access.includes("hasProjectPermission(access.projectRole, permission)"),
+  // PERM-4c1：判定集中到 allowCostPermission（特权 / 结算只读 / 项目角色）
+  assert.ok(access.includes("hasProjectPermission(input.projectRole, input.permission)") &&
+    access.includes("allowCostPermission({ finance, projectRole: access.projectRole, permission })"),
     "requireCostAccess 须校验 hasProjectPermission");
   assert.ok(access.includes("status: 403"), "缺权应 403");
   assert.ok(access.includes("financeDisabledResponse") && access.includes("status: 404"),

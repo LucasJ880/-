@@ -220,6 +220,17 @@ const REGISTRY_ENTRIES: PermissionDefinition[] = [
   // PERM-5a：项目结算汇总；ASSIGNED = 本人参与（成员 / 负责人）的项目
   def("project.finance.read", "project.finance", "read", "查看项目结算", "查看项目收入 / 费用 / 应付 / 结余汇总", ["ASSIGNED", "ORG"], "HIGH"),
   {
+    // PERM-4c1：项目财务 / 报价引擎特权（编辑预算、审核费用、登记付款、替他人提交）；取代 org_admin 特权
+    key: "project.finance.manage",
+    resource: "project.finance",
+    action: "manage",
+    label: "管理项目财务",
+    description: "编辑项目预算、审核费用、登记付款，报价引擎看内部成本 / 编辑 / 批准",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+  {
     key: "identity.position.manage",
     resource: "identity.position",
     action: "manage",
