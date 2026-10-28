@@ -18,7 +18,7 @@
 | `perm-2-discount-by-position` | 已合并 main；已 archive（specs 合入 `identity/member-management`、`sales/discount-tiering`、`sales/quote-delivery-gate`、`sales/quote-settings-approval`） | #265 ✅ |
 | `perm-3-fulfillment-by-category` | 已合并 main；已 archive（specs 新增 `fulfillment/order-category-access`、`fulfillment/order-cancellation-approval`、`inventory/fabric-stock-access`，`authorization/position-catalog`、`sunny/process-order-autogen` 增量）；合并 main 时与 sunny-process 整合（报告 §5b / design D8） | #274 ✅；archive #276 ✅ |
 | `perm-4a-sales-authorize` | 已合并 main；已 archive（specs 新增 `sales/record-access`、`sales/signed-quote-amount-approval`，`authorization/position-catalog` 增量）；报告 `docs/QINGYAN_PERM-4a_REPORT.md` | #279 ✅ |
-| `perm-4b-ops-authorize` | 8/8 tasks；代码完成（新键 `operations.content.draft / approve`；运营配置 12 路由、Playbook 12 路由、发布任务 3 路由按岗位；增长中心写 `operations.manage`；平台用户管理仅 super_admin；`/ops` 入口按岗位、ops API 注入权限键）；typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e 25/25；报告 `docs/QINGYAN_PERM-4b_REPORT.md`；TASKFLOW `[G]` | PR 待开 |
+| `perm-4b-ops-authorize` | 已合并 main（新键 `operations.content.draft / approve`；运营配置 12 路由、Playbook 12 路由、发布任务 3 路由按岗位；增长中心写 `operations.manage`；平台用户管理仅 super_admin；`/ops` 入口按岗位、ops API 注入权限键）；typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e 32/32；全量 `npm test` 450/463（13 条为既有环境性失败，与基线一致）；报告 `docs/QINGYAN_PERM-4b_REPORT.md`；已 archive（specs 新增 `operations/config-access`、`operations/content-approval`、`marketing/growth-center-access`） | #283 ✅；archive 本 PR |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
@@ -41,8 +41,8 @@
 5. ~~PERM-3 / PERM-4 / PERM-5 任务书~~ 已写：`docs/QINGYAN_PERM-3_FULFILLMENT_BY_CATEGORY_TASKBRIEF.md`、`docs/QINGYAN_PERM-4_PLATFORM_ROLE_CLOSEOUT_TASKBRIEF.md`、`docs/QINGYAN_PERM-5_ACCOUNTING_DIGITAL_EMPLOYEE_TASKBRIEF.md`。每份末尾有「判断点」，**先让 Lucas 拍板再 propose**。
 6. ~~PERM-3~~ 已合并（#274）并 archive（#276）。**生产动作**：对 Sunny 重跑 `seedOrgAuthorizationProfiles`（出单模板变了），并确认工厂人员已绑定对应 `fulfillment_*` 岗位——自动生成工艺单的草稿核对（改参数 / 挪行 / 确认）现在要求本单全部品类键（报告 §5b）。
 7. ~~PERM-4a~~ 已合并（#279）并 archive（本 PR）。**生产动作**：合并前应已查平台 `admin` 账号补岗位（平台 admin 在销售区不再有隐含权限）——若未做，尽快补；对 Sunny 重跑 `seedOrgAuthorizationProfiles`（owner +5 键）。Sunny 若只有一位老板，签约单改总价会 409 `NO_APPROVER`，只能 Lucas 直接改。
-8. PERM-4b 代码完成待 PR（拍板见任务书"拍板结果 · PERM-4b"）。**生产动作**：合并后对 Sunny 重跑 `seedOrgAuthorizationProfiles`（ops_staff / ops_lead / owner 模板变了），确认 Marty（`ops_lead`）/ Maggie（`ops_staff`）绑定生效，否则 Maggie 进不了运营中心。老板改不了运营配置 / 增长中心（只看 + 批内容）。
-9. 下一个：PERM-5（用户 2026-10-28："4b 之后继续做 5"）。PERM-5a 依赖 4c 的 `project.finance.*`，PERM-5b 只依赖 PERM-1——开工前确认先做哪段。4c（判断点已拍板：先压 Sunny、梦馨不动、Sunny 无人用 `manager`）排在 5 之后或之前由用户定。
+8. ~~PERM-4b~~ 已合并（#283）并 archive（本 PR）。**生产动作**：对 Sunny 重跑 `seedOrgAuthorizationProfiles`（ops_staff / ops_lead / owner 模板变了），确认 Marty（`ops_lead`）/ Maggie（`ops_staff`）绑定生效，否则 Maggie 进不了运营中心。老板改不了运营配置 / 增长中心（只看 + 批内容）。
+9. 进行中：PERM-5（用户 2026-10-28："5a 和 5b 都按推荐做"，拍板见任务书末尾"拍板结果 · PERM-5"）。顺序：5b 先（只依赖 PERM-1），5a 后（自带 `project.finance.read` 一个键，不等 4c）。4c 排在 5 之后。
 
 ## 环境注意
 
