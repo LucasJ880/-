@@ -15,7 +15,7 @@
 
 ## 3. 集成检查
 
-- [ ] 3.1 全量门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`npm test`、`npx -y @fission-ai/openspec@1.15.0 validate visualizer-org-boundary --strict` 全绿；`grep -rn "isGlobalScope" src/app/api/visualizer src/lib/visualizer` 只命中 `access-policy.ts`。
+- [x] 3.1 全量门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`npm test`、`npx -y @fission-ai/openspec@1.15.0 validate visualizer-org-boundary --strict` 全绿；`grep -rn "isGlobalScope" src/app/api/visualizer src/lib/visualizer` 只命中 `access-policy.ts`。
 
 ## Workflow follow-up
 
