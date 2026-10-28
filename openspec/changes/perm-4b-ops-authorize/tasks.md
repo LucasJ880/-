@@ -11,7 +11,7 @@
 
 ## 3. 运营内容分权
 
-- [ ] 3.1 `playbook/permissions.ts` 改异步按键（D2）；12 个 Playbook 路由（matrix-accounts / matrix-groups 下 list / detail / ai-draft / submit / approve / reject 与 effective-context）改为 `await` + 传 `orgId`；approve 做自批判定、reject 不做；`playbook.test.ts` 平台角色用例改为岗位键用例。verify：`npx tsx src/lib/operations/__tests__/playbook.test.ts` 通过；`grep -rnE "role === \"(operations|manager)\"|isBoss\(" src/lib/operations/playbook` 为空。
+- [x] 3.1 `playbook/permissions.ts` 改异步按键（D2）；12 个 Playbook 路由（matrix-accounts / matrix-groups 下 list / detail / ai-draft / submit / approve / reject 与 effective-context）改为 `await` + 传 `orgId`；approve 做自批判定、reject 不做；`playbook.test.ts` 平台角色用例改为岗位键用例。verify：`npx tsx src/lib/operations/__tests__/playbook.test.ts` 通过；`grep -rnE "role === \"(operations|manager)\"|isBoss\(" src/lib/operations/playbook` 为空。
 - [ ] 3.2 发布任务（D3）：`canApprovePublishJob(user, orgId)` 判 `operations.content.approve`；`approveAndDispatchJob` 自批改 `selfApprovalBlocked`（去掉 Boss 例外，参数 `actorRole` → `isPlatformSuperAdmin`）；`publish-jobs` 列表 GET 要 `operations.read`；approve / reject 路由同步。verify：`grep -rn "isBoss(" src/lib/operations/service.ts` 为空；publish-pipeline 相关已注册测试通过；typecheck。
 
 ## 4. 增长中心与平台用户管理
