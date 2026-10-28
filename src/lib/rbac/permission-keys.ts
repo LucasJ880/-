@@ -14,3 +14,18 @@ export async function loadPermissionKeys(userId: string, orgId: string): Promise
     return null;
   }
 }
+
+/**
+ * PERM-4c2：岗位模式——企业行业包有岗位模板时，导航 / 默认落地 / 管理层按岗位权限键（窗饰）；
+ * 否则沿用平台角色旧规则（梦馨）。查询失败按旧模式（不改变现有行为）。
+ */
+export async function loadPositionMode(orgId: string): Promise<boolean> {
+  try {
+    const { db } = await import("@/lib/db");
+    const { hasPositionTemplates } = await import("@/lib/authorization/role-defaults");
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: { industryPackId: true } });
+    return hasPositionTemplates(org?.industryPackId);
+  } catch {
+    return false;
+  }
+}

@@ -229,6 +229,7 @@ run_test "Trade Outreach Sequence" "npx tsx src/lib/trade/__tests__/outreach-seq
 run_test "Trade Product Sample" "npx tsx src/lib/trade/__tests__/product-sample.test.ts"
 run_test "Navigation IA" "npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts"
 run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts"
+run_test "Navigation Position Mode (PERM-4c2)" "npx tsx src/lib/navigation/__tests__/position-nav.test.ts"
 run_test "Autopilot A0 Access" "npx tsx src/lib/autopilot/__tests__/access.test.ts"
 run_test "Autopilot A0 Sanitize" "npx tsx src/lib/autopilot/__tests__/sanitize.test.ts"
 run_test "Autopilot A0 Repository Org" "npx tsx src/lib/autopilot/__tests__/repository-org.test.ts"

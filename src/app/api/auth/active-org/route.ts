@@ -13,6 +13,7 @@ import {
 import { db } from "@/lib/db";
 import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy";
 import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
+import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
 
 /**
  * GET /api/auth/active-org
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
   let orgRole: string | null = null;
   let hasBidCapability = false;
   let permissionKeys: string[] = [];
+  let positionMode = false;
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
@@ -53,6 +55,8 @@ export async function GET(request: NextRequest) {
       parseOrgModulesJson(org?.modulesJson),
       org?.industryPackId,
     );
+    // PERM-4c2：行业包有岗位模板 → 岗位模式（导航 / 落地按岗位键）
+    positionMode = hasPositionTemplates(org?.industryPackId);
     const [member, workspaces, projectMember] = await Promise.all([
       db.organizationMember.findUnique({
         where: {
@@ -110,6 +114,7 @@ export async function GET(request: NextRequest) {
     hasMembership: Boolean(orgRole),
     hasBidCapability,
     permissionKeys,
+    positionMode,
     needsSelection,
     orgAccessMode: access?.orgAccessMode ?? "FIXED",
     canSelfSwitchOrg: access?.canSelfSwitchOrg ?? false,

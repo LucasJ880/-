@@ -14,6 +14,8 @@ import {
   canAccessManagementWorkspace,
   canAccessOperationsWorkspace,
   canAccessSalesWorkspace,
+  isManagementWorkspaceUser,
+  isPureSalesWorker,
   workspaceContextFromNav,
 } from "@/lib/rbac/workspace-policy";
 import {
@@ -40,6 +42,7 @@ function workspaceAccessOk(
     hasMembership: ctx.hasMembership,
     hasBidCapability: ctx.hasBidCapability,
     permissionKeys: ctx.permissionKeys,
+    positionMode: ctx.positionMode,
   });
   switch (item.workspaceAccess) {
     case "management":
@@ -83,10 +86,41 @@ function modulesOk(
   return true;
 }
 
+function navWorkspaceCtx(ctx: NavigationFilterContext) {
+  return workspaceContextFromNav({
+    platformRole: ctx.platformRole,
+    orgRole: ctx.orgRole,
+    modules: ctx.modules,
+    hasMembership: ctx.hasMembership,
+    hasBidCapability: ctx.hasBidCapability,
+    permissionKeys: ctx.permissionKeys,
+    positionMode: ctx.positionMode,
+  });
+}
+
+/**
+ * PERM-4c2：岗位模式——只看岗位键（positionPermissions）、外贸例外（tradeEntry）；平台角色不参与。
+ */
+function positionPermissionOk(item: NavigationItem, ctx: NavigationFilterContext): boolean {
+  if (item.platformAdminOnly) return ctx.isPlatformAdmin;
+  if (item.tradeEntry) {
+    return ctx.platformRole === "trade" || isManagementWorkspaceUser(navWorkspaceCtx(ctx));
+  }
+  if (item.positionPermissions?.length) {
+    return (ctx.permissionKeys ?? []).some((k) => item.positionPermissions!.includes(k));
+  }
+  if (item.requiredPermissions?.length) {
+    return (ctx.permissionKeys ?? []).some((k) => item.requiredPermissions!.includes(k));
+  }
+  return true;
+}
+
 function platformRoleOk(
   item: NavigationItem,
   ctx: NavigationFilterContext,
 ): boolean {
+  if (item.superAdminOnly) return ctx.platformRole === "super_admin";
+  if (ctx.positionMode) return positionPermissionOk(item, ctx);
   if (item.platformAdminOnly) {
     return ctx.isPlatformAdmin;
   }
@@ -150,14 +184,14 @@ export function isNavItemVisible(
   ) {
     return false;
   }
-  if (isNavGroupHiddenForRole(item.group, ctx.platformRole)) return false;
-  if (isNavItemHiddenForRole(item.key, ctx.platformRole)) return false;
-  // 销售工作区：仅展示显式标记项 + SYSTEM（不复制第二份侧栏）
-  if (
-    ctx.platformRole === "sales" &&
-    item.group !== "SYSTEM" &&
-    !item.salesWorkspaceVisible
-  ) {
+  // PERM-4c2：按平台角色整组 / 单条隐藏只在旧模式执行
+  if (!ctx.positionMode && isNavGroupHiddenForRole(item.group, ctx.platformRole)) return false;
+  if (!ctx.positionMode && isNavItemHiddenForRole(item.key, ctx.platformRole)) return false;
+  // 销售工作区：仅展示显式标记项 + SYSTEM（不复制第二份侧栏）；岗位模式按"纯销售"判定
+  const salesOnlySidebar = ctx.positionMode
+    ? isPureSalesWorker(navWorkspaceCtx(ctx))
+    : ctx.platformRole === "sales";
+  if (salesOnlySidebar && item.group !== "SYSTEM" && !item.salesWorkspaceVisible) {
     return false;
   }
   if (!platformRoleOk(item, ctx)) return false;

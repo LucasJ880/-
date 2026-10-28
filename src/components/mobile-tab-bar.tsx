@@ -58,6 +58,8 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
   const [hasMembership, setHasMembership] = useState(false);
   const [hasBidCapability, setHasBidCapability] = useState(false);
   const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
+  // PERM-4c2：岗位模式（窗饰企业导航按岗位键）
+  const [positionMode, setPositionMode] = useState(false);
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -77,6 +79,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
           hasMembership?: boolean;
           hasBidCapability?: boolean;
           permissionKeys?: string[];
+          positionMode?: boolean;
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
@@ -84,6 +87,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
           setHasMembership(Boolean(data.hasMembership ?? data.orgRole));
           setHasBidCapability(Boolean(data.hasBidCapability));
           setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
+          setPositionMode(data.positionMode === true);
         }
       } catch {
         /* ignore */
@@ -94,7 +98,6 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
     };
   }, [storedOrgId]);
 
-  const isSales = user?.role === "sales";
 
   const wsCtx = useMemo(
     () =>
@@ -110,6 +113,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
           Boolean(organizations.find((o) => o.id === storedOrgId)?.myRole),
         hasBidCapability,
         permissionKeys,
+        positionMode,
       }),
     [
       user?.role,
@@ -118,10 +122,14 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
       hasMembership,
       hasBidCapability,
       permissionKeys,
+      positionMode,
       organizations,
       storedOrgId,
     ],
   );
+
+  // PERM-4c2：岗位模式下销售底栏 = 默认落地为销售首页；旧模式按平台角色 sales
+  const isSales = positionMode ? getDefaultWorkspace(wsCtx) === "/sales/home" : user?.role === "sales";
 
   if (isSales) {
     const salesTabs: TabItem[] = [

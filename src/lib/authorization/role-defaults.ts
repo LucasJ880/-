@@ -221,6 +221,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       "project.finance.read",
       // PERM-4c1：项目财务特权（取代 org_admin 直通）
       "project.finance.manage",
+      // PERM-4c2：管理层信号（岗位模式导航 / 默认落地）
+      "organization.dashboard.read",
     ),
   },
   {
@@ -367,6 +369,14 @@ export function profilesForIndustryPack(
 ): DefaultRoleProfile[] {
   if (!industryPackId) return [];
   return POSITION_PROFILE_SETS[industryPackId] ?? [];
+}
+
+/**
+ * PERM-4c2：岗位模式——企业行业包有岗位模板（窗饰）时，导航 / 默认落地 / 管理层按岗位权限键；
+ * 否则（如梦馨，无岗位）沿用平台角色旧规则。
+ */
+export function hasPositionTemplates(industryPackId: string | null | undefined): boolean {
+  return profilesForIndustryPack(industryPackId).length > 0;
 }
 
 export function positionTemplatesForIndustryPack(

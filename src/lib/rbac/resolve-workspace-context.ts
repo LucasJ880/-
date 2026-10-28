@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { parseOrgModulesJson } from "@/lib/tenancy/modules";
 import type { WorkspacePolicyContext } from "@/lib/rbac/workspace-policy";
-import { loadPermissionKeys } from "@/lib/rbac/permission-keys";
+import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
 
 const COOKIE_NAME = "qy_session";
 
@@ -37,6 +37,7 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
   let hasMembership = false;
   let hasBidCapability = false;
   let permissionKeys: string[] | null = null;
+  let positionMode = false;
 
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
@@ -70,6 +71,8 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
 
     // INSTALL-1：岗位权限键（ALLOW）注入工作区策略，用于 /install 等按权限放行的工作区
     permissionKeys = await loadPermissionKeys(user.id, resolved.orgId);
+    // PERM-4c2：岗位模式（窗饰）下管理层 / 落地按岗位键
+    positionMode = await loadPositionMode(resolved.orgId);
   }
 
   return {
@@ -81,6 +84,7 @@ export async function resolveWorkspaceContextFromCookies(): Promise<ResolvedWork
       hasMembership,
       hasBidCapability,
       permissionKeys,
+      positionMode,
     },
   };
 }

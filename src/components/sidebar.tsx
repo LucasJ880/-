@@ -259,6 +259,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   );
   const [hasBidCapability, setHasBidCapability] = useState(false);
   const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
+  // PERM-4c2：岗位模式（窗饰企业导航按岗位键）
+  const [positionMode, setPositionMode] = useState(false);
   const [capExpanded, setCapExpanded] = useState<boolean | null>(null);
   // 外贸员「更多」默认折叠，展开状态按浏览器记忆
   const [tradeMoreExpanded, setTradeMoreExpanded] = useState(false);
@@ -309,12 +311,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           hasMembership?: boolean;
           hasBidCapability?: boolean;
           permissionKeys?: string[];
+          positionMode?: boolean;
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
           setWorkspaceIds(data.workspaceIds ?? []);
           setApiOrgRole(data.orgRole ?? null);
           setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
+          setPositionMode(data.positionMode === true);
           setApiHasMembership(
             typeof data.hasMembership === "boolean"
               ? data.hasMembership
@@ -330,6 +334,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           setApiHasMembership(null);
           setHasBidCapability(false);
           setPermissionKeys([]);
+          setPositionMode(false);
         }
       }
     })();
@@ -357,6 +362,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       isPlatformAdmin,
       hasBidCapability,
       permissionKeys,
+      positionMode,
       autopilotAllowed: user?.autopilotAllowed === true,
     }),
     [
@@ -370,6 +376,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       isPlatformAdmin,
       hasBidCapability,
       permissionKeys,
+      positionMode,
       user?.autopilotAllowed,
     ],
   );

@@ -7,7 +7,7 @@
  * 不单独用 operations 推断招投标权限；不单独用裸 user 放行招投标。
  */
 
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin, isSuperAdmin } from "@/lib/rbac/roles";
 import {
   isExecutiveRole,
   isOperationsStaff,
@@ -30,6 +30,11 @@ export type WorkspacePolicyContext = {
    */
   hasBidCapability?: boolean;
   hasMembership?: boolean;
+  /**
+   * PERM-4c2：岗位模式（企业行业包有岗位模板，如窗饰）。true 时管理层 / 销售工作区 / 默认落地
+   * 只按岗位权限键，不看平台角色；缺省 false = 旧模式（平台角色规则，梦馨）。
+   */
+  positionMode?: boolean;
 };
 
 export type WorkspaceId =
@@ -83,10 +88,19 @@ function hasBidModule(ctx: WorkspacePolicyContext): boolean {
   return BID_MODULES.some((m) => mods.includes(m));
 }
 
-/** 管理层：平台管理员 / 高管 / 组织管理员 */
+/** PERM-4c2：岗位模式的管理层信号（只给 owner 岗位） */
+export const MANAGEMENT_PERMISSIONS = ["organization.dashboard.read"] as const;
+/** PERM-4c2：岗位模式的"销售专职"信号——能建报价 / 关合价（读键会计、出单岗也有，不能用） */
+export const SALES_WORK_PERMISSIONS = ["sales.quote.create", "sales.quote.pricing_close"] as const;
+const BID_HOME_PERMISSIONS = ["project.create", "project.update"] as const;
+
+/** 管理层：平台管理员 / 高管 / 组织管理员；岗位模式下 = 平台 super_admin 或老板岗位 */
 export function isManagementWorkspaceUser(
   ctx: WorkspacePolicyContext,
 ): boolean {
+  if (ctx.positionMode) {
+    return isPlatformSuperAdmin(roleOf(ctx)) || hasAnyPermission(ctx, MANAGEMENT_PERMISSIONS);
+  }
   const role = roleOf(ctx);
   if (isSuperAdmin(role) || isExecutiveRole(role)) return true;
   const org = ctx.orgRole;
@@ -140,8 +154,17 @@ export function canAccessSalesWorkspace(
   ctx: WorkspacePolicyContext,
 ): boolean {
   if (isManagementWorkspaceUser(ctx)) return true;
+  if (ctx.positionMode) return hasAnyPermission(ctx, SALES_WORK_PERMISSIONS);
   if (isSalesStaff(ctx.platformRole)) return true;
   return false;
+}
+
+/** PERM-4c2：岗位模式下的"销售 / 运营专职"（取代平台角色 sales / operations） */
+function isSalesWorker(ctx: WorkspacePolicyContext): boolean {
+  return ctx.positionMode ? hasAnyPermission(ctx, SALES_WORK_PERMISSIONS) : isSalesStaff(ctx.platformRole);
+}
+function isOpsWorker(ctx: WorkspacePolicyContext): boolean {
+  return ctx.positionMode ? hasAnyPermission(ctx, OPS_PERMISSIONS) : isOperationsStaff(ctx.platformRole);
 }
 
 /**
@@ -170,13 +193,45 @@ export function canAccessAccountingWorkspace(ctx: WorkspacePolicyContext): boole
 function isAccountingHomeUser(ctx: WorkspacePolicyContext): boolean {
   return (
     hasAnyPermission(ctx, ["accounting.read"]) &&
-    !isOperationsStaff(ctx.platformRole) &&
-    !isSalesStaff(ctx.platformRole) &&
+    !isOpsWorker(ctx) &&
+    !isSalesWorker(ctx) &&
     !hasAnyPermission(ctx, NON_ACCOUNTING_HOME_PERMISSIONS)
   );
 }
 
+/**
+ * PERM-4c2：岗位模式下的"纯销售"——持销售工作键、不是管理层、也不持运营 / 招投标 / 会计 / 安装 / 出单键。
+ * 侧栏对纯销售只展示销售工作区条目（取代旧模式 platformRole === "sales"）。
+ */
+export function isPureSalesWorker(ctx: WorkspacePolicyContext): boolean {
+  return (
+    !!ctx.positionMode &&
+    hasAnyPermission(ctx, SALES_WORK_PERMISSIONS) &&
+    !isManagementWorkspaceUser(ctx) &&
+    !hasAnyPermission(ctx, [
+      ...OPS_PERMISSIONS,
+      ...BID_HOME_PERMISSIONS,
+      "accounting.read",
+      "install.task.read",
+      "orders.fulfillment.read",
+    ])
+  );
+}
+
+/** PERM-4c2：岗位模式默认落地——全部按键，不看平台角色 */
+function positionDefaultWorkspace(ctx: WorkspacePolicyContext): string {
+  if (isManagementWorkspaceUser(ctx)) return "/";
+  if (hasAnyPermission(ctx, SALES_WORK_PERMISSIONS)) return "/sales/home";
+  if (hasAnyPermission(ctx, OPS_PERMISSIONS)) return "/ops";
+  if (hasAnyPermission(ctx, BID_HOME_PERMISSIONS) && canAccessBidWorkspace(ctx)) return "/bids";
+  if (hasAnyPermission(ctx, ["accounting.read"])) return "/accounting";
+  // 出单岗也持 install.task.read（看安装进度），落地看安装工的工作键 install.task.update
+  if (hasAnyPermission(ctx, ["install.task.update"])) return "/install";
+  return "/";
+}
+
 export function getDefaultWorkspace(ctx: WorkspacePolicyContext): string {
+  if (ctx.positionMode) return positionDefaultWorkspace(ctx);
   if (isManagementWorkspaceUser(ctx)) return "/";
 
   if (isSalesStaff(ctx.platformRole) && canAccessSalesWorkspace(ctx)) {
@@ -222,6 +277,8 @@ export function resolveHomeRedirect(ctx: WorkspacePolicyContext): string | null 
   if (canAccessManagementWorkspace(ctx)) return null;
   const target = getDefaultWorkspace(ctx);
   if (target !== "/") return target;
+  // PERM-4c2：岗位模式下落地已按键排好序；无落地 = /tasks（不再用读键兜底到 /ops、/bids）
+  if (ctx.positionMode) return "/tasks";
   if (canAccessOperationsWorkspace(ctx)) return "/ops";
   if (canAccessBidWorkspace(ctx)) return "/bids";
   if (canAccessSalesWorkspace(ctx)) return "/sales/home";
@@ -251,6 +308,7 @@ export function workspaceContextFromNav(input: {
   hasMembership?: boolean;
   permissionKeys?: readonly string[] | null;
   hasBidCapability?: boolean;
+  positionMode?: boolean;
 }): WorkspacePolicyContext {
   return {
     platformRole: input.platformRole,
@@ -259,5 +317,6 @@ export function workspaceContextFromNav(input: {
     hasMembership: input.hasMembership,
     permissionKeys: input.permissionKeys ?? null,
     hasBidCapability: input.hasBidCapability,
+    positionMode: input.positionMode,
   };
 }
