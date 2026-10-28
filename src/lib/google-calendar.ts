@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { db } from "@/lib/db";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 import { encryptField, decryptField } from "@/lib/crypto";
+import { primaryWriteCalendarId } from "@/lib/google-calendar-id";
 
 // userinfo.* 用于换取令牌后读取 Google 账号邮箱；仅有 calendar.* 时访问 userinfo 会 401
 const SCOPES = [
@@ -400,7 +401,7 @@ export async function pushEventToGoogle(
     }
 
     const res = await calendar.events.insert({
-      calendarId: provider.calendarId || "primary",
+      calendarId: primaryWriteCalendarId(provider.calendarId),
       requestBody: body as Parameters<typeof calendar.events.insert>[0] extends { requestBody?: infer R } ? R : never,
     });
 
@@ -439,7 +440,7 @@ export async function updateGoogleEvent(
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
-  const calId = opts.calendarId || provider.calendarId?.split(",")[0] || "primary";
+  const calId = opts.calendarId || primaryWriteCalendarId(provider.calendarId);
   const scope = opts.scope || "single";
   const { data: event } = opts;
 
@@ -510,7 +511,7 @@ export async function deleteGoogleEvent(
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
-  const calId = opts.calendarId || provider.calendarId?.split(",")[0] || "primary";
+  const calId = opts.calendarId || primaryWriteCalendarId(provider.calendarId);
   const scope = opts.scope || "single";
 
   try {
@@ -553,7 +554,7 @@ export async function getGoogleEventDetail(
   const client = await getAuthedClient(provider);
   const calendar = google.calendar({ version: "v3", auth: client });
 
-  const calId = opts.calendarId || provider.calendarId?.split(",")[0] || "primary";
+  const calId = opts.calendarId || primaryWriteCalendarId(provider.calendarId);
 
   try {
     const { data: item } = await calendar.events.get({
