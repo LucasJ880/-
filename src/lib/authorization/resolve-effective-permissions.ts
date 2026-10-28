@@ -56,24 +56,14 @@ export function compatProfileKeyForMembership(opts: {
   return null;
 }
 
-export async function resolveEffectiveBindings(
+async function loadProfileBindings(
   principal: PrincipalRef,
 ): Promise<EffectiveBinding[]> {
-  if (principal.type !== "HUMAN") return [];
-
-  const user = await db.user.findUnique({
-    where: { id: principal.id },
-    select: { role: true },
-  });
-  if (user?.role === "super_admin") {
-    return platformAdminBindings();
-  }
-
   const now = new Date();
   const rows = await db.principalRoleBinding.findMany({
     where: {
       orgId: principal.orgId,
-      principalType: "HUMAN",
+      principalType: principal.type,
       principalId: principal.id,
       status: "active",
       OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
@@ -99,7 +89,25 @@ export async function resolveEffectiveBindings(
       });
     }
   }
+  return out;
+}
 
+export async function resolveEffectiveBindings(
+  principal: PrincipalRef,
+): Promise<EffectiveBinding[]> {
+  // PERM-5b：数字员工只认自己的岗位绑定——无平台管理员全权、无成员角色兼容回退、不继承 sponsor
+  if (principal.type === "DIGITAL_EMPLOYEE") return loadProfileBindings(principal);
+  if (principal.type !== "HUMAN") return [];
+
+  const user = await db.user.findUnique({
+    where: { id: principal.id },
+    select: { role: true },
+  });
+  if (user?.role === "super_admin") {
+    return platformAdminBindings();
+  }
+
+  const out = await loadProfileBindings(principal);
   if (out.length > 0) return out;
 
   // 兼容回退：按 OrganizationMember.role 映射系统模板（内存，不要求 DB RoleProfile）

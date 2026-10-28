@@ -96,7 +96,9 @@ const digi = resolvePrincipalRef({
   id: "d1",
   orgId: "org1",
 });
-ok(!digi.ok && digi.result.reasonCode === "NOT_IMPLEMENTED", "数字员工未实现");
+ok(!digi.ok && digi.result.reasonCode === "SPONSOR_REQUIRED", "PERM-5b：数字员工无 sponsor 拒绝");
+const digiOk = resolvePrincipalRef({ type: "DIGITAL_EMPLOYEE", id: "d1", orgId: "org1", sponsorUserId: "alex" });
+ok(digiOk.ok && digiOk.principal.type === "DIGITAL_EMPLOYEE" && digiOk.principal.sponsorUserId === "alex", "PERM-5b：数字员工带 sponsor 可构造");
 
 const orgWhere = compileAuthorizedWhereFromScopes({
   orgId: "org1",
@@ -344,6 +346,62 @@ const paOther = decideFromBindings({ principal, permission: "sales.quote.read", 
 ok(!paOther.allowed && paOther.reasonCode === "RESOURCE_OUT_OF_SCOPE", "平台管理员对异企业资源拒绝");
 ok(compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "admin" }) === null, "平台 admin 无兼容岗位（无全权）");
 
+console.log("PERM-5b 数字员工禁区与 sponsor 范围");
+{
+  const humanOnly = (k: string) => getPermissionDefinition(k)?.allowedPrincipalTypes.join() === "HUMAN";
+  for (const k of [
+    "sales.quote.discount.over_limit.approve",
+    "sales.quote.discount.over_limit.submit",
+    "sales.quote.signed_amount.approve",
+    "operations.content.approve",
+    "sales.quote.pricing_close",
+    "sales.settings.manage",
+    "organization.settings.manage",
+    "authorization.policy.manage",
+    "identity.member.read",
+    "identity.member.manage",
+    "identity.role.manage",
+    "identity.position.manage",
+    "install.task.assign",
+    "orders.cancel",
+    "inventory.manage",
+    "operations.manage",
+  ]) {
+    ok(humanOnly(k), `禁区键只允许人类：${k}`);
+  }
+  ok(
+    PERMISSION_REGISTRY.filter((p) => p.key.endsWith(".approve")).every((p) => p.allowedPrincipalTypes.join() === "HUMAN"),
+    "所有 *.approve 键只允许人类",
+  );
+  for (const k of ["sales.customer.read", "sales.quote.create", "operations.content.draft", "project.read", "accounting.read"]) {
+    ok(getPermissionDefinition(k)?.allowedPrincipalTypes.includes("DIGITAL_EMPLOYEE") === true, `业务键开放给数字员工：${k}`);
+  }
+
+  const de: PrincipalRef = { type: "DIGITAL_EMPLOYEE", id: "agent1", orgId: "org1", sponsorUserId: "alex" };
+  const toBindings = (k: string) =>
+    mergedProfileBindings(WC, k).map((b, i) => ({ permissionKey: b.permissionKey, dataScope: b.dataScope, effect: (b.effect ?? "ALLOW") as "ALLOW" | "DENY", source: `t:${k}:${i}` }));
+  const accB = toBindings("accounting");
+  const deAssign = decideFromBindings({ principal: de, permission: "install.task.assign", bindings: accB });
+  ok(!deAssign.allowed && deAssign.reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED", "数字员工绑了 accounting 也不能安排安装");
+  ok(decideFromBindings({ principal, permission: "install.task.assign", bindings: accB }).allowed, "人类 accounting 可安排安装（不受禁区影响）");
+  ok(
+    decideFromBindings({ principal: de, permission: "sales.quote.discount.over_limit.approve", bindings: multi }).reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED",
+    "数字员工永不审批（即使绑了老板岗）",
+  );
+  const repB = toBindings("sales_rep");
+  const own = decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: repB, resource: { type: "sales_customer", ownerId: "alex", orgId: "org1" } });
+  ok(own.allowed && own.matchedScope === "PRINCIPAL", "销售数字员工读 sponsor 的客户 → PRINCIPAL 命中");
+  const other = decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: repB, resource: { type: "sales_customer", ownerId: "lynn", orgId: "org1" } });
+  ok(!other.allowed && other.reasonCode === "RESOURCE_OUT_OF_SCOPE", "销售数字员工读其他销售的客户 → 拒绝");
+  const self = decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: repB, resource: { type: "sales_customer", ownerId: "agent1", orgId: "org1" } });
+  ok(!self.allowed, "资源 owner = Agent id 本身不算 PRINCIPAL 命中");
+  ok(decideFromBindings({ principal: de, permission: "sales.quote.read", bindings: repB }).allowed, "绑定 sales_rep 的数字员工不带资源读报价 → 允许");
+  const noSponsor: PrincipalRef = { type: "DIGITAL_EMPLOYEE", id: "agent1", orgId: "org1" };
+  const ns = decideFromBindings({ principal: noSponsor, permission: "sales.quote.read", bindings: repB });
+  ok(!ns.allowed && ns.reasonCode === "NO_USABLE_SCOPE", "无 sponsor 的数字员工：PRINCIPAL 范围不可用");
+  ok(decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: [] }).reasonCode === "NO_BINDING", "无绑定的数字员工 → NO_BINDING");
+}
+
 (async () => {
   const unknown = await authorize({
     principal,
@@ -364,7 +422,7 @@ ok(compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "admin" 
     orgId: "org1",
     permission: "sales.customer.read",
   });
-  ok(digiAuth.reasonCode === "NOT_IMPLEMENTED", "DIGITAL_EMPLOYEE authorize fail closed");
+  ok(digiAuth.reasonCode === "SPONSOR_REQUIRED", "PERM-5b：DIGITAL_EMPLOYEE 无 sponsor authorize fail closed（不读库）");
 
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

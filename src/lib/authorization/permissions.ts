@@ -25,7 +25,7 @@ function def(
   };
 }
 
-export const PERMISSION_REGISTRY: PermissionDefinition[] = [
+const REGISTRY_ENTRIES: PermissionDefinition[] = [
   def("organization.read", "organization", "read", "查看企业", "查看企业基础信息", ["ORG"], "LOW"),
   def("organization.settings.manage", "organization", "manage", "管理企业设置", "修改企业配置", ["ORG"], "HIGH"),
 
@@ -235,6 +235,35 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
   def("install.task.assign", "install.task", "assign", "安排安装", "指定安装工与安装时间（运营 / 会计）", ["ORG"], "HIGH"),
   def("install.photo.read", "install.photo", "read", "查看收口照片", "查看工艺单的逐窗收口照片", ["ORG"], "MEDIUM"),
 ];
+
+/**
+ * PERM-5b：数字员工禁区（设计稿 §4-10：永不审批、不改设置、不给折扣）。
+ * 命中的键 allowedPrincipalTypes 只留 HUMAN；authorize 对不在允许类型内的主体一律拒绝，
+ * 即使已绑定含该键的岗位。新加的 *.approve / identity.* / sales.quote.discount.* 自动进禁区。
+ */
+const DIGITAL_EMPLOYEE_DENIED_EXACT = new Set([
+  "sales.quote.pricing_close",
+  "sales.settings.manage",
+  "organization.settings.manage",
+  "authorization.policy.manage",
+  "install.task.assign",
+  "orders.cancel",
+  "inventory.manage",
+  "operations.manage",
+]);
+const DIGITAL_EMPLOYEE_DENIED_PREFIXES = ["identity.", "sales.quote.discount."];
+
+export function isDigitalEmployeeDeniedKey(key: string): boolean {
+  return (
+    key.endsWith(".approve") ||
+    DIGITAL_EMPLOYEE_DENIED_EXACT.has(key) ||
+    DIGITAL_EMPLOYEE_DENIED_PREFIXES.some((p) => key.startsWith(p))
+  );
+}
+
+export const PERMISSION_REGISTRY: PermissionDefinition[] = REGISTRY_ENTRIES.map((p) =>
+  isDigitalEmployeeDeniedKey(p.key) ? { ...p, allowedPrincipalTypes: ["HUMAN"] } : p,
+);
 
 const BY_KEY = new Map(PERMISSION_REGISTRY.map((p) => [p.key, p]));
 
