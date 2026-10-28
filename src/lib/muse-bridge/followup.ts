@@ -63,6 +63,7 @@ export const followupSelect = {
   resolutionNote: true,
   dismissedReason: true,
   inputContext: true,
+  updatedAt: true,
   assignedToId: true,
   createdById: true,
   assignedTo: { select: { id: true, name: true } },
@@ -110,7 +111,7 @@ export async function createFollowup(
   const signalKey = followupSignalKey(ctx.requestId);
   // 重放（含 24 小时账本窗口之外、跟进已结束后）：按 signalKey 返回原跟进
   const replay = await db.salesAction.findFirst({
-    where: { orgId: identity.orgId, source: FOLLOWUP_SOURCE, signalKey },
+    where: { orgId: identity.orgId, source: FOLLOWUP_SOURCE, signalKey, createdById: identity.userId },
     select: followupSelect,
   });
   if (replay) return created(replay);
@@ -174,7 +175,7 @@ export async function createFollowup(
     // 同一 requestId 的并发重试撞上 activeKey 唯一约束：返回已建的那条
     if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
     const existing = await db.salesAction.findFirst({
-      where: { orgId: identity.orgId, source: FOLLOWUP_SOURCE, signalKey },
+      where: { orgId: identity.orgId, source: FOLLOWUP_SOURCE, signalKey, createdById: identity.userId },
       select: followupSelect,
     });
     if (!existing) throw err;
@@ -211,9 +212,13 @@ function created(row: FollowupRow): FollowupResult {
   };
 }
 
-/** 状态变化后通知创建人（创建人自己改的不发）。Muse 与网页两个入口共用。 */
+/**
+ * 状态变化后通知"另一方"：负责人改的通知创建人，创建人改的通知负责人；两者是同一人时不发。
+ * Muse 与网页两个入口共用。`changedAt` 用落库后的 updatedAt，同一次变化重复调用只发一次。
+ */
 export async function notifyFollowupUpdated(row: FollowupRow, updaterId: string, note: string | null): Promise<void> {
-  if (!row.opportunity || !row.dueAt || row.createdById === updaterId) return;
+  const recipientUserId = updaterId === row.createdById ? row.assignedToId : row.createdById;
+  if (!row.opportunity || !recipientUserId || recipientUserId === updaterId) return;
   await emitMuseEvent(
     followupUpdatedEventInput({
       orgId: row.orgId,
@@ -221,11 +226,11 @@ export async function notifyFollowupUpdated(row: FollowupRow, updaterId: string,
       opportunityId: row.opportunity.id,
       opportunityTitle: row.opportunity.title,
       title: row.title,
-      dueAt: row.dueAt,
-      creatorUserId: row.createdById,
+      recipientUserId,
       updaterName: await userName(updaterId),
       status: row.status,
       note,
+      changedAt: row.updatedAt,
     }),
   );
 }

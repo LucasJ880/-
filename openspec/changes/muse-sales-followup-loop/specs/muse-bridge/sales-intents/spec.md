@@ -31,7 +31,7 @@
 
 ### Requirement: 跟进状态更新
 
-`update_followup` SHALL 只允许跟进的负责人或创建人调用，否则返回 `FOLLOWUP_NOT_FOUND`（与不存在同口径）。状态迁移 SHALL 遵守 `canTransitionSalesAction`；已结束的跟进 SHALL 返回 `FOLLOWUP_CLOSED`。`completed` SHALL 要求 `evidence`（写入 `resolutionNote`），`dismissed` SHALL 要求 `reason`（写入 `dismissedReason`），缺失返回 `VALIDATION_FAILED`。状态变化 SHALL 向创建人发 `followup.updated`（创建人自己更新时不发）。
+`update_followup` SHALL 只允许跟进的负责人或创建人调用，否则返回 `FOLLOWUP_NOT_FOUND`（与不存在同口径）。状态迁移 SHALL 遵守 `canTransitionSalesAction`；已结束的跟进 SHALL 返回 `FOLLOWUP_CLOSED`。`completed` SHALL 要求 `evidence`（写入 `resolutionNote`），`dismissed` SHALL 要求 `reason`（写入 `dismissedReason`），缺失返回 `VALIDATION_FAILED`。状态变化 SHALL 向创建人与负责人中不是操作者的一方发 `followup.updated`（两者是同一人时不发）；同一状态的两次变化（网页可退回 `open` 再开始）SHALL 各发一条。
 
 #### Scenario: 完成不带证据
 
@@ -41,7 +41,7 @@
 #### Scenario: 网页更新同样发事件
 
 - **WHEN** 负责人在网页 `PATCH /api/sales/actions/[id]` 把 `muse_followup` 跟进改为 `in_progress`
-- **THEN** 创建人收到 `followup.updated`；`followup-db.isolated.test.ts` 覆盖服务层
+- **THEN** 创建人收到 `followup.updated`；创建人改状态时负责人收到；`followup-db.isolated.test.ts` 覆盖服务层
 
 ### Requirement: 创建与回复的事件
 
@@ -54,7 +54,7 @@
 
 ### Requirement: 到期提醒与逾期升级
 
-`sales-actions` cron SHALL 在每次运行时扫描：未结束的 `muse_followup` 跟进到期前 24 小时内发 `followup.due`（负责人）；已逾期发 `followup.overdue`（负责人与创建人各一条）；`waiting_internal` 的询问过了期限发 `inquiry.overdue`（发起人与收件人各一条）。每条提醒的幂等键 SHALL 为 `<事件>:<对象 id>:<期限毫秒>:<收件人 userId>`，同一期限只提醒一次，改期限后再提醒一次。扫描 SHALL 记录一条 `muse-reminder-scan` AutomationRun，只覆盖期限在 30 天内的对象，单次最多 500 个对象。
+`sales-actions` cron SHALL 在每次运行时扫描：未结束的 `muse_followup` 跟进到期前 24 小时内发 `followup.due`（负责人）；已逾期发 `followup.overdue`（负责人与创建人各一条）；`waiting_internal` 的询问过了期限发 `inquiry.overdue`（发起人与收件人各一条）。每条提醒的幂等键 SHALL 为 `<事件>:<对象 id>:<期限毫秒>:<收件人 userId>`，同一期限只提醒一次，改期限后再提醒一次。扫描 SHALL 记录一条 `muse-reminder-scan` AutomationRun，只覆盖期限在 30 天内的对象；临近到期与已逾期分两段各取最多 500 个，逾期段按期限倒序，已提醒过的旧逾期项不会挤掉新的提醒。
 
 #### Scenario: 逾期两人都收到
 

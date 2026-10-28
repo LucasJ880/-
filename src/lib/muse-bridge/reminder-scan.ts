@@ -36,26 +36,35 @@ export async function scanMuseReminders(now: Date = new Date()): Promise<Reminde
   const since = new Date(now.getTime() - REMINDER_LOOKBACK_DAYS * 24 * HOUR);
   const soon = new Date(now.getTime() + DUE_SOON_HOURS * HOUR);
 
-  const [followupRows, inquiryRows] = await Promise.all([
+  const followupSelect = {
+    id: true,
+    orgId: true,
+    title: true,
+    dueAt: true,
+    assignedToId: true,
+    createdById: true,
+    opportunity: { select: { id: true, title: true } },
+  } as const;
+  const openFollowup = {
+    source: FOLLOWUP_SOURCE,
+    status: { in: [...OPEN_FOLLOWUP_STATUSES] },
+    assignedToId: { not: null },
+    opportunityId: { not: null },
+  };
+  // 分两段各取上限：已提醒过的逾期项每次都会被扫到，混在一起排序会把临近到期的挤出窗口。
+  // 逾期段按期限倒序，刚逾期（含改过期限）的先处理。
+  const [dueSoonRows, overdueRows, inquiryRows] = await Promise.all([
     db.salesAction.findMany({
-      where: {
-        source: FOLLOWUP_SOURCE,
-        status: { in: [...OPEN_FOLLOWUP_STATUSES] },
-        dueAt: { gte: since, lte: soon },
-        assignedToId: { not: null },
-        opportunityId: { not: null },
-      },
+      where: { ...openFollowup, dueAt: { gt: now, lte: soon } },
       orderBy: [{ dueAt: "asc" }, { id: "asc" }],
       take: REMINDER_SCAN_LIMIT,
-      select: {
-        id: true,
-        orgId: true,
-        title: true,
-        dueAt: true,
-        assignedToId: true,
-        createdById: true,
-        opportunity: { select: { id: true, title: true } },
-      },
+      select: followupSelect,
+    }),
+    db.salesAction.findMany({
+      where: { ...openFollowup, dueAt: { gte: since, lte: now } },
+      orderBy: [{ dueAt: "desc" }, { id: "asc" }],
+      take: REMINDER_SCAN_LIMIT,
+      select: followupSelect,
     }),
     db.task.findMany({
       where: {
@@ -65,7 +74,7 @@ export async function scanMuseReminders(now: Date = new Date()): Promise<Reminde
         assigneeId: { not: null },
         sourceId: { not: null },
       },
-      orderBy: [{ dueDate: "asc" }, { id: "asc" }],
+      orderBy: [{ dueDate: "desc" }, { id: "asc" }],
       take: REMINDER_SCAN_LIMIT,
       select: { id: true, dueDate: true, assigneeId: true, creatorId: true, sourceId: true },
     }),
@@ -80,7 +89,7 @@ export async function scanMuseReminders(now: Date = new Date()): Promise<Reminde
     ).map((o) => [o.id, o]),
   );
 
-  const followups = followupRows.flatMap((f) =>
+  const followups = [...dueSoonRows, ...overdueRows].flatMap((f) =>
     f.dueAt && f.assignedToId && f.opportunity && isMuseOrgAllowed(f.orgId)
       ? [
           {

@@ -24,8 +24,8 @@ export const GET = withAuth(async (request, ctx, user) => {
   });
   if (!opp) return NextResponse.json({ error: "未找到" }, { status: 404 });
 
-  const { ownOnly } = await resolveSalesScope(user, orgRes.orgId);
-  if (ownOnly && opp.createdById !== user.id && opp.assignedToId !== user.id) {
+  const { allowed, ownOnly } = await resolveSalesScope(user, orgRes.orgId);
+  if (!allowed || (ownOnly && opp.createdById !== user.id && opp.assignedToId !== user.id)) {
     return NextResponse.json({ error: "无权访问该机会" }, { status: 403 });
   }
 

@@ -130,14 +130,20 @@ export function followupAssignedEventInput(
 }
 
 export function followupUpdatedEventInput(
-  f: FollowupEventFacts & { creatorUserId: string; updaterName: string; status: string; note: string | null },
+  f: Omit<FollowupEventFacts, "dueAt"> & {
+    recipientUserId: string;
+    updaterName: string;
+    status: string;
+    note: string | null;
+    /** 这次变化落库的时间：网页允许 in_progress → open → in_progress，按状态去重会吞掉第二次 */
+    changedAt: Date;
+  },
 ): EmitMuseEventInput {
   return {
-    // 状态只前进（open → in_progress → 结束），所以按状态去重即"每次变化一条"
-    eventId: `followup.updated:${f.followupId}:${f.status}`,
+    eventId: `followup.updated:${f.followupId}:${f.status}:${f.changedAt.getTime()}:${f.recipientUserId}`,
     type: "followup.updated",
     orgId: f.orgId,
-    userId: f.creatorUserId,
+    userId: f.recipientUserId,
     opportunityId: f.opportunityId,
     followupId: f.followupId,
     summary: eventSummary(

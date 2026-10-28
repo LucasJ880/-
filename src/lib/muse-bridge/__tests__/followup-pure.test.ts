@@ -87,9 +87,10 @@ console.log("events");
   const facts = { orgId: "org_1", followupId: "f1", opportunityId: "o1", opportunityTitle: "Lobby roller shades", title: "周五电话确认样板", dueAt: later(48) };
   const assigned = buildMuseEvent(followupAssignedEventInput({ ...facts, assigneeUserId: "u_a", creatorName: "Morgan" }));
   ok("followup.assigned 发给负责人，带开始跟进的动作", !!assigned && assigned.userId === "u_a" && assigned.followupId === "f1" && assigned.action?.command.intent === "update_followup");
-  const updated = buildMuseEvent(followupUpdatedEventInput({ ...facts, creatorUserId: "u_m", updaterName: "Avery", status: "completed", note: "客户确认周三收样" }));
-  ok("followup.updated 发给创建人，摘要含状态与证据", !!updated && updated.userId === "u_m" && updated.summary.includes("已完成") && updated.summary.includes("周三收样"));
-  ok("followup.updated 按状态去重", updated?.eventId === "followup.updated:f1:completed");
+  const updated = buildMuseEvent(followupUpdatedEventInput({ ...facts, recipientUserId: "u_m", updaterName: "Avery", status: "completed", note: "客户确认周三收样", changedAt: later(1) }));
+  ok("followup.updated 发给对方，摘要含状态与证据", !!updated && updated.userId === "u_m" && updated.summary.includes("已完成") && updated.summary.includes("周三收样"));
+  const again = followupUpdatedEventInput({ ...facts, recipientUserId: "u_m", updaterName: "Avery", status: "completed", note: null, changedAt: later(2) });
+  ok("同一状态的两次变化是两条事件（网页可退回 open 再开始）", again.eventId !== updated?.eventId);
 }
 
 console.log("reminders");

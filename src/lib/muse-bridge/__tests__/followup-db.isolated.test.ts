@@ -166,6 +166,10 @@ async function main() {
       if (!bound.ok) throw new Error("binding");
       const replay = await createFollowup(bound.identity, { opportunityId: opp.id, title: "重放", dueAt: future(24) }, { requestId: createRequestId });
       ok(replay.ok && (replay.data as { followupId: string }).followupId === followupId && (await followupCount()) === 1, "[4] 跟进已结束后同一 requestId 重放：返回原跟进，不建第二条", replay);
+      const repBound = await resolveMuseBinding(ORG, "muse:rep-a");
+      if (!repBound.ok) throw new Error("binding");
+      const hijack = await createFollowup(repBound.identity, { opportunityId: opp.id, title: "借用", dueAt: future(24) }, { requestId: createRequestId });
+      ok(!hijack.ok || (hijack.data as { followupId: string }).followupId !== followupId, "[4] 别人拿同一 requestId 拿不到原跟进", hijack);
     }
 
     // ── [5] 网页更新的事件（服务层） ──
@@ -179,6 +183,12 @@ async function main() {
       ok((await events(MGR, "followup.updated")).filter((e) => e.followupId === secondId).length === 1, "[5] 网页改状态通知创建人，同一状态只发一次");
       await notifyFollowupUpdated(rowAfter, MGR, null);
       ok((await events(MGR, "followup.updated")).filter((e) => e.followupId === secondId).length === 1, "[5] 创建人自己改不通知自己");
+      ok((await events(REP_A, "followup.updated")).filter((e) => e.followupId === secondId).length === 1, "[5] 创建人改状态时通知负责人");
+      await db.salesAction.update({ where: { id: secondId }, data: { status: "open" } });
+      await db.salesAction.update({ where: { id: secondId }, data: { status: "in_progress", dueAt: null } });
+      const reopened = await db.salesAction.findUniqueOrThrow({ where: { id: secondId }, select: followupSelect });
+      await notifyFollowupUpdated(reopened, REP_A, null);
+      ok((await events(MGR, "followup.updated")).filter((e) => e.followupId === secondId).length === 2, "[5] 退回再开始（且已清空期限）仍会通知");
     }
 
     // ── [6] 提醒扫描 ──
