@@ -1,6 +1,6 @@
 # INSTALL-2g 报告 — 官网新质保条款（Shutters）+ 报修联系方式 + 质保邮件抄送
 
-change：`openspec/changes/install-2g-warranty-update/`（proposal / specs：`installation/warranty-email` 修改 5 条、新增 2 条 / design D1–D6 / tasks 6/6）
+change：`openspec/changes/archive/2026-10-29-install-2g-warranty-update/`（proposal / specs：`installation/warranty-email` 修改 5 条、新增 3 条——归档前把「质保设置种子」从「质保设置」拆出，主规格单条不超过 500 字 / design D1–D6 / tasks 6/6）
 来源：Lucas 2026-10-29——"官网新条款已经开始了，shutters 的质保按照最新的来，链接保留，报修邮箱用 service@sunnyshutter.ca 同时 cc miki@sunnyshutter.ca"。官网原文转录与对比：`docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` §0a。
 零 schema：抄送存 `Organization.settingsJson.sunnyWarranty.cc`；审批内容在既有 `PendingAction.payload`。不加权限键，不新增 LLM 调用；出站仍只在审批批准后由执行器发出。
 
