@@ -18,7 +18,7 @@
 - **THEN** 列表返回 200，转入返回 403
 
 ### Requirement: 待转入列表
-`GET /api/sales/website-bookings` SHALL 列出该企业日历观察账本中首次记录为新建且归因为网站的事件，按事件 ID 跨日历去重；SHALL 排除最近一条账本为删除的、已有本企业预约记下该事件 ID 的、已被忽略的，以及开始时间早于组织当地今天前 7 天的；按开始时间升序，最多 200 条。每条 SHALL 含事件 ID、日历 ID、标题、起止时间与是否全天。日历观察未开启时 SHALL 返回空列表与 `enabled: false`。
+`GET /api/sales/website-bookings` SHALL 列出该企业日历观察账本中首次记录为新建且归因为网站的事件，按事件 ID 跨日历去重；SHALL 排除最近一条账本为删除的、已有本企业预约记下该事件 ID 的、已被忽略的，以及开始时间早于组织当地今天前 7 天的；按开始时间升序，最多 200 条。每条 SHALL 含事件 ID、日历 ID、标题、起止时间与是否全天；响应 SHALL 含调用者是否可转入（`canConvert`）。日历观察未开启时 SHALL 返回空列表与 `enabled: false`。
 
 #### Scenario: 过滤
 - **WHEN** 账本中有网站新建 4 条，其中 1 条已删除、1 条已转入、1 条已忽略
@@ -40,7 +40,7 @@
 - **THEN** 详情返回该已有客户作为建议关联对象
 
 ### Requirement: 转入
-`POST /api/sales/website-bookings/{eventId}/convert` SHALL 对待转入事件，在一个事务里：关联调用者名下的未归档客户，或新建客户（来源为 `website_booking`，归属调用者）；再新建一条预约（记下该 Google 事件 ID 与同步时间，负责人缺省为调用者，指定时须为在职成员）。新建客户时若电话与调用者名下已有客户相同，SHALL 返回 409 `CUSTOMER_EXISTS` 并给出该客户，不建任何记录。成功 SHALL 返回 201 与客户、预约 ID，并写一条审计。
+`POST /api/sales/website-bookings/{eventId}/convert` SHALL 对待转入事件，在一个事务里：关联调用者名下的未归档客户，或新建客户（来源为 `website_booking`，归属调用者）；再新建一条预约（记下该 Google 事件 ID 与同步时间，负责人缺省为调用者，指定时须为在职成员）。新建客户时若电话与调用者名下已有客户相同，SHALL 返回 409 `CUSTOMER_EXISTS` 并给出该客户，不建任何记录；关联的客户不是调用者名下未归档客户 SHALL 返回 404 `CUSTOMER_NOT_FOUND`；请求体不合法 SHALL 返回 400 `INVALID_INPUT`。成功 SHALL 返回 201 与客户、预约 ID，并写一条审计。
 
 #### Scenario: 销售认领
 - **WHEN** 销售填写新客户与预约信息并提交

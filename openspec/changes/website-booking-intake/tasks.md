@@ -22,7 +22,7 @@
 
 ## 3. 接口
 
-- [ ] 3.1 新建 `src/app/api/sales/website-bookings/route.ts`（GET 列表）、`[eventId]/route.ts`（GET 详情）、`[eventId]/convert/route.ts`（POST）、`[eventId]/dismiss/route.ts`（POST）：
+- [x] 3.1 新建 `src/app/api/sales/website-bookings/route.ts`（GET 列表）、`[eventId]/route.ts`（GET 详情）、`[eventId]/convert/route.ts`（POST）、`[eventId]/dismiss/route.ts`（POST）：
   - 查看授权：`sales.customer.create` 任意范围或 `sales.customer.read` ORG，否则 403；
   - 转入授权：`sales.customer.create`，否则 403；
   - 错误码：`NOT_PENDING` / `EVENT_NOT_FOUND` / `READER_NOT_CONNECTED` / `ALREADY_CONVERTED` / `CUSTOMER_EXISTS`。

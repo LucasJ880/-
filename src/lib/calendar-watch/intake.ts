@@ -6,6 +6,8 @@
  */
 
 import { db } from "@/lib/db";
+import { authorize, humanPrincipal } from "@/lib/authorization";
+import type { AuthUser } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
 import {
@@ -40,6 +42,23 @@ const defaultReadEvent: ReadEventFn = async (readerUserId, opts) => {
   if (!provider?.accessToken) throw new GoogleTokenExpiredError();
   return getGoogleEventDetail(readerUserId, opts);
 };
+
+/** 查看 = 持 sales.customer.create（任意范围）或全企业范围的 sales.customer.read；转入 = 持 sales.customer.create */
+export async function resolveIntakeAccess(user: AuthUser, orgId: string): Promise<{ canView: boolean; canConvert: boolean }> {
+  const principal = humanPrincipal(user, orgId);
+  const [create, read] = await Promise.all([
+    authorize({ principal, orgId, permission: "sales.customer.create" }),
+    authorize({ principal, orgId, permission: "sales.customer.read" }),
+  ]);
+  const canConvert = create.allowed;
+  return { canView: canConvert || (read.allowed && read.scopes.includes("ORG")), canConvert };
+}
+
+/** 本企业在职成员（负责人校验） */
+export async function activeMemberIds(orgId: string): Promise<Set<string>> {
+  const rows = await db.organizationMember.findMany({ where: { orgId, status: "active", user: { status: "active" } }, select: { userId: true } });
+  return new Set(rows.map((r) => r.userId));
+}
 
 export type IntakeErrorCode =
   | "NOT_PENDING"
