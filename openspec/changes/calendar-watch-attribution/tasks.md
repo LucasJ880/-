@@ -29,7 +29,7 @@
 
 ## 4. 接口
 
-- [ ] 4.1 新建 `src/app/api/organizations/[orgId]/calendar-watch-settings/route.ts`：
+- [x] 4.1 新建 `src/app/api/organizations/[orgId]/calendar-watch-settings/route.ts`：
   - `GET` / `PUT` 按 `sales.settings.manage` 授权；
   - `PUT` 校验读取账号已连接、日历在 `listGoogleCalendars` 结果中、邮箱与岗位键合法，错误码为 `READER_NOT_CONNECTED` / `CALENDAR_NOT_ACCESSIBLE` / `INVALID_SETTINGS`；合并写回且不覆盖游标，日历变化时清理或新建游标，并写审计；
   - `GET` 不返回令牌。
