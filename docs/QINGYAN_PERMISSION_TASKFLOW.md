@@ -56,7 +56,7 @@
 | INSTALL-2b | `install.balance.confirm`；会计「待收尾款」页签；确认尾款 → `completed`；完工 / 尾款确认通知与落点；销售首页待收尾款口径 | INSTALL-2a | change `install-2b-balance-confirm`；`docs/QINGYAN_INSTALL-2b_REPORT.md` | [x]（#313；archive 见 `openspec/changes/archive/2026-10-29-install-2b-balance-confirm`） |
 | INSTALL-2c | 质保表（报价单口径）+ 设置页；完工 + 质保邮件模板；`install.send_warranty_email` 审批 + 执行器；会计批准发送 | INSTALL-2b | change `install-2c-warranty-email`；`docs/QINGYAN_INSTALL-2c_REPORT.md` | [x]（#318；archive 见 `openspec/changes/archive/2026-10-29-install-2c-warranty-email`） |
 | INSTALL-2d | 逐单元完成 / 有问题；维修单（数字化纸质模板 + 打印版）；问题类型查表；返修目标日（默认 +7 天）；`installStage` 推导；出单按品类 / 运营 / 会计 / 销售通知；`/install/repairs` | INSTALL-2a | change `install-2d-repair-form`；`docs/QINGYAN_INSTALL-2d_REPORT.md` | [x]（#320；archive 见 `openspec/changes/archive/2026-10-29-install-2d-repair-form`） |
-| INSTALL-2e | 出单按品类登记「已出单 + 预计备好日」；安排返修 / 改期（新预约）；返修预约只收口维修行；照片代理放行任一安装预约（修 F5）；返修完成 → `installed` 接回 2b；返修中再发现问题 → 新维修单 | INSTALL-2b、2d | change `install-2e-repair-dispatch`；`docs/QINGYAN_INSTALL-2e_REPORT.md` | [G] |
+| INSTALL-2e | 出单按品类登记「已出单 + 预计备好日」；安排返修 / 改期（新预约）；返修预约只收口维修行；照片代理放行任一安装预约（修 F5）；返修完成 → `installed` 接回 2b；返修中再发现问题 → 新维修单 | INSTALL-2b、2d | change `install-2e-repair-dispatch`；`docs/QINGYAN_INSTALL-2e_REPORT.md` | [x]（#321；archive 见 `openspec/changes/archive/2026-10-29-install-2e-repair-dispatch`） |
 | INSTALL-2f | 维修单作废 / 关闭不返修；逾期提醒挂既有每日 cron | INSTALL-2e | change `install-2f-repair-close` | [~] |
 
 ## PERM-5 — 会计视图与数字员工

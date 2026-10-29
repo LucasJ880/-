@@ -52,7 +52,7 @@
 - **THEN** 3 号窗为已收口，有问题数为 0（`closeout-units.test.ts`）
 
 ### Requirement: 完成收口
-`POST /api/install/tasks/{id}/complete` SHALL 要求操作者是被分配人或持 `install.task.update`（ORG）。工艺单没有任何收口单元时 SHALL 返回 409 `NO_UNITS` 并说明需出单补齐；任一单元未收口时 SHALL 返回 409 `WINDOWS_MISSING` 并列出未收口单元的序号与位置；全部收口时 SHALL 把预约置为已完成（记录完成时间）、把工艺单按状态机推进到"已安装"（记录安装时间与状态日志），并写审计 `install.task.completed`（含单元数与照片张数）。重复调用已完成的任务 SHALL 返回 200 且不重复推进。
+`POST /api/install/tasks/{id}/complete` SHALL 要求操作者是被分配人或持 `install.task.update`（ORG）。任务没有任何收口单元时 SHALL 返回 409 `NO_UNITS` 并说明需出单补齐；任一单元未收口时 SHALL 返回 409 `WINDOWS_MISSING` 并列出未收口单元的序号与位置；全部收口时 SHALL 把预约置为已完成（记录完成时间）、按状态机把工艺单推进到"已安装"（记录安装时间与状态日志），并写审计 `install.task.completed`（含单元数与照片张数）。任务的收口单元与返修预约完成时的效果见 `installation/repairs`「返修预约的收口范围」「返修完成」。重复调用已完成的任务 SHALL 返回 200 且不重复推进。
 
 #### Scenario: 还有窗没拍
 - **WHEN** 4 扇窗只有 3 扇有照片时点完成
@@ -74,8 +74,12 @@
 - **WHEN** 工艺单已是 cancelled
 - **THEN** 返回 409 说明状态不允许，预约不变
 
+#### Scenario: 返修预约只看维修行
+- **WHEN** 返修任务的维修单只有 Den 一行，Den 已拍完工照
+- **THEN** 完成收口返回 200，不因工艺单其他单元判定未收口（`repair-dispatch-db.isolated.test.ts`）
+
 ### Requirement: 照片可见范围
-文件代理 SHALL 对 `install-photos/{orgId}/...` 前缀只放行：该任务的被分配人，或持 `install.photo.read`（ORG）的企业成员；其他人 SHALL 收到 403。工艺单详情页的"收口"标签 SHALL 只对持 `install.photo.read` 的人显示每窗照片。
+文件代理 SHALL 对 `install-photos/{orgId}/...` 前缀只放行：该工艺单任一安装预约（首次安装与各次返修）的被分配人，或持 `install.photo.read`（ORG）的企业成员；其他人 SHALL 收到 403。工艺单详情页的"收口"标签 SHALL 只对持 `install.photo.read` 的人显示每窗照片。
 
 #### Scenario: 老板查看
 - **WHEN** 持 `owner` 岗位的 Bob 打开工艺单详情的收口标签
@@ -84,6 +88,10 @@
 #### Scenario: 销售不能看
 - **WHEN** 只持 `sales_rep` 的 Alex 请求某张收口照片的代理地址
 - **THEN** 返回 403
+
+#### Scenario: 返修排给别人后首装安装工仍能看
+- **WHEN** 首次安装的是小王，返修排给了小李
+- **THEN** 小王与小李都能打开该工艺单的问题照与完工照；另一位安装工小张返回 403（`repair-dispatch-db.isolated.test.ts`）
 
 ### Requirement: 不输出的内容
 安装任务与收口接口 SHALL NOT 返回报价金额、折扣、成本价、客户电话以外的客户资料，也 SHALL NOT 返回存储令牌或原始存储 URL（只返回代理地址）。
