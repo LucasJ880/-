@@ -502,6 +502,15 @@ export async function executePendingAction(
         );
         break;
       }
+      case "install.send_repair_visit_email": {
+        const { execInstallSendRepairVisitEmail } = await import("./exec-install-repair-visit-email");
+        exec = await execInstallSendRepairVisitEmail(
+          action.payload as unknown as import("./types").InstallSendRepairVisitEmailPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      }
       default:
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }

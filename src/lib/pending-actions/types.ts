@@ -39,7 +39,9 @@ export type PendingActionType =
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
   | "tender.send_chase"
   // ── INSTALL-2c：完工 + 质保邮件（会计确认尾款后生成；批准后以组织发件身份发给客户）──
-  | "install.send_warranty_email";
+  | "install.send_warranty_email"
+  // ── INSTALL-2j：返修时间确认邮件（排期 / 改期后生成；批准后以组织发件身份发给客户）──
+  | "install.send_repair_visit_email";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -310,6 +312,7 @@ export type PendingActionPayload =
   | ({ type: "grader.email_draft" } & EmailDraftPayload)
   | ({ type: "sales.send_inquiry_reply" } & SalesSendInquiryReplyPayload)
   | ({ type: "install.send_warranty_email" } & InstallSendWarrantyEmailPayload)
+  | ({ type: "install.send_repair_visit_email" } & InstallSendRepairVisitEmailPayload)
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
   | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
   | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
@@ -355,6 +358,26 @@ export interface InstallSendWarrantyEmailPayload {
   /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
   body: string;
   html: string;
+  metadata: PendingActionMetadata & { orgId: string; orderId: string };
+}
+
+// ── 返修时间确认邮件（install.send_repair_visit_email，INSTALL-2j） ────────
+export interface InstallSendRepairVisitEmailPayload {
+  repairId: string;
+  repairNo: string;
+  orderId: string;
+  /** 审批时的返修预约；执行时须仍是该维修单当前的返修预约 */
+  appointmentId: string;
+  /** 审批时的返修开始时间（ISO）；执行时须仍等于预约开始时间（design D1 / D2） */
+  installAt: string;
+  /** 客户档案邮箱（生成时）；执行时须仍等于客户档案邮箱 */
+  to: string;
+  subject: string;
+  /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
+  body: string;
+  html: string;
+  /** 该维修单此前已发过（改期主题） */
+  rescheduled: boolean;
   metadata: PendingActionMetadata & { orgId: string; orderId: string };
 }
 

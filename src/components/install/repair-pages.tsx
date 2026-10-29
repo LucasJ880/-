@@ -8,14 +8,16 @@
  * 数据只来自 /api/install/repairs*（install.task.read ORG）；无权时显示提示。
  * INSTALL-2e：详情显示出单登记 / 返修排期 / 关闭情况；「登记出单」「安排返修 / 改期」按钮只按接口返回的可执行操作显示。
  * INSTALL-2i：列表分"进行中 / 已归档"两个页签（关闭即归档）、搜索、翻页；栏 / 搜索词 / 页码在地址里；已归档列出结束情况。
+ * INSTALL-2j：详情"返修时间确认邮件"卡片——状态、阻断原因、预览与批准发送（复用质保邮件的预览批准组件）、生成确认邮件。
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Archive, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Loader2, Package, Printer, Search, X } from "lucide-react";
+import { Archive, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Loader2, Mail, Package, Printer, Search, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { padPrintRows, REPAIR_LIST_PAGE_SIZE } from "@/lib/install/repair";
+import { WarrantyApprove, type WarrantyView } from "@/components/accounting/warranty-panel";
 import { factoryText, type RepairDetailData, type RepairListItem, type RepairListResponse, type RepairListTabKey } from "./install-types";
 
 function useRepairFetch<T>(url: string) {
@@ -283,8 +285,75 @@ export function RepairList() {
   );
 }
 
+/** INSTALL-2j：当前返修时间的确认邮件状态（详情接口 visitEmail） */
+type VisitEmailView = WarrantyView & { installAt: string };
+
+const VISIT_STATUS_TEXT: Record<string, string> = {
+  none: "尚未生成",
+  sent: "已发送",
+  failed: "发送失败",
+  rejected: "已拒绝",
+  expired: "已过期",
+};
+
+function VisitEmailCard({ repairId, view, canGenerate, onChanged }: { repairId: string; view: VisitEmailView; canGenerate: boolean; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { ok, data } = await postJson(`/api/install/repairs/${repairId}/visit-email`, {});
+      if (!ok) setError((data as { error?: string }).error || "生成失败");
+      else onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2 rounded-xl border border-border bg-card-bg p-4">
+      <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        <Mail size={16} className="text-accent" /> 返修时间确认邮件
+        <span className="ml-auto text-xs font-normal text-muted">返修 {fmtWhen(view.installAt)}</span>
+      </div>
+      {view.status === "pending_approval" && (
+        <WarrantyApprove view={view} onDone={() => onChanged()} label="返修时间确认邮件" footer="批准后以组织发件身份发给客户档案邮箱；改期后需重新批准。" />
+      )}
+      {view.status === "blocked" && (
+        <div className="rounded-lg border border-[rgba(201,138,34,0.4)] bg-[rgba(201,138,34,0.08)] px-3 py-2 text-sm text-foreground">
+          <div className="font-medium">确认邮件暂未生成：</div>
+          <ul className="mt-1 list-disc pl-5 text-xs">
+            {(view.blockers ?? []).map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[11px] text-muted">客户邮箱在客户档案里补；报修电话 / 邮箱在会计「待收尾款」→「质保设置」补。补齐后点「生成确认邮件」。</p>
+        </div>
+      )}
+      {view.status !== "pending_approval" && view.status !== "blocked" && (
+        <p className="text-sm text-foreground">
+          {VISIT_STATUS_TEXT[view.status] ?? view.status}
+          {view.sentAt ? ` · ${fmtWhen(view.sentAt)}` : ""}
+          {view.reason ? <span className="block text-xs text-danger">{view.reason}</span> : null}
+        </p>
+      )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+      {view.canRegenerate && canGenerate && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={generate}
+          className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50"
+        >
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />} 生成确认邮件
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function RepairDetail({ id }: { id: string }) {
-  const { data, error, loading, reload } = useRepairFetch<{ repair: RepairDetailData }>(`/api/install/repairs/${id}`);
+  const { data, error, loading, reload } = useRepairFetch<{ repair: RepairDetailData; visitEmail: VisitEmailView | null }>(`/api/install/repairs/${id}`);
   const r = data?.repair;
   const [dialog, setDialog] = useState<RepairDialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -331,6 +400,7 @@ export function RepairDetail({ id }: { id: string }) {
           </div>
           {notice && <div className="rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-foreground">{notice}</div>}
           <RepairProgressCards repair={r} onAction={setDialog} />
+          {data?.visitEmail && <VisitEmailCard repairId={r.id} view={data.visitEmail} canGenerate={r.actions.canSchedule} onChanged={reload} />}
           {dialog === "issue" && (
             <FactoryIssueDialog
               repair={r}

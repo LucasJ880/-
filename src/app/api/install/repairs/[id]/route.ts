@@ -5,6 +5,7 @@
  * - 含表头、全部行（问题照只给 /api/files/ 代理地址）、当前安装阶段、打印抬头（质保设置的公司名与地址）
  * - INSTALL-2e：另含进度（各品类出单登记、待登记品类、返修排期、关闭情况）与当前用户可执行操作（与写接口同一判定）
  * - INSTALL-2f：关闭情况含原因（已完成 / 转入 / 已作废 / 关闭不返修）、原因说明与操作人；可执行操作含作废 / 关闭不返修
+ * - INSTALL-2j：有未完成的返修预约时带 visitEmail（返修时间确认邮件状态与预览）
  * - 不出金额
  */
 import { NextResponse } from "next/server";
@@ -15,6 +16,7 @@ import { loadOrgTimezone } from "@/lib/automation/registry";
 import { todayInTimeZone } from "@/lib/install/balance";
 import { INSTALL_REPAIR_SUBMITTED, parseRepairRecord, REPAIR_TARGET_TYPE, repairActions, repairProgress } from "@/lib/install/repair";
 import { loadOrderStages, loadRepairEvents, loadRepairHolder, repairContextOf, serializeRepairDetail, userNameMap } from "@/lib/install/repair-service";
+import { loadRepairVisitEmailView } from "@/lib/install/repair-visit-email-service";
 import { resolveInstallScope } from "@/lib/install/service";
 import { readWarrantySettings } from "@/lib/install/warranty";
 
@@ -73,5 +75,6 @@ export const GET = withAuth<{ id: string }>(async (request, ctx, user) => {
       scheduleCancelled: scheduleAppt?.status === "cancelled",
       actions: repairActions(progress, holder, repairContextOf(rec, orderEvents)),
     }),
+    visitEmail: await loadRepairVisitEmailView(orgId, rec.id),
   });
 });
