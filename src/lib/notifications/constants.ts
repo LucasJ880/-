@@ -12,6 +12,9 @@ export const NOTIFICATION_TYPE_KEYS = [
   "agent_approval",
   "quote_signed",
   "sales_daily_briefing",
+  // INSTALL-2b：装完待收尾款 / 尾款已确认
+  "install_completed",
+  "install_balance_confirmed",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];

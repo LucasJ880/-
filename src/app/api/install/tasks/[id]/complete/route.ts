@@ -7,6 +7,7 @@
  *   + 审计 install.task.completed（窗数 / 照片张数）
  * - 预约已 completed → 200 幂等；工艺单不在可推进状态 → 409
  * INSTALL-2a：按收口单元（Blinds 行 + 工艺参数四段）判定；零单元 → 409 NO_UNITS（需出单补齐）
+ * INSTALL-2b：首次成功后站内通知持 install.balance.confirm 者与工艺单创建人（幂等返回不再通知）
  */
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -14,6 +15,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { logAudit } from "@/lib/audit/logger";
 import { canTransition, timestampField } from "@/lib/blinds/order-state-machine";
 import { INSTALL_TASK_COMPLETED, missingWindows } from "@/lib/install/closeout";
+import { notifyInstallCompleted } from "@/lib/install/balance-service";
 import {
   authorizeInstallTask,
   installForbidden,
@@ -112,6 +114,9 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
     },
     request,
   });
+
+  // INSTALL-2b：首次完成收口 → 会计"待收尾款" + 销售"已装完"（失败不影响本响应）
+  await notifyInstallCompleted(task.customer.orgId, order.id);
 
   return NextResponse.json({
     ok: true,

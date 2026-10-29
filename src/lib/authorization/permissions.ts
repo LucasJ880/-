@@ -290,6 +290,8 @@ const REGISTRY_ENTRIES: PermissionDefinition[] = [
   def("install.window.complete", "install.window", "complete", "逐窗拍照收口", "按工艺单逐窗上传完工照片", ["ASSIGNED", "ORG"], "MEDIUM"),
   def("install.task.assign", "install.task", "assign", "安排安装", "指定安装工与安装时间（运营 / 会计）", ["ORG"], "HIGH"),
   def("install.photo.read", "install.photo", "read", "查看收口照片", "查看工艺单的逐窗收口照片", ["ORG"], "MEDIUM"),
+  // INSTALL-2b：会计 / 老板确认装完后的尾款已收（推进工艺单 installed → completed）
+  def("install.balance.confirm", "install.balance", "confirm", "确认收到尾款", "登记装完后的尾款实收（金额 / 方式 / 日期 / 差额说明），工艺单转已完成", ["ORG"], "HIGH"),
 ];
 
 /**
@@ -303,6 +305,7 @@ const DIGITAL_EMPLOYEE_DENIED_EXACT = new Set([
   "organization.settings.manage",
   "authorization.policy.manage",
   "install.task.assign",
+  "install.balance.confirm",
   "orders.cancel",
   "inventory.manage",
   "operations.manage",

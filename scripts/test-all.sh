@@ -311,6 +311,8 @@ run_test "销售期间汇总 DB 端到端（KPI-1；隔离库执行，否则跳�
 run_test "安装收口聚合与照片校验（INSTALL-1）" "npx tsx src/lib/install/__tests__/closeout.test.ts"
 run_test "收口单元覆盖全部产品线与位置快照（INSTALL-2a）" "npx tsx src/lib/install/__tests__/closeout-units.test.ts"
 run_test "收口单元 DB 端到端（INSTALL-2a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/closeout-db.isolated.test.ts"
+run_test "尾款口径 / 确认校验 / 通知落点（INSTALL-2b）" "npx tsx src/lib/install/__tests__/balance.test.ts"
+run_test "尾款确认 DB 端到端（INSTALL-2b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/balance-db.isolated.test.ts"
 run_test "PERM-3 Fulfillment Category" "npx tsx src/lib/fulfillment/__tests__/category.test.ts"
 run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-access.test.ts"
 run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"

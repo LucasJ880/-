@@ -30,6 +30,7 @@ import { useLocale, LOCALE_LABELS } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/messages";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
+import { installNotificationHref } from "@/lib/install/balance";
 import { orgRoleLabel } from "@/lib/permissions-client";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
 
@@ -551,7 +552,12 @@ export function Header() {
   }, [searchOpen, closeSearch]);
 
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
-    if (item.entityType === "task" && item.entityId) {
+    // INSTALL-2b：完工 / 尾款确认通知的落点（与通知页同一规则）
+    const installHref = installNotificationHref(item);
+    if (installHref) {
+      if (item.orgId) persistSelectedOrgId(item.orgId);
+      window.location.href = installHref;
+    } else if (item.entityType === "task" && item.entityId) {
       window.location.href = `/tasks?open=${item.entityId}`;
     } else if (item.entityType === "muse_inquiry" && item.entityId) {
       window.location.href = `/sales/inquiries/${encodeURIComponent(item.entityId)}`;

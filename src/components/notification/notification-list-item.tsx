@@ -10,6 +10,8 @@ import {
   Zap,
   Bot,
   ShieldCheck,
+  Wrench,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NotificationItem } from "./types";
@@ -26,6 +28,8 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   agent_approval: ShieldCheck,
   quote_signed: CheckSquare,
   sales_daily_briefing: Bell,
+  install_completed: Wrench,
+  install_balance_confirmed: Wallet,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {

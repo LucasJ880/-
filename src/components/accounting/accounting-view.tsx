@@ -5,15 +5,22 @@
  * — 成交与提成：/api/accounting/sales-summary（按人按月，可导出 CSV）
  * — 报价过程：/api/accounting/quotes（折扣、超限审批与审批人、签约时间）
  * — 项目结算：/api/accounting/projects（汇总；与销售成交分开）
+ * INSTALL-2b：
+ * — 待收尾款：/api/accounting/balance（装完未确认尾款的单 + 确认；见 balance-tab.tsx）
+ * — 页签读写 URL `?tab=`；`?order=<工艺单 id>` 展开并高亮该行（通知直达）
  * 接口 403 的页签不显示。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Calculator, Download, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { BalanceTab, type BalanceResp } from "./balance-tab";
 
-type Tab = "sales" | "quotes" | "projects";
-const TAB_LABEL: Record<Tab, string> = { sales: "成交与提成", quotes: "报价过程", projects: "项目结算" };
+type Tab = "sales" | "quotes" | "projects" | "balance";
+const TABS: Tab[] = ["sales", "quotes", "projects", "balance"];
+const TAB_LABEL: Record<Tab, string> = { sales: "成交与提成", quotes: "报价过程", projects: "项目结算", balance: "待收尾款" };
+const isTab = (v: string | null): v is Tab => !!v && (TABS as string[]).includes(v);
 
 type SalesRow = {
   salesUserId: string;
@@ -69,12 +76,26 @@ function thisMonth(): string {
 }
 
 export function AccountingView() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get("tab");
+  const focusOrderId = searchParams.get("order");
   const [month, setMonth] = useState(thisMonth);
-  const [tab, setTab] = useState<Tab | null>(null);
+  const [tab, setTabState] = useState<Tab | null>(null);
   const [allowed, setAllowed] = useState<Record<Tab, boolean> | null>(null);
   const [sales, setSales] = useState<SalesSummary | null>(null);
   const [quotes, setQuotes] = useState<QuoteRow[] | null>(null);
   const [projects, setProjects] = useState<ProjectsResp | null>(null);
+  const [balance, setBalance] = useState<BalanceResp | null>(null);
+
+  /** 切页签同步 URL（去掉 order 参数，避免回退时又展开旧行） */
+  const setTab = useCallback(
+    (t: Tab) => {
+      setTabState(t);
+      router.replace(`/accounting?tab=${t}`, { scroll: false });
+    },
+    [router],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,30 +103,35 @@ export function AccountingView() {
     setLoading(true);
     setError(null);
     try {
-      const [s, q, p] = await Promise.all([
+      const [s, q, p, b] = await Promise.all([
         apiFetch(`/api/accounting/sales-summary?month=${month}`),
         apiFetch(`/api/accounting/quotes?month=${month}`),
         apiFetch(`/api/accounting/projects`),
+        apiFetch(`/api/accounting/balance`),
       ]);
-      const next = { sales: s.status !== 403, quotes: q.status !== 403, projects: p.status !== 403 };
+      const next = { sales: s.status !== 403, quotes: q.status !== 403, projects: p.status !== 403, balance: b.status !== 403 };
       setAllowed(next);
       setSales(s.ok ? ((await s.json()) as SalesSummary) : null);
       setQuotes(q.ok ? ((await q.json()) as { quotes: QuoteRow[] }).quotes : null);
       setProjects(p.ok ? ((await p.json()) as ProjectsResp) : null);
-      setTab((cur) => (cur && next[cur] ? cur : (["sales", "quotes", "projects"] as Tab[]).find((t) => next[t]) ?? null));
-      if (![s, q, p].some((r) => r.ok)) setError("没有会计视图权限");
+      setBalance(b.ok ? ((await b.json()) as BalanceResp) : null);
+      // 当前页签 → URL 指定的可见页签 → 第一个可见页签
+      setTabState((cur) =>
+        cur && next[cur] ? cur : isTab(urlTab) && next[urlTab] ? urlTab : TABS.find((t) => next[t]) ?? null,
+      );
+      if (![s, q, p, b].some((r) => r.ok)) setError("没有会计视图权限");
     } catch {
       setError("网络错误");
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [month, urlTab]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const tabs = useMemo(() => (allowed ? (["sales", "quotes", "projects"] as Tab[]).filter((t) => allowed[t]) : []), [allowed]);
+  const tabs = useMemo(() => (allowed ? TABS.filter((t) => allowed[t]) : []), [allowed]);
 
   const exportCsv = async () => {
     const res = await apiFetch(`/api/accounting/sales-summary?month=${month}&format=csv`);
@@ -127,9 +153,9 @@ export function AccountingView() {
             <Calculator size={20} className="text-accent" />
             会计视图
           </h1>
-          <p className="mt-0.5 text-xs text-muted">只读：成交与提成、报价全过程、项目结算（项目与销售分开结算）</p>
+          <p className="mt-0.5 text-xs text-muted">成交与提成、报价全过程、项目结算只读（项目与销售分开结算）；装完待收尾款在此确认</p>
         </div>
-        {tab !== "projects" && (
+        {(tab === "sales" || tab === "quotes") && (
           <input
             type="month"
             value={month}
@@ -250,6 +276,10 @@ export function AccountingView() {
             )}
           </tbody>
         </table>
+      )}
+
+      {!loading && tab === "balance" && balance && (
+        <BalanceTab data={balance} focusOrderId={focusOrderId} onChanged={() => void load()} />
       )}
 
       {!loading && tab === "projects" && projects && (
