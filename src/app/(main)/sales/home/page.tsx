@@ -13,6 +13,7 @@ import { SalesFunnelSummary } from "@/components/sales-command-center/sales-funn
 import { SalesQuoteActivity } from "@/components/sales-command-center/sales-quote-activity";
 import { SalesPaymentSummary } from "@/components/sales-command-center/sales-payment-summary";
 import { SalesPeriodPanel } from "@/components/sales-command-center/sales-period-panel";
+import { WebsiteBookingBanner } from "@/components/sales-command-center/website-booking-banner";
 
 type BlockStatus = "loading" | "empty" | "error" | "ready";
 
@@ -82,6 +83,9 @@ export default function SalesCommandCenterPage() {
         priorityCount={data.priorityTotal}
         completionRate={data.performance.completionRate}
       />
+
+      {/* CAL-2：网站预约待转入入口（无查看权 / 未开启 / 无待转入时不渲染） */}
+      <WebsiteBookingBanner />
 
       <SalesPerformanceHero data={data} onTargetSaved={load} />
 
