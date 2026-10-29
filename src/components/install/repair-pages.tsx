@@ -67,7 +67,7 @@ const STAGE_TONE: Record<string, string> = {
 
 /** 列表 / 详情共用的进度一句话 */
 function progressText(r: RepairListItem): string {
-  if (r.closed) return r.closed.reason === "superseded" ? `已转入 ${r.closed.supersededBy ?? "新单"}` : "已完成";
+  if (r.closed) return r.closed.reason === "superseded" ? `已转入 ${r.closed.supersededBy ?? "新单"}` : r.closed.label;
   if (r.scheduledAt) return `返修 ${fmtWhen(r.scheduledAt)}`;
   if (r.pendingFactory.length > 0) return `待出单：${r.pendingFactory.map((c) => c.label).join("、")}`;
   return "待排返修";
@@ -143,7 +143,7 @@ export function RepairList() {
 export function RepairDetail({ id }: { id: string }) {
   const { data, error, loading, reload } = useRepairFetch<{ repair: RepairDetailData }>(`/api/install/repairs/${id}`);
   const r = data?.repair;
-  const [dialog, setDialog] = useState<"issue" | "schedule" | null>(null);
+  const [dialog, setDialog] = useState<RepairDialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   return (
     <div className="mx-auto max-w-3xl space-y-4 pb-10">
@@ -210,6 +210,18 @@ export function RepairDetail({ id }: { id: string }) {
               }}
             />
           )}
+          {(dialog === "void" || dialog === "close") && (
+            <CloseRepairDialog
+              repair={r}
+              kind={dialog}
+              onClose={() => setDialog(null)}
+              onDone={async (msg) => {
+                setDialog(null);
+                setNotice(msg);
+                await reload();
+              }}
+            />
+          )}
           <div className="space-y-2">
             {r.rows.map((row) => (
               <div key={row.n} className="rounded-xl border border-[rgba(201,138,34,0.4)] bg-card-bg p-3">
@@ -240,14 +252,28 @@ export function RepairDetail({ id }: { id: string }) {
   );
 }
 
+type RepairDialog = "issue" | "schedule" | "void" | "close";
+
+/** 关闭横幅的一句话（INSTALL-2f：已作废 / 关闭不返修带原因说明与操作人） */
+function closedText(c: NonNullable<RepairDetailData["progress"]["closed"]>): string {
+  if (c.reason === "superseded") return `返修时又发现问题，转入 ${c.supersededBy ?? "新单"}`;
+  if (c.reason === "completed") return "返修已完成";
+  return `${c.label}${c.note ? `：${c.note}` : ""} · ${c.by.name ?? "—"}`;
+}
+
 /** INSTALL-2e：出单登记 / 返修排期 / 关闭情况；按钮只按接口返回的可执行操作显示（design D9） */
-function RepairProgressCards({ repair: r, onAction }: { repair: RepairDetailData; onAction: (a: "issue" | "schedule") => void }) {
+function RepairProgressCards({ repair: r, onAction }: { repair: RepairDetailData; onAction: (a: RepairDialog) => void }) {
   const p = r.progress;
+  const exceptional = p.closed?.reason === "voided" || p.closed?.reason === "waived";
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {p.closed && (
-        <div className="rounded-xl border border-[rgba(46,122,86,0.35)] bg-[rgba(46,122,86,0.06)] p-3 text-sm text-[#2e7a56] sm:col-span-2">
-          维修单已关闭：{p.closed.reason === "superseded" ? `返修时又发现问题，转入 ${p.closed.supersededBy ?? "新单"}` : "返修已完成"}（{fmtWhen(p.closed.at)}）
+        <div
+          className={`rounded-xl border p-3 text-sm sm:col-span-2 ${
+            exceptional ? "border-border bg-[rgba(26,36,32,0.04)] text-foreground" : "border-[rgba(46,122,86,0.35)] bg-[rgba(46,122,86,0.06)] text-[#2e7a56]"
+          }`}
+        >
+          维修单已关闭：{closedText(p.closed)}（{fmtWhen(p.closed.at)}）
         </div>
       )}
       <section aria-label="出单" className="rounded-xl border border-border bg-card-bg p-3 text-sm">
@@ -265,8 +291,8 @@ function RepairProgressCards({ repair: r, onAction }: { repair: RepairDetailData
               </li>
             ))}
             {p.pending.map((c) => (
-              <li key={c.key} className="text-[#a86a12]">
-                ○ {c.label}：待登记
+              <li key={c.key} className={p.closed ? "text-muted" : "text-[#a86a12]"}>
+                ○ {c.label}：{p.closed ? "未登记（维修单已关闭）" : "待登记"}
               </li>
             ))}
           </ul>
@@ -284,7 +310,7 @@ function RepairProgressCards({ repair: r, onAction }: { repair: RepairDetailData
         {p.schedule ? (
           <p className="mt-1 text-xs text-foreground">
             {fmtWhen(p.schedule.installAt)} · 安装工 {p.schedule.assignedTo.name ?? "—"}
-            {p.schedule.completed ? " · 已完成" : ""}
+            {p.schedule.completed ? " · 已完成" : p.schedule.cancelled ? " · 已取消" : ""}
           </p>
         ) : (
           <p className="mt-1 text-xs text-muted">尚未排返修{p.readyDate ? `（返修件预计 ${p.readyDate} 备好）` : ""}</p>
@@ -295,6 +321,22 @@ function RepairProgressCards({ repair: r, onAction }: { repair: RepairDetailData
           </button>
         )}
       </section>
+      {/* INSTALL-2f：例外出口，只按接口返回的可执行操作显示（design D5） */}
+      {(r.actions.canVoid || r.actions.canClose) && (
+        <section aria-label="处理维修单" className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border p-3 text-xs text-muted sm:col-span-2">
+          <span>不再按此单返修：</span>
+          {r.actions.canVoid && (
+            <button type="button" onClick={() => onAction("void")} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground">
+              作废维修单
+            </button>
+          )}
+          {r.actions.canClose && (
+            <button type="button" onClick={() => onAction("close")} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground">
+              关闭不返修
+            </button>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -429,6 +471,72 @@ function ScheduleDialog({ repair: r, onClose, onDone }: { repair: RepairDetailDa
 }
 
 /** 纸质维修单版式：打印时只输出 #repair-print */
+/** INSTALL-2f：作废 / 关闭不返修（必填原因；写明会发生什么） */
+function CloseRepairDialog({
+  repair: r,
+  kind,
+  onClose,
+  onDone,
+}: {
+  repair: RepairDetailData;
+  kind: "void" | "close";
+  onClose: () => void;
+  onDone: (msg: string) => void | Promise<void>;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isVoid = kind === "void";
+  const label = isVoid ? "作废维修单" : "关闭不返修";
+  const pendingReturn = !!r.progress.schedule && !r.progress.schedule.completed;
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { ok, data } = await postJson(`/api/install/repairs/${r.id}/${isVoid ? "void" : "close"}`, { reason });
+      if (!ok) {
+        setErr(String(data.error ?? `${label}失败`));
+        return;
+      }
+      await onDone(
+        isVoid
+          ? `已作废 ${r.repairNo}：首装任务已重新打开${pendingReturn ? "，返修预约已取消" : ""}`
+          : `已关闭 ${r.repairNo}（不返修）${pendingReturn ? "：返修预约已取消" : ""}${data.orderStatus === "installed" ? "，工艺单转已安装、进入会计待收尾款" : ""}`,
+      );
+    } catch {
+      setErr("网络错误，请重试");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <DialogShell label={label} onClose={onClose}>
+      <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted">
+        {isVoid ? (
+          <>
+            <li>只在提交错了时用：维修单作废，不再返修。</li>
+            <li>提交维修单的那次安装任务会重新打开，安装工处理各窗后完成收口。</li>
+          </>
+        ) : (
+          <>
+            <li>客户接受现状、不再返修时用。</li>
+            <li>工艺单转为已安装，进入会计「待收尾款」。</li>
+          </>
+        )}
+        {pendingReturn && <li>已排的返修预约（{fmtWhen(r.progress.schedule!.installAt)}）会取消，并通知安装工。</li>}
+      </ul>
+      <label className="block space-y-1 text-sm">
+        <span className="text-xs text-muted">原因（必填，只在详情里显示，不发进通知）</span>
+        <textarea aria-label={`${label}原因`} value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={500} className="w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      {err && <p className="text-sm text-danger">{err}</p>}
+      <button type="button" disabled={busy || !reason.trim()} onClick={save} className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[color:var(--on-accent)] disabled:opacity-50">
+        {busy && <Loader2 size={15} className="animate-spin" />}确认{label}
+      </button>
+    </DialogShell>
+  );
+}
+
 export function RepairPrint({ id }: { id: string }) {
   const { data, error, loading } = useRepairFetch<{ repair: RepairDetailData }>(`/api/install/repairs/${id}`);
   const r = data?.repair;

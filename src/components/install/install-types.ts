@@ -92,6 +92,8 @@ export type InstallTaskDetailData = InstallTaskSummary & {
   closeout: { total: number; completed: number; issueCount: number; allCompleted: boolean };
   /** INSTALL-2d：因提交维修单而完成的任务 */
   repair: { id: string; repairNo: string; targetDate: string; rowCount: number } | null;
+  /** INSTALL-2f：这次预约上已作废的维修单（任务重新打开时） */
+  voidedRepair?: { id: string; repairNo: string; note: string } | null;
 };
 
 /** 由单元状态重算汇总（前端乐观更新用，口径同服务端聚合） */
@@ -186,8 +188,12 @@ export type RepairListItem = {
   /** INSTALL-2e：待登记出单品类 / 返修时间 / 关闭情况 */
   pendingFactory: Array<{ key: string; label: string }>;
   scheduledAt: string | null;
-  closed: { reason: "completed" | "superseded"; supersededBy: string | null } | null;
+  /** INSTALL-2f：原因含已作废 / 关闭不返修 */
+  closed: { reason: RepairCloseReason; label: string; supersededBy: string | null } | null;
 };
+
+/** INSTALL-2f：维修单关闭原因 */
+export type RepairCloseReason = "completed" | "superseded" | "voided" | "waived";
 
 /** INSTALL-2e：维修单进度（详情） */
 export type RepairProgressData = {
@@ -195,8 +201,8 @@ export type RepairProgressData = {
   issued: Array<{ key: string; label: string; readyDate: string; note: string; by: { id: string; name: string | null }; at: string }>;
   pending: Array<{ key: string; label: string }>;
   readyDate: string | null;
-  schedule: { appointmentId: string; installAt: string; assignedTo: { id: string; name: string | null }; completed: boolean } | null;
-  closed: { reason: "completed" | "superseded"; supersededBy: string | null; at: string } | null;
+  schedule: { appointmentId: string; installAt: string; assignedTo: { id: string; name: string | null }; completed: boolean; cancelled?: boolean } | null;
+  closed: { reason: RepairCloseReason; label: string; supersededBy: string | null; note: string; by: { id: string; name: string | null }; at: string } | null;
 };
 
 /** INSTALL-2d：GET /api/install/repairs/[id] 详情（打印版同一数据） */
@@ -209,7 +215,7 @@ export type RepairDetailData = RepairListItem & {
   company: { name: string; address: string };
   /** INSTALL-2e：进度与当前用户可执行操作（与写接口同一判定） */
   progress: RepairProgressData;
-  actions: { issueCategories: Array<{ key: string; label: string }>; canSchedule: boolean };
+  actions: { issueCategories: Array<{ key: string; label: string }>; canSchedule: boolean; canVoid: boolean; canClose: boolean };
   rows: Array<{
     n: number;
     unitId: string;

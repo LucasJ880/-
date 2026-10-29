@@ -320,6 +320,7 @@ run_test "问题类型 / 维修单表头 / 目标日 / 单号 / 打印补行（I
 run_test "安装阶段推导与文案（INSTALL-2d）" "npx tsx src/lib/install/__tests__/stage.test.ts"
 run_test "维修单 DB 端到端（INSTALL-2d；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/repair-db.isolated.test.ts"
 run_test "返修调度全链路 DB 端到端（INSTALL-2e；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/repair-dispatch-db.isolated.test.ts"
+run_test "维修单作废 / 关闭不返修 / 逾期提醒 DB 端到端（INSTALL-2f；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/repair-close-db.isolated.test.ts"
 run_test "PERM-3 Fulfillment Category" "npx tsx src/lib/fulfillment/__tests__/category.test.ts"
 run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-access.test.ts"
 run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"

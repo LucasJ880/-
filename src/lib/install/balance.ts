@@ -9,7 +9,9 @@
 import {
   ENTITY_INSTALL_REPAIR,
   ENTITY_INSTALL_TASK,
+  NOTIFY_REPAIR_CLOSED,
   NOTIFY_REPAIR_FACTORY_ISSUED,
+  NOTIFY_REPAIR_OVERDUE,
   NOTIFY_REPAIR_SCHEDULED,
   NOTIFY_REPAIR_SUBMITTED,
 } from "./repair";
@@ -172,6 +174,7 @@ export function sumBalanceDue(quotes: Array<QuoteMoney & { id: string }>, confir
  * INSTALL-2b 通知落点（design D6）：头部通知下拉与通知页在既有分支之前先调这里。
  * 发给持 install.balance.confirm 者 → 会计"待收尾款"页签；发给销售 → 工艺单详情（创建人可读）。
  * INSTALL-2d：维修单通知——实体 install_repair → 维修单详情；发给销售的（实体 blinds_order）→ 工艺单详情。
+ * INSTALL-2f：维修单作废 / 关闭不返修、返修逾期同样按实体落点。
  * 不是安装相关的通知 → null（走既有分支）。
  */
 export function installNotificationHref(item: {
@@ -193,7 +196,9 @@ export function installNotificationHref(item: {
       item.type === "install_warranty_failed" ||
       item.type === NOTIFY_REPAIR_SUBMITTED ||
       item.type === NOTIFY_REPAIR_FACTORY_ISSUED ||
-      item.type === NOTIFY_REPAIR_SCHEDULED)
+      item.type === NOTIFY_REPAIR_SCHEDULED ||
+      item.type === NOTIFY_REPAIR_CLOSED ||
+      item.type === NOTIFY_REPAIR_OVERDUE)
   ) {
     return `/blinds-orders/${id}`;
   }

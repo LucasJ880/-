@@ -20,6 +20,8 @@ const LABELS: Record<string, string> = {
   install_repair_submitted: "返修单已提交",
   install_repair_factory_issued: "返修件已出单",
   install_repair_scheduled: "已安排返修",
+  install_repair_closed: "维修单作废 / 关闭不返修",
+  install_repair_overdue: "返修逾期提醒",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);

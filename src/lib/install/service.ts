@@ -295,6 +295,8 @@ export function scopeCloseout(closeout: OrderCloseout, repair: Pick<RepairRecord
 
 /** INSTALL-2e：返修预约所属维修单 */
 export type TaskReturnRepair = { id: string; repairNo: string };
+/** INSTALL-2f：这次预约上已作废的维修单（任务重新打开时提示安装工） */
+export type TaskVoidedRepair = { id: string; repairNo: string; note: string };
 
 /** 列表项：预约 + 工艺单摘要 + 收口计数（不含金额） */
 export function serializeTaskSummary(
@@ -340,6 +342,7 @@ export function serializeTaskDetail(
   closeout: OrderCloseout,
   repair: TaskRepairSummary | null = null,
   returnRepair: TaskReturnRepair | null = null,
+  voidedRepair: TaskVoidedRepair | null = null,
 ) {
   const { units, summary } = closeout;
   const byUnit = new Map(summary.windows.map((w) => [w.itemId, w]));
@@ -373,6 +376,7 @@ export function serializeTaskDetail(
     }),
     closeout: { total: summary.total, completed: summary.completed, issueCount: summary.issueCount, allCompleted: summary.allCompleted },
     repair,
+    voidedRepair,
   };
 }
 

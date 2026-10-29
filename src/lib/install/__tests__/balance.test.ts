@@ -2,6 +2,7 @@
  * INSTALL-2b：应收尾款口径 / 确认入参校验 / 差额说明 / 记录解析 / 销售首页合计 / 通知落点
  * 运行：npx tsx src/lib/install/__tests__/balance.test.ts
  */
+import { NOTIFICATION_TYPE_KEYS } from "../../notifications/constants";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -93,6 +94,13 @@ ok(installNotificationHref({ type: "install_repair_submitted", entityType: "blin
 // INSTALL-2e：出单登记 / 安排返修
 ok(installNotificationHref({ type: "install_repair_scheduled", entityType: "install_task", entityId: "appt 9" }) === "/install/appt%209", "安装工：返修任务 install_task → /install/<预约 id>");
 ok(installNotificationHref({ type: "install_repair_scheduled", entityType: "blinds_order", entityId: "o8" }) === "/blinds-orders/o8", "销售：已排返修 → 工艺单状态卡");
+// INSTALL-2f：作废 / 关闭不返修、返修逾期
+ok(installNotificationHref({ type: "install_repair_closed", entityType: "install_repair", entityId: "r1" }) === "/install/repairs/r1", "维修单作废 / 关闭 → 维修单详情");
+ok(installNotificationHref({ type: "install_repair_closed", entityType: "install_task", entityId: "a1" }) === "/install/a1", "安装工：任务重新打开 / 返修取消 → /install/<预约 id>");
+ok(installNotificationHref({ type: "install_repair_closed", entityType: "blinds_order", entityId: "o9" }) === "/blinds-orders/o9", "销售：维修单作废 / 关闭 → 工艺单状态卡");
+ok(installNotificationHref({ type: "install_repair_overdue", entityType: "install_repair", entityId: "r2" }) === "/install/repairs/r2", "返修逾期 → 维修单详情");
+ok(installNotificationHref({ type: "install_repair_overdue", entityType: "blinds_order", entityId: "o9" }) === "/blinds-orders/o9", "销售：返修逾期 → 工艺单状态卡");
+ok(["install_repair_closed", "install_repair_overdue"].every((t) => (NOTIFICATION_TYPE_KEYS as readonly string[]).includes(t)), "两个新类型已登记进通知类型表（通知设置里可单独开关）");
 ok(installNotificationHref({ type: "install_repair_factory_issued", entityType: "blinds_order", entityId: "o9" }) === "/blinds-orders/o9", "销售：返修件已出单 → 工艺单状态卡");
 ok(installNotificationHref({ type: "install_repair_factory_issued", entityType: "install_repair", entityId: "rep2" }) === "/install/repairs/rep2", "运营：返修件已出单 → 维修单详情");
 {

@@ -15,6 +15,8 @@ import {
   MailCheck,
   MailWarning,
   Package,
+  CircleX,
+  AlarmClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NotificationItem } from "./types";
@@ -38,6 +40,8 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   install_repair_submitted: Wrench,
   install_repair_factory_issued: Package,
   install_repair_scheduled: Calendar,
+  install_repair_closed: CircleX,
+  install_repair_overdue: AlarmClock,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {
