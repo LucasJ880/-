@@ -52,7 +52,7 @@
 
 ## 6. 收口
 
-- [ ] 6.1 全量门禁全部通过：
+- [x] 6.1 全量门禁全部通过：
   - `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`
   - `npm run lint:baseline`
   - `npm run test:ci`
@@ -63,7 +63,7 @@
 
   verify：上述命令退出码与输出贴进报告；registry 比当前 main 增加 2；CI 绿。
 
-- [ ] 6.2 写 `docs/QINGYAN_CAL-2_REPORT.md`：
+- [x] 6.2 写 `docs/QINGYAN_CAL-2_REPORT.md`：
   - 做了什么、怎么验、对设计稿 §2 原案（webhook）的偏离与原因；
   - 已知限制：预填依赖描述格式、转入后同步走负责人写入日历、只提示本人名下重复、忽略不可撤销、老板不能分派；
   - 上线步骤：先开 CAL-1，拿一条真实 book-now 事件核对预填。

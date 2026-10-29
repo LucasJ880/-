@@ -117,7 +117,8 @@
 | KPI-1 | 期间看板：`summarizeSalesPeriod` 一套口径（成单 = 报价签字 grandTotal、报价 = sentAt）+ 表驱动洞察 + `GET /api/sales/period-summary` + `/sales/home` 期间选择器与按人表 + `sales_overview` 可选 `period` | — | OpenSpec change `sales-period-summary`；`period-pure` / `period-insights` / `period-db.isolated` 测试；报告 `docs/QINGYAN_KPI-1_REPORT.md` | [x]（#309；已归档） |
 | CAL-1 | Google 日历观察：syncToken 增量拉取（`sales-actions` 定时任务的 `calendar-watch` 步骤，每 15 分钟）→ 四条归因规则（青砚 / 网站 / 成员 / 不明）→ AuditLog 账本 + 站内变更通知 + 按账号统计 `GET /api/sales/calendar/attribution` + 期间面板"日程来源" | 判断点 1、2 | OpenSpec change `calendar-watch-attribution`；`calendar-watch-pure` / `calendar-watch-db.isolated` 测试；报告 `docs/QINGYAN_CAL-1_REPORT.md` | [x]（#323；已归档） |
 | KPI-2 | LLM 叙述层：只解读 KPI-1 的 JSON，数字校验不通过整段回落；开关默认关 | KPI-1；判断点 6（config.yaml 第 7 条例外，Evan 2026-10-29 拍板） | OpenSpec change `sales-period-narrative`；报告 `docs/QINGYAN_KPI-2_REPORT.md` | [x]（#332；已归档） |
-| CAL-2 | 网站 book-now 直连青砚 webhook → 建 Appointment → 青砚推 Google；Muse / 微信变更推送 | CAL-1；网站插件能发 webhook | 网站预约在账本里归因为 `qingyan` 且自动建客户 | [ ] |
+| CAL-2 | 网站预约一键转入：CAL-1 观察到的、归因为网站的 Google 日历事件列成待转入，销售核对预填后一键建客户 + 预约（销售认领，不依赖网站 webhook，不写 Google；转入的预约以 Google 为准） | CAL-1 | OpenSpec change `website-booking-intake`；`website-booking-intake-pure` / `website-booking-intake-db.isolated` 测试；报告 `docs/QINGYAN_CAL-2_REPORT.md` | [x]（#340；已归档） |
+| CAL-3 | 日历变更推送到微信 / Muse：CAL-1 的站内变更通知同时推给已绑定的收件人（员工推送不算出站，按晨报方式直发，用户 2026-10-29 拍板） | CAL-1 | OpenSpec change `calendar-change-push`；报告 `docs/QINGYAN_CAL-3_REPORT.md` | [ ] |
 
 ---
 

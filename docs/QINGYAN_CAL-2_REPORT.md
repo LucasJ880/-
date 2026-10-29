@@ -23,7 +23,33 @@
 
 ## 2. 怎么验
 
-（6.1 完成后补全）
+| 检查 | 结果 |
+|---|---|
+| apply 前基线 | calendar-watch-pure 175、calendar-watch-db.isolated 80 |
+| `npx tsx src/lib/calendar-watch/__tests__/website-booking-intake-pure.test.ts` | 62 通过 0 失败 |
+| 纯测试变异检查（临时副本，未提交） | 不排除删除 / 只看最近一条归因 / 电话只留数字 → 5 项变红 |
+| `website-booking-intake-db.isolated.test.ts`（隔离库 127.0.0.1:5433） | 44 通过 0 失败：授权（运营主管 403、老板只读、销售可转入）、列表过滤、详情预填与已有客户、`READER_NOT_CONNECTED`（路由，不打网络；读取账号离职）/ `EVENT_NOT_FOUND` / `NOT_PENDING`、转入 `CUSTOMER_EXISTS` 零写入 / `CUSTOMER_NOT_FOUND` / `INVALID_INPUT` / 关联已有、并发认领一成一 409 且只有一条预约、忽略幂等、审计无联系方式、只读 Google、同步保护、转入后 CAL-1 归因 R1 |
+| 端到端变异检查（临时，已还原） | 去已转入与重复电话检查 → 变红；去同步保护 → 测试真的发出 Google 请求并失败（exit 1） |
+| 无 `DATABASE_URL` 跑端到端 | 打印跳过，退出 0；清理后无残留 |
+| CAL-1 回归 | calendar-watch-pure 175、calendar-watch-db.isolated 80 |
+| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0 |
+| `npm run lint:baseline` | PASS |
+| `npm run test:ci` | 退出 0，`CI unit subset PASS`（审查修复后的最终代码） |
+| `bash scripts/check-test-registry.sh` | 通过；`scripts/test-all.sh` 的 run_test 由 main 的 509 增至 511 |
+| `openspec validate website-booking-intake --strict` | valid |
+| `npm run build` | 退出 0；4 条接口与 `/sales/website-bookings` 在产出表中 |
+| PR [LucasJ880/-#340](https://github.com/LucasJ880/-/pull/340) CI `validate-lint-typecheck-test-build` | 绿（提交 `0abdcc9a`），合并为 `9da2c221`（用户授权全流程掌控） |
+
+真实浏览器检查（`next start -p 3100` + Playwright，种子只写本机测试库、未进仓库）：
+
+| 检查 | 结果 |
+|---|---|
+| 无待转入时打开首页 | 没有"网站预约待转入"入口 |
+| 有 2 条待转入 | 首页出现"网站预约待转入 2 条" |
+| 老板打开 `/sales/website-bookings` | 2 条；0 个转入按钮、2 个忽略按钮 |
+| 销售打开同一页面 | 2 个转入按钮；打开表单显示"读取账号未连接 Google 日历，无法预填，请手工填写"（种子读取账号无连接；预填由隔离库测试以注入读取覆盖） |
+| 销售手填姓名、电话后确认 | "已转入：客户与预约已建好 · 查看客户"；列表剩 1 条 |
+| 手机宽度 390px | 无横向溢出；无页面错误 |
 
 ## 3. 对设计稿 §2 原案的偏离
 
@@ -60,4 +86,9 @@
 
 ## 6. 全量测试
 
-（6.1 完成后填写）
+| 检查 | 结果 |
+|---|---|
+| `npm run test:ci`（无 `DATABASE_URL`） | 退出 0，`CI unit subset PASS` |
+| `npm test`（隔离库，分支 `0a01c879` 起） | 498/510 通过，12 失败 |
+| `npm test`（同一隔离库，main `9da2c221` worktree） | 496/508 通过，12 失败 |
+| 失败清单对比 | 两边 12 项逐字相同，均为 main 既有：TypeScript 类型检查（test-all 内 OOM，独立 `npm run typecheck` 退出 0）、Phase3A-3 / 3A-4 ×2 / 3A-5 / 3B-A、Gmail Draft OAuth、Mention Gateway M2-A、Sunny 工艺单、T4 授标、报价 PDF、招标询价催单；新增 2 个测试均通过 |
