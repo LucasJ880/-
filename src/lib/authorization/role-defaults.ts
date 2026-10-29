@@ -373,9 +373,37 @@ export const WINDOW_COVERING_POSITION_TEMPLATES: Array<{
   { key: "installer", name: "安装工", roleProfileKey: "installer" },
 ];
 
+// ─────────────────────────────────────────────────────────────
+// PERM-6b：家纺外贸企业（梦馨，industryPackId = home_textile_trade_v1）
+// 只追加老板岗位 owner；外贸业务员复用系统岗位 trade_rep（6a）。
+// owner = 系统 org_owner 的全部键 + 企业读 + 管理层信号（代码合成，org_owner 加键时自动跟上）。
+// ─────────────────────────────────────────────────────────────
+
+export const HOME_TEXTILE_TRADE_INDUSTRY_PACK = "home_textile_trade_v1" as const;
+
+const SYSTEM_ORG_OWNER_KEYS = (SYSTEM_ROLE_PROFILES.find((p) => p.key === "org_owner")?.bindings ?? []).map(
+  (b) => b.permissionKey,
+);
+
+export const HOME_TEXTILE_TRADE_ROLE_PROFILES: DefaultRoleProfile[] = [
+  {
+    key: "owner",
+    name: "老板",
+    description: "家纺外贸老板：外贸全看全改与外贸设置、管理层；不含成员 / 岗位管理（仅平台管理员）",
+    bindings: org(...new Set([...SYSTEM_ORG_OWNER_KEYS, "organization.read", "organization.dashboard.read"])),
+  },
+];
+
+export const HOME_TEXTILE_TRADE_POSITION_TEMPLATES: Array<{
+  key: string;
+  name: string;
+  roleProfileKey: string;
+}> = [{ key: "owner", name: "老板", roleProfileKey: "owner" }];
+
 /** 行业包 id → 追加岗位模板集；未登记的行业包为空 */
 export const POSITION_PROFILE_SETS: Record<string, DefaultRoleProfile[]> = {
   [WINDOW_COVERING_INDUSTRY_PACK]: WINDOW_COVERING_ROLE_PROFILES,
+  [HOME_TEXTILE_TRADE_INDUSTRY_PACK]: HOME_TEXTILE_TRADE_ROLE_PROFILES,
 };
 
 export const POSITION_TEMPLATE_SETS: Record<
@@ -383,6 +411,7 @@ export const POSITION_TEMPLATE_SETS: Record<
   Array<{ key: string; name: string; roleProfileKey: string }>
 > = {
   [WINDOW_COVERING_INDUSTRY_PACK]: WINDOW_COVERING_POSITION_TEMPLATES,
+  [HOME_TEXTILE_TRADE_INDUSTRY_PACK]: HOME_TEXTILE_TRADE_POSITION_TEMPLATES,
 };
 
 export function profilesForIndustryPack(
@@ -393,8 +422,8 @@ export function profilesForIndustryPack(
 }
 
 /**
- * PERM-4c2：岗位模式——企业行业包有岗位模板（窗饰）时，导航 / 默认落地 / 管理层按岗位权限键；
- * 否则（如梦馨，无岗位）沿用平台角色旧规则。
+ * PERM-4c2：岗位模式——企业行业包有岗位模板（窗饰；PERM-6b 起含家纺外贸 / 梦馨）时，导航 / 默认落地 / 管理层按岗位权限键；
+ * 否则（无行业包岗位的企业）沿用平台角色旧规则。
  */
 export function hasPositionTemplates(industryPackId: string | null | undefined): boolean {
   return profilesForIndustryPack(industryPackId).length > 0;

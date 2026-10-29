@@ -91,3 +91,11 @@ PERM-1 至 PERM-4c5 已让销售、运营、招投标、会计、安装、导航
 1. **营收中心只认外贸键**：平台 `sales` 不再进营收中心（Sunny 销售车道不经此 API；同时堵住销售员经营收中心看全企业商机）。
 2. **外贸管理层收件人要求持外贸读或写键**：只持设置键的 `org_admin`、不是企业负责人的平台 boss / manager / admin 不再收外贸升级与早报。
 3. **压扁范围加 `trade` 放在 6c**：6b 只需落岗位与执行压扁。
+
+### 拍板结果 · PERM-6b 人员（2026-10-28："梦馨现在只有 cathy Li 邮箱是 cathy@hlmbedding.com"）
+- 梦馨实际人员只有 Cathy Li（`cathy@hlmbedding.com`，外贸业务员，生产为平台 `trade` / `org_member`）；企业负责人账号是 Lucas（`lucas@sunnyshutter.ca`，`org_owner`）。
+- 6b 按此只落两个岗位：行业包 `owner`（Lucas）与系统 `trade_rep`（Cathy）；数据范围维持全企业，不预建外贸主管。
+
+### 拍板结果 · PERM-6b Cathy 岗位（2026-10-29）
+- 生产核对：Cathy 是平台 `boss`（不是文档里的 `trade`），无任何岗位绑定；梦馨没有 `trade_rep` 岗位（6a 后未跑 seed）。
+- 用户定："外贸业务员 + 老板（推荐）"——Cathy 绑 `trade_rep` + `owner`，合并前后可用功能一致。
