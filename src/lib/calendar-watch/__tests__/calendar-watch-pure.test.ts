@@ -5,6 +5,7 @@
 import {
   applySettingsUpdate,
   attributeCalendarEvent,
+  attributeForChange,
   baselineFromIso,
   bucketOfRole,
   buildChangesListParams,
@@ -331,6 +332,15 @@ console.log("经青砚判定");
   ok(editedViaQingyan({ kind: "cancelled", attribution: unknown, appointment: null, updated: null, prev: prevQ }), "青砚解除同步的删除 → 经青砚");
   ok(!editedViaQingyan({ kind: "cancelled", attribution: r1, appointment: APPT, updated: null, prev: prevQ }), "预约仍持有事件的删除 → Google 侧删除");
   ok(!editedViaQingyan({ kind: "created", attribution: r1, appointment: APPT, updated: edt("2026-10-20T09:00:00"), prev: null }), "新建不打经青砚标记");
+  ok(!editedViaQingyan({ kind: "cancelled", attribution: MEMBER_ATTR, appointment: null, updated: null, prev: ledger() }), "上一条不是青砚的删除 → 不是经青砚");
+
+  const withAppt = ctx({ appointmentsByEventId: new Map([["ev1", APPT]]) });
+  const del = change({ status: "cancelled", creatorEmail: null, summary: null, description: null });
+  const webPrev = ledger({ attribution: { source: "website", rule: "R2", userId: null, bucket: null, appointmentId: null } });
+  ok(attributeForChange({ change: del, kind: "cancelled", prev: webPrev, ctx: ctx() }).source === "website", "删除沿用上一条归因（描述里的网站标记无法重判）");
+  ok(attributeForChange({ change: del, kind: "cancelled", prev: webPrev, ctx: withAppt }).rule === "R1", "删除时预约仍持有事件 → 按 R1 重判");
+  ok(attributeForChange({ change: del, kind: "cancelled", prev: null, ctx: ctx() }).rule === "R4", "删除且无账本 → 重新归因");
+  ok(attributeForChange({ change: change({ creatorEmail: "ops@sunny.ca" }), kind: "updated", prev: ledger(), ctx: ctx() }).userId === "uOps", "修改重新归因");
 }
 
 // ── 账本 ────────────────────────────────────────────────────────
@@ -421,11 +431,18 @@ console.log("青砚推送不通知、Google 侧删除通知（场景）");
   const raw2 = mapGoogleEvent({ id: "ev1", status: "cancelled", updated: edt("2026-10-25T10:00:00") })!;
   ok(shouldRecord(e1, raw2), "删除晚于上一条 → 记");
   const c2 = fillFromPrevious(raw2, e1);
-  const at2 = attributeCalendarEvent(c2, withAppt);
   const k2 = classifyKind({ change: c2, prev: e1, baselineFromMs: 0, phase: "incremental" })!;
+  const at2 = attributeForChange({ change: c2, kind: k2, prev: e1, ctx: withAppt });
   const via = editedViaQingyan({ kind: k2, attribution: at2, appointment: APPT, updated: c2.updated, prev: e1 }) ? "qingyan" : null;
   const e2 = toLedgerAfterData({ calendarId: "cal1", change: c2, kind: k2, baseline: false, attribution: at2, editedVia: via, diff: null, observedAt: new Date() });
   ok(e2.kind === "cancelled" && e2.summary === "量房 — Smith" && shouldNotify(e2), "Google 侧删除：记账本、通知", e2);
+
+  // 同一预约若是青砚解除同步（googleEventId 已清空）→ 不通知
+  const noAppt = ctx();
+  const at3 = attributeForChange({ change: c2, kind: k2, prev: e1, ctx: noAppt });
+  const via3 = editedViaQingyan({ kind: k2, attribution: at3, appointment: null, updated: c2.updated, prev: e1 }) ? "qingyan" : null;
+  const e3 = toLedgerAfterData({ calendarId: "cal1", change: c2, kind: k2, baseline: false, attribution: at3, editedVia: via3, diff: null, observedAt: new Date() });
+  ok(e3.attribution.source === "qingyan" && e3.editedVia === "qingyan" && !shouldNotify(e3), "青砚解除同步的删除：记账本、不通知", e3);
 }
 
 console.log("收件人");
@@ -439,6 +456,7 @@ console.log("收件人");
   const fb = notificationRecipients({ positionHolderIds: [], fallbackOwnerId: "uOwner", appointmentAssigneeId: null, entry: ledger() });
   ok(eq(fb, ["uOwner"]), "没有岗位持有人 → 回落企业 owner");
   ok(eq(notificationRecipients({ positionHolderIds: [], fallbackOwnerId: null, appointmentAssigneeId: null, entry: ledger() }), []), "都没有 → 空");
+  ok(notificationSourceKey("org1", ledger(), "uBoss", "cancelled") === "calwatch:org1:cal1:ev1:cancelled:uBoss", "无 updated 的删除用固定版本");
   const key = notificationSourceKey("org1", ledger(), "uBoss");
   ok(key === `calwatch:org1:cal1:ev1:${ledger().googleUpdated}:uBoss`, "sourceKey 形态", key);
 }

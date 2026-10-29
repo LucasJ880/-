@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runTrackedAutomation } from "@/lib/automation/runner";
+import { runCalendarWatch } from "@/lib/calendar-watch/run";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { scanMuseReminders } from "@/lib/muse-bridge/reminder-scan";
@@ -58,5 +59,17 @@ export async function GET(request: NextRequest) {
       metadata: result,
     };
   });
-  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders });
+  // CAL-1：Google 共享日历变更观察与归因（只读 Google；排在最后，有页数与时间预算）
+  const calendarWatch = await runTrackedAutomation("calendar-watch", async () => {
+    const result = await runCalendarWatch();
+    return {
+      data: result,
+      status: result.organizations === 0 ? "skipped" : result.failedCount > 0 ? "partial" : "succeeded",
+      processedCount: result.organizations,
+      succeededCount: result.organizations - result.failedCount,
+      failedCount: result.failedCount,
+      metadata: { organizations: result.organizations, failedCount: result.failedCount, recorded: result.recorded, notified: result.notified },
+    };
+  });
+  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch });
 }

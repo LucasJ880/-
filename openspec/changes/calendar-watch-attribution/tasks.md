@@ -20,7 +20,7 @@
 
 ## 3. 执行器与定时任务
 
-- [ ] 3.1 新建 `src/lib/calendar-watch/run.ts`，导出 `runCalendarWatch(deps?)`，读取函数可注入：
+- [x] 3.1 新建 `src/lib/calendar-watch/run.ts`，导出 `runCalendarWatch(deps?)`，读取函数可注入：
   - 遍历开启的组织与日历；全量 / 增量与每轮页数预算；410 重置；授权失效当天一次重连通知；
   - 一次准备成员信号（`loadTradeMemberSignals`）、成员邮箱 / 别名映射与本轮涉及事件的预约映射；
   - 写账本（`writeAuditLog`，`userId` = 读取账号）、按岗位找收件人（回落 `Organization.ownerId`）、`createNotification`（`category = calendar_watch`）、回写游标；单个组织出错时记录并继续。

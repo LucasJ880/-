@@ -415,7 +415,7 @@ export function editedViaQingyan(input: {
     return Number.isFinite(t) && Math.abs(input.appointment.googleSyncedAt.getTime() - t) <= EDITED_VIA_WINDOW_MS;
   }
   if (input.kind === "cancelled") {
-    return input.prev?.attribution.source === "qingyan" && input.attribution.rule !== "R1";
+    return input.prev?.attribution.source === "qingyan" && !input.appointment;
   }
   return false;
 }
@@ -562,8 +562,25 @@ export function notificationRecipients(input: {
   return [...new Set(base)].filter((id) => id && id !== exclude);
 }
 
-export function notificationSourceKey(orgId: string, entry: LedgerAfterData, userId: string): string {
-  return `calwatch:${orgId}:${entry.calendarId}:${entry.eventId}:${entry.googleUpdated}:${userId}`;
+/** version 缺省为 Google 更新时间；删除事件没有 updated 时执行器传 "cancelled"，保证重试幂等 */
+export function notificationSourceKey(orgId: string, entry: LedgerAfterData, userId: string, version: string = entry.googleUpdated): string {
+  return `calwatch:${orgId}:${entry.calendarId}:${entry.eventId}:${version}:${userId}`;
+}
+
+/**
+ * 删除事件沿用上一条账本的归因（描述不进账本，网站标记无法在删除时重判）；
+ * 预约仍持有该事件时按 R1 重判（Google 侧删除青砚预约）。其余重新归因。
+ */
+export function attributeForChange(input: {
+  change: CalendarChange;
+  kind: CalendarChangeKind;
+  prev: LedgerAfterData | null;
+  ctx: AttributionContext;
+}): Attribution {
+  if (input.kind === "cancelled" && input.prev && !input.ctx.appointmentsByEventId.has(input.change.id)) {
+    return input.prev.attribution;
+  }
+  return attributeCalendarEvent(input.change, input.ctx);
 }
 
 function md(day: string): string {
