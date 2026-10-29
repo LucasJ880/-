@@ -8,9 +8,9 @@
 | 任务书（方案） | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` |
 | 邮件模板 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` |
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
-| 分支 | `claude/vigilant-edison-73bk9i`：每个 PR 合并后从 main 重建，再带上下一个 change（一个 change 一个 PR，archive 独立小 PR）。尚未进 main 的 change 提交在本会话容器的本地工作树 `/home/user/i2b`（分支 `local/install-2b`，未推送） |
+| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2f 全部已合并并归档，本地工作树不再有未进 main 的提交 |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>`；archive 用 `openspec archive <change> --yes` |
-| 状态 | 见 §0 交付流水线 |
+| 状态 | **INSTALL-2 全部完成**（2a–2f 合并 + archive，TASKFLOW 均 `[x]`）；上线前置与后续见 §1 |
 
 ## 0. 交付流水线（每个 PR 合并后更新本表）
 
@@ -21,20 +21,22 @@
 | 2c `install-2c-warranty-email` | 已完成（报告 `docs/QINGYAN_INSTALL-2c_REPORT.md`） | [#318](https://github.com/LucasJ880/-/pull/318) 已合并 | [#319](https://github.com/LucasJ880/-/pull/319) 已合并（`openspec/changes/archive/2026-10-29-install-2c-warranty-email`） | `[x]` |
 | 2d `install-2d-repair-form` | 已完成（报告 `docs/QINGYAN_INSTALL-2d_REPORT.md`） | [#320](https://github.com/LucasJ880/-/pull/320) 已合并 | [#322](https://github.com/LucasJ880/-/pull/322) 已合并（`openspec/changes/archive/2026-10-29-install-2d-repair-form`） | `[x]` |
 | 2e `install-2e-repair-dispatch` | 已完成（报告 `docs/QINGYAN_INSTALL-2e_REPORT.md`） | [#321](https://github.com/LucasJ880/-/pull/321) 已合并（与 2d 同批） | [#324](https://github.com/LucasJ880/-/pull/324) 已合并（`openspec/changes/archive/2026-10-29-install-2e-repair-dispatch`） | `[x]` |
-| 2f `install-2f-repair-close` | 已完成（报告 `docs/QINGYAN_INSTALL-2f_REPORT.md`） | 本 PR | — | `[G]` |
+| 2f `install-2f-repair-close` | 已完成（报告 `docs/QINGYAN_INSTALL-2f_REPORT.md`） | [#325](https://github.com/LucasJ880/-/pull/325) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2f-repair-close`） | `[x]` |
 
-- 每个 PR：从 main 重建分支 → cherry-pick 该 change 的本地提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → 从 main 重建 → `openspec archive <change> --yes` + TASKFLOW `[x]` + 本表 → archive PR。
+- 每个 PR：基于最新 main → cherry-pick 该 change 的提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → `openspec archive <change> --yes`（在最新 main 上重跑，不 cherry-pick 旧的 archive 结果，避免和别的会话同时改的主规格冲突）+ TASKFLOW `[x]` + 本表 → archive PR。
 - 文档冲突（TASKFLOW / 本文件 / 任务书）一律以 main 上的现状为底，再按本表改状态；代码冲突逐块看，不整文件取一边。
 - 归档顺序 2a → 2b → 2c → 2d → 2e → 2f（2e / 2f 的增量依赖 2d 新建的 `installation/repairs`、`installation/install-stage`）。
 - **2d 与 2e 同批上线**：2d 合并后不等别的，紧接着开 2e PR。
 - 上线前老板要做两件事（2c 报告 §5）：设置 → 邮件 → 组织发件人；会计「待收尾款」→「质保设置」填报修电话 / 邮箱。
 
-## 1. 下一步（按顺序）
+## 1. 下一步
 
-1. ~~拍板~~（已完成，任务书 §12）。
-2. ~~2a~~（#304 已合并；archive #310 已合并）。
-3. 按 §0 依次：2b PR → 2b archive → 2c PR → 2c archive → 2d PR → 2e PR → 2d archive → 2e archive → 2f（apply 完成后）PR → 2f archive。
-4. 原 2b 已拆为 2b（尾款确认）/ 2c（质保邮件），原 2c / 2d 顺延为 2d（维修单）/ 2e（返修排期），2e 又拆出 2f（作废 / 关闭不返修 / 逾期提醒），见任务书 §9。
+INSTALL-2 的 6 个 change 已全部合并归档（§0）。剩下的都不是代码：
+
+1. **上线前老板做**（2c 报告 §5）：设置 → 邮件 → 组织发件人（没配置时质保邮件失败 `NO_ORG_SENDER`，不会回落个人邮箱）；会计「待收尾款」→「质保设置」填报修电话 / 邮箱（不填则缺资料、不生成质保审批）。
+2. **岗位绑定核对**：会计 / 老板持 `install.balance.confirm`；运营主管 / 会计持 `install.task.assign`（排返修、作废、关闭不返修）；三个出单岗按品类持 `orders.fulfillment.update.<品类>`。按 `role-defaults.ts` 种子落地的企业已满足，手工改过岗位的企业需核对。
+3. **待 Lucas 确认**（§2）：Q0 "U-HEAL" 是否指 U-Haul（只影响任务书措辞，不影响代码）；官网质保条款原文未读到（质保年限按报价单口径，拍板 Q1）。
+4. **可选后续**（各报告"已知限制"）：维修单列表分页（现取最近 200 张）；逾期提醒升级 / 发给出单岗；已关闭维修单撤销；客户返修时间确认邮件（出站需走审批）；质保 PDF 附件。都需另开 change。
 
 ## 2. 外部信息的可信度（防幻觉）
 
@@ -89,6 +91,9 @@ NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/install/__tests__/cl
 - 工作树里的 `node_modules` 要用 `cp -al` 硬链接副本，不能是指向工作树外的软链接（Turbopack 报 "Symlink node_modules points out of filesystem root"）。
 - Playwright 脚本放在 scratchpad 目录里跑（用预装的 Playwright / 浏览器）；项目自带的 Playwright 没有浏览器。
 - 停 dev server 按 PID 杀；`pkill -f` 会匹配到自己的 shell。
+- 本仓库在沙箱里是浅克隆：从 main 重建分支后 `git push --force-with-lease` 可能被 GitHub 以 "missing necessary objects" 拒收。上一个 PR 刚合并、main 上没有别的提交时，直接在远端分支头（与 main 同树）上 cherry-pick 后快进推送即可；main 有别人的提交时先 `git fetch --deepen` 再试。
+- 容器会重启（磁盘保留）：重启后本地 Postgres 不会自动起来，按上面的 `pg_ctl ... start` 再起一次。
+- 隔离库测试里模拟"以后某天"时，按企业时区日期构造（如企业今天的 `T17:00:00.000Z` 再加 N 天），不要用 `Date.now() + N 天`：多伦多午夜前后或跨夏令时会差一天（2f 开 PR 前复跑踩到，见 2f 报告）。
 - 杀掉 dev server 后 `npm run typecheck` 若报 `.next/dev/types/validator.ts` 语法错，是 dev server 写到一半的生成文件（`tsconfig` 包含 `.next/dev/types/**`），删掉 `.next/dev/types` 再跑；沙箱里 `tsc` 需 `NODE_OPTIONS=--max-old-space-size=8192`。
 
 ## 5. 本会话做了什么
@@ -98,6 +103,7 @@ NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/install/__tests__/cl
 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` | 方案：现状 F1–F15、两条业务流、U-Haul 借鉴、通知矩阵、零 schema 落点、4 个 change 拆分、交叉验证 V1–V9、待拍板 Q0–Q10 |
 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` | 完工 + 质保邮件英文模板与变量表；条款来源冲突表 |
 | `docs/QINGYAN_PERMISSION_TASKFLOW.md` | 新增 INSTALL-2 段（2a–2d，状态 `[ ]`） |
+| 代码（INSTALL-2f） | `repair.ts` 关闭原因（completed / superseded / voided / waived）与原因说明、`voidDecision / closeDecision`、`canVoid / canClose`、逾期选择与摘要；`repair-service.ts` `closeRepair`（作废 / 关闭不返修，锁内复核）、按预约取维修单跳过已作废、`completeReturnVisit` 锁内复核、`notifyRepairClosed`、`remindOverdueRepairs`；`POST /api/install/repairs/[id]/{void,close}`；任务详情带已作废维修单；`daily-brief` 每个企业加逾期提醒一步；维修单详情两个对话框与关闭横幅；两个通知类型；测试 1 个新（已注册）+ 2 个扩充 |
 | 代码（INSTALL-2e） | `repair.ts` 事件流进度 / 可执行操作 / 收口范围、`stage.ts` `repair_scheduled`、`repair-service.ts` 出单登记 / 排返修 / 返修收口 / superseded、`service.ts` `loadOrdersForTasks` 与 `returnRepair`、`POST /api/install/repairs/[id]/{factory-issued,schedule}`、任务 / 收口 / 拍照 / 问题路由按范围、照片代理放行任一安装预约（F5）、维修单详情出单卡 / 排期卡 / 两个对话框、返修任务标识、两个通知类型；测试 1 个新（已注册）+ 4 个扩充 |
 | 代码（INSTALL-2d） | `src/lib/install/{repair,stage,repair-service}.ts`、收口聚合读问题记录、`/api/install/tasks/[id]/items/[itemId]/issue`、`/api/install/tasks/[id]/repair`、`/api/install/repairs/**`、`/api/blinds-orders/[id]/install-status`、安装工任务页有问题表单与维修单对话框、`/install/repairs/**`（列表 / 详情 / 打印）、工艺单安装状态卡与收口标签按状态；测试 3 个新（已注册）+ 2 个扩充 |
 | 代码（INSTALL-2c） | `src/lib/install/warranty{,-service}.ts`、`src/lib/pending-actions/exec-install-warranty-email.ts` + executor / types / 微信策略登记、`src/app/api/install/warranty-settings`、`src/app/api/accounting/balance/[orderId]/warranty`、确认 / 列表接口带质保状态、`src/components/accounting/warranty-panel.tsx` + 确认对话框第二步、收口单元带品类、两个通知类型；测试 2 个新（已注册）+ 3 个扩充 |
