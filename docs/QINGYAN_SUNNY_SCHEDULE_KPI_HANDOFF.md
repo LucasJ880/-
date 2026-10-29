@@ -22,7 +22,7 @@
 | 授权 | 用户 2026-10-29："Evan approved it go next step"（第 7 条例外）→ propose；"都按照你推荐的来，apply"（例外句原文、中文数字一律拒绝、只用环境变量开关） |
 | 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认** |
 | 基线（apply 前） | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
-| tasks | 4/6：1.1 ✓ 2.1 ✓ 4.1 ✓（隔离库 31/31）3.1 ✓（面板 `NarrativeBlock`，`narrativeEnabled` 为真才显示按钮，key 随期间重建清空结果）。下一条 5.1 全量门禁 |
+| tasks | 4/6：1.1 ✓ 2.1 ✓ 3.1 ✓ 4.1 ✓；5.1 进行中：合入 main `7c523860`（仅文档）；typecheck 0、lint:baseline PASS、test:ci PASS、registry 486（main 504 → 506 条 run_test）、validate valid；**独立审查 8 条已全修**（userId / 邮箱不进输入、全角 / 英文 / 中文数量级 / k / 科学计数 / 千百亿拒绝、正负号同号、数值分组收紧、截断与姓名误杀、1–3 条、面板竞态），纯测试 100、隔离库 31、变异 2 项变红，spec / design / 报告已同步。全量 `npm test` 在跑（scratchpad `k2-npmtest-branch.log`；开始于审查修复之前，KPI-2 两个测试已单独重跑通过），之后需在 main 工作树对比失败项 |
 | 3.1 浏览器验收（`next start -p 3100` + Playwright + 本机假 OpenAI 服务 :4010，脚本在 scratchpad `kpi2ui/`，未进仓库） | 开关关：期间面板在、无"生成解读"按钮、无解读请求；开关开：按钮在、加载时零请求，点击一次 POST → 显示"AI 解读 · 数字已与看板核对"、结论与"催签"下一步；假服务改回编造数字 → 显示"本次解读未通过核对，已以上方确定性洞察为准"，页面不出现 65,000；390px 无溢出；无页面错误；假服务共收到 3 次调用（= 3 次点击）。服务按端口停、种子已清 |
 | 本地库 | 容器重启后要 `pg_ctlcluster 16 qytest start`（会提示 stale pid，正常） |
 

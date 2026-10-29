@@ -59,7 +59,7 @@ export interface NarrativeInput {
   comparison: { kind: PeriodCompareKind; from: string; to: string; totals: Record<string, number | null>; delta: Record<string, number | null> };
   totals: Record<string, number | null>;
   byRep: Array<{ name: string; wonCount: number; wonAmount: number; quotedCount: number; quotedAmount: number; conversionRate: number | null }>;
-  insights: Array<{ code: string; severity: string; text: string; evidence: Record<string, number | string | null> }>;
+  insights: Array<{ code: string; severity: string; text: string; evidence: Record<string, number | null> }>;
   calendar: { bySource: Record<string, number>; byActor: Array<{ name: string; bucket: string | null; created: number }> } | null;
   thresholds: Record<string, number>;
   allowedActions: NarrativeAction[];
@@ -77,11 +77,21 @@ export function allowedActionsFor(summary: PeriodSummaryResponse): NarrativeActi
 }
 
 /**
- * 只取聚合数字、销售姓名（本人范围只有本人一行）与洞察；不含 userId、客户、报价行、毛利与成本。
- * 日程来源只在全企业范围给出。
+ * 只取聚合数字、成员姓名（本人范围只有本人一行）与洞察；不含 userId、邮箱、客户、报价行、毛利与成本。
+ * 洞察证据只留数值；日程来源只在全企业范围给出。
  */
 export function projectNarrativeInput(summary: PeriodSummaryResponse): NarrativeInput {
   const org = summary.scope === "org";
+  // 姓名缺失时取数层会回落为邮箱：不发邮箱，统一换成"未命名成员 N"（同一邮箱同一代号）
+  const aliases = new Map<string, string>();
+  const safeName = (n: string) => {
+    if (!n.includes("@")) return n;
+    if (!aliases.has(n)) aliases.set(n, `未命名成员 ${aliases.size + 1}`);
+    return aliases.get(n)!;
+  };
+  // 证据只留数值（I5 / I6 的证据里有 userId）
+  const numericEvidence = (e: Record<string, number | string | null>) =>
+    Object.fromEntries(Object.entries(e).filter(([, v]) => typeof v === "number" || v === null)) as Record<string, number | null>;
   return {
     period: { ...summary.period },
     scope: summary.scope,
@@ -94,19 +104,19 @@ export function projectNarrativeInput(summary: PeriodSummaryResponse): Narrative
     },
     totals: { ...summary.totals },
     byRep: summary.byRep.map((r) => ({
-      name: r.name,
+      name: safeName(r.name),
       wonCount: r.wonCount,
       wonAmount: r.wonAmount,
       quotedCount: r.quotedCount,
       quotedAmount: r.quotedAmount,
       conversionRate: r.conversionRate,
     })),
-    insights: summary.insights.map((i) => ({ code: i.code, severity: i.severity, text: i.text, evidence: { ...i.evidence } })),
+    insights: summary.insights.map((i) => ({ code: i.code, severity: i.severity, text: i.text, evidence: numericEvidence(i.evidence) })),
     calendar:
       org && summary.calendar
         ? {
             bySource: { ...summary.calendar.bySource },
-            byActor: (summary.calendar.byActor ?? []).map((a) => ({ name: a.name, bucket: a.bucket, created: a.created })),
+            byActor: (summary.calendar.byActor ?? []).map((a) => ({ name: safeName(a.name), bucket: a.bucket, created: a.created })),
           }
         : null,
     thresholds: { ...INSIGHT_THRESHOLDS, staleOpenDays: STALE_OPEN_DAYS },
@@ -124,7 +134,7 @@ export const NARRATIVE_SYSTEM_PROMPT = [
   "2. conclusion：本期结论，1 到 3 句。",
   "3. reasons：原因，0 到 3 条；每条的 insightCodes 必须从输入 insights 的 code 里选，至少一个；输入没有洞察时 reasons 为空数组。",
   "4. nextSteps：下一步，0 到 3 条；action 只能从输入 allowedActions 里选；action 为 review_rep 时 repName 必须是输入 byRep 里的某个 name，其它动作 repName 为 null；allowedActions 为空时 nextSteps 为空数组。",
-  "5. 数字：只能使用输入 JSON 里出现过的数字，可以四舍五入、加千分位、把比例写成百分比；不得计算任何新数字（不要相加、相减、求平均、求差）；所有数量都用阿拉伯数字，不要写“一位”“两份”“三成”这类中文数字。",
+  "5. 数字：只能使用输入 JSON 里出现过的数字，可以四舍五入、加千分位、把比例写成百分比；不得计算任何新数字（不要相加、相减、求平均、求差）；所有数量都用阿拉伯数字，不要写“一位”“两份”“三成”“一个”“一次”“百分之”这类含中文数字的说法，也不要用英文数字词或 k、千等单位；写正负号时必须与输入的增减方向一致。",
   "6. 每段文字不超过 200 字，用中文；金额单位是加元。",
   "7. 不要提及客户，不要编造输入里没有的事实。",
 ].join("\n");
@@ -210,24 +220,80 @@ export interface NumberToken {
   raw: string;
   value: number;
   decimals: number;
+  sign: "" | "+" | "-";
   unit: "" | "%" | "万";
+  /** 不支持的写法（k / M 后缀、科学计数、千 / 百 / 亿 单位）：一律不命中 */
+  unsupported: boolean;
 }
 
-/** 中文数字 + 计量词一律拒绝（宁可误杀，回落是安全方向） */
-export const CHINESE_NUMERAL_RE = /[零〇一二两三四五六七八九十百千万亿]+[份单条个位天名次笔倍成]/;
+/** 中文数字：百分之…、数字 + 数量词、数字 + 数量级（六万、二十）一律拒绝（宁可误杀，回落是安全方向） */
+const ZH_PERCENT_RE = /百分之/;
+const ZH_MEASURE_RE = /[零〇一二两三四五六七八九十百千万亿]+[份单条个位天名次笔倍成元周月年家件套番季日号]/;
+const ZH_MAGNITUDE_RE = /[一二两三四五六七八九][十百千万亿]/;
+/** 英文数字词一律拒绝 */
+const EN_NUMBER_WORD_RE =
+  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozen|half)\b/i;
 
-const INSIGHT_CODE_RE = /\bI\d+_[A-Z0-9_]+\b/g;
-const NUMBER_RE = /(?:C\$|CA\$|\$|CAD\s?)?\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s?(%|％|万)?/g;
+const NUMBER_RE =
+  /(?<![\d.])([+\-−])?\s?(?:C\$|CA\$|\$|CAD\s?)?\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?:([eE][+\-]?\d+)|\s?(%|万|千|百|亿|[kKmMbB](?![a-zA-Z])))?/g;
 
-/** 文本里的数字（去掉洞察代码后切词；千分位与货币符号不计，按绝对值） */
+/** 文本里的数字（先做 NFKC：全角数字与符号按半角处理） */
 export function extractNumberTokens(text: string): NumberToken[] {
   const out: NumberToken[] = [];
-  const cleaned = text.replace(INSIGHT_CODE_RE, " ");
-  for (const m of cleaned.matchAll(NUMBER_RE)) {
-    const intPart = m[1].replace(/,/g, "");
-    const frac = m[2] ?? "";
-    const unit = m[3] === "％" ? "%" : ((m[3] ?? "") as NumberToken["unit"]);
-    out.push({ raw: m[0].trim(), value: Number(frac ? `${intPart}.${frac}` : intPart), decimals: frac.length, unit });
+  for (const m of text.normalize("NFKC").matchAll(NUMBER_RE)) {
+    const intPart = m[2].replace(/,/g, "");
+    const frac = m[3] ?? "";
+    const suffix = m[5] ?? "";
+    out.push({
+      raw: m[0].trim(),
+      value: Number(frac ? `${intPart}.${frac}` : intPart),
+      decimals: frac.length,
+      sign: m[1] === "+" ? "+" : m[1] ? "-" : "",
+      unit: suffix === "%" || suffix === "万" ? suffix : "",
+      unsupported: Boolean(m[4]) || (suffix !== "" && suffix !== "%" && suffix !== "万"),
+    });
+  }
+  return out;
+}
+
+/** 输入里的数值，按用途分三组：数量与金额（plain）、比率（ratios，只用于百分比写法）、洞察文字里的百分比（percents） */
+export interface InputNumbers {
+  plain: number[];
+  ratios: number[];
+  percents: number[];
+}
+
+const RATIO_KEY_RE = /rate|ratio|share/i;
+
+/** 只收集数值字段（不从姓名、userId 等字符串里切数字）；文字只取洞察文字与日期 */
+export function collectInputNumbers(input: NarrativeInput): InputNumbers {
+  const out: InputNumbers = { plain: [], ratios: [], percents: [] };
+  const walk = (v: unknown, key: string, ratio: boolean) => {
+    if (typeof v === "number") {
+      if (Number.isFinite(v)) (ratio || RATIO_KEY_RE.test(key) ? out.ratios : out.plain).push(v);
+    } else if (Array.isArray(v)) {
+      v.forEach((x) => walk(x, key, ratio));
+    } else if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) walk(x, k, ratio);
+    }
+  };
+  walk(input.totals, "", false);
+  walk(input.comparison.totals, "", false);
+  walk(input.comparison.delta, "", true);
+  walk(input.byRep, "", false);
+  walk(
+    input.insights.map((i) => i.evidence),
+    "",
+    false,
+  );
+  walk(input.calendar, "", false);
+  walk(input.thresholds, "", false);
+  out.plain.push(input.period.days);
+  for (const d of [input.period.from, input.period.to, input.comparison.from, input.comparison.to]) {
+    for (const part of d.split("-")) if (/^\d+$/.test(part)) out.plain.push(Number(part));
+  }
+  for (const i of input.insights) {
+    for (const t of extractNumberTokens(i.text)) (t.unit === "%" ? out.percents : out.plain).push(t.value);
   }
   return out;
 }
@@ -237,52 +303,71 @@ function roundTo(v: number, d: number): number {
   return Math.round((Math.abs(v) + Number.EPSILON) * f) / f;
 }
 
+function truncTo(v: number, d: number): number {
+  const f = 10 ** d;
+  return Math.trunc((Math.abs(v) + Number.EPSILON) * f) / f;
+}
+
 function same(a: number, b: number): boolean {
   return Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b));
 }
 
-/** 输入里所有数值：递归收集数字字段，并从字符串（洞察文字、日期）里切出数字 */
-export function collectInputNumbers(input: NarrativeInput): number[] {
-  const out: number[] = [];
-  const walk = (v: unknown) => {
-    if (typeof v === "number") {
-      if (Number.isFinite(v)) out.push(v);
-    } else if (typeof v === "string") {
-      for (const d of v.split(/[-/]/)) if (/^\d+$/.test(d)) out.push(Number(d));
-      for (const t of extractNumberTokens(v)) out.push(t.value);
-    } else if (Array.isArray(v)) {
-      v.forEach(walk);
-    } else if (v && typeof v === "object") {
-      Object.values(v).forEach(walk);
-    }
-  };
-  walk({ ...input, allowedActions: [] });
-  return out;
+/** 按 d 位四舍五入或截断后相等 */
+function shown(v: number, d: number, x: number): boolean {
+  return same(roundTo(v, d), x) || same(truncTo(v, d), x);
 }
 
-/** 一个数字 x（d 位小数）命中：原值 / ×100 写成百分比 / ÷10000 写成万，按 d 位取整后相等 */
-export function isAllowedNumber(token: NumberToken, inputNumbers: readonly number[]): boolean {
-  const d = token.decimals;
-  const x = token.value;
-  for (const v of inputNumbers) {
-    if (token.unit === "万") {
-      if (same(roundTo(v / 10000, d), x)) return true;
-      continue;
-    }
-    if (same(roundTo(v, d), x)) return true;
-    if (token.unit === "%" && same(roundTo(v * 100, d), x)) return true;
+/** 带正负号时须与输入同号 */
+function signOk(token: NumberToken, v: number): boolean {
+  if (token.sign === "+") return v > 0;
+  if (token.sign === "-") return v < 0;
+  return true;
+}
+
+/**
+ * 一个数字 x（d 位小数）命中：
+ * - 百分比：比率 ×100 按 d 位取整 / 截断相等（带号须同号），或等于洞察文字里的百分比；
+ * - 万：金额 ≥ 10,000 且 ÷10000 后相等，整数写法须恰好整除；
+ * - 其余：数量与金额按 d 位取整 / 截断相等（带号须同号）。
+ */
+export function isAllowedNumber(token: NumberToken, nums: InputNumbers): boolean {
+  if (token.unsupported) return false;
+  const { value: x, decimals: d } = token;
+  if (token.unit === "%") {
+    if (nums.ratios.some((v) => signOk(token, v) && shown(v * 100, d, x))) return true;
+    return token.sign === "" && nums.percents.some((p) => same(p, x));
   }
-  return false;
+  if (token.unit === "万") {
+    return nums.plain.some(
+      (v) => Math.abs(v) >= 10_000 && (d >= 1 || Number.isInteger(Math.abs(v) / 10_000)) && shown(v / 10_000, d, x),
+    );
+  }
+  return nums.plain.some((v) => signOk(token, v) && shown(v, d, x));
 }
 
-/** 返回第一处对不上的数字；全部命中返回 null */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 返回第一处对不上的数字或数字词；全部命中返回 null。扫描前去掉输入里的洞察代码与成员姓名 */
 export function findUnknownNumber(texts: readonly string[], input: NarrativeInput): string | null {
-  const numbers = collectInputNumbers(input);
-  for (const text of texts) {
-    const zh = text.match(CHINESE_NUMERAL_RE);
+  const nums = collectInputNumbers(input);
+  const removable = [
+    ...input.insights.map((i) => i.code),
+    ...input.byRep.map((r) => r.name),
+    ...(input.calendar?.byActor.map((a) => a.name) ?? []),
+  ]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  const stripRe = removable.length ? new RegExp(removable.map(escapeRe).join("|"), "g") : null;
+  for (const original of texts) {
+    const text = (stripRe ? original.replace(stripRe, " ") : original).normalize("NFKC");
+    const zh = text.match(ZH_PERCENT_RE) ?? text.match(ZH_MEASURE_RE) ?? text.match(ZH_MAGNITUDE_RE);
     if (zh) return zh[0];
+    const en = text.match(EN_NUMBER_WORD_RE);
+    if (en) return en[0];
     for (const t of extractNumberTokens(text)) {
-      if (!isAllowedNumber(t, numbers)) return t.raw;
+      if (!isAllowedNumber(t, nums)) return t.raw;
     }
   }
   return null;

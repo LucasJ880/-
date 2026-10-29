@@ -394,7 +394,10 @@ export function SalesPeriodPanel() {
           ) : null}
 
           {data.narrativeEnabled ? (
-            <NarrativeBlock key={`${data.period.from}|${data.period.to}|${urlCompare}`} query={narrativeQuery(data.period.from, data.period.to, urlCompare)} />
+            <NarrativeBlock
+              key={`${data.period.from}|${data.period.to}|${data.comparison.kind}`}
+              query={narrativeQuery(data.period.from, data.period.to, data.comparison.kind)}
+            />
           ) : null}
 
           {data.byRep.length > 0 ? (

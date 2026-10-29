@@ -166,8 +166,11 @@ console.log("引用与词表");
 console.log("数字切词");
 {
   const t = extractNumberTokens("成单 $61,230.50，较上一期 +18%，约 6.1 万，转化率 40.4％，CAD 9,100");
-  ok(t.map((x) => `${x.value}|${x.decimals}|${x.unit}`).join(" ") === "61230.5|2| 18|0|% 6.1|1|万 40.4|1|% 9100|0|", "千分位 / 货币 / 正负号 / 百分比 / 万 / 全角百分号", t);
-  ok(extractNumberTokens("见 I3_STALE_OPEN 与 I7_DEPOSIT_GAP").length === 0, "洞察代码里的数字不算");
+  ok(t.map((x) => `${x.value}|${x.decimals}|${x.unit}|${x.sign}`).join(" ") === "61230.5|2|| 18|0|%|+ 6.1|1|万| 40.4|1|%| 9100|0||", "千分位 / 货币 / 正负号 / 百分比 / 万 / 全角百分号", t);
+  ok(extractNumberTokens("２３ 单").map((x) => x.value).join() === "23", "全角数字按半角切");
+  ok(extractNumberTokens("2026-10-28").map((x) => `${x.value}${x.sign}`).join(",") === "2026,10,28", "日期里的连字符不当负号");
+  const bad = extractNumberTokens("65k、2K、6.5e4、2万4千、3 百");
+  ok(bad.filter((x) => x.unsupported).length === 5 && bad.find((x) => x.raw.startsWith("2万"))?.unsupported === false, "k / K / 科学计数 / 千 / 百 标为不支持", bad);
   ok(extractNumberTokens("10月1日到28日").map((x) => x.value).join(",") === "10,1,28", "日期数字");
 }
 
@@ -183,7 +186,7 @@ console.log("数字比对");
   ok(allowed("10月1日到28日，共 28 天") && allowed("2026 年"), "期间日期与天数");
   ok(allowed("上一期 9 月 3 日至 30 日"), "对比期日期");
   ok(!allowed("本期成单 65,000"), "编造金额 → 不命中（spec 场景）");
-  ok(!allowed("成单 61,230"), "61,230.5 截成 61,230 不算四舍五入 → 不命中");
+  ok(allowed("成单 $61,230"), "截断写法也算（61,230.5 → 61,230）");
   ok(!allowed("合计 79,900"), "两数相加（19,800 + 60,100）→ 不命中");
   ok(!allowed("转化率 41%"), "百分比取整错误 → 不命中");
   ok(!allowed("约 6.2 万"), "万换算错误 → 不命中");
@@ -192,6 +195,66 @@ console.log("数字比对");
   ok(findUnknownNumber(["转化率约三成"], INPUT) === "三成", "三成 → 拒绝");
   ok(findUnknownNumber(["前两位销售贡献最多"], INPUT) === "两位", "两位 → 拒绝（有意的保守）");
   ok(findUnknownNumber(["成单金额集中在少数人"], INPUT) === null, "没有数字 → 通过");
+}
+
+console.log("独立审查补充：格式绕过");
+{
+  const bad = (s: string, name: string) => ok(findUnknownNumber([s], INPUT) !== null, name, s);
+  bad("成单 ６５,０００ 加元", "全角编造数字 → 拒绝");
+  bad("成单 sixty-five thousand", "英文数字词 → 拒绝");
+  bad("成单六万元", "六万元 → 拒绝");
+  bad("成单二万四千元", "二万四千元 → 拒绝");
+  bad("转化率百分之五十", "百分之 → 拒绝");
+  bad("两周内催签", "两周 → 拒绝");
+  bad("成单翻一番", "翻一番 → 拒绝");
+  bad("成单 2万4千", "2万4千 → 拒绝（千不支持）");
+  bad("成单 I65000_X", "形似洞察代码的编造数字 → 拒绝");
+  bad("成单 65k", "65k → 拒绝");
+  bad("成单 2k", "2k → 拒绝（即使 2 在输入里）");
+  bad("成单 6.5e4", "科学计数 → 拒绝");
+  ok(findUnknownNumber(["见 I3_STALE_OPEN：6 份超过 14 天"], INPUT) === null, "输入里存在的洞察代码会被去掉再查");
+}
+
+console.log("独立审查补充：方向与宽松度");
+{
+  const nums = collectInputNumbers(INPUT);
+  const allowed = (s: string) => extractNumberTokens(s).every((t) => isAllowedNumber(t, nums));
+  ok(!allowed("报价金额 +7%"), "报价金额实为 -6.99%，写 +7% → 拒绝（同号）");
+  ok(allowed("报价金额 -7%") && allowed("成单金额 +18%"), "同号 → 通过");
+  ok(allowed("报价金额下降 7%"), "不带号的百分比按绝对值（方向写在文字里，见报告已知限制）");
+  ok(!allowed("占 14%"), "数量 14 不能写成 14%（百分比只比对比率）");
+  ok(!allowed("约 1 万") && !allowed("约 2 万"), "9,100 / 18,200 不能写成 1 万 / 2 万");
+  ok(allowed("约 1.8 万"), "18,200 写成 1.8 万 → 通过");
+  ok(!allowed("有 0.4 份"), "比率不当数量用");
+  ok(!allowed("77 份") && !allowed("72 份"), "不在输入里的小整数 → 拒绝");
+  const plainInts = Array.from({ length: 201 }, (_, i) => i).filter((i) => isAllowedNumber({ raw: String(i), value: i, decimals: 0, sign: "", unit: "", unsupported: false }, nums));
+  ok(plainInts.length <= 30, `0–200 内可通过的整数 ${plainInts.length} 个（都来自输入的数量 / 金额 / 日期 / 阈值）`, plainInts);
+}
+
+console.log("独立审查补充：敏感信息");
+{
+  const withIds = summary({
+    insights: [
+      { code: "I5_REP_SILENT", severity: "warn", text: "Bo 本期没有报出报价（上一期 3 份）", evidence: { reps: "cm3x9k72a0002ab77c1d9e0f", count: 1 } },
+      { code: "I6_REP_CONCENTRATION", severity: "info", text: "成单金额 61% 集中在 Bo", evidence: { userId: "cm3x9k72a0002ab77c1d9e0f", repWonAmount: 37130.5, share: 0.61 } },
+    ],
+  });
+  const input = projectNarrativeInput(withIds);
+  const raw = JSON.stringify(input);
+  ok(!raw.includes("cm3x9k72a0002ab77c1d9e0f"), "洞察证据里的 userId 不进模型输入");
+  ok(input.insights[1].evidence.share === 0.61 && input.insights[1].evidence.repWonAmount === 37130.5 && !("userId" in input.insights[1].evidence), "证据只留数值");
+  ok(findUnknownNumber(["有 72 份报价"], input) === "72", "userId 里的数字不进允许集合");
+  ok(findUnknownNumber(["上一期 3 份，成单 61% 集中在 Bo"], input) === null, "洞察文字里的数字与百分比可用");
+
+  const emailRep = summary({
+    byRep: [{ userId: "u_x", name: "x@fixture.test", wonCount: 1, wonAmount: 1, quotedCount: 1, quotedAmount: 1, conversionRate: 1 }],
+    calendar: { bySource: { qingyan: 0, member: 1, website: 0, unknown: 0 }, byActor: [{ userId: "u_x", name: "x@fixture.test", bucket: "ops", created: 1 }] },
+  });
+  const masked = projectNarrativeInput(emailRep);
+  ok(!JSON.stringify(masked).includes("@") && masked.byRep[0].name === "未命名成员 1" && masked.calendar?.byActor[0].name === "未命名成员 1", "邮箱姓名统一换成同一代号", masked.byRep);
+
+  const zhName = projectNarrativeInput(summary({ byRep: [{ userId: "u_z", name: "张三", wonCount: 9, wonAmount: 24100, quotedCount: 20, quotedAmount: 66000, conversionRate: 0.45 }] }));
+  ok(findUnknownNumber(["张三名下有 20 份报价"], zhName) === null, "成员姓名先去掉再查中文数字（张三名下不误杀）");
 }
 
 console.log("汇总与回落");
