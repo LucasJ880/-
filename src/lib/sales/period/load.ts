@@ -9,6 +9,7 @@ import { loadOrgTimezone } from "@/lib/automation/registry";
 import { readCalendarWatch } from "@/lib/calendar-watch/pure";
 import { loadCalendarAttribution } from "@/lib/calendar-watch/stats";
 import { buildPeriodInsights } from "./insights";
+import { isPeriodNarrativeEnabled } from "./narrative-pure";
 import {
   PERIOD_FETCH_CAP,
   checkPeriodRange,
@@ -41,8 +42,10 @@ export interface PeriodSummaryResponse {
   insights: PeriodInsight[];
   /** CAL-1：日历观察开启且为全企业范围时给出期间日程来源统计，否则 null */
   calendar: PeriodCalendarStats | null;
-  /** KPI-2 交付前固定为 null */
+  /** 固定为 null：AI 解读只经 POST /api/sales/period-summary/narrative 按需生成（KPI-2） */
   narrative: null;
+  /** KPI-2：AI 解读开关是否开启（面板据此显示"生成解读"按钮） */
+  narrativeEnabled: boolean;
   truncated: boolean;
 }
 
@@ -158,6 +161,7 @@ export async function buildSalesPeriodResponse(params: {
     insights: buildPeriodInsights({ summary, prevByRep, calendar }),
     calendar,
     narrative: null,
+    narrativeEnabled: isPeriodNarrativeEnabled(),
     truncated: summary.truncated,
   };
 }

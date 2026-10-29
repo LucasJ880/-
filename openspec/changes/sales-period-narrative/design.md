@@ -95,6 +95,7 @@
   - 都返回 200 与 `narrative = null`，看板不报错。
 - 限次：`checkRateLimitAsync({ name: "sales-period-narrative", windowMs: 60_000, maxRequests: 6 }, "{orgId}:{userId}")`，超限 429 `RATE_LIMITED`。
 - 服务函数的模型调用可注入（缺省 `createCompletionDetailed`），隔离库测试不打真模型。
+- 本功能只调用一次 `createCompletionDetailed`；共享 OpenAI 客户端（`getClient()`，未设 `maxRetries`）沿用 SDK 缺省的传输层重试（对 429 / 5xx / 连接错误最多 2 次），这一点不在本 change 改动范围（`src/lib/ai/client.ts` 是 Non-Goal），`timeoutMs` 触发的中止不重试。
 - 否决：**失败自动重试一次**：费用与延迟翻倍；回落到确定性洞察已经是可用结果。
 
 ### D6 开关只用环境变量

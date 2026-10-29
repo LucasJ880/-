@@ -17,7 +17,7 @@
 
 ## 2. 服务与接口
 
-- [ ] 2.1 新建服务与接口，并给期间汇总加开关回显：
+- [x] 2.1 新建服务与接口，并给期间汇总加开关回显：
   - `src/lib/sales/period/narrative.ts` `generatePeriodNarrative(params, deps?)`：
     - 取数复用 `buildSalesPeriodResponse`；
     - 一次 `createCompletionDetailed`（可注入）；

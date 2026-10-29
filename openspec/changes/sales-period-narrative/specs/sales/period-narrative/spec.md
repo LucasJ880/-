@@ -62,7 +62,7 @@
 - **THEN** 模型收到的输入只有本人一行，不含其他销售姓名；`period-narrative-db.isolated.test.ts` 检查注入调用收到的提示词
 
 ### Requirement: 一次调用与失败回落
-每次请求 SHALL 最多调用一次模型，不重试、不缓存、不持久化解读正文；模型报错或超时 SHALL 返回 200、`narrative = null`、`fallbackReason = model_error`；月 AI 费用已达上限 SHALL 返回 `fallbackReason = budget_exceeded`。同一成员每分钟超过 6 次 SHALL 返回 429 `RATE_LIMITED` 且不调用模型。
+每次请求 SHALL 只发起一次模型调用，本功能不另行重试（SDK 传输层对限流与服务端错误的既有自动重试不变），不缓存、不持久化解读正文；模型报错或超时 SHALL 返回 200、`narrative = null`、`fallbackReason = model_error`；月 AI 费用已达上限 SHALL 返回 `fallbackReason = budget_exceeded`。同一成员每分钟超过 6 次 SHALL 返回 429 `RATE_LIMITED` 且不调用模型。
 
 #### Scenario: 模型报错
 - **WHEN** 注入的模型调用抛错
