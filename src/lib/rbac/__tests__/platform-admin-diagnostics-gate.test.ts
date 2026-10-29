@@ -37,9 +37,9 @@ function ok(cond: boolean, name: string) {
 console.log("platform-admin diagnostics gate");
 
 // ── 角色边界 ──
-ok(isPlatformAdmin("admin"), "admin 是平台管理员");
+ok(!isPlatformAdmin("admin"), "PERM-7b：平台 admin 不是平台管理员（等同 user）");
 ok(isPlatformAdmin("super_admin"), "super_admin 是平台管理员");
-ok(isPlatformAdmin({ role: "admin" }), "user.role=admin 是平台管理员");
+ok(!isPlatformAdmin({ role: "admin" }) && isPlatformAdmin({ role: "super_admin" }), "PERM-7b：user.role=admin 不是、super_admin 是平台管理员");
 ok(!isPlatformAdmin("user"), "普通 user 不是平台管理员");
 ok(!isPlatformAdmin("sales"), "sales 不是平台管理员");
 ok(!isPlatformAdmin("manager"), "manager 不是平台管理员");
@@ -75,7 +75,7 @@ const memberCtx: NavigationFilterContext = {
 
 const adminCtx: NavigationFilterContext = {
   ...memberCtx,
-  platformRole: "admin",
+  platformRole: "super_admin",
   isPlatformAdmin: true,
 };
 
@@ -294,7 +294,7 @@ ok(
   "11. org_admin 同样被拒绝提交 outputTokens",
 );
 
-ok(isPlatformAdmin("admin"), "12. platform admin 可使用诊断字段（角色通过）");
+ok(isPlatformAdmin("super_admin"), "12. platform admin（super_admin）可使用诊断字段（角色通过）");
 ok(
   findForbiddenDiagnosticFields({ content: "ok" }).length === 0,
   "12b. 仅业务字段时无禁止键（admin 可另带诊断字段）",

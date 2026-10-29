@@ -74,7 +74,8 @@ async function notifyPlatformAdmins(
 ): Promise<void> {
   try {
     const admins = await db.user.findMany({
-      where: { role: "admin", status: "active" },
+      // PERM-7b：平台管理员只认 super_admin
+      where: { role: "super_admin", status: "active" },
       select: { id: true, activeOrgId: true },
       take: 20,
     });

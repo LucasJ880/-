@@ -8,6 +8,19 @@
 | 语言 | 英文正文（多伦多客户）；中文只在本文件做说明，不进邮件 |
 | 方案 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` §3（变更 INSTALL-2c；尾款确认在 INSTALL-2b） |
 
+## 实现状态（INSTALL-2c，2026-10-28）
+
+**已实现**：change `install-2c-warranty-email`，报告 `docs/QINGYAN_INSTALL-2c_REPORT.md`。下文 §0–§3 是实现前的草稿，保留作来源记录；**以代码与 spec 为准**。
+
+| 项 | 实现 |
+|---|---|
+| 渲染 | `src/lib/install/warranty.ts` `renderWarrantyEmail`：纯文本与 HTML 同一份内容；同样输入得到同样邮件；HTML 全部转义 |
+| 种子（`seedWarrantySettings`） | 报价单口径（Lucas 2026-10-28 拍板 Q1）：Shades、Drapery = Labour 1 / Fabric 5 / Components 15；Shutters（vinyl）= Labour 1 / Components 5；Motor 不单列。老板可在会计「待收尾款」→「质保设置」改 |
+| 联系方式种子 | 公司名 Sunny Shutter Inc；地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5（维修单抬头）；条款链接 `https://sunnyshutter.ca/warranty-service/`；**报修电话 / 邮箱留空**（只有检索摘要来源，未核实不进种子，design D10），没填之前不会生成邮件 |
+| 发件人 | 组织发件身份 `trade.email_sender`（设置 → 邮件 → 组织发件人）；未配置 → `NO_ORG_SENDER`，不回落到个人邮箱（Q3） |
+| 与本草稿的差异 | ① 不输出 `{{salesName}}`（spec「邮件不输出的内容」：不含员工内部信息）；② 安装地址：工艺单地址优先，客户档案地址兜底，都空显示 "—"；③ 安装日 = `installedAt` 在企业时区的日期（返修后的更新在 INSTALL-2e）；④ 只有英文版，§5 中文版未做 |
+| 仍待核实 | §0 的官网原文仍未读到（网络策略拒绝）；官网若与报价单不一致，先统一条款，再由老板在质保设置里改年限 |
+
 ## 0. 质保条款来源与核实状态（防幻觉）
 
 `https://sunnyshutter.ca/warranty-service/` 在本次会话的网络策略里被拒（DNS / 代理 403；用户 2026-10-28 再次给出链接后重试仍被拒），**原文未能直接读取**。下表只写检索摘要里能对上的内容，其余一律留 `{{待确认}}`，上线前由 Lucas / Evan 对着官网原文填。

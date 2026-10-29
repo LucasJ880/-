@@ -7,6 +7,7 @@ import {
   isNavGroupHiddenForRole,
   isNavItemHiddenForRole,
 } from "@/lib/rbac/nav-role-policy";
+import { normalizeRetiredPlatformRole } from "@/lib/rbac/roles";
 import {
   canAccessBidWorkspace,
   canAccessInstallWorkspace,
@@ -169,8 +170,13 @@ function capabilitiesOk(
 
 export function isNavItemVisible(
   item: NavigationItem,
-  ctx: NavigationFilterContext,
+  rawCtx: NavigationFilterContext,
 ): boolean {
+  // PERM-7b：平台 admin 退役，按平台角色名单比对时视同 user
+  const ctx: NavigationFilterContext =
+    rawCtx.platformRole === "admin"
+      ? { ...rawCtx, platformRole: normalizeRetiredPlatformRole(rawCtx.platformRole) }
+      : rawCtx;
   if (item.autopilotOwnerOnly) {
     return ctx.autopilotAllowed === true;
   }

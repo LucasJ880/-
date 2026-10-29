@@ -71,7 +71,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "邀请码已过期" }, { status: 400 });
   }
 
-  const assignedRole = invite.role;
+  // PERM-7b：不再签发平台 admin——历史上签发为 admin 的邀请码按 user 落
+  const assignedRole = invite.role === "admin" ? "user" : invite.role;
 
   // 企业邀请码（入驻向导）：只给 trade / sales 平台角色；企业须存在且启用
   let orgBinding: { orgId: string; orgRole: OrgBoundOrgRole } | null = null;
@@ -305,7 +306,7 @@ async function bootstrapNewUser(userId: string, displayName: string, role: strin
       },
     });
 
-    if (role === "admin" || role === "user") {
+    if (role === "user") {
       const project = await tx.project.create({
         data: {
           orgId: org.id,

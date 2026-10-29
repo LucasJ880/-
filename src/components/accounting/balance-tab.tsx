@@ -6,6 +6,7 @@
  * — 确认收到尾款：实收（预填应收）/ 方式 / 日期 / 备注；与应收不一致时备注必填（服务端同样拦截）
  * — 最近已确认
  * 不链到 /blinds-orders/[id]：会计没有工艺单读权（design D5）。
+ * INSTALL-2c：确认后第二步 = 质保邮件预览 + 批准发送（或阻断原因）；"最近已确认"带质保状态；页签底部"质保设置"。
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -13,6 +14,7 @@ import { Camera, CheckCircle2, ChevronDown, ChevronRight, Loader2, X } from "luc
 import { apiFetch } from "@/lib/api-fetch";
 import { BALANCE_METHOD_LABEL, BALANCE_METHODS, balanceMismatch, type BalanceMethod } from "@/lib/install/balance";
 import type { InstallTaskDetailData } from "@/components/install/install-types";
+import { WarrantyApprove, WarrantyBlocked, WarrantyCell, WarrantySettingsPanel, type WarrantyView } from "./warranty-panel";
 
 export type BalancePendingRow = {
   orderId: string;
@@ -38,6 +40,8 @@ export type BalanceConfirmedRow = {
   note: string;
   confirmedByName: string | null;
   confirmedAt: string;
+  /** INSTALL-2c：质保邮件状态 */
+  warranty?: WarrantyView | null;
 };
 
 export type BalanceResp = { pending: BalancePendingRow[]; recentConfirmed: BalanceConfirmedRow[] };
@@ -125,6 +129,7 @@ export function BalanceTab({ data, focusOrderId, onChanged }: { data: BalanceRes
                 <th className="px-3 py-2">方式</th>
                 <th className="px-3 py-2">收款日期</th>
                 <th className="px-3 py-2">确认</th>
+                <th className="px-3 py-2">质保邮件</th>
               </tr>
             </thead>
             <tbody>
@@ -144,11 +149,14 @@ export function BalanceTab({ data, focusOrderId, onChanged }: { data: BalanceRes
                     {r.confirmedByName ?? "—"} · {day(r.confirmedAt)}
                     {r.note && <div className="mt-0.5 text-muted">{r.note}</div>}
                   </td>
+                  <td className="px-3 py-2 align-top">
+                    <WarrantyCell orderId={r.orderId} view={r.warranty ?? null} onChanged={onChanged} />
+                  </td>
                 </tr>
               ))}
               {data.recentConfirmed.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-xs text-muted">
+                  <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted">
                     暂无记录
                   </td>
                 </tr>
@@ -157,6 +165,8 @@ export function BalanceTab({ data, focusOrderId, onChanged }: { data: BalanceRes
           </table>
         </div>
       </div>
+
+      <WarrantySettingsPanel />
 
       {confirming && (
         <ConfirmDialog
@@ -293,6 +303,8 @@ function ConfirmDialog({ row, onClose, onDone }: { row: BalancePendingRow; onClo
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** INSTALL-2c：确认成功后的第二步（质保邮件） */
+  const [warranty, setWarranty] = useState<WarrantyView | null>(null);
 
   const amountNum = Number(amount);
   const mismatch = Number.isFinite(amountNum) && amount.trim() !== "" && balanceMismatch(row.expectedBalance, amountNum);
@@ -307,18 +319,53 @@ function ConfirmDialog({ row, onClose, onDone }: { row: BalancePendingRow; onClo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: amountNum, method, receivedAt, note }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; warranty?: WarrantyView };
       if (!res.ok) {
         setError(data.error || "确认失败");
         return;
       }
-      onDone();
+      const w = data.warranty ?? null;
+      if (w && (w.status === "pending_approval" || w.status === "blocked" || w.status === "error")) setWarranty(w);
+      else onDone();
     } catch {
       setError("网络错误，请重试");
     } finally {
       setBusy(false);
     }
   }, [amountNum, method, note, onDone, receivedAt, row.orderId]);
+
+  // INSTALL-2c：第二步——质保邮件预览与批准（或缺资料原因）；关闭即刷新列表
+  if (warranty) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label="质保邮件">
+        <div className="max-h-[92vh] w-full max-w-xl space-y-3 overflow-y-auto rounded-xl border border-border bg-card-bg p-4 shadow-lg">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+                <CheckCircle2 size={17} className="text-[#2e7a56]" /> 尾款已确认 · 完工与质保邮件
+              </h2>
+              <p className="mt-0.5 text-xs text-muted">
+                {row.customerName} · {row.code}
+              </p>
+            </div>
+            <button type="button" onClick={onDone} className="text-muted" aria-label="关闭">
+              <X size={18} />
+            </button>
+          </div>
+          {warranty.status === "pending_approval" ? (
+            <WarrantyApprove view={warranty} onDone={() => onDone()} />
+          ) : (
+            <>
+              <WarrantyBlocked view={warranty} />
+              <button type="button" onClick={onDone} className="w-full rounded-lg border border-border px-4 py-2 text-sm text-foreground">
+                知道了
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label="确认收到尾款">

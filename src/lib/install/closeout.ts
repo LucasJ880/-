@@ -11,6 +11,7 @@
  */
 
 import type { ProcessSpec } from "@/lib/sunny-process/process-spec";
+import { categoryOfProductType, PURCHASE_SECTION_CATEGORY, type FulfillmentCategory } from "@/lib/fulfillment/category";
 
 export const INSTALL_WINDOW_COMPLETED = "install.window.completed" as const;
 export const INSTALL_TASK_STARTED = "install.task.started" as const;
@@ -57,6 +58,8 @@ export type WindowItem = {
 export type CloseoutUnit = WindowItem & {
   section: UnitSection;
   sectionLabel: string;
+  /** INSTALL-2c：品类（质保年限查表）；Blinds 行产品类型无法识别 → null */
+  category: FulfillmentCategory | null;
   logTargetId: string;
   controlType: string;
   controlSide: string;
@@ -181,6 +184,14 @@ export function specUnitLogTargetId(orderId: string, section: SpecSection, index
   return `${orderId}:${section}:${index}`;
 }
 
+/** 工艺参数段 → 品类（外采购按行的段另算，见 PURCHASE_SECTION_CATEGORY） */
+const SPEC_SECTION_CATEGORY: Record<SpecSection, FulfillmentCategory | null> = {
+  domestic: "shades",
+  drapes: "drapery",
+  vinyl: "vinyl",
+  purchase: null,
+};
+
 const numOr0 = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? n : 0);
 const joinNote = (parts: Array<string | null | undefined>) => parts.filter((p) => p && p.trim()).join(" · ") || null;
 
@@ -201,13 +212,15 @@ export function buildCloseoutUnits(
       matchLocation: false,
       section: "blinds" as const,
       sectionLabel: SECTION_LABEL.blinds,
+      category: categoryOfProductType(it.productType),
     }));
   let next = items.reduce((m, it) => Math.max(m, it.itemNumber), 0) + 1;
   if (!spec) return units;
 
-  const push = (section: SpecSection, index: number, u: Omit<CloseoutUnit, "id" | "itemNumber" | "section" | "sectionLabel" | "logTargetId" | "matchLocation">) => {
+  const push = (section: SpecSection, index: number, u: Omit<CloseoutUnit, "id" | "itemNumber" | "section" | "sectionLabel" | "logTargetId" | "matchLocation" | "category">, category: FulfillmentCategory | null = SPEC_SECTION_CATEGORY[section]) => {
     units.push({
       ...u,
+      category,
       id: specUnitId(section, index),
       itemNumber: next++,
       section,
@@ -267,7 +280,7 @@ export function buildCloseoutUnits(
       controlSide: "",
       mountType: "",
       itemRemark: joinNote([r.qty > 1 ? `${r.qty} 扇` : null, r.remark]),
-    }),
+    }, PURCHASE_SECTION_CATEGORY[r.section] ?? null),
   );
   return units;
 }

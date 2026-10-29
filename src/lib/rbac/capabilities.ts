@@ -12,7 +12,7 @@
 // ============================================================
 
 import type { ToolDomain } from "@/lib/agent-core/types";
-import type { PlatformRole } from "./roles";
+import { platformTier, type PlatformRole } from "./roles";
 
 /** 数据可见范围：own = 只能看自己创建/被分配的；all = 全局可见 */
 export type DataScope = "own" | "all";
@@ -82,8 +82,8 @@ export const ROLE_CAPABILITIES: Record<PlatformRole, RoleCapabilities> = {
 /** 安全获取能力；未知角色退回到最低权限（user） */
 export function getCapabilities(role: string | null | undefined): RoleCapabilities {
   if (!role) return ROLE_CAPABILITIES.user;
-  if (role === "super_admin") return ROLE_CAPABILITIES.admin;
-  return ROLE_CAPABILITIES[role as PlatformRole] ?? ROLE_CAPABILITIES.user;
+  // PERM-7b：只有 super_admin 取 admin 档；平台 admin 按 user
+  return ROLE_CAPABILITIES[platformTier(role) as PlatformRole] ?? ROLE_CAPABILITIES.user;
 }
 
 /** 角色能否访问某个 domain */

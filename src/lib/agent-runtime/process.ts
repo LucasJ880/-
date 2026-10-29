@@ -35,6 +35,7 @@ import {
   emitAgentOutputEvent,
   newModelCallId,
 } from "./observe";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export type ConversationRunResult = {
   text: string;
@@ -466,7 +467,7 @@ export async function executeConversationRun(rawInput: {
   const domains: Array<
     "trade" | "sales" | "project" | "secretary" | "knowledge" | "cockpit" | "system"
   > = ["secretary", "system"];
-  if (input.userRole === "admin" || input.userRole === "super_admin") {
+  if (isSuperAdmin(input.userRole)) {
     domains.push("trade", "sales", "cockpit");
   } else if (input.userRole === "sales") {
     domains.push("sales");

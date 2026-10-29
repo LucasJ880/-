@@ -41,7 +41,7 @@ console.log("workspace-policy");
 
 ok(canAccessManagementWorkspace(ctx({ platformRole: "boss" })), "老板可进管理总览");
 ok(
-  canAccessManagementWorkspace(ctx({ platformRole: "admin" })),
+  canAccessManagementWorkspace(ctx({ platformRole: "super_admin" })),
   "平台管理员可进管理总览",
 );
 ok(
@@ -138,7 +138,7 @@ ok(
 
 ok(getDefaultWorkspace(ctx({ platformRole: "boss" })) === "/", "管理层默认 /");
 ok(
-  getDefaultWorkspace(ctx({ platformRole: "admin" })) === "/",
+  getDefaultWorkspace(ctx({ platformRole: "super_admin" })) === "/",
   "平台管理员默认 /",
 );
 ok(

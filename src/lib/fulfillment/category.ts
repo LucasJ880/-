@@ -83,7 +83,8 @@ export type SpecLinesForCategory = {
   purchase: ReadonlyArray<{ section: string }>;
 };
 
-const PURCHASE_SECTION_CATEGORY: Record<string, FulfillmentCategory> = {
+/** INSTALL-2c：收口单元品类（质保年限查表）也用这张表 */
+export const PURCHASE_SECTION_CATEGORY: Record<string, FulfillmentCategory> = {
   shutter: "vinyl",
   drape: "drapery",
   shade: "shades",

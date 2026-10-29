@@ -175,7 +175,10 @@ export function installNotificationHref(item: {
   if (item.entityType === ENTITY_INSTALL_BALANCE) return `/accounting?tab=balance&order=${id}`;
   if (
     item.entityType === "blinds_order" &&
-    (item.type === NOTIFY_INSTALL_COMPLETED || item.type === NOTIFY_BALANCE_CONFIRMED)
+    (item.type === NOTIFY_INSTALL_COMPLETED ||
+      item.type === NOTIFY_BALANCE_CONFIRMED ||
+      item.type === "install_warranty_sent" ||
+      item.type === "install_warranty_failed")
   ) {
     return `/blinds-orders/${id}`;
   }

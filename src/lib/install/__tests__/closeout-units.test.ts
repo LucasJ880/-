@@ -87,6 +87,23 @@ console.log("INSTALL-2a 收口单元构建");
   ok(buildCloseoutUnits("o6", [blinds("b1", 1, "X")], null).length === 1, "无工艺参数 → 只有 Blinds 行");
 }
 
+console.log("INSTALL-2c 收口单元品类");
+{
+  const units = buildCloseoutUnits("oc", [blinds("bz", 1, "Hall")], spec({ vinyl: [vinyl("Living")], drapes: [drape("Master", "drape")], domestic: [domestic("Office")], purchase: [
+    { section: "shutter", categoryZh: "Wooden 百叶", location: "Porch", widthIn: 20, heightIn: 30, qty: 1, fields: [], reasonZh: "", remark: "" },
+    { section: "drape", categoryZh: "打孔窗帘", location: "Den", widthIn: 20, heightIn: 30, qty: 2, fields: [], reasonZh: "", remark: "" },
+    { section: "shade", categoryZh: "帘子 Roman", location: "Bath", widthIn: 20, heightIn: 30, qty: 1, fields: [], reasonZh: "", remark: "" },
+  ] }));
+  const byId = Object.fromEntries(units.map((u) => [u.id, u.category]));
+  ok(byId["bz"] === "shades", "斑马帘 Blinds 行 → 帘类");
+  ok(byId["spec-domestic-0"] === "shades" && byId["spec-drapes-0"] === "drapery" && byId["spec-vinyl-0"] === "vinyl", "国内下单 → 帘类、窗帘 → 窗帘、Vinyl → Shutters");
+  ok(byId["spec-purchase-0"] === "vinyl" && byId["spec-purchase-1"] === "drapery" && byId["spec-purchase-2"] === "shades", "外采购按段：百叶 / 窗帘 / 帘子");
+  const odd = buildCloseoutUnits("od", [{ ...blinds("bx", 1, "X"), productType: "百叶窗X" }], null);
+  ok(odd[0].category === null, "无法识别的产品类型 → 无品类");
+  const mixed = buildCloseoutUnits("om", [blinds("b1", 1, "A")], spec({ vinyl: [vinyl("V")], drapes: [drape("D", "drape")] }));
+  ok(mixed.map((u) => u.category).join() === "shades,drapery,vinyl", "混合单（斑马帘 + Vinyl + 窗帘）：按单元序号为 帘类、窗帘、Shutters", mixed.map((u) => u.category));
+}
+
 console.log("INSTALL-2a 单元 id 编解码");
 ok(specUnitId("drapes", 3) === "spec-drapes-3", "specUnitId");
 ok(JSON.stringify(parseSpecUnitId("spec-purchase-12")) === JSON.stringify({ section: "purchase", index: 12 }), "parseSpecUnitId");

@@ -225,7 +225,7 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 | 通知 | `Notification`（既有），新 type 注册 |
 | 新权限键 | `install.balance.confirm`（ORG：accounting、owner）。其余复用：维修单提交 = `install.task.update`；出单 = `orders.fulfillment.update.<品类>`；排返修 = `install.task.assign`；读 = `install.task.read` / `install.photo.read`；质保表编辑 = `sales.settings.manage`（Q7） |
 
-**不可清理清单**（追加到 INSTALL-1 的"不可清理"）：`install.repair.*`、`install.window.issue`、`install.balance.confirmed`。
+**不可清理清单**（追加到 INSTALL-1 的"不可清理"）：`install.repair.*`、`install.window.issue`、`install.balance.confirmed`、`install.warranty.sent`（一单一封的唯一依据，删了会重发）、`install.warranty.settings`（质保年限改动记录）。
 
 ---
 
