@@ -54,7 +54,7 @@ change：`openspec/changes/pricelist-2026-10-fauxwood-allusion/`（proposal / sp
 | `npm run test:ci` | 退出 0（CI unit subset 全过，含黄金对照与解析测试） |
 | `npm run build`（`NODE_OPTIONS=--max-old-space-size=8192`，含内部 typecheck） | 退出 0；`/sales/quote-sheet`、`/api/sales/quote-settings/discounts` 在产出表里 |
 | 浏览器走查（本地生产构建 `next start -p 3100` + 隔离库 + Playwright，销售岗账号） | 见 §3.3，全部符合预期 |
-| 全量 `npm test`（隔离库） | __FULL__ |
+| 全量 `npm test`（隔离库，`NODE_OPTIONS=--max-old-space-size=8192`） | **502 / 511 通过，9 个失败，均与本次改动无关**（见 §3.4） |
 
 ### 3.3 浏览器走查（`docs/price-1-screenshots/`）
 
@@ -70,6 +70,21 @@ change：`openspec/changes/pricelist-2026-10-fauxwood-allusion/`（proposal / sp
 | 落库 | `formDataJson.pricelistVersion = "2026-10-28"`；行 1 Fauxwood 取档 42 × 48、MSRP 410.06、折扣 0.30、成交 287.05、安装 18；行 2 Allusion 取档 30 × 42、MSRP 443、折扣 0.35、成交 287.95、安装 18；`grandTotal` 960.49 |
 | 390px 宽度 | 无横向溢出（`scrollWidth − clientWidth` ≤ 0）；截图 `order-form-mobile-390.png` |
 | 页面错误 | 无 `pageerror`；控制台 6 个 404 全部来自"快速报价"面板内嵌的旧 HTML 工具请求 `零售用.csv` / `FABRIC.csv` / `ADDONS.csv`，与本次改动无关（切到"详细订单"前就出现） |
+
+### 3.4 全量测试失败项逐个与 origin/main 对照
+
+同一个隔离库（PG16 + pgvector，`prisma db push`），`git worktree` 取 origin/main `abad98d` + 硬链接 `node_modules`，逐个复跑：
+
+| 失败的测试 | 分支 | main | 原因 |
+|---|---|---|---|
+| Mention Gateway M2-A Identity DB | 90 / 3 | 90 / 3（同 3 条：`status_check` / `verification_method_check` / `active_requires_method_check`） | 既有：`db push` 不建迁移里的原生 CHECK 约束（INSTALL-2a 报告 §3）。首次在 main 复跑撞到分支那次失败运行遗留的 `__qingyan_platform__` 网关行（P2002），清掉后结果一致 |
+| Sunny 工艺单 签字→草稿→门禁→确认→导出 DB 端到端 | 失败（`无权操作此报价单` NO_BINDING） | 失败（同） | 既有：测试早于 PERM-4a，报价创建人未绑岗位（KPI-1 报告 §6 已记） |
+| Phase3A-3 Approvals Smoke / Phase3A-4 Governance Smoke / Phase3A-4 Acceptance / Phase3A-5 Overview Acceptance | 失败（`Sunny / 梦馨组织存在` / `双租户组织存在`） | 失败（同） | 本地库没有 Sunny / 梦馨双租户种子 |
+| T4 授标情报真实 Postgres 矩阵 | 16 / 2（T4-DB-08/09 前置） | 16 / 2（同） | 既有环境性失败 |
+| Quote Operations 客户报价 PDF 分页布局 | 2 断言失败（S-4 / M-2 页脚） | 同 | 既有：PDF 渲染环境 |
+| Autopilot A2-P0 Isolated E2E | 全量负载下 95 / 1 | 单跑 96 / 0 | 偶发（KPI-1 报告同样记录）；分支单独连跑 2 次均 96 / 0；本次未改任何 autopilot 代码 |
+
+与 KPI-1 报告 §6 的基线（485 项、8 个失败）相比：总数 485 → 511（本次新增 3 个测试文件，其余来自之后合并的 change），失败项集合相同（M2-A 那条在 INSTALL-2 之后一直存在）。
 
 ## 4. 实施中对规划的调整 / 发现（审核请重点看）
 

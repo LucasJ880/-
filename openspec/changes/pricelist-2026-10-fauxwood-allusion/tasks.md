@@ -22,8 +22,8 @@
 
 ## 5. 收口
 
-- [ ] 5.1 全量门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate pricelist-2026-10-fauxwood-allusion --strict`、隔离库 `npm test`（失败项逐个与 origin/main 对照）；隔离库 + `next start` + Playwright 走查 Order Form 录 Fauxwood 36.5" × 48"（287.05 / 18）与 Allusion 25.5" × 36.5"（= 黄金用例）→ 保存 → `formDataJson.pricelistVersion`；`git diff --stat prisma/` 为空；verify：以上命令退出 0，走查截图与数字写进报告
-- [ ] 5.2 写 `docs/QINGYAN_PRICE-1_REPORT.md`（做了什么 / 怎么验 / 对规划的调整 / 已知限制：历史 Allusion 行不重算、Fauxwood 无 SKU 只有类别回退）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` PRICE-1 状态列 + `docs/QINGYAN_PRICELIST_HANDOFF.md` §0 流水线表；verify：三个文件在同一提交里，报告 §2 每条命令都有实际输出
+- [x] 5.1 全量门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate pricelist-2026-10-fauxwood-allusion --strict`、隔离库 `npm test`（失败项逐个与 origin/main 对照）；隔离库 + `next start` + Playwright 走查 Order Form 录 Fauxwood 36.5" × 48"（287.05 / 18）与 Allusion 25.5" × 36.5"（= 黄金用例）→ 保存 → `formDataJson.pricelistVersion`；`git diff --stat prisma/` 为空；verify：以上命令退出 0，走查截图与数字写进报告
+- [x] 5.2 写 `docs/QINGYAN_PRICE-1_REPORT.md`（做了什么 / 怎么验 / 对规划的调整 / 已知限制：历史 Allusion 行不重算、Fauxwood 无 SKU 只有类别回退）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` PRICE-1 状态列 + `docs/QINGYAN_PRICELIST_HANDOFF.md` §0 流水线表；verify：三个文件在同一提交里，报告 §2 每条命令都有实际输出
 
 ## Workflow follow-up
 
