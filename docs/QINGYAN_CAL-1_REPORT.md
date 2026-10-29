@@ -42,8 +42,8 @@
 | `bash scripts/check-test-registry.sh` | 通过；已注册 479 个（合入 main 前 477 + 本 change 2） |
 | `openspec validate calendar-watch-attribution --strict` | valid |
 | `npm run build` | 退出 0；两条新路由在产出表中 |
-| 隔离库全量 `npm test` | 见 §6 |
-| PR CI `validate-lint-typecheck-test-build` | 见 §6 |
+| 隔离库全量 `npm test` | 失败项与 main 相同（§6） |
+| PR CI `validate-lint-typecheck-test-build` | 绿（§6） |
 
 真实浏览器检查（`next start -p 3100` + Playwright，种子脚本只写本机测试库，未进仓库）：
 
@@ -134,4 +134,15 @@ curl -X PUT "https://<青砚域名>/api/organizations/<orgId>/calendar-watch-set
 
 ## 6. 全量测试
 
-（7.1 完成后填写：隔离库全量 `npm test` 的失败项逐一与 main 对比；PR CI 结果。）
+隔离库（127.0.0.1:5433）全量 `npm test`，分支与 origin/main `57549cf1`（同库、同环境的独立工作树）各跑一次：
+
+| | 通过 / 总数 | 失败 |
+|---|---|---|
+| 分支 | 485 / 498 | 13 |
+| main | 484 / 496 | 12 |
+
+- 总数差 2 = 本 change 新注册的两个测试。
+- 两边共同失败的 12 项完全相同，与本 change 无关：`TypeScript 类型检查`（test-all 里不带 `--max-old-space-size`，本容器 Node 22 堆溢出；单独 `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0，CI 也绿）、Phase3A-3 / 3A-4（两项）/ 3A-5 / 3B-A、Gmail Draft OAuth Compose Scope、Mention Gateway M2-A Identity DB、Sunny 工艺单 DB 端到端、T4 授标情报 Postgres 矩阵、Quote Operations 客户报价 PDF 分页布局、招标询价催单执行器。
+- 只在分支失败的 1 项是 `日历观察纯函数核心（CAL-1）`：全量运行期间我正在按独立审查改 `sourceKey`，该测试恰好在源码与用例不一致的窗口里执行（159 过 2 失败，失败项正是 sourceKey 形态）。改完后单独重跑 175 / 0，`calendar-watch-db.isolated` 80 / 0、`period-db.isolated` 31 / 0。
+
+PR [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323) CI `validate-lint-typecheck-test-build`：绿（2026-10-29，提交 `081f22b3`，含 `npm run build`）。

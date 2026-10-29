@@ -57,7 +57,7 @@
 
 ## 7. 收口
 
-- [ ] 7.1 全量门禁全部通过：
+- [x] 7.1 全量门禁全部通过：
   - `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`
   - `npm run lint:baseline`
   - `npm run test:ci`
@@ -68,7 +68,7 @@
 
   verify：上述命令退出码与输出贴进报告；registry 由当前 main 的数目增加 2；CI 绿。
 
-- [ ] 7.2 写 `docs/QINGYAN_CAL-1_REPORT.md`：
+- [x] 7.2 写 `docs/QINGYAN_CAL-1_REPORT.md`：
   - 做了什么、怎么验、对设计稿 §2 的偏离（D1 挂既有定时任务、D6 授权键、D2 全量不带时间过滤、账本不存描述、别名表、展示只在期间面板）；
   - 已知限制：修改人未知、私人邮箱需别名、基线前创建的日程无 created、上线需真实日历人工验收；
   - 运维上线步骤：`PUT` body 示例与三项前置信息。
