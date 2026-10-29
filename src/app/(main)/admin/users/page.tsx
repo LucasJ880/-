@@ -539,7 +539,6 @@ function UsersContent() {
                         onChange={(e) => setNewRole(e.target.value)}
                         className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
                       >
-                        <option value="admin">平台管理员</option>
                         <option value="boss">老板</option>
                         <option value="manager">总经理</option>
                         <option value="operations">运营</option>
@@ -602,8 +601,7 @@ function UsersContent() {
 
                 {/* 客户权限开关 —— 仅对非 admin 角色有意义；仅 admin 可改 */}
                 {isAdmin(currentUser?.role) &&
-                  String(userDetail.role) !== "admin" &&
-                  String(userDetail.role) !== "super_admin" && (
+                  !isAdmin(String(userDetail.role)) && (
                     <div className="rounded-lg border border-border p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -714,8 +712,7 @@ function UsersContent() {
                 {/* 危险操作：删除账号（管理员 / 总经理；不能删自己 / admin；总经理仅 admin 可删） */}
                 {selectedUser.id !== currentUser?.id &&
                   String(userDetail.status) !== "deleted" &&
-                  String(userDetail.role) !== "admin" &&
-                  String(userDetail.role) !== "super_admin" &&
+                  !isAdmin(String(userDetail.role)) &&
                   (String(userDetail.role) !== "manager" || isAdmin(currentUser?.role)) && (
                     <div className="rounded-lg border border-[rgba(166,61,61,0.25)] bg-[rgba(166,61,61,0.03)] p-3">
                       <div className="flex items-start justify-between gap-3">

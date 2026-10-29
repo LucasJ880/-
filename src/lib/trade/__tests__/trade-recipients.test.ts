@@ -148,7 +148,7 @@ for (const key of ["biz-revenue", "biz-revenue-today"]) {
 
 // ── 压扁纳入 trade 与剩余读点 ──
 ok((COLLAPSIBLE_PLATFORM_ROLES as readonly string[]).includes("trade"), "压扁范围含 trade");
-ok(!(COLLAPSIBLE_PLATFORM_ROLES as readonly string[]).some((r) => ["super_admin", "admin", "user"].includes(r)), "压扁范围不含 super_admin / admin / user");
+ok(!(COLLAPSIBLE_PLATFORM_ROLES as readonly string[]).some((r) => ["super_admin", "user"].includes(r)), "压扁范围不含 super_admin / user（PERM-7b 起含 admin）");
 ok(src("src/components/sidebar.tsx").includes("usesTradeLayout(user?.effectiveRole ?? platformRole)"), "侧栏外贸布局按派生角色");
 {
   const onb = src("src/lib/organizations/onboarding.ts");

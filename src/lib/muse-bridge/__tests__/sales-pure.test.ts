@@ -60,9 +60,11 @@ const rank = (rows: SalesOppRow[], showAmounts = true) => rankOpportunities(rows
 console.log("sales scope");
 
 const id = (role: string | null, orgRole: string) => ({ userId: "u_x", orgId: "org_1", role, orgRole });
-for (const role of ["admin", "super_admin", "boss", "manager"]) {
+for (const role of ["super_admin", "boss", "manager"]) {
   ok(`平台 ${role} → 全组织`, resolveSalesScope(id(role, "org_member"))?.kind === "org");
 }
+// PERM-7b：平台 admin 不再是销售管理层（等同 user）
+ok("平台 admin + org_member → 拒绝（同 user）", resolveSalesScope(id("admin", "org_member")) === null);
 ok("平台 user + 组织 org_admin → 全组织", resolveSalesScope(id("user", "org_admin"))?.kind === "org");
 ok("平台 user + 组织 org_owner → 全组织", resolveSalesScope(id("user", "org_owner"))?.kind === "org");
 ok("平台 sales → 仅本人", resolveSalesScope(id("sales", "org_member"))?.kind === "own");

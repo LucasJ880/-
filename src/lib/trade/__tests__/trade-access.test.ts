@@ -64,7 +64,7 @@ ok(derive("user", ["trade.read", "trade.manage"]) === "trade", "岗位模式 use
 ok(derive("user", ["operations.read", "trade.read"]) === "operations", "运营优先于外贸");
 ok(derive("user", ["sales.quote.create", "trade.read"]) === "sales", "销售优先于外贸");
 ok(derive("user", ["organization.dashboard.read", "trade.read"]) === "boss", "管理层优先");
-ok(derive("trade", []) === "trade", "平台 trade 仍原样");
+ok(derive("trade", ["trade.read"]) === "trade" && derive("trade", []) === "user", "PERM-7b：平台 trade 按键派生（trade.read → trade）");
 ok(deriveEffectivePlatformRole({ platformRole: "user", positionMode: false, permissionKeys: ["trade.read"] }) === "user", "旧模式不派生");
 
 // ── 通道矩阵（旧模式等价） ──

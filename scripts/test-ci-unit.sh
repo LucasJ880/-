@@ -307,6 +307,7 @@ npx tsx src/lib/trade/__tests__/trade-access.test.ts
 npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
 npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
 npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
+npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts
 npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts
 # PERM-5a：会计视图（提成口径 / 时间窗口 / 工作区导航 / 接口源码断言）
 npx tsx src/lib/accounting/__tests__/accounting.test.ts

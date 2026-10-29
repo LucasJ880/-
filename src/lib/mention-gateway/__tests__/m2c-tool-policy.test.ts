@@ -196,7 +196,7 @@ async function main() {
   {
     const base = buildToolContextBase(customerOpts);
     const exposed = registry
-      .toOpenAITools({ domains: customerOpts.domains, names: customerOpts.tools, role: "admin", orgRole: customerOpts.orgRole, maxRisk: customerOpts.maxRisk })
+      .toOpenAITools({ domains: customerOpts.domains, names: customerOpts.tools, role: "super_admin", orgRole: customerOpts.orgRole, maxRisk: customerOpts.maxRisk })
       .map((t) => t.function.name);
     ok(sameSet(exposed, CUSTOMER_TOOLS), `暴露给模型 = CUSTOMER_CONTEXT_TOOLS（${exposed.length}）`);
 
@@ -232,7 +232,7 @@ async function main() {
   {
     const base = buildToolContextBase(projectOpts);
     const exposed = registry
-      .toOpenAITools({ domains: projectOpts.domains, names: projectOpts.tools, role: "admin", orgRole: projectOpts.orgRole, maxRisk: projectOpts.maxRisk })
+      .toOpenAITools({ domains: projectOpts.domains, names: projectOpts.tools, role: "super_admin", orgRole: projectOpts.orgRole, maxRisk: projectOpts.maxRisk })
       .map((t) => t.function.name);
     ok(sameSet(exposed, PROJECT_TOOLS), `暴露给模型 = PROJECT_CONTEXT_TOOLS（${exposed.length}）`);
     for (const name of [...CUSTOMER_TOOLS, ...ORG_WIDE]) {

@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   }
 
   const validRoles = [
-    "admin",
+    // PERM-7b：不再签发平台 admin（平台管理员只有 super_admin，等同 user 的 admin 没有意义）
     "boss",
     "manager",
     "operations",

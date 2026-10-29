@@ -10,6 +10,7 @@ import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 import type { ChannelType, BindingInfo, FilterMode } from "./types";
 import { ROLE_DEFAULT_DOMAINS } from "./types";
 import { bindCodeKeyFromEnv, decideBindingClaim, verifyBindCode } from "./binding-proof";
+import { isSuperAdmin, platformTier } from "@/lib/rbac/roles";
 
 export type CreateBindingResult =
   | { ok: true; binding: BindingInfo; outcome: "created" | "refreshed" | "reclaimed" }
@@ -25,10 +26,10 @@ export type CreateBindingResult =
 
 function roleDefaults(role: string | null | undefined) {
   const r = role ?? "user";
-  const isSalesRole = r === "sales" || r === "admin" || r === "super_admin";
-  const isTradeRole = r === "trade" || r === "admin" || r === "super_admin";
+  const isSalesRole = r === "sales" || isSuperAdmin(r);
+  const isTradeRole = r === "trade" || isSuperAdmin(r);
   return {
-    pushDomains: ROLE_DEFAULT_DOMAINS[r] ?? "project",
+    pushDomains: ROLE_DEFAULT_DOMAINS[platformTier(r)] ?? "project",
     pushBriefing: isTradeRole,
     pushFollowup: isTradeRole,
     pushReport: isTradeRole,

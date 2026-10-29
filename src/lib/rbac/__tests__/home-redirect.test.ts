@@ -28,7 +28,7 @@ ok(
   "管理层访问 / 不重定向",
 );
 ok(
-  resolveHomeRedirect({ platformRole: "admin" }) === null,
+  resolveHomeRedirect({ platformRole: "super_admin" }) === null,
   "平台管理员访问 / 不重定向",
 );
 ok(
