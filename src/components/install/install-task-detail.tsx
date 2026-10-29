@@ -214,6 +214,12 @@ export function InstallTaskDetail({ id }: { id: string }) {
         {(task.remarks || task.notes) && (
           <p className="mt-2 whitespace-pre-wrap text-xs text-muted">{task.remarks || task.notes}</p>
         )}
+        {task.voidedRepair && (
+          <p role="status" className="mt-2 rounded-lg border border-[rgba(201,138,34,0.4)] bg-[rgba(201,138,34,0.08)] px-3 py-2 text-xs text-foreground">
+            维修单 <b className="font-mono">{task.voidedRepair.repairNo}</b> 已作废
+            {task.voidedRepair.note ? `：${task.voidedRepair.note}` : ""}。请重新处理各窗后完成收口；仍有问题再提交维修单。
+          </p>
+        )}
         {canStart && (
           <button
             type="button"

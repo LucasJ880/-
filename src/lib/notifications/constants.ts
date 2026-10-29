@@ -23,6 +23,9 @@ export const NOTIFICATION_TYPE_KEYS = [
   // INSTALL-2e：返修件已出单 / 已安排返修
   "install_repair_factory_issued",
   "install_repair_scheduled",
+  // INSTALL-2f：维修单作废 / 关闭不返修；返修逾期提醒
+  "install_repair_closed",
+  "install_repair_overdue",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];

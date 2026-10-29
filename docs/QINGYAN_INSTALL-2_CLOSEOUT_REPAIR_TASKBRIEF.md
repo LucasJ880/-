@@ -175,6 +175,7 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 ### 4.7 逾期提醒
 - 目标日已过、仍未排期 / 未完成的维修单 → 通知运营 + 销售（`sourceKey` 按 维修单 + 日期 去重）。
 - **挂在既有每日 cron 上**（`/api/cron/inspect` 或 `followup`，propose 时选一个），不新增 cron / 队列 / scheduler（纪律 3）。
+- 2026-10-29 INSTALL-2f 实施：比较后挂在 `/api/cron/daily-brief`（企业当地 07:00，每企业独立一步）——inspect 是 UTC 08:00、按项目循环，followup 一天两个时段且记在外贸跟进名下（2f design D6）。只提醒"没人推进"的单：已排了今天或以后返修的不提醒（D7）。
 
 ---
 
@@ -217,7 +218,7 @@ U-Haul 自助还车流程（检索摘要）：App 引导 → 回答里程 / 车�
 | 东西 | 落点 |
 |---|---|
 | 逐窗 / 逐单元结果、问题照片 | `AuditLog(install.window.completed / install.window.issue)` + 私有 Blob `install-photos/...`（沿用 INSTALL-1 前缀与代理） |
-| 维修单及其生命周期 | `AuditLog(install.repair.submitted / .factory_issued / .scheduled / .completed / .cancelled)`，`targetType=blinds_order` |
+| 维修单及其生命周期 | `AuditLog(install.repair.submitted / .factory_issued / .scheduled / .completed)`，`targetType=blinds_order`；关闭原因 `completed` / `superseded` / `voided`（作废）/ `waived`（关闭不返修），不另设 `.cancelled`（2f design D1：所有"是否未关闭"的判断只读一种事件） |
 | 尾款确认 | `AuditLog(install.balance.confirmed)` + 工艺单 `status=completed`、`completedAt`（既有字段） |
 | 质保邮件 | `PendingAction(type=install.send_warranty_email)`（既有表） |
 | 质保年限表 / 联系方式 | `Organization.settingsJson.sunnyWarranty`（读改写只动这个键，不整对象覆盖 settingsJson——与 `sunnyProcess` 同一教训） |

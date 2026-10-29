@@ -1,10 +1,19 @@
 /**
  * INSTALL-2d：问题类型表 / 标记问题入参 / 维修单表头 / 目标日 / 单号 / 记录解析 / 品类 / 打印补行
  * INSTALL-2e：维修单事件 / 进度（按品类出单、排期、关闭）/ 可执行操作与出单判定 / 出单与排返修入参 / 排期提示
+ * INSTALL-2f：关闭原因 / 返修中提交的识别 / 作废与关闭不返修判定 / 原因校验 / 逾期提醒选择与摘要
  * 运行：npx tsx src/lib/install/__tests__/repair.test.ts
  */
 import {
   addDays,
+  closeDecision,
+  daysBetween,
+  isReturnVisitRepair,
+  overdueReminder,
+  overdueSummary,
+  validateCloseReason,
+  voidDecision,
+  CLOSE_REASON_LABEL,
   factoryCategoriesOf,
   issueDecision,
   parseRepairEvent,
@@ -142,15 +151,16 @@ console.log("INSTALL-2e 维修单进度");
   ok(parseRepairEvent({ id: "x", action: "install.repair.scheduled", afterData: "{}", createdAt: new Date(), userId: "u" }) === null && parseRepairEvent({ id: "x", action: "install.window.issue", afterData: '{"repairId":"r1"}', createdAt: new Date(), userId: "u" }) === null, "缺 repairId 或非维修单事件 → null");
 
   console.log("INSTALL-2e 可执行操作与出单判定");
+  const NV = { returnVisit: false };
   const vinylIssuer = { categoryKeys: ["vinyl" as const], umbrella: false, canAssign: false };
   const shadesIssuer = { categoryKeys: ["shades" as const], umbrella: false, canAssign: false };
   const ops = { categoryKeys: [], umbrella: false, canAssign: true };
   const owner = { categoryKeys: [], umbrella: true, canAssign: true };
   const p0 = repairProgress(rec, []);
-  ok(repairActions(p0, vinylIssuer).issueCategories.join() === "vinyl,unknown" && !repairActions(p0, vinylIssuer).canSchedule, "出单·Vinyl：可登记 Vinyl 与待确认，不能排返修");
-  ok(repairActions(p0, ops).issueCategories.length === 0 && repairActions(p0, ops).canSchedule, "运营主管：不能登记出单，能排返修");
-  ok(repairActions(p0, owner).issueCategories.join() === "vinyl,drapery,unknown", "老板（伞键）：可登记全部待登记品类");
-  ok(repairActions(p3, owner).issueCategories.length === 0 && !repairActions(p3, owner).canSchedule, "已关闭：没有可执行操作");
+  ok(repairActions(p0, vinylIssuer, NV).issueCategories.join() === "vinyl,unknown" && !repairActions(p0, vinylIssuer, NV).canSchedule, "出单·Vinyl：可登记 Vinyl 与待确认，不能排返修");
+  ok(repairActions(p0, ops, NV).issueCategories.length === 0 && repairActions(p0, ops, NV).canSchedule, "运营主管：不能登记出单，能排返修");
+  ok(repairActions(p0, owner, NV).issueCategories.join() === "vinyl,drapery,unknown", "老板（伞键）：可登记全部待登记品类");
+  ok(repairActions(p3, owner, NV).issueCategories.length === 0 && !repairActions(p3, owner, NV).canSchedule, "已关闭：没有可执行操作");
   const d1 = issueDecision(p0, vinylIssuer);
   ok(d1.ok && d1.categories.join() === "vinyl,unknown", "出单·Vinyl 登记 → Vinyl + 待确认", d1);
   const onlyVinyl = { id: "r1", rows: [row("vinyl")] };
@@ -167,7 +177,7 @@ console.log("INSTALL-2e 维修单进度");
   // 判定与可执行操作一致：列出 ⇔ 判定通过
   for (const h of [vinylIssuer, shadesIssuer, ops, owner]) {
     for (const p of [p0, p1, p2, p3]) {
-      const listed = repairActions(p, h).issueCategories.length > 0;
+      const listed = repairActions(p, h, NV).issueCategories.length > 0;
       ok(listed === issueDecision(p, h).ok, "可执行操作与出单判定一致");
     }
   }
@@ -188,6 +198,87 @@ console.log("INSTALL-2e 维修单进度");
   ok(scheduleWarnings(p0, "2026-11-03").join().includes("出单尚未登记：Vinyl、布帘、品类待确认"), "未登记 → 提示出单尚未登记");
   ok(scheduleWarnings(p2, "2026-11-03").join().includes("2026-11-05 才备好"), "备好日晚于返修日 → 提示");
   ok(scheduleWarnings(p2, "2026-11-06").length === 0, "备好日早于返修日且已全部登记 → 无提示");
+}
+
+console.log("INSTALL-2f 关闭原因");
+{
+  const row: RepairRow = { n: 1, unitId: "u", itemNumber: 1, section: "vinyl", location: "Den", description: "d", issueType: "wrong_size", needsFactory: true, category: "vinyl", photos: [] };
+  const rec = { id: "r1", rows: [row], appointmentId: "a0", targetDate: "2026-10-20" };
+  const ev = (id: string, action: string, at: string, data: Record<string, unknown>, repairId = "r1", userId = "ops"): RepairEvent => ({ id, action, repairId, at, userId, data });
+  const voided = repairProgress(rec, [ev("c1", "install.repair.completed", "2026-10-29T10:00:00Z", { reason: "voided", note: "Den 标错了" })]);
+  ok(voided.closed?.reason === "voided" && voided.closed.note === "Den 标错了" && voided.closed.byUserId === "ops", "作废：关闭原因 voided、带原因说明与操作人", voided.closed);
+  const waived = repairProgress(rec, [ev("c1", "install.repair.completed", "2026-10-29T10:00:00Z", { reason: "waived", note: "客户接受色差" })]);
+  ok(waived.closed?.reason === "waived" && waived.closed.note === "客户接受色差", "关闭不返修：关闭原因 waived", waived.closed);
+  const legacy = repairProgress(rec, [ev("c1", "install.repair.completed", "2026-10-29T10:00:00Z", { reason: "whatever" })]);
+  ok(legacy.closed?.reason === "completed" && legacy.closed.note === "", "未知原因按已完成（2e 写的记录照旧）", legacy.closed);
+  const first = repairProgress(rec, [
+    ev("c1", "install.repair.completed", "2026-10-29T10:00:00Z", { reason: "voided", note: "a" }),
+    ev("c2", "install.repair.completed", "2026-10-29T11:00:00Z", { reason: "waived", note: "b" }),
+  ]);
+  ok(first.closed?.reason === "voided", "第一条关闭事件为准", first.closed);
+  ok(CLOSE_REASON_LABEL.voided === "已作废" && CLOSE_REASON_LABEL.waived === "关闭不返修" && CLOSE_REASON_LABEL.superseded === "转入新单", "关闭原因中文名");
+
+  console.log("INSTALL-2f 返修中提交的识别");
+  const r2 = { id: "r2", appointmentId: "a1" };
+  const sched = ev("s1", "install.repair.scheduled", "2026-10-29T09:00:00Z", { appointmentId: "a1", installAt: "2026-11-03T14:00:00Z", assignedToId: "xl" }, "r1");
+  ok(isReturnVisitRepair(r2, [sched]), "提交预约是另一张单的返修预约 → 返修中提交的");
+  ok(!isReturnVisitRepair(rec, [sched]), "首装预约上提交的 → 不是");
+  ok(!isReturnVisitRepair({ id: "r1", appointmentId: "a1" }, [sched]), "自己的排期不算");
+
+  console.log("INSTALL-2f 作废 / 关闭不返修判定");
+  const ops = { categoryKeys: [], umbrella: false, canAssign: true };
+  const vinyl = { categoryKeys: ["vinyl" as const], umbrella: false, canAssign: false };
+  const open = repairProgress(rec, []);
+  const NV = { returnVisit: false };
+  const RV = { returnVisit: true };
+  ok(voidDecision(open, ops, NV).ok && closeDecision(open, ops).ok, "运营主管：未关闭的单可作废、可关闭不返修");
+  const dv = voidDecision(open, vinyl, NV);
+  const dc = closeDecision(open, vinyl);
+  ok(!dv.ok && dv.status === 403 && !dc.ok && dc.status === 403, "出单岗 → 403", [dv, dc]);
+  const dClosed = voidDecision(voided, ops, NV);
+  ok(!dClosed.ok && dClosed.code === "CLOSED" && dClosed.status === 409, "已关闭 → 409 CLOSED", dClosed);
+  const dcClosed = closeDecision(waived, ops);
+  ok(!dcClosed.ok && dcClosed.code === "CLOSED", "已关闭再关闭不返修 → 409 CLOSED", dcClosed);
+  const dRv = voidDecision(open, ops, RV);
+  ok(!dRv.ok && dRv.code === "RETURN_VISIT" && dRv.status === 409 && closeDecision(open, ops).ok, "返修中提交的：不能作废（RETURN_VISIT），能关闭不返修", dRv);
+  const a = repairActions(open, ops, RV);
+  ok(!a.canVoid && a.canClose && a.canSchedule, "返修中提交的：可执行操作有关闭不返修、没有作废", a);
+  const none = repairActions(voided, ops, NV);
+  ok(!none.canVoid && !none.canClose && !none.canSchedule && none.issueCategories.length === 0, "已作废：没有可执行操作", none);
+  // 判定与可执行操作一致：列出 ⇔ 判定通过
+  for (const h of [ops, vinyl, { categoryKeys: [], umbrella: true, canAssign: true }]) {
+    for (const p of [open, voided, waived]) {
+      for (const ctx of [NV, RV]) {
+        const act = repairActions(p, h, ctx);
+        ok(act.canVoid === voidDecision(p, h, ctx).ok && act.canClose === closeDecision(p, h).ok, "作废 / 关闭不返修：可执行操作与判定一致");
+      }
+    }
+  }
+
+  console.log("INSTALL-2f 原因校验");
+  const v1 = validateCloseReason({ reason: "  Den 标错了 " });
+  ok(v1.ok && v1.value.reason === "Den 标错了", "原因去首尾空白", v1);
+  ok(!validateCloseReason({ reason: "   " }).ok && !validateCloseReason({}).ok && !validateCloseReason(null).ok, "空原因 → 拒绝");
+  ok(validateCloseReason({ reason: "x".repeat(500) }).ok && !validateCloseReason({ reason: "x".repeat(501) }).ok, "500 字可以，501 字拒绝");
+
+  console.log("INSTALL-2f 逾期提醒选择");
+  ok(daysBetween("2026-10-20", "2026-10-29") === 9 && daysBetween("2026-10-29", "2026-10-29") === 0, "天数差");
+  const today = "2026-10-29";
+  const unsched = overdueReminder(rec, open, today, null);
+  ok(!!unsched && unsched.daysOverdue === 9 && unsched.stuck === "factory" && unsched.pendingCategories.join() === "vinyl", "过了目标日、未排、Vinyl 未登记 → 提醒，卡在出单", unsched);
+  ok(!!unsched && overdueSummary(rec, unsched).includes("已过 9 天") && overdueSummary(rec, unsched).includes("待登记出单：Vinyl"), "摘要：已过 9 天、待登记出单：Vinyl", unsched && overdueSummary(rec, unsched));
+  const issued = repairProgress(rec, [ev("f1", "install.repair.factory_issued", "2026-10-21T10:00:00Z", { categories: ["vinyl"], readyDate: "2026-10-25" })]);
+  const u2 = overdueReminder(rec, issued, today, null);
+  ok(!!u2 && u2.stuck === "unscheduled" && overdueSummary(rec, u2).endsWith("未排返修"), "出单已登记、未排 → 卡在未排返修", u2);
+  const booked = repairProgress(rec, [sched]);
+  ok(overdueReminder(rec, booked, today, { date: "2026-10-30", active: true }) === null, "返修排在明天 → 不提醒");
+  ok(overdueReminder(rec, booked, today, { date: today, active: true }) === null, "返修排在今天 → 不提醒");
+  const missed = overdueReminder(rec, booked, today, { date: "2026-10-28", active: true });
+  ok(!!missed && missed.stuck === "return_missed" && overdueSummary(rec, missed).includes("返修日 2026-10-28 已过仍未收口"), "返修日已过仍未收口 → 提醒", missed);
+  const cancelled = overdueReminder(rec, booked, today, { date: "2026-10-30", active: false });
+  ok(!!cancelled && cancelled.stuck !== "return_missed", "返修预约已被取消（排期不再有效）→ 照常提醒", cancelled);
+  ok(overdueReminder({ targetDate: today }, open, today, null) === null && overdueReminder({ targetDate: "2026-10-30" }, open, today, null) === null, "目标日是今天或以后 → 不提醒");
+  for (const p of [voided, waived, legacy]) ok(overdueReminder(rec, p, today, null) === null, "已关闭 → 不提醒");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

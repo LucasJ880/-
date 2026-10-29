@@ -27,6 +27,8 @@ export const TYPE_INTRODUCED_AT: Record<string, string> = {
   install_repair_submitted: "2026-10-28T00:00:00Z",
   install_repair_factory_issued: "2026-10-28T00:00:00Z",
   install_repair_scheduled: "2026-10-28T00:00:00Z",
+  install_repair_closed: "2026-10-29T00:00:00Z",
+  install_repair_overdue: "2026-10-29T00:00:00Z",
 };
 
 /** 纯函数：类型是否开启（含 grandfather 判定），供测试 */

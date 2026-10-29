@@ -4,6 +4,7 @@
  * - 只对持 install.task.read（ORG）开放，其他人 403；他企业的维修单 404
  * - 含表头、全部行（问题照只给 /api/files/ 代理地址）、当前安装阶段、打印抬头（质保设置的公司名与地址）
  * - INSTALL-2e：另含进度（各品类出单登记、待登记品类、返修排期、关闭情况）与当前用户可执行操作（与写接口同一判定）
+ * - INSTALL-2f：关闭情况含原因（已完成 / 转入 / 已作废 / 关闭不返修）、原因说明与操作人；可执行操作含作废 / 关闭不返修
  * - 不出金额
  */
 import { NextResponse } from "next/server";
@@ -13,7 +14,7 @@ import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { loadOrgTimezone } from "@/lib/automation/registry";
 import { todayInTimeZone } from "@/lib/install/balance";
 import { INSTALL_REPAIR_SUBMITTED, parseRepairRecord, REPAIR_TARGET_TYPE, repairActions, repairProgress } from "@/lib/install/repair";
-import { loadOrderStages, loadRepairEvents, loadRepairHolder, serializeRepairDetail, userNameMap } from "@/lib/install/repair-service";
+import { loadOrderStages, loadRepairEvents, loadRepairHolder, repairContextOf, serializeRepairDetail, userNameMap } from "@/lib/install/repair-service";
 import { resolveInstallScope } from "@/lib/install/service";
 import { readWarrantySettings } from "@/lib/install/warranty";
 
@@ -47,7 +48,8 @@ export const GET = withAuth<{ id: string }>(async (request, ctx, user) => {
     loadRepairEvents([order.id]),
     loadRepairHolder(user, orgId),
   ]);
-  const progress = repairProgress(rec, events.get(order.id) ?? []);
+  const orderEvents = events.get(order.id) ?? [];
+  const progress = repairProgress(rec, orderEvents);
   const scheduleAppt = progress.schedule
     ? await db.appointment.findUnique({ where: { id: progress.schedule.appointmentId }, select: { status: true } })
     : null;
@@ -55,6 +57,7 @@ export const GET = withAuth<{ id: string }>(async (request, ctx, user) => {
     rec.header.takenById,
     ...progress.issued.map((i) => i.byUserId),
     ...(progress.schedule ? [progress.schedule.assignedToId] : []),
+    ...(progress.closed ? [progress.closed.byUserId] : []),
   ]);
   const { contact } = readWarrantySettings(org?.settingsJson ?? null).settings;
   return NextResponse.json({
@@ -67,7 +70,8 @@ export const GET = withAuth<{ id: string }>(async (request, ctx, user) => {
       progress,
       names,
       scheduleCompleted: scheduleAppt?.status === "completed",
-      actions: repairActions(progress, holder),
+      scheduleCancelled: scheduleAppt?.status === "cancelled",
+      actions: repairActions(progress, holder, repairContextOf(rec, orderEvents)),
     }),
   });
 });

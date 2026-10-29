@@ -270,6 +270,9 @@ export const RETURN_OUTCOME = "repair_completed" as const;
 
 export const NOTIFY_REPAIR_FACTORY_ISSUED = "install_repair_factory_issued" as const;
 export const NOTIFY_REPAIR_SCHEDULED = "install_repair_scheduled" as const;
+/** INSTALL-2f：维修单作废 / 关闭不返修；维修单逾期 */
+export const NOTIFY_REPAIR_CLOSED = "install_repair_closed" as const;
+export const NOTIFY_REPAIR_OVERDUE = "install_repair_overdue" as const;
 /** 发给安装工的通知实体：落到 /install/<预约 id> */
 export const ENTITY_INSTALL_TASK = "install_task" as const;
 
@@ -308,7 +311,17 @@ export function parseRepairEvent(row: { id: string; action: string; afterData: s
 
 export type FactoryIssue = { category: FactoryCategory; readyDate: string; note: string; byUserId: string; at: string; eventId: string };
 export type RepairSchedule = { appointmentId: string; installAt: string; assignedToId: string; byUserId: string; at: string; eventId: string };
-export type RepairClosed = { reason: "completed" | "superseded"; supersededBy: string | null; byUserId: string; at: string };
+/** 关闭原因：返修完成 / 转入新单 / 已作废（INSTALL-2f）/ 关闭不返修（INSTALL-2f） */
+export const CLOSE_REASONS = ["completed", "superseded", "voided", "waived"] as const;
+export type CloseReason = (typeof CLOSE_REASONS)[number];
+export const CLOSE_REASON_LABEL: Record<CloseReason, string> = {
+  completed: "返修已完成",
+  superseded: "转入新单",
+  voided: "已作废",
+  waived: "关闭不返修",
+};
+const isCloseReason = (v: unknown): v is CloseReason => typeof v === "string" && (CLOSE_REASONS as readonly string[]).includes(v);
+export type RepairClosed = { reason: CloseReason; supersededBy: string | null; note: string; byUserId: string; at: string };
 
 export type RepairProgress = {
   /** 需工厂行涉及的出单品类（按 Vinyl / 布帘 / Roller / 待确认 排序） */
@@ -355,8 +368,9 @@ export function repairProgress(rec: Pick<RepairRecord, "id" | "rows">, events: R
       }
     } else if (e.action === INSTALL_REPAIR_COMPLETED && !closed) {
       closed = {
-        reason: e.data.reason === "superseded" ? "superseded" : "completed",
+        reason: isCloseReason(e.data.reason) ? e.data.reason : "completed",
         supersededBy: typeof e.data.supersededBy === "string" ? e.data.supersededBy : null,
+        note: str(e.data.note),
         byUserId: e.userId,
         at: e.at,
       };
@@ -384,10 +398,19 @@ function canIssueCategory(c: FactoryCategory, h: RepairHolder): boolean {
   return h.categoryKeys.includes(c);
 }
 
-/** 可执行操作（页面按钮与写接口共用，design D9） */
-export function repairActions(p: RepairProgress, h: RepairHolder): { issueCategories: FactoryCategory[]; canSchedule: boolean } {
-  if (p.closed) return { issueCategories: [], canSchedule: false };
-  return { issueCategories: p.pendingCategories.filter((c) => canIssueCategory(c, h)), canSchedule: h.canAssign };
+export type RepairActions = { issueCategories: FactoryCategory[]; canSchedule: boolean; canVoid: boolean; canClose: boolean };
+/** 维修单所处情形：是否在返修预约上提交（INSTALL-2f：这种不能作废，design D2） */
+export type RepairContext = { returnVisit: boolean };
+
+/** 可执行操作（页面按钮与写接口共用，2e design D9 / 2f design D5） */
+export function repairActions(p: RepairProgress, h: RepairHolder, ctx: RepairContext): RepairActions {
+  if (p.closed) return { issueCategories: [], canSchedule: false, canVoid: false, canClose: false };
+  return {
+    issueCategories: p.pendingCategories.filter((c) => canIssueCategory(c, h)),
+    canSchedule: h.canAssign,
+    canVoid: h.canAssign && !ctx.returnVisit,
+    canClose: h.canAssign,
+  };
 }
 
 export type IssueDecision =
@@ -402,7 +425,7 @@ export function issueDecision(p: RepairProgress, h: RepairHolder): IssueDecision
     return { ok: false, status: 403, code: "FORBIDDEN", error: "该维修单没有你负责的品类" };
   }
   if (p.closed) return { ok: false, status: 409, code: "CLOSED", error: "维修单已关闭" };
-  const categories = repairActions(p, h).issueCategories;
+  const categories = p.pendingCategories.filter((c) => canIssueCategory(c, h));
   if (categories.length === 0) return { ok: false, status: 409, code: "ALREADY_ISSUED", error: "你负责的品类已登记出单" };
   return { ok: true, categories };
 }
@@ -463,4 +486,76 @@ export function scopeUnits<T extends { id: string }>(units: T[], repair: Pick<Re
   if (!repair) return units;
   const ids = new Set(repair.rows.map((r) => r.unitId));
   return units.filter((u) => ids.has(u.id));
+}
+
+// ─────────────────────────── INSTALL-2f：作废 / 关闭不返修 / 逾期提醒 ───────────────────────────
+
+/** 维修单是在返修预约上提交的：它的提交预约被另一张维修单的排期指向过（design D2） */
+export function isReturnVisitRepair(rec: Pick<RepairRecord, "id" | "appointmentId">, events: RepairEvent[]): boolean {
+  return events.some((e) => e.action === INSTALL_REPAIR_SCHEDULED && e.repairId !== rec.id && e.data.appointmentId === rec.appointmentId);
+}
+
+export type CloseDecision =
+  | { ok: true }
+  | { ok: false; status: 403 | 409; code: "FORBIDDEN" | "CLOSED" | "RETURN_VISIT"; error: string };
+
+/** 作废判定（spec「维修单作废的条件」）：与 repairActions.canVoid 同口径；工艺单 / 预约状态在锁内另判 */
+export function voidDecision(p: RepairProgress, h: RepairHolder, ctx: RepairContext): CloseDecision {
+  if (!h.canAssign) return { ok: false, status: 403, code: "FORBIDDEN", error: "只有运营 / 会计 / 老板岗位可以作废维修单" };
+  if (p.closed) return { ok: false, status: 409, code: "CLOSED", error: "维修单已关闭" };
+  if (ctx.returnVisit) {
+    return { ok: false, status: 409, code: "RETURN_VISIT", error: "返修时提交的维修单不能作废，请用「关闭不返修」" };
+  }
+  return { ok: true };
+}
+
+/** 关闭不返修判定（spec「关闭不返修」）：与 repairActions.canClose 同口径 */
+export function closeDecision(p: RepairProgress, h: RepairHolder): CloseDecision {
+  if (!h.canAssign) return { ok: false, status: 403, code: "FORBIDDEN", error: "只有运营 / 会计 / 老板岗位可以关闭维修单" };
+  if (p.closed) return { ok: false, status: 409, code: "CLOSED", error: "维修单已关闭" };
+  return { ok: true };
+}
+
+export const CLOSE_NOTE_MAX = 500;
+
+/** 作废 / 关闭不返修的原因：必填、不超过 500 字 */
+export function validateCloseReason(raw: unknown): { ok: true; value: { reason: string } } | { ok: false; error: string } {
+  const o = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const reason = typeof o.reason === "string" ? o.reason.trim() : "";
+  if (!reason) return { ok: false, error: "请填写原因" };
+  if (reason.length > CLOSE_NOTE_MAX) return { ok: false, error: `原因不超过 ${CLOSE_NOTE_MAX} 字` };
+  return { ok: true, value: { reason } };
+}
+
+/** 两个 YYYY-MM-DD 相差的天数（b − a） */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+export type OverdueStuck = "factory" | "unscheduled" | "return_missed";
+export type OverdueReminder = { daysOverdue: number; stuck: OverdueStuck; pendingCategories: FactoryCategory[]; returnDate: string | null };
+
+/**
+ * 逾期提醒选择（spec「维修单逾期提醒」，design D7）：目标日早于今天、未关闭、
+ * 且没有"今天或以后、仍有效"的返修预约。returnAppt = 最新排期指向的预约（企业时区日期、是否仍有效）。
+ */
+export function overdueReminder(
+  rec: Pick<RepairRecord, "targetDate">,
+  p: RepairProgress,
+  today: string,
+  returnAppt: { date: string; active: boolean } | null,
+): OverdueReminder | null {
+  if (p.closed || !(rec.targetDate < today)) return null;
+  const booked = !!p.schedule && !!returnAppt && returnAppt.active;
+  if (booked && returnAppt!.date >= today) return null;
+  const stuck: OverdueStuck = booked ? "return_missed" : p.pendingCategories.length > 0 ? "factory" : "unscheduled";
+  return { daysOverdue: daysBetween(rec.targetDate, today), stuck, pendingCategories: p.pendingCategories, returnDate: booked ? returnAppt!.date : null };
+}
+
+/** 逾期提醒摘要（不含金额） */
+export function overdueSummary(rec: Pick<RepairRecord, "targetDate">, r: OverdueReminder): string {
+  const head = `目标 ${rec.targetDate}，已过 ${r.daysOverdue} 天`;
+  if (r.stuck === "return_missed") return `${head}；返修日 ${r.returnDate} 已过仍未收口`;
+  if (r.stuck === "factory") return `${head}；待登记出单：${r.pendingCategories.map((c) => FACTORY_CATEGORY_LABEL[c]).join("、")}`;
+  return `${head}；未排返修`;
 }
