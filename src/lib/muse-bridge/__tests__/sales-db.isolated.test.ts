@@ -61,6 +61,7 @@ async function main() {
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: orgIds } }, { userId: { in: userIds } }] } });
     await db.salesAction.deleteMany({ where: { orgId: { in: orgIds } } });
     await db.customerInteraction.deleteMany({ where: { orgId: { in: orgIds } } });
+    await db.salesQuote.deleteMany({ where: { orgId: { in: orgIds } } });
     await db.salesOpportunity.deleteMany({ where: { orgId: { in: orgIds } } });
     await db.salesCustomer.deleteMany({ where: { orgId: { in: orgIds } } });
     await db.organizationMember.deleteMany({ where: { orgId: { in: orgIds } } });
@@ -225,6 +226,41 @@ async function main() {
       ok(ids(fresh.res.data).length === 4, "[7] 新 requestId 才重新查询", ids(fresh.res.data));
       const ledger = await db.auditLog.count({ where: { orgId: ORG_A, targetType: "muse_bridge_request", targetId: `req-s1-replay-${stamp}`, action: "muse:sales_overview" } });
       ok(ledger >= 1, "[7] 账本按 requestId 留痕", ledger);
+    }
+
+    // ── [8] KPI-1：sales_overview 带 period ──
+    {
+      const { loadSalesPeriodSummary } = await import("@/lib/sales/period/load");
+      const edt = (local: string) => new Date(`${local}-04:00`);
+      const quote = (tag: string, data: Record<string, unknown>) =>
+        db.salesQuote.create({ data: { orgId: ORG_A, customerId: cA.id, orderNumber: `FXQ-${tag}-${stamp}`, ...data } as never });
+      await quote("a", { createdById: REP_A, status: "signed", sentAt: edt("2026-10-04T10:00:00"), signedAt: edt("2026-10-05T10:00:00"), grandTotal: 4321.5 });
+      await quote("b", { createdById: REP_B, status: "signed", sentAt: edt("2026-10-06T10:00:00"), signedAt: edt("2026-10-07T10:00:00"), grandTotal: 8765 });
+      await quote("b2", { createdById: REP_B, status: "sent", sentAt: edt("2026-10-08T10:00:00"), grandTotal: 1111 });
+      await db.salesQuote.create({ data: { orgId: ORG_B, customerId: cX.id, orderNumber: `FXQ-x-${stamp}`, createdById: OUT, status: "signed", sentAt: edt("2026-10-04T10:00:00"), signedAt: edt("2026-10-05T10:00:00"), grandTotal: 55555 } });
+      const period = { from: "2026-10-01", to: "2026-10-28" };
+      type PeriodData = { period?: { from: string; totals: Record<string, number | null> } };
+
+      const m = await send("muse:mgr", { intent: "sales_overview", period });
+      const md = (m.res.data as PeriodData).period;
+      const web = await loadSalesPeriodSummary({ orgId: ORG_A, scope: { kind: "org" }, ...period });
+      ok(m.res.ok && !!md && md.from === "2026-10-01", "[8] 管理者带 period：data.period 存在", m.res);
+      ok(web.ok && md?.totals.wonAmount === 13086.5 && md?.totals.quotedCount === 3, "[8] 管理者期间汇总：成单 13,086.5、报价 3 份（不含外企业）", md?.totals);
+      const wt = web.ok ? web.data.totals : {};
+      ok(["wonCount", "wonAmount", "quotedCount", "quotedAmount", "conversionRate", "openQuotedCount"].every((k) => md?.totals[k] === (wt as Record<string, unknown>)[k]), "[8] 与网页期间汇总共用入口同期同范围一致", { muse: md?.totals, web: wt });
+      ok(m.res.message.includes("期间 2026-10-01 至 2026-10-28：成单 2 单 13,087"), "[8] 管理者消息含期间汇总句与金额", m.res.message);
+
+      const r = await send("muse:rep-a", { intent: "sales_overview", period });
+      const rd = (r.res.data as PeriodData).period;
+      const rj = JSON.stringify(r.res);
+      ok(r.res.ok && rd?.totals.wonCount === 1 && rd?.totals.quotedCount === 1, "[8] 销售带 period：只算本人创建的报价", rd?.totals);
+      ok(!!rd && Object.keys(rd.totals).every((k) => !/(Amount|PreTax)$/.test(k)), "[8] 销售范围 data.period 不含金额键（决定 B）", rd && Object.keys(rd.totals));
+      ok(!rj.includes("4321") && !rj.includes("4,322") && !rj.includes("8765") && !rj.includes("13086"), "[8] 销售响应不出现报价 grandTotal 数字");
+
+      const plain = await send("muse:mgr", { intent: "sales_overview" });
+      ok(plain.res.ok && !("period" in (plain.res.data as object)), "[8] 不带 period：data 无 period 键");
+      const bad = await send("muse:mgr", { intent: "sales_overview", period: { from: "2026-10-28", to: "2026-10-01" } });
+      ok(!bad.res.ok && bad.res.errorCode === "VALIDATION_FAILED", "[8] period 先后颠倒 → VALIDATION_FAILED", bad.res);
     }
   } finally {
     await cleanup();

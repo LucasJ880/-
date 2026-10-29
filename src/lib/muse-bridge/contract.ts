@@ -11,6 +11,7 @@
  */
 
 import { z } from "zod";
+import { checkPeriodRange } from "@/lib/sales/period/summary-pure";
 
 export const MUSE_BRIDGE_CONTRACT_VERSION = "muse-bridge/v1" as const;
 
@@ -93,6 +94,16 @@ export type MuseFollowupUpdateStatus = (typeof MUSE_FOLLOWUP_UPDATE_STATUSES)[nu
 
 // ── 下行：命令 ──────────────────────────────────────────────────
 
+/** KPI-1：组织当地日期区间（YYYY-MM-DD，to 不早于 from，跨度 ≤ 366 天；与 GET /api/sales/period-summary 同一校验） */
+const localDateField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const localPeriodField = z
+  .object({ from: localDateField, to: localDateField })
+  .strip()
+  .superRefine((v, ctx) => {
+    const problem = checkPeriodRange(v.from, v.to);
+    if (problem) ctx.addIssue({ code: "custom", message: `period 不合法（${problem}）` });
+  });
+
 /** 各意图的 args（discriminated union，未知 intent 直接失败）。 */
 export const museCommandArgsSchema = z.discriminatedUnion("intent", [
   z.object({ intent: z.literal("status"), projectId: idField.optional() }).strip(),
@@ -149,6 +160,8 @@ export const museCommandArgsSchema = z.discriminatedUnion("intent", [
       days: z.number().int().min(1).max(90).optional(),
       assigneeUserId: idField.optional(),
       limit: z.number().int().min(1).max(20).optional(),
+      // KPI-1：可选期间汇总（只追加；不带时响应不变）
+      period: localPeriodField.optional(),
     })
     .strip(),
   z.object({ intent: z.literal("opportunity_status"), opportunityId: idField }).strip(),

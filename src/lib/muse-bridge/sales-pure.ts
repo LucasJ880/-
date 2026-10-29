@@ -21,6 +21,8 @@ import {
   type InquiryRecord,
 } from "./inquiry-pure";
 import { followupsView, type FollowupRecord } from "./followup-pure";
+import { stripAmountKeys } from "@/lib/sales/period/summary-pure";
+import type { PeriodInfo, PeriodTotals } from "@/lib/sales/period/types";
 import {
   LEGACY_STAGE_MAP,
   OPEN_STAGES,
@@ -296,7 +298,17 @@ export type SalesOverviewInput = {
   staleAfterDays: number;
   truncated: boolean;
   now: Date;
+  /** KPI-1：带 period 时的期间汇总（与 GET /api/sales/period-summary 同一口径）；不带为 undefined */
+  period?: { info: PeriodInfo; totals: PeriodTotals };
 };
+
+/** KPI-1：期间汇总句；决定 B——销售范围只有计数 */
+export function periodReason(period: { info: PeriodInfo; totals: PeriodTotals }, showAmounts: boolean): string {
+  const { info: p, totals: t } = period;
+  return showAmounts
+    ? `期间 ${p.from} 至 ${p.to}：成单 ${t.wonCount} 单 ${money(t.wonAmount)}，报出 ${t.quotedCount} 份 ${money(t.quotedAmount)}`
+    : `期间 ${p.from} 至 ${p.to}：成单 ${t.wonCount} 单，报出 ${t.quotedCount} 份`;
+}
 
 export function buildSalesOverview(input: SalesOverviewInput): { advisory: Advisory; data: unknown } {
   const showAmounts = amountsVisible(input.scope);
@@ -347,7 +359,17 @@ export function buildSalesOverview(input: SalesOverviewInput): { advisory: Advis
       crm: opportunityFacts(r.row, showAmounts),
     })),
   };
-  return { advisory, data };
+  if (!input.period) return { advisory, data };
+
+  // KPI-1：带 period——期间汇总句放第一条理由（建议式回复理由 ≤ 3 条，末尾追加会被截掉），商机理由保留前两条
+  const periodData = {
+    ...input.period.info,
+    totals: showAmounts ? input.period.totals : stripAmountKeys(input.period.totals),
+  };
+  return {
+    advisory: { ...advisory, reasons: [periodReason(input.period, showAmounts), ...advisory.reasons.slice(0, 2)] },
+    data: { ...data, period: periodData },
+  };
 }
 
 export type InteractionRow = {
