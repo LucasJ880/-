@@ -349,6 +349,8 @@ export interface InstallSendWarrantyEmailPayload {
   warrantyNo: string;
   /** 客户档案邮箱（生成时）；执行时须仍等于客户档案邮箱 */
   to: string;
+  /** 抄送：生成时取企业质保设置的抄送并去掉收件人（INSTALL-2g）；本字段之前生成的审批没有 = 不抄送 */
+  cc?: string[];
   subject: string;
   /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
   body: string;

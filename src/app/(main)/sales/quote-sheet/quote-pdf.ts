@@ -125,7 +125,7 @@ export const PRODUCT_SPECS: {
   shutters: {
     title: "Shutters — Material & Structural Specifications",
     intro:
-      "Wooden shutters: American Yellow Poplar. Vinyl shutters: virgin powder compound. All shutters proudly made in Canada. Warranty: 1 year labour / 5 years components.",
+      "Wooden shutters: American Yellow Poplar. Vinyl shutters: virgin powder compound. All shutters proudly made in Canada. Warranty: 1 year labour / 15 years components / 25 years frame & panels.",
     blocks: [
       {
         heading: "1. Panel Size & Structure",

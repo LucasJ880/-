@@ -99,6 +99,22 @@ async function main() {
     assert.equal(calls.length, 1);
   });
 
+  await ok("抄送（INSTALL-2g）：传了就每次尝试都带上（含平台地址代发），不影响回复地址和密送", async () => {
+    const { t, calls } = fakeTransport((m) =>
+      m.from?.includes("hlmbedding") ? { success: false, errorName: "validation_error", error: "The hlmbedding.com domain is not verified." } : { success: true, messageId: "re_3" },
+    );
+    await sendAsOrg(MX, { to: "buyer@example.com", subject: "S", body: "B", cc: ["miki@example.com"] }, t, "noreply@qingyan.ai");
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((c) => c.cc?.length === 1 && c.cc[0] === "miki@example.com" && c.replyTo === "cathy@hlmbedding.com" && c.bcc?.[0] === "cathy@hlmbedding.com"));
+  });
+
+  await ok("不传抄送：发信参数里没有抄送（外贸发信等既有调用方不变）", async () => {
+    const { t, calls } = fakeTransport(() => ({ success: true, messageId: "re_4" }));
+    await sendAsOrg(MX, { to: "buyer@example.com", subject: "S", body: "B" }, t, "noreply@qingyan.ai");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].cc, undefined);
+  });
+
   console.log(`\n${pass} passed`);
 }
 

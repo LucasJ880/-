@@ -229,6 +229,7 @@ function NotificationPanel({
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -243,7 +244,10 @@ function NotificationPanel({
 
     apiFetch("/api/notifications/unread-count")
       .then((r) => r.json())
-      .then((d) => onCountChange(d.count ?? 0))
+      .then((d) => {
+        setUnreadTotal(d.count ?? 0);
+        onCountChange(d.count ?? 0);
+      })
       .catch(() => {});
   }, [onCountChange]);
 
@@ -293,16 +297,12 @@ function NotificationPanel({
           >
             {onlyUnread ? m.header_notif_only_unread : m.header_notif_show_unread}
           </button>
-          {unreadItems.length > 0 && (
+          {unreadTotal > 0 && (
             <button
               type="button"
               onClick={async () => {
-                const ids = unreadItems.map((i) => i.id);
-                await apiFetch("/api/notifications/batch", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ids, action: "mark_read" }),
-                });
+                // 本人全部未读（不只面板已加载的 12 条），与角标同一范围
+                await apiFetch("/api/notifications/read-all", { method: "POST" });
                 load();
               }}
               className="text-[11px] text-accent hover:text-accent-hover"

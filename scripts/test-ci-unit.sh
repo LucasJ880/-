@@ -176,6 +176,7 @@ npx tsx --test src/lib/marketing/__tests__/crm-source-attribution.test.ts
 npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts
 npx tsx src/lib/sales/__tests__/action-notify.test.ts
 npx tsx src/lib/notifications/__tests__/delivery-gate.test.ts
+npx tsx src/lib/notifications/__tests__/mark-all-read.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
 npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts

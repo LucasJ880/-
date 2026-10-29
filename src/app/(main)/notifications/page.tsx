@@ -31,6 +31,7 @@ function NotificationsContent() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
   const [prefHint, setPrefHint] = useState<{
     inApp: boolean;
     onlyHigh: boolean;
@@ -53,6 +54,9 @@ function NotificationsContent() {
           setPage(d.page ?? 1);
         })
         .finally(() => setLoading(false));
+      apiJson<{ count?: number }>("/api/notifications/unread-count")
+        .then((d) => setUnreadTotal(d.count ?? 0))
+        .catch(() => {});
     },
     [statusFilter, typeFilter]
   );
@@ -115,6 +119,18 @@ function NotificationsContent() {
     },
     [selected, load, page]
   );
+
+  // 本人全部未读（不受分页 / 筛选 / 勾选限制）
+  const markAllRead = useCallback(async () => {
+    setBatchBusy(true);
+    try {
+      await apiFetch("/api/notifications/read-all", { method: "POST" });
+      setSelected(new Set());
+      load(page);
+    } finally {
+      setBatchBusy(false);
+    }
+  }, [load, page]);
 
   const handleItemAction = useCallback(
     async (id: string, action: "read" | "done") => {
@@ -221,12 +237,24 @@ function NotificationsContent() {
           title="通知中心"
           description="管理您的所有通知和提醒，追踪待处理事项"
         />
-        <Link
-          href="/settings/notifications"
-          className="shrink-0 rounded-lg border border-border bg-[rgba(43,96,85,0.04)] px-3 py-2 text-xs font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.08)]"
-        >
-          通知偏好设置
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          {unreadTotal > 0 && (
+            <button
+              type="button"
+              disabled={batchBusy}
+              onClick={markAllRead}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-[rgba(43,96,85,0.04)] px-3 py-2 text-xs font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.08)] disabled:opacity-50"
+            >
+              <Eye size={12} /> 全部已读
+            </button>
+          )}
+          <Link
+            href="/settings/notifications"
+            className="shrink-0 rounded-lg border border-border bg-[rgba(43,96,85,0.04)] px-3 py-2 text-xs font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.08)]"
+          >
+            通知偏好设置
+          </Link>
+        </div>
       </div>
 
       {prefHint && !prefHint.inApp && (
@@ -296,7 +324,7 @@ function NotificationsContent() {
               onClick={() => batchOp("mark_read")}
               className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-[rgba(43,96,85,0.08)] disabled:opacity-50"
             >
-              <Eye size={12} /> 全部已读
+              <Eye size={12} /> 标为已读
             </button>
             <button
               type="button"
