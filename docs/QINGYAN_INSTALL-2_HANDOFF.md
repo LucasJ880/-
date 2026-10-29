@@ -16,8 +16,8 @@
 
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
-| 2a `install-2a-closeout-all-lines` | 已完成（报告 `docs/QINGYAN_INSTALL-2a_REPORT.md`） | [#304](https://github.com/LucasJ880/-/pull/304) 已合并 | 本 PR（archive 到 `openspec/changes/archive/2026-10-29-install-2a-closeout-all-lines`） | `[x]` |
-| 2b `install-2b-balance-confirm` | 已完成（本地 `a8082c9` `98b3e3b` `30e2a50` + Q11 修正 `62476e3`） | 待开 | — | `[G]` |
+| 2a `install-2a-closeout-all-lines` | 已完成（报告 `docs/QINGYAN_INSTALL-2a_REPORT.md`） | [#304](https://github.com/LucasJ880/-/pull/304) 已合并 | [#310](https://github.com/LucasJ880/-/pull/310) 已合并（`openspec/changes/archive/2026-10-29-install-2a-closeout-all-lines`） | `[x]` |
+| 2b `install-2b-balance-confirm` | 已完成（报告 `docs/QINGYAN_INSTALL-2b_REPORT.md`；含 Q11 修正） | 本 PR | — | `[G]` |
 | 2c `install-2c-warranty-email` | 已完成（本地 `d1a5828` `4c3d480`） | 待开 | — | `[G]` |
 | 2d `install-2d-repair-form` | 已完成（本地 `7693196` `078c853`） | 待开（与 2e 背靠背合并） | — | `[G]` |
 | 2e `install-2e-repair-dispatch` | 已完成（本地 `a944219` `bc01286`） | 待开 | — | `[G]` |
@@ -32,7 +32,7 @@
 ## 1. 下一步（按顺序）
 
 1. ~~拍板~~（已完成，任务书 §12）。
-2. ~~2a~~（#304 已合并；archive 即本 PR）。
+2. ~~2a~~（#304 已合并；archive #310 已合并）。
 3. 按 §0 依次：2b PR → 2b archive → 2c PR → 2c archive → 2d PR → 2e PR → 2d archive → 2e archive → 2f（apply 完成后）PR → 2f archive。
 4. 原 2b 已拆为 2b（尾款确认）/ 2c（质保邮件），原 2c / 2d 顺延为 2d（维修单）/ 2e（返修排期），2e 又拆出 2f（作废 / 关闭不返修 / 逾期提醒），见任务书 §9。
 
