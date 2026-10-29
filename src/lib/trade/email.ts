@@ -28,6 +28,8 @@ export interface SendEmailInput {
   html?: string;
   replyTo?: string;
   from?: string;
+  /** 抄送（收件人可见）；不传或空数组时不带 */
+  cc?: string[];
   bcc?: string[];
 }
 
@@ -55,6 +57,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       text: input.body,
       ...(input.html ? { html: input.html } : {}),
       replyTo: input.replyTo,
+      ...(input.cc?.length ? { cc: input.cc } : {}),
       ...(input.bcc?.length ? { bcc: input.bcc } : {}),
     });
 

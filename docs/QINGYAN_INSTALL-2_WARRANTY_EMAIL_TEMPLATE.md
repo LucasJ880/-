@@ -15,11 +15,12 @@
 | 项 | 实现 |
 |---|---|
 | 渲染 | `src/lib/install/warranty.ts` `renderWarrantyEmail`：纯文本与 HTML 同一份内容；同样输入得到同样邮件；HTML 全部转义 |
-| 种子（`seedWarrantySettings`） | 报价单口径（Lucas 2026-10-28 拍板 Q1）：Shades、Drapery = Labour 1 / Fabric 5 / Components 15；Shutters（vinyl）= Labour 1 / Components 5；Motor 不单列。老板可在会计「待收尾款」→「质保设置」改 |
-| 联系方式种子 | 公司名 Sunny Shutter Inc；地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5（维修单抬头）；条款链接 `https://sunnyshutter.ca/warranty-service/`；**报修电话 / 邮箱留空**（只有检索摘要来源，未核实不进种子，design D10），没填之前不会生成邮件 |
+| 种子（`seedWarrantySettings`） | 报价单口径（Lucas 2026-10-28 拍板 Q1）：Shades、Drapery = Labour 1 / Fabric 5 / Components 15；**Shutters（vinyl）= Labour 1 / Components 15 / Frame & Panels 25**（INSTALL-2g，官网新条款，Lucas 2026-10-29；原为 Labour 1 / Components 5）；Motor 不单列。老板可在会计「待收尾款」→「质保设置」改；**已保存过的设置不被种子覆盖** |
+| 联系方式种子 | 公司名 Sunny Shutter Inc；地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5（维修单抬头）；条款链接 `https://sunnyshutter.ca/warranty-service/`（Lucas 2026-10-29：保留）；**报修电话 647-857-8669、邮箱 service@sunnyshutter.ca**（INSTALL-2g：电话经官网核实，邮箱由 Lucas 确认；2c 时留空） |
+| 抄送（INSTALL-2g） | 质保设置项 `cc`，种子 miki@sunnyshutter.ca（Lucas 2026-10-29）；最多 5 个；生成审批时定稿（去掉与收件人相同的），预览可见，执行器按审批内容抄送，审计记录 |
 | 发件人 | 组织发件身份 `trade.email_sender`（设置 → 邮件 → 组织发件人）；未配置 → `NO_ORG_SENDER`，不回落到个人邮箱（Q3） |
 | 与本草稿的差异 | ① 不输出 `{{salesName}}`（spec「邮件不输出的内容」：不含员工内部信息）；② 安装地址：工艺单地址优先，客户档案地址兜底，都空显示 "—"；③ 安装日 = `installedAt` 在企业时区的日期（返修后的更新在 INSTALL-2e）；④ 只有英文版，§5 中文版未做 |
-| 官网原文 | **已读到**（Lucas 2026-10-29 截图，见 §0a）：官网现为"修订草案"，只适用于采纳它的新订单，现有订单按原购买条款——现行按报价单口径不变；草案采纳时要做的事见 §0a |
+| 官网原文 | **已读到**（Lucas 2026-10-29 截图，见 §0a）；同日 Lucas 确认新条款**已生效**，Shutters 按新条款 → INSTALL-2g（报价单 Shutters 文字、种子、新部件 Frame & Panels）；帘类细分（无绳升降 3 年、电机 / 配件 5、电池 1）未做 |
 
 ## 0. 质保条款来源与核实状态（防幻觉）
 
@@ -81,7 +82,7 @@
 | 报修电话 | 种子留空，老板在「质保设置」填 | 647-857-8669 | 页面已核实，可填 |
 | 报修邮箱 | 种子留空 | 截图未出现（检索摘要有 service@sunnyshutter.ca） | 待 Lucas 确认 |
 
-**草案采纳时要做的事**（需另开 change，现在不做）：
+**草案采纳时要做的事**（2026-10-29 Lucas：新条款已生效、Shutters 按新条款——第 1、2 条的 Shutters 部分由 INSTALL-2g 完成；第 3 条 Lucas 定为不分版本，一律按当前设置）：
 1. 先改报价单 / Order Form 上的质保文字（`quote-pdf.ts:99,128,166`、`order-shades.tsx`、`order-drapes.tsx`）——草案只对"书面订单条款采纳它"的新订单生效。
 2. 质保表部件只有 labour / fabric / components / motor 四种，草案需要再加：无绳升降机构、Shutter 框架与叶片、电机配件、电池。
 3. **质保邮件要按订单适用的条款版本出年限**：现在是一张企业级质保表、发信时读取。老板若在草案生效当天直接改表，签单在前、装完在后的老订单会收到新条款，违反"现有订单保留原条款"。需要按签单日期（或条款生效日）区分版本。

@@ -4,7 +4,7 @@
  * INSTALL-2c：质保邮件（会计"待收尾款"页签内）
  * — WarrantyApprove：邮件预览（iframe srcdoc + 空沙箱，不跑脚本）+ "批准发送"（POST /api/ai/pending-actions/{id}）
  * — WarrantyCell："最近已确认"每行的质保状态与"生成质保邮件"
- * — WarrantySettingsPanel：质保年限 / 联系方式（老板可改，会计只读）
+ * — WarrantySettingsPanel：质保年限 / 联系方式 / 质保邮件抄送（老板可改，会计只读；抄送 INSTALL-2g）
  * 批准前零出站；发送只在审批执行器。
  */
 
@@ -27,7 +27,7 @@ export type WarrantyView = {
   reason?: string;
   blockers?: string[];
   canRegenerate?: boolean;
-  preview?: { to: string; subject: string; html: string };
+  preview?: { to: string; cc?: string[]; subject: string; html: string };
   error?: string;
 };
 
@@ -69,6 +69,11 @@ export function WarrantyApprove({ view, onDone }: { view: WarrantyView; onDone: 
         <div>
           收件人：<b className="text-foreground">{view.preview.to}</b>
         </div>
+        {(view.preview.cc?.length ?? 0) > 0 && (
+          <div>
+            抄送：<b className="text-foreground">{view.preview.cc!.join("、")}</b>
+          </div>
+        )}
         <div className="truncate">主题：{view.preview.subject}</div>
       </div>
       <iframe
@@ -213,6 +218,8 @@ export function WarrantyCell({ orderId, view, onChanged }: { orderId: string; vi
 export function WarrantySettingsPanel() {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<WarrantySettings | null>(null);
+  // 抄送按原文编辑（逗号分隔），保存时由接口合并去重后回填
+  const [ccText, setCcText] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -226,6 +233,7 @@ export function WarrantySettingsPanel() {
     }
     const data = (await res.json()) as { settings: WarrantySettings; canEdit: boolean; saved: boolean };
     setSettings(data.settings);
+    setCcText((data.settings.cc ?? []).join(", "));
     setCanEdit(data.canEdit);
     setSaved(data.saved);
   }, []);
@@ -254,14 +262,17 @@ export function WarrantySettingsPanel() {
       const res = await apiFetch(`/api/install/warranty-settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings }),
+        body: JSON.stringify({ settings: { ...settings, cc: ccText } }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; settings?: WarrantySettings };
       if (!res.ok) {
         setMsg(data.error || "保存失败");
         return;
       }
-      if (data.settings) setSettings(data.settings);
+      if (data.settings) {
+        setSettings(data.settings);
+        setCcText((data.settings.cc ?? []).join(", "));
+      }
       setSaved(true);
       setMsg("已保存");
     } finally {
@@ -345,6 +356,16 @@ export function WarrantySettingsPanel() {
                   </label>
                 ))}
               </div>
+              <label className="block text-xs text-muted">
+                质保邮件抄送（逗号分隔，最多 5 个；客户能看到抄送地址）
+                <input
+                  disabled={!canEdit}
+                  value={ccText}
+                  placeholder="不抄送"
+                  onChange={(e) => setCcText(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-70"
+                />
+              </label>
               {canEdit ? (
                 <button
                   type="button"

@@ -107,13 +107,14 @@ async function loadActions(orgId: string, orderIds: string[]): Promise<Map<strin
   return out;
 }
 
-export type WarrantyPreview = { to: string; subject: string; html: string };
+export type WarrantyPreview = { to: string; cc: string[]; subject: string; html: string };
 export type WarrantyView = WarrantyStatusView & { preview?: WarrantyPreview };
 
 function previewOf(payload: unknown): WarrantyPreview | undefined {
   const p = payload as Partial<InstallSendWarrantyEmailPayload> | null;
   if (!p || typeof p.to !== "string" || typeof p.subject !== "string" || typeof p.html !== "string") return undefined;
-  return { to: p.to, subject: p.subject, html: p.html };
+  const cc = Array.isArray(p.cc) ? p.cc.filter((a): a is string => typeof a === "string") : [];
+  return { to: p.to, cc, subject: p.subject, html: p.html };
 }
 
 /** 多单状态（"最近已确认"列表）；待批准的带预览 */
@@ -174,11 +175,14 @@ export async function generateWarrantyApproval(input: { orgId: string; orderId: 
     settings: ctx.settings,
   });
   const to = (order.customer?.email ?? "").trim().toLowerCase();
+  // 抄送只取企业质保设置（spec「抄送来源」），去掉与收件人相同的地址
+  const cc = ctx.settings.cc.filter((a) => a !== to);
   const payload: InstallSendWarrantyEmailPayload = {
     orderId,
     orderCode: order.code,
     warrantyNo: email.warrantyNo,
     to,
+    cc,
     subject: email.subject,
     body: email.text,
     html: email.html,
@@ -189,7 +193,7 @@ export async function generateWarrantyApproval(input: { orgId: string; orderId: 
     principal: { userId: input.approverUserId, actorType: "user" },
     actionType: WARRANTY_ACTION_TYPE,
     title: `发送完工与质保邮件 — ${payload.orderCode}`,
-    preview: `收件人 ${to}；主题 ${email.subject}`,
+    preview: `收件人 ${to}${cc.length ? `；抄送 ${cc.join("、")}` : ""}；主题 ${email.subject}`,
     payload: payload as unknown as Record<string, unknown>,
     // 对外发邮件：与询盘回复 / 投标询价同级
     risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
@@ -202,6 +206,6 @@ export async function generateWarrantyApproval(input: { orgId: string; orderId: 
   const approvalId = approval.actionIds[0] ?? "";
   return {
     kind: "created",
-    view: { status: "pending_approval", approvalId, canRegenerate: false, preview: { to, subject: email.subject, html: email.html } },
+    view: { status: "pending_approval", approvalId, canRegenerate: false, preview: { to, cc, subject: email.subject, html: email.html } },
   };
 }

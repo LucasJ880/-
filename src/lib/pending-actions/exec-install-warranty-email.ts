@@ -3,6 +3,7 @@
  *
  * 只有人工批准后由 executor 调用。内容在生成审批时已定稿（payloadHash 防篡改），这里不重渲，只做发送前校验：
  *   企业一致 → 批准人为有效成员 → 工艺单属本企业且已确认尾款 → 未发过 → 收件人 = 客户档案当前邮箱 → 组织已配置发件身份
+ * INSTALL-2g：按审批内容里的抄送发送（格式 / 个数不合法 → INVALID_PAYLOAD），审计记抄送。
  * 发件身份只读组织设置 trade.email_sender（sendAsOrg，平台 Resend）；未配置 → NO_ORG_SENDER，绝不回落到任何个人邮箱（design D5）。
  * 同一工艺单的发送串行化（advisory lock），已有 install.warranty.sent 即拒发（design D7）。
  * 成功：审计 install.warranty.sent + 通知该单销售；失败：通知批准人（落会计"待收尾款"页签）。
@@ -15,12 +16,13 @@ import { assertSideEffectOrThrow } from "@/lib/env/runtime-isolation";
 import { isAdmin } from "@/lib/rbac/roles";
 import { loadOrgEmailSender, sendAsOrg, type OrgEmailSender } from "@/lib/trade/email-sender";
 import { BALANCE_TARGET_TYPE, ENTITY_INSTALL_BALANCE, INSTALL_BALANCE_CONFIRMED } from "@/lib/install/balance";
-import { INSTALL_WARRANTY_SENT, NOTIFY_WARRANTY_FAILED, NOTIFY_WARRANTY_SENT } from "@/lib/install/warranty";
+import { INSTALL_WARRANTY_SENT, NOTIFY_WARRANTY_FAILED, NOTIFY_WARRANTY_SENT, warrantyCcProblem } from "@/lib/install/warranty";
 import { notifyInstallUser } from "@/lib/install/balance-service";
 import type { InstallSendWarrantyEmailPayload } from "./types";
 
 export interface WarrantySendInput {
   to: string;
+  cc: string[];
   subject: string;
   body: string;
   html: string;
@@ -47,7 +49,7 @@ async function defaultSender(input: WarrantySendInput): Promise<WarrantySendResu
     throw Object.assign(new Error("平台未配置 RESEND_API_KEY，无法以组织身份发信"), { code: "NO_EMAIL_PROVIDER" });
   }
   assertSideEffectOrThrow("email");
-  const r = await sendAsOrg(input.sender, { to: input.to, subject: input.subject, body: input.body, html: input.html });
+  const r = await sendAsOrg(input.sender, { to: input.to, cc: input.cc, subject: input.subject, body: input.body, html: input.html });
   return { messageId: r.messageId, from: r.from, fallback: r.fallback };
 }
 
@@ -89,6 +91,9 @@ export async function execInstallSendWarrantyEmail(
   if (!orderId || !to || !EMAIL_RE.test(to) || !subject || !body || !html) {
     return fail("INVALID_PAYLOAD", "质保邮件内容不完整，请重新生成");
   }
+  const ccProblem = warrantyCcProblem(payload.cc);
+  if (ccProblem) return fail("INVALID_PAYLOAD", `${ccProblem}，请重新生成`);
+  const cc = payload.cc ?? [];
 
   if (!isAdmin(ctx.role)) {
     const membership = await db.organizationMember.findFirst({
@@ -131,7 +136,7 @@ export async function execInstallSendWarrantyEmail(
           select: { createdAt: true },
         });
         if (already) return { sent: false as const, code: "ALREADY_SENT", message: `该单质保邮件已于 ${already.createdAt.toISOString()} 发送，不再重复发送` };
-        const result = await send({ to, subject, body, html, sender });
+        const result = await send({ to, cc, subject, body, html, sender });
         await writeAuditLog(tx as Prisma.TransactionClient, {
           userId: ctx.userId,
           orgId,
@@ -140,6 +145,7 @@ export async function execInstallSendWarrantyEmail(
           targetId: order.id,
           afterData: {
             to,
+            cc,
             subject,
             from: result.from ?? null,
             fallback: result.fallback ?? false,
@@ -166,5 +172,5 @@ export async function execInstallSendWarrantyEmail(
     title: `质保邮件已发出：${order.customerName}（${order.code}）`,
     summary: "客户已收到完工与质保确认邮件",
   });
-  return { ok: true, resultRef: outcome.result.messageId, message: `质保邮件已发送至 ${to}` };
+  return { ok: true, resultRef: outcome.result.messageId, message: `质保邮件已发送至 ${to}${cc.length ? `（抄送 ${cc.join("、")}）` : ""}` };
 }
