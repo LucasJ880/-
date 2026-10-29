@@ -24,7 +24,7 @@
 
 | ID | change 名 | 内容 | 前置 | 状态 |
 |---|---|---|---|---|
-| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已实施，待开 PR |
+| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已实施，PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309) 待 CI / 审核 |
 | CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 成员 / 网站 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 未 propose |
 | KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；**Evan 拍板 config.yaml 第 7 条例外** | 未 propose |
 | CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
@@ -103,7 +103,7 @@
 ## 6. 下一步（按顺序）
 
 1. ~~审四件套~~、~~apply~~：已完成（判断点 5 用户确认；实施记录见 `docs/QINGYAN_KPI-1_REPORT.md`，含实施中对 spec 的两处补充）。
-2. **开 PR**（一个 change 一个 PR），等 CI `validate-lint-typecheck-test-build` 绿 → Evan 审 → 合并。审核重点：报告 §4 三处签单金额口径差异、§5 已知限制。
+2. **PR 已开：[LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)**。等 CI `validate-lint-typecheck-test-build` 绿 → Evan 审 → 合并。审核重点：报告 §4 三处签单金额口径差异、§5 已知限制。
 3. 合并后 `/opsx:archive sales-period-summary --yes`（独立小 PR，TASKFLOW KPI-1 → `[x]`）。
 4. CAL-1 前置（Lucas）：
    - 共享日历 ID（`xxx@group.calendar.google.com`）与读取账号（已在青砚连接 Google 日历、对共享日历至少 reader）。
