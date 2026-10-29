@@ -93,7 +93,7 @@
 - **THEN** 零条通知；只有基线起点之后创建的日程进入账本；`calendar-watch-db.isolated.test.ts` 覆盖
 
 ### Requirement: 变更通知
-增量读取到的新建、修改、删除 SHALL 给通知岗位的持有人与命中预约的负责人各发一条站内通知（同一变更同一收件人只发一次）；新建通知 SHALL NOT 发给归因到的创建者本人。修改通知 SHALL 写明改动的字段前后值，非青砚推送的修改 SHALL 写明"修改人未知"。
+增量读取到的新建、修改、删除 SHALL 给通知岗位的持有人与命中预约的负责人各发一条站内通知（同一变更同一收件人只发一次）；新建通知 SHALL NOT 发给归因到的创建者本人。修改通知 SHALL 写明改动的字段前后值并写明"修改人未知"。源自青砚的新建与经青砚推送的修改 SHALL NOT 发通知（青砚内已可见）；在 Google 侧对青砚预约的修改与删除照常通知。
 
 #### Scenario: Google 侧改时间
 - **WHEN** 有人在 Google 把一条量房从 14:00 改到 16:00
@@ -103,8 +103,12 @@
 - **WHEN** 归因为某销售本人的新建日程
 - **THEN** 该销售不收到这条新建通知，老板与运营主管收到
 
+#### Scenario: 青砚推送不通知
+- **WHEN** 青砚建的预约推到 Google 后被观察到，随后有人在 Google 侧把它删除
+- **THEN** 推送观察不发通知，删除发通知；两条都记入账本；`calendar-watch-pure.test.ts` 覆盖
+
 ### Requirement: 统计接口
-`GET /api/sales/calendar/attribution?from&to` SHALL 按 `sales.analytics.read` 授权，期间按组织当地日解释、以 Google 创建时间落在期间计，参数校验与期间汇总相同（不合法 400 `INVALID_PERIOD`）；全企业范围 SHALL 返回按来源计数、按成员的新建 / 修改 / 删除数与不明来源样例；本人范围 SHALL 只返回本人一行，不返回按来源计数与样例。
+`GET /api/sales/calendar/attribution?from&to` SHALL 按 `sales.analytics.read` 授权，期间按组织当地日解释，参数校验与期间汇总相同（不合法 400 `INVALID_PERIOD`）。新建按 Google 创建时间、修改与删除按 Google 更新时间落在期间计；按成员的修改 / 删除数指该成员名下（归因为其创建）的日程被修改 / 删除的次数。全企业范围 SHALL 返回按来源的新建数、按成员计数与不明来源样例；本人范围 SHALL 只返回本人一行，不返回按来源计数与样例。
 
 #### Scenario: 销售看本人
 - **WHEN** 只持 `sales_rep` 的销售请求统计
