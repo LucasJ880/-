@@ -11,7 +11,7 @@
 
 ## 2. Google 只读增量
 
-- [ ] 2.1 在 `src/lib/google-calendar.ts` 新增只读函数 `listCalendarChanges(userId, { calendarId, syncToken?, pageToken? })`，现有函数不动：
+- [x] 2.1 在 `src/lib/google-calendar.ts` 新增只读函数 `listCalendarChanges(userId, { calendarId, syncToken?, pageToken? })`，现有函数不动：
   - 用 `singleEvents: false`、`maxResults: 2500`；
   - 返回映射后的变更（id / status / created / updated / creator.email / organizer.email / summary / description / start / end / allDay / htmlLink）与 `nextPageToken` / `nextSyncToken`；
   - 410 抛出可识别的 `GoogleSyncTokenExpiredError`；授权失效沿用 `GoogleTokenExpiredError`。

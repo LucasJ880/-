@@ -7,6 +7,7 @@ import {
   attributeCalendarEvent,
   baselineFromIso,
   bucketOfRole,
+  buildChangesListParams,
   buildNotification,
   classifyKind,
   DEFAULT_BASELINE_DAYS,
@@ -14,6 +15,7 @@ import {
   editedViaQingyan,
   fillFromPrevious,
   formatEventWhen,
+  googleErrorStatus,
   mapGoogleEvent,
   notificationRecipients,
   notificationSourceKey,
@@ -258,6 +260,16 @@ console.log("Google 事件映射");
   const inst = mapGoogleEvent({ id: "e4_20261030", recurringEventId: "e4", start: { dateTime: "2026-10-30T14:00:00Z" } });
   ok(inst?.recurringEventId === "e4", "重复系列例外带 recurringEventId");
   ok(mapGoogleEvent({ summary: "no id" }) === null && mapGoogleEvent(null) === null, "无 id → null");
+
+  const full = buildChangesListParams({ calendarId: "cal1" });
+  ok(eq(full, { calendarId: "cal1", singleEvents: false, maxResults: 2500 }), "全量参数：不带时间过滤与令牌", full);
+  const inc = buildChangesListParams({ calendarId: "cal1", syncToken: "s", pageToken: "p" });
+  ok(eq(inc, { calendarId: "cal1", singleEvents: false, maxResults: 2500, syncToken: "s", pageToken: "p" }), "增量参数：只多令牌", inc);
+  const keys = Object.keys(inc).join(",");
+  ok(!/timeMin|timeMax|updatedMin|orderBy|showDeleted|q/.test(keys), "增量参数不含与 syncToken 冲突的过滤", keys);
+  ok(googleErrorStatus({ code: 410 }) === 410 && googleErrorStatus({ code: "410" }) === 410, "错误状态：code 数字或数字串");
+  ok(googleErrorStatus({ response: { status: 410 } }) === 410, "错误状态：response.status");
+  ok(googleErrorStatus({ code: "ECONNRESET" }) === null && googleErrorStatus(null) === null, "错误状态：无 → null");
 
   const filled = fillFromPrevious(del!, ledger({ eventId: "e3" }));
   ok(filled.creatorEmail === "sales@sunny.ca" && filled.summary === "量房 — Smith" && filled.start !== null && filled.status === "cancelled", "删除事件沿用上一条账本字段", filled);

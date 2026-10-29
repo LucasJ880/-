@@ -313,6 +313,30 @@ export function mapGoogleEvent(raw: unknown): CalendarChange | null {
   };
 }
 
+/**
+ * events.list 参数：全量与增量必须一致（只差 syncToken / pageToken），不带任何时间过滤；
+ * singleEvents = false（重复系列计一次，单次例外作为修改出现）；showDeleted 不设（带令牌时删除总会返回）。
+ */
+export function buildChangesListParams(input: { calendarId: string; syncToken?: string | null; pageToken?: string | null }) {
+  return {
+    calendarId: input.calendarId,
+    singleEvents: false,
+    maxResults: PAGE_SIZE,
+    ...(input.syncToken ? { syncToken: input.syncToken } : {}),
+    ...(input.pageToken ? { pageToken: input.pageToken } : {}),
+  };
+}
+
+/** googleapis 错误的 HTTP 状态（code 为数字或 response.status） */
+export function googleErrorStatus(err: unknown): number | null {
+  const e = obj(err);
+  if (!e) return null;
+  if (typeof e.code === "number") return e.code;
+  if (typeof e.code === "string" && /^\d+$/.test(e.code)) return Number(e.code);
+  const status = obj(e.response)?.status;
+  return typeof status === "number" ? status : null;
+}
+
 /** 删除事件在增量里通常只有 id 与 status：缺的字段沿用上一条账本 */
 export function fillFromPrevious(change: CalendarChange, prev: LedgerAfterData | null): CalendarChange {
   if (!prev) return change;
