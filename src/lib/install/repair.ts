@@ -559,3 +559,44 @@ export function overdueSummary(rec: Pick<RepairRecord, "targetDate">, r: Overdue
   if (r.stuck === "factory") return `${head}；待登记出单：${r.pendingCategories.map((c) => FACTORY_CATEGORY_LABEL[c]).join("、")}`;
   return `${head}；未排返修`;
 }
+
+// ── INSTALL-2i：维修单列表分栏（进行中 / 已归档）、搜索、排序、分页 ────────────
+
+export const REPAIR_LIST_TABS = ["open", "archived"] as const;
+export type RepairListTab = (typeof REPAIR_LIST_TABS)[number];
+export const REPAIR_LIST_PAGE_SIZE = 20;
+export const REPAIR_LIST_PAGE_SIZE_MAX = 50;
+const REPAIR_LIST_Q_MAX = 60;
+
+export type RepairListQuery = { tab: RepairListTab; page: number; pageSize: number; q: string };
+
+/** 列表参数容错（install-2i design D4）：非法栏按进行中，页码非正整数按 1，每页非数字按 20 再夹到 1–50 */
+export function parseRepairListQuery(params: { get(name: string): string | null }): RepairListQuery {
+  const tab: RepairListTab = params.get("tab") === "archived" ? "archived" : "open";
+  const pageRaw = Number.parseInt(params.get("page") ?? "", 10);
+  const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1;
+  const sizeRaw = Number.parseInt(params.get("pageSize") ?? "", 10);
+  const pageSize = Number.isFinite(sizeRaw) ? Math.min(REPAIR_LIST_PAGE_SIZE_MAX, Math.max(1, sizeRaw)) : REPAIR_LIST_PAGE_SIZE;
+  const q = (params.get("q") ?? "").trim().slice(0, REPAIR_LIST_Q_MAX);
+  return { tab, page, pageSize, q };
+}
+
+/** 分栏所需的最少字段；closedAt 有值 = 已关闭（任何原因）= 已归档（design D1） */
+export type RepairListEntry = { id: string; repairNo: string; orderCode: string; customerName: string; targetDate: string; closedAt: string | null };
+
+/** 分栏 + 搜索 + 排序 + 分页（design D3）；两栏总数按同一搜索词计算 */
+export function repairListPage<T extends RepairListEntry>(
+  entries: T[],
+  query: RepairListQuery,
+): { items: T[]; total: number; counts: Record<RepairListTab, number> } {
+  const needle = query.q.toLowerCase();
+  const hit = (e: T) => !needle || [e.repairNo, e.orderCode, e.customerName].some((s) => s.toLowerCase().includes(needle));
+  const matched = entries.filter(hit);
+  const open = matched.filter((e) => !e.closedAt).sort((a, b) => a.targetDate.localeCompare(b.targetDate) || a.repairNo.localeCompare(b.repairNo));
+  const archived = matched
+    .filter((e) => !!e.closedAt)
+    .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "") || a.repairNo.localeCompare(b.repairNo));
+  const list = query.tab === "archived" ? archived : open;
+  const start = (query.page - 1) * query.pageSize;
+  return { items: list.slice(start, start + query.pageSize), total: list.length, counts: { open: open.length, archived: archived.length } };
+}

@@ -188,8 +188,27 @@ export type RepairListItem = {
   /** INSTALL-2e：待登记出单品类 / 返修时间 / 关闭情况 */
   pendingFactory: Array<{ key: string; label: string }>;
   scheduledAt: string | null;
-  /** INSTALL-2f：原因含已作废 / 关闭不返修 */
-  closed: { reason: RepairCloseReason; label: string; supersededBy: string | null } | null;
+  /** INSTALL-2f：原因含已作废 / 关闭不返修；INSTALL-2i：列表另带原因说明、关闭时间、关闭人 */
+  closed: {
+    reason: RepairCloseReason;
+    label: string;
+    supersededBy: string | null;
+    note?: string;
+    at?: string;
+    by?: { id: string; name: string | null };
+  } | null;
+};
+
+/** INSTALL-2i：维修单列表分栏 / 分页响应 */
+export type RepairListTabKey = "open" | "archived";
+export type RepairListResponse = {
+  repairs: RepairListItem[];
+  tab: RepairListTabKey;
+  q: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  counts: Record<RepairListTabKey, number>;
 };
 
 /** INSTALL-2f：维修单关闭原因 */

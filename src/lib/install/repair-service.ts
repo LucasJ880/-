@@ -205,7 +205,7 @@ const factoryLabels = (cats: FactoryCategory[]) => cats.map((c) => ({ key: c, la
 
 export function serializeRepairListItem(
   rec: RepairRecord,
-  ctx: { orderCode: string; stage: InstallStage; takenByName: string | null; today: string; progress: RepairProgress },
+  ctx: { orderCode: string; stage: InstallStage; takenByName: string | null; today: string; progress: RepairProgress; closedByName?: string | null },
 ) {
   const p = ctx.progress;
   return {
@@ -226,7 +226,17 @@ export function serializeRepairListItem(
     // INSTALL-2e：进度摘要
     pendingFactory: factoryLabels(p.pendingCategories),
     scheduledAt: p.closed ? null : (p.schedule?.installAt ?? null),
-    closed: p.closed ? { reason: p.closed.reason, label: CLOSE_REASON_LABEL[p.closed.reason], supersededBy: p.closed.supersededBy } : null,
+    // INSTALL-2i：已归档栏一眼看出结束方式——原因说明、关闭时间、关闭人
+    closed: p.closed
+      ? {
+          reason: p.closed.reason,
+          label: CLOSE_REASON_LABEL[p.closed.reason],
+          supersededBy: p.closed.supersededBy,
+          note: p.closed.note,
+          at: p.closed.at,
+          by: { id: p.closed.byUserId, name: ctx.closedByName ?? null },
+        }
+      : null,
   };
 }
 

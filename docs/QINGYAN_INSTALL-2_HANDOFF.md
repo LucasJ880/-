@@ -8,9 +8,9 @@
 | 任务书（方案） | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` |
 | 邮件模板 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` |
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
-| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2h 全部已合并并归档，本地不再有未进 main 的提交 |
+| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2h 已合并并归档；2i / 2j / 2k 见 §0 |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>`；archive 用 `openspec archive <change> --yes` |
-| 状态 | **INSTALL-2a–2h 全部完成**（合并 + archive，TASKFLOW 均 `[x]`；2g / 2h = 官网新质保条款、报修联系方式、质保邮件抄送）；上线前置与后续见 §1 |
+| 状态 | INSTALL-2a–2h 完成（合并 + archive，TASKFLOW `[x]`）；Lucas 2026-10-29 续排 **2i 维修单列表分栏 / 分页 → 2j 返修时间确认邮件 → 2k 质保邮件附 PDF**，进度见 §0 |
 
 ## 0. 交付流水线（每个 PR 合并后更新本表）
 
@@ -23,7 +23,10 @@
 | 2e `install-2e-repair-dispatch` | 已完成（报告 `docs/QINGYAN_INSTALL-2e_REPORT.md`） | [#321](https://github.com/LucasJ880/-/pull/321) 已合并（与 2d 同批） | [#324](https://github.com/LucasJ880/-/pull/324) 已合并（`openspec/changes/archive/2026-10-29-install-2e-repair-dispatch`） | `[x]` |
 | 2f `install-2f-repair-close` | 已完成（报告 `docs/QINGYAN_INSTALL-2f_REPORT.md`） | [#325](https://github.com/LucasJ880/-/pull/325) 已合并 | [#329](https://github.com/LucasJ880/-/pull/329) 已合并（`openspec/changes/archive/2026-10-29-install-2f-repair-close`） | `[x]` |
 | 2g `install-2g-warranty-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2g_REPORT.md`） | [#337](https://github.com/LucasJ880/-/pull/337) 已合并 | [#339](https://github.com/LucasJ880/-/pull/339) 已合并（`openspec/changes/archive/2026-10-29-install-2g-warranty-update`） | `[x]` |
-| 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | [#341](https://github.com/LucasJ880/-/pull/341) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） | `[x]` |
+| 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | [#341](https://github.com/LucasJ880/-/pull/341) 已合并 | [#343](https://github.com/LucasJ880/-/pull/343) 已合并（`openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） | `[x]` |
+| 2i `install-2i-repair-list-archive` | 已完成（报告 `docs/QINGYAN_INSTALL-2i_REPORT.md`） | 本 PR | — | `[G]` |
+| 2j 返修时间确认邮件 | 待开始 | — | — | — |
+| 2k 质保邮件附 PDF | 待开始 | — | — | — |
 
 - 每个 PR：基于最新 main → cherry-pick 该 change 的提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → `openspec archive <change> --yes`（在最新 main 上重跑，不 cherry-pick 旧的 archive 结果，避免和别的会话同时改的主规格冲突）+ TASKFLOW `[x]` + 本表 → archive PR。
 - 文档冲突（TASKFLOW / 本文件 / 任务书）一律以 main 上的现状为底，再按本表改状态；代码冲突逐块看，不整文件取一边。
@@ -38,7 +41,7 @@ INSTALL-2 的 6 个 change 已全部合并归档（§0）。剩下的都不是�
 1. **上线前老板做**（2c 报告 §5、2g 报告 §5）：设置 → 邮件 → 组织发件人（没配置时质保邮件失败 `NO_ORG_SENDER`，不会回落个人邮箱）；会计「待收尾款」→「质保设置」打开看一眼：显示"当前为默认值"则无需操作（帘类 1 / 5 / 15 / 无绳 3 / 电机 5 / 配件 5 / 电池 1、窗帘 1 / 5 / 15 / 电机 5 / 配件 5 / 电池 1、Shutters 1 / 15 / 25、报修电话 647-857-8669、邮箱 service@sunnyshutter.ca、抄送 miki@sunnyshutter.ca 已预填）；若已保存过，按这些值手改并填抄送。
 2. **岗位绑定核对**：会计 / 老板持 `install.balance.confirm`；运营主管 / 会计持 `install.task.assign`（排返修、作废、关闭不返修）；三个出单岗按品类持 `orders.fulfillment.update.<品类>`。按 `role-defaults.ts` 种子落地的企业已满足，手工改过岗位的企业需核对。
 3. **官网质保新条款**（原文转录与对比见 `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` §0a）：Lucas 2026-10-29 确认已生效，Shutters 按新条款、链接保留、报修邮箱 service@sunnyshutter.ca、抄送 miki@sunnyshutter.ca → **INSTALL-2g 已实现**（报告 `docs/QINGYAN_INSTALL-2g_REPORT.md`）；同日 Lucas 定帘类 / 窗帘也按新条款 → **INSTALL-2h 已实现**（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`）。Q0 已确认是 U-Haul（2026-10-29）。
-4. **可选后续**（各报告"已知限制"）：维修单列表分页（现取最近 200 张）；逾期提醒升级 / 发给出单岗；已关闭维修单撤销；客户返修时间确认邮件（出站需走审批）；质保 PDF 附件。都需另开 change。
+4. **后续**：维修单列表分栏 / 分页 → INSTALL-2i；客户返修时间确认邮件 → INSTALL-2j；质保 PDF 附件 → INSTALL-2k（Lucas 2026-10-29 排定，见 §0）。仍为可选：逾期提醒升级 / 发给出单岗；已关闭维修单撤销。
 
 ## 2. 外部信息的可信度（防幻觉）
 
@@ -106,6 +109,7 @@ NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/install/__tests__/cl
 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` | 方案：现状 F1–F15、两条业务流、U-Haul 借鉴、通知矩阵、零 schema 落点、4 个 change 拆分、交叉验证 V1–V9、待拍板 Q0–Q10 |
 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` | 完工 + 质保邮件英文模板与变量表；条款来源冲突表 |
 | `docs/QINGYAN_PERMISSION_TASKFLOW.md` | 新增 INSTALL-2 段（2a–2d，状态 `[ ]`） |
+| 代码（INSTALL-2i） | `repair.ts` `parseRepairListQuery` / `repairListPage`；`/api/install/repairs` 分栏 / 分页 / 搜索（无 200 上限，只序列化当前页）；列表项关闭情况补原因说明 / 时间 / 关闭人；`repair-pages.tsx` 页签 / 搜索 / 翻页 / 已归档列（地址参数）；测试 1 个新（已注册）+ 2 个扩充 |
 | 代码（INSTALL-2h） | `warranty.ts` 新部件 `cordless` / `motor_accessories` / `batteries`、标签注明 if supplied / cordless models、种子帘类 / 窗帘；`quote-pdf.ts` 帘类 / 窗帘段与 `order-shades.tsx`、`order-drapes.tsx` 质保文字；测试 2 个扩充（报价单与 Order Form 逐字比对） |
 | 代码（INSTALL-2g） | `warranty.ts` 新部件 `frame`（Frame & Panels / 框架与叶片）、种子 Shutters 1 / 15 / 25 + 报修电话 / 邮箱 + 抄送、`cc` 校验与 `warrantyCcProblem`；`warranty-service.ts` 审批内容与预览带抄送；执行器按审批抄送发送、审计记抄送；`trade/email.ts` / `email-sender.ts` 透出抄送；`warranty-panel.tsx` 抄送输入框与预览抄送；`quote-pdf.ts` Shutters 质保文字；测试 3 个扩充（`email-sender.test.ts` 登记并移出欠账基线） |
 | 代码（INSTALL-2f） | `repair.ts` 关闭原因（completed / superseded / voided / waived）与原因说明、`voidDecision / closeDecision`、`canVoid / canClose`、逾期选择与摘要；`repair-service.ts` `closeRepair`（作废 / 关闭不返修，锁内复核）、按预约取维修单跳过已作废、`completeReturnVisit` 锁内复核、`notifyRepairClosed`、`remindOverdueRepairs`；`POST /api/install/repairs/[id]/{void,close}`；任务详情带已作废维修单；`daily-brief` 每个企业加逾期提醒一步；维修单详情两个对话框与关闭横幅；两个通知类型；测试 1 个新（已注册）+ 2 个扩充 |

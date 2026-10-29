@@ -2,6 +2,7 @@
  * INSTALL-2d：问题类型表 / 标记问题入参 / 维修单表头 / 目标日 / 单号 / 记录解析 / 品类 / 打印补行
  * INSTALL-2e：维修单事件 / 进度（按品类出单、排期、关闭）/ 可执行操作与出单判定 / 出单与排返修入参 / 排期提示
  * INSTALL-2f：关闭原因 / 返修中提交的识别 / 作废与关闭不返修判定 / 原因校验 / 逾期提醒选择与摘要
+ * INSTALL-2i：列表参数容错 / 分栏（进行中 / 已归档）/ 搜索 / 排序 / 分页 / 两栏总数
  * 运行：npx tsx src/lib/install/__tests__/repair.test.ts
  */
 import {
@@ -17,6 +18,8 @@ import {
   factoryCategoriesOf,
   issueDecision,
   parseRepairEvent,
+  parseRepairListQuery,
+  repairListPage,
   repairActions,
   repairProgress,
   scheduleWarnings,
@@ -279,6 +282,49 @@ console.log("INSTALL-2f 关闭原因");
   ok(!!cancelled && cancelled.stuck !== "return_missed", "返修预约已被取消（排期不再有效）→ 照常提醒", cancelled);
   ok(overdueReminder({ targetDate: today }, open, today, null) === null && overdueReminder({ targetDate: "2026-10-30" }, open, today, null) === null, "目标日是今天或以后 → 不提醒");
   for (const p of [voided, waived, legacy]) ok(overdueReminder(rec, p, today, null) === null, "已关闭 → 不提醒");
+}
+
+console.log("INSTALL-2i 列表参数容错");
+{
+  const q = (o: Record<string, string>) => parseRepairListQuery(new URLSearchParams(o));
+  const d = q({});
+  ok(d.tab === "open" && d.page === 1 && d.pageSize === 20 && d.q === "", "默认：进行中、第 1 页、每页 20、无搜索", d);
+  const bad = q({ tab: "foo", page: "0", pageSize: "500" });
+  ok(bad.tab === "open" && bad.page === 1 && bad.pageSize === 50, "tab=foo / page=0 / pageSize=500 → 进行中、第 1 页、每页 50", bad);
+  ok(q({ pageSize: "0" }).pageSize === 1 && q({ pageSize: "abc" }).pageSize === 20 && q({ page: "-3" }).page === 1 && q({ page: "2.7" }).page === 2, "每页夹到 1–50；非数字按 20；页码非正整数按 1");
+  ok(q({ tab: "archived", q: `  ${"x".repeat(80)}  ` }).q.length === 60 && q({ tab: "archived" }).tab === "archived", "搜索词去空格、最多 60 字；archived 栏");
+}
+
+console.log("INSTALL-2i 分栏 / 搜索 / 排序 / 分页");
+{
+  const mk = (i: number, over: Partial<{ targetDate: string; closedAt: string | null; customerName: string; orderCode: string }> = {}) => ({
+    id: `r${i}`,
+    repairNo: `R-SUN-${String(i).padStart(3, "0")}-1`,
+    orderCode: over.orderCode ?? `SUN-${String(i).padStart(3, "0")}`,
+    customerName: over.customerName ?? `Customer ${i}`,
+    targetDate: over.targetDate ?? `2026-11-${String((i % 28) + 1).padStart(2, "0")}`,
+    closedAt: over.closedAt ?? null,
+  });
+  const entries = [
+    ...Array.from({ length: 25 }, (_, i) => mk(i + 1)),
+    mk(100, { closedAt: "2026-10-20T10:00:00.000Z", customerName: "Example Homeowner" }),
+    mk(101, { closedAt: "2026-10-28T10:00:00.000Z" }),
+    mk(102, { closedAt: "2026-10-25T10:00:00.000Z", orderCode: "SUN-SPECIAL" }),
+  ];
+  const base = { tab: "open" as const, page: 1, pageSize: 10, q: "" };
+  const p1 = repairListPage(entries, base);
+  ok(p1.items.length === 10 && p1.total === 25 && p1.counts.open === 25 && p1.counts.archived === 3, "进行中 25、已归档 3；每页 10 → 10 条", p1.counts);
+  ok(p1.items.every((x, i) => i === 0 || p1.items[i - 1].targetDate <= x.targetDate) && p1.items.every((x) => !x.closedAt), "进行中按目标日升序、不含已关闭");
+  const p3 = repairListPage(entries, { ...base, page: 3 });
+  ok(p3.items.length === 5 && p3.total === 25, "第 3 页 5 条");
+  ok(repairListPage(entries, { ...base, page: 4 }).items.length === 0 && repairListPage(entries, { ...base, page: 4 }).total === 25, "超出页码 → 空列表、总数不变");
+  const arc = repairListPage(entries, { ...base, tab: "archived" });
+  ok(arc.items.map((x) => x.id).join() === "r101,r102,r100" && arc.total === 3, "已归档按关闭时间倒序", arc.items.map((x) => x.id));
+  const s1 = repairListPage(entries, { ...base, tab: "archived", q: "example HOME" });
+  ok(s1.items.map((x) => x.id).join() === "r100" && s1.counts.archived === 1 && s1.counts.open === 0, "搜索客户名（大小写不同）→ 只匹配的，两栏总数按搜索结果", s1.counts);
+  ok(repairListPage(entries, { ...base, q: "r-sun-007" }).items.map((x) => x.id).join() === "r7", "搜索单号");
+  const s3 = repairListPage(entries, { ...base, q: "sun-special" });
+  ok(s3.items.length === 0 && s3.counts.archived === 1, "搜索工艺单号：进行中栏为空、已归档栏 1", s3.counts);
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

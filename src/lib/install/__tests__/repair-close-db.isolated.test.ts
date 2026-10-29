@@ -239,9 +239,12 @@ async function main() {
     ok(tXw2.task.status === "completed" && tXw2.task.repair === null && tXw2.task.voidedRepair === null, "完成后：任务详情不带已作废的维修单", { repair: tXw2.task.repair, voided: tXw2.task.voidedRepair });
     const aDup = await submit(XW, A.appt.id);
     ok(aDup.status === 409, "完成后再提交维修单 → 409（不返回已作废的单）", aDup.body);
-    const aList = await get(repairsRoute.GET as unknown as Handler, OPS, `/api/install/repairs`);
+    // INSTALL-2i：已关闭的维修单只在已归档栏
+    const aList = await get(repairsRoute.GET as unknown as Handler, OPS, `/api/install/repairs?tab=archived&q=${encodeURIComponent(A.repair.repairNo)}`);
     const aItem = ((aList.body?.repairs ?? []) as Array<Json & { id: string; closed: (Json & { label: string }) | null; overdue: boolean }>).find((r) => r.id === A.repair.id);
-    ok(aItem?.closed?.label === "已作废" && aItem.overdue === false, "列表：关闭原因已作废、不标已过目标日", aItem);
+    ok(aItem?.closed?.label === "已作废" && aItem.overdue === false, "已归档栏：关闭原因已作废、不标已过目标日", aItem);
+    const aOpen = await get(repairsRoute.GET as unknown as Handler, OPS, `/api/install/repairs?q=${encodeURIComponent(A.repair.repairNo)}`);
+    ok(!((aOpen.body?.repairs ?? []) as Array<{ id: string }>).some((r) => r.id === A.repair.id), "进行中栏不再有已作废的单");
 
     console.log("\n[B] 作废（已排返修）+ 并发 → 返修预约取消 → 重新提交得新单号");
     const B = await firstVisit(`I2F-B-${stamp}`, { vinyl: ["Den", "Kitchen"] }, ["spec-vinyl-1"], [["spec-vinyl-0", "wrong_size"]]);
