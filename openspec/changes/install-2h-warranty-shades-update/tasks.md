@@ -14,7 +14,7 @@
 
 ## 4. 收尾
 
-- [ ] 4.1 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate install-2h-warranty-shades-update --strict` 通过；全量 `npm test`（隔离库）与 2g 基线比对；写 `docs/QINGYAN_INSTALL-2h_REPORT.md` + `docs/QINGYAN_PERMISSION_TASKFLOW.md` 增 INSTALL-2h 行并改 `[G]` + 更新 `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` 与 `docs/QINGYAN_INSTALL-2_HANDOFF.md`。verify：四条命令退出 0；`grep -c "INSTALL-2h .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
+- [x] 4.1 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh` 全通过；`openspec validate install-2h-warranty-shades-update --strict` 通过；全量 `npm test`（隔离库）与 2g 基线比对；写 `docs/QINGYAN_INSTALL-2h_REPORT.md` + `docs/QINGYAN_PERMISSION_TASKFLOW.md` 增 INSTALL-2h 行并改 `[G]` + 更新 `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` 与 `docs/QINGYAN_INSTALL-2_HANDOFF.md`。verify：四条命令退出 0；`grep -c "INSTALL-2h .*\[G\]" docs/QINGYAN_PERMISSION_TASKFLOW.md` 为 1。
 
 ## Workflow follow-up
 
