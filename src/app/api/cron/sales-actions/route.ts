@@ -70,7 +70,15 @@ export async function GET(request: NextRequest) {
       processedCount: result.organizations,
       succeededCount: result.organizations - result.failedCount,
       failedCount: result.failedCount,
-      metadata: { organizations: result.organizations, failedCount: result.failedCount, recorded: result.recorded, notified: result.notified },
+      metadata: {
+        organizations: result.organizations,
+        failedCount: result.failedCount,
+        recorded: result.recorded,
+        notified: result.notified,
+        muse: result.muse,
+        wechatSent: result.wechatSent,
+        wechatFailed: result.wechatFailed,
+      },
     };
   });
   return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch });

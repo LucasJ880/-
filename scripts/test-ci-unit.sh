@@ -304,6 +304,8 @@ npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts
 npx tsx src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts
 # CAL-2：网站预约转入纯函数核心
 npx tsx src/lib/calendar-watch/__tests__/website-booking-intake-pure.test.ts
+# CAL-3：日历变更推送纯函数
+npx tsx src/lib/calendar-watch/__tests__/calendar-change-push-pure.test.ts
 # PERM-4b：运营 / 增长中心 / 平台用户管理权限判定（纯函数 + 源码断言）
 npx tsx src/lib/operations/__tests__/ops-access.test.ts
 # PERM-5b：数字员工岗位绑定与工具授权（纯函数 + 源码断言）

@@ -25,6 +25,8 @@ function notificationTypeFor(type: MuseEventType): string {
       return "agent_approval";
     case "brief.daily":
       return "sales_daily_briefing";
+    case "calendar.changed":
+      return "calendar_event";
     default:
       return "project_update";
   }
@@ -107,6 +109,9 @@ function titleFor(e: MuseEventEnvelope): string {
       return "跟进已逾期";
     case "followup.updated":
       return "你布置的跟进有更新";
+    case "calendar.changed":
+      // CAL-3：摘要第一行即 CAL-1 通知标题（已去邮箱）
+      return e.summary.split("\n")[0].slice(0, 200);
   }
 }
 
