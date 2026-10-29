@@ -22,7 +22,8 @@
 | 授权 | 用户 2026-10-29："Evan approved it go next step"（第 7 条例外）→ propose；"都按照你推荐的来，apply"（例外句原文、中文数字一律拒绝、只用环境变量开关） |
 | 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认** |
 | 基线（apply 前） | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
-| tasks | 3/6：1.1 ✓ 2.1 ✓ 4.1 ✓（`period-narrative-db.isolated.test.ts` 31/31：真实路由 + 真实 `createCompletionDetailed`，模型端是测试内起的本机 OpenAI 兼容假服务（`OPENAI_BASE_URL`）；覆盖开关 404 零调用、GET 两种 `narrativeEnabled`、403 / 400 零调用、合法 200、编造数字 / 越词表 / 坏格式 / 模型 400 回落、费用超限（注入）、本人范围提示词不含他人、审计 outcome 序列与字段、第 7 次 429 不调用模型；变异：去开关判断与限次 → 8 项变红；无 DATABASE_URL 跳过；无残留；已注册 test-all）。下一条 3.1 面板 |
+| tasks | 4/6：1.1 ✓ 2.1 ✓ 4.1 ✓（隔离库 31/31）3.1 ✓（面板 `NarrativeBlock`，`narrativeEnabled` 为真才显示按钮，key 随期间重建清空结果）。下一条 5.1 全量门禁 |
+| 3.1 浏览器验收（`next start -p 3100` + Playwright + 本机假 OpenAI 服务 :4010，脚本在 scratchpad `kpi2ui/`，未进仓库） | 开关关：期间面板在、无"生成解读"按钮、无解读请求；开关开：按钮在、加载时零请求，点击一次 POST → 显示"AI 解读 · 数字已与看板核对"、结论与"催签"下一步；假服务改回编造数字 → 显示"本次解读未通过核对，已以上方确定性洞察为准"，页面不出现 65,000；390px 无溢出；无页面错误；假服务共收到 3 次调用（= 3 次点击）。服务按端口停、种子已清 |
 | 本地库 | 容器重启后要 `pg_ctlcluster 16 qytest start`（会提示 stale pid，正常） |
 
 ## 0'. CAL-1 现场续接（已完成：#323 合并、#327 归档）

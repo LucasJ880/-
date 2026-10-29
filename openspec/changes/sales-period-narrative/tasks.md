@@ -30,7 +30,7 @@
 
 ## 3. 面板
 
-- [ ] 3.1 `src/components/sales-command-center/sales-period-panel.tsx`：
+- [x] 3.1 `src/components/sales-command-center/sales-period-panel.tsx`：
   - `narrativeEnabled` 为真时显示"生成解读"按钮，点击才请求；
   - 三段展示与"AI 解读 · 数字已与看板核对"标注；
   - 回落与 429 提示；
