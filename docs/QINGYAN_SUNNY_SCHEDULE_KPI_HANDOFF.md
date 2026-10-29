@@ -4,10 +4,10 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-29（会话 1：设计稿 + 三轮交叉核对更正 17 处；判断点 5 用户确认；KPI-1 实施 8/8 tasks，PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309) CI 绿、`/opsx:verify` 无严重问题与警告，**等 Evan 审核合并**） |
+| 最后更新 | 2026-10-29（会话 1：KPI-1 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，并已 archive 为 `openspec/changes/archive/2026-10-29-sales-period-summary/`；规格合入 `openspec/specs/sales/period-summary`（新）与 `muse-bridge/sales-intents`（增量）；**KPI-1 完成，下一个是 CAL-1**） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | `openspec/changes/sales-period-summary/`（KPI-1；tasks 8/8；verify：0 严重、0 警告、4 建议；报告 `docs/QINGYAN_KPI-1_REPORT.md`；TASKFLOW `[G]`（#309）；**合并后才能 archive**） |
+| 进行中的 change | 无（本线）。KPI-1 已归档；仓库里另有他人进行中的 `install-2a-closeout-all-lines`、`fix-gcal-push-calendar-id`（后者即 §6.3 的多日历推送修复） |
 | 工作分支 | `claude/magical-shannon-keegzr`（基于 origin/main `ed3b55f`，2026-10-28 核对时 main 未前进） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
@@ -24,7 +24,7 @@
 
 | ID | change 名 | 内容 | 前置 | 状态 |
 |---|---|---|---|---|
-| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)：CI 绿，等审核合并 |
+| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，已归档 |
 | CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 成员 / 网站 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 未 propose |
 | KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；**Evan 拍板 config.yaml 第 7 条例外** | 未 propose |
 | CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
@@ -103,8 +103,8 @@
 ## 6. 下一步（按顺序）
 
 1. ~~审四件套~~、~~apply~~：已完成（判断点 5 用户确认；实施记录见 `docs/QINGYAN_KPI-1_REPORT.md`，含实施中对 spec 的两处补充）。
-2. **PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)：CI `validate-lint-typecheck-test-build` 已绿（2026-10-29），`/opsx:verify` 无严重问题与警告**。等 Evan 审 → 合并。审核重点：报告 §4 三处签单金额口径差异、§5 已知限制。
-3. 合并后 `/opsx:archive sales-period-summary --yes`（独立小 PR，TASKFLOW KPI-1 → `[x]`）。
+2. ~~PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)~~：2026-10-29 合并（CI 绿，verify 0 严重 0 警告）。
+3. ~~archive~~：已完成（`openspec/changes/archive/2026-10-29-sales-period-summary/`），独立小 PR；TASKFLOW KPI-1 → `[x]`。全量 `openspec validate --specs --strict` 36 过 4 不过，4 个与 main 上一致（`accounting/workspace`、`authorization/position-catalog`、`inventory/fabric-stock-access`、`sunny/process-order-autogen` 的历史欠账），本次两份规格均通过。
 4. CAL-1 前置（Lucas）：
    - 共享日历 ID（`xxx@group.calendar.google.com`）与读取账号（已在青砚连接 Google 日历、对共享日历至少 reader）。
    - 打开一条 book-now 生成的日程，记下"创建者"邮箱与标题 / 描述里的固定字样。
@@ -126,7 +126,7 @@
 
 ## 6.3 本会话之外的遗留
 
-- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已提修复任务卡"Fix multi-calendar push in pushEventToGoogle"，未在本 PR 处理；CAL-1 之前必须先修。
+- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已提修复任务卡，2026-10-29 已有 change `fix-gcal-push-calendar-id` 在仓库中进行（非本会话）；CAL-1 开工前确认它已合并。
 - 判断点 2（book-now 写日历的身份）仍待 Lucas 查，是 CAL-1 的前置。
 
 ## 7. 已知坑
