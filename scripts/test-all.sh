@@ -406,6 +406,7 @@ run_test "自动流本地时区调度" "npx tsx src/lib/automation/__tests__/loc
 run_test "自动流组织时区调度" "npx tsx src/lib/automation/__tests__/org-timezone.test.ts"
 run_test "外贸每日检查按组织范围（隔离库执行，否则跳过）" "npx tsx src/lib/trade/__tests__/daily-cron-org-scope.isolated.test.ts"
 run_test "通用对话日历工具权限" "npx tsx src/lib/agent-core/tools/calendar-access.test.ts"
+run_test "Google 日历写路径目标日历（多选取第一项）" "npx tsx src/lib/__tests__/google-calendar-write-id.test.ts"
 run_test "工具调用模型参数适配" "npx tsx src/lib/ai/__tests__/client-tuning.test.ts"
 run_test "GPT6 Astra Flags" "npx tsx src/lib/ai/model-policy/__tests__/flags.test.ts"
 run_test "GPT6 Astra Resolve" "npx tsx src/lib/ai/model-policy/__tests__/resolve.test.ts"

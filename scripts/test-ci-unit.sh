@@ -323,6 +323,9 @@ npx tsx src/lib/ai/model-policy/__tests__/benchmark-harness.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
+# fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
+npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
+
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
 
