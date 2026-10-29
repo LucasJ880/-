@@ -34,8 +34,8 @@ TASKFLOW：无（基础设施：通知中心缺陷修复）。OpenSpec change：
 - 通知模块既有测试 `delivery-gate.test.ts` 改动前后均通过。
 - 检查：
   - `npm run typecheck` ✓；
-  - `npm run lint:baseline`：结果见第 5 节；
-  - `npm run test:ci`：结果见第 5 节；
+  - `npm run lint:baseline` ✓（无新增 error 指纹）；
+  - `npm run test:ci` ✓（CI unit subset PASS，含新纯测试 18/18）；
   - `scripts/check-test-registry.sh` ✓（已注册 486，基线 72 条不增）；
   - `openspec validate notif-mark-all-read --strict` ✓。
 
@@ -53,6 +53,9 @@ WHERE "userId" = (SELECT id FROM "User" WHERE lower(email) = 'cathy@hlmbedding.c
   AND status = 'unread';
 ```
 
-## 5. 全量检查结果
+## 5. 全量检查结果（2026-10-29）
 
-（见下方，跑完后填写）
+- `npm run typecheck`：通过。
+- `npm run lint:baseline`：PASS（当前 error 39 / 基线 53，无新增 error 指纹、无计数上升）。
+- `npm run test:ci`：CI unit subset PASS；测试注册 486 个、基线 72 条不增。
+- `openspec validate notif-mark-all-read --strict`：valid。

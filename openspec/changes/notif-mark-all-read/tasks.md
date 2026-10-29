@@ -17,7 +17,7 @@
 
 ## 4. 收尾
 
-- [ ] 4.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate notif-mark-all-read --strict`，写 `docs/QINGYAN_NOTIF-MARK-ALL-READ_REPORT.md`（改动、测试结果、生产验证步骤）；verify：以上命令全绿，报告文件存在
+- [x] 4.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate notif-mark-all-read --strict`，写 `docs/QINGYAN_NOTIF-MARK-ALL-READ_REPORT.md`（改动、测试结果、生产验证步骤）；verify：以上命令全绿，报告文件存在
 
 ## Workflow follow-up
 
