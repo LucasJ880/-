@@ -22,7 +22,7 @@
 | 授权 | 用户 2026-10-29："Evan approved it go next step"（第 7 条例外）→ propose；"都按照你推荐的来，apply"（例外句原文、中文数字一律拒绝、只用环境变量开关） |
 | 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认** |
 | 基线（apply 前） | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
-| tasks | 2/6：1.1 ✓（config 例外句 + `narrative-pure.ts`，纯测试 70）；2.1 ✓（`narrative.ts` `generatePeriodNarrative(params, deps?)`，模型调用可注入；`POST /api/sales/period-summary/narrative`；`GET` 加 `narrativeEnabled`；`.env.example`）。apply 中补 spec：SDK 传输层缺省 2 次重试不在本功能控制内（spec 与 design D5 已写明）。回归：period-db 31、Muse sales-db 36、period-pure 48、insights 38、Muse sales-pure 84 / muse-bridge-pure 67 全过；typecheck 0。下一条 3.1 面板，4.1 端到端计划用本机假 OpenAI 服务（`OPENAI_BASE_URL`）走真实 `createCompletionDetailed` |
+| tasks | 3/6：1.1 ✓ 2.1 ✓ 4.1 ✓（`period-narrative-db.isolated.test.ts` 31/31：真实路由 + 真实 `createCompletionDetailed`，模型端是测试内起的本机 OpenAI 兼容假服务（`OPENAI_BASE_URL`）；覆盖开关 404 零调用、GET 两种 `narrativeEnabled`、403 / 400 零调用、合法 200、编造数字 / 越词表 / 坏格式 / 模型 400 回落、费用超限（注入）、本人范围提示词不含他人、审计 outcome 序列与字段、第 7 次 429 不调用模型；变异：去开关判断与限次 → 8 项变红；无 DATABASE_URL 跳过；无残留；已注册 test-all）。下一条 3.1 面板 |
 | 本地库 | 容器重启后要 `pg_ctlcluster 16 qytest start`（会提示 stale pid，正常） |
 
 ## 0'. CAL-1 现场续接（已完成：#323 合并、#327 归档）

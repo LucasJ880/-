@@ -311,6 +311,7 @@ run_test "销售期间汇总确定性洞察（KPI-1）" "npx tsx src/lib/sales/_
 run_test "销售期间汇总 DB 端到端（KPI-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/period-db.isolated.test.ts"
 # KPI-2 sales-period-narrative：期间看板 AI 解读
 run_test "期间看板 AI 解读纯函数核心（KPI-2）" "npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts"
+run_test "期间看板 AI 解读 DB 端到端（KPI-2；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/period-narrative-db.isolated.test.ts"
 # CAL-1 calendar-watch-attribution：日历观察归因 / 账本 / 通知 / 统计
 run_test "日历观察纯函数核心（CAL-1）" "npx tsx src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts"
 run_test "日历观察 DB 端到端（CAL-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts"

@@ -40,7 +40,7 @@
 
 ## 4. 端到端
 
-- [ ] 4.1 写 `src/lib/sales/__tests__/period-narrative-db.isolated.test.ts`（注入假模型调用），覆盖：
+- [x] 4.1 写 `src/lib/sales/__tests__/period-narrative-db.isolated.test.ts`（注入假模型调用），覆盖：
   - 开关关 404 且零调用；`GET narrativeEnabled` 两种取值；
   - 403 / 400 零调用；
   - 合法输出 200；
