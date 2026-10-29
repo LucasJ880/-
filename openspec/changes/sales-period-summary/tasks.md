@@ -12,7 +12,7 @@
 
 ## 3. 看板
 
-- [ ] 3.1 新建 `src/components/sales-command-center/sales-period-panel.tsx`（期间预设 本月至今 / 上月 / 本季 / 最近 30 天 / 自定义，状态与 URL `from / to / compare` 同步，六个瓦片含对比变化，按人表（own 只一行），洞察列表按 severity，转化率 > 1 显示"同期口径"提示，响应 `period` 回显校正），面板请求 403 时整块不渲染、其它错误只在面板内提示；在 `src/app/(main)/sales/home/page.tsx` 的 `SalesPerformanceHero` 下方用 `<Suspense fallback={null}>` 包裹挂载，金额用 `formatSalesMoney`；`src/app/(main)/sales/cockpit/page.tsx` 第 170 行标签改为 `"本月签约（商机估值）"`。verify：`npm run build` 通过（无 useSearchParams 缺 Suspense 报错）；无 `sales.analytics.read` 的账号打开首页无面板、无错误提示；浏览器打开 `/sales/home?from=2026-09-01&to=2026-09-30` 刷新后仍显示 9 月数据；驾驶舱瓦片显示"本月签约（商机估值）"。
+- [x] 3.1 新建 `src/components/sales-command-center/sales-period-panel.tsx`（期间预设 本月至今 / 上月 / 本季 / 最近 30 天 / 自定义，状态与 URL `from / to / compare` 同步，六个瓦片含对比变化，按人表（own 只一行），洞察列表按 severity，转化率 > 1 显示"同期口径"提示，响应 `period` 回显校正），面板请求 403 时整块不渲染、其它错误只在面板内提示；在 `src/app/(main)/sales/home/page.tsx` 的 `SalesPerformanceHero` 下方用 `<Suspense fallback={null}>` 包裹挂载，金额用 `formatSalesMoney`；`src/app/(main)/sales/cockpit/page.tsx` 第 170 行标签改为 `"本月签约（商机估值）"`。verify：`npm run build` 通过（无 useSearchParams 缺 Suspense 报错）；无 `sales.analytics.read` 的账号打开首页无面板、无错误提示；浏览器打开 `/sales/home?from=2026-09-01&to=2026-09-30` 刷新后仍显示 9 月数据；驾驶舱瓦片显示"本月签约（商机估值）"。
 
 ## 4. Muse 只追加
 
