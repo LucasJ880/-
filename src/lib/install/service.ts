@@ -30,7 +30,14 @@ import {
   type CloseoutUnit,
   type WindowItem,
 } from "./closeout";
-import { INSTALL_WINDOW_ISSUE } from "./repair";
+import {
+  INSTALL_REPAIR_SCHEDULED,
+  INSTALL_REPAIR_SUBMITTED,
+  INSTALL_WINDOW_ISSUE,
+  REPAIR_TARGET_TYPE,
+  scopeUnits,
+  type RepairRecord,
+} from "./repair";
 import { installScopeFromDecision, type InstallScope } from "./scope";
 
 export const INSTALL_TASK_SELECT = {
@@ -153,11 +160,51 @@ export async function loadInstallTask(id: string): Promise<InstallTaskRow | null
 }
 
 export async function loadOrderForTask(appointmentId: string): Promise<InstallOrderRow | null> {
-  const row = await db.blindsOrder.findFirst({
-    where: { appointmentId },
+  return (await loadOrdersForTasks([appointmentId])).get(appointmentId) ?? null;
+}
+
+/**
+ * 预约 → 工艺单。工艺单当前预约指向它；或（INSTALL-2e）它是该单维修单的首装 / 返修预约——
+ * 排返修后工艺单的 appointmentId 改指返修预约，之前的预约经维修单记录找回工艺单。
+ */
+export async function loadOrdersForTasks(appointmentIds: string[]): Promise<Map<string, InstallOrderRow>> {
+  const out = new Map<string, InstallOrderRow>();
+  if (appointmentIds.length === 0) return out;
+  const direct = (await db.blindsOrder.findMany({
+    where: { appointmentId: { in: appointmentIds } },
     select: INSTALL_ORDER_SELECT,
+  })) as InstallOrderRow[];
+  for (const o of direct) if (o.appointmentId) out.set(o.appointmentId, o);
+  const missing = appointmentIds.filter((id) => !out.has(id));
+  if (missing.length === 0) return out;
+  const links = await db.auditLog.findMany({
+    where: {
+      action: { in: [INSTALL_REPAIR_SUBMITTED, INSTALL_REPAIR_SCHEDULED] },
+      targetType: REPAIR_TARGET_TYPE,
+      OR: missing.map((id) => ({ afterData: { contains: `"appointmentId":"${id}"` } })),
+    },
+    select: { targetId: true, afterData: true },
   });
-  return (row as InstallOrderRow | null) ?? null;
+  const orderOfAppt = new Map<string, string>();
+  for (const l of links) {
+    try {
+      const appt = (JSON.parse(l.afterData ?? "{}") as { appointmentId?: unknown }).appointmentId;
+      if (typeof appt === "string" && l.targetId && missing.includes(appt)) orderOfAppt.set(appt, l.targetId);
+    } catch {
+      // 坏数据跳过
+    }
+  }
+  if (orderOfAppt.size === 0) return out;
+  const linked = (await db.blindsOrder.findMany({
+    where: { id: { in: [...new Set(orderOfAppt.values())] } },
+    select: INSTALL_ORDER_SELECT,
+  })) as InstallOrderRow[];
+  const byId = new Map(linked.map((o) => [o.id, o]));
+  for (const [appt, orderId] of orderOfAppt) {
+    const o = byId.get(orderId);
+    if (o) out.set(appt, o);
+  }
+  return out;
 }
 
 /** 每张工艺单最新的工艺参数（process_order.spec 审计行，取最新一条）；没有的单不在结果里 */
@@ -229,11 +276,32 @@ export async function loadCloseoutSummary(order: InstallOrderRow): Promise<Order
   return map.get(order.id) ?? { units: [], summary: aggregateCloseout([], []) };
 }
 
+/**
+ * INSTALL-2e：任务收口范围（design D4）。返修预约 → 只留维修单各行对应的单元并重算计数；普通预约原样返回。
+ * 单元聚合彼此独立，按单元过滤后重算计数与重新聚合等价。
+ */
+export function scopeCloseout(closeout: OrderCloseout, repair: Pick<RepairRecord, "rows"> | null): OrderCloseout {
+  if (!repair) return closeout;
+  const units = scopeUnits(closeout.units, repair);
+  const keep = new Set(units.map((u) => u.id));
+  const windows = closeout.summary.windows.filter((w) => keep.has(w.itemId));
+  const completed = windows.filter((w) => w.state === "done").length;
+  const issueCount = windows.filter((w) => w.state === "issue").length;
+  return {
+    units,
+    summary: { windows, total: windows.length, completed, issueCount, allCompleted: windows.length > 0 && completed === windows.length },
+  };
+}
+
+/** INSTALL-2e：返修预约所属维修单 */
+export type TaskReturnRepair = { id: string; repairNo: string };
+
 /** 列表项：预约 + 工艺单摘要 + 收口计数（不含金额） */
 export function serializeTaskSummary(
   task: InstallTaskRow,
   order: InstallOrderRow | null,
   summary: CloseoutSummary | null,
+  returnRepair: TaskReturnRepair | null = null,
 ) {
   return {
     id: task.id,
@@ -258,6 +326,7 @@ export function serializeTaskSummary(
           allCompleted: summary?.allCompleted ?? false,
         }
       : null,
+    returnRepair,
   };
 }
 
@@ -270,11 +339,12 @@ export function serializeTaskDetail(
   order: InstallOrderRow,
   closeout: OrderCloseout,
   repair: TaskRepairSummary | null = null,
+  returnRepair: TaskReturnRepair | null = null,
 ) {
   const { units, summary } = closeout;
   const byUnit = new Map(summary.windows.map((w) => [w.itemId, w]));
   return {
-    ...serializeTaskSummary(task, order, summary),
+    ...serializeTaskSummary(task, order, summary, returnRepair),
     notes: task.notes,
     remarks: order.remarks,
     windows: units.map((u) => {

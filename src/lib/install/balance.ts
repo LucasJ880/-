@@ -6,7 +6,13 @@
  * "已确认"只看记录是否存在，不看工艺单状态（design D2）。
  */
 
-import { ENTITY_INSTALL_REPAIR, NOTIFY_REPAIR_SUBMITTED } from "./repair";
+import {
+  ENTITY_INSTALL_REPAIR,
+  ENTITY_INSTALL_TASK,
+  NOTIFY_REPAIR_FACTORY_ISSUED,
+  NOTIFY_REPAIR_SCHEDULED,
+  NOTIFY_REPAIR_SUBMITTED,
+} from "./repair";
 
 export const INSTALL_BALANCE_CONFIRMED = "install.balance.confirmed" as const;
 export const BALANCE_TARGET_TYPE = "blinds_order" as const;
@@ -177,13 +183,17 @@ export function installNotificationHref(item: {
   const id = encodeURIComponent(item.entityId);
   if (item.entityType === ENTITY_INSTALL_BALANCE) return `/accounting?tab=balance&order=${id}`;
   if (item.entityType === ENTITY_INSTALL_REPAIR) return `/install/repairs/${id}`;
+  // INSTALL-2e：返修任务 → 安装工任务页
+  if (item.entityType === ENTITY_INSTALL_TASK) return `/install/${id}`;
   if (
     item.entityType === "blinds_order" &&
     (item.type === NOTIFY_INSTALL_COMPLETED ||
       item.type === NOTIFY_BALANCE_CONFIRMED ||
       item.type === "install_warranty_sent" ||
       item.type === "install_warranty_failed" ||
-      item.type === NOTIFY_REPAIR_SUBMITTED)
+      item.type === NOTIFY_REPAIR_SUBMITTED ||
+      item.type === NOTIFY_REPAIR_FACTORY_ISSUED ||
+      item.type === NOTIFY_REPAIR_SCHEDULED)
   ) {
     return `/blinds-orders/${id}`;
   }

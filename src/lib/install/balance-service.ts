@@ -31,7 +31,7 @@ import {
   type QuoteMoney,
 } from "./balance";
 import { INSTALL_TASK_COMPLETED } from "./closeout";
-import { ENTITY_INSTALL_REPAIR, REPAIR_OUTCOME } from "./repair";
+import { ENTITY_INSTALL_REPAIR, ENTITY_INSTALL_TASK, REPAIR_OUTCOME } from "./repair";
 import { INSTALL_ORDER_SELECT, loadOrdersCloseout, type InstallOrderRow } from "./service";
 
 export const BALANCE_PERMISSION = "install.balance.confirm";
@@ -267,7 +267,7 @@ export type InstallNotice = {
   summary: string;
   orgId: string;
   orderId: string;
-  entityType: typeof ENTITY_INSTALL_BALANCE | typeof ENTITY_INSTALL_REPAIR | "blinds_order";
+  entityType: typeof ENTITY_INSTALL_BALANCE | typeof ENTITY_INSTALL_REPAIR | typeof ENTITY_INSTALL_TASK | "blinds_order";
   /** 通知实体 id；缺省 = orderId（INSTALL-2d 维修单通知传维修单 id） */
   entityId?: string;
   /** 去重粒度细到"每次尝试"时传（如审批 id）；不传 = 同一单同一人同一类型只发一次 */

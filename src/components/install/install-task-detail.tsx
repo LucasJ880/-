@@ -9,6 +9,7 @@
  * 零单元显示"工艺单没有可收口的行"，不显示"还差 0 扇"。
  * INSTALL-2d：每单元"拍照完成"或"有问题"（类型 / 描述 / 问题照）；底部按钮：全部已收口 →「完成收口」，
  * 没有未处理且有问题 →「提交维修单（N 项有问题）」，还有未处理 → 禁用并列出位置；维修单表单（预填客户名 / 电话）。
+ * INSTALL-2e：返修任务标明"返修 R-…"，只列维修单上的行（接口已按范围返回）。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -196,6 +197,11 @@ export function InstallTaskDetail({ id }: { id: string }) {
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
           {task.order && <span className="font-mono">工艺单 {task.order.code}</span>}
           <span>安装：{task.assignedTo.name}</span>
+          {task.returnRepair && (
+            <span className="rounded-full bg-[rgba(201,138,34,0.14)] px-2 py-0.5 font-medium text-[#a86a12]">
+              返修 {task.returnRepair.repairNo} · 只装维修单上的行
+            </span>
+          )}
           <span>
             已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 项
           </span>

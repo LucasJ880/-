@@ -35,6 +35,7 @@ import { requireProjectReadAccess } from "@/lib/projects/access";
 import { readBlobStream } from "@/lib/files/blob-access";
 import { authorize, humanPrincipal } from "@/lib/authorization";
 import { INSTALL_PHOTO_PREFIX, parseInstallPhotoPath } from "@/lib/install/closeout";
+import { installAppointmentIdsForOrder } from "@/lib/install/repair-service";
 
 const notFound = () => NextResponse.json({ error: "文件不存在" }, { status: 404 });
 const forbidden = () => NextResponse.json({ error: "无权访问该文件" }, { status: 403 });
@@ -102,7 +103,7 @@ async function authorizeBlobPath(
       return second === "brochures" ? "ok" : "unknown";
     }
     case INSTALL_PHOTO_PREFIX: {
-      // INSTALL-1：收口照片——org 成员，且（持 install.photo.read ORG）或（该工艺单预约的被分配人）
+      // INSTALL-1：收口照片——org 成员，且（持 install.photo.read ORG）或（该工艺单安装预约的被分配人）
       const parsed = parseInstallPhotoPath(segments);
       if (!parsed) return "unknown";
       if (!(await hasOrgAccess(user, parsed.orgId))) return "forbidden";
@@ -113,16 +114,13 @@ async function authorizeBlobPath(
         permission: "install.photo.read",
       });
       if (read.allowed && read.scopes.includes("ORG")) return "ok";
-      const order = await db.blindsOrder.findUnique({
-        where: { id: parsed.orderId },
-        select: { appointmentId: true },
+      // INSTALL-2e：该工艺单任一安装预约（当前预约 + 维修单记录的首装 / 返修预约）的被分配人（修 F5）
+      const apptIds = await installAppointmentIdsForOrder(parsed.orderId);
+      if (apptIds.length === 0) return "forbidden";
+      const mine = await db.appointment.count({
+        where: { id: { in: apptIds }, type: "install", assignedToId: user.id },
       });
-      if (!order?.appointmentId) return "forbidden";
-      const appt = await db.appointment.findUnique({
-        where: { id: order.appointmentId },
-        select: { assignedToId: true },
-      });
-      return appt?.assignedToId === user.id ? "ok" : "forbidden";
+      return mine > 0 ? "ok" : "forbidden";
     }
     default:
       return "unknown";

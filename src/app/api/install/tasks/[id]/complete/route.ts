@@ -8,6 +8,7 @@
  * - 预约已 completed → 200 幂等；工艺单不在可推进状态 → 409
  * INSTALL-2a：按收口单元（Blinds 行 + 工艺参数四段）判定；零单元 → 409 NO_UNITS（需出单补齐）
  * INSTALL-2b：首次成功后站内通知持 install.balance.confirm 者与工艺单创建人（幂等返回不再通知）
+ * INSTALL-2e：返修预约只按维修单各行对应的单元判定；全部收口 → 维修单关闭，无其他未关闭维修单时工艺单 → installed
  */
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -16,6 +17,7 @@ import { logAudit } from "@/lib/audit/logger";
 import { canTransition, timestampField } from "@/lib/blinds/order-state-machine";
 import { INSTALL_TASK_COMPLETED, missingWindows } from "@/lib/install/closeout";
 import { notifyInstallCompleted } from "@/lib/install/balance-service";
+import { completeReturnVisit, loadTaskRepairScope } from "@/lib/install/repair-service";
 import {
   authorizeInstallTask,
   installForbidden,
@@ -24,6 +26,7 @@ import {
   loadCloseoutSummary,
   loadInstallTask,
   loadOrderForTask,
+  scopeCloseout,
 } from "@/lib/install/service";
 
 export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
@@ -44,7 +47,9 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
   const order = await loadOrderForTask(task.id);
   if (!order) return installNoOrder();
 
-  const { summary } = await loadCloseoutSummary(order);
+  // INSTALL-2e：返修预约的收口范围 = 维修单各行对应的单元
+  const [closeout, ret] = await Promise.all([loadCloseoutSummary(order), loadTaskRepairScope(order.id, task.id)]);
+  const { summary } = scopeCloseout(closeout, ret);
   if (summary.total === 0) {
     return NextResponse.json(
       { error: "工艺单没有可收口的行，请联系出单补齐", code: "NO_UNITS", completed: 0, total: 0 },
@@ -62,6 +67,20 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
       },
       { status: 409 },
     );
+  }
+
+  if (ret) {
+    const r = await completeReturnVisit({
+      userId: user.id,
+      orgId: task.customer.orgId,
+      task,
+      order,
+      repair: ret,
+      windows: summary.total,
+      photoCount: summary.windows.reduce((s, w) => s + w.photoCount, 0),
+      request,
+    });
+    return NextResponse.json(r.body, { status: r.status });
   }
 
   // 工艺单：已 installed / completed 时不再推进；其余必须能转 installed

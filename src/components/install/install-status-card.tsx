@@ -19,6 +19,9 @@ type InstallStatus = {
     repairNo: string;
     targetDate: string;
     customerConfirmed: boolean;
+    /** INSTALL-2e：已排返修的日期 / 待登记出单品类数 */
+    scheduledDate?: string | null;
+    pendingFactory?: number;
     rows: Array<{ n: number; location: string; issueTypeLabel: string; needsFactory: boolean }>;
   } | null;
 };
@@ -69,6 +72,8 @@ export function InstallStatusCard({ orderId, refreshKey }: { orderId: string; re
               <ClipboardList size={13} /> {data.repair.repairNo}
             </span>
             <span>目标返修日 {data.repair.targetDate}</span>
+            {data.repair.scheduledDate && <span className="font-medium text-foreground">已排 {data.repair.scheduledDate} 返修</span>}
+            {!!data.repair.pendingFactory && <span>待工厂出单</span>}
             <span>{data.repair.customerConfirmed ? "已和客户确认" : "未和客户确认"}</span>
           </div>
           <ul className="space-y-0.5 text-xs text-foreground">

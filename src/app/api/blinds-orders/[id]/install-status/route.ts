@@ -3,6 +3,7 @@
  * INSTALL-2d：工艺单安装状态卡（spec installation/install-stage「安装状态接口」「安装状态不输出的内容」）。
  * - 读权同工艺单详情（blindsOrderAccess.canRead：含创建人、出单读权、同企业成员可读无项目归属的单），否则 404
  * - 阶段 / 阶段名 / 销售文案 / 最近一次安装预约时间；返修中另含单号、目标日、已和客户确认、各行位置与问题类型名、是否需工厂
+ *   INSTALL-2e：另含返修日与待登记出单品类数；已排返修的销售文案为"<返修日> 再去返修"
  * - 不出问题照片、描述、维修单表头电话与备注、任何金额
  */
 import { NextResponse } from "next/server";
@@ -37,20 +38,22 @@ export const GET = withAuth<{ id: string }>(async (_request, ctx, user) => {
   ]);
   const info = stages.get(order.id);
   if (!info) return notFound();
-  const { stage, balanceConfirmed, openRepair } = info;
+  const { stage, balanceConfirmed, openRepair, progress } = info;
 
   let warranty: WarrantyBrief | null = null;
   if (stage === "closed" && balanceConfirmed) {
     const w = (await loadWarrantyStatuses(orgId, [order.id])).get(order.id);
     warranty = w?.status === "sent" ? "sent" : w?.status === "pending_approval" ? "pending_approval" : "not_sent";
   }
-  const inRepair = stage === "repair_open" || stage === "repair_ready_to_schedule";
+  const inRepair = stage === "repair_open" || stage === "repair_ready_to_schedule" || stage === "repair_scheduled";
   const installDate = appt ? todayInTimeZone(tz, appt.startAt) : null;
+  // INSTALL-2e：已排返修 → "<返修日> 再去返修"
+  const repairDate = progress?.schedule?.installAt ? todayInTimeZone(tz, new Date(progress.schedule.installAt)) : null;
 
   return NextResponse.json({
     stage,
     stageLabel: STAGE_LABEL[stage],
-    salesText: salesStageText(stage, { installDate, targetDate: openRepair?.targetDate ?? null, balanceConfirmed, warranty }),
+    salesText: salesStageText(stage, { installDate, targetDate: openRepair?.targetDate ?? null, repairDate, balanceConfirmed, warranty }),
     installAt: appt?.startAt.toISOString() ?? null,
     repair:
       inRepair && openRepair
@@ -58,6 +61,8 @@ export const GET = withAuth<{ id: string }>(async (_request, ctx, user) => {
             repairNo: openRepair.repairNo,
             targetDate: openRepair.targetDate,
             customerConfirmed: openRepair.customerConfirmed,
+            scheduledDate: repairDate,
+            pendingFactory: progress?.pendingCategories.length ?? 0,
             rows: openRepair.rows.map((r) => ({
               n: r.n,
               location: r.location,

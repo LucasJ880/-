@@ -90,6 +90,11 @@ ok(installNotificationHref({ type: "install_completed", entityType: "install_bal
 // INSTALL-2d：维修单通知
 ok(installNotificationHref({ type: "install_repair_submitted", entityType: "install_repair", entityId: "rep 1" }) === "/install/repairs/rep%201", "出单 / 运营 / 会计：install_repair → 维修单详情");
 ok(installNotificationHref({ type: "install_repair_submitted", entityType: "blinds_order", entityId: "o7" }) === "/blinds-orders/o7", "销售：维修单已提交 + blinds_order → 工艺单详情状态卡");
+// INSTALL-2e：出单登记 / 安排返修
+ok(installNotificationHref({ type: "install_repair_scheduled", entityType: "install_task", entityId: "appt 9" }) === "/install/appt%209", "安装工：返修任务 install_task → /install/<预约 id>");
+ok(installNotificationHref({ type: "install_repair_scheduled", entityType: "blinds_order", entityId: "o8" }) === "/blinds-orders/o8", "销售：已排返修 → 工艺单状态卡");
+ok(installNotificationHref({ type: "install_repair_factory_issued", entityType: "blinds_order", entityId: "o9" }) === "/blinds-orders/o9", "销售：返修件已出单 → 工艺单状态卡");
+ok(installNotificationHref({ type: "install_repair_factory_issued", entityType: "install_repair", entityId: "rep2" }) === "/install/repairs/rep2", "运营：返修件已出单 → 维修单详情");
 {
   // 头部通知下拉与通知页必须都先调同一个落点函数（spec「通知落点」：两处同一规则）
   const root = path.resolve(__dirname, "../../../..");
