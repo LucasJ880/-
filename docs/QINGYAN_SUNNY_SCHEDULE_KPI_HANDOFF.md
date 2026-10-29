@@ -42,7 +42,7 @@
 |---|---|---|---|---|
 | KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，已归档 |
 | CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 网站 / 成员 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 已合并 [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323)，已归档；待上线 |
-| KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；**Evan 拍板 config.yaml 第 7 条例外** | 未 propose |
+| KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；Evan 2026-10-29 已拍板第 7 条例外（用户转达） | 四件套已 propose，待审（例外句随功能 PR 改进 config.yaml，见 change design D1） |
 | CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
 
 ## 3. 判断点（设计稿 §7）
@@ -125,7 +125,7 @@
    - 准备共享日历 ID（`xxx@group.calendar.google.com`）与读取账号（在职成员，已在青砚连接 Google 日历、在 Google 里能看到且未隐藏该共享日历）。
    - 打开一条 book-now 生成的日程，记下"创建者"邮箱与标题 / 描述里的固定字样，填进 `websiteBookerEmails` / `websiteMarkers`。
    - 老板账号 `PUT /api/organizations/<orgId>/calendar-watch-settings` 开启；下一轮 `sales-actions`（15 分钟内）建基线，`GET` 看到 `phase = incremental` 后，用真实共享日历建 / 改 / 删各一条做人工验收（通知到达、账本三条、重跑不增），结果补进报告。
-5. KPI-2：Evan 先拍板 `openspec/config.yaml` 第 7 条例外，再 propose。
+5. KPI-2：Evan 2026-10-29 拍板第 7 条例外（用户转达）；`openspec/changes/sales-period-narrative/` 四件套已 propose，**待审**。审过后 `/opsx:apply sales-period-narrative`（5 段 6 条 task）。
 
 ## 6.1 本地验证环境（下个会话可复用的做法）
 
