@@ -19,7 +19,9 @@
 | 项 | 状态 |
 |---|---|
 | 授权 | 用户 2026-10-29："不算出站，按照晨报发，继续做 CAL-3"；"按照计划，继续走，你自己审批，做完通知我，做好 hand off" → 四件套自审、apply、合并、归档都由我完成，全部做完再通知用户 |
-| 顺序 | ① CAL-2 归档小 PR（本分支 `0a01c879` 起，等 main 对比跑完补报告 §6 后开 PR、绿了合并）→ ② 从 origin/main 重建分支后 `/opsx:propose calendar-change-push` → 自审 → apply → 门禁 → PR → 合并 → 归档 |
+| 顺序 | ① CAL-2 归档小 PR ✅（#342 合并为 `d1cc92d8`）→ ② CAL-3 change 已写、已 apply、已据独立审查修复（分支 `claude/magical-shannon-keegzr`，自 main `d1cc92d8` 重建后 cherry-pick 两个提交）→ ③ 门禁链（typecheck / lint:baseline / test:ci / build / `npm test` 分支 vs main）→ 填报告 §2、§6 → 开 PR → 绿了合并 → ④ `/opsx:archive calendar-change-push --yes` 小 PR，TASKFLOW CAL-3 `[G]`→`[x]` → ⑤ 通知用户（全部做完） |
+| 当前进度 | 纯测试 36、隔离库 32 全过；变异检查 6 项均变红；CAL-1 / CAL-2 / Muse 回归全过；TASKFLOW CAL-3 已标 `[G]`；报告 `docs/QINGYAN_CAL-3_REPORT.md` §2、§6 待门禁后填 |
+| 独立审查（已处理） | ① 截断邮箱漏网 → 正则改为"本地部分 + @ + 可空域名"；② 推送在页内同步、无额度 → 每轮 30 条 + 截止时间，超出计 `wechatCapped`；③ 摘要被出站脱敏整段替换时铃铛只剩提示 → 先试构造信封，会被替换就走站内；④ 并发两轮 `persist_failed` 双发 → 回落前再查两个键；⑤ `occurredAt` 改为 Google 更新时间；⑥ 汇总补 `wechatSkipped` / `wechatCapped`，design 补八条纪律与验证方式，tasks 末条改为报告；⑦ 补测返回失败、两个日历、缺省推送接线。静默时段按服务器时区是推送服务既有行为，不改，记入报告已知限制 |
 | 计划要点（已核对代码） | 触发点：CAL-1 `run.ts` `processPage` 里每条**新建**的站内变更通知（`sourceKey` 不存在才发）；收件人不变。渠道：收件人已绑定 Muse（`settingsJson.museBridge.bindings` 里有其 userId）且 `MUSE_BRIDGE_ENABLED` 开 → 改用 `emitMuseEvent`（它本身就建一条 `muse_bridge` 站内通知，避免一人两条），新事件类型 `calendar.changed`（契约只追加，S2/S3 先例；`eventId` 用 `calwatch:{orgId}:{eventId}:{version}:{userId}`）；否则照旧 `calendar_watch` 通知。微信：对新建成功的那条再调 `pushSalesReminder(userId, title, summary)`（绑定的 pushDomains 含 sales 且 pushSales 开、静默时段；非生产 `assertSideEffectOrThrow` 抛错→捕获计数）；推送函数可注入。读取账号重连通知同样走微信（不走 Muse）。失败不影响 CAL-1 一轮；结果里计数 |
 | 风险已知 | 绑定 Muse 的收件人站内通知 category 从 `calendar_watch` 变 `muse_bridge`（CAL-1 spec"变更通知"仍满足：仍是一条站内通知）；需在 spec 写明 |
 
