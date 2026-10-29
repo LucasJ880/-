@@ -58,7 +58,7 @@ change：`openspec/changes/install-2g-warranty-update/`（proposal / specs：`in
 
 ### 3.2 全量 `npm test`
 
-FULL_SUITE_RESULT
+隔离库、`NODE_OPTIONS=--max-old-space-size=8192`：**497/506**（2f 时 480/489；中间 main 上别的 change 新登记了测试，本 change 新登记 `email-sender.test.ts` 1 个）。9 个失败与 2a–2f 报告记录的同一批环境性失败完全一致、与本 change 无关：Mention Gateway M2-A Identity DB、Sunny 工艺单签字→导出 DB 端到端（`NO_BINDING`）、Phase3A-3 Approvals Smoke、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview Acceptance、T4 授标情报矩阵、报价 PDF 分页（无 Chromium 字体）。套件内类型检查与测试注册校验（487）通过；INSTALL-1 / 2a–2g 全部安装测试 0 失败（`warranty` 62、`warranty-db.isolated` 43、`email-sender` 9）。
 
 ### 3.3 浏览器走查
 
