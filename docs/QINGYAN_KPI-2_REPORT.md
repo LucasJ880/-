@@ -26,7 +26,34 @@
 
 ## 2. 怎么验
 
-（5.1 完成后补全命令输出）
+| 检查 | 结果 |
+|---|---|
+| apply 前基线 | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
+| `npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts` | 100 通过 0 失败 |
+| 纯测试变异检查（临时副本，未提交） | 去中文数字检查 / 放宽到 1% 容差 / 去引用检查 → 5 项变红；去同号检查 / 比率与数量不分组 → 2 项变红 |
+| `period-narrative-db.isolated.test.ts`（隔离库 127.0.0.1:5433） | 31 通过 0 失败：真实路由 + 真实 `createCompletionDetailed`，模型端为测试内的本机 OpenAI 兼容假服务（`OPENAI_BASE_URL`）；开关关 404 零调用、`GET narrativeEnabled` 两种取值、403 / 400 零调用、合法 200、编造数字 / 越词表 / 坏格式 / 模型 400 回落、费用超限（注入）、本人范围提示词不含他人、审计 outcome 序列与字段、第 7 次 429 不调用模型 |
+| 端到端变异检查（临时，已还原） | 去开关判断与限次 → 8 项变红 |
+| 无 `DATABASE_URL` 跑端到端 | 打印跳过，退出 0；清理后无残留 |
+| 回归 | period-pure 48、period-insights 38、period-db 31、Muse sales-pure 84 / muse-bridge-pure 67 / sales-db 36，全过 |
+| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0 |
+| `npm run lint:baseline` | PASS（无新增 error fingerprint） |
+| `npm run test:ci` | 退出 0，`CI unit subset PASS` |
+| `bash scripts/check-test-registry.sh` | 通过；已注册 486 个；`scripts/test-all.sh` 的 run_test 由 main 的 504 增至 506 |
+| `openspec validate sales-period-narrative --strict` | valid |
+| `npm run build` | 退出 0；`/api/sales/period-summary/narrative` 在产出表中 |
+| PR [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) CI `validate-lint-typecheck-test-build` | 绿（提交 `ae8525ae`），2026-10-29 用户确认后合并（`f4a6b8f2`） |
+| `/opsx:verify sales-period-narrative` | 9 条要求、21 个场景均有对应代码与测试 / 浏览器检查；0 严重、0 警告 |
+
+真实浏览器检查（`next start -p 3100` + Playwright + 本机假 OpenAI 服务 :4010，种子与脚本只写本机测试库、未进仓库）：
+
+| 检查 | 结果 |
+|---|---|
+| 开关关，老板打开 `/sales/home?from=2026-10-01&to=2026-10-28` | 期间面板正常；无"生成解读"按钮；无解读请求；无错误 |
+| 开关开，页面加载 | 按钮出现；加载时零解读请求 |
+| 点击"生成解读" | 一次 POST；显示"AI 解读 · 数字已与看板核对"、本期结论"本期成单 2 单，合计 $4,000；报出 3 份，金额 4,500。"、下一步"催签 · 跟进那 1 份在手未签的报价。" |
+| 假服务改为返回编造数字，点"重新生成" | 显示"本次解读未通过核对，已以上方确定性洞察为准"；页面不出现编造的 65,000 |
+| 手机宽度 390px | 无横向溢出；无页面错误 |
+| 假服务收到的调用 | 3 次，等于点击次数 |
 
 ## 3. 对设计稿 §3.5 的偏离与实施中的修订（均已同步 spec / design）
 
@@ -66,4 +93,14 @@
 
 ## 6. 全量测试
 
-（5.1 完成后填写：隔离库全量 `npm test` 的失败项逐一与 main 对比；PR CI 结果。）
+隔离库（127.0.0.1:5433）全量 `npm test`，分支（`ae8525ae` 之前的提交，审查修复前启动；KPI-2 两个测试在修复后已单独重跑通过）与 origin/main `7c523860`（同库、同环境的独立工作树）各跑一次：
+
+| | 通过 / 总数 | 失败 |
+|---|---|---|
+| 分支 | 493 / 505 | 12 |
+| main `7c523860` | 491 / 503 | 12 |
+
+- 总数差 2 = 本 change 新注册的两个测试（均通过）。
+- 两边失败的 12 项完全相同，与本 change 无关：`TypeScript 类型检查`（test-all 里不带 `--max-old-space-size`，本容器 Node 22 堆溢出；单独 `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0，CI 也绿）、Phase3A-3 / 3A-4（两项）/ 3A-5 / 3B-A、Gmail Draft OAuth Compose Scope、Mention Gateway M2-A Identity DB、Sunny 工艺单 DB 端到端、T4 授标情报 Postgres 矩阵、Quote Operations 客户报价 PDF 分页布局、招标询价催单执行器。
+
+PR [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) CI `validate-lint-typecheck-test-build`：绿（提交 `ae8525ae`，含 `npm run build`），2026-10-29 用户确认后合并为 `f4a6b8f2`。

@@ -54,7 +54,7 @@
 
 ## 5. 收口
 
-- [ ] 5.1 全量门禁全部通过：
+- [x] 5.1 全量门禁全部通过：
   - `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`
   - `npm run lint:baseline`
   - `npm run test:ci`
@@ -65,7 +65,7 @@
 
   verify：上述命令退出码与输出贴进报告；registry 比当前 main 增加 2；CI 绿。
 
-- [ ] 5.2 写 `docs/QINGYAN_KPI-2_REPORT.md`：
+- [x] 5.2 写 `docs/QINGYAN_KPI-2_REPORT.md`：
   - 做了什么、怎么验、对设计稿 §3.5 的偏离（模型调用走 `getClient` 而非设计稿写的 ProviderRouter 路径、输出改为约定 JSON、开关回显、限次与审计）；
   - 已知限制：真实模型输出质量与回落率需上线验收、中文数字一律拒绝的误杀；
   - 上线步骤：设置环境变量、人工验收 10 次并记录通过 / 回落分布。

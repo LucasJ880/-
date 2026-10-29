@@ -4,17 +4,17 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-29（KPI-1、CAL-1 均已合并并归档；CAL-1 待运维上线，见 §6 第 4 条） |
+| 最后更新 | 2026-10-29（KPI-1、CAL-1、KPI-2 均已合并并归档；CAL-1 与 KPI-2 待上线验收；下一个是 CAL-2） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | 无（CAL-1 已归档到 `openspec/changes/archive/2026-10-29-calendar-watch-attribution/`） |
+| 进行中的 change | 无（KPI-2 已归档到 `openspec/changes/archive/2026-10-29-sales-period-narrative/`） |
 | 工作分支 | `claude/magical-shannon-keegzr`（每个 PR 合并后从 origin/main 重建同名分支；main 前进时 merge 进来，不 rebase） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
 
 ---
 
-## 0. KPI-2 现场续接（上下文压缩或换会话后从这里接）
+## 0. KPI-2 现场续接（已完成：#332 合并，归档小 PR 见下）
 
 | 项 | 状态 |
 |---|---|
@@ -22,7 +22,7 @@
 | 授权 | 用户 2026-10-29："Evan approved it go next step"（第 7 条例外）→ propose；"都按照你推荐的来，apply"（例外句原文、中文数字一律拒绝、只用环境变量开关） |
 | 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认** |
 | 基线（apply 前） | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
-| tasks | 4/6：1.1 ✓ 2.1 ✓ 3.1 ✓ 4.1 ✓；5.1 进行中：合入 main `7c523860`（仅文档）；typecheck 0、lint:baseline PASS、test:ci PASS、registry 486（main 504 → 506 条 run_test）、validate valid；**独立审查 8 条已全修**（userId / 邮箱不进输入、全角 / 英文 / 中文数量级 / k / 科学计数 / 千百亿拒绝、正负号同号、数值分组收紧、截断与姓名误杀、1–3 条、面板竞态），纯测试 100、隔离库 31、变异 2 项变红，spec / design / 报告已同步。全量 `npm test` 在跑（scratchpad `k2-npmtest-branch.log`；开始于审查修复之前，KPI-2 两个测试已单独重跑通过），之后需在 main 工作树对比失败项 |
+| tasks | 6/6 ✓。PR [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) CI 绿，2026-10-29 用户"合并"后合并为 `f4a6b8f2`；全量 `npm test` 分支 493/505 vs main `7c523860` 491/503，失败 12 项完全相同；已归档（`sales/period-narrative` 8 条要求，`sales/period-summary` +1），specs 全量校验 44 过 4 不过（与 main 一致） |
 | 3.1 浏览器验收（`next start -p 3100` + Playwright + 本机假 OpenAI 服务 :4010，脚本在 scratchpad `kpi2ui/`，未进仓库） | 开关关：期间面板在、无"生成解读"按钮、无解读请求；开关开：按钮在、加载时零请求，点击一次 POST → 显示"AI 解读 · 数字已与看板核对"、结论与"催签"下一步；假服务改回编造数字 → 显示"本次解读未通过核对，已以上方确定性洞察为准"，页面不出现 65,000；390px 无溢出；无页面错误；假服务共收到 3 次调用（= 3 次点击）。服务按端口停、种子已清 |
 | 本地库 | 容器重启后要 `pg_ctlcluster 16 qytest start`（会提示 stale pid，正常） |
 
@@ -54,7 +54,7 @@
 |---|---|---|---|---|
 | KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，已归档 |
 | CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 网站 / 成员 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 已合并 [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323)，已归档；待上线 |
-| KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；Evan 2026-10-29 已拍板第 7 条例外（用户转达） | 四件套已 propose，待审（例外句随功能 PR 改进 config.yaml，见 change design D1） |
+| KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；Evan 2026-10-29 已拍板第 7 条例外 | 已合并 [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332)，已归档；待上线验收 |
 | CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
 
 ## 3. 判断点（设计稿 §7）
@@ -137,7 +137,8 @@
    - 准备共享日历 ID（`xxx@group.calendar.google.com`）与读取账号（在职成员，已在青砚连接 Google 日历、在 Google 里能看到且未隐藏该共享日历）。
    - 打开一条 book-now 生成的日程，记下"创建者"邮箱与标题 / 描述里的固定字样，填进 `websiteBookerEmails` / `websiteMarkers`。
    - 老板账号 `PUT /api/organizations/<orgId>/calendar-watch-settings` 开启；下一轮 `sales-actions`（15 分钟内）建基线，`GET` 看到 `phase = incremental` 后，用真实共享日历建 / 改 / 删各一条做人工验收（通知到达、账本三条、重跑不增），结果补进报告。
-5. KPI-2：Evan 2026-10-29 拍板第 7 条例外（用户转达）；`openspec/changes/sales-period-narrative/` 四件套已 propose，**待审**。审过后 `/opsx:apply sales-period-narrative`（5 段 6 条 task）。
+5. ~~KPI-2~~：已合并 [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) 并归档。**上线**：Vercel 设 `SALES_PERIOD_NARRATIVE_ENABLED=true` 重新部署；老板在首页点"生成解读" 10 次，按 `docs/QINGYAN_KPI-2_REPORT.md` §5 记录通过 / 回落分布并逐条核对数字语境。
+6. CAL-2 `website-booking-intake`：前置是网站 book-now 插件能发 webhook（运维先查插件能力），再 propose。
 
 ## 6.1 本地验证环境（下个会话可复用的做法）
 
