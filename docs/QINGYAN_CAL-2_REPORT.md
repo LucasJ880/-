@@ -86,4 +86,9 @@
 
 ## 6. 全量测试
 
-（6.1 完成后填写）
+| 检查 | 结果 |
+|---|---|
+| `npm run test:ci`（无 `DATABASE_URL`） | 退出 0，`CI unit subset PASS` |
+| `npm test`（隔离库，分支 `0a01c879` 起） | 498/510 通过，12 失败 |
+| `npm test`（同一隔离库，main `9da2c221` worktree） | 496/508 通过，12 失败 |
+| 失败清单对比 | 两边 12 项逐字相同，均为 main 既有：TypeScript 类型检查（test-all 内 OOM，独立 `npm run typecheck` 退出 0）、Phase3A-3 / 3A-4 ×2 / 3A-5 / 3B-A、Gmail Draft OAuth、Mention Gateway M2-A、Sunny 工艺单、T4 授标、报价 PDF、招标询价催单；新增 2 个测试均通过 |
