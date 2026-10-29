@@ -100,7 +100,11 @@ export interface PeriodInsight {
   evidence: Record<string, number | string | null>;
 }
 
-/** CAL-1 交付后才有数据；本 change 固定传 null */
+/** CAL-1：期间内新建日程的来源分布（按 Google 创建时间）；日历观察开启且为全企业范围时给出 */
 export interface PeriodCalendarStats {
   bySource: { qingyan: number; member: number; website: number; unknown: number };
+  /** 按成员的新建数（只列新建数 > 0 的成员，新建数降序） */
+  byActor?: Array<{ userId: string; name: string; bucket: "management" | "sales" | "ops" | "other" | null; created: number }>;
+  /** 账本取数命中上限 */
+  truncated?: boolean;
 }

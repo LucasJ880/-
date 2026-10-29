@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { startOfDayToronto, endOfDayToronto } from "@/lib/time";
 import { encryptField, decryptField } from "@/lib/crypto";
 import { primaryWriteCalendarId } from "@/lib/google-calendar-id";
+import { buildChangesListParams, googleErrorStatus, mapGoogleEvent } from "@/lib/calendar-watch/pure";
+import type { CalendarChange } from "@/lib/calendar-watch/types";
 
 // userinfo.* 用于换取令牌后读取 Google 账号邮箱；仅有 calendar.* 时访问 userinfo 会 401
 const SCOPES = [
@@ -586,5 +588,59 @@ export async function getGoogleEventDetail(
     }
     console.error("Google Calendar getDetail error:", err);
     return null;
+  }
+}
+
+/** CAL-1：同步令牌失效（events.list 返回 410 GONE），调用方应清空游标、不带令牌重做全量 */
+export class GoogleSyncTokenExpiredError extends Error {
+  constructor() {
+    super("GOOGLE_SYNC_TOKEN_EXPIRED");
+    this.name = "GoogleSyncTokenExpiredError";
+  }
+}
+
+export interface CalendarChangesPage {
+  changes: CalendarChange[];
+  nextPageToken: string | null;
+  nextSyncToken: string | null;
+}
+
+/**
+ * CAL-1 日历观察：只读拉取一个日历的一页变更（syncToken 增量 / 不带时间过滤的全量）。
+ * 读取账号没有启用的 Google 连接或授权失效 → GoogleTokenExpiredError；410 → GoogleSyncTokenExpiredError；
+ * 其它错误 → GoogleCalendarApiError。
+ */
+export async function listCalendarChanges(
+  userId: string,
+  opts: { calendarId: string; syncToken?: string | null; pageToken?: string | null },
+): Promise<CalendarChangesPage> {
+  const provider = await getGoogleProvider(userId);
+  if (!provider || !provider.accessToken) throw new GoogleTokenExpiredError();
+
+  const client = await getAuthedClient(provider);
+  const calendar = google.calendar({ version: "v3", auth: client });
+
+  try {
+    const res = await calendar.events.list(buildChangesListParams(opts));
+    const changes: CalendarChange[] = [];
+    for (const item of res.data.items || []) {
+      const c = mapGoogleEvent(item);
+      if (c) changes.push(c);
+    }
+    return {
+      changes,
+      nextPageToken: res.data.nextPageToken || null,
+      nextSyncToken: res.data.nextSyncToken || null,
+    };
+  } catch (err) {
+    if (googleErrorStatus(err) === 410) throw new GoogleSyncTokenExpiredError();
+    if (isGoogleTokenError(err)) {
+      await markGoogleProviderDisabled(provider.id);
+      throw new GoogleTokenExpiredError();
+    }
+    const e = err as { response?: { data?: { error?: { message?: string } | string } }; message?: string };
+    const rawData = e.response?.data?.error;
+    const reason = typeof rawData === "string" ? rawData : rawData?.message || e.message || "unknown";
+    throw new GoogleCalendarApiError(googleErrorStatus(err) ?? 500, reason, e.message);
   }
 }

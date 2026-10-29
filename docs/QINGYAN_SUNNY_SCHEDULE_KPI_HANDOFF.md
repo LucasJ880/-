@@ -4,28 +4,44 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-29（会话 1：KPI-1 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，并已 archive 为 `openspec/changes/archive/2026-10-29-sales-period-summary/`；规格合入 `openspec/specs/sales/period-summary`（新）与 `muse-bridge/sales-intents`（增量）；**KPI-1 完成，下一个是 CAL-1**） |
+| 最后更新 | 2026-10-29（KPI-1 已完成并归档；**CAL-1 实施中**，进度见下方"CAL-1 现场续接"） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | 无（本线）。KPI-1 已归档（#309 / #312）；同期的 `fix-gcal-push-calendar-id`（#308，即 §4 ⑰ 的修复）与 `install-2a-closeout-all-lines` 也已归档 |
-| 工作分支 | `claude/magical-shannon-keegzr`（基于 origin/main `ed3b55f`，2026-10-28 核对时 main 未前进） |
+| 进行中的 change | `openspec/changes/calendar-watch-attribution/`（CAL-1；用户 2026-10-29 授权"你来负责继续做下去，按计划书做，重点做好验证，都按你推荐的来"） |
+| 工作分支 | `claude/magical-shannon-keegzr`（每个 PR 合并后从 origin/main 重建同名分支；main 前进时 merge 进来，不 rebase） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
 
 ---
 
+## 0. CAL-1 现场续接（上下文压缩或换会话后从这里接）
+
+| 项 | 状态 |
+|---|---|
+| change | `calendar-watch-attribution`，四件套已提交（`e5070d0`），validate --strict 通过 |
+| 授权 | 用户："你来负责这个继续做下去，按照计划书来做。做好 hand off，防止记忆丢失，重点是做好验证。都按你推荐的来" |
+| 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认**（CLAUDE.md：Evan 拍板合并） |
+| tasks | 8/8：1.1 ✓ 2.1 ✓ 3.1 ✓ 4.1 ✓ 6.1 ✓（隔离库 68/68）5.1 ✓（`load.ts` 在 org 范围且开启时填 `calendar = { bySource, byActor(新建>0), truncated }`；`PeriodCalendarStats` 加可选 `byActor` / `truncated`；面板"日程来源"块。`period-db.isolated` 26→31 全过；period-pure 48、period-insights 38、Muse sales-pure 84 / muse-bridge-pure 67 / sales-db 36 全过；`npm run build` 退出 0，两条新路由在产出表里）。下一条 7.1 全量门禁 |
+| 7.1 ✓ | 合入 origin/main `57549cf1`；typecheck 0、lint:baseline PASS、test:ci PASS、registry 479、validate --strict；隔离库全量 分支 485/498 vs main 484/496，共同失败 12 项相同，分支独有的 1 项是全量运行中改代码的窗口（重跑 175/0）；PR CI 绿。独立审查 4 条正确性问题 + 4 条低优先级已修 |
+| 7.2 ✓ | `docs/QINGYAN_CAL-1_REPORT.md` 完成（§6 已填）；TASKFLOW CAL-1 `[G]` |
+| PR | [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323)，已订阅 PR 事件；**等用户确认后合并**；合并后另开小 PR `/opsx:archive calendar-watch-attribution --yes`（TASKFLOW CAL-1 → `[x]`），并按报告 §5 交运维上线 |
+| 5.1 浏览器验收（`next start -p 3100` + Playwright，种子脚本留在 scratchpad 未进仓库） | 老板 10/1–10/28：未开启 → 无"日程来源"块；开启 → 显示 青砚 1 / 成员 6 / 网站预约 4 / 不明 1（共 12），"按成员：Riley Rep（销售）5 条、Morgan Ops（运营）2 条"，I8 提示"1 条日程来源不明"（I9 未触发：4/12 < 40%，符合阈值）；销售同页无该块；390px 无横向溢出；无页面错误。服务按端口停、种子已清 |
+| apply 中的规格修订（已同步 spec / design / proposal，validate --strict 通过） | ① 归因顺序改为 R1 青砚 → **R2 网站** → **R3 成员** → R4 不明（book-now 账号常同时是成员 / 读取账号的连接邮箱）；② 删除事件缺字段沿用上一条账本；③ 不发通知：青砚来源新建、青砚推送的修改、青砚解除同步的删除、标题与时间都没变的修改、既无标题又无时间的删除；④ 统计：新建按 Google 创建时间、修改 / 删除按 Google 更新时间；⑤ 增量首次见到、创建早于基线的记 `updated`。另（报告写明，不改 spec）：换读取账号清空全部游标；`PUT` 只在合并后为开启时才查 Google 连接与日历可见性（保证 `{enabled:false}` 回滚不被授权失效挡住）；manager / admin / super_admin 也归 `management` 桶；通知 `type = calendar_event`（既有类型）、`category = calendar_watch` |
+| 本地库 | `pg_ctlcluster 16 qytest start`，端口 5433，库 `qy_test`，41 个迁移已应用（见 §6.1）；容器重启后集群会停，需重新 start |
+| 验证纪律 | 每条 task：先跑相关既有测试记基线 → 写代码 → 跑新测试 → typecheck → 提交推送 → 本表更新；隔离库测试每次实跑，不凭推断 |
+
 ## 1. 用户诉求（Sunny，2026-10-28 原话要点）
 
 1. 日程用 Google Calendar 排；销售 / 运营直接在 Google 里放或改日程，别人不知道；网站 `sunnyshutter.ca/book-now/` 的客户自主预约也进日历；**要能按账号统计"这个月谁放了多少日程"**（销售 / 运营 / 网站分开）。
 2. 看板上要能看"10 月 1 日到今天 28 日一共成了多少单、一共报了多少钱出去"，带 AI 分析。
-3. 判断点："先按推荐的来"；补充"**销售与运营是分开登入的**"（各用自己的 Google 账号写共享日历 → 设计稿 R2 按成员归因有效）。
+3. 判断点："先按推荐的来"；补充"**销售与运营是分开登入的**"（各用自己的 Google 账号写共享日历 → 按成员归因有效；apply 中成员规则编号改为 R3，见 §0）。
 
 ## 2. 拆分与顺序（已拍板：KPI-1 → CAL-1 → KPI-2 → CAL-2）
 
 | ID | change 名 | 内容 | 前置 | 状态 |
 |---|---|---|---|---|
 | KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，已归档 |
-| CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 成员 / 网站 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 未 propose |
+| CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 网站 / 成员 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | apply 中（见 §0） |
 | KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；**Evan 拍板 config.yaml 第 7 条例外** | 未 propose |
 | CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
 

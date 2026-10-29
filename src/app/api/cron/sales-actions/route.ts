@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runTrackedAutomation } from "@/lib/automation/runner";
+import { runCalendarWatch } from "@/lib/calendar-watch/run";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { scanMuseReminders } from "@/lib/muse-bridge/reminder-scan";
@@ -10,6 +11,7 @@ export const maxDuration = 300;
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request);
   if (denied) return denied;
+  const requestStartedAt = Date.now();
 
   const data = await runTrackedAutomation("sales-action-sync", async () => {
     const [opportunityOrganizations, actionOrganizations] = await Promise.all([
@@ -58,5 +60,18 @@ export async function GET(request: NextRequest) {
       metadata: result,
     };
   });
-  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders });
+  // CAL-1：Google 共享日历变更观察与归因（只读 Google；排在最后，有页数与时间预算）
+  const calendarWatch = await runTrackedAutomation("calendar-watch", async () => {
+    // 整个请求 maxDuration = 300 秒，前两步已用掉一部分：从请求开始算，留 60 秒余量
+    const result = await runCalendarWatch({ deadline: new Date(requestStartedAt + 240_000) });
+    return {
+      data: result,
+      status: result.organizations === 0 ? "skipped" : result.failedCount > 0 ? "partial" : "succeeded",
+      processedCount: result.organizations,
+      succeededCount: result.organizations - result.failedCount,
+      failedCount: result.failedCount,
+      metadata: { organizations: result.organizations, failedCount: result.failedCount, recorded: result.recorded, notified: result.notified },
+    };
+  });
+  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch });
 }
