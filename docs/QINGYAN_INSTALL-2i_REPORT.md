@@ -43,7 +43,7 @@ change：`openspec/changes/install-2i-repair-list-archive/`（proposal / specs�
 
 ### 3.1 全量 `npm test`
 
-FULL_SUITE_RESULT
+隔离库、`NODE_OPTIONS=--max-old-space-size=8192`：**502/511**（2h 时 499/508；+1 为本 change 新登记的 `repair-list-db.isolated`，另 +2 为 main 上别的 change）。9 个失败与 2a–2h 报告记录的同一批环境性失败完全一致、与本 change 无关。套件内类型检查与测试注册校验（492）通过；INSTALL-1 / 2a–2i 全部安装测试 0 失败（`repair` 139、`repair-list-db.isolated` 18）。
 
 ### 3.2 浏览器走查
 
