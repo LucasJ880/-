@@ -10,6 +10,7 @@
  *   [7] 生成后客户邮箱被改 → RECIPIENT_MISMATCH；客户无邮箱 → blocked「客户没有邮箱」
  *   INSTALL-2g：[1] 种子 = Shutters 1 / 15 / 25、报修电话 / 邮箱、抄送 miki@；非法抄送 400；[3] 抄送合并重复、预览与审批带抄送且去掉收件人、
  *   请求体里的 cc / to 被忽略；[5] 发送带抄送、审计记抄送；[6] 确认尾款接口预览带抄送；[8] 抄送为空 → 不带抄送；[9] 审批内容抄送不合法 → INVALID_PAYLOAD
+ *   INSTALL-2k：[3] 预览带附件名与证书；[5] 发送带 PDF 附件、审计记附件；[10] PDF 生成失败 → PDF_FAILED、不发送；[11] 没有证书的旧审批 → 照常发、不带附件
  *   INSTALL-2h：[1] 种子帘类 1/5/15/无绳 3/电机 5/配件 5/电池 1、窗帘 1/5/15/电机 5/配件 5/电池 1；老板保存帘类无绳 3 / 电池 1 读回；未知部件 400
  *
  * 运行（隔离库）：
@@ -54,21 +55,29 @@ async function main() {
   const { todayInTimeZone } = await import("@/lib/install/balance");
   const { saveOrgEmailSender } = await import("@/lib/trade/email-sender");
   const { requestApproval } = await import("@/lib/approval/request");
-  const { __setWarrantySenderForTest } = await import("@/lib/pending-actions/exec-install-warranty-email");
+  const { __setWarrantySenderForTest, __setWarrantyPdfRendererForTest } = await import("@/lib/pending-actions/exec-install-warranty-email");
   const settingsRoute = await import("@/app/api/install/warranty-settings/route");
   const listRoute = await import("@/app/api/accounting/balance/route");
   const confirmRoute = await import("@/app/api/accounting/balance/[orderId]/confirm/route");
   const warrantyRoute = await import("@/app/api/accounting/balance/[orderId]/warranty/route");
   const approveRoute = await import("@/app/api/ai/pending-actions/[id]/route");
 
-  const sends: Array<{ to: string; cc: string[]; subject: string; body: string; html: string; fromName: string }> = [];
+  const sends: Array<{ to: string; cc: string[]; subject: string; body: string; html: string; fromName: string; attachments: Array<{ filename: string; content: Buffer }> }> = [];
+  // INSTALL-2k：测试 PDF 渲染（不依赖 Chromium）；pdfFail 时模拟渲染失败
+  let pdfFail = false;
+  const pdfInputs: string[] = [];
+  __setWarrantyPdfRendererForTest(async (html) => {
+    if (pdfFail) throw new Error("chromium unavailable");
+    pdfInputs.push(html);
+    return Buffer.from(`%PDF-1.7 test-certificate ${html.length}`);
+  });
   let failNext = false;
   __setWarrantySenderForTest(async (input) => {
     if (failNext) {
       failNext = false;
       throw new Error("provider down");
     }
-    sends.push({ to: input.to, cc: input.cc, subject: input.subject, body: input.body, html: input.html, fromName: input.sender.fromName });
+    sends.push({ to: input.to, cc: input.cc, subject: input.subject, body: input.body, html: input.html, fromName: input.sender.fromName, attachments: input.attachments });
     return { messageId: `test-msg-${sends.length}`, from: "warranty@fixture.test" };
   });
 
@@ -136,7 +145,7 @@ async function main() {
     const l = await listAs();
     return ((l.body?.recentConfirmed ?? []) as Array<{ orderId: string; warranty: Json | null }>).find((r) => r.orderId === orderId)?.warranty ?? null;
   };
-  const warranty = (b: Json | null) => (b?.warranty ?? {}) as { status?: string; approvalId?: string; blockers?: string[]; preview?: { to: string; cc: string[]; subject: string; html: string }; reason?: string; canRegenerate?: boolean };
+  const warranty = (b: Json | null) => (b?.warranty ?? {}) as { status?: string; approvalId?: string; blockers?: string[]; preview?: { to: string; cc: string[]; subject: string; html: string; attachment?: { name: string; html: string } }; reason?: string; canRegenerate?: boolean };
 
   try {
     console.log("\n[1] 质保设置");
@@ -195,6 +204,11 @@ async function main() {
     ok(w1b.preview?.to === "homeowner1@fixture.test" && w1b.preview.subject === `Your Sunny Shutter installation is complete — Warranty W-I2C-1-${stamp} (Order I2C-1-${stamp})`, "预览：收件人 = 客户邮箱、主题格式", w1b.preview?.subject);
     ok(w1b.preview?.cc?.join() === "miki@fixture.test", "预览抄送只有 miki@（去掉与收件人相同的客户邮箱）", w1b.preview?.cc);
     ok(
+      w1b.preview?.attachment?.name === `Warranty-W-I2C-1-${stamp}.pdf` && (w1b.preview.attachment.html ?? "").includes("Warranty Certificate") && !/2600|5200|\$|CAD/.test(w1b.preview.attachment.html ?? ""),
+      "预览带附件名 Warranty-W-<单号>.pdf 与证书（不含金额）（INSTALL-2k）",
+      w1b.preview?.attachment?.name,
+    );
+    ok(
       !/2600|5200|\$|CAD/.test(`${w1b.preview?.subject}${w1b.preview?.html}`) &&
         /Components 15 yr \(until 2041-10-28\)/.test(w1b.preview?.html ?? "") &&
         /Frame &amp; Panels 25 yr \(until 2051-10-28\)/.test(w1b.preview?.html ?? ""),
@@ -231,9 +245,16 @@ async function main() {
     ok(a2.status === 200 && act2?.status === "executed" && sends.length === 1, "批准 → 已执行、发送 1 次", { body: a2.body, act2 });
     ok(sends[0]?.to === "homeowner1@fixture.test" && sends[0].fromName === "Sunny Shutter Inc" && sends[0].body.includes("W-I2C-1-"), "以组织发件身份发给客户邮箱");
     ok(sends[0]?.cc?.join() === "miki@fixture.test", "发送带抄送 miki@", sends[0]?.cc);
+    ok(
+      sends[0]?.attachments?.length === 1 && sends[0].attachments[0].filename === `Warranty-W-I2C-1-${stamp}.pdf` && sends[0].attachments[0].content.subarray(0, 5).toString("latin1") === "%PDF-" && pdfInputs.some((h) => h.includes("Warranty Certificate")),
+      "发送带 PDF 附件（由审批里的证书渲染）（INSTALL-2k）",
+      sends[0]?.attachments?.map((a) => a.filename),
+    );
     const sentAudit = await db.auditLog.findMany({ where: { action: "install.warranty.sent", targetId: o1.id } });
     const sentAfter = JSON.parse(sentAudit[0]?.afterData ?? "{}") as { messageId?: string; cc?: string[] };
     ok(sentAudit.length === 1 && sentAfter.messageId === "test-msg-1" && sentAfter.cc?.join() === "miki@fixture.test", "审计 install.warranty.sent 一条（含消息 id、抄送）", sentAfter);
+    const sentAtt = (sentAfter as { attachment?: { filename: string; bytes: number } }).attachment;
+    ok(sentAtt?.filename === `Warranty-W-I2C-1-${stamp}.pdf` && (sentAtt?.bytes ?? 0) > 0, "审计记附件名与字节数（INSTALL-2k）", sentAtt);
     const sentNote = await db.notification.findFirst({ where: { userId: ALEX, type: "install_warranty_sent" } });
     ok(!!sentNote && sentNote.entityType === "blinds_order" && !/\d{3,}\.\d|2600|\$/.test(`${sentNote.title}${sentNote.summary}`), "销售收到「质保邮件已发出」（无金额）", sentNote);
     const st2 = await statusOf(o1.id);
@@ -323,8 +344,47 @@ async function main() {
     const a9 = await approve(MIKI, bad9.ok ? bad9.actionIds[0] : "");
     const row9 = await db.pendingAction.findUnique({ where: { id: bad9.ok ? bad9.actionIds[0] : "" }, select: { status: true, failureReason: true } });
     ok(bad9.ok && a9.status === 400 && row9?.status === "failed" && /INVALID_PAYLOAD/.test(row9.failureReason ?? "") && sends.length === before9, "抄送格式不对 → 失败 INVALID_PAYLOAD、发送 0", row9);
+
+    console.log("\n[10] PDF 生成失败 → PDF_FAILED、不发送（INSTALL-2k）");
+    const cust10 = await mkCustomer("homeowner10@fixture.test", "10");
+    const o10 = await mkOrder(`I2C-10-${stamp}`, cust10.id);
+    const w10 = warranty((await confirm(o10.id)).body);
+    pdfFail = true;
+    const before10 = sends.length;
+    const a10 = await approve(MIKI, w10.approvalId!);
+    pdfFail = false;
+    const act10 = await db.pendingAction.findUnique({ where: { id: w10.approvalId! }, select: { status: true, failureReason: true } });
+    const failNote10 = await db.notification.count({ where: { userId: MIKI, type: "install_warranty_failed", entityId: o10.id } });
+    ok(a10.status === 400 && act10?.status === "failed" && /PDF_FAILED/.test(act10.failureReason ?? "") && sends.length === before10 && failNote10 === 1, "失败 PDF_FAILED、不发送、批准人收到失败通知", { act10, failNote10 });
+    const st10 = await statusOf(o10.id);
+    ok(st10?.status === "failed" && st10.canRegenerate === true, "列表：failed、可重新生成", st10);
+
+    console.log("\n[11] 没有证书的旧审批 → 照常发、不带附件（INSTALL-2k）");
+    const cust11 = await mkCustomer("homeowner11@fixture.test", "11");
+    const o11 = await mkOrder(`I2C-11-${stamp}`, cust11.id);
+    const w11 = warranty((await confirm(o11.id)).body);
+    const p11 = (await db.pendingAction.findUnique({ where: { id: w11.approvalId! }, select: { payload: true } }))!.payload as Record<string, unknown>;
+    const legacyPayload = { ...p11 };
+    delete legacyPayload.certificateHtml;
+    delete legacyPayload.attachmentName;
+    const legacy = await requestApproval({
+      orgId: ORG,
+      principal: { userId: MIKI, actorType: "user" },
+      actionType: "install.send_warranty_email",
+      title: "legacy",
+      preview: "legacy",
+      payload: legacyPayload,
+      risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
+      source: { module: "install.warranty.test", toolName: "install_send_warranty_email" },
+      approver: { approverUserId: MIKI },
+      idempotencyKey: `install-warranty:${o11.id}:legacy`,
+    });
+    const before11 = sends.length;
+    const a11 = await approve(MIKI, legacy.ok ? legacy.actionIds[0] : "");
+    ok(legacy.ok && a11.status === 200 && sends.length === before11 + 1 && sends[sends.length - 1].attachments.length === 0, "旧审批照常发送、不带附件", a11.body);
   } finally {
     __setWarrantySenderForTest(null);
+    __setWarrantyPdfRendererForTest(null);
     await db.notification.deleteMany({ where: { userId: { in: users } } });
     await db.pendingAction.deleteMany({ where: { orgId: ORG } }).catch((e) => console.warn("pendingAction cleanup:", e instanceof Error ? e.message : e));
     await db.orgBusinessRule.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);

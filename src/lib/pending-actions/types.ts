@@ -358,6 +358,10 @@ export interface InstallSendWarrantyEmailPayload {
   /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
   body: string;
   html: string;
+  /** INSTALL-2k：质保证书 HTML（生成时定稿，发送时渲染为 PDF 附件）；本字段之前生成的审批没有 = 不带附件 */
+  certificateHtml?: string;
+  /** INSTALL-2k：附件名 Warranty-W-<单号>.pdf */
+  attachmentName?: string;
   metadata: PendingActionMetadata & { orgId: string; orderId: string };
 }
 

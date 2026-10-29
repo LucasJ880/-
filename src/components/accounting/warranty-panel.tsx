@@ -27,7 +27,7 @@ export type WarrantyView = {
   reason?: string;
   blockers?: string[];
   canRegenerate?: boolean;
-  preview?: { to: string; cc?: string[]; subject: string; html: string };
+  preview?: { to: string; cc?: string[]; subject: string; html: string; attachment?: { name: string; html: string } };
   error?: string;
 };
 
@@ -48,6 +48,8 @@ export function WarrantyApprove({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // INSTALL-2k：附件（质保证书）预览开关
+  const [showAttachment, setShowAttachment] = useState(false);
 
   const approve = useCallback(async () => {
     if (!view.approvalId) return;
@@ -85,7 +87,18 @@ export function WarrantyApprove({
           </div>
         )}
         <div className="truncate">主题：{view.preview.subject}</div>
+        {view.preview.attachment && (
+          <div className="flex items-center gap-1.5">
+            附件：<b className="text-foreground">{view.preview.attachment.name}</b>
+            <button type="button" onClick={() => setShowAttachment((x) => !x)} className="text-accent underline">
+              {showAttachment ? "收起证书" : "查看证书"}
+            </button>
+          </div>
+        )}
       </div>
+      {view.preview.attachment && showAttachment && (
+        <iframe title="质保证书预览" srcDoc={view.preview.attachment.html} sandbox="" className="h-96 w-full rounded-lg border border-border bg-white" />
+      )}
       <iframe
         title={`${label}预览`}
         srcDoc={view.preview.html}

@@ -141,7 +141,7 @@ export type ResendTransport = (input: SendEmailInput) => Promise<SendEmailResult
 /** 以组织身份发送；返回实际使用的发件人，供时间线和审计记录 */
 export async function sendAsOrg(
   sender: OrgEmailSender,
-  msg: { to: string; subject: string; body: string; html?: string; cc?: string[] },
+  msg: { to: string; subject: string; body: string; html?: string; cc?: string[]; attachments?: Array<{ filename: string; content: Buffer }> },
   transport: ResendTransport = sendEmail,
   platformFrom: string = platformFromAddress(),
 ): Promise<{ messageId: string; from: string; fallback: boolean }> {

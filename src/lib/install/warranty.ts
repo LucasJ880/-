@@ -241,25 +241,35 @@ const esc = (s: string) =>
 export type WarrantyEmail = { warrantyNo: string; subject: string; text: string; html: string };
 
 /** 确定性渲染（spec「邮件内容」）；调用方须先确认 warrantyBlockers 为空 */
-export function renderWarrantyEmail(input: {
+export type WarrantyDocInput = {
   orderCode: string;
   customerName: string;
   address: string | null;
   installDate: string;
   units: WarrantyUnit[];
   settings: WarrantySettings;
-}): WarrantyEmail {
-  const { settings: s } = input;
-  const warrantyNo = `W-${input.orderCode}`;
-  const subject = `Your Sunny Shutter installation is complete — Warranty ${warrantyNo} (Order ${input.orderCode})`;
-  const address = (input.address ?? "").trim() || "—";
+};
+
+/** 邮件与质保证书共用的同一份数据（INSTALL-2k：证书与正文一致） */
+export function warrantyDocData(input: WarrantyDocInput) {
   const units = [...input.units].sort((a, b) => a.itemNumber - b.itemNumber);
-  const product = (u: WarrantyUnit) => [u.productType, u.fabricSku].filter((x) => x && x.trim()).join(" ");
   const cats = WARRANTY_CATEGORIES.filter((c) => units.some((u) => u.category === c));
-  const coverage = cats.map((c) => ({
-    label: CATEGORY_LABEL_EN[c],
-    terms: s.terms[c].map((t) => ({ label: PART_LABEL_EN[t.part], years: t.years, until: addYears(input.installDate, t.years) })),
-  }));
+  return {
+    warrantyNo: `W-${input.orderCode}`,
+    address: (input.address ?? "").trim() || "—",
+    units,
+    product: (u: WarrantyUnit) => [u.productType, u.fabricSku].filter((x) => x && x.trim()).join(" "),
+    coverage: cats.map((c) => ({
+      label: CATEGORY_LABEL_EN[c],
+      terms: input.settings.terms[c].map((t) => ({ label: PART_LABEL_EN[t.part], years: t.years, until: addYears(input.installDate, t.years) })),
+    })),
+  };
+}
+
+export function renderWarrantyEmail(input: WarrantyDocInput): WarrantyEmail {
+  const { settings: s } = input;
+  const { warrantyNo, address, units, product, coverage } = warrantyDocData(input);
+  const subject = `Your Sunny Shutter installation is complete — Warranty ${warrantyNo} (Order ${input.orderCode})`;
   const yr = (n: number) => `${n} yr`;
   const c = s.contact;
 
@@ -269,6 +279,7 @@ export function renderWarrantyEmail(input: {
     `Thank you for choosing ${c.companyName}. Your installation at ${address}`,
     `was completed on ${input.installDate}, and your order is now fully closed.`,
     "This email is your warranty confirmation — please keep it for your records.",
+    "Your warranty certificate is attached as a PDF.",
     "",
     "WARRANTY CONFIRMATION",
     `  Warranty No.:   ${warrantyNo}`,
@@ -314,7 +325,7 @@ export function renderWarrantyEmail(input: {
 <tr><td style="padding:24px 28px 8px;border-bottom:3px solid #2e5e4e;"><div style="font-size:20px;font-weight:700;color:#2e5e4e;">${esc(c.companyName)}</div><div style="margin-top:4px;font-size:13px;color:#6b6b6b;">Installation complete · Warranty confirmation</div></td></tr>
 <tr><td style="padding:16px 28px 28px;font-size:14px;line-height:1.6;">
 <p style="margin:0 0 12px;">Hi ${esc(input.customerName)},</p>
-<p style="margin:0 0 12px;">Thank you for choosing ${esc(c.companyName)}. Your installation at ${esc(address)} was completed on ${esc(input.installDate)}, and your order is now fully closed. This email is your warranty confirmation — please keep it for your records.</p>
+<p style="margin:0 0 12px;">Thank you for choosing ${esc(c.companyName)}. Your installation at ${esc(address)} was completed on ${esc(input.installDate)}, and your order is now fully closed. This email is your warranty confirmation — please keep it for your records. Your warranty certificate is attached as a PDF.</p>
 ${h2("Warranty confirmation")}
 <table cellpadding="0" cellspacing="0" border="0" style="font-size:14px;">${row("Warranty No.", warrantyNo)}${row("Order No.", input.orderCode)}${row("Customer", input.customerName)}${row("Address", address)}${row("Installed on", `${input.installDate} (warranty starts on this date)`)}</table>
 ${h2("Covered products")}

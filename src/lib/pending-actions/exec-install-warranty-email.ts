@@ -4,6 +4,7 @@
  * 只有人工批准后由 executor 调用。内容在生成审批时已定稿（payloadHash 防篡改），这里不重渲，只做发送前校验：
  *   企业一致 → 批准人为有效成员 → 工艺单属本企业且已确认尾款 → 未发过 → 收件人 = 客户档案当前邮箱 → 组织已配置发件身份
  * INSTALL-2g：按审批内容里的抄送发送（格式 / 个数不合法 → INVALID_PAYLOAD），审计记抄送。
+ * INSTALL-2k：审批内容带证书 → 发送前渲染 PDF 作为附件（失败 PDF_FAILED，不发送）；没有证书的旧审批照常发、不带附件。
  * 发件身份只读组织设置 trade.email_sender（sendAsOrg，平台 Resend）；未配置 → NO_ORG_SENDER，绝不回落到任何个人邮箱（design D5）。
  * 同一工艺单的发送串行化（advisory lock），已有 install.warranty.sent 即拒发（design D7）。
  * 成功：审计 install.warranty.sent + 通知该单销售；失败：通知批准人（落会计"待收尾款"页签）。
@@ -26,6 +27,8 @@ export interface WarrantySendInput {
   subject: string;
   body: string;
   html: string;
+  /** INSTALL-2k：质保证书 PDF */
+  attachments: Array<{ filename: string; content: Buffer }>;
   sender: OrgEmailSender;
 }
 
@@ -44,12 +47,25 @@ export function __setWarrantySenderForTest(sender: WarrantySender | null): void 
   testSender = sender;
 }
 
+export type WarrantyPdfRenderer = (html: string) => Promise<Buffer>;
+let testPdfRenderer: WarrantyPdfRenderer | null = null;
+
+/** 测试注入：绕过服务端 Chromium（仅测试进程调用；install-2k design D6） */
+export function __setWarrantyPdfRendererForTest(renderer: WarrantyPdfRenderer | null): void {
+  testPdfRenderer = renderer;
+}
+
+async function defaultPdfRenderer(html: string): Promise<Buffer> {
+  const { renderHtmlToPdf } = await import("@/lib/pdf/html-to-pdf");
+  return renderHtmlToPdf(html);
+}
+
 async function defaultSender(input: WarrantySendInput): Promise<WarrantySendResult> {
   if (!process.env.RESEND_API_KEY) {
     throw Object.assign(new Error("平台未配置 RESEND_API_KEY，无法以组织身份发信"), { code: "NO_EMAIL_PROVIDER" });
   }
   assertSideEffectOrThrow("email");
-  const r = await sendAsOrg(input.sender, { to: input.to, cc: input.cc, subject: input.subject, body: input.body, html: input.html });
+  const r = await sendAsOrg(input.sender, { to: input.to, cc: input.cc, subject: input.subject, body: input.body, html: input.html, attachments: input.attachments });
   return { messageId: r.messageId, from: r.from, fallback: r.fallback };
 }
 
@@ -125,6 +141,19 @@ export async function execInstallSendWarrantyEmail(
     return fail("NO_ORG_SENDER", "组织未配置发件身份：请老板在 设置 → 邮件 → 组织发件人 配置后，重新生成并批准");
   }
 
+  // INSTALL-2k：在发送事务之前渲染证书 PDF（Chromium 冷启动数秒）；失败不降级（design D2）
+  const attachments: Array<{ filename: string; content: Buffer }> = [];
+  if (typeof payload.certificateHtml === "string" && payload.certificateHtml.startsWith("<!doctype html>")) {
+    const filename = typeof payload.attachmentName === "string" && /^[A-Za-z0-9._-]+\.pdf$/.test(payload.attachmentName) ? payload.attachmentName : "Warranty.pdf";
+    try {
+      const pdf = await (testPdfRenderer ?? defaultPdfRenderer)(payload.certificateHtml.slice(0, 200_000));
+      if (!pdf.subarray(0, 5).toString("latin1").startsWith("%PDF-")) throw new Error("渲染结果不是 PDF");
+      attachments.push({ filename, content: pdf });
+    } catch (err) {
+      return fail("PDF_FAILED", `质保证书 PDF 生成失败，邮件未发送：${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+    }
+  }
+
   const send = testSender ?? defaultSender;
   let outcome: { sent: true; result: WarrantySendResult } | { sent: false; code: string; message: string };
   try {
@@ -136,7 +165,7 @@ export async function execInstallSendWarrantyEmail(
           select: { createdAt: true },
         });
         if (already) return { sent: false as const, code: "ALREADY_SENT", message: `该单质保邮件已于 ${already.createdAt.toISOString()} 发送，不再重复发送` };
-        const result = await send({ to, cc, subject, body, html, sender });
+        const result = await send({ to, cc, subject, body, html, attachments, sender });
         await writeAuditLog(tx as Prisma.TransactionClient, {
           userId: ctx.userId,
           orgId,
@@ -150,6 +179,7 @@ export async function execInstallSendWarrantyEmail(
             from: result.from ?? null,
             fallback: result.fallback ?? false,
             messageId: result.messageId,
+            attachment: attachments[0] ? { filename: attachments[0].filename, bytes: attachments[0].content.length } : null,
             warrantyNo: payload.warrantyNo,
             pendingActionId,
           },
