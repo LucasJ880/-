@@ -4,15 +4,26 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-29（会话 1：KPI-1 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，并已 archive 为 `openspec/changes/archive/2026-10-29-sales-period-summary/`；规格合入 `openspec/specs/sales/period-summary`（新）与 `muse-bridge/sales-intents`（增量）；**KPI-1 完成，下一个是 CAL-1**） |
+| 最后更新 | 2026-10-29（KPI-1 已完成并归档；**CAL-1 实施中**，进度见下方"CAL-1 现场续接"） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | 无（本线）。KPI-1 已归档（#309 / #312）；同期的 `fix-gcal-push-calendar-id`（#308，即 §4 ⑰ 的修复）与 `install-2a-closeout-all-lines` 也已归档 |
-| 工作分支 | `claude/magical-shannon-keegzr`（基于 origin/main `ed3b55f`，2026-10-28 核对时 main 未前进） |
+| 进行中的 change | `openspec/changes/calendar-watch-attribution/`（CAL-1；用户 2026-10-29 授权"你来负责继续做下去，按计划书做，重点做好验证，都按你推荐的来"） |
+| 工作分支 | `claude/magical-shannon-keegzr`（每个 PR 合并后从 origin/main 重建同名分支；main 前进时 merge 进来，不 rebase） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
 
 ---
+
+## 0. CAL-1 现场续接（上下文压缩或换会话后从这里接）
+
+| 项 | 状态 |
+|---|---|
+| change | `calendar-watch-attribution`，四件套已提交（`e5070d0`），validate --strict 通过 |
+| 授权 | 用户："你来负责这个继续做下去，按照计划书来做。做好 hand off，防止记忆丢失，重点是做好验证。都按你推荐的来" |
+| 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认**（CLAUDE.md：Evan 拍板合并） |
+| tasks | 0/8（每完成一条在此更新） |
+| 本地库 | `pg_ctlcluster 16 qytest start`，端口 5433，库 `qy_test`，41 个迁移已应用（见 §6.1）；容器重启后集群会停，需重新 start |
+| 验证纪律 | 每条 task：先跑相关既有测试记基线 → 写代码 → 跑新测试 → typecheck → 提交推送 → 本表更新；隔离库测试每次实跑，不凭推断 |
 
 ## 1. 用户诉求（Sunny，2026-10-28 原话要点）
 
