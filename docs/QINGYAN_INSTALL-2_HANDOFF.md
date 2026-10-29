@@ -8,9 +8,9 @@
 | 任务书（方案） | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` |
 | 邮件模板 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` |
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
-| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2i 已合并并归档；2j / 2k 见 §0 |
+| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2j 已合并并归档；2k 见 §0 |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>`；archive 用 `openspec archive <change> --yes` |
-| 状态 | INSTALL-2a–2i 完成（合并 + archive，TASKFLOW `[x]`）；Lucas 2026-10-29 续排 **2i 维修单列表分栏 / 分页 → 2j 返修时间确认邮件 → 2k 质保邮件附 PDF**，进度见 §0 |
+| 状态 | INSTALL-2a–2j 完成（合并 + archive，TASKFLOW `[x]`）；Lucas 2026-10-29 续排 **2i 维修单列表分栏 / 分页 → 2j 返修时间确认邮件 → 2k 质保邮件附 PDF**，进度见 §0 |
 
 ## 0. 交付流水线（每个 PR 合并后更新本表）
 
@@ -25,8 +25,8 @@
 | 2g `install-2g-warranty-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2g_REPORT.md`） | [#337](https://github.com/LucasJ880/-/pull/337) 已合并 | [#339](https://github.com/LucasJ880/-/pull/339) 已合并（`openspec/changes/archive/2026-10-29-install-2g-warranty-update`） | `[x]` |
 | 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | [#341](https://github.com/LucasJ880/-/pull/341) 已合并 | [#343](https://github.com/LucasJ880/-/pull/343) 已合并（`openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） | `[x]` |
 | 2i `install-2i-repair-list-archive` | 已完成（报告 `docs/QINGYAN_INSTALL-2i_REPORT.md`） | [#345](https://github.com/LucasJ880/-/pull/345) 已合并 | [#347](https://github.com/LucasJ880/-/pull/347) 已合并（`openspec/changes/archive/2026-10-29-install-2i-repair-list-archive`） | `[x]` |
-| 2j `install-2j-repair-visit-email` | 已完成（报告 `docs/QINGYAN_INSTALL-2j_REPORT.md`） | 本 PR | — | `[G]` |
-| 2k `install-2k-warranty-pdf` | 实施完成（待 2j 合并后开 PR） | — | — | — |
+| 2j `install-2j-repair-visit-email` | 已完成（报告 `docs/QINGYAN_INSTALL-2j_REPORT.md`） | [#349](https://github.com/LucasJ880/-/pull/349) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2j-repair-visit-email`） | `[x]` |
+| 2k `install-2k-warranty-pdf` | 实施完成（本 PR 合并后开 PR） | — | — | — |
 
 - 每个 PR：基于最新 main → cherry-pick 该 change 的提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → `openspec archive <change> --yes`（在最新 main 上重跑，不 cherry-pick 旧的 archive 结果，避免和别的会话同时改的主规格冲突）+ TASKFLOW `[x]` + 本表 → archive PR。
 - 文档冲突（TASKFLOW / 本文件 / 任务书）一律以 main 上的现状为底，再按本表改状态；代码冲突逐块看，不整文件取一边。
