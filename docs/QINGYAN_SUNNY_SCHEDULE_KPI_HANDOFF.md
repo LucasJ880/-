@@ -22,7 +22,7 @@
 | 授权 | 用户 2026-10-29："继续，整个流程你来掌控，等全部做完或需要我做再通知我"；CAL-2 选"不依赖 webhook"与"销售认领"；四件套后"apply" |
 | 合并 | 由我驱动到 CI 绿后合并（用户已授权掌控全流程），合并后独立小 PR 归档 |
 | 基线（apply 前） | calendar-watch-pure 175、calendar-watch-db.isolated 80 |
-| tasks | 3/7：1.1 ✓ 2.1 ✓ 3.1 ✓（四条路由：列表 / 详情 / 转入 / 忽略；查看授权 `resolveIntakeAccess`；spec 补 `canConvert`、`INVALID_INPUT`、`CUSTOMER_NOT_FOUND`；typecheck 0、eslint 无输出）。下一条 5.1 端到端（先于 4.1 页面） |
+| tasks | 4/7：1.1 ✓ 2.1 ✓ 3.1 ✓ 5.1 ✓（`website-booking-intake-db.isolated.test.ts` 39/39：授权三种、列表过滤、详情预填与已有客户、READER_NOT_CONNECTED（路由，不打网络）/ EVENT_NOT_FOUND / NOT_PENDING、转入 CUSTOMER_EXISTS 零写入 / CUSTOMER_NOT_FOUND / INVALID_INPUT / 关联 / 并发一成一 409、忽略幂等、审计无联系方式、只读 Google、转入后 CAL-1 修改归因 R1；变异：去已转入检查与重复电话检查 → 变红；无 DATABASE_URL 跳过；无残留；注册 test-all；CAL-1 回归 175 / 80）。下一条 4.1 页面 |
 | 事实 | Sunny 只有 `sales_rep` 有 `sales.customer.create`（PRINCIPAL）；老板 `sales.customer.read` ORG；运营主管无客户权限（隔离库实测）。`sunnyshutter.ca` 本会话仍 403 |
 
 ## 0''. KPI-2 现场续接（已完成：#332 合并，归档小 PR 见下）

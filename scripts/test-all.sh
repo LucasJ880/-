@@ -319,6 +319,7 @@ run_test "日历观察纯函数核心（CAL-1）" "npx tsx src/lib/calendar-watc
 run_test "日历观察 DB 端到端（CAL-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts"
 # CAL-2 website-booking-intake：网站预约一键转入
 run_test "网站预约转入纯函数核心（CAL-2）" "npx tsx src/lib/calendar-watch/__tests__/website-booking-intake-pure.test.ts"
+run_test "网站预约转入 DB 端到端（CAL-2；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/calendar-watch/__tests__/website-booking-intake-db.isolated.test.ts"
 run_test "安装收口聚合与照片校验（INSTALL-1）" "npx tsx src/lib/install/__tests__/closeout.test.ts"
 run_test "收口单元覆盖全部产品线与位置快照（INSTALL-2a）" "npx tsx src/lib/install/__tests__/closeout-units.test.ts"
 run_test "收口单元 DB 端到端（INSTALL-2a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/closeout-db.isolated.test.ts"

@@ -37,7 +37,7 @@
 
 ## 5. 端到端
 
-- [ ] 5.1 写 `src/lib/calendar-watch/__tests__/website-booking-intake-db.isolated.test.ts`（注入读取函数），覆盖：
+- [x] 5.1 写 `src/lib/calendar-watch/__tests__/website-booking-intake-db.isolated.test.ts`（注入读取函数），覆盖：
   - 授权：ops_lead 403、owner 只读、rep 可转入；
   - 列表过滤；
   - 详情预填与已有客户提示、`READER_NOT_CONNECTED`、`EVENT_NOT_FOUND`、`NOT_PENDING`；
