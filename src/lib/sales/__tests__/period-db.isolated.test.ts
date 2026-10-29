@@ -185,6 +185,43 @@ async function main() {
     const d = await call(OWNER, `?orgId=${ORG}`);
     const exp = defaultPeriod(new Date(), "America/Toronto");
     ok(d.status === 200 && d.body?.period?.from === exp.from && d.body?.period?.to === exp.to, "不带 from / to = 当地本月 1 日至今天", d.body?.period);
+
+    console.log("\n[7] CAL-1：日历观察开启后的日程来源");
+    const { toLedgerAfterData, withCalendarWatch, readCalendarWatch } = await import("@/lib/calendar-watch/pure");
+    const { writeAuditLog } = await import("@/lib/audit/logger");
+    const ledger = async (eventId: string, source: "member" | "website", createdLocal: string) => {
+      const created = edt(createdLocal).toISOString();
+      const entry = toLedgerAfterData({
+        calendarId: "shared@group.calendar.google.com",
+        change: { id: eventId, status: "confirmed", created, updated: created, creatorEmail: null, organizerEmail: null, summary: "量房", description: null, start: null, end: null, allDay: false, htmlLink: null, recurringEventId: null },
+        kind: "created",
+        baseline: false,
+        attribution:
+          source === "member"
+            ? { source, rule: "R3", userId: REP_A, bucket: "sales", appointmentId: null }
+            : { source, rule: "R2", userId: null, bucket: null, appointmentId: null },
+        editedVia: null,
+        diff: null,
+        observedAt: new Date(),
+      });
+      await writeAuditLog(db, { userId: OWNER, orgId: ORG, action: "calendar.watch.observed", targetType: "google_calendar_event", targetId: `shared/${eventId}`, afterData: entry });
+    };
+    for (let i = 0; i < 4; i++) await ledger(`kpw${i}_${stamp}`, "website", `2026-10-${String(i + 2).padStart(2, "0")}T10:00:00`);
+    for (let i = 0; i < 6; i++) await ledger(`kpm${i}_${stamp}`, "member", `2026-10-${String(i + 10).padStart(2, "0")}T10:00:00`);
+    await ledger(`kpsep_${stamp}`, "member", "2026-09-30T10:00:00"); // 9 月创建 → 不计
+    const off = await call(OWNER, OCT);
+    ok(off.status === 200 && off.body?.calendar === null, "账本有数但未开启观察 → calendar 为 null");
+    const orgRow = await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
+    const enabled = { ...readCalendarWatch(orgRow?.settingsJson ?? null), enabled: true, readerUserId: OWNER, calendarIds: ["shared@group.calendar.google.com"] };
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: withCalendarWatch(orgRow?.settingsJson ?? null, enabled) as object } });
+    const on = await call(OWNER, OCT);
+    const cal = on.body?.calendar as { bySource?: Record<string, number>; byActor?: Array<{ userId: string; created: number }> } | null;
+    ok(on.status === 200 && cal?.bySource?.website === 4 && cal.bySource.member === 6 && cal.bySource.qingyan === 0 && cal.bySource.unknown === 0, "开启后 calendar.bySource：网站 4、成员 6", cal);
+    ok(cal?.byActor?.length === 1 && cal.byActor[0].userId === REP_A && cal.byActor[0].created === 6, "按成员新建数", cal?.byActor);
+    const ins = (on.body?.insights ?? []) as Array<{ code: string }>;
+    ok(ins.some((i) => i.code === "I9_CAL_WEBSITE_SHARE"), "洞察出现 I9_CAL_WEBSITE_SHARE（4 / 10 = 40%）", ins.map((i) => i.code));
+    const repView = await call(REP_A, OCT);
+    ok(repView.status === 200 && repView.body?.calendar === null, "同一企业销售范围 → calendar 为 null");
   } finally {
     await db.salesQuote.deleteMany({ where: { id: { in: quoteIds } } });
     await db.salesCustomer.deleteMany({ where: { id: { in: [CUST, CUST_ARCH, CUST_X] } } });

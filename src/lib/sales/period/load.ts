@@ -6,6 +6,8 @@
  */
 import { db } from "@/lib/db";
 import { loadOrgTimezone } from "@/lib/automation/registry";
+import { readCalendarWatch } from "@/lib/calendar-watch/pure";
+import { loadCalendarAttribution } from "@/lib/calendar-watch/stats";
 import { buildPeriodInsights } from "./insights";
 import {
   PERIOD_FETCH_CAP,
@@ -37,7 +39,7 @@ export interface PeriodSummaryResponse {
   comparison: PeriodComparison;
   byRep: PeriodRepRow[];
   insights: PeriodInsight[];
-  /** CAL-1 交付前固定为 null */
+  /** CAL-1：日历观察开启且为全企业范围时给出期间日程来源统计，否则 null */
   calendar: PeriodCalendarStats | null;
   /** KPI-2 交付前固定为 null */
   narrative: null;
@@ -108,6 +110,20 @@ async function loadNames(userIds: string[]): Promise<Map<string, string>> {
   return new Map(users.map((u) => [u.id, u.name || u.email]));
 }
 
+/** CAL-1：全企业范围且日历观察开启时读账本统计期间日程来源；其余为 null */
+async function loadPeriodCalendar(orgId: string, scope: PeriodScope, period: LocalPeriod): Promise<PeriodCalendarStats | null> {
+  if (scope.kind !== "org") return null;
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
+  if (!readCalendarWatch(org?.settingsJson ?? null).enabled) return null;
+  const s = await loadCalendarAttribution({ orgId, period, scope: { kind: "org" } });
+  if (!s.bySource) return null;
+  return {
+    bySource: s.bySource,
+    byActor: s.byActor.filter((a) => a.created > 0).map((a) => ({ userId: a.userId, name: a.name, bucket: a.bucket, created: a.created })),
+    truncated: s.truncated,
+  };
+}
+
 /** 组装完整期间汇总（取数 + 口径 + 洞察）。调用方负责授权与参数解析。 */
 export async function buildSalesPeriodResponse(params: {
   orgId: string;
@@ -132,7 +148,7 @@ export async function buildSalesPeriodResponse(params: {
     names,
     truncated,
   });
-  const calendar: PeriodCalendarStats | null = null;
+  const calendar = await loadPeriodCalendar(params.orgId, params.scope, params.period);
   return {
     period: summary.period,
     scope: summary.scope,

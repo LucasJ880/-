@@ -38,7 +38,7 @@
 
 ## 5. KPI-1 接入与面板
 
-- [ ] 5.1 接入 KPI-1：
+- [x] 5.1 接入 KPI-1：
   - `src/lib/sales/period/types.ts` 的 `PeriodCalendarStats` 加可选 `byActor`；
   - `src/lib/sales/period/load.ts` 在 org 范围且观察开启时调用 `summarizeCalendarAttribution` 填 `calendar`，own 范围保持 `null`；
   - `src/components/sales-command-center/sales-period-panel.tsx` 在 `calendar` 非空时显示"日程来源"一块，为空时不渲染。

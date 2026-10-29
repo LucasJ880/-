@@ -12,7 +12,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { formatSalesMoney } from "@/lib/sales/home/formatters";
 import { addDaysYmd, daysInMonth, monthStartYmd } from "@/lib/sales/period/summary-pure";
 import type { PeriodSummaryResponse } from "@/lib/sales/period/load";
-import type { PeriodTotals } from "@/lib/sales/period/types";
+import type { PeriodCalendarStats, PeriodTotals } from "@/lib/sales/period/types";
 import { SalesCard, SalesCardState } from "./sales-card";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +84,47 @@ function Tile({ title, value, sub, delta, cmpLabel }: { title: string; value: st
 }
 
 const rate = (r: number | null) => (r === null ? "—" : `${Math.round(r * 1000) / 10}%`);
+
+const SOURCE_LABELS = [
+  ["qingyan", "青砚"],
+  ["member", "成员"],
+  ["website", "网站预约"],
+  ["unknown", "不明"],
+] as const;
+
+const BUCKET_LABELS: Record<string, string> = { management: "管理", sales: "销售", ops: "运营", other: "其他" };
+
+/** CAL-1：期间内新建日程的来源分布与按成员新建数；calendar 为 null 时不渲染 */
+function CalendarSourceBlock({ calendar }: { calendar: PeriodCalendarStats }) {
+  const b = calendar.bySource;
+  const total = b.qingyan + b.member + b.website + b.unknown;
+  return (
+    <div className="rounded-xl border border-[var(--border)] p-3">
+      <p className="text-[12px] text-[var(--muted)]">日程来源（期间内新建，按 Google 创建时间）· 共 {total} 条</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+        {SOURCE_LABELS.map(([key, label]) => (
+          <div key={key} className="rounded-lg bg-[var(--background)] px-3 py-2">
+            <p className="text-[12px] text-[var(--muted)]">{label}</p>
+            <p className="text-[16px] font-semibold tabular-nums text-[var(--foreground)]">{b[key]}</p>
+          </div>
+        ))}
+      </div>
+      {calendar.byActor && calendar.byActor.length > 0 ? (
+        <p className="mt-2 text-[12px] text-[var(--muted)]">
+          按成员：
+          {calendar.byActor.map((a, i) => (
+            <span key={a.userId}>
+              {i > 0 ? "、" : ""}
+              {a.name}
+              {a.bucket ? `（${BUCKET_LABELS[a.bucket] ?? a.bucket}）` : ""} {a.created} 条
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {calendar.truncated ? <p className="mt-1 text-[12px] text-rose-600">日程账本超过上限，结果不完整，请缩短期间。</p> : null}
+    </div>
+  );
+}
 
 export function SalesPeriodPanel() {
   const router = useRouter();
@@ -253,6 +294,8 @@ export function SalesPeriodPanel() {
 
           {data.truncated ? <p className="text-[12px] text-rose-600">数据量超过上限，结果不完整，请缩短期间。</p> : null}
           {t.nonCadExcludedCount > 0 ? <p className="text-[12px] text-[var(--muted)]">另有 {t.nonCadExcludedCount} 份非加元报价未计入。</p> : null}
+
+          {data.calendar ? <CalendarSourceBlock calendar={data.calendar} /> : null}
 
           {insights.length > 0 ? (
             <ul className="space-y-1.5">
