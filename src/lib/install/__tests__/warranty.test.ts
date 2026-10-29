@@ -2,6 +2,7 @@
  * INSTALL-2c：质保设置种子 / 校验 / 读取，到期日，生成条件，邮件渲染（内容与不出金额），状态推导
  * INSTALL-2g：Shutters 新条款（1 / 15 / 25）、报修联系方式与抄送种子、抄送校验、旧设置原样读取、报价单质保文字与种子交叉比对
  * INSTALL-2h：帘类 / 窗帘新条款（无绳升降 3、电机 5、电机配件 5、电池 1）、新部件保存、帘类邮件注明文字、Order Form 文字比对
+ * INSTALL-2k：质保证书（内容、确定性、转义、不出金额）与附件名；邮件正文写明证书见 PDF 附件
  * 运行：npx tsx src/lib/install/__tests__/warranty.test.ts
  */
 import { readFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
   type WarrantySettings,
   type WarrantyUnit,
 } from "../warranty";
+import { renderWarrantyCertificate, warrantyAttachmentName } from "../warranty-certificate";
 
 let pass = 0;
 let fail = 0;
@@ -172,6 +174,22 @@ ok(orderShades.includes(shadesSentence) && !orderShades.includes(drapesSentence)
 ok(orderDrapes.includes(drapesSentence) && !orderDrapes.includes("cordless"), "Order Form 窗帘页 = 窗帘句子（无无绳机构）", drapesSentence);
 for (const [name, src] of [["报价单 PDF", quoteSrc], ["Order Form 帘类", orderShades], ["Order Form 窗帘", orderDrapes]] as const) {
   ok(!/15 years components\.|15 years components"|15 years components\n|1yr labour \/ 5yr fabric \/ 15yr components|1 year Labour, 5 years fabric, 15 years components/.test(src), `${name}：旧的帘类 / 窗帘质保句（只有人工 / 面料 / 部件）不再出现`);
+}
+
+console.log("INSTALL-2k 质保证书");
+{
+  const certInput = { orderCode: "SUN-1024", customerName: "Example Homeowner", address: "6 Example Ct", installDate: "2026-10-28", units: vinylUnits, settings: ready };
+  const cert = renderWarrantyCertificate(certInput);
+  ok(cert.startsWith("<!doctype html>") && cert.includes("Warranty Certificate") && cert.includes("W-SUN-1024") && cert.includes("SUN-1024") && cert.includes("Example Homeowner") && cert.includes("6 Example Ct"), "证书：标题、质保编号、单号、客户、地址");
+  ok(cert.includes("Living Room") && cert.includes("Kitchen") && cert.includes("Vinyl 百叶"), "证书：两扇窗与产品（含中文产品名）");
+  ok(cert.includes(">Components<") && cert.includes(">15 yr<") && cert.includes(">2041-10-28<") && cert.includes(">Frame &amp; Panels<") && cert.includes(">2051-10-28<"), "证书：Shutters 各部件年限与到期日");
+  ok(cert.includes("https://sunnyshutter.ca/warranty-service/") && cert.includes("647-555-0100") && cert.includes("service@example.com"), "证书：条款链接与报修联系方式");
+  ok(cert.includes('"Noto Sans SC"'), "证书字体栈含 Noto Sans SC（中文不变方块）");
+  ok(renderWarrantyCertificate({ ...certInput, units: [...vinylUnits].reverse() }) === cert, "同样输入 → 完全相同的证书");
+  ok(!renderWarrantyCertificate({ ...certInput, customerName: "<b>x</b>" }).includes("<b>x</b>"), "证书转义客户输入");
+  ok(!/2600|2500|\$|CAD/.test(cert), "证书不含金额与货币");
+  ok(warrantyAttachmentName("SUN-1024") === "Warranty-W-SUN-1024.pdf" && warrantyAttachmentName("单号 1/2") === "Warranty-W-1-2.pdf", "附件名 Warranty-W-<单号>.pdf，只保留安全字符", warrantyAttachmentName("单号 1/2"));
+  ok(mail.text.includes("Your warranty certificate is attached as a PDF.") && mail.html.includes("Your warranty certificate is attached as a PDF."), "邮件正文写明证书见 PDF 附件");
 }
 
 console.log("INSTALL-2c 邮件不输出金额");
