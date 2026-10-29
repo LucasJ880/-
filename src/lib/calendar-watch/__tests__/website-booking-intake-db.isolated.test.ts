@@ -50,6 +50,7 @@ async function main() {
   const { toLedgerAfterData, withCalendarWatch, readCalendarWatch, mapGoogleEvent, parseLedgerAfterData } = await import("@/lib/calendar-watch/pure");
   const { getWebsiteBookingDetail } = await import("@/lib/calendar-watch/intake");
   const { runCalendarWatch } = await import("@/lib/calendar-watch/run");
+  const { syncAppointmentToGoogle, unsyncAppointmentFromGoogle } = await import("@/lib/sales/appointment-gcal-sync");
   const listRoute = await import("@/app/api/sales/website-bookings/route");
   const detailRoute = await import("@/app/api/sales/website-bookings/[eventId]/route");
   const convertRoute = await import("@/app/api/sales/website-bookings/[eventId]/convert/route");
@@ -272,7 +273,27 @@ async function main() {
     const rows = await db.auditLog.findMany({ where: { orgId: ORG, action: "calendar.watch.observed", targetId: `${CAL}/${EV("w1")}` }, orderBy: { createdAt: "asc" } });
     const last = parseLedgerAfterData(rows.at(-1)?.afterData);
     ok(last?.kind === "updated" && last.attribution.rule === "R1" && last.attribution.source === "qingyan" && last.attribution.appointmentId === appt1?.id, "转入后 Google 侧改时间 → R1 青砚，关联该预约", last?.attribution);
+
+    console.log("\n[11] 青砚侧修改 / 取消 / 删除不回写 Google（独立审查 #4）");
+    // REP_A 有一个（假的）Google 连接：没有保护时 sync / unsync 会去调 Google 改 / 删共享日历里的事件
+    await db.calendarProvider.create({ data: { type: "google", name: "Google", userId: REP_A, accessToken: "fake", calendarId: CAL } });
+    const t0 = Date.now();
+    const synced = await syncAppointmentToGoogle(appt1!.id, REP_A);
+    ok(synced.synced === false && synced.skipped === "website_booking" && synced.googleEventId === EV("w1"), "修改：跳过同步（不覆盖网站预约原文）", synced);
+    const unsynced = await unsyncAppointmentFromGoogle(appt1!.id, REP_A);
+    const keep = await db.appointment.findUnique({ where: { id: appt1!.id }, select: { googleEventId: true } });
+    ok(unsynced === true && keep?.googleEventId === EV("w1"), "取消 / 删除：不删 Google 事件，也不清 googleEventId", keep);
+    ok(Date.now() - t0 < 5000, "没有发出任何 Google 请求（立即返回）");
+    ok(!ids((await list(REP_A)).body).includes(EV("w1")), "保护后该事件不会重新出现在待转入列表");
+
+    console.log("\n[12] 读取账号离开企业");
+    await ledger(EV("w9"), { summary: "Measure — Later" });
+    await db.organizationMember.updateMany({ where: { orgId: ORG, userId: READER }, data: { status: "inactive" } });
+    const left = await getWebsiteBookingDetail({ orgId: ORG, userId: REP_A, eventId: EV("w9") }, { readEvent });
+    ok(!left.ok && left.code === "READER_NOT_CONNECTED", "读取账号非在职 → 409 READER_NOT_CONNECTED，不读取", left);
+    await db.organizationMember.updateMany({ where: { orgId: ORG, userId: READER }, data: { status: "active" } });
   } finally {
+    await db.calendarProvider.deleteMany({ where: { userId: { in: users } } });
     await db.notification.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: ORG }] } });
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: ORG }] } });
     await db.appointment.deleteMany({ where: { customer: { orgId: ORG } } });

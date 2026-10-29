@@ -25,6 +25,7 @@ import {
   derivePendingBookings,
   DISMISS_ACTION,
   intakeWindowStart,
+  MAX_PENDING,
   parseBookingDescription,
   samePhone,
   type BookingPrefill,
@@ -82,17 +83,33 @@ async function orgWatch(orgId: string) {
   return { config: readCalendarWatch(settingsJson), timezone: resolveOrgTimezone(settingsJson) };
 }
 
-/** 待转入列表：CAL-1 账本 + 已转入（本企业预约记下的事件 ID）+ 已忽略（审计） */
-export async function listWebsiteBookings(orgId: string, now: Date = new Date()): Promise<{ enabled: boolean; items: PendingBooking[] }> {
+/**
+ * 待转入：CAL-1 账本 + 已转入（本企业预约记下的事件 ID）+ 已忽略（审计）。
+ * 先只取"新建且归因网站"的账本行定位事件，再取这些事件的全部账本行（判断最近是否删除），
+ * 不受账本总行数上限影响。
+ */
+async function computePending(orgId: string, now: Date, limit: number): Promise<{ enabled: boolean; items: PendingBooking[] }> {
   const { config, timezone } = await orgWatch(orgId);
   if (!config.enabled) return { enabled: false, items: [] };
   const windowStart = intakeWindowStart(now, timezone);
   // 新建观察总在事件创建之后；列表只关心近期开始的事件，往前多取 366 天覆盖提前很久的预约
   const since = zonedLocalToUtc(addDaysYmd(windowStart, -366), 0, timezone);
-  const raw = await db.auditLog.findMany({
-    where: { orgId, action: LEDGER_ACTION, createdAt: { gte: since } },
-    orderBy: { createdAt: "asc" },
+  // 账本 afterData 是 JSON.stringify 的结果（无空格），按片段过滤
+  const seeds = await db.auditLog.findMany({
+    where: {
+      orgId,
+      action: LEDGER_ACTION,
+      createdAt: { gte: since },
+      AND: [{ afterData: { contains: '"kind":"created"' } }, { afterData: { contains: '"source":"website"' } }],
+    },
+    select: { targetId: true },
     take: STATS_CAP,
+  });
+  const targetIds = [...new Set(seeds.map((r) => r.targetId).filter((x): x is string => Boolean(x)))];
+  if (!targetIds.length) return { enabled: true, items: [] };
+  const raw = await db.auditLog.findMany({
+    where: { orgId, action: LEDGER_ACTION, targetId: { in: targetIds } },
+    orderBy: { createdAt: "asc" },
     select: { afterData: true, createdAt: true },
   });
   const rows: LedgerRow[] = [];
@@ -100,27 +117,32 @@ export async function listWebsiteBookings(orgId: string, now: Date = new Date())
     const data = parseLedgerAfterData(r.afterData);
     if (data) rows.push({ createdAt: r.createdAt, data });
   }
-  const ids = [...new Set(rows.filter((r) => r.data.attribution.source === "website").map((r) => r.data.eventId))];
-  const [appts, dismissals] = ids.length
-    ? await Promise.all([
-        db.appointment.findMany({ where: { googleEventId: { in: ids }, customer: { orgId } }, select: { googleEventId: true } }),
-        db.auditLog.findMany({ where: { orgId, action: DISMISS_ACTION, targetId: { in: ids } }, select: { targetId: true } }),
-      ])
-    : [[], []];
+  const ids = [...new Set(rows.map((r) => r.data.eventId))];
+  const [appts, dismissals] = await Promise.all([
+    db.appointment.findMany({ where: { googleEventId: { in: ids }, customer: { orgId } }, select: { googleEventId: true } }),
+    db.auditLog.findMany({ where: { orgId, action: DISMISS_ACTION, targetId: { in: ids } }, select: { targetId: true } }),
+  ]);
   return {
     enabled: true,
     items: derivePendingBookings({
-      rows: rows.filter((r) => ids.includes(r.data.eventId)),
+      rows,
       convertedEventIds: new Set(appts.map((a) => a.googleEventId).filter((x): x is string => Boolean(x))),
       dismissedEventIds: new Set(dismissals.map((d) => d.targetId).filter((x): x is string => Boolean(x))),
       windowStart,
       timezone,
+      limit,
     }),
   };
 }
 
+/** 待转入列表（最多 200 条） */
+export function listWebsiteBookings(orgId: string, now: Date = new Date()): Promise<{ enabled: boolean; items: PendingBooking[] }> {
+  return computePending(orgId, now, MAX_PENDING);
+}
+
+/** 单个事件是否待转入：不受列表 200 条上限影响 */
 async function findPending(orgId: string, eventId: string, now: Date): Promise<PendingBooking | null> {
-  const { items } = await listWebsiteBookings(orgId, now);
+  const { items } = await computePending(orgId, now, Number.POSITIVE_INFINITY);
   return items.find((b) => b.eventId === eventId) ?? null;
 }
 
@@ -155,6 +177,10 @@ export async function getWebsiteBookingDetail(
   if (!booking) return { ok: false, status: 404, code: "NOT_PENDING", message: "该事件不在待转入列表中" };
   const { config } = await orgWatch(params.orgId);
   if (!config.readerUserId) return { ok: false, status: 409, code: "READER_NOT_CONNECTED", message: "日历观察没有读取账号" };
+  // 读取账号已离开企业：不再用其 Google 授权（与 CAL-1 执行器一致）
+  if (!(await activeMemberIds(params.orgId)).has(config.readerUserId)) {
+    return { ok: false, status: 409, code: "READER_NOT_CONNECTED", message: "日历观察的读取账号已不是在职成员" };
+  }
   let event: GoogleEvent | null;
   try {
     event = await (deps.readEvent ?? defaultReadEvent)(config.readerUserId, { eventId: params.eventId, calendarId: booking.calendarId });
@@ -165,7 +191,7 @@ export async function getWebsiteBookingDetail(
     throw err;
   }
   if (!event) return { ok: false, status: 404, code: "EVENT_NOT_FOUND", message: "Google 日历里已找不到该事件" };
-  const prefill = parseBookingDescription(event.description ?? null, event.location);
+  const prefill = parseBookingDescription(event.description ?? null, event.location, { excludeEmails: config.websiteBookerEmails });
   const existing = await ownCustomersWithPhone(db, params.orgId, params.userId, prefill.phone);
   return {
     ok: true,
@@ -199,12 +225,17 @@ export async function convertWebsiteBooking(params: {
 }): Promise<{ ok: true; customerId: string; appointmentId: string; linkedExisting: boolean } | IntakeError> {
   const now = params.now ?? new Date();
   const { orgId, userId, eventId, input } = params;
+  // 待转入判断在事务外做（读账本较重）；事务内只在锁下复查"已转入"，并发安全由锁 + 复查保证
+  const booking = await findPending(orgId, eventId, now);
+  if (!booking) {
+    const already = await db.appointment.findFirst({ where: { googleEventId: eventId, customer: { orgId } }, select: { id: true } });
+    if (already) return { ok: false, status: 409, code: "ALREADY_CONVERTED", message: "该网站预约已被转入" };
+    return { ok: false, status: 404, code: "NOT_PENDING", message: "该事件不在待转入列表中" };
+  }
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`website-booking:${orgId}:${eventId}`}))) AS l`;
     const already = await tx.appointment.findFirst({ where: { googleEventId: eventId, customer: { orgId } }, select: { id: true } });
     if (already) return { ok: false as const, status: 409, code: "ALREADY_CONVERTED" as const, message: "该网站预约已被转入" };
-    const booking = await findPending(orgId, eventId, now);
-    if (!booking) return { ok: false as const, status: 404, code: "NOT_PENDING" as const, message: "该事件不在待转入列表中" };
 
     let customerId: string;
     let customerPhone: string | null = null;
@@ -271,7 +302,7 @@ export async function convertWebsiteBooking(params: {
       afterData: { calendarId: booking.calendarId, customerId, appointmentId: appt.id, linkedExisting },
     });
     return { ok: true as const, customerId, appointmentId: appt.id, linkedExisting };
-  });
+  }, { timeout: 15_000, maxWait: 10_000 });
 }
 
 /** 忽略：已忽略的直接返回（幂等）；否则须在待转入列表中 */

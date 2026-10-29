@@ -135,6 +135,23 @@ console.log("描述解析");
   ok(stripHtml("a<br>b&nbsp;c") === "a\nb c", "stripHtml");
 }
 
+console.log("独立审查补充：解析误判");
+{
+  const angle = parseBookingDescription("Email: Jane <jane@example.com>", null);
+  ok(angle.email === "jane@example.com", "尖括号邮箱不被当成 HTML 去掉", angle);
+  ok(stripHtml("Jane <jane@example.com> <b>x</b>") === "Jane <jane@example.com> x", "只去掉形如 HTML 的标签");
+  const booking = parseBookingDescription("Booking ID: 20261029153045\nZoom: 98765432101", null);
+  ok(booking.phone === null, "长串数字（订单号 / 会议号）不当电话", booking);
+  const contact = parseBookingDescription("Contact: 416-555-0100", null);
+  ok(contact.name === null && contact.phone === "416-555-0100", "Contact 标签不当姓名", contact);
+  const na = parseBookingDescription("Phone: N/A\nCall 416 555 0100", null);
+  ok(na.phone === "416 555 0100", "标签电话不足 10 位（N/A）→ 回落到正文电话", na);
+  const own = parseBookingDescription("From booking@site.test: new booking by sam@example.org", null, { excludeEmails: ["booking@site.test"] });
+  ok(own.email === "sam@example.org", "网站预约账号本身不当客户邮箱", own);
+  const onlyOwn = parseBookingDescription("Email: booking@site.test", null, { excludeEmails: ["booking@site.test"] });
+  ok(onlyOwn.email === null, "标签值是网站账号 → 不填");
+}
+
 console.log("电话比对");
 {
   ok(samePhone("+1 416-555-0100", "4165550100"), "+1 前缀与 10 位相同（spec 场景）");
@@ -153,7 +170,7 @@ console.log("转入请求体");
   ok(link.ok && link.value.customer.kind === "existing", "关联已有客户");
   const bad = (body: unknown, name: string) => ok(!validateConvertInput(body, members).ok, name);
   bad(null, "非对象 → 拒绝");
-  bad({ customer: { name: "A" } }, "缺 calendarId → 拒绝");
+  ok(validateConvertInput({ customer: { name: "A" } }, members).ok, "不需要 calendarId（日历取账本里的）");
   bad({ calendarId: "c" }, "缺 customer → 拒绝");
   bad({ calendarId: "c", customer: {} }, "新客户缺姓名 → 拒绝");
   bad({ calendarId: "c", customer: { existingCustomerId: "c1", name: "A" } }, "二选一同时填 → 拒绝");
@@ -163,14 +180,17 @@ console.log("转入请求体");
   bad({ calendarId: "c", customer: { name: "A" }, appointment: { startAt: edt("2026-10-30T14:00:00"), endAt: edt("2026-10-30T13:00:00") } }, "结束早于开始 → 拒绝");
   bad({ calendarId: "c", customer: { name: "A" }, appointment: { assignedToId: "u_gone" } }, "负责人不是在职成员 → 拒绝");
   bad({ calendarId: "c", customer: { name: "A" }, appointment: { title: "x".repeat(201) } }, "标题超长 → 拒绝");
+  bad({ customer: { name: "A" }, appointment: { startAt: "1", endAt: "2" } }, "数字不当时间 → 拒绝");
+  bad({ customer: { name: "A" }, appointment: { startAt: "2026-10-30T14:00:00", endAt: "2026-10-30T15:00:00" } }, "不带时区的时间 → 拒绝");
+  ok(validateConvertInput({ customer: { name: "A" }, appointment: { startAt: "2026-10-30T14:00:00-04:00", endAt: "2026-10-30T19:00:00Z" } }, members).ok, "带时区的时间 → 通过");
   const assigned = validateConvertInput({ calendarId: "c", customer: { name: "A" }, appointment: { assignedToId: "u_other", type: "install" } }, members);
   ok(assigned.ok && assigned.value.appointment.assignedToId === "u_other" && assigned.value.appointment.type === "install", "指定在职负责人与类型");
 }
 
 console.log("忽略请求体与预约时间");
 {
-  const d = validateDismissInput({ reason: " 测试预约 ", calendarId: "cal1" });
-  ok(d.ok && d.reason === "测试预约" && d.calendarId === "cal1", "原因去空格");
+  const d = validateDismissInput({ reason: " 测试预约 " });
+  ok(d.ok && d.reason === "测试预约", "原因去空格");
   ok(validateDismissInput(undefined).ok, "无请求体也可");
   ok(!validateDismissInput({ reason: "x".repeat(201) }).ok, "原因超 200 字 → 拒绝");
 
@@ -179,7 +199,9 @@ console.log("忽略请求体与预约时间");
   const noEnd = appointmentTimes({ start: edt("2026-10-30T14:00:00"), end: null, allDay: false }, { startAt: null, endAt: null });
   ok(noEnd.endAt.getTime() - noEnd.startAt.getTime() === 3_600_000, "事件无结束时间 → 缺省 1 小时");
   const allDay = appointmentTimes({ start: "2026-10-30", end: "2026-10-31", allDay: true }, { startAt: null, endAt: null });
-  ok(allDay.allDay && allDay.startAt.toISOString().startsWith("2026-10-30") && allDay.endAt.toISOString().startsWith("2026-10-31"), "全天事件");
+  ok(allDay.allDay && allDay.startAt.toISOString() === "2026-10-30T00:00:00.000Z" && allDay.endAt.toISOString() === "2026-10-30T23:59:59.000Z", "单日全天：endAt 落在同一天（Google end.date 不含）", allDay);
+  const twoDay = appointmentTimes({ start: "2026-10-30", end: "2026-11-01", allDay: true }, { startAt: null, endAt: null });
+  ok(twoDay.endAt.toISOString() === "2026-10-31T23:59:59.000Z", "两天全天：endAt 落在最后一天");
   const given = appointmentTimes({ start: edt("2026-10-30T14:00:00"), end: null, allDay: false }, { startAt: edt("2026-10-31T09:00:00"), endAt: edt("2026-10-31T10:00:00") });
   ok(given.startAt.toISOString() === edt("2026-10-31T09:00:00"), "请求体给了时间以请求体为准");
 }

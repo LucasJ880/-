@@ -29,7 +29,7 @@
 - **THEN** 它不出现在列表中
 
 ### Requirement: 详情与预填
-`GET /api/sales/website-bookings/{eventId}?calendarId` SHALL 只对待转入列表中的事件返回详情（否则 404 `NOT_PENDING`）：用日历观察的读取账号实时读取该事件，返回标题、起止时间、地点、描述原文与预填建议（姓名、电话、邮箱、地址），以及调用者本人名下电话相同（末 10 位比对）的未归档客户。读取账号未连接或授权失效 SHALL 返回 409 `READER_NOT_CONNECTED`；Google 里已不存在该事件 SHALL 返回 404 `EVENT_NOT_FOUND`。描述原文与预填建议 SHALL NOT 落库。
+`GET /api/sales/website-bookings/{eventId}` SHALL 只对待转入列表中的事件返回详情（否则 404 `NOT_PENDING`）：用日历观察的读取账号（须为在职成员）在账本记录的日历里实时读取该事件，返回标题、起止时间、地点、描述原文与预填建议（姓名、电话、邮箱、地址），以及调用者本人名下电话相同（末 10 位比对）的未归档客户。读取账号未连接、授权失效或已不是在职成员 SHALL 返回 409 `READER_NOT_CONNECTED`；Google 里已不存在该事件 SHALL 返回 404 `EVENT_NOT_FOUND`。描述原文与预填建议 SHALL NOT 落库。
 
 #### Scenario: 预填
 - **WHEN** 事件描述含"Name: Jane Doe / Phone: (416) 555-0100 / Email: jane@example.com"，地点为"12 Main St"
@@ -68,6 +68,13 @@
 - **WHEN** 一次转入成功
 - **THEN** Google 写接口调用次数为 0；隔离库测试以源码断言与注入的读取函数验证
 
+### Requirement: 转入的预约以 Google 为准
+由网站预约转入的预约在青砚里被修改、取消或删除时，青砚 SHALL NOT 更新或删除对应的 Google 事件，也 SHALL NOT 清除预约记下的事件 ID；该事件的后续变化继续由日历观察记录与通知。
+
+#### Scenario: 青砚里取消
+- **WHEN** 销售在青砚取消一条由网站预约转入的预约，且其 Google 写入日历正是共享日历
+- **THEN** 共享日历里的事件不变，预约仍记着事件 ID，该事件不会重新出现在待转入列表；`website-booking-intake-db.isolated.test.ts` 覆盖
+
 ### Requirement: 忽略
 `POST /api/sales/website-bookings/{eventId}/dismiss` SHALL 把待转入事件从列表移除并写一条审计（可带 ≤ 200 字的原因）；重复忽略 SHALL 幂等返回 200。
 
@@ -76,7 +83,7 @@
 - **THEN** 该事件不再出现在列表，审计一条
 
 ### Requirement: 不留存与不外泄联系方式
-列表 SHALL NOT 返回事件描述、创建者邮箱或任何联系方式；转入与忽略的审计 SHALL NOT 含电话、邮箱、地址与描述原文，只含事件 ID、日历 ID、客户与预约 ID、是否关联已有客户与忽略原因。
+列表 SHALL NOT 返回事件描述与创建者邮箱，标题按日历观察账本原样（≤ 120 字）返回；转入与忽略的审计 SHALL NOT 含电话、邮箱、地址与描述原文，只含事件 ID、日历 ID、客户与预约 ID、是否关联已有客户与忽略原因。
 
 #### Scenario: 审计无联系方式
 - **WHEN** 一次转入成功

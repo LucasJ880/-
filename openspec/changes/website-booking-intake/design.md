@@ -31,7 +31,8 @@
 
 **Non-Goals:**
 - 不改 `src/lib/calendar-watch/{pure,run,settings,stats,types}.ts` 的观察、归因与统计行为。
-- 不改 `src/app/api/sales/customers/route.ts`、`src/app/api/sales/appointments/**`、`src/lib/sales/appointment-gcal-sync.ts`、`src/lib/google-calendar.ts`。
+- 不改 `src/app/api/sales/customers/route.ts`、`src/app/api/sales/appointments/**`、`src/lib/google-calendar.ts`。
+- `src/lib/sales/appointment-gcal-sync.ts` 只加一处保护（D6，apply 中据独立审查增加）：网站预约转入的预约跳过同步与解除同步，其余预约行为不变。
 - 不改 `src/lib/authorization/role-defaults.ts` 与任何岗位权限。
 - 不碰 `src/lib/muse-bridge/**`、微信推送。
 
@@ -45,7 +46,10 @@
   - 已忽略：存在审计 `calendar.website_booking.dismissed`，`targetId = eventId`。
 - 时间窗：开始时间不早于组织当地今天前 7 天（全天事件按日期比较）；最多 200 条，按开始时间升序。
 - 跨日历去重：同一事件 ID 只列一条，取最近一条账本的日历 ID。
-- 取数：账本按 `orgId + action + createdAt ≥ 时间窗起点 − 366 天` 查，复用 CAL-1 的 2 万行上限。新建观察总在事件创建之后，而列表只关心近期开始的事件，366 天足够覆盖提前很久预约的情况。
+- 取数分两步（apply 中据独立审查修订，原案按全部账本取前 2 万行会截掉最新的行）：
+  1. 只取 `createdAt ≥ 时间窗起点 − 366 天` 且 `afterData` 含 `"kind":"created"` 与 `"source":"website"` 的账本行，得到候选事件；
+  2. 再取这些事件的全部账本行判断最近是否删除。
+  - 列表最多 200 条；单个事件的详情、转入、忽略判断不受 200 条上限影响。
 - 否决：
   - **在 settingsJson 里存待转入清单**：会与账本双写不一致，且清单会无限增长。
   - **新建表**：零 schema。
@@ -65,11 +69,11 @@
 
 ### D3 转入：一个事务、按事件加锁、不推 Google
 - 授权：`authorize(sales.customer.create)` 任意范围。客户 `createdById = 调用者`，预约 `createdById = 调用者`，`assignedToId` 缺省为调用者，指定时须为本企业在职成员。
-- 事务内按顺序执行：
+- 待转入判断在事务外做（读账本较重，放在事务里会占两个连接且拉长事务）；事务（超时 15 秒、等待 10 秒）内按顺序执行：
   1. `pg_advisory_xact_lock(hashtext('website-booking:' + orgId + ':' + eventId))`；
-  2. 重新确认待转入：已转入 → 409 `ALREADY_CONVERTED`；已删除 / 已忽略 / 不在账本 → 404 `NOT_PENDING`；
+  2. 锁下复查已转入 → 409 `ALREADY_CONVERTED`（不在待转入时事务外已返回 404 `NOT_PENDING` 或 409）；
   3. 客户：关联时须是调用者名下未归档客户，否则 404；新建时先按电话末 10 位查调用者名下重复，命中 → 409 `CUSTOMER_EXISTS`；否则新建（`source = "website_booking"`，邮箱与地址可选）；
-  4. 预约：`type` 缺省 `measure`，`googleEventId = eventId`，`googleSyncedAt = now`，起止取请求体，请求体缺省取事件；
+  4. 预约：`type` 缺省 `measure`，`googleEventId = eventId`，`googleSyncedAt = now`，起止取请求体（须带时区），请求体缺省取事件；全天事件的 `endAt` 取最后一天（Google `end.date` 不含，青砚全天预约推送时会再加一天）；
   5. 审计 `calendar.website_booking.converted`（`targetType = google_calendar_event`，`targetId = eventId`，`afterData = { calendarId, customerId, appointmentId, linkedExisting }`）。
 - 不调用 `syncAppointmentToGoogle`：事件已在共享日历里，再推就会重复。
 - 转入的客户落在调用者名下，商机不自动建，与现有"新建预约"接口一致：预约可不挂商机。
@@ -77,6 +81,14 @@
   - **复用 `POST /api/sales/appointments`**：它会推一个新 Google 事件，造成重复。
   - **不记 `googleEventId`**：无法防重复转入，CAL-1 也无法把后续变更归到这条预约。
   - **自动转入**：描述格式未知，自动建客户会造出脏数据；用户要的是"不用手抄"，不是"无人确认"。
+
+### D6 转入的预约以 Google 为准（apply 中据独立审查增加）
+- 既有同步在预约修改（非取消）时用青砚模板覆盖 Google 事件的标题与描述，取消 / 删除时删掉 Google 事件并清空 `googleEventId`（删除用的是操作人的写入日历）。对网站预约，这会抹掉客户填写的原文、把共享日历里的预约删掉，清空 ID 后还会让该事件重新出现在待转入列表、被二次转入。
+- 做法：`appointment-gcal-sync` 的同步与解除同步先查是否存在 `calendar.website_booking.converted` 审计（`targetId = googleEventId`），存在则跳过（同步返回 `skipped: "website_booking"`，解除同步返回成功且不清 ID）。覆盖所有调用方（预约修改 / 删除接口、手动同步接口、智能体工具）。
+- 代价：在青砚改这类预约的时间不会同步到 Google；以 Google 为准，Google 侧的修改由 CAL-1 通知。
+- 否决：
+  - **转入时不记 `googleEventId`**：既有同步会把它当成新预约再推一个事件，共享日历里出现重复。
+  - **只在文档里提示"写入日历不要选共享日历"**：无法强制，误配一次就丢数据。
 
 ### D4 忽略写审计
 - `calendar.website_booking.dismissed`：`targetId = eventId`，`afterData = { calendarId, reason }`，原因 ≤ 200 字。
@@ -108,10 +120,7 @@
 ## Risks / Trade-offs
 
 - **[描述格式未知，预填可能是空的]** → 表单可编辑；地点与时间一定能带出；上线验收时拿一条真实 book-now 事件核对规则，必要时另开小 change 加格式专用规则。
-- **[转入后在青砚改预约，同步走负责人的写入日历]** → 既有同步按负责人连接的写入日历改 / 删 `googleEventId`。
-  - 若该销售的写入日历就是共享日历，青砚里的改动会同步到这条网站预约；
-  - 若不是，Google 侧调用失败（既有行为是记日志、不报错），Google 里的原事件保持不变，CAL-1 照常观察。
-  - 报告写明，上线时建议销售的写入日历选共享日历。
+- **[转入后在青砚改预约]** → D6：这类预约不回写 Google，以 Google 为准；在青砚改时间只改青砚记录，需要改约时在 Google 里改（CAL-1 会通知）。报告写明。
 - **[两个销售抢同一条]** → 事务内加锁并复查，后到者 409；页面提示"已被同事转入"。
 - **[老板想分派]** → 本 change 不做（用户选定销售认领）；需要时另开 change 给老板岗位加新建客户权限。
 - **[只提示本人名下重复]** → 其他销售名下的同一客户不会提示（与新建客户接口一致，不跨人泄露客户）；报告写明。

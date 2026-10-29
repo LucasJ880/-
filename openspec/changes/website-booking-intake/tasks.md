@@ -18,7 +18,7 @@
   - `convertWebsiteBooking(params)`：事务 + `pg_advisory_xact_lock`、复查待转入、客户关联 / 新建 / 重复 409、预约记 `googleEventId` 与 `googleSyncedAt`、审计，不调用 `syncAppointmentToGoogle`；
   - `dismissWebsiteBooking(params)`：幂等审计。
 
-  verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0；`git diff` 中 `src/lib/calendar-watch/{pure,run,settings,stats,types}.ts`、`src/app/api/sales/customers/route.ts`、`src/app/api/sales/appointments/**`、`src/lib/sales/appointment-gcal-sync.ts`、`src/lib/google-calendar.ts` 无改动。
+  verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0；`git diff` 中 `src/lib/calendar-watch/{pure,run,settings,stats,types}.ts`、`src/app/api/sales/customers/route.ts`、`src/app/api/sales/appointments/**`、`src/lib/google-calendar.ts` 无改动（`src/lib/sales/appointment-gcal-sync.ts` 只有 design D6 的一处保护，apply 中据独立审查增加）。
 
 ## 3. 接口
 

@@ -110,21 +110,22 @@ export interface BookingPrefill {
 }
 
 const LABELS: Record<keyof BookingPrefill, readonly string[]> = {
-  name: ["name", "full name", "your name", "customer", "customer name", "client", "client name", "contact", "contact name", "姓名", "客户", "客户姓名", "名字", "联系人"],
+  name: ["name", "full name", "your name", "customer", "customer name", "client", "client name", "姓名", "客户", "客户姓名", "名字", "联系人"],
   phone: ["phone", "phone number", "tel", "telephone", "mobile", "cell", "cell phone", "电话", "手机", "联系电话", "手机号"],
   email: ["email", "e-mail", "email address", "邮箱", "电子邮件", "电子邮箱"],
   address: ["address", "location", "service address", "home address", "地址", "服务地址", "上门地址"],
 };
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
-const NA_PHONE_RE = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/;
+const NA_PHONE_RE = /(?<![\d])(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?![\d])/;
 
 /** 去掉 HTML 标签与常见实体（Google 描述常含 <br>） */
 export function stripHtml(s: string): string {
   return s
     .replace(/<\s*br\s*\/?\s*>/gi, "\n")
     .replace(/<\/\s*(p|div|li|tr)\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
+    // 只去掉形如 HTML 的标签；"<jane@example.com>" 这类尖括号邮箱保留
+    .replace(/<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*)?\/?>/g, "")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
@@ -138,8 +139,15 @@ function clip(v: string | null | undefined): string | null {
   return t ? [...t].slice(0, MAX_FIELD).join("") : null;
 }
 
-/** 标签行优先；无标签时用邮箱与北美电话正则；地址缺失用事件地点；姓名不猜 */
-export function parseBookingDescription(description: string | null, location: string | null): BookingPrefill {
+/**
+ * 标签行优先；无标签时用邮箱与北美电话正则；地址缺失用事件地点；姓名不猜。
+ * excludeEmails（小写）：不作为客户邮箱的地址，如网站预约账号本身。
+ */
+export function parseBookingDescription(
+  description: string | null,
+  location: string | null,
+  opts: { excludeEmails?: readonly string[] } = {},
+): BookingPrefill {
   const out: BookingPrefill = { name: null, phone: null, email: null, address: null };
   const text = stripHtml(description ?? "");
   for (const line of text.split(/\r?\n/)) {
@@ -150,9 +158,17 @@ export function parseBookingDescription(description: string | null, location: st
       if (!out[key] && LABELS[key].includes(label)) out[key] = clip(m[2]);
     }
   }
-  if (!out.email) out.email = clip(text.match(EMAIL_RE)?.[0]);
+  const excluded = new Set((opts.excludeEmails ?? []).map((e) => e.toLowerCase()));
+  // 标签值里取出邮箱本体（"Jane <jane@example.com>" → jane@example.com）；不是邮箱就丢掉
+  if (out.email) out.email = clip(out.email.match(EMAIL_RE)?.[0]);
+  if (!out.email) {
+    const all = text.match(new RegExp(EMAIL_RE.source, "g")) ?? [];
+    out.email = clip(all.find((e) => !excluded.has(e.toLowerCase())));
+  }
+  if (out.email && excluded.has(out.email.toLowerCase())) out.email = null;
+  // 标签电话至少要有 10 位数字（"N/A"、分机号之类不算）
+  if (out.phone && out.phone.replace(/\D/g, "").length < 10) out.phone = null;
   if (!out.phone) out.phone = clip(text.match(NA_PHONE_RE)?.[0]);
-  if (out.email && !EMAIL_RE.test(out.email)) out.email = null;
   if (!out.address) out.address = clip(location);
   return out;
 }
@@ -171,7 +187,6 @@ export type ConvertCustomer =
   | { kind: "new"; name: string; phone: string | null; email: string | null; address: string | null };
 
 export interface ConvertInput {
-  calendarId: string;
   customer: ConvertCustomer;
   appointment: {
     type: AppointmentType;
@@ -198,9 +213,11 @@ function optText(v: unknown, max = MAX_FIELD): string | null | undefined {
   return t || null;
 }
 
+/** 只收带时区的完整 ISO 时间（Z 或 ±hh:mm），避免按服务器时区解析 */
+const ISO_TZ_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 function optIso(v: unknown): string | null | undefined {
   if (v === undefined || v === null || v === "") return null;
-  if (typeof v !== "string" || !Number.isFinite(Date.parse(v))) return undefined;
+  if (typeof v !== "string" || !ISO_TZ_RE.test(v) || !Number.isFinite(Date.parse(v))) return undefined;
   return v;
 }
 
@@ -211,7 +228,6 @@ export function validateConvertInput(
 ): { ok: true; value: ConvertInput } | { ok: false; message: string } {
   const b = obj(body);
   if (!b) return { ok: false, message: "请求体必须是对象" };
-  if (typeof b.calendarId !== "string" || !b.calendarId.trim()) return { ok: false, message: "calendarId 必填" };
 
   const c = obj(b.customer);
   if (!c) return { ok: false, message: "customer 必填" };
@@ -254,7 +270,6 @@ export function validateConvertInput(
   return {
     ok: true,
     value: {
-      calendarId: b.calendarId.trim(),
       customer,
       appointment: { type: type as AppointmentType, title, startAt, endAt, address, contactPhone, description, assignedToId },
     },
@@ -262,24 +277,28 @@ export function validateConvertInput(
 }
 
 /** 忽略原因：可选，≤ 200 字 */
-export function validateDismissInput(body: unknown): { ok: true; calendarId: string | null; reason: string | null } | { ok: false; message: string } {
+export function validateDismissInput(body: unknown): { ok: true; reason: string | null } | { ok: false; message: string } {
   const b = obj(body) ?? {};
   const reason = optText(b.reason);
   if (reason === undefined) return { ok: false, message: "原因须为不超过 200 字的文字" };
-  const calendarId = typeof b.calendarId === "string" && b.calendarId.trim() ? b.calendarId.trim() : null;
-  return { ok: true, calendarId, reason };
+  return { ok: true, reason };
 }
 
-/** 预约的默认起止：请求体留空时取事件时间；全天事件按当地日期 00:00 起整天 */
+/**
+ * 预约的默认起止：请求体留空时取事件时间。
+ * 全天事件：Google 的 end.date 是"次日"（不含），青砚全天预约的 endAt 取最后一天（推送时再加一天），
+ * 所以 endAt = 不含结束日的前一天 23:59:59Z。
+ */
 export function appointmentTimes(
   booking: Pick<PendingBooking, "start" | "end" | "allDay">,
   input: { startAt: string | null; endAt: string | null },
 ): { startAt: Date; endAt: Date; allDay: boolean } {
   if (input.startAt && input.endAt) return { startAt: new Date(input.startAt), endAt: new Date(input.endAt), allDay: false };
   if (booking.allDay) {
-    const s = new Date(`${booking.start.slice(0, 10)}T00:00:00Z`);
-    const e = booking.end ? new Date(`${booking.end.slice(0, 10)}T00:00:00Z`) : new Date(s.getTime() + 86_400_000);
-    return { startAt: s, endAt: e, allDay: true };
+    const first = booking.start.slice(0, 10);
+    const exclusiveEnd = booking.end ? booking.end.slice(0, 10) : addDaysYmd(first, 1);
+    const last = exclusiveEnd > first ? addDaysYmd(exclusiveEnd, -1) : first;
+    return { startAt: new Date(`${first}T00:00:00Z`), endAt: new Date(`${last}T23:59:59Z`), allDay: true };
   }
   const s = new Date(booking.start);
   const e = booking.end && Number.isFinite(Date.parse(booking.end)) ? new Date(booking.end) : new Date(s.getTime() + 3_600_000);
