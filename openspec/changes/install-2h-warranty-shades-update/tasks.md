@@ -2,15 +2,15 @@
 
 ## 1. 质保部件与种子
 
-- [ ] 1.1 `warranty.ts`：部件加 `cordless` / `motor_accessories` / `batteries`（D1 顺序），中英文标签（电机 / 配件 / 电池注明 "(if supplied)"，无绳机构注明 "(cordless models)"）；种子帘类 1 / 5 / 15 / 3 / 5 / 5 / 1、窗帘 1 / 5 / 15 / 5 / 5 / 1（D2）；`warranty.test.ts` 覆盖 spec「质保设置」（旧设置原样）「质保设置读写」（新部件、未知部件）「质保设置种子」「邮件内容」（帘类单）。verify：`npx tsx src/lib/install/__tests__/warranty.test.ts` 0 失败。
+- [x] 1.1 `warranty.ts`：部件加 `cordless` / `motor_accessories` / `batteries`（D1 顺序），中英文标签（电机 / 配件 / 电池注明 "(if supplied)"，无绳机构注明 "(cordless models)"）；种子帘类 1 / 5 / 15 / 3 / 5 / 5 / 1、窗帘 1 / 5 / 15 / 5 / 5 / 1（D2）；`warranty.test.ts` 覆盖 spec「质保设置」（旧设置原样）「质保设置读写」（新部件、未知部件）「质保设置种子」「邮件内容」（帘类单）。verify：`npx tsx src/lib/install/__tests__/warranty.test.ts` 0 失败。
 
 ## 2. 报价单与 Order Form
 
-- [ ] 2.1 `quote-pdf.ts` 帘类、窗帘段质保文字；`order-shades.tsx`、`order-drapes.tsx` 改为与对应 PDF 段同句（D3）；`warranty.test.ts` 由种子拼出期望句子逐字比对 PDF 三段与两张 Order Form、旧句不再出现（spec「报价单质保文字」）。verify：同上 0 失败；`npx eslint "src/app/(main)/sales/quote-sheet"` 0 error。
+- [x] 2.1 `quote-pdf.ts` 帘类、窗帘段质保文字；`order-shades.tsx`、`order-drapes.tsx` 改为与对应 PDF 段同句（D3）；`warranty.test.ts` 由种子拼出期望句子逐字比对 PDF 三段与两张 Order Form、旧句不再出现（spec「报价单质保文字」）。verify：同上 0 失败；改动的 `quote-pdf.ts`、`order-shades.tsx`、`order-drapes.tsx` eslint 0 error（目录内其余文件的 12 处 `react/no-unescaped-entities` 为既有欠账，`npm run lint:baseline` PASS）。
 
 ## 3. 端到端与页面
 
-- [ ] 3.1 `warranty-db.isolated.test.ts` 补：接口读出新种子；老板保存帘类无绳 3 / 电池 1 读回；未知部件 400。本地 Playwright：老板质保设置 8 列与新种子；会计确认帘类单尾款后预览含新部件与注明文字；截图存 `docs/install-2h-screenshots/`。verify：本地隔离库 0 失败；走查全部检查通过。
+- [x] 3.1 `warranty-db.isolated.test.ts` 补：接口读出新种子；老板保存帘类无绳 3 / 电池 1 读回；未知部件 400。本地 Playwright：老板质保设置 8 列与新种子；会计确认帘类单尾款后预览含新部件与注明文字；截图存 `docs/install-2h-screenshots/`。verify：本地隔离库 0 失败；走查全部检查通过。
 
 ## 4. 收尾
 

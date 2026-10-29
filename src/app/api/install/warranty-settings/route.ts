@@ -2,7 +2,7 @@
  * GET / PUT /api/install/warranty-settings?orgId
  * INSTALL-2c：组织质保设置（Organization.settingsJson.sunnyWarranty）。
  * - 读：当前企业 ORG 范围持 accounting.read / install.balance.confirm / sales.settings.manage 任一；返回 canEdit
- * - 写：sales.settings.manage（老板）；整份校验（年限 0–50 整数、部件五种、邮箱 / 网址 / 抄送）；只替换 sunnyWarranty 键；记审计
+ * - 写：sales.settings.manage（老板）；整份校验（年限 0–50 整数、部件八种、邮箱 / 网址 / 抄送）；只替换 sunnyWarranty 键；记审计
  * 从未保存 = 种子（报价单口径）。
  */
 import { NextResponse } from "next/server";

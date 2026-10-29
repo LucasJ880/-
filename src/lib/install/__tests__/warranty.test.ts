@@ -1,6 +1,7 @@
 /**
  * INSTALL-2c：质保设置种子 / 校验 / 读取，到期日，生成条件，邮件渲染（内容与不出金额），状态推导
  * INSTALL-2g：Shutters 新条款（1 / 15 / 25）、报修联系方式与抄送种子、抄送校验、旧设置原样读取、报价单质保文字与种子交叉比对
+ * INSTALL-2h：帘类 / 窗帘新条款（无绳升降 3、电机 5、电机配件 5、电池 1）、新部件保存、帘类邮件注明文字、Order Form 文字比对
  * 运行：npx tsx src/lib/install/__tests__/warranty.test.ts
  */
 import { readFileSync } from "node:fs";
@@ -29,7 +30,8 @@ console.log("INSTALL-2c 质保设置种子");
 const seed = seedWarrantySettings();
 const terms = (s: WarrantySettings, c: "shades" | "drapery" | "vinyl") => s.terms[c].map((t) => `${t.part}:${t.years}`).join(",");
 ok(terms(seed, "vinyl") === "labour:1,components:15,frame:25", "Shutters：人工 1 / 部件 15 / 框架与叶片 25（官网新条款，INSTALL-2g）", terms(seed, "vinyl"));
-ok(terms(seed, "shades") === "labour:1,fabric:5,components:15" && terms(seed, "drapery") === "labour:1,fabric:5,components:15", "帘类 / 窗帘：人工 1 / 面料 5 / 部件 15");
+ok(terms(seed, "shades") === "labour:1,fabric:5,components:15,cordless:3,motor:5,motor_accessories:5,batteries:1", "帘类（INSTALL-2h）：人工 1 / 面料 5 / 部件 15 / 无绳升降 3 / 电机 5 / 电机配件 5 / 电池 1", terms(seed, "shades"));
+ok(terms(seed, "drapery") === "labour:1,fabric:5,components:15,motor:5,motor_accessories:5,batteries:1", "窗帘（INSTALL-2h）：人工 1 / 面料 5 / 部件 15 / 电机 5 / 电机配件 5 / 电池 1（无无绳机构）", terms(seed, "drapery"));
 ok(seed.contact.phone === "647-857-8669" && seed.contact.email === "service@sunnyshutter.ca", "报修电话 647-857-8669、邮箱 service@sunnyshutter.ca（INSTALL-2g）", seed.contact);
 ok(seed.cc.join() === "miki@sunnyshutter.ca", "抄送种子 miki@sunnyshutter.ca（INSTALL-2g）", seed.cc);
 ok(validateWarrantySettings(seed).ok, "种子本身通过校验");
@@ -55,12 +57,14 @@ for (const [bad, name] of [
   ok(!r.ok, `拒绝：${name}`, r);
 }
 ok(readWarrantySettings({ sunnyWarranty: { terms: "bad" } }).saved === false, "已存坏数据 → 回退种子");
+const oldShades = [{ part: "labour", years: 1 }, { part: "fabric", years: 5 }, { part: "components", years: 15 }];
 const legacy = {
-  terms: { shades: seed.terms.shades, drapery: seed.terms.drapery, vinyl: [{ part: "labour", years: 1 }, { part: "components", years: 5 }] },
+  terms: { shades: oldShades, drapery: oldShades, vinyl: [{ part: "labour", years: 1 }, { part: "components", years: 5 }] },
   contact: { ...seed.contact, phone: "647-555-0100", email: "service@example.com" },
 };
 const legacyRead = readWarrantySettings({ sunnyWarranty: legacy });
 ok(legacyRead.saved && terms(legacyRead.settings, "vinyl") === "labour:1,components:5" && legacyRead.settings.cc.length === 0, "已保存的旧设置原样读取：Shutters 1 / 5、无抄送项 = 不抄送（不被种子覆盖）", legacyRead.settings);
+ok(terms(legacyRead.settings, "shades") === "labour:1,fabric:5,components:15" && terms(legacyRead.settings, "drapery") === "labour:1,fabric:5,components:15", "旧设置的帘类 / 窗帘也原样读取，不补新部件（INSTALL-2h）");
 
 console.log("INSTALL-2g 抄送");
 const ccOk = validateWarrantySettings({ ...good, cc: "Miki@Fixture.test, miki@fixture.test；office@fixture.test" });
@@ -73,6 +77,8 @@ ok(warrantyCcProblem(undefined) === null && warrantyCcProblem(["miki@fixture.tes
 ok(warrantyCcProblem("miki@fixture.test") !== null && warrantyCcProblem(["bad"]) !== null && warrantyCcProblem(["a@x.co", "b@x.co", "c@x.co", "d@x.co", "e@x.co", "f@x.co"]) !== null, "执行器：非数组 / 格式不对 / 超过 5 个 → 拒绝");
 const withMotor = validateWarrantySettings({ ...good, terms: { ...good.terms, shades: [{ part: "motor", years: "5" }, { part: "labour", years: 1 }] } });
 ok(withMotor.ok && withMotor.settings.terms.shades.map((t) => t.part).join() === "labour,motor", "可加电机年限，部件按固定顺序排列");
+const newParts = validateWarrantySettings({ ...good, terms: { ...good.terms, shades: [{ part: "batteries", years: 1 }, { part: "cordless", years: 3 }, { part: "labour", years: 1 }] } });
+ok(newParts.ok && terms(newParts.settings, "shades") === "labour:1,cordless:3,batteries:1", "可保存无绳升降机构 / 电池，按固定顺序排列（INSTALL-2h）", newParts);
 const reordered = validateWarrantySettings({ ...good, terms: { ...good.terms, vinyl: [{ part: "frame", years: 25 }, { part: "labour", years: 1 }, { part: "components", years: 15 }] } });
 ok(reordered.ok && terms(reordered.settings, "vinyl") === "labour:1,components:15,frame:25", "框架与叶片排在部件之后", reordered);
 
@@ -115,6 +121,17 @@ ok(mail.text.includes("https://sunnyshutter.ca/warranty-service/") && mail.text.
 ok(mail.html.startsWith("<!doctype html>") && mail.html.includes("Labour 1 yr (until 2027-10-28)") && mail.html.includes("W-SUN-1024"), "HTML 与正文同内容");
 const again = renderWarrantyEmail({ orderCode: "SUN-1024", customerName: "Example Homeowner", address: "6 Example Ct", installDate: "2026-10-28", units: [...vinylUnits].reverse(), settings: ready });
 ok(again.text === mail.text && again.html === mail.html, "同样输入 → 完全相同（单元顺序按序号）");
+const zebra: WarrantyUnit[] = [{ itemNumber: 1, location: "Bedroom", productType: "斑马帘", fabricSku: "ZB-01", category: "shades" }];
+const shadesMail = renderWarrantyEmail({ orderCode: "SUN-2048", customerName: "Example Homeowner", address: "6 Example Ct", installDate: "2026-10-28", units: zebra, settings: ready });
+const shadesLine = shadesMail.text.split("\n").find((l) => l.includes("Shades & Blinds:")) ?? "";
+ok(
+  shadesLine ===
+    "  Shades & Blinds: Labour 1 yr (until 2027-10-28) · Fabric 5 yr (until 2031-10-28) · Components 15 yr (until 2041-10-28) · Cordless Lift Mechanism (cordless models) 3 yr (until 2029-10-28) · Motor (if supplied) 5 yr (until 2031-10-28) · Motor Accessories (if supplied) 5 yr (until 2031-10-28) · Batteries (if supplied) 1 yr (until 2027-10-28)",
+  "帘类单：按顺序列出 7 项，电机 / 配件 / 电池注明 if supplied、无绳机构注明 cordless models（INSTALL-2h）",
+  shadesLine,
+);
+ok(!/Shutters:|Drapes & Sheers:|Frame & Panels/.test(shadesMail.text), "帘类单只列帘类覆盖段");
+ok(shadesMail.html.includes("Cordless Lift Mechanism (cordless models) 3 yr (until 2029-10-28)") && shadesMail.html.includes("Batteries (if supplied) 1 yr"), "HTML 同内容");
 const xss = renderWarrantyEmail({ orderCode: "X1", customerName: "<script>alert(1)</script>", address: null, installDate: "2026-10-28", units: vinylUnits, settings: ready });
 ok(!xss.html.includes("<script>alert") && xss.html.includes("&lt;script&gt;"), "HTML 转义客户输入");
 
@@ -125,9 +142,36 @@ const yearsOf = (c: "shades" | "drapery" | "vinyl", part: string) => seed.terms[
 const shutterLine = `Warranty: ${yrs(yearsOf("vinyl", "labour"))} labour / ${yrs(yearsOf("vinyl", "components"))} components / ${yrs(yearsOf("vinyl", "frame"))} frame & panels.`;
 ok(shutterLine === "Warranty: 1 year labour / 15 years components / 25 years frame & panels." && quoteSrc.includes(shutterLine), "报价单 Shutters 段 = 种子 1 / 15 / 25", shutterLine);
 ok(!quoteSrc.includes("1 year labour / 5 years components"), "报价单不再有 Shutters 旧文字（1 year labour / 5 years components）");
-for (const c of ["shades", "drapery"] as const) {
-  const line = `Warranty: ${yrs(yearsOf(c, "labour"))} labour · ${yrs(yearsOf(c, "fabric"))} fabric · ${yrs(yearsOf(c, "components"))} components.`;
-  ok(quoteSrc.split(line).length - 1 === 2, `报价单帘类 / 窗帘段 = 种子 ${c} 1 / 5 / 15`, line);
+// INSTALL-2h：帘类 / 窗帘句子由种子拼出；电机与配件同年限时合写一项
+const shadesLikeLine = (c: "shades" | "drapery") => {
+  const parts = [
+    `${yrs(yearsOf(c, "labour"))} labour`,
+    `${yrs(yearsOf(c, "fabric"))} fabric`,
+    `${yrs(yearsOf(c, "components"))} components`,
+    ...(yearsOf(c, "cordless") >= 0 ? [`${yrs(yearsOf(c, "cordless"))} cordless lift mechanisms`] : []),
+  ];
+  if (yearsOf(c, "motor") === yearsOf(c, "motor_accessories")) parts.push(`${yrs(yearsOf(c, "motor"))} motors & motor accessories (if supplied)`);
+  else parts.push(`${yrs(yearsOf(c, "motor"))} motors (if supplied)`, `${yrs(yearsOf(c, "motor_accessories"))} motor accessories (if supplied)`);
+  parts.push(`${yrs(yearsOf(c, "batteries"))} batteries (if supplied)`);
+  return `Warranty: ${parts.join(" · ")}`;
+};
+const shadesSentence = shadesLikeLine("shades");
+const drapesSentence = shadesLikeLine("drapery");
+ok(
+  shadesSentence === "Warranty: 1 year labour · 5 years fabric · 15 years components · 3 years cordless lift mechanisms · 5 years motors & motor accessories (if supplied) · 1 year batteries (if supplied)" &&
+    drapesSentence === "Warranty: 1 year labour · 5 years fabric · 15 years components · 5 years motors & motor accessories (if supplied) · 1 year batteries (if supplied)",
+  "由种子拼出的帘类 / 窗帘句子（INSTALL-2h）",
+  [shadesSentence, drapesSentence],
+);
+const shadesPdf = /shades: \{[\s\S]*?intro: "([^"]+)"/.exec(quoteSrc)?.[1];
+const drapesPdf = /drapes: \{[\s\S]*?intro: "([^"]+)"/.exec(quoteSrc)?.[1];
+ok(shadesPdf === `${shadesSentence}.` && drapesPdf === `${drapesSentence}.`, "报价单 PDF 帘类段 / 窗帘段 = 种子句子", [shadesPdf, drapesPdf]);
+const orderShades = readFileSync(path.join(process.cwd(), "src/app/(main)/sales/quote-sheet/order-shades.tsx"), "utf8");
+const orderDrapes = readFileSync(path.join(process.cwd(), "src/app/(main)/sales/quote-sheet/order-drapes.tsx"), "utf8");
+ok(orderShades.includes(shadesSentence) && !orderShades.includes(drapesSentence), "Order Form 帘类页 = 帘类句子", shadesSentence);
+ok(orderDrapes.includes(drapesSentence) && !orderDrapes.includes("cordless"), "Order Form 窗帘页 = 窗帘句子（无无绳机构）", drapesSentence);
+for (const [name, src] of [["报价单 PDF", quoteSrc], ["Order Form 帘类", orderShades], ["Order Form 窗帘", orderDrapes]] as const) {
+  ok(!/15 years components\.|15 years components"|15 years components\n|1yr labour \/ 5yr fabric \/ 15yr components|1 year Labour, 5 years fabric, 15 years components/.test(src), `${name}：旧的帘类 / 窗帘质保句（只有人工 / 面料 / 部件）不再出现`);
 }
 
 console.log("INSTALL-2c 邮件不输出金额");

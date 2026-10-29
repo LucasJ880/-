@@ -176,7 +176,7 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
         <div>
           <h2 className="text-lg font-bold">DRAPES & SHEER — ORDER FORM</h2>
           <p className="text-xs text-muted-foreground">
-            自动计价：PRICE TABLE 窗帘报价 2026.October（35% OFF）· Warranty: 1yr labour / 5yr fabric / 15yr components
+            自动计价：PRICE TABLE 窗帘报价 2026.October（35% OFF）· Warranty: 1 year labour · 5 years fabric · 15 years components · 5 years motors & motor accessories (if supplied) · 1 year batteries (if supplied)
           </p>
         </div>
         <button

@@ -6,6 +6,7 @@
  * - 邮件：确定性渲染，主题 / 英文正文 / 同内容 HTML；不含任何金额（spec「邮件不输出的内容」）
  * - INSTALL-2g：Shutters 按官网新条款（人工 1 / 部件 15 / 框架与叶片 25）；报修电话 / 邮箱与抄送经 Lucas 2026-10-29 确认进种子；
  *   已保存的设置原样使用，不被种子覆盖（install-2g design D2）
+ * - INSTALL-2h：帘类 / 窗帘按官网新条款加无绳升降机构、电机配件、电池；电机 / 配件 / 电池注明 if supplied，无绳机构注明 cordless models
  */
 
 import type { FulfillmentCategory } from "@/lib/fulfillment/category";
@@ -17,7 +18,7 @@ export const NOTIFY_WARRANTY_SENT = "install_warranty_sent" as const;
 export const NOTIFY_WARRANTY_FAILED = "install_warranty_failed" as const;
 
 export const WARRANTY_CATEGORIES: readonly FulfillmentCategory[] = ["shades", "drapery", "vinyl"];
-export const WARRANTY_PARTS = ["labour", "fabric", "components", "frame", "motor"] as const;
+export const WARRANTY_PARTS = ["labour", "fabric", "components", "cordless", "frame", "motor", "motor_accessories", "batteries"] as const;
 export type WarrantyPart = (typeof WARRANTY_PARTS)[number];
 
 export const CATEGORY_LABEL_EN: Record<FulfillmentCategory, string> = {
@@ -34,15 +35,21 @@ export const PART_LABEL_EN: Record<WarrantyPart, string> = {
   labour: "Labour",
   fabric: "Fabric",
   components: "Components",
+  cordless: "Cordless Lift Mechanism (cordless models)",
   frame: "Frame & Panels",
-  motor: "Motor",
+  motor: "Motor (if supplied)",
+  motor_accessories: "Motor Accessories (if supplied)",
+  batteries: "Batteries (if supplied)",
 };
 export const PART_LABEL_ZH: Record<WarrantyPart, string> = {
   labour: "人工",
   fabric: "面料",
   components: "部件",
+  cordless: "无绳升降机构",
   frame: "框架与叶片",
   motor: "电机",
+  motor_accessories: "电机配件",
+  batteries: "电池",
 };
 
 export type WarrantyTerm = { part: WarrantyPart; years: number };
@@ -62,17 +69,25 @@ export type WarrantySettings = {
 
 export const WARRANTY_CC_MAX = 5;
 
-/** 种子 = 报价单 PDF 口径（quote-pdf.ts：帘类 / 窗帘 1·5·15，Shutters 1·15·25）；地址取维修单抬头 */
+/** 种子 = 报价单 PDF 口径（quote-pdf.ts：帘类 1·5·15·无绳 3·电机 5·配件 5·电池 1，窗帘同但无无绳，Shutters 1·15·25）；地址取维修单抬头 */
 export function seedWarrantySettings(): WarrantySettings {
-  const shadesLike: WarrantyTerm[] = [
+  const drapery: WarrantyTerm[] = [
     { part: "labour", years: 1 },
     { part: "fabric", years: 5 },
     { part: "components", years: 15 },
+    { part: "motor", years: 5 },
+    { part: "motor_accessories", years: 5 },
+    { part: "batteries", years: 1 },
   ];
+  // 官网：无绳升降机构只针对手动无绳的帘与卷帘（含斑马帘），窗帘没有
+  const cordless: WarrantyTerm = { part: "cordless", years: 3 };
+  const shades: WarrantyTerm[] = [...drapery, cordless].sort(
+    (a, b) => WARRANTY_PARTS.indexOf(a.part) - WARRANTY_PARTS.indexOf(b.part),
+  );
   return {
     terms: {
-      shades: shadesLike.map((t) => ({ ...t })),
-      drapery: shadesLike.map((t) => ({ ...t })),
+      shades,
+      drapery,
       vinyl: [
         { part: "labour", years: 1 },
         { part: "components", years: 15 },
@@ -110,7 +125,7 @@ export function warrantyCcProblem(cc: unknown): string | null {
   return null;
 }
 
-/** PUT 入参校验（spec「质保设置读写」）：年限 0–50 整数、部件限五种且同品类不重复、邮箱 / 网址 / 抄送格式 */
+/** PUT 入参校验（spec「质保设置读写」）：年限 0–50 整数、部件限八种且同品类不重复、邮箱 / 网址 / 抄送格式 */
 export function validateWarrantySettings(input: unknown): WarrantyValidation {
   const o = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
   const errors: string[] = [];
