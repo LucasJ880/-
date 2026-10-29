@@ -2,6 +2,7 @@
  * INSTALL-1：安装任务服务端读取（数据库侧，供 /api/install/* 共用）
  *
  * 任务 = Appointment(type=install)；工艺单 = BlindsOrder(appointmentId)；收口记录 = AuditLog。
+ * INSTALL-2a：收口单元 = Blinds 行 + 最新工艺参数四段（buildCloseoutUnits），列表 / 详情 / 上传 / 完成共用。
  * 这里只做读取与序列化，不返回金额 / 成本 / 原始存储 URL。
  */
 
@@ -11,10 +12,20 @@ import type { AuthUser } from "@/lib/auth";
 import { authorize, humanPrincipal } from "@/lib/authorization";
 import type { AuthorizeResult } from "@/lib/authorization/types";
 import {
+  AUDIT_ACTION_SPEC,
+  AUDIT_TARGET_ORDER,
+  sanitizeSpec,
+  type ProcessSpec,
+} from "@/lib/sunny-process/process-spec";
+import {
   aggregateCloseout,
+  buildCloseoutUnits,
+  INSTALL_TARGET_ITEM,
+  INSTALL_TARGET_UNIT,
   INSTALL_WINDOW_COMPLETED,
   type CloseoutLog,
   type CloseoutSummary,
+  type CloseoutUnit,
   type WindowItem,
 } from "./closeout";
 import { installScopeFromDecision, type InstallScope } from "./scope";
@@ -146,23 +157,73 @@ export async function loadOrderForTask(appointmentId: string): Promise<InstallOr
   return (row as InstallOrderRow | null) ?? null;
 }
 
-export async function loadCloseoutLogs(itemIds: string[]): Promise<CloseoutLog[]> {
-  if (itemIds.length === 0) return [];
+/** 每张工艺单最新的工艺参数（process_order.spec 审计行，取最新一条）；没有的单不在结果里 */
+export async function loadLatestSpecs(orderIds: string[]): Promise<Map<string, ProcessSpec>> {
+  const out = new Map<string, ProcessSpec>();
+  if (orderIds.length === 0) return out;
   const rows = await db.auditLog.findMany({
-    where: {
-      action: INSTALL_WINDOW_COMPLETED,
-      targetType: "blinds_order_item",
-      targetId: { in: itemIds },
-    },
+    where: { targetType: AUDIT_TARGET_ORDER, action: AUDIT_ACTION_SPEC, targetId: { in: orderIds } },
+    orderBy: { createdAt: "desc" },
+    distinct: ["targetId"],
+    select: { targetId: true, afterData: true },
+  });
+  for (const r of rows) {
+    if (!r.targetId || out.has(r.targetId) || !r.afterData) continue;
+    try {
+      out.set(r.targetId, sanitizeSpec(JSON.parse(r.afterData)));
+    } catch {
+      // 坏 JSON：按无工艺参数处理（只剩 Blinds 行）
+    }
+  }
+  return out;
+}
+
+/** 两类收口记录：Blinds 行（blinds_order_item）与工艺参数单元（blinds_order_unit） */
+export async function loadCloseoutLogs(units: Array<Pick<CloseoutUnit, "section" | "logTargetId">>): Promise<CloseoutLog[]> {
+  const itemIds = units.filter((u) => u.section === "blinds").map((u) => u.logTargetId);
+  const unitTargets = units.filter((u) => u.section !== "blinds").map((u) => u.logTargetId);
+  const or = [
+    ...(itemIds.length ? [{ targetType: INSTALL_TARGET_ITEM, targetId: { in: itemIds } }] : []),
+    ...(unitTargets.length ? [{ targetType: INSTALL_TARGET_UNIT, targetId: { in: unitTargets } }] : []),
+  ];
+  if (or.length === 0) return [];
+  const rows = await db.auditLog.findMany({
+    where: { action: INSTALL_WINDOW_COMPLETED, OR: or },
     select: { targetId: true, createdAt: true, userId: true, afterData: true },
     orderBy: { createdAt: "desc" },
   });
   return rows;
 }
 
-export async function loadCloseoutSummary(order: InstallOrderRow): Promise<CloseoutSummary> {
-  const logs = await loadCloseoutLogs(order.items.map((i) => i.id));
-  return aggregateCloseout(order.items, logs);
+export function unitsForOrder(order: InstallOrderRow, spec: ProcessSpec | null | undefined): CloseoutUnit[] {
+  return buildCloseoutUnits(order.id, order.items, spec ?? null);
+}
+
+export type OrderCloseout = { units: CloseoutUnit[]; summary: CloseoutSummary };
+
+/** 一张或多张工艺单的收口单元与聚合（列表批量；详情 / 上传 / 完成传单张） */
+export async function loadOrdersCloseout(orders: InstallOrderRow[]): Promise<Map<string, OrderCloseout>> {
+  const specs = await loadLatestSpecs(orders.map((o) => o.id));
+  const unitsByOrder = new Map(orders.map((o) => [o.id, unitsForOrder(o, specs.get(o.id))]));
+  const logs = await loadCloseoutLogs([...unitsByOrder.values()].flat());
+  const out = new Map<string, OrderCloseout>();
+  for (const o of orders) {
+    const units = unitsByOrder.get(o.id) ?? [];
+    const targets = new Set(units.map((u) => u.logTargetId));
+    out.set(o.id, { units, summary: aggregateCloseout(units, logs.filter((l) => l.targetId && targets.has(l.targetId))) });
+  }
+  return out;
+}
+
+/** 只要单元（上传前判定单元是否属于该单），不读收口记录 */
+export async function loadOrderUnits(order: InstallOrderRow): Promise<CloseoutUnit[]> {
+  const specs = await loadLatestSpecs([order.id]);
+  return unitsForOrder(order, specs.get(order.id));
+}
+
+export async function loadCloseoutSummary(order: InstallOrderRow): Promise<OrderCloseout> {
+  const map = await loadOrdersCloseout([order]);
+  return map.get(order.id) ?? { units: [], summary: aggregateCloseout([], []) };
 }
 
 /** 列表项：预约 + 工艺单摘要 + 收口计数（不含金额） */
@@ -188,7 +249,7 @@ export function serializeTaskSummary(
           id: order.id,
           code: order.code,
           status: order.status,
-          windowCount: summary?.total ?? order.items.length,
+          windowCount: summary?.total ?? 0,
           completedCount: summary?.completed ?? 0,
           allCompleted: summary?.allCompleted ?? false,
         }
@@ -196,34 +257,38 @@ export function serializeTaskSummary(
   };
 }
 
-/** 详情：摘要 + 每扇窗 + 每窗收口 */
+/** 详情：摘要 + 每个收口单元 + 每单元收口 */
 export function serializeTaskDetail(
   task: InstallTaskRow,
   order: InstallOrderRow,
-  summary: CloseoutSummary,
+  closeout: OrderCloseout,
 ) {
-  const byItem = new Map(summary.windows.map((w) => [w.itemId, w]));
+  const { units, summary } = closeout;
+  const byUnit = new Map(summary.windows.map((w) => [w.itemId, w]));
   return {
     ...serializeTaskSummary(task, order, summary),
     notes: task.notes,
     remarks: order.remarks,
-    windows: order.items.map((it) => {
-      const c = byItem.get(it.id);
+    windows: units.map((u) => {
+      const c = byUnit.get(u.id);
       return {
-        itemId: it.id,
-        itemNumber: it.itemNumber,
-        location: it.location,
-        width: it.width,
-        height: it.height,
-        productType: it.productType,
-        fabricSku: it.fabricSku,
-        controlType: it.controlType,
-        controlSide: it.controlSide,
-        mountType: it.mountType,
-        itemRemark: it.itemRemark,
+        itemId: u.id,
+        itemNumber: u.itemNumber,
+        section: u.section,
+        sectionLabel: u.sectionLabel,
+        location: u.location,
+        width: u.width,
+        height: u.height,
+        productType: u.productType,
+        fabricSku: u.fabricSku,
+        controlType: u.controlType,
+        controlSide: u.controlSide,
+        mountType: u.mountType,
+        itemRemark: u.itemRemark,
         photoCount: c?.photoCount ?? 0,
         latest: c?.latest ?? null,
         photos: c?.photos ?? [],
+        locationChanged: c?.locationChanged ?? null,
       };
     }),
     closeout: { total: summary.total, completed: summary.completed, allCompleted: summary.allCompleted },

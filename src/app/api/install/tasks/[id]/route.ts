@@ -1,6 +1,7 @@
 /**
  * GET /api/install/tasks/[id]
  * INSTALL-1：任务详情 + 每扇窗收口状态。不在可见范围 403；未关联工艺单 409。
+ * INSTALL-2a：每个收口单元（Blinds 行 + 工艺参数四段）。
  */
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
@@ -26,6 +27,6 @@ export const GET = withAuth<{ id: string }>(async (_request, ctx, user) => {
   const order = await loadOrderForTask(task.id);
   if (!order) return installNoOrder();
 
-  const summary = await loadCloseoutSummary(order);
-  return NextResponse.json({ task: serializeTaskDetail(task, order, summary) });
+  const closeout = await loadCloseoutSummary(order);
+  return NextResponse.json({ task: serializeTaskDetail(task, order, closeout) });
 });

@@ -692,7 +692,7 @@ function ScheduleInstallDialog({
   );
 }
 
-/** INSTALL-1：收口标签——每窗缩略图 / 时间 / 张数（持 install.photo.read 才拿得到数据） */
+/** INSTALL-1：收口标签——每窗缩略图 / 时间 / 张数（持 install.photo.read 才拿得到数据）；INSTALL-2a：含工艺参数单元 */
 function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
   return (
     <div className="space-y-3">
@@ -704,7 +704,7 @@ function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
           {new Date(task.startAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })}
         </span>
         <span>
-          已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 扇
+          已收口 <b className="text-foreground">{task.closeout.completed}</b> / {task.closeout.total} 项
         </span>
         {task.completedAt && (
           <span className="text-[#2e7a56]">
@@ -718,13 +718,18 @@ function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-foreground">
                 #{w.itemNumber} {w.location}
+                {w.section !== "blinds" && (
+                  <span className="ml-1.5 rounded-full bg-[rgba(26,36,32,0.06)] px-1.5 py-0.5 text-[10px] font-normal text-muted">
+                    {w.sectionLabel}
+                  </span>
+                )}
               </span>
               <span className={`text-xs ${w.photoCount > 0 ? "text-[#2e7a56]" : "text-muted"}`}>
-                {w.photoCount > 0 ? `${w.photoCount} 张` : "未收口"}
+                {w.photoCount > 0 ? `${w.photoCount} 张` : w.locationChanged ? "位置已变" : "未收口"}
               </span>
             </div>
             <div className="mt-0.5 text-xs text-muted">
-              {w.width} × {w.height} · {w.productType} · {w.fabricSku}
+              {[`${w.width} × ${w.height}`, w.productType, w.fabricSku].filter((p) => p && p.trim()).join(" · ")}
             </div>
             {w.latest ? (
               <a href={w.latest.proxyUrl} target="_blank" rel="noreferrer" className="mt-2 block">

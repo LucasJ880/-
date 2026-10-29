@@ -28,11 +28,19 @@ export type InstallPhoto = {
   note: string | null;
   at: string;
   byUserId: string;
+  /** INSTALL-2a：拍照时的位置快照（工艺参数单元） */
+  location?: string | null;
 };
 
+/** INSTALL-2a：收口单元所属段（blinds = 工艺单行；其余为工艺参数段） */
+export type InstallUnitSection = "blinds" | "domestic" | "drapes" | "vinyl" | "purchase";
+
+/** 收口单元（INSTALL-1 时只有 Blinds 行，字段名沿用 window / itemId） */
 export type InstallWindow = {
   itemId: string;
   itemNumber: number;
+  section: InstallUnitSection;
+  sectionLabel: string;
   location: string;
   width: number;
   height: number;
@@ -45,7 +53,15 @@ export type InstallWindow = {
   photoCount: number;
   latest: InstallPhoto | null;
   photos: InstallPhoto[];
+  /** 有照片但位置与当前不一致（工艺参数被改）→ 未收口，需补拍 */
+  locationChanged: { previousLocation: string } | null;
 };
+
+/** 单元的产品描述行：空字段不显示 */
+export function unitSpecLine(w: Pick<InstallWindow, "productType" | "fabricSku" | "controlType" | "controlSide" | "mountType">): string {
+  const control = w.controlType ? `${w.controlType}${w.controlSide ? `/${w.controlSide}` : ""}` : "";
+  return [w.productType, w.fabricSku, control, w.mountType].filter((p) => p && p.trim()).join(" · ");
+}
 
 export type InstallTaskDetailData = InstallTaskSummary & {
   notes: string | null;

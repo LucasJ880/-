@@ -3,17 +3,22 @@
  * INSTALL-1：逐窗拍照收口。
  * - 操作者须是该任务被分配人或持 install.window.complete（ORG）
  * - 只接受 jpeg / png / webp，≤ 8MB
- * - 私有 Blob install-photos/{orgId}/{orderId}/{itemId}/{ts}.{ext}
- * - 审计 install.window.completed（targetType blinds_order_item）作为收口记录；返回该窗最新记录
- * - itemId 不属于该任务的工艺单 → 404
+ * - 私有 Blob install-photos/{orgId}/{orderId}/{单元 id}/{ts}.{ext}
+ * - 审计 install.window.completed 作为收口记录；返回该单元最新记录
+ * - itemId 不属于该任务工艺单的收口单元 → 404
+ * INSTALL-2a：itemId 可为工艺参数单元 `spec-<段>-<下标>`（审计 targetType blinds_order_unit，afterData 存位置快照）；
+ * 收口记录写入失败 → 500 提示重拍，不再假成功（design D5）。
  */
 import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
-import { logAudit } from "@/lib/audit/logger";
+import { writeAuditLog } from "@/lib/audit/logger";
 import { putPrivateBlob } from "@/lib/files/blob-access";
 import {
   aggregateCloseout,
+  INSTALL_TARGET_ITEM,
+  INSTALL_TARGET_UNIT,
   INSTALL_WINDOW_COMPLETED,
   installPhotoPathname,
   validatePhotoUpload,
@@ -26,6 +31,7 @@ import {
   loadCloseoutLogs,
   loadInstallTask,
   loadOrderForTask,
+  loadOrderUnits,
 } from "@/lib/install/service";
 
 const UPLOAD_RATE_LIMIT = { name: "install-photo", windowMs: 60_000, maxRequests: 30 } as const;
@@ -56,8 +62,9 @@ export const POST = withAuth<{ id: string; itemId: string }>(async (request, ctx
 
   const order = await loadOrderForTask(task.id);
   if (!order) return installNoOrder();
-  const item = order.items.find((i) => i.id === itemId);
-  if (!item) return NextResponse.json({ error: "该窗不属于此工艺单" }, { status: 404 });
+  const units = await loadOrderUnits(order);
+  const unit = units.find((u) => u.id === itemId);
+  if (!unit) return NextResponse.json({ error: "该窗不属于此工艺单" }, { status: 404 });
 
   let form: FormData;
   try {
@@ -78,7 +85,7 @@ export const POST = withAuth<{ id: string; itemId: string }>(async (request, ctx
   const pathname = installPhotoPathname({
     orgId: task.customer.orgId,
     orderId: order.id,
-    itemId: item.id,
+    itemId: unit.id,
     ext: check.ext,
   });
   const stored = await putPrivateBlob({
@@ -87,41 +94,52 @@ export const POST = withAuth<{ id: string; itemId: string }>(async (request, ctx
     contentType: check.contentType,
   });
 
-  await logAudit({
-    userId: user.id,
-    orgId: task.customer.orgId,
-    action: INSTALL_WINDOW_COMPLETED,
-    targetType: "blinds_order_item",
-    targetId: item.id,
-    afterData: {
-      orderId: order.id,
-      appointmentId: task.id,
-      itemNumber: item.itemNumber,
-      pathname: stored.pathname,
-      proxyUrl: stored.proxyUrl,
-      note,
-      byUserId: user.id,
-      size: file.size,
-      contentType: check.contentType,
-    },
-    request,
-  });
+  try {
+    await writeAuditLog(db, {
+      userId: user.id,
+      orgId: task.customer.orgId,
+      action: INSTALL_WINDOW_COMPLETED,
+      targetType: unit.section === "blinds" ? INSTALL_TARGET_ITEM : INSTALL_TARGET_UNIT,
+      targetId: unit.logTargetId,
+      afterData: {
+        orderId: order.id,
+        appointmentId: task.id,
+        itemNumber: unit.itemNumber,
+        unitId: unit.id,
+        section: unit.section,
+        location: unit.location,
+        pathname: stored.pathname,
+        proxyUrl: stored.proxyUrl,
+        note,
+        byUserId: user.id,
+        size: file.size,
+        contentType: check.contentType,
+      },
+      request,
+    });
+  } catch (err) {
+    console.error("[install/photo] 收口记录写入失败", err);
+    return NextResponse.json(
+      { error: "照片已上传但收口记录保存失败，请重拍", code: "RECORD_FAILED" },
+      { status: 500 },
+    );
+  }
 
-  const logs = await loadCloseoutLogs([item.id]);
-  const summary = aggregateCloseout([item], logs);
-  const window = summary.windows[0];
-  // 审计写入失败（logAudit 吞错）时至少把本次记录返回给前端
+  const logs = await loadCloseoutLogs([unit]);
+  const window = aggregateCloseout([unit], logs).windows[0];
+  // 记录已写入；极端情况下（读到之前参数被改）仍返回本次记录
   const latest = window?.latest ?? {
     proxyUrl: stored.proxyUrl,
     pathname: stored.pathname,
     note: note || null,
     at: new Date().toISOString(),
     byUserId: user.id,
+    location: unit.location,
   };
   return NextResponse.json({
     ok: true,
-    itemId: item.id,
-    itemNumber: item.itemNumber,
+    itemId: unit.id,
+    itemNumber: unit.itemNumber,
     photoCount: Math.max(1, window?.photoCount ?? 0),
     latest,
   });

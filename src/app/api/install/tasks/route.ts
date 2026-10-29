@@ -1,6 +1,7 @@
 /**
  * GET /api/install/tasks?start&end&orgId
  * INSTALL-1：安装任务列表（范围判定 → 预约 + 工艺单摘要 + 收口计数）
+ * INSTALL-2a：收口计数按收口单元（含工艺参数行）
  *
  * - 持 install.task.read ASSIGNED：只看分配给本人的；ORG：全企业；都不持有 → 403
  * - 响应不含金额 / 成本 / 原始存储 URL
@@ -10,12 +11,11 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { installTaskWhere } from "@/lib/install/scope";
-import { aggregateCloseout } from "@/lib/install/closeout";
 import {
   INSTALL_ORDER_SELECT,
   INSTALL_TASK_SELECT,
   installForbidden,
-  loadCloseoutLogs,
+  loadOrdersCloseout,
   resolveInstallScope,
   serializeTaskSummary,
   type InstallOrderRow,
@@ -50,16 +50,12 @@ export const GET = withAuth(async (request, _ctx, user) => {
   })) as InstallOrderRow[];
   const orderByAppt = new Map(orders.map((o) => [o.appointmentId as string, o]));
 
-  const logs = await loadCloseoutLogs(orders.flatMap((o) => o.items.map((i) => i.id)));
+  // INSTALL-2a：收口单元 = Blinds 行 + 工艺参数四段；与详情 / 完成收口同一函数
+  const closeouts = await loadOrdersCloseout(orders);
 
   const items = tasks.map((t) => {
     const order = orderByAppt.get(t.id) ?? null;
-    const summary = order
-      ? aggregateCloseout(
-          order.items,
-          logs.filter((l) => order.items.some((i) => i.id === l.targetId)),
-        )
-      : null;
+    const summary = order ? (closeouts.get(order.id)?.summary ?? null) : null;
     return serializeTaskSummary(t, order, summary);
   });
 

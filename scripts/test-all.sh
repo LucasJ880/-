@@ -304,6 +304,8 @@ run_test "签约单改总价审批判定与接线（PERM-4a）" "npx tsx src/lib
 run_test "签约单改总价审批 DB 端到端（PERM-4a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/signed-quote-amount-db.isolated.test.ts"
 run_test "销售区记录访问 DB 端到端（PERM-4a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/sales-record-access-db.isolated.test.ts"
 run_test "安装收口聚合与照片校验（INSTALL-1）" "npx tsx src/lib/install/__tests__/closeout.test.ts"
+run_test "收口单元覆盖全部产品线与位置快照（INSTALL-2a）" "npx tsx src/lib/install/__tests__/closeout-units.test.ts"
+run_test "收口单元 DB 端到端（INSTALL-2a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/install/__tests__/closeout-db.isolated.test.ts"
 run_test "PERM-3 Fulfillment Category" "npx tsx src/lib/fulfillment/__tests__/category.test.ts"
 run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-access.test.ts"
 run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"

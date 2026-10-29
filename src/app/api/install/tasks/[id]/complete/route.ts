@@ -6,6 +6,7 @@
  * - 全部有照片 → 预约 completed（completedAt）+ 工艺单按状态机转 installed（installedAt + OrderStatusLog）
  *   + 审计 install.task.completed（窗数 / 照片张数）
  * - 预约已 completed → 200 幂等；工艺单不在可推进状态 → 409
+ * INSTALL-2a：按收口单元（Blinds 行 + 工艺参数四段）判定；零单元 → 409 NO_UNITS（需出单补齐）
  */
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -41,7 +42,13 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
   const order = await loadOrderForTask(task.id);
   if (!order) return installNoOrder();
 
-  const summary = await loadCloseoutSummary(order);
+  const { summary } = await loadCloseoutSummary(order);
+  if (summary.total === 0) {
+    return NextResponse.json(
+      { error: "工艺单没有可收口的行，请联系出单补齐", code: "NO_UNITS", completed: 0, total: 0 },
+      { status: 409 },
+    );
+  }
   if (!summary.allCompleted) {
     return NextResponse.json(
       {
@@ -81,7 +88,7 @@ export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
           orderId: order.id,
           fromStatus: order.status,
           toStatus: "installed",
-          note: `安装收口完成（${summary.total} 扇窗）`,
+          note: `安装收口完成（${summary.total} 项）`,
           operatorId: user.id,
         },
       });
