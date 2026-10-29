@@ -7,14 +7,16 @@
  * — RepairPrint：/install/repairs/[id]/print，纸质版式（抬头大写、至少 10 行、Filling Date），无照片无金额
  * 数据只来自 /api/install/repairs*（install.task.read ORG）；无权时显示提示。
  * INSTALL-2e：详情显示出单登记 / 返修排期 / 关闭情况；「登记出单」「安排返修 / 改期」按钮只按接口返回的可执行操作显示。
+ * INSTALL-2i：列表分"进行中 / 已归档"两个页签（关闭即归档）、搜索、翻页；栏 / 搜索词 / 页码在地址里；已归档列出结束情况。
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, ClipboardList, Loader2, Package, Printer, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Archive, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Loader2, Package, Printer, Search, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import { padPrintRows } from "@/lib/install/repair";
-import { factoryText, type RepairDetailData, type RepairListItem } from "./install-types";
+import { padPrintRows, REPAIR_LIST_PAGE_SIZE } from "@/lib/install/repair";
+import { factoryText, type RepairDetailData, type RepairListItem, type RepairListResponse, type RepairListTabKey } from "./install-types";
 
 function useRepairFetch<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
@@ -77,8 +79,41 @@ function StageBadge({ stage, label }: { stage: string; label: string }) {
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAGE_TONE[stage] ?? "bg-[rgba(26,36,32,0.06)] text-muted"}`}>{label}</span>;
 }
 
+const fmtDay = (iso: string) => new Date(iso).toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" });
+
+/** INSTALL-2i：已归档一行的结束情况 */
+function archivedText(c: NonNullable<RepairListItem["closed"]>): string {
+  if (c.reason === "superseded") return `返修时又发现问题，转入 ${c.supersededBy ?? "新单"}`;
+  if (c.reason === "completed") return "返修已完成";
+  return c.note ? `${c.label}：${c.note}` : c.label;
+}
+
 export function RepairList() {
-  const { data, error, loading } = useRepairFetch<{ repairs: RepairListItem[] }>("/api/install/repairs");
+  const router = useRouter();
+  const sp = useSearchParams();
+  const tab: RepairListTabKey = sp.get("tab") === "archived" ? "archived" : "open";
+  const q = sp.get("q") ?? "";
+  const page = Math.max(1, Number.parseInt(sp.get("page") ?? "1", 10) || 1);
+  const [draft, setDraft] = useState(q);
+  useEffect(() => setDraft(q), [q]);
+  const params = new URLSearchParams({ tab, page: String(page), pageSize: String(REPAIR_LIST_PAGE_SIZE) });
+  if (q) params.set("q", q);
+  const { data, error, loading } = useRepairFetch<RepairListResponse>(`/api/install/repairs?${params}`);
+  // design D6：切页签保留搜索词、页码回到 1；搜索提交页码回到 1；翻页只改页码
+  const go = (next: { tab?: RepairListTabKey; q?: string; page?: number }) => {
+    const p = new URLSearchParams();
+    if ((next.tab ?? tab) === "archived") p.set("tab", "archived");
+    const nq = next.q ?? q;
+    if (nq) p.set("q", nq);
+    if ((next.page ?? 1) > 1) p.set("page", String(next.page));
+    const qs = p.toString();
+    router.replace(`/install/repairs${qs ? `?${qs}` : ""}`, { scroll: false });
+  };
+  const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const tabs: Array<{ key: RepairListTabKey; label: string }> = [
+    { key: "open", label: "进行中" },
+    { key: "archived", label: "已归档" },
+  ];
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <Link href="/install" className="inline-flex items-center gap-1 text-sm text-muted">
@@ -87,10 +122,55 @@ export function RepairList() {
       <h1 className="flex items-center gap-2 text-xl font-bold text-foreground">
         <ClipboardList size={20} className="text-[#a86a12]" /> 返修单
       </h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="tablist" aria-label="维修单分栏" className="flex rounded-lg border border-border bg-card-bg p-0.5">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => go({ tab: t.key })}
+              className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm ${tab === t.key ? "bg-accent text-[color:var(--on-accent)]" : "text-muted"}`}
+            >
+              {t.key === "archived" ? <Archive size={14} /> : <ClipboardList size={14} />}
+              {t.label}
+              {data && <span className="text-xs opacity-80">（{data.counts[t.key]}）</span>}
+            </button>
+          ))}
+        </div>
+        <form
+          className="ml-auto flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            go({ q: draft.trim() });
+          }}
+        >
+          <input
+            aria-label="搜索维修单"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="单号 / 工艺单号 / 客户名"
+            className="w-56 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm"
+          />
+          <button type="submit" className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-sm text-foreground">
+            <Search size={14} /> 搜索
+          </button>
+          {q && (
+            <button type="button" onClick={() => go({ q: "" })} className="text-xs text-muted">
+              清除
+            </button>
+          )}
+        </form>
+      </div>
       {loading && <Loading />}
       {error && <ErrorBox text={error} />}
-      {data && data.repairs.length === 0 && <p className="text-sm text-muted">暂无维修单</p>}
-      {data && data.repairs.length > 0 && (
+      {data && !loading && data.repairs.length === 0 && (
+        <p className="text-sm text-muted">
+          {q ? `没有匹配"${q}"的${tab === "archived" ? "已归档" : "进行中"}维修单` : tab === "archived" ? "暂无已归档的维修单" : "暂无进行中的维修单"}
+        </p>
+      )}
+      {data && !loading && data.repairs.length > 0 && tab === "open" && (
         <div className="overflow-x-auto rounded-xl border border-border bg-card-bg">
           <table className="w-full text-sm">
             <thead className="bg-[rgba(26,36,32,0.03)] text-left text-xs text-muted">
@@ -119,7 +199,7 @@ export function RepairList() {
                     {r.takenBy.name ?? "—"}
                     <div>{r.fillDate}</div>
                   </td>
-                  <td className={`px-3 py-2 ${r.overdue ? "font-semibold text-danger" : r.closed ? "text-muted" : "text-foreground"}`}>
+                  <td className={`px-3 py-2 ${r.overdue ? "font-semibold text-danger" : "text-foreground"}`}>
                     {r.targetDate}
                     {r.overdue && <div className="text-[11px]">已过目标日</div>}
                     <div className="text-[11px] font-normal text-muted">{r.customerConfirmed ? "已和客户确认" : "未和客户确认"}</div>
@@ -134,6 +214,69 @@ export function RepairList() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {data && !loading && data.repairs.length > 0 && tab === "archived" && (
+        <div className="overflow-x-auto rounded-xl border border-border bg-card-bg">
+          <table className="w-full text-sm">
+            <thead className="bg-[rgba(26,36,32,0.03)] text-left text-xs text-muted">
+              <tr>
+                <th className="px-3 py-2">维修单</th>
+                <th className="px-3 py-2">客户</th>
+                <th className="px-3 py-2">提交</th>
+                <th className="px-3 py-2">目标返修日</th>
+                <th className="px-3 py-2">结束情况</th>
+                <th className="px-3 py-2">关闭人</th>
+                <th className="px-3 py-2">关闭时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.repairs.map((r) => (
+                <tr key={r.id} id={`repair-row-${r.id}`} className="border-t border-border align-top">
+                  <td className="px-3 py-2">
+                    <Link href={`/install/repairs/${r.id}`} className="font-mono text-accent">
+                      {r.repairNo}
+                    </Link>
+                    <div className="font-mono text-[11px] text-muted">{r.orderCode}</div>
+                  </td>
+                  <td className="px-3 py-2">{r.customerName}</td>
+                  <td className="px-3 py-2 text-xs text-muted">
+                    {r.takenBy.name ?? "—"}
+                    <div>{r.fillDate}</div>
+                  </td>
+                  <td className="px-3 py-2 text-muted">{r.targetDate}</td>
+                  <td className="px-3 py-2 text-xs">{r.closed ? archivedText(r.closed) : "—"}</td>
+                  <td className="px-3 py-2 text-xs">{r.closed?.by?.name ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs text-muted">{r.closed?.at ? fmtDay(r.closed.at) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data && !loading && data.total > 0 && (
+        <div className="flex items-center justify-between text-xs text-muted">
+          <span>
+            共 {data.total} 张 · 第 {Math.min(data.page, pages)} / {pages} 页
+          </span>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              disabled={data.page <= 1}
+              onClick={() => go({ page: data.page - 1 })}
+              className="flex items-center gap-0.5 rounded-lg border border-border px-2.5 py-1 text-foreground disabled:opacity-40"
+            >
+              <ChevronLeft size={14} /> 上一页
+            </button>
+            <button
+              type="button"
+              disabled={data.page >= pages}
+              onClick={() => go({ page: data.page + 1 })}
+              className="flex items-center gap-0.5 rounded-lg border border-border px-2.5 py-1 text-foreground disabled:opacity-40"
+            >
+              下一页 <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
       )}
     </div>
