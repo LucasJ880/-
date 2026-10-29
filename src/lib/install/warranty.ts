@@ -4,7 +4,8 @@
  * - 质保设置：Organization.settingsJson.sunnyWarranty；从未保存 = 种子（报价单口径，Lucas 2026-10-28 拍板）
  * - 年限按 品类 × 部件；品类来自收口单元（closeout.ts）
  * - 邮件：确定性渲染，主题 / 英文正文 / 同内容 HTML；不含任何金额（spec「邮件不输出的内容」）
- * - 联系电话 / 邮箱只有检索摘要来源，未核实不进种子（design D10）
+ * - INSTALL-2g：Shutters 按官网新条款（人工 1 / 部件 15 / 框架与叶片 25）；报修电话 / 邮箱与抄送经 Lucas 2026-10-29 确认进种子；
+ *   已保存的设置原样使用，不被种子覆盖（install-2g design D2）
  */
 
 import type { FulfillmentCategory } from "@/lib/fulfillment/category";
@@ -16,7 +17,7 @@ export const NOTIFY_WARRANTY_SENT = "install_warranty_sent" as const;
 export const NOTIFY_WARRANTY_FAILED = "install_warranty_failed" as const;
 
 export const WARRANTY_CATEGORIES: readonly FulfillmentCategory[] = ["shades", "drapery", "vinyl"];
-export const WARRANTY_PARTS = ["labour", "fabric", "components", "motor"] as const;
+export const WARRANTY_PARTS = ["labour", "fabric", "components", "frame", "motor"] as const;
 export type WarrantyPart = (typeof WARRANTY_PARTS)[number];
 
 export const CATEGORY_LABEL_EN: Record<FulfillmentCategory, string> = {
@@ -33,12 +34,14 @@ export const PART_LABEL_EN: Record<WarrantyPart, string> = {
   labour: "Labour",
   fabric: "Fabric",
   components: "Components",
+  frame: "Frame & Panels",
   motor: "Motor",
 };
 export const PART_LABEL_ZH: Record<WarrantyPart, string> = {
   labour: "人工",
   fabric: "面料",
   components: "部件",
+  frame: "框架与叶片",
   motor: "电机",
 };
 
@@ -53,9 +56,13 @@ export type WarrantyContact = {
 export type WarrantySettings = {
   terms: Record<FulfillmentCategory, WarrantyTerm[]>;
   contact: WarrantyContact;
+  /** 质保邮件抄送（内部跟进人，不是写给客户的报修信息；install-2g design D3） */
+  cc: string[];
 };
 
-/** 种子 = 报价单 PDF 口径（quote-pdf.ts：帘类 / 窗帘 1·5·15，Shutters 1·5）；地址取维修单抬头；电话 / 邮箱留空 */
+export const WARRANTY_CC_MAX = 5;
+
+/** 种子 = 报价单 PDF 口径（quote-pdf.ts：帘类 / 窗帘 1·5·15，Shutters 1·15·25）；地址取维修单抬头 */
 export function seedWarrantySettings(): WarrantySettings {
   const shadesLike: WarrantyTerm[] = [
     { part: "labour", years: 1 },
@@ -68,16 +75,18 @@ export function seedWarrantySettings(): WarrantySettings {
       drapery: shadesLike.map((t) => ({ ...t })),
       vinyl: [
         { part: "labour", years: 1 },
-        { part: "components", years: 5 },
+        { part: "components", years: 15 },
+        { part: "frame", years: 25 },
       ],
     },
     contact: {
       companyName: "Sunny Shutter Inc",
-      phone: "",
-      email: "",
+      phone: "647-857-8669",
+      email: "service@sunnyshutter.ca",
       address: "2-680 Progress Avenue, Scarborough, ON M1H 3A5",
       warrantyUrl: "https://sunnyshutter.ca/warranty-service/",
     },
+    cc: ["miki@sunnyshutter.ca"],
   };
 }
 
@@ -87,7 +96,21 @@ const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 export type WarrantyValidation = { ok: true; settings: WarrantySettings } | { ok: false; errors: string[] };
 
-/** PUT 入参校验（spec「质保设置读写」）：年限 0–50 整数、部件限四种且同品类不重复、邮箱 / 网址格式 */
+/** 抄送：数组或逗号 / 分号 / 空白分隔的字符串 → 小写去重；缺省（旧设置没有该键）= 空列表 */
+export function parseWarrantyCc(input: unknown): string[] {
+  const raw = Array.isArray(input) ? input.map(str) : str(input).split(/[,，;；\s]+/);
+  return [...new Set(raw.map((x) => x.toLowerCase()).filter(Boolean))];
+}
+
+/** 执行器用：审批内容里的抄送须是不超过上限的合法邮箱数组（缺省 = 不抄送）；不合法返回原因 */
+export function warrantyCcProblem(cc: unknown): string | null {
+  if (cc === undefined || cc === null) return null;
+  if (!Array.isArray(cc) || cc.some((a) => typeof a !== "string" || !EMAIL_RE.test(a))) return "抄送地址格式不对";
+  if (cc.length > WARRANTY_CC_MAX) return `抄送最多 ${WARRANTY_CC_MAX} 个`;
+  return null;
+}
+
+/** PUT 入参校验（spec「质保设置读写」）：年限 0–50 整数、部件限五种且同品类不重复、邮箱 / 网址 / 抄送格式 */
 export function validateWarrantySettings(input: unknown): WarrantyValidation {
   const o = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
   const errors: string[] = [];
@@ -137,8 +160,11 @@ export function validateWarrantySettings(input: unknown): WarrantyValidation {
   if (contact.email && !EMAIL_RE.test(contact.email)) errors.push(`报修邮箱格式不对：${contact.email}`);
   if (contact.address.length > 200) errors.push("地址不超过 200 字");
   if (contact.warrantyUrl && !/^https:\/\/[^\s"'<>]+$/.test(contact.warrantyUrl)) errors.push("质保条款链接须以 https:// 开头");
+  const cc = parseWarrantyCc(o.cc);
+  for (const a of cc) if (!EMAIL_RE.test(a)) errors.push(`抄送地址格式不对：${a}`);
+  if (cc.length > WARRANTY_CC_MAX) errors.push(`抄送最多 ${WARRANTY_CC_MAX} 个`);
   if (errors.length) return { ok: false, errors };
-  return { ok: true, settings: { terms, contact } };
+  return { ok: true, settings: { terms, contact, cc } };
 }
 
 /** 读组织设置；从未保存或已存的坏数据 → 种子（saved=false） */

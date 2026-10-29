@@ -8,6 +8,8 @@
  *   [5] 配置发件身份后重新生成并批准：发送 1、审计 install.warranty.sent、审批 executed、销售收到通知、列表 sent；再生成 409 ALREADY_SENT
  *   [6] 第二张单：确认时直接 pending_approval；同一单两条审批先后批准 → 只发一封（第二条 ALREADY_SENT）
  *   [7] 生成后客户邮箱被改 → RECIPIENT_MISMATCH；客户无邮箱 → blocked「客户没有邮箱」
+ *   INSTALL-2g：[1] 种子 = Shutters 1 / 15 / 25、报修电话 / 邮箱、抄送 miki@；非法抄送 400；[3] 抄送合并重复、预览与审批带抄送且去掉收件人、
+ *   请求体里的 cc / to 被忽略；[5] 发送带抄送、审计记抄送；[6] 确认尾款接口预览带抄送；[8] 抄送为空 → 不带抄送；[9] 审批内容抄送不合法 → INVALID_PAYLOAD
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -58,14 +60,14 @@ async function main() {
   const warrantyRoute = await import("@/app/api/accounting/balance/[orderId]/warranty/route");
   const approveRoute = await import("@/app/api/ai/pending-actions/[id]/route");
 
-  const sends: Array<{ to: string; subject: string; body: string; html: string; fromName: string }> = [];
+  const sends: Array<{ to: string; cc: string[]; subject: string; body: string; html: string; fromName: string }> = [];
   let failNext = false;
   __setWarrantySenderForTest(async (input) => {
     if (failNext) {
       failNext = false;
       throw new Error("provider down");
     }
-    sends.push({ to: input.to, subject: input.subject, body: input.body, html: input.html, fromName: input.sender.fromName });
+    sends.push({ to: input.to, cc: input.cc, subject: input.subject, body: input.body, html: input.html, fromName: input.sender.fromName });
     return { messageId: `test-msg-${sends.length}`, from: "warranty@fixture.test" };
   });
 
@@ -126,26 +128,38 @@ async function main() {
   const getSettings = (uid: string) => req(settingsRoute.GET as unknown as Handler, uid, `/api/install/warranty-settings?orgId=${ORG}`, "GET", {});
   const putSettings = (uid: string, settings: unknown) => req(settingsRoute.PUT as unknown as Handler, uid, `/api/install/warranty-settings`, "PUT", {}, { settings });
   const confirm = (orderId: string) => req(confirmRoute.POST as unknown as Handler, MIKI, `/api/accounting/balance/${orderId}/confirm`, "POST", { orderId }, { amount: 2600, method: "visa", receivedAt: todayInTimeZone("America/Toronto") });
-  const regen = (orderId: string) => req(warrantyRoute.POST as unknown as Handler, MIKI, `/api/accounting/balance/${orderId}/warranty`, "POST", { orderId }, {});
+  const regen = (orderId: string, extra: Json = {}) => req(warrantyRoute.POST as unknown as Handler, MIKI, `/api/accounting/balance/${orderId}/warranty`, "POST", { orderId }, extra);
   const approve = (uid: string, id: string) => req(approveRoute.POST as unknown as Handler, uid, `/api/ai/pending-actions/${id}`, "POST", { id }, { decision: "approve" });
   const listAs = () => req(listRoute.GET as unknown as Handler, MIKI, `/api/accounting/balance?orgId=${ORG}`, "GET", {});
   const statusOf = async (orderId: string) => {
     const l = await listAs();
     return ((l.body?.recentConfirmed ?? []) as Array<{ orderId: string; warranty: Json | null }>).find((r) => r.orderId === orderId)?.warranty ?? null;
   };
-  const warranty = (b: Json | null) => (b?.warranty ?? {}) as { status?: string; approvalId?: string; blockers?: string[]; preview?: { to: string; subject: string; html: string }; reason?: string; canRegenerate?: boolean };
+  const warranty = (b: Json | null) => (b?.warranty ?? {}) as { status?: string; approvalId?: string; blockers?: string[]; preview?: { to: string; cc: string[]; subject: string; html: string }; reason?: string; canRegenerate?: boolean };
 
   try {
     console.log("\n[1] 质保设置");
     const s0 = await getSettings(MIKI);
-    const seedSettings = (s0.body?.settings ?? {}) as { terms: Record<string, Array<{ part: string; years: number }>>; contact: Record<string, string> };
+    const seedSettings = (s0.body?.settings ?? {}) as { terms: Record<string, Array<{ part: string; years: number }>>; contact: Record<string, string>; cc: string[] };
     ok(s0.status === 200 && s0.body?.canEdit === false && s0.body?.saved === false, "会计读取 200、canEdit false、未保存（种子）", s0.body);
-    ok(seedSettings.terms?.vinyl?.map((t) => `${t.part}:${t.years}`).join() === "labour:1,components:5" && seedSettings.contact?.phone === "", "种子：Shutters 1 / 5，电话为空");
+    ok(
+      seedSettings.terms?.vinyl?.map((t) => `${t.part}:${t.years}`).join() === "labour:1,components:15,frame:25" &&
+        seedSettings.contact?.phone === "647-857-8669" &&
+        seedSettings.contact?.email === "service@sunnyshutter.ca" &&
+        seedSettings.cc?.join() === "miki@sunnyshutter.ca",
+      "种子（INSTALL-2g）：Shutters 1 / 15 / 25、电话 647-857-8669、邮箱 service@sunnyshutter.ca、抄送 miki@sunnyshutter.ca",
+      seedSettings,
+    );
     ok((await putSettings(MIKI, seedSettings)).status === 403, "会计保存 → 403");
     const bad = await putSettings(BOSS, { ...seedSettings, terms: { ...seedSettings.terms, vinyl: [{ part: "components", years: 99 }] } });
     ok(bad.status === 400, "Shutters 部件 99 年 → 400", bad.body);
+    const badCc1 = await putSettings(BOSS, { ...seedSettings, cc: "not-an-email" });
+    const badCc2 = await putSettings(BOSS, { ...seedSettings, cc: ["a@fixture.test", "b@fixture.test", "c@fixture.test", "d@fixture.test", "e@fixture.test", "f@fixture.test"] });
+    ok(badCc1.status === 400 && badCc2.status === 400 && (await getSettings(MIKI)).body?.saved === false, "非法抄送 / 6 个抄送 → 400，设置不变", [badCc1.body, badCc2.body]);
 
     console.log("\n[2] 缺报修电话时确认尾款");
+    // 种子已带电话 / 邮箱（INSTALL-2g），这里由老板清空来复现"缺联系方式"
+    ok((await putSettings(BOSS, { ...seedSettings, contact: { ...seedSettings.contact, phone: "", email: "" } })).status === 200, "老板清空报修电话 / 邮箱");
     const cust1 = await mkCustomer("homeowner1@fixture.test", "1");
     const o1 = await mkOrder(`I2C-1-${stamp}`, cust1.id);
     const c1 = await confirm(o1.id);
@@ -158,14 +172,31 @@ async function main() {
     const okPut = await putSettings(BOSS, { ...seedSettings, contact: { ...seedSettings.contact, phone: "647-555-0100", email: "service@fixture.test" } });
     const orgRow = await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
     ok(okPut.status === 200 && (orgRow?.settingsJson as Json)?.timezone === "America/Toronto", "老板保存 200，其他设置键保留", okPut.body);
-    ok((await db.auditLog.count({ where: { orgId: ORG, action: "install.warranty.settings" } })) === 1, "设置保存审计一条");
-    const r1 = await regen(o1.id);
+    ok((await db.auditLog.count({ where: { orgId: ORG, action: "install.warranty.settings" } })) === 2, "设置保存审计：清空一次 + 补齐一次 = 2 条");
+    const ccPut = await putSettings(BOSS, { ...seedSettings, contact: { ...seedSettings.contact, phone: "647-555-0100", email: "service@fixture.test" }, cc: "Miki@Fixture.test, miki@fixture.test, office@fixture.test" });
+    const ccRead = (await getSettings(MIKI)).body?.settings as { cc?: string[] } | undefined;
+    ok(ccPut.status === 200 && ccRead?.cc?.join() === "miki@fixture.test,office@fixture.test", "老板设置抄送：大小写 / 重复合并为 miki@、office@ 两个", ccRead?.cc);
+    ok((await putSettings(BOSS, { ...seedSettings, contact: { ...seedSettings.contact, phone: "647-555-0100", email: "service@fixture.test" }, cc: ["miki@fixture.test", "homeowner1@fixture.test"] })).status === 200, "抄送设为 miki@ + 客户本人邮箱");
+    const r1 = await regen(o1.id, { cc: ["someone@example.com"], to: "someone@example.com" });
     const w1b = warranty(r1.body);
     ok(r1.status === 200 && w1b.status === "pending_approval" && !!w1b.approvalId, "重新生成 → pending_approval + 审批 id", r1.body);
     ok(w1b.preview?.to === "homeowner1@fixture.test" && w1b.preview.subject === `Your Sunny Shutter installation is complete — Warranty W-I2C-1-${stamp} (Order I2C-1-${stamp})`, "预览：收件人 = 客户邮箱、主题格式", w1b.preview?.subject);
-    ok(!/2600|5200|\$|CAD/.test(`${w1b.preview?.subject}${w1b.preview?.html}`) && /Components 5 yr \(until 2031-10-28\)/.test(w1b.preview?.html ?? ""), "预览无金额、含 Shutters 部件到 2031-10-28");
-    const action1 = await db.pendingAction.findUnique({ where: { id: w1b.approvalId! }, select: { approverUserId: true, status: true, type: true } });
+    ok(w1b.preview?.cc?.join() === "miki@fixture.test", "预览抄送只有 miki@（去掉与收件人相同的客户邮箱）", w1b.preview?.cc);
+    ok(
+      !/2600|5200|\$|CAD/.test(`${w1b.preview?.subject}${w1b.preview?.html}`) &&
+        /Components 15 yr \(until 2041-10-28\)/.test(w1b.preview?.html ?? "") &&
+        /Frame &amp; Panels 25 yr \(until 2051-10-28\)/.test(w1b.preview?.html ?? ""),
+      "预览无金额、含 Shutters 部件到 2041-10-28、框架与叶片到 2051-10-28",
+    );
+    const action1 = await db.pendingAction.findUnique({ where: { id: w1b.approvalId! }, select: { approverUserId: true, status: true, type: true, payload: true, preview: true } });
     ok(action1?.approverUserId === MIKI && action1.status === "pending" && action1.type === "install.send_warranty_email", "审批人 = 确认尾款的会计，状态 pending");
+    const p1 = (action1?.payload ?? {}) as { to?: string; cc?: string[] };
+    ok(
+      p1.to === "homeowner1@fixture.test" && p1.cc?.join() === "miki@fixture.test" && !JSON.stringify(action1?.payload ?? {}).includes("someone@example.com"),
+      "审批内容：收件人 = 客户档案邮箱、抄送 = 设置里的 miki@；请求体里的 cc / to 被忽略",
+      p1,
+    );
+    ok(String(action1?.preview ?? "").includes("抄送 miki@fixture.test"), "审批预览文字带抄送", action1?.preview);
     const r1b = await regen(o1.id);
     ok(warranty(r1b.body).approvalId === w1b.approvalId && sends.length === 0, "再点生成 → 同一审批；发送仍为 0");
 
@@ -187,8 +218,10 @@ async function main() {
     const act2 = await db.pendingAction.findUnique({ where: { id: w2.approvalId! }, select: { status: true } });
     ok(a2.status === 200 && act2?.status === "executed" && sends.length === 1, "批准 → 已执行、发送 1 次", { body: a2.body, act2 });
     ok(sends[0]?.to === "homeowner1@fixture.test" && sends[0].fromName === "Sunny Shutter Inc" && sends[0].body.includes("W-I2C-1-"), "以组织发件身份发给客户邮箱");
+    ok(sends[0]?.cc?.join() === "miki@fixture.test", "发送带抄送 miki@", sends[0]?.cc);
     const sentAudit = await db.auditLog.findMany({ where: { action: "install.warranty.sent", targetId: o1.id } });
-    ok(sentAudit.length === 1 && JSON.parse(sentAudit[0].afterData ?? "{}").messageId === "test-msg-1", "审计 install.warranty.sent 一条（含消息 id）");
+    const sentAfter = JSON.parse(sentAudit[0]?.afterData ?? "{}") as { messageId?: string; cc?: string[] };
+    ok(sentAudit.length === 1 && sentAfter.messageId === "test-msg-1" && sentAfter.cc?.join() === "miki@fixture.test", "审计 install.warranty.sent 一条（含消息 id、抄送）", sentAfter);
     const sentNote = await db.notification.findFirst({ where: { userId: ALEX, type: "install_warranty_sent" } });
     ok(!!sentNote && sentNote.entityType === "blinds_order" && !/\d{3,}\.\d|2600|\$/.test(`${sentNote.title}${sentNote.summary}`), "销售收到「质保邮件已发出」（无金额）", sentNote);
     const st2 = await statusOf(o1.id);
@@ -202,6 +235,7 @@ async function main() {
     const c2 = await confirm(o2.id);
     const w3 = warranty(c2.body);
     ok(c2.status === 200 && w3.status === "pending_approval" && !!w3.approvalId && w3.preview?.to === "homeowner2@fixture.test", "确认尾款 → 直接 pending_approval + 预览", c2.body);
+    ok(w3.preview?.cc?.join() === "miki@fixture.test,homeowner1@fixture.test", "确认尾款接口的预览同样带设置里的抄送（INSTALL-2g）", w3.preview?.cc);
     const firstPayload = await db.pendingAction.findUnique({ where: { id: w3.approvalId! }, select: { payload: true } });
     const dup = await requestApproval({
       orgId: ORG,
@@ -246,6 +280,37 @@ async function main() {
     const w6 = warranty((await confirm(o4.id)).body);
     ok(w6.status === "blocked" && (w6.blockers ?? []).includes("客户没有邮箱"), "客户无邮箱 → blocked「客户没有邮箱」", w6);
     ok(sends.every((m) => !/2600|5200|\$|CAD/.test(`${m.subject}${m.body}${m.html}`)), "所有已发邮件无金额");
+
+    console.log("\n[8] 抄送为空 → 不带抄送（INSTALL-2g）");
+    ok((await putSettings(BOSS, { ...seedSettings, contact: { ...seedSettings.contact, phone: "647-555-0100", email: "service@fixture.test" }, cc: "" })).status === 200, "老板清空抄送");
+    const cust5 = await mkCustomer("homeowner5@fixture.test", "5");
+    const o5 = await mkOrder(`I2C-5-${stamp}`, cust5.id);
+    const w8 = warranty((await confirm(o5.id)).body);
+    const before8 = sends.length;
+    const a8 = await approve(MIKI, w8.approvalId!);
+    ok(w8.preview?.cc?.length === 0 && a8.status === 200 && sends.length === before8 + 1 && sends[sends.length - 1].cc.length === 0, "预览无抄送、发送一次、不带抄送", { preview: w8.preview?.cc, a8: a8.body });
+
+    console.log("\n[9] 审批内容里的抄送不合法 → INVALID_PAYLOAD，不发送（INSTALL-2g）");
+    const cust6 = await mkCustomer("homeowner6@fixture.test", "6");
+    const o6 = await mkOrder(`I2C-6-${stamp}`, cust6.id);
+    const w9 = warranty((await confirm(o6.id)).body);
+    const p9 = await db.pendingAction.findUnique({ where: { id: w9.approvalId! }, select: { payload: true } });
+    const bad9 = await requestApproval({
+      orgId: ORG,
+      principal: { userId: MIKI, actorType: "user" },
+      actionType: "install.send_warranty_email",
+      title: "bad cc",
+      preview: "bad cc",
+      payload: { ...(p9!.payload as Record<string, unknown>), cc: ["not-an-email"] },
+      risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
+      source: { module: "install.warranty.test", toolName: "install_send_warranty_email" },
+      approver: { approverUserId: MIKI },
+      idempotencyKey: `install-warranty:${o6.id}:9`,
+    });
+    const before9 = sends.length;
+    const a9 = await approve(MIKI, bad9.ok ? bad9.actionIds[0] : "");
+    const row9 = await db.pendingAction.findUnique({ where: { id: bad9.ok ? bad9.actionIds[0] : "" }, select: { status: true, failureReason: true } });
+    ok(bad9.ok && a9.status === 400 && row9?.status === "failed" && /INVALID_PAYLOAD/.test(row9.failureReason ?? "") && sends.length === before9, "抄送格式不对 → 失败 INVALID_PAYLOAD、发送 0", row9);
   } finally {
     __setWarrantySenderForTest(null);
     await db.notification.deleteMany({ where: { userId: { in: users } } });

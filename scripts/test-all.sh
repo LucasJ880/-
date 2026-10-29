@@ -61,6 +61,7 @@ run_test "Revenue Spine 展后无回复跟进（到期 / 正文 / 审核提醒�
 run_test "Revenue Spine 刁钻询盘（风险提醒 / 不复述 / 守卫）" "npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts"
 run_test "展会款号参考表（解析 / 链接列 / 对照）" "npx tsx src/lib/trade/__tests__/style-references.test.ts"
 run_test "网站询盘留言保留换行 + 指纹兼容" "npx tsx src/lib/trade/__tests__/message-normalize.test.ts"
+run_test "组织发件身份：校验 / 发送顺序 / 代发 / 抄送（INSTALL-2g 登记）" "npx tsx src/lib/trade/__tests__/email-sender.test.ts"
 run_test "Revenue Spine DB 端到端(isolated)" "npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts"
 run_test "老板今日询盘分栏（时区切日/超时/审批/样品报价去重）" "npx tsx src/lib/revenue-spine/__tests__/owner-today.test.ts"
 run_test "老板询盘早报/新草稿提醒（无买家邮箱电话）/策略开关" "npx tsx src/lib/revenue-spine/__tests__/owner-brief.test.ts"

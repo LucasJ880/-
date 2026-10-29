@@ -64,7 +64,6 @@ src/lib/supplier-intel/__tests__/supplier-intel-s4b-db.isolated.test.ts
 src/lib/trade/__tests__/booth-cards-db.isolated.test.ts
 src/lib/trade/__tests__/booth-cards.test.ts
 src/lib/trade/__tests__/booth-summary.test.ts
-src/lib/trade/__tests__/email-sender.test.ts
 src/lib/trade/__tests__/inbox-service.test.ts
 src/lib/trade/__tests__/inquiry-design-rules.test.ts
 src/lib/trade/__tests__/inquiry-rules.test.ts
