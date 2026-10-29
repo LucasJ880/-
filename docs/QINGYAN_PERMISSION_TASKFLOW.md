@@ -58,7 +58,7 @@
 | INSTALL-2d | 逐单元完成 / 有问题；维修单（数字化纸质模板 + 打印版）；问题类型查表；返修目标日（默认 +7 天）；`installStage` 推导；出单按品类 / 运营 / 会计 / 销售通知；`/install/repairs` | INSTALL-2a | change `install-2d-repair-form`；`docs/QINGYAN_INSTALL-2d_REPORT.md` | [x]（#320；archive 见 `openspec/changes/archive/2026-10-29-install-2d-repair-form`） |
 | INSTALL-2e | 出单按品类登记「已出单 + 预计备好日」；安排返修 / 改期（新预约）；返修预约只收口维修行；照片代理放行任一安装预约（修 F5）；返修完成 → `installed` 接回 2b；返修中再发现问题 → 新维修单 | INSTALL-2b、2d | change `install-2e-repair-dispatch`；`docs/QINGYAN_INSTALL-2e_REPORT.md` | [x]（#321；archive 见 `openspec/changes/archive/2026-10-29-install-2e-repair-dispatch`） |
 | INSTALL-2f | 维修单作废 / 关闭不返修（作废 = 重新打开提交预约；关闭不返修 = 转已安装接回 2b）；逾期提醒挂既有 `daily-brief`（企业当地 07:00） | INSTALL-2e | change `install-2f-repair-close`；`docs/QINGYAN_INSTALL-2f_REPORT.md` | [x]（#325；archive 见 `openspec/changes/archive/2026-10-29-install-2f-repair-close`） |
-| INSTALL-2g | 官网新质保条款：Shutters 人工 1 / 部件 15 / 框架与叶片 25（新部件 `frame`）；报修电话 647-857-8669、邮箱 service@ 进种子；质保邮件抄送（设置项，默认 miki@）；报价单 Shutters 质保文字 | INSTALL-2c | change `install-2g-warranty-update`；`docs/QINGYAN_INSTALL-2g_REPORT.md` | [G] |
+| INSTALL-2g | 官网新质保条款：Shutters 人工 1 / 部件 15 / 框架与叶片 25（新部件 `frame`）；报修电话 647-857-8669、邮箱 service@ 进种子；质保邮件抄送（设置项，默认 miki@）；报价单 Shutters 质保文字 | INSTALL-2c | change `install-2g-warranty-update`；`docs/QINGYAN_INSTALL-2g_REPORT.md` | [x]（#337；archive 见 `openspec/changes/archive/2026-10-29-install-2g-warranty-update`） |
 
 ## PERM-5 — 会计视图与数字员工
 

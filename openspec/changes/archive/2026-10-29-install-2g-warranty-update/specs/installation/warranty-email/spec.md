@@ -16,14 +16,21 @@
 - **WHEN** 对照报价单 PDF 各段质保文字与质保设置种子
 - **THEN** Shutters 段为人工 1 / 部件 15 / 框架与叶片 25 年，帘类与窗帘段为人工 1 / 面料 5 / 部件 15 年（`warranty.test.ts`）
 
+### Requirement: 质保设置种子
+企业从未保存质保设置时，系统 SHALL 使用以下种子：帘类与窗帘为人工 1 年、面料 5 年、部件 15 年；Shutters 为人工 1 年、部件 15 年、框架与叶片 25 年；公司名 Sunny Shutter Inc、电话 647-857-8669、邮箱 service@sunnyshutter.ca、地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5、条款链接 https://sunnyshutter.ca/warranty-service/；抄送 miki@sunnyshutter.ca。
+
+#### Scenario: 种子内容
+- **WHEN** 企业从未保存质保设置时读取
+- **THEN** Shutters 为人工 1 / 部件 15 / 框架与叶片 25 年；帘类为人工 1 / 面料 5 / 部件 15 年；电话 647-857-8669、邮箱 service@sunnyshutter.ca；抄送为 miki@sunnyshutter.ca（`warranty.test.ts`、`warranty-db.isolated.test.ts`）
+
 ## MODIFIED Requirements
 
 ### Requirement: 质保设置
-系统 SHALL 为每个企业保存质保设置：按品类（`shades` 帘类、`drapery` 窗帘、`vinyl` Shutters）× 部件（`labour` 人工、`fabric` 面料、`components` 部件、`frame` 框架与叶片、`motor` 电机）的年限，联系方式（公司名、电话、邮箱、地址、质保条款链接），以及质保邮件抄送地址列表。企业从未保存时 SHALL 使用种子：帘类与窗帘为人工 1 年、面料 5 年、部件 15 年；Shutters 为人工 1 年、部件 15 年、框架与叶片 25 年；公司名 Sunny Shutter Inc、电话 647-857-8669、邮箱 service@sunnyshutter.ca、地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5、条款链接 https://sunnyshutter.ca/warranty-service/；抄送 miki@sunnyshutter.ca。企业已保存的设置 SHALL 原样使用、SHALL NOT 被种子覆盖；已保存但没有抄送项的设置 SHALL 视为不抄送。
+系统 SHALL 为每个企业保存质保设置：按品类（`shades` 帘类、`drapery` 窗帘、`vinyl` Shutters）× 部件（`labour` 人工、`fabric` 面料、`components` 部件、`frame` 框架与叶片、`motor` 电机）的年限，联系方式（公司名、电话、邮箱、地址、质保条款链接），以及质保邮件抄送地址列表。企业从未保存时 SHALL 使用「质保设置种子」。企业已保存的设置 SHALL 原样使用、SHALL NOT 被种子覆盖；已保存但没有抄送项的设置 SHALL 视为不抄送。
 
 #### Scenario: 从未保存
 - **WHEN** 企业从未保存质保设置时读取
-- **THEN** Shutters 为人工 1 / 部件 15 / 框架与叶片 25 年；帘类为人工 1 / 面料 5 / 部件 15 年；电话 647-857-8669、邮箱 service@sunnyshutter.ca；抄送为 miki@sunnyshutter.ca（`warranty.test.ts`、`warranty-db.isolated.test.ts`）
+- **THEN** 返回「质保设置种子」，并标明尚未保存（`warranty.test.ts`、`warranty-db.isolated.test.ts`）
 
 #### Scenario: 已保存的旧设置
 - **WHEN** 企业保存过的设置是 Shutters 人工 1 / 部件 5 且没有抄送项
