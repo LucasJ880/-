@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1–4c4 已合并并 archive；4c5 已合并并 archive（#298 / #299；含视觉方案跨企业泄露修复、写库闸门打开）；PERM-6 拆 6a / 6b / 6c，6a 已合并并 archive（#300 / #301）；6c 已合并并 archive（#302 / #303）；PERM-7 已合并并 archive（#305 / #306）；6b 已实施、PR #307 已开，**等 Lucas 确认已对梦馨跑 seed 后才合并**；7b（平台 admin 退役）已合并并 archive（#316 / 本 PR），**Lucas 待改 super_admin**；现场续接见下一节；验收清单见文末） |
+| 最后更新 | 2026-10-28（会话 2：PERM-4b / 5b / 5a / 4c1–4c4 已合并并 archive；4c5 已合并并 archive（#298 / #299；含视觉方案跨企业泄露修复、写库闸门打开）；PERM-6 拆 6a / 6b / 6c，6a 已合并并 archive（#300 / #301）；6c 已合并并 archive（#302 / #303）；PERM-7 已合并并 archive（#305 / #306）；6b 已实施、PR #307 已开，**等 Lucas 确认已对梦馨跑 seed 后才合并**；7b（平台 admin 退役）已合并并 archive（#316 / #317）；2026-10-29 Lucas 已在生产改为 super_admin（SQL 查询确认）；现场续接见下一节；验收清单见文末） |
 | 主线文档 | `docs/QINGYAN_PERMISSION_TASKFLOW.md`（状态列）、`docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md`（设计与已决定） |
 | 任务书 | `docs/QINGYAN_PERM-1-2_POSITIONS_DISCOUNT_TASKBRIEF.md` |
 | 工作分支 | 会话 1：`claude/youthful-davinci-8n1we3`；会话 2：`claude/amazing-goldberg-s89rlq`（每个 change 合并后从 main 重建同名分支） |
@@ -26,7 +26,7 @@
 | 6c | **#302 合并；archive #303 合并**（tasks 6/6；typecheck / lint:baseline / test:ci / registry 461 / validate --strict 全绿；纯 68/68、隔离库 23/23；受影响目录 102 个测试文件全过）。拍板三点全按推荐。内容：营收中心 13 个路由按外贸键（GET 读、POST 写、策略 PUT 设置 / GET 三键任一），平台 sales 不再进；新 `src/lib/trade/recipients.ts`——工作收件人 = 持外贸读写键、管理层收件人 = 管理层且持外贸键、默认询盘负责人 = 派生角色 trade / sales 最早成员；`managementOf` / `inquiry-sla` / `notifyInquiryMembers` / `resolveInquiryOwner` 接入；压扁范围加 `trade`；侧栏外贸布局按 `effectiveRole`；入职清单业务员认 `trade.manage`；残留清单 D2–D4 收口、新增 F 组。报告 `docs/QINGYAN_PERM-6c_REPORT.md`；TASKFLOW `[G]`。下一个 6b（需梦馨人员与邮箱） |
 | 7 | **#305 合并；archive #306**（tasks 6/6；typecheck / lint:baseline / test:ci / registry 463 / validate --strict 全绿；纯 30/30、隔离库 35/35；受影响目录 83 个测试文件全过）。内容：共用绑定服务 `position-binding-service.ts`（脚本改调，行为不变）；`/api/organizations/[orgId]/positions`（只认 super_admin，单主体完整集合、dryRun、400 / 409 `LAST_OWNER_BINDING`、`via: "console"`）；企业详情页"岗位"一节；成员增删改改为 `requirePlatformSuperAdmin`（原 `requirePlatformAdmin` 放行平台 admin，与 spec 不一致）。报告 `docs/QINGYAN_PERM-7_REPORT.md`；TASKFLOW `[G]`，新增 PERM-7b 行 |
 | 6b | **#307 合并（2026-10-29，用户"合并吧"）；archive #314**。Cathy `trade_rep` 已在生产用 SQL 补绑；`owner` 那段 SQL（Cathy、Lucas 绑老板）合并时尚未确认执行——未执行则 Cathy 失去老板级功能、Lucas 不是管理层，补执行即恢复（tasks 5/5；typecheck / lint:baseline / test:ci / registry 465 / validate --strict 全绿；纯 42/42、隔离库 25/25；受影响目录 142 个测试文件 138 过、4 个为本地缺双租户种子）。内容：家纺外贸行业包 `home_textile_trade_v1` 加 `owner`（= 系统 `org_owner` 键 + 企业读 + 管理层信号），业务员用系统 `trade_rep`，梦馨进入岗位模式（判定代码未改）；绑定文件 `config/positions/mengxin.json`（Cathy → `trade_rep` + `owner`——生产上她是平台 boss，用户定保持老板级；Lucas → `owner`）；生产 SQL `docs/QINGYAN_PERM-6b_MENGXIN_SQL.md`；实施中补充 D5：`ensureDefaultPositions`，入驻 / 交接负责人 / 企业邀请码注册后落模板与自动绑、给指定负责人绑 `owner`（否则新家纺工厂全员 403，`onboarding-db.isolated` 曾因此失败）。报告 `docs/QINGYAN_PERM-6b_REPORT.md`（§4 上线顺序）；TASKFLOW `[G]` |
-| 7b | **#316 合并（2026-10-29，用户"合并吧，Lucas 权限我之后改"）；archive 本 PR**。**Lucas 仍是平台 admin**——合并即失去跨企业访问、入驻控制台、诊断、新建企业、邀请码、企业详情页"岗位"一节（只认 super_admin），在所属企业按岗位工作；改 super_admin 即恢复（tasks 8/8；typecheck / lint:baseline / test:ci / registry 475 / validate --strict 全绿；纯 46/46、隔离库 23/23；全量登记测试 479 条 470 过，9 个失败在 6b 基线上同样失败）。拍板全按推荐（用户 2026-10-28："按推荐方法去实施7B"）。内容：三个共用判定 + 客户端同名函数只认 `super_admin`（61 个调用方随之收口）；`platformTier`（super_admin → admin 档、admin → user）接入 `requireRole` / `canAccessModule` / 工具注册表 / AI 能力矩阵 / 推送默认 / 提示词；约 25 处手写判断改调共用判定；旧模式导航 `admin` 归一为 `user`；派生角色只保留 `super_admin`（admin、trade 按键）；Muse 名单去 admin；邀请码 / 用户修改不再签发 admin，历史 admin 邀请码注册得 user；压扁纳入 admin。既有测试按 D7 改构造 / 断言，逐个列在报告 §3。报告 `docs/QINGYAN_PERM-7b_REPORT.md`（§4 上线顺序）；TASKFLOW `[G]`。工作树 `/home/user/p7b`（本地分支 `local/perm-7b`） |
+| 7b | **#316 合并（2026-10-29，用户"合并吧，Lucas 权限我之后改"）；archive #317**。**Lucas 已改 super_admin**（2026-10-29 Neon SQL Editor 执行 UPDATE，查询确认 `lucas@sunnyshutter.ca` = `super_admin` / `active`；重新登录生效）——跨企业访问、入驻控制台、诊断、新建企业、邀请码、企业详情页"岗位"一节随之恢复（tasks 8/8；typecheck / lint:baseline / test:ci / registry 475 / validate --strict 全绿；纯 46/46、隔离库 23/23；全量登记测试 479 条 470 过，9 个失败在 6b 基线上同样失败）。拍板全按推荐（用户 2026-10-28："按推荐方法去实施7B"）。内容：三个共用判定 + 客户端同名函数只认 `super_admin`（61 个调用方随之收口）；`platformTier`（super_admin → admin 档、admin → user）接入 `requireRole` / `canAccessModule` / 工具注册表 / AI 能力矩阵 / 推送默认 / 提示词；约 25 处手写判断改调共用判定；旧模式导航 `admin` 归一为 `user`；派生角色只保留 `super_admin`（admin、trade 按键）；Muse 名单去 admin；邀请码 / 用户修改不再签发 admin，历史 admin 邀请码注册得 user；压扁纳入 admin。既有测试按 D7 改构造 / 断言，逐个列在报告 §3。报告 `docs/QINGYAN_PERM-7b_REPORT.md`（§4 上线顺序）；TASKFLOW `[G]`。工作树 `/home/user/p7b`（本地分支 `local/perm-7b`） |
 | 顺带发现 | 视觉方案跨企业泄露——**4c5 已修**（用户拍板并入；原任务卡已被用户从卡片启动，开 4c5 PR 前查过无并行 PR）；`sunny-process/autogen-db.isolated` 在 main 上失败（NO_BINDING）——已提任务卡，未处理 |
 
 续接要点：
@@ -55,7 +55,7 @@
 | `perm-6c-revenue-and-trade-recipients` | 6/6 tasks；代码完成（营收中心按外贸键；外贸收件人 / 默认询盘负责人按岗位；压扁纳入 `trade`）；typecheck / lint:baseline / test:ci / registry 全绿；纯 68/68、隔离库 23/23；报告 `docs/QINGYAN_PERM-6c_REPORT.md`；已 archive（specs 新增 `revenue/spine-access`、`trade/notification-recipients`，`authorization/platform-role-collapse`、`position-mode-residual-reads` 增量） | #302 ✅；archive #303 ✅ |
 | `perm-7-position-binding-ui` | 6/6 tasks；代码完成（岗位绑定界面 + 共用服务 + 成员增删改只认 super_admin）；typecheck / lint:baseline / test:ci / registry 全绿；纯 30/30、隔离库 35/35；报告 `docs/QINGYAN_PERM-7_REPORT.md`；已 archive（specs 新增 `authorization/position-binding-console`，`identity/member-management` 增量） | #305 ✅；archive #306 ✅ |
 | `perm-6b-mengxin-positions` | 5/5 tasks；代码完成（家纺外贸 `owner` + `trade_rep`，梦馨进入岗位模式；绑定文件；入驻 / 交接 / 邀请注册后落默认岗位）；typecheck / lint:baseline / test:ci / registry 全绿；纯 42/42、隔离库 25/25；报告 `docs/QINGYAN_PERM-6b_REPORT.md`；已 archive（specs 增量合入 `authorization/position-catalog`、`authorization/position-binding`） | #307 ✅；archive #314 ✅ |
-| `perm-7b-retire-platform-admin` | 8/8 tasks；代码完成（平台特权只认 super_admin；`platformTier`；手写判断收口；派生角色只保留 super_admin；不再签发 admin；压扁纳入 admin）；typecheck / lint:baseline / test:ci / registry 全绿；纯 46/46、隔离库 23/23；报告 `docs/QINGYAN_PERM-7b_REPORT.md`；已 archive（specs 新增 `authorization/platform-admin-scope`，`agents/position-derived-role`、`authorization/platform-role-collapse` 增量） | #316 ✅；archive 本 PR |
+| `perm-7b-retire-platform-admin` | 8/8 tasks；代码完成（平台特权只认 super_admin；`platformTier`；手写判断收口；派生角色只保留 super_admin；不再签发 admin；压扁纳入 admin）；typecheck / lint:baseline / test:ci / registry 全绿；纯 46/46、隔离库 23/23；报告 `docs/QINGYAN_PERM-7b_REPORT.md`；已 archive（specs 新增 `authorization/platform-admin-scope`，`agents/position-derived-role`、`authorization/platform-role-collapse` 增量） | #316 ✅；archive #317 ✅ |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
@@ -98,7 +98,7 @@
    - 6c `perm-6c-revenue-and-trade-recipients`（用户定先于 6b）：已合并（#302）并 archive（#303）。**生产动作**：无数据动作；合并即生效——营收中心不再认平台 sales / boss / manager / admin（不是企业负责人、无外贸岗位的人），他们也不再收外贸提醒 / 早报 / 展会小结；只持设置键的 `org_admin` 不再收外贸管理层提醒。梦馨两人不变。压扁 `trade` 要等 6b 后梦馨成为岗位模式。
    - ~~PERM-7~~ 已合并（#305）并 archive（#306）：岗位绑定界面（只认 super_admin）+ 成员增删改只认 super_admin。**生产动作**：无；之后调岗在企业详情页"岗位"一节完成。平台 admin 不能再增删改成员。
    - ~~6b~~ 已合并（#307）并 archive（#314）。**生产动作**：若还没执行 `docs/QINGYAN_PERM-6b_MENGXIN_SQL.md` 第 3 段（`owner` → Cathy、Lucas），尽快执行——未执行时 Cathy 只有外贸业务员权限、Lucas 不是管理层。之后是 7b。
-   - ~~PERM-7b~~ 已合并（#316）并 archive（本 PR）。**生产动作**：Lucas 改 super_admin（Neon SQL Editor：`UPDATE "User" SET role = 'super_admin' WHERE lower(email) = 'lucas@sunnyshutter.ca';`，重新登录）——未改前他只能按岗位用所属企业；查其余平台 `admin` 账号并补岗位（SQL 见 7b 报告 §4）。PERM 系列到此收尾。
+   - ~~PERM-7b~~ 已合并（#316）并 archive（#317）。**生产动作**：~~Lucas 改 super_admin~~ 已做（2026-10-29，Neon SQL Editor：`UPDATE "User" SET role = 'super_admin' WHERE lower(email) = 'lucas@sunnyshutter.ca';`，查询确认；需重新登录）；还要查其余平台 `admin` 账号并补岗位（SQL 见 7b 报告 §4）。PERM 系列到此收尾。
    - ~~`fix-taskflow-status-drift` 未 archive~~：提交已在 main，2026-10-28 补 archive（specs 新增 `qa/taskflow-status`，`qa/test-registry` 增量）。
 
 ## 环境注意
@@ -143,7 +143,7 @@
 | #302 / #303 | PERM-6c 营收中心按外贸键；外贸收件人 / 默认询盘负责人按岗位；压扁纳入 trade（+ archive） |
 | #305 / #306 | PERM-7 岗位绑定界面；成员增删改只认 super_admin（+ archive） |
 | #307 / #314 | PERM-6b 梦馨落岗位、进入岗位模式；入驻后落默认岗位（+ archive） |
-| #316 / 本 PR | PERM-7b 平台 admin 退役，平台特权只认 super_admin（+ archive） |
+| #316 / #317 | PERM-7b 平台 admin 退役，平台特权只认 super_admin（+ archive） |
 
 每个 PR：CI `validate-lint-typecheck-test-build` 绿；本地 typecheck / lint:baseline / test:ci / registry 全绿；隔离库 e2e：4b 32/32、5b 34/34、5a 27/27（5a rebase 后三套一起复跑通过）；`openspec validate --strict` 通过。
 
@@ -169,7 +169,7 @@
     5. 漏了第 3 段就合并：Cathy 失去老板级功能、Lucas 不是管理层；补执行即恢复，不用回滚。
 
 11. **PERM-7b（BREAKING，合并即生效）**，按 `docs/QINGYAN_PERM-7b_REPORT.md` §4：
-    1. **已合并（#316），待做**（Neon SQL Editor，SQL 见 7b 报告 §4）：`lucas@sunnyshutter.ca` 改 super_admin（未改前他失去平台控制台与跨企业访问）；查其余平台 `admin` 账号，业务人员确认有岗位绑定。
+    1. **已合并（#316）**。~~`lucas@sunnyshutter.ca` 改 super_admin~~ 已做（2026-10-29 Neon SQL Editor，查询确认 `super_admin` / `active`；Lucas 需重新登录）。**待做**（SQL 见 7b 报告 §4）：查其余平台 `admin` 账号，业务人员确认有岗位绑定。
     2. ~~6b 先合并~~：已合并（#307 / #314）。
     3. 合并后可选：两家企业压扁 `--dry-run`，`admin → user` 无阻断后执行，通知相关人重新登录。
     4. 漏了第 1 步：Lucas 会失去企业列表与入驻控制台，SQL 改 super_admin 即恢复，不用回滚。
@@ -199,4 +199,4 @@
 - 5b 审批人 = 数字员工的 sponsor（Agent 创建人），不是"该岗位所有人"——PendingAction 只有一个审批人列（5b 报告 §3）。
 
 ### E. 下一个
-PERM 系列全部合并并 archive：4a–4c5、5a / 5b、6a / 6b / 6c、7（#305 / #306）、7b（#316 / 本 PR）。平台层只剩 `super_admin` 与 `user`（压扁后），业务能力全看岗位。**你还要做的**：Lucas 改 super_admin；梦馨 `owner` SQL（若未执行）；Sunny 9 人邮箱 → 补 `config/positions/sunny.json` 或在企业详情页绑岗位；可选压扁。可另立：平台角色枚举清理、"平台管理员操作"审计标记。
+PERM 系列全部合并并 archive：4a–4c5、5a / 5b、6a / 6b / 6c、7（#305 / #306）、7b（#316 / #317）。平台层只剩 `super_admin` 与 `user`（压扁后），业务能力全看岗位。**你还要做的**：~~Lucas 改 super_admin~~（2026-10-29 已做）；梦馨 `owner` SQL（若未执行）；Sunny 9 人邮箱 → 补 `config/positions/sunny.json` 或在企业详情页绑岗位；可选压扁。可另立：平台角色枚举清理、"平台管理员操作"审计标记。
