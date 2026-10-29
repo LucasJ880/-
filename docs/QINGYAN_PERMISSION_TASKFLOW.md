@@ -71,7 +71,7 @@
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
 | PERM-6a | 外贸三键（`trade.read` / `trade.manage` / `trade.settings.manage`）+ `trade_rep` 模板；`src/app/api/trade/**` 110 处 `requireRole` → `requireTradePermission`（范围仍 `ORG`）；平台 admin 不再隐含外贸（企业解析显式 orgId 只给 super_admin）；消息通道管理按设置键；派生角色 `trade` 档、岗位模式外贸入口认 `trade.read` | PERM-4c5 | 任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`（拍板见"拍板结果 · PERM-6"）；change `perm-6a-trade-keys`；`docs/QINGYAN_PERM-6a_REPORT.md` | [x]（#300；archive 见 `openspec/changes/archive/2026-10-28-perm-6a-trade-keys`） |
-| PERM-6b | 梦馨落岗位：家纺外贸行业包 `owner` + 系统 `trade_rep`，梦馨进入岗位模式；绑定文件 `config/positions/mengxin.json`；入驻 / 交接 / 邀请注册后落默认岗位（数据范围按负责人收窄等梦馨加人另做） | PERM-6a；梦馨人员与邮箱 | 拍板见任务书"拍板结果 · PERM-6b 人员"；change `perm-6b-mengxin-positions`；`docs/QINGYAN_PERM-6b_REPORT.md`；**合并前须 Lucas 对梦馨跑 seed** | [G] |
+| PERM-6b | 梦馨落岗位：家纺外贸行业包 `owner` + 系统 `trade_rep`，梦馨进入岗位模式；绑定文件 `config/positions/mengxin.json`；入驻 / 交接 / 邀请注册后落默认岗位（数据范围按负责人收窄等梦馨加人另做） | PERM-6a；梦馨人员与邮箱 | 拍板见任务书"拍板结果 · PERM-6b 人员"；change `perm-6b-mengxin-positions`；`docs/QINGYAN_PERM-6b_REPORT.md`；**合并前须 Lucas 对梦馨跑 seed** | [x]（#307；archive 见 `openspec/changes/archive/2026-10-29-perm-6b-mengxin-positions`） |
 | PERM-6c | 营收中心按外贸键（平台 sales 不再进）；外贸收件人 / 默认询盘负责人按岗位（`src/lib/trade/recipients.ts`，残留清单 D2–D4）；压扁范围加 `trade`（侧栏外贸布局 / 入职清单补齐，残留清单 F 组） | PERM-6a | 拍板见任务书"拍板结果 · PERM-6c"；change `perm-6c-revenue-and-trade-recipients`；`docs/QINGYAN_PERM-6c_REPORT.md` | [x]（#302；archive 见 `openspec/changes/archive/2026-10-28-perm-6c-revenue-and-trade-recipients`） |
 
 ## PERM-7 — owner 在界面上绑岗位
