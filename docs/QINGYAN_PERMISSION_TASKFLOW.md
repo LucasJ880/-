@@ -53,7 +53,7 @@
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
 | INSTALL-2a | 收口单元覆盖 ProcessSpec 各段（修零窗单收不了口）；零单元明确 409；收口记录写失败不再假成功 | INSTALL-1 | change `install-2a-closeout-all-lines`；`docs/QINGYAN_INSTALL-2a_REPORT.md` | [x]（#304；archive 见 `openspec/changes/archive/2026-10-29-install-2a-closeout-all-lines`） |
-| INSTALL-2b | `install.balance.confirm`；会计「待收尾款」页签；确认尾款 → `completed`；完工 / 尾款确认通知与落点；销售首页待收尾款口径 | INSTALL-2a | change `install-2b-balance-confirm`；`docs/QINGYAN_INSTALL-2b_REPORT.md` | [G] |
+| INSTALL-2b | `install.balance.confirm`；会计「待收尾款」页签；确认尾款 → `completed`；完工 / 尾款确认通知与落点；销售首页待收尾款口径 | INSTALL-2a | change `install-2b-balance-confirm`；`docs/QINGYAN_INSTALL-2b_REPORT.md` | [x]（#313；archive 见 `openspec/changes/archive/2026-10-29-install-2b-balance-confirm`） |
 | INSTALL-2c | 质保表（报价单口径）+ 设置页；完工 + 质保邮件模板；`install.send_warranty_email` 审批 + 执行器；会计批准发送 | INSTALL-2b | change `install-2c-warranty-email`；`docs/QINGYAN_INSTALL-2c_REPORT.md` | [G] |
 | INSTALL-2d | 逐单元完成 / 有问题；维修单（数字化纸质模板 + 打印版）；问题类型查表；返修目标日（默认 +7 天）；`installStage` 推导；出单按品类 / 运营 / 会计 / 销售通知；`/install/repairs` | INSTALL-2a | change `install-2d-repair-form`；`docs/QINGYAN_INSTALL-2d_REPORT.md` | [G] |
 | INSTALL-2e | 出单按品类登记「已出单 + 预计备好日」；安排返修 / 改期（新预约）；返修预约只收口维修行；照片代理放行任一安装预约（修 F5）；返修完成 → `installed` 接回 2b；返修中再发现问题 → 新维修单 | INSTALL-2b、2d | change `install-2e-repair-dispatch`；`docs/QINGYAN_INSTALL-2e_REPORT.md` | [G] |
