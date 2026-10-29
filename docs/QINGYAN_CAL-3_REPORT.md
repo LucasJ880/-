@@ -37,6 +37,7 @@
 | `npm run test:ci`（无 `DATABASE_URL`） | 退出 0，`CI unit subset PASS` |
 | `openspec validate calendar-change-push --strict` | valid |
 | `npm run build` | 缺省堆第一次 V8 堆耗尽（134，与代码无关）；`NODE_OPTIONS=--max-old-space-size=8192` 重跑退出 0 |
+| PR [LucasJ880/-#346](https://github.com/LucasJ880/-/pull/346) CI `validate-lint-typecheck-test-build` | 绿（提交 `eef8146e`），合并为 `cd9aadd3`（用户授权全流程掌控）；随后归档为 `openspec/specs/calendar/change-push/spec.md`（7 条 requirement） |
 
 ## 3. 对设计稿原案的偏离
 

@@ -14,7 +14,15 @@
 
 ---
 
-## 0. CAL-3 现场续接（上下文压缩或换会话后从这里接）
+## 0. Phase K 状态（2026-10-29 收尾）
+
+Phase K 五项全部完成：KPI-1 #309、CAL-1 #323、KPI-2 #332、CAL-2 #340、CAL-3 #346，均已归档（CAL-3 归档即本小 PR）。剩下的都是用户侧上线动作：
+- CAL-1：设置里开启日历观察（读取账号 + 共享日历），Google 里新建 / 改 / 删各一条测试日程核对通知（`docs/QINGYAN_CAL-1_REPORT.md` §5）；
+- KPI-2：生产配 AI 解读开关环境变量，试 10 次期间解读核对数字（`docs/QINGYAN_KPI-2_REPORT.md`）；
+- CAL-2：网站提交一条测试预约，`/sales/website-bookings` 一键转入并把真实描述格式记进报告（`docs/QINGYAN_CAL-2_REPORT.md` §5）；
+- CAL-3：老板 / 运营主管绑定微信并开"销售提醒"，改一条日程核对站内 + 微信各一条、正文无邮箱；要 Muse 先升级 Bridge 再开 `MUSE_BRIDGE_ENABLED`（`docs/QINGYAN_CAL-3_REPORT.md` §5）。
+
+## 0-old. CAL-3 现场续接（已完成：#346 合并，归档小 PR 见上）
 
 | 项 | 状态 |
 |---|---|
