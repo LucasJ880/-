@@ -4,10 +4,10 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-29（会话：方案 + 第一、二轮交叉验证；代码未动） |
+| 最后更新 | 2026-10-29（会话：方案 + V1 / V2 + PRICE-1 四件套已 propose；用户已拍板"都按推荐来"；代码未动） |
 | 任务书（方案） | `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 判断点 Q1–Q11 **待拍板**） |
 | 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 / PRICE-2 / PRICE-3 / STAT-1，全部 `[ ]`） |
-| 进行中的 change | 无（未 propose；`openspec list` 为空） |
+| 进行中的 change | `pricelist-2026-10-fauxwood-allusion`（四件套已写，`validate --strict` 通过，待 Claude 审 → `/opsx:apply`） |
 | 工作分支 | `claude/vigilant-goodall-4t0c17`（基于 origin/main `abad98d`；每个 PR 合并后从 origin/main 重建同名分支） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 仓库不带 `node_modules`，先 `npm ci`（约 2 分钟，会 `prisma generate`）；沙箱里 `tsc` 需 `NODE_OPTIONS=--max-old-space-size=8192` |
@@ -17,7 +17,7 @@
 
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
-| PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 未 propose（等 Q1 / Q2 拍板） | — | — | `[ ]` |
+| PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已 propose（2026-10-29，Q1–Q11 全按推荐；Q4 暂按现状，归 PRICE-2）；待审后 apply | — | — | `[ ]` |
 | PRICE-2 `pricelist-2026-10-cordless-fullness` | 未 propose（等 Q3 / Q4） | — | — | `[ ]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
 | STAT-1 `sales-quote-stats-drilldown` | 未 propose（等 Q9 / Q10） | — | — | `[ ]` |
@@ -26,8 +26,8 @@
 
 ## 1. 下一步
 
-1. **等拍板**：任务书 §7 的 Q1–Q11。用户若说"按推荐来"，全部按"推荐"列执行；**Q4（Order Form 里 Lift L/R 即无绳）必须要一句明确答复**，它直接决定无绳折扣与最低价套在哪些行上。
-2. 拍板后 `/opsx:propose pricelist-2026-10-fauxwood-allusion`，四件套回传审；tasks 里第一条必须是建黄金对照测试 `src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts`（读 `config/pricelist/2026-10-28-golden-cases.json`，逐条调 `priceFor`，误差 ≤ 0.01，报错 ↔ 报错）并注册进 `scripts/test-all.sh`。
+1. **已拍板**（用户 2026-10-29："都按照推荐的来"）：Q1–Q11 全按推荐列；Q4 没有推荐值，PRICE-2 propose 前仍要问一句 Lift L/R 是否即无绳。
+2. PRICE-1 四件套已在 `openspec/changes/pricelist-2026-10-fauxwood-allusion/`，`validate --strict` 通过；下一步是审四件套后 `/opsx:apply pricelist-2026-10-fauxwood-allusion`。tasks 1.2 是黄金对照测试 `src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts`（读 `config/pricelist/2026-10-28-golden-cases.json`，逐条调 `priceFor`，误差 ≤ 0.01，报错 ↔ 报错）并注册进 `scripts/test-all.sh`。
 3. apply 前记基线：`npx tsx src/lib/blinds/__tests__/{sunny-motor,valance-options,cost-rates,quote-fees}.test.ts`、`npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts`、`npx tsx src/lib/fulfillment/__tests__/category.test.ts`、`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts`。
 4. 价表下次再更新时，走 `scripts/pricelist/README.md` 四步，只把差异进新的 `config/pricelist/<日期>-*.json`。
 
