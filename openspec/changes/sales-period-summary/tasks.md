@@ -20,7 +20,7 @@
 
 ## 5. 收口
 
-- [ ] 5.1 全量门禁：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`scripts/check-test-registry.sh`、`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 validate sales-period-summary --strict` 全部通过；`openspec update` 无 diff；PR 上 CI `validate-lint-typecheck-test-build`（含 `npm run build`）为绿。verify：五条命令退出码均为 0、registry 由 463 变为 466，输出贴进报告；CI 绿。
+- [x] 5.1 全量门禁：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`scripts/check-test-registry.sh`、`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 validate sales-period-summary --strict` 全部通过；`openspec update` 无 diff；PR 上 CI `validate-lint-typecheck-test-build`（含 `npm run build`）为绿。verify：五条命令退出码均为 0、registry 由 463 变为 466，输出贴进报告；CI 绿。
 - [x] 5.2 写 `docs/QINGYAN_KPI-1_REPORT.md`（做了什么 / 怎么验 / 判断点 / 已知限制：`sentAt` 空的已签报价与转化率 > 100%、重发邮件刷新 `sentAt`、外贸转入报价无 `sentAt` / `signedAt` 不计、非 CAD 排除、归档客户排除、20,000 行上限；附三处签单金额口径差异表：本 change / 驾驶舱折扣统计 / 会计提成）；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase K 的 KPI-1 状态列改为 `[G]`（PR 号待填）。verify：两个文件在 PR diff 中；TASKFLOW KPI-1 行含 `[G]`。
 
 ## Workflow follow-up

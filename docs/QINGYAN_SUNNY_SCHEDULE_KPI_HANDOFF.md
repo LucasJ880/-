@@ -4,10 +4,10 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-28（会话 1：设计稿 + 三轮交叉核对更正 17 处；判断点 5 用户确认；**KPI-1 已实施完成 8/8 tasks，待开 PR / 审核**） |
+| 最后更新 | 2026-10-29（会话 1：设计稿 + 三轮交叉核对更正 17 处；判断点 5 用户确认；KPI-1 实施 8/8 tasks，PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309) CI 绿、`/opsx:verify` 无严重问题与警告，**等 Evan 审核合并**） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | `openspec/changes/sales-period-summary/`（KPI-1；已 apply，tasks 8/8；报告 `docs/QINGYAN_KPI-1_REPORT.md`；TASKFLOW `[G]`） |
+| 进行中的 change | `openspec/changes/sales-period-summary/`（KPI-1；tasks 8/8；verify：0 严重、0 警告、4 建议；报告 `docs/QINGYAN_KPI-1_REPORT.md`；TASKFLOW `[G]`（#309）；**合并后才能 archive**） |
 | 工作分支 | `claude/magical-shannon-keegzr`（基于 origin/main `ed3b55f`，2026-10-28 核对时 main 未前进） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
@@ -24,7 +24,7 @@
 
 | ID | change 名 | 内容 | 前置 | 状态 |
 |---|---|---|---|---|
-| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已实施，PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309) 待 CI / 审核 |
+| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)：CI 绿，等审核合并 |
 | CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 成员 / 网站 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 未 propose |
 | KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；**Evan 拍板 config.yaml 第 7 条例外** | 未 propose |
 | CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
@@ -103,7 +103,7 @@
 ## 6. 下一步（按顺序）
 
 1. ~~审四件套~~、~~apply~~：已完成（判断点 5 用户确认；实施记录见 `docs/QINGYAN_KPI-1_REPORT.md`，含实施中对 spec 的两处补充）。
-2. **PR 已开：[LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)**。等 CI `validate-lint-typecheck-test-build` 绿 → Evan 审 → 合并。审核重点：报告 §4 三处签单金额口径差异、§5 已知限制。
+2. **PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)：CI `validate-lint-typecheck-test-build` 已绿（2026-10-29），`/opsx:verify` 无严重问题与警告**。等 Evan 审 → 合并。审核重点：报告 §4 三处签单金额口径差异、§5 已知限制。
 3. 合并后 `/opsx:archive sales-period-summary --yes`（独立小 PR，TASKFLOW KPI-1 → `[x]`）。
 4. CAL-1 前置（Lucas）：
    - 共享日历 ID（`xxx@group.calendar.google.com`）与读取账号（已在青砚连接 Google 日历、对共享日历至少 reader）。
@@ -116,6 +116,18 @@
 - 隔离库：`apt-get install -y postgresql-16-pgvector` → `pg_createcluster 16 qytest -p 5433 -- -A trust` → `pg_ctlcluster 16 qytest start` → 建库 `qy_test` 与 `vector` 扩展 → `ALLOW_DATABASE_MIGRATION=true NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=postgresql://postgres@127.0.0.1:5433/qy_test?schema=public DIRECT_URL=同上 npm run db:migrate:deploy`（41 个迁移）。
 - 构建：本容器 Node 22 需 `NODE_OPTIONS=--max-old-space-size=8192 npm run build`（否则构建内部的 `tsc --noEmit` 堆溢出）。构建期间要继续改代码时，用 `git worktree add --detach <dir> HEAD` 并软链 `node_modules`，在工作树里构建。
 - 浏览器：在工作树 `next start -p 3100`（同一 `JWT_SECRET`）+ Playwright 加 `qy_session` cookie；会话令牌用 `createSession` 签发。停服务用端口而不是 `pkill -f "next start"`（后者会匹配并杀掉发命令的 shell 本身）。
+
+## 6.2 verify 留下的 4 条建议（不阻塞，择机处理）
+
+1. 取数上限命中路径（20,000 行）无自动化测试：可把上限做成 `loadPeriodQuoteRows` 的参数后补一个小测试。
+2. 看板"刷新保留期间""无分析权限隐藏面板"只用 Playwright 手动验证（脚本未进仓库；做法见 §6.1）。
+3. ~~design D6 未写明 `superRefine` 位置~~：已补。
+4. tasks 4.1 写"追加一句"，实际放在第一条理由（design D6 与报告 §3 已说明原因，tasks 文本保留原样）。
+
+## 6.3 本会话之外的遗留
+
+- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已提修复任务卡"Fix multi-calendar push in pushEventToGoogle"，未在本 PR 处理；CAL-1 之前必须先修。
+- 判断点 2（book-now 写日历的身份）仍待 Lucas 查，是 CAL-1 的前置。
 
 ## 7. 已知坑
 

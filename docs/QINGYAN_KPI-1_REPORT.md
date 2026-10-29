@@ -43,6 +43,8 @@
 | `bash scripts/check-test-registry.sh` | 已注册 466 个（开工前 463），欠账基线 72 条不变 |
 | `npm run build`（本地需 `NODE_OPTIONS=--max-old-space-size=8192`，见 §5） | 退出 0；`/sales/home`、`/sales/cockpit`、`/api/sales/period-summary` 正常产出 |
 | `openspec validate sales-period-summary --strict` | valid |
+| PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309) CI `validate-lint-typecheck-test-build` | 绿（2026-10-29，含 `npm run build`） |
+| `/opsx:verify sales-period-summary` | 0 严重、0 警告、4 建议（见 HANDOFF §6.2） |
 | 真实服务 + Playwright（本地生产构建 + 隔离库 + 种子数据） | 见下表 |
 
 真实浏览器检查（`next start` + Playwright，会话 cookie 由同一 JWT 密钥签发）：

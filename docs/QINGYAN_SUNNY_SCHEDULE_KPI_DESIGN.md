@@ -176,6 +176,8 @@ attributeCalendarEvent()  纯函数查表（§2.3）
 | **转化率** | 成单数 / 报价数 | 非同批，页面标注"同期口径" |
 | **在手未签** | `sentAt ∈ 期间`、`signedAt = null`、`status ∈ {sent, viewed}` 的数量与金额，以及其中 `sentAt` 距今 > 14 天的子集 | 给洞察 I3 用 |
 | **定金** | `depositCollectedAt ∈ 期间` 的 `depositAmount` 之和 | |
+| **已签未登记定金** | 本期成单中 `depositCollectedAt` 为空的数量与金额（洞察 I7 用；KPI-1 实施时补入 spec） | |
+| **取数上限** | 单次 20,000 行，命中时响应 `truncated: true`、面板提示结果不完整（KPI-1 实施时补入 spec） | |
 | **按人** | 以上全部按 `SalesQuote.createdById` 拆 | 判断点 4 |
 | **对比** | 上一期（同长度紧邻）与上月同期（同日窗）两组 | 变化率 = (本期 − 对比期) / 对比期；对比期为 0 时不给比率 |
 | **日程** | CAL-1 启用时附 §2.5 的 `bySource / byActor` | |
@@ -192,12 +194,14 @@ attributeCalendarEvent()  纯函数查表（§2.3）
   "period": { "from": "2026-10-01", "to": "2026-10-28", "days": 28, "timezone": "America/Toronto" },
   "scope": "org",
   "totals": { "wonCount": 23, "wonAmount": 61230.5, "wonPreTax": 54186.3, "quotedCount": 57, "quotedAmount": 182400, "conversionRate": 0.40,
-              "openQuotedCount": 21, "openQuotedAmount": 70100, "staleOpenCount": 6, "staleOpenAmount": 19800, "depositAmount": 18200 },
+              "openQuotedCount": 21, "openQuotedAmount": 70100, "staleOpenCount": 6, "staleOpenAmount": 19800, "depositAmount": 18200,
+              "wonWithoutDepositCount": 4, "wonWithoutDepositAmount": 9100, "nonCadExcludedCount": 0 },
   "comparison": { "kind": "prev_period", "period": {...}, "totals": {...}, "delta": { "wonAmount": 0.18, "quotedAmount": -0.07, ... } },
   "byRep": [ { "userId": "...", "name": "Alex", "wonCount": 9, "wonAmount": 24100, "quotedCount": 20, "quotedAmount": 66000, "conversionRate": 0.45 } ],
   "calendar": { "bySource": {...}, "byActor": [...] },      // CAL-1 未启用时为 null
   "insights": [ { "code": "I3_STALE_OPEN", "severity": "warn", "text": "6 份报价报出超过 14 天未签，合计 19,800", "evidence": { "staleOpenCount": 6, "staleOpenAmount": 19800 } } ],
-  "narrative": null                                          // KPI-2 才有
+  "narrative": null,                                         // KPI-2 才有
+  "truncated": false
 }
 ```
 

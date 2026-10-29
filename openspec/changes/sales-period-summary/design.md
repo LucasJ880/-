@@ -65,7 +65,7 @@
 - 否决：把期间参数塞进 `/api/sales/home` —— 首页一次算 20 多块面板，期间切换会拖慢整页，且该接口响应字段被多个组件消费。
 
 ### D6 Muse 只追加
-- `contract.ts` 在 `sales_overview` 对象上加 `period: z.object({ from: localDate, to: localDate }).strip().optional()`，`localDate` = `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`；`to < from` 或跨度 > 366 天用 `.superRefine` 判为校验失败（与 web 一致）。
+- `contract.ts` 在 `sales_overview` 对象上加 `period: z.object({ from: localDate, to: localDate }).strip().optional()`，`localDate` = `z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`；`to < from` 或跨度 > 366 天用 `.superRefine` 判为校验失败（与 web 一致）；`superRefine` 挂在 `period` 子对象上，`discriminatedUnion` 成员保持普通对象（实施时定，`src/lib/muse-bridge/contract.ts:99-104`）。
 - `sales.ts salesOverview`：有 `period` 时调 `load.ts` 的同一取数（scope own → `createdById = identity.userId`），`summary-pure` 算出 `totals`，再按 `amountsVisible(scope)` 决定是否剔除所有 `*Amount` / `*PreTax` 键，挂到 `data.period`；`advisory.reasons` 第一条放期间汇总句（管理范围"期间 X 至 Y：成单 N 单 M，报出 K 份 L"，销售范围只有计数），商机理由保留前两条——建议式回复契约限制理由 ≤ 3 条（`src/lib/muse-bridge/advisory.ts:23`），追加在末尾会被截掉。
 - 没有 `period` 时代码路径不变（不查、不挂键）。
 - 范围沿用 S1：Muse 的读范围来自平台角色或岗位派生角色（`sales-pure.ts:47-58`、`src/lib/rbac/effective-platform-role.ts:15,34`），**不**来自 `sales.analytics.read`。因此与网页只在老板（两边都是全企业）与销售（两边都是本人）上一致；合价岗在 Muse 派生为销售 → 本人范围且无金额，会计岗派生为 user → Muse 拒绝，而网页两者都是全企业。本 change 不改 S1 的范围规则，spec 只承诺老板与销售两种一致。
