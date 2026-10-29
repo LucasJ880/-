@@ -37,7 +37,9 @@ export type PendingActionType =
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
   | "tender.send_rfq"
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
-  | "tender.send_chase";
+  | "tender.send_chase"
+  // ── INSTALL-2c：完工 + 质保邮件（会计确认尾款后生成；批准后以组织发件身份发给客户）──
+  | "install.send_warranty_email";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -307,6 +309,7 @@ export type PendingActionPayload =
   | ({ type: "grader.project_task" } & ProjectTaskPayload)
   | ({ type: "grader.email_draft" } & EmailDraftPayload)
   | ({ type: "sales.send_inquiry_reply" } & SalesSendInquiryReplyPayload)
+  | ({ type: "install.send_warranty_email" } & InstallSendWarrantyEmailPayload)
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
   | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
   | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
@@ -337,6 +340,20 @@ export function toPendingApprovalResult(action: {
     preview: action.preview,
     hint: "草稿已生成。请在回复中告知用户正在等待他们的确认，不要重复调用工具。",
   };
+}
+
+// ── 完工 + 质保邮件（install.send_warranty_email，INSTALL-2c） ────────
+export interface InstallSendWarrantyEmailPayload {
+  orderId: string;
+  orderCode: string;
+  warrantyNo: string;
+  /** 客户档案邮箱（生成时）；执行时须仍等于客户档案邮箱 */
+  to: string;
+  subject: string;
+  /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
+  body: string;
+  html: string;
+  metadata: PendingActionMetadata & { orgId: string; orderId: string };
 }
 
 // ── 询盘回复发送（sales.send_inquiry_reply，Revenue Spine） ────────

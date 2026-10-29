@@ -493,6 +493,15 @@ export async function executePendingAction(
           action.id,
         );
         break;
+      case "install.send_warranty_email": {
+        const { execInstallSendWarrantyEmail } = await import("./exec-install-warranty-email");
+        exec = await execInstallSendWarrantyEmail(
+          action.payload as unknown as import("./types").InstallSendWarrantyEmailPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      }
       default:
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }

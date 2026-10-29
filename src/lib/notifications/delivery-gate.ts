@@ -22,6 +22,8 @@ export const TYPE_INTRODUCED_AT: Record<string, string> = {
   // INSTALL-2b：之前保存过偏好清单的用户没见过这两个开关，不算显式关闭
   install_completed: "2026-10-28T00:00:00Z",
   install_balance_confirmed: "2026-10-28T00:00:00Z",
+  install_warranty_sent: "2026-10-28T00:00:00Z",
+  install_warranty_failed: "2026-10-28T00:00:00Z",
 };
 
 /** 纯函数：类型是否开启（含 grandfather 判定），供测试 */

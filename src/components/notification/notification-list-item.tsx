@@ -12,6 +12,8 @@ import {
   ShieldCheck,
   Wrench,
   Wallet,
+  MailCheck,
+  MailWarning,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NotificationItem } from "./types";
@@ -30,6 +32,8 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   sales_daily_briefing: Bell,
   install_completed: Wrench,
   install_balance_confirmed: Wallet,
+  install_warranty_sent: MailCheck,
+  install_warranty_failed: MailWarning,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {
