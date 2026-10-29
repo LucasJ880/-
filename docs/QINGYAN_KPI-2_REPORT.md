@@ -93,4 +93,14 @@
 
 ## 6. 全量测试
 
-（5.1 完成后填写：隔离库全量 `npm test` 的失败项逐一与 main 对比；PR CI 结果。）
+隔离库（127.0.0.1:5433）全量 `npm test`，分支（`ae8525ae` 之前的提交，审查修复前启动；KPI-2 两个测试在修复后已单独重跑通过）与 origin/main `7c523860`（同库、同环境的独立工作树）各跑一次：
+
+| | 通过 / 总数 | 失败 |
+|---|---|---|
+| 分支 | 493 / 505 | 12 |
+| main `7c523860` | 491 / 503 | 12 |
+
+- 总数差 2 = 本 change 新注册的两个测试（均通过）。
+- 两边失败的 12 项完全相同，与本 change 无关：`TypeScript 类型检查`（test-all 里不带 `--max-old-space-size`，本容器 Node 22 堆溢出；单独 `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0，CI 也绿）、Phase3A-3 / 3A-4（两项）/ 3A-5 / 3B-A、Gmail Draft OAuth Compose Scope、Mention Gateway M2-A Identity DB、Sunny 工艺单 DB 端到端、T4 授标情报 Postgres 矩阵、Quote Operations 客户报价 PDF 分页布局、招标询价催单执行器。
+
+PR [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) CI `validate-lint-typecheck-test-build`：绿（提交 `ae8525ae`，含 `npm run build`），2026-10-29 用户确认后合并为 `f4a6b8f2`。

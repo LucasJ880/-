@@ -160,3 +160,14 @@ PRINCIPAL 范围的响应 SHALL NOT 含 `I5_REP_SILENT` 与 `I6_REP_CONCENTRATIO
 #### Scenario: 未开启观察
 - **WHEN** 老板打开首页，企业未开启日历观察
 - **THEN** 期间面板没有"日程来源"一块，其余内容不变；可观察产物：`npm run build` 通过，浏览器检查记录写入报告
+
+### Requirement: 叙述开关回显
+`GET /api/sales/period-summary` 的成功响应 SHALL 含布尔字段 `narrativeEnabled`，取值等于 AI 解读开关是否开启；`narrative` 字段 SHALL 仍固定为 `null`（解读只经独立接口按需生成）。
+
+#### Scenario: 开关关闭
+- **WHEN** 未设置 `SALES_PERIOD_NARRATIVE_ENABLED`，老板请求期间汇总
+- **THEN** `narrativeEnabled` 为 `false`，`narrative` 为 `null`；`period-narrative-db.isolated.test.ts` 覆盖
+
+#### Scenario: 开关开启
+- **WHEN** `SALES_PERIOD_NARRATIVE_ENABLED=true`，老板请求期间汇总
+- **THEN** `narrativeEnabled` 为 `true`，`narrative` 仍为 `null`
