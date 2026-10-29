@@ -15,12 +15,12 @@
 | 项 | 实现 |
 |---|---|
 | 渲染 | `src/lib/install/warranty.ts` `renderWarrantyEmail`：纯文本与 HTML 同一份内容；同样输入得到同样邮件；HTML 全部转义 |
-| 种子（`seedWarrantySettings`） | 报价单口径（Lucas 2026-10-28 拍板 Q1）：Shades、Drapery = Labour 1 / Fabric 5 / Components 15；**Shutters（vinyl）= Labour 1 / Components 15 / Frame & Panels 25**（INSTALL-2g，官网新条款，Lucas 2026-10-29；原为 Labour 1 / Components 5）；Motor 不单列。老板可在会计「待收尾款」→「质保设置」改；**已保存过的设置不被种子覆盖** |
+| 种子（`seedWarrantySettings`） | 官网新条款（Lucas 2026-10-29 确认已生效）：**Shades = Labour 1 / Fabric 5 / Components 15 / Cordless Lift Mechanism 3 / Motor 5 / Motor Accessories 5 / Batteries 1**；**Drapery = Labour 1 / Fabric 5 / Components 15 / Motor 5 / Motor Accessories 5 / Batteries 1**（INSTALL-2h）；**Shutters（vinyl）= Labour 1 / Components 15 / Frame & Panels 25**（INSTALL-2g）。邮件里电机 / 配件 / 电池注明 "(if supplied)"，无绳机构注明 "(cordless models)"。老板可在会计「待收尾款」→「质保设置」改；**已保存过的设置不被种子覆盖** |
 | 联系方式种子 | 公司名 Sunny Shutter Inc；地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5（维修单抬头）；条款链接 `https://sunnyshutter.ca/warranty-service/`（Lucas 2026-10-29：保留）；**报修电话 647-857-8669、邮箱 service@sunnyshutter.ca**（INSTALL-2g：电话经官网核实，邮箱由 Lucas 确认；2c 时留空） |
 | 抄送（INSTALL-2g） | 质保设置项 `cc`，种子 miki@sunnyshutter.ca（Lucas 2026-10-29）；最多 5 个；生成审批时定稿（去掉与收件人相同的），预览可见，执行器按审批内容抄送，审计记录 |
 | 发件人 | 组织发件身份 `trade.email_sender`（设置 → 邮件 → 组织发件人）；未配置 → `NO_ORG_SENDER`，不回落到个人邮箱（Q3） |
 | 与本草稿的差异 | ① 不输出 `{{salesName}}`（spec「邮件不输出的内容」：不含员工内部信息）；② 安装地址：工艺单地址优先，客户档案地址兜底，都空显示 "—"；③ 安装日 = `installedAt` 在企业时区的日期（返修后的更新在 INSTALL-2e）；④ 只有英文版，§5 中文版未做 |
-| 官网原文 | **已读到**（Lucas 2026-10-29 截图，见 §0a）；同日 Lucas 确认新条款**已生效**，Shutters 按新条款 → INSTALL-2g（报价单 Shutters 文字、种子、新部件 Frame & Panels）；帘类细分（无绳升降 3 年、电机 / 配件 5、电池 1）未做 |
+| 官网原文 | **已读到**（Lucas 2026-10-29 截图，见 §0a）；同日 Lucas 确认新条款**已生效**：Shutters → INSTALL-2g；帘类 / 窗帘（无绳升降 3、电机 / 配件 5、电池 1）→ INSTALL-2h；报价单 PDF 三段与帘类 / 窗帘 Order Form 文字均按新条款，并由 `warranty.test.ts` 与种子逐字比对 |
 
 ## 0. 质保条款来源与核实状态（防幻觉）
 

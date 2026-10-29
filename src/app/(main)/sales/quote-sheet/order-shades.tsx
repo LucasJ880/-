@@ -128,7 +128,7 @@ export function OrderShadesForm({
         <div>
           <h2 className="text-lg font-bold">BLINDS & SHADES — ORDER FORM</h2>
           <p className="text-xs text-muted-foreground">
-            Warranty: 1 year Labour, 5 years fabric, 15 years components
+            Warranty: 1 year labour · 5 years fabric · 15 years components · 3 years cordless lift mechanisms · 5 years motors & motor accessories (if supplied) · 1 year batteries (if supplied)
           </p>
         </div>
         <button
