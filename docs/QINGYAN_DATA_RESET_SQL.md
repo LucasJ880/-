@@ -31,6 +31,15 @@
 
 注意：对象存储（上传的文件、图片）不在数据库里，被删记录引用的文件不会自动删除。
 
+## 生产执行记录（2026-10-29）
+
+- 先建备份分支 `backup-before-reset-20261029`（父分支 `production`，执行前时间点），再在 `production` 上以 `execute` 执行；删后校验全部通过（不该留的 0、该留的不少、梦馨指纹不变），4 个被引用测试账号已停用。改挂 0 行。
+- 删后：企业 2（`mengxin-home-textile`、`sunny-home-deco`）；账号 6（Cathy、Lucas 正常；`admin@qingyan.ai`、`nav-qa@test.qingyan.ai`、`security1-multi@test.qingyan.ai`、`security1-trade@test.qingyan.ai` 停用）。
+- 删除的企业 14 个：`P111P-5bf7c332`、`lucas-bid`、`org-2a9ccaf7`、`org-dc7ea`、7 个 `personal-*` 个人工作区（含 CATHY LI 的个人工作区，不影响她在梦馨）、`sunny-shutter-bid-lead`、`trade-test-client`、`trade-test-fulfillment`。删除的账号 22 个（含 Sunny 员工 `Jiangchen@` / `alex@` / `lynn@` / `service@sunnyshutter.ca`，用户定之后重新设计；`system@qingyan.internal` 在 `/api/v1/projects` 首次调用时会自动重建）。
+- 招标清空：项目 31、招标分析 19 次运行及其需求 / 交付物 / 澄清问题 / 来源引用全部删除。量最大的是 `AutomationRun`（263,870 行）。
+- 保留：梦馨全部数据（客户、商机、询盘分析、外贸消息 / 线索 / 信号、AI 对话、通知、审计等）；Sunny 空壳（岗位 8 套 / 权限 44 条、工作区 6、业务规则 10、对象定义 11、指标定义 8、术语 2、品牌资料、能力配额 298、报价折扣与审批设置）与 Lucas 在 Sunny 的成员身份和岗位；`ApiToken` 3、布料目录 304、平台视觉方案产品 52。
+- 回退仍可用：备份分支保留执行前完整数据；确认无误一段时间后可在 Neon 删除该分支以省存储。
+
 ## 本地演练（2026-10-29）
 
 - 造数据：梦馨 / Sunny / 测试企业 / 无企业招标项目，含交叉引用（梦馨项目负责人是测试账号、Cathy 与 Lucas 的个人任务与通知、Lucas 在测试企业工作区的成员身份、无外键关联表等）：预览与执行结果符合规则；Sunny 负责人改挂 Lucas。
