@@ -14,7 +14,16 @@
 
 ---
 
-## 0. CAL-2 现场续接（已完成：#340 合并，归档小 PR 见下）
+## 0. CAL-3 现场续接（上下文压缩或换会话后从这里接）
+
+| 项 | 状态 |
+|---|---|
+| 授权 | 用户 2026-10-29："不算出站，按照晨报发，继续做 CAL-3"；"按照计划，继续走，你自己审批，做完通知我，做好 hand off" → 四件套自审、apply、合并、归档都由我完成，全部做完再通知用户 |
+| 顺序 | ① CAL-2 归档小 PR（本分支 `0a01c879` 起，等 main 对比跑完补报告 §6 后开 PR、绿了合并）→ ② 从 origin/main 重建分支后 `/opsx:propose calendar-change-push` → 自审 → apply → 门禁 → PR → 合并 → 归档 |
+| 计划要点（已核对代码） | 触发点：CAL-1 `run.ts` `processPage` 里每条**新建**的站内变更通知（`sourceKey` 不存在才发）；收件人不变。渠道：收件人已绑定 Muse（`settingsJson.museBridge.bindings` 里有其 userId）且 `MUSE_BRIDGE_ENABLED` 开 → 改用 `emitMuseEvent`（它本身就建一条 `muse_bridge` 站内通知，避免一人两条），新事件类型 `calendar.changed`（契约只追加，S2/S3 先例；`eventId` 用 `calwatch:{orgId}:{eventId}:{version}:{userId}`）；否则照旧 `calendar_watch` 通知。微信：对新建成功的那条再调 `pushSalesReminder(userId, title, summary)`（绑定的 pushDomains 含 sales 且 pushSales 开、静默时段；非生产 `assertSideEffectOrThrow` 抛错→捕获计数）；推送函数可注入。读取账号重连通知同样走微信（不走 Muse）。失败不影响 CAL-1 一轮；结果里计数 |
+| 风险已知 | 绑定 Muse 的收件人站内通知 category 从 `calendar_watch` 变 `muse_bridge`（CAL-1 spec"变更通知"仍满足：仍是一条站内通知）；需在 spec 写明 |
+
+## 0'. CAL-2 现场续接（已完成：#340 合并，归档小 PR 见下）
 
 | 项 | 状态 |
 |---|---|
