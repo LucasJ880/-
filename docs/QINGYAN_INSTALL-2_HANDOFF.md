@@ -8,9 +8,9 @@
 | 任务书（方案） | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` |
 | 邮件模板 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` |
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
-| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2g 已合并并归档；INSTALL-2h 见 §0 |
+| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2h 全部已合并并归档，本地不再有未进 main 的提交 |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>`；archive 用 `openspec archive <change> --yes` |
-| 状态 | INSTALL-2a–2g 完成（合并 + archive，TASKFLOW `[x]`）；**INSTALL-2h**（帘类 / 窗帘按官网新质保条款）实施完成，见 §0；上线前置与后续见 §1 |
+| 状态 | **INSTALL-2a–2h 全部完成**（合并 + archive，TASKFLOW 均 `[x]`；2g / 2h = 官网新质保条款、报修联系方式、质保邮件抄送）；上线前置与后续见 §1 |
 
 ## 0. 交付流水线（每个 PR 合并后更新本表）
 
@@ -23,11 +23,11 @@
 | 2e `install-2e-repair-dispatch` | 已完成（报告 `docs/QINGYAN_INSTALL-2e_REPORT.md`） | [#321](https://github.com/LucasJ880/-/pull/321) 已合并（与 2d 同批） | [#324](https://github.com/LucasJ880/-/pull/324) 已合并（`openspec/changes/archive/2026-10-29-install-2e-repair-dispatch`） | `[x]` |
 | 2f `install-2f-repair-close` | 已完成（报告 `docs/QINGYAN_INSTALL-2f_REPORT.md`） | [#325](https://github.com/LucasJ880/-/pull/325) 已合并 | [#329](https://github.com/LucasJ880/-/pull/329) 已合并（`openspec/changes/archive/2026-10-29-install-2f-repair-close`） | `[x]` |
 | 2g `install-2g-warranty-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2g_REPORT.md`） | [#337](https://github.com/LucasJ880/-/pull/337) 已合并 | [#339](https://github.com/LucasJ880/-/pull/339) 已合并（`openspec/changes/archive/2026-10-29-install-2g-warranty-update`） | `[x]` |
-| 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | 本 PR | — | `[G]` |
+| 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | [#341](https://github.com/LucasJ880/-/pull/341) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） | `[x]` |
 
 - 每个 PR：基于最新 main → cherry-pick 该 change 的提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → `openspec archive <change> --yes`（在最新 main 上重跑，不 cherry-pick 旧的 archive 结果，避免和别的会话同时改的主规格冲突）+ TASKFLOW `[x]` + 本表 → archive PR。
 - 文档冲突（TASKFLOW / 本文件 / 任务书）一律以 main 上的现状为底，再按本表改状态；代码冲突逐块看，不整文件取一边。
-- 归档顺序 2a → 2b → 2c → 2d → 2e → 2f → 2g（2e / 2f 的增量依赖 2d 新建的 `installation/repairs`、`installation/install-stage`；2g 改 2c 的 `installation/warranty-email`）。
+- 归档顺序 2a → 2b → 2c → 2d → 2e → 2f → 2g → 2h（2e / 2f 的增量依赖 2d 新建的 `installation/repairs`、`installation/install-stage`；2g / 2h 改 2c 的 `installation/warranty-email`）。
 - **2d 与 2e 同批上线**：2d 合并后不等别的，紧接着开 2e PR。
 - 上线前老板要做（2c 报告 §5、2g 报告 §5）：设置 → 邮件 → 组织发件人；会计「待收尾款」→「质保设置」核对（2g 起报修电话 / 邮箱 / 抄送已预填；若该企业保存过设置，Shutters 与抄送要手改）。
 
