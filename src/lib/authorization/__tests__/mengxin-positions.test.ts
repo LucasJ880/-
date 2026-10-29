@@ -62,29 +62,38 @@ ok(!profilesForIndustryPack(PACK).some((p) => ["pricing_lead", "fulfillment_viny
   if (parsed.ok) {
     const b = parsed.value.bindings;
     ok(!Object.keys(b).some((k) => k.startsWith("TODO:")), "绑定文件无 TODO 占位");
-    ok(b["cathy@hlmbedding.com"]?.join() === "trade_rep", "Cathy → trade_rep");
+    ok(b["cathy@hlmbedding.com"]?.join() === "trade_rep,owner", "Cathy → trade_rep + owner（生产上是平台 boss，保持老板级）");
     ok(b["lucas@sunnyshutter.ca"]?.join() === "owner", "Lucas → owner");
     const known = new Set([...SYSTEM_ROLE_PROFILES.map((p) => p.key), ...profilesForIndustryPack(PACK).map((p) => p.key)]);
     ok(Object.values(b).flat().every((k) => known.has(k)), "绑定文件里的岗位都已登记");
   }
 }
 
-// ── 岗位模式下 Cathy / Lucas ──
+// ── 岗位模式下只绑 trade_rep 的外贸业务员（以后新增的业务员）──
 for (const platformRole of ["trade", "user"]) {
   const tag = platformRole === "trade" ? "压扁前" : "压扁后";
   const role = deriveEffectivePlatformRole({ platformRole, positionMode: true, permissionKeys: tradeRepKeys });
-  ok(role === "trade", `Cathy（${tag}）派生角色 trade`);
-  ok(usesTradeLayout(role), `Cathy（${tag}）侧栏外贸布局`);
+  ok(role === "trade", `业务员（${tag}）派生角色 trade`);
+  ok(usesTradeLayout(role), `业务员（${tag}）侧栏外贸布局`);
   const ctx = { platformRole, orgRole: "org_member", positionMode: true, permissionKeys: tradeRepKeys, enabledModules: ["trade"], hasMembership: true };
-  ok(getDefaultWorkspace(ctx) === "/" && resolveHomeRedirect(ctx) === "/tasks", `Cathy（${tag}）首页落 /tasks（与旧模式相同）`);
-  ok(!isManagementWorkspaceUser(ctx), `Cathy（${tag}）不是管理层`);
+  ok(getDefaultWorkspace(ctx) === "/" && resolveHomeRedirect(ctx) === "/tasks", `业务员（${tag}）首页落 /tasks（与旧模式相同）`);
+  ok(!isManagementWorkspaceUser(ctx), `业务员（${tag}）不是管理层`);
 }
 {
   const legacy = { platformRole: "trade", orgRole: "org_member", positionMode: false, permissionKeys: tradeRepKeys, enabledModules: ["trade"], hasMembership: true };
-  ok(resolveHomeRedirect(legacy) === "/tasks", "对照：旧模式 Cathy 也落 /tasks");
+  ok(resolveHomeRedirect(legacy) === "/tasks", "对照：旧模式平台 trade 业务员也落 /tasks");
   const lucas = { platformRole: "admin", orgRole: "org_owner", positionMode: true, permissionKeys: [...sys("org_owner"), ...ownerKeys], enabledModules: ["trade"], hasMembership: true };
   ok(isManagementWorkspaceUser(lucas) && resolveHomeRedirect(lucas) === null, "Lucas 绑 owner：管理层，首页停在 /");
   ok(deriveEffectivePlatformRole({ platformRole: "user", positionMode: true, permissionKeys: ownerKeys }) === "boss", "owner 压扁后派生 boss");
+  // Cathy 生产实情：平台 boss + trade_rep + owner（压扁前后）——管理层、首页停在 /、非外贸布局，与旧模式平台 boss 相同
+  for (const platformRole of ["boss", "user"]) {
+    const keys = [...new Set([...tradeRepKeys, ...ownerKeys])];
+    const ctx = { platformRole, orgRole: "org_member", positionMode: true, permissionKeys: keys, enabledModules: ["trade"], hasMembership: true };
+    const r = deriveEffectivePlatformRole({ platformRole, positionMode: true, permissionKeys: keys });
+    ok(r === "boss" && !usesTradeLayout(r) && isManagementWorkspaceUser(ctx) && resolveHomeRedirect(ctx) === null, `Cathy（平台 ${platformRole} + trade_rep + owner）：派生 boss、管理层、首页停在 /`);
+  }
+  const legacyCathy = { platformRole: "boss", orgRole: "org_member", positionMode: false, permissionKeys: tradeRepKeys, enabledModules: ["trade"], hasMembership: true };
+  ok(isManagementWorkspaceUser(legacyCathy) && resolveHomeRedirect(legacyCathy) === null, "对照：旧模式 Cathy（平台 boss）同样是管理层、首页停在 /");
   const lucasNoOwner = { ...lucas, permissionKeys: sys("org_owner") };
   ok(!isManagementWorkspaceUser(lucasNoOwner), "Lucas 只有系统 org_owner 绑定（未绑 owner、非 super_admin）：不是管理层（上线顺序要绑 owner）");
 }
@@ -93,10 +102,14 @@ for (const platformRole of ["trade", "user"]) {
 {
   const m = (userId: string, orgRole: string, platformRole: string, permissionKeys: string[]): TradeMemberSignal => ({ userId, orgRole, platformRole, userStatus: "active", permissionKeys });
   const lucas = m("lucas", "org_owner", "admin", [...sys("org_owner"), ...ownerKeys]);
-  const cathy = m("cathy", "org_member", "trade", tradeRepKeys);
-  ok(isTradeWorker(cathy) && isTradeWorker(lucas), "工作收件人：Cathy 与 Lucas");
-  ok(isTradeManager(lucas, true) && !isTradeManager(cathy, true), "管理层收件人：Lucas，不含 Cathy");
-  ok(pickDefaultInquiryOwner([lucas, cathy], true) === "cathy", "默认询盘负责人：Cathy（Lucas 先加入也不抢）");
+  const rep = m("rep", "org_member", "trade", tradeRepKeys);
+  ok(isTradeWorker(rep) && isTradeWorker(lucas), "工作收件人：业务员与 Lucas");
+  ok(isTradeManager(lucas, true) && !isTradeManager(rep, true), "管理层收件人：Lucas，不含只绑 trade_rep 的业务员");
+  ok(pickDefaultInquiryOwner([lucas, rep], true) === "rep", "默认询盘负责人：业务员（Lucas 先加入也不抢）");
+  // Cathy 生产实情（平台 boss + trade_rep + owner）
+  const cathy = m("cathy", "org_member", "boss", [...new Set([...tradeRepKeys, ...ownerKeys])]);
+  ok(isTradeWorker(cathy) && isTradeManager(cathy, true), "Cathy：工作收件人 + 管理层收件人（与旧模式平台 boss 相同）");
+  ok(pickDefaultInquiryOwner([lucas, cathy], true) === null, "Cathy 派生 boss，不是默认询盘负责人候选（回退企业 owner，与今天相同）");
 }
 
 // ── 入驻 / 交接 / 邀请注册后落岗位（D5） ──

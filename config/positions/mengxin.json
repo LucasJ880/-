@@ -1,12 +1,14 @@
 {
   "_comment": [
     "梦馨家纺（home_textile_trade_v1）岗位绑定（PERM-6b）。键是成员邮箱，值是岗位 key 列表。",
-    "上线顺序：合并 6b 前先对梦馨跑 seedOrgAuthorizationProfiles（Cathy 自动绑 trade_rep）；合并后再跑一次 seed 落 owner 模板，再执行本文件或在企业详情页「岗位」一节操作。",
-    "执行：ALLOW_POSITION_BINDING=true npx tsx scripts/bind-positions.ts --org <梦馨的 Organization.code> --file config/positions/mengxin.json --actor lucas@sunnyshutter.ca --dry-run"
+    "Cathy 生产上是平台 boss（老板级权限），用户 2026-10-29 定：外贸业务员 + 老板，合并前后可用功能一致。",
+    "上线顺序（生产无本地仓库，用 Neon SQL Editor）：合并前落 trade_rep 并绑 Cathy、落 owner 并绑 Cathy 与 Lucas（见 docs/QINGYAN_PERM-6b_REPORT.md §4），再合并。",
+    "本机执行（有仓库时）：ALLOW_POSITION_BINDING=true npx tsx scripts/bind-positions.ts --org mengxin-home-textile --file config/positions/mengxin.json --actor lucas@sunnyshutter.ca --dry-run"
   ],
   "bindings": {
     "cathy@hlmbedding.com": [
-      "trade_rep"
+      "trade_rep",
+      "owner"
     ],
     "lucas@sunnyshutter.ca": [
       "owner"

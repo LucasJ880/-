@@ -11,7 +11,8 @@
     - 残留读点（4c5）；
     - 外贸 / 营收 / 收件人（6a / 6c）；
     - 压扁（4c3 / 6c）。
-- **梦馨生产成员**：Lucas（`org_owner`，平台 `admin`；已安排改为 super_admin）、Cathy（`org_member`，平台 `trade`）。
+- **梦馨生产成员**：Lucas（`org_owner`，平台 `admin`；已安排改为 super_admin）、Cathy（`org_member`）。
+  - 提案时按文档写 Cathy 为平台 `trade`；2026-10-29 在生产库核对，实际是平台 **`boss`**（老板级），且 6a 之后一直没跑 seed（梦馨没有 `trade_rep` 岗位、Cathy 无任何绑定）。见 D6。
 - **6a seed 已能自动绑**：`org_owner` 成员 → 系统 `org_owner`，平台 `trade` 成员 → 系统 `trade_rep`。
   - 只要在 6b 上线前对梦馨跑过一次 seed，Cathy 就有一条 `trade_rep` 绑定（岗位模式下绑定照常有效）。
 - **Cathy 的落地**：旧模式（平台 `trade`）与岗位模式（只持 `trade_rep`）都是 `/tasks`（本地按 `getDefaultWorkspace` / `resolveHomeRedirect` 核对过）。
@@ -90,6 +91,12 @@
 6. **邮箱分离**：不涉及（Cathy 的发件设置不变）。
 7. **确定性优先**：触碰。全部查表。
 8. **测试注册**：触碰。纯测试注册 `test-all` 与 `test-ci-unit`，隔离库测试注册 `test-all`。
+
+### D6 Cathy 绑 `trade_rep` + `owner`（实施中补充，用户 2026-10-29 拍板）
+- 生产核对发现 Cathy 是平台 `boss`：旧模式下她是管理层（管理总览、团队分析、Muse 全企业金额、发布营收策略、老板早报）。只绑 `trade_rep` 会让她在合并后失去这些。
+- 用户定："外贸业务员 + 老板"。绑定文件改为 Cathy → `trade_rep`、`owner`。
+- 结果（本地按生产实情建库核对，main 与本分支同一脚本）：Cathy 压扁前后、Lucas 的派生角色 / 管理层 / 落地 / 可见导航 / 外贸读写 / 收件人与今天完全一致；默认询盘负责人与今天相同（回退企业 owner）。
+- 上线方式：生产侧没有可用的本地仓库，合并前用 Neon SQL Editor 执行与 seed 等价的 SQL（落 `trade_rep` 并绑 Cathy；落 `owner` 并绑 Cathy、Lucas）。本地核对过：SQL 可重复执行，之后再跑 6b 的 seed 不再新增任何行。
 
 ## Risks / Trade-offs
 

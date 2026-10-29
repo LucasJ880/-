@@ -25,7 +25,7 @@
 | 6a | **#300 合并；archive #301 合并**（tasks 6/6；typecheck / lint:baseline / test:ci / registry 459 / validate --strict 全绿；纯 127/127、隔离库 27/27；受影响目录 89 个测试文件全过）。内容：外贸三键 + `trade_rep` 模板（`org_owner` 三键、`org_admin` 只设置键、窗饰 `owner` 三键）；旧模式平台 `trade` 兼容回退 / seed 自动绑 `trade_rep`；`src/app/api/trade/**` 110 处 `requireRole` → `requireTradePermission`（GET 读键、其余写键、通道入口三键任一 + `canManageTradeChannels`、发件设置 → 设置键、删除发件人 → super_admin）；`resolveTradeOrgId` 显式企业只给 super_admin（平台 admin 收回）；派生角色 `trade` 档；岗位模式外贸入口认 `trade.read`。报告 `docs/QINGYAN_PERM-6a_REPORT.md`；TASKFLOW `[G]`。6b 需梦馨人员与邮箱，用户 2026-10-28 定先做 6c |
 | 6c | **#302 合并；archive #303 合并**（tasks 6/6；typecheck / lint:baseline / test:ci / registry 461 / validate --strict 全绿；纯 68/68、隔离库 23/23；受影响目录 102 个测试文件全过）。拍板三点全按推荐。内容：营收中心 13 个路由按外贸键（GET 读、POST 写、策略 PUT 设置 / GET 三键任一），平台 sales 不再进；新 `src/lib/trade/recipients.ts`——工作收件人 = 持外贸读写键、管理层收件人 = 管理层且持外贸键、默认询盘负责人 = 派生角色 trade / sales 最早成员；`managementOf` / `inquiry-sla` / `notifyInquiryMembers` / `resolveInquiryOwner` 接入；压扁范围加 `trade`；侧栏外贸布局按 `effectiveRole`；入职清单业务员认 `trade.manage`；残留清单 D2–D4 收口、新增 F 组。报告 `docs/QINGYAN_PERM-6c_REPORT.md`；TASKFLOW `[G]`。下一个 6b（需梦馨人员与邮箱） |
 | 7 | **#305 合并；archive #306**（tasks 6/6；typecheck / lint:baseline / test:ci / registry 463 / validate --strict 全绿；纯 30/30、隔离库 35/35；受影响目录 83 个测试文件全过）。内容：共用绑定服务 `position-binding-service.ts`（脚本改调，行为不变）；`/api/organizations/[orgId]/positions`（只认 super_admin，单主体完整集合、dryRun、400 / 409 `LAST_OWNER_BINDING`、`via: "console"`）；企业详情页"岗位"一节；成员增删改改为 `requirePlatformSuperAdmin`（原 `requirePlatformAdmin` 放行平台 admin，与 spec 不一致）。报告 `docs/QINGYAN_PERM-7_REPORT.md`；TASKFLOW `[G]`，新增 PERM-7b 行 |
-| 6b | **PR 已开，未合并：等 Lucas 确认已对梦馨跑 `seedOrgAuthorizationProfiles`、Cathy 有 active `trade_rep` 绑定后才合并**（tasks 5/5；typecheck / lint:baseline / test:ci / registry 465 / validate --strict 全绿；纯 37/37、隔离库 25/25；受影响目录 142 个测试文件 138 过、4 个为本地缺双租户种子）。内容：家纺外贸行业包 `home_textile_trade_v1` 加 `owner`（= 系统 `org_owner` 键 + 企业读 + 管理层信号），业务员用系统 `trade_rep`，梦馨进入岗位模式（判定代码未改）；绑定文件 `config/positions/mengxin.json`（Cathy → `trade_rep`，Lucas → `owner`）；实施中补充 D5：`ensureDefaultPositions`，入驻 / 交接负责人 / 企业邀请码注册后落模板与自动绑、给指定负责人绑 `owner`（否则新家纺工厂全员 403，`onboarding-db.isolated` 曾因此失败）。报告 `docs/QINGYAN_PERM-6b_REPORT.md`（§4 上线顺序）；TASKFLOW `[G]` |
+| 6b | **PR #307 已开，未合并：Cathy `trade_rep` 已在生产用 SQL 补绑（2026-10-29）；等 Lucas 执行 `owner` 那段 SQL（Cathy、Lucas 绑老板）并确认后合并**（tasks 5/5；typecheck / lint:baseline / test:ci / registry 465 / validate --strict 全绿；纯 42/42、隔离库 25/25；受影响目录 142 个测试文件 138 过、4 个为本地缺双租户种子）。内容：家纺外贸行业包 `home_textile_trade_v1` 加 `owner`（= 系统 `org_owner` 键 + 企业读 + 管理层信号），业务员用系统 `trade_rep`，梦馨进入岗位模式（判定代码未改）；绑定文件 `config/positions/mengxin.json`（Cathy → `trade_rep` + `owner`——生产上她是平台 boss，用户定保持老板级；Lucas → `owner`）；生产 SQL `docs/QINGYAN_PERM-6b_MENGXIN_SQL.md`；实施中补充 D5：`ensureDefaultPositions`，入驻 / 交接负责人 / 企业邀请码注册后落模板与自动绑、给指定负责人绑 `owner`（否则新家纺工厂全员 403，`onboarding-db.isolated` 曾因此失败）。报告 `docs/QINGYAN_PERM-6b_REPORT.md`（§4 上线顺序）；TASKFLOW `[G]` |
 | 顺带发现 | 视觉方案跨企业泄露——**4c5 已修**（用户拍板并入；原任务卡已被用户从卡片启动，开 4c5 PR 前查过无并行 PR）；`sunny-process/autogen-db.isolated` 在 main 上失败（NO_BINDING）——已提任务卡，未处理 |
 
 续接要点：
@@ -53,7 +53,7 @@
 | `perm-6a-trade-keys` | 6/6 tasks；代码完成（外贸三键 + `trade_rep`；外贸接口 110 处按键；平台 admin 不再隐含外贸、企业解析显式 orgId 只给 super_admin；通道管理按设置键；派生角色 `trade` 档；岗位模式外贸入口认 `trade.read`）；typecheck / lint:baseline / test:ci / registry 全绿；纯 127/127、隔离库 27/27；报告 `docs/QINGYAN_PERM-6a_REPORT.md`；已 archive（specs 新增 `trade/access`，`agents/position-derived-role` 增量） | #300 ✅；archive #301 ✅ |
 | `perm-6c-revenue-and-trade-recipients` | 6/6 tasks；代码完成（营收中心按外贸键；外贸收件人 / 默认询盘负责人按岗位；压扁纳入 `trade`）；typecheck / lint:baseline / test:ci / registry 全绿；纯 68/68、隔离库 23/23；报告 `docs/QINGYAN_PERM-6c_REPORT.md`；已 archive（specs 新增 `revenue/spine-access`、`trade/notification-recipients`，`authorization/platform-role-collapse`、`position-mode-residual-reads` 增量） | #302 ✅；archive #303 ✅ |
 | `perm-7-position-binding-ui` | 6/6 tasks；代码完成（岗位绑定界面 + 共用服务 + 成员增删改只认 super_admin）；typecheck / lint:baseline / test:ci / registry 全绿；纯 30/30、隔离库 35/35；报告 `docs/QINGYAN_PERM-7_REPORT.md`；已 archive（specs 新增 `authorization/position-binding-console`，`identity/member-management` 增量） | #305 ✅；archive #306 ✅ |
-| `perm-6b-mengxin-positions` | 5/5 tasks；代码完成（家纺外贸 `owner` + `trade_rep`，梦馨进入岗位模式；绑定文件；入驻 / 交接 / 邀请注册后落默认岗位）；typecheck / lint:baseline / test:ci / registry 全绿；纯 37/37、隔离库 25/25；报告 `docs/QINGYAN_PERM-6b_REPORT.md`；**合并前等 Lucas 确认梦馨 seed** | 本 PR（未合并） |
+| `perm-6b-mengxin-positions` | 5/5 tasks；代码完成（家纺外贸 `owner` + `trade_rep`，梦馨进入岗位模式；绑定文件；入驻 / 交接 / 邀请注册后落默认岗位）；typecheck / lint:baseline / test:ci / registry 全绿；纯 42/42、隔离库 25/25；报告 `docs/QINGYAN_PERM-6b_REPORT.md`；**合并前等 Lucas 确认梦馨 seed** | 本 PR（未合并） |
 | `install-1-installer-position` | 9/9 tasks；代码完成（权限键 / 岗位 / `src/lib/install` / 6 个 API / 文件代理前缀 / transition 校验 / `/install` 两页 / 底栏侧栏入口 / 工艺单详情安排安装 + 收口标签）；typecheck / eslint / lint:baseline / test:ci / registry 全绿；报告 `docs/QINGYAN_INSTALL-1_REPORT.md`；TASKFLOW `[G]` | #268 ✅；已 archive（specs 合入 `installation/install-tasks`、`installation/window-closeout`，`authorization/position-catalog` 增量） |
 
 ## 交叉测试结果
@@ -95,7 +95,7 @@
    - ~~6a~~ 已合并（#300）并 archive（#301）。**生产动作**：合并后对梦馨与 Sunny 重跑 `seedOrgAuthorizationProfiles`（梦馨外贸业务员自动绑 `trade_rep`；`org_owner` / `org_admin` / 窗饰 `owner` 拿到外贸键）；查 `User.role='admin'` 的账号——需要外贸又不是 `org_owner` 的绑 `trade_rep` 或改 super_admin；平台 admin 不能再用显式 orgId 进非成员企业。
    - 6c `perm-6c-revenue-and-trade-recipients`（用户定先于 6b）：已合并（#302）并 archive（#303）。**生产动作**：无数据动作；合并即生效——营收中心不再认平台 sales / boss / manager / admin（不是企业负责人、无外贸岗位的人），他们也不再收外贸提醒 / 早报 / 展会小结；只持设置键的 `org_admin` 不再收外贸管理层提醒。梦馨两人不变。压扁 `trade` 要等 6b 后梦馨成为岗位模式。
    - ~~PERM-7~~ 已合并（#305）并 archive（#306）：岗位绑定界面（只认 super_admin）+ 成员增删改只认 super_admin。**生产动作**：无；之后调岗在企业详情页"岗位"一节完成。平台 admin 不能再增删改成员。
-   - 6b `perm-6b-mengxin-positions`：已实施，PR 已开（本 PR）。**合并前等 Lucas 确认已对梦馨跑 `seedOrgAuthorizationProfiles`**（Cathy 自动绑 `trade_rep`）；确认后合并，再开 archive 小 PR（TASKFLOW `[x]`）。**生产动作**见验收清单 B 第 10 步。
+   - 6b `perm-6b-mengxin-positions`：已实施，PR #307 已开。生产核对：Cathy 是平台 `boss`、无绑定、梦馨缺 `trade_rep`——已用 Neon SQL 补绑 `trade_rep`。用户定 Cathy = 外贸业务员 + 老板；**合并前等 Lucas 执行 `owner` 那段 SQL 并确认**，再合并、开 archive 小 PR（TASKFLOW `[x]`）。**生产动作**见验收清单 B 第 10 步。
    - PERM-7b：AI 工具策略平台 admin 档、`requirePlatformAdmin` 其余入口——待写任务书。
    - ~~`fix-taskflow-status-drift` 未 archive~~：提交已在 main，2026-10-28 补 archive（specs 新增 `qa/taskflow-status`，`qa/test-registry` 增量）。
 
@@ -159,10 +159,11 @@
 9. **PERM-7 合并后**：无数据动作。之后调岗在企业详情页"岗位"一节（只有 super_admin 可见）完成，不必再本机跑 `bind-positions`；平台 admin 账号不能再增删改成员（`lucas@sunnyshutter.ca` 需先改为 super_admin）。
 
 10. **PERM-6b（BREAKING，合并即对梦馨生效）**，按 `docs/QINGYAN_PERM-6b_REPORT.md` §4：
-    1. **合并前**：对梦馨跑一次 `seedOrgAuthorizationProfiles`（仓库里没有专门脚本，用 `docs/QINGYAN_PERM-6b_REPORT.md` §4 第 1 步的一次性 `npx tsx -e` 命令，会顺带列出全部 active 绑定），确认 Cathy（`cathy@hlmbedding.com`）有 `trade_rep`（也可在企业详情页"岗位"一节看），然后告诉我，我再合并。合并前不能用 `bind-positions --file config/positions/mengxin.json` 核对（文件只在 6b 分支、`owner` 模板未落地）。
-    2. **合并后**：再跑一次 seed（落家纺 `owner` 模板），在企业详情页给 Lucas 勾选 `owner`（或执行绑定文件）；Lucas 已是 super_admin 则不受影响。
-    3. 可选：对梦馨压扁（Cathy `trade → user`），先 `--dry-run`，执行后通知 Cathy 重新登录。
-    4. 漏了第 1 步：Cathy 会 403，补跑 seed 即恢复，不用回滚。
+    1. 生产侧没有可用的本地仓库：在 Neon SQL Editor（项目「青砚-AI工作助手」→ 分支 `production` → `neondb`）执行 `docs/QINGYAN_PERM-6b_MENGXIN_SQL.md` 的 SQL。
+    2. **已完成（2026-10-29）**：第 2 段（落 `trade_rep` 并绑 Cathy）。核对发现 Cathy 是平台 `boss`、此前无任何绑定、梦馨缺 `trade_rep`（6a 后未 seed）。
+    3. **合并前待做**：第 3 段（落家纺 `owner` 并绑 Cathy、Lucas；用户定 Cathy = 外贸业务员 + 老板），再跑第 1 段确认 Cathy `owner, trade_rep`、Lucas `org_owner, owner`，告诉我后合并。
+    4. 合并后无需再跑 seed；两人可用功能与合并前相同（6b 报告 §2a）。可选：Lucas 改 super_admin（第 4 段，7b 前必须）；压扁 Cathy `boss → user`。
+    5. 漏了第 3 段就合并：Cathy 失去老板级功能、Lucas 不是管理层；补执行即恢复，不用回滚。
 
 ### C. 线上点验（5 分钟）
 - 用 Maggie 登录：能进 `/ops`、能起草提交内容、批准按钮 403；改品牌档案 403。

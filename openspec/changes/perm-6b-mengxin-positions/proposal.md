@@ -29,7 +29,7 @@ TASKFLOW：PERM-6b（`docs/QINGYAN_PERMISSION_TASKFLOW.md`）。
   - 派生角色按键；
   - 压扁可执行。
   - Cathy 的默认落地前后都是 `/tasks`，外贸布局按派生角色 `trade`，与今天一致。
-- **绑定文件** `config/positions/mengxin.json`：`cathy@hlmbedding.com` → `trade_rep`，`lucas@sunnyshutter.ca` → `owner`。
+- **绑定文件** `config/positions/mengxin.json`：`cathy@hlmbedding.com` → `trade_rep` + `owner`（实施中补充：生产上她是平台 `boss`，用户 2026-10-29 定保持老板级，见 design D6），`lucas@sunnyshutter.ca` → `owner`。
 - **上线顺序**：合并即进入岗位模式，没有岗位绑定的成员会立刻失去权限。
   - 合并前必须先对梦馨跑一次 `seedOrgAuthorizationProfiles`（6a 代码已在线），让 Cathy 自动绑上 `trade_rep`；
   - 由 Lucas 确认后再合并；
