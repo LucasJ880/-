@@ -19,8 +19,8 @@
 | 2a `install-2a-closeout-all-lines` | 已完成（报告 `docs/QINGYAN_INSTALL-2a_REPORT.md`） | [#304](https://github.com/LucasJ880/-/pull/304) 已合并 | [#310](https://github.com/LucasJ880/-/pull/310) 已合并（`openspec/changes/archive/2026-10-29-install-2a-closeout-all-lines`） | `[x]` |
 | 2b `install-2b-balance-confirm` | 已完成（报告 `docs/QINGYAN_INSTALL-2b_REPORT.md`；含 Q11 修正） | [#313](https://github.com/LucasJ880/-/pull/313) 已合并 | [#315](https://github.com/LucasJ880/-/pull/315) 已合并（`openspec/changes/archive/2026-10-29-install-2b-balance-confirm`） | `[x]` |
 | 2c `install-2c-warranty-email` | 已完成（报告 `docs/QINGYAN_INSTALL-2c_REPORT.md`） | [#318](https://github.com/LucasJ880/-/pull/318) 已合并 | [#319](https://github.com/LucasJ880/-/pull/319) 已合并（`openspec/changes/archive/2026-10-29-install-2c-warranty-email`） | `[x]` |
-| 2d `install-2d-repair-form` | 已完成（报告 `docs/QINGYAN_INSTALL-2d_REPORT.md`） | [#320](https://github.com/LucasJ880/-/pull/320) 已合并 | 待开（2e 合并后，先 2d 再 2e） | `[G]` |
-| 2e `install-2e-repair-dispatch` | 已完成（报告 `docs/QINGYAN_INSTALL-2e_REPORT.md`） | 本 PR（与 2d 同批） | — | `[G]` |
+| 2d `install-2d-repair-form` | 已完成（报告 `docs/QINGYAN_INSTALL-2d_REPORT.md`） | [#320](https://github.com/LucasJ880/-/pull/320) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2d-repair-form`） | `[x]` |
+| 2e `install-2e-repair-dispatch` | 已完成（报告 `docs/QINGYAN_INSTALL-2e_REPORT.md`） | [#321](https://github.com/LucasJ880/-/pull/321) 已合并（与 2d 同批） | 待开（2d archive 之后） | `[G]` |
 | 2f `install-2f-repair-close` | 已 propose（本地 `a34f83d`），实施中 | — | — | `[~]` |
 
 - 每个 PR：从 main 重建分支 → cherry-pick 该 change 的本地提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → 从 main 重建 → `openspec archive <change> --yes` + TASKFLOW `[x]` + 本表 → archive PR。
