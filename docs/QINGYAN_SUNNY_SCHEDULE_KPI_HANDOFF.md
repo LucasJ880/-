@@ -76,7 +76,7 @@
 | ⑭ | `sentAt` 不是干净的"发送日" | 邮件发送覆盖（`send-email/route.ts:126`、`email-compose/route.ts:158`），标记已发送保留首次（`mark-sent/route.ts:63`），已签改回 draft 时保留 | design Context / Risks；设计稿 §3.1；报告已知限制 |
 | ⑮ | spec 写"金额单位为 CAD"，但外贸转入的报价可能是别的币种，且不写 `sentAt` / `signedAt` | `src/lib/trade/trade-quote-sales-quote.ts:403,435,446` | spec 新增"只汇总 CAD 报价"+ `nonCadExcludedCount`；design D1 字段加 `currency`（12 个）；tasks 1.1 / 2.1 |
 | ⑯ | CAL-1 部分：`AuditLog.userId` 必填、`afterData` 是字符串；"按岗位找人"仓库里没有现成函数（`recipients.ts` 按权限键） | `prisma/schema.prisma` AuditLog；`src/lib/trade/recipients.ts` | 设计稿 §2.2 / §2.4 |
-| ⑰ | **现有代码缺陷**：`pushEventToGoogle` 把逗号分隔的多日历 ID 整串当一个日历写入，选了多个日历的人从青砚建的预约推不进 Google 且不报错 | `src/lib/google-calendar.ts:403`；其它三处取第一个 `:442,513,556` | 设计稿 §2.3 R1 标为 CAL-1 前置；已另提修复任务卡（不在 KPI-1 范围） |
+| ⑰ | **现有代码缺陷**：`pushEventToGoogle` 把逗号分隔的多日历 ID 整串当一个日历写入，选了多个日历的人从青砚建的预约推不进 Google 且不报错 | `src/lib/google-calendar.ts:403`；其它三处取第一个 `:442,513,556` | 设计稿 §2.3 R1 标为 CAL-1 前置；**已修复**（#308，change `fix-gcal-push-calendar-id`，四个写路径共用 `primaryWriteCalendarId`） |
 
 第二轮同时确认无误：MODIFIED 增量标题与归档规格逐字一致、保留了原有场景；改驾驶舱"本月签约"文案不会打破任何测试；zod 版本 4.4.3，在 `discriminatedUnion` 成员上加 `.superRefine` 不会破坏联合（子代理用临时脚本实测；zod 3 会破坏）；`resolveSalesOrgIdForRequest` 存在（`src/lib/sales/org-context.ts:28-34`）；仓库没有时区安全的 `addDays(字符串)` / 月初月末工具，需在 `summary-pure.ts` 新增（照 `nextDay` 的 `Date.UTC` 写法，design D3 已写明）；`npm run build` 里的两个数据库闸门在本地与 CI 都自动跳过，验证步骤可执行。
 
@@ -126,7 +126,7 @@
 
 ## 6.3 本会话之外的遗留
 
-- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已提修复任务卡"Fix multi-calendar push in pushEventToGoogle"，未在本 PR 处理；CAL-1 之前必须先修。
+- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已由 #308 修复（change `fix-gcal-push-calendar-id`，已归档）；CAL-1 前置已满足。历史上推送失败、没有 `googleEventId` 的预约要等下次保存才补推，是否批量回填由 CAL-1 决定。
 - 判断点 2（book-now 写日历的身份）仍待 Lucas 查，是 CAL-1 的前置。
 
 ## 7. 已知坑
@@ -136,5 +136,5 @@
 - 新面板与首页英雄区"本月已签"会出现两个不同的数（签字金额 vs 商机估值）。这是预期：本 change 只把驾驶舱标签改成"本月签约（商机估值）"，首页英雄区标签**未改**（Out of scope）。若审核时认为英雄区也要标注，改 tasks 3.1 一行即可。
 - 新口径会是第三个"签单金额"（另两个是驾驶舱折扣统计、会计提成，口径各不相同，见 §4 ⑨）。报告必须附差异表；是否统一由 Evan 决定。
 - Muse 里合价岗只看本人、会计岗被拒，网页上两者看全企业（§4 ⑬）。这是 S1 的既有范围规则，本 change 不改。
-- `pushEventToGoogle` 多日历缺陷（§4 ⑰）在 CAL-1 之前必须先修，否则规则 R1 漏判。
+- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已由 #308 修复；修复前因推送失败而没有 `googleEventId` 的历史预约，规则 R1 仍会漏判，直到它们被重新保存或回填。
 - 排除已归档客户会让历史期间的成单额随归档操作变小；与首页约定一致，报告"已知限制"要写。
