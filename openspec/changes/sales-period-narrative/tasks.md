@@ -2,7 +2,7 @@
 
 ## 1. 例外与纯函数核心
 
-- [ ] 1.1 改规则并写纯函数核心：
+- [x] 1.1 改规则并写纯函数核心：
   - `openspec/config.yaml` 第 7 条末尾追加 design D1 的例外句；
   - 新建 `src/lib/sales/period/narrative-pure.ts`：
     - `isPeriodNarrativeEnabled(env)`；

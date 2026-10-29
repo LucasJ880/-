@@ -14,7 +14,18 @@
 
 ---
 
-## 0. CAL-1 现场续接（上下文压缩或换会话后从这里接）
+## 0. KPI-2 现场续接（上下文压缩或换会话后从这里接）
+
+| 项 | 状态 |
+|---|---|
+| change | `openspec/changes/sales-period-narrative/`（四件套 `2c9208d1`，validate --strict 通过） |
+| 授权 | 用户 2026-10-29："Evan approved it go next step"（第 7 条例外）→ propose；"都按照你推荐的来，apply"（例外句原文、中文数字一律拒绝、只用环境变量开关） |
+| 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认** |
+| 基线（apply 前） | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
+| tasks | 1/6：1.1 ✓（config.yaml 第 7 条例外句；`src/lib/sales/period/narrative-pure.ts`；纯测试 70 项全过，已注册 test-all + test-ci-unit；变异：去中文数字检查 / 放宽到 1% 容差 / 去引用检查 → 5 项变红）。下一条 2.1 |
+| 本地库 | 容器重启后要 `pg_ctlcluster 16 qytest start`（会提示 stale pid，正常） |
+
+## 0'. CAL-1 现场续接（已完成：#323 合并、#327 归档）
 
 | 项 | 状态 |
 |---|---|
