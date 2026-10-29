@@ -8,9 +8,9 @@
 | 任务书（方案） | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` |
 | 邮件模板 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` |
 | 前置 | INSTALL-1（#268，已 archive：`openspec/specs/installation/{install-tasks,window-closeout}`）；PERM-3 品类（`fulfillment/order-category-access`）；PERM-5a 会计视图（`accounting/*`） |
-| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2h 已合并并归档；2i / 2j / 2k 见 §0 |
+| 分支 | `claude/vigilant-edison-73bk9i`（一个 change 一个 PR，archive 独立小 PR）。INSTALL-2a–2i 已合并并归档；2j / 2k 见 §0 |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>`；archive 用 `openspec archive <change> --yes` |
-| 状态 | INSTALL-2a–2h 完成（合并 + archive，TASKFLOW `[x]`）；Lucas 2026-10-29 续排 **2i 维修单列表分栏 / 分页 → 2j 返修时间确认邮件 → 2k 质保邮件附 PDF**，进度见 §0 |
+| 状态 | INSTALL-2a–2i 完成（合并 + archive，TASKFLOW `[x]`）；Lucas 2026-10-29 续排 **2i 维修单列表分栏 / 分页 → 2j 返修时间确认邮件 → 2k 质保邮件附 PDF**，进度见 §0 |
 
 ## 0. 交付流水线（每个 PR 合并后更新本表）
 
@@ -24,9 +24,9 @@
 | 2f `install-2f-repair-close` | 已完成（报告 `docs/QINGYAN_INSTALL-2f_REPORT.md`） | [#325](https://github.com/LucasJ880/-/pull/325) 已合并 | [#329](https://github.com/LucasJ880/-/pull/329) 已合并（`openspec/changes/archive/2026-10-29-install-2f-repair-close`） | `[x]` |
 | 2g `install-2g-warranty-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2g_REPORT.md`） | [#337](https://github.com/LucasJ880/-/pull/337) 已合并 | [#339](https://github.com/LucasJ880/-/pull/339) 已合并（`openspec/changes/archive/2026-10-29-install-2g-warranty-update`） | `[x]` |
 | 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | [#341](https://github.com/LucasJ880/-/pull/341) 已合并 | [#343](https://github.com/LucasJ880/-/pull/343) 已合并（`openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） | `[x]` |
-| 2i `install-2i-repair-list-archive` | 已完成（报告 `docs/QINGYAN_INSTALL-2i_REPORT.md`） | [#345](https://github.com/LucasJ880/-/pull/345) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2i-repair-list-archive`） | `[x]` |
-| 2j `install-2j-repair-visit-email` | 实施完成（待开 PR） | — | — | — |
-| 2k `install-2k-warranty-pdf` | 实施中 | — | — | — |
+| 2i `install-2i-repair-list-archive` | 已完成（报告 `docs/QINGYAN_INSTALL-2i_REPORT.md`） | [#345](https://github.com/LucasJ880/-/pull/345) 已合并 | [#347](https://github.com/LucasJ880/-/pull/347) 已合并（`openspec/changes/archive/2026-10-29-install-2i-repair-list-archive`） | `[x]` |
+| 2j `install-2j-repair-visit-email` | 已完成（报告 `docs/QINGYAN_INSTALL-2j_REPORT.md`） | 本 PR | — | `[G]` |
+| 2k `install-2k-warranty-pdf` | 实施完成（待 2j 合并后开 PR） | — | — | — |
 
 - 每个 PR：基于最新 main → cherry-pick 该 change 的提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → `openspec archive <change> --yes`（在最新 main 上重跑，不 cherry-pick 旧的 archive 结果，避免和别的会话同时改的主规格冲突）+ TASKFLOW `[x]` + 本表 → archive PR。
 - 文档冲突（TASKFLOW / 本文件 / 任务书）一律以 main 上的现状为底，再按本表改状态；代码冲突逐块看，不整文件取一边。
@@ -109,6 +109,7 @@ NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/install/__tests__/cl
 | `docs/QINGYAN_INSTALL-2_CLOSEOUT_REPAIR_TASKBRIEF.md` | 方案：现状 F1–F15、两条业务流、U-Haul 借鉴、通知矩阵、零 schema 落点、4 个 change 拆分、交叉验证 V1–V9、待拍板 Q0–Q10 |
 | `docs/QINGYAN_INSTALL-2_WARRANTY_EMAIL_TEMPLATE.md` | 完工 + 质保邮件英文模板与变量表；条款来源冲突表 |
 | `docs/QINGYAN_PERMISSION_TASKFLOW.md` | 新增 INSTALL-2 段（2a–2d，状态 `[ ]`） |
+| 代码（INSTALL-2j） | `repair-visit-email.ts` 英文邮件渲染（首次 / 改期主题、到达时间段、英文问题说明）与生成条件；`repair-visit-email-service.ts` 生成审批（一个返修时间一封，幂等键带预约与开始时间）与详情状态；执行器 `exec-install-repair-visit-email.ts`（预约 / 时间未变、收件人一致、组织发件身份、advisory lock 防重发）；`install.send_repair_visit_email` 注册 `types.ts` / `executor.ts` / 微信确认策略（仅网页）；排期接口生成审批、详情带 `visitEmail`、`POST /api/install/repairs/[id]/visit-email`；维修单详情确认邮件卡片（复用质保预览批准组件）；测试 2 个新（已注册）+ 2 个回归 |
 | 代码（INSTALL-2i） | `repair.ts` `parseRepairListQuery` / `repairListPage`；`/api/install/repairs` 分栏 / 分页 / 搜索（无 200 上限，只序列化当前页）；列表项关闭情况补原因说明 / 时间 / 关闭人；`repair-pages.tsx` 页签 / 搜索 / 翻页 / 已归档列（地址参数）；测试 1 个新（已注册）+ 2 个扩充 |
 | 代码（INSTALL-2h） | `warranty.ts` 新部件 `cordless` / `motor_accessories` / `batteries`、标签注明 if supplied / cordless models、种子帘类 / 窗帘；`quote-pdf.ts` 帘类 / 窗帘段与 `order-shades.tsx`、`order-drapes.tsx` 质保文字；测试 2 个扩充（报价单与 Order Form 逐字比对） |
 | 代码（INSTALL-2g） | `warranty.ts` 新部件 `frame`（Frame & Panels / 框架与叶片）、种子 Shutters 1 / 15 / 25 + 报修电话 / 邮箱 + 抄送、`cc` 校验与 `warrantyCcProblem`；`warranty-service.ts` 审批内容与预览带抄送；执行器按审批抄送发送、审计记抄送；`trade/email.ts` / `email-sender.ts` 透出抄送；`warranty-panel.tsx` 抄送输入框与预览抄送；`quote-pdf.ts` Shutters 质保文字；测试 3 个扩充（`email-sender.test.ts` 登记并移出欠账基线） |

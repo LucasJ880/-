@@ -59,6 +59,8 @@ export const WECHAT_CONFIRM_POLICY: Readonly<Record<PendingActionType, WeChatCon
   "tender.send_rfq": "web_only_external",
   /** INSTALL-2c：完工 + 质保邮件，发给客户（须在网页看完预览后批准） */
   "install.send_warranty_email": "web_only_external",
+  /** INSTALL-2j：返修时间确认邮件，发给客户（须在维修单详情看完预览后批准） */
+  "install.send_repair_visit_email": "web_only_external",
   /** 给供应商发催单 / 缺字段追问邮件 */
   "tender.send_chase": "web_only_external",
   /** 营销活动上线（awaiting_approval → active，开始对外投放 / 发布） */

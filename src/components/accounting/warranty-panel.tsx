@@ -33,8 +33,18 @@ export type WarrantyView = {
 
 const day = (s: string | undefined) => (s ? new Date(s).toLocaleString("zh-CN") : "—");
 
-/** 预览 + 批准发送；done(true) = 已发送 */
-export function WarrantyApprove({ view, onDone }: { view: WarrantyView; onDone: (sent: boolean) => void }) {
+/** 预览 + 批准发送；done(true) = 已发送。INSTALL-2j：label / footer 可选，返修时间确认邮件复用（默认仍是质保文案） */
+export function WarrantyApprove({
+  view,
+  onDone,
+  label = "质保邮件",
+  footer = "批准后以组织发件身份发给客户档案邮箱；每张单只发一封。",
+}: {
+  view: WarrantyView;
+  onDone: (sent: boolean) => void;
+  label?: string;
+  footer?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -77,14 +87,14 @@ export function WarrantyApprove({ view, onDone }: { view: WarrantyView; onDone: 
         <div className="truncate">主题：{view.preview.subject}</div>
       </div>
       <iframe
-        title="质保邮件预览"
+        title={`${label}预览`}
         srcDoc={view.preview.html}
         sandbox=""
         className="h-80 w-full rounded-lg border border-border bg-white"
       />
       {sent ? (
         <p className="flex items-center gap-1.5 rounded-lg border border-[rgba(46,122,86,0.3)] bg-[rgba(46,122,86,0.06)] px-3 py-2 text-sm text-[#2e7a56]">
-          <CheckCircle2 size={16} /> 质保邮件已发送
+          <CheckCircle2 size={16} /> {label}已发送
         </p>
       ) : (
         <>
@@ -103,7 +113,7 @@ export function WarrantyApprove({ view, onDone }: { view: WarrantyView; onDone: 
               稍后再批
             </button>
           </div>
-          <p className="text-[11px] text-muted">批准后以组织发件身份发给客户档案邮箱；每张单只发一封。</p>
+          <p className="text-[11px] text-muted">{footer}</p>
         </>
       )}
       {sent && (

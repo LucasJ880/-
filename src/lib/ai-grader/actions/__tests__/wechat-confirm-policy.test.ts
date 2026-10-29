@@ -61,7 +61,7 @@ const KNOWN = sorted(Object.keys(WECHAT_CONFIRM_POLICY));
 ok("已知类型三处一致：分类表 = PendingActionType 联合类型 = executor 分发 case", () => {
   assert.deepEqual(KNOWN, sorted(unionTypes()), "分类表与 PendingActionType 不一致：新类型必须在 wechat-confirm-policy.ts 里分类");
   assert.deepEqual(KNOWN, sorted(executorCases()), "分类表与 executor 分发不一致");
-  assert.equal(KNOWN.length, 18);
+  assert.equal(KNOWN.length, 19);
 });
 
 const EXPECTED_ALLOWED = sorted([
@@ -77,6 +77,8 @@ const EXPECTED_EXTERNAL = sorted([
   "sales.send_inquiry_reply",
   // INSTALL-2c：完工 + 质保邮件发给客户
   "install.send_warranty_email",
+  // INSTALL-2j：返修时间确认邮件发给客户
+  "install.send_repair_visit_email",
   "tender.send_rfq",
   "tender.send_chase",
   "marketing.activate_campaign",
