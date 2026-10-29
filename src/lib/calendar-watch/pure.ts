@@ -628,7 +628,7 @@ export function formatEventWhen(start: string | null, end: string | null, allDay
   return `${md(s.day)} ${s.time} – ${md(e.day)} ${e.time}`;
 }
 
-const SOURCE_LABEL: Record<string, string> = { qingyan: "青砚", member: "成员", website: "网站预约", unknown: "来源不明" };
+export const SOURCE_LABEL: Record<string, string> = { qingyan: "青砚", member: "成员", website: "网站预约", unknown: "来源不明" };
 const FIELD_LABEL: Record<FieldDiff["field"], string> = { start: "开始", end: "结束", summary: "标题" };
 
 function diffText(entry: LedgerAfterData, timezone: string): string {

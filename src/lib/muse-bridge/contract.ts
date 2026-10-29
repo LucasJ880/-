@@ -303,6 +303,8 @@ export const MUSE_EVENT_TYPES = [
   "followup.due",
   "followup.overdue",
   "followup.updated",
+  /** CAL-3：日历观察到的变更（只通知、不带动作）；收件人与 CAL-1 站内通知一致 */
+  "calendar.changed",
 ] as const;
 export type MuseEventType = (typeof MUSE_EVENT_TYPES)[number];
 
