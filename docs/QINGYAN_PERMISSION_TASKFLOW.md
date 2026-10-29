@@ -61,7 +61,7 @@
 | INSTALL-2g | 官网新质保条款：Shutters 人工 1 / 部件 15 / 框架与叶片 25（新部件 `frame`）；报修电话 647-857-8669、邮箱 service@ 进种子；质保邮件抄送（设置项，默认 miki@）；报价单 Shutters 质保文字 | INSTALL-2c | change `install-2g-warranty-update`；`docs/QINGYAN_INSTALL-2g_REPORT.md` | [x]（#337；archive 见 `openspec/changes/archive/2026-10-29-install-2g-warranty-update`） |
 | INSTALL-2h | 官网新质保条款：帘类 1 / 5 / 15 / 无绳升降 3 / 电机 5 / 电机配件 5 / 电池 1，窗帘 1 / 5 / 15 / 电机 5 / 配件 5 / 电池 1（新部件 `cordless` / `motor_accessories` / `batteries`）；报价单与 Order Form 帘类 / 窗帘质保文字 | INSTALL-2g | change `install-2h-warranty-shades-update`；`docs/QINGYAN_INSTALL-2h_REPORT.md` | [x]（#341；archive 见 `openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） |
 | INSTALL-2i | 维修单列表分"进行中 / 已归档"两栏（关闭即自动归档）、分页（去掉 200 上限）、按单号 / 工艺单号 / 客户名搜索；已归档每条带关闭原因、原因说明、关闭人与时间 | INSTALL-2f | change `install-2i-repair-list-archive`；`docs/QINGYAN_INSTALL-2i_REPORT.md` | [x]（#345；archive 见 `openspec/changes/archive/2026-10-29-install-2i-repair-list-archive`） |
-| INSTALL-2j | 返修时间确认邮件：排期 / 改期后生成审批（`install.send_repair_visit_email`），批准后以组织发件身份发给客户；执行器校验预约与时间未变；详情页预览与批准 | INSTALL-2e、2g | change `install-2j-repair-visit-email`；`docs/QINGYAN_INSTALL-2j_REPORT.md` | [G] |
+| INSTALL-2j | 返修时间确认邮件：排期 / 改期后生成审批（`install.send_repair_visit_email`），批准后以组织发件身份发给客户；执行器校验预约与时间未变；详情页预览与批准 | INSTALL-2e、2g | change `install-2j-repair-visit-email`；`docs/QINGYAN_INSTALL-2j_REPORT.md` | [x]（#349；archive 见 `openspec/changes/archive/2026-10-29-install-2j-repair-visit-email`） |
 
 ## PERM-5 — 会计视图与数字员工
 
