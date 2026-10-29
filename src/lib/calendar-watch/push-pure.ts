@@ -4,11 +4,14 @@
  * 收件人、时机与条数沿用 CAL-1；这里只决定"走 Muse 还是站内"和"推什么字"。
  */
 
-import type { EmitMuseEventInput } from "@/lib/muse-bridge/events-pure";
+import { buildMuseEvent, type EmitMuseEventInput } from "@/lib/muse-bridge/events-pure";
 import { SOURCE_LABEL } from "./pure";
 import type { CalendarNotificationDraft, LedgerAfterData } from "./types";
 
 export type PushChannel = "muse" | "site";
+
+/** 每轮最多推几条微信：批量导入 / 删除时不刷屏、不拖垮 cron；超出的只在站内 / Muse */
+export const MAX_WECHAT_PUSHES_PER_RUN = 30;
 
 /** Muse 开启、企业放行、收件人已绑定 → Muse；否则站内 */
 export function chooseChannel(input: {
@@ -23,7 +26,8 @@ export function chooseChannel(input: {
 /** Muse 事件落库用的站内通知键（与 emitMuseEvent 一致） */
 export const museSourceKey = (sourceKey: string) => `muse:${sourceKey}`;
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/** 本地部分 + @ + 任意（可为空）域名：标题截断在邮箱中间（`john@acme`、`john@`）也要盖住 */
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*/g;
 export const maskEmails = (text: string) => text.replace(EMAIL, "[邮箱]");
 
 /**
@@ -33,6 +37,21 @@ export const maskEmails = (text: string) => text.replace(EMAIL, "[邮箱]");
 export function pushText(draft: CalendarNotificationDraft, entry: LedgerAfterData): { title: string; body: string } {
   const body = `来源：${SOURCE_LABEL[entry.attribution.source] ?? entry.attribution.source}（${entry.attribution.rule}）`;
   return { title: maskEmails(draft.title), body: maskEmails(body) };
+}
+
+/** 事件发生时间：Google 更新时间，缺失或不合法时用本轮时间 */
+export function occurredAtOf(updated: string | null | undefined, now: Date): Date {
+  const ms = Date.parse(updated ?? "");
+  return Number.isFinite(ms) ? new Date(ms) : now;
+}
+
+/**
+ * 能否走 Muse：信封成立，且摘要不会被出站脱敏整段替换
+ *（否则已绑定的人铃铛里只剩一句脱敏提示，看不到改了什么——改走站内）
+ */
+export function museEnvelopeClean(input: EmitMuseEventInput): boolean {
+  const env = buildMuseEvent(input);
+  return env !== null && env.summary === input.summary.slice(0, 300);
 }
 
 /** `calendar.changed` 事件输入：eventId = CAL-1 通知键；只通知、不带动作 */

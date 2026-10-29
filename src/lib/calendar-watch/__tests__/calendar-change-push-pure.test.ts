@@ -5,7 +5,16 @@
 import { MUSE_EVENT_TYPES, museEventEnvelopeSchema } from "@/lib/muse-bridge/contract";
 import { buildMuseEvent } from "@/lib/muse-bridge/events-pure";
 import { buildNotification, notificationSourceKey, toLedgerAfterData } from "../pure";
-import { calendarChangedEventInput, chooseChannel, maskEmails, museSourceKey, pushText } from "../push-pure";
+import {
+  calendarChangedEventInput,
+  chooseChannel,
+  maskEmails,
+  MAX_WECHAT_PUSHES_PER_RUN,
+  museEnvelopeClean,
+  museSourceKey,
+  occurredAtOf,
+  pushText,
+} from "../push-pure";
 import type { Attribution, CalendarChange, CalendarChangeKind, FieldDiff } from "../types";
 
 let pass = 0;
@@ -86,6 +95,14 @@ const tu = pushText(buildNotification(upd, TZ, null), upd);
 ok(tu.title.includes("14:00 → 16:00") && tu.title.includes("修改人未知"), "修改文案含前后值与修改人未知", tu.title);
 ok(maskEmails("a.b+c@x.co 与 d@e.org") === "[邮箱] 与 [邮箱]", "多个邮箱都替换");
 ok(maskEmails("没有邮箱 @ 符号") === "没有邮箱 @ 符号", "孤立的 @ 不误伤");
+ok(maskEmails("contact john.smith@acme") === "contact [邮箱]" && maskEmails("call john@") === "call [邮箱]", "截断在邮箱中间（无顶级域 / 无域名）也替换");
+const cut = entryOf("created", change({ summary: `${"量".repeat(100)} contact jo@acmecorp.com`, creatorEmail: null }), attr({ source: "unknown", rule: "R4" }));
+ok(cut.summary !== null && cut.summary.length === 120 && cut.summary.endsWith("jo@acmecorp"), "前提：账本标题截到 120 字，截在邮箱中间", cut.summary?.slice(-20));
+const tc = pushText(buildNotification(cut, TZ, null), cut);
+ok(!tc.title.includes("@") && tc.title.includes("contact [邮箱]"), "截断标题里的半个邮箱也不外发", tc.title.slice(-40));
+const updCut = entryOf("updated", change({ summary: "Measure — mary@x" }), attr(), [{ field: "summary", before: "Measure — jane.doe@ex", after: "Measure — mary@x" }]);
+const tdc = pushText(buildNotification(updCut, TZ, null), updCut);
+ok(!tdc.title.includes("@") && (tdc.title.match(/\[邮箱\]/g) ?? []).length >= 2, "标题改动的前后值里的邮箱都替换", tdc.title);
 
 console.log("\n[3] Muse 事件信封");
 ok((MUSE_EVENT_TYPES as readonly string[]).includes("calendar.changed") && MUSE_EVENT_TYPES[MUSE_EVENT_TYPES.length - 1] === "calendar.changed", "calendar.changed 追加在事件类型末尾");
@@ -99,6 +116,15 @@ ok(env?.summary.split("\n")[0] === tu.title && env?.summary.split("\n")[1] === t
 ok(!JSON.stringify(env).includes("@"), "整个信封不含邮箱");
 const longKey = notificationSourceKey(ORG, { ...upd, eventId: "x".repeat(200) }, USER);
 ok(longKey.length > 200 && buildMuseEvent({ ...input, eventId: longKey }) === null, "通知键超过 200 字 → 信封不成立（执行器回落站内）", longKey.length);
+ok(museEnvelopeClean(input), "普通修改：可走 Muse");
+ok(!museEnvelopeClean({ ...input, eventId: longKey }), "通知键过长：不走 Muse");
+const marginText = pushText(buildNotification(entryOf("created", change({ summary: "Margin trim install" }), attr()), TZ, "Example Rep"), entryOf("created", change({ summary: "Margin trim install" }), attr()));
+const marginInput = calendarChangedEventInput({ sourceKey: key, orgId: ORG, userId: USER, text: marginText, occurredAt: new Date() });
+ok(buildMuseEvent(marginInput)?.summary !== marginInput.summary && !museEnvelopeClean(marginInput), "标题命中出站敏感词（margin）会被整段替换 → 不走 Muse（执行器改走站内）", buildMuseEvent(marginInput)?.summary);
+ok(MAX_WECHAT_PUSHES_PER_RUN === 30, "每轮微信推送上限 30");
+const at = occurredAtOf(edt("2026-10-29T10:05:00"), new Date(edt("2026-10-29T11:00:00")));
+ok(at.toISOString() === edt("2026-10-29T10:05:00"), "事件时间取 Google 更新时间");
+ok(occurredAtOf(null, new Date(0)).getTime() === 0 && occurredAtOf("garbage", new Date(0)).getTime() === 0, "缺失或不合法时取本轮时间");
 const longTitle = { title: "长".repeat(400), body: "来源：成员（R3）" };
 const envLong = buildMuseEvent(calendarChangedEventInput({ sourceKey: key, orgId: ORG, userId: USER, text: longTitle, occurredAt: new Date() }));
 ok(envLong !== null && envLong.summary.length === 300, "超长摘要截到 300 字仍成立", envLong?.summary.length);

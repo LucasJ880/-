@@ -3,7 +3,8 @@
  *
  *   首次全量零推送；Muse 关 → 全部站内 + 每人一次微信、正文无邮箱；Muse 开 + 已绑定 → 只有 Muse 事件（Bridge 拉得到）；
  *   企业不在放行名单 → 站内；中断重放与渠道切换不重发不重推；推送失败不影响其它人与账本；
- *   通知键过长回落站内；授权失效当天只推一次且不走 Muse。
+ *   通知键过长 / 摘要会被出站脱敏时回落站内；授权失效当天只推一次且不走 Muse；
+ *   推送返回失败计数；同一事件在两个观察日历只送一次；每轮推送上限；缺省推送函数在非生产计为跳过。
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -58,6 +59,7 @@ async function main() {
   const users = [OWNER, OPSLEAD, READER];
   const ORG = `cporg_${stamp}`;
   const CAL = `pushcal_${stamp}@group.calendar.google.com`;
+  const CAL2 = `pushcal2_${stamp}@group.calendar.google.com`;
   const EV = (n: string) => `${n}${stamp}`;
   const email = (id: string) => `${id}@fixture.test`;
   const STRANGER = `stranger.${stamp}@example.test`;
@@ -75,22 +77,26 @@ async function main() {
   }
   await db.calendarProvider.create({ data: { type: "google", name: "Google", userId: READER, accessToken: "fake", accountEmail: email(READER) } });
 
-  // ── 假 Google：每轮返回 page；假微信：记录每次调用，可按收件人抛错 ──
+  // ── 假 Google：CAL 每轮返回 page、CAL2 返回 page2；假微信：记录每次调用，可按收件人抛错或返回失败 ──
   let page: Page = { changes: [], nextPageToken: null, nextSyncToken: "s0" };
+  let page2: Page = { changes: [], nextPageToken: null, nextSyncToken: "t0" };
   let readError: Error | null = null;
-  const readChanges = async (): Promise<Page> => {
+  const readChanges = async (_userId: string, opts: { calendarId: string }): Promise<Page> => {
     if (readError) throw readError;
-    return page;
+    return opts.calendarId === CAL2 ? page2 : page;
   };
   const pushes: Array<{ userId: string; title: string; content: string }> = [];
   const throwFor = new Map<string, Error>();
+  const failFor = new Set<string>();
   const pushWechat = async (userId: string, title: string, content: string) => {
     const err = throwFor.get(userId);
     if (err) throw err;
+    if (failFor.has(userId)) return { sent: 0, failed: 1 };
     pushes.push({ userId, title, content });
     return { sent: 1, failed: 0 };
   };
-  const run = () => runCalendarWatch({ readChanges, pushWechat, orgIds: [ORG], now: () => NOW });
+  const run = (extra: { maxWechatPushes?: number; defaultPush?: boolean } = {}) =>
+    runCalendarWatch({ readChanges, pushWechat: extra.defaultPush ? undefined : pushWechat, maxWechatPushes: extra.maxWechatPushes, orgIds: [ORG], now: () => NOW });
 
   const g = (p: { id: string; created: string; updated?: string; creator?: string; summary: string; start: string; end: string }) =>
     mapGoogleEvent({
@@ -117,8 +123,11 @@ async function main() {
     const saved = await saveCalendarWatchSettings({
       orgId: ORG,
       actorUserId: OWNER,
-      body: { enabled: true, readerUserId: READER, calendarIds: [CAL] },
-      deps: { listCalendars: async () => [{ id: CAL, summary: CAL, backgroundColor: "", foregroundColor: "", primary: false, accessRole: "reader", selected: true }], hasProvider: async () => true },
+      body: { enabled: true, readerUserId: READER, calendarIds: [CAL, CAL2] },
+      deps: {
+        listCalendars: async () => [CAL, CAL2].map((id) => ({ id, summary: id, backgroundColor: "", foregroundColor: "", primary: false, accessRole: "reader", selected: true })),
+        hasProvider: async () => true,
+      },
     });
     ok(saved.ok, "开启日历观察", saved);
 
@@ -226,6 +235,47 @@ async function main() {
     const reconnect = await db.notification.findMany({ where: { orgId: ORG, userId: READER } });
     ok(reconnect.length === 1 && reconnect[0].category === "calendar_watch", "重新连接提醒仍是一条 calendar_watch（读取账号已绑定也不走 Muse）", reconnect.map((n) => n.category));
     readError = null;
+
+    console.log("\n[10] 推送返回失败计数");
+    failFor.add(OWNER);
+    const n6 = g({ id: EV("n6"), created: edt("2026-10-29T10:41:00"), creator: STRANGER, summary: "量房 — Example F", start: edt("2026-11-09T10:00:00"), end: edt("2026-11-09T11:00:00") });
+    page = { changes: [n6], nextPageToken: null, nextSyncToken: "s8" };
+    const r10 = await run();
+    ok(r10.wechatFailed === 1 && r10.wechatSent === 1, "适配器失败（返回 failed）计入失败数", r10);
+    failFor.clear();
+
+    console.log("\n[11] 同一事件在两个观察日历：每人只送一次");
+    const x1 = g({ id: EV("x1"), created: edt("2026-10-29T10:42:00"), creator: STRANGER, summary: "安装 — Example G", start: edt("2026-11-10T10:00:00"), end: edt("2026-11-10T12:00:00") });
+    page = { changes: [x1], nextPageToken: null, nextSyncToken: "s9" };
+    page2 = { changes: [x1], nextPageToken: null, nextSyncToken: "t9" };
+    const before11 = pushes.length;
+    const ledger11 = await ledgerCount();
+    const r11 = await run();
+    const x1Notes = await notesFor(EV("x1"));
+    ok((await ledgerCount()) === ledger11 + 2 && x1Notes.length === 2 && new Set(x1Notes.map((n) => n.userId)).size === 2, "账本按日历各记一条，每位收件人一条通知", { ledger: (await ledgerCount()) - ledger11, notes: x1Notes.map((n) => [n.userId, n.category]) });
+    ok(pushes.length - before11 === 2 && r11.notified === 2, "每位收件人只推一次", { pushed: pushes.length - before11, r11: r11.notified });
+    page2 = { changes: [], nextPageToken: null, nextSyncToken: "t10" };
+
+    console.log("\n[12] 摘要会被出站脱敏 → 已绑定的人也走站内");
+    const mg = g({ id: EV("mg"), created: edt("2026-10-29T10:43:00"), creator: STRANGER, summary: "Margin trim install", start: edt("2026-11-11T10:00:00"), end: edt("2026-11-11T11:00:00") });
+    page = { changes: [mg], nextPageToken: null, nextSyncToken: "s10" };
+    const r12 = await run();
+    const mgOwner = (await notesFor(EV("mg"))).filter((n) => n.userId === OWNER);
+    ok(mgOwner.length === 1 && mgOwner[0].category === "calendar_watch" && mgOwner[0].title.includes("Margin trim install") && r12.muse === 0, "老板（已绑定、Muse 开）收到完整的 calendar_watch，不是脱敏提示", mgOwner.map((n) => [n.category, n.title]));
+
+    console.log("\n[13] 每轮推送上限");
+    const c1 = g({ id: EV("c1"), created: edt("2026-10-29T10:44:00"), creator: STRANGER, summary: "量房 — Example H", start: edt("2026-11-12T10:00:00"), end: edt("2026-11-12T11:00:00") });
+    const c2 = g({ id: EV("c2"), created: edt("2026-10-29T10:45:00"), creator: STRANGER, summary: "量房 — Example I", start: edt("2026-11-12T13:00:00"), end: edt("2026-11-12T14:00:00") });
+    page = { changes: [c1, c2], nextPageToken: null, nextSyncToken: "s11" };
+    const before13 = pushes.length;
+    const r13 = await run({ maxWechatPushes: 1 });
+    ok(r13.notified === 4 && pushes.length - before13 === 1 && r13.wechatCapped === 3, "4 条新通知只推 1 条，其余 3 条计为超额，通知照建", { notified: r13.notified, pushed: pushes.length - before13, capped: r13.wechatCapped });
+
+    console.log("\n[14] 缺省推送函数：非生产禁用外发计为跳过");
+    const d1 = g({ id: EV("d1"), created: edt("2026-10-29T10:46:00"), creator: STRANGER, summary: "回访 — Example J", start: edt("2026-11-13T10:00:00"), end: edt("2026-11-13T11:00:00") });
+    page = { changes: [d1], nextPageToken: null, nextSyncToken: "s12" };
+    const r14 = await run({ defaultPush: true });
+    ok(r14.failedCount === 0 && r14.notified === 2 && r14.wechatSkipped === 2 && r14.wechatFailed === 0 && r14.wechatSent === 0, "走真实 pushSalesReminder：测试环境被拦下，计跳过 2、不算失败", r14);
   } finally {
     delete process.env.MUSE_BRIDGE_ENABLED;
     delete process.env.MUSE_BRIDGE_ORG_ALLOWLIST;

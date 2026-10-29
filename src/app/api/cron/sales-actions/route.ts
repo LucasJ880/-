@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
         muse: result.muse,
         wechatSent: result.wechatSent,
         wechatFailed: result.wechatFailed,
+        wechatSkipped: result.wechatSkipped,
+        wechatCapped: result.wechatCapped,
       },
     };
   });

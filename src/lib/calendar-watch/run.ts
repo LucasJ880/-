@@ -49,7 +49,15 @@ import {
   toLedgerAfterData,
   withCalendarWatch,
 } from "./pure";
-import { calendarChangedEventInput, chooseChannel, museSourceKey, pushText } from "./push-pure";
+import {
+  calendarChangedEventInput,
+  chooseChannel,
+  MAX_WECHAT_PUSHES_PER_RUN,
+  museEnvelopeClean,
+  museSourceKey,
+  occurredAtOf,
+  pushText,
+} from "./push-pure";
 import type {
   AppointmentRef,
   AttributionContext,
@@ -71,6 +79,8 @@ export type PushWechat = (userId: string, title: string, content: string) => Pro
 export interface CalendarWatchDeps {
   readChanges?: ReadCalendarChanges;
   pushWechat?: PushWechat;
+  /** 每轮微信推送上限（测试用）；缺省 MAX_WECHAT_PUSHES_PER_RUN */
+  maxWechatPushes?: number;
   now?: () => Date;
   /** 只处理这些组织（测试用）；缺省为全部开启的组织 */
   orgIds?: string[];
@@ -91,10 +101,19 @@ export interface CalendarRunResult {
   wechatFailed: number;
   /** 非生产环境禁用微信外发 */
   wechatSkipped: number;
+  /** 超过每轮上限或过了截止时间，没推 */
+  wechatCapped: number;
   error: string | null;
 }
 
-type PushTally = Pick<CalendarRunResult, "muse" | "wechatSent" | "wechatFailed" | "wechatSkipped">;
+type PushTally = Pick<CalendarRunResult, "muse" | "wechatSent" | "wechatFailed" | "wechatSkipped" | "wechatCapped">;
+
+/** 一轮共用的推送函数与额度 */
+interface PushContext {
+  push: PushWechat;
+  remaining: number;
+  deadline: Date;
+}
 
 export interface OrgRunResult {
   orgId: string;
@@ -110,6 +129,8 @@ export interface CalendarWatchRunSummary {
   muse: number;
   wechatSent: number;
   wechatFailed: number;
+  wechatSkipped: number;
+  wechatCapped: number;
   results: OrgRunResult[];
 }
 
@@ -200,10 +221,15 @@ async function prepareOrg(orgId: string, settingsJson: unknown, ownerId: string,
   };
 }
 
-/** 推一条微信；任何失败只计数，不影响账本、游标与其它收件人 */
-async function pushWechatSafe(push: PushWechat, userId: string, text: { title: string; body: string }, tally: PushTally): Promise<void> {
+/** 推一条微信；超额度或过截止不推；任何失败只计数，不影响账本、游标与其它收件人 */
+async function pushWechatSafe(ctx: PushContext, userId: string, text: { title: string; body: string }, tally: PushTally): Promise<void> {
+  if (ctx.remaining <= 0 || Date.now() > ctx.deadline.getTime()) {
+    tally.wechatCapped += 1;
+    return;
+  }
+  ctx.remaining -= 1;
   try {
-    const r = await push(userId, text.title, text.body);
+    const r = await ctx.push(userId, text.title, text.body);
     tally.wechatSent += r.sent;
     tally.wechatFailed += r.failed;
   } catch (err) {
@@ -261,7 +287,7 @@ async function processPage(
   baselineFromMs: number,
   changes: CalendarChange[],
   now: Date,
-  push: PushWechat,
+  push: PushContext,
   tally: PushTally,
 ): Promise<{ recorded: number; notified: number }> {
   const ids = [...new Set(changes.map((c) => c.id))];
@@ -312,15 +338,19 @@ async function processPage(
       for (const userId of recipients) {
         const sourceKey = notificationSourceKey(org.orgId, entry, userId, raw.updated ?? "cancelled");
         // 已存在（同一事件在另一个观察日历、或重放；站内或 Muse 任一渠道）：不重发、不推送、不计数
-        const existing = await db.notification.findFirst({ where: { sourceKey: { in: [sourceKey, museSourceKey(sourceKey)] } }, select: { id: true } });
-        if (existing) continue;
+        if (await alreadyDelivered(sourceKey)) continue;
         const text = pushText(draft, entry);
         let viaMuse = false;
         if (chooseChannel({ museEnabled: org.muse.enabled, orgAllowed: org.muse.orgAllowed, boundUserIds: org.muse.boundUserIds, userId }) === "muse") {
-          const r = await emitMuseEvent(calendarChangedEventInput({ sourceKey, orgId: org.orgId, userId, text, occurredAt: now }));
-          if (r.reason === "duplicate") continue;
-          // 信封不成立 / 落库失败：回落为站内通知，不丢
-          viaMuse = r.emitted;
+          const input = calendarChangedEventInput({ sourceKey, orgId: org.orgId, userId, text, occurredAt: occurredAtOf(raw.updated, now) });
+          // 信封不成立、或摘要会被出站脱敏整段替换：直接走站内
+          if (museEnvelopeClean(input)) {
+            const r = await emitMuseEvent(input);
+            if (r.reason === "duplicate") continue;
+            // 落库失败可能是并发的另一轮抢先写入：再查一次，仍没有才回落站内
+            if (!r.emitted && (await alreadyDelivered(sourceKey))) continue;
+            viaMuse = r.emitted;
+          }
         }
         if (viaMuse) tally.muse += 1;
         else await createNotification({
@@ -354,6 +384,12 @@ async function processPage(
   return { recorded, notified };
 }
 
+/** 同一变更同一收件人已有站内或 Muse 记录 */
+async function alreadyDelivered(sourceKey: string): Promise<boolean> {
+  const row = await db.notification.findFirst({ where: { sourceKey: { in: [sourceKey, museSourceKey(sourceKey)] } }, select: { id: true } });
+  return Boolean(row);
+}
+
 /** 回写单个日历的游标：重新读最新配置，只在该日历仍在观察、读取账号未变时写 */
 async function saveCursor(orgId: string, readerUserId: string, calendarId: string, cursor: CalendarCursor): Promise<void> {
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
@@ -363,7 +399,7 @@ async function saveCursor(orgId: string, readerUserId: string, calendarId: strin
   await db.organization.update({ where: { id: orgId }, data: { settingsJson: next as object } });
 }
 
-const emptyTally = (): PushTally => ({ muse: 0, wechatSent: 0, wechatFailed: 0, wechatSkipped: 0 });
+const emptyTally = (): PushTally => ({ muse: 0, wechatSent: 0, wechatFailed: 0, wechatSkipped: 0, wechatCapped: 0 });
 
 function errorText(err: unknown): string {
   if (err instanceof GoogleTokenExpiredError) return "token_expired";
@@ -379,7 +415,7 @@ async function runCalendar(
   readChanges: ReadCalendarChanges,
   now: Date,
   deadline: Date,
-  push: PushWechat,
+  push: PushContext,
 ): Promise<CalendarRunResult> {
   const readerUserId = org.config.readerUserId!;
   let cursor: CalendarCursor = org.config.cursor[calendarId] ?? emptyCursor();
@@ -456,9 +492,13 @@ async function runCalendar(
 /** 遍历开启观察的组织与日历，跑一轮 */
 export async function runCalendarWatch(deps: CalendarWatchDeps = {}): Promise<CalendarWatchRunSummary> {
   const readChanges = deps.readChanges ?? listCalendarChanges;
-  const push: PushWechat = deps.pushWechat ?? (async (userId, title, content) => (await import("@/lib/messaging/push-service")).pushSalesReminder(userId, title, content));
   const now = deps.now?.() ?? new Date();
   const deadline = deps.deadline ?? new Date(Date.now() + DEFAULT_BUDGET_MS);
+  const push: PushContext = {
+    push: deps.pushWechat ?? (async (userId, title, content) => (await import("@/lib/messaging/push-service")).pushSalesReminder(userId, title, content)),
+    remaining: deps.maxWechatPushes ?? MAX_WECHAT_PUSHES_PER_RUN,
+    deadline,
+  };
 
   const orgs = await db.organization.findMany({
     where: {
@@ -495,7 +535,7 @@ export async function runCalendarWatch(deps: CalendarWatchDeps = {}): Promise<Ca
   }
 
   const failed = results.filter((r) => r.error || r.calendars.some((c) => c.error));
-  const total = (k: "recorded" | "notified" | "muse" | "wechatSent" | "wechatFailed") => results.reduce((s, r) => s + r.calendars.reduce((t, c) => t + c[k], 0), 0);
+  const total = (k: "recorded" | "notified" | keyof PushTally) => results.reduce((s, r) => s + r.calendars.reduce((t, c) => t + c[k], 0), 0);
   return {
     organizations: results.length,
     failedCount: failed.length,
@@ -504,6 +544,8 @@ export async function runCalendarWatch(deps: CalendarWatchDeps = {}): Promise<Ca
     muse: total("muse"),
     wechatSent: total("wechatSent"),
     wechatFailed: total("wechatFailed"),
+    wechatSkipped: total("wechatSkipped"),
+    wechatCapped: total("wechatCapped"),
     results,
   };
 }
