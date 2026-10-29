@@ -61,13 +61,15 @@
   - **带 `timeMin` 的全量**：与 `syncToken` 规则冲突，后续增量会是未定义行为。
 
 ### D3 归因是查表纯函数
-- `attributeCalendarEvent(event, ctx)` 按 R1 → R4 取首个命中，返回 `{ source, userId, bucket, rule }`。
+- `attributeCalendarEvent(event, ctx)` 按 R1 青砚 → R2 网站 → R3 成员 → R4 不明取首个命中，返回 `{ source, userId, bucket, rule, appointmentId }`。
+- 网站排在成员之前（apply 时修订）：book-now 写日历用的 Google 账号常常同时是某成员的日历连接邮箱（甚至就是读取账号），成员在前会把网站预约全算到该成员名下；网站账号与标记都是显式配置，优先级应高于邮箱推断。
+- 删除事件在增量里通常只有 `id` 与 `status`：创建者、标题、时间沿用该事件上一条账本的值再归因。
 - `ctx` 由执行器一次性准备：
   - 本企业预约的 `googleEventId → { appointmentId, createdById, assignedToId, googleSyncedAt }` 映射，只查本轮涉及的事件 ID；
   - 成员邮箱映射，包括 `User.email`、启用的 `CalendarProvider.accountEmail` 与配置别名，全部小写；
   - 网站账号与标记。
-- R3 的标记匹配在标题与描述上做，不区分大小写。描述只在这一步使用，不进入账本。
-- 分桶：`deriveEffectivePlatformRole` 的 boss → `management`、sales → `sales`、operations → `ops`，其余 → `other`。成员信号来自 `loadTradeMemberSignals` 一次调用。
+- R2 的标记匹配在标题与描述上做，不区分大小写。描述只在这一步使用，不进入账本。
+- 分桶：`deriveEffectivePlatformRole` 的 boss（以及旧模式与保留角色里的 manager / admin / super_admin）→ `management`、sales → `sales`、operations → `ops`，其余 → `other`。成员信号来自 `loadTradeMemberSignals` 一次调用。
 - 修改类：R1 命中且 `googleSyncedAt` 与事件 `updated` 相差 ≤ 2 分钟时，标 `editedVia: "qingyan"`；否则 `editedVia: null`，通知写"修改人未知"。
 - 否决：
   - **用组织角色或平台角色直接分桶**：岗位模式下平台角色已压扁为 user，会全落到 `other`。
@@ -79,7 +81,7 @@
   - `userId = readerUserId`，因为该列必填，实际归因人放在 `afterData.attribution.userId`；
   - `afterData` 见设计稿 §2.2 表，去掉 `description`，标题截 120 字。
 - 幂等判断：按 `(targetType, targetId)` 取该事件最近一条账本。若其 `googleUpdated` ≥ 本次 `updated`，跳过（不写账本、不发通知）。
-  - 第一次见到的事件记为 `created`（若 `status = cancelled` 记为 `cancelled`）；
+  - 第一次见到的事件记为 `created`（若 `status = cancelled` 记为 `cancelled`；若其 Google 创建时间早于基线起点，记为 `updated`，与 Risks 一节一致）；
   - 之后见到的记为 `updated` 或 `cancelled`。
   - `diff` 取上一条账本的 start / end / summary 与本次比较。
 - 基线：全量阶段只对 `created ≥ baselineFrom` 的事件写账本（`kind = created`，`baseline: true`），不发通知。
@@ -91,6 +93,7 @@
 
 ### D5 通知
 - 收件人 = 配置岗位的持有人 ∪ R1 命中预约的 `assignedToId`；新建类去掉归因到的创建者本人。
+- 不发通知：基线记录；标题与起止时间都没变的修改（只改描述、地点、参会人等，Google 常见的噪音）；既无标题又无时间的删除（基线前创建、从未进账本的事件被删，Google 只给 id）；归因青砚的新建；`editedVia = qingyan` 的修改；上一条账本归因青砚、而本轮已无预约持有该事件 ID 的删除（青砚 `unsyncAppointmentFromGoogle` 会清空 `googleEventId`，视为经青砚删除）。
   - 持有人查询：`principalRoleBinding` 中 `orgId` 匹配、`status = active`、`principalType = HUMAN`、`roleProfile.key ∈ notifyPositions`。
   - 若查不到任何人，回落到 `Organization.ownerId`。
 - `createNotification`：`category = "calendar_watch"`，`sourceKey = "calwatch:{orgId}:{calendarId}:{eventId}:{updated}:{userId}"`，`entityType = "google_calendar_event"`，`metadata` 带归因与 `htmlLink`。
@@ -111,7 +114,7 @@
 - 否决：**`requireOrgRole(org_admin)`**——不识别岗位模式，Sunny 的老板未必是 `org_admin`。
 
 ### D7 统计与 KPI-1 接入
-- 纯函数 `summarizeCalendarAttribution(rows, period, scope, names)` 按 `googleCreated ∈ 期间` 统计：
+- 纯函数 `summarizeCalendarAttribution(rows, period, scope, names)`：`created` 按 `googleCreated ∈ 期间`、`updated` / `cancelled` 按 `googleUpdated ∈ 期间` 统计（spec 统计接口要求）：
   - `bySource` 只计 `kind = created`；
   - `byActor` 计每人 created / updated / cancelled，`updated` / `cancelled` 只计有归因人的；
   - `unknownSamples` 取最多 10 条，只在 org 范围给出。

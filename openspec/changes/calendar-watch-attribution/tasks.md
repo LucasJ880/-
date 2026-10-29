@@ -2,9 +2,9 @@
 
 ## 1. 纯函数核心
 
-- [ ] 1.1 新建 `src/lib/calendar-watch/types.ts` 与 `pure.ts`：
+- [x] 1.1 新建 `src/lib/calendar-watch/types.ts` 与 `pure.ts`：
   - `readCalendarWatch` / `withCalendarWatch` / `validateCalendarWatchInput`，缺省为关闭，通知岗位缺省 `owner` + `ops_lead`；
-  - `attributeCalendarEvent`（R1–R4、别名、分桶）、`diffEvent`、`shouldRecord`；
+  - `attributeCalendarEvent`（R1 青砚 → R2 网站 → R3 成员 → R4 不明、别名、分桶）、`diffEvent`、`shouldRecord`；
   - `buildNotification`（三种文案、收件人去重、新建排除创建者本人）、`summarizeCalendarAttribution`（bySource 按 eventId 跨日历去重、byActor、样例只给 org、截断透传）、`toLedgerAfterData`（不含描述，标题截 120 字）。
 
   写 `src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts`，覆盖上述每个函数的规则与边界，并在同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：该测试 `npx tsx …` 退出 0；`bash scripts/check-test-registry.sh` 通过。
