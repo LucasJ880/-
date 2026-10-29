@@ -88,8 +88,22 @@
 - **单次取数上限 20,000 行**，超出时标 `truncated` 并在面板提示。
 - **Muse 范围沿用 S1**：合价岗在 Muse 是本人范围、会计岗被拒，网页两者都是全企业；管理者带 `assigneeUserId` 时期间汇总仍是全企业。
 - **本地构建内存**：`npm run build` 内部的 `tsc --noEmit` 不带堆参数，本容器 Node 22 默认堆不够，需 `NODE_OPTIONS=--max-old-space-size=8192`；CI（ubuntu-latest）历来不需要。
-- 全量 `npm test` 结果见 §6。
 
 ## 6. 全量测试
 
-见下方（实施收口时补）。
+命令：`DATABASE_URL=postgresql://postgres@127.0.0.1:5433/qy_test?schema=public DIRECT_URL=同上 NODE_ENV=test DATABASE_ENVIRONMENT=isolated NODE_OPTIONS=--max-old-space-size=8192 npm test`（本地 PG16 + pgvector 隔离库）。
+
+结果：**477 / 485 通过，8 个失败，均与本次改动无关**。逐个在 origin/main（`ed3b55f`）干净工作树上用同一个库、同样的环境复跑对比：
+
+| 失败的测试 | main 上 | 原因 |
+|---|---|---|
+| Sunny 工艺单 签字→草稿→门禁→确认→导出 DB 端到端 | 同样失败 | 既有：测试早于 PERM-4a，报价创建人未绑岗位（`无权操作此报价`），权限交接已记录并提过任务 |
+| Phase3A-3 Approvals Smoke | 同样失败 | 本地库没有 Sunny / 梦馨双租户种子 |
+| Phase3A-4 Governance Smoke | 同样失败 | 同上 |
+| Phase3A-4 Acceptance | 同样失败 | 同上 |
+| Phase3A-5 Overview Acceptance | 同样失败 | 同上 |
+| T4 授标情报真实 Postgres 矩阵 | 同样失败 | 既有环境性失败 |
+| Quote Operations 客户报价 PDF 分页布局 | 同样失败 | 既有：PDF 渲染环境 |
+| Autopilot A2-P0 Isolated E2E | 单独跑通过 | 全量负载下一次偶发（"permanent A2 failure reaches outbox DEAD"）；本分支单独连跑 3 次均 96 / 0；本次未改动任何 autopilot 代码 |
+
+与权限交接记录的基线（有库时 461 / 470、9 个失败）相比：总数 470 → 485（本次新增 3 个测试文件，其余来自那次记录之后合并的其它 change），TypeScript 一项因加了 `NODE_OPTIONS` 不再 OOM，其余失败项一致。
