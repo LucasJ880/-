@@ -35,17 +35,17 @@ INSTALL-2 的 6 个 change 已全部合并归档（§0）。剩下的都不是�
 
 1. **上线前老板做**（2c 报告 §5）：设置 → 邮件 → 组织发件人（没配置时质保邮件失败 `NO_ORG_SENDER`，不会回落个人邮箱）；会计「待收尾款」→「质保设置」填报修电话 / 邮箱（不填则缺资料、不生成质保审批）。
 2. **岗位绑定核对**：会计 / 老板持 `install.balance.confirm`；运营主管 / 会计持 `install.task.assign`（排返修、作废、关闭不返修）；三个出单岗按品类持 `orders.fulfillment.update.<品类>`。按 `role-defaults.ts` 种子落地的企业已满足，手工改过岗位的企业需核对。
-3. **待 Lucas 确认**（§2）：Q0 "U-HEAL" 是否指 U-Haul（只影响任务书措辞，不影响代码）；官网质保条款原文未读到（质保年限按报价单口径，拍板 Q1）。
+3. **待 Lucas 提供**（§2）：官网质保条款原文（Lucas 2026-10-29：之后找原文给）。现在质保年限按报价单口径（拍板 Q1）；拿到原文后与报价单逐条对比，一致则只在 §2 记"已核实"；不一致先由 Lucas 统一条款，再由老板在「质保设置」改质保表，不改代码。Q0 已确认是 U-Haul（2026-10-29）。
 4. **可选后续**（各报告"已知限制"）：维修单列表分页（现取最近 200 张）；逾期提醒升级 / 发给出单岗；已关闭维修单撤销；客户返修时间确认邮件（出站需走审批）；质保 PDF 附件。都需另开 change。
 
 ## 2. 外部信息的可信度（防幻觉）
 
 | 信息 | 状态 | 怎么补 |
 |---|---|---|
-| `sunnyshutter.ca/warranty-service/` 原文 | **未读到**（会话网络策略拒绝该域名） | 环境设置里放行 `sunnyshutter.ca` 后用 WebFetch 读原文；或 Lucas 直接贴条款 |
+| `sunnyshutter.ca/warranty-service/` 原文 | **未读到**（会话网络策略拒绝该域名） | Lucas 之后提供原文（2026-10-29）；或环境设置里放行 `sunnyshutter.ca` 后用 WebFetch 读 |
 | 官网质保年限（Shutters 25 年 / 其它 5 年） | 只有搜索摘要，来自 `warranty-registration` 页 | 同上；与报价 PDF 冲突，见任务书 §3.4 |
 | 报价 PDF 质保（帘类 1/5/15，Shutters 1/5） | **仓库已核实**（`quote-pdf.ts:99,128,166`） | — |
-| "U-HEAL" | 全网 / 仓库都没找到；按 U-Haul 自助还车理解（任务书 §2） | 等 Lucas 确认 Q0 |
+| "U-HEAL" | **已确认**：即 U-Haul 自助还车（Lucas 2026-10-29；任务书 §2、§12 Q0） | — |
 | U-Haul 自助还车流程 | 检索摘要（`uhaul.com` 也被网络策略拒绝） | 只作借鉴，不进规格 |
 | 维修单纸质模板字段 | **已确认**（用户上传 PDF：Name / Order# / Taken by / Phone / Notes / # Location Description ×10 / Filling Date；抬头 SUNNY SHUTTER INC, 2-680 Progress Avenue, Scarborough, ON M1H 3A5） | — |
 
