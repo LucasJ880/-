@@ -14,7 +14,7 @@
 ## 3. 报价入口
 
 - [x] 3.1 `POST /api/sales/quotes` 把 `pricelistVersion` 合并进 `formDataJson`（design D5）；`preview` / `measurements/[id]/generate-quote` 用合并后的折扣；`sku-catalog.ts` 加别名表并改 `public/sku-catalog.csv` 的 BL201 行；verify：`sales-record-access-db.isolated.test.ts` 或新增隔离库断言 `formDataJson.pricelistVersion === "2026-10-28"`；`grep -c LOUIA-WHITE public/sku-catalog.csv` 为 1 且为新编号；别名解析用黄金测试文件里的 2 条本地用例覆盖
-- [ ] 3.2 Order Form `order-shades.tsx` 的 `SHADE_PRODUCTS` 加 Fauxwood，Allusion 行改为 SKU 类别下拉 + 可选"手动成交价"输入；`pricing-helpers.ts` 调 `applyManualSellingPrice`，`ZERO_DISCOUNTS` / `DiscountsOverride` 含新产品；`part-a.tsx`、`measure/page.tsx` 随 `ALL_PRODUCTS` 出现 Fauxwood；驾驶舱 `discount-settings-card.tsx` 加 Fauxwood / Allusion 两行；`ai-quote-parser.ts` 加词表与正则；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0，`npm run build` 通过，解析 `2 faux wood 36x48; 1 allusion 48x60` 得 2 + 1 行（在 `quote-mapping.test.ts` 同目录新增或扩既有解析测试）
+- [x] 3.2 Order Form `order-shades.tsx` 的 `SHADE_PRODUCTS` 加 Fauxwood，Allusion 行改为 SKU 类别下拉 + 可选"手动成交价"输入；`pricing-helpers.ts` 调 `applyManualSellingPrice`，`ZERO_DISCOUNTS` / `DiscountsOverride` 含新产品；`part-a.tsx`、`measure/page.tsx` 随 `ALL_PRODUCTS` 出现 Fauxwood；驾驶舱 `discount-settings-card.tsx` 加 Fauxwood / Allusion 两行；`ai-quote-parser.ts` 加词表与正则；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0，`npm run build` 通过，解析 `2 faux wood 36x48; 1 allusion 48x60` 得 2 + 1 行（在 `quote-mapping.test.ts` 同目录新增或扩既有解析测试）
 
 ## 4. 出单与工艺单
 

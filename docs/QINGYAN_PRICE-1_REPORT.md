@@ -35,7 +35,7 @@ change：`openspec/changes/pricelist-2026-10-fauxwood-allusion/`（proposal / sp
 | `src/app/(main)/sales/cockpit/discount-settings-card.tsx` | 两行折扣（成本率随 `FIELDS`） |
 | `src/lib/sales/ai-quote-parser.ts` | 词表与正则 |
 | 测试 | 新：`blinds/__tests__/pricelist-2026-10-golden.test.ts`、`sales/__tests__/ai-quote-parser.test.ts`、`sales/__tests__/quote-settings-db.isolated.test.ts`（三个均注册进 `scripts/test-all.sh`）；扩：`cost-rates`（+12 断言）、`quote-settings-approval`（18 → 20）、`category`（shades 列表）、`quote-mapping`（48 → 51） |
-| 文档 | 本报告；HANDOFF；TASKFLOW PRICE-1 → `[G]` |
+| 文档 | 本报告；`docs/price-1-screenshots/`（2 张）；HANDOFF；TASKFLOW PRICE-1 → `[G]` |
 
 ## 3. 怎么验
 
@@ -51,10 +51,25 @@ change：`openspec/changes/pricelist-2026-10-fauxwood-allusion/`（proposal / sp
 | `bash scripts/check-test-registry.sh` | 已注册 492（开工前 489），欠账基线 71 不变 |
 | `openspec validate pricelist-2026-10-fauxwood-allusion --strict` | valid |
 | `git diff --stat prisma/` | 空 |
-| `npm run test:ci` | __TESTCI__ |
-| `npm run build` | __BUILD__ |
-| 浏览器走查（本地生产构建 `next start -p 3100` + 隔离库 + Playwright） | __WALK__ |
+| `npm run test:ci` | 退出 0（CI unit subset 全过，含黄金对照与解析测试） |
+| `npm run build`（`NODE_OPTIONS=--max-old-space-size=8192`，含内部 typecheck） | 退出 0；`/sales/quote-sheet`、`/api/sales/quote-settings/discounts` 在产出表里 |
+| 浏览器走查（本地生产构建 `next start -p 3100` + 隔离库 + Playwright，销售岗账号） | 见 §3.3，全部符合预期 |
 | 全量 `npm test`（隔离库） | __FULL__ |
+
+### 3.3 浏览器走查（`docs/price-1-screenshots/`）
+
+种子：一个销售岗（`sales_rep`）+ 一个窗饰企业（企业折扣未改，取默认）+ 一个客户；脚本与种子留在 scratchpad，未进仓库；走查后数据已清。
+
+| 步骤 | 结果 |
+|---|---|
+| 打开 `/sales/quote-sheet` → 选客户 → 切"详细订单" | Shades 表产品下拉 9 项：Roman Shade / Zebra / Roller / SHANGRILA / Cordless Cellular / SkylightHoneycomb / Allusion / Roman / **Fauxwood** |
+| 行 1：Fauxwood，36 8/16" × 48"，SKU 类别回退 `Fauxwood · Standard (type only)`，Mount I，Lift L | 价格格 **$287.05 +Install $18.00**（黄金用例：MSRP 410.06 / 成交 287.05 / 安装 18） |
+| 行 2：Allusion，25 8/16" × 36 8/16"，SKU `Allusion · Standard (type only)` | 价格格 **$287.95 +Install $18.00**（黄金用例 287.95，取档 30 × 42）；价格下方出现"手动$"成交价输入框（留空按价表） |
+| 底栏 | 订单号 `G1029-01-A1F120`（产品代号 A + F），Total $960.50（2 行成交 575.00 + 最低安装 200 + 运费 75，税 13%） |
+| Part B 填定金 500（既有规则：定金 ≥ 30% 才可保存）→ Save | `POST /api/sales/quotes` 201，无弹窗 |
+| 落库 | `formDataJson.pricelistVersion = "2026-10-28"`；行 1 Fauxwood 取档 42 × 48、MSRP 410.06、折扣 0.30、成交 287.05、安装 18；行 2 Allusion 取档 30 × 42、MSRP 443、折扣 0.35、成交 287.95、安装 18；`grandTotal` 960.49 |
+| 390px 宽度 | 无横向溢出（`scrollWidth − clientWidth` ≤ 0）；截图 `order-form-mobile-390.png` |
+| 页面错误 | 无 `pageerror`；控制台 6 个 404 全部来自"快速报价"面板内嵌的旧 HTML 工具请求 `零售用.csv` / `FABRIC.csv` / `ADDONS.csv`，与本次改动无关（切到"详细订单"前就出现） |
 
 ## 4. 实施中对规划的调整 / 发现（审核请重点看）
 
@@ -69,4 +84,5 @@ change：`openspec/changes/pricelist-2026-10-fauxwood-allusion/`（proposal / sp
 - **历史 Allusion 报价行不重算**：已落库的 `SalesQuoteItem` 保持原金额；编辑重算时才按价表。
 - **Fauxwood / Allusion 没有 SKU**：下拉只有类别回退 `Standard`（与 SHANGRILA 等一致）；面料画册附页不在范围。
 - **企业折扣**：Fauxwood 30% / Allusion 35% 为默认；要改走驾驶舱折扣卡（老板改、另一位老板批）。
+- **"快速报价"面板**（`RoughQuotePanel`，内嵌旧 HTML 工具）的产品清单由那个 HTML 自带，本次没有 Fauxwood / Allusion；青砚只向它推送折扣（已含两键）。要在快速报价里报这两样需要更新内嵌 HTML，另开 change。
 - 无绳独立折扣 / 最低价 / 取消 75" 上限、褶皱率 → PRICE-2（黄金测试 `DEFERRED` 110 条）；附加项目 → PRICE-3；按人报价清单 → STAT-1。
