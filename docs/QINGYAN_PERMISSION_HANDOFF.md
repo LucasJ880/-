@@ -199,4 +199,4 @@
 - 5b 审批人 = 数字员工的 sponsor（Agent 创建人），不是"该岗位所有人"——PendingAction 只有一个审批人列（5b 报告 §3）。
 
 ### E. 下一个
-PERM 系列全部合并并 archive：4a–4c5、5a / 5b、6a / 6b / 6c、7（#305 / #306）、7b（#316 / #317）。平台层只剩 `super_admin` 与 `user`（压扁后），业务能力全看岗位。**你还要做的**：~~Lucas 改 super_admin~~（2026-10-29 已做）；生产测试数据清理（用户 2026-10-29 定：梦馨不动、Sunny 留空壳、账号只留 Cathy / Lucas、平台记录清空留配置）——`docs/QINGYAN_DATA_RESET_SQL.md`，先预览 → 建备份分支 → 执行，待 Lucas 跑预览；~~梦馨 `owner` SQL~~（2026-10-29 已做）；Sunny 9 人邮箱 → 补 `config/positions/sunny.json` 或在企业详情页绑岗位；可选压扁。可另立：平台角色枚举清理、"平台管理员操作"审计标记。
+PERM 系列全部合并并 archive：4a–4c5、5a / 5b、6a / 6b / 6c、7（#305 / #306）、7b（#316 / #317）。平台层只剩 `super_admin` 与 `user`（压扁后），业务能力全看岗位。**你还要做的**：~~Lucas 改 super_admin~~（2026-10-29 已做）；生产测试数据清理（用户 2026-10-29 定：梦馨不动、Sunny 留空壳、账号只留 Cathy / Lucas、平台记录清空留配置）——`docs/QINGYAN_DATA_RESET_SQL.md`，预览已跑（2026-10-29），补充：Sunny 企业配置一起留、布料目录保留、被梦馨数据引用的 4 个测试账号停用；待 Lucas 建备份分支后执行；~~梦馨 `owner` SQL~~（2026-10-29 已做）；Sunny 9 人邮箱 → 补 `config/positions/sunny.json` 或在企业详情页绑岗位；可选压扁。可另立：平台角色枚举清理、"平台管理员操作"审计标记。

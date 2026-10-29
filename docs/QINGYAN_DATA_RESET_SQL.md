@@ -6,8 +6,9 @@
 
 - 青砚现有记录都是测试数据，全部清掉，包括招标（tender）；**梦馨数据不动**。
 - 账号只留 Cathy（`cathy@hlmbedding.com`）、Lucas（`lucas@sunnyshutter.ca`），其他账号之后重新设计。
-- 除梦馨外的企业：**保留 Sunny 空壳**（企业本身、岗位模板与权限、报价折扣 / 营销 / 审批设置、工作区，以及 Lucas 的成员身份与岗位），其余测试企业整个删除。
-- 平台级（不属于任何企业）的数据：**清记录、留系统配置**（`ApiToken`——含 Muse 桥接令牌、无企业的视觉方案产品目录及其素材）。
+- 除梦馨外的企业：**保留 Sunny 空壳**（企业本身、岗位模板与权限、报价折扣 / 营销 / 审批设置、工作区，以及 Lucas 的成员身份与岗位），其余测试企业整个删除（含招标团队 `sunny-shutter-bid-lead`、`lucas-bid` 与各人的 `personal-*` 个人工作区）。
+- 预览后补充（2026-10-29）：Sunny 的企业配置一起留（业务规则、经营指标 / 业务对象定义、术语表、品牌资料、AI 能力配额、外贸邮件模板、Sunny 自己的视觉方案产品）；布料目录 `FabricInventory`（304 个 SKU）保留；被梦馨数据引用的 4 个测试账号（`admin@qingyan.ai`、`nav-qa@test.qingyan.ai`、`security1-multi@test.qingyan.ai`、`security1-trade@test.qingyan.ai`）保留但停用（`status = 'disabled'`，不能登录）。
+- 平台级（不属于任何企业）的数据：**清记录、留系统配置**（`ApiToken`——含 Muse 桥接令牌、布料目录、无企业的视觉方案产品目录及其素材）。
 
 ## 规则（脚本怎么判定）
 
@@ -20,9 +21,9 @@
 
 ## 步骤
 
-1. **预览**（只读：只建临时表，不改数据）：执行下面脚本原样（第一行 `'dry-run'`）。结果每行一张表：总行数 / 各类保留 / 改挂 / 删除；`User`、`Organization` 两行的备注列出要删的账号、企业和"被梦馨数据引用而保留"的账号。
+1. **预览**（只读：只建临时表，不改数据）：执行下面脚本原样（第一行 `'dry-run'`）。结果每行一张表：总行数 / 各类保留 / 改挂 / 删除；`User`、`Organization` 两行的备注列出要删的账号、企业和"被梦馨数据引用而保留"的账号。2026-10-29 已在生产跑过一次（150 张表有数据），据此补充了上面"预览后补充"的三条；补充只会多留、不会多删。
 2. **备份**：Branches → New branch，父分支 `production`、当前时间点，命名 `backup-before-reset-20261029`。
-3. **执行**：把第一行改成 `SET qy.reset_mode = 'execute';` 再执行。整段是一个语句：任何一步出错（包括删后校验失败）全部回滚，库里不变。删后校验三条：不该留的一行不剩、该留的一行不少、梦馨数据一个字段不变（逐表 md5 指纹）。
+3. **执行**：确认 SQL Editor 左上角是 `production`，把第一行改成 `SET qy.reset_mode = 'execute';` 再执行。整段是一个语句：任何一步出错（包括删后校验失败）全部回滚，库里不变。删后校验三条：不该留的一行不剩、该留的一行不少、梦馨数据一个字段不变（逐表 md5 指纹）；校验通过后停用被引用的测试账号。
 4. **复查**：再跑一次预览，"删除"列应全为 0。
 5. Lucas、Cathy 重新登录；Cathy 确认外贸 / 营收照常。
 
@@ -54,12 +55,16 @@ DECLARE
   p_keep_users   text[] := ARRAY['lucas@sunnyshutter.ca'];         -- 只留账号、成员关系与账号设置
   p_reown        text   := 'lucas@sunnyshutter.ca';                -- 保留下来的配置若挂在被删账号名下，改挂此人
   p_shell_tables text[] := ARRAY['RoleProfile','RolePermissionBinding','PositionTemplate',
-                                 'AgentApprovalSettings','MarketingEconomicsSetting','QuoteDiscountSettings','Workspace'];
+                                 'AgentApprovalSettings','MarketingEconomicsSetting','QuoteDiscountSettings','Workspace',
+                                 'OrgBusinessRule','BusinessObjectDefinition','BusinessMetricDefinition','OrganizationGlossaryTerm',
+                                 'BrandProfile','MarketingBrandProfile','CapabilityQuotaPolicy','TradeEmailTemplate',
+                                 'VisualizerCatalogProduct'];
   p_user_tables  text[] := ARRAY['OrganizationMember','PrincipalRoleBinding','WorkspaceMember','ExternalIdentity',
                                  'EmailBinding','WeChatBinding','UserNotificationPreference','CalendarProvider','EmailProvider'];
-  p_cfg_all      text[] := ARRAY['ApiToken'];                      -- 平台配置：整表保留
+  p_cfg_all      text[] := ARRAY['ApiToken','FabricInventory'];    -- 平台配置：整表保留（Muse 桥接令牌、布料目录）
   p_cfg_null_org text[] := ARRAY['VisualizerCatalogProduct'];      -- 平台配置：只留不属于任何企业的行
-  p_cfg_child    text[] := ARRAY['VisualizerCatalogAsset','VisualizerCatalogTemplateJob'];  -- 随上面配置保留的下级
+  p_cfg_child    text[] := ARRAY['VisualizerCatalogAsset','VisualizerCatalogTemplateJob'];  -- 随配置 / 空壳保留的下级
+  p_disable_ref  boolean := true;                                  -- 因梦馨数据引用而保留的账号，执行时停用（不能登录）
   -- 没有外键约束、只靠字段关联的表：表.字段>上级表
   p_soft_fk      text[] := ARRAY['ConversationSummary.userId>User','EmailProvider.userId>User',
                                  'SalesFAQ.userId>User','SalesPlaybook.userId>User',
@@ -196,12 +201,12 @@ BEGIN
       IF n > 0 THEN changed := true; END IF;
     END LOOP;
 
-    -- A2. 配置的下级
+    -- A2. 配置 / 空壳的下级
     FOR e IN SELECT f.*, ct.kx AS ckx, pt.kx AS pkx
              FROM _qr_fk f JOIN _qr_tbl ct ON ct.tbl = f.child JOIN _qr_tbl pt ON pt.tbl = f.parent
              WHERE f.child = ANY (p_cfg_child) LOOP
-      EXECUTE format('INSERT INTO _qr_keep SELECT %L, %s, ''cfg'', false FROM %I c JOIN %I p ON %s
-                      JOIN _qr_keep k ON k.tbl = %L AND k.k = %s AND k.why = ''cfg''
+      EXECUTE format('INSERT INTO _qr_keep SELECT %L, %s, k.why, false FROM %I c JOIN %I p ON %s
+                      JOIN _qr_keep k ON k.tbl = %L AND k.k = %s AND k.why IN (''cfg'', ''shell'')
                       ON CONFLICT DO NOTHING',
                      e.child, replace(e.ckx, '@@', 'c'), e.child, e.parent, e.jc,
                      e.parent, replace(e.pkx, '@@', 'p'));
@@ -317,7 +322,8 @@ BEGIN
              n - count(*), NULL,
              CASE r.tbl
                WHEN 'User' THEN concat_ws('；',
-                 (SELECT '被梦馨数据引用而保留：' || string_agg(u.email, '，' ORDER BY u.email) FROM "User" u
+                 (SELECT CASE WHEN p_disable_ref THEN '被梦馨数据引用而保留（执行时停用）：' ELSE '被梦馨数据引用而保留：' END
+                         || string_agg(u.email, '，' ORDER BY u.email) FROM "User" u
                     JOIN _qr_keep k2 ON k2.tbl = 'User' AND k2.k = u.id AND k2.why = 'anc'),
                  (SELECT '删除：' || string_agg(u.email, '，' ORDER BY u.email) FROM "User" u
                    WHERE NOT EXISTS (SELECT 1 FROM _qr_keep k2 WHERE k2.tbl = 'User' AND k2.k = u.id)))
@@ -387,6 +393,12 @@ BEGIN
                    replace(r.kx, '@@', 'x'), r.tbl, replace(r.kx, '@@', 'x'), r.tbl) INTO s;
     IF s IS DISTINCT FROM r.fp THEN RAISE EXCEPTION '校验失败：梦馨数据在 % 被改动', r.tbl; END IF;
   END LOOP;
+
+  -- 5) 停用因梦馨数据引用而保留的账号（只改账号状态，梦馨数据不动）
+  IF p_disable_ref THEN
+    UPDATE "User" SET status = 'disabled'
+    WHERE id IN (SELECT k FROM _qr_keep WHERE tbl = 'User' AND why = 'anc') AND status <> 'disabled';
+  END IF;
 END
 $reset$;
 
