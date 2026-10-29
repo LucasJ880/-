@@ -7,14 +7,14 @@
 | 最后更新 | 2026-10-29（KPI-1、CAL-1、KPI-2 均已合并并归档；CAL-1 与 KPI-2 待上线验收；下一个是 CAL-2） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | `openspec/changes/website-booking-intake/`（CAL-2，四件套已 propose，**待审**） |
+| 进行中的 change | 无（CAL-2 已归档到 `openspec/changes/archive/2026-10-29-website-booking-intake/`）；下一个 CAL-3 `calendar-change-push`（用户 2026-10-29：员工微信推送不算出站，按晨报方式直发，继续做） |
 | 工作分支 | `claude/magical-shannon-keegzr`（每个 PR 合并后从 origin/main 重建同名分支；main 前进时 merge 进来，不 rebase） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
 
 ---
 
-## 0. CAL-2 现场续接（上下文压缩或换会话后从这里接）
+## 0. CAL-2 现场续接（已完成：#340 合并，归档小 PR 见下）
 
 | 项 | 状态 |
 |---|---|
@@ -22,7 +22,7 @@
 | 授权 | 用户 2026-10-29："继续，整个流程你来掌控，等全部做完或需要我做再通知我"；CAL-2 选"不依赖 webhook"与"销售认领"；四件套后"apply" |
 | 合并 | 由我驱动到 CI 绿后合并（用户已授权掌控全流程），合并后独立小 PR 归档 |
 | 基线（apply 前） | calendar-watch-pure 175、calendar-watch-db.isolated 80 |
-| tasks | 5/7：1.1 ✓ 2.1 ✓ 3.1 ✓ 4.1 ✓ 5.1 ✓；6.1 进行中：合入 main（install-2g，无迁移）；typecheck 0、lint:baseline PASS、registry 511（main 509 + 2）、validate valid；**独立审查 7 条已修**（最重要：转入的预约被青砚同步覆盖 / 删除 → `appointment-gcal-sync` 加保护，变异验证去掉保护会真的调 Google；另有账本上限、200 条上限、事务内重查询、全天结束日、解析误判、时区 / 读取账号离职等），纯测试 62、隔离库 44，CAL-1 回归 175 / 80；spec / design / 报告已同步。test:ci 与全量 `npm test` 在跑（scratchpad `c2-testci.log` / `c2-npmtest-branch.log`，开始于审查修复之前），之后需在 main 工作树对比失败项 |
+| tasks | 7/7 ✓。PR [LucasJ880/-#340](https://github.com/LucasJ880/-/pull/340) CI 绿后合并为 `9da2c221`；分支全量 498/510，失败 12 项与 main 一致；已归档（`calendar/website-booking-intake` 10 条要求），specs 校验 46 过 4 不过（与 main 一致）。CAL-3 准备：员工微信用 `pushSalesReminder`（绑定的 pushDomains 含 sales 且 pushSales 开、静默时段），Muse 用 `emitMuseEvent` 新增事件类型（契约只追加，S2 / S3 先例） |
 | 4.1 浏览器验收（`next start -p 3100` + Playwright，种子在 scratchpad `cal2ui/`，未进仓库） | 无待转入：首页无入口；有 2 条：首页"网站预约待转入 2 条"；老板页面 2 条、0 个转入按钮、2 个忽略按钮；销售 2 个转入按钮，打开表单显示"读取账号未连接 Google 日历…请手工填写"（种子读取账号无连接，预填由隔离库测试以注入读取覆盖），手填后确认 → "已转入：客户与预约已建好 · 查看客户"，列表剩 1 条；390px 无溢出；无页面错误。服务按端口停、种子已清 |
 | 事实 | Sunny 只有 `sales_rep` 有 `sales.customer.create`（PRINCIPAL）；老板 `sales.customer.read` ORG；运营主管无客户权限（隔离库实测）。`sunnyshutter.ca` 本会话仍 403 |
 
