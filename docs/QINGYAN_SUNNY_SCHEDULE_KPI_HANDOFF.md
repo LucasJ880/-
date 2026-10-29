@@ -7,7 +7,7 @@
 | 最后更新 | 2026-10-29（KPI-1、CAL-1、KPI-2 均已合并并归档；CAL-1 与 KPI-2 待上线验收；下一个是 CAL-2） |
 | 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
-| 进行中的 change | 无（KPI-2 已归档到 `openspec/changes/archive/2026-10-29-sales-period-narrative/`） |
+| 进行中的 change | `openspec/changes/website-booking-intake/`（CAL-2，四件套已 propose，**待审**） |
 | 工作分支 | `claude/magical-shannon-keegzr`（每个 PR 合并后从 origin/main 重建同名分支；main 前进时 merge 进来，不 rebase） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
@@ -138,7 +138,7 @@
    - 打开一条 book-now 生成的日程，记下"创建者"邮箱与标题 / 描述里的固定字样，填进 `websiteBookerEmails` / `websiteMarkers`。
    - 老板账号 `PUT /api/organizations/<orgId>/calendar-watch-settings` 开启；下一轮 `sales-actions`（15 分钟内）建基线，`GET` 看到 `phase = incremental` 后，用真实共享日历建 / 改 / 删各一条做人工验收（通知到达、账本三条、重跑不增），结果补进报告。
 5. ~~KPI-2~~：已合并 [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) 并归档。**上线**：Vercel 设 `SALES_PERIOD_NARRATIVE_ENABLED=true` 重新部署；老板在首页点"生成解读" 10 次，按 `docs/QINGYAN_KPI-2_REPORT.md` §5 记录通过 / 回落分布并逐条核对数字语境。
-6. CAL-2 `website-booking-intake`：前置是网站 book-now 插件能发 webhook（运维先查插件能力），再 propose。
+6. CAL-2 `website-booking-intake`：本会话访问 `sunnyshutter.ca` 仍被代理拒绝（403，用户已在设置放开，疑需新会话生效），插件与 webhook 能力无法核实。用户 2026-10-29 选定**不依赖 webhook**：基于 CAL-1 账本里归因为网站的新建事件做"待转入"列表，销售打开详情（读取账号实时读描述，不落库）核对预填后一键转入客户 + 预约（预约记 `googleEventId`，不推 Google）。用户选定**销售认领**（Sunny 只有 `sales_rep` 有 `sales.customer.create`，老板只读、运营主管无客户权限，隔离库实测）。四件套已 propose（7 条 task），待审；原案里的 Muse / 微信推送拆为 CAL-3。
 
 ## 6.1 本地验证环境（下个会话可复用的做法）
 
