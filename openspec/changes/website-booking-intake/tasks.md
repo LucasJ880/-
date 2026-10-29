@@ -12,7 +12,7 @@
 
 ## 2. 服务
 
-- [ ] 2.1 新建 `src/lib/calendar-watch/intake.ts`：
+- [x] 2.1 新建 `src/lib/calendar-watch/intake.ts`：
   - `listWebsiteBookings(orgId, now)`；
   - `getWebsiteBookingDetail(params, deps?)`：读取函数可注入，缺省 `getGoogleEventDetail`；
   - `convertWebsiteBooking(params)`：事务 + `pg_advisory_xact_lock`、复查待转入、客户关联 / 新建 / 重复 409、预约记 `googleEventId` 与 `googleSyncedAt`、审计，不调用 `syncAppointmentToGoogle`；
