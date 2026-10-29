@@ -47,7 +47,7 @@
 
 ## 6. 端到端
 
-- [ ] 6.1 写 `src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts`，用注入的假读取函数覆盖：
+- [x] 6.1 写 `src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts`，用注入的假读取函数覆盖：
   - 设置接口 403 / 400（两种）/ 200 且 `GET` 无令牌；
   - 首次全量零通知、只记基线起点后的新建；增量新建 / 修改 / 删除的账本、归因与通知收件人（新建不发给创建者本人、修改含"修改人未知"）；
   - 重放幂等；410 重置游标；授权失效当天只通知一次；一个组织抛错不影响另一个；

@@ -21,7 +21,7 @@
 | change | `calendar-watch-attribution`，四件套已提交（`e5070d0`），validate --strict 通过 |
 | 授权 | 用户："你来负责这个继续做下去，按照计划书来做。做好 hand off，防止记忆丢失，重点是做好验证。都按你推荐的来" |
 | 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认**（CLAUDE.md：Evan 拍板合并） |
-| tasks | 4/8：1.1 纯函数核心 ✓；2.1 `listCalendarChanges` ✓；3.1 执行器 `run.ts` ✓（cron 第三步，前两步 diff 为零）；4.1 接口 ✓（设置：`calendar-watch/settings.ts` 服务层，Google 列表 / 连接可注入，路由只做授权；统计：`calendar-watch/stats.ts` `loadCalendarAttribution`，路由复用 `resolvePeriodParams`）。纯测试 161 项、typecheck 0、eslint 无输出。**执行器与接口尚未实跑隔离库**；接下来先做 6.1 端到端，再做 5.1 |
+| tasks | 5/8：1.1 ✓ 2.1 ✓ 3.1 ✓ 4.1 ✓ 6.1 ✓（`calendar-watch-db.isolated.test.ts` 隔离库实跑 68/68：设置 403/400×3/200、全量 300 条历史零通知且中断按 p2 续读、增量建改删与收件人、重放幂等、410、授权失效当天一次、两组织互不影响、统计 org/own、关闭回滚留游标、只读 Google；变异：去掉 `shouldRecord` 后 3 项变红；无 DATABASE_URL 跳过退出 0；清理后无残留；已注册 test-all）。下一条 5.1 KPI-1 接入 |
 | apply 中的规格修订（已同步 spec / design / proposal，validate --strict 通过） | ① 归因顺序改为 R1 青砚 → **R2 网站** → **R3 成员** → R4 不明（book-now 账号常同时是成员 / 读取账号的连接邮箱）；② 删除事件缺字段沿用上一条账本；③ 不发通知：青砚来源新建、青砚推送的修改、青砚解除同步的删除、标题与时间都没变的修改、既无标题又无时间的删除；④ 统计：新建按 Google 创建时间、修改 / 删除按 Google 更新时间；⑤ 增量首次见到、创建早于基线的记 `updated`。另（报告写明，不改 spec）：换读取账号清空全部游标；`PUT` 只在合并后为开启时才查 Google 连接与日历可见性（保证 `{enabled:false}` 回滚不被授权失效挡住）；manager / admin / super_admin 也归 `management` 桶；通知 `type = calendar_event`（既有类型）、`category = calendar_watch` |
 | 本地库 | `pg_ctlcluster 16 qytest start`，端口 5433，库 `qy_test`，41 个迁移已应用（见 §6.1）；容器重启后集群会停，需重新 start |
 | 验证纪律 | 每条 task：先跑相关既有测试记基线 → 写代码 → 跑新测试 → typecheck → 提交推送 → 本表更新；隔离库测试每次实跑，不凭推断 |
