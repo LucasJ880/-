@@ -108,7 +108,7 @@
 ### D6 配置接口
 - `GET / PUT /api/organizations/[orgId]/calendar-watch-settings`：`authorize(sales.settings.manage)`。岗位模式下 `org_admin` 不再代表管理者，与 PERM-4c 的方向一致。
 - `PUT` 只接受用户字段：`enabled`、`readerUserId`、`calendarIds`（1–3 个）、`websiteBookerEmails`、`websiteMarkers`、`memberEmailAliases`（`{ email: userId }`，userId 须为在职成员）、`notifyPositions`、`baselineFromDays`（1–366）。
-- 校验：
+- 校验（读取账号须为在职成员；以下两项只在合并后为开启时做，保证 `{ enabled: false }` 回滚不被失效的授权挡住）：
   - 读取账号的 `CalendarProvider` 已启用；
   - `listGoogleCalendars(readerUserId)` 的结果包含每个 `calendarIds`。
 - 校验通过后用纯函数 `withCalendarWatch` 合并写回，保留 `cursor` 与 `settingsJson` 其它键；写 `writeAuditLog(action = "calendar.watch.settings_updated")`。

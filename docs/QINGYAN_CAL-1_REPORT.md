@@ -76,7 +76,7 @@
 **实现层决定（未改 spec）：**
 
 12. 换读取账号时清空全部游标重做全量（同步令牌与授权绑定；账本幂等保证不重复记账、全量阶段不发通知）。
-13. `PUT` 只在合并后为开启时才查 Google 连接与日历可见性，保证 `{ enabled: false }` 回滚不被失效的授权挡住；Google 列表接口其它错误返回 502 `GOOGLE_API_ERROR`。
+13. `PUT` 只在合并后为开启时才查 Google 连接与日历可见性，保证 `{ enabled: false }` 回滚不被失效的授权挡住；Google 列表接口其它错误返回 502 `GOOGLE_API_ERROR`。（`/opsx:verify` 指出 spec 原文未写明，已补进 spec 与 design D6，并加场景"关闭不查 Google"。）
 14. 分桶：`deriveEffectivePlatformRole` 的 boss，以及旧模式 / 保留角色里的 manager / admin / super_admin → `management`。
 15. 通知 `type = calendar_event`（既有类型，已在通知偏好白名单里）、`category = calendar_watch`；读取账号授权失效的重连通知 `sourceKey = calwatch:reconnect:{orgId}:{readerUserId}:{当地日期}`。
 16. 删除事件没有 `updated` 时，账本用观察时间、通知 `sourceKey` 用固定版本 `cancelled`，保证重试不重复。

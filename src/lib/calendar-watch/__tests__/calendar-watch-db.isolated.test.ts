@@ -415,8 +415,10 @@ async function main() {
     ok(g1.status === 200 && !g1.text.includes("syncToken") && !g1.text.includes("pageToken") && !g1.text.includes("s12") && !g1.text.includes("t2"), "GET 无 syncToken / pageToken 字样", g1.text.slice(0, 400));
     const cals = (g1.body?.settings as Json)?.calendars as Array<Json>;
     ok(cals?.[0]?.phase === "incremental" && cals[0].calendarId === CAL, "GET 显示日历阶段");
+    // 模拟读取账号授权已失效（Google 连接被停用）：关闭开关仍须成功
+    await db.calendarProvider.updateMany({ where: { userId: READER }, data: { enabled: false } });
     const off = await settingsCall(OWNER, "PUT", { enabled: false });
-    ok(off.status === 200 && (off.body?.settings as Json)?.enabled === false, "PUT { enabled: false } → 200（不查 Google）", off.body);
+    ok(off.status === 200 && (off.body?.settings as Json)?.enabled === false, "授权已失效时 PUT { enabled: false } → 200（不查 Google）", off.body);
     ok((await cursorOf())?.syncToken === "s12" && (await cursorOf(ORG, CAL2))?.syncToken === "t2", "关闭后游标仍在");
     const callsBefore = calls.length;
     const idle = await run();

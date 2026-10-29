@@ -18,11 +18,15 @@
 - **THEN** 返回 200，响应中没有 `syncToken` 与 `pageToken` 字样
 
 ### Requirement: 保存配置时校验
-`PUT` SHALL 校验：读取账号是该企业在职成员且已连接 Google 日历，否则 400 `READER_NOT_CONNECTED`；每个观察日历都在读取账号可见的日历列表中，否则 400 `CALENDAR_NOT_ACCESSIBLE`；邮箱字段为合法邮箱、通知岗位为该企业存在的岗位键，否则 400 `INVALID_SETTINGS`。校验通过才写入，并写一条审计；系统维护的游标 SHALL NOT 被 `PUT` 覆盖。未配置过的组织 SHALL 视为关闭，通知岗位缺省为 `owner` 与 `ops_lead`。
+`PUT` SHALL 校验：读取账号是该企业在职成员，合并后为开启时还须已连接 Google 日历，否则 400 `READER_NOT_CONNECTED`；开启时每个观察日历都在读取账号可见的日历列表中，否则 400 `CALENDAR_NOT_ACCESSIBLE`（关闭开关不查 Google，保证随时可停）；邮箱字段为合法邮箱、通知岗位为该企业存在的岗位键，否则 400 `INVALID_SETTINGS`。校验通过才写入，并写一条审计；系统维护的游标 SHALL NOT 被 `PUT` 覆盖。未配置过的组织 SHALL 视为关闭，通知岗位缺省为 `owner` 与 `ops_lead`。
 
 #### Scenario: 读取账号看不到该日历
 - **WHEN** `PUT` 的观察日历不在读取账号的 Google 日历列表里
 - **THEN** 返回 400 `CALENDAR_NOT_ACCESSIBLE`，配置不变；`calendar-watch-db.isolated.test.ts` 覆盖
+
+#### Scenario: 关闭不查 Google
+- **WHEN** 读取账号的 Google 授权已失效，老板 `PUT { "enabled": false }`
+- **THEN** 返回 200，观察停止，游标保留；`calendar-watch-db.isolated.test.ts` 覆盖
 
 #### Scenario: 缺省值
 - **WHEN** 读取从未配置过的组织
