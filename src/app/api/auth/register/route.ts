@@ -6,6 +6,7 @@ import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { DEFAULT_ENVIRONMENTS } from "@/lib/common/constants";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { checkOrgBoundInvite, upsertMembership, type OrgBoundOrgRole } from "@/lib/organizations/onboarding-rules";
+import { ensureDefaultPositions } from "@/lib/authorization/onboarding-positions";
 
 const REGISTER_RATE_LIMIT = {
   name: "auth-register",
@@ -252,6 +253,10 @@ async function registerIntoOrg(
     }
     throw err;
   }
+
+  // PERM-6b：经企业邀请码加入后按平台角色自动绑岗位（平台 trade → trade_rep、sales → sales_rep；已有绑定不动）。
+  // 岗位模式企业没有绑定即无权限，所以必须在这里落。
+  await ensureDefaultPositions({ orgId: input.orgId, actorUserId: user.id });
 
   const token = await createSession({ sub: user.id, email: user.email, role: user.role });
   const response = NextResponse.json({

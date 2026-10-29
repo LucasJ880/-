@@ -52,10 +52,12 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| INSTALL-2a | 收口单元覆盖 ProcessSpec 各段（修零窗单收不了口）；零单元明确 409；收口记录写失败不再假成功 | INSTALL-1 | change `install-2a-closeout-all-lines`；`docs/QINGYAN_INSTALL-2a_REPORT.md` | [G] |
-| INSTALL-2b | `install.balance.confirm`；会计「待收尾款」页签；确认尾款 → `completed`；质保邮件 PendingAction + 执行器；`sunnyWarranty` 设置；完工 / 收款 / 发信通知 | INSTALL-2a | change `install-2b-balance-warranty` | [ ] |
-| INSTALL-2c | 逐单元完成 / 有问题；维修单（数字化纸质模板 + 打印版）；问题类型查表；返修目标日（默认 +7 天）；`installStage` 推导；出单按品类 / 运营 / 会计 / 销售通知；`/install/repairs` | INSTALL-2a | change `install-2c-repair-form` | [ ] |
-| INSTALL-2d | 出单「已出单 + 预计备好日」；安排返修（新预约）；二次安装只收口维修行；按访次聚合 + 照片代理任一访次；关闭后 `installed` 接回 2b；逾期提醒挂既有 cron | INSTALL-2b、2c | change `install-2d-repair-dispatch` | [ ] |
+| INSTALL-2a | 收口单元覆盖 ProcessSpec 各段（修零窗单收不了口）；零单元明确 409；收口记录写失败不再假成功 | INSTALL-1 | change `install-2a-closeout-all-lines`；`docs/QINGYAN_INSTALL-2a_REPORT.md` | [x]（#304；archive 见 `openspec/changes/archive/2026-10-29-install-2a-closeout-all-lines`） |
+| INSTALL-2b | `install.balance.confirm`；会计「待收尾款」页签；确认尾款 → `completed`；完工 / 尾款确认通知与落点；销售首页待收尾款口径 | INSTALL-2a | change `install-2b-balance-confirm`；`docs/QINGYAN_INSTALL-2b_REPORT.md` | [G] |
+| INSTALL-2c | 质保表（报价单口径）+ 设置页；完工 + 质保邮件模板；`install.send_warranty_email` 审批 + 执行器；会计批准发送 | INSTALL-2b | change `install-2c-warranty-email`；`docs/QINGYAN_INSTALL-2c_REPORT.md` | [G] |
+| INSTALL-2d | 逐单元完成 / 有问题；维修单（数字化纸质模板 + 打印版）；问题类型查表；返修目标日（默认 +7 天）；`installStage` 推导；出单按品类 / 运营 / 会计 / 销售通知；`/install/repairs` | INSTALL-2a | change `install-2d-repair-form`；`docs/QINGYAN_INSTALL-2d_REPORT.md` | [G] |
+| INSTALL-2e | 出单按品类登记「已出单 + 预计备好日」；安排返修 / 改期（新预约）；返修预约只收口维修行；照片代理放行任一安装预约（修 F5）；返修完成 → `installed` 接回 2b；返修中再发现问题 → 新维修单 | INSTALL-2b、2d | change `install-2e-repair-dispatch`；`docs/QINGYAN_INSTALL-2e_REPORT.md` | [G] |
+| INSTALL-2f | 维修单作废 / 关闭不返修；逾期提醒挂既有每日 cron | INSTALL-2e | change `install-2f-repair-close` | [~] |
 
 ## PERM-5 — 会计视图与数字员工
 
@@ -69,7 +71,7 @@
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
 | PERM-6a | 外贸三键（`trade.read` / `trade.manage` / `trade.settings.manage`）+ `trade_rep` 模板；`src/app/api/trade/**` 110 处 `requireRole` → `requireTradePermission`（范围仍 `ORG`）；平台 admin 不再隐含外贸（企业解析显式 orgId 只给 super_admin）；消息通道管理按设置键；派生角色 `trade` 档、岗位模式外贸入口认 `trade.read` | PERM-4c5 | 任务书 `docs/QINGYAN_PERM-6_TRADE_TASKBRIEF.md`（拍板见"拍板结果 · PERM-6"）；change `perm-6a-trade-keys`；`docs/QINGYAN_PERM-6a_REPORT.md` | [x]（#300；archive 见 `openspec/changes/archive/2026-10-28-perm-6a-trade-keys`） |
-| PERM-6b | 梦馨落岗位：按分工细分外贸岗位与数据范围（按负责人收窄）；绑定文件 | PERM-6a；梦馨人员与邮箱 | change `perm-6b-mengxin-positions` | [ ] |
+| PERM-6b | 梦馨落岗位：家纺外贸行业包 `owner` + 系统 `trade_rep`，梦馨进入岗位模式；绑定文件 `config/positions/mengxin.json`；入驻 / 交接 / 邀请注册后落默认岗位（数据范围按负责人收窄等梦馨加人另做） | PERM-6a；梦馨人员与邮箱 | 拍板见任务书"拍板结果 · PERM-6b 人员"；change `perm-6b-mengxin-positions`；`docs/QINGYAN_PERM-6b_REPORT.md`；**合并前须 Lucas 对梦馨跑 seed** | [G] |
 | PERM-6c | 营收中心按外贸键（平台 sales 不再进）；外贸收件人 / 默认询盘负责人按岗位（`src/lib/trade/recipients.ts`，残留清单 D2–D4）；压扁范围加 `trade`（侧栏外贸布局 / 入职清单补齐，残留清单 F 组） | PERM-6a | 拍板见任务书"拍板结果 · PERM-6c"；change `perm-6c-revenue-and-trade-recipients`；`docs/QINGYAN_PERM-6c_REPORT.md` | [x]（#302；archive 见 `openspec/changes/archive/2026-10-28-perm-6c-revenue-and-trade-recipients`） |
 
 ## PERM-7 — owner 在界面上绑岗位
