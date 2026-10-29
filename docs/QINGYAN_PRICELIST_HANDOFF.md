@@ -1,0 +1,81 @@
+# Sunny 价格表 2026-10-28 + 报价统计 · 交接（HANDOFF）
+
+> 新会话从这里进。先读本文件，再读任务书，不凭记忆重写；任何"现状"以任务书 §0 的文件行号为准，打开核对后再动手。本文件只记录**已核对过的事实**；未核对的写明"未核对"。
+
+| 项 | 值 |
+|---|---|
+| 最后更新 | 2026-10-29（会话：方案 + 第一、二轮交叉验证；代码未动） |
+| 任务书（方案） | `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 判断点 Q1–Q11 **待拍板**） |
+| 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 / PRICE-2 / PRICE-3 / STAT-1，全部 `[ ]`） |
+| 进行中的 change | 无（未 propose；`openspec list` 为空） |
+| 工作分支 | `claude/vigilant-goodall-4t0c17`（基于 origin/main `abad98d`；每个 PR 合并后从 origin/main 重建同名分支） |
+| OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
+| 运行环境 | 仓库不带 `node_modules`，先 `npm ci`（约 2 分钟，会 `prisma generate`）；沙箱里 `tsc` 需 `NODE_OPTIONS=--max-old-space-size=8192` |
+| 价表证据 | `config/pricelist/2026-10-28-lucas-quote.json`（增量 + 来源 SHA-256）、`config/pricelist/2026-10-28-golden-cases.json`（158 条黄金用例）；脚本 `scripts/pricelist/`（README 有四步命令） |
+
+## 0. 交付流水线（每个 PR 合并后更新本表）
+
+| change | 实施 | PR | archive PR | TASKFLOW |
+|---|---|---|---|---|
+| PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 未 propose（等 Q1 / Q2 拍板） | — | — | `[ ]` |
+| PRICE-2 `pricelist-2026-10-cordless-fullness` | 未 propose（等 Q3 / Q4） | — | — | `[ ]` |
+| PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
+| STAT-1 `sales-quote-stats-drilldown` | 未 propose（等 Q9 / Q10） | — | — | `[ ]` |
+
+流程同 INSTALL-2：基于最新 main → 实施 → typecheck / lint:baseline / test:ci / registry / validate --strict + 本 change 的测试 → PR → CI 绿 → 用户确认合并 → `openspec archive <change> --yes`（在最新 main 上重跑）+ TASKFLOW `[x]` + 本表 → archive PR。
+
+## 1. 下一步
+
+1. **等拍板**：任务书 §7 的 Q1–Q11。用户若说"按推荐来"，全部按"推荐"列执行；**Q4（Order Form 里 Lift L/R 即无绳）必须要一句明确答复**，它直接决定无绳折扣与最低价套在哪些行上。
+2. 拍板后 `/opsx:propose pricelist-2026-10-fauxwood-allusion`，四件套回传审；tasks 里第一条必须是建黄金对照测试 `src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts`（读 `config/pricelist/2026-10-28-golden-cases.json`，逐条调 `priceFor`，误差 ≤ 0.01，报错 ↔ 报错）并注册进 `scripts/test-all.sh`。
+3. apply 前记基线：`npx tsx src/lib/blinds/__tests__/{sunny-motor,valance-options,cost-rates,quote-fees}.test.ts`、`npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts`、`npx tsx src/lib/fulfillment/__tests__/category.test.ts`、`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts`。
+4. 价表下次再更新时，走 `scripts/pricelist/README.md` 四步，只把差异进新的 `config/pricelist/<日期>-*.json`。
+
+## 2. 外部信息的可信度（防幻觉）
+
+| 信息 | 状态 | 怎么补 |
+|---|---|---|
+| 上传包三个文件的 SHA-256 | **已记录**：zip `aa9d9416…3a1b3`、`index.html` `d068ab4b…203c`、`.xlsx` `d68a4cf8…cdfb6`（完整值在 `config/pricelist/2026-10-28-lucas-quote.json` `source`） | 下次上传先比哈希，相同就不用重做 V1 / V2 |
+| 现有 9 个产品的 MSRP 矩阵 | **已核实三方一致**（V1，0 差异；`scripts/pricelist/crosscheck.py` 退出码 1 只因为 Fauxwood / Allusion 是增量） | — |
+| Fauxwood / Allusion 矩阵 | **已核实** HTML = Excel（V1） | — |
+| 无绳规则（30% off、159 / 129、无 75" 上限） | **已核实**：来自上传 `使用说明.txt` 原文 + `index.html` `price()` 源码 + `defaultPricing()` | Q3 / Q4 仍需 Lucas 确认业务上是否如此 |
+| 褶皱率规则 | **已核实**：`使用说明.txt` 原文 + `price()` 的 `lookupW = w × fullness ÷ 2` | — |
+| 黄金用例 158 条 | **已核实可复现**：`scripts/pricelist/gen-golden.mjs` 重跑与提交文件逐条相同 | — |
+| 附加项目价 | **两套来源有冲突**（Hub 240 vs 300；电池电机 150 vs 190 Matter）；零售表 `retailAddons` 为结构化、带 enabled / display_order，Excel `ADD ON参考` 为参考行 | Q7 |
+| Excel `计算过程` 页公式 | **未核对**：无缓存值，沙箱没有 LibreOffice 重算 | 有 LibreOffice 的机器重算 10 行与黄金用例比对（任务书 V6） |
+| Order Form "Lift L/R = 无绳"（`page.tsx:884`） | 代码事实已核实；**业务含义未核对** | Q4 |
+| "每个人报了多少钱"现有口径 | **已核实**：KPI-1 规格 `openspec/specs/sales/period-summary/spec.md` + `src/lib/sales/period/load.ts`（`byRep` 按 `createdById`） | — |
+| 经销商参考价、面料画册附页、AI 在线后台（`ai-quote-server-eight.vercel.app`） | 上传包里有，**本次不进青砚**（Q11；画册与 AI 后台不在诉求内） | — |
+
+规则：没核实的数字**不得**写进规格、`pricing-data.ts` 或测试；价表数值只从 `config/pricelist/*.json` 拷，不手敲。
+
+## 3. 本会话做了什么（代码零改动）
+
+| 产物 | 说明 |
+|---|---|
+| `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md` | 方案：现状 F1–F15（带行号）、V1 结果、增量 D1–D11、四个 change 的设计 / Out of scope / 验收、零 schema 落点、八条纪律对照、V1–V7 验证计划、Q1–Q11 |
+| `config/pricelist/2026-10-28-lucas-quote.json` | 增量数据：Fauxwood / Allusion 矩阵与档位、无绳、褶皱率、费用、零售附加项目 CSV、Excel 附加项目 40 行、SKU 改名、经销商参考（标注不进）、来源哈希 |
+| `config/pricelist/2026-10-28-golden-cases.json` | 158 条黄金用例（fauxwood 14 / allusion 14 / cordless 36 / fullness 74 / door-screen 3 / regression 11 / 其它），37 条是预期报错 |
+| `scripts/pricelist/{README.md,extract-seed.py,dump-pricing.ts,crosscheck.py,gen-golden.mjs}` | V1 / V2 的可复跑脚本；本会话已用它们重跑一次并与提交文件比对一致 |
+| `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` | 新增 Phase P（PRICE-1 / 2 / 3、STAT-1，`[ ]`） |
+
+## 4. 不要做的事
+
+- 不重录 9 个老产品的 MSRP（已三方一致）；不给 `QuoteDiscountSettings` 加列（纪律 1）；新折扣 / 无绳 / 褶皱率 / 附件价都落 `Organization.settingsJson.pricing`，改时只动 `pricing` 子键。
+- 不改 KPI-1 的成单 / 报价口径；STAT-1 只补周预设、展开清单、按销售筛选、草稿提醒。
+- 不把经销商参考价、面料画册、AI 在线后台带进青砚。
+- 不删 `docs/` 任何文件；不动 `.claude/launch.json`；`openspec/specs/**` 只通过 archive 进。
+- 黄金测试建立后，任何改 `pricing-data.ts` / `pricing-engine.ts` 的提交都先跑它。
+
+## 5. 本地复跑
+
+```bash
+npm ci
+# V1 + V2（需要上传包；见 scripts/pricelist/README.md）
+# 既有定价相关测试（apply 前基线）
+npx tsx src/lib/blinds/__tests__/sunny-motor.test.ts
+npx tsx src/lib/blinds/__tests__/valance-options.test.ts
+npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts
+```
+
+隔离库 / Playwright 走查步骤沿用 `docs/QINGYAN_INSTALL-2_HANDOFF.md` §4b（PG16 + pgvector、`QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES=127`、`cp -al` 的 `node_modules`）。
