@@ -40,12 +40,12 @@
 
 ## 4. 门禁与审查
 
-- [ ] 4.1 门禁：`npm run lint:baseline`、`npm run test:ci`、`openspec validate calendar-change-push --strict`、`npm run build` 通过；`npm test` 全量与 main 对比无新增失败。verify：各命令退出码与输出贴进报告。
-- [ ] 4.2 独立只读审查（不给结论），逐条核实并修复，修复后重跑 4.1 涉及的测试。verify：审查结论与处理写进报告 §3。
+- [x] 4.1 门禁：`npm run lint:baseline`、`npm run test:ci`、`openspec validate calendar-change-push --strict`、`npm run build` 通过；`npm test` 全量与 main 对比无新增失败。verify：各命令退出码与输出贴进报告。
+- [x] 4.2 独立只读审查（不给结论），逐条核实并修复，修复后重跑 4.1 涉及的测试。verify：审查结论与处理写进报告 §3。
 
 ## 5. 报告与状态
 
-- [ ] 5.1 写 `docs/QINGYAN_CAL-3_REPORT.md`（做了什么、怎么验、偏离、已知限制、上线步骤、全量对比）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` CAL-3 状态列为 `[G]` + 更新 `docs/QINGYAN_SUNNY_SCHEDULE_KPI_HANDOFF.md`。verify：三个文件在 PR diff 中；TASKFLOW CAL-3 行含 `[G]`。
+- [x] 5.1 写 `docs/QINGYAN_CAL-3_REPORT.md`（做了什么、怎么验、偏离、已知限制、上线步骤、全量对比）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` CAL-3 状态列为 `[G]` + 更新 `docs/QINGYAN_SUNNY_SCHEDULE_KPI_HANDOFF.md`。verify：三个文件在 PR diff 中；TASKFLOW CAL-3 行含 `[G]`。
 
 ## Workflow follow-up
 
