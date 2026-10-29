@@ -24,9 +24,9 @@
 | 2f `install-2f-repair-close` | 已完成（报告 `docs/QINGYAN_INSTALL-2f_REPORT.md`） | [#325](https://github.com/LucasJ880/-/pull/325) 已合并 | [#329](https://github.com/LucasJ880/-/pull/329) 已合并（`openspec/changes/archive/2026-10-29-install-2f-repair-close`） | `[x]` |
 | 2g `install-2g-warranty-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2g_REPORT.md`） | [#337](https://github.com/LucasJ880/-/pull/337) 已合并 | [#339](https://github.com/LucasJ880/-/pull/339) 已合并（`openspec/changes/archive/2026-10-29-install-2g-warranty-update`） | `[x]` |
 | 2h `install-2h-warranty-shades-update` | 已完成（报告 `docs/QINGYAN_INSTALL-2h_REPORT.md`） | [#341](https://github.com/LucasJ880/-/pull/341) 已合并 | [#343](https://github.com/LucasJ880/-/pull/343) 已合并（`openspec/changes/archive/2026-10-29-install-2h-warranty-shades-update`） | `[x]` |
-| 2i `install-2i-repair-list-archive` | 已完成（报告 `docs/QINGYAN_INSTALL-2i_REPORT.md`） | 本 PR | — | `[G]` |
-| 2j 返修时间确认邮件 | 待开始 | — | — | — |
-| 2k 质保邮件附 PDF | 待开始 | — | — | — |
+| 2i `install-2i-repair-list-archive` | 已完成（报告 `docs/QINGYAN_INSTALL-2i_REPORT.md`） | [#345](https://github.com/LucasJ880/-/pull/345) 已合并 | 本 PR（`openspec/changes/archive/2026-10-29-install-2i-repair-list-archive`） | `[x]` |
+| 2j `install-2j-repair-visit-email` | 实施完成（待开 PR） | — | — | — |
+| 2k `install-2k-warranty-pdf` | 实施中 | — | — | — |
 
 - 每个 PR：基于最新 main → cherry-pick 该 change 的提交 → 本地跑 typecheck / lint:baseline / test:ci / registry / validate --strict 与该 change 的隔离库测试 → 推送开 PR → CI 绿后合并 → `openspec archive <change> --yes`（在最新 main 上重跑，不 cherry-pick 旧的 archive 结果，避免和别的会话同时改的主规格冲突）+ TASKFLOW `[x]` + 本表 → archive PR。
 - 文档冲突（TASKFLOW / 本文件 / 任务书）一律以 main 上的现状为底，再按本表改状态；代码冲突逐块看，不整文件取一边。
