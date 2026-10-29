@@ -1,5 +1,6 @@
 /**
  * INSTALL-2d：安装阶段推导与文案；"待收尾款"与 2b 会计列表同一规则（任务书 §12 Q11）
+ * INSTALL-2e：出单登记 / 返修排期细分返修态
  * 运行：npx tsx src/lib/install/__tests__/stage.test.ts
  */
 import { isAwaitingBalance } from "../balance";
@@ -15,13 +16,16 @@ const base: StageInput = { orderStatus: "scheduled", balanceConfirmed: false, cl
 
 console.log("INSTALL-2d 安装阶段查表");
 ok(installStage(base) === "scheduled", "已排期、无维修单 → scheduled");
-ok(installStage({ ...base, openRepair: { needsFactory: true } }) === "repair_open", "已排期、维修单含需工厂行 → repair_open");
-ok(installStage({ ...base, openRepair: { needsFactory: false } }) === "repair_ready_to_schedule", "已排期、维修单只有客户原因 → repair_ready_to_schedule");
+ok(installStage({ ...base, openRepair: { pendingFactory: true, scheduled: false } }) === "repair_open", "已排期、维修单含需工厂行未登记 → repair_open");
+ok(installStage({ ...base, openRepair: { pendingFactory: false, scheduled: false } }) === "repair_ready_to_schedule", "已排期、维修单只有客户原因（或已全部登记出单）→ repair_ready_to_schedule");
+ok(installStage({ ...base, openRepair: { pendingFactory: true, scheduled: true } }) === "repair_scheduled", "INSTALL-2e：已排返修 → repair_scheduled（无论出单是否登记完）");
+ok(installStage({ ...base, openRepair: { pendingFactory: false, scheduled: true } }) === "repair_scheduled", "INSTALL-2e：已登记出单且已排返修 → repair_scheduled");
+ok(installStage({ ...base, orderStatus: "installed", closedOut: true, openRepair: null }) === "awaiting_balance", "INSTALL-2e：返修完成转已安装 → awaiting_balance");
 ok(installStage({ ...base, orderStatus: "installed" }) === "awaiting_balance", "已安装、未确认 → awaiting_balance");
 ok(installStage({ ...base, orderStatus: "completed", balanceConfirmed: true, closedOut: true }) === "closed", "有尾款确认 → closed");
 ok(installStage({ ...base, orderStatus: "completed", closedOut: true }) === "awaiting_balance", "已完工、当前预约有完成收口记录、未确认 → awaiting_balance");
 ok(installStage({ ...base, orderStatus: "completed", closedOut: false }) === "closed", "已完工、无收口记录（历史手工完工）→ closed");
-ok(installStage({ ...base, orderStatus: "cancelled", openRepair: { needsFactory: true } }) === "cancelled", "取消优先于未关闭维修单");
+ok(installStage({ ...base, orderStatus: "cancelled", openRepair: { pendingFactory: true, scheduled: true } }) === "cancelled", "取消优先于未关闭维修单");
 for (const s of ["draft", "confirmed", "in_production", "ready"]) {
   ok(installStage({ ...base, orderStatus: s }) === "not_scheduled", `${s} → not_scheduled`);
 }
@@ -59,6 +63,8 @@ ok(salesStageText("closed", { balanceConfirmed: true, warranty: "pending_approva
 ok(salesStageText("closed", { balanceConfirmed: true }) === "已结清 · 质保邮件未发出", "已结清 + 质保未发出");
 ok(salesStageText("closed", { balanceConfirmed: false }) === "已完工", "历史手工完工 → 已完工");
 ok(salesStageText("not_scheduled") === "未排安装" && salesStageText("cancelled") === "已取消", "未排安装 / 已取消");
+ok(salesStageText("repair_scheduled", { repairDate: "2026-11-03", targetDate: "2026-11-04" }) === "2026-11-03 再去返修", "INSTALL-2e：2026-11-03 再去返修");
+ok(STAGE_LABEL.repair_scheduled === "返修已排期", "INSTALL-2e：返修已排期");
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

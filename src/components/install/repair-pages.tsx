@@ -6,11 +6,12 @@
  * — RepairDetail：/install/repairs/[id]，表头 + 行（问题照）+ 当前阶段 + 打印入口
  * — RepairPrint：/install/repairs/[id]/print，纸质版式（抬头大写、至少 10 行、Filling Date），无照片无金额
  * 数据只来自 /api/install/repairs*（install.task.read ORG）；无权时显示提示。
+ * INSTALL-2e：详情显示出单登记 / 返修排期 / 关闭情况；「登记出单」「安排返修 / 改期」按钮只按接口返回的可执行操作显示。
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ClipboardList, Loader2, Printer } from "lucide-react";
+import { ArrowLeft, CalendarClock, ClipboardList, Loader2, Package, Printer, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { padPrintRows } from "@/lib/install/repair";
 import { factoryText, type RepairDetailData, type RepairListItem } from "./install-types";
@@ -40,8 +41,11 @@ function useRepairFetch<T>(url: string) {
   useEffect(() => {
     void load();
   }, [load]);
-  return { data, error, loading };
+  return { data, error, loading, reload: load };
 }
+
+const fmtWhen = (iso: string) =>
+  new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 
 function Loading() {
   return (
@@ -58,7 +62,16 @@ function ErrorBox({ text }: { text: string }) {
 const STAGE_TONE: Record<string, string> = {
   repair_open: "bg-[rgba(201,138,34,0.14)] text-[#a86a12]",
   repair_ready_to_schedule: "bg-[rgba(36,99,165,0.1)] text-[#2463a5]",
+  repair_scheduled: "bg-[rgba(46,122,86,0.12)] text-[#2e7a56]",
 };
+
+/** 列表 / 详情共用的进度一句话 */
+function progressText(r: RepairListItem): string {
+  if (r.closed) return r.closed.reason === "superseded" ? `已转入 ${r.closed.supersededBy ?? "新单"}` : "已完成";
+  if (r.scheduledAt) return `返修 ${fmtWhen(r.scheduledAt)}`;
+  if (r.pendingFactory.length > 0) return `待出单：${r.pendingFactory.map((c) => c.label).join("、")}`;
+  return "待排返修";
+}
 
 function StageBadge({ stage, label }: { stage: string; label: string }) {
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STAGE_TONE[stage] ?? "bg-[rgba(26,36,32,0.06)] text-muted"}`}>{label}</span>;
@@ -88,6 +101,7 @@ export function RepairList() {
                 <th className="px-3 py-2">目标返修日</th>
                 <th className="px-3 py-2">行</th>
                 <th className="px-3 py-2">需工厂</th>
+                <th className="px-3 py-2">进度</th>
                 <th className="px-3 py-2">阶段</th>
               </tr>
             </thead>
@@ -105,13 +119,14 @@ export function RepairList() {
                     {r.takenBy.name ?? "—"}
                     <div>{r.fillDate}</div>
                   </td>
-                  <td className={`px-3 py-2 ${r.overdue ? "font-semibold text-danger" : "text-foreground"}`}>
+                  <td className={`px-3 py-2 ${r.overdue ? "font-semibold text-danger" : r.closed ? "text-muted" : "text-foreground"}`}>
                     {r.targetDate}
                     {r.overdue && <div className="text-[11px]">已过目标日</div>}
                     <div className="text-[11px] font-normal text-muted">{r.customerConfirmed ? "已和客户确认" : "未和客户确认"}</div>
                   </td>
                   <td className="px-3 py-2">{r.rowCount}</td>
                   <td className="px-3 py-2 text-xs">{factoryText(r.factory)}</td>
+                  <td className="px-3 py-2 text-xs">{progressText(r)}</td>
                   <td className="px-3 py-2">
                     <StageBadge stage={r.stage} label={r.stageLabel} />
                   </td>
@@ -126,8 +141,10 @@ export function RepairList() {
 }
 
 export function RepairDetail({ id }: { id: string }) {
-  const { data, error, loading } = useRepairFetch<{ repair: RepairDetailData }>(`/api/install/repairs/${id}`);
+  const { data, error, loading, reload } = useRepairFetch<{ repair: RepairDetailData }>(`/api/install/repairs/${id}`);
   const r = data?.repair;
+  const [dialog, setDialog] = useState<"issue" | "schedule" | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   return (
     <div className="mx-auto max-w-3xl space-y-4 pb-10">
       <Link href="/install/repairs" className="inline-flex items-center gap-1 text-sm text-muted">
@@ -169,6 +186,30 @@ export function RepairDetail({ id }: { id: string }) {
               <Printer size={15} /> 打印维修单
             </Link>
           </div>
+          {notice && <div className="rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-foreground">{notice}</div>}
+          <RepairProgressCards repair={r} onAction={setDialog} />
+          {dialog === "issue" && (
+            <FactoryIssueDialog
+              repair={r}
+              onClose={() => setDialog(null)}
+              onDone={async (msg) => {
+                setDialog(null);
+                setNotice(msg);
+                await reload();
+              }}
+            />
+          )}
+          {dialog === "schedule" && (
+            <ScheduleDialog
+              repair={r}
+              onClose={() => setDialog(null)}
+              onDone={async (msg) => {
+                setDialog(null);
+                setNotice(msg);
+                await reload();
+              }}
+            />
+          )}
           <div className="space-y-2">
             {r.rows.map((row) => (
               <div key={row.n} className="rounded-xl border border-[rgba(201,138,34,0.4)] bg-card-bg p-3">
@@ -196,6 +237,194 @@ export function RepairDetail({ id }: { id: string }) {
         </>
       )}
     </div>
+  );
+}
+
+/** INSTALL-2e：出单登记 / 返修排期 / 关闭情况；按钮只按接口返回的可执行操作显示（design D9） */
+function RepairProgressCards({ repair: r, onAction }: { repair: RepairDetailData; onAction: (a: "issue" | "schedule") => void }) {
+  const p = r.progress;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {p.closed && (
+        <div className="rounded-xl border border-[rgba(46,122,86,0.35)] bg-[rgba(46,122,86,0.06)] p-3 text-sm text-[#2e7a56] sm:col-span-2">
+          维修单已关闭：{p.closed.reason === "superseded" ? `返修时又发现问题，转入 ${p.closed.supersededBy ?? "新单"}` : "返修已完成"}（{fmtWhen(p.closed.at)}）
+        </div>
+      )}
+      <section aria-label="出单" className="rounded-xl border border-border bg-card-bg p-3 text-sm">
+        <div className="flex items-center gap-1.5 font-semibold text-foreground">
+          <Package size={15} /> 工厂出单
+        </div>
+        {p.factoryCategories.length === 0 ? (
+          <p className="mt-1 text-xs text-muted">不需工厂出单</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-xs">
+            {p.issued.map((i) => (
+              <li key={i.key} className="text-foreground">
+                ✓ {i.label}：预计 <b>{i.readyDate}</b> 备好 · {i.by.name ?? "—"}
+                {i.note && <span className="text-muted"> · {i.note}</span>}
+              </li>
+            ))}
+            {p.pending.map((c) => (
+              <li key={c.key} className="text-[#a86a12]">
+                ○ {c.label}：待登记
+              </li>
+            ))}
+          </ul>
+        )}
+        {r.actions.issueCategories.length > 0 && (
+          <button type="button" onClick={() => onAction("issue")} className="mt-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)]">
+            登记出单（{r.actions.issueCategories.map((c) => c.label).join("、")}）
+          </button>
+        )}
+      </section>
+      <section aria-label="返修排期" className="rounded-xl border border-border bg-card-bg p-3 text-sm">
+        <div className="flex items-center gap-1.5 font-semibold text-foreground">
+          <CalendarClock size={15} /> 返修排期
+        </div>
+        {p.schedule ? (
+          <p className="mt-1 text-xs text-foreground">
+            {fmtWhen(p.schedule.installAt)} · 安装工 {p.schedule.assignedTo.name ?? "—"}
+            {p.schedule.completed ? " · 已完成" : ""}
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-muted">尚未排返修{p.readyDate ? `（返修件预计 ${p.readyDate} 备好）` : ""}</p>
+        )}
+        {r.actions.canSchedule && (
+          <button type="button" onClick={() => onAction("schedule")} className="mt-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)]">
+            {p.schedule && !p.schedule.completed ? "改期" : "安排返修"}
+          </button>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function DialogShell({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label={label}>
+      <div className="w-full max-w-md space-y-3 rounded-xl border border-border bg-card-bg p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-foreground">{label}</h2>
+          <button type="button" onClick={onClose} className="text-muted" aria-label="关闭">
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+async function postJson(url: string, body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  const res = await apiFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { ok: res.ok, data: (await res.json().catch(() => ({}))) as Record<string, unknown> };
+}
+
+function FactoryIssueDialog({ repair: r, onClose, onDone }: { repair: RepairDetailData; onClose: () => void; onDone: (msg: string) => void | Promise<void> }) {
+  const [readyDate, setReadyDate] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const labels = r.actions.issueCategories.map((c) => c.label).join("、");
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { ok, data } = await postJson(`/api/install/repairs/${r.id}/factory-issued`, { readyDate, note });
+      if (!ok) {
+        setErr(String(data.error ?? "登记失败"));
+        return;
+      }
+      await onDone(`已登记出单：${labels}，预计 ${readyDate} 备好`);
+    } catch {
+      setErr("网络错误，请重试");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <DialogShell label="登记出单" onClose={onClose}>
+      <p className="text-xs text-muted">
+        {r.repairNo} · 登记品类：<b className="text-foreground">{labels}</b>
+      </p>
+      <label className="block space-y-1 text-sm">
+        <span className="text-xs text-muted">预计备好日</span>
+        <input type="date" aria-label="预计备好日" min={r.fillDate} value={readyDate} onChange={(e) => setReadyDate(e.target.value)} className="w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      <label className="block space-y-1 text-sm">
+        <span className="text-xs text-muted">备注（可不填）</span>
+        <textarea aria-label="出单备注" value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={500} className="w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      {err && <p className="text-sm text-danger">{err}</p>}
+      <button type="button" disabled={busy || !readyDate} onClick={save} className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[color:var(--on-accent)] disabled:opacity-50">
+        {busy && <Loader2 size={15} className="animate-spin" />}确认已出单
+      </button>
+    </DialogShell>
+  );
+}
+
+function ScheduleDialog({ repair: r, onClose, onDone }: { repair: RepairDetailData; onClose: () => void; onDone: (msg: string) => void | Promise<void> }) {
+  const [installers, setInstallers] = useState<Array<{ id: string; name: string }>>([]);
+  const [assignedToId, setAssignedToId] = useState(r.progress.schedule?.assignedTo.id ?? "");
+  const [when, setWhen] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await apiFetch("/api/install/installers");
+        const data = (await res.json().catch(() => ({}))) as { installers?: Array<{ id: string; name: string }> };
+        setInstallers(data.installers ?? []);
+      } catch {
+        setInstallers([]);
+      }
+    })();
+  }, []);
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { ok, data } = await postJson(`/api/install/repairs/${r.id}/schedule`, { installAt: new Date(when).toISOString(), assignedToId });
+      if (!ok) {
+        setErr(String(data.error ?? "安排失败"));
+        return;
+      }
+      const warnings = (data.warnings as string[] | undefined) ?? [];
+      const who = installers.find((i) => i.id === assignedToId)?.name ?? "";
+      await onDone(`${data.rescheduled ? "已改期" : "已安排返修"}：${fmtWhen(new Date(when).toISOString())} · ${who}${warnings.length ? `。注意：${warnings.join("；")}` : ""}`);
+    } catch {
+      setErr("网络错误，请重试");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <DialogShell label={r.progress.schedule && !r.progress.schedule.completed ? "改期" : "安排返修"} onClose={onClose}>
+      <p className="text-xs text-muted">
+        {r.repairNo} · {r.rowCount} 项 · 目标 {r.targetDate}
+        {r.progress.readyDate ? ` · 返修件预计 ${r.progress.readyDate} 备好` : ""}
+        {r.progress.pending.length > 0 ? ` · 出单尚未登记：${r.progress.pending.map((c) => c.label).join("、")}` : ""}
+      </p>
+      <label className="block space-y-1 text-sm">
+        <span className="text-xs text-muted">安装工</span>
+        <select aria-label="返修安装工" value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="w-full rounded-md border border-border bg-white px-2 py-1.5">
+          <option value="">选择安装工</option>
+          {installers.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block space-y-1 text-sm">
+        <span className="text-xs text-muted">返修时间</span>
+        <input type="datetime-local" aria-label="返修时间" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full rounded-md border border-border px-2 py-1.5" />
+      </label>
+      {err && <p className="text-sm text-danger">{err}</p>}
+      <button type="button" disabled={busy || !when || !assignedToId} onClick={save} className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[color:var(--on-accent)] disabled:opacity-50">
+        {busy && <Loader2 size={15} className="animate-spin" />}确认排期
+      </button>
+    </DialogShell>
   );
 }
 

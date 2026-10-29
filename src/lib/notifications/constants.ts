@@ -20,6 +20,9 @@ export const NOTIFICATION_TYPE_KEYS = [
   "install_warranty_failed",
   // INSTALL-2d：维修单已提交（出单 / 运营 / 会计 → 维修单详情；销售 → 工艺单状态卡）
   "install_repair_submitted",
+  // INSTALL-2e：返修件已出单 / 已安排返修
+  "install_repair_factory_issued",
+  "install_repair_scheduled",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];

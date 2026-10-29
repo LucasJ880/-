@@ -4,7 +4,7 @@
  * - 权限 / 限流 / 文件类型与大小 / 私有前缀与完工照相同（install.window.complete；design D12）
  * - 问题照必填；类型查表决定是否需工厂（"其他"由安装工选，默认需工厂）；描述必填 ≤ 300 字
  * - 审计 install.window.issue（目标同完工照，afterData 含位置快照）；写入失败 → 500 提示重拍
- * - 任务已完成 / 已取消 → 409；单元不属于该工艺单 → 404
+ * - 任务已完成 / 已取消 → 409；单元不属于该工艺单（返修预约：不在维修单行内）→ 404
  */
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -19,7 +19,7 @@ import {
   installPhotoPathname,
   validatePhotoUpload,
 } from "@/lib/install/closeout";
-import { INSTALL_WINDOW_ISSUE, validateIssueInput } from "@/lib/install/repair";
+import { INSTALL_WINDOW_ISSUE, scopeUnits, validateIssueInput } from "@/lib/install/repair";
 import {
   authorizeInstallTask,
   installForbidden,
@@ -30,6 +30,7 @@ import {
   loadOrderForTask,
   loadOrderUnits,
 } from "@/lib/install/service";
+import { loadTaskRepairScope } from "@/lib/install/repair-service";
 
 const UPLOAD_RATE_LIMIT = { name: "install-photo", windowMs: 60_000, maxRequests: 30 } as const;
 
@@ -59,9 +60,10 @@ export const POST = withAuth<{ id: string; itemId: string }>(async (request, ctx
 
   const order = await loadOrderForTask(task.id);
   if (!order) return installNoOrder();
-  const units = await loadOrderUnits(order);
-  const unit = units.find((u) => u.id === itemId);
-  if (!unit) return NextResponse.json({ error: "该窗不属于此工艺单" }, { status: 404 });
+  // INSTALL-2e：返修预约只接受维修单各行对应的单元
+  const [units, ret] = await Promise.all([loadOrderUnits(order), loadTaskRepairScope(order.id, task.id)]);
+  const unit = scopeUnits(units, ret).find((u) => u.id === itemId);
+  if (!unit) return NextResponse.json({ error: ret ? "该窗不在本次返修范围内" : "该窗不属于此工艺单" }, { status: 404 });
 
   let form: FormData;
   try {

@@ -258,3 +258,209 @@ export const PRINT_MIN_ROWS = 10;
 export function padPrintRows<T>(rows: T[], min: number = PRINT_MIN_ROWS): Array<T | null> {
   return [...rows, ...Array.from({ length: Math.max(0, min - rows.length) }, () => null)];
 }
+
+// ─────────────────────────── INSTALL-2e：维修单进度（事件流，design D1 / D2 / D9） ───────────────────────────
+
+export const INSTALL_REPAIR_FACTORY_ISSUED = "install.repair.factory_issued" as const;
+export const INSTALL_REPAIR_SCHEDULED = "install.repair.scheduled" as const;
+export const INSTALL_REPAIR_COMPLETED = "install.repair.completed" as const;
+export const REPAIR_EVENT_ACTIONS = [INSTALL_REPAIR_FACTORY_ISSUED, INSTALL_REPAIR_SCHEDULED, INSTALL_REPAIR_COMPLETED] as const;
+/** 返修预约完成收口时 install.task.completed 的结果（算"完成收口记录"，区别于 needs_repair） */
+export const RETURN_OUTCOME = "repair_completed" as const;
+
+export const NOTIFY_REPAIR_FACTORY_ISSUED = "install_repair_factory_issued" as const;
+export const NOTIFY_REPAIR_SCHEDULED = "install_repair_scheduled" as const;
+/** 发给安装工的通知实体：落到 /install/<预约 id> */
+export const ENTITY_INSTALL_TASK = "install_task" as const;
+
+/** 需工厂行的出单品类；品类推不出 → "unknown"（任一品类岗或伞键可登记） */
+export const UNKNOWN_CATEGORY = "unknown" as const;
+export type FactoryCategory = FulfillmentCategory | typeof UNKNOWN_CATEGORY;
+export const FACTORY_CATEGORY_LABEL: Record<FactoryCategory, string> = {
+  vinyl: "Vinyl",
+  drapery: "布帘",
+  shades: "Roller/Zebra/Roman",
+  unknown: "品类待确认",
+};
+const FACTORY_ORDER: FactoryCategory[] = ["vinyl", "drapery", "shades", UNKNOWN_CATEGORY];
+const isFactoryCategory = (v: unknown): v is FactoryCategory => typeof v === "string" && (FACTORY_ORDER as string[]).includes(v);
+
+export type RepairEvent = {
+  id: string;
+  action: string;
+  repairId: string;
+  at: string;
+  userId: string;
+  data: Record<string, unknown>;
+};
+
+/** 解析维修单事件审计行（afterData 必须带 repairId）；坏数据 → null */
+export function parseRepairEvent(row: { id: string; action: string; afterData: string | null; createdAt: Date | string; userId: string }): RepairEvent | null {
+  if (!row.afterData || !(REPAIR_EVENT_ACTIONS as readonly string[]).includes(row.action)) return null;
+  try {
+    const d = JSON.parse(row.afterData) as Record<string, unknown>;
+    if (typeof d.repairId !== "string" || !d.repairId) return null;
+    return { id: row.id, action: row.action, repairId: d.repairId, at: new Date(row.createdAt).toISOString(), userId: row.userId, data: d };
+  } catch {
+    return null;
+  }
+}
+
+export type FactoryIssue = { category: FactoryCategory; readyDate: string; note: string; byUserId: string; at: string; eventId: string };
+export type RepairSchedule = { appointmentId: string; installAt: string; assignedToId: string; byUserId: string; at: string; eventId: string };
+export type RepairClosed = { reason: "completed" | "superseded"; supersededBy: string | null; byUserId: string; at: string };
+
+export type RepairProgress = {
+  /** 需工厂行涉及的出单品类（按 Vinyl / 布帘 / Roller / 待确认 排序） */
+  factoryCategories: FactoryCategory[];
+  issued: FactoryIssue[];
+  pendingCategories: FactoryCategory[];
+  /** 已登记品类里最晚的预计备好日 */
+  readyDate: string | null;
+  /** 最新一条排期（改期以最新为准） */
+  schedule: RepairSchedule | null;
+  closed: RepairClosed | null;
+};
+
+/** 需工厂行的出单品类（含"待确认"） */
+export function factoryCategoriesOf(rows: Array<Pick<RepairRow, "needsFactory" | "category">>): FactoryCategory[] {
+  const set = new Set<FactoryCategory>(rows.filter((r) => r.needsFactory).map((r) => r.category ?? UNKNOWN_CATEGORY));
+  return FACTORY_ORDER.filter((c) => set.has(c));
+}
+
+/** 维修单进度（纯函数）：events 只取本维修单的，顺序不限 */
+export function repairProgress(rec: Pick<RepairRecord, "id" | "rows">, events: RepairEvent[]): RepairProgress {
+  const mine = events.filter((e) => e.repairId === rec.id).sort((a, b) => a.at.localeCompare(b.at));
+  const factoryCategories = factoryCategoriesOf(rec.rows);
+  const issued: FactoryIssue[] = [];
+  let schedule: RepairSchedule | null = null;
+  let closed: RepairClosed | null = null;
+  for (const e of mine) {
+    if (e.action === INSTALL_REPAIR_FACTORY_ISSUED) {
+      const cats = Array.isArray(e.data.categories) ? (e.data.categories as unknown[]).filter(isFactoryCategory) : [];
+      for (const c of cats) {
+        if (issued.some((i) => i.category === c)) continue;
+        issued.push({ category: c, readyDate: str(e.data.readyDate), note: str(e.data.note), byUserId: e.userId, at: e.at, eventId: e.id });
+      }
+    } else if (e.action === INSTALL_REPAIR_SCHEDULED) {
+      if (typeof e.data.appointmentId === "string") {
+        schedule = {
+          appointmentId: e.data.appointmentId,
+          installAt: str(e.data.installAt),
+          assignedToId: str(e.data.assignedToId),
+          byUserId: e.userId,
+          at: e.at,
+          eventId: e.id,
+        };
+      }
+    } else if (e.action === INSTALL_REPAIR_COMPLETED && !closed) {
+      closed = {
+        reason: e.data.reason === "superseded" ? "superseded" : "completed",
+        supersededBy: typeof e.data.supersededBy === "string" ? e.data.supersededBy : null,
+        byUserId: e.userId,
+        at: e.at,
+      };
+    }
+  }
+  const issuedSet = new Set(issued.map((i) => i.category));
+  const pendingCategories = factoryCategories.filter((c) => !issuedSet.has(c));
+  const dates = issued.map((i) => i.readyDate).filter(Boolean).sort();
+  return { factoryCategories, issued, pendingCategories, readyDate: dates[dates.length - 1] ?? null, schedule, closed };
+}
+
+export type RepairHolder = {
+  /** 持有的品类修改键 orders.fulfillment.update.<品类> */
+  categoryKeys: FulfillmentCategory[];
+  /** 持全品类伞键 orders.fulfillment.update */
+  umbrella: boolean;
+  /** 持 install.task.assign（ORG） */
+  canAssign: boolean;
+};
+
+/** 某人能登记的品类（"待确认"品类：任一品类岗或伞键） */
+function canIssueCategory(c: FactoryCategory, h: RepairHolder): boolean {
+  if (h.umbrella) return true;
+  if (c === UNKNOWN_CATEGORY) return h.categoryKeys.length > 0;
+  return h.categoryKeys.includes(c);
+}
+
+/** 可执行操作（页面按钮与写接口共用，design D9） */
+export function repairActions(p: RepairProgress, h: RepairHolder): { issueCategories: FactoryCategory[]; canSchedule: boolean } {
+  if (p.closed) return { issueCategories: [], canSchedule: false };
+  return { issueCategories: p.pendingCategories.filter((c) => canIssueCategory(c, h)), canSchedule: h.canAssign };
+}
+
+export type IssueDecision =
+  | { ok: true; categories: FactoryCategory[] }
+  | { ok: false; status: 403 | 409; code: "FORBIDDEN" | "NOT_NEEDED" | "CLOSED" | "ALREADY_ISSUED"; error: string };
+
+/** 出单确认的判定（spec「出单确认按品类登记」）：与 repairActions 同口径 */
+export function issueDecision(p: RepairProgress, h: RepairHolder): IssueDecision {
+  if (!h.umbrella && h.categoryKeys.length === 0) return { ok: false, status: 403, code: "FORBIDDEN", error: "只有出单岗可以登记出单" };
+  if (p.factoryCategories.length === 0) return { ok: false, status: 409, code: "NOT_NEEDED", error: "该维修单不需要工厂出单" };
+  if (!p.factoryCategories.some((c) => canIssueCategory(c, h))) {
+    return { ok: false, status: 403, code: "FORBIDDEN", error: "该维修单没有你负责的品类" };
+  }
+  if (p.closed) return { ok: false, status: 409, code: "CLOSED", error: "维修单已关闭" };
+  const categories = repairActions(p, h).issueCategories;
+  if (categories.length === 0) return { ok: false, status: 409, code: "ALREADY_ISSUED", error: "你负责的品类已登记出单" };
+  return { ok: true, categories };
+}
+
+export const FACTORY_NOTE_MAX = 500;
+
+/** 出单登记入参：预计备好日不早于填写日、不晚于 365 天后；备注 ≤ 500 */
+export function validateFactoryIssue(raw: unknown, ctx: { fillDate: string }):
+  | { ok: true; value: { readyDate: string; note: string } }
+  | { ok: false; error: string } {
+  const o = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const readyDate = typeof o.readyDate === "string" ? o.readyDate.trim() : "";
+  if (!validYmd(readyDate)) return { ok: false, error: "预计备好日格式应为 YYYY-MM-DD" };
+  if (readyDate < ctx.fillDate) return { ok: false, error: "预计备好日不能早于维修单填写日" };
+  if (readyDate > addDays(ctx.fillDate, PREFERRED_MAX_DAYS)) return { ok: false, error: `预计备好日不能晚于 ${PREFERRED_MAX_DAYS} 天后` };
+  const note = typeof o.note === "string" ? o.note.trim() : "";
+  if (note.length > FACTORY_NOTE_MAX) return { ok: false, error: `备注不超过 ${FACTORY_NOTE_MAX} 字` };
+  return { ok: true, value: { readyDate, note } };
+}
+
+/** 排返修入参：时间可解析、不早于 1 天前、不晚于 365 天后；必须选安装工 */
+export function validateRepairSchedule(raw: unknown, now: Date = new Date()):
+  | { ok: true; value: { installAt: Date; assignedToId: string } }
+  | { ok: false; code: "NO_INSTALL_DATE" | "NO_INSTALLER"; error: string } {
+  const o = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const installAt = typeof o.installAt === "string" && o.installAt.trim() ? new Date(o.installAt) : null;
+  if (!installAt || Number.isNaN(installAt.getTime())) return { ok: false, code: "NO_INSTALL_DATE", error: "请选择返修时间" };
+  if (installAt.getTime() < now.getTime() - 86_400_000 || installAt.getTime() > now.getTime() + PREFERRED_MAX_DAYS * 86_400_000) {
+    return { ok: false, code: "NO_INSTALL_DATE", error: "返修时间应在今天到一年内" };
+  }
+  const assignedToId = typeof o.assignedToId === "string" ? o.assignedToId.trim() : "";
+  if (!assignedToId) return { ok: false, code: "NO_INSTALLER", error: "必须选择安装岗位的人" };
+  return { ok: true, value: { installAt, assignedToId } };
+}
+
+/** 排返修的提示：出单未全部登记 / 预计备好日晚于返修日（照常排，design D3） */
+export function scheduleWarnings(p: RepairProgress, installDate: string): string[] {
+  const out: string[] = [];
+  if (p.pendingCategories.length > 0) {
+    out.push(`出单尚未登记：${p.pendingCategories.map((c) => FACTORY_CATEGORY_LABEL[c]).join("、")}`);
+  }
+  if (p.readyDate && p.readyDate > installDate) out.push(`返修件预计 ${p.readyDate} 才备好，晚于返修日 ${installDate}`);
+  return out;
+}
+
+// ─────────────────────────── INSTALL-2e：返修预约与任务收口范围（design D4） ───────────────────────────
+
+/** 预约是不是某张维修单的返修预约（该维修单最新一条排期指向它）；是 → 该维修单 */
+export function returnRepairFor<R extends Pick<RepairRecord, "id" | "rows">>(appointmentId: string, repairs: R[], events: RepairEvent[]): R | null {
+  for (const r of repairs) {
+    if (repairProgress(r, events).schedule?.appointmentId === appointmentId) return r;
+  }
+  return null;
+}
+
+/** 任务收口范围：返修预约 → 维修单各行对应的单元；普通预约（repair 为 null）→ 全部单元 */
+export function scopeUnits<T extends { id: string }>(units: T[], repair: Pick<RepairRecord, "rows"> | null): T[] {
+  if (!repair) return units;
+  const ids = new Set(repair.rows.map((r) => r.unitId));
+  return units.filter((u) => ids.has(u.id));
+}

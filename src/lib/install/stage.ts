@@ -3,7 +3,7 @@
  *
  * UI、接口、通知、维修单列表与工艺单状态卡共用这一张表（任务书 §5；design D8）。
  * "待收尾款"与 2b 的会计列表同一规则：已安装；或已完工且当前安装预约有完成收口记录（§12 Q11）。
- * 2e 在此表上补"已出单 / 已排返修"。
+ * INSTALL-2e：返修态按出单登记与返修排期细分（repair_open / repair_ready_to_schedule / repair_scheduled）。
  */
 
 export const INSTALL_STAGES = [
@@ -11,6 +11,7 @@ export const INSTALL_STAGES = [
   "scheduled",
   "repair_open",
   "repair_ready_to_schedule",
+  "repair_scheduled",
   "awaiting_balance",
   "closed",
   "cancelled",
@@ -22,6 +23,7 @@ export const STAGE_LABEL: Record<InstallStage, string> = {
   scheduled: "已排期",
   repair_open: "返修待出单",
   repair_ready_to_schedule: "返修待排期",
+  repair_scheduled: "返修已排期",
   awaiting_balance: "待收尾款",
   closed: "已结清",
   cancelled: "已取消",
@@ -33,8 +35,8 @@ export type StageInput = {
   balanceConfirmed: boolean;
   /** 当前安装预约有完成收口记录（install.task.completed，结果不是 needs_repair） */
   closedOut: boolean;
-  /** 未关闭的维修单（2d：所有已提交的都未关闭）；needsFactory = 含需工厂行 */
-  openRepair: { needsFactory: boolean } | null;
+  /** 最新一张未关闭的维修单：pendingFactory = 还有需工厂品类没登记出单；scheduled = 已排返修（返修预约未完成） */
+  openRepair: { pendingFactory: boolean; scheduled: boolean } | null;
 };
 
 export function installStage(i: StageInput): InstallStage {
@@ -44,7 +46,8 @@ export function installStage(i: StageInput): InstallStage {
   if (i.orderStatus === "completed") return i.closedOut ? "awaiting_balance" : "closed";
   if (i.orderStatus === "scheduled") {
     if (!i.openRepair) return "scheduled";
-    return i.openRepair.needsFactory ? "repair_open" : "repair_ready_to_schedule";
+    if (i.openRepair.scheduled) return "repair_scheduled";
+    return i.openRepair.pendingFactory ? "repair_open" : "repair_ready_to_schedule";
   }
   // draft / confirmed / in_production / ready
   return "not_scheduled";
@@ -61,7 +64,13 @@ const WARRANTY_TEXT: Record<WarrantyBrief, string> = {
 /** 销售文案（spec「阶段文案」）；日期为 YYYY-MM-DD */
 export function salesStageText(
   stage: InstallStage,
-  ctx: { installDate?: string | null; targetDate?: string | null; balanceConfirmed?: boolean; warranty?: WarrantyBrief | null } = {},
+  ctx: {
+    installDate?: string | null;
+    targetDate?: string | null;
+    repairDate?: string | null;
+    balanceConfirmed?: boolean;
+    warranty?: WarrantyBrief | null;
+  } = {},
 ): string {
   switch (stage) {
     case "not_scheduled":
@@ -71,6 +80,8 @@ export function salesStageText(
     case "repair_open":
     case "repair_ready_to_schedule":
       return ctx.targetDate ? `返修中，目标 ${ctx.targetDate}` : "返修中";
+    case "repair_scheduled":
+      return ctx.repairDate ? `${ctx.repairDate} 再去返修` : "已排返修";
     case "awaiting_balance":
       return "已装完，收尾款";
     case "closed":

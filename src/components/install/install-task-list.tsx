@@ -5,6 +5,7 @@
  * — 按日期分组的列表 / 周视图切换；数据来自 /api/install/tasks
  * — 安装工只会拿到分配给自己的；运营 / 会计 / 老板看全企业
  * INSTALL-2d：全企业范围显示"返修单"入口；因维修单完成的任务标"需返修"
+ * INSTALL-2e：返修任务标"返修 R-…"
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -238,7 +239,10 @@ function TaskCard({ task }: { task: InstallTaskSummary }) {
         )}
       </div>
       <div className="mt-2 flex items-center justify-between text-[11px] text-muted">
-        <span>安装：{task.assignedTo.name}</span>
+        <span>
+          安装：{task.assignedTo.name}
+          {task.returnRepair && <span className="ml-1.5 rounded-full bg-[rgba(201,138,34,0.14)] px-1.5 py-0.5 text-[#a86a12]">返修 {task.returnRepair.repairNo}</span>}
+        </span>
         {task.order && task.order.issueCount > 0 && (
           <span className="rounded-full bg-[rgba(201,138,34,0.12)] px-1.5 py-0.5 text-[#a86a12]">
             {task.status === "completed" ? "需返修" : "有问题"} · {task.order.issueCount} 项

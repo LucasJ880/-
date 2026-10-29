@@ -5,7 +5,7 @@
  * - 只接受 jpeg / png / webp，≤ 8MB
  * - 私有 Blob install-photos/{orgId}/{orderId}/{单元 id}/{ts}.{ext}
  * - 审计 install.window.completed 作为收口记录；返回该单元最新记录
- * - itemId 不属于该任务工艺单的收口单元 → 404
+ * - itemId 不属于该任务工艺单的收口单元 → 404（INSTALL-2e：返修预约只接受维修单各行对应的单元）
  * INSTALL-2a：itemId 可为工艺参数单元 `spec-<段>-<下标>`（审计 targetType blinds_order_unit，afterData 存位置快照）；
  * 收口记录写入失败 → 500 提示重拍，不再假成功（design D5）。
  */
@@ -15,6 +15,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { putPrivateBlob } from "@/lib/files/blob-access";
+import { scopeUnits } from "@/lib/install/repair";
 import {
   aggregateCloseout,
   INSTALL_TARGET_ITEM,
@@ -33,6 +34,7 @@ import {
   loadOrderForTask,
   loadOrderUnits,
 } from "@/lib/install/service";
+import { loadTaskRepairScope } from "@/lib/install/repair-service";
 
 const UPLOAD_RATE_LIMIT = { name: "install-photo", windowMs: 60_000, maxRequests: 30 } as const;
 
@@ -62,9 +64,10 @@ export const POST = withAuth<{ id: string; itemId: string }>(async (request, ctx
 
   const order = await loadOrderForTask(task.id);
   if (!order) return installNoOrder();
-  const units = await loadOrderUnits(order);
-  const unit = units.find((u) => u.id === itemId);
-  if (!unit) return NextResponse.json({ error: "该窗不属于此工艺单" }, { status: 404 });
+  // INSTALL-2e：返修预约只接受维修单各行对应的单元
+  const [units, ret] = await Promise.all([loadOrderUnits(order), loadTaskRepairScope(order.id, task.id)]);
+  const unit = scopeUnits(units, ret).find((u) => u.id === itemId);
+  if (!unit) return NextResponse.json({ error: ret ? "该窗不在本次返修范围内" : "该窗不属于此工艺单" }, { status: 404 });
 
   let form: FormData;
   try {

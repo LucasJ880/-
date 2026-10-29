@@ -1,6 +1,7 @@
 /**
  * INSTALL-2a：收口单元（Blinds 行 + 工艺参数四段）构建 / 编号 / id 编解码 / 位置快照比对
  * INSTALL-2d：问题记录与收口记录取最新一条（有问题 / 已收口 / 未处理）
+ * INSTALL-2e：返修预约的收口范围（只含维修单行对应的单元）
  * 运行：npx tsx src/lib/install/__tests__/closeout-units.test.ts
  */
 import {
@@ -16,6 +17,7 @@ import {
   type CloseoutLog,
   type SpecSectionsInput,
 } from "../closeout";
+import { returnRepairFor, scopeUnits, type RepairEvent } from "../repair";
 import { emptySpec, type DrapeSpecRow, type DomesticSpecRow, type VinylSpecWindow } from "@/lib/sunny-process/process-spec";
 
 let pass = 0;
@@ -163,6 +165,24 @@ console.log("INSTALL-2d 问题记录与收口记录取最新");
   ok(stale.windows[0].state === "pending" && stale.windows[0].locationChanged?.previousLocation === "主卧", "工艺参数单元：问题记录位置已变 → 不计入，标记位置已变");
   const match = aggregateCloseout(specUnits, [issueLog("o10:vinyl:0", "2026-10-28T10:00:00Z", " 次卧 ")]);
   ok(match.windows[0].state === "issue", "工艺参数单元：问题记录位置一致 → 有问题");
+}
+
+console.log("INSTALL-2e 返修预约的收口范围");
+{
+  const units = buildCloseoutUnits("o11", [], spec({ vinyl: [vinyl("Living Room"), vinyl("Den"), vinyl("Kitchen")] }));
+  const r1 = { id: "r1", rows: [{ unitId: "spec-vinyl-1" }] } as unknown as Parameters<typeof scopeUnits>[1] & { id: string };
+  const r2 = { id: "r2", rows: [{ unitId: "spec-vinyl-1" }, { unitId: "spec-vinyl-2" }] } as unknown as typeof r1;
+  const ev = (repairId: string, appointmentId: string, at: string): RepairEvent => ({ id: `${repairId}-${at}`, action: "install.repair.scheduled", repairId, at, userId: "ops", data: { appointmentId } });
+  const events = [ev("r1", "a-return-1", "2026-10-29T10:00:00Z"), ev("r2", "a-return-2", "2026-11-05T10:00:00Z")];
+  ok(returnRepairFor("a-return-1", [r1, r2], events)?.id === "r1" && returnRepairFor("a-return-2", [r1, r2], events)?.id === "r2", "返修预约 → 对应维修单");
+  ok(returnRepairFor("a-first", [r1, r2], events) === null, "首装预约不是返修预约 → null");
+  const moved = [...events, ev("r1", "a-return-1b", "2026-10-30T10:00:00Z")];
+  ok(returnRepairFor("a-return-1", [r1], moved) === null && returnRepairFor("a-return-1b", [r1], moved)?.id === "r1", "同一维修单换了预约：以最新排期为准");
+  ok(scopeUnits(units, r1).map((u) => u.location).join() === "Den", "返修范围：只有 Den");
+  ok(scopeUnits(units, r2).map((u) => u.location).join() === "Den,Kitchen", "返修范围：Den、Kitchen");
+  ok(scopeUnits(units, null).length === 3, "普通预约：全部单元");
+  const agg = aggregateCloseout(scopeUnits(units, r1), [unitLog("o11:vinyl:0", "2026-10-28T10:00:00Z", "Living Room")]);
+  ok(agg.total === 1 && agg.completed === 0 && !agg.allCompleted, "范围外单元的记录不影响返修计数：0 / 1");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

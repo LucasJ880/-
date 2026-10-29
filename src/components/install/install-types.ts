@@ -24,6 +24,8 @@ export type InstallTaskSummary = {
     issueCount: number;
     allCompleted: boolean;
   } | null;
+  /** INSTALL-2e：返修预约所属维修单 */
+  returnRepair?: { id: string; repairNo: string } | null;
 };
 
 export type InstallPhoto = {
@@ -181,6 +183,20 @@ export type RepairListItem = {
   customerConfirmed: boolean;
   stage: string;
   stageLabel: string;
+  /** INSTALL-2e：待登记出单品类 / 返修时间 / 关闭情况 */
+  pendingFactory: Array<{ key: string; label: string }>;
+  scheduledAt: string | null;
+  closed: { reason: "completed" | "superseded"; supersededBy: string | null } | null;
+};
+
+/** INSTALL-2e：维修单进度（详情） */
+export type RepairProgressData = {
+  factoryCategories: Array<{ key: string; label: string }>;
+  issued: Array<{ key: string; label: string; readyDate: string; note: string; by: { id: string; name: string | null }; at: string }>;
+  pending: Array<{ key: string; label: string }>;
+  readyDate: string | null;
+  schedule: { appointmentId: string; installAt: string; assignedTo: { id: string; name: string | null }; completed: boolean } | null;
+  closed: { reason: "completed" | "superseded"; supersededBy: string | null; at: string } | null;
 };
 
 /** INSTALL-2d：GET /api/install/repairs/[id] 详情（打印版同一数据） */
@@ -191,6 +207,9 @@ export type RepairDetailData = RepairListItem & {
   submittedAt: string;
   appointmentId: string;
   company: { name: string; address: string };
+  /** INSTALL-2e：进度与当前用户可执行操作（与写接口同一判定） */
+  progress: RepairProgressData;
+  actions: { issueCategories: Array<{ key: string; label: string }>; canSchedule: boolean };
   rows: Array<{
     n: number;
     unitId: string;

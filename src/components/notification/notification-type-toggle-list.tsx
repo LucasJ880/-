@@ -18,6 +18,8 @@ const LABELS: Record<string, string> = {
   install_warranty_sent: "质保邮件已发出",
   install_warranty_failed: "质保邮件未发出",
   install_repair_submitted: "返修单已提交",
+  install_repair_factory_issued: "返修件已出单",
+  install_repair_scheduled: "已安排返修",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);
