@@ -35,6 +35,7 @@ import { useVisualViewport } from "@/lib/mobile/use-visual-viewport";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import { allowsManualSellingPrice } from "@/lib/blinds/pricing-engine";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
@@ -381,6 +382,7 @@ function QuoteSheetPageInner() {
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
           romanShade?: number;
+          fauxwood?: number; allusion?: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -397,6 +399,9 @@ function QuoteSheetPageInner() {
           Shutters: d.shutters,
           SkylightHoneycomb: d.honeycomb,
           "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
+          // 2026-10-28 价表（企业设置 JSON 存储；缺省与 DEFAULT_DISCOUNTS 同）
+          Fauxwood: typeof d.fauxwood === "number" ? d.fauxwood : 0.3,
+          Allusion: typeof d.allusion === "number" ? d.allusion : 0.35,
         });
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
@@ -848,7 +853,7 @@ function QuoteSheetPageInner() {
 
       // Shades
       for (const l of shadeOrders) {
-        // Allusion / Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice
+        // Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice（Allusion 2026-10-28 起走查表 + 可选覆盖）
         if (isManualPriceShadeProduct(l.product)) {
           if (!l.widthWhole || !l.heightWhole) continue;
           const w = fractionToInches(l.widthWhole, l.widthFrac);
@@ -876,6 +881,7 @@ function QuoteSheetPageInner() {
         // （例如 "Light Filtering (Open Roll)"），否则后端 priceFor 会报
         // "Pricing for this Roller fabric is not set yet"，导致整行价格丢失。
         const pricingFabric = skuToPricingFabric(l.sku, l.product);
+        const manualOverride = allowsManualSellingPrice(l.product) ? parseFloat(l.manualPrice ?? "") : NaN;
         items.push({
           product: l.product,
           fabric: pricingFabric,
@@ -885,6 +891,8 @@ function QuoteSheetPageInner() {
           motorized: l.lift === "M",
           location: l.location,
           sku: l.sku,
+          // Allusion：手动成交单价覆盖随行上传，服务端用同一纯函数套用
+          ...(Number.isFinite(manualOverride) && manualOverride > 0 ? { manualPrice: manualOverride } : {}),
         });
       }
 

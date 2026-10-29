@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import type { ProductName } from "./pricing-types";
 import {
   DEFAULT_DISCOUNTS,
@@ -29,7 +30,83 @@ const FIELD_TO_PRODUCT: Record<string, ProductName> = {
   shutters: "Shutters",
   honeycomb: "SkylightHoneycomb",
   romanShade: "Roman Shade",
+  // 2026-10-28 价表：这两项存企业设置 JSON（pricing.discounts），不是 QuoteDiscountSettings 的列（零 schema）
+  fauxwood: "Fauxwood",
+  allusion: "Allusion",
 };
+
+/** 存于 Organization.settingsJson.pricing.discounts 的折扣键（design D1） */
+export const JSON_DISCOUNT_KEYS = ["fauxwood", "allusion"] as const;
+export type JsonDiscountKey = (typeof JSON_DISCOUNT_KEYS)[number];
+const JSON_DISCOUNT_KEY_SET = new Set<string>(JSON_DISCOUNT_KEYS);
+
+/** 纯函数：从企业设置 JSON 读 pricing.discounts 里的折扣；坏值（非 0~1 有限数）丢弃，由调用方回落默认 */
+export function readJsonDiscounts(settingsJson: unknown): Partial<Record<JsonDiscountKey, number>> {
+  const out: Partial<Record<JsonDiscountKey, number>> = {};
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return out;
+  const pricing = (settingsJson as Record<string, unknown>).pricing;
+  if (!pricing || typeof pricing !== "object" || Array.isArray(pricing)) return out;
+  const discounts = (pricing as Record<string, unknown>).discounts;
+  if (!discounts || typeof discounts !== "object" || Array.isArray(discounts)) return out;
+  for (const k of JSON_DISCOUNT_KEYS) {
+    const v = (discounts as Record<string, unknown>)[k];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) out[k] = v;
+  }
+  return out;
+}
+
+/** 纯函数：把 JSON 折扣写回企业设置 JSON，只替换 pricing.discounts 的对应键，其它键原样保留 */
+export function mergeJsonDiscounts(
+  settingsJson: unknown,
+  patch: Partial<Record<JsonDiscountKey, number>>,
+): Record<string, unknown> {
+  const base =
+    settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson)
+      ? { ...(settingsJson as Record<string, unknown>) }
+      : {};
+  const pricingRaw = base.pricing;
+  const pricing =
+    pricingRaw && typeof pricingRaw === "object" && !Array.isArray(pricingRaw)
+      ? { ...(pricingRaw as Record<string, unknown>) }
+      : {};
+  const discountsRaw = pricing.discounts;
+  const discounts =
+    discountsRaw && typeof discountsRaw === "object" && !Array.isArray(discountsRaw)
+      ? { ...(discountsRaw as Record<string, unknown>) }
+      : {};
+  for (const k of JSON_DISCOUNT_KEYS) {
+    if (patch[k] !== undefined) discounts[k] = patch[k];
+  }
+  pricing.discounts = discounts;
+  base.pricing = pricing;
+  return base;
+}
+
+/**
+ * 服务端计价前把企业折扣套到没有行级覆盖的行上（design D1：定价、预览与报价创建同一来源）。
+ * 行上已有有限数的 discountOverridePct（销售手动改过）时保持不变；手填价产品（Roman）不受影响（引擎忽略）。
+ */
+export function applyOrgDiscountDefaults<T extends { product: ProductName; discountOverridePct?: number | null }>(
+  items: T[],
+  discounts: DiscountsByProduct,
+): T[] {
+  return items.map((item) => {
+    if (typeof item.discountOverridePct === "number" && Number.isFinite(item.discountOverridePct)) return item;
+    const d = discounts[item.product];
+    if (typeof d !== "number" || !Number.isFinite(d)) return item;
+    return { ...item, discountOverridePct: d };
+  });
+}
+
+/** DTO → 按产品折扣表（给已拿到 DTO 的调用方用，省一次查询） */
+export function dtoToProductDiscounts(dto: DiscountsDto): DiscountsByProduct {
+  const out = { ...DEFAULT_DISCOUNTS };
+  for (const [field, product] of Object.entries(FIELD_TO_PRODUCT)) {
+    const v = (dto as unknown as Record<string, unknown>)[field];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) out[product] = v;
+  }
+  return out;
+}
 
 export const PRODUCT_TO_FIELD: Record<ProductName, string> = Object.fromEntries(
   Object.entries(FIELD_TO_PRODUCT).map(([f, p]) => [p, f]),
@@ -49,6 +126,9 @@ export interface DiscountsDto {
   shutters: number;
   honeycomb: number;
   romanShade: number;
+  /** 2026-10-28 价表新产品折扣（企业设置 JSON 存储；缺省 0.30 / 0.35） */
+  fauxwood: number;
+  allusion: number;
   sunnyMotorPrice: number;
   /** 最低安装费（CAD）：installation 模式下行内安装费不足时补足到此金额 */
   minInstallFee: number;
@@ -83,6 +163,8 @@ const PRODUCT_KEYS = [
   "shutters",
   "honeycomb",
   "romanShade",
+  "fauxwood",
+  "allusion",
 ] as const;
 const THRESHOLD_KEYS = ["promoWarnPct", "promoDangerPct", "promoMaxPct"] as const;
 const DEPOSIT_KEYS = ["depositWarnPct", "depositMinPct"] as const;
@@ -132,11 +214,15 @@ export function validateCostRatesInput(
   return { ok: true, value: out };
 }
 
-function rowToProductMap(row: Record<string, unknown> | null): DiscountsByProduct {
+/** 列存折扣 + 企业设置 JSON 折扣 → 按产品的折扣表（缺省回 DEFAULT_DISCOUNTS） */
+function rowToProductMap(
+  row: Record<string, unknown> | null,
+  settingsJson: unknown = null,
+): DiscountsByProduct {
   const out = { ...DEFAULT_DISCOUNTS };
-  if (!row) return out;
+  const json = readJsonDiscounts(settingsJson);
   for (const [field, product] of Object.entries(FIELD_TO_PRODUCT)) {
-    const v = row[field];
+    const v = JSON_DISCOUNT_KEY_SET.has(field) ? json[field as JsonDiscountKey] : row?.[field];
     if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) {
       out[product] = v;
     }
@@ -144,24 +230,33 @@ function rowToProductMap(row: Record<string, unknown> | null): DiscountsByProduc
   return out;
 }
 
+async function loadSettingsJson(orgId: string): Promise<unknown> {
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
+  return org?.settingsJson ?? null;
+}
+
 export async function loadDiscounts(orgId: string): Promise<DiscountsByProduct> {
   if (!orgId) {
     throw new Error("loadDiscounts 必须提供 orgId");
   }
-  const row = await db.quoteDiscountSettings.findUnique({
-    where: { orgId },
-  });
-  return rowToProductMap(row as unknown as Record<string, unknown> | null);
+  const [row, settingsJson] = await Promise.all([
+    db.quoteDiscountSettings.findUnique({ where: { orgId } }),
+    loadSettingsJson(orgId),
+  ]);
+  return rowToProductMap(row as unknown as Record<string, unknown> | null, settingsJson);
 }
 
 export async function loadDiscountsResult(
   orgId: string,
 ): Promise<ConfigLoadResult<DiscountsByProduct>> {
-  const row = await db.quoteDiscountSettings.findUnique({ where: { orgId } });
+  const [row, settingsJson] = await Promise.all([
+    db.quoteDiscountSettings.findUnique({ where: { orgId } }),
+    loadSettingsJson(orgId),
+  ]);
   if (!row) {
     return {
       status: "missing",
-      value: { ...DEFAULT_DISCOUNTS },
+      value: rowToProductMap(null, settingsJson),
       orgId,
       ruleKey: "quote_discounts",
       version: null,
@@ -172,7 +267,7 @@ export async function loadDiscountsResult(
   }
   return {
     status: "ok",
-    value: rowToProductMap(row as unknown as Record<string, unknown>),
+    value: rowToProductMap(row as unknown as Record<string, unknown>, settingsJson),
     orgId,
     ruleKey: "quote_discounts",
     version: row.version,
@@ -185,7 +280,13 @@ export async function loadDiscountsResult(
 export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
   if (!orgId) throw new Error("loadDiscountsDto 必须提供 orgId");
 
-  const row = await db.quoteDiscountSettings.findUnique({ where: { orgId } });
+  const [row, settingsJson] = await Promise.all([
+    db.quoteDiscountSettings.findUnique({ where: { orgId } }),
+    loadSettingsJson(orgId),
+  ]);
+  const json = readJsonDiscounts(settingsJson);
+  const fauxwood = json.fauxwood ?? DEFAULT_DISCOUNTS.Fauxwood;
+  const allusion = json.allusion ?? DEFAULT_DISCOUNTS.Allusion;
   if (!row) {
     return {
       orgId,
@@ -201,6 +302,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       shutters: DEFAULT_DISCOUNTS.Shutters,
       honeycomb: DEFAULT_DISCOUNTS.SkylightHoneycomb,
       romanShade: DEFAULT_DISCOUNTS["Roman Shade"],
+      fauxwood,
+      allusion,
       sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
       minInstallFee: INSTALL_RULES.minimumTotal,
       deliveryFee: DEFAULT_DELIVERY_FEE,
@@ -233,6 +336,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     shutters: row.shutters,
     honeycomb: row.honeycomb,
     romanShade: row.romanShade,
+    fauxwood,
+    allusion,
     sunnyMotorPrice: row.sunnyMotorPrice,
     minInstallFee: row.minInstallFee,
     deliveryFee: row.deliveryFee,
@@ -284,8 +389,19 @@ export async function saveDiscountsForOrg(params: {
     depositOverrideCodeHashed,
     lineDiscountUnlockCodeHashed,
     costRates,
-    ...numericPatch
+    ...numericPatchAll
   } = params.patch;
+
+  // 2026-10-28：fauxwood / allusion 不是列，拆出来写企业设置 JSON 的 pricing.discounts 子键
+  const jsonPatch: Partial<Record<JsonDiscountKey, number>> = {};
+  const numericPatch: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(numericPatchAll)) {
+    if (JSON_DISCOUNT_KEY_SET.has(k)) {
+      if (typeof v === "number") jsonPatch[k as JsonDiscountKey] = v;
+    } else {
+      numericPatch[k] = v;
+    }
+  }
 
   const data: Record<string, unknown> = { ...numericPatch };
   if (costRates !== undefined) {
@@ -320,22 +436,35 @@ export async function saveDiscountsForOrg(params: {
     }
   }
 
-  const updated = await db.quoteDiscountSettings.upsert({
-    where: { orgId: params.orgId },
-    create: {
-      orgId: params.orgId,
-      version: 1,
-      effectiveAt: now,
-      ...data,
-      updatedBy: params.userId,
-    },
-    update: {
-      ...data,
-      version: nextVersion,
-      effectiveAt: now,
-      updatedBy: params.userId,
-    },
+  const updated = await db.$transaction(async (tx) => {
+    const row = await tx.quoteDiscountSettings.upsert({
+      where: { orgId: params.orgId },
+      create: {
+        orgId: params.orgId,
+        version: 1,
+        effectiveAt: now,
+        ...data,
+        updatedBy: params.userId,
+      },
+      update: {
+        ...data,
+        version: nextVersion,
+        effectiveAt: now,
+        updatedBy: params.userId,
+      },
+    });
+    if (Object.keys(jsonPatch).length > 0) {
+      // 只替换 pricing.discounts 子键；sunnyWarranty / tenderRfq / calendarWatch 等其它键原样保留
+      const org = await tx.organization.findUnique({ where: { id: params.orgId }, select: { settingsJson: true } });
+      const merged = mergeJsonDiscounts(org?.settingsJson ?? null, jsonPatch);
+      await tx.organization.update({
+        where: { id: params.orgId },
+        data: { settingsJson: merged as Prisma.InputJsonValue },
+      });
+    }
+    return row;
   });
+  const jsonAfter = readJsonDiscounts(await loadSettingsJson(params.orgId));
 
   await publishOrgRule({
     orgId: params.orgId,
@@ -352,6 +481,8 @@ export async function saveDiscountsForOrg(params: {
       shutters: updated.shutters,
       honeycomb: updated.honeycomb,
       romanShade: updated.romanShade,
+      fauxwood: jsonAfter.fauxwood ?? DEFAULT_DISCOUNTS.Fauxwood,
+      allusion: jsonAfter.allusion ?? DEFAULT_DISCOUNTS.Allusion,
       sunnyMotorPrice: updated.sunnyMotorPrice,
       minInstallFee: updated.minInstallFee,
       deliveryFee: updated.deliveryFee,

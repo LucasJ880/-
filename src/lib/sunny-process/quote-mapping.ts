@@ -76,6 +76,11 @@ const IN_HOUSE: Record<string, BlindsItemDraft["productType"]> = {
   SHANGRILA: "香格里拉",
 };
 
+/** 没有工艺模板、走外采购的 Shades 产品的中文品类（没有条目的沿用 `帘子 ${product}`） */
+const PURCHASE_LABEL: Record<string, string> = {
+  Fauxwood: "仿木百叶",
+};
+
 const DOMESTIC_PRODUCT: Record<string, string> = {
   "Cordless Cellular": "蜂窝帘",
   SkylightHoneycomb: "蜂窝帘",
@@ -230,7 +235,7 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
     const dp = DOMESTIC_PRODUCT[product];
     if (!dp) {
       purchase.push({
-        section: "shade", categoryZh: `帘子 ${product}`, location, widthIn: width, heightIn: height, qty: 1,
+        section: "shade", categoryZh: `${PURCHASE_LABEL[product] ?? "帘子"} ${product}`, location, widthIn: width, heightIn: height, qty: 1,
         fields: fieldsOf([
           ["Width", sizeText(l.widthWhole, l.widthFrac)], ["Height", sizeText(l.heightWhole, l.heightFrac)],
           ["Product", product], ["SKU", l.sku], ["Mount", mount], ["Lift", lift], ["Bracket", s(l.bracket) || formBracket],

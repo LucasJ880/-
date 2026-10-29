@@ -122,6 +122,8 @@ export function RoughQuotePanel({
             shutters: number;
             honeycomb: number;
             romanShade?: number;
+            fauxwood?: number;
+            allusion?: number;
           }>("/api/sales/quote-settings/discounts");
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -136,6 +138,8 @@ export function RoughQuotePanel({
                 Shutters: d.shutters,
                 SkylightHoneycomb: d.honeycomb,
                 "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
+                Fauxwood: typeof d.fauxwood === "number" ? d.fauxwood : 0.3,
+                Allusion: typeof d.allusion === "number" ? d.allusion : 0.35,
               },
             },
             "*",
@@ -162,6 +166,8 @@ export function RoughQuotePanel({
               shutters: after.Shutters,
               honeycomb: after.SkylightHoneycomb,
               romanShade: after["Roman Shade"],
+              ...(typeof after.Fauxwood === "number" ? { fauxwood: after.Fauxwood } : {}),
+              ...(typeof after.Allusion === "number" ? { allusion: after.Allusion } : {}),
             }),
           });
           const body = await res.json().catch(() => null);

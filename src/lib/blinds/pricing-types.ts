@@ -9,11 +9,15 @@ export type ProductName =
   | 'Sheer'
   | 'Shutters'
   | 'Allusion'
-  | 'Roman';
+  | 'Roman'
+  | 'Fauxwood';
 
-/** Shades 中不走 MSRP、销售手填单价的产品（与 Order Form 一致） */
+/**
+ * Shades 中不走 MSRP、销售手填单价的产品（与 Order Form 一致）。
+ * 2026-10-28 价表起 Allusion 有完整矩阵改为查表（手填价降为可选覆盖），只剩 Roman。
+ */
 export function isManualPriceShadeProduct(product: ProductName): boolean {
-  return product === 'Allusion' || product === 'Roman';
+  return product === 'Roman';
 }
 
 export type InstallMode = 'default' | 'pickup';
@@ -45,8 +49,9 @@ export interface QuoteItemInput {
   location?: string;
   sku?: string;
   /**
-   * 销售手填单价（CAD，税前），仅对 Allusion / Roman 等"非价格表"产品生效。
-   * 给定时跳过 priceFor 的 MSRP 查表，直接按 manualPrice 成交。
+   * 销售手填单价（CAD，税前）。
+   * - Roman（非价格表产品）：必填，跳过 priceFor 的 MSRP 查表，直接按 manualPrice 成交。
+   * - Allusion（2026-10-28 起查表）：可选的手动成交单价覆盖，有值时成交价取它、MSRP 仍取价表。
    */
   manualPrice?: number;
 }

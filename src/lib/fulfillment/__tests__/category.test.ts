@@ -11,7 +11,7 @@ console.log("PERM-3 品类映射");
 for (const pt of ["卷帘", "斑马帘", "香格里拉"]) ok(categoryOfProductType(pt) === "shades", `工艺单行 ${pt} → shades`);
 ok(categoryOfProductType("百叶窗X") === null && categoryOfProductType("") === null && categoryOfProductType(null) === null, "未知 / 空 → null");
 ok(categoryOfProductType(" 斑马帘 ") === "shades", "首尾空白容忍");
-const shades = ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb", "Roman Shade", "Roman", "Allusion"];
+const shades = ["Zebra", "Roller", "SHANGRILA", "Cordless Cellular", "SkylightHoneycomb", "Roman Shade", "Roman", "Allusion", "Fauxwood"];
 ok(shades.every((p) => categoryOfQuoteProduct(p) === "shades"), "报价行窗饰产品 → shades");
 ok(categoryOfQuoteProduct("Drapery") === "drapery" && categoryOfQuoteProduct("Sheer") === "drapery", "Drapery / Sheer → drapery");
 ok(categoryOfQuoteProduct("Shutters") === "vinyl", "Shutters → vinyl（判断点 2 默认值）");

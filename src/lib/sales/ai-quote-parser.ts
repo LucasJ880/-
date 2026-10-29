@@ -52,6 +52,14 @@ const PRODUCT_ALIASES: Record<string, ProductName> = {
   honeycomb: "SkylightHoneycomb",
   skylight: "SkylightHoneycomb",
   "skylight honeycomb": "SkylightHoneycomb",
+  // 2026-10-28 价表
+  fauxwood: "Fauxwood",
+  "faux wood": "Fauxwood",
+  "faux-wood": "Fauxwood",
+  "仿木": "Fauxwood",
+  "仿木百叶": "Fauxwood",
+  allusion: "Allusion",
+  "梦幻帘": "Allusion",
 };
 
 const FABRIC_ALIASES: Record<string, Record<string, string>> = {
@@ -159,7 +167,7 @@ export function parseLocalQuotePlan(text: string): AiQuotePlan {
     }
   }
 
-  const linePattern = /(\d+)?\s*(zebra|roller|drapery|drape|sheer|shutters?|shangrila|shangri-la|cellular|cordless\s+cellular|honeycomb|skylight)\s*(blackout|bo|lf|light\s+filtering|lf\s+prime|prime|door\s+screen|without\s+liner|with\s+liner|lf\s+open|lf\s+cassette|bo\s+open|bo\s+cassette|standard|vinyl)?[:\s]*([^;\n]+)/gi;
+  const linePattern = /(\d+)?\s*(zebra|roller|drapery|drape|sheer|shutters?|shangrila|shangri-la|cellular|cordless\s+cellular|honeycomb|skylight|faux[\s-]?wood|仿木百叶|仿木|allusion|梦幻帘)\s*(blackout|bo|lf|light\s+filtering|lf\s+prime|prime|door\s+screen|without\s+liner|with\s+liner|lf\s+open|lf\s+cassette|bo\s+open|bo\s+cassette|standard|vinyl)?[:\s]*([^;\n]+)/gi;
 
   for (const m of text.matchAll(linePattern)) {
     const count = parseInt(m[1] || "0");

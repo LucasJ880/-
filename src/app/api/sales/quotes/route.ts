@@ -13,7 +13,8 @@ import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
-import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from '@/lib/blinds/discount-settings';
+import { stampPricelistVersion } from '@/lib/blinds/pricelist-version';
 import { costRateForProduct, snapshotCostPrice } from '@/lib/blinds/cost-rates';
 import { isPlatformSuperAdmin } from '@/lib/rbac/roles';
 import { logAudit } from '@/lib/audit/logger';
@@ -150,7 +151,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
-      items: items || [],
+      // 2026-10-28：没有行级覆盖的行套企业折扣（含 settingsJson 里的 fauxwood / allusion），与客户端预览同源
+      items: applyOrgDiscountDefaults(items || [], dtoToProductDiscounts(quoteSettings)),
       addons,
       installMode,
       deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
@@ -234,7 +236,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
       taxAmount: calc.taxAmount,
       grandTotal: calc.grandTotal,
       notes: mergedNotes,
-      formDataJson: formDataJson || null,
+      // 2026-10-28：价表版本写进表单数据（零 schema，design D5）
+      formDataJson: stampPricelistVersion(formDataJson) || null,
       totalMsrp: typeof totalMsrp === 'number' && Number.isFinite(totalMsrp) ? totalMsrp : null,
       specialPromotion:
         typeof specialPromotion === 'number' && Number.isFinite(specialPromotion)

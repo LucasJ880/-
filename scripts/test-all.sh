@@ -182,6 +182,7 @@ run_test "Phase1.1 AIRuntimeContext契约" "npx tsx src/lib/ai/__tests__/runtime
 run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
 run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra 无 None）" "npx tsx src/lib/blinds/__tests__/valance-options.test.ts"
+run_test "价格表 2026-10-28 黄金对照（Fauxwood / Allusion / 回归；与上传工具 price() 原函数逐条比）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts"
 # Sunny 工艺单（sunny-process-order-autogen）：引擎 × Excel 原件逐值对照（夹具由 scripts/sunny-process-oracle 生成）+ 签字自动生成
 run_test "Sunny 工艺单 Blinds × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts"
 run_test "Sunny 工艺单 国内下单 × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts"
@@ -304,6 +305,8 @@ run_test "Security-1 Sales Authz" "npx tsx src/lib/sales/__tests__/security1-sal
 run_test "合价上限读取（PERM-2）" "npx tsx src/lib/sales/__tests__/pricing-policy.test.ts"
 run_test "折扣三档决策表（PERM-2）" "npx tsx src/lib/sales/__tests__/discount-tier.test.ts"
 run_test "审批人选择与设置审批 payload（PERM-2）" "npx tsx src/lib/sales/__tests__/quote-settings-approval.test.ts"
+run_test "AI 报价文字解析：2026-10-28 价表新产品词表（Fauxwood / Allusion）" "npx tsx src/lib/sales/__tests__/ai-quote-parser.test.ts"
+run_test "价表折扣设置（settingsJson）审批 DB 端到端（PRICE-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/quote-settings-db.isolated.test.ts"
 run_test "签约单改总价审批判定与接线（PERM-4a）" "npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts"
 run_test "签约单改总价审批 DB 端到端（PERM-4a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/signed-quote-amount-db.isolated.test.ts"
 run_test "销售区记录访问 DB 端到端（PERM-4a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/sales-record-access-db.isolated.test.ts"
