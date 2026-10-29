@@ -13,6 +13,7 @@ import { formatSalesMoney } from "@/lib/sales/home/formatters";
 import { addDaysYmd, daysInMonth, monthStartYmd } from "@/lib/sales/period/summary-pure";
 import type { PeriodSummaryResponse } from "@/lib/sales/period/load";
 import type { PeriodCalendarStats, PeriodTotals } from "@/lib/sales/period/types";
+import type { PeriodNarrativeResponse } from "@/lib/sales/period/narrative";
 import { SalesCard, SalesCardState } from "./sales-card";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +84,12 @@ function Tile({ title, value, sub, delta, cmpLabel }: { title: string; value: st
   );
 }
 
+/** 解读与看板用同一期间（服务端回显的 from / to）与对比方式 */
+function narrativeQuery(from: string, to: string, compare: string): string {
+  const qs = new URLSearchParams({ from, to, compare });
+  return qs.toString();
+}
+
 const rate = (r: number | null) => (r === null ? "—" : `${Math.round(r * 1000) / 10}%`);
 
 const SOURCE_LABELS = [
@@ -93,6 +100,85 @@ const SOURCE_LABELS = [
 ] as const;
 
 const BUCKET_LABELS: Record<string, string> = { management: "管理", sales: "销售", ops: "运营", other: "其他" };
+
+type NarrativeState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "done"; data: PeriodNarrativeResponse }
+  | { kind: "limited" }
+  | { kind: "error" };
+
+/**
+ * KPI-2：AI 解读——只在用户点"生成解读"时请求；回落时不显示模型原文，以确定性洞察为准。
+ * 换期间时父组件用 key 重建本组件，结果随之清空（不进 localStorage）。
+ */
+function NarrativeBlock({ query }: { query: string }) {
+  const [st, setSt] = useState<NarrativeState>({ kind: "idle" });
+  const run = async () => {
+    setSt({ kind: "loading" });
+    try {
+      const res = await apiFetch(`/api/sales/period-summary/narrative?${query}`, { method: "POST" });
+      if (res.status === 429) return setSt({ kind: "limited" });
+      if (!res.ok) return setSt({ kind: "error" });
+      setSt({ kind: "done", data: (await res.json()) as PeriodNarrativeResponse });
+    } catch {
+      setSt({ kind: "error" });
+    }
+  };
+  const n = st.kind === "done" ? st.data.narrative : null;
+  return (
+    <div className="rounded-xl border border-[var(--border)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[12px] text-[var(--muted)]">AI 解读（按需生成，数字只来自上方统计）</p>
+        <button
+          type="button"
+          onClick={run}
+          disabled={st.kind === "loading"}
+          className="rounded-md border border-[var(--accent)] px-3 py-1 text-[12px] text-[var(--accent)] disabled:opacity-60"
+        >
+          {st.kind === "loading" ? "生成中…" : st.kind === "idle" ? "生成解读" : "重新生成"}
+        </button>
+      </div>
+      {st.kind === "limited" ? <p className="mt-2 text-[13px] text-[var(--muted)]">请求过于频繁，请稍后再试。</p> : null}
+      {st.kind === "error" ? <p className="mt-2 text-[13px] text-[var(--muted)]">解读暂不可用，请以上方确定性洞察为准。</p> : null}
+      {st.kind === "done" && !n ? <p className="mt-2 text-[13px] text-[var(--muted)]">本次解读未通过核对，已以上方确定性洞察为准。</p> : null}
+      {n ? (
+        <div className="mt-2 space-y-2 text-[13px]">
+          <p className="text-[11px] text-emerald-700 dark:text-emerald-400">AI 解读 · 数字已与看板核对</p>
+          <div>
+            <p className="text-[12px] font-medium text-[var(--foreground)]">本期结论</p>
+            {n.conclusion.map((c, i) => (
+              <p key={i} className="text-[var(--foreground)]">{c}</p>
+            ))}
+          </div>
+          {n.reasons.length > 0 ? (
+            <div>
+              <p className="text-[12px] font-medium text-[var(--foreground)]">原因</p>
+              <ul className="list-disc pl-5">
+                {n.reasons.map((r, i) => (
+                  <li key={i}>{r.text}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {n.nextSteps.length > 0 ? (
+            <div>
+              <p className="text-[12px] font-medium text-[var(--foreground)]">下一步</p>
+              <ul className="space-y-1">
+                {n.nextSteps.map((step, i) => (
+                  <li key={i}>
+                    <span className="mr-1.5 rounded bg-[var(--background)] px-1.5 py-0.5 text-[11px] text-[var(--muted)]">{step.label}</span>
+                    {step.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** CAL-1：期间内新建日程的来源分布与按成员新建数；calendar 为 null 时不渲染 */
 function CalendarSourceBlock({ calendar }: { calendar: PeriodCalendarStats }) {
@@ -305,6 +391,13 @@ export function SalesPeriodPanel() {
                 </li>
               ))}
             </ul>
+          ) : null}
+
+          {data.narrativeEnabled ? (
+            <NarrativeBlock
+              key={`${data.period.from}|${data.period.to}|${data.comparison.kind}`}
+              query={narrativeQuery(data.period.from, data.period.to, data.comparison.kind)}
+            />
           ) : null}
 
           {data.byRep.length > 0 ? (

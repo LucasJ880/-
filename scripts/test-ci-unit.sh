@@ -297,6 +297,8 @@ npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts
 npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
 npx tsx src/lib/sales/__tests__/period-pure.test.ts
 npx tsx src/lib/sales/__tests__/period-insights.test.ts
+# KPI-2：期间看板 AI 解读纯函数核心
+npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts
 # CAL-1：日历观察纯函数核心
 npx tsx src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts
 # PERM-4b：运营 / 增长中心 / 平台用户管理权限判定（纯函数 + 源码断言）

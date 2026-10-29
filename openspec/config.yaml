@@ -22,7 +22,7 @@ context: |
   4. 脱敏（Decision A，2026-10-23，PR #237）：Muse 通道不出的只有三样——毛利率、项目估值、我方最终报价（winningBidPrice）；所选供应商的落地价允许出。命中敏感内容即整段替换为脱敏提示，不做局部遮盖。price_scenario 不把目标毛利传进情景计算，成本线就是落地价本身，避免用两价反推毛利率；noteZh / assumptionsZh 仍不出。决定 B（2026-10-27，TASKFLOW S1）：销售意图只对管理角色输出商机金额，销售角色不输出。
   5. 不爬登录页：外部情报只用开放数据 / 公开页面，不触碰任何需要登录的站点。
   6. 邮箱分离（2026-10-23，PR #238）：展示发件人 fromEmail（project@）与授权邮箱 mailboxEmail（lucas@）是两个设置；EmailProvider 只按组织设置里的 mailboxEmail 查找，永不从请求 payload 取。
-  7. 确定性优先：next_step 等"下一步"判断是查表，不让 LLM 决定；不增加新的 LLM 调用；偏好记忆里不存任何金额。
+  7. 确定性优先：next_step 等"下一步"判断是查表，不让 LLM 决定；不增加新的 LLM 调用；偏好记忆里不存任何金额。唯一例外（KPI-2，Evan 2026-10-29 拍板）：销售期间看板的 AI 解读可调用一次 LLM，只解读已算好的期间汇总；输出数字不在输入中即整段丢弃；开关默认关。
   8. 测试注册：任何 src/lib/**/__tests__/*.test.ts 必须在 scripts/test-all.sh 注册，否则 scripts/check-test-registry.sh 失败；历史欠账在 ci/test-registry-baseline.txt，只能删不能加。
 
   工作约定：
