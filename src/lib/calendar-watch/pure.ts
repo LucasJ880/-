@@ -134,7 +134,7 @@ export function withCalendarWatch(settingsJson: unknown, config: CalendarWatchCo
 
 export type ValidateResult =
   | { ok: true; fields: CalendarWatchUserFields }
-  | { ok: false; message: string };
+  | { ok: false; message: string; code?: "READER_NOT_CONNECTED" };
 
 function userFieldsOf(c: CalendarWatchConfig): CalendarWatchUserFields {
   const { cursor: _cursor, ...rest } = c;
@@ -235,7 +235,7 @@ export function validateCalendarWatchInput(
 
   if (next.calendarIds.length > MAX_CALENDARS) return { ok: false, message: `最多观察 ${MAX_CALENDARS} 个日历` };
   if (next.readerUserId && !ctx.activeMemberIds.has(next.readerUserId)) {
-    return { ok: false, message: "读取账号不是本企业在职成员" };
+    return { ok: false, message: "读取账号不是本企业在职成员", code: "READER_NOT_CONNECTED" };
   }
   if (next.enabled) {
     if (!next.readerUserId) return { ok: false, message: "开启观察须指定读取账号" };
@@ -246,12 +246,14 @@ export function validateCalendarWatchInput(
 
 /**
  * 合并用户字段，保留游标：移除日历的游标删除，新增日历没有游标（执行器从全量开始）；
- * 读取账号变了则全部游标清空重做全量（同步令牌与读取账号的授权绑定，账本幂等保证不重复记账）。
+ * 读取账号变了、或由关闭转为开启，则全部游标清空重做全量（同步令牌与读取账号的授权绑定；
+ * 暂停期间的积压变更不应当作实时通知补发。全量只建基线、不发通知，账本幂等保证不重复记账）。
  */
 export function applySettingsUpdate(current: CalendarWatchConfig, fields: CalendarWatchUserFields): CalendarWatchConfig {
   const readerChanged = (current.readerUserId ?? null) !== (fields.readerUserId ?? null);
+  const reEnabled = !current.enabled && fields.enabled;
   const cursor: Record<string, CalendarCursor> = {};
-  if (!readerChanged) {
+  if (!readerChanged && !reEnabled) {
     for (const id of fields.calendarIds) {
       if (current.cursor[id]) cursor[id] = current.cursor[id];
     }
@@ -293,7 +295,8 @@ interface GoogleTime {
 export function mapGoogleEvent(raw: unknown): CalendarChange | null {
   const e = obj(raw);
   if (!e || typeof e.id !== "string" || !e.id) return null;
-  const start = (obj(e.start) ?? {}) as GoogleTime;
+  // 重复系列被删的单次例外常只有 originalStartTime：用它作这一次的开始时间
+  const start = (obj(e.start) ?? obj(e.originalStartTime) ?? {}) as GoogleTime;
   const end = (obj(e.end) ?? {}) as GoogleTime;
   const allDay = Boolean(start.date) && !start.dateTime;
   return {
@@ -444,6 +447,7 @@ export function shouldRecord(prev: LedgerAfterData | null, change: CalendarChang
  * 变更类型；返回 null 表示不记账：
  * - 删除 → cancelled（全量阶段且没有账本的删除不记）；
  * - 有账本 → updated；
+ * - 没有账本的重复系列单次例外（recurringEventId 有值；改某一次会生成新 id，created 是系列的）→ 增量记 updated，全量不记；
  * - 没有账本：Google 创建时间不早于基线起点 → created；更早 → 增量记 updated，全量不记。
  */
 export function classifyKind(input: {
@@ -455,6 +459,7 @@ export function classifyKind(input: {
   const { change, prev, baselineFromMs, phase } = input;
   if (change.status === "cancelled") return prev || phase === "incremental" ? "cancelled" : null;
   if (prev) return "updated";
+  if (change.recurringEventId) return phase === "incremental" ? "updated" : null;
   const created = ms(change.created);
   if (created !== null && created >= baselineFromMs) return "created";
   return phase === "incremental" ? "updated" : null;
@@ -492,6 +497,8 @@ export function toLedgerAfterData(input: {
   editedVia: "qingyan" | null;
   diff: FieldDiff[] | null;
   observedAt: Date;
+  /** 修改 / 删除时该事件此前没有账本（基线前创建或重复系列的单次例外） */
+  firstObserved?: boolean;
 }): LedgerAfterData {
   const c = input.change;
   return {
@@ -513,6 +520,7 @@ export function toLedgerAfterData(input: {
     attribution: input.attribution,
     editedVia: input.editedVia,
     diff: input.diff && input.diff.length ? input.diff : null,
+    ...(input.firstObserved ? { firstObserved: true } : {}),
   };
 }
 
@@ -539,12 +547,15 @@ export function parseLedgerAfterData(raw: unknown): LedgerAfterData | null {
 
 // ── 通知 ────────────────────────────────────────────────────────
 
-/** 基线、青砚来源的新建、经青砚的修改 / 删除、标题与时间都没变的修改、既无标题又无时间的删除不发通知 */
+/**
+ * 基线、青砚来源的新建、经青砚的修改 / 删除、标题与时间都没变的修改、既无标题又无时间的删除不发通知。
+ * 此前没有账本的修改（基线前创建、重复系列单次例外）无从比较，按现值通知。
+ */
 export function shouldNotify(entry: LedgerAfterData): boolean {
   if (entry.baseline) return false;
   if (entry.editedVia === "qingyan") return false;
   if (entry.kind === "created" && entry.attribution.source === "qingyan") return false;
-  if (entry.kind === "updated" && !entry.diff?.length) return false;
+  if (entry.kind === "updated" && !entry.diff?.length && !entry.firstObserved) return false;
   if (entry.kind === "cancelled" && !entry.summary && !entry.start) return false;
   return true;
 }
@@ -562,9 +573,12 @@ export function notificationRecipients(input: {
   return [...new Set(base)].filter((id) => id && id !== exclude);
 }
 
-/** version 缺省为 Google 更新时间；删除事件没有 updated 时执行器传 "cancelled"，保证重试幂等 */
+/**
+ * 不含日历 ID：同一事件出现在多个观察日历时，同一变更同一收件人只发一次（账本仍按日历分别记）。
+ * version 缺省为 Google 更新时间；删除事件没有 updated 时执行器传 "cancelled"，保证重试幂等。
+ */
 export function notificationSourceKey(orgId: string, entry: LedgerAfterData, userId: string, version: string = entry.googleUpdated): string {
-  return `calwatch:${orgId}:${entry.calendarId}:${entry.eventId}:${version}:${userId}`;
+  return `calwatch:${orgId}:${entry.eventId}:${version}:${userId}`;
 }
 
 /**
@@ -650,6 +664,9 @@ export function buildNotification(entry: LedgerAfterData, timezone: string, acto
     return { title: `【日程新增】${when} ${subject}（${who}，Google 侧新建）`, summary: detail };
   }
   if (entry.kind === "updated") {
+    if (!entry.diff?.length && entry.firstObserved) {
+      return { title: `【日程改动】${subject} 现为 ${when}（Google 侧改动，修改人未知；此前未记录原值）`.replace(/\s+/g, " ").trim(), summary: detail };
+    }
     const day = entry.start ? formatEventWhen(entry.start, null, entry.allDay, timezone).split(" ")[0].replace("（全天）", "") : "";
     return {
       title: `【日程改动】${day} ${subject} ${diffText(entry, timezone)}（Google 侧改动，修改人未知）`.replace(/\s+/g, " ").trim(),

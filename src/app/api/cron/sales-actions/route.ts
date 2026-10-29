@@ -11,6 +11,7 @@ export const maxDuration = 300;
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request);
   if (denied) return denied;
+  const requestStartedAt = Date.now();
 
   const data = await runTrackedAutomation("sales-action-sync", async () => {
     const [opportunityOrganizations, actionOrganizations] = await Promise.all([
@@ -61,7 +62,8 @@ export async function GET(request: NextRequest) {
   });
   // CAL-1：Google 共享日历变更观察与归因（只读 Google；排在最后，有页数与时间预算）
   const calendarWatch = await runTrackedAutomation("calendar-watch", async () => {
-    const result = await runCalendarWatch();
+    // 整个请求 maxDuration = 300 秒，前两步已用掉一部分：从请求开始算，留 60 秒余量
+    const result = await runCalendarWatch({ deadline: new Date(requestStartedAt + 240_000) });
     return {
       data: result,
       status: result.organizations === 0 ? "skipped" : result.failedCount > 0 ? "partial" : "succeeded",

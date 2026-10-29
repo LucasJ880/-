@@ -43,6 +43,8 @@ type Json = Record<string, unknown>;
 
 /** 多伦多 10 月为 UTC−4 */
 const edt = (local: string) => new Date(`${local}-04:00`).toISOString();
+/** 多伦多 11 月 1 日起为 UTC−5 */
+const est = (local: string) => new Date(`${local}-05:00`).toISOString();
 
 async function main() {
   const { db } = await import("@/lib/db");
@@ -71,6 +73,7 @@ async function main() {
   const CUST = `cwcust_${stamp}`;
   const CAL = `shared_${stamp}@group.calendar.google.com`;
   const CAL_B = `sharedb_${stamp}@group.calendar.google.com`;
+  const CAL2 = `shared2_${stamp}@group.calendar.google.com`;
   const EV = (n: string) => `${n}${stamp}`;
   const email = (id: string) => `${id}@fixture.test`;
   const REP_GOOGLE = `rep.google.${stamp}@gmail.test`;
@@ -194,11 +197,13 @@ async function main() {
     ok(r1.status === 400 && r1.body?.code === "READER_NOT_CONNECTED", "读取账号未连接 Google → 400 READER_NOT_CONNECTED", r1.body);
     const r2 = await saveCalendarWatchSettings({ orgId: ORG, actorUserId: OWNER, body: { enabled: true, readerUserId: READER, calendarIds: [CAL] }, deps: visible(["other@group.calendar.google.com"]) });
     ok(!r2.ok && r2.code === "CALENDAR_NOT_ACCESSIBLE" && r2.status === 400, "读取账号看不到该日历 → 400 CALENDAR_NOT_ACCESSIBLE", r2);
+    const r1b = await settingsCall(OWNER, "PUT", { readerUserId: OWNER_B });
+    ok(r1b.status === 400 && r1b.body?.code === "READER_NOT_CONNECTED", "读取账号不是本企业在职成员 → 400 READER_NOT_CONNECTED", r1b.body);
     const r3 = await settingsCall(OWNER, "PUT", { notifyPositions: ["ceo"] });
     ok(r3.status === 400 && r3.body?.code === "INVALID_SETTINGS", "不存在的岗位 → 400 INVALID_SETTINGS", r3.body);
     const r4 = await settingsCall(OWNER, "PUT", { websiteBookerEmails: ["nope"] });
     ok(r4.status === 400 && r4.body?.code === "INVALID_SETTINGS", "不合法邮箱 → 400 INVALID_SETTINGS");
-    ok((await settingsJsonOf()) === before, "四次失败后配置不变");
+    ok((await settingsJsonOf()) === before, "五次失败后配置不变");
 
     console.log("\n[3] 保存成功");
     const saved = await saveCalendarWatchSettings({
@@ -338,6 +343,13 @@ async function main() {
     ok(resA?.calendars[0]?.recorded === 1 && !resA.calendars[0].error && (await cursorOf()).syncToken === "s10", "另一个组织照常处理", resA);
     ok(calls.some((c) => c.userId === READER_B && c.calendarId === CAL_B), "第二个组织用自己的读取账号");
 
+    console.log("\n[9b] 读取账号离开企业 → 不再用其授权读取");
+    await db.organizationMember.updateMany({ where: { orgId: ORG_B, userId: READER_B }, data: { status: "inactive" } });
+    const callsB = calls.filter((c) => c.userId === READER_B).length;
+    const gone = await run([ORG_B]);
+    ok(gone.results[0]?.error === "reader_not_member" && gone.failedCount === 1, "结果标 reader_not_member", gone.results);
+    ok(calls.filter((c) => c.userId === READER_B).length === callsB, "没有再调用读取函数");
+
     console.log("\n[10] 统计接口");
     const OCT = `?orgId=${ORG}&from=2026-10-01&to=2026-10-31`;
     ok((await statsCall(PLAIN, OCT)).status === 403, "无 sales.analytics.read → 403");
@@ -360,14 +372,52 @@ async function main() {
     ok(!("bySource" in (own.body ?? {})) && !("unknownSamples" in (own.body ?? {})), "本人范围无 bySource 与 unknownSamples");
     ok(!own.text.includes("@") && !own.text.includes("cwops"), "本人范围不含邮箱与他人姓名");
 
+    console.log("\n[10b] 基线前日程被改、重复系列单次例外、同一事件在两个观察日历");
+    const addCal2 = await saveCalendarWatchSettings({ orgId: ORG, actorUserId: OWNER, body: { calendarIds: [CAL, CAL2] }, deps: visible([CAL, CAL2]) });
+    ok(addCal2.ok && (await cursorOf())?.syncToken === "s10" && (await cursorOf(ORG, CAL2)) === undefined, "新增第二个日历：原日历游标保留，新日历从全量开始", addCal2);
+    const oldMoved = g({ id: EV("old0_"), created: edt("2026-05-01T09:00:00"), updated: edt("2026-10-29T11:00:00"), creator: email(REP), summary: "历史日程 0", start: est("2026-11-10T16:00:00"), end: est("2026-11-10T17:00:00") });
+    const series = g({ id: EV("r1"), created: edt("2026-10-20T09:00:00"), creator: email(REP), summary: "每周例会", start: edt("2026-10-22T15:00:00"), end: edt("2026-10-22T16:00:00") });
+    const excId = `${EV("r1")}_20261105T190000Z`;
+    const exc = mapGoogleEvent({ id: excId, recurringEventId: EV("r1"), status: "confirmed", created: edt("2026-10-20T09:00:00"), updated: edt("2026-10-29T11:01:00"), creator: { email: email(REP) }, summary: "每周例会", start: { dateTime: est("2026-11-05T16:00:00") }, end: { dateTime: est("2026-11-05T17:00:00") } })!;
+    const x1 = g({ id: EV("x1"), created: edt("2026-10-29T11:02:00"), creator: BOOKING, summary: "Measure — Shared Invite", start: edt("2026-11-08T10:00:00"), end: edt("2026-11-08T11:00:00") });
+    scripts[CAL] = (o) => {
+      if (o.syncToken === "s10") return { changes: [series], nextPageToken: null, nextSyncToken: "s11" };
+      if (o.syncToken === "s11") return { changes: [oldMoved, exc, x1], nextPageToken: null, nextSyncToken: "s12" };
+      throw new Error(`unexpected token ${o.syncToken}`);
+    };
+    scripts[CAL2] = (o) => {
+      if (!o.syncToken) return { changes: [], nextPageToken: null, nextSyncToken: "t1" };
+      if (o.syncToken === "t1") return { changes: [x1], nextPageToken: null, nextSyncToken: "t2" };
+      throw new Error(`unexpected token ${o.syncToken}`);
+    };
+    await run(); // CAL：系列新建；CAL2：全量（空）→ 增量
+    const notesBefore = (await notes()).length;
+    const r2nd = await run(); // CAL：基线前改动 + 单次例外 + x1；CAL2：x1
+    const rows2 = await ledgerRows();
+    const om = rows2.filter((r) => r.eventId === EV("old0_"));
+    ok(om.length === 1 && om[0].kind === "updated" && om[0].firstObserved === true, "基线前日程被改 → updated、firstObserved", om);
+    const omNotes = (await notes()).filter((n) => n.entityId === `${CAL}/${EV("old0_")}`);
+    ok(omNotes.length === 2 && omNotes.every((n) => n.title.includes("现为 11/10 16:00–17:00") && n.title.includes("修改人未知")), "基线前日程被改照常通知（按现值）", omNotes.map((n) => n.title));
+    const ex = rows2.filter((r) => r.eventId === excId);
+    ok(ex.length === 1 && ex[0].kind === "updated" && ex[0].attribution.userId === REP, "单次例外记 updated（不冒充新建）、归因系列创建者", ex);
+    const exNotes = (await notes()).filter((n) => n.entityId === `${CAL}/${excId}`);
+    ok(exNotes.length === 2 && exNotes.every((n) => n.title.startsWith("【日程改动】") && n.title.includes("现为 11/5 16:00–17:00")), "单次例外通知为改动、时间是这一次的", exNotes.map((n) => n.title));
+    const xr = rows2.filter((r) => r.eventId === EV("x1"));
+    ok(xr.length === 2 && new Set(xr.map((r) => r.calendarId)).size === 2, "x1 在两个日历各记一条账本");
+    const xNotes = (await notes()).filter((n) => n.metadata && JSON.stringify(n.metadata).includes(EV("x1")));
+    ok(xNotes.length === 2 && new Set(xNotes.map((n) => n.userId)).size === 2, "x1 每位收件人只收一条", xNotes.map((n) => [n.userId, n.entityId]));
+    ok((await notes()).length - notesBefore === 6 && r2nd.notified === 6, "本轮新增通知 6 条，计数只算新建的", { added: (await notes()).length - notesBefore, notified: r2nd.notified });
+    const after = await statsCall(OWNER, OCT);
+    ok(JSON.stringify(after.body?.bySource) === JSON.stringify({ qingyan: 2, member: 5, website: 3, unknown: 1 }), "统计：系列新建 +1 成员、x1 跨日历只计 1、例外与基线前改动不计新建", after.body?.bySource);
+
     console.log("\n[11] GET 不含令牌；关闭开关回滚不丢游标");
     const g1 = await settingsCall(OWNER, "GET");
-    ok(g1.status === 200 && !g1.text.includes("syncToken") && !g1.text.includes("pageToken") && !g1.text.includes("s10"), "GET 无 syncToken / pageToken 字样", g1.text.slice(0, 400));
+    ok(g1.status === 200 && !g1.text.includes("syncToken") && !g1.text.includes("pageToken") && !g1.text.includes("s12") && !g1.text.includes("t2"), "GET 无 syncToken / pageToken 字样", g1.text.slice(0, 400));
     const cals = (g1.body?.settings as Json)?.calendars as Array<Json>;
     ok(cals?.[0]?.phase === "incremental" && cals[0].calendarId === CAL, "GET 显示日历阶段");
     const off = await settingsCall(OWNER, "PUT", { enabled: false });
     ok(off.status === 200 && (off.body?.settings as Json)?.enabled === false, "PUT { enabled: false } → 200（不查 Google）", off.body);
-    ok((await cursorOf())?.syncToken === "s10", "关闭后游标仍在");
+    ok((await cursorOf())?.syncToken === "s12" && (await cursorOf(ORG, CAL2))?.syncToken === "t2", "关闭后游标仍在");
     const callsBefore = calls.length;
     const idle = await run();
     ok(idle.organizations === 0 && calls.length === callsBefore, "关闭后执行器不处理该组织");

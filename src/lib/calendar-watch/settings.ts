@@ -69,7 +69,7 @@ export async function saveCalendarWatchSettings(input: {
     activeMemberIds: new Set(members.map((m) => m.userId)),
     positionKeys: new Set(profiles.map((p) => p.key)),
   });
-  if (!v.ok) return { ok: false, status: 400, code: "INVALID_SETTINGS", message: v.message };
+  if (!v.ok) return { ok: false, status: 400, code: v.code ?? "INVALID_SETTINGS", message: v.message };
   const fields = v.fields;
 
   if (fields.enabled && fields.readerUserId) {

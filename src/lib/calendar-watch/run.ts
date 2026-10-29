@@ -102,6 +102,8 @@ interface OrgContext {
   names: Map<string, string>;
   positionHolderIds: string[];
   fallbackOwnerId: string | null;
+  /** 读取账号仍是在职成员 */
+  readerActive: boolean;
 }
 
 /** 一次准备组织级上下文：成员信号与分桶、成员邮箱映射、姓名、通知岗位持有人 */
@@ -166,6 +168,7 @@ async function prepareOrg(orgId: string, settingsJson: unknown, ownerId: string,
     names,
     positionHolderIds: [...new Set(bindings.map((b) => b.principalId))].filter((id) => memberSet.has(id)),
     fallbackOwnerId: memberSet.has(ownerId) ? ownerId : null,
+    readerActive: Boolean(config.readerUserId && memberSet.has(config.readerUserId)),
   };
 }
 
@@ -216,7 +219,13 @@ async function processPage(
   now: Date,
 ): Promise<{ recorded: number; notified: number }> {
   const ids = [...new Set(changes.map((c) => c.id))];
-  const [prevMap, appointments] = await Promise.all([loadPrevLedger(org.orgId, calendarId, ids), loadAppointments(org.orgId, ids)]);
+  // 重复系列的单次例外：缺的字段与归因沿用系列的账本
+  const seriesIds = [...new Set(changes.map((c) => c.recurringEventId).filter((id): id is string => Boolean(id)))];
+  const [prevMap, seriesMap, appointments] = await Promise.all([
+    loadPrevLedger(org.orgId, calendarId, ids),
+    loadPrevLedger(org.orgId, calendarId, seriesIds),
+    loadAppointments(org.orgId, ids),
+  ]);
   const ctx: AttributionContext = { ...org.attribution, appointmentsByEventId: appointments };
   const readerUserId = org.config.readerUserId!;
   let recorded = 0;
@@ -225,12 +234,15 @@ async function processPage(
   for (const raw of changes) {
     const prev = prevMap.get(raw.id) ?? null;
     if (!shouldRecord(prev, raw)) continue;
-    const change = fillFromPrevious(raw, prev);
+    const series = raw.recurringEventId ? seriesMap.get(raw.recurringEventId) ?? null : null;
+    // 系列账本的起止是第一次发生的时间，不能当成这一次的时间
+    const basis = prev ?? (series ? { ...series, start: null, end: null } : null);
+    const change = fillFromPrevious(raw, basis);
     const kind = classifyKind({ change, prev, baselineFromMs, phase });
     if (!kind) continue;
     const appointment = appointments.get(change.id) ?? null;
-    const attribution = attributeForChange({ change, kind, prev, ctx });
-    const editedVia = editedViaQingyan({ kind, attribution, appointment, updated: change.updated, prev }) ? "qingyan" : null;
+    const attribution = attributeForChange({ change, kind, prev: basis, ctx });
+    const editedVia = editedViaQingyan({ kind, attribution, appointment, updated: change.updated, prev: basis }) ? "qingyan" : null;
     const entry = toLedgerAfterData({
       calendarId,
       change,
@@ -240,6 +252,7 @@ async function processPage(
       editedVia,
       diff: kind === "updated" ? diffEvent(prev, change) : null,
       observedAt: now,
+      firstObserved: kind !== "created" && !prev,
     });
 
     if (shouldNotify(entry)) {
@@ -251,6 +264,9 @@ async function processPage(
         entry,
       });
       for (const userId of recipients) {
+        const sourceKey = notificationSourceKey(org.orgId, entry, userId, raw.updated ?? "cancelled");
+        // 已存在（同一事件在另一个观察日历、或重放）：不重发、不计数
+        if (await db.notification.findUnique({ where: { sourceKey }, select: { id: true } })) continue;
         await createNotification({
           userId,
           orgId: org.orgId,
@@ -260,7 +276,7 @@ async function processPage(
           summary: draft.summary,
           entityType: LEDGER_TARGET_TYPE,
           entityId: `${calendarId}/${change.id}`,
-          sourceKey: notificationSourceKey(org.orgId, entry, userId, raw.updated ?? "cancelled"),
+          sourceKey,
           metadata: { kind, calendarId, eventId: change.id, attribution, htmlLink: entry.htmlLink },
         });
         notified += 1;
@@ -394,6 +410,12 @@ export async function runCalendarWatch(deps: CalendarWatchDeps = {}): Promise<Ca
     try {
       const org = await prepareOrg(o.id, o.settingsJson, o.ownerId, now);
       if (!org.config.enabled || !org.config.readerUserId || !org.config.calendarIds.length) continue;
+      if (!org.readerActive) {
+        // 读取账号已离开企业：不再用其 Google 授权读取，等管理者换读取账号
+        out.error = "reader_not_member";
+        results.push(out);
+        continue;
+      }
       for (const calendarId of org.config.calendarIds) {
         try {
           out.calendars.push(await runCalendar(org, calendarId, readChanges, now, deadline));

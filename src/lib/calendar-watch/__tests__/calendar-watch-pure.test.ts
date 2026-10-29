@@ -201,6 +201,10 @@ console.log("配置校验");
   bad({ enabled: true, calendarIds: ["cal1"] }, "开启但无读取账号 → 拒绝");
   bad({ enabled: true, readerUserId: "uReader" }, "开启但无日历 → 拒绝");
   bad({ readerUserId: "uStranger" }, "读取账号非在职成员 → 拒绝");
+  const strangerReader = validateCalendarWatchInput({ readerUserId: "uStranger" }, cur, vctx);
+  ok(!strangerReader.ok && strangerReader.code === "READER_NOT_CONNECTED", "读取账号非在职成员 → READER_NOT_CONNECTED（spec）", strangerReader);
+  const badPos = validateCalendarWatchInput({ notifyPositions: ["ceo"] }, cur, vctx);
+  ok(!badPos.ok && badPos.code === undefined, "其它校验失败不带 code（接口按 INVALID_SETTINGS）");
   const off = validateCalendarWatchInput({ enabled: false }, cur, vctx);
   ok(off.ok, "只关闭开关可通过（回滚用）");
   const merged = validateCalendarWatchInput({ baselineFromDays: 10 }, { ...cur, enabled: true, readerUserId: "uReader", calendarIds: ["cal1"] }, vctx);
@@ -219,6 +223,14 @@ console.log("合并写回保留游标");
   ok(!next.cursor.c, "新增日历没有游标（从全量开始）");
   const swapped = applySettingsUpdate(cur, { ...fields, readerUserId: "uOther" });
   ok(eq(swapped.cursor, {}), "换读取账号 → 游标全部清空");
+  const paused = applySettingsUpdate(cur, { ...fields, enabled: false });
+  ok(paused.cursor.a?.syncToken === "tA", "关闭 → 游标保留");
+  const { cursor: _pc, ...pausedFields } = paused;
+  void _pc;
+  const resumed = applySettingsUpdate(paused, { ...pausedFields, enabled: true });
+  ok(eq(resumed.cursor, {}), "由关闭转为开启 → 游标清空重做基线（不补发暂停期间的积压）");
+  const stillOff = applySettingsUpdate(paused, { ...pausedFields, baselineFromDays: 30 });
+  ok(stillOff.cursor.a?.syncToken === "tA", "关闭状态下改其它字段 → 游标保留");
   const view = publicView(next);
   const s = JSON.stringify(view);
   ok(!s.includes("syncToken") && !s.includes("pageToken") && !s.includes("tA"), "GET 视图不含令牌", view);
@@ -261,6 +273,8 @@ console.log("Google 事件映射");
   const inst = mapGoogleEvent({ id: "e4_20261030", recurringEventId: "e4", start: { dateTime: "2026-10-30T14:00:00Z" } });
   ok(inst?.recurringEventId === "e4", "重复系列例外带 recurringEventId");
   ok(mapGoogleEvent({ summary: "no id" }) === null && mapGoogleEvent(null) === null, "无 id → null");
+  const instDel = mapGoogleEvent({ id: "e4_20261030T180000Z", status: "cancelled", recurringEventId: "e4", originalStartTime: { dateTime: "2026-10-30T14:00:00-04:00" } });
+  ok(instDel?.start === "2026-10-30T14:00:00-04:00" && instDel.allDay === false && instDel.recurringEventId === "e4", "被删的单次例外用 originalStartTime 作开始时间", instDel);
 
   const full = buildChangesListParams({ calendarId: "cal1" });
   ok(eq(full, { calendarId: "cal1", singleEvents: false, maxResults: 2500 }), "全量参数：不带时间过滤与令牌", full);
@@ -364,6 +378,10 @@ console.log("幂等与变更类型");
   ok(k(change({ status: "cancelled" }), null, "incremental") === "cancelled", "增量：首次见到的删除 → cancelled");
   ok(k(change({ status: "cancelled" }), ledger(), "incremental") === "cancelled", "增量：有账本的删除 → cancelled");
   ok(k(change(), ledger(), "incremental") === "updated", "增量：有账本 → updated");
+  const exc = change({ id: "ev1_20261105T190000Z", recurringEventId: "ev1" });
+  ok(k(exc, null, "incremental") === "updated", "增量：重复系列单次例外首次见到 → updated（不冒充新建）");
+  ok(k(exc, null, "full") === null, "全量：单次例外没有账本 → 不记（系列本身已计一次）");
+  ok(k({ ...exc, status: "cancelled" }, null, "incremental") === "cancelled", "增量：被删的单次例外 → cancelled");
 }
 
 console.log("差异");
@@ -397,6 +415,9 @@ console.log("账本 afterData");
   ok(a.v === 1 && a.eventId === "ev1" && a.calendarId === "cal1" && a.googleUpdated === change().updated, "版本、事件、日历、更新时间");
   const noUpd = toLedgerAfterData({ calendarId: "c", change: change({ updated: null, status: "cancelled" }), kind: "cancelled", baseline: false, attribution: MEMBER_ATTR, editedVia: null, diff: null, observedAt: new Date("2026-10-29T00:00:00Z") });
   ok(noUpd.googleUpdated === "2026-10-29T00:00:00.000Z", "无 updated 时用观察时间");
+  const fo = toLedgerAfterData({ calendarId: "c", change: change(), kind: "updated", baseline: false, attribution: MEMBER_ATTR, editedVia: null, diff: [], observedAt: new Date(), firstObserved: true });
+  ok(fo.firstObserved === true && fo.diff === null, "firstObserved 写入账本");
+  ok(!("firstObserved" in a), "有账本的变更不带 firstObserved");
 
   ok(eq(parseLedgerAfterData(JSON.stringify(a)), a), "账本字符串可解析回来");
   ok(parseLedgerAfterData("{bad") === null && parseLedgerAfterData({ v: 2 }) === null && parseLedgerAfterData(null) === null, "坏账本 → null");
@@ -415,6 +436,7 @@ console.log("是否通知");
   ok(shouldNotify(ledger({ kind: "cancelled", attribution: q })), "Google 侧删青砚预约 → 通知");
   ok(!shouldNotify(ledger({ kind: "cancelled", attribution: q, editedVia: "qingyan" })), "青砚解除同步的删除 → 不通知");
   ok(!shouldNotify(ledger({ kind: "updated", diff: null })), "标题与时间都没变的修改 → 不通知");
+  ok(shouldNotify(ledger({ kind: "updated", diff: null, firstObserved: true })), "此前没有账本的修改（基线前创建 / 单次例外）→ 按现值通知");
   ok(!shouldNotify(ledger({ kind: "cancelled", summary: null, start: null })), "既无标题又无时间的删除 → 不通知");
 }
 
@@ -456,9 +478,10 @@ console.log("收件人");
   const fb = notificationRecipients({ positionHolderIds: [], fallbackOwnerId: "uOwner", appointmentAssigneeId: null, entry: ledger() });
   ok(eq(fb, ["uOwner"]), "没有岗位持有人 → 回落企业 owner");
   ok(eq(notificationRecipients({ positionHolderIds: [], fallbackOwnerId: null, appointmentAssigneeId: null, entry: ledger() }), []), "都没有 → 空");
-  ok(notificationSourceKey("org1", ledger(), "uBoss", "cancelled") === "calwatch:org1:cal1:ev1:cancelled:uBoss", "无 updated 的删除用固定版本");
+  ok(notificationSourceKey("org1", ledger(), "uBoss", "cancelled") === "calwatch:org1:ev1:cancelled:uBoss", "无 updated 的删除用固定版本");
   const key = notificationSourceKey("org1", ledger(), "uBoss");
-  ok(key === `calwatch:org1:cal1:ev1:${ledger().googleUpdated}:uBoss`, "sourceKey 形态", key);
+  ok(key === `calwatch:org1:ev1:${ledger().googleUpdated}:uBoss`, "sourceKey 形态（不含日历 ID）", key);
+  ok(notificationSourceKey("org1", ledger({ calendarId: "cal2" }), "uBoss") === key, "同一事件在两个观察日历 → 同一 sourceKey（只发一次）");
 }
 
 console.log("通知文案");
@@ -495,6 +518,8 @@ console.log("通知文案");
   ok(nextDay.title.includes("10/30 14:00 → 10/31 14:00"), "跨日改动带日期", nextDay.title);
   const renamed = buildNotification(ledger({ kind: "updated", diff: [{ field: "summary", before: "量房", after: "安装" }] }), TZ, null);
   ok(renamed.title.includes("标题「量房」→「安装」"), "改标题文案", renamed.title);
+  const fresh = buildNotification(ledger({ kind: "updated", diff: null, firstObserved: true }), TZ, null);
+  ok(fresh.title === "【日程改动】量房 — Smith 现为 10/30 14:00–15:00（Google 侧改动，修改人未知；此前未记录原值）", "此前没有账本的修改：按现值写", fresh.title);
   const del = buildNotification(ledger({ kind: "cancelled" }), TZ, null);
   ok(del.title === "【日程取消】10/30 14:00–15:00 量房 — Smith（Google 侧删除）", "删除文案", del.title);
 

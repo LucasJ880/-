@@ -27,10 +27,10 @@
 
 | 检查 | 结果 |
 |---|---|
-| `npx tsx src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts` | 161 通过 0 失败 |
+| `npx tsx src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts` | 175 通过 0 失败 |
 | 纯测试变异检查（临时副本，未提交） | 改归因顺序（成员先于网站）、账本存描述、新建不排除创建者 → 5 项变红 |
-| `calendar-watch-db.isolated.test.ts`（隔离库 127.0.0.1:5433） | 68 通过 0 失败：设置 403 / 400×4 / 200；全量 300 条历史零通知、只记基线后新建、第 2 页出错后按 `p2` 续读；增量新建 / 修改 / 删除 / 青砚推送的账本、归因与收件人；重放幂等；410；授权失效当天一次；两组织互不影响；统计 org / own；`PUT {enabled:false}` 回滚保留游标；只读 Google、预约表不变 |
-| 端到端变异检查（临时，已还原） | 去掉执行器 `shouldRecord` → 3 项变红（通知仍靠 `sourceKey` 不重复） |
+| `calendar-watch-db.isolated.test.ts`（隔离库 127.0.0.1:5433） | 80 通过 0 失败：设置 403 / 400×5 / 200；读取账号离开企业；基线前日程被改、重复系列单次例外、同一事件在两个观察日历；全量 300 条历史零通知、只记基线后新建、第 2 页出错后按 `p2` 续读；增量新建 / 修改 / 删除 / 青砚推送的账本、归因与收件人；重放幂等；410；授权失效当天一次；两组织互不影响；统计 org / own；`PUT {enabled:false}` 回滚保留游标；只读 Google、预约表不变 |
+| 端到端变异检查（临时，已还原） | 去掉执行器 `shouldRecord` → 3 项变红（通知仍靠 `sourceKey` 不重复）；`sourceKey` 加回日历 ID + 去掉单次例外规则 → 5 项变红 |
 | 无 `DATABASE_URL` 跑端到端 | 打印跳过，退出 0 |
 | `period-db.isolated.test.ts` | 26 → 31，全过（未开启为 null、开启后网站 4 / 成员 6、按成员新建数、I9 出现、销售范围为 null） |
 | 回归：period-pure / period-insights / Muse sales-pure / muse-bridge-pure / Muse sales-db | 48 / 38 / 84 / 67 / 36，全过 |
@@ -81,6 +81,14 @@
 15. 通知 `type = calendar_event`（既有类型，已在通知偏好白名单里）、`category = calendar_watch`；读取账号授权失效的重连通知 `sourceKey = calwatch:reconnect:{orgId}:{readerUserId}:{当地日期}`。
 16. 删除事件没有 `updated` 时，账本用观察时间、通知 `sourceKey` 用固定版本 `cancelled`，保证重试不重复。
 
+**独立审查后修订（只读审查代理，未看我的结论；四条正确性问题逐条复现后修复，均有测试且做过变异检查）：**
+
+17. **基线前创建的日程被改不通知** → 修改 / 删除时此前没有账本的标 `firstObserved`，修改按现值通知（"现为 11/10 16:00–17:00 … 此前未记录原值"）。已补 spec 场景"基线前创建的日程被改"。
+18. **重复系列的单次例外被当成新建** → 第一次见到的例外（`recurringEventId` 有值）增量记 `updated`、全量不记；字段与归因沿用系列账本但不沿用系列起止；被删的例外用 `originalStartTime`。
+19. **同一事件在两个观察日历重复通知** → 通知 `sourceKey` 去掉日历 ID（账本仍按日历分别记，统计本就按事件去重）。已补 spec 场景"同一事件在两个观察日历"。
+20. **读取账号不是在职成员时错误码** → 改为 spec 规定的 `READER_NOT_CONNECTED`。
+21. 低优先级一并修：时间预算从 cron 请求开始算（240 秒，留 60 秒余量）；读取账号离开企业后执行器记 `reader_not_member`、不再用其授权；由关闭转为开启时清空游标重做基线（不补发暂停期间的积压）；`notified` 只计真正新建的通知。
+
 ## 4. 已知限制
 
 - **修改人未知**：Google 接口不提供最后修改人；修改通知一律写"修改人未知"（青砚推送的除外，不发）。
@@ -88,6 +96,7 @@
 - **基线前创建的日程没有 `created`**：首次全量只记基线起点（缺省 60 天前）之后创建的事件；更早的日程以后被修改会记为 `updated`，不计入"新建数"。
 - **删除缺信息**：基线前创建、从未进账本的事件被删时 Google 只给 `id`，只记账本不发通知。
 - **重复日程计一次**：`singleEvents=false`，一个系列计一次，单次例外作为修改出现。
+- **观察日历须在读取账号的日历列表首页且未隐藏**：`PUT` 校验复用现有 `listGoogleCalendars`（只取第一页、不含隐藏日历），日历很多或被隐藏时会误报 `CALENDAR_NOT_ACCESSIBLE`；处理：在 Google 里取消隐藏该日历。
 - **审计表量级**：每条变更一行 `calendar.watch.observed`，会出现在审计中心；Sunny 每月百到千级。统计按单列索引加 2 万行上限，超出标 `truncated`。
 - **竞态窗口**：执行器回写游标与 `PUT` 都先重读再写，未加行锁；同一秒内并发时最坏是下一轮多读一次（账本幂等兜底）。
 - **上线需真实日历人工验收**：本 change 的端到端全部用注入的假读取函数；真实 Google 的 410 与删除事件字段以 `googleapis` 类型说明为依据，未在真实账号上跑过。

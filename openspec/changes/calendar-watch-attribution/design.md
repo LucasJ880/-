@@ -82,6 +82,8 @@
   - `afterData` 见设计稿 §2.2 表，去掉 `description`，标题截 120 字。
 - 幂等判断：按 `(targetType, targetId)` 取该事件最近一条账本。若其 `googleUpdated` ≥ 本次 `updated`，跳过（不写账本、不发通知）。
   - 第一次见到的事件记为 `created`（若 `status = cancelled` 记为 `cancelled`；若其 Google 创建时间早于基线起点，记为 `updated`，与 Risks 一节一致）；
+  - 重复系列的单次例外（`recurringEventId` 有值，改某一次会生成新 id、`created` 是系列的）第一次见到时增量记 `updated`、全量不记；缺的字段与归因沿用系列账本，但不沿用系列的起止时间（被删的例外用 `originalStartTime`）；
+  - 修改 / 删除时此前没有账本的，账本标 `firstObserved: true`，修改按现值通知（apply 时据独立审查补）；
   - 之后见到的记为 `updated` 或 `cancelled`。
   - `diff` 取上一条账本的 start / end / summary 与本次比较。
 - 基线：全量阶段只对 `created ≥ baselineFrom` 的事件写账本（`kind = created`，`baseline: true`），不发通知。
@@ -96,7 +98,7 @@
 - 不发通知：基线记录；标题与起止时间都没变的修改（只改描述、地点、参会人等，Google 常见的噪音）；既无标题又无时间的删除（基线前创建、从未进账本的事件被删，Google 只给 id）；归因青砚的新建；`editedVia = qingyan` 的修改；上一条账本归因青砚、而本轮已无预约持有该事件 ID 的删除（青砚 `unsyncAppointmentFromGoogle` 会清空 `googleEventId`，视为经青砚删除）。
   - 持有人查询：`principalRoleBinding` 中 `orgId` 匹配、`status = active`、`principalType = HUMAN`、`roleProfile.key ∈ notifyPositions`。
   - 若查不到任何人，回落到 `Organization.ownerId`。
-- `createNotification`：`category = "calendar_watch"`，`sourceKey = "calwatch:{orgId}:{calendarId}:{eventId}:{updated}:{userId}"`，`entityType = "google_calendar_event"`，`metadata` 带归因与 `htmlLink`。
+- `createNotification`：`category = "calendar_watch"`，`sourceKey = "calwatch:{orgId}:{eventId}:{updated}:{userId}"`（不含日历 ID：同一事件出现在多个观察日历时每位收件人只收一条；apply 时据独立审查修订），`entityType = "google_calendar_event"`，`metadata` 带归因与 `htmlLink`。
 - 文案由纯函数生成，时间按组织时区显示：
   - `【网站预约】10/30 14:00–15:00 量房 — Smith（Google 侧新建）`
   - `【日程改动】10/30 量房 14:00 → 16:00（Google 侧改动，修改人未知）`
@@ -110,7 +112,8 @@
   - 读取账号的 `CalendarProvider` 已启用；
   - `listGoogleCalendars(readerUserId)` 的结果包含每个 `calendarIds`。
 - 校验通过后用纯函数 `withCalendarWatch` 合并写回，保留 `cursor` 与 `settingsJson` 其它键；写 `writeAuditLog(action = "calendar.watch.settings_updated")`。
-- `calendarIds` 变化时，移除日历的游标被删除，新增日历从全量开始。
+- `calendarIds` 变化时，移除日历的游标被删除，新增日历从全量开始；换读取账号或由关闭转为开启时全部游标清空重做基线（不把暂停期间的积压当实时通知补发）。
+- 执行器每轮核对读取账号仍是在职成员，否则该组织记 `reader_not_member`、不再用其授权读取。
 - 否决：**`requireOrgRole(org_admin)`**——不识别岗位模式，Sunny 的老板未必是 `org_admin`。
 
 ### D7 统计与 KPI-1 接入

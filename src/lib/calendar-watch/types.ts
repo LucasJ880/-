@@ -114,6 +114,8 @@ export interface LedgerAfterData {
   attribution: Attribution;
   editedVia: "qingyan" | null;
   diff: FieldDiff[] | null;
+  /** 修改 / 删除时此前没有账本（基线前创建或重复系列单次例外）；无从比较前后值 */
+  firstObserved?: boolean;
 }
 
 export interface CalendarNotificationDraft {
