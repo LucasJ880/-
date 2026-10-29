@@ -175,7 +175,8 @@ export interface ConvertInput {
   customer: ConvertCustomer;
   appointment: {
     type: AppointmentType;
-    title: string;
+    /** 留空时服务层取日历事件标题 */
+    title: string | null;
     startAt: string | null;
     endAt: string | null;
     address: string | null;
