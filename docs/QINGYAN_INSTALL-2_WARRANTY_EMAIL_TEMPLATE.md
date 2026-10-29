@@ -19,7 +19,7 @@
 | 联系方式种子 | 公司名 Sunny Shutter Inc；地址 2-680 Progress Avenue, Scarborough, ON M1H 3A5（维修单抬头）；条款链接 `https://sunnyshutter.ca/warranty-service/`；**报修电话 / 邮箱留空**（只有检索摘要来源，未核实不进种子，design D10），没填之前不会生成邮件 |
 | 发件人 | 组织发件身份 `trade.email_sender`（设置 → 邮件 → 组织发件人）；未配置 → `NO_ORG_SENDER`，不回落到个人邮箱（Q3） |
 | 与本草稿的差异 | ① 不输出 `{{salesName}}`（spec「邮件不输出的内容」：不含员工内部信息）；② 安装地址：工艺单地址优先，客户档案地址兜底，都空显示 "—"；③ 安装日 = `installedAt` 在企业时区的日期（返修后的更新在 INSTALL-2e）；④ 只有英文版，§5 中文版未做 |
-| 仍待核实 | §0 的官网原文仍未读到（网络策略拒绝）；官网若与报价单不一致，先统一条款，再由老板在质保设置里改年限 |
+| 官网原文 | **已读到**（Lucas 2026-10-29 截图，见 §0a）：官网现为"修订草案"，只适用于采纳它的新订单，现有订单按原购买条款——现行按报价单口径不变；草案采纳时要做的事见 §0a |
 
 ## 0. 质保条款来源与核实状态（防幻觉）
 
@@ -44,6 +44,47 @@
 **建议**：种子取客户签字的报价 PDF（合同口径），并按 **品类 × 部件** 存（labour / fabric / components / motor），不是一个产品一个年限；官网若写的是另一套，先把官网与报价单统一，再改种子。未拍板前所有年限保持 `{{待确认}}`，系统遇到未配置品类一律阻断生成。
 
 **原则**：邮件正文只列"产品 + 年限 + 起算日 + 怎么报修"，条款细则全部链接回官网 `warranty-service` 页，系统不复述、不改写条款——官网改了条款，邮件不会过时也不会和官网矛盾。
+
+## 0a. 官网原文（Lucas 2026-10-29 截图核实）
+
+会话网络策略仍拒绝 `sunnyshutter.ca`，以下由 Lucas 提供的 `warranty-service` 页截图逐字转录（截图 4 张；最后一段被截断处标"…"）。
+
+**页面状态**：右侧框 "Proposed policy revision — draft for review"——"This proposed revision applies only to new orders whose written order terms adopt it. Existing orders retain the warranty terms supplied with their original purchase. Coverage depends on the original order, product category, installation method, warranty status and the specific terms below. Keep your invoice or order information whenever possible."
+
+| Category | Standard period | What the period covers | Important service note |
+|---|---|---|---|
+| Labour — Sunny installed | 1 year | Labour for a covered warranty issue, including reasonable related removal and reinstallation. | Begins on the original installation completion date. |
+| Labour — pickup or shipped | 1 year | Repair labour at the Sunny Shutter showroom. | Customer drop-off and pickup is required unless paid on-site service is arranged. |
+| Fabrics | 5 years | Covered defects under normal use for eligible zebra, roller, solar, Shangri-La and drapery fabrics. | Normal fading, curling, soiling, scratches and loss of colour intensity from use are excluded. |
+| Manual components & hardware | 15 years | Eligible clutches, brackets and moving parts under normal use, excluding cordless lift mechanisms. | Cordless lift mechanisms have separate 3-year coverage. Metal hardware and hinges are covered for operation, not finish. |
+| Cordless lift mechanisms | 3 years | Springs, spring motors and integral lift or holding components in manually operated cordless blinds and shades, including zebra blinds. | Includes loss of tension causing failure to raise or hold position under normal use. Labour and service charges follow the original order's service terms. |
+| Shutter frame & panels | 25 years | Eligible cracking, excessive fading, extreme colour loss or warping under normal use. | High-humidity applications and normal light lines between louvers are excluded. |
+| Motors | 5 years | Eligible motors supplied through the Sunny Shutter motorization program. | Damage caused by customer reprogramming or unsupported changes is excluded. |
+| Motor accessories | 5 years | Eligible remotes and supplied motor accessories. | Compatibility and replacement depend on the original system. |
+| Batteries | 1 year | Eligible supplied batteries. | Normal capacity loss and misuse are not covered. |
+
+- **Repairs do not restart the warranty.** "A repair, replacement fabric, motor, accessory or other component remains part of the original order. The original warranty timeline continues from the initial installation, …"
+- **Sunny-installed order**：第一年内的保修问题，维修 / 更换及相关人工免费，含与该问题直接相关的合理拆装；第一年后适用部件可能仍在保，但上门与人工收费；服务安排取决于地址、产品、通道与范围。
+- **Pickup / courier / shipped order**：标准方式是展厅送修取回，一年免费维修人工；运送不含上门服务（除非书面确认）；可选上门安装 / 检查 / 维修 CAD $250 + HST（视档期），付费上门对同一维修问题自首次上门日起保一年。
+- **服务范围**：Toronto、York、Peel、Durham、Halton。**电话**：647-857-8669（页面 "Call 647-857-8669" 按钮）。页面截图里没有出现报修邮箱。
+
+**与系统现状对比**
+
+| 项 | 系统现状（报价单口径） | 官网草案 | 结论 |
+|---|---|---|---|
+| 帘类 / 窗帘 人工 | 1 年 | Labour — Sunny installed 1 年 | 一致 |
+| 帘类 / 窗帘 面料 | 5 年 | Fabrics 5 年（zebra / roller / solar / Shangri-La / drapery） | 一致 |
+| 帘类 / 窗帘 部件 | 15 年 | Manual components & hardware 15 年，**但无绳升降机构单列 3 年**（含 zebra） | 草案更细：采纳后无绳款的升降机构从 15 年降为 3 年 |
+| Shutters | 人工 1 / 部件 5 年（`quote-pdf.ts:128`） | 人工 1；框架与叶片 25 年；五金按 Manual components & hardware 15 年 | **不一致**：采纳后 Shutters 显著变长 |
+| 电机 / 遥控 / 电池 | 不单列 | Motors 5、Motor accessories 5、Batteries 1 | 草案新增 |
+| 起算日 | 工艺单 `installedAt`（整单装完那天；返修后为返修完成日，关闭不返修为关闭日） | Begins on the original installation completion date；维修不重启质保 | 一致：系统的维修单只发生在整单装完之前，装完后的保修维修不在系统里，不会重启质保 |
+| 报修电话 | 种子留空，老板在「质保设置」填 | 647-857-8669 | 页面已核实，可填 |
+| 报修邮箱 | 种子留空 | 截图未出现（检索摘要有 service@sunnyshutter.ca） | 待 Lucas 确认 |
+
+**草案采纳时要做的事**（需另开 change，现在不做）：
+1. 先改报价单 / Order Form 上的质保文字（`quote-pdf.ts:99,128,166`、`order-shades.tsx`、`order-drapes.tsx`）——草案只对"书面订单条款采纳它"的新订单生效。
+2. 质保表部件只有 labour / fabric / components / motor 四种，草案需要再加：无绳升降机构、Shutter 框架与叶片、电机配件、电池。
+3. **质保邮件要按订单适用的条款版本出年限**：现在是一张企业级质保表、发信时读取。老板若在草案生效当天直接改表，签单在前、装完在后的老订单会收到新条款，违反"现有订单保留原条款"。需要按签单日期（或条款生效日）区分版本。
 
 ## 1. 变量表（全部来自系统已有数据，零 schema）
 
