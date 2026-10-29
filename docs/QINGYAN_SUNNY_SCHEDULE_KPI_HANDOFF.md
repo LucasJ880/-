@@ -14,7 +14,18 @@
 
 ---
 
-## 0. KPI-2 现场续接（已完成：#332 合并，归档小 PR 见下）
+## 0. CAL-2 现场续接（上下文压缩或换会话后从这里接）
+
+| 项 | 状态 |
+|---|---|
+| change | `openspec/changes/website-booking-intake/`（四件套 `e089e938`，validate --strict 通过） |
+| 授权 | 用户 2026-10-29："继续，整个流程你来掌控，等全部做完或需要我做再通知我"；CAL-2 选"不依赖 webhook"与"销售认领"；四件套后"apply" |
+| 合并 | 由我驱动到 CI 绿后合并（用户已授权掌控全流程），合并后独立小 PR 归档 |
+| 基线（apply 前） | calendar-watch-pure 175、calendar-watch-db.isolated 80 |
+| tasks | 1/7：1.1 ✓（`src/lib/calendar-watch/intake-pure.ts`；纯测试 51 项全过，注册 test-all + test-ci-unit；变异：不排除删除 / 只看最近一条归因 / 电话只留数字 → 5 项变红）。下一条 2.1 服务 |
+| 事实 | Sunny 只有 `sales_rep` 有 `sales.customer.create`（PRINCIPAL）；老板 `sales.customer.read` ORG；运营主管无客户权限（隔离库实测）。`sunnyshutter.ca` 本会话仍 403 |
+
+## 0''. KPI-2 现场续接（已完成：#332 合并，归档小 PR 见下）
 
 | 项 | 状态 |
 |---|---|

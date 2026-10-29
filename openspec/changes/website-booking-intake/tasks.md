@@ -2,7 +2,7 @@
 
 ## 1. 纯函数核心
 
-- [ ] 1.1 新建 `src/lib/calendar-watch/intake-pure.ts`：
+- [x] 1.1 新建 `src/lib/calendar-watch/intake-pure.ts`：
   - 待转入推导：从账本行、已转入事件 ID 集合、已忽略事件 ID 集合、当地今天与时区算出列表（网站新建、删除、已转入、已忽略、7 天时间窗、跨日历去重、200 条上限、按开始时间排序）；
   - `parseBookingDescription`：HTML 清理、中英文标签行、无标签时的邮箱与北美电话正则、地点回落、姓名不猜；
   - 电话末 10 位比对；
