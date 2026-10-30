@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireOrgRole } from "@/lib/auth/guards";
+import { requirePlatformSuperAdmin } from "@/lib/auth/guards";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import {
   isValidOrgRole,
@@ -18,7 +18,8 @@ type RouteCtx = {
 export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   const { orgId, memberId } = await ctx.params;
 
-  const auth = await requireOrgRole(request, orgId, "org_admin");
+  // PERM-2：成员角色 / 状态变更与移除仅平台管理员；PERM-7：只认 super_admin
+  const auth = await requirePlatformSuperAdmin(request);
   if (auth instanceof NextResponse) return auth;
 
   const member = await db.organizationMember.findFirst({
@@ -129,7 +130,8 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
 export async function DELETE(request: NextRequest, ctx: RouteCtx) {
   const { orgId, memberId } = await ctx.params;
 
-  const auth = await requireOrgRole(request, orgId, "org_admin");
+  // PERM-2：成员角色 / 状态变更与移除仅平台管理员；PERM-7：只认 super_admin
+  const auth = await requirePlatformSuperAdmin(request);
   if (auth instanceof NextResponse) return auth;
 
   const member = await db.organizationMember.findFirst({

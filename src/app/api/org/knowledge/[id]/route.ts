@@ -8,9 +8,10 @@ import {
   indexOrgKnowledgeDocument,
 } from "@/lib/knowledge/org-knowledge";
 import { logAudit } from "@/lib/audit/logger";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 async function assertMember(userId: string, orgId: string, role: string) {
-  if (role === "admin" || role === "super_admin") return null;
+  if (isSuperAdmin(role)) return null;
   const membership = await db.organizationMember.findUnique({
     where: { orgId_userId: { orgId, userId } },
     select: { status: true },

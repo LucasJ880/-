@@ -70,6 +70,11 @@ export type InboundSyncDeps = {
   reloadItem: (item: InboundItemRow) => Promise<InboundItemRow | null>;
   parse: (input: ParseInboundQuoteInput) => Promise<ParsedQuote & { attachmentNotes?: string[] }>;
   applyPlan: (item: InboundItemRow, plan: InquiryItemUpdatePlan, now: Date) => Promise<void>;
+  /**
+   * 已标未响应（催满两次 / 截止已过）后才到的回信：先把 item 从 no_response 改回 sent（状态机允许），
+   * 再按 sent 的规则入表。不传 = 不认领这类信（测试 deps 可省）。
+   */
+  reviveNoResponse?: (item: InboundItemRow) => Promise<void>;
   writeAudit: (entry: { orgId: string; projectId: string; userId: string; messageId: string; action: "rfq_inbound:applied" | "rfq_inbound:failed"; data: Record<string, unknown> }) => Promise<void>;
   notifyFailed: (entry: { orgId: string; projectId: string; userId: string; messageId: string; error: string }) => Promise<void>;
   saveCursor: (orgId: string, cursor: InboundCursor) => Promise<void>;
@@ -195,7 +200,14 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
         result.ownMessages += 1; // 线程里我们自己发出的询价/跟进，不是回信
         continue;
       }
-      const item = (await deps.reloadItem(owner)) ?? owner;
+      const current = (await deps.reloadItem(owner)) ?? owner;
+      // 未响应后才回信：按 sent 规划（一定会变成 replied / quoted），落库前先改回 sent
+      const revived = current.status === "no_response";
+      if (revived && !deps.reviveNoResponse) {
+        result.ignored += 1;
+        continue;
+      }
+      const item = revived ? { ...current, status: "sent" } : current;
 
       let rfqCtx = rfqCtxCache.get(item.id);
       if (!rfqCtx) {
@@ -217,6 +229,7 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
         now,
         attachmentNotes: parsed.attachmentNotes,
       });
+      if (revived) await deps.reviveNoResponse!(current);
       await deps.applyPlan(item, plan, now);
       await deps.writeAudit({
         orgId: org.orgId,
@@ -224,7 +237,7 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
         userId: mailbox.userId,
         messageId: ref.messageId,
         action: "rfq_inbound:applied",
-        data: { itemId: item.id, ...auditSummary(parsed, plan) },
+        data: { itemId: item.id, ...auditSummary(parsed, plan), ...(revived ? { revivedFromNoResponse: true } : {}) },
       });
       if (plan.transition === "quoted") result.quoted += 1;
       else if (plan.transition === "replied") result.replied += 1;
@@ -344,6 +357,10 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
       return r ? { ...item, ...r } : null;
     },
     parse: (input) => parseInboundQuote(input),
+    reviveNoResponse: async (item) => {
+      // 条件写：只在仍是 no_response 时改回 sent（状态机 no_response → sent）
+      await db.inquiryItem.updateMany({ where: { id: item.id, status: "no_response" }, data: { status: "sent" } });
+    },
     applyPlan: async (item, plan, now) => {
       const scope = { projectId: item.projectId, inquiryId: item.inquiryId, itemId: item.id };
       const quoteNotes = appendQuoteNotes(item.quoteNotes, plan.notesAppend);
@@ -431,7 +448,8 @@ export async function loadInboundOrgContexts(now: Date = new Date()): Promise<In
   const { db } = await import("@/lib/db");
   const rows = await db.inquiryItem.findMany({
     where: {
-      status: { in: ["sent", "replied", "quoted"] },
+      // no_response 也盯：标了未响应之后才回的信照样认领入表（P1-7 后续）
+      status: { in: ["sent", "replied", "quoted", "no_response"] },
       contactNotes: { contains: "threadId=" },
       sentAt: { gte: new Date(now.getTime() - OPEN_ITEM_WINDOW_DAYS * 86_400_000) },
     },

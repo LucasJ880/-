@@ -5,6 +5,7 @@ import {
   visualizerSessionListScope,
   validateCustomerAccessForCreate,
   validateSessionLinks,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import type {
   CreateVisualizerSessionRequest,
@@ -16,11 +17,13 @@ import type {
  * 列出当前用户可见的 session（默认按更新时间倒序）
  */
 export const GET = withAuth(async (request, _ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const customerId = queryString(request, "customerId");
   const opportunityId = queryString(request, "opportunityId");
   const quoteId = queryString(request, "quoteId");
 
-  const scope = visualizerSessionListScope(user);
+  const scope = visualizerSessionListScope(viewer);
   const where: Record<string, unknown> = {
     ...(scope ?? {}),
   };
@@ -75,6 +78,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
  * body: { customerId, title?, opportunityId?, quoteId?, measurementRecordId? }
  */
 export const POST = withAuth(async (request, _ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const body = await safeParseBody<CreateVisualizerSessionRequest>(request);
   if (!body) {
     return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
@@ -83,7 +88,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     return NextResponse.json({ error: "customerId 必填" }, { status: 400 });
   }
 
-  const customerCheck = await validateCustomerAccessForCreate(body.customerId, user);
+  const customerCheck = await validateCustomerAccessForCreate(body.customerId, viewer);
   if (!customerCheck.ok) {
     return NextResponse.json({ error: customerCheck.reason }, { status: customerCheck.status });
   }

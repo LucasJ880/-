@@ -9,6 +9,8 @@
  * 任一环节失败 → 具体错误码；绝不回退到"猜一个用户"。
  */
 
+import { loadPositionMode } from "@/lib/rbac/permission-keys";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
@@ -38,12 +40,21 @@ export async function resolveMuseBinding(orgId: string, museUserRef: string): Pr
         select: { userId: true, status: true, role: true, user: { select: { role: true } } },
       })
     : [];
-  return resolveBindingPure({
+  const resolved = resolveBindingPure({
     bindings,
     museUserRef,
     orgId,
     members: members.map((m) => ({ userId: m.userId, status: m.status, orgRole: m.role, userRole: m.user?.role ?? null })),
   });
+  if (!resolved.ok) return resolved;
+  // PERM-4c4：岗位模式企业的身份角色取岗位派生平台角色（决定 B 的管理层 = 老板岗位）；旧模式原样
+  if (!(await loadPositionMode(orgId))) return resolved;
+  const role = await resolveEffectivePlatformRole({
+    userId: resolved.identity.userId,
+    orgId,
+    platformRole: resolved.identity.role,
+  });
+  return { ok: true, identity: { ...resolved.identity, role, positionMode: true } };
 }
 
 /** 管理员绑定/解绑（调用方必须已校验 org 管理权限）。 */

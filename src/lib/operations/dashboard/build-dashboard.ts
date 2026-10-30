@@ -39,6 +39,7 @@ import type {
   OpsRelatedProjectSummary,
   OpsTaskSummary,
 } from "./types";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 type TaskRow = {
   id: string;
@@ -279,7 +280,7 @@ export async function buildOpsDashboard(params: {
   if (pendingProjectIds.length) {
     const allowed = new Set(orgProjectIds);
     const safeIds = pendingProjectIds.filter(
-      (id) => allowed.has(id) || userRole === "super_admin" || userRole === "admin",
+      (id) => allowed.has(id) || isSuperAdmin(userRole),
     );
     if (safeIds.length) {
       const rows = await db.project.findMany({

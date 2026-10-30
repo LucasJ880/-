@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import type { PaginatedResult, PaginationParams, TenantScope, DateRangeFilter } from "@/lib/common/types";
 import { normalizePagination } from "@/lib/common/validation";
+import { describeAuditActor } from "@/lib/authorization/digital-employee";
 
 // ============================================================
 // 审计日志查询
@@ -14,6 +15,17 @@ export interface AuditLogListItem {
   ip: string | null;
   createdAt: Date;
   user: { id: string; name: string; email: string };
+  /** PERM-5b：数字员工记录的展示文本"数字员工 X 代 岗位 Y"；人类记录不带 */
+  actorDisplay?: string;
+}
+
+/**
+ * PERM-5b：列表只为算展示文本读 afterData，不把 afterData 本身返回（列表口径不变）。
+ */
+export function toAuditLogListItem<T extends { afterData?: unknown }>(row: T): Omit<T, "afterData"> & { actorDisplay?: string } {
+  const { afterData, ...rest } = row;
+  const actorDisplay = describeAuditActor(afterData);
+  return actorDisplay ? { ...rest, actorDisplay } : rest;
 }
 
 export interface AuditLogQuery extends PaginationParams {
@@ -52,6 +64,7 @@ export async function listAuditLogs(
         targetId: true,
         ip: true,
         createdAt: true,
+        afterData: true,
         user: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -62,7 +75,7 @@ export async function listAuditLogs(
   ]);
 
   return {
-    data: data as AuditLogListItem[],
+    data: data.map(toAuditLogListItem) as AuditLogListItem[],
     total,
     page,
     pageSize,

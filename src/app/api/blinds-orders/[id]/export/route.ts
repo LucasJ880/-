@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { generateBlindsExcel } from "@/lib/blinds/excel-export";
 import { withAuth } from "@/lib/common/api-helpers";
+import { loadProcessSpec, orderIssues } from "@/lib/sunny-process/autogen";
+import { canViewBlindsOrder, processOrderDb } from "@/lib/sunny-process/server";
 
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (_request, ctx, user) => {
   const { id } = await ctx.params;
 
   const order = await db.blindsOrder.findUnique({
@@ -13,15 +15,18 @@ export const GET = withAuth(async (_request, ctx) => {
     },
   });
 
-  if (!order) {
+  // PERM-3：导出与读同范围（canViewBlindsOrder = resolveOrderAccess().canRead）
+  if (!order || !(await canViewBlindsOrder(order, user))) {
     return NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
   }
 
-  if (order.items.length === 0) {
+  const spec = await loadProcessSpec(processOrderDb, id);
+  const lineCount = order.items.length + spec.domestic.length + spec.drapes.length + spec.vinyl.length + spec.purchase.length;
+  if (lineCount === 0) {
     return NextResponse.json({ error: "工艺单无窗户数据，无法导出" }, { status: 400 });
   }
 
-  const buffer = await generateBlindsExcel(order);
+  const buffer = await generateBlindsExcel(order, { spec, issues: orderIssues(order, spec) });
 
   const filename = encodeURIComponent(`${order.code}_工艺单.xlsx`);
 

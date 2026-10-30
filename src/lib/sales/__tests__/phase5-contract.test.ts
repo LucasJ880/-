@@ -39,7 +39,10 @@ test("5B用统一审批中心处理超额让利并在所有交付通道拦截", 
 
 test("审批驳回要求填写原因，报价变化会让旧审批失效", () => {
   const detail = source("src/app/(main)/capabilities/approvals/[approvalId]/page.tsx");
-  const quoteUpdate = source("src/app/api/sales/quotes/[quoteId]/route.ts");
+  // PERM-4a：PUT 的落库搬到 lib/sales/quote-update（审批收口写在 pending-actions/），三处合并检查
+  const quoteUpdate = source("src/app/api/sales/quotes/[quoteId]/route.ts")
+    + source("src/lib/sales/quote-update.ts")
+    + source("src/lib/pending-actions/quote-promotion-settle.ts");
   assert.match(detail, /驳回原因/);
   assert.match(detail, /!decisionNote\.trim\(\)/);
   assert.match(quoteUpdate, /报价让利内容已变化，请重新提交审批/);

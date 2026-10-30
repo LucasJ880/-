@@ -28,10 +28,20 @@ export type PendingActionType =
   | "marketing.create_campaign_draft"
   // ── Revenue Spine：询盘回复发送（FDE 草稿 → 人工批准 → 唯一发送路径）──
   | "sales.send_inquiry_reply"
+  // ── PERM-2：销售设置（折扣表 / 费用 / 解锁码）修改，另一位持设置权的人批准后执行 ──
+  | "sales.update_quote_settings"
+  // ── PERM-3：作废工艺单，持 orders.cancel 的另一位老板批准后执行 ──
+  | "orders.cancel_blinds_order"
+  // ── PERM-4a：已签约报价改总价，另一位持 sales.quote.signed_amount.approve 的人批准后按提交内容落库 ──
+  | "sales.update_signed_quote"
   // ── 投标询价发送（P1-3；批准后从组织配置邮箱 Gmail 发出，逐家 markItemSent）──
   | "tender.send_rfq"
   // ── 投标询价催单 / 缺字段追问（P1-7；批准后作为原询价线程的回复发出）──
   | "tender.send_chase"
+  // ── INSTALL-2c：完工 + 质保邮件（会计确认尾款后生成；批准后以组织发件身份发给客户）──
+  | "install.send_warranty_email"
+  // ── INSTALL-2j：返修时间确认邮件（排期 / 改期后生成；批准后以组织发件身份发给客户）──
+  | "install.send_repair_visit_email"
   // ── Revenue Spine：商务事实提案（B-2；人工回复里抽到的事实，批准后写入 business_profile.commercialFacts；只有 admin / boss 能批）──
   | "revenue_spine.propose_commercial_fact";
 
@@ -104,6 +114,55 @@ export interface SalesApproveQuotePromotionPayload {
   resourceId: string;
   riskLevel: "HIGH";
   metadata: PendingActionMetadata & { orgId: string; quoteId: string; customerId: string };
+}
+
+/** PERM-2：销售设置修改审批。只含数值 diff / 成本率 / 解锁码哈希，绝不含明文码。 */
+export interface OrdersCancelBlindsOrderPayload {
+  orgId: string;
+  requestedById: string;
+  orderId: string;
+  code: string;
+  fromStatus: string;
+  reason: string;
+  resourceType: "blinds_order";
+  resourceId: string;
+  riskLevel: "CRITICAL";
+  metadata: PendingActionMetadata & { orgId: string };
+}
+
+/**
+ * PERM-4a：已签约报价改总价审批。body = 提交时的报价修改内容（与 PUT 同构），执行时按提交人身份重算并落库。
+ * 只含报价单本身的内容；不含行级成本快照（成本在落库时由服务端按成本率重算）。
+ */
+export interface SalesUpdateSignedQuotePayload {
+  orgId: string;
+  requestedById: string;
+  quoteId: string;
+  /** 提交时报价的 updatedAt（ISO）；执行时不一致则拒绝 */
+  baseUpdatedAt: string;
+  beforeTotal: number;
+  afterTotal: number;
+  body: Record<string, unknown>;
+  resourceType: "sales_quote";
+  resourceId: string;
+  riskLevel: "HIGH";
+  metadata: PendingActionMetadata & { orgId: string; quoteId: string };
+}
+
+export interface SalesUpdateQuoteSettingsPayload {
+  orgId: string;
+  requestedById: string;
+  /** 提交时的设置版本；执行时版本已变则拒绝 */
+  settingsVersion: number;
+  numericPatch: Record<string, number>;
+  costRates?: Record<string, number>;
+  /** undefined=不改；null=清空；string=bcrypt 哈希 */
+  depositOverrideCodeHash?: string | null;
+  lineDiscountUnlockCodeHash?: string | null;
+  resourceType: "quote_discount_settings";
+  resourceId: string;
+  riskLevel: "CRITICAL";
+  metadata: PendingActionMetadata & { orgId: string };
 }
 
 export interface CalendarCreateEventPayload {
@@ -246,11 +305,16 @@ export type PendingActionPayload =
   | ({ type: "sales.update_followup" } & SalesUpdateFollowupPayload)
   | ({ type: "sales.update_stage" } & SalesUpdateStagePayload)
   | ({ type: "sales.approve_quote_promotion" } & SalesApproveQuotePromotionPayload)
+  | ({ type: "sales.update_quote_settings" } & SalesUpdateQuoteSettingsPayload)
+  | ({ type: "orders.cancel_blinds_order" } & OrdersCancelBlindsOrderPayload)
+  | ({ type: "sales.update_signed_quote" } & SalesUpdateSignedQuotePayload)
   | ({ type: "calendar.create_event" } & CalendarCreateEventPayload)
   | ({ type: "grader.internal_note" } & InternalNotePayload)
   | ({ type: "grader.project_task" } & ProjectTaskPayload)
   | ({ type: "grader.email_draft" } & EmailDraftPayload)
   | ({ type: "sales.send_inquiry_reply" } & SalesSendInquiryReplyPayload)
+  | ({ type: "install.send_warranty_email" } & InstallSendWarrantyEmailPayload)
+  | ({ type: "install.send_repair_visit_email" } & InstallSendRepairVisitEmailPayload)
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
   | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
   | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
@@ -301,6 +365,46 @@ export function toPendingApprovalResult(action: {
   };
 }
 
+// ── 完工 + 质保邮件（install.send_warranty_email，INSTALL-2c） ────────
+export interface InstallSendWarrantyEmailPayload {
+  orderId: string;
+  orderCode: string;
+  warrantyNo: string;
+  /** 客户档案邮箱（生成时）；执行时须仍等于客户档案邮箱 */
+  to: string;
+  /** 抄送：生成时取企业质保设置的抄送并去掉收件人（INSTALL-2g）；本字段之前生成的审批没有 = 不抄送 */
+  cc?: string[];
+  subject: string;
+  /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
+  body: string;
+  html: string;
+  /** INSTALL-2k：质保证书 HTML（生成时定稿，发送时渲染为 PDF 附件）；本字段之前生成的审批没有 = 不带附件 */
+  certificateHtml?: string;
+  /** INSTALL-2k：附件名 Warranty-W-<单号>.pdf */
+  attachmentName?: string;
+  metadata: PendingActionMetadata & { orgId: string; orderId: string };
+}
+
+// ── 返修时间确认邮件（install.send_repair_visit_email，INSTALL-2j） ────────
+export interface InstallSendRepairVisitEmailPayload {
+  repairId: string;
+  repairNo: string;
+  orderId: string;
+  /** 审批时的返修预约；执行时须仍是该维修单当前的返修预约 */
+  appointmentId: string;
+  /** 审批时的返修开始时间（ISO）；执行时须仍等于预约开始时间（design D1 / D2） */
+  installAt: string;
+  /** 客户档案邮箱（生成时）；执行时须仍等于客户档案邮箱 */
+  to: string;
+  subject: string;
+  /** 英文纯文本正文（与 html 同一份内容，生成时定稿） */
+  body: string;
+  html: string;
+  /** 该维修单此前已发过（改期主题） */
+  rescheduled: boolean;
+  metadata: PendingActionMetadata & { orgId: string; orderId: string };
+}
+
 // ── 询盘回复发送（sales.send_inquiry_reply，Revenue Spine） ────────
 export interface SalesSendInquiryReplyPayload {
   opportunityId: string;
@@ -309,6 +413,8 @@ export interface SalesSendInquiryReplyPayload {
   to: string;
   subject: string;
   body: string;
+  /** 起草时由 email-layout 从同一份内容渲染的 HTML 版（审批不能改内容，所以起草时就定稿）；Gmail 通道只发 body */
+  html?: string | null;
   language?: "zh" | "en" | null;
   replyToInteractionId?: string | null;
   /** 买家没回信时的第几次跟进（1 起）；首封回复不填 */

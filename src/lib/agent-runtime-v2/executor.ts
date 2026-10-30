@@ -43,6 +43,7 @@ import {
   executeWorkforceSynthesisTask,
   WORKFORCE_SYNTHESIS_EXECUTION_LABEL,
 } from "@/lib/workforce-runtime/synthesis";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
@@ -483,7 +484,7 @@ async function executeRoundGuarded(input: {
         orgId,
         orgRole:
           membership.role === "org_owner" ? "org_admin" : membership.role,
-        isPlatformAdmin: role === "admin" || role === "super_admin",
+        isPlatformAdmin: isSuperAdmin(role),
         workspaceIds: execPolicy.workspaceIds,
       },
       hasMembership: true,
@@ -1221,7 +1222,7 @@ async function executeWorkforceBatchRound(input: {
               ? "org_admin"
               : input.membershipRole,
           isPlatformAdmin:
-            input.role === "admin" || input.role === "super_admin",
+            isSuperAdmin(input.role),
           workspaceIds: execPolicy.workspaceIds,
         },
         hasMembership: true,

@@ -16,6 +16,8 @@ export interface AuditLogParams {
   beforeData?: unknown;
   afterData?: unknown;
   request?: NextRequest;
+  /** 写入 AuditLog.traceId 列（按链路检索）；与 correlation.traceId 不同，不改 afterData */
+  traceId?: string;
   /**
    * Phase 1.1：AI 执行 correlation（可选，向后兼容）。
    * 无 schema 列，合并进 afterData._runtimeCorrelation。
@@ -31,6 +33,11 @@ export interface AuditLogParams {
     agentId?: string;
     jobId?: string;
     taskId?: string;
+    /** PERM-5b：digital_employee 时审计中心显示"数字员工 X 代 岗位 Y" */
+    actorKind?: string;
+    agentName?: string;
+    positionKey?: string;
+    sponsorUserId?: string;
   };
 }
 
@@ -54,6 +61,7 @@ export async function writeAuditLog(
     beforeData,
     afterData,
     request,
+    traceId,
     correlation,
   } = params;
 
@@ -81,6 +89,7 @@ export async function writeAuditLog(
       action,
       targetType,
       targetId: targetId ?? undefined,
+      traceId: traceId ?? undefined,
       beforeData: beforeData ? JSON.stringify(beforeData) : undefined,
       afterData: finalAfterData ? JSON.stringify(finalAfterData) : undefined,
       ip: extractIp(request),

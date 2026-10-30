@@ -44,6 +44,11 @@ export interface ToolDefinition {
   risk?: ToolRisk;
   /** 允许调用该工具的角色白名单；未声明视为 admin-only */
   allowRoles?: ToolAllowRoles;
+  /**
+   * PERM-5b：调用所需的岗位权限键。声明且调用方给了主体权限键时以它为准（不再看 allowRoles）；
+   * 数字员工只能调用声明了它的工具。
+   */
+  requiredPermission?: string;
 
   // —— 遗留字段（已废弃，保留兼容，不再被 registry 读取）——
   /** @deprecated 使用 risk 字段 */

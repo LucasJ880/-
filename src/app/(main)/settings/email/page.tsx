@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/page-header";
 import { Label } from "@/components/ui/label";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSenderCard } from "./org-sender-card";
+import { EmailProfileCard } from "./email-profile-card";
 
 const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
@@ -264,6 +265,7 @@ export default function EmailBindingPage() {
       )}
 
       <OrgSenderCard orgId={orgId} />
+      <EmailProfileCard orgId={orgId} />
 
       {/* ─── 当前生效通道提示 ─── */}
       {!isMengxinOrg && activeChannel && (

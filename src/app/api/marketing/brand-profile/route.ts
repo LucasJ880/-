@@ -2,13 +2,16 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { getMarketingBrandProfileAccess, requireMarketingWriteAccess } from "@/lib/marketing/access";
+import { getMarketingBrandProfileAccess, requireMarketingWriteAccess, requireMarketingReadAccess } from "@/lib/marketing/access";
 import { validateBrandTruth } from "@/lib/marketing/brand-validation";
 import { logAudit } from "@/lib/audit/logger";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  // PERM-4c5：岗位模式企业按岗位派生平台角色拦销售（压扁后中间件不再拦）
+  const readDenied = await requireMarketingReadAccess(user, orgRes.orgId);
+  if (readDenied) return readDenied;
   const profile = await db.marketingBrandProfile.findUnique({ where: { orgId: orgRes.orgId } });
   const permissions = await getMarketingBrandProfileAccess(user, orgRes.orgId);
   return NextResponse.json({ profile, permissions });

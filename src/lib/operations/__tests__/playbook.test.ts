@@ -2,13 +2,9 @@
  * Matrix Account Playbook — 权限 / 校验 / 合并规则
  * 运行：npx tsx src/lib/operations/__tests__/playbook.test.ts
  */
-import {
-  assertCanApprovePlaybook,
-  canApprovePlaybook,
-  canEditPlaybookDraft,
-  canReadPlaybook,
-  canSubmitPlaybook,
-} from "../playbook/permissions";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { selfApprovalBlocked } from "../access";
 import {
   canSubmitValidation,
   validatePlaybookContent,
@@ -27,33 +23,19 @@ function ok(cond: boolean, name: string) {
   }
 }
 
-// ── 权限矩阵 ──
-ok(canApprovePlaybook("admin") === true, "admin 可批准");
-ok(canApprovePlaybook("boss") === true, "boss 可批准");
-ok(canApprovePlaybook("operations") === false, "operations 不可批准");
-ok(canApprovePlaybook("sales") === false, "sales 不可批准");
-
-ok(canEditPlaybookDraft("operations") === true, "operations 可编辑草稿");
-ok(canEditPlaybookDraft("sales") === false, "sales 不可编辑草稿");
-ok(canSubmitPlaybook("operations") === true, "operations 可提交");
-ok(canReadPlaybook("sales") === true, "sales 可读");
-
-ok(
-  assertCanApprovePlaybook({
-    role: "operations",
-    actorUserId: "u1",
-    submittedById: "u1",
-  }).ok === false,
-  "operations 自批被拒",
-);
-ok(
-  assertCanApprovePlaybook({
-    role: "admin",
-    actorUserId: "admin1",
-    submittedById: "ops1",
-  }).ok === true,
-  "admin 可批他人提交",
-);
+// ── 权限（PERM-4b：按岗位权限键，不看平台角色；DB 行为见 ops-authorize-db.isolated）──
+{
+  const src = readFileSync(join(__dirname, "..", "playbook", "permissions.ts"), "utf-8");
+  ok(!/role ===|isAdmin\(|isBoss\(|user\.role/.test(src), "Playbook 权限不再按平台角色字符串");
+  ok(/canApprovePlaybook[\s\S]*OPS_CONTENT_APPROVE/.test(src), "批准 = operations.content.approve");
+  ok(/canEditPlaybookDraft[\s\S]*OPS_CONTENT_DRAFT/.test(src) && /canSubmitPlaybook[\s\S]*OPS_CONTENT_DRAFT/.test(src), "起草 / 提交 = operations.content.draft");
+  ok(/canReadPlaybook[\s\S]*OPS_READ_KEYS/.test(src), "读 = operations.read | manage");
+  ok(/action === "approve" && selfApprovalBlockedFor/.test(src), "只有批准做自批判定，驳回不做");
+}
+ok(selfApprovalBlocked({ actorId: "u1", authorId: "u1", isPlatformSuperAdmin: false }), "提交人自批被拒");
+ok(!selfApprovalBlocked({ actorId: "boss1", authorId: "ops1", isPlatformSuperAdmin: false }), "他人可批");
+ok(!selfApprovalBlocked({ actorId: "lucas", authorId: "lucas", isPlatformSuperAdmin: true }), "平台 super_admin 自批例外");
+ok(!selfApprovalBlocked({ actorId: "u1", authorId: null, isPlatformSuperAdmin: false }), "作者未知不拦");
 
 // ── 校验 ──
 const empty = validatePlaybookContent({});

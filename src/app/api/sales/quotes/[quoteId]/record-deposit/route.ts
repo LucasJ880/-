@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isSuperAdmin } from "@/lib/rbac/roles";
 import { isAcceptedDepositPaymentMethod } from "@/lib/sales/deposit-payment-methods";
+import { assertSalesQuoteUpdatable, resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
 
 /**
  * POST /api/sales/quotes/[quoteId]/record-deposit
@@ -12,7 +12,7 @@ import { isAcceptedDepositPaymentMethod } from "@/lib/sales/deposit-payment-meth
  *   - method: cash | visa | check | finance（兼容旧客户端 etransfer）
  *   - note: 可选备注
  *
- * 权限：quote 所属销售本人 或 super_admin
+ * 权限（PERM-4a）：报价限当前企业（跨企业 404）；对该报价持 sales.quote.update（本人范围 = 本人创建）
  * 只能在 status=signed 或 accepted（历史）时补录，其他状态拒绝。
  */
 
@@ -24,6 +24,8 @@ type Body = {
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
 
   let body: Body;
   try {
@@ -47,8 +49,8 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : null;
 
-  const quote = await db.salesQuote.findUnique({
-    where: { id: quoteId },
+  const quote = await db.salesQuote.findFirst({
+    where: { id: quoteId, orgId: orgRes.orgId },
     select: {
       id: true,
       createdById: true,
@@ -62,9 +64,8 @@ export const POST = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
-    return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
-  }
+  const denied = await assertSalesQuoteUpdatable(user, orgRes.orgId, quote);
+  if (denied) return denied;
 
   // 仅允许对"已签约"（signed / accepted 历史数据）补录定金
   if (quote.status !== "signed" && quote.status !== "accepted") {

@@ -5,6 +5,7 @@
  * 客户端提交的 orgId / userId / projectId 等只能作为"申请"，在此处 fail-closed 校验。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { db } from "@/lib/db";
 import { createTraceId } from "@/lib/capabilities/trace-context";
 import type {
@@ -13,6 +14,7 @@ import type {
   AgentScopeDenyCode,
   ResolveAgentScopeResult,
 } from "./types";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export interface ResolveAgentScopeInput {
   /** 服务端 session 解析出的用户（AuthUser 的 id/role） */
@@ -115,12 +117,14 @@ export async function resolveAgentScope(
   const userId = input.user.id;
   const platformRole = input.user.role;
   const isPlatformAdmin =
-    platformRole === "admin" || platformRole === "super_admin";
+    isSuperAdmin(platformRole);
 
   const orgId = (input.orgId ?? "").trim();
   if (!orgId) {
     return deny("missing_org", "缺少组织上下文", 400);
   }
+  // PERM-4c4：岗位模式企业"销售只能挂自己创建的客户"按岗位派生平台角色判定（压扁后不放宽）
+  const scopeRole = await resolveEffectivePlatformRole({ userId, orgId, platformRole });
 
   const org = await db.organization.findUnique({
     where: { id: orgId },
@@ -194,7 +198,7 @@ export async function resolveAgentScope(
             archived: customer.archivedAt !== null,
           }
         : null,
-      { orgId, userId, platformRole },
+      { orgId, userId, platformRole: scopeRole },
     );
     if (!evalCustomer.ok) {
       return deny(evalCustomer.code, evalCustomer.error, evalCustomer.status);

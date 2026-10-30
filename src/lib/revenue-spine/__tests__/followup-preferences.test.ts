@@ -209,8 +209,9 @@ ok("draftNoReplyFollowUps：组织级解析一次偏好；追问与草稿（含�
   assert.ok(resolveAt > 0 && loopAt > resolveAt, JSON.stringify({ resolveAt, loopAt }));
   assert.match(run, /questions: buildClarifyingQuestions\(missing, lang, 3, draftPrefs\),/);
   assert.match(run, /preferences: draftPrefs,\s*\}\);/);
-  // 中文对照走同一个 input()：同样带偏好
-  assert.match(run, /const reviewZh = language === "en" \? buildNoReplyFollowUpDraft\(input\("zh"\)\) : null;/);
+  // main 上英文跟进改用新版模板 composeFollowUpEmail（不读偏好，中文对照出自同一模板）；中文买家仍走纯文本模板 input()，带偏好
+  assert.match(run, /\} else \{\s*draft = buildNoReplyFollowUpDraft\(input\(language\)\);\s*const skippedBanned = draft\.preferences\?\.bannedPhrasesSkipped \?\? \[\];/);
+  assert.match(run, /reviewZh = composeFollowUpEmail\(ctx, opts, "zh"\)\.draft;/);
   assert.match(run, /if \(draftPrefs\?\.ignored\.length && !prefsAudited\) \{\s*prefsAudited = true;\s*await recordIgnoredDraftPreferencesSafe\(\{ orgId, userId: principalUserId, ignored: draftPrefs\.ignored, employeeKey: FDE_EMPLOYEE_KEY \}\);/);
   assert.match(run, /ignored: skippedBanned\.map\(\(key\) => \(\{ key, reason: BANNED_PHRASE_SKIPPED_REASON \}\)\),/);
   // 守卫判定与原先相同：仍在建审批之前

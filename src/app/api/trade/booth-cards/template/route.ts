@@ -3,11 +3,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
-import { BOOTH_CARD_ROLES, buildBoothCardTemplate } from "@/lib/trade/booth-cards";
+import { buildBoothCardTemplate } from "@/lib/trade/booth-cards";
+import { TRADE_READ_KEYS, requireTradePermission } from "@/lib/trade/access";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, BOOTH_CARD_ROLES);
+  const auth = await requireTradePermission(request, TRADE_READ_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   return new NextResponse(new Uint8Array(buildBoothCardTemplate()), {

@@ -385,7 +385,7 @@ async function main() {
   await ok("路由：resolveRevenueAccess 解析组织（与 /api/revenue/* 同规则）、force-dynamic、只导出 GET", () => {
     const src = strip(read("src/app/api/revenue/score-calibration/route.ts"));
     assert.match(src, /export const dynamic = "force-dynamic"/);
-    assert.match(src, /const access = await resolveRevenueAccess\(request\);\s*if \(!access\.ok\) return access\.response;/);
+    assert.match(src, /const access = await resolveRevenueAccess\(request, REVENUE_READ_KEYS\);\s*if \(!access\.ok\) return access\.response;/);
     assert.match(src, /getScoreCalibration\(access\.orgId, request\.nextUrl\.searchParams\.get\("days"\)\)/);
     assert.doesNotMatch(src, /export (async )?function (POST|PUT|PATCH|DELETE)/);
     // 组织只经 resolveRevenueAccess 解析，路由不自己读组织参数
