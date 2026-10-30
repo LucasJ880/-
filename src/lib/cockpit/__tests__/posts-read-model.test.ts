@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AuthUser } from "@/lib/auth";
+import { canAccessManagementWorkspace } from "@/lib/rbac/workspace-policy";
 import {
   COCKPIT_FORBIDDEN_BODY,
   agentEventTimelineWhere,
@@ -91,6 +92,17 @@ async function main() {
     const seen: unknown[] = [];
     await resolveCockpitViewer(user, viewerDeps({ isManagement: (ctx) => (seen.push(ctx), true) }));
     ok(JSON.stringify(seen[0]) === JSON.stringify({ platformRole: "user", orgRole: "org_admin", hasMembership: true }), "管理层判定拿到平台角色 + 组织角色 + 成员身份");
+  }
+  {
+    // 合并 PERM-4c2 后：岗位模式企业与首页 `/` 同一判定（真实 canAccessManagementWorkspace），按岗位键而不是组织角色
+    const posDeps = (role: string, permissionKeys: string[] | null, positionMode: boolean) =>
+      viewerDeps({ role, positionContext: async () => ({ permissionKeys, positionMode }), isManagement: canAccessManagementWorkspace });
+    const owner = await resolveCockpitViewer(user, posDeps("org_member", ["organization.dashboard.read"], true));
+    ok(owner.ok, "岗位模式：组织普通成员持 organization.dashboard.read（老板岗位）→ 放行");
+    const orgOwnerNoPost = await resolveCockpitViewer(user, posDeps("org_owner", ["sales.quote.create"], true));
+    ok(!orgOwnerNoPost.ok && orgOwnerNoPost.status === 403, "岗位模式：org_owner 但没有管理层岗位键 → 403（与首页一致）");
+    const legacy = await resolveCockpitViewer(user, posDeps("org_owner", null, false));
+    ok(legacy.ok, "非岗位模式：org_owner 照旧放行");
   }
 
   // ── 岗位总览：假依赖装配 ────────────────────────────────────
