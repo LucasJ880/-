@@ -12,14 +12,16 @@
 ## 当前位置
 
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
-- **下一步：A-2 `org-cockpit-read-model`**，从 `claude/awesome-turing-dorqeg` 切出 `claude/org-cockpit-read-model`。A-2 设计输入（已调研，写 design 时逐条回源码核实）：AutomationRun 实际全是平台级（`orgId` 恒为空）；没有任何 cadence 解析，按组织本地时刻的 cron 在非当值小时不写记录；`/inbox` 是快速捕获页，待审批队列在 `/assistant` 的 PendingInbox（`GET /api/ai/pending-actions`，组织内 + 可见性 OR + 未过期），角标计数跨组织；AuditLog / AgentRunEvent 没有 `(orgId, createdAt)` 索引；`DAILY_AGENT_RUNS` 命中在系统发起时只有 Notification（`type=quota_hard_limit`, `entityId=DAILY_AGENT_RUNS`）可靠；Muse 脱敏用 `muse-bridge/advisory.ts#sanitizeOutbound` / `contract.ts#containsOutboundSensitive`；只读 GET 模板 `src/app/api/workforce/jobs/route.ts`（`withAuth` + `resolveWorkforceApiOrgForUser`，不要用会写库的 `resolvePreferredOrgId`）；`getTenderPortfolioSummary` 调用前必须过 `TENDER_FINANCIAL_CONTROL_ENABLED`。
+- **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
+- **下一步：A-3 `org-cockpit-home`**，从 `claude/org-cockpit-read-model` 切出 `claude/org-cockpit-home`。输入：首页 `src/app/(main)/page.tsx` 是服务端组件（`resolveWorkspaceContextFromCookies` + `resolveHomeRedirect`，非管理层重定向，保留）；客户端用 `apiFetch` 调 `/api/cockpit/posts` 与 `/api/cockpit/timeline`（这两个前缀不在 `ORG_SCOPED_API_PREFIXES`，服务端按 DB 活动组织解析，与 `/workforce` 一致）；"等你 N 件"跳 `/capabilities/approvals`；卡片标注心跳平台级、`unattributed` 计数、KPI 的 `window` 口径；视觉按 `DESIGN.md`（宣纸 #f2f0eb / 玉白 #faf8f4、半透明边框、黛青仅用于交互、最重 600、44px 触控）。D-2：直接替换旧首页 `ManagementDashboardClient`。
+- A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
 
 ## 进度表
 
 | ID | change | 四件套 | apply | 测试 | verify | 交叉验证 | 状态列 |
 |---|---|---|---|---|---|---|---|
 | A-1 | `org-cockpit-posts`（[PR #244](https://github.com/LucasJ880/-/pull/244)，base `main`） | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
-| A-2 | `org-cockpit-read-model` | — | — | — | — | — | `[ ]` |
+| A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
 | A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
 | A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
 | B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
@@ -39,6 +41,9 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 5. `service`、`content` 没有既有只读读函数，A-1 的 KPI 标"未接入"；A-2 决定是否把路由里的内联查询原样抽成读函数。
 6. `tender` 的 KPI 来源 `getTenderPortfolioSummary`、`marketing` 的 `getMarketingDashboard` 返回值含毛利 / 利润 / 估值 / 中标金额，KPI 只取白名单计数字段。
 7. `ops_knowledge` 卡片跳 `/ai-activity`（不跳 `/ai/autopilot`，后者有权限门与开关）。
+8. （A-2）心跳是平台级（AutomationRun 不带 orgId）；健康度多 `n/a` / `not_configured`；迟到按类型化调度表（对照 vercel.json）判断。
+9. （A-2）"等你 N 件" = `/capabilities/approvals` 待我审批（PendingAction + ApprovalRequest + 产品内容审批，带决策权）∪ workforce 需要你，作业的审批已列出则去重；通知不另计。**A-3 的跳转目标是 `/capabilities/approvals`，不是 `/inbox`**（`/inbox` 是快速捕获页）。
+10. （A-2）两个 API 只对首页同口径管理层开放；时间线无 `(orgId, createdAt)` 索引，靠 7 天窗口 + limit+1 + 事件白名单，`EXPLAIN` 留到 staging。
 
 ## 环境（云端容器每次都是新的，照做即可）
 

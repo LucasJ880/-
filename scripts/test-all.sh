@@ -585,6 +585,11 @@ run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" 
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
+# 组织驾驶舱 A-2（openspec change org-cockpit-read-model）：调度 / 等你 N 件 / company.log / 读模型——纯逻辑，无 DB
+run_test "组织驾驶舱 调度与健康度（A-2）" "npx tsx src/lib/cockpit/__tests__/schedule.test.ts"
+run_test "组织驾驶舱 等你 N 件（A-2）" "npx tsx src/lib/cockpit/__tests__/waiting.test.ts"
+run_test "组织驾驶舱 company.log 时间线（A-2）" "npx tsx src/lib/cockpit/__tests__/timeline.test.ts"
+run_test "组织驾驶舱 读模型与 API（A-2）" "npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

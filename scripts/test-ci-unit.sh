@@ -340,6 +340,10 @@ npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
 # 组织驾驶舱 A-1 岗位注册表穷举（openspec change org-cockpit-posts；纯逻辑，无 DB）
 npx tsx src/lib/cockpit/__tests__/posts.test.ts
+npx tsx src/lib/cockpit/__tests__/schedule.test.ts
+npx tsx src/lib/cockpit/__tests__/waiting.test.ts
+npx tsx src/lib/cockpit/__tests__/timeline.test.ts
+npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts
 # fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
 npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 
