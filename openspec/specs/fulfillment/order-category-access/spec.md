@@ -6,7 +6,7 @@
 ## Requirements
 
 ### Requirement: 品类判定
-系统 SHALL 把工艺单每一行按产品类型映射到品类 `vinyl` / `drapery` / `shades`：`卷帘`、`斑马帘`、`香格里拉` → `shades`；报价产品 `Drapery`、`Sheer` → `drapery`，`Shutters` → `vinyl`，`Zebra`、`Roller`、`SHANGRILA`、`Cordless Cellular`、`SkylightHoneycomb`、`Roman Shade`、`Roman`、`Allusion` → `shades`。未知产品类型 SHALL 判为无品类。签字自动生成的工艺单参数行（`sunny/process-order-autogen`）SHALL 同样计入：国内下单表行 → `shades`，窗帘行 → `drapery`，Vinyl 行 → `vinyl`，外采购行按段（百叶 → `vinyl`，窗帘 → `drapery`，帘子 → `shades`）。一张单的品类集合 SHALL 是工艺单行与参数行品类去重后的集合。
+系统 SHALL 把工艺单每一行按产品类型映射到品类 `vinyl` / `drapery` / `shades`：`卷帘`、`斑马帘`、`香格里拉` → `shades`；报价产品 `Drapery`、`Sheer` → `drapery`，`Shutters` → `vinyl`，`Zebra`、`Roller`、`SHANGRILA`、`Cordless Cellular`、`SkylightHoneycomb`、`Roman Shade`、`Roman`、`Allusion`、`Fauxwood` → `shades`。未知产品类型 SHALL 判为无品类。签字自动生成的工艺单参数行（`sunny/process-order-autogen`）SHALL 同样计入：国内下单表行 → `shades`，窗帘行 → `drapery`，Vinyl 行 → `vinyl`，外采购行按段（百叶 → `vinyl`，窗帘 → `drapery`，帘子 → `shades`）。一张单的品类集合 SHALL 是工艺单行与参数行品类去重后的集合。
 
 #### Scenario: 工艺单全为斑马帘
 - **WHEN** 工艺单 4 行产品类型均为 `斑马帘`
@@ -23,6 +23,10 @@
 #### Scenario: 全部发给国内后
 - **WHEN** 自产行全部发给国内（工艺单行为空，国内下单表有行）
 - **THEN** 品类集合仍含 `shades`，不退化为空集合
+
+#### Scenario: Fauxwood 报价行
+- **WHEN** 报价行产品为 `Fauxwood`
+- **THEN** 品类为 `shades`；`npx tsx src/lib/fulfillment/__tests__/category.test.ts` 覆盖
 
 ### Requirement: 工艺单修改权按品类
 修改工艺单（含改行、改状态、导出以外的所有写操作）SHALL 要求操作者持有该单品类集合中**每一个**品类的 `orders.fulfillment.update.<品类>`，或持有全品类键 `orders.fulfillment.update`，或是平台管理员。缺任一品类 SHALL 返回 403，响应 SHALL 列出缺少的品类。品类集合为空的单 SHALL 只允许全品类键持有者与平台管理员修改。既有的项目可见性限制 SHALL 继续作为附加条件，不因本能力放宽。
