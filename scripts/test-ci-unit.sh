@@ -356,6 +356,8 @@ npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts
 npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts
 npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx
 npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts
+npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts
+npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts
 # fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
 npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 

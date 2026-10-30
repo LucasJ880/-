@@ -79,6 +79,8 @@ export const WECHAT_CONFIRM_POLICY: Readonly<Record<PendingActionType, WeChatCon
   "orders.cancel_blinds_order": "web_only_review",
   // PERM-4a：签约单改总价只在 Web 审批中心审
   "sales.update_signed_quote": "web_only_review",
+  /** 改写企业商务事实（MOQ / 周期 / 港口 / 落款 / 目录；影响此后所有 FDE 草稿，且只有 admin / boss 能批） */
+  "revenue_spine.propose_commercial_fact": "web_only_review",
 };
 
 /** 可在微信里回数字确认 / 回取消的类型（白名单；部分类型还要按 payload 再筛，见 isWeChatConfirmableAction） */

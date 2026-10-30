@@ -54,6 +54,7 @@ import {
 import { execSalesSendInquiryReply } from "./exec-sales-inquiry-reply";
 import type { SalesSendInquiryReplyPayload } from "./types";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
+import { approverRoleDenial, requiresApproverPermissionGate } from "./approver-roles";
 import { createNotification } from "@/lib/notifications/create";
 import {
   QUOTE_UPDATE_EXISTING_SELECT,
@@ -193,6 +194,19 @@ export async function executePendingAction(
 
   if (!(await canDecideTeamApproval(action, ctx))) {
     return { ok: false, error: "无权操作该草稿" };
+  }
+
+  // 按类型的批准权限门（B-2 商务事实提案：与 PUT /api/revenue/policy 同源——平台 super_admin 或企业内 trade.settings.manage）。
+  // 在认领之前判：无权时审批保持待审批，不被消耗。按 userId 读平台角色、按 userId + 动作所属企业判岗位键：
+  // 审批中心传进来的 ctx.role 是组织成员角色（org_owner …），不能用来判
+  if (requiresApproverPermissionGate(action.type)) {
+    const approver = await db.user.findUnique({ where: { id: ctx.userId }, select: { role: true } });
+    const { holdsFactApproverKey } = await import("@/lib/revenue-spine/fact-proposals");
+    const holdsSettingsKey = action.orgId ? await holdsFactApproverKey(ctx.userId, action.orgId) : false;
+    const roleDenial = approverRoleDenial(action.type, { platformRole: approver?.role, holdsSettingsKey });
+    if (roleDenial) {
+      return { ok: false, error: roleDenial };
+    }
   }
 
   // Phase 3B-A：列上的 orgId 与调用方 activeOrg 必须一致（保留 metadata 二次校验）
@@ -506,6 +520,15 @@ export async function executePendingAction(
         const { execInstallSendRepairVisitEmail } = await import("./exec-install-repair-visit-email");
         exec = await execInstallSendRepairVisitEmail(
           action.payload as unknown as import("./types").InstallSendRepairVisitEmailPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      }
+      case "revenue_spine.propose_commercial_fact": {
+        const { execProposeCommercialFact } = await import("@/lib/revenue-spine/fact-proposals");
+        exec = await execProposeCommercialFact(
+          action.payload as unknown as import("./types").RevenueSpineProposeCommercialFactPayload,
           ctx,
           action.id,
         );

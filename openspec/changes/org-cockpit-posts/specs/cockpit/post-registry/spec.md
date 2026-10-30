@@ -39,9 +39,9 @@
 ### Requirement: 每个待审批动作类型恰好有一种归属方式
 PendingAction 类型联合中的每一个类型 SHALL 恰好满足以下之一：(a) 固定归属一个岗位；(b) 属于"通用动作类型"，按每条待审批动作自身的上下文归属。类型 SHALL NOT 同时属于 (a) 与 (b)，也 SHALL NOT 在 (a) 中出现于两个岗位。注册表 SHALL NOT 包含联合之外的类型。当前通用动作类型为 `calendar.create_event`、`grader.email_draft`、`grader.internal_note`、`grader.project_task`（它们由销售跟进、助手场景、技能、ai-grader 等多条链路产出）。
 
-#### Scenario: 当前 19 种动作类型全部有归属方式
+#### Scenario: 当前 20 种动作类型全部有归属方式
 - **WHEN** 运行岗位注册表测试
-- **THEN** 从 PendingAction 类型定义源码读出的 19 个类型中，15 个各自恰好固定归属一个岗位，4 个属于通用动作类型，退出码 0
+- **THEN** 从 PendingAction 类型定义源码读出的 20 个类型中，16 个各自恰好固定归属一个岗位，4 个属于通用动作类型，退出码 0
 
 #### Scenario: 新增动作类型未归属
 - **WHEN** PendingAction 类型联合新增一个成员而岗位注册表既未固定分配、也未列为通用动作类型

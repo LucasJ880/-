@@ -37,9 +37,20 @@
   - 任务书第 1 条（decline 自动关闭）、第 3 条（配额 `quota_hit` + 通知 admin）既有代码已实现，只补审计键名与静态断言。
   - **GATE 注意项**：company.log 操作人显示为负责人（`AuditLog.userId` 外键），来源与键名只在 `afterData`。建议后续给 A-2 时间线加动作中文标签与来源。
   - staging：先跑 seed 脚本 dry-run，再 `--write`；核对审计、通知，确认 Sunny 窗饰车道商机未被动。
-- **下一步：等决策**。
-  - B-2 等 B-1 的"改稿来源"决策；B-3 等"偏好来源"决策（见下方"B-3 预研事实"）；A-5、B-6 是决策项。
-  - 决策到位前，可做的只有已合并 change 的 archive（`/opsx:archive <change> --yes`，独立小 PR）。
+- **决策已到（用户，2026-10-26）**：B-2 选 (b)，对"人工回复作废草稿"（`SUPERSEDED_BY_MANUAL_REPLY`）做草稿 vs 人工回复的 diff；B-3 选 (b)，偏好放进 `revenue_spine.policy` 新段。
+- **B-2 `fde-fact-proposals`**（分支 `claude/fde-fact-proposals`，叠在 B-5 上，[PR #251](https://github.com/LucasJ880/-/pull/251)，base = B-5 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-2_REPORT.md`（偏差 13 条；交叉审查两轮：第一轮 2 阻塞 + 9 应修，第二轮 4 应修，全部处理）。
+  - 归档顺序：先归档 `fde-feedback-loop`，再归档本 change（本 change 修改 B-1 的能力）。
+  - 做了什么：
+    - B-1 记录器加"人工已回复"终态（`replaced_by_manual_reply`，humanDecision edited，diff = 快照 vs 外发互动正文）；开发信与线索页手工留痕只记事件、不抽；
+    - 规则化抽取 6 个 commercialFacts 键：先截引用、只看新增行、价格句整句跳过、结束语按整封判；
+    - 起卡前用当前值补齐没写的子字段、用合并规则预校验；新类型 `revenue_spine.propose_commercial_fact`，审批人按平台角色挑（所有者能批 → 在职 boss → admin），没人能批不起卡；
+    - 认领前角色门按批准人 `User.role` 判（审批中心传的是组织角色）；批准时在最新配置上重新合并，经 `publishRevenueSpineRule(business_profile)` 写入。
+  - **GATE 注意项**：外贸收件箱的外发正文常是收件箱 LLM 草稿被采用；落款只补空缺；并发起卡 / 并发批准；外发同步多一步；补漏 7 天窗口会处理上线前 7 天的作废。
+  - staging：见报告第 5 节（boss 在审批中心批准、sales 被拒、驳回后不再起、带价格不起卡）。
+- **进行中：B-3 `fde-preferences-in-draft`**（分支 `claude/fde-preferences-in-draft`，叠在 B-2 上）：四件套 + 金样本 + 实现已推送（tasks 3/5），交叉审查与全量门禁进行中。
+  - 偏好放 `revenue_spine.policy` 的 `fde` 段：`useConfirmedPreferences`（默认 false）+ 问候 / 结束语 / 敬语 / 必问 / 免问 / 禁用词；关闭时草稿逐字节不变（`__tests__/fixtures/draft-golden-pre-b3.json` 用改动前代码生成，10 例）。
+  - 偏好逐条校验（草稿守卫、禁数字等），违规忽略并按组织 + 指纹记一次审计；润色时偏好行必须原样保留、禁用词不得变多，否则回退模板。
+  - 只接首封回复草稿；跟进草稿另开 change（GATE 注意项）。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -53,7 +64,7 @@
 | A-3 | `org-cockpit-home`（[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支） | ✅ `c7f4b57`（两轮审查后修订） | 8/8 | ✅ 419/433，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：1 阻塞（列为 GATE 决策项）+ 8 应修 + 第二轮 4 项，全部处理 | `[G]` |
 | A-4 | `org-cockpit-workload`（[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支） | ✅ `00080806` | 7/7 | ✅ 422/436，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 5 应修 + 4 小全部处理 | `[G]` |
 | B-1 | `fde-feedback-loop`（[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支） | ✅ `61feec70` | 6/6 | ✅ 424/438，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞 + 6 应修全部处理 | `[G]` |
-| B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
+| B-2 | `fde-fact-proposals`（[PR #251](https://github.com/LucasJ880/-/pull/251)，base = B-5 分支） | ✅（两轮审查后修订 `b949bce7`） | 5/5 | ✅ 430/444，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：2 阻塞 + 9 应修，第二轮 4 应修，全部处理 | `[G]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
 | B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
@@ -135,7 +146,7 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 3. **草稿里已有的可配置项**：落款来自 `businessProfile.commercialFacts.signature`（`reply-draft.ts` `signatureLines` / `signOff`）；追问来自 `rfq/missing-info.ts` `buildClarifyingQuestions`（按缺失字段与 `maxQuestionsPerReply`）。
 4. **守卫**：`reply-draft.ts` `checkDraftGuardrails(body, allowed)`，润色之后再跑。
 5. **开关位置**：任务书写 `settingsJson.revenue_spine.fde.useConfirmedPreferences`，代码里还没有这个键。Revenue Spine 的其它开关在 `OrgBusinessRule(revenue_spine.policy)`。
-6. **待决定**：偏好从哪来。选项：
+6. **已决定（用户，2026-10-26）：选 (b)**。原选项：
    - (a) active `RolePlaybook`（`roleScope = inbound_sales_fde`）的 `templates` 里约定结构化块（问候 / 落款 / 追问顺序 / 禁用词），由管理员在 playbook 里维护；
    - (b) 放进 `revenue_spine.policy` 新段（与 `notify` / `autonomy` 同级），不经 employee-ai；
    - (c) 暂缓，等 B-2 / practice-miner 能产出结构化团队偏好。

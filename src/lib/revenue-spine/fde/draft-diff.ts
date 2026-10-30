@@ -60,7 +60,8 @@ function isGreeting(lines: string[]): boolean {
   return lines.length <= 2 && (GREETING_RE.test(lines[0]) || GREETING_ZH_RE.test(lines[0]));
 }
 
-function isClosing(line: string): boolean {
+/** 结束语行（"Best regards," / "Yours faithfully," / "顺祝商祺"）；商务事实抽取判"有没有结束语"也用它，只维护一份词表 */
+export function isClosing(line: string): boolean {
   return CLOSING_RE.test(line) || CLOSING_ZH_RE.test(line);
 }
 
@@ -181,6 +182,24 @@ const normLine = (l: string) => l.replace(/\s+/g, " ").trim();
 
 function taggedLines(body: string): Array<{ line: string; section: DraftSection }> {
   return classifyParagraphs(body).flatMap((p) => p.lines.map((line) => ({ line: normLine(line), section: p.section })));
+}
+
+/** 带段落类型的规范化行（与 diff 同一切法；B-2 商务事实抽取用来与原文逐行对齐） */
+export function sectionedLines(body: string | null | undefined): Array<{ line: string; section: DraftSection }> {
+  return taggedLines(normalizeDraftBody(body));
+}
+
+/** sent 相对 original 新增的行在 sectionedLines(sent) 里的下标（多重集差，按出现次数；顺序与原文一致） */
+export function addedLineIndexes(original: string | null | undefined, sent: string | null | undefined): number[] {
+  const remaining = new Map<string, number>();
+  for (const { line } of sectionedLines(original)) remaining.set(line, (remaining.get(line) ?? 0) + 1);
+  const out: number[] = [];
+  sectionedLines(sent).forEach(({ line }, i) => {
+    const n = remaining.get(line) ?? 0;
+    if (n > 0) remaining.set(line, n - 1);
+    else out.push(i);
+  });
+  return out;
 }
 
 /** 多重集差：a 里有、b 里没有（按出现次数）的行 */

@@ -41,7 +41,9 @@ export type PendingActionType =
   // ── INSTALL-2c：完工 + 质保邮件（会计确认尾款后生成；批准后以组织发件身份发给客户）──
   | "install.send_warranty_email"
   // ── INSTALL-2j：返修时间确认邮件（排期 / 改期后生成；批准后以组织发件身份发给客户）──
-  | "install.send_repair_visit_email";
+  | "install.send_repair_visit_email"
+  // ── Revenue Spine：商务事实提案（B-2；人工回复里抽到的事实，批准后写入 business_profile.commercialFacts；只有 admin / boss 能批）──
+  | "revenue_spine.propose_commercial_fact";
 
 /** 暂未接入真实执行器的占位动作类型（executor 会安全降级返回 unsupported） */
 export const UNSUPPORTED_PENDING_ACTION_TYPES: readonly PendingActionType[] = [];
@@ -316,7 +318,25 @@ export type PendingActionPayload =
   | ({ type: "marketing.activate_campaign" } & MarketingActivateCampaignPayload)
   | ({ type: "marketing.approve_research_plan" } & MarketingApproveResearchPlanPayload)
   | ({ type: "marketing.propose_context_update" } & MarketingProposeContextUpdatePayload)
-  | ({ type: "marketing.create_campaign_draft" } & MarketingCreateCampaignDraftPayload);
+  | ({ type: "marketing.create_campaign_draft" } & MarketingCreateCampaignDraftPayload)
+  | ({ type: "revenue_spine.propose_commercial_fact" } & RevenueSpineProposeCommercialFactPayload);
+
+// ── 商务事实提案（revenue_spine.propose_commercial_fact，B-2） ────────
+export interface RevenueSpineProposeCommercialFactPayload {
+  field: "moq" | "sampleLeadTime" | "productionLeadTime" | "loadingPorts" | "signature" | "catalogUrl";
+  /** 回复里抽到的原值（没写的子字段为 null）；执行时在最新商务事实上重新合并 */
+  extractedValue?: unknown;
+  /** 起卡时按当前值合并出的提议值（卡片展示用） */
+  proposedValue: unknown;
+  currentValue: unknown;
+  /** 规范键：比较与驳回去重用（fact-extract.ts factValueKey） */
+  valueKey: string;
+  /** 触发该字段的那一句（已替换买家信息） */
+  evidence: string;
+  opportunityId: string | null;
+  sourcePendingActionId: string;
+  metadata: PendingActionMetadata & { orgId: string; opportunityId: string | null; sourcePendingActionId: string };
+}
 
 // ── 工具返回给 AI 的"草稿已创建"结构 ───────────────────────────
 

@@ -4,6 +4,8 @@
  * - 审批新建时写一条脱敏草稿快照审计（recordInquiryDraftSnapshotSafe）；
  * - 审批到达终态（批准 / 驳回 / 过期）时产生一条团队范围的人类反馈事件（recordInquiryReplyFeedbackSafe），
  *   只存引用与结构化 diff，不存正文；同一审批同一终态只产一条；
+ * - 人工已回复而被系统作废（SUPERSEDED_BY_MANUAL_REPLY，B-2）也算一次改稿：diff = 草稿快照 vs 那次人工外发正文；
+ *   改稿类事件记录后触发商务事实提案（fact-proposals.ts，尽力而为）；
  * - approval-timeout 定时任务里补漏（sweepInquiryReplyFeedback）。
  * 全部尽力而为：任何异常只记日志，不影响审批结果、接口响应与 FDE 流程。
  * 结局判定复用驾驶舱工作量的同一张规则表（cockpit/workload.ts pendingActionOutcome），两边口径一致。
@@ -18,6 +20,7 @@ import {
   pendingActionOutcome,
 } from "@/lib/cockpit/workload";
 import type { CreateFeedbackInput } from "@/lib/employee-ai/feedback-service";
+import { stripQuotedReply } from "../fact-extract";
 import { buildDraftDiff, draftContentHash, maskBuyerPii, normalizeDraftBody, type BuyerPiiTerms } from "./draft-diff";
 
 /** 与 fde/inbound-sales.ts INQUIRY_REPLY_ACTION_TYPE 一致（测试对照源码） */
@@ -133,15 +136,31 @@ function defaultSnapshotDeps(): SnapshotDeps {
 
 // ── 终态映射 ──────────────────────────────────────────────────
 
-export type FeedbackTerminal = "approved" | "rejected" | "expired";
-export type FeedbackType = "approved_as_is" | "approved_edited" | "rejected" | "expired";
+export type FeedbackTerminal = "approved" | "rejected" | "expired" | "manual_reply";
+export type FeedbackType = "approved_as_is" | "approved_edited" | "rejected" | "expired" | "replaced_by_manual_reply";
 
 export const HUMAN_DECISION_BY_FEEDBACK: Record<FeedbackType, "accepted" | "edited" | "rejected" | "deferred"> = {
   approved_as_is: "accepted",
   approved_edited: "edited",
   rejected: "rejected",
   expired: "deferred",
+  replaced_by_manual_reply: "edited",
 };
+
+/** 与 trade/outbound-sync.ts SUPERSEDED_BY_MANUAL_REPLY 一致（测试对照源码） */
+export const MANUAL_REPLY_REASON = "SUPERSEDED_BY_MANUAL_REPLY";
+
+/** 改稿类事件：记录后触发商务事实提案（B-2） */
+export const FACT_PROPOSAL_FEEDBACK_TYPES: readonly FeedbackType[] = ["approved_edited", "replaced_by_manual_reply"];
+
+/** 系统作废原因里的证据：`SUPERSEDED_BY_MANUAL_REPLY tradeMessageId=… outboundInteractionId=… triggeredBy=<userId> …` */
+export function parseSupersessionEvidence(failureReason: string | null | undefined): { outboundInteractionId: string | null; triggeredBy: string | null } {
+  const get = (key: string) => {
+    const m = new RegExp(`(?:^|\\s)${key}=(\\S+)`).exec(failureReason ?? "");
+    return m && m[1] !== "none" ? m[1] : null;
+  };
+  return { outboundInteractionId: get("outboundInteractionId"), triggeredBy: get("triggeredBy") };
+}
 
 /**
  * 只有三种终态产事件：批准（含批准后执行失败）、人工驳回、过期。
@@ -149,6 +168,8 @@ export const HUMAN_DECISION_BY_FEEDBACK: Record<FeedbackType, "accepted" | "edit
  */
 export function feedbackTerminal(row: { status: string; failureReason: string | null; decidedById: string | null }): FeedbackTerminal | null {
   if (row.status === "approved") return null; // 执行中的占位，等最终结果
+  // 人工已回复：销售没批这份草稿，而是自己回了买家（B-2 的改稿来源）；其它系统作废仍不产事件
+  if (row.status === "failed" && (row.failureReason ?? "").startsWith(MANUAL_REPLY_REASON)) return "manual_reply";
   const { outcome } = pendingActionOutcome(row);
   return outcome === "approved" || outcome === "rejected" || outcome === "expired" ? outcome : null;
 }
@@ -168,12 +189,35 @@ export interface FeedbackActionRow {
 }
 
 export interface FeedbackBuyer extends BuyerPiiTerms {
+  /** 买家电话：只交给商务事实提案排除 WhatsApp，不进事件 */
+  phone?: string | null;
   /** 入驻测试询盘（与询盘 SLA 指标同一判定）：不产学习事件 */
   testInquiry: boolean;
 }
 
+/** 人工外发正文（Revenue Spine 的外发互动）；source 是外贸外发来源（trade_inbox.reply / trade_outreach.send …） */
+export interface ManualReply {
+  content: string;
+  source: string | null;
+}
+
+/** 改稿类事件记录后交给商务事实提案的上下文 */
+export interface AfterRecordedContext {
+  orgId: string;
+  opportunityId: string | null;
+  sourcePendingActionId: string;
+  principalUserId: string;
+  feedbackType: FeedbackType;
+  snapshotBody: string | null;
+  /** 发给买家的原文（人工回复或执行正文），未替换买家信息 */
+  sentRaw: string;
+  buyer: BuyerPiiTerms & { phone?: string | null };
+}
+
 export interface FeedbackDeps {
   loadAction(actionId: string): Promise<FeedbackActionRow | null>;
+  /** 按组织读外发互动正文（人工已回复终态用） */
+  loadManualReply(orgId: string, interactionId: string): Promise<ManualReply | null>;
   /** 该审批的全部快照（按写入先后）；并发重放可能写了不止一份 */
   loadSnapshots(orgId: string, actionId: string): Promise<DraftSnapshot[]>;
   loadBuyer(orgId: string, opportunityId: string): Promise<FeedbackBuyer | null>;
@@ -181,6 +225,19 @@ export interface FeedbackDeps {
   createFeedback(input: CreateFeedbackInput): Promise<{ id: string }>;
   /** 同一审批串行化"先查后写"（生产：事务内 pg_advisory_xact_lock） */
   withLock<T>(actionId: string, fn: () => Promise<T>): Promise<T>;
+  /** 改稿类事件写入后（锁外）调用；异常由记录器吞掉，不影响事件 */
+  afterRecorded?(ctx: AfterRecordedContext): Promise<void>;
+}
+
+/**
+ * 不是销售写给买家的回复，只记事件、不从中抽商务事实：
+ * - 开发信（trade_outreach.*）是模板外发；
+ * - 线索页手工留痕（trade_prospect.manual_outbound）是沟通记录，常记着买家说的数字（"电话：客户要 300 件"）。
+ */
+const NOT_A_REPLY_SOURCE_PREFIXES: readonly string[] = ["trade_outreach.", "trade_prospect.manual_outbound"];
+
+export function isFactProposalSource(source: string | null | undefined): boolean {
+  return !NOT_A_REPLY_SOURCE_PREFIXES.some((p) => (source ?? "").startsWith(p));
 }
 
 export type RecordResult =
@@ -224,10 +281,16 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
   const opportunityId = str(payload?.opportunityId) ?? str(metadata?.opportunityId);
   const loaded = opportunityId ? await deps.loadBuyer(orgId, opportunityId) : null;
   if (loaded?.testInquiry) return { status: "skipped", reason: "onboarding_test" };
-  const buyer: BuyerPiiTerms = loaded ?? {};
+  // 事件只用联系人名 / 公司 / 收件人邮箱做替换；电话单独留给商务事实提案
+  const buyer: BuyerPiiTerms = loaded ? { contactName: loaded.contactName, companyName: loaded.companyName, recipientEmail: loaded.recipientEmail } : {};
 
-  let feedbackType: FeedbackType = terminal === "approved" ? "approved_as_is" : terminal;
+  let feedbackType: FeedbackType = terminal === "approved" ? "approved_as_is" : terminal === "manual_reply" ? "replaced_by_manual_reply" : terminal;
   let diffSummary: Record<string, unknown> = EMPTY_DIFF(feedbackType);
+  let snapshotBody: string | null = null;
+  /** 发给买家的原文（只有改稿类事件才会用来抽商务事实） */
+  let sentRaw: string | null = null;
+  let sentSource: string | null = null;
+  const evidence = terminal === "manual_reply" ? parseSupersessionEvidence(row.failureReason) : null;
   if (terminal === "approved") {
     const sent = normalizeDraftBody(str(payload?.body) ?? "");
     const snapshot = pickSnapshot(await deps.loadSnapshots(orgId, row.id), draftContentHash(sent));
@@ -237,20 +300,38 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
       // 执行正文与草稿快照不同：两边都是替换买家信息后的版本，diff 结果只含结构信息
       feedbackType = "approved_edited";
       diffSummary = { ...buildDraftDiff(snapshot.body, maskBuyerPii(sent, buyer)) };
+      snapshotBody = snapshot.body;
+      sentRaw = sent;
     } else {
       diffSummary = EMPTY_DIFF("无修改");
     }
+  } else if (terminal === "manual_reply") {
+    const reply = evidence?.outboundInteractionId ? await deps.loadManualReply(orgId, evidence.outboundInteractionId) : null;
+    // 人工回复常带引用的买家原信：先截掉，再与草稿比较
+    const manual = reply ? normalizeDraftBody(stripQuotedReply(reply.content)) : "";
+    const snapshot = manual ? pickSnapshot(await deps.loadSnapshots(orgId, row.id), draftContentHash(manual)) : null;
+    if (!manual) {
+      diffSummary = EMPTY_DIFF("无人工回复正文", { noManualReply: true });
+    } else if (!snapshot) {
+      diffSummary = EMPTY_DIFF("无快照", { noSnapshot: true });
+    } else {
+      diffSummary = { ...buildDraftDiff(snapshot.body, maskBuyerPii(manual, buyer)) };
+    }
+    snapshotBody = snapshot?.body ?? null;
+    sentRaw = manual || null;
+    sentSource = reply?.source ?? null;
   }
 
   // 事件里连收件人邮箱也不留（快照才允许保留收件人邮箱）
   const reason = terminal === "rejected" && row.failureReason ? maskBuyerPii(row.failureReason, { ...buyer, recipientEmail: null }).slice(0, REASON_MAX) : null;
   const followUpStep = typeof payload?.followUpStep === "number" ? payload.followUpStep : null;
   // 先查后写在同一把锁里：端口、过期、补漏乃至重叠的定时任务同时到达也只写一条
-  return deps.withLock(row.id, async (): Promise<RecordResult> => {
+  const userId = row.decidedById ?? evidence?.triggeredBy ?? row.approverUserId ?? row.createdById;
+  const result = await deps.withLock(row.id, async (): Promise<RecordResult> => {
     if (await deps.hasFeedback(row.id, terminal)) return { status: "skipped", reason: "duplicate" };
     const event = await deps.createFeedback({
       orgId,
-      userId: row.decidedById ?? row.approverUserId ?? row.createdById,
+      userId,
       taskType: FDE_FEEDBACK_TASK_TYPE,
       humanDecision: HUMAN_DECISION_BY_FEEDBACK[feedbackType],
       aiOutputRef: {
@@ -274,6 +355,31 @@ export async function recordInquiryReplyFeedback(actionId: string, deps: Feedbac
     });
     return { status: "recorded", feedbackType, eventId: event.id };
   });
+
+  // 改稿类事件：锁外触发商务事实提案（B-2）。开发信不是对询盘的回复，不抽
+  if (
+    result.status === "recorded" &&
+    deps.afterRecorded &&
+    sentRaw &&
+    FACT_PROPOSAL_FEEDBACK_TYPES.includes(feedbackType) &&
+    isFactProposalSource(sentSource)
+  ) {
+    try {
+      await deps.afterRecorded({
+        orgId,
+        opportunityId,
+        sourcePendingActionId: row.id,
+        principalUserId: userId,
+        feedbackType,
+        snapshotBody,
+        sentRaw,
+        buyer: { ...buyer, phone: loaded?.phone ?? null },
+      });
+    } catch (err) {
+      console.error("[fde.feedback] 商务事实提案失败", row.id, err instanceof Error ? err.name : typeof err);
+    }
+  }
+  return result;
 }
 
 /**
@@ -303,7 +409,7 @@ export const FEEDBACK_SWEEP_MAX_RECORDS = 100;
 
 /**
  * 近 7 天、终态已超过 10 分钟（避开端口与过期赢家正在写的那一刻）、可能产事件的询盘回复审批。
- * 在查询里就排除不会产事件的终态（取消 / 作废 / 批量准备失败 / 关联任务取消），不让它们挤占每页名额。
+ * 在查询里就排除不会产事件的终态（取消 / 人工已回复以外的作废 / 批量准备失败 / 关联任务取消），不让它们挤占每页名额。
  */
 export function feedbackSweepWhere(now: Date) {
   return {
@@ -314,6 +420,8 @@ export function feedbackSweepWhere(now: Date) {
     },
     OR: [
       { status: "executed" },
+      // 人工已回复作废（B-2）：其它 SUPERSEDED_ 仍在下方排除
+      { status: "failed", failureReason: { startsWith: MANUAL_REPLY_REASON } },
       { status: "rejected", OR: [{ failureReason: null }, { NOT: { failureReason: { startsWith: PENDING_RUN_CANCELLED_PREFIX } } }] },
       { status: "failed", failureReason: PENDING_EXPIRED_REASON },
       {
@@ -379,6 +487,16 @@ export function defaultFeedbackDeps(): FeedbackDeps {
         select: { id: true, orgId: true, type: true, status: true, failureReason: true, decidedById: true, approverUserId: true, createdById: true, payload: true },
       });
     },
+    loadManualReply: async (orgId, interactionId) => {
+      const { db } = await import("@/lib/db");
+      const row = await db.customerInteraction.findFirst({
+        where: { id: interactionId, orgId, direction: "outbound" },
+        select: { content: true, analysisResult: true },
+      });
+      if (!row?.content) return null;
+      const source = record(row.analysisResult)?.source;
+      return { content: row.content, source: typeof source === "string" ? source : null };
+    },
     loadSnapshots: async (orgId, actionId) => {
       const { db } = await import("@/lib/db");
       const audits = await db.auditLog.findMany({
@@ -394,7 +512,7 @@ export function defaultFeedbackDeps(): FeedbackDeps {
       const [opp, firstInquiry] = await Promise.all([
         db.salesOpportunity.findFirst({
           where: { id: opportunityId, orgId },
-          select: { lostReason: true, customer: { select: { name: true, contactName: true, email: true, tags: true } } },
+          select: { lostReason: true, customer: { select: { name: true, contactName: true, email: true, phone: true, tags: true } } },
         }),
         db.salesAction.findFirst({
           where: { orgId, opportunityId, employeeKey: FDE_FEEDBACK_SKILL, actionType: sla.INBOUND_INQUIRY_ACTION_TYPE },
@@ -407,6 +525,7 @@ export function defaultFeedbackDeps(): FeedbackDeps {
         companyName: opp.customer.name,
         contactName: opp.customer.contactName,
         recipientEmail: opp.customer.email,
+        phone: opp.customer.phone,
         testInquiry: sla.isOnboardingTestInquiry({
           utmSource: sla.utmSourceOf(firstInquiry?.inputContext ?? null),
           customerTags: opp.customer.tags,
@@ -425,6 +544,19 @@ export function defaultFeedbackDeps(): FeedbackDeps {
     createFeedback: async (input) => {
       const { createHumanFeedbackEvent } = await import("@/lib/employee-ai/feedback-service");
       return createHumanFeedbackEvent(input);
+    },
+    afterRecorded: async (ctx) => {
+      const { proposeCommercialFactsSafe } = await import("@/lib/revenue-spine/fact-proposals");
+      await proposeCommercialFactsSafe({
+        orgId: ctx.orgId,
+        opportunityId: ctx.opportunityId,
+        sourcePendingActionId: ctx.sourcePendingActionId,
+        principalUserId: ctx.principalUserId,
+        snapshotBody: ctx.snapshotBody,
+        sentRaw: ctx.sentRaw,
+        buyer: ctx.buyer,
+        now: new Date(),
+      });
     },
     // 与 assistant/followup-task.ts、tender-workforce 同一模式：事务内 advisory lock 串行化先查后写
     withLock: async (actionId, fn) => {
