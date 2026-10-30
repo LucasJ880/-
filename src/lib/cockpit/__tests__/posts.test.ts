@@ -122,7 +122,7 @@ for (const bogus of ["ceo", "", "__proto__", "constructor", "INBOUND_SALES"]) {
 // ── 自动化 ────────────────────────────────────────────────────
 console.log("自动化归属");
 const automationKeys = AUTOMATION_REGISTRY.map((a) => a.key as string);
-ok(automationKeys.length >= 28, `自动化注册表读到 ${automationKeys.length} 项（≥ 28）`);
+ok(automationKeys.length >= 30, `自动化注册表读到 ${automationKeys.length} 项（≥ 30）`);
 {
   const c = coverage(automationKeys, "automationKeys", posts);
   ok(c.missing.length === 0, "每个自动化键都有岗位", c.missing);
@@ -143,7 +143,7 @@ ok(postForAutomation("no-such-automation") === null, "未知自动化键 → nul
 console.log("待审批动作类型归属");
 const { members: actionTypes, residue } = pendingActionTypesFromSource();
 ok(residue === "", "PendingActionType 截取段只含双引号字面量与 |（出现新写法立刻失败）", residue);
-ok(actionTypes.length >= 14, `从 pending-actions/types.ts 读到 ${actionTypes.length} 个联合成员（≥ 14）`, actionTypes);
+ok(actionTypes.length >= 19, `从 pending-actions/types.ts 读到 ${actionTypes.length} 个联合成员（≥ 19）`, actionTypes);
 {
   const fixedOrShared = actionTypes.map((t) => {
     const fixedPosts = POST_REGISTRY.filter((p) => (p.pendingActionTypes as readonly string[]).includes(t)).map((p) => p.key);
@@ -152,7 +152,7 @@ ok(actionTypes.length >= 14, `从 pending-actions/types.ts 读到 ${actionTypes.
   });
   const bad = fixedOrShared.filter((x) => x.ways !== 1);
   ok(bad.length === 0, "每个动作类型恰好一种归属方式（固定一个岗位，或通用动作类型）", bad);
-  ok(fixedOrShared.filter((x) => x.fixedPosts.length === 1 && !x.shared).length === 11, "11 个固定归属");
+  ok(fixedOrShared.filter((x) => x.fixedPosts.length === 1 && !x.shared).length === 16, "16 个固定归属");
   ok(fixedOrShared.filter((x) => x.shared && x.fixedPosts.length === 0).length === 4, "4 个通用动作类型");
   const listed = [...POST_REGISTRY.flatMap((p) => p.pendingActionTypes as readonly string[]), ...SHARED_PENDING_ACTION_TYPES];
   const outside = listed.filter((t) => !actionTypes.includes(t));

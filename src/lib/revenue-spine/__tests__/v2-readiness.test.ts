@@ -368,7 +368,7 @@ async function main() {
     for (const src of [model, route, strip(read("src/lib/revenue-spine/v2-readiness.ts"))]) {
       assert.doesNotMatch(src, /\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|publishRevenueSpineRule|requestApproval|logAudit|createNotification|\$executeRaw/);
     }
-    assert.match(route, /const access = await resolveRevenueAccess\(request\);\s*if \(!access\.ok\) return access\.response;\s*const report = await getV2Readiness\(access\.orgId\);/);
+    assert.match(route, /const access = await resolveRevenueAccess\(request, REVENUE_READ_KEYS\);\s*if \(!access\.ok\) return access\.response;\s*const report = await getV2Readiness\(access\.orgId\);/);
     assert.match(route, /export const dynamic = "force-dynamic";/);
     assert.doesNotMatch(route, /searchParams|request\.json|export async function (POST|PUT|PATCH|DELETE)/);
     // 只取统计需要的列

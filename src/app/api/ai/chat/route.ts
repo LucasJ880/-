@@ -13,6 +13,7 @@ import {
 } from "@/lib/capabilities/governance";
 
 export const maxDuration = 60;
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import {
   isAIConfigured,
   createChatStream,
@@ -44,6 +45,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
     workspaceId,
   });
   if (tenant instanceof NextResponse) return tenant;
+  // PERM-4c4：岗位模式企业的工作上下文与提示词取岗位派生平台角色
+  const aiRole = await resolveEffectivePlatformRole({ userId: user.id, orgId: tenant.orgId, platformRole: user.role });
 
   const rl = await checkRateLimitAsync(
     {
@@ -92,7 +95,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   const [workContext, prepared] = await Promise.all([
-    getWorkContext({ userId: user.id, role: user.role, orgId: tenant.orgId }),
+    getWorkContext({ userId: user.id, role: aiRole, orgId: tenant.orgId }),
     prepareConversation(rawMessages),
   ]);
 
@@ -120,7 +123,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
   }
 
   const systemPrompt =
-    getChatSystemPrompt(user.role) +
+    getChatSystemPrompt(aiRole) +
     buildContextBlock(workContext) +
     deepBlock +
     memoryBlock +

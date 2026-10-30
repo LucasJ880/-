@@ -6,19 +6,18 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_CONTENT_APPROVE, OPS_CONTENT_DRAFT } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 
 const EDITABLE_STATUSES = ["proposed", "approved", "skipped"];
 
 export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权维护内容日历" }, { status: 403 });
-  }
   const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, body.status === "approved" ? OPS_CONTENT_APPROVE : OPS_CONTENT_DRAFT, "无权修改选题（起草需运营起草权限，通过需运营批准权限）");
+  if (denied) return denied;
 
   const item = await db.contentPlanItem.findFirst({
     where: { id, orgId: orgRes.orgId },
@@ -61,15 +60,14 @@ export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
 });
 
 export const DELETE = withAuth<{ id: string }>(async (request, ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权维护内容日历" }, { status: 403 });
-  }
   const { id } = await ctx.params;
   const orgRes = await resolveRequestOrgIdForUser(
     user,
     request.nextUrl.searchParams.get("orgId"),
   );
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_CONTENT_DRAFT, "无权删除选题（需要运营起草权限）");
+  if (denied) return denied;
 
   const item = await db.contentPlanItem.findFirst({
     where: { id, orgId: orgRes.orgId },

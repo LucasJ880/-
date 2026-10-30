@@ -6,7 +6,7 @@
  * 不是按 scope 局部拒绝。例如 ALLOW:ORG + DENY:PRINCIPAL → 全部拒绝。
  */
 
-import { isKnownPermission } from "./permissions";
+import { getPermissionDefinition, isKnownPermission } from "./permissions";
 import {
   resolveEffectiveBindings,
   type EffectiveBinding,
@@ -33,13 +33,24 @@ function scopeMatchesResource(
     return scope === "PRINCIPAL" || scope === "ASSIGNED";
   }
   if (resource.orgId !== principal.orgId) return false;
+  const subjectId = scopeSubjectId(principal);
+  if (!subjectId) return false;
   if (scope === "PRINCIPAL") {
-    return resource.ownerId === principal.id;
+    return resource.ownerId === subjectId;
   }
   if (scope === "ASSIGNED") {
-    return resource.assignedToId === principal.id;
+    return resource.assignedToId === subjectId;
   }
   return false;
+}
+
+/**
+ * PERM-5b：PRINCIPAL / ASSIGNED 范围按谁判——人类按本人；数字员工按 sponsor（拍板 1），
+ * 资源 owner = Agent id 本身不算；无 sponsor 时这两种范围永不命中。
+ */
+export function scopeSubjectId(principal: PrincipalRef): string | null {
+  if (principal.type === "HUMAN") return principal.id;
+  return principal.sponsorUserId ?? null;
 }
 
 /** 纯决策：便于单测 DENY / Scope（不读库） */
@@ -49,6 +60,18 @@ export function decideFromBindings(opts: {
   bindings: EffectiveBinding[];
   resource?: AuthorizeResource;
 }): AuthorizeResult {
+  // PERM-5b：数字员工禁区——键不允许该主体类型即拒，先于绑定判定
+  const definition = getPermissionDefinition(opts.permission);
+  if (definition && !definition.allowedPrincipalTypes.includes(opts.principal.type)) {
+    return {
+      allowed: false,
+      permission: opts.permission,
+      scopes: [],
+      sourceBindings: [],
+      reasonCode: "PRINCIPAL_TYPE_NOT_ALLOWED",
+    };
+  }
+
   const relevant = opts.bindings.filter(
     (b) => b.permissionKey === opts.permission,
   );
@@ -109,7 +132,11 @@ export function decideFromBindings(opts: {
   const sources = allows.map((b) => b.source);
 
   if (!opts.resource) {
-    const usable = scopes.filter((s) => s !== "NONE");
+    // 无 sponsor 的数字员工：PRINCIPAL / ASSIGNED 没有可落的人，不算可用范围
+    const hasSubject = scopeSubjectId(opts.principal) !== null;
+    const usable = scopes.filter(
+      (s) => s !== "NONE" && (hasSubject || (s !== "PRINCIPAL" && s !== "ASSIGNED")),
+    );
     if (usable.length === 0) {
       return {
         allowed: false,
@@ -168,13 +195,14 @@ export async function authorize(opts: {
       reasonCode: "ORG_CONTEXT_MISMATCH",
     };
   }
-  if (opts.principal.type !== "HUMAN") {
+  // PERM-5b：数字员工必须带 sponsor（数据范围落在 sponsor 名下），否则不读库直接拒
+  if (opts.principal.type === "DIGITAL_EMPLOYEE" && !opts.principal.sponsorUserId) {
     return {
       allowed: false,
       permission: opts.permission,
       scopes: [],
       sourceBindings: [],
-      reasonCode: "NOT_IMPLEMENTED",
+      reasonCode: "SPONSOR_REQUIRED",
     };
   }
   if (!isKnownPermission(opts.permission)) {
@@ -194,4 +222,20 @@ export async function authorize(opts: {
     bindings,
     resource: opts.resource,
   });
+}
+
+/**
+ * PERM-5b：主体当前允许的全部权限键（不带资源；DENY 与主体类型禁区已排除）。
+ * 给工具授权 canInvokeTool 的 principal.permissionKeys 用。
+ */
+export async function resolveAllowedPermissionKeys(
+  principal: PrincipalRef,
+): Promise<string[]> {
+  const bindings = await resolveEffectiveBindings(principal);
+  const keys = [...new Set(bindings.map((b) => b.permissionKey))];
+  return keys.filter(
+    (permission) =>
+      isKnownPermission(permission) &&
+      decideFromBindings({ principal, permission, bindings }).allowed,
+  );
 }

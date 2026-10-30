@@ -9,6 +9,7 @@ import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
 
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { getAgentRunTrace } from "@/lib/agent-runtime/trace";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const GET = withAuth<{ runId: string }>(async (request, ctx, user) => {
   const denied = denyUnlessPlatformAdmin(user);
@@ -24,7 +25,7 @@ export const GET = withAuth<{ runId: string }>(async (request, ctx, user) => {
 
   const role = user.role ?? "user";
   const scope =
-    role === "admin" || role === "super_admin" ? "org" : "self";
+    isSuperAdmin(role) ? "org" : "self";
 
   const detail = await getAgentRunTrace({
     orgId: orgRes.orgId,

@@ -47,7 +47,8 @@ export function ManagementDashboardClient() {
   const orgEyebrow = activeOrg?.name
     ? `${activeOrg.name} · 管理总览`
     : "管理总览";
-  const userRole = user?.role || "user";
+  // PERM-4c5：业务模块按岗位派生平台角色（岗位模式企业），平台管理判定仍看 role
+  const userRole = user?.effectiveRole || user?.role || "user";
 
   const showProjectModules =
     checkIsAdmin(userRole) ||

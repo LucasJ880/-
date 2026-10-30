@@ -10,11 +10,14 @@ export interface DigitalEmployeeRole {
   skillSlugs: string[];
   /** 是否包含现有 23 条运营技能（domain=operations） */
   includeOperationsSkills?: boolean;
+  /** PERM-5b：默认绑定的岗位（scripts/bind-positions.ts --principal-type DIGITAL_EMPLOYEE） */
+  positionKey: "sales_rep" | "ops_staff" | "bids" | "accounting";
 }
 
 export const DIGITAL_EMPLOYEE_ROLES: DigitalEmployeeRole[] = [
   {
     id: "sales-digital-employee",
+    positionKey: "sales_rep",
     name: "销售数字员工",
     description: "获客评分、客户研究、管道预测、下一动作与方案 ROI",
     skillSlugs: [
@@ -27,6 +30,7 @@ export const DIGITAL_EMPLOYEE_ROLES: DigitalEmployeeRole[] = [
   },
   {
     id: "marketing-growth-digital-employee",
+    positionKey: "ops_staff",
     name: "营销增长数字员工",
     description:
       "产品营销档案、客户研究、竞品、获客、文案、邮件、广告、实验、销售赋能，以及 GEO/CRO 与运营技能包",
@@ -47,6 +51,7 @@ export const DIGITAL_EMPLOYEE_ROLES: DigitalEmployeeRole[] = [
   },
   {
     id: "tender-digital-employee",
+    positionKey: "bids",
     name: "投标数字员工",
     description: "去留判断、强制条件矩阵、废标风险检查",
     skillSlugs: [
@@ -57,6 +62,7 @@ export const DIGITAL_EMPLOYEE_ROLES: DigitalEmployeeRole[] = [
   },
   {
     id: "analytics-digital-employee",
+    positionKey: "accounting",
     name: "数据分析数字员工",
     description: "MMM 数据准备度检查（不运行 Meridian 模型）",
     skillSlugs: ["mmm-data-readiness"],

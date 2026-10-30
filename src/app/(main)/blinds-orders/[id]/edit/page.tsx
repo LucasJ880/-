@@ -15,6 +15,7 @@ interface OrderData {
   installDate: string | null;
   remarks: string | null;
   projectId: string | null;
+  updatedAt: string;
   items: Array<{
     location: string;
     width: number;
@@ -112,6 +113,7 @@ export default function EditBlindsOrderPage({
         orderId={id}
         mode="edit"
         orderStatus={order.status}
+        baseUpdatedAt={order.updatedAt}
       />
     </div>
   );

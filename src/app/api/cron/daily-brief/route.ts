@@ -10,6 +10,8 @@
  * 随后发老板询盘早报（今日新询盘 / 超时 / 待审批 / 样品报价到期；四栏全为 0 或未启用外贸模块不发）。
  * 每个组织的结果里：ownerBriefSent = 新写入的青砚通知数，ownerBriefWechatDelivered = 微信实际送达人数，
  * ownerBriefSkipped = 没发的原因（no_trade_module：modulesJson.enabled 未显式含 trade；empty：四栏全为 0）。
+ * INSTALL-2f：同一时刻对该组织过了目标日、没人推进的维修单发返修逾期提醒（repairOverdueSent = 提醒的维修单数；
+ * 独立一步，失败不影响简报与其他组织；不新增 cron 条目）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,6 +22,7 @@ import { db } from "@/lib/db";
 import { generateBriefingsForOrg } from "@/lib/secretary/briefing";
 import { boothDayOf, sendBoothSummary } from "@/lib/trade/booth-summary";
 import { sendOwnerInquiryBrief } from "@/lib/revenue-spine/owner-brief";
+import { remindOverdueRepairs } from "@/lib/install/repair-service";
 
 export const maxDuration = 300;
 
@@ -42,10 +45,13 @@ export async function GET(request: NextRequest) {
 
   type OwnerBriefFields = { ownerBriefSent?: number; ownerBriefWechatDelivered?: number; ownerBriefSkipped?: string | null };
   const data = await runTrackedAutomation("daily-brief", async () => {
-    const results: Array<{ orgId: string; orgName: string; generated?: number; boothSummarySent?: number; error?: string } & OwnerBriefFields> = [];
+    const results: Array<
+      { orgId: string; orgName: string; generated?: number; boothSummarySent?: number; repairOverdueSent?: number; error?: string } & OwnerBriefFields
+    > = [];
 
     for (const org of orgs) {
       let boothSummarySent: number | undefined;
+      let repairOverdueSent: number | undefined;
       let owner: OwnerBriefFields = {};
       try {
         // 07:xx 往前一小时就是刚结束的展会日（07:00 到次日 07:00）
@@ -61,11 +67,16 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/daily-brief] Owner inquiry brief failed for org ${org.name}:`, e);
       }
       try {
+        repairOverdueSent = (await remindOverdueRepairs(org.id, org.timezone, now)).repairs;
+      } catch (e) {
+        console.error(`[cron/daily-brief] Repair overdue reminder failed for org ${org.name}:`, e);
+      }
+      try {
         const count = await generateBriefingsForOrg(org.id);
-        results.push({ orgId: org.id, orgName: org.name, generated: count, boothSummarySent, ...owner });
+        results.push({ orgId: org.id, orgName: org.name, generated: count, boothSummarySent, repairOverdueSent, ...owner });
       } catch (e) {
         console.error(`[cron/daily-brief] Failed for org ${org.name}:`, e);
-        results.push({ orgId: org.id, orgName: org.name, error: String(e), boothSummarySent, ...owner });
+        results.push({ orgId: org.id, orgName: org.name, error: String(e), boothSummarySent, repairOverdueSent, ...owner });
       }
     }
 

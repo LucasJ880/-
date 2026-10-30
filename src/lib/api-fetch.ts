@@ -30,6 +30,12 @@ const ORG_SCOPED_API_PREFIXES = [
   "/api/supplier-intel/",
   // Revenue Spine（Mengxin FDE V1）：全部按当前企业隔离
   "/api/revenue/",
+  // PERM-5a：会计视图按当前企业隔离
+  "/api/accounting/",
+  // INSTALL-2c：质保设置按当前企业读写
+  "/api/install/warranty-settings",
+  // INSTALL-2d：维修单列表 / 详情按当前企业
+  "/api/install/repairs",
 ];
 
 function isOrgScopedPath(pathname: string): boolean {

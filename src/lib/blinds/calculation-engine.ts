@@ -1,18 +1,28 @@
 /**
- * Blinds 工艺单计算引擎
- * 规则版本: blinds_20251024_v1
+ * Blinds 工艺单计算引擎（卷帘 / 斑马帘 / 香格里拉）
+ * 规则版本: blinds_20261027_v2
+ *
+ * 口径 = 原件《Blinds 工艺单_圆盒侧盖加厚标准版》工艺组装第 1 窗位模板公式。
+ * 与原件逐值对照：src/lib/sunny-process/__tests__/blinds-oracle.test.ts
+ * （夹具由 scripts/sunny-process-oracle/oracle.py 用 LibreOffice 重算原件生成）。
+ * 有意偏离原件之处见 docs/QINGYAN_SUNNY_PROCESS_ORDER_REPORT.md §3（X-1…）。
  *
  * 输入: BlindsOrderItem 的人工录入字段
- * 输出: 所有裁切尺寸（英寸）+ 辅料长度（米）
+ * 输出: 所有裁切尺寸（英寸）+ 裁剪数量 + 辅料长度（米）
  */
 
 import {
   DEDUCTION_RULES,
   OUT_TIGHT_ADDITION,
   CORD_LENGTH_TABLE,
+  CORD_LENGTH_TOP_LABEL,
+  CORD_MIN_METERS,
   SORT_WEIGHT_CONTROL,
   SORT_WEIGHT_HEADRAIL,
   RULE_VERSION,
+  ZEBRA_CUT_BOTTOM_TRIM,
+  ZEBRA_CUT_OFFSET,
+  ZEBRA_CUT_TOP_TRIM,
   type ControlType,
   type HeadrailType,
   type ProductType,
@@ -23,12 +33,24 @@ export interface ItemInput {
   height: number;       // 测量高度（英寸）
   productType: string;  // 卷帘 / 斑马帘 / 香格里拉
   measureType: string;  // IN / OUT / Tight
-  controlType: string;  // 普通 / 电机 / 无绳
+  controlType: string;  // 普通 / 电动 / 无绳
   headrailType: string; // 罩盒类型
   fabricRatio?: number | null;  // 布比
   silkRatio?: number | null;    // 纱比
   bottomBarWidth?: number | null; // 手动覆盖底杆宽
 }
+
+/** 每窗各件的裁剪数量（原件工艺组装"裁剪数量"行） */
+export interface CuttingQuantities {
+  headrail: number;
+  tube38: number;
+  bottomBar: number;
+  coreRod: number;
+  fabricWidth: number;
+  fabricLength: number;
+}
+
+export type CutCategory = "A类" | "B类" | "C类";
 
 export interface CuttingResults {
   cutHeadrail: number | null;
@@ -45,6 +67,12 @@ export interface CuttingResults {
   squareFeet: number;
   sortOrder: number;
   ruleVersion: string;
+  /** 斑马帘裁剪位（包边条顶边贴裁剪位），非斑马帘或布纱比缺失为 null */
+  zebraCutPos: number | null;
+  /** 拉绳分档 "长 & 短"，仅普通操控 */
+  cordTier: string | null;
+  quantities: CuttingQuantities;
+  cutCategory: CutCategory;
 }
 
 function round4(n: number): number {
@@ -96,34 +124,31 @@ function calcFabricLength(height: number, productType: string): number {
 }
 
 /**
- * 斑马帘裁剪位计算（纵向Ref 逻辑）
- * 仅支持 3:2 布纱比
- * 用于确定面料底端落在布段还是纱段的位置
+ * 斑马帘裁剪位（纵向Ref 模板，任意布纱比）
+ * 用于确定面料底端落在布段还是纱段的位置；布纱比缺失或不为正 → null
  */
 export function calcZebraCuttingPosition(
   height: number,
   fabricRatio: number | null | undefined,
   silkRatio: number | null | undefined
 ): number | null {
-  const fr = fabricRatio ?? 3;
-  const sr = silkRatio ?? 2;
-  const key = `${fr}:${sr}`;
-  if (key !== "3:2") return null;
-
-  const total = fr + sr; // 5
-  const raw = ((height - 0.1 - 0.1) / total - Math.floor((height - 0.1 - 0.1) / total)) * total + 0.5;
-  const result = raw < fr ? round4(raw) : round4(raw - fr);
-  return result;
+  const fr = fabricRatio ?? 0;
+  const sr = silkRatio ?? 0;
+  if (!(fr > 0) || !(sr > 0)) return null;
+  const total = fr + sr;
+  const q = (height - ZEBRA_CUT_TOP_TRIM - ZEBRA_CUT_BOTTOM_TRIM) / total;
+  const raw = (q - Math.floor(q)) * total + ZEBRA_CUT_OFFSET;
+  return raw < fr ? round4(raw) : round4(raw - fr);
 }
 
 /**
  * 拉绳长度计算（用于布料汇总）
  * 公式: height × 2 × 3/4 × 0.0254（米）
- * 仅 普通 操控方式有拉绳
+ * 仅 普通 操控方式有拉绳（原件布料表对所有操控都计，见报告偏离 X-1）
  */
 function calcCordLength(height: number, controlType: string): number | null {
   if (controlType !== "普通") return null;
-  return round4(height * 2 * 0.75 * 0.0254);
+  return height * 2 * 0.75 * 0.0254;
 }
 
 /**
@@ -132,7 +157,7 @@ function calcCordLength(height: number, controlType: string): number | null {
 function calcCordSleeveLength(cordLength: number | null): number | null {
   if (cordLength === null || cordLength === 0) return null;
   const v = cordLength / 2 - 0.3;
-  return v > 0 ? round4(v) : 0;
+  return v > 0 ? v : 0;
 }
 
 /**
@@ -142,14 +167,11 @@ function calcCordSleeveLength(cordLength: number | null): number | null {
 export function getCordLengthTier(height: number, controlType: string): string | null {
   if (controlType !== "普通") return null;
   const meters = height * 0.8 * 0.0254;
+  if (meters < CORD_MIN_METERS) return null;
   for (const tier of CORD_LENGTH_TABLE) {
-    if (meters <= tier.maxMeters) {
-      if (tier.long === 0) return null;
-      return `${tier.long} & ${tier.short}`;
-    }
+    if (tier.inclusive ? meters <= tier.max : meters < tier.max) return tier.label;
   }
-  const last = CORD_LENGTH_TABLE[CORD_LENGTH_TABLE.length - 1];
-  return `${last.long} & ${last.short}`;
+  return CORD_LENGTH_TOP_LABEL;
 }
 
 /**
@@ -161,6 +183,34 @@ function calcInsertSize(headrailType: string, cutHeadrail: number | null): numbe
     return cutHeadrail;
   }
   return null;
+}
+
+function isDoubleTrack(headrailType: string): boolean {
+  return headrailType === "双轨无盒" || headrailType === "双轨半盒";
+}
+
+/**
+ * 裁剪数量（工艺组装"裁剪数量"行）
+ * 原件卷帘/香格里拉下杆数量公式把"亮白插片圆盒"写成"亮白亮白插片圆盒"、
+ * 把灰弧/白弧写成 GREY ARC / White ARC，导致这些组合数量为 0；系统按斑马帘行的
+ * 正确写法统一为 1（双轨 2），见报告偏离 X-2。
+ */
+function calcQuantities(headrailType: string, hasHeadrail: boolean): CuttingQuantities {
+  const n = isDoubleTrack(headrailType) ? 2 : 1;
+  return {
+    headrail: hasHeadrail ? 1 : 0,
+    tube38: n,
+    bottomBar: n,
+    coreRod: n,
+    fabricWidth: n,
+    fabricLength: n,
+  };
+}
+
+export function getCutCategory(headrailType: string): CutCategory {
+  if (headrailType === "哑白方型罩盒" || headrailType === "哑灰方型罩盒") return "B类";
+  if (headrailType === "双轨无盒" || headrailType === "单轨无盒") return "C类";
+  return "A类";
 }
 
 /**
@@ -222,11 +272,14 @@ export function calculateItem(input: ItemInput): CuttingResults {
   const cordSleeveLen = calcCordSleeveLength(cordLength);
 
   // SF
-  const squareFeet = round4((w * h) / 144);
+  const squareFeet = (w * h) / 144;
 
   // 排序权重
   const sortOrder =
     (SORT_WEIGHT_CONTROL[ct] ?? 0) + (SORT_WEIGHT_HEADRAIL[ht] ?? 0);
+
+  const quantities = calcQuantities(ht, hasHeadrailCover);
+  if (pt !== "斑马帘") quantities.coreRod = 0;
 
   return {
     cutHeadrail,
@@ -243,6 +296,10 @@ export function calculateItem(input: ItemInput): CuttingResults {
     squareFeet,
     sortOrder,
     ruleVersion: RULE_VERSION,
+    zebraCutPos: pt === "斑马帘" ? calcZebraCuttingPosition(h, input.fabricRatio, input.silkRatio) : null,
+    cordTier: getCordLengthTier(h, input.controlType),
+    quantities,
+    cutCategory: getCutCategory(ht),
   };
 }
 

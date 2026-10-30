@@ -126,7 +126,7 @@
 - **THEN** 起卡规则、限流、审批类型与角色门、批准写入、草稿引用的断言全部通过，退出码 0
 
 ### Requirement: 审批卡内容
-审批卡 SHALL 为 `revenue_spine.propose_commercial_fact` 类型，有效期 7 天。审批人 SHALL 是能批准的人：组织所有者（平台角色为 admin / boss 时），否则在职的 boss，再否则在职的 admin。载荷 SHALL 包含：
+审批卡 SHALL 为 `revenue_spine.propose_commercial_fact` 类型，有效期 7 天。审批人 SHALL 是能批准的人（见「只有企业负责人或管理员能批准」）：能批的组织所有者优先，否则其他能批的在职成员中入职最早的一位。载荷 SHALL 包含：
 - 字段、抽取原值、提议值、当前值、提议值的规范键；
 - 证据句：触发该字段的那一句，已替换买家信息；
 - 商机 id、来源草稿 id。
@@ -134,8 +134,8 @@
 卡片标题与预览 SHALL 用中文写明字段、当前值与提议值。载荷与预览 SHALL NOT 包含整封回复、买家邮箱、电话或任何金额。
 
 #### Scenario: 所有者不能批
-- **WHEN** 组织所有者的平台角色是 sales，组织里有一位在职 boss
-- **THEN** 卡片的审批人是这位 boss；组织里没有 boss 或 admin 时不起卡
+- **WHEN** 组织所有者在该企业没有 `trade.settings.manage`，组织里有一位持该键的在职成员
+- **THEN** 卡片的审批人是这位成员；组织里没有能批的人时不起卡
 
 #### Scenario: 按默认值补上的部分
 - **WHEN** 人工回复写了 "MOQ is 500 pcs."，企业未配置起订量
@@ -146,15 +146,19 @@
 - **THEN** 预览写明"起订量：当前 未配置 → 提议 500 pcs / color"，证据句里联系人名被占位符替换
 
 ### Requirement: 只有企业负责人或管理员能批准
-批准 `revenue_spine.propose_commercial_fact` SHALL 只允许平台角色为 admin、super_admin 或 boss 的人，规则与 `PUT /api/revenue/policy` 相同。平台角色 SHALL 按批准人的用户记录读取，不取调用方传入的角色：审批中心传入的是组织成员角色。其它角色批准时 SHALL 返回无权错误，审批 SHALL 保持待审批，不被消耗。驳回沿用既有审批权限。微信"回数字确认" SHALL NOT 处理该类型。
+批准 `revenue_spine.propose_commercial_fact` SHALL 只允许平台 super_admin，或在该卡所属企业持 `trade.settings.manage` 岗位键的人（企业负责人 / 管理员岗位），规则与 `PUT /api/revenue/policy` 相同。平台角色与岗位键 SHALL 按批准人的用户记录与该企业读取，不取调用方传入的角色：审批中心传入的是组织成员角色。其它角色批准时 SHALL 返回无权错误，审批 SHALL 保持待审批，不被消耗。驳回沿用既有审批权限。微信"回数字确认" SHALL NOT 处理该类型。
 
 #### Scenario: 销售角色批准
 - **WHEN** 角色为 sales 的组织成员批准该卡
 - **THEN** 返回"仅企业负责人或管理员可批准商务事实提案"，审批仍为待审批
 
 #### Scenario: 在审批中心批准
-- **WHEN** 平台角色为 boss、组织角色为 org_owner 的人在审批中心批准该卡
+- **WHEN** 组织角色为 org_owner、在该企业持 `trade.settings.manage` 的人在审批中心批准该卡
 - **THEN** 批准成功并写入商务事实
+
+#### Scenario: 平台角色不再单独放行
+- **WHEN** 平台角色为 boss（或已退役的 admin）、在该企业没有 `trade.settings.manage` 的人批准该卡
+- **THEN** 返回无权错误，审批仍为待审批
 
 #### Scenario: 微信确认
 - **WHEN** 微信批量确认筛选可确认的动作类型

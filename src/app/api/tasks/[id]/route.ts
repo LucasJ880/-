@@ -1,3 +1,4 @@
+import { loadWorkspaceSignals } from "@/lib/rbac/permission-keys";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
@@ -114,6 +115,8 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     platformRole: user.role,
     orgRole,
     hasMembership: Boolean(orgRole),
+    // PERM-4c5：岗位信号
+    ...(await loadWorkspaceSignals(user.id, resolved.orgId)),
   };
   const canManageTeam = isManagementWorkspaceUser(wsCtx);
 
@@ -292,6 +295,8 @@ export const DELETE = withAuth(async (_request, ctx, user) => {
       platformRole: user.role,
       orgRole,
       hasMembership: Boolean(orgRole),
+      // PERM-4c5：岗位信号
+      ...(await loadWorkspaceSignals(user.id, resolved.orgId)),
     }))
   ) {
     return NextResponse.json(

@@ -9,6 +9,7 @@
  */
 
 import { db } from "@/lib/db";
+import { resolveDefaultInquiryOwner } from "@/lib/trade/recipients";
 import { logAudit } from "@/lib/audit/logger";
 import type { Prisma } from "@prisma/client";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
@@ -90,7 +91,7 @@ export interface InquiryIntakeInput {
     /** 展会名称（可含展位）；trade_show 来源时写入互动，回复草稿开头引用 */
     event?: string | null;
     /** 展位上看过的参考款；trade_show 来源时写入互动，草稿逐一点名 */
-    styles?: Array<{ code: string; name: string | null }> | null;
+    styles?: Array<{ code: string; name: string | null; specUrl?: string | null; imageUrl?: string | null }> | null;
     /** 业务员在卡上判的等级 A/B/C；trade_show 来源时写入互动，FDE 据此定优先级 */
     boothGrade?: string | null;
     /** 展位上接待的业务员；trade_show 来源时写入互动，草稿落款 */
@@ -140,17 +141,13 @@ export const INQUIRY_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const LIMITS = { name: 120, email: 200, phone: 60, company: 200, country: 80, website: 300, message: 20_000, subject: 200, product: 200 };
 
-/** 负责人：既有客户商机负责人 → 组织内 trade/sales 成员（最早加入）→ 组织 owner */
+/**
+ * 负责人：既有客户商机负责人 → 组织内岗位派生平台角色为 trade / sales 的成员（最早加入）→ 组织 owner。
+ * PERM-6c：按派生角色选人（旧模式即平台角色），定义见 trade/recipients。
+ */
 export async function resolveInquiryOwner(orgId: string, preferredUserId?: string | null): Promise<string | null> {
   if (preferredUserId) return preferredUserId;
-  const member = await db.organizationMember.findFirst({
-    where: { orgId, status: "active", user: { status: "active", role: { in: ["trade", "sales"] } } },
-    orderBy: { createdAt: "asc" },
-    select: { userId: true },
-  });
-  if (member) return member.userId;
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true } });
-  return org?.ownerId ?? null;
+  return resolveDefaultInquiryOwner(orgId);
 }
 
 export async function intakeInquiry(input: InquiryIntakeInput): Promise<IntakeResult> {

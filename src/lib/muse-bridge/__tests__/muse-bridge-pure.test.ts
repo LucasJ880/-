@@ -56,7 +56,27 @@ ok("ask 缺 question 拒绝", !parseMuseCommand({ ...base, command: { intent: "a
   const r = parseMuseCommand({ ...base, command: { intent: "status", extraField: 1 }, foo: "bar" });
   ok("多余字段被 strip（不泄漏到路由）", r.ok && !("foo" in r.value) && !("extraField" in r.value.command));
 }
-ok("意图集包含 12 个意图（P1-8 加 next_step / set_preference / preferences）", MUSE_INTENTS.length === 12);
+ok("意图集包含 18 个意图（P1-8 加 next_step / set_preference / preferences；S1 加 sales_overview / opportunity_status；S2 加 ask_colleague / reply_inquiry；S3 加 create_followup / update_followup）", MUSE_INTENTS.length === 18);
+ok("S1：sales_overview 可带 days / assigneeUserId / limit", parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 30, assigneeUserId: "u_a", limit: 5 } }).ok);
+ok("S1：sales_overview 无参数也合法", parseMuseCommand({ ...base, command: { intent: "sales_overview" } }).ok);
+ok("S1：days=0 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 0 } }).ok);
+ok("S1：days=91 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 91 } }).ok);
+ok("S1：limit=21 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", limit: 21 } }).ok);
+ok("KPI-1：sales_overview 可带 period", parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026-10-01", to: "2026-10-28" } } }).ok);
+ok("KPI-1：period to 早于 from 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026-10-28", to: "2026-10-01" } } }).ok);
+ok("KPI-1：period 日期格式错误拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026/10/01", to: "2026-10-28" } } }).ok);
+ok("KPI-1：period 跨度 367 天拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2025-01-01", to: "2026-01-02" } } }).ok);
+ok("KPI-1：period 缺 to 拒绝", !parseMuseCommand({ ...base, command: { intent: "sales_overview", period: { from: "2026-10-01" } } }).ok);
+{
+  const parsed = parseMuseCommand({ ...base, command: { intent: "sales_overview", days: 30, period: { from: "2026-10-01", to: "2026-10-28", extra: 1 } } });
+  ok("KPI-1：period 未知字段被丢弃，其它参数不受影响", parsed.ok && JSON.stringify((parsed.value.command as { period?: unknown }).period) === JSON.stringify({ from: "2026-10-01", to: "2026-10-28" }), parsed);
+}
+ok("S1：opportunity_status 缺 opportunityId 拒绝", !parseMuseCommand({ ...base, command: { intent: "opportunity_status" } }).ok);
+{
+  const r = parseMuseCommand({ ...base, command: { intent: "opportunity_status", opportunityId: "opp_1", userId: "u_boss", role: "admin" } });
+  ok("S1：命令里的身份字段被丢弃，不进入路由", r.ok && !("userId" in r.value.command) && !("role" in r.value.command));
+}
+ok("S1：销售意图不在默认放行集", !MUSE_PHASE0_INTENTS.includes("sales_overview") && !MUSE_PHASE0_INTENTS.includes("opportunity_status"));
 ok("Phase 0 意图 = status/ask/approve/reject + next_step/set_preference/preferences", JSON.stringify(MUSE_PHASE0_INTENTS) === JSON.stringify(["status", "ask", "approve", "reject", "next_step", "set_preference", "preferences"]));
 ok("出站敏感词检测：毛利", containsOutboundSensitive("本单毛利 35%"));
 ok("出站敏感词检测：winningBidPrice", containsOutboundSensitive("winningBidPrice=1000"));

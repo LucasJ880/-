@@ -3,7 +3,9 @@
  *
  * 首页 `/` 换成只读的岗位视图后，没开自动化偏好的管理层不再因为打开首页而触发主动扫描。
  * `/api/cron/proactive-scan`（每小时）在自动化一轮之后，为管理层补一轮：只扫描、只写通知，不执行任何自动动作。
- * - 范围：在职成员（组织在用）里组织角色 org_owner / org_admin 或平台角色 boss / manager，账号在职、30 天内登录过；
+ * - 范围：与首页 `/` 同一管理层判定（canAccessManagementWorkspace）的在职成员（组织在用），账号在职、30 天内登录过：
+ *   岗位模式企业（行业包有岗位模板：窗饰、家纺外贸）按岗位键 organization.dashboard.read；其余企业按组织角色 org_owner / org_admin
+ *   或平台高管角色（boss / manager）；
  * - 排除：自动化一轮已处理的人；平台 admin / super_admin（项目可见性是全平台）；
  * - 上限：每轮 100 人，另有时间预算。按 userId 排序，从上一轮最后处理的人之后接着排（游标记在本定时任务自己的运行记录
  *   metadata.notifyOnlyResumeAfter）；人数超上限或预算截断时，后面几轮接着处理，不会固定漏掉一批人。
@@ -11,6 +13,8 @@
  */
 
 import type { AutomationOutcome } from "@/lib/automation/runner";
+import { POSITION_TEMPLATE_SETS, hasPositionTemplates } from "@/lib/authorization/role-defaults";
+import { canAccessManagementWorkspace } from "@/lib/rbac/workspace-policy";
 
 const DAY_MS = 86_400_000;
 
@@ -20,6 +24,8 @@ export const MANAGER_ACTIVE_WINDOW_DAYS = 30;
 export const MANAGER_CANDIDATE_LIMIT = 2000;
 export const MANAGER_ORG_ROLES = ["org_owner", "org_admin"] as const;
 export const MANAGER_PLATFORM_ROLES = ["boss", "manager"] as const;
+/** 岗位模式行业包（有岗位模板）：这些企业的管理层按岗位键判，候选先取全部在职成员，再逐个判 */
+export const POSITION_MODE_INDUSTRY_PACKS: readonly string[] = Object.keys(POSITION_TEMPLATE_SETS).filter((k) => hasPositionTemplates(k));
 /** 平台管理员：项目可见性是全平台，不替他们补发 */
 export const PLATFORM_ADMIN_ROLES = ["admin", "super_admin"] as const;
 /** 两轮合计的时间预算（maxDuration 300 秒，留余量给 runTrackedAutomation 收尾） */
@@ -32,7 +38,10 @@ export interface ManagerCandidate {
   platformRole: string;
 }
 
-/** OrganizationMember 查询条件：在职成员（组织在用）+ 账号在职、近期登录 + 管理层角色，排除平台管理员 */
+/**
+ * OrganizationMember 查询条件（候选超集）：在职成员（组织在用）+ 账号在职、近期登录，排除平台管理员；
+ * 旧模式企业的管理层角色，或岗位模式企业的任一成员（后者再由 isManagerMemberRow 按岗位键筛）
+ */
 export function managerCandidateWhere(now: Date) {
   return {
     status: "active",
@@ -42,8 +51,38 @@ export function managerCandidateWhere(now: Date) {
       lastLoginAt: { gte: new Date(now.getTime() - MANAGER_ACTIVE_WINDOW_DAYS * DAY_MS) },
       role: { notIn: [...PLATFORM_ADMIN_ROLES] },
     },
-    OR: [{ role: { in: [...MANAGER_ORG_ROLES] } }, { user: { role: { in: [...MANAGER_PLATFORM_ROLES] } } }],
+    OR: [
+      { role: { in: [...MANAGER_ORG_ROLES] } },
+      { user: { role: { in: [...MANAGER_PLATFORM_ROLES] } } },
+      { org: { industryPackId: { in: [...POSITION_MODE_INDUSTRY_PACKS] } } },
+    ],
   };
+}
+
+/** 候选成员行（含所在企业与组织角色） */
+export interface ManagerMemberRow {
+  userId: string;
+  orgId: string;
+  orgRole: string;
+  platformRole: string;
+  industryPackId: string | null;
+}
+
+/** 该行所在企业是否岗位模式（需要读岗位键才能判） */
+export function memberRowNeedsPermissionKeys(row: ManagerMemberRow): boolean {
+  return hasPositionTemplates(row.industryPackId);
+}
+
+/** 与首页 `/` 同一管理层判定；permissionKeys 只在岗位模式企业有意义 */
+export function isManagerMemberRow(row: ManagerMemberRow, permissionKeys: string[] | null): boolean {
+  const positionMode = memberRowNeedsPermissionKeys(row);
+  return canAccessManagementWorkspace({
+    platformRole: row.platformRole,
+    orgRole: row.orgRole,
+    hasMembership: true,
+    positionMode,
+    permissionKeys: positionMode ? permissionKeys : null,
+  });
 }
 
 /** 候选分段：游标之后（gt）/ 从头到游标（lte）/ 不分段（null） */
@@ -146,7 +185,7 @@ export function defaultManagerNotifyDeps(): ManagerNotifyDeps {
       const segment = (where: ReturnType<typeof candidateSegmentWhere>) =>
         db.organizationMember.findMany({
           where,
-          select: { userId: true, user: { select: { role: true } } },
+          select: { userId: true, orgId: true, role: true, user: { select: { role: true } }, org: { select: { industryPackId: true } } },
           orderBy: [{ userId: "asc" }, { id: "asc" }],
           take: MANAGER_CANDIDATE_LIMIT,
         });
@@ -155,8 +194,17 @@ export function defaultManagerNotifyDeps(): ManagerNotifyDeps {
         segment(candidateSegmentWhere(now, resumeAfter ? { lte: resumeAfter } : null)),
       ]);
       const rows = [...after, ...head];
+      // 与首页 `/` 同一管理层判定：岗位模式企业的行逐个读岗位键（旧模式企业按角色即可判，不读库）
+      const { loadPermissionKeys } = await import("@/lib/rbac/permission-keys");
+      const kept = await Promise.all(
+        rows.map(async (r) => {
+          const row: ManagerMemberRow = { userId: r.userId, orgId: r.orgId, orgRole: r.role, platformRole: r.user.role, industryPackId: r.org.industryPackId };
+          const keys = memberRowNeedsPermissionKeys(row) ? await loadPermissionKeys(r.userId, r.orgId) : null;
+          return isManagerMemberRow(row, keys) ? row : null;
+        }),
+      );
       return {
-        candidates: rows.map((r) => ({ userId: r.userId, platformRole: r.user.role })),
+        candidates: kept.filter((r): r is ManagerMemberRow => r !== null).map((r) => ({ userId: r.userId, platformRole: r.platformRole })),
         truncated: after.length >= MANAGER_CANDIDATE_LIMIT || head.length >= MANAGER_CANDIDATE_LIMIT,
       };
     },

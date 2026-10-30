@@ -14,6 +14,10 @@ import {
   PROACTIVE_RUN_BUDGET_MS,
   candidateSegmentWhere,
   managerCandidateWhere,
+  isManagerMemberRow,
+  memberRowNeedsPermissionKeys,
+  POSITION_MODE_INDUSTRY_PACKS,
+  type ManagerMemberRow,
   planManagerNotifyRun,
   resumeAfterOf,
   resumeRunWhere,
@@ -99,6 +103,21 @@ async function main() {
 
   console.log("\n候选范围");
 
+  await ok("与首页 `/` 同一管理层判定：岗位模式企业按岗位键（organization.dashboard.read），旧模式企业按组织角色 / 平台高管", () => {
+    const row = (o: Partial<ManagerMemberRow>): ManagerMemberRow => ({ userId: "u1", orgId: "o1", orgRole: "org_member", platformRole: "user", industryPackId: "window_covering_services_v1", ...o });
+    // 岗位模式：持老板岗位键的普通成员 → 是；org_owner 但没有岗位键 → 否
+    assert.equal(memberRowNeedsPermissionKeys(row({})), true);
+    assert.equal(isManagerMemberRow(row({}), ["organization.dashboard.read"]), true);
+    assert.equal(isManagerMemberRow(row({ orgRole: "org_owner" }), ["sales.quote.create"]), false);
+    assert.equal(isManagerMemberRow(row({ industryPackId: "home_textile_trade_v1" }), null), false);
+    // 旧模式：org_owner / org_admin、平台 boss / manager → 是；普通成员 → 否；不读岗位键
+    const legacy = (o: Partial<ManagerMemberRow>) => row({ industryPackId: null, ...o });
+    assert.equal(memberRowNeedsPermissionKeys(legacy({})), false);
+    assert.equal(isManagerMemberRow(legacy({ orgRole: "org_owner" }), null), true);
+    assert.equal(isManagerMemberRow(legacy({ platformRole: "boss" }), null), true);
+    assert.equal(isManagerMemberRow(legacy({}), ["organization.dashboard.read"]), false);
+  });
+
   await ok("场景「长期未登录」/「平台管理员兼组织所有者」：查询条件 = 在职成员 + 组织在用 + 账号在职 + 30 天内登录 + 管理层角色，排除平台 admin / super_admin", () => {
     const where = managerCandidateWhere(NOW);
     assert.deepEqual(where, {
@@ -109,8 +128,14 @@ async function main() {
         lastLoginAt: { gte: new Date(NOW.getTime() - MANAGER_ACTIVE_WINDOW_DAYS * 86_400_000) },
         role: { notIn: ["admin", "super_admin"] },
       },
-      OR: [{ role: { in: ["org_owner", "org_admin"] } }, { user: { role: { in: ["boss", "manager"] } } }],
+      OR: [
+        { role: { in: ["org_owner", "org_admin"] } },
+        { user: { role: { in: ["boss", "manager"] } } },
+        { org: { industryPackId: { in: [...POSITION_MODE_INDUSTRY_PACKS] } } },
+      ],
     });
+    // 岗位模式行业包：窗饰（Sunny）与家纺外贸（梦馨）
+    assert.ok(POSITION_MODE_INDUSTRY_PACKS.includes("window_covering_services_v1") && POSITION_MODE_INDUSTRY_PACKS.includes("home_textile_trade_v1"), JSON.stringify(POSITION_MODE_INDUSTRY_PACKS));
     assert.equal(MANAGER_ACTIVE_WINDOW_DAYS, 30);
     // 45 天前登录的人落在窗口外
     assert.ok(new Date(NOW.getTime() - 45 * 86_400_000) < where.user.lastLoginAt.gte);

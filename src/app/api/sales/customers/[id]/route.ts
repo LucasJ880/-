@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/common/api-helpers';
 import { db } from '@/lib/db';
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from '@/lib/audit/logger';
 import { authorize, humanPrincipal } from '@/lib/authorization';
-import { isAdmin, isSuperAdmin } from '@/lib/rbac/roles';
 import {
   resolveSalesOrgIdForRequest,
 } from '@/lib/sales/org-context';
@@ -49,7 +48,8 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
   }
 
-  if (!isAdmin(user.role)) {
+  {
+    // PERM-4a：不再因平台角色跳过；super_admin 由平台管理员全权解析覆盖
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -90,7 +90,8 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   }
 
   // Security-1：sales.customer.update + Scope；另保留 canEditCustomers 细开关
-  if (!isAdmin(user.role)) {
+  {
+    // PERM-4a：不再因平台角色跳过；super_admin 由平台管理员全权解析覆盖
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -144,27 +145,45 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
 /**
  * DELETE /api/sales/customers/[id]
- * 仅 admin/super_admin 可调。软删：设置 archivedAt = now()。
+ * PERM-4a：要求对该客户持 sales.customer.archive（资源级；老板岗位 ORG）。软删：设置 archivedAt = now()。
+ * 客户限定在当前企业：跨企业 / 不存在 404。
  * 不级联删除 quote / order / interaction 等关联数据，确保可审计。
  */
 export const DELETE = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
 
-  if (!isSuperAdmin(user.role)) {
-    return NextResponse.json({ error: '仅管理员可删除客户' }, { status: 403 });
-  }
+  const orgRes = await resolveSalesOrgIdForRequest(request, user);
+  if (!orgRes.ok) return orgRes.response;
 
-  const customer = await db.salesCustomer.findUnique({
-    where: { id },
+  const customer = await db.salesCustomer.findFirst({
+    where: { id, orgId: orgRes.orgId },
     select: {
       id: true,
       name: true,
+      createdById: true,
       archivedAt: true,
       _count: { select: { opportunities: true, quotes: true, blindsOrders: true } },
     },
   });
   if (!customer) {
     return NextResponse.json({ error: '客户不存在' }, { status: 404 });
+  }
+  const decision = await authorize({
+    principal: humanPrincipal(user, orgRes.orgId),
+    orgId: orgRes.orgId,
+    permission: 'sales.customer.archive',
+    resource: {
+      type: 'sales_customer',
+      id: customer.id,
+      ownerId: customer.createdById,
+      orgId: orgRes.orgId,
+    },
+  });
+  if (!decision.allowed) {
+    return NextResponse.json(
+      { error: '无权删除该客户（需要老板岗位）', code: decision.reasonCode },
+      { status: 403 },
+    );
   }
   if (customer.archivedAt) {
     return NextResponse.json({ error: '该客户已归档' }, { status: 400 });
@@ -194,6 +213,7 @@ export const DELETE = withAuth(async (request, ctx, user) => {
 
   await logAudit({
     userId: user.id,
+    orgId: orgRes.orgId,
     action: AUDIT_ACTIONS.DELETE,
     targetType: AUDIT_TARGETS.SALES_CUSTOMER,
     targetId: id,

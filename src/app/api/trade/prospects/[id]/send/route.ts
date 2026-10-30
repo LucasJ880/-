@@ -6,10 +6,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
 import { updateProspect, createMessage } from "@/lib/trade/service";
 import { sendTradeEmailForOrg } from "@/lib/trade/email-sender";
-import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  loadTradeProspectForOrg,
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { stageAtLeastContacted } from "@/lib/trade/stage";
 import { syncTradeOutboundToRevenueSpine } from "@/lib/trade/outbound-sync";
 import { markSequenceStepSent } from "@/lib/trade/outreach-sequence";
@@ -18,7 +22,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => ({}));

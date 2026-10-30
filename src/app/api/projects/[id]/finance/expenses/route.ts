@@ -24,17 +24,17 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const url = new URL(request.url);
   const statusFilter = url.searchParams.get("status");
   // 审核能力（accounting/admin/owner）→ 全部；否则仅本人
+  // PERM-4c1：看全部 = 财务特权 / 结算只读（会计）/ 项目角色审核权；canReview 只给能审的人
   const canReview =
-    access.user.role === "super_admin" ||
-    access.orgRole === "org_admin" ||
-    access.project.ownerId === access.user.id ||
-    (access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
+    access.finance.privileged ||
+    (!!access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
+  const seeAll = canReview || access.finance.canReadAll;
 
   const expenses = await db.projectExpenseSubmission.findMany({
     where: {
       orgId,
       projectId: id,
-      ...(canReview ? {} : { submittedById: access.user.id }),
+      ...(seeAll ? {} : { submittedById: access.user.id }),
       ...(statusFilter ? { status: statusFilter } : {}),
     },
     orderBy: { createdAt: "desc" },

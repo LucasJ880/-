@@ -8,7 +8,8 @@ import type { SkillContext, SkillResult, CheckReport, CheckIssue } from "../type
 
 async function execute(ctx: SkillContext): Promise<SkillResult> {
   try {
-    const scanResult = await scanProjectsForUser(ctx.userId, "admin");
+    // 内部扫描后只保留 ctx.projectId（PERM-7b：平台全量口径只认 super_admin，与改动前的扫描范围一致）
+    const scanResult = await scanProjectsForUser(ctx.userId, "super_admin");
 
     const projectSuggestions = scanResult.suggestions.filter(
       (s) => s.projectId === ctx.projectId

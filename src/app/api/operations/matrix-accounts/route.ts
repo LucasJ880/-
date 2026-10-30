@@ -7,8 +7,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_MANAGE, OPS_READ_KEYS } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 import { ensureMatrixAccountGroup } from "@/lib/operations/playbook/groups";
 
 const PLATFORMS = ["instagram", "facebook", "tiktok", "youtube", "xiaohongshu"];
@@ -20,6 +20,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
     request.nextUrl.searchParams.get("orgId"),
   );
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_READ_KEYS, "无权查看矩阵账号");
+  if (denied) return denied;
 
   const accounts = await db.matrixAccount.findMany({
     where: { orgId: orgRes.orgId },
@@ -70,12 +72,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权管理矩阵账号" }, { status: 403 });
-  }
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_MANAGE, "无权新增矩阵账号（需要运营管理权限）");
+  if (denied) return denied;
 
   const platform = String(body.platform ?? "").trim();
   const handle = String(body.handle ?? "").trim();

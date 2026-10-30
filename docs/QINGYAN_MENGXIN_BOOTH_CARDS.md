@@ -10,6 +10,10 @@
 录入时卡上的款号会写成「品类名 (ref. 款号)」，跟进邮件逐一列出买家看过的参考款，并说明每一款都可以按买家的规格定做
 （尺寸、面料、克重、颜色、品牌和包装）。不在表里的款号照样能录入，邮件里只写款号，预览时黄字提醒。
 
+每行后面可以再加两列（可选）：`款号, 品类名, 规格页链接, 图片链接`，链接要以 `https://` 开头。
+有规格页链接，邮件里这一款的卡片就带「View specification →」；有图片链接，卡片上方放这款的照片（邮件用 JPG，宽 600 左右）。
+只填图片不填规格页时，表里不会保存图片。
+
 ## 每晚的流程（约 40 分钟 / 60 张卡）
 
 | 步骤 | 谁 | 做什么 |
@@ -19,7 +23,7 @@
 | 3 核对 | 晚间负责人 | 对照卡片逐行核对 **邮箱、WhatsApp、等级、卡号**；备注里带「[待核：…]」的格子补全后删掉标记。「备注」是给买家邮件用的英文，「备注原文」是卡上手写的中文原话，给同事看 |
 | 4 上传 | 晚间负责人 | CSV 存成 `.csv` 直接上传，或粘贴进「下载模板」的表格后上传；展会名称填 `the 140th Canton Fair (Booth 14.3E07)`（只需填一次） |
 | 5 录入 | 晚间负责人 | 预览没有红字后点「开始录入」。每张约 1 分钟，同时处理 3 张；页面不要关 |
-| 6 审核 | 管理层，次日开馆前 | 审批中心逐封看跟进邮件草稿，修改后批准发送；A 级当天排报价或寄样 |
+| 6 审核 | 管理层，次日开馆前 | 审批中心逐封看跟进邮件草稿，没问题就批准发送，不合适就拒绝（草稿不能改，见下）；A 级当天排报价或寄样 |
 
 ## 每张卡录入后有什么
 
@@ -27,11 +31,20 @@
 - 客户和商机（来源 trade_show），互动记为「面谈」
 - AI 评分、RFQ 要点、缺失信息
 - 卡上等级决定商机优先级：A → 高（进「重点线索」队列）、B → 中、C → 低；同一家公司多张卡取最高等级。AI 评分照常记录，供参考
-- 一封英文跟进邮件草稿，放进审批中心，标题「跟进邮件（展会 · A 级）：公司名」，**不会自动发送**。开头是
-  “Thank you for visiting the Mengxin Home Textile booth at the 140th Canton Fair (Booth 14.3E07) — it was a pleasure meeting you.”
-  草稿不写价格、MOQ、交期、认证、付款条件，这些一律写“需内部确认”
+- 一封英文跟进邮件草稿，放进审批中心，标题「跟进邮件（展会 · A 级）：公司名」，**不会自动发送**。版式（同一份内容出纯文本和 HTML 两版）：
+  - 主题点名：“Emma, your Canton Fair picks + full specs”；开头 “Great meeting you at Booth 14.3E07 during the 140th Canton Fair — thanks for stopping by.”
+  - 「What we noted at the booth」：卡上可以复述的要点（如包装、认证），英文邮件不放中文原话
+  - 参考款卡片（照片、品类名、款号、规格页链接），下面一句“都可按您的规格定做”
+  - 「Next step · your costing」：报价只问还缺的（数量 / 尺寸和面料 / 目的地，最多三点），按钮「Reply with my details」（回到公司发件身份的回复地址）和「Chat on WhatsApp」
+  - 商务内容和纯文本模板同一来源——收入策略的「商务事实」（commercialFacts）：英文公司名（buyerFacingName）、落款的职位 / WhatsApp / 网站、
+    MOQ / 大货周期 / 装运港参考原句（原样写出）；不对外的款号（blockedStyleCodes）不出现在卡片里；其余（如价格）写 “… depends on your specification, so we will confirm it in your costing.”
+  - 展会 C 级且商务事实开了「只发目录」：不用新版，沿用纯文本目录稿（不追问、不报参考值），同样套公司外框
+  - 公司介绍、数字、工厂照片、视频看样：在「邮件里的公司资料」填了才出现（见下）
+  - 除商务事实里的参考原句外，不写价格、MOQ、交期、认证、付款条件等任何承诺
+- 审批预览里是纯文本版；点草稿下的「查看邮件效果（买家看到的样子）」看 HTML 版。上线前起草的草稿只有纯文本
 - 审批预览里英文邮件下面附一份**中文对照**（同一模板的中文版，标明「仅供审核，不会发送」），看中文的同事据此审核；真正发出去的只有英文
-- 落款是卡上的业务员（买家在展位见到的人，如 Cathy）；业务员栏写的是中文名时，落款用商机负责人的名字。审核时可以改
+- 落款是卡上的业务员（买家在展位见到的人，如 Cathy）；业务员栏写的是中文名时，落款用商机负责人的名字
+- 草稿只能批准或拒绝，不能直接改。要改：先拒绝，改好源头（款号参考表、公司资料）后到商机页点「重跑 Inbound FDE」重新起草（未拒绝时重跑会复用原草稿）；或拒绝后业务员自己用邮箱回复，再点「买家已回复」
 - 只留了 WhatsApp、没有邮箱的卡：建客户和商机，但没有邮件草稿，状态栏显示「用 WhatsApp 跟进」
 - 不逐张发通知（录入的人就是操作者）
 
@@ -40,11 +53,25 @@
 
 AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分常偏低）。跟进优先级以业务员判的等级为准。
 
+## 邮件里的公司资料（展前填一次）
+
+青砚 → 设置 → 邮箱绑定 →「邮件里的公司资料」（老板 / 经理可改，按版本保存，只影响之后起草的邮件）。**每一项都要梦馨确认过再填，不填就不出现**：
+- 公司一句话介绍（英文）、公司数字（最多 4 个，一行「数值 | 说明」，如 `2008 | established in Jiande, Zhejiang`）、工厂照片链接
+- Logo 图片链接、页脚地址、主色
+- 「首封里提供视频看样」：确认样品间能安排再勾
+- 落款（职位 / WhatsApp / 网站）、英文公司名、MOQ / 大货周期参考值、不对外的款号**不在这里**，在收入策略的「商务事实」里（和纯文本模板共用）
+- 公司介绍和数字里写了价格、交期、认证这类承诺，保存时会被挡住（否则每封草稿都会被守卫拦下）
+- 「预览样例邮件」按已保存的资料渲染一封样例首封
+- 「Reply with my details」按钮回到「公司发件身份」的回复地址（没填回复地址用发件地址）；没设发件身份就不放这个按钮
+
 ## 展后跟进：买家没回信时自动起草跟进邮件
 
 首封跟进邮件发出后，买家一直没回信：**从首封算起第 3、7、14 天**各起草一封跟进邮件，放进审批中心，**不会自动发送**。
 - 标题「跟进第 1/3 次（展会 · A 级 · 3 天未回复）：公司名」；预览照样附中文对照，有风险时最上面是 ⚠ 提醒
-- 第 1 次：提展会回程，列出报价还缺的信息（最多 3 条）；第 2 次：问项目是否还在进行，可再发参考款图片；第 3 次：说明是近期最后一次
+- 英文买家（新版，带 HTML 版）：第 1 次沿用首封主题（Re:），给一句话回复的示例 “MX-BL-001: [quantity] · to [port] · deliver by [month]”，再列一遍参考款；
+  第 2 次「3 packing formats for your range, Emma」：三种包装方案（腰封 + 吊牌 / 带提手 PVC 袋 / 彩盒），问项目这季是否还在进行；
+  第 3 次「Should I close your file, Emma?」：说明是近期最后一封，回 1 / 2 / 3（还感兴趣 / 下季再联系 / 不合适）
+- 中文买家沿用纯文本模板：第 1 次列出报价还缺的信息；第 2 次问项目是否还在进行；第 3 次说明是近期最后一次
 - 沿用首封的主题（买家邮箱里归到同一串），落款仍是卡上的业务员；不写价格 / MOQ / 交期等任何承诺
 - 停止条件：买家回信、商机进入报价及之后的阶段、已有待审批草稿；同一次跟进被拒绝或过期不重复起草
 - 间隔按上一封实际发出时间算（审批拖了几天，下一封也顺延，不会挤在一起）；待审批 5 天后过期；
@@ -117,4 +144,13 @@ AI 评分和卡上的 A/B/C 可能不一致（展位上记的信息少，AI 分�
 - 发件身份：OrgBusinessRule `trade.email_sender`（`src/lib/trade/email-sender.ts`，接口 `/api/trade/email-sender`）。
   `exec-sales-inquiry-reply` 有组织身份时只走 Resend（不回落个人 Gmail）；`sendAsOrg` 先用组织地址，Resend 拒收发件域名时用平台地址重发；
   外贸收件箱回复 / 开发信 / 序列跟进经 `sendTradeEmailForOrg` 同一出口。发件地址只有平台管理员能改（Resend 账号各组织共用，防冒用域名）
-- 测试：`src/lib/trade/__tests__/booth-cards.test.ts`、`booth-cards-db.isolated.test.ts`（隔离库端到端）、`src/lib/revenue-spine/__tests__/scoring-draft.test.ts`
+- 新版邮件：`src/lib/revenue-spine/email-layout.ts`（`EmailDoc` → `renderEmailText` / `renderEmailHtml`，表格布局 + 内联样式；文字一律转义，链接只收 https / mailto；
+  `renderPlainEmailHtml` 给官网询盘的纯文本回复套同一个外框）、`booth-email.ts`（`composeBoothFirstEmail` / `composeFollowUpEmail`，英文发送 + 中文对照）、
+  `email-profile.ts`（OrgBusinessRule `trade.email_profile`，接口 `/api/trade/email-profile`，`?sample=1` 出样例）。
+  FDE：最新来信是展位面谈、草稿是英文、且不是 C 级只发目录 → 新版首封（不过 AI 润色）；其它草稿照旧（模板 + 可选润色）再套外框。
+  商务内容取自 commercialFacts，和 reply-draft 共用 `buildReferenceLines` / `sampleLineFor` / `referenceProgramLines` / `allowedStyles`，
+  守卫用 `checkDraftWithReferenceLines`（参考原句白名单）；落款 `policySignature`、对外公司名 `buyerFacingOrgName`。
+  审批不能改内容，所以 HTML 在起草时就渲染好放进 `payload.html`；`exec-sales-inquiry-reply` 经 Resend 发 text + html，Gmail 通道只发 text。
+  预览：`/api/revenue/opportunities/[id]/email-preview?pendingActionId=`，页面放进 `sandbox` iframe
+- 测试：`src/lib/trade/__tests__/booth-cards.test.ts`、`booth-cards-db.isolated.test.ts`（隔离库端到端）、`src/lib/revenue-spine/__tests__/scoring-draft.test.ts`、
+  `src/lib/revenue-spine/__tests__/booth-email.test.ts`

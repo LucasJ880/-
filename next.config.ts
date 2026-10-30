@@ -32,6 +32,10 @@ const nextConfig: NextConfig = {
     webpackBuildWorker: false,
     webpackMemoryOptimizations: true,
   },
+  // 类型检查在 `npm run build` 里先单独跑（npm run typecheck，跑完即退出、释放内存），这里不再重复。
+  // Next 自带的检查在编译之后另起进程、与仍占着大堆的编译进程同时存在，16GB 生产构建机在这一步被 SIGKILL（S3 合并后实测）。
+  // 类型错误照样让构建失败——只是换成在编译之前失败。
+  typescript: { ignoreBuildErrors: true },
 };
 
 // Sentry 集成：仅当显式配置 SENTRY_DSN 时启用

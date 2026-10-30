@@ -3,7 +3,7 @@
 **TASKFLOW：** B-2（人工修改 → 商务事实沉淀）。状态列在 `docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` Phase B 表。本分支叠在 B-5（PR #250）之上；B-2 依赖 B-1。
 **受影响的 Muse 意图：** `status` 的待审批计数会包含新类型（符合任务书预期）。`approve` 对该类型只回"需在青砚「审批中心」看完内容后批准"（与其它 `web_only_review` 类型一致），不能在 Muse 里直接批；`reject` 照常。
 **已决定（不重开）：**
-- D-3：动作类型命名 `revenue_spine.propose_commercial_fact`，审批角色 admin / boss。
+- D-3：动作类型命名 `revenue_spine.propose_commercial_fact`，审批角色 admin / boss。**合并 PERM-6c / 7b 后改为与发布策略同源**（Lucas 2026-10-30 拍板）：平台 super_admin，或企业内持 `trade.settings.manage`（平台 admin 已退役，`PUT /api/revenue/policy` 已按该岗位键）。
 - 改稿来源（用户，2026-10-26，选项 b）：对"人工回复作废草稿"（`SUPERSEDED_BY_MANUAL_REPLY`）做草稿 vs 人工回复的 diff。
 
 ## Why
@@ -38,7 +38,7 @@ B-2 把这一刻接住：
   - 提议值过不了商务事实合并规则（如非 https 目录链接）；
   - 组织里没有能批准的人。
 - **新审批类型 `revenue_spine.propose_commercial_fact`**：
-  - 审批人：组织所有者（平台角色为 admin / boss 时），否则组织里在职的 boss，再否则在职的 admin；有效期 7 天；
+  - 审批人：能批的组织所有者优先，否则其他能批的在职成员中入职最早的一位（能批 = 平台 super_admin 或企业内 `trade.settings.manage`）；有效期 7 天；
   - 载荷含字段、抽取原值、提议值、当前值、证据句（已替换买家信息）、商机 id、来源草稿 id；
   - 只有平台角色（`User.role`）为 admin 或 boss 的人能批准，判定在认领之前；无权时审批保持待审批，不会被消耗。按用户读平台角色，因为审批中心传给执行器的是组织成员角色；
   - 批准 → 执行器在批准时的最新商务事实上重新合并抽取原值，发布新版本，记审计；已是该值时不发布；
@@ -59,7 +59,7 @@ B-2 把这一刻接住：
 **与任务书的偏差（GATE 审核时请逐条确认）：**
 1. **触发点**：任务书写"在 B-1 的 `approved_edited` 事件上触发"。现有代码审批前不能改稿，按用户选的 (b) 改为"人工回复作废草稿"事件触发。`approved_edited` 将来出现时走同一路径（实现已兼容）。
 2. **写入位置**：任务书写 `Organization.settingsJson.revenue_spine.business_profile.commercialFacts`。实际商务事实存在 `OrgBusinessRule(revenue_spine.business_profile)`，由 `loadRevenueSpinePolicy` 读出，`PUT /api/revenue/policy` 也写这里。执行器走同一个发布函数（新版本、旧版本 superseded、可回滚）。
-3. **"复用 approval 的角色门"**：既有 `requiredRole` 列只记录、不执行（R0 发现）。本 change 在执行器的认领前加按类型的角色门，规则与 `PUT /api/revenue/policy` 相同（平台 admin / super_admin / boss）。
+3. **"复用 approval 的角色门"**：既有 `requiredRole` 列只记录、不执行（R0 发现）。本 change 在执行器的认领前加按类型的角色门，规则与 `PUT /api/revenue/policy` 相同（合并 PERM-6c / 7b 后：平台 super_admin 或企业内 `trade.settings.manage`）。
    - 平台角色按批准人的 `User.role` 读：审批中心（`capabilities/approvals/decision.ts`）传给执行器的是组织成员角色（`org_owner` 等），用它判会让审批中心里谁都批不了（交叉审查发现）。
    - 审批人按平台角色挑：所有者能批时给所有者，否则给在职 boss / admin；一个都没有就不起卡。
 4. **限流"一天"**：取滚动 24 小时。

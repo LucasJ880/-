@@ -1,0 +1,3151 @@
+{
+ "generatedBy": "上传工具 index.html 内置 price() 原函数 + defaultPricing(seed)，node 直接执行，未改一行逻辑",
+ "toolVersion": "2026.10-local.1",
+ "count": 158,
+ "cases": [
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 18,
+    "h": 30
+   },
+   "expect": {
+    "msrp": 339.29,
+    "standard": 237.5,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 18,
+    "billH": 30,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 18
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 24,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 339.29,
+    "standard": 237.5,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 30,
+    "h": 42
+   },
+   "expect": {
+    "msrp": 339.29,
+    "standard": 237.5,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 32,
+    "billH": 42,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 36.5,
+    "h": 48
+   },
+   "expect": {
+    "msrp": 410.06,
+    "standard": 287.05,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 42,
+    "billH": 48,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 36.5
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 42,
+    "h": 54
+   },
+   "expect": {
+    "msrp": 443.18,
+    "standard": 310.23,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 42,
+    "billH": 54,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 42
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 48,
+    "h": 60
+   },
+   "expect": {
+    "msrp": 521.1,
+    "standard": 364.77,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 48,
+    "billH": 60,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 54,
+    "h": 66
+   },
+   "expect": {
+    "msrp": 627.27,
+    "standard": 439.09,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 54,
+    "billH": 66,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 54
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 60,
+    "h": 72
+   },
+   "expect": {
+    "msrp": 716.88,
+    "standard": 501.82,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 60,
+    "billH": 72,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 60
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 66,
+    "h": 75
+   },
+   "expect": {
+    "msrp": 832.79,
+    "standard": 582.95,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 66,
+    "billH": 75,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 66
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 72,
+    "h": 75
+   },
+   "expect": {
+    "msrp": 909.74,
+    "standard": 636.82,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 72,
+    "billH": 75,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 72
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 78,
+    "h": 75
+   },
+   "expect": {
+    "msrp": 958.44,
+    "standard": 670.91,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 78,
+    "billH": 75,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 78
+   }
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 79,
+    "h": 75
+   },
+   "expectError": "超出 Fauxwood 价表范围（此褶皱率下最大窗宽 78，最大高 75 in）"
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 78,
+    "h": 76
+   },
+   "expectError": "超出 Fauxwood 价表范围（此褶皱率下最大窗宽 78，最大高 75 in）"
+  },
+  {
+   "tag": "fauxwood",
+   "input": {
+    "product": "Fauxwood",
+    "fabric": "Standard",
+    "w": 20,
+    "h": 31.25
+   },
+   "expect": {
+    "msrp": 339.29,
+    "standard": 237.5,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 209,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 20
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 24,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 365,
+    "standard": 237.25,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 30,
+    "h": 42
+   },
+   "expect": {
+    "msrp": 443,
+    "standard": 287.95,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 30,
+    "billH": 42,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 36,
+    "h": 48
+   },
+   "expect": {
+    "msrp": 538,
+    "standard": 349.7,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 36,
+    "billH": 48,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 36
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 48,
+    "h": 60
+   },
+   "expect": {
+    "msrp": 726,
+    "standard": 471.9,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 48,
+    "billH": 60,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 60,
+    "h": 72
+   },
+   "expect": {
+    "msrp": 939,
+    "standard": 610.35,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 60,
+    "billH": 72,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 60
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 72,
+    "h": 84
+   },
+   "expect": {
+    "msrp": 1182,
+    "standard": 768.3,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 72,
+    "billH": 84,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 72
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 84,
+    "h": 96
+   },
+   "expect": {
+    "msrp": 1443,
+    "standard": 937.95,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 84,
+    "billH": 96,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 84
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 90,
+    "h": 108
+   },
+   "expect": {
+    "msrp": 1631,
+    "standard": 1060.15,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 90,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 96,
+    "h": 114
+   },
+   "expect": {
+    "msrp": 1774,
+    "standard": 1153.1,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 96,
+    "billH": 114,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 96
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 108,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 2039,
+    "standard": 1325.35,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 108,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 109,
+    "h": 120
+   },
+   "expectError": "超出 Allusion 价表范围（此褶皱率下最大窗宽 108，最大高 120 in）"
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 108,
+    "h": 121
+   },
+   "expectError": "超出 Allusion 价表范围（此褶皱率下最大窗宽 108，最大高 120 in）"
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 25.5,
+    "h": 36.5
+   },
+   "expect": {
+    "msrp": 443,
+    "standard": 287.95,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 30,
+    "billH": 42,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 25.5
+   }
+  },
+  {
+   "tag": "allusion",
+   "input": {
+    "product": "Allusion",
+    "fabric": "Standard",
+    "w": 12,
+    "h": 20
+   },
+   "expect": {
+    "msrp": 365,
+    "standard": 237.25,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 200,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 12
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 24,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 184.26,
+    "standard": 159,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 24,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 24,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 213.01,
+    "standard": 159,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 24,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 24,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 156.82,
+    "standard": 129,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 24,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 24,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 209.09,
+    "standard": 154.99,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 24,
+    "billH": 36,
+    "cordless": true,
+    "bump": 25,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 30,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 215.62,
+    "standard": 159,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 30,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 30,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 248.3,
+    "standard": 173.81,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 30,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 30,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 182.95,
+    "standard": 129,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 30,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 30,
+    "h": 36,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 239.15,
+    "standard": 176.03,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 30,
+    "billH": 36,
+    "cordless": true,
+    "bump": 25,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 48,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 364.6,
+    "standard": 255.22,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 48,
+    "billH": 60,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 48,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 419.49,
+    "standard": 293.64,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 48,
+    "billH": 60,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 48,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 309.72,
+    "standard": 216.8,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 48,
+    "billH": 60,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 48,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 385.51,
+    "standard": 278.48,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 48,
+    "billH": 60,
+    "cordless": true,
+    "bump": 25,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 75,
+    "h": 75,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 618.13,
+    "standard": 432.69,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 78,
+    "billH": 78,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 75,
+    "h": 75,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 710.91,
+    "standard": 497.64,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 78,
+    "billH": 78,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 75,
+    "h": 75,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 525.34,
+    "standard": 367.74,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 78,
+    "billH": 78,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 75,
+    "h": 75,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 662.56,
+    "standard": 481.04,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 78,
+    "billH": 78,
+    "cordless": true,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 76,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 558.01,
+    "standard": 390.61,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 78,
+    "billH": 60,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 76
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 76,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 641.65,
+    "standard": 449.15,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 78,
+    "billH": 60,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 76
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 76,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 474.37,
+    "standard": 332.06,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 78,
+    "billH": 60,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 76
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 76,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 603.75,
+    "standard": 439.87,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 78,
+    "billH": 60,
+    "cordless": true,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 76
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 60,
+    "h": 80,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 503.12,
+    "standard": 352.19,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 60,
+    "billH": 84,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 60
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 60,
+    "h": 80,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 578.92,
+    "standard": 405.24,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 60,
+    "billH": 84,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 60
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 60,
+    "h": 80,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 427.33,
+    "standard": 299.13,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 60,
+    "billH": 84,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 60
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 60,
+    "h": 80,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 550.17,
+    "standard": 402.37,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 60,
+    "billH": 84,
+    "cordless": true,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 60
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 90,
+    "h": 100,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 795.85,
+    "standard": 557.1,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 90,
+    "billH": 102,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 90,
+    "h": 100,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 916.08,
+    "standard": 641.26,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 90,
+    "billH": 102,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 90,
+    "h": 100,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 676.93,
+    "standard": 473.85,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 90,
+    "billH": 102,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 90,
+    "h": 100,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 836.36,
+    "standard": 602.7,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 90,
+    "billH": 102,
+    "cordless": true,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "cordless-zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 108,
+    "h": 120,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 1025.85,
+    "standard": 718.1,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 108,
+    "billH": 120,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "cordless-zebra-bo",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 108,
+    "h": 120,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 1180.06,
+    "standard": 826.04,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 159,
+    "billW": 108,
+    "billH": 120,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "cordless-roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 108,
+    "h": 120,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 871.65,
+    "standard": 610.15,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 108,
+    "billH": 120,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "cordless-roller-cassette",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 108,
+    "h": 120,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 1061.14,
+    "standard": 760.05,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 129,
+    "billW": 108,
+    "billH": 120,
+    "cordless": true,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "cordless-override",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 24,
+    "h": 36,
+    "cordless": true,
+    "discountOverridePct": 0.45
+   },
+   "expect": {
+    "msrp": 184.26,
+    "standard": 159,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 159,
+    "billW": 24,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "cordless-override",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering (Open Roll)",
+    "w": 24,
+    "h": 36,
+    "cordless": true,
+    "discountOverridePct": 0.5
+   },
+   "expect": {
+    "msrp": 156.82,
+    "standard": 129,
+    "install": 18,
+    "discount": 0.5,
+    "floor": 129,
+    "billW": 24,
+    "billH": 36,
+    "cordless": true,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 24,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 160.23,
+    "standard": 100,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 24,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 181.82,
+    "standard": 111.25,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 25,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 48,
+    "h": 60
+   },
+   "expect": {
+    "msrp": 317.05,
+    "standard": 174.38,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 48,
+    "billH": 60,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 48,
+    "h": 60
+   },
+   "expect": {
+    "msrp": 335.23,
+    "standard": 195.63,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 48,
+    "billH": 60,
+    "cordless": false,
+    "bump": 25,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "zebra",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Light Filtering",
+    "w": 108,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 892.05,
+    "standard": 490.63,
+    "install": 26,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 108,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "roller",
+   "input": {
+    "product": "Roller",
+    "fabric": "Blackout w Cassette",
+    "w": 108,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 922.73,
+    "standard": 530,
+    "install": 26,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 108,
+    "billH": 120,
+    "cordless": false,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 108
+   }
+  },
+  {
+   "tag": "cordless-ignored",
+   "input": {
+    "product": "SHANGRILA",
+    "fabric": "Standard",
+    "w": 48,
+    "h": 60,
+    "cordless": true
+   },
+   "expect": {
+    "msrp": 610.23,
+    "standard": 396.65,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 48,
+    "billH": 60,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 48
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 50,
+    "h": 108,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 265.91,
+    "standard": 172.84,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 25,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 25
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 50,
+    "h": 108,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 195.45,
+    "standard": 127.05,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 25,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 25
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 639.55,
+    "standard": 415.7,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 50,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 50
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 100,
+    "h": 120,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 470.45,
+    "standard": 305.8,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 50,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 50
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 150,
+    "h": 216,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 1597.73,
+    "standard": 1038.52,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 75,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 150,
+    "h": 216,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 1173.86,
+    "standard": 763.01,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 75,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 200,
+    "h": 324,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 3197.73,
+    "standard": 2078.52,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 324,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 200,
+    "h": 324,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 2351.14,
+    "standard": 1528.24,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 324,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 300,
+    "h": 108,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 1598.86,
+    "standard": 1039.26,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 150,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 150
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 300,
+    "h": 108,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 1175,
+    "standard": 763.75,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 150,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 150
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 400,
+    "h": 108,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 2131.82,
+    "standard": 1385.68,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 200,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 200
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 400,
+    "h": 108,
+    "fullness": 1
+   },
+   "expect": {
+    "msrp": 1567.05,
+    "standard": 1018.58,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 200,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 200
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 50,
+    "h": 108,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 532.95,
+    "standard": 346.42,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 50,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 45
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 50,
+    "h": 108,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 392.05,
+    "standard": 254.83,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 50,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 45
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 1279.09,
+    "standard": 831.41,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 100,
+    "h": 120,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 939.77,
+    "standard": 610.85,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 90
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 150,
+    "h": 216,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 2931.82,
+    "standard": 1905.68,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 137.5,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 135
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 150,
+    "h": 216,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 2155.68,
+    "standard": 1401.19,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 137.5,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 135
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 200,
+    "h": 324,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 5996.59,
+    "standard": 3897.78,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 187.5,
+    "billH": 324,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 180
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 200,
+    "h": 324,
+    "fullness": 1.8
+   },
+   "expect": {
+    "msrp": 4409.09,
+    "standard": 2865.91,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 187.5,
+    "billH": 324,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 180
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 300,
+    "h": 108,
+    "fullness": 1.8
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 222.22，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 300,
+    "h": 108,
+    "fullness": 1.8
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 222.22，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 400,
+    "h": 108,
+    "fullness": 1.8
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 222.22，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 400,
+    "h": 108,
+    "fullness": 1.8
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 222.22，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 50,
+    "h": 108,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 532.95,
+    "standard": 346.42,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 50,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 50
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 50,
+    "h": 108,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 392.05,
+    "standard": 254.83,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 50,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 50
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 1279.09,
+    "standard": 831.41,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 100,
+    "h": 120,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 939.77,
+    "standard": 610.85,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 150,
+    "h": 216,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 3197.73,
+    "standard": 2078.52,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 150,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 150
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 150,
+    "h": 216,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 2351.14,
+    "standard": 1528.24,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 150,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 150
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 200,
+    "h": 324,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 6395.45,
+    "standard": 4157.05,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 200,
+    "billH": 324,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 200
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 200,
+    "h": 324,
+    "fullness": 2
+   },
+   "expect": {
+    "msrp": 4701.14,
+    "standard": 3055.74,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 200,
+    "billH": 324,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 200
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 300,
+    "h": 108,
+    "fullness": 2
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 200，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 300,
+    "h": 108,
+    "fullness": 2
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 200，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 400,
+    "h": 108,
+    "fullness": 2
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 200，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 400,
+    "h": 108,
+    "fullness": 2
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 200，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 50,
+    "h": 108,
+    "fullness": 2.5
+   },
+   "expect": {
+    "msrp": 667.05,
+    "standard": 433.58,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 62.5,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 62.5
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 50,
+    "h": 108,
+    "fullness": 2.5
+   },
+   "expect": {
+    "msrp": 490.91,
+    "standard": 319.09,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 62.5,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 62.5
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 2.5
+   },
+   "expect": {
+    "msrp": 1598.18,
+    "standard": 1038.82,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 125,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 125
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 100,
+    "h": 120,
+    "fullness": 2.5
+   },
+   "expect": {
+    "msrp": 1173.86,
+    "standard": 763.01,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 125,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 125
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 150,
+    "h": 216,
+    "fullness": 2.5
+   },
+   "expect": {
+    "msrp": 3997.73,
+    "standard": 2598.52,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 187.5,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 187.5
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 150,
+    "h": 216,
+    "fullness": 2.5
+   },
+   "expect": {
+    "msrp": 2938.64,
+    "standard": 1910.11,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 187.5,
+    "billH": 216,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 187.5
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 200,
+    "h": 324,
+    "fullness": 2.5
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 160，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 200,
+    "h": 324,
+    "fullness": 2.5
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 160，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 300,
+    "h": 108,
+    "fullness": 2.5
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 160，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 300,
+    "h": 108,
+    "fullness": 2.5
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 160，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 400,
+    "h": 108,
+    "fullness": 2.5
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 160，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 400,
+    "h": 108,
+    "fullness": 2.5
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 160，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 50,
+    "h": 108,
+    "fullness": 3
+   },
+   "expect": {
+    "msrp": 798.86,
+    "standard": 519.26,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 75,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 50,
+    "h": 108,
+    "fullness": 3
+   },
+   "expect": {
+    "msrp": 586.36,
+    "standard": 381.14,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 75,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 75
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 3
+   },
+   "expect": {
+    "msrp": 1918.64,
+    "standard": 1247.11,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 150,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 150
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 100,
+    "h": 120,
+    "fullness": 3
+   },
+   "expect": {
+    "msrp": 1410.23,
+    "standard": 916.65,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 150,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 150
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 150,
+    "h": 216,
+    "fullness": 3
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 150,
+    "h": 216,
+    "fullness": 3
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 200,
+    "h": 324,
+    "fullness": 3
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 200,
+    "h": 324,
+    "fullness": 3
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 300,
+    "h": 108,
+    "fullness": 3
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 300,
+    "h": 108,
+    "fullness": 3
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 400,
+    "h": 108,
+    "fullness": 3
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 400,
+    "h": 108,
+    "fullness": 3
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 133.33，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 50,
+    "h": 108,
+    "fullness": 4
+   },
+   "expect": {
+    "msrp": 1065.91,
+    "standard": 692.84,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 50,
+    "h": 108,
+    "fullness": 4
+   },
+   "expect": {
+    "msrp": 784.09,
+    "standard": 509.66,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 4
+   },
+   "expect": {
+    "msrp": 2558.18,
+    "standard": 1662.82,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 200,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 200
+   }
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 100,
+    "h": 120,
+    "fullness": 4
+   },
+   "expect": {
+    "msrp": 1880.68,
+    "standard": 1222.44,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 200,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 200
+   }
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 150,
+    "h": 216,
+    "fullness": 4
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 150,
+    "h": 216,
+    "fullness": 4
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 200,
+    "h": 324,
+    "fullness": 4
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 200,
+    "h": 324,
+    "fullness": 4
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 300,
+    "h": 108,
+    "fullness": 4
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 300,
+    "h": 108,
+    "fullness": 4
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-drapery",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 400,
+    "h": 108,
+    "fullness": 4
+   },
+   "expectError": "超出 Drapery 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-sheer",
+   "input": {
+    "product": "Sheer",
+    "fabric": "LF Prime",
+    "w": 400,
+    "h": 108,
+    "fullness": 4
+   },
+   "expectError": "超出 Sheer 价表范围（此褶皱率下最大窗宽 100，最大高 324 in）"
+  },
+  {
+   "tag": "fullness-default",
+   "input": {
+    "product": "Drapery",
+    "fabric": "With liner (Black out)",
+    "w": 100,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 1535.45,
+    "standard": 998.05,
+    "install": 90,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 100,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": true,
+    "lookupW": 100
+   }
+  },
+  {
+   "tag": "fullness-invalid",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 0.5
+   },
+   "expectError": "褶皱率须为 1 至 4 倍"
+  },
+  {
+   "tag": "fullness-invalid",
+   "input": {
+    "product": "Drapery",
+    "fabric": "Without liner",
+    "w": 100,
+    "h": 120,
+    "fullness": 5
+   },
+   "expectError": "褶皱率须为 1 至 4 倍"
+  },
+  {
+   "tag": "door-screen-no-fullness",
+   "input": {
+    "product": "Sheer",
+    "fabric": "Door Screen Sheer",
+    "w": 25,
+    "h": 50,
+    "fullness": 3
+   },
+   "expect": {
+    "msrp": 170.45,
+    "standard": 170.45,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 25,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 25
+   }
+  },
+  {
+   "tag": "door-screen",
+   "input": {
+    "product": "Sheer",
+    "fabric": "Door Screen Sheer",
+    "w": 30,
+    "h": 50
+   },
+   "expect": {
+    "msrp": 227.27,
+    "standard": 227.27,
+    "install": 55,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 37.5,
+    "billH": 108,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 30
+   }
+  },
+  {
+   "tag": "door-screen-err",
+   "input": {
+    "product": "Sheer",
+    "fabric": "Door Screen Sheer",
+    "w": 41,
+    "h": 50
+   },
+   "expectError": "Door Screen Sheer 仅配置宽 ≤ 40、高 ≤ 50 in"
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Roman Shade",
+    "fabric": "Light Filtering",
+    "w": 24,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 388.64,
+    "standard": 272.05,
+    "install": 18,
+    "discount": 0.3,
+    "floor": 0,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Roman Shade",
+    "fabric": "Blackout",
+    "w": 72,
+    "h": 72
+   },
+   "expect": {
+    "msrp": 957.95,
+    "standard": 670.57,
+    "install": 26,
+    "discount": 0.3,
+    "floor": 0,
+    "billW": 72,
+    "billH": 72,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 72
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "SHANGRILA",
+    "fabric": "Standard",
+    "w": 120,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 2231.82,
+    "standard": 1450.68,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 120,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 120
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Cordless Cellular",
+    "fabric": "Standard",
+    "w": 120,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 1915.91,
+    "standard": 1245.34,
+    "install": 26,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 120,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 120
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "SkylightHoneycomb",
+    "fabric": "Standard",
+    "w": 66,
+    "h": 78
+   },
+   "expect": {
+    "msrp": 1114.77,
+    "standard": 724.6,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 66,
+    "billH": 78,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 66
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Shutters",
+    "fabric": "Vinyl",
+    "w": 10,
+    "h": 24
+   },
+   "expect": {
+    "msrp": 172.5,
+    "standard": 112.13,
+    "install": 18,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 10,
+    "billH": 24,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 10
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Shutters",
+    "fabric": "Wood",
+    "w": 126,
+    "h": 120
+   },
+   "expect": {
+    "msrp": 6664.77,
+    "standard": 4332.1,
+    "install": 72,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 126,
+    "billH": 120,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 126
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Shutters",
+    "fabric": "Vinyl",
+    "w": 70.5,
+    "h": 60
+   },
+   "expect": {
+    "msrp": 1078.91,
+    "standard": 701.29,
+    "install": 54,
+    "discount": 0.35,
+    "floor": 100,
+    "billW": 72,
+    "billH": 60,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 70.5
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering w Cassette",
+    "w": 50,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 305.68,
+    "standard": 190.63,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 54,
+    "billH": 36,
+    "cordless": false,
+    "bump": 50,
+    "fullnessApplied": false,
+    "lookupW": 50
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Roller",
+    "fabric": "Light Filtering w Cassette",
+    "w": 49.9,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 280.68,
+    "standard": 165.63,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 54,
+    "billH": 36,
+    "cordless": false,
+    "bump": 25,
+    "fullnessApplied": false,
+    "lookupW": 49.9
+   }
+  },
+  {
+   "tag": "regression",
+   "input": {
+    "product": "Zebra",
+    "fabric": "Blackout",
+    "w": 24,
+    "h": 36
+   },
+   "expect": {
+    "msrp": 185.23,
+    "standard": 101.88,
+    "install": 18,
+    "discount": 0.45,
+    "floor": 100,
+    "billW": 24,
+    "billH": 36,
+    "cordless": false,
+    "bump": 0,
+    "fullnessApplied": false,
+    "lookupW": 24
+   }
+  }
+ ]
+}
