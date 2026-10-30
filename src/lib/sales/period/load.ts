@@ -46,6 +46,8 @@ export interface PeriodSummaryResponse {
   narrative: null;
   /** KPI-2：AI 解读开关是否开启（面板据此显示"生成解读"按钮） */
   narrativeEnabled: boolean;
+  /** STAT-1：期间内创建、仍是草稿的报价数（范围同 scope；不计入任何金额） */
+  draftsUnsent: { count: number };
   truncated: boolean;
 }
 
@@ -113,6 +115,19 @@ async function loadNames(userIds: string[]): Promise<Map<string, string>> {
   return new Map(users.map((u) => [u.id, u.name || u.email]));
 }
 
+/** STAT-1：期间内创建、仍是草稿的报价数（客户未归档；own 只算本人） */
+async function countDraftsUnsent(orgId: string, scope: PeriodScope, period: LocalPeriod): Promise<number> {
+  return db.salesQuote.count({
+    where: {
+      orgId,
+      status: "draft",
+      customer: { archivedAt: null },
+      createdAt: { gte: period.start, lt: period.end },
+      ...(scope.kind === "own" ? { createdById: scope.userId } : {}),
+    },
+  });
+}
+
 /** CAL-1：全企业范围且日历观察开启时读账本统计期间日程来源；其余为 null */
 async function loadPeriodCalendar(orgId: string, scope: PeriodScope, period: LocalPeriod): Promise<PeriodCalendarStats | null> {
   if (scope.kind !== "org") return null;
@@ -151,7 +166,10 @@ export async function buildSalesPeriodResponse(params: {
     names,
     truncated,
   });
-  const calendar = await loadPeriodCalendar(params.orgId, params.scope, params.period);
+  const [calendar, draftCount] = await Promise.all([
+    loadPeriodCalendar(params.orgId, params.scope, params.period),
+    countDraftsUnsent(params.orgId, params.scope, params.period),
+  ]);
   return {
     period: summary.period,
     scope: summary.scope,
@@ -162,6 +180,7 @@ export async function buildSalesPeriodResponse(params: {
     calendar,
     narrative: null,
     narrativeEnabled: isPeriodNarrativeEnabled(),
+    draftsUnsent: { count: draftCount },
     truncated: summary.truncated,
   };
 }

@@ -17,10 +17,13 @@ export const GET = withAuth(async (request, _ctx, user) => {
   );
   if (!authz.ok) return authz.response;
 
-  const where: Record<string, unknown> = {
+  const baseWhere: Record<string, unknown> = {
     ...authz.where,
     customer: { archivedAt: null },
   };
+  // STAT-1：按报价创建人筛选——在既有授权范围内再加条件（服务端筛，不是在最近 200 份里筛）
+  const createdById = request.nextUrl.searchParams.get('createdById')?.trim() || null;
+  const where: Record<string, unknown> = createdById ? { AND: [baseWhere, { createdById }] } : baseWhere;
 
   const quotes = await db.salesQuote.findMany({
     where,
@@ -51,12 +54,24 @@ export const GET = withAuth(async (request, _ctx, user) => {
         select: { product: true, fabric: true },
       },
       createdBy: {
-        select: { name: true },
+        select: { id: true, name: true },
       },
     },
     orderBy: { createdAt: 'desc' },
     take: 200,
   });
 
-  return NextResponse.json({ quotes });
+  // 授权范围内出现过的报价创建人（"按销售"下拉；只看本人时只有本人）
+  const creators = await db.salesQuote.groupBy({ by: ['createdById'], where: baseWhere });
+  const users = creators.length
+    ? await db.user.findMany({
+        where: { id: { in: creators.map((c) => c.createdById) } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const reps = users
+    .map((u) => ({ id: u.id, name: u.name || u.email }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+
+  return NextResponse.json({ quotes, reps });
 });

@@ -313,6 +313,7 @@ run_test "销售区记录访问 DB 端到端（PERM-4a；隔离库执行，否�
 # KPI-1 sales-period-summary：期间汇总口径 / 确定性洞察 / API 端到端
 run_test "销售期间汇总口径（KPI-1）" "npx tsx src/lib/sales/__tests__/period-pure.test.ts"
 run_test "销售期间汇总确定性洞察（KPI-1）" "npx tsx src/lib/sales/__tests__/period-insights.test.ts"
+run_test "期间周预设与按人报价明细（STAT-1）" "npx tsx src/lib/sales/__tests__/period-drilldown-pure.test.ts"
 run_test "销售期间汇总 DB 端到端（KPI-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/period-db.isolated.test.ts"
 # KPI-2 sales-period-narrative：期间看板 AI 解读
 run_test "期间看板 AI 解读纯函数核心（KPI-2）" "npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts"
