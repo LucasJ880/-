@@ -124,6 +124,9 @@ export function RoughQuotePanel({
             romanShade?: number;
             fauxwood?: number;
             allusion?: number;
+            cordlessDiscount?: number;
+            cordlessFloorZebra?: number;
+            cordlessFloorRoller?: number;
           }>("/api/sales/quote-settings/discounts");
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -140,6 +143,11 @@ export function RoughQuotePanel({
                 "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
                 Fauxwood: typeof d.fauxwood === "number" ? d.fauxwood : 0.3,
                 Allusion: typeof d.allusion === "number" ? d.allusion : 0.35,
+              },
+              // 2026-10-28 价表：无绳设置透传（内嵌工具不认识时忽略）
+              cordless: {
+                discount: d.cordlessDiscount,
+                floors: { Zebra: d.cordlessFloorZebra, Roller: d.cordlessFloorRoller },
               },
             },
             "*",

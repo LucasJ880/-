@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
-import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from "@/lib/blinds/discount-settings";
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } from "@/lib/blinds/discount-settings";
 import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import { ALL_PRODUCTS, getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName, QuoteItemInput } from "@/lib/blinds/pricing-types";
@@ -73,6 +73,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
     deliveryFee: quoteSettings.deliveryFee,
     minInstallTotal: quoteSettings.minInstallFee,
+    cordlessPolicy: dtoToCordlessPolicy(quoteSettings),
   });
 
   if (calc.itemResults.length === 0) {

@@ -2,12 +2,12 @@
 
 ## 1. 引擎
 
-- [ ] 1.1 `pricing-types.ts` 加 `CordlessPolicy` 与 `QuoteItemInput.fullness`；`pricing-data.ts` 加 `DEFAULT_CORDLESS_POLICY`（0.30 / 159 / 129 / 1.15，从 `config/pricelist/2026-10-28-lucas-quote.json` `cordless` 节拷入）并删除 `CORDLESS_MAX_WIDTH/HEIGHT`；`pricing-engine.ts` 按 design D2 / D5 改 `priceFor`（统一无绳收尾、无尺寸上限、褶皱率查表宽与校验、错误文案带最大窗宽）与 `calculateQuoteTotal`（透传 `cordlessPolicy` 与行级 `fullness`）；黄金测试 `DEFERRED` 清空、调用透传 `fullness`；verify：`npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts` 158 条全过、输出 DEFERRED 0，`sunny-motor` / `quote-fees` / `valance-options` 仍过（开工前先跑记基线）
+- [x] 1.1 `pricing-types.ts` 加 `CordlessPolicy` 与 `QuoteItemInput.fullness`；`pricing-data.ts` 加 `DEFAULT_CORDLESS_POLICY`（0.30 / 159 / 129 / 1.15，从 `config/pricelist/2026-10-28-lucas-quote.json` `cordless` 节拷入）并删除 `CORDLESS_MAX_WIDTH/HEIGHT`；`pricing-engine.ts` 按 design D2 / D5 改 `priceFor`（统一无绳收尾、无尺寸上限、褶皱率查表宽与校验、错误文案带最大窗宽）与 `calculateQuoteTotal`（透传 `cordlessPolicy` 与行级 `fullness`）；黄金测试 `DEFERRED` 清空、调用透传 `fullness`；verify：`npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts` 158 条全过、输出 DEFERRED 0，`sunny-motor` / `quote-fees` / `valance-options` 仍过（开工前先跑记基线）
 
 ## 2. 企业设置
 
-- [ ] 2.1 `discount-settings.ts`：`CORDLESS_SETTING_KEYS`、`readJsonCordless` / `mergeJsonCordless`（design D4）、DTO 三字段、`validateDiscountsInput` 分段校验（0–1 / 0–10000）、`saveDiscountsForOrg` 路由到 `pricing.cordless`、`dtoToCordlessPolicy`、`applyOrgDiscountDefaults` 跳过无绳行；`discount-settings-card.tsx` 加三格；`rough-quote-panel.tsx` 透传；verify：`cost-rates.test.ts` 扩 5 条（读默认 / 坏值 / 合并只动子键 / 跳过无绳行 / 策略转换）与 `quote-settings-approval.test.ts` 扩 1 条（描述含 `cordlessDiscount=0.25`）通过
-- [ ] 2.2 四个服务端入口（`quotes/route.ts`、`quote-update.ts`、`preview/route.ts`、`generate-quote/route.ts`）传 `cordlessPolicy`；`quote-settings-db.isolated.test.ts` 扩：老板 PUT `{cordlessDiscount:0.25, cordlessFloorZebra:169}` → 202 → 批准 → `pricing.cordless` 写入且 `pricing.discounts` / `sunnyWarranty` 原样；`{cordlessFloorRoller:-1}` → 400；super_admin 设 0.25 后预览 Zebra 48" × 60" 无绳行 `discountPct 0.25` 且成交 = max(MSRP × 0.75, 169) × 1.15；量房生成 Drapery 100" × 120" 查表宽 100；verify：该隔离库测试全过
+- [x] 2.1 `discount-settings.ts`：`CORDLESS_SETTING_KEYS`、`readJsonCordless` / `mergeJsonCordless`（design D4）、DTO 三字段、`validateDiscountsInput` 分段校验（0–1 / 0–10000）、`saveDiscountsForOrg` 路由到 `pricing.cordless`、`dtoToCordlessPolicy`、`applyOrgDiscountDefaults` 跳过无绳行；`discount-settings-card.tsx` 加三格；`rough-quote-panel.tsx` 透传；verify：`cost-rates.test.ts` 扩 5 条（读默认 / 坏值 / 合并只动子键 / 跳过无绳行 / 策略转换）与 `quote-settings-approval.test.ts` 扩 1 条（描述含 `cordlessDiscount=0.25`）通过
+- [x] 2.2 四个服务端入口（`quotes/route.ts`、`quote-update.ts`、`preview/route.ts`、`generate-quote/route.ts`）传 `cordlessPolicy`；`quote-settings-db.isolated.test.ts` 扩：老板 PUT `{cordlessDiscount:0.25, cordlessFloorZebra:169}` → 202 → 批准 → `pricing.cordless` 写入且 `pricing.discounts` / `sunnyWarranty` 原样；`{cordlessFloorRoller:-1}` → 400；super_admin 设 0.25 后预览 Zebra 48" × 60" 无绳行 `discountPct 0.25` 且成交 = max(MSRP × 0.75, 169) × 1.15；量房生成 Drapery 100" × 120" 查表宽 100；verify：该隔离库测试全过
 
 ## 3. 报价单 UI
 
@@ -15,7 +15,7 @@
 
 ## 4. 工艺单
 
-- [ ] 4.1 `quote-mapping.ts` `BlindsItemDraft.controlType` 放宽为含 `"无绳"`，映射 Lift M → 电动、Cordless 开 → 无绳、否则普通（design D6）；verify：`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts` 扩 2 条（Cordless 开 + Lift R → 无绳 / R；Lift L 无开关 → 普通）通过，`blinds-oracle` 9488 与 `real-orders` 164 不变
+- [x] 4.1 `quote-mapping.ts` `BlindsItemDraft.controlType` 放宽为含 `"无绳"`，映射 Lift M → 电动、Cordless 开 → 无绳、否则普通（design D6）；verify：`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts` 扩 2 条（Cordless 开 + Lift R → 无绳 / R；Lift L 无开关 → 普通）通过，`blinds-oracle` 9488 与 `real-orders` 164 不变
 
 ## 5. 收口
 

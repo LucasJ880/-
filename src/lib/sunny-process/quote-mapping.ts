@@ -36,7 +36,7 @@ export interface BlindsItemDraft {
   fabricSku: string;
   productType: "卷帘" | "斑马帘" | "香格里拉";
   measureType: "IN" | "OUT";
-  controlType: "普通" | "电动";
+  controlType: "普通" | "无绳" | "电动";
   controlSide: "L" | "R";
   headrailType: string;
   mountType: "顶装" | "墙装";
@@ -205,10 +205,12 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
       const measureType = mount === "O" ? "OUT" : "IN";
       if (mount !== "I" && mount !== "O") add("measureType", measureType, "报价未填 Mount（I/O），默认 IN，请核对");
       const motor = lift === "M";
-      const controlType = motor ? "电动" : "普通";
+      // PRICE-2（Q4 = A）：无绳只来自 Order Form 的 Cordless 开关（仅 Zebra / Roller）；Lift L/R 只表示拉杆位置
+      const cordless = !motor && (l as { cordless?: unknown }).cordless === true && (product === "Zebra" || product === "Roller");
+      const controlType: BlindsItemDraft["controlType"] = motor ? "电动" : cordless ? "无绳" : "普通";
       const controlSide = lift === "L" ? "L" : "R";
       if (motor) add("controlSide", controlSide, "电机侧默认 R，请核对");
-      else if (lift !== "L" && lift !== "R") add("controlSide", controlSide, "报价未填 Lift，默认普通拉绳、拉杆位置 R，请核对");
+      else if (lift !== "L" && lift !== "R") add("controlSide", controlSide, cordless ? "报价未填 Lift，无绳、拉杆位置默认 R，请核对" : "报价未填 Lift，默认普通拉绳、拉杆位置 R，请核对");
       const hr = headrailFor(valance, product);
       add("headrailType", hr.value, hr.noteZh);
       if (bracket.noteZh) add("mountType", "顶装", bracket.noteZh);

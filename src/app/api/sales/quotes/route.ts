@@ -13,7 +13,7 @@ import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
-import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from '@/lib/blinds/discount-settings';
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } from '@/lib/blinds/discount-settings';
 import { stampPricelistVersion } from '@/lib/blinds/pricelist-version';
 import { costRateForProduct, snapshotCostPrice } from '@/lib/blinds/cost-rates';
 import { isPlatformSuperAdmin } from '@/lib/rbac/roles';
@@ -159,6 +159,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
       taxRate,
       sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
       minInstallTotal: quoteSettings.minInstallFee,
+      // 2026-10-28 价表：企业无绳策略（折扣 / 最低价）
+      cordlessPolicy: dtoToCordlessPolicy(quoteSettings),
     });
   } catch (err) {
     // 极端情况：pricing 引擎自己 throw 了（理论上不会，但保险起见）

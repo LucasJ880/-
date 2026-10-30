@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import { getAvailableFabrics, ALL_PRODUCTS } from '@/lib/blinds/pricing-data';
-import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from '@/lib/blinds/discount-settings';
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } from '@/lib/blinds/discount-settings';
 import { resolveSalesOrgIdForRequest } from '@/lib/sales/org-context';
 import type { QuoteItemInput, InstallMode } from '@/lib/blinds/pricing-types';
 
@@ -36,6 +36,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       ? {
           sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
           minInstallTotal: quoteSettings.minInstallFee,
+          cordlessPolicy: dtoToCordlessPolicy(quoteSettings),
         }
       : {}),
   });

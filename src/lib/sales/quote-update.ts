@@ -10,7 +10,7 @@
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
-import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from "@/lib/blinds/discount-settings";
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } from "@/lib/blinds/discount-settings";
 import { stampPricelistVersion } from "@/lib/blinds/pricelist-version";
 import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from "@/lib/blinds/pricing-types";
@@ -118,6 +118,7 @@ export async function prepareQuoteUpdate(input: {
       taxRate,
       sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
       minInstallTotal: quoteSettings.minInstallFee,
+      cordlessPolicy: dtoToCordlessPolicy(quoteSettings),
     });
   } catch (err) {
     console.error("[quotes.PUT] pricing engine threw:", err);

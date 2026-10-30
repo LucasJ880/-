@@ -7,9 +7,10 @@
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
-import type { ProductName } from "./pricing-types";
+import type { ProductName, CordlessPolicy } from "./pricing-types";
 import {
   DEFAULT_DISCOUNTS,
+  DEFAULT_CORDLESS_POLICY,
   DEFAULT_SUNNY_MOTOR_PRICE,
   DEFAULT_DELIVERY_FEE,
   INSTALL_RULES,
@@ -82,16 +83,79 @@ export function mergeJsonDiscounts(
   return base;
 }
 
+// ─── 2026-10-28 价表：无绳设置（Organization.settingsJson.pricing.cordless，零 schema）───
+
+/** DTO / PUT 里的无绳设置键：折扣（0–1）与两个最低价（CAD 0–10000） */
+export const CORDLESS_RATE_KEYS = ["cordlessDiscount"] as const;
+export const CORDLESS_FLOOR_KEYS = ["cordlessFloorZebra", "cordlessFloorRoller"] as const;
+export const CORDLESS_SETTING_KEYS = [...CORDLESS_RATE_KEYS, ...CORDLESS_FLOOR_KEYS] as const;
+export type CordlessSettingKey = (typeof CORDLESS_SETTING_KEYS)[number];
+const CORDLESS_SETTING_KEY_SET = new Set<string>(CORDLESS_SETTING_KEYS);
+
+export interface CordlessSettings {
+  cordlessDiscount: number;
+  cordlessFloorZebra: number;
+  cordlessFloorRoller: number;
+}
+
+function obj(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+const inRange = (v: unknown, lo: number, hi: number): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+
+/** 纯函数：从企业设置 JSON 读无绳设置；缺失或非法逐项回落默认（0.30 / 159 / 129） */
+export function readJsonCordless(settingsJson: unknown): CordlessSettings {
+  const cordless = obj(obj(obj(settingsJson)?.pricing)?.cordless);
+  const floors = obj(cordless?.floors);
+  return {
+    cordlessDiscount: inRange(cordless?.discount, 0, 1) ? (cordless!.discount as number) : DEFAULT_CORDLESS_POLICY.discount,
+    cordlessFloorZebra: inRange(floors?.Zebra, 0, 10000) ? (floors!.Zebra as number) : DEFAULT_CORDLESS_POLICY.floors.Zebra,
+    cordlessFloorRoller: inRange(floors?.Roller, 0, 10000) ? (floors!.Roller as number) : DEFAULT_CORDLESS_POLICY.floors.Roller,
+  };
+}
+
+/** 纯函数：把无绳设置写回企业设置 JSON，只替换 pricing.cordless 的对应键，其它键（含 pricing.discounts）原样保留 */
+export function mergeJsonCordless(
+  settingsJson: unknown,
+  patch: Partial<CordlessSettings>,
+): Record<string, unknown> {
+  const base = { ...(obj(settingsJson) ?? {}) };
+  const pricing = { ...(obj(base.pricing) ?? {}) };
+  const cordless = { ...(obj(pricing.cordless) ?? {}) };
+  const floors = { ...(obj(cordless.floors) ?? {}) };
+  if (patch.cordlessDiscount !== undefined) cordless.discount = patch.cordlessDiscount;
+  if (patch.cordlessFloorZebra !== undefined) floors.Zebra = patch.cordlessFloorZebra;
+  if (patch.cordlessFloorRoller !== undefined) floors.Roller = patch.cordlessFloorRoller;
+  cordless.floors = floors;
+  pricing.cordless = cordless;
+  base.pricing = pricing;
+  return base;
+}
+
+/** DTO（或任何带三项无绳设置的对象）→ 引擎用的无绳策略 */
+export function dtoToCordlessPolicy(dto: CordlessSettings): CordlessPolicy {
+  return {
+    discount: dto.cordlessDiscount,
+    floors: { Zebra: dto.cordlessFloorZebra, Roller: dto.cordlessFloorRoller },
+    multiplier: DEFAULT_CORDLESS_POLICY.multiplier,
+  };
+}
+
 /**
  * 服务端计价前把企业折扣套到没有行级覆盖的行上（design D1：定价、预览与报价创建同一来源）。
  * 行上已有有限数的 discountOverridePct（销售手动改过）时保持不变；手填价产品（Roman）不受影响（引擎忽略）。
  */
-export function applyOrgDiscountDefaults<T extends { product: ProductName; discountOverridePct?: number | null }>(
+export function applyOrgDiscountDefaults<
+  T extends { product: ProductName; discountOverridePct?: number | null; cordless?: boolean },
+>(
   items: T[],
   discounts: DiscountsByProduct,
 ): T[] {
   return items.map((item) => {
     if (typeof item.discountOverridePct === "number" && Number.isFinite(item.discountOverridePct)) return item;
+    // PRICE-2：Zebra / Roller 无绳行不套产品折扣——无绳折扣由引擎按企业无绳策略套用（design D3）
+    if (item.cordless === true && (item.product === "Zebra" || item.product === "Roller")) return item;
     const d = discounts[item.product];
     if (typeof d !== "number" || !Number.isFinite(d)) return item;
     return { ...item, discountOverridePct: d };
@@ -129,6 +193,10 @@ export interface DiscountsDto {
   /** 2026-10-28 价表新产品折扣（企业设置 JSON 存储；缺省 0.30 / 0.35） */
   fauxwood: number;
   allusion: number;
+  /** 2026-10-28 价表无绳设置（企业设置 JSON pricing.cordless；缺省 0.30 / 159 / 129） */
+  cordlessDiscount: number;
+  cordlessFloorZebra: number;
+  cordlessFloorRoller: number;
   sunnyMotorPrice: number;
   /** 最低安装费（CAD）：installation 模式下行内安装费不足时补足到此金额 */
   minInstallFee: number;
@@ -176,6 +244,8 @@ export const DTO_NUMERIC_KEYS = [
   ...DEPOSIT_KEYS,
   ...PRICE_KEYS,
   ...COMMISSION_KEYS,
+  ...CORDLESS_RATE_KEYS,
+  ...CORDLESS_FLOOR_KEYS,
 ] as const;
 
 const COST_RATE_FIELDS = new Set(PRODUCT_KEYS as readonly string[]);
@@ -287,6 +357,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
   const json = readJsonDiscounts(settingsJson);
   const fauxwood = json.fauxwood ?? DEFAULT_DISCOUNTS.Fauxwood;
   const allusion = json.allusion ?? DEFAULT_DISCOUNTS.Allusion;
+  const cordless = readJsonCordless(settingsJson);
   if (!row) {
     return {
       orgId,
@@ -304,6 +375,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       romanShade: DEFAULT_DISCOUNTS["Roman Shade"],
       fauxwood,
       allusion,
+      ...cordless,
       sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
       minInstallFee: INSTALL_RULES.minimumTotal,
       deliveryFee: DEFAULT_DELIVERY_FEE,
@@ -338,6 +410,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     romanShade: row.romanShade,
     fauxwood,
     allusion,
+    ...cordless,
     sunnyMotorPrice: row.sunnyMotorPrice,
     minInstallFee: row.minInstallFee,
     deliveryFee: row.deliveryFee,
@@ -393,11 +466,15 @@ export async function saveDiscountsForOrg(params: {
   } = params.patch;
 
   // 2026-10-28：fauxwood / allusion 不是列，拆出来写企业设置 JSON 的 pricing.discounts 子键
+  // PRICE-2：cordlessDiscount / cordlessFloorZebra / cordlessFloorRoller 写 pricing.cordless 子键
   const jsonPatch: Partial<Record<JsonDiscountKey, number>> = {};
+  const cordlessPatch: Partial<CordlessSettings> = {};
   const numericPatch: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(numericPatchAll)) {
     if (JSON_DISCOUNT_KEY_SET.has(k)) {
       if (typeof v === "number") jsonPatch[k as JsonDiscountKey] = v;
+    } else if (CORDLESS_SETTING_KEY_SET.has(k)) {
+      if (typeof v === "number") cordlessPatch[k as CordlessSettingKey] = v;
     } else {
       numericPatch[k] = v;
     }
@@ -453,10 +530,12 @@ export async function saveDiscountsForOrg(params: {
         updatedBy: params.userId,
       },
     });
-    if (Object.keys(jsonPatch).length > 0) {
-      // 只替换 pricing.discounts 子键；sunnyWarranty / tenderRfq / calendarWatch 等其它键原样保留
+    if (Object.keys(jsonPatch).length > 0 || Object.keys(cordlessPatch).length > 0) {
+      // 只替换 pricing.discounts / pricing.cordless 子键；sunnyWarranty / tenderRfq / calendarWatch 等其它键原样保留
       const org = await tx.organization.findUnique({ where: { id: params.orgId }, select: { settingsJson: true } });
-      const merged = mergeJsonDiscounts(org?.settingsJson ?? null, jsonPatch);
+      let merged: Record<string, unknown> = (org?.settingsJson ?? {}) as Record<string, unknown>;
+      if (Object.keys(jsonPatch).length > 0) merged = mergeJsonDiscounts(merged, jsonPatch);
+      if (Object.keys(cordlessPatch).length > 0) merged = mergeJsonCordless(merged, cordlessPatch);
       await tx.organization.update({
         where: { id: params.orgId },
         data: { settingsJson: merged as Prisma.InputJsonValue },
@@ -464,7 +543,9 @@ export async function saveDiscountsForOrg(params: {
     }
     return row;
   });
-  const jsonAfter = readJsonDiscounts(await loadSettingsJson(params.orgId));
+  const settingsAfter = await loadSettingsJson(params.orgId);
+  const jsonAfter = readJsonDiscounts(settingsAfter);
+  const cordlessAfter = readJsonCordless(settingsAfter);
 
   await publishOrgRule({
     orgId: params.orgId,
@@ -483,6 +564,7 @@ export async function saveDiscountsForOrg(params: {
       romanShade: updated.romanShade,
       fauxwood: jsonAfter.fauxwood ?? DEFAULT_DISCOUNTS.Fauxwood,
       allusion: jsonAfter.allusion ?? DEFAULT_DISCOUNTS.Allusion,
+      ...cordlessAfter,
       sunnyMotorPrice: updated.sunnyMotorPrice,
       minInstallFee: updated.minInstallFee,
       deliveryFee: updated.deliveryFee,
@@ -513,7 +595,7 @@ export function validateDiscountsInput(
     }
   | { ok: false; error: string } {
   const out: Record<string, number> = {};
-  for (const k of [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS, ...COMMISSION_KEYS]) {
+  for (const k of [...PRODUCT_KEYS, ...THRESHOLD_KEYS, ...DEPOSIT_KEYS, ...COMMISSION_KEYS, ...CORDLESS_RATE_KEYS]) {
     if (input[k] === undefined) continue;
     const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 1) {
@@ -524,7 +606,7 @@ export function validateDiscountsInput(
     }
     out[k] = Math.round(n * 10000) / 10000;
   }
-  for (const k of PRICE_KEYS) {
+  for (const k of [...PRICE_KEYS, ...CORDLESS_FLOOR_KEYS]) {
     if (input[k] === undefined) continue;
     const n = Number(input[k]);
     if (!Number.isFinite(n) || n < 0 || n > 10000) {

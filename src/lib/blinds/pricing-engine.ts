@@ -12,6 +12,7 @@ import type {
   QuoteTotalInput,
   QuoteTotalResult,
   InstallMode,
+  CordlessPolicy,
 } from './pricing-types';
 import { isManualPriceShadeProduct } from './pricing-types';
 
@@ -23,9 +24,10 @@ import {
   DEFAULT_DELIVERY_FEE,
   DEFAULT_TAX_RATE,
   DEFAULT_SUNNY_MOTOR_PRICE,
-  DEFAULT_CORDLESS_MULTIPLIER,
-  CORDLESS_MAX_WIDTH,
-  CORDLESS_MAX_HEIGHT,
+  DEFAULT_CORDLESS_POLICY,
+  DEFAULT_FULLNESS,
+  FULLNESS_MIN,
+  FULLNESS_MAX,
   MSRP_ROLLER,
   ROLLER_FABRICS,
   DOOR_SCREEN_SHEER_RULES,
@@ -89,27 +91,41 @@ export function priceFor(
   h: number,
   discountOverridePct: number | null = null,
   cordlessRequested = false,
-  cordlessMultiplier = DEFAULT_CORDLESS_MULTIPLIER,
+  cordlessPolicy: CordlessPolicy = DEFAULT_CORDLESS_POLICY,
+  fullnessInput: number | null = null,
 ): PriceResult | PriceError {
+  // 2026-10-28 价表：无绳只对 Zebra / Roller；不再有独立尺寸上限（只受矩阵范围约束）
   const cordless = cordlessRequested && isCordlessEligible(product);
-
-  if (cordless && (w > CORDLESS_MAX_WIDTH || h > CORDLESS_MAX_HEIGHT)) {
-    return { error: `Cordless is only available for width and height up to ${CORDLESS_MAX_WIDTH}".` };
-  }
 
   const brackets = BRACKETS[product];
   if (!brackets) return { error: `Unknown product: ${product}` };
 
-  const wIdx = ceilIndex(w, brackets.widths);
+  // 2026-10-28 价表：布帘 / 纱帘（Door Screen Sheer 除外）查表宽 = 实际窗宽 × 褶皱率 ÷ 2
+  const fullnessApplied = usesFullness(product, fabric);
+  const fullness = fullnessApplied ? (fullnessInput ?? DEFAULT_FULLNESS) : 1;
+  if (fullnessApplied && !isValidFullness(fullness)) {
+    return { error: `Fullness must be between ${FULLNESS_MIN} and ${FULLNESS_MAX}.` };
+  }
+  const lookupW = fullnessApplied ? (w * fullness) / 2 : w;
+
+  const wIdx = ceilIndex(lookupW, brackets.widths);
   const hIdx = ceilIndex(h, brackets.heights);
   if (wIdx < 0 || hIdx < 0) {
-    const maxW = Math.max(...brackets.widths);
     const maxH = Math.max(...brackets.heights);
-    return { error: `Out of range (Max W ${maxW}", Max H ${maxH}")` };
+    const maxTableW = Math.max(...brackets.widths);
+    if (fullnessApplied) {
+      const maxW = Math.round(((maxTableW * 2) / fullness) * 100) / 100;
+      return { error: `Out of range at fullness ${fullness}x (Max W ${maxW}", Max H ${maxH}")` };
+    }
+    return { error: `Out of range (Max W ${maxTableW}", Max H ${maxH}")` };
   }
 
   const bracketWidth = brackets.widths[wIdx];
   const bracketHeight = brackets.heights[hIdx];
+  const override =
+    typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)
+      ? discountOverridePct
+      : null;
 
   // ── Door Screen Sheer (special flat pricing) ──
   if (product === 'Sheer' && fabric === 'Door Screen Sheer') {
@@ -120,24 +136,11 @@ export function priceFor(
     if (!tier) {
       return { error: 'Door Screen Sheer width over 40" is not configured yet.' };
     }
-    let msrpVal = tier.msrp;
-    const disc =
-      typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)
-        ? discountOverridePct
-        : 0;
-    let priceVal = msrpVal * (1 - disc);
-    const floor = PRICE_FLOOR[product] || 0;
-    if (priceVal < floor) priceVal = floor;
-
-    if (cordless) {
-      msrpVal *= cordlessMultiplier;
-      priceVal *= cordlessMultiplier;
-    }
+    const disc = override ?? 0;
+    const settled = settlePrice(tier.msrp, tier.msrp * (1 - disc), product, cordless, cordlessPolicy);
     return {
-      msrp: msrpVal,
+      ...settled,
       discountPct: disc,
-      discountValue: Math.max(0, msrpVal - priceVal),
-      price: priceVal,
       install: INSTALL_RULES.draperySheerNarrow,
       cordless,
       bracketWidth,
@@ -158,54 +161,31 @@ export function priceFor(
     if (!msrpTable) return { error: 'MSRP table not found for Roller.' };
 
     const baseMsrp = msrpTable[hIdx][wIdx];
-    const disc =
-      typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)
-        ? discountOverridePct
-        : DEFAULT_DISCOUNTS.Roller;
+    const disc = override ?? (cordless ? cordlessPolicy.discount : DEFAULT_DISCOUNTS.Roller);
 
+    // 罩盖加价在折扣之后、无绳倍率与最低价之前（与原工具 price() 一致）
     const cassetteBump = fCfg.cassette ? (w >= 50 ? 50 : 25) : 0;
-    const basePrice = baseMsrp * (1 - disc);
-    let price = basePrice + cassetteBump;
-    let msrp = baseMsrp + cassetteBump;
-
-    const floor = PRICE_FLOOR.Roller || 0;
-    if (price < floor) price = floor;
-
-    if (cordless) {
-      msrp *= cordlessMultiplier;
-      price *= cordlessMultiplier;
-    }
-
+    const settled = settlePrice(
+      baseMsrp + cassetteBump,
+      baseMsrp * (1 - disc) + cassetteBump,
+      product,
+      cordless,
+      cordlessPolicy,
+    );
     const install = w > INSTALL_RULES.wideThresholdIn ? INSTALL_RULES.wide : INSTALL_RULES.regular;
 
-    return {
-      msrp,
-      discountPct: disc,
-      discountValue: Math.max(0, msrp - price),
-      price,
-      install,
-      cordless,
-      bracketWidth,
-      bracketHeight,
-    };
+    return { ...settled, discountPct: disc, install, cordless, bracketWidth, bracketHeight };
   }
 
-  // ── Standard products (Zebra, SHANGRILA, Cellular, Honeycomb, Drapery, Sheer, Shutters) ──
+  // ── Standard products (Zebra, SHANGRILA, Cellular, Honeycomb, Drapery, Sheer, Shutters, Allusion, Fauxwood) ──
   const msrpTable = getMsrpTable(product, fabric);
   if (!msrpTable) return { error: `Pricing for fabric "${fabric}" under "${product}" is not set yet.` };
 
-  const disc =
-    typeof discountOverridePct === 'number' && Number.isFinite(discountOverridePct)
-      ? discountOverridePct
-      : DEFAULT_DISCOUNTS[product] ?? 0;
+  const disc = override ?? (cordless ? cordlessPolicy.discount : DEFAULT_DISCOUNTS[product] ?? 0);
+  const baseMsrp = msrpTable[hIdx][wIdx];
+  const settled = settlePrice(baseMsrp, baseMsrp * (1 - disc), product, cordless, cordlessPolicy);
 
-  let msrp = msrpTable[hIdx][wIdx];
-  let price = msrp * (1 - disc);
-
-  const floor = PRICE_FLOOR[product] || 0;
-  if (price < floor) price = floor;
-
-  // Installation
+  // Installation（按实际窗宽，不按褶皱率查表宽）
   let install: number;
   if (product === 'Drapery' || product === 'Sheer') {
     install = w > INSTALL_RULES.wideThresholdIn
@@ -218,22 +198,49 @@ export function priceFor(
     install = w > INSTALL_RULES.wideThresholdIn ? INSTALL_RULES.wide : INSTALL_RULES.regular;
   }
 
-  if (cordless) {
-    msrp *= cordlessMultiplier;
-    price *= cordlessMultiplier;
-  }
-
-  return {
-    msrp,
-    discountPct: disc,
-    discountValue: Math.max(0, msrp - price),
-    price,
-    install,
-    cordless,
-    bracketWidth,
-    bracketHeight,
-  };
+  return { ...settled, discountPct: disc, install, cordless, bracketWidth, bracketHeight };
 }
+
+/**
+ * 收尾（与原工具 price() 同序）：无绳时 MSRP 与折后价同乘倍率，然后与最低价比较——
+ * 无绳用无绳最低价（Zebra 159 / Roller 129），否则用产品最低价。
+ */
+function settlePrice(
+  msrpIn: number,
+  priceIn: number,
+  product: ProductName,
+  cordless: boolean,
+  policy: CordlessPolicy,
+): { msrp: number; price: number; discountValue: number } {
+  let msrp = msrpIn;
+  let price = priceIn;
+  if (cordless) {
+    msrp *= policy.multiplier;
+    price *= policy.multiplier;
+  }
+  const floor = cordless
+    ? (product === 'Zebra' ? policy.floors.Zebra : product === 'Roller' ? policy.floors.Roller : 0)
+    : PRICE_FLOOR[product] || 0;
+  if (price < floor) price = floor;
+  return { msrp, price, discountValue: Math.max(0, msrp - price) };
+}
+
+/** 褶皱率是否适用：Drapery / Sheer，Door Screen Sheer 除外 */
+export function usesFullness(product: ProductName, fabric: string): boolean {
+  return (product === 'Drapery' || product === 'Sheer') && fabric !== 'Door Screen Sheer';
+}
+
+export function isValidFullness(f: unknown): f is number {
+  return typeof f === 'number' && Number.isFinite(f) && f >= FULLNESS_MIN && f <= FULLNESS_MAX;
+}
+
+/** Order Form / Part A 的 Fullness（"180" / "230" 百分比字符串）→ 褶皱率（1.8 / 2.3）；无法解析 → null（引擎按默认 2） */
+export function fullnessFromPercent(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : Number.parseFloat(String(raw ?? ''));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n) / 100;
+}
+
 
 // ─── Manual selling price override (2026-10-28 价表：Allusion) ─────
 
@@ -265,6 +272,7 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   // 入参为运费费率（企业设置/请求覆盖）；是否收取由 installMode 与有效行数决定
   const deliveryRate = input.deliveryFee ?? DEFAULT_DELIVERY_FEE;
   const taxRate = input.taxRate ?? DEFAULT_TAX_RATE;
+  const cordlessPolicy = input.cordlessPolicy ?? DEFAULT_CORDLESS_POLICY;
   const sunnyMotorPrice =
     typeof input.sunnyMotorPrice === 'number' &&
     Number.isFinite(input.sunnyMotorPrice) &&
@@ -319,6 +327,8 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
       item.heightIn,
       item.discountOverridePct ?? null,
       item.cordless ?? false,
+      cordlessPolicy,
+      typeof item.fullness === 'number' ? item.fullness : null,
     );
 
     if ('error' in result) {

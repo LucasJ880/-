@@ -1,12 +1,19 @@
 import type { ShadeOrderLine, ShutterOrderLine, DrapeOrderLine, InstallMode } from "./types";
 import { fractionToInches } from "./types";
-import { priceFor, allowsManualSellingPrice, applyManualSellingPrice } from "@/lib/blinds/pricing-engine";
+import {
+  priceFor,
+  allowsManualSellingPrice,
+  applyManualSellingPrice,
+  isCordlessEligible,
+  fullnessFromPercent,
+} from "@/lib/blinds/pricing-engine";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
+  DEFAULT_CORDLESS_POLICY,
   INSTALL_RULES,
 } from "@/lib/blinds/pricing-data";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
-import type { ProductName } from "@/lib/blinds/pricing-types";
+import type { ProductName, CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
 /**
@@ -55,6 +62,7 @@ export function sumAllMsrp(
     "pickup",
     ZERO_DISCOUNTS,
     sunnyMotorPrice,
+    ZERO_CORDLESS_POLICY,
   ).merch;
   const shutters = sumShutterTotals(shutterOrders, shutterMaterial, "pickup", ZERO_DISCOUNTS).merch;
   const drapes = sumDrapeTotals(drapeOrders, "pickup", ZERO_DISCOUNTS).merch;
@@ -84,12 +92,16 @@ export function emptyTotals(): SectionTotals {
   return { merch: 0, install: 0, total: 0 };
 }
 
+/** MSRP 求和用：无绳行折扣 0（仍 ×1.15、仍按无绳最低价兜底，与原工具 MSRP 口径一致） */
+const ZERO_CORDLESS_POLICY: CordlessPolicy = { ...DEFAULT_CORDLESS_POLICY, discount: 0 };
+
 // ── Shades ──
 export function computeShadeLinePrice(
   line: ShadeOrderLine,
   installMode: InstallMode,
   discounts?: DiscountsOverride,
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
+  cordlessPolicy: CordlessPolicy = DEFAULT_CORDLESS_POLICY,
 ): LinePrice | null {
   const motorSurcharge = line.lift === "M" ? Math.max(0, sunnyMotorPrice) : 0;
   // Roman：销售手填单价，跳过 MSRP 表（Allusion 2026-10-28 起查表，见下方覆盖）
@@ -117,7 +129,17 @@ export function computeShadeLinePrice(
   if (!w || !h) return null;
 
   const fabric = skuToPricingFabric(line.sku, line.product);
-  const table = priceFor(line.product, fabric, w, h, pick(discounts, line.product));
+  // PRICE-2：无绳只看 Cordless 开关（Zebra / Roller）；无绳行不套产品折扣，按企业无绳策略（与服务端同源）
+  const cordless = line.cordless === true && isCordlessEligible(line.product);
+  const table = priceFor(
+    line.product,
+    fabric,
+    w,
+    h,
+    cordless ? null : pick(discounts, line.product),
+    cordless,
+    cordlessPolicy,
+  );
   if ("error" in table) {
     return { merch: 0, install: 0, total: 0, error: table.error };
   }
@@ -135,6 +157,7 @@ export function sumShadeTotals(
   installMode: InstallMode,
   discounts?: DiscountsOverride,
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
+  cordlessPolicy: CordlessPolicy = DEFAULT_CORDLESS_POLICY,
 ): SectionTotals {
   const totals = emptyTotals();
   for (const line of lines) {
@@ -143,6 +166,7 @@ export function sumShadeTotals(
       installMode,
       discounts,
       sunnyMotorPrice,
+      cordlessPolicy,
     );
     if (!p || p.error) continue;
     totals.merch += p.merch;
@@ -237,7 +261,8 @@ export function computeDrapeLinePrice(
     const w = fractionToInches(line.drapeWidthWhole, line.drapeWidthFrac);
     const h = fractionToInches(line.drapeHeightWhole, line.drapeHeightFrac);
     if (w && h) {
-      const r = priceFor("Drapery", draperyFabric, w, h, pick(discounts, "Drapery"));
+      // PRICE-2：Fullness 180 / 230 → 褶皱率 1.8 / 2.3（与工艺单同一字段）
+      const r = priceFor("Drapery", draperyFabric, w, h, pick(discounts, "Drapery"), false, undefined, fullnessFromPercent(line.drapeFullness));
       if ("error" in r) {
         error = `Drape: ${r.error}`;
       } else {
@@ -252,7 +277,7 @@ export function computeDrapeLinePrice(
     const w = fractionToInches(line.sheerWidthWhole, line.sheerWidthFrac);
     const h = fractionToInches(line.sheerHeightWhole, line.sheerHeightFrac);
     if (w && h) {
-      const r = priceFor("Sheer", line.sheerFabricSku, w, h, pick(discounts, "Sheer"));
+      const r = priceFor("Sheer", line.sheerFabricSku, w, h, pick(discounts, "Sheer"), false, undefined, fullnessFromPercent(line.sheerFullness));
       if ("error" in r) {
         error = error ? `${error}; Sheer: ${r.error}` : `Sheer: ${r.error}`;
       } else {

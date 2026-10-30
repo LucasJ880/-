@@ -46,8 +46,8 @@ async function main() {
   const quotesRoute = await import("@/app/api/sales/quotes/route");
   const { executePendingAction } = await import("@/lib/pending-actions/executor");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
-  const { loadDiscounts } = await import("@/lib/blinds/discount-settings");
-  const { priceFor } = await import("@/lib/blinds/pricing-engine");
+  const { loadDiscounts, loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } = await import("@/lib/blinds/discount-settings");
+  const { priceFor, calculateQuoteTotal } = await import("@/lib/blinds/pricing-engine");
 
   const stamp = Date.now().toString(36);
   const BOSS_A = `plbossa_${stamp}`;
@@ -81,13 +81,13 @@ async function main() {
   await db.salesCustomer.create({ data: { id: CUST, orgId: ORG, name: "Example Homeowner", createdById: REP } });
 
   const cookie = async (id: string) => `qy_session=${await createSession({ sub: id, email: `${id}@fixture.test`, role: id === SA ? "super_admin" : "user" })}`;
-  const call = async (handler: unknown, uid: string, method: string, url: string, body?: Record<string, unknown>) => {
+  const call = async (handler: unknown, uid: string, method: string, url: string, body?: Record<string, unknown>, params: Record<string, string> = {}) => {
     const r = new NextRequest(`http://localhost${url}`, {
       method,
       headers: { "content-type": "application/json", cookie: await cookie(uid), "x-forwarded-for": "10.31.0.4", "x-org-id": ORG },
       ...(body ? { body: JSON.stringify({ orgId: ORG, ...body }) } : {}),
     });
-    const res = await (handler as (r: unknown, c: unknown) => Promise<Response>)(r, { params: Promise.resolve({}) });
+    const res = await (handler as (r: unknown, c: unknown) => Promise<Response>)(r, { params: Promise.resolve(params) });
     return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown> };
   };
   const settingsJson = async () => (await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } }))?.settingsJson as Record<string, unknown> | null;
@@ -162,6 +162,57 @@ async function main() {
     const fauxwoodRow = saved?.items.find((i) => i.product === "Fauxwood");
     ok(!!allusionRow && allusionRow.discountPct === 0.4 && !("error" in expected) && Math.abs(allusionRow.price - expected.price) < 1e-6, "落库 Allusion 行按 40%", allusionRow);
     ok(!!fauxwoodRow && fauxwoodRow.discountPct === 0.25 && Math.abs(fauxwoodRow.msrp - 410.06) < 0.01 && fauxwoodRow.bracketWidth === 42 && fauxwoodRow.bracketHeight === 48, "落库 Fauxwood 36.5x48：MSRP 410.06、取档 42x48、企业折扣 25%", fauxwoodRow);
+
+    console.log("\n[6] PRICE-2：老板改无绳设置 → 202 → 另一位老板批准 → 只动 pricing.cordless");
+    const c1 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { cordlessDiscount: 0.25, cordlessFloorZebra: 169 });
+    ok(c1.status === 202 && String(c1.body.summary).includes("cordlessDiscount=0.25") && String(c1.body.summary).includes("cordlessFloorZebra=169"), "202 + 审批摘要含无绳两项", c1.body);
+    const sjC0 = await settingsJson();
+    ok(!(sjC0?.pricing as Record<string, unknown> | undefined)?.cordless, "提交后 pricing.cordless 仍不存在", sjC0);
+    const ec1 = await approve(String(c1.body.approvalId), BOSS_B);
+    ok(ec1.ok === true, "批准执行成功", ec1);
+    const sjC1 = await settingsJson();
+    const pricingC1 = sjC1?.pricing as Record<string, unknown>;
+    const cordlessC1 = pricingC1?.cordless as { discount?: number; floors?: Record<string, number> } | undefined;
+    ok(cordlessC1?.discount === 0.25 && cordlessC1?.floors?.Zebra === 169 && cordlessC1?.floors?.Roller === undefined, "pricing.cordless = {discount 0.25, floors.Zebra 169}", sjC1);
+    ok((pricingC1?.discounts as Record<string, number>)?.fauxwood === 0.25 && pricingC1?.leadMaxPct === 0.4 && (sjC1?.sunnyWarranty as Record<string, unknown>)?.fixture === true, "pricing.discounts / leadMaxPct / sunnyWarranty 原样", sjC1);
+    const gC = await call(settingsRoute.GET, BOSS_A, "GET", `/api/sales/quote-settings/discounts?orgId=${ORG}`);
+    ok(gC.body.cordlessDiscount === 0.25 && gC.body.cordlessFloorZebra === 169 && gC.body.cordlessFloorRoller === 129, "GET 返回无绳三项（Roller 回默认 129）", gC.body);
+    const bad1 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { cordlessFloorRoller: -1 });
+    const bad2 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { cordlessDiscount: 1.2 });
+    ok(bad1.status === 400 && bad2.status === 400, "无绳非法值 → 400", { bad1: bad1.body, bad2: bad2.body });
+
+    console.log("\n[7] PRICE-2：预览无绳行按企业无绳策略；有绳行按企业产品折扣；量房生成布帘按褶皱率 2");
+    const pvC = await call(previewRoute.POST, BOSS_A, "POST", `/api/sales/quotes/preview?orgId=${ORG}`, {
+      items: [
+        { product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60, cordless: true },
+        { product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60 },
+        { product: "Drapery", fabric: "Without liner", widthIn: 100, heightIn: 120, fullness: 1.8 },
+      ],
+      installMode: "pickup", taxRate: 0,
+    });
+    const rows = (pvC.body.itemResults as Array<Record<string, number | boolean>> | undefined) ?? [];
+    const baseC = priceFor("Zebra", "Light Filtering", 48, 60, 0, false);
+    const msrp48 = "error" in baseC ? NaN : baseC.msrp;
+    const expectCordless = Math.max(msrp48 * 0.75 * 1.15, 169);
+    ok(rows[0]?.cordless === true && rows[0]?.discountPct === 0.25 && Math.abs((rows[0]?.price as number) - expectCordless) < 1e-6, `无绳行折扣 0.25、成交 max(MSRP×0.75×1.15, 169) = ${expectCordless.toFixed(2)}`, rows[0]);
+    ok(rows[1]?.cordless === false && rows[1]?.discountPct === 0.45, "有绳行仍按 Zebra 企业产品折扣 0.45", rows[1]);
+    const drape18 = priceFor("Drapery", "Without liner", 100, 120, null, false, undefined, 1.8);
+    ok(!("error" in drape18) && Math.abs((rows[2]?.price as number) - drape18.price) < 1e-6 && Math.abs(drape18.price - 831.41) < 0.01, "预览布帘 100x120 褶皱率 1.8 → 831.41", { row: rows[2] });
+
+    // 量房生成报价：路由在写库前的计价步骤（量房窗位不带褶皱率 → 按 2）。
+    // 路由本身在 origin/main 上写库即 500（嵌套 rooms.items 用 quoteId: undefined，Prisma 报 "Argument quote is missing"），
+    // 与定价无关，PRICE-2 报告 §5 记为既有问题，不在本 change 修。
+    const genSettings = await loadDiscountsDto(ORG);
+    const genCalc = calculateQuoteTotal({
+      items: applyOrgDiscountDefaults(
+        [{ product: "Drapery" as const, fabric: "Without liner", widthIn: 100, heightIn: 120, cordless: false, location: "Living" }],
+        dtoToProductDiscounts(genSettings),
+      ),
+      installMode: "pickup",
+      cordlessPolicy: dtoToCordlessPolicy(genSettings),
+    });
+    const drape2 = priceFor("Drapery", "Without liner", 100, 120, 0.35, false, undefined, 2);
+    ok(genCalc.itemResults.length === 1 && genCalc.itemResults[0].bracketWidth === 100 && !("error" in drape2) && Math.abs(genCalc.itemResults[0].price - drape2.price) < 1e-6, "量房计价：布帘 100x120 不带褶皱率 → 按 2，取档 100", genCalc.itemResults[0]);
   } finally {
     await db.pendingAction.deleteMany({ where: { orgId: ORG } });
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: ORG }] } });

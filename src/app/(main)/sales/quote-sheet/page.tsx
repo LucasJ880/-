@@ -33,14 +33,15 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 import { useVisualViewport } from "@/lib/mobile/use-visual-viewport";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
-import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
+import type { QuoteItemInput, CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
-import { allowsManualSellingPrice } from "@/lib/blinds/pricing-engine";
+import { allowsManualSellingPrice, fullnessFromPercent } from "@/lib/blinds/pricing-engine";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
   DEFAULT_MIN_INSTALL_FEE,
   DEFAULT_DELIVERY_FEE,
+  DEFAULT_CORDLESS_POLICY,
 } from "@/lib/blinds/pricing-data";
 
 import type {
@@ -360,6 +361,8 @@ function QuoteSheetPageInner() {
 
   // 拉取全局折扣率 & Special Promotion 阈值（Order Form / AI 工具 共用数据源）
   const [discounts, setDiscounts] = useState<DiscountsOverride | undefined>(undefined);
+  // PRICE-2：企业无绳策略（折扣 / 最低价），与服务端同源
+  const [cordlessPolicy, setCordlessPolicy] = useState<CordlessPolicy>(DEFAULT_CORDLESS_POLICY);
   const [sunnyMotorPrice, setSunnyMotorPrice] = useState(
     DEFAULT_SUNNY_MOTOR_PRICE,
   );
@@ -383,6 +386,7 @@ function QuoteSheetPageInner() {
           drapery: number; sheer: number; shutters: number; honeycomb: number;
           romanShade?: number;
           fauxwood?: number; allusion?: number;
+          cordlessDiscount?: number; cordlessFloorZebra?: number; cordlessFloorRoller?: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -402,6 +406,14 @@ function QuoteSheetPageInner() {
           // 2026-10-28 价表（企业设置 JSON 存储；缺省与 DEFAULT_DISCOUNTS 同）
           Fauxwood: typeof d.fauxwood === "number" ? d.fauxwood : 0.3,
           Allusion: typeof d.allusion === "number" ? d.allusion : 0.35,
+        });
+        setCordlessPolicy({
+          discount: typeof d.cordlessDiscount === "number" ? d.cordlessDiscount : DEFAULT_CORDLESS_POLICY.discount,
+          floors: {
+            Zebra: typeof d.cordlessFloorZebra === "number" ? d.cordlessFloorZebra : DEFAULT_CORDLESS_POLICY.floors.Zebra,
+            Roller: typeof d.cordlessFloorRoller === "number" ? d.cordlessFloorRoller : DEFAULT_CORDLESS_POLICY.floors.Roller,
+          },
+          multiplier: DEFAULT_CORDLESS_POLICY.multiplier,
         });
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
@@ -513,8 +525,9 @@ function QuoteSheetPageInner() {
         installMode,
         discounts,
         sunnyMotorPrice,
+        cordlessPolicy,
       ),
-    [shadeOrders, installMode, discounts, sunnyMotorPrice]
+    [shadeOrders, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );
   const shutterTotals = useMemo(
     () => sumShutterTotals(shutterOrders, shutterMaterial, installMode, discounts),
@@ -887,7 +900,8 @@ function QuoteSheetPageInner() {
           fabric: pricingFabric,
           widthIn: w,
           heightIn: h,
-          cordless: l.lift === "L" || l.lift === "R",
+          // PRICE-2（Q4 = A）：无绳只来自 Cordless 开关；Lift L/R 只表示拉杆位置
+          cordless: l.cordless === true,
           motorized: l.lift === "M",
           location: l.location,
           sku: l.sku,
@@ -927,6 +941,7 @@ function QuoteSheetPageInner() {
               heightIn: h,
               location: l.location,
               sku: l.drapeFabricSku,
+              ...(fullnessFromPercent(l.drapeFullness) != null ? { fullness: fullnessFromPercent(l.drapeFullness)! } : {}),
             });
           }
         }
@@ -941,6 +956,7 @@ function QuoteSheetPageInner() {
               heightIn: h,
               location: l.location,
               sku: l.sheerFabricSku,
+              ...(fullnessFromPercent(l.sheerFullness) != null ? { fullness: fullnessFromPercent(l.sheerFullness)! } : {}),
             });
           }
         }
@@ -1207,6 +1223,7 @@ function QuoteSheetPageInner() {
       logoDataUrl,
       discounts,
       sunnyMotorPrice,
+      cordlessPolicy,
       minInstallFee,
       deliveryFee,
       specialPromotion: specialPromotionNum,
@@ -1220,7 +1237,7 @@ function QuoteSheetPageInner() {
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
     shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
-    discounts, sunnyMotorPrice, minInstallFee, deliveryFee,
+    discounts, sunnyMotorPrice, cordlessPolicy, minInstallFee, deliveryFee,
     specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,
   ]);
 
@@ -1993,7 +2010,8 @@ function QuoteSheetPageInner() {
             bracketType={shadeBracketType} onBracketTypeChange={setShadeBracketType}
             installMode={installMode}
             discounts={discounts}
-            sunnyMotorPrice={sunnyMotorPrice} />
+            sunnyMotorPrice={sunnyMotorPrice}
+            cordlessPolicy={cordlessPolicy} />
         )}
         {activeTab === "shutters" && (
           <OrderShuttersForm lines={shutterOrders} onChange={setShutterOrders}
