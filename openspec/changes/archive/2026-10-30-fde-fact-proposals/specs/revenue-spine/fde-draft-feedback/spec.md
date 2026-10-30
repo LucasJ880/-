@@ -14,20 +14,7 @@
 - 过期 → `expired`；
 - 因人工已回复而被系统作废（`SUPERSEDED_BY_MANUAL_REPLY`）→ `replaced_by_manual_reply`。diff 为草稿快照 vs 那次人工外发的正文，两边都替换买家信息；找不到外发正文时 diff 为空并注明。
 
-以下情况 SHALL NOT 产生事件：
-- 人工取消；
-- 其它系统作废：新来信、入驻测试、报价变化；
-- 批量准备失败；
-- 关联任务取消导致的驳回；
-- 入驻测试询盘（与询盘 SLA 指标同一判定）的草稿，任何终态。
-
-事件的 `humanDecision` SHALL 依次为 accepted / edited / rejected / deferred / edited。
-
-事件的 userId SHALL 依次取以下第一个存在的：
-- 决策人；
-- 人工回复作废时，发出人工回复的人；
-- 过期等没有决策人时，取审批人；
-- 仍没有则取创建人。
+其余终态 SHALL NOT 产生事件（见「不产生反馈事件的终态」）；事件的决策类型与归属用户见「反馈事件的决策类型与归属用户」。
 
 #### Scenario: 照发批准
 - **WHEN** 审批被批准并执行，正文与快照一致
@@ -41,7 +28,7 @@
 - **WHEN** 审批因 u-sales 在外贸收件箱人工回复买家而被作废，人工回复比草稿多一句 "MOQ is 500 pcs per color."
 - **THEN** 产生一条 `replaced_by_manual_reply` 事件，`humanDecision = edited`，用户为 u-sales，diff 的改动段落含"事实段"、捕获数值 500 pcs
 
-#### Scenario: 其它系统作废不产事件
+#### Scenario: 系统作废不产事件
 - **WHEN** 审批以 `SUPERSEDED_BY_NEWER_INBOUND` 作废
 - **THEN** 不产生反馈事件
 
@@ -92,3 +79,30 @@
   - 外贸外发同步在作废之后调用记录器；
   - `approval-timeout` 路由调用补漏扫描；
   - 补漏条件包含人工已回复的作废。
+
+## ADDED Requirements
+
+### Requirement: 不产生反馈事件的终态
+以下终态 SHALL NOT 产生反馈事件：
+- 人工取消；
+- 人工已回复以外的系统作废：新来信、入驻测试、报价变化；
+- 批量准备失败；
+- 关联任务取消导致的驳回；
+- 入驻测试询盘（与询盘 SLA 指标同一判定）的草稿，任何终态。
+
+#### Scenario: 批量准备失败不产事件
+- **WHEN** 审批以批量准备失败（`BATCH_PREPARE_FAILED`）结束
+- **THEN** 不产生反馈事件
+
+### Requirement: 反馈事件的决策类型与归属用户
+事件的 `humanDecision` SHALL 按终态依次为：照发批准 accepted、改稿批准 edited、驳回 rejected、过期 deferred、人工已回复 edited。
+
+事件的 userId SHALL 依次取以下第一个存在的：
+- 决策人；
+- 人工回复作废时，发出人工回复的人；
+- 过期等没有决策人时，取审批人；
+- 仍没有则取创建人。
+
+#### Scenario: 过期事件归审批人
+- **WHEN** 审批过期，没有决策人，审批人为 u-approver
+- **THEN** 产生一条 `expired` 事件，`humanDecision = deferred`，用户为 u-approver

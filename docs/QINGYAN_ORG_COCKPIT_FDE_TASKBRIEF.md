@@ -58,10 +58,10 @@
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| A-1 | 岗位注册表 | — | `src/lib/cockpit/posts.ts` + 表驱动测试 | [G] |
-| A-2 | 岗位读模型 + API | A-1 | `src/lib/cockpit/posts-read-model.ts`、`GET /api/cockpit/posts`、`GET /api/cockpit/timeline` | [G] |
-| A-3 | 工作台首页 → 岗位卡片 | A-2 | `src/app/(main)/page.tsx` + 组件 | [G] |
-| A-4 | 工作量 / 无用功面板 | A-2 | `src/lib/cockpit/workload.ts`、`GET /api/cockpit/workload`、页面区块 | [G] |
+| A-1 | 岗位注册表 | — | `src/lib/cockpit/posts.ts` + 表驱动测试 | [x]（#244；2026-10-30 归档） |
+| A-2 | 岗位读模型 + API | A-1 | `src/lib/cockpit/posts-read-model.ts`、`GET /api/cockpit/posts`、`GET /api/cockpit/timeline` | [x]（#245；2026-10-30 归档） |
+| A-3 | 工作台首页 → 岗位卡片 | A-2 | `src/app/(main)/page.tsx` + 组件 | [x]（#246；2026-10-30 归档） |
+| A-4 | 工作量 / 无用功面板 | A-2 | `src/lib/cockpit/workload.ts`、`GET /api/cockpit/workload`、页面区块 | [x]（#247；2026-10-30 归档） |
 | A-5 | （决策）夜间岗位日结 → corporate-memory | A-2 | 见 §A-5 | [ ] |
 
 ### A-1 岗位注册表 `src/lib/cockpit/posts.ts`
@@ -175,12 +175,12 @@ interface PostDefinition {
 
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
-| B-1 | 审批动作自动产反馈事件 + 草稿结构化 diff | A-4 | `pending-actions/exec-sales-inquiry-reply.ts`、`approval/*` 挂钩、`employee-ai/diff.ts` 接入 | [G] |
-| B-2 | 人工修改 → 商务事实沉淀（commercialFacts 提案） | B-1 | `revenue-spine/fact-proposals.ts`、新 PendingActionType `revenue_spine.propose_commercial_fact` | [G] |
-| B-3 | 已确认偏好接入草稿模板层 | B-1 | `revenue-spine/reply-draft.ts` 读 `employee-ai` confirmed 偏好 | [G] |
-| B-4 | 评分校准报表（只报不改） | A-4 | `revenue-spine/score-calibration.ts` + 面板区块 | [G] |
-| B-5 | 分级自治：内部动作按 policy 自动化 | B-1 | `revenue-spine/next-action.ts` / `transition.ts` 扩展 | [G] |
-| B-6 | （决策）FDE V2 Quotation Engineer 启动条件 | B-2 跑满 30 天 | 见 §B-6 | [~] 只读就绪度指标已交（`fde-v2-readiness`，报告 `docs/QINGYAN_ORG_COCKPIT_B-6_REPORT.md`）；V2 启动待条件满足后由 Evan 决定 |
+| B-1 | 审批动作自动产反馈事件 + 草稿结构化 diff | A-4 | `pending-actions/exec-sales-inquiry-reply.ts`、`approval/*` 挂钩、`employee-ai/diff.ts` 接入 | [x]（#248；2026-10-30 归档） |
+| B-2 | 人工修改 → 商务事实沉淀（commercialFacts 提案） | B-1 | `revenue-spine/fact-proposals.ts`、新 PendingActionType `revenue_spine.propose_commercial_fact` | [x]（#251；2026-10-30 归档） |
+| B-3 | 已确认偏好接入草稿模板层 | B-1 | `revenue-spine/reply-draft.ts` 读 `employee-ai` confirmed 偏好 | [x]（#252；2026-10-30 归档） |
+| B-4 | 评分校准报表（只报不改） | A-4 | `revenue-spine/score-calibration.ts` + 面板区块 | [x]（#249；2026-10-30 归档） |
+| B-5 | 分级自治：内部动作按 policy 自动化 | B-1 | `revenue-spine/next-action.ts` / `transition.ts` 扩展 | [x]（#250；2026-10-30 归档） |
+| B-6 | （决策）FDE V2 Quotation Engineer 启动条件 | B-2 跑满 30 天 | 见 §B-6 | [~] 只读就绪度指标已合并并归档（#255，`fde-v2-readiness`，报告 `docs/QINGYAN_ORG_COCKPIT_B-6_REPORT.md`）；V2 启动待条件满足后由 Evan 决定 |
 
 ### B-1 审批动作自动产反馈事件 + 草稿结构化 diff
 

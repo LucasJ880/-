@@ -11,6 +11,15 @@
 
 ## 当前位置
 
+- **2026-10-30：叠加链 #244–#256 已全部合并进 `main` 并归档**（13 个 change → `openspec/changes/archive/2026-10-30-*`；新规格 `openspec/specs/cockpit/*` 7 份、`openspec/specs/revenue-spine/*` 7 份，`--strict` 全部通过）。任务书 A-1..A-4、B-1..B-5 → `[x]`；B-6 仍 `[~]`（V2 启动待 Evan）；A-5 仍等决定。
+  - 合并前由会话 `session_013DdjTmRksMtqjzVEkbECjW` 逐层合入最新 main（只用合并提交），语义调整见各 PR 评论：A-1 补新自动化 / 动作归属（工艺单作废、两封安装邮件归「项目交付」，Lucas 2026-10-30 认可）；A-2 与 A-3b 管理层判定与首页 `/` 同源（岗位模式按 `organization.dashboard.read`）；B-2 审批人改为平台 super_admin 或企业内 `trade.settings.manage`（Lucas 拍板）；B-4 / B-6 营收接口传 `REVENUE_READ_KEYS`。
+  - 已知范围限制（Lucas 认可，后续如需另开 change）：main 上展位英文首封 / 英文跟进改用 `booth-email` 新模板，不读草稿偏好；B-3 / C-2 的偏好只作用于纯文本模板。
+  - 归档时修正：B-2 增量的场景名「其它系统作废不产事件」改回「系统作废不产事件」（OpenSpec 不允许丢场景）；「终态自动产生反馈事件」正文超 500 字，拆出「不产生反馈事件的终态」「反馈事件的决策类型与归属用户」两条。
+  - 剩余：staging 验证（各报告第 5 节）；A-5 决定；B-6 V2 启动决定。
+
+以下为合并前的历史记录。
+
+
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
 - **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上，[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。**GATE 决策项**：旧首页每 5 分钟 `POST /api/proactive/scan` 随替换停止，未开自动化偏好的管理层不再收到主动提醒——接受，或另开 change 让定时任务为管理层同步通知（等用户 / Evan 回复）。
