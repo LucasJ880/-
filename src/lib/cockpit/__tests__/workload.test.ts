@@ -209,7 +209,8 @@ console.log("写入方文案核对（防漂移）");
   ok(read("src/lib/pending-actions/executor.ts").includes(`failureReason: "${PENDING_RUN_CANCELLED_PREFIX}`), "关联任务取消文案与写入方一致");
   const drafts = read("src/lib/pending-actions/drafts.ts");
   ok(drafts.includes(`input.reason ?? "${PENDING_BATCH_PREPARE_FAILED}"`) && /decidedById: input\.userId/.test(drafts), "批量准备失败文案与写入方一致（且写入方确实带决策人）");
-  ok(read("src/app/api/sales/quotes/[quoteId]/route.ts").includes(`failureReason: "${PENDING_QUOTE_CHANGED_PREFIX}`), "报价变化作废文案与写入方一致");
+  // PERM-4a 起写入方从报价路由移到 quote-promotion-settle.ts（由 sales/quote-update.ts 调用）
+  ok(read("src/lib/pending-actions/quote-promotion-settle.ts").includes(`failureReason: "${PENDING_QUOTE_CHANGED_PREFIX}`), "报价变化作废文案与写入方一致");
 }
 
 // ── AI 运行归属（与岗位卡片同一规则） ────────────────────────

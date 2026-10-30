@@ -12,7 +12,11 @@ import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { canSeeResource } from "@/lib/rbac/data-scope";
 import { getOrgMembership, getProjectMembership } from "@/lib/auth";
-import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
+import { isSuperAdmin, hasOrgRole, isPlatformSuperAdmin } from "@/lib/rbac/roles";
+import { authorize } from "@/lib/authorization";
+import { checkApproverEligibility, hasPermissionHoldersInOrg } from "@/lib/sales/approvers";
+import { applyOrderTransition } from "@/lib/fulfillment/order-access";
+import { loadDiscountsDto, saveDiscountsForOrg, type DiscountSavePatch } from "@/lib/blinds/discount-settings";
 import { onAiInternalNote } from "@/lib/project-discussion/system-events";
 import {
   getEmailProvider,
@@ -23,9 +27,12 @@ import {
 import type {
   PendingActionType,
   PendingActionMetadata,
+  OrdersCancelBlindsOrderPayload,
+  SalesUpdateSignedQuotePayload,
   SalesUpdateFollowupPayload,
   SalesUpdateStagePayload,
   SalesApproveQuotePromotionPayload,
+  SalesUpdateQuoteSettingsPayload,
   CalendarCreateEventPayload,
   InternalNotePayload,
   ProjectTaskPayload,
@@ -48,6 +55,12 @@ import { execSalesSendInquiryReply } from "./exec-sales-inquiry-reply";
 import type { SalesSendInquiryReplyPayload } from "./types";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
 import { createNotification } from "@/lib/notifications/create";
+import {
+  QUOTE_UPDATE_EXISTING_SELECT,
+  commitQuoteUpdate,
+  prepareQuoteUpdate,
+  type QuoteUpdateBody,
+} from "@/lib/sales/quote-update";
 import { pushMessage } from "@/lib/messaging/gateway";
 
 interface ExecuteContext {
@@ -388,6 +401,27 @@ export async function executePendingAction(
           action.id,
         );
         break;
+      case "sales.update_quote_settings":
+        exec = await execSalesUpdateQuoteSettings(
+          action.payload as unknown as SalesUpdateQuoteSettingsPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      case "orders.cancel_blinds_order":
+        exec = await execOrdersCancelBlindsOrder(
+          action.payload as unknown as OrdersCancelBlindsOrderPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      case "sales.update_signed_quote":
+        exec = await execSalesUpdateSignedQuote(
+          action.payload as unknown as SalesUpdateSignedQuotePayload,
+          ctx,
+          action.id,
+        );
+        break;
       case "calendar.create_event":
         exec = await execCalendarCreateEvent(
           action.payload as unknown as CalendarCreateEventPayload,
@@ -459,6 +493,24 @@ export async function executePendingAction(
           action.id,
         );
         break;
+      case "install.send_warranty_email": {
+        const { execInstallSendWarrantyEmail } = await import("./exec-install-warranty-email");
+        exec = await execInstallSendWarrantyEmail(
+          action.payload as unknown as import("./types").InstallSendWarrantyEmailPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      }
+      case "install.send_repair_visit_email": {
+        const { execInstallSendRepairVisitEmail } = await import("./exec-install-repair-visit-email");
+        exec = await execInstallSendRepairVisitEmail(
+          action.payload as unknown as import("./types").InstallSendRepairVisitEmailPayload,
+          ctx,
+          action.id,
+        );
+        break;
+      }
       default:
         exec = { ok: false, error: `未知动作类型 ${action.type}` };
     }
@@ -959,6 +1011,9 @@ async function execSalesApproveQuotePromotion(
     return { ok: false, error: "报价让利审批参数不完整" };
   }
   if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  // PERM-2：批准人资格——不能自批；企业已有人持审批权时须持权（super_admin 例外，自批留痕）
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "sales.quote.discount.over_limit.approve");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
   const quote = await db.salesQuote.findFirst({
     where: { id: payload.quoteId, orgId },
     select: {
@@ -1001,6 +1056,8 @@ async function execSalesApproveQuotePromotion(
       promotionAmount: payload.promotionAmount,
       promotionRatio: payload.promotionRatio,
       maxPct: payload.maxPct,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
     },
   });
   if (payload.requestedById !== ctx.userId) {
@@ -1018,6 +1075,238 @@ async function execSalesApproveQuotePromotion(
     });
   }
   return { ok: true, resultRef: quote.id, message: "超额让利已批准，报价可以发送" };
+}
+
+/**
+ * PERM-2：批准人资格（纯函数 checkApproverEligibility 的 DB 包装）
+ * enforcement = 企业内已有人持该权限（岗位绑定已跑）；否则过渡态只拒自批。
+ */
+async function checkQuoteApprover(
+  ctx: ExecuteContext,
+  orgId: string,
+  requesterId: string | null | undefined,
+  permissionKey: string,
+): Promise<{ ok: true; selfApproved: boolean } | { ok: false; reason: string }> {
+  const isPlatform = isPlatformSuperAdmin(ctx.role);
+  const enforcement = await hasPermissionHoldersInOrg(orgId, permissionKey);
+  const hasPermission = isPlatform
+    ? true
+    : (
+        await authorize({
+          principal: { type: "HUMAN", id: ctx.userId, orgId },
+          orgId,
+          permission: permissionKey,
+        })
+      ).allowed;
+  return checkApproverEligibility({
+    approverId: ctx.userId,
+    requesterId,
+    isPlatformSuperAdmin: isPlatform,
+    hasPermission,
+    enforcement,
+  });
+}
+
+/**
+ * PERM-3：作废工艺单审批执行——批准人 ≠ 提交人且持 orders.cancel → 状态机转 cancelled + OrderStatusLog + 审计
+ * 已 cancelled → 幂等成功；completed → 拒绝
+ */
+async function execOrdersCancelBlindsOrder(
+  payload: OrdersCancelBlindsOrderPayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId ?? payload.orgId;
+  if (!orgId || payload.resourceType !== "blinds_order" || !payload.requestedById || !payload.orderId) {
+    return { ok: false, error: "作废审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "orders.cancel");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
+
+  const order = await db.blindsOrder.findUnique({ where: { id: payload.orderId }, select: { id: true, code: true, status: true } });
+  if (!order) return { ok: false, error: "工艺单不存在" };
+  if (order.status === "cancelled") return { ok: true, resultRef: order.id, message: `工艺单 ${order.code} 已是作废状态` };
+  if (order.status === "completed") return { ok: false, error: "工艺单已完工，不能作废" };
+
+  const note = `作废（提交 ${payload.requestedById}，批准 ${ctx.userId}）${payload.reason ? "：" + payload.reason : ""}`;
+  await db.$transaction((tx) =>
+    applyOrderTransition(tx, order, "cancelled", payload.requestedById, note, { cancelReason: payload.reason || null }),
+  );
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "blinds_order_cancelled",
+    targetType: "blinds_order",
+    targetId: order.id,
+    beforeData: { status: order.status },
+    afterData: {
+      status: "cancelled",
+      reason: payload.reason,
+      requestedById: payload.requestedById,
+      approvedById: ctx.userId,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
+      actionId,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "blinds_order_cancel_approved",
+      category: "approval",
+      title: `工艺单 ${order.code} 作废已批准`,
+      summary: payload.reason ? `原因：${payload.reason}` : "作废已生效。",
+      entityType: "blinds_order",
+      entityId: order.id,
+      priority: "high",
+      sourceKey: `blinds-order-cancel:${order.id}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: order.id, message: `工艺单 ${order.code} 已作废` };
+}
+
+/**
+ * PERM-4a：签约单改总价审批执行——批准人 ≠ 提交人且持 sales.quote.signed_amount.approve（super_admin 可自批）
+ * → 报价仍在本企业且版本（updatedAt）未变 → 按提交内容重算落库（折扣三档按提交人身份）→ 审计 → 通知提交人
+ */
+async function execSalesUpdateSignedQuote(
+  payload: SalesUpdateSignedQuotePayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId ?? payload.orgId;
+  if (!orgId || payload.resourceType !== "sales_quote" || !payload.requestedById || !payload.quoteId || !payload.body) {
+    return { ok: false, error: "签约单改价审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "sales.quote.signed_amount.approve");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
+
+  const existing = await db.salesQuote.findFirst({ where: { id: payload.quoteId, orgId }, select: QUOTE_UPDATE_EXISTING_SELECT });
+  if (!existing) return { ok: false, error: "报价单不存在" };
+  if (existing.updatedAt.toISOString() !== payload.baseUpdatedAt) {
+    return { ok: false, error: "报价已变化，请重新提交" };
+  }
+
+  // 折扣三档按提交人身份判定（审批人只决定"金额改不改"，不替提交人获得合价直批）
+  const requester = await db.user.findUnique({ where: { id: payload.requestedById }, select: { role: true } });
+  const overLimitSubmit = await authorize({
+    principal: { type: "HUMAN", id: payload.requestedById, orgId },
+    orgId,
+    permission: "sales.quote.discount.over_limit.submit",
+  });
+  const actor = {
+    userId: payload.requestedById,
+    isPlatformSuperAdmin: isPlatformSuperAdmin(requester?.role),
+    canSubmitOverLimit: overLimitSubmit.allowed,
+  };
+  const body = payload.body as unknown as QuoteUpdateBody;
+  const prepared = await prepareQuoteUpdate({ orgId, existing, body, actor });
+  const result = await commitQuoteUpdate({ orgId, quoteId: existing.id, existing, body, prepared, actor });
+
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "sales.signed_quote.amount_changed",
+    targetType: "sales_quote",
+    targetId: existing.id,
+    beforeData: { grandTotal: existing.grandTotal, status: existing.status },
+    afterData: {
+      grandTotal: prepared.calc.grandTotal,
+      submittedTotal: payload.afterTotal,
+      status: result.quote.status,
+      requestedById: payload.requestedById,
+      approvedById: ctx.userId,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
+      actionId,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    const label = existing.orderNumber?.trim() || "（无单号）";
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "signed_quote_amount_approved",
+      category: "approval",
+      title: `签约单 ${label} 改价已批准`,
+      summary: `总价已改为 $${prepared.calc.grandTotal.toFixed(2)}；原签名已作废，请重新发送客户签署。`,
+      entityType: "sales_quote",
+      entityId: existing.id,
+      priority: "high",
+      sourceKey: `signed-quote-amount:${existing.id}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: existing.id, message: `签约单 ${existing.orderNumber ?? existing.id} 改价已生效` };
+}
+
+/**
+ * PERM-2：销售设置修改审批执行——批准人校验 → 版本一致 → 落库 → 审计 → 通知提交人
+ */
+async function execSalesUpdateQuoteSettings(
+  payload: SalesUpdateQuoteSettingsPayload,
+  ctx: ExecuteContext,
+  actionId: string,
+): Promise<ExecuteResult> {
+  const orgId = payload.metadata?.orgId ?? payload.orgId;
+  if (!orgId || payload.resourceType !== "quote_discount_settings" || !payload.requestedById) {
+    return { ok: false, error: "销售设置审批参数不完整" };
+  }
+  if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
+  const eligibility = await checkQuoteApprover(ctx, orgId, payload.requestedById, "sales.settings.manage");
+  if (!eligibility.ok) return { ok: false, error: eligibility.reason };
+
+  const current = await loadDiscountsDto(orgId);
+  if (current.version !== payload.settingsVersion) {
+    return { ok: false, error: "销售设置已被其他修改更新，请提交人重新提交" };
+  }
+
+  const patch: DiscountSavePatch = {
+    ...(payload.numericPatch as DiscountSavePatch),
+  };
+  if (payload.costRates !== undefined) patch.costRates = payload.costRates;
+  if (payload.depositOverrideCodeHash !== undefined) patch.depositOverrideCodeHashed = payload.depositOverrideCodeHash;
+  if (payload.lineDiscountUnlockCodeHash !== undefined) patch.lineDiscountUnlockCodeHashed = payload.lineDiscountUnlockCodeHash;
+
+  const after = await saveDiscountsForOrg({ orgId, userId: payload.requestedById, patch });
+
+  await logAudit({
+    userId: ctx.userId,
+    orgId,
+    action: "quote_settings_updated",
+    targetType: "quote_discount_settings",
+    targetId: orgId,
+    beforeData: { version: current.version },
+    afterData: {
+      version: after.version,
+      numericPatch: payload.numericPatch,
+      ...(payload.costRates !== undefined ? { costRates: payload.costRates } : {}),
+      depositUnlockCodeChanged: payload.depositOverrideCodeHash !== undefined,
+      lineDiscountUnlockCodeChanged: payload.lineDiscountUnlockCodeHash !== undefined,
+      requestedById: payload.requestedById,
+      approvedById: ctx.userId,
+      selfApproved: eligibility.selfApproved,
+      ...(eligibility.selfApproved ? { actorKind: "platform_admin" } : {}),
+      actionId,
+    },
+  });
+  if (payload.requestedById !== ctx.userId) {
+    await createNotification({
+      userId: payload.requestedById,
+      orgId,
+      type: "quote_settings_approved",
+      category: "approval",
+      title: "销售设置修改已批准并生效",
+      summary: `设置版本 ${after.version} 已生效。`,
+      entityType: "quote_discount_settings",
+      entityId: orgId,
+      priority: "high",
+      sourceKey: `quote-settings:${orgId}:${actionId}:approved`,
+    });
+  }
+  return { ok: true, resultRef: orgId, message: `销售设置已更新到版本 ${after.version}` };
 }
 
 async function execSalesUpdateFollowup(

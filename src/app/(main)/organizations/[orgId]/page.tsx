@@ -6,8 +6,9 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
-import { isSuperAdmin } from "@/lib/permissions-client";
+import { isPlatformSuperAdmin, isSuperAdmin } from "@/lib/permissions-client";
 import { PageHeader } from "@/components/page-header";
+import { PositionsSection } from "./positions-section";
 import {
   SELECTED_ORG_STORAGE_KEY,
   readStoredOrgId,
@@ -59,6 +60,8 @@ export default function OrganizationDetailPage() {
   // 平台 admin / super_admin 均可管理（与 requireOrgRole / isSuperAdmin 对齐）
   const canManageOrg =
     org?.myRole === "org_admin" || isSuperAdmin(platformRole);
+  // PERM-7：成员增删改与岗位绑定只认平台 super_admin（与接口一致）
+  const canManageMembers = isPlatformSuperAdmin(platformRole);
   // 恢复状态仅平台管理员可写（PUT status）
   const canRestoreOrg = isSuperAdmin(platformRole);
 
@@ -307,7 +310,7 @@ export default function OrganizationDetailPage() {
           通过用户 ID 添加成员（无邮件邀请）；可从设置或其它途径获取用户 id。
         </p>
 
-        {canManageOrg && org.status === "active" && (
+        {canManageMembers && org.status === "active" && (
           <form onSubmit={addMember} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
             <input
               value={addUserId}
@@ -344,7 +347,7 @@ export default function OrganizationDetailPage() {
               <th className="pb-2 pr-2">邮箱</th>
               <th className="pb-2 pr-2">角色</th>
               <th className="pb-2">状态</th>
-              {canManageOrg && <th className="pb-2 w-28">操作</th>}
+              {canManageMembers && <th className="pb-2 w-28">操作</th>}
             </tr>
           </thead>
           <tbody>
@@ -353,7 +356,7 @@ export default function OrganizationDetailPage() {
                 <td className="py-2 pr-2">{m.user.name}</td>
                 <td className="py-2 pr-2 text-muted">{m.user.email}</td>
                 <td className="py-2 pr-2">
-                  {canManageOrg && org.status === "active" && m.status === "active" ? (
+                  {canManageMembers && org.status === "active" && m.status === "active" ? (
                     <select
                       value={m.role}
                       disabled={busyMemberId === m.id}
@@ -371,7 +374,7 @@ export default function OrganizationDetailPage() {
                   )}
                 </td>
                 <td className="py-2">{m.status}</td>
-                {canManageOrg && (
+                {canManageMembers && (
                   <td className="py-2">
                     {org.status === "active" && m.status === "active" && (
                       <button
@@ -392,6 +395,8 @@ export default function OrganizationDetailPage() {
         </table>
         </div>
       </div>
+
+      {canManageMembers && <PositionsSection orgId={orgId} />}
     </div>
   );
 }

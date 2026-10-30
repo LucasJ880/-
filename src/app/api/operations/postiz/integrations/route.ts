@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_MANAGE, OPS_READ_KEYS } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 import { db } from "@/lib/db";
 import {
   isPostizConfigured,
@@ -21,11 +21,10 @@ function toHandle(profile: string | undefined, name: string, id: string): string
 }
 
 export const GET = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权管理矩阵账号" }, { status: 403 });
-  }
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_READ_KEYS, "无权查看 postiz 集成");
+  if (denied) return denied;
   if (!isPostizConfigured()) {
     return NextResponse.json({ configured: false, integrations: [] });
   }
@@ -55,12 +54,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权管理矩阵账号" }, { status: 403 });
-  }
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_MANAGE, "无权导入 postiz 集成（需要运营管理权限）");
+  if (denied) return denied;
   if (!isPostizConfigured()) {
     return NextResponse.json({ error: "Postiz 尚未配置" }, { status: 503 });
   }

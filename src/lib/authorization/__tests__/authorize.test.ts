@@ -60,8 +60,12 @@ ok(
 );
 ok(
   compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "trade" }) ===
-    null,
-  "trade + org_member → 无销售权限",
+    "trade_rep",
+  "trade + org_member → 兼容 trade_rep（PERM-6a），不是 sales_rep",
+);
+ok(
+  (SYSTEM_ROLE_PROFILES.find((p) => p.key === "trade_rep")?.bindings ?? []).every((b) => !b.permissionKey.startsWith("sales.")),
+  "trade_rep 无销售权限",
 );
 ok(
   compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "user" }) ===
@@ -96,7 +100,9 @@ const digi = resolvePrincipalRef({
   id: "d1",
   orgId: "org1",
 });
-ok(!digi.ok && digi.result.reasonCode === "NOT_IMPLEMENTED", "数字员工未实现");
+ok(!digi.ok && digi.result.reasonCode === "SPONSOR_REQUIRED", "PERM-5b：数字员工无 sponsor 拒绝");
+const digiOk = resolvePrincipalRef({ type: "DIGITAL_EMPLOYEE", id: "d1", orgId: "org1", sponsorUserId: "alex" });
+ok(digiOk.ok && digiOk.principal.type === "DIGITAL_EMPLOYEE" && digiOk.principal.sponsorUserId === "alex", "PERM-5b：数字员工带 sponsor 可构造");
 
 const orgWhere = compileAuthorizedWhereFromScopes({
   orgId: "org1",
@@ -169,6 +175,296 @@ const allowOnly = decideFromBindings({
 });
 ok(allowOnly.allowed && allowOnly.matchedScope === "ORG", "仅 ALLOW:ORG → 允许");
 
+
+// ── PERM-1：岗位目录 / 平台管理员全权 ──
+import {
+  SYSTEM_ROLE_PROFILES,
+  WINDOW_COVERING_ROLE_PROFILES,
+  mergedProfileBindings,
+  profilesForIndustryPack,
+  profileKeysForIndustryPack,
+  hasPositionTemplates,
+} from "../role-defaults";
+import { PERMISSION_REGISTRY, getPermissionDefinition, isKnownPermission } from "../permissions";
+import { platformAdminBindings } from "../resolve-effective-permissions";
+
+console.log("PERM-1 岗位目录");
+const WC = "window_covering_services_v1";
+const wcKeys = profilesForIndustryPack(WC).map((p) => p.key);
+ok(wcKeys.length === 11 && profileKeysForIndustryPack(WC).length === 18, "窗饰行业包：11 个追加模板（含安装工、ops_staff 并集），18 个岗位 key（PERM-6a 系统模板加 trade_rep）");
+ok(profilesForIndustryPack(null).length === 0 && profilesForIndustryPack("other_pack").length === 0, "非窗饰行业包：0 个追加模板");
+for (const k of [
+  "sales.quote.pricing_close",
+  "sales.quote.discount.over_limit.submit",
+  "sales.quote.discount.over_limit.approve",
+  "sales.settings.manage",
+  "sales.order.create",
+  "orders.fulfillment.update",
+  "orders.fulfillment.update.vinyl",
+  "orders.fulfillment.update.drapery",
+  "orders.fulfillment.update.shades",
+  "orders.fulfillment.read",
+  "orders.cancel",
+  "inventory.manage",
+  "inventory.read",
+  "accounting.read",
+  "identity.position.manage",
+  "sales.quote.signed_amount.approve",
+  "operations.content.draft",
+  "operations.content.approve",
+]) {
+  ok(isKnownPermission(k), `权限键已登记：${k}`);
+}
+ok(
+  getPermissionDefinition("identity.position.manage")?.allowedPrincipalTypes.join(",") === "HUMAN",
+  "identity.position.manage 仅 HUMAN",
+);
+const has = (bs: { permissionKey: string; dataScope: string }[], key: string, scope?: string) =>
+  bs.some((b) => b.permissionKey === key && (!scope || b.dataScope === scope));
+const owner = mergedProfileBindings(WC, "owner");
+ok(has(owner, "sales.quote.discount.over_limit.approve", "ORG") && has(owner, "sales.settings.manage", "ORG"), "owner 含超限审批与设置权");
+ok(
+  !has(owner, "identity.member.manage") && !has(owner, "identity.role.manage") && !has(owner, "identity.position.manage") && !has(owner, "authorization.policy.manage"),
+  "owner 不含成员 / 岗位 / 策略管理",
+);
+const rep = mergedProfileBindings(WC, "sales_rep");
+ok(
+  rep.filter((b) => b.permissionKey.startsWith("sales.")).every((b) => b.dataScope === "PRINCIPAL" || b.dataScope === "ASSIGNED"),
+  "sales_rep 的 sales.* 只有 PRINCIPAL / ASSIGNED",
+);
+ok(has(rep, "sales.quote.send", "PRINCIPAL") && has(rep, "sales.order.create", "PRINCIPAL") && !has(rep, "sales.quote.discount.over_limit.submit"), "sales_rep 可发报价、建单，不可超限");
+const pl = mergedProfileBindings(WC, "pricing_lead");
+ok(
+  has(pl, "sales.quote.pricing_close", "ORG") && has(pl, "sales.quote.discount.over_limit.submit", "ORG") && !has(pl, "sales.quote.discount.over_limit.approve") && !has(pl, "sales.settings.manage"),
+  "pricing_lead 含合价 + 超限提交，不含审批 / 设置",
+);
+ok(has(mergedProfileBindings(WC, "ops_lead"), "inventory.manage", "ORG") && !has(mergedProfileBindings(WC, "ops_staff"), "inventory.manage"), "ops_lead 含库存管理，ops_staff 不含");
+const acc = mergedProfileBindings(WC, "accounting");
+ok(
+  has(acc, "accounting.read", "ORG") && has(acc, "sales.quote.read", "ORG") && !acc.some((b) => /\.(create|update)$/.test(b.permissionKey) && b.permissionKey.startsWith("sales.")),
+  "accounting 只读",
+);
+const bids = mergedProfileBindings(WC, "bids");
+ok(has(bids, "bids.handoff.execute", "ORG") && !has(bids, "bids.handoff.override"), "bids 可交接、不可 override");
+// PERM-3：出单岗只持自己品类的更新键 + read；不持伞键 / 作废 / 库存管理
+const CATEGORY_OF = { fulfillment_vinyl: "vinyl", fulfillment_drapery: "drapery", fulfillment_shades: "shades" } as const;
+for (const k of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"] as const) {
+  const f = mergedProfileBindings(WC, k);
+  const mine = `orders.fulfillment.update.${CATEGORY_OF[k]}`;
+  const others = ["vinyl", "drapery", "shades"].filter((c) => c !== CATEGORY_OF[k]).map((c) => `orders.fulfillment.update.${c}`);
+  ok(
+    has(f, mine, "ORG") && has(f, "orders.fulfillment.read", "ORG") && has(f, "inventory.read", "ORG") &&
+      others.every((o) => !has(f, o)) && !has(f, "orders.fulfillment.update") && !has(f, "orders.cancel") && !has(f, "inventory.manage") &&
+      !has(f, "sales.quote.create") && !has(f, "sales.quote.update") && !has(f, "sales.customer.create") && !has(f, "sales.customer.update"),
+    `${k} 只含 ${CATEGORY_OF[k]} 品类更新键 + read，不含他品类 / 伞键 / 作废 / 库存管理 / 销售写权`,
+  );
+}
+const ownerB = mergedProfileBindings(WC, "owner");
+ok(has(ownerB, "orders.fulfillment.update", "ORG") && has(ownerB, "orders.cancel", "ORG") && has(ownerB, "inventory.manage", "ORG") && has(ownerB, "orders.fulfillment.read", "ORG"), "owner 持全品类伞键 + 作废 + 库存管理 + 全企业读");
+ok(has(mergedProfileBindings(WC, "ops_staff"), "inventory.read", "ORG") && !has(mergedProfileBindings(WC, "ops_staff"), "inventory.manage"), "ops_staff 只读库存");
+ok(has(mergedProfileBindings(WC, "sales_rep"), "inventory.read", "ORG"), "sales_rep 只读库存");
+ok(has(mergedProfileBindings(WC, "ops_lead"), "orders.fulfillment.read", "ORG") && has(mergedProfileBindings(WC, "ops_lead"), "inventory.read", "ORG"), "ops_lead 读工艺单 + 读库存");
+ok(WINDOW_COVERING_ROLE_PROFILES.every((p) => p.name && p.description), "窗饰模板均有中文名与说明");
+
+// PERM-4a：owner 销售改权 + 签约改价审批权；其余岗位不持新审批键 / 归档键
+const ownerS = mergedProfileBindings(WC, "owner");
+ok(
+  ["sales.customer.update", "sales.customer.archive", "sales.opportunity.update", "sales.quote.update", "sales.quote.signed_amount.approve"].every((k) => has(ownerS, k, "ORG")),
+  "PERM-4a：owner 以 ORG 持客户改 / 归档、商机改、报价改、签约改价审批",
+);
+ok(
+  profileKeysForIndustryPack(WC).filter((k) => k !== "owner").every((k) => {
+    const bs = mergedProfileBindings(WC, k);
+    return !has(bs, "sales.quote.signed_amount.approve") && !has(bs, "sales.customer.archive");
+  }),
+  "PERM-4a：除 owner 外的岗位模板（含 pricing_lead）不含签约改价审批键与归档键",
+);
+{
+  const d = PERMISSION_REGISTRY.find((p) => p.key === "sales.quote.signed_amount.approve");
+  ok(!!d && d.allowedPrincipalTypes.length === 1 && d.allowedPrincipalTypes[0] === "HUMAN" && d.supportedScopes.join() === "ORG" && d.riskLevel === "HIGH", "PERM-4a：sales.quote.signed_amount.approve 仅人类 / ORG / HIGH");
+}
+
+// PERM-4b：运营内容分权
+{
+  const st = mergedProfileBindings(WC, "ops_staff");
+  ok(has(st, "operations.content.draft", "ORG") && has(st, "operations.read", "ORG") && !has(st, "operations.content.approve") && !has(st, "operations.manage"), "PERM-4b：ops_staff 起草 + 读，不批准、不管理");
+  const lead = mergedProfileBindings(WC, "ops_lead");
+  ok(has(lead, "operations.content.draft", "ORG") && has(lead, "operations.content.approve", "ORG") && has(lead, "operations.manage", "ORG"), "PERM-4b：ops_lead 起草 + 批准 + 管理");
+  const ow = mergedProfileBindings(WC, "owner");
+  ok(has(ow, "operations.content.approve", "ORG") && has(ow, "operations.read", "ORG") && !has(ow, "operations.manage") && !has(ow, "operations.content.draft"), "PERM-4b：owner 只批不改");
+  ok(
+    profileKeysForIndustryPack(WC).filter((k) => !["ops_staff", "ops_lead", "owner"].includes(k)).every((k) => {
+      const bs = mergedProfileBindings(WC, k);
+      return !has(bs, "operations.content.draft") && !has(bs, "operations.content.approve");
+    }),
+    "PERM-4b：其余模板（含 sales_rep）不含运营内容键",
+  );
+  const ap = PERMISSION_REGISTRY.find((p) => p.key === "operations.content.approve");
+  ok(!!ap && ap.allowedPrincipalTypes.join() === "HUMAN" && ap.riskLevel === "HIGH", "PERM-4b：operations.content.approve 仅人类 / HIGH");
+}
+
+// 多岗并集：owner + pricing_lead + accounting
+const multi = ["owner", "pricing_lead", "accounting"].flatMap((k) =>
+  mergedProfileBindings(WC, k).map((b, i) => ({ permissionKey: b.permissionKey, dataScope: b.dataScope, effect: (b.effect ?? "ALLOW") as "ALLOW" | "DENY", source: `t:${k}:${i}` })),
+);
+const multiRead = decideFromBindings({
+  principal,
+  permission: "sales.quote.read",
+  bindings: multi,
+  resource: { type: "sales_quote", id: "q9", ownerId: "someone-else", orgId: "org1" },
+});
+ok(multiRead.allowed && multiRead.matchedScope === "ORG", "多岗并集：sales.quote.read 匹配 ORG");
+ok(decideFromBindings({ principal, permission: "sales.quote.discount.over_limit.approve", bindings: multi }).allowed, "多岗并集：可审批超限");
+
+ok(
+  !has(bindingsFromSystemProfile("org_owner"), "identity.member.manage") && !has(bindingsFromSystemProfile("org_owner"), "identity.role.manage") && !has(bindingsFromSystemProfile("org_owner"), "authorization.policy.manage") && has(bindingsFromSystemProfile("org_owner"), "audit.read", "ORG"),
+  "PERM-2：org_owner 系统模板不含成员 / 岗位 / 策略管理，仍含 audit.read",
+);
+
+console.log("PERM-4c2 企业经营总览权限键与岗位模式");
+{
+  const dk = getPermissionDefinition("organization.dashboard.read");
+  ok(!!dk && dk.riskLevel === "MEDIUM" && dk.supportedScopes.join() === "ORG" && dk.allowedPrincipalTypes.join() === "HUMAN", "organization.dashboard.read 已登记（MEDIUM，ORG，仅人类）");
+  const holders = profileKeysForIndustryPack(WC).filter((k) => has(mergedProfileBindings(WC, k), "organization.dashboard.read"));
+  ok(holders.join() === "owner", "窗饰岗位只有 owner 含 organization.dashboard.read", holders);
+  ok(!has(bindingsFromSystemProfile("org_owner"), "organization.dashboard.read") && !has(bindingsFromSystemProfile("org_admin"), "organization.dashboard.read"), "系统模板 org_owner / org_admin 不含");
+  ok(hasPositionTemplates(WC) && !hasPositionTemplates(null) && !hasPositionTemplates("unknown_pack"), "岗位模式：窗饰行业包是，无行业包 / 未知行业包否");
+}
+
+console.log("PERM-4c1 项目财务管理权限键");
+{
+  const pm = getPermissionDefinition("project.finance.manage");
+  ok(!!pm && pm.riskLevel === "HIGH" && pm.supportedScopes.join() === "ORG" && pm.allowedPrincipalTypes.join() === "HUMAN", "project.finance.manage 已登记（HIGH，ORG，仅人类）");
+  ok(has(mergedProfileBindings(WC, "owner"), "project.finance.manage", "ORG"), "owner：project.finance.manage ORG");
+  // seed 会把 org_owner / org_admin 成员自动绑到同名系统模板——挂在模板上等于保留 org_admin 特权
+  ok(!has(bindingsFromSystemProfile("org_owner"), "project.finance.manage") && !has(bindingsFromSystemProfile("org_admin"), "project.finance.manage"), "系统模板 org_owner / org_admin 不含 project.finance.manage");
+  for (const k of ["bids", "accounting", "sales_rep", "pricing_lead", "ops_staff", "ops_lead", "installer", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    ok(!has(mergedProfileBindings(WC, k), "project.finance.manage"), `${k} 不含 project.finance.manage`);
+  }
+}
+
+console.log("PERM-5a 项目结算权限键");
+{
+  const pf = getPermissionDefinition("project.finance.read");
+  ok(!!pf && pf.riskLevel === "HIGH" && pf.supportedScopes.join() === "ASSIGNED,ORG", "project.finance.read 已登记（HIGH，ASSIGNED / ORG）");
+  ok(has(mergedProfileBindings(WC, "accounting"), "project.finance.read", "ORG"), "accounting：project.finance.read ORG");
+  ok(has(mergedProfileBindings(WC, "owner"), "project.finance.read", "ORG"), "owner：project.finance.read ORG");
+  const bidsB = mergedProfileBindings(WC, "bids");
+  ok(has(bidsB, "project.finance.read", "ASSIGNED") && !has(bidsB, "project.finance.read", "ORG"), "bids：project.finance.read 只 ASSIGNED");
+  for (const k of ["sales_rep", "pricing_lead", "ops_staff", "ops_lead", "installer", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    ok(!has(mergedProfileBindings(WC, k), "project.finance.read"), `${k} 不含 project.finance.read`);
+  }
+  const bidsDecision = decideFromBindings({
+    principal,
+    permission: "project.finance.read",
+    bindings: bidsB.map((b, i) => ({ permissionKey: b.permissionKey, dataScope: b.dataScope, effect: "ALLOW" as const, source: `t:bids:${i}` })),
+  });
+  ok(bidsDecision.allowed && bidsDecision.matchedScope === "ASSIGNED", "bids 不带资源判定 → ASSIGNED");
+}
+
+console.log("INSTALL-1 安装工岗位");
+for (const k of ["install.task.read", "install.task.update", "install.window.complete", "install.task.assign", "install.photo.read"]) {
+  ok(isKnownPermission(k), `权限键已登记：${k}`);
+}
+const inst = mergedProfileBindings(WC, "installer");
+ok(
+  inst.length === 3 && inst.every((b) => b.permissionKey.startsWith("install.") && b.dataScope === "ASSIGNED"),
+  "installer：三个 install.* 键均 ASSIGNED",
+);
+ok(!has(inst, "install.task.assign") && !has(inst, "install.photo.read") && !inst.some((b) => b.permissionKey.startsWith("sales.")), "installer 不含安排 / 照片查看 / sales.*");
+for (const k of ["ops_lead", "accounting", "owner"]) {
+  const b = mergedProfileBindings(WC, k);
+  ok(has(b, "install.task.assign", "ORG") && has(b, "install.task.read", "ORG") && has(b, "install.photo.read", "ORG"), `${k} 可安排安装 + 看任务 + 看照片`);
+}
+for (const k of ["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+  const b = mergedProfileBindings(WC, k);
+  ok(has(b, "install.task.read", "ORG") && has(b, "install.photo.read", "ORG") && !has(b, "install.task.assign"), `${k} 只看不排`);
+}
+ok(!mergedProfileBindings(WC, "sales_rep").some((b) => b.permissionKey.startsWith("install.")), "sales_rep 无 install.*");
+// INSTALL-2b：确认收到尾款只给会计与老板
+{
+  const def = getPermissionDefinition("install.balance.confirm");
+  ok(!!def && def.label === "确认收到尾款" && def.riskLevel === "HIGH" && def.supportedScopes.join() === "ORG", "登记 install.balance.confirm（确认收到尾款 / HIGH / ORG）");
+  for (const k of ["accounting", "owner"]) {
+    ok(has(mergedProfileBindings(WC, k), "install.balance.confirm", "ORG"), `${k}：install.balance.confirm ORG`);
+  }
+  for (const k of ["sales_rep", "pricing_lead", "ops_lead", "ops_staff", "bids", "installer", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    ok(!mergedProfileBindings(WC, k).some((b) => b.permissionKey === "install.balance.confirm"), `${k} 不含 install.balance.confirm`);
+  }
+}
+ok(!mergedProfileBindings(WC, "ops_staff").some((b) => b.permissionKey.startsWith("install.")), "ops_staff 无 install.*");
+
+console.log("PERM-1 平台管理员全权");
+const pa = platformAdminBindings();
+ok(pa.length === PERMISSION_REGISTRY.length && pa.every((b) => b.source.startsWith("platform_admin")), "platformAdminBindings：条数 = Registry，来源 platform_admin");
+ok(pa.every((b) => b.dataScope === "ORG" && b.effect === "ALLOW"), "platformAdminBindings：全部 ORG / ALLOW");
+const paSame = decideFromBindings({ principal, permission: "sales.quote.read", bindings: pa, resource: { type: "sales_quote", id: "q1", ownerId: "x", orgId: "org1" } });
+ok(paSame.allowed && paSame.matchedScope === "ORG", "平台管理员对同企业资源 ALLOW/ORG");
+const paOther = decideFromBindings({ principal, permission: "sales.quote.read", bindings: pa, resource: { type: "sales_quote", id: "q2", ownerId: "x", orgId: "org2" } });
+ok(!paOther.allowed && paOther.reasonCode === "RESOURCE_OUT_OF_SCOPE", "平台管理员对异企业资源拒绝");
+ok(compatProfileKeyForMembership({ orgRole: "org_member", platformRole: "admin" }) === null, "平台 admin 无兼容岗位（无全权）");
+
+console.log("PERM-5b 数字员工禁区与 sponsor 范围");
+{
+  const humanOnly = (k: string) => getPermissionDefinition(k)?.allowedPrincipalTypes.join() === "HUMAN";
+  for (const k of [
+    "sales.quote.discount.over_limit.approve",
+    "sales.quote.discount.over_limit.submit",
+    "sales.quote.signed_amount.approve",
+    "operations.content.approve",
+    "sales.quote.pricing_close",
+    "sales.settings.manage",
+    "organization.settings.manage",
+    "authorization.policy.manage",
+    "identity.member.read",
+    "identity.member.manage",
+    "identity.role.manage",
+    "identity.position.manage",
+    "install.task.assign",
+    "install.balance.confirm",
+    "orders.cancel",
+    "inventory.manage",
+    "operations.manage",
+  ]) {
+    ok(humanOnly(k), `禁区键只允许人类：${k}`);
+  }
+  ok(
+    PERMISSION_REGISTRY.filter((p) => p.key.endsWith(".approve")).every((p) => p.allowedPrincipalTypes.join() === "HUMAN"),
+    "所有 *.approve 键只允许人类",
+  );
+  for (const k of ["sales.customer.read", "sales.quote.create", "operations.content.draft", "project.read", "accounting.read"]) {
+    ok(getPermissionDefinition(k)?.allowedPrincipalTypes.includes("DIGITAL_EMPLOYEE") === true, `业务键开放给数字员工：${k}`);
+  }
+
+  const de: PrincipalRef = { type: "DIGITAL_EMPLOYEE", id: "agent1", orgId: "org1", sponsorUserId: "alex" };
+  const toBindings = (k: string) =>
+    mergedProfileBindings(WC, k).map((b, i) => ({ permissionKey: b.permissionKey, dataScope: b.dataScope, effect: (b.effect ?? "ALLOW") as "ALLOW" | "DENY", source: `t:${k}:${i}` }));
+  const accB = toBindings("accounting");
+  const deAssign = decideFromBindings({ principal: de, permission: "install.task.assign", bindings: accB });
+  ok(!deAssign.allowed && deAssign.reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED", "数字员工绑了 accounting 也不能安排安装");
+  ok(decideFromBindings({ principal, permission: "install.task.assign", bindings: accB }).allowed, "人类 accounting 可安排安装（不受禁区影响）");
+  // INSTALL-2b：尾款确认同属禁区
+  const deBalance = decideFromBindings({ principal: de, permission: "install.balance.confirm", bindings: accB });
+  ok(!deBalance.allowed && deBalance.reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED", "数字员工绑了 accounting 也不能确认尾款");
+  ok(decideFromBindings({ principal, permission: "install.balance.confirm", bindings: accB }).allowed, "人类 accounting 可确认尾款");
+  ok(
+    decideFromBindings({ principal: de, permission: "sales.quote.discount.over_limit.approve", bindings: multi }).reasonCode === "PRINCIPAL_TYPE_NOT_ALLOWED",
+    "数字员工永不审批（即使绑了老板岗）",
+  );
+  const repB = toBindings("sales_rep");
+  const own = decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: repB, resource: { type: "sales_customer", ownerId: "alex", orgId: "org1" } });
+  ok(own.allowed && own.matchedScope === "PRINCIPAL", "销售数字员工读 sponsor 的客户 → PRINCIPAL 命中");
+  const other = decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: repB, resource: { type: "sales_customer", ownerId: "lynn", orgId: "org1" } });
+  ok(!other.allowed && other.reasonCode === "RESOURCE_OUT_OF_SCOPE", "销售数字员工读其他销售的客户 → 拒绝");
+  const self = decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: repB, resource: { type: "sales_customer", ownerId: "agent1", orgId: "org1" } });
+  ok(!self.allowed, "资源 owner = Agent id 本身不算 PRINCIPAL 命中");
+  ok(decideFromBindings({ principal: de, permission: "sales.quote.read", bindings: repB }).allowed, "绑定 sales_rep 的数字员工不带资源读报价 → 允许");
+  const noSponsor: PrincipalRef = { type: "DIGITAL_EMPLOYEE", id: "agent1", orgId: "org1" };
+  const ns = decideFromBindings({ principal: noSponsor, permission: "sales.quote.read", bindings: repB });
+  ok(!ns.allowed && ns.reasonCode === "NO_USABLE_SCOPE", "无 sponsor 的数字员工：PRINCIPAL 范围不可用");
+  ok(decideFromBindings({ principal: de, permission: "sales.customer.read", bindings: [] }).reasonCode === "NO_BINDING", "无绑定的数字员工 → NO_BINDING");
+}
+
 (async () => {
   const unknown = await authorize({
     principal,
@@ -189,7 +485,22 @@ ok(allowOnly.allowed && allowOnly.matchedScope === "ORG", "仅 ALLOW:ORG → 允
     orgId: "org1",
     permission: "sales.customer.read",
   });
-  ok(digiAuth.reasonCode === "NOT_IMPLEMENTED", "DIGITAL_EMPLOYEE authorize fail closed");
+  ok(digiAuth.reasonCode === "SPONSOR_REQUIRED", "PERM-5b：DIGITAL_EMPLOYEE 无 sponsor authorize fail closed（不读库）");
+
+  console.log("PERM-6a 外贸权限键与模板");
+  {
+    const tradeKeys = ["trade.read", "trade.manage", "trade.settings.manage"];
+    ok(tradeKeys.every((k) => isKnownPermission(k)), "外贸三键已登记");
+    ok(tradeKeys.every((k) => JSON.stringify(getPermissionDefinition(k)?.allowedPrincipalTypes) === '["HUMAN"]'), "外贸三键只允许人类主体");
+    ok(tradeKeys.every((k) => JSON.stringify(getPermissionDefinition(k)?.supportedScopes) === '["ORG"]'), "外贸三键范围 ORG");
+    const sys = (key: string) => new Set((SYSTEM_ROLE_PROFILES.find((p) => p.key === key)?.bindings ?? []).map((b) => b.permissionKey));
+    ok(sys("trade_rep").has("trade.read") && sys("trade_rep").has("trade.manage") && !sys("trade_rep").has("trade.settings.manage"), "trade_rep：读写，无设置");
+    ok(tradeKeys.every((k) => sys("org_owner").has(k)), "系统 org_owner：外贸三键");
+    ok(sys("org_admin").has("trade.settings.manage") && !sys("org_admin").has("trade.read") && !sys("org_admin").has("trade.manage"), "系统 org_admin：只有外贸设置键");
+    const owner = new Set(mergedProfileBindings(WC, "owner").map((b) => b.permissionKey));
+    ok(tradeKeys.every((k) => owner.has(k)), "窗饰 owner：外贸三键");
+    ok(!new Set(mergedProfileBindings(WC, "sales_rep").map((b) => b.permissionKey)).has("trade.read"), "窗饰 sales_rep：无外贸");
+  }
 
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

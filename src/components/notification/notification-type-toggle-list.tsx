@@ -13,6 +13,15 @@ const LABELS: Record<string, string> = {
   agent_approval: "AI 审批通知",
   quote_signed: "客户签署报价",
   sales_daily_briefing: "每日销售简报",
+  install_completed: "安装完工（待收尾款）",
+  install_balance_confirmed: "尾款已确认",
+  install_warranty_sent: "质保邮件已发出",
+  install_warranty_failed: "质保邮件未发出",
+  install_repair_submitted: "返修单已提交",
+  install_repair_factory_issued: "返修件已出单",
+  install_repair_scheduled: "已安排返修",
+  install_repair_closed: "维修单作废 / 关闭不返修",
+  install_repair_overdue: "返修逾期提醒",
 };
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);

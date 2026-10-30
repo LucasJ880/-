@@ -23,6 +23,9 @@ interface DiscountsDto {
   sheer: number;
   shutters: number;
   honeycomb: number;
+  romanShade: number;
+  fauxwood: number;
+  allusion: number;
   sunnyMotorPrice: number;
   minInstallFee: number;
   deliveryFee: number;
@@ -49,6 +52,9 @@ const FIELDS: { key: keyof DiscountsDto; label: string }[] = [
   { key: "sheer", label: "Sheer" },
   { key: "shutters", label: "Shutters" },
   { key: "honeycomb", label: "Skylight Honeycomb" },
+  { key: "romanShade", label: "Roman Shade" },
+  { key: "fauxwood", label: "Fauxwood（仿木百叶）" },
+  { key: "allusion", label: "Allusion（梦幻帘）" },
 ];
 
 const THRESHOLD_FIELDS: { key: "promoWarnPct" | "promoDangerPct" | "promoMaxPct"; label: string; hint: string }[] = [
@@ -97,7 +103,7 @@ const COMMISSION_FIELDS: { key: "commissionMarginRate" | "commissionRate"; label
 
 type NumericDraftKey =
   | "zebra" | "shangrila" | "cellular" | "roller"
-  | "drapery" | "sheer" | "shutters" | "honeycomb"
+  | "drapery" | "sheer" | "shutters" | "honeycomb" | "romanShade" | "fauxwood" | "allusion"
   | "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
   | "depositWarnPct" | "depositMinPct"
   | "commissionMarginRate" | "commissionRate";
@@ -111,6 +117,9 @@ interface DraftMap {
   sheer: string;
   shutters: string;
   honeycomb: string;
+  romanShade: string;
+  fauxwood: string;
+  allusion: string;
   promoWarnPct: string;
   promoDangerPct: string;
   promoMaxPct: string;
@@ -136,6 +145,9 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     sheer: Math.round(d.sheer * 100).toString(),
     shutters: Math.round(d.shutters * 100).toString(),
     honeycomb: Math.round(d.honeycomb * 100).toString(),
+    romanShade: Math.round(d.romanShade * 100).toString(),
+    fauxwood: Math.round((typeof d.fauxwood === "number" ? d.fauxwood : 0.3) * 100).toString(),
+    allusion: Math.round((typeof d.allusion === "number" ? d.allusion : 0.35) * 100).toString(),
     promoWarnPct: Math.round(d.promoWarnPct * 100).toString(),
     promoDangerPct: Math.round(d.promoDangerPct * 100).toString(),
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),
@@ -163,7 +175,7 @@ export function DiscountSettingsCard() {
   const [draft, setDraft] = useState<DraftMap | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<"saved" | null>(null);
+  const [flash, setFlash] = useState<"saved" | "pending" | null>(null);
   // 品类成本率草稿（%字符串；空串=未配置该品类）
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -285,6 +297,14 @@ export function DiscountSettingsCard() {
         setError(data.error || "保存失败");
         return;
       }
+      // PERM-2：非平台管理员的修改进入审批，当前生效值不变
+      if (res.status === 202 && data?.pending) {
+        if (current) setDraft(toDraftMap(current));
+        setEditing(false);
+        setFlash("pending");
+        setTimeout(() => setFlash(null), 8000);
+        return;
+      }
       setCurrent(data);
       setDraft(toDraftMap(data));
       setEditing(false);
@@ -331,6 +351,11 @@ export function DiscountSettingsCard() {
           {flash === "saved" && (
             <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
               <Check size={12} /> 已保存
+            </span>
+          )}
+          {flash === "pending" && (
+            <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+              <ShieldCheck size={12} /> 已提交审批，等待另一位老板批准后生效
             </span>
           )}
           <button

@@ -40,10 +40,12 @@ export const STATUS_COLORS: Record<OrderStatus, string> = {
   cancelled: "bg-red-100 text-red-700",
 };
 
+// INSTALL-1：confirmed / in_production 可直接安排安装（scheduled），
+// 不强制经过 ready——现网工艺单流程不单独维护"待安装"。
 const TRANSITIONS: Record<string, string[]> = {
   draft: ["confirmed", "cancelled"],
-  confirmed: ["in_production", "cancelled"],
-  in_production: ["ready", "cancelled"],
+  confirmed: ["in_production", "ready", "scheduled", "cancelled"],
+  in_production: ["ready", "scheduled", "cancelled"],
   ready: ["scheduled", "cancelled"],
   scheduled: ["installed", "cancelled"],
   installed: ["completed"],

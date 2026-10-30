@@ -70,13 +70,21 @@ export default function BlindsOrdersPage() {
             Blinds 工艺单 · 创建、计算、管理订单
           </p>
         </div>
-        <Link
-          href="/blinds-orders/new"
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-[color:var(--on-accent)] shadow-sm transition-colors hover:bg-accent/90"
-        >
-          <Plus size={16} />
-          新建工艺单
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/blinds-orders/zebra-ratios"
+            className="rounded-lg border border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-[rgba(26,36,32,0.03)]"
+          >
+            斑马帘布纱比对照表
+          </Link>
+          <Link
+            href="/blinds-orders/new"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-[color:var(--on-accent)] shadow-sm transition-colors hover:bg-accent/90"
+          >
+            <Plus size={16} />
+            新建工艺单
+          </Link>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">

@@ -6,17 +6,16 @@
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_CONTENT_DRAFT } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 import { generateContentPlan } from "@/lib/operations/content-plan";
 
 export const POST = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权生成内容计划" }, { status: 403 });
-  }
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_CONTENT_DRAFT, "无权生成选题（需要运营起草权限）");
+  if (denied) return denied;
 
   let startDate: Date | undefined;
   if (body.startDate) {

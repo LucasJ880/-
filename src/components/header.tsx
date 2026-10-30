@@ -30,6 +30,7 @@ import { useLocale, LOCALE_LABELS } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/messages";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
+import { installNotificationHref } from "@/lib/install/balance";
 import { orgRoleLabel } from "@/lib/permissions-client";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
 
@@ -228,6 +229,7 @@ function NotificationPanel({
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -242,7 +244,10 @@ function NotificationPanel({
 
     apiFetch("/api/notifications/unread-count")
       .then((r) => r.json())
-      .then((d) => onCountChange(d.count ?? 0))
+      .then((d) => {
+        setUnreadTotal(d.count ?? 0);
+        onCountChange(d.count ?? 0);
+      })
       .catch(() => {});
   }, [onCountChange]);
 
@@ -292,16 +297,12 @@ function NotificationPanel({
           >
             {onlyUnread ? m.header_notif_only_unread : m.header_notif_show_unread}
           </button>
-          {unreadItems.length > 0 && (
+          {unreadTotal > 0 && (
             <button
               type="button"
               onClick={async () => {
-                const ids = unreadItems.map((i) => i.id);
-                await apiFetch("/api/notifications/batch", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ids, action: "mark_read" }),
-                });
+                // 本人全部未读（不只面板已加载的 12 条），与角标同一范围
+                await apiFetch("/api/notifications/read-all", { method: "POST" });
                 load();
               }}
               className="text-[11px] text-accent hover:text-accent-hover"
@@ -551,8 +552,17 @@ export function Header() {
   }, [searchOpen, closeSearch]);
 
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
-    if (item.entityType === "task" && item.entityId) {
+    // INSTALL-2b：完工 / 尾款确认通知的落点（与通知页同一规则）
+    const installHref = installNotificationHref(item);
+    if (installHref) {
+      if (item.orgId) persistSelectedOrgId(item.orgId);
+      window.location.href = installHref;
+    } else if (item.entityType === "task" && item.entityId) {
       window.location.href = `/tasks?open=${item.entityId}`;
+    } else if (item.entityType === "muse_inquiry" && item.entityId) {
+      window.location.href = `/sales/inquiries/${encodeURIComponent(item.entityId)}`;
+    } else if (item.entityType === "blinds_order" && item.entityId) {
+      window.location.href = `/blinds-orders/${encodeURIComponent(item.entityId)}`;
     } else if (item.entityType === "sales_quote" && item.entityId) {
       if (item.orgId) persistSelectedOrgId(item.orgId);
       const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";

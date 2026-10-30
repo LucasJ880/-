@@ -15,8 +15,9 @@ import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { RESPONSE_CLOCK_TOLERANCE_MS } from "@/lib/revenue-spine/sla-metrics";
 import { loadTierOwnedInquiryTimes, runRevenueSlaTiers, type SlaTier } from "@/lib/revenue-spine/sla-tiers";
-import { isManagementMember, type PushFn } from "@/lib/trade/booth-summary";
+import type { PushFn } from "@/lib/trade/booth-summary";
 import { loadInquiryThreads, type InquiryThread } from "@/lib/trade/inbox-service";
+import { isTradeManager, isTradeWorker, loadTradeMemberSignals } from "@/lib/trade/recipients";
 
 export const SLA_FIRST_RESPONSE_MINUTES = 5;
 export const SLA_ESCALATION_MINUTES = 24 * 60;
@@ -208,15 +209,10 @@ export async function runInquirySla(opts?: { now?: Date; push?: PushFn }): Promi
     const reminders = decideInquiryReminders(pending);
     if (reminders.length === 0) continue;
 
-    const members = await db.organizationMember.findMany({
-      where: { orgId, status: "active" },
-      select: { userId: true, role: true, user: { select: { role: true } } },
-    });
-    const tradeUsers = members
-      .filter((m) => ["trade", "boss", "manager", "admin", "super_admin"].includes(m.user.role))
-      .map((m) => m.userId);
-    // 24 小时升级发给管理层：与展会小结 / 早报 / 分级提醒同一规则（booth-summary.isManagementMember）
-    const leaders = members.filter(isManagementMember).map((m) => m.userId);
+    // PERM-6c：首次提醒发外贸工作收件人，24 小时升级发外贸管理层（与展会小结 / 早报 / 分级提醒同一规则，见 trade/recipients）
+    const { positionMode, members } = await loadTradeMemberSignals(orgId);
+    const tradeUsers = members.filter(isTradeWorker).map((m) => m.userId);
+    const leaders = members.filter((m) => isTradeManager(m, positionMode)).map((m) => m.userId);
 
     for (const r of reminders) {
       const targets = r.level === "escalation" ? leaders : tradeUsers;

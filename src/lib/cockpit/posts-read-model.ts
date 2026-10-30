@@ -85,7 +85,18 @@ export interface CockpitViewerDeps {
   >;
   /** OrganizationMember 的角色（仅 active）；非成员为 null */
   activeOrgRole(orgId: string, userId: string): Promise<string | null>;
-  isManagement(ctx: { platformRole: string; orgRole: string | null; hasMembership: boolean }): boolean;
+  /**
+   * 岗位权限键与岗位模式（PERM-4c2 起首页 `/` 在岗位模式企业按岗位键判管理层）；
+   * 与 resolveWorkspaceContextFromCookies 同源。未提供时按旧规则（只看平台角色 + 组织角色）。
+   */
+  positionContext?(orgId: string, userId: string): Promise<{ permissionKeys: string[] | null; positionMode: boolean }>;
+  isManagement(ctx: {
+    platformRole: string;
+    orgRole: string | null;
+    hasMembership: boolean;
+    permissionKeys?: string[] | null;
+    positionMode?: boolean;
+  }): boolean;
 }
 
 /** withAuth 之后：只读的 workforce 组织解析 → 组织角色 → 与首页 `/` 相同的管理层判定 */
@@ -96,7 +107,8 @@ export async function resolveCockpitViewer(
   const resolution = await deps.resolveOrg({ id: user.id, role: user.role });
   if (!resolution.ok) return resolution;
   const orgRole = await deps.activeOrgRole(resolution.orgId, user.id);
-  if (!deps.isManagement({ platformRole: user.role, orgRole, hasMembership: Boolean(orgRole) })) {
+  const position = deps.positionContext ? await deps.positionContext(resolution.orgId, user.id) : null;
+  if (!deps.isManagement({ platformRole: user.role, orgRole, hasMembership: Boolean(orgRole), ...(position ?? {}) })) {
     return { ok: false, status: 403, body: COCKPIT_FORBIDDEN_BODY };
   }
   return { ok: true, viewer: { user, orgId: resolution.orgId, orgRole } };
@@ -117,6 +129,11 @@ export function defaultCockpitViewerDeps(): CockpitViewerDeps {
         select: { role: true, status: true },
       });
       return member?.status === "active" ? member.role : null;
+    },
+    positionContext: async (orgId, userId) => {
+      const { loadPermissionKeys, loadPositionMode } = await import("@/lib/rbac/permission-keys");
+      const [permissionKeys, positionMode] = await Promise.all([loadPermissionKeys(userId, orgId), loadPositionMode(orgId)]);
+      return { permissionKeys, positionMode };
     },
     isManagement: (ctx) => canAccessManagementWorkspace(ctx),
   };

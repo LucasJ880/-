@@ -14,15 +14,15 @@ import {
 } from "@/lib/operations/playbook";
 
 export const GET = withAuth<{ id: string; playbookId: string }>(async (request, ctx, user) => {
-  if (!canReadPlaybook(user.role)) {
-    return NextResponse.json({ error: "无权查看 Playbook" }, { status: 403 });
-  }
   const { id: accountId, playbookId } = await ctx.params;
   const orgRes = await resolveRequestOrgIdForUser(
     user,
     request.nextUrl.searchParams.get("orgId"),
   );
   if (!orgRes.ok) return orgRes.response;
+  if (!(await canReadPlaybook(user, orgRes.orgId))) {
+    return NextResponse.json({ error: "无权查看 Playbook" }, { status: 403 });
+  }
 
   try {
     const playbook = await getPlaybookById(orgRes.orgId, playbookId);
@@ -39,13 +39,13 @@ export const GET = withAuth<{ id: string; playbookId: string }>(async (request, 
 });
 
 export const PATCH = withAuth<{ id: string; playbookId: string }>(async (request, ctx, user) => {
-  if (!canEditPlaybookDraft(user.role)) {
-    return NextResponse.json({ error: "无权编辑 Playbook" }, { status: 403 });
-  }
   const { id: accountId, playbookId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  if (!(await canEditPlaybookDraft(user, orgRes.orgId))) {
+    return NextResponse.json({ error: "无权编辑 Playbook" }, { status: 403 });
+  }
 
   try {
     const existing = await getPlaybookById(orgRes.orgId, playbookId);

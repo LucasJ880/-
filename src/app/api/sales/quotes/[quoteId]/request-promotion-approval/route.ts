@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/rbac/roles";
+import { authorize, humanPrincipal } from "@/lib/authorization";
 import { resolveSalesOrgIdForRequest } from "@/lib/sales/org-context";
+import { legacyApprovalFallback, listUsersWithPermission, pickApprovalRecipients } from "@/lib/sales/approvers";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { computePayloadHash } from "@/lib/capabilities/approvals/integrity";
 import { logAudit } from "@/lib/audit/logger";
@@ -37,8 +38,15 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (!quote) {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
-  if (quote.createdById !== user.id && !isAdmin(user.role)) {
-    return NextResponse.json({ error: "只能提交自己创建的报价单" }, { status: 403 });
+  // PERM-2：本人（PRINCIPAL）或持 ORG 范围报价修改权（合价 / 老板 / 平台管理员）可提交
+  const submitAuthz = await authorize({
+    principal: humanPrincipal(user, orgRes.orgId),
+    orgId: orgRes.orgId,
+    permission: "sales.quote.update",
+    resource: { type: "sales_quote", id: quote.id, ownerId: quote.createdById, orgId: orgRes.orgId },
+  });
+  if (!submitAuthz.allowed) {
+    return NextResponse.json({ error: "无权提交此报价单的审批", code: submitAuthz.reasonCode }, { status: 403 });
   }
 
   const settings = await db.quoteDiscountSettings.findUnique({
@@ -62,22 +70,18 @@ export const POST = withAuth(async (request, ctx, user) => {
     if (pending) return NextResponse.json({ ok: true, duplicate: true, approvalId: `PENDING_ACTION:${pending.id}`, quoteId: quote.id });
   }
 
-  const [organization, orgAdmins] = await Promise.all([
-    db.organization.findUnique({ where: { id: orgRes.orgId }, select: { ownerId: true } }),
-    db.organizationMember.findMany({
-      where: { orgId: orgRes.orgId, role: "org_admin", status: "active" },
-      select: { userId: true },
-    }),
+  // PERM-2：审批人 = 持 sales.quote.discount.over_limit.approve 的人（老板岗），排除提交人；无人时回退 ownerId + org_admin
+  const [holders, fallback] = await Promise.all([
+    listUsersWithPermission(orgRes.orgId, "sales.quote.discount.over_limit.approve"),
+    legacyApprovalFallback(orgRes.orgId),
   ]);
-
-  const recipientIds = new Set<string>([
-    ...(organization?.ownerId ? [organization.ownerId] : []),
-    ...orgAdmins.map((member) => member.userId),
-  ]);
+  const recipientIds = new Set<string>(
+    pickApprovalRecipients({ holders, fallback, requesterId: user.id }),
+  );
 
   if (recipientIds.size === 0) {
     return NextResponse.json(
-      { error: "系统中尚未配置可接收审核的企业管理员" },
+      { error: "系统中尚未配置可审批超限折扣的人（老板岗位），请联系平台管理员" },
       { status: 409 },
     );
   }

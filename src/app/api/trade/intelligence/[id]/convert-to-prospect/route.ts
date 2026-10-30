@@ -3,8 +3,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { db } from "@/lib/db";
 import { convertCaseToTradeProspect } from "@/lib/trade/intelligence-service";
 import type { ConvertIntelligenceBody } from "@/lib/trade/intelligence-types";
@@ -13,7 +16,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = (await request.json().catch(() => ({}))) as ConvertIntelligenceBody & { orgId?: string };
