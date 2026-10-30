@@ -33,7 +33,7 @@
 
 #### Scenario: 调度表与 vercel.json 对照
 - **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/schedule.test.ts`
-- **THEN** 28 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
+- **THEN** 30 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
 
 #### Scenario: 新增自动化未配调度
 - **WHEN** 自动化注册表新增一个键而调度表未配

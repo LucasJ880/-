@@ -178,7 +178,7 @@ async function main() {
     ok(res.orgId === "org-1" && res.heartbeatScope === "platform" && res.timezone === "America/Toronto" && res.generatedAt === NOW.toISOString(), "顶层字段");
     ok(res.posts.every((p) => ["key", "name", "nav", "health", "heartbeat", "nextDueAt", "automations", "pendingApprovals", "needsYou", "actions7d", "kpi"].every((f) => f in p)), "每个岗位含全部字段");
     const sales = res.posts[0];
-    ok(sales.automations.length === 7 && sales.automations.some((a) => a.key === "trade-daily"), "automations 恰好是注册表里的自动化");
+    ok(sales.automations.length === 9 && sales.automations.some((a) => a.key === "trade-daily") && sales.automations.some((a) => a.key === "calendar-watch"), "automations 恰好是注册表里的自动化");
     ok(sales.heartbeat?.automationKey === "inquiry-sla", "心跳取开始最晚的一次运行", sales.heartbeat);
     ok(sales.health === "never_ran", "询盘销售：trade-followup 等从未运行 → never_ran", sales.automations.map((a) => `${a.key}:${a.health}`));
     ok(sales.nextDueAt === "2026-10-26T12:05:00.000Z", "岗位 nextDueAt 取最早（inquiry-sla 每 5 分钟）", sales.nextDueAt);

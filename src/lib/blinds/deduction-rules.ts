@@ -1,13 +1,15 @@
 /**
  * Blinds 工艺单减尺规则
- * 规则版本: blinds_20251024_v1
- * 来源: Blinds 工艺单_圆盒侧盖加厚标准版20251024.xlsx → 盖盒Ref sheet
+ * 规则版本: blinds_20261027_v2
+ * 来源: Blinds 工艺单_圆盒侧盖加厚标准版（20241007 新）→ 盖盒Ref sheet
+ *       SHA-256 85d45d6277624e35091b5e433e828cdde4d58c103bbc2319f29c6a4d56871e0c
+ * 与原件逐值对照：src/lib/sunny-process/__tests__/blinds-oracle.test.ts
  *
  * 结构: DEDUCTION_RULES[操控方式][罩盒类型][配件类型] = 减尺值（英寸）
  * 减尺值为负数或零，表示从测量宽度上减去的量
  */
 
-export const RULE_VERSION = "blinds_20251024_v1";
+export const RULE_VERSION = "blinds_20261027_v2";
 
 export type ControlType = "普通" | "无绳" | "电动";
 export type HeadrailType =
@@ -47,7 +49,8 @@ export type ProductType = (typeof PRODUCT_TYPES)[number];
 
 export const MEASURE_TYPES = ["IN", "OUT", "Tight"] as const;
 export const CONTROL_SIDES = ["L", "R", "M"] as const;
-export const MOUNT_TYPES = ["顶装", "侧装"] as const;
+// 墙装：报价 Order Form 的 Bracket W；侧装为历史手录值，保留
+export const MOUNT_TYPES = ["顶装", "墙装", "侧装"] as const;
 
 // OUT/Tight 测量方式额外加值: 3/16 英寸
 export const OUT_TIGHT_ADDITION = 3 / 16; // 0.1875
@@ -99,42 +102,36 @@ export const DEDUCTION_RULES: Record<
 };
 
 /**
- * 纵向Ref 参数 — 用于面料长度计算（斑马帘专用）
- * 第一版仅支持 3:2 布纱比
+ * 斑马帘裁剪位（纵向Ref 第 28 行模板）
+ *   c = frac((高 − 0.1 − 0.1) / (布+纱)) × (布+纱) + 0.5
+ *   c < 布 → round(c, 4)；否则 round(c − 布, 4)
+ * 原件对任意布纱比生效（布纱比取自工艺单 L/M 列，含 3 2/16 : 2 2/16 这类分数比）。
  */
-export const VERTICAL_REF = {
-  "3:2": {
-    fabricLength: 3,
-    silkLength: 2,
-    total: 5,
-    cuttingEdge: 0.8,
-    tubeDiameter: 1.5,
-    tubeCycle: 1.5 * Math.PI, // ≈ 4.7124
-    belowRodLength: 1,
-    cassetteAdjustment: 0.49,
-    downDropAdjustment: 1.31,
-  },
-} as const;
+export const ZEBRA_CUT_TOP_TRIM = 0.1;
+export const ZEBRA_CUT_BOTTOM_TRIM = 0.1;
+export const ZEBRA_CUT_OFFSET = 0.5;
 
-export const SUPPORTED_FABRIC_RATIOS = ["3:2"] as const;
+/** 布纱比未知时的默认值（原件 3:2 为最常见比；默认值会进待核对） */
+export const DEFAULT_ZEBRA_RATIO = { fabric: 3, silk: 2 } as const;
 
 /**
- * 拉绳长度分档表（操控方式 = 普通）
- * 输入: 测量高度 × 0.8 × 0.0254（转米）
- * 输出: "长绳 & 短绳" 格式
+ * 拉绳分档表（操控方式 = 普通）——工艺组装第 1 窗位模板 K5 公式
+ * 输入: 测量高度 × 0.8 × 0.0254（米）
+ *   < 0.1 → 无；≤0.6；≤0.8；≤1.0；≤1.2；<1.5（注意是严格小于）；≤1.8；≤2.0；≤2.2；其余
+ * 输出文本与原件逐字一致（"1.0 & 0.7"，保留一位小数）
  */
-export const CORD_LENGTH_TABLE = [
-  { maxMeters: 0.1, long: 0, short: 0 },
-  { maxMeters: 0.7, long: 0.6, short: 0.3 },
-  { maxMeters: 0.8, long: 0.8, short: 0.5 },
-  { maxMeters: 1.0, long: 1.0, short: 0.7 },
-  { maxMeters: 1.3, long: 1.2, short: 0.9 },
-  { maxMeters: 1.6, long: 1.4, short: 1.1 },
-  { maxMeters: 1.8, long: 1.7, short: 1.4 },
-  { maxMeters: 2.0, long: 2.0, short: 1.7 },
-  { maxMeters: 2.2, long: 2.0, short: 1.7 },
-  { maxMeters: Infinity, long: 2.4, short: 2.1 },
-] as const;
+export const CORD_MIN_METERS = 0.1;
+export const CORD_LENGTH_TABLE: ReadonlyArray<{ max: number; inclusive: boolean; label: string }> = [
+  { max: 0.6, inclusive: true, label: "0.6 & 0.3" },
+  { max: 0.8, inclusive: true, label: "0.8 & 0.5" },
+  { max: 1.0, inclusive: true, label: "1.0 & 0.7" },
+  { max: 1.2, inclusive: true, label: "1.2 & 0.9" },
+  { max: 1.5, inclusive: false, label: "1.4 & 1.1" },
+  { max: 1.8, inclusive: true, label: "1.7 & 1.4" },
+  { max: 2.0, inclusive: true, label: "2.0 & 1.7" },
+  { max: 2.2, inclusive: true, label: "2.0 & 1.7" },
+];
+export const CORD_LENGTH_TOP_LABEL = "2.4 & 2.1";
 
 /**
  * 排序权重编码

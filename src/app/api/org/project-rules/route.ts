@@ -6,7 +6,7 @@ import {
   listOrgProjectRules,
 } from "@/lib/projects/org-rules";
 import { db } from "@/lib/db";
-import { hasOrgRole } from "@/lib/rbac/roles";
+import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
@@ -39,8 +39,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
     select: { role: true },
   });
   const canDecide =
-    user.role === "admin" ||
-    user.role === "super_admin" ||
+    isSuperAdmin(user.role) ||
     (!!membership && hasOrgRole(membership.role, "org_admin"));
   if (!canDecide) {
     return NextResponse.json({ error: "仅组织管理员可确认规则" }, { status: 403 });

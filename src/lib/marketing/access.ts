@@ -1,3 +1,5 @@
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
+import { canAccessMarketingWorkspace } from "@/lib/marketing/route-access";
 import { NextResponse } from "next/server";
 import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -13,7 +15,7 @@ export async function getMarketingBrandProfileAccess(
     select: { role: true, status: true },
   });
   return {
-    canEdit: canEditMarketingBrandProfile(user.role, membership),
+    canEdit: await canEditMarketingBrandProfile(user, orgId),
     membershipRole: membership?.status === "active" ? membership.role : null,
   };
 }
@@ -28,6 +30,19 @@ export async function requireMarketingWriteAccess(
     { error: "当前账号为只读成员，无法修改增长中心数据" },
     { status: 403 },
   );
+}
+
+/**
+ * PERM-4c5：增长中心只读接口在岗位模式企业按岗位派生平台角色拦销售（等同旧模式中间件对平台角色 sales 的拦截；
+ * 压扁后 JWT 角色为 user，中间件放行，由这里拦）。旧模式企业派生角色 = 平台角色，结果与中间件一致。
+ */
+export async function requireMarketingReadAccess(
+  user: AuthUser,
+  orgId: string,
+): Promise<NextResponse | null> {
+  const role = await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role });
+  if (canAccessMarketingWorkspace(role)) return null;
+  return NextResponse.json({ error: "销售账号无权访问营销工作区" }, { status: 403 });
 }
 
 /**

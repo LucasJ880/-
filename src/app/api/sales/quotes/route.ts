@@ -13,10 +13,14 @@ import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
 import { getAddonDef } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
-import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from '@/lib/blinds/discount-settings';
+import { stampPricelistVersion } from '@/lib/blinds/pricelist-version';
 import { costRateForProduct, snapshotCostPrice } from '@/lib/blinds/cost-rates';
-import { isAdmin } from '@/lib/rbac/roles';
+import { isPlatformSuperAdmin } from '@/lib/rbac/roles';
 import { logAudit } from '@/lib/audit/logger';
+import { authorize, humanPrincipal } from '@/lib/authorization';
+import { loadPricingPolicy } from '@/lib/sales/pricing-policy';
+import { decideDiscountTier, promotionApprovalDataForTier } from '@/lib/sales/discount-tier';
 
 /**
  * POST /api/sales/quotes
@@ -131,10 +135,24 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   // —— 尝试 pricing 计算；失败也不抛错 ——
   const quoteSettings = await loadDiscountsDto(requestOrgId);
+  // PERM-2：折扣三档（销售上限 / 合价上限 / 审批）；能力位只来自 authorize，平台 admin 不再直批
+  const pricingPolicy = await loadPricingPolicy(requestOrgId, quoteSettings.promoMaxPct);
+  const overLimitSubmit = await authorize({
+    principal: humanPrincipal(user, requestOrgId),
+    orgId: requestOrgId,
+    permission: 'sales.quote.discount.over_limit.submit',
+  });
+  const tierDecision = decideDiscountTier({
+    ratio: typeof finalDiscountPct === 'number' ? finalDiscountPct : null,
+    promoMaxPct: pricingPolicy.promoMaxPct,
+    leadMaxPct: pricingPolicy.leadMaxPct,
+    actor: { isPlatformSuperAdmin: isPlatformSuperAdmin(user.role), canSubmitOverLimit: overLimitSubmit.allowed },
+  });
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
-      items: items || [],
+      // 2026-10-28：没有行级覆盖的行套企业折扣（含 settingsJson 里的 fauxwood / allusion），与客户端预览同源
+      items: applyOrgDiscountDefaults(items || [], dtoToProductDiscounts(quoteSettings)),
       addons,
       installMode,
       deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
@@ -218,7 +236,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
       taxAmount: calc.taxAmount,
       grandTotal: calc.grandTotal,
       notes: mergedNotes,
-      formDataJson: formDataJson || null,
+      // 2026-10-28：价表版本写进表单数据（零 schema，design D5）
+      formDataJson: stampPricelistVersion(formDataJson) || null,
       totalMsrp: typeof totalMsrp === 'number' && Number.isFinite(totalMsrp) ? totalMsrp : null,
       specialPromotion:
         typeof specialPromotion === 'number' && Number.isFinite(specialPromotion)
@@ -228,18 +247,13 @@ export const POST = withAuth(async (request, _ctx, user) => {
         typeof finalDiscountPct === 'number' && Number.isFinite(finalDiscountPct)
           ? Math.max(0, Math.min(1, finalDiscountPct))
           : null,
-      ...(typeof finalDiscountPct === 'number' && finalDiscountPct > quoteSettings.promoMaxPct
-        ? isAdmin(user.role)
-          ? {
-              promotionApprovalStatus: 'approved',
-              promotionApprovalAmount: Math.max(0, specialPromotion ?? 0),
-              promotionApprovalRatio: Math.max(0, Math.min(1, finalDiscountPct)),
-              promotionApprovalMaxPct: quoteSettings.promoMaxPct,
-              promotionApprovedAt: new Date(),
-              promotionApprovedById: user.id,
-            }
-          : { promotionApprovalStatus: 'required' }
-        : { promotionApprovalStatus: 'not_required' }),
+      ...promotionApprovalDataForTier({
+        decision: tierDecision,
+        ratio: typeof finalDiscountPct === 'number' ? finalDiscountPct : null,
+        amount: specialPromotion,
+        promoMaxPct: quoteSettings.promoMaxPct,
+        userId: user.id,
+      }),
       agreedDepositAmount: agreed.agreedDepositAmount,
       agreedBalanceAmount: agreed.agreedBalanceAmount,
       createdById: user.id,
@@ -285,14 +299,22 @@ export const POST = withAuth(async (request, _ctx, user) => {
     include: { items: true, addons: true },
   });
 
-  if (isAdmin(user.role) && typeof finalDiscountPct === 'number' && finalDiscountPct > quoteSettings.promoMaxPct) {
+  if (tierDecision.auditVia) {
     await logAudit({
       userId: user.id,
       orgId: requestOrgId,
       action: 'quote_promotion_approved',
       targetType: 'sales_quote',
       targetId: quote.id,
-      afterData: { via: 'admin_direct_confirmation', promotionAmount: specialPromotion ?? 0, promotionRatio: finalDiscountPct, maxPct: quoteSettings.promoMaxPct },
+      afterData: {
+        via: tierDecision.auditVia,
+        tier: tierDecision.tier,
+        selfApproved: tierDecision.selfApproved,
+        promotionAmount: specialPromotion ?? 0,
+        promotionRatio: finalDiscountPct,
+        maxPct: quoteSettings.promoMaxPct,
+        leadMaxPct: pricingPolicy.leadMaxPct,
+      },
     });
   }
 

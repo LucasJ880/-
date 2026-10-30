@@ -9,6 +9,7 @@
  * Commit 6：决策后 reconcile AgentRun，响应附带最新 Run DTO。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { NextResponse, after } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
@@ -95,10 +96,12 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
       );
     }
   }
+  // PERM-4c5：岗位模式企业的审批决策与执行可见范围取岗位派生平台角色
+  const aiRole = await resolveEffectivePlatformRole({ userId: user.id, orgId: orgRes.orgId, platformRole: user.role });
   if (
     !(await canDecideTeamApproval(action, {
       userId: user.id,
-      role: user.role,
+      role: aiRole,
       orgId: orgRes.orgId,
     }))
   ) {
@@ -111,7 +114,7 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
   if (decision === "approve") {
     const result = await approveApprovalItem("pending_action", id, {
       userId: user.id,
-      role: user.role,
+      role: aiRole,
       orgId: orgRes.orgId,
     });
     if (!result.ok && !result.duplicate) {
@@ -140,7 +143,7 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
   if (decision === "reject") {
     const result = await rejectApprovalItem("pending_action", id, {
       userId: user.id,
-      role: user.role,
+      role: aiRole,
       orgId: orgRes.orgId,
       note: reason,
     });

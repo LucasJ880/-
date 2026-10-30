@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { requireMarketingWriteAccess } from "@/lib/marketing/access";
+import { requireMarketingWriteAccess, requireMarketingReadAccess } from "@/lib/marketing/access";
 import { createDraft } from "@/lib/pending-actions/drafts";
 import { logAudit } from "@/lib/audit/logger";
 import { ensureGrowthCenterProject, resolveMarketingLeader } from "@/lib/marketing/team";
@@ -10,6 +10,9 @@ import { ensureGrowthCenterProject, resolveMarketingLeader } from "@/lib/marketi
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  // PERM-4c5：岗位模式企业按岗位派生平台角色拦销售（压扁后中间件不再拦）
+  const readDenied = await requireMarketingReadAccess(user, orgRes.orgId);
+  if (readDenied) return readDenied;
   const campaigns = await db.marketingCampaign.findMany({
     where: { orgId: orgRes.orgId },
     include: { assets: true, publications: true, experiments: true, _count: { select: { attributions: true } } },

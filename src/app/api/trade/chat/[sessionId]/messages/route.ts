@@ -10,11 +10,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { requireRole } from "@/lib/auth/guards";
+
 import { db } from "@/lib/db";
 import { processChat, processChatV2, type ChatMessage } from "@/lib/trade/chat-assistant";
 import { extractMemoriesFromConversation, saveMemories } from "@/lib/ai/user-memory";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import {
   attachmentBlobPathBelongsTo,
   attachmentsTitleSource,
@@ -29,7 +33,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => ({}));

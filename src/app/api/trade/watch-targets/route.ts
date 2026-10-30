@@ -4,12 +4,17 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
 import { createWatchTarget, listWatchTargets } from "@/lib/trade/watch-service";
-import { loadTradeProspectForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  loadTradeProspectForOrg,
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  TRADE_READ_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_READ_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const url = new URL(request.url);
@@ -32,7 +37,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);

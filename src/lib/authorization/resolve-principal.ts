@@ -1,5 +1,7 @@
 /**
- * Security-1：解析 Principal（当前仅 HUMAN）
+ * Security-1：解析 Principal
+ * PERM-5b：DIGITAL_EMPLOYEE 必须带 sponsor（数据范围落在 sponsor 名下）；
+ * 从 Agent 记录解析数字员工见 ./digital-employee.ts resolveDigitalEmployeePrincipal。
  */
 
 import type { AuthUser } from "@/lib/auth";
@@ -28,14 +30,25 @@ export function resolvePrincipalRef(opts: {
     };
   }
   if (opts.type === "DIGITAL_EMPLOYEE") {
+    if (!opts.sponsorUserId) {
+      return {
+        ok: false,
+        result: {
+          allowed: false,
+          permission: "*",
+          scopes: [],
+          sourceBindings: [],
+          reasonCode: "SPONSOR_REQUIRED",
+        },
+      };
+    }
     return {
-      ok: false,
-      result: {
-        allowed: false,
-        permission: "*",
-        scopes: [],
-        sourceBindings: [],
-        reasonCode: "NOT_IMPLEMENTED",
+      ok: true,
+      principal: {
+        type: "DIGITAL_EMPLOYEE",
+        id: opts.id,
+        orgId: opts.orgId,
+        sponsorUserId: opts.sponsorUserId,
       },
     };
   }

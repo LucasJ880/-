@@ -8,7 +8,7 @@ export type PrincipalRef = {
   type: PrincipalType;
   id: string;
   orgId: string;
-  /** 数字员工赞助人（本阶段未实现） */
+  /** PERM-5b：数字员工的 sponsor（Agent 创建人）；PRINCIPAL / ASSIGNED 范围按它判 */
   sponsorUserId?: string;
 };
 

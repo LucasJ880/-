@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { authorize, humanPrincipal } from '@/lib/authorization';
 import { db } from '@/lib/db';
-import { isAdmin } from '@/lib/rbac/roles';
 import { onDealWon, onDealLost } from '@/lib/sales/opportunity-lifecycle';
 import {
   resolveSalesOrgIdForRequest,
@@ -22,7 +21,8 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: '机会不存在' }, { status: 404 });
   }
 
-  if (!isAdmin(user.role)) {
+  {
+    // PERM-4a：不再因平台角色跳过；super_admin 由平台管理员全权解析覆盖
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -115,7 +115,8 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: '机会不存在' }, { status: 404 });
   }
 
-  if (!isAdmin(user.role)) {
+  {
+    // PERM-4a：不再因平台角色跳过；super_admin 由平台管理员全权解析覆盖
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,

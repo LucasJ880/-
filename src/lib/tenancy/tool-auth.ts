@@ -1,6 +1,8 @@
 /**
  * Agent 工具租户授权 — 以 TenantContext.orgRole 为准，禁止仅凭平台 role 放行。
  * Phase 3A-3：接入 workspaceRole；返回 allowed / requiresApproval / appliedPolicies
+ * PERM-5b：可选 principal（HUMAN / DIGITAL_EMPLOYEE + 岗位权限键）与工具 requiredPermission；
+ *   不传 principal = 人类，行为与之前一致。
  */
 
 import type { ToolDefinition, ToolRisk } from "@/lib/agent-core/types";
@@ -24,7 +26,9 @@ export type ToolAuthDenyCode =
   | "risk_too_high"
   | "workspace_denied"
   | "viewer_write_denied"
-  | "workspace_role_denied";
+  | "workspace_role_denied"
+  | "permission_denied"
+  | "permission_required";
 
 export type AppliedPolicy = {
   scope: "PLATFORM" | "ORGANIZATION" | "WORKSPACE";
@@ -114,7 +118,15 @@ export type CanInvokeToolInput = {
     "userId" | "orgId" | "orgRole" | "isPlatformAdmin" | "workspaceIds"
   >;
   hasMembership: boolean;
-  tool: Pick<ToolDefinition, "name" | "domain" | "risk" | "allowRoles">;
+  tool: Pick<ToolDefinition, "name" | "domain" | "risk" | "allowRoles" | "requiredPermission">;
+  /**
+   * PERM-5b：调用主体。数字员工时 tenant.orgRole 填 sponsor 的企业角色（viewer / 工作区收紧照旧生效）；
+   * permissionKeys 由 authorization/resolveAllowedPermissionKeys 得出。不传 = 人类、无权限键（走 allowRoles）。
+   */
+  principal?: {
+    type: "HUMAN" | "DIGITAL_EMPLOYEE";
+    permissionKeys?: readonly string[];
+  };
   workspaceId?: string;
   /** Phase 3A-3：Workspace 角色（不可信前端；应由后端解析后传入） */
   workspaceRole?: string | null;
@@ -262,13 +274,33 @@ export function canInvokeTool(input: CanInvokeToolInput): ToolAuthDecision {
     );
   }
 
-  const allow = tool.allowRoles ?? (["admin"] as const);
-  if (!orgRoleSatisfiesAllowTags(orgRole, allow as readonly PlatformRole[] | "*")) {
+  const isDigitalEmployee = input.principal?.type === "DIGITAL_EMPLOYEE";
+  const permissionKeys = input.principal?.permissionKeys;
+  if (tool.requiredPermission && permissionKeys) {
+    appliedPolicies.push({ scope: "ORGANIZATION", policyId: `permission:${tool.requiredPermission}`, version: 1 });
+    if (!permissionKeys.includes(tool.requiredPermission)) {
+      return deny(
+        "permission_denied",
+        `缺少岗位权限 ${tool.requiredPermission}，不能调用工具 ${tool.name}`,
+        appliedPolicies,
+      );
+    }
+  } else if (isDigitalEmployee) {
+    // 数字员工没有企业角色白名单可回退：未声明所需权限（或未给权限键）一律拒
     return deny(
-      "org_role_denied",
-      `当前组织角色（${orgRole}）无权调用工具 ${tool.name}`,
+      "permission_required",
+      `数字员工只能调用声明了所需权限的工具（${tool.name} 未声明或主体未带权限键）`,
       appliedPolicies,
     );
+  } else {
+    const allow = tool.allowRoles ?? (["admin"] as const);
+    if (!orgRoleSatisfiesAllowTags(orgRole, allow as readonly PlatformRole[] | "*")) {
+      return deny(
+        "org_role_denied",
+        `当前组织角色（${orgRole}）无权调用工具 ${tool.name}`,
+        appliedPolicies,
+      );
+    }
   }
 
   // 会话 maxRisk + Workspace 收紧（取更严者）；Workspace 不可放宽 Org
@@ -306,7 +338,9 @@ export function canInvokeTool(input: CanInvokeToolInput): ToolAuthDecision {
     forceApproval === true ||
     toolPolicy?.forceApprovalTools?.includes(tool.name) === true ||
     workspaceToolPolicy?.forceApprovalTools?.includes(tool.name) === true ||
-    risk === "l3_strong";
+    risk === "l3_strong" ||
+    // PERM-5b：数字员工中高风险（规范化 sensitive_write 及以上）一律人工审批
+    (isDigitalEmployee && RISK_ORDER[risk] >= RISK_ORDER.l2_soft);
 
   // CRITICAL / l3_strong：workspace_admin 不得免审批
   return {

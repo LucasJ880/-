@@ -10,10 +10,10 @@
  *   - 学习只改"操作者本人"的那一条（调用方传 userId，本文件不跨用户写）。
  */
 
-import { MUSE_PREF_KEYS, type MusePrefKey } from "./contract";
+import { MUSE_INCOTERMS, MUSE_PREF_KEYS, type MusePrefKey } from "./contract";
 
 export const DEFAULT_SUPPLIERS_MAX = 5;
-export const PREF_INCOTERMS = ["EXW", "FOB", "CIF", "DDP", "DAP"] as const;
+export const PREF_INCOTERMS = MUSE_INCOTERMS;
 export type PrefIncoterm = (typeof PREF_INCOTERMS)[number];
 export const CHASE_AFTER_DAYS_RANGE = { min: 1, max: 60 } as const;
 

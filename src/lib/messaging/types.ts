@@ -89,7 +89,7 @@ export interface BindingInfo {
 /**
  * 角色 → 默认推送域映射
  *
- * admin/super_admin: 收到所有域
+ * super_admin（经 platformTier 归为 admin 档）: 收到所有域；平台 admin 按 user（PERM-7b）
  * trade: 外贸相关
  * sales: 销售相关
  * user:  项目/通用
