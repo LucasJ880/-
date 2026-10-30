@@ -31,6 +31,7 @@ import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
+import { BANNED_PHRASE_SKIPPED_REASON, recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
 import { allowedStyles, buildReferenceLines, buildReplyDraft, polishReplyDraftWithLlm, referenceProgramLines, sampleLineFor, type ReplyDraft } from "../reply-draft";
 import { buyerFacingOrgName, composeBoothFirstEmail, footerLines, notedFacts, policySignature, type BoothEmailTerms } from "../booth-email";
 import { renderPlainEmailHtml } from "../email-layout";
@@ -458,8 +459,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     await event("agent.output", `阶段 → ${stage}`, { decision: "qualify", stage, qualification: score.qualification });
 
     // ── Step 5 missing info ──
+    // 企业确认的草稿偏好（B-3）：开关关闭时为 null，追问与草稿走默认模板，逐字节不变
+    const draftPrefs = resolveDraftPreferences(policy);
+    if (draftPrefs?.ignored.length) {
+      await recordIgnoredDraftPreferencesSafe({ orgId, userId: principalUserId, ignored: draftPrefs.ignored, employeeKey: FDE_EMPLOYEE_KEY });
+    }
     const missing = computeMissingFields(fields);
-    const questions = buildClarifyingQuestions(missing, extraction.language, policy.followUp.maxQuestionsPerReply);
+    const questions = buildClarifyingQuestions(missing, extraction.language, policy.followUp.maxQuestionsPerReply, draftPrefs);
     base.missing = missing;
     base.questions = questions;
     await event("agent.output", `缺失信息 ${missing.length} 项，拟问 ${questions.length} 个问题`, {
@@ -495,8 +501,9 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         questions,
         knowledge,
         policy,
+        preferences: draftPrefs,
       };
-      const zhInput = { ...draftInput, language: "zh" as const, questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply) };
+      const zhInput = { ...draftInput, language: "zh" as const, questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply, draftPrefs) };
       draft = buildReplyDraft(draftInput);
       const facingName = buyerFacingOrgName(policy, org.name, draft.language);
       const branding = await loadEmailBranding(orgId, facingName);
@@ -554,7 +561,27 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         factsUsed: draft.factsUsed,
         pendingInternalConfirmation: draft.pendingInternalConfirmation,
         guardrailViolations: draft.guardrailViolations,
+        // 只记偏好键名（不记文案）；开关关闭时不出现
+        ...(draftPrefs
+          ? {
+              draftPreferences: {
+                applied: draftPrefs.applied,
+                ignored: draftPrefs.ignored.map((i) => i.key),
+                ...(draft.preferences?.bannedPhrasesSkipped ? { bannedPhrasesSkipped: draft.preferences.bannedPhrasesSkipped } : {}),
+              },
+            }
+          : {}),
       });
+      // 禁用词替换后多出守卫违规、这一封没替换：按引起违规的键名记审计（同组织同一组只记一次），让管理员能发现是哪一条
+      const skippedBanned = draft.preferences?.bannedPhrasesSkipped ?? [];
+      if (skippedBanned.length) {
+        await recordIgnoredDraftPreferencesSafe({
+          orgId,
+          userId: principalUserId,
+          ignored: skippedBanned.map((key) => ({ key, reason: BANNED_PHRASE_SKIPPED_REASON })),
+          employeeKey: FDE_EMPLOYEE_KEY,
+        });
+      }
 
       // ── Step 7 approval（唯一外部副作用入口）──
       // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）

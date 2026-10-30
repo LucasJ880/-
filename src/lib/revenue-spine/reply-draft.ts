@@ -7,6 +7,8 @@
  * - checkDraftGuardrails 在任何 LLM 润色之后再跑一次；违规回退到模板
  * - 企业在 commercialFacts 里确认过的参考值（MOQ / 大货周期）只能以模板生成的原句出现：
  *   守卫先剔除这些原句再按最严规则检查，润色后原句必须一字不差保留，否则回退模板
+ * - 企业确认的草稿偏好（B-3，policy.fde）只在调用方显式传入 preferences 时生效：问候 / 结束语 / 敬语 / 禁用词。
+ *   不传时每一行逻辑与偏好接入前相同（金样本 __tests__/fixtures/draft-golden-pre-b3.json 锁定）
  * - 本模块只产出草稿，不发送
  */
 
@@ -15,7 +17,7 @@ import { isAIConfigured } from "@/lib/ai/config";
 import type { FactoryKnowledgeBundle } from "./factory-knowledge";
 import { unsafeToRepeat } from "./inquiry-risks";
 import type { InquiryLanguage } from "./normalize";
-import { normalizeStyleCode, type RevenueSpinePolicy } from "./policy";
+import { normalizeStyleCode, type DraftPreferenceText, type RevenueSpinePolicy } from "./policy";
 import type { ClarifyingQuestion } from "./rfq/missing-info";
 import { RFQ_FIELD_LABELS, type RfqField, type RfqFields } from "./rfq/types";
 
@@ -38,6 +40,17 @@ export interface ReplyDraftInput {
   tradeShow?: { event: string | null; styles?: Array<{ code: string; name: string | null }> } | null;
   /** 展会卡等级（多张卡取最高）；C 级且企业开启 gradeCCatalogOnly 时只发目录、不追问 */
   boothGrade?: "A" | "B" | "C" | null;
+  /** 企业确认的草稿偏好（已校验，见 draft-preferences.ts）；不传 / null = 默认模板 */
+  preferences?: DraftTemplatePreferences | null;
+}
+
+/** 模板层用到的偏好（已通过校验：不含数字、不含商务承诺） */
+export interface DraftTemplatePreferences {
+  greeting: DraftPreferenceText;
+  closing: DraftPreferenceText;
+  valediction: DraftPreferenceText;
+  /** key：偏好键名（如 bannedPhrases[2]），替换被退回时用来记审计 */
+  bannedPhrases: ReadonlyArray<{ phrase: string; replacement: string; key?: string }>;
 }
 
 export interface ReplyDraft {
@@ -58,6 +71,13 @@ export interface ReplyDraft {
   referenceLines?: string[];
   /** 只发目录、不追问（展会 C 级）；无回复跟进据此跳过 */
   catalogOnly?: boolean;
+  /**
+   * 只在传入偏好时出现：
+   * - lines：草稿实际用到的偏好问候 / 结束语 / 敬语行（润色必须原样保留）；
+   * - bannedPhrases：禁用词（润色不得多用）；keptLines：不做替换的保护行（润色判定时排除）；
+   * - bannedPhrasesSkipped：替换后草稿多出了守卫违规，这一封没做替换；值是引起违规的禁用词键名（调用方记审计）。
+   */
+  preferences?: { lines: string[]; bannedPhrases: string[]; keptLines: string[]; bannedPhrasesSkipped?: string[] };
 }
 
 /** 剔除获准原句后按最严规则检查（原句以外不得出现任何数字承诺） */
@@ -261,6 +281,74 @@ export function checkDraftGuardrails(body: string, allowed: GuardrailAllowances 
   return [...new Set(violations)];
 }
 
+// ── 禁用词（B-3 草稿偏好） ─────────────────────────────────────
+
+const CJK_RE = /[\u3400-\u9fff]/;
+
+function bannedPhraseRe(phrase: string): RegExp {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // 含中文按子串；英文整词、不区分大小写（"inquiry" 不匹配 "inquiryForm"）
+  return CJK_RE.test(phrase) ? new RegExp(escaped, "g") : new RegExp(`(^|[^A-Za-z0-9])(${escaped})(?=$|[^A-Za-z0-9])`, "gi");
+}
+
+/** 句子里的链接不替换（"catalog" 不能把 https://…/catalog 改坏） */
+const URL_SPAN_SRC = String.raw`\b(?:[hH][tT][tT][pP][sS]?:\/\/|[wW][wW][wW]\.)\S+`;
+/** 挡住片段用的私用区分隔符（偏好校验禁止它们出现在禁用词与替换词里） */
+const HOLD_OPEN = "\uE000";
+const HOLD_CLOSE = "\uE001";
+
+function keepTermSrc(term: string): string {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // 拉丁字母开头 / 结尾的专名按词边界挡（专名 "Re" 不能挡住 "received" 的一部分）
+  return `${/^[A-Za-z0-9]/.test(term) ? "(?<![A-Za-z0-9])" : ""}${escaped}${/[A-Za-z0-9]$/.test(term) ? "(?![A-Za-z0-9])" : ""}`;
+}
+
+/**
+ * 按列出顺序逐条替换；英文句首大写的词替换后保持首字母大写；替换成空串时合并多余空格。
+ * 链接与 keepTerms（公司名、买家产品名、展会名、联系人名等嵌在模板句子里的专名）先一次性挡住，替换完再放回。
+ * 替换用函数形式：替换词里的 "$" 不当成替换模式。
+ */
+export function replaceBannedPhrases(
+  line: string,
+  phrases: ReadonlyArray<{ phrase: string; replacement: string }>,
+  keepTerms: readonly (string | null | undefined)[] = [],
+): string {
+  const terms = [...new Set(keepTerms.filter((t): t is string => !!t && t.length >= 2 && !t.includes(HOLD_OPEN) && !t.includes(HOLD_CLOSE)))].sort(
+    (a, b) => b.length - a.length,
+  );
+  const held: string[] = [];
+  // 一次扫描挡住全部片段：分隔符里的编号不会再被后面的专名（如款号 "10"）拆开
+  const holdRe = new RegExp([URL_SPAN_SRC, ...terms.map(keepTermSrc)].join("|"), "g");
+  const masked = line.replace(holdRe, (m) => `${HOLD_OPEN}${held.push(m) - 1}${HOLD_CLOSE}`);
+  let out = masked;
+  for (const { phrase, replacement } of phrases) {
+    const re = bannedPhraseRe(phrase);
+    out = CJK_RE.test(phrase)
+      ? out.replace(re, () => replacement)
+      : out.replace(re, (_m, pre: string, word: string) => {
+          const cap = /^[A-Z]/.test(word) && /^[a-z]/.test(replacement) ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
+          return `${pre}${cap}`;
+        });
+  }
+  if (out === masked) return line;
+  out = out.replace(/ {2,}/g, " ").replace(/ +([,.;:!?，。；：！？])/g, "$1");
+  if (!line.startsWith(" ")) out = out.replace(/^ +/, "");
+  return out.replace(new RegExp(`${HOLD_OPEN}(\\d+)${HOLD_CLOSE}`, "g"), (m, i: string) => held[Number(i)] ?? m);
+}
+
+/** 文本里禁用词出现的总次数（与替换同一匹配规则） */
+export function countBannedPhrases(text: string, phrases: readonly string[]): number {
+  return phrases.reduce((n, p) => n + (text.match(bannedPhraseRe(p))?.length ?? 0), 0);
+}
+
+/** 去掉保护行后的文本（润色判定禁用词时只看模板自己的句子） */
+function withoutLines(text: string, kept: ReadonlySet<string>): string {
+  return text
+    .split("\n")
+    .filter((l) => !kept.has(l))
+    .join("\n");
+}
+
 /** 整词 / 整短语包含（"m" 不算在 "blanket" 里） */
 function containsPhrase(haystack: string, phrase: string): boolean {
   const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -317,10 +405,54 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     fields.productName ??
     (met ? (lang === "zh" ? "您感兴趣的产品" : "the products we discussed") : lang === "zh" ? "您咨询的产品" : "the products you inquired about");
   const greetName = input.contactName ?? (lang === "zh" ? "您好" : "there");
+  const prefs = input.preferences ?? null;
+  // 偏好问候只在有联系人名时用（"Hi {name}," 没有名字就不成句）
+  // 函数形式替换：联系人名是买家给的，里面的 "$" 不能当替换模式
+  const prefGreeting = prefs && input.contactName && prefs.greeting[lang] ? prefs.greeting[lang]!.replace("{name}", () => input.contactName!) : null;
+  const prefClosing = prefs?.closing[lang] ?? null;
+  const prefValediction = prefs?.valediction[lang] ?? null;
   const questions = catalogOnly ? [] : input.questions.slice(0, input.policy.followUp.maxQuestionsPerReply);
   const confirmFacts = catalogOnly ? [] : facts;
   // 主题里的数量只用过了护栏的确认事实（单位里夹着折扣、价格、交期字样时，主题也不写）
   const subjectQty = facts.some((f) => f.field === "quantity") && fields.quantity ? fields.quantity : null;
+
+  // "需内部确认"段：价格 / MOQ / 交期等永远写明需内部确认，偏好不能改它
+  const pendingLine =
+    lang === "zh"
+      ? `关于${pending.join("、")}：${pending.length > 1 ? "以上均" : ""}需内部确认，我们会在收到上述信息后尽快给您正式答复。`
+      : `Regarding ${joinEn(pending)}: our team will confirm ${pending.length > 1 ? "these" : "this"} internally once we have the details above and revert to you with a formal reply.`;
+
+  /** 偏好实际用到的行：企业自己写的，不做禁用词替换；润色必须原样保留 */
+  const preferenceLines = [prefGreeting, prefClosing, prefValediction].filter((l): l is string => Boolean(l));
+  /**
+   * 禁用词只替换模板自己的句子。原样保留：需求复述、参考款、参考项目、条款原句与样品说明、"需内部确认"段、署名块、偏好行
+   * （复述改了就不是买家原意；条款原句必须一字不差，守卫靠它放行数字；需内部确认段不能被改成承诺）。
+   * 模板句子里嵌着的专名（公司名、买家产品名、展会名、联系人名、参考款）与链接也不替换。
+   */
+  const kept = new Set<string>();
+  const keepTerms = [orgName, input.orgName, input.companyName, fields.productName, met?.event, input.contactName, ...styles.flatMap((st) => [st.name, st.code])];
+  const applyBanned = (lines: readonly string[], phrases: ReadonlyArray<{ phrase: string; replacement: string }>) =>
+    lines.map((l) => (kept.has(l) ? l : replaceBannedPhrases(l, phrases, keepTerms))).join("\n");
+  /** 替换前的正文行（替换后多出守卫违规时退回它） */
+  const raw: { lines: string[] | null } = { lines: null };
+  const finishBody = (lines: string[]): string => {
+    raw.lines = lines;
+    if (!prefs?.bannedPhrases.length) return lines.join("\n");
+    const zh = lang === "zh";
+    for (const l of [
+      ...confirmFacts.map((f) => `- ${RFQ_FIELD_LABELS[f.field][lang]}${zh ? "：" : ": "}${f.value}`),
+      ...styles.map((st) => `- ${styleLabel(st, zh)}`),
+      // main 上 referenceProgramLines 已按语言返回成句
+      ...references,
+      ...termLines,
+      ...(sampleLine ? [sampleLine] : []),
+      pendingLine,
+      ...signOff(input.senderName, orgName, sig),
+      ...preferenceLines,
+    ])
+      kept.add(l);
+    return applyBanned(lines, prefs.bannedPhrases);
+  };
 
   let subject: string;
   let body: string;
@@ -331,7 +463,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       ? `感谢展位来访：${styleSubject(true) ?? product}${qty} — ${orgName}`
       : `回复：${product}${qty}询盘 — ${orgName}`;
     const lines: string[] = [];
-    lines.push(`${greetName}${input.contactName ? "，您好" : ""}：`);
+    lines.push(prefGreeting ?? `${greetName}${input.contactName ? "，您好" : ""}：`);
     lines.push("");
     if (met && styles.length) {
       lines.push(`感谢您${atEventZh}莅临 ${orgName} 的展位，很高兴与您交流。`);
@@ -364,20 +496,21 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       for (const r of references) lines.push(r);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
-      lines.push(`关于${pending.join("、")}：${pending.length > 1 ? "以上均" : ""}需内部确认，我们会在收到上述信息后尽快给您正式答复。`);
+      lines.push(pendingLine);
     }
     lines.push("");
-    lines.push("期待您的回复。");
+    lines.push(prefClosing ?? "期待您的回复。");
     lines.push("");
+    if (prefValediction) lines.push(prefValediction);
     lines.push(...signOff(input.senderName, orgName, sig));
-    body = lines.join("\n");
+    body = finishBody(lines);
   } else {
     const qty = subjectQty ? ` (${subjectQty}${fields.unit ? " " + fields.unit : " pcs"})` : "";
     subject = met
       ? `Great meeting you${met.event ? ` at ${met.event}` : ""} — ${styleSubject(false) ?? product}${qty} — ${orgName}`
       : `Re: Your inquiry${fields.productName ? ` about ${product}` : ""}${qty} — ${orgName}`;
     const lines: string[] = [];
-    lines.push(`Dear ${greetName},`);
+    lines.push(prefGreeting ?? `Dear ${greetName},`);
     lines.push("");
     if (met && styles.length) {
       lines.push(`Thank you for visiting the ${orgName} booth${met.event ? ` at ${met.event}` : ""} — it was a pleasure meeting you.`);
@@ -410,17 +543,40 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       for (const r of references) lines.push(r);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
-      lines.push(`Regarding ${joinEn(pending)}: our team will confirm ${pending.length > 1 ? "these" : "this"} internally once we have the details above and revert to you with a formal reply.`);
+      lines.push(pendingLine);
     }
     lines.push("");
-    lines.push("We look forward to hearing from you.");
+    lines.push(prefClosing ?? "We look forward to hearing from you.");
     lines.push("");
-    lines.push("Best regards,");
+    lines.push(prefValediction ?? "Best regards,");
     lines.push(...signOff(input.senderName, orgName, sig));
-    body = lines.join("\n");
+    body = finishBody(lines);
   }
 
-  const violations = checkDraftWithReferenceLines(`${subject}\n${body}`, referenceLines);
+  let violations = checkDraftWithReferenceLines(`${subject}\n${body}`, referenceLines);
+  // 禁用词替换后多出了守卫违规（如买家产品名 "samples kit" 遇上 "inquiry about → free" 拼成 "your free samples kit"）：这一封不做替换，回到替换前的正文
+  // （替换前就有的违规照常保留——不掩盖买家原文带来的问题；不让配置错误把每封草稿都拦在审批中心外）。
+  // 逐条试出是哪几条禁用词引起的，调用方据此按键名记审计
+  let bannedPhrasesSkipped: string[] = [];
+  const rawLines = raw.lines;
+  if (prefs?.bannedPhrases.length && rawLines) {
+    const plainBody = rawLines.join("\n");
+    if (plainBody !== body) {
+      const plain = checkDraftWithReferenceLines(`${subject}\n${plainBody}`, referenceLines);
+      const adds = (v: string[]) => v.some((x) => !plain.includes(x));
+      if (adds(violations)) {
+        const keyOf = (b: { key?: string }, i: number) => b.key ?? `bannedPhrases[${i}]`;
+        const culprits = prefs.bannedPhrases
+          .map((b, i) => ({ key: keyOf(b, i), adds: adds(checkDraftWithReferenceLines(`${subject}\n${applyBanned(rawLines, [b])}`, referenceLines)) }))
+          .filter((c) => c.adds)
+          .map((c) => c.key);
+        body = plainBody;
+        violations = plain;
+        // 单条都不引起、组合才引起时，记全部
+        bannedPhrasesSkipped = culprits.length ? culprits : prefs.bannedPhrases.map(keyOf);
+      }
+    }
+  }
   return {
     subject,
     body,
@@ -431,6 +587,16 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     templateOnly: true,
     referenceLines,
     catalogOnly,
+    ...(prefs
+      ? {
+          preferences: {
+            lines: preferenceLines,
+            bannedPhrases: prefs.bannedPhrases.map((b) => b.phrase),
+            keptLines: [...kept],
+            ...(bannedPhrasesSkipped.length ? { bannedPhrasesSkipped } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -449,6 +615,13 @@ export async function polishReplyDraftWithLlm(
   },
 ): Promise<ReplyDraft> {
   if (!ctx.complete && !isAIConfigured()) return draft;
+  const prefLines = draft.preferences?.lines ?? [];
+  const banned = draft.preferences?.bannedPhrases ?? [];
+  // 只在传入了偏好时追加约束；不传时提示词逐字不变
+  const preferencePrompt =
+    prefLines.length || banned.length
+      ? ` Copy these lines exactly as they are: ${prefLines.map((l) => JSON.stringify(l)).join(", ") || "(none)"}. Never use these phrases: ${banned.map((b) => JSON.stringify(b)).join(", ") || "(none)"}.`
+      : "";
   try {
     const polished = ctx.complete ? await ctx.complete(draft.body) : await createCompletion({
       systemPrompt:
@@ -457,7 +630,8 @@ export async function polishReplyDraftWithLlm(
         "except where they already appear in the input — any sentence that starts with \"For reference\", \"供参考\", \"Regarding samples\" or \"关于样品\" and any \"Loading ports\" / \"装运港\" line must be copied verbatim, character for character. " +
         "Keep the sign-off lines (name, title, company, WhatsApp, website) exactly as they are. " +
         "Never promise free samples, exclusivity, price matching, compensation or refunds, and never mention brands or characters. " +
-        "Keep the same language as the input. Output only the email body.",
+        "Keep the same language as the input. Output only the email body." +
+        preferencePrompt,
       userPrompt: draft.body,
       mode: "fast",
       temperature: 0.3,
@@ -479,6 +653,13 @@ export async function polishReplyDraftWithLlm(
     const questionCount = draft.body.split("\n").filter((l) => /^\d+\.\s/.test(l)).length;
     const polishedCount = body.split("\n").filter((l) => /^\d+\.\s/.test(l)).length;
     if (polishedCount < questionCount) return draft;
+    // 偏好（B-3）：偏好行必须原样保留；去掉原样保留的保护行后，禁用词不得比模板草稿多
+    // （LLM 改写了保护行，那一行就算进模板句子：把禁用词从复述行挪进模板句子也会被发现）
+    if (prefLines.some((l) => !body.includes(l))) return draft;
+    if (banned.length) {
+      const kept = new Set(draft.preferences?.keptLines ?? []);
+      if (countBannedPhrases(withoutLines(body, kept), banned) > countBannedPhrases(withoutLines(draft.body, kept), banned)) return draft;
+    }
     return { ...draft, body, guardrailViolations: violations, templateOnly: false };
   } catch (err) {
     console.warn("[revenue-spine] draft polish failed:", err instanceof Error ? err.message : err);

@@ -610,6 +610,8 @@ run_test "FDE 分级自治（B-5）" "npx tsx src/lib/revenue-spine/__tests__/au
 # FDE B-2（openspec change fde-fact-proposals）：人工回复 → 商务事实提案——纯逻辑 + 假依赖 + 源码断言，无 DB
 run_test "FDE 商务事实规则化抽取（B-2）" "npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts"
 run_test "FDE 商务事实提案（B-2）" "npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts"
+# FDE B-3（openspec change fde-preferences-in-draft）：草稿偏好（policy.fde）接入模板层——纯逻辑 + 金样本 + 假依赖 + 源码断言，无 DB
+run_test "FDE 草稿偏好（B-3）" "npx tsx src/lib/revenue-spine/__tests__/draft-preferences.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

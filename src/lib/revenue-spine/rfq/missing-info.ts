@@ -92,11 +92,20 @@ export interface ClarifyingQuestion {
   question: string;
 }
 
-/** 生成客户问题：feasibility → costing → lead time，最多 max 个 */
+/** 企业确认的追问偏好（B-3，已校验：字段都在 MISSING_FIELD_TIERS 里，免问不含必填字段） */
+export interface QuestionPreferences {
+  /** 必问：缺失时按列出顺序排在最前 */
+  priorityQuestions: readonly RfqField[];
+  /** 免问：不追问 */
+  skippedQuestions: readonly RfqField[];
+}
+
+/** 生成客户问题：feasibility → costing → lead time，最多 max 个；传了偏好时先问必问字段、去掉免问字段 */
 export function buildClarifyingQuestions(
   missing: RfqField[],
   language: InquiryLanguage,
   max: number,
+  prefs?: QuestionPreferences | null,
 ): ClarifyingQuestion[] {
   const lang: "zh" | "en" = language === "zh" ? "zh" : "en";
   const tiers = new Map(MISSING_FIELD_TIERS.map((t) => [t.field, t]));
@@ -104,7 +113,14 @@ export function buildClarifyingQuestions(
   // 必填优先；非必填成本项只在名额剩余时追加
   const required = ordered.filter((t) => t.required);
   const optional = ordered.filter((t) => !t.required);
-  const picked = [...required, ...optional].slice(0, Math.max(1, max));
+  let candidates = [...required, ...optional];
+  if (prefs) {
+    const skipped = new Set(prefs.skippedQuestions);
+    candidates = candidates.filter((t) => !skipped.has(t.field));
+    const first = prefs.priorityQuestions.map((f) => candidates.find((t) => t.field === f)).filter((t): t is (typeof candidates)[number] => !!t);
+    candidates = [...first, ...candidates.filter((t) => !first.includes(t))];
+  }
+  const picked = candidates.slice(0, Math.max(1, max));
   return picked.map((t) => ({
     field: t.field,
     tier: tiers.get(t.field)!.tier,
