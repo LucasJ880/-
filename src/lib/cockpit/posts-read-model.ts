@@ -20,6 +20,7 @@ import {
   type PostKpiWindow,
   type PostRegistryEntry,
 } from "./posts";
+import { OPPORTUNITY_TRANSITION_ACTION, transitionDetailOf, type TransitionDetail } from "./audit-labels";
 import {
   AUTOMATION_SCHEDULES,
   automationHealth,
@@ -626,6 +627,11 @@ export function auditTimelineWhere(orgId: string, window: SourceWindow) {
   return { orgId, action: { notIn: [...TIMELINE_AUDIT_ACTION_DENYLIST] }, ...cursorWhere("createdAt", window) };
 }
 
+/** 本页商机阶段变更审计的白名单字段（只取本组织、本页的 id） */
+export function transitionDetailWhere(orgId: string, auditIds: readonly string[]) {
+  return { orgId, action: OPPORTUNITY_TRANSITION_ACTION, id: { in: [...auditIds] } };
+}
+
 /** 窗口内更新过、且有岗位归属的 run（取它们的事件；对话类 run 不进） */
 export function timelineRunScopeWhere(orgId: string, from: Date) {
   return { orgId, runType: { in: [...TIMELINE_AGENT_RUN_TYPES] }, updatedAt: { gte: from } };
@@ -663,6 +669,8 @@ export interface CompanyLogDeps {
   agentEventRows(orgId: string, window: SourceWindow, take: number): Promise<AgentEventRow[]>;
   automationRunRows(window: SourceWindow, take: number, lowFrequencyKeys: readonly AutomationKey[]): Promise<AutomationRunRow[]>;
   timelineLookups(orgId: string, pendingActionIds: readonly string[], runIds: readonly string[]): Promise<TimelineLookups>;
+  /** 商机阶段变更审计 id → 白名单枚举（来源、是否按策略、前后阶段）；只为本页这些 id 查一次 */
+  transitionDetails(orgId: string, auditIds: readonly string[]): Promise<ReadonlyMap<string, TransitionDetail>>;
 }
 
 export async function getOrgCompanyLog(
@@ -681,9 +689,13 @@ export async function getOrgCompanyLog(
   const pendingActionIds = audits
     .filter((a) => a.targetType.trim().toLowerCase() === "pending_action" && a.targetId)
     .map((a) => a.targetId as string);
-  const lookups = await deps.timelineLookups(viewer.orgId, pendingActionIds, events.map((e) => e.runId));
+  const transitionIds = audits.filter((a) => a.action === OPPORTUNITY_TRANSITION_ACTION).map((a) => a.id);
+  const [lookups, transitions] = await Promise.all([
+    deps.timelineLookups(viewer.orgId, pendingActionIds, events.map((e) => e.runId)),
+    transitionIds.length ? deps.transitionDetails(viewer.orgId, transitionIds) : Promise.resolve(new Map<string, TransitionDetail>()),
+  ]);
   const merged = mergeTimeline({
-    sources: [audits.map((a) => auditEntry(a, lookups)), events.map((e) => agentEventEntry(e, lookups)), runs.map(automationRunEntry)],
+    sources: [audits.map((a) => auditEntry({ ...a, transition: transitions.get(a.id) ?? null }, lookups)), events.map((e) => agentEventEntry(e, lookups)), runs.map(automationRunEntry)],
     limit: params.limit,
     cursor: params.cursor,
     from,
@@ -743,6 +755,16 @@ export function defaultCompanyLogDeps(): CompanyLogDeps {
         select: { id: true, startedAt: true, automationKey: true, status: true },
       });
       return rows.filter(isTimelineAutomationRun);
+    },
+
+    // 只对本页的商机阶段变更读变更数据，且只解析出 3 项枚举（原因、金额、策略键本身都不出）
+    transitionDetails: async (orgId, auditIds) => {
+      const { db } = await import("@/lib/db");
+      const rows = await db.auditLog.findMany({
+        where: transitionDetailWhere(orgId, auditIds),
+        select: { id: true, beforeData: true, afterData: true },
+      });
+      return new Map(rows.map((r) => [r.id, transitionDetailOf(r.beforeData, r.afterData)]));
     },
 
     timelineLookups: async (orgId, pendingActionIds, runIds) => {

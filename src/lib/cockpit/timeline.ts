@@ -7,6 +7,7 @@
 
 import { AUTOMATION_REGISTRY, type AutomationKey } from "@/lib/automation/registry";
 import { POST_REGISTRY, postForAgentRunType, postForAutomation, postForPendingAction, postForWorkDomain, type PostKey } from "./posts";
+import { auditSource, auditSummaryText, principalActorTypeOf, type TimelineSource, type TransitionDetail } from "./audit-labels";
 import { AUTOMATION_SCHEDULES, maxGapMinutes } from "./schedule";
 import { projectIdOf, redactCockpitText, targetTypeOf, type PendingActionRow } from "./waiting";
 
@@ -174,6 +175,8 @@ export interface TimelineEntry {
   actor: string;
   actorName: string | null;
   kind: TimelineKind;
+  /** 这条记录由人工、AI 还是系统产生（审计条目的 actor 仍是挂名的用户） */
+  source: TimelineSource;
   summary: string;
   href: string | null;
 }
@@ -186,6 +189,8 @@ export interface AuditRow {
   action: string;
   targetType: string;
   targetId: string | null;
+  /** 只对商机阶段变更：白名单解析出的枚举值（读模型额外查询）；其它审计为空 */
+  transition?: TransitionDetail | null;
 }
 
 export interface AgentEventRow {
@@ -222,9 +227,11 @@ function postForRun(run: { runType: string; workDomain: string | null } | undefi
 
 export function auditEntry(row: AuditRow, lookups: TimelineLookups): TimelineEntry {
   let post: PostKey | null = null;
+  let principalActorType: string | null = null;
   if (row.targetType.trim().toLowerCase() === "pending_action" && row.targetId) {
     const pa = lookups.pendingActions.get(row.targetId);
     if (pa) {
+      principalActorType = principalActorTypeOf(pa.payload);
       const projectId = projectIdOf(pa);
       const agentRunType = pa.agentRunId ? lookups.agentRuns.get(pa.agentRunId)?.runType ?? null : null;
       post = postForPendingAction({
@@ -242,8 +249,9 @@ export function auditEntry(row: AuditRow, lookups: TimelineLookups): TimelineEnt
     actor: row.userId,
     actorName: row.userName,
     kind: "audit",
-    // 只用 action 与目标类型，不读变更前后数据
-    summary: redactCockpitText(`${row.action} · ${row.targetType}`),
+    source: auditSource(row.action, row.transition, principalActorType),
+    // 只用 action、目标类型与商机阶段变更的白名单枚举，不读其它变更前后数据
+    summary: redactCockpitText(auditSummaryText(row.action, row.targetType, row.transition)),
     href: null,
   };
 }
@@ -258,6 +266,7 @@ export function agentEventEntry(row: AgentEventRow, lookups: TimelineLookups): T
     actor: "ai",
     actorName: null,
     kind: "agent_event",
+    source: "ai",
     summary: redactCockpitText(row.title?.trim() ? `${label}：${row.title}` : label),
     href: run?.runType === "workforce_job" ? `/workforce/${row.runId}` : null,
   };
@@ -273,6 +282,7 @@ export function automationRunEntry(row: AutomationRunRow): TimelineEntry {
     actor: "system",
     actorName: null,
     kind: "automation_run",
+    source: "system",
     summary: redactCockpitText(`${name}：${status}`),
     href: null,
   };

@@ -110,10 +110,11 @@ function fixture(o: Partial<PostsCockpitResponse> = {}): PostsCockpitResponse {
 }
 
 const entries: TimelineEntry[] = [
-  { id: "event:e1", at: minsAgo(10), post: "tender", actor: "ai", actorName: null, kind: "agent_event", summary: "作业等待人工", href: "/workforce/run-1" },
-  { id: "audit:a1", at: minsAgo(20), post: "inbound_sales", actor: "u9", actorName: "Ann", kind: "audit", summary: "PENDING_ACTION_APPROVED · pending_action", href: null },
-  { id: "run:r1", at: minsAgo(30), post: "ops_knowledge", actor: "system", actorName: null, kind: "automation_run", summary: "发布漂移检查（代码 vs 生产库迁移）：失败", href: null },
-  { id: "audit:a2", at: minsAgo(40), post: null, actor: "u9", actorName: null, kind: "audit", summary: COCKPIT_REDACTED, href: null },
+  { id: "event:e1", at: minsAgo(10), post: "tender", actor: "ai", actorName: null, kind: "agent_event", source: "ai", summary: "作业等待人工", href: "/workforce/run-1" },
+  { id: "audit:a1", at: minsAgo(20), post: "inbound_sales", actor: "u9", actorName: "Ann", kind: "audit", source: "human", summary: "PENDING_ACTION_APPROVED · pending_action", href: null },
+  { id: "run:r1", at: minsAgo(30), post: "ops_knowledge", actor: "system", actorName: null, kind: "automation_run", source: "system", summary: "发布漂移检查（代码 vs 生产库迁移）：失败", href: null },
+  { id: "audit:a2", at: minsAgo(40), post: null, actor: "u9", actorName: null, kind: "audit", source: "human", summary: COCKPIT_REDACTED, href: null },
+  { id: "audit:a3", at: minsAgo(50), post: "inbound_sales", actor: "u_owner", actorName: "Lin", kind: "audit", source: "ai", summary: "FDE 草稿留底 · 审批", href: null },
 ];
 
 const render = (posts: PostsState, timeline: TimelineState, extra: Partial<React.ComponentProps<typeof OrgCockpitView>> = {}) =>
@@ -191,6 +192,8 @@ console.log("company.log");
 {
   ok(html.includes('href="/workforce/run-1"') && html.includes("作业等待人工"), "有 href 的条目可点击");
   ok(html.includes(">AI<") && html.includes(">系统<") && html.includes(">Ann<") && html.includes(">成员<"), "操作者：AI / 系统 / 用户名 / 成员");
+  // org-cockpit-timeline-labels：FDE 以负责人名义写的审计显示 AI，悬停与读屏提示挂名的人；不显示负责人姓名为操作者
+  ok(html.includes('title="以Lin名义记录">AI<span class="sr-only">（以Lin名义记录）</span>') && !html.includes(">Lin<"), "AI 来源的审计：操作者列为 AI + 名义提示");
   ok(html.includes(">投标<") && html.includes(">未归属<"), "条目岗位名，空为未归属");
   ok(html.includes("加载更多"), "有 nextCursor → 加载更多");
   const empty = render({ status: "ready", data: fixture() }, { status: "ready", items: [], nextCursor: null });

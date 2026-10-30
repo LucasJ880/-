@@ -25,6 +25,7 @@ import {
   type CockpitViewer,
   type CockpitViewerDeps,
   type CompanyLogDeps,
+  transitionDetailWhere,
   type KpiLoaders,
   type PostsCockpitDeps,
 } from "../posts-read-model";
@@ -276,6 +277,10 @@ async function main() {
         (seen.run = { window, take, lowFreq }),
         [{ id: "r1", startedAt: new Date("2026-10-26T09:00:00Z"), automationKey: "release-drift", status: "succeeded", error: null }]
       ),
+      transitionDetails: async (orgId, ids) => {
+        seen.transitions = { orgId, ids };
+        return new Map();
+      },
       timelineLookups: async (orgId, paIds, runIds) => (
         (seen.lookups = { orgId, paIds, runIds }),
         {
@@ -298,6 +303,31 @@ async function main() {
     ok(res.items[0].post === "tender" && res.items[1].post === "inbound_sales" && res.items[1].href === "/workforce/run-1", "条目归属与 href");
     ok(res.window.from === "2026-10-19T12:00:00.000Z" && res.window.to === NOW.toISOString(), "响应含 window");
     ok(typeof encodeTimelineCursor === "function", "游标编码可用");
+    ok(seen.transitions === undefined, "本页没有商机阶段变更 → 不额外查询");
+    ok(res.items[0].source === "human" && res.items[1].source === "ai", "条目带来源（审计默认人工、AI 运行事件 ai）");
+
+    // 本页有商机阶段变更：只为这些 id 查一次白名单字段，并接入摘要与来源
+    const transitionDeps: CompanyLogDeps = {
+      ...logDeps,
+      auditRows: async () => [
+        { id: "t1", createdAt: new Date("2026-10-26T11:00:00Z"), userId: "u9", userName: "Ann", action: "revenue_spine.opportunity.transition", targetType: "sales_opportunity", targetId: "opp1" },
+        { id: "a2", createdAt: new Date("2026-10-26T10:30:00Z"), userId: "u9", userName: "Ann", action: "APPROVAL_REJECTED", targetType: "pending_action", targetId: "pa1" },
+      ],
+      transitionDetails: async (orgId, ids) => {
+        seen.transitions = { orgId, ids };
+        return new Map([["t1", { source: "system" as const, byPolicy: true, from: "follow_up" as const, to: "stale" as const }]]);
+      },
+    };
+    const res2 = await getOrgCompanyLog(viewer, { limit: 5, days: 7, cursor: null }, transitionDeps);
+    ok(JSON.stringify(seen.transitions) === JSON.stringify({ orgId: "org-1", ids: ["t1"] }), "只为本页商机阶段变更的 id 查白名单字段，限定组织", seen.transitions);
+    const t1 = res2.items.find((i) => i.id === "audit:t1");
+    const a2 = res2.items.find((i) => i.id === "audit:a2");
+    ok(t1?.summary === "商机阶段：跟进中 → 搁置（按策略自动）" && t1.source === "system" && t1.actor === "u9", "阶段变更摘要与来源接入；actor 仍是挂名用户", t1);
+    ok(a2?.summary === "驳回 · 审批" && a2.source === "human", "常见动作中文摘要", a2);
+    ok(
+      JSON.stringify(transitionDetailWhere("org-1", ["t1", "t2"])) === JSON.stringify({ orgId: "org-1", action: "revenue_spine.opportunity.transition", id: { in: ["t1", "t2"] } }),
+      "白名单查询条件：组织 + 动作 + 本页 id",
+    );
   }
 
   // ── 游标查询条件 ──────────────────────────────────────────
@@ -384,7 +414,19 @@ async function main() {
   ok(/listCapabilityApprovals\(access, \{ tab: "pending_mine"/.test(modelSrc), "等你 N 件复用待我审批（pending_mine）");
   ok(/financialControlEnabled: isFinancialControlEnabled/.test(modelSrc), "投标 KPI 与 tender-portfolio 路由同一财务开关");
   ok(/pickKpiMetrics\(kpi, result\)/.test(modelSrc) && !/kpi: result|\.\.\.result/.test(modelSrc), "KPI 结果只经 pickKpiMetrics 取值，不整体透出");
-  ok(!/beforeData|afterData/.test(modelSrc), "审计日志不读变更前后数据");
+  {
+    // 审计日志主查询不读变更前后数据；只有商机阶段变更的白名单查询读，且只经 transitionDetailOf 解析出枚举
+    const auditRowsSrc = modelSrc.slice(modelSrc.indexOf("auditRows: async"), modelSrc.indexOf("agentEventRows: async"));
+    const detailSrc = modelSrc.slice(modelSrc.indexOf("transitionDetails: async"), modelSrc.indexOf("timelineLookups: async"));
+    ok(auditRowsSrc.length > 0 && !/beforeData|afterData/.test(auditRowsSrc), "审计日志主查询不读变更前后数据");
+    ok(
+      /where: transitionDetailWhere\(orgId, auditIds\),\s*select: \{ id: true, beforeData: true, afterData: true \},/.test(detailSrc) &&
+        /transitionDetailOf\(r\.beforeData, r\.afterData\)/.test(detailSrc),
+      "只有商机阶段变更的白名单查询读变更数据，且只经枚举解析",
+    );
+    const rest = modelSrc.replace(detailSrc, "");
+    ok(!/beforeData|afterData/.test(rest), "其它地方都不读变更前后数据");
+  }
   for (const builder of ["agentRunTypeCountWhere(", "workforceDomainCountWhere(", "quotaAuditWhere(", "quotaNotificationWhere(", "auditTimelineWhere(", "timelineRunScopeWhere(", "agentEventTimelineWhere(", "automationRunTimelineWhere("]) {
     ok(modelSrc.split(builder).length >= 3, `默认依赖实际使用 ${builder.slice(0, -1)}（定义 + 调用）`);
   }
