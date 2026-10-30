@@ -14,7 +14,7 @@
 
 ## 4. 报价单 UI 与客户输出
 
-- [ ] 4.1 `part-b.tsx` 分组下拉显示企业价与"/ft"、按英尺行数量占位"ft"、内部提示灰字；`page.tsx` 把 DTO `addonPrices` 传给 Part B 与 `rough-quote-panel.tsx`；`quote-pdf.ts` Part B 名称用 `addonCustomerLabel`、按英尺行显示"13 ft"与"$30.00/ft"；`ai-quote-parser.test.ts` 扩 2 条（"customer lives downtown, 2 zebra 48x60" 无附加项目；"2 motor" 仍得 `motor` × 2）；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0、`npm run build` 通过、`ai-quote-parser.test.ts` 通过
+- [x] 4.1 `part-b.tsx` 分组下拉显示企业价与"/ft"、按英尺行数量占位"ft"、内部提示灰字；`page.tsx` 把 DTO `addonPrices` 传给 Part B 与 `rough-quote-panel.tsx`；`quote-pdf.ts` Part B 名称用 `addonCustomerLabel`、按英尺行显示"13 ft"与"$30.00/ft"；`ai-quote-parser.test.ts` 扩 2 条（"customer lives downtown, 2 zebra 48x60" 无附加项目；"2 motor" 仍得 `motor` × 2）；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0、`npm run build` 通过、`ai-quote-parser.test.ts` 通过
 
 ## 5. 收口
 
