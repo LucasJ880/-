@@ -15,11 +15,15 @@
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
 - **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上，[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。**GATE 决策项**：旧首页每 5 分钟 `POST /api/proactive/scan` 随替换停止，未开自动化偏好的管理层不再收到主动提醒——接受，或另开 change 让定时任务为管理层同步通知（等用户 / Evan 回复）。
 - **A-4 `org-cockpit-workload`**（分支 `claude/org-cockpit-workload`，叠在 A-3 上，[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-4_REPORT.md`（偏差 9 条，交叉审查 5 应修 + 4 小全部处理）。
-- **下一步：B-1 `fde-feedback-loop`**，从 `claude/org-cockpit-workload` 开新分支 `claude/fde-feedback-loop`。任务书 §B-1：
-  - 询盘回复审批创建时把原始草稿快照写 AuditLog；
-  - 终态时用 `employee-ai/diff.ts` 的 StructuredDiff 产 `HumanFeedbackEvent`（幂等键 = actionId + 终态）；
-  - A-4 的 `edited` 从这里接。
-  - 先读 `src/lib/employee-ai/{diff,feedback-service}.ts`、`src/lib/pending-actions/executor.ts` 终态入口、`autopilot/sanitize.ts`。
+- **B-1 `fde-feedback-loop`**（分支 `claude/fde-feedback-loop`，叠在 A-4 上，[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-1_REPORT.md`（交叉审查 1 阻塞 + 6 应修全部处理）。
+  - **GATE 决策项（阻塞 B-2）**：现有代码没有"审批时改稿"的路径。`payloadVersion` 恒为 1、审批中心校验 `payloadHash`、批准接口只收决定 + 备注、执行器发载荷正文。所以 `approved_edited` 不会出现，而 B-2 以它为触发。选项：
+    - (a) 审批时允许改稿；
+    - (b) 对"人工回复作废草稿"（`SUPERSEDED_BY_MANUAL_REPLY`）做草稿 vs 人工回复的 diff；
+    - (c) B-2 暂缓。
+    - 等用户 / Evan 拍板，未拍板前不开 B-2。
+  - GATE 注意项：`metrics.ts` 采纳率与 `preference-learner` 的 40 条窗口会受系统事件影响（读者未改）。
+- **下一步：B-4 `fde-score-calibration`**，从 `claude/fde-feedback-loop` 开新分支 `claude/fde-score-calibration`；先读上面"B-4 预研事实"。之后 B-5、B-3。
+  - 设计要点：终态映射复用 `cockpit/workload.ts` 的 `pendingActionOutcome`；端口批准 / 驳回非重复分支 + 过期赢家 + `approval-timeout` 内补漏（10 分钟沉淀）三路写入时间不重叠，先查后写。事件 `skillSlug = inbound_sales_fde`、`feedbackScope = team_candidate`、`aiOutputRef.terminal/feedbackType`。快照里买家信息替换为占位符，只保留收件人邮箱；事件里连收件人邮箱也不留。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -32,7 +36,7 @@
 | A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
 | A-3 | `org-cockpit-home`（[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支） | ✅ `c7f4b57`（两轮审查后修订） | 8/8 | ✅ 419/433，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：1 阻塞（列为 GATE 决策项）+ 8 应修 + 第二轮 4 项，全部处理 | `[G]` |
 | A-4 | `org-cockpit-workload`（[PR #247](https://github.com/LucasJ880/-/pull/247)，base = A-3 分支） | ✅ `00080806` | 7/7 | ✅ 422/436，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 5 应修 + 4 小全部处理 | `[G]` |
-| B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
+| B-1 | `fde-feedback-loop`（[PR #248](https://github.com/LucasJ880/-/pull/248)，base = A-4 分支） | ✅ `61feec70` | 6/6 | ✅ 424/438，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞 + 6 应修全部处理 | `[G]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
 | B-4 | `fde-score-calibration` | — | — | — | — | — | `[ ]` |
@@ -80,6 +84,28 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
    - `sla-tiers.ts` 已在复用这些判定。
 7. **`/ai-activity` 不显示任何运行计数**：它按**当前用户**分页读 AuditLog（`ai_generate` / `ai_send` / `ai_analyze`），浏览器本地时区分天。GATE-A2"14 天工作量图与 `/ai-activity` 的运行计数一致"按字面无法满足，需改口径。
 8. **按天分桶**：组织时区来自 `settingsJson.timezone`（`resolveOrgTimezone`，默认 America/Toronto），`getLocalTimeParts(date, tz).date` 给 YYYY-MM-DD，`localDayBounds` / `zonedLocalToUtc` 在 `revenue-spine/owner-today.ts`、`business-days.ts`；没有现成的多天分桶函数。
+
+## B-4 预研事实（评分校准，写 proposal 前核对）
+
+1. **评估记录**：`SalesOpportunityAssessment`。
+   - 六维分数只在 `dimensionsJson`：`[{key,label,score,max,reason}]`，key 为 productFit / commercialPotential / buyerQuality / intent / completeness / strategicValue。
+   - **`max` = 打分当时的 policy 权重**：要按 score/max 归一。`policyVersion` 恒为 v1，不能据此区分权重。
+   - 唯一写入方 `fde/inbound-sales.ts`；一个商机可有多条，"当前" = `createdAt` 最新（与商机详情页一致）。
+   - `qualification` 不落在评估上。
+2. **权重**：`policy.scoring.weights`，默认 25/20/20/15/10/10。总分 = min(100, 各维之和)。分级阈值 hot 90 / high 70 / medium 50。
+3. **结果真值**：
+   - `BusinessOutcome` 经 `entityType="sales_opportunity"` + `entityId` 关联。写入的类型有 CUSTOMER_REPLIED / RFQ_RECEIVED / QUOTE_SENT / SAMPLE_REQUESTED / NEGOTIATION_STARTED / DEAL_WON / DEAL_LOST / REVENUE_RECORDED。
+   - **没有 disqualified 结果**；`sourceId` 带时间戳，会重复写。
+   - **`/revenue` 用 `SalesOpportunity.stage` + `wonAt` / `lostAt` / `lostReason`**（`revenue-spine/cockpit.ts`），校准应与之同口径。
+   - **disqualified 是循环的**：由 `score.qualification` 自己决定，不能拿来校准评分。
+4. **`/revenue` 页没有胜率 / 转化率 / 分级分布 / 时间窗口**。
+   - 只有 stageCounts 排除测试商机，用 `EXCLUDE_ONBOARDING_TEST_OPPORTUNITIES`，只看 lostReason；
+   - SLA 指标用更严的 `isOnboardingTestInquiry`。
+5. **policy 不在 `settingsJson`**：在 `OrgBusinessRule`（`ruleKey = "revenue_spine.policy"`，最高版本，`loadRevenueSpinePolicy`）。
+   - 权重片段形状：`{"scoring":{"weights":{...}}}`；
+   - 应用方式：`PUT /api/revenue/policy` `{ policy: <片段> }`，boss / admin，发布新版本。
+6. **面板位置**：`/revenue` 是单个客户端页（`src/app/(main)/revenue/page.tsx`），可在队列网格后加只读区块。
+   - API 惯例：`resolveRevenueAccess(request)` + `force-dynamic` + `?days=` + `clampWindowDays`（默认 30、上限 180，需另设 90 默认）。
 
 ## 环境（云端容器每次都是新的，照做即可）
 

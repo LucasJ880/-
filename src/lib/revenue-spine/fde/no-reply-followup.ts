@@ -25,6 +25,7 @@ import { allowedStyles, checkDraftGuardrails, signOff, signatureLines, type Repl
 import { buildClarifyingQuestions, computeMissingFields, type ClarifyingQuestion } from "../rfq/missing-info";
 import { rfqRowToFields } from "../rfq/persist";
 import { FDE_EMPLOYEE_KEY } from "./actions";
+import { recordInquiryDraftSnapshotSafe } from "./draft-feedback";
 import { INQUIRY_REPLY_ACTION_TYPE, approvalPreview, boothContext } from "./inbound-sales";
 
 /** 报价前、还在收集信息的阶段才发「补充信息」式跟进；进入报价（quoting）之后由报价跟进接手 */
@@ -400,6 +401,24 @@ export async function draftNoReplyFollowUps(
       }
       const pendingActionId = approval.actionIds[0];
       out.drafted += 1;
+      // B-1：跟进草稿同样留一份脱敏快照（尽力而为）
+      if (pendingActionId) {
+        await recordInquiryDraftSnapshotSafe({
+          orgId,
+          actorUserId: principalUserId,
+          pendingActionId,
+          opportunityId: opp.id,
+          followUpStep: due.step,
+          subject: draft.subject,
+          body: draft.body,
+          language: draft.language,
+          buyer: { contactName: opp.customer.contactName, companyName: opp.customer.name, recipientEmail: opp.customer.email },
+          guardrailViolations: draft.guardrailViolations,
+          factsUsed: [],
+          pendingInternalConfirmation: draft.pendingInternalConfirmation,
+          templateOnly: draft.templateOnly,
+        });
+      }
       out.pendingActionIds.push(pendingActionId);
       await createNotificationsForUsers([principalUserId], {
         type: "approval",

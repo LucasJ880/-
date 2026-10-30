@@ -350,6 +350,8 @@ npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx
 npx tsx src/lib/cockpit/__tests__/workload.test.ts
 npx tsx src/lib/cockpit/__tests__/workload-read-model.test.ts
 npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx
+npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts
+npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts
 # fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
 npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 

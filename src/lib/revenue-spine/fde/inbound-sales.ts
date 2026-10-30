@@ -44,6 +44,7 @@ import type { RfqField, RfqFields } from "../rfq/types";
 import { scoreOpportunity, type OpportunityScoreResult } from "../scoring";
 import { transitionOpportunity } from "../transition";
 import { FDE_EMPLOYEE_KEY, updateFdeAction } from "./actions";
+import { recordInquiryDraftSnapshotSafe } from "./draft-feedback";
 
 /**
  * 本次 FDE 的草稿结果，写进 SalesAction.inputContext.draftStatus（SLA 指标与超时提醒据此说明"为什么没有草稿"）：
@@ -648,6 +649,24 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           pendingActionId = approval.actionIds[0] ?? null;
           draftCreated = !openDraft && !!pendingActionId;
           draftStatus = openDraft ? "reused" : "created";
+          // B-1：新建（非复用）的审批留一份脱敏草稿快照，终态时与执行正文比对；尽力而为
+          if (draftCreated && pendingActionId) {
+            await recordInquiryDraftSnapshotSafe({
+              orgId,
+              actorUserId: principalUserId,
+              pendingActionId,
+              opportunityId: opp.id,
+              followUpStep: null,
+              subject: draft.subject,
+              body: draft.body,
+              language: draft.language,
+              buyer: { contactName: draftInput.contactName, companyName: opp.customer.name, recipientEmail: opp.customer.email },
+              guardrailViolations: draft.guardrailViolations,
+              factsUsed: draft.factsUsed.map((f) => ({ field: f.field, value: String(f.value) })),
+              pendingInternalConfirmation: draft.pendingInternalConfirmation,
+              templateOnly: draft.templateOnly,
+            });
+          }
           await event("approval.required", openDraft ? "复用未决审批草稿" : "首次回复需人工审批后发送", { pendingActionId, actionType: INQUIRY_REPLY_ACTION_TYPE, to: opp.customer.email, reused: !!openDraft });
         } else {
           draftStatus = "approval_failed";
