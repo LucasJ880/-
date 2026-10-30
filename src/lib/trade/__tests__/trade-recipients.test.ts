@@ -120,7 +120,7 @@ ok(REVENUE_SETTINGS_KEYS.join() === "trade.settings.manage" && REVENUE_POLICY_RE
   }
   const root = join(process.cwd(), "src/app/api/revenue");
   const routes = walk(root);
-  ok(routes.length === 13, `营收路由文件 13 个（实际 ${routes.length}）`);
+  ok(routes.length === 14, `营收路由文件 14 个（实际 ${routes.length}）`);
   let handlers = 0;
   const mismatches: string[] = [];
   for (const f of routes) {
@@ -138,7 +138,7 @@ ok(REVENUE_SETTINGS_KEYS.join() === "trade.settings.manage" && REVENUE_POLICY_RE
       if (km?.[1] !== expected) mismatches.push(`${r} ${method}: ${km?.[1] ?? "无守卫"} ≠ ${expected}`);
     });
   }
-  ok(handlers === 14, `营收处理器 14 个（实际 ${handlers}）`);
+  ok(handlers === 15, `营收处理器 15 个（实际 ${handlers}）`);
   ok(mismatches.length === 0, `每个营收处理器的键组与方法一致${mismatches.length ? "：" + mismatches.join("; ") : ""}`);
 }
 for (const key of ["biz-revenue", "biz-revenue-today"]) {
