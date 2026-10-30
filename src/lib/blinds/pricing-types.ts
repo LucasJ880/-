@@ -97,6 +97,11 @@ export interface QuoteTotalInput {
   cordlessPolicy?: CordlessPolicy;
   /** 企业附加项目价（settingsJson.pricing.addons，已校验）；缺省按目录价。 */
   addonPrices?: Record<string, number>;
+  /**
+   * 特别让利（CAD，税前直减；STAT-2）。从税前合计中扣除，扣后最低 0，税额按扣后计算。
+   * 非数 / 负数按 0；不带让利的入口（预览、量房、AI 等）不传。
+   */
+  specialPromotion?: number;
 }
 
 export interface QuoteTotalResult {
@@ -107,6 +112,9 @@ export interface QuoteTotalResult {
   installSubtotal: number;
   installApplied: number;
   deliveryFee: number;
+  /** 实际扣除的特别让利（让利超过税前合计时小于提交值） */
+  promotionApplied: number;
+  /** 扣除特别让利后的税前合计 */
   preTaxTotal: number;
   taxRate: number;
   taxAmount: number;

@@ -285,6 +285,39 @@ async function main() {
     }, { quoteId: qBId });
     const editedB = await db.salesQuote.findUnique({ where: { id: qBId }, include: { addons: true } });
     ok(eB.status === 200 && editedB?.addonsSubtotal === 200 && editedB.addons.length === 1 && editedB.addons[0].unitPrice === 200 && editedB.addons[0].displayName === "Hub", "编辑：Part B 改为 hub @200 → 小计 200、名称 Hub", { status: eB.status, body: eB.body, addons: editedB?.addons });
+
+    console.log("\n[10] STAT-2：特别让利计入库里报价金额（与报价单对客算式一致）");
+    const partB660 = partBRowsToAddonInputs([
+      { skuItem: "drape_track_extra_ft", qty: 13, price: 30 },
+      { skuItem: "hub", qty: 1, price: 200 },
+      { skuItem: "__custom", customName: "Extra bracket", qty: 2, price: 15 },
+      { skuItem: "motor_charger", qty: 1, price: 40 },
+    ]);
+    const qP = await call(quotesRoute.POST, REP, "POST", `/api/sales/quotes?orgId=${ORG}`, {
+      customerId: CUST,
+      items: [{ product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60 }],
+      addons: partB660,
+      installMode: "default", taxRate: 0.13, specialPromotion: 100,
+      formDataJson: JSON.stringify({ orderNumber: `SP-${stamp}` }),
+    });
+    const qPId = String((qP.body.quote as Record<string, unknown> | undefined)?.id ?? "");
+    if (qPId) quoteIds.push(qPId);
+    const savedP = qPId ? await db.salesQuote.findUnique({ where: { id: qPId } }) : null;
+    const grossP = savedP ? savedP.merchSubtotal + savedP.addonsSubtotal + savedP.installApplied + savedP.deliveryFee : NaN;
+    // 报价单页面算式：preTax = max(0, 产品 + Part B + 安装补足/运费 − 让利)，税额按分取整
+    const displayFor = (preTax: number) => Number((preTax + Math.round(preTax * 0.13 * 100) / 100).toFixed(2));
+    ok(qP.status < 300 && !!savedP && savedP.specialPromotion === 100, "带让利 100 新建报价成功，让利单独保存", qP.body);
+    ok(!!savedP && Math.abs(savedP.preTaxTotal - (grossP - 100)) < 1e-6, `库里税前合计 = 毛税前 ${grossP} − 100`, { pre: savedP?.preTaxTotal, grossP });
+    ok(!!savedP && Math.abs(savedP.grandTotal - displayFor(grossP - 100)) <= 0.01, `库里含税总额与对客金额 ${displayFor(grossP - 100)} 相差 ≤ 0.01`, savedP?.grandTotal);
+    ok(Math.abs(grossP - 1109.375) < 1e-6 && !!savedP && Math.abs(savedP.grandTotal - 1140.59) <= 0.01, "与规格场景一致：1109.375 − 100 → 1140.59", { grossP, grand: savedP?.grandTotal });
+    const eP = await call(quoteItemRoute.PUT, REP, "PUT", `/api/sales/quotes/${qPId}?orgId=${ORG}`, {
+      items: [{ product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60 }],
+      addons: partB660,
+      installMode: "default", taxRate: 0.13, specialPromotion: 0,
+      formDataJson: JSON.stringify({ orderNumber: `SP-${stamp}` }),
+    }, { quoteId: qPId });
+    const editedP = await db.salesQuote.findUnique({ where: { id: qPId } });
+    ok(eP.status === 200 && !!editedP && Math.abs(editedP.preTaxTotal - 1109.375) < 1e-6 && Math.abs(editedP.grandTotal - 1253.59) <= 0.01 && editedP.specialPromotion === 0, "编辑让利改 0 → 1109.375 / 1253.59", { status: eP.status, pre: editedP?.preTaxTotal, grand: editedP?.grandTotal });
   } finally {
     await db.measurementRecord.deleteMany({ where: { customerId: CUST } });
     await db.pendingAction.deleteMany({ where: { orgId: ORG } });
