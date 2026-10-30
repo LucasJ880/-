@@ -35,11 +35,11 @@ change：`openspec/changes/pricelist-2026-10-cordless-fullness/`（proposal / sp
 | `src/lib/blinds/pricing-data.ts` | `DEFAULT_CORDLESS_POLICY`（0.30 / 159 / 129 / 1.15，从 `config/pricelist/2026-10-28-lucas-quote.json` 拷入）、`DEFAULT_FULLNESS` / `FULLNESS_MIN` / `FULLNESS_MAX`；删除 `CORDLESS_MAX_WIDTH/HEIGHT` |
 | `src/lib/blinds/pricing-engine.ts` | `priceFor` 新增策略与褶皱率参数，三条分支统一 `settlePrice`（先倍率后最低价）；`usesFullness` / `isValidFullness` / `fullnessFromPercent`；`calculateQuoteTotal` 透传 |
 | `src/lib/blinds/discount-settings.ts` | `CORDLESS_SETTING_KEYS`、`readJsonCordless` / `mergeJsonCordless` / `dtoToCordlessPolicy`；DTO 三字段；校验（0–1 / 0–10000）；保存路由到 `pricing.cordless`；`applyOrgDiscountDefaults` 跳过 Zebra / Roller 无绳行 |
-| `src/app/api/sales/quotes/route.ts`、`src/lib/sales/quote-update.ts`、`src/app/api/sales/quotes/preview/route.ts`、`src/app/api/sales/measurements/[id]/generate-quote/route.ts` | 传企业无绳策略 |
+| `src/app/api/sales/quotes/route.ts`、`src/lib/sales/quote-update.ts`、`src/app/api/sales/quotes/preview/route.ts`、`src/app/api/sales/measurements/[id]/generate-quote/route.ts` | 传企业无绳策略；量房路由改为事务内分步创建（修既有 500） |
 | `src/app/(main)/sales/quote-sheet/{types,order-shades,pricing-helpers,page,part-a,quote-pdf,rough-quote-panel}` | `ShadeOrderLine.cordless`；Cordless 勾选列；预览按无绳 / 褶皱率计价；items 带 `cordless` 与 `fullness`；PDF 金额同源；内嵌工具透传无绳设置 |
 | `src/app/(main)/sales/cockpit/discount-settings-card.tsx` | 无绳折扣与两个最低价 |
 | `src/lib/sunny-process/quote-mapping.ts` | `controlType` 含「无绳」；Cordless 开 → 无绳 |
-| 测试 | `pricelist-2026-10-golden`（全部 158 条 + Order Form 本地用例 8 条）、`cost-rates`（+13 断言）、`quote-settings-approval`（20 → 21）、`quote-settings-db.isolated`（20 → 31）、`quote-mapping`（51 → 55）；无新测试文件 |
+| 测试 | `pricelist-2026-10-golden`（全部 158 条 + Order Form 本地用例 8 条）、`cost-rates`（+13 断言）、`quote-settings-approval`（20 → 21）、`quote-settings-db.isolated`（20 → 35）、`quote-mapping`（51 → 55）；无新测试文件 |
 | 规格 / 设计 | apply 中按黄金用例更正无绳收尾顺序（原稿写成先最低价后倍率），见 §4.1 |
 | 文档 | 本报告；`docs/price-2-screenshots/`（2 张）；TASKFLOW PRICE-2 → `[G]`；HANDOFF |
 
@@ -49,7 +49,7 @@ change：`openspec/changes/pricelist-2026-10-cordless-fullness/`（proposal / sp
 |---|---|
 | `npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts` | 158 条全部 MUST_MATCH、787 断言、0 失败；DEFERRED 0 |
 | `cost-rates` / `quote-settings-approval` / `quote-mapping` | 通过 / 21 / 55 |
-| 隔离库 `quote-settings-db.isolated.test.ts` | 31 / 0（含：老板改无绳 → 202 → 另一位老板批 → `pricing.cordless` 写入、`pricing.discounts` / `leadMaxPct` / `sunnyWarranty` 原样；非法 → 400；预览无绳行 `discountPct 0.25` 且成交 = max(MSRP × 0.75 × 1.15, 169)、有绳行仍 0.45；布帘 1.8 → 831.41；量房计价不带褶皱率 → 按 2） |
+| 隔离库 `quote-settings-db.isolated.test.ts` | 35 / 0（含：老板改无绳 → 202 → 另一位老板批 → `pricing.cordless` 写入、`pricing.discounts` / `leadMaxPct` / `sunnyWarranty` 原样；非法 → 400；预览无绳行 `discountPct 0.25` 且成交 = max(MSRP × 0.75 × 1.15, 169)、有绳行仍 0.45；布帘 1.8 → 831.41；量房真实路由 201、2 房间 3 行、布帘按 2、无绳行按企业策略） |
 | 回归 | `blinds-oracle` 9488、`drapes-oracle` 11267、`real-orders` 164、`sunny-motor`、`quote-fees`、`valance-options` 13 全过（与开工前基线相同） |
 | `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0 |
 | `npm run lint:baseline` | PASS |
@@ -75,7 +75,7 @@ change：`openspec/changes/pricelist-2026-10-cordless-fullness/`（proposal / sp
 ## 4. 实施中对规划的调整 / 发现（审核请重点看）
 
 1. **无绳最低价在 ×1.15 之后比较。** 规格与设计原稿写成"先最低价、最后 ×1.15"；黄金用例（Zebra 24" × 36" 无绳 = 159，不是 182.85）证明原工具是先倍率再最低价。已按原工具实现并改回规格 / 设计，`validate --strict` 通过。
-2. **量房「生成报价」在 main 上本来就 500。** `src/app/api/sales/measurements/[id]/generate-quote/route.ts` 把报价行嵌在 `rooms.create.items.create` 里并写 `quoteId: undefined as any`，Prisma 拒绝（"Argument `quote` is missing"），与定价无关、改动前就如此。本 change 只给它加了无绳策略参数，隔离库测试改为验证它写库前的计价步骤。建议另开一个小修复。
+2. **量房「生成报价」在 main 上本来就 500，已修。** 原代码把报价行嵌在 `rooms.create.items.create` 里并写 `quoteId: undefined as any`，Prisma 拒绝（"Argument `quote` is missing"），改动前每次都失败。Lucas 2026-10-30 同意并入本 change（design D8、task 2.3）：同一事务内先建报价，再建房间与行（显式 `quoteId` / `roomId`），响应结构不变。隔离库测试经真实路由验证：201、2 个房间 3 行、每行同时挂报价与房间、布帘按褶皱率 2、无绳行按企业无绳策略、量房记录 → quoted。
 3. **Door Screen Sheer 的折扣字段**：原工具对 Door Screen Sheer 报的 `discount` 是产品默认 35%，实际按 0 计价；黄金测试对所有 Door Screen Sheer 行只比金额（PRICE-1 已有同样处理，本次扩到 `door-screen-no-fullness`）。
 4. **客户 PDF 没有加 "Cordless" 字样**：属于新的对客可见行为，规格未覆盖，没做；金额已与无绳一致。需要的话另提。
 5. 没有新增企业默认褶皱率设置（design D5 已说明）。
@@ -86,4 +86,3 @@ change：`openspec/changes/pricelist-2026-10-cordless-fullness/`（proposal / sp
 - **BREAKING 2**：Order Form 布帘 / 纱帘默认 Fullness 180% 的行，查表宽从 1.0× 变 0.9×，部分尺寸掉一档变便宜（例：110" × 120" 由 $936.00 变 $831.41）。这是原工具规则；要按 2 倍报价请选 230 或按需调整。
 - 无绳行的价格总体比之前高（30% 折扣替代 45%），这是新价表的规则。
 - 「快速报价」内嵌的旧 HTML 工具仍用它自己的无绳规则；青砚只把企业无绳设置透传过去，它是否读取取决于那个工具。
-- 量房生成报价的既有 500（§4.2）。

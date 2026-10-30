@@ -44,6 +44,7 @@ async function main() {
   const settingsRoute = await import("@/app/api/sales/quote-settings/discounts/route");
   const previewRoute = await import("@/app/api/sales/quotes/preview/route");
   const quotesRoute = await import("@/app/api/sales/quotes/route");
+  const genRoute = await import("@/app/api/sales/measurements/[id]/generate-quote/route");
   const { executePendingAction } = await import("@/lib/pending-actions/executor");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const { loadDiscounts, loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } = await import("@/lib/blinds/discount-settings");
@@ -199,21 +200,32 @@ async function main() {
     const drape18 = priceFor("Drapery", "Without liner", 100, 120, null, false, undefined, 1.8);
     ok(!("error" in drape18) && Math.abs((rows[2]?.price as number) - drape18.price) < 1e-6 && Math.abs(drape18.price - 831.41) < 0.01, "预览布帘 100x120 褶皱率 1.8 → 831.41", { row: rows[2] });
 
-    // 量房生成报价：路由在写库前的计价步骤（量房窗位不带褶皱率 → 按 2）。
-    // 路由本身在 origin/main 上写库即 500（嵌套 rooms.items 用 quoteId: undefined，Prisma 报 "Argument quote is missing"），
-    // 与定价无关，PRICE-2 报告 §5 记为既有问题，不在本 change 修。
-    const genSettings = await loadDiscountsDto(ORG);
-    const genCalc = calculateQuoteTotal({
-      items: applyOrgDiscountDefaults(
-        [{ product: "Drapery" as const, fabric: "Without liner", widthIn: 100, heightIn: 120, cordless: false, location: "Living" }],
-        dtoToProductDiscounts(genSettings),
-      ),
-      installMode: "pickup",
-      cordlessPolicy: dtoToCordlessPolicy(genSettings),
+    // 量房生成报价（真实路由）：量房窗位不带褶皱率 → 按 2；PRICE-2 同时修了该路由在 main 上写库即 500 的既有问题
+    const MR = `plmr_${stamp}`;
+    await db.measurementRecord.create({
+      data: {
+        id: MR, customerId: CUST, measuredById: REP,
+        windows: { create: [
+          { roomName: "Living", windowLabel: "W1", widthIn: 100, heightIn: 120, product: "Drapery", fabric: "Without liner", sortOrder: 0 },
+          { roomName: "Living", windowLabel: "W2", widthIn: 24, heightIn: 36, product: "Zebra", fabric: "Light Filtering", cordless: true, sortOrder: 1 },
+          { roomName: "Bedroom", widthIn: 48, heightIn: 60, product: "Zebra", fabric: "Light Filtering", sortOrder: 2 },
+        ] },
+      },
     });
+    const gen = await call(genRoute.POST, REP, "POST", `/api/sales/measurements/${MR}/generate-quote?orgId=${ORG}`, { installMode: "pickup" }, { id: MR });
+    const genQuoteId = String((gen.body.quote as Record<string, unknown> | undefined)?.id ?? "");
+    if (genQuoteId) quoteIds.push(genQuoteId);
+    const genQuote = genQuoteId ? await db.salesQuote.findUnique({ where: { id: genQuoteId }, include: { rooms: { include: { items: true } }, items: true } }) : null;
+    ok(gen.status === 201 && (gen.body.quote as Record<string, unknown>)?.roomCount === 2 && (gen.body.quote as Record<string, unknown>)?.itemCount === 3, "量房生成报价 → 201，2 个房间 3 行（修复前 500）", gen.body);
+    ok(!!genQuote && genQuote.items.length === 3 && genQuote.items.every((it) => !!it.roomId && genQuote.rooms.some((r) => r.id === it.roomId)), "每行同时挂在报价与房间上", genQuote?.items.map((i) => ({ q: i.quoteId, r: i.roomId })));
+    const gDrape = genQuote?.items.find((it) => it.product === "Drapery");
     const drape2 = priceFor("Drapery", "Without liner", 100, 120, 0.35, false, undefined, 2);
-    ok(genCalc.itemResults.length === 1 && genCalc.itemResults[0].bracketWidth === 100 && !("error" in drape2) && Math.abs(genCalc.itemResults[0].price - drape2.price) < 1e-6, "量房计价：布帘 100x120 不带褶皱率 → 按 2，取档 100", genCalc.itemResults[0]);
+    ok(!!gDrape && gDrape.bracketWidth === 100 && !("error" in drape2) && Math.abs(gDrape.price - drape2.price) < 1e-6, "量房布帘 100x120 不带褶皱率 → 按 2，取档 100", gDrape);
+    const gCordless = genQuote?.items.find((it) => it.product === "Zebra" && it.cordless);
+    ok(!!gCordless && gCordless.discountPct === 0.25 && gCordless.price === 169, "量房无绳 Zebra 24x36 → 企业无绳折扣 0.25、最低价 169", gCordless);
+    ok((await db.measurementRecord.findUnique({ where: { id: MR } }))?.status === "quoted", "量房记录状态 → quoted");
   } finally {
+    await db.measurementRecord.deleteMany({ where: { customerId: CUST } });
     await db.pendingAction.deleteMany({ where: { orgId: ORG } });
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: ORG }] } });
     await db.notification.deleteMany({ where: { userId: { in: users } } });

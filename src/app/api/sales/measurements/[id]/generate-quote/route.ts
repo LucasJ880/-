@@ -91,55 +91,61 @@ export const POST = withAuth(async (request, ctx, user) => {
     roomGroups.set(roomName, group);
   }
 
-  const quote = await db.salesQuote.create({
-    data: {
-      orgId: requestOrgId,
-      customerId: record.customerId,
-      opportunityId: record.opportunityId,
-      version: existingCount + 1,
-      installMode,
-      aiSource: "measurement",
-      shareToken,
-      merchSubtotal: calc.merchSubtotal,
-      addonsSubtotal: calc.addonsSubtotal,
-      installSubtotal: calc.installSubtotal,
-      installApplied: calc.installApplied,
-      deliveryFee: calc.deliveryFee,
-      preTaxTotal: calc.preTaxTotal,
-      taxRate: calc.taxRate,
-      taxAmount: calc.taxAmount,
-      grandTotal: calc.grandTotal,
-      createdById: user.id,
-      rooms: {
-        create: Array.from(roomGroups.entries()).map(([roomName, groupItems], roomIdx) => ({
-          roomName,
-          sortOrder: roomIdx,
-          items: {
-            create: groupItems.map((r, idx) => ({
-              quoteId: undefined as any,
-              sortOrder: idx,
-              product: r.input.product,
-              fabric: r.input.fabric,
-              widthIn: r.input.widthIn,
-              heightIn: r.input.heightIn,
-              bracketWidth: r.bracketWidth,
-              bracketHeight: r.bracketHeight,
-              cordless: r.cordless,
-              msrp: r.msrp,
-              discountPct: r.discountPct,
-              discountValue: r.discountValue,
-              price: r.price,
-              installFee: r.install,
-              costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings.costRates, r.input.product)),
-              location: r.input.location || null,
-            })),
-          },
-        })),
+  // 报价、房间、行在同一事务内依次创建：SalesQuoteItem 同时属于报价与房间，
+  // 不能嵌在 rooms.create.items.create 里（Prisma 要求同时给出 quote 关联，原写法 quoteId: undefined 必然 500）。
+  const quote = await db.$transaction(async (tx) => {
+    const created = await tx.salesQuote.create({
+      data: {
+        orgId: requestOrgId,
+        customerId: record.customerId,
+        opportunityId: record.opportunityId,
+        version: existingCount + 1,
+        installMode,
+        aiSource: "measurement",
+        shareToken,
+        merchSubtotal: calc.merchSubtotal,
+        addonsSubtotal: calc.addonsSubtotal,
+        installSubtotal: calc.installSubtotal,
+        installApplied: calc.installApplied,
+        deliveryFee: calc.deliveryFee,
+        preTaxTotal: calc.preTaxTotal,
+        taxRate: calc.taxRate,
+        taxAmount: calc.taxAmount,
+        grandTotal: calc.grandTotal,
+        createdById: user.id,
       },
-    },
-    include: {
-      rooms: { include: { items: true } },
-    },
+    });
+    let roomIdx = 0;
+    for (const [roomName, groupItems] of roomGroups.entries()) {
+      const room = await tx.quoteRoom.create({
+        data: { quoteId: created.id, roomName, sortOrder: roomIdx++ },
+      });
+      await tx.salesQuoteItem.createMany({
+        data: groupItems.map((r, idx) => ({
+          quoteId: created.id,
+          roomId: room.id,
+          sortOrder: idx,
+          product: r.input.product,
+          fabric: r.input.fabric,
+          widthIn: r.input.widthIn,
+          heightIn: r.input.heightIn,
+          bracketWidth: r.bracketWidth,
+          bracketHeight: r.bracketHeight,
+          cordless: r.cordless,
+          msrp: r.msrp,
+          discountPct: r.discountPct,
+          discountValue: r.discountValue,
+          price: r.price,
+          installFee: r.install,
+          costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings.costRates, r.input.product)),
+          location: r.input.location || null,
+        })),
+      });
+    }
+    return tx.salesQuote.findUniqueOrThrow({
+      where: { id: created.id },
+      include: { rooms: { include: { items: true } } },
+    });
   });
 
   await db.measurementRecord.update({

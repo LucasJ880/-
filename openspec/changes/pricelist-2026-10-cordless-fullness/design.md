@@ -60,6 +60,11 @@
 - 做法：把 10 个标签移入 `MUST_MATCH`，`DEFERRED = new Set([])`；`priceFor` 调用加上 `fullness` 透传（通过 `calculateQuoteTotal` 单行调用或直接传参）；比对规则不变。
 - 否决：删掉分组机制 —— 下次价表更新还要用。
 
+### D8 顺带修复量房「生成报价」写库 500（apply 中发现，Lucas 2026-10-30 同意）
+- 现状：`src/app/api/sales/measurements/[id]/generate-quote/route.ts` 把 `SalesQuoteItem` 嵌在 `rooms.create.items.create` 里并写 `quoteId: undefined as any`；行同时属于报价与房间，Prisma 要求给出 `quote` 关联 → 每次 500（origin/main 上即如此，与定价无关）。规格「褶皱率来源 / 量房生成按 2」场景要经过这个路由才能验证。
+- 做法：同一事务内先建报价，再逐个建房间并 `createMany` 该房间的行（显式 `quoteId` + `roomId`），最后带 rooms / items 读回；响应结构不变。
+- 否决：预先生成报价 id 再嵌套 connect —— 依赖 cuid 生成细节；拆成单独 PR —— 本 change 已改动该路由且规格场景依赖它，Lucas 同意并入。
+
 ## 与八条硬纪律的关系
 
 | 条 | 关系 |

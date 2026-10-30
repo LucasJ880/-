@@ -18,7 +18,7 @@
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
 | PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | [#353](https://github.com/LucasJ880/-/pull/353) 已合并（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`；同 PR 带 PRICE-2 四件套） | `[x]` |
-| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 7/7） | 待开 | — | `[G]` |
+| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 8/8，含量房生成报价 500 修复） | 待开 | — | `[G]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
 | STAT-1 `sales-quote-stats-drilldown` | 未 propose（等 Q9 / Q10） | — | — | `[ ]` |
 
@@ -27,7 +27,7 @@
 ## 1. 下一步
 
 1. **已拍板**（用户 2026-10-29："都按照推荐的来"）：Q1–Q11 全按推荐列；Q4 没有推荐值，PRICE-2 propose 前仍要问一句 Lift L/R 是否即无绳。
-2. PRICE-1 已合并（#344）并归档（#353）。PRICE-2 已实施（Q4 = A；tasks 7/7；报告 `docs/QINGYAN_PRICE-2_REPORT.md`）：下一步开 PR → CI 绿 → 用户确认合并 → 最新 main 上 `openspec archive pricelist-2026-10-cordless-fullness --yes`（独立小 PR）。黄金对照已全部 158 条比对，以后改 `pricing-data.ts` / `pricing-engine.ts` 都必须先跑它。PRICE-2 发现量房「生成报价」在 main 上本来就 500（报告 §4.2），待另开修复
+2. PRICE-1 已合并（#344）并归档（#353）。PRICE-2 已实施（Q4 = A；tasks 7/7；报告 `docs/QINGYAN_PRICE-2_REPORT.md`）：下一步开 PR → CI 绿 → 用户确认合并 → 最新 main 上 `openspec archive pricelist-2026-10-cordless-fullness --yes`（独立小 PR）。黄金对照已全部 158 条比对，以后改 `pricing-data.ts` / `pricing-engine.ts` 都必须先跑它。PRICE-2 顺带修了量房「生成报价」在 main 上必然 500 的问题（报告 §4.2、design D8）
 3. apply 前记基线：`npx tsx src/lib/blinds/__tests__/{sunny-motor,valance-options,cost-rates,quote-fees}.test.ts`、`npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts`、`npx tsx src/lib/fulfillment/__tests__/category.test.ts`、`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts`。
 4. 价表下次再更新时，走 `scripts/pricelist/README.md` 四步，只把差异进新的 `config/pricelist/<日期>-*.json`。
 
