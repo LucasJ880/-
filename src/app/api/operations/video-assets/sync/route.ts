@@ -6,17 +6,16 @@
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_MANAGE } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 import { syncAivoraVideosForOrg } from "@/lib/operations/service";
 
 export const POST = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权触发同步" }, { status: 403 });
-  }
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_MANAGE, "无权同步视频资产（需要运营管理权限）");
+  if (denied) return denied;
 
   try {
     const result = await syncAivoraVideosForOrg(orgRes.orgId);

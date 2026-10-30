@@ -41,7 +41,8 @@ async function main() {
 
   for (const [id, role] of [
     [U_INIT, "user"], [U_MEMBER, "user"], [U_ADMIN, "user"],
-    [U_PLAT, "admin"], [U_INACTIVE_ADMIN, "user"], [U_B, "user"],
+    // PERM-7b：平台管理员只认 super_admin
+    [U_PLAT, "super_admin"], [U_INACTIVE_ADMIN, "user"], [U_B, "user"],
   ] as const) {
     await db.user.create({ data: { id, email: `${id}@f.test`, name: id, role } });
   }
@@ -120,7 +121,7 @@ async function main() {
     ok(r3.decision === "cancelled", "org_admin 可取消他人 supervisor run（管理员政策）", r3);
 
     const supRun3 = await mkRun({ runType: "supervisor" });
-    const r4 = await cancelSupervisorRunGated({ orgId: ORG_A, runId: supRun3.id, actor: { userId: U_PLAT, role: "admin" } });
+    const r4 = await cancelSupervisorRunGated({ orgId: ORG_A, runId: supRun3.id, actor: { userId: U_PLAT, role: "super_admin" } });
     ok(r4.decision === "cancelled", "平台管理员（isSuperAdmin）可取消（既有平台政策）", r4);
 
     const legacySup = await mkRun({ runType: "conversation", supervisorState: { legacy: true } });

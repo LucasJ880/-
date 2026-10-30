@@ -8,7 +8,6 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { canManageUsers } from "@/lib/rbac/roles";
 import {
   resolveSalesOrgIdForRequest,
   resolveSalesScope,
@@ -63,11 +62,19 @@ export const PATCH = withAuth(async (request, _ctx, user) => {
   }
 
   const targetUserId = body.userId?.trim() || user.id;
-  if (targetUserId !== user.id && !canManageUsers(user.role)) {
-    return NextResponse.json(
-      { error: "仅可修改本人目标，或由管理角色代设" },
-      { status: 403 },
-    );
+  if (targetUserId !== user.id) {
+    // PERM-4a：代设他人目标 = 持全企业 sales.analytics.read（老板 / 合价 / 会计 / 销售经理），目标人须是本企业活跃成员
+    const analytics = await resolveSalesScope(user, orgRes.orgId, "sales.analytics.read");
+    const member = await db.organizationMember.findUnique({
+      where: { orgId_userId: { orgId: orgRes.orgId, userId: targetUserId } },
+      select: { status: true },
+    });
+    if (!analytics.allowed || analytics.ownOnly || member?.status !== "active") {
+      return NextResponse.json(
+        { error: "仅可修改本人目标，或由持全企业销售分析权的人为本企业成员代设" },
+        { status: 403 },
+      );
+    }
   }
 
   const raw = body.targetAmount;

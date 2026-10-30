@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { costRateForProduct, snapshotCostPrice } from "../cost-rates";
-import { parseCostRates, validateCostRatesInput } from "../discount-settings";
+import { parseCostRates, validateCostRatesInput, readJsonDiscounts, mergeJsonDiscounts } from "../discount-settings";
 
 // ── parseCostRates：只收已知品类、0-1 有限数 ──
 const parsed = parseCostRates({
@@ -32,7 +32,25 @@ const rates = { zebra: 0.45, honeycomb: 0.6 };
 assert.equal(costRateForProduct(rates, "Zebra"), 0.45);
 assert.equal(costRateForProduct(rates, "SkylightHoneycomb"), 0.6);
 assert.equal(costRateForProduct(rates, "Roller"), null, "未配置品类 → null");
-assert.equal(costRateForProduct(rates, "Allusion"), null, "无映射产品 → null");
+assert.equal(costRateForProduct(rates, "Allusion"), null, "未配置品类（Allusion 2026-10-28 起有映射）→ null");
+assert.equal(costRateForProduct(rates, "Roman"), null, "无映射产品 → null");
+
+// ── 2026-10-28 价表：fauxwood / allusion 作为成本率与 JSON 折扣键 ──
+const rates2 = { fauxwood: 0.5, allusion: 0.42 };
+assert.equal(costRateForProduct(rates2, "Fauxwood"), 0.5, "Fauxwood 成本率");
+assert.equal(costRateForProduct(rates2, "Allusion"), 0.42, "Allusion 成本率");
+assert.equal(validateCostRatesInput({ fauxwood: 0.5, allusion: 0.42 }).ok, true, "成本率入参接受新键");
+assert.deepEqual(readJsonDiscounts({ pricing: { discounts: { fauxwood: "abc", allusion: 0.4 } } }), { allusion: 0.4 }, "坏值丢弃、好值保留（调用方回默认）");
+assert.deepEqual(readJsonDiscounts({ pricing: { leadMaxPct: 0.35 } }), {}, "没有 discounts 子键 → 空");
+assert.deepEqual(readJsonDiscounts("x"), {}, "非对象 → 空");
+assert.deepEqual(readJsonDiscounts({ pricing: { discounts: { fauxwood: 1.5, allusion: -0.1 } } }), {}, "越界丢弃");
+const merged = mergeJsonDiscounts(
+  { sunnyWarranty: { a: 1 }, pricing: { leadMaxPct: 0.4, discounts: { fauxwood: 0.3 } } },
+  { allusion: 0.25 },
+);
+assert.deepEqual(merged, { sunnyWarranty: { a: 1 }, pricing: { leadMaxPct: 0.4, discounts: { fauxwood: 0.3, allusion: 0.25 } } }, "只动 pricing.discounts 子键，其它键原样");
+assert.deepEqual(mergeJsonDiscounts(null, { fauxwood: 0.2 }), { pricing: { discounts: { fauxwood: 0.2 } } }, "空 settingsJson 也能写");
+assert.deepEqual(mergeJsonDiscounts({ pricing: "bad" }, { fauxwood: 0.2 }), { pricing: { discounts: { fauxwood: 0.2 } } }, "坏 pricing 被替换为对象");
 
 // ── snapshotCostPrice ──
 assert.equal(snapshotCostPrice(100, 0.45), 45);

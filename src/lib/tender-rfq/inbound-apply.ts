@@ -12,7 +12,7 @@
  *   逐字解析：改这里的措辞或分隔符必须同步改 notes-parse.ts，并跑 __tests__/notes-parse.test.ts 往返测试。
  */
 
-import type { InboundMissingField } from "./inbound-contract";
+import { INBOUND_MISSING_LABEL, type InboundMissingField } from "./inbound-contract";
 import type { ParsedQuote } from "./inbound-parse";
 
 export type ExistingInquiryItem = {
@@ -50,15 +50,7 @@ export type PlanMeta = { messageId: string; now: Date; attachmentNotes?: string[
 /** InquiryItem.currency 的 schema 默认值（prisma: @default("CAD")） */
 export const INQUIRY_ITEM_DEFAULT_CURRENCY = "CAD";
 
-/** 缺字段 → notes 里的中文标签（notes-parse.ts 按它反查，P1-7 追问从这里读） */
-export const INBOUND_MISSING_LABEL: Record<InboundMissingField, string> = {
-  price: "价格",
-  currency: "币种",
-  deliveryDays: "交期",
-  validUntil: "有效期",
-  moq: "起订量",
-  incoterm: "贸易条款",
-};
+export { INBOUND_MISSING_LABEL } from "./inbound-contract";
 
 function toNum(v: ExistingInquiryItem["unitPrice"]): number | null {
   if (v == null) return null;
@@ -177,7 +169,7 @@ export function planInquiryItemUpdate(
   if (unanswered.length) facts.push(`强制项未答：${unanswered.map((a) => a.requirementCode).join("、")}`);
   if (parsed.declined) facts.push("供应商明确表示不报价（未自动标记为已拒绝，请人工确认）");
 
-  // ── 缺字段：回信涉及报价时，按"写入后"的值判缺（四个核心字段；起订量/贸易条款只记录不判缺） ──
+  // ── 缺字段：回信涉及报价时，按"写入后"的值判缺（四个核心字段；起订量/贸易条款只记录不判缺，P1-7 追问时再补问） ──
   const priceAfter = exHasPrice || data.unitPrice != null || data.totalPrice != null;
   const quoteish = !parsed.declined && (parsed.isQuote || parsed.missingFields.length > 0);
   const missingFields: InboundMissingField[] = [];

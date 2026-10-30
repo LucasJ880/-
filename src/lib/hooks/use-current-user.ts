@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import { isSuperAdmin } from "@/lib/permissions-client";
 
 export interface CurrentUser {
   id: string;
@@ -17,6 +18,8 @@ export interface CurrentUser {
   companies?: { id: string; name: string; slug: string; logoUrl: string }[];
   /** 服务端计算：是否可见 Autopilot。不含 owner id 列表。 */
   autopilotAllowed?: boolean;
+  /** PERM-4c5：当前企业的岗位派生平台角色（按业务角色显示模块用；平台管理判定仍用 role） */
+  effectiveRole?: string;
 }
 
 interface UseCurrentUserReturn {
@@ -71,8 +74,8 @@ export function useCurrentUser(): UseCurrentUserReturn {
     });
   }, []);
 
-  const isPlatformAdmin =
-    user?.role === "super_admin" || user?.role === "admin";
+  // PERM-7b：只认 super_admin（平台 admin 等同 user）
+  const isPlatformAdmin = isSuperAdmin(user?.role);
 
   return {
     user,

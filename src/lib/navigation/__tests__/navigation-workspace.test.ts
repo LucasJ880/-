@@ -64,9 +64,10 @@ const growth = NAVIGATION_REGISTRY.find((i) => i.key === "growth-hub");
 ok(growth?.group === "GROWTH", "内容增长归属品牌增长");
 ok(growth?.label === "品牌增长", "品牌增长文案");
 
+// PERM-4b：运营中心入口按 operations.* 权限（平台角色 operations 不再单独放行）
 const opsNav = resolveNavigationTree(
   NAVIGATION_REGISTRY,
-  ctx({ platformRole: "operations" }),
+  ctx({ platformRole: "operations", permissionKeys: ["operations.read"] }),
 );
 ok(opsNav.some((i) => i.key === "ws-ops"), "运营可见运营中心");
 ok(!opsNav.some((i) => i.key === "ws-bids"), "运营默认不看招投标中心");
@@ -150,6 +151,35 @@ const noBidMod = resolveNavigationTree(
 ok(
   !noBidMod.some((i) => i.key === "ws-bids"),
   "无 bids/projects 模块时隐藏招投标中心",
+);
+
+// PERM-3：业务条目按岗位权限键可见（平台角色 user）
+const wcMods = { enabled: ["sales", "window_covering"] };
+const fulfillRead = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({ platformRole: "user", modules: wcMods, permissionKeys: ["orders.fulfillment.read"] }),
+);
+ok(
+  fulfillRead.some((i) => i.key === "biz-work-orders") && !fulfillRead.some((i) => i.key === "biz-inventory"),
+  "PERM-3：只持 orders.fulfillment.read → 见工艺单、不见面料库存",
+);
+const fulfillBoth = resolveNavigationTree(
+  NAVIGATION_REGISTRY,
+  ctx({ platformRole: "user", modules: wcMods, permissionKeys: ["orders.fulfillment.read", "inventory.read"] }),
+);
+ok(
+  fulfillBoth.some((i) => i.key === "biz-work-orders") && fulfillBoth.some((i) => i.key === "biz-inventory"),
+  "PERM-3：出单岗（read + inventory.read）→ 见工艺单与面料库存",
+);
+const plainMember = resolveNavigationTree(NAVIGATION_REGISTRY, ctx({ platformRole: "user", modules: wcMods, permissionKeys: [] }));
+ok(
+  !plainMember.some((i) => i.key === "biz-work-orders") && !plainMember.some((i) => i.key === "biz-inventory"),
+  "PERM-3：无权限键的 user → 两个入口都不见",
+);
+const opsLegacy = resolveNavigationTree(NAVIGATION_REGISTRY, ctx({ platformRole: "operations", modules: wcMods, permissionKeys: [] }));
+ok(
+  opsLegacy.some((i) => i.key === "biz-work-orders") && opsLegacy.some((i) => i.key === "biz-inventory"),
+  "PERM-3：平台角色 operations 仍按旧规则可见（PERM-4c 再删）",
 );
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

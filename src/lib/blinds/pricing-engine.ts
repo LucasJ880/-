@@ -235,6 +235,29 @@ export function priceFor(
   };
 }
 
+// ─── Manual selling price override (2026-10-28 价表：Allusion) ─────
+
+/** 允许销售在查表价之上填"手动成交单价"的产品（design D2：本次只对 Allusion 开放） */
+export function allowsManualSellingPrice(product: ProductName): boolean {
+  return product === 'Allusion';
+}
+
+/**
+ * 手动成交单价覆盖（纯函数，客户端预览与服务端落库共用）：
+ * 有效（> 0 的有限数）时成交价取手填值，MSRP 仍是价表值，折扣额 = max(0, MSRP − 手填值)，
+ * discountPct 保持查表折扣；无效或未填时原样返回查表结果。
+ */
+export function applyManualSellingPrice(result: PriceResult, manualPrice: unknown): PriceResult {
+  if (typeof manualPrice !== 'number' || !Number.isFinite(manualPrice) || manualPrice <= 0) {
+    return result;
+  }
+  return {
+    ...result,
+    price: manualPrice,
+    discountValue: Math.max(0, result.msrp - manualPrice),
+  };
+}
+
 // ─── Quote Total Calculation ───────────────────────────────
 
 export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
@@ -256,7 +279,7 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   let installSubtotal = 0;
 
   input.items.forEach((item, idx) => {
-    // Allusion / Roman：暂不走 MSRP 表，销售现场手填单价
+    // Roman：暂不走 MSRP 表，销售现场手填单价（Allusion 自 2026-10-28 价表起查表，见下方覆盖）
     if (isManualPriceShadeProduct(item.product)) {
       const manual = item.manualPrice;
       if (typeof manual !== 'number' || !Number.isFinite(manual) || manual <= 0) {
@@ -303,14 +326,19 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
       return;
     }
 
+    // Allusion：可选手动成交单价覆盖（查表价之上）
+    const tableResult = allowsManualSellingPrice(item.product)
+      ? applyManualSellingPrice(result, item.manualPrice)
+      : result;
+
     const motorSurcharge = item.motorized ? sunnyMotorPrice : 0;
     const pricedResult: PriceResult = motorSurcharge
       ? {
-          ...result,
-          msrp: result.msrp + motorSurcharge,
-          price: result.price + motorSurcharge,
+          ...tableResult,
+          msrp: tableResult.msrp + motorSurcharge,
+          price: tableResult.price + motorSurcharge,
         }
-      : result;
+      : tableResult;
     const effectiveInstall = installMode === 'pickup' ? 0 : pricedResult.install;
     merchSubtotal += pricedResult.price;
     installSubtotal += effectiveInstall;

@@ -57,6 +57,10 @@ export const WECHAT_CONFIRM_POLICY: Readonly<Record<PendingActionType, WeChatCon
   "sales.send_inquiry_reply": "web_only_external",
   /** 给供应商发投标询价邮件 */
   "tender.send_rfq": "web_only_external",
+  /** INSTALL-2c：完工 + 质保邮件，发给客户（须在网页看完预览后批准） */
+  "install.send_warranty_email": "web_only_external",
+  /** INSTALL-2j：返修时间确认邮件，发给客户（须在维修单详情看完预览后批准） */
+  "install.send_repair_visit_email": "web_only_external",
   /** 给供应商发催单 / 缺字段追问邮件 */
   "tender.send_chase": "web_only_external",
   /** 营销活动上线（awaiting_approval → active，开始对外投放 / 发布） */
@@ -69,6 +73,12 @@ export const WECHAT_CONFIRM_POLICY: Readonly<Record<PendingActionType, WeChatCon
   "marketing.approve_research_plan": "web_only_review",
   /** 覆盖已确认的产品营销上下文（影响此后所有营销内容，须看完差异） */
   "marketing.propose_context_update": "web_only_review",
+  // PERM-2：销售设置修改只在 Web 审批中心审（含解锁码变更，不走微信确认）
+  "sales.update_quote_settings": "web_only_review",
+  // PERM-3：作废工艺单只在 Web 审批中心审
+  "orders.cancel_blinds_order": "web_only_review",
+  // PERM-4a：签约单改总价只在 Web 审批中心审
+  "sales.update_signed_quote": "web_only_review",
 };
 
 /** 可在微信里回数字确认 / 回取消的类型（白名单；部分类型还要按 payload 再筛，见 isWeChatConfirmableAction） */

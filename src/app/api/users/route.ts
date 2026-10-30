@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
-import { canManageUsers } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import { listUsers } from "@/lib/users/service";
 import { queryString, queryPagination } from "@/lib/common/api-helpers";
 
 /**
  * GET /api/users
- * Security-1：仅平台 admin / super_admin。企业成员管理走 /organizations/.../members
+ * PERM-4b：仅平台 super_admin（平台 admin / boss 不再可管平台用户）。企业成员管理走 /organizations/.../members
  */
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  if (!canManageUsers(auth.user.role)) {
+  if (!isPlatformSuperAdmin(auth.user.role)) {
     return NextResponse.json(
       { error: "需要平台管理员权限", code: "PLATFORM_ADMIN_REQUIRED" },
       { status: 403 },

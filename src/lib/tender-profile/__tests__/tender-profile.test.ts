@@ -26,7 +26,13 @@ ok(!isTenderProfileUsable(null) && !isTenderProfileUsable(emptyTenderProfile()) 
   const gather = code("src/lib/tender-bid-draft/gather.ts");
   ok(gather.includes("getTenderProfile(") && !gather.includes("getBrandContext") && !gather.includes("brandProfile.findUnique"), "TP-04（反例守卫）: 起草装配只读投标档案，不回退窗饰品牌档案");
   const route = code("src/app/api/operations/tender-profile/route.ts");
-  ok(route.includes("canManageUsers(") && route.includes("resolveRequestOrgIdForUser("), "TP-05: 档案接口管理权限 + 组织隔离");
+  // PERM-4b：读 operations.read | project.read，写 operations.manage | project.update；不再按平台角色
+  ok(
+    !route.includes("canManageUsers(") && route.includes("resolveRequestOrgIdForUser(")
+      && /requireOpsPermission\(user, orgRes\.orgId, \[\.\.\.OPS_READ_KEYS, "project\.read"\]/.test(route)
+      && /requireOpsPermission\(user, orgRes\.orgId, \[OPS_MANAGE, "project\.update"\]/.test(route),
+    "TP-05: 档案接口按岗位权限（运营或招投标）+ 组织隔离",
+  );
 }
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
 if (fail > 0) process.exit(1);

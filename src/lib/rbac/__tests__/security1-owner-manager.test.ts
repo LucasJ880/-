@@ -4,11 +4,11 @@
  */
 
 import {
-  canManageUsers,
-  canDeleteUsers,
   hasOrgRole,
   isOrgSystemAdmin,
+  isPlatformSuperAdmin,
 } from "../roles";
+import * as roles from "../roles";
 import { wouldRemoveLastOrgOwner } from "@/lib/organizations/owner-guard";
 
 let pass = 0;
@@ -32,11 +32,12 @@ ok(!hasOrgRole("org_admin", "org_owner"), "org_admin < org_owner");
 ok(isOrgSystemAdmin("org_owner") && isOrgSystemAdmin("org_admin"), "系统管理角色");
 ok(!isOrgSystemAdmin("org_member"), "普通成员非系统管理");
 
-ok(!canManageUsers("manager"), "manager 不能平台用户管理");
-ok(!canDeleteUsers("manager"), "manager 不能全局删号");
-ok(canManageUsers("admin"), "admin 可平台用户管理");
-ok(canManageUsers("super_admin"), "super_admin 可平台用户管理");
-ok(!canManageUsers("sales"), "sales 不能平台用户管理");
+// PERM-4c1：canManageUsers / canDeleteUsers 已删除；平台用户管理与全局删号只认 super_admin（PERM-4b）
+ok(!("canManageUsers" in roles) && !("canDeleteUsers" in roles), "canManageUsers / canDeleteUsers 已删除");
+ok(!isPlatformSuperAdmin("manager"), "manager 不能平台用户管理");
+ok(!isPlatformSuperAdmin("admin") && !isPlatformSuperAdmin("boss"), "平台 admin / boss 不能平台用户管理");
+ok(isPlatformSuperAdmin("super_admin"), "super_admin 可平台用户管理");
+ok(!isPlatformSuperAdmin("sales"), "sales 不能平台用户管理");
 
 ok(
   wouldRemoveLastOrgOwner({

@@ -8,6 +8,7 @@ import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
 
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAgentRunsForSession } from "@/lib/agent-runtime/trace";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const GET = withAuth<{ sessionId: string }>(
   async (request, ctx, user) => {
@@ -24,7 +25,7 @@ export const GET = withAuth<{ sessionId: string }>(
 
     const role = user.role ?? "user";
     const scope =
-      role === "admin" || role === "super_admin" ? "org" : "self";
+      isSuperAdmin(role) ? "org" : "self";
 
     const runs = await listAgentRunsForSession({
       orgId: orgRes.orgId,

@@ -8,6 +8,7 @@ import {
   importZipToOrgKnowledge,
 } from "@/lib/knowledge/org-knowledge";
 import type { VaultFileInput } from "@/lib/knowledge/markdown-vault-import";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
   );
   if (!orgRes.ok) return orgRes.response;
 
-  if (auth.user.role !== "admin" && auth.user.role !== "super_admin") {
+  if (!isSuperAdmin(auth.user.role)) {
     const membership = await db.organizationMember.findUnique({
       where: { orgId_userId: { orgId: orgRes.orgId, userId: auth.user.id } },
       select: { status: true },

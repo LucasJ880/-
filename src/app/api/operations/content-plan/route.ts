@@ -7,13 +7,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_CONTENT_DRAFT, OPS_READ_KEYS } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const params = request.nextUrl.searchParams;
   const orgRes = await resolveRequestOrgIdForUser(user, params.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_READ_KEYS, "无权查看内容日历");
+  if (denied) return denied;
 
   const from = params.get("from") ? new Date(params.get("from")!) : new Date();
   const to = params.get("to")
@@ -35,12 +37,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
 });
 
 export const POST = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权维护内容日历" }, { status: 403 });
-  }
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_CONTENT_DRAFT, "无权维护内容日历（需要运营起草权限）");
+  if (denied) return denied;
 
   const topic = String(body.topic ?? "").trim();
   const groupName = String(body.groupName ?? "").trim();

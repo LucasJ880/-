@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TradeChannel } from "@prisma/client";
-import { requireRole } from "@/lib/auth/guards";
+
 import { logAudit } from "@/lib/audit/logger";
 import {
   WebsiteChannelError,
@@ -14,7 +14,11 @@ import {
   setWebsiteChannelAllowedOrigins,
 } from "@/lib/trade/channel-service";
 import { canManageTradeChannels, channelManageForbiddenResponse } from "@/lib/trade/channel-access";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  resolveTradeOrgId,
+  TRADE_CHANNEL_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import {
   MAX_ALLOWED_ORIGINS,
   activePreviousSecrets,
@@ -31,7 +35,7 @@ type Ctx = { params: Promise<{ channel: string }> };
  * website 通道的服务端密钥 / 公开 key / 来源白名单只给能管理通道的角色（view.website）。
  */
 export async function GET(request: NextRequest, { params }: Ctx) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_CHANNEL_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Ctx) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_CHANNEL_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);
@@ -104,7 +108,7 @@ function auditView(action: string, config: unknown, after: boolean): Record<stri
  * 返回与 GET 相同的视图（含完整凭证）。审计里只记掩码。
  */
 export async function PATCH(request: NextRequest, { params }: Ctx) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_CHANNEL_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = (await request.json().catch(() => null)) as { orgId?: unknown; action?: unknown; allowedOrigins?: unknown } | null;
