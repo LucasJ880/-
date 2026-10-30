@@ -4,10 +4,10 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-30（PRICE-1 #344 合并、#353 归档；PRICE-2 已实施，报告 `docs/QINGYAN_PRICE-2_REPORT.md`，待开 PR） |
+| 最后更新 | 2026-10-30（PRICE-1 #344 合并、#353 归档；PRICE-2 #354 合并、本 archive PR 归档；STAT-1 #355 / #356 已完成；下一步 PRICE-3） |
 | 任务书（方案） | `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 Q1–Q11 已拍板：全按推荐；Q4 = A） |
-| 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 `[x]` / PRICE-2 `[G]` / PRICE-3 `[ ]` / STAT-1 `[ ]`） |
-| 进行中的 change | `pricelist-2026-10-cordless-fullness`（已实施；下一步开 PR → 合并 → archive） |
+| 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 `[x]` / PRICE-2 `[x]` / PRICE-3 `[ ]` / STAT-1 `[x]`） |
+| 进行中的 change | 无（PRICE-2 已归档；PRICE-3 `pricelist-2026-10-addons` 待 propose） |
 | 工作分支 | `claude/vigilant-goodall-4t0c17`（PR 合并后在其上 merge origin/main 继续；不 force-push） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 仓库不带 `node_modules`，先 `npm ci`（约 2 分钟，会 `prisma generate`）；沙箱里 `tsc` 需 `NODE_OPTIONS=--max-old-space-size=8192` |
@@ -18,16 +18,16 @@
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
 | PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | [#353](https://github.com/LucasJ880/-/pull/353) 已合并（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`；同 PR 带 PRICE-2 四件套） | `[x]` |
-| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 8/8，含量房生成报价 500 修复） | [#354](https://github.com/LucasJ880/-/pull/354) 已开（CI 中；用户确认后合并） | — | `[G]` |
+| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 8/8，含量房生成报价 500 修复） | [#354](https://github.com/LucasJ880/-/pull/354) 已合并（2026-10-30，merge `cb680ab`） | 归档小 PR（`openspec/changes/archive/2026-10-30-pricelist-2026-10-cordless-fullness`） | `[x]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
-| STAT-1 `sales-quote-stats-drilldown` | 已实施（会话 `claude/magical-shannon-keegzr`；Q9 / Q10 按推荐；报告 `docs/QINGYAN_STAT-1_REPORT.md`） | [#355](https://github.com/LucasJ880/-/pull/355) 已合并（`6db3a980`） | 归档小 PR（`openspec/changes/archive/2026-10-30-sales-quote-stats-drilldown`） | `[x]` |
+| STAT-1 `sales-quote-stats-drilldown` | 已实施（会话 `claude/magical-shannon-keegzr`；Q9 / Q10 按推荐；报告 `docs/QINGYAN_STAT-1_REPORT.md`） | [#355](https://github.com/LucasJ880/-/pull/355) 已合并（`6db3a980`） | [#356](https://github.com/LucasJ880/-/pull/356) 已合并（`openspec/changes/archive/2026-10-30-sales-quote-stats-drilldown`） | `[x]` |
 
 流程同 INSTALL-2：基于最新 main → 实施 → typecheck / lint:baseline / test:ci / registry / validate --strict + 本 change 的测试 → PR → CI 绿 → 用户确认合并 → `openspec archive <change> --yes`（在最新 main 上重跑）+ TASKFLOW `[x]` + 本表 → archive PR。
 
 ## 1. 下一步
 
 1. **已拍板**（用户 2026-10-29："都按照推荐的来"）：Q1–Q11 全按推荐列；Q4 没有推荐值，PRICE-2 propose 前仍要问一句 Lift L/R 是否即无绳。
-2. PRICE-1 已合并（#344）并归档（#353）。PRICE-2 已实施（Q4 = A；tasks 7/7；报告 `docs/QINGYAN_PRICE-2_REPORT.md`）：下一步开 PR → CI 绿 → 用户确认合并 → 最新 main 上 `openspec archive pricelist-2026-10-cordless-fullness --yes`（独立小 PR）。黄金对照已全部 158 条比对，以后改 `pricing-data.ts` / `pricing-engine.ts` 都必须先跑它。PRICE-2 顺带修了量房「生成报价」在 main 上必然 500 的问题（报告 §4.2、design D8）
+2. PRICE-1 已合并（#344）并归档（#353）。PRICE-2 已合并（#354，Q4 = A；tasks 8/8；报告 `docs/QINGYAN_PRICE-2_REPORT.md`）并归档。下一步 PRICE-3 `pricelist-2026-10-addons`（Q6 / Q7 / Q8 按推荐）。黄金对照已全部 158 条比对，以后改 `pricing-data.ts` / `pricing-engine.ts` 都必须先跑它。PRICE-2 顺带修了量房「生成报价」在 main 上必然 500 的问题（报告 §4.2、design D8）
 3. apply 前记基线：`npx tsx src/lib/blinds/__tests__/{sunny-motor,valance-options,cost-rates,quote-fees}.test.ts`、`npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts`、`npx tsx src/lib/fulfillment/__tests__/category.test.ts`、`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts`。
 4. 价表下次再更新时，走 `scripts/pricelist/README.md` 四步，只把差异进新的 `config/pricelist/<日期>-*.json`。
 
