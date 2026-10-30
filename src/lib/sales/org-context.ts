@@ -2,6 +2,7 @@
  * 销售 CRM 组织上下文 — 与外贸模块 resolveTradeOrgId 规则一致（复用实现）。
  *
  * Security-1：数据范围改走统一 authorize()，不再用 org_admin ≡ 全部业务数据。
+ * PERM-4a：不再因平台角色短路；平台 super_admin 的全权只来自 platformAdminBindings()（经 authorize 解析）。
  *
  * - 日常业务以 User.activeOrgId 为准（FIXED / MULTI_ORG 均不询问）
  * - body/query orgId 仅交叉校验，不可覆盖 activeOrgId（不一致 → ORG_CONTEXT_MISMATCH）
@@ -20,7 +21,6 @@ import {
   type SalesResourceKind,
 } from "@/lib/authorization";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/rbac/roles";
 import { resolveTradeOrgId, type TradeOrgResolution } from "@/lib/trade/access";
 
 export type { TradeOrgResolution as SalesOrgResolution } from "@/lib/trade/access";
@@ -44,8 +44,8 @@ export type SalesScopeResult = {
 /**
  * 解析调用者在指定 org 内的数据可见范围（Security-1）。
  *
- * - 平台 admin / super_admin：ownOnly=false（支持排查；不授予 org_admin 业务特权）
- * - 其余：authorize(permission)；含 ORG → ownOnly=false；仅 PRINCIPAL/ASSIGNED → ownOnly=true
+ * - authorize(permission)；含 ORG → ownOnly=false；仅 PRINCIPAL/ASSIGNED → ownOnly=true
+ * - 平台 super_admin 经平台管理员绑定得到 ORG；平台 admin 与普通人同样按岗位
  * - org_admin 默认无销售权限 → allowed=false（不再因角色看全量）
  */
 export async function resolveSalesScope(
@@ -53,15 +53,6 @@ export async function resolveSalesScope(
   orgId: string,
   permission: string = "sales.customer.read",
 ): Promise<SalesScopeResult> {
-  if (isAdmin(user.role)) {
-    return {
-      ownOnly: false,
-      allowed: true,
-      scopes: ["ORG"],
-      reasonCode: "PLATFORM_ADMIN",
-    };
-  }
-
   const principal = humanPrincipal(user, orgId);
   const decision = await authorize({
     principal,
@@ -98,14 +89,6 @@ export async function resolveSalesAuthorizedWhere(
   | { ok: true; where: Record<string, unknown>; scopes: DataScope[]; ownOnly: boolean }
   | { ok: false; reasonCode: string; response: NextResponse }
 > {
-  if (isAdmin(user.role)) {
-    return {
-      ok: true,
-      where: { orgId },
-      scopes: ["ORG"],
-      ownOnly: false,
-    };
-  }
   const principal = humanPrincipal(user, orgId);
   const built = await buildAuthorizedWhere({
     principal,
@@ -193,7 +176,7 @@ export async function assertSalesOpportunityInOrgForMutation(
     };
   }
 
-  if (opts?.user && !isAdmin(opts.user.role)) {
+  if (opts?.user) {
     const decision = await authorize({
       principal: humanPrincipal(opts.user, orgId),
       orgId,
@@ -295,7 +278,7 @@ export async function assertSalesCustomerInOrgForMutation(
   if (customer.orgId !== orgId) {
     return NextResponse.json({ error: "客户不属于当前组织" }, { status: 403 });
   }
-  if (opts?.user && !isAdmin(opts.user.role)) {
+  if (opts?.user) {
     const decision = await authorize({
       principal: humanPrincipal(opts.user, orgId),
       orgId,
@@ -315,6 +298,25 @@ export async function assertSalesCustomerInOrgForMutation(
     }
   }
   return null;
+}
+
+/**
+ * PERM-4a：报价写出口（标记签约 / 上传 PDF / 登记定金）—— 对该报价持 sales.quote.update（本人范围 = 本人创建）。
+ * 报价须已按当前企业查出（跨企业由调用方 404）。无权 → 403 响应；有权 → null。
+ */
+export async function assertSalesQuoteUpdatable(
+  user: AuthUser,
+  orgId: string,
+  quote: { id: string; createdById: string },
+): Promise<NextResponse | null> {
+  const decision = await authorize({
+    principal: humanPrincipal(user, orgId),
+    orgId,
+    permission: "sales.quote.update",
+    resource: { type: "sales_quote", id: quote.id, ownerId: quote.createdById, orgId },
+  });
+  if (decision.allowed) return null;
+  return NextResponse.json({ error: "无权操作此报价单", code: decision.reasonCode }, { status: 403 });
 }
 
 /**

@@ -6,17 +6,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_MANAGE } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 
 const STATUSES = ["active", "limited", "banned", "paused"];
 const CHANNELS = ["postiz", "postflow", "manual"];
 const TIERS = ["matrix", "premium"];
 
 export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权管理矩阵账号" }, { status: 403 });
-  }
   const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(
@@ -24,6 +21,8 @@ export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
     body.orgId ?? request.nextUrl.searchParams.get("orgId"),
   );
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_MANAGE, "无权修改矩阵账号（需要运营管理权限）");
+  if (denied) return denied;
 
   const account = await db.matrixAccount.findFirst({
     where: { id, orgId: orgRes.orgId },
@@ -49,15 +48,14 @@ export const PATCH = withAuth<{ id: string }>(async (request, ctx, user) => {
 });
 
 export const DELETE = withAuth<{ id: string }>(async (request, ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权管理矩阵账号" }, { status: 403 });
-  }
   const { id } = await ctx.params;
   const orgRes = await resolveRequestOrgIdForUser(
     user,
     request.nextUrl.searchParams.get("orgId"),
   );
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_MANAGE, "无权删除矩阵账号（需要运营管理权限）");
+  if (denied) return denied;
 
   const account = await db.matrixAccount.findFirst({
     where: { id, orgId: orgRes.orgId },

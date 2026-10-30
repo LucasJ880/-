@@ -8,6 +8,7 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 import { retryAssistantRun } from "@/lib/assistant/retry-run";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 
 const RETRY_RATE_LIMIT = {
   name: "ai-run-retry",
@@ -38,7 +39,8 @@ export const POST = withAuth(async (request, ctx, user) => {
   const result = await retryAssistantRun({
     orgId: orgRes.orgId,
     userId: user.id,
-    role: user.role,
+    // PERM-4c4：岗位模式企业取岗位派生平台角色
+    role: await resolveEffectivePlatformRole({ userId: user.id, orgId: orgRes.orgId, platformRole: user.role }),
     threadId,
     runId,
   });

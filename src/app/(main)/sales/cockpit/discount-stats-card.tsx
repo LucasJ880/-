@@ -5,6 +5,7 @@ import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 import { Percent, Calendar, Users, Loader2, TrendingDown, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { isSuperAdmin } from "@/lib/permissions-client";
 
 /**
  * 折扣率数统卡片 —— 驾驶舱
@@ -112,7 +113,7 @@ function formatDate(d: Date): string {
 
 export function DiscountStatsCard() {
   const { user } = useCurrentUser();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isAdmin = isSuperAdmin(user?.role);
 
   // 默认时间：本月 1 号 → 今天
   const [from, setFrom] = useState(() => {

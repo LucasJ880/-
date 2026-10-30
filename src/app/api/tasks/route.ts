@@ -1,3 +1,4 @@
+import { loadWorkspaceSignals } from "@/lib/rbac/permission-keys";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
@@ -60,6 +61,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
     platformRole: user.role,
     orgRole,
     hasMembership: Boolean(orgRole),
+    // PERM-4c5：岗位信号（岗位模式管理层 = 老板岗位；团队任务键）
+    ...(await loadWorkspaceSignals(user.id, resolved.orgId)),
   };
   const canTeam = canViewTeamTasks({ ...wsCtx, userId: user.id });
   const wantTeam = viewParam === "team";
@@ -190,6 +193,8 @@ const authenticatedPost = withAuth(async (request, _ctx, user) => {
     orgRole,
     hasMembership: Boolean(orgRole),
     userId: user.id,
+    // PERM-4c5：岗位信号
+    ...(await loadWorkspaceSignals(user.id, resolved.orgId)),
   });
 
   let assigneeId = user.id;

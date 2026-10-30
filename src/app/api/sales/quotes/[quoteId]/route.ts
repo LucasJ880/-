@@ -2,21 +2,19 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { authorize, humanPrincipal } from "@/lib/authorization";
-import { isAdmin } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import {
   resolveSalesOrgIdForRequest,
   resolveSalesScope,
 } from "@/lib/sales/org-context";
-import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
-import { getAddonDef } from "@/lib/blinds/pricing-addons";
-import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
-import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
-import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
-import type {
-  QuoteItemInput,
-  QuoteAddonInput,
-  InstallMode,
-} from "@/lib/blinds/pricing-types";
+import {
+  QUOTE_UPDATE_EXISTING_SELECT,
+  commitQuoteUpdate,
+  prepareQuoteUpdate,
+  type QuoteUpdateBody,
+} from "@/lib/sales/quote-update";
+import { decideSignedAmountChange } from "@/lib/sales/signed-quote-amount";
+import { submitSignedQuoteAmountApproval } from "@/lib/sales/signed-quote-approval";
 import { logAudit } from "@/lib/audit/logger";
 
 /**
@@ -48,7 +46,8 @@ export const GET = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
 
-  if (!isAdmin(user.role)) {
+  {
+    // PERM-2：不再因平台 admin 跳过；super_admin 由平台管理员全权解析覆盖
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -83,8 +82,8 @@ export const GET = withAuth(async (request, ctx, user) => {
  *
  * 权限：
  *   - 销售仅可编辑自己创建的 quote
- *   - status === "signed" / "accepted" 的 quote，销售不可改（防误操作），
- *     admin 可强制修改
+ *   - status === "signed" / "accepted" 的 quote，本人范围不可改（防误操作）；ORG 范围可改，
+ *     但改了总价要走 sales.update_signed_quote 审批（PERM-4a，返回 202）；平台 super_admin 直接生效
  */
 export const PUT = withAuth(async (request, ctx, user) => {
   const { quoteId } = await ctx.params;
@@ -93,33 +92,8 @@ export const PUT = withAuth(async (request, ctx, user) => {
   if (!orgRes.ok) return orgRes.response;
 
   const body = await request.json();
-  const {
-    items,
-    addons,
-    installMode,
-    deliveryFee,
-    taxRate,
-    notes,
-    orderNumber,
-    formDataJson,
-    totalMsrp,
-    specialPromotion,
-    finalDiscountPct,
-    opportunityId,
-  } = body as {
-    items?: QuoteItemInput[];
-    addons?: QuoteAddonInput[];
-    installMode?: InstallMode;
-    deliveryFee?: number;
-    taxRate?: number;
-    notes?: string;
-    orderNumber?: string;
-    formDataJson?: string;
-    totalMsrp?: number;
-    specialPromotion?: number;
-    finalDiscountPct?: number;
-    opportunityId?: string;
-  };
+  const updateBody = body as QuoteUpdateBody;
+  const { items, taxRate, formDataJson } = updateBody;
 
   if (
     taxRate !== undefined &&
@@ -133,19 +107,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
 
   const existing = await db.salesQuote.findFirst({
     where: { id: quoteId, orgId: orgRes.orgId },
-    select: {
-      id: true,
-      customerId: true,
-      createdById: true,
-      status: true,
-      signedAt: true,
-      signedPdfPath: true,
-      promotionApprovalStatus: true,
-      promotionApprovalActionId: true,
-      promotionApprovalAmount: true,
-      promotionApprovalRatio: true,
-      promotionApprovalMaxPct: true,
-    },
+    select: QUOTE_UPDATE_EXISTING_SELECT,
   });
 
   if (!existing) {
@@ -153,7 +115,7 @@ export const PUT = withAuth(async (request, ctx, user) => {
   }
 
   const scope = await resolveSalesScope(user, orgRes.orgId, "sales.quote.update");
-  if (!isAdmin(user.role)) {
+  {
     const decision = await authorize({
       principal: humanPrincipal(user, orgRes.orgId),
       orgId: orgRes.orgId,
@@ -193,256 +155,44 @@ export const PUT = withAuth(async (request, ctx, user) => {
     );
   }
 
-  // —— pricing 兜底，行为与 POST 完全一致 ——
-  const quoteSettings = await loadDiscountsDto(orgRes.orgId);
-  const nextPromotionAmount = typeof specialPromotion === "number" && Number.isFinite(specialPromotion)
-    ? Math.max(0, specialPromotion)
-    : 0;
-  const nextPromotionRatio = typeof finalDiscountPct === "number" && Number.isFinite(finalDiscountPct)
-    ? Math.max(0, Math.min(1, finalDiscountPct))
-    : 0;
-  const approvalSnapshotMatches = ["pending", "approved"].includes(existing.promotionApprovalStatus)
-    && existing.promotionApprovalAmount != null
-    && existing.promotionApprovalRatio != null
-    && Math.abs(existing.promotionApprovalAmount - nextPromotionAmount) <= 0.0001
-    && Math.abs(existing.promotionApprovalRatio - nextPromotionRatio) <= 0.0001;
-  const adminPromotionApproval = isAdmin(user.role) && nextPromotionRatio > quoteSettings.promoMaxPct;
-  let calc: ReturnType<typeof calculateQuoteTotal>;
-  try {
-    calc = calculateQuoteTotal({
-      items: items || [],
-      addons,
-      installMode,
-      deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
-      taxRate,
-      sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
-      minInstallTotal: quoteSettings.minInstallFee,
-    });
-  } catch (err) {
-    console.error("[quotes.PUT] pricing engine threw:", err);
-    calc = {
-      itemResults: [],
-      errors: (items || []).map((input, idx) => ({
-        index: idx,
-        input,
-        error: `pricing 引擎异常：${err instanceof Error ? err.message : String(err)}`,
-      })),
-      merchSubtotal: 0,
-      addonsSubtotal: 0,
-      installSubtotal: 0,
-      installApplied: 0,
-      deliveryFee: deliveryFee ?? 0,
-      preTaxTotal: 0,
-      taxRate: taxRate ?? 0.13,
-      taxAmount: 0,
-      grandTotal: 0,
-    };
-  }
-
-  const requestedItems = items?.length ?? 0;
-  const succeededItems = calc.itemResults.length;
-
-  let saveMode: "full" | "partial" | "shell";
-  if (requestedItems === 0) {
-    saveMode = "shell";
-  } else if (succeededItems === requestedItems && calc.errors.length === 0) {
-    saveMode = "full";
-  } else if (succeededItems > 0) {
-    saveMode = "partial";
-  } else {
-    saveMode = "shell";
-  }
-
-  // 已签署的 quote 被（管理员）编辑 = 内容变更，旧签名作废，进入新一轮发送/签署。
-  // 否则客户重开分享链接会看到"已签署"，且签的是修改前的旧内容。
-  const invalidateSignature = Boolean(existing.signedAt);
-
-  // status 策略：partial/shell 回到 draft；full 则保留原 status（不降级也不升级）；
-  // 签名作废时统一回到 draft，由发送流程重新推进到 sent
-  const nextStatus = invalidateSignature
-    ? "draft"
-    : saveMode === "full"
-      ? existing.status
-      : "draft";
-
-  // pricing 警告 append 到 notes
-  const pricingErrorNotes =
-    calc.errors.length > 0
-      ? `\n\n[Pricing Warnings @ ${new Date().toISOString()}]\n` +
-        calc.errors
-          .map(
-            (e) =>
-              `  #${e.index + 1} (${e.input.product} ${e.input.fabric}): ${e.error}`,
-          )
-          .join("\n")
-      : "";
-  const mergedNotes =
-    [notes || "", pricingErrorNotes].filter(Boolean).join("").trim() || null;
-
-  /** 未传 formDataJson 时不要清空历史约定（兼容非报价编辑端调用） */
-  const agreedPatch =
-    formDataJson !== undefined
-      ? parseAgreedPaymentFromFormDataJson(formDataJson, calc.grandTotal)
-      : null;
-
-  // 事务：清空旧 items/addons，写入新数据，更新主表
-  const updated = await db.$transaction(async (tx) => {
-    await tx.salesQuoteItem.deleteMany({ where: { quoteId } });
-    await tx.salesQuoteAddon.deleteMany({ where: { quoteId } });
-    if (existing.promotionApprovalActionId) {
-      if (adminPromotionApproval) {
-        await tx.pendingAction.updateMany({
-          where: { id: existing.promotionApprovalActionId, orgId: orgRes.orgId, status: "pending" },
-          data: { status: "executed", decidedAt: new Date(), decidedById: user.id, executedAt: new Date(), resultRef: quoteId },
-        });
-      } else if (!approvalSnapshotMatches) {
-        await tx.pendingAction.updateMany({
-          where: { id: existing.promotionApprovalActionId, orgId: orgRes.orgId, status: "pending" },
-          data: { status: "failed", failureReason: "报价让利内容已变化，请重新提交审批" },
-        });
-      }
-    }
-
-    const q = await tx.salesQuote.update({
-      where: { id: quoteId },
-      data: {
-        opportunityId: opportunityId ?? undefined,
-        status: nextStatus,
-        orderNumber: orderNumber ?? undefined,
-        installMode: (installMode as string | undefined) ?? undefined,
-        merchSubtotal: calc.merchSubtotal,
-        addonsSubtotal: calc.addonsSubtotal,
-        installSubtotal: calc.installSubtotal,
-        installApplied: calc.installApplied,
-        deliveryFee: calc.deliveryFee,
-        preTaxTotal: calc.preTaxTotal,
-        taxRate: calc.taxRate,
-        taxAmount: calc.taxAmount,
-        grandTotal: calc.grandTotal,
-        notes: mergedNotes,
-        formDataJson: formDataJson ?? undefined,
-        totalMsrp:
-          typeof totalMsrp === "number" && Number.isFinite(totalMsrp)
-            ? totalMsrp
-            : null,
-        specialPromotion: nextPromotionAmount,
-        finalDiscountPct: nextPromotionRatio,
-        ...(adminPromotionApproval
-          ? {
-              promotionApprovalStatus: "approved",
-              promotionApprovalActionId: existing.promotionApprovalActionId,
-              promotionApprovalAmount: nextPromotionAmount,
-              promotionApprovalRatio: nextPromotionRatio,
-              promotionApprovalMaxPct: quoteSettings.promoMaxPct,
-              promotionApprovalRequestedAt: null,
-              promotionApprovalExpiresAt: null,
-              promotionApprovalRequestedById: null,
-              promotionApprovedAt: new Date(),
-              promotionApprovedById: user.id,
-              promotionRejectedAt: null,
-              promotionRejectedById: null,
-              promotionRejectionReason: null,
-            }
-          : !approvalSnapshotMatches
-          ? {
-              promotionApprovalStatus:
-                nextPromotionRatio > quoteSettings.promoMaxPct ? "required" : "not_required",
-              promotionApprovalActionId: null,
-              promotionApprovalAmount: null,
-              promotionApprovalRatio: null,
-              promotionApprovalMaxPct: null,
-              promotionApprovalRequestedAt: null,
-              promotionApprovalExpiresAt: null,
-              promotionApprovalRequestedById: null,
-              promotionApprovedAt: null,
-              promotionApprovedById: null,
-              promotionRejectedAt: null,
-              promotionRejectedById: null,
-              promotionRejectionReason: null,
-            }
-          : {}),
-        ...(invalidateSignature
-          ? {
-              signatureUrl: null,
-              signedAt: null,
-              signedPdfPath: null,
-            }
-          : {}),
-        ...(agreedPatch
-          ? {
-              agreedDepositAmount: agreedPatch.agreedDepositAmount,
-              agreedBalanceAmount: agreedPatch.agreedBalanceAmount,
-            }
-          : {}),
-        items:
-          succeededItems > 0
-            ? {
-                create: calc.itemResults.map((r, idx) => ({
-                  sortOrder: idx,
-                  product: r.input.product,
-                  fabric: r.input.fabric,
-                  sku: r.input.sku || null,
-                  widthIn: r.input.widthIn,
-                  heightIn: r.input.heightIn,
-                  bracketWidth: r.bracketWidth,
-                  bracketHeight: r.bracketHeight,
-                  cordless: r.cordless,
-                  msrp: r.msrp,
-                  discountPct: r.discountPct,
-                  discountValue: r.discountValue,
-                  price: r.price,
-                  installFee: r.install,
-                  costPrice: snapshotCostPrice(r.price, costRateForProduct(quoteSettings.costRates, r.input.product)),
-                  location: r.input.location || null,
-                })),
-              }
-            : undefined,
-        addons: addons?.length
-          ? {
-              create: addons.map((a) => {
-                const def = getAddonDef(a.addonKey);
-                return {
-                  addonKey: a.addonKey,
-                  displayName: def?.displayName || a.addonKey,
-                  unitPrice: def?.unitPrice || 0,
-                  qty: a.qty,
-                  subtotal: (def?.unitPrice || 0) * a.qty,
-                };
-              }),
-            }
-          : undefined,
-      },
-      include: { items: true, addons: true },
-    });
-
-    return q;
+  const overLimitSubmit = await authorize({
+    principal: humanPrincipal(user, orgRes.orgId),
+    orgId: orgRes.orgId,
+    permission: "sales.quote.discount.over_limit.submit",
   });
+  const actor = { userId: user.id, isPlatformSuperAdmin: isPlatformSuperAdmin(user.role), canSubmitOverLimit: overLimitSubmit.allowed };
+  const prepared = await prepareQuoteUpdate({ orgId: orgRes.orgId, existing, body: updateBody, actor });
 
-  // 签名作废时清理旧的已签署 PDF 存档（失败不阻断）
-  if (invalidateSignature && existing.signedPdfPath) {
-    const { deleteBlob } = await import("@/lib/files/blob-access");
-    await deleteBlob(existing.signedPdfPath).catch(() => undefined);
+  // PERM-4a：已签约报价改总价 → 不落库，提交 sales.update_signed_quote 审批（202）；super_admin 直接生效并审计自批
+  const signedDecision = decideSignedAmountChange({
+    status: existing.status,
+    currentTotal: existing.grandTotal,
+    nextTotal: prepared.calc.grandTotal,
+    isPlatformSuperAdmin: actor.isPlatformSuperAdmin,
+  });
+  if (signedDecision === "approval_required") {
+    return submitSignedQuoteAmountApproval({
+      request,
+      user,
+      orgId: orgRes.orgId,
+      existing,
+      body: updateBody,
+      afterTotal: prepared.calc.grandTotal,
+    });
   }
 
-  if (adminPromotionApproval) {
+  const result = await commitQuoteUpdate({ orgId: orgRes.orgId, quoteId, existing, body: updateBody, prepared, actor });
+  if (signedDecision === "platform_direct") {
     await logAudit({
       userId: user.id,
       orgId: orgRes.orgId,
-      action: "quote_promotion_approved",
+      action: "sales.signed_quote.amount_changed",
       targetType: "sales_quote",
       targetId: quoteId,
-      afterData: { via: "admin_direct_confirmation", promotionAmount: nextPromotionAmount, promotionRatio: nextPromotionRatio, maxPct: quoteSettings.promoMaxPct },
+      beforeData: { grandTotal: existing.grandTotal, status: existing.status },
+      afterData: { grandTotal: prepared.calc.grandTotal, requestedById: user.id, approvedById: user.id, selfApproved: true, actorKind: "platform_admin" },
+      request,
     });
   }
-
-  return NextResponse.json({
-    quote: updated,
-    saveMode,
-    pricing: {
-      requestedItems,
-      succeededItems,
-      errors: calc.errors,
-    },
-    errors: calc.errors,
-  });
+  return NextResponse.json(result);
 });

@@ -258,6 +258,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     null,
   );
   const [hasBidCapability, setHasBidCapability] = useState(false);
+  const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
+  // PERM-4c2：岗位模式（窗饰企业导航按岗位键）
+  const [positionMode, setPositionMode] = useState(false);
   const [capExpanded, setCapExpanded] = useState<boolean | null>(null);
   // 外贸员「更多」默认折叠，展开状态按浏览器记忆
   const [tradeMoreExpanded, setTradeMoreExpanded] = useState(false);
@@ -307,11 +310,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           orgRole?: string | null;
           hasMembership?: boolean;
           hasBidCapability?: boolean;
+          permissionKeys?: string[];
+          positionMode?: boolean;
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
           setWorkspaceIds(data.workspaceIds ?? []);
           setApiOrgRole(data.orgRole ?? null);
+          setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
+          setPositionMode(data.positionMode === true);
           setApiHasMembership(
             typeof data.hasMembership === "boolean"
               ? data.hasMembership
@@ -326,6 +333,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           setApiOrgRole(null);
           setApiHasMembership(null);
           setHasBidCapability(false);
+          setPermissionKeys([]);
+          setPositionMode(false);
         }
       }
     })();
@@ -352,6 +361,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       modules: orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      permissionKeys,
+      positionMode,
       autopilotAllowed: user?.autopilotAllowed === true,
     }),
     [
@@ -364,6 +375,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      permissionKeys,
+      positionMode,
       user?.autopilotAllowed,
     ],
   );
@@ -389,7 +402,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     })).filter((g) => g.items.length > 0);
   }, [resolved]);
 
-  const tradeLayout = usesTradeLayout(platformRole);
+  // PERM-6c：外贸两段式布局按岗位派生平台角色（压扁后外贸业务员的 role 是 user、effectiveRole 是 trade）
+  const tradeLayout = usesTradeLayout(user?.effectiveRole ?? platformRole);
   const tradePartition = useMemo(
     () => (tradeLayout ? partitionTradeNav(resolved) : null),
     [tradeLayout, resolved],

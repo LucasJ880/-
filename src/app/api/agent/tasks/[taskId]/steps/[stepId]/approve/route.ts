@@ -1,3 +1,4 @@
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
@@ -42,7 +43,8 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const result = await approveApprovalItem("approval_request", approval.id, {
     userId: user.id,
-    role: user.role,
+    // PERM-4c5：岗位模式企业取岗位派生平台角色
+    role: await resolveEffectivePlatformRole({ userId: user.id, orgId: access.project.orgId, platformRole: user.role }),
     note,
     acceptedWithRisk,
   });

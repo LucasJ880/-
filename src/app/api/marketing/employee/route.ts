@@ -16,6 +16,7 @@ import {
   isMarketingSkillSlug,
 } from "@/lib/marketing/skill-router";
 import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 
 async function resolveOrgId(userId: string): Promise<string | null> {
   let orgId = await getUserActiveOrgId(userId);
@@ -31,13 +32,15 @@ async function resolveOrgId(userId: string): Promise<string | null> {
 }
 
 export const GET = withAuth(async (_req, _ctx, user) => {
-  if (!canUseMarketingDigitalEmployee(user.role)) {
+  const orgId = await resolveOrgId(user.id);
+  // PERM-4c4：岗位模式企业按岗位派生平台角色判定（压扁后销售仍不开放营销数字员工）
+  const role = await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role });
+  if (!canUseMarketingDigitalEmployee(role)) {
     return NextResponse.json(
       { error: "销售账号请使用销售数字员工" },
       { status: 403 },
     );
   }
-  const orgId = await resolveOrgId(user.id);
   if (!orgId) {
     return NextResponse.json({ error: "无组织" }, { status: 403 });
   }
@@ -132,13 +135,15 @@ export const GET = withAuth(async (_req, _ctx, user) => {
 });
 
 export const POST = withAuth(async (req, _ctx, user) => {
-  if (!canUseMarketingDigitalEmployee(user.role)) {
+  const orgId = await resolveOrgId(user.id);
+  // PERM-4c4：岗位模式企业按岗位派生平台角色判定（压扁后销售仍不开放营销数字员工）
+  const role = await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role });
+  if (!canUseMarketingDigitalEmployee(role)) {
     return NextResponse.json(
       { error: "销售账号未启用营销数字员工" },
       { status: 403 },
     );
   }
-  const orgId = await resolveOrgId(user.id);
   if (!orgId) {
     return NextResponse.json({ error: "无组织" }, { status: 403 });
   }

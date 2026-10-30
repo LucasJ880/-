@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "PERM-5b：Sunny 数字员工岗位绑定（设计稿 docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md §4-10）。",
+    "键是 Agent id（必须是 active、属于 Sunny 企业项目的 Agent）；值是岗位 key 列表，只允许 sales_rep / ops_staff / bids / accounting。",
+    "sponsor = Agent 的创建人：销售数字员工只能读写 sponsor 名下的客户 / 报价；它发起的审批由 sponsor 批，数字员工永不审批。",
+    "以 TODO: 开头的键是未填 Agent id 的占位，脚本遇到任一占位整文件拒绝（退出 2）。",
+    "执行：ALLOW_POSITION_BINDING=true npx tsx scripts/bind-positions.ts --principal-type DIGITAL_EMPLOYEE --org <Sunny 的 Organization.code> --file config/positions/sunny-digital-employees.json --actor lucas@sunnyshutter.ca --dry-run"
+  ],
+  "bindings": {
+    "TODO:销售数字员工": ["sales_rep"],
+    "TODO:营销增长数字员工": ["ops_staff"],
+    "TODO:投标数字员工": ["bids"],
+    "TODO:数据分析数字员工": ["accounting"]
+  }
+}

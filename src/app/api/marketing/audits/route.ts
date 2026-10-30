@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { requireMarketingWriteAccess } from "@/lib/marketing/access";
+import { requireMarketingWriteAccess, requireMarketingReadAccess } from "@/lib/marketing/access";
 import { stringList, validateAuditContext, type AuditContextInput, type BrandValidationIssue, type NormalizedBrandTruth } from "@/lib/marketing/brand-validation";
 import { MARKETING_DIMENSIONS, clampScore, scoreToGrade } from "@/lib/marketing/constants";
 import { logAudit } from "@/lib/audit/logger";
@@ -14,6 +14,9 @@ function jsonArray(value: unknown): string[] {
 export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  // PERM-4c5：岗位模式企业按岗位派生平台角色拦销售（压扁后中间件不再拦）
+  const readDenied = await requireMarketingReadAccess(user, orgRes.orgId);
+  if (readDenied) return readDenied;
   const audits = await db.marketingAuditRun.findMany({
     where: { orgId: orgRes.orgId },
     include: { scores: true, findings: { orderBy: { createdAt: "desc" } } },

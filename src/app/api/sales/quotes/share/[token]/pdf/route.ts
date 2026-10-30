@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { readBlobStream } from "@/lib/files/blob-access";
+import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
 
 export async function GET(
   request: NextRequest,
@@ -22,11 +23,36 @@ export async function GET(
 
   const quote = await db.salesQuote.findUnique({
     where: { shareToken: token },
-    select: { id: true, orderNumber: true, pdfPath: true, signedPdfPath: true },
+    select: {
+      id: true,
+      orgId: true,
+      orderNumber: true,
+      pdfPath: true,
+      signedPdfPath: true,
+      specialPromotion: true,
+      finalDiscountPct: true,
+      promotionApprovalStatus: true,
+      promotionApprovalAmount: true,
+      promotionApprovalRatio: true,
+      promotionApprovalMaxPct: true,
+    },
   });
 
   if (!quote) {
     return NextResponse.json({ error: "报价不存在或链接已失效" }, { status: 404 });
+  }
+
+  // PERM-2：超限折扣未批准的报价不对客户提供 PDF
+  const settings = await db.quoteDiscountSettings.findUnique({
+    where: { orgId: quote.orgId },
+    select: { promoMaxPct: true },
+  });
+  const promotion = evaluatePromotionApproval(quote, settings?.promoMaxPct ?? 0.25);
+  if (promotion.required && !promotion.approved) {
+    return NextResponse.json(
+      { error: "报价待内部审核，暂不可查看", code: "PROMOTION_APPROVAL_REQUIRED" },
+      { status: 409 },
+    );
   }
 
   const pdfPath = quote.signedPdfPath || quote.pdfPath;

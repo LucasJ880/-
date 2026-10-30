@@ -655,3 +655,12 @@ export async function batchAction(
   return result.count;
 }
 
+/** 本人全部未读标为已读（不看分页 / 筛选；已读、已完成、稍后提醒不动） */
+export async function markAllRead(userId: string): Promise<number> {
+  const result = await db.notification.updateMany({
+    where: { userId, status: "unread" },
+    data: { status: "read", readAt: new Date() },
+  });
+  return result.count;
+}
+
