@@ -18,7 +18,7 @@
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
 | PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | [#353](https://github.com/LucasJ880/-/pull/353) 已合并（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`；同 PR 带 PRICE-2 四件套） | `[x]` |
-| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 8/8，含量房生成报价 500 修复） | 待开 | — | `[G]` |
+| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 8/8，含量房生成报价 500 修复） | [#354](https://github.com/LucasJ880/-/pull/354) 已开（CI 中；用户确认后合并） | — | `[G]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
 | STAT-1 `sales-quote-stats-drilldown` | 未 propose（等 Q9 / Q10） | — | — | `[ ]` |
 
