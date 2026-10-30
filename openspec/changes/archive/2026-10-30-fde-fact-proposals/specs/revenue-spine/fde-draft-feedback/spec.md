@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: 终态自动产生反馈事件
-询盘回复审批到达以下终态时，系统 SHALL 产生一条反馈事件，事件属性如下：
+询盘回复审批到达以下终态时，系统 SHALL 产生一条反馈事件：
 - 员工键为 `inbound_sales_fde`，范围为团队候选；
 - 引用包含审批 id、商机 id、终态类型；
 - 携带结构化 diff，SHALL NOT 携带正文。
@@ -12,22 +12,11 @@
 - 已执行，或批准后执行失败 → `approved_as_is`；正文与快照不同 → `approved_edited`；
 - 人工驳回（不含关联任务取消导致的驳回）→ `rejected`；
 - 过期 → `expired`；
-- 因人工已回复而被系统作废（`SUPERSEDED_BY_MANUAL_REPLY`）→ `replaced_by_manual_reply`。diff 为草稿快照 vs 那次人工外发的正文，两边都替换买家信息；找不到外发正文时 diff 为空并注明。
+- 因人工已回复而被系统作废（`SUPERSEDED_BY_MANUAL_REPLY`）→ `replaced_by_manual_reply`。
 
-以下情况 SHALL NOT 产生事件：
-- 人工取消；
-- 其它系统作废：新来信、入驻测试、报价变化；
-- 批量准备失败；
-- 关联任务取消导致的驳回；
-- 入驻测试询盘（与询盘 SLA 指标同一判定）的草稿，任何终态。
+以下情况 SHALL NOT 产生事件：人工取消；其它系统作废（新来信、入驻测试、报价变化）；批量准备失败；关联任务取消导致的驳回；入驻测试询盘（判定同询盘 SLA 指标）草稿的任何终态。
 
 事件的 `humanDecision` SHALL 依次为 accepted / edited / rejected / deferred / edited。
-
-事件的 userId SHALL 依次取以下第一个存在的：
-- 决策人；
-- 人工回复作废时，发出人工回复的人；
-- 过期等没有决策人时，取审批人；
-- 仍没有则取创建人。
 
 #### Scenario: 照发批准
 - **WHEN** 审批被批准并执行，正文与快照一致
@@ -37,11 +26,7 @@
 - **WHEN** 审批过期（`failureReason = "已过期"`、无决策人），审批人为 u-approver
 - **THEN** 产生一条 `expired` 事件，`humanDecision = deferred`，用户为 u-approver
 
-#### Scenario: 人工已回复
-- **WHEN** 审批因 u-sales 在外贸收件箱人工回复买家而被作废，人工回复比草稿多一句 "MOQ is 500 pcs per color."
-- **THEN** 产生一条 `replaced_by_manual_reply` 事件，`humanDecision = edited`，用户为 u-sales，diff 的改动段落含"事实段"、捕获数值 500 pcs
-
-#### Scenario: 其它系统作废不产事件
+#### Scenario: 系统作废不产事件
 - **WHEN** 审批以 `SUPERSEDED_BY_NEWER_INBOUND` 作废
 - **THEN** 不产生反馈事件
 
@@ -92,3 +77,18 @@
   - 外贸外发同步在作废之后调用记录器；
   - `approval-timeout` 路由调用补漏扫描；
   - 补漏条件包含人工已回复的作废。
+
+## ADDED Requirements
+
+### Requirement: 人工回复作废事件的 diff 与事件归属用户
+因人工已回复而作废产生的事件，diff SHALL 为草稿快照 vs 那次人工外发的正文，两边都替换买家信息；找不到外发正文时 diff 为空并注明。
+
+事件的 userId SHALL 依次取以下第一个存在的：
+- 决策人；
+- 人工回复作废时，发出人工回复的人；
+- 过期等没有决策人时，取审批人；
+- 仍没有则取创建人。
+
+#### Scenario: 人工已回复
+- **WHEN** 审批因 u-sales 在外贸收件箱人工回复买家而被作废，人工回复比草稿多一句 "MOQ is 500 pcs per color."
+- **THEN** 产生一条 `replaced_by_manual_reply` 事件，`humanDecision = edited`，用户为 u-sales，diff 的改动段落含"事实段"、捕获数值 500 pcs
