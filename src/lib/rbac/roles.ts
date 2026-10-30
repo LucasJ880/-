@@ -77,48 +77,45 @@ export type OrgPlanType = (typeof ORG_PLAN_TYPES)[number];
 
 // --- 权限检查工具 ---
 
-export function isSuperAdmin(role: string | null | undefined): boolean {
-  return role === "admin" || role === "super_admin";
-}
-
-export function isAdmin(role: string | null | undefined): boolean {
-  return role === "admin" || role === "super_admin";
-}
-
 /**
- * 平台超级管理员（唯一可跨组织读取数据的角色）。
- *
- * 与 isAdmin / isSuperAdmin 的区别：
- * - isAdmin / isSuperAdmin：把平台 `admin` 也视为最高权限（用于功能开关、守卫），
- *   `admin` 在「当前组织内」拥有全部能力。
- * - isPlatformSuperAdmin：仅 `super_admin` 为 true。用于数据范围判定时区分
- *   「组织内全部」(admin) 与「跨组织全部」(super_admin)，防止普通组织 admin
- *   看到其它组织的数据。
+ * 平台管理员（PERM-7b：只认 super_admin；平台 `admin` 不带任何平台特权，等同 user，能力全看岗位）。
+ * isSuperAdmin / isAdmin / isPlatformSuperAdmin 同义，保留旧名以免改动全部调用方。
  */
-export function isPlatformSuperAdmin(role: string | null | undefined): boolean {
+export function isSuperAdmin(role: string | null | undefined): boolean {
   return role === "super_admin";
 }
 
+/** PERM-7b：同 isSuperAdmin */
+export function isAdmin(role: string | null | undefined): boolean {
+  return isSuperAdmin(role);
+}
+
+/** 平台超级管理员（唯一可跨组织读取数据的角色）。PERM-7b 起与 isSuperAdmin 同义。 */
+export function isPlatformSuperAdmin(role: string | null | undefined): boolean {
+  return isSuperAdmin(role);
+}
+
 /**
- * 平台用户管理（/api/users、全局软删）。
- * Security-1：平台 admin / super_admin；老板 boss 可管账号（企业最高业务权限）。
- * manager 不再拥有跨组织用户列表；企业内成员管理走 /organizations/[orgId]/members。
+ * PERM-7b：按平台角色名单比对时（旧模式导航等），退役的平台 `admin` 视同 `user`；其余原样（super_admin 不变）。
  */
-export function canManageUsers(role: string | null | undefined): boolean {
-  return isAdmin(role ?? "") || role === "boss";
+export function normalizeRetiredPlatformRole(role: string | null | undefined): string | null | undefined {
+  return role === "admin" ? "user" : role;
+}
+
+/**
+ * PERM-7b：平台角色归一到工具策略 / 模块映射使用的档位词汇。
+ * super_admin → "admin"（平台管理员档）；平台 `admin` → "user"（不再进入平台管理员档）；其余原样。
+ * SYNC: src/lib/permissions-client.ts platformTier
+ */
+export function platformTier(role: string | null | undefined): string {
+  if (role === "super_admin") return "admin";
+  if (role === "admin") return "user";
+  return role ?? "user";
 }
 
 /** 老板：super_admin 之下的企业最高业务权限 */
 export function isBoss(role: string | null | undefined): boolean {
   return role === "boss";
-}
-
-/**
- * 全局账号软删除：仅平台管理员。
- * 企业侧移除员工只能 inactive OrganizationMember，不能删全局 User。
- */
-export function canDeleteUsers(role: string | null | undefined): boolean {
-  return canManageUsers(role);
 }
 
 /** 企业系统管理角色（成员/配置）：owner 或 admin */

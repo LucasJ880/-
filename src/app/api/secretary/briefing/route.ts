@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { generateDailyBriefing, generateBriefingsForOrg } from "@/lib/secretary/briefing";
 import { withAuth } from "@/lib/common/api-helpers";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const GET = withAuth(async (request, ctx, user) => {
   const today = new Date().toISOString().slice(0, 10);
@@ -48,7 +49,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   const orgId = orgRes.orgId;
 
   if (body.action === "cron_all") {
-    if (user.role !== "super_admin" && user.role !== "admin") {
+    if (!isSuperAdmin(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const count = await generateBriefingsForOrg(orgId);

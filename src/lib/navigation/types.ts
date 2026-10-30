@@ -26,8 +26,22 @@ export type NavigationItem = {
   group: NavigationGroup;
   children?: NavigationItem[];
   moduleKey?: OrgModule | OrgModule[];
-  /** 平台账号角色（兼容现有 user.role） */
+  /** 平台账号角色（兼容现有 user.role；PERM-4c 删除） */
   requiredPlatformRoles?: string[];
+  /**
+   * PERM-3：岗位权限键（任一命中即可见）。与 requiredPlatformRoles 并存时二者任一命中即可；
+   * 单独存在时必须命中。
+   */
+  requiredPermissions?: string[];
+  /**
+   * PERM-4c2：岗位模式下的可见键（任一命中即可见；岗位模式不看 requiredPlatformRoles）。
+   * 旧模式（无岗位模板企业）忽略本字段，沿用 requiredPlatformRoles / requiredPermissions。
+   */
+  positionPermissions?: string[];
+  /** PERM-4c2：外贸入口——岗位模式下对平台角色 trade 或管理层可见（PERM-6 前的例外） */
+  tradeEntry?: boolean;
+  /** PERM-4c2：只对平台 super_admin 可见（两种模式都生效；platformAdminOnly 含平台 admin） */
+  superAdminOnly?: boolean;
   /** 企业成员角色 OrganizationMember.role */
   requiredOrgRoles?: string[];
   /** 需要至少一条企业 membership */
@@ -55,7 +69,7 @@ export type NavigationItem = {
    * Phase 1 工作区门禁：与 workspace-policy 对齐。
    * 未设置时不额外按工作区过滤。
    */
-  workspaceAccess?: "management" | "operations" | "bids" | "sales";
+  workspaceAccess?: "management" | "operations" | "bids" | "sales" | "install" | "accounting";
 };
 
 export type NavigationFilterContext = {
@@ -72,6 +86,10 @@ export type NavigationFilterContext = {
   autopilotAllowed?: boolean;
   /** 有效项目成员关系等投标能力信号（来自 active-org） */
   hasBidCapability?: boolean;
+  /** INSTALL-1：岗位权限键（来自 active-org），用于按权限放行的工作区（如 /install） */
+  permissionKeys?: readonly string[] | null;
+  /** PERM-4c2：岗位模式（来自 active-org）；缺省 false = 旧模式 */
+  positionMode?: boolean;
 };
 
 export type ResolvedNavItem = Omit<NavigationItem, "children"> & {

@@ -9,7 +9,7 @@
 
 ## What Changes
 
-- 新增 `src/lib/cockpit/schedule.ts`：28 个自动化的真实调度表（与 `vercel.json` 的 cron 及各路由的本地时刻门控一致，测试交叉核对），以及按调度 + 组织时区推算下次应跑时间、最长正常间隔、单个自动化健康度、岗位健康度的纯函数。
+- 新增 `src/lib/cockpit/schedule.ts`：全部（当前 30 个）自动化的真实调度表（与 `vercel.json` 的 cron 及各路由的本地时刻门控一致，测试交叉核对），以及按调度 + 组织时区推算下次应跑时间、最长正常间隔、单个自动化健康度、岗位健康度的纯函数。
 - 新增 `src/lib/cockpit/waiting.ts`：把"待我审批"条目与 workforce 需要你条目按岗位归属、去重、排序的纯函数，以及驾驶舱文本脱敏函数（复用 Muse 的敏感词检测，命中整段替换）。
 - 新增 `src/lib/cockpit/timeline.ts`：AuditLog / AgentRunEvent / AutomationRun 三路统一信封、按 `(at, id)` 倒序归并、游标编解码的纯函数。
 - 新增 `src/lib/cockpit/posts-read-model.ts`：`getOrgPostsCockpit` 与 `getOrgCompanyLog` 两个读模型，依赖可注入，所有查询只读、按 orgId 限定（AutomationRun 本身是平台级，单独说明）。

@@ -14,7 +14,7 @@
  * 起卡判定与执行器合并都是纯函数；起卡器与执行器依赖可注入。不调用 LLM，不抽价格 / 折扣 / 付款条款。
  */
 
-import { FACT_PROPOSAL_ACTION_TYPE, canApproveCommercialFact, FACT_PROPOSAL_DENIED } from "@/lib/pending-actions/approver-roles";
+import { FACT_PROPOSAL_ACTION_TYPE, FACT_PROPOSAL_APPROVER_PERMISSION, canApproveCommercialFact, FACT_PROPOSAL_DENIED } from "@/lib/pending-actions/approver-roles";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import {
   DEFAULT_PRODUCTION_STARTS_FROM,
@@ -279,7 +279,7 @@ export interface FactProposalDeps {
   pendingFields(orgId: string, now: Date): Promise<string[]>;
   recentFields(orgId: string, since: Date): Promise<string[]>;
   rejectedKeys(orgId: string): Promise<string[]>;
-  /** 组织所有者与在职成员（含平台角色），用于挑审批人 */
+  /** 在职成员（含是否能批），用于挑审批人 */
   approverCandidates(orgId: string): Promise<ApproverCandidate[]>;
   createApproval(input: {
     orgId: string;
@@ -294,8 +294,8 @@ export interface FactProposalDeps {
 
 export interface ApproverCandidate {
   userId: string;
-  /** 平台角色 User.role */
-  platformRole: string | null;
+  /** 能批：平台 super_admin 或在该企业持 trade.settings.manage（canApproveCommercialFact） */
+  canApprove: boolean;
   isOwner: boolean;
   /** 在职成员（所有者不在成员表里时按在职算） */
   active: boolean;
@@ -303,14 +303,21 @@ export interface ApproverCandidate {
 }
 
 /**
- * 挑审批人：所有者（平台角色能批时）→ 在职 boss → 在职 admin，同类按入职先后。
- * 审批人必须本身能批：所有者平台角色不是 admin / boss 时卡会永远批不了。没有合格的人返回 null（不起卡）。
+ * 挑审批人：能批的所有者 → 其他能批的在职成员，同类按入职先后。
+ * 审批人必须本身能批（平台 super_admin 或持 trade.settings.manage），否则卡会永远批不了。没有合格的人返回 null（不起卡）。
  */
 export function pickFactApprover(candidates: readonly ApproverCandidate[]): string | null {
-  const ok = candidates.filter((c) => c.active && canApproveCommercialFact(c.platformRole));
-  const rank = (c: ApproverCandidate) => (c.isOwner ? 0 : c.platformRole === "boss" ? 1 : 2);
+  const ok = candidates.filter((c) => c.active && c.canApprove);
+  const rank = (c: ApproverCandidate) => (c.isOwner ? 0 : 1);
   const sorted = [...ok].sort((a, b) => rank(a) - rank(b) || (a.joinedAt?.getTime() ?? 0) - (b.joinedAt?.getTime() ?? 0));
   return sorted[0]?.userId ?? null;
+}
+
+/** 是否在该企业持 trade.settings.manage——与 holdsTradePermission / PUT /api/revenue/policy 同一授权引擎（不含平台角色） */
+export async function holdsFactApproverKey(userId: string, orgId: string): Promise<boolean> {
+  const { authorize } = await import("@/lib/authorization");
+  const decision = await authorize({ principal: { type: "HUMAN", id: userId, orgId }, orgId, permission: FACT_PROPOSAL_APPROVER_PERMISSION });
+  return decision.allowed;
 }
 
 export interface ProposeResult {
@@ -398,7 +405,7 @@ export function defaultFactProposalDeps(): FactProposalDeps {
       const [org, members] = await Promise.all([
         db.organization.findUnique({ where: { id: orgId }, select: { ownerId: true } }),
         db.organizationMember.findMany({
-          where: { orgId, status: "active", user: { status: "active", role: { in: ["boss", "admin", "super_admin"] } } },
+          where: { orgId, status: "active", user: { status: "active" } },
           select: { userId: true, joinedAt: true, user: { select: { role: true } } },
           orderBy: { joinedAt: "asc" },
           take: 50,
@@ -406,13 +413,16 @@ export function defaultFactProposalDeps(): FactProposalDeps {
       ]);
       // 只取在职成员：所有者账号停用、成员停用或不在成员表时都不当审批人
       // （执行器在认领后才查成员身份，非成员批准会把卡消耗成 failed）
-      return members.map((m) => ({
-        userId: m.userId,
-        platformRole: m.user.role,
-        isOwner: m.userId === org?.ownerId,
-        active: true,
-        joinedAt: m.joinedAt,
-      }));
+      // 能否批与 PUT /api/revenue/policy 同源：平台 super_admin 或企业内 trade.settings.manage
+      return Promise.all(
+        members.map(async (m) => ({
+          userId: m.userId,
+          canApprove: canApproveCommercialFact({ platformRole: m.user.role, holdsSettingsKey: await holdsFactApproverKey(m.userId, orgId) }),
+          isOwner: m.userId === org?.ownerId,
+          active: true,
+          joinedAt: m.joinedAt,
+        })),
+      );
     },
     createApproval: async (input) => {
       const { requestApproval } = await import("@/lib/approval/request");
@@ -451,6 +461,8 @@ export function factAppliedCleanly(merged: BusinessProfile, field: FactField, va
 export interface FactExecDeps {
   /** 批准人的平台角色 User.role（ctx.role 可能是组织成员角色，不能用） */
   platformRole(userId: string): Promise<string | null>;
+  /** 批准人是否在该企业持 trade.settings.manage（与 PUT /api/revenue/policy 同源） */
+  holdsSettingsKey(userId: string, orgId: string): Promise<boolean>;
   membershipActive(userId: string, orgId: string): Promise<boolean>;
   isSuperAdmin(role: string | null | undefined): boolean;
   loadPolicy(orgId: string): Promise<RevenueSpinePolicy>;
@@ -467,9 +479,11 @@ export async function execProposeCommercialFact(
   const orgId = payload?.metadata?.orgId;
   if (!orgId) return { ok: false, error: "缺少组织信息，拒绝执行" };
   if (ctx.orgId && ctx.orgId !== orgId) return { ok: false, error: "跨组织动作，拒绝执行" };
-  // 认领前已按平台角色判过；这里再判一次（纵深防御），同样按 userId 读平台角色
+  // 认领前已判过；这里再判一次（纵深防御），同样按 userId 读平台角色、按 userId + 企业判岗位键
   const platformRole = await deps.platformRole(ctx.userId);
-  if (!canApproveCommercialFact(platformRole)) return { ok: false, error: FACT_PROPOSAL_DENIED };
+  if (!canApproveCommercialFact({ platformRole, holdsSettingsKey: await deps.holdsSettingsKey(ctx.userId, orgId) })) {
+    return { ok: false, error: FACT_PROPOSAL_DENIED };
+  }
   if (!deps.isSuperAdmin(platformRole) && !(await deps.membershipActive(ctx.userId, orgId))) return { ok: false, error: "无权更新该组织的商务事实" };
   const field = payload?.field;
   if (!field || !(FACT_FIELDS as readonly string[]).includes(field)) return { ok: false, error: "未知的商务事实字段" };
@@ -510,6 +524,7 @@ export function defaultFactExecDeps(): FactExecDeps {
       const { db } = await import("@/lib/db");
       return (await db.user.findUnique({ where: { id: userId }, select: { role: true } }))?.role ?? null;
     },
+    holdsSettingsKey: (userId, orgId) => holdsFactApproverKey(userId, orgId),
     membershipActive: async (userId, orgId) => {
       const { getOrgMembership } = await import("@/lib/auth");
       return (await getOrgMembership(userId, orgId))?.status === "active";

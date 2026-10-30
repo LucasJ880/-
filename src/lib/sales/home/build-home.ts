@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import { sumBalanceDue } from "@/lib/install/balance";
+import { loadConfirmedQuoteIds } from "@/lib/install/balance-service";
 import { scanSalesDomain } from "@/lib/secretary/domains/sales";
 import { HOME_FUNNEL_STAGES } from "./formatters";
 import {
@@ -87,7 +89,7 @@ export async function buildSalesHome(params: {
     quoteGroups,
     pendingDepositQuotes,
     collectedDepositAgg,
-    pendingBalanceAgg,
+    pendingBalanceQuotes,
     trendOpps,
   ] = await Promise.all([
     scanSalesDomain(userId, orgId, { ownOnly }),
@@ -236,7 +238,8 @@ export async function buildSalesHome(params: {
       },
       _sum: { depositAmount: true, agreedDepositAmount: true },
     }),
-    db.salesQuote.aggregate({
+    // INSTALL-2b：逐单应收尾款（quoteBalanceDue，与会计"待收尾款"同口径），已确认尾款的单在下面剔除
+    db.salesQuote.findMany({
       where: {
         orgId,
         ...activeCustomer,
@@ -244,7 +247,7 @@ export async function buildSalesHome(params: {
         status: { in: ["signed", "accepted"] },
         signedAt: { gte: monthStart },
       },
-      _sum: { agreedBalanceAmount: true, grandTotal: true, depositAmount: true },
+      select: { id: true, agreedBalanceAmount: true, grandTotal: true, depositAmount: true },
     }),
     db.salesOpportunity.findMany({
       where: {
@@ -568,13 +571,10 @@ export async function buildSalesHome(params: {
     collectedDepositAgg._sum.agreedDepositAmount ??
     0;
 
-  const pendingBalanceAmount =
-    pendingBalanceAgg._sum.agreedBalanceAmount ??
-    Math.max(
-      0,
-      (pendingBalanceAgg._sum.grandTotal ?? 0) -
-        (pendingBalanceAgg._sum.depositAmount ?? 0),
-    );
+  const pendingBalanceAmount = sumBalanceDue(
+    pendingBalanceQuotes,
+    await loadConfirmedQuoteIds(pendingBalanceQuotes.map((q) => q.id)),
+  );
 
   return {
     period: {

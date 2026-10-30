@@ -8,7 +8,7 @@
  * - 未来写工具上线后，在这里再加审批 / 安全约束条款
  */
 
-import type { PlatformRole } from "@/lib/rbac/roles";
+import { normalizeRetiredPlatformRole, type PlatformRole } from "@/lib/rbac/roles";
 
 export interface OperatorPromptContext {
   role: PlatformRole | string;
@@ -59,7 +59,8 @@ export function buildOperatorSystemPrompt(ctx: OperatorPromptContext): string {
     `- 用户角色：${role}`,
     userLine,
     projectLine,
-    `- 角色说明：${ROLE_HINT[role] ?? ROLE_HINT.user}`,
+    // PERM-7b：平台 admin 按 user 说明（super_admin 与改动前相同）
+    `- 角色说明：${ROLE_HINT[normalizeRetiredPlatformRole(role) ?? "user"] ?? ROLE_HINT.user}`,
     ``,
     `# 工作方式`,
     `1. 用中文与用户对话，除非用户明确使用其他语言`,

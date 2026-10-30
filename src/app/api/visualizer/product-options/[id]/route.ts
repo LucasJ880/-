@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   loadSessionByProductOption,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import { findCatalogProductForUse } from "@/lib/visualizer/catalog";
 import {
@@ -32,13 +33,15 @@ function parseTransform(raw: unknown): VisualizerProductOptionTransform | null {
 
 /** PATCH /api/visualizer/product-options/[id] */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id } = await ctx.params;
 
   const found = await loadSessionByProductOption(id);
   if (!found) {
     return NextResponse.json({ error: "产品叠加不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权操作该产品叠加" }, { status: 403 });
   }
 
@@ -125,13 +128,15 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
 /** DELETE /api/visualizer/product-options/[id] */
 export const DELETE = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id } = await ctx.params;
 
   const found = await loadSessionByProductOption(id);
   if (!found) {
     return NextResponse.json({ error: "产品叠加不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权删除该产品叠加" }, { status: 403 });
   }
 

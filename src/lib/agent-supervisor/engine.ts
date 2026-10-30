@@ -41,6 +41,7 @@ import type {
   SupervisorStep,
 } from "./types";
 import { isSupervisorEnabled } from "./flags";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 function initialState(input: {
   sessionId: string;
@@ -590,8 +591,7 @@ export async function resumeSupervisorAfterApproval(input: {
       role: input.userRole,
       orgId: input.orgId,
     }) &&
-    input.userRole !== "admin" &&
-    input.userRole !== "super_admin"
+    !isSuperAdmin(input.userRole)
   ) {
     // 仍允许审批人恢复自己的 run
   }

@@ -28,11 +28,11 @@ const at = (fabric: string, w: number) => { const r = priceFor("Roller", fabric,
 const none36 = at("Blackout (Open Roll)", 36);
 const cass36 = at("Blackout w Cassette", 36);
 const fasc36 = at("Blackout w Fascia", 36);
-ok(cass36 - none36 === 25, "VAL-03a: 36\" 宽 Cassette 比 None 贵 $25", { none36, cass36 });
+ok(Math.abs(cass36 - none36 - 25) < 1e-9, "VAL-03a: 36\" 宽 Cassette 比 None 贵 $25", { none36, cass36 });
 ok(fasc36 === cass36, "VAL-03b: Fascia 与 Cassette 同价（暂定口径）");
 const none60 = at("Blackout (Open Roll)", 60);
 const cass60 = at("Blackout w Cassette", 60);
-ok(cass60 - none60 === 50, "VAL-03c: 60\" 宽 Cassette 加价 $50");
+ok(Math.abs(cass60 - none60 - 50) < 1e-9, "VAL-03c: 60\" 宽 Cassette 加价 $50");
 ok(at("Light Filtering w Fascia", 60) === at("Light Filtering w Cassette", 60), "VAL-03d: LF Fascia=Cassette（宽档同验）");
 
 // VAL-04 UI 结构守卫

@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isWeChatConfirmableActionType, WECHAT_CONFIRM_POLICY } from "@/lib/ai-grader/actions/wechat-confirm-policy";
 import { postForPendingActionType } from "@/lib/cockpit/posts";
-import { FACT_PROPOSAL_DENIED, approverRoleDenial, canApproveCommercialFact, requiresPlatformApproverRole } from "@/lib/pending-actions/approver-roles";
+import { FACT_PROPOSAL_APPROVER_PERMISSION, FACT_PROPOSAL_DENIED, approverRoleDenial, canApproveCommercialFact, requiresApproverPermissionGate } from "@/lib/pending-actions/approver-roles";
 import { DEFAULT_PRODUCTION_STARTS_FROM } from "../fact-extract";
 import {
   FACT_APPLIED_AUDIT_ACTION,
@@ -296,7 +296,7 @@ async function main() {
 
   console.log("\n起卡器");
 
-  const OWNER_BOSS: ApproverCandidate = { userId: "u_boss", platformRole: "boss", isOwner: true, active: true, joinedAt: null };
+  const OWNER_BOSS: ApproverCandidate = { userId: "u_boss", canApprove: true, isOwner: true, active: true, joinedAt: null };
 
   function fakeProposalDeps(over: Partial<{ current: CommercialFacts; pending: string[]; recent: string[]; rejected: string[]; candidates: ApproverCandidate[]; fail: boolean }> = {}) {
     const created: Array<Parameters<FactProposalDeps["createApproval"]>[0]> = [];
@@ -345,19 +345,18 @@ async function main() {
     assert.deepEqual([r.created.length, r.failed], [0, 1]);
   });
 
-  await ok("挑审批人：所有者（能批时）→ 在职 boss → 在职 admin，同类按入职先后；没有能批的人 → null", () => {
+  await ok("挑审批人：能批的所有者 → 其他能批的在职成员，同类按入职先后；没有能批的人 → null", () => {
     const at = (d: string) => new Date(`2026-0${d}-01T00:00:00Z`);
-    const c = (userId: string, platformRole: string | null, o: Partial<ApproverCandidate> = {}): ApproverCandidate => ({ userId, platformRole, isOwner: false, active: true, joinedAt: at("1"), ...o });
-    assert.equal(pickFactApprover([c("u_admin", "admin"), c("u_owner", "boss", { isOwner: true, joinedAt: null })]), "u_owner");
-    // 所有者平台角色批不了 → 不选所有者（否则卡永远批不了）
-    assert.equal(pickFactApprover([c("u_owner", "sales", { isOwner: true }), c("u_admin", "admin"), c("u_boss2", "boss", { joinedAt: at("3") }), c("u_boss1", "boss", { joinedAt: at("2") })]), "u_boss1");
-    assert.equal(pickFactApprover([c("u_owner", "sales", { isOwner: true }), c("u_admin", "admin")]), "u_admin");
-    assert.equal(pickFactApprover([c("u_boss", "boss", { active: false }), c("u_sales", "sales")]), null);
+    const c = (userId: string, canApprove: boolean, o: Partial<ApproverCandidate> = {}): ApproverCandidate => ({ userId, canApprove, isOwner: false, active: true, joinedAt: at("1"), ...o });
+    assert.equal(pickFactApprover([c("u_admin", true), c("u_owner", true, { isOwner: true, joinedAt: null })]), "u_owner");
+    // 所有者批不了（没有 trade.settings.manage）→ 不选所有者（否则卡永远批不了）
+    assert.equal(pickFactApprover([c("u_owner", false, { isOwner: true }), c("u_m2", true, { joinedAt: at("3") }), c("u_m1", true, { joinedAt: at("2") })]), "u_m1");
+    assert.equal(pickFactApprover([c("u_boss", true, { active: false }), c("u_sales", false)]), null);
     assert.equal(pickFactApprover([]), null);
   });
 
   await ok("组织里没有能批的人：不起卡，逐字段记 no_approver", async () => {
-    const f = fakeProposalDeps({ candidates: [{ userId: "u_owner", platformRole: "sales", isOwner: true, active: true, joinedAt: null }] });
+    const f = fakeProposalDeps({ candidates: [{ userId: "u_owner", canApprove: false, isOwner: true, active: true, joinedAt: null }] });
     const r = await proposeCommercialFacts(input, f.deps);
     assert.equal(f.created.length, 0);
     assert.deepEqual(r.skipped, [
@@ -391,7 +390,8 @@ async function main() {
     assert.match(src, /approver: \{ approverUserId: input\.approverUserId \?\? undefined, requiredRole: "boss" \}/);
     assert.match(src, /idempotencyKey: input\.idempotencyKey,/);
     assert.match(src, /db\.organization\.findUnique\(\{ where: \{ id: orgId \}, select: \{ ownerId: true \} \}\)/);
-    assert.match(src, /where: \{ orgId, status: "active", user: \{ status: "active", role: \{ in: \["boss", "admin", "super_admin"\] \} \} \}/);
+    assert.match(src, /where: \{ orgId, status: "active", user: \{ status: "active" \} \}/);
+    assert.match(src, /canApprove: canApproveCommercialFact\(\{ platformRole: m\.user\.role, holdsSettingsKey: await holdsFactApproverKey\(m\.userId, orgId\) \}\)/);
     // 不在在职成员结果里的所有者（停用 / 非成员）不当审批人：执行器认领后才查成员身份
     const candidates = src.slice(src.indexOf("approverCandidates: async"), src.indexOf("createApproval: async"));
     assert.doesNotMatch(candidates, /\.push\(/);
@@ -451,25 +451,26 @@ async function main() {
 
   console.log("\n审批权限");
 
-  await ok("场景「销售角色批准」：sales / trade / manager 被拒；admin / super_admin / boss 放行；其它类型不受影响", () => {
-    for (const role of ["sales", "trade", "manager", "user", null, undefined]) {
-      assert.equal(approverRoleDenial(FACT_PROPOSAL_TYPE, role), FACT_PROPOSAL_DENIED, String(role));
+  await ok("场景「销售角色批准」：与 PUT /api/revenue/policy 同源——平台 super_admin 或企业内 trade.settings.manage 放行，其余（含退役的平台 admin、平台 boss）被拒；其它类型不受影响", () => {
+    for (const role of ["sales", "trade", "manager", "user", "admin", "boss", null, undefined]) {
+      assert.equal(approverRoleDenial(FACT_PROPOSAL_TYPE, { platformRole: role, holdsSettingsKey: false }), FACT_PROPOSAL_DENIED, String(role));
+      assert.equal(approverRoleDenial(FACT_PROPOSAL_TYPE, { platformRole: role, holdsSettingsKey: true }), null, String(role));
     }
-    for (const role of ["admin", "super_admin", "boss"]) {
-      assert.equal(approverRoleDenial(FACT_PROPOSAL_TYPE, role), null, role);
-      assert.equal(canApproveCommercialFact(role), true);
-    }
-    assert.equal(approverRoleDenial("sales.send_inquiry_reply", "sales"), null);
+    assert.equal(canApproveCommercialFact({ platformRole: "super_admin", holdsSettingsKey: false }), true);
+    assert.equal(approverRoleDenial("sales.send_inquiry_reply", { platformRole: "sales", holdsSettingsKey: false }), null);
     assert.equal(FACT_PROPOSAL_DENIED, "仅企业负责人或管理员可批准商务事实提案");
+    assert.equal(FACT_PROPOSAL_APPROVER_PERMISSION, "trade.settings.manage");
+    assert.match(read("src/lib/trade/access.ts"), /export const TRADE_SETTINGS_MANAGE = "trade\.settings\.manage";/);
+    assert.match(read("src/app/api/revenue/policy/route.ts"), /resolveRevenueAccess\(request, REVENUE_SETTINGS_KEYS,/);
   });
 
-  await ok("执行器：角色门在通用权限之后、CAS 认领之前（无权时审批保持待审批）；按 userId 读 User.role，不用 ctx.role；驳回不经过它", () => {
+  await ok("执行器：权限门在通用权限之后、CAS 认领之前（无权时审批保持待审批）；按 userId 读 User.role、按 userId + 企业判岗位键，不用 ctx.role；驳回不经过它", () => {
     const src = strip(read("src/lib/pending-actions/executor.ts"));
     const exec = src.slice(src.indexOf("export async function executePendingAction"), src.indexOf("export async function rejectPendingAction"));
-    assert.ok(requiresPlatformApproverRole(FACT_PROPOSAL_TYPE) && !requiresPlatformApproverRole("sales.send_inquiry_reply"));
-    assert.match(exec, /if \(requiresPlatformApproverRole\(action\.type\)\) \{\s*const approver = await db\.user\.findUnique\(\{ where: \{ id: ctx\.userId \}, select: \{ role: true \} \}\);\s*const roleDenial = approverRoleDenial\(action\.type, approver\?\.role\);/);
-    assert.doesNotMatch(src, /approverRoleDenial\(action\.type, ctx\.role\)/);
-    const gate = exec.indexOf("const roleDenial = approverRoleDenial(action.type, approver?.role);");
+    assert.ok(requiresApproverPermissionGate(FACT_PROPOSAL_TYPE) && !requiresApproverPermissionGate("sales.send_inquiry_reply"));
+    assert.match(exec, /if \(requiresApproverPermissionGate\(action\.type\)\) \{\s*const approver = await db\.user\.findUnique\(\{ where: \{ id: ctx\.userId \}, select: \{ role: true \} \}\);\s*const \{ holdsFactApproverKey \} = await import\("@\/lib\/revenue-spine\/fact-proposals"\);\s*const holdsSettingsKey = action\.orgId \? await holdsFactApproverKey\(ctx\.userId, action\.orgId\) : false;\s*const roleDenial = approverRoleDenial\(action\.type, \{ platformRole: approver\?\.role, holdsSettingsKey \}\);/);
+    assert.doesNotMatch(src, /approverRoleDenial\(action\.type, \{ platformRole: ctx\.role/);
+    const gate = exec.indexOf("const roleDenial = approverRoleDenial(action.type, { platformRole: approver?.role, holdsSettingsKey });");
     const teamGate = exec.indexOf("canDecideTeamApproval(action, ctx)");
     const claim = exec.indexOf('status: "approved"');
     assert.ok(teamGate > 0 && gate > teamGate && claim > gate, JSON.stringify({ teamGate, gate, claim }));
@@ -495,11 +496,12 @@ async function main() {
 
   console.log("\n执行器");
 
-  function fakeExecDeps(over: Partial<{ member: boolean; policy: RevenueSpinePolicy; platformRole: string | null }> = {}) {
+  function fakeExecDeps(over: Partial<{ member: boolean; policy: RevenueSpinePolicy; platformRole: string | null; settingsKey: boolean }> = {}) {
     const published: Array<{ orgId: string; profile: BusinessProfile; userId: string }> = [];
     const audits: Array<Parameters<FactExecDeps["audit"]>[0]> = [];
     const deps: FactExecDeps = {
-      platformRole: async () => (over.platformRole === undefined ? "boss" : over.platformRole),
+      platformRole: async () => (over.platformRole === undefined ? "user" : over.platformRole),
+      holdsSettingsKey: async () => over.settingsKey ?? true,
       membershipActive: async () => over.member ?? true,
       isSuperAdmin: (role) => role === "super_admin" || role === "admin",
       loadPolicy: async () => over.policy ?? DEFAULT_REVENUE_SPINE_POLICY,
@@ -567,14 +569,17 @@ async function main() {
     assert.equal(factAppliedCleanly(applyCommercialFact(DEFAULT_REVENUE_SPINE_POLICY.businessProfile, "moq", { quantity: -1, unit: "pcs", per: "x" }), "moq", { quantity: -1 }), false);
   });
 
-  await ok("执行器防御：缺组织 / 跨组织 / 平台角色非 admin·boss / 非成员 / 未知字段 / 无提议值 → 失败且不发布", async () => {
-    const cases: Array<[Partial<FactProposalPayload> | null, typeof boss, { member?: boolean; platformRole?: string | null }, string]> = [
+  await ok("执行器防御：缺组织 / 跨组织 / 无 trade.settings.manage 且非平台 super_admin / 非成员 / 未知字段 / 无提议值 → 失败且不发布", async () => {
+    const cases: Array<[Partial<FactProposalPayload> | null, typeof boss, { member?: boolean; platformRole?: string | null; settingsKey?: boolean }, string]> = [
       [{ ...payload(), metadata: undefined as never }, boss, {}, "缺少组织信息，拒绝执行"],
       [payload(), { ...boss, orgId: "org_other" }, {}, "跨组织动作，拒绝执行"],
-      [payload(), boss, { platformRole: "sales" }, FACT_PROPOSAL_DENIED],
-      [payload(), boss, { platformRole: null }, FACT_PROPOSAL_DENIED],
-      // ctx.role 写成 boss 也没用：平台角色是 sales
-      [payload(), { ...boss, role: "boss" }, { platformRole: "sales" }, FACT_PROPOSAL_DENIED],
+      [payload(), boss, { platformRole: "sales", settingsKey: false }, FACT_PROPOSAL_DENIED],
+      [payload(), boss, { platformRole: null, settingsKey: false }, FACT_PROPOSAL_DENIED],
+      // 平台 boss / 退役的平台 admin 没有岗位键也不行
+      [payload(), boss, { platformRole: "boss", settingsKey: false }, FACT_PROPOSAL_DENIED],
+      [payload(), boss, { platformRole: "admin", settingsKey: false }, FACT_PROPOSAL_DENIED],
+      // ctx.role 写成 boss 也没用：按 userId 判
+      [payload(), { ...boss, role: "boss" }, { platformRole: "sales", settingsKey: false }, FACT_PROPOSAL_DENIED],
       [payload(), boss, { member: false }, "无权更新该组织的商务事实"],
       [payload({ field: "price" as never }), boss, {}, "未知的商务事实字段"],
       [payload({ proposedValue: null }), boss, {}, "缺少提议值"],
@@ -585,12 +590,12 @@ async function main() {
       assert.deepEqual([r.ok, r.error, f.published.length], [false, error, 0], error);
     }
     // 平台管理员不要求组织成员身份
-    const f = fakeExecDeps({ member: false, platformRole: "super_admin" });
+    const f = fakeExecDeps({ member: false, platformRole: "super_admin", settingsKey: false });
     assert.equal((await execProposeCommercialFact(payload(), boss, "pa_fact_1", f.deps)).ok, true);
   });
 
-  await ok("审批中心路径：组织角色 org_owner、平台角色 boss → 能批准并写入", async () => {
-    const f = fakeExecDeps({ platformRole: "boss" });
+  await ok("审批中心路径：组织角色 org_owner、平台角色 user、持 trade.settings.manage（老板岗位）→ 能批准并写入", async () => {
+    const f = fakeExecDeps({ platformRole: "user", settingsKey: true });
     const r = await execProposeCommercialFact(payload(), { userId: "u_boss", role: "org_owner", orgId: ORG }, "pa_fact_1", f.deps);
     assert.equal(r.ok, true);
     assert.equal(f.published.length, 1);

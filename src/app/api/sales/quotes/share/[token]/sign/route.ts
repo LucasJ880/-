@@ -12,6 +12,7 @@ import { onQuoteSigned } from "@/lib/sales/opportunity-lifecycle";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import { resolveOrgIdForQuoteLinkedInteraction } from "@/lib/sales/org-context";
 import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
+import { generateForSignedQuote } from "@/lib/sunny-process/server";
 
 export async function POST(
   request: NextRequest,
@@ -129,6 +130,12 @@ export async function POST(
   onQuoteSigned(quote.id).catch((err) =>
     console.error("Quote signed lifecycle error:", err),
   );
+
+  // 自动生成草稿工艺单（幂等；从不抛出，失败只记日志，不影响签署）
+  const processOrder = await generateForSignedQuote(quote.id);
+  if (!processOrder.created && processOrder.reason === "GENERATION_FAILED") {
+    console.error(`[sign] 工艺单自动生成失败 quote=${quote.id}`);
+  }
 
   // --- 签约通知（销售三通道 + 客户签署副本） ---
   const salesUserId = quote.createdBy.id;

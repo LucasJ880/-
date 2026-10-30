@@ -36,9 +36,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
   // 是否可编辑预算（create/activate/freeze）—— 供 UI 门控编辑控件（服务端仍二次强制）
   const canManage =
-    access.user.role === "super_admin" ||
-    access.orgRole === "org_admin" ||
-    access.project.ownerId === access.user.id ||
+    access.finance.privileged ||
     (access.projectRole ? hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_WRITE) : false);
 
   const budget = await db.projectBudget.findUnique({ where: { orgId_projectId: { orgId, projectId: id } } });

@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
+import { authorize, humanPrincipal } from "@/lib/authorization";
+import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
+import { logAudit } from "@/lib/audit/logger";
 
 export const PATCH = withAuth(async (request, ctx, user) => {
-  if (user.role !== "admin" && user.role !== "super_admin") {
-    return NextResponse.json({ error: "无权限" }, { status: 403 });
+  // PERM-3：库存改动限 inventory.manage（运营主管 / 老板 / 平台管理员）
+  const orgRes = await resolveRequestOrgIdForUser(user, request.nextUrl.searchParams.get("orgId"));
+  if (!orgRes.ok) return orgRes.response;
+  const canManage = await authorize({ principal: humanPrincipal(user, orgRes.orgId), orgId: orgRes.orgId, permission: "inventory.manage" });
+  if (!canManage.allowed) {
+    return NextResponse.json({ error: "无权限（库存改动需要运营主管岗位）" }, { status: 403 });
   }
 
   const { id } = await ctx.params;
@@ -77,6 +84,19 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     where: { id },
     data: updateData,
   });
+
+  if (adjustYards !== undefined && adjustYards !== 0) {
+    await logAudit({
+      userId: user.id,
+      orgId: orgRes.orgId,
+      action: "inventory.adjusted",
+      targetType: "fabric_inventory",
+      targetId: id,
+      beforeData: { totalYards: fabric.totalYards, status: fabric.status },
+      afterData: { totalYards: updated.totalYards, status: updated.status, adjustYards, type: type || (adjustYards > 0 ? "restock" : "adjust"), reason: reason || null, sku: fabric.sku },
+      request,
+    });
+  }
 
   return NextResponse.json({ fabric: updated });
 });

@@ -9,6 +9,7 @@ import { denyUnlessPlatformAdmin } from "@/lib/auth/platform-admin-guard";
 
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAgentSessionsForTrace } from "@/lib/agent-runtime/trace";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const denied = denyUnlessPlatformAdmin(user);
@@ -23,7 +24,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const role = user.role ?? "user";
   const scope =
-    role === "admin" || role === "super_admin" ? "org" : "self";
+    isSuperAdmin(role) ? "org" : "self";
   const limitStr = searchParams.get("limit");
 
   try {

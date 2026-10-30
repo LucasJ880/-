@@ -37,7 +37,7 @@ async function main() {
       ok((tool?.risk ?? "l0_read") === "l0_read" && tool?.risk !== undefined, `${name} risk=l0_read（显式声明）`);
       ok(!!tool && (MENTION_GATEWAY_M1_DOMAINS as readonly string[]).includes(tool.domain), `${name} domain ∈ M1 domains（${tool?.domain}）`);
     }
-    const listed = registry.list({ names: [...ALLOWLIST], maxRisk: "l0_read", role: "admin" });
+    const listed = registry.list({ names: [...ALLOWLIST], maxRisk: "l0_read", role: "super_admin" });
     ok(listed.length === ALLOWLIST.length, `registry.list(allowlist, l0) = ${listed.length}/${ALLOWLIST.length}`);
   }
 
@@ -92,7 +92,7 @@ async function main() {
     const exposed = registry.toOpenAITools({
       domains: opts.domains,
       names: opts.tools,
-      role: "admin",
+      role: "super_admin",
       orgRole: opts.orgRole,
       maxRisk: opts.maxRisk,
     });
@@ -117,7 +117,7 @@ async function main() {
       runId: "r",
     });
     const customerExposed = registry
-      .toOpenAITools({ domains: customerOpts.domains, names: customerOpts.tools, role: "admin", orgRole: customerOpts.orgRole, maxRisk: customerOpts.maxRisk })
+      .toOpenAITools({ domains: customerOpts.domains, names: customerOpts.tools, role: "super_admin", orgRole: customerOpts.orgRole, maxRisk: customerOpts.maxRisk })
       .map((t) => t.function.name);
     ok(
       customerExposed.length === CUSTOMER_CONTEXT_TOOLS.length &&

@@ -15,6 +15,7 @@ import type { WebsiteInquiryReceipt } from "@prisma/client";
 import { db } from "@/lib/db";
 import { createProspect } from "@/lib/trade/service";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
+import { tradeWorkRecipients } from "@/lib/trade/recipients";
 import { intakeInquiry, type InquiryIntakeInput, type IntakeResult } from "@/lib/revenue-spine/inquiry-intake";
 import { isFreeMailDomain, type InquiryLanguage } from "@/lib/revenue-spine/normalize";
 import { runInboundSalesFde, type FdeTrigger, type InboundFdeResult } from "@/lib/revenue-spine/fde/inbound-sales";
@@ -67,7 +68,7 @@ export interface IngestOrigin {
   /** 展会名称（可含展位），写入互动 meta.event，回复草稿开头引用；仅 trade_show */
   event?: string | null;
   /** 买家在展位看过的参考款（款号 + 参考表里的品类名），草稿逐一点名；仅 trade_show */
-  styles?: Array<{ code: string; name: string | null }>;
+  styles?: Array<{ code: string; name: string | null; specUrl?: string | null; imageUrl?: string | null }>;
   /** 业务员在卡上判的等级 A/B/C：决定商机优先级与审批标题；仅 trade_show */
   grade?: string | null;
   /** 展位上接待的业务员（卡上署名），跟进邮件落款；仅 trade_show */
@@ -990,22 +991,15 @@ export function websiteWebhookBody(result: IngestResult) {
   };
 }
 
-/** 通知 org 内外贸相关成员（幂等键防重复） */
+/** 通知 org 内外贸工作收件人（PERM-6c：持外贸读或写键，见 trade/recipients；幂等键防重复） */
 export async function notifyInquiryMembers(
   orgId: string,
   input: { title: string; summary: string; prospectId: string; source: string; sourceKey: string },
 ): Promise<number> {
-  const members = await db.organizationMember.findMany({
-    where: {
-      orgId,
-      status: "active",
-      user: { role: { in: ["trade", "boss", "manager", "admin", "super_admin"] } },
-    },
-    select: { userId: true },
-  });
-  if (members.length === 0) return 0;
+  const recipients = await tradeWorkRecipients(orgId);
+  if (recipients.length === 0) return 0;
   return createNotificationsForUsers(
-    members.map((m) => m.userId),
+    recipients,
     {
       type: "followup",
       title: input.title,
