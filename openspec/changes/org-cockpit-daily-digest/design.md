@@ -42,6 +42,7 @@
 - 岗位归属：`ops_knowledge`（运维与知识：与 practice-miner、审批超时同属"组织运转留痕"）。
 - 调度：`{ kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [0], timezone: "org" }`。
 - 路由：一次查询取在用组织（多取 `ownerId`），分别用 `[7]` 与 `[0]` 挑出简报组织与日结组织；两组都空才返回 `skipped`；简报部分逻辑不变；日结组织非空时 `runTrackedAutomation("post-daily-digest", …)`，逐组织调用 `runPostDailyDigest`，单个失败计入失败数，运行状态按失败数给 `succeeded` / `partial`。
+- 顺序：日结在简报之前执行，整段 `.catch` 收住异常（只记日志、写进响应的 `postDailyDigest`），简报照常；只有日结组织时响应为 `{ skipped: true, reason: "没有组织处于当地 07:00", postDailyDigest }`，有简报组织时在简报原响应上加 `postDailyDigest`。同一时刻一个组织不可能同时处于本地 0 点与 7 点，两组同时非空只发生在相差 7 小时的不同时区组织之间。
 
 ### D5 依赖可注入
 `runPostDailyDigest(org, now, deps)`，`deps = { workload(orgId, days, now), existingOrWrite(...) }`；纯函数 `buildPostDailyDigest(workload, day)` 与 `digestDayFor(now, tz)` 单测；隔离库端到端用真实依赖。

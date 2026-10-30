@@ -60,6 +60,8 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   "revenue_spine.inquiry.intake": "询盘录入",
   "revenue_spine.inquiry_reply.sent": "询盘回复已发送",
   "revenue_spine.trade_outbound.mirrored": "人工外发已同步到商机",
+  // 组织驾驶舱（cockpit/daily-digest.ts，只由定时任务写）
+  "cockpit.post_daily_digest": "岗位日结",
 };
 
 /** 常见目标类型 → 中文名 */
@@ -96,7 +98,7 @@ export const AI_AUDIT_ACTIONS: readonly string[] = [
   "revenue_spine.draft_preferences.ignored",
 ];
 
-/** 固定由系统写入的动作（挂名的是被作废审批的负责人 / 被拦下的用户 / 邮箱主人 / 外发人） */
+/** 固定由系统写入的动作（挂名的是被作废审批的负责人 / 被拦下的用户 / 邮箱主人 / 外发人 / 组织所有者） */
 export const SYSTEM_AUDIT_ACTIONS: readonly string[] = [
   "APPROVAL_SYSTEM_SUPERSEDED",
   "QUOTA_HARD_LIMIT_BLOCKED",
@@ -105,6 +107,7 @@ export const SYSTEM_AUDIT_ACTIONS: readonly string[] = [
   "rfq_inbound:applied",
   "rfq_inbound:failed",
   "revenue_spine.trade_outbound.mirrored",
+  "cockpit.post_daily_digest",
 ];
 
 /** 只认自有键（普通对象查表会命中原型链上的 toString / constructor） */

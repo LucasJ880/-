@@ -24,4 +24,4 @@
 
 #### Scenario: 岗位日结
 - **WHEN** 一条审计动作为岗位日结（`cockpit.post_daily_digest`），操作人是组织所有者
-- **THEN** 该条目摘要为"岗位日结"，`source` 为 `system`
+- **THEN** 该条目摘要为"岗位日结 · 组织"，`source` 为 `system`，`actor` 仍为组织所有者的用户 id

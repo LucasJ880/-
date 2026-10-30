@@ -231,7 +231,8 @@ async function inBatches<T, R>(items: readonly T[], size: number, fn: (item: T) 
 const SHARED_TYPES_NEEDING_PAYLOAD: ReadonlySet<string> = new Set(SHARED_PENDING_ACTION_TYPES);
 
 export async function getOrgWorkload(
-  viewer: CockpitViewer,
+  // 只用组织 id：驾驶舱接口传管理层查看人，岗位日结（A-5）传组织
+  viewer: Pick<CockpitViewer, "orgId">,
   days: number,
   deps: WorkloadDeps = defaultWorkloadDeps(),
 ): Promise<WorkloadResponse> {

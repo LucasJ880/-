@@ -134,13 +134,21 @@ ok("场景「FDE 留底」/ 固定表：FDE 写的三个动作 → ai；审批�
     EMPTY,
   );
   assert.deepEqual([e.source, e.actor, e.actorName, e.summary], ["ai", "u_owner", "Lin", "FDE 草稿留底 · 审批"]);
-  // 固定由系统写入：配额守卫、询价邮件自动录入、人工外发镜像
-  for (const a of ["QUOTA_HARD_LIMIT_BLOCKED", "QUOTA_SOFT_LIMIT_REACHED", "QUOTA_WARNING", "rfq_inbound:applied", "rfq_inbound:failed", "revenue_spine.trade_outbound.mirrored"]) {
+  // 固定由系统写入：配额守卫、询价邮件自动录入、人工外发镜像、岗位日结（A-5）
+  for (const a of ["QUOTA_HARD_LIMIT_BLOCKED", "QUOTA_SOFT_LIMIT_REACHED", "QUOTA_WARNING", "rfq_inbound:applied", "rfq_inbound:failed", "revenue_spine.trade_outbound.mirrored", "cockpit.post_daily_digest"]) {
     assert.equal(auditSource(a), "system", a);
   }
   // 人工驳回 AI 草稿、询盘回复发送（审批后执行）仍是人工
   assert.equal(auditSource("ai_draft_reject"), "human");
   assert.equal(auditSource("revenue_spine.inquiry_reply.sent"), "human");
+});
+
+ok("场景「岗位日结」：cockpit.post_daily_digest 挂组织所有者 → 摘要「岗位日结 · 组织」，来源 system，actor 仍为所有者", () => {
+  const e = auditEntry(
+    { id: "a2", createdAt: new Date("2026-10-31T04:00:00Z"), userId: "u_owner", userName: "Lin", action: "cockpit.post_daily_digest", targetType: "organization", targetId: "org1" },
+    EMPTY,
+  );
+  assert.deepEqual([e.source, e.actor, e.summary], ["system", "u_owner", "岗位日结 · 组织"]);
 });
 
 ok("场景「FDE 发起的审批」：发起审批按审批载荷里的发起方——agent → ai，user / 缺失 → human；只对发起审批生效", () => {

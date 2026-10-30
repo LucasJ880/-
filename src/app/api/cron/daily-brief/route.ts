@@ -12,6 +12,8 @@
  * ownerBriefSkipped = 没发的原因（no_trade_module：modulesJson.enabled 未显式含 trade；empty：四栏全为 0）。
  * INSTALL-2f：同一时刻对该组织过了目标日、没人推进的维修单发返修逾期提醒（repairOverdueSent = 提醒的维修单数；
  * 独立一步，失败不影响简报与其他组织；不新增 cron 条目）。
+ * A-5：同一定时任务里，对处于当地 00:00 的组织为前一个本地日写岗位日结（审计 cockpit.post_daily_digest，只含计数），
+ * 作为自动化 post-daily-digest 另记一次运行；单个组织失败不影响其他组织与简报。两组都没有组织到点才 skipped。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -23,6 +25,7 @@ import { generateBriefingsForOrg } from "@/lib/secretary/briefing";
 import { boothDayOf, sendBoothSummary } from "@/lib/trade/booth-summary";
 import { sendOwnerInquiryBrief } from "@/lib/revenue-spine/owner-brief";
 import { remindOverdueRepairs } from "@/lib/install/repair-service";
+import { runPostDailyDigests } from "@/lib/cockpit/daily-digest";
 
 export const maxDuration = 300;
 
@@ -31,16 +34,25 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
 
   const now = new Date();
-  const orgs = orgsAtLocalHour(
-    await db.organization.findMany({
-      where: { status: "active" },
-      select: { id: true, name: true, settingsJson: true },
-    }),
-    now,
-    [7],
-  );
+  const activeOrgs = await db.organization.findMany({
+    where: { status: "active" },
+    select: { id: true, name: true, ownerId: true, settingsJson: true },
+  });
+  const orgs = orgsAtLocalHour(activeOrgs, now, [7]);
+  const digestOrgs = orgsAtLocalHour(activeOrgs, now, [0]);
+  if (orgs.length === 0 && digestOrgs.length === 0) {
+    return NextResponse.json({ skipped: true, reason: "没有组织处于当地 07:00 或 00:00", checkedAt: now.toISOString() });
+  }
+
+  // 岗位日结（本地 00:00 的组织）：逐组织收错，失败数决定 succeeded / partial
+  const postDailyDigest = digestOrgs.length
+    ? await runTrackedAutomation("post-daily-digest", () => runPostDailyDigests(digestOrgs, now)).catch((e) => {
+        console.error("[cron/daily-brief] Post daily digest failed:", e);
+        return { error: String(e) };
+      })
+    : null;
   if (orgs.length === 0) {
-    return NextResponse.json({ skipped: true, reason: "没有组织处于当地 07:00", checkedAt: now.toISOString() });
+    return NextResponse.json({ skipped: true, reason: "没有组织处于当地 07:00", checkedAt: now.toISOString(), postDailyDigest });
   }
 
   type OwnerBriefFields = { ownerBriefSent?: number; ownerBriefWechatDelivered?: number; ownerBriefSkipped?: string | null };
@@ -88,5 +100,5 @@ export async function GET(request: NextRequest) {
       failedCount,
     };
   });
-  return NextResponse.json(data);
+  return NextResponse.json(postDailyDigest ? { ...data, postDailyDigest } : data);
 }
