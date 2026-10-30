@@ -11,6 +11,13 @@
 
 ## 当前位置
 
+- **2026-10-30：13 个 change 全部合并（Evan 08:15–08:18 UTC 依次合并 [#244](https://github.com/LucasJ880/-/pull/244)–[#256](https://github.com/LucasJ880/-/pull/256)），并已开归档链 [#359](https://github.com/LucasJ880/-/pull/359)–[#371](https://github.com/LucasJ880/-/pull/371)**（每个 change 一个归档 PR，按合并顺序叠加，链首 base = main）。
+  - 规格进 `openspec/specs/`：`cockpit/*` 8 个能力（post-registry、posts-overview、company-log、home-view、workload、manager-proactive-notify、company-log-labels）+ `revenue-spine/*` 7 个能力（fde-draft-feedback、score-calibration、internal-autonomy、commercial-fact-proposals、fde-draft-preferences、fde-followup-draft-preferences、fde-v2-readiness）。
+  - TASKBRIEF：A-1..A-4、B-1..B-5 → `[x]`；B-6 保持 `[~]`；C-2 / A-3b / A-2b 沿用 B-3 / A-3 / A-2 行。
+  - B-2 归档前整理过 `fde-draft-feedback` 增量（场景名还原、超长 requirement 拆分，语义不变），见 [#366](https://github.com/LucasJ880/-/pull/366)。
+  - `openspec validate --specs --strict` 剩 4 项失败为 main 既有（accounting/workspace、authorization/position-catalog、inventory/fabric-stock-access、sunny/process-order-autogen），不是本链。
+  - **剩下**：A-5 等用户选（推荐 AuditLog 计数版）；B-6 V2 启动等条件满足后 Evan 决定；各报告第 5 节的 staging 验证。以下各条是归档前的过程记录。
+
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
 - **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上，[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。**GATE 决策项**：旧首页每 5 分钟 `POST /api/proactive/scan` 随替换停止，未开自动化偏好的管理层不再收到主动提醒——接受，或另开 change 让定时任务为管理层同步通知（等用户 / Evan 回复）。
