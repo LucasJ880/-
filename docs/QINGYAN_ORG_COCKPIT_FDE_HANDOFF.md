@@ -12,7 +12,7 @@
 ## 当前位置
 
 - **2026-10-30：13 个 change 全部合并（Evan 08:15–08:18 UTC 依次合并 [#244](https://github.com/LucasJ880/-/pull/244)–[#256](https://github.com/LucasJ880/-/pull/256)），并已开归档链 [#359](https://github.com/LucasJ880/-/pull/359)–[#371](https://github.com/LucasJ880/-/pull/371)**（每个 change 一个归档 PR，按合并顺序叠加，链首 base = main）。
-  - 规格进 `openspec/specs/`：`cockpit/*` 8 个能力（post-registry、posts-overview、company-log、home-view、workload、manager-proactive-notify、company-log-labels）+ `revenue-spine/*` 7 个能力（fde-draft-feedback、score-calibration、internal-autonomy、commercial-fact-proposals、fde-draft-preferences、fde-followup-draft-preferences、fde-v2-readiness）。
+  - 规格进 `openspec/specs/`：`cockpit/*` 7 个能力（post-registry、posts-overview、company-log、home-view、workload、manager-proactive-notify、company-log-labels）+ `revenue-spine/*` 7 个能力（fde-draft-feedback、score-calibration、internal-autonomy、commercial-fact-proposals、fde-draft-preferences、fde-followup-draft-preferences、fde-v2-readiness）。
   - TASKBRIEF：A-1..A-4、B-1..B-5 → `[x]`；B-6 保持 `[~]`；C-2 / A-3b / A-2b 沿用 B-3 / A-3 / A-2 行。
   - B-2 归档前整理过 `fde-draft-feedback` 增量（场景名还原、超长 requirement 拆分，语义不变），见 [#366](https://github.com/LucasJ880/-/pull/366)。
   - `openspec validate --specs --strict` 剩 4 项失败为 main 既有（accounting/workspace、authorization/position-catalog、inventory/fabric-stock-access、sunny/process-order-autogen），不是本链。
