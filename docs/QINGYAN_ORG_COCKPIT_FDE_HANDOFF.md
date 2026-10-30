@@ -11,7 +11,7 @@
 
 ## 当前位置
 
-- **2026-10-30：A-5 `org-cockpit-daily-digest` 完成，状态 `[G]`**（分支 `claude/vigilant-edison-73bk9i`，会话 `session_013DdjTmRksMtqjzVEkbECjW`）。Lucas 选推荐项：夜间岗位日结写 `AuditLog`（`cockpit.post_daily_digest`），每组织每个本地日一条、只含按岗位的十个计数，**不进 MemoryClaim**、零 LLM。组织本地 00 点汇总前一天、01 点补一次，挂在 `/api/cron/daily-brief` 里、排在简报之后；新自动化 `post-daily-digest` 归「运维与知识」。报告 `docs/QINGYAN_ORG_COCKPIT_A-5_REPORT.md`（含独立审查采纳情况、全量 538 / 547 与基线对照）。PR 合并后另开小 PR 归档（A-5 → `[x]`）。
+- **2026-10-30：A-5 `org-cockpit-daily-digest` 已合并（#374）并归档，状态 `[x]`**（规格 `openspec/specs/cockpit/post-daily-digest`；`post-registry` / `posts-overview` / `company-log-labels` 已合入增量）。剩余：staging 验证（报告第 5 节）。原记录：A-5 完成（分支 `claude/vigilant-edison-73bk9i`，会话 `session_013DdjTmRksMtqjzVEkbECjW`）。Lucas 选推荐项：夜间岗位日结写 `AuditLog`（`cockpit.post_daily_digest`），每组织每个本地日一条、只含按岗位的十个计数，**不进 MemoryClaim**、零 LLM。组织本地 00 点汇总前一天、01 点补一次，挂在 `/api/cron/daily-brief` 里、排在简报之后；新自动化 `post-daily-digest` 归「运维与知识」。报告 `docs/QINGYAN_ORG_COCKPIT_A-5_REPORT.md`（含独立审查采纳情况、全量 538 / 547 与基线对照）。
 - **2026-10-30：叠加链 #244–#256 已全部合并进 `main` 并归档**（13 个 change → `openspec/changes/archive/2026-10-30-*`；新规格 `openspec/specs/cockpit/*` 7 份、`openspec/specs/revenue-spine/*` 7 份，`--strict` 全部通过）。任务书 A-1..A-4、B-1..B-5 → `[x]`；B-6 仍 `[~]`（V2 启动待 Evan）；A-5 仍等决定。
   - 合并前由会话 `session_013DdjTmRksMtqjzVEkbECjW` 逐层合入最新 main（只用合并提交），语义调整见各 PR 评论：A-1 补新自动化 / 动作归属（工艺单作废、两封安装邮件归「项目交付」，Lucas 2026-10-30 认可）；A-2 与 A-3b 管理层判定与首页 `/` 同源（岗位模式按 `organization.dashboard.read`）；B-2 审批人改为平台 super_admin 或企业内 `trade.settings.manage`（Lucas 拍板）；B-4 / B-6 营收接口传 `REVENUE_READ_KEYS`。
   - 已知范围限制（Lucas 认可，后续如需另开 change）：main 上展位英文首封 / 英文跟进改用 `booth-email` 新模板，不读草稿偏好；B-3 / C-2 的偏好只作用于纯文本模板。

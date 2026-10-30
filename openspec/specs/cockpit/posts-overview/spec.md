@@ -36,11 +36,15 @@
 
 #### Scenario: 调度表与 vercel.json 对照
 - **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/schedule.test.ts`
-- **THEN** 30 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
+- **THEN** 31 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
 
 #### Scenario: 新增自动化未配调度
 - **WHEN** 自动化注册表新增一个键而调度表未配
 - **THEN** `npm run typecheck` 失败，调度测试失败
+
+#### Scenario: 岗位日结按组织本地 0 点与 1 点门控
+- **WHEN** 读取 `post-daily-digest` 的调度
+- **THEN** 为本地时刻门控：路由 `/api/cron/daily-brief`、门控小时 `[0, 1]`、组织时区，与路由源码一致
 
 ### Requirement: 下次应跑时间按调度与组织时区推算
 `nextDueAt` SHALL 是当前时刻之后第一个满足调度的触发时刻：cron 计划按 UTC 推算；本地时刻门控的取 cron 触发时刻中、换算到对应时区后小时落在门控小时内（及星期匹配）的第一个；按需运行的、以及未配置（缺必需环境变量或开关未开）的为 `null`。岗位的 `nextDueAt` SHALL 是其自动化中最早的一个。
