@@ -13,7 +13,13 @@
 
 - **A-1 `org-cockpit-posts`**：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-1_REPORT.md`；PR 见进度表。合并后另开 `claude/archive-org-cockpit-posts` 做 `/opsx:archive org-cockpit-posts --yes`。
 - **A-2 `org-cockpit-read-model`**（分支 `claude/org-cockpit-read-model`，叠在 A-1 上）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-2_REPORT.md`（含 staging 待验项：时间线 `EXPLAIN ANALYZE`、sunny-home-deco 人工对账）。
-- **下一步：A-3 `org-cockpit-home`**，从 `claude/org-cockpit-read-model` 切出 `claude/org-cockpit-home`。输入：首页 `src/app/(main)/page.tsx` 是服务端组件（`resolveWorkspaceContextFromCookies` + `resolveHomeRedirect`，非管理层重定向，保留）；客户端用 `apiFetch` 调 `/api/cockpit/posts` 与 `/api/cockpit/timeline`（这两个前缀不在 `ORG_SCOPED_API_PREFIXES`，服务端按 DB 活动组织解析，与 `/workforce` 一致）；"等你 N 件"跳 `/capabilities/approvals`；卡片标注心跳平台级、`unattributed` 计数、KPI 的 `window` 口径；视觉按 `DESIGN.md`（宣纸 #f2f0eb / 玉白 #faf8f4、半透明边框、黛青仅用于交互、最重 600、44px 触控）。D-2：直接替换旧首页 `ManagementDashboardClient`。
+- **A-3 `org-cockpit-home`**（分支 `claude/org-cockpit-home`，叠在 A-2 上，[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_A-3_REPORT.md`。**GATE 决策项**：旧首页每 5 分钟 `POST /api/proactive/scan` 随替换停止，未开自动化偏好的管理层不再收到主动提醒——接受，或另开 change 让定时任务为管理层同步通知（等用户 / Evan 回复）。
+- **下一步：A-4 `org-cockpit-workload`**，从 `claude/org-cockpit-home` 开新分支 `claude/org-cockpit-workload`（页面区块在首页上）。先读下面"A-4 预研事实"。待决的设计点：
+  - 工作量区块若再加一个接口，会违反 A-3"首屏 ≤ 2 个请求"——考虑按需加载（展开 / 首屏后），或把信号并进既有接口；
+  - `edited` 在 B-1 前无数据，显示"未接入"；
+  - GATE-A2 的 `/ai-activity` 对账口径需改。
+- 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
+- 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
 
 ## 进度表
@@ -22,7 +28,7 @@
 |---|---|---|---|---|---|---|---|
 | A-1 | `org-cockpit-posts`（[PR #244](https://github.com/LucasJ880/-/pull/244)，base `main`） | ✅（修订 `1482019`） | 4/4 | ✅ 412/426，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 10 条全部处理 | `[G]` |
 | A-2 | `org-cockpit-read-model`（[PR #245](https://github.com/LucasJ880/-/pull/245)，base = A-1 分支） | ✅（修订 `4aa5183`） | 6/6 | ✅ 416/430，失败清单 = 基线；test:ci PASS | ✅ 无 WARNING | ✅ 1 阻塞 + 5 应修全部处理 | `[G]` |
-| A-3 | `org-cockpit-home` | — | — | — | — | — | `[ ]` |
+| A-3 | `org-cockpit-home`（[PR #246](https://github.com/LucasJ880/-/pull/246)，base = A-2 分支） | ✅ `c7f4b57`（两轮审查后修订） | 8/8 | ✅ 419/433，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 两轮：1 阻塞（列为 GATE 决策项）+ 8 应修 + 第二轮 4 项，全部处理 | `[G]` |
 | A-4 | `org-cockpit-workload` | — | — | — | — | — | `[ ]` |
 | B-1 | `fde-feedback-loop` | — | — | — | — | — | `[ ]` |
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
@@ -44,6 +50,34 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
 8. （A-2）心跳是平台级（AutomationRun 不带 orgId）；健康度多 `n/a` / `not_configured`；迟到按类型化调度表（对照 vercel.json）判断。
 9. （A-2）"等你 N 件" = `/capabilities/approvals` 待我审批（PendingAction + ApprovalRequest + 产品内容审批，带决策权）∪ workforce 需要你，作业的审批已列出则去重；通知不另计。**A-3 的跳转目标是 `/capabilities/approvals`，不是 `/inbox`**（`/inbox` 是快速捕获页）。
 10. （A-2）两个 API 只对首页同口径管理层开放；时间线无 `(orgId, createdAt)` 索引，靠 7 天窗口 + limit+1 + 事件白名单，`EXPLAIN` 留到 staging。
+
+## A-4 预研事实（只读调研结果，写 proposal 前先核对一遍）
+
+任务书 A-4 的口径与代码现状有几处对不上，propose 时要逐条写成"偏差"：
+
+1. **AutomationRun** 有 `orgId String?` 列和 `[orgId, automationKey, startedAt]` 索引，但唯一写入方 `runTrackedAutomation`（`src/lib/automation/runner.ts`）的 45 个调用点都不传 orgId → 实际恒为 null，仍按平台级处理。**AgentRun** `orgId` 必填，但没有 `(orgId, createdAt)` 索引（有 `[orgId, status]`）。
+2. **PendingAction 状态只有** pending / approved（执行中的占位）/ executed / failed / rejected。
+   - 没有 `expired` / `edited` / `auto_executed`。
+   - 过期 = `status: "failed"` 且 `failureReason: "已过期"`、无 `decidedById`（`expireOverdueApprovals`，`src/lib/approval/port.ts`；执行器懒过期 `executor.ts`）。
+   - 人工取消 = failed + "已取消"（有 decidedById）；关联任务取消 = rejected + "关联任务已取消…"。
+   - 其他 failed 原因：BATCH_PREPARE_FAILED、未接入执行器、报价让利已变化、`SUPERSEDED_BY_ONBOARDING_TEST` 前缀。
+   - **没有"编辑后批准"信号**：PendingAction 无 editedPayload，审批接口只收 decision + reason。`humanDecision: "edited"` 属于 employee-ai 反馈系统（`src/lib/employee-ai/feedback-service.ts`），不是 PendingAction。
+   - 没有自动执行路径（报价路由直接 pending→executed 也带 decidedById）。
+   - 索引 `[orgId, status, createdAt]`。
+3. **SalesAction.inputContext.guardrailBlockedAt**：ISO 字符串，`guardrailMarkerPatch`（`src/lib/revenue-spine/fde/inbound-sales.ts`）在 draftStatus 为 guardrail_blocked / no_email 且有违规时写入，重跑不清除；SalesAction `orgId` 必填。
+4. **AiUsageLedger 没有 runType**。
+   - `sourceType` 取值：AGENT_RUNTIME / PRODUCT_CONTENT / IMAGE_ENGINE / SUPERVISOR / WORKFLOW / MANUAL_IMPORT。
+   - 只能经 `runId → AgentRun.runType` 归岗位，而且 runId 经常为空（`ai/usage-ledger-bridge.ts` 不填）。
+   - 字段：`costAmount Decimal(18,6)`、`inputTokens` / `outputTokens`。索引 `[orgId, occurredAt]`。
+5. **Organization.settingsJson**（`Json?`）目前没有 `cockpit` 键；仓库惯例是每个键一个纯函数读取 `settingsJson: unknown`（如 `resolveOrgTimezone`、`runVisibilityFromOrgSettings`）。
+6. **sla-metrics.ts**（`src/lib/revenue-spine/sla-metrics.ts`）已导出可复用的判定：
+   - `isOnboardingTestInquiry({utmSource, customerTags, lostReason})`；
+   - `utmSourceOf(inputContext)`；
+   - `TRADE_SHOW_SOURCE = "trade_show"`，来源取 `opportunity.source ?? inputContext.source`。
+   - 统计范围：`employeeKey = FDE_EMPLOYEE_KEY`、`actionType = "inbound_inquiry"`，先按商机去重，再排除测试询盘，再把展会单列。
+   - `sla-tiers.ts` 已在复用这些判定。
+7. **`/ai-activity` 不显示任何运行计数**：它按**当前用户**分页读 AuditLog（`ai_generate` / `ai_send` / `ai_analyze`），浏览器本地时区分天。GATE-A2"14 天工作量图与 `/ai-activity` 的运行计数一致"按字面无法满足，需改口径。
+8. **按天分桶**：组织时区来自 `settingsJson.timezone`（`resolveOrgTimezone`，默认 America/Toronto），`getLocalTimeParts(date, tz).date` 给 YYYY-MM-DD，`localDayBounds` / `zonedLocalToUtc` 在 `revenue-spine/owner-today.ts`、`business-days.ts`；没有现成的多天分桶函数。
 
 ## 环境（云端容器每次都是新的，照做即可）
 
