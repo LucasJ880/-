@@ -18,8 +18,8 @@
 
 ## 5. 收口
 
-- [ ] 5.1 全量门禁：typecheck、lint:baseline、test:ci、registry、`openspec validate pricelist-2026-10-addons --strict`、`git diff origin/main --stat -- prisma/` 为空、隔离库 `npm test`（失败项逐个与 origin/main 对照）；隔离库 + `next start` + Playwright 走查：Part B 下拉 36 项分组、选 `drape_track_extra_ft` 数量 13 → $390、保存后库里 `addonsSubtotal` 等于 Part B 小计、客户 PDF 名称为客户可见名、390px 无溢出；verify：以上命令退出 0，截图与数字写进报告
-- [ ] 5.2 写 `docs/QINGYAN_PRICE-3_REPORT.md`（做了什么 / 怎么验 / 对规划的调整：Excel 归类结果、Open roll Valance 边界以引擎为准、BREAKING：Part B 计入库里金额与签约报价首次重存进审批 / 已知限制：特别让利未扣、历史不回填）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` PRICE-3 状态列 + `docs/QINGYAN_PRICELIST_HANDOFF.md` §0 流水线表；verify：三个文件在同一提交里，报告 §3 每条命令都有实际输出
+- [x] 5.1 全量门禁：typecheck、lint:baseline、test:ci、registry、`openspec validate pricelist-2026-10-addons --strict`、`git diff origin/main --stat -- prisma/` 为空、隔离库 `npm test`（失败项逐个与 origin/main 对照）；隔离库 + `next start` + Playwright 走查：Part B 下拉 36 项分组、选 `drape_track_extra_ft` 数量 13 → $390、保存后库里 `addonsSubtotal` 等于 Part B 小计、客户 PDF 名称为客户可见名、390px 无溢出；verify：以上命令退出 0，截图与数字写进报告
+- [x] 5.2 写 `docs/QINGYAN_PRICE-3_REPORT.md`（做了什么 / 怎么验 / 对规划的调整：Excel 归类结果、Open roll Valance 边界以引擎为准、BREAKING：Part B 计入库里金额与签约报价首次重存进审批 / 已知限制：特别让利未扣、历史不回填）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` PRICE-3 状态列 + `docs/QINGYAN_PRICELIST_HANDOFF.md` §0 流水线表；verify：三个文件在同一提交里，报告 §3 每条命令都有实际输出
 
 ## Workflow follow-up
 

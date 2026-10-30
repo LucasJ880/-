@@ -1,6 +1,6 @@
 # PRICE-3 报告：附加项目目录 36 项 + Excel 逐行归类 + 按英尺 + 企业价审批 + Part B 计入库里报价金额
 
-change：`openspec/changes/pricelist-2026-10-addons/`。规格增量：`sales/price-list` 新增 6 条，`sales/quote-settings-approval` 新增 1 条；design D1–D7；tasks 6 条。
+change：`openspec/changes/pricelist-2026-10-addons/`。规格增量：`sales/price-list` 新增 6 条，`sales/quote-settings-approval` 新增 1 条；design D1–D7；tasks 6 / 6。
 来源：2026-10-28 价表（任务书 `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md` §2 D7 / D8、§3.3；Q6 / Q7 / Q8）。四件套 Lucas 2026-10-30 确认，P3-1 至 P3-4 按推荐。
 零 schema：企业价存 `Organization.settingsJson.pricing.addons`；Part B 写既有 `SalesQuoteAddon` 行与 `addonsSubtotal` 列；`git diff origin/main -- prisma/` 为空。无出站、无新 cron、无新 LLM 调用。
 
@@ -38,7 +38,7 @@ change：`openspec/changes/pricelist-2026-10-addons/`。规格增量：`sales/pr
 | `cost-rates` / `quote-settings-approval` / `ai-quote-parser` | 通过 / 23 / 通过（"customer lives downtown" 不产生附加项目；"2 motor" 仍得 `motor` × 2） |
 | 黄金对照 `pricelist-2026-10-golden` | 158 条、787 断言、0 失败（不变） |
 | 隔离库 `quote-settings-db.isolated.test.ts` | **49 / 0**。老板 PUT `{addonPrices:{motor:160}}` → 202 → 另一位老板批准 → `pricing.addons = {motor:160}`，`pricing.cordless` / `discounts` / `sunnyWarranty` 原样；GET 返回 36 项；非法 → 400 且不建审批。真实路由新建报价带 Part B → `addonsSubtotal` 680、两行落库名称正确、未选行不提交、含税多出 768.40；企业价 160 下 `motor` × 2 未带单价 → 320；编辑改成 hub @200 → 200 |
-| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0（合并最新 main 后重跑：见 §3.2） |
+| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0（合并最新 main 前后各一次） |
 | `npm run lint:baseline` | PASS（无新增 error fingerprint） |
 | `npm run build` | 退出 0 |
 | `bash scripts/check-test-registry.sh` | 合并最新 main 后已注册 522 个，欠账 71 不变 |
@@ -59,9 +59,26 @@ change：`openspec/changes/pricelist-2026-10-addons/`。规格增量：`sales/pr
 
 走查中"PDF 存档失败"弹窗是沙箱没有配 Vercel Blob token（`BLOB_READ_WRITE_TOKEN`），与本次改动无关。
 
-### 3.2 全量
+### 3.2 全量（合并最新 main `856e4fe` 后，隔离库）
 
-（全量结果写在下方，跑完后补。）
+| 项 | 结果 |
+|---|---|
+| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0 |
+| `npm run test:ci` | 退出 0 |
+| GitHub CI `validate-lint-typecheck-test-build`（#357 head） | success |
+| `npm test` | **535 / 545**，10 个失败，全部不是本 change 引起（下表） |
+
+| 失败的测试 | 结论 |
+|---|---|
+| TypeScript 类型检查（`npx tsc --noEmit`，默认堆） | 内存不够：合并 main 后代码量增加，默认约 2 GB 堆不够。在 origin/main 的 worktree 上执行同一条命令同样 `heap out of memory`（退出 134）。加 `--max-old-space-size=8192` 的 typecheck 和 GitHub CI 都通过 |
+| Mention Gateway M2-A Identity DB | 既有：`db push` 不建三条 CHECK 约束（PRICE-1 / PRICE-2 报告同项） |
+| Sunny 工艺单 签字→草稿→门禁→确认→导出 DB 端到端 | 既有：`mark-signed` 报 NO_BINDING（同上） |
+| Phase3A-3 Approvals Smoke / 3A-4 Acceptance / 3A-4 Governance Smoke / 3A-5 Overview Acceptance | 既有：本地库无双租户种子 |
+| T4 授标情报真实 Postgres 矩阵 | 既有环境性 |
+| Quote Operations 客户报价 PDF 分页布局 | 既有：PDF 渲染环境（页脚） |
+| Autopilot A2-P0 Isolated E2E | 既有：全量负载下偶发（PRICE-2 时单独重跑 96 / 0）；本次没有改 autopilot |
+
+本 change 相关的测试在全量中全部通过：附加项目目录、黄金对照、`cost-rates`、`quote-settings-approval`、`ai-quote-parser`、`quote-settings-db.isolated`。
 
 ## 4. 实施中对规划的调整 / 发现（审核请重点看）
 
