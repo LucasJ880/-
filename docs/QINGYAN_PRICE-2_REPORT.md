@@ -58,7 +58,7 @@ change：`openspec/changes/pricelist-2026-10-cordless-fullness/`（proposal / sp
 | `openspec validate pricelist-2026-10-cordless-fullness --strict` | valid |
 | `npm run build` | 退出 0 |
 | 浏览器走查（生产构建 + 隔离库 + Playwright，销售岗） | 见 §3.1 |
-| 全量 `npm test`（隔离库） | __FULL__ |
+| 全量 `npm test`（隔离库，最终代码重跑） | **509 / 518 通过，9 个失败，与 PRICE-1 报告 §3.4 已在 origin/main 同库对照过的 9 项完全相同**（见 §3.2） |
 
 ### 3.1 浏览器走查（`docs/price-2-screenshots/`）
 
@@ -71,6 +71,19 @@ change：`openspec/changes/pricelist-2026-10-cordless-fullness/`（proposal / sp
 | Drapes：Without liner 100" × 120"，Fullness 默认 180 | 行显示 $921.41（成交 $831.41 + 安装 $90） |
 | Part B 定金 1000 → Save | `POST /api/sales/quotes` 201；无弹窗；无页面错误；390px 无横向溢出 |
 | 落库 | 两行 Zebra `cordless = true`、折扣 0.30、成交 159 / 557.10（取档 90 × 102）；布帘取档 100 × 120、成交 831.41、安装 90；工艺单映射两行 Zebra 均为「斑马帘 / 无绳 / R」 |
+
+### 3.2 全量失败项
+
+| 失败的测试 | 本次签名 | 结论 |
+|---|---|---|
+| Mention Gateway M2-A Identity DB | 90 / 3（三条原生 CHECK 约束） | 既有：`db push` 不建 CHECK 约束 |
+| Sunny 工艺单 签字→草稿→门禁→确认→导出 DB 端到端 | `mark-signed` 即返回 `无权操作此报价单` NO_BINDING，未进入工艺单映射 | 既有：测试早于 PERM-4a，报价创建人未绑岗位；与本次映射改动无关（`quote-mapping` 55 / 0、`blinds-oracle` / `real-orders` 全过） |
+| Phase3A-3 / 3A-4 Smoke / 3A-4 Acceptance / 3A-5 | `Sunny / 梦馨组织存在` / `双租户组织存在` | 本地库无双租户种子 |
+| T4 授标情报真实 Postgres 矩阵 | 16 / 2（T4-DB-08/09 前置） | 既有环境性 |
+| Quote Operations 客户报价 PDF 分页布局 | S-4 / M-2 页脚 | 既有 PDF 渲染环境 |
+| Autopilot A2-P0 Isolated E2E | 全量负载下偶发 | 单独重跑 96 / 0；本次未改 autopilot |
+
+总数 511 → 518 来自 main 上其它 change 新增的测试；本 change 没有新增测试文件。
 
 ## 4. 实施中对规划的调整 / 发现（审核请重点看）
 

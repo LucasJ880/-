@@ -21,8 +21,8 @@
 
 ## 5. 收口
 
-- [ ] 5.1 全量门禁：typecheck、lint:baseline、test:ci、registry、`openspec validate pricelist-2026-10-cordless-fullness --strict`、`git diff --stat prisma/` 为空、隔离库 `npm test`（失败项逐个与 origin/main 对照）；隔离库 + `next start` + Playwright 走查：Zebra 24" × 36" 开 Cordless → $159、关 → 有绳价；Zebra 90" × 100" 开 → $557.10；布帘 100" × 120" 默认 180% → $831.41；保存后 `SalesQuoteItem.cordless` 为真且工艺单草稿操控方式"无绳"；verify：以上命令退出 0，截图与数字写进报告
-- [ ] 5.2 写 `docs/QINGYAN_PRICE-2_REPORT.md`（做了什么 / 怎么验 / 对规划的调整：无企业默认褶皱率、BREAKING 两条 / 已知限制）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` PRICE-2 状态列 + `docs/QINGYAN_PRICELIST_HANDOFF.md` §0 流水线表；verify：三个文件在同一提交里，报告 §3 每条命令都有实际输出
+- [x] 5.1 全量门禁：typecheck、lint:baseline、test:ci、registry、`openspec validate pricelist-2026-10-cordless-fullness --strict`、`git diff --stat prisma/` 为空、隔离库 `npm test`（失败项逐个与 origin/main 对照）；隔离库 + `next start` + Playwright 走查：Zebra 24" × 36" 开 Cordless → $159、关 → 有绳价；Zebra 90" × 100" 开 → $557.10；布帘 100" × 120" 默认 180% → $831.41；保存后 `SalesQuoteItem.cordless` 为真且工艺单草稿操控方式"无绳"；verify：以上命令退出 0，截图与数字写进报告
+- [x] 5.2 写 `docs/QINGYAN_PRICE-2_REPORT.md`（做了什么 / 怎么验 / 对规划的调整：无企业默认褶皱率、BREAKING 两条 / 已知限制）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` PRICE-2 状态列 + `docs/QINGYAN_PRICELIST_HANDOFF.md` §0 流水线表；verify：三个文件在同一提交里，报告 §3 每条命令都有实际输出
 
 ## Workflow follow-up
 
