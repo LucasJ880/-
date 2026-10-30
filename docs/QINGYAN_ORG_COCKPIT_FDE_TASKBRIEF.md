@@ -177,7 +177,7 @@ interface PostDefinition {
 |---|---|---|---|---|
 | B-1 | 审批动作自动产反馈事件 + 草稿结构化 diff | A-4 | `pending-actions/exec-sales-inquiry-reply.ts`、`approval/*` 挂钩、`employee-ai/diff.ts` 接入 | [x] |
 | B-2 | 人工修改 → 商务事实沉淀（commercialFacts 提案） | B-1 | `revenue-spine/fact-proposals.ts`、新 PendingActionType `revenue_spine.propose_commercial_fact` | [x] |
-| B-3 | 已确认偏好接入草稿模板层 | B-1 | `revenue-spine/reply-draft.ts` 读 `employee-ai` confirmed 偏好 | [G] |
+| B-3 | 已确认偏好接入草稿模板层 | B-1 | `revenue-spine/reply-draft.ts` 读 `employee-ai` confirmed 偏好 | [x] |
 | B-4 | 评分校准报表（只报不改） | A-4 | `revenue-spine/score-calibration.ts` + 面板区块 | [x] |
 | B-5 | 分级自治：内部动作按 policy 自动化 | B-1 | `revenue-spine/next-action.ts` / `transition.ts` 扩展 | [x] |
 | B-6 | （决策）FDE V2 Quotation Engineer 启动条件 | B-2 跑满 30 天 | 见 §B-6 | [~] 只读就绪度指标已交（`fde-v2-readiness`，报告 `docs/QINGYAN_ORG_COCKPIT_B-6_REPORT.md`）；V2 启动待条件满足后由 Evan 决定 |
