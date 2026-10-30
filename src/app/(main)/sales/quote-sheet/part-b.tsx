@@ -6,11 +6,16 @@ import { cn } from "@/lib/utils";
 import { Plus, Trash2, AlertTriangle, Lock, Unlock, ShieldCheck, Loader2, Pencil } from "lucide-react";
 import { PencilCanvas, type PencilCanvasRef } from "@/components/pencil-canvas";
 import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
+import type { AddonGroup } from "@/lib/blinds/pricing-types";
+
+const ADDON_GROUPS: AddonGroup[] = ["Blinds motor", "Drapery motor", "Track & rod", "Shutter", "Service"];
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { apiFetch } from "@/lib/api-fetch";
 
 interface PartBProps {
   addons: PartBAddon[];
+  /** PRICE-3：附加项目企业价（折扣设置 DTO）；缺省按目录价 */
+  addonPrices?: Record<string, number>;
   onAddonsChange: (addons: PartBAddon[]) => void;
   notes: string;
   onNotesChange: (notes: string) => void;
@@ -61,6 +66,7 @@ interface PartBProps {
 
 export function PartBForm({
   addons,
+  addonPrices,
   onAddonsChange,
   notes,
   onNotesChange,
@@ -104,6 +110,13 @@ export function PartBForm({
     () => Object.fromEntries(ADDON_CATALOG.map((a) => [a.key, a])),
     []
   );
+  const priceOf = useCallback(
+    (key: string) => {
+      const p = addonPrices?.[key];
+      return typeof p === "number" && Number.isFinite(p) ? p : (catalogByKey[key]?.unitPrice ?? 0);
+    },
+    [addonPrices, catalogByKey]
+  );
 
   const updateAddon = useCallback(
     (id: string, field: keyof PartBAddon, value: unknown) => {
@@ -114,8 +127,8 @@ export function PartBForm({
           if (field === "skuItem") {
             const def = catalogByKey[value as string];
             if (def) {
-              updated.price = def.unitPrice;
-              updated.total = (updated.qty || 1) * def.unitPrice;
+              updated.price = priceOf(def.key);
+              updated.total = (updated.qty || 1) * updated.price;
             }
           }
           if (field === "qty" || field === "price") {
@@ -125,7 +138,7 @@ export function PartBForm({
         })
       );
     },
-    [addons, onAddonsChange, catalogByKey]
+    [addons, onAddonsChange, catalogByKey, priceOf]
   );
 
   const addAddon = () => {
@@ -177,12 +190,13 @@ export function PartBForm({
                           // 切换回预设项时，重置 customName 并应用 catalog 价格
                           if (next !== "__custom") {
                             const def = catalogByKey[next];
+                            const price = def ? priceOf(def.key) : x.price;
                             return {
                               ...x,
                               skuItem: next,
                               customName: "",
-                              price: def ? def.unitPrice : x.price,
-                              total: (x.qty || 1) * (def ? def.unitPrice : x.price || 0),
+                              price,
+                              total: (x.qty || 1) * (price || 0),
                             };
                           }
                           // 进入 custom 模式：不动 price / customName
@@ -193,13 +207,21 @@ export function PartBForm({
                     className="w-full bg-transparent border-0 outline-none text-sm min-h-[44px] px-1"
                   >
                     <option value="">Select add-on...</option>
-                    {ADDON_CATALOG.map((cat) => (
-                      <option key={cat.key} value={cat.key}>
-                        {cat.displayName} — ${cat.unitPrice}
-                      </option>
+                    {ADDON_GROUPS.map((group) => (
+                      <optgroup key={group} label={group}>
+                        {ADDON_CATALOG.filter((cat) => cat.group === group).map((cat) => (
+                          <option key={cat.key} value={cat.key}>
+                            {cat.displayName} — ${priceOf(cat.key)}
+                            {cat.unit === "ft" ? "/ft" : ""}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                     <option value="__custom">Custom item...</option>
                   </select>
+                  {catalogByKey[a.skuItem]?.hint && (
+                    <p className="px-1 text-[11px] text-muted-foreground">{catalogByKey[a.skuItem]?.hint}</p>
+                  )}
                   {a.skuItem === "__custom" && (
                     <input
                       type="text"
@@ -215,6 +237,8 @@ export function PartBForm({
                   <input
                     type="number"
                     value={a.qty || ""}
+                    placeholder={catalogByKey[a.skuItem]?.unit === "ft" ? "ft" : undefined}
+                    title={catalogByKey[a.skuItem]?.unit === "ft" ? "按英尺：数量 = 英尺数" : undefined}
                     onChange={(e) =>
                       updateAddon(a.id, "qty", parseInt(e.target.value) || 0)
                     }
@@ -222,15 +246,20 @@ export function PartBForm({
                   />
                 </td>
                 <td className="px-2 py-1">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={a.price || ""}
-                    onChange={(e) =>
-                      updateAddon(a.id, "price", parseFloat(e.target.value) || 0)
-                    }
-                    className="w-full bg-transparent border-0 outline-none text-sm text-right min-h-[44px]"
-                  />
+                  <div className="flex items-center">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={a.price || ""}
+                      onChange={(e) =>
+                        updateAddon(a.id, "price", parseFloat(e.target.value) || 0)
+                      }
+                      className="w-full min-w-0 bg-transparent border-0 outline-none text-sm text-right min-h-[44px]"
+                    />
+                    {catalogByKey[a.skuItem]?.unit === "ft" && (
+                      <span className="shrink-0 text-xs text-muted-foreground">/ft</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-3 py-1 text-right font-mono">
                   {a.total > 0 ? `$${a.total.toFixed(2)}` : "—"}

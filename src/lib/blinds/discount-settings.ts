@@ -18,6 +18,7 @@ import {
 import type { ConfigLoadResult } from "@/lib/org-rules/types";
 import { publishOrgRule } from "@/lib/org-rules/service";
 import { hashUnlockCode } from "./unlock-code";
+import { ADDON_CATALOG, getAddonDef } from "./pricing-addons";
 
 export type DiscountsByProduct = Record<ProductName, number>;
 
@@ -133,6 +134,58 @@ export function mergeJsonCordless(
   return base;
 }
 
+// ─── PRICE-3：附加项目企业价（settingsJson.pricing.addons.{key}） ───
+
+/** 审批 numericPatch 里附加项目价的键前缀：addonPrice.<目录键> */
+export const ADDON_PRICE_PATCH_PREFIX = "addonPrice.";
+const ADDON_PRICE_MAX = 10000;
+
+/** 纯函数：读企业附加项目价 → 目录全部键的完整价表；缺键 / 非法值回目录价，未知键丢弃 */
+export function readJsonAddonPrices(settingsJson: unknown): Record<string, number> {
+  const addons = obj(obj(obj(settingsJson)?.pricing)?.addons);
+  const out: Record<string, number> = {};
+  for (const def of ADDON_CATALOG) {
+    const v = addons?.[def.key];
+    out[def.key] = inRange(v, 0, ADDON_PRICE_MAX) ? v : def.unitPrice;
+  }
+  return out;
+}
+
+/** 纯函数：只替换 pricing.addons 下提交的键，其它键（含 pricing.discounts / pricing.cordless）原样保留 */
+export function mergeJsonAddonPrices(
+  settingsJson: unknown,
+  patch: Record<string, number>,
+): Record<string, unknown> {
+  const base = { ...(obj(settingsJson) ?? {}) };
+  const pricing = { ...(obj(base.pricing) ?? {}) };
+  const addons = { ...(obj(pricing.addons) ?? {}) };
+  for (const [k, v] of Object.entries(patch)) addons[k] = v;
+  pricing.addons = addons;
+  base.pricing = pricing;
+  return base;
+}
+
+/**
+ * 校验 PUT 体的 addonPrices（只含要改的键）→ numericPatch 片段（addonPrice.<key>）。
+ * 键须在目录内，单价 0–10000；非法报错而非丢弃。
+ */
+export function validateAddonPricesInput(
+  raw: unknown,
+): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
+  const input = obj(raw);
+  if (!input) return { ok: false, error: "addonPrices 必须是对象（{motor:160,...}）" };
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (!getAddonDef(k)) return { ok: false, error: `addonPrices 含未知附加项目 ${k}` };
+    const n = Number(v);
+    if (v === null || v === "" || !Number.isFinite(n) || n < 0 || n > ADDON_PRICE_MAX) {
+      return { ok: false, error: `附加项目 ${k} 的价格必须为 0~${ADDON_PRICE_MAX} 之间的 CAD 金额` };
+    }
+    out[`${ADDON_PRICE_PATCH_PREFIX}${k}`] = Math.round(n * 100) / 100;
+  }
+  return { ok: true, value: out };
+}
+
 /** DTO（或任何带三项无绳设置的对象）→ 引擎用的无绳策略 */
 export function dtoToCordlessPolicy(dto: CordlessSettings): CordlessPolicy {
   return {
@@ -197,6 +250,8 @@ export interface DiscountsDto {
   cordlessDiscount: number;
   cordlessFloorZebra: number;
   cordlessFloorRoller: number;
+  /** PRICE-3：附加项目企业价（目录全部键；settingsJson.pricing.addons 覆盖，缺省目录价） */
+  addonPrices: Record<string, number>;
   sunnyMotorPrice: number;
   /** 最低安装费（CAD）：installation 模式下行内安装费不足时补足到此金额 */
   minInstallFee: number;
@@ -358,6 +413,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
   const fauxwood = json.fauxwood ?? DEFAULT_DISCOUNTS.Fauxwood;
   const allusion = json.allusion ?? DEFAULT_DISCOUNTS.Allusion;
   const cordless = readJsonCordless(settingsJson);
+  const addonPrices = readJsonAddonPrices(settingsJson);
   if (!row) {
     return {
       orgId,
@@ -376,6 +432,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
       fauxwood,
       allusion,
       ...cordless,
+      addonPrices,
       sunnyMotorPrice: DEFAULT_SUNNY_MOTOR_PRICE,
       minInstallFee: INSTALL_RULES.minimumTotal,
       deliveryFee: DEFAULT_DELIVERY_FEE,
@@ -411,6 +468,7 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
     fauxwood,
     allusion,
     ...cordless,
+    addonPrices,
     sunnyMotorPrice: row.sunnyMotorPrice,
     minInstallFee: row.minInstallFee,
     deliveryFee: row.deliveryFee,
@@ -434,6 +492,8 @@ export async function loadDiscountsDto(orgId: string): Promise<DiscountsDto> {
 export type DiscountSavePatch = Partial<
   Pick<DiscountsDto, (typeof DTO_NUMERIC_KEYS)[number]>
 > & {
+  /** PRICE-3：附加项目企业价（validateAddonPricesInput 产出），写 pricing.addons */
+  [addonPriceKey: `addonPrice.${string}`]: number;
   /** 品类成本率整表替换（已经 validateCostRatesInput 校验） */
   costRates?: Record<string, number>;
   /** 明文入参；落库前哈希到 depositOverrideCode */
@@ -467,11 +527,16 @@ export async function saveDiscountsForOrg(params: {
 
   // 2026-10-28：fauxwood / allusion 不是列，拆出来写企业设置 JSON 的 pricing.discounts 子键
   // PRICE-2：cordlessDiscount / cordlessFloorZebra / cordlessFloorRoller 写 pricing.cordless 子键
+  // PRICE-3：addonPrice.<key> 写 pricing.addons 子键（只认目录键）
   const jsonPatch: Partial<Record<JsonDiscountKey, number>> = {};
   const cordlessPatch: Partial<CordlessSettings> = {};
+  const addonPatch: Record<string, number> = {};
   const numericPatch: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(numericPatchAll)) {
-    if (JSON_DISCOUNT_KEY_SET.has(k)) {
+    if (k.startsWith(ADDON_PRICE_PATCH_PREFIX)) {
+      const key = k.slice(ADDON_PRICE_PATCH_PREFIX.length);
+      if (getAddonDef(key) && typeof v === "number") addonPatch[key] = v;
+    } else if (JSON_DISCOUNT_KEY_SET.has(k)) {
       if (typeof v === "number") jsonPatch[k as JsonDiscountKey] = v;
     } else if (CORDLESS_SETTING_KEY_SET.has(k)) {
       if (typeof v === "number") cordlessPatch[k as CordlessSettingKey] = v;
@@ -530,12 +595,17 @@ export async function saveDiscountsForOrg(params: {
         updatedBy: params.userId,
       },
     });
-    if (Object.keys(jsonPatch).length > 0 || Object.keys(cordlessPatch).length > 0) {
-      // 只替换 pricing.discounts / pricing.cordless 子键；sunnyWarranty / tenderRfq / calendarWatch 等其它键原样保留
+    if (
+      Object.keys(jsonPatch).length > 0 ||
+      Object.keys(cordlessPatch).length > 0 ||
+      Object.keys(addonPatch).length > 0
+    ) {
+      // 只替换 pricing.discounts / pricing.cordless / pricing.addons 子键；sunnyWarranty / tenderRfq / calendarWatch 等其它键原样保留
       const org = await tx.organization.findUnique({ where: { id: params.orgId }, select: { settingsJson: true } });
       let merged: Record<string, unknown> = (org?.settingsJson ?? {}) as Record<string, unknown>;
       if (Object.keys(jsonPatch).length > 0) merged = mergeJsonDiscounts(merged, jsonPatch);
       if (Object.keys(cordlessPatch).length > 0) merged = mergeJsonCordless(merged, cordlessPatch);
+      if (Object.keys(addonPatch).length > 0) merged = mergeJsonAddonPrices(merged, addonPatch);
       await tx.organization.update({
         where: { id: params.orgId },
         data: { settingsJson: merged as Prisma.InputJsonValue },
@@ -546,6 +616,7 @@ export async function saveDiscountsForOrg(params: {
   const settingsAfter = await loadSettingsJson(params.orgId);
   const jsonAfter = readJsonDiscounts(settingsAfter);
   const cordlessAfter = readJsonCordless(settingsAfter);
+  const addonPricesAfter = readJsonAddonPrices(settingsAfter);
 
   await publishOrgRule({
     orgId: params.orgId,
@@ -565,6 +636,7 @@ export async function saveDiscountsForOrg(params: {
       fauxwood: jsonAfter.fauxwood ?? DEFAULT_DISCOUNTS.Fauxwood,
       allusion: jsonAfter.allusion ?? DEFAULT_DISCOUNTS.Allusion,
       ...cordlessAfter,
+      addonPrices: addonPricesAfter,
       sunnyMotorPrice: updated.sunnyMotorPrice,
       minInstallFee: updated.minInstallFee,
       deliveryFee: updated.deliveryFee,

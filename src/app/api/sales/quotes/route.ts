@@ -11,7 +11,7 @@ import {
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from '@/lib/blinds/pricing-types';
 import { onQuoteCreated } from '@/lib/sales/opportunity-lifecycle';
-import { getAddonDef } from '@/lib/blinds/pricing-addons';
+import { normalizeAddonInputs, resolveAddonLines } from '@/lib/blinds/pricing-addons';
 import { parseAgreedPaymentFromFormDataJson } from '@/lib/sales/quote-agreed-payment';
 import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } from '@/lib/blinds/discount-settings';
 import { stampPricelistVersion } from '@/lib/blinds/pricelist-version';
@@ -148,12 +148,16 @@ export const POST = withAuth(async (request, _ctx, user) => {
     leadMaxPct: pricingPolicy.leadMaxPct,
     actor: { isPlatformSuperAdmin: isPlatformSuperAdmin(user.role), canSubmitOverLimit: overLimitSubmit.allowed },
   });
+  // PRICE-3：Part B / 快速报价的附加项目——落库行与 addonsSubtotal 同一函数（design D4）
+  const addonInputs = normalizeAddonInputs(addons);
+  const { lines: addonLines, warnings: addonWarnings } = resolveAddonLines(addonInputs, quoteSettings.addonPrices);
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
       // 2026-10-28：没有行级覆盖的行套企业折扣（含 settingsJson 里的 fauxwood / allusion），与客户端预览同源
       items: applyOrgDiscountDefaults(items || [], dtoToProductDiscounts(quoteSettings)),
-      addons,
+      addons: addonInputs,
+      addonPrices: quoteSettings.addonPrices,
       installMode,
       deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
       taxRate,
@@ -206,11 +210,12 @@ export const POST = withAuth(async (request, _ctx, user) => {
 
   // —— pricing 错误写进 notes，方便销售/管理员肉眼回查 ——
   const pricingErrorNotes =
-    calc.errors.length > 0
+    calc.errors.length > 0 || addonWarnings.length > 0
       ? `\n\n[Pricing Warnings @ ${new Date().toISOString()}]\n` +
-        calc.errors
-          .map((e) => `  #${e.index + 1} (${e.input.product} ${e.input.fabric}): ${e.error}`)
-          .join('\n')
+        [
+          ...calc.errors.map((e) => `  #${e.index + 1} (${e.input.product} ${e.input.fabric}): ${e.error}`),
+          ...addonWarnings.map((w) => `  ${w}`),
+        ].join('\n')
       : '';
   const mergedNotes = [notes || '', pricingErrorNotes].filter(Boolean).join('').trim() || null;
 
@@ -283,19 +288,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
               })),
             }
           : undefined,
-      addons: addons?.length
-        ? {
-            create: addons.map((a) => {
-              const def = getAddonDef(a.addonKey);
-              return {
-                addonKey: a.addonKey,
-                displayName: def?.displayName || a.addonKey,
-                unitPrice: def?.unitPrice || 0,
-                qty: a.qty,
-                subtotal: (def?.unitPrice || 0) * a.qty,
-              };
-            }),
-          }
+      addons: addonLines.length
+        ? { create: addonLines }
         : undefined,
     },
     include: { items: true, addons: true },

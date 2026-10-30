@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Percent, Check, Loader2, ShieldCheck, RefreshCcw } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
+import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
+import type { AddonGroup } from "@/lib/blinds/pricing-types";
 
 /**
  * 折扣率全局设置卡片 — 驾驶舱
@@ -35,6 +37,8 @@ interface DiscountsDto {
   commissionMarginRate: number;
   commissionRate: number;
   costRates: Record<string, number>;
+  /** PRICE-3：附加项目企业价（目录全部键） */
+  addonPrices?: Record<string, number>;
   promoWarnPct: number;
   promoDangerPct: number;
   promoMaxPct: number;
@@ -198,6 +202,12 @@ function toDraftMap(d: DiscountsDto): DraftMap {
   };
 }
 
+const ADDON_GROUPS: AddonGroup[] = ["Blinds motor", "Drapery motor", "Track & rod", "Shutter", "Service"];
+
+function toAddonDraft(d: DiscountsDto): Record<string, string> {
+  return Object.fromEntries(ADDON_CATALOG.map((a) => [a.key, String(d.addonPrices?.[a.key] ?? a.unitPrice)]));
+}
+
 export function DiscountSettingsCard() {
   const [loaded, setLoaded] = useState(false);
   const [current, setCurrent] = useState<DiscountsDto | null>(null);
@@ -207,6 +217,8 @@ export function DiscountSettingsCard() {
   const [flash, setFlash] = useState<"saved" | "pending" | null>(null);
   // 品类成本率草稿（%字符串；空串=未配置该品类）
   const [costDraft, setCostDraft] = useState<Record<string, string>>({});
+  // 附加项目企业价草稿（CAD 字符串）；保存时只提交与当前值不同的键
+  const [addonDraft, setAddonDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const canEdit = current?.canEdit === true;
 
@@ -215,6 +227,7 @@ export function DiscountSettingsCard() {
       .then((d) => {
         setCurrent(d);
         setDraft(toDraftMap(d));
+        setAddonDraft(toAddonDraft(d));
         setCostDraft(
           Object.fromEntries(
             FIELDS.map((f) => {
@@ -274,6 +287,18 @@ export function DiscountSettingsCard() {
       costRates[f.key as string] = Math.round(n) / 100;
     }
     payload.costRates = costRates;
+    const addonPrices: Record<string, number> = {};
+    for (const def of ADDON_CATALOG) {
+      const raw = addonDraft[def.key];
+      const n = Number(raw);
+      if (raw === undefined || raw.trim() === "" || !Number.isFinite(n) || n < 0 || n > 10000) {
+        setError(`附加项目「${def.displayName}」价格必须是 0~10000 之间的 CAD 金额`);
+        return;
+      }
+      const rounded = Math.round(n * 100) / 100;
+      if (rounded !== (current?.addonPrices?.[def.key] ?? def.unitPrice)) addonPrices[def.key] = rounded;
+    }
+    if (Object.keys(addonPrices).length > 0) payload.addonPrices = addonPrices;
     // 顺序校验：warn <= danger <= max
     const w = payload.promoWarnPct as number | undefined;
     const d2 = payload.promoDangerPct as number | undefined;
@@ -329,7 +354,10 @@ export function DiscountSettingsCard() {
       }
       // PERM-2：非平台管理员的修改进入审批，当前生效值不变
       if (res.status === 202 && data?.pending) {
-        if (current) setDraft(toDraftMap(current));
+        if (current) {
+          setDraft(toDraftMap(current));
+          setAddonDraft(toAddonDraft(current));
+        }
         setEditing(false);
         setFlash("pending");
         setTimeout(() => setFlash(null), 8000);
@@ -337,6 +365,7 @@ export function DiscountSettingsCard() {
       }
       setCurrent(data);
       setDraft(toDraftMap(data));
+      setAddonDraft(toAddonDraft(data));
       setEditing(false);
       setFlash("saved");
       setTimeout(() => setFlash(null), 2500);
@@ -346,7 +375,10 @@ export function DiscountSettingsCard() {
   };
 
   const handleCancel = () => {
-    if (current) setDraft(toDraftMap(current));
+    if (current) {
+      setDraft(toDraftMap(current));
+      setAddonDraft(toAddonDraft(current));
+    }
     setEditing(false);
     setError(null);
   };
@@ -602,6 +634,61 @@ export function DiscountSettingsCard() {
           ))}
         </div>
       </div>
+
+      {/* PRICE-3：附加项目企业价 —— Part B 下拉与报价落库按此取价 */}
+      <details className="mt-5 pt-4 border-t border-border group">
+        <summary className="cursor-pointer list-none text-xs font-semibold text-foreground">
+          附加项目价格（{ADDON_CATALOG.length} 项）
+          <span className="ml-2 font-normal text-muted-foreground group-open:hidden">展开</span>
+        </summary>
+        <p className="mt-1 text-[11px] text-muted-foreground mb-3">
+          报价单 Part B 下拉的默认单价（税前 CAD）；销售仍可在单张报价里改单价。按英尺项单价为每英尺。
+          改动随「保存」一起提交，进入审批。
+        </p>
+        {ADDON_GROUPS.map((group) => (
+          <div key={group} className="mb-3">
+            <div className="text-[11px] font-medium text-muted-foreground mb-1">{group}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {ADDON_CATALOG.filter((a) => a.group === group).map((a) => {
+                const value = current?.addonPrices?.[a.key] ?? a.unitPrice;
+                const changed = value !== a.unitPrice;
+                return (
+                  <div key={a.key} className="space-y-1 min-w-0">
+                    <label className="text-[11px] text-muted-foreground block truncate" title={a.displayName}>
+                      {a.displayName}
+                    </label>
+                    {editing && canEdit ? (
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={10000}
+                          step={0.5}
+                          value={addonDraft[a.key] ?? ""}
+                          onChange={(e) => setAddonDraft({ ...addonDraft, [a.key]: e.target.value })}
+                          className="w-full rounded-lg border border-input bg-card-bg pl-5 pr-9 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                        {a.unit === "ft" && (
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">/ft</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
+                        ${value}
+                        {a.unit === "ft" ? "/ft" : ""}
+                        {changed && (
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">（价表 ${a.unitPrice}）</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </details>
 
       {/* 定金阈值与解锁码 */}
       <div className="mt-5 pt-4 border-t border-border">

@@ -179,6 +179,7 @@ npx tsx src/lib/notifications/__tests__/delivery-gate.test.ts
 npx tsx src/lib/notifications/__tests__/mark-all-read.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
+npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts
 npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts

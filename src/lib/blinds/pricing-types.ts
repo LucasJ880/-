@@ -74,6 +74,13 @@ export interface QuoteItemInput {
 export interface QuoteAddonInput {
   addonKey: string;
   qty: number;
+  /**
+   * 成交单价（CAD，税前）。报价单 Part B 行带上销售填写的单价（可能改过）；
+   * 不带时按企业价（`settingsJson.pricing.addons`）→ 目录价。
+   */
+  unitPrice?: number;
+  /** 自定义行（addonKey = "custom"）的名称；预设行忽略，按目录对客名称 */
+  displayName?: string;
 }
 
 export interface QuoteTotalInput {
@@ -88,6 +95,8 @@ export interface QuoteTotalInput {
   minInstallTotal?: number;
   /** 企业无绳策略；缺省 DEFAULT_CORDLESS_POLICY（0.30 / 159 / 129 / ×1.15）。 */
   cordlessPolicy?: CordlessPolicy;
+  /** 企业附加项目价（settingsJson.pricing.addons，已校验）；缺省按目录价。 */
+  addonPrices?: Record<string, number>;
 }
 
 export interface QuoteTotalResult {
@@ -104,12 +113,31 @@ export interface QuoteTotalResult {
   grandTotal: number;
 }
 
+/** 附加项目计价单位：each = 按件；ft = 按英尺（数量即英尺数） */
+export type AddonUnit = 'each' | 'ft';
+
+/** Part B 下拉分组 */
+export type AddonGroup = 'Blinds motor' | 'Drapery motor' | 'Track & rod' | 'Shutter' | 'Service';
+
+/** 目录项在 config/pricelist/2026-10-28-lucas-quote.json 中的来源 */
+export type AddonSource =
+  | { kind: 'retail'; key: string }
+  | { kind: 'excel'; id: string }
+  | { kind: 'fee'; path: 'downtown' };
+
 export interface AddonDef {
   key: string;
+  /** 销售端名称（Part B 下拉） */
   displayName: string;
+  /** 对客名称（客户 PDF / 分享页 / 落库 displayName） */
   printLabel: string;
   unitPrice: number;
   eligibleProducts: ProductName[];
+  unit: AddonUnit;
+  group: AddonGroup;
+  /** 内部提示（只在 Part B 显示，不出给客户） */
+  hint?: string;
+  source: AddonSource;
 }
 
 export interface ProductBrackets {

@@ -15,6 +15,9 @@ import {
   dtoToCordlessPolicy,
   applyOrgDiscountDefaults,
   validateDiscountsInput,
+  readJsonAddonPrices,
+  mergeJsonAddonPrices,
+  validateAddonPricesInput,
 } from "../discount-settings";
 import { DEFAULT_DISCOUNTS } from "../pricing-data";
 
@@ -105,5 +108,33 @@ assert.equal(vOk.ok, true);
 if (vOk.ok) assert.deepEqual(vOk.value, { cordlessDiscount: 0.25, cordlessFloorZebra: 169.5, cordlessFloorRoller: 139 });
 assert.equal(validateDiscountsInput({ cordlessDiscount: 1.2 }).ok, false, "无绳折扣越界拒绝");
 assert.equal(validateDiscountsInput({ cordlessFloorRoller: -1 }).ok, false, "无绳最低价负数拒绝");
+
+// ── PRICE-3：附加项目企业价（settingsJson.pricing.addons）──
+const apDefault = readJsonAddonPrices(null);
+assert.equal(Object.keys(apDefault).length, 36, "缺省 → 目录全部 36 键");
+assert.equal(apDefault.motor, 150);
+assert.equal(apDefault.downtown_fee, 150);
+const apBad = readJsonAddonPrices({ pricing: { addons: { motor: -5, hub: "x", unknown_key: 9, remote: 45, track6: 20000 } } });
+assert.equal(apBad.motor, 150, "负数回目录价");
+assert.equal(apBad.hub, 240, "非数字回目录价");
+assert.equal(apBad.track6, 60, "超过 10000 回目录价");
+assert.equal(apBad.remote, 45, "合法覆盖生效");
+assert.equal("unknown_key" in apBad, false, "未知键丢弃");
+const mergedA = mergeJsonAddonPrices(
+  { sunnyWarranty: { a: 1 }, pricing: { discounts: { fauxwood: 0.25 }, cordless: { discount: 0.3 }, addons: { hub: 250 } } },
+  { motor: 160 },
+);
+assert.deepEqual(
+  mergedA,
+  { sunnyWarranty: { a: 1 }, pricing: { discounts: { fauxwood: 0.25 }, cordless: { discount: 0.3 }, addons: { hub: 250, motor: 160 } } },
+  "只动 pricing.addons 的提交键",
+);
+const vAp = validateAddonPricesInput({ motor: 160, downtown_fee: "180" });
+assert.equal(vAp.ok, true);
+if (vAp.ok) assert.deepEqual(vAp.value, { "addonPrice.motor": 160, "addonPrice.downtown_fee": 180 });
+assert.equal(validateAddonPricesInput({ not_a_key: 10 }).ok, false, "未知键拒绝");
+assert.equal(validateAddonPricesInput({ hub: -1 }).ok, false, "负数拒绝");
+assert.equal(validateAddonPricesInput({ hub: null }).ok, false, "空值拒绝");
+assert.equal(validateAddonPricesInput([1]).ok, false, "非对象拒绝");
 
 console.log("Cost rates tests passed");

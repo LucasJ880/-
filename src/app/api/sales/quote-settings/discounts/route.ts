@@ -5,6 +5,8 @@ import {
   loadDiscountsDto,
   saveDiscountsForOrg,
   validateDiscountsInput,
+  validateAddonPricesInput,
+  ADDON_PRICE_PATCH_PREFIX,
   validateCostRatesInput,
   DTO_NUMERIC_KEYS,
   type DiscountsDto,
@@ -119,6 +121,16 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: lineParsed.error }, { status: 400 });
   }
 
+  // PRICE-3：附加项目企业价 → numericPatch 的 addonPrice.<key>（与其它数值项同一条审批）
+  let addonPricePatch: Record<string, number> = {};
+  if (body.addonPrices !== undefined) {
+    const addonParsed = validateAddonPricesInput(body.addonPrices);
+    if (!addonParsed.ok) {
+      return NextResponse.json({ error: addonParsed.error }, { status: 400 });
+    }
+    addonPricePatch = addonParsed.value;
+  }
+
   let costRates: Record<string, number> | undefined;
   if (body.costRates !== undefined) {
     const costParsed = validateCostRatesInput(body.costRates);
@@ -149,7 +161,7 @@ export async function PUT(request: Request) {
       orgId: tenant.orgId,
       requestedById: tenant.userId,
       settingsVersion: before.version,
-      numericPatch: parsed.value as Record<string, number>,
+      numericPatch: { ...(parsed.value as Record<string, number>), ...addonPricePatch },
       costRates,
       depositOverrideCodeHash: depositHash,
       lineDiscountUnlockCodeHash: lineHash,
@@ -216,7 +228,7 @@ export async function PUT(request: Request) {
   }
 
   // 平台管理员：直接生效，留自批痕迹
-  const patch: DiscountSavePatch = { ...parsed.value };
+  const patch: DiscountSavePatch = { ...parsed.value, ...addonPricePatch };
   if (costRates !== undefined) patch.costRates = costRates;
   if (depositHash !== undefined) patch.depositOverrideCodeHashed = depositHash;
   if (lineHash !== undefined) patch.lineDiscountUnlockCodeHashed = lineHash;
@@ -232,6 +244,9 @@ export async function PUT(request: Request) {
     if (before[k] !== after[k]) {
       diff[k] = { from: before[k], to: after[k] };
     }
+  }
+  for (const [k, v] of Object.entries(after.addonPrices)) {
+    if (before.addonPrices[k] !== v) diff[`${ADDON_PRICE_PATCH_PREFIX}${k}`] = { from: before.addonPrices[k], to: v };
   }
   const costRatesChanged =
     JSON.stringify(before.costRates) !== JSON.stringify(after.costRates);

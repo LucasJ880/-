@@ -2,15 +2,15 @@
 
 ## 1. 目录
 
-- [ ] 1.1 `pricing-types.ts` 扩 `AddonDef`（`unit` / `group` / `hint?` / `source`）与 `QuoteAddonInput`（`unitPrice?` / `displayName?`）；`pricing-addons.ts` 按 design D2 写 36 项目录（单价从 `config/pricelist/2026-10-28-lucas-quote.json` 拷，不手敲）、`EXCEL_ADDON_DISPOSITION`、`addonCustomerLabel`、`resolveAddonLines`，`calcAddonSubtotal` 接企业价；新建 `src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts` 并注册到 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：该测试通过（36 项来源对照、40 行归类 24 / 10 / 4 / 1 / 1、`drape_track_extra_ft` × 13 = 390、对客名称、`resolveAddonLines` 四种情形），`bash scripts/check-test-registry.sh` 通过，黄金对照 158 条不变（开工前先跑 `quote-fees` / `sunny-motor` / 黄金对照记基线）
+- [x] 1.1 `pricing-types.ts` 扩 `AddonDef`（`unit` / `group` / `hint?` / `source`）与 `QuoteAddonInput`（`unitPrice?` / `displayName?`）；`pricing-addons.ts` 按 design D2 写 36 项目录（单价从 `config/pricelist/2026-10-28-lucas-quote.json` 拷，不手敲）、`EXCEL_ADDON_DISPOSITION`、`addonCustomerLabel`、`resolveAddonLines`，`calcAddonSubtotal` 接企业价；新建 `src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts` 并注册到 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：该测试通过（36 项来源对照、40 行归类 24 / 10 / 4 / 1 / 1、`drape_track_extra_ft` × 13 = 390、对客名称、`resolveAddonLines` 四种情形），`bash scripts/check-test-registry.sh` 通过，黄金对照 158 条不变（开工前先跑 `quote-fees` / `sunny-motor` / 黄金对照记基线）
 
 ## 2. 企业价
 
-- [ ] 2.1 `discount-settings.ts`：`readJsonAddonPrices` / `mergeJsonAddonPrices` / `validateAddonPricesInput`、DTO `addonPrices`、`saveDiscountsForOrg` 把 `addonPrice.` 前缀键路由到 `pricing.addons`；折扣接口 PUT 接 `addonPrices` 并并入 numericPatch；`discount-settings-card.tsx` 加附加项目价格折叠表；verify：`cost-rates.test.ts` 扩（读默认 / 坏值回目录价 / 未知键丢弃 / 合并只动提交键 / 校验非法键与负数）与 `quote-settings-approval.test.ts` 扩（描述含 `addonPrice.downtown_fee=180`）通过
+- [x] 2.1 `discount-settings.ts`：`readJsonAddonPrices` / `mergeJsonAddonPrices` / `validateAddonPricesInput`、DTO `addonPrices`、`saveDiscountsForOrg` 把 `addonPrice.` 前缀键路由到 `pricing.addons`；折扣接口 PUT 接 `addonPrices` 并并入 numericPatch；`discount-settings-card.tsx` 加附加项目价格折叠表；verify：`cost-rates.test.ts` 扩（读默认 / 坏值回目录价 / 未知键丢弃 / 合并只动提交键 / 校验非法键与负数）与 `quote-settings-approval.test.ts` 扩（描述含 `addonPrice.downtown_fee=180`）通过
 
 ## 3. Part B 进服务端
 
-- [ ] 3.1 `quotes/route.ts` 与 `quote-update.ts` 改用 `resolveAddonLines(addons, 企业价)` 落库并算小计（`calculateQuoteTotal` 同源）；`page.tsx` 新建 / 编辑请求体加 Part B 行（design D4）；verify：`quote-settings-db.isolated.test.ts` 扩——老板 PUT `{ addonPrices: { motor: 160 } }` → 202 → 批准 → `pricing.addons.motor` 160 且 `pricing.cordless` / `sunnyWarranty` 原样；`{ addonPrices: { hub: -1 } }` → 400；真实路由新建报价带 `drape_motor_battery` × 1 + 自定义 "Extra bracket" × 2 @ 15 → 附加项目小计 680、两行落库名称正确、总额含之；编辑改 Part B → 小计更新；企业价 160 下 `motor` × 2 未带单价 → 320
+- [x] 3.1 `quotes/route.ts` 与 `quote-update.ts` 改用 `resolveAddonLines(addons, 企业价)` 落库并算小计（`calculateQuoteTotal` 同源）；`page.tsx` 新建 / 编辑请求体加 Part B 行（design D4）；verify：`quote-settings-db.isolated.test.ts` 扩——老板 PUT `{ addonPrices: { motor: 160 } }` → 202 → 批准 → `pricing.addons.motor` 160 且 `pricing.cordless` / `sunnyWarranty` 原样；`{ addonPrices: { hub: -1 } }` → 400；真实路由新建报价带 `drape_motor_battery` × 1 + 自定义 "Extra bracket" × 2 @ 15 → 附加项目小计 680、两行落库名称正确、总额含之；编辑改 Part B → 小计更新；企业价 160 下 `motor` × 2 未带单价 → 320
 
 ## 4. 报价单 UI 与客户输出
 

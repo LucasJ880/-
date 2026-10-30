@@ -127,6 +127,7 @@ export function RoughQuotePanel({
             cordlessDiscount?: number;
             cordlessFloorZebra?: number;
             cordlessFloorRoller?: number;
+            addonPrices?: Record<string, number>;
           }>("/api/sales/quote-settings/discounts");
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -149,6 +150,8 @@ export function RoughQuotePanel({
                 discount: d.cordlessDiscount,
                 floors: { Zebra: d.cordlessFloorZebra, Roller: d.cordlessFloorRoller },
               },
+              // PRICE-3：附加项目企业价透传（内嵌工具不认识时忽略；落库由服务端按企业价算）
+              addonPrices: d.addonPrices,
             },
             "*",
           );

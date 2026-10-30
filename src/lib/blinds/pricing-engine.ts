@@ -356,7 +356,7 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
     itemResults.push({ ...pricedResult, input: item });
   });
 
-  const addonsSubtotal = input.addons ? calcAddonSubtotal(input.addons) : 0;
+  const addonsSubtotal = input.addons ? calcAddonSubtotal(input.addons, input.addonPrices) : 0;
 
   const minInstallTotal =
     typeof input.minInstallTotal === 'number' &&
