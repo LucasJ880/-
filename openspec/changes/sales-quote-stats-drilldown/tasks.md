@@ -18,7 +18,7 @@
 
 ## 3. 页面
 
-- [ ] 3.1 `sales-period-panel.tsx`：本周 / 上周预设、组织时区今天、按人行展开明细、报价列表链接、草稿提醒；`/sales/quotes`：按销售下拉与 `?rep=`。
+- [x] 3.1 `sales-period-panel.tsx`：本周 / 上周预设、组织时区今天、按人行展开明细、报价列表链接、草稿提醒；`/sales/quotes`：按销售下拉与 `?rep=`。
 
   verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run build` 退出 0；浏览器走查记录写入报告。
 
@@ -30,8 +30,8 @@
 
 ## 5. 门禁与报告
 
-- [ ] 5.1 门禁：`npm run lint:baseline`、`npm run test:ci`、`openspec validate sales-quote-stats-drilldown --strict`、`npm test` 与 main 对比无新增失败；独立只读审查后逐条核实修复。verify：各命令退出码与输出贴进报告。
-- [ ] 5.2 写 `docs/QINGYAN_STAT-1_REPORT.md`（做了什么、怎么验、偏离、已知限制、上线步骤、全量对比）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` STAT-1 状态列为 `[G]` + 更新 `docs/QINGYAN_PRICELIST_HANDOFF.md`。verify：三个文件在 PR diff 中；TASKFLOW STAT-1 行含 `[G]`。
+- [x] 5.1 门禁：`npm run lint:baseline`、`npm run test:ci`、`openspec validate sales-quote-stats-drilldown --strict`、`npm test` 与 main 对比无新增失败；独立只读审查后逐条核实修复。verify：各命令退出码与输出贴进报告。
+- [x] 5.2 写 `docs/QINGYAN_STAT-1_REPORT.md`（做了什么、怎么验、偏离、已知限制、上线步骤、全量对比）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` STAT-1 状态列为 `[G]` + 更新 `docs/QINGYAN_PRICELIST_HANDOFF.md`。verify：三个文件在 PR diff 中；TASKFLOW STAT-1 行含 `[G]`。
 
 ## Workflow follow-up
 

@@ -223,11 +223,22 @@ function CalendarSourceBlock({ calendar }: { calendar: PeriodCalendarStats }) {
 
 const QUOTE_STATUS_LABELS: Record<string, string> = { sent: "已发送", viewed: "已查看", signed: "已签约", accepted: "已签约", rejected: "已拒绝", expired: "已过期" };
 
-function shortDate(iso: string | null): string {
-  return iso ? iso.slice(0, 10) : "—";
+/** 明细日期按组织时区显示（与期间边界同一时区；UTC 日期在晚间会差一天） */
+function localDate(iso: string | null, timezone: string): string {
+  return iso ? getLocalTimeParts(new Date(iso), timezone).date : "—";
 }
 
-function DrilldownList({ title, rows, dateOf }: { title: string; rows: DrilldownQuote[]; dateOf: (q: DrilldownQuote) => string | null }) {
+function DrilldownList({
+  title,
+  rows,
+  dateOf,
+  timezone,
+}: {
+  title: string;
+  rows: DrilldownQuote[];
+  dateOf: (q: DrilldownQuote) => string | null;
+  timezone: string;
+}) {
   if (rows.length === 0) return <p className="text-[12px] text-[var(--muted)]">{title}：无</p>;
   return (
     <div>
@@ -236,7 +247,7 @@ function DrilldownList({ title, rows, dateOf }: { title: string; rows: Drilldown
         {rows.map((q) => (
           <li key={q.quoteId} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[12px]">
             <span>
-              {shortDate(dateOf(q))} · {q.customerName || "（无客户名）"}
+              {localDate(dateOf(q), timezone)} · {q.customerName || "（无客户名）"}
               {q.orderNumber ? <span className="text-[var(--muted)]"> · #{q.orderNumber}</span> : null}
               <span className="text-[var(--muted)]"> · {QUOTE_STATUS_LABELS[q.status] ?? q.status}</span>
               {q.pricelistVersion ? <span className="text-[var(--muted)]"> · 价表 {q.pricelistVersion}</span> : null}
@@ -296,8 +307,8 @@ function RepRow({ row, from, to, linkToList }: { row: PeriodSummaryResponse["byR
             {!detail && !failed ? <p className="text-[12px] text-[var(--muted)]">加载中…</p> : null}
             {detail ? (
               <div className="space-y-2 rounded-lg bg-[var(--background)] p-2">
-                <DrilldownList title={`成单 ${detail.totals.wonCount} 单 · ${formatSalesMoney(detail.totals.wonAmount)}`} rows={detail.won ?? []} dateOf={(q) => q.signedAt} />
-                <DrilldownList title={`报价 ${detail.totals.quotedCount} 份 · ${formatSalesMoney(detail.totals.quotedAmount)}`} rows={detail.quoted ?? []} dateOf={(q) => q.sentAt} />
+                <DrilldownList title={`成单 ${detail.totals.wonCount} 单 · ${formatSalesMoney(detail.totals.wonAmount)}`} rows={detail.won ?? []} dateOf={(q) => q.signedAt} timezone={detail.period.timezone} />
+                <DrilldownList title={`报价 ${detail.totals.quotedCount} 份 · ${formatSalesMoney(detail.totals.quotedAmount)}`} rows={detail.quoted ?? []} dateOf={(q) => q.sentAt} timezone={detail.period.timezone} />
                 {detail.truncated ? <p className="text-[12px] text-rose-600">超过 500 行，只显示最近的部分（小计仍为全量）。</p> : null}
                 {detail.fetchTruncated ? <p className="text-[12px] text-rose-600">数据量超过上限，明细与小计不完整，请缩短期间。</p> : null}
                 {linkToList ? (

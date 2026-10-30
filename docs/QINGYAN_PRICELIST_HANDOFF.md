@@ -20,7 +20,7 @@
 | PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | 本 PR（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`） | `[x]` |
 | PRICE-2 `pricelist-2026-10-cordless-fullness` | 已 propose（2026-10-30；Q4 = A：无绳改显式开关；设计 D5 不加企业默认褶皱率）；待审后 apply | — | — | `[ ]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
-| STAT-1 `sales-quote-stats-drilldown` | 未 propose（等 Q9 / Q10） | — | — | `[ ]` |
+| STAT-1 `sales-quote-stats-drilldown` | 已实施（会话 `claude/magical-shannon-keegzr`；Q9 / Q10 按推荐；报告 `docs/QINGYAN_STAT-1_REPORT.md`） | PR 待开 | — | `[G]` |
 
 流程同 INSTALL-2：基于最新 main → 实施 → typecheck / lint:baseline / test:ci / registry / validate --strict + 本 change 的测试 → PR → CI 绿 → 用户确认合并 → `openspec archive <change> --yes`（在最新 main 上重跑）+ TASKFLOW `[x]` + 本表 → archive PR。
 
@@ -90,3 +90,11 @@ NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/sales/__tests__/quot
 # 走查：NODE_OPTIONS=--max-old-space-size=8192 npm run build；JWT_SECRET=<任意 32+ 字节> QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES=127 npx next start -p 3100
 # 页面默认是"快速报价"（内嵌旧 HTML），要点"详细订单"才是 Order Form；保存前要在 Part B 填定金（≥ 30%）
 ```
+
+## 附：会话分工与拍板（2026-10-30，会话 `claude/magical-shannon-keegzr` 记）
+
+- 用户把 Phase P 交给 `claude/magical-shannon-keegzr` 会话后，发现 `claude/vigilant-goodall-4t0c17` 已在做 PRICE-2；用户拍板 **PRICE-2 由 vigilant-goodall 会话完成**，magical-shannon 会话做 STAT-1，PRICE-3 等 PRICE-2 合并后再动（两者都改折扣设置与报价单页面）。
+- 用户 2026-10-30 对 magical-shannon 会话的两项拍板（PRICE-2 实施须对齐）：
+  - **Q4**：Order Form 无绳改为单独勾选（与 PRICE-2 四件套的方案 A 一致）。
+  - **计价褶皱率**：另设独立的"计价褶皱率"字段，缺省 2（= 现价），**现有 180% / 230% 工艺褶皱字段不动、不参与计价**。PRICE-2 四件套 D5"Order Form 把 180 / 230 转成 1.8 / 2.3 随 items 上传"与此相反（默认 180% 的窗帘会掉档变便宜），需按此改。
+
