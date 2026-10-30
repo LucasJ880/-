@@ -17,6 +17,7 @@
  *   - 新体验开关只能"收窄"：WORKFORCE_RUNTIME_* 未放行时直接回落既有行为。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -613,7 +614,12 @@ export type StartDurableFollowupInput = {
 export async function startDurableFollowupTask(
   input: StartDurableFollowupInput,
 ): Promise<DurableFollowupHandled | null> {
-  const flagInput = { userId: input.userId, orgId: input.orgId, role: input.role };
+  // PERM-4c5：功能开关角色白名单按岗位派生平台角色匹配
+  const flagInput = {
+    userId: input.userId,
+    orgId: input.orgId,
+    role: await resolveEffectivePlatformRole({ userId: input.userId, orgId: input.orgId, platformRole: input.role }),
+  };
   if (!isAssistantDurableFollowupEnabled(flagInput)) return null;
   // 新体验开关不能覆盖既有 Workforce 开关 / 白名单
   if (!isWorkforceRuntimeEnabled(flagInput)) return null;

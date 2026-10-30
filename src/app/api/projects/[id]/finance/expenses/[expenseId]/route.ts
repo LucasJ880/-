@@ -45,10 +45,11 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const expense = await db.projectExpenseSubmission.findFirst({ where: { id: expenseId, orgId, projectId: id } });
   if (!expense) return NextResponse.json({ error: "费用不存在" }, { status: 404 });
   // 非审核人仅可看本人
-  const canReview =
-    access.user.role === "super_admin" || access.orgRole === "org_admin" || access.project.ownerId === access.user.id ||
-    (access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
-  if (!canReview && expense.submittedById !== access.user.id) {
+  // PERM-4c1：财务特权 / 结算只读（会计）/ 项目角色审核权可看他人费用
+  const canSeeOthers =
+    access.finance.canReadAll ||
+    (!!access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
+  if (!canSeeOthers && expense.submittedById !== access.user.id) {
     return NextResponse.json({ error: "无权查看该费用" }, { status: 403 });
   }
   const attachments = await listExpenseAttachments(orgId, id, expenseId);
@@ -79,7 +80,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if (action === "submit" || action === "resubmit") {
     const e = await db.projectExpenseSubmission.findFirst({ where: { id: expenseId, orgId, projectId: id }, select: { submittedById: true } });
     if (!e) return NextResponse.json({ error: "费用不存在" }, { status: 404 });
-    const privileged = access.user.role === "super_admin" || access.orgRole === "org_admin" || access.project.ownerId === uid;
+    const privileged = access.finance.privileged;
     if (e.submittedById !== uid && !privileged) {
       return NextResponse.json({ error: "只能提交本人的费用" }, { status: 403 });
     }

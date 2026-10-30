@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { PLATFORM_WECOM_ORG_ID } from "@/lib/messaging/platform-wecom";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export const maxDuration = 30;
 
@@ -33,7 +34,7 @@ export const GET = withAuth(async (_req, _ctx, user) => {
     select: { orgId: true, role: true },
   });
 
-  const isPlatformAdmin = user.role === "admin" || user.role === "super_admin";
+  const isPlatformAdmin = isSuperAdmin(user.role);
 
   // 平台企微人人可见状态；配置仍仅平台管理员可写
   const platformWecom = await db.weChatGateway.findUnique({
@@ -77,7 +78,7 @@ export const POST = withAuth(async (req, _ctx, user) => {
   // 授权：平台管理员（User.role）或组织管理员（OrganizationMember.role=org_admin）可操作网关。
   // 兼容历史数据里 membership.role 误写为 admin/super_admin 的情况。
   // 平台级企微配置允许无 membership 的平台管理员。
-  const isPlatformAdmin = user.role === "admin" || user.role === "super_admin";
+  const isPlatformAdmin = isSuperAdmin(user.role);
   const isOrgAdmin =
     !!membership && ["org_admin", "admin", "super_admin"].includes(membership.role);
   if (!isPlatformAdmin && !isOrgAdmin) {

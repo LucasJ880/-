@@ -16,6 +16,7 @@
  *   canConfirmPendingActionInActiveOrg 同一口径。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
@@ -174,7 +175,8 @@ export async function handleWeChatPendingReply(
       where: { id: ctx.userId },
       select: { role: true },
     });
-    return u?.role ?? "user";
+    // PERM-4c5：岗位模式企业取岗位派生平台角色
+    return resolveEffectivePlatformRole({ userId: ctx.userId, orgId: ctx.orgId, platformRole: u?.role ?? "user" });
   };
 
   // ── 取消 ───────────────────────────────────────────────

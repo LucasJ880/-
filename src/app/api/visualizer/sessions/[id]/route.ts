@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   validateSessionLinks,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import { summarizeRenderJob } from "@/lib/visualizer/render-job";
 import type {
@@ -55,12 +56,14 @@ const ALLOWED_STATUS: VisualizerSessionStatus[] = ["draft", "active", "archived"
  * 返回会话详情，包含图片与方案摘要（不含 region/productOption 明细，留给 PR #2）
  */
 export const GET = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id } = await ctx.params;
 
   const session = await db.visualizerSession.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, email: true, createdById: true } },
+      customer: { select: { id: true, name: true, email: true, createdById: true, orgId: true } },
       opportunity: { select: { id: true, title: true, stage: true } },
       quote: { select: { id: true, version: true, status: true } },
       sourceImages: {
@@ -93,7 +96,7 @@ export const GET = withAuth(async (_request, ctx, user) => {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
 
-  if (!canSeeVisualizerSession(session, user)) {
+  if (!canSeeVisualizerSession(session, viewer)) {
     return NextResponse.json({ error: "无权访问该可视化方案" }, { status: 403 });
   }
 
@@ -239,6 +242,8 @@ export const GET = withAuth(async (_request, ctx, user) => {
  * body: { title?, status?, salesOwnerId?, opportunityId?, quoteId?, measurementRecordId? }
  */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id } = await ctx.params;
 
   const body = await safeParseBody<UpdateVisualizerSessionRequest>(request);
@@ -249,13 +254,13 @@ export const PATCH = withAuth(async (request, ctx, user) => {
   const session = await db.visualizerSession.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, createdById: true } },
+      customer: { select: { id: true, name: true, createdById: true, orgId: true } },
     },
   });
   if (!session) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(session, user)) {
+  if (!canSeeVisualizerSession(session, viewer)) {
     return NextResponse.json({ error: "无权修改该可视化方案" }, { status: 403 });
   }
 

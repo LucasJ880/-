@@ -29,7 +29,8 @@ function ctx(
 ): NavigationFilterContext {
   return {
     pathname: "/",
-    platformRole: "admin",
+    // PERM-7b：平台管理员只认 super_admin（平台 admin 等同 user）
+    platformRole: "super_admin",
     orgRole: "org_admin",
     hasMembership: true,
     workspaceIds: ["ws1"],

@@ -25,9 +25,20 @@ function def(
   };
 }
 
-export const PERMISSION_REGISTRY: PermissionDefinition[] = [
+const REGISTRY_ENTRIES: PermissionDefinition[] = [
   def("organization.read", "organization", "read", "查看企业", "查看企业基础信息", ["ORG"], "LOW"),
   def("organization.settings.manage", "organization", "manage", "管理企业设置", "修改企业配置", ["ORG"], "HIGH"),
+  {
+    // PERM-4c2：管理层唯一岗位信号（岗位模式下的企业经营总览、驾驶舱、AI 能力入口）；只给 owner
+    key: "organization.dashboard.read",
+    resource: "organization.dashboard",
+    action: "read",
+    label: "查看企业经营总览",
+    description: "管理层：企业经营总览、经营驾驶舱、AI 能力等入口",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "MEDIUM",
+  },
 
   def("identity.member.read", "identity.member", "read", "查看成员", "查看企业成员目录", ["ORG"], "LOW"),
   def("identity.member.manage", "identity.member", "manage", "管理成员", "邀请/移除/改角色", ["ORG"], "HIGH"),
@@ -51,6 +62,18 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
 
   def("operations.read", "operations", "read", "查看运营", "查看运营数据", ["ORG"], "LOW"),
   def("operations.manage", "operations", "manage", "管理运营", "修改运营配置", ["ORG"], "HIGH"),
+  // PERM-4b：运营内容分权——运营人员 / 主管起草提交，主管 / 老板批准（不得自批）
+  def("operations.content.draft", "operations.content", "draft", "起草运营内容", "起草 / 修改选题与 Playbook 草稿、提交审核", ["ORG"], "MEDIUM"),
+  {
+    key: "operations.content.approve",
+    resource: "operations.content",
+    action: "approve",
+    label: "批准运营内容",
+    description: "批准 / 驳回发布任务与 Playbook、通过选题；提交人 / 创建人不得自批",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
   def(
     "operations.tasks.team.read",
     "operations.tasks",
@@ -161,7 +184,145 @@ export const PERMISSION_REGISTRY: PermissionDefinition[] = [
     ["ORG"],
     "CRITICAL",
   ),
+
+  // PERM-1：岗位制新增（设计稿 docs/QINGYAN_PERMISSION_REDESIGN_DESIGN.md §2.3 / §3）
+  def("sales.quote.pricing_close", "sales.quote", "pricing_close", "关合价", "对报价做最终合价确认", ["ORG"], "HIGH"),
+  def(
+    "sales.quote.discount.over_limit.submit",
+    "sales.quote.discount",
+    "over_limit.submit",
+    "提交超限折扣",
+    "给出超过销售上限的折扣（合价上限内直接生效，超出则提交审批）",
+    ["ORG"],
+    "HIGH",
+  ),
+  def(
+    "sales.quote.discount.over_limit.approve",
+    "sales.quote.discount",
+    "over_limit.approve",
+    "审批超限折扣",
+    "批准他人提交的超限折扣；提交人不得自批",
+    ["ORG"],
+    "CRITICAL",
+  ),
+  {
+    // PERM-4a：已签约报价改总价的第二人把关；只给老板，数字员工不可持有
+    key: "sales.quote.signed_amount.approve",
+    resource: "sales.quote",
+    action: "signed_amount.approve",
+    label: "批准签约单改价",
+    description: "批准他人提交的已签约报价改总价；提交人不得自批",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+  def("sales.settings.manage", "sales.settings", "manage", "管理销售设置", "修改折扣表 / 费用 / 税率 / 解锁码（走审批）", ["ORG"], "CRITICAL"),
+  def("sales.order.create", "sales.order", "create", "创建订单", "从报价建立订单", ["PRINCIPAL", "ORG"], "MEDIUM"),
+  def("orders.fulfillment.update", "orders.fulfillment", "update", "出单修改（全品类）", "修改任意品类的工艺单、推进状态；仅老板与平台管理员", ["ORG"], "HIGH"),
+  // PERM-3：品类按权限键拆分（零 schema：绑定表无属性列，品类不能做 scope）
+  def("orders.fulfillment.update.vinyl", "orders.fulfillment", "update.vinyl", "出单修改·Vinyl", "修改 Vinyl 品类工艺单、推进状态", ["ORG"], "HIGH"),
+  def("orders.fulfillment.update.drapery", "orders.fulfillment", "update.drapery", "出单修改·布帘", "修改布帘品类工艺单、推进状态", ["ORG"], "HIGH"),
+  def("orders.fulfillment.update.shades", "orders.fulfillment", "update.shades", "出单修改·Roller/Zebra/Roman", "修改 Roller / Zebra / Roman 品类工艺单、推进状态", ["ORG"], "HIGH"),
+  def("orders.fulfillment.read", "orders.fulfillment", "read", "查看全企业工艺单", "列表 / 详情 / 导出企业内全部工艺单", ["ORG"], "MEDIUM"),
+  def("orders.cancel", "orders", "cancel", "作废工艺单", "提交作废（另一位老板批准后生效）", ["ORG"], "CRITICAL"),
+  def("inventory.manage", "inventory", "manage", "管理面料库存", "库存增减与盘点", ["ORG"], "HIGH"),
+  def("inventory.read", "inventory", "read", "查看面料库存", "只读库存列表", ["ORG"], "LOW"),
+  def("accounting.read", "accounting", "read", "查看财务", "查看成交金额、提成与项目结算", ["ORG"], "HIGH"),
+  // PERM-5a：项目结算汇总；ASSIGNED = 本人参与（成员 / 负责人）的项目
+  def("project.finance.read", "project.finance", "read", "查看项目结算", "查看项目收入 / 费用 / 应付 / 结余汇总", ["ASSIGNED", "ORG"], "HIGH"),
+  {
+    // PERM-4c1：项目财务 / 报价引擎特权（编辑预算、审核费用、登记付款、替他人提交）；取代 org_admin 特权
+    key: "project.finance.manage",
+    resource: "project.finance",
+    action: "manage",
+    label: "管理项目财务",
+    description: "编辑项目预算、审核费用、登记付款，报价引擎看内部成本 / 编辑 / 批准",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+  {
+    key: "identity.position.manage",
+    resource: "identity.position",
+    action: "manage",
+    label: "管理岗位绑定",
+    description: "把人绑定到岗位 / 解除绑定；仅平台管理员，数字员工不可持有",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "CRITICAL",
+  },
+
+  // PERM-6a：外贸模块（/api/trade/**）——读 / 写 / 设置（消息通道、发件档案、发件人）；只允许人类主体
+  {
+    key: "trade.read",
+    resource: "trade",
+    action: "read",
+    label: "查看外贸",
+    description: "查看外贸客户、询盘、活动、报价、样品、情报等",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "MEDIUM",
+  },
+  {
+    key: "trade.manage",
+    resource: "trade",
+    action: "manage",
+    label: "处理外贸",
+    description: "新建 / 修改外贸客户、询盘回复、活动、报价、样品、展会卡等",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+  {
+    key: "trade.settings.manage",
+    resource: "trade.settings",
+    action: "manage",
+    label: "管理外贸设置",
+    description: "管理外贸消息通道（含查看 / 轮换凭证）、发件档案、发件人",
+    allowedPrincipalTypes: ["HUMAN"],
+    supportedScopes: ["ORG"],
+    riskLevel: "HIGH",
+  },
+
+  // INSTALL-1：安装工岗位 / 安装任务 / 逐窗收口
+  def("install.task.read", "install.task", "read", "查看安装任务", "查看安装任务（ASSIGNED=只看分配给本人的）", ["ASSIGNED", "ORG"], "LOW"),
+  def("install.task.update", "install.task", "update", "推进安装任务", "开始安装 / 完成收口 / 备注", ["ASSIGNED", "ORG"], "MEDIUM"),
+  def("install.window.complete", "install.window", "complete", "逐窗拍照收口", "按工艺单逐窗上传完工照片", ["ASSIGNED", "ORG"], "MEDIUM"),
+  def("install.task.assign", "install.task", "assign", "安排安装", "指定安装工与安装时间（运营 / 会计）", ["ORG"], "HIGH"),
+  def("install.photo.read", "install.photo", "read", "查看收口照片", "查看工艺单的逐窗收口照片", ["ORG"], "MEDIUM"),
+  // INSTALL-2b：会计 / 老板确认装完后的尾款已收（推进工艺单 installed → completed）
+  def("install.balance.confirm", "install.balance", "confirm", "确认收到尾款", "登记装完后的尾款实收（金额 / 方式 / 日期 / 差额说明），工艺单转已完成", ["ORG"], "HIGH"),
 ];
+
+/**
+ * PERM-5b：数字员工禁区（设计稿 §4-10：永不审批、不改设置、不给折扣）。
+ * 命中的键 allowedPrincipalTypes 只留 HUMAN；authorize 对不在允许类型内的主体一律拒绝，
+ * 即使已绑定含该键的岗位。新加的 *.approve / identity.* / sales.quote.discount.* 自动进禁区。
+ */
+const DIGITAL_EMPLOYEE_DENIED_EXACT = new Set([
+  "sales.quote.pricing_close",
+  "sales.settings.manage",
+  "organization.settings.manage",
+  "authorization.policy.manage",
+  "install.task.assign",
+  "install.balance.confirm",
+  "orders.cancel",
+  "inventory.manage",
+  "operations.manage",
+]);
+const DIGITAL_EMPLOYEE_DENIED_PREFIXES = ["identity.", "sales.quote.discount."];
+
+export function isDigitalEmployeeDeniedKey(key: string): boolean {
+  return (
+    key.endsWith(".approve") ||
+    DIGITAL_EMPLOYEE_DENIED_EXACT.has(key) ||
+    DIGITAL_EMPLOYEE_DENIED_PREFIXES.some((p) => key.startsWith(p))
+  );
+}
+
+export const PERMISSION_REGISTRY: PermissionDefinition[] = REGISTRY_ENTRIES.map((p) =>
+  isDigitalEmployeeDeniedKey(p.key) ? { ...p, allowedPrincipalTypes: ["HUMAN"] } : p,
+);
 
 const BY_KEY = new Map(PERMISSION_REGISTRY.map((p) => [p.key, p]));
 

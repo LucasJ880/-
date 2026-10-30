@@ -8,6 +8,8 @@ import {
   validateSalesActionResolution,
 } from "@/lib/sales/action-loop";
 import { writeAuditLog, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { followupSelect, notifyFollowupUpdated } from "@/lib/muse-bridge/followup";
+import { FOLLOWUP_SOURCE } from "@/lib/muse-bridge/followup-pure";
 
 const PRIORITIES = new Set(["urgent", "high", "medium", "low"]);
 
@@ -127,5 +129,14 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     });
     return updated;
   });
+  // TASKFLOW S3：Muse 跟进在网页改状态，同样通知布置人（best-effort，不影响本次更新）
+  if (current.source === FOLLOWUP_SOURCE && action.status !== current.status) {
+    const row = await db.salesAction.findUnique({ where: { id }, select: followupSelect });
+    if (row) {
+      await notifyFollowupUpdated(row, user.id, row.resolutionNote ?? row.dismissedReason).catch((error) =>
+        console.warn("[sales-actions] followup.updated failed:", error),
+      );
+    }
+  }
   return NextResponse.json({ action });
 });

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/common/api-helpers';
 import { calculateQuoteTotal } from '@/lib/blinds/pricing-engine';
 import { getAvailableFabrics, ALL_PRODUCTS } from '@/lib/blinds/pricing-data';
-import { loadDiscountsDto } from '@/lib/blinds/discount-settings';
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from '@/lib/blinds/discount-settings';
 import { resolveSalesOrgIdForRequest } from '@/lib/sales/org-context';
 import type { QuoteItemInput, InstallMode } from '@/lib/blinds/pricing-types';
 
@@ -27,7 +27,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
     orgRes && orgRes.ok ? await loadDiscountsDto(orgRes.orgId) : null;
 
   const calc = calculateQuoteTotal({
-    items,
+    // 2026-10-28：没有行级覆盖的行套企业折扣（含 fauxwood / allusion），与新建报价同源
+    items: quoteSettings ? applyOrgDiscountDefaults(items, dtoToProductDiscounts(quoteSettings)) : items,
     installMode,
     deliveryFee: deliveryFee ?? quoteSettings?.deliveryFee,
     taxRate,

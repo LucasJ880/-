@@ -136,9 +136,10 @@ export function DigitalEmployeeWorkbench({
       ROLE_ACTIONS.filter(
         (action) =>
           action.id !== "marketing" ||
-          canUseMarketingDigitalEmployee(user?.role),
+          // PERM-4c5：岗位模式企业按岗位派生平台角色
+          canUseMarketingDigitalEmployee(user?.effectiveRole ?? user?.role),
       ),
-    [user?.role],
+    [user?.effectiveRole, user?.role],
   );
   const metrics: Array<{ label: string; value: number; icon: LucideIcon }> = [
     { label: "高优先事项", value: highPriorityCount, icon: AlertTriangle },

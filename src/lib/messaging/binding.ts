@@ -4,11 +4,13 @@
  * 管理微信用户 ID ↔ 青砚用户的映射关系。
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { db } from "@/lib/db";
 import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
 import type { ChannelType, BindingInfo, FilterMode } from "./types";
 import { ROLE_DEFAULT_DOMAINS } from "./types";
 import { bindCodeKeyFromEnv, decideBindingClaim, verifyBindCode } from "./binding-proof";
+import { isSuperAdmin, platformTier } from "@/lib/rbac/roles";
 
 export type CreateBindingResult =
   | { ok: true; binding: BindingInfo; outcome: "created" | "refreshed" | "reclaimed" }
@@ -24,10 +26,10 @@ export type CreateBindingResult =
 
 function roleDefaults(role: string | null | undefined) {
   const r = role ?? "user";
-  const isSalesRole = r === "sales" || r === "admin" || r === "super_admin";
-  const isTradeRole = r === "trade" || r === "admin" || r === "super_admin";
+  const isSalesRole = r === "sales" || isSuperAdmin(r);
+  const isTradeRole = r === "trade" || isSuperAdmin(r);
   return {
-    pushDomains: ROLE_DEFAULT_DOMAINS[r] ?? "project",
+    pushDomains: ROLE_DEFAULT_DOMAINS[platformTier(r)] ?? "project",
     pushBriefing: isTradeRole,
     pushFollowup: isTradeRole,
     pushReport: isTradeRole,
@@ -71,7 +73,10 @@ export async function createBinding(params: {
     where: { id: params.userId },
     select: { role: true },
   });
-  const defaults = roleDefaults(user?.role);
+  // PERM-4c5：岗位模式企业按岗位派生平台角色决定默认推送（压扁后销售仍默认推销售消息）
+  const defaults = roleDefaults(
+    await resolveEffectivePlatformRole({ userId: params.userId, orgId: params.orgId, platformRole: user?.role }),
+  );
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const existing = await db.weChatBinding.findUnique({

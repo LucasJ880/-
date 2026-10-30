@@ -50,8 +50,8 @@ export function sanitizeOutbound(text: string, opts: { strict?: boolean } = {}):
 
 /* ---------------------------------- 构造 / 渲染 ---------------------------------- */
 
-const oneLine = (s: string) => s.replace(/\s*\n+\s*/g, " ").trim();
-const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+export const oneLine = (s: string) => s.replace(/\s*\n+\s*/g, " ").trim();
+export const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 /** 规整成合法 Advisory（截断而不是报错：保证任何调用方都满足契约上限） */
 export function advisory(a: Advisory): Advisory {
