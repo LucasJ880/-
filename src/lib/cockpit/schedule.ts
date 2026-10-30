@@ -36,6 +36,8 @@ const MARKETING_TZ = "America/Toronto";
 export const AUTOMATION_SCHEDULES: Record<AutomationKey, AutomationSchedule> = {
   "project-inspection": { kind: "cron", route: "/api/cron/inspect", cron: "0 8 * * *" },
   "daily-brief": { kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [7], timezone: "org" },
+  // 同一个 daily-brief 定时任务里，组织本地 0 点另记一次运行、1 点补一次（A-5 岗位日结）
+  "post-daily-digest": { kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [0, 1], timezone: "org" },
   "approval-timeout": { kind: "cron", route: "/api/cron/approval-timeout", cron: "0 */2 * * *" },
   "trade-followup": { kind: "local_hours", route: "/api/cron/followup", cron: "0 * * * *", hours: [9, 14], timezone: "org" },
   "sales-action-sync": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },

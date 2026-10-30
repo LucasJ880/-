@@ -601,6 +601,9 @@ run_test "组织驾驶舱 岗位视图渲染（A-3）" "npx tsx src/components/c
 run_test "组织驾驶舱 工作量汇总（A-4）" "npx tsx src/lib/cockpit/__tests__/workload.test.ts"
 run_test "组织驾驶舱 工作量读模型与接口（A-4）" "npx tsx src/lib/cockpit/__tests__/workload-read-model.test.ts"
 run_test "组织驾驶舱 工作量区块渲染（A-4）" "npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx"
+# 组织驾驶舱 A-5（openspec change org-cockpit-daily-digest）：夜间岗位日结写审计——纯逻辑 + 假依赖 + 源码断言（无 DB）；隔离库端到端
+run_test "组织驾驶舱 岗位日结（A-5）" "npx tsx src/lib/cockpit/__tests__/daily-digest.test.ts"
+run_test "组织驾驶舱 岗位日结 隔离库（A-5）" "npx tsx src/lib/cockpit/__tests__/daily-digest-db.isolated.test.ts"
 # FDE B-1（openspec change fde-feedback-loop）：询盘回复草稿结构化 diff 与终态反馈事件——纯逻辑 + 假依赖，无 DB
 run_test "FDE 询盘回复草稿 diff（B-1）" "npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts"
 run_test "FDE 询盘回复反馈闭环（B-1）" "npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts"

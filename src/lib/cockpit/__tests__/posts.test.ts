@@ -122,7 +122,7 @@ for (const bogus of ["ceo", "", "__proto__", "constructor", "INBOUND_SALES"]) {
 // ── 自动化 ────────────────────────────────────────────────────
 console.log("自动化归属");
 const automationKeys = AUTOMATION_REGISTRY.map((a) => a.key as string);
-ok(automationKeys.length >= 30, `自动化注册表读到 ${automationKeys.length} 项（≥ 30）`);
+ok(automationKeys.length >= 31, `自动化注册表读到 ${automationKeys.length} 项（≥ 31，含 A-5 post-daily-digest）`);
 {
   const c = coverage(automationKeys, "automationKeys", posts);
   ok(c.missing.length === 0, "每个自动化键都有岗位", c.missing);
@@ -134,6 +134,7 @@ for (const key of automationKeys) {
   ok(post !== null && POST_REGISTRY.find((p) => p.key === post)?.automationKeys.some((k) => k === key) === true, `反查 ${key} → ${post}`);
 }
 ok(postForAutomation("approval-timeout") === "ops_knowledge", "approval-timeout → ops_knowledge（全组织审批过期，不是投标专属）");
+ok(postForAutomation("post-daily-digest") === "ops_knowledge", "post-daily-digest → ops_knowledge（A-5 岗位日结：组织运转留痕）");
 ok(postForAutomation("tender-watch") === "tender", "tender-watch → tender（不按 registry category=projects 推导）");
 ok(postForAutomation("inquiry-sla") === "inbound_sales", "inquiry-sla → inbound_sales（不按 registry category=service 推导）");
 ok(postForAutomation("aivora-sync") === "content", "aivora-sync → content");

@@ -62,7 +62,7 @@
 | A-2 | 岗位读模型 + API | A-1 | `src/lib/cockpit/posts-read-model.ts`、`GET /api/cockpit/posts`、`GET /api/cockpit/timeline` | [x]（#245；2026-10-30 归档） |
 | A-3 | 工作台首页 → 岗位卡片 | A-2 | `src/app/(main)/page.tsx` + 组件 | [x]（#246；2026-10-30 归档） |
 | A-4 | 工作量 / 无用功面板 | A-2 | `src/lib/cockpit/workload.ts`、`GET /api/cockpit/workload`、页面区块 | [x]（#247；2026-10-30 归档） |
-| A-5 | （决策）夜间岗位日结 → corporate-memory | A-2 | 见 §A-5 | [ ] |
+| A-5 | （决策）夜间岗位日结 → corporate-memory | A-2 | 见 §A-5；已决定改写 AuditLog（不进 MemoryClaim），`src/lib/cockpit/daily-digest.ts` | [G]（`org-cockpit-daily-digest`；报告 `docs/QINGYAN_ORG_COCKPIT_A-5_REPORT.md`） |
 
 ### A-1 岗位注册表 `src/lib/cockpit/posts.ts`
 

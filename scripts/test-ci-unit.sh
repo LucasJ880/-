@@ -351,6 +351,8 @@ npx tsx src/lib/cockpit/__tests__/home-state.test.ts
 npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx
 npx tsx src/lib/cockpit/__tests__/workload.test.ts
 npx tsx src/lib/cockpit/__tests__/workload-read-model.test.ts
+# 组织驾驶舱 A-5 岗位日结（openspec change org-cockpit-daily-digest；纯逻辑 + 假依赖，无 DB）
+npx tsx src/lib/cockpit/__tests__/daily-digest.test.ts
 npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx
 npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts
 npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts

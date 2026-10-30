@@ -228,6 +228,7 @@ export const POST_REGISTRY = [
       "agent-runs",
       "autopilot-telemetry",
       "approval-timeout",
+      "post-daily-digest",
     ],
     pendingActionTypes: [],
     workDomains: ["general"],
