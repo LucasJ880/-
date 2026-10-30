@@ -10,16 +10,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
 import { formatSalesMoney } from "@/lib/sales/home/formatters";
-import { addDaysYmd, daysInMonth, monthStartYmd } from "@/lib/sales/period/summary-pure";
+import Link from "next/link";
+import { getLocalTimeParts } from "@/lib/automation/local-time";
+import { addDaysYmd, daysInMonth, monthStartYmd, weekPresetRange } from "@/lib/sales/period/summary-pure";
 import type { PeriodSummaryResponse } from "@/lib/sales/period/load";
+import type { DrilldownQuote, PeriodRepQuotesResponse } from "@/lib/sales/period/drilldown";
 import type { PeriodCalendarStats, PeriodTotals } from "@/lib/sales/period/types";
 import type { PeriodNarrativeResponse } from "@/lib/sales/period/narrative";
 import { SalesCard, SalesCardState } from "./sales-card";
 import { cn } from "@/lib/utils";
 
-type PresetKey = "mtd" | "last_month" | "qtd" | "last30" | "custom";
+type PresetKey = "this_week" | "last_week" | "mtd" | "last_month" | "qtd" | "last30" | "custom";
 
 const PRESET_LABELS: Record<PresetKey, string> = {
+  this_week: "本周",
+  last_week: "上周",
   mtd: "本月至今",
   last_month: "上月",
   qtd: "本季",
@@ -38,6 +43,10 @@ function browserToday(): string {
 function presetRange(key: Exclude<PresetKey, "custom">, today: string): { from: string; to: string } {
   const [y, m] = today.split("-").map(Number);
   switch (key) {
+    case "this_week":
+    case "last_week":
+      // STAT-1（Q9）：一周从周一开始
+      return weekPresetRange(today, key);
     case "mtd":
       return { from: monthStartYmd(today), to: today };
     case "last_month": {
@@ -55,7 +64,7 @@ function presetRange(key: Exclude<PresetKey, "custom">, today: string): { from: 
 }
 
 function detectPreset(from: string, to: string, today: string): PresetKey {
-  for (const key of ["mtd", "last_month", "qtd", "last30"] as const) {
+  for (const key of ["this_week", "last_week", "mtd", "last_month", "qtd", "last30"] as const) {
     const r = presetRange(key, today);
     if (r.from === from && r.to === to) return key;
   }
@@ -212,6 +221,93 @@ function CalendarSourceBlock({ calendar }: { calendar: PeriodCalendarStats }) {
   );
 }
 
+const QUOTE_STATUS_LABELS: Record<string, string> = { sent: "已发送", viewed: "已查看", signed: "已签约", accepted: "已签约", rejected: "已拒绝", expired: "已过期" };
+
+function shortDate(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : "—";
+}
+
+function DrilldownList({ title, rows, dateOf }: { title: string; rows: DrilldownQuote[]; dateOf: (q: DrilldownQuote) => string | null }) {
+  if (rows.length === 0) return <p className="text-[12px] text-[var(--muted)]">{title}：无</p>;
+  return (
+    <div>
+      <p className="mb-1 text-[12px] font-medium text-[var(--foreground)]">{title}</p>
+      <ul className="space-y-0.5">
+        {rows.map((q) => (
+          <li key={q.quoteId} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[12px]">
+            <span>
+              {shortDate(dateOf(q))} · {q.customerName || "（无客户名）"}
+              {q.orderNumber ? <span className="text-[var(--muted)]"> · #{q.orderNumber}</span> : null}
+              <span className="text-[var(--muted)]"> · {QUOTE_STATUS_LABELS[q.status] ?? q.status}</span>
+              {q.pricelistVersion ? <span className="text-[var(--muted)]"> · 价表 {q.pricelistVersion}</span> : null}
+            </span>
+            <span className="tabular-nums">{formatSalesMoney(q.grandTotal)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** STAT-1：按人行，点开看该人本期计入成单 / 报价的报价清单（与按人表同一口径） */
+function RepRow({ row, from, to, linkToList }: { row: PeriodSummaryResponse["byRep"][number]; from: string; to: string; linkToList: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<PeriodRepQuotesResponse | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || detail) return;
+    setFailed(false);
+    try {
+      const qs = new URLSearchParams({ from, to, repId: row.userId });
+      const res = await apiFetch(`/api/sales/period-summary/quotes?${qs.toString()}`);
+      if (!res.ok) throw new Error(String(res.status));
+      setDetail((await res.json()) as PeriodRepQuotesResponse);
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  return (
+    <>
+      <tr className="border-t border-[var(--border)]">
+        <td className="py-1.5">
+          <button type="button" onClick={toggle} className="text-left underline-offset-2 hover:underline" aria-expanded={open}>
+            {open ? "▾" : "▸"} {row.name}
+          </button>
+        </td>
+        <td className="py-1.5 text-right tabular-nums">{row.wonCount}</td>
+        <td className="py-1.5 text-right tabular-nums">{formatSalesMoney(row.wonAmount)}</td>
+        <td className="py-1.5 text-right tabular-nums">{row.quotedCount}</td>
+        <td className="py-1.5 text-right tabular-nums">{formatSalesMoney(row.quotedAmount)}</td>
+        <td className="py-1.5 text-right tabular-nums">{rate(row.conversionRate)}</td>
+      </tr>
+      {open ? (
+        <tr>
+          <td colSpan={6} className="pb-3 pl-4">
+            {failed ? <p className="text-[12px] text-[var(--muted)]">明细暂不可用。</p> : null}
+            {!detail && !failed ? <p className="text-[12px] text-[var(--muted)]">加载中…</p> : null}
+            {detail ? (
+              <div className="space-y-2 rounded-lg bg-[var(--background)] p-2">
+                <DrilldownList title={`成单 ${detail.totals.wonCount} 单 · ${formatSalesMoney(detail.totals.wonAmount)}`} rows={detail.won ?? []} dateOf={(q) => q.signedAt} />
+                <DrilldownList title={`报价 ${detail.totals.quotedCount} 份 · ${formatSalesMoney(detail.totals.quotedAmount)}`} rows={detail.quoted ?? []} dateOf={(q) => q.sentAt} />
+                {detail.truncated ? <p className="text-[12px] text-rose-600">超过 500 行，只显示最近的部分。</p> : null}
+                {linkToList ? (
+                  <Link href={`/sales/quotes?rep=${encodeURIComponent(row.userId)}`} className="text-[12px] underline">
+                    在报价列表查看 {row.name} 的全部报价
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
 export function SalesPeriodPanel() {
   const router = useRouter();
   const pathname = usePathname();
@@ -267,7 +363,8 @@ export function SalesPeriodPanel() {
   // 当前期间：服务端回显优先（组织时区），否则用 URL
   const shownFrom = data?.period.from ?? urlFrom;
   const shownTo = data?.period.to ?? urlTo;
-  const today = browserToday();
+  // STAT-1：拿到响应后"今天"按组织时区算（首屏先用浏览器今天）
+  const today = data ? getLocalTimeParts(new Date(), data.period.timezone).date : browserToday();
   const active: PresetKey = useMemo(() => {
     if (!urlFrom || !urlTo) return "mtd";
     return detectPreset(urlFrom, urlTo, today);
@@ -282,7 +379,7 @@ export function SalesPeriodPanel() {
 
   const presetButtons = (
     <div className="flex flex-wrap items-center gap-1.5">
-      {(["mtd", "last_month", "qtd", "last30"] as const).map((key) => (
+      {(["this_week", "last_week", "mtd", "last_month", "qtd", "last30"] as const).map((key) => (
         <button
           key={key}
           type="button"
@@ -379,6 +476,17 @@ export function SalesPeriodPanel() {
           </div>
 
           {data.truncated ? <p className="text-[12px] text-rose-600">数据量超过上限，结果不完整，请缩短期间。</p> : null}
+          {data.draftsUnsent?.count > 0 ? (
+            <p className="text-[12px] text-amber-700 dark:text-amber-300">
+              本期草稿未发送 {data.draftsUnsent.count} 份（草稿不计入报价金额）·{" "}
+              <Link
+                href={`/sales/quotes?status=draft${data.scope === "own" && data.byRep[0] ? `&rep=${encodeURIComponent(data.byRep[0].userId)}` : ""}`}
+                className="underline"
+              >
+                去发送或标记已发送
+              </Link>
+            </p>
+          ) : null}
           {t.nonCadExcludedCount > 0 ? <p className="text-[12px] text-[var(--muted)]">另有 {t.nonCadExcludedCount} 份非加元报价未计入。</p> : null}
 
           {data.calendar ? <CalendarSourceBlock calendar={data.calendar} /> : null}
@@ -415,14 +523,13 @@ export function SalesPeriodPanel() {
                 </thead>
                 <tbody>
                   {data.byRep.map((r) => (
-                    <tr key={r.userId} className="border-t border-[var(--border)]">
-                      <td className="py-1.5">{r.name}</td>
-                      <td className="py-1.5 text-right tabular-nums">{r.wonCount}</td>
-                      <td className="py-1.5 text-right tabular-nums">{formatSalesMoney(r.wonAmount)}</td>
-                      <td className="py-1.5 text-right tabular-nums">{r.quotedCount}</td>
-                      <td className="py-1.5 text-right tabular-nums">{formatSalesMoney(r.quotedAmount)}</td>
-                      <td className="py-1.5 text-right tabular-nums">{rate(r.conversionRate)}</td>
-                    </tr>
+                    <RepRow
+                      key={`${r.userId}|${data.period.from}|${data.period.to}`}
+                      row={r}
+                      from={data.period.from}
+                      to={data.period.to}
+                      linkToList={data.scope === "org"}
+                    />
                   ))}
                 </tbody>
               </table>

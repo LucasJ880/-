@@ -24,7 +24,7 @@
 
 ## 4. 端到端
 
-- [ ] 4.1 扩 `src/lib/sales/__tests__/period-db.isolated.test.ts`：明细合计 = 按人表、草稿不出现、销售 B 看 A → 403、B 不带 repId → 自己、ORG 缺 repId → 400、非法 kind → 400、`draftsUnsent` 按范围、报价列表 `createdById` 与 `reps`、销售带他人 `createdById` → 空。
+- [x] 4.1 扩 `src/lib/sales/__tests__/period-db.isolated.test.ts`：明细合计 = 按人表、草稿不出现、销售 B 看 A → 403、B 不带 repId → 自己、ORG 缺 repId → 400、非法 kind → 400、`draftsUnsent` 按范围、报价列表 `createdById` 与 `reps`、销售带他人 `createdById` → 空。
 
   verify：隔离库运行退出 0；无 `DATABASE_URL` 时跳过退出 0；Muse `sales-db.isolated.test.ts`、`period-narrative-db.isolated.test.ts` 通过。
 
