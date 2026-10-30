@@ -38,6 +38,7 @@
 | `npm run test:ci`（无 `DATABASE_URL`） | 退出 0，`CI unit subset PASS` |
 | `openspec validate sales-quote-stats-drilldown --strict` | valid |
 | `NODE_OPTIONS=--max-old-space-size=8192 npm run build` | 退出 0（与全量测试同时跑时被系统杀掉一次，单独重跑通过）；`/api/sales/period-summary/quotes` 在产出表中 |
+| PR [LucasJ880/-#355](https://github.com/LucasJ880/-/pull/355) CI `validate-lint-typecheck-test-build` | 绿（提交 `96278580`），合并为 `6db3a980`；归档时"响应结构"要求超过 500 字，把草稿计数拆成独立要求"草稿未发送计数"后归档，`validate --specs --strict` 与 main 一样只有 4 项既有失败 |
 
 真实浏览器检查（`next start -p 3100` + Playwright；种子只写本机测试库，查完已删）：
 

@@ -20,7 +20,7 @@
 | PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | 本 PR（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`） | `[x]` |
 | PRICE-2 `pricelist-2026-10-cordless-fullness` | 已 propose（2026-10-30；Q4 = A：无绳改显式开关；设计 D5 不加企业默认褶皱率）；待审后 apply | — | — | `[ ]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
-| STAT-1 `sales-quote-stats-drilldown` | 已实施（会话 `claude/magical-shannon-keegzr`；Q9 / Q10 按推荐；报告 `docs/QINGYAN_STAT-1_REPORT.md`） | PR 待开 | — | `[G]` |
+| STAT-1 `sales-quote-stats-drilldown` | 已实施（会话 `claude/magical-shannon-keegzr`；Q9 / Q10 按推荐；报告 `docs/QINGYAN_STAT-1_REPORT.md`） | [#355](https://github.com/LucasJ880/-/pull/355) 已合并（`6db3a980`） | 归档小 PR（`openspec/changes/archive/2026-10-30-sales-quote-stats-drilldown`） | `[x]` |
 
 流程同 INSTALL-2：基于最新 main → 实施 → typecheck / lint:baseline / test:ci / registry / validate --strict + 本 change 的测试 → PR → CI 绿 → 用户确认合并 → `openspec archive <change> --yes`（在最新 main 上重跑）+ TASKFLOW `[x]` + 本表 → archive PR。
 
