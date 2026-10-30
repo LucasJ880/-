@@ -605,6 +605,9 @@ run_test "FDE 询盘回复反馈闭环（B-1）" "npx tsx src/lib/revenue-spine/
 run_test "FDE 评分校准统计（B-4）" "npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts"
 run_test "FDE 评分校准读模型与接口（B-4）" "npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts"
 run_test "FDE 评分校准区块渲染（B-4）" "npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx"
+# FDE B-6（openspec change fde-v2-readiness）：V2 启动条件只读就绪度——纯逻辑 + 假依赖 + 服务端静态渲染，无 DB
+run_test "FDE V2 启动条件就绪度（B-6）" "npx tsx src/lib/revenue-spine/__tests__/v2-readiness.test.ts"
+run_test "FDE V2 启动条件区块渲染（B-6）" "npx tsx src/components/revenue/__tests__/v2-readiness-panel.test.tsx"
 # FDE B-5（openspec change fde-internal-autonomy）：分级自治（自动搁置 / 审计键名 / 配额链路 / dogfood 计划）——纯逻辑 + 假依赖 + 源码断言，无 DB
 run_test "FDE 分级自治（B-5）" "npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts"
 # FDE B-2（openspec change fde-fact-proposals）：人工回复 → 商务事实提案——纯逻辑 + 假依赖 + 源码断言，无 DB
