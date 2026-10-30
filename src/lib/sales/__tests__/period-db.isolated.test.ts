@@ -70,6 +70,7 @@ async function main() {
   const CUST = `kpcust_${stamp}`;
   const CUST_ARCH = `kpcusta_${stamp}`;
   const CUST_X = `kpcustx_${stamp}`;
+  const OPP = `kpopp_${stamp}`;
   const users = [OWNER, REP_A, REP_B, PLAIN, OUTSIDER];
   const quoteIds: string[] = [];
 
@@ -285,8 +286,30 @@ async function main() {
     const lBtoA = await list(REP_B, `?orgId=${ORG}&createdById=${REP_A}`);
     const lBtoABody = lBtoA.body as unknown as ListBody;
     ok(lBtoA.status === 200 && lBtoABody.quotes.length === 0 && !lBtoABody.reps.some((r) => r.id === REP_A), "销售 B 带 createdById=A → 空，名单里也没有 A", lBtoABody);
+
+    console.log("\n[9] STAT-1 审查修订：同商机修订跨销售、跨企业不露姓名");
+    await db.salesOpportunity.create({ data: { id: OPP, orgId: ORG, customerId: CUST, title: "Shared opportunity", createdById: REP_A } });
+    await quote("oa", { opportunityId: OPP, status: "sent", sentAt: edt("2026-10-11T10:00:00"), grandTotal: 600 });
+    await quote("ob", { opportunityId: OPP, createdById: REP_B, status: "sent", sentAt: edt("2026-10-12T10:00:00"), grandTotal: 650 });
+    const s9 = await call(OWNER, OCT);
+    let quotedSum = 0;
+    for (const rep of [REP_A, REP_B]) {
+      const row = (s9.body?.byRep ?? []).find((r) => r.userId === rep) as unknown as Record<string, number>;
+      const dd = (await drill(OWNER, `${OCT}&repId=${rep}`)).body as unknown as Drill;
+      quotedSum += dd.totals.quotedCount;
+      ok(dd.totals.quotedCount === row.quotedCount && dd.totals.quotedAmount === row.quotedAmount && dd.totals.wonAmount === row.wonAmount, `${rep === REP_A ? "A" : "B"}：B 修订了 A 的报价后，明细小计仍 = 按人表`, { drill: dd.totals, row });
+    }
+    ok(quotedSum === s9.body?.totals?.quotedCount, "各人明细报价数之和 = 全企业报价数", { quotedSum, total: s9.body?.totals?.quotedCount });
+    const aOwn = await call(REP_A, OCT);
+    const aOwnDrill = (await drill(REP_A, OCT)).body as unknown as Drill;
+    const aOwnRow = aOwn.body?.byRep?.[0] as unknown as Record<string, number> | undefined;
+    ok(aOwnRow !== undefined && aOwnDrill.totals.quotedCount === aOwnRow.quotedCount && aOwnDrill.totals.quotedAmount === aOwnRow.quotedAmount, "销售 A 本人范围：明细 = 本人面板", { drill: aOwnDrill.totals, own: aOwnRow });
+    const xName = await drill(OUTSIDER, `?orgId=${ORG_X}&from=2026-10-01&to=2026-10-28&repId=${REP_A}`);
+    const xNameRaw = JSON.stringify(xName.body);
+    ok(xName.status === 200 && !xNameRaw.includes(`Example ${REP_A}`) && !xNameRaw.includes(`${REP_A}@fixture.test`), "另一企业老板用本企业销售的 id 查明细：不返回其姓名 / 邮箱", xName.body);
   } finally {
     await db.salesQuote.deleteMany({ where: { id: { in: quoteIds } } });
+    await db.salesOpportunity.deleteMany({ where: { id: OPP } });
     await db.salesCustomer.deleteMany({ where: { id: { in: [CUST, CUST_ARCH, CUST_X] } } });
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: { in: [ORG, ORG_X] } }] } });
     await db.principalRoleBinding.deleteMany({ where: { orgId: { in: [ORG, ORG_X] } } }).catch(() => undefined);

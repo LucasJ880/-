@@ -262,18 +262,17 @@ function byRepOf(c: Classified, scope: PeriodScope, names: ReadonlyMap<string, s
 
 /**
  * STAT-1：某位报价创建人在期间内计入成单 / 报价的报价行（与 byRep 同一 classify，合计必然一致）。
- * 调用方负责授权；rows 可以含其他人的行（这里先按创建人过滤）。
+ * 先对同一范围的全部行分组、再按创建人过滤——"同商机未签只计最新一份"跨销售生效
+ * （A 发 v1、B 发修订 v2 时 v1 不计），所以 rows 必须与按人表取数范围相同。调用方负责授权。
  */
 export function periodRepQuotes(
   rows: readonly PeriodQuoteRow[],
   period: LocalPeriod,
   repId: string,
 ): { won: PeriodQuoteRow[]; quoted: PeriodQuoteRow[] } {
-  const c = classify(
-    rows.filter((r) => r.createdById === repId),
-    period,
-  );
-  return { won: c.won, quoted: c.quoted };
+  const c = classify(rows, period);
+  const mine = (r: PeriodQuoteRow) => r.createdById === repId;
+  return { won: c.won.filter(mine), quoted: c.quoted.filter(mine) };
 }
 
 const infoOf = (p: LocalPeriod): PeriodInfo => ({ from: p.from, to: p.to, days: p.days, timezone: p.timezone });

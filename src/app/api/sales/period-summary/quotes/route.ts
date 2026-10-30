@@ -52,6 +52,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const data = await loadPeriodRepQuotes({
     orgId: orgRes.orgId,
+    scope: scope.ownOnly ? { kind: "own", userId: user.id } : { kind: "org" },
     repId,
     period: parsed.period,
     kind: isDrilldownKind(kindRaw) ? kindRaw : null,

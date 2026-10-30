@@ -87,6 +87,22 @@ ok(!a.quoted.some((r) => r.status === "draft") && !a.won.some((r) => r.status ==
 ok(a.quoted.filter((r) => r.opportunityId === "opp1").length === 1 && a.quoted.some((r) => r.grandTotal === 350), "同商机未签修订只出现最新一份");
 ok(!a.quoted.some((r) => r.currency === "USD") && !a.quoted.some((r) => r.grandTotal === 400), "非 CAD、跨期不出现");
 ok(a.won.length === 1 && a.won[0].grandTotal === 5000, "上月发送、本月签字的报价只在成单组");
+// 审查发现：同商机未签修订跨销售去重——A 发 v1、B 发修订 v2，v1 不计；明细必须与按人表一致
+const shared: PeriodQuoteRow[] = [
+  ...rows,
+  q({ opportunityId: "oppx", createdById: "rep_a", sentAt: edt("2026-10-11T10:00:00"), grandTotal: 600 }),
+  q({ opportunityId: "oppx", createdById: "rep_b", sentAt: edt("2026-10-12T10:00:00"), grandTotal: 650 }),
+];
+const sharedSummary = summarizeSalesPeriod({ rows: shared, period: OCT, compare: "prev_period", scope: { kind: "org" }, now: new Date("2026-10-28T16:00:00Z") });
+let quotedSum = 0;
+for (const repId of ["rep_a", "rep_b"]) {
+  const d = periodRepQuotes(shared, OCT, repId);
+  const row = sharedSummary.byRep.find((r) => r.userId === repId)!;
+  quotedSum += d.quoted.length;
+  ok(d.quoted.length === row.quotedCount && d.won.length === row.wonCount, `跨销售修订：${repId} 明细条数 = 按人表（报价 ${row.quotedCount}）`, { d: d.quoted.map((r) => r.grandTotal), row });
+}
+ok(!periodRepQuotes(shared, OCT, "rep_a").quoted.some((r) => r.grandTotal === 600), "A 的 v1 被 B 的修订 v2 取代，不出现在 A 的明细");
+ok(quotedSum === sharedSummary.totals.quotedCount, "各人明细之和 = 全企业报价数", { quotedSum, total: sharedSummary.totals.quotedCount });
 const none = periodRepQuotes(rows, OCT, "rep_nobody");
 ok(none.won.length === 0 && none.quoted.length === 0, "没有报价的人返回空");
 

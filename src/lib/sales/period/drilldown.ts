@@ -2,14 +2,14 @@
  * STAT-1：按人报价明细取数（spec sales/period-summary"按人报价明细"）。
  *
  * 分组用 summary-pure 的 periodRepQuotes（与 byRep 同一 classify），所以条数与金额小计必然等于按人表；
- * 取数复用 loadPeriodQuoteRows，范围限定为该创建人；展示字段（单号、客户、价表版本）另按 ID 查一次。
- * 调用方负责授权（本人范围只能查自己）。
+ * 取数复用 loadPeriodQuoteRows，范围与调用者的期间汇总相同（全企业 / 本人）——同商机修订跨销售去重要看全量；
+ * 展示字段（单号、客户、价表版本）另按 ID 查一次。调用方负责授权（本人范围只能查自己）。
  */
 import { db } from "@/lib/db";
 import { readPricelistVersion } from "@/lib/blinds/pricelist-version";
 import { loadPeriodQuoteRows } from "./load";
 import { periodRepQuotes } from "./summary-pure";
-import type { LocalPeriod, PeriodInfo, PeriodQuoteRow } from "./types";
+import type { LocalPeriod, PeriodInfo, PeriodQuoteRow, PeriodScope } from "./types";
 
 export const DRILLDOWN_ROW_CAP = 500;
 export type DrilldownKind = "won" | "quoted";
@@ -39,7 +39,10 @@ export interface PeriodRepQuotesResponse {
   quoted: DrilldownQuote[] | null;
   /** 与按人表同口径的全量小计（不受 500 行截断影响） */
   totals: { wonCount: number; wonAmount: number; quotedCount: number; quotedAmount: number };
+  /** 某组超过 500 行，只列最近的部分 */
   truncated: boolean;
+  /** 取数命中 20,000 行上限：小计也不完整（与期间汇总的 truncated 同义） */
+  fetchTruncated: boolean;
 }
 
 const cents = (n: number) => Math.round(n * 100) / 100;
@@ -48,13 +51,15 @@ const time = (d: Date | null) => d?.getTime() ?? 0;
 
 export async function loadPeriodRepQuotes(params: {
   orgId: string;
+  /** 调用者的期间汇总范围：全企业看全量后再按人过滤；本人范围只取本人（与其面板一致） */
+  scope: PeriodScope;
   repId: string;
   period: LocalPeriod;
   kind?: DrilldownKind | null;
 }): Promise<PeriodRepQuotesResponse> {
   const { rows, truncated: fetchTruncated } = await loadPeriodQuoteRows({
     orgId: params.orgId,
-    scope: { kind: "own", userId: params.repId },
+    scope: params.scope,
     start: params.period.start,
     end: params.period.end,
   });
@@ -67,6 +72,8 @@ export async function loadPeriodRepQuotes(params: {
   const shownQuoted = wantQuoted ? quoted.slice(0, DRILLDOWN_ROW_CAP) : [];
 
   const ids = [...new Set([...shownWon, ...shownQuoted].map((r) => r.id))];
+  // 姓名只对本企业成员或在本企业有报价的人给出，避免拿任意 userId 探出其他企业用户的姓名 / 邮箱
+  const hasRows = rows.some((r) => r.createdById === params.repId);
   const [details, user] = await Promise.all([
     ids.length
       ? db.salesQuote.findMany({
@@ -74,7 +81,11 @@ export async function loadPeriodRepQuotes(params: {
           select: { id: true, orderNumber: true, formDataJson: true, customer: { select: { name: true } } },
         })
       : Promise.resolve([]),
-    db.user.findUnique({ where: { id: params.repId }, select: { name: true, email: true } }),
+    hasRows
+      ? db.user.findUnique({ where: { id: params.repId }, select: { name: true, email: true } })
+      : db.organizationMember
+          .findFirst({ where: { orgId: params.orgId, userId: params.repId }, select: { user: { select: { name: true, email: true } } } })
+          .then((m) => m?.user ?? null),
   ]);
   const byId = new Map(details.map((d) => [d.id, d]));
   const view = (r: PeriodQuoteRow): DrilldownQuote => {
@@ -98,7 +109,7 @@ export async function loadPeriodRepQuotes(params: {
     won: wantWon ? shownWon.map(view) : null,
     quoted: wantQuoted ? shownQuoted.map(view) : null,
     totals: { wonCount: won.length, wonAmount: amount(won), quotedCount: quoted.length, quotedAmount: amount(quoted) },
-    truncated:
-      fetchTruncated || (wantWon && won.length > DRILLDOWN_ROW_CAP) || (wantQuoted && quoted.length > DRILLDOWN_ROW_CAP),
+    truncated: (wantWon && won.length > DRILLDOWN_ROW_CAP) || (wantQuoted && quoted.length > DRILLDOWN_ROW_CAP),
+    fetchTruncated,
   };
 }

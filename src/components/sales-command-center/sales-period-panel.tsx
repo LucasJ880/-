@@ -254,12 +254,15 @@ function RepRow({ row, from, to, linkToList }: { row: PeriodSummaryResponse["byR
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<PeriodRepQuotesResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [fetching, setFetching] = useState(false);
 
   const toggle = async () => {
     const next = !open;
     setOpen(next);
-    if (!next || detail) return;
+    // 已有明细或正在取：不重复请求
+    if (!next || detail || fetching) return;
     setFailed(false);
+    setFetching(true);
     try {
       const qs = new URLSearchParams({ from, to, repId: row.userId });
       const res = await apiFetch(`/api/sales/period-summary/quotes?${qs.toString()}`);
@@ -267,6 +270,8 @@ function RepRow({ row, from, to, linkToList }: { row: PeriodSummaryResponse["byR
       setDetail((await res.json()) as PeriodRepQuotesResponse);
     } catch {
       setFailed(true);
+    } finally {
+      setFetching(false);
     }
   };
 
@@ -293,7 +298,8 @@ function RepRow({ row, from, to, linkToList }: { row: PeriodSummaryResponse["byR
               <div className="space-y-2 rounded-lg bg-[var(--background)] p-2">
                 <DrilldownList title={`成单 ${detail.totals.wonCount} 单 · ${formatSalesMoney(detail.totals.wonAmount)}`} rows={detail.won ?? []} dateOf={(q) => q.signedAt} />
                 <DrilldownList title={`报价 ${detail.totals.quotedCount} 份 · ${formatSalesMoney(detail.totals.quotedAmount)}`} rows={detail.quoted ?? []} dateOf={(q) => q.sentAt} />
-                {detail.truncated ? <p className="text-[12px] text-rose-600">超过 500 行，只显示最近的部分。</p> : null}
+                {detail.truncated ? <p className="text-[12px] text-rose-600">超过 500 行，只显示最近的部分（小计仍为全量）。</p> : null}
+                {detail.fetchTruncated ? <p className="text-[12px] text-rose-600">数据量超过上限，明细与小计不完整，请缩短期间。</p> : null}
                 {linkToList ? (
                   <Link href={`/sales/quotes?rep=${encodeURIComponent(row.userId)}`} className="text-[12px] underline">
                     在报价列表查看 {row.name} 的全部报价

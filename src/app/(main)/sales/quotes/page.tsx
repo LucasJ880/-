@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
@@ -100,6 +100,8 @@ function SalesQuotesPageInner() {
   const pathname = usePathname();
   const repFilter = searchParams.get("rep") || "";
   const [reps, setReps] = useState<{ id: string; name: string }[]>([]);
+  // 快速切换销售时只采用最后一次请求的结果
+  const loadSeq = useRef(0);
   const setRepFilter = (rep: string) => {
     const qs = new URLSearchParams(searchParams.toString());
     if (rep) qs.set("rep", rep);
@@ -158,16 +160,18 @@ function SalesQuotesPageInner() {
   };
 
   const loadQuotes = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const qs = repFilter ? `?createdById=${encodeURIComponent(repFilter)}` : "";
       const res = await apiJson<{ quotes?: QuoteItem[]; reps?: { id: string; name: string }[] }>(`/api/sales/quotes/list${qs}`);
+      if (seq !== loadSeq.current) return;
       setQuotes(res.quotes ?? []);
       setReps(res.reps ?? []);
     } catch {
-      setQuotes([]);
+      if (seq === loadSeq.current) setQuotes([]);
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [repFilter]);
 

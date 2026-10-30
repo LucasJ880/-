@@ -30,9 +30,11 @@
 ## Decisions
 
 ### D1 明细复用 `classify`
-- 在 `summary-pure.ts` 导出 `periodRepQuotes(rows, period, repId)` → `{ won, quoted }`：先按 `createdById = repId` 过滤，再调用同一个 `classify`，所以计入集合与按人表完全相同（包括同商机未签只算最新一份）。
-- 取数复用 `loadPeriodQuoteRows`，范围设为 `{ kind: "own", userId: repId }`（只取该销售的行），期间只取本期。
+- 在 `summary-pure.ts` 导出 `periodRepQuotes(rows, period, repId)` → `{ won, quoted }`：对同一范围的全部行调用同一个 `classify`，**再**按 `createdById = repId` 过滤（apply 中据独立审查修订：先过滤再分组时，A 发 v1、B 在同一商机发修订 v2，A 的明细会多算 v1，与按人表不符）。
+- 取数复用 `loadPeriodQuoteRows`，范围与调用者的期间汇总相同：全企业范围取全企业、本人范围只取本人（与其面板一致）；期间只取本期。
 - 明细行再按 ID 查一次展示字段（报价单号、客户名、`formDataJson` 只读出价表版本），不改口径层的 12 个标量。
+- 姓名只对本企业成员或在本企业有报价的人给出，避免拿任意用户 ID 探出其他企业用户的姓名或邮箱（独立审查）。
+- 两种截断分开报：某组超过 500 行（`truncated`，小计仍全量）与取数命中 2 万行上限（`fetchTruncated`，小计也不完整）。
 - 否决：**另写一份按人 SQL**：两套口径迟早不一致，"合计 = 按人表"就靠同一函数保证。
 
 ### D2 授权与参数
