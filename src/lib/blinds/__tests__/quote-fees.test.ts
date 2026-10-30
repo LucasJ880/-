@@ -110,4 +110,24 @@ if (commissionValid.ok) {
 assert.equal(validateDiscountsInput({ commissionMarginRate: 1.5 }).ok, false, "系数超 1 拒绝");
 assert.equal(validateDiscountsInput({ commissionRate: -0.1 }).ok, false, "负比例拒绝");
 
+// ── STAT-2：特别让利税前直减，税额按扣后计算 ──
+const promoBase = calculateQuoteTotal({ items: [zebra], installMode: "default", taxRate: 0.13 });
+const promo100 = calculateQuoteTotal({ items: [zebra], installMode: "default", taxRate: 0.13, specialPromotion: 100 });
+assert.equal(promoBase.promotionApplied, 0, "不传让利 → 不扣");
+assert.ok(Math.abs(promo100.preTaxTotal - (promoBase.preTaxTotal - 100)) < 1e-9, "让利 100：税前合计减 100");
+assert.ok(Math.abs(promo100.taxAmount - promo100.preTaxTotal * 0.13) < 1e-9, "税额按扣后税前计算");
+assert.ok(Math.abs(promo100.grandTotal - (promoBase.grandTotal - 113)) < 1e-9, "含税总额减 100 × 1.13");
+assert.equal(promo100.promotionApplied, 100);
+assert.equal(promo100.merchSubtotal, promoBase.merchSubtotal, "产品小计不受让利影响");
+const promoHuge = calculateQuoteTotal({ items: [zebra], installMode: "default", taxRate: 0.13, specialPromotion: 100000 });
+assert.equal(promoHuge.preTaxTotal, 0, "让利超过税前合计 → 税前 0");
+assert.equal(promoHuge.taxAmount, 0);
+assert.equal(promoHuge.grandTotal, 0);
+assert.ok(Math.abs(promoHuge.promotionApplied - promoBase.preTaxTotal) < 1e-9, "实际扣除 = 原税前合计");
+for (const bad of [-50, Number.NaN, Number.POSITIVE_INFINITY]) {
+  const r = calculateQuoteTotal({ items: [zebra], installMode: "default", taxRate: 0.13, specialPromotion: bad });
+  assert.equal(r.grandTotal, promoBase.grandTotal, `非法让利 ${bad} 按 0`);
+  assert.equal(r.promotionApplied, 0);
+}
+
 console.log("Quote fee settings tests passed");

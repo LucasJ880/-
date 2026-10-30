@@ -56,6 +56,7 @@ async function main() {
   const CUST = `sqcust_${stamp}`;
   const CUST_SOLO = `sqcusts_${stamp}`;
   const Q = `sqq_${stamp}`;
+  const Q_PROMO = `sqqp_${stamp}`;
   const Q_SOLO = `sqqs_${stamp}`;
   const users = [BOSS_A, BOSS_B, LEAD, SOLO, SA];
 
@@ -81,6 +82,7 @@ async function main() {
   await db.salesCustomer.create({ data: { id: CUST, orgId: ORG, name: "Example Homeowner", createdById: LEAD } });
   await db.salesCustomer.create({ data: { id: CUST_SOLO, orgId: ORG_SOLO, name: "Solo Homeowner", createdById: SOLO } });
   await db.salesQuote.create({ data: { id: Q, orgId: ORG, customerId: CUST, status: "draft", orderNumber: `SQ-${stamp}`, grandTotal: 0, createdById: LEAD } });
+  await db.salesQuote.create({ data: { id: Q_PROMO, orgId: ORG, customerId: CUST, status: "draft", orderNumber: `SQP-${stamp}`, grandTotal: 0, createdById: LEAD } });
   await db.salesQuote.create({ data: { id: Q_SOLO, orgId: ORG_SOLO, customerId: CUST_SOLO, status: "draft", orderNumber: `SQS-${stamp}`, grandTotal: 0, createdById: SOLO } });
 
   const cookie = async (id: string) => `qy_session=${await createSession({ sub: id, email: `${id}@fixture.test`, role: id === SA ? "super_admin" : "user" })}`;
@@ -165,8 +167,23 @@ async function main() {
     const saQuote = await db.salesQuote.findUnique({ where: { id: Q }, include: { items: true } });
     const saAudit = await db.auditLog.findFirst({ where: { targetId: Q, action: "sales.signed_quote.amount_changed", userId: SA } });
     ok(sa.status === 200 && saQuote?.items[0]?.widthIn === 36 && !!saAudit && JSON.parse(saAudit.afterData ?? "{}").selfApproved === true, "super_admin → 200，报价更新，审计 selfApproved", { status: sa.status, body: sa.body });
+
+    console.log("\n[8] STAT-2：签约后只改特别让利 → 202，报价不变；让利不变只改备注 → 200");
+    const pp0 = await put(LEAD, Q_PROMO, ORG, { items: [item(24)], installMode: "default", specialPromotion: 0 });
+    await sign(Q_PROMO);
+    const beforePromo = await db.salesQuote.findUnique({ where: { id: Q_PROMO } });
+    const pp1 = await put(LEAD, Q_PROMO, ORG, { items: [item(24)], installMode: "default", specialPromotion: 50 });
+    const afterPromo = await db.salesQuote.findUnique({ where: { id: Q_PROMO } });
+    ok(pp0.status === 200 && pp1.status === 202 && typeof pp1.body.approvalId === "string", "签约后让利 0 → 50 → 202 + 审批 ID", { pp0: pp0.status, pp1: pp1.body });
+    ok(
+      afterPromo?.status === "signed" && !!afterPromo.signedAt && afterPromo.grandTotal === beforePromo?.grandTotal && (afterPromo.specialPromotion ?? 0) === 0,
+      "报价的含税总额 / 让利 / 状态 / 签约时间均未变",
+      { before: beforePromo?.grandTotal, after: afterPromo?.grandTotal, promo: afterPromo?.specialPromotion },
+    );
+    const pp2 = await put(LEAD, Q_PROMO, ORG, { items: [item(24)], installMode: "default", specialPromotion: 0, notes: "只改备注" });
+    ok(pp2.status === 200, "让利不变、只改备注 → 200，不生成审批", pp2.body);
   } finally {
-    const quoteIds = [Q, Q_SOLO];
+    const quoteIds = [Q, Q_PROMO, Q_SOLO];
     await db.pendingAction.deleteMany({ where: { orgId: { in: [ORG, ORG_SOLO] } } });
     await db.auditLog.deleteMany({ where: { OR: [{ targetId: { in: quoteIds } }, { userId: { in: users } }, { orgId: { in: [ORG, ORG_SOLO] } }] } });
     await db.notification.deleteMany({ where: { userId: { in: users } } });

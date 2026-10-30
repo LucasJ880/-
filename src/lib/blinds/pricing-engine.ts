@@ -373,7 +373,14 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
   const deliveryFee =
     installMode === 'pickup' || itemResults.length === 0 ? 0 : deliveryRate;
 
-  const preTaxTotal = merchSubtotal + addonsSubtotal + installApplied + deliveryFee;
+  // STAT-2：特别让利税前直减（与报价单页面同一算式），扣后最低 0
+  const grossPreTax = merchSubtotal + addonsSubtotal + installApplied + deliveryFee;
+  const promotion =
+    typeof input.specialPromotion === 'number' && Number.isFinite(input.specialPromotion) && input.specialPromotion > 0
+      ? input.specialPromotion
+      : 0;
+  const preTaxTotal = Math.max(0, grossPreTax - promotion);
+  const promotionApplied = grossPreTax - preTaxTotal;
   const taxAmount = preTaxTotal * taxRate;
   const grandTotal = preTaxTotal + taxAmount;
 
@@ -385,6 +392,7 @@ export function calculateQuoteTotal(input: QuoteTotalInput): QuoteTotalResult {
     installSubtotal,
     installApplied,
     deliveryFee,
+    promotionApplied,
     preTaxTotal,
     taxRate,
     taxAmount,

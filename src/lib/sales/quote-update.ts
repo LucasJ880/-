@@ -123,6 +123,8 @@ export async function prepareQuoteUpdate(input: {
       sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
       minInstallTotal: quoteSettings.minInstallFee,
       cordlessPolicy: dtoToCordlessPolicy(quoteSettings),
+      // STAT-2：特别让利计入库里金额（签约改价审批执行器经本函数同源）
+      specialPromotion: nextPromotionAmount,
     });
   } catch (err) {
     console.error("[quotes.PUT] pricing engine threw:", err);
@@ -138,6 +140,7 @@ export async function prepareQuoteUpdate(input: {
       installSubtotal: 0,
       installApplied: 0,
       deliveryFee: deliveryFee ?? 0,
+      promotionApplied: 0,
       preTaxTotal: 0,
       taxRate: taxRate ?? 0.13,
       taxAmount: 0,

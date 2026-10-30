@@ -165,6 +165,9 @@ export const POST = withAuth(async (request, _ctx, user) => {
       minInstallTotal: quoteSettings.minInstallFee,
       // 2026-10-28 价表：企业无绳策略（折扣 / 最低价）
       cordlessPolicy: dtoToCordlessPolicy(quoteSettings),
+      // STAT-2：特别让利计入库里金额（与报价单页面对客金额同一算式）
+      specialPromotion:
+        typeof specialPromotion === 'number' && Number.isFinite(specialPromotion) ? Math.max(0, specialPromotion) : 0,
     });
   } catch (err) {
     // 极端情况：pricing 引擎自己 throw 了（理论上不会，但保险起见）
@@ -181,6 +184,7 @@ export const POST = withAuth(async (request, _ctx, user) => {
       installSubtotal: 0,
       installApplied: 0,
       deliveryFee: deliveryFee ?? 0,
+      promotionApplied: 0,
       preTaxTotal: 0,
       taxRate: taxRate ?? 0.13,
       taxAmount: 0,

@@ -2,11 +2,11 @@
 
 ## 1. 计价引擎
 
-- [ ] 1.1 `pricing-types.ts` 加 `QuoteTotalInput.specialPromotion?` 与结果字段 `promotionApplied`；`pricing-engine.ts` 的 `calculateQuoteTotal` 按 design D1 扣让利（扣后最低 0，税额按扣后算）；verify：`quote-fees.test.ts` 扩 4 条（让利 100 / 让利超过税前 → 0 / 不传 / 负数与 NaN 当 0）通过，黄金对照 158 条与 `pricelist-2026-10-addons` 不变（开工前先跑记基线）
+- [x] 1.1 `pricing-types.ts` 加 `QuoteTotalInput.specialPromotion?` 与结果字段 `promotionApplied`；`pricing-engine.ts` 的 `calculateQuoteTotal` 按 design D1 扣让利（扣后最低 0，税额按扣后算）；verify：`quote-fees.test.ts` 扩 4 条（让利 100 / 让利超过税前 → 0 / 不传 / 负数与 NaN 当 0）通过，黄金对照 158 条与 `pricelist-2026-10-addons` 不变（开工前先跑记基线）
 
 ## 2. 报价入口与签约改价
 
-- [ ] 2.1 `quotes/route.ts` 与 `quote-update.ts` 把规范化后的让利传给 `calculateQuoteTotal`（执行器经 `prepareQuoteUpdate` 自动同源）；verify：`quote-settings-db.isolated.test.ts` 扩——真实路由新建（1109.375 税前、让利 100、税率 0.13）→ 库里 `preTaxTotal` 1009.375、`grandTotal` 1140.59（±0.01）、与报价单页面算式的 `displayGrandTotal` 差 ≤ 0.01；编辑让利改 0 → 1253.59；`signed-quote-amount-db.isolated.test.ts` 扩——已签约报价只改让利 0 → 50 → 202 且报价不变，只改备注 → 200
+- [x] 2.1 `quotes/route.ts` 与 `quote-update.ts` 把规范化后的让利传给 `calculateQuoteTotal`（执行器经 `prepareQuoteUpdate` 自动同源）；verify：`quote-settings-db.isolated.test.ts` 扩——真实路由新建（1109.375 税前、让利 100、税率 0.13）→ 库里 `preTaxTotal` 1009.375、`grandTotal` 1140.59（±0.01）、与报价单页面算式的 `displayGrandTotal` 差 ≤ 0.01；编辑让利改 0 → 1253.59；`signed-quote-amount-db.isolated.test.ts` 扩——已签约报价只改让利 0 → 50 → 202 且报价不变，只改备注 → 200
 
 ## 3. 收口
 
