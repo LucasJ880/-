@@ -48,7 +48,24 @@ OpenSpec change：`openspec/changes/org-cockpit-daily-digest/`（proposal / spec
 
 ## 3. 怎么验
 
-<!-- A5-VERIFY -->
+| 项 | 结果 |
+|---|---|
+| `npx tsx src/lib/cockpit/__tests__/daily-digest.test.ts` | **53 / 53**：日期选择（多伦多 00 / 01 点、上海、2026-11-01 与 2027-03-14 夏令时切换日、哈瓦那 2026-03-08 没有 00 点由 01 点补写）；只取十个计数、全 0 行 / 空日不写、截断透传、展会子行与未归属；锁键与已有记录条件；假依赖下 written / exists / empty / error、部分失败 partial、全部失败 failed；注册表 / 岗位 / 调度 / 标签；路由源码（两组门控各绑变量、两组都空才 skipped、日结在简报之后且异常收住、简报四步不变）；日结源码不碰企业记忆 / 通知 / 审批 / LLM，事务内锁 → 查 → 写 |
+| 隔离库 `daily-digest-db.isolated.test.ts` | **15 / 15**：真实 A-4 读模型 + 事务写入。前一天投标起草 2 / 批准 2 / 驳回 1、项目起草 1 / 过期 1（次日 00:30 起草的不算，前一天起草、当天批准的算批准）；内容不含标题 / 正文 / 成本 / token；重跑与 00:45 → exists；两次并发 → 一条；01:30 补写同一天、内容一致；无活动组织 → empty；只多一条审计，MemoryClaim / 通知 / 审批数不变 |
+| `posts.test.ts` / `schedule.test.ts` / `audit-labels.test.ts` | 224 / 193 / 11 passed（新增：归 `ops_knowledge`；门控 `[0, 1]` 与路由一致、最长正常间隔 23 小时；company.log「岗位日结 · 组织」来源 system） |
+| 变异检查 | 把路由里简报 `[7]` 与日结 `[0, 1]` 对调 → `daily-digest.test.ts` 失败（审查指出原先的宽松正则抓不到，已改为绑定变量） |
+| 独立审查（只给代码与规格） | 无正确性缺陷；6 条建议中采纳 5 条：01 点补一次、日结排到简报之后、全部失败记 failed、门控断言绑定变量、`digestDayFor` 移进 try；文档漂移（D5 依赖名）已对齐。第 6 条中"平台级运行出现在各组织 company.log"与 daily-brief 现状一致，不改 |
+| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出 0 |
+| 改动文件 `npx eslint` | 0 问题 |
+| `npm run lint:baseline` | PASS（errors 38 ≤ 基线 53，无新增 fingerprint） |
+| `npm run test:ci` | PASS |
+| `bash scripts/check-test-registry.sh` | OK（524 注册；欠账基线 71 条不变） |
+| `openspec validate org-cockpit-daily-digest --strict` | valid |
+| `git diff --stat origin/main -- prisma/ vercel.json` | 空 |
+
+### 3.1 全量 `npm test`
+
+隔离库、`NODE_OPTIONS=--max-old-space-size=8192`、合并最新 main（`3385deb`）后：**538 / 547**（PRICE-3 记录 535 / 545；+2 为本 change 的两个新测试，全部通过；PRICE-3 记的 TypeScript 默认堆不足在加大堆后通过）。9 个失败与 PRICE-3 报告逐条一致、均为既有环境性问题，与本 change 无关：Mention Gateway M2-A Identity DB、Sunny 工艺单 DB 端到端、Phase3A-3 Approvals Smoke、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Phase3A-5 Overview Acceptance、Autopilot A2-P0 Isolated E2E、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局。驾驶舱全部测试（A-1..A-5）在全量中 0 失败。
 
 ## 4. 判断点
 

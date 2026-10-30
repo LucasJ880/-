@@ -14,7 +14,7 @@
 
 ## 4. 收尾
 
-- [ ] 4.1 门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate org-cockpit-daily-digest --strict`、`git diff --stat prisma/ vercel.json` 为空、隔离库全量 `npm test` 与基线比对；写 `docs/QINGYAN_ORG_COCKPIT_A-5_REPORT.md`；任务书 A-5 行 → `[G]`；更新 `docs/QINGYAN_ORG_COCKPIT_FDE_HANDOFF.md`。verify：命令退出 0；`grep -c "| A-5 .*\[G\]" docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 为 1。
+- [x] 4.1 门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate org-cockpit-daily-digest --strict`、`git diff --stat prisma/ vercel.json` 为空、隔离库全量 `npm test` 与基线比对；写 `docs/QINGYAN_ORG_COCKPIT_A-5_REPORT.md`；任务书 A-5 行 → `[G]`；更新 `docs/QINGYAN_ORG_COCKPIT_FDE_HANDOFF.md`。verify：命令退出 0；`grep -c "| A-5 .*\[G\]" docs/QINGYAN_ORG_COCKPIT_FDE_TASKBRIEF.md` 为 1。
 
 ## Workflow follow-up
 
