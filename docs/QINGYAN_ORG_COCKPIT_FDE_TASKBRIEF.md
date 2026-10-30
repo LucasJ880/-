@@ -59,7 +59,7 @@
 | ID | 任务 | 依赖 | 产物 | 状态 |
 |---|---|---|---|---|
 | A-1 | 岗位注册表 | — | `src/lib/cockpit/posts.ts` + 表驱动测试 | [x] |
-| A-2 | 岗位读模型 + API | A-1 | `src/lib/cockpit/posts-read-model.ts`、`GET /api/cockpit/posts`、`GET /api/cockpit/timeline` | [G] |
+| A-2 | 岗位读模型 + API | A-1 | `src/lib/cockpit/posts-read-model.ts`、`GET /api/cockpit/posts`、`GET /api/cockpit/timeline` | [x] |
 | A-3 | 工作台首页 → 岗位卡片 | A-2 | `src/app/(main)/page.tsx` + 组件 | [G] |
 | A-4 | 工作量 / 无用功面板 | A-2 | `src/lib/cockpit/workload.ts`、`GET /api/cockpit/workload`、页面区块 | [G] |
 | A-5 | （决策）夜间岗位日结 → corporate-memory | A-2 | 见 §A-5 | [ ] |
