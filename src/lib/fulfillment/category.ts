@@ -26,6 +26,8 @@ const QUOTE_PRODUCT_CATEGORY: Record<string, FulfillmentCategory> = {
   "Roman Shade": "shades",
   Roman: "shades",
   Allusion: "shades",
+  /** 2026-10-28 价表新产品（仿木百叶）：出单归 Roller/Zebra/Roman 岗（任务书 Q2） */
+  Fauxwood: "shades",
   Drapery: "drapery",
   Sheer: "drapery",
   Shutters: "vinyl",

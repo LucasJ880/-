@@ -1,6 +1,6 @@
 import type { ShadeOrderLine, ShutterOrderLine, DrapeOrderLine, InstallMode } from "./types";
 import { fractionToInches } from "./types";
-import { priceFor } from "@/lib/blinds/pricing-engine";
+import { priceFor, allowsManualSellingPrice, applyManualSellingPrice } from "@/lib/blinds/pricing-engine";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
   INSTALL_RULES,
@@ -40,6 +40,7 @@ const ZERO_DISCOUNTS: DiscountsOverride = {
   Allusion: 0,
   Roman: 0,
   "Roman Shade": 0,
+  Fauxwood: 0,
 };
 
 export function sumAllMsrp(
@@ -91,7 +92,7 @@ export function computeShadeLinePrice(
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
 ): LinePrice | null {
   const motorSurcharge = line.lift === "M" ? Math.max(0, sunnyMotorPrice) : 0;
-  // Allusion / Roman：销售手填单价，跳过 MSRP 表
+  // Roman：销售手填单价，跳过 MSRP 表（Allusion 2026-10-28 起查表，见下方覆盖）
   if (isManualPriceShadeProduct(line.product)) {
     if (!line.widthWhole || !line.heightWhole) return null;
     const w = fractionToInches(line.widthWhole, line.widthFrac);
@@ -116,10 +117,14 @@ export function computeShadeLinePrice(
   if (!w || !h) return null;
 
   const fabric = skuToPricingFabric(line.sku, line.product);
-  const result = priceFor(line.product, fabric, w, h, pick(discounts, line.product));
-  if ("error" in result) {
-    return { merch: 0, install: 0, total: 0, error: result.error };
+  const table = priceFor(line.product, fabric, w, h, pick(discounts, line.product));
+  if ("error" in table) {
+    return { merch: 0, install: 0, total: 0, error: table.error };
   }
+  // Allusion：可选手动成交单价覆盖（与服务端 calculateQuoteTotal 共用同一个纯函数）
+  const result = allowsManualSellingPrice(line.product)
+    ? applyManualSellingPrice(table, parseFloat(line.manualPrice ?? ""))
+    : table;
   const merch = result.price + motorSurcharge;
   const install = installMode === "pickup" ? 0 : result.install;
   return { merch, install, total: merch + install, error: null };

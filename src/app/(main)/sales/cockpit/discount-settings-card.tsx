@@ -24,6 +24,8 @@ interface DiscountsDto {
   shutters: number;
   honeycomb: number;
   romanShade: number;
+  fauxwood: number;
+  allusion: number;
   sunnyMotorPrice: number;
   minInstallFee: number;
   deliveryFee: number;
@@ -51,6 +53,8 @@ const FIELDS: { key: keyof DiscountsDto; label: string }[] = [
   { key: "shutters", label: "Shutters" },
   { key: "honeycomb", label: "Skylight Honeycomb" },
   { key: "romanShade", label: "Roman Shade" },
+  { key: "fauxwood", label: "Fauxwood（仿木百叶）" },
+  { key: "allusion", label: "Allusion（梦幻帘）" },
 ];
 
 const THRESHOLD_FIELDS: { key: "promoWarnPct" | "promoDangerPct" | "promoMaxPct"; label: string; hint: string }[] = [
@@ -99,7 +103,7 @@ const COMMISSION_FIELDS: { key: "commissionMarginRate" | "commissionRate"; label
 
 type NumericDraftKey =
   | "zebra" | "shangrila" | "cellular" | "roller"
-  | "drapery" | "sheer" | "shutters" | "honeycomb" | "romanShade"
+  | "drapery" | "sheer" | "shutters" | "honeycomb" | "romanShade" | "fauxwood" | "allusion"
   | "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
   | "depositWarnPct" | "depositMinPct"
   | "commissionMarginRate" | "commissionRate";
@@ -114,6 +118,8 @@ interface DraftMap {
   shutters: string;
   honeycomb: string;
   romanShade: string;
+  fauxwood: string;
+  allusion: string;
   promoWarnPct: string;
   promoDangerPct: string;
   promoMaxPct: string;
@@ -140,6 +146,8 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     shutters: Math.round(d.shutters * 100).toString(),
     honeycomb: Math.round(d.honeycomb * 100).toString(),
     romanShade: Math.round(d.romanShade * 100).toString(),
+    fauxwood: Math.round((typeof d.fauxwood === "number" ? d.fauxwood : 0.3) * 100).toString(),
+    allusion: Math.round((typeof d.allusion === "number" ? d.allusion : 0.35) * 100).toString(),
     promoWarnPct: Math.round(d.promoWarnPct * 100).toString(),
     promoDangerPct: Math.round(d.promoDangerPct * 100).toString(),
     promoMaxPct: Math.round(d.promoMaxPct * 100).toString(),

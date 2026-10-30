@@ -56,6 +56,10 @@ const p4 = buildQuoteSettingsApprovalPayload({ orgId: "org1", requestedById: "bi
 ok(quoteSettingsIdempotencyKey(p1) !== quoteSettingsIdempotencyKey(p4), "内容 / 提交人不同 → 键不同");
 ok(describeQuoteSettingsPatch(p1) === "zebra=0.4，更新定金解锁码", "审批中心描述不含码值");
 ok(describeQuoteSettingsPatch(buildQuoteSettingsApprovalPayload({ orgId: "o", requestedById: "b", settingsVersion: 1, numericPatch: {}, lineDiscountUnlockCodeHash: null })) === "清空行折扣解锁码", "清空码描述");
+// 2026-10-28 价表：JSON 存储的 fauxwood / allusion 折扣与其它折扣同样进入 diff 与描述
+const p5 = buildQuoteSettingsApprovalPayload({ orgId: "org1", requestedById: "bob", settingsVersion: 3, numericPatch: { fauxwood: 0.25, allusion: 0.4 }, costRates: { fauxwood: 0.5 } });
+ok(describeQuoteSettingsPatch(p5) === "fauxwood=0.25，allusion=0.4，成本率 1 项", "新折扣键进入审批描述");
+ok(quoteSettingsIdempotencyKey(p5) !== quoteSettingsIdempotencyKey(p1), "新折扣键参与幂等键");
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

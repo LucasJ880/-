@@ -122,6 +122,21 @@
 
 ---
 
+## Phase P — Sunny 价格表 2026-10-28 进青砚 + 按人报价 / 销售额统计
+
+任务书：`docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 判断点 Q1–Q11 拍板后再 propose）；交接：`docs/QINGYAN_PRICELIST_HANDOFF.md`。价表证据：`config/pricelist/2026-10-28-*.json`。纪律同上：零 schema（新折扣 / 无绳 / 褶皱率 / 附件价落 `settingsJson.pricing`）、折扣修改走既有 PendingAction、确定性优先（黄金用例来自原工具 `price()`）。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| PRICE-1 | Fauxwood 新产品 + Allusion 查表定价 + 企业折扣（settingsJson）+ 出单品类 / 工艺单名 + SKU BL201 改名 + `pricelistVersion` 进 formDataJson + **黄金对照测试**（158 条） | Q1、Q2 | OpenSpec change `pricelist-2026-10-fauxwood-allusion`；`pricelist-2026-10-golden` 测试注册；报告 `docs/QINGYAN_PRICE-1_REPORT.md` | [G]（PR #344） |
+| PRICE-2 | 无绳独立折扣 30% + 最低价 159 / 129 + 取消 75" 上限；布帘 / 纱帘褶皱率（行级 1–4，企业默认 2） | PRICE-1、Q3、Q4 | change `pricelist-2026-10-cordless-fullness`；黄金 `cordless-*` / `fullness-*` 组全过；报告 `docs/QINGYAN_PRICE-2_REPORT.md` | [ ] |
+| PRICE-3 | 附加项目目录按零售表更新 + Excel 固定价 / 按英尺项进 Part B 预设 + Downtown 150 预设 + 企业覆盖价（settingsJson，走审批） | PRICE-1、Q6、Q7、Q8 | change `pricelist-2026-10-addons`；报告 `docs/QINGYAN_PRICE-3_REPORT.md` | [ ] |
+| STAT-1 | 期间面板"本周 / 上周"预设 + 按人行展开报价清单（`GET /api/sales/period-summary/quotes`）+ `/sales/quotes` 按销售筛选 + 草稿未发送提醒；口径不改 | KPI-1、Q9、Q10 | change `sales-quote-stats-drilldown`；`period-db.isolated` 扩；报告 `docs/QINGYAN_STAT-1_REPORT.md` | [ ] |
+
+**GATE-P 验收**：Order Form 录 Fauxwood / Allusion / 无绳 Zebra / 3 倍褶皱布帘各一行 → 预览金额与黄金用例一致 → 保存并标记发送 → 期间面板按人金额 = 该报价 `grandTotal`，展开能看到这张报价；9 个老产品的 `regression` 组数字不动。
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |

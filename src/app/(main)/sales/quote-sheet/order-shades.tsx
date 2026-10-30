@@ -9,6 +9,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import { allowsManualSellingPrice } from "@/lib/blinds/pricing-engine";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById } from "./order-helpers";
 import { computeShadeLinePrice, type DiscountsOverride } from "./pricing-helpers";
@@ -23,6 +24,7 @@ const SHADE_PRODUCTS: ProductName[] = [
   "SkylightHoneycomb",
   "Allusion",
   "Roman",
+  "Fauxwood",
 ];
 
 function RadioGroup({
@@ -336,6 +338,20 @@ export function OrderShadesForm({
                         <div className="font-mono text-[11px] font-semibold text-teal-700">
                           {formatCAD(p.merch)}
                         </div>
+                        {allowsManualSellingPrice(line.product) && (
+                          <div className="flex items-center justify-end gap-0.5" title="可选：手动成交单价（留空按价表）">
+                            <span className="text-[9px] text-muted-foreground">手动$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={line.manualPrice ?? ""}
+                              onChange={(e) => updateLine(line.id, "manualPrice", e.target.value)}
+                              className="w-16 bg-card-bg/60 border border-amber-200 rounded px-1 py-0 text-[10px] text-right font-mono outline-none focus:ring-1 focus:ring-amber-400"
+                              placeholder="价表"
+                            />
+                          </div>
+                        )}
                         {line.lift === "M" && (
                           <div className="text-[9px] font-medium text-blue-600">
                             Motor +{formatCAD(sunnyMotorPrice)}

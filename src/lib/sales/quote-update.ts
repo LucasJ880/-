@@ -10,7 +10,8 @@
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { getAddonDef } from "@/lib/blinds/pricing-addons";
-import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from "@/lib/blinds/discount-settings";
+import { stampPricelistVersion } from "@/lib/blinds/pricelist-version";
 import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import type { QuoteItemInput, QuoteAddonInput, InstallMode } from "@/lib/blinds/pricing-types";
 import { loadPricingPolicy } from "@/lib/sales/pricing-policy";
@@ -109,7 +110,8 @@ export async function prepareQuoteUpdate(input: {
   let calc: ReturnType<typeof calculateQuoteTotal>;
   try {
     calc = calculateQuoteTotal({
-      items: items || [],
+      // 2026-10-28：与 POST 一致，没有行级覆盖的行套企业折扣
+      items: applyOrgDiscountDefaults(items || [], dtoToProductDiscounts(quoteSettings)),
       addons,
       installMode,
       deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
@@ -254,7 +256,8 @@ export async function commitQuoteUpdate(input: {
         taxAmount: calc.taxAmount,
         grandTotal: calc.grandTotal,
         notes: mergedNotes,
-        formDataJson: formDataJson ?? undefined,
+        // 2026-10-28：重算时同样记录当时的价表版本
+        formDataJson: formDataJson !== undefined ? (stampPricelistVersion(formDataJson) ?? undefined) : undefined,
         totalMsrp:
           typeof totalMsrp === "number" && Number.isFinite(totalMsrp)
             ? totalMsrp

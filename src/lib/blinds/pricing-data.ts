@@ -1,12 +1,21 @@
 // Base MSRP synced from quote_2026-10月报价工具.html (2026 October).
 // Source SHA-256: bfc511a9f3a546adb2ea3bede803d401b2880f8d2da006afc3cf681fbe377c7c
+// 2026-10-28：Fauxwood 新产品 + Allusion 矩阵，来自 Lucas 上传的报价工作台 2026.10-local.1
+//   （三方逐格比对与增量见 config/pricelist/2026-10-28-lucas-quote.json，数值只从该文件拷入）
+//   index.html SHA-256: d068ab4bd8fe4981e518f929f06fac745ccb414a5d1eaf83b6a5a8d174c3203c
+//   xlsx       SHA-256: d68a4cf8e62448c0b7f572ca300d46b3bce7265a79ff0aebef99ac5da80cdf6b
 // Existing discounts, fees and cordless policies are intentionally unchanged.
 // Each product has brackets (width/height breakpoints) and fabric MSRP tables
 // MSRP tables are indexed as msrp[heightIndex][widthIndex]
 
 import type { ProductName, ProductBrackets } from './pricing-types';
 
-export const BASE_PRICE_VERSION = '2026-10' as const;
+export const BASE_PRICE_VERSION = '2026-10-28' as const;
+/** 2026-10-28 增量来源（config/pricelist/2026-10-28-lucas-quote.json → source） */
+export const PRICE_LIST_2026_10_28_SOURCE = {
+  indexHtmlSha256: 'd068ab4bd8fe4981e518f929f06fac745ccb414a5d1eaf83b6a5a8d174c3203c',
+  xlsxSha256: 'd68a4cf8e62448c0b7f572ca300d46b3bce7265a79ff0aebef99ac5da80cdf6b',
+} as const;
 export const BASE_PRICE_SOURCE_SHA256 = 'bfc511a9f3a546adb2ea3bede803d401b2880f8d2da006afc3cf681fbe377c7c' as const;
 
 // ─── Brackets ──────────────────────────────────────────────
@@ -307,7 +316,6 @@ export const BRACKETS: Record<ProductName, ProductBrackets> = {
       60,
       66,
       72,
-      78,
       84,
       90,
       96,
@@ -330,6 +338,32 @@ export const BRACKETS: Record<ProductName, ProductBrackets> = {
       108,
       114,
       120
+    ]
+  },
+  "Fauxwood": {
+    "widths": [
+      18,
+      24,
+      32,
+      36,
+      42,
+      48,
+      54,
+      60,
+      66,
+      72,
+      78
+    ],
+    "heights": [
+      30,
+      36,
+      42,
+      48,
+      54,
+      60,
+      66,
+      72,
+      75
     ]
   },
   "Roman": {
@@ -405,8 +439,10 @@ export const DEFAULT_DISCOUNTS: Record<ProductName, number> = {
   Drapery: 0.35,
   Sheer: 0.35,
   Shutters: 0.35,
-  // Allusion / Roman 暂不走价格表；销售手填单价，折扣按 0 处理
-  Allusion: 0,
+  // 2026-10-28 价表：Allusion / Fauxwood 查表（config/pricelist/2026-10-28-lucas-quote.json）
+  Allusion: 0.35,
+  Fauxwood: 0.3,
+  // Roman 暂不走价格表；销售手填单价，折扣按 0 处理
   Roman: 0,
 };
 
@@ -421,7 +457,8 @@ export const PRICE_FLOOR: Record<ProductName, number> = {
   Drapery: 100,
   Sheer: 100,
   Shutters: 100,
-  Allusion: 0,
+  Allusion: 200,
+  Fauxwood: 209,
   Roman: 0,
 };
 
@@ -715,6 +752,41 @@ export const MSRP_ROMAN_SHADE: Record<string, number[][]> = {
   ]
 };
 
+// 2026-10-28 价表（config/pricelist/2026-10-28-lucas-quote.json → newProducts）
+export const MSRP_ALLUSION: Record<string, number[][]> = {
+  "Standard": [
+    [365,428,495,558,620,688,750,813,881,1005,1070,1134,1201,1266],
+    [379,443,514,582,650,712,778,847,917,1048,1115,1182,1253,1320],
+    [395,462,538,605,674,744,813,881,957,1096,1164,1230,1302,1368],
+    [404,476,558,630,702,774,841,913,996,1139,1212,1284,1357,1429],
+    [419,495,576,650,726,799,875,951,1033,1182,1254,1328,1404,1476],
+    [433,510,596,674,750,827,905,985,1070,1226,1304,1375,1452,1525],
+    [447,528,616,698,778,857,939,1020,1106,1270,1351,1433,1515,1597],
+    [462,544,634,720,802,885,971,1053,1144,1312,1394,1476,1559,1640],
+    [476,562,654,741,827,913,999,1087,1182,1356,1443,1530,1616,1704],
+    [486,576,674,765,857,941,1033,1125,1222,1399,1491,1583,1674,1766],
+    [500,596,692,789,881,971,1063,1158,1254,1443,1533,1625,1722,1812],
+    [514,610,716,808,905,999,1096,1194,1294,1485,1583,1678,1776,1872],
+    [528,630,736,831,933,1029,1130,1226,1332,1529,1631,1732,1836,1938],
+    [544,644,755,857,957,1057,1158,1260,1370,1573,1673,1774,1874,1976],
+    [558,660,774,875,981,1087,1194,1298,1409,1615,1722,1828,1934,2039]
+  ]
+};
+
+export const MSRP_FAUXWOOD: Record<string, number[][]> = {
+  "Standard": [
+    [339.285714285715,339.285714285715,339.285714285715,339.285714285715,339.285714285715,370.12987012987,404.22077922078,435.38961038961,450.974025974026,481.168831168831,517.207792207792],
+    [339.285714285715,339.285714285715,339.285714285715,339.285714285715,366.233766233766,386.688311688311,435.38961038961,469.480519480519,502.597402597402,529.87012987013,554.22077922078],
+    [339.285714285715,339.285714285715,339.285714285715,343.831168831169,383.766233766234,433.441558441558,463.636363636364,502.597402597402,536.688311688311,547.402597402598,581.493506493507],
+    [339.285714285715,339.285714285715,339.285714285715,366.233766233766,410.064935064935,450.974025974026,490.909090909091,549.350649350649,581.493506493507,637.012987012988,665.25974025974],
+    [339.285714285715,339.285714285715,357.467532467533,386.688311688311,443.181818181818,485.064935064935,536.688311688311,597.077922077922,637.012987012988,691.558441558442,739.285714285715],
+    [339.285714285715,339.285714285715,370.12987012987,421.753246753247,459.74025974026,521.103896103897,581.493506493507,627.272727272727,674.025974025974,739.285714285715,787.012987012988],
+    [339.285714285715,339.285714285715,377.922077922078,443.181818181818,490.909090909091,547.402597402598,627.272727272727,699.350649350649,748.051948051948,775.324675324675,859.090909090909],
+    [342.857142857143,361.363636363636,405.194805194806,459.74025974026,529.87012987013,585.38961038961,672.077922077922,716.883116883117,787.012987012988,859.090909090909,893.181818181818],
+    [366.233766233766,381.818181818182,441.233766233766,524.025974025974,578.571428571428,627.272727272727,704.22077922078,769.480519480519,832.792207792208,909.74025974026,958.441558441558]
+  ]
+};
+
 // Helper: get MSRP table for a product+fabric combo
 export function getMsrpTable(product: ProductName, fabric: string): number[][] | null {
   switch (product) {
@@ -729,6 +801,8 @@ export function getMsrpTable(product: ProductName, fabric: string): number[][] |
       }
     case 'Sheer': return MSRP_SHEER[fabric] ?? null;
     case 'Shutters': return MSRP_SHUTTERS[fabric] ?? null;
+    case 'Allusion': return MSRP_ALLUSION[fabric] ?? null;
+    case 'Fauxwood': return MSRP_FAUXWOOD[fabric] ?? null;
     case 'Roller': return null; // Roller uses ROLLER_FABRICS + MSRP_ROLLER
     default: return null;
   }
@@ -746,6 +820,8 @@ export function getAvailableFabrics(product: ProductName): string[] {
     case 'Drapery': return Object.keys(MSRP_DRAPERY);
     case 'Sheer': return [...Object.keys(MSRP_SHEER), 'Door Screen Sheer'];
     case 'Shutters': return Object.keys(MSRP_SHUTTERS);
+    case 'Allusion': return Object.keys(MSRP_ALLUSION);
+    case 'Fauxwood': return Object.keys(MSRP_FAUXWOOD);
     default: return [];
   }
 }
@@ -754,4 +830,6 @@ export const ALL_PRODUCTS: ProductName[] = [
   'Roman Shade',
   'Zebra', 'SHANGRILA', 'Cordless Cellular', 'SkylightHoneycomb',
   'Roller', 'Drapery', 'Sheer', 'Shutters',
+  // 2026-10-28 价表：查表定价（Roman 仍手填，不在此列）
+  'Allusion', 'Fauxwood',
 ];

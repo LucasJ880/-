@@ -68,6 +68,13 @@ console.log("报价 → 工艺单映射");
   const issues = computeIssues([], specOf(m));
   ok(blockingIssues(issues).length === 0 && issues.some((i) => i.level === "info" && i.section === "purchase"), "QM-05c0: 外采购不阻断，只提示一次", issues);
   ok(!mapQuoteFormToProcessOrder("{not json").producible && !mapQuoteFormToProcessOrder(null).producible, "QM-05c: 坏 JSON / 空 → 无可生产行");
+  // 2026-10-28 价表：Fauxwood 没有工艺模板 → 外采购行，品类文字"仿木百叶 Fauxwood"，不阻断
+  const fw = mapQuoteFormToProcessOrder(form({ shadeOrders: [shade({ product: "Fauxwood", sku: "Standard", widthWhole: "36", widthFrac: "0", heightWhole: "48", heightFrac: "0", mount: "I", lift: "L" })] }));
+  const fwRow = fw.spec.purchase[0];
+  ok(fw.spec.purchase.length === 1 && fw.spec.domestic.length === 0 && fw.blindsItems.length === 0 && fw.producible, "QM-05e: Fauxwood 进外采购行，不进 Blinds / 国内下单");
+  ok(fwRow?.section === "shade" && fwRow.categoryZh === "仿木百叶 Fauxwood" && fwRow.widthIn === 36 && fwRow.heightIn === 48 && fwRow.fields.some((f) => f.label === "Lift" && f.value === "L"), "QM-05f: 品类文字 仿木百叶 Fauxwood，宽高原样、Lift 原值", fwRow);
+  const fwIssues = computeIssues([], specOf(fw));
+  ok(blockingIssues(fwIssues).length === 0 && fwIssues.some((i) => i.level === "info" && i.section === "purchase"), "QM-05g: Fauxwood 外采购只提示不阻断", fwIssues);
   const legacy = sanitizeSpec({ unsupported: [{ section: "drape", location: "Den", widthIn: 80, heightIn: 90, reasonZh: "布帘 Grommet（打孔）工艺没有模板" }] });
   ok(legacy.purchase.length === 1 && legacy.purchase[0]!.categoryZh === "窗帘" && legacy.purchase[0]!.qty === 1 && !("unsupported" in legacy), "QM-05d: v1 的无模板行读成外采购行", legacy.purchase);
 }
