@@ -3,8 +3,10 @@
  *   1. 兜底执行来信 FDE（先跑，与改动前一致——来信回复最要紧）：queued / run_blocked / failed / 认领过期的 running
  *      （failed、过期 running 与非配额 run_blocked 有次数上限），全部经 runQueuedInboundFde 原子认领
  *      （与 webhook 的 after() 回调、站点重发、人工入口互斥），按组织轮转、按墙钟截止（不再按组织固定条数）。
- *   2. 重算所有开放商机的 Next Action；到期的生成/刷新 SalesAction 跟进行动 + 通知
- *   3. 长期无动作商机标记进入 stale 队列（不自动流转，只提示）
+ *   2. 自动搁置（B-5，policy.autonomy.autoStale 开启的组织才做，默认关闭）：超过 followUp.staleAfterDays 天无互动、
+ *      买家未来信、无在途审批的开放商机转 stale（source = system，审计带 policy 键名），按负责人汇总站内通知。
+ *      放在 next action 之前，被搁置的商机本轮不再生成到期跟进行动。未开启的组织仍只在 /revenue 的 Stale 队列展示。
+ *   3. 重算所有开放商机的 Next Action；到期的生成/刷新 SalesAction 跟进行动 + 通知
  *   4. 首封回复后买家没回信：第 3 / 7 / 14 天起草跟进邮件进审批（不发送）
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -12,6 +14,7 @@ import { runTrackedAutomation } from "@/lib/automation/runner";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
+import { runAutoStale } from "@/lib/revenue-spine/autonomy";
 import { createFdeAction } from "@/lib/revenue-spine/fde/actions";
 import { drainInboundFdeQueue } from "@/lib/revenue-spine/fde/inbound-queue";
 import { draftNoReplyFollowUps } from "@/lib/revenue-spine/fde/no-reply-followup";
@@ -64,7 +67,7 @@ export async function GET(request: NextRequest) {
       if (d.error) failedOrgs.add(d.orgId);
     }
 
-    // 2–4. Next action / 无回复跟进（过了 MAINTENANCE_DEADLINE_MS 不再开始新的组织或商机）
+    // 2–4. 自动搁置 / Next action / 无回复跟进（过了 MAINTENANCE_DEADLINE_MS 不再开始新的组织或商机）
     let maintenanceDeadlineReached = false;
     const pastMaintenanceDeadline = () => {
       if (Date.now() - startedAt < MAINTENANCE_DEADLINE_MS) return false;
@@ -79,7 +82,17 @@ export async function GET(request: NextRequest) {
       }
       try {
         const policy = await loadRevenueSpinePolicy(orgId);
-        // 2. Next action 重算 + 到期行动
+        // 2. 自动搁置（开关关闭时不查询、不流转）；单独兜错，失败不影响本组织的 next action 与跟进草稿
+        if (policy.autonomy.autoStale) {
+          try {
+            const autoStale = await runAutoStale(orgId, { policy, now, shouldStop: pastMaintenanceDeadline });
+            row.autoStale = autoStale;
+            if (autoStale.truncated) row.maintenanceTruncated = true;
+          } catch (error) {
+            row.autoStaleError = error instanceof Error ? error.message : String(error);
+          }
+        }
+        // 3. Next action 重算 + 到期行动
         const open = await db.salesOpportunity.findMany({
           where: { orgId, stage: { in: [...OPEN_STAGES] }, customer: { archivedAt: null } },
           select: { id: true, customerId: true, title: true, assignedToId: true, createdById: true },

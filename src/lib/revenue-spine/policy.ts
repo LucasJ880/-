@@ -169,6 +169,15 @@ export interface NotifyPolicy {
   wechatOnNewDraft: boolean;
 }
 
+/**
+ * 内部自治开关（B-5，按组织）；默认全部关闭。只自动做内部动作（阶段流转 + 站内通知），外发一律仍走审批。
+ * dogfood 经 scripts/seed-revenue-autonomy.ts 按组织开启，不改默认值。
+ */
+export interface AutonomyPolicy {
+  /** 开放商机超过 followUp.staleAfterDays 无互动、买家未来信、无在途审批 → revenue-spine 定时任务自动转 stale 并通知负责人 */
+  autoStale: boolean;
+}
+
 export interface RevenueSpinePolicy {
   version: string;
   businessProfile: BusinessProfile;
@@ -176,6 +185,7 @@ export interface RevenueSpinePolicy {
   followUp: FollowUpPolicy;
   scoring: ScoringPolicy;
   notify: NotifyPolicy;
+  autonomy: AutonomyPolicy;
   /** 阶段 → 成交概率（Expected Revenue 口径） */
   stageWinProbability: Record<string, number>;
 }
@@ -312,6 +322,7 @@ export const DEFAULT_REVENUE_SPINE_POLICY: RevenueSpinePolicy = {
     individualMinQuantity: 50,
   },
   notify: { wechatOnNewDraft: false },
+  autonomy: { autoStale: false },
   stageWinProbability: {
     new_inquiry: 0.05,
     enriching: 0.05,
@@ -551,6 +562,7 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
   const w = rec(sc.weights) ?? {};
   const g = rec(sc.grades) ?? {};
   const nt = rec(o.notify) ?? {};
+  const au = rec(o.autonomy) ?? {};
   const businessHours = "businessHours" in sla ? parseBusinessCalendar(sla.businessHours) : undefined;
   const tiersRaw = Array.isArray(sc.quantityTiers) ? sc.quantityTiers : null;
   const tiers = tiersRaw
@@ -601,6 +613,10 @@ export function mergeRevenueSpinePolicy(base: RevenueSpinePolicy, override: unkn
     notify: {
       // 只认布尔值；存量策略没有 notify 时保持关闭
       wechatOnNewDraft: typeof nt.wechatOnNewDraft === "boolean" ? nt.wechatOnNewDraft : (base.notify?.wechatOnNewDraft ?? false),
+    },
+    autonomy: {
+      // 只认布尔值；存量策略没有 autonomy 时保持关闭
+      autoStale: typeof au.autoStale === "boolean" ? au.autoStale : (base.autonomy?.autoStale ?? false),
     },
     stageWinProbability: numMap(o.stageWinProbability, base.stageWinProbability),
   };

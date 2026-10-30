@@ -27,7 +27,19 @@
   - 做了什么：`GET /api/revenue/score-calibration?days=`（30–180，缺省 90）+ `/revenue` 底部点开才加载的"评分校准（只报不改）"区块。首次评估六维（得分 ÷ 当时满分）对商机当前阶段：分桶赢单率 / 报价率、命中率、区分度、等级表、建议权重；"复制为 policy 片段"只写剪贴板。
   - **GATE 决策项**：建议权重有下限——productFit ≥ 3、其余可评估维度 ≥ 1。productFit = 0 会让评分把所有询盘判不合格并自动关闭；任一维为 0 后永远无法再校准。测试锁定"粘贴建议不改变不合格判定"。
   - 口径：结局取 `SalesOpportunity.stage`（与 `/revenue` 同）；QUOTE_SENT 只当"报过价"证据；disqualified 与入驻测试排除且计数；门槛按已定（won + lost）≥ 30。
-- **下一步：B-5 `fde-internal-autonomy`**，从 `claude/fde-score-calibration` 开新分支 `claude/fde-internal-autonomy`。先读任务书 §B-5、`src/lib/revenue-spine/transition.ts`（`ALLOWED_TRANSITIONS` 不放宽）、`policy.ts` 的 `followUp.staleAfterDays` / `excludedCategoryAction`、A-2 的 health（`quota_hit`）与 `DAILY_AGENT_RUNS` 配额实现。之后 B-3。B-2 仍等 B-1 的决策项。
+- **B-5 `fde-internal-autonomy`**（分支 `claude/fde-internal-autonomy`，叠在 B-4 上，[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支）：全部完成，状态 `[G]` 等 GATE。报告 `docs/QINGYAN_ORG_COCKPIT_B-5_REPORT.md`（偏差 10 条，交叉审查 2 阻塞 + 5 应修 + 可选项全部处理）。
+  - 做了什么：
+    - `policy.autonomy.autoStale`（默认关）；
+    - `revenue-spine` 定时任务在 next action 之前自动搁置 Revenue Spine 维护的商机：`stageChangedAt` 非空，最后活动 = max(最后互动, 阶段变更, 最新互动记录) 超过 `staleAfterDays`，买家未来信且不在等我们回复，无在途审批（含报价让利）；
+    - 审计 `policyKey`，按负责人汇总通知；
+    - FDE `decline` 判不合格审计带 `businessProfile.excludedCategoryAction`；
+    - `scripts/seed-revenue-autonomy.ts` 给 sunny-home-deco 开 dogfood（D-4）。
+  - 任务书第 1 条（decline 自动关闭）、第 3 条（配额 `quota_hit` + 通知 admin）既有代码已实现，只补审计键名与静态断言。
+  - **GATE 注意项**：company.log 操作人显示为负责人（`AuditLog.userId` 外键），来源与键名只在 `afterData`。建议后续给 A-2 时间线加动作中文标签与来源。
+  - staging：先跑 seed 脚本 dry-run，再 `--write`；核对审计、通知，确认 Sunny 窗饰车道商机未被动。
+- **下一步：等决策**。
+  - B-2 等 B-1 的"改稿来源"决策；B-3 等"偏好来源"决策（见下方"B-3 预研事实"）；A-5、B-6 是决策项。
+  - 决策到位前，可做的只有已合并 change 的 archive（`/opsx:archive <change> --yes`，独立小 PR）。
 - 已排队后续任务：清理未引用的 `src/components/dashboard/**`（A-3 合并后做）。
 - 记录的改进点：A-2 时间线的审计摘要是原始 action 代码（如 `PENDING_ACTION_APPROVED · pending_action`），可在 A-2 读模型加常见动作的中文标签（后续 change）。
 - A-2 实施中发现并已修到 A-1（PR #244 分支 `1776263`，再合进 A-2）：`Project.workDomain` 默认 `general` = 未分类项目，不能按工作域规则归到 `ops_knowledge`。
@@ -44,7 +56,7 @@
 | B-2 | `fde-fact-proposals` | — | — | — | — | — | `[ ]` |
 | B-3 | `fde-preferences-in-draft` | — | — | — | — | — | `[ ]` |
 | B-4 | `fde-score-calibration`（[PR #249](https://github.com/LucasJ880/-/pull/249)，base = B-1 分支） | ✅ `c8361609`（审查后修订） | 5/5 | ✅ 427/441，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 1 阻塞（列为 GATE 决策项）+ 2 应修 + 5 可选全部处理 | `[G]` |
-| B-5 | `fde-internal-autonomy` | — | — | — | — | — | `[ ]` |
+| B-5 | `fde-internal-autonomy`（[PR #250](https://github.com/LucasJ880/-/pull/250)，base = B-4 分支） | ✅ `73679c5e`（审查后修订） | 5/5 | ✅ 428/442，失败清单 = 基线；test:ci PASS；typecheck 0 | ✅ 无 WARNING | ✅ 2 阻塞 + 5 应修 + 可选项全部处理 | `[G]` |
 
 A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行决定是否启动）。
 
@@ -110,6 +122,23 @@ A-5、B-6 是决策项，不开 change（D-1：A-5 只做模板版，需另行�
    - 应用方式：`PUT /api/revenue/policy` `{ policy: <片段> }`，boss / admin，发布新版本。
 6. **面板位置**：`/revenue` 是单个客户端页（`src/app/(main)/revenue/page.tsx`），可在队列网格后加只读区块。
    - API 惯例：`resolveRevenueAccess(request)` + `force-dynamic` + `?days=` + `clampWindowDays`（默认 30、上限 180，需另设 90 默认）。
+
+## B-3 预研事实（偏好接入草稿；**开 change 前先等来源决定**）
+
+1. **任务书前提与代码不符**：
+   - `preference-learner.ts` 只产**个人**、**自由文本**偏好，且只有两条规则：`email_concise_default`、`no_discount_first_touch`。
+   - 这些偏好写进 `EmployeeAiProfile.learnedPreferences.inferred`，员工确认后才进 `manuallyConfirmedPreferences.confirmed`。
+   - 没有"问候 / 落款 / 必问字段 / 禁用语"这类结构化偏好，也没有团队范围的偏好存储。
+2. **employee-ai 里"团队范围"的东西**：
+   - 链路是 `practice-miner` → `CandidatePractice`（`/settings/digital-employees/team-learning` 审批）→ 发布为 `RolePlaybook`（`status=active`，有 `rules` / `workflows` / `templates` 自由 JSON）。
+   - `context-builder.ts` 把 active playbook 摘要拼进 LLM 提示；`roleScope` 缺省为 `sales`，没有 `inbound_sales_fde`。
+3. **草稿里已有的可配置项**：落款来自 `businessProfile.commercialFacts.signature`（`reply-draft.ts` `signatureLines` / `signOff`）；追问来自 `rfq/missing-info.ts` `buildClarifyingQuestions`（按缺失字段与 `maxQuestionsPerReply`）。
+4. **守卫**：`reply-draft.ts` `checkDraftGuardrails(body, allowed)`，润色之后再跑。
+5. **开关位置**：任务书写 `settingsJson.revenue_spine.fde.useConfirmedPreferences`，代码里还没有这个键。Revenue Spine 的其它开关在 `OrgBusinessRule(revenue_spine.policy)`。
+6. **待决定**：偏好从哪来。选项：
+   - (a) active `RolePlaybook`（`roleScope = inbound_sales_fde`）的 `templates` 里约定结构化块（问候 / 落款 / 追问顺序 / 禁用词），由管理员在 playbook 里维护；
+   - (b) 放进 `revenue_spine.policy` 新段（与 `notify` / `autonomy` 同级），不经 employee-ai；
+   - (c) 暂缓，等 B-2 / practice-miner 能产出结构化团队偏好。
 
 ## 环境（云端容器每次都是新的，照做即可）
 
