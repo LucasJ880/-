@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/guards";
 import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
 import { getOrgMembership, getProjectMembership } from "@/lib/auth";
-import { listAuditLogs, type AuditLogQuery } from "@/lib/audit/query";
+import { listAuditLogs, toAuditLogListItem, type AuditLogQuery } from "@/lib/audit/query";
 import { queryString, queryPagination } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { normalizePagination } from "@/lib/common/validation";
@@ -152,6 +152,7 @@ async function queryGlobalAuditLogs(
         targetId: true,
         ip: true,
         createdAt: true,
+        afterData: true,
         user: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -162,7 +163,8 @@ async function queryGlobalAuditLogs(
   ]);
 
   return {
-    data,
+    // PERM-5b：数字员工记录带 actorDisplay；afterData 不随列表返回
+    data: data.map(toAuditLogListItem),
     total,
     page: p,
     pageSize: ps,

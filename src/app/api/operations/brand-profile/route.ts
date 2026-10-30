@@ -7,8 +7,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
+import { requireOpsPermission, OPS_MANAGE, OPS_READ_KEYS } from "@/lib/operations/access";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
-import { canManageUsers } from "@/lib/rbac/roles";
 import { invalidateBrandContext } from "@/lib/operations/brand-context";
 
 const TEXT_FIELDS = [
@@ -30,6 +30,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
     request.nextUrl.searchParams.get("orgId"),
   );
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_READ_KEYS, "无权查看品牌档案（需要运营查看权限）");
+  if (denied) return denied;
 
   const profile = await db.brandProfile.findUnique({
     where: { orgId: orgRes.orgId },
@@ -38,12 +40,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
 });
 
 export const PUT = withAuth(async (request, _ctx, user) => {
-  if (!canManageUsers(user.role)) {
-    return NextResponse.json({ error: "无权维护品牌档案" }, { status: 403 });
-  }
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  const denied = await requireOpsPermission(user, orgRes.orgId, OPS_MANAGE, "无权维护品牌档案（需要运营管理权限）");
+  if (denied) return denied;
 
   const brandName = String(body.brandName ?? "").trim();
   if (!brandName) {

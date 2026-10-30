@@ -13,6 +13,17 @@ export const INBOUND_CONTRACT_VERSION = "tender-rfq-inbound/v1" as const;
 export const INBOUND_MISSING_FIELDS = ["price", "currency", "deliveryDays", "validUntil", "moq", "incoterm"] as const;
 export type InboundMissingField = (typeof INBOUND_MISSING_FIELDS)[number];
 
+/** 缺字段 → notes 里的中文标签（notes-parse.ts 按它反查，P1-7 追问从这里读） */
+export const INBOUND_MISSING_LABEL: Record<InboundMissingField, string> = {
+  price: "价格",
+  currency: "币种",
+  deliveryDays: "交期",
+  validUntil: "有效期",
+  moq: "起订量",
+  incoterm: "贸易条款",
+};
+
+
 export const inboundQuoteSchema = z.object({
   contractVersion: z.literal(INBOUND_CONTRACT_VERSION),
   isQuote: z.boolean(), // false = 只是回复（如"收到，明天给你"）

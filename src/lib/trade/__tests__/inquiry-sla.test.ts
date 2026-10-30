@@ -5,7 +5,8 @@
 
 import assert from "node:assert/strict";
 import { decideInquiryReminders, formatWaiting } from "../inquiry-sla";
-import { isManagementMember } from "../booth-summary";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 let pass = 0;
 function ok(name: string, fn: () => void) {
@@ -53,15 +54,11 @@ ok("等待时长格式化", () => {
   assert.equal(formatWaiting(3000), "2 天");
 });
 
-ok("24 小时升级的接收人：改用 isManagementMember 后与原来的内联规则逐一相同（通知对象不变）", () => {
-  const legacyLeader = (m: { role: string; user: { role: string } }) =>
-    ["org_owner", "org_admin"].includes(m.role) || ["boss", "manager", "admin", "super_admin"].includes(m.user.role);
-  for (const role of ["org_owner", "org_admin", "org_member", "org_viewer", "member", ""]) {
-    for (const userRole of ["boss", "manager", "admin", "super_admin", "trade", "sales", "viewer", "user", ""]) {
-      const m = { role, user: { role: userRole } };
-      assert.equal(isManagementMember(m), legacyLeader(m), `${role} / ${userRole}`);
-    }
-  }
+ok("首次提醒 / 24 小时升级的接收人（PERM-6c）：外贸工作收件人 / 外贸管理层（trade/recipients），不再按平台角色字面量", () => {
+  const src = readFileSync(join(process.cwd(), "src/lib/trade/inquiry-sla.ts"), "utf8");
+  assert.ok(src.includes("members.filter(isTradeWorker)"));
+  assert.ok(src.includes("isTradeManager(m, positionMode)"));
+  assert.ok(!src.includes('"boss", "manager", "admin"'));
 });
 
 console.log(`\ninquiry-sla: ${pass} 通过`);

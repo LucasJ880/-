@@ -11,6 +11,8 @@
  * - modulesJson 一律显式写入（空 = 不限制，不能留空）。
  */
 
+import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
+import { ensureDefaultPositions } from "@/lib/authorization/onboarding-positions";
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -65,6 +67,11 @@ function asJson(v: unknown): Prisma.InputJsonValue {
 }
 
 const SALES_PLATFORM_ROLES = new Set(["trade", "sales"]);
+/** 岗位模式"业务员"：销售工作键；PERM-6c 起外贸业务员（trade.manage）也算，不再看平台 trade */
+const SALES_WORK_KEYS = ["sales.quote.create", "sales.quote.pricing_close", "trade.manage"];
+function hasSalesWorkKey(keys: readonly string[] | null): boolean {
+  return Boolean(keys?.some((k) => SALES_WORK_KEYS.includes(k)));
+}
 
 const ORG_SELECT = { id: true, name: true, status: true, industryPackId: true, modulesJson: true, settingsJson: true, ownerId: true } as const;
 
@@ -234,6 +241,8 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
     throw err;
   });
 
+  // PERM-6b：岗位模式企业（家纺外贸 / 窗饰）没有绑定即无权限——建好成员后落岗位模板、自动绑，并把指定负责人绑 owner
+  const positions = await ensureDefaultPositions({ orgId: result.orgId, actorUserId: input.actorUserId, ownerUserId });
   const baseline = await ensureBaselineOrgRules({ orgId: result.orgId, userId: input.actorUserId });
   await logAudit({
     userId: input.actorUserId,
@@ -252,6 +261,7 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
       workspacesCreated: result.workspacesCreated,
       memberships: result.memberships,
       keptExisting: result.keptExisting,
+      ownerPositionBound: positions.ownerBound,
       baselineRules: baseline.map((b) => `${b.ruleKey}:${b.status}`),
     },
   });
@@ -439,6 +449,9 @@ export async function updateOnboardingSettings(
     }
   });
 
+  // PERM-6b：交接给新负责人后同样落岗位（新负责人绑 owner；旧负责人的岗位由平台管理员在「岗位」一节调整）
+  if (patch.ownerUserId) await ensureDefaultPositions({ orgId, actorUserId, ownerUserId: patch.ownerUserId });
+
   await logAudit({
     userId: actorUserId,
     orgId,
@@ -585,7 +598,12 @@ export async function getOnboardingStatus(orgId: string, opts?: { configHealth?:
 
   const activeMembers = memberRows.filter((m) => m.user.status === "active");
   const bindings = await activeWeChatBindings(orgId, activeMembers.map((m) => m.user.id));
-  const members = activeMembers.map((m) => {
+  // PERM-4c5：岗位模式企业的"业务员"按销售工作键判定（压扁后平台角色不再是 sales）；trade 仍按平台角色（PERM-6）
+  const positionMode = await loadPositionMode(orgId);
+  const memberKeys = positionMode
+    ? await Promise.all(activeMembers.map((m) => loadPermissionKeys(m.user.id, orgId)))
+    : null;
+  const members = activeMembers.map((m, i) => {
     const channels = [...new Set(bindings.filter((b) => b.userId === m.user.id).map((b) => b.channel))];
     return {
       userId: m.user.id,
@@ -593,7 +611,9 @@ export async function getOnboardingStatus(orgId: string, opts?: { configHealth?:
       email: m.user.email,
       platformRole: m.user.role,
       orgRole: m.role,
-      isSalesRole: SALES_PLATFORM_ROLES.has(m.user.role),
+      isSalesRole: memberKeys
+        ? hasSalesWorkKey(memberKeys[i])
+        : SALES_PLATFORM_ROLES.has(m.user.role),
       wechatBound: channels.length > 0,
       wechatChannels: channels,
     };

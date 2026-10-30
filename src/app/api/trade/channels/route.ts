@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit/logger";
 import {
   ChannelInboundIdConflictError,
@@ -11,14 +10,18 @@ import {
   upsertWebsiteChannel,
 } from "@/lib/trade/channel-service";
 import { CAN_MANAGE_CHANNELS_HEADER, canManageTradeChannels, channelManageForbiddenResponse } from "@/lib/trade/channel-access";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  resolveTradeOrgId,
+  TRADE_CHANNEL_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { normalizeForwarderAllowlist } from "@/lib/trade/email-inbound-rules";
 
 const CHANNEL_TYPES = new Set(["whatsapp", "wechat", "wechat_work", "website", "email"]);
 
 /** 列表：外贸角色都可读，凭证一律只显示末 4 位；能否管理放在响应头里（列表保持数组，兼容既有调用方） */
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_CHANNEL_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);
@@ -30,7 +33,7 @@ export async function GET(request: NextRequest) {
 
 /** 新建 / 更新通道：仅企业负责人 / 企业管理员 / 平台管理员 */
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_CHANNEL_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);

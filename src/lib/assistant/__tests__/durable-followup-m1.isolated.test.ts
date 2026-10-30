@@ -339,7 +339,8 @@ async function main() {
     // 组织级动作的四眼原则（既有 canDecideTeamApproval）：发起人（org_member）不能自批，
     // 由组织管理员 / 指定审批人决定；执行主体（后续恢复）仍是发起人
     const ctxOwner = { userId: A.fx.ownerUserId, role: "sales", orgId: A.fx.orgId };
-    const ctxApprover = { userId: A.fx.approverUserId, role: "admin", orgId: A.fx.orgId };
+    // PERM-7b：审批人看他人客户靠平台管理员身份——平台管理员只认 super_admin
+    const ctxApprover = { userId: A.fx.approverUserId, role: "super_admin", orgId: A.fx.orgId };
     const selfApprove = await approveApprovalItem("pending_action", reminderPAs[0].id, ctxOwner);
     ok(selfApprove.ok === false && (await db.calendarEvent.count({ where: { userId: { in: [A.fx.ownerUserId, A.fx.approverUserId] } } })) === 0, "T09: 发起人不能自批组织级动作（审批链不被新入口放宽）", selfApprove);
     const r1 = await approveApprovalItem("pending_action", reminderPAs[0].id, ctxApprover);
@@ -423,7 +424,7 @@ async function main() {
       "T10: 用户主动取消 → 任务已取消，未决动作全部拒绝",
       { cancel: cancelRes.ok, statuses: pasBAfter.map((p) => p.status) },
     );
-    const ctxApproverB = { userId: B.fx.approverUserId, role: "admin", orgId: B.fx.orgId };
+    const ctxApproverB = { userId: B.fx.approverUserId, role: "super_admin", orgId: B.fx.orgId };
     const lateApprove = await approveApprovalItem("pending_action", pasB[1].id, ctxApproverB);
     // 迟到草稿：worker 在取消窗口内落库的待确认动作
     const late = await createDraft({
@@ -588,7 +589,7 @@ async function main() {
 
       // T11：审批人（管理员）批准，但发起人已失去权限 → 恢复仍以发起人身份校验并停止
       await db.organizationMember.updateMany({ where: { orgId: C.fx.orgId, userId: C.fx.ownerUserId }, data: { status: "inactive" } });
-      const adminCtx = { userId: C.fx.approverUserId, role: "admin", orgId: C.fx.orgId };
+      const adminCtx = { userId: C.fx.approverUserId, role: "super_admin", orgId: C.fx.orgId };
       for (const p of c3Pas) await rejectApprovalItem("pending_action", p.id, { ...adminCtx, note: "x" }).catch(() => null);
       const c3Run = await db.agentRun.findUnique({ where: { id: runC3 }, select: { status: true, errorCode: true, metadata: true } });
       ok(

@@ -104,12 +104,16 @@ export const POST_REGISTRY = [
       "wechat-push",
       "inquiry-sla",
       "trade-daily",
+      "muse-reminder-scan",
+      "calendar-watch",
     ],
     pendingActionTypes: [
       "sales.update_followup",
       "sales.update_stage",
       "sales.approve_quote_promotion",
       "sales.send_inquiry_reply",
+      "sales.update_quote_settings",
+      "sales.update_signed_quote",
     ],
     workDomains: ["sales"],
     // runtime_v2 唯一写入点（agent-runtime-v2/process.ts）的 intent 固定为 sales_followup_triage
@@ -197,7 +201,8 @@ export const POST_REGISTRY = [
     key: "projects",
     name: "项目交付",
     automationKeys: ["project-inspection", "progress-summary", "proactive-scan"],
-    pendingActionTypes: [],
+    // Sunny 窗饰：工艺单作废、安装收口后的质保邮件与返修时间确认邮件属于交付环节
+    pendingActionTypes: ["orders.cancel_blinds_order", "install.send_warranty_email", "install.send_repair_visit_email"],
     workDomains: ["delivery"],
     agentRunTypes: [],
     kpi: {

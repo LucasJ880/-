@@ -126,7 +126,6 @@ function MarketingBrandEditor({
   const [score, setScore] = useState<number | null>(null);
   const [status, setStatus] = useState("draft");
   const [canEdit, setCanEdit] = useState(false);
-  const [membershipRole, setMembershipRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -141,7 +140,6 @@ function MarketingBrandEditor({
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "企业事实加载失败");
       setCanEdit(Boolean(body.permissions?.canEdit));
-      setMembershipRole(body.permissions?.membershipRole ?? null);
       if (body.profile) {
         setForm(toForm(body.profile));
         setIssues(Array.isArray(body.profile.validationIssues) ? body.profile.validationIssues : []);
@@ -237,12 +235,12 @@ function MarketingBrandEditor({
       {!canEdit && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
-          <div><div className="font-medium">当前为只读模式</div><p className="mt-1 text-sm">观察者可以查看企业事实，但不能修改。请让组织管理员将账号设为“成员”。</p></div>
+          <div><div className="font-medium">当前为只读模式</div><p className="mt-1 text-sm">增长中心由运营维护：持运营管理权限（运营主管岗位）的人可以修改，其他成员只读。需要修改请联系运营主管或平台管理员调整岗位。</p></div>
         </div>
       )}
-      {canEdit && membershipRole === "org_member" && (
+      {canEdit && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          <Users size={16} /> 营销成员可以直接填写和更新，所有保存都会进入审计日志。
+          <Users size={16} /> 你持有运营管理权限，可以直接填写和更新，所有保存都会进入审计日志。
         </div>
       )}
       {error && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>}

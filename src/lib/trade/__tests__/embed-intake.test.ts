@@ -469,7 +469,8 @@ ok("主干拒收时保留拒收码：ingestWebsiteInquiry 的 SPINE_FAILED 带 i
 
 // ── 管理角色 ──
 ok("管理通道的角色：平台管理员；本组织 active 的 org_owner / org_admin；其余（含外贸 org_member）不行", () => {
-  assert.equal(roleCanManageTradeChannels("admin", null, false), true);
+  // PERM-6a：平台 admin（非 super_admin）不再隐含消息通道管理权
+  assert.equal(roleCanManageTradeChannels("admin", null, false), false);
   assert.equal(roleCanManageTradeChannels("super_admin", null, false), true);
   assert.equal(roleCanManageTradeChannels("trade", "org_owner", true), true);
   assert.equal(roleCanManageTradeChannels("trade", "org_admin", true), true);

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runTrackedAutomation } from "@/lib/automation/runner";
+import { runCalendarWatch } from "@/lib/calendar-watch/run";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
+import { scanMuseReminders } from "@/lib/muse-bridge/reminder-scan";
 import { syncSalesAutoActions } from "@/lib/sales/auto-action-sync";
 
 export const maxDuration = 300;
@@ -9,6 +11,7 @@ export const maxDuration = 300;
 export async function GET(request: NextRequest) {
   const denied = requireCronSecret(request);
   if (denied) return denied;
+  const requestStartedAt = Date.now();
 
   const data = await runTrackedAutomation("sales-action-sync", async () => {
     const [opportunityOrganizations, actionOrganizations] = await Promise.all([
@@ -45,5 +48,40 @@ export async function GET(request: NextRequest) {
       metadata: { organizations: results.length, failedCount },
     };
   });
-  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data });
+  // TASKFLOW S3：Muse 跟进到期 / 逾期与询问逾期提醒；单独记一条运行记录，便于验收第 8 步取证
+  const museReminders = await runTrackedAutomation("muse-reminder-scan", async () => {
+    const result = await scanMuseReminders();
+    return {
+      data: result,
+      status: result.skipped ? "skipped" : result.failed > 0 ? "partial" : "succeeded",
+      processedCount: result.planned,
+      succeededCount: result.emitted,
+      failedCount: result.failed,
+      metadata: result,
+    };
+  });
+  // CAL-1：Google 共享日历变更观察与归因（只读 Google；排在最后，有页数与时间预算）
+  const calendarWatch = await runTrackedAutomation("calendar-watch", async () => {
+    // 整个请求 maxDuration = 300 秒，前两步已用掉一部分：从请求开始算，留 60 秒余量
+    const result = await runCalendarWatch({ deadline: new Date(requestStartedAt + 240_000) });
+    return {
+      data: result,
+      status: result.organizations === 0 ? "skipped" : result.failedCount > 0 ? "partial" : "succeeded",
+      processedCount: result.organizations,
+      succeededCount: result.organizations - result.failedCount,
+      failedCount: result.failedCount,
+      metadata: {
+        organizations: result.organizations,
+        failedCount: result.failedCount,
+        recorded: result.recorded,
+        notified: result.notified,
+        muse: result.muse,
+        wechatSent: result.wechatSent,
+        wechatFailed: result.wechatFailed,
+        wechatSkipped: result.wechatSkipped,
+        wechatCapped: result.wechatCapped,
+      },
+    };
+  });
+  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch });
 }
