@@ -5,6 +5,7 @@
  * 只展示 /api/cockpit/posts 与 /api/cockpit/timeline 的响应（已脱敏），不提供任何改变数据的操作。
  */
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -53,6 +54,8 @@ export interface OrgCockpitViewProps {
   /** 只重试时间线，不影响已加载的岗位卡片 */
   onRetryTimeline?: () => void;
   onLoadMore?: () => void;
+  /** 卡片与 company.log 之间的区块（A-4 工作量，自带点击加载） */
+  workloadSlot?: ReactNode;
 }
 
 const WAITING_PREVIEW = 5;
@@ -66,6 +69,7 @@ export function OrgCockpitView({
   onRetry,
   onRetryTimeline,
   onLoadMore,
+  workloadSlot,
 }: OrgCockpitViewProps) {
   const data = posts.status === "ready" ? posts.data : null;
   return (
@@ -133,6 +137,8 @@ export function OrgCockpitView({
               </section>
             </>
           ) : null}
+
+          {workloadSlot}
 
           <section aria-labelledby="cockpit-log-heading" aria-busy={timeline.status === "loading" ? true : undefined} className="mt-8">
             <div className="flex items-baseline justify-between gap-3">

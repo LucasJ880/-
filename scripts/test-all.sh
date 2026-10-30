@@ -594,6 +594,10 @@ run_test "组织驾驶舱 读模型与 API（A-2）" "npx tsx src/lib/cockpit/__
 run_test "组织驾驶舱 首页展示规则（A-3）" "npx tsx src/lib/cockpit/__tests__/presentation.test.ts"
 run_test "组织驾驶舱 首页取数状态机（A-3）" "npx tsx src/lib/cockpit/__tests__/home-state.test.ts"
 run_test "组织驾驶舱 岗位视图渲染（A-3）" "npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx"
+# 组织驾驶舱 A-4（openspec change org-cockpit-workload）：工作量 / 无用功汇总、读模型与首页区块——纯逻辑 + 假依赖 + 服务端静态渲染，无 DB
+run_test "组织驾驶舱 工作量汇总（A-4）" "npx tsx src/lib/cockpit/__tests__/workload.test.ts"
+run_test "组织驾驶舱 工作量读模型与接口（A-4）" "npx tsx src/lib/cockpit/__tests__/workload-read-model.test.ts"
+run_test "组织驾驶舱 工作量区块渲染（A-4）" "npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
