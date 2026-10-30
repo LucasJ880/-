@@ -4,9 +4,12 @@
  * 创建预约 → 自动推送到 Google Calendar
  * 修改预约 → 自动更新 Google Calendar 事件
  * 取消/删除预约 → 自动删除 Google Calendar 事件
+ *
+ * CAL-2：由网站预约转入的预约以 Google 共享日历为准，这里不推送、不改、不删（见 calendar-watch/intake-link）。
  */
 
 import { db } from "@/lib/db";
+import { isWebsiteBookingEvent } from "@/lib/calendar-watch/intake-link";
 import {
   pushEventToGoogle,
   updateGoogleEvent,
@@ -41,7 +44,7 @@ function buildDescription(appointment: {
 export async function syncAppointmentToGoogle(
   appointmentId: string,
   userId: string,
-): Promise<{ synced: boolean; googleEventId?: string }> {
+): Promise<{ synced: boolean; googleEventId?: string; skipped?: "website_booking" }> {
   const provider = await getGoogleProvider(userId);
   if (!provider) return { synced: false };
 
@@ -50,6 +53,9 @@ export async function syncAppointmentToGoogle(
     include: { customer: { select: { name: true, phone: true } } },
   });
   if (!appointment) return { synced: false };
+  if (appointment.googleEventId && (await isWebsiteBookingEvent(appointment.googleEventId))) {
+    return { synced: false, googleEventId: appointment.googleEventId, skipped: "website_booking" };
+  }
 
   const eventData = {
     title: `${TYPE_LABELS[appointment.type] || ""} ${appointment.title}`.trim(),
@@ -95,6 +101,8 @@ export async function unsyncAppointmentFromGoogle(
     select: { googleEventId: true },
   });
   if (!appointment?.googleEventId) return true;
+  // CAL-2：网站预约转入的不删 Google 事件，也不清 googleEventId（否则会重新出现在待转入列表）
+  if (await isWebsiteBookingEvent(appointment.googleEventId)) return true;
 
   const { ok } = await deleteGoogleEvent(userId, {
     eventId: appointment.googleEventId,

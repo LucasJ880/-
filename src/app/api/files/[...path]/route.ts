@@ -13,6 +13,7 @@
  * - visualizer/sessions/{sessionId}/... → session 可见性（创建人/负责人/客户创建人/admin）
  * - visualizer/templates/...            → 登录即可（平台 AI 标准安装模板底图）
  * - projects/{projectId}/...            → 项目读权限
+ * - install-photos/{orgId}/{orderId}/... → org 成员 + （install.photo.read ORG 或该工艺单预约的被分配人）
  * - temp/brochures/...                  → 登录即可（临时画册）
  *
  * 未匹配任何已知前缀的路径一律 404（不暴露存储结构）。
@@ -28,9 +29,13 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   SESSION_ACCESS_SELECT,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { readBlobStream } from "@/lib/files/blob-access";
+import { authorize, humanPrincipal } from "@/lib/authorization";
+import { INSTALL_PHOTO_PREFIX, parseInstallPhotoPath } from "@/lib/install/closeout";
+import { installAppointmentIdsForOrder } from "@/lib/install/repair-service";
 
 const notFound = () => NextResponse.json({ error: "文件不存在" }, { status: 404 });
 const forbidden = () => NextResponse.json({ error: "无权访问该文件" }, { status: 403 });
@@ -79,7 +84,8 @@ async function authorizeBlobPath(
           select: SESSION_ACCESS_SELECT,
         });
         if (!session) return "forbidden";
-        return canSeeVisualizerSession(session, user) ? "ok" : "forbidden";
+        // PERM-4c5：按企业 + 岗位派生角色判定"看全部"
+        return canSeeVisualizerSession(session, await resolveVisualizerViewer(user)) ? "ok" : "forbidden";
       }
       // 平台标准安装模板底图：无组织敏感数据，登录即可读
       if (second === "templates") {
@@ -95,6 +101,26 @@ async function authorizeBlobPath(
     case "temp": {
       // 临时画册 PDF：登录即可（生命周期短，不含跨组织敏感数据）
       return second === "brochures" ? "ok" : "unknown";
+    }
+    case INSTALL_PHOTO_PREFIX: {
+      // INSTALL-1：收口照片——org 成员，且（持 install.photo.read ORG）或（该工艺单安装预约的被分配人）
+      const parsed = parseInstallPhotoPath(segments);
+      if (!parsed) return "unknown";
+      if (!(await hasOrgAccess(user, parsed.orgId))) return "forbidden";
+      if (isAdmin(user.role)) return "ok";
+      const read = await authorize({
+        principal: humanPrincipal(user, parsed.orgId),
+        orgId: parsed.orgId,
+        permission: "install.photo.read",
+      });
+      if (read.allowed && read.scopes.includes("ORG")) return "ok";
+      // INSTALL-2e：该工艺单任一安装预约（当前预约 + 维修单记录的首装 / 返修预约）的被分配人（修 F5）
+      const apptIds = await installAppointmentIdsForOrder(parsed.orderId);
+      if (apptIds.length === 0) return "forbidden";
+      const mine = await db.appointment.count({
+        where: { id: { in: apptIds }, type: "install", assignedToId: user.id },
+      });
+      return mine > 0 ? "ok" : "forbidden";
     }
     default:
       return "unknown";

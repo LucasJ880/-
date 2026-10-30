@@ -33,10 +33,12 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
 // QE-02 权限映射
 {
   const base = { user: { id: "u1", role: "member" }, project: { orgId: "o1", ownerId: "owner" }, orgRole: "org_member", projectRole: "project_viewer" } as never;
-  const viewer = resolveQuoteCapabilities(base);
-  const owner = resolveQuoteCapabilities({ ...base, project: { orgId: "o1", ownerId: "u1" } } as never);
-  const admin = resolveQuoteCapabilities({ ...base, orgRole: "org_admin" } as never);
-  ok(!viewer.canViewInternal && !viewer.canEdit && !viewer.canApprove && owner.privileged && owner.canApprove && admin.privileged, "QE-02: 普通成员默认看不到内部成本/不能编辑/不能批准；owner 与 org_admin 直通");
+  const viewer = resolveQuoteCapabilities(base, { financeManage: false });
+  const owner = resolveQuoteCapabilities({ ...base, project: { orgId: "o1", ownerId: "u1" } } as never, { financeManage: false });
+  const admin = resolveQuoteCapabilities({ ...base, orgRole: "org_admin" } as never, { financeManage: false });
+  const boss = resolveQuoteCapabilities(base, { financeManage: true });
+  ok(!viewer.canViewInternal && !viewer.canEdit && !viewer.canApprove && owner.privileged && owner.canApprove && boss.privileged && boss.canApprove, "QE-02: 普通成员默认看不到内部成本/不能编辑/不能批准；项目 owner 与持 project.finance.manage 直通");
+  ok(!admin.privileged && !admin.canViewInternal, "QE-02（PERM-4c1）：org_admin 本身不再直通");
 }
 
 // QE-03 客户视图零泄露（白名单键 + 反例守卫）

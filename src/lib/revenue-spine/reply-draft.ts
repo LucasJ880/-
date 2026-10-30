@@ -93,7 +93,7 @@ const fmtQty = (n: number) => n.toLocaleString("en-US");
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** 英文并列：a / a and b / a, b and c；某一项自带 and 时最后一项前加逗号，免得连着两个 and */
-function joinEn(items: string[]): string {
+export function joinEn(items: string[]): string {
   if (items.length <= 1) return items.join("");
   const comma = items.some((i) => / and /.test(i)) ? "," : "";
   return `${items.slice(0, -1).join(", ")}${comma} and ${items[items.length - 1]}`;
@@ -126,6 +126,23 @@ export function buildReferenceLines(knowledge: FactoryKnowledgeBundle, policy: R
     if (facts.loadingPorts.length && parts.length) lines.push(`Loading ports: ${facts.loadingPorts.join(" or ")}.`);
   }
   return lines;
+}
+
+/** 企业配置的样品说明（买家要样品、且样品政策可用时）；可能含天数，只能以原句出现 */
+export function sampleLineFor(knowledge: FactoryKnowledgeBundle, fields: RfqFields, lang: "en" | "zh"): string | null {
+  if (knowledge.samplePolicy.status !== "available" || !fields.sampleRequired) return null;
+  const sp = knowledge.samplePolicy.value;
+  return lang === "zh"
+    ? `关于样品：${sp.note || (sp.available ? "我们可以安排样品，具体方式待确认。" : "样品安排需内部确认。")}`
+    : `Regarding samples: ${sp.note || (sp.available ? "we can arrange samples; details to be confirmed." : "sample arrangements are subject to internal confirmation.")}`;
+}
+
+/** 已获准引用的在市参考项目（同类目，最多一条） */
+export function referenceProgramLines(policy: RevenueSpinePolicy, fields: RfqFields, lang: "en" | "zh"): string[] {
+  return policy.businessProfile.commercialFacts.referencePrograms
+    .filter((r) => r.category && fields.productCategory && r.category === fields.productCategory)
+    .slice(0, 1)
+    .map((r) => (lang === "zh" ? r.summaryZh : r.summaryEn));
 }
 
 /** 落款附加行（职位 / WhatsApp / 网站） */
@@ -374,17 +391,10 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
   const termLines = catalogOnly ? [] : buildReferenceLines(knowledge, input.policy, lang);
   const referenceLines = [...termLines];
   // 企业配置的样品说明（可能含天数）同样只能以原句出现
-  const sampleLine =
-    !catalogOnly && knowledge.samplePolicy.status === "available" && fields.sampleRequired
-      ? lang === "zh"
-        ? `关于样品：${knowledge.samplePolicy.value.note || (knowledge.samplePolicy.value.available ? "我们可以安排样品，具体方式待确认。" : "样品安排需内部确认。")}`
-        : `Regarding samples: ${knowledge.samplePolicy.value.note || (knowledge.samplePolicy.value.available ? "we can arrange samples; details to be confirmed." : "sample arrangements are subject to internal confirmation.")}`
-      : null;
+  const sampleLine = catalogOnly ? null : sampleLineFor(knowledge, fields, lang);
   if (sampleLine && /\d/.test(sampleLine)) referenceLines.push(sampleLine);
   const sig = signatureLines(input.policy, lang);
-  const references = catalogOnly
-    ? []
-    : cf.referencePrograms.filter((r) => r.category && fields.productCategory && r.category === fields.productCategory).slice(0, 1);
+  const references = catalogOnly ? [] : referenceProgramLines(input.policy, fields, lang);
   const styleLabel = (st: { code: string; name: string | null }, zh: boolean) =>
     st.name ? (zh ? `${st.name}（参考款 ${st.code}）` : `${st.name} (ref. ${st.code})`) : st.code;
   const styleSubject = (zh: boolean) =>
@@ -432,7 +442,8 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
     for (const l of [
       ...confirmFacts.map((f) => `- ${RFQ_FIELD_LABELS[f.field][lang]}${zh ? "：" : ": "}${f.value}`),
       ...styles.map((st) => `- ${styleLabel(st, zh)}`),
-      ...references.map((r) => (zh ? r.summaryZh : r.summaryEn)),
+      // main 上 referenceProgramLines 已按语言返回成句
+      ...references,
       ...termLines,
       ...(sampleLine ? [sampleLine] : []),
       pendingLine,
@@ -482,7 +493,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       lines.push(cf.catalogUrl ? `我们的产品目录在这里，供您参考：${cf.catalogUrl}` : "我们会另行把产品目录发给您，供您参考。");
       lines.push("如有任何感兴趣的款式，随时回复这封邮件即可。");
     } else {
-      for (const r of references) lines.push(r.summaryZh);
+      for (const r of references) lines.push(r);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
       lines.push(pendingLine);
@@ -529,7 +540,7 @@ export function buildReplyDraft(input: ReplyDraftInput): ReplyDraft {
       lines.push(cf.catalogUrl ? `You can find our product catalogue here: ${cf.catalogUrl}` : "We will send you our product catalogue separately for your reference.");
       lines.push("If any of the styles catch your interest, simply reply to this email.");
     } else {
-      for (const r of references) lines.push(r.summaryEn);
+      for (const r of references) lines.push(r);
       for (const l of termLines) lines.push(l);
       if (sampleLine) lines.push(sampleLine);
       lines.push(pendingLine);

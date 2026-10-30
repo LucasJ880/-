@@ -5,6 +5,7 @@ import {
   SESSION_ACCESS_SELECT,
   canSeeVisualizerSession,
   visualizerSessionListScope,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 
 /**
@@ -27,6 +28,8 @@ import {
  */
 
 export const GET = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { id: sessionId } = await ctx.params;
 
   const target = await db.visualizerSession.findUnique({
@@ -36,11 +39,11 @@ export const GET = withAuth(async (_request, ctx, user) => {
   if (!target) {
     return NextResponse.json({ error: "可视化方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(target, user)) {
+  if (!canSeeVisualizerSession(target, viewer)) {
     return NextResponse.json({ error: "无权访问该可视化方案" }, { status: 403 });
   }
 
-  const scope = visualizerSessionListScope(user);
+  const scope = visualizerSessionListScope(viewer);
   const otherSessions = await db.visualizerSession.findMany({
     where: {
       customerId: target.customerId,

@@ -1,6 +1,6 @@
 # P1-7 完成报告：催单与缺字段追问（审批后发送，同线程回复）
 
-任务书：P1-7 任务书（claude.ai artifact LGAP7zAa5UUvx7NJbPMjLn）
+任务书：`docs/QINGYAN_TENDER_P1-7_CHASE_TASKBRIEF.md`（原文为 claude.ai artifact LGAP7zAa5UUvx7NJbPMjLn）
 分支：`feature/tender-rfq-chase-p1-7`（基于 main，已合入邮箱拆分 `feature/tender-rfq-mailbox-split`）
 
 ---
@@ -64,7 +64,7 @@ npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts  # 20 passed（§4-9�
 ## 3. 判断点（请审）
 
 1. **"现在还缺什么"**：以最新 `[auto]` 段的「缺：…」为准，再去掉后来补上的——价格 / 交期 / 有效期看字段值；**币种列有默认值 CAD 看不出是否补了**，按"`[auto]` 段之后这一行被人改过（> 15 分钟）"视为已人工核对。
-2. **入站目前只会判出 4 种缺失**（价格 / 币种 / 交期 / 有效期）；模板里起订量、贸易条款两条措辞已备好，没有扩入站解析。
+2. **入站目前只会判出 4 种缺失**（价格 / 币种 / 交期 / 有效期）；~~模板里起订量、贸易条款两条措辞已备好，没有扩入站解析。~~ 后续已补：入站口径不变，追问决策里补问——已报价但从没读到贸易条款 → 单独追问；起订量只在本来就追问时顺带问。
 3. **原主题 / 收件地址**从这轮 `tender.send_rfq` payload 取（发出去的就是事实来源）；取不到 → 主题回退 `询价：<项目名>`、收件回退供应商联系邮箱。
 4. **回复截止已过（§4-5）**：不再起草催单；最后一次联系（询价或催单）满 `chaseAfterDays` 仍 sent → 直接标 no_response，不要求先催满两次。截止按 `ProjectInquiry.dueDate` 当天结束算。
 5. **幂等键**：no_reply 用任务书的 `tender.send_chase:${itemId}:${n}`；追问用 `…:${itemId}:missing_fields`（否则和 no_reply 的第 1 次撞键）。草稿层按幂等键复用旧卡（含已过期的），所以**过期重起草加 `:r<k>` 后缀**；**被驳回的卡扫描不再自动起草**（人已经说了不催），手动 `chase` 可以。
@@ -79,6 +79,6 @@ npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts  # 20 passed（§4-9�
 
 ## 4. 已知限制 / 发现
 
-- **标了 no_response 的 item 不再被入站盯**（`loadInboundOrgContexts` 只看 sent/replied/quoted）：供应商之后才回的信不会自动入表。可以在 P1-4 的取数里把 no_response 加进去（状态机允许 no_response → sent），本 PR 没动。
+- ~~**标了 no_response 的 item 不再被入站盯**~~：后续已修——入站也盯 no_response，晚到的回信先改回 sent 再按 sent 规则入表，AuditLog 标 `revivedFromNoResponse`。
 - ~~（P1-3 既有）询价 / 催单正文是纯文本，但 `buildRawEmail` 以 `text/html` 发出~~：已在后续 PR 修复——`sendGmail` 加 `contentType`，询价与催单都按 `text/plain` 发。
 - 催单计数从 `contactNotes` 读：有人手工清空沟通备注会丢掉计数（与任务书"不改 schema"一致）。

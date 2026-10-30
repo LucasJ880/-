@@ -3,13 +3,13 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
+import { REVENUE_READ_KEYS, resolveRevenueAccess } from "@/lib/revenue-spine/access";
 import { OPEN_STAGES, isOpportunityStage } from "@/lib/revenue-spine/opportunity-stage";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const access = await resolveRevenueAccess(request);
+  const access = await resolveRevenueAccess(request, REVENUE_READ_KEYS);
   if (!access.ok) return access.response;
   const sp = request.nextUrl.searchParams;
   const stage = sp.get("stage") ?? "";

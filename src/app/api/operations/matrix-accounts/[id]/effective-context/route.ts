@@ -7,13 +7,13 @@ import {
 } from "@/lib/operations/playbook";
 
 export const GET = withAuth<{ id: string }>(async (request, ctx, user) => {
-  if (!canReadPlaybook(user.role)) {
-    return NextResponse.json({ error: "无权查看账号上下文" }, { status: 403 });
-  }
   const { id: accountId } = await ctx.params;
   const sp = request.nextUrl.searchParams;
   const orgRes = await resolveRequestOrgIdForUser(user, sp.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
+  if (!(await canReadPlaybook(user, orgRes.orgId))) {
+    return NextResponse.json({ error: "无权查看账号上下文" }, { status: 403 });
+  }
 
   try {
     const result = await resolveEffectiveAccountContext({

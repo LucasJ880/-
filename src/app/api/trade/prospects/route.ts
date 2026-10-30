@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
 import { createProspect } from "@/lib/trade/service";
-import { loadTradeCampaignForOrg, resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  loadTradeCampaignForOrg,
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  TRADE_READ_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { listTradeProspectsForOrg } from "@/lib/trade/prospect-list";
 
 function parseOptionalFloat(v: string | null): number | null {
@@ -18,7 +23,7 @@ function parseOptionalFloat(v: string | null): number | null {
  * - 兼容旧客户端：传 `legacyFull=1` 且带 campaignId 时，仍返回旧版 listProspects 全字段结构（仅建议过渡）
  */
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_READ_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);
@@ -56,7 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const body = await request.json();

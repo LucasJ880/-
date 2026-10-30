@@ -1,0 +1,948 @@
+{
+ "source": {
+  "zip": "31caa089-LUCAS_QUOTE.zip (Lucas 2026-10-29 上传)",
+  "toolVersion": "2026.10-local.1",
+  "sourceInfo": {
+   "base": "October HTML price matrices",
+   "added": "November Excel: Fauxwood, Allusion, addon price"
+  },
+  "indexHtmlSha256": "d068ab4bd8fe4981e518f929f06fac745ccb414a5d1eaf83b6a5a8d174c3203c",
+  "xlsxSha256": "d68a4cf8e62448c0b7f572ca300d46b3bce7265a79ff0aebef99ac5da80cdf6b"
+ },
+ "crossCheck": {
+  "existingNineProducts": "HTML seed / Excel 价格矩阵 / src/lib/blinds/pricing-data.ts 三方逐格一致（0 差异）",
+  "method": "python 逐格比对，见 docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md §2"
+ },
+ "newProducts": {
+  "Fauxwood": {
+   "brackets": {
+    "widths": [
+     18,
+     24,
+     32,
+     36,
+     42,
+     48,
+     54,
+     60,
+     66,
+     72,
+     78
+    ],
+    "heights": [
+     30,
+     36,
+     42,
+     48,
+     54,
+     60,
+     66,
+     72,
+     75
+    ]
+   },
+   "fabrics": {
+    "Standard": {
+     "msrp": [
+      [
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       370.12987012987,
+       404.22077922078,
+       435.38961038961,
+       450.974025974026,
+       481.168831168831,
+       517.207792207792
+      ],
+      [
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       366.233766233766,
+       386.688311688311,
+       435.38961038961,
+       469.480519480519,
+       502.597402597402,
+       529.87012987013,
+       554.22077922078
+      ],
+      [
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       343.831168831169,
+       383.766233766234,
+       433.441558441558,
+       463.636363636364,
+       502.597402597402,
+       536.688311688311,
+       547.402597402598,
+       581.493506493507
+      ],
+      [
+       339.285714285715,
+       339.285714285715,
+       339.285714285715,
+       366.233766233766,
+       410.064935064935,
+       450.974025974026,
+       490.909090909091,
+       549.350649350649,
+       581.493506493507,
+       637.012987012988,
+       665.25974025974
+      ],
+      [
+       339.285714285715,
+       339.285714285715,
+       357.467532467533,
+       386.688311688311,
+       443.181818181818,
+       485.064935064935,
+       536.688311688311,
+       597.077922077922,
+       637.012987012988,
+       691.558441558442,
+       739.285714285715
+      ],
+      [
+       339.285714285715,
+       339.285714285715,
+       370.12987012987,
+       421.753246753247,
+       459.74025974026,
+       521.103896103897,
+       581.493506493507,
+       627.272727272727,
+       674.025974025974,
+       739.285714285715,
+       787.012987012988
+      ],
+      [
+       339.285714285715,
+       339.285714285715,
+       377.922077922078,
+       443.181818181818,
+       490.909090909091,
+       547.402597402598,
+       627.272727272727,
+       699.350649350649,
+       748.051948051948,
+       775.324675324675,
+       859.090909090909
+      ],
+      [
+       342.857142857143,
+       361.363636363636,
+       405.194805194806,
+       459.74025974026,
+       529.87012987013,
+       585.38961038961,
+       672.077922077922,
+       716.883116883117,
+       787.012987012988,
+       859.090909090909,
+       893.181818181818
+      ],
+      [
+       366.233766233766,
+       381.818181818182,
+       441.233766233766,
+       524.025974025974,
+       578.571428571428,
+       627.272727272727,
+       704.22077922078,
+       769.480519480519,
+       832.792207792208,
+       909.74025974026,
+       958.441558441558
+      ]
+     ]
+    }
+   },
+   "discount": 0.3,
+   "floor": 209,
+   "maxW": 78,
+   "maxH": 75
+  },
+  "Allusion": {
+   "brackets": {
+    "widths": [
+     24,
+     30,
+     36,
+     42,
+     48,
+     54,
+     60,
+     66,
+     72,
+     84,
+     90,
+     96,
+     102,
+     108
+    ],
+    "heights": [
+     36,
+     42,
+     48,
+     54,
+     60,
+     66,
+     72,
+     78,
+     84,
+     90,
+     96,
+     102,
+     108,
+     114,
+     120
+    ]
+   },
+   "fabrics": {
+    "Standard": {
+     "msrp": [
+      [
+       365,
+       428,
+       495,
+       558,
+       620,
+       688,
+       750,
+       813,
+       881,
+       1005,
+       1070,
+       1134,
+       1201,
+       1266
+      ],
+      [
+       379,
+       443,
+       514,
+       582,
+       650,
+       712,
+       778,
+       847,
+       917,
+       1048,
+       1115,
+       1182,
+       1253,
+       1320
+      ],
+      [
+       395,
+       462,
+       538,
+       605,
+       674,
+       744,
+       813,
+       881,
+       957,
+       1096,
+       1164,
+       1230,
+       1302,
+       1368
+      ],
+      [
+       404,
+       476,
+       558,
+       630,
+       702,
+       774,
+       841,
+       913,
+       996,
+       1139,
+       1212,
+       1284,
+       1357,
+       1429
+      ],
+      [
+       419,
+       495,
+       576,
+       650,
+       726,
+       799,
+       875,
+       951,
+       1033,
+       1182,
+       1254,
+       1328,
+       1404,
+       1476
+      ],
+      [
+       433,
+       510,
+       596,
+       674,
+       750,
+       827,
+       905,
+       985,
+       1070,
+       1226,
+       1304,
+       1375,
+       1452,
+       1525
+      ],
+      [
+       447,
+       528,
+       616,
+       698,
+       778,
+       857,
+       939,
+       1020,
+       1106,
+       1270,
+       1351,
+       1433,
+       1515,
+       1597
+      ],
+      [
+       462,
+       544,
+       634,
+       720,
+       802,
+       885,
+       971,
+       1053,
+       1144,
+       1312,
+       1394,
+       1476,
+       1559,
+       1640
+      ],
+      [
+       476,
+       562,
+       654,
+       741,
+       827,
+       913,
+       999,
+       1087,
+       1182,
+       1356,
+       1443,
+       1530,
+       1616,
+       1704
+      ],
+      [
+       486,
+       576,
+       674,
+       765,
+       857,
+       941,
+       1033,
+       1125,
+       1222,
+       1399,
+       1491,
+       1583,
+       1674,
+       1766
+      ],
+      [
+       500,
+       596,
+       692,
+       789,
+       881,
+       971,
+       1063,
+       1158,
+       1254,
+       1443,
+       1533,
+       1625,
+       1722,
+       1812
+      ],
+      [
+       514,
+       610,
+       716,
+       808,
+       905,
+       999,
+       1096,
+       1194,
+       1294,
+       1485,
+       1583,
+       1678,
+       1776,
+       1872
+      ],
+      [
+       528,
+       630,
+       736,
+       831,
+       933,
+       1029,
+       1130,
+       1226,
+       1332,
+       1529,
+       1631,
+       1732,
+       1836,
+       1938
+      ],
+      [
+       544,
+       644,
+       755,
+       857,
+       957,
+       1057,
+       1158,
+       1260,
+       1370,
+       1573,
+       1673,
+       1774,
+       1874,
+       1976
+      ],
+      [
+       558,
+       660,
+       774,
+       875,
+       981,
+       1087,
+       1194,
+       1298,
+       1409,
+       1615,
+       1722,
+       1828,
+       1934,
+       2039
+      ]
+     ]
+    }
+   },
+   "discount": 0.35,
+   "floor": 200,
+   "maxW": 108,
+   "maxH": 120
+  }
+ },
+ "cordless": {
+  "products": [
+   "Zebra",
+   "Roller"
+  ],
+  "multiplier": 1.15,
+  "discount": 0.3,
+  "floors": {
+   "Zebra": 159,
+   "Roller": 129
+  },
+  "sizeCap": "无（工具说明：已取消额外无绳上限，仍需符合产品矩阵）"
+ },
+ "fullness": {
+  "products": [
+   "Drapery",
+   "Sheer"
+  ],
+  "excluded": [
+   "Door Screen Sheer"
+  ],
+  "default": 2,
+  "range": [
+   1,
+   4
+  ],
+  "lookupWidth": "实际窗宽 × 褶皱率 ÷ 2",
+  "installAndAreaUse": "实际窗宽"
+ },
+ "fees": {
+  "delivery": {
+   "default_fee": 50,
+   "note": "GTA only; long distance surcharge may apply."
+  },
+  "downtown": 150,
+  "tax": 0.13,
+  "install": {
+   "regular": 18,
+   "wide_threshold_in": 70,
+   "wide": 26,
+   "drapery_regular": 55,
+   "drapery_wide": 90,
+   "shutter_panel_width_in": 35,
+   "shutter_panel_price": 18,
+   "minimum_total": 200
+  }
+ },
+ "retailAddonsCsv": "addon_key,display_name,print_label,unit_price,enabled,display_order,default_qty,max_qty,eligible_products_csv,hint_text\nmotor,Motor tube,Motor tube,150,TRUE,10,1,100,\"Zebra;Roller;SHANGRILA;SkylightHoneycomb\",\"(Zebra/Roller/SHANGRILA/SkylightHoneycomb items only)\"\nmotor_plugin,Motor Tube(Plug-in),Motor Tube(Plug-in),350,TRUE,20,1,100,\"Zebra;Roller;SHANGRILA;SkylightHoneycomb\",\"(Zebra/Roller/SHANGRILA/SkylightHoneycomb items only)\"\nmotor_battery_matter,Motor Tube(Battery-Matter),Motor Tube(Battery-Matter),190,TRUE,30,1,100,\"Zebra;Roller;SHANGRILA;SkylightHoneycomb\",\"(Zebra/Roller/SHANGRILA/SkylightHoneycomb items only)\"\nhub,Hub,Hub,240,TRUE,40,1,100,\"Zebra;Roller;SHANGRILA;SkylightHoneycomb\",\"(Zebra/Roller/SHANGRILA/SkylightHoneycomb items only)\"\nremote,SUNNY Remote Control,SUNNY Remote Control,40,TRUE,50,1,100,\"Zebra;Roller;SHANGRILA;SkylightHoneycomb\",\"(Zebra/Roller/SHANGRILA/SkylightHoneycomb items only)\"\ndrape_motor_battery,Drape motor(Battery),Drape motor(Battery),650,TRUE,60,1,100,\"Drapery;Sheer\",\"(Drapery/Sheer only)\"\ndrape_motor_plugin_matter,Drape motor(Plug-in-Matter),Drape motor(Plug-in-Matter),700,TRUE,70,1,100,\"Drapery;Sheer\",\"(Drapery/Sheer only)\"\ntrack6,\"TRACK 6 ft (72\"\")\",Track 6 ft,60,TRUE,80,1,100,\"Drapery;Sheer\",\"(Drapery/Sheer only)\"\ntrack8,\"TRACK 8 ft (96\"\")\",Track 8 ft,80,TRUE,90,1,100,\"Drapery;Sheer\",\"(Drapery/Sheer only)\"\ntrack10,\"TRACK 10 ft (120\"\")\",Track 10 ft,100,TRUE,100,1,100,\"Drapery;Sheer\",\"(Drapery/Sheer only)\"\ntrack12,\"TRACK 12 ft (144\"\")\",Track 12 ft,120,TRUE,110,1,100,\"Drapery;Sheer\",\"(Drapery/Sheer only)\"",
+ "excelAddons": [
+  {
+   "id": "excel-addon-2",
+   "name": "Sunny Motor Tube Charging cable",
+   "rawPrice": "40",
+   "price": 40,
+   "note": "一个订单免费配一根充电线，第二根40一根",
+   "sourceRows": [
+    2
+   ]
+  },
+  {
+   "id": "excel-addon-3",
+   "name": "Sunny Motor Tube 6C RMT",
+   "rawPrice": "40",
+   "price": 40,
+   "note": "",
+   "sourceRows": [
+    3
+   ]
+  },
+  {
+   "id": "excel-addon-4",
+   "name": "Sunny Motor Tube(Battery Powered)1.2Nm",
+   "rawPrice": "150",
+   "price": 150,
+   "note": "Does not support Matter",
+   "sourceRows": [
+    4
+   ]
+  },
+  {
+   "id": "excel-addon-5",
+   "name": "Sunny Motor Tube(Battery Powered)1.2Nm（MATTER)",
+   "rawPrice": "190",
+   "price": 190,
+   "note": "Support Matter",
+   "sourceRows": [
+    5
+   ]
+  },
+  {
+   "id": "excel-addon-6",
+   "name": "Sunny Motor Tube(Plug-in) 2Nm",
+   "rawPrice": "350",
+   "price": 350,
+   "note": "Does not support Matter",
+   "sourceRows": [
+    6
+   ]
+  },
+  {
+   "id": "excel-addon-7",
+   "name": "SUNNY Hub",
+   "rawPrice": "300",
+   "price": 300,
+   "note": "",
+   "sourceRows": [
+    7
+   ]
+  },
+  {
+   "id": "excel-addon-8",
+   "name": "Sunny Motorized Drape (Plug-in)set（default WHITE)",
+   "rawPrice": "700",
+   "price": 700,
+   "note": "Support Matter",
+   "sourceRows": [
+    8
+   ]
+  },
+  {
+   "id": "excel-addon-9",
+   "name": "Sunny Motorized Drape (Battery Powered)set(default WHITE)",
+   "rawPrice": "650",
+   "price": 650,
+   "note": "Does not support Matter",
+   "sourceRows": [
+    9
+   ]
+  },
+  {
+   "id": "excel-addon-10",
+   "name": "Sunny Motorized Drape RMT",
+   "rawPrice": "40",
+   "price": 40,
+   "note": "6 channel",
+   "sourceRows": [
+    10
+   ]
+  },
+  {
+   "id": "excel-addon-11",
+   "name": "Sunny Motorized Drape Charger",
+   "rawPrice": "40",
+   "price": 40,
+   "note": "一个订单免费配一根充电线，第二根40一根",
+   "sourceRows": [
+    11
+   ]
+  },
+  {
+   "id": "excel-addon-12",
+   "name": "Sunny Motorized Drape Hub",
+   "rawPrice": "300",
+   "price": 300,
+   "note": "",
+   "sourceRows": [
+    12
+   ]
+  },
+  {
+   "id": "excel-addon-13",
+   "name": "Motorized Drape Track",
+   "rawPrice": "$30/feet",
+   "price": null,
+   "note": "charge for Motor track which is over 13 feet",
+   "sourceRows": [
+    13
+   ]
+  },
+  {
+   "id": "excel-addon-14",
+   "name": "U/H/L Channel",
+   "rawPrice": "$18/feet",
+   "price": null,
+   "note": "",
+   "sourceRows": [
+    14
+   ]
+  },
+  {
+   "id": "excel-addon-15",
+   "name": "Channel Rod(6ft)",
+   "rawPrice": "82.5",
+   "price": 82.5,
+   "note": "",
+   "sourceRows": [
+    15
+   ]
+  },
+  {
+   "id": "excel-addon-16",
+   "name": "Channel Rod(8ft)",
+   "rawPrice": "112",
+   "price": 112,
+   "note": "",
+   "sourceRows": [
+    16
+   ]
+  },
+  {
+   "id": "excel-addon-17",
+   "name": "Channel Rod(10ft)",
+   "rawPrice": "145",
+   "price": 145,
+   "note": "",
+   "sourceRows": [
+    17
+   ]
+  },
+  {
+   "id": "excel-addon-18",
+   "name": "Channel Rod(12ft)",
+   "rawPrice": "178",
+   "price": 178,
+   "note": "",
+   "sourceRows": [
+    18
+   ]
+  },
+  {
+   "id": "excel-addon-19",
+   "name": "Basic Track White 6ft",
+   "rawPrice": "60",
+   "price": 60,
+   "note": "",
+   "sourceRows": [
+    19
+   ]
+  },
+  {
+   "id": "excel-addon-20",
+   "name": "Basic Track White 8ft",
+   "rawPrice": "80",
+   "price": 80,
+   "note": "",
+   "sourceRows": [
+    20
+   ]
+  },
+  {
+   "id": "excel-addon-21",
+   "name": "Basic Track White 10ft",
+   "rawPrice": "100",
+   "price": 100,
+   "note": "",
+   "sourceRows": [
+    21
+   ]
+  },
+  {
+   "id": "excel-addon-22",
+   "name": "Basic Track White 12ft",
+   "rawPrice": "120",
+   "price": 120,
+   "note": "",
+   "sourceRows": [
+    22
+   ]
+  },
+  {
+   "id": "excel-addon-23",
+   "name": "Shutter Frame Vinyl",
+   "rawPrice": "$4/ft",
+   "price": null,
+   "note": "",
+   "sourceRows": [
+    23
+   ]
+  },
+  {
+   "id": "excel-addon-24",
+   "name": "Shutter Frame Wood",
+   "rawPrice": "$7/ft",
+   "price": null,
+   "note": "",
+   "sourceRows": [
+    24
+   ]
+  },
+  {
+   "id": "excel-addon-25",
+   "name": "加垫板（6 ft)",
+   "rawPrice": "60",
+   "price": 60,
+   "note": "",
+   "sourceRows": [
+    25
+   ]
+  },
+  {
+   "id": "excel-addon-26",
+   "name": "加垫板（8ft)",
+   "rawPrice": "80",
+   "price": 80,
+   "note": "",
+   "sourceRows": [
+    26
+   ]
+  },
+  {
+   "id": "excel-addon-27",
+   "name": "加垫板（10 ft)",
+   "rawPrice": "100",
+   "price": 100,
+   "note": "",
+   "sourceRows": [
+    27
+   ]
+  },
+  {
+   "id": "excel-addon-28",
+   "name": "加垫板（12ft)",
+   "rawPrice": "120",
+   "price": 120,
+   "note": "",
+   "sourceRows": [
+    28
+   ]
+  },
+  {
+   "id": "excel-addon-29",
+   "name": "布帘弯轨，软轨一个窗",
+   "rawPrice": "150",
+   "price": 150,
+   "note": "软轨按照basic track计算，额外加150/个窗户",
+   "sourceRows": [
+    29
+   ]
+  },
+  {
+   "id": "excel-addon-30",
+   "name": "布帘弯轨，硬轨（一般是90度），一个弯75（一个窗如果有2个弯，就是150，以此类推",
+   "rawPrice": "75",
+   "price": 75,
+   "note": "轨道按照basic track计算，额外加75/个弯",
+   "sourceRows": [
+    30
+   ]
+  },
+  {
+   "id": "excel-addon-31",
+   "name": "Shutter Valance(5ft and Below)",
+   "rawPrice": "110",
+   "price": 110,
+   "note": "",
+   "sourceRows": [
+    31,
+    36
+   ]
+  },
+  {
+   "id": "excel-addon-32",
+   "name": "Shutter Valance(5~8ft)",
+   "rawPrice": "150",
+   "price": 150,
+   "note": "",
+   "sourceRows": [
+    32,
+    37
+   ]
+  },
+  {
+   "id": "excel-addon-33",
+   "name": "Shutter Valance(8~12ft)",
+   "rawPrice": "200",
+   "price": 200,
+   "note": "",
+   "sourceRows": [
+    33,
+    41
+   ]
+  },
+  {
+   "id": "excel-addon-34",
+   "name": "Door Screen Sheer W<=25\", H<=50\"",
+   "rawPrice": "150",
+   "price": 150,
+   "note": "",
+   "sourceRows": [
+    34
+   ]
+  },
+  {
+   "id": "excel-addon-35",
+   "name": "Door Screen Sheer 25<W<=40\", H<=50\"",
+   "rawPrice": "200",
+   "price": 200,
+   "note": "",
+   "sourceRows": [
+    35
+   ]
+  },
+  {
+   "id": "excel-addon-38",
+   "name": "Shutters Track(5ft and Below)",
+   "rawPrice": "200",
+   "price": 200,
+   "note": "",
+   "sourceRows": [
+    38
+   ]
+  },
+  {
+   "id": "excel-addon-39",
+   "name": "Shutters Track(5~8ft)",
+   "rawPrice": "300",
+   "price": 300,
+   "note": "",
+   "sourceRows": [
+    39
+   ]
+  },
+  {
+   "id": "excel-addon-40",
+   "name": "Shutters Track(8~12ft)",
+   "rawPrice": "400",
+   "price": 400,
+   "note": "",
+   "sourceRows": [
+    40
+   ]
+  },
+  {
+   "id": "excel-addon-42",
+   "name": "Open roll Valance <=50\"",
+   "rawPrice": "25",
+   "price": 25,
+   "note": "",
+   "sourceRows": [
+    42,
+    44
+   ]
+  },
+  {
+   "id": "excel-addon-43",
+   "name": "Open roll Valance >50\"",
+   "rawPrice": "50",
+   "price": 50,
+   "note": "",
+   "sourceRows": [
+    43,
+    45
+   ]
+  },
+  {
+   "id": "excel-addon-46",
+   "name": "卷帘斑马帘黑色方盒+黑色底杆",
+   "rawPrice": "帘子（含罩盖后）价格+15%",
+   "price": null,
+   "note": "",
+   "sourceRows": [
+    46
+   ]
+  }
+ ],
+ "skuRename": {
+  "from": "LOUIA-WHITE-LF-BL201",
+  "to": "LOUIA-WHITE-BL201-LF",
+  "product": "Zebra"
+ },
+ "dealerReference": {
+  "note": "经销商参考价（面料分档 S1–S8 × 面积），本次不进青砚",
+  "tiers": {
+   "S1": 4.75,
+   "S2": 5.75,
+   "S3": 6.5,
+   "S4": 6.75,
+   "S5": 7,
+   "S6": 7.5,
+   "S7": 7.75,
+   "S8": 8
+  },
+  "mins": {
+   "Zebra": 100,
+   "SHANGRILA": null,
+   "Cordless Cellular": null,
+   "SkylightHoneycomb": null,
+   "Roller": 100,
+   "Drapery": 100,
+   "Sheer": 100,
+   "Shutters": 100,
+   "Roman Shade": 100
+  },
+  "cordlessMins": {
+   "Zebra": 159,
+   "Roller": 129
+  }
+ }
+}

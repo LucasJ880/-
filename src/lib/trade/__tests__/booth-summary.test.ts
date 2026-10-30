@@ -6,7 +6,8 @@
 import assert from "node:assert/strict";
 import { buildBoothCardContext, parseBoothCardContext, type BoothCard } from "../booth-cards";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
-import { boothDayOf, boothDayWindow, formatBoothSummary, isManagementMember, type BoothSummaryCard } from "../booth-summary";
+import { boothDayOf, boothDayWindow, formatBoothSummary, type BoothSummaryCard } from "../booth-summary";
+import { isTradeManager, type TradeMemberSignal } from "../recipients";
 
 let pass = 0;
 function ok(name: string, fn: () => void) {
@@ -56,12 +57,14 @@ ok("展会日窗口起点：夏令时切换日也是当地 07:00（曾在 Americ
   assert.deepEqual(bad, []);
 });
 
-ok("管理层成员：组织所有者 / 管理员，或平台角色老板 / 经理 / 管理员", () => {
-  assert.equal(isManagementMember({ role: "org_owner", user: { role: "trade" } }), true);
-  assert.equal(isManagementMember({ role: "org_admin", user: { role: "sales" } }), true);
-  for (const r of ["boss", "manager", "admin", "super_admin"]) assert.equal(isManagementMember({ role: "org_member", user: { role: r } }), true, r);
-  assert.equal(isManagementMember({ role: "org_member", user: { role: "trade" } }), false);
-  assert.equal(isManagementMember({ role: "org_viewer", user: { role: null } }), false);
+ok("展会小结收件人（PERM-6c）：管理层且持外贸读或写键", () => {
+  const m = (orgRole: string, platformRole: string, permissionKeys: string[]): TradeMemberSignal => ({ userId: "u", orgRole, platformRole, userStatus: "active", permissionKeys });
+  const tradeKeys = ["trade.read", "trade.manage", "trade.settings.manage"];
+  assert.equal(isTradeManager(m("org_owner", "admin", tradeKeys), false), true, "旧模式老板（org_owner 模板）");
+  assert.equal(isTradeManager(m("org_admin", "user", ["trade.settings.manage"]), false), false, "只持设置键的企业管理员");
+  for (const r of ["boss", "manager", "admin"]) assert.equal(isTradeManager(m("org_member", r, []), false), false, `不是负责人的平台 ${r}`);
+  assert.equal(isTradeManager(m("org_member", "trade", ["trade.read", "trade.manage"]), false), false, "外贸业务员");
+  assert.equal(isTradeManager(m("org_member", "user", ["organization.dashboard.read", ...tradeKeys]), true), true, "岗位模式老板岗位");
 });
 
 ok("「展会」一行读回：业务员、等级、下一步、备注原文；展会名和日期不误读", () => {

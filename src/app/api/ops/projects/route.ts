@@ -3,6 +3,7 @@
  * 强制 workDomain=delivery
  */
 
+import { loadWorkspaceSignals } from "@/lib/rbac/permission-keys";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
@@ -43,6 +44,8 @@ async function buildOpsCtx(
     platformRole: user.role,
     orgRole,
     hasMembership: Boolean(orgRole),
+    // PERM-4c5：岗位信号（同 /api/ops/home）
+    ...(await loadWorkspaceSignals(user.id, orgId)),
   };
   return {
     wsCtx,

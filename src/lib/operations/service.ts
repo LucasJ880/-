@@ -35,7 +35,8 @@ import {
   normalizePublishStatus,
 } from "./publish-status";
 import { transitionPublishJob } from "./publish-events";
-import { isAdmin, isBoss } from "@/lib/rbac/roles";
+import type { AuthUser } from "@/lib/auth";
+import { OPS_CONTENT_APPROVE, holdsOpsPermission, selfApprovalBlocked } from "@/lib/operations/access";
 import { logAudit } from "@/lib/audit/logger";
 
 const SAMPLE_EVERY_N = 20;
@@ -602,8 +603,9 @@ export async function fanoutAndDispatch(input: FanoutInput): Promise<FanoutResul
   };
 }
 
-export function canApprovePublishJob(role: string | null | undefined): boolean {
-  return isAdmin(role ?? "") || isBoss(role);
+/** PERM-4b：批准 / 驳回发布任务 = operations.content.approve（运营主管、老板），不看平台角色 */
+export function canApprovePublishJob(user: AuthUser, orgId: string): Promise<boolean> {
+  return holdsOpsPermission(user, orgId, OPS_CONTENT_APPROVE);
 }
 
 /** 审核通过：可选改写文案后进入 approved → 派发 */
@@ -613,12 +615,10 @@ export async function approveAndDispatchJob(
   opts: {
     editedCaption?: string;
     actorUserId: string;
-    actorRole: string;
+    /** 平台 super_admin 是唯一的自批例外（PERM-4b：Boss 不再例外）；岗位权限由路由判 */
+    isPlatformSuperAdmin: boolean;
   },
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!canApprovePublishJob(opts.actorRole)) {
-    return { ok: false, error: "仅 Boss/Admin 可批准发布任务" };
-  }
+): Promise<{ ok: true } | { ok: false; error: string; code?: "SELF_APPROVAL" }> {
 
   const job = await db.publishJob.findFirst({
     where: {
@@ -638,13 +638,9 @@ export async function approveAndDispatchJob(
   });
   if (!job) return { ok: false, error: "任务不存在或不在待审状态" };
 
-  // 自批限制：创建人不得批准自己的内容（Boss 例外，报告说明）
-  if (
-    job.createdById &&
-    job.createdById === opts.actorUserId &&
-    !isBoss(opts.actorRole)
-  ) {
-    return { ok: false, error: "创建人不得批准自己的发布任务（Boss 除外）" };
+  // 自批限制：创建人不得批准自己的内容（只有平台 super_admin 例外）
+  if (selfApprovalBlocked({ actorId: opts.actorUserId, authorId: job.createdById, isPlatformSuperAdmin: opts.isPlatformSuperAdmin })) {
+    return { ok: false, error: "创建人不得批准自己的发布任务，请由另一位持批准权的人（运营主管或老板）处理", code: "SELF_APPROVAL" };
   }
 
   const enforcementMode = await getPlaybookEnforcementMode(orgId);

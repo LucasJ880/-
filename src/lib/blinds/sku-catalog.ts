@@ -20,6 +20,23 @@ export interface SkuEntry {
 
 const CSV_URL = "/sku-catalog.csv";
 
+/**
+ * SKU 别名（旧编号 → 正式编号）。2026-10-28 价表（Lucas 2026-10-29 "BL201 更新"）：
+ * Zebra LOUIA-WHITE-LF-BL201 改名为 LOUIA-WHITE-BL201-LF，历史报价行里的旧编号仍要能解析。
+ * design D6：CSV 只保留正式编号，别名在这里归一，避免下拉出现两个同款面料。
+ */
+export const SKU_ALIASES: Record<string, string> = {
+  "LOUIA-WHITE-LF-BL201": "LOUIA-WHITE-BL201-LF",
+};
+
+/** 旧编号 → 正式编号（大小写不敏感匹配别名表；无别名原样返回） */
+export function canonicalSku(sku: string): string {
+  const raw = String(sku ?? "").trim();
+  if (!raw) return raw;
+  const hit = SKU_ALIASES[raw] ?? SKU_ALIASES[raw.toUpperCase()];
+  return hit ?? raw;
+}
+
 let cache: Record<string, SkuEntry[]> | null = null;
 let loadingPromise: Promise<Record<string, SkuEntry[]>> | null = null;
 
@@ -142,8 +159,9 @@ export function getSkusByProduct(product: ProductName): SkuEntry[] {
 
 export function findSku(sku: string): SkuEntry | null {
   if (!cache) return null;
+  const wanted = canonicalSku(sku);
   for (const list of Object.values(cache)) {
-    const hit = list.find((e) => e.sku === sku);
+    const hit = list.find((e) => e.sku === wanted);
     if (hit) return hit;
   }
   return null;
@@ -163,7 +181,8 @@ export function productOfSku(sku: string): ProductName | null {
  *            -BO / -DO → 第一条含 "Blackout" 的类别
  * 3) 兜底：返回该 product 的第一个面料类别
  */
-export function skuToPricingFabric(sku: string, product: ProductName): string {
+export function skuToPricingFabric(rawSku: string, product: ProductName): string {
+  const sku = canonicalSku(rawSku);
   const available = getAvailableFabrics(product);
   if (available.includes(sku)) return sku;
 

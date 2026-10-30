@@ -271,7 +271,7 @@ function getDomainKnowledgeForRole(role?: string): string {
       return getSalesDomainKnowledge();
     case "trade":
       return getTradeDomainKnowledge();
-    case "admin":
+    // PERM-7b：平台 admin 等同 user，走默认
     case "super_admin":
     case "manager":
       return getSalesDomainKnowledge() + "\n" + getBiddingDomainKnowledge();

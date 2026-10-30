@@ -4,6 +4,7 @@
 
 import { db } from "@/lib/db";
 import { getOrgMembership } from "@/lib/auth";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 
 export type RuntimeV2Principal =
   | {
@@ -96,7 +97,12 @@ export async function resolveRuntimeV2Principal(input: {
   return {
     ok: true,
     userId: initiatorId,
-    role: user.role ?? "user",
+    // PERM-4c4：岗位模式企业取岗位派生平台角色
+    role: await resolveEffectivePlatformRole({
+      userId: initiatorId,
+      orgId: input.orgId,
+      platformRole: user.role ?? "user",
+    }),
     orgRole,
     approvalActorUserId: input.approvalActorUserId ?? null,
   };

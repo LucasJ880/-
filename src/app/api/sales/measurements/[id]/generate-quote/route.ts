@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
-import { loadDiscountsDto } from "@/lib/blinds/discount-settings";
+import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts } from "@/lib/blinds/discount-settings";
 import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
 import { ALL_PRODUCTS, getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import type { ProductName, QuoteItemInput } from "@/lib/blinds/pricing-types";
@@ -67,7 +67,8 @@ export const POST = withAuth(async (request, ctx, user) => {
 
   const quoteSettings = await loadDiscountsDto(requestOrgId);
   const calc = calculateQuoteTotal({
-    items,
+    // 2026-10-28：量房生成的行没有行级覆盖，套企业折扣（含 fauxwood / allusion）
+    items: applyOrgDiscountDefaults(items, dtoToProductDiscounts(quoteSettings)),
     installMode: installMode === "pickup" ? "pickup" : "default",
     sunnyMotorPrice: quoteSettings.sunnyMotorPrice,
     deliveryFee: quoteSettings.deliveryFee,

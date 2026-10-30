@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AuthUser } from "@/lib/auth";
+import { canAccessManagementWorkspace } from "@/lib/rbac/workspace-policy";
 import {
   COCKPIT_FORBIDDEN_BODY,
   agentEventTimelineWhere,
@@ -91,6 +92,17 @@ async function main() {
     const seen: unknown[] = [];
     await resolveCockpitViewer(user, viewerDeps({ isManagement: (ctx) => (seen.push(ctx), true) }));
     ok(JSON.stringify(seen[0]) === JSON.stringify({ platformRole: "user", orgRole: "org_admin", hasMembership: true }), "管理层判定拿到平台角色 + 组织角色 + 成员身份");
+  }
+  {
+    // 合并 PERM-4c2 后：岗位模式企业与首页 `/` 同一判定（真实 canAccessManagementWorkspace），按岗位键而不是组织角色
+    const posDeps = (role: string, permissionKeys: string[] | null, positionMode: boolean) =>
+      viewerDeps({ role, positionContext: async () => ({ permissionKeys, positionMode }), isManagement: canAccessManagementWorkspace });
+    const owner = await resolveCockpitViewer(user, posDeps("org_member", ["organization.dashboard.read"], true));
+    ok(owner.ok, "岗位模式：组织普通成员持 organization.dashboard.read（老板岗位）→ 放行");
+    const orgOwnerNoPost = await resolveCockpitViewer(user, posDeps("org_owner", ["sales.quote.create"], true));
+    ok(!orgOwnerNoPost.ok && orgOwnerNoPost.status === 403, "岗位模式：org_owner 但没有管理层岗位键 → 403（与首页一致）");
+    const legacy = await resolveCockpitViewer(user, posDeps("org_owner", null, false));
+    ok(legacy.ok, "非岗位模式：org_owner 照旧放行");
   }
 
   // ── 岗位总览：假依赖装配 ────────────────────────────────────
@@ -178,7 +190,7 @@ async function main() {
     ok(res.orgId === "org-1" && res.heartbeatScope === "platform" && res.timezone === "America/Toronto" && res.generatedAt === NOW.toISOString(), "顶层字段");
     ok(res.posts.every((p) => ["key", "name", "nav", "health", "heartbeat", "nextDueAt", "automations", "pendingApprovals", "needsYou", "actions7d", "kpi"].every((f) => f in p)), "每个岗位含全部字段");
     const sales = res.posts[0];
-    ok(sales.automations.length === 7 && sales.automations.some((a) => a.key === "trade-daily"), "automations 恰好是注册表里的自动化");
+    ok(sales.automations.length === 9 && sales.automations.some((a) => a.key === "trade-daily") && sales.automations.some((a) => a.key === "calendar-watch"), "automations 恰好是注册表里的自动化");
     ok(sales.heartbeat?.automationKey === "inquiry-sla", "心跳取开始最晚的一次运行", sales.heartbeat);
     ok(sales.health === "never_ran", "询盘销售：trade-followup 等从未运行 → never_ran", sales.automations.map((a) => `${a.key}:${a.health}`));
     ok(sales.nextDueAt === "2026-10-26T12:05:00.000Z", "岗位 nextDueAt 取最早（inquiry-sla 每 5 分钟）", sales.nextDueAt);
