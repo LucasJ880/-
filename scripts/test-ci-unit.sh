@@ -360,6 +360,7 @@ npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts
 npx tsx src/lib/revenue-spine/__tests__/draft-preferences.test.ts
 npx tsx src/lib/revenue-spine/__tests__/followup-preferences.test.ts
+npx tsx src/lib/proactive/__tests__/manager-notify.test.ts
 # fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
 npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 
