@@ -7,7 +7,7 @@
 | 最后更新 | 2026-10-30（PRICE-1 #344 已合并并归档；下一个是 PRICE-2，propose 前先答 Q4） |
 | 任务书（方案） | `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 判断点 Q1–Q11 **待拍板**） |
 | 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 / PRICE-2 / PRICE-3 / STAT-1，全部 `[ ]`） |
-| 进行中的 change | 无（PRICE-1 已归档；PRICE-2 `pricelist-2026-10-cordless-fullness` 待 propose） |
+| 进行中的 change | `pricelist-2026-10-cordless-fullness`（四件套已写，`validate --strict` 通过；提交在归档 PR #353 合并之后再推，避免混进归档 PR） |
 | 工作分支 | `claude/vigilant-goodall-4t0c17`（基于 origin/main `abad98d`；每个 PR 合并后从 origin/main 重建同名分支） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 仓库不带 `node_modules`，先 `npm ci`（约 2 分钟，会 `prisma generate`）；沙箱里 `tsc` 需 `NODE_OPTIONS=--max-old-space-size=8192` |
@@ -18,7 +18,7 @@
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
 | PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | 本 PR（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`） | `[x]` |
-| PRICE-2 `pricelist-2026-10-cordless-fullness` | 未 propose（等 Q3 / Q4） | — | — | `[ ]` |
+| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已 propose（2026-10-30；Q4 = A：无绳改显式开关；设计 D5 不加企业默认褶皱率）；待审后 apply | — | — | `[ ]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
 | STAT-1 `sales-quote-stats-drilldown` | 未 propose（等 Q9 / Q10） | — | — | `[ ]` |
 
