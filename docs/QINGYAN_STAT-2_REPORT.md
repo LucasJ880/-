@@ -1,6 +1,6 @@
 # STAT-2 报告 — 特别让利计入库里报价金额；签约后改让利进改价审批
 
-change：`openspec/changes/quote-total-net-of-promotion/`。规格增量：`sales/price-list` 新增 1 条，`sales/signed-quote-amount-approval` 新增 1 条；design D1–D4；tasks 4 条。
+change：`openspec/changes/quote-total-net-of-promotion/`。规格增量：`sales/price-list` 新增 1 条，`sales/signed-quote-amount-approval` 新增 1 条；design D1–D4；tasks 4 / 4。
 来源：PRICE-3 报告 §5 登记的口径问题；四件套 Lucas 2026-10-30 确认（#372 合并）。
 零 schema：只改既有金额列的取值；`git diff origin/main -- prisma/` 为空。无出站、无 LLM、无新 cron。
 
@@ -48,9 +48,14 @@ change：`openspec/changes/quote-total-net-of-promotion/`。规格增量：`sale
 | 客户详情 → 报价记录 | 金额 **$665.99**，旁边小字"让利率 22.3% · $100" |
 | 页面错误 / 弹窗 | 无 |
 
-### 3.2 全量
+### 3.2 全量（隔离库，main `3385deb` 合入后）
 
-（全量结果跑完后补。）
+| 项 | 结果 |
+|---|---|
+| `npm run test:ci` | 退出 0 |
+| `npm test` | **535 / 545**，10 个失败，与 PRICE-3 报告 §3.2 的 10 项**逐项相同**（`diff` 两次运行的失败清单为空），均非本 change：TypeScript 类型检查是 `npx tsc --noEmit` 默认堆 `heap out of memory`（PRICE-3 时已在 origin/main 上复现；8 GB 堆的 typecheck 通过）；其余 9 项为既有环境性失败（M2-A CHECK 约束、Sunny 工艺单 NO_BINDING、Phase3A ×4 双租户种子、T4 矩阵、PDF 页脚、Autopilot 负载偶发） |
+
+本 change 相关测试在全量中全部通过：`quote-fees`、黄金对照、附加项目目录、`quote-settings-db.isolated` 54 / 0、`signed-quote-amount-db.isolated` 23 / 0。
 
 ## 4. 实施中对规划的调整 / 发现
 
