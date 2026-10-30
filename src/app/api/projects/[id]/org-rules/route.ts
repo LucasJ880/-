@@ -11,14 +11,14 @@ import {
   decideOrgProjectRule,
   listRulesSourcedFromProject,
 } from "@/lib/projects/org-rules";
-import { hasOrgRole } from "@/lib/rbac/roles";
+import { isSuperAdmin, hasOrgRole } from "@/lib/rbac/roles";
 
 async function canDecideOrgRules(input: {
   userId: string;
   userRole: string;
   orgId: string | null | undefined;
 }) {
-  if (input.userRole === "admin" || input.userRole === "super_admin") {
+  if (isSuperAdmin(input.userRole)) {
     return true;
   }
   if (!input.orgId) return false;

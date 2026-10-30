@@ -13,7 +13,7 @@ import type {
   ToolExecutionResult,
   ToolAllowRoles,
 } from "./types";
-import type { PlatformRole } from "@/lib/rbac/roles";
+import { isSuperAdmin, platformTier, type PlatformRole } from "@/lib/rbac/roles";
 import { canInvokeTool } from "@/lib/tenancy/tool-auth";
 import { runPreExecuteGuards } from "./pre-execute-guard";
 import { handleRequiresApproval } from "./approval-gate";
@@ -26,15 +26,16 @@ function resolveAllowRoles(tool: ToolDefinition): ToolAllowRoles {
 }
 
 function normalizeRole(role: string | null | undefined): PlatformRole {
-  if (role === "super_admin") return "admin";
+  // PERM-7b：只有 super_admin 进入 admin 档；平台 admin 按 user
+  const tier = platformTier(role);
   if (
-    role === "admin" ||
-    role === "manager" ||
-    role === "sales" ||
-    role === "trade" ||
-    role === "user"
+    tier === "admin" ||
+    tier === "manager" ||
+    tier === "sales" ||
+    tier === "trade" ||
+    tier === "user"
   ) {
-    return role;
+    return tier;
   }
   return "user";
 }
@@ -152,7 +153,7 @@ class ToolRegistry {
         userId: ctx.userId,
         orgId: ctx.orgId,
         orgRole: ctx.orgRole ?? "org_viewer",
-        isPlatformAdmin: ctx.role === "admin" || ctx.role === "super_admin",
+        isPlatformAdmin: isSuperAdmin(ctx.role),
         workspaceIds: ctx.workspaceIds,
       },
       hasMembership: ctx.hasMembership === true,

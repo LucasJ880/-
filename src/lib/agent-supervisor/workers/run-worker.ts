@@ -11,6 +11,7 @@ import {
   type WorkerConfig,
 } from "../worker-registry";
 import type { SupervisorStep, WorkerId, WorkerResult } from "../types";
+import { isSuperAdmin } from "@/lib/rbac/roles";
 
 function fingerprint(slug: string, input: Record<string, unknown>): string {
   return `${slug}::${JSON.stringify(input)}`;
@@ -44,7 +45,7 @@ export async function executeWorkerStep(input: {
   }
 
   // 组织成员校验
-  if (input.userRole !== "admin" && input.userRole !== "super_admin") {
+  if (!isSuperAdmin(input.userRole)) {
     const membership = await db.organizationMember.findUnique({
       where: { orgId_userId: { orgId, userId } },
       select: { status: true },

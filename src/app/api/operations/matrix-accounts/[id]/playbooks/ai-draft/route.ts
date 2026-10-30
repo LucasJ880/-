@@ -7,13 +7,13 @@ import {
 } from "@/lib/operations/playbook";
 
 export const POST = withAuth<{ id: string }>(async (request, ctx, user) => {
-  if (!canEditPlaybookDraft(user.role)) {
-    return NextResponse.json({ error: "无权生成 AI 草稿" }, { status: 403 });
-  }
   const { id: accountId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  if (!(await canEditPlaybookDraft(user, orgRes.orgId))) {
+    return NextResponse.json({ error: "无权生成 AI 草稿" }, { status: 403 });
+  }
 
   try {
     const result = await generatePlaybookAiDraft({

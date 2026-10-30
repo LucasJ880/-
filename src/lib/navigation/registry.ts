@@ -44,6 +44,8 @@ import {
   TrendingUp,
   Upload,
   Users,
+  Wrench,
+  Calculator,
 } from "lucide-react";
 import type { NavigationGroup, NavigationItem } from "./types";
 import {
@@ -53,6 +55,14 @@ import {
   NAV_ROLES_SALES,
   NAV_ROLES_TRADE,
 } from "@/lib/rbac/nav-role-policy";
+
+/**
+ * PERM-4c2：岗位模式（窗饰企业）的导航可见键——平台角色不参与；旧模式（梦馨）忽略这些字段。
+ * 管理层 = organization.dashboard.read（只给 owner）；销售专职 = 能建报价 / 关合价。
+ */
+const POSITION_MGMT = ["organization.dashboard.read"] as const;
+const POSITION_SALES = ["sales.quote.create", "sales.quote.pricing_close", ...POSITION_MGMT] as const;
+const POSITION_OPS = ["operations.read", "operations.manage"] as const;
 
 export const NAV_GROUP_META: Record<
   NavigationGroup,
@@ -126,6 +136,18 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     displayOrder: 13,
   },
   {
+    key: "ws-install",
+    label: "安装任务",
+    href: "/install",
+    icon: Wrench,
+    group: "WORK",
+    moduleKey: "window_covering",
+    workspaceAccess: "install",
+    requireMembership: true,
+    matchPaths: ["/install"],
+    displayOrder: 15,
+  },
+  {
     key: "ws-bids",
     label: "招投标中心",
     labelKey: "nav_bids_workspace",
@@ -175,6 +197,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "WORK",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     displayOrder: 50,
   },
@@ -211,6 +234,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     moduleKey: "operations",
     requireMembership: true,
     requiredPlatformRoles: [...NAV_ROLES_EXEC],
+    positionPermissions: [...POSITION_MGMT],
     matchPaths: ["/operations/center"],
     displayOrder: 10,
   },
@@ -227,6 +251,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     requireMembership: true,
     capabilitiesAccess: "any_member",
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "user"],
+    positionPermissions: [...POSITION_MGMT],
     matchPaths: ["/capabilities"],
     displayOrder: 10,
     children: [
@@ -352,6 +377,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     workspaceAccess: "sales",
     matchPaths: ["/sales/home"],
@@ -366,6 +392,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     // 客户与商机共用一个工作区；旧商机深链仍保持可用。
     matchPaths: ["/sales/opportunities", "/sales/customers"],
@@ -380,6 +407,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "window_covering",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     displayOrder: 12,
   },
@@ -392,6 +420,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "window_covering",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     displayOrder: 13,
   },
@@ -403,6 +432,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     matchPaths: ["/sales/performance"],
     displayOrder: 14,
@@ -415,6 +445,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "sales",
     requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: [...POSITION_SALES],
     salesWorkspaceVisible: true,
     matchPaths: ["/settings/email"],
     displayOrder: 15,
@@ -428,6 +459,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "window_covering",
     requiredPlatformRoles: [...NAV_ROLES_EXEC],
+    positionPermissions: [...POSITION_MGMT],
     displayOrder: 16,
   },
   {
@@ -438,9 +470,22 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: ClipboardList,
     group: "BUSINESS",
     moduleKey: "window_covering",
-    // 销售工作区不暴露；运营/高管仍可见
+    // 销售工作区不暴露；运营/高管仍可见；PERM-3：出单 / 老板 / 运营主管按权限键可见
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
+    requiredPermissions: ["orders.fulfillment.read", "sales.order.create"],
     badgeKey: "sidebar_badge_industry",
+    displayOrder: 17,
+  },
+  {
+    // PERM-5a：会计视图（成交与提成 / 报价过程 / 项目结算）；按岗位键可见
+    key: "biz-accounting",
+    label: "会计视图",
+    href: "/accounting",
+    icon: Calculator,
+    group: "BUSINESS",
+    workspaceAccess: "accounting",
+    requireMembership: true,
+    matchPaths: ["/accounting"],
     displayOrder: 17,
   },
   {
@@ -452,6 +497,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "window_covering",
     requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations"],
+    // PERM-3：库存按权限键可见（运营主管管、其他岗位只读）
+    requiredPermissions: ["inventory.manage", "inventory.read"],
     displayOrder: 17,
   },
 
@@ -465,6 +512,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 20,
   },
   {
@@ -476,6 +524,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 20.5,
   },
   {
@@ -487,6 +536,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 21,
   },
   {
@@ -498,6 +548,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 21.5,
   },
   {
@@ -509,6 +560,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 21.55,
   },
   {
@@ -520,6 +572,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 21.57,
   },
   {
@@ -531,6 +584,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 21.6,
   },
   {
@@ -542,6 +596,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 22,
   },
   {
@@ -553,6 +608,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: ["trade", "supply_chain"],
     requiredPlatformRoles: [...NAV_ROLES_TRADE, "operations"],
+    tradeEntry: true,
     displayOrder: 23,
   },
   {
@@ -564,6 +620,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 24,
   },
   {
@@ -575,6 +632,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE, "operations"],
+    tradeEntry: true,
     displayOrder: 25,
   },
   {
@@ -586,6 +644,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "BUSINESS",
     moduleKey: "trade",
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 26,
   },
   {
@@ -596,7 +655,9 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: TrendingUp,
     group: "BUSINESS",
     moduleKey: ["trade", "sales"],
-    requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
+    // PERM-6c：营收中心只认外贸键，旧模式不再因平台 sales 显示
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     matchPaths: ["/revenue"],
     displayOrder: 27,
   },
@@ -609,7 +670,9 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: CalendarCheck,
     group: "BUSINESS",
     moduleKey: "trade",
-    requiredPlatformRoles: [...NAV_ROLES_TRADE, "sales"],
+    // PERM-6c：营收中心只认外贸键，旧模式不再因平台 sales 显示
+    requiredPlatformRoles: [...NAV_ROLES_TRADE],
+    tradeEntry: true,
     displayOrder: 20.4,
   },
 
@@ -623,6 +686,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECTS",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     matchPaths: ["/projects"],
     displayOrder: 10,
   },
@@ -637,6 +701,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     matchPaths: [
       "/projects/intelligence",
       "/projects/intelligence/series",
@@ -656,6 +721,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 20,
   },
   {
@@ -666,6 +732,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 30,
   },
   {
@@ -676,6 +743,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 40,
   },
   {
@@ -686,6 +754,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 50,
   },
   {
@@ -696,6 +765,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 60,
   },
   {
@@ -706,6 +776,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 70,
   },
 
@@ -719,6 +790,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "SUPPLIERS",
     moduleKey: ["bids", "supply_chain", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read"],
     displayOrder: 10,
   },
 
@@ -733,6 +805,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     moduleKey: ["marketing", "operations"],
     requireMembership: true,
     requiredPlatformRoles: [...NAV_ROLES_OPERATIONS],
+    positionPermissions: [...POSITION_OPS],
     displayOrder: 10,
   },
   {
@@ -744,6 +817,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "GROWTH",
     moduleKey: ["operations", "marketing"],
     requiredPlatformRoles: [...NAV_ROLES_OPERATIONS],
+    positionPermissions: [...POSITION_OPS],
     displayOrder: 20,
   },
   {
@@ -755,6 +829,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "GROWTH",
     moduleKey: ["product_content", "trade", "marketing"],
     requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "trade"],
+    tradeEntry: true,
     displayOrder: 30,
   },
   {
@@ -766,6 +841,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "GROWTH",
     moduleKey: ["operations", "marketing"],
     requiredPlatformRoles: [...NAV_ROLES_OPERATIONS],
+    positionPermissions: [...POSITION_OPS],
     displayOrder: 40,
   },
   {
@@ -776,6 +852,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: FileText,
     group: "GROWTH",
     requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "user"],
+    positionPermissions: [...POSITION_OPS, ...POSITION_MGMT],
     displayOrder: 50,
   },
 
@@ -842,6 +919,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Users,
     group: "PLATFORM",
     requiredPlatformRoles: [...NAV_ROLES_EXEC],
+    superAdminOnly: true,
     displayOrder: 10,
   },
   {

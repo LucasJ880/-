@@ -15,7 +15,7 @@ import { buildDedupeKeys } from "../customer-match";
 import { normalizeCompanyName, normalizePhone } from "../normalize";
 import { bucketOpportunities, type QueueOpportunity } from "../daily-actions";
 import { approvalPreview, boothContext } from "../fde/inbound-sales";
-import { roleCanAccessRevenueSpine } from "../access";
+import { REVENUE_MANAGE_KEYS, REVENUE_POLICY_READ_KEYS, REVENUE_READ_KEYS, REVENUE_SETTINGS_KEYS } from "../access";
 import type { FactoryKnowledgeBundle } from "../factory-knowledge";
 import { getProductCapability, getMOQ, getLeadTime, getCertification, getSamplePolicy, getCostBasis } from "../factory-knowledge";
 
@@ -363,9 +363,11 @@ ok("队列分桶：hot leads / need reply / quote follow-up / stale", () => {
   assert.deepEqual(b.stale.map((o) => o.id), ["stale"]);
 });
 
-ok("角色矩阵：trade/sales/boss/manager/admin 可进；user/operations 不可", () => {
-  for (const r of ["trade", "sales", "boss", "manager", "admin", "super_admin"]) assert.ok(roleCanAccessRevenueSpine(r), r);
-  for (const r of ["user", "operations", null, undefined, ""]) assert.equal(roleCanAccessRevenueSpine(r), false, String(r));
+ok("权限键（PERM-6c）：读 = trade.read / trade.manage；写 = trade.manage；发布策略 = trade.settings.manage；读策略三键任一", () => {
+  assert.deepEqual([...REVENUE_READ_KEYS], ["trade.read", "trade.manage"]);
+  assert.deepEqual([...REVENUE_MANAGE_KEYS], ["trade.manage"]);
+  assert.deepEqual([...REVENUE_SETTINGS_KEYS], ["trade.settings.manage"]);
+  assert.deepEqual([...REVENUE_POLICY_READ_KEYS], ["trade.read", "trade.manage", "trade.settings.manage"]);
 });
 
 console.log(`\n${pass} passed`);

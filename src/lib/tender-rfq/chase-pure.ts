@@ -101,18 +101,26 @@ export type ChaseQuoteFields = {
 /**
  * 现在还缺什么：以最新 [auto] 段的「缺：…」为准，再去掉后来已补上的
  * （价格 / 交期 / 有效期看字段值；币种看 [auto] 段之后有没有人工改过这一行）。
+ *
+ * 起订量 / 贸易条款：入站按 P1-4 口径不判缺（否则几乎每份报价都成了 missing_fields），这里补问——
+ *   - 贸易条款：已报价但所有 [auto] 段都没读到 → 单独就值得追问（落地价换算会卡在「贸易条款未注明」）；
+ *   - 起订量：只在本来就要追问时顺带问，不单独发一封。
+ * 两者都没有列，人工补录只能体现为 [auto] 段之后这一行被改过（同币种）。
  */
-export function currentMissingFields(item: ChaseQuoteFields): InboundMissingField[] {
+export function currentMissingFields(item: ChaseQuoteFields, opts: { quoted?: boolean } = {}): InboundMissingField[] {
   const notes = parseAutoNotes(item.quoteNotes);
-  if (!notes.lastAutoAt || notes.lastMissingFields.length === 0) return [];
+  if (!notes.lastAutoAt) return [];
   const editedAfterAuto = item.updatedAt.getTime() - new Date(notes.lastAutoAt).getTime() > MANUAL_EDIT_GRACE_MS;
   const still = notes.lastMissingFields.filter((f) => {
     if (f === "price") return item.unitPrice == null && item.totalPrice == null;
     if (f === "deliveryDays") return item.deliveryDays == null;
     if (f === "validUntil") return !item.validUntil;
-    if (f === "currency") return !editedAfterAuto;
-    return true;
+    return !editedAfterAuto;
   });
+  if (!editedAfterAuto) {
+    if (!notes.incoterm && (opts.quoted || still.length > 0) && !still.includes("incoterm")) still.push("incoterm");
+    if (notes.moq == null && still.length > 0 && !still.includes("moq")) still.push("moq");
+  }
   return CHASE_FIELD_ORDER.filter((f) => still.includes(f));
 }
 
@@ -277,7 +285,7 @@ export function decideChases(s: ChaseSnapshot, opts: { manual?: boolean } = {}):
     }
 
     if (item.status === "replied" || item.status === "quoted") {
-      const missing = currentMissingFields(item.quote);
+      const missing = currentMissingFields(item.quote, { quoted: item.status === "quoted" });
       if (missing.length === 0) {
         skip(item.itemId, item.status === "quoted" ? "quoted" : "complete");
         continue;

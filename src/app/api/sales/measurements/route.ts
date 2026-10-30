@@ -5,15 +5,26 @@ import { db } from "@/lib/db";
 import {
   assertSalesCustomerInOrgForMutation,
   resolveSalesOrgIdForRequest,
+  resolveSalesScope,
 } from "@/lib/sales/org-context";
 
+/**
+ * GET /api/sales/measurements?customerId
+ * PERM-4a：只列客户属于当前企业的记录；范围按 sales.customer.read——ORG 全部 / 本人范围只看本人测量 / 无权 403。
+ */
 export const GET = withAuth(async (request, _ctx, user) => {
   const url = new URL(request.url);
   const customerId = url.searchParams.get("customerId");
 
-  const isAdmin = user.role === "admin" || user.role === "super_admin";
-  const where: Record<string, unknown> = {};
-  if (!isAdmin) where.measuredById = user.id;
+  const orgRes = await resolveSalesOrgIdForRequest(request as unknown as NextRequest, user);
+  if (!orgRes.ok) return orgRes.response;
+  const scope = await resolveSalesScope(user, orgRes.orgId, "sales.customer.read");
+  if (!scope.allowed) {
+    return NextResponse.json({ error: "无权查看测量记录", code: scope.reasonCode }, { status: 403 });
+  }
+
+  const where: Record<string, unknown> = { customer: { orgId: orgRes.orgId } };
+  if (scope.ownOnly) where.measuredById = user.id;
   if (customerId) where.customerId = customerId;
 
   const records = await db.measurementRecord.findMany({

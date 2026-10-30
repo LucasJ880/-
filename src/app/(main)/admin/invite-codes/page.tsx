@@ -211,7 +211,6 @@ export default function InviteCodesPage() {
                 onChange={(e) => setNewRole(e.target.value)}
                 className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
               >
-                <option value="admin">平台管理员</option>
                 <option value="boss">老板</option>
                 <option value="manager">总经理</option>
                 <option value="operations">运营</option>

@@ -246,11 +246,12 @@ const visibleFor = (platformRole: string, href: string) =>
     (i) => i.href === href || i.children?.some((c) => c.href === href),
   );
 ok(
-  ["trade", "boss", "manager", "admin"].every((r) => visibleFor(r, "/revenue/today")),
+  // PERM-7b：管理员 = super_admin（平台 admin 等同 user）
+  ["trade", "boss", "manager", "super_admin"].every((r) => visibleFor(r, "/revenue/today")),
   "外贸 / 老板 / 总经理 / 管理员可见今日询盘",
 );
 ok(
-  ["trade", "sales", "boss", "manager", "admin", "operations", "user"].every(
+  ["trade", "sales", "boss", "manager", "super_admin", "admin", "operations", "user"].every(
     (r) => visibleFor(r, "/revenue/today") === visibleFor(r, "/revenue"),
   ),
   "今日询盘与收入驾驶舱同一可见范围（销售员走销售工作区导航，两者都不在侧栏）",
@@ -310,7 +311,7 @@ const full = resolveNavigationTree(
   NAVIGATION_REGISTRY,
   ctx({
     orgRole: "org_admin",
-    platformRole: "admin",
+    platformRole: "super_admin",
     isPlatformAdmin: true,
   }),
 );
@@ -411,7 +412,7 @@ ok(
   resolveNavigationTree(
     NAVIGATION_REGISTRY,
     ctx({
-      platformRole: "admin",
+      platformRole: "super_admin",
       orgRole: "org_admin",
       isPlatformAdmin: true,
     }),
@@ -451,7 +452,7 @@ ok(
 // —— 平台运营：厂家入驻（仅平台管理员，紧跟邀请码）——
 const platformAdminNav = resolveNavigationTree(
   NAVIGATION_REGISTRY,
-  ctx({ platformRole: "admin", orgRole: "org_admin", isPlatformAdmin: true }),
+  ctx({ platformRole: "super_admin", orgRole: "org_admin", isPlatformAdmin: true }),
 );
 const platformItems = platformAdminNav.filter((i) => i.group === "PLATFORM");
 ok(

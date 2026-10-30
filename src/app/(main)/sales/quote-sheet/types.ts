@@ -81,6 +81,8 @@ export function getProductCategory(product: ProductName | ""): ProductCategory |
     case "SkylightHoneycomb":
     case "Allusion":
     case "Roman":
+    case "Roman Shade":
+    case "Fauxwood":
       return "shade";
     case "Shutters":
       return "shutter";
@@ -100,13 +102,15 @@ export const PRODUCT_CODE_MAP: Record<string, string> = {
   SkylightHoneycomb: "H",
   Allusion: "A",
   Roman: "N",
+  "Roman Shade": "N",
+  Fauxwood: "F",
   Drapery: "D",
   Sheer: "S",
   Shutters: "V",
 };
 
-// Shades 产品代号枚举顺序（Z→R→T→C→H→A→N）用于 order# 字符串拼接
-const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H", "A", "N"];
+// Shades 产品代号枚举顺序（Z→R→T→C→H→A→N→F）用于 order# 字符串拼接（F = Fauxwood，2026-10-28 价表）
+const SHADE_CODE_ORDER: readonly string[] = ["Z", "R", "T", "C", "H", "A", "N", "F"];
 
 export interface PartBAddon {
   id: string;
@@ -152,7 +156,7 @@ export interface ShadeOrderLine {
   note: string;
   /**
    * 销售手填单价（字符串，便于 input 绑定；CAD，税前）。
-   * 仅对 Allusion / Roman 等"非价格表"产品有效。
+   * Roman（非价格表产品）必填；Allusion（2026-10-28 起查表）为可选的手动成交单价覆盖；其它产品忽略。
    */
   manualPrice?: string;
 }

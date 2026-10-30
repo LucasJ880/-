@@ -18,10 +18,11 @@ export const POST = withAuth<{ groupId: string; playbookId: string }>(async (req
     if (existing.groupId !== groupId) {
       return NextResponse.json({ error: "Playbook 与账号组不匹配" }, { status: 400 });
     }
-    const gate = assertCanApprovePlaybook({
-      role: user.role,
-      actorUserId: user.id,
+    const gate = await assertCanApprovePlaybook({
+      user,
+      orgId: orgRes.orgId,
       submittedById: existing.submittedById,
+      action: "approve",
     });
     if (!gate.ok) {
       return NextResponse.json({ error: gate.error }, { status: 403 });

@@ -6,7 +6,7 @@ import { sendSalesEmail } from "@/lib/email/sender";
 import { quoteEmailHtml } from "@/lib/email/templates";
 import { deriveQuoteDisplayAmounts } from "@/lib/sales/quote-display-amounts";
 import { randomBytes } from "crypto";
-import { isSuperAdmin } from "@/lib/rbac/roles";
+import { authorize, humanPrincipal } from "@/lib/authorization";
 import {
   assertSalesCustomerInOrgForMutation,
   resolveSalesOrgIdForRequest,
@@ -51,11 +51,18 @@ export const POST = withAuth(async (request, ctx, user) => {
   );
   if (custDenied) return custDenied;
 
-  if (quote.createdById !== user.id && !isSuperAdmin(user.role)) {
-    return NextResponse.json({ error: "无权操作此报价单" }, { status: 403 });
+  // PERM-2：发送权限按岗位（销售本人 / 合价全企业 / 平台管理员）；超限未批一律 409
+  const sendAuthz = await authorize({
+    principal: humanPrincipal(user, requestOrgId),
+    orgId: requestOrgId,
+    permission: "sales.quote.send",
+    resource: { type: "sales_quote", id: quote.id, ownerId: quote.createdById, orgId: requestOrgId },
+  });
+  if (!sendAuthz.allowed) {
+    return NextResponse.json({ error: "无权发送此报价单", code: sendAuthz.reasonCode }, { status: 403 });
   }
 
-  if (!isSuperAdmin(user.role)) {
+  {
     const settings = await db.quoteDiscountSettings.findUnique({
       where: { orgId: requestOrgId },
       select: { promoMaxPct: true },

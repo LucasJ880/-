@@ -41,6 +41,7 @@ import { InteractionTimeline } from "./interaction-timeline";
 import { QuotesList } from "./quotes-list";
 import { OrdersList } from "./orders-list";
 import { CoachingPanel } from "./coaching-panel";
+import { CollaborationTrail } from "./collaboration-trail";
 import { VisualizerList } from "./visualizer-list";
 import type { VisualizerSessionSummary } from "@/lib/visualizer/types";
 import { AddInteractionDialog } from "./add-interaction-dialog";
@@ -1007,6 +1008,7 @@ function CustomerDetailPageInner() {
                         ))}
                       </span>
                     </div>
+                    <CollaborationTrail opportunityId={opp.id} />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted">
                     <span>{opp._count.quotes} 报价</span>

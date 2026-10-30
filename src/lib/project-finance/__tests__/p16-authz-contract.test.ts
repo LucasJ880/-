@@ -119,8 +119,9 @@ test("落标复盘 route 只暴露 confirm（人工），不存在写最终原�
 test("无审核权者的应付列表被服务端强制过滤为「应付给自己」", () => {
   const src = read("payables/route.ts");
   assert.ok(
-    /payeeUserId:\s*canReview \? null : access\.user\.id/.test(src),
-    "服务端必须按 canReview 强制过滤 payeeUserId",
+    /payeeUserId:\s*seeAll \? null : access\.user\.id/.test(src) &&
+      /const seeAll = canReview \|\| access\.finance\.canReadAll;/.test(src),
+    "服务端必须按 canReview / 结算只读（PERM-4c1）强制过滤 payeeUserId",
   );
   assert.ok(/PERMISSIONS\.PROJECT_COST_REVIEW/.test(src), "canReview 必须由服务端权限判定");
 });
