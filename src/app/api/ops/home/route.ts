@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { loadPermissionKeys, loadPositionMode } from "@/lib/rbac/permission-keys";
 import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
 import { buildOpsDashboard } from "@/lib/operations/dashboard";
 import {
@@ -37,11 +38,14 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const orgRole =
     member?.status === "active" ? member.role : null;
 
+  // PERM-4b：入口与团队视图按岗位权限键判定（不再认平台角色 operations）
   const wsCtx = {
     platformRole: user.role,
     orgRole,
     hasMembership: Boolean(orgRole),
     enabledModules: null as string[] | null,
+    permissionKeys: await loadPermissionKeys(user.id, resolved.orgId),
+    positionMode: await loadPositionMode(resolved.orgId),
   };
   const opsCtx: OpsAccessContext = {
     ...wsCtx,

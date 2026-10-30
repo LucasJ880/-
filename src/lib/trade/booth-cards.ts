@@ -15,9 +15,6 @@ import * as XLSX from "xlsx";
 import { normalizeInquiry, type IngestOrigin, type NormalizeResult } from "./website-inquiry";
 import { describeStyle, type ResolvedStyle } from "./style-references";
 
-/** 夜间录入的人：外贸，或负责审核的管理层 */
-export const BOOTH_CARD_ROLES = ["trade", "boss", "manager", "admin"];
-
 export interface BoothCard {
   /** 表格中的行号（表头为第 1 行） */
   row: number;

@@ -1,56 +1,50 @@
 /**
- * Playbook 权限（服务端强制）
+ * Playbook 权限（服务端强制）—— PERM-4b：按岗位权限键，不看平台角色
  *
- * - Boss/Admin：创建、修改、提交、批准、驳回、归档
- * - Operations：创建、修改草稿、AI 生成、提交；不得批准
- * - Sales：默认只读
+ * - 读：operations.read（或 operations.manage）
+ * - 新建 / 改草稿 / AI 草稿 / 提交：operations.content.draft（运营人员、运营主管）
+ * - 批准 / 驳回：operations.content.approve（运营主管、老板）；批准时提交人不得自批（平台 super_admin 例外）
  * - AI：仅草稿（由服务端代写 createdBy）
  */
 
-import { isAdmin, isBoss } from "@/lib/rbac/roles";
+import type { AuthUser } from "@/lib/auth";
+import {
+  OPS_CONTENT_APPROVE,
+  OPS_CONTENT_DRAFT,
+  OPS_READ_KEYS,
+  SELF_APPROVAL_MESSAGE,
+  holdsOpsPermission,
+  selfApprovalBlockedFor,
+} from "@/lib/operations/access";
 
-export function canApprovePlaybook(role: string | null | undefined): boolean {
-  return isAdmin(role ?? "") || isBoss(role);
+export function canApprovePlaybook(user: AuthUser, orgId: string): Promise<boolean> {
+  return holdsOpsPermission(user, orgId, OPS_CONTENT_APPROVE);
 }
 
-export function canEditPlaybookDraft(role: string | null | undefined): boolean {
-  if (canApprovePlaybook(role)) return true;
-  return role === "operations" || role === "manager";
+export function canEditPlaybookDraft(user: AuthUser, orgId: string): Promise<boolean> {
+  return holdsOpsPermission(user, orgId, OPS_CONTENT_DRAFT);
 }
 
-export function canSubmitPlaybook(role: string | null | undefined): boolean {
-  return canEditPlaybookDraft(role);
+export function canSubmitPlaybook(user: AuthUser, orgId: string): Promise<boolean> {
+  return holdsOpsPermission(user, orgId, OPS_CONTENT_DRAFT);
 }
 
-export function canReadPlaybook(role: string | null | undefined): boolean {
-  if (canEditPlaybookDraft(role)) return true;
-  return (
-    role === "sales" ||
-    role === "trade" ||
-    role === "user" ||
-    role === "manager" ||
-    Boolean(role)
-  );
+export function canReadPlaybook(user: AuthUser, orgId: string): Promise<boolean> {
+  return holdsOpsPermission(user, orgId, OPS_READ_KEYS);
 }
 
-export function assertCanApprovePlaybook(input: {
-  role: string | null | undefined;
-  actorUserId: string;
+export async function assertCanApprovePlaybook(input: {
+  user: AuthUser;
+  orgId: string;
   submittedById: string | null | undefined;
-}): { ok: true } | { ok: false; error: string } {
-  if (!canApprovePlaybook(input.role)) {
-    return {
-      ok: false,
-      error: "仅 Boss/Admin 可批准/驳回 Playbook（运营人员不可批准，含不可自批）",
-    };
+  action: "approve" | "reject";
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await canApprovePlaybook(input.user, input.orgId))) {
+    return { ok: false, error: "需要运营批准权限（运营主管或老板岗位）才能批准 / 驳回 Playbook" };
   }
-  // 防御：即使角色误配，operations 也不得自批
-  if (
-    input.role === "operations" &&
-    input.submittedById &&
-    input.actorUserId === input.submittedById
-  ) {
-    return { ok: false, error: "运营人员不得批准自己的 Playbook" };
+  // 驳回只撤下内容，提交人可驳回自己的；批准不得自批
+  if (input.action === "approve" && selfApprovalBlockedFor(input.user, input.submittedById)) {
+    return { ok: false, error: SELF_APPROVAL_MESSAGE };
   }
   return { ok: true };
 }

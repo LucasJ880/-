@@ -96,7 +96,7 @@ export const PRODUCT_SPECS: {
 } = {
   shades: {
     title: "Shades — Workmanship & Specifications",
-    intro: "Warranty: 1 year labour · 5 years fabric · 15 years components.",
+    intro: "Warranty: 1 year labour · 5 years fabric · 15 years components · 3 years cordless lift mechanisms · 5 years motors & motor accessories (if supplied) · 1 year batteries (if supplied).",
     blocks: [
       {
         heading: "1. Gaps and Clearances",
@@ -125,7 +125,7 @@ export const PRODUCT_SPECS: {
   shutters: {
     title: "Shutters — Material & Structural Specifications",
     intro:
-      "Wooden shutters: American Yellow Poplar. Vinyl shutters: virgin powder compound. All shutters proudly made in Canada. Warranty: 1 year labour / 5 years components.",
+      "Wooden shutters: American Yellow Poplar. Vinyl shutters: virgin powder compound. All shutters proudly made in Canada. Warranty: 1 year labour / 15 years components / 25 years frame & panels.",
     blocks: [
       {
         heading: "1. Panel Size & Structure",
@@ -163,7 +163,7 @@ export const PRODUCT_SPECS: {
   },
   drapes: {
     title: "Drapes & Sheers — Workmanship Specifications",
-    intro: "Warranty: 1 year labour · 5 years fabric · 15 years components.",
+    intro: "Warranty: 1 year labour · 5 years fabric · 15 years components · 5 years motors & motor accessories (if supplied) · 1 year batteries (if supplied).",
     blocks: [
       {
         heading: "1.1 Drapery Workmanship",

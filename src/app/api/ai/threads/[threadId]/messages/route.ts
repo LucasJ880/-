@@ -62,6 +62,7 @@ import {
 import { prepareAssistantDispatch } from "@/lib/assistant/dispatch";
 import { normalizeClientRequestId } from "@/lib/assistant/followup-task";
 import type { Prisma } from "@prisma/client";
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import {
   attachmentBlobPathBelongsTo,
   attachmentPromptRules,
@@ -221,6 +222,12 @@ export const POST = withAuth(async (request, ctx, user) => {
     typeof body.orgId === "string" ? body.orgId.trim() : null;
   const orgRes = await resolveAssistantOrgId(request, user, claimedBodyOrgId);
   if (!orgRes.ok) return orgRes.response;
+  // PERM-4c4：岗位模式企业的 AI 判定（路由器 / 开关白名单 / 工作上下文 / 能力矩阵 / 提示词）取岗位派生平台角色
+  const aiRole = await resolveEffectivePlatformRole({
+    userId: user.id,
+    orgId: orgRes.orgId,
+    platformRole: user.role,
+  });
 
   const thread = await findOwnedThreadInOrg(threadId, user.id, orgRes.orgId, {
     id: true,
@@ -284,7 +291,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     threadId,
     message: content,
     threadTitle: thread.title,
-    role: user.role,
+    role: aiRole,
     attachments,
     clientRequestId: normalizeClientRequestId(body.clientRequestId),
     // 持久任务已入队后只在响应之后推进一个 slice；与本请求连接无关
@@ -340,7 +347,7 @@ export const POST = withAuth(async (request, ctx, user) => {
     requestedMarketingSkill ||
     Boolean(longMarketingResearch) ||
     requestedCalendarAction ||
-    isOperatorEnabled({ userId: user.id, role: user.role });
+    isOperatorEnabled({ userId: user.id, role: aiRole });
   const requestedOrgId =
     (typeof body.orgId === "string" ? body.orgId.trim() : "") ||
     thread.project?.orgId ||
@@ -443,6 +450,7 @@ export const POST = withAuth(async (request, ctx, user) => {
       threadTitle: thread.title,
       isFirstMessage,
       user,
+      aiRole,
       orgId: streamTenant.orgId,
       streamSessionKey,
       userContent: content,
@@ -462,7 +470,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   const legacyOrgId: string = streamTenant.orgId;
 
   const [workContext, prepared, wakeUp, companyBlock] = await Promise.all([
-    getWorkContext({ userId: user.id, role: user.role, orgId: legacyOrgId }),
+    getWorkContext({ userId: user.id, role: aiRole, orgId: legacyOrgId }),
     prepareConversation(chatMessages),
     getWakeUpMemories(user.id, legacyOrgId),
     buildCompanyBlock(user.id, legacyOrgId),
@@ -553,7 +561,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   }
 
   const systemPrompt =
-    getChatSystemPrompt(user.role) +
+    getChatSystemPrompt(aiRole) +
     companyBlock +
     expertBlock +
     buildContextBlock(workContext) +
@@ -802,6 +810,8 @@ interface OperatorBranchInput {
   threadTitle: string | null;
   isFirstMessage: boolean;
   user: { id: string; role: string; name: string };
+  /** PERM-4c4：岗位派生平台角色（AI 判定用；user.role 仍用于租户解析） */
+  aiRole: string;
   orgId: string;
   /** Phase 3A-5 流式会话键（含 orgId） */
   streamSessionKey: string;
@@ -824,6 +834,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     threadTitle,
     isFirstMessage,
     user,
+    aiRole,
     orgId,
     streamSessionKey,
     userContent,
@@ -861,9 +872,9 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
   const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId: user.id });
   const policyModel = chatPolicy.upgraded ? chatPolicy.model : undefined;
 
-  const caps = getCapabilities(user.role);
+  const caps = getCapabilities(aiRole);
   let systemPrompt = buildOperatorSystemPrompt({
-    role: user.role,
+    role: aiRole,
     userName: user.name,
   });
 
@@ -954,7 +965,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             userId: user.id,
             orgId,
             sessionId: threadId,
-            role: user.role,
+            role: aiRole,
             orgRole: tenant.orgRole,
             hasMembership: tenant.hasMembership,
             modulesJson: tenant.modulesJson,
@@ -1120,7 +1131,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
         const latencyMs = Date.now() - startedAt;
         console.info("[ai.operator]", {
           userId: user.id,
-          role: user.role,
+          role: aiRole,
           threadId,
           mode: withTools ? "tools" : "direct",
           model,

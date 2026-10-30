@@ -3,6 +3,7 @@
  * POST /api/agent-supervisor/runs/:id  { action: resume|cancel }
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
@@ -78,7 +79,8 @@ export const POST = withAuth(async (req, ctx, user) => {
       orgId,
       runId: id,
       userId: user.id,
-      userRole: user.role,
+      // PERM-4c4：岗位模式企业取岗位派生平台角色
+      userRole: await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role }),
     });
     return NextResponse.json({
       ok: result.ok,

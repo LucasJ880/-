@@ -3,6 +3,7 @@
  * 不信任 preview；重新读库；事务 + 幂等
  */
 
+import { loadWorkspaceSignals } from "@/lib/rbac/permission-keys";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { requireProjectWriteAccess } from "@/lib/projects/access";
@@ -32,6 +33,8 @@ export const POST = withAuth(async (request, ctx, user) => {
     orgRole: access.orgRole,
     hasMembership: Boolean(access.orgRole),
     userId: user.id,
+    // PERM-4c5：岗位信号（bids.handoff.* 键；岗位模式管理层 = 老板岗位）
+    ...(await loadWorkspaceSignals(user.id, project.orgId)),
   };
 
   if (

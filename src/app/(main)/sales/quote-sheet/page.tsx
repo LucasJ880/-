@@ -35,6 +35,7 @@ import { useVisualViewport } from "@/lib/mobile/use-visual-viewport";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import { allowsManualSellingPrice } from "@/lib/blinds/pricing-engine";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
@@ -97,7 +98,7 @@ import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
 // Part A / Part C 已从主流程隐藏（保留数据结构以便老单还能打开），
 // Tab、主页显示、总价和 PDF 输出都不再包含独立 Part A / Part C 表单。
 type TabId = "partB" | "shades" | "shutters" | "drapes";
-/** 电子报价单工作区：快速报价 = July Rough Quote；详细订单 = 现有 Order Form */
+/** 电子报价单工作区：快速报价 = October Rough Quote；详细订单 = 现有 Order Form */
 type WorkspaceMode = "rough" | "order";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
@@ -155,7 +156,7 @@ function makeDrapeLines(count: number): DrapeOrderLine[] {
   return Array.from({ length: count }, () => ({
     id: crypto.randomUUID(), location: "",
     drapeWidthWhole: "", drapeWidthFrac: "0", drapeHeightWhole: "", drapeHeightFrac: "0",
-    // July 价表默认档：Without liner（与 Liner=N 同步）
+    // October 价表默认档：Without liner（与 Liner=N 同步）
     drapeFabricSku: "Without liner", drapeFullness: "180" as const, drapePanels: "S" as const,
     drapePleatStyle: "" as const, drapeLiner: false, drapeBracket: "" as const,
     sheerWidthWhole: "", sheerWidthFrac: "0", sheerHeightWhole: "", sheerHeightFrac: "0",
@@ -201,6 +202,8 @@ function QuoteSheetPageInner() {
   const [promotionApprovalExpiresAt, setPromotionApprovalExpiresAt] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatedFlash, setGeneratedFlash] = useState<string | null>(null);
+  /** 签字后自动生成的草稿工艺单（mark-signed 回传） */
+  const [processOrderLink, setProcessOrderLink] = useState<{ id: string; code: string; blockingCount?: number } | null>(null);
   // 发送 Quote 弹窗（让销售选择：发邮件 / 本地保存 PDF）
   const [sendQuoteOpen, setSendQuoteOpen] = useState(false);
   const [sendQuoteBusy, setSendQuoteBusy] = useState<null | "email" | "local">(null);
@@ -378,6 +381,8 @@ function QuoteSheetPageInner() {
         const d = await apiJson<{
           zebra: number; shangrila: number; cellular: number; roller: number;
           drapery: number; sheer: number; shutters: number; honeycomb: number;
+          romanShade?: number;
+          fauxwood?: number; allusion?: number;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -393,6 +398,10 @@ function QuoteSheetPageInner() {
           Sheer: d.sheer,
           Shutters: d.shutters,
           SkylightHoneycomb: d.honeycomb,
+          "Roman Shade": typeof d.romanShade === "number" ? d.romanShade : 0.3,
+          // 2026-10-28 价表（企业设置 JSON 存储；缺省与 DEFAULT_DISCOUNTS 同）
+          Fauxwood: typeof d.fauxwood === "number" ? d.fauxwood : 0.3,
+          Allusion: typeof d.allusion === "number" ? d.allusion : 0.35,
         });
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
@@ -844,7 +853,7 @@ function QuoteSheetPageInner() {
 
       // Shades
       for (const l of shadeOrders) {
-        // Allusion / Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice
+        // Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice（Allusion 2026-10-28 起走查表 + 可选覆盖）
         if (isManualPriceShadeProduct(l.product)) {
           if (!l.widthWhole || !l.heightWhole) continue;
           const w = fractionToInches(l.widthWhole, l.widthFrac);
@@ -872,6 +881,7 @@ function QuoteSheetPageInner() {
         // （例如 "Light Filtering (Open Roll)"），否则后端 priceFor 会报
         // "Pricing for this Roller fabric is not set yet"，导致整行价格丢失。
         const pricingFabric = skuToPricingFabric(l.sku, l.product);
+        const manualOverride = allowsManualSellingPrice(l.product) ? parseFloat(l.manualPrice ?? "") : NaN;
         items.push({
           product: l.product,
           fabric: pricingFabric,
@@ -881,6 +891,8 @@ function QuoteSheetPageInner() {
           motorized: l.lift === "M",
           location: l.location,
           sku: l.sku,
+          // Allusion：手动成交单价覆盖随行上传，服务端用同一纯函数套用
+          ...(Number.isFinite(manualOverride) && manualOverride > 0 ? { manualPrice: manualOverride } : {}),
         });
       }
 
@@ -1023,6 +1035,14 @@ function QuoteSheetPageInner() {
       }
 
       const res = await apiResponse.json();
+      // PERM-4a：已签约报价改了总价 → 服务端不落库，生成审批（202）；批准前报价保持原签约内容，本地草稿保留
+      if (apiResponse.status === 202 && res.pending) {
+        alert(
+          `${res.message || "改价已提交审批，批准后生效"}\n\n` +
+            `批准前报价保持原签约内容；批准后原签名作废，报价回到草稿，需重新发送客户签署。`,
+        );
+        return null;
+      }
       const quoteId: string | undefined = res.quote?.id;
       if (!quoteId) {
         // 2xx 但没返回 quoteId：异常情况，坚决不要清草稿
@@ -1253,6 +1273,7 @@ function QuoteSheetPageInner() {
     }
 
     setGenerating(true);
+    setProcessOrderLink(null);
     try {
       const saved = await handleSave();
       if (!saved?.quoteId) {
@@ -1274,6 +1295,8 @@ function QuoteSheetPageInner() {
           const data = await res.json().catch(() => ({}));
           if (res.ok) {
             stageAdvanced = Boolean(data.stageAdvanced);
+            const po = data.processOrder as { id?: string; code?: string; blockingCount?: number } | undefined;
+            if (po?.id && po.code) setProcessOrderLink({ id: po.id, code: po.code, blockingCount: po.blockingCount });
           } else {
             const msg = data?.error || `HTTP ${res.status}`;
             console.error("mark-signed failed:", data);
@@ -1310,7 +1333,8 @@ function QuoteSheetPageInner() {
           ? "订单已生成 · 客户状态已更新为「已成单」"
           : "订单已生成 · Order Form PDF 已导出",
       );
-      setTimeout(() => setGeneratedFlash(null), 5000);
+      // 带工艺单链接时多留几秒，便于点开核对
+      setTimeout(() => setGeneratedFlash(null), 10000);
     } catch (err) {
       console.error("Generate order failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -1558,7 +1582,7 @@ function QuoteSheetPageInner() {
           editingQuoteId
             ? "正在修改已保存的报价单；保存后会覆盖原报价单（不会新建版本）"
             : workspaceMode === "rough"
-              ? "快速报价（July Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
+              ? "快速报价（October Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
               : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />
@@ -2091,6 +2115,12 @@ function QuoteSheetPageInner() {
         >
           <CheckCircle className="h-4 w-4" />
           {generatedFlash}
+          {processOrderLink && (
+            <a href={`/blinds-orders/${processOrderLink.id}`} className="underline underline-offset-2">
+              工艺单草稿 {processOrderLink.code}
+              {processOrderLink.blockingCount ? `（${processOrderLink.blockingCount} 项待补）` : ""}
+            </a>
+          )}
         </div>
       )}
 

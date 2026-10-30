@@ -640,7 +640,8 @@ async function main() {
     assert.match(src, /const draftPrefs = resolveDraftPreferences\(policy\);/);
     assert.match(src, /if \(draftPrefs\?\.ignored\.length\) \{\s*await recordIgnoredDraftPreferencesSafe\(\{ orgId, userId: principalUserId, ignored: draftPrefs\.ignored, employeeKey: FDE_EMPLOYEE_KEY \}\);/);
     assert.equal(src.match(/buildClarifyingQuestions\(missing, [^)]*, draftPrefs\)/g)?.length, 2);
-    assert.match(src, /policy,\s*preferences: draftPrefs,\s*\};\s*draft = buildReplyDraft\(draftInput\);/);
+    // main 上中文审核稿抽成 zhInput（展位英文首封与纯文本两条路径共用），追问同样带偏好
+    assert.match(src, /policy,\s*preferences: draftPrefs,\s*\};\s*const zhInput = \{ \.\.\.draftInput, language: "zh" as const, questions: buildClarifyingQuestions\(missing, "zh", policy\.followUp\.maxQuestionsPerReply, draftPrefs\) \};\s*draft = buildReplyDraft\(draftInput\);/);
     assert.match(src, /\.\.\.\(draftPrefs\s*\?\s*\{\s*draftPreferences: \{\s*applied: draftPrefs\.applied,\s*ignored: draftPrefs\.ignored\.map\(\(i\) => i\.key\),/);
     // 替换后过不了守卫、这封没替换：同一套去重审计记一次
     assert.match(src, /const skippedBanned = draft\.preferences\?\.bannedPhrasesSkipped \?\? \[\];\s*if \(skippedBanned\.length\) \{\s*await recordIgnoredDraftPreferencesSafe\(\{\s*orgId,\s*userId: principalUserId,\s*ignored: skippedBanned\.map\(\(key\) => \(\{ key, reason: BANNED_PHRASE_SKIPPED_REASON \}\)\),/);

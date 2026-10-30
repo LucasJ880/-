@@ -9,8 +9,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { putPrivateBlob } from "@/lib/files/blob-access";
-import { requireRole } from "@/lib/auth/guards";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { addRequestAsset } from "@/lib/trade/service-request";
 
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -20,7 +24,7 @@ export async function POST(
   request: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);

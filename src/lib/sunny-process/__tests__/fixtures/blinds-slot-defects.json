@@ -1,0 +1,431 @@
+{
+ "source": {
+  "title": "Blinds 工艺单_圆盒侧盖加厚标准版（20241007 新）",
+  "sha256": "85d45d6277624e35091b5e433e828cdde4d58c103bbc2319f29c6a4d56871e0c"
+ },
+ "note": "原件缺陷证据：第 2–52 窗位与第 1 窗位模板的差异；不作为期望值。",
+ "probes": 72,
+ "numeric": [
+  {
+   "slot": 4,
+   "field": "cordTier",
+   "count": 13,
+   "example": {
+    "probe": {
+     "productType": "卷帘",
+     "controlType": "普通",
+     "headrailType": "白弧",
+     "measureType": "OUT",
+     "width": 24.75,
+     "height": 20.0,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": "0.6 & 0.3",
+    "slot": "0.8 & 0.5"
+   }
+  },
+  {
+   "slot": 5,
+   "field": "qty",
+   "count": 54,
+   "example": {
+    "probe": {
+     "productType": "卷帘",
+     "controlType": "普通",
+     "headrailType": "白弧",
+     "measureType": "OUT",
+     "width": 24.75,
+     "height": 20.0,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": {
+     "headrail": 1.0,
+     "tube38": 1.0,
+     "rollerBar": 0.0,
+     "zebraBar": "",
+     "coreRod": "",
+     "shangrilaBar": 0.0,
+     "fabricWidth": 1.0,
+     "fabricLength": 1.0
+    },
+    "slot": {
+     "headrail": 1.0,
+     "tube38": 1.0,
+     "rollerBar": 0.0,
+     "zebraBar": 1.0,
+     "coreRod": 1.0,
+     "shangrilaBar": 0.0,
+     "fabricWidth": 1.0,
+     "fabricLength": 1.0
+    }
+   }
+  },
+  {
+   "slot": 8,
+   "field": "qty",
+   "count": 63,
+   "example": {
+    "probe": {
+     "productType": "卷帘",
+     "controlType": "普通",
+     "headrailType": "单轨无盒",
+     "measureType": "IN",
+     "width": 27.5625,
+     "height": 71.5,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": {
+     "headrail": "",
+     "tube38": 1.0,
+     "rollerBar": 1.0,
+     "zebraBar": "",
+     "coreRod": "",
+     "shangrilaBar": 0.0,
+     "fabricWidth": 1.0,
+     "fabricLength": 1.0
+    },
+    "slot": {
+     "headrail": "",
+     "tube38": 1.0,
+     "rollerBar": 1.0,
+     "zebraBar": "",
+     "coreRod": "",
+     "shangrilaBar": 1.0,
+     "fabricWidth": 1.0,
+     "fabricLength": 1.0
+    }
+   }
+  },
+  {
+   "slot": 15,
+   "field": "zebraCutPos",
+   "count": 23,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "普通",
+     "headrailType": "亮白插片圆盒",
+     "measureType": "Tight",
+     "width": 29.3125,
+     "height": 20.0,
+     "fabricRatio": 3,
+     "silkRatio": 1.9375
+    },
+    "template": 0.55,
+    "slot": 3.675
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutCoreRod",
+   "count": 9,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "普通",
+     "headrailType": "哑灰方型罩盒",
+     "measureType": "IN",
+     "width": 41.0625,
+     "height": 47.25,
+     "fabricRatio": 2.875,
+     "silkRatio": 2
+    },
+    "template": 39.6875,
+    "slot": 39.875
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutFabricWidth",
+   "count": 36,
+   "example": {
+    "probe": {
+     "productType": "卷帘",
+     "controlType": "电动",
+     "headrailType": "双轨无盒",
+     "measureType": "IN",
+     "width": 43.0,
+     "height": 29.5,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": 43.0,
+    "slot": 43.1875
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutHeadrail",
+   "count": 25,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "普通",
+     "headrailType": "哑灰方型罩盒",
+     "measureType": "IN",
+     "width": 41.0625,
+     "height": 47.25,
+     "fabricRatio": 2.875,
+     "silkRatio": 2
+    },
+    "template": 40.625,
+    "slot": 40.8125
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutRollerBar",
+   "count": 15,
+   "example": {
+    "probe": {
+     "productType": "卷帘",
+     "controlType": "电动",
+     "headrailType": "双轨无盒",
+     "measureType": "IN",
+     "width": 43.0,
+     "height": 29.5,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": 43.0,
+    "slot": 43.1875
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutShangrilaBar",
+   "count": 12,
+   "example": {
+    "probe": {
+     "productType": "香格里拉",
+     "controlType": "普通",
+     "headrailType": "哑灰方型罩盒",
+     "measureType": "IN",
+     "width": 71.25,
+     "height": 20.0,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": 69.875,
+    "slot": 70.0625
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutTube38",
+   "count": 36,
+   "example": {
+    "probe": {
+     "productType": "卷帘",
+     "controlType": "电动",
+     "headrailType": "双轨无盒",
+     "measureType": "IN",
+     "width": 43.0,
+     "height": 29.5,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": 43.0,
+    "slot": 43.1875
+   }
+  },
+  {
+   "slot": 22,
+   "field": "cutZebraBar",
+   "count": 9,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "普通",
+     "headrailType": "哑灰方型罩盒",
+     "measureType": "IN",
+     "width": 41.0625,
+     "height": 47.25,
+     "fabricRatio": 2.875,
+     "silkRatio": 2
+    },
+    "template": 39.875,
+    "slot": 40.0625
+   }
+  },
+  {
+   "slot": 22,
+   "field": "insertSize",
+   "count": 8,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "电动",
+     "headrailType": "亮白插片圆盒",
+     "measureType": "IN",
+     "width": 68.6875,
+     "height": 29.5,
+     "fabricRatio": 4.8125,
+     "silkRatio": 3.5
+    },
+    "template": 68.1875,
+    "slot": 68.375
+   }
+  },
+  {
+   "slot": 31,
+   "field": "cordTier",
+   "count": 13,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "普通",
+     "headrailType": "双轨半盒",
+     "measureType": "Tight",
+     "width": 28.3125,
+     "height": 20.0,
+     "fabricRatio": 4.8125,
+     "silkRatio": 3.5
+    },
+    "template": "0.6 & 0.3",
+    "slot": "0.8 & 0.5"
+   }
+  },
+  {
+   "slot": 34,
+   "field": "cordTier",
+   "count": 13,
+   "example": {
+    "probe": {
+     "productType": "香格里拉",
+     "controlType": "普通",
+     "headrailType": "亮白插片圆盒",
+     "measureType": "OUT",
+     "width": 70.4375,
+     "height": 20.0,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": "0.6 & 0.3",
+    "slot": "0.8 & 0.5"
+   }
+  },
+  {
+   "slot": 43,
+   "field": "cordTier",
+   "count": 13,
+   "example": {
+    "probe": {
+     "productType": "香格里拉",
+     "controlType": "普通",
+     "headrailType": "亮白插片圆盒",
+     "measureType": "OUT",
+     "width": 70.4375,
+     "height": 20.0,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": "0.6 & 0.3",
+    "slot": "0.8 & 0.5"
+   }
+  },
+  {
+   "slot": 45,
+   "field": "zebraCutPos",
+   "count": 24,
+   "example": {
+    "probe": {
+     "productType": "斑马帘",
+     "controlType": "电动",
+     "headrailType": "白弧",
+     "measureType": "Tight",
+     "width": 38.625,
+     "height": 60.0,
+     "fabricRatio": 3.125,
+     "silkRatio": 2.125
+    },
+    "template": 2.55,
+    "slot": 0.0
+   }
+  },
+  {
+   "slot": 49,
+   "field": "cordTier",
+   "count": 13,
+   "example": {
+    "probe": {
+     "productType": "香格里拉",
+     "controlType": "普通",
+     "headrailType": "亮白插片圆盒",
+     "measureType": "OUT",
+     "width": 70.4375,
+     "height": 20.0,
+     "fabricRatio": null,
+     "silkRatio": null
+    },
+    "template": "0.6 & 0.3",
+    "slot": "0.8 & 0.5"
+   }
+  }
+ ],
+ "formula": [
+  {
+   "slot": 4,
+   "cell": "K27",
+   "template": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.6,\"0.6 & 0.3\",IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\"))))))))))",
+   "actual": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\")))))))))"
+  },
+  {
+   "slot": 5,
+   "cell": "F37",
+   "template": "=IF(D<0>=\"斑马帘\",IF(B<2>=\"亮白插片圆盒\",1,IF(B<2>=\"哑白方型罩盒\",1,IF(B<2>=\"哑灰方型罩盒\",1,IF(B<2>=\"灰弧\",1,IF(B<2>=\"白弧\",1,IF(B<2>=\"双轨无盒\",2,IF(B<2>=\"双轨半盒\",2,IF(B<2>=\"单轨无盒\",1,0)))))))),\"\")",
+   "actual": "=IF(F<4>>0,1,0)"
+  },
+  {
+   "slot": 8,
+   "cell": "H59",
+   "template": "=IF(D<0>=\"香格里拉\",IF(B<2>=\"亮白亮白插片圆盒\",1,IF(B<2>=\"哑白方型罩盒\",1,IF(B<2>=\"哑灰方型罩盒\",1,IF(B<2>=\"GREY ARC\",1,IF(B<2>=\"White ARC\",1,IF(B<2>=\"双轨无盒\",2,IF(B<2>=\"双轨半盒\",2,IF(B<2>=\"单轨无盒\",1,0)))))))),0)",
+   "actual": "=IF(H<4>>0,1,0)"
+  },
+  {
+   "slot": 15,
+   "cell": "D107",
+   "template": "=工艺单!L[0]",
+   "actual": "=工艺单!L[6]"
+  },
+  {
+   "slot": 15,
+   "cell": "E107",
+   "template": "=工艺单!M[0]",
+   "actual": "=工艺单!M[6]"
+  },
+  {
+   "slot": 22,
+   "cell": "D158",
+   "template": "=工艺单!G[0]",
+   "actual": "=工艺单!G[7]"
+  },
+  {
+   "slot": 31,
+   "cell": "K225",
+   "template": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.6,\"0.6 & 0.3\",IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\"))))))))))",
+   "actual": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\")))))))))"
+  },
+  {
+   "slot": 34,
+   "cell": "K247",
+   "template": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.6,\"0.6 & 0.3\",IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\"))))))))))",
+   "actual": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\")))))))))"
+  },
+  {
+   "slot": 43,
+   "cell": "K313",
+   "template": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.6,\"0.6 & 0.3\",IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\"))))))))))",
+   "actual": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\")))))))))"
+  },
+  {
+   "slot": 49,
+   "cell": "K357",
+   "template": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.6,\"0.6 & 0.3\",IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\"))))))))))",
+   "actual": "=IF(I<0>=\"普通\",IF(I<1>*0.8*0.0254<0.1,0,IF(I<1>*0.8*0.0254<=0.8,\"0.8 & 0.5\",IF(I<1>*0.8*0.0254<=1,\"1.0 & 0.7\",IF(I<1>*0.8*0.0254<=1.2,\"1.2 & 0.9\",IF(I<1>*0.8*0.0254<1.5,\"1.4 & 1.1\",IF(I<1>*0.8*0.0254<=1.8,\"1.7 & 1.4\",IF(I<1>*0.8*0.0254<=2,\"2.0 & 1.7\",IF(I<1>*0.8*0.0254<=2.2,\"2.0 & 1.7\",\"2.4 & 2.1\")))))))))"
+  }
+ ]
+}

@@ -96,6 +96,22 @@ console.log("muse-bridge prefs");
   ok("§4-11 读出时也丢弃非白名单键", !("price" in fromDb));
 }
 
+/* rfq 意图的 incoterm 参数：显式 > 偏好 */
+{
+  const env = (command: unknown) => ({ contractVersion: MUSE_BRIDGE_CONTRACT_VERSION, requestId: "req-0002-abcdef", orgId: "org_1", museUserRef: "muse:x", command });
+  const r = parseMuseCommand(env({ intent: "rfq", projectId: "p1", incoterm: " ddp " }));
+  ok("rfq 意图接受 incoterm（大小写 / 空格不敏感）", r.ok && (r.value.command as { incoterm?: string }).incoterm === "DDP");
+  ok("rfq 意图拒绝不认识的贸易条款", !parseMuseCommand(env({ intent: "rfq", projectId: "p1", incoterm: "CPT" })).ok);
+  ok("rfq 意图不带 incoterm 仍合法", parseMuseCommand(env({ intent: "rfq", projectId: "p1" })).ok);
+  const t = pickRfqIncoterm("FOB", { ...EMPTY_PREFS, defaultIncoterm: "DDP" });
+  const draft = rfqDraftAdvisory({
+    projectId: "p1", actionId: "pa-1", roundNumber: 1, replyBy: "2026-11-07", fromEmail: "project@sunnyshutter.ca",
+    suppliers: [{ name: "A 工厂" }], blockedSuppliers: [], excludedRequirements: 0,
+    supplierSource: "explicit", incoterm: t.incoterm, incotermFromPrefs: t.fromPrefs,
+  });
+  ok("显式贸易条款覆盖偏好，草稿里不标「你的默认」", renderAdvisory(draft).includes("贸易条款 FOB") && !renderAdvisory(draft).includes("你的默认"));
+}
+
 /* 学习贸易条款：仅当之前为 null */
 {
   ok("learnIncoterm：之前为 null → 记下", learnIncoterm(EMPTY_PREFS, "FOB", NOW).defaultIncoterm === "FOB");

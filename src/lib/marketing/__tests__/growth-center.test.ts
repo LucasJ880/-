@@ -6,7 +6,8 @@ import {
   calculateMarketPresence,
 } from "../dashboard";
 import { build30DayPlan } from "../plan";
-import { canEditMarketingBrandProfile } from "../access-policy";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 let total = 0;
 let failed = 0;
@@ -108,11 +109,12 @@ expect(plan[0]?.findingId === "f1" && plan[0]?.priority === "urgent", "30 天计
 expect(plan.every((item) => item.dayOffset >= 0 && item.dayOffset <= 29), "计划项目均落在 30 天内");
 expect(plan.some((item) => item.category === "experiment"), "计划包含赛马复盘实验");
 
-expect(canEditMarketingBrandProfile("user", { role: "org_member", status: "active" }), "活跃营销成员可维护企业事实");
-expect(canEditMarketingBrandProfile("user", { role: "org_admin", status: "active" }), "组织管理员可维护企业事实");
-expect(!canEditMarketingBrandProfile("user", { role: "org_viewer", status: "active" }), "观察者保持只读");
-expect(!canEditMarketingBrandProfile("user", { role: "org_member", status: "inactive" }), "停用成员不可维护企业事实");
-expect(canEditMarketingBrandProfile("admin", null), "平台管理员仍可维护企业事实");
+// PERM-4b：写权 = operations.manage（DB 行为见 ops-authorize-db.isolated）；不再按组织 / 平台角色
+{
+  const policySrc = readFileSync(join(__dirname, "..", "access-policy.ts"), "utf-8");
+  expect(/holdsOpsPermission\(user, orgId, OPS_MANAGE\)/.test(policySrc), "增长中心写权 = operations.manage");
+  expect(!/org_member|org_admin|isAdmin\(|=== "manager"/.test(policySrc.replace(/\/\*[\s\S]*?\*\//g, "")), "不再按组织角色 / 平台角色放行");
+}
 
 console.log(`\n${failed === 0 ? "✅" : "❌"} Growth Center: ${total - failed}/${total} 通过`);
 if (failed > 0) process.exit(1);

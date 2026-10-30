@@ -7,7 +7,11 @@
 ## ADDED Requirements
 
 ### Requirement: 岗位总览接口只对本组织管理层只读开放
-`GET /api/cockpit/posts` SHALL 要求登录；组织 SHALL 按只读的 workforce 组织解析规则确定（多组织未选择时 403 并提示选择组织，无组织时 403）；调用者 SHALL 是平台超管 / 高管，或该组织的 `org_admin` / `org_owner`，否则 403。接口 SHALL NOT 写入任何表、SHALL NOT 改变调用者的活动组织。
+`GET /api/cockpit/posts` SHALL 要求登录；组织 SHALL 按只读的 workforce 组织解析规则确定（多组织未选择时 403 并提示选择组织，无组织时 403）；调用者 SHALL 通过与首页 `/` 相同的管理层判定，否则 403：岗位模式企业（窗饰）为平台超管或持 `organization.dashboard.read` 岗位键；其余企业为平台超管 / 高管，或该组织的 `org_admin` / `org_owner`。接口 SHALL NOT 写入任何表、SHALL NOT 改变调用者的活动组织。
+
+#### Scenario: 岗位模式企业按岗位键判定
+- **WHEN** 岗位模式企业里，组织角色为 `org_member` 但绑了老板岗位（持 `organization.dashboard.read`）的用户调用接口；以及组织角色为 `org_owner` 但没有该岗位键的用户调用接口
+- **THEN** 前者放行；后者返回 403，与首页 `/` 的落地判定一致
 
 #### Scenario: 非管理层成员
 - **WHEN** 组织的普通成员（`org_member`）调用 `GET /api/cockpit/posts`
@@ -33,7 +37,7 @@
 
 #### Scenario: 调度表与 vercel.json 对照
 - **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/schedule.test.ts`
-- **THEN** 28 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
+- **THEN** 30 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
 
 #### Scenario: 新增自动化未配调度
 - **WHEN** 自动化注册表新增一个键而调度表未配

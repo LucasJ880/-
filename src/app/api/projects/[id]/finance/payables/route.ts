@@ -16,18 +16,16 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const access = await requireCostAccess(request, id, PERMISSIONS.PROJECT_COST_READ);
   if (access instanceof NextResponse) return access;
 
+  // PERM-4c1：财务特权 / 项目角色；结算只读（会计）可看全部、不可登记付款
   const canReview =
-    access.user.role === "super_admin" ||
-    access.orgRole === "org_admin" ||
-    access.project.ownerId === access.user.id ||
-    (access.projectRole &&
-      hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
+    access.finance.privileged ||
+    (!!access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
   const canRecordPayment =
-    access.user.role === "super_admin" ||
-    access.orgRole === "org_admin" ||
-    access.project.ownerId === access.user.id ||
-    (access.projectRole &&
-      hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_PAYMENT_RECORD));
+    access.finance.privileged ||
+    (!!access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_PAYMENT_RECORD));
+
+  // 看全部 = 能审核 / 结算只读（会计）；其余强制只看应付给自己的
+  const seeAll = canReview || access.finance.canReadAll;
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
@@ -35,7 +33,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const result = await listProjectPayables(access.orgId, id, {
     status,
     // 无审核权者强制只看自己（服务端过滤，不依赖前端）
-    payeeUserId: canReview ? null : access.user.id,
+    payeeUserId: seeAll ? null : access.user.id,
   });
 
   return NextResponse.json({ ...result, canReview, canRecordPayment });

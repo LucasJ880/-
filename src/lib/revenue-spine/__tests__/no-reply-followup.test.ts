@@ -4,7 +4,8 @@
  */
 
 import assert from "node:assert/strict";
-import { buildNoReplyFollowUpDraft, noReplyFollowUpDue, type NoReplyFollowUpInput } from "../fde/no-reply-followup";
+import { FOLLOW_UP_REMINDER, buildNoReplyFollowUpDraft, noReplyFollowUpDue, type NoReplyFollowUpInput } from "../fde/no-reply-followup";
+import { approvalPreview } from "../fde/inbound-sales";
 import { DEFAULT_REVENUE_SPINE_POLICY, mergeRevenueSpinePolicy } from "../policy";
 import { buildClarifyingQuestions } from "../rfq/missing-info";
 
@@ -115,6 +116,15 @@ ok("中文：同样三段；没有上一封主题时自拟主题", () => {
   assert.match(d1.body, /\n1\. 请告知本次预计采购数量。/);
   assert.match(buildNoReplyFollowUpDraft(input({ language: "zh", step: 3, product: "珊瑚绒毯", questions: zq })).body, /这是我近期最后一次跟进/);
   assert.match(buildNoReplyFollowUpDraft(input({ language: "zh", previousSubject: "感谢展位来访：珊瑚绒毯 — 梦馨家纺" })).subject, /^回复：感谢展位来访/);
+});
+
+ok("审批预览：跟进草稿最上面固定提醒“确认买家没在邮箱 / WhatsApp 回过”，和来信风险提醒合在一块", () => {
+  const d = buildNoReplyFollowUpDraft(input());
+  const p = approvalPreview(d, null, [], [FOLLOW_UP_REMINDER]);
+  assert.ok(p.startsWith(`⚠ 审核提醒（不会发送）：\n- ${FOLLOW_UP_REMINDER}\n\n${d.subject}`), p.slice(0, 200));
+  const withRisk = approvalPreview(d, null, [{ code: "discount_request", note: "买家要折扣" }], [FOLLOW_UP_REMINDER]);
+  assert.ok(withRisk.startsWith(`⚠ 审核提醒（不会发送）：\n- 买家要折扣\n- ${FOLLOW_UP_REMINDER}`));
+  assert.equal(approvalPreview(d, null), `${d.subject}\n\n${d.body}`);
 });
 
 console.log(`\n${pass} passed`);

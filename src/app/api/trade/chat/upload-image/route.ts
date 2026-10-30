@@ -15,8 +15,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
-import { resolveTradeOrgId } from "@/lib/trade/access";
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { TRADE_CHAT_BLOB_ROOT } from "@/lib/chat-attachments/core";
 import { deleteOwnChatImage, processChatImageUpload } from "@/lib/chat-attachments/upload-image";
@@ -28,7 +31,7 @@ const UPLOAD_RATE_LIMIT = {
 } as const;
 
 export async function POST(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const rl = await checkRateLimitAsync(UPLOAD_RATE_LIMIT, auth.user.id);
@@ -68,7 +71,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireRole(request, ["trade", "admin"]);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
 
   const orgRes = await resolveTradeOrgId(request, auth.user);

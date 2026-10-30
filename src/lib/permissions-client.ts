@@ -5,12 +5,23 @@
  * 参数类型放宽为 string | null | undefined 以适配客户端未加载状态。
  */
 
+/** PERM-7b：只认 super_admin；平台 `admin` 等同 user */
 export function isSuperAdmin(role: string | null | undefined): boolean {
-  return role === "admin" || role === "super_admin";
+  return role === "super_admin";
 }
 
 export function isAdmin(role: string | null | undefined): boolean {
-  return role === "admin" || role === "super_admin";
+  return isSuperAdmin(role);
+}
+
+/**
+ * PERM-7b：平台角色归一到模块映射的档位词汇（super_admin → admin 档；平台 admin → user）。
+ * SYNC: src/lib/rbac/roles.ts platformTier
+ */
+export function platformTier(role: string | null | undefined): string {
+  if (role === "super_admin") return "admin";
+  if (role === "admin") return "user";
+  return role ?? "user";
 }
 
 /**
@@ -35,15 +46,15 @@ export function canManageProject(projectRole: string | null | undefined): boolea
 }
 
 export function canViewAdminPages(platformRole: string | null | undefined): boolean {
-  return platformRole === "super_admin" || platformRole === "admin";
+  return isSuperAdmin(platformRole);
 }
 
 /**
- * 用户账号管理（用户管理页 / 删除账号）— 平台 admin + 老板 boss。
- * SYNC: 与 src/lib/rbac/roles.ts canManageUsers 保持一致。
+ * 平台 super_admin（PERM-4b：平台用户管理只认它）。
+ * SYNC: 与 src/lib/rbac/roles.ts isPlatformSuperAdmin 保持一致。
  */
-export function canManageUsers(platformRole: string | null | undefined): boolean {
-  return isAdmin(platformRole) || platformRole === "boss";
+export function isPlatformSuperAdmin(platformRole: string | null | undefined): boolean {
+  return isSuperAdmin(platformRole);
 }
 
 /**
@@ -52,7 +63,7 @@ export function canManageUsers(platformRole: string | null | undefined): boolean
  */
 export function canAccessModule(role: string | null | undefined, modulePath: string): boolean {
   if (!role) return false;
-  const normalizedRole = role === "super_admin" ? "admin" : role;
+  const normalizedRole = platformTier(role);
 
   const MODULE_ROLES: Record<string, string[] | undefined> = {
     "/":              undefined,

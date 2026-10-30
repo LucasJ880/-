@@ -118,6 +118,15 @@ async function main() {
       { orgId: ORG_B, userId: MANAGER_B, role: "org_member", status: "active" },
     ],
   });
+  // PERM-6c：外贸管理层收件人 = 管理层且持外贸读或写键；经理（平台 manager、企业 org_member）绑外贸业务员岗位后才算
+  {
+    const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
+    for (const [orgId, userId] of [[ORG_T, MANAGER], [ORG_B, MANAGER_B]] as const) {
+      await seedOrgAuthorizationProfiles(orgId);
+      const profile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId, key: "trade_rep" } } });
+      await db.principalRoleBinding.create({ data: { orgId, principalType: "HUMAN", principalId: userId, roleProfileId: profile!.id, status: "active" } });
+    }
+  }
   await publishRevenueSpineRule({
     orgId: ORG_T,
     ruleKey: RULE_KEY_POLICY,
@@ -501,6 +510,9 @@ async function main() {
         await db.capabilityQuotaReservation.deleteMany({ where: { orgId } }).catch(() => undefined);
         await db.orgBusinessRule.deleteMany({ where: { orgId } });
         await db.auditLog.deleteMany({ where: { orgId } });
+        await db.principalRoleBinding.deleteMany({ where: { orgId } });
+        await db.roleProfile.deleteMany({ where: { orgId } }).catch(() => undefined);
+        await db.positionTemplate.deleteMany({ where: { orgId } }).catch(() => undefined);
         await db.organizationMember.deleteMany({ where: { orgId } });
       }
       await db.pendingAction.deleteMany({ where: { createdById: { in: USERS } } });

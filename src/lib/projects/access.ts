@@ -8,7 +8,7 @@ import { withBidWorkflowSchemaFallback } from "@/lib/bid-workflow/schema-drift";
 import { LEGACY_PROJECT_ACCESS_SELECT } from "@/lib/bid-workflow/legacy-project-select";
 
 /** 鉴权加载 Project：schema drift 时不读 bidPhaseStatus，避免整链 503 */
-async function findProjectForAccess(projectId: string): Promise<Project | null> {
+export async function findProjectForAccess(projectId: string): Promise<Project | null> {
   const { value } = await withBidWorkflowSchemaFallback({
     logLabel: "project.access",
     primary: () => db.project.findUnique({ where: { id: projectId } }),

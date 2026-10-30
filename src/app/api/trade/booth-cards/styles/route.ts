@@ -5,9 +5,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/guards";
-import { resolveTradeOrgId } from "@/lib/trade/access";
-import { BOOTH_CARD_ROLES } from "@/lib/trade/booth-cards";
+import {
+  resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
+  TRADE_READ_KEYS,
+  requireTradePermission,
+} from "@/lib/trade/access";
 import {
   formatStyleReferenceText,
   loadStyleReferences,
@@ -16,7 +19,7 @@ import {
 } from "@/lib/trade/style-references";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireRole(request, BOOTH_CARD_ROLES);
+  const auth = await requireTradePermission(request, TRADE_READ_KEYS);
   if (auth instanceof NextResponse) return auth;
   const orgRes = await resolveTradeOrgId(request, auth.user);
   if (!orgRes.ok) return orgRes.response;
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = await requireRole(request, BOOTH_CARD_ROLES);
+  const auth = await requireTradePermission(request, TRADE_MANAGE_KEYS);
   if (auth instanceof NextResponse) return auth;
   const body = (await request.json().catch(() => null)) as { orgId?: unknown; text?: unknown } | null;
   if (!body || typeof body.text !== "string") {

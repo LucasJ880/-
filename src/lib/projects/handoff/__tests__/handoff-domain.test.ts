@@ -354,7 +354,7 @@ ok(
 );
 ok(
   canPreviewHandoff(
-    { platformRole: "admin", userId: "u1" },
+    { platformRole: "super_admin", userId: "u1" },
     { canReadTender: true },
   ),
   "管理层可预览",
@@ -367,7 +367,7 @@ ok(
   "裸 user 不可执行",
 );
 ok(
-  canOverrideHandoff({ platformRole: "admin", userId: "u1" }),
+  canOverrideHandoff({ platformRole: "super_admin", userId: "u1" }),
   "管理层可 override",
 );
 ok(

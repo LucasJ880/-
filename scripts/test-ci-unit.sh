@@ -136,6 +136,7 @@ npx tsx src/lib/trade/__tests__/inquiry-sla.test.ts
 npx tsx src/lib/trade/__tests__/inquiry-design-rules.test.ts
 npx tsx src/lib/navigation/__tests__/trade-layout.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
+npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
 npx tsx src/lib/autopilot/__tests__/repository-org.test.ts
@@ -175,9 +176,19 @@ npx tsx --test src/lib/marketing/__tests__/crm-source-attribution.test.ts
 npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts
 npx tsx src/lib/sales/__tests__/action-notify.test.ts
 npx tsx src/lib/notifications/__tests__/delivery-gate.test.ts
-npx tsx src/lib/blinds/__tests__/discount-permissions.test.ts
+npx tsx src/lib/notifications/__tests__/mark-all-read.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
+npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts
+npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts
+npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts
+npx tsx src/lib/sunny-process/__tests__/real-orders.test.ts
+npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts
+npx tsx src/lib/sunny-process/__tests__/line-moves.test.ts
+npx tsx src/lib/sunny-process/__tests__/vinyl-oracle.test.ts
+npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts
+npx tsx src/lib/sunny-process/__tests__/autogen.test.ts
+npx tsx src/lib/sunny-process/__tests__/export-workbook.test.ts
 npx tsx src/lib/visualizer/__tests__/render-job.test.ts
 npx tsx src/lib/visualizer/__tests__/texture-fill.test.ts
 npx tsx src/lib/bid-workflow/__tests__/bid-workflow-phase1.test.ts
@@ -258,6 +269,7 @@ npx tsx src/lib/revenue-spine/__tests__/rfq-extract.test.ts
 npx tsx src/lib/revenue-spine/__tests__/scoring-draft.test.ts
 npx tsx src/lib/revenue-spine/__tests__/tricky-inquiries.test.ts
 npx tsx src/lib/revenue-spine/__tests__/no-reply-followup.test.ts
+npx tsx src/lib/revenue-spine/__tests__/booth-email.test.ts
 npx tsx src/lib/revenue-spine/__tests__/commercial-facts.test.ts
 npx tsx src/lib/trade/__tests__/message-normalize.test.ts
 npx tsx src/lib/revenue-spine/__tests__/revenue-spine-db.isolated.test.ts
@@ -279,6 +291,37 @@ npx tsx src/lib/ai-grader/actions/__tests__/wechat-confirm-policy.test.ts
 npx tsx src/lib/messaging/__tests__/binding-proof.test.ts
 npx tsx src/lib/messaging/__tests__/wechat-binding-confirm-db.isolated.test.ts
 npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts
+npx tsx src/lib/muse-bridge/__tests__/sales-pure.test.ts
+npx tsx src/lib/muse-bridge/__tests__/inquiry-pure.test.ts
+npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts
+# PERM-4a：签约单改总价审批判定（纯函数）
+npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
+npx tsx src/lib/sales/__tests__/period-pure.test.ts
+npx tsx src/lib/sales/__tests__/period-insights.test.ts
+# KPI-2：期间看板 AI 解读纯函数核心
+npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts
+# CAL-1：日历观察纯函数核心
+npx tsx src/lib/calendar-watch/__tests__/calendar-watch-pure.test.ts
+# CAL-2：网站预约转入纯函数核心
+npx tsx src/lib/calendar-watch/__tests__/website-booking-intake-pure.test.ts
+# CAL-3：日历变更推送纯函数
+npx tsx src/lib/calendar-watch/__tests__/calendar-change-push-pure.test.ts
+# PERM-4b：运营 / 增长中心 / 平台用户管理权限判定（纯函数 + 源码断言）
+npx tsx src/lib/operations/__tests__/ops-access.test.ts
+# PERM-5b：数字员工岗位绑定与工具授权（纯函数 + 源码断言）
+npx tsx src/lib/authorization/__tests__/digital-employee.test.ts
+npx tsx src/lib/authorization/__tests__/platform-role-collapse.test.ts
+npx tsx src/lib/authorization/__tests__/residual-reads.test.ts
+npx tsx src/lib/trade/__tests__/trade-access.test.ts
+npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
+npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
+npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
+npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts
+npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts
+# PERM-5a：会计视图（提成口径 / 时间窗口 / 工作区导航 / 接口源码断言）
+npx tsx src/lib/accounting/__tests__/accounting.test.ts
+# PERM-4c1：项目财务 / 报价引擎按岗位（决策表 + 源码断言）
+npx tsx src/lib/project-finance/__tests__/finance-access.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts
@@ -316,9 +359,14 @@ npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts
 npx tsx src/lib/revenue-spine/__tests__/draft-preferences.test.ts
 npx tsx src/lib/revenue-spine/__tests__/followup-preferences.test.ts
 npx tsx src/lib/proactive/__tests__/manager-notify.test.ts
+# fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
+npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
+
+# 测试注册校验（fix-taskflow-status-drift）：只加进本 CI 子集、没注册进 scripts/test-all.sh 的测试文件直接让 CI 失败
+bash scripts/check-test-registry.sh
 
 echo ""
 echo "CI unit subset PASS"

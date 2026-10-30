@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import {
   SYSTEM_POSITION_TEMPLATES,
   SYSTEM_ROLE_PROFILES,
+  positionTemplatesForIndustryPack,
+  profilesForIndustryPack,
 } from "./role-defaults";
 
 export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
@@ -20,7 +22,16 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
 
   const profileIdByKey = new Map<string, string>();
 
-  for (const p of SYSTEM_ROLE_PROFILES) {
+  // PERM-1：行业包岗位模板集（窗饰企业追加 owner / pricing_lead / ... ；非窗饰企业为空）
+  const orgRow = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { industryPackId: true },
+  });
+  const industryPackId = orgRow?.industryPackId ?? null;
+  const allProfiles = [...SYSTEM_ROLE_PROFILES, ...profilesForIndustryPack(industryPackId)];
+  const allTemplates = [...SYSTEM_POSITION_TEMPLATES, ...positionTemplatesForIndustryPack(industryPackId)];
+
+  for (const p of allProfiles) {
     const row = await db.roleProfile.upsert({
       where: { orgId_key: { orgId, key: p.key } },
       create: {
@@ -66,7 +77,7 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
     }
   }
 
-  for (const t of SYSTEM_POSITION_TEMPLATES) {
+  for (const t of allTemplates) {
     const roleProfileId = profileIdByKey.get(t.roleProfileKey) ?? null;
     await db.positionTemplate.upsert({
       where: { orgId_key: { orgId, key: t.key } },
@@ -133,16 +144,20 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
     }
   }
 
-  // 平台 role=sales 的 active org_member → sales_rep（不覆盖已有 owner/admin 绑定）
-  // trade 不自动绑销售岗位
-  const salesProfileId = profileIdByKey.get("sales_rep");
-  if (salesProfileId) {
+  // 平台 role=sales 的 active org_member → sales_rep；PERM-6a：平台 role=trade → trade_rep
+  // （不覆盖已有任何绑定；trade 不绑销售岗位）
+  const autoBindProfileIds: Record<string, string | undefined> = {
+    sales: profileIdByKey.get("sales_rep"),
+    trade: profileIdByKey.get("trade_rep"),
+  };
+  if (autoBindProfileIds.sales || autoBindProfileIds.trade) {
     const members = await db.organizationMember.findMany({
       where: { orgId, status: "active", role: "org_member" },
       select: { userId: true, user: { select: { role: true } } },
     });
     for (const m of members) {
-      if (m.user.role !== "sales") continue;
+      const autoProfileId = autoBindProfileIds[m.user.role];
+      if (!autoProfileId) continue;
       const hasAny = await db.principalRoleBinding.findFirst({
         where: {
           orgId,
@@ -153,7 +168,7 @@ export async function seedOrgAuthorizationProfiles(orgId: string): Promise<{
         select: { id: true },
       });
       if (!hasAny) {
-        await ensurePrincipalBinding(orgId, m.userId, salesProfileId);
+        await ensurePrincipalBinding(orgId, m.userId, autoProfileId);
       }
     }
   }

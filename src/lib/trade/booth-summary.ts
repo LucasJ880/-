@@ -12,11 +12,10 @@ import { createNotification } from "@/lib/notifications/create";
 import { zonedLocalToUtc } from "@/lib/revenue-spine/business-days";
 import { parseBoothCardContext } from "./booth-cards";
 import { fromReceiptPayload } from "./website-inquiry-receipts";
+import { tradeManagementRecipients } from "./recipients";
 
 export const BOOTH_DAY_START_HOUR = 7;
 const A_LIST_MAX = 20;
-const MANAGEMENT_ROLES = ["boss", "manager", "admin", "super_admin"];
-const MANAGEMENT_ORG_ROLES = ["org_owner", "org_admin"];
 
 /** 时刻所属的展会日（当地日期，07:00 前算前一天） */
 export function boothDayOf(now: Date, timeZone: string): string {
@@ -142,18 +141,12 @@ export function formatBoothSummary(s: BoothSummary): { title: string; text: stri
   return { title, text: lines.join("\n") };
 }
 
-/** 管理层成员：组织所有者 / 管理员，或平台角色老板 / 经理 / 管理员（调用方只传在职成员） */
-export function isManagementMember(m: { role: string; user: { role: string | null } }): boolean {
-  return MANAGEMENT_ORG_ROLES.includes(m.role) || MANAGEMENT_ROLES.includes(m.user.role ?? "");
-}
-
-/** 管理层（在职成员里 isManagementMember 的）。老板询盘早报、分级提醒升级、旧 SLA 24 小时升级沿用同一规则 */
+/**
+ * 外贸管理层收件人。老板询盘早报、分级提醒升级、旧 SLA 24 小时升级沿用同一规则。
+ * PERM-6c：按岗位（管理层且持外贸读或写键），定义见 ./recipients。
+ */
 export async function managementOf(orgId: string): Promise<string[]> {
-  const members = await db.organizationMember.findMany({
-    where: { orgId, status: "active" },
-    select: { userId: true, role: true, user: { select: { role: true } } },
-  });
-  return members.filter(isManagementMember).map((m) => m.userId);
+  return tradeManagementRecipients(orgId);
 }
 
 /** 与 pushNotification 同形：sent = 实际发出的微信条数，failed = 通道发送失败数（静默时段跳过的两边都不计） */

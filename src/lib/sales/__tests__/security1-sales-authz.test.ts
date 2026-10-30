@@ -4,7 +4,11 @@
  */
 
 import { compileAuthorizedWhereFromScopes } from "@/lib/authorization/compile-where";
-import { bindingsFromSystemProfile } from "@/lib/authorization/resolve-effective-permissions";
+import { bindingsFromSystemProfile, platformAdminBindings } from "@/lib/authorization/resolve-effective-permissions";
+import { decideFromBindings } from "@/lib/authorization/authorize";
+import { mergedProfileBindings } from "@/lib/authorization/role-defaults";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 let pass = 0;
 let fail = 0;
@@ -91,6 +95,36 @@ ok(
     !("createdById" in ownerWhere.where),
   "负责人 ORG 不限 createdById",
 );
+
+console.log("PERM-4a：销售区不因平台角色短路");
+{
+  const principal = { type: "HUMAN" as const, id: "padmin-1", orgId: "sunny" };
+  const cust = { type: "sales_customer" as const, id: "c1", ownerId: "someone-else", orgId: "sunny" };
+  const opp = { type: "sales_opportunity" as const, id: "o1", ownerId: "someone-else", assignedToId: null, orgId: "sunny" };
+  // 平台 admin、无岗位绑定、org_member（兼容回退为空）→ 有效绑定为空
+  ok(!decideFromBindings({ principal, permission: "sales.customer.read", bindings: [], resource: cust }).allowed, "平台 admin 无绑定：读他人客户拒绝");
+  ok(!decideFromBindings({ principal, permission: "sales.opportunity.read", bindings: [], resource: opp }).allowed, "平台 admin 无绑定：读他人商机拒绝");
+  ok(!decideFromBindings({ principal, permission: "sales.customer.archive", bindings: [], resource: cust }).allowed, "平台 admin 无绑定：归档客户拒绝");
+  const sa = platformAdminBindings();
+  ok(
+    ["sales.customer.read", "sales.customer.archive"].every((k) => decideFromBindings({ principal, permission: k, bindings: sa, resource: cust }).allowed)
+      && decideFromBindings({ principal, permission: "sales.opportunity.update", bindings: sa, resource: opp }).allowed,
+    "平台 super_admin（平台管理员绑定）：客户读 / 归档、商机改 允许",
+  );
+  const eff = (key: string) =>
+    mergedProfileBindings("window_covering_services_v1", key).map((b, i) => ({ permissionKey: b.permissionKey, dataScope: b.dataScope, effect: "ALLOW" as const, source: `t:${i}` }));
+  const repB = eff("sales_rep");
+  ok(decideFromBindings({ principal, permission: "sales.customer.read", bindings: repB, resource: { ...cust, ownerId: "padmin-1" } }).allowed, "销售读本人客户允许（对照：绑定形状有效）");
+  ok(!decideFromBindings({ principal, permission: "sales.customer.archive", bindings: repB, resource: { ...cust, ownerId: "padmin-1" } }).allowed, "销售归档本人客户拒绝（无归档权）");
+  const ownerB = eff("owner");
+  ok(
+    decideFromBindings({ principal, permission: "sales.customer.archive", bindings: ownerB, resource: cust }).allowed
+      && decideFromBindings({ principal, permission: "sales.opportunity.update", bindings: ownerB, resource: opp }).allowed,
+    "老板岗位：归档他人客户、改他人商机 允许",
+  );
+  const ctxSrc = readFileSync(join(__dirname, "..", "org-context.ts"), "utf-8");
+  ok(!/isAdmin\(|isSuperAdmin\(/.test(ctxSrc), "org-context.ts 无平台角色短路");
+}
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

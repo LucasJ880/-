@@ -14,6 +14,8 @@ export type MuseIdentity = {
   role: string | null;
   /** OrganizationMember.role */
   orgRole: string;
+  /** PERM-4c4：企业为岗位模式时 true，此时 role 是岗位派生平台角色（见 rbac/effective-platform-role） */
+  positionMode?: boolean;
 };
 
 export type ResolveBindingResult =
