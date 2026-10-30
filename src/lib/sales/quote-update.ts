@@ -9,7 +9,7 @@
 
 import { db } from "@/lib/db";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
-import { getAddonDef } from "@/lib/blinds/pricing-addons";
+import { normalizeAddonInputs, resolveAddonLines } from "@/lib/blinds/pricing-addons";
 import { loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } from "@/lib/blinds/discount-settings";
 import { stampPricelistVersion } from "@/lib/blinds/pricelist-version";
 import { costRateForProduct, snapshotCostPrice } from "@/lib/blinds/cost-rates";
@@ -87,6 +87,9 @@ export async function prepareQuoteUpdate(input: {
 
   // —— pricing 兜底，行为与 POST 完全一致 ——
   const quoteSettings = await loadDiscountsDto(orgId);
+  // PRICE-3：Part B / 快速报价的附加项目——落库行与 addonsSubtotal 同一函数（design D4）
+  const addonInputs = normalizeAddonInputs(addons);
+  const addonResolved = resolveAddonLines(addonInputs, quoteSettings.addonPrices);
   const nextPromotionAmount = typeof specialPromotion === "number" && Number.isFinite(specialPromotion)
     ? Math.max(0, specialPromotion)
     : 0;
@@ -112,7 +115,8 @@ export async function prepareQuoteUpdate(input: {
     calc = calculateQuoteTotal({
       // 2026-10-28：与 POST 一致，没有行级覆盖的行套企业折扣
       items: applyOrgDiscountDefaults(items || [], dtoToProductDiscounts(quoteSettings)),
-      addons,
+      addons: addonInputs,
+      addonPrices: quoteSettings.addonPrices,
       installMode,
       deliveryFee: deliveryFee ?? quoteSettings.deliveryFee,
       taxRate,
@@ -157,6 +161,8 @@ export async function prepareQuoteUpdate(input: {
 
   return {
     quoteSettings,
+    addonLines: addonResolved.lines,
+    addonWarnings: addonResolved.warnings,
     pricingPolicy,
     tierDecision,
     adminPromotionApproval,
@@ -181,9 +187,11 @@ export async function commitQuoteUpdate(input: {
   actor: QuoteUpdateActor;
 }) {
   const { orgId, quoteId, existing, body, prepared, actor } = input;
-  const { addons, installMode, notes, orderNumber, formDataJson, totalMsrp, opportunityId } = body;
+  const { installMode, notes, orderNumber, formDataJson, totalMsrp, opportunityId } = body;
   const {
     quoteSettings,
+    addonLines,
+    addonWarnings,
     pricingPolicy,
     tierDecision,
     adminPromotionApproval,
@@ -210,14 +218,15 @@ export async function commitQuoteUpdate(input: {
 
   // pricing 警告 append 到 notes
   const pricingErrorNotes =
-    calc.errors.length > 0
+    calc.errors.length > 0 || addonWarnings.length > 0
       ? `\n\n[Pricing Warnings @ ${new Date().toISOString()}]\n` +
-        calc.errors
-          .map(
+        [
+          ...calc.errors.map(
             (e) =>
               `  #${e.index + 1} (${e.input.product} ${e.input.fabric}): ${e.error}`,
-          )
-          .join("\n")
+          ),
+          ...addonWarnings.map((w) => `  ${w}`),
+        ].join("\n")
       : "";
   const mergedNotes =
     [notes || "", pricingErrorNotes].filter(Boolean).join("").trim() || null;
@@ -335,19 +344,8 @@ export async function commitQuoteUpdate(input: {
                 })),
               }
             : undefined,
-        addons: addons?.length
-          ? {
-              create: addons.map((a) => {
-                const def = getAddonDef(a.addonKey);
-                return {
-                  addonKey: a.addonKey,
-                  displayName: def?.displayName || a.addonKey,
-                  unitPrice: def?.unitPrice || 0,
-                  qty: a.qty,
-                  subtotal: (def?.unitPrice || 0) * a.qty,
-                };
-              }),
-            }
+        addons: addonLines.length
+          ? { create: addonLines }
           : undefined,
       },
       include: { items: true, addons: true },

@@ -43,6 +43,7 @@ import {
   DEFAULT_DELIVERY_FEE,
   DEFAULT_CORDLESS_POLICY,
 } from "@/lib/blinds/pricing-data";
+import { partBRowsToAddonInputs } from "@/lib/blinds/pricing-addons";
 
 import type {
   PartALine,
@@ -363,6 +364,8 @@ function QuoteSheetPageInner() {
   const [discounts, setDiscounts] = useState<DiscountsOverride | undefined>(undefined);
   // PRICE-2：企业无绳策略（折扣 / 最低价），与服务端同源
   const [cordlessPolicy, setCordlessPolicy] = useState<CordlessPolicy>(DEFAULT_CORDLESS_POLICY);
+  // PRICE-3：附加项目企业价（Part B 下拉默认单价）；未加载时 Part B 按目录价
+  const [addonPrices, setAddonPrices] = useState<Record<string, number> | undefined>(undefined);
   const [sunnyMotorPrice, setSunnyMotorPrice] = useState(
     DEFAULT_SUNNY_MOTOR_PRICE,
   );
@@ -387,6 +390,7 @@ function QuoteSheetPageInner() {
           romanShade?: number;
           fauxwood?: number; allusion?: number;
           cordlessDiscount?: number; cordlessFloorZebra?: number; cordlessFloorRoller?: number;
+          addonPrices?: Record<string, number>;
           promoWarnPct?: number; promoDangerPct?: number; promoMaxPct?: number;
           depositWarnPct?: number; depositMinPct?: number;
           sunnyMotorPrice?: number;
@@ -415,6 +419,7 @@ function QuoteSheetPageInner() {
           },
           multiplier: DEFAULT_CORDLESS_POLICY.multiplier,
         });
+        if (d.addonPrices && typeof d.addonPrices === "object") setAddonPrices(d.addonPrices);
         if (typeof d.promoWarnPct === "number") setPromoWarnPct(d.promoWarnPct);
         if (typeof d.promoDangerPct === "number") setPromoDangerPct(d.promoDangerPct);
         if (typeof d.promoMaxPct === "number") setPromoMaxPct(d.promoMaxPct);
@@ -1002,6 +1007,9 @@ function QuoteSheetPageInner() {
         installMode, taxRate, sunnyMotorPrice,
       };
 
+      // PRICE-3：Part B 已选且数量 > 0 的行作为附加项目提交，库里报价金额从此含 Part B（design D4）
+      const addons = partBRowsToAddonInputs(partBAddons);
+
       // 编辑模式下走 PUT /api/sales/quotes/[quoteId]，否则 POST 新建
       const isEditing = !!editingQuoteId;
       const endpoint = isEditing
@@ -1018,6 +1026,7 @@ function QuoteSheetPageInner() {
                 customerId,
                 opportunityId: opportunityId || undefined,
                 items,
+                addons,
                 installMode,
                 taxRate,
                 orderNumber,
@@ -1030,6 +1039,7 @@ function QuoteSheetPageInner() {
                 customerId,
                 opportunityId: opportunityId || undefined,
                 items,
+                addons,
                 installMode,
                 taxRate,
                 orderNumber,
@@ -1972,7 +1982,7 @@ function QuoteSheetPageInner() {
       <div className="rounded-xl border border-border bg-card-bg/60 backdrop-blur p-3 md:p-5 overflow-x-auto">
         {activeTab === "partB" && (
           <PartBForm
-            addons={partBAddons} onAddonsChange={setPartBAddons}
+            addons={partBAddons} onAddonsChange={setPartBAddons} addonPrices={addonPrices}
             notes={partBNotes} onNotesChange={setPartBNotes}
             paymentMethod={paymentMethod} onPaymentMethodChange={setPaymentMethod}
             depositAmount={depositAmount} onDepositChange={setDepositAmount}

@@ -45,6 +45,8 @@ async function main() {
   const previewRoute = await import("@/app/api/sales/quotes/preview/route");
   const quotesRoute = await import("@/app/api/sales/quotes/route");
   const genRoute = await import("@/app/api/sales/measurements/[id]/generate-quote/route");
+  const quoteItemRoute = await import("@/app/api/sales/quotes/[quoteId]/route");
+  const { partBRowsToAddonInputs } = await import("@/lib/blinds/pricing-addons");
   const { executePendingAction } = await import("@/lib/pending-actions/executor");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const { loadDiscounts, loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } = await import("@/lib/blinds/discount-settings");
@@ -224,6 +226,65 @@ async function main() {
     const gCordless = genQuote?.items.find((it) => it.product === "Zebra" && it.cordless);
     ok(!!gCordless && gCordless.discountPct === 0.25 && gCordless.price === 169, "量房无绳 Zebra 24x36 → 企业无绳折扣 0.25、最低价 169", gCordless);
     ok((await db.measurementRecord.findUnique({ where: { id: MR } }))?.status === "quoted", "量房记录状态 → quoted");
+
+    console.log("\n[8] PRICE-3：附加项目企业价走审批，只动 pricing.addons");
+    const a1 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { addonPrices: { motor: 160 } });
+    ok(a1.status === 202 && String(a1.body.summary).includes("addonPrice.motor=160"), "202 + 审批摘要含 addonPrice.motor=160", a1.body);
+    ok(!((await settingsJson())?.pricing as Record<string, unknown> | undefined)?.addons, "提交后 pricing.addons 仍不存在");
+    const ea1 = await approve(String(a1.body.approvalId), BOSS_B);
+    ok(ea1.ok === true, "批准执行成功", ea1);
+    const sjA = await settingsJson();
+    const pricingA = sjA?.pricing as Record<string, unknown>;
+    ok(JSON.stringify(pricingA?.addons) === JSON.stringify({ motor: 160 }), "pricing.addons = {motor:160}", pricingA?.addons);
+    ok((pricingA?.cordless as { discount?: number })?.discount === 0.25 && (pricingA?.discounts as Record<string, number>)?.fauxwood === 0.25 && (sjA?.sunnyWarranty as Record<string, unknown>)?.fixture === true, "pricing.cordless / discounts / sunnyWarranty 原样", sjA);
+    const gA = await call(settingsRoute.GET, BOSS_A, "GET", `/api/sales/quote-settings/discounts?orgId=${ORG}`);
+    const gAp = gA.body.addonPrices as Record<string, number> | undefined;
+    ok(gAp?.motor === 160 && gAp?.hub === 240 && Object.keys(gAp ?? {}).length === 36, "GET addonPrices：motor 160、hub 240、共 36 项", gAp);
+    const badA1 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { addonPrices: { hub: -1 } });
+    const badA2 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { addonPrices: { not_a_key: 10 } });
+    ok(badA1.status === 400 && badA2.status === 400, "附加项目价非法键 / 负数 → 400", { badA1: badA1.body, badA2: badA2.body });
+    ok((await db.pendingAction.count({ where: { orgId: ORG, status: "pending" } })) === 0, "非法提交不产生待审批动作");
+
+    console.log("\n[9] PRICE-3：Part B 经真实路由计入库里报价金额");
+    const partB = partBRowsToAddonInputs([
+      { skuItem: "drape_motor_battery", qty: 1, price: 650 },
+      { skuItem: "__custom", customName: "Extra bracket", qty: 2, price: 15 },
+      { skuItem: "", qty: 1, price: 99 },
+    ]);
+    const qB = await call(quotesRoute.POST, REP, "POST", `/api/sales/quotes?orgId=${ORG}`, {
+      customerId: CUST,
+      items: [{ product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60 }],
+      addons: partB,
+      installMode: "pickup", taxRate: 0.13,
+      formDataJson: JSON.stringify({ orderNumber: `PB-${stamp}` }),
+    });
+    const qBId = String((qB.body.quote as Record<string, unknown> | undefined)?.id ?? "");
+    if (qBId) quoteIds.push(qBId);
+    const savedB = qBId ? await db.salesQuote.findUnique({ where: { id: qBId }, include: { addons: true } }) : null;
+    ok(qB.status < 300 && !!savedB, "带 Part B 新建报价成功", qB.body);
+    ok(savedB?.addonsSubtotal === 680, "库里附加项目小计 = 650 + 2 × 15 = 680", savedB?.addonsSubtotal);
+    const names = (savedB?.addons ?? []).map((a) => `${a.addonKey}|${a.displayName}|${a.unitPrice}|${a.qty}|${a.subtotal}`).sort();
+    ok(JSON.stringify(names) === JSON.stringify(["custom|Extra bracket|15|2|30", "drape_motor_battery|Drape motor(Battery)|650|1|650"]), "两行落库：对客名称与单价正确，未选行不提交", names);
+    const merchB = savedB?.merchSubtotal ?? NaN;
+    ok(!!savedB && Math.abs(savedB.preTaxTotal - (merchB + 680)) < 0.005 && Math.abs(savedB.grandTotal - merchB * 1.13 - 768.4) < 0.01, "税前含 680、含税总额比不含 Part B 多 768.40", { pre: savedB?.preTaxTotal, grand: savedB?.grandTotal, merchB });
+
+    const qM = await call(quotesRoute.POST, REP, "POST", `/api/sales/quotes?orgId=${ORG}`, {
+      customerId: CUST, items: [], addons: [{ addonKey: "motor", qty: 2 }], installMode: "pickup", taxRate: 0,
+      formDataJson: JSON.stringify({ orderNumber: `PM-${stamp}` }),
+    });
+    const qMId = String((qM.body.quote as Record<string, unknown> | undefined)?.id ?? "");
+    if (qMId) quoteIds.push(qMId);
+    const savedM = qMId ? await db.salesQuote.findUnique({ where: { id: qMId }, include: { addons: true } }) : null;
+    ok(savedM?.addonsSubtotal === 320 && savedM?.addons[0]?.unitPrice === 160, "未带单价的预设行按企业价 160：motor × 2 = 320", savedM?.addons);
+
+    const eB = await call(quoteItemRoute.PUT, REP, "PUT", `/api/sales/quotes/${qBId}?orgId=${ORG}`, {
+      items: [{ product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60 }],
+      addons: partBRowsToAddonInputs([{ skuItem: "hub", qty: 1, price: 200 }]),
+      installMode: "pickup", taxRate: 0.13,
+      formDataJson: JSON.stringify({ orderNumber: `PB-${stamp}` }),
+    }, { quoteId: qBId });
+    const editedB = await db.salesQuote.findUnique({ where: { id: qBId }, include: { addons: true } });
+    ok(eB.status === 200 && editedB?.addonsSubtotal === 200 && editedB.addons.length === 1 && editedB.addons[0].unitPrice === 200 && editedB.addons[0].displayName === "Hub", "编辑：Part B 改为 hub @200 → 小计 200、名称 Hub", { status: eB.status, body: eB.body, addons: editedB?.addons });
   } finally {
     await db.measurementRecord.deleteMany({ where: { customerId: CUST } });
     await db.pendingAction.deleteMany({ where: { orgId: ORG } });

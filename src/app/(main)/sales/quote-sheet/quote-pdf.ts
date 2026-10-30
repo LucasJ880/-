@@ -29,7 +29,13 @@ import type {
   InstallMode,
 } from "./types";
 import { fractionToInches, formatInches16, HST_RATE } from "./types";
-import { ADDON_CATALOG } from "@/lib/blinds/pricing-addons";
+import {
+  CUSTOM_ADDON_KEY,
+  PART_B_CUSTOM_SKU,
+  addonCustomerLabel,
+  formatAddonUnitPrice,
+  getAddonDef,
+} from "@/lib/blinds/pricing-addons";
 import {
   computeShadeLinePrice,
   computeShutterLinePrice,
@@ -971,13 +977,12 @@ export async function exportQuotePdf(
       ...sharedTable,
       startY: ctx.y,
       head: [["SKU / Item", "QTY", "Unit Price", "Total"]],
+      // PRICE-3：对客名称（目录 printLabel / 自定义名），按英尺项数量带 ft、单价带 /ft；内部提示不出给客户
       body: input.partBAddons.map((a) => {
-        const def = ADDON_CATALOG.find((d) => d.key === a.skuItem);
-        const label =
-          a.skuItem === "__custom" || !def
-            ? (a.customName?.trim() || a.skuItem || "Custom item")
-            : def.displayName;
-        return [label, a.qty, `$${a.price.toFixed(2)}`, `$${a.total.toFixed(2)}`];
+        const def = getAddonDef(a.skuItem);
+        const label = addonCustomerLabel(a.skuItem === PART_B_CUSTOM_SKU ? CUSTOM_ADDON_KEY : a.skuItem, a.customName);
+        const qty = def?.unit === "ft" ? `${a.qty} ft` : a.qty;
+        return [label, qty, formatAddonUnitPrice(a.skuItem, a.price), `$${a.total.toFixed(2)}`];
       }),
     });
     ctx.y = getLastY() + 2;

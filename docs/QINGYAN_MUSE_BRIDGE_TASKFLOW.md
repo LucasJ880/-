@@ -129,8 +129,8 @@
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
 | PRICE-1 | Fauxwood 新产品 + Allusion 查表定价 + 企业折扣（settingsJson）+ 出单品类 / 工艺单名 + SKU BL201 改名 + `pricelistVersion` 进 formDataJson + **黄金对照测试**（158 条） | Q1、Q2 | OpenSpec change `pricelist-2026-10-fauxwood-allusion`；`pricelist-2026-10-golden` 测试注册；报告 `docs/QINGYAN_PRICE-1_REPORT.md` | [x]（#344；archive 见 `openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`） |
-| PRICE-2 | Order Form 无绳显式开关（Q4 = A）+ 无绳独立折扣 30% + 最低价 159 / 129 + 取消 75" 上限；布帘 / 纱帘褶皱率（Fullness 180 / 230 → 1.8 / 2.3，其它入口按 2） | PRICE-1、Q3、Q4 | change `pricelist-2026-10-cordless-fullness`；黄金 `cordless-*` / `fullness-*` 组全过；报告 `docs/QINGYAN_PRICE-2_REPORT.md` | [G]（PR #354） |
-| PRICE-3 | 附加项目目录按零售表更新 + Excel 固定价 / 按英尺项进 Part B 预设 + Downtown 150 预设 + 企业覆盖价（settingsJson，走审批） | PRICE-1、Q6、Q7、Q8 | change `pricelist-2026-10-addons`；报告 `docs/QINGYAN_PRICE-3_REPORT.md` | [ ] |
+| PRICE-2 | Order Form 无绳显式开关（Q4 = A）+ 无绳独立折扣 30% + 最低价 159 / 129 + 取消 75" 上限；布帘 / 纱帘褶皱率（Fullness 180 / 230 → 1.8 / 2.3，其它入口按 2） | PRICE-1、Q3、Q4 | change `pricelist-2026-10-cordless-fullness`；黄金 `cordless-*` / `fullness-*` 组全过；报告 `docs/QINGYAN_PRICE-2_REPORT.md` | [x]（#354；archive 见 `openspec/changes/archive/2026-10-30-pricelist-2026-10-cordless-fullness`） |
+| PRICE-3 | 附加项目目录按零售表更新 + Excel 固定价 / 按英尺项进 Part B 预设 + Downtown 150 预设 + 企业覆盖价（settingsJson，走审批） | PRICE-1、Q6、Q7、Q8 | change `pricelist-2026-10-addons`；报告 `docs/QINGYAN_PRICE-3_REPORT.md` | [G]（PR #357，与 PRICE-2 归档同 PR） |
 | STAT-1 | 期间面板"本周 / 上周"预设 + 按人行展开报价清单（`GET /api/sales/period-summary/quotes`）+ `/sales/quotes` 按销售筛选 + 草稿未发送提醒；口径不改 | KPI-1、Q9、Q10 | change `sales-quote-stats-drilldown`；`period-db.isolated` 扩；报告 `docs/QINGYAN_STAT-1_REPORT.md` | [x]（#355；已归档） |
 
 **GATE-P 验收**：Order Form 录 Fauxwood / Allusion / 无绳 Zebra / 3 倍褶皱布帘各一行 → 预览金额与黄金用例一致 → 保存并标记发送 → 期间面板按人金额 = 该报价 `grandTotal`，展开能看到这张报价；9 个老产品的 `regression` 组数字不动。

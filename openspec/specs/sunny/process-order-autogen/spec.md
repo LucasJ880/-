@@ -31,7 +31,7 @@
 - **THEN** mark-signed 仍返回 200 且报价为 signed，`processOrder.reason` 为 "GENERATION_FAILED"
 
 ### Requirement: 报价到工艺字段的映射
-系统 SHALL 按以下口径从 Order Form 推导工艺输入：Lift L/R → 普通拉绳、拉杆位置 L/R，Lift M → 电动；Mount I/O → IN/OUT；Bracket C/W → 顶装/墙装；Valance Cassette → 亮白插片圆盒、Fascia → 哑白方型罩盒、None → 单轨无盒；窗帘 Pleat P → 韩褶P、R → 蛇型R，Fullness 180/230 → 1.8/2.3，Panels S/D → 1/2，Bracket C/W → 顶装C/墙装W，版本默认 6cm。
+系统 SHALL 按以下口径从 Order Form 推导工艺输入：Lift L/R → 拉杆位置 L/R，Lift M → 电动；Shades 行 Cordless 开（仅 Zebra / Roller）→ 操控方式无绳，否则 Lift L/R → 普通拉绳；Mount I/O → IN/OUT；Bracket C/W → 顶装/墙装；Valance Cassette → 亮白插片圆盒、Fascia → 哑白方型罩盒、None → 单轨无盒；窗帘 Pleat P → 韩褶P、R → 蛇型R，Fullness 180/230 → 1.8/2.3，Panels S/D → 1/2，Bracket C/W → 顶装C/墙装W，版本默认 6cm。
 
 #### Scenario: 斑马帘行映射
 - **WHEN** Order Form 斑马帘行 Mount=O、Lift=L、Bracket=W、Valance=Cassette
@@ -40,6 +40,10 @@
 #### Scenario: 电动行
 - **WHEN** 卷帘行 Lift=M
 - **THEN** 操控方式为电动，且待核对中有一条"电机侧默认 R"提示
+
+#### Scenario: 无绳行
+- **WHEN** 斑马帘行 Cordless 开、Lift=R
+- **THEN** 操控方式为无绳、拉杆位置 R，减尺按无绳表；`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts` 覆盖
 
 ### Requirement: 斑马帘布纱比对照表
 系统 SHALL 维护组织级的斑马帘「面料编码 → 布:纱」对照表（存于 `Organization.settingsJson.sunnyProcess.zebraRatios`，组织从未保存时以原件《Blinds 工艺单》Sheet1 W 列 24 条为种子），经 `GET/PUT /api/sunny-process/zebra-ratios` 与页面 `/blinds-orders/zebra-ratios` 查看与整表编辑；组织成员可读，保存 SHALL 需要持 `orders.fulfillment.update.shades`（出单·Roller/Zebra/Roman 岗位；斑马帘属 shades 品类）或全品类键 `orders.fulfillment.update`、或 org_admin 及以上组织角色、或平台管理员，否则 403；每次保存记一条 AuditLog。生成工艺单与退回自产时，斑马帘 SHALL 按报价 SKU 查表：编码与 SKU 完全相同优先，否则编码作为完整一段出现在 SKU 中即命中（空格 / 下划线 / 斜杠视同连字符），多条命中取最长编码；命中时用表中布纱比并在待核对写明来源，未命中时默认 3:2 并提示核对。

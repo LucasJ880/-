@@ -183,6 +183,7 @@ run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agen
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
 run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra 无 None）" "npx tsx src/lib/blinds/__tests__/valance-options.test.ts"
 run_test "价格表 2026-10-28 黄金对照（Fauxwood / Allusion / 回归；与上传工具 price() 原函数逐条比）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts"
+run_test "价格表 2026-10-28 附加项目目录（36 项对照价表文件 / Excel 40 行归类 / 按英尺 / 企业价；PRICE-3）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts"
 # Sunny 工艺单（sunny-process-order-autogen）：引擎 × Excel 原件逐值对照（夹具由 scripts/sunny-process-oracle 生成）+ 签字自动生成
 run_test "Sunny 工艺单 Blinds × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts"
 run_test "Sunny 工艺单 国内下单 × 原件逐值对照" "npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts"

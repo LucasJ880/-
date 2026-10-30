@@ -63,6 +63,10 @@ ok(quoteSettingsIdempotencyKey(p5) !== quoteSettingsIdempotencyKey(p1), "新折�
 // PRICE-2：无绳设置同样进入审批描述
 const p6 = buildQuoteSettingsApprovalPayload({ orgId: "org1", requestedById: "bob", settingsVersion: 3, numericPatch: { cordlessDiscount: 0.25, cordlessFloorZebra: 169 } });
 ok(describeQuoteSettingsPatch(p6) === "cordlessDiscount=0.25，cordlessFloorZebra=169", "无绳设置进入审批描述");
+// PRICE-3：附加项目企业价按键进入 numericPatch 与审批描述
+const p7 = buildQuoteSettingsApprovalPayload({ orgId: "org1", requestedById: "bob", settingsVersion: 3, numericPatch: { "addonPrice.downtown_fee": 180 } });
+ok(describeQuoteSettingsPatch(p7) === "addonPrice.downtown_fee=180", "附加项目企业价进入审批描述");
+ok(quoteSettingsIdempotencyKey(p7) !== quoteSettingsIdempotencyKey(p6), "附加项目企业价参与幂等键");
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
