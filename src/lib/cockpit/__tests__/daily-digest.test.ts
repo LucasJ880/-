@@ -11,7 +11,7 @@ import {
   DIGEST_COUNT_FIELDS,
   POST_DAILY_DIGEST_ACTION,
   POST_DAILY_DIGEST_AUTOMATION_KEY,
-  POST_DAILY_DIGEST_HOUR,
+  POST_DAILY_DIGEST_HOURS,
   buildPostDailyDigest,
   digestDayFor,
   postDailyDigestExistingWhere,
@@ -79,11 +79,22 @@ async function main() {
   // ── 触发时刻 ──────────────────────────────────────────────────
   console.log("触发时刻（spec：日结的触发时刻）");
   {
-    ok(POST_DAILY_DIGEST_HOUR === 0, "门控小时为 0");
+    ok(JSON.stringify(POST_DAILY_DIGEST_HOURS) === "[0,1]", "门控小时为 0 与 1（1 点补一次）");
     ok(digestDayFor(NOW, TZ) === "2026-10-30", "场景「多伦多 00 点」：2026-10-31 00:00 → 本地日 2026-10-30", digestDayFor(NOW, TZ));
     const org = { id: "o1", settingsJson: { timezone: TZ } };
     ok(orgsAtLocalHour([org], NOW, [0]).length === 1, "多伦多 00:00 的组织被 [0] 选中");
-    ok(orgsAtLocalHour([org], new Date("2026-10-31T05:00:00Z"), [0]).length === 0, "场景「没有组织到点」：多伦多 01:00 不被选中");
+    ok(orgsAtLocalHour([org], new Date("2026-10-31T05:00:00Z"), POST_DAILY_DIGEST_HOURS).length === 1, "场景「01 点补一次」：多伦多 01:00 也被选中");
+    ok(digestDayFor(new Date("2026-10-31T05:30:00Z"), TZ) === "2026-10-30", "01:30 补写的仍是同一个前一本地日");
+    ok(orgsAtLocalHour([org], new Date("2026-10-31T06:00:00Z"), POST_DAILY_DIGEST_HOURS).length === 0, "场景「没有组织到点」：多伦多 02:00 不被选中");
+    // 哈瓦那 2026-03-08 夏令时开始：当地 00:00 直接跳到 01:00，那天没有 00 点
+    const havana = { id: "o2", settingsJson: { timezone: "America/Havana" } };
+    const havanaHours = Array.from({ length: 6 }, (_, i) => new Date(Date.UTC(2026, 2, 8, 2 + i)))
+      .filter((t) => orgsAtLocalHour([havana], t, POST_DAILY_DIGEST_HOURS).length === 1);
+    ok(
+      havanaHours.length === 1 && orgsAtLocalHour([havana], havanaHours[0], [0]).length === 0 && digestDayFor(havanaHours[0], "America/Havana") === "2026-03-07",
+      "场景「01 点补一次」：哈瓦那夏令时开始那天没有 00 点，01 点补写 2026-03-07",
+      havanaHours.map((t) => t.toISOString()),
+    );
     // 夏令时：2026-11-01 02:00 回拨；2027-03-14 02:00 拨快
     ok(digestDayFor(new Date("2026-11-02T05:00:00Z"), TZ) === "2026-11-01", "夏令时结束后的第一个 00:00（EST）→ 2026-11-01（25 小时的那天）");
     ok(digestDayFor(new Date("2027-03-15T04:00:00Z"), TZ) === "2027-03-14", "夏令时开始后的第一个 00:00（EDT）→ 2027-03-14（23 小时的那天）");
@@ -190,17 +201,21 @@ async function main() {
     store.clear();
     const batch = await runPostDailyDigests([o1, o2], NOW, deps({ o1: new Error("db timeout"), o2: active }));
     ok(
-      batch.failedCount === 1 && batch.succeededCount === 1 && batch.processedCount === 2,
-      "场景「一个组织读取失败」：失败计数 1、成功 1（runner 据此记 partial）",
+      batch.failedCount === 1 && batch.succeededCount === 1 && batch.processedCount === 2 && !("status" in batch),
+      "场景「一个组织读取失败」：失败计数 1、成功 1，不指定状态（runner 据此记 partial）",
       batch,
     );
+    const lone = await runPostDailyDigests([o1], NOW, deps({ o1: new Error("db timeout") }));
+    ok("status" in lone && lone.status === "failed" && lone.failedCount === 1 && lone.succeededCount === 0, "场景「唯一到点的组织失败」：运行记 failed", lone);
     ok(batch.data.orgs[0].status === "error" && batch.data.orgs[0].error === "db timeout" && batch.data.orgs[1].status === "written" && store.has(postDailyDigestLockKey("o2", day)), "另一个组织照常写日结", batch.data);
 
     const writeFails: PostDailyDigestDeps = { workload: async () => active, writeIfAbsent: async () => Promise.reject(new Error("lock timeout")) };
     const r4 = await runPostDailyDigest(o1, NOW, writeFails);
     ok(r4.status === "error" && r4.error === "lock timeout", "写入失败同样收成 error，不外抛", r4);
     const empties = await runPostDailyDigests([o2], NOW, deps({ o2: workloadOf(NOW, () => ({})) }));
-    ok(empties.failedCount === 0 && empties.succeededCount === 1, "无活动不算失败");
+    ok(empties.failedCount === 0 && empties.succeededCount === 1 && !("status" in empties), "无活动不算失败");
+    const none = await runPostDailyDigests([], NOW, deps({}));
+    ok(none.processedCount === 0 && !("status" in none), "没有组织时不判 failed");
   }
 
   // ── 注册表、岗位、调度、标签 ──────────────────────────────────
@@ -210,7 +225,7 @@ async function main() {
     ok(!!def && def.category === "operations" && def.timezone === "org" && def.name === "岗位日结（审计记录）", "自动化注册表：post-daily-digest，运维类，组织时区", def);
     ok(postForAutomation("post-daily-digest") === "ops_knowledge", "岗位归属：运维与知识");
     const s = AUTOMATION_SCHEDULES["post-daily-digest"];
-    ok(s.kind === "local_hours" && s.route === "/api/cron/daily-brief" && s.cron === "0 * * * *" && JSON.stringify(s.hours) === "[0]" && s.timezone === "org", "调度：daily-brief 唤醒、组织本地 0 点", s);
+    ok(s.kind === "local_hours" && s.route === "/api/cron/daily-brief" && s.cron === "0 * * * *" && JSON.stringify(s.hours) === JSON.stringify(POST_DAILY_DIGEST_HOURS) && s.timezone === "org", "调度：daily-brief 唤醒、组织本地 0 点与 1 点", s);
     ok(AUDIT_ACTION_LABELS[POST_DAILY_DIGEST_ACTION] === "岗位日结" && auditSource(POST_DAILY_DIGEST_ACTION) === "system", "company.log：岗位日结，来源 system");
     ok(!read("vercel.json").includes("digest"), "vercel.json 不新增条目");
   }
@@ -220,11 +235,23 @@ async function main() {
   {
     const route = stripComments(read("src/app/api/cron/daily-brief/route.ts"));
     ok(/select: \{ id: true, name: true, ownerId: true, settingsJson: true \}/.test(route), "路由：一次查询在用组织，多取 ownerId");
-    ok(/orgsAtLocalHour\(activeOrgs, now, \[7\]\)/.test(route) && /orgsAtLocalHour\(activeOrgs, now, \[0\]\)/.test(route), "路由：简报 [7]、日结 [0] 两组门控");
+    ok(/const orgs = orgsAtLocalHour\(activeOrgs, now, \[7\]\);/.test(route) && /const digestOrgs = orgsAtLocalHour\(activeOrgs, now, \[0, 1\]\);/.test(route), "路由：简报组织 [7]、日结组织 [0, 1]，各绑各的变量");
     const skipAt = route.indexOf("orgs.length === 0 && digestOrgs.length === 0");
-    const digestAt = route.indexOf('runTrackedAutomation("post-daily-digest"');
-    ok(skipAt > 0 && digestAt > skipAt && route.indexOf("skipped: true") > skipAt, "路由：两组都空才 skipped，且在记运行之前返回");
-    ok(/digestOrgs\.length\s*\?\s*await runTrackedAutomation\("post-daily-digest", \(\) => runPostDailyDigests\(digestOrgs, now\)\)\.catch\(/.test(route), "路由：只有日结组织非空才记 post-daily-digest 运行；异常被收住，不影响简报");
+    ok(skipAt > 0 && route.indexOf("skipped: true") > skipAt && route.indexOf("skipped: true") < route.indexOf('runTrackedAutomation("daily-brief"'), "路由：两组都空才 skipped，且在记任何运行之前返回");
+    ok(
+      /const runPostDailyDigest = \(\) =>\s*runTrackedAutomation\("post-daily-digest", \(\) => runPostDailyDigests\(digestOrgs, now\)\)\.catch\(/.test(route),
+      "路由：日结整段异常被收住，不影响简报",
+    );
+    const calls = [...route.matchAll(/await runPostDailyDigest\(\)/g)].map((m) => m.index ?? -1);
+    const briefAt = route.indexOf('runTrackedAutomation("daily-brief"');
+    ok(
+      calls.length === 2 &&
+        /postDailyDigest: await runPostDailyDigest\(\)/.test(route.slice(route.indexOf("if (orgs.length === 0) {"), briefAt)) &&
+        calls[1] > briefAt &&
+        /digestOrgs\.length \? \{ \.\.\.data, postDailyDigest: await runPostDailyDigest\(\) \} : data/.test(route),
+      "路由：只有日结组织非空才记 post-daily-digest 运行；有简报时排在简报之后",
+      calls,
+    );
     ok(
       /runTrackedAutomation\("daily-brief"/.test(route) &&
         /generateBriefingsForOrg\(org\.id\)/.test(route) &&

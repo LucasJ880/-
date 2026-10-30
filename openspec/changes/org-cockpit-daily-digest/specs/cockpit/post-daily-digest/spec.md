@@ -1,14 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: 日结的触发时刻
-系统 SHALL 在既有 `daily-brief` 每小时定时任务里，为组织时区处于本地 00 点的在用组织生成**前一个本地日**的岗位日结，作为自动化 `post-daily-digest` 记一次运行；没有组织到点时 SHALL NOT 记运行。系统 SHALL NOT 新增 cron、队列或 `vercel.json` 条目。
+系统 SHALL 在既有 `daily-brief` 每小时定时任务里，为组织时区处于本地 00 点或 01 点的在用组织生成**前一个本地日**的岗位日结（01 点是补一次：00 点失败、漏触发或当地夏令时跳过 00 点时补写，已写则不重复），作为自动化 `post-daily-digest` 记一次运行；没有组织到点时 SHALL NOT 记运行。日结 SHALL 在当次的每日简报处理之后执行。系统 SHALL NOT 新增 cron、队列或 `vercel.json` 条目。
 
 #### Scenario: 多伦多 00 点
 - **WHEN** 定时任务在多伦多时间 2026-10-31 00:00 唤醒，某组织时区为多伦多
 - **THEN** 为该组织生成本地日 2026-10-30 的日结，并记一次 `post-daily-digest` 运行
 
+#### Scenario: 01 点补一次
+- **WHEN** 某组织本地 00 点的日结因读取失败没有写入，或当地夏令时跳过了 00 点
+- **THEN** 本地 01 点为同一个前一本地日写入日结；若 00 点已写入，01 点返回"已存在"、不重复写
+
 #### Scenario: 没有组织到点
-- **WHEN** 唤醒时没有任何组织处于本地 00 点
+- **WHEN** 唤醒时没有任何组织处于本地 00 点或 01 点
 - **THEN** 不生成日结，不记 `post-daily-digest` 运行
 
 ### Requirement: 日结只含按岗位的计数
@@ -37,8 +41,12 @@
 - **THEN** 只新增一条 `cockpit.post_daily_digest` 审计，没有新的 MemoryClaim、通知或审批
 
 ### Requirement: 单个组织失败不影响其它
-某个组织生成日结失败时，系统 SHALL 记入该次运行的失败计数并继续处理其它组织；`daily-brief` 本身的处理 SHALL NOT 受影响。
+某个组织生成日结失败时，系统 SHALL 记入该次运行的失败计数并继续处理其它组织；部分组织失败时运行 SHALL 记为部分成功，全部失败时记为失败。`daily-brief` 本身的处理 SHALL NOT 受影响。
 
 #### Scenario: 一个组织读取失败
 - **WHEN** 同一时刻两个组织到点，其中一个读取工作量时出错
 - **THEN** 另一个组织照常写日结，运行记为部分成功，失败计数为 1
+
+#### Scenario: 唯一到点的组织失败
+- **WHEN** 同一时刻只有一个组织到点，且它读取工作量时出错
+- **THEN** 运行记为失败，失败计数为 1

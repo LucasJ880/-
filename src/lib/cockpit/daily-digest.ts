@@ -1,7 +1,8 @@
 /**
  * 组织驾驶舱 — 夜间岗位日结（A-5，openspec change org-cockpit-daily-digest）
  *
- * 组织本地 00 点，把前一个本地日 A-4 按岗位工作量汇总的那一列固定成一条 AuditLog（cockpit.post_daily_digest）。
+ * 组织本地 00 点，把前一个本地日 A-4 按岗位工作量汇总的那一列固定成一条 AuditLog（cockpit.post_daily_digest）；
+ * 01 点补一次（00 点失败、漏触发或当地夏令时跳过 00 点），已写则返回 exists。
  * 只含十个计数：不含平台级自动化运行数、token、成本，也不含任何正文 / 客户 / 金额 / 员工。
  * 不写 MemoryClaim（Corporate Memory 只允许人工写入），不发通知、不调 LLM、不建审批。
  * 同一组织同一本地日只有一条：事务内按组织 + 本地日加 advisory lock，先查后写。依赖可注入。
@@ -12,8 +13,8 @@ import { localDayKeys, WORKLOAD_MIN_DAYS, type WorkloadCounts, type WorkloadResu
 
 export const POST_DAILY_DIGEST_ACTION = "cockpit.post_daily_digest";
 export const POST_DAILY_DIGEST_AUTOMATION_KEY = "post-daily-digest" satisfies AutomationKey;
-/** 组织本地 00 点汇总前一个本地日（路由里的门控写成字面量 [0]，测试对照） */
-export const POST_DAILY_DIGEST_HOUR = 0;
+/** 组织本地 00 点汇总前一个本地日，01 点补一次（路由里的门控写成字面量 [0, 1]，测试对照） */
+export const POST_DAILY_DIGEST_HOURS = [0, 1] as const;
 
 /** 日结只取这十个计数（顺序即写入顺序） */
 export const DIGEST_COUNT_FIELDS = [
@@ -106,8 +107,9 @@ export async function runPostDailyDigest(
   now: Date,
   deps: PostDailyDigestDeps = defaultPostDailyDigestDeps(),
 ): Promise<PostDailyDigestResult> {
-  const day = digestDayFor(now, org.timezone);
+  let day = "";
   try {
+    day = digestDayFor(now, org.timezone);
     const digest = buildPostDailyDigest(await deps.workload(org.id, WORKLOAD_MIN_DAYS, now), day);
     if (!digest) return { orgId: org.id, day, status: "empty", rows: 0 };
     const written = await deps.writeIfAbsent(org, digest);
@@ -117,7 +119,7 @@ export async function runPostDailyDigest(
   }
 }
 
-/** 多个组织逐个处理；失败数给受跟踪运行判 succeeded / partial */
+/** 多个组织逐个处理；受跟踪运行按失败数判 succeeded / partial，全部失败判 failed */
 export async function runPostDailyDigests(
   orgs: readonly PostDailyDigestOrg[],
   now: Date,
@@ -127,6 +129,7 @@ export async function runPostDailyDigests(
   for (const org of orgs) results.push(await runPostDailyDigest(org, now, deps));
   const failedCount = results.filter((r) => r.status === "error").length;
   return {
+    ...(failedCount > 0 && failedCount === results.length ? { status: "failed" as const } : {}),
     data: { orgs: results },
     processedCount: results.length,
     succeededCount: results.length - failedCount,

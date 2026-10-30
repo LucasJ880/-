@@ -24,10 +24,12 @@
 
 ## Decisions
 
-### D1 本地 00 点汇总前一个本地日
-`orgsAtLocalHour(orgs, now, [0])` 选组织；日结的本地日 = `localDayKeys(now, tz, 2)[0]`（前一天）。取 A-4 汇总时 `days = WORKLOAD_MIN_DAYS`（7），从结果 `days` 里按日期找那一列。
+### D1 本地 00 点汇总前一个本地日，01 点补一次
+`orgsAtLocalHour(orgs, now, [0, 1])` 选组织；日结的本地日 = `localDayKeys(now, tz, 2)[0]`（前一天，00:xx 与 01:xx 都是同一天）。取 A-4 汇总时 `days = WORKLOAD_MIN_DAYS`（7），从结果 `days` 里按日期找那一列。
+- 01 点补一次：只跑 00 点时，一次读取失败、一次漏触发或部署窗口就会让那一天永久缺日结（不回填）；部分时区（如哈瓦那、开罗、圣地亚哥、贝鲁特、亚速尔）夏令时开始那天当地没有 00 点。01 点再跑一次，D3 的锁 + 先查后写保证 00 点已写时只返回 `exists`。代价是每组织每天多一次 A-4 读取。
 - 否决 23 点汇总当天：唤醒是整点，23:00 之后落定的结局（审批过期等）会漏。
-- 夏令时：`localDayKeys` / `localDayStart` 已按当地 00:00 处理；`isLocalScheduleHour` 在跳过 / 重复的小时与 daily-brief 同一行为。
+- 夏令时：`localDayKeys` / `localDayStart` 已按当地 00:00 处理；`isLocalScheduleHour` 在跳过 / 重复的小时与 daily-brief 同一行为（重复的 01 点跑两次，第二次 `exists`）。
+- 已知口径：00 点读取之后才提交、时间戳却在前一天的少量记录不会进日结（先写者为准，与 A-4 现算口径一致）。
 
 ### D2 内容只取十个计数
 `DIGEST_COUNT_FIELDS = agentRuns, proposed, approved, rejected, expired, cancelled, superseded, systemFailed, executionFailed, guardrailBlocked`。不取 `automationRuns`（平台级，与组织无关）、token、成本。每行写 `{ key, name, ...counts }`，全为 0 的行去掉；所有行都去掉时不写审计。`afterData = { day, timezone, rows, truncated, source: "system" }`；`truncated` 透传 A-4 的读取上限标记。
@@ -40,12 +42,12 @@
 ### D4 新自动化 `post-daily-digest`
 - `AUTOMATION_REGISTRY` 加 `{ key: "post-daily-digest", name: "岗位日结（审计记录）", category: "operations", cadence: "每日 00:00（汇总前一天）", timezone: ORG_TIMEZONE }`。
 - 岗位归属：`ops_knowledge`（运维与知识：与 practice-miner、审批超时同属"组织运转留痕"）。
-- 调度：`{ kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [0], timezone: "org" }`。
-- 路由：一次查询取在用组织（多取 `ownerId`），分别用 `[7]` 与 `[0]` 挑出简报组织与日结组织；两组都空才返回 `skipped`；简报部分逻辑不变；日结组织非空时 `runTrackedAutomation("post-daily-digest", …)`，逐组织调用 `runPostDailyDigest`，单个失败计入失败数，运行状态按失败数给 `succeeded` / `partial`。
-- 顺序：日结在简报之前执行，整段 `.catch` 收住异常（只记日志、写进响应的 `postDailyDigest`），简报照常；只有日结组织时响应为 `{ skipped: true, reason: "没有组织处于当地 07:00", postDailyDigest }`，有简报组织时在简报原响应上加 `postDailyDigest`。同一时刻一个组织不可能同时处于本地 0 点与 7 点，两组同时非空只发生在相差 7 小时的不同时区组织之间。
+- 调度：`{ kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [0, 1], timezone: "org" }`。
+- 路由：一次查询取在用组织（多取 `ownerId`），分别用 `[7]` 与 `[0, 1]` 挑出简报组织与日结组织；两组都空才返回 `skipped`；简报部分逻辑不变；日结组织非空时 `runTrackedAutomation("post-daily-digest", …)`，逐组织调用 `runPostDailyDigest`，单个失败计入失败数，运行状态按失败数给 `succeeded` / `partial`，全部失败给 `failed`。
+- 顺序：日结在简报**之后**执行（不占简报的 `maxDuration` 时间），整段 `.catch` 收住异常（只记日志、写进响应的 `postDailyDigest`）；简报本身抛错或超时导致日结没跑时由 01 点补。只有日结组织时响应为 `{ skipped: true, reason: "没有组织处于当地 07:00", postDailyDigest }`，有简报组织时在简报原响应上加 `postDailyDigest`。同一时刻一个组织不可能同时处于本地 0 / 1 点与 7 点，两组同时非空只发生在相差 6–7 小时的不同时区组织之间。
 
 ### D5 依赖可注入
-`runPostDailyDigest(org, now, deps)`，`deps = { workload(orgId, days, now), existingOrWrite(...) }`；纯函数 `buildPostDailyDigest(workload, day)` 与 `digestDayFor(now, tz)` 单测；隔离库端到端用真实依赖。
+`runPostDailyDigest(org, now, deps)`，`deps = { workload(orgId, days, now), writeIfAbsent(org, digest) }`；纯函数 `buildPostDailyDigest(workload, day)` 与 `digestDayFor(now, tz)` 单测；隔离库端到端用真实依赖。
 
 ### D6 company.log 标签
 `AUDIT_ACTION_LABELS["cockpit.post_daily_digest"] = "岗位日结"`；`SYSTEM_AUDIT_ACTIONS` 加入该动作。时间线不读 `afterData` 的计数（A-2 / A-2b 的读取口径不变）。
@@ -65,7 +67,7 @@
 
 ## Risks / Trade-offs
 
-- [00 点的 daily-brief 定时任务多一组读] → 每组织一次 A-4 汇总（7 天窗口、既有上限），只在本地 0 点；组织数小。
+- [00 点的 daily-brief 定时任务多一组读] → 每组织一次 A-4 汇总（7 天窗口、既有上限），只在本地 0 点与 1 点；组织数小。
 - [A-4 读取上限截断] → 透传 `truncated`，与驾驶舱同一口径。
 - [操作人显示为所有者] → company.log 来源标 `system`，与系统作废等审计同一做法。
 
@@ -75,7 +77,7 @@
 
 ## 验证方式
 
-- `npx tsx src/lib/cockpit/__tests__/daily-digest.test.ts`：日期选择（含夏令时切换日）、只取十个计数、空行 / 空日、payload 无敏感字段、写入结果、单组织失败、路由静态断言。
+- `npx tsx src/lib/cockpit/__tests__/daily-digest.test.ts`：日期选择（含夏令时切换日、跳过 00 点的时区）、只取十个计数、空行 / 空日、payload 无敏感字段、写入结果、单组织失败、路由静态断言。
 - 隔离库 `daily-digest-db.isolated.test.ts`：真实依赖写一条、重跑 `exists`、空组织 `empty`、只多一条审计（无 MemoryClaim / 通知 / 审批）。
 - `posts.test.ts` / `schedule.test.ts` / `audit-labels.test.ts` 补断言。
 - `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`openspec validate org-cockpit-daily-digest --strict`；全量 `npm test`。

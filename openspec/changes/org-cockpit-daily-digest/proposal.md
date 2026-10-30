@@ -12,13 +12,13 @@
 
 ## What Changes
 
-- **新自动化 `post-daily-digest`（岗位日结）**：挂在既有 `/api/cron/daily-brief` 每小时定时任务里，按组织时区在本地 **00 点**为**前一个本地日**生成日结；不新增 cron、不新增队列。只在有组织到点时记一次运行（与 daily-brief 的本地时刻门控同一机制）。
+- **新自动化 `post-daily-digest`（岗位日结）**：挂在既有 `/api/cron/daily-brief` 每小时定时任务里，按组织时区在本地 **00 点**为**前一个本地日**生成日结，**01 点补一次**（00 点失败、漏触发或当地夏令时跳过 00 点时补写；已写则返回"已存在"）；在当次每日简报之后执行；不新增 cron、不新增队列。只在有组织到点时记一次运行（与 daily-brief 的本地时刻门控同一机制）。
 - **日结内容**：复用 A-4 的按岗位工作量汇总（`getOrgWorkload` / `computeWorkload`），取前一个本地日那一列，逐行（七个岗位 + 展会询盘子行 + 未归属）只保留计数：AI 运行、起草、批准、驳回、过期、取消、作废、系统失败、执行失败、守卫拦截。不含平台级自动化运行数、token 与成本、任何正文 / 客户 / 金额 / 员工信息。
 - **写入**：一条 `AuditLog`，`action = cockpit.post_daily_digest`、`targetType = organization`、`targetId = 组织 id`、操作人挂组织所有者（`AuditLog.userId` 必填），`afterData` 带本地日、时区、各行计数与是否截断。
   - 全部为 0 的行不写；整组织全部为 0 时不写这条审计。
   - 同一组织同一本地日幂等：按组织 + 日加 advisory lock，先查后写；重复触发不重复写。
-  - 单个组织失败不影响其它组织与 daily-brief 本身。
-- **岗位注册表 / 调度表**：`post-daily-digest` 归「运维与知识」岗位（`ops_knowledge`）；调度为组织时区本地 0 点、唤醒 cron 同 daily-brief。
+  - 单个组织失败不影响其它组织与 daily-brief 本身；部分失败记部分成功，全部失败记失败。
+- **岗位注册表 / 调度表**：`post-daily-digest` 归「运维与知识」岗位（`ops_knowledge`）；调度为组织时区本地 0 点与 1 点、唤醒 cron 同 daily-brief。
 - **company.log 标签**：`cockpit.post_daily_digest` 显示为「岗位日结」，来源标为 `system`。
 - **测试**：新增纯函数 + 假依赖测试 `src/lib/cockpit/__tests__/daily-digest.test.ts` 与隔离库端到端 `daily-digest-db.isolated.test.ts`，注册进 `scripts/test-all.sh`（前者同时进 `scripts/test-ci-unit.sh`）；岗位注册表、调度、时间线标签测试补断言。
 - **报告与状态**：`docs/QINGYAN_ORG_COCKPIT_A-5_REPORT.md`；任务书 A-5 行 `[G]`；HANDOFF。
@@ -42,7 +42,7 @@
 ## Impact
 
 - 新文件：`src/lib/cockpit/daily-digest.ts`、`src/lib/cockpit/__tests__/daily-digest.test.ts`、`src/lib/cockpit/__tests__/daily-digest-db.isolated.test.ts`。
-- 改：`src/app/api/cron/daily-brief/route.ts`（多一组本地 0 点的组织与一次受跟踪运行）、`src/lib/automation/registry.ts`（注册 `post-daily-digest`）、`src/lib/cockpit/posts.ts`、`src/lib/cockpit/schedule.ts`、`src/lib/cockpit/audit-labels.ts` 及其测试、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
+- 改：`src/app/api/cron/daily-brief/route.ts`（多一组本地 0 / 1 点的组织与一次受跟踪运行，排在简报之后）、`src/lib/automation/registry.ts`（注册 `post-daily-digest`）、`src/lib/cockpit/posts.ts`、`src/lib/cockpit/schedule.ts`、`src/lib/cockpit/audit-labels.ts` 及其测试、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
 - 数据库：零 schema；只写 `AuditLog`。`vercel.json` 不改。
 - 不新增 LLM 调用、不出站、不发通知。
 

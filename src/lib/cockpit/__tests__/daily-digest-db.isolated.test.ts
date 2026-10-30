@@ -2,7 +2,7 @@
  * A-5 夜间岗位日结——真实 DB（隔离库）+ 真实依赖（A-4 读模型 + 事务内写审计）
  *
  *   组织前一个本地日有投标 / 项目岗位的审批与结局 → 写一条 cockpit.post_daily_digest，计数与内容一致；
- *   同日重跑 → exists，仍一条；两次并发 → 只有一条；无活动的组织 → empty，不写；
+ *   同日重跑 → exists，仍一条；两次并发 → 只有一条；01 点补一次（已写 exists / 未写补写同一天）；无活动的组织 → empty，不写；
  *   只新增这一条审计：没有新的 MemoryClaim、通知、审批。
  *
  * 运行（隔离库）：
@@ -126,6 +126,13 @@ async function main() {
       "两次并发 → 一条 written、一条 exists，库里只有一条",
       both,
     );
+
+    const r4 = await runPostDailyDigest(org, new Date("2026-10-31T05:30:00Z"));
+    ok(r4.status === "exists" && r4.day === DAY, "01:30 补一次：00 点已写 → exists", r4);
+    await db.auditLog.deleteMany({ where: { orgId: ORG, action: POST_DAILY_DIGEST_ACTION } });
+    const r5 = await runPostDailyDigest(org, new Date("2026-10-31T05:30:00Z"));
+    const retried = await db.auditLog.findMany({ where: { orgId: ORG, action: POST_DAILY_DIGEST_ACTION }, select: { afterData: true } });
+    ok(r5.status === "written" && retried.length === 1 && retried[0].afterData === log?.afterData, "01:30 补一次：00 点没写 → 写入同一天、内容与 00 点一致", r5);
 
     console.log("空日");
     const q = await runPostDailyDigest({ id: QUIET, ownerId: OWNER, timezone: TZ }, NOW);

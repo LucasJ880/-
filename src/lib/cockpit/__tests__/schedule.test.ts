@@ -134,7 +134,7 @@ const gapCases: Array<[AutomationKey, number]> = [
   ["project-inspection", 1440],
   ["employee-ai-practice-miner", 10080],
   ["daily-brief", 1440],
-  ["post-daily-digest", 1440],
+  ["post-daily-digest", 23 * 60],
   ["trade-followup", 19 * 60],
   ["marketing-channel-sync", 6 * 60],
   ["marketing-experiment-review", 10080],

@@ -6,7 +6,7 @@
 
 ## 2. 接入定时任务与驾驶舱
 
-- [x] 2.1 `src/lib/automation/registry.ts` 注册 `post-daily-digest`；`src/lib/cockpit/posts.ts` 归 `ops_knowledge`；`src/lib/cockpit/schedule.ts` 配调度（D4）；`/api/cron/daily-brief` 路由按 D4 改造；`src/lib/cockpit/audit-labels.ts` 加标签与系统来源（D6）。`posts.test.ts`、`schedule.test.ts`、`audit-labels.test.ts`、`daily-digest.test.ts` 补断言（路由门控 `[0]`、两组都空才 skipped、简报逻辑未变）。verify：上述测试退出 0；`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0。
+- [x] 2.1 `src/lib/automation/registry.ts` 注册 `post-daily-digest`；`src/lib/cockpit/posts.ts` 归 `ops_knowledge`；`src/lib/cockpit/schedule.ts` 配调度（D4）；`/api/cron/daily-brief` 路由按 D4 改造；`src/lib/cockpit/audit-labels.ts` 加标签与系统来源（D6）。`posts.test.ts`、`schedule.test.ts`、`audit-labels.test.ts`、`daily-digest.test.ts` 补断言（路由门控 `[0, 1]`、两组都空才 skipped、日结在简报之后、简报逻辑未变）。verify：上述测试退出 0；`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0。
 
 ## 3. 隔离库端到端
 

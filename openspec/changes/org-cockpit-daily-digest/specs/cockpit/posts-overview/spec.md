@@ -11,6 +11,6 @@
 - **WHEN** 自动化注册表新增一个键而调度表未配
 - **THEN** `npm run typecheck` 失败，调度测试失败
 
-#### Scenario: 岗位日结按组织本地 0 点门控
+#### Scenario: 岗位日结按组织本地 0 点与 1 点门控
 - **WHEN** 读取 `post-daily-digest` 的调度
-- **THEN** 为本地时刻门控：路由 `/api/cron/daily-brief`、门控小时 `[0]`、组织时区，与路由源码一致
+- **THEN** 为本地时刻门控：路由 `/api/cron/daily-brief`、门控小时 `[0, 1]`、组织时区，与路由源码一致
