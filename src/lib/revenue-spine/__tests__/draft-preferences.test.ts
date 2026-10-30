@@ -562,7 +562,8 @@ async function main() {
     assert.ok(polish.indexOf("checkDraftWithReferenceLines(body, refs)") > polish.indexOf("createCompletion("));
     // 模板的守卫在禁用词替换之后对最终正文运行
     const build = src.slice(src.indexOf("export function buildReplyDraft"), src.indexOf("export async function polishReplyDraftWithLlm"));
-    assert.ok(build.lastIndexOf("checkDraftWithReferenceLines(`${subject}\\n${body}`, referenceLines)") > build.lastIndexOf("body = finishBody(lines);"));
+    const finish = build.lastIndexOf("body = finishBody(lines, subject);");
+    assert.ok(finish > 0 && build.lastIndexOf("checkDraftWithReferenceLines(`${subject}\\n${body}`, referenceLines)") > finish);
   });
 
   console.log("\n违规审计");
@@ -651,8 +652,10 @@ async function main() {
     assert.ok(build > 0 && polish > build && guard > polish, JSON.stringify({ build, polish, guard }));
   });
 
-  await ok("不碰的模块：跟进草稿、employee-ai、policy 接口都不读偏好", () => {
-    assert.doesNotMatch(read("src/lib/revenue-spine/fde/no-reply-followup.ts"), /draft-preferences|preferences: /);
+  await ok("不碰的模块：employee-ai、policy 接口都不读偏好；跟进草稿（C-2）只经 resolveDraftPreferences 读偏好", () => {
+    const followup = strip(read("src/lib/revenue-spine/fde/no-reply-followup.ts"));
+    assert.match(followup, /resolveDraftPreferences\(policy\)/);
+    assert.doesNotMatch(followup, /policy\.fde\.preferences|\.fde\.useConfirmedPreferences/);
     assert.doesNotMatch(read("src/app/api/revenue/policy/route.ts"), /draft-preferences/);
     assert.doesNotMatch(strip(read("src/lib/revenue-spine/draft-preferences.ts")), /from "@\/lib\/employee-ai/);
   });
