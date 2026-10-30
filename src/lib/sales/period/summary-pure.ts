@@ -76,6 +76,20 @@ export function diffDaysYmd(from: string, to: string): number {
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / DAY_MS);
 }
 
+/** 所在周的周一（STAT-1，Q9：一周从周一开始） */
+export function weekStartYmd(day: string): string {
+  const [y, m, d] = ymdParts(day);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = 周日
+  return addDaysYmd(day, -((dow + 6) % 7));
+}
+
+/** 面板周预设：本周 = 本周一至今天；上周 = 上周一至上周日 */
+export function weekPresetRange(today: string, which: "this_week" | "last_week"): { from: string; to: string } {
+  const monday = weekStartYmd(today);
+  if (which === "this_week") return { from: monday, to: today };
+  return { from: addDaysYmd(monday, -7), to: addDaysYmd(monday, -1) };
+}
+
 /** 上一个自然月的同日号；日号超过该月天数时截到月末 */
 export function sameDayPrevMonth(day: string): string {
   const [y, m, d] = ymdParts(day);
@@ -244,6 +258,21 @@ function byRepOf(c: Classified, scope: PeriodScope, names: ReadonlyMap<string, s
   return [...reps.values()]
     .map((r) => ({ ...r, wonAmount: cents(r.wonAmount), quotedAmount: cents(r.quotedAmount), conversionRate: ratio(r.wonCount, r.quotedCount) }))
     .sort((a, b) => b.wonAmount - a.wonAmount || b.quotedAmount - a.quotedAmount || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+}
+
+/**
+ * STAT-1：某位报价创建人在期间内计入成单 / 报价的报价行（与 byRep 同一 classify，合计必然一致）。
+ * 先对同一范围的全部行分组、再按创建人过滤——"同商机未签只计最新一份"跨销售生效
+ * （A 发 v1、B 发修订 v2 时 v1 不计），所以 rows 必须与按人表取数范围相同。调用方负责授权。
+ */
+export function periodRepQuotes(
+  rows: readonly PeriodQuoteRow[],
+  period: LocalPeriod,
+  repId: string,
+): { won: PeriodQuoteRow[]; quoted: PeriodQuoteRow[] } {
+  const c = classify(rows, period);
+  const mine = (r: PeriodQuoteRow) => r.createdById === repId;
+  return { won: c.won.filter(mine), quoted: c.quoted.filter(mine) };
 }
 
 const infoOf = (p: LocalPeriod): PeriodInfo => ({ from: p.from, to: p.to, days: p.days, timezone: p.timezone });

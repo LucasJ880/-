@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
@@ -43,7 +43,7 @@ interface QuoteItem {
   createdAt: string;
   updatedAt: string;
   items: { product: string; fabric: string }[];
-  createdBy?: { name?: string };
+  createdBy?: { id?: string; name?: string };
   shareToken?: string | null;
   viewedAt?: string | null;
   depositAmount?: number | null;
@@ -95,6 +95,19 @@ function SalesQuotesPageInner() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
+  // STAT-1：按销售（报价创建人）筛选；写进 URL ?rep=，期间面板可直接链过来
+  const router = useRouter();
+  const pathname = usePathname();
+  const repFilter = searchParams.get("rep") || "";
+  const [reps, setReps] = useState<{ id: string; name: string }[]>([]);
+  // 快速切换销售时只采用最后一次请求的结果
+  const loadSeq = useRef(0);
+  const setRepFilter = (rep: string) => {
+    const qs = new URLSearchParams(searchParams.toString());
+    if (rep) qs.set("rep", rep);
+    else qs.delete("rep");
+    router.replace(`${pathname}${qs.toString() ? `?${qs.toString()}` : ""}`, { scroll: false });
+  };
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [shareLangMenu, setShareLangMenu] = useState<string | null>(null);
   const [emailDialog, setEmailDialog] = useState<QuoteItem | null>(null);
@@ -147,16 +160,20 @@ function SalesQuotesPageInner() {
   };
 
   const loadQuotes = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const res = await apiJson<{ quotes?: QuoteItem[] }>("/api/sales/quotes/list");
+      const qs = repFilter ? `?createdById=${encodeURIComponent(repFilter)}` : "";
+      const res = await apiJson<{ quotes?: QuoteItem[]; reps?: { id: string; name: string }[] }>(`/api/sales/quotes/list${qs}`);
+      if (seq !== loadSeq.current) return;
       setQuotes(res.quotes ?? []);
+      setReps(res.reps ?? []);
     } catch {
-      setQuotes([]);
+      if (seq === loadSeq.current) setQuotes([]);
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
-  }, []);
+  }, [repFilter]);
 
   useEffect(() => {
     loadQuotes();
@@ -245,6 +262,22 @@ function SalesQuotesPageInner() {
             </button>
           ))}
         </div>
+        {reps.length > 1 || repFilter ? (
+          <select
+            value={repFilter}
+            onChange={(e) => setRepFilter(e.target.value)}
+            aria-label="按销售筛选"
+            className="rounded-lg border border-border bg-card-bg/80 px-2 py-2 text-xs"
+          >
+            <option value="">全部销售</option>
+            {reps.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+            {repFilter && !reps.some((r) => r.id === repFilter) ? <option value={repFilter}>（指定销售）</option> : null}
+          </select>
+        ) : null}
       </div>
 
       {/* Quote list */}

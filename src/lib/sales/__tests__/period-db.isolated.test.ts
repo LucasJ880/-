@@ -4,6 +4,8 @@
  *   无 sales.analytics.read → 403；参数不合法 → 400 INVALID_PERIOD；老板全企业 + 按人降序；
  *   销售只看本人且不含他人姓名与金额；跨企业不可见；归档客户 / 草稿 / 非 CAD / 期外不计；
  *   字段齐全；wonAmount 与直接 SQL 求和逐分一致。
+ *   STAT-1：按人明细合计 = 按人表、草稿不出现、销售看他人 403、ORG 缺 repId 400；draftsUnsent 按范围；
+ *   报价列表 createdById 筛选与 reps 名单。
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
@@ -54,6 +56,8 @@ async function main() {
   const { defaultPeriod } = await import("@/lib/sales/period/summary-pure");
   const route = await import("@/app/api/sales/period-summary/route");
   const GET = route.GET as unknown as Handler;
+  const drillRoute = await import("@/app/api/sales/period-summary/quotes/route");
+  const listRoute = await import("@/app/api/sales/quotes/list/route");
 
   const stamp = Date.now().toString(36);
   const OWNER = `kpowner_${stamp}`;
@@ -66,6 +70,7 @@ async function main() {
   const CUST = `kpcust_${stamp}`;
   const CUST_ARCH = `kpcusta_${stamp}`;
   const CUST_X = `kpcustx_${stamp}`;
+  const OPP = `kpopp_${stamp}`;
   const users = [OWNER, REP_A, REP_B, PLAIN, OUTSIDER];
   const quoteIds: string[] = [];
 
@@ -107,6 +112,11 @@ async function main() {
   await quote("draft", { status: "draft", sentAt: edt("2026-10-03T10:00:00"), grandTotal: 6666 });
   await quote("late", { status: "signed", sentAt: edt("2026-10-28T09:00:00"), signedAt: edt("2026-10-29T01:00:00"), grandTotal: 4444 });
   await quote("sep", { status: "signed", sentAt: edt("2026-09-10T10:00:00"), signedAt: edt("2026-09-12T10:00:00"), grandTotal: 2000 });
+  // STAT-1：期间内创建的草稿（A、B 各 1；归档客户 / 9 月创建的不计）
+  await quote("dra", { status: "draft", createdAt: edt("2026-10-15T10:00:00"), grandTotal: 111 });
+  await quote("drb", { createdById: REP_B, status: "draft", createdAt: edt("2026-10-16T10:00:00"), grandTotal: 222 });
+  await quote("drarch", { customerId: CUST_ARCH, status: "draft", createdAt: edt("2026-10-17T10:00:00"), grandTotal: 333 });
+  await quote("drsep", { status: "draft", createdAt: edt("2026-09-17T10:00:00"), grandTotal: 444 });
   const QX = `kpqx_${stamp}`;
   quoteIds.push(QX);
   await db.salesQuote.create({ data: { id: QX, orgId: ORG_X, customerId: CUST_X, orderNumber: `KPX-${stamp}`, createdById: OUTSIDER, status: "signed", sentAt: edt("2026-10-04T10:00:00"), signedAt: edt("2026-10-05T10:00:00"), grandTotal: 9999 } });
@@ -222,8 +232,84 @@ async function main() {
     ok(ins.some((i) => i.code === "I9_CAL_WEBSITE_SHARE"), "洞察出现 I9_CAL_WEBSITE_SHARE（4 / 10 = 40%）", ins.map((i) => i.code));
     const repView = await call(REP_A, OCT);
     ok(repView.status === 200 && repView.body?.calendar === null, "同一企业销售范围 → calendar 为 null");
+
+    console.log("\n[8] STAT-1：按人明细、草稿提醒、报价列表按销售筛选");
+    const callAt = async (handler: unknown, path: string, uid: string, query: string) => {
+      const cookie = `qy_session=${await createSession({ sub: uid, email: `${uid}@fixture.test`, role: "user" })}`;
+      const r = new NextRequest(`http://localhost${path}${query}`, { method: "GET", headers: { cookie, "x-forwarded-for": "10.41.0.7" } });
+      const res = await (handler as Handler)(r, { params: Promise.resolve({}) });
+      return { status: res.status, body: (await res.json().catch(() => null)) as Record<string, unknown> | null };
+    };
+    const drill = (uid: string, query: string) => callAt(drillRoute.GET, "/api/sales/period-summary/quotes", uid, query);
+    type Drill = { won: Array<Record<string, unknown>> | null; quoted: Array<Record<string, unknown>> | null; totals: Record<string, number>; name: string; truncated: boolean };
+    const byRepA = (o.body?.byRep ?? []).find((r) => r.userId === REP_A) as unknown as Record<string, number>;
+    const da = await drill(OWNER, `${OCT}&repId=${REP_A}`);
+    const dab = da.body as unknown as Drill;
+    ok(da.status === 200 && dab.totals.wonCount === byRepA.wonCount && dab.totals.wonAmount === byRepA.wonAmount && dab.totals.quotedCount === byRepA.quotedCount && dab.totals.quotedAmount === byRepA.quotedAmount, "老板展开 A：小计 = 按人表 A 行", { drill: dab?.totals, byRepA });
+    ok(dab.won?.length === byRepA.wonCount && dab.quoted?.length === byRepA.quotedCount, "明细条数 = 按人表条数（成单 1 + 报价 2）", { won: dab.won?.length, quoted: dab.quoted?.length });
+    const allIds = [...(dab.won ?? []), ...(dab.quoted ?? [])].map((q) => String(q.quoteId));
+    ok(!allIds.some((id) => id.includes("draft") || id.includes("dra")) && !allIds.some((id) => id.includes("arch") || id.includes("usd")), "草稿 / 归档客户 / 非 CAD 不出现", allIds);
+    const a1 = (dab.won ?? [])[0];
+    ok(a1?.orderNumber === `KP-a1-${stamp}` && a1?.customerName === "Example Homeowner" && a1?.grandTotal === 1000 && a1?.status === "signed" && a1?.pricelistVersion === null && typeof a1?.signedAt === "string", "明细行含单号、客户、金额、状态、签字时间、价表版本", a1);
+    ok(dab.name === `Example ${REP_A}` && dab.truncated === false, "带姓名、未截断");
+    const bOwn = await drill(REP_B, OCT);
+    const bOwnBody = bOwn.body as unknown as Drill;
+    ok(bOwn.status === 200 && bOwnBody.totals.wonAmount === 3000 && bOwnBody.totals.quotedAmount === 3500 && !JSON.stringify(bOwn.body).includes(REP_A), "销售 B 不带 repId → 本人明细，不含 A", bOwnBody?.totals);
+    const bToA = await drill(REP_B, `${OCT}&repId=${REP_A}`);
+    ok(bToA.status === 403 && bToA.body?.code === "FORBIDDEN_REP", "销售 B 看 A → 403 FORBIDDEN_REP", bToA);
+    const noRep = await drill(OWNER, OCT);
+    ok(noRep.status === 400 && noRep.body?.code === "INVALID_REP", "老板不带 repId → 400 INVALID_REP", noRep);
+    const badKind = await drill(OWNER, `${OCT}&repId=${REP_A}&kind=all`);
+    ok(badKind.status === 400 && badKind.body?.code === "INVALID_KIND", "kind 非法 → 400", badKind);
+    const wonOnly = await drill(OWNER, `${OCT}&repId=${REP_A}&kind=won`);
+    ok(wonOnly.status === 200 && (wonOnly.body as unknown as Drill).quoted === null && (wonOnly.body as unknown as Drill).won?.length === 1 && (wonOnly.body as unknown as Drill).totals.quotedCount === byRepA.quotedCount, "kind=won 只给成单组，小计仍全量", wonOnly.body);
+    const badPeriod = await drill(OWNER, `?orgId=${ORG}&from=2026-10-28&to=2026-10-01&repId=${REP_A}`);
+    ok(badPeriod.status === 400 && badPeriod.body?.code === "INVALID_PERIOD", "期间非法 → 400 INVALID_PERIOD");
+    ok((await drill(PLAIN, `${OCT}&repId=${REP_A}`)).status === 403, "无分析权限 → 403");
+    const xDrill = await drill(OUTSIDER, `${OCT}&repId=${REP_A}`);
+    ok(!JSON.stringify(xDrill.body).includes(`KP-a1-${stamp}`) && !JSON.stringify(xDrill.body).includes("Example Homeowner"), "另一企业老板拿不到本企业明细", { status: xDrill.status });
+
+    ok((o.body as Record<string, unknown>)?.draftsUnsent !== undefined, "汇总响应含 draftsUnsent");
+    const fresh = await call(OWNER, OCT);
+    ok((fresh.body?.draftsUnsent as { count: number })?.count === 2 && fresh.body?.totals?.quotedAmount === 8944, "老板 draftsUnsent = 2（A、B 各 1；归档 / 期外不计），totals 不变", fresh.body?.draftsUnsent);
+    const aFresh = await call(REP_A, OCT);
+    ok((aFresh.body?.draftsUnsent as { count: number })?.count === 1, "销售 A draftsUnsent = 1", aFresh.body?.draftsUnsent);
+
+    const list = (uid: string, query: string) => callAt(listRoute.GET, "/api/sales/quotes/list", uid, query);
+    type ListBody = { quotes: Array<{ id: string; createdBy?: { id?: string } }>; reps: Array<{ id: string; name: string }> };
+    const lAll = await list(OWNER, `?orgId=${ORG}`);
+    const lAllBody = lAll.body as unknown as ListBody;
+    ok(lAll.status === 200 && lAllBody.reps.some((r) => r.id === REP_A) && lAllBody.reps.some((r) => r.id === REP_B) && lAllBody.quotes.every((q) => typeof q.createdBy?.id === "string"), "列表返回 reps（A、B）与每份的 createdBy.id", lAllBody?.reps);
+    const lA = await list(OWNER, `?orgId=${ORG}&createdById=${REP_A}`);
+    const lABody = lA.body as unknown as ListBody;
+    ok(lA.status === 200 && lABody.quotes.length > 0 && lABody.quotes.every((q) => q.createdBy?.id === REP_A), "老板 createdById=A → 只有 A 的报价", lABody?.quotes.length);
+    const lBtoA = await list(REP_B, `?orgId=${ORG}&createdById=${REP_A}`);
+    const lBtoABody = lBtoA.body as unknown as ListBody;
+    ok(lBtoA.status === 200 && lBtoABody.quotes.length === 0 && !lBtoABody.reps.some((r) => r.id === REP_A), "销售 B 带 createdById=A → 空，名单里也没有 A", lBtoABody);
+
+    console.log("\n[9] STAT-1 审查修订：同商机修订跨销售、跨企业不露姓名");
+    await db.salesOpportunity.create({ data: { id: OPP, orgId: ORG, customerId: CUST, title: "Shared opportunity", createdById: REP_A } });
+    await quote("oa", { opportunityId: OPP, status: "sent", sentAt: edt("2026-10-11T10:00:00"), grandTotal: 600 });
+    await quote("ob", { opportunityId: OPP, createdById: REP_B, status: "sent", sentAt: edt("2026-10-12T10:00:00"), grandTotal: 650 });
+    const s9 = await call(OWNER, OCT);
+    let quotedSum = 0;
+    for (const rep of [REP_A, REP_B]) {
+      const row = (s9.body?.byRep ?? []).find((r) => r.userId === rep) as unknown as Record<string, number>;
+      const dd = (await drill(OWNER, `${OCT}&repId=${rep}`)).body as unknown as Drill;
+      quotedSum += dd.totals.quotedCount;
+      ok(dd.totals.quotedCount === row.quotedCount && dd.totals.quotedAmount === row.quotedAmount && dd.totals.wonAmount === row.wonAmount, `${rep === REP_A ? "A" : "B"}：B 修订了 A 的报价后，明细小计仍 = 按人表`, { drill: dd.totals, row });
+    }
+    ok(quotedSum === s9.body?.totals?.quotedCount, "各人明细报价数之和 = 全企业报价数", { quotedSum, total: s9.body?.totals?.quotedCount });
+    const aOwn = await call(REP_A, OCT);
+    const aOwnDrill = (await drill(REP_A, OCT)).body as unknown as Drill;
+    const aOwnRow = aOwn.body?.byRep?.[0] as unknown as Record<string, number> | undefined;
+    ok(aOwnRow !== undefined && aOwnDrill.totals.quotedCount === aOwnRow.quotedCount && aOwnDrill.totals.quotedAmount === aOwnRow.quotedAmount, "销售 A 本人范围：明细 = 本人面板", { drill: aOwnDrill.totals, own: aOwnRow });
+    const xName = await drill(OUTSIDER, `?orgId=${ORG_X}&from=2026-10-01&to=2026-10-28&repId=${REP_A}`);
+    const xNameRaw = JSON.stringify(xName.body);
+    ok(xName.status === 200 && !xNameRaw.includes(`Example ${REP_A}`) && !xNameRaw.includes(`${REP_A}@fixture.test`), "另一企业老板用本企业销售的 id 查明细：不返回其姓名 / 邮箱", xName.body);
   } finally {
     await db.salesQuote.deleteMany({ where: { id: { in: quoteIds } } });
+    await db.salesOpportunity.deleteMany({ where: { id: OPP } });
     await db.salesCustomer.deleteMany({ where: { id: { in: [CUST, CUST_ARCH, CUST_X] } } });
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: { in: [ORG, ORG_X] } }] } });
     await db.principalRoleBinding.deleteMany({ where: { orgId: { in: [ORG, ORG_X] } } }).catch(() => undefined);

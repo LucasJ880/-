@@ -298,6 +298,8 @@ npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts
 npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts
 npx tsx src/lib/sales/__tests__/period-pure.test.ts
 npx tsx src/lib/sales/__tests__/period-insights.test.ts
+# STAT-1：期间周预设与按人报价明细
+npx tsx src/lib/sales/__tests__/period-drilldown-pure.test.ts
 # KPI-2：期间看板 AI 解读纯函数核心
 npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts
 # CAL-1：日历观察纯函数核心
