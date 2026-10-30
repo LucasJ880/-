@@ -5,7 +5,18 @@
 
 import assert from "node:assert/strict";
 import { costRateForProduct, snapshotCostPrice } from "../cost-rates";
-import { parseCostRates, validateCostRatesInput, readJsonDiscounts, mergeJsonDiscounts } from "../discount-settings";
+import {
+  parseCostRates,
+  validateCostRatesInput,
+  readJsonDiscounts,
+  mergeJsonDiscounts,
+  readJsonCordless,
+  mergeJsonCordless,
+  dtoToCordlessPolicy,
+  applyOrgDiscountDefaults,
+  validateDiscountsInput,
+} from "../discount-settings";
+import { DEFAULT_DISCOUNTS } from "../pricing-data";
 
 // ── parseCostRates：只收已知品类、0-1 有限数 ──
 const parsed = parseCostRates({
@@ -57,5 +68,42 @@ assert.equal(snapshotCostPrice(100, 0.45), 45);
 assert.equal(snapshotCostPrice(333.335, 0.3), 100, "round 到分");
 assert.equal(snapshotCostPrice(100, null), null, "无率 → null（不猜）");
 assert.equal(snapshotCostPrice(-5, 0.4), null, "非法价 → null");
+
+// ── PRICE-2：无绳企业设置（settingsJson.pricing.cordless）──
+assert.deepEqual(readJsonCordless(null), { cordlessDiscount: 0.3, cordlessFloorZebra: 159, cordlessFloorRoller: 129 }, "缺省 → 0.30 / 159 / 129");
+assert.deepEqual(
+  readJsonCordless({ pricing: { cordless: { discount: 0.25, floors: { Zebra: "x", Roller: 139 } } } }),
+  { cordlessDiscount: 0.25, cordlessFloorZebra: 159, cordlessFloorRoller: 139 },
+  "坏值逐项回落、好值保留",
+);
+assert.deepEqual(readJsonCordless({ pricing: { cordless: { discount: 1.2, floors: { Zebra: -1, Roller: 20000 } } } }), { cordlessDiscount: 0.3, cordlessFloorZebra: 159, cordlessFloorRoller: 129 }, "越界回落");
+const mergedC = mergeJsonCordless(
+  { sunnyWarranty: { a: 1 }, pricing: { leadMaxPct: 0.4, discounts: { fauxwood: 0.25 }, cordless: { floors: { Roller: 129 } } } },
+  { cordlessDiscount: 0.2, cordlessFloorZebra: 169 },
+);
+assert.deepEqual(
+  mergedC,
+  { sunnyWarranty: { a: 1 }, pricing: { leadMaxPct: 0.4, discounts: { fauxwood: 0.25 }, cordless: { discount: 0.2, floors: { Roller: 129, Zebra: 169 } } } },
+  "只动 pricing.cordless，pricing.discounts / leadMaxPct / 其它键原样",
+);
+assert.deepEqual(dtoToCordlessPolicy({ cordlessDiscount: 0.2, cordlessFloorZebra: 169, cordlessFloorRoller: 139 }), { discount: 0.2, floors: { Zebra: 169, Roller: 139 }, multiplier: 1.15 }, "DTO → 引擎策略");
+const filled = applyOrgDiscountDefaults(
+  [
+    { product: "Zebra" as const, cordless: true },
+    { product: "Zebra" as const, cordless: false },
+    { product: "SHANGRILA" as const, cordless: true },
+    { product: "Roller" as const, cordless: true, discountOverridePct: 0.5 },
+  ],
+  { ...DEFAULT_DISCOUNTS, Zebra: 0.4, SHANGRILA: 0.3 },
+);
+assert.equal(filled[0].discountOverridePct, undefined, "Zebra 无绳行不套产品折扣（交给无绳策略）");
+assert.equal(filled[1].discountOverridePct, 0.4, "Zebra 有绳行套企业产品折扣");
+assert.equal(filled[2].discountOverridePct, 0.3, "非 Zebra / Roller 带无绳标记仍按有绳套折扣");
+assert.equal(filled[3].discountOverridePct, 0.5, "行级覆盖保持");
+const vOk = validateDiscountsInput({ cordlessDiscount: 0.25, cordlessFloorZebra: 169.5, cordlessFloorRoller: 139 });
+assert.equal(vOk.ok, true);
+if (vOk.ok) assert.deepEqual(vOk.value, { cordlessDiscount: 0.25, cordlessFloorZebra: 169.5, cordlessFloorRoller: 139 });
+assert.equal(validateDiscountsInput({ cordlessDiscount: 1.2 }).ok, false, "无绳折扣越界拒绝");
+assert.equal(validateDiscountsInput({ cordlessFloorRoller: -1 }).ok, false, "无绳最低价负数拒绝");
 
 console.log("Cost rates tests passed");

@@ -44,10 +44,11 @@ async function main() {
   const settingsRoute = await import("@/app/api/sales/quote-settings/discounts/route");
   const previewRoute = await import("@/app/api/sales/quotes/preview/route");
   const quotesRoute = await import("@/app/api/sales/quotes/route");
+  const genRoute = await import("@/app/api/sales/measurements/[id]/generate-quote/route");
   const { executePendingAction } = await import("@/lib/pending-actions/executor");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
-  const { loadDiscounts } = await import("@/lib/blinds/discount-settings");
-  const { priceFor } = await import("@/lib/blinds/pricing-engine");
+  const { loadDiscounts, loadDiscountsDto, applyOrgDiscountDefaults, dtoToProductDiscounts, dtoToCordlessPolicy } = await import("@/lib/blinds/discount-settings");
+  const { priceFor, calculateQuoteTotal } = await import("@/lib/blinds/pricing-engine");
 
   const stamp = Date.now().toString(36);
   const BOSS_A = `plbossa_${stamp}`;
@@ -81,13 +82,13 @@ async function main() {
   await db.salesCustomer.create({ data: { id: CUST, orgId: ORG, name: "Example Homeowner", createdById: REP } });
 
   const cookie = async (id: string) => `qy_session=${await createSession({ sub: id, email: `${id}@fixture.test`, role: id === SA ? "super_admin" : "user" })}`;
-  const call = async (handler: unknown, uid: string, method: string, url: string, body?: Record<string, unknown>) => {
+  const call = async (handler: unknown, uid: string, method: string, url: string, body?: Record<string, unknown>, params: Record<string, string> = {}) => {
     const r = new NextRequest(`http://localhost${url}`, {
       method,
       headers: { "content-type": "application/json", cookie: await cookie(uid), "x-forwarded-for": "10.31.0.4", "x-org-id": ORG },
       ...(body ? { body: JSON.stringify({ orgId: ORG, ...body }) } : {}),
     });
-    const res = await (handler as (r: unknown, c: unknown) => Promise<Response>)(r, { params: Promise.resolve({}) });
+    const res = await (handler as (r: unknown, c: unknown) => Promise<Response>)(r, { params: Promise.resolve(params) });
     return { status: res.status, body: (await res.json().catch(() => ({}))) as Record<string, unknown> };
   };
   const settingsJson = async () => (await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } }))?.settingsJson as Record<string, unknown> | null;
@@ -162,7 +163,69 @@ async function main() {
     const fauxwoodRow = saved?.items.find((i) => i.product === "Fauxwood");
     ok(!!allusionRow && allusionRow.discountPct === 0.4 && !("error" in expected) && Math.abs(allusionRow.price - expected.price) < 1e-6, "落库 Allusion 行按 40%", allusionRow);
     ok(!!fauxwoodRow && fauxwoodRow.discountPct === 0.25 && Math.abs(fauxwoodRow.msrp - 410.06) < 0.01 && fauxwoodRow.bracketWidth === 42 && fauxwoodRow.bracketHeight === 48, "落库 Fauxwood 36.5x48：MSRP 410.06、取档 42x48、企业折扣 25%", fauxwoodRow);
+
+    console.log("\n[6] PRICE-2：老板改无绳设置 → 202 → 另一位老板批准 → 只动 pricing.cordless");
+    const c1 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { cordlessDiscount: 0.25, cordlessFloorZebra: 169 });
+    ok(c1.status === 202 && String(c1.body.summary).includes("cordlessDiscount=0.25") && String(c1.body.summary).includes("cordlessFloorZebra=169"), "202 + 审批摘要含无绳两项", c1.body);
+    const sjC0 = await settingsJson();
+    ok(!(sjC0?.pricing as Record<string, unknown> | undefined)?.cordless, "提交后 pricing.cordless 仍不存在", sjC0);
+    const ec1 = await approve(String(c1.body.approvalId), BOSS_B);
+    ok(ec1.ok === true, "批准执行成功", ec1);
+    const sjC1 = await settingsJson();
+    const pricingC1 = sjC1?.pricing as Record<string, unknown>;
+    const cordlessC1 = pricingC1?.cordless as { discount?: number; floors?: Record<string, number> } | undefined;
+    ok(cordlessC1?.discount === 0.25 && cordlessC1?.floors?.Zebra === 169 && cordlessC1?.floors?.Roller === undefined, "pricing.cordless = {discount 0.25, floors.Zebra 169}", sjC1);
+    ok((pricingC1?.discounts as Record<string, number>)?.fauxwood === 0.25 && pricingC1?.leadMaxPct === 0.4 && (sjC1?.sunnyWarranty as Record<string, unknown>)?.fixture === true, "pricing.discounts / leadMaxPct / sunnyWarranty 原样", sjC1);
+    const gC = await call(settingsRoute.GET, BOSS_A, "GET", `/api/sales/quote-settings/discounts?orgId=${ORG}`);
+    ok(gC.body.cordlessDiscount === 0.25 && gC.body.cordlessFloorZebra === 169 && gC.body.cordlessFloorRoller === 129, "GET 返回无绳三项（Roller 回默认 129）", gC.body);
+    const bad1 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { cordlessFloorRoller: -1 });
+    const bad2 = await call(settingsRoute.PUT, BOSS_A, "PUT", `/api/sales/quote-settings/discounts?orgId=${ORG}`, { cordlessDiscount: 1.2 });
+    ok(bad1.status === 400 && bad2.status === 400, "无绳非法值 → 400", { bad1: bad1.body, bad2: bad2.body });
+
+    console.log("\n[7] PRICE-2：预览无绳行按企业无绳策略；有绳行按企业产品折扣；量房生成布帘按褶皱率 2");
+    const pvC = await call(previewRoute.POST, BOSS_A, "POST", `/api/sales/quotes/preview?orgId=${ORG}`, {
+      items: [
+        { product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60, cordless: true },
+        { product: "Zebra", fabric: "Light Filtering", widthIn: 48, heightIn: 60 },
+        { product: "Drapery", fabric: "Without liner", widthIn: 100, heightIn: 120, fullness: 1.8 },
+      ],
+      installMode: "pickup", taxRate: 0,
+    });
+    const rows = (pvC.body.itemResults as Array<Record<string, number | boolean>> | undefined) ?? [];
+    const baseC = priceFor("Zebra", "Light Filtering", 48, 60, 0, false);
+    const msrp48 = "error" in baseC ? NaN : baseC.msrp;
+    const expectCordless = Math.max(msrp48 * 0.75 * 1.15, 169);
+    ok(rows[0]?.cordless === true && rows[0]?.discountPct === 0.25 && Math.abs((rows[0]?.price as number) - expectCordless) < 1e-6, `无绳行折扣 0.25、成交 max(MSRP×0.75×1.15, 169) = ${expectCordless.toFixed(2)}`, rows[0]);
+    ok(rows[1]?.cordless === false && rows[1]?.discountPct === 0.45, "有绳行仍按 Zebra 企业产品折扣 0.45", rows[1]);
+    const drape18 = priceFor("Drapery", "Without liner", 100, 120, null, false, undefined, 1.8);
+    ok(!("error" in drape18) && Math.abs((rows[2]?.price as number) - drape18.price) < 1e-6 && Math.abs(drape18.price - 831.41) < 0.01, "预览布帘 100x120 褶皱率 1.8 → 831.41", { row: rows[2] });
+
+    // 量房生成报价（真实路由）：量房窗位不带褶皱率 → 按 2；PRICE-2 同时修了该路由在 main 上写库即 500 的既有问题
+    const MR = `plmr_${stamp}`;
+    await db.measurementRecord.create({
+      data: {
+        id: MR, customerId: CUST, measuredById: REP,
+        windows: { create: [
+          { roomName: "Living", windowLabel: "W1", widthIn: 100, heightIn: 120, product: "Drapery", fabric: "Without liner", sortOrder: 0 },
+          { roomName: "Living", windowLabel: "W2", widthIn: 24, heightIn: 36, product: "Zebra", fabric: "Light Filtering", cordless: true, sortOrder: 1 },
+          { roomName: "Bedroom", widthIn: 48, heightIn: 60, product: "Zebra", fabric: "Light Filtering", sortOrder: 2 },
+        ] },
+      },
+    });
+    const gen = await call(genRoute.POST, REP, "POST", `/api/sales/measurements/${MR}/generate-quote?orgId=${ORG}`, { installMode: "pickup" }, { id: MR });
+    const genQuoteId = String((gen.body.quote as Record<string, unknown> | undefined)?.id ?? "");
+    if (genQuoteId) quoteIds.push(genQuoteId);
+    const genQuote = genQuoteId ? await db.salesQuote.findUnique({ where: { id: genQuoteId }, include: { rooms: { include: { items: true } }, items: true } }) : null;
+    ok(gen.status === 201 && (gen.body.quote as Record<string, unknown>)?.roomCount === 2 && (gen.body.quote as Record<string, unknown>)?.itemCount === 3, "量房生成报价 → 201，2 个房间 3 行（修复前 500）", gen.body);
+    ok(!!genQuote && genQuote.items.length === 3 && genQuote.items.every((it) => !!it.roomId && genQuote.rooms.some((r) => r.id === it.roomId)), "每行同时挂在报价与房间上", genQuote?.items.map((i) => ({ q: i.quoteId, r: i.roomId })));
+    const gDrape = genQuote?.items.find((it) => it.product === "Drapery");
+    const drape2 = priceFor("Drapery", "Without liner", 100, 120, 0.35, false, undefined, 2);
+    ok(!!gDrape && gDrape.bracketWidth === 100 && !("error" in drape2) && Math.abs(gDrape.price - drape2.price) < 1e-6, "量房布帘 100x120 不带褶皱率 → 按 2，取档 100", gDrape);
+    const gCordless = genQuote?.items.find((it) => it.product === "Zebra" && it.cordless);
+    ok(!!gCordless && gCordless.discountPct === 0.25 && gCordless.price === 169, "量房无绳 Zebra 24x36 → 企业无绳折扣 0.25、最低价 169", gCordless);
+    ok((await db.measurementRecord.findUnique({ where: { id: MR } }))?.status === "quoted", "量房记录状态 → quoted");
   } finally {
+    await db.measurementRecord.deleteMany({ where: { customerId: CUST } });
     await db.pendingAction.deleteMany({ where: { orgId: ORG } });
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: users } }, { orgId: ORG }] } });
     await db.notification.deleteMany({ where: { userId: { in: users } } });

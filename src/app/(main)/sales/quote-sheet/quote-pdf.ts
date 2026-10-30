@@ -43,6 +43,7 @@ import {
   DEFAULT_DELIVERY_FEE,
 } from "@/lib/blinds/pricing-data";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import type { CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 
 // ── Design tokens ────────────────────────────────────────────────────
@@ -243,6 +244,7 @@ export interface QuotePdfInput {
   logoDataUrl?: string | null; // 公司 Logo（可选，加载失败时用文字 logo 降级）
   discounts?: DiscountsOverride; // 来自全局折扣率设置（缺省使用 pricing-data.ts 内置默认）
   sunnyMotorPrice?: number; // Lift=M 时每行税前加价；历史报价缺省按 150
+  cordlessPolicy?: CordlessPolicy; // PRICE-2：企业无绳策略；缺省 0.30 / 159 / 129 / ×1.15
   minInstallFee?: number; // 最低安装费（驾驶舱设置）；缺省用平台默认
   deliveryFee?: number; // 运费（驾驶舱设置）；缺省用平台默认；pickup 不收
   specialPromotion?: number; // Step 4：销售手填让利（税前直减）
@@ -621,6 +623,7 @@ export async function exportQuotePdf(
       input.installMode,
       input.discounts,
       input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
+      input.cordlessPolicy,
     );
     return (
       p &&
@@ -835,6 +838,7 @@ export async function exportQuotePdf(
           input.installMode,
           input.discounts,
           input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
+          input.cordlessPolicy,
         );
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);

@@ -4,11 +4,11 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-10-30（PRICE-1 #344 已合并并归档；下一个是 PRICE-2，propose 前先答 Q4） |
-| 任务书（方案） | `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 判断点 Q1–Q11 **待拍板**） |
-| 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 / PRICE-2 / PRICE-3 / STAT-1，全部 `[ ]`） |
-| 进行中的 change | `pricelist-2026-10-cordless-fullness`（四件套已写，`validate --strict` 通过；提交在归档 PR #353 合并之后再推，避免混进归档 PR） |
-| 工作分支 | `claude/vigilant-goodall-4t0c17`（基于 origin/main `abad98d`；每个 PR 合并后从 origin/main 重建同名分支） |
+| 最后更新 | 2026-10-30（PRICE-1 #344 合并、#353 归档；PRICE-2 已实施，报告 `docs/QINGYAN_PRICE-2_REPORT.md`，待开 PR） |
+| 任务书（方案） | `docs/QINGYAN_PRICE-1_PRICELIST_TASKBRIEF.md`（§7 Q1–Q11 已拍板：全按推荐；Q4 = A） |
+| 主线 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase P（PRICE-1 `[x]` / PRICE-2 `[G]` / PRICE-3 `[ ]` / STAT-1 `[ ]`） |
+| 进行中的 change | `pricelist-2026-10-cordless-fullness`（已实施；下一步开 PR → 合并 → archive） |
+| 工作分支 | `claude/vigilant-goodall-4t0c17`（PR 合并后在其上 merge origin/main 继续；不 force-push） |
 | OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
 | 运行环境 | 仓库不带 `node_modules`，先 `npm ci`（约 2 分钟，会 `prisma generate`）；沙箱里 `tsc` 需 `NODE_OPTIONS=--max-old-space-size=8192` |
 | 价表证据 | `config/pricelist/2026-10-28-lucas-quote.json`（增量 + 来源 SHA-256）、`config/pricelist/2026-10-28-golden-cases.json`（158 条黄金用例）；脚本 `scripts/pricelist/`（README 有四步命令） |
@@ -17,8 +17,8 @@
 
 | change | 实施 | PR | archive PR | TASKFLOW |
 |---|---|---|---|---|
-| PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | 本 PR（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`） | `[x]` |
-| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已 propose（2026-10-30；Q4 = A：无绳改显式开关；设计 D5 不加企业默认褶皱率）；待审后 apply | — | — | `[ ]` |
+| PRICE-1 `pricelist-2026-10-fauxwood-allusion` | 已实施（报告 `docs/QINGYAN_PRICE-1_REPORT.md`；Q1–Q11 全按推荐，Q4 暂按现状归 PRICE-2） | [#344](https://github.com/LucasJ880/-/pull/344) 已合并（2026-10-30，merge `33139de`） | [#353](https://github.com/LucasJ880/-/pull/353) 已合并（`openspec/changes/archive/2026-10-30-pricelist-2026-10-fauxwood-allusion`；同 PR 带 PRICE-2 四件套） | `[x]` |
+| PRICE-2 `pricelist-2026-10-cordless-fullness` | 已实施（报告 `docs/QINGYAN_PRICE-2_REPORT.md`；tasks 8/8，含量房生成报价 500 修复） | [#354](https://github.com/LucasJ880/-/pull/354) 已开（CI 中；用户确认后合并） | — | `[G]` |
 | PRICE-3 `pricelist-2026-10-addons` | 未 propose（等 Q6 / Q7 / Q8） | — | — | `[ ]` |
 | STAT-1 `sales-quote-stats-drilldown` | 已实施（会话 `claude/magical-shannon-keegzr`；Q9 / Q10 按推荐；报告 `docs/QINGYAN_STAT-1_REPORT.md`） | [#355](https://github.com/LucasJ880/-/pull/355) 已合并（`6db3a980`） | 归档小 PR（`openspec/changes/archive/2026-10-30-sales-quote-stats-drilldown`） | `[x]` |
 
@@ -27,7 +27,7 @@
 ## 1. 下一步
 
 1. **已拍板**（用户 2026-10-29："都按照推荐的来"）：Q1–Q11 全按推荐列；Q4 没有推荐值，PRICE-2 propose 前仍要问一句 Lift L/R 是否即无绳。
-2. PRICE-1 已合并（#344）并归档（本 PR）；`openspec list --specs` 列出 `sales/price-list`。下一个 PRICE-2 `pricelist-2026-10-cordless-fullness`：**propose 前必须先答 Q4**（Order Form 里 Lift L/R 是否即无绳，`quote-sheet/page.tsx` 的 `cordless: l.lift === "L" || l.lift === "R"`）——它决定无绳 30% 折扣与 159 / 129 最低价套在哪些行上；黄金测试 `DEFERRED` 110 条（cordless-* / fullness-*）在 PRICE-2 转入 `MUST_MATCH` `src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts`（读 `config/pricelist/2026-10-28-golden-cases.json`，逐条调 `priceFor`，误差 ≤ 0.01，报错 ↔ 报错）并注册进 `scripts/test-all.sh`。
+2. PRICE-1 已合并（#344）并归档（#353）。PRICE-2 已实施（Q4 = A；tasks 7/7；报告 `docs/QINGYAN_PRICE-2_REPORT.md`）：下一步开 PR → CI 绿 → 用户确认合并 → 最新 main 上 `openspec archive pricelist-2026-10-cordless-fullness --yes`（独立小 PR）。黄金对照已全部 158 条比对，以后改 `pricing-data.ts` / `pricing-engine.ts` 都必须先跑它。PRICE-2 顺带修了量房「生成报价」在 main 上必然 500 的问题（报告 §4.2、design D8）
 3. apply 前记基线：`npx tsx src/lib/blinds/__tests__/{sunny-motor,valance-options,cost-rates,quote-fees}.test.ts`、`npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts`、`npx tsx src/lib/fulfillment/__tests__/category.test.ts`、`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts`。
 4. 价表下次再更新时，走 `scripts/pricelist/README.md` 四步，只把差异进新的 `config/pricelist/<日期>-*.json`。
 

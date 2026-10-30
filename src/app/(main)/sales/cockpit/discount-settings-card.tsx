@@ -26,6 +26,9 @@ interface DiscountsDto {
   romanShade: number;
   fauxwood: number;
   allusion: number;
+  cordlessDiscount: number;
+  cordlessFloorZebra: number;
+  cordlessFloorRoller: number;
   sunnyMotorPrice: number;
   minInstallFee: number;
   deliveryFee: number;
@@ -84,9 +87,28 @@ const PRICE_FIELDS = [
     label: "运费 Delivery",
     hint: "Installation 模式下每单加收；Pickup 自提不收",
   },
+  {
+    key: "cordlessFloorZebra" as const,
+    label: "无绳最低价 Zebra",
+    hint: "Zebra 无绳行（×1.15 之后）低于此价时按此价成交（2026-10 价表 $159）",
+  },
+  {
+    key: "cordlessFloorRoller" as const,
+    label: "无绳最低价 Roller",
+    hint: "Roller 无绳行（×1.15 之后）低于此价时按此价成交（2026-10 价表 $129）",
+  },
 ];
 
 type PriceDraftKey = (typeof PRICE_FIELDS)[number]["key"];
+
+/** 2026-10-28 价表：无绳独立折扣（不随 Zebra / Roller 产品折扣变化） */
+const CORDLESS_RATE_FIELDS: { key: "cordlessDiscount"; label: string; hint: string }[] = [
+  {
+    key: "cordlessDiscount",
+    label: "无绳折扣 Cordless",
+    hint: "Order Form 打开 Cordless 的 Zebra / Roller 行按此折扣（默认 30% off），再 ×1.15；行级手动折扣优先",
+  },
+];
 
 const COMMISSION_FIELDS: { key: "commissionMarginRate" | "commissionRate"; label: string; hint: string }[] = [
   {
@@ -106,7 +128,8 @@ type NumericDraftKey =
   | "drapery" | "sheer" | "shutters" | "honeycomb" | "romanShade" | "fauxwood" | "allusion"
   | "promoWarnPct" | "promoDangerPct" | "promoMaxPct"
   | "depositWarnPct" | "depositMinPct"
-  | "commissionMarginRate" | "commissionRate";
+  | "commissionMarginRate" | "commissionRate"
+  | "cordlessDiscount";
 
 interface DraftMap {
   zebra: string;
@@ -127,9 +150,12 @@ interface DraftMap {
   depositMinPct: string;
   commissionMarginRate: string;
   commissionRate: string;
+  cordlessDiscount: string;
   sunnyMotorPrice: string;
   minInstallFee: string;
   deliveryFee: string;
+  cordlessFloorZebra: string;
+  cordlessFloorRoller: string;
   // 解锁码：空串表示"清空"；undefined 表示"不改动"（保存时不发送）；永不回显服务端值
   depositOverrideCode?: string;
   lineDiscountUnlockCode?: string;
@@ -155,6 +181,7 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     depositMinPct: Math.round(d.depositMinPct * 100).toString(),
     commissionMarginRate: Math.round(d.commissionMarginRate * 100).toString(),
     commissionRate: Math.round(d.commissionRate * 100).toString(),
+    cordlessDiscount: Math.round((typeof d.cordlessDiscount === "number" ? d.cordlessDiscount : 0.3) * 100).toString(),
     sunnyMotorPrice: Number(d.sunnyMotorPrice).toFixed(
       Number.isInteger(d.sunnyMotorPrice) ? 0 : 2,
     ),
@@ -164,6 +191,8 @@ function toDraftMap(d: DiscountsDto): DraftMap {
     deliveryFee: Number(d.deliveryFee).toFixed(
       Number.isInteger(d.deliveryFee) ? 0 : 2,
     ),
+    cordlessFloorZebra: String(typeof d.cordlessFloorZebra === "number" ? d.cordlessFloorZebra : 159),
+    cordlessFloorRoller: String(typeof d.cordlessFloorRoller === "number" ? d.cordlessFloorRoller : 129),
     depositOverrideCode: undefined,
     lineDiscountUnlockCode: undefined,
   };
@@ -215,6 +244,7 @@ export function DiscountSettingsCard() {
       ...THRESHOLD_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
       ...DEPOSIT_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
       ...COMMISSION_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
+      ...CORDLESS_RATE_FIELDS.map((f) => ({ key: f.key as NumericDraftKey, label: f.label })),
     ];
     for (const f of allFields) {
       const n = Number(draft[f.key]);
@@ -487,6 +517,40 @@ export function DiscountSettingsCard() {
               ) : (
                 <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
                   {current ? `${Math.round((current[f.key] as number) * 100)}%` : "—"}
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground">{f.hint}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 2026-10-28 价表：无绳独立折扣（最低价在上方费用区） */}
+      <div className="mt-5 pt-4 border-t border-border">
+        <h4 className="text-xs font-semibold text-foreground mb-1">无绳 Cordless</h4>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          只对 Order Form 打开 Cordless 的 Zebra / Roller 行生效：折扣 → ×1.15 → 不低于无绳最低价；无尺寸上限。
+        </p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {CORDLESS_RATE_FIELDS.map((f) => (
+            <div key={f.key} className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground block">{f.label}</label>
+              {editing && draft && canEdit ? (
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={draft[f.key]}
+                    onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                    className="w-full rounded-lg border border-input bg-card-bg px-2 py-1.5 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-accent-soft px-2 py-1.5 text-sm font-semibold text-slate-700">
+                  {current && typeof current[f.key] === "number" ? `${Math.round((current[f.key] as number) * 100)}%` : "—"}
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground">{f.hint}</p>

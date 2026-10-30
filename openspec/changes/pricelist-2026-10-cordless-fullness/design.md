@@ -36,7 +36,7 @@
 - 否决：维持 L/R 即无绳（B）—— 与工艺单矛盾，PRICE-2 的 30% 折扣与最低价会把差异放大。否决：新增列 —— 纪律 1。
 
 ### D2 引擎接收无绳策略对象，不再读模块常量
-- 做法：`priceFor(product, fabric, w, h, discountOverridePct, cordlessRequested, policy?: CordlessPolicy)`，`CordlessPolicy = { discount, floors: { Zebra, Roller }, multiplier }`，默认 `DEFAULT_CORDLESS_POLICY`（0.30 / 159 / 129 / 1.15，常量从 `config/pricelist/2026-10-28-lucas-quote.json` 的 `cordless` 节拷入）；三条分支（标准 / Roller / Door Screen Sheer）统一走一个 `settleCordless(msrp, price, product, policy)` 收尾；删除 `CORDLESS_MAX_WIDTH/HEIGHT` 与其检查。`calculateQuoteTotal` 入参加 `cordlessPolicy?`，透传给每行。
+- 做法：`priceFor(product, fabric, w, h, discountOverridePct, cordlessRequested, policy?: CordlessPolicy)`，`CordlessPolicy = { discount, floors: { Zebra, Roller }, multiplier }`，默认 `DEFAULT_CORDLESS_POLICY`（0.30 / 159 / 129 / 1.15，常量从 `config/pricelist/2026-10-28-lucas-quote.json` 的 `cordless` 节拷入）；三条分支（标准 / Roller / Door Screen Sheer）统一走一个 `settlePrice(msrp, price, product, cordless, policy)` 收尾，顺序与原工具 `price()` 一致：先 ×倍率、再与最低价比较（无绳用无绳最低价，否则产品最低价；apply 中按黄金用例更正，原稿写成先最低价后倍率）；删除 `CORDLESS_MAX_WIDTH/HEIGHT` 与其检查。`calculateQuoteTotal` 入参加 `cordlessPolicy?`，透传给每行。
 - 否决：把无绳折扣塞进 `DEFAULT_DISCOUNTS` 当伪产品键 —— 折扣表 DTO / 成本率键表会被污染。否决：保留 `cordlessMultiplier` 旧参数 —— 原工具把倍率、折扣、最低价视为一组设置，拆开反而难对照。
 
 ### D3 企业折扣填充跳过无绳行；无绳折扣走策略对象
@@ -60,6 +60,11 @@
 - 做法：把 10 个标签移入 `MUST_MATCH`，`DEFERRED = new Set([])`；`priceFor` 调用加上 `fullness` 透传（通过 `calculateQuoteTotal` 单行调用或直接传参）；比对规则不变。
 - 否决：删掉分组机制 —— 下次价表更新还要用。
 
+### D8 顺带修复量房「生成报价」写库 500（apply 中发现，Lucas 2026-10-30 同意）
+- 现状：`src/app/api/sales/measurements/[id]/generate-quote/route.ts` 把 `SalesQuoteItem` 嵌在 `rooms.create.items.create` 里并写 `quoteId: undefined as any`；行同时属于报价与房间，Prisma 要求给出 `quote` 关联 → 每次 500（origin/main 上即如此，与定价无关）。规格「褶皱率来源 / 量房生成按 2」场景要经过这个路由才能验证。
+- 做法：同一事务内先建报价，再逐个建房间并 `createMany` 该房间的行（显式 `quoteId` + `roomId`），最后带 rooms / items 读回；响应结构不变。
+- 否决：预先生成报价 id 再嵌套 connect —— 依赖 cuid 生成细节；拆成单独 PR —— 本 change 已改动该路由且规格场景依赖它，Lucas 同意并入。
+
 ## 与八条硬纪律的关系
 
 | 条 | 关系 |
@@ -77,7 +82,7 @@
 
 - [老报价 L/R 行重算后不再 ×1.15，金额变小] → 只在编辑重算时发生；报告与 PR 写明；销售若确为无绳需打开开关。
 - [默认 180% 布帘查表宽变 0.9×，部分尺寸掉一档变便宜] → 原工具规则；报告给出 100" × 120" 前后对比；Lucas 可改用 230。
-- [三条 `priceFor` 分支的无绳收尾合并时漏掉 Roller 罩盖顺序] → 黄金 `cordless-roller-cassette` 组 8 条逐条比（bump 在折扣后、最低价前）。
+- [三条 `priceFor` 分支的无绳收尾合并时漏掉 Roller 罩盖顺序] → 黄金 `cordless-roller-cassette` 组 8 条逐条比（bump 在折扣后、倍率前；最低价最后）。
 - [客户端第一次真正按无绳计价，总价与此前预览不同] → 这是修正而非回归；走查对比开关开 / 关两种总价。
 - [`applyOrgDiscountDefaults` 跳过无绳行后，无绳行拿不到企业产品折扣] → 规格明确无绳行不用产品折扣。
 

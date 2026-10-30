@@ -4,7 +4,7 @@
  * 黄金用例由 Lucas 上传的报价工作台自带 price() 原函数生成（scripts/pricelist/gen-golden.mjs），
  * 文件 config/pricelist/2026-10-28-golden-cases.json 是定价契约。
  *   - MUST_MATCH：本 change 必须逐条一致（金额误差 ≤ 0.01；报错 ↔ 报错）
- *   - DEFERRED：留给 PRICE-2（无绳独立折扣 / 最低价 / 取消 75" 上限、褶皱率）
+ *   - DEFERRED：留给后续 change 的标签（PRICE-2 起为空）
  *   - 两组并集必须覆盖文件里全部标签；出现未归组标签直接失败，防止缺口被藏起来
  *
  * 运行：npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts
@@ -13,7 +13,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { priceFor, calculateQuoteTotal, applyManualSellingPrice } from "../pricing-engine";
+import { priceFor, calculateQuoteTotal, applyManualSellingPrice, fullnessFromPercent } from "../pricing-engine";
+import { computeShadeLinePrice, computeDrapeLinePrice, sumAllMsrp } from "../../../app/(main)/sales/quote-sheet/pricing-helpers";
+import type { ShadeOrderLine, DrapeOrderLine } from "../../../app/(main)/sales/quote-sheet/types";
 import { BASE_PRICE_VERSION, PRICE_LIST_2026_10_28_SOURCE } from "../pricing-data";
 import type { ProductName } from "../pricing-types";
 import { canonicalSku, skuToPricingFabric } from "../sku-catalog";
@@ -57,8 +59,7 @@ const MUST_MATCH = new Set([
   "door-screen",
   "door-screen-err",
   "cordless-ignored",
-]);
-const DEFERRED = new Set([
+  // PRICE-2（2026-10-30）：无绳独立折扣 / 最低价 / 取消 75" 上限、褶皱率
   "cordless-zebra",
   "cordless-zebra-bo",
   "cordless-roller",
@@ -70,6 +71,8 @@ const DEFERRED = new Set([
   "fullness-invalid",
   "door-screen-no-fullness",
 ]);
+// 留给后续 change 的标签（PRICE-2 起为空；下次价表更新时按需填入）
+const DEFERRED = new Set<string>([]);
 
 let pass = 0;
 let fail = 0;
@@ -112,6 +115,8 @@ for (const c of golden.cases) {
     c.input.h,
     typeof c.input.discountOverridePct === "number" ? c.input.discountOverridePct : null,
     c.input.cordless ?? false,
+    undefined,
+    typeof c.input.fullness === "number" ? c.input.fullness : null,
   );
   if (c.expectError !== undefined) {
     check("error" in r, `${name} → 应报错（原工具：${c.expectError}）`);
@@ -129,11 +134,11 @@ for (const c of golden.cases) {
   check(r.cordless === e.cordless, `${name} 无绳标记 ${r.cordless} vs ${e.cordless}`);
   // 原工具的 discount 字段是"产品默认折扣"，Door Screen Sheer 特殊分支实际按 0 折扣计价（金额已在上面核对），
   // 青砚 discountPct 记录的是实际套用的折扣，因此该组不比折扣字段。
-  if (c.tag !== "door-screen") {
+  if (c.input.fabric !== "Door Screen Sheer") {
     check(Math.abs(r.discountPct - e.discount) <= 1e-9, `${name} 折扣 ${r.discountPct} vs ${e.discount}`);
   }
 }
-assert.ok(matched >= 40, `MUST_MATCH 组应至少 40 条，实际 ${matched}`);
+assert.equal(matched, golden.count, `PRICE-2 起全部 ${golden.count} 条都必须比对，实际 ${matched}`);
 
 // ── 3. 本地用例（原工具没有的青砚行为）──
 // 3a Allusion 手动成交单价覆盖（design D2）
@@ -182,8 +187,38 @@ assert.ok(matched >= 40, `MUST_MATCH 组应至少 40 条，实际 ${matched}`);
   check(readPricelistVersion("{}") === null && readPricelistVersion(null) === null, "读回缺省 → null");
 }
 
+// 3c PRICE-2：Order Form 无绳开关与 Fullness 来源（客户端预览与服务端同一引擎）
+{
+  check(fullnessFromPercent("180") === 1.8 && fullnessFromPercent("230") === 2.3, "Fullness 180 / 230 → 1.8 / 2.3");
+  check(fullnessFromPercent("") === null && fullnessFromPercent(undefined) === null && fullnessFromPercent("abc") === null, "Fullness 空 / 非法 → null（引擎按 2）");
+  const shade = (over: Partial<ShadeOrderLine>): ShadeOrderLine => ({
+    id: "s1", location: "Living", widthWhole: "24", widthFrac: "0", heightWhole: "36", heightFrac: "0",
+    product: "Zebra", sku: "Light Filtering", mount: "I", lift: "L", bracket: "", valance: "Cassette", note: "", ...over,
+  });
+  const legacy = computeShadeLinePrice(shade({}), "pickup");
+  const corded = priceFor("Zebra", "Light Filtering", 24, 36, null, false);
+  check(!!legacy && !legacy.error && !("error" in corded) && Math.abs(legacy.merch - corded.price) < 1e-9, "旧表单无 cordless 字段、Lift=L → 按有绳计价");
+  const cl = computeShadeLinePrice(shade({ cordless: true }), "pickup", { Zebra: 0.45 });
+  check(!!cl && !cl.error && cl.merch === 159, "Cordless 开 → 无绳折扣 30% + 最低价 159（不套 Zebra 产品折扣 45%）");
+  const clShangri = computeShadeLinePrice(shade({ product: "SHANGRILA", sku: "Standard", cordless: true }), "pickup");
+  const shangri = priceFor("SHANGRILA", "Standard", 24, 36, null, false);
+  check(!!clShangri && !("error" in shangri) && Math.abs(clShangri.merch - shangri.price) < 1e-9, "非 Zebra / Roller 带 cordless 仍按有绳");
+  const msrpSum = sumAllMsrp([shade({ cordless: true })], [], "Vinyl", []);
+  check(Math.abs(msrpSum - 184.26) < 0.01, `MSRP 求和：无绳行折扣 0 → 160.23 × 1.15 = 184.26（实际 ${msrpSum.toFixed(2)}）`);
+  const drape = (pct: "180" | "230"): DrapeOrderLine => ({
+    id: "d1", location: "Living", drapeWidthWhole: "100", drapeWidthFrac: "0", drapeHeightWhole: "120", drapeHeightFrac: "0",
+    drapeFabricSku: "Without liner", drapeFullness: pct, drapePanels: "S", drapePleatStyle: "", drapeLiner: false, drapeBracket: "",
+    sheerWidthWhole: "", sheerWidthFrac: "0", sheerHeightWhole: "", sheerHeightFrac: "0", sheerFabricSku: "", sheerFullness: "180", sheerPanels: "S",
+  } as unknown as DrapeOrderLine);
+  const d180 = computeDrapeLinePrice(drape("180"), "pickup");
+  check(!!d180 && !d180.error && Math.abs(d180.drapeMerch - 831.41) < 0.01, `Order Form 布帘 100x120 默认 180% → 831.41（实际 ${d180?.drapeMerch.toFixed(2)}）`);
+  const d230 = computeDrapeLinePrice(drape("230"), "pickup");
+  const g23 = priceFor("Drapery", "Without liner", 100, 120, null, false, undefined, 2.3);
+  check(!!d230 && !("error" in g23) && Math.abs(d230.drapeMerch - g23.price) < 1e-9, "Order Form 230% → 褶皱率 2.3");
+}
+
 const deferredCount = golden.cases.filter((c) => DEFERRED.has(c.tag)).length;
-console.log(`黄金对照：MUST_MATCH ${matched} 条（断言 ${pass + fail}，失败 ${fail}）；DEFERRED ${deferredCount} 条留给 PRICE-2`);
+console.log(`黄金对照：MUST_MATCH ${matched} 条（断言 ${pass + fail}，失败 ${fail}）；DEFERRED ${deferredCount} 条`);
 if (fail) {
   for (const f of failures) console.error("  ✗ " + f);
   process.exit(1);

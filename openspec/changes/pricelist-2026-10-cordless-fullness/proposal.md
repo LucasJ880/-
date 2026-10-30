@@ -14,6 +14,7 @@ TASKFLOW：PRICE-2（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase P）。
 - 服务端套企业折扣时跳过无绳行，无绳折扣由引擎按企业无绳设置套用；客户端预览开始把无绳传给引擎（此前预览从不按无绳计价，与服务端不一致）。
 - 布帘 / 纱帘查表宽 = 实际窗宽 × 褶皱率 ÷ 2（Door Screen Sheer 除外）；褶皱率只接受 1 到 4，非法整行报错；安装费与面积仍按实际窗宽；超范围报错写明"此褶皱率下最大窗宽"。Order Form / Part A 的 Fullness 180 / 230 作为 1.8 / 2.3 传给定价（与工艺单同一来源）；量房、AI 解析、Muse 等不带褶皱率的入口按 2。**BREAKING**：Order Form 默认 Standard 180% 的布帘 / 纱帘行查表宽变为实际宽 × 0.9。
 - 无绳行生成工艺单时操控方式为"无绳"（Blinds 工艺引擎已有无绳减尺表），拉杆位置仍取 Lift。
+- 修复量房「生成报价」在写库时必然 500 的既有问题（报价行同时挂报价与房间），使量房入口能实际生成报价（apply 中发现，Lucas 2026-10-30 同意并入）。
 - 黄金对照测试把 `cordless-*` / `fullness-*` / `door-screen-no-fullness` 110 条从 `DEFERRED` 转入 `MUST_MATCH`，`DEFERRED` 清空。
 
 ## Capabilities

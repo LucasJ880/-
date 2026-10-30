@@ -48,6 +48,16 @@ console.log("报价 → 工艺单映射");
   ok(m2.blindsItems[0]!.mountType === "顶装" && notes.includes("mountType") && notes.includes("measureType") && notes.includes("controlSide"), "QM-03b: 都空 → 顶装 / IN / 普通R，三条提示", notes);
 }
 
+// QM-01b PRICE-2：无绳只来自 Cordless 开关
+{
+  const m = mapQuoteFormToProcessOrder(form({ shadeOrders: [shade({ lift: "R", cordless: true }), shade({ lift: "L" }), shade({ product: "Roller", lift: "M", cordless: true }), shade({ product: "SHANGRILA", lift: "L", cordless: true })] }));
+  const [a, b, c, d] = m.blindsItems;
+  ok(a?.controlType === "无绳" && a.controlSide === "R", "QM-01b: 斑马帘 Cordless 开 + Lift R → 无绳 / 拉杆位置 R", a);
+  ok(b?.controlType === "普通" && b.controlSide === "L", "QM-01c: Lift L 无开关 → 普通 / L（不再当无绳）", b);
+  ok(c?.controlType === "电动", "QM-01d: Lift M 优先于 Cordless → 电动", c);
+  ok(d?.controlType === "普通", "QM-01e: 香格里拉带 cordless 标记 → 普通（无绳只对 Zebra / Roller）", d);
+}
+
 // QM-04 外购帘 → 国内下单
 {
   const m = mapQuoteFormToProcessOrder(form({ shadeOrders: [shade({ product: "Cordless Cellular", lift: "" }), shade({ product: "Allusion", lift: "M", mount: "O" }), shade({ product: "Roman Shade", lift: "L" }), shade({ product: "SkylightHoneycomb" })] }));

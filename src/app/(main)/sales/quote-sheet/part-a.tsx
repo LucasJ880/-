@@ -5,7 +5,7 @@ import type { PartALine, ProductName, ProductCategory, InstallMode } from "./typ
 import { getProductCategory } from "./types";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2, AlertCircle, Lock, Unlock, Settings2 } from "lucide-react";
-import { priceFor, isCordlessEligible, formatCAD } from "@/lib/blinds/pricing-engine";
+import { priceFor, isCordlessEligible, formatCAD, fullnessFromPercent } from "@/lib/blinds/pricing-engine";
 import { getAvailableFabrics, ALL_PRODUCTS, DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
 import { valanceOptionsFor, valanceRequiredFor, defaultValanceFor, rollerEngineFabricKey, parseRollerFabric, ROLLER_BASE_FABRICS } from "@/lib/blinds/valance-options";
 import { apiFetch } from "@/lib/api-fetch";
@@ -21,7 +21,10 @@ function recalcLine(line: PartALine): PartALine {
     line.widthIn,
     line.heightIn,
     line.discountOverride,
-    line.cordless
+    line.cordless,
+    undefined,
+    // PRICE-2：Fullness 180 / 230 → 1.8 / 2.3（只对 Drapery / Sheer 生效）
+    fullnessFromPercent(line.fullness),
   );
 
   if ("error" in result) {

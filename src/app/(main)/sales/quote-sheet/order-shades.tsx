@@ -8,7 +8,7 @@ import { valanceOptionsFor } from "@/lib/blinds/valance-options";
 import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
-import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
+import { isManualPriceShadeProduct, type CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { allowsManualSellingPrice } from "@/lib/blinds/pricing-engine";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import { updateLineField, removeLineById } from "./order-helpers";
@@ -69,6 +69,8 @@ interface Props {
   onSignatureChange?: (strokeCount: number) => void;
   discounts?: DiscountsOverride;
   sunnyMotorPrice: number;
+  /** 企业无绳策略（PRICE-2）；缺省 0.30 / 159 / 129 / ×1.15 */
+  cordlessPolicy?: CordlessPolicy;
 }
 
 function emptyLine(): ShadeOrderLine {
@@ -100,6 +102,7 @@ export function OrderShadesForm({
   installMode,
   discounts,
   sunnyMotorPrice,
+  cordlessPolicy,
 }: Props) {
   const updateLine = useCallback(
     (id: string, field: keyof ShadeOrderLine, value: unknown) => {
@@ -117,9 +120,9 @@ export function OrderShadesForm({
   const pricings = useMemo(
     () =>
       lines.map((l) =>
-        computeShadeLinePrice(l, installMode, discounts, sunnyMotorPrice),
+        computeShadeLinePrice(l, installMode, discounts, sunnyMotorPrice, cordlessPolicy),
       ),
-    [lines, installMode, discounts, sunnyMotorPrice]
+    [lines, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );
   const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
   const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);
@@ -153,6 +156,7 @@ export function OrderShadesForm({
               <th className="px-2 py-2 text-left min-w-[180px]">SKU</th>
               <th className="px-2 py-2 text-center w-16">Mount</th>
               <th className="px-2 py-2 text-center w-24">Lift</th>
+              <th className="px-2 py-2 text-center w-16" title="仅 Zebra / Roller；Lift L/R 只表示拉杆位置">Cordless</th>
               <th className="px-2 py-2 text-center w-16">Bracket</th>
               <th className="px-2 py-2 text-left min-w-[70px]">Valance</th>
               <th className="px-2 py-2 text-left min-w-[80px]">Note</th>
@@ -226,7 +230,15 @@ export function OrderShadesForm({
                         const newProduct = e.target.value as ProductName;
                         onChange(
                           lines.map((l) =>
-                            l.id === line.id ? { ...l, product: newProduct, sku: "" } : l
+                            l.id === line.id
+                              ? {
+                                  ...l,
+                                  product: newProduct,
+                                  sku: "",
+                                  // PRICE-2：无绳只对 Zebra / Roller；换到其它产品清掉
+                                  cordless: newProduct === "Zebra" || newProduct === "Roller" ? l.cordless : false,
+                                }
+                              : l
                           )
                         );
                       }}
@@ -269,6 +281,16 @@ export function OrderShadesForm({
                       value={line.lift}
                       options={["L", "R", "M"]}
                       onChange={(v) => updateLine(line.id, "lift", v)}
+                    />
+                  </td>
+                  <td className="px-1 py-0.5 text-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Cordless"
+                      checked={line.cordless === true}
+                      disabled={line.product !== "Zebra" && line.product !== "Roller"}
+                      onChange={(e) => updateLine(line.id, "cordless", e.target.checked)}
+                      className="h-4 w-4 accent-teal-600 disabled:opacity-30"
                     />
                   </td>
                   <td className="px-1 py-0.5">

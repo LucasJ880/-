@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: 无绳定价规则
-Zebra 与 Roller 的无绳行 SHALL 按以下顺序计价：折扣取行级覆盖，没有覆盖时取企业无绳折扣（默认 30%），SHALL NOT 取产品折扣；折后金额低于无绳最低价（默认 Zebra 159、Roller 129）时取最低价；Roller 罩盖加价在折扣之后、最低价之前加入；最后 MSRP 与成交价同乘 1.15。无绳 SHALL NOT 再有独立尺寸上限，只受产品矩阵范围约束。其它产品带无绳标记时 SHALL 按有绳计价。
+Zebra 与 Roller 的无绳行 SHALL 按以下顺序计价：折扣取行级覆盖，没有覆盖时取企业无绳折扣（默认 30%），SHALL NOT 取产品折扣；Roller 罩盖加价在折扣之后加入；然后 MSRP 与成交价同乘 1.15；乘倍率后的成交价低于无绳最低价（默认 Zebra 159、Roller 129）时取最低价。无绳 SHALL NOT 再有独立尺寸上限，只受产品矩阵范围约束。其它产品带无绳标记时 SHALL 按有绳计价。
 
 #### Scenario: 最低价兜底
 - **WHEN** 定价 Zebra Light Filtering 24" × 36" 无绳

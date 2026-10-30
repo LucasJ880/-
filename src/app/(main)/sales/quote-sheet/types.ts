@@ -159,6 +159,11 @@ export interface ShadeOrderLine {
    * Roman（非价格表产品）必填；Allusion（2026-10-28 起查表）为可选的手动成交单价覆盖；其它产品忽略。
    */
   manualPrice?: string;
+  /**
+   * 无绳（PRICE-2，Q4 = A）：只对 Zebra / Roller 有效，默认关；Lift L/R 只表示拉杆位置。
+   * 旧表单数据没有该字段 → 视为关。
+   */
+  cordless?: boolean;
 }
 
 export interface ShutterOrderLine {

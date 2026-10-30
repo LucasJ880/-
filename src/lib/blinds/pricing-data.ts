@@ -8,7 +8,7 @@
 // Each product has brackets (width/height breakpoints) and fabric MSRP tables
 // MSRP tables are indexed as msrp[heightIndex][widthIndex]
 
-import type { ProductName, ProductBrackets } from './pricing-types';
+import type { ProductName, ProductBrackets, CordlessPolicy } from './pricing-types';
 
 export const BASE_PRICE_VERSION = '2026-10-28' as const;
 /** 2026-10-28 增量来源（config/pricelist/2026-10-28-lucas-quote.json → source） */
@@ -484,8 +484,19 @@ export const DEFAULT_TAX_RATE = 0.13;
 /** Shade Order Form 选择 Lift=M 时的默认税前加价（CAD）。 */
 export const DEFAULT_SUNNY_MOTOR_PRICE = 150;
 export const DEFAULT_CORDLESS_MULTIPLIER = 1.15;
-export const CORDLESS_MAX_WIDTH = 75;
-export const CORDLESS_MAX_HEIGHT = 75;
+/**
+ * 2026-10-28 价表无绳规则（config/pricelist/2026-10-28-lucas-quote.json → cordless）：
+ * 独立折扣 0.3、最低价 Zebra 159 / Roller 129、×1.15；取消原 75" × 75" 无绳尺寸上限（只受矩阵范围约束）。
+ */
+export const DEFAULT_CORDLESS_POLICY: CordlessPolicy = {
+  discount: 0.3,
+  floors: { Zebra: 159, Roller: 129 },
+  multiplier: DEFAULT_CORDLESS_MULTIPLIER,
+};
+/** 布帘 / 纱帘褶皱率（config/pricelist/2026-10-28-lucas-quote.json → fullness） */
+export const DEFAULT_FULLNESS = 2;
+export const FULLNESS_MIN = 1;
+export const FULLNESS_MAX = 4;
 
 // ─── MSRP Tables ───────────────────────────────────────────
 // Indexed as MSRP_xxx[fabricKey][heightIdx][widthIdx]

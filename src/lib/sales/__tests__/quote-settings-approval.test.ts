@@ -60,6 +60,9 @@ ok(describeQuoteSettingsPatch(buildQuoteSettingsApprovalPayload({ orgId: "o", re
 const p5 = buildQuoteSettingsApprovalPayload({ orgId: "org1", requestedById: "bob", settingsVersion: 3, numericPatch: { fauxwood: 0.25, allusion: 0.4 }, costRates: { fauxwood: 0.5 } });
 ok(describeQuoteSettingsPatch(p5) === "fauxwood=0.25，allusion=0.4，成本率 1 项", "新折扣键进入审批描述");
 ok(quoteSettingsIdempotencyKey(p5) !== quoteSettingsIdempotencyKey(p1), "新折扣键参与幂等键");
+// PRICE-2：无绳设置同样进入审批描述
+const p6 = buildQuoteSettingsApprovalPayload({ orgId: "org1", requestedById: "bob", settingsVersion: 3, numericPatch: { cordlessDiscount: 0.25, cordlessFloorZebra: 169 } });
+ok(describeQuoteSettingsPatch(p6) === "cordlessDiscount=0.25，cordlessFloorZebra=169", "无绳设置进入审批描述");
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
