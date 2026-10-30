@@ -11,7 +11,7 @@
 
 ## 3. 报价单 UI
 
-- [ ] 3.1 `types.ts` `ShadeOrderLine.cordless?`；`order-shades.tsx` Cordless 开关列（仅 Zebra / Roller，切产品清掉）；`page.tsx` items `cordless: l.cordless === true`，窗帘 / Part A 行把 Fullness 180 / 230 作 1.8 / 2.3 放进 items；`pricing-helpers.ts` 对 Shades 传 `cordless` + 无绳行覆盖 `null` + 策略对象，对 Drapes / Part A 传 `fullness`；`part-a.tsx` 随之；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0、`npm run build` 通过；黄金测试新增 2 条本地用例（Order Form 180 → 1.8 转换；无字段 → 关）通过
+- [x] 3.1 `types.ts` `ShadeOrderLine.cordless?`；`order-shades.tsx` Cordless 开关列（仅 Zebra / Roller，切产品清掉）；`page.tsx` items `cordless: l.cordless === true`，窗帘 / Part A 行把 Fullness 180 / 230 作 1.8 / 2.3 放进 items；`pricing-helpers.ts` 对 Shades 传 `cordless` + 无绳行覆盖 `null` + 策略对象，对 Drapes / Part A 传 `fullness`；`part-a.tsx` 随之；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出 0、`npm run build` 通过；黄金测试新增 2 条本地用例（Order Form 180 → 1.8 转换；无字段 → 关）通过
 
 ## 4. 工艺单
 
