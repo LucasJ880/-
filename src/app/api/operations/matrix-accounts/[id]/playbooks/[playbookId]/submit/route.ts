@@ -8,13 +8,13 @@ import {
 } from "@/lib/operations/playbook";
 
 export const POST = withAuth<{ id: string; playbookId: string }>(async (request, ctx, user) => {
-  if (!canSubmitPlaybook(user.role)) {
-    return NextResponse.json({ error: "无权提交 Playbook" }, { status: 403 });
-  }
   const { id: accountId, playbookId } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const orgRes = await resolveRequestOrgIdForUser(user, body.orgId);
   if (!orgRes.ok) return orgRes.response;
+  if (!(await canSubmitPlaybook(user, orgRes.orgId))) {
+    return NextResponse.json({ error: "无权提交 Playbook" }, { status: 403 });
+  }
 
   try {
     const existing = await getPlaybookById(orgRes.orgId, playbookId);

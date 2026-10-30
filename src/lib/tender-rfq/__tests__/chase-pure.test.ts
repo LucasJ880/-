@@ -167,7 +167,7 @@ console.log("tender-rfq chase");
 
 /* §4-7 */
 {
-  const notes = `[auto 2026-10-24T08:00:00.000Z msg=gm-r1] 单价=12.5；缺：币种、有效期`;
+  const notes = `[auto 2026-10-24T08:00:00.000Z msg=gm-r1] 单价=12.5；起订量=500；贸易条款=FOB；缺：币种、有效期`;
   const q = { unitPrice: "12.5", totalPrice: null, deliveryDays: 30, validUntil: null, quoteNotes: notes, updatedAt: new Date("2026-10-24T08:00:05Z") };
   ok("currentMissingFields：读最新 [auto] 段的「缺：」", currentMissingFields(q).join() === "currency,validUntil");
   const it = item({ status: "quoted", quote: q });
@@ -184,12 +184,29 @@ console.log("tender-rfq chase");
 
 /* §4-8 */
 {
-  const notes = `[auto 2026-10-24T08:00:00.000Z msg=gm-r1] 单价=12.5；缺：币种、有效期`;
+  const notes = `[auto 2026-10-24T08:00:00.000Z msg=gm-r1] 单价=12.5；起订量=500；贸易条款=FOB；缺：币种、有效期`;
   const filled = { unitPrice: "12.5", totalPrice: null, deliveryDays: 30, validUntil: "2026-12-31", quoteNotes: notes, updatedAt: new Date("2026-10-24T10:00:00Z") };
   ok("§4-8 人工录入后 missingFields 清空 → 不起草追问", currentMissingFields(filled).length === 0 && decideChases(snap([item({ status: "quoted", quote: filled })])).drafts.length === 0);
   const later = `${notes}\n[auto 2026-10-24T12:00:00.000Z msg=gm-r2] 币种=USD；有效期=2026-12-31`;
   ok("§4-8 后到的回信补齐了（最新 [auto] 段没有「缺：」）→ 不起草", currentMissingFields({ ...filled, validUntil: null, quoteNotes: later, updatedAt: new Date("2026-10-24T12:00:01Z") }).length === 0);
   ok("§4-8 只补了有效期、币种没人动 → 只追问币种", currentMissingFields({ ...filled, updatedAt: new Date("2026-10-24T08:00:05Z") }).join() === "currency");
+}
+
+/* 起订量 / 贸易条款（入站不判缺，追问时补） */
+{
+  const at = new Date("2026-10-24T08:00:00Z");
+  const q = (notes: string, updatedAt = new Date(at.getTime() + 5000)) => ({ unitPrice: "12.5", totalPrice: null, deliveryDays: 30, validUntil: "2026-12-31", quoteNotes: notes, updatedAt });
+  ok("已报价、四项齐但没写贸易条款 → 追问贸易条款（起订量顺带）", currentMissingFields(q("[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5"), { quoted: true }).join() === "moq,incoterm");
+  ok("没写起订量不单独追问（只在本来就追问时顺带）", currentMissingFields(q("[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5；贸易条款=DDP"), { quoted: true }).length === 0);
+  ok("缺币种时顺带问起订量、贸易条款，顺序固定", currentMissingFields(q("[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5；缺：币种")).join() === "currency,moq,incoterm");
+  ok("更早一段写过贸易条款 → 不再问", currentMissingFields(q("[auto 2026-10-20T08:00:00.000Z msg=g1] 贸易条款=FOB\n[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5"), { quoted: true }).length === 0);
+  ok("[auto] 段之后人工改过这一行 → 起订量 / 贸易条款视为已核对", currentMissingFields(q("[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5", new Date(at.getTime() + 3600_000)), { quoted: true }).length === 0);
+  ok("只回复了「收到」（replied、无缺字段）→ 不问贸易条款", currentMissingFields(q("[auto 2026-10-24T08:00:00.000Z msg=gm] 供应商回复（无报价内容）")).length === 0);
+  const it = item({ status: "quoted", quote: q("[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5；缺：币种") });
+  const p = payloadFor(it, snap([it]));
+  ok("追问正文：币种 / 起订量 / 贸易条款三条", /1\. 币种\n2\. 起订量\n3\. 贸易条款\n/.test(p.body), p.body);
+  const only = item({ status: "quoted", quote: q("[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=12.5") });
+  ok("只缺贸易条款也会起草追问", decideChases(snap([only])).drafts[0]?.missingFields.join() === "moq,incoterm");
 }
 
 /* §4-11 */
@@ -210,7 +227,7 @@ console.log("tender-rfq chase");
   const sent = item({ itemId: "i-A", supplierName: "A 工厂", sentAt: ago(1) });
   const quoted = item({
     itemId: "i-B", supplierName: "B 贸易", status: "quoted",
-    quote: { unitPrice: "10", totalPrice: null, deliveryDays: 20, validUntil: "2026-12-31", quoteNotes: "[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=10", updatedAt: ago(1) },
+    quote: { unitPrice: "10", totalPrice: null, deliveryDays: 20, validUntil: "2026-12-31", quoteNotes: "[auto 2026-10-24T08:00:00.000Z msg=gm] 单价=10；起订量=100；贸易条款=FOB", updatedAt: ago(1) },
   });
   const d = decideChases(snap([sent, quoted]), { manual: true });
   ok("§4-12 手动 chase：只为 sent 那家起草（不看天数）", d.drafts.length === 1 && d.drafts[0].itemId === "i-A", d);

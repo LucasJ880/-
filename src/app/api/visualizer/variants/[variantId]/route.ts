@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   loadSessionByVariant,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import type { UpdateVariantRequest } from "@/lib/visualizer/types";
 import { summarizeRenderJob } from "@/lib/visualizer/render-job";
@@ -13,13 +14,15 @@ import { summarizeRenderJob } from "@/lib/visualizer/render-job";
  * 轻量轮询端点：异步 HD 渲染的状态 + 最新效果图地址。
  */
 export const GET = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { variantId } = await ctx.params;
 
   const found = await loadSessionByVariant(variantId);
   if (!found) {
     return NextResponse.json({ error: "方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权查看该方案" }, { status: 403 });
   }
 
@@ -49,13 +52,15 @@ export const GET = withAuth(async (_request, ctx, user) => {
 
 /** PATCH /api/visualizer/variants/[variantId] */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { variantId } = await ctx.params;
 
   const found = await loadSessionByVariant(variantId);
   if (!found) {
     return NextResponse.json({ error: "方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权操作该方案" }, { status: 403 });
   }
 
@@ -112,13 +117,15 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
 /** DELETE /api/visualizer/variants/[variantId] */
 export const DELETE = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { variantId } = await ctx.params;
 
   const found = await loadSessionByVariant(variantId);
   if (!found) {
     return NextResponse.json({ error: "方案不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权删除该方案" }, { status: 403 });
   }
 

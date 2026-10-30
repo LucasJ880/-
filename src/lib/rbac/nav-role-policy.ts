@@ -86,9 +86,8 @@ export function isNavItemHiddenForRole(
   return false;
 }
 
-/** 业务入口常用角色列表（含老板） */
+/** 业务入口常用角色列表（含老板）。PERM-7b：平台 admin 不再在列（等同 user） */
 export const NAV_ROLES_EXEC = [
-  "admin",
   "super_admin",
   "boss",
   "manager",

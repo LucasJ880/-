@@ -59,6 +59,9 @@ export function MobileNavDrawer({
   const [orgRole, setOrgRole] = useState<string | null>(null);
   const [hasMembership, setHasMembership] = useState(false);
   const [hasBidCapability, setHasBidCapability] = useState(false);
+  const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
+  // PERM-4c2：岗位模式（窗饰企业导航按岗位键）
+  const [positionMode, setPositionMode] = useState(false);
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -97,6 +100,8 @@ export function MobileNavDrawer({
           orgRole?: string | null;
           hasMembership?: boolean;
           hasBidCapability?: boolean;
+          permissionKeys?: string[];
+          positionMode?: boolean;
         };
         if (!cancelled) {
           setOrgModules(data.modules ?? null);
@@ -104,6 +109,8 @@ export function MobileNavDrawer({
           setOrgRole(data.orgRole ?? null);
           setHasMembership(Boolean(data.hasMembership ?? data.orgRole));
           setHasBidCapability(Boolean(data.hasBidCapability));
+          setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
+          setPositionMode(data.positionMode === true);
         }
       } catch {
         /* ignore */
@@ -133,6 +140,8 @@ export function MobileNavDrawer({
       modules: orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      permissionKeys,
+      positionMode,
       autopilotAllowed: user?.autopilotAllowed === true,
     }),
     [
@@ -145,6 +154,8 @@ export function MobileNavDrawer({
       orgModules,
       isPlatformAdmin,
       hasBidCapability,
+      permissionKeys,
+      positionMode,
       organizations,
       storedOrgId,
       user?.autopilotAllowed,

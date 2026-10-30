@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   loadSessionByRegion,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import {
   VISUALIZER_REGION_SHAPES,
@@ -20,13 +21,15 @@ import type {
  * body: { shape?, points?, label?, widthIn?, heightIn?, measurementWindowId? }
  */
 export const PATCH = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { regionId } = await ctx.params;
 
   const found = await loadSessionByRegion(regionId);
   if (!found) {
     return NextResponse.json({ error: "窗户区域不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权操作该窗户区域" }, { status: 403 });
   }
 
@@ -112,13 +115,15 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
 /** DELETE /api/visualizer/regions/[regionId] */
 export const DELETE = withAuth(async (_request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { regionId } = await ctx.params;
 
   const found = await loadSessionByRegion(regionId);
   if (!found) {
     return NextResponse.json({ error: "窗户区域不存在" }, { status: 404 });
   }
-  if (!canSeeVisualizerSession(found.session, user)) {
+  if (!canSeeVisualizerSession(found.session, viewer)) {
     return NextResponse.json({ error: "无权删除该窗户区域" }, { status: 403 });
   }
 

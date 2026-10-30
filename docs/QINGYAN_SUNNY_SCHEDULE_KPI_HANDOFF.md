@@ -1,0 +1,200 @@
+# Sunny 日程归因 + 期间看板 · 交接（HANDOFF）
+
+> 任何新会话从这里进。先读本文件，再按"下一步"执行，不凭记忆重写。本文件只记录**已核对过的事实**；未核对的写明"未核对"。
+
+| 项 | 值 |
+|---|---|
+| 最后更新 | 2026-10-29（KPI-1、CAL-1、KPI-2 均已合并并归档；CAL-1 与 KPI-2 待上线验收；下一个是 CAL-2） |
+| 设计稿 | `docs/QINGYAN_SUNNY_SCHEDULE_KPI_DESIGN.md`（§7 判断点已拍板；判断点 5 已更正并经用户确认） |
+| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase K（KPI-1 / CAL-1 / KPI-2 / CAL-2，全部 `[ ]`） |
+| 进行中的 change | 无（CAL-2 已归档到 `openspec/changes/archive/2026-10-29-website-booking-intake/`）；下一个 CAL-3 `calendar-change-push`（用户 2026-10-29：员工微信推送不算出站，按晨报方式直发，继续做） |
+| 工作分支 | `claude/magical-shannon-keegzr`（每个 PR 合并后从 origin/main 重建同名分支；main 前进时 merge 进来，不 rebase） |
+| OpenSpec CLI | 未装进依赖：`OPENSPEC_TELEMETRY=0 npx -y @fission-ai/openspec@1.15.0 <cmd>` |
+| 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）；仓库不带 `node_modules`，跑测试前先 `npm ci`（会触发 `prisma generate`）。Node 22 下 muse-bridge 纯测试能跑通 |
+
+---
+
+## 0. Phase K 状态（2026-10-29 收尾）
+
+Phase K 五项全部完成：KPI-1 #309、CAL-1 #323、KPI-2 #332、CAL-2 #340、CAL-3 #346，均已归档（CAL-3 归档即本小 PR）。剩下的都是用户侧上线动作：
+- CAL-1：设置里开启日历观察（读取账号 + 共享日历），Google 里新建 / 改 / 删各一条测试日程核对通知（`docs/QINGYAN_CAL-1_REPORT.md` §5）；
+- KPI-2：生产配 AI 解读开关环境变量，试 10 次期间解读核对数字（`docs/QINGYAN_KPI-2_REPORT.md`）；
+- CAL-2：网站提交一条测试预约，`/sales/website-bookings` 一键转入并把真实描述格式记进报告（`docs/QINGYAN_CAL-2_REPORT.md` §5）；
+- CAL-3：老板 / 运营主管绑定微信并开"销售提醒"，改一条日程核对站内 + 微信各一条、正文无邮箱；要 Muse 先升级 Bridge 再开 `MUSE_BRIDGE_ENABLED`（`docs/QINGYAN_CAL-3_REPORT.md` §5）。
+
+## 0-old. CAL-3 现场续接（已完成：#346 合并，归档小 PR 见上）
+
+| 项 | 状态 |
+|---|---|
+| 授权 | 用户 2026-10-29："不算出站，按照晨报发，继续做 CAL-3"；"按照计划，继续走，你自己审批，做完通知我，做好 hand off" → 四件套自审、apply、合并、归档都由我完成，全部做完再通知用户 |
+| 顺序 | ① CAL-2 归档小 PR ✅（#342 合并为 `d1cc92d8`）→ ② CAL-3 change 已写、已 apply、已据独立审查修复（分支 `claude/magical-shannon-keegzr`，自 main `d1cc92d8` 重建后 cherry-pick 两个提交）→ ③ 门禁链（typecheck / lint:baseline / test:ci / build / `npm test` 分支 vs main）→ 填报告 §2、§6 → 开 PR → 绿了合并 → ④ `/opsx:archive calendar-change-push --yes` 小 PR，TASKFLOW CAL-3 `[G]`→`[x]` → ⑤ 通知用户（全部做完） |
+| 当前进度 | 纯测试 36、隔离库 32 全过；变异检查 6 项均变红；CAL-1 / CAL-2 / Muse 回归全过；TASKFLOW CAL-3 已标 `[G]`；报告 `docs/QINGYAN_CAL-3_REPORT.md` §2、§6 待门禁后填 |
+| 独立审查（已处理） | ① 截断邮箱漏网 → 正则改为"本地部分 + @ + 可空域名"；② 推送在页内同步、无额度 → 每轮 30 条 + 截止时间，超出计 `wechatCapped`；③ 摘要被出站脱敏整段替换时铃铛只剩提示 → 先试构造信封，会被替换就走站内；④ 并发两轮 `persist_failed` 双发 → 回落前再查两个键；⑤ `occurredAt` 改为 Google 更新时间；⑥ 汇总补 `wechatSkipped` / `wechatCapped`，design 补八条纪律与验证方式，tasks 末条改为报告；⑦ 补测返回失败、两个日历、缺省推送接线。静默时段按服务器时区是推送服务既有行为，不改，记入报告已知限制 |
+| 计划要点（已核对代码） | 触发点：CAL-1 `run.ts` `processPage` 里每条**新建**的站内变更通知（`sourceKey` 不存在才发）；收件人不变。渠道：收件人已绑定 Muse（`settingsJson.museBridge.bindings` 里有其 userId）且 `MUSE_BRIDGE_ENABLED` 开 → 改用 `emitMuseEvent`（它本身就建一条 `muse_bridge` 站内通知，避免一人两条），新事件类型 `calendar.changed`（契约只追加，S2/S3 先例；`eventId` 用 `calwatch:{orgId}:{eventId}:{version}:{userId}`）；否则照旧 `calendar_watch` 通知。微信：对新建成功的那条再调 `pushSalesReminder(userId, title, summary)`（绑定的 pushDomains 含 sales 且 pushSales 开、静默时段；非生产 `assertSideEffectOrThrow` 抛错→捕获计数）；推送函数可注入。读取账号重连通知同样走微信（不走 Muse）。失败不影响 CAL-1 一轮；结果里计数 |
+| 风险已知 | 绑定 Muse 的收件人站内通知 category 从 `calendar_watch` 变 `muse_bridge`（CAL-1 spec"变更通知"仍满足：仍是一条站内通知）；需在 spec 写明 |
+
+## 0'. CAL-2 现场续接（已完成：#340 合并，归档小 PR 见下）
+
+| 项 | 状态 |
+|---|---|
+| change | `openspec/changes/website-booking-intake/`（四件套 `e089e938`，validate --strict 通过） |
+| 授权 | 用户 2026-10-29："继续，整个流程你来掌控，等全部做完或需要我做再通知我"；CAL-2 选"不依赖 webhook"与"销售认领"；四件套后"apply" |
+| 合并 | 由我驱动到 CI 绿后合并（用户已授权掌控全流程），合并后独立小 PR 归档 |
+| 基线（apply 前） | calendar-watch-pure 175、calendar-watch-db.isolated 80 |
+| tasks | 7/7 ✓。PR [LucasJ880/-#340](https://github.com/LucasJ880/-/pull/340) CI 绿后合并为 `9da2c221`；分支全量 498/510，失败 12 项与 main 一致；已归档（`calendar/website-booking-intake` 10 条要求），specs 校验 46 过 4 不过（与 main 一致）。CAL-3 准备：员工微信用 `pushSalesReminder`（绑定的 pushDomains 含 sales 且 pushSales 开、静默时段），Muse 用 `emitMuseEvent` 新增事件类型（契约只追加，S2 / S3 先例） |
+| 4.1 浏览器验收（`next start -p 3100` + Playwright，种子在 scratchpad `cal2ui/`，未进仓库） | 无待转入：首页无入口；有 2 条：首页"网站预约待转入 2 条"；老板页面 2 条、0 个转入按钮、2 个忽略按钮；销售 2 个转入按钮，打开表单显示"读取账号未连接 Google 日历…请手工填写"（种子读取账号无连接，预填由隔离库测试以注入读取覆盖），手填后确认 → "已转入：客户与预约已建好 · 查看客户"，列表剩 1 条；390px 无溢出；无页面错误。服务按端口停、种子已清 |
+| 事实 | Sunny 只有 `sales_rep` 有 `sales.customer.create`（PRINCIPAL）；老板 `sales.customer.read` ORG；运营主管无客户权限（隔离库实测）。`sunnyshutter.ca` 本会话仍 403 |
+
+## 0''. KPI-2 现场续接（已完成：#332 合并，归档小 PR 见下）
+
+| 项 | 状态 |
+|---|---|
+| change | `openspec/changes/sales-period-narrative/`（四件套 `2c9208d1`，validate --strict 通过） |
+| 授权 | 用户 2026-10-29："Evan approved it go next step"（第 7 条例外）→ propose；"都按照你推荐的来，apply"（例外句原文、中文数字一律拒绝、只用环境变量开关） |
+| 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认** |
+| 基线（apply 前） | period-pure 48、period-insights 38、Muse sales-pure 84、period-db.isolated 31、Muse sales-db.isolated 36 |
+| tasks | 6/6 ✓。PR [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) CI 绿，2026-10-29 用户"合并"后合并为 `f4a6b8f2`；全量 `npm test` 分支 493/505 vs main `7c523860` 491/503，失败 12 项完全相同；已归档（`sales/period-narrative` 8 条要求，`sales/period-summary` +1），specs 全量校验 44 过 4 不过（与 main 一致） |
+| 3.1 浏览器验收（`next start -p 3100` + Playwright + 本机假 OpenAI 服务 :4010，脚本在 scratchpad `kpi2ui/`，未进仓库） | 开关关：期间面板在、无"生成解读"按钮、无解读请求；开关开：按钮在、加载时零请求，点击一次 POST → 显示"AI 解读 · 数字已与看板核对"、结论与"催签"下一步；假服务改回编造数字 → 显示"本次解读未通过核对，已以上方确定性洞察为准"，页面不出现 65,000；390px 无溢出；无页面错误；假服务共收到 3 次调用（= 3 次点击）。服务按端口停、种子已清 |
+| 本地库 | 容器重启后要 `pg_ctlcluster 16 qytest start`（会提示 stale pid，正常） |
+
+## 0'. CAL-1 现场续接（已完成：#323 合并、#327 归档）
+
+| 项 | 状态 |
+|---|---|
+| change | `calendar-watch-attribution`：已合并 [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323)（2026-10-29，用户确认"合并"，merge commit `cba5e286`），已归档（独立小 PR） |
+| 授权 | 用户："你来负责这个继续做下去，按照计划书来做。做好 hand off，防止记忆丢失，重点是做好验证。都按你推荐的来" |
+| 合并 | 功能 PR 由我开、驱动到 CI 绿；**合并前请用户确认**（CLAUDE.md：Evan 拍板合并） |
+| tasks | 8/8：1.1 ✓ 2.1 ✓ 3.1 ✓ 4.1 ✓ 6.1 ✓（隔离库 68/68）5.1 ✓（`load.ts` 在 org 范围且开启时填 `calendar = { bySource, byActor(新建>0), truncated }`；`PeriodCalendarStats` 加可选 `byActor` / `truncated`；面板"日程来源"块。`period-db.isolated` 26→31 全过；period-pure 48、period-insights 38、Muse sales-pure 84 / muse-bridge-pure 67 / sales-db 36 全过；`npm run build` 退出 0，两条新路由在产出表里）。下一条 7.1 全量门禁 |
+| 7.1 ✓ | 合入 origin/main `57549cf1`；typecheck 0、lint:baseline PASS、test:ci PASS、registry 479、validate --strict；隔离库全量 分支 485/498 vs main 484/496，共同失败 12 项相同，分支独有的 1 项是全量运行中改代码的窗口（重跑 175/0）；PR CI 绿。独立审查 4 条正确性问题 + 4 条低优先级已修 |
+| 7.2 ✓ | `docs/QINGYAN_CAL-1_REPORT.md` 完成（§6 已填）；TASKFLOW CAL-1 `[G]` |
+| PR | [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323) 已合并；archive 时发现 `sales/period-summary`"响应结构"加了日程句后超 500 字（`validate --specs --strict` 报警），已在 delta 里拆出新要求"期间日程来源字段"后重新 archive；全量 specs 校验 43 过 4 不过，4 个与 main 一致（历史欠账） |
+| 5.1 浏览器验收（`next start -p 3100` + Playwright，种子脚本留在 scratchpad 未进仓库） | 老板 10/1–10/28：未开启 → 无"日程来源"块；开启 → 显示 青砚 1 / 成员 6 / 网站预约 4 / 不明 1（共 12），"按成员：Riley Rep（销售）5 条、Morgan Ops（运营）2 条"，I8 提示"1 条日程来源不明"（I9 未触发：4/12 < 40%，符合阈值）；销售同页无该块；390px 无横向溢出；无页面错误。服务按端口停、种子已清 |
+| apply 中的规格修订（已同步 spec / design / proposal，validate --strict 通过） | ① 归因顺序改为 R1 青砚 → **R2 网站** → **R3 成员** → R4 不明（book-now 账号常同时是成员 / 读取账号的连接邮箱）；② 删除事件缺字段沿用上一条账本；③ 不发通知：青砚来源新建、青砚推送的修改、青砚解除同步的删除、标题与时间都没变的修改、既无标题又无时间的删除；④ 统计：新建按 Google 创建时间、修改 / 删除按 Google 更新时间；⑤ 增量首次见到、创建早于基线的记 `updated`。另（报告写明，不改 spec）：换读取账号清空全部游标；`PUT` 只在合并后为开启时才查 Google 连接与日历可见性（保证 `{enabled:false}` 回滚不被授权失效挡住）；manager / admin / super_admin 也归 `management` 桶；通知 `type = calendar_event`（既有类型）、`category = calendar_watch` |
+| 本地库 | `pg_ctlcluster 16 qytest start`，端口 5433，库 `qy_test`，41 个迁移已应用（见 §6.1）；容器重启后集群会停，需重新 start |
+| 验证纪律 | 每条 task：先跑相关既有测试记基线 → 写代码 → 跑新测试 → typecheck → 提交推送 → 本表更新；隔离库测试每次实跑，不凭推断 |
+
+## 1. 用户诉求（Sunny，2026-10-28 原话要点）
+
+1. 日程用 Google Calendar 排；销售 / 运营直接在 Google 里放或改日程，别人不知道；网站 `sunnyshutter.ca/book-now/` 的客户自主预约也进日历；**要能按账号统计"这个月谁放了多少日程"**（销售 / 运营 / 网站分开）。
+2. 看板上要能看"10 月 1 日到今天 28 日一共成了多少单、一共报了多少钱出去"，带 AI 分析。
+3. 判断点："先按推荐的来"；补充"**销售与运营是分开登入的**"（各用自己的 Google 账号写共享日历 → 按成员归因有效；apply 中成员规则编号改为 R3，见 §0）。
+
+## 2. 拆分与顺序（已拍板：KPI-1 → CAL-1 → KPI-2 → CAL-2）
+
+| ID | change 名 | 内容 | 前置 | 状态 |
+|---|---|---|---|---|
+| KPI-1 | `sales-period-summary` | 期间汇总一套口径 + 九条确定性洞察 + `GET /api/sales/period-summary` + 首页期间面板 + `sales_overview` 可选 `period` | 无 | 已合并 [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)，已归档 |
+| CAL-1 | `calendar-watch-attribution` | syncToken 增量拉共享日历（cron 每 15 分钟）→ 查表归因（青砚 / 网站 / 成员 / 不明）→ AuditLog 账本 + 站内通知 + 按账号统计 | 运维前置（§6） | 已合并 [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323)，已归档；待上线 |
+| KPI-2 | `sales-period-narrative` | LLM 只解读 KPI-1 的 JSON，数字校验不过整段回落；开关默认关 | KPI-1；Evan 2026-10-29 已拍板第 7 条例外 | 已合并 [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332)，已归档；待上线验收 |
+| CAL-2 | `website-booking-intake` | book-now 直连青砚 webhook → 建 Appointment → 推 Google | CAL-1；网站插件能发 webhook | 未 propose |
+
+## 3. 判断点（设计稿 §7）
+
+| # | 结论 | 来源 |
+|---|---|---|
+| 1 | 销售 / 运营分开登入 → R2 成员归因有效 | 用户答复 |
+| 2 | book-now 写日历的身份：**未知**，运维前置第 2 条去查 | 待查 |
+| 3 | 成单按报价签字 `grandTotal`（含税），同时给税前 | 按推荐 |
+| 4 | 按人归属 = 报价创建人 `createdById` | 按推荐 |
+| 5 | **已更正，2026-10-28 用户确认（"判断点5按更正后的来"）**：成单不去重（每份已签报价各计）；报价按商机去重，但已签每份都计、未签只计最新一份 | 交叉核对后更正（见 §4-③） |
+| 6 | LLM 叙述单独做 KPI-2，默认关 | 按推荐 |
+| 7 | 日程变更通知收件人 = owner + ops_lead（可配置） | 按推荐 |
+| 8 | 通知只走站内，Muse / 微信留 CAL-2 | 按推荐 |
+| 9 | 顺序 KPI-1 → CAL-1 → KPI-2 → CAL-2 | 按推荐 |
+
+## 4. 交叉核对记录（为什么四件套和设计稿初版不一样）
+
+### 第一轮（本会话，逐条对代码）—— 发现并已更正 7 处
+
+| # | 初版说法 | 实际（证据） | 已改 |
+|---|---|---|---|
+| ① | 销售首页"本月签约"按报价签字金额，与驾驶舱"两页两个数" | 首页英雄区与驾驶舱**同一口径**：商机 `wonAt` + `estimatedValue`（`src/lib/sales/home/build-home.ts:94-104, 261-262`；`src/app/api/sales/cockpit/route.ts:108-111`）。首页的报价签字查询只用于定金 / 尾款 | 设计稿 §1.2、§5 Why；proposal Why |
+| ② | 驾驶舱"不能按人" | 驾驶舱有按人 `teamPerformance`（`cockpit/route.ts:86`），同为估值口径 | 设计稿 §1.2 |
+| ③ | 判断点 5：同商机多份已签"只计最新一份"，理由是存在"已签后改价回 draft 的旧版本" | 已签报价被修改是**同一行**清签字回 draft（`src/lib/sales/quote-update.ts:298-302`），仓库无复制报价路径（第二轮穷举全部 4 处 `salesQuote.create` 确认）；每份已签报价各自走签字后工艺单生成（有可生产行时各一张）→ 同商机多份已签 = 多张合同。按初版会**少算真实签单额** | 设计稿 §3.1 / §7；spec"成单口径""报价口径""在手未签"；design D2 |
+| ④ | `SalesQuote.version` 是"报价自身版本号，同商机各自从 1 起" | `version` = 该**客户**已有报价数 + 1（`src/app/api/sales/quotes/route.ts:213,222`；`measurements/[id]/generate-quote/route.ts:81,97`） | design Context / D2 |
+| ⑤ | Muse"意图总数为 14"（tasks 4.1、spec 增量） | 现为 18（`muse-bridge-pure.test.ts:59`）；归档规格 `openspec/specs/muse-bridge/sales-intents/spec.md:24` 仍写 14，是 S2 / S3 归档时未同步的旧文字 | tasks 4.1；spec 增量 MODIFIED 场景 |
+| ⑥ | 金额格式化复用 `quote-display-amounts.ts` | 该文件导出的是 `deriveQuoteDisplayAmounts`，不是格式化；首页用的是 `formatSalesMoney`（`src/lib/sales/home/formatters.ts:3`） | design D7；tasks 3.1 |
+| ⑦ | （遗漏）口径没提已归档客户 | 首页与统计排除归档客户是测试强制的约定（`src/lib/sales/__tests__/archived-customer-visibility.test.ts`） | spec 新增"排除已归档客户"；design D1；tasks 2.1 / 2.2 |
+
+同轮补上的两处设计缺口：
+- 首页按 `sales.customer.read` 放行、面板按 `sales.analytics.read`：面板 403 时整块不渲染（spec 新场景"无分析权限时首页不受影响"）。枚举 `role-defaults.ts` 全部 20 个默认模板，目前没有"有客户读、无分析读"的组合，属防御性要求。
+- 首页是 client 组件、无范围信息；面板用 `useSearchParams` 必须包 `<Suspense>`（先例 `src/app/(main)/sales/quotes/page.tsx:80`），范围以接口返回的 `scope` 为准。
+
+第一轮确认无误的关键事实（节选）：`sales.analytics.read` 键存在（`permissions.ts:61`，PRINCIPAL / ORG）；窗饰 `owner` 以 ORG 绑定、窗饰 `sales_rep` 与系统模板并集得 PRINCIPAL、`pricing_lead` / `accounting` 有 ORG（**这两个岗位会在面板里看到全员按人金额**，与其现有报价全企业读一致）；`resolveSalesScope(user, orgId, permission)`（`src/lib/sales/org-context.ts:51`）；Muse `resolveSalesScope` / `amountsVisible`（`src/lib/muse-bridge/sales-pure.ts:47,61`）；`resolveOrgTimezone`（`src/lib/automation/registry.ts:93`）；`zonedLocalToUtc` / `nextDay`（`src/lib/revenue-spine/business-days.ts:171,111`）；`getLocalTimeParts(...).date`（`src/lib/automation/local-time.ts:7`）；Google 日历 scope 已含 `calendar.readonly`（`src/lib/google-calendar.ts:7-12`）；`pushEventToGoogle` 不收 description、`updateGoogleEvent` 才写（`google-calendar.ts:374` / update 路径）；`requireCronSecret`（`src/lib/cron/auth.ts:26`）、`runTrackedAutomation`（`src/lib/automation/runner.ts:24`）、`tender-rfq-settings` 路由、`AiUsageLedger` 模型均存在。
+
+### 第二轮（独立子代理，只给文档与代码、不给结论）—— 报 10 条，**我逐条复核全部属实**，已更正
+
+| # | 发现 | 证据（复核过） | 已改 |
+|---|---|---|---|
+| ⑧ | design.md 的 Context 第一条仍是初版错误说法（首页按签字金额、没有按人），第一轮漏改 | design.md 原第 7、13 行 | design Context 重写 |
+| ⑨ | 已有两处"按签字金额"的统计，新口径会成为第三个数 | 驾驶舱折扣统计 `src/app/api/sales/cockpit/discount-stats/route.ts:53-95`（只计带折扣率的报价、服务器时区、不排除归档）；会计提成 `src/lib/accounting/service.ts:16-28`（只计 signed、按月、不排除归档） | 设计稿 §1.2；proposal Why / Out of scope；design 新增 D9（不改它们，报告附差异表） |
+| ⑩ | 首页英雄区标签不叫"本月签约" | 实为"本月已签 / 本月签单"（`sales-performance-hero.tsx:45,58`）；首页别处已用"本月签约（商机估值）"（`sales-payment-summary.tsx:44`、`sales/performance/page.tsx:269`），驾驶舱改标签与之一致 | 设计稿 §1.2；design Context |
+| ⑪ | spec 的 I1 场景算术错：61,230 对 51,900 是 +18%，不到 20% 阈值 | 计算 | 场景改为 63,000（+21.4%）触发，61,230 改为"不触发"场景；设计稿示例换成能触发的 I3 |
+| ⑫ | 文档之间互相矛盾：驾驶舱标签两种写法、验收写"去重后求和"、洞察码 `I1_WON_UP` / `I1_WON_DELTA` 两种 | 设计稿 §3.2 / §5、tasks 2.2 | 统一 |
+| ⑬ | Muse 与网页的范围不总一致 | Muse 范围来自派生角色（`src/lib/muse-bridge/sales-pure.ts:47-58`；`src/lib/rbac/effective-platform-role.ts:15,34`）：合价岗派生为销售 → Muse 本人范围；会计岗派生为 user → Muse 拒绝；而网页两者都是全企业 | Muse spec 增量只承诺老板与销售两种一致，新增"范围沿用 S1"场景；design D6；proposal Out of scope |
+| ⑭ | `sentAt` 不是干净的"发送日" | 邮件发送覆盖（`send-email/route.ts:126`、`email-compose/route.ts:158`），标记已发送保留首次（`mark-sent/route.ts:63`），已签改回 draft 时保留 | design Context / Risks；设计稿 §3.1；报告已知限制 |
+| ⑮ | spec 写"金额单位为 CAD"，但外贸转入的报价可能是别的币种，且不写 `sentAt` / `signedAt` | `src/lib/trade/trade-quote-sales-quote.ts:403,435,446` | spec 新增"只汇总 CAD 报价"+ `nonCadExcludedCount`；design D1 字段加 `currency`（12 个）；tasks 1.1 / 2.1 |
+| ⑯ | CAL-1 部分：`AuditLog.userId` 必填、`afterData` 是字符串；"按岗位找人"仓库里没有现成函数（`recipients.ts` 按权限键） | `prisma/schema.prisma` AuditLog；`src/lib/trade/recipients.ts` | 设计稿 §2.2 / §2.4 |
+| ⑰ | **现有代码缺陷**：`pushEventToGoogle` 把逗号分隔的多日历 ID 整串当一个日历写入，选了多个日历的人从青砚建的预约推不进 Google 且不报错 | `src/lib/google-calendar.ts:403`；其它三处取第一个 `:442,513,556` | 设计稿 §2.3 R1 标为 CAL-1 前置；**已修复**（#308，change `fix-gcal-push-calendar-id`，四个写路径共用 `primaryWriteCalendarId`） |
+
+第二轮同时确认无误：MODIFIED 增量标题与归档规格逐字一致、保留了原有场景；改驾驶舱"本月签约"文案不会打破任何测试；zod 版本 4.4.3，在 `discriminatedUnion` 成员上加 `.superRefine` 不会破坏联合（子代理用临时脚本实测；zod 3 会破坏）；`resolveSalesOrgIdForRequest` 存在（`src/lib/sales/org-context.ts:28-34`）；仓库没有时区安全的 `addDays(字符串)` / 月初月末工具，需在 `summary-pure.ts` 新增（照 `nextDay` 的 `Date.UTC` 写法，design D3 已写明）；`npm run build` 里的两个数据库闸门在本地与 CI 都自动跳过，验证步骤可执行。
+
+### 第三轮（收口，2026-10-28）
+
+- 全部 8 份文档扫描已更正的旧说法（意图数 14、去重后求和、`I1_WON_UP`、"商机估值（估）"、11 个标量、"两页两个数"、`quote-display-amounts`、`233-247` 等）：只剩 design.md 一处"11 个标量字段"，已改为 12；其余命中都是更正记录本身。
+- `openspec validate sales-period-summary --strict`：valid；`openspec update`：无改动。
+- tasks 8 条（上限 8）；spec 增量共 16 条 Requirement（`sales/period-summary` 13 条、`muse-bridge/sales-intents` 1 条 MODIFIED + 2 条 ADDED）。
+- `bash scripts/check-test-registry.sh`：OK，463 个；muse-bridge-pure 61、sales-pure 73，与开工前一致。
+- 相对 origin/main 只改了 `docs/` 与 `openspec/changes/sales-period-summary/`，**无任何 src / prisma / scripts / 配置改动**。
+
+## 5. 测试基线（2026-10-28，本容器 Node 22，无 DB）
+
+| 测试 | 结果 |
+|---|---|
+| `npx tsx src/lib/muse-bridge/__tests__/muse-bridge-pure.test.ts` | 61 passed |
+| `npx tsx src/lib/muse-bridge/__tests__/sales-pure.test.ts` | 73 passed |
+| `advisory` / `next-step` / `prefs` / `inquiry-pure` / `followup-pure` | 70 / 59 / 30 / 27 / 42 passed |
+| `sales-db.isolated.test.ts` | 无 `DATABASE_URL` → 跳过、退出 0 |
+| `bash scripts/check-test-registry.sh` | OK，已注册 463 个，欠账基线 72 条 |
+
+全量 `npm test`、`typecheck`、`lint:baseline` 本会话**未跑**（没改代码）。权限交接文档记录的全量基线：无 DB 时 450/463，13 条既有环境性失败（`docs/QINGYAN_PERMISSION_HANDOFF.md`）。
+
+## 6. 下一步（按顺序）
+
+1. ~~审四件套~~、~~apply~~：已完成（判断点 5 用户确认；实施记录见 `docs/QINGYAN_KPI-1_REPORT.md`，含实施中对 spec 的两处补充）。
+2. ~~PR [LucasJ880/-#309](https://github.com/LucasJ880/-/pull/309)~~：2026-10-29 合并（CI 绿，verify 0 严重 0 警告）。
+3. ~~archive~~：已完成（`openspec/changes/archive/2026-10-29-sales-period-summary/`），独立小 PR；TASKFLOW KPI-1 → `[x]`。全量 `openspec validate --specs --strict` 36 过 4 不过，4 个与 main 上一致（`accounting/workspace`、`authorization/position-catalog`、`inventory/fabric-stock-access`、`sunny/process-order-autogen` 的历史欠账），本次两份规格均通过。
+4. ~~CAL-1~~：已合并 [LucasJ880/-#323](https://github.com/LucasJ880/-/pull/323) 并归档。**上线（运维，按 `docs/QINGYAN_CAL-1_REPORT.md` §5）**：
+   - 准备共享日历 ID（`xxx@group.calendar.google.com`）与读取账号（在职成员，已在青砚连接 Google 日历、在 Google 里能看到且未隐藏该共享日历）。
+   - 打开一条 book-now 生成的日程，记下"创建者"邮箱与标题 / 描述里的固定字样，填进 `websiteBookerEmails` / `websiteMarkers`。
+   - 老板账号 `PUT /api/organizations/<orgId>/calendar-watch-settings` 开启；下一轮 `sales-actions`（15 分钟内）建基线，`GET` 看到 `phase = incremental` 后，用真实共享日历建 / 改 / 删各一条做人工验收（通知到达、账本三条、重跑不增），结果补进报告。
+5. ~~KPI-2~~：已合并 [LucasJ880/-#332](https://github.com/LucasJ880/-/pull/332) 并归档。**上线**：Vercel 设 `SALES_PERIOD_NARRATIVE_ENABLED=true` 重新部署；老板在首页点"生成解读" 10 次，按 `docs/QINGYAN_KPI-2_REPORT.md` §5 记录通过 / 回落分布并逐条核对数字语境。
+6. CAL-2 `website-booking-intake`：本会话访问 `sunnyshutter.ca` 仍被代理拒绝（403，用户已在设置放开，疑需新会话生效），插件与 webhook 能力无法核实。用户 2026-10-29 选定**不依赖 webhook**：基于 CAL-1 账本里归因为网站的新建事件做"待转入"列表，销售打开详情（读取账号实时读描述，不落库）核对预填后一键转入客户 + 预约（预约记 `googleEventId`，不推 Google）。用户选定**销售认领**（Sunny 只有 `sales_rep` 有 `sales.customer.create`，老板只读、运营主管无客户权限，隔离库实测）。四件套已 propose（7 条 task），待审；原案里的 Muse / 微信推送拆为 CAL-3。
+
+## 6.1 本地验证环境（下个会话可复用的做法）
+
+- 隔离库：`apt-get install -y postgresql-16-pgvector` → `pg_createcluster 16 qytest -p 5433 -- -A trust` → `pg_ctlcluster 16 qytest start` → 建库 `qy_test` 与 `vector` 扩展 → `ALLOW_DATABASE_MIGRATION=true NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=postgresql://postgres@127.0.0.1:5433/qy_test?schema=public DIRECT_URL=同上 npm run db:migrate:deploy`（41 个迁移）。
+- 构建：本容器 Node 22 需 `NODE_OPTIONS=--max-old-space-size=8192 npm run build`（否则构建内部的 `tsc --noEmit` 堆溢出）。构建期间要继续改代码时，用 `git worktree add --detach <dir> HEAD` 并软链 `node_modules`，在工作树里构建。
+- 浏览器：在工作树 `next start -p 3100`（同一 `JWT_SECRET`）+ Playwright 加 `qy_session` cookie；会话令牌用 `createSession` 签发。停服务用端口而不是 `pkill -f "next start"`（后者会匹配并杀掉发命令的 shell 本身）。
+
+## 6.2 verify 留下的 4 条建议（不阻塞，择机处理）
+
+1. 取数上限命中路径（20,000 行）无自动化测试：可把上限做成 `loadPeriodQuoteRows` 的参数后补一个小测试。
+2. 看板"刷新保留期间""无分析权限隐藏面板"只用 Playwright 手动验证（脚本未进仓库；做法见 §6.1）。
+3. ~~design D6 未写明 `superRefine` 位置~~：已补。
+4. tasks 4.1 写"追加一句"，实际放在第一条理由（design D6 与报告 §3 已说明原因，tasks 文本保留原样）。
+
+## 6.3 本会话之外的遗留
+
+- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已由 #308 修复（change `fix-gcal-push-calendar-id`，已归档）；CAL-1 前置已满足。历史上推送失败、没有 `googleEventId` 的预约要等下次保存才补推，是否批量回填由 CAL-1 决定。
+- 判断点 2（book-now 写日历的身份）仍待 Lucas 查，是 CAL-1 的前置。
+
+## 7. 已知坑
+
+- 归档规格 `muse-bridge/sales-intents` 的"契约只追加"写着意图总数 14，代码是 18。本 change 的 MODIFIED 增量已顺带更正；archive 时会覆盖成新文字。
+- `scripts/check-test-registry.sh` 在当前 main 上通过（2026-10-28 实跑：已注册 463 个，历史欠账基线剩 72 条）。本 change 新增 3 个测试文件，apply 后应为 466 个；欠账基线只能减不能加。
+- 新面板与首页英雄区"本月已签"会出现两个不同的数（签字金额 vs 商机估值）。这是预期：本 change 只把驾驶舱标签改成"本月签约（商机估值）"，首页英雄区标签**未改**（Out of scope）。若审核时认为英雄区也要标注，改 tasks 3.1 一行即可。
+- 新口径会是第三个"签单金额"（另两个是驾驶舱折扣统计、会计提成，口径各不相同，见 §4 ⑨）。报告必须附差异表；是否统一由 Evan 决定。
+- Muse 里合价岗只看本人、会计岗被拒，网页上两者看全企业（§4 ⑬）。这是 S1 的既有范围规则，本 change 不改。
+- `pushEventToGoogle` 多日历缺陷（§4 ⑰）已由 #308 修复；修复前因推送失败而没有 `googleEventId` 的历史预约，规则 R1 仍会漏判，直到它们被重新保存或回填。
+- 排除已归档客户会让历史期间的成单额随归档操作变小；与首页约定一致，报告"已知限制"要写。

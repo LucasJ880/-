@@ -24,8 +24,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   });
   if (!expense) return NextResponse.json({ error: "费用不存在" }, { status: 404 });
   const privileged =
-    access.user.role === "super_admin" || access.orgRole === "org_admin" || access.project.ownerId === access.user.id ||
-    (access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
+    access.finance.privileged ||
+    (!!access.projectRole && hasProjectPermission(access.projectRole, PERMISSIONS.PROJECT_COST_REVIEW));
   if (expense.submittedById !== access.user.id && !privileged) {
     return NextResponse.json({ error: "只能为本人费用上传票据" }, { status: 403 });
   }

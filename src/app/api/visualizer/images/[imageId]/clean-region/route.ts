@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import {
   canSeeVisualizerSession,
   loadSessionBySourceImage,
+  resolveVisualizerViewer,
 } from "@/lib/visualizer/access";
 import { fetchBuffer, runImageEdit } from "@/lib/visualizer/image-ai";
 import { createTransparentEditMaskPng } from "@/lib/visualizer/png-mask";
@@ -18,10 +19,12 @@ type CleanBody = { regionId?: string; instruction?: string };
 const MAX_MASK_PIXELS = 8_000_000;
 
 export const POST = withAuth(async (request, ctx, user) => {
+  // PERM-4c5：按企业 + 岗位派生角色判定视觉方案"看全部"范围（修复跨企业泄露）
+  const viewer = await resolveVisualizerViewer(user);
   const { imageId } = await ctx.params;
   const session = await loadSessionBySourceImage(imageId);
   if (!session) return NextResponse.json({ error: "图片不存在" }, { status: 404 });
-  if (!canSeeVisualizerSession(session, user)) {
+  if (!canSeeVisualizerSession(session, viewer)) {
     return NextResponse.json({ error: "无权操作该图片" }, { status: 403 });
   }
 

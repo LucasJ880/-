@@ -6,6 +6,10 @@
  * - body/query orgId 仅交叉校验，不可覆盖 activeOrgId（不一致 → ORG_CONTEXT_MISMATCH）
  * - 禁止仅信任裸 orgId；必须校验 active membership
  * - 平台管理员：必须显式传 orgId，且组织须存在
+ *
+ * PERM-6a：
+ * - "显式 orgId 访问任意企业"只给平台 super_admin；平台 admin 与普通成员一样按成员关系解析
+ * - 外贸接口由 requireTradePermission 按岗位权限键（trade.read / trade.manage / trade.settings.manage）放行
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,7 +17,9 @@ import type { AuthUser } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/auth";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
-import { isAdmin } from "@/lib/rbac/roles";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
+import { requireAuth, type AuthResult } from "@/lib/auth/guards";
+import { authorize, humanPrincipal } from "@/lib/authorization";
 import type {
   Prisma,
   TradeCampaign,
@@ -83,7 +89,7 @@ export async function resolveTradeOrgId(
   const fromQuery = url.searchParams.get("orgId");
   const explicit = (fromQuery ?? opts?.bodyOrgId ?? "").trim() || null;
 
-  if (isAdmin(user.role)) {
+  if (isPlatformSuperAdmin(user.role)) {
     if (!explicit) {
       return { ok: false, response: orgMissingResponse() };
     }
@@ -133,12 +139,72 @@ export async function resolveTradeOrgId(
   return { ok: true, orgId: activeOrgId };
 }
 
+// ── PERM-6a：外贸接口守卫 ─────────────────────────────────────
+
+export const TRADE_READ = "trade.read";
+export const TRADE_MANAGE = "trade.manage";
+export const TRADE_SETTINGS_MANAGE = "trade.settings.manage";
+/** 读接口：持读或写任一 */
+export const TRADE_READ_KEYS = [TRADE_READ, TRADE_MANAGE] as const;
+/** 写接口 */
+export const TRADE_MANAGE_KEYS = [TRADE_MANAGE] as const;
+/** 设置类接口（发件档案 / 发件人；消息通道管理见 canManageTradeChannels） */
+export const TRADE_SETTINGS_KEYS = [TRADE_SETTINGS_MANAGE] as const;
+/** 消息通道入口（列表 / 详情 / 管理）：外贸读写或设置键任一；管理动作再经 canManageTradeChannels 要求设置键（企业管理员只持设置键也能管通道） */
+export const TRADE_CHANNEL_KEYS = [TRADE_READ, TRADE_MANAGE, TRADE_SETTINGS_MANAGE] as const;
+
+/** 当前企业内持任一键（平台 super_admin 恒真） */
+export async function holdsTradePermission(
+  user: AuthUser,
+  orgId: string,
+  keys: readonly string[],
+): Promise<boolean> {
+  if (isPlatformSuperAdmin(user.role)) return true;
+  for (const permission of keys) {
+    const decision = await authorize({ principal: humanPrincipal(user, orgId), orgId, permission });
+    if (decision.allowed) return true;
+  }
+  return false;
+}
+
+function tradePermissionDeniedResponse(): NextResponse {
+  return NextResponse.json({ error: "无权访问外贸功能（缺少外贸岗位权限）", code: "TRADE_PERMISSION_REQUIRED" }, { status: 403 });
+}
+
+/**
+ * 取代 requireRole(request, ["trade","admin"])：返回同样的 { user }，调用点只换一行（design D2）。
+ * - 平台 super_admin 直接放行（企业由路由自己的 resolveTradeOrgId 按显式 orgId 处理）；
+ * - 其余人在 resolveTradeOrgId 解析出的当前企业内持任一键才放行（显式 orgId 只做交叉校验）。
+ */
+export async function requireTradePermission(
+  request: NextRequest,
+  keys: readonly string[],
+): Promise<AuthResult | NextResponse> {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+  if (isPlatformSuperAdmin(auth.user.role)) return auth;
+  const org = await resolveTradeOrgId(request, auth.user);
+  if (!org.ok) return org.response;
+  if (!(await holdsTradePermission(auth.user, org.orgId, keys))) return tradePermissionDeniedResponse();
+  return auth;
+}
+
+/** 平台级外贸配置（删除发件人、修改发件邮箱）：只给平台 super_admin */
+export async function requireTradePlatformAdmin(request: NextRequest): Promise<AuthResult | NextResponse> {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+  if (!isPlatformSuperAdmin(auth.user.role)) {
+    return NextResponse.json({ error: "仅平台管理员可操作", code: "PLATFORM_ADMIN_REQUIRED" }, { status: 403 });
+  }
+  return auth;
+}
+
 /** 校验用户是否可访问某 orgId（用于已从资源读出 orgId 的场景） */
 export async function assertUserCanAccessTradeOrg(
   user: AuthUser,
   orgId: string,
 ): Promise<true | NextResponse> {
-  if (isAdmin(user.role)) {
+  if (isPlatformSuperAdmin(user.role)) {
     const org = await db.organization.findUnique({
       where: { id: orgId },
       select: { id: true },

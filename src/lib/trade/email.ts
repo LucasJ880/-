@@ -24,9 +24,15 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   body: string;
+  /** 有就同时发 HTML 版（body 仍作为纯文本部分） */
+  html?: string;
   replyTo?: string;
   from?: string;
+  /** 抄送（收件人可见）；不传或空数组时不带 */
+  cc?: string[];
   bcc?: string[];
+  /** 附件（INSTALL-2k：质保证书 PDF）；不传或空数组时不带 */
+  attachments?: Array<{ filename: string; content: Buffer }>;
 }
 
 export interface SendEmailResult {
@@ -51,7 +57,10 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       to: input.to,
       subject: input.subject,
       text: input.body,
+      ...(input.html ? { html: input.html } : {}),
       replyTo: input.replyTo,
+      ...(input.cc?.length ? { cc: input.cc } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments.map((a) => ({ filename: a.filename, content: a.content })) } : {}),
       ...(input.bcc?.length ? { bcc: input.bcc } : {}),
     });
 

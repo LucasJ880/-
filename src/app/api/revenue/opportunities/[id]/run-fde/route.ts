@@ -5,14 +5,14 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { safeParseBody } from "@/lib/common/api-helpers";
-import { resolveRevenueAccess } from "@/lib/revenue-spine/access";
+import { REVENUE_MANAGE_KEYS, resolveRevenueAccess } from "@/lib/revenue-spine/access";
 import { runInboundFdeForHuman } from "@/lib/revenue-spine/fde/inbound-queue";
 
 export const maxDuration = 120;
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const body = (await safeParseBody<Record<string, unknown>>(request)) ?? {};
-  const access = await resolveRevenueAccess(request, { bodyOrgId: typeof body.orgId === "string" ? body.orgId : null });
+  const access = await resolveRevenueAccess(request, REVENUE_MANAGE_KEYS, { bodyOrgId: typeof body.orgId === "string" ? body.orgId : null });
   if (!access.ok) return access.response;
   const { id } = await ctx.params;
   const result = await runInboundFdeForHuman({

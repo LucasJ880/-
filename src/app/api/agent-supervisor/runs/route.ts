@@ -3,6 +3,7 @@
  * 显式启动主管 AI 任务（关联 AgentSession + AgentRun）
  */
 
+import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
@@ -43,7 +44,8 @@ export const POST = withAuth(async (req, _ctx, user) => {
   if (
     !isSupervisorEnabled({
       userId: user.id,
-      role: user.role,
+      // PERM-4c5：功能开关角色白名单按岗位派生平台角色匹配
+      role: await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role }),
       orgId,
       orgCode: org?.code,
     })
@@ -74,7 +76,8 @@ export const POST = withAuth(async (req, _ctx, user) => {
     runId: run.id,
     orgId,
     userId: user.id,
-    userRole: user.role,
+    // PERM-4c4：岗位模式企业取岗位派生平台角色
+    userRole: await resolveEffectivePlatformRole({ userId: user.id, orgId, platformRole: user.role }),
     content: message,
     pageContext: body.pageContext,
     forceMode:
