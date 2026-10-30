@@ -584,6 +584,45 @@ run_test "招标询价 [auto] 备注回读" "npx tsx src/lib/tender-rfq/__tests_
 run_test "招标询价 催单/追问决策与模板" "npx tsx src/lib/tender-rfq/__tests__/chase-pure.test.ts"
 run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts"
 
+# 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
+run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
+# 组织驾驶舱 A-2（openspec change org-cockpit-read-model）：调度 / 等你 N 件 / company.log / 读模型——纯逻辑，无 DB
+run_test "组织驾驶舱 调度与健康度（A-2）" "npx tsx src/lib/cockpit/__tests__/schedule.test.ts"
+run_test "组织驾驶舱 等你 N 件（A-2）" "npx tsx src/lib/cockpit/__tests__/waiting.test.ts"
+run_test "组织驾驶舱 company.log 时间线（A-2）" "npx tsx src/lib/cockpit/__tests__/timeline.test.ts"
+run_test "组织驾驶舱 读模型与 API（A-2）" "npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts"
+# 组织驾驶舱 A-3（openspec change org-cockpit-home）：首页展示规则、取数状态机与岗位视图渲染——纯逻辑 / 服务端静态渲染，无 DB
+run_test "组织驾驶舱 首页展示规则（A-3）" "npx tsx src/lib/cockpit/__tests__/presentation.test.ts"
+# A-2 后续（openspec change org-cockpit-timeline-labels）：时间线审计中文摘要与来源——纯逻辑，无 DB
+run_test "组织驾驶舱 时间线审计中文摘要与来源" "npx tsx src/lib/cockpit/__tests__/audit-labels.test.ts"
+run_test "组织驾驶舱 首页取数状态机（A-3）" "npx tsx src/lib/cockpit/__tests__/home-state.test.ts"
+run_test "组织驾驶舱 岗位视图渲染（A-3）" "npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx"
+# 组织驾驶舱 A-4（openspec change org-cockpit-workload）：工作量 / 无用功汇总、读模型与首页区块——纯逻辑 + 假依赖 + 服务端静态渲染，无 DB
+run_test "组织驾驶舱 工作量汇总（A-4）" "npx tsx src/lib/cockpit/__tests__/workload.test.ts"
+run_test "组织驾驶舱 工作量读模型与接口（A-4）" "npx tsx src/lib/cockpit/__tests__/workload-read-model.test.ts"
+run_test "组织驾驶舱 工作量区块渲染（A-4）" "npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx"
+# FDE B-1（openspec change fde-feedback-loop）：询盘回复草稿结构化 diff 与终态反馈事件——纯逻辑 + 假依赖，无 DB
+run_test "FDE 询盘回复草稿 diff（B-1）" "npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts"
+run_test "FDE 询盘回复反馈闭环（B-1）" "npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts"
+# FDE B-4（openspec change fde-score-calibration）：评分校准报表（只报不改）——纯逻辑 + 假依赖 + 服务端静态渲染，无 DB
+run_test "FDE 评分校准统计（B-4）" "npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts"
+run_test "FDE 评分校准读模型与接口（B-4）" "npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts"
+run_test "FDE 评分校准区块渲染（B-4）" "npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx"
+# FDE B-6（openspec change fde-v2-readiness）：V2 启动条件只读就绪度——纯逻辑 + 假依赖 + 服务端静态渲染，无 DB
+run_test "FDE V2 启动条件就绪度（B-6）" "npx tsx src/lib/revenue-spine/__tests__/v2-readiness.test.ts"
+run_test "FDE V2 启动条件区块渲染（B-6）" "npx tsx src/components/revenue/__tests__/v2-readiness-panel.test.tsx"
+# FDE B-5（openspec change fde-internal-autonomy）：分级自治（自动搁置 / 审计键名 / 配额链路 / dogfood 计划）——纯逻辑 + 假依赖 + 源码断言，无 DB
+run_test "FDE 分级自治（B-5）" "npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts"
+# FDE B-2（openspec change fde-fact-proposals）：人工回复 → 商务事实提案——纯逻辑 + 假依赖 + 源码断言，无 DB
+run_test "FDE 商务事实规则化抽取（B-2）" "npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts"
+run_test "FDE 商务事实提案（B-2）" "npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts"
+# FDE B-3（openspec change fde-preferences-in-draft）：草稿偏好（policy.fde）接入模板层——纯逻辑 + 金样本 + 假依赖 + 源码断言，无 DB
+run_test "FDE 草稿偏好（B-3）" "npx tsx src/lib/revenue-spine/__tests__/draft-preferences.test.ts"
+# FDE C-2（openspec change fde-preferences-in-followup）：无回复跟进草稿接入草稿偏好——纯逻辑 + 金样本 + 源码断言，无 DB
+run_test "FDE 跟进草稿偏好（C-2）" "npx tsx src/lib/revenue-spine/__tests__/followup-preferences.test.ts"
+# 组织驾驶舱 A-3b（openspec change org-cockpit-proactive-notify）：定时任务为管理层补发主动提醒——纯逻辑 + 假依赖 + 源码断言，无 DB
+run_test "管理层主动提醒补发（A-3b）" "npx tsx src/lib/proactive/__tests__/manager-notify.test.ts"
+
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
 

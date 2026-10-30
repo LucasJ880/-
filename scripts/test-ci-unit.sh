@@ -339,6 +339,32 @@ npx tsx src/lib/ai/model-policy/__tests__/benchmark-harness.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender.test.ts
 npx tsx src/lib/ai/model-policy/__tests__/tender-org-propagation.test.ts
 
+# 组织驾驶舱 A-1 岗位注册表穷举（openspec change org-cockpit-posts；纯逻辑，无 DB）
+npx tsx src/lib/cockpit/__tests__/posts.test.ts
+npx tsx src/lib/cockpit/__tests__/schedule.test.ts
+npx tsx src/lib/cockpit/__tests__/waiting.test.ts
+npx tsx src/lib/cockpit/__tests__/timeline.test.ts
+npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts
+npx tsx src/lib/cockpit/__tests__/presentation.test.ts
+npx tsx src/lib/cockpit/__tests__/audit-labels.test.ts
+npx tsx src/lib/cockpit/__tests__/home-state.test.ts
+npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx
+npx tsx src/lib/cockpit/__tests__/workload.test.ts
+npx tsx src/lib/cockpit/__tests__/workload-read-model.test.ts
+npx tsx src/components/cockpit/__tests__/org-cockpit-workload.test.tsx
+npx tsx src/lib/revenue-spine/fde/__tests__/draft-diff.test.ts
+npx tsx src/lib/revenue-spine/fde/__tests__/draft-feedback.test.ts
+npx tsx src/lib/revenue-spine/__tests__/score-calibration.test.ts
+npx tsx src/lib/revenue-spine/__tests__/score-calibration-read-model.test.ts
+npx tsx src/components/revenue/__tests__/score-calibration-panel.test.tsx
+npx tsx src/lib/revenue-spine/__tests__/v2-readiness.test.ts
+npx tsx src/components/revenue/__tests__/v2-readiness-panel.test.tsx
+npx tsx src/lib/revenue-spine/__tests__/autonomy.test.ts
+npx tsx src/lib/revenue-spine/__tests__/fact-extract.test.ts
+npx tsx src/lib/revenue-spine/__tests__/fact-proposals.test.ts
+npx tsx src/lib/revenue-spine/__tests__/draft-preferences.test.ts
+npx tsx src/lib/revenue-spine/__tests__/followup-preferences.test.ts
+npx tsx src/lib/proactive/__tests__/manager-notify.test.ts
 # fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
 npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 

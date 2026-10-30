@@ -25,11 +25,13 @@ import {
 import { getOrCreateAgentSession } from "@/lib/agent-runtime/session";
 import { createNotificationsForUsers } from "@/lib/notifications/create";
 import { markFdeTouch } from "../attribution";
+import { DECLINE_POLICY_KEY } from "../autonomy";
 import { loadFactoryKnowledge, summarizeKnowledge } from "../factory-knowledge";
 import { applyNextAction } from "../next-action";
 import type { PushFn } from "@/lib/trade/booth-summary";
 import { OpportunityStage, toCanonicalStage, type OpportunityStage as Stage } from "../opportunity-stage";
 import { loadRevenueSpinePolicy, type RevenueSpinePolicy } from "../policy";
+import { BANNED_PHRASE_SKIPPED_REASON, recordIgnoredDraftPreferencesSafe, resolveDraftPreferences } from "../draft-preferences";
 import { allowedStyles, buildReferenceLines, buildReplyDraft, polishReplyDraftWithLlm, referenceProgramLines, sampleLineFor, type ReplyDraft } from "../reply-draft";
 import { buyerFacingOrgName, composeBoothFirstEmail, footerLines, notedFacts, policySignature, type BoothEmailTerms } from "../booth-email";
 import { renderPlainEmailHtml } from "../email-layout";
@@ -44,6 +46,7 @@ import type { RfqField, RfqFields } from "../rfq/types";
 import { scoreOpportunity, type OpportunityScoreResult } from "../scoring";
 import { transitionOpportunity } from "../transition";
 import { FDE_EMPLOYEE_KEY, updateFdeAction } from "./actions";
+import { recordInquiryDraftSnapshotSafe } from "./draft-feedback";
 
 /**
  * 本次 FDE 的草稿结果，写进 SalesAction.inputContext.draftStatus（SLA 指标与超时提醒据此说明"为什么没有草稿"）：
@@ -113,7 +116,7 @@ async function safeTransition(
   orgId: string,
   opportunityId: string,
   to: Stage,
-  ctx: { salesActionId: string | null; agentRunId: string; policy: RevenueSpinePolicy; now: Date; reason?: string },
+  ctx: { salesActionId: string | null; agentRunId: string; policy: RevenueSpinePolicy; now: Date; reason?: string; policyKey?: string | null },
 ): Promise<string> {
   const r = await transitionOpportunity({
     orgId,
@@ -124,6 +127,7 @@ async function safeTransition(
     reason: ctx.reason ?? null,
     salesActionId: ctx.salesActionId,
     agentRunId: ctx.agentRunId,
+    policyKey: ctx.policyKey ?? null,
     policy: ctx.policy,
     now: ctx.now,
   });
@@ -437,7 +441,17 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           ? OpportunityStage.NEEDS_INFO
           : OpportunityStage.QUALIFIED;
     if (stage !== target) {
-      stage = await safeTransition(orgId, opp.id, target, { salesActionId, agentRunId: runId, policy, now, reason: score.recommendedNextActionLabel.zh });
+      // 只命中不做类目、企业选了"婉拒"→ 按 policy 判不合格：审计记下 policy 键名（B-5）
+      const declinedByPolicy =
+        target === OpportunityStage.DISQUALIFIED && score.outOfRange && policy.businessProfile.excludedCategoryAction === "decline";
+      stage = await safeTransition(orgId, opp.id, target, {
+        salesActionId,
+        agentRunId: runId,
+        policy,
+        now,
+        reason: score.recommendedNextActionLabel.zh,
+        policyKey: declinedByPolicy ? DECLINE_POLICY_KEY : null,
+      });
     }
     if (score.qualification === "rfq_ready" && stage === OpportunityStage.QUALIFIED) {
       stage = await safeTransition(orgId, opp.id, OpportunityStage.RFQ_READY, { salesActionId, agentRunId: runId, policy, now });
@@ -445,8 +459,13 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
     await event("agent.output", `阶段 → ${stage}`, { decision: "qualify", stage, qualification: score.qualification });
 
     // ── Step 5 missing info ──
+    // 企业确认的草稿偏好（B-3）：开关关闭时为 null，追问与草稿走默认模板，逐字节不变
+    const draftPrefs = resolveDraftPreferences(policy);
+    if (draftPrefs?.ignored.length) {
+      await recordIgnoredDraftPreferencesSafe({ orgId, userId: principalUserId, ignored: draftPrefs.ignored, employeeKey: FDE_EMPLOYEE_KEY });
+    }
     const missing = computeMissingFields(fields);
-    const questions = buildClarifyingQuestions(missing, extraction.language, policy.followUp.maxQuestionsPerReply);
+    const questions = buildClarifyingQuestions(missing, extraction.language, policy.followUp.maxQuestionsPerReply, draftPrefs);
     base.missing = missing;
     base.questions = questions;
     await event("agent.output", `缺失信息 ${missing.length} 项，拟问 ${questions.length} 个问题`, {
@@ -482,8 +501,9 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         questions,
         knowledge,
         policy,
+        preferences: draftPrefs,
       };
-      const zhInput = { ...draftInput, language: "zh" as const, questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply) };
+      const zhInput = { ...draftInput, language: "zh" as const, questions: buildClarifyingQuestions(missing, "zh", policy.followUp.maxQuestionsPerReply, draftPrefs) };
       draft = buildReplyDraft(draftInput);
       const facingName = buyerFacingOrgName(policy, org.name, draft.language);
       const branding = await loadEmailBranding(orgId, facingName);
@@ -541,7 +561,27 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
         factsUsed: draft.factsUsed,
         pendingInternalConfirmation: draft.pendingInternalConfirmation,
         guardrailViolations: draft.guardrailViolations,
+        // 只记偏好键名（不记文案）；开关关闭时不出现
+        ...(draftPrefs
+          ? {
+              draftPreferences: {
+                applied: draftPrefs.applied,
+                ignored: draftPrefs.ignored.map((i) => i.key),
+                ...(draft.preferences?.bannedPhrasesSkipped ? { bannedPhrasesSkipped: draft.preferences.bannedPhrasesSkipped } : {}),
+              },
+            }
+          : {}),
       });
+      // 禁用词替换后多出守卫违规、这一封没替换：按引起违规的键名记审计（同组织同一组只记一次），让管理员能发现是哪一条
+      const skippedBanned = draft.preferences?.bannedPhrasesSkipped ?? [];
+      if (skippedBanned.length) {
+        await recordIgnoredDraftPreferencesSafe({
+          orgId,
+          userId: principalUserId,
+          ignored: skippedBanned.map((key) => ({ key, reason: BANNED_PHRASE_SKIPPED_REASON })),
+          employeeKey: FDE_EMPLOYEE_KEY,
+        });
+      }
 
       // ── Step 7 approval（唯一外部副作用入口）──
       // supervisor 取消：run 已被取消则不再产生审批草稿（草稿不挂 run，故在此显式检查）
@@ -648,6 +688,24 @@ export async function runInboundSalesFde(input: RunInboundFdeInput): Promise<Inb
           pendingActionId = approval.actionIds[0] ?? null;
           draftCreated = !openDraft && !!pendingActionId;
           draftStatus = openDraft ? "reused" : "created";
+          // B-1：新建（非复用）的审批留一份脱敏草稿快照，终态时与执行正文比对；尽力而为
+          if (draftCreated && pendingActionId) {
+            await recordInquiryDraftSnapshotSafe({
+              orgId,
+              actorUserId: principalUserId,
+              pendingActionId,
+              opportunityId: opp.id,
+              followUpStep: null,
+              subject: draft.subject,
+              body: draft.body,
+              language: draft.language,
+              buyer: { contactName: draftInput.contactName, companyName: opp.customer.name, recipientEmail: opp.customer.email },
+              guardrailViolations: draft.guardrailViolations,
+              factsUsed: draft.factsUsed.map((f) => ({ field: f.field, value: String(f.value) })),
+              pendingInternalConfirmation: draft.pendingInternalConfirmation,
+              templateOnly: draft.templateOnly,
+            });
+          }
           await event("approval.required", openDraft ? "复用未决审批草稿" : "首次回复需人工审批后发送", { pendingActionId, actionType: INQUIRY_REPLY_ACTION_TYPE, to: opp.customer.email, reused: !!openDraft });
         } else {
           draftStatus = "approval_failed";

@@ -30,6 +30,13 @@ export interface CreateFeedbackInput {
   supervisorStepId?: string | null;
   workerType?: string | null;
   skillSlug?: string | null;
+  /**
+   * 系统按审批结局自动记录（B-1 fde-feedback-loop）：原因取审批备注原样带入、没有就为空，
+   * 不要求驳回必须带原因。手工入口不传，校验与原来一致。
+   */
+  systemRecorded?: boolean;
+  /** 调用方已算好的结构化 diff（只含结构信息，不含正文）；给了就直接写入，不再按 edited 计算 */
+  diffSummary?: Record<string, unknown>;
 }
 
 function assertDecision(v: string): asserts v is HumanDecision {
@@ -51,6 +58,7 @@ export async function createHumanFeedbackEvent(input: CreateFeedbackInput) {
 
   if (
     input.humanDecision === "rejected" &&
+    !input.systemRecorded &&
     !input.reasonCode &&
     !input.reasonText
   ) {
@@ -74,11 +82,12 @@ export async function createHumanFeedbackEvent(input: CreateFeedbackInput) {
   }
 
   const diffSummary =
-    input.humanDecision === "edited"
+    input.diffSummary ??
+    (input.humanDecision === "edited"
       ? buildStructuredDiff(input.aiOutputSnapshot ?? input.aiOutputRef, input.humanEditedOutput)
       : input.humanDecision === "accepted"
         ? { kind: "empty", changed: false, summary: "已接受" }
-        : { kind: "empty", changed: false, summary: input.humanDecision };
+        : { kind: "empty", changed: false, summary: input.humanDecision });
 
   const event = await db.humanFeedbackEvent.create({
     data: {

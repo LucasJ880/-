@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Flame, MessageSquareReply, FileText, Package, Clock, AlertTriangle, Repeat, ShieldCheck, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { ScoreCalibrationPanel } from "@/components/revenue/score-calibration-panel";
+import { V2ReadinessPanel } from "@/components/revenue/v2-readiness-panel";
 import { apiFetch } from "@/lib/api-fetch";
 import { getOpportunityStageLabel } from "@/lib/revenue-spine/opportunity-stage";
 
@@ -232,6 +234,9 @@ export default function RevenueCockpitPage() {
               )}
             </section>
           </div>
+
+          <ScoreCalibrationPanel />
+          <V2ReadinessPanel />
         </>
       ) : null}
     </div>

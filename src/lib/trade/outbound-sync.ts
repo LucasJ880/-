@@ -11,6 +11,7 @@
  *      SUPERSEDED_BY_MANUAL_REPLY；不写 decidedById，真实操作者只以 triggeredByUserId 记录）
  *   3. 幂等键 = tradeMessageId（存于 CustomerInteraction.analysisResult），重复调用不重复镜像
  *   4. 任何失败只记录（console + AuditLog），绝不回滚已经成功的客户回复
+ *   5. 被作废的草稿记一条"人工已回复"改稿反馈（B-2，fde/draft-feedback.ts；记录后触发商务事实提案），尽力而为
  */
 
 import { db } from "@/lib/db";
@@ -137,6 +138,19 @@ export async function supersedePendingInquiryReplies(input: {
 }
 
 /**
+ * 人工回复作废了 FDE 草稿 = 一次改稿（B-2）：为每份被作废的草稿记反馈事件（记录器内部吞掉异常、
+ * 同一审批同一终态只写一条；漏记的由 approval-timeout 补漏），并由记录器触发商务事实提案。
+ */
+async function recordManualReplyFeedback(pendingActionIds: readonly string[]): Promise<void> {
+  try {
+    const { recordInquiryReplyFeedbackSafe } = await import("@/lib/revenue-spine/fde/draft-feedback");
+    for (const id of pendingActionIds) await recordInquiryReplyFeedbackSafe(id, { type: INQUIRY_REPLY_ACTION_TYPE });
+  } catch (err) {
+    console.error("[trade/outbound-sync] manual reply feedback failed (non-blocking):", err instanceof Error ? err.name : typeof err);
+  }
+}
+
+/**
  * 主入口：在 Trade 侧外发消息已持久化之后调用。永不抛出。
  */
 export async function syncTradeOutboundToRevenueSpine(input: TradeOutboundSyncInput): Promise<TradeOutboundSyncResult> {
@@ -202,6 +216,7 @@ export async function syncTradeOutboundToRevenueSpine(input: TradeOutboundSyncIn
       tradeMessageId: input.tradeMessageId,
       outboundInteractionId: interactionId,
     });
+    if (sup.superseded.length) await recordManualReplyFeedback(sup.superseded);
 
     if (!replay) {
       await logAudit({
