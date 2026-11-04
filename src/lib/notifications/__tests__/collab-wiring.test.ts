@@ -8,6 +8,7 @@
  *   @ 候选人接口做 404 校验
  * - 工艺单：/transition 与 PUT 在事务提交之后按前后状态通知；文件上传在上传成功之后通知
  * - 升级邮件：sales-actions 的最后一步，自带 .catch；发信层只用平台发件地址、非生产门禁与 NEXT_PUBLIC_APP_URL
+ * - 每日汇总：daily-brief 在既有响应算出之后执行，自带 .catch；加锁 → 查 → 写审计在同一事务里，审计不带组织 id
  * - 新文件不导入 LLM 客户端，也不导入 EmailProvider
  * 运行：npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
  */
@@ -226,11 +227,35 @@ console.log("未读升级邮件接线");
   ok(email.includes("isRealEmailSendAllowed(") && email.includes("NEXT_PUBLIC_APP_URL") && !email.includes("resolveAppOrigin"), "非生产门禁；链接根地址只用 NEXT_PUBLIC_APP_URL");
 }
 
+console.log("每日未读汇总接线");
+{
+  const get = block(read("src/app/api/cron/daily-brief/route.ts"), "export async function GET");
+  const responseAt = get.indexOf("const response = digestOrgs.length ? { ...data, postDailyDigest: await runPostDailyDigest() } : data;");
+  const stepAt = get.indexOf('runTrackedAutomation("notify-email-digest"');
+  ok(responseAt > 0 && stepAt > responseAt, "daily-brief：既有响应（简报 → 岗位日结）算出之后才跑汇总", { responseAt, stepAt });
+  const step = stepAt < 0 ? "" : get.slice(stepAt, get.indexOf("return NextResponse.json(", stepAt));
+  ok(/\)\.catch\(\(error\) => \{[\s\S]*console\.error\(/.test(step), "notify-email-digest 自带 .catch：出错只记日志，不影响简报与日结的结果");
+  ok(/runEmailDigest\(\{ orgs, deadline: new Date\(now\.getTime\(\) \+ DIGEST_DEADLINE_MS\) \}\)/.test(step), "沿用同一个 orgs（当地 7 点的组织），截止时刻从请求开始算");
+  ok(/return NextResponse\.json\(\{ \.\.\.response, notifyEmailDigest \}\);\s*\}\s*$/.test(get), "结果并入响应的 notifyEmailDigest 字段，是最后一步");
+
+  const digest = read("src/lib/notifications/collab/digest.ts");
+  const claim = block(digest, "export const defaultDigestDeps");
+  const lockAt = claim.indexOf("pg_advisory_xact_lock");
+  const findAt = claim.indexOf("tx.auditLog.findFirst");
+  const writeAt = claim.indexOf("writeAuditLog(tx");
+  ok(claim.includes("db.$transaction") && lockAt > 0 && findAt > lockAt && writeAt > findAt, "同一事务内：按收件人与本地日期加锁 → 查当天记录 → 写审计占位");
+  const write = claim.slice(writeAt, claim.indexOf("});", writeAt));
+  ok(/targetType: "user"/.test(write) && /targetId: userId/.test(write) && !/orgId/.test(write), "审计对象为收件人，不带组织 id（进不了公司日志）", write);
+  ok(/status: "unread", type: \{ notIn: \[\.\.\.excludedTypes\] \}/.test(claim), "计数与明细都只取未读、排除两类简报");
+  ok(/where: \{ orgId: \{ in: orgIds \}, status: "active", user: \{ status: "active" \} \}/.test(claim), "收件人只取在职账号的 active 成员");
+}
+
 console.log("新文件不导入 LLM 客户端与对外邮件通道");
 {
   const files = [
     "src/lib/notifications/collab/email.ts",
     "src/lib/notifications/collab/escalation.ts",
+    "src/lib/notifications/collab/digest.ts",
     "src/lib/notifications/collab/deliver.ts",
     "src/lib/notifications/collab/recipients.ts",
     "src/lib/notifications/collab/redact.ts",

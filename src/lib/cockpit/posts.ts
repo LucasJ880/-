@@ -230,6 +230,7 @@ export const POST_REGISTRY = [
       "approval-timeout",
       "post-daily-digest",
       "notify-email-escalation",
+      "notify-email-digest",
     ],
     pendingActionTypes: [],
     workDomains: ["general"],
