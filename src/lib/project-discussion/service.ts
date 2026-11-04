@@ -7,8 +7,13 @@
 
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
-import type { DiscussionMessage, DiscussionOverview, MessageMetadata, TextMessageMetadata } from "./types";
+import type { DiscussionMessage, DiscussionOverview, MentionItem, MessageMetadata, TextMessageMetadata } from "./types";
 import { DEFAULT_PAGE_SIZE, MESSAGE_MAX_LENGTH } from "./types";
+import {
+  MENTION_REPLAY_WINDOW_MS,
+  findDiscussionReplay,
+  mentionIdsOf,
+} from "@/lib/notifications/collab/mentions";
 
 const senderSelect = {
   id: true,
@@ -145,6 +150,72 @@ export async function sendMessage(
   });
 
   return toMessage(msg as unknown as Record<string, unknown>);
+}
+
+export interface SendMessageResult {
+  message: DiscussionMessage;
+  /** true = 10 分钟内重发，返回的是第一次创建的那条 */
+  replayed: boolean;
+}
+
+/**
+ * 发送带 @ 的文本消息（COLLAB-2 design D4）。
+ * 同一人 10 分钟内向同一讨论区重发正文相同、@ 名单相同的消息时，返回第一次创建的那条，不再新建。
+ * 并发：在事务里先拿 advisory lock（人 + 项目 + 正文），再查最近 10 分钟，没有才创建。
+ */
+export async function sendMentionMessageOnce(
+  projectId: string,
+  senderId: string,
+  body: string,
+  replyToId: string | undefined,
+  metadata: { mentions: MentionItem[] },
+  now: Date = new Date(),
+): Promise<SendMessageResult> {
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error("消息内容不能为空");
+  if (trimmed.length > MESSAGE_MAX_LENGTH) {
+    throw new Error(`消息长度不能超过 ${MESSAGE_MAX_LENGTH} 字`);
+  }
+  const mentionIds = metadata.mentions.map((m) => m.userId);
+
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`discussion-mention:${senderId}:${projectId}:${trimmed}`}))) AS l`;
+    const conv = await getOrCreateMainConversation(projectId, tx);
+    const recent = await tx.projectMessage.findMany({
+      where: {
+        conversationId: conv.id,
+        senderId,
+        type: "TEXT",
+        body: trimmed,
+        deletedAt: null,
+        createdAt: { gte: new Date(now.getTime() - MENTION_REPLAY_WINDOW_MS) },
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: 20,
+      include: { sender: { select: senderSelect } },
+    });
+    const hit = findDiscussionReplay(
+      recent.map((row) => ({ row, body: row.body, createdAt: row.createdAt, mentionIds: mentionIdsOf(row.metadata) })),
+      { body: trimmed, mentionIds },
+      now,
+    );
+    if (hit) {
+      return { message: toMessage(hit.row as unknown as Record<string, unknown>), replayed: true };
+    }
+    const msg = await tx.projectMessage.create({
+      data: {
+        conversationId: conv.id,
+        projectId,
+        senderId,
+        type: "TEXT",
+        body: trimmed,
+        replyToId: replyToId ?? null,
+        metadata: metadata as unknown as Prisma.JsonObject,
+      },
+      include: { sender: { select: senderSelect } },
+    });
+    return { message: toMessage(msg as unknown as Record<string, unknown>), replayed: false };
+  });
 }
 
 /**

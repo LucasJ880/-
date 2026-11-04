@@ -28,7 +28,7 @@
 
 ## 3. 讨论区 @
 
-- [ ] 3.1 先写 `collab-mentions.test.ts`，覆盖：
+- [x] 3.1 先写 `collab-mentions.test.ts`，覆盖：
   - 名单格式：不是数组、缺 `userId`、超过 20 人时返回 `MENTION_INVALID`；按 `userId` 去重；`name` 截到 50 个字符；不保存多余字段；
   - 三个接收条件与 @ 自己；`invalidUserIds` 里不含姓名；
   - 重发判定：讨论区只有带 @ 才判、名单要相同；任务评论不论带不带 @；10 分钟边界；比较前去掉首尾空白；

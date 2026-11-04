@@ -10,7 +10,8 @@ import { MentionDropdown } from "./mention-dropdown";
 
 interface Props {
   projectId: string;
-  onSent: (msg: DiscussionMessage) => void;
+  /** replayed：10 分钟内重发，接口返回的是第一次创建的那条 */
+  onSent: (msg: DiscussionMessage, replayed?: boolean) => void;
   mentionDraft?: { userId: string; name: string } | null;
   onMentionConsumed?: () => void;
   members?: DiscussionMember[];
@@ -146,7 +147,7 @@ export function ProjectDiscussionComposer({
       }
       setBody("");
       setMentions([]);
-      onSent(data.message);
+      onSent(data.message, data.replayed === true);
       textareaRef.current?.focus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "发送失败");

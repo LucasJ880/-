@@ -23,8 +23,10 @@ export interface CollabEvent {
   summary: string | null;
   entityType: string;
   entityId: string;
-  /** 事件区分键（D2） */
-  eventKey: string;
+  /** 事件区分键（D2）；给了 sourceKeyPrefix 时不用 */
+  eventKey?: string;
+  /** 去重键前缀（不含收件人 id），缺省为 `<类型>:<对象 id>:<事件区分键>`；提及通知用 `mention:<消息或评论 id>` */
+  sourceKeyPrefix?: string;
   /** 对象所属组织；为 null 时不查组织成员 */
   orgId: string | null;
   projectId?: string | null;
@@ -82,6 +84,15 @@ export function collabSourceKey(
   return `${type}:${entityId}:${eventKey}:${recipientId}`;
 }
 
+/** 这次事件发给某个收件人的去重键 */
+export function eventSourceKey(
+  event: Pick<CollabEvent, "type" | "entityId" | "eventKey" | "sourceKeyPrefix">,
+  recipientId: string,
+): string {
+  if (event.sourceKeyPrefix) return `${event.sourceKeyPrefix}:${recipientId}`;
+  return collabSourceKey(event.type, event.entityId, event.eventKey ?? "", recipientId);
+}
+
 export function isUniqueViolation(err: unknown): boolean {
   return (
     !!err &&
@@ -95,7 +106,7 @@ export async function deliverCollabNotification(
   deps: CollabDeliverDeps = defaultCollabDeliverDeps,
 ): Promise<CollabDeliverResult> {
   const result: CollabDeliverResult = { created: [], existing: [], gated: [], failed: [] };
-  const where = `${event.type}:${event.entityId}:${event.eventKey}`;
+  const where = event.sourceKeyPrefix ?? `${event.type}:${event.entityId}:${event.eventKey ?? ""}`;
   let recipients: string[];
   try {
     recipients = await filterCollabRecipients(
@@ -110,7 +121,7 @@ export async function deliverCollabNotification(
 
   const metadata = event.metadata ? JSON.stringify(event.metadata) : null;
   for (const userId of recipients) {
-    const sourceKey = collabSourceKey(event.type, event.entityId, event.eventKey, userId);
+    const sourceKey = eventSourceKey(event, userId);
     try {
       if (!(await deps.shouldDeliver(userId, { type: event.type, priority: event.priority }))) {
         result.gated.push(userId);
