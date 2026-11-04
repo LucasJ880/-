@@ -1,6 +1,8 @@
 /**
  * 协作通知 COLLAB-2：事件通知
  * - 公共部分（design D1、D2）：收件人过滤、去重键、P2002、门禁、失败隔离——数据库与门禁都从参数注入
+ * - 任务三类事件（design D2、D9，spec activity-events）：指派（改派、取消指派、创建时指派）、状态（含批量）、
+ *   评论（排除已被 @ 的人）的收件人、标题、摘要与事件区分键；截止日期按组织时区
  * 运行：npx tsx src/lib/notifications/__tests__/collab-events.test.ts
  */
 
@@ -13,6 +15,17 @@ import {
   type CollabNotificationRow,
 } from "../collab/deliver";
 import { filterCollabRecipients, normalizeCandidates } from "../collab/recipients";
+import {
+  formatLocalDate,
+  taskAssignedEvents,
+  taskCommentEvent,
+  taskStatusEvent,
+  taskSummary,
+  type TaskEventContext,
+  type TaskEventTask,
+} from "../collab/events";
+import { taskCommentMentionEvent } from "../collab/mentions";
+import { REDACTED_TEXT } from "../collab/redact";
 
 let passed = 0;
 let failed = 0;
@@ -36,6 +49,8 @@ interface FakeOpts {
   failCreateFor?: string[];
   failUserLookup?: boolean;
   failGateFor?: string[];
+  /** 收件人都开了"只看高优先级" */
+  onlyHigh?: boolean;
 }
 
 function fakeDeps(opts: FakeOpts = {}) {
@@ -54,8 +69,9 @@ function fakeDeps(opts: FakeOpts = {}) {
       const members = new Set(opts.members?.[orgId] ?? []);
       return ids.filter((id) => members.has(id));
     },
-    async shouldDeliver(userId) {
+    async shouldDeliver(userId, args) {
       if (opts.failGateFor?.includes(userId)) throw new Error("gate boom");
+      if (opts.onlyHigh && args.priority !== "high") return false;
       return !(opts.gateOff ?? []).includes(userId);
     },
     async findBySourceKey(sourceKey) {
@@ -195,6 +211,347 @@ async function main() {
     const { deps, created, errors } = fakeDeps({ members: { O1: ["B", "C"] }, failGateFor: ["B"] });
     const r = await deliverCollabNotification(event({ recipientIds: ["B", "C"] }), deps);
     ok(same(r.failed, ["B"]) && created.length === 1 && errors.length === 1, "门禁判断出错 → 该人跳过并记日志，其他人照写", r);
+  }
+
+  // ── 任务三类事件 ──────────────────────────────────────────────
+  const UPDATED_AT = new Date(1730800000000);
+  // 多伦多 2026-11-05 下午（UTC-5）
+  const DUE = new Date("2026-11-05T20:00:00Z");
+  const task = (over: Partial<TaskEventTask> = {}): TaskEventTask => ({
+    id: "T1",
+    title: "复尺",
+    status: "todo",
+    assigneeId: "C",
+    creatorId: "A",
+    projectId: "P1",
+    dueDate: DUE,
+    updatedAt: UPDATED_AT,
+    ...over,
+  });
+  const ctx = (over: Partial<TaskEventContext> = {}): TaskEventContext => ({
+    actorId: "A",
+    actorName: "张三",
+    orgId: "O1",
+    projectName: "Smith 住宅",
+    ...over,
+  });
+  const TZ = "America/Toronto";
+
+  console.log("任务摘要与截止日期");
+  ok(formatLocalDate(DUE, TZ) === "2026-11-05", "截止日期按组织时区取日期");
+  {
+    // 多伦多 2026-11-05 22:00 = 上海 2026-11-06 11:00
+    const lateEvening = new Date("2026-11-06T03:00:00Z");
+    ok(formatLocalDate(lateEvening, TZ) === "2026-11-05", "多伦多晚上 → 当地日期");
+    ok(formatLocalDate(lateEvening, "Asia/Shanghai") === "2026-11-06", "组织设了上海时区 → 按上海取日期");
+    ok(
+      taskSummary({ projectName: null, dueDate: lateEvening, timeZone: "Asia/Shanghai" }) === "截止 2026-11-06",
+      "摘要里的截止日期也按组织时区",
+    );
+  }
+  ok(
+    taskSummary({ projectName: "Smith 住宅", dueDate: DUE, timeZone: TZ }) === "项目「Smith 住宅」 · 截止 2026-11-05",
+    "有项目和截止时间：两段用 ` · ` 连接",
+  );
+  ok(taskSummary({ projectName: "Smith 住宅", dueDate: null, timeZone: TZ }) === "项目「Smith 住宅」", "只有项目");
+  ok(taskSummary({ projectName: null, dueDate: DUE, timeZone: TZ }) === "截止 2026-11-05", "只有截止时间");
+  ok(taskSummary({ projectName: null, dueDate: null, timeZone: TZ }) === null, "两段都没有 → 摘要为空");
+  ok(
+    taskSummary({ projectName: "王总 13812345678", dueDate: null, timeZone: TZ }) === `项目「${REDACTED_TEXT}」`,
+    "项目名含电话 → 整段替换",
+  );
+
+  console.log("任务指派：改派");
+  {
+    const evs = taskAssignedEvents({
+      kind: "update",
+      beforeAssigneeId: "B",
+      task: task({ assigneeId: "C" }),
+      newAssigneeName: "王五",
+      ctx: ctx(),
+      timeZone: TZ,
+    });
+    ok(evs.length === 2, "新负责人与原负责人各一个事件", evs);
+    const [toNew, toOld] = evs;
+    ok(
+      same(toNew.recipientIds, ["C"]) &&
+        toNew.type === "task_assigned" &&
+        toNew.priority === "high" &&
+        toNew.title === "张三 把任务「复尺」指派给你",
+      "新负责人：high，「{操作人} 把任务「…」指派给你」",
+      toNew,
+    );
+    ok(
+      same(toOld.recipientIds, ["B"]) && toOld.priority === "medium" && toOld.title === "任务「复尺」已改派给 王五",
+      "原负责人：medium，「任务「…」已改派给 {新负责人}」",
+      toOld,
+    );
+    ok(evs.every((e) => e.summary === "项目「Smith 住宅」 · 截止 2026-11-05"), "摘要：项目 · 截止日期", evs.map((e) => e.summary));
+    ok(evs.every((e) => e.eventKey === "1730800000000"), "事件区分键：本次更新时间的毫秒数");
+    ok(
+      evs.every(
+        (e) =>
+          e.entityType === "task" &&
+          e.entityId === "T1" &&
+          e.orgId === "O1" &&
+          e.projectId === "P1" &&
+          e.actorId === "A" &&
+          !e.sourceKeyPrefix,
+      ),
+      "对象为该任务，带组织、项目与操作人",
+    );
+    ok(
+      evs.every((e) => same(e.metadata, { objectLabel: "任务「复尺」", dueAt: DUE.toISOString() })),
+      "metadata：邮件里的对象名与截止时间",
+      evs[0]?.metadata,
+    );
+
+    const { deps, created } = fakeDeps({ members: { O1: ["A", "B", "C"] } });
+    for (const e of evs) await deliverCollabNotification(e, deps);
+    ok(
+      same(created.map((r) => r.sourceKey), ["task_assigned:T1:1730800000000:C", "task_assigned:T1:1730800000000:B"]),
+      "写入：两人各一条，去重键各带收件人",
+      created.map((r) => r.sourceKey),
+    );
+  }
+  {
+    const evs = taskAssignedEvents({
+      kind: "update",
+      beforeAssigneeId: "B",
+      task: task({ assigneeId: null }),
+      newAssigneeName: null,
+      ctx: ctx(),
+      timeZone: TZ,
+    });
+    ok(
+      evs.length === 1 && same(evs[0].recipientIds, ["B"]) && evs[0].priority === "medium" && evs[0].title === "任务「复尺」已取消指派",
+      "取消指派：只通知原负责人「任务「…」已取消指派」",
+      evs,
+    );
+  }
+  {
+    const evs = taskAssignedEvents({
+      kind: "update",
+      beforeAssigneeId: null,
+      task: task({ assigneeId: "C" }),
+      newAssigneeName: "王五",
+      ctx: ctx(),
+      timeZone: TZ,
+    });
+    ok(evs.length === 1 && same(evs[0].recipientIds, ["C"]) && evs[0].priority === "high", "原来没有负责人：只通知新负责人", evs);
+  }
+  ok(
+    taskAssignedEvents({ kind: "update", beforeAssigneeId: "C", task: task({ assigneeId: "C" }), newAssigneeName: "王五", ctx: ctx(), timeZone: TZ }).length === 0,
+    "负责人没变（例如只改了标题）→ 不发",
+  );
+  {
+    const evs = taskAssignedEvents({
+      kind: "update",
+      beforeAssigneeId: "B",
+      task: task({ assigneeId: "C", projectId: null, dueDate: null }),
+      newAssigneeName: "王五",
+      ctx: ctx({ orgId: null, projectName: null }),
+      timeZone: TZ,
+    });
+    ok(evs.length === 2 && evs.every((e) => e.summary === null), "没有项目也没有截止时间 → 指派通知的摘要为空", evs.map((e) => e.summary));
+    ok(evs.every((e) => same(e.metadata, { objectLabel: "任务「复尺」" })), "没有截止时间 → metadata 不带 dueAt");
+  }
+  {
+    const evs = taskAssignedEvents({
+      kind: "update",
+      beforeAssigneeId: "B",
+      task: task({ title: "跟进 $12,000 的订单" }),
+      newAssigneeName: "王五",
+      ctx: ctx(),
+      timeZone: TZ,
+    });
+    ok(evs[0]?.title === `张三 把任务「${REDACTED_TEXT}」指派给你`, "任务标题含金额 → 标题里的任务名整段替换", evs[0]?.title);
+    ok(evs[1]?.title === `任务「${REDACTED_TEXT}」已改派给 王五`, "人名是系统生成的部分，不替换", evs[1]?.title);
+    ok(same(evs[0]?.metadata, { objectLabel: `任务「${REDACTED_TEXT}」`, dueAt: DUE.toISOString() }), "对象名同样脱敏");
+  }
+
+  console.log("任务指派：创建时");
+  {
+    const evs = taskAssignedEvents({
+      kind: "create",
+      beforeAssigneeId: null,
+      task: task({ creatorId: "A", assigneeId: "B" }),
+      newAssigneeName: "李四",
+      ctx: ctx(),
+      timeZone: TZ,
+    });
+    ok(
+      evs.length === 1 && same(evs[0].recipientIds, ["B"]) && evs[0].priority === "high" && evs[0].eventKey === "created",
+      "创建时负责人不是创建人 → 通知负责人，事件区分键为 created",
+      evs,
+    );
+    ok(evs[0]?.title === "张三 把任务「复尺」指派给你", "标题同指派");
+  }
+  ok(
+    taskAssignedEvents({ kind: "create", beforeAssigneeId: null, task: task({ creatorId: "A", assigneeId: "A" }), newAssigneeName: "张三", ctx: ctx(), timeZone: TZ }).length === 0,
+    "创建时负责人是创建人自己 → 不发",
+  );
+  ok(
+    taskAssignedEvents({ kind: "create", beforeAssigneeId: null, task: task({ creatorId: "A", assigneeId: null }), newAssigneeName: null, ctx: ctx(), timeZone: TZ }).length === 0,
+    "创建时没有负责人 → 不发",
+  );
+
+  console.log("任务状态");
+  {
+    const ev = taskStatusEvent({
+      beforeStatus: "todo",
+      task: task({ status: "done", creatorId: "A" }),
+      ctx: ctx({ actorId: "B", actorName: "李四" }),
+      batch: false,
+    });
+    ok(
+      ev !== null &&
+        same(ev.recipientIds, ["A"]) &&
+        ev.type === "task_status" &&
+        ev.priority === "medium" &&
+        ev.title === "任务「复尺」：待办 → 已完成" &&
+        ev.summary === "李四 修改了状态" &&
+        ev.eventKey === "done.1730800000000",
+      "负责人完成任务 → 创建人收到「任务「…」：待办 → 已完成」，事件区分键 {新状态}.{毫秒数}",
+      ev,
+    );
+    ok(ev !== null && same(ev.metadata, { objectLabel: "任务「复尺」", dueAt: DUE.toISOString() }), "metadata 同指派");
+  }
+  ok(
+    taskStatusEvent({ beforeStatus: "done", task: task({ status: "done" }), ctx: ctx({ actorId: "B" }), batch: false }) === null,
+    "状态没变 → 不发",
+  );
+  {
+    const ev = taskStatusEvent({ beforeStatus: "todo", task: task({ status: "weird_state" }), ctx: ctx({ actorId: "B" }), batch: false });
+    ok(ev?.title === "任务「复尺」：待办 → weird_state", "无法识别的状态值原样显示", ev?.title);
+  }
+  {
+    const ev = taskStatusEvent({ beforeStatus: "todo", task: task({ status: "in_progress", creatorId: "A" }), ctx: ctx({ actorId: "A" }), batch: false });
+    const { deps, created } = fakeDeps({ members: { O1: ["A"] } });
+    if (ev) await deliverCollabNotification(ev, deps);
+    ok(ev !== null && created.length === 0, "创建人自己改 → 不写通知");
+  }
+  console.log("任务状态：批量 A/A/B");
+  {
+    const tasks = [
+      task({ id: "T1", creatorId: "A", status: "done" }),
+      task({ id: "T2", creatorId: "A", status: "done" }),
+      task({ id: "T3", creatorId: "B", status: "done" }),
+    ];
+    const evs = tasks
+      .map((t) => taskStatusEvent({ beforeStatus: "todo", task: t, ctx: ctx({ actorId: "C", actorName: "王五" }), batch: true }))
+      .filter((e) => e !== null);
+    ok(evs.length === 3 && evs.every((e) => e.summary === "王五 批量修改了状态"), "批量：摘要「{操作人} 批量修改了状态」");
+    const { deps, created } = fakeDeps({ members: { O1: ["A", "B", "C"] } });
+    for (const e of evs) await deliverCollabNotification(e, deps);
+    ok(
+      created.filter((r) => r.userId === "A").length === 2 && created.filter((r) => r.userId === "B").length === 1,
+      "A 收到两条、B 收到一条",
+      created.map((r) => r.userId),
+    );
+    ok(
+      same(created.map((r) => r.sourceKey), [
+        "task_status:T1:done.1730800000000:A",
+        "task_status:T2:done.1730800000000:A",
+        "task_status:T3:done.1730800000000:B",
+      ]),
+      "每个任务各一个去重键",
+      created.map((r) => r.sourceKey),
+    );
+  }
+
+  console.log("任务评论");
+  const LONG = "一二三四五六七八九十".repeat(12);
+  {
+    const ev = taskCommentEvent({
+      commentId: "CM1",
+      content: "  明早复尺，记得带样品  ",
+      task: task({ creatorId: "A", assigneeId: "B" }),
+      mentionIds: [],
+      ctx: ctx({ actorId: "C", actorName: "王五" }),
+    });
+    ok(
+      same(ev.recipientIds, ["B", "A"]) &&
+        ev.type === "task_comment" &&
+        ev.priority === "medium" &&
+        ev.title === "王五 评论了任务「复尺」" &&
+        ev.summary === "明早复尺，记得带样品" &&
+        ev.eventKey === "CM1",
+      "第三人评论 → 负责人与创建人；摘要去首尾空白；事件区分键为评论 id",
+      ev,
+    );
+    ok(same(ev.metadata, { objectLabel: "任务「复尺」", dueAt: DUE.toISOString() }), "metadata 同指派");
+    const { deps, created } = fakeDeps({ members: { O1: ["A", "B", "C"] } });
+    await deliverCollabNotification(ev, deps);
+    ok(same(created.map((r) => r.sourceKey), ["task_comment:T1:CM1:B", "task_comment:T1:CM1:A"]), "A 与 B 各一条", created.map((r) => r.sourceKey));
+  }
+  {
+    const ev = taskCommentEvent({
+      commentId: "CM2",
+      content: "@李四 明早复尺",
+      task: task({ creatorId: "A", assigneeId: "B" }),
+      mentionIds: ["B"],
+      ctx: ctx({ actorId: "C", actorName: "王五" }),
+    });
+    ok(same(ev.recipientIds, ["A"]), "评论里 @ 了负责人 → 负责人不收评论通知（他收提及通知），创建人照收", ev.recipientIds);
+  }
+  {
+    const ev = taskCommentEvent({
+      commentId: "CM3",
+      content: "收到",
+      task: task({ creatorId: "A", assigneeId: "A" }),
+      mentionIds: [],
+      ctx: ctx({ actorId: "C", actorName: "王五" }),
+    });
+    const { deps, created } = fakeDeps({ members: { O1: ["A", "C"] } });
+    await deliverCollabNotification(ev, deps);
+    ok(created.length === 1 && created[0].userId === "A", "创建人与负责人是同一人 → 只收一条", created);
+  }
+  {
+    const ev = taskCommentEvent({
+      commentId: "CM4",
+      content: "好的",
+      task: task({ creatorId: "A", assigneeId: "B" }),
+      mentionIds: [],
+      ctx: ctx({ actorId: "B", actorName: "李四" }),
+    });
+    const { deps, created } = fakeDeps({ members: { O1: ["A", "B"] } });
+    await deliverCollabNotification(ev, deps);
+    ok(same(created.map((r) => r.userId), ["A"]), "负责人自己评论 → 不收自己的评论通知", created.map((r) => r.userId));
+  }
+  {
+    const ev = taskCommentEvent({ commentId: "CM5", content: LONG, task: task(), mentionIds: [], ctx: ctx({ actorId: "C" }) });
+    ok(ev.summary === LONG.slice(0, 80), "长评论：摘要取前 80 个字符", ev.summary?.length);
+    const sensitive = taskCommentEvent({ commentId: "CM6", content: "客户电话 416-555-0199 记得回", task: task(), mentionIds: [], ctx: ctx({ actorId: "C" }) });
+    ok(sensitive.summary === REDACTED_TEXT, "评论含电话 → 摘要整段替换", sensitive.summary);
+  }
+
+  console.log("门禁：只看高优先级");
+  {
+    const mentionEv = taskCommentMentionEvent({
+      commentId: "CM7",
+      taskId: "T1",
+      taskTitle: "复尺",
+      projectId: "P1",
+      orgId: "O1",
+      actorId: "C",
+      actorName: "王五",
+      content: "@李四 看一下",
+      mentionIds: ["B"],
+      dueAt: DUE,
+    });
+    const commentEv = taskCommentEvent({
+      commentId: "CM8",
+      content: "看一下",
+      task: task({ creatorId: "A", assigneeId: "B" }),
+      mentionIds: [],
+      ctx: ctx({ actorId: "C", actorName: "王五" }),
+    });
+    const { deps, created } = fakeDeps({ members: { O1: ["A", "B", "C"] }, onlyHigh: true });
+    await deliverCollabNotification(mentionEv, deps);
+    const r = await deliverCollabNotification(commentEv, deps);
+    ok(created.length === 1 && created[0].type === "mention" && created[0].userId === "B", "写入 mention（high）", created.map((x) => x.type));
+    ok(same(r.gated, ["B", "A"]), "不写 task_comment（medium）", r);
   }
 
   console.log(`\ncollab-events: ${passed} passed, ${failed} failed`);

@@ -110,7 +110,7 @@
 - 评论接口：`POST /api/tasks/{id}/comments` 先按这条规则校验，不通过返回 404 `任务不存在`。原因：评论现在会给负责人和创建人发通知，不校验的话，任何登录用户都能借评论给任何人发通知。
 - 候选人接口：新增 `GET /api/tasks/{id}/mention-candidates`。
   - 任务属于项目时，取项目所属组织的在职 active 成员，按姓名排序取前 200 人，再逐个按任务查看规则过滤。
-  - 任务没有项目时，只看创建人与负责人。
+  - 任务没有项目时，只看创建人与负责人；项目不属于任何组织时，同样只看这两人。
 - @ 输入：
   - 把 `project-discussion-composer.tsx:58-189` 里的逻辑抽成纯函数，放在 `src/lib/notifications/collab/mention-input.ts`：判断是否触发、按姓名过滤、在光标处插入、按正文算出提交名单。
   - 外面包一个 hook，讨论区与任务评论框共用；`MentionDropdown` 原样复用。
@@ -129,6 +129,7 @@
 | 文件上传 | `POST /api/projects/[id]/files` |
 | 讨论区 @ | `POST /api/projects/[id]/discussion/messages` |
 
+- 任务各接口调 `src/lib/notifications/collab/task-notify.ts`：补齐组织、项目名与组织时区，再交给 D1 的入口；任何一步出错只记日志。批量改状态在改之前先读一次各任务的状态。
 - 被否决：挂在 `transitionTaskStatus` / `applyOrderTransition` 里。批量改状态与 `PUT` 都绕过它们；而且审批执行器、项目交接等 Out of scope 的路径也会跟着发通知。
 - 被否决：用 Prisma 扩展监听写入。拿不到操作人；导入、脚本等所有写入都会发通知。
 

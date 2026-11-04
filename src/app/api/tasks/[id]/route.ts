@@ -10,24 +10,8 @@ import {
   type WorkspacePolicyContext,
 } from "@/lib/rbac/workspace-policy";
 import { transitionTaskStatus } from "@/lib/tasks";
-
-function canAccessTask(
-  task: {
-    projectId: string | null;
-    creatorId: string | null;
-    assigneeId: string | null;
-  },
-  userId: string,
-  visibleIds: string[] | null,
-): boolean {
-  if (visibleIds === null) return true;
-  if (task.creatorId === userId || task.assigneeId === userId) return true;
-  if (task.projectId && visibleIds.includes(task.projectId)) return true;
-  if (!task.projectId) {
-    return task.creatorId === userId || task.assigneeId === userId;
-  }
-  return false;
-}
+import { canAccessTask } from "@/lib/tasks/access";
+import { notifyTaskUpdated } from "@/lib/notifications/collab/task-notify";
 
 function canEditTask(
   task: { creatorId: string | null; assigneeId: string | null },
@@ -247,6 +231,9 @@ export const PATCH = withAuth(async (request, ctx, user) => {
       actorId: user.id,
     },
   });
+
+  // COLLAB-2：按写入前后的负责人与状态发协作通知（design D6）；不向外抛错
+  await notifyTaskUpdated({ before: oldTask, task, actor: user });
 
   let projectProgress = null;
   if (

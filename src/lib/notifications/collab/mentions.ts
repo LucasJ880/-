@@ -11,10 +11,13 @@
 import { db } from "@/lib/db";
 import type { AuthUser } from "@/lib/auth";
 import type { MentionItem } from "@/lib/project-discussion/types";
+import { canUserViewTask, type TaskAccessFields } from "@/lib/tasks/access";
 import type { CollabEvent } from "./deliver";
 import { REDACTED_TEXT, isSensitiveText, redactText } from "./redact";
 
 export const MENTION_MAX = 20;
+/** 任务评论 @ 的候选人上限 */
+export const MENTION_CANDIDATE_MAX = 200;
 export const MENTION_NAME_MAX = 50;
 export const MENTION_SUMMARY_MAX = 80;
 export const MENTION_REPLAY_WINDOW_MS = 10 * 60 * 1000;
@@ -115,10 +118,28 @@ export async function checkMentionRecipients(
   return invalid.length > 0 ? { ok: false, invalidUserIds: invalid } : { ok: true, names };
 }
 
-/** 按 id 加载被 @ 的人（AuthUser 形状，供查看规则使用） */
-export async function loadMentionUsers(ids: string[]): Promise<AuthUser[]> {
-  const rows = await db.user.findMany({ where: { id: { in: ids } } });
-  return rows.map((u) => ({
+const MENTION_USER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  nickname: true,
+  avatar: true,
+  role: true,
+  status: true,
+  canEditCustomers: true,
+} as const;
+
+function toAuthUser(u: {
+  id: string;
+  email: string;
+  name: string;
+  nickname: string | null;
+  avatar: string | null;
+  role: string;
+  status: string;
+  canEditCustomers: boolean | null;
+}): AuthUser {
+  return {
     id: u.id,
     email: u.email,
     name: u.name,
@@ -127,7 +148,69 @@ export async function loadMentionUsers(ids: string[]): Promise<AuthUser[]> {
     role: u.role,
     status: u.status,
     canEditCustomers: u.canEditCustomers ?? true,
-  }));
+  };
+}
+
+/** 按 id 加载被 @ 的人（AuthUser 形状，供查看规则使用） */
+export async function loadMentionUsers(ids: string[]): Promise<AuthUser[]> {
+  const rows = await db.user.findMany({ where: { id: { in: ids } }, select: MENTION_USER_SELECT });
+  return rows.map(toAuthUser);
+}
+
+export interface MentionCandidateItem {
+  userId: string;
+  name: string;
+  avatar: string | null;
+}
+
+/** 逐个按任务查看规则过滤，保持原顺序；每次并发 20 人 */
+async function filterTaskViewers(
+  users: AuthUser[],
+  task: TaskAccessFields,
+): Promise<AuthUser[]> {
+  const out: AuthUser[] = [];
+  for (let i = 0; i < users.length; i += 20) {
+    const chunk = users.slice(i, i + 20);
+    const flags = await Promise.all(chunk.map((u) => canUserViewTask(u, task)));
+    chunk.forEach((u, j) => {
+      if (flags[j]) out.push(u);
+    });
+  }
+  return out;
+}
+
+/**
+ * 任务评论 @ 的候选人（design D5，spec mentions「任务评论 @ 的候选人接口」），不含调用人：
+ * - 任务属于组织的项目：该组织的 active 成员、账号在职，按姓名排序取前 200 人，再逐个按任务查看规则过滤；
+ * - 任务没有项目（或项目不属于组织）：只看创建人与负责人中账号在职、能看到任务的人。
+ */
+export async function listTaskMentionCandidates(
+  task: TaskAccessFields & { orgId: string | null },
+  callerId: string,
+): Promise<MentionCandidateItem[]> {
+  let users: AuthUser[];
+  if (task.projectId && task.orgId) {
+    const rows = await db.organizationMember.findMany({
+      where: {
+        orgId: task.orgId,
+        status: "active",
+        userId: { not: callerId },
+        user: { status: "active" },
+      },
+      select: { user: { select: MENTION_USER_SELECT } },
+      orderBy: { user: { name: "asc" } },
+      take: MENTION_CANDIDATE_MAX,
+    });
+    users = rows.map((r) => toAuthUser(r.user));
+  } else {
+    const ids = [...new Set([task.creatorId, task.assigneeId])].filter(
+      (id): id is string => !!id && id !== callerId,
+    );
+    users = ids.length > 0 ? (await loadMentionUsers(ids)).filter((u) => u.status === "active") : [];
+    users.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const visible = await filterTaskViewers(users, task);
+  return visible.map((u) => ({ userId: u.id, name: u.name, avatar: u.avatar }));
 }
 
 // ── 10 分钟内的重发 ───────────────────────────────────────────

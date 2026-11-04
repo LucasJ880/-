@@ -635,6 +635,7 @@ run_test "协作通知脱敏（COLLAB-2）" "npx tsx src/lib/notifications/__tes
 run_test "协作通知事件与投递入口（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-events.test.ts"
 run_test "通知跳转地址与登录回跳（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/notification-href.test.ts"
 run_test "协作通知 @ 提及（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts"
+run_test "协作通知 @ 输入（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts"
 run_test "协作通知接线（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
