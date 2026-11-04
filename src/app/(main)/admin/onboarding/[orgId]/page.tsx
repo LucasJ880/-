@@ -15,6 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 import { apiJson } from "@/lib/api-fetch";
 import { listIndustryPacks } from "@/lib/industry-packs/registry";
 import type { OnboardingStatus as Status } from "@/lib/organizations/onboarding";
@@ -27,6 +28,7 @@ import {
 import type { OnboardingTestInquiryResult as TestResult } from "@/lib/organizations/onboarding-test-inquiry";
 import { orgRoleLabel, platformRoleLabel } from "@/lib/permissions-client";
 import { cn } from "@/lib/utils";
+import { MembersTable } from "./members-table";
 
 const PACK_OPTIONS = listIndustryPacks().map((p) => ({ id: p.id, name: p.name }));
 
@@ -47,6 +49,9 @@ const INVITE_STATE_LABELS: Record<string, string> = {
 
 /** 入驻向导的步骤顺序（标题取服务端步骤名；就绪检查是最后的汇总页） */
 const STEPPER = ["pack", "categories", "website_channel", "members", "wechat", "test_inquiry", "ready"] as const;
+
+/** COLLAB-1：微信入口开关关闭时，未完成的微信步骤在步骤条上的说明（替换服务端的"再让其绑定微信"） */
+const WECHAT_NOT_OPEN_DETAIL = "微信绑定暂未开放，勾选「暂不绑定微信」即可完成本步";
 
 function StatusIcon({ status }: { status: StepStatus | "ready" | "not_ready" }) {
   if (status === "done" || status === "ready") return <CheckCircle2 size={18} className="text-emerald-600" />;
@@ -84,6 +89,7 @@ const primaryBtn =
 export default function FactoryOnboardingDetailPage() {
   const params = useParams<{ orgId: string }>();
   const orgId = params.orgId;
+  const wechatEnabled = useWechatEntryEnabled();
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -440,19 +446,25 @@ export default function FactoryOnboardingDetailPage() {
                 ))}
               </ul>
             )}
-            <MembersTable members={status.members} />
+            <MembersTable members={status.members} showWechat={wechatEnabled} />
           </div>
         );
       case "wechat":
         return (
           <div className="space-y-3">
-            <p className="text-xs text-muted">
-              业务员登录后到「设置 → 微信」（/settings/wechat）扫码绑定，新询盘、审批待办才能推到微信。下表实时读取绑定记录。
-            </p>
-            {salesMembers.length === 0 ? (
-              <p className="text-xs text-muted">还没有外贸 / 销售角色的成员。</p>
+            {wechatEnabled ? (
+              <>
+                <p className="text-xs text-muted">
+                  业务员登录后到「设置 → 微信」（/settings/wechat）扫码绑定，新询盘、审批待办才能推到微信。下表实时读取绑定记录。
+                </p>
+                {salesMembers.length === 0 ? (
+                  <p className="text-xs text-muted">还没有外贸 / 销售角色的成员。</p>
+                ) : (
+                  <MembersTable members={salesMembers} showWechat />
+                )}
+              </>
             ) : (
-              <MembersTable members={salesMembers} />
+              <p className="text-xs text-muted">微信绑定暂未开放。</p>
             )}
             <label className="inline-flex items-center gap-2 text-xs text-muted">
               <input
@@ -644,6 +656,8 @@ export default function FactoryOnboardingDetailPage() {
           const st = key === "ready" ? null : stepByKey.get(key);
           const iconStatus = key === "ready" ? (status.ready ? "ready" : "not_ready") : st?.status ?? "todo";
           const expanded = open === key;
+          // COLLAB-1：微信入口开关关闭时，未完成的微信步骤不再提示"去绑定微信"
+          const detail = key === "wechat" && !wechatEnabled && st && !isStepDone(st) ? WECHAT_NOT_OPEN_DETAIL : st?.detail;
           return (
             <li key={key} className={cn("rounded-xl border bg-card-bg", expanded ? "border-accent/40" : "border-border")}>
               <button
@@ -659,7 +673,7 @@ export default function FactoryOnboardingDetailPage() {
                   <span className="min-w-0">
                     <span className="block text-sm font-medium">{key === "ready" ? "就绪检查" : st?.label}</span>
                     <span className="block truncate text-xs text-muted">
-                      {key === "ready" ? (status.ready ? "全部必做步骤已完成" : "查看还差哪些步骤") : st?.detail}
+                      {key === "ready" ? (status.ready ? "全部必做步骤已完成" : "查看还差哪些步骤") : detail}
                     </span>
                   </span>
                 </span>
@@ -670,45 +684,6 @@ export default function FactoryOnboardingDetailPage() {
           );
         })}
       </ol>
-    </div>
-  );
-}
-
-function MembersTable({ members }: { members: Status["members"] }) {
-  if (!members.length) return null;
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[520px] text-xs">
-        <thead className="bg-background/60 text-muted">
-          <tr>
-            <th className="px-3 py-2 text-left font-medium">成员</th>
-            <th className="px-3 py-2 text-left font-medium">平台角色</th>
-            <th className="px-3 py-2 text-left font-medium">企业角色</th>
-            <th className="px-3 py-2 text-left font-medium">微信</th>
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((m) => (
-            <tr key={m.userId} className="border-t border-border/60">
-              <td className="px-3 py-2">
-                {m.name}
-                <span className="ml-2 text-muted">{m.email}</span>
-              </td>
-              <td className="px-3 py-2">{platformRoleLabel(m.platformRole)}</td>
-              <td className="px-3 py-2">{orgRoleLabel(m.orgRole)}</td>
-              <td className="px-3 py-2">
-                {m.wechatBound ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-600">
-                    <CheckCircle2 size={12} /> 已绑定
-                  </span>
-                ) : (
-                  <span className="text-muted">未绑定</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

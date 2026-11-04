@@ -27,6 +27,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { CoBrand } from "@/components/co-brand";
 import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 import { isPlatformAdmin as checkPlatformAdmin } from "@/lib/permissions-client";
+import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -123,6 +124,7 @@ export function MobileNavDrawer({
 
   const platformRole = user?.role ?? "user";
   const isPlatformAdmin = checkPlatformAdmin(platformRole);
+  const wechatEntryEnabled = useWechatEntryEnabled();
 
   const ctx: NavigationFilterContext = useMemo(
     () => ({
@@ -143,6 +145,7 @@ export function MobileNavDrawer({
       permissionKeys,
       positionMode,
       autopilotAllowed: user?.autopilotAllowed === true,
+      wechatEntryEnabled,
     }),
     [
       pathname,
@@ -159,6 +162,7 @@ export function MobileNavDrawer({
       organizations,
       storedOrgId,
       user?.autopilotAllowed,
+      wechatEntryEnabled,
     ],
   );
 

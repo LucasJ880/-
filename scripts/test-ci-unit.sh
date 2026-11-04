@@ -369,6 +369,10 @@ npx tsx src/lib/revenue-spine/__tests__/followup-preferences.test.ts
 npx tsx src/lib/proactive/__tests__/manager-notify.test.ts
 # fix-gcal-push-calendar-id：Google 日历写路径取已选日历列表第一项
 npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
+# 协作通知 COLLAB-1（openspec change hide-wechat-entry）：微信入口开关——纯函数 + 服务端静态渲染 + 源码断言，无 DB
+npx tsx src/lib/messaging/__tests__/wechat-entry-flag.test.ts
+npx tsx src/components/wechat-entry/__tests__/wechat-entry-render.test.tsx
+npx tsx src/lib/navigation/__tests__/wechat-entry-nav.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

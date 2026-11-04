@@ -32,6 +32,7 @@ import {
   type ResolvedNavItem,
 } from "@/lib/navigation";
 import { partitionTradeNav, usesTradeLayout } from "@/lib/navigation/trade-layout";
+import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 
 const TRADE_MORE_STORAGE_KEY = "qingyan-sidebar-trade-more";
 
@@ -350,6 +351,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     }
   }, [pathname]);
 
+  const wechatEntryEnabled = useWechatEntryEnabled();
+
   const filterCtx: NavigationFilterContext = useMemo(
     () => ({
       pathname,
@@ -364,6 +367,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       permissionKeys,
       positionMode,
       autopilotAllowed: user?.autopilotAllowed === true,
+      wechatEntryEnabled,
     }),
     [
       pathname,
@@ -378,6 +382,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       permissionKeys,
       positionMode,
       user?.autopilotAllowed,
+      wechatEntryEnabled,
     ],
   );
 

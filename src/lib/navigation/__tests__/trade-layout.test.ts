@@ -32,6 +32,8 @@ const ctx: NavigationFilterContext = {
     enabled: ["trade", "product_content", "supply_chain", "sales", "marketing", "operations"],
   },
   isPlatformAdmin: false,
+  // COLLAB-1：按微信入口开关打开时分区（关闭时没有 /wechat，见 wechat-entry-nav.test.ts）
+  wechatEntryEnabled: true,
 };
 const tree = resolveNavigationTree(NAVIGATION_REGISTRY, ctx);
 const { primary, secondary } = partitionTradeNav(tree);
