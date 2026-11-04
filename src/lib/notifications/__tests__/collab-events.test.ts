@@ -3,6 +3,8 @@
  * - 公共部分（design D1、D2）：收件人过滤、去重键、P2002、门禁、失败隔离——数据库与门禁都从参数注入
  * - 任务三类事件（design D2、D9，spec activity-events）：指派（改派、取消指派、创建时指派）、状态（含批量）、
  *   评论（排除已被 @ 的人）的收件人、标题、摘要与事件区分键；截止日期按组织时区
+ * - 工艺单阶段（design D7）：四个阶段的标题、摘要与事件区分键；下一阶段负责角色按品类键或 install.task.assign 取人
+ * - 项目文件上传（design D8）：标题、摘要（前 3 个文件名）、事件区分键与收件人
  * 运行：npx tsx src/lib/notifications/__tests__/collab-events.test.ts
  */
 
@@ -14,13 +16,22 @@ import {
   type CollabEvent,
   type CollabNotificationRow,
 } from "../collab/deliver";
-import { filterCollabRecipients, normalizeCandidates } from "../collab/recipients";
+import {
+  filterCollabRecipients,
+  nextStageRoleKeys,
+  normalizeCandidates,
+  orderStageRecipients,
+  projectFileRecipients,
+} from "../collab/recipients";
 import {
   formatLocalDate,
+  orderStageEvent,
+  projectFilesEvent,
   taskAssignedEvents,
   taskCommentEvent,
   taskStatusEvent,
   taskSummary,
+  type OrderEventOrder,
   type TaskEventContext,
   type TaskEventTask,
 } from "../collab/events";
@@ -552,6 +563,228 @@ async function main() {
     const r = await deliverCollabNotification(commentEv, deps);
     ok(created.length === 1 && created[0].type === "mention" && created[0].userId === "B", "写入 mention（high）", created.map((x) => x.type));
     ok(same(r.gated, ["B", "A"]), "不写 task_comment（medium）", r);
+  }
+
+  // ── 工艺单阶段 ────────────────────────────────────────────────
+  const order = (over: Partial<OrderEventOrder> = {}): OrderEventOrder => ({
+    id: "B1",
+    code: "BO-2026-0012",
+    status: "confirmed",
+    projectId: "P1",
+    updatedAt: UPDATED_AT,
+    expectedInstallDate: null,
+    installDate: null,
+    ...over,
+  });
+  const orderCtx = { actorId: "A", actorName: "张三", orgId: "O1" };
+
+  console.log("工艺单阶段：标题、摘要与事件区分键");
+  {
+    const stages: Array<[string, string, string]> = [
+      ["draft", "confirmed", "已确认"],
+      ["confirmed", "in_production", "开始生产"],
+      ["in_production", "ready", "备货完成"],
+    ];
+    for (const [from, to, label] of stages) {
+      const ev = orderStageEvent({ beforeStatus: from, order: order({ status: to }), recipientIds: ["C"], ctx: orderCtx, timeZone: TZ });
+      ok(
+        ev !== null &&
+          ev.type === "order_stage" &&
+          ev.priority === "medium" &&
+          ev.title === `工艺单 BO-2026-0012：${label}` &&
+          ev.summary === `张三 推进到「${label}」` &&
+          ev.eventKey === `${to}.1730800000000`,
+        `${from} → ${to}：「工艺单 {编号}：${label}」`,
+        ev,
+      );
+    }
+    const ev = orderStageEvent({ beforeStatus: "draft", order: order(), recipientIds: ["C", "D"], ctx: orderCtx, timeZone: TZ });
+    ok(
+      ev !== null &&
+        ev.entityType === "blinds_order" &&
+        ev.entityId === "B1" &&
+        ev.orgId === "O1" &&
+        ev.projectId === "P1" &&
+        ev.actorId === "A" &&
+        same(ev.recipientIds, ["C", "D"]) &&
+        same(ev.metadata, { objectLabel: "工艺单 BO-2026-0012" }),
+      "对象为该工艺单；metadata 带邮件里的对象名",
+      ev,
+    );
+  }
+  {
+    // 多伦多 2026-11-05 20:00 = UTC 2026-11-06 01:00；工艺单上的 installDate 存的是 UTC 日期
+    const ev = orderStageEvent({
+      beforeStatus: "ready",
+      order: order({ status: "scheduled", expectedInstallDate: new Date("2026-11-06T01:00:00Z"), installDate: "2026-11-06" }),
+      recipientIds: ["C"],
+      ctx: orderCtx,
+      timeZone: TZ,
+    });
+    ok(
+      ev?.title === "工艺单 BO-2026-0012：已排期" && ev.summary === "张三 推进到「已排期」 · 安装日期 2026-11-05",
+      "已排期：摘要带安装日期（按组织时区取日期）",
+      ev,
+    );
+    const legacy = orderStageEvent({
+      beforeStatus: "ready",
+      order: order({ status: "scheduled", installDate: "2026-11-07" }),
+      recipientIds: ["C"],
+      ctx: orderCtx,
+      timeZone: TZ,
+    });
+    ok(legacy?.summary === "张三 推进到「已排期」 · 安装日期 2026-11-07", "没有预约时间时用工艺单上的安装日期", legacy?.summary);
+    const none = orderStageEvent({ beforeStatus: "ready", order: order({ status: "scheduled" }), recipientIds: ["C"], ctx: orderCtx, timeZone: TZ });
+    ok(none?.summary === "张三 推进到「已排期」", "没有安装日期 → 不加这一段", none?.summary);
+  }
+  for (const [from, to] of [["scheduled", "installed"], ["installed", "completed"], ["ready", "cancelled"], ["confirmed", "draft"], ["confirmed", "confirmed"]]) {
+    ok(
+      orderStageEvent({ beforeStatus: from, order: order({ status: to }), recipientIds: ["C"], ctx: orderCtx, timeZone: TZ }) === null,
+      `${from} → ${to}：不发`,
+    );
+  }
+
+  console.log("工艺单阶段：下一阶段负责角色");
+  {
+    const holders: Record<string, string[]> = {
+      "orders.fulfillment.update.drapery": ["DR"],
+      "orders.fulfillment.update.shades": ["SH", "DR"],
+      "orders.fulfillment.update.vinyl": ["VI"],
+      "orders.fulfillment.update": ["OWNER"],
+      "install.task.assign": ["OPS1", "OPS2"],
+    };
+    const calls: string[] = [];
+    const deps = {
+      async listUsersWithPermission(orgId: string, key: string) {
+        calls.push(`${orgId}:${key}`);
+        return holders[key] ?? [];
+      },
+    };
+    ok(
+      same(nextStageRoleKeys("confirmed", ["drapery", "shades"]), ["orders.fulfillment.update.drapery", "orders.fulfillment.update.shades"]),
+      "已确认：取该单各品类的履约推进键",
+    );
+    ok(same(nextStageRoleKeys("in_production", ["vinyl"]), ["orders.fulfillment.update.vinyl"]), "开始生产：同样按品类键");
+    ok(same(nextStageRoleKeys("ready", ["vinyl"]), ["install.task.assign"]) && same(nextStageRoleKeys("scheduled", []), ["install.task.assign"]), "备货完成 / 已排期：install.task.assign");
+    ok(nextStageRoleKeys("installed", ["vinyl"]).length === 0, "其他状态：没有负责角色");
+
+    const mixed = await orderStageRecipients(
+      { toStatus: "confirmed", creatorId: "CR", opportunityOwnerId: "OPP", orgId: "O1", categories: ["drapery", "shades"] },
+      deps,
+    );
+    ok(same(mixed, ["CR", "OPP", "DR", "SH"]), "窗帘与卷帘混合单被确认 → 创建人、商机负责人、两位品类负责人（去重）", mixed);
+    ok(!mixed.includes("OWNER") && !calls.some((c) => c.endsWith(":orders.fulfillment.update")), "只持全品类键的人不因这条规则收到（也不查全品类键）", calls);
+
+    calls.length = 0;
+    const ready = await orderStageRecipients(
+      { toStatus: "ready", creatorId: "CR", opportunityOwnerId: null, orgId: "O1", categories: ["vinyl"] },
+      deps,
+    );
+    ok(same(ready, ["CR", "OPS1", "OPS2"]), "备货完成：持 install.task.assign 的人；没有商机时不含商机负责人", ready);
+    ok(same(calls, ["O1:install.task.assign"]), "按工艺单所属组织取人");
+
+    calls.length = 0;
+    const noOrg = await orderStageRecipients(
+      { toStatus: "confirmed", creatorId: "CR", opportunityOwnerId: "OPP", orgId: null, categories: ["vinyl"] },
+      deps,
+    );
+    ok(same(noOrg, ["CR", "OPP"]) && calls.length === 0, "工艺单没有所属组织 → 只通知创建人与商机负责人", noOrg);
+
+    const none = await orderStageRecipients(
+      { toStatus: "confirmed", creatorId: "CR", opportunityOwnerId: null, orgId: "O1", categories: [] },
+      deps,
+    );
+    ok(same(none, ["CR"]), "没有可判定的品类 → 不加品类负责人", none);
+
+    // 排期负责人 OPS1 自己把单转为已排期：其他持排期权限的人、创建人、商机负责人各一条，操作人不收
+    const recipients = await orderStageRecipients(
+      { toStatus: "scheduled", creatorId: "CR", opportunityOwnerId: "OPP", orgId: "O1", categories: ["vinyl"] },
+      deps,
+    );
+    const ev = orderStageEvent({
+      beforeStatus: "ready",
+      order: order({ status: "scheduled", installDate: "2026-11-07" }),
+      recipientIds: recipients,
+      ctx: { actorId: "OPS1", actorName: "运营一", orgId: "O1" },
+      timeZone: TZ,
+    });
+    const fake = fakeDeps({ members: { O1: ["CR", "OPP", "OPS1", "OPS2"] } });
+    if (ev) await deliverCollabNotification(ev, fake.deps);
+    ok(same(fake.created.map((r) => r.userId), ["CR", "OPP", "OPS2"]), "备货完成转已排期：操作人不收", fake.created.map((r) => r.userId));
+    ok(fake.created.every((r) => r.sourceKey.startsWith("order_stage:B1:scheduled.1730800000000:")), "去重键 order_stage:<单 id>:<新状态>.<毫秒数>:<收件人>");
+  }
+
+  console.log("项目文件上传");
+  {
+    const ev = projectFilesEvent({
+      projectId: "P1",
+      projectName: "Smith 住宅",
+      orgId: "O1",
+      actorId: "A",
+      actorName: "张三",
+      documents: [
+        { id: "D1", title: "复尺.pdf" },
+        { id: "D2", title: "效果图.png" },
+      ],
+      recipientIds: ["B", "A"],
+    });
+    ok(
+      ev !== null &&
+        ev.type === "project_update" &&
+        ev.priority === "medium" &&
+        ev.title === "张三 在项目「Smith 住宅」上传了 2 个文件" &&
+        ev.summary === "复尺.pdf、效果图.png" &&
+        ev.entityType === "project_files" &&
+        ev.entityId === "P1" &&
+        ev.projectId === "P1" &&
+        ev.orgId === "O1" &&
+        ev.eventKey === "upload.D1" &&
+        same(ev.metadata, { objectLabel: "项目「Smith 住宅」文件" }),
+      "上传两个文件：标题、摘要、对象与事件区分键 upload.{第一个文档 id}",
+      ev,
+    );
+    const fake = fakeDeps({ members: { O1: ["A", "B"] } });
+    if (ev) await deliverCollabNotification(ev, fake.deps);
+    ok(same(fake.created.map((r) => r.userId), ["B"]), "上传人不收", fake.created.map((r) => r.userId));
+  }
+  {
+    const ev = projectFilesEvent({
+      projectId: "P1",
+      projectName: "Smith 住宅",
+      orgId: "O1",
+      actorId: "A",
+      actorName: "张三",
+      documents: [
+        { id: "D1", title: "一.pdf" },
+        { id: "D2", title: "王总 13812345678.pdf" },
+        { id: "D3", title: "三.pdf" },
+        { id: "D4", title: "四.pdf" },
+      ],
+      recipientIds: ["B"],
+    });
+    ok(ev?.title === "张三 在项目「Smith 住宅」上传了 4 个文件", "N 为本次上传的文件数", ev?.title);
+    ok(ev?.summary === `一.pdf、${REDACTED_TEXT}、三.pdf 等`, "摘要取前 3 个文件名，超过 3 个加「 等」；含敏感内容的文件名整段替换", ev?.summary);
+  }
+  {
+    const ev = projectFilesEvent({
+      projectId: "P1",
+      projectName: "报价 $12,000",
+      orgId: null,
+      actorId: "A",
+      actorName: "张三",
+      documents: [{ id: "D9", title: "a.pdf" }],
+      recipientIds: ["B"],
+    });
+    ok(ev?.title === `张三 在项目「${REDACTED_TEXT}」上传了 1 个文件`, "项目名含金额 → 整段替换", ev?.title);
+  }
+  ok(
+    projectFilesEvent({ projectId: "P1", projectName: "X", orgId: null, actorId: "A", actorName: "张三", documents: [], recipientIds: ["B"] }) === null,
+    "没有上传成功的文件 → 不发",
+  );
+  {
+    const deps = { async findActiveProjectMemberIds() { return ["A", "B", "C"]; } };
+    ok(same(await projectFileRecipients({ projectId: "P1", ownerId: "O" }, deps), ["A", "B", "C", "O"]), "收件人：active 项目成员与项目负责人");
+    ok(same(await projectFileRecipients({ projectId: "P1", ownerId: "B" }, deps), ["A", "B", "C"]), "负责人也是成员 → 只算一次");
   }
 
   console.log(`\ncollab-events: ${passed} passed, ${failed} failed`);

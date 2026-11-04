@@ -1,8 +1,9 @@
 /**
- * 协作通知 COLLAB-2：任务事件的文案与收件人（design D2、D9，spec notifications/activity-events）
+ * 协作通知 COLLAB-2：任务、工艺单与项目文件事件的文案（design D2、D7–D9，spec notifications/activity-events）
  *
  * 纯函数：写通知时一次算好标题、摘要、事件区分键与 metadata（objectLabel、dueAt），交给 deliver.ts。
- * - 用户输入的文字（任务标题、项目名、评论正文）命中敏感内容时整段替换；人名、状态名、日期不替换。
+ * - 用户输入的文字（任务标题、项目名、评论正文、文件名）命中敏感内容时整段替换；
+ *   人名、状态名、阶段名、工艺单编号、日期不替换。
  * - 截止日期按任务所属组织的时区取日期（由调用方传入，缺省 America/Toronto）。
  * - 操作人、离职者与非组织成员由 deliver.ts 统一过滤，这里只给出候选收件人。
  */
@@ -192,5 +193,107 @@ export function taskCommentEvent(input: {
       (id): id is string => !!id && !mentioned.has(id),
     ),
     metadata: taskMetadata(task),
+  };
+}
+
+// ── 工艺单阶段 ────────────────────────────────────────────────
+
+/** 发 order_stage 的四个阶段与通知里的阶段名（spec「工艺单阶段通知」） */
+export const ORDER_STAGE_LABELS: Readonly<Record<string, string>> = {
+  confirmed: "已确认",
+  in_production: "开始生产",
+  ready: "备货完成",
+  scheduled: "已排期",
+};
+
+export function isOrderStage(status: string): boolean {
+  return Object.prototype.hasOwnProperty.call(ORDER_STAGE_LABELS, status);
+}
+
+/** 写入后的工艺单 */
+export interface OrderEventOrder {
+  id: string;
+  code: string;
+  status: string;
+  projectId: string | null;
+  updatedAt: Date;
+  /** 安装预约时间（安排安装时写入） */
+  expectedInstallDate: Date | null;
+  /** 工艺单上的安装日期文本（YYYY-MM-DD） */
+  installDate: string | null;
+}
+
+/** 安装日期：有预约时间时按组织时区取日期，否则用工艺单上的日期文本 */
+function orderInstallDate(order: OrderEventOrder, timeZone: string): string | null {
+  if (order.expectedInstallDate) return formatLocalDate(order.expectedInstallDate, timeZone);
+  const text = order.installDate?.trim() ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+/** 状态变为四个阶段之一且与原状态不同时返回事件；其他情况返回 null */
+export function orderStageEvent(input: {
+  beforeStatus: string;
+  order: OrderEventOrder;
+  /** 创建人、商机负责人与下一阶段负责角色（recipients.ts 算好） */
+  recipientIds: ReadonlyArray<string | null | undefined>;
+  ctx: { actorId: string; actorName: string; orgId: string | null };
+  timeZone: string;
+}): CollabEvent | null {
+  const { order, ctx } = input;
+  if (input.beforeStatus === order.status || !isOrderStage(order.status)) return null;
+  const stage = ORDER_STAGE_LABELS[order.status];
+  const installDate = order.status === "scheduled" ? orderInstallDate(order, input.timeZone) : null;
+  return {
+    type: "order_stage",
+    priority: "medium",
+    title: `工艺单 ${order.code}：${stage}`,
+    summary: `${ctx.actorName} 推进到「${stage}」${installDate ? ` · 安装日期 ${installDate}` : ""}`,
+    entityType: "blinds_order",
+    entityId: order.id,
+    eventKey: `${order.status}.${order.updatedAt.getTime()}`,
+    orgId: ctx.orgId,
+    projectId: order.projectId,
+    actorId: ctx.actorId,
+    recipientIds: input.recipientIds,
+    metadata: { objectLabel: `工艺单 ${order.code}` },
+  };
+}
+
+// ── 项目文件上传 ──────────────────────────────────────────────
+
+const UPLOAD_SUMMARY_FILES = 3;
+
+/** 一次上传请求一条 project_update；没有上传成功的文件时返回 null */
+export function projectFilesEvent(input: {
+  projectId: string;
+  projectName: string;
+  orgId: string | null;
+  actorId: string;
+  actorName: string;
+  /** 本次上传成功的文档，按上传顺序 */
+  documents: ReadonlyArray<{ id: string; title: string }>;
+  /** active 项目成员与项目负责人（recipients.ts 算好） */
+  recipientIds: ReadonlyArray<string | null | undefined>;
+}): CollabEvent | null {
+  const { documents } = input;
+  if (documents.length === 0) return null;
+  const names = documents
+    .slice(0, UPLOAD_SUMMARY_FILES)
+    .map((d) => redactText(d.title))
+    .join("、");
+  const project = `项目「${redactText(input.projectName)}」`;
+  return {
+    type: "project_update",
+    priority: "medium",
+    title: `${input.actorName} 在${project}上传了 ${documents.length} 个文件`,
+    summary: documents.length > UPLOAD_SUMMARY_FILES ? `${names} 等` : names,
+    entityType: "project_files",
+    entityId: input.projectId,
+    eventKey: `upload.${documents[0].id}`,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    actorId: input.actorId,
+    recipientIds: input.recipientIds,
+    metadata: { objectLabel: `${project}文件` },
   };
 }

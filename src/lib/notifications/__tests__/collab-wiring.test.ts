@@ -6,6 +6,7 @@
  * - 任务：查看规则移到 src/lib/tasks/access.ts；创建、编辑、批量改状态在写库之后通知；
  *   评论先做 404 校验、@ 校验在创建之前、锁与查重在同一个事务里、写 comment.mentioned 活动记录；
  *   @ 候选人接口做 404 校验
+ * - 工艺单：/transition 与 PUT 在事务提交之后按前后状态通知；文件上传在上传成功之后通知
  * - 新文件不导入 LLM 客户端，也不导入 EmailProvider
  * 运行：npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
  */
@@ -148,6 +149,64 @@ console.log("任务接线：@ 候选人");
   ok(/task\.creatorId, task\.assigneeId/.test(list), "没有项目的任务：只看创建人与负责人");
 }
 
+console.log("工艺单接线");
+{
+  const notify = read("src/lib/notifications/collab/order-notify.ts");
+  const fn = block(notify, "export async function notifyOrderStageChanged(");
+  ok(fn.length > 0, "order-notify 导出 notifyOrderStageChanged");
+  ok(/try \{[\s\S]*\} catch \(err\) \{[\s\S]*console\.error\(/.test(fn), "notifyOrderStageChanged：出错只记日志，不向外抛");
+  ok(/blindsOrderAccess\(order\.id, actor\)/.test(fn), "组织与品类取自工艺单访问判断（写入之后重算）");
+  ok(inOrder(fn, ["orderStageRecipients(", "orderStageEvent(", "deliverCollabNotification("]), "取人 → 算事件 → 交给统一投递入口");
+
+  const recipients = read("src/lib/notifications/collab/recipients.ts");
+  const keys = block(recipients, "export function nextStageRoleKeys(");
+  ok(/categories\.map\(updateKeyFor\)/.test(keys) && /"install\.task\.assign"/.test(keys), "下一阶段负责角色：品类键与 install.task.assign");
+  ok(!/FULFILLMENT_UMBRELLA_KEY|"orders\.fulfillment\.update"/.test(recipients), "不按全品类键取人");
+  ok(/listUsersWithPermission/.test(recipients), "取人用 listUsersWithPermission");
+
+  const transition = block(read("src/app/api/blinds-orders/[id]/transition/route.ts"), "export const POST");
+  ok(
+    inOrder(transition, [
+      "applyOrderTransition(tx, cur, toStatus, user.id",
+      "fromStatus: cur.status",
+      "if (!result.ok) return result.res;",
+      "await notifyOrderStageChanged({ beforeStatus: result.fromStatus, order: result.updated, actor: user })",
+      "return NextResponse.json({ order: result.updated })",
+    ]),
+    "POST /transition：事务提交之后按前后状态通知，再返回原响应",
+  );
+
+  const put = block(read("src/app/api/blinds-orders/[id]/route.ts"), "export const PUT");
+  ok(
+    inOrder(put, [
+      "tx.blindsOrder.update(",
+      "fromStatus: current.status",
+      "if (!result.ok) return result.res;",
+      "await notifyOrderStageChanged({ beforeStatus: result.fromStatus, order, actor: user })",
+      "return NextResponse.json(order)",
+    ]),
+    "PUT /api/blinds-orders/[id]：事务提交之后按前后状态通知，再返回原响应",
+  );
+}
+
+console.log("项目文件上传接线");
+{
+  const notify = read("src/lib/notifications/collab/files-notify.ts");
+  const fn = block(notify, "export async function notifyProjectFilesUploaded(");
+  ok(fn.length > 0, "files-notify 导出 notifyProjectFilesUploaded");
+  ok(/try \{[\s\S]*\} catch \(err\) \{[\s\S]*console\.error\(/.test(fn), "notifyProjectFilesUploaded：出错只记日志，不向外抛");
+  ok(inOrder(fn, ["projectFileRecipients(", "projectFilesEvent(", "deliverCollabNotification("]), "取人 → 算事件 → 交给统一投递入口");
+
+  const recipients = read("src/lib/notifications/collab/recipients.ts");
+  ok(/projectMember\.findMany\(\{\s*where: \{ projectId, status: "active" \}/.test(recipients), "项目成员只取 active");
+
+  const post = block(read("src/app/api/projects/[id]/files/route.ts"), "export async function POST");
+  const successStart = post.indexOf("if (results.length > 0) {");
+  const success = post.slice(successStart, post.indexOf("return NextResponse.json(", successStart));
+  ok(inOrder(post, ["db.projectDocument.create(", "results.push(", "if (results.length > 0) {", "await notifyProjectFilesUploaded(", "return NextResponse.json("]), "POST /api/projects/[id]/files：上传成功之后通知，再返回原响应");
+  ok(/await notifyProjectFilesUploaded\(\{\s*project,\s*documents: results,\s*actor: user,?\s*\}\)/.test(success), "只在有文件上传成功时通知，带本次上传的文档");
+}
+
 console.log("新文件不导入 LLM 客户端与对外邮件通道");
 {
   const files = [
@@ -158,6 +217,8 @@ console.log("新文件不导入 LLM 客户端与对外邮件通道");
     "src/lib/notifications/collab/events.ts",
     "src/lib/notifications/collab/mention-input.ts",
     "src/lib/notifications/collab/task-notify.ts",
+    "src/lib/notifications/collab/order-notify.ts",
+    "src/lib/notifications/collab/files-notify.ts",
     "src/lib/tasks/access.ts",
     "src/app/api/tasks/[id]/mention-candidates/route.ts",
   ];

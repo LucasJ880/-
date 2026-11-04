@@ -6,6 +6,7 @@ import { itemCreateData, loadProcessSpec, lockOrderSpec, orderIssues } from "@/l
 import { blockingIssues } from "@/lib/sunny-process/issues";
 import { blindsOrderAccess } from "@/lib/sunny-process/server";
 import type { OrderAccess } from "@/lib/fulfillment/service";
+import { notifyOrderStageChanged } from "@/lib/notifications/collab/order-notify";
 
 const notFound = () => NextResponse.json({ error: "工艺单不存在" }, { status: 404 });
 const forbiddenEdit = (access: OrderAccess) =>
@@ -146,10 +147,13 @@ export const PUT = withAuth(async (request, ctx, user) => {
         project: { select: { id: true, name: true, color: true } },
       },
     });
-    return { ok: true as const, order };
+    return { ok: true as const, order, fromStatus: current.status };
   });
   if (!result.ok) return result.res;
   const order = result.order;
+
+  // COLLAB-2：详情页"确认工艺单"等走这里改状态；提交之后按前后状态发工艺单阶段通知（design D6）；不向外抛错
+  await notifyOrderStageChanged({ beforeStatus: result.fromStatus, order, actor: user });
 
   return NextResponse.json(order);
 });
