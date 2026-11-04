@@ -637,6 +637,7 @@ run_test "通知跳转地址与登录回跳（COLLAB-2）" "npx tsx src/lib/noti
 run_test "协作通知 @ 提及（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts"
 run_test "协作通知 @ 输入（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts"
 run_test "协作通知接线（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts"
+run_test "未读升级邮件（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

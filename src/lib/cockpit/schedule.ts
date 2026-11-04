@@ -44,6 +44,7 @@ export const AUTOMATION_SCHEDULES: Record<AutomationKey, AutomationSchedule> = {
   // 同一个 sales-actions 定时任务里各自 runTrackedAutomation，每次触发都记录（含 skipped）
   "muse-reminder-scan": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
   "calendar-watch": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
+  "notify-email-escalation": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
   "revenue-spine-sync": { kind: "cron", route: "/api/cron/revenue-spine", cron: "*/15 * * * *" },
   "wechat-push": { kind: "local_hours", route: "/api/cron/wechat-push", cron: "30 * * * *", hours: [7], timezone: "org" },
   "progress-summary": { kind: "cron", route: "/api/cron/progress-summary", cron: "0 10 * * *" },

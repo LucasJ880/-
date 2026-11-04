@@ -200,6 +200,10 @@
 - 挂点：`sales-actions` 路由的最后一步，即 `runTrackedAutomation("notify-email-escalation", …)`，自带 `.catch`。截止时刻为路由开始后 285 秒（`maxDuration` 是 300）；单轮最多 100 封。
 - 候选：类型为 `mention` 或 `task_assigned`、状态未读、创建于 [now − 24h, now − 15min]。按创建时间升序取前 500 条，再在内存里按 `metadata` 过滤掉：已发、已跳过、尝试满 3 次、10 分钟内正在发送。
 - 认领：`updateMany({ where: { id, status: "unread", metadata: <读到的原文> } })`，写入 `emailSendingAt` 与 `emailAttempts + 1`；更新到 1 行才发送。发完以同样的条件写入 `emailedAt` 或 `emailError`。两轮重叠时，只有一轮能认领成功。
+  - 实施细化：认领时清掉上一次的 `emailError`，"正在发送"只看这一次；发完的那次写入只以认领时写下的 `metadata` 为条件、不再要求未读（收件人恰在发送途中读了通知，结果照样记下）。记跳过原因同样是条件更新。
+  - `metadata` 不是 JSON 对象的通知不处理，也不覆盖（这两种类型只由本 change 写入，正常不会出现）。
+  - 成员判断：通知有组织时，看是不是该组织的 active 成员（与站内投递的收件人过滤同一口径）；没有组织时，看是不是任一在用组织的 active 成员。
+  - 运行状态：没有发出也没有失败（含全部跳过）记为跳过；有失败记 partial；否则 succeeded。
 - 跳过并记下原因（之后不再试）：
   - 邮件偏好的生效值为关；
   - 收件人在免打扰时段内：用同一个 `isInQuietHoursToronto`，不论通知优先级；
@@ -233,7 +237,7 @@
 - 收件地址：只取 `User.email`，按 spec 过滤占位域名与保留域名。
 - 发件：`sendEmail({ from: "青砚 <" + platformFromAddress() + ">", … })`。
 - 非生产门禁：`isRealEmailSendAllowed()` 为假时只记日志（收件人 id 与主题），按已发处理，并标 `emailDryRun`。
-- 链接根地址：只用 `NEXT_PUBLIC_APP_URL`。两个自动化在注册表里声明 `requiredEnv: ["RESEND_API_KEY", "NEXT_PUBLIC_APP_URL"]`；真发环境缺任一项时，整轮记为跳过，不动任何通知。
+- 链接根地址：只用 `NEXT_PUBLIC_APP_URL`。两个自动化在注册表里声明 `requiredEnv: ["RESEND_API_KEY", "NEXT_PUBLIC_APP_URL"]`；真发环境缺任一项时，整轮记为跳过，不动任何通知。只记日志的环境不要求这两项（没设站点地址时链接为相对地址，只存在于不出站的正文里）。
 - 内容：主题、正文、事项行按 specs `email-reminders` 拼。截止日期取 `metadata.dueAt`；没有时，`entityType = task` 的通知取任务当前的截止时间，每轮批量查一次。
 - 被否决：用 `resolveAppOrigin()`。它回落到 `VERCEL_URL`（带部署保护的预览地址）与 `https://qingyan.ai`，都不是生产站点。
 - 被否决：用组织的 `fromEmail` / `mailboxEmail` 或 Gmail 授权发。这些是对外邮件的设置（纪律 6）；系统通知用平台地址，不以销售个人邮箱的名义给同事发信。

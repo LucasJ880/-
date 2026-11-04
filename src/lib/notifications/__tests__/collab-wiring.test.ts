@@ -7,6 +7,7 @@
  *   评论先做 404 校验、@ 校验在创建之前、锁与查重在同一个事务里、写 comment.mentioned 活动记录；
  *   @ 候选人接口做 404 校验
  * - 工艺单：/transition 与 PUT 在事务提交之后按前后状态通知；文件上传在上传成功之后通知
+ * - 升级邮件：sales-actions 的最后一步，自带 .catch；发信层只用平台发件地址、非生产门禁与 NEXT_PUBLIC_APP_URL
  * - 新文件不导入 LLM 客户端，也不导入 EmailProvider
  * 运行：npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
  */
@@ -207,9 +208,29 @@ console.log("项目文件上传接线");
   ok(/await notifyProjectFilesUploaded\(\{\s*project,\s*documents: results,\s*actor: user,?\s*\}\)/.test(success), "只在有文件上传成功时通知，带本次上传的文档");
 }
 
+console.log("未读升级邮件接线");
+{
+  const get = block(read("src/app/api/cron/sales-actions/route.ts"), "export async function GET");
+  const steps = [...get.matchAll(/runTrackedAutomation\("([^"]+)"/g)].map((m) => m[1]);
+  ok(steps[steps.length - 1] === "notify-email-escalation", "sales-actions 的最后一步是 notify-email-escalation", steps);
+  const stepStart = get.indexOf('runTrackedAutomation("notify-email-escalation"');
+  const step = stepStart < 0 ? "" : get.slice(stepStart, get.indexOf("return NextResponse.json(", stepStart));
+  ok(/\)\.catch\(\(error\) => \{[\s\S]*console\.error\(/.test(step), "notify-email-escalation 自带 .catch：出错只记日志，不影响前几步与响应");
+  ok(/runEmailEscalation\(\{ deadline: new Date\(requestStartedAt \+ ESCALATION_DEADLINE_MS\) \}\)/.test(step), "截止时刻从请求开始算");
+  ok(/return NextResponse\.json\(\{[^}]*calendarWatch, notifyEmailEscalation \}\)/.test(get), "结果并入响应，原有字段不变");
+
+  const email = read("src/lib/notifications/collab/email.ts");
+  ok(/from: `青砚 <\$\{platformFromAddress\(\)\}>`/.test(email), "发件人：显示名青砚 + 平台发件地址");
+  ok(email.includes('import { platformFromAddress } from "@/lib/trade/email-sender";'), "从组织发件模块只取平台发件地址");
+  ok(!/\b(fromEmail|mailboxEmail|planOrgSend|replyTo)\b/.test(email) && !/from "[^"]*(gmail|google|email-provider)[^"]*"/i.test(email), "不读组织发件设置，不走 Gmail");
+  ok(email.includes("isRealEmailSendAllowed(") && email.includes("NEXT_PUBLIC_APP_URL") && !email.includes("resolveAppOrigin"), "非生产门禁；链接根地址只用 NEXT_PUBLIC_APP_URL");
+}
+
 console.log("新文件不导入 LLM 客户端与对外邮件通道");
 {
   const files = [
+    "src/lib/notifications/collab/email.ts",
+    "src/lib/notifications/collab/escalation.ts",
     "src/lib/notifications/collab/deliver.ts",
     "src/lib/notifications/collab/recipients.ts",
     "src/lib/notifications/collab/redact.ts",

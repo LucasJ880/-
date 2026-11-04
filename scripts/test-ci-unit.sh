@@ -381,6 +381,7 @@ npx tsx src/lib/notifications/__tests__/notification-href.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
 npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
+npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

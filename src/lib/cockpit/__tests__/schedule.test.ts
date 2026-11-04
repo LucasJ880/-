@@ -128,6 +128,7 @@ ok(nextDueAt(S["marketing-mmm"], new Date(), "UTC") === null, "按需运行 → 
 console.log("最长正常间隔");
 const gapCases: Array<[AutomationKey, number]> = [
   ["inquiry-sla", 5],
+  ["notify-email-escalation", 15],
   ["agent-runs", 2],
   ["approval-timeout", 120],
   ["tender-watch", 60],
