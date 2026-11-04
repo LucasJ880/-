@@ -222,6 +222,17 @@ console.log("邮件偏好的生效值");
 ok(effectiveEmailEnabled(row({ emailEnabled: false, metadata: null })) === true, "没有选择记录（自动建的行，列为 false）→ 开");
 ok(effectiveEmailEnabled(row({ emailEnabled: false, metadata: JSON.stringify({ knownTypes: REGISTRY }) })) === true, "只有 knownTypes、没有选择记录 → 开");
 ok(rowToDTO(row({ emailEnabled: false })).emailEnabled === true, "接口返回生效值 true");
+// 上线前在设置页保存过：那时邮件开关还没接发信，列里的 false 不算选择（任务书 D3）
+const septSaved = row({
+  enabledTypesJson: JSON.stringify(SEPT_LIST),
+  emailEnabled: false,
+  metadata: JSON.stringify({ automation: { enabled: true, autoCreateTasks: false, autoOverdueFollowup: false } }),
+  updatedAt: SEPT,
+});
+ok(
+  effectiveEmailEnabled(septSaved) === true && rowToDTO(septSaved).emailEnabled === true,
+  "上线前保存过设置页（列为 false、没有 emailChoiceAt）→ 开；上线后关掉并保存才算选择",
+);
 const turnOff = buildPreferenceUpdate(sept, { emailEnabled: false }, AFTER_DEPLOY);
 const afterEmailOff = applyWrite(sept, turnOff, AFTER_DEPLOY);
 ok(parsePreferenceMetadata(afterEmailOff.metadata).emailChoiceAt === AFTER_DEPLOY.toISOString(), "PATCH 带 emailEnabled 时记 emailChoiceAt");

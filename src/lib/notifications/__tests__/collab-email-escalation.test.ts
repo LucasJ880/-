@@ -89,6 +89,8 @@ interface World {
   throwUpdateFor: Set<string>;
   claimMiss: Set<string>;
   candidateCalls: Array<{ types: readonly string[]; createdFrom: Date; createdTo: Date; take: number }>;
+  /** true：findCandidates 按查询语义返回（类型、未读、时间窗，从新到旧取前 take 条）；默认 false，全部返回 */
+  honorQuery: boolean;
 }
 
 function world(now: Date = T0): World {
@@ -112,6 +114,7 @@ function world(now: Date = T0): World {
     throwUpdateFor: new Set(),
     claimMiss: new Set(),
     candidateCalls: [],
+    honorQuery: false,
   };
 }
 
@@ -120,6 +123,19 @@ function deps(w: World): EscalationDeps {
     now: () => new Date(w.clock),
     async findCandidates(args) {
       w.candidateCalls.push(args);
+      if (w.honorQuery) {
+        return [...w.rows.values()]
+          .filter(
+            (r) =>
+              args.types.includes(r.type) &&
+              r.status === "unread" &&
+              r.createdAt.getTime() >= args.createdFrom.getTime() &&
+              r.createdAt.getTime() <= args.createdTo.getTime(),
+          )
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, args.take)
+          .map((r) => ({ ...r }));
+      }
       // 故意不按参数筛：时间窗、类型与状态的判断由被测代码在内存里再做一遍
       return [...w.rows.values()].map((r) => ({ ...r }));
     },
@@ -657,6 +673,35 @@ async function main() {
     const result = await run(w, REAL, new Date(T0.getTime() + 150_000));
     ok(w.sent.length === 3 && result.deadlineHit, "时间预算用完就停", { sent: w.sent.length, result });
     ok((escalationOutcome(result).metadata as Record<string, unknown>).deadlineHit === true, "运行记录标出时间预算用完");
+  }
+
+  console.log("候选窗口");
+  {
+    // 发过邮件、一直没读的通知会在 24 小时窗口里留很久；候选从新到旧取，新到的通知总在前 500 条之内
+    const w = world();
+    w.honorQuery = true;
+    for (let i = 0; i < ESCALATION_CANDIDATE_LIMIT + 100; i++) {
+      addRow(w, {
+        id: `old-${i}`,
+        createdAt: ago(2 * HOUR + i * 1000),
+        metadata: JSON.stringify({ objectLabel: "任务「旧」", emailedAt: ago(HOUR).toISOString(), emailAttempts: 1 }),
+      });
+    }
+    const fresh = addRow(w, { id: "fresh", createdAt: ago(16 * MIN) });
+    const result = await run(w);
+    ok(
+      w.sent.length === 1 && w.sent[0].userId === "u-b" && typeof metaOf(w, fresh.id).emailedAt === "string",
+      "窗口里发过邮件、仍未读的通知超过 500 条时，新到的照样在这一轮发出",
+      { sent: w.sent.length, eligible: result.eligible },
+    );
+    ok(result.candidates === ESCALATION_CANDIDATE_LIMIT && result.candidatesTruncated === true, "候选取满 500 条：运行结果标出窗口被截断", result);
+    ok((escalationOutcome(result).metadata as Record<string, unknown>).candidatesTruncated === true, "运行记录标出候选窗口被截断");
+  }
+  {
+    const w = world();
+    addRow(w);
+    const result = await run(w);
+    ok(result.candidatesTruncated === false, "候选没取满：不标截断", result);
   }
 
   console.log("运行记录");

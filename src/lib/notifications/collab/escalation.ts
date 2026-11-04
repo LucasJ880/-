@@ -94,6 +94,10 @@ export interface EscalationMembership {
 
 export interface EscalationDeps extends MailDeps {
   now(): Date;
+  /**
+   * 时间窗内这两类未读通知，按创建时间从新到旧取前 take 条：发过邮件、一直没读的旧通知留在窗口里，
+   * 只会占掉更早的名额，挤不掉新到的；处理顺序由调用方再排成从旧到新
+   */
   findCandidates(args: { types: readonly string[]; createdFrom: Date; createdTo: Date; take: number }): Promise<EscalationCandidateRow[]>;
   loadUsers(ids: string[]): Promise<EscalationUser[]>;
   loadPreferences(userIds: string[]): Promise<Array<EscalationPreference & { userId: string }>>;
@@ -111,6 +115,8 @@ export interface EscalationResult {
   /** 真发环境缺少的配置；非空时整轮跳过 */
   missingEnv: string[];
   candidates: number;
+  /** 候选取满上限：窗口里还有更早的未读通知这一轮没看到 */
+  candidatesTruncated: boolean;
   eligible: number;
   sent: number;
   dryRun: number;
@@ -179,6 +185,7 @@ function emptyResult(config: MailConfig): EscalationResult {
     realSend: config.realSend,
     missingEnv: [...config.missingEnv],
     candidates: 0,
+    candidatesTruncated: false,
     eligible: 0,
     sent: 0,
     dryRun: 0,
@@ -209,6 +216,7 @@ export async function runEmailEscalation(
     take: ESCALATION_CANDIDATE_LIMIT,
   });
   result.candidates = rows.length;
+  result.candidatesTruncated = rows.length >= ESCALATION_CANDIDATE_LIMIT;
   const eligible = rows
     .filter((row) => escalationEligibility(row, now) === "eligible")
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
@@ -320,6 +328,7 @@ export function escalationOutcome(result: EscalationResult): AutomationOutcome<E
       ...(missing ? { reason: `缺少发信配置：${result.missingEnv.join("、")}`, missingEnv: result.missingEnv } : {}),
       realSend: result.realSend,
       candidates: result.candidates,
+      candidatesTruncated: result.candidatesTruncated,
       eligible: result.eligible,
       sent: result.sent,
       dryRun: result.dryRun,
@@ -338,7 +347,8 @@ export const defaultEscalationDeps: EscalationDeps = {
   findCandidates: ({ types, createdFrom, createdTo, take }) =>
     db.notification.findMany({
       where: { type: { in: [...types] }, status: "unread", createdAt: { gte: createdFrom, lte: createdTo } },
-      orderBy: { createdAt: "asc" },
+      // 从新到旧取（见 EscalationDeps.findCandidates 的说明）
+      orderBy: { createdAt: "desc" },
       take,
       select: {
         id: true,

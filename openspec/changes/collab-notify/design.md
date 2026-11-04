@@ -149,6 +149,7 @@
 - 写通知时一次算好：标题、摘要、去重键、`metadata.objectLabel`（邮件里的"对象"），以及 `metadata.dueAt`。
 - 状态名用 `TASK_STATUS_META`（`src/lib/tasks/status.ts`）。
 - 截止日期按组织时区取，缺省 America/Toronto。
+- 实施细化（5.1）：工艺单「已排期」摘要里的安装日期，有预约时间（`expectedInstallDate`）时按组织时区取日期；没有时用工艺单上的日期文本（须为 `YYYY-MM-DD`）；都没有就不写。只有这一阶段用到日期，其他阶段不查组织时区。
 - 被否决：发邮件时再回查对象、现拼对象名。一封汇总可能涉及几十种对象；对象改名后，邮件与站内通知就会对不上。
 
 **D10. 脱敏（`src/lib/notifications/collab/redact.ts`）。**
@@ -166,6 +167,7 @@
 - 跳转规则：`src/lib/notifications/href.ts`，纯函数，按 specs `click-targets` 的顺序取地址。
   - 铃铛与通知页都调它；"记住所选组织"的副作用留在各自的组件里。
   - 邮件也用这个函数，前面加站点根地址。
+  - 实施细化（`61ed36a9`）：铃铛与通知页写成 `installNotificationHref(item) ?? notificationHref(item)`。INSTALL-2b 的源码断言要求这两处直接调用 `installNotificationHref`，而 `src/lib/install` 是不动项；跳转表的第一条规则就是它，所以行为不变。
 - 讨论区锚点：项目页读到 `#project-discussion` 时打开工作台，等讨论区渲染出来再 `scrollIntoView`。
 - 中间件：未登录的页面请求跳到 `/login?next=<路径+查询串>`，原路径为 `/` 时不带 `next`；接口请求仍返回 401。
 - `next` 校验：抽成 `src/lib/auth/safe-next.ts`，登录页与选择组织页共用。合法的 `next` 以 `/` 开头、不以 `//` 开头，不含反斜杠、空白或控制字符；其他值一律当作 `/`。
@@ -185,6 +187,7 @@
   - 上线后的写入都带 `knownTypes`，不走时间规则；
   - 时间规则只剩给上线前写入的行用，而这些行都没见过这五个开关。
 - `GET /api/notifications/preferences/me` 返回生效清单，所以设置页如实显示为开启。
+- 实施细化（verify 后）：上线后偏好行的 `metadata` 都带 `knownTypes`，不再为空。`src/lib/proactive/manager-notify.ts` 的自动化一轮原来以 `metadata` 非空圈候选（按 `updatedAt` 升序取 100 人），会把只打开过铃铛的人也圈进来、挤掉开了自动化的人。改为 `metadata` 含 `"automation":`：所有写入方都用 `JSON.stringify`，存过自动化设置的行一定有这个键；没有这个键的人按默认是关的，圈出的人与上线前一致。这里的文本条件只负责圈范围，每个人开没开仍由 `getUserAutomationPrefs` 解析判断。
 - 被否决：只在 `TYPE_INTRODUCED_AT` 里加真实日期（任务书字面）。设置页把新类型显示为关，保存时又原样回传，老用户一保存就把它们关掉了；改自动化偏好也会刷新 `updatedAt`，新类型随之被判为关。INSTALL-2b 的九个类型现在就有这个问题。
 - 被否决：引入时间取合并日或预计部署日。部署晚于这个日期时，中间这段时间里旧代码写入的清单会把新类型判为关，还要有人记得去改日期。
 - 被否决：加一个"清单保存时间"字段。违反纪律 1。
@@ -198,7 +201,8 @@
 
 **D14. 未读升级邮件（`src/lib/notifications/collab/escalation.ts`）。**
 - 挂点：`sales-actions` 路由的最后一步，即 `runTrackedAutomation("notify-email-escalation", …)`，自带 `.catch`。截止时刻为路由开始后 285 秒（`maxDuration` 是 300）；单轮最多 100 封。
-- 候选：类型为 `mention` 或 `task_assigned`、状态未读、创建于 [now − 24h, now − 15min]。按创建时间升序取前 500 条，再在内存里按 `metadata` 过滤掉：已发、已跳过、尝试满 3 次、10 分钟内正在发送。
+- 候选：类型为 `mention` 或 `task_assigned`、状态未读、创建于 [now − 24h, now − 15min]。按创建时间倒序取最近 500 条，再在内存里按 `metadata` 过滤掉：已发、已跳过、尝试满 3 次、10 分钟内正在发送；剩下的按创建时间从早到晚处理。
+  - 实施细化（verify 后）：原先按升序取前 500 条。发过邮件、一直没读的通知会在窗口里留到满 24 小时，攒到 500 条以后新到的通知就进不了候选。改为倒序取，新到的总在前 500 条之内；取满 500 条时运行结果与运行记录标 `candidatesTruncated`。
 - 认领：`updateMany({ where: { id, status: "unread", metadata: <读到的原文> } })`，写入 `emailSendingAt` 与 `emailAttempts + 1`；更新到 1 行才发送。发完以同样的条件写入 `emailedAt` 或 `emailError`。两轮重叠时，只有一轮能认领成功。
   - 实施细化：认领时清掉上一次的 `emailError`，"正在发送"只看这一次；发完的那次写入只以认领时写下的 `metadata` 为条件、不再要求未读（收件人恰在发送途中读了通知，结果照样记下）。记跳过原因同样是条件更新。
   - `metadata` 不是 JSON 对象的通知不处理，也不覆盖（这两种类型只由本 change 写入，正常不会出现）。
@@ -211,7 +215,7 @@
   - 地址不可投递。
 - 被否决：新增 cron 条目或单独的路由。违反纪律 3 与任务书 §5.3。
 - 被否决：通知创建时排一个 15 分钟后的延迟任务。Serverless 没有常驻进程，这等于新建一个队列。
-- 被否决：在 SQL 里用字符串包含筛 `metadata`。它是 JSON 文本，按键名做字符串匹配不可靠；候选集有"24 小时 + 两种类型"的上界，在内存里过滤就够了。
+- 被否决：在 SQL 里用字符串包含筛 `metadata`。它是 JSON 文本，按键名做字符串匹配不可靠；候选集有"24 小时 + 两种类型"的上界，按倒序取时已处理的旧通知只占较早的名额，在内存里过滤就够了。
 - 被否决：先发后记、不认领。手动触发与定时触发重叠时，会发出两封。
 
 **D15. 每日未读汇总（`src/lib/notifications/collab/digest.ts`）。**
@@ -233,6 +237,7 @@
   - 触发组织：一个人属于同一轮里多个到点组织时，取 `orgs` 里排在前面的那个；本地日期与审计里的时区按它取。锁键与审计只看本地日期字符串，所以不同时区的组织先到 7 点的那个发，后到的当天不再发。
   - 邮件偏好关（`effectiveEmailEnabled` 为假）与地址不可投递的不发、不写审计、不读通知明细，按原因计入运行记录（`email_off` / `undeliverable`）。免打扰不看。
   - 条数与明细分开取：主题里的 N 用一次批量计数（`groupBy`，排除两类简报）；明细每人最多取 1000 条（从新到旧），先按组顺序、组内从新到旧排好，再取前 50 条排版。
+  - 固定六组之后的其他组按类型名以 `zh-Hans-CN` 排序：中文名按拼音，以拉丁字母开头的类型名排在中文名之后。
   - 审计内容 `{ day, timezone, count, listed, dryRun }`，`day` 是第一个键；`userId` 与 `targetId` 都是收件人。
   - 运行记录：没有发出也没有失败 → `skipped`；有失败 → `partial`；否则 `succeeded`。处理数 = 发出（含只记日志）+ 失败 + 跳过 + 当天已发。
   - 单人出错（加锁、查询明细、发送）只计失败并记日志，不影响同一轮其他人；整步的查询（成员、计数）失败向外抛，由 `runTrackedAutomation` 记为失败，路由的 `.catch` 收住。

@@ -111,6 +111,14 @@
 
   verify：diff 输出为空，其余命令全部通过；报告文件存在；`grep -n 'COLLAB-2' docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 显示该行状态为 `[G]`。
 
+- [x] 8.2 `/opsx:verify collab-notify` 之后的修正（先写失败测试）：
+  - 升级邮件候选改为按创建时间倒序取最近 500 条，取满时标 `candidatesTruncated`（`collab-email-escalation.test.ts`「候选窗口」、`collab-wiring.test.ts`）；
+  - 自动化一轮改为只圈 `metadata` 含 `"automation":` 的偏好行（`manager-notify.test.ts`）；
+  - 补一条"上线前保存过设置页 → 邮件按开"的断言（`collab-preferences.test.ts`，行为不变）；
+  - specs 与 design 按实现补文字：邮件偏好"明确选过"的口径、提及通知的去重键例外、候选人接口的组织条件、运行记录的例外与候选截断，以及 D9 / D11 / D12 / D14 / D15 的实施细化。
+
+  verify：上面四个测试与 `openspec validate collab-notify --strict` 通过；8.1 的门禁重跑一遍全部通过。
+
 ## Workflow follow-up
 
 - 开 PR 前贴出 `openspec validate collab-notify`、`npm run typecheck`、`npm run lint:baseline`、`npm test` 的真实输出。一个 change 对应一个 PR，不自动合并。

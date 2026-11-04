@@ -220,6 +220,14 @@ console.log("未读升级邮件接线");
   ok(/runEmailEscalation\(\{ deadline: new Date\(requestStartedAt \+ ESCALATION_DEADLINE_MS\) \}\)/.test(step), "截止时刻从请求开始算");
   ok(/return NextResponse\.json\(\{[^}]*calendarWatch, notifyEmailEscalation \}\)/.test(get), "结果并入响应，原有字段不变");
 
+  const escalationDeps = block(read("src/lib/notifications/collab/escalation.ts"), "export const defaultEscalationDeps");
+  const candidateQuery = escalationDeps.slice(escalationDeps.indexOf("findCandidates:"), escalationDeps.indexOf("loadUsers:"));
+  ok(
+    /where: \{ type: \{ in: \[\.\.\.types\] \}, status: "unread", createdAt: \{ gte: createdFrom, lte: createdTo \} \},\s*(?:\/\/[^\n]*\n\s*)?orderBy: \{ createdAt: "desc" \},\s*take,/.test(candidateQuery),
+    "候选查询：类型 + 未读 + 时间窗，按创建时间倒序取最近 take 条（发过邮件仍未读的旧通知占不住新通知的名额）",
+    candidateQuery.slice(0, 300),
+  );
+
   const email = read("src/lib/notifications/collab/email.ts");
   ok(/from: `青砚 <\$\{platformFromAddress\(\)\}>`/.test(email), "发件人：显示名青砚 + 平台发件地址");
   ok(email.includes('import { platformFromAddress } from "@/lib/trade/email-sender";'), "从组织发件模块只取平台发件地址");

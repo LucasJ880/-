@@ -230,7 +230,7 @@ export interface ProactiveCronResult {
 
 export interface ProactiveCronDeps {
   nowMs(): number;
-  /** 自动化一轮的候选（UserNotificationPreference.metadata 非空、账号在职，最多 100 人） */
+  /** 自动化一轮的候选（UserNotificationPreference.metadata 里存过自动化设置、账号在职，最多 100 人） */
   loadAutomationUsers(): Promise<Array<{ userId: string; role: string }>>;
   automationEnabled(userId: string): Promise<boolean>;
   /** 扫描 + 写通知 + 执行低风险自动动作（runProactiveScanForUser 不传 options） */
@@ -309,8 +309,10 @@ export function defaultProactiveCronDeps(): ProactiveCronDeps {
     nowMs: () => Date.now(),
     loadAutomationUsers: async () => {
       const { db } = await import("@/lib/db");
+      // COLLAB-2 起偏好行的 metadata 都带 knownTypes，非空不再等于"存过自动化设置"；
+      // 只取写过 automation 键的行（所有写入方都用 JSON.stringify，键名后紧跟冒号），没写过的按默认是关的
       const rows = await db.userNotificationPreference.findMany({
-        where: { metadata: { not: null }, user: { status: "active" } },
+        where: { metadata: { contains: '"automation":' }, user: { status: "active" } },
         select: { userId: true, user: { select: { role: true } } },
         orderBy: { updatedAt: "asc" },
         take: 100,

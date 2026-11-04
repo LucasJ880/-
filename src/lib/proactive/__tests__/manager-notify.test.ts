@@ -409,7 +409,7 @@ async function main() {
 
   console.log("\n接入点与既有行为");
 
-  await ok("默认依赖：补发调 runProactiveScanForUser(..., { autoActions: false })；候选按 userId 排序、带上限；自动化一轮查询与调用不变", () => {
+  await ok("默认依赖：补发调 runProactiveScanForUser(..., { autoActions: false })；候选按 userId 排序、带上限；自动化一轮只取存过自动化设置的人（COLLAB-2 起偏好行都带 knownTypes，metadata 非空不再说明什么），调用不变", () => {
     const src = strip(read("src/lib/proactive/manager-notify.ts"));
     assert.match(src, /runProactiveScanForUser\(userId, platformRole, \{ autoActions: false \}\)/);
     assert.match(src, /orderBy: \[\{ userId: "asc" \}, \{ id: "asc" \}\],\s*take: MANAGER_CANDIDATE_LIMIT,/);
@@ -420,7 +420,7 @@ async function main() {
     assert.match(notifySrc, /db\.notification\.findMany\(\{ where: \{ userId, sourceKey: \{ in: keys \} \}, select: \{ sourceKey: true \} \}\)/);
     assert.match(notifySrc, /const \{ count \} = await db\.notification\.createMany\(\{ data: rows, skipDuplicates: true \}\);\s*return count;/);
     assert.equal(MANAGER_CANDIDATE_LIMIT, 2000);
-    assert.match(src, /where: \{ metadata: \{ not: null \}, user: \{ status: "active" \} \},\s*select: \{ userId: true, user: \{ select: \{ role: true \} \} \},\s*orderBy: \{ updatedAt: "asc" \},\s*take: 100,/);
+    assert.match(src, /where: \{ metadata: \{ contains: '"automation":' \}, user: \{ status: "active" \} \},\s*select: \{ userId: true, user: \{ select: \{ role: true \} \} \},\s*orderBy: \{ updatedAt: "asc" \},\s*take: 100,/);
     assert.match(src, /const r = await runProactiveScanForUser\(userId, role\);/);
     assert.match(src, /where: resumeRunWhere\(\), orderBy: \{ startedAt: "desc" \}/);
     assert.doesNotMatch(src, /executeAutoActions/);
