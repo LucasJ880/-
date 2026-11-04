@@ -104,7 +104,7 @@
 
 ## 8. 收尾
 
-- [ ] 8.1 门禁、报告与 TASKFLOW：
+- [x] 8.1 门禁、报告与 TASKFLOW：
   - 提交后，跑 design「验证」里的不动项 diff，以及 `bash scripts/check-test-registry.sh`、`npm run typecheck`、`npm run lint:baseline`、`npm test`、`openspec validate collab-notify --strict`。
   - 写 `docs/QINGYAN_COLLAB-2_REPORT.md`，内容包括：改动、与任务书的出入、测试与门禁的真实输出、运维前置（`NEXT_PUBLIC_APP_URL=https://qingyan.ca`）、在 staging 走 GATE 1–8 的步骤。
   - 更新 TASKFLOW：COLLAB-2 状态列改为 `[G]`；GATE-C 下补一行运维前置；Evan 在审核中拍板的决定记进「已决定」。
