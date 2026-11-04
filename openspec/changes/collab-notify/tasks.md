@@ -4,7 +4,7 @@
 
 ## 1. 通知类型与偏好
 
-- [ ] 1.1 先写 `src/lib/notifications/__tests__/collab-preferences.test.ts`，覆盖：
+- [x] 1.1 先写 `src/lib/notifications/__tests__/collab-preferences.test.ts`，覆盖：
   - 五个新类型进了注册表、设置页名称表与两处图标表（源码断言）；
   - 门禁判定：
     - 没有 `knownTypes` 的清单：五个新类型为开，`install_*` 仍按时间规则；
@@ -83,7 +83,7 @@
   - 把 `notify-email-escalation` 登记进 `AUTOMATION_REGISTRY`、`AUTOMATION_SCHEDULES` 与岗位注册表（`ops_knowledge`）；
   - `schedule.test.ts` 补最长间隔 15 分钟的用例。
 
-  verify：该测试全过；`src/lib/cockpit/__tests__/{schedule,posts,posts-read-model}.test.ts` 与 `src/lib/sales/__tests__/action-loop-contract.test.ts` 仍全过；`npm run typecheck` 通过。
+  verify：该测试全过；`src/lib/cockpit/__tests__/{schedule,posts,posts-read-model}.test.ts` 仍全过；`src/lib/sales/__tests__/action-loop-contract.test.ts` 与基线一致（基线 3 过 1 败，失败项断言的是销售行动扫描代码的写法，与本 change 无关；该文件在 `ci/test-registry-baseline.txt` 里，`npm test` 不跑）；`npm run typecheck` 通过。
 
 ## 7. 每日未读汇总与纪律第 2 条
 

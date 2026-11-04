@@ -26,11 +26,49 @@ export const NOTIFICATION_TYPE_KEYS = [
   // INSTALL-2f：维修单作废 / 关闭不返修；返修逾期提醒
   "install_repair_closed",
   "install_repair_overdue",
+  // COLLAB-2：@ 提及；任务指派 / 状态变化 / 新评论；工艺单阶段变化
+  "mention",
+  "task_assigned",
+  "task_status",
+  "task_comment",
+  "order_stage",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];
 
 export const DEFAULT_ENABLED_TYPES: string[] = [...NOTIFICATION_TYPE_KEYS];
+
+/** 通知类型的中文名称：设置页开关与通知邮件共用 */
+export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+  task_due: "任务截止与逾期",
+  calendar_event: "日程与日历提醒",
+  followup: "跟进提醒",
+  project_update: "项目与配置变更",
+  system: "系统通知（预留）",
+  agent_task: "AI 任务通知",
+  agent_approval: "AI 审批通知",
+  quote_signed: "客户签署报价",
+  sales_daily_briefing: "每日销售简报",
+  install_completed: "安装完工（待收尾款）",
+  install_balance_confirmed: "尾款已确认",
+  install_warranty_sent: "质保邮件已发出",
+  install_warranty_failed: "质保邮件未发出",
+  install_repair_submitted: "返修单已提交",
+  install_repair_factory_issued: "返修件已出单",
+  install_repair_scheduled: "已安排返修",
+  install_repair_closed: "维修单作废 / 关闭不返修",
+  install_repair_overdue: "返修逾期提醒",
+  mention: "@提及",
+  task_assigned: "任务指派",
+  task_status: "任务状态变化",
+  task_comment: "任务新评论",
+  order_stage: "工艺单阶段变化",
+};
+
+/** 类型名称；没有登记名称的类型统一叫「其他通知」 */
+export function notificationTypeLabel(type: string): string {
+  return NOTIFICATION_TYPE_LABELS[type] ?? "其他通知";
+}
 
 export const PRIORITY_RANK: Record<string, number> = {
   low: 0,

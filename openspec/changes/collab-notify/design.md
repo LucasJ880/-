@@ -309,9 +309,11 @@
 
 - 新测试：九个文件逐个运行 `npx tsx src/lib/notifications/__tests__/<名称>.test.ts`。
 - 既有测试保持通过：
-  - `src/lib/notifications/__tests__/delivery-gate.test.ts`；
+  - `src/lib/notifications/__tests__/{delivery-gate,mark-all-read}.test.ts`；
   - `src/lib/cockpit/__tests__/{schedule,daily-digest,posts,posts-read-model}.test.ts`；
-  - `src/lib/sales/__tests__/action-loop-contract.test.ts`。
+  - `src/lib/tasks/__tests__/status-transition.test.ts`、`src/lib/fulfillment/__tests__/{category,order-access}.test.ts`；
+  - `src/lib/marketing/__tests__/marketing-middleware-access.test.ts`、`src/components/wechat-entry/__tests__/wechat-entry-render.test.tsx`。
+- `src/lib/sales/__tests__/action-loop-contract.test.ts` 与基线一致：基线 3 过 1 败，失败项与本 change 无关，该文件在 `ci/test-registry-baseline.txt` 里。
 - 门禁命令：`bash scripts/check-test-registry.sh`、`npm run typecheck`、`npm run lint:baseline`、`npm test`。
 - `openspec validate collab-notify --strict`。
 - 不动项：执行 `git diff --stat origin/main...HEAD -- prisma vercel.json src/lib/trade/email.ts src/lib/trade/email-sender.ts src/lib/env/runtime-isolation.ts src/lib/time/quiet-hours.ts src/lib/project-discussion/access.ts src/lib/fulfillment src/lib/install src/lib/muse-bridge src/app/api/muse-bridge src/lib/messaging`，输出为空。

@@ -19,6 +19,11 @@ import {
   Globe,
   PanelRightClose,
   PanelRightOpen,
+  AtSign,
+  UserCheck,
+  ListChecks,
+  MessageSquare,
+  Package,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -210,6 +215,11 @@ const NTYPE_ICONS: Record<string, typeof Bell> = {
   calendar_event: Calendar,
   followup: Bell,
   project_update: FolderKanban,
+  mention: AtSign,
+  task_assigned: UserCheck,
+  task_status: ListChecks,
+  task_comment: MessageSquare,
+  order_stage: Package,
 };
 
 /* ── Notification Panel ── */

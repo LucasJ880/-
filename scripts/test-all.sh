@@ -629,6 +629,8 @@ run_test "管理层主动提醒补发（A-3b）" "npx tsx src/lib/proactive/__te
 run_test "微信入口开关取值（COLLAB-1）" "npx tsx src/lib/messaging/__tests__/wechat-entry-flag.test.ts"
 run_test "微信入口页面接线渲染（COLLAB-1）" "npx tsx src/components/wechat-entry/__tests__/wechat-entry-render.test.tsx"
 run_test "导航微信入口随开关隐藏（COLLAB-1）" "npx tsx src/lib/navigation/__tests__/wechat-entry-nav.test.ts"
+# 协作通知 COLLAB-2（openspec change collab-notify）：@ 必通知、任务与工艺单动态、未读升级邮件与每日汇总——纯逻辑 + 假依赖 + 源码断言，无 DB
+run_test "协作通知类型与偏好（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-preferences.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

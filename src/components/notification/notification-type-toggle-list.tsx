@@ -1,28 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { NOTIFICATION_TYPE_KEYS } from "@/lib/notifications/constants";
-
-const LABELS: Record<string, string> = {
-  task_due: "任务截止与逾期",
-  calendar_event: "日程与日历提醒",
-  followup: "跟进提醒",
-  project_update: "项目与配置变更",
-  system: "系统通知（预留）",
-  agent_task: "AI 任务通知",
-  agent_approval: "AI 审批通知",
-  quote_signed: "客户签署报价",
-  sales_daily_briefing: "每日销售简报",
-  install_completed: "安装完工（待收尾款）",
-  install_balance_confirmed: "尾款已确认",
-  install_warranty_sent: "质保邮件已发出",
-  install_warranty_failed: "质保邮件未发出",
-  install_repair_submitted: "返修单已提交",
-  install_repair_factory_issued: "返修件已出单",
-  install_repair_scheduled: "已安排返修",
-  install_repair_closed: "维修单作废 / 关闭不返修",
-  install_repair_overdue: "返修逾期提醒",
-};
+import { NOTIFICATION_TYPE_KEYS, NOTIFICATION_TYPE_LABELS } from "@/lib/notifications/constants";
 
 const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);
 
@@ -62,7 +41,7 @@ export function NotificationTypeToggleList({ enabledTypes, onChange, disabled }:
                 disabled && "cursor-not-allowed opacity-60"
               )}
             >
-              <span>{LABELS[key] ?? key}</span>
+              <span>{NOTIFICATION_TYPE_LABELS[key] ?? key}</span>
               <span
                 className={cn(
                   "rounded-full px-2 py-0.5 text-[10px] font-medium",
