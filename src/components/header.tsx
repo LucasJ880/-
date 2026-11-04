@@ -35,6 +35,7 @@ import { useLocale, LOCALE_LABELS } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/messages";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
+import { installNotificationHref } from "@/lib/install/balance";
 import { notificationHref, notificationOrgToRemember } from "@/lib/notifications/href";
 import { orgRoleLabel } from "@/lib/permissions-client";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
@@ -562,8 +563,9 @@ export function Header() {
   }, [searchOpen, closeSearch]);
 
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
-    // COLLAB-2：与通知页、邮件链接共用同一张跳转表（lib/notifications/href）
-    const href = notificationHref(item);
+    // COLLAB-2：与通知页、邮件链接共用同一张跳转表（lib/notifications/href）。安装、尾款、质保、返修类
+    // 在这里仍直接先调 installNotificationHref（INSTALL-2b「通知落点」两处同一规则）；共用表里同样先查它，结果相同
+    const href = installNotificationHref(item) ?? notificationHref(item);
     if (!href) return;
     const orgId = notificationOrgToRemember(item);
     if (orgId) persistSelectedOrgId(orgId);

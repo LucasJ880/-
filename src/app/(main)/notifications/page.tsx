@@ -19,6 +19,7 @@ import { NotificationListItem } from "@/components/notification/notification-lis
 import type { NotificationItem } from "@/components/notification/types";
 import { Suspense } from "react";
 import { persistSelectedOrgId } from "@/lib/org-selection";
+import { installNotificationHref } from "@/lib/install/balance";
 import { notificationHref, notificationOrgToRemember } from "@/lib/notifications/href";
 
 function NotificationsContent() {
@@ -157,8 +158,9 @@ function NotificationsContent() {
       if (item.status === "unread") {
         apiFetch(`/api/notifications/${item.id}/read`, { method: "PATCH" });
       }
-      // COLLAB-2：与铃铛、邮件链接共用同一张跳转表（lib/notifications/href）；没有跳转地址时只标为已读
-      const href = notificationHref(item);
+      // COLLAB-2：与铃铛、邮件链接共用同一张跳转表（lib/notifications/href）；没有跳转地址时只标为已读。
+      // 安装、尾款、质保、返修类在这里仍直接先调 installNotificationHref（INSTALL-2b「通知落点」两处同一规则）
+      const href = installNotificationHref(item) ?? notificationHref(item);
       if (!href) return;
       const orgId = notificationOrgToRemember(item);
       if (orgId) persistSelectedOrgId(orgId);
