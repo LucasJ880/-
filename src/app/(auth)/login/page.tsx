@@ -20,11 +20,7 @@ import {
 } from "@/lib/org-selection";
 import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 import { WechatLoginEntry } from "@/components/wechat-entry/login-entry";
-
-function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
-  return raw;
-}
+import { appendSafeHash, safeNextPath } from "@/lib/auth/safe-next";
 
 const WECHAT_ERROR_MAP: Record<string, string> = {
   missing_params: "微信授权参数缺失，请重试",
@@ -54,7 +50,11 @@ function LoginForm() {
   const [orgs, setOrgs] = useState<OrgActiveOption[]>([]);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
 
-  const next = safeNext(searchParams.get("next"));
+  const next = safeNextPath(searchParams.get("next"));
+  // COLLAB-2：服务端拿不到锚点；跳转时把当前地址的锚点接回 next 后面
+  const goNext = () => {
+    window.location.href = appendSafeHash(next, window.location.hash);
+  };
 
   async function finishLogin(opts: {
     activeOrgId?: string | null;
@@ -70,12 +70,12 @@ function LoginForm() {
     const list = opts.organizations ?? [];
     if (opts.activeOrgId) {
       hydrateStoredOrgId(opts.activeOrgId);
-      window.location.href = next;
+      goNext();
       return;
     }
     if (list.length === 1) {
       await selectActiveOrganization(list[0].id);
-      window.location.href = next;
+      goNext();
       return;
     }
     if (opts.needsSelection && list.length > 1) {
@@ -83,7 +83,7 @@ function LoginForm() {
       setOrgStep(true);
       return;
     }
-    window.location.href = next;
+    goNext();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -126,13 +126,13 @@ function LoginForm() {
       setBusyOrgId(null);
       return;
     }
-    window.location.href = next;
+    goNext();
   }
 
   function handleWeChatLogin() {
     // 微信回调后先进入选组织页，再跳到业务目标页
     const params = new URLSearchParams({
-      next: `/select-org?next=${encodeURIComponent(next)}`,
+      next: `/select-org?next=${encodeURIComponent(appendSafeHash(next, window.location.hash))}`,
     });
     window.location.href = `/api/auth/wechat?${params.toString()}`;
   }

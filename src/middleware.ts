@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { loginRedirectPath } from "@/lib/auth/safe-next";
 import {
   canAccessMarketingWorkspace,
   isMarketingApiPath,
@@ -75,7 +76,10 @@ export async function middleware(request: NextRequest) {
         { status: 401, headers: { "x-auth-reason": "session" } }
       );
     }
-    return NextResponse.redirect(new URL("/login", request.url));
+    // COLLAB-2：带上原路径与查询串，登录后回到原页面（原路径为 / 时不带 next）
+    return NextResponse.redirect(
+      new URL(loginRedirectPath(pathname, request.nextUrl.search), request.url),
+    );
   }
 
   if (isMarketingWorkspacePath(pathname) && !canAccessMarketingWorkspace(role)) {
