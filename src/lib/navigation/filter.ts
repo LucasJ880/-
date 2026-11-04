@@ -177,6 +177,8 @@ export function isNavItemVisible(
     rawCtx.platformRole === "admin"
       ? { ...rawCtx, platformRole: normalizeRetiredPlatformRole(rawCtx.platformRole) }
       : rawCtx;
+  // COLLAB-1：平台开关先于角色 / 岗位判定——微信入口开关不为 true 时一律不显示
+  if (item.wechatEntry && ctx.wechatEntryEnabled !== true) return false;
   if (item.autopilotOwnerOnly) {
     return ctx.autopilotAllowed === true;
   }

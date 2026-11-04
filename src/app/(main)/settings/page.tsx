@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 
 const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
@@ -52,6 +53,7 @@ const GOOGLE_ERROR_HINTS: Record<string, string> = {
 function SettingsContent() {
   const { isPlatformAdmin } = useCurrentUser();
   const { orgId, organizations, loading: orgLoading } = useCurrentOrgId();
+  const wechatEnabled = useWechatEntryEnabled();
   const currentOrg = organizations.find((o) => o.id === orgId);
   const isMengxinOrg = currentOrg?.code === MENGXIN_ORG_CODE;
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
@@ -243,19 +245,21 @@ function SettingsContent() {
         <span className="text-xs text-accent">去设置 →</span>
       </Link>
 
-      <Link
-        href="/settings/wechat"
-        className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#07c160]/10">
-          <MessageCircle size={20} className="text-[#07c160]" />
-        </div>
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold">微信集成</h2>
-          <p className="text-xs text-muted">个人微信 + 企业微信双通道接入，AI 消息推送</p>
-        </div>
-        <span className="text-xs text-accent">去设置 →</span>
-      </Link>
+      {wechatEnabled && (
+        <Link
+          href="/settings/wechat"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#07c160]/10">
+            <MessageCircle size={20} className="text-[#07c160]" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">微信集成</h2>
+            <p className="text-xs text-muted">个人微信 + 企业微信双通道接入，AI 消息推送</p>
+          </div>
+          <span className="text-xs text-accent">去设置 →</span>
+        </Link>
+      )}
 
       <div className="rounded-xl border border-border bg-card-bg">
         <div className="flex items-center gap-3 border-b border-border px-5 py-4">

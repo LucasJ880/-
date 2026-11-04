@@ -89,6 +89,8 @@ function ctx(partial: Partial<NavigationFilterContext>): NavigationFilterContext
     isPlatformAdmin: false,
     permissionKeys: [],
     positionMode: true,
+    // COLLAB-1：快照按微信入口开关打开时的规则（关闭时只少"微信集成"，见 wechat-entry-nav.test.ts）
+    wechatEntryEnabled: true,
     ...partial,
   };
 }

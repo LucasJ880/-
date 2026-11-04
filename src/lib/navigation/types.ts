@@ -53,6 +53,11 @@ export type NavigationItem = {
   featureFlag?: string;
   /** 仅 Autopilot owner（Lucas-only，非 admin 旁路） */
   autopilotOwnerOnly?: boolean;
+  /**
+   * COLLAB-1：微信扫码登录 / 绑定入口——只在 ctx.wechatEntryEnabled === true 时可见；
+   * 先于角色 / 岗位判定，两种模式都生效（openspec change hide-wechat-entry）
+   */
+  wechatEntry?: boolean;
   matchPaths?: string[];
   /** 精确匹配（如首页） */
   exact?: boolean;
@@ -90,6 +95,8 @@ export type NavigationFilterContext = {
   permissionKeys?: readonly string[] | null;
   /** PERM-4c2：岗位模式（来自 active-org）；缺省 false = 旧模式 */
   positionMode?: boolean;
+  /** COLLAB-1：微信入口开关（服务端 WECHAT_BINDING_ENABLED，经 WechatEntryProvider 下发）；缺省 = 关 */
+  wechatEntryEnabled?: boolean;
 };
 
 export type ResolvedNavItem = Omit<NavigationItem, "children"> & {

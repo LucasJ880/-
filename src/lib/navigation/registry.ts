@@ -898,6 +898,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: MessageCircle,
     group: "MANAGEMENT",
     requiredPlatformRoles: [...NAV_ROLES_OPERATIONS, "trade", "user"],
+    // COLLAB-1：微信入口开关关闭时不显示（不论角色 / 岗位）
+    wechatEntry: true,
     displayOrder: 40,
   },
   {
