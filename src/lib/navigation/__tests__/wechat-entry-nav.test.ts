@@ -72,9 +72,10 @@ const hasWechat = (c: NavigationFilterContext) => hrefs(c).includes("/wechat");
 /** 三种开关状态：打开 / 关闭 / 上下文缺值 */
 const on = (c: NavigationFilterContext) => ({ ...c, wechatEntryEnabled: true });
 const off = (c: NavigationFilterContext) => ({ ...c, wechatEntryEnabled: false });
-const missing = (c: NavigationFilterContext) => {
-  const { wechatEntryEnabled: _drop, ...rest } = c;
-  return rest as NavigationFilterContext;
+const missing = (c: NavigationFilterContext): NavigationFilterContext => {
+  const rest = { ...c };
+  delete rest.wechatEntryEnabled;
+  return rest;
 };
 
 console.log("wechat-entry-nav（COLLAB-1）");

@@ -21,8 +21,8 @@
 
 ## 5. 收尾
 
-- [ ] 5.1 不动项与门禁：提交后执行 `git diff --stat origin/main...HEAD -- src/app/api/auth/wechat src/app/api/messaging src/app/api/cron/wechat-push src/lib/messaging/binding.ts src/lib/messaging/push-service.ts src/lib/organizations vercel.json prisma`，并跑 `bash scripts/check-test-registry.sh`、`npm run typecheck`、`npm run lint:baseline`、`npm test`、`openspec validate hide-wechat-entry --strict`；verify：diff 输出为空，其余命令全部通过，真实输出贴进报告
-- [ ] 5.2 写 `docs/QINGYAN_COLLAB-1_REPORT.md`（改动、与任务书的出入、测试与门禁输出、开关恢复步骤）+ 更新 TASKFLOW COLLAB-1 状态列为 `[G]`；verify：报告文件存在，`grep -n 'COLLAB-1' docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 显示该行状态为 `[G]`
+- [x] 5.1 不动项与门禁：提交后执行 `git diff --stat origin/main...HEAD -- src/app/api/auth/wechat src/app/api/messaging src/app/api/cron/wechat-push src/lib/messaging/binding.ts src/lib/messaging/push-service.ts src/lib/organizations vercel.json prisma`，并跑 `bash scripts/check-test-registry.sh`、`npm run typecheck`、`npm run lint:baseline`、`npm test`、`openspec validate hide-wechat-entry --strict`；verify：diff 输出为空，其余命令全部通过，真实输出贴进报告
+- [x] 5.2 写 `docs/QINGYAN_COLLAB-1_REPORT.md`（改动、与任务书的出入、测试与门禁输出、开关恢复步骤）+ 更新 TASKFLOW COLLAB-1 状态列为 `[G]`；verify：报告文件存在，`grep -n 'COLLAB-1' docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 显示该行状态为 `[G]`
 
 ## Workflow follow-up
 
