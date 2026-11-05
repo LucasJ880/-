@@ -31,17 +31,17 @@
 
 | # | 阶段 | 状态 | 提交 |
 |---|---|---|---|
-| 0 | 勘察、复用清单、任务书副本、OpenSpec 四件套、TASKFLOW 行 | 完成 | 6f… docs(PROC-1) propose |
+| 0 | 勘察、复用清单、任务书副本、OpenSpec 四件套、TASKFLOW 行 | 完成 | docs(PROC-1) propose |
 | 1a | Prisma 16 张新表 + 增量迁移 + schema-ready 闸 + 迁移登记 | 完成 | 5ae07d5 |
 | 1b | 纯函数：编号 / 机构规范化、去重键、多伦多排程、来源解析、优先级（80 项测试） | 完成 | 4a911ac |
 | 1c | 扫描执行器、来源抓取、采购工具幂等写入、种子 + 脚本、tender-watch 第二步、cockpit 登记 | 完成 | 1057f0e |
 | 2-3 | 申请卡 / 重复检查 / READY / 状态 / 期限 / 回执 / 旧状态映射（纯）+ requests / events / rules / applicants / tasks（DB） | 完成 | 1057f0e |
 | 4 | 附件解析 / 抽取 / 分析 / 导出 / 读模型 / 鉴权 / `/api/procurement/**` 路由 | 完成 | 1057f0e |
 | 测试 | 纯测试 80 + 86 + 50；隔离库端到端 138（fixture） | 通过 | 1057f0e |
-| 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片 | 进行中 | — |
-| 5 | 全量 npm test、lint 基线、隔离演示与截图、报告 | 未开始 | — |
+| 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片；演示脚本与截图 | 完成 | 81466e0 |
+| 5 | typecheck 通过；隔离库端到端 140；报告 `docs/QINGYAN_PROC-1_REPORT.md`；全量 npm test 与 lint 基线结果见报告 §3.1 | 完成（待 GATE） | 本提交 |
 
-下一步（按序）：UI 组件（src/components/procurement-records/）→ 页面（/projects/intelligence/monitor、/records、/records/[id]）→ Tender 情报 Tab 卡片 → 本地 next dev + 隔离库演示截图 → npm test / lint:baseline → 报告。
+下一步：等 Evan 拍板硬纪律 1 例外与 Owner Gate（报告 §9）；拍板后按 design「Migration Plan」执行迁移、置位、种子、启用，并做 §10 业务验收。不要在未拍板前合并或对生产执行迁移。
 
 ## 4. 运行与验证命令
 
@@ -49,6 +49,7 @@
   `DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=同上 npx prisma migrate deploy`。
 - 纯测试：`npx tsx src/lib/procurement-records/__tests__/{procurement-pure,records-request-pure,disclosure-analysis-pure}.test.ts`。
 - 隔离库端到端：`DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=同上 NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`（自带清理，可重复运行）。
+- 演示：`scripts/procurement-records-demo.ts`（仅隔离库、全部 fixture）→ 输出 cookie；`next dev` 需同 JWT_SECRET 与 `PROCUREMENT_RECORDS_SCHEMA_READY=1 PRODUCT_CONTENT_LOCAL_STORE=1`；截图脚本思路见报告 §4。
 - 注意：路由里的 `after()` 在测试进程外无请求上下文，端到端测试对「立即扫描 / 上传」直接调服务函数（enqueueManualRun + executeScanRun、saveAttachment + processAttachment），路由层只测鉴权分支。
 - typecheck：`NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit -p tsconfig.json`（新增 automation key 须同时登记 `src/lib/cockpit/posts.ts` 与 `schedule.ts`）。
 

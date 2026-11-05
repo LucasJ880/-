@@ -462,8 +462,9 @@ export async function processProcurementScans(deps: ScanDeps = {}): Promise<{
   finished: number;
   yielded: number;
   failed: number;
+  attachmentsProcessed: number;
 }> {
-  if (!isProcurementSchemaReady()) return { skipped: "SCHEMA_NOT_READY", scheduledCreated: 0, processed: 0, finished: 0, yielded: 0, failed: 0 };
+  if (!isProcurementSchemaReady()) return { skipped: "SCHEMA_NOT_READY", scheduledCreated: 0, processed: 0, finished: 0, yielded: 0, failed: 0, attachmentsProcessed: 0 };
   const now = (deps.now ?? (() => new Date()))();
   const deadline = deps.deadline ?? new Date(now.getTime() + DEFAULT_STEP_BUDGET_MS);
   const { created } = await ensureScheduledRuns(now);
@@ -495,5 +496,11 @@ export async function processProcurementScans(deps: ScanDeps = {}): Promise<{
       console.error("[procurement-watch] run failed", c.id, e instanceof Error ? e.message : e);
     }
   }
-  return { scheduledCreated: created, processed, finished, yielded, failed };
+  // 兜底：after() 未执行或失联的附件解析（余下时间内）
+  let attachmentsProcessed = 0;
+  if (Date.now() < deadline.getTime() - 10_000) {
+    const { processPendingAttachments } = await import("./attachments");
+    attachmentsProcessed = (await processPendingAttachments(deadline)).processed;
+  }
+  return { scheduledCreated: created, processed, finished, yielded, failed, attachmentsProcessed };
 }

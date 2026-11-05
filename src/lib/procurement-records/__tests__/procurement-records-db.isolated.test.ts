@@ -492,6 +492,12 @@ async function main() {
     const hd = await detail(hid);
     ok(((hd.analyses as Json[]) ?? []).length === 0 && hd.expectedReleasePages === 105, "回复信称 105 页但未分析");
 
+    console.log("\n[20b] cron 兜底：after() 未执行的附件解析");
+    const late = (await saveAttachment({ requestId: R1, userId: OWNER, kind: "DISCLOSURE_FILE", filename: "late.csv", buffer: Buffer.from("Description,Qty,Order Value\nTowel,2,20.00\n") })) as { ok: true; attachmentId: string };
+    await db.recordsAttachment.update({ where: { id: late.attachmentId }, data: { uploadedAt: new Date(Date.now() - 5 * 60_000) } });
+    const pr = await scan.processProcurementScans({ fetchImpl: fakeFetch, deadline: new Date(Date.now() + 120_000) });
+    ok(pr.attachmentsProcessed >= 1 && (await db.recordsAttachment.findUnique({ where: { id: late.attachmentId } }))?.parseStatus === "PARSED", "cron 步骤接手排队超过 1 分钟的附件解析", pr);
+
     console.log("\n[21] 停用：排队运行取消，数据保留");
     const qd = await db.procurementScanRun.create({ data: { orgId: ORG, watchId: w!.id, slotKey: `scheduled:2026-11-09T08:00@America/Toronto-${stamp}`, trigger: "SCHEDULED" } });
     const beforeDisable = await counts();

@@ -70,7 +70,7 @@
 | `CANADABUYS_CONTRACT_HISTORY_PAGE` | 种子 / 已关注合同的公开页 URL | 页面哈希变更检测（不解析字段） | 网络拒绝 |
 | 省市门户 / MERX / Bonfire / Ariba | — | 仅人工链接导入 | — |
 
-CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title-titre-eng`）；必需列缺失 → `PARSE_FAILED`，不当零结果。每个来源返回 `{status, fetched, matched, newCandidates, truncated, note}`；失败不清空既有数据、不把未知字段改 0。所有抓取受 `TENDER_EXTERNAL_INTEL_ENABLED` 总闸与 `assertSideEffectOrThrow` 同级的非生产隔离（`QINGYAN_ALLOW_CRON_NON_PROD`）约束。
+CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title-titre-eng`）；必需列缺失 → `PARSE_FAILED`，不当零结果。每个来源返回 `{status, fetched, matched, newCandidates, truncated, note}`；失败不清空既有数据、不把未知字段改 0。所有抓取受外部情报总闸 `TENDER_EXTERNAL_INTEL_ENABLED` 约束（未开 → 各来源 UNAVAILABLE 并写明原因，零外部请求）；定时入口另经 `requireCronSecret` 的非生产隔离（`QINGYAN_ALLOW_CRON_NON_PROD`）。手动「立即扫描」只读公开数据，受总闸约束，不另走 cron 隔离。
 否决：用 Tavily / Firecrawl / 二级聚合站——不是官方来源，任务书禁止伪装成官方结果。
 
 ### D5 采购工具身份与去重
