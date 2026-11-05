@@ -5,6 +5,10 @@
 import { foldText, institutionAliases } from "./identity";
 import type { GovernmentOutcome, RequestStatus } from "./duplicate-check";
 import { GOVERNMENT_OUTCOMES } from "./duplicate-check";
+import type { CaseEventType } from "./labels";
+
+export { CASE_EVENT_TYPES, EVENT_LABELS, OUTCOME_LABELS } from "./labels";
+export type { CaseEventType } from "./labels";
 
 // ─────────────────────────── 状态转换 ───────────────────────────
 
@@ -57,61 +61,7 @@ export function isSubmittedLike(status: string): boolean {
 
 // ─────────────────────────── 案件事件 ───────────────────────────
 
-/** 用户可登记的政府来信 / 处理事件 */
-export const CASE_EVENT_TYPES = [
-  "ACKNOWLEDGED",
-  "CLARIFICATION_REQUEST",
-  "CLARIFICATION_SENT",
-  "FEE_NOTICE",
-  "EXTENSION",
-  "TRANSFER_ADVISED",
-  "TRANSFERRED",
-  "PARTIAL_RELEASE",
-  "RESPONSE_LETTER",
-  "FINAL_RESPONSE",
-  "FILES_RECEIVED_CONFIRMED",
-  "WITHDRAWAL_CONFIRMED",
-  "INTERNAL_FOLLOW_UP",
-  "NOTE",
-  "CORRECTION",
-] as const;
-export type CaseEventType = (typeof CASE_EVENT_TYPES)[number];
 
-export const EVENT_LABELS: Record<string, string> = {
-  CREATED: "创建申请卡",
-  VERSION_CREATED: "保存新版本",
-  READY_CHECKED: "通过就绪检查",
-  REVERTED_TO_DRAFT: "回到草稿",
-  HANDOFF_STARTED: "开始自助交接",
-  HANDOFF_CANCELLED: "取消交接",
-  COPIED_BODY: "复制正文（不等于已提交）",
-  OPENED_PORTAL: "打开官方入口（不等于已提交）",
-  VIEWED_FIELD_GUIDE: "查看字段对应",
-  USER_REPORTED_SUBMISSION: "用户报告已提交（待核实）",
-  SUBMISSION_UNKNOWN: "提交结果不确定",
-  SUBMISSION_VERIFIED: "回执核对通过",
-  RESOLVED_NOT_SUBMITTED: "确认未提交（解除不确定）",
-  ACKNOWLEDGED: "机关受理 / 案件编号",
-  CLARIFICATION_REQUEST: "机关要求澄清 / 补充",
-  CLARIFICATION_SENT: "已回复澄清",
-  FEE_NOTICE: "费用通知",
-  EXTENSION: "延期通知",
-  TRANSFER_ADVISED: "建议向另一机关申请",
-  TRANSFERRED: "机关已正式转交",
-  PARTIAL_RELEASE: "部分披露（中期）",
-  RESPONSE_LETTER: "回复信 / 披露通知",
-  FINAL_RESPONSE: "最终回应",
-  FILES_RECEIVED_CONFIRMED: "确认已取得全部披露文件",
-  WITHDRAWAL_CONFIRMED: "撤回已获机关确认",
-  INTERNAL_FOLLOW_UP: "内部跟进提醒",
-  NOTE: "备注",
-  CORRECTION: "更正",
-  ARCHIVED: "本地归档（未提交）",
-  ATTACHMENT_ADDED: "上传附件",
-  ANALYSIS_RUN: "生成分析",
-  LINE_ITEM_REVIEWED: "复核明细",
-  HISTORICAL_IMPORT: "导入历史记录",
-};
 
 /** 事件 → 状态动作（null = 不改申请状态） */
 export function actionForEvent(type: CaseEventType): RequestAction | null {
@@ -171,16 +121,6 @@ export function isGovernmentOutcome(v: unknown): v is GovernmentOutcome {
   return typeof v === "string" && (GOVERNMENT_OUTCOMES as readonly string[]).includes(v);
 }
 
-export const OUTCOME_LABELS: Record<GovernmentOutcome, string> = {
-  FULL_DISCLOSURE: "全部披露",
-  PARTIAL_DISCLOSURE: "部分披露",
-  NO_RECORDS: "无记录（不代表采购金额为 0）",
-  ALL_WITHHELD: "全部不予披露",
-  TRANSFERRED: "已转交其他机关",
-  WITHDRAWN: "已撤回",
-  CANCELLED: "已取消",
-  OTHER: "其他",
-};
 
 // ─────────────────────────── 文件状态 ───────────────────────────
 

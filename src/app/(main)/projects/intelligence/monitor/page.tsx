@@ -1,15 +1,11 @@
 import { IntelHubShell } from "@/components/bid-workflow/intel-hub-shell";
-import Link from "next/link";
+import { ProcurementMonitor } from "@/components/procurement-records/procurement-monitor";
 
+/** PROC-1：情报监控 = 采购监控与候选（官方开放数据只读扫描；替代原 notEnabled 占位） */
 export default function IntelMonitorPage() {
   return (
-    <IntelHubShell title="情报监控" notEnabled>
-      <div className="rounded-xl border border-dashed border-[var(--border)] p-8 text-sm text-[var(--muted)] space-y-2">
-        <p>Phase 1：复用现有市场监测能力，不在本页同步爬取。</p>
-        <Link href="/trade/signals" className="underline text-[var(--foreground)]">
-          打开市场监测（业务运营域）
-        </Link>
-      </div>
+    <IntelHubShell title="采购监控与候选">
+      <ProcurementMonitor />
     </IntelHubShell>
   );
 }

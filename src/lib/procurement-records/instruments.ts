@@ -197,7 +197,7 @@ export async function upsertInstrumentFromRecord(input: {
 
   let instrument = await db.procurementInstrument.findUnique({
     where: { orgId_dedupeKey: { orgId, dedupeKey } },
-    select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true },
+    select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true },
   });
   let created = false;
   let flagged = false;
@@ -263,14 +263,14 @@ export async function upsertInstrumentFromRecord(input: {
           origin: input.origin ?? "SCAN",
           createdById: input.createdById ?? null,
         },
-        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true },
+        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true },
       });
       created = true;
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       instrument = await db.procurementInstrument.findUnique({
         where: { orgId_dedupeKey: { orgId, dedupeKey } },
-        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true },
+        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true },
       });
       if (!instrument) throw err;
     }
@@ -305,8 +305,9 @@ export async function upsertInstrumentFromRecord(input: {
       aliasesJson: mergeAliases(readAliases(instrument.aliasesJson), aliases) as unknown as Prisma.InputJsonValue,
     };
     if (!instrument.title && r.title) data.title = r.title.slice(0, 500);
-    if (r.contractingInstitution) data.contractingInstitution = r.contractingInstitution;
-    if (r.buyingInstitution) data.buyingInstitution = r.buyingInstitution;
+    // 机构只补空：不同来源对同一合同的「报告部门」说法可能不同，不覆盖种子 / 用户核实值
+    if (r.contractingInstitution && !instrument.contractingInstitution) data.contractingInstitution = r.contractingInstitution;
+    if (r.buyingInstitution && !instrument.buyingInstitution) data.buyingInstitution = r.buyingInstitution;
     if (r.vendorName) data.vendorName = r.vendorName;
     if (r.publishedAt) data.publishedAt = d(r.publishedAt);
     if (r.closingAt) data.closingAt = d(r.closingAt);

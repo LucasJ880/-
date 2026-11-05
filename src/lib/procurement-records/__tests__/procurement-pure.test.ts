@@ -181,6 +181,7 @@ console.log("\n— Open Government 合同披露（fixture）");
 {
   const so = mapOpenCanadaContract({ reference_number: "PSPC-2022-001", procurement_id: "CW2379109", owner_org: "pspc-spac", owner_org_title: "Public Services and Procurement Canada", instrument_type: "SOSA", vendor_name: "Vendor A", contract_value: "0.00", description_en: "Pillow forms" }, "res");
   ok(so?.instrumentClass === "AWARD_INSTRUMENT" && so.instrumentSubtype === "STANDING_OFFER" && so.contractValue === "0.00", "SOSA → SO，公开值 0 原样保存（不当未采购）", so);
+  ok(so?.contractingInstitution === "Public Services and Procurement Canada" && so.buyingInstitution === null, "SO 行的报告部门是采购执行方，不当作购买机构");
   const cu = mapOpenCanadaContract({ reference_number: "C-2023-Q2-0042", procurement_id: "21C51-PO-7788", standing_offer_number: "CW2379109", owner_org: "csc-scc", owner_org_title: "Correctional Service Canada", instrument_type: "C", contract_value: "$12,345.60", contract_date: "2023-08-14", delivery_date: "2023-09-30" }, "res");
   ok(cu?.instrumentClass === "CALL_UP" && cu.parentNumber === "CW2379109" && cu.contractValue === "12345.60", "带 SO 号 → call-up，金额规范为十进制字符串", cu);
   ok(cu?.periodEnd === "2023-09-30" && cu.awardDate === "2023-08-14", "日期规范");

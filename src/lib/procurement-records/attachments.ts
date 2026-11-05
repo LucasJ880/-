@@ -15,17 +15,11 @@ import { normalizeFilename } from "@/lib/files/upload-guard";
 import { extractFromPdfPage, extractFromTable, pageNeedsOcr, type ExtractedLine } from "./extract-pure";
 import { appendRequestEvent } from "./requests";
 import { recomputeFilesStatus } from "./events";
+import { ATTACHMENT_KINDS, type AttachmentKind } from "./labels";
 
-export const ATTACHMENT_KINDS = ["RECEIPT", "GOVERNMENT_LETTER", "DISCLOSURE_FILE", "PAYMENT_PROOF", "PORTAL_SCREENSHOT", "OTHER"] as const;
-export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
-export const ATTACHMENT_KIND_LABELS: Record<AttachmentKind, string> = {
-  RECEIPT: "提交回执 / 确认",
-  GOVERNMENT_LETTER: "政府来信",
-  DISCLOSURE_FILE: "披露文件",
-  PAYMENT_PROOF: "付款凭证（不能单独证明提交）",
-  PORTAL_SCREENSHOT: "门户截图（不能单独证明提交）",
-  OTHER: "其他",
-};
+export { ATTACHMENT_KINDS, ATTACHMENT_KIND_LABELS } from "./labels";
+export type { AttachmentKind } from "./labels";
+
 
 export const ALLOWED_EXTENSIONS: Record<string, string> = {
   pdf: "application/pdf",

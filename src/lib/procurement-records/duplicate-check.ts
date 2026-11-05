@@ -8,31 +8,13 @@
  */
 
 import { normalizeNumbers, UNKNOWN_CATEGORY } from "./request-pure";
+import { REQUEST_STATUSES } from "./labels";
 
-export const REQUEST_STATUSES = [
-  "DRAFT",
-  "READY",
-  "HANDOFF_PENDING",
-  "USER_REPORTED_SUBMISSION",
-  "SUBMISSION_UNKNOWN",
-  "SUBMITTED",
-  "ACKNOWLEDGED",
-  "PROCESSING",
-  "CLOSED",
-] as const;
-export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+export { GOVERNMENT_OUTCOMES, REQUEST_STATUSES } from "./labels";
+export type { GovernmentOutcome, RequestStatus } from "./labels";
+import type { RequestStatus } from "./labels";
 
-export const GOVERNMENT_OUTCOMES = [
-  "FULL_DISCLOSURE",
-  "PARTIAL_DISCLOSURE",
-  "NO_RECORDS",
-  "ALL_WITHHELD",
-  "TRANSFERRED",
-  "WITHDRAWN",
-  "CANCELLED",
-  "OTHER",
-] as const;
-export type GovernmentOutcome = (typeof GOVERNMENT_OUTCOMES)[number];
+
 
 export function isRequestStatus(v: unknown): v is RequestStatus {
   return typeof v === "string" && (REQUEST_STATUSES as readonly string[]).includes(v);

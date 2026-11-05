@@ -10,7 +10,8 @@ const LINKS = [
   { href: "/projects/intelligence/competitors", label: "竞争对手" },
   { href: "/projects/intelligence/agencies", label: "采购机构" },
   { href: "/projects/intelligence/supply-chain", label: "供应链线索" },
-  { href: "/projects/intelligence/monitor", label: "情报监控" },
+  { href: "/projects/intelligence/monitor", label: "情报监控（采购）" },
+  { href: "/projects/intelligence/records", label: "资料申请" },
 ];
 
 export function IntelHubShell({
@@ -36,7 +37,7 @@ export function IntelHubShell({
         )}
         <nav className="flex flex-wrap gap-2 pt-2">
           {LINKS.map((l) => {
-            const active = pathname === l.href;
+            const active = pathname === l.href || (l.href === "/projects/intelligence/records" && pathname.startsWith("/projects/intelligence/records/"));
             return (
               <Link
                 key={l.href}

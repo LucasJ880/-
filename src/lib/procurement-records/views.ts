@@ -237,6 +237,8 @@ export async function getRequestDetail(requestId: string) {
     submittedVersion: submittedVersion ? { id: submittedVersion.id, versionNo: submittedVersion.versionNo, bodyEn: submittedVersion.bodyEn, textHash: submittedVersion.textHash, kind: submittedVersion.kind } : null,
     versions: versions.map((v) => ({ id: v.id, versionNo: v.versionNo, kind: v.kind, textHash: v.textHash, scopeFingerprint: v.scopeFingerprint, createdAt: v.createdAt.toISOString(), createdBy: name(v.createdById), startDate: day(v.startDate), endDate: day(v.endDate), isSubmitted: v.id === r.submittedVersionId, isHandoff: v.id === r.handoffVersionId, isCurrent: v.id === r.currentVersionId })),
     ready: ctx.ready,
+    /** 只有草稿 / 就绪阶段需要 READY 闸；交接与提交之后不再适用（重叠只作参考） */
+    readyApplicable: ["DRAFT", "READY"].includes(r.status) && !r.archivedAt,
     duplicate: ctx.duplicate,
     applicant: applicant
       ? { id: applicant.id, label: applicant.label, version: applicant.version, verificationStatus: applicant.verificationStatus, legalName: applicant.legalName, representativeName: applicant.representativeName, addressLine1: applicant.addressLine1, addressLine2: applicant.addressLine2, city: applicant.city, province: applicant.province, postalCode: applicant.postalCode, country: applicant.country, email: applicant.email, phone: applicant.phone }

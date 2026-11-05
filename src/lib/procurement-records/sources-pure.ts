@@ -25,17 +25,11 @@ import {
   type Jurisdiction,
 } from "./identity";
 import type { SourceKey } from "./watch-config";
+import type { SourceStatus } from "./labels";
 
-export const SOURCE_STATUSES = ["SUCCESS", "PARTIAL", "UNAVAILABLE", "PARSE_FAILED", "SKIPPED"] as const;
-export type SourceStatus = (typeof SOURCE_STATUSES)[number];
+export { SOURCE_STATUSES, SOURCE_STATUS_LABELS } from "./labels";
+export type { SourceStatus } from "./labels";
 
-export const SOURCE_STATUS_LABELS: Record<SourceStatus, string> = {
-  SUCCESS: "成功",
-  PARTIAL: "部分成功",
-  UNAVAILABLE: "无法获取",
-  PARSE_FAILED: "解析失败",
-  SKIPPED: "未执行",
-};
 
 export interface SourceResult {
   source: SourceKey;
@@ -409,7 +403,8 @@ export function mapOpenCanadaContract(row: Record<string, unknown>, resourceId: 
     categoryText: str(row.commodity_type),
     regions: [],
     contractingInstitution: ownerTitle,
-    buyingInstitution: ownerTitle,
+    // SO / SA 行的报告部门是采购执行方，不是购买机构；只有普通合同 / call-up 的报告部门才是购买方
+    buyingInstitution: isSosa ? null : ownerTitle,
     vendorName: str(row.vendor_name),
     publishedAt: null,
     closingAt: null,

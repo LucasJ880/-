@@ -9,21 +9,12 @@
 
 import { foldText, normalizeInstrumentNumber } from "./identity";
 import { parseCsv } from "./sources-pure";
+import type { AmountBasis, DocumentType } from "./labels";
 
-export const AMOUNT_BASES = ["CEILING", "EVALUATED", "COMMITTED", "ORDERED", "INVOICED", "PAID", "UNKNOWN"] as const;
-export type AmountBasis = (typeof AMOUNT_BASES)[number];
-export const AMOUNT_BASIS_LABELS: Record<AmountBasis, string> = {
-  CEILING: "上限 / 框架值（ceiling）",
-  EVALUATED: "评估价（evaluated）",
-  COMMITTED: "承诺（committed）",
-  ORDERED: "订单（ordered）",
-  INVOICED: "发票（invoiced）",
-  PAID: "已付（paid）",
-  UNKNOWN: "口径未识别",
-};
+export { AMOUNT_BASES, AMOUNT_BASIS_LABELS, DOCUMENT_TYPES } from "./labels";
+export type { AmountBasis, DocumentType } from "./labels";
 
-export const DOCUMENT_TYPES = ["CONTRACT", "AMENDMENT", "CALL_UP", "PURCHASE_ORDER", "INVOICE", "PAYMENT", "USAGE_REPORT", "PRICE_SCHEDULE", "OTHER"] as const;
-export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
 
 export interface ExtractedLine {
   dedupeKey: string;

@@ -9,20 +9,11 @@
 
 import { createHash } from "node:crypto";
 import { normalizeInstrumentNumber } from "./identity";
+import { PATH_TYPE_LABELS, RECORD_CATEGORIES, RECORD_CATEGORY_LABELS, type PathType, type RecordCategory } from "./labels";
 
-export const RECORD_CATEGORIES = ["CONTRACT_DOCS", "CALL_UPS_USAGE", "USAGE_REPORTS", "FINANCIALS", "PRICE_SCHEDULE"] as const;
-export type RecordCategory = (typeof RECORD_CATEGORIES)[number];
-/** 历史导入时类别未知：重复检查按与所有类别相交处理（保守） */
-export const UNKNOWN_CATEGORY = "UNKNOWN" as const;
+export { PATH_TYPES, PATH_TYPE_LABELS, RECORD_CATEGORIES, RECORD_CATEGORY_LABELS, UNKNOWN_CATEGORY } from "./labels";
+export type { PathType, RecordCategory } from "./labels";
 
-export const RECORD_CATEGORY_LABELS: Record<RecordCategory | typeof UNKNOWN_CATEGORY, string> = {
-  CONTRACT_DOCS: "最终合同 / SO 及附件、修订与已行使的续期 / 延期选项",
-  CALL_UPS_USAGE: "Call-up / PO / 使用记录（品名、数量、单位、单价、日期、交付地、订单值与累计值）",
-  USAGE_REPORTS: "年度或季度使用报告",
-  FINANCIALS: "分别列示的 committed / ordered / invoiced / paid 及取消、退货、贷项",
-  PRICE_SCHEDULE: "最终 Basis of Payment / 价格表（可披露部分）",
-  UNKNOWN: "类别未知（历史导入）",
-};
 
 const CATEGORY_TEMPLATE_ITEMS: Record<RecordCategory, string> = {
   CONTRACT_DOCS: "The final issued contract or Standing Offer, its applicable annexes, amendments and exercised renewal or extension options.",
@@ -38,13 +29,6 @@ export function isRecordCategory(v: unknown): v is RecordCategory {
   return typeof v === "string" && (RECORD_CATEGORIES as readonly string[]).includes(v);
 }
 
-export const PATH_TYPES = ["PUBLIC_RECORD", "COMPLETED_ATI_COPY", "NEW_FORMAL_REQUEST"] as const;
-export type PathType = (typeof PATH_TYPES)[number];
-export const PATH_TYPE_LABELS: Record<PathType, string> = {
-  PUBLIC_RECORD: "直接取得公开资料（无需申请）",
-  COMPLETED_ATI_COPY: "索取已完成 ATI 的既有披露副本（非正式，对外申请）",
-  NEW_FORMAL_REQUEST: "提出新的正式申请",
-};
 
 export const CHANNELS = ["FORMAL", "INFORMAL"] as const;
 export type Channel = (typeof CHANNELS)[number];
