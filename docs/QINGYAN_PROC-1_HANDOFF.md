@@ -39,7 +39,7 @@
 | 4 | 附件解析 / 抽取 / 分析 / 导出 / 读模型 / 鉴权 / `/api/procurement/**` 路由 | 完成 | 1057f0e |
 | 测试 | 纯测试 80 + 86 + 50；隔离库端到端 138（fixture） | 通过 | 1057f0e |
 | 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片；演示脚本与截图 | 完成 | 81466e0 |
-| 5 | typecheck 通过；隔离库端到端 140；报告 `docs/QINGYAN_PROC-1_REPORT.md`；全量 npm test 与 lint 基线结果见报告 §3.1 | 完成（待 GATE） | 本提交 |
+| 5 | typecheck 通过；隔离库端到端 142；报告 `docs/QINGYAN_PROC-1_REPORT.md`；全量 npm test 与 lint 基线结果见报告 §3.1 | 完成（待 GATE） | 本提交 |
 
 下一步：等 Evan 拍板硬纪律 1 例外与 Owner Gate（报告 §9）；拍板后按 design「Migration Plan」执行迁移、置位、种子、启用，并做 §10 业务验收。不要在未拍板前合并或对生产执行迁移。
 

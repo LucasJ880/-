@@ -156,8 +156,12 @@
 - **THEN** 403 / 404，A 的数据与运行不变；`procurement-records-db.isolated.test.ts` 覆盖
 
 ### Requirement: 敏感资料不外泄
-通知摘要、审计摘要、日志与扫描结果 SHALL NOT 含申请人地址、邮箱、电话、回执编号或附件内容；附件 SHALL NOT 以公开链接提供。
+通知摘要、审计摘要、日志与扫描结果 SHALL NOT 含申请人地址、邮箱、电话、回执编号或附件内容；附件 SHALL NOT 以公开链接提供；只读角色（org_viewer）看到的申请详情 SHALL NOT 含申请人地址、邮箱、电话。
 
 #### Scenario: 通知摘要
 - **WHEN** 申请登记回执后产生待办与通知
 - **THEN** 摘要不含 submission reference 与申请人地址；`procurement-records-db.isolated.test.ts` 覆盖
+
+#### Scenario: 只读角色
+- **WHEN** org_viewer 请求申请详情
+- **THEN** 申请人地址、邮箱、电话为空，法定名称仍显示；`procurement-records-db.isolated.test.ts` 覆盖

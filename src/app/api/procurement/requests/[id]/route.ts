@@ -15,7 +15,15 @@ export const GET = withAuth<{ id: string }>(async (_request, ctx, user) => {
   const { id } = await ctx.params;
   const a = await requireRequestAccess(user, id, "org_viewer");
   if (a instanceof NextResponse) return a;
-  return NextResponse.json({ available: true, canManage: ["org_admin", "org_owner"].includes(a.orgRole), canEdit: a.orgRole !== "org_viewer", request: await getRequestDetail(id) });
+  const detail = await getRequestDetail(id);
+  // 只读角色看不到申请人联系信息（地址 / 邮箱 / 电话）；准备与提交申请的成员才需要
+  if (detail && a.orgRole === "org_viewer") {
+    const mask = <T extends Record<string, unknown> | null>(o: T): T =>
+      o ? ({ ...o, addressLine1: null, addressLine2: null, city: null, postalCode: null, email: null, phone: null } as T) : o;
+    detail.applicant = mask(detail.applicant);
+    if (detail.currentVersion) detail.currentVersion = { ...detail.currentVersion, applicantSnapshot: mask(detail.currentVersion.applicantSnapshot as Record<string, unknown> | null) as never };
+  }
+  return NextResponse.json({ available: true, canManage: ["org_admin", "org_owner"].includes(a.orgRole), canEdit: a.orgRole !== "org_viewer", request: detail });
 });
 
 const PATCH_KEYS: Array<keyof DraftPatch> = [

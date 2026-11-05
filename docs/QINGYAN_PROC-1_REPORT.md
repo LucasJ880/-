@@ -38,7 +38,7 @@
 | 十一 来信 / 附件 / 分析 | 完成 | 邮箱自动收信未启用（UI 明示） |
 | 十二 UI 与内部能力接口 | 完成 | 见 §4 截图 |
 | 十三 种子与历史样本 | 完成 | 三条种子幂等；A-2026-00183 只作「待核实历史记录」（user_reported、无附件 / 回执、不预填申请人） |
-| 十五 验收场景 1–18 | 开发验证通过（fixture） | `procurement-records-db.isolated.test.ts` 140 项；纯测试 217 项 |
+| 十五 验收场景 1–18 | 开发验证通过（fixture） | `procurement-records-db.isolated.test.ts` 142 项；纯测试 217 项 |
 | 十五 上线业务验收 | **待业务验收** | 未发生真实生产扫描与真实提交；不能用 fixture 代替 |
 | 模型辅助抽取 / 草拟 | 未做（有意） | 硬纪律 7；V1 全确定性，AI 调用 0；如需引入须单独拍板 |
 | 邮箱读取、OCR、自动登录 / 付款 / 代交、省市门户适配 | 未做（Out of scope） | 任务书第三节列为非 V1 |
@@ -58,7 +58,7 @@
 | `procurement-pure.test.ts`（身份 / DST 排程 / 来源解析 / 优先级） | 81 passed, 0 failed |
 | `records-request-pure.test.ts`（模板 / 重复检查 / READY / 状态 / 期限 / 回执 / 旧状态映射） | 86 passed, 0 failed |
 | `disclosure-analysis-pure.test.ts`（表格与 PDF 抽取 / 按口径分析 / CSV 导出） | 50 passed, 0 failed |
-| `procurement-records-db.isolated.test.ts`（本地 PostgreSQL 16 + pgvector 隔离库，真实路由 + 注入假 fetch） | 140 passed, 0 failed（多次重复运行，自带清理） |
+| `procurement-records-db.isolated.test.ts`（本地 PostgreSQL 16 + pgvector 隔离库，真实路由 + 注入假 fetch） | 142 passed, 0 failed（多次重复运行，自带清理） |
 | 迁移预演：隔离库 `prisma migrate deploy`（既有 42 条 + 本迁移） | 成功；库 vs schema 对本 change 零残差 |
 | `verify-migration-history.ts` / `check-release-safety.test.ts` / `release/drift.test.ts` | 93 / 27 / 27 passed |
 | cockpit 测试（posts / schedule / posts-read-model / workload） | 225 / 196 / 139 / 94 passed |

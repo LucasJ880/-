@@ -462,6 +462,9 @@ async function main() {
     ok(pe.status === 200 && after18!.submittedVersionId === subV && (await db.recordsRequestVersion.findUnique({ where: { id: subV } }))!.bodyEn === subBody && after18!.currentVersionId !== subV, "新版本不改变已提交版本");
 
     console.log("\n[19] 附件下载、导出、Tender 卡片与隔离");
+    const vd = await detail(R1, VIEWER);
+    ok(vd.applicant !== null && (vd.applicant as Json).email === null && (vd.applicant as Json).addressLine1 === null && (vd.applicant as Json).legalName === "Fixture Shutters Inc.", "只读角色看不到申请人联系信息");
+    ok(((await detail(R1, MEMBER)).applicant as Json).email === "records@fixture.test", "成员可见申请人联系信息（准备提交需要）");
     const dl = await call(attachmentRoute.GET, VIEWER, "GET", `/api/procurement/requests/${R1}/attachments/${rc.attachmentId}`, { id: R1, attachmentId: rc.attachmentId });
     ok(dl.status === 200 && dl.headers.get("content-disposition")?.startsWith("attachment") === true && dl.headers.get("cache-control")?.includes("no-store") === true, "成员下载附件（attachment、no-store）");
     ok((await call(attachmentRoute.GET, OUTSIDER, "GET", `/api/procurement/requests/${R1}/attachments/${rc.attachmentId}`, { id: R1, attachmentId: rc.attachmentId })).status === 404, "其他组织下载 → 404");
