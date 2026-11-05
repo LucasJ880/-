@@ -141,7 +141,7 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 
 | 项 | 状态 | 证据 |
 |---|---|---|
-| 代码 | 已推送分支 `claude/tender-dijkstra-1i94ag`；**未开 PR、未合并** | git log |
+| 代码 | 已推送分支 `claude/tender-dijkstra-1i94ag`；Draft PR https://github.com/LucasJ880/-/pull/382；**未合并** | git log / PR |
 | 生产 / staging 迁移 | **未执行** | 只在本地隔离库预演 |
 | `PROCUREMENT_RECORDS_SCHEMA_READY` | 各环境**未设置** | — |
 | 定时扫描 | **未启用**（生产无表；新建监控默认未启用） | — |
@@ -158,7 +158,7 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 4. 当前申请人资料（公司法定名称、代表人、地址、邮箱）：请在界面填写并确认；系统不会从历史回复信带出。
 5. 首次台账：A-2026-00183 之外是否还有历史 ATI / 省市申请？有则按 JSON 导入，没有则由你在界面确认「该范围无历史申请」。
 6. 三条种子合同的资料持有机关（PSPC 还是 CSC / CORCAN / DND）按所需记录核实后填写。
-7. ~~Draft PR~~：已开（见 PR 链接）。
+7. ~~Draft PR~~：已开 https://github.com/LucasJ880/-/pull/382（Draft，等 Evan 审查合并；合并前先按 Runbook 迁移生产库）。
 
 ## 10. 业务验收（待做，不能用 fixture 代替）
 

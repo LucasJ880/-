@@ -41,7 +41,7 @@
 | 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片；演示脚本与截图 | 完成 | 81466e0 |
 | 5 | typecheck 通过；隔离库端到端 142；报告 `docs/QINGYAN_PROC-1_REPORT.md`；全量 npm test 与 lint 基线结果见报告 §3.1 | 完成（待 GATE） | 本提交 |
 
-下一步：Draft PR 已开 → Evan 审查合并前，先按 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md` 在 staging / 生产执行受控迁移（迁移先于合并，否则生产构建被迁移闸拦住）；放行官方域名后跑 `scripts/procurement-records-live-check.ts` 做首次真实只读核对；然后种子、规则核实、申请人确认、台账确认、启用监控，做业务验收。
+下一步：Draft PR https://github.com/LucasJ880/-/pull/382 已开 → Evan 审查合并前，先按 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md` 在 staging / 生产执行受控迁移（迁移先于合并，否则生产构建被迁移闸拦住）；放行官方域名后跑 `scripts/procurement-records-live-check.ts` 做首次真实只读核对；然后种子、规则核实、申请人确认、台账确认、启用监控，做业务验收。
 
 ## 4. 运行与验证命令
 
