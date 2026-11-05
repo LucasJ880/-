@@ -57,6 +57,15 @@ export interface AnalysisInput {
 
 // ─────────────────────────── 十进制（无浮点） ───────────────────────────
 
+const ZERO = BigInt(0);
+const ONE = BigInt(1);
+const TEN = BigInt(10);
+function pow10(n: number): bigint {
+  let r = ONE;
+  for (let i = 0; i < n; i++) r *= TEN;
+  return r;
+}
+
 /** 十进制字符串 → 按 scale 位小数的 BigInt（四舍五入到 scale；无法解析 → null） */
 export function toScaled(v: string | null | undefined, scale: number): bigint | null {
   if (v === null || v === undefined) return null;
@@ -65,15 +74,15 @@ export function toScaled(v: string | null | undefined, scale: number): bigint | 
   if (!m) return null;
   const neg = m[1] === "-";
   const frac = (m[3] ?? "").padEnd(scale + 1, "0");
-  let n = BigInt(m[2]) * 10n ** BigInt(scale) + BigInt(frac.slice(0, scale) || "0");
-  if (Number(frac[scale] ?? "0") >= 5) n += 1n;
+  let n = BigInt(m[2]) * pow10(scale) + BigInt(frac.slice(0, scale) || "0");
+  if (Number(frac[scale] ?? "0") >= 5) n += ONE;
   return neg ? -n : n;
 }
 
 export function formatScaled(n: bigint, scale: number): string {
-  const neg = n < 0n;
+  const neg = n < ZERO;
   const a = neg ? -n : n;
-  const base = 10n ** BigInt(scale);
+  const base = pow10(scale);
   const int = (a / base).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const frac = (a % base).toString().padStart(scale, "0");
   return `${neg ? "-" : ""}${int}${scale ? `.${frac}` : ""}`;
@@ -195,8 +204,8 @@ export function analyzeDisclosure(input: AnalysisInput): AnalysisResult {
     const currency = l.currency?.trim().toUpperCase() || "币种未标注";
     if (currency === "币种未标注") unknownCurrency++;
     const key = `${l.amountBasis}|${currency}`;
-    const g = totals.get(key) ?? { basis: l.amountBasis, currency, total: 0n, credits: 0n, lineCount: 0, dup: 0, seen: new Set<string>() };
-    const signed = l.isCancellationOrCredit && cents > 0n ? -cents : cents;
+    const g = totals.get(key) ?? { basis: l.amountBasis, currency, total: ZERO, credits: ZERO, lineCount: 0, dup: 0, seen: new Set<string>() };
+    const signed = l.isCancellationOrCredit && cents > ZERO ? -cents : cents;
     const dupKey = l.docRef ? `${foldText(l.docRef)}|${signed}` : null;
     if (dupKey && g.seen.has(dupKey)) {
       g.dup++;
@@ -205,7 +214,7 @@ export function analyzeDisclosure(input: AnalysisInput): AnalysisResult {
     }
     if (dupKey) g.seen.add(dupKey);
     g.total += signed;
-    if (signed < 0n) g.credits += signed;
+    if (signed < ZERO) g.credits += signed;
     g.lineCount++;
     totals.set(key, g);
   }
@@ -219,8 +228,8 @@ export function analyzeDisclosure(input: AnalysisInput): AnalysisResult {
     if (q === null) continue;
     const unit = l.unit?.trim() || "单位未标注";
     const k = `${l.amountBasis}|${productKey(l.productDescription)}|${foldText(unit)}`;
-    const g = qty.get(k) ?? { basis: l.amountBasis, product: l.productDescription?.trim() || "（未写品名）", unit, quantity: "0", lineCount: 0, n: 0n };
-    g.n += l.isCancellationOrCredit && q > 0n ? -q : q;
+    const g = qty.get(k) ?? { basis: l.amountBasis, product: l.productDescription?.trim() || "（未写品名）", unit, quantity: "0", lineCount: 0, n: ZERO };
+    g.n += l.isCancellationOrCredit && q > ZERO ? -q : q;
     g.lineCount++;
     qty.set(k, g);
   }
@@ -307,7 +316,7 @@ export function analyzeDisclosure(input: AnalysisInput): AnalysisResult {
   for (const i of input.instruments) {
     if (i.contractValue === null) continue;
     const c = toCents(i.contractValue);
-    if (c === 0n) publicValueNotes.push(`合同 ${i.number} 公开合同值为 0：这是框架 / SO 的披露口径，不代表未采购`);
+    if (c === ZERO) publicValueNotes.push(`合同 ${i.number} 公开合同值为 0：这是框架 / SO 的披露口径，不代表未采购`);
     else if (c !== null) publicValueNotes.push(`合同 ${i.number} 公开合同值 ${formatCents(c)}：披露口径（可能为上限 / 框架值），不等于实际支出`);
   }
   const ordered = [...totals.values()].filter((t) => t.basis === "ORDERED");

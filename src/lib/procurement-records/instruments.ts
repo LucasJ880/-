@@ -294,6 +294,10 @@ export async function upsertInstrumentFromRecord(input: {
     now,
   });
 
+  // 同一来源出现新修订（新修订号形成新证据行）也算采购工具发生变化
+  const isNewAmendment = !created && ev.created && !!r.amendmentNumber && !/^0+$/.test(r.amendmentNumber);
+  const evidenceChanged = ev.changed || isNewAmendment;
+
   if (!created) {
     // 只写非空来源字段；不覆盖用户维护字段
     const data: Prisma.ProcurementInstrumentUncheckedUpdateInput = {
@@ -313,7 +317,7 @@ export async function upsertInstrumentFromRecord(input: {
       data.currency = r.currency;
     }
     if (parentId && !instrument.parentInstrumentId) data.parentInstrumentId = parentId;
-    if (ev.changed) data.lastChangedAt = now;
+    if (evidenceChanged) data.lastChangedAt = now;
     if (input.match) data.matchJson = { ...input.match, parentNumber: r.parentNumber } as unknown as Prisma.InputJsonValue;
     await db.procurementInstrument.update({ where: { id: instrument.id }, data });
   }
@@ -335,7 +339,7 @@ export async function upsertInstrumentFromRecord(input: {
     }
   }
 
-  return { instrumentId: instrument.id, created, evidenceChanged: ev.changed, evidenceCreated: ev.created, deferred: false, flaggedForReview: flagged };
+  return { instrumentId: instrument.id, created, evidenceChanged, evidenceCreated: ev.created, deferred: false, flaggedForReview: flagged };
 }
 
 export async function upsertRelation(input: { orgId: string; fromInstrumentId: string; toInstrumentId: string; relation: string; basis?: string; createdById?: string | null }) {

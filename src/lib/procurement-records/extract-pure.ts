@@ -146,7 +146,7 @@ function classifyHeader(h: string): Field | null {
 export function basisFromText(text: string | null | undefined): AmountBasis {
   const f = foldText(text);
   if (!f) return "UNKNOWN";
-  if (/\b(invoice|invoiced|facture|facturee?)\b/.test(f)) return "INVOICED";
+  if (/\b(invoices?|invoiced|factures?|facturee?s?)\b/.test(f)) return "INVOICED";
   if (/\b(paid|payment|payments|paiement|paye)\b/.test(f)) return "PAID";
   if (/\b(commit|committed|commitment|engage|engagement)\b/.test(f)) return "COMMITTED";
   if (/\b(ceiling|limit|plafond|maximum|not to exceed)\b/.test(f)) return "CEILING";
