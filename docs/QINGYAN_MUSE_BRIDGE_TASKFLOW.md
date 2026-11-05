@@ -151,6 +151,18 @@
 
 ---
 
+## Phase R — 采购情报与政府资料申请（Tender 类目）
+
+任务书：`docs/QINGYAN_PROC-1_RECORDS_TASKBRIEF.md`（v1.0，2026-11-05）；交接：`docs/QINGYAN_PROC-1_HANDOFF.md`。纪律：**触碰第 1 条零 schema（只新增表），须 Evan 拍板例外后才可合并**；其余同上——不加 cron / 队列（挂既有 `tender-watch`）、零出站（用户自助提交）、只读官方开放数据 / 公开页、零 LLM。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| PROC-1 | 采购监控（CanadaBuys 公告 / Open Government 合同 / Completed ATI / 合同历史页）→ 候选与采购工具去重 → 申请卡（联邦 ATI 模板、版本、规则、申请人、重复检查、READY）→ 自助交接与回执核对 → 案件事件 / 期限 / 待办 → 披露文件解析、明细复核、按口径分析与导出 | 硬纪律 1 例外（Evan） | OpenSpec change `procurement-records-requests`；三组纯测试 + 隔离库端到端注册；报告 `docs/QINGYAN_PROC-1_REPORT.md` | [~] |
+
+**GATE-R 验收**（业务验收另列，不能用 fixture 代替）：生产迁移按 Owner Gate 执行后，授权用户保存并启用监控，生产定时扫描至少一次真实 SUCCESS / PARTIAL 且来源结果可见；用户完成一次真实自助提交并上传真实回执，状态为 SUBMITTED（document_verified）。
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
