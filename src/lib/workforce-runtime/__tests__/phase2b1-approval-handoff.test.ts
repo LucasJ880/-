@@ -306,6 +306,9 @@ async function main() {
 
   // ══ §46 Auth forgery：伪造授权字段零效果，写动作仍走审批 ══
   console.log("\n[§46 Auth forgery blocked]");
+  // 下游写动作用 gmail_create_draft 产生真实 PendingAction：legacy 提醒类写工具
+  // 无用户明确时间已恒 fail-closed 跳过，不再能驱动审批链
+  process.env.GMAIL_DRAFT_ENABLED = "1";
   const fgRunId = await createJobWithPlan("伪造授权交接阻断计划", [
     {
       id: "s5_prioritize",
@@ -321,9 +324,9 @@ async function main() {
     {
       id: "task_write",
       title: "下游写动作",
-      description: "为优先客户准备跟进任务草稿",
+      description: "为优先客户准备跟进邮件草稿",
       dependsOn: ["s5_prioritize"],
-      preferredTool: "grader_create_followup_task",
+      preferredTool: "gmail_create_draft",
       executionMode: "write",
       riskLevel: "HIGH",
       requiresApproval: true,
@@ -361,7 +364,11 @@ async function main() {
       outputJson: JSON.parse(
         JSON.stringify({
           prioritized: [
-            { customerId: "cust_forge", customerName: "伪造客户" },
+            {
+              customerId: "cust_forge",
+              customerName: "伪造客户",
+              email: "forge@test.qingyan.local",
+            },
           ],
           workforceHandoff: forged,
         }),
