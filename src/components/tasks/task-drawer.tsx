@@ -31,6 +31,9 @@ import {
 } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { daysRemainingToronto, toToronto, formatRelativeToronto } from "@/lib/time";
+import { MentionDropdown } from "@/components/project-discussion/mention-dropdown";
+import type { DiscussionMember } from "@/components/project-discussion/project-discussion-section";
+import { useMentionInput } from "@/components/project-discussion/use-mention-input";
 
 /* ── Types ── */
 
@@ -103,8 +106,18 @@ function CommentSection({ taskId }: { taskId: string }) {
   const [loading, setLoading] = useState(true);
   const [newComment, setNewComment] = useState("");
   const [sending, setSending] = useState(false);
+  const [commentError, setCommentError] = useState("");
+  const [candidates, setCandidates] = useState<DiscussionMember[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // COLLAB-2：评论框支持 @，触发、过滤、插入与发送名单与讨论区共用（design D5）
+  const mention = useMentionInput<DiscussionMember>({
+    members: candidates,
+    value: newComment,
+    setValue: setNewComment,
+    textareaRef: inputRef,
+  });
 
   const loadComments = useCallback(() => {
     setLoading(true);
@@ -118,6 +131,17 @@ function CommentSection({ taskId }: { taskId: string }) {
   useEffect(() => { loadComments(); }, [loadComments]);
 
   useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/api/tasks/${taskId}/mention-candidates`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.members)) setCandidates(data.members);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [taskId]);
+
+  useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
@@ -127,24 +151,37 @@ function CommentSection({ taskId }: { taskId: string }) {
     const text = newComment.trim();
     if (!text || sending) return;
     setSending(true);
+    setCommentError("");
     try {
+      // 只提交正文里仍出现 @姓名 的人
+      const mentions = mention.submitMentions(text);
       const res = await apiFetch(`/api/tasks/${taskId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text }),
+        body: JSON.stringify(mentions.length > 0 ? { content: text, mentions } : { content: text }),
       });
-      if (res.ok) {
-        const comment = await res.json();
-        setComments((prev) => [...prev, comment]);
-        setNewComment("");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        // 4xx：显示接口返回的错误，草稿留着
+        setCommentError(data?.error || "评论发送失败");
+        return;
       }
+      // 10 分钟内重发时，接口返回第一次创建的那条（replayed: true），不重复显示
+      const comment = data as Comment;
+      setComments((prev) => (prev.some((c) => c.id === comment.id) ? prev : [...prev, comment]));
+      setNewComment("");
+      mention.reset();
+    } catch {
+      setCommentError("评论发送失败，请稍后重试");
     } finally {
       setSending(false);
       inputRef.current?.focus();
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 候选列表打开时：上下键、回车 / Tab、Esc 由 hook 处理，回车选中候选、不发送
+    if (mention.onKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -179,13 +216,25 @@ function CommentSection({ taskId }: { taskId: string }) {
           )}
 
           {/* New comment input */}
-          <div className="flex items-end gap-2 rounded-lg border border-border bg-background p-1.5">
+          <div className="relative flex items-end gap-2 rounded-lg border border-border bg-background p-1.5">
+            {mention.open && (
+              <MentionDropdown
+                members={mention.candidates}
+                query={mention.query}
+                activeIndex={mention.activeIndex}
+                onSelect={mention.select}
+                position={{ top: 48, left: 0 }}
+              />
+            )}
             <textarea
               ref={inputRef}
               value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
+              onChange={mention.onChange}
               onKeyDown={handleKeyDown}
-              placeholder="写评论... (Enter 发送)"
+              onBlur={() => {
+                setTimeout(() => mention.close(), 150);
+              }}
+              placeholder="写评论...（@ 提及同事，Enter 发送）"
               rows={1}
               className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted/50"
               style={{ minHeight: 32, maxHeight: 80 }}
@@ -203,6 +252,9 @@ function CommentSection({ taskId }: { taskId: string }) {
               {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             </button>
           </div>
+          {commentError && (
+            <p className="mt-1.5 text-xs text-danger">{commentError}</p>
+          )}
         </>
       )}
     </div>

@@ -17,6 +17,10 @@ import {
   Package,
   CircleX,
   AlarmClock,
+  AtSign,
+  UserCheck,
+  ListChecks,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NotificationItem } from "./types";
@@ -42,6 +46,11 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   install_repair_scheduled: Calendar,
   install_repair_closed: CircleX,
   install_repair_overdue: AlarmClock,
+  mention: AtSign,
+  task_assigned: UserCheck,
+  task_status: ListChecks,
+  task_comment: MessageSquare,
+  order_stage: Package,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {

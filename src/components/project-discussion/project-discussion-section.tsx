@@ -105,9 +105,10 @@ export function ProjectDiscussionSection({ projectId, canPost, projectStatus, me
   }, [projectId, nextCursor, loadingOlder]);
 
   const handleSent = useCallback(
-    (msg: DiscussionMessage) => {
-      setMessages((prev) => [...prev, msg]);
-      setMessageCount((c) => c + 1);
+    (msg: DiscussionMessage, replayed = false) => {
+      // COLLAB-2：10 分钟内重发时接口返回第一次创建的那条——已在列表里就不再追加，也不计数
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      if (!replayed) setMessageCount((c) => c + 1);
       setTimeout(() => {
         // 同上：仅内部列表滚动到底，不影响页面级 scroll
         listRef.current?.scrollTo({

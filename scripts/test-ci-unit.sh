@@ -373,6 +373,16 @@ npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 npx tsx src/lib/messaging/__tests__/wechat-entry-flag.test.ts
 npx tsx src/components/wechat-entry/__tests__/wechat-entry-render.test.tsx
 npx tsx src/lib/navigation/__tests__/wechat-entry-nav.test.ts
+# 协作通知 COLLAB-2（openspec change collab-notify）：@ 必通知、任务与工艺单动态、未读升级邮件与每日汇总——纯逻辑 + 假依赖 + 源码断言，无 DB
+npx tsx src/lib/notifications/__tests__/collab-preferences.test.ts
+npx tsx src/lib/notifications/__tests__/collab-redact.test.ts
+npx tsx src/lib/notifications/__tests__/collab-events.test.ts
+npx tsx src/lib/notifications/__tests__/notification-href.test.ts
+npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
+npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
+npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
+npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts
+npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

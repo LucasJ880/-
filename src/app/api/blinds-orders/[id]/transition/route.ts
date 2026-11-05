@@ -12,6 +12,7 @@ import type { OrdersCancelBlindsOrderPayload } from "@/lib/pending-actions/types
 import { loadProcessSpec, lockOrderSpec, orderIssues } from "@/lib/sunny-process/autogen";
 import { blockingIssues } from "@/lib/sunny-process/issues";
 import { blindsOrderAccess } from "@/lib/sunny-process/server";
+import { notifyOrderStageChanged } from "@/lib/notifications/collab/order-notify";
 
 const CANCEL_ACTION_TYPE = "orders.cancel_blinds_order" as const;
 
@@ -219,9 +220,12 @@ export const POST = withAuth(async (request, ctx, user) => {
     // design D7：状态 + 时间戳 + OrderStatusLog 统一由 applyOrderTransition 写
     await applyOrderTransition(tx, cur, toStatus, user.id, note || null, updateData);
     const updated = await tx.blindsOrder.findUnique({ where: { id } });
-    return { ok: true as const, updated };
+    return { ok: true as const, updated, fromStatus: cur.status };
   });
   if (!result.ok) return result.res;
+
+  // COLLAB-2：提交之后按前后状态发工艺单阶段通知（design D6）；不向外抛错
+  await notifyOrderStageChanged({ beforeStatus: result.fromStatus, order: result.updated, actor: user });
 
   return NextResponse.json({ order: result.updated });
 });

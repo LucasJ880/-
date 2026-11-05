@@ -15,6 +15,8 @@
  * A-5：同一定时任务里，在简报之后对处于当地 00:00 / 01:00（补一次）的组织为前一个本地日写岗位日结
  * （审计 cockpit.post_daily_digest，只含计数，同日幂等），作为自动化 post-daily-digest 另记一次运行；
  * 单个组织失败不影响其他组织，日结异常不影响简报。两组都没有组织到点才 skipped。
+ * COLLAB-2：最后对同一批 07:00 的组织发每日未读汇总邮件（自动化 notify-email-digest 另记一次运行；
+ * 每人每天一封，审计 notifications.email_digest；出错不影响前面各步）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,6 +29,7 @@ import { boothDayOf, sendBoothSummary } from "@/lib/trade/booth-summary";
 import { sendOwnerInquiryBrief } from "@/lib/revenue-spine/owner-brief";
 import { remindOverdueRepairs } from "@/lib/install/repair-service";
 import { runPostDailyDigests } from "@/lib/cockpit/daily-digest";
+import { DIGEST_DEADLINE_MS, digestOutcome, runEmailDigest } from "@/lib/notifications/collab/digest";
 
 export const maxDuration = 300;
 
@@ -100,5 +103,15 @@ export async function GET(request: NextRequest) {
       failedCount,
     };
   });
-  return NextResponse.json(digestOrgs.length ? { ...data, postDailyDigest: await runPostDailyDigest() } : data);
+  const response = digestOrgs.length ? { ...data, postDailyDigest: await runPostDailyDigest() } : data;
+
+  // COLLAB-2：同一批当地 7 点的组织，给成员发每日未读汇总邮件（design D15）。排在既有各步之后；
+  // 自带收错：出错只记日志，不影响简报、日结与响应
+  const notifyEmailDigest = await runTrackedAutomation("notify-email-digest", async () =>
+    digestOutcome(await runEmailDigest({ orgs, deadline: new Date(now.getTime() + DIGEST_DEADLINE_MS) })),
+  ).catch((error) => {
+    console.error("[cron/daily-brief] notify-email-digest failed:", error);
+    return { error: error instanceof Error ? error.message : String(error) };
+  });
+  return NextResponse.json({ ...response, notifyEmailDigest });
 }

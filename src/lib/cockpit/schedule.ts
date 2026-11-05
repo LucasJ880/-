@@ -38,12 +38,15 @@ export const AUTOMATION_SCHEDULES: Record<AutomationKey, AutomationSchedule> = {
   "daily-brief": { kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [7], timezone: "org" },
   // 同一个 daily-brief 定时任务里，组织本地 0 点另记一次运行、1 点补一次（A-5 岗位日结）
   "post-daily-digest": { kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [0, 1], timezone: "org" },
+  // COLLAB-2：同一个 daily-brief 定时任务里，与简报同一批当地 7 点的组织（每日未读汇总邮件）
+  "notify-email-digest": { kind: "local_hours", route: "/api/cron/daily-brief", cron: "0 * * * *", hours: [7], timezone: "org" },
   "approval-timeout": { kind: "cron", route: "/api/cron/approval-timeout", cron: "0 */2 * * *" },
   "trade-followup": { kind: "local_hours", route: "/api/cron/followup", cron: "0 * * * *", hours: [9, 14], timezone: "org" },
   "sales-action-sync": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
   // 同一个 sales-actions 定时任务里各自 runTrackedAutomation，每次触发都记录（含 skipped）
   "muse-reminder-scan": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
   "calendar-watch": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
+  "notify-email-escalation": { kind: "cron", route: "/api/cron/sales-actions", cron: "*/15 * * * *" },
   "revenue-spine-sync": { kind: "cron", route: "/api/cron/revenue-spine", cron: "*/15 * * * *" },
   "wechat-push": { kind: "local_hours", route: "/api/cron/wechat-push", cron: "30 * * * *", hours: [7], timezone: "org" },
   "progress-summary": { kind: "cron", route: "/api/cron/progress-summary", cron: "0 10 * * *" },

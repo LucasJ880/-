@@ -168,7 +168,7 @@ export default function NotificationSettingsPage() {
 
       <PageHeader
         title="通知偏好"
-        description="控制站内通知类型、优先级与静默时段。邮件与推送通道已预留，后续版本接入。"
+        description="控制站内通知类型、优先级、静默时段，以及未读提醒与每日汇总邮件。推送通道已预留，后续版本接入。"
       />
 
       {message && (
@@ -251,10 +251,10 @@ export default function NotificationSettingsPage() {
       </div>
 
       <div className="space-y-3 rounded-xl border border-dashed border-border bg-[rgba(43,96,85,0.02)] p-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">站外通道（预留）</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">站外通道</h2>
         <ToggleRow
-          label="邮件通知"
-          description="开启后，将来可在重大告警时发送邮件（当前未连接发信）。"
+          label="未读提醒与每日汇总邮件"
+          description="@提及与任务指派 15 分钟未读时发一封提醒；每天早上 7 点（组织时区）发一封未读汇总。发到你的青砚账号邮箱。"
           checked={pref.emailEnabled}
           onChange={(v) => setPref({ ...pref, emailEnabled: v })}
           disabled={saving}

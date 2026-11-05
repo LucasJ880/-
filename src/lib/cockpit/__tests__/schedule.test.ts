@@ -62,6 +62,7 @@ ok(AUTOMATION_SCHEDULES["marketing-mmm"].kind === "on_demand" && !crons.some((c)
 const orgGated: Array<[AutomationKey, string]> = [
   ["daily-brief", "src/app/api/cron/daily-brief/route.ts"],
   ["post-daily-digest", "src/app/api/cron/daily-brief/route.ts"],
+  ["notify-email-digest", "src/app/api/cron/daily-brief/route.ts"],
   ["trade-followup", "src/app/api/cron/followup/route.ts"],
   ["wechat-push", "src/app/api/cron/wechat-push/route.ts"],
   ["trade-daily", "src/app/api/trade/cron/route.ts"],
@@ -128,12 +129,14 @@ ok(nextDueAt(S["marketing-mmm"], new Date(), "UTC") === null, "按需运行 → 
 console.log("最长正常间隔");
 const gapCases: Array<[AutomationKey, number]> = [
   ["inquiry-sla", 5],
+  ["notify-email-escalation", 15],
   ["agent-runs", 2],
   ["approval-timeout", 120],
   ["tender-watch", 60],
   ["project-inspection", 1440],
   ["employee-ai-practice-miner", 10080],
   ["daily-brief", 1440],
+  ["notify-email-digest", 1440],
   ["post-daily-digest", 23 * 60],
   ["trade-followup", 19 * 60],
   ["marketing-channel-sync", 6 * 60],
