@@ -9,7 +9,7 @@ import { formatLocal } from "@/lib/procurement-records/schedule";
 
 export function Section({ title, hint, actions, children, testId }: { title: string; hint?: ReactNode; actions?: ReactNode; children: ReactNode; testId?: string }) {
   return (
-    <section className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid={testId}>
+    <section className="scroll-mt-4 rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid={testId} id={testId}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-foreground">{title}</h2>

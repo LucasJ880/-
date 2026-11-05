@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * PROC-1 资料申请台账（/projects/intelligence/records）：按机构 / 项目 / 状态 / 待办筛选；
- * 申请人资料、机关规则核实、历史台账确认与历史导入。青砚数据库是唯一正式申请台账。
+ * PROC-1 资料申请。
+ * - mode="list"（/projects/intelligence/records）：申请列表 + 每条的「下一步」；准备工作没做完时顶部提示去「设置」。
+ * - mode="settings"（/projects/intelligence/monitor/settings）：申请人资料、机关规则核实、历史台账确认与历史导入。
+ * 青砚数据库是唯一正式申请台账。
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
-import { ANALYSIS_STATUS_LABELS, EVIDENCE_LEVEL_LABELS, FILES_STATUS_LABELS, OUTCOME_LABELS, REQUEST_STATUSES, REQUEST_STATUS_LABELS, type GovernmentOutcome, type RequestStatus } from "@/lib/procurement-records/labels";
-import { JURISDICTION_LABELS } from "@/lib/procurement-records/identity";
+import { FILES_STATUS_LABELS, OUTCOME_LABELS, REQUEST_STATUSES, REQUEST_STATUS_LABELS, type GovernmentOutcome, type RequestStatus } from "@/lib/procurement-records/labels";
+import { nextStepFor } from "@/lib/procurement-records/next-step";
+import { institutionDisplayName, JURISDICTION_LABELS } from "@/lib/procurement-records/identity";
 import { Btn, Chip, cents, Field, inputCls, Note, NotEnabled, Section, toneForStatus, useApiCall, when } from "./primitives";
 
 type Json = Record<string, unknown>;
@@ -28,7 +31,7 @@ const APPLICANT_FIELDS: Array<[string, string]> = [
   ["phone", "电话"],
 ];
 
-export function RecordsLedger() {
+export function RecordsLedger({ mode = "list" }: { mode?: "list" | "settings" }) {
   const { orgId, ambiguous, loading } = useCurrentOrgId();
   const [available, setAvailable] = useState<boolean | null>(null);
   const [items, setItems] = useState<Json[]>([]);
@@ -118,83 +121,99 @@ export function RecordsLedger() {
   if (ambiguous || !orgId) return <p className="text-sm text-muted">请先在顶部选择当前组织。</p>;
   if (available === false) return <NotEnabled />;
 
-  return (
-    <div className="space-y-5" data-testid="records-ledger">
-      <Section
-        title="资料申请台账"
-        hint="「打开入口」「复制正文」都不等于已提交；提交状态只由用户回填与回执核对改变。"
-        actions={
-          <>
-            <select className={`${inputCls} w-auto`} value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="ALL">全部状态</option>
-              {REQUEST_STATUSES.map((s) => (
-                <option key={s} value={s}>{REQUEST_STATUS_LABELS[s]}</option>
-              ))}
-            </select>
-            <label className="flex items-center gap-1 text-xs">
-              <input type="checkbox" checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} /> 只看有待办
-            </label>
-          </>
-        }
-      >
-        {items.length === 0 ? <p className="text-xs text-muted">暂无申请。从「采购监控」的候选点「准备申请」，或等待扫描自动草拟。</p> : null}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-xs">
-            <thead className="text-left text-muted">
-              <tr>
-                <th className="py-1 pr-2">申请</th>
-                <th className="py-1 pr-2">接收机关</th>
-                <th className="py-1 pr-2">申请状态</th>
-                <th className="py-1 pr-2">文件 / 分析</th>
-                <th className="py-1 pr-2">政府处理结果</th>
-                <th className="py-1 pr-2">期限</th>
-                <th className="py-1">待办</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((r) => (
-                <tr key={String(r.id)} className="border-t border-border align-top" data-testid="ledger-row">
-                  <td className="py-1.5 pr-2">
-                    <Link className="text-accent underline" href={`/projects/intelligence/records/${String(r.id)}`}>
-                      {String(r.title)}
-                    </Link>
-                    <p className="text-[11px] text-muted">
-                      {JURISDICTION_LABELS[r.jurisdiction as keyof typeof JURISDICTION_LABELS] ?? String(r.jurisdiction)}
-                      {r.projectName ? ` · ${String(r.projectName)}` : ""}
-                      {r.origin !== "NORMAL" ? ` · ${r.origin === "HISTORICAL_IMPORT" ? "历史导入（待核实）" : "测试数据"}` : ""}
-                      {r.caseNumber ? ` · 案件 ${String(r.caseNumber)}` : ""}
-                    </p>
-                  </td>
-                  <td className="py-1.5 pr-2">{String(r.recipientDisplay ?? "未核实")}</td>
-                  <td className="py-1.5 pr-2">
-                    <Chip tone={toneForStatus(String(r.status))}>{REQUEST_STATUS_LABELS[r.status as RequestStatus] ?? String(r.status)}</Chip>
-                    {r.evidenceLevel ? <p className="mt-0.5 text-[11px] text-muted">{EVIDENCE_LEVEL_LABELS[String(r.evidenceLevel)] ?? String(r.evidenceLevel)}</p> : null}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {FILES_STATUS_LABELS[String(r.filesStatus)] ?? String(r.filesStatus)}
-                    <br />
-                    <span className="text-muted">{ANALYSIS_STATUS_LABELS[String(r.analysisStatus)] ?? String(r.analysisStatus)}</span>
-                  </td>
-                  <td className="py-1.5 pr-2">{r.governmentOutcome ? OUTCOME_LABELS[r.governmentOutcome as GovernmentOutcome] : "—"}</td>
-                  <td className="py-1.5 pr-2">
-                    {r.officialDueAt ? `官方 ${String(r.officialDueAt)}` : r.estimatedDueAt ? `估算 ${String(r.estimatedDueAt)}` : "—"}
-                  </td>
-                  <td className="py-1.5">{Number(r.pendingTasks) > 0 ? <Chip tone="warn">{String(r.pendingTasks)} 条</Chip> : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <Note note={api.note} />
-      </Section>
+  const isVerified = (r: Json) => r.verificationStatus === "VERIFIED";
+  // 准备工作：只看「还没提交」的申请用到的辖区
+  const activeJurisdictions = [...new Set(items.filter((r) => ["DRAFT", "READY"].includes(String(r.status))).map((r) => String(r.jurisdiction)))];
+  const missing: string[] = [];
+  if (!applicants.some((a) => a.verificationStatus === "CONFIRMED")) missing.push("确认申请人资料");
+  const rulesMissing = activeJurisdictions.filter((j) => !rules.some((r) => r.jurisdiction === j && isVerified(r)));
+  if (rulesMissing.length) missing.push(`核实机关规则（${rulesMissing.map((j) => JURISDICTION_LABELS[j as keyof typeof JURISDICTION_LABELS] ?? j).join("、")}）`);
+  const ledgerMissing = activeJurisdictions.filter((j) => !attests.some((a) => a.jurisdiction === j));
+  if (ledgerMissing.length) missing.push(`确认历史台账（${ledgerMissing.map((j) => JURISDICTION_LABELS[j as keyof typeof JURISDICTION_LABELS] ?? j).join("、")}）`);
 
-      <Section title="申请人资料" hint="只有组织管理员能维护；修改即版本 +1 并回到未确认；不从历史回复信自动带出地址；系统不补造姓名、地址或编号。" testId="applicants" actions={<Btn onClick={() => setEditing({ label: "申请人" })}>新增</Btn>}>
+  if (mode === "list") {
+    return (
+      <div className="space-y-4" data-testid="records-ledger">
+        {missing.length ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" data-testid="setup-banner">
+            <p>提交申请前还要完成：{missing.join("；")}。</p>
+            <Link className="font-medium underline" href="/projects/intelligence/monitor/settings">去设置</Link>
+          </div>
+        ) : null}
+        <Section
+          title="资料申请"
+          testId="records-list"
+          actions={
+            <>
+              <select className={`${inputCls} w-auto`} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="状态">
+                <option value="ALL">全部状态</option>
+                {REQUEST_STATUSES.map((s) => (
+                  <option key={s} value={s}>{REQUEST_STATUS_LABELS[s]}</option>
+                ))}
+              </select>
+              <label className="flex items-center gap-1 text-xs">
+                <input type="checkbox" className="h-3.5 w-3.5" style={{ minHeight: 0 }} checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} /> 只看有待办
+              </label>
+            </>
+          }
+        >
+          {items.length === 0 ? <p className="text-xs text-muted">暂无申请。在「候选项目」点「准备申请」，或等扫描自动草拟。</p> : null}
+          <ul className="divide-y divide-border">
+            {items.map((r) => {
+              const step = nextStepFor({ status: String(r.status), filesStatus: (r.filesStatus as string) ?? null, analysisStatus: (r.analysisStatus as string) ?? null, archived: Boolean(r.archived) });
+              const due = r.officialDueAt ? `官方期限 ${String(r.officialDueAt)}` : r.estimatedDueAt ? `估算期限 ${String(r.estimatedDueAt)}` : null;
+              return (
+                <li key={String(r.id)} className="py-3 first:pt-0 last:pb-0" data-testid="ledger-row">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Link className="text-sm font-medium text-accent hover:underline" href={`/projects/intelligence/records/${String(r.id)}`}>
+                        {String(r.title)}
+                      </Link>
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {JURISDICTION_LABELS[r.jurisdiction as keyof typeof JURISDICTION_LABELS] ?? String(r.jurisdiction)} · {String(r.recipientDisplay ?? "接收机关未定")}
+                        {r.projectName ? ` · ${String(r.projectName)}` : ""}
+                        {r.caseNumber ? ` · 案件 ${String(r.caseNumber)}` : ""}
+                        {r.origin !== "NORMAL" ? ` · ${r.origin === "HISTORICAL_IMPORT" ? "历史导入（待核实）" : "测试数据"}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-1">
+                      <Chip tone={toneForStatus(String(r.status))}>{REQUEST_STATUS_LABELS[r.status as RequestStatus] ?? String(r.status)}</Chip>
+                      {r.filesStatus && r.filesStatus !== "NONE" ? <Chip>{FILES_STATUS_LABELS[String(r.filesStatus)] ?? String(r.filesStatus)}</Chip> : null}
+                      {r.governmentOutcome ? <Chip>{OUTCOME_LABELS[r.governmentOutcome as GovernmentOutcome]}</Chip> : null}
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs">
+                    <span className="text-muted">下一步：</span>
+                    {step.titleZh}
+                    {Number(r.pendingTasks) > 0 ? <span className="text-muted"> · {String(r.pendingTasks)} 条待办</span> : null}
+                    {due ? <span className="text-muted"> · {due}</span> : null}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+          <Note note={api.note} />
+        </Section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5" data-testid="records-setup">
+      <Note note={api.note} />
+      <Section
+        title="申请人资料"
+        hint="修改后回到「未确认」，核对后再确认；系统不从历史来信带出地址，也不补造姓名、地址。"
+        testId="applicants"
+        actions={<Btn onClick={() => setEditing({ label: "申请人" })}>新增</Btn>}
+      >
+        {applicants.length === 0 ? <p className="text-xs text-muted">还没有申请人资料。</p> : null}
         <ul className="space-y-2">
           {applicants.map((a) => (
             <li key={String(a.id)} className="rounded-lg border border-border p-3 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p>
-                  <span className="font-medium">{String(a.label)}</span> · v{String(a.version)} ·{" "}
+                  <span className="font-medium">{String(a.label)}</span> · v{String(a.version)}{" "}
                   <Chip tone={toneForStatus(String(a.verificationStatus))}>{a.verificationStatus === "CONFIRMED" ? "已确认" : "未确认"}</Chip>
                 </p>
                 <div className="flex gap-2">
@@ -227,47 +246,58 @@ export function RecordsLedger() {
         ) : null}
       </Section>
 
-      <Section title="机关申请规则" hint="种子未经核实：联邦来自任务书引用的官方页面，省级来自网络检索摘要（未在官方页面逐字核对）。核实须由组织管理员打开官方页面核对入口、费用与时限，并写明方法。未知费用为空，不按 0 处理。" testId="rules">
-        <ul className="space-y-2">
+      <Section
+        title="机关申请规则"
+        hint={`已核实 ${rules.filter(isVerified).length} / ${rules.length}。只需核实要申请的辖区：打开官方页面，核对入口、费用、时限，写明方法。种子数值未经核实（省级来自网络检索摘要）。`}
+        testId="rules"
+      >
+        <ul className="divide-y divide-border">
           {rules.map((r) => {
             const v = verify[String(r.id)] ?? { portal: String(r.officialPortalUrl ?? ""), fee: r.applicationFeeCents === null ? "" : String(r.applicationFeeCents), method: "" };
             const refs = (Array.isArray(r.sourceRefsJson) ? r.sourceRefsJson : []) as Array<{ label: string; url: string }>;
+            const deadline = r.deadlineValue ? `${String(r.deadlineValue)} ${r.deadlineUnit === "BUSINESS_DAYS" ? "个工作日" : "个日历日"}` : "时限未知";
             return (
-              <li key={String(r.id)} className="rounded-lg border border-border p-3 text-xs">
-                <p>
-                  <span className="font-medium">{JURISDICTION_LABELS[r.jurisdiction as keyof typeof JURISDICTION_LABELS] ?? String(r.jurisdiction)}</span> · {String(r.lawLabel)} · {String(r.channel)} ·{" "}
-                  <Chip tone={toneForStatus(String(r.verificationStatus))}>{r.verificationStatus === "VERIFIED" ? "已核实" : "未核实"}</Chip>
-                  {r.selfServeSupported ? null : <Chip tone="warn">自助提交未核实 → 只能研究与草拟</Chip>}
-                </p>
-                <p className="mt-1 text-muted">
-                  费用：{cents(r.applicationFeeCents as number | null, r.currency as string | null)} · 时限：{r.deadlineValue ? `${String(r.deadlineValue)} ${r.deadlineUnit === "BUSINESS_DAYS" ? "个工作日" : "个日历日"}` : "未核实"} · 入口：{r.officialPortalUrl ? String(r.officialPortalUrl) : "未核实"}
-                  {r.effectiveFrom ? ` · 适用自 ${String(r.effectiveFrom).slice(0, 10)}` : ""}
-                  {r.verifiedAt ? ` · 核实于 ${when(String(r.verifiedAt))}：${String(r.verificationMethod ?? "")}` : ""}
-                </p>
-                {!r.verifiedAt && r.verificationMethod ? <p className="mt-0.5 text-muted">种子依据：{String(r.verificationMethod)}</p> : null}
-                {r.otherFeesRule ? <p className="mt-0.5 text-muted">其他费用：{String(r.otherFeesRule)}</p> : null}
-                {refs.length ? (
-                  <p className="mt-0.5">
-                    {refs.map((s) => (
-                      <a key={s.url} href={s.url} target="_blank" rel="noreferrer noopener" className="mr-2 text-accent underline">
-                        {s.label}
-                      </a>
-                    ))}
-                  </p>
-                ) : null}
-                <div className="mt-2 grid gap-2 sm:grid-cols-4">
-                  <input className={inputCls} placeholder="官方提交入口（https）" value={v.portal} onChange={(e) => setVerify({ ...verify, [String(r.id)]: { ...v, portal: e.target.value } })} />
-                  <input className={inputCls} placeholder="费用（分；免费填 0）" value={v.fee} onChange={(e) => setVerify({ ...verify, [String(r.id)]: { ...v, fee: e.target.value } })} />
-                  <input className={inputCls} placeholder="核实方法（打开了哪个官方页面、看到了什么）" value={v.method} onChange={(e) => setVerify({ ...verify, [String(r.id)]: { ...v, method: e.target.value } })} />
-                  <Btn onClick={() => void verifyRule(r)} busy={api.busy === `rule-${String(r.id)}`}>保存并标为已核实</Btn>
-                </div>
+              <li key={String(r.id)} className="py-2 text-xs">
+                <details>
+                  <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-medium">
+                      {JURISDICTION_LABELS[r.jurisdiction as keyof typeof JURISDICTION_LABELS] ?? String(r.jurisdiction)}
+                      {r.institutionKey !== "*" ? ` · ${institutionDisplayName(String(r.institutionKey))}` : ""}
+                      {r.channel === "INFORMAL_COPY" ? " · 既有披露副本" : ""}
+                    </span>
+                    <span className="text-muted">{cents(r.applicationFeeCents as number | null, r.currency as string | null)} · {deadline}</span>
+                    <Chip tone={toneForStatus(String(r.verificationStatus))}>{isVerified(r) ? "已核实" : "未核实"}</Chip>
+                  </summary>
+                  <div className="mt-2 space-y-1 pl-4">
+                    <p>{String(r.lawLabel)}{r.effectiveFrom ? ` · 适用自 ${String(r.effectiveFrom).slice(0, 10)}` : ""}</p>
+                    <p className="text-muted">入口：{r.officialPortalUrl ? String(r.officialPortalUrl) : "未核实"}{r.verifiedAt ? ` · 核实于 ${when(String(r.verifiedAt))}：${String(r.verificationMethod ?? "")}` : ""}</p>
+                    {!r.verifiedAt && r.verificationMethod ? <p className="text-muted">种子依据：{String(r.verificationMethod)}</p> : null}
+                    {r.otherFeesRule ? <p className="text-muted">其他费用与说明：{String(r.otherFeesRule)}</p> : null}
+                    {!r.selfServeSupported ? <p className="text-muted">自助提交路径未登记：只能研究与草拟。</p> : null}
+                    {refs.length ? (
+                      <p>
+                        {refs.map((s) => (
+                          <a key={s.url} href={s.url} target="_blank" rel="noreferrer noopener" className="mr-2 text-accent underline">
+                            {s.label}
+                          </a>
+                        ))}
+                      </p>
+                    ) : null}
+                    <div className="grid gap-2 pt-1 sm:grid-cols-4">
+                      <input className={inputCls} placeholder="官方提交入口（https）" value={v.portal} onChange={(e) => setVerify({ ...verify, [String(r.id)]: { ...v, portal: e.target.value } })} />
+                      <input className={inputCls} placeholder="费用（分；免费填 0）" value={v.fee} onChange={(e) => setVerify({ ...verify, [String(r.id)]: { ...v, fee: e.target.value } })} />
+                      <input className={inputCls} placeholder="核实方法（打开了哪个官方页面、看到了什么）" value={v.method} onChange={(e) => setVerify({ ...verify, [String(r.id)]: { ...v, method: e.target.value } })} />
+                      <Btn onClick={() => void verifyRule(r)} busy={api.busy === `rule-${String(r.id)}`}>保存并标为已核实</Btn>
+                    </div>
+                  </div>
+                </details>
               </li>
             );
           })}
         </ul>
       </Section>
 
-      <Section title="历史台账" hint="首次使用：导入历史申请，或由真实用户确认某范围没有历史申请；系统不会自行宣称台账完整。未确认时重复检查显示 UNVERIFIED。" testId="ledger-attestations">
+      <Section title="历史台账" hint="第一次使用：导入以前的申请，或确认某范围没有历史申请。没确认之前，重复检查显示「未核实」。" testId="ledger-attestations">
         <ul className="mb-3 space-y-1 text-xs">
           {attests.map((a) => (
             <li key={String(a.id)}>

@@ -171,3 +171,11 @@ CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title
 - `npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts`：表格抽取、PDF 行抽取、口径分列、修订 / 贷项 / 去重、SO 值 0、恶意文字不生效。
 - `NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=… npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`：真实路由 + 注入 fetch 的端到端（任务书第十五节 1–18）。
 - `npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`npx tsx scripts/verify-migration-history.ts`、`npx -y @fission-ai/openspec@1.15.0 validate procurement-records-requests --strict`。
+
+### D12 信息架构：单一入口，流程藏在后面
+- 情报中枢原有「情报监控（采购）」「资料申请」两个入口合并为「采购情报」；页内三页签：候选项目（`/projects/intelligence/monitor`）、资料申请（`/projects/intelligence/records`）、设置（`/projects/intelligence/monitor/settings`）。侧栏导航不变（`nav-intel-monitor` 仍指向 monitor，matchPaths 已覆盖子路径）。
+- 候选：一行监控状态 + 立即扫描；卡片只留标题、机构、到期、供应商、优先级与动作，评分理由 / 三方机构 / 证据来源收进「评分理由与更多信息」；手动添加收起。
+- 资料申请列表：每条一行「下一步」（`next-step.ts` 纯函数），准备未完成时顶部提示并链接「设置」。
+- 详情：顶部「下一步」卡（阻塞清单、对应按钮、提交指引、登记 / 回执表单），下面四个页签；页签默认值由下一步决定。规则 / 申请人 / 台账类阻塞（`SETUP_BLOCKER_CODES`）链接到「设置」。
+- Tender 卡片默认两行（上一次谁供货、资料申请概况），其余展开查看。
+- 只改界面与纯函数，不改接口、状态机与数据。

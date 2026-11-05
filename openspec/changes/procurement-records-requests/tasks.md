@@ -42,3 +42,7 @@
 - [x] 10.1 新建 `src/lib/procurement-records/request-templates.ts`（纯、客户端安全）：省市分法律正文模板（安省 FIPPA / MFIPPA、BC、曼省、阿省、萨省 FOIP / LA FOIP 英文；魁省法文）、`bodyTitle`（中文标题不进正文）、9 步提交指引与既有披露副本指引；`requests.ts` 新建 / 重新生成接入；详情返回 `submissionGuide` / `bodyLanguage`；详情页「自助提交」显示可勾选指引（勾选不保存）。verify：`records-request-pure.test.ts`（171）退出 0。
 - [x] 10.2 新建 `src/lib/procurement-records/supplier-pure.ts`：前序供应商汇总（含关联合同下 call-up）、「上一次谁供货」、按口径分列金额、确认上下文；进口 / 海关线索（官方来源 + 局限）。`getTenderProcurementSummary` 返回 `suppliers` / `importLeads` / `callUpCount`；Tender 卡片显示并提供「确认为上轮中标」（调用既有人工确认路由）；候选列表显示供应商。verify：`procurement-pure.test.ts`（95）、`procurement-records-db.isolated.test.ts`（158）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate --strict` 通过；截图 `docs/acceptance/proc-1/15–18`（fixture）。
 
+## 11. 界面精简（Lucas 2026-11-05 追加：入口精简、流程藏在后面）
+
+- [x] 11.1 入口合并为「采购情报」+ 三页签（候选项目 / 资料申请 / 设置，新增 `monitor/settings` 页）；`ProcurementMonitor` / `RecordsLedger` 分 `candidates|settings`、`list|settings` 两种模式；新增纯函数 `next-step.ts`（下一步与设置类阻塞）；详情改为「下一步」卡 + 四页签；候选卡片与 Tender 卡片默认精简、细节可展开。verify：`records-request-pure.test.ts`（180）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate --strict` 通过；手机宽度（iPhone 13）四页无横向滚动；截图 `docs/acceptance/proc-1/19–25`（fixture）。
+

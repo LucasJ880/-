@@ -26,6 +26,7 @@ import {
 } from "../case-pure";
 import { DEFAULT_RULE_SEEDS, RULE_DEADLINE_UNITS, TORONTO_INSTITUTION_KEY, ruleChannelFor } from "../rule-seeds";
 import { JURISDICTIONS, normalizeInstitutionKey } from "../identity";
+import { nextStepFor, SETUP_BLOCKER_CODES } from "../next-step";
 import { bodyTitle, buildProvincialRequestBody, informalCopyGuide, resolveRequestLaw, submissionGuide, type RequestLawKey } from "../request-templates";
 
 let pass = 0;
@@ -347,6 +348,20 @@ console.log("\n— 省市申请模板与提交指引");
   ok(submissionGuide("QC_ACCES").steps.find((x) => x.key === "PASTE_BODY")!.titleZh.includes("法语"), "魁省指引提示粘贴法语正文");
   ok(bodyTitle("Pillow Forms") === "Pillow Forms" && bodyTitle("Fournitures de bureau – Québec") === "Fournitures de bureau – Québec" && bodyTitle("演示：安省合同") === null && bodyTitle("  ") === null, "正文标题只用官方英 / 法文写法，中文内部标题不进正文");
   ok(informalCopyGuide().steps.every((x) => !x.detailZh.includes("法定时限内")) && informalCopyGuide().steps.some((x) => x.detailZh.includes("不适用正式申请的法定时限")), "既有披露副本指引：不套用正式时限");
+}
+
+console.log("\n— 下一步引导（界面）");
+{
+  const ns = (status: string, filesStatus = "NONE", analysisStatus = "NOT_STARTED", extra: Partial<Parameters<typeof nextStepFor>[0]> = {}) => nextStepFor({ status, filesStatus, analysisStatus, ...extra });
+  ok(ns("DRAFT", "NONE", "NOT_STARTED", { blockers: 3 }).key === "FIX_DRAFT" && ns("DRAFT", "NONE", "NOT_STARTED", { blockers: 3 }).titleZh.includes("3"), "草稿有阻塞 → 完善申请卡（显示还差几项）");
+  ok(ns("DRAFT", "NONE", "NOT_STARTED", { blockers: 0 }).key === "MARK_READY" && ns("READY").key === "START_SUBMIT" && ns("HANDOFF_PENDING").key === "SUBMIT_AND_REPORT", "无阻塞 → 标记就绪 → 开始提交 → 提交后登记");
+  ok(ns("USER_REPORTED_SUBMISSION").key === "VERIFY_RECEIPT" && ns("SUBMISSION_UNKNOWN").key === "RESOLVE_UNKNOWN" && ns("SUBMISSION_UNKNOWN").hintZh.includes("不要换渠道"), "用户报告提交 → 核对回执；不确定 → 核查、不换渠道");
+  ok(ns("PROCESSING").key === "WAIT_REPLY" && ns("PROCESSING").tab === "progress", "处理中、无文件 → 等待回复（进度页）");
+  ok(ns("PROCESSING", "PARTIAL_FILES_RECEIVED", "NEEDS_REVIEW").key === "REVIEW_FILES" && ns("PROCESSING", "PARTIAL_FILES_RECEIVED", "NEEDS_REVIEW").tab === "analysis", "有披露文件待复核 → 复核明细（分析页）");
+  ok(ns("CLOSED", "FILES_RECEIVED", "COMPLETED").key === "VIEW_ANALYSIS" && ns("CLOSED").key === "DONE", "分析完成 → 查看分析；结束无文件 → 已结束");
+  ok(ns("READY", "NONE", "NOT_STARTED", { archived: true }).key === "ARCHIVED", "归档草稿不提示提交");
+  ok(ns("DRAFT").key === "FIX_DRAFT" && !ns("DRAFT").titleZh.includes("还差"), "列表里不知道阻塞数 → 提示完善，不显示数量、不暗示可直接就绪");
+  ok(SETUP_BLOCKER_CODES.has("RULE_UNVERIFIED") && SETUP_BLOCKER_CODES.has("LEDGER_UNVERIFIED") && !SETUP_BLOCKER_CODES.has("BODY_PLACEHOLDER"), "规则 / 台账 / 申请人阻塞指向「设置」，正文占位符在申请卡里补");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

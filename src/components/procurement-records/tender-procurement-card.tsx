@@ -64,18 +64,48 @@ export function TenderProcurementCard({ projectId }: { projectId: string }) {
     }
   };
 
+  const activeReqs = reqs.filter((r) => r.status !== "CLOSED");
   return (
     <section className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="tender-procurement-card">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <FileSearch size={16} className="text-accent/60" />
         历史采购与资料申请
-        <span className="text-[10px] font-normal text-muted">前序合同 / 供应商 / 进口线索 / ATI 申请与披露分析</span>
       </h3>
       {inst.length === 0 && reqs.length === 0 ? (
         <p className="mt-2 text-xs text-muted">
-          尚未关联历史合同。到 <Link className="text-accent underline" href="/projects/intelligence/monitor">采购监控</Link> 关注合同并「准备申请」，或在申请卡里关联本项目。
+          尚未关联历史合同。到 <Link className="text-accent underline" href="/projects/intelligence/monitor">采购情报</Link> 关注合同并「准备申请」，或在申请卡里关联本项目。
         </p>
-      ) : null}
+      ) : (
+        <div className="mt-2 space-y-1 text-xs" data-testid="tender-procurement-summary">
+          <p>
+            <span className="text-muted">上一次谁供货：</span>
+            {sup?.lastSupplier ? (
+              <>
+                <span className="font-medium">{sup.lastSupplier.vendorName}</span>
+                <span className="text-muted">（{sup.lastSupplier.officialNumber}，{sup.lastSupplier.awardDate ?? "日期未知"}）</span>
+              </>
+            ) : (
+              <span className="text-muted">暂无记录</span>
+            )}
+          </p>
+          <p>
+            <span className="text-muted">资料申请：</span>
+            {reqs.length ? (
+              <>
+                {activeReqs.length ? `${activeReqs.length} 份进行中` : "没有进行中的申请"}
+                {" · 最近："}
+                <Link className="text-accent underline" href={`/projects/intelligence/records/${reqs[0].id}`}>{reqs[0].title}</Link>
+                <span className="text-muted">（{REQUEST_STATUS_LABELS[reqs[0].status as RequestStatus] ?? reqs[0].status}）</span>
+              </>
+            ) : (
+              <span className="text-muted">还没有</span>
+            )}
+          </p>
+        </div>
+      )}
+      {inst.length || reqs.length ? (
+        <details className="mt-2 text-xs" data-testid="tender-procurement-more">
+          <summary className="cursor-pointer text-muted">展开：关联合同、供应商、进口线索、全部申请</summary>
       {inst.length ? (
         <ul className="mt-2 space-y-1 text-xs">
           {inst.map((i) => (
@@ -157,6 +187,8 @@ export function TenderProcurementCard({ projectId }: { projectId: string }) {
             </li>
           ))}
         </ul>
+      ) : null}
+        </details>
       ) : null}
     </section>
   );
