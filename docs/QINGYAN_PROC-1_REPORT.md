@@ -91,20 +91,24 @@ PROC-1 新增的 4 项注册测试（3 组纯测试 + 隔离库端到端）在�
 
 | 文件 | 内容 |
 |---|---|
-| 01-monitor-status | 配置已启用 / 最近实际成功 / 最近运行 / 下一次运行（多伦多）、AI 调用 0 |
-| 02-monitor-sources | 来源能力与最近结果（含截断说明、省市仅人工导入、自动收信未启用） |
-| 03-candidates | 候选与已关注：三方机构、到期 / options / 重招「未知」、五维优先级理由、证据来源计数 |
-| 04-ledger / 05-rules | 申请台账；机关规则（未核实 / 已核实、费用未知 ≠ 0、省级不支持自助） |
-| 06–11 | 申请详情：中文说明、英文正文与版本、自助交接（期限三分）、时间线、明细复核、按口径分析 |
-| 12-overlap-blocking | 改措辞 + 改渠道的同范围草稿 → BLOCKING，新增 2026-11-01 至 11-05（5 天） |
-| 13-tender-intel-card | Tender 详情「情报」Tab 卡片 |
-| 14-mobile-handoff | 手机宽度（iPhone 13） |
-| 15-tender-suppliers-import-leads | Tender 卡片：前序供应商（上一次谁供货）+ 进口 / 海关线索（2026-11-05 追加） |
-| 16-provincial-body-on / 17-provincial-guide-on | 安省申请卡：FIPPA 英文正文（中文标题不进正文，保留 `[PROJECT TITLE]`）与 9 步提交指引 |
+| 01-monitor-status | 设置 → 采购监控：配置已启用 / 最近实际成功 / 最近运行 / 下一次运行（多伦多）、AI 调用 0、监控配置 |
+| 02-monitor-sources | 设置 → 来源能力与最近结果（含截断说明、省市仅人工添加、自动收信未启用） |
+| 03-candidates | 候选项目：一行监控状态 + 立即扫描；精简候选卡（第一张展开「评分理由与更多信息」：五维理由、三方机构、证据来源） |
+| 04-ledger | 资料申请列表：每条「下一步」；准备未完成时的顶部提示 |
+| 05-rules | 设置 → 机关申请规则：每条一行（费用 · 时限 · 已核实 / 未核实），展开看法律、种子依据、来源与核实表单 |
+| 06-request-header-explanation | 申请内容页签：中文说明与资料检查（公开资料 / 既有披露检查记录） |
+| 07-request-body | 申请内容页签：联邦英文正文与版本 |
+| 08-request-handoff | 交接中申请的「下一步」：复制正文 / 打开入口、9 步提交指引、登记提交与「提交结果不确定」 |
+| 09-request-timeline | 进度与文件页签：时间线与来信登记 |
+| 10-request-attachments-lines | 披露分析页签：明细复核（来源页码 / 行号、口径、确认 / 否决、人工录入） |
+| 11-request-analysis | 披露分析页签：按口径分析、覆盖与缺口 |
+| 12-overlap-blocking | 详细信息页签：改措辞 + 改渠道的同范围草稿 → BLOCKING，新增 2026-11-01 至 11-05（5 天） |
+| 13-tender-intel-card | Tender 情报 Tab 卡片（展开）：关联合同、前序供应商、全部申请 |
+| 14-mobile-handoff | 手机宽度（iPhone 13）：交接中的「下一步」 |
+| 15-tender-suppliers-import-leads | Tender 卡片：前序供应商 + 进口 / 海关线索（展开） |
+| 16-provincial-body-on / 17-provincial-guide-on | 安省就绪申请：FIPPA 英文正文；「下一步：可以提交了」+ 9 步提交指引 |
 | 18-mobile-suppliers | 手机宽度的前序供应商（无横向滚动） |
-| **19–25（当前布局）** | 界面精简后：19 候选项目 · 20 资料申请（准备未完成提示）· 21 草稿详情「下一步」+ 页签 · 22 已取得文件的详情（默认打开披露分析）· 23 设置（监控 / 申请人 / 规则 / 台账）· 24 Tender 卡片精简 · 25 手机「下一步」 |
-
-> 01–18 是界面精简前的布局（保留作记录）；数据、接口与行为不变，入口与排版以 19–25 为准。
+| 19–25 | 19 候选项目全页 · 20 资料申请全页 · 21 草稿详情「下一步」+ 页签 · 22 已取得文件的详情（默认打开披露分析）· 23 设置全页 · 24 Tender 卡片精简（默认两行）· 25 手机「下一步」 |
 
 复现命令（仅隔离库）：
 
@@ -112,7 +116,7 @@ PROC-1 新增的 4 项注册测试（3 组纯测试 + 隔离库端到端）在�
 DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql://qy:qy@localhost:5544/qy_isolated NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET=<任意≥32字符> npx tsx scripts/procurement-records-demo.ts
 ```
 
-输出演示组织 / 申请 id 与本地会话 cookie；随后用同样的 env 加 `PROCUREMENT_RECORDS_SCHEMA_READY=1 PRODUCT_CONTENT_LOCAL_STORE=1` 启动 `npx next dev` 浏览。闭环：fixture 扫描 → 候选 + 自动申请卡 → 申请人确认 / 规则核实（演示文字明示非真实核实）/ 台账确认 → READY → 交接（复制 / 打开入口不改变状态）→ 用户报告提交 → 回执核对（document_verified）→ 受理（案件编号单独保存，估算期限 2026-12-06）→「内附 105 页」回复信（NOTICE_RECEIVED）→ 披露 CSV → 复核 → 分析（ordered 9,750.00 CAD，2 条已确认 / 1 条待复核，缺口列明 0/105 页）。
+输出演示组织 / 申请 id 与本地会话 cookie；随后用同样的 env 加 `PROCUREMENT_RECORDS_SCHEMA_READY=1 PRODUCT_CONTENT_LOCAL_STORE=1` 启动 `npx next dev` 浏览。闭环（另有安省草稿 R3、联邦交接中 R4、安省就绪 R5 三个演示状态）：fixture 扫描 → 候选 + 自动申请卡 → 申请人确认 / 规则核实（演示文字明示非真实核实）/ 台账确认 → READY → 交接（复制 / 打开入口不改变状态）→ 用户报告提交 → 回执核对（document_verified）→ 受理（案件编号单独保存，估算期限 2026-12-06）→「内附 105 页」回复信（NOTICE_RECEIVED）→ 披露 CSV → 复核 → 分析（ordered 9,750.00 CAD，2 条已确认 / 1 条待复核，缺口列明 0/105 页）。
 
 ## 5. 来源、覆盖、失败处理与上限
 

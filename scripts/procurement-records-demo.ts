@@ -2,7 +2,8 @@
 /**
  * PROC-1 隔离环境演示（开发验证闭环，可重复）：
  *   公开来源扫描（fixture 假 fetch）→ 候选与申请卡 → 申请人 / 规则 / 台账确认 → READY → 自助交接 → 用户报告提交
- *   → 回执核对 → 受理 → 「内附 105 页」回复信 → 披露 CSV → 复核 → 按口径分析；另有重叠草稿与历史案件。
+ *   → 回执核对 → 受理 → 「内附 105 页」回复信 → 披露 CSV → 复核 → 按口径分析；另有重叠草稿、历史案件、
+ *   安省草稿（R3）、联邦交接中（R4）与安省就绪（R5）。
  *
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated \
  *   npx tsx scripts/procurement-records-demo.ts
@@ -106,8 +107,25 @@ async function main() {
   // 省级申请卡（安省 FIPPA 模板 + 提交指引；演示 fixture，规则仍为未核实种子）
   const r3 = must(await req.createRequestDraft({ orgId: ORG, userId: OWNER, jurisdiction: "CA-ON", instrumentNumbers: ["OSS-DEMO-0001"], pathType: "NEW_FORMAL_REQUEST", title: "演示：安省省级合同（fixture）", recipientInstitution: "Ministry of Public and Business Service Delivery", recordsHolderBasis: "该部签约并付款（演示 fixture）", startDate: "2024-01-01", endDate: "2025-12-31", applicantProfileId: ap.applicant.id, categories: ["CONTRACT_DOCS", "CALL_UPS_USAGE", "FINANCIALS"], projectId: PROJECT }), "安省草稿");
 
+  // R4：联邦申请走到「交接中」（演示 9 步提交指引、登记与「不确定」表单）
+  const fleece = await db.procurementInstrument.findFirst({ where: { orgId: ORG, normalizedNumber: "CW2450151", instrumentClass: "AWARD_INSTRUMENT" } });
+  const r4 = (await db.recordsRequest.findFirst({ where: { orgId: ORG, autoDraftKey: `auto:${fleece!.id}` } }))?.id ?? (must(await req.createRequestDraft({ orgId: ORG, userId: OWNER, instrumentIds: [fleece!.id], pathType: "NEW_FORMAL_REQUEST" }), "R4 草稿") as { requestId: string }).requestId;
+  must(await req.saveDraft({ requestId: r4, userId: OWNER, patch: { recipientInstitution: "Correctional Service Canada", recordsHolderBasis: "CSC 签约并付款（演示 fixture）", startDate: "2023-01-01", endDate: "2026-10-31", applicantProfileId: ap.applicant.id } }), "填写 R4");
+  for (const kind of ["publicRecords", "completedAti"] as const) await req.recordPathCheck({ requestId: r4, userId: OWNER, kind, summaryZh: "演示 fixture：已检查，没有所需明细" });
+  must(await req.markReady({ requestId: r4, userId: OWNER }), "R4 READY");
+  must(await req.startHandoff({ requestId: r4, userId: OWNER }), "R4 交接");
+
+  // R5：安省省级申请走到「就绪」（演示省级模板 + 指引；安省规则为演示 fixture 模拟核对，不是真实核实）
+  for (const r of await listRules(ORG)) {
+    if (r.jurisdiction === "CA-ON" && r.institutionKey === "*") must(await updateRule({ orgId: ORG, ruleId: r.id, userId: OWNER, patch: { officialPortalUrl: "https://fixture.example/ontario-foi" }, verify: { method: "演示 fixture：模拟核对（非真实核实，不可用于真实申请）" } }), "安省规则");
+  }
+  must(await req.attestLedger({ orgId: ORG, userId: OWNER, jurisdiction: "CA-ON", institutionKey: "*", method: "USER_CONFIRMED_NONE", note: "演示 fixture：组织无安省历史申请" }), "安省台账");
+  const r5 = (must(await req.createRequestDraft({ orgId: ORG, userId: OWNER, jurisdiction: "CA-ON", instrumentNumbers: ["OSS-DEMO-0002"], pathType: "NEW_FORMAL_REQUEST", title: "Office Seating Supply 2024-2025", recipientInstitution: "Ministry of Public and Business Service Delivery", recordsHolderBasis: "该部签约并付款（演示 fixture）", startDate: "2024-01-01", endDate: "2025-12-31", applicantProfileId: ap.applicant.id, categories: ["CONTRACT_DOCS", "CALL_UPS_USAGE", "FINANCIALS"], projectId: PROJECT }), "R5 草稿") as { requestId: string }).requestId;
+  for (const kind of ["publicRecords", "completedAti"] as const) await req.recordPathCheck({ requestId: r5, userId: OWNER, kind, summaryZh: "演示 fixture：已检查，没有所需明细" });
+  must(await req.markReady({ requestId: r5, userId: OWNER }), "R5 READY");
+
   const cookie = await createSession({ sub: OWNER, email: `${OWNER}@fixture.test`, role: "user" });
-  console.log(JSON.stringify({ orgId: ORG, ownerId: OWNER, projectId: PROJECT, R1, R2: (r2 as { requestId: string }).requestId, R3: (r3 as { requestId: string }).requestId, cookie: `qy_session=${cookie}`, blobDir: process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR }, null, 2));
+  console.log(JSON.stringify({ orgId: ORG, ownerId: OWNER, projectId: PROJECT, R1, R2: (r2 as { requestId: string }).requestId, R3: (r3 as { requestId: string }).requestId, R4: r4, R5: r5, cookie: `qy_session=${cookie}`, blobDir: process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR }, null, 2));
   await db.$disconnect();
 }
 
