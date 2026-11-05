@@ -510,6 +510,8 @@ run_test "招标自动分析来源核验" "npx tsx src/lib/tender-auto-analysis/
 run_test "观察期包5 外部情报自动化闭环" "npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts"
 run_test "情报阶段1+2 槽位接投影+结果回灌" "npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts"
 run_test "P2-0 结果表单中标方 + 竞争对手域排除我方 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/outcome-winner-db.isolated.test.ts"
+run_test "P2-0b 竞争对手 / 采购机构画像（纯函数）" "npx tsx src/lib/tender-intel/__tests__/org-profiles.test.ts"
+run_test "P2-0b 竞争对手 / 采购机构画像路由 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts"
 run_test "情报自动流 七槽位自动化" "npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts"
 run_test "CJK-PDF 中文安全文档生成" "npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts"
 run_test "工作台指挥台重构" "npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts"
