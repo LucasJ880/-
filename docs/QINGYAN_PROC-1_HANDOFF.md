@@ -15,8 +15,8 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 硬纪律 1「零 schema」例外 | **待 Evan 拍板** | 任务书要求持久化模型、唯一约束、decimal 金额与迁移；本 change 只**新增表**，不改任何既有表与列，生产迁移不执行。未拍板不得合并（GATE 不过）。先例：KPI-2 的第 7 条例外。 |
-| 硬纪律 3「不新增队列/租约」 | **部分触碰，待架构审查** | 无新 cron / 队列 / 调度器 / worker 注册表（挂既有 `tender-watch`）；但 `ProcurementScanRun` 的 runnerToken + 心跳是租约语义，且 3 个新表名命中 R1 冻结模式——已手工加入 `runtime-architecture-baseline.json`（未重新生成）。否决时的替代方案见 design。 |
+| 硬纪律 1「零 schema」例外 | **已批准**（决定 C，Lucas 2026-11-05） | 只新增 16 张表；已写入 `openspec/config.yaml` 第 1 条；合并仍由 Evan 拍板；生产迁移按 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`。 |
+| 硬纪律 3「不新增队列/租约」 | **已批准限定例外**（决定 C） | `ProcurementScanRun` 认领令牌 + 心跳只服务 tender-watch 里的扫描；3 个新表名已手工登记 R1 baseline；写入 config.yaml 第 3 条。 |
 | 硬纪律 7「不增 LLM 调用」 | 遵守 | V1 正文模板、优先级、去重、READY、金额计算、表格 / PDF 文本抽取全部确定性；模型辅助抽取留作后续并需单独拍板。 |
 | 硬纪律 2「出站先审批」 | 遵守 | V1 零出站：不发邮件、不代交、不代付；对外跟进信只生成草稿。 |
 | 硬纪律 5「不爬登录页」 | 遵守 | 只用开放数据 / 公开页面；政府申请门户只给链接，不抓取。 |
@@ -41,7 +41,7 @@
 | 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片；演示脚本与截图 | 完成 | 81466e0 |
 | 5 | typecheck 通过；隔离库端到端 142；报告 `docs/QINGYAN_PROC-1_REPORT.md`；全量 npm test 与 lint 基线结果见报告 §3.1 | 完成（待 GATE） | 本提交 |
 
-下一步：等 Evan 拍板硬纪律 1 例外与 Owner Gate（报告 §9）；拍板后按 design「Migration Plan」执行迁移、置位、种子、启用，并做 §10 业务验收。不要在未拍板前合并或对生产执行迁移。
+下一步：Draft PR 已开 → Evan 审查合并前，先按 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md` 在 staging / 生产执行受控迁移（迁移先于合并，否则生产构建被迁移闸拦住）；放行官方域名后跑 `scripts/procurement-records-live-check.ts` 做首次真实只读核对；然后种子、规则核实、申请人确认、台账确认、启用监控，做业务验收。
 
 ## 4. 运行与验证命令
 
@@ -49,6 +49,8 @@
   `DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=同上 npx prisma migrate deploy`。
 - 纯测试：`npx tsx src/lib/procurement-records/__tests__/{procurement-pure,records-request-pure,disclosure-analysis-pure}.test.ts`。
 - 隔离库端到端：`DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=同上 NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`（自带清理，可重复运行）。
+- 首次真实只读核对（不连库、不写数据）：`npx tsx scripts/procurement-records-live-check.ts --out docs/acceptance/proc-1/live-check.json`（需放行官方域名；本会话 2026-11-05 复测仍被拒）。
+- 上线：`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`（推荐 2026-11-08 周日 20:00 多伦多迁移 + 合并；周一 08:25 首个生产扫描）。
 - 演示：`scripts/procurement-records-demo.ts`（仅隔离库、全部 fixture）→ 输出 cookie；`next dev` 需同 JWT_SECRET 与 `PROCUREMENT_RECORDS_SCHEMA_READY=1 PRODUCT_CONTENT_LOCAL_STORE=1`；截图脚本思路见报告 §4。
 - 注意：路由里的 `after()` 在测试进程外无请求上下文，端到端测试对「立即扫描 / 上传」直接调服务函数（enqueueManualRun + executeScanRun、saveAttachment + processAttachment），路由层只测鉴权分支。
 - typecheck：`NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit -p tsconfig.json`（新增 automation key 须同时登记 `src/lib/cockpit/posts.ts` 与 `schedule.ts`）。

@@ -6,7 +6,7 @@
 | 任务书 | `docs/QINGYAN_PROC-1_RECORDS_TASKBRIEF.md`（v1.0） |
 | OpenSpec change | `openspec/changes/procurement-records-requests/`（`validate --strict` 通过；tasks 1–7 完成，8 见本报告） |
 | 分支 | `claude/tender-dijkstra-1i94ag`（未开 PR、未合并） |
-| 硬纪律 | **触碰第 1 条零 schema（只新增 16 张表）——须 Evan 拍板例外，未拍板不得合并**；**第 3 条部分触碰**：扫描运行行带认领令牌 + 心跳，且 3 个新表名命中 R1 冻结模式，已手工加入 runtime-architecture baseline 待架构审查；其余六条遵守（design「与八条硬纪律的关系」） |
+| 硬纪律 | 第 1 条零 schema（只新增 16 张表）与第 3 条（扫描运行行认领令牌 + 心跳；3 个新表名手工登记 R1 baseline）——**已获 PROC-1 限定例外（决定 C，Lucas 2026-11-05 批准，写入 `openspec/config.yaml`）**；其余六条遵守；合并仍由 Evan 拍板 |
 
 > 证据分级（本报告全文适用）：
 > - **fixture**：构造的 CSV / CKAN 行、回执、来信、披露文件，只用于测试与演示；
@@ -151,14 +151,13 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 
 ## 9. 需要你提供的资料或决定
 
-1. **Evan**：是否批准硬纪律 1 的例外（新增 16 张表）。若否决，需改为零 schema 方案（代价见 design D1），本分支不能合并。
-   同时审查 R1 baseline 新增的 `ProcurementScanRun`、`RecordsRequestEvent`、`RecordsLedgerAttestation`（第 3 条：扫描运行行的认领令牌 + 心跳是租约语义）。否决时的替代方案见 design「与八条硬纪律的关系」第 3 行。
-2. 生产迁移的 Owner Gate 时间窗（备份 → precheck → `safe-migrate-deploy` → 验表 → 置位 → 烟测）。
-3. 放行本会话或生产环境对 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca` 的出站访问，用于首次真实只读运行，并核对 CanadaBuys CSV 列名与 Completed ATI 摘要资源 ID（`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`）。
+1. ~~硬纪律 1 / 3 例外~~：**已批准**（Lucas 2026-11-05，决定 C）；合并仍由 Evan 拍板。
+2. ~~生产迁移的 Owner Gate 时间窗~~：按推荐执行——见 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`（需持有生产库凭证的人执行；本会话没有生产凭证）。
+3. ~~首次真实只读运行~~：已同意；放行本会话或生产环境对 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca` 的出站访问，用于首次真实只读运行，并核对 CanadaBuys CSV 列名与 Completed ATI 摘要资源 ID（`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`）——一条命令：`npx tsx scripts/procurement-records-live-check.ts --out docs/acceptance/proc-1/live-check.json`（不连库、不写数据）。本会话域名仍被网络策略拒绝（2026-11-05 复测仍为 403），放行前无法产生真实结果。
 4. 当前申请人资料（公司法定名称、代表人、地址、邮箱）：请在界面填写并确认；系统不会从历史回复信带出。
 5. 首次台账：A-2026-00183 之外是否还有历史 ATI / 省市申请？有则按 JSON 导入，没有则由你在界面确认「该范围无历史申请」。
 6. 三条种子合同的资料持有机关（PSPC 还是 CSC / CORCAN / DND）按所需记录核实后填写。
-7. 是否需要我开 Draft PR（仓库惯例为一个 change 一个 PR）。
+7. ~~Draft PR~~：已开（见 PR 链接）。
 
 ## 10. 业务验收（待做，不能用 fixture 代替）
 

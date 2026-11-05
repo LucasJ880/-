@@ -38,7 +38,7 @@ Sunny 在下一次投标前要持续发现值得跟的政府采购，并查清�
 - 新增：`src/lib/procurement-records/**`、`src/app/api/procurement/**`、`src/components/procurement-records/**`、`src/app/(main)/projects/intelligence/records/**`、`scripts/procurement-records-seed.ts`、`prisma/migrations/20261105120000_add_procurement_records_foundation/`。
 - 修改：`prisma/schema.prisma`（只追加新 model）、`src/app/(main)/projects/intelligence/monitor/page.tsx`（占位页 → 采购监控）、`src/components/bid-workflow/intel-hub-shell.tsx`（加「资料申请」链接）、`src/lib/navigation/registry.ts`（matchPaths）、`src/app/api/cron/tender-watch/route.ts`（追加受跟踪步骤）、`src/lib/automation/registry.ts`（登记 `procurement-watch`）、Tender 详情情报 Tab 追加卡片、迁移三处登记、`scripts/test-all.sh` / `scripts/test-ci-unit.sh`。
 - 新增 env：`PROCUREMENT_RECORDS_SCHEMA_READY`（默认关，关时新表零访问）、可选来源地址覆盖（见 design D4）。
-- 硬纪律：**触碰第 1 条（零 schema）——需要 Evan 拍板例外后才可合并**；其余七条遵守（见 design）。
+- 硬纪律：触碰第 1 条（零 schema）与第 3 条（扫描运行行的认领租约）——两条均已获 PROC-1 限定例外（决定 C，Lucas 2026-11-05 批准，已写入 `openspec/config.yaml`）；其余六条遵守（见 design）。
 
 ## Out of scope
 
