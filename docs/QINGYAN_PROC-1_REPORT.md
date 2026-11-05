@@ -6,7 +6,7 @@
 | 任务书 | `docs/QINGYAN_PROC-1_RECORDS_TASKBRIEF.md`（v1.0） |
 | OpenSpec change | `openspec/changes/procurement-records-requests/`（`validate --strict` 通过；tasks 1–7 完成，8 见本报告） |
 | 分支 | `claude/tender-dijkstra-1i94ag`（未开 PR、未合并） |
-| 硬纪律 | **触碰第 1 条零 schema（只新增 16 张表）——须 Evan 拍板例外，未拍板不得合并**；其余七条遵守（design「与八条硬纪律的关系」） |
+| 硬纪律 | **触碰第 1 条零 schema（只新增 16 张表）——须 Evan 拍板例外，未拍板不得合并**；**第 3 条部分触碰**：扫描运行行带认领令牌 + 心跳，且 3 个新表名命中 R1 冻结模式，已手工加入 runtime-architecture baseline 待架构审查；其余六条遵守（design「与八条硬纪律的关系」） |
 
 > 证据分级（本报告全文适用）：
 > - **fixture**：构造的 CSV / CKAN 行、回执、来信、披露文件，只用于测试与演示；
@@ -144,6 +144,7 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 ## 9. 需要你提供的资料或决定
 
 1. **Evan**：是否批准硬纪律 1 的例外（新增 16 张表）。若否决，需改为零 schema 方案（代价见 design D1），本分支不能合并。
+   同时审查 R1 baseline 新增的 `ProcurementScanRun`、`RecordsRequestEvent`、`RecordsLedgerAttestation`（第 3 条：扫描运行行的认领令牌 + 心跳是租约语义）。否决时的替代方案见 design「与八条硬纪律的关系」第 3 行。
 2. 生产迁移的 Owner Gate 时间窗（备份 → precheck → `safe-migrate-deploy` → 验表 → 置位 → 烟测）。
 3. 放行本会话或生产环境对 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca` 的出站访问，用于首次真实只读运行，并核对 CanadaBuys CSV 列名与 Completed ATI 摘要资源 ID（`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`）。
 4. 当前申请人资料（公司法定名称、代表人、地址、邮箱）：请在界面填写并确认；系统不会从历史回复信带出。

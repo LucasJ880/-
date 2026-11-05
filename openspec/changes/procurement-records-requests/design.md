@@ -118,7 +118,7 @@ CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title
 |---|---|---|
 | 1 | 零 schema | **触碰**：新增 16 张表（只 CREATE，不改既有表）。需要 Evan 拍板例外（D1 说明否决零 schema 方案的理由）；未拍板不合并。生产迁移不在本 change 执行。 |
 | 2 | 出站先审批 | 遵守：零出站。不发邮件、不提交、不付款；跟进信只存草稿；「打开官方入口」是用户自己在浏览器打开链接。 |
-| 3 | 禁止第三套队列 | 遵守：无新 cron / 队列 / 调度器 / worker 注册表；挂在既有 `tender-watch`，单轮认领用运行行唯一键（D2）。`AUTOMATION_REGISTRY` 只追加一条展示用登记，与 CAL-1 同型。 |
+| 3 | 禁止第三套队列 | **部分触碰，待架构审查**：无新 cron / 队列表 / 调度器 / worker 注册表，扫描挂在既有 `tender-watch`（D2），`AUTOMATION_REGISTRY` 只追加一条展示用登记（与 CAL-1 同型）。但 `ProcurementScanRun` 带 runnerToken + 心跳（单行认领，语义上是租约），且它与 `RecordsRequestEvent`、`RecordsLedgerAttestation` 命中 R1 冻结的模型命名模式（`NEW_RUNTIME_PERSISTENCE_MODEL_FORBIDDEN`）。按 R1 文档要求，已在同一 PR 把这三个名字**逐条手工**加入 `src/lib/runtime-architecture/runtime-architecture-baseline.json`（未重新生成），作为显式审查项。它们是业务台账，不接入 agent runtime / 审批 / 工具注册表。若审查否决：运行历史改写 `AutomationRun`，在途状态（槽位、认领、心跳、进度）放回 `ProcurementWatch` 行，删除 `ProcurementScanRun`；案件事件与台账确认两表与运行时无关，可保留或改名后保留。 |
 | 4 | 脱敏 | 不涉及 Muse 通道；另行约束：回执 / 来信 / 申请人资料不进通知摘要与日志（spec「敏感资料不外泄」）。 |
 | 5 | 不爬登录页 | 遵守：只读开放数据与公开页；ATIP 门户只给链接，不抓取、不保存政府凭证。 |
 | 6 | 邮箱分离 | 不涉及：V1 不读邮箱。 |
