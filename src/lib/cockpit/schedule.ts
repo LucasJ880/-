@@ -103,6 +103,8 @@ export const AUTOMATION_SCHEDULES: Record<AutomationKey, AutomationSchedule> = {
     enabledEnv: { name: "EMPLOYEE_AI_LEARNING_ENABLED", equals: "1" },
   },
   "tender-watch": { kind: "cron", route: "/api/cron/tender-watch", cron: "25 * * * *" },
+  // PROC-1：挂在 tender-watch 里的第二步（每小时检查一次到期槽位；实际扫描按组织排程）
+  "procurement-watch": { kind: "cron", route: "/api/cron/tender-watch", cron: "25 * * * *" },
   "tender-rfq-inbound": { kind: "cron", route: "/api/cron/tender-rfq-inbound", cron: "*/10 * * * *" },
 };
 

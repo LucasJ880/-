@@ -31,18 +31,23 @@
 
 | # | 阶段 | 状态 | 提交 |
 |---|---|---|---|
-| 0 | 勘察、复用清单、任务书副本、OpenSpec 四件套、TASKFLOW 行 | 进行中 | — |
-| 1a | Prisma 新表 + 增量迁移 + schema-ready 闸 + 迁移登记 | 未开始 | — |
-| 1b | 纯函数：编号规范化 / 去重键 / 多伦多排程 / 来源解析 / 优先级 | 未开始 | — |
-| 1c | 扫描执行器（认领 / 心跳 / 续跑）、种子导入、cron 挂钩 | 未开始 | — |
-| 2-3 | 申请卡、版本、规则、申请人、重复检查、READY、自助交接、回执、事件、待办 | 未开始 | — |
-| 4 | 附件上传解析、明细抽取复核、金额分析、导出 | 未开始 | — |
+| 0 | 勘察、复用清单、任务书副本、OpenSpec 四件套、TASKFLOW 行 | 完成 | 6f… docs(PROC-1) propose |
+| 1a | Prisma 16 张新表 + 增量迁移 + schema-ready 闸 + 迁移登记 | 完成 | 5ae07d5 |
+| 1b | 纯函数：编号 / 机构规范化、去重键、多伦多排程、来源解析、优先级（80 项测试） | 完成 | 4a911ac |
+| 1c | 扫描执行器 scan-run.ts、source-fetch.ts、instruments.ts、watch-service.ts、seed.ts + 脚本、tender-watch cron 第二步、cockpit 登记 | 代码完成，待 DB 测试 | WIP |
+| 2-3 | request-pure / duplicate-check / ready-gate / case-pure（纯）；requests.ts / events.ts / rules.ts / applicants.ts / tasks.ts（DB） | 代码完成，待测试 | WIP |
+| 4 | extract-pure.ts / analysis-pure.ts 完成；attachments.ts / analysis.ts / export.ts 进行中 | 进行中 | — |
 | 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片 | 未开始 | — |
 | 5 | 全量测试、typecheck、lint 基线、隔离演示与截图、报告 | 未开始 | — |
 
+下一步（按序）：attachments.ts（上传 / 解析 / 抽取）→ analysis.ts → export.ts → access.ts + `/api/procurement/**` 路由 → 两组纯测试（records-request-pure、disclosure-analysis-pure）→ 隔离库端到端 → UI → 截图 → 报告。
+
 ## 4. 运行与验证命令
 
-（随实现补全）
+- 本地隔离库（本会话做法）：`apt-get install -y postgresql-16-pgvector` → `pg_createcluster 16 qyiso -p 5544 --start` → 建库 `qy_isolated` / 角色 `qy`；
+  `DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=同上 npx prisma migrate deploy`。
+- 纯测试：`npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts`。
+- typecheck：`NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit -p tsconfig.json`（新增 automation key 须同时登记 `src/lib/cockpit/posts.ts` 与 `schedule.ts`）。
 
 ## 5. 复用与新增清单（勘察结论，2026-11-05）
 

@@ -78,6 +78,13 @@ export const AUTOMATION_REGISTRY = [
     timezone: "UTC",
   },
   {
+    key: "procurement-watch",
+    name: "采购监控（官方开放数据扫描，挂在 tender-watch）",
+    category: "projects",
+    cadence: "按组织排程（缺省周一、周四 08:00 多伦多），每小时检查",
+    timezone: AUTOMATION_TIMEZONE,
+  },
+  {
     key: "tender-rfq-inbound",
     name: "询价回信入站（报价自动入表）",
     category: "projects",

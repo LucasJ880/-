@@ -202,3 +202,11 @@ export function applicantCanonicalKey(legalName: string | null | undefined): str
     .trim();
   return folded ? folded : null;
 }
+
+/** 规范机构键的全部已知别名（含键本身；RAW / UNKNOWN 返回规范化原文） */
+export function institutionAliases(key: string): string[] {
+  const list = INSTITUTION_ALIASES[key];
+  if (list) return [key.toLowerCase(), ...list];
+  if (key.startsWith("RAW:")) return [key.slice(4).replace(/-/g, " ")];
+  return [];
+}
