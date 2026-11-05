@@ -41,7 +41,8 @@
 | 4b | UI：采购监控 / 候选 / 申请台账 / 申请详情 / Tender 情报页卡片；演示脚本与截图 | 完成 | 81466e0 |
 | 5 | typecheck 通过；隔离库端到端 142；报告 `docs/QINGYAN_PROC-1_REPORT.md`；全量 npm test 与 lint 基线结果见报告 §3.1 | 完成（待 GATE） | 701e325 |
 | 6 | 省级机关规则种子（安省 FIPPA + 多伦多 MFIPPA、BC、曼省、魁省、阿省），纯数据拆到 `rule-seeds.ts`；辖区加 `CA-QC` / `CA-AB`；纯测试 108、隔离库 146 | 完成（种子未核实，来源为网络检索摘要，见报告 §6a） | 76b5ddb |
-| 6b | 萨省种子由占位改为 FOIP 省政府机关缺省（免申请费、30 个日历日；地方机关 LA FOIP 另行核实）；纯测试 110 | 完成（未核实） | 本提交 |
+| 6b | 萨省种子由占位改为 FOIP 省政府机关缺省（免申请费、30 个日历日；地方机关 LA FOIP 另行核实）；纯测试 110 | 完成（未核实） | d18d09c |
+| 7 | 省市正文模板（英 / 法）+ 9 步提交指引（`request-templates.ts`）；Tender 卡片前序供应商 + 确认上轮中标（走既有人工确认路由）+ 进口 / 海关线索（`supplier-pure.ts`）；纯测试 95 / 171 / 50、隔离库 158；截图 15–18 | 完成（fixture 验证；见报告 §6b / §6c） | 本提交 |
 
 下一步：Draft PR https://github.com/LucasJ880/-/pull/382 已开 → Evan 审查合并前，先按 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md` 在 staging / 生产执行受控迁移（迁移先于合并，否则生产构建被迁移闸拦住）；放行官方域名后跑 `scripts/procurement-records-live-check.ts` 做首次真实只读核对；然后种子、规则核实、申请人确认、台账确认、启用监控，做业务验收。
 

@@ -36,3 +36,9 @@
 
 - [x] 9.1 新建纯数据 `src/lib/procurement-records/rule-seeds.ts`（`rules.ts` 改为引用）：联邦两条不变；新增安省 FIPPA + 多伦多市 MFIPPA（机构别名 `TORONTO`）、BC、曼省、魁省、阿省种子（全部 UNVERIFIED、不预填入口、来源与种子依据随行），萨省保持占位；辖区表加 `CA-QC` / `CA-AB`；规则卡片显示「适用自」与「种子依据」。verify：`records-request-pure.test.ts`（108）与 `procurement-records-db.isolated.test.ts`（146）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate procurement-records-requests --strict` 通过。
 - [x] 9.2 萨省种子由占位改为 FOIP 省政府机关缺省（免申请费、30 个日历日；提示地方机关适用 LA FOIP、$20）。verify：`records-request-pure.test.ts`（110）与 `procurement-records-db.isolated.test.ts`（146）退出 0；`openspec validate procurement-records-requests --strict` 通过。
+
+## 10. 省市正文模板、提交指引与前序供应商（Lucas 2026-11-05 追加）
+
+- [x] 10.1 新建 `src/lib/procurement-records/request-templates.ts`（纯、客户端安全）：省市分法律正文模板（安省 FIPPA / MFIPPA、BC、曼省、阿省、萨省 FOIP / LA FOIP 英文；魁省法文）、`bodyTitle`（中文标题不进正文）、9 步提交指引与既有披露副本指引；`requests.ts` 新建 / 重新生成接入；详情返回 `submissionGuide` / `bodyLanguage`；详情页「自助提交」显示可勾选指引（勾选不保存）。verify：`records-request-pure.test.ts`（171）退出 0。
+- [x] 10.2 新建 `src/lib/procurement-records/supplier-pure.ts`：前序供应商汇总（含关联合同下 call-up）、「上一次谁供货」、按口径分列金额、确认上下文；进口 / 海关线索（官方来源 + 局限）。`getTenderProcurementSummary` 返回 `suppliers` / `importLeads` / `callUpCount`；Tender 卡片显示并提供「确认为上轮中标」（调用既有人工确认路由）；候选列表显示供应商。verify：`procurement-pure.test.ts`（95）、`procurement-records-db.isolated.test.ts`（158）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate --strict` 通过；截图 `docs/acceptance/proc-1/15–18`（fixture）。
+

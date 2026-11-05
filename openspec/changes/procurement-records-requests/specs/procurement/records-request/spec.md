@@ -14,11 +14,29 @@
 - **THEN** 响应含上述字段、全部版本摘要（版本号、text hash、创建人与时间）、READY 闸结果与重复检查结果；`procurement-records-db.isolated.test.ts` 覆盖
 
 ### Requirement: 联邦正文模板
-联邦 ATI 正文 SHALL 按任务书第七节模板生成：方括号仅由已核实数据替换，缺数据时保留方括号；按所选记录类别取舍编号条目；起止日期按 ISO 日期写出。省市申请 SHALL NOT 套用联邦模板，正文由用户填写。系统 SHALL NOT 补造未填写的姓名、地址或编号。
+联邦 ATI 正文 SHALL 按任务书第七节模板生成：方括号仅由已核实数据替换，缺数据时保留方括号；按所选记录类别取舍编号条目；起止日期按 ISO 日期写出。省市申请 SHALL NOT 套用联邦模板。系统 SHALL NOT 补造未填写的姓名、地址或编号；申请卡的中文内部标题 SHALL NOT 写进正文（保留 `[PROJECT TITLE]` 待填官方标题）。
 
 #### Scenario: 缺机关名
 - **WHEN** 接收机关未填写时生成正文
 - **THEN** 正文保留 `[INSTITUTION]`，READY 闸报 `BODY_PLACEHOLDER`；`records-request-pure.test.ts` 覆盖
+
+### Requirement: 省市正文模板
+省市正式申请正文 SHALL 按适用法律生成：安省 FIPPA（省级）/ MFIPPA（市级，如多伦多市）、BC FIPPA、曼省 FIPPA、阿省 ATIA、萨省 FOIP / LA FOIP 用英文，写明「一般记录（非个人信息）」申请、法律名、各法律对机关的称谓，并请求在申请费以外的费用发生前先给费用估算；魁省按《Loi sur l'accès》（A-2.1）用法文。适用法律 SHALL 由辖区与规则法律名确定性判定；无法判定的辖区（OTHER）正文由用户填写。占位符、类别顺序与缺数据处理 SHALL 与联邦模板一致，法文占位符同样被 READY 闸识别。
+
+#### Scenario: 安省省级机关
+- **WHEN** 辖区 CA-ON、接收机关为省级部委，生成新正式申请正文
+- **THEN** 正文以「This is a request for access to general records (not personal information) under the Freedom of Information and Protection of Privacy Act (Ontario).」开头，不含联邦「Pursuant to the Access to Information Act」；`records-request-pure.test.ts` 与 `procurement-records-db.isolated.test.ts` 覆盖
+
+#### Scenario: 多伦多市与魁省
+- **WHEN** 接收机关为 City of Toronto，或辖区为 CA-QC
+- **THEN** 前者用 MFIPPA 模板；后者用法文模板（「pour la période du … au …」），详情返回正文语言 `fr`；`procurement-records-db.isolated.test.ts` 覆盖
+
+### Requirement: 自助提交指引
+申请详情 SHALL 按适用法律给出逐步指引：确认接收机关与适用法律 → 先查公开资料 → 打开官方入口 → 选择申请类型 → 粘贴正文 → 付费（如适用）→ 保存回执 → 回青砚登记 → 跟进期限与来信；索取联邦既有披露副本另有非正式指引，直接取得公开资料的路径没有指引。指引 SHALL NOT 写死金额（费用指向规则卡片，未核实时以官方页面为准），SHALL 提醒不保存政府凭证、不确定时不换渠道重复提交；勾选只在页面记录，SHALL NOT 改变申请状态。
+
+#### Scenario: 指引内容
+- **WHEN** 读取任一法律的提交指引
+- **THEN** 共 9 步，含回执与登记步骤，不含「$数字」或「CAD 数字」；`records-request-pure.test.ts` 覆盖
 
 ### Requirement: 版本不可覆盖
 任何正文、范围、机关、渠道或申请人变动 SHALL 新增一个版本（版本号递增、重算 text hash 与 scope fingerprint），已有版本 SHALL NOT 被修改；当前为 READY 时 SHALL 回到 DRAFT 并需重新校验；交接或提交后的版本 SHALL NOT 再编辑，后续修改只能生成新版本且不影响已提交版本记录。

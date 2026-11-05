@@ -15,7 +15,7 @@
 
 **Non-Goals**（具体到模块）：
 - `src/lib/muse-bridge/**`、`src/lib/pending-actions/**`、`src/lib/tender-rfq/**` 不改。
-- `src/lib/tender-intel/canadabuys.ts`、`watch.ts`、`awards.ts` 不改（只 import 复用）；`AwardRecord` 不写。
+- `src/lib/tender-intel/canadabuys.ts`、`watch.ts`、`awards.ts` 不改（只 import 复用）；PROC-1 代码不写 `AwardRecord`——Tender 卡片上的「确认为上轮中标」由用户点击，调用既有人工确认路由 `/api/projects/[id]/external-intel/award-history`（HUMAN_CONFIRMED，写路径不变）。
 - `ProjectDocument` / `ProjectDocumentPage` 不复用为披露附件（避免触发招标文件自动分析与在项目文件列表暴露回执）。
 - 既有 Prisma model 不加字段、不加关系；新表对既有表只用逻辑引用（字符串 id + 索引）。
 - `vercel.json` 不加 cron；`.claude/launch.json`、`docs/` 既有文件不动。
@@ -97,6 +97,20 @@ CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title
 - 纪律不变：全部 `UNVERIFIED`；不预填官方提交入口；未知为 null；READY 仍要求真实用户核实（入口 + 费用 + 方法）。工作日时限不估算到期日（各省节假日不同），日历日时限照常估算。
 - 查找顺序：机关专属规则优先，其余回落到辖区缺省 `*`；市级 / 地方机关（安省 MFIPPA、萨省 LA FOIP 等）除多伦多外没有专属种子，须另行核实。
 - 已存在的规则行不被种子覆盖（保留用户核实结果）。
+
+### D7b 省市正文模板与提交指引（`src/lib/procurement-records/request-templates.ts`，纯、客户端安全）
+- 适用法律由辖区 + 规则法律名确定性判定：CA-ON → FIPPA，规则法律名以 Municipal 开头 / 含 MFIPPA → MFIPPA；CA-SK → FOIP，含 Local Authority / LA FOIP → LA FOIP；BC / MB / AB / QC 各一；OTHER → 无模板。
+- 英文模板：一般记录（非个人信息）+ 法律名 + 机关称谓（institution / public body / government institution / local authority）+ 与联邦同口径的条目与格式要求 + 请求先给费用估算；魁省为法文模板（法文占位符不带重音，READY 闸照常识别）。
+- 申请卡中文标题不进正文（`bodyTitle`：含中日韩字符即保留 `[PROJECT TITLE]`），联邦模板同样适用。
+- 指引按法律给 9 步，金额一律指向规则卡片；COMPLETED_ATI_COPY 用非正式副本指引；PUBLIC_RECORD 无指引。详情接口返回 `submissionGuide` 与 `bodyLanguage`。
+- 否决：让模型按省草拟正文——硬纪律 7；把省级金额写进指引——会与规则卡片的核实状态脱节。
+
+### D7c 前序供应商与进口线索（`src/lib/procurement-records/supplier-pure.ts`）
+- 数据：关联合同 + 其下 call-up 的 `vendorName` / `awardDate` / `contractValue`（合同披露）与最近一条合同披露证据（`sourceRecordId` = reference_number）。分组键 = `normalizeBuyerName`（与 AwardRecord 同一规范化）再去公司后缀；金额整数分、按（口径, 币种）分列。
+- 「上一次谁供货」= 前序 / 相关 / call-up 中合同日期最近的一份；当前合同只进列表不算「上一次」。
+- 确认上轮中标：卡片按钮调用既有人工确认路由，带 reference_number（使幂等键与既有 `canadabuys:{reference}` 一致）、买方、金额、日期、来源链接；PROC-1 代码不直接写 AwardRecord。
+- 海关：加拿大逐票报关记录不公开；只给 CID / CID 开放数据 / CIMT 的人工检索指引与局限说明，零出站；商业提单库需登录或付费，不接入（硬纪律 5）。T4 投标情报里「供应链 / 海关 M3」槽位的文字不在本 change 修改。
+- 否决：自动把合同披露供应商写成上轮中标——违背 T3 人工确认纪律；新建竞争对手表——零 schema 例外只覆盖已批准的 16 张表。
 
 ### D8 重复检查
 比较对象：本组织全部申请（含已归档 / 已关闭）的当前版本范围。命中条件：申请主体相同（申请人缺失的历史记录按「本组织可能同一主体」保守命中）+ 辖区相同 + 机关键相同（机关未规范化 → 人工复核）+ 编号交集非空 + 类别交集非空 + 日期区间相交。结果：`CLEAR` / `DRAFT_EXISTS`（未提交版本，优先续改）/ `BLOCKING`（已交接、用户报告提交、未知、已提交、受理、处理中、已披露）/ `NEEDS_REASON`（已关闭 / 撤回 / 取消 / 拒绝，须填新增范围或原因）/ `UNVERIFIED`（无台账确认、任一历史状态无法解析、读取失败）。日期按天计算覆盖与新增部分（含首尾日），例：旧至 10-31、新至 11-05 → 重叠 + 新增 11-01…11-05 共 5 天。

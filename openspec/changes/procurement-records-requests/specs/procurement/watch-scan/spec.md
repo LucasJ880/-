@@ -104,3 +104,14 @@
 #### Scenario: 重复导入
 - **WHEN** 种子脚本 `--write` 连续执行两次
 - **THEN** 采购工具仍为 3 条；`procurement-records-db.isolated.test.ts` 覆盖
+
+### Requirement: 前序供应商与进口线索
+Tender 详情的「历史采购与资料申请」卡 SHALL 汇总关联合同及其下 call-up 的供应商（来自已入库的合同披露或人工导入）：按规范化名称分组，给出合同数、最近合同日期、按口径与币种分列的合同披露值（整数分，不跨口径相加，未知金额不计入、不当作 0），并标出「上一次谁供货」（前序 / 相关 / call-up 中合同日期最近的一份，当前合同不算）。确认上轮中标 SHALL 由用户点按钮，经既有人工确认路由写入（携带合同披露 reference_number 与来源链接，没有证据时不编造）；系统 SHALL NOT 自动把供应商写成上轮中标方。进口 / 海关线索 SHALL 只列官方公开来源的人工检索指引（Canadian Importers Database、CID 开放数据、Statistics Canada CIMT），写明各自能查到与查不到什么，并说明加拿大不公开逐票报关记录、需登录或付费的商业提单库不接入；SHALL NOT 发起出站请求。
+
+#### Scenario: 上一次谁供货
+- **WHEN** Tender 关联了一份前序 SO，其下有一笔更晚的 call-up
+- **THEN** 卡片显示该供应商 2 份合同 / call-up、合同披露值按口径合计，「最近一次」为该 call-up；确认上下文带该 call-up 的合同披露 reference_number；`procurement-pure.test.ts` 与 `procurement-records-db.isolated.test.ts` 覆盖
+
+#### Scenario: 海关数据
+- **WHEN** 用户查看进口线索
+- **THEN** 只出现 canada.ca / statcan.gc.ca 的官方来源，并写明逐票报关记录不公开、商业提单库不接入；`procurement-pure.test.ts` 覆盖

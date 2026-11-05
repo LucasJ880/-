@@ -2,7 +2,7 @@
  * PROC-1 申请卡正文与范围（纯函数，design D7）。
  *
  * 联邦 ATI 正文按任务书第七节模板生成：方括号只由已核实数据替换，缺数据时保留方括号（READY 闸拦截）；
- * 按记录类别取舍条目。省市申请不套联邦模板。text hash 与 scope fingerprint 分开：
+ * 按记录类别取舍条目。省市申请不套联邦模板，改用 request-templates.ts 的分法律模板（英文 / 魁省法文）。text hash 与 scope fingerprint 分开：
  * - text hash：正文规范换行后 sha256（措辞变化即变化）；
  * - scope fingerprint：申请主体 + 辖区 + 机关 + 编号集 + 类别集 + 起止日（与渠道 / 标题 / 措辞无关）。
  */
@@ -10,20 +10,11 @@
 import { createHash } from "node:crypto";
 import { normalizeInstrumentNumber } from "./identity";
 import { PATH_TYPE_LABELS, RECORD_CATEGORIES, RECORD_CATEGORY_LABELS, type PathType, type RecordCategory } from "./labels";
+import { CATEGORY_TEMPLATE_ITEMS, joinNumbers, type RequestBodyInput } from "./request-templates";
 
 export { PATH_TYPES, PATH_TYPE_LABELS, RECORD_CATEGORIES, RECORD_CATEGORY_LABELS, UNKNOWN_CATEGORY } from "./labels";
 export type { PathType, RecordCategory } from "./labels";
 
-
-const CATEGORY_TEMPLATE_ITEMS: Record<RecordCategory, string> = {
-  CONTRACT_DOCS: "The final issued contract or Standing Offer, its applicable annexes, amendments and exercised renewal or extension options.",
-  CALL_UPS_USAGE:
-    "Existing call-up, purchase order or usage records showing, where recorded, item description, quantity, unit of measure, unit price, order date, delivery destination, order value and cumulative value.",
-  USAGE_REPORTS: "Existing annual or quarterly usage reports for the specified instrument and period.",
-  FINANCIALS:
-    "Records showing separately the amounts committed, ordered, invoiced and paid, together with recorded cancellations, returns, credits or refunds relevant to those amounts.",
-  PRICE_SCHEDULE: "The applicable final Basis of Payment or price schedule, to the extent releasable.",
-};
 
 export function isRecordCategory(v: unknown): v is RecordCategory {
   return typeof v === "string" && (RECORD_CATEGORIES as readonly string[]).includes(v);
@@ -33,21 +24,7 @@ export function isRecordCategory(v: unknown): v is RecordCategory {
 export const CHANNELS = ["FORMAL", "INFORMAL"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
-export interface FederalBodyInput {
-  institution: string | null;
-  projectTitle: string | null;
-  solicitationNumbers: string[];
-  contractNumbers: string[];
-  startDate: string | null;
-  endDate: string | null;
-  categories: RecordCategory[];
-}
-
-function joinNumbers(list: string[]): string {
-  const uniq = [...new Set(list.map((s) => s.trim()).filter(Boolean))];
-  if (uniq.length <= 1) return uniq[0] ?? "";
-  return `${uniq.slice(0, -1).join(", ")} and ${uniq[uniq.length - 1]}`;
-}
+export type FederalBodyInput = RequestBodyInput;
 
 /** 联邦 ATI 正文（任务书第七节模板） */
 export function buildFederalAtiBody(input: FederalBodyInput): string {

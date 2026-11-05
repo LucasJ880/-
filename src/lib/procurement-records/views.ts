@@ -10,6 +10,8 @@ import { institutionDisplayName, JURISDICTION_LABELS } from "./identity";
 import { buildRequestContext } from "./requests";
 import { manualSearchLinks } from "./sources-pure";
 import { listRequestTasks } from "./tasks";
+import { informalCopyGuide, lawProfile, resolveRequestLaw, submissionGuide, type BodyLanguage, type SubmissionGuide } from "./request-templates";
+import { IMPORT_LEAD_NOTES_ZH, IMPORT_LEAD_SOURCES, summarizeSuppliers, type SupplierInstrumentInput } from "./supplier-pure";
 import { findRule } from "./rules";
 
 const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toString());
@@ -150,6 +152,18 @@ export async function listRequests(orgId: string, filter: { status?: string | nu
   return filter.pendingOnly ? items.filter((i) => i.pendingTasks > 0) : items;
 }
 
+function guideFor(pathType: string, jurisdiction: string, lawLabel: string | null): SubmissionGuide | null {
+  if (pathType === "PUBLIC_RECORD") return null;
+  if (pathType === "COMPLETED_ATI_COPY") return informalCopyGuide();
+  const law = resolveRequestLaw(jurisdiction, lawLabel);
+  return law ? submissionGuide(law) : null;
+}
+
+function bodyLanguageFor(jurisdiction: string, lawLabel: string | null): BodyLanguage {
+  const law = resolveRequestLaw(jurisdiction, lawLabel);
+  return law ? lawProfile(law).bodyLanguage : "en";
+}
+
 export async function getRequestDetail(requestId: string) {
   const ctx = await buildRequestContext(requestId);
   if (!ctx) return null;
@@ -246,6 +260,9 @@ export async function getRequestDetail(requestId: string) {
     rule: rule
       ? { id: rule.id, jurisdiction: rule.jurisdiction, institutionKey: rule.institutionKey, lawLabel: rule.lawLabel, officialPortalUrl: rule.officialPortalUrl, guidanceUrl: rule.guidanceUrl, channel: rule.channel, applicationFeeCents: rule.applicationFeeCents, currency: rule.currency, otherFeesRule: rule.otherFeesRule, deadlineValue: rule.deadlineValue, deadlineUnit: rule.deadlineUnit, selfServeSupported: rule.selfServeSupported, verificationStatus: rule.verificationStatus, verifiedAt: iso(rule.verifiedAt), verificationMethod: rule.verificationMethod, sourceRefs: rule.sourceRefsJson, fieldGuide: rule.fieldGuideJson }
       : null,
+    /** 自助提交逐步指引（按适用法律；直接取得公开资料的路径没有提交步骤） */
+    submissionGuide: guideFor(r.pathType, r.jurisdiction, rule?.lawLabel ?? r.lawLabel),
+    bodyLanguage: bodyLanguageFor(r.jurisdiction, rule?.lawLabel ?? r.lawLabel),
     instruments: instruments.map((i) => ({ ...i, lastVerifiedAt: iso(i.lastVerifiedAt), currentExpiryAt: day(i.currentExpiryAt) })),
     events: events.map((e) => ({ id: e.id, type: e.type, label: EVENT_LABELS[e.type] ?? e.type, actorType: e.actorType, actor: name(e.actorId), recordedAt: e.recordedAt.toISOString(), effectiveAt: iso(e.effectiveAt), evidenceLevel: e.evidenceLevel, attachmentIds: e.attachmentIdsJson, payload: e.payloadJson, noteZh: e.noteZh, correctsEventId: e.correctsEventId })),
     attachments: attachments.map((a) => ({ ...a, acquiredAt: iso(a.acquiredAt), uploadedAt: a.uploadedAt.toISOString(), downloadUrl: `/api/procurement/requests/${r.id}/attachments/${a.id}` })),
@@ -262,13 +279,54 @@ export type RequestDetail = NonNullable<Awaited<ReturnType<typeof getRequestDeta
 /** Tender 详情「历史采购与资料申请」卡片 */
 export async function getTenderProcurementSummary(orgId: string, projectId: string) {
   const links = await db.procurementTenderLink.findMany({ where: { orgId, projectId } });
-  const instruments = links.length ? await db.procurementInstrument.findMany({ where: { orgId, id: { in: links.map((l) => l.instrumentId) } }, select: { id: true, officialNumber: true, title: true, currentExpiryAt: true, instrumentClass: true, recordsHolderInstitution: true } }) : [];
+  const instrumentSelect = { id: true, officialNumber: true, title: true, currentExpiryAt: true, instrumentClass: true, recordsHolderInstitution: true, vendorName: true, awardDate: true, contractValue: true, contractValueBasis: true, currency: true, contractingInstitution: true, buyingInstitution: true, parentInstrumentId: true } as const;
+  const linkedIds = links.map((l) => l.instrumentId);
+  const [instruments, callUps] = linkedIds.length
+    ? await Promise.all([
+        db.procurementInstrument.findMany({ where: { orgId, id: { in: linkedIds } }, select: instrumentSelect }),
+        // 关联合同（SO / SA）下的 call-up：各自的供应商与金额也算「谁在供货」
+        db.procurementInstrument.findMany({ where: { orgId, parentInstrumentId: { in: linkedIds }, id: { notIn: linkedIds } }, select: instrumentSelect, orderBy: { awardDate: "desc" }, take: 200 }),
+      ])
+    : [[], []];
+  const allIds = [...instruments, ...callUps].map((i) => i.id);
+  const evidence = allIds.length
+    ? await db.procurementSourceEvidence.findMany({ where: { orgId, instrumentId: { in: allIds }, sourceType: "OPEN_CANADA_CONTRACTS" }, orderBy: { lastSeenAt: "desc" }, select: { instrumentId: true, sourceType: true, sourceRecordId: true, sourceUrl: true, lastSeenAt: true } })
+    : [];
+  const evidenceFor = (id: string) => {
+    const e = evidence.find((x) => x.instrumentId === id);
+    return e ? { sourceType: e.sourceType, sourceRecordId: e.sourceRecordId, sourceUrl: e.sourceUrl, lastSeenAt: iso(e.lastSeenAt) } : null;
+  };
+  const toInput = (i: (typeof instruments)[number], relation: string): SupplierInstrumentInput => ({
+    id: i.id,
+    officialNumber: i.officialNumber,
+    title: i.title,
+    relation,
+    instrumentClass: i.instrumentClass,
+    vendorName: i.vendorName,
+    awardDate: day(i.awardDate),
+    contractValue: dec(i.contractValue),
+    contractValueBasis: i.contractValueBasis,
+    currency: i.currency,
+    contractingInstitution: i.contractingInstitution,
+    buyingInstitution: i.buyingInstitution,
+    evidence: evidenceFor(i.id),
+  });
+  const supplierRows: SupplierInstrumentInput[] = [
+    ...links.flatMap((l) => {
+      const i = instruments.find((x) => x.id === l.instrumentId);
+      return i ? [toInput(i, l.relation)] : [];
+    }),
+    ...callUps.map((c) => toInput(c, "CALL_UP")),
+  ];
   const requests = await db.recordsRequest.findMany({ where: { orgId, projectId }, orderBy: { updatedAt: "desc" }, select: { id: true, title: true, status: true, filesStatus: true, analysisStatus: true, governmentOutcome: true, caseNumber: true } });
   return {
     instruments: links.map((l) => {
       const i = instruments.find((x) => x.id === l.instrumentId);
-      return { relation: l.relation, id: l.instrumentId, officialNumber: i?.officialNumber ?? "?", title: i?.title ?? null, currentExpiryAt: day(i?.currentExpiryAt ?? null), recordsHolderInstitution: i?.recordsHolderInstitution ?? null };
+      return { relation: l.relation, id: l.instrumentId, officialNumber: i?.officialNumber ?? "?", title: i?.title ?? null, currentExpiryAt: day(i?.currentExpiryAt ?? null), recordsHolderInstitution: i?.recordsHolderInstitution ?? null, vendorName: i?.vendorName ?? null, awardDate: day(i?.awardDate ?? null) };
     }),
+    callUpCount: callUps.length,
+    suppliers: summarizeSuppliers(supplierRows),
+    importLeads: { sources: IMPORT_LEAD_SOURCES, notesZh: IMPORT_LEAD_NOTES_ZH },
     requests,
   };
 }

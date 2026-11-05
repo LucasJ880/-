@@ -329,7 +329,7 @@ export function ProcurementMonitor() {
                       {String(c.title ?? c.officialNumber)} <span className="text-muted">· {String(c.officialNumber)}</span>
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted">
-                      {String(c.jurisdictionLabel ?? JURISDICTION_LABELS[c.jurisdiction as keyof typeof JURISDICTION_LABELS] ?? c.jurisdiction)} · 采购执行：{String(c.contractingInstitution ?? "未知")} · 购买机构：{String(c.buyingInstitution ?? "未知")} · 资料持有机关：{c.recordsHolderInstitution ? String(c.recordsHolderInstitution) : "未核实"}
+                      {String(c.jurisdictionLabel ?? JURISDICTION_LABELS[c.jurisdiction as keyof typeof JURISDICTION_LABELS] ?? c.jurisdiction)} · 采购执行：{String(c.contractingInstitution ?? "未知")} · 购买机构：{String(c.buyingInstitution ?? "未知")} · 资料持有机关：{c.recordsHolderInstitution ? String(c.recordsHolderInstitution) : "未核实"} · 供应商（合同披露）：{c.vendorName ? String(c.vendorName) : "未知"}
                     </p>
                     <p className="mt-0.5 text-[11px] text-muted">
                       公开到期：<Unknown value={c.currentExpiryAt as string | null} /> · 剩余 options：<Unknown value={c.remainingOptions as number | null} /> · 确认重招日期：<Unknown value={c.confirmedRetenderDate as string | null} />

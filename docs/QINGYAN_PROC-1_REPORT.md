@@ -23,9 +23,10 @@
 | 三A 已知合同刷新与既有披露检索 | 代码完成，未真实运行 | CKAN 按 `procurement_id` / `standing_offer_number` 刷新 SO 与 call-up；合同历史页哈希变更检测；Completed ATI 摘要检索（资源 ID 未核实 → 未配置时 SKIPPED） |
 | 三A 来源能力与实际结果逐项显示 | 完成 | SUCCESS / PARTIAL / UNAVAILABLE / PARSE_FAILED / SKIPPED；成功零结果与无法获取分开 |
 | 三B 历史合同关联、证据归档、缺口判断、三种取得路径 | 完成 | 采购工具 + 证据 + 关系；`pathType`；路径按序检查进入 READY 闸 |
-| 三B 英文正文 + 中文说明 + 机关 / 日期 / 费用 / 字段指引 | 完成 | 联邦模板逐字；缺数据保留方括号；省市不套联邦模板 |
+| 三B 英文正文 + 中文说明 + 机关 / 日期 / 费用 / 字段指引 | 完成 | 联邦模板逐字；缺数据保留方括号；**省市分法律模板（2026-11-05 追加，见 §6b）**：安省 FIPPA / MFIPPA、BC、曼省、阿省、萨省英文，魁省法文；中文内部标题不进正文 |
 | 三B 申请人资料、版本、重复检查、就绪检查 | 完成 | 见 §7 |
-| 三C 复制正文 / 打开入口 / 字段映射 / 回填 / 回执 / 编号 / 时间线 / 待办 | 完成 | 门户字段名只显示实际观察到的；待办复用 `Task` |
+| 三C 复制正文 / 打开入口 / 字段映射 / 回填 / 回执 / 编号 / 时间线 / 待办 | 完成 | 门户字段名只显示实际观察到的；待办复用 `Task`；**按法律的 9 步提交指引（§6b）** |
+| 竞争对手 / 上轮供货（2026-11-05 追加） | 完成（fixture 验证） | Tender 卡片「前序供应商」汇总 + 一键走既有人工确认路由确认上轮中标；「进口 / 海关线索」只列官方来源（§6c） |
 | 三D 上传 PDF / CSV / XLSX、可复核解析、来源位置、扫描件阻塞与人工录入 | 完成 | 无 OCR：`NEEDS_OCR` + 人工录入 |
 | 三D 历史需求 / 订单 / 金额口径 / 缺口 / 建议 | 完成 | 按口径分列；「已取得记录的合计」 |
 | 四 多伦多排程（DST）、上限、截断待续、租约 / 重启 / 幂等、通知去重 | 完成 | 挂在既有 `tender-watch` cron；见 design D2 / D3 |
@@ -38,7 +39,7 @@
 | 十一 来信 / 附件 / 分析 | 完成 | 邮箱自动收信未启用（UI 明示） |
 | 十二 UI 与内部能力接口 | 完成 | 见 §4 截图 |
 | 十三 种子与历史样本 | 完成 | 三条种子幂等；A-2026-00183 只作「待核实历史记录」（user_reported、无附件 / 回执、不预填申请人） |
-| 十五 验收场景 1–18 | 开发验证通过（fixture） | `procurement-records-db.isolated.test.ts` 146 项；纯测试 241 项 |
+| 十五 验收场景 1–18 | 开发验证通过（fixture） | `procurement-records-db.isolated.test.ts` 158 项；纯测试 316 项 |
 | 十五 上线业务验收 | **待业务验收** | 未发生真实生产扫描与真实提交；不能用 fixture 代替 |
 | 模型辅助抽取 / 草拟 | 未做（有意） | 硬纪律 7；V1 全确定性，AI 调用 0；如需引入须单独拍板 |
 | 邮箱读取、OCR、自动登录 / 付款 / 代交、省市门户适配 | 未做（Out of scope） | 任务书第三节列为非 V1 |
@@ -56,10 +57,10 @@
 
 | 检查 | 结果 |
 |---|---|
-| `procurement-pure.test.ts`（身份 / DST 排程 / 来源解析 / 优先级） | 81 passed, 0 failed |
-| `records-request-pure.test.ts`（模板 / 重复检查 / READY / 状态 / 期限 / 回执 / 旧状态映射 / 机关规则种子） | 110 passed, 0 failed（含 24 项省级规则种子校验） |
+| `procurement-pure.test.ts`（身份 / DST 排程 / 来源解析 / 优先级 / 前序供应商与进口线索） | 95 passed, 0 failed |
+| `records-request-pure.test.ts`（模板 / 重复检查 / READY / 状态 / 期限 / 回执 / 旧状态映射 / 机关规则种子 / 省市模板与指引） | 171 passed, 0 failed |
 | `disclosure-analysis-pure.test.ts`（表格与 PDF 抽取 / 按口径分析 / CSV 导出） | 50 passed, 0 failed |
-| `procurement-records-db.isolated.test.ts`（本地 PostgreSQL 16 + pgvector 隔离库，真实路由 + 注入假 fetch） | 146 passed, 0 failed（多次重复运行，自带清理；含省级种子落库与机关专属规则优先） |
+| `procurement-records-db.isolated.test.ts`（本地 PostgreSQL 16 + pgvector 隔离库，真实路由 + 注入假 fetch） | 158 passed, 0 failed（多次重复运行，自带清理；含省级种子落库、机关专属规则优先、省市模板与指引、前序供应商汇总） |
 | 迁移预演：隔离库 `prisma migrate deploy`（既有 42 条 + 本迁移） | 成功；库 vs schema 对本 change 零残差 |
 | `verify-migration-history.ts` / `check-release-safety.test.ts` / `release/drift.test.ts` | 93 / 27 / 27 passed |
 | cockpit 测试（posts / schedule / posts-read-model / workload） | 225 / 196 / 139 / 94 passed |
@@ -97,6 +98,9 @@ PROC-1 新增的 4 项注册测试（3 组纯测试 + 隔离库端到端）在�
 | 12-overlap-blocking | 改措辞 + 改渠道的同范围草稿 → BLOCKING，新增 2026-11-01 至 11-05（5 天） |
 | 13-tender-intel-card | Tender 详情「情报」Tab 卡片 |
 | 14-mobile-handoff | 手机宽度（iPhone 13） |
+| 15-tender-suppliers-import-leads | Tender 卡片：前序供应商（上一次谁供货）+ 进口 / 海关线索（2026-11-05 追加） |
+| 16-provincial-body-on / 17-provincial-guide-on | 安省申请卡：FIPPA 英文正文（中文标题不进正文，保留 `[PROJECT TITLE]`）与 9 步提交指引 |
+| 18-mobile-suppliers | 手机宽度的前序供应商（无横向滚动） |
 
 复现命令（仅隔离库）：
 
@@ -147,6 +151,26 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 - 工作日时限不估算到期日（各省节假日不同）；日历日时限（联邦、曼省、魁省、萨省）照常估算并标「估算」。
 - 省市申请仍不套联邦英文模板，正文由用户填写。
 - 已存在的规则行不被种子覆盖；本次追加只影响尚未生成规则的组织（生产 / staging 目前都还没有这些表）。
+
+## 6b. 省市正文模板与提交指引（2026-11-05 追加）
+
+代码：`src/lib/procurement-records/request-templates.ts`（纯、客户端安全）。
+
+- **适用法律判定（确定性）**：CA-ON 省级 → FIPPA，规则法律名为 Municipal… → MFIPPA（多伦多市规则即走这里）；CA-SK → FOIP，规则为 LA FOIP → LA FOIP；BC FIPPA、曼省 FIPPA、阿省 ATIA、魁省 Loi sur l'accès 各一；OTHER → 无模板（正文由用户写）。
+- **正文**：英文模板写明「general records (not personal information)」+ 法律名 + 各法律对机关的称谓 + 与联邦同口径的记录条目 / 格式要求 + 「申请费以外的费用先给估算」；魁省为法文模板（`[ORGANISME PUBLIC]` 等占位符照常被 READY 闸拦截）。
+- **中文标题不进正文**：申请卡中文内部标题含中日韩字符时，正文保留 `[PROJECT TITLE]`，READY 前须填官方英 / 法文标题（联邦模板同样适用）。
+- **提交指引（9 步）**：确认机关与法律 → 先查公开资料 → 打开官方入口 → 选择申请类型 → 粘贴正文 → 付费（如适用）→ 保存回执 → 回青砚登记 → 跟进。金额一律指向规则卡片（未核实时以官方页面为准），提醒不保存凭证、不确定时不换渠道重复提交；勾选只在页面记录，不改变状态。联邦既有披露副本有单独的非正式指引。
+- **仍是模板，不是法律意见**：各省门户的字段名、能否上传附件、付款方式要在第一次提交时观察并记录到「字段对应」。
+
+## 6c. 前序供应商与进口 / 海关线索（2026-11-05 追加）
+
+代码：`src/lib/procurement-records/supplier-pure.ts`；接口 `GET /api/projects/{id}/procurement-records` 新增 `suppliers` / `importLeads` / `callUpCount`。
+
+- **现状梳理**：投标侧已有 `AwardRecord`（上轮中标的唯一正式库，只接受人工确认或带编号的官方核实）、`tender-intel/canadabuys.ts` 供应商价格带、AI 初步调研与策略备忘；PROC-1 的合同披露早已存了供应商名（`vendor_name`），但之前没显示、也没和投标侧打通。
+- **上一次谁供货**：Tender 关联合同 + 其下 call-up 的供应商按规范化名称汇总（与 AwardRecord 同一规范化，再去公司后缀），给出合同数、最近合同日期、按口径与币种分列的合同披露值（≠ 实际支出）；「最近一次」取前序 / 相关 / call-up 中合同日期最近的一份。
+- **打通 AwardRecord**：卡片上的「确认为上轮中标」调用既有人工确认路由（HUMAN_CONFIRMED），带合同披露 reference_number（与既有 `canadabuys:{reference}` 幂等键一致）、买方、金额、日期与来源链接；PROC-1 不直接写 AwardRecord，也不自动确认。
+- **海关记录**：加拿大**不公开逐票报关记录**（CBSA 只向申报人本人提供），查不到某个竞争对手的具体进口单。可用的官方来源只有：Canadian Importers Database（按 HS6 列出主要进口商公司名与城市，无金额、年份较旧）、CID 开放数据下载、Statistics Canada CIMT（按 HS / 来源国的进口总额，无公司名）。卡片里给出这三条人工检索指引与局限；美国提单数据只能经需登录或付费的商业库取得，不接入（硬纪律 5）。T4「供应链 / 海关 M3」槽位文字未改。
+- **零 schema、零出站、零 LLM**：只读已入库数据，不新增表、不新增外部请求。
 
 ## 7. 回执 / 附件 / 金额模型与恢复
 

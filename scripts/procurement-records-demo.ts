@@ -103,9 +103,11 @@ async function main() {
 
   const r2 = must(await req.createRequestDraft({ orgId: ORG, userId: OWNER, instrumentIds: [so!.id], channel: "INFORMAL", title: "演示：同范围改写措辞与渠道的草稿", recipientInstitution: "Service correctionnel du Canada", recordsHolderBasis: "演示 fixture", startDate: "2021-11-01", endDate: "2026-11-05", applicantProfileId: ap.applicant.id, categories: ["FINANCIALS"] }), "重叠草稿");
   await seedHistoricalCase({ orgId: ORG, userId: OWNER, asFixture: true });
+  // 省级申请卡（安省 FIPPA 模板 + 提交指引；演示 fixture，规则仍为未核实种子）
+  const r3 = must(await req.createRequestDraft({ orgId: ORG, userId: OWNER, jurisdiction: "CA-ON", instrumentNumbers: ["OSS-DEMO-0001"], pathType: "NEW_FORMAL_REQUEST", title: "演示：安省省级合同（fixture）", recipientInstitution: "Ministry of Public and Business Service Delivery", recordsHolderBasis: "该部签约并付款（演示 fixture）", startDate: "2024-01-01", endDate: "2025-12-31", applicantProfileId: ap.applicant.id, categories: ["CONTRACT_DOCS", "CALL_UPS_USAGE", "FINANCIALS"], projectId: PROJECT }), "安省草稿");
 
   const cookie = await createSession({ sub: OWNER, email: `${OWNER}@fixture.test`, role: "user" });
-  console.log(JSON.stringify({ orgId: ORG, ownerId: OWNER, projectId: PROJECT, R1, R2: (r2 as { requestId: string }).requestId, cookie: `qy_session=${cookie}`, blobDir: process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR }, null, 2));
+  console.log(JSON.stringify({ orgId: ORG, ownerId: OWNER, projectId: PROJECT, R1, R2: (r2 as { requestId: string }).requestId, R3: (r3 as { requestId: string }).requestId, cookie: `qy_session=${cookie}`, blobDir: process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR }, null, 2));
   await db.$disconnect();
 }
 

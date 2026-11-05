@@ -51,6 +51,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
   const [body, setBody] = useState("");
   const [sub, setSub] = useState({ submittedAt: "", channel: "", fee: "", currency: "CAD", reference: "", textMode: "SAME_AS_VERSION", actualText: "" });
   const [unknownFacts, setUnknownFacts] = useState("");
+  const [guideDone, setGuideDone] = useState<Record<string, boolean>>({});
   const [receipt, setReceipt] = useState({ attachmentId: "", confirm: false, manual: false, reference: "" });
   const [resolveBasis, setResolveBasis] = useState("");
   const [ev, setEv] = useState<Json>({ type: "ACKNOWLEDGED", effectiveAt: "", noteZh: "", attachmentIds: [] as string[], confirmedMatch: false });
@@ -190,6 +191,8 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
   const analysis = arr(d.analyses)[0] as Json | undefined;
   const res = (analysis?.result ?? {}) as Json;
   const editable = canEdit && !["HANDOFF_PENDING", "SUBMISSION_UNKNOWN"].includes(status) && !d.archived;
+  const guide = (d.submissionGuide ?? null) as { actName: string; bodyLanguage: string; steps: Array<{ key: string; titleZh: string; detailZh: string }>; cautionsZh: string[] } | null;
+  const bodyLangZh = d.bodyLanguage === "fr" ? "法语" : "英文";
 
   return (
     <div className="space-y-5" data-testid="request-detail">
@@ -301,7 +304,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
           <legend className="text-[11px] font-medium text-muted">记录类别</legend>
           {RECORD_CATEGORIES.map((c) => (
             <label key={c} className="flex items-start gap-2 text-xs">
-              <input type="checkbox" disabled={!editable} checked={((form.categories as string[]) ?? []).includes(c)} onChange={(e) => setForm({ ...form, categories: e.target.checked ? [...((form.categories as string[]) ?? []), c] : ((form.categories as string[]) ?? []).filter((x) => x !== c) })} />
+              <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ minHeight: 0 }} disabled={!editable} checked={((form.categories as string[]) ?? []).includes(c)} onChange={(e) => setForm({ ...form, categories: e.target.checked ? [...((form.categories as string[]) ?? []), c] : ((form.categories as string[]) ?? []).filter((x) => x !== c) })} />
               {RECORD_CATEGORY_LABELS[c as RecordCategory]}
             </label>
           ))}
@@ -314,7 +317,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
       </Section>
 
       <Section
-        title={`英文正文（v${s(v.versionNo)} · text hash ${s(v.textHash).slice(0, 12)}）`}
+        title={`${bodyLangZh}正文（v${s(v.versionNo)} · text hash ${s(v.textHash).slice(0, 12)}）`}
         hint="方括号由已核实数据替换；缺数据保留方括号并阻止 READY。任何修改都新增版本；已提交版本不会被覆盖。"
         testId="body"
         actions={editable ? (
@@ -366,6 +369,33 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
           {status === "HANDOFF_PENDING" && canEdit ? <Btn onClick={() => void action("cancel", { action: "CANCEL_HANDOFF" })}>取消交接</Btn> : null}
           {["DRAFT", "READY"].includes(status) && canEdit && !d.archived ? <Btn variant="danger" onClick={() => { const r = window.prompt("本地归档原因（未向政府提交；不同于向政府撤回）"); if (r) void action("archive", { action: "ARCHIVE", reason: r }); }}>本地归档草稿</Btn> : null}
         </div>
+        {guide ? (
+          <details className="mt-3 rounded-lg border border-border p-3 text-xs" open={["READY", "HANDOFF_PENDING"].includes(status)} data-testid="submission-guide">
+            <summary className="cursor-pointer font-medium">
+              提交指引：{guide.actName}（{guide.steps.length} 步；勾选只在本页记录，不保存）
+            </summary>
+            <ol className="mt-2 space-y-1.5">
+              {guide.steps.map((g, i) => (
+                <li key={g.key}>
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ minHeight: 0 }} checked={Boolean(guideDone[g.key])} onChange={(e) => setGuideDone({ ...guideDone, [g.key]: e.target.checked })} />
+                    <span className={guideDone[g.key] ? "text-muted line-through" : ""}>
+                      <span className="font-medium">{i + 1}. {g.titleZh}</span>：{g.detailZh}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ol>
+            {guide.cautionsZh.length ? (
+              <ul className="mt-2 list-disc space-y-0.5 pl-5 text-muted">
+                {guide.cautionsZh.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="mt-2 text-muted">金额与时限以上方规则卡片为准；规则未核实时，先在「资料申请台账 → 机关申请规则」对照官方页面核实。</p>
+          </details>
+        ) : null}
         {rule && arr(rule.fieldGuide).length ? (
           <details className="mt-3 text-xs" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && status === "HANDOFF_PENDING") void action("guide", { action: "VIEWED_FIELD_GUIDE" }); }}>
             <summary className="cursor-pointer text-muted">字段对应与附件清单（门户字段名只显示实际观察到的）</summary>
@@ -379,7 +409,7 @@ export function RequestDetailView({ requestId }: { requestId: string }) {
                 ))}
               </tbody>
             </table>
-            <p className="mt-1 text-muted">附件清单：申请人资料（已确认）、英文正文（复制）、申请费（由你在官方门户支付）。青砚不声称存在通用申请 API。</p>
+            <p className="mt-1 text-muted">附件清单：申请人资料（已确认）、{bodyLangZh}正文（复制）、申请费（如适用，由你在官方渠道支付）。青砚不声称存在通用申请 API。</p>
           </details>
         ) : null}
 

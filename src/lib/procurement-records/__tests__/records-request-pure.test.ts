@@ -26,6 +26,7 @@ import {
 } from "../case-pure";
 import { DEFAULT_RULE_SEEDS, RULE_DEADLINE_UNITS, TORONTO_INSTITUTION_KEY, ruleChannelFor } from "../rule-seeds";
 import { JURISDICTIONS, normalizeInstitutionKey } from "../identity";
+import { bodyTitle, buildProvincialRequestBody, informalCopyGuide, resolveRequestLaw, submissionGuide, type RequestLawKey } from "../request-templates";
 
 let pass = 0;
 let fail = 0;
@@ -298,6 +299,54 @@ console.log("\n— 机关规则种子（联邦 + 七省；全部未核实）");
   // 工作日时限不做估算（节假日规则各省不同），日历日时限照常估算
   ok(estimateDueDate({ receivedDate: "2026-11-02", deadlineValue: on!.deadlineValue, deadlineUnit: on!.deadlineUnit, channel: "FORMAL" }).estimatedDueAt === null, "安省 45 个工作日：不估算到期日");
   ok(estimateDueDate({ receivedDate: "2026-11-02", deadlineValue: qc!.deadlineValue, deadlineUnit: qc!.deadlineUnit, channel: "FORMAL" }).estimatedDueAt !== null, "魁省 20 个日历日：给出估算到期日");
+}
+
+console.log("\n— 省市申请模板与提交指引");
+{
+  ok(
+    resolveRequestLaw("CA-FED", null) === "FED_ATIA" &&
+      resolveRequestLaw("CA-ON", "Freedom of Information and Protection of Privacy Act (Ontario) — 省级机关") === "ON_FIPPA" &&
+      resolveRequestLaw("CA-ON", "Municipal Freedom of Information and Protection of Privacy Act (Ontario) — City of Toronto") === "ON_MFIPPA" &&
+      resolveRequestLaw("CA-SK", "The Local Authority Freedom of Information and Protection of Privacy Act") === "SK_LAFOIP" &&
+      resolveRequestLaw("CA-SK", null) === "SK_FOIP" &&
+      resolveRequestLaw("CA-QC", null) === "QC_ACCES" &&
+      resolveRequestLaw("OTHER", null) === null,
+    "按辖区与规则法律名判定适用法律；OTHER 无模板",
+  );
+  const filled = { institution: "Ministry of Fixture Services", projectTitle: "Window coverings", solicitationNumbers: ["RFX-1"], contractNumbers: ["C-100", "C-200"], startDate: "2024-01-01", endDate: "2025-12-31", categories: ["FINANCIALS", "CONTRACT_DOCS"] as RecordCategory[] };
+  const empty = { institution: null, projectTitle: null, solicitationNumbers: [], contractNumbers: [], startDate: null, endDate: null, categories: [] as RecordCategory[] };
+  const laws: RequestLawKey[] = ["ON_FIPPA", "ON_MFIPPA", "BC_FIPPA", "MB_FIPPA", "AB_ATIA", "SK_FOIP", "SK_LAFOIP", "QC_ACCES"];
+  for (const law of laws) {
+    const b = buildProvincialRequestBody(law, filled)!;
+    const e = buildProvincialRequestBody(law, empty)!;
+    ok(Boolean(b) && findPlaceholders(b).length === 0 && !b.includes("Pursuant to the Access to Information Act"), `${law}：数据齐全时无占位符，不套联邦模板`);
+    ok(findPlaceholders(e).length >= 5, `${law}：缺数据保留方括号`, findPlaceholders(e));
+    const fin = b.indexOf(law === "QC_ACCES" ? "montants engagés" : "amounts committed");
+    const con = b.indexOf(law === "QC_ACCES" ? "Le contrat ou l'entente" : "The final executed contract");
+    ok(con > 0 && fin > con, `${law}：条目按固定类别顺序（合同文件在前）`);
+  }
+  ok(buildProvincialRequestBody("FED_ATIA", filled) === null, "联邦不走省市模板（仍用任务书第七节模板）");
+  const on = buildProvincialRequestBody("ON_FIPPA", filled)!;
+  ok(on.startsWith("This is a request for access to general records (not personal information) under the Freedom of Information and Protection of Privacy Act (Ontario).") && on.includes("RFX-1, and C-100 and C-200") && on.includes("fee estimate"), "安省正文：一般记录 + 法律名 + 编号 + 费用估算请求", on.slice(0, 260));
+  ok(buildProvincialRequestBody("BC_FIPPA", filled)!.includes("held by another public body"), "BC 用 public body 称谓");
+  ok(buildProvincialRequestBody("SK_FOIP", filled)!.includes("another government institution"), "萨省 FOIP 用 government institution 称谓");
+  const qcb = buildProvincialRequestBody("QC_ACCES", filled)!;
+  ok(qcb.startsWith("Objet : Demande d'accès à des documents") && qcb.includes("pour la période du 2024-01-01 au 2025-12-31") && qcb.includes("C-100 et C-200"), "魁省法语正文（连接词、日期写法）", qcb.slice(0, 260));
+  ok(findPlaceholders(buildProvincialRequestBody("QC_ACCES", empty)!).includes("[ORGANISME PUBLIC]"), "魁省法语占位符可被 READY 闸识别");
+
+  for (const law of ["FED_ATIA", ...laws] as RequestLawKey[]) {
+    const g = submissionGuide(law);
+    const text = JSON.stringify(g);
+    ok(
+      g.steps.length === 9 && g.steps[0].key === "LEVEL" && g.steps.at(-1)!.key === "FOLLOW_UP" && g.steps.some((x) => x.key === "RECEIPT") && g.steps.some((x) => x.key === "REPORT"),
+      `${law}：指引 9 步（机关 → … → 回执 → 登记 → 跟进）`,
+    );
+    ok(!/\$\s?\d|CAD\s?\d/.test(text) && text.includes("规则卡片"), `${law}：指引不写死金额，费用指向规则卡片`);
+    ok(g.cautionsZh.some((c) => c.includes("不保存政府账号密码")) && g.cautionsZh.some((c) => c.includes("提交结果不确定")), `${law}：提醒不保存凭证、不确定时不重复提交`);
+  }
+  ok(submissionGuide("QC_ACCES").steps.find((x) => x.key === "PASTE_BODY")!.titleZh.includes("法语"), "魁省指引提示粘贴法语正文");
+  ok(bodyTitle("Pillow Forms") === "Pillow Forms" && bodyTitle("Fournitures de bureau – Québec") === "Fournitures de bureau – Québec" && bodyTitle("演示：安省合同") === null && bodyTitle("  ") === null, "正文标题只用官方英 / 法文写法，中文内部标题不进正文");
+  ok(informalCopyGuide().steps.every((x) => !x.detailZh.includes("法定时限内")) && informalCopyGuide().steps.some((x) => x.detailZh.includes("不适用正式申请的法定时限")), "既有披露副本指引：不套用正式时限");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

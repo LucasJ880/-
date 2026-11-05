@@ -38,6 +38,7 @@ import {
   type PathType,
   type RecordCategory,
 } from "./request-pure";
+import { bodyTitle, buildProvincialRequestBody, resolveRequestLaw } from "./request-templates";
 import { ensureDefaultRules, findRule } from "./rules";
 import { localDateOf, DEFAULT_TIMEZONE } from "./schedule";
 import { stableHash } from "./sources-pure";
@@ -147,8 +148,12 @@ export async function createRequestDraft(input: CreateRequestInput): Promise<{ o
   const institutionDisplay = recipient ? institutionDisplayName(recipientKey, recipient) : null;
   let bodyEn = "";
   if (pathType === "COMPLETED_ATI_COPY") bodyEn = buildCompletedAtiCopyBody({ institution: institutionDisplay, requestNumbers: input.completedAtiRequestNumbers ?? [] });
-  else if (jurisdiction === "CA-FED" && pathType === "NEW_FORMAL_REQUEST")
-    bodyEn = buildFederalAtiBody({ institution: institutionDisplay, projectTitle: first?.title ?? input.title ?? null, solicitationNumbers, contractNumbers, startDate, endDate, categories });
+  else if (pathType === "NEW_FORMAL_REQUEST") {
+    const bodyInput = { institution: institutionDisplay, projectTitle: bodyTitle(first?.title ?? input.title ?? null), solicitationNumbers, contractNumbers, startDate, endDate, categories };
+    const law = resolveRequestLaw(jurisdiction, rule?.lawLabel);
+    if (law === "FED_ATIA") bodyEn = buildFederalAtiBody(bodyInput);
+    else if (law) bodyEn = buildProvincialRequestBody(law, bodyInput) ?? "";
+  }
 
   // 资料缺口与路径检查（只用已存在的证据，不臆测）
   const evidence = instruments.length
@@ -471,8 +476,12 @@ export async function saveDraft(input: { requestId: string; userId: string; patc
   const institutionDisplay = recipient ? institutionDisplayName(recipientKey, recipient) : null;
   const regenerate = () => {
     if (pathType === "COMPLETED_ATI_COPY") return buildCompletedAtiCopyBody({ institution: institutionDisplay, requestNumbers: [] });
-    if (req.jurisdiction === "CA-FED" && pathType === "NEW_FORMAL_REQUEST")
-      return buildFederalAtiBody({ institution: institutionDisplay, projectTitle: req.title.replace(/（.*$/, ""), solicitationNumbers: [], contractNumbers: refs.map((r) => r.number), startDate, endDate, categories: categories as RecordCategory[] });
+    if (pathType === "NEW_FORMAL_REQUEST") {
+      const bodyInput = { institution: institutionDisplay, projectTitle: bodyTitle(req.title.replace(/（.*$/, "")), solicitationNumbers: [], contractNumbers: refs.map((r) => r.number), startDate, endDate, categories: categories as RecordCategory[] };
+      const law = resolveRequestLaw(req.jurisdiction, rule?.lawLabel);
+      if (law === "FED_ATIA") return buildFederalAtiBody(bodyInput);
+      if (law) return buildProvincialRequestBody(law, bodyInput) ?? bodyEn;
+    }
     return bodyEn;
   };
   if (p.bodyEn !== undefined) bodyEn = p.bodyEn;

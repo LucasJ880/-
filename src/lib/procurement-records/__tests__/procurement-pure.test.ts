@@ -42,6 +42,7 @@ import {
   DEFAULT_FILTERS,
 } from "../watch-config";
 import { computePriority } from "../priority";
+import { decimalToCents, IMPORT_LEAD_NOTES_ZH, IMPORT_LEAD_SOURCES, summarizeSuppliers, supplierKey, type SupplierInstrumentInput } from "../supplier-pure";
 
 let pass = 0;
 let fail = 0;
@@ -220,6 +221,58 @@ console.log("\n— 优先级");
   ok(p.dimensions.length === 5 && p.score === p.dimensions.reduce((s, d) => s + d.points, 0), "五维可解释");
   const far = computePriority({ productHits: [], serviceHits: [], categoryHits: [], callUpCount: 0, hasPredecessor: false, atiSummaryCount: 0, confirmedLineItemCount: 0, currentExpiryAt: null, closingAt: null, recordsHolderKnown: false }, now);
   ok(far.dimensions.find((d) => d.key === "PREP_TIME")?.reasonZh.includes("未知") === true, "到期未知 → 显示未知");
+}
+
+console.log("\n— 前序供应商汇总与进口线索");
+{
+  ok(decimalToCents("12000.00") === BigInt(1200000) && decimalToCents("12.5") === BigInt(1250) && decimalToCents("-30") === BigInt(-3000) && decimalToCents("7.129") === BigInt(712), "金额转整数分（截断到分）");
+  ok(decimalToCents(null) === null && decimalToCents("abc") === null && decimalToCents("") === null, "无法解析的金额为 null，不按 0");
+  ok(supplierKey("ACME Blinds Inc.") === supplierKey("Acme Blinds") && supplierKey("Stores Fixture Ltée") === supplierKey("STORES FIXTURE") && supplierKey("The Shade Co.") === "shade", "供应商分组键：大小写、标点、公司后缀不影响");
+  const ev = (ref: string) => ({ sourceType: "OPEN_CANADA_CONTRACTS", sourceRecordId: ref, sourceUrl: `https://open.canada.ca/fixture/${ref}`, lastSeenAt: null });
+  const row = (o: Partial<SupplierInstrumentInput>): SupplierInstrumentInput => ({
+    id: o.officialNumber ?? "x",
+    officialNumber: "X",
+    title: null,
+    relation: "PREDECESSOR",
+    instrumentClass: "AWARD_INSTRUMENT",
+    vendorName: null,
+    awardDate: null,
+    contractValue: null,
+    contractValueBasis: null,
+    currency: "CAD",
+    contractingInstitution: "Fixture Dept",
+    buyingInstitution: null,
+    evidence: null,
+    ...o,
+  });
+  const r = summarizeSuppliers([
+    row({ officialNumber: "CUR-1", relation: "CURRENT", vendorName: "Newest Fixture Inc.", awardDate: "2026-09-01", contractValue: "999.00", contractValueBasis: "DISCLOSED_CONTRACT_VALUE" }),
+    row({ officialNumber: "SO-1", vendorName: "ACME Blinds Inc.", awardDate: "2022-02-26", contractValue: "0.00", contractValueBasis: "DISCLOSED_CONTRACT_VALUE", evidence: ev("REF-SO-1") }),
+    row({ officialNumber: "CU-7", relation: "CALL_UP", instrumentClass: "CALL_UP", vendorName: "Acme Blinds", awardDate: "2023-08-14", contractValue: "12000.00", contractValueBasis: "DISCLOSED_CONTRACT_VALUE", buyingInstitution: "Fixture Buyer", evidence: ev("REF-CU-7") }),
+    row({ officialNumber: "CU-8", relation: "CALL_UP", vendorName: "Acme Blinds", awardDate: "2023-01-01", contractValue: "500.00", contractValueBasis: "DISCLOSED_CONTRACT_VALUE", currency: "USD" }),
+    row({ officialNumber: "OLD-1", vendorName: "Older Fixture Ltd", awardDate: "2019-05-01", contractValue: null }),
+    row({ officialNumber: "NOTICE-1", relation: "RELATED_HISTORY", vendorName: null }),
+  ]);
+  const acme = r.suppliers.find((x) => x.vendorKey === supplierKey("Acme Blinds"))!;
+  ok(r.suppliers.length === 3 && acme.instrumentCount === 3 && acme.vendorName === "Acme Blinds", "同一供应商不同写法合并；显示名取出现最多的写法", r.suppliers.map((x) => [x.vendorName, x.instrumentCount]));
+  ok(r.lastSupplier?.vendorName === "Acme Blinds" && r.lastSupplier.officialNumber === "CU-7", "上一次供货 = 前序 / 相关 / call-up 中合同日期最近的一份（当前合同不算）", r.lastSupplier);
+  ok(r.suppliers[0].vendorName === "Newest Fixture Inc.", "供应商列表按最近合同日期排序（含当前合同）");
+  ok(
+    JSON.stringify(acme.totals) === JSON.stringify([{ basis: "DISCLOSED_CONTRACT_VALUE", currency: "CAD", cents: "1200000", count: 2 }, { basis: "DISCLOSED_CONTRACT_VALUE", currency: "USD", cents: "50000", count: 1 }]),
+    "金额按口径与币种分列，不跨币种相加",
+    acme.totals,
+  );
+  const older = r.suppliers.find((x) => x.vendorName === "Older Fixture Ltd")!;
+  ok(older.totals.length === 0 && older.confirm.contractValue === null, "金额未知不计入合计、不当作 0");
+  ok(acme.confirm.referenceNumber === "REF-CU-7" && acme.confirm.buyerName === "Fixture Buyer" && acme.confirm.contractValue === 12000 && acme.confirm.contractDate === "2023-08-14" && acme.confirm.sourceUrl?.includes("REF-CU-7") === true, "确认上轮中标的上下文取最近合同的合同披露 reference_number", acme.confirm);
+  ok(older.confirm.referenceNumber === null, "没有合同披露证据时不编造 reference_number");
+  ok(r.withoutVendor === 1 && r.notesZh.some((n) => n.includes("不等于实际支出")) && r.notesZh.some((n) => n.includes("不自动")), "无供应商记录计数；说明金额口径与不自动确认");
+  ok(summarizeSuppliers([]).lastSupplier === null && summarizeSuppliers([]).suppliers.length === 0, "无关联合同 → 空汇总");
+  ok(
+    IMPORT_LEAD_SOURCES.length === 3 && IMPORT_LEAD_SOURCES.every((x) => /^https:\/\/([a-z0-9-]+\.)*(canada\.ca|statcan\.gc\.ca)\//.test(x.url) && x.limitsZh.length > 0),
+    "进口线索只列官方域名（canada.ca / statcan.gc.ca），并写明局限",
+  );
+  ok(IMPORT_LEAD_NOTES_ZH.some((n) => n.includes("不公开逐票报关")) && IMPORT_LEAD_NOTES_ZH.some((n) => n.includes("不接入")), "说明逐票报关记录不公开、商业提单库不接入");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
