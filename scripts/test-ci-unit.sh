@@ -373,6 +373,8 @@ npx tsx src/lib/__tests__/google-calendar-write-id.test.ts
 npx tsx src/lib/messaging/__tests__/wechat-entry-flag.test.ts
 npx tsx src/components/wechat-entry/__tests__/wechat-entry-render.test.tsx
 npx tsx src/lib/navigation/__tests__/wechat-entry-nav.test.ts
+# PROC-1（openspec change procurement-records-requests）：采购监控 / 资料申请 / 披露分析——纯函数，无 DB、无网络
+npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

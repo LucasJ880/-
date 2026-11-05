@@ -629,6 +629,8 @@ run_test "管理层主动提醒补发（A-3b）" "npx tsx src/lib/proactive/__te
 run_test "微信入口开关取值（COLLAB-1）" "npx tsx src/lib/messaging/__tests__/wechat-entry-flag.test.ts"
 run_test "微信入口页面接线渲染（COLLAB-1）" "npx tsx src/components/wechat-entry/__tests__/wechat-entry-render.test.tsx"
 run_test "导航微信入口随开关隐藏（COLLAB-1）" "npx tsx src/lib/navigation/__tests__/wechat-entry-nav.test.ts"
+# PROC-1（openspec change procurement-records-requests）：采购情报与政府资料申请——纯逻辑 + 隔离库端到端
+run_test "采购监控纯函数（身份/排程 DST/来源解析/优先级，PROC-1）" "npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
