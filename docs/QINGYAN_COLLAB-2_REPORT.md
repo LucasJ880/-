@@ -115,7 +115,7 @@
 | 改动的 60 个 ts / tsx 文件单独 `npx eslint` | 0 error、3 warning，都是 origin/main 上就有的：登录页与工作台 tab 各一处 `<img>`，`task-drawer.tsx` 未使用的 `TASK_STATUS` 导入 |
 | `openspec validate collab-notify --strict` | `Change 'collab-notify' is valid` |
 | `npm run build` | 退出 0，408 个页面生成完。两道部署前检查在本地按设计跳过（`VERCEL_ENV` 未设置）。编译警告都来自第三方包或既有模块（Sentry / Prisma instrumentation、`html-to-pdf.ts`、中间件里 jose 的 Edge Runtime 提示），在 origin/main 上就有 |
-| 不动项 diff（命令见附录） | 输出为空 |
+| 不动项 diff（命令见附录） | 输出为空。命令里 Bridge 接口的路径写错了，按真实路径补跑也为空，见附录后的更正 |
 | `grep -c '属于站内通知的补位，不算对外发送' openspec/config.yaml` | `1` |
 
 ### 3.3 全量
@@ -318,5 +318,17 @@ runtime-architecture guards PASS
 OK 测试注册校验通过：已注册 535 个；历史欠账基线剩余 71 条（只减不增）
 
 CI unit subset PASS
+exit=0
+```
+
+**更正（2026-11-05）**：上面附录里"不动项"那条命令写的 `src/app/api/muse-bridge` 在仓库里不存在，Bridge 接口的真实路径是 `src/app/api/bridge/muse`，所以那条命令没有覆盖到 Bridge 接口。归档的 `openspec/changes/archive/2026-11-05-collab-notify/design.md` 第 62、336 行是同样的写法，归档文件不改。下面按真实路径补跑，范围从 #379 合并前的 main（`9f242788`）到 #380 合并后的 main（`ed6f609b`）。两条都没有输出，说明 COLLAB-2 没有改动 Bridge 接口：
+
+```
+$ git diff --stat 9f242788 ed6f609b -- src/app/api/bridge/muse
+（无输出）
+exit=0
+
+$ git log --oneline 9f242788..ed6f609b -- src/app/api/bridge/muse
+（无输出）
 exit=0
 ```
