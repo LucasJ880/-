@@ -250,7 +250,7 @@ console.log("\n— 旧 Skill 单状态映射");
   ok(m4.ok && m4.mapping.status === "USER_REPORTED_SUBMISSION", "旧 SUBMITTED（无回执）→ USER_REPORTED_SUBMISSION");
 }
 
-console.log("\n— 机关规则种子（联邦 + 省级；全部未核实）");
+console.log("\n— 机关规则种子（联邦 + 七省；全部未核实）");
 {
   const key = (r: { jurisdiction: string; institutionKey: string; channel: string }) => `${r.jurisdiction}|${r.institutionKey}|${r.channel}`;
   ok(new Set(DEFAULT_RULE_SEEDS.map(key)).size === DEFAULT_RULE_SEEDS.length, "种子键（辖区 + 机关 + 渠道）不重复");
@@ -286,7 +286,9 @@ console.log("\n— 机关规则种子（联邦 + 省级；全部未核实）");
   const ab = find("CA-AB");
   ok(ab?.applicationFeeCents === 2500 && ab.deadlineValue === 30 && ab.deadlineUnit === "BUSINESS_DAYS" && ab.effectiveFrom === "2025-06-11", "阿省 ATIA：$25、30 个工作日、2025-06-11 起", ab);
   const sk = find("CA-SK");
-  ok(sk?.applicationFeeCents === null && sk.deadlineValue === null && sk.selfServeSupported === false && sk.sourceRefs.length === 0, "萨省保持占位：未知即 null、不支持自助", sk);
+  ok(sk?.applicationFeeCents === 0 && sk.deadlineValue === 30 && sk.deadlineUnit === "CALENDAR_DAYS" && sk.lawLabel.includes("F-22.01"), "萨省 FOIP：省政府机关免申请费、30 个日历日", sk);
+  ok(Boolean(sk?.otherFeesRule?.includes("LA FOIP") && sk.otherFeesRule.includes("$20")), "萨省说明提示地方机关适用 LA FOIP（$20 申请费）");
+  ok(DEFAULT_RULE_SEEDS.every((r) => r.selfServeSupported && r.sourceRefs.length > 0), "所有种子都带来源，并登记了自助提交路径（仍须核实）");
   ok(!find("CA-ON", "*", "INFORMAL_COPY") && ruleChannelFor("FORMAL") === "FORMAL_ONLINE", "省级只有正式渠道种子；非正式副本只属联邦");
 
   // 省级种子即使费用已知，仍因未核实、入口未填而不能 READY（READY 闸只认真实用户核实）

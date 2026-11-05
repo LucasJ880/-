@@ -30,7 +30,7 @@
 | 三D 历史需求 / 订单 / 金额口径 / 缺口 / 建议 | 完成 | 按口径分列；「已取得记录的合计」 |
 | 四 多伦多排程（DST）、上限、截断待续、租约 / 重启 / 幂等、通知去重 | 完成 | 挂在既有 `tender-watch` cron；见 design D2 / D3 |
 | 五 采购工具身份、三方机构、到期 / options / 重招未知为 null、可解释排序 | 完成 | 不输出中标概率 |
-| 六 RuleProfile、未知费用 null、官方 / 估算 / 内部期限分开 | 完成 | 种子未核实；联邦 CAD 5 / 30 日历日来自任务书 S1 / S2；**省级种子（2026-11-05 追加）**：安省 FIPPA + 多伦多市 MFIPPA、BC、曼省、魁省、阿省，数值来自网络检索摘要（见 §6a），萨省占位；均待用户核对官方页面 |
+| 六 RuleProfile、未知费用 null、官方 / 估算 / 内部期限分开 | 完成 | 种子未核实；联邦 CAD 5 / 30 日历日来自任务书 S1 / S2；**省级种子（2026-11-05 追加）**：安省 FIPPA + 多伦多市 MFIPPA、BC、曼省、魁省、阿省、萨省，数值来自网络检索摘要（见 §6a）；均待用户核对官方页面 |
 | 七 申请卡字段、正文模板、申请人不补造 | 完成 | |
 | 八 自助交接闭环与 READY 条件、提交不确定 | 完成 | 不保存政府凭证；路由拒收凭证类字段 |
 | 九 三条状态 + 政府结果 + 只追加事件 + 证据等级 + 旧状态映射 | 完成 | `runtime_verified` 保留给未来适配器，V1 不产生 |
@@ -38,7 +38,7 @@
 | 十一 来信 / 附件 / 分析 | 完成 | 邮箱自动收信未启用（UI 明示） |
 | 十二 UI 与内部能力接口 | 完成 | 见 §4 截图 |
 | 十三 种子与历史样本 | 完成 | 三条种子幂等；A-2026-00183 只作「待核实历史记录」（user_reported、无附件 / 回执、不预填申请人） |
-| 十五 验收场景 1–18 | 开发验证通过（fixture） | `procurement-records-db.isolated.test.ts` 146 项；纯测试 239 项 |
+| 十五 验收场景 1–18 | 开发验证通过（fixture） | `procurement-records-db.isolated.test.ts` 146 项；纯测试 241 项 |
 | 十五 上线业务验收 | **待业务验收** | 未发生真实生产扫描与真实提交；不能用 fixture 代替 |
 | 模型辅助抽取 / 草拟 | 未做（有意） | 硬纪律 7；V1 全确定性，AI 调用 0；如需引入须单独拍板 |
 | 邮箱读取、OCR、自动登录 / 付款 / 代交、省市门户适配 | 未做（Out of scope） | 任务书第三节列为非 V1 |
@@ -57,7 +57,7 @@
 | 检查 | 结果 |
 |---|---|
 | `procurement-pure.test.ts`（身份 / DST 排程 / 来源解析 / 优先级） | 81 passed, 0 failed |
-| `records-request-pure.test.ts`（模板 / 重复检查 / READY / 状态 / 期限 / 回执 / 旧状态映射 / 机关规则种子） | 108 passed, 0 failed（含 22 项省级规则种子校验） |
+| `records-request-pure.test.ts`（模板 / 重复检查 / READY / 状态 / 期限 / 回执 / 旧状态映射 / 机关规则种子） | 110 passed, 0 failed（含 24 项省级规则种子校验） |
 | `disclosure-analysis-pure.test.ts`（表格与 PDF 抽取 / 按口径分析 / CSV 导出） | 50 passed, 0 failed |
 | `procurement-records-db.isolated.test.ts`（本地 PostgreSQL 16 + pgvector 隔离库，真实路由 + 注入假 fetch） | 146 passed, 0 failed（多次重复运行，自带清理；含省级种子落库与机关专属规则优先） |
 | 迁移预演：隔离库 `prisma migrate deploy`（既有 42 条 + 本迁移） | 成功；库 vs schema 对本 change 零残差 |
@@ -131,7 +131,7 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 
 ## 6a. 省级机关规则种子（2026-11-05 追加，未核实）
 
-种子在 `src/lib/procurement-records/rule-seeds.ts`。**来源性质：网络检索摘要交叉整理**——开发会话的网络策略不允许打开 ontario.ca / gov.bc.ca / gov.mb.ca / quebec.ca / alberta.ca，数值未在官方页面逐字核对。全部 `UNVERIFIED`、不预填提交入口；READY 前须由 org_admin 打开官方页面核对并写明方法。
+种子在 `src/lib/procurement-records/rule-seeds.ts`。**来源性质：网络检索摘要交叉整理**——开发会话的网络策略不允许打开 ontario.ca / gov.bc.ca / gov.mb.ca / quebec.ca / alberta.ca / saskatchewan.ca，数值未在官方页面逐字核对。全部 `UNVERIFIED`、不预填提交入口；READY 前须由 org_admin 打开官方页面核对并写明方法。
 
 | 辖区 / 机关 | 法律 | 申请费 | 时限 | 适用自 | 须重点核对 |
 |---|---|---|---|---|---|
@@ -141,10 +141,10 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 | 曼省 | FIPPA, C.C.S.M. c. F175 | 0 | 45 个日历日 | 2022-01-01（Bill 49） | 处理费（前 2 小时免费，之后每半小时 $15）现行版本 |
 | 魁省 | Loi sur l'accès, RLRQ c. A-2.1 | 0 | 20 日（可书面延 10 日） | — | 复制 / 转录费现行金额；正文用法语 |
 | 阿省 | Access to Information Act（取代 FOIP） | CAD 25（持续性 $50） | 30 个工作日 | 2025-06-11 | 初始费（个别机关表格写 $50） |
-| 萨省 | FIPPA (SK) | 未知（null） | 未知 | — | 占位，未整理来源 |
+| 萨省（省政府机关） | FOIP, SS 1990-91 c. F-22.01 | 0 | 30 个日历日（可再延 30 日） | — | 处理费（超过 2 小时每半小时 $15、复印每页 $0.25）；市 / 学区 / 卫生等地方机关适用 LA FOIP，申请费 $20，不用本条 |
 
-- 机关专属规则优先，其余回落到辖区缺省；除多伦多外的市级机关没有专属种子。
-- 工作日时限不估算到期日（各省节假日不同）；日历日时限（联邦、曼省、魁省）照常估算并标「估算」。
+- 机关专属规则优先，其余回落到辖区缺省；除多伦多外的市级 / 地方机关（安省 MFIPPA、萨省 LA FOIP 等）没有专属种子。
+- 工作日时限不估算到期日（各省节假日不同）；日历日时限（联邦、曼省、魁省、萨省）照常估算并标「估算」。
 - 省市申请仍不套联邦英文模板，正文由用户填写。
 - 已存在的规则行不被种子覆盖；本次追加只影响尚未生成规则的组织（生产 / staging 目前都还没有这些表）。
 

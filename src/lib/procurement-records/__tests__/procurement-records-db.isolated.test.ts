@@ -295,7 +295,7 @@ async function main() {
       onRule,
     );
     ok(prov.some((r) => r.jurisdiction === "CA-ON" && r.institutionKey === "TORONTO" && String(r.lawLabel).startsWith("Municipal")), "多伦多市 MFIPPA 规则单独存在");
-    ok(prov.filter((r) => r.jurisdiction === "CA-SK").every((r) => r.applicationFeeCents === null && r.selfServeSupported === false), "萨省占位：费用 null、不支持自助");
+    ok(prov.filter((r) => r.jurisdiction === "CA-SK").every((r) => r.applicationFeeCents === 0 && r.deadlineValue === 30 && r.deadlineUnit === "CALENDAR_DAYS"), "萨省种子：省政府机关免申请费、30 个日历日");
     const { findRule } = await import("@/lib/procurement-records/rules");
     ok((await findRule(ORG, "CA-ON", "TORONTO", "FORMAL"))?.institutionKey === "TORONTO" && (await findRule(ORG, "CA-ON", "RAW:city-of-mississauga", "FORMAL"))?.institutionKey === "*", "机关专属规则优先，其余回落到辖区缺省");
     const vBad = await call(ruleRoute.PUT, OWNER, "PUT", `/api/procurement/rules/${fed.id}${q}`, { id: fed.id }, { patch: {}, verify: { method: "看了" } });

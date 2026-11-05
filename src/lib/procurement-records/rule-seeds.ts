@@ -9,9 +9,8 @@
  *
  * 来源性质：
  * - 联邦：任务书「官方参考」S1 / S2 / S3 / S5 / S9（核实基准日 2026-11-05）。
- * - 安省 / 多伦多 / BC / 曼省 / 魁省 / 阿省：2026-11-05 网络检索摘要（开发会话的网络策略不允许打开这些官方站点），
+ * - 安省 / 多伦多 / BC / 曼省 / 魁省 / 阿省 / 萨省：2026-11-05 网络检索摘要（开发会话的网络策略不允许打开这些官方站点），
  *   数值已按多个来源交叉，但**未在官方页面逐字核对**；冲突或不确定处在 otherFeesRule 写明「须核对」。
- * - 萨省：占位（费用 / 时限 / 入口均为 null，不支持自助）。
  */
 
 import { normalizeInstitutionKey } from "./identity";
@@ -70,7 +69,6 @@ export interface RuleSeed {
 const BASIS_TASKBRIEF = "种子：任务书引用的官方来源（核实基准日 2026-11-05），尚未由用户核对官方页面";
 const BASIS_WEB_SUMMARY =
   "种子：2026-11-05 网络检索摘要交叉整理（开发会话无法打开官方站点），尚未由用户在官方页面逐字核对；数值以官方页面为准";
-const BASIS_PLACEHOLDER = "占位：尚未整理来源；费用、时限、入口均未知";
 
 /** 多伦多市政府（MFIPPA 机关）的规范机构键；与 identity.ts 别名表一致 */
 export const TORONTO_INSTITUTION_KEY = normalizeInstitutionKey("City of Toronto").key;
@@ -109,6 +107,11 @@ const QC = {
   gov: { label: "魁省：Accès à l'information（quebec.ca）", url: "https://www.quebec.ca/acces-a-linformation/" },
   law: { label: "魁省：Loi sur l'accès（LégisQuébec，A-2.1）", url: "https://www.legisquebec.gouv.qc.ca/fr/document/lc/A-2.1" },
   cai: { label: "魁省：Commission d'accès à l'information", url: "https://www.cai.gouv.qc.ca/" },
+};
+
+const SK = {
+  how: { label: "萨省：如何提出 FOI 申请（saskatchewan.ca）", url: "https://saskatchewan.ca/residents/justice-crime-and-the-law/your-rights-and-the-law/make-a-freedom-of-information-request" },
+  oipc: { label: "萨省信息与隐私专员（OIPC）", url: "https://oipc.sk.ca/" },
 };
 
 const AB = {
@@ -268,16 +271,19 @@ export const DEFAULT_RULE_SEEDS: RuleSeed[] = [
     jurisdiction: "CA-SK",
     institutionKey: "*",
     channel: "FORMAL_ONLINE",
-    lawLabel: "The Freedom of Information and Protection of Privacy Act (Saskatchewan)",
-    guidanceUrl: null,
-    applicationFeeCents: null,
+    lawLabel: "The Freedom of Information and Protection of Privacy Act (Saskatchewan), SS 1990-91, c. F-22.01 — 省政府机关",
+    guidanceUrl: SK.how.url,
+    applicationFeeCents: 0,
     currency: "CAD",
-    otherFeesRule: "省 / 市费用（含检索、处理费）与时限须分别核实；不得套用联邦规则",
-    deadlineValue: null,
-    deadlineUnit: null,
+    otherFeesRule:
+      "向省政府机关申请不收申请费；检索与准备超过 2 小时后每半小时 $15，复印每页 $0.25（FOIP Regulations，须核对现行版本），机关先出费用估算。" +
+      "时限：收到申请表后 30 日（日历日），特定情形可再延长 30 日。" +
+      "市政府、学区、卫生机构等地方机关适用 LA FOIP（另一部法律），申请时收 $20 申请费，不适用本条，须对该机关单独核实。",
+    deadlineValue: 30,
+    deadlineUnit: "CALENDAR_DAYS",
     effectiveFrom: null,
-    selfServeSupported: false,
-    sourceRefs: [],
-    seedBasis: BASIS_PLACEHOLDER,
+    selfServeSupported: true,
+    sourceRefs: [SK.how, SK.oipc],
+    seedBasis: BASIS_WEB_SUMMARY,
   },
 ];

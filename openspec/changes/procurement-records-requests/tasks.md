@@ -35,3 +35,4 @@
 ## 9. 省级机关规则种子（Lucas 2026-11-05 追加）
 
 - [x] 9.1 新建纯数据 `src/lib/procurement-records/rule-seeds.ts`（`rules.ts` 改为引用）：联邦两条不变；新增安省 FIPPA + 多伦多市 MFIPPA（机构别名 `TORONTO`）、BC、曼省、魁省、阿省种子（全部 UNVERIFIED、不预填入口、来源与种子依据随行），萨省保持占位；辖区表加 `CA-QC` / `CA-AB`；规则卡片显示「适用自」与「种子依据」。verify：`records-request-pure.test.ts`（108）与 `procurement-records-db.isolated.test.ts`（146）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate procurement-records-requests --strict` 通过。
+- [x] 9.2 萨省种子由占位改为 FOIP 省政府机关缺省（免申请费、30 个日历日；提示地方机关适用 LA FOIP、$20）。verify：`records-request-pure.test.ts`（110）与 `procurement-records-db.isolated.test.ts`（146）退出 0；`openspec validate procurement-records-requests --strict` 通过。
