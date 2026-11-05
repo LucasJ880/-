@@ -384,6 +384,9 @@ npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
 npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts
 npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts
 
+# P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
+npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
+
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
 

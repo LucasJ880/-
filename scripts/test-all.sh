@@ -580,6 +580,7 @@ run_test "招标询价 入站解析（证据闸/附件文本化）" "npx tsx src
 run_test "招标询价 入站写入规则（只填空/幂等/缺字段）" "npx tsx src/lib/tender-rfq/__tests__/inbound-apply.test.ts"
 run_test "招标询价 落地价归一化（币种/Incoterm/四项检查）" "npx tsx src/lib/tender-rfq/__tests__/landed-cost.test.ts"
 run_test "招标询价 比价矩阵+Muse 脱敏投影" "npx tsx src/lib/tender-rfq/__tests__/compare.test.ts"
+run_test "招标询价 比价解读数字校验（P1-6G）" "npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts"
 run_test "招标询价 [auto] 备注回读" "npx tsx src/lib/tender-rfq/__tests__/notes-parse.test.ts"
 run_test "招标询价 催单/追问决策与模板" "npx tsx src/lib/tender-rfq/__tests__/chase-pure.test.ts"
 run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts"
