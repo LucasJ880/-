@@ -21,7 +21,7 @@
 
 #### Scenario: 当前 30 个自动化全部归属
 - **WHEN** 运行岗位注册表测试
-- **THEN** 自动化注册表中全部 31 个键（新增岗位日结后；场景名沿用初版计数）各自恰好命中一个岗位，退出码 0
+- **THEN** 自动化注册表中全部 33 个键（新增岗位日结、未读升级邮件与每日未读汇总邮件后；场景名沿用初版计数）各自恰好命中一个岗位，退出码 0
 
 #### Scenario: 新增自动化未归属
 - **WHEN** 自动化注册表新增一个键而岗位注册表未把它分给任何岗位
@@ -37,6 +37,14 @@
 
 #### Scenario: 岗位日结归属运维与知识岗位
 - **WHEN** 按 `post-daily-digest` 反查岗位
+- **THEN** 返回 `ops_knowledge`
+
+#### Scenario: 未读升级邮件归属运维与知识岗位
+- **WHEN** 按 `notify-email-escalation` 反查岗位
+- **THEN** 返回 `ops_knowledge`
+
+#### Scenario: 每日未读汇总邮件归属运维与知识岗位
+- **WHEN** 按 `notify-email-digest` 反查岗位
 - **THEN** 返回 `ops_knowledge`
 
 ### Requirement: 每个待审批动作类型恰好有一种归属方式
