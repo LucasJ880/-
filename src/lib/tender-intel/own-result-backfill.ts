@@ -9,8 +9,10 @@
  * 硬边界：
  * - 仅从人工结果标记路径调用（markProjectTenderResult 唯一调用方 = tender-result
  *   路由，human 动作）——不触碰「AI 自动写 canonical 硬禁」。
- * - lost 不写对手事实：结果表单不采集中标方名称；对手 award 事实只能走
- *   外部情报人工确认线（award-history POST）。表单补选填中标方 = 后续 P1。
+ * - lost + 用户在结果表单选填了中标方（P2-0）→ 同一人工动作把对手中标写成
+ *   AwardRecord（HUMAN_CONFIRMED / USER_ENTRY / 幂等 sourceKey=tender-result-winner:{projectId}）；
+ *   每个项目只记一次：再次标记换了名字不覆盖（返回 winner_already_recorded，避免静默改写事实）。
+ *   没填中标方的 lost 仍不写对手事实。
  * - Buyer 写门是 admin-only（corporate-memory access.ts）：无权限 → 跳过并
  *   记录原因，绝不阻塞结果标记。
  * - T4 schema 未 ready → 跳过 award 写入（与 award-history 路由同一兼容策略）。
@@ -21,6 +23,7 @@ import { db } from "@/lib/db";
 import { isT4AwardSchemaReady } from "./award-flags";
 import {
   materializeWinnerConfirmation,
+  normalizeVendorName,
   type AwardsDbClient,
 } from "./awards";
 
@@ -36,6 +39,8 @@ export async function backfillOwnResultCanonical(input: {
   projectId: string;
   result: string;
   actorUserId: string;
+  /** P2-0：未中标时用户选填的中标方（已校验、不是我方） */
+  winnerName?: string | null;
 }): Promise<OwnResultBackfillOutcome> {
   const out: OwnResultBackfillOutcome = { award: "skipped", buyer: "skipped" };
   try {
@@ -80,6 +85,60 @@ export async function backfillOwnResultCanonical(input: {
       out.buyerReason = "no_client_organization";
     }
 
+    if (input.result === "lost") {
+      const competitor = input.winnerName?.trim();
+      if (!competitor) {
+        out.awardReason = "lost_without_winner";
+        return out;
+      }
+      if (!isT4AwardSchemaReady()) {
+        out.awardReason = "t4_schema_not_ready";
+        return out;
+      }
+      const amount = project.winningBidPrice ?? null;
+      const res = await db.$transaction(async (tx) =>
+        materializeWinnerConfirmation(
+          {
+            orgId: project.orgId!,
+            actor: { actorType: "user", userId: input.actorUserId },
+            award: {
+              winnerName: competitor,
+              buyerNameRaw: buyerName ?? null,
+              projectId: project.id,
+              solicitationNumber: project.solicitationNumber ?? null,
+              awardDate: project.awardDate ?? null,
+              contractAmount: amount,
+              currency: amount != null ? project.currency?.trim() || "CAD" : null,
+              scopeSummary: project.name ?? null,
+            },
+            source: {
+              sourceType: "USER_ENTRY",
+              sourceKey: `tender-result-winner:${project.id}`,
+              sourceUrl: null,
+              evidenceSnippet: null,
+              capturedAt: new Date(),
+            },
+            confidence: "MEDIUM",
+            verificationStatus: "HUMAN_CONFIRMED",
+          },
+          { client: tx as unknown as AwardsDbClient },
+        ),
+      );
+      if (!res.materialized) {
+        out.awardReason = res.reason;
+        return out;
+      }
+      out.awardRecordId = res.record.id;
+      if (res.outcome === "ALREADY_OBSERVED" && res.record.winnerNameNormalized !== normalizeVendorName(competitor)) {
+        // 每个项目只记一次中标方：换了名字不覆盖既有事实
+        out.awardReason = "winner_already_recorded";
+        return out;
+      }
+      out.award = "written";
+      if (res.outcome === "NEEDS_REVIEW") out.awardReason = "needs_review";
+      console.log(`[tender-own-result-backfill] project=${project.id} lost-winner award=${out.award} buyer=${out.buyer}`);
+      return out;
+    }
     if (input.result !== "won") {
       out.awardReason = "result_not_won";
       return out;

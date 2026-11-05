@@ -61,6 +61,8 @@ npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts
 npx tsx src/components/assistant/__tests__/followup-outcome-render.test.tsx
 npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
+# P2-0：结果表单中标方 + 竞争对手域排除我方（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/outcome-winner-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts

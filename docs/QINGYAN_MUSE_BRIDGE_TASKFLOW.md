@@ -75,6 +75,7 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
+| P2-0 | 结果表单补「中标方（选填）」：未中标时人工填写 → 结果备注 + 人工确认授标事实（幂等 `tender-result-winner:{projectId}`，换名不覆盖）；授标情报投影把我方排除出「竞争对手」域（`ownAwardCount`）。来源 `QINGYAN_TENDER_INTEL_SLOTS_P1P2_REPORT.md` §5 遗留两条 | — | 未中标填中标方 → 竞争对手域出现该对手、不出现我方；同名再标记幂等；授标情报关闭时只写备注（`docs/QINGYAN_P2-0_REPORT.md`） | [G]（change `tender-outcome-winner`；待合并） |
 | P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |

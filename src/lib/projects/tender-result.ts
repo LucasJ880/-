@@ -1,6 +1,7 @@
 /**
  * 标记招标结果（won / lost / no_bid / cancelled）
  * 这是写入 tenderStatus 终态的产品入口；PATCH /projects 不允许直接改 tenderStatus。
+ * P2-0：未中标时可选填中标方——写进结果备注，并经人工确认路径沉淀为授标事实（见 own-result-backfill）。
  */
 
 import { db } from "@/lib/db";
@@ -14,6 +15,32 @@ export function isTenderResult(v: unknown): v is TenderResult {
   return typeof v === "string" && (TENDER_RESULTS as readonly string[]).includes(v);
 }
 
+export const WINNER_NAME_MAX = 200;
+
+/**
+ * P2-0：结果表单的「中标方（选填）」——只在未中标（lost）时接受；空白视为未填。
+ * 返回 { ok: true, winnerName: string | null } 或 { ok: false, error }（路由直接回 400）。
+ */
+export function parseOutcomeWinner(
+  result: TenderResult,
+  raw: unknown,
+): { ok: true; winnerName: string | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, winnerName: null };
+  if (typeof raw !== "string") return { ok: false, error: "winnerName 必须是文字" };
+  const name = raw.replace(/\s+/g, " ").trim();
+  if (!name) return { ok: true, winnerName: null };
+  if (result !== "lost") return { ok: false, error: "只有「未中标」时才填写中标方" };
+  if (name.length > WINNER_NAME_MAX) return { ok: false, error: `中标方名称不超过 ${WINNER_NAME_MAX} 字` };
+  return { ok: true, winnerName: name };
+}
+
+/** 中标方是否就是我方组织（按与 AwardRecord 相同的规范化比较） */
+export function isOwnOrgWinner(winnerName: string, orgName: string | null | undefined, normalize: (s: string) => string): boolean {
+  const own = (orgName ?? "").trim();
+  if (!own) return false;
+  return normalize(winnerName) === normalize(own);
+}
+
 export async function markProjectTenderResult(input: {
   projectId: string;
   result: TenderResult;
@@ -22,6 +49,8 @@ export async function markProjectTenderResult(input: {
   currency?: string | null;
   awardDate?: string | Date | null;
   note?: string | null;
+  /** P2-0：未中标时的中标方（已由 parseOutcomeWinner 校验） */
+  winnerName?: string | null;
   actorUserId: string;
 }) {
   const before = await db.project.findUnique({
@@ -34,9 +63,22 @@ export async function markProjectTenderResult(input: {
       currency: true,
       awardDate: true,
       description: true,
+      org: { select: { name: true } },
     },
   });
   if (!before) throw new Error("项目不存在");
+  const winnerName = input.result === "lost" ? input.winnerName?.trim() || null : null;
+  if (winnerName) {
+    const { normalizeVendorName } = await import("@/lib/tender-intel/awards");
+    if (isOwnOrgWinner(winnerName, before.org?.name, normalizeVendorName)) {
+      throw new Error("未中标时，中标方不能填我方组织");
+    }
+  }
+  // 结果备注：用户备注 + 中标方（关掉授标情报开关时，中标方也不会丢）
+  const noteLines = [
+    input.note ? `[招标结果备注 ${new Date().toISOString().slice(0, 10)}] ${input.note}` : null,
+    winnerName ? `[中标方 ${new Date().toISOString().slice(0, 10)}] ${winnerName}` : null,
+  ].filter((x): x is string => Boolean(x));
 
   const awardDate =
     input.awardDate === undefined
@@ -57,12 +99,9 @@ export async function markProjectTenderResult(input: {
         ? { currency: input.currency }
         : {}),
       ...(awardDate !== undefined ? { awardDate } : {}),
-      ...(input.note
+      ...(noteLines.length
         ? {
-            description: [
-              before.description || "",
-              `[招标结果备注 ${new Date().toISOString().slice(0, 10)}] ${input.note}`,
-            ]
+            description: [before.description || "", ...noteLines]
               .filter(Boolean)
               .join("\n"),
           }
@@ -84,6 +123,7 @@ export async function markProjectTenderResult(input: {
       projectId: input.projectId,
       result: input.result,
       actorUserId: input.actorUserId,
+      winnerName,
     });
   } catch {
     canonicalBackfill = null;
