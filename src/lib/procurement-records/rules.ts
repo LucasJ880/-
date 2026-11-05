@@ -1,115 +1,16 @@
 /**
  * PROC-1 机关申请规则（RuleProfile）。种子一律未核实；只有 org_admin 及以上真实用户核对官方页面后为 VERIFIED；
  * 之后任何修改回到 UNVERIFIED。未知费用为 null，不按 0 处理。门户字段只记已观察内容。
- *
- * 种子来源（任务书「官方参考」，核实基准日 2026-11-05，本会话未能联网复核）：
- *   S1 申请资格 / 费用 / 时限；S2 Access to Information Act 概述（仅保留 CAD 5 申请费）；
- *   S3 Completed ATI（既有披露副本可免费索取；非正式请求不套用正式时限）；S5 申请准备要求；S9 处理手册。
+ * 种子数据与来源说明见 ./rule-seeds.ts（纯数据，可在无库测试中校验）。
  */
 
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { isUniqueViolation } from "./instruments";
+import { DEFAULT_RULE_SEEDS, RULE_DEADLINE_UNITS, fieldGuide, ruleChannelFor } from "./rule-seeds";
 
-export const RULE_CHANNELS = ["FORMAL_ONLINE", "FORMAL_MAIL", "FORMAL_EMAIL", "INFORMAL_COPY"] as const;
-export type RuleChannel = (typeof RULE_CHANNELS)[number];
-
-export function ruleChannelFor(channel: string): RuleChannel {
-  return channel === "INFORMAL" ? "INFORMAL_COPY" : "FORMAL_ONLINE";
-}
-
-const S = {
-  S1: { label: "S1 联邦申请资格、费用和时限", url: "https://www.canada.ca/en/treasury-board-secretariat/services/access-information-privacy/access-information/how-access-information-personal-information-requests-work.html" },
-  S2: { label: "S2 Access to Information Act 概述（仅保留 CAD 5 申请费）", url: "https://www.canada.ca/en/treasury-board-secretariat/services/access-information-privacy/access-information-act.html" },
-  S3: { label: "S3 Completed Access to Information Requests", url: "https://search.open.canada.ca/ati/" },
-  S5: { label: "S5 官方申请准备要求（从此核实最新入口、账号与支付条件）", url: "https://www.canada.ca/en/treasury-board-secretariat/services/access-information-privacy/access-information/request-information/what-you-will-need.html" },
-  S9: { label: "S9 联邦请求处理手册（实际期限计算前查对应条款）", url: "https://www.canada.ca/en/treasury-board-secretariat/services/access-information-privacy/access-information/access-information-manual.html" },
-};
-
-/** 我方字段 → 门户字段的对应（门户字段名未观察前一律 observed=false） */
-export const OUR_FIELDS = [
-  "申请人 / 公司法定名称",
-  "代表人姓名",
-  "地址",
-  "邮箱",
-  "接收机关",
-  "申请正文（英文）",
-  "记录期间（起止日）",
-  "希望的记录格式（电子 / CSV / XLSX）",
-  "申请费支付",
-];
-
-function fieldGuide() {
-  return OUR_FIELDS.map((ourField) => ({ ourField, portalLabel: null, observed: false, observedAt: null, observedById: null }));
-}
-
-interface RuleSeed {
-  jurisdiction: string;
-  institutionKey: string;
-  channel: RuleChannel;
-  lawLabel: string;
-  guidanceUrl: string | null;
-  applicationFeeCents: number | null;
-  currency: string | null;
-  otherFeesRule: string | null;
-  deadlineValue: number | null;
-  deadlineUnit: string | null;
-  selfServeSupported: boolean;
-  sourceRefs: Array<{ label: string; url: string }>;
-}
-
-export const DEFAULT_RULE_SEEDS: RuleSeed[] = [
-  {
-    jurisdiction: "CA-FED",
-    institutionKey: "*",
-    channel: "FORMAL_ONLINE",
-    lawLabel: "Access to Information Act (Canada)",
-    guidanceUrl: S.S5.url,
-    applicationFeeCents: 500,
-    currency: "CAD",
-    otherFeesRule: "现行制度只收 CAD 5 申请费，取消了申请费以外的其他费用（S2）；不得套用省级检索 / 处理费模板",
-    deadlineValue: 30,
-    deadlineUnit: "CALENDAR_DAYS",
-    selfServeSupported: true,
-    sourceRefs: [S.S1, S.S2, S.S5, S.S9],
-  },
-  {
-    jurisdiction: "CA-FED",
-    institutionKey: "*",
-    channel: "INFORMAL_COPY",
-    lawLabel: "Completed ATI requests — informal copy of previously released records",
-    guidanceUrl: S.S3.url,
-    applicationFeeCents: 0,
-    currency: "CAD",
-    otherFeesRule: "既有披露副本可通过官方机制免费索取（S3）；发出索取仍是对外申请；非正式请求不适用正式申请的法定时限",
-    deadlineValue: null,
-    deadlineUnit: null,
-    selfServeSupported: true,
-    sourceRefs: [S.S3],
-  },
-  ...(
-    [
-      ["CA-ON", "Freedom of Information and Protection of Privacy Act (Ontario)"],
-      ["CA-BC", "Freedom of Information and Protection of Privacy Act (British Columbia)"],
-      ["CA-MB", "The Freedom of Information and Protection of Privacy Act (Manitoba)"],
-      ["CA-SK", "The Freedom of Information and Protection of Privacy Act (Saskatchewan)"],
-    ] as const
-  ).map(([jurisdiction, lawLabel]) => ({
-    jurisdiction,
-    institutionKey: "*",
-    channel: "FORMAL_ONLINE" as RuleChannel,
-    lawLabel,
-    guidanceUrl: null,
-    applicationFeeCents: null,
-    currency: "CAD",
-    otherFeesRule: "省 / 市费用（含检索、处理费）与时限须分别核实；不得套用联邦规则",
-    deadlineValue: null,
-    deadlineUnit: null,
-    selfServeSupported: false,
-    sourceRefs: [],
-  })),
-];
+export { DEFAULT_RULE_SEEDS, OUR_FIELDS, RULE_CHANNELS, ruleChannelFor, type RuleChannel, type RuleSeed } from "./rule-seeds";
 
 /** 补齐缺省规则（已存在的不改，保留用户核实结果） */
 export async function ensureDefaultRules(orgId: string): Promise<void> {
@@ -132,11 +33,12 @@ export async function ensureDefaultRules(orgId: string): Promise<void> {
           otherFeesRule: s.otherFeesRule,
           deadlineValue: s.deadlineValue,
           deadlineUnit: s.deadlineUnit,
+          effectiveFrom: s.effectiveFrom ? new Date(`${s.effectiveFrom}T00:00:00Z`) : null,
           selfServeSupported: s.selfServeSupported,
           sourceRefsJson: s.sourceRefs as unknown as Prisma.InputJsonValue,
           fieldGuideJson: fieldGuide() as unknown as Prisma.InputJsonValue,
           verificationStatus: "UNVERIFIED",
-          verificationMethod: "种子：任务书引用的官方来源（核实基准日 2026-11-05），尚未由用户核对官方页面",
+          verificationMethod: s.seedBasis,
         },
       });
     } catch (e) {
@@ -200,7 +102,7 @@ export async function updateRule(input: {
   if (p.applicationFeeCents !== undefined && p.applicationFeeCents !== null && (!Number.isInteger(p.applicationFeeCents) || p.applicationFeeCents < 0)) {
     return { ok: false, status: 400, code: "INVALID_FEE", message: "费用须为非负整数分，或 null 表示未知" };
   }
-  if (p.deadlineUnit !== undefined && p.deadlineUnit !== null && !["CALENDAR_DAYS", "BUSINESS_DAYS"].includes(p.deadlineUnit)) {
+  if (p.deadlineUnit !== undefined && p.deadlineUnit !== null && !(RULE_DEADLINE_UNITS as readonly string[]).includes(p.deadlineUnit)) {
     return { ok: false, status: 400, code: "INVALID_DEADLINE_UNIT", message: "时限单位只能是 CALENDAR_DAYS / BUSINESS_DAYS" };
   }
   const next = {

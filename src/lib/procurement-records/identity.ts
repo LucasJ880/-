@@ -7,7 +7,7 @@
  * - 机构走固定别名表；未命中的保持规范化原文并标 mapped=false（同号不同机构 → 人工复核，不自动合并）。
  */
 
-export const JURISDICTIONS = ["CA-FED", "CA-ON", "CA-BC", "CA-MB", "CA-SK", "OTHER"] as const;
+export const JURISDICTIONS = ["CA-FED", "CA-ON", "CA-BC", "CA-MB", "CA-QC", "CA-AB", "CA-SK", "OTHER"] as const;
 export type Jurisdiction = (typeof JURISDICTIONS)[number];
 
 export const JURISDICTION_LABELS: Record<Jurisdiction, string> = {
@@ -15,6 +15,8 @@ export const JURISDICTION_LABELS: Record<Jurisdiction, string> = {
   "CA-ON": "安大略省",
   "CA-BC": "不列颠哥伦比亚省",
   "CA-MB": "曼尼托巴省",
+  "CA-QC": "魁北克省",
+  "CA-AB": "阿尔伯塔省",
   "CA-SK": "萨斯喀彻温省",
   OTHER: "其他",
 };
@@ -91,7 +93,7 @@ export function sameInstrumentNumber(a: string, b: string): boolean {
   return na.length > 0 && na === normalizeInstrumentNumber(b).normalized;
 }
 
-/** 联邦机构别名表（固定；扩充走 PR，不在运行期猜测） */
+/** 机构别名表：联邦机构 + 已有单独申请规则的市级机关（固定；扩充走 PR，不在运行期猜测） */
 const INSTITUTION_ALIASES: Record<string, string[]> = {
   PSPC: [
     "pspc",
@@ -128,6 +130,8 @@ const INSTITUTION_ALIASES: Record<string, string[]> = {
     "dnd mdn",
   ],
   TBS: ["tbs", "sct", "treasury board of canada secretariat", "secretariat du conseil du tresor du canada"],
+  // 多伦多市政府本身（MFIPPA 机关）；TTC、多伦多警察服务、TCHC 等市属机构各自独立受理，不并入
+  TORONTO: ["city of toronto", "ville de toronto", "toronto city hall", "city of toronto purchasing and materials management division", "city of toronto pmmd"],
 };
 
 const ALIAS_LOOKUP: Map<string, string> = (() => {
@@ -145,6 +149,7 @@ export const INSTITUTION_DISPLAY: Record<string, string> = {
   CORCAN: "CORCAN (CSC)",
   DND: "National Defence (DND)",
   TBS: "Treasury Board of Canada Secretariat (TBS)",
+  TORONTO: "City of Toronto",
 };
 
 export interface InstitutionKey {

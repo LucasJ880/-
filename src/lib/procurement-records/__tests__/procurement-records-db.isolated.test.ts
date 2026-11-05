@@ -282,7 +282,22 @@ async function main() {
     const rules = (await call(rulesRoute.GET, OWNER, "GET", `/api/procurement/rules${q}`)).body?.items as Json[];
     const fed = rules.find((r) => r.jurisdiction === "CA-FED" && r.channel === "FORMAL_ONLINE")!;
     const fedCopy = rules.find((r) => r.jurisdiction === "CA-FED" && r.channel === "INFORMAL_COPY")!;
-    ok(rules.filter((r) => r.jurisdiction === "CA-ON").every((r) => r.applicationFeeCents === null && r.selfServeSupported === false), "省级规则：费用 null、不支持自助");
+    const prov = rules.filter((r) => r.jurisdiction !== "CA-FED");
+    ok(
+      ["CA-ON", "CA-BC", "CA-MB", "CA-QC", "CA-AB", "CA-SK"].every((j) => prov.some((r) => r.jurisdiction === j)) &&
+        prov.every((r) => r.verificationStatus === "UNVERIFIED" && r.officialPortalUrl === null && r.verifiedAt === null),
+      "省级规则种子齐全，全部未核实、未预填入口",
+    );
+    const onRule = prov.find((r) => r.jurisdiction === "CA-ON" && r.institutionKey === "*")!;
+    ok(
+      onRule.applicationFeeCents === 500 && onRule.deadlineValue === 45 && onRule.deadlineUnit === "BUSINESS_DAYS" && String(onRule.effectiveFrom).startsWith("2026-07-01") && String(onRule.verificationMethod).includes("网络检索摘要"),
+      "安省种子：$5、45 个工作日、适用自 2026-07-01，依据写明来自网络检索摘要",
+      onRule,
+    );
+    ok(prov.some((r) => r.jurisdiction === "CA-ON" && r.institutionKey === "TORONTO" && String(r.lawLabel).startsWith("Municipal")), "多伦多市 MFIPPA 规则单独存在");
+    ok(prov.filter((r) => r.jurisdiction === "CA-SK").every((r) => r.applicationFeeCents === null && r.selfServeSupported === false), "萨省占位：费用 null、不支持自助");
+    const { findRule } = await import("@/lib/procurement-records/rules");
+    ok((await findRule(ORG, "CA-ON", "TORONTO", "FORMAL"))?.institutionKey === "TORONTO" && (await findRule(ORG, "CA-ON", "RAW:city-of-mississauga", "FORMAL"))?.institutionKey === "*", "机关专属规则优先，其余回落到辖区缺省");
     const vBad = await call(ruleRoute.PUT, OWNER, "PUT", `/api/procurement/rules/${fed.id}${q}`, { id: fed.id }, { patch: {}, verify: { method: "看了" } });
     ok(vBad.status === 400, "核实须写明方法且填入口", vBad.body?.code);
     for (const r of [fed, fedCopy]) {

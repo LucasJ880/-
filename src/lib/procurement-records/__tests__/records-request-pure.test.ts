@@ -24,6 +24,8 @@ import {
   taskKindForEvent,
   transition,
 } from "../case-pure";
+import { DEFAULT_RULE_SEEDS, RULE_DEADLINE_UNITS, TORONTO_INSTITUTION_KEY, ruleChannelFor } from "../rule-seeds";
+import { JURISDICTIONS, normalizeInstitutionKey } from "../identity";
 
 let pass = 0;
 let fail = 0;
@@ -246,6 +248,54 @@ console.log("\n— 旧 Skill 单状态映射");
   ok(!m3.ok && m3.code === "UNMAPPED_LEGACY_STATUS", "未知旧状态 → 报错，不静默丢弃");
   const m4 = mapLegacyStatus("submitted");
   ok(m4.ok && m4.mapping.status === "USER_REPORTED_SUBMISSION", "旧 SUBMITTED（无回执）→ USER_REPORTED_SUBMISSION");
+}
+
+console.log("\n— 机关规则种子（联邦 + 省级；全部未核实）");
+{
+  const key = (r: { jurisdiction: string; institutionKey: string; channel: string }) => `${r.jurisdiction}|${r.institutionKey}|${r.channel}`;
+  ok(new Set(DEFAULT_RULE_SEEDS.map(key)).size === DEFAULT_RULE_SEEDS.length, "种子键（辖区 + 机关 + 渠道）不重复");
+  ok(DEFAULT_RULE_SEEDS.every((r) => (JURISDICTIONS as readonly string[]).includes(r.jurisdiction)), "种子辖区都在 JURISDICTIONS 内");
+  ok(
+    DEFAULT_RULE_SEEDS.every((r) => r.applicationFeeCents === null || (Number.isInteger(r.applicationFeeCents) && r.applicationFeeCents >= 0)),
+    "费用为非负整数分或 null",
+  );
+  ok(DEFAULT_RULE_SEEDS.every((r) => r.deadlineUnit === null || (RULE_DEADLINE_UNITS as readonly string[]).includes(r.deadlineUnit)), "时限单位合法");
+  ok(DEFAULT_RULE_SEEDS.every((r) => (r.deadlineValue === null) === (r.deadlineUnit === null)), "时限数值与单位同时有或同时无");
+  ok(DEFAULT_RULE_SEEDS.every((r) => r.effectiveFrom === null || isValidIsoDate(r.effectiveFrom)), "适用起始日为有效 ISO 日期");
+  ok(
+    DEFAULT_RULE_SEEDS.every((r) => [r.guidanceUrl, ...r.sourceRefs.map((x) => x.url)].every((u) => u === null || new URL(u).protocol === "https:")),
+    "指引与来源链接都是 https",
+  );
+  const filled = DEFAULT_RULE_SEEDS.filter((r) => r.applicationFeeCents !== null || r.deadlineValue !== null);
+  ok(filled.every((r) => r.sourceRefs.length > 0 && r.seedBasis.includes("尚未")), "凡填了费用或时限的种子都带来源，且依据写明尚未核实");
+  ok(DEFAULT_RULE_SEEDS.every((r) => r.seedBasis.length > 0 && !/已核实|verified/i.test(r.seedBasis)), "种子依据不得自称已核实");
+
+  const find = (j: string, inst = "*", ch = "FORMAL_ONLINE") => DEFAULT_RULE_SEEDS.find((r) => r.jurisdiction === j && r.institutionKey === inst && r.channel === ch);
+  const on = find("CA-ON");
+  ok(on?.applicationFeeCents === 500 && on.deadlineValue === 45 && on.deadlineUnit === "BUSINESS_DAYS" && on.effectiveFrom === "2026-07-01", "安省 FIPPA：$5、45 个工作日、2026-07-01 起", on);
+  ok(Boolean(on?.otherFeesRule?.includes("30 个日历日") && on.otherFeesRule.includes("MFIPPA")), "安省说明保留旧时限并提示市级机关适用 MFIPPA");
+  ok(TORONTO_INSTITUTION_KEY === "TORONTO" && normalizeInstitutionKey("City of Toronto – PMMD").key === "TORONTO", "多伦多市机构键稳定（含分段写法）");
+  const tor = find("CA-ON", TORONTO_INSTITUTION_KEY);
+  ok(Boolean(tor?.lawLabel.startsWith("Municipal Freedom of Information")) && tor?.applicationFeeCents === 500, "多伦多市单独走 MFIPPA 规则", tor);
+  const bc = find("CA-BC");
+  ok(bc?.applicationFeeCents === 1000 && bc.deadlineValue === 30 && bc.deadlineUnit === "BUSINESS_DAYS", "BC：$10、30 个工作日", bc);
+  const mb = find("CA-MB");
+  ok(mb?.applicationFeeCents === 0 && mb.deadlineValue === 45 && mb.deadlineUnit === "CALENDAR_DAYS", "曼省：免申请费、45 个日历日", mb);
+  const qc = find("CA-QC");
+  ok(qc?.applicationFeeCents === 0 && qc.deadlineValue === 20 && qc.deadlineUnit === "CALENDAR_DAYS" && qc.lawLabel.includes("A-2.1"), "魁省：免申请费、20 日、A-2.1", qc);
+  const ab = find("CA-AB");
+  ok(ab?.applicationFeeCents === 2500 && ab.deadlineValue === 30 && ab.deadlineUnit === "BUSINESS_DAYS" && ab.effectiveFrom === "2025-06-11", "阿省 ATIA：$25、30 个工作日、2025-06-11 起", ab);
+  const sk = find("CA-SK");
+  ok(sk?.applicationFeeCents === null && sk.deadlineValue === null && sk.selfServeSupported === false && sk.sourceRefs.length === 0, "萨省保持占位：未知即 null、不支持自助", sk);
+  ok(!find("CA-ON", "*", "INFORMAL_COPY") && ruleChannelFor("FORMAL") === "FORMAL_ONLINE", "省级只有正式渠道种子；非正式副本只属联邦");
+
+  // 省级种子即使费用已知，仍因未核实、入口未填而不能 READY（READY 闸只认真实用户核实）
+  const r = evaluateReady({ ...okInput(), rule: { verificationStatus: "UNVERIFIED", applicationFeeCents: on!.applicationFeeCents, officialPortalUrl: null, selfServeSupported: on!.selfServeSupported } });
+  const codes = r.blockers.map((b) => b.code);
+  ok(!r.ready && codes.includes("RULE_UNVERIFIED") && codes.includes("PORTAL_UNVERIFIED") && !codes.includes("FEE_UNKNOWN"), "省级种子：RULE_UNVERIFIED + PORTAL_UNVERIFIED，费用已知", codes);
+  // 工作日时限不做估算（节假日规则各省不同），日历日时限照常估算
+  ok(estimateDueDate({ receivedDate: "2026-11-02", deadlineValue: on!.deadlineValue, deadlineUnit: on!.deadlineUnit, channel: "FORMAL" }).estimatedDueAt === null, "安省 45 个工作日：不估算到期日");
+  ok(estimateDueDate({ receivedDate: "2026-11-02", deadlineValue: qc!.deadlineValue, deadlineUnit: qc!.deadlineUnit, channel: "FORMAL" }).estimatedDueAt !== null, "魁省 20 个日历日：给出估算到期日");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

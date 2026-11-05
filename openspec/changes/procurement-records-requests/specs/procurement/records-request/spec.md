@@ -35,7 +35,11 @@
 - **THEN** 再次校验报 `APPLICANT_UNCONFIRMED`，不能交接；`procurement-records-db.isolated.test.ts` 覆盖
 
 ### Requirement: 机关规则
-机关规则 SHALL 保存辖区、机关、法律名、官方入口、渠道、申请费（整数分，未知为 null）、币种、其他费用规则、时限数值与单位、适用日期、官方来源、核实时间、核实人与方法、是否支持自助提交、门户字段观察记录。种子规则 SHALL 为未核实；只有 `org_admin` 及以上用户核对官方页面后标为已核实。未核实地区 SHALL 可研究、草拟和记录核实结果，但 SHALL NOT 进入 READY。字段说明 SHALL 只显示已观察记录或标明「待首次提交时核对」，SHALL NOT 虚构门户字段或声称存在通用申请 API。
+机关规则 SHALL 保存辖区、机关、法律名、官方入口、渠道、申请费（整数分，未知为 null）、币种、其他费用规则、时限数值与单位、适用日期、官方来源、核实时间、核实人与方法、是否支持自助提交、门户字段观察记录。种子规则 SHALL 为未核实；只有 `org_admin` 及以上用户核对官方页面后标为已核实。未核实地区 SHALL 可研究、草拟和记录核实结果，但 SHALL NOT 进入 READY。字段说明 SHALL 只显示已观察记录或标明「待首次提交时核对」，SHALL NOT 虚构门户字段或声称存在通用申请 API。种子 SHALL 覆盖联邦（正式与非正式既有披露副本）、安省（省级 FIPPA 缺省与多伦多市 MFIPPA 专属规则）、BC、曼省、魁省、阿省，萨省为占位（费用、时限、入口均为 null，不支持自助）；每条填了费用或时限的种子 SHALL 附来源链接与种子依据（说明数值从哪里来、尚未核实），SHALL NOT 预填官方提交入口。查找规则时机关专属规则 SHALL 优先于辖区缺省；已存在的规则行 SHALL NOT 被种子覆盖。
+
+#### Scenario: 省级种子仍须核实
+- **WHEN** 组织首次读取规则，安省省级种子为申请费 CAD 5、45 个工作日、适用自 2026-07-01
+- **THEN** 该规则为 UNVERIFIED、官方入口为空、种子依据写明来自网络检索摘要；READY 闸报 `RULE_UNVERIFIED` 与 `PORTAL_UNVERIFIED`（费用已知，不报 `FEE_UNKNOWN`）；多伦多市机关命中 MFIPPA 专属规则，其他市级机关回落到省级缺省；`records-request-pure.test.ts` 与 `procurement-records-db.isolated.test.ts` 覆盖
 
 #### Scenario: 费用未知
 - **WHEN** 规则费用为 null

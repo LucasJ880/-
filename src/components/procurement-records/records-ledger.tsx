@@ -227,7 +227,7 @@ export function RecordsLedger() {
         ) : null}
       </Section>
 
-      <Section title="机关申请规则" hint="种子来自任务书引用的官方页面，未经核实；核实须由组织管理员打开官方页面核对入口、费用与时限，并写明方法。未知费用为空，不按 0 处理。" testId="rules">
+      <Section title="机关申请规则" hint="种子未经核实：联邦来自任务书引用的官方页面，省级来自网络检索摘要（未在官方页面逐字核对）。核实须由组织管理员打开官方页面核对入口、费用与时限，并写明方法。未知费用为空，不按 0 处理。" testId="rules">
         <ul className="space-y-2">
           {rules.map((r) => {
             const v = verify[String(r.id)] ?? { portal: String(r.officialPortalUrl ?? ""), fee: r.applicationFeeCents === null ? "" : String(r.applicationFeeCents), method: "" };
@@ -241,8 +241,10 @@ export function RecordsLedger() {
                 </p>
                 <p className="mt-1 text-muted">
                   费用：{cents(r.applicationFeeCents as number | null, r.currency as string | null)} · 时限：{r.deadlineValue ? `${String(r.deadlineValue)} ${r.deadlineUnit === "BUSINESS_DAYS" ? "个工作日" : "个日历日"}` : "未核实"} · 入口：{r.officialPortalUrl ? String(r.officialPortalUrl) : "未核实"}
+                  {r.effectiveFrom ? ` · 适用自 ${String(r.effectiveFrom).slice(0, 10)}` : ""}
                   {r.verifiedAt ? ` · 核实于 ${when(String(r.verifiedAt))}：${String(r.verificationMethod ?? "")}` : ""}
                 </p>
+                {!r.verifiedAt && r.verificationMethod ? <p className="mt-0.5 text-muted">种子依据：{String(r.verificationMethod)}</p> : null}
                 {r.otherFeesRule ? <p className="mt-0.5 text-muted">其他费用：{String(r.otherFeesRule)}</p> : null}
                 {refs.length ? (
                   <p className="mt-0.5">

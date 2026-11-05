@@ -91,13 +91,20 @@ CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title
 - 准备与发起交接时服务端在事务里先 `pg_advisory_xact_lock(hashtext(org|applicant|jurisdiction|institution))` 再重算重复检查与 READY，防两人并发交接同一范围。
 否决：让模型判定 READY 或生成正文——违反硬纪律 7，且任务书要求 READY 由确定性代码负责。
 
+### D7a 机关规则种子（`src/lib/procurement-records/rule-seeds.ts`，纯数据）
+- 覆盖：联邦（正式 + 非正式既有披露副本，来源为任务书 S1 / S2 / S3 / S5 / S9）；安省 FIPPA（省级缺省）与多伦多市 MFIPPA（机关专属，机构键 `TORONTO`）、BC、曼省、魁省、阿省（省级缺省）；萨省为占位（费用 / 时限 / 入口均 null，`selfServeSupported=false`）。
+- 省级数值来自 2026-11-05 网络检索摘要交叉整理（开发会话无法打开官方站点），写进 `verificationMethod` 作为「种子依据」并在界面显示；冲突或不确定处在 `otherFeesRule` 写「须核对」。例：安省 2026-07-01 起 45 个工作日（Bill 97，此前 30 个日历日）、BC $10 + 30 个工作日、曼省免申请费 + 45 个日历日、魁省免费 + 20 日、阿省 $25 + 30 个工作日（ATIA，2025-06-11 起）。
+- 纪律不变：全部 `UNVERIFIED`；不预填官方提交入口；未知为 null；READY 仍要求真实用户核实（入口 + 费用 + 方法）。工作日时限不估算到期日（各省节假日不同），日历日时限照常估算。
+- 查找顺序：机关专属规则优先，其余回落到辖区缺省 `*`；市级机关（MFIPPA 等）除多伦多外没有专属种子，须另行核实。
+- 已存在的规则行不被种子覆盖（保留用户核实结果）。
+
 ### D8 重复检查
 比较对象：本组织全部申请（含已归档 / 已关闭）的当前版本范围。命中条件：申请主体相同（申请人缺失的历史记录按「本组织可能同一主体」保守命中）+ 辖区相同 + 机关键相同（机关未规范化 → 人工复核）+ 编号交集非空 + 类别交集非空 + 日期区间相交。结果：`CLEAR` / `DRAFT_EXISTS`（未提交版本，优先续改）/ `BLOCKING`（已交接、用户报告提交、未知、已提交、受理、处理中、已披露）/ `NEEDS_REASON`（已关闭 / 撤回 / 取消 / 拒绝，须填新增范围或原因）/ `UNVERIFIED`（无台账确认、任一历史状态无法解析、读取失败）。日期按天计算覆盖与新增部分（含首尾日），例：旧至 10-31、新至 11-05 → 重叠 + 新增 11-01…11-05 共 5 天。
 
 ### D9 状态、证据与期限
 三条独立状态 + 政府处理结果（任务书第九节词表）。状态转换查表：`DRAFT→READY→HANDOFF_PENDING→{USER_REPORTED_SUBMISSION | SUBMISSION_UNKNOWN}→SUBMITTED→ACKNOWLEDGED→PROCESSING→CLOSED`，另有回退 `READY→DRAFT`（新版本）、`HANDOFF_PENDING→READY`（取消交接）、`SUBMISSION_UNKNOWN→READY`（真实用户确认未提交并附依据）。CLOSED 只能由「最终回应」类事件触发且须附来信附件；内部提醒到期不改状态。未提交申请的本地归档另存 `archivedAt`，与向政府撤回分开。
 证据等级：`user_reported`（口述）、`document_verified`（回执附件 + 确定性比对编号与机关名出现 + 真实用户确认）、`runtime_verified`（保留给未来自动适配器，V1 不产生）。仅付款凭证或截图不能单独证明提交。
-期限：`officialDueAt` 只来自来信中明确写出的日期；`estimatedDueAt` 由规则（联邦 30 个日历日）推算并保存依据，UI 标「估算」；`internalFollowUpAt` 是内部提醒。不显示精确法律倒计时。
+期限：`officialDueAt` 只来自来信中明确写出的日期；`estimatedDueAt` 由规则中的日历日时限（如联邦 30 个日历日）推算并保存依据，工作日时限不估算，UI 标「估算」；`internalFollowUpAt` 是内部提醒。不显示精确法律倒计时。
 旧 Skill 单状态映射表：`RELEASE_NOTICE_RECEIVED → files NOTICE_RECEIVED`、`PARTIAL_RELEASE → outcome PARTIAL_DISCLOSURE + files PARTIAL_FILES_RECEIVED` 等；未知值返回错误，不静默吞掉。
 
 ### D10 附件与分析

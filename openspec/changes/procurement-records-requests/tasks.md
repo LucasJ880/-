@@ -31,3 +31,7 @@
 ## 8. 端到端测试、报告与 TASKFLOW
 
 - [ ] 8.1 写 `src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`（真实路由 + 注入 fetch + 隔离库，覆盖任务书第十五节 1–18）并注册；全量 `npm test`；写 `docs/QINGYAN_PROC-1_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 状态列 + 交接文件。verify：隔离库测试退出 0；`npm test` 结果写入报告；`openspec validate procurement-records-requests --strict` 通过。
+
+## 9. 省级机关规则种子（Lucas 2026-11-05 追加）
+
+- [x] 9.1 新建纯数据 `src/lib/procurement-records/rule-seeds.ts`（`rules.ts` 改为引用）：联邦两条不变；新增安省 FIPPA + 多伦多市 MFIPPA（机构别名 `TORONTO`）、BC、曼省、魁省、阿省种子（全部 UNVERIFIED、不预填入口、来源与种子依据随行），萨省保持占位；辖区表加 `CA-QC` / `CA-AB`；规则卡片显示「适用自」与「种子依据」。verify：`records-request-pure.test.ts`（108）与 `procurement-records-db.isolated.test.ts`（146）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate procurement-records-requests --strict` 通过。
