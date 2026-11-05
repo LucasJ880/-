@@ -63,14 +63,22 @@
 | `verify-migration-history.ts` / `check-release-safety.test.ts` / `release/drift.test.ts` | 93 / 27 / 27 passed |
 | cockpit 测试（posts / schedule / posts-read-model / workload） | 225 / 196 / 139 / 94 passed |
 | navigation 测试（position-nav / nav-active-matcher / navigation-ia / workspace / wechat-entry-nav） | 全部通过（position-nav 86/86） |
-| `npm run typecheck` | 见 §3.1 |
-| `npm run lint:baseline` | 见 §3.1 |
-| `npm test` 全量 | 见 §3.1 |
+| `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 通过（EXIT 0） |
+| `npm run lint:baseline` | PASS（errors 38 / fingerprints 18，相对基线减少，无新增） |
+| `npm test` 全量 | 539/554；修正 R1 baseline 后实际 540/554，其余 14 项与本 change 无关（见 §3.1） |
 | `openspec validate procurement-records-requests --strict` | valid |
 
-### 3.1 全量（待填）
+### 3.1 全量 `npm test`（无 DATABASE_URL，隔离库测试自动跳过）
 
-（运行中，完成后补）
+结果：**539/554 通过，15 失败**。逐项处理：
+
+| 失败项 | 结论 |
+|---|---|
+| Runtime Architecture Guards（R1 boundary freeze） | **本 change 引起，已处理**：3 个新表名命中冻结命名模式 → 按 R1 文档手工加入 baseline 待审查（commit `b6934ec`），之后 `bash scripts/test-runtime-architecture.sh` 全部通过 → 实际 540/554 |
+| TypeScript 类型检查（`npx tsc --noEmit`） | 环境：默认堆内存 OOM；在干净 `origin/main`（9f24278）上同样 OOM（exit 134）。本分支用 `NODE_OPTIONS=--max-old-space-size=8192` 通过 |
+| Agent Trace 只读查询、Phase3A-2 Ledger DB、Phase3A-2 Smoke Access、Phase3A-3 Approvals Smoke、Governance Hygiene Gate、Governance Hygiene Concurrency Gate、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Phase3A-5 Settle DB、Phase3A-5 Overview Acceptance、Gmail Draft OAuth Compose Scope、T4 授标情报真实 Postgres 矩阵、Quote Operations 客户报价 PDF 分页布局（13 项） | 既有：在干净 `origin/main` worktree 上逐条重跑，**13 项同样失败**（均需要外部数据库 / 凭证 / 环境），与本 change 无关 |
+
+PROC-1 新增的 4 项注册测试（3 组纯测试 + 隔离库端到端）在全量中均通过（端到端在无 DB 时按约定跳过，另行在隔离库实跑 142/142）。
 
 **未运行 / 无法运行**：真实官方来源只读运行（网络策略拒绝）；生产 / staging 迁移（Owner Gate）；Vercel 预览构建（无凭证）。
 
