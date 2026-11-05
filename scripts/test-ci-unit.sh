@@ -61,6 +61,8 @@ npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts
 npx tsx src/components/assistant/__tests__/followup-outcome-render.test.tsx
 npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
+# P2-0c：授标去重（不同招标编号不判疑似重复；DB 测试无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts

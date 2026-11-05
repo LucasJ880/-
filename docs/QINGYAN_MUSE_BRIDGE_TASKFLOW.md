@@ -75,6 +75,7 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
+| P2-0c | 授标去重：同中标方 + 同买家、两条都有招标编号且不同 → 另一次招标（ACTIVE），不再判疑似重复；编号缺失或只差写法仍留人工 | — | 我方 / 对手在同一机构再次中标不落 NEEDS_REVIEW；买家周期用上全部样本（`docs/QINGYAN_P2-0c_REPORT.md`） | [G]（change `award-dedupe-solicitation`；待合并） |
 | P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
