@@ -4,6 +4,7 @@ import { runCalendarWatch } from "@/lib/calendar-watch/run";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
 import { scanMuseReminders } from "@/lib/muse-bridge/reminder-scan";
+import { ESCALATION_DEADLINE_MS, escalationOutcome, runEmailEscalation } from "@/lib/notifications/collab/escalation";
 import { syncSalesAutoActions } from "@/lib/sales/auto-action-sync";
 
 export const maxDuration = 300;
@@ -83,5 +84,13 @@ export async function GET(request: NextRequest) {
       },
     };
   });
-  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch });
+  // COLLAB-2：@提及与任务指派满 15 分钟仍未读 → 升级邮件（design D14）。排在最后，有封数上限与截止时刻；
+  // 自带收错：出错只记日志，不影响前几步的结果与响应
+  const notifyEmailEscalation = await runTrackedAutomation("notify-email-escalation", async () =>
+    escalationOutcome(await runEmailEscalation({ deadline: new Date(requestStartedAt + ESCALATION_DEADLINE_MS) })),
+  ).catch((error) => {
+    console.error("[cron/sales-actions] notify-email-escalation failed:", error);
+    return { error: error instanceof Error ? error.message : String(error) };
+  });
+  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch, notifyEmailEscalation });
 }

@@ -29,7 +29,9 @@ Sunny 在下一次投标前要持续发现值得跟的政府采购，并查清�
 - `procurement/disclosure-analysis`：回执 / 来信 / 披露文件附件、解析与阻塞、明细抽取与复核、按口径分析、导出。
 
 ### Modified Capabilities
-- 无（Tender 详情「情报」Tab 只追加一张只读卡片，现有卡片与行为不变）。
+- `cockpit/post-registry`：自动化键由 33 增至 34（新增 `procurement-watch`，归属投标岗位）。
+- `cockpit/posts-overview`：调度表由 33 条增至 34 条（`procurement-watch` 挂在 `tender-watch` 路由，`25 * * * *`）。
+- Tender 详情「情报」Tab 只追加一张只读卡片，现有卡片与行为不变（无对应规格变更）。
 
 受影响的 Muse 意图：无（不触碰 `muse-bridge`）。
 

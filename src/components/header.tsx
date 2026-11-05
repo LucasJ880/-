@@ -19,6 +19,11 @@ import {
   Globe,
   PanelRightClose,
   PanelRightOpen,
+  AtSign,
+  UserCheck,
+  ListChecks,
+  MessageSquare,
+  Package,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -31,6 +36,7 @@ import type { Locale } from "@/lib/i18n/messages";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { persistSelectedOrgId, readStoredOrgId } from "@/lib/org-selection";
 import { installNotificationHref } from "@/lib/install/balance";
+import { notificationHref, notificationOrgToRemember } from "@/lib/notifications/href";
 import { orgRoleLabel } from "@/lib/permissions-client";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
 
@@ -210,6 +216,11 @@ const NTYPE_ICONS: Record<string, typeof Bell> = {
   calendar_event: Calendar,
   followup: Bell,
   project_update: FolderKanban,
+  mention: AtSign,
+  task_assigned: UserCheck,
+  task_status: ListChecks,
+  task_comment: MessageSquare,
+  order_stage: Package,
 };
 
 /* ── Notification Panel ── */
@@ -552,29 +563,13 @@ export function Header() {
   }, [searchOpen, closeSearch]);
 
   const handleNotificationNavigate = useCallback((item: NotificationItem) => {
-    // INSTALL-2b：完工 / 尾款确认通知的落点（与通知页同一规则）
-    const installHref = installNotificationHref(item);
-    if (installHref) {
-      if (item.orgId) persistSelectedOrgId(item.orgId);
-      window.location.href = installHref;
-    } else if (item.entityType === "task" && item.entityId) {
-      window.location.href = `/tasks?open=${item.entityId}`;
-    } else if (item.entityType === "muse_inquiry" && item.entityId) {
-      window.location.href = `/sales/inquiries/${encodeURIComponent(item.entityId)}`;
-    } else if (item.entityType === "blinds_order" && item.entityId) {
-      window.location.href = `/blinds-orders/${encodeURIComponent(item.entityId)}`;
-    } else if (item.entityType === "sales_quote" && item.entityId) {
-      if (item.orgId) persistSelectedOrgId(item.orgId);
-      const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";
-      window.location.href = `/sales/quote-sheet?mode=order&quoteId=${encodeURIComponent(item.entityId)}${orgQuery}`;
-    } else if (item.entityType === "trade_booth_summary" && item.entityId) {
-      if (item.orgId) persistSelectedOrgId(item.orgId);
-      window.location.href = `/trade/booth-cards?day=${encodeURIComponent(item.entityId)}`;
-    } else if (item.projectId && item.activityId) {
-      window.location.href = `/projects/${item.projectId}?activity=${item.activityId}`;
-    } else if (item.projectId) {
-      window.location.href = `/projects/${item.projectId}`;
-    }
+    // COLLAB-2：与通知页、邮件链接共用同一张跳转表（lib/notifications/href）。安装、尾款、质保、返修类
+    // 在这里仍直接先调 installNotificationHref（INSTALL-2b「通知落点」两处同一规则）；共用表里同样先查它，结果相同
+    const href = installNotificationHref(item) ?? notificationHref(item);
+    if (!href) return;
+    const orgId = notificationOrgToRemember(item);
+    if (orgId) persistSelectedOrgId(orgId);
+    window.location.href = href;
   }, []);
 
   const { openMobileSidebar } = useAppShell();

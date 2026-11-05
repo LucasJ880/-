@@ -58,6 +58,7 @@ import { ProjectDetailHeader } from "@/components/project-detail/project-detail-
 import { ProjectImportBanner } from "@/components/project-create/project-import-banner";
 import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-runner";
 import { WorkbenchTab } from "@/components/project-detail/tabs/workbench-tab";
+import { PROJECT_DISCUSSION_HASH } from "@/lib/notifications/href";
 import { RequirementsTab } from "@/components/project-detail/tabs/requirements-tab";
 import { BidTab } from "@/components/project-detail/tabs/bid-tab";
 import { IntelTab } from "@/components/project-detail/tabs/intel-tab";
@@ -156,6 +157,36 @@ function ProjectDetailContent() {
     if (resolved.openFiles) setFilesOpen(true);
     if (resolved.openChat) setChatOpen(true);
   }, [searchParams]);
+
+  // COLLAB-2：从讨论区提及通知进入（#project-discussion）→ 打开工作台，等讨论区渲染出来再滚动过去
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    const focusDiscussion = () => {
+      if (window.location.hash !== PROJECT_DISCUSSION_HASH) return;
+      setActiveTab("workbench");
+      stop();
+      let tries = 0;
+      timer = setInterval(() => {
+        const el = document.getElementById("project-discussion");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          stop();
+        } else if (++tries >= 50) {
+          stop();
+        }
+      }, 200);
+    };
+    focusDiscussion();
+    window.addEventListener("hashchange", focusDiscussion);
+    return () => {
+      window.removeEventListener("hashchange", focusDiscussion);
+      stop();
+    };
+  }, []);
 
   const selectTab = useCallback(
     (tab: TenderDetailTab) => {

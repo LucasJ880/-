@@ -20,6 +20,7 @@ import type { NotificationItem } from "@/components/notification/types";
 import { Suspense } from "react";
 import { persistSelectedOrgId } from "@/lib/org-selection";
 import { installNotificationHref } from "@/lib/install/balance";
+import { notificationHref, notificationOrgToRemember } from "@/lib/notifications/href";
 
 function NotificationsContent() {
   const router = useRouter();
@@ -157,46 +158,13 @@ function NotificationsContent() {
       if (item.status === "unread") {
         apiFetch(`/api/notifications/${item.id}/read`, { method: "PATCH" });
       }
-      // INSTALL-2b：完工 / 尾款确认通知的落点（与头部通知下拉同一规则）
-      const installHref = installNotificationHref(item);
-      if (installHref) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(installHref);
-      } else if (item.entityType === "task" && item.entityId) {
-        router.push(`/tasks/${item.entityId}`);
-      } else if (item.entityType === "project" && item.entityId) {
-        router.push(`/projects/${item.entityId}`);
-      } else if (item.entityType === "blinds_order" && item.entityId) {
-        router.push(`/blinds-orders/${encodeURIComponent(item.entityId)}`);
-      } else if (item.entityType === "sales_quote" && item.entityId) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        const orgQuery = item.orgId ? `&orgId=${encodeURIComponent(item.orgId)}` : "";
-        router.push(`/sales/quote-sheet?mode=order&quoteId=${encodeURIComponent(item.entityId)}${orgQuery}`);
-      } else if (item.entityType === "approval" && item.entityId) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(`/capabilities/approvals/${encodeURIComponent(item.entityId)}`);
-      } else if (item.entityType === "trade_prospect" && item.entityId) {
-        router.push(`/trade/prospects/${item.entityId}`);
-      } else if (item.entityType === "trade_booth_summary" && item.entityId) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(`/trade/booth-cards?day=${encodeURIComponent(item.entityId)}`);
-      } else if (item.entityType === "revenue_opportunity" && item.entityId) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(`/revenue/${encodeURIComponent(item.entityId)}`);
-      } else if (item.entityType === "sales_customer" && item.entityId) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(`/sales/customers/${encodeURIComponent(item.entityId)}`);
-      } else if (item.entityType === "sales_actions") {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(`/sales?view=customers`);
-      } else if (item.entityType === "visualizer_session" && item.entityId) {
-        if (item.orgId) persistSelectedOrgId(item.orgId);
-        router.push(`/sales/visualizer/${encodeURIComponent(item.entityId)}`);
-      } else if (item.projectId && item.activityId) {
-        router.push(`/projects/${item.projectId}?activity=${item.activityId}`);
-      } else if (item.projectId) {
-        router.push(`/projects/${item.projectId}`);
-      }
+      // COLLAB-2：与铃铛、邮件链接共用同一张跳转表（lib/notifications/href）；没有跳转地址时只标为已读。
+      // 安装、尾款、质保、返修类在这里仍直接先调 installNotificationHref（INSTALL-2b「通知落点」两处同一规则）
+      const href = installNotificationHref(item) ?? notificationHref(item);
+      if (!href) return;
+      const orgId = notificationOrgToRemember(item);
+      if (orgId) persistSelectedOrgId(orgId);
+      router.push(href);
     },
     [router]
   );

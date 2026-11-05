@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { canParseFileType } from "@/lib/files/parse-content";
 import { validateUploadedFileAsync } from "@/lib/files/upload-guard";
 import { requireProjectReadAccess } from "@/lib/projects/access";
+import { notifyProjectFilesUploaded } from "@/lib/notifications/collab/files-notify";
 
 function asBrowserFileUrl(url: string | null | undefined): string {
   if (!url) return "";
@@ -230,6 +231,13 @@ export async function POST(
       "@/lib/projects/generate/generate-docs"
     );
     await markGeneratedDocsStale(projectId).catch(() => {});
+
+    // COLLAB-2：一次上传请求一条通知，发给 active 项目成员与负责人（design D8）；不向外抛错
+    await notifyProjectFilesUploaded({
+      project,
+      documents: results,
+      actor: user,
+    });
   }
 
   return NextResponse.json(

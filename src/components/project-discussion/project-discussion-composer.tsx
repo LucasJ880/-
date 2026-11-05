@@ -4,13 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Send, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { MESSAGE_MAX_LENGTH } from "@/lib/project-discussion/types";
-import type { DiscussionMessage, MentionItem } from "@/lib/project-discussion/types";
+import type { DiscussionMessage } from "@/lib/project-discussion/types";
 import type { DiscussionMember } from "./project-discussion-section";
 import { MentionDropdown } from "./mention-dropdown";
+import { useMentionInput } from "./use-mention-input";
 
 interface Props {
   projectId: string;
-  onSent: (msg: DiscussionMessage) => void;
+  /** replayed：10 分钟内重发，接口返回的是第一次创建的那条 */
+  onSent: (msg: DiscussionMessage, replayed?: boolean) => void;
   mentionDraft?: { userId: string; name: string } | null;
   onMentionConsumed?: () => void;
   members?: DiscussionMember[];
@@ -28,23 +30,21 @@ export function ProjectDiscussionComposer({
   const [error, setError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [mentions, setMentions] = useState<MentionItem[]>([]);
-
-  // @ autocomplete state
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [mentionStartIdx, setMentionStartIdx] = useState(-1);
-  const [activeIdx, setActiveIdx] = useState(0);
+  // COLLAB-2：@ 的触发、过滤、插入与发送名单走共用 hook（与任务评论框相同）
+  const mention = useMentionInput<DiscussionMember>({
+    members,
+    value: body,
+    setValue: setBody,
+    textareaRef,
+  });
+  const { addMention } = mention;
 
   // Pre-fill from mentionDraft (click avatar → jump here)
   useEffect(() => {
     if (!mentionDraft) return;
     const tag = `@${mentionDraft.name} `;
     setBody((prev) => (prev ? `${prev}${tag}` : tag));
-    setMentions((prev) => {
-      if (prev.some((m) => m.userId === mentionDraft.userId)) return prev;
-      return [...prev, { userId: mentionDraft.userId, name: mentionDraft.name }];
-    });
+    addMention({ userId: mentionDraft.userId, name: mentionDraft.name });
     onMentionConsumed?.();
     setTimeout(() => {
       const ta = textareaRef.current;
@@ -53,65 +53,7 @@ export function ProjectDiscussionComposer({
         ta.selectionStart = ta.selectionEnd = ta.value.length;
       }
     }, 80);
-  }, [mentionDraft, onMentionConsumed]);
-
-  const filteredMembers = mentionQuery
-    ? members.filter((m) => m.name.toLowerCase().includes(mentionQuery.toLowerCase()))
-    : members;
-
-  const insertMention = useCallback(
-    (member: DiscussionMember) => {
-      const ta = textareaRef.current;
-      if (!ta || mentionStartIdx < 0) return;
-
-      const before = body.slice(0, mentionStartIdx);
-      const after = body.slice(ta.selectionStart);
-      const tag = `@${member.name} `;
-      const newBody = before + tag + after;
-      setBody(newBody);
-      setMentions((prev) => {
-        if (prev.some((m) => m.userId === member.userId)) return prev;
-        return [...prev, { userId: member.userId, name: member.name }];
-      });
-      setShowDropdown(false);
-      setMentionQuery("");
-      setMentionStartIdx(-1);
-      setActiveIdx(0);
-
-      setTimeout(() => {
-        const cursor = before.length + tag.length;
-        ta.focus();
-        ta.selectionStart = ta.selectionEnd = cursor;
-      }, 0);
-    },
-    [body, mentionStartIdx]
-  );
-
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      setBody(val);
-
-      const pos = e.target.selectionStart;
-      const textBefore = val.slice(0, pos);
-      const atIdx = textBefore.lastIndexOf("@");
-
-      if (atIdx >= 0 && (atIdx === 0 || /\s/.test(textBefore[atIdx - 1]))) {
-        const query = textBefore.slice(atIdx + 1);
-        if (!/\s/.test(query) && query.length <= 20) {
-          setMentionStartIdx(atIdx);
-          setMentionQuery(query);
-          setShowDropdown(true);
-          setActiveIdx(0);
-          return;
-        }
-      }
-      setShowDropdown(false);
-      setMentionQuery("");
-      setMentionStartIdx(-1);
-    },
-    []
-  );
+  }, [mentionDraft, onMentionConsumed, addMention]);
 
   const handleSend = useCallback(async () => {
     const trimmed = body.trim();
@@ -122,7 +64,7 @@ export function ProjectDiscussionComposer({
     }
 
     // Only include mentions that are still referenced in the body
-    const activeMentions = mentions.filter((m) => trimmed.includes(`@${m.name}`));
+    const activeMentions = mention.submitMentions(trimmed);
 
     setSending(true);
     setError("");
@@ -145,47 +87,27 @@ export function ProjectDiscussionComposer({
         throw new Error(data.error || "发送失败");
       }
       setBody("");
-      setMentions([]);
-      onSent(data.message);
+      mention.reset();
+      onSent(data.message, data.replayed === true);
       textareaRef.current?.focus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "发送失败");
     } finally {
       setSending(false);
     }
-  }, [body, sending, projectId, onSent, mentions]);
+  }, [body, sending, projectId, onSent, mention]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showDropdown && filteredMembers.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setActiveIdx((i) => (i + 1) % filteredMembers.length);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setActiveIdx((i) => (i - 1 + filteredMembers.length) % filteredMembers.length);
-          return;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          insertMention(filteredMembers[activeIdx]);
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setShowDropdown(false);
-          return;
-        }
-      }
+      // 候选列表打开时：上下键、回车 / Tab、Esc 由 hook 处理，回车选中候选、不发送
+      if (mention.onKeyDown(e)) return;
 
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend, showDropdown, filteredMembers, activeIdx, insertMention]
+    [handleSend, mention]
   );
 
   return (
@@ -194,19 +116,19 @@ export function ProjectDiscussionComposer({
         <p className="mb-2 text-xs text-[#a63d3d]">{error}</p>
       )}
       <div className="relative flex items-end gap-2">
-        {showDropdown && filteredMembers.length > 0 && (
+        {mention.open && (
           <MentionDropdown
-            members={filteredMembers}
-            query={mentionQuery}
-            activeIndex={activeIdx}
-            onSelect={insertMention}
+            members={mention.candidates}
+            query={mention.query}
+            activeIndex={mention.activeIndex}
+            onSelect={mention.select}
             position={{ top: 8, left: 0 }}
           />
         )}
         <textarea
           ref={textareaRef}
           value={body}
-          onChange={handleChange}
+          onChange={mention.onChange}
           onKeyDown={handleKeyDown}
           placeholder="输入消息…（@ 提及成员，Enter 发送，Shift+Enter 换行）"
           rows={1}
@@ -221,7 +143,7 @@ export function ProjectDiscussionComposer({
             el.style.height = Math.min(el.scrollHeight, 128) + "px";
           }}
           onBlur={() => {
-            setTimeout(() => setShowDropdown(false), 150);
+            setTimeout(() => mention.close(), 150);
           }}
         />
         <button

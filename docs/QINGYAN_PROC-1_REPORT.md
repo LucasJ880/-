@@ -49,6 +49,7 @@
 - **schema.prisma**：只在文件末尾追加新 model，既有 model 0 改动；对 Organization / Project / User / Task 只用逻辑引用（字符串 id）。
 - **新增代码**：`src/lib/procurement-records/**`（28 个模块 + 5 个测试 / fixture 文件）、`src/app/api/procurement/**`（27 个路由文件）、`src/app/api/projects/[id]/procurement-records`、`src/components/procurement-records/**`、`src/app/(main)/projects/intelligence/records/**`、`scripts/procurement-records-{seed,demo}.ts`。
 - **修改既有文件**（均为追加）：`tender-watch` cron（追加第二个受跟踪步骤，maxDuration 120→300）、`automation/registry.ts`、`cockpit/posts.ts` + `schedule.ts`（新 automation key 的穷举登记）、`navigation/registry.ts`（只加 matchPaths，侧栏快照不变）、`intel-hub-shell.tsx`（加「资料申请」链接）、`intel-tab.tsx`（加卡片）、`/projects/intelligence/monitor/page.tsx`（占位页 → 采购监控）、`scripts/test-all.sh` / `test-ci-unit.sh`。
+- **合入最新 main（COLLAB-2，#379–#381）**：`openspec/config.yaml`、`scripts/test-all.sh` / `test-ci-unit.sh`、TASKFLOW 冲突保留双方（决定 C 改为第 12 条）；cockpit 自动化键 33 → 34，补 `cockpit/post-registry`、`cockpit/posts-overview` 的 MODIFIED 规格增量与测试断言（posts 228/228、schedule 206/206）。合并后 typecheck、R1 guards、迁移校验、测试注册（539）、PROC-1 全部测试（含隔离库 142）复跑通过。
 - **复用**：`runTrackedAutomation`、`requireCronSecret`、`resolveRequestOrgIdForUser`、`requireProjectReadAccess`、`getOrgMembership` / `hasOrgRole`、`createNotification`（sourceKey 幂等）、`Task`（sourceId + templateKey 唯一）、`putPrivateBlob` / `readBlobStream`、`normalizeFilename`、unpdf / xlsx、`computeWatchDigest`、外部情报总闸、`logAudit`、`assertSafeTestDatabase`、T4 的 schema-ready 暗合并模式。
 
 ## 3. 测试结果（实际运行）

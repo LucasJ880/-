@@ -6,6 +6,8 @@
  */
 
 import { db } from "@/lib/db";
+import { DEFAULT_ENABLED_TYPES } from "@/lib/notifications/constants";
+import { typePreferenceWriteFields } from "@/lib/notifications/preferences";
 
 export interface AutomationPrefs {
   enabled: boolean;
@@ -62,25 +64,30 @@ export async function updateUserAutomationPrefs(
   userId: string,
   update: Partial<AutomationPrefs>
 ): Promise<AutomationPrefs> {
-  const pref = await db.userNotificationPreference.upsert({
+  // COLLAB-2：先读出原行——这次写入会刷新 updatedAt，要先把生效的类型清单物化、记下 knownTypes
+  let before = await db.userNotificationPreference.findUnique({
     where: { userId },
-    create: {
-      userId,
-      metadata: JSON.stringify({ automation: { ...DEFAULT_PREFS, ...update } }),
-    },
-    update: {},
-    select: { metadata: true },
   });
+  if (!before) {
+    before = await db.userNotificationPreference.upsert({
+      where: { userId },
+      create: {
+        userId,
+        metadata: JSON.stringify({ knownTypes: [...DEFAULT_ENABLED_TYPES] }),
+      },
+      update: {},
+    });
+  }
 
-  const meta = parseMetadata(pref.metadata);
+  const meta = parseMetadata(before.metadata);
   const current = (meta.automation as Partial<AutomationPrefs>) ?? DEFAULT_PREFS;
   const merged = { ...DEFAULT_PREFS, ...current, ...update };
 
   await db.userNotificationPreference.update({
     where: { userId },
-    data: {
-      metadata: JSON.stringify({ ...meta, automation: merged }),
-    },
+    data: typePreferenceWriteFields(before, {
+      meta: { ...meta, automation: merged },
+    }),
   });
 
   return merged;

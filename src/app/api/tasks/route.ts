@@ -17,6 +17,7 @@ import {
   type TaskProjectDomainFilter,
 } from "@/lib/tasks";
 import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
+import { notifyTaskCreated } from "@/lib/notifications/collab/task-notify";
 import type { NextRequest } from "next/server";
 
 const taskInclude = {
@@ -248,6 +249,9 @@ const authenticatedPost = withAuth(async (request, _ctx, user) => {
       console.error("[task-api-hook] discussion write failed:", err),
     );
   }
+
+  // COLLAB-2：负责人不是创建人时通知负责人（design D6）；不向外抛错
+  await notifyTaskCreated({ task, actor: user });
 
   return NextResponse.json(task, { status: 201 });
 });

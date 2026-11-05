@@ -229,6 +229,8 @@ export const POST_REGISTRY = [
       "autopilot-telemetry",
       "approval-timeout",
       "post-daily-digest",
+      "notify-email-escalation",
+      "notify-email-digest",
     ],
     pendingActionTypes: [],
     workDomains: ["general"],

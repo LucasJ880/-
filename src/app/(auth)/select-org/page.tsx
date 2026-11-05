@@ -14,16 +14,12 @@ import {
   hydrateStoredOrgId,
   selectActiveOrganization,
 } from "@/lib/org-selection";
-
-function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
-  return raw;
-}
+import { appendSafeHash, safeNextPath } from "@/lib/auth/safe-next";
 
 function SelectOrgContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeNext(searchParams.get("next"));
+  const next = safeNextPath(searchParams.get("next"));
 
   const [orgs, setOrgs] = useState<OrgActiveOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +35,7 @@ function SelectOrgContent() {
         });
         if (!res.ok) {
           if (res.status === 401) {
-            router.replace(`/login?next=${encodeURIComponent("/select-org")}`);
+            router.replace(`/login?next=${encodeURIComponent(`/select-org?next=${encodeURIComponent(next)}`)}`);
             return;
           }
           throw new Error("加载组织失败");
@@ -52,18 +48,18 @@ function SelectOrgContent() {
 
         if (data.activeOrgId) {
           hydrateStoredOrgId(data.activeOrgId);
-          window.location.href = next;
+          window.location.href = appendSafeHash(next, window.location.hash);
           return;
         }
         if (list.length === 1) {
           const r = await selectActiveOrganization(list[0].id);
           if (r.ok) {
-            window.location.href = next;
+            window.location.href = appendSafeHash(next, window.location.hash);
             return;
           }
         }
         if (list.length === 0) {
-          window.location.href = next;
+          window.location.href = appendSafeHash(next, window.location.hash);
           return;
         }
       } catch (err) {
@@ -88,7 +84,7 @@ function SelectOrgContent() {
       setBusyId(null);
       return;
     }
-    window.location.href = next;
+    window.location.href = appendSafeHash(next, window.location.hash);
   }
 
   if (loading) {

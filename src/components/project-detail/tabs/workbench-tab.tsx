@@ -360,6 +360,14 @@ function NeedsYouCard({
   );
 }
 
+function MemberAvatar({ name, avatar }: { name: string; avatar?: string | null }) {
+  return avatar ? (
+    <img src={avatar} alt={name} className="h-full w-full object-cover" />
+  ) : (
+    <>{name.slice(0, 1).toUpperCase()}</>
+  );
+}
+
 /** 团队：成员管理 + 加入简报 + 通知规则（原页面底部常驻区收敛为工作台卡片） */
 function TeamCard({
   projectId,
@@ -601,18 +609,21 @@ function TeamCard({
             {members.map((m) => (
               <tr key={m.id} className="border-b border-border/60">
                 <td className="py-2">
-                  <button
-                    type="button"
-                    title={`@${m.user.name}`}
-                    onClick={() => onMention({ userId: m.user.id, name: m.user.name })}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/20 overflow-hidden"
-                  >
-                    {m.user.avatar ? (
-                      <img src={m.user.avatar} alt={m.user.name} className="h-full w-full object-cover" />
-                    ) : (
-                      m.user.name.slice(0, 1).toUpperCase()
-                    )}
-                  </button>
+                  {/* COLLAB-2：只有 active 成员的头像提供 @；非 active 成员不会被插入讨论区草稿 */}
+                  {m.status === "active" ? (
+                    <button
+                      type="button"
+                      title={`@${m.user.name}`}
+                      onClick={() => onMention({ userId: m.user.id, name: m.user.name })}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/20 overflow-hidden"
+                    >
+                      <MemberAvatar name={m.user.name} avatar={m.user.avatar} />
+                    </button>
+                  ) : (
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgba(110,125,118,0.08)] text-xs font-medium text-muted overflow-hidden opacity-60">
+                      <MemberAvatar name={m.user.name} avatar={m.user.avatar} />
+                    </span>
+                  )}
                 </td>
                 <td className="py-2">{m.user.name}</td>
                 <td className="py-2 text-muted">{m.user.email}</td>

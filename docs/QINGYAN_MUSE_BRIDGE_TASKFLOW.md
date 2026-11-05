@@ -104,7 +104,7 @@
 | S1 | 只读销售意图 `sales_overview` / `opportunity_status`：服务端读范围（管理全组织 / 销售仅本人）、可解释确定性排序、决定 B 金额可见性 | P0 | OpenSpec change `muse-sales-read-intents`；`sales-pure` + `sales-db.isolated` 测试；报告 `docs/QINGYAN_S1_REPORT.md` | [x]（#262；已归档） |
 | S2 | 跨助理询问 `ask_colleague` / `reply_inquiry`：询问 Task + 通知 + `inquiry.*` 事件；网页回复页 `/sales/inquiries/[id]` | S1 | OpenSpec change `muse-sales-inquiry-loop`；`inquiry-pure` + `inquiry-db.isolated` 测试；报告 `docs/QINGYAN_S2_REPORT.md` | [x]（#275；已归档） |
 | S3 | 跟进引擎 `create_followup` / `update_followup`：SalesAction（source=muse_followup）+ 挂既有 `sales-actions` cron 的到期提醒 / 逾期升级 + 商机协作追踪 + 证据导出脚本 | S2 | OpenSpec change `muse-sales-followup-loop`；`followup-pure` + `followup-db.isolated` 测试；报告 `docs/QINGYAN_S3_REPORT.md`；staging 10 步验收随 G3 | [x]（#278；已归档；staging 10 步验收随 G3） |
-| S4 | Pilot 上线：对 1 个组织开开关、绑定 2 个用户、签发 Connector Token、真实 10 步验收 | S3 | 一条真实商机经私人助理推进到下一步并可追踪 | [ ] |
+| S4 | Pilot 上线：对 1 个组织开开关、绑定 2 个用户、签发 Connector Token、真实 10 步验收 | S3 | 一条真实商机经私人助理推进到下一步并可追踪 | [ ]（已冻结：Muse Connector 永久冻结，接入层由 Phase C 取代，见已决定第 10 条 / 任务书 D6） |
 
 ---
 
@@ -145,9 +145,11 @@
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
 | COLLAB-1 | 隐藏不可用的微信入口：服务端开关 `WECHAT_BINDING_ENABLED`（默认关）；关时登录页"微信扫码登录"及其上方分隔线、设置页"微信集成"入口、侧边栏"微信集成"、组织开通页的扫码绑定提示与绑定表都不出现，直接访问 `/settings/wechat`、`/wechat` 显示"暂未开放"；微信 API、回调、`wechat-push` cron 不动，打开开关即恢复原样 | — | OpenSpec change `hide-wechat-entry`；开关解析等新测试注册；报告 `docs/QINGYAN_COLLAB-1_REPORT.md` | [x] |
-| COLLAB-2 | 协作通知：@ 必通知（讨论区 + 任务评论；被 @ 的人须为本组织 active 成员且能看到对象，否则整条 400）；任务指派 / 状态 / 评论与订单阶段（确认、开始生产、备货完成、已排期）通知相关人；未读升级邮件（`mention` / `task_assigned` 创建 15 分钟仍未读，挂 `sales-actions`）+ 每日未读汇总（组织当地 7 点，挂 `daily-brief`）；`openspec/config.yaml` 第 2 条补澄清 | COLLAB-1 | OpenSpec change `collab-notify`；纯逻辑测试注册；报告 `docs/QINGYAN_COLLAB-2_REPORT.md` | [ ] |
+| COLLAB-2 | 协作通知：@ 必通知（讨论区 + 任务评论；被 @ 的人须为本组织 active 成员且能看到对象，否则整条 400）；任务指派 / 状态 / 评论与订单阶段（确认、开始生产、备货完成、已排期）通知相关人；未读升级邮件（`mention` / `task_assigned` 创建 15 分钟仍未读，挂 `sales-actions`）+ 每日未读汇总（组织当地 7 点，挂 `daily-brief`）；`openspec/config.yaml` 第 2 条补澄清 | COLLAB-1 | OpenSpec change `collab-notify`；纯逻辑测试注册；报告 `docs/QINGYAN_COLLAB-2_REPORT.md` | [x] |
 
 **GATE-C 验收**（细项见任务书 §7）：开关默认关时登录页、设置页、`/settings/wechat`、`/wechat`、组织开通页都看不到微信绑定 / 扫码入口，打开后与改动前一致；A 把任务指派给 B → B 有未读 `task_assigned`、A 自己没有通知，B 15 分钟内不读收到一封升级邮件且下一轮不重发；任务评论里 @ 的请求重放不产生第二条通知；讨论区 @ 非项目成员整条 400；订单"备货完成 → 已排期"时创建人、商机负责人、排期负责角色各收到一条 `order_stage`，操作人不收；组织当地 7 点每人一封只含未读的汇总，没有未读不发；关了邮件偏好只收站内通知；邮件与通知摘要不含金额、客户电话、地址，邮件主题以 `【青砚】` 开头；合并提交上 Vercel 生产与 staging 构建都成功。
+
+**运维前置（COLLAB-2 邮件，Evan 操作）**：生产需有 `NEXT_PUBLIC_APP_URL=https://qingyan.ca` 与 `RESEND_API_KEY`，设好后重新部署。缺任一项时，`notify-email-escalation` / `notify-email-digest` 每轮记为跳过并写明缺哪项，站内通知不受影响。staging 验收要收真实邮件时，临时开 `QINGYAN_ALLOW_REAL_EMAIL_NON_PROD`，验完关掉（报告 §5、§6）。
 
 ---
 
@@ -186,4 +188,14 @@
 7. 邮箱分离（2026-10-23，#238）：显示发件人 `fromEmail`（project@）与授权邮箱 `mailboxEmail`（lucas@）是两个设置；授权账号只从组织设置读取，永不取自请求 payload。
 8. 询价 / 催单正文按 text/plain 发出（2026-10-23，#240），换行原样保留；其它调用方仍默认 text/html。
 9. **决定 B**（2026-10-27，S1）：销售意图只对管理角色（平台 admin / super_admin / boss / manager，或组织 org_owner / org_admin）输出商机金额（`SalesOpportunity.estimatedValue`）；销售角色的响应不带金额。招投标的决定 A 不变。
-10. **决定 C**（2026-11-05，PROC-1，Lucas 批准）：硬纪律第 1 条例外——迁移 `20261105120000_add_procurement_records_foundation` 只新增 16 张 `Procurement*` / `Records*` 表；第 3 条例外——`ProcurementScanRun` 的单行认领（runnerToken + 心跳）只服务 `tender-watch` 里的采购扫描步骤，三个命中 R1 命名模式的表已逐条登记 baseline。两条例外都只限 PROC-1，已写进 `openspec/config.yaml`；合并仍由 Evan 拍板，生产迁移走 Owner Gate（`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`）。
+10. 协作通知（2026-11-04，任务书 §9 D1–D6）：
+    - 试点小组：订单跟单 / 安装排期组。
+    - 订单评论区本期不做，试点后看需求。
+    - 邮件默认：没有明确选过的人按开，个人可关。
+    - 微信入口隐藏：开关默认关，不改名，代码保留（COLLAB-1）。
+    - 纪律第 2 条按任务书 §5.4 补澄清：发给本组织 active 成员本人青砚账号邮箱的系统通知邮件不算对外发送；发给客户或组织外地址的仍须先建 PendingAction。
+    - 青砚不做个人助理 / 插件 / Connector 对接，Muse--Bridge-bot 的 Connector 永久冻结。
+11. COLLAB-2 审核（Evan，2026-11-04）：
+    - `collab-notify` 四件套按原样批准实施。
+    - 手工验收放在 qingyan-staging 上做；本地 `.env` 直连生产库，不在本地跑。
+12. **决定 C**（2026-11-05，PROC-1，Lucas 批准）：硬纪律第 1 条例外——迁移 `20261105120000_add_procurement_records_foundation` 只新增 16 张 `Procurement*` / `Records*` 表；第 3 条例外——`ProcurementScanRun` 的单行认领（runnerToken + 心跳）只服务 `tender-watch` 里的采购扫描步骤，三个命中 R1 命名模式的表已逐条登记 baseline。两条例外都只限 PROC-1，已写进 `openspec/config.yaml`；合并仍由 Evan 拍板，生产迁移走 Owner Gate（`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`）。
