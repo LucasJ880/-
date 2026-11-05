@@ -2,7 +2,7 @@
 
 ## 1. 持久化与暗合并闸
 
-- [ ] 1.1 在 `prisma/schema.prisma` 末尾追加 design D1 的 15 个 model（只新增，不改既有 model）；新建迁移 `prisma/migrations/20261105120000_add_procurement_records_foundation/migration.sql`（只 CREATE TABLE / INDEX / 外键到新表）；登记 `src/lib/release/expected-migrations.ts`、`scripts/verify-migration-history.ts`（sha256）、`scripts/check-release-safety.test.ts`；新建 `src/lib/procurement-records/flags.ts`（`PROCUREMENT_RECORDS_SCHEMA_READY`，fail-closed）。verify：`npx prisma validate` 退出 0；隔离库 `npx prisma migrate deploy` 成功且 `prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url …` 为空；`npx tsx scripts/verify-migration-history.ts` 与 `npx tsx scripts/check-release-safety.test.ts` 通过。
+- [ ] 1.1 在 `prisma/schema.prisma` 末尾追加 design D1 的 16 个 model（只新增，不改既有 model）；新建迁移 `prisma/migrations/20261105120000_add_procurement_records_foundation/migration.sql`（只 CREATE TABLE / INDEX / 外键到新表）；登记 `src/lib/release/expected-migrations.ts`、`scripts/verify-migration-history.ts`（sha256）、`scripts/check-release-safety.test.ts`；新建 `src/lib/procurement-records/flags.ts`（`PROCUREMENT_RECORDS_SCHEMA_READY`，fail-closed）。verify：`npx prisma validate` 退出 0；隔离库 `npx prisma migrate deploy` 成功且 `prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url …` 为空；`npx tsx scripts/verify-migration-history.ts` 与 `npx tsx scripts/check-release-safety.test.ts` 通过。
 
 ## 2. 纯函数：身份、排程、来源、优先级
 

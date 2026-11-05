@@ -136,8 +136,9 @@ ok(
       "20260921160000_add_trade_sample_follow_up",
       "20261024120000_invite_code_org_binding",
       "20261027180000_quote_discount_roman_shade",
+      "20261105120000_add_procurement_records_foundation",
     ].join("|"),
-  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments + AiMessageAttachments + TradeOutreachStep + TradeQuoteProductAndSample + TradeSampleFollowUp + InviteCodeOrgBinding + QuoteDiscountRomanShade",
+  "active 为 baseline + Phase4/5 + Playbook + PhaseC + BidWorkflow + Sales/DE + MarketingEconomics + TenderAutoAnalysis Phase1.1 + TenderT2M1 + TenderT3Memory + ProjectFinancialControl + TenderProfitabilitySettlement + TenderT4AwardRecord + AutopilotA0 + AutopilotA1P0 + DocumentPageUnitMetadata + AutopilotA2P0 + QuoteCostEnginePhase1 + QuoteOperationsPhase2 + MentionGatewayExternalIdentity + QuoteFeeSettings + VisualizerRenderJobState + CommissionEstimateSettings + SalesQuoteCostFoundation + SupplierIntelligenceSpine + OrganizationCompanyLink + TradeInquiryAnalysis + InquiryDesignFields + MengxinFdeRevenueSpine + WebsiteInquiryReceipt + TradeChatMessageAttachments + AiMessageAttachments + TradeOutreachStep + TradeQuoteProductAndSample + TradeSampleFollowUp + InviteCodeOrgBinding + QuoteDiscountRomanShade + ProcurementRecordsFoundation",
   );
 ok(existsSync(legacyDir), "legacy 归档目录存在");
 

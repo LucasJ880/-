@@ -23,7 +23,7 @@
 ## Decisions
 
 ### D1 持久化：新增表（触碰硬纪律 1，待拍板）
-新增 15 张表（全部 `Procurement*` / `Records*` 前缀），一个增量迁移只 `CREATE TABLE` / `CREATE INDEX`，不改既有表：
+新增 16 张表（全部 `Procurement*` / `Records*` 前缀），一个增量迁移只 `CREATE TABLE` / `CREATE INDEX`，不改既有表：
 
 | 表 | 作用 | 幂等 / 并发锚点 |
 |---|---|---|
@@ -116,7 +116,7 @@ CSV 列按前缀匹配（如 `referenceNumber-`、`solicitationNumber-`、`title
 
 | # | 纪律 | 本 change |
 |---|---|---|
-| 1 | 零 schema | **触碰**：新增 15 张表（只 CREATE，不改既有表）。需要 Evan 拍板例外（D1 说明否决零 schema 方案的理由）；未拍板不合并。生产迁移不在本 change 执行。 |
+| 1 | 零 schema | **触碰**：新增 16 张表（只 CREATE，不改既有表）。需要 Evan 拍板例外（D1 说明否决零 schema 方案的理由）；未拍板不合并。生产迁移不在本 change 执行。 |
 | 2 | 出站先审批 | 遵守：零出站。不发邮件、不提交、不付款；跟进信只存草稿；「打开官方入口」是用户自己在浏览器打开链接。 |
 | 3 | 禁止第三套队列 | 遵守：无新 cron / 队列 / 调度器 / worker 注册表；挂在既有 `tender-watch`，单轮认领用运行行唯一键（D2）。`AUTOMATION_REGISTRY` 只追加一条展示用登记，与 CAL-1 同型。 |
 | 4 | 脱敏 | 不涉及 Muse 通道；另行约束：回执 / 来信 / 申请人资料不进通知摘要与日志（spec「敏感资料不外泄」）。 |
