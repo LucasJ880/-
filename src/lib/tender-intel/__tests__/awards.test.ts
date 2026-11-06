@@ -6,6 +6,7 @@
 import {
   createOrObserveAwardRecord,
   confirmAwardRecord,
+  retractAwardRecord,
   listAwardsForOrg,
   listAwardsForBuyer,
   getAwardEvidence,
@@ -537,6 +538,68 @@ console.log("tender-intel awards（T4 canonical service + read model）");
     const a = deriveAwardIntelligence(records, { now });
     const b = deriveAwardIntelligence(records, { now });
     ok(JSON.stringify(a) === JSON.stringify(b), "T4-10 同输入 → 逐字节相同投影");
+  }
+
+  /* T4-11 人工撤回（P2-0d）：只改状态、留痕、幂等；撤回后不进列表、不参与去重 */
+  {
+    const { client, records, sources } = makeFakeDb();
+    await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
+    const id = records[0].id;
+    let threw = "";
+    try {
+      await retractAwardRecord({ orgId: "orgA", actor: SYSTEM as never, awardRecordId: id, reason: "x" }, { client });
+    } catch (e) {
+      threw = e instanceof AwardIntelError ? e.code : String(e);
+    }
+    ok(threw === "RETRACT_REQUIRES_USER", "T4-11a 撤回必须是人工 user actor");
+    threw = "";
+    try {
+      await retractAwardRecord({ orgId: "orgA", actor: USER as never, awardRecordId: id, reason: "   " }, { client });
+    } catch (e) {
+      threw = e instanceof AwardIntelError ? e.code : String(e);
+    }
+    ok(threw === "REASON_REQUIRED" && records[0].status === "ACTIVE", "T4-11b 原因必填；失败不改状态");
+    threw = "";
+    try {
+      await retractAwardRecord({ orgId: "orgB", actor: USER as never, awardRecordId: id, reason: "wrong org" }, { client });
+    } catch (e) {
+      threw = e instanceof AwardIntelError ? e.code : String(e);
+    }
+    ok(threw === "NOT_FOUND", "T4-11c 跨组织撤回 → NOT_FOUND");
+
+    const r1 = await retractAwardRecord(
+      { orgId: "orgA", actor: USER as never, awardRecordId: id, reason: "  填错了   中标方 " },
+      { client },
+    );
+    const retraction = (r1.record.metadata as { retraction?: Record<string, unknown> } | null)?.retraction;
+    ok(
+      r1.changed &&
+        r1.record.status === "RETRACTED" &&
+        retraction?.reason === "填错了 中标方" &&
+        retraction?.byUserId === "u1" &&
+        retraction?.previousStatus === "ACTIVE" &&
+        retraction?.previousVerificationStatus === "SYSTEM_VERIFIED" &&
+        records.length === 1 &&
+        sources.length === 1,
+      "T4-11d 撤回：状态 RETRACTED，原因 / 撤回人 / 撤回前状态记在 metadata；行与来源都保留",
+    );
+    const r2 = await retractAwardRecord({ orgId: "orgA", actor: USER as never, awardRecordId: id, reason: "again" }, { client });
+    ok(!r2.changed && (r2.record.metadata as { retraction?: { reason?: string } }).retraction?.reason === "填错了 中标方", "T4-11e 再撤回幂等，不覆盖原因");
+    ok((await listAwardsForOrg({ orgId: "orgA" }, { client })).length === 0, "T4-11f 撤回后不出现在组织列表");
+    threw = "";
+    try {
+      await confirmAwardRecord({ orgId: "orgA", actor: USER as never, awardRecordId: id }, { client });
+    } catch (e) {
+      threw = e instanceof AwardIntelError ? e.code : String(e);
+    }
+    ok(threw === "RETRACTED_IMMUTABLE", "T4-11g 已撤回记录不能再确认");
+
+    const again = canadabuysInput("orgA", { solicitationNumber: null, awardDate: new Date("2025-01-01"), contractAmount: 1 });
+    again.source.sourceKey = "web:after-retract";
+    again.source.sourceType = "WEB_SEARCH";
+    again.verificationStatus = "AI_EXTRACTED";
+    const r3 = await createOrObserveAwardRecord(again, { client });
+    ok(r3.outcome === "CREATED" && r3.record.status === "ACTIVE", "T4-11h 撤回记录不参与去重（同中标方 + 同买家不再判疑似重复）");
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

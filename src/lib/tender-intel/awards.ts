@@ -475,6 +475,57 @@ export async function confirmAwardRecord(
   return c.awardRecord.update({ where: { id: record.id }, data });
 }
 
+export const RETRACT_REASON_MAX = 200;
+
+/**
+ * 人工撤回（P2-0d）：ACTIVE / NEEDS_REVIEW → RETRACTED。只改状态，不删行、不删来源；
+ * 撤回人、时间、原因与撤回前状态记在 metadata.retraction。已撤回 → 原样返回（幂等）。
+ * 权限（组织管理员）由路由层负责；这里只要求人工 user actor。
+ */
+export async function retractAwardRecord(
+  input: { orgId: string; actor: AwardActor; awardRecordId: string; reason: string },
+  opts?: { client?: AwardsDbClient },
+): Promise<{ record: AwardRecordRow; changed: boolean }> {
+  assertOrg(input.orgId);
+  assertWriteActor(input.actor);
+  if (input.actor.actorType !== "user" || !input.actor.userId) {
+    throw new AwardIntelError("RETRACT_REQUIRES_USER", "撤回必须由人工 user actor 执行");
+  }
+  const reason = (input.reason ?? "").replace(/\s+/g, " ").trim();
+  if (!reason) throw new AwardIntelError("REASON_REQUIRED", "请填写撤回原因");
+  if (reason.length > RETRACT_REASON_MAX) {
+    throw new AwardIntelError("REASON_TOO_LONG", `撤回原因不超过 ${RETRACT_REASON_MAX} 字`);
+  }
+  const c = client(opts?.client);
+  const record = await c.awardRecord.findFirst({
+    where: { id: input.awardRecordId, orgId: input.orgId },
+  });
+  if (!record) throw new AwardIntelError("NOT_FOUND", "AwardRecord 不存在或不属于该组织");
+  if (record.status === "RETRACTED") return { record, changed: false };
+
+  const prevMeta =
+    record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+      ? (record.metadata as Record<string, unknown>)
+      : {};
+  const updated = await c.awardRecord.update({
+    where: { id: record.id },
+    data: {
+      status: "RETRACTED",
+      metadata: {
+        ...prevMeta,
+        retraction: {
+          byUserId: input.actor.userId,
+          at: new Date().toISOString(),
+          reason,
+          previousStatus: record.status,
+          previousVerificationStatus: record.verificationStatus,
+        },
+      },
+    },
+  });
+  return { record: updated, changed: true };
+}
+
 /* ------------------------------- 读路径 ------------------------------- */
 
 export type ListAwardsFilters = {
