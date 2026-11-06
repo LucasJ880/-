@@ -492,6 +492,7 @@ run_test "外部情报 CanadaBuys 适配器" "npx tsx src/lib/tender-intel/__tes
 run_test "外部情报自动提取+交叉验证" "npx tsx src/lib/tender-intel/__tests__/canadabuys-auto.test.ts"
 run_test "外部情报 Web 搜索（M2）" "npx tsx src/lib/tender-intel/__tests__/websearch.test.ts"
 run_test "T4 canonical 授标情报 service+read model" "npx tsx src/lib/tender-intel/__tests__/awards.test.ts"
+run_test "P2-0c 授标去重：不同招标编号不判疑似重复 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts"
 run_test "T4 语义门 SEM-T4-01..08" "npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts"
 run_test "T5 计划 seam + 确定性 DAG" "npx tsx src/lib/workforce-runtime/__tests__/t5-plan-seam.test.ts"
 run_test "T5 执行策略 descriptor + 新鲜度授权" "npx tsx src/lib/workforce-runtime/__tests__/t5-execution-policy.test.ts"
