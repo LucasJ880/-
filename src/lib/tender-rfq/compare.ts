@@ -266,10 +266,11 @@ export function scoreCandidatePrice(model: ScoringModel, priceCad: number, compe
 
 /* ---------------------------------- /compare/analysis 的 LLM 输入（只给矩阵） ---------------------------------- */
 
-export function buildMatrixInterpretationPrompt(
+/** 交给 LLM 的输入（也是 P1-6G 数字校验的唯一出处：解读里的数字必须能在这里找到） */
+export function buildInterpretationPayload(
   matrix: CompareMatrix,
   ctx: { projectName: string; roundNumber: number; closeDate: string | null },
-): { systemPrompt: string; userPrompt: string } {
+) {
   const rows = matrix.rows.map((r) => ({
     supplier: r.supplierName,
     landedCadTotal: r.landedCad.total,
@@ -284,6 +285,21 @@ export function buildMatrixInterpretationPrompt(
     warnings: r.warnings,
     blockers: r.blockers,
   }));
+  const recommended = matrix.recommendedItemId ? matrix.rows.find((r) => r.itemId === matrix.recommendedItemId)?.supplierName ?? null : null;
+  return {
+    project: ctx.projectName,
+    round: ctx.roundNumber,
+    closeDate: ctx.closeDate,
+    recommended,
+    summary: matrix.summaryZh,
+    rows,
+  };
+}
+
+export function buildMatrixInterpretationPrompt(
+  matrix: CompareMatrix,
+  ctx: { projectName: string; roundNumber: number; closeDate: string | null },
+): { systemPrompt: string; userPrompt: string } {
   const systemPrompt = `你是采购比价助手。下面是青砚已经用代码算好的比价矩阵（落地价 = CAD，货到目的地含关税）。
 你的工作只是"解读"：用中文说明价格差异、交期与有效期风险、需要追问供应商的点。
 
@@ -293,18 +309,6 @@ export function buildMatrixInterpretationPrompt(
 - 换算不出落地价的供应商（not_normalized），只说明缺什么参数，不要估算。
 
 只输出 JSON：{"priceAnalysis": "...", "deliveryAnalysis": "...", "risks": "...", "recommendation": "..."}`;
-  const recommended = matrix.recommendedItemId ? matrix.rows.find((r) => r.itemId === matrix.recommendedItemId)?.supplierName ?? null : null;
-  const userPrompt = JSON.stringify(
-    {
-      project: ctx.projectName,
-      round: ctx.roundNumber,
-      closeDate: ctx.closeDate,
-      recommended,
-      summary: matrix.summaryZh,
-      rows,
-    },
-    null,
-    1,
-  );
+  const userPrompt = JSON.stringify(buildInterpretationPayload(matrix, ctx), null, 1);
   return { systemPrompt, userPrompt };
 }

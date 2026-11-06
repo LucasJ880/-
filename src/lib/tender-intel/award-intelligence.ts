@@ -21,7 +21,7 @@
  */
 
 import type { AwardRecordRow } from "./awards";
-import { toAmountNumber } from "./awards";
+import { normalizeVendorName, toAmountNumber } from "./awards";
 
 export type AwardDomainStatus = "CONFIRMED" | "SUPPORTED" | "INFERRED" | "UNKNOWN";
 
@@ -93,11 +93,13 @@ export type AwardIntelligenceProjection = {
       cycle: BuyerCycleProjection;
     }>;
   };
-  /** 3. 竞争对手信号（confirmed 仅来自权威记录；NEEDS_REVIEW/AI 均只算线索） */
+  /** 3. 竞争对手信号（confirmed 仅来自权威记录；NEEDS_REVIEW/AI 均只算线索；我方中标不算竞争对手） */
   competitorSignals: {
     status: AwardDomainStatus;
     confirmed: Array<{ name: string; awardCount: number; lastAwardDate: string | null }>;
     signals: Array<{ name: string; mentionCount: number }>;
+    /** 被排除的我方中标记录数（权威 + 线索；P2-0） */
+    ownAwardCount: number;
   };
   /** 4. 原始历史合同金额（RAW_ORG_HISTORY：记录汇总，绝非可对标价格） */
   historicalValues: {
@@ -159,7 +161,7 @@ function isAuthoritative(r: AwardRecordRow): boolean {
 }
 
 /** 买家×可比范围组的周期投影（确定性；无可靠组 → UNKNOWN） */
-function deriveBuyerCycle(buyerRows: AwardRecordRow[]): BuyerCycleProjection {
+export function deriveBuyerCycle(buyerRows: AwardRecordRow[]): BuyerCycleProjection {
   const unknown = (reason: string): BuyerCycleProjection => ({
     status: "UNKNOWN",
     reason,
@@ -224,8 +226,19 @@ function deriveBuyerCycle(buyerRows: AwardRecordRow[]): BuyerCycleProjection {
  */
 export function deriveAwardIntelligence(
   rows: AwardRecordRow[],
-  opts?: { now?: Date },
+  opts?: {
+    now?: Date;
+    /** 我方组织名（原文，内部按 normalizeVendorName 规范化）：这些中标方不进「竞争对手」域（P2-0） */
+    ownWinnerNames?: Array<string | null | undefined>;
+  },
 ): AwardIntelligenceProjection {
+  const ownNorm = new Set(
+    (opts?.ownWinnerNames ?? [])
+      .map((n) => (n ?? "").trim())
+      .filter(Boolean)
+      .map((n) => normalizeVendorName(n)),
+  );
+  const isOwn = (r: AwardRecordRow) => ownNorm.has(r.winnerNameNormalized);
   const records = rows.filter((r) => r.status !== "RETRACTED");
   const authoritative = records.filter(isAuthoritative);
   const aiOnly = records.filter((r) => !EVIDENCE_BACKED.has(r.verificationStatus));
@@ -281,9 +294,10 @@ export function deriveAwardIntelligence(
       .sort((a, b) => b.totalAwards - a.totalAwards),
   };
 
-  /* 3. 竞争对手：confirmed 只来自权威记录；NEEDS_REVIEW 记录只算线索 */
+  /* 3. 竞争对手：confirmed 只来自权威记录；NEEDS_REVIEW 记录只算线索；我方中标排除（P2-0） */
   const confirmedByName = new Map<string, { name: string; count: number; last: Date | null }>();
   for (const r of authoritative) {
+    if (isOwn(r)) continue;
     const cur = confirmedByName.get(r.winnerNameNormalized) ?? {
       name: r.winnerName,
       count: 0,
@@ -296,6 +310,7 @@ export function deriveAwardIntelligence(
   const signalByName = new Map<string, { name: string; count: number }>();
   for (const r of records) {
     if (isAuthoritative(r)) continue;
+    if (isOwn(r)) continue;
     if (confirmedByName.has(r.winnerNameNormalized)) continue;
     const cur = signalByName.get(r.winnerNameNormalized) ?? { name: r.winnerName, count: 0 };
     cur.count += 1;
@@ -309,6 +324,7 @@ export function deriveAwardIntelligence(
     signals: [...signalByName.values()]
       .map((v) => ({ name: v.name, mentionCount: v.count }))
       .sort((a, b) => b.mentionCount - a.mentionCount),
+    ownAwardCount: records.filter(isOwn).length,
   };
 
   /* 4. 原始历史金额（RAW_ORG_HISTORY；权威记录 only；币种分组；绝非可对标价格） */

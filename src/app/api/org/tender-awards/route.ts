@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
+import { db } from "@/lib/db";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAwardsForOrg, toAmountNumber } from "@/lib/tender-intel/awards";
 import { deriveAwardIntelligence } from "@/lib/tender-intel/award-intelligence";
@@ -50,7 +51,9 @@ export const GET = withAuth(async (request, _ctx, user) => {
     searchParams.get("buyer") || searchParams.get("winner") || searchParams.get("from") || searchParams.get("to")
       ? await listAwardsForOrg({ orgId })
       : records;
-  const intelligence = deriveAwardIntelligence(allRecords);
+  // 我方中标不进「竞争对手」域（P2-0）：以组织名为准（我方结果回灌写 AwardRecord 时也用组织名作中标方）
+  const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+  const intelligence = deriveAwardIntelligence(allRecords, { ownWinnerNames: [org?.name] });
 
   return NextResponse.json({
     orgId,

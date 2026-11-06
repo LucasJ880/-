@@ -151,7 +151,6 @@ const PROJECT_INTEL = [
   "nav-intel-awards",
   "nav-intel-competitors",
   "nav-intel-monitor",
-  "nav-intel-series",
   "nav-intel-supply",
   "nav-suppliers",
 ];

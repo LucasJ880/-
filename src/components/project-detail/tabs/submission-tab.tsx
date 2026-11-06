@@ -251,6 +251,8 @@ function TenderResultForm({
   const { data: tenderBid } = useTenderBid(projectId);
   const authoritativeBid = tenderBid?.bid.status === "AUTHORITATIVE" ? tenderBid.bid.quote : null;
   const [winningBidPrice, setWinningBidPrice] = useState("");
+  const [winnerName, setWinnerName] = useState("");
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -267,14 +269,30 @@ function TenderResultForm({
           result,
           ourBidPrice: authoritativeBid ? undefined : ourBidPrice.trim() === "" ? undefined : ourBidPrice.trim(),
           winningBidPrice: winningBidPrice.trim() === "" ? undefined : winningBidPrice.trim(),
+          winnerName: result === "lost" && winnerName.trim() ? winnerName.trim() : undefined,
           note: note.trim() || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "标记失败");
+      const w = data.winner as { name: string; recorded: boolean; reason: string | null } | null | undefined;
+      setSavedNote(
+        w
+          ? w.recorded
+            ? w.reason === "needs_review"
+              ? `已记录中标方「${w.name}」；与已有授标记录疑似重复，请在历史中标页核对。`
+              : `已记录中标方「${w.name}」，会出现在竞争对手情报里。`
+            : w.reason === "winner_already_recorded"
+              ? `本项目已记录过中标方，这次填写的「${w.name}」没有覆盖原记录（已写进结果备注）。`
+              : w.reason === "t4_schema_not_ready"
+                ? `中标方「${w.name}」已写进结果备注；授标情报未启用，暂不进入竞争对手情报。`
+                : `中标方「${w.name}」已写进结果备注，但没有写入授标情报，可稍后在历史中标页核对。`
+          : null,
+      );
       setResult("");
       setOurBidPrice("");
       setWinningBidPrice("");
+      setWinnerName("");
       setNote("");
       onSaved();
     } catch (e) {
@@ -323,6 +341,18 @@ function TenderResultForm({
             />
           </label>
         )}
+        {result === "lost" ? (
+          <label className="text-xs space-y-1" data-testid="tender-result-winner">
+            <span>中标方（选填）</span>
+            <input
+              value={winnerName}
+              onChange={(e) => setWinnerName(e.target.value)}
+              maxLength={200}
+              placeholder="例如 ABC Window Coverings Inc."
+              className="block w-56 rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+            />
+          </label>
+        ) : null}
         <label className="text-xs space-y-1">
           <span>中标价（可选）</span>
           <input
@@ -353,6 +383,7 @@ function TenderResultForm({
         </button>
       </div>
       {error ? <p className="mt-2 text-[11px] text-danger">{error}</p> : null}
+      {savedNote ? <p className="mt-2 text-[11px] text-muted" data-testid="tender-result-winner-note">{savedNote}</p> : null}
     </div>
   );
 }
