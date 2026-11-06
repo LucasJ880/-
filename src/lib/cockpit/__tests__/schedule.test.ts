@@ -133,6 +133,7 @@ const gapCases: Array<[AutomationKey, number]> = [
   ["agent-runs", 2],
   ["approval-timeout", 120],
   ["tender-watch", 60],
+  ["procurement-watch", 60],
   ["project-inspection", 1440],
   ["employee-ai-practice-miner", 10080],
   ["daily-brief", 1440],

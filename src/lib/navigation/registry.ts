@@ -710,6 +710,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       "/projects/intelligence/agencies",
       "/projects/intelligence/supply-chain",
       "/projects/intelligence/monitor",
+      "/projects/intelligence/records",
     ],
     displayOrder: 10,
   },

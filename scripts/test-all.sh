@@ -643,6 +643,11 @@ run_test "协作通知 @ 输入（COLLAB-2）" "npx tsx src/lib/notifications/__
 run_test "协作通知接线（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts"
 run_test "未读升级邮件（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts"
 run_test "每日未读汇总邮件（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts"
+# PROC-1（openspec change procurement-records-requests）：采购情报与政府资料申请——纯逻辑 + 隔离库端到端
+run_test "采购监控纯函数（身份/排程 DST/来源解析/优先级，PROC-1）" "npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts"
+run_test "资料申请纯函数（模板/重复检查/READY/状态/期限/回执/旧状态映射，PROC-1）" "npx tsx src/lib/procurement-records/__tests__/records-request-pure.test.ts"
+run_test "披露抽取与按口径分析纯函数（PROC-1）" "npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts"
+run_test "采购情报与资料申请 DB 端到端（隔离库执行，否则跳过；PROC-1）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

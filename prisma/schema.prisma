@@ -8617,3 +8617,555 @@ model ExternalIdentity {
   @@index([provider, providerTenantId, userId])
   @@index([status, updatedAt])
 }
+
+// ============================================================
+// PROC-1 — Tender 采购情报与政府资料申请（procurement-records-requests）
+// ============================================================
+// 只新增表，不改任何既有 model；对既有表（Organization / Project / User / Task）一律逻辑引用（字符串 id + 索引），
+// 不建外键、不加反向关系。暗合并闸：PROCUREMENT_RECORDS_SCHEMA_READY（关时新表零访问）。
+// 金额：Decimal；费用：整数分；日期范围：@db.Date；时间戳 UTC，显示 America/Toronto。
+
+/// 采购监控配置（新建默认未启用；启用 ≠ 已有成功运行）
+model ProcurementWatch {
+  id            String    @id @default(cuid())
+  orgId         String
+  name          String
+  enabled       Boolean   @default(false)
+  enabledAt     DateTime?
+  enabledById   String?
+  disabledAt    DateTime?
+  disabledById  String?
+  /// IANA 时区（缺省 America/Toronto）
+  timezone      String    @default("America/Toronto")
+  /// { weekdays:number[], hour, minute }（本地墙钟）
+  scheduleJson  Json
+  /// { keywords, excludeKeywords, institutions, regions, lookbackDays }
+  filtersJson   Json
+  /// { maxNewCandidates, maxNewDraftCards, maxPagesPerSource, maxRowsPerPage, maxRuntimeMs }
+  limitsJson    Json
+  /// { [sourceKey]: boolean }
+  sourcesJson   Json
+  nextRunAt     DateTime?
+  lastRunAt     DateTime?
+  lastRunStatus String?
+  lastSuccessAt DateTime?
+  createdById   String
+  updatedById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  runs ProcurementScanRun[]
+
+  @@unique([orgId, name])
+  @@index([enabled, nextRunAt])
+}
+
+/// 单轮扫描运行（槽位唯一认领；心跳超时可接管；预算耗尽回到 QUEUED 待续）
+model ProcurementScanRun {
+  id                String           @id @default(cuid())
+  orgId             String
+  watchId           String
+  watch             ProcurementWatch @relation(fields: [watchId], references: [id], onDelete: Restrict)
+  /// scheduled:<本地 YYYY-MM-DDTHH:mm>@<tz> | manual:<uuid>
+  slotKey           String
+  /// SCHEDULED | MANUAL
+  trigger           String
+  /// QUEUED | RUNNING | SUCCEEDED | PARTIAL | FAILED | CANCELLED
+  status            String           @default("QUEUED")
+  runnerToken       String?
+  heartbeatAt       DateTime?
+  attempt           Int              @default(0)
+  /// { completedSources: string[], step }
+  progressJson      Json?
+  /// SourceResult[]
+  sourceResultsJson Json?
+  countersJson      Json?
+  truncated         Boolean          @default(false)
+  error             String?
+  requestedById     String?
+  queuedAt          DateTime         @default(now())
+  startedAt         DateTime?
+  finishedAt        DateTime?
+
+  @@unique([watchId, slotKey])
+  @@index([orgId, queuedAt])
+  @@index([status, heartbeatAt])
+}
+
+/// 采购工具：招标 / 授标工具（合同、SO、SA）/ call-up（去重键组织内唯一）
+model ProcurementInstrument {
+  id                       String    @id @default(cuid())
+  orgId                    String
+  /// CA-FED | CA-ON | CA-BC | CA-MB | CA-SK | OTHER
+  jurisdiction             String
+  /// SOLICITATION | AWARD_INSTRUMENT | CALL_UP | OTHER（去重类别）
+  instrumentClass          String
+  /// CONTRACT | STANDING_OFFER | SUPPLY_ARRANGEMENT | PURCHASE_ORDER | UNKNOWN（说明用，不参与去重）
+  instrumentSubtype        String?
+  /// 原始正式编号（来源原样）
+  officialNumber           String
+  normalizedNumber         String
+  procuringEntityKey       String
+  /// jurisdiction|procuringEntityKey|instrumentClass|normalizedNumber
+  dedupeKey                String
+  title                    String?
+  /// [{ value, kind: PLATFORM_ALIAS|AMENDMENT_SUFFIX|RAW_NUMBER, source }]
+  aliasesJson              Json?
+  contractingInstitution   String?
+  buyingInstitution        String?
+  recordsHolderInstitution String?
+  recordsHolderBasis       String?   @db.Text
+  vendorName               String?
+  publishedAt              DateTime?
+  closingAt                DateTime?
+  awardDate                DateTime? @db.Date
+  currentExpiryAt          DateTime? @db.Date
+  optionsExercisedJson     Json?
+  remainingOptions         Int?
+  confirmedRetenderDate    DateTime? @db.Date
+  contractValue            Decimal?  @db.Decimal(18, 2)
+  /// DISCLOSED_CONTRACT_VALUE | ORIGINAL_VALUE | UNKNOWN（公开合同值 ≠ 实际支出）
+  contractValueBasis       String?
+  currency                 String?
+  parentInstrumentId       String?
+  /// 同号同类但机构无法确定为别名时，指向可能重复的采购工具（人工复核，不自动合并）
+  possibleDuplicateOfId    String?
+  /// CANDIDATE | WATCHING | IGNORED | ARCHIVED
+  triageStatus             String    @default("CANDIDATE")
+  triagedById              String?
+  triagedAt                DateTime?
+  /// { score, dimensions:[{key,points,max,reasonZh}], computedAt }
+  priorityJson             Json?
+  /// 关键词命中摘要（检索辅助）
+  matchJson                Json?
+  firstSeenRunId           String?
+  firstSeenAt              DateTime  @default(now())
+  lastVerifiedAt           DateTime?
+  lastChangedAt            DateTime?
+  /// SEED | SCAN | MANUAL
+  origin                   String
+  createdById              String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  evidence ProcurementSourceEvidence[]
+
+  @@unique([orgId, dedupeKey])
+  @@index([orgId, triageStatus])
+  @@index([orgId, normalizedNumber])
+  @@index([orgId, currentExpiryAt])
+  @@index([parentInstrumentId])
+}
+
+/// 采购工具之间的显式关系（call-up → SO、招标 → 合同、前序、相关历史；不是编号别名）
+model ProcurementInstrumentRelation {
+  id               String   @id @default(cuid())
+  orgId            String
+  fromInstrumentId String
+  toInstrumentId   String
+  /// CALL_UP_OF | SOLICITATION_FOR | PREDECESSOR_OF | RELATED_HISTORY
+  relation         String
+  basis            String?  @db.Text
+  createdById      String?
+  createdAt        DateTime @default(now())
+
+  @@unique([fromInstrumentId, toInstrumentId, relation])
+  @@index([orgId])
+  @@index([toInstrumentId])
+}
+
+/// Tender 项目 ↔ 采购工具（一个 Tender 可关联多个历史合同 / SO / SA）
+model ProcurementTenderLink {
+  id           String   @id @default(cuid())
+  orgId        String
+  projectId    String
+  instrumentId String
+  /// CURRENT | PREDECESSOR | RELATED_HISTORY
+  relation     String
+  note         String?  @db.Text
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, instrumentId])
+  @@index([orgId, projectId])
+  @@index([instrumentId])
+}
+
+/// 来源证据（同一来源记录内容变化 → 新行；内容不变只刷新 lastSeenAt）
+model ProcurementSourceEvidence {
+  id             String                 @id @default(cuid())
+  orgId          String
+  instrumentId   String?
+  instrument     ProcurementInstrument? @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  /// CANADABUYS_TENDER_NOTICES | OPEN_CANADA_CONTRACTS | OPEN_CANADA_ATI_SUMMARIES | CANADABUYS_CONTRACT_HISTORY_PAGE | MANUAL_LINK | TASKBRIEF_SEED
+  sourceType     String
+  sourceKey      String
+  sourceRecordId String?
+  sourceUrl      String?                @db.Text
+  isOfficial     Boolean
+  contentHash    String
+  publishedAt    DateTime?
+  fetchedAt      DateTime
+  lastSeenAt     DateTime
+  /// PARSED | PARTIAL | FAILED
+  parseStatus    String
+  normalizedJson Json?
+  snapshotJson   Json?
+  summary        String?                @db.Text
+  scanRunId      String?
+  createdById    String?
+  createdAt      DateTime               @default(now())
+
+  @@unique([orgId, sourceType, sourceKey, contentHash])
+  @@index([instrumentId])
+  @@index([orgId, sourceType, sourceKey])
+}
+
+/// 申请人 / 公司资料（修改即版本 +1 并回到未确认；不从历史来信自动带出）
+model RecordsApplicantProfile {
+  id                 String    @id @default(cuid())
+  orgId              String
+  label              String
+  legalName          String?
+  representativeName String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  province           String?
+  postalCode         String?
+  country            String?
+  email              String?
+  phone              String?
+  canonicalKey       String?
+  version            Int       @default(1)
+  /// UNCONFIRMED | CONFIRMED
+  verificationStatus String    @default("UNCONFIRMED")
+  confirmedById      String?
+  confirmedAt        DateTime?
+  archivedAt         DateTime?
+  notes              String?   @db.Text
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([orgId])
+}
+
+/// 机关申请规则（费用未知为 null；种子未核实，须真实用户核对官方页面）
+model RecordsRuleProfile {
+  id                  String    @id @default(cuid())
+  orgId               String
+  jurisdiction        String
+  /// 规范机关键；"*" = 该辖区缺省
+  institutionKey      String
+  lawLabel            String
+  officialPortalUrl   String?   @db.Text
+  guidanceUrl         String?   @db.Text
+  /// FORMAL_ONLINE | FORMAL_MAIL | FORMAL_EMAIL | INFORMAL_COPY
+  channel             String
+  applicationFeeCents Int?
+  currency            String?
+  otherFeesRule       String?   @db.Text
+  deadlineValue       Int?
+  /// CALENDAR_DAYS | BUSINESS_DAYS
+  deadlineUnit        String?
+  effectiveFrom       DateTime? @db.Date
+  /// [{ label, url }]
+  sourceRefsJson      Json?
+  /// [{ ourField, portalLabel, observed, observedAt, observedById }]
+  fieldGuideJson      Json?
+  selfServeSupported  Boolean   @default(false)
+  /// UNVERIFIED | VERIFIED
+  verificationStatus  String    @default("UNVERIFIED")
+  verifiedAt          DateTime?
+  verifiedById        String?
+  verificationMethod  String?   @db.Text
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([orgId, jurisdiction, institutionKey, channel])
+}
+
+/// 历史台账确认（导入历史 / 真实用户确认无历史）；系统不得自行宣称台账完整
+model RecordsLedgerAttestation {
+  id             String    @id @default(cuid())
+  orgId          String
+  applicantKey   String?
+  jurisdiction   String
+  /// 规范机关键；"*" = 该辖区全部机关
+  institutionKey String
+  coverageFrom   DateTime? @db.Date
+  coverageTo     DateTime? @db.Date
+  /// HISTORY_IMPORTED | USER_CONFIRMED_NONE
+  method         String
+  note           String?   @db.Text
+  attestedById   String
+  attestedAt     DateTime  @default(now())
+  revokedAt      DateTime?
+  revokedById    String?
+
+  @@index([orgId, jurisdiction])
+}
+
+/// 资料申请（三条独立状态 + 政府处理结果；已提交正文不可覆盖）
+model RecordsRequest {
+  id                           String    @id @default(cuid())
+  orgId                        String
+  projectId                    String?
+  applicantProfileId           String?
+  /// 申请主体规范键快照（null = 未知，重复检查按本组织保守匹配）
+  applicantKey                 String?
+  title                        String
+  jurisdiction                 String
+  recipientInstitution         String?
+  recipientInstitutionKey      String?
+  recordsHolderBasis           String?   @db.Text
+  lawLabel                     String?
+  /// PUBLIC_RECORD | COMPLETED_ATI_COPY | NEW_FORMAL_REQUEST
+  pathType                     String
+  /// FORMAL | INFORMAL
+  channel                      String
+  ruleProfileId                String?
+  /// DRAFT | READY | HANDOFF_PENDING | USER_REPORTED_SUBMISSION | SUBMISSION_UNKNOWN | SUBMITTED | ACKNOWLEDGED | PROCESSING | CLOSED
+  status                       String    @default("DRAFT")
+  /// NONE | NOTICE_RECEIVED | PARTIAL_FILES_RECEIVED | FILES_RECEIVED
+  filesStatus                  String    @default("NONE")
+  /// NOT_STARTED | QUEUED | RUNNING | NEEDS_REVIEW | COMPLETED | FAILED
+  analysisStatus               String    @default("NOT_STARTED")
+  /// FULL_DISCLOSURE | PARTIAL_DISCLOSURE | NO_RECORDS | ALL_WITHHELD | TRANSFERRED | WITHDRAWN | CANCELLED | OTHER | null
+  governmentOutcome            String?
+  outcomeNote                  String?   @db.Text
+  currentVersionId             String?
+  handoffVersionId             String?
+  submittedVersionId           String?
+  /// null = 未提交；true = 提交正文已核对为所记版本；false = 最终提交正文未核实
+  submittedTextVerified        Boolean?
+  submissionReference          String?
+  caseNumber                   String?
+  submittedAt                  DateTime?
+  submissionChannel            String?
+  actualFeeCents               Int?
+  feeCurrency                  String?
+  /// user_reported | document_verified | runtime_verified
+  submissionEvidenceLevel      String?
+  submissionVerifiedById       String?
+  submissionVerifiedAt         DateTime?
+  submissionVerificationMethod String?   @db.Text
+  /// SUBMISSION_UNKNOWN：{ knownFacts, pendingChecks, recordedAt, recordedById }
+  unknownFactsJson             Json?
+  /// 公开资料 / 既有披露检查：{ publicRecords:{checkedAt,by,runId,summaryZh}, completedAti:{…} }
+  pathChecksJson               Json?
+  /// 历史重叠的新增范围 / 重新申请理由
+  overlapReason                String?   @db.Text
+  officialDueAt                DateTime?
+  estimatedDueAt               DateTime?
+  estimateBasis                String?   @db.Text
+  internalFollowUpAt           DateTime?
+  /// { toInstitution, newCaseNumber, status: PENDING_CONFIRMATION|CONFIRMED, recordedAt }
+  transferJson                 Json?
+  expectedReleasePages         Int?
+  purposeZh                    String?   @db.Text
+  gapsZh                       String?   @db.Text
+  /// NORMAL | HISTORICAL_IMPORT | FIXTURE
+  origin                       String    @default("NORMAL")
+  originNote                   String?   @db.Text
+  /// 扫描自动草拟卡的幂等键（auto:<instrumentId>）
+  autoDraftKey                 String?
+  archivedAt                   DateTime?
+  archivedById                 String?
+  archiveReason                String?   @db.Text
+  lockVersion                  Int       @default(0)
+  createdById                  String
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+
+  versions    RecordsRequestVersion[]
+  events      RecordsRequestEvent[]
+  attachments RecordsAttachment[]
+
+  @@unique([orgId, autoDraftKey])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+  @@index([orgId, jurisdiction, recipientInstitutionKey])
+}
+
+/// 申请正文版本（只插入，从不更新）
+model RecordsRequestVersion {
+  id                      String         @id @default(cuid())
+  requestId               String
+  request                 RecordsRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  versionNo               Int
+  bodyEn                  String         @db.Text
+  explanationZh           String?        @db.Text
+  startDate               DateTime?      @db.Date
+  endDate                 DateTime?      @db.Date
+  /// RecordCategory[]
+  categoriesJson          Json
+  /// [{ number, normalized, instrumentId }]
+  instrumentRefsJson      Json
+  jurisdiction            String
+  recipientInstitution    String?
+  recipientInstitutionKey String?
+  channel                 String
+  applicantProfileVersion Int?
+  applicantSnapshotJson   Json?
+  textHash                String
+  scopeFingerprint        String
+  /// TEMPLATE | DRAFT_EDIT | ACTUAL_SUBMITTED_TEXT | HISTORICAL_IMPORT
+  kind                    String
+  createdById             String?
+  createdAt               DateTime       @default(now())
+
+  @@unique([requestId, versionNo])
+  @@index([scopeFingerprint])
+}
+
+/// 案件时间线事件（只追加；更正以新事件指向旧事件）
+model RecordsRequestEvent {
+  id                String         @id @default(cuid())
+  orgId             String
+  requestId         String
+  request           RecordsRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  type              String
+  /// USER | SYSTEM
+  actorType         String
+  actorId           String?
+  recordedAt        DateTime       @default(now())
+  effectiveAt       DateTime?
+  /// user_reported | document_verified | runtime_verified | null（内部事件）
+  evidenceLevel     String?
+  attachmentIdsJson Json?
+  payloadJson       Json?
+  noteZh            String?        @db.Text
+  correctsEventId   String?
+  dedupeKey         String?
+
+  @@unique([requestId, dedupeKey])
+  @@index([requestId, recordedAt])
+  @@index([orgId, type])
+}
+
+/// 回执 / 来信 / 披露文件等附件（私有存储；同申请同哈希不重复）
+model RecordsAttachment {
+  id               String         @id @default(cuid())
+  orgId            String
+  requestId        String
+  request          RecordsRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  eventId          String?
+  /// RECEIPT | GOVERNMENT_LETTER | DISCLOSURE_FILE | PAYMENT_PROOF | PORTAL_SCREENSHOT | OTHER
+  kind             String
+  originalFilename String
+  storagePathname  String         @db.Text
+  sizeBytes        Int
+  mimeType         String
+  contentHash      String
+  /// USER_UPLOAD
+  source           String         @default("USER_UPLOAD")
+  acquiredAt       DateTime?
+  uploadedById     String
+  uploadedAt       DateTime       @default(now())
+  /// PENDING | PARSING | PARSED | NEEDS_OCR | ENCRYPTED | CORRUPT | UNSUPPORTED | FAILED
+  parseStatus      String         @default("PENDING")
+  parseError       String?
+  parseAttempts    Int            @default(0)
+  parseStartedAt   DateTime?
+  parsedAt         DateTime?
+  pageCount        Int?
+  /// [{ sheet, rows }]
+  sheetRangesJson  Json?
+
+  units RecordsAttachmentUnit[]
+
+  @@unique([requestId, contentHash])
+  @@index([orgId])
+  @@index([parseStatus, parseStartedAt])
+}
+
+/// 附件文本单元（PDF 页 / 工作表）
+model RecordsAttachmentUnit {
+  id           String            @id @default(cuid())
+  attachmentId String
+  attachment   RecordsAttachment @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+  unitIndex    Int
+  /// page | sheet
+  unitKind     String
+  unitLabel    String?
+  text         String            @db.Text
+  charCount    Int               @default(0)
+  /// done | OCR_REQUIRED
+  parseStatus  String
+  createdAt    DateTime          @default(now())
+
+  @@unique([attachmentId, unitIndex])
+}
+
+/// 披露明细（Decimal；来源位置可追溯；默认待复核）
+model ProcurementLineItem {
+  id                     String    @id @default(cuid())
+  orgId                  String
+  requestId              String
+  attachmentId           String
+  /// 抽取：u<unitIndex>:r<row>；人工：manual:<cuid>
+  dedupeKey              String
+  instrumentNumber       String?
+  /// CONTRACT | AMENDMENT | CALL_UP | PURCHASE_ORDER | INVOICE | PAYMENT | USAGE_REPORT | PRICE_SCHEDULE | OTHER
+  documentType           String
+  /// CEILING | EVALUATED | COMMITTED | ORDERED | INVOICED | PAID | UNKNOWN
+  amountBasis            String
+  /// INCREMENT | REVISED_TOTAL | UNKNOWN（仅修订）
+  amendmentMode          String?
+  docRef                 String?
+  linkedRef              String?
+  docDate                DateTime? @db.Date
+  productDescription     String?   @db.Text
+  specification          String?   @db.Text
+  quantity               Decimal?  @db.Decimal(18, 4)
+  unit                   String?
+  unitPrice              Decimal?  @db.Decimal(18, 4)
+  amount                 Decimal?  @db.Decimal(18, 2)
+  currency               String?
+  deliveryLocation       String?
+  taxFreightNote         String?
+  isCancellationOrCredit Boolean   @default(false)
+  sourceUnitIndex        Int?
+  sourcePage             Int?
+  sourceSheet            String?
+  sourceRow              Int?
+  rawSnippet             String    @db.Text
+  /// TABLE_COLUMN_MAP | PDF_TEXT_LINE | MANUAL
+  extractionMethod       String
+  /// NEEDS_REVIEW | CONFIRMED | REJECTED
+  reviewStatus           String    @default("NEEDS_REVIEW")
+  reviewNote             String?   @db.Text
+  reviewedById           String?
+  reviewedAt             DateTime?
+  createdById            String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([attachmentId, dedupeKey])
+  @@index([requestId, reviewStatus])
+  @@index([orgId, instrumentNumber])
+}
+
+/// 分析版本（每次运行新版本；旧版本保留）
+model ProcurementAnalysis {
+  id                     String    @id @default(cuid())
+  orgId                  String
+  requestId              String
+  versionNo              Int
+  /// RUNNING | NEEDS_REVIEW | COMPLETED | FAILED
+  status                 String
+  inputAttachmentIdsJson Json
+  coverageJson           Json
+  resultJson             Json
+  gapsJson               Json
+  assumptionsJson        Json
+  lineItemCount          Int       @default(0)
+  confirmedCount         Int       @default(0)
+  createdById            String
+  createdAt              DateTime  @default(now())
+  completedAt            DateTime?
+
+  @@unique([requestId, versionNo])
+}
