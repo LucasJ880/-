@@ -63,6 +63,9 @@ npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
 # P2-0：结果表单中标方 + 竞争对手域排除我方（DB e2e 无隔离库自动跳过）
 npx tsx src/lib/tender-intel/__tests__/outcome-winner-db.isolated.test.ts
+# P2-0b：竞争对手 / 采购机构画像（纯函数 + 路由 DB e2e，无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/org-profiles.test.ts
+npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts
 # P2-0c：授标去重（不同招标编号不判疑似重复；DB 测试无隔离库自动跳过）
 npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts
 # P2-0d：授标记录人工处理（DB e2e 无隔离库自动跳过）
@@ -389,6 +392,9 @@ npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
 npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
 npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts
 npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts
+
+# P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
+npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
