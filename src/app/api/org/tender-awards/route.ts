@@ -8,6 +8,8 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { getOrgMembership } from "@/lib/auth";
+import { hasOrgRole, isSuperAdmin } from "@/lib/rbac/roles";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAwardsForOrg, toAmountNumber } from "@/lib/tender-intel/awards";
 import { deriveAwardIntelligence } from "@/lib/tender-intel/award-intelligence";
@@ -55,9 +57,15 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { name: true } });
   const intelligence = deriveAwardIntelligence(allRecords, { ownWinnerNames: [org?.name] });
 
+  // P2-0d：只有组织管理员能在页面上确认 / 撤回（写接口另行鉴权，这里只决定是否显示按钮）
+  const membership = isSuperAdmin(user.role) ? null : await getOrgMembership(user.id, orgId);
+  const canReview =
+    isSuperAdmin(user.role) || (membership?.status === "active" && hasOrgRole(membership.role, "org_admin"));
+
   return NextResponse.json({
     orgId,
     available: true,
+    canReview,
     records: records.map((r) => ({
       id: r.id,
       buyerName: r.buyerNameRaw,
@@ -70,6 +78,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
       verificationStatus: r.verificationStatus,
       status: r.status,
       projectId: r.projectId,
+      possibleDuplicateOfId: r.possibleDuplicateOfId,
       confirmedAt: r.confirmedAt ? r.confirmedAt.toISOString() : null,
     })),
     intelligence,
