@@ -61,6 +61,11 @@ npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts
 npx tsx src/components/assistant/__tests__/followup-outcome-render.test.tsx
 npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-slots-p1p2.test.ts
+# P2-0：结果表单中标方 + 竞争对手域排除我方（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/outcome-winner-db.isolated.test.ts
+# P2-0b：竞争对手 / 采购机构画像（纯函数 + 路由 DB e2e，无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/org-profiles.test.ts
+npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts
@@ -387,6 +392,9 @@ npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts
 npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts
 npx tsx src/lib/procurement-records/__tests__/records-request-pure.test.ts
 npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
+
+# P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
+npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

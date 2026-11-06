@@ -28,6 +28,8 @@ interface AnalysisResult {
   analysis: QuoteAnalysis;
   quotesCount: number;
   generatedAt: string;
+  /** P1-6G：解读里找不到出处的数字（已在正文里标注「［矩阵中无此数］」） */
+  numberCheck?: { ok: boolean; unverified: Array<{ field: string; token: string }> };
 }
 
 interface Props {
@@ -155,6 +157,17 @@ export function QuoteAnalysisPanel({ projectId, inquiryId, quotedCount }: Props)
                   </p>
                 )}
               </div>
+
+              {result.numberCheck && !result.numberCheck.ok && (
+                <div className="flex items-start gap-1.5 rounded-lg border border-[#e8c9a0] bg-[#fdf6ec] px-3 py-2 text-[11px] text-[#8a5a1c]" data-testid="number-check-warning">
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                  <span>
+                    AI 解读里有 {result.numberCheck.unverified.length} 个数字在比价矩阵中找不到（
+                    {result.numberCheck.unverified.slice(0, 5).map((u) => u.token).join("、")}
+                    {result.numberCheck.unverified.length > 5 ? " 等" : ""}），已在正文标「［矩阵中无此数］」。金额与结论以上方矩阵为准。
+                  </span>
+                </div>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 {SECTIONS.map((s) => {

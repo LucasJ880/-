@@ -62,6 +62,8 @@ type Intelligence = {
   competitorSignals: {
     confirmed: Array<{ name: string; awardCount: number; lastAwardDate: string | null }>;
     signals: Array<{ name: string; mentionCount: number }>;
+    /** 已排除的我方中标记录数（P2-0） */
+    ownAwardCount?: number;
   };
 };
 
@@ -300,6 +302,9 @@ export default function IntelAwardsPage() {
                 {intel.competitorSignals.signals.map((s) => s.name).join("、")}
               </p>
             )}
+            {intel.competitorSignals.ownAwardCount ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">已排除我方自己的中标记录 {intel.competitorSignals.ownAwardCount} 条。</p>
+            ) : null}
           </div>
         )}
       </div>

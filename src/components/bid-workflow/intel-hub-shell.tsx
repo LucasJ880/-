@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// 「周期采购」暂不放入口（跨项目系列识别还没有数据来源；页面保留，等招标雷达接上再放回）— P2-0b
 const LINKS = [
   { href: "/projects/intelligence", label: "智能调查室 / 组织智能" },
-  { href: "/projects/intelligence/series", label: "周期采购" },
   { href: "/projects/intelligence/awards", label: "历史中标" },
   { href: "/projects/intelligence/competitors", label: "竞争对手" },
   { href: "/projects/intelligence/agencies", label: "采购机构" },

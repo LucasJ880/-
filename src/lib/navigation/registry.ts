@@ -714,17 +714,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     ],
     displayOrder: 10,
   },
-  {
-    key: "nav-intel-series",
-    label: "周期采购",
-    href: "/projects/intelligence/series",
-    icon: Radar,
-    group: "PROJECT_INTEL",
-    moduleKey: ["bids", "projects"],
-    requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
-    displayOrder: 20,
-  },
+  // 「周期采购」（nav-intel-series）暂不进侧栏：跨项目系列识别还没有数据来源；页面保留（P2-0b）
   {
     key: "nav-intel-awards",
     label: "历史中标",
