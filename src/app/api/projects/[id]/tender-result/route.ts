@@ -9,6 +9,7 @@ import { requireProjectWriteAccess } from "@/lib/projects/access";
 import {
   isTenderResult,
   markProjectTenderResult,
+  parseOutcomeWinner,
 } from "@/lib/projects/tender-result";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
@@ -43,6 +44,9 @@ export const POST = withAuth(async (request, ctx, user) => {
   if (body.winningBidPrice !== undefined && winningBidPrice === undefined) {
     return NextResponse.json({ error: "winningBidPrice 无效" }, { status: 400 });
   }
+  // P2-0：中标方（选填，只在未中标时）
+  const winner = parseOutcomeWinner(body.result, body.winnerName);
+  if (!winner.ok) return NextResponse.json({ error: winner.error }, { status: 400 });
 
   try {
     const result = await markProjectTenderResult({
@@ -58,6 +62,7 @@ export const POST = withAuth(async (request, ctx, user) => {
             ? null
             : body.awardDate,
       note: typeof body.note === "string" ? body.note : undefined,
+      winnerName: winner.winnerName,
       actorUserId: user.id,
     });
 
@@ -76,6 +81,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         currency: result.project.currency,
         awardDate: result.project.awardDate,
         reviewDraftId: result.review?.id ?? null,
+        winnerName: winner.winnerName,
       },
       request,
     });
@@ -90,6 +96,14 @@ export const POST = withAuth(async (request, ctx, user) => {
         awardDate: result.project.awardDate,
       },
       review: result.review,
+      // P2-0：中标方是否已沉淀为授标事实（未填 / 开关关闭 / 已记录过别的名字 都会说明原因）
+      winner: winner.winnerName
+        ? {
+            name: winner.winnerName,
+            recorded: result.canonicalBackfill?.award === "written",
+            reason: result.canonicalBackfill?.awardReason ?? null,
+          }
+        : null,
     });
   } catch (e) {
     return NextResponse.json(

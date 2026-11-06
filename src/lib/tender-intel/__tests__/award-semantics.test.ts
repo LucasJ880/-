@@ -1,5 +1,5 @@
 /**
- * T4 语义门 — SEM-T4-01..08（PR #107 Final Review 整改）
+ * T4 语义门 — SEM-T4-01..09（PR #107 Final Review 整改；09 = P2-0 我方中标不进竞争对手域）
  * 运行：npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts
  *
  * 锁定：
@@ -10,6 +10,7 @@
  */
 import {
   materializeWinnerConfirmation,
+  normalizeVendorName,
   type AwardsDbClient,
   type AwardRecordRow,
 } from "../awards";
@@ -292,6 +293,32 @@ console.log("tender-intel award-semantics（SEM-T4-01..08）");
       on.materialized === true && rows2.length === 1 && srcs.length === 1 &&
         rows2[0].verificationStatus === "HUMAN_CONFIRMED",
       "SEM-T4-08b gate ON → canonical materialize 正常（HUMAN_CONFIRMED + provenance）",
+    );
+  }
+
+  /* SEM-T4-09（P2-0）我方中标不进「竞争对手」域；不传组织名时行为不变 */
+  {
+    const rows = [
+      row({ winnerName: "Fixture Shutters Inc.", winnerNameNormalized: normalizeVendorName("Fixture Shutters Inc."), verificationStatus: "HUMAN_CONFIRMED", awardDate: new Date("2025-05-01") }),
+      row({ winnerName: "FIXTURE SHUTTERS INC", winnerNameNormalized: normalizeVendorName("FIXTURE SHUTTERS INC"), verificationStatus: "AI_EXTRACTED", status: "NEEDS_REVIEW" }),
+      row({ winnerName: "ABC Blinds Ltd", winnerNameNormalized: normalizeVendorName("ABC Blinds Ltd"), verificationStatus: "HUMAN_CONFIRMED", awardDate: new Date("2026-02-01") }),
+      row({ winnerName: "Lead Only Co", winnerNameNormalized: normalizeVendorName("Lead Only Co"), verificationStatus: "AI_EXTRACTED", status: "NEEDS_REVIEW" }),
+    ];
+    const before = deriveAwardIntelligence(rows, NOW);
+    const after = deriveAwardIntelligence(rows, { ...NOW, ownWinnerNames: [" Fixture Shutters Inc. "] });
+    ok(
+      before.competitorSignals.confirmed.some((c) => c.name === "Fixture Shutters Inc.") && before.competitorSignals.ownAwardCount === 0,
+      "SEM-T4-09a 不传组织名 → 与改动前一致（我方仍按中标方聚合，ownAwardCount=0）",
+    );
+    ok(
+      after.competitorSignals.confirmed.map((c) => c.name).join() === "ABC Blinds Ltd" &&
+        after.competitorSignals.signals.map((c) => c.name).join() === "Lead Only Co",
+      "SEM-T4-09b 传组织名 → 已确认与线索里都排除我方（大小写 / 标点不同也算）",
+    );
+    ok(after.competitorSignals.ownAwardCount === 2, "SEM-T4-09c 记录被排除的我方中标条数");
+    ok(
+      after.historicalAwards.records.length === 4 && after.buyerPattern.buyers[0].winners.includes("Fixture Shutters Inc."),
+      "SEM-T4-09d 历史授标与买家中标方列表不受影响（语义=中标方，包括我方）",
     );
   }
 
