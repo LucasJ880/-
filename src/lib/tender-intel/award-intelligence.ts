@@ -161,7 +161,7 @@ function isAuthoritative(r: AwardRecordRow): boolean {
 }
 
 /** 买家×可比范围组的周期投影（确定性；无可靠组 → UNKNOWN） */
-function deriveBuyerCycle(buyerRows: AwardRecordRow[]): BuyerCycleProjection {
+export function deriveBuyerCycle(buyerRows: AwardRecordRow[]): BuyerCycleProjection {
   const unknown = (reason: string): BuyerCycleProjection => ({
     status: "UNKNOWN",
     reason,
