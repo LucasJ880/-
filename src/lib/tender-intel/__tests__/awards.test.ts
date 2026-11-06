@@ -10,6 +10,8 @@ import {
   listAwardsForBuyer,
   getAwardEvidence,
   AwardIntelError,
+  isDistinctSolicitation,
+  normalizeSolicitationKey,
   type AwardsDbClient,
   type AwardRecordRow,
   type AwardSourceRow,
@@ -215,6 +217,69 @@ console.log("tender-intel awards（T4 canonical service + read model）");
       "T4-01c 弱匹配 → 新记录 NEEDS_REVIEW + possibleDuplicateOfId（人工裁决）",
     );
   }
+
+  /* T4-01d 同 winner+buyer、两条都有招标编号且不同 → 另一次招标，正常 ACTIVE（P2-0c） */
+  {
+    const { client, records } = makeFakeDb();
+    await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
+    const next = canadabuysInput("orgA", {
+      solicitationNumber: "PW-2025-014",
+      awardDate: new Date("2025-05-03"),
+      contractAmount: 131000,
+    });
+    next.source.sourceKey = "canadabuys:PW-2025-014";
+    const r = await createOrObserveAwardRecord(next, { client });
+    ok(
+      r.outcome === "CREATED" &&
+        records.length === 2 &&
+        r.record.status === "ACTIVE" &&
+        r.record.possibleDuplicateOfId === null,
+      "T4-01d 不同招标编号 → 第二条 ACTIVE，不判疑似重复",
+    );
+  }
+
+  /* T4-01e 编号只差大小写 / 空格 / 标点 → 仍判疑似重复（不自动当成另一次招标） */
+  {
+    const { client, records } = makeFakeDb();
+    await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
+    const same = canadabuysInput("orgA", {
+      solicitationNumber: "pw 2024 001",
+      awardDate: new Date("2024-06-01"),
+      contractAmount: 99000,
+    });
+    same.source.sourceKey = "web:pw-2024-001-copy";
+    same.source.sourceType = "WEB_SEARCH";
+    same.verificationStatus = "AI_EXTRACTED";
+    const r = await createOrObserveAwardRecord(same, { client });
+    ok(
+      r.outcome === "NEEDS_REVIEW" && r.record.possibleDuplicateOfId === records[0].id,
+      "T4-01e 编号写法不同（规范化后相同）→ NEEDS_REVIEW",
+    );
+  }
+
+  /* T4-01f 既有记录没编号、新记录有编号 → 无法区分，仍判疑似重复 */
+  {
+    const { client } = makeFakeDb();
+    const first = canadabuysInput("orgA", { solicitationNumber: null });
+    first.source.sourceType = "WEB_SEARCH";
+    first.source.sourceKey = "web:no-number";
+    first.verificationStatus = "AI_EXTRACTED";
+    await createOrObserveAwardRecord(first, { client });
+    const withNo = canadabuysInput("orgA", { solicitationNumber: "PW-2026-777", awardDate: new Date("2026-02-01") });
+    withNo.source.sourceKey = "canadabuys:PW-2026-777";
+    const r = await createOrObserveAwardRecord(withNo, { client });
+    ok(r.outcome === "NEEDS_REVIEW", "T4-01f 一方没编号 → NEEDS_REVIEW（保持原规则）");
+  }
+
+  /* T4-01g 招标编号规范化 */
+  ok(
+    normalizeSolicitationKey(" pw-2024/001 ") === "PW2024001" &&
+      normalizeSolicitationKey("  ") === null &&
+      isDistinctSolicitation("PW-1", "pw 1") === false &&
+      isDistinctSolicitation("PW-1", "PW-2") === true &&
+      isDistinctSolicitation(null, "PW-2") === false,
+    "T4-01g 编号规范化：大小写 / 空白 / 标点不算不同；一方为空不算不同",
+  );
 
   /* T4-02 跨 org 零可见 */
   {
