@@ -7,11 +7,11 @@
 ## ADDED Requirements
 
 ### Requirement: 发起前的入口状态
-`GET /api/projects/{id}/tender-rfq/entry` SHALL 在不创建任何询价轮次、询价项或审批卡的前提下返回 `state: { enabled, reason, message, action?, warnings }`，并按以下优先级给出第一个命中的不可发原因：`pending_approval`（已有待批的询价发送卡）、`recently_sent`（轮次锁期内已发出）、`no_confirmed_requirements`、`sensitive_leak`、`sender_not_connected`（授权邮箱未连接 Gmail）、`sender_no_compose_scope`。
+`GET /api/projects/{id}/tender-rfq/entry` SHALL 在不创建任何询价轮次、询价项或审批卡的前提下返回 `state: { enabled, reason, message, action?, warnings }`，并按以下优先级给出第一个命中的不可发原因：`pending_approval`（已有待批的询价发送卡）、`recently_sent`（轮次锁期内已发出）、`no_confirmed_requirements`、`sensitive_leak`、`sender_not_connected`（授权邮箱未连接 Gmail）、`sender_no_compose_scope`、`no_ready_suppliers`（没有一家在用且有联系邮箱的供应商）。
 
 #### Scenario: 不可发原因按优先级判定
 - **WHEN** 项目同时存在待批发送卡且授权邮箱未连接
-- **THEN** `state.enabled` 为 false、`reason` 为 `pending_approval`；`npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts` 覆盖六种原因的优先级与可发态
+- **THEN** `state.enabled` 为 false、`reason` 为 `pending_approval`；`npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts` 覆盖七种原因的优先级与可发态
 
 #### Scenario: 查询不产生副作用
 - **WHEN** 连续调用两次 entry
@@ -29,11 +29,19 @@
 - **THEN** `state.enabled` 为 true，`warnings` 含「回信不会自动进表」；同一测试覆盖
 
 ### Requirement: 可选供应商与默认条款
-entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集，每家标明 `ready`（有有效邮箱且 active）与不可选原因（`no_email` / `inactive`），操作者常用供应商 SHALL 标 `isDefault: true` 并排在前面；SHALL 返回默认贸易条款及其是否来自个人偏好。
+entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集，每家标明 `ready` 与不可选原因（`no_email` / `inactive`），`ready` 的判定 SHALL 与送审时的供应商就绪规则逐条一致；操作者常用供应商 SHALL 标 `isDefault: true` 并排在前面；SHALL 返回默认贸易条款及其是否来自个人偏好。Web 提交的贸易条款 SHALL 按用户显式选择生效，选「不指定」时 SHALL NOT 回退到个人默认。
 
 #### Scenario: 常用供应商默认勾选、没邮箱的不可选
 - **WHEN** 操作者常用供应商里有一家没有联系邮箱
 - **THEN** 该供应商 `isDefault: true`、`ready: false`、`blockedReason: "no_email"`，前端灰显并给出「补邮箱」链接到该供应商页
+
+#### Scenario: 入口可选与送审就绪一致
+- **WHEN** 供应商邮箱为 `"sales@x.com "`（末尾空格）、`"a@b"`、空串或已停用
+- **THEN** 入口判为不可选的集合与送审时判为不就绪的集合完全相同；`web-entry-pure.test.ts` 用送审规则做对照
+
+#### Scenario: 选「不指定」贸易条款
+- **WHEN** 操作者个人默认为 DDP，在抽屉里选「不指定」后提交
+- **THEN** 询价单不写贸易条款，结果页显示「贸易条款：不指定」
 
 ### Requirement: 生成并送审
 `POST /api/projects/{id}/tender-rfq/rounds` SHALL 要求项目写权限，用 zod 校验请求体（`supplierIds` 1–8 个、`extraQuestions` ≤ 5 条、`incoterm` 限 EXW/FOB/CIF/DDP/DAP），校验失败返回 400 与中文说明。通过后 SHALL 以 `source: "web"` 调用与 Muse `rfq` 意图相同的询价生成流程（轮次锁、供应商就绪、只发已确认要求、敏感内容整单拦截），成功时创建且只创建一张 `tender.send_rfq` 审批卡，响应 SHALL 含轮次号、每家收件人、回复截止与 `approval: { approvalId, canApprove, payloadHash }`（`canApprove` 与审批中心对同一张卡的判定一致）。批准前系统 SHALL NOT 发出任何邮件。失败时响应 SHALL 含 `userMessage: { message, action? }`。
@@ -42,12 +50,31 @@ entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集
 - **WHEN** 选 3 家有邮箱的供应商提交
 - **THEN** 返回 200 与 3 个收件人、一张待批 `tender.send_rfq`；询价项状态全部为 `pending`，没有发出邮件
 
+#### Scenario: 审批卡没建成不留孤儿轮次
+- **WHEN** 询价轮次已建、创建审批卡失败（`DRAFT_FAILED`）
+- **THEN** 该轮次被标为已取消，用户重试时不会看到一轮无法发送的草稿
+
 #### Scenario: 错误码转成人话
 - **WHEN** `prepareRfqRound` 返回 `ROUND_LOCKED` / `NO_CONFIRMED_REQUIREMENTS` / `SENSITIVE_LEAK` / `SUPPLIERS_NOT_READY` / `NO_SUPPLIERS` / `PROJECT_NOT_FOUND` / `DRAFT_FAILED`
 - **THEN** `userMessage.message` 为对应中文说明（不含错误码），能给出路的附 `action`；`web-entry-pure.test.ts` 逐码覆盖
 
+### Requirement: 人工填写栏目的出站敏感词
+补充说明、目的地或任一附加问题含出站敏感词（与询价生成器对人工自由文本使用的同一规则）时，`POST …/tender-rfq/rounds` SHALL 返回 422、`errorCode: "FREE_TEXT_SENSITIVE"` 与指明是哪一栏的中文说明，SHALL NOT 把用户引向「需求」tab，SHALL NOT 建轮次或审批卡。
+
+#### Scenario: 自己填的内容含内部词
+- **WHEN** 补充说明写了「报价含运费 cost」
+- **THEN** 返回 422、`errorCode` 为 `FREE_TEXT_SENSITIVE`，`userMessage.message` 以「你填的补充说明里」开头、无出路链接；不建轮次、不建审批卡
+
 ### Requirement: 原地审批与待批轮次保护
-对 `canApprove` 为 true 的用户，送审结果页与待批轮次卡片 SHALL 提供「批准并发送」与「驳回」，并调用既有 `POST /api/capabilities/approvals/{approvalId}/approve|reject`（带 `idempotencyKey` 与 `expectedPayloadHash`），不跳转页面；批准响应里的发送结果 SHALL 原样展示。`canApprove` 为 false 时 SHALL 显示「需要有审批权限的同事批准」与审批中心链接，SHALL NOT 声称已通知任何人。一个轮次有待批发送卡时，该轮 SHALL NOT 显示「标记发送」与「开始询价」。
+对 `canApprove` 为 true 的用户，送审结果页与待批轮次卡片 SHALL 提供「批准并发送」与「驳回」，并调用既有 `POST /api/capabilities/approvals/{approvalId}/approve|reject`（带 `idempotencyKey`、`expectedPayloadHash` 与卡所属企业 `orgId`），不跳转页面。`canApprove` SHALL 按项目所属企业解析审批中心上下文后取同一判定；为 false 时 SHALL 显示「需要组织管理员批准」与审批中心链接，SHALL NOT 声称已通知任何人。一个轮次有待批发送卡、或入口数据尚未成功加载时，草稿轮次 SHALL NOT 显示「标记发送」「开始询价」「添加供应商」。
+
+#### Scenario: 决策结果留在轮次卡片上
+- **WHEN** 批准后执行结果为「已发出 2/3：A、B；失败：C（invalid_grant）」
+- **THEN** 决策按钮消失，结果以「已发出 2/3：A、B；失败：C（Gmail 授权失效）」留在该轮卡片上直到手动关闭（审批面板随刷新卸载也不丢）；执行失败时说明这张卡已失效、需重新发起；`web-entry-pure.test.ts` 覆盖文案替换
+
+#### Scenario: 非待批状态的卡
+- **WHEN** 卡处于已批准未执行完（APPROVED）或已过期未清理（EXPIRED）
+- **THEN** 面板不显示决策按钮，分别显示「已批准，正在发出…稍后刷新」与「已过期……2 小时内自动作废，之后可以重新发起」
 
 #### Scenario: 创建人原地批准
 - **WHEN** 创建人（审批中心对该卡 `canApprove` 为 true）点「批准并发送」

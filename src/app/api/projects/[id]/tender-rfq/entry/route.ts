@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   const actionIds = entry.pendingSends.map((p) => p.actionId);
   const [approvals, emails] = await Promise.all([
-    loadRfqApprovalInfo(request, orgId, actionIds),
+    loadRfqApprovalInfo(request, access.user, orgId, actionIds),
     loadRfqSendEmails(orgId, actionIds),
   ]);
 

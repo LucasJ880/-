@@ -49,7 +49,23 @@ rounds / entry 在服务端调用 `requireCapabilitiesAccess` + `getCapabilityAp
 否决：保留批量催促的发送步骤——它调用的就是被下线的接口，留着只会 410；否决：删除路由文件——旧客户端会得到 404。
 
 ### D8 纯函数集中在 `web-entry-pure.ts`
-入口状态、错误码文案、按钮说明、状态行、耗时标签都是纯函数 + 真值表测试；页面和路由只拼装。零 LLM。
+入口状态、错误码文案、按钮说明、状态行、耗时标签、审批卡状态说明、执行失败文案都是纯函数 + 真值表测试；页面和路由只拼装。零 LLM。`round-pure.ts` 引了 `node:crypto`，前端不能直接引，供应商就绪规则在 `web-entry-pure` 里逐字复写，测试用 `partitionSuppliers` 做对照。
+
+### D9 Web 的贸易条款按显式选择生效（独立审查第 1 条）
+抽屉把个人默认预填进下拉框，所以 Web 提交的值就是用户的显式选择：`source=web` 时 `prepareRfqRound` 不再调用 `pickRfqIncoterm` 回退偏好，`null` 即「不指定」。Muse 路径不变（不带条款时仍按偏好补齐）。
+否决：前端加哨兵值 `"NONE"`——要改 zod、服务层两处，语义反而更绕。
+
+### D10 自由文本敏感词在路由层先判（独立审查第 3 条）
+`buildRfqDocument` 对人工自由文本用 `containsSensitiveSupplierBriefText` 全量模式，入口预判拿不到这些字段，命中后落到 `SENSITIVE_LEAK`，提示却把人引去「需求」tab。路由在调用 `prepareRfqRound` 前用同一函数逐栏检查，命中返回 `FREE_TEXT_SENSITIVE` 并指明栏目。
+
+### D11 审批上下文按项目所属企业解析（独立审查第 5 条）
+`apiFetch` 只给组织作用域前缀自动带 `orgId`，`/api/projects/*` 不在其中，平台 super_admin 等多组织身份会解析不出企业。改为 `getTenantContext(request, user, { bodyOrgId: project.orgId })` + `buildCapabilitiesAccess`（与审批中心同样要求企业 active 成员、不开平台旁路）；前端调 approve / reject 时显式带 `?orgId=`。
+
+### D12 决策结果上提到轮次卡片；入口失败保留旧数据（独立审查第 2、7 条）
+卡片上批准后刷新会卸载审批面板，结果文字由父组件按轮次保留；决策成功后按钮消失；在抽屉里批准成功或驳回后抽屉关闭。入口接口失败时保留上一次成功的数据并提示重试；从未成功加载时，草稿轮次一律按「待批」保护（隐藏手工发送）。
+
+### D13 审批卡没建成时取消草稿轮次
+`prepareRfqRound` 在建审批卡之前已建轮次与询价项；`requestApproval` 失败时把该轮标为已取消（draft → canceled），避免用户重试后看到一轮无法发出的草稿。Muse 路径同样受益，无行为倒退。
 
 ## 与八条硬纪律
 

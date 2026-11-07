@@ -14,7 +14,8 @@ export type EntryBlockReason =
   | "no_confirmed_requirements"
   | "sensitive_leak"
   | "sender_not_connected"
-  | "sender_no_compose_scope";
+  | "sender_no_compose_scope"
+  | "no_ready_suppliers";
 
 export type EntryAction = { label: string; href: string };
 
@@ -44,6 +45,8 @@ export type RfqEntryFacts = {
   projectId: string;
   lock: RfqEntryLock;
   confirmedRequirementCount: number;
+  /** 有有效邮箱且 active 的供应商数（与 partitionSuppliers 同一规则） */
+  readySupplierCount: number;
   /** buildRfqDocument 预构建的失败码（只关心这两种；其余视为可发） */
   buildError: "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK" | null;
   sender: { ok: true } | { ok: false; errorCode: "SENDER_NOT_CONNECTED" | "SENDER_NO_COMPOSE_SCOPE" };
@@ -94,11 +97,10 @@ function zonedParts(d: Date, timeZone: string): Record<string, string> {
  * 不做时区换算——否则多伦多会显示成前一天；其余时间戳按组织时区换算。
  */
 export function monthDay(value: string | Date, timeZone: string): string | null {
-  if (typeof value === "string") {
-    const m = value.match(DATE_ONLY) ?? value.match(UTC_MIDNIGHT);
-    if (m) return `${m[2]}-${m[3]}`;
-  }
   const d = value instanceof Date ? value : new Date(value);
+  const literal = typeof value === "string" ? value : Number.isNaN(d.getTime()) ? "" : d.toISOString();
+  const m = literal.match(DATE_ONLY) ?? literal.match(UTC_MIDNIGHT);
+  if (m) return `${m[2]}-${m[3]}`;
   if (Number.isNaN(d.getTime())) return null;
   const p = zonedParts(d, timeZone);
   return `${p.month}-${p.day}`;
@@ -132,7 +134,7 @@ export function decideRfqEntryState(f: RfqEntryFacts): RfqEntryState {
   }
   if (f.lock.locked && f.lock.reason === "recently_sent") {
     const md = monthDay(f.lock.at, f.timeZone) ?? "";
-    return block("recently_sent", `第 ${f.lock.roundNumber} 轮 ${md} 刚发出，${f.lock.days} 天内不开新轮。`, {
+    return block("recently_sent", `第 ${f.lock.roundNumber} 轮（${md} 发起）已发出，${f.lock.days} 天内不开新轮。`, {
       label: `查看第 ${f.lock.roundNumber} 轮`,
       href: rfqRoundAnchor(f.lock.inquiryId),
     });
@@ -162,6 +164,12 @@ export function decideRfqEntryState(f: RfqEntryFacts): RfqEntryState {
       href: SETTINGS_EMAIL_HREF,
     });
   }
+  if (f.readySupplierCount <= 0) {
+    return block("no_ready_suppliers", "组织里还没有能发询价的供应商（需要在用、并且有联系邮箱）。", {
+      label: "去补供应商",
+      href: "/suppliers",
+    });
+  }
 
   const reply = f.replyBy ? `回复截止 ${monthDay(f.replyBy, f.timeZone)}` : "回复截止：请尽快";
   return {
@@ -184,15 +192,23 @@ export type PrepareRfqErrorCode =
   | "SENSITIVE_LEAK"
   | "DRAFT_FAILED";
 
+/** 路由层在调 prepareRfqRound 之前自己判出来的（人工填写的栏目含内部词） */
+export type RfqEntryErrorCode = PrepareRfqErrorCode | "FREE_TEXT_SENSITIVE";
+
 export type BlockedSupplier = { id: string; name: string; reason: "no_email" | "inactive" };
 
 export type UserMessage = { message: string; action: EntryAction | null };
 
 export function rfqErrorToUserMessage(
-  code: PrepareRfqErrorCode,
-  ctx: { projectId: string; now: Date; timeZone: string; blockedSuppliers?: BlockedSupplier[] },
+  code: RfqEntryErrorCode,
+  ctx: { projectId: string; now: Date; timeZone: string; blockedSuppliers?: BlockedSupplier[]; field?: string },
 ): UserMessage {
   switch (code) {
+    case "FREE_TEXT_SENSITIVE":
+      return {
+        message: `你填的${ctx.field ?? "内容"}里有不能发给供应商的内部词（如成本、预算、金额、毛利），改掉再提交。`,
+        action: null,
+      };
     case "ROUND_LOCKED":
       return {
         message: "这个项目刚发过一轮，或有一张待批准的发送卡，暂时不开新轮。",
@@ -298,6 +314,44 @@ export function elapsedLabel(fromIso: string | null | undefined, toIso: string |
   return `从发起到发出：${text}`;
 }
 
+/* ---------------------------------- 审批卡状态 / 执行失败文案 ---------------------------------- */
+
+/** 审批中心统一状态 → 面板上的一句话；PENDING 不需要额外说明。 */
+export function approvalStatusNote(status: string): string | null {
+  switch (status) {
+    case "PENDING":
+      return null;
+    case "APPROVED":
+      return "已批准，正在发出…稍后刷新查看结果。";
+    case "EXPIRED":
+      return "这张卡已过期（超过 72 小时没批），系统 2 小时内会自动作废，之后可以重新「问供应商要价」。";
+    case "EXECUTED":
+      return "已发出。";
+    case "REJECTED":
+      return "已驳回，这一轮不会发出。";
+    case "EXECUTION_FAILED":
+    case "EXECUTION_BLOCKED":
+      return "这张卡执行没成功，已失效；处理好原因后重新「问供应商要价」。";
+    default:
+      return "这张卡已不是待批状态，刷新后再看。";
+  }
+}
+
+const GMAIL_AUTH_ERROR = /invalid_grant|unauthori[sz]ed|insufficient|invalid_token|token has been expired|\b401\b|\b403\b/i;
+
+/** 批准后执行失败的原文 → 用户能看懂的话；Gmail 授权类英文错误整体替换，其余加「没有发出去：」前缀，部分成功的摘要原样保留。 */
+export function friendlyExecutionError(raw: string): string {
+  const text = raw.trim();
+  // 部分成功（「已发出 2/3：A、B；失败：C（invalid_grant）」）：保留谁发出了，只把括号里的英文授权错误换成人话
+  if (/^已发出 [1-9]\d*\//.test(text)) {
+    return text.replace(/（([^）]*)）/g, (whole, inner: string) => (GMAIL_AUTH_ERROR.test(inner) ? "（Gmail 授权失效）" : whole));
+  }
+  if (GMAIL_AUTH_ERROR.test(text)) {
+    return "Gmail 授权失效或权限不够：请授权邮箱本人重新连接 Gmail，再重新「问供应商要价」。";
+  }
+  return `没有发出去：${text || "原因未知，请去审批中心查看这张卡"}`;
+}
+
 /* ---------------------------------- 供应商 ---------------------------------- */
 
 export type EntrySupplierInput = { id: string; name: string; contactEmail: string | null; status: string };
@@ -312,7 +366,11 @@ export type EntrySupplier = {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** 与 round-pure.partitionSuppliers 同一规则判就绪；常用供应商按偏好顺序排最前，其余可发的在前、按名称。 */
+/**
+ * 就绪规则与 round-pure.partitionSuppliers 逐字一致（status=active 且原始 contactEmail 通过同一正则，不先 trim）——
+ * 入口说「可选」的，送审时一定 ready（测试里用 partitionSuppliers 做对照）。round-pure 引了 node:crypto，前端不能直接引，故这里复写同一规则。
+ * 常用供应商按偏好顺序排最前，其余可发的在前、按名称。
+ */
 export function orderEntrySuppliers(suppliers: EntrySupplierInput[], defaultIds: string[]): EntrySupplier[] {
   const rank = new Map(defaultIds.map((id, i) => [id, i]));
   const rows: EntrySupplier[] = [];
@@ -321,7 +379,7 @@ export function orderEntrySuppliers(suppliers: EntrySupplierInput[], defaultIds:
     if (seen.has(s.id)) continue;
     seen.add(s.id);
     const blockedReason: EntrySupplier["blockedReason"] =
-      s.status !== "active" ? "inactive" : !s.contactEmail || !EMAIL_RE.test(s.contactEmail.trim()) ? "no_email" : null;
+      s.status !== "active" ? "inactive" : !s.contactEmail || !EMAIL_RE.test(s.contactEmail) ? "no_email" : null;
     rows.push({
       id: s.id,
       name: s.name,

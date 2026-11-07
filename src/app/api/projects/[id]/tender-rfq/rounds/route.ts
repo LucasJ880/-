@@ -9,9 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireProjectWriteAccess } from "@/lib/projects/access";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
+import { logAudit, AUDIT_ACTIONS } from "@/lib/audit/logger";
+import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 import { db } from "@/lib/db";
 import { prepareRfqRound } from "@/lib/tender-rfq/service";
-import { rfqErrorToUserMessage, type PrepareRfqErrorCode } from "@/lib/tender-rfq/web-entry-pure";
+import { rfqErrorToUserMessage, type RfqEntryErrorCode } from "@/lib/tender-rfq/web-entry-pure";
 import { loadRfqApprovalInfo, loadRfqSendEmails } from "@/lib/tender-rfq/web-entry-approval";
 
 type Params = { params: Promise<{ id: string }> };
@@ -31,7 +33,8 @@ const BodySchema = z.object({
   quantityTiers: z.array(z.number().positive()).max(5, "数量阶梯最多 5 档").optional(),
 });
 
-const STATUS_OF: Record<PrepareRfqErrorCode, number> = {
+const STATUS_OF: Record<RfqEntryErrorCode, number> = {
+  FREE_TEXT_SENSITIVE: 422,
   PROJECT_NOT_FOUND: 404,
   ROUND_LOCKED: 409,
   NO_SUPPLIERS: 400,
@@ -62,6 +65,24 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
   const body = parsed.data;
 
+  const loadTimeZone = async () => {
+    const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
+    return resolveOrgTimezone(org?.settingsJson ?? null);
+  };
+
+  // 人工填写的栏目先单独过一遍出站敏感词（与 buildRfqDocument 对自由文本用的同一函数），
+  // 命中就直接指出是哪一栏——否则会落到 SENSITIVE_LEAK，提示把人引去「需求」tab 找不到原因。
+  const freeTextFields: Array<[string, string | null | undefined]> = [
+    ["补充说明", body.scopeNote],
+    ["目的地", body.destination],
+    ...(body.extraQuestions ?? []).map((q, i): [string, string] => [`第 ${i + 1} 条附加问题`, q]),
+  ];
+  const hit = freeTextFields.find(([, text]) => !!text && containsSensitiveSupplierBriefText(text));
+  if (hit) {
+    const userMessage = rfqErrorToUserMessage("FREE_TEXT_SENSITIVE", { projectId, now: new Date(), timeZone: await loadTimeZone(), field: hit[0] });
+    return NextResponse.json({ ok: false, errorCode: "FREE_TEXT_SENSITIVE", userMessage }, { status: STATUS_OF.FREE_TEXT_SENSITIVE });
+  }
+
   const result = await prepareRfqRound({
     projectId,
     orgId,
@@ -76,11 +97,10 @@ export async function POST(request: NextRequest, { params }: Params) {
   });
 
   if (!result.ok) {
-    const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
     const userMessage = rfqErrorToUserMessage(result.errorCode, {
       projectId,
       now: new Date(),
-      timeZone: resolveOrgTimezone(org?.settingsJson ?? null),
+      timeZone: await loadTimeZone(),
       blockedSuppliers: result.blockedSuppliers,
     });
     return NextResponse.json(
@@ -89,8 +109,20 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   }
 
+  // 审计：来源 = web（审批卡 source.toolName 也区分了 web / muse）
+  await logAudit({
+    userId: access.user.id,
+    orgId,
+    projectId,
+    action: AUDIT_ACTIONS.CREATE,
+    targetType: "tender_rfq_round",
+    targetId: result.inquiryId,
+    afterData: { source: "web", actionId: result.actionId, roundNumber: result.roundNumber, supplierCount: result.suppliers.length, incoterm: result.incoterm },
+    request,
+  });
+
   const [approvals, emails] = await Promise.all([
-    loadRfqApprovalInfo(request, orgId, [result.actionId]),
+    loadRfqApprovalInfo(request, access.user, orgId, [result.actionId]),
     loadRfqSendEmails(orgId, [result.actionId]),
   ]);
 

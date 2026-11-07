@@ -122,10 +122,13 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       })()
     : { locked: false as const };
 
+  const suppliers = orderEntrySuppliers(supplierRows, prefs.defaultSupplierIds);
+
   const state = decideRfqEntryState({
     projectId: project.id,
     lock,
     confirmedRequirementCount,
+    readySupplierCount: suppliers.filter((s) => s.ready).length,
     buildError: built.ok ? null : built.errorCode,
     sender: sender.ok ? { ok: true } : { ok: false, errorCode: sender.errorCode },
     hasReadScope,
@@ -149,7 +152,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   return {
     available: true,
     state,
-    suppliers: orderEntrySuppliers(supplierRows, prefs.defaultSupplierIds),
+    suppliers,
     defaults: { incoterm: term.incoterm, incotermFromPrefs: term.fromPrefs },
     preview: assembleEntryPreview({
       fromName: settings.fromName,

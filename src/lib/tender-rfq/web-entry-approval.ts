@@ -7,14 +7,18 @@
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { requireCapabilitiesAccess } from "@/lib/capabilities/http";
+import { buildCapabilitiesAccess } from "@/lib/capabilities/access";
 import { getCapabilityApproval } from "@/lib/capabilities/approvals/query";
+import { getTenantContext } from "@/lib/tenancy/context";
 import { makeApprovalId } from "@/lib/capabilities/approvals/types";
 import type { TenderSendRfqPayload } from "./types";
 
 export type RfqApprovalInfo = {
   approvalId: string;
+  /** 这张卡所属企业；前端调审批接口时显式带上（apiFetch 默认带的是组织切换器里选的企业） */
+  orgId: string;
   /** 审批中心详情页 */
   href: string;
   canApprove: boolean;
@@ -30,21 +34,30 @@ export function rfqApprovalHref(approvalId: string): string {
   return `/capabilities/approvals/${encodeURIComponent(approvalId)}`;
 }
 
-/** 读不到审批中心上下文（不在该企业、无成员身份）时一律 canApprove=false，界面给审批中心链接。 */
+/**
+ * 审批中心上下文按「项目所属企业」解析（显式 bodyOrgId），与审批中心接口的成员 / 角色规则相同（不开平台旁路）；
+ * 解析不出来（不是该企业 active 成员等）时一律 canApprove=false，界面给审批中心链接。
+ */
 export async function loadRfqApprovalInfo(
   request: NextRequest,
+  user: AuthUser,
   projectOrgId: string,
   actionIds: string[],
 ): Promise<Record<string, RfqApprovalInfo>> {
   const out: Record<string, RfqApprovalInfo> = {};
   const fallback = (actionId: string): RfqApprovalInfo => {
     const approvalId = makeApprovalId("PENDING_ACTION", actionId);
-    return { approvalId, href: rfqApprovalHref(approvalId), canApprove: false, canReject: false, payloadHash: null, status: "PENDING" };
+    return { approvalId, orgId: projectOrgId, href: rfqApprovalHref(approvalId), canApprove: false, canReject: false, payloadHash: null, status: "PENDING" };
   };
   if (actionIds.length === 0) return out;
 
-  const access = await requireCapabilitiesAccess(request).catch(() => null);
-  const usable = access && !(access instanceof NextResponse) && access.orgId === projectOrgId ? access : null;
+  let usable: Awaited<ReturnType<typeof buildCapabilitiesAccess>> | null = null;
+  try {
+    const tenant = await getTenantContext(request, user, { bodyOrgId: projectOrgId });
+    if (!(tenant instanceof NextResponse) && tenant.orgId === projectOrgId) usable = await buildCapabilitiesAccess(tenant);
+  } catch {
+    usable = null;
+  }
 
   for (const actionId of actionIds) {
     if (!usable) {
@@ -56,6 +69,7 @@ export async function loadRfqApprovalInfo(
       const proj = await getCapabilityApproval(usable, approvalId);
       out[actionId] = {
         approvalId,
+        orgId: projectOrgId,
         href: rfqApprovalHref(approvalId),
         canApprove: proj.capabilities.canApprove,
         canReject: proj.capabilities.canReject,

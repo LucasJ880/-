@@ -16,7 +16,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import { monthDay } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
-import { RfqApprovalPanel } from "./rfq-approval-panel";
+import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
 import type { RfqEntryView, RfqIncoterm, RfqRoundCreated, RfqRoundFailed, UserMessage } from "./rfq-web-entry-types";
 
 type Entry = Extract<RfqEntryView, { available: true }>;
@@ -26,8 +26,10 @@ type Props = {
   onClose: () => void;
   projectId: string;
   entry: Entry;
-  /** 轮次已建（送审）或已批准 / 驳回后调用，父组件刷新 */
+  /** 轮次已建（送审）后调用，父组件刷新 */
   onChanged: () => void;
+  /** 在结果页批准 / 驳回之后：父组件保留结果文字并刷新；批准成功或驳回后抽屉自动关闭 */
+  onDecision: (inquiryId: string, outcome: RfqDecisionOutcome) => void;
 };
 
 const INCOTERMS: RfqIncoterm[] = ["EXW", "FOB", "CIF", "DDP", "DAP"];
@@ -36,7 +38,7 @@ const MAX_QUESTIONS = 5;
 const inputCls =
   "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-accent/60";
 
-export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged }: Props) {
+export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged, onDecision }: Props) {
   const defaultSelected = useMemo(
     () => entry.suppliers.filter((s) => s.isDefault && s.ready).slice(0, MAX_SUPPLIERS).map((s) => s.id),
     [entry.suppliers],
@@ -107,6 +109,8 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged }
       setFailure(
         (data && !data.ok && data.userMessage) || { message: "生成没有成功，请重试。", action: null },
       );
+      // 提交时才撞上轮次锁（别人刚发了一轮）：刷新入口，按钮旁的说明会写清是第几轮、哪天
+      if (data && !data.ok && data.errorCode === "ROUND_LOCKED") onChanged();
     } catch {
       setFailure({ message: "网络出错了，请重试。", action: null });
     } finally {
@@ -140,6 +144,10 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged }
             等待批准后从 <span className="font-medium">{created.fromEmail}</span> 发给 {created.suppliers.length} 家
             {created.replyBy ? `，请他们在 ${monthDay(created.replyBy, entry.timeZone)} 前回复` : ""}。
           </p>
+          <p className="text-xs text-muted">
+            贸易条款：{created.incoterm ?? "不指定（让供应商注明）"}
+            {created.excludedRequirements ? ` · ${created.excludedRequirements} 条未确认或不面向供应商的要求没有写进询价单` : ""}
+          </p>
           {created.blockedSuppliers.length > 0 && (
             <p className="text-xs text-[#9a6a2f]">
               没发给：{created.blockedSuppliers.map((b) => `${b.name}（${b.reason === "no_email" ? "没有邮箱" : "已停用"}）`).join("、")}
@@ -151,7 +159,10 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged }
             roundNumber={created.roundNumber}
             approval={created.approval}
             emails={created.emails}
-            onDone={onChanged}
+            onDone={(o) => {
+              onDecision(created.inquiryId, o);
+              if (o.kind !== "error") onClose();
+            }}
           />
           <p className="text-xs text-muted">回信会自动进表；之后的进度在「供应商询价」的这一轮里看。</p>
         </div>

@@ -14,8 +14,11 @@ import { CheckCircle2, ChevronDown, ChevronRight, Mail, ShieldCheck, XCircle } f
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
+import { approvalStatusNote, friendlyExecutionError } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
 import type { RfqApprovalInfo, RfqEmailPreview } from "./rfq-web-entry-types";
+
+export type RfqDecisionOutcome = { kind: "sent" | "rejected" | "error"; text: string };
 
 type Props = {
   projectId: string;
@@ -23,12 +26,12 @@ type Props = {
   roundNumber: number | null;
   approval: RfqApprovalInfo | null;
   emails: RfqEmailPreview[];
-  /** 批准（已发出）或驳回之后回调，父组件刷新轮次 */
-  onDone: () => void;
+  /** 每次决策之后回调（成功、驳回、失败都会调），父组件刷新轮次并保留结果文字——本面板随后可能被卸载 */
+  onDone: (outcome: RfqDecisionOutcome) => void;
   className?: string;
 };
 
-type Outcome = { kind: "sent" | "rejected" | "error"; text: string } | null;
+type Outcome = RfqDecisionOutcome | null;
 
 export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className }: Props) {
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
@@ -36,15 +39,18 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<Outcome>(null);
 
-  const canApprove = !!approval?.canApprove;
-  const canReject = !!approval?.canReject;
+  const decided = outcome?.kind === "sent" || outcome?.kind === "rejected";
+  const statusNote = approval ? approvalStatusNote(approval.status) : null;
+  const canApprove = !!approval?.canApprove && !decided && !statusNote;
+  const canReject = !!approval?.canReject && !decided && !statusNote;
 
   async function decide(action: "approve" | "reject") {
     if (!approval) return;
     setBusy(action);
     setOutcome(null);
     try {
-      const res = await apiFetch(`/api/capabilities/approvals/${encodeURIComponent(approval.approvalId)}/${action}`, {
+      // 显式带卡所属企业：apiFetch 默认带的是组织切换器里选的企业，跨企业看项目时会找不到这张卡
+      const res = await apiFetch(`/api/capabilities/approvals/${encodeURIComponent(approval.approvalId)}/${action}?orgId=${encodeURIComponent(approval.orgId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -55,7 +61,14 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
       if (!data.ok) {
-        setOutcome({ kind: "error", text: data.error || data.message || "没有成功，请稍后再试，或去审批中心处理。" });
+        // 执行失败时执行器会把卡标为 failed（卡作废）；刷新让父组件拿到新状态，文字由父组件保留
+        const failed: RfqDecisionOutcome = {
+          kind: "error",
+          text: action === "approve" ? friendlyExecutionError(data.error || data.message || "") : data.error || data.message || "驳回没有成功，请去审批中心处理。",
+        };
+        setOutcome(failed);
+        notifyPendingActionsChanged();
+        onDone(failed);
         return;
       }
       if (action === "reject") {
@@ -65,12 +78,16 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "canceled" }),
         }).catch(() => undefined);
-        setOutcome({ kind: "rejected", text: "已驳回，这一轮不会发出。需要的话重新「问供应商要价」。" });
+        const done: RfqDecisionOutcome = { kind: "rejected", text: "已驳回，这一轮不会发出。需要的话重新「问供应商要价」。" };
+        setOutcome(done);
+        notifyPendingActionsChanged();
+        onDone(done);
       } else {
-        setOutcome({ kind: "sent", text: data.message || "已批准并发出。" });
+        const done: RfqDecisionOutcome = { kind: "sent", text: friendlySent(data.message) };
+        setOutcome(done);
+        notifyPendingActionsChanged();
+        onDone(done);
       }
-      notifyPendingActionsChanged();
-      onDone();
     } catch {
       setOutcome({ kind: "error", text: "网络出错了，请重试；不确定是否已发出时，先刷新看轮次状态再操作。" });
     } finally {
@@ -135,7 +152,9 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </p>
       ) : null}
 
-      {canApprove ? (
+      {statusNote && !outcome ? <p className="text-xs text-muted">{statusNote}</p> : null}
+
+      {decided || statusNote ? null : canApprove ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="accent" loading={busy === "approve"} loadingText="正在发出…" disabled={busy !== null} onClick={() => decide("approve")}>
             批准并发送
@@ -159,7 +178,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </div>
       ) : (
         <p className="text-xs text-muted">
-          需要有审批权限的同事（组织管理员或项目负责人）批准。
+          需要组织管理员批准。
           {approval ? (
             <>
               {" "}
@@ -172,4 +191,10 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
       )}
     </div>
   );
+}
+
+/** 批准成功的执行摘要（「已发出 3/3：A、B、C」）；部分失败时把英文错误换成人话 */
+function friendlySent(message: string | undefined): string {
+  if (!message) return "已批准并发出。";
+  return message.includes("失败：") ? friendlyExecutionError(message) : message;
 }

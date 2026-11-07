@@ -129,7 +129,9 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   // ── 要求 + 事实（最新非 SUPERSEDED 的 run） ──
   const { requirements, facts } = await loadRfqRequirementInputs(project.id);
 
-  const term = pickRfqIncoterm(input.incoterm, prefs);
+  // Web 表单总是提交用户的显式选择（默认值已预填进下拉框），null = 用户选了「不指定」，不能再回退到个人默认；
+  // Muse 不带 incoterm 时仍按偏好补齐（P1-8 行为不变）。
+  const term = input.source === "web" ? { incoterm: input.incoterm ?? null, fromPrefs: false } : pickRfqIncoterm(input.incoterm, prefs);
   const built = buildRfqDocument({
     projectName: project.name,
     buyerDisplayName: settings.fromName,
@@ -187,6 +189,8 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     idempotencyKey: `${TENDER_SEND_RFQ_TYPE}:${inquiry.id}`,
   });
   if (!approval.ok) {
+    // 审批卡没建成：把刚建的草稿轮次标为已取消，免得留下一轮「看似可手工发送」的孤儿草稿（draft → canceled 是合法流转）
+    await db.projectInquiry.update({ where: { id: inquiry.id }, data: { status: "canceled" } }).catch(() => undefined);
     return { ok: false, errorCode: "DRAFT_FAILED", message: `生成审批草稿失败：${approval.error}` };
   }
   const actionId = approval.actionIds[0] ?? "";

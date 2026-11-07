@@ -5,14 +5,18 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   AlertTriangle,
+  CheckCircle2,
   Loader2,
   ChevronDown,
   ChevronUp,
   Send,
   ShoppingCart,
+  X,
+  XCircle,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { InquiryDetail } from "./inquiry-detail";
-import { RfqApprovalPanel } from "./rfq-approval-panel";
+import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
 import type { RfqEntryView, RfqPendingSendView } from "./rfq-web-entry-types";
@@ -67,13 +71,23 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [entry, setEntry] = useState<RfqEntryView | null>(null);
+  const [entryError, setEntryError] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /** 最近一次审批决策的结果：审批面板在刷新后会卸载，结果文字留在该轮卡片上，直到手动关掉 */
+  const [lastOutcome, setLastOutcome] = useState<(RfqDecisionOutcome & { inquiryId: string }) | null>(null);
 
+  // 加载失败时保留上一次成功的入口数据（否则会退回旧界面、待批轮次重新露出「标记发送」）
   const loadEntry = useCallback(() => {
     apiFetch(`/api/projects/${projectId}/tender-rfq/entry`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: RfqEntryView | null) => setEntry(data))
-      .catch(() => setEntry(null));
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return (await r.json()) as RfqEntryView;
+      })
+      .then((data) => {
+        setEntry(data);
+        setEntryError(false);
+      })
+      .catch(() => setEntryError(true));
   }, [projectId]);
 
   const loadRounds = useCallback(() => {
@@ -92,11 +106,22 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
     loadEntry();
   }, [loadRounds, loadEntry]);
 
+  const onDecision = useCallback(
+    (inquiryId: string, outcome: RfqDecisionOutcome) => {
+      setLastOutcome({ ...outcome, inquiryId });
+      setExpandedId(inquiryId);
+      reloadAll();
+    },
+    [reloadAll],
+  );
+
   useEffect(() => {
     reloadAll();
   }, [reloadAll]);
 
   const ready = entry && entry.available ? entry : null;
+  /** 入口还没成功加载过：不知道哪些轮次在等批，保守起见草稿轮次先不给手工发送 */
+  const entryUnknown = entry === null;
   const entryAction = ready?.state.action ?? null;
   const pendingByInquiry = new Map<string, RfqPendingSendView>((ready?.pendingSends ?? []).map((p) => [p.inquiryId, p]));
 
@@ -223,6 +248,15 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
         </div>
       )}
       {createError && <p className="mt-2 text-xs text-danger">{createError}</p>}
+      {canManage && entryError && (
+        <p className="mt-2 flex items-center gap-2 text-xs text-[#9a6a2f]">
+          <AlertTriangle size={12} className="shrink-0" />
+          询价入口没加载出来{ready ? "（下面是上一次的状态）" : "，「问供应商要价」暂时不可用"}。
+          <button type="button" onClick={loadEntry} className="font-medium text-accent underline-offset-4 hover:underline">
+            重试
+          </button>
+        </p>
+      )}
 
       {loading ? (
         <div className="flex h-20 items-center justify-center">
@@ -278,6 +312,24 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     <ChevronDown size={14} className="text-muted" />
                   )}
                 </button>
+                {lastOutcome && lastOutcome.inquiryId === r.id && (
+                  <div
+                    role="status"
+                    className={cn(
+                      "mx-4 mb-3 flex items-start gap-1.5 rounded-md px-3 py-2 text-xs",
+                      lastOutcome.kind === "error" ? "bg-danger/[0.06] text-danger" : lastOutcome.kind === "sent" ? "bg-accent/[0.06] text-accent" : "bg-foreground/[0.04] text-muted",
+                    )}
+                  >
+                    {lastOutcome.kind === "sent" ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "error" ? <XCircle size={14} className="mt-px shrink-0" /> : null}
+                    <span className="flex-1">
+                      {lastOutcome.text}
+                      {lastOutcome.kind === "error" && !pending ? " 这张卡已失效，处理好原因后重新「问供应商要价」。" : ""}
+                    </span>
+                    <button type="button" aria-label="关闭这条提示" onClick={() => setLastOutcome(null)} className="shrink-0 opacity-70 hover:opacity-100">
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
                 {engine && ready && !pending && (
                   <RfqRoundStatusLine
                     items={r.items}
@@ -296,7 +348,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         roundNumber={pending.roundNumber ?? r.roundNumber}
                         approval={pending.approval}
                         emails={pending.emails}
-                        onDone={reloadAll}
+                        onDone={(o) => onDecision(r.id, o)}
                       />
                     )}
                     <InquiryDetail
@@ -304,7 +356,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                       orgId={orgId}
                       inquiry={r}
                       canManage={canManage}
-                      awaitingApproval={!!pending}
+                      awaitingApproval={!!pending || (entryUnknown && r.status === "draft")}
                       onUpdate={reloadAll}
                     />
                   </div>
@@ -322,6 +374,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
           projectId={projectId}
           entry={ready}
           onChanged={reloadAll}
+          onDecision={onDecision}
         />
       )}
     </div>
