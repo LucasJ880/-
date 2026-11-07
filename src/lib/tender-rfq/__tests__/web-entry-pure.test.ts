@@ -143,6 +143,8 @@ console.log("W-1 审批卡状态说明与执行失败文案");
   ok("Gmail 授权类英文错误 → 中文说明 + 重新连接", g.includes("Gmail 授权") && !g.includes("invalid_grant"));
   ok("其它失败原文保留并加前缀", friendlyExecutionError("询价内容与审批时不一致，拒绝执行") === "没有发出去：询价内容与审批时不一致，拒绝执行");
   ok("部分成功的结果原样保留", friendlyExecutionError("已发出 2/3：A厂、B厂；失败：C厂（收件地址无效）") === "已发出 2/3：A厂、B厂；失败：C厂（收件地址无效）");
+  const sender = friendlyExecutionError("授权邮箱 lucas@sunnyshutter.ca 未连接：请用该邮箱登录青砚 → 设置 → 连接 Gmail，再审批发送。");
+  ok("发件授权失败 → 不再叫人「再审批发送」（卡已作废）", sender.startsWith("没有发出去：授权邮箱") && !sender.includes("再审批"));
   ok("部分成功里的英文授权错误只替换括号内", friendlyExecutionError("已发出 1/2：A厂；失败：B厂（invalid_grant: Token has been expired）") === "已发出 1/2：A厂；失败：B厂（Gmail 授权失效）");
 }
 

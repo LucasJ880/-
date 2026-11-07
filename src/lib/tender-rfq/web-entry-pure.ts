@@ -349,6 +349,10 @@ export function friendlyExecutionError(raw: string): string {
   if (GMAIL_AUTH_ERROR.test(text)) {
     return "Gmail 授权失效或权限不够：请授权邮箱本人重新连接 Gmail，再重新「问供应商要价」。";
   }
+  // 执行器 resolveSender 的原文是「……再审批发送」，但这张卡执行失败后已作废，不能再批：改成与「重新发起」一致的说法
+  if (/授权邮箱 .*(未连接|缺少 compose 权限)/.test(text)) {
+    return "没有发出去：授权邮箱的 Gmail 未连接或缺发信权限，需要该邮箱本人在「设置 → 邮箱」重新连接。";
+  }
   return `没有发出去：${text || "原因未知，请去审批中心查看这张卡"}`;
 }
 

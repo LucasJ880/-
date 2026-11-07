@@ -22,7 +22,7 @@
 ## 2. 改了什么
 
 **服务层**
-- `src/lib/tender-rfq/service.ts`：`PrepareRfqInput.source: "web" | "muse"`（写入审批卡 `source.toolName`：`tender_send_rfq_web` / `tender_send_rfq`）；轮次锁与要求加载抽成 `loadRfqRoundLockState` / `loadRfqRequirementInputs` 供入口预判复用；轮次标题用默认「第 N 轮询价」（原硬编码 `第 N 轮询价（Muse）` 未插值）；`source=web` 时贸易条款按显式选择（不回退偏好）；审批卡没建成时取消刚建的草稿轮。
+- `src/lib/tender-rfq/service.ts`：`PrepareRfqInput.source: "web" | "muse"`（写入审批卡 `source.toolName`：`tender_send_rfq_web` / `tender_send_rfq`）；轮次锁与要求加载抽成 `loadRfqRoundLockState` / `loadRfqRequirementInputs` 供入口预判复用；轮次标题用默认「第 N 轮询价」（原硬编码 `第 N 轮询价（Muse）` 未插值）；`source=web` 时贸易条款按显式选择（不回退偏好）；审批卡没建成时取消刚建的草稿轮（Muse 路径同样生效，响应不变）。
 - `src/lib/muse-bridge/router.ts`：`handleRfq` 传 `source: "muse"`（唯一一行改动）。
 - 新增 `src/lib/tender-rfq/web-entry-pure.ts`（纯函数，前后端共用）、`web-entry.ts`（只读组装入口响应）、`web-entry-approval.ts`（按项目所属企业取审批中心同一 `canApprove`，读审批卡里每家正文）。
 
@@ -39,7 +39,7 @@
 
 | 检查 | 结果 |
 |---|---|
-| `npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts`（新增） | 80 passed |
+| `npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts`（新增） | 81 passed |
 | tender-rfq 其余纯测试 build / round-pure / inbound-parse / inbound-apply / landed-cost / compare / interpretation-guard / notes-parse / chase-pure / chase-execute | 21 / 31 / 38 / 54 / 70 / 47 / 29 / 17 / 55 / 23 passed |
 | muse-bridge muse-bridge-pure / advisory / next-step / prefs | 67 / 70 / 59 / 30 passed |
 | `bash scripts/check-test-registry.sh` | OK，已注册 541 |
@@ -53,11 +53,15 @@
 
 ### 3.1 test:ci
 
-`NODE_OPTIONS=--max-old-space-size=4096 bash scripts/test-ci-unit.sh`（`set -euo pipefail`，任一失败即退出）：末尾 `runtime-architecture guards PASS`、`OK 测试注册校验通过：已注册 541 个`、`CI unit subset PASS`，退出码 0；其中 `W-1 web-entry-pure: 80 passed`。
+`NODE_OPTIONS=--max-old-space-size=4096 bash scripts/test-ci-unit.sh`（`set -euo pipefail`，任一失败即退出）：末尾 `runtime-architecture guards PASS`、`OK 测试注册校验通过：已注册 541 个`、`CI unit subset PASS`，退出码 0；其中 `W-1 web-entry-pure: 80 passed`（复核修正后为 81）。
 
 ### 3.2 独立审查
 
 另起一个审查 agent，只给任务书、OpenSpec 四件套与 diff（不给实现思路）。结论 0 阻断 / 6 应修 / 若干建议；6 条应修全部修正，建议修了 6 条，详见 `design.md` D9–D13：「不指定」贸易条款被个人默认覆盖、原地审批后状态与结果丢失、自由文本敏感词提示指错地方、入口与送审的供应商就绪规则不一致（末尾空格）、super_admin / 多组织拿不到原地批准、APPROVED / EXPIRED 卡文案错误；入口加载失败时待批保护失效、审批人文案不准、无可发供应商仍可点、孤儿草稿轮、AuditLog 无来源、Gmail 英文错误直出。
+
+### 3.3 复核
+
+同一审查 agent 复核修正提交：7 条里 6 条确认已修，「审批面板」部分修，剩三处小问题（批准执行失败后抽屉里按钮还在、执行器「再审批发送」与「卡已失效」说法矛盾、部分发出仍用成功样式），已在最后一个提交修掉：有决策结果即隐藏按钮并给审批中心链接；发件授权失败文案统一为「重新连接后重新发起」；部分发出用提醒样式并说明没发出的几家怎么处理。复核确认 `resolveTradeOrgId` 为 `query ?? bodyOrgId`，entry / rounds 与 approve 都解析到项目所属企业。
 
 ## 4. 与任务书的偏差
 

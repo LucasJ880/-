@@ -317,13 +317,20 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     role="status"
                     className={cn(
                       "mx-4 mb-3 flex items-start gap-1.5 rounded-md px-3 py-2 text-xs",
-                      lastOutcome.kind === "error" ? "bg-danger/[0.06] text-danger" : lastOutcome.kind === "sent" ? "bg-accent/[0.06] text-accent" : "bg-foreground/[0.04] text-muted",
+                      lastOutcome.kind === "error"
+                        ? "bg-danger/[0.06] text-danger"
+                        : lastOutcome.kind === "partial"
+                          ? "bg-[rgba(154,106,47,0.08)] text-[#9a6a2f]"
+                          : lastOutcome.kind === "sent"
+                            ? "bg-accent/[0.06] text-accent"
+                            : "bg-foreground/[0.04] text-muted",
                     )}
                   >
-                    {lastOutcome.kind === "sent" ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "error" ? <XCircle size={14} className="mt-px shrink-0" /> : null}
+                    {lastOutcome.kind === "sent" ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "error" ? <XCircle size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "partial" ? <AlertTriangle size={14} className="mt-px shrink-0" /> : null}
                     <span className="flex-1">
                       {lastOutcome.text}
                       {lastOutcome.kind === "error" && !pending ? " 这张卡已失效，处理好原因后重新「问供应商要价」。" : ""}
+                      {lastOutcome.kind === "partial" ? " 没发出的那几家可以下一轮再问，或电话 / 微信联系后在明细里「标记发送」。" : ""}
                     </span>
                     <button type="button" aria-label="关闭这条提示" onClick={() => setLastOutcome(null)} className="shrink-0 opacity-70 hover:opacity-100">
                       <X size={12} />

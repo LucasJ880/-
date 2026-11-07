@@ -18,7 +18,8 @@ import { approvalStatusNote, friendlyExecutionError } from "@/lib/tender-rfq/web
 import { cn } from "@/lib/utils";
 import type { RfqApprovalInfo, RfqEmailPreview } from "./rfq-web-entry-types";
 
-export type RfqDecisionOutcome = { kind: "sent" | "rejected" | "error"; text: string };
+/** sent = 全部发出；partial = 部分发出（有失败）；error = 一封都没发出或决策失败 */
+export type RfqDecisionOutcome = { kind: "sent" | "partial" | "rejected" | "error"; text: string };
 
 type Props = {
   projectId: string;
@@ -33,13 +34,16 @@ type Props = {
 
 type Outcome = RfqDecisionOutcome | null;
 
+const NETWORK_ERROR = "网络出错了，请重试；不确定是否已发出时，先刷新看轮次状态再操作。";
+
 export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className }: Props) {
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<Outcome>(null);
 
-  const decided = outcome?.kind === "sent" || outcome?.kind === "rejected";
+  // 有了决策结果就不再给按钮：批准执行失败时执行器已把卡作废，再点只会得到「当前状态不支持」
+  const decided = outcome !== null && outcome.text !== NETWORK_ERROR;
   const statusNote = approval ? approvalStatusNote(approval.status) : null;
   const canApprove = !!approval?.canApprove && !decided && !statusNote;
   const canReject = !!approval?.canReject && !decided && !statusNote;
@@ -83,13 +87,14 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         notifyPendingActionsChanged();
         onDone(done);
       } else {
-        const done: RfqDecisionOutcome = { kind: "sent", text: friendlySent(data.message) };
+        const text = friendlySent(data.message);
+        const done: RfqDecisionOutcome = { kind: text.includes("失败：") ? "partial" : "sent", text };
         setOutcome(done);
         notifyPendingActionsChanged();
         onDone(done);
       }
     } catch {
-      setOutcome({ kind: "error", text: "网络出错了，请重试；不确定是否已发出时，先刷新看轮次状态再操作。" });
+      setOutcome({ kind: "error", text: NETWORK_ERROR });
     } finally {
       setBusy(null);
       setConfirmReject(false);
@@ -143,7 +148,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         <p
           className={cn(
             "flex items-start gap-1.5 text-xs",
-            outcome.kind === "error" ? "text-danger" : outcome.kind === "rejected" ? "text-muted" : "text-accent",
+            outcome.kind === "error" ? "text-danger" : outcome.kind === "partial" ? "text-[#9a6a2f]" : outcome.kind === "rejected" ? "text-muted" : "text-accent",
           )}
           role="status"
         >
@@ -153,6 +158,14 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
       ) : null}
 
       {statusNote && !outcome ? <p className="text-xs text-muted">{statusNote}</p> : null}
+
+      {decided && outcome?.kind === "error" && approval ? (
+        <p className="text-xs text-muted">
+          <Link href={approval.href} className="text-accent underline-offset-4 hover:underline">
+            在审批中心查看这张卡
+          </Link>
+        </p>
+      ) : null}
 
       {decided || statusNote ? null : canApprove ? (
         <div className="flex flex-wrap items-center gap-2">
