@@ -10,11 +10,9 @@ import {
   DollarSign,
   CheckCircle,
   X,
-  Mail,
 } from "lucide-react";
 import type { InquiryItemRow } from "./project-inquiry-section";
 import { AddSupplierDialog } from "./add-supplier-dialog";
-import { EmailDraftDialog } from "./email-draft-dialog";
 import { QuoteAnalysisPanel } from "./quote-analysis-panel";
 import { LanguageAssistButton } from "@/components/language-assist/language-assist-panel";
 
@@ -32,6 +30,8 @@ interface Props {
   orgId: string | null;
   inquiry: InquiryRound;
   canManage: boolean;
+  /** 本轮有待批的询价发送卡（W-1）：批准前不允许手工标记发送 / 开始询价 / 加人，避免执行器把该家当「此前已发」跳过 */
+  awaitingApproval?: boolean;
   onUpdate: () => void;
 }
 
@@ -58,16 +58,17 @@ export function InquiryDetail({
   orgId,
   inquiry,
   canManage,
+  awaitingApproval = false,
   onUpdate,
 }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [quoteItemId, setQuoteItemId] = useState<string | null>(null);
-  const [emailItem, setEmailItem] = useState<InquiryItemRow | null>(null);
 
   const base = `/api/projects/${projectId}/inquiries/${inquiry.id}`;
   const isEditable =
-    inquiry.status === "draft" || inquiry.status === "in_progress";
+    !awaitingApproval &&
+    (inquiry.status === "draft" || inquiry.status === "in_progress");
 
   async function action(
     itemId: string,
@@ -128,7 +129,7 @@ export function InquiryDetail({
             添加供应商
           </button>
         )}
-        {canManage && inquiry.status === "draft" && inquiry.items.length > 0 && (
+        {canManage && !awaitingApproval && inquiry.status === "draft" && inquiry.items.length > 0 && (
           <button
             type="button"
             onClick={startInquiry}
@@ -221,7 +222,6 @@ export function InquiryDetail({
                           action(item.id, path, method, body)
                         }
                         onRecordQuote={() => setQuoteItemId(item.id)}
-                        onGenerateEmail={() => setEmailItem(item)}
                       />
                     </td>
                   )}
@@ -267,20 +267,6 @@ export function InquiryDetail({
         />
       )}
 
-      {/* Email draft dialog */}
-      {emailItem && (
-        <EmailDraftDialog
-          projectId={projectId}
-          inquiryId={inquiry.id}
-          itemId={emailItem.id}
-          supplierName={emailItem.supplier.name}
-          onClose={() => setEmailItem(null)}
-          onSent={() => {
-            setEmailItem(null);
-            onUpdate();
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -293,7 +279,6 @@ function ItemActions({
   busy,
   onAction,
   onRecordQuote,
-  onGenerateEmail,
 }: {
   item: InquiryItemRow;
   isEditable: boolean;
@@ -304,7 +289,6 @@ function ItemActions({
     body?: Record<string, unknown>
   ) => void;
   onRecordQuote: () => void;
-  onGenerateEmail: () => void;
 }) {
   if (busy) {
     return <Loader2 size={12} className="animate-spin text-muted" />;
@@ -312,16 +296,8 @@ function ItemActions({
 
   const btns: React.ReactNode[] = [];
 
+  // 单封「生成邮件」直发已下线（W-1）：发询价请用「问供应商要价」；「标记发送」只用于电话 / 微信等线下联系的登记
   if (item.status === "pending" && isEditable) {
-    btns.push(
-      <ActionBtn
-        key="email"
-        label="生成邮件"
-        icon={<Mail size={11} />}
-        className="text-accent"
-        onClick={onGenerateEmail}
-      />
-    );
     btns.push(
       <ActionBtn
         key="send"
