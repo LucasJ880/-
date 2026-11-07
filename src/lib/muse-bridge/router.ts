@@ -414,6 +414,7 @@ async function handleRfq(
     projectId: command.projectId,
     orgId: identity.orgId,
     userId: identity.userId,
+    source: "muse",
     supplierIds: command.supplierIds,
     supplierHint: command.supplierHint ?? null,
     scopeNote: command.scope ?? null,

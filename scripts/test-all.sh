@@ -588,6 +588,7 @@ run_test "招标询价 比价解读数字校验（P1-6G）" "npx tsx src/lib/ten
 run_test "招标询价 [auto] 备注回读" "npx tsx src/lib/tender-rfq/__tests__/notes-parse.test.ts"
 run_test "招标询价 催单/追问决策与模板" "npx tsx src/lib/tender-rfq/__tests__/chase-pure.test.ts"
 run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts"
+run_test "招标询价 Web 入口（入口状态/错误文案/状态行/耗时/预览白名单，W-1）" "npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
