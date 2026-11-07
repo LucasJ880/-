@@ -8,7 +8,7 @@
 | 依赖 | 无（P1-1～P1-8 已合并） |
 | 执行者 | Claude Code：`/opsx:propose rfq-web-entry` → 四件套回传审 → `/opsx:apply` → `npm test` → `/opsx:verify` → PR |
 | 审核 | Claude（chat）；Evan 拍板合并 |
-| 已拍板 | 2026-11-06：① 保留 `MUSE_BRIDGE_ENABLED` 旁路，Web 与 Muse 并存；③ 旧 `email/send` 直接下线 |
+| 已拍板 | 2026-11-06：① 保留 `MUSE_BRIDGE_ENABLED` 旁路，Web 与 Muse 并存；③ 旧 `email/send` 直接下线。2026-11-07：创建人可以批准自己发起的对外询价（Web 建的卡不指定审批人，按审批中心 `canDecidePending` 规则，与 Muse 路径一致），不另开「对外邮件不能自批」change；§6 第 9 步已按此改写 |
 
 ---
 
@@ -152,7 +152,7 @@
 6. 「生成并送审」→ 结果页列出每家收件人，能展开看正文；作为 org_admin 看到「批准并发送」。
 7. 点「批准并发送」→ 60 秒内卡片变「已发出 N 家 · 等回复」，供应商测试邮箱收到来自 project@ 的 text/plain 邮件；卡片出现「从发起到发出：x 分 x 秒」。
 8. 立刻再点「问供应商要价」→ 按钮禁用，小字「第 N 轮刚发出，3 天内不开新轮 → 查看第 N 轮」。
-9. 用一个 org_member 账号重复 6 → 看到「已通知 {管理员} 批准」，没有批准按钮。
+9. 用一个 org_member 账号重复 6 → 作为创建人看到「批准并发送」，可以批准自己发起的询价（2026-11-07 拍板）；换一个没有审批权限、也不是创建人的账号打开同一张待批轮次 → 看到「需要组织管理员批准 → 审批中心」，没有批准按钮。
 10. 从测试供应商邮箱回一封含单价的邮件 → 10 分钟内该供应商行变「已报价」，字段自动填入（人工手录 = 0）。
 11. 旧接口：`POST …/items/{itemId}/email/send` 与 `…/email/generate` 返回 410；`inquiry-detail` 里没有「邮件」按钮，仍有「标记发送」。
 12. Muse 旁路：`MUSE_BRIDGE_ENABLED=1` 的环境里 `rfq` 意图响应与改动前一致（对比一次 `muse-bridge-pure.test.ts` 的快照即可）。
