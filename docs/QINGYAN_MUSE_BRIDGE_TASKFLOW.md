@@ -69,6 +69,19 @@
 - `staging` 分支已于 2026-10-27 快进同步到 main（含 #232–#240、#258）。
 
 **GATE-1 验收**：从 Muse 说「问三家价」到三家报价进表，人工手录字段数 = 0；全程出站动作全部有 PendingAction 记录；Muse 端消息零敏感字段。
+**GATE-1 验收（Web 版，W-1 起）**：从项目「标书与报价」点「问供应商要价」到三家报价进表，人工手录字段数 = 0；出站只经 `tender.send_rfq` 审批；审批人不离开项目页。
+
+---
+
+## Phase W — 先把已建好的用起来（Web 入口）
+
+上位方案：`claude/招投标四步路径整合方案-2026-11-06.md`（青砚项目文档，Evan 2026-11-06 拍板 §6a）。纪律同上：零 schema、出站一律审批、不新增队列、零新增 LLM 调用。Muse Connector 冻结后，P1 询价引擎的入口改由 Web 承担；`MUSE_BRIDGE_ENABLED` 旁路保留。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| W-1 | 项目页「问供应商要价」：入口前置判断（七种不可发原因 + 出路）→ 抽屉选供应商 / 条款 → 与 Muse 同一 `prepareRfqRound`（`source=web`）建 `tender.send_rfq` → 原地批准 / 驳回（审批中心既有接口）→ 轮次状态行与「从发起到发出」耗时；待批轮次禁止手工标记发送；旧单封直发 `email/send`、`email/generate` 下线（410） | P1-1..P1-8 | OpenSpec change `rfq-web-entry`；`web-entry-pure` 80 项测试注册；报告 `docs/QINGYAN_W-1_REPORT.md`；staging GATE-W 见任务书 §6 | [G] |
+| W-2 | RFQ 设置页：fromName / fromEmail / mailboxEmail / 回复提前量 / 轮次锁 / 催单天数 / 落地成本 FX（现只有 `PUT /api/organizations/[orgId]/tender-rfq-settings`） | W-1 | 页面保存 = 现有 PUT 的效果；非 org_admin 不可见 | [ ] |
+| W-3 | 比价矩阵所选供应商落地价接进定价助手成本线（Web 化 `projectScenariosForMuse`，决定 A 不变） | W-1 | 定价助手出现「来自比价矩阵」成本来源；手填可覆盖 | [ ] |
 
 ---
 
