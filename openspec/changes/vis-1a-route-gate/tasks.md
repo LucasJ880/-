@@ -50,13 +50,13 @@
 
 ## 5. 删除被取代的旧门
 
-- [ ] 5.1 删除被取代的门：
+- [x] 5.1 删除被取代的门：
   - 删 `src/lib/marketing/workspace-gate.ts` 及只调用它的 `src/app/(main)/marketing/layout.tsx`、`src/app/(main)/operations/growth/layout.tsx`。
   - `src/lib/marketing/route-access.ts` 删 `isMarketingPagePath` / `isMarketingWorkspacePath`，保留 API 判定。
   - `bids/page.tsx`、`accounting/page.tsx`、`ops/page.tsx`、`ops/projects/page.tsx`、`ops/projects/[id]/page.tsx`、`install/**/page.tsx` 删掉工作区重定向，保留未登录跳转。
   - `sales/analytics/page.tsx` 删 `isSuperAdmin` 判定与「无权限访问」块，数据请求不再按平台角色跳过。
   - 同步改断言：`residual-reads.test.ts` 的「营销 layout 服务端门槛」改为「营销页面经路由门」，「中间件原判定保留」改为只看 API 分支；`route-access.test.ts` 去掉页面路径用例，正式注册进 `scripts/test-all.sh` 并从 `ci/test-registry-baseline.txt` 删掉它那一行（基线只减不增）。
-  - verify：`residual-reads.test.ts`、`route-access.test.ts`、`ops-access.test.ts`、route-gate 测试全过；`grep -rn "guardMarketingWorkspacePage\|isMarketingPagePath\|isMarketingWorkspacePath" src` 无输出；按平台角色拦页面路由的残留为零（API 层的 `canAccessMarketingWorkspace` 按 design Q8 保留）：`grep -n 'role === "sales"\|role !== "sales"' src/middleware.ts` 与 `grep -rn 'role === "sales"' "src/app/(main)"` 都无输出；`bash scripts/check-test-registry.sh` 通过。
+  - verify：`residual-reads.test.ts`、`route-access.test.ts`、`ops-access.test.ts`、route-gate 测试全过；`grep -rn "guardMarketingWorkspacePage\|isMarketingPagePath\|isMarketingWorkspacePath" src` 只剩 route-gate 测试里的反向断言；按平台角色拦页面路由的残留为零（API 层的 `canAccessMarketingWorkspace` 按 design Q8 保留）：`grep -n 'role === "sales"\|role !== "sales"' src/middleware.ts` 与 `grep -rn 'role === "sales"' "src/app/(main)"` 都无输出；`bash scripts/check-test-registry.sh` 通过。
 
 ## 6. 门禁
 
