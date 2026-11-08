@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 import {
@@ -19,7 +19,8 @@ import { InquiryDetail } from "./inquiry-detail";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
-import type { RfqEntryView, RfqPendingSendView } from "./rfq-web-entry-types";
+import type { RfqEntryView, RfqPendingChaseView, RfqPendingSendView } from "./rfq-web-entry-types";
+import { CHASE_FAILED_HINT, RFQ_ROUND_ANCHOR_PREFIX, chaseBadge, initialExpandedRound, roundIdFromHash } from "@/lib/tender-rfq/web-entry-pure";
 
 interface InquiryRound {
   id: string;
@@ -62,7 +63,7 @@ const STATUS_LABEL: Record<string, string> = {
   canceled: "已取消",
 };
 
-const ROUND_ANCHOR_PREFIX = "#rfq-round-";
+const ROUND_ANCHOR_PREFIX = RFQ_ROUND_ANCHOR_PREFIX;
 
 export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const [rounds, setRounds] = useState<InquiryRound[]>([]);
@@ -75,6 +76,12 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   /** 最近一次审批决策的结果：审批面板在刷新后会卸载，结果文字留在该轮卡片上，直到手动关掉 */
   const [lastOutcome, setLastOutcome] = useState<(RfqDecisionOutcome & { inquiryId: string }) | null>(null);
+  /** T-1：地址里的 #rfq-round-<id> 只在首次加载列表时读一次；按锚点展开后，待批轮次不再抢展开 */
+  const hashHandledRef = useRef(false);
+  const anchoredRef = useRef(false);
+  /** 入口数据第一次加载成功时的第一张待批发送卡所在轮次（没有为 null；还没加载为 undefined） */
+  const initialPendingRef = useRef<string | null | undefined>(undefined);
+  const [scrollToRound, setScrollToRound] = useState<string | null>(null);
 
   // 加载失败时保留上一次成功的入口数据（否则会退回旧界面、待批轮次重新露出「标记发送」）
   const loadEntry = useCallback(() => {
@@ -84,6 +91,9 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
         return (await r.json()) as RfqEntryView;
       })
       .then((data) => {
+        if (initialPendingRef.current === undefined) {
+          initialPendingRef.current = data.available ? (data.pendingSends[0]?.inquiryId ?? null) : null;
+        }
         setEntry(data);
         setEntryError(false);
       })
@@ -94,9 +104,20 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
     apiFetch(`/api/projects/${projectId}/inquiries`)
       .then((r) => r.json())
       .then((data) => {
-        const list = Array.isArray(data) ? data : [];
+        const list: InquiryRound[] = Array.isArray(data) ? data : [];
         setRounds(list);
-        setExpandedId((prev) => prev ?? (list.length > 0 ? list[list.length - 1].id : null));
+        const roundIds = list.map((r) => r.id);
+        const latestRoundId = roundIds.length > 0 ? roundIds[roundIds.length - 1] : null;
+        let hashRoundId: string | null = null;
+        if (!hashHandledRef.current) {
+          hashHandledRef.current = true;
+          hashRoundId = roundIdFromHash(window.location.hash);
+          if (hashRoundId && roundIds.includes(hashRoundId)) {
+            anchoredRef.current = true;
+            setScrollToRound(hashRoundId);
+          }
+        }
+        setExpandedId((prev) => initialExpandedRound({ hashRoundId, roundIds, currentRoundId: prev, latestRoundId }));
       })
       .finally(() => setLoading(false));
   }, [projectId]);
@@ -124,12 +145,39 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const entryUnknown = entry === null;
   const entryAction = ready?.state.action ?? null;
   const pendingByInquiry = new Map<string, RfqPendingSendView>((ready?.pendingSends ?? []).map((p) => [p.inquiryId, p]));
+  /** T-1：每轮待批的催单 / 追问卡（每张一封，原地审批） */
+  const chasesByInquiry = new Map<string, RfqPendingChaseView[]>();
+  for (const c of ready?.pendingChases ?? []) chasesByInquiry.set(c.inquiryId, [...(chasesByInquiry.get(c.inquiryId) ?? []), c]);
 
   // 有待批发送卡时默认展开那一轮（审批面板在里面）；只在「第一张待批卡」变化时跳，不打断用户手动收起
   const firstPendingInquiryId = ready?.pendingSends[0]?.inquiryId ?? null;
+  // 从链接直达时（T-1）：首屏就有的那张待批卡不抢锚点那一轮；之后新出现的待批轮次照常展开
   useEffect(() => {
-    if (firstPendingInquiryId) setExpandedId(firstPendingInquiryId);
+    if (!firstPendingInquiryId) return;
+    if (anchoredRef.current && firstPendingInquiryId === initialPendingRef.current) return;
+    setExpandedId(firstPendingInquiryId);
   }, [firstPendingInquiryId]);
+
+  // 已在本页时点了同项目另一轮的通知：地址只改 hash、页面不重载 → 展开并滚到那一轮
+  useEffect(() => {
+    const onHashChange = () => {
+      const id = roundIdFromHash(window.location.hash);
+      if (!id || !rounds.some((r) => r.id === id)) return;
+      setExpandedId(id);
+      setScrollToRound(id);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [rounds]);
+
+  // 从链接直达：列表渲染出该轮之后再滚过去（首屏时元素还不在，浏览器自己的锚点滚动落空）
+  useEffect(() => {
+    if (!scrollToRound || loading) return;
+    const target = document.getElementById(`rfq-round-${scrollToRound}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollToRound(null);
+  }, [scrollToRound, loading, rounds]);
 
   /** 入口说明里的页内锚点：#rfq-round-<id> 展开并滚到该轮；#rfq-rounds 滚到列表 */
   const followAnchor = useCallback((href: string) => {
@@ -271,6 +319,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
           {rounds.map((r) => {
             const isOpen = expandedId === r.id;
             const pending = pendingByInquiry.get(r.id) ?? null;
+            const chases = chasesByInquiry.get(r.id) ?? [];
+            const chaseLabel = chaseBadge(chases.length);
             const engine = ready?.engineRounds[r.id] ?? null;
             return (
               <div
@@ -302,6 +352,11 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     >
                       {pending ? "待批准" : STATUS_LABEL[r.status] ?? r.status}
                     </span>
+                    {chaseLabel && (
+                      <span className="rounded-full bg-[rgba(154,106,47,0.10)] px-2 py-0.5 text-[11px] font-medium text-[#9a6a2f]">
+                        {chaseLabel}
+                      </span>
+                    )}
                     <span className="text-xs text-muted">
                       {r.items.length} 家供应商
                     </span>
@@ -329,7 +384,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     {lastOutcome.kind === "sent" ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "error" ? <XCircle size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "partial" ? <AlertTriangle size={14} className="mt-px shrink-0" /> : null}
                     <span className="flex-1">
                       {lastOutcome.text}
-                      {lastOutcome.kind === "error" && !pending ? " 这张卡已失效，处理好原因后重新「问供应商要价」。" : ""}
+                      {lastOutcome.kind === "error" && lastOutcome.source === "chase" ? CHASE_FAILED_HINT : ""}
+                      {lastOutcome.kind === "error" && lastOutcome.source !== "chase" && !pending ? " 这张卡已失效，处理好原因后重新「问供应商要价」。" : ""}
                       {lastOutcome.kind === "partial" ? " 没发出的那几家可以下一轮再问，或电话 / 微信联系后在明细里「标记发送」。" : ""}
                     </span>
                     <button type="button" aria-label="关闭这条提示" onClick={() => setLastOutcome(null)} className="shrink-0 opacity-70 hover:opacity-100">
@@ -358,6 +414,19 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         onDone={(o) => onDecision(r.id, o)}
                       />
                     )}
+                    {chases.map((c) => (
+                      <RfqApprovalPanel
+                        key={c.actionId}
+                        variant="chase"
+                        chase={{ kind: c.kind, chaseIndex: c.chaseIndex, supplierName: c.supplierName }}
+                        projectId={projectId}
+                        inquiryId={r.id}
+                        roundNumber={c.roundNumber ?? r.roundNumber}
+                        approval={c.approval}
+                        emails={c.emails}
+                        onDone={(o) => onDecision(r.id, o)}
+                      />
+                    ))}
                     <InquiryDetail
                       projectId={projectId}
                       orgId={orgId}

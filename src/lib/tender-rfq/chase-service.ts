@@ -27,7 +27,10 @@ import {
   type ChaseKind,
   type ChaseSkipReason,
 } from "./chase-pure";
+import type { InboundMissingField } from "./inbound-contract";
 import { readTenderRfqSettings } from "./round-pure";
+import { notifyChaseNoResponse, notifyChaseRoundDrafted } from "./tracking-notify";
+import type { RoundRef } from "./tracking-notify-pure";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE } from "./types";
 
 /** 与入站同一窗口：只看最近 90 天发出的询价 */
@@ -43,13 +46,32 @@ export type ChaseRunResult = {
 
 const emptyRun = (): ChaseRunResult => ({ drafted: [], noResponse: [], skipped: [], failed: [] });
 
-type LoadedItem = {
+/** T-1：一轮的上下文（给定时检查的站内通知用） */
+export type ChaseRoundContext = {
+  inquiryId: string;
+  projectId: string;
+  projectName: string;
+  roundNumber: number;
+  ownerId: string;
+  roundCreatorId: string;
+  /** 这一轮使用的催单天数 */
+  days: number;
+};
+
+/** T-1：一轮、一次扫描新起草的全部卡 */
+export type ChaseRoundDrafted = ChaseRoundContext & {
+  cards: Array<{ itemId: string; supplierName: string; actionId: string; kind: ChaseKind; missingFields: InboundMissingField[] }>;
+};
+
+export type LoadedItem = {
   snapshot: ChaseItemSnapshot;
   supplierEmail: string | null;
   inquiryId: string;
   roundDueDate: Date | null;
   projectName: string;
   ownerId: string;
+  roundNumber: number;
+  roundCreatorId: string;
 };
 
 async function loadItems(where: { orgId: string; projectId?: string; inquiryId?: string; itemIds?: string[] }, now: Date): Promise<LoadedItem[]> {
@@ -75,7 +97,7 @@ async function loadItems(where: { orgId: string; projectId?: string; inquiryId?:
       contactNotes: true,
       updatedAt: true,
       supplier: { select: { name: true, contactEmail: true } },
-      inquiry: { select: { id: true, dueDate: true, projectId: true, project: { select: { name: true, ownerId: true } } } },
+      inquiry: { select: { id: true, dueDate: true, projectId: true, roundNumber: true, createdById: true, project: { select: { name: true, ownerId: true } } } },
     },
   });
   if (rows.length === 0) return [];
@@ -114,6 +136,8 @@ async function loadItems(where: { orgId: string; projectId?: string; inquiryId?:
     roundDueDate: r.inquiry.dueDate,
     projectName: r.inquiry.project.name,
     ownerId: r.inquiry.project.ownerId,
+    roundNumber: r.inquiry.roundNumber,
+    roundCreatorId: r.inquiry.createdById,
   }));
 }
 
@@ -130,47 +154,82 @@ async function loadRfqMail(inquiryId: string): Promise<Map<string, { subject: st
 
 const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
+/** runForItems 的读写（T-1：可注入，让「一轮一条催单待批」能被执行测试锁住；默认就是原来的库调用） */
+export type ChaseRunDeps = {
+  loadOrgSettingsJson: (orgId: string) => Promise<unknown>;
+  markItemNoResponse: (scope: { projectId: string; inquiryId: string; itemId: string }) => Promise<unknown>;
+  loadRfqMail: (inquiryId: string) => Promise<Map<string, { subject: string; to: string }>>;
+  requestApproval: typeof requestApproval;
+};
+
+export const defaultChaseRunDeps: ChaseRunDeps = {
+  loadOrgSettingsJson: async (orgId) =>
+    (await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson ?? null,
+  markItemNoResponse,
+  loadRfqMail,
+  requestApproval,
+};
+
 /**
  * 按轮次分组决策 → 起草 / 标 no_response。
  * principalUserId：手动 = 发起人；扫描 = 项目 owner（催单天数也按 owner 的偏好）。
  */
-async function runForItems(
+export async function runForItems(
   orgId: string,
   items: LoadedItem[],
   now: Date,
-  opts: { manual: boolean; principalUserId?: string; onNoResponse?: (itemId: string, reason: "two_chases" | "deadline") => Promise<void> },
+  opts: {
+    manual: boolean;
+    principalUserId?: string;
+    /** 标了一家未响应之后（第三个参数：该轮上下文与供应商名） */
+    onNoResponse?: (itemId: string, reason: "two_chases" | "deadline", ctx: ChaseRoundContext & { supplierName: string }) => Promise<void>;
+    /** T-1：一轮起草完、本轮有新卡时调用一次 */
+    onRoundDrafted?: (round: ChaseRoundDrafted) => Promise<void>;
+  },
+  deps: ChaseRunDeps = defaultChaseRunDeps,
 ): Promise<ChaseRunResult> {
   const out = emptyRun();
   if (items.length === 0) return out;
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  const settings = readTenderRfqSettings(org?.settingsJson);
+  const orgSettingsJson = await deps.loadOrgSettingsJson(orgId);
+  const settings = readTenderRfqSettings(orgSettingsJson);
 
   const byRound = new Map<string, LoadedItem[]>();
   for (const it of items) byRound.set(it.inquiryId, [...(byRound.get(it.inquiryId) ?? []), it]);
 
   for (const [inquiryId, roundItems] of byRound) {
     const owner = roundItems[0].ownerId;
-    const days = resolveChaseAfterDays(readUserPrefs(org?.settingsJson, owner).chaseAfterDays, org?.settingsJson);
+    const days = resolveChaseAfterDays(readUserPrefs(orgSettingsJson, owner).chaseAfterDays, orgSettingsJson);
     const replyBy = roundItems[0].roundDueDate;
     const decision: ChaseDecision = decideChases({ now, chaseAfterDays: days, replyBy, items: roundItems.map((i) => i.snapshot) }, { manual: opts.manual });
     const nameOf = (id: string) => roundItems.find((i) => i.snapshot.itemId === id)?.snapshot.supplierName ?? "供应商";
+    const first = roundItems[0];
+    const roundCtx: ChaseRoundContext = {
+      inquiryId,
+      projectId: first.snapshot.projectId,
+      projectName: first.projectName,
+      roundNumber: first.roundNumber,
+      ownerId: owner,
+      roundCreatorId: first.roundCreatorId,
+      days,
+    };
 
     for (const s of decision.skipped) out.skipped.push({ ...s, supplierName: nameOf(s.itemId) });
 
     for (const itemId of decision.noResponse) {
       const it = roundItems.find((i) => i.snapshot.itemId === itemId)!;
       try {
-        await markItemNoResponse({ projectId: it.snapshot.projectId, inquiryId, itemId });
+        await deps.markItemNoResponse({ projectId: it.snapshot.projectId, inquiryId, itemId });
         out.noResponse.push({ itemId, supplierName: it.snapshot.supplierName });
         const twoChases = it.snapshot.chases.filter((c) => c.kind === "no_reply").length >= 2;
-        await opts.onNoResponse?.(itemId, twoChases ? "two_chases" : "deadline");
+        await opts.onNoResponse?.(itemId, twoChases ? "two_chases" : "deadline", { ...roundCtx, supplierName: it.snapshot.supplierName });
       } catch (err) {
         out.failed.push({ itemId, supplierName: it.snapshot.supplierName, error: err instanceof Error ? err.message : String(err) });
       }
     }
 
     if (decision.drafts.length === 0) continue;
-    const mails = await loadRfqMail(inquiryId);
+    const roundCards: ChaseRoundDrafted["cards"] = [];
+    const mails = await deps.loadRfqMail(inquiryId);
     for (const plan of decision.drafts) {
       const it = roundItems.find((i) => i.snapshot.itemId === plan.itemId)!;
       const mail = mails.get(plan.itemId);
@@ -196,7 +255,7 @@ async function runForItems(
         out.failed.push({ itemId: plan.itemId, supplierName: it.snapshot.supplierName, error: built.message });
         continue;
       }
-      const approval = await requestApproval({
+      const approval = await deps.requestApproval({
         orgId,
         principal: { userId: opts.principalUserId ?? owner, actorType: opts.manual ? "user" : "agent" },
         actionType: TENDER_SEND_CHASE_TYPE,
@@ -215,7 +274,9 @@ async function runForItems(
         continue;
       }
       out.drafted.push({ itemId: plan.itemId, supplierName: it.snapshot.supplierName, actionId: approval.actionIds[0] ?? "", kind: plan.kind, chaseIndex: plan.chaseIndex });
+      roundCards.push({ itemId: plan.itemId, supplierName: it.snapshot.supplierName, actionId: approval.actionIds[0] ?? "", kind: plan.kind, missingFields: plan.missingFields });
     }
+    if (roundCards.length > 0) await opts.onRoundDrafted?.({ ...roundCtx, cards: roundCards });
   }
   return out;
 }
@@ -225,10 +286,41 @@ async function emitNoResponse(itemId: string, reason: "two_chases" | "deadline")
   await museOnNoResponse(itemId, reason);
 }
 
-/** cron：入站 tick 末尾调用（同一次 tick，先收信再判断谁该催） */
+const roundRef = (c: ChaseRoundContext): RoundRef => ({
+  inquiryId: c.inquiryId,
+  projectId: c.projectId,
+  projectName: c.projectName,
+  roundNumber: c.roundNumber,
+});
+
+/**
+ * cron：入站 tick 末尾调用（同一次 tick，先收信再判断谁该催）。
+ * T-1：只有这里发站内通知（催单待批一轮一条、未响应每家一条）；两个回调都不向外抛错，
+ * 否则 runForItems 会把已标未响应的那家再记一次 failed（design D12）。
+ */
 export async function runChaseScan(orgId: string, now: Date = new Date()): Promise<ChaseRunResult> {
   const items = await loadItems({ orgId }, now);
-  return runForItems(orgId, items, now, { manual: false, onNoResponse: emitNoResponse });
+  return runForItems(orgId, items, now, {
+    manual: false,
+    onNoResponse: async (itemId, reason, ctx) => {
+      try {
+        await emitNoResponse(itemId, reason);
+      } catch (err) {
+        console.error(`[tender-rfq-chase] muse no_response 事件失败 item=${itemId}:`, err);
+      }
+      await notifyChaseNoResponse({
+        orgId,
+        round: roundRef(ctx),
+        ownerId: ctx.ownerId,
+        roundCreatorId: ctx.roundCreatorId,
+        itemId,
+        supplierName: ctx.supplierName,
+        reason,
+      });
+    },
+    onRoundDrafted: (round) =>
+      notifyChaseRoundDrafted({ orgId, round: roundRef(round), ownerId: round.ownerId, days: round.days, cards: round.cards }),
+  });
 }
 
 /** Muse `chase` 意图：立即为指定项目 / 轮次 / item 起草（不看天数；不标 no_response） */

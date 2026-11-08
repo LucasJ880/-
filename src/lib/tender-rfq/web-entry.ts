@@ -17,9 +17,10 @@ import { buildRfqDocument } from "./build";
 import { resolveChaseAfterDays } from "./chase-pure";
 import { readTenderRfqSettings, resolveSender } from "./round-pure";
 import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
-import { TENDER_SEND_RFQ_TYPE } from "./types";
+import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
   assembleEntryPreview,
+  chaseStillNeeded,
   autoIngestNote,
   decideRfqEntryState,
   elapsedLabel,
@@ -41,6 +42,17 @@ export type RfqWebEntry =
       preview: EntryPreview;
       /** 本项目待批（或已批未执行）的发送卡；路由层再补审批能力 */
       pendingSends: Array<{ actionId: string; inquiryId: string; roundNumber: number | null; createdAt: string }>;
+      /** T-1：本项目待批（未过期）或已批执行中的催单 / 追问卡；路由层再补审批能力与正文（design D13） */
+      pendingChases: Array<{
+        actionId: string;
+        inquiryId: string;
+        itemId: string;
+        supplierName: string;
+        kind: "no_reply" | "missing_fields";
+        chaseIndex: number;
+        roundNumber: number | null;
+        createdAt: string;
+      }>;
       /** 由询价引擎发出的轮次：inquiryId → 耗时标签 */
       engineRounds: Record<string, { elapsed: string | null }>;
       autoIngest: UserMessage;
@@ -62,7 +74,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   const timeZone = resolveOrgTimezone(orgSettings);
   const prefs = readUserPrefs(orgSettings, input.userId);
 
-  const [lockState, reqInputs, providers, supplierRows, executed] = await Promise.all([
+  const [lockState, reqInputs, providers, supplierRows, executed, chaseRows] = await Promise.all([
     loadRfqRoundLockState({ orgId: input.orgId, projectId: project.id, now, roundLockDays: settings.roundLockDays }),
     loadRfqRequirementInputs(project.id),
     db.emailProvider.findMany({
@@ -82,7 +94,32 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       where: { orgId: input.orgId, projectId: project.id, type: TENDER_SEND_RFQ_TYPE, status: "executed" },
       select: { payload: true, createdAt: true, executedAt: true },
     }),
+    // 已过期没人批的催单卡不列：下次定时检查会按规则重新起草
+    db.pendingAction.findMany({
+      where: {
+        orgId: input.orgId,
+        projectId: project.id,
+        type: TENDER_SEND_CHASE_TYPE,
+        OR: [{ status: "approved" }, { status: "pending", expiresAt: { gt: now } }],
+      },
+      select: { id: true, payload: true, createdAt: true, status: true },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+
+  // 待批催单卡对应那家的当前状态：已回复的那家不用再催（批了执行器也不会发），不列
+  const chaseItemIds = [
+    ...new Set(chaseRows.flatMap((a) => {
+      const id = (a.payload as Partial<TenderSendChasePayload> | null)?.inquiryItemId;
+      return id ? [id] : [];
+    })),
+  ];
+  const chaseItemStatus = new Map(
+    (chaseItemIds.length
+      ? await db.inquiryItem.findMany({ where: { id: { in: chaseItemIds } }, select: { id: true, status: true } })
+      : []
+    ).map((i) => [i.id, i.status]),
+  );
 
   // ── 内存预构建（与 prepareRfqRound 的 buildRfqDocument 入参一致；不传人工可选项） ──
   const term = pickRfqIncoterm(null, prefs);
@@ -167,6 +204,25 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       roundNumber: roundOf.get(p.inquiryId)?.roundNumber ?? null,
       createdAt: p.createdAt.toISOString(),
     })),
+    pendingChases: chaseRows.flatMap((a) => {
+      const p = a.payload as Partial<TenderSendChasePayload> | null;
+      if (!p?.inquiryId || !p.inquiryItemId) return [];
+      const kind = p.kind === "missing_fields" ? ("missing_fields" as const) : ("no_reply" as const);
+      // 已批准、还在发出中的照常显示；待批的只列还有用的
+      if (a.status === "pending" && !chaseStillNeeded(kind, chaseItemStatus.get(p.inquiryItemId) ?? "")) return [];
+      return [
+        {
+          actionId: a.id,
+          inquiryId: p.inquiryId,
+          itemId: p.inquiryItemId,
+          supplierName: String(p.supplierName ?? ""),
+          kind,
+          chaseIndex: p.chaseIndex === 2 ? 2 : 1,
+          roundNumber: roundOf.get(p.inquiryId)?.roundNumber ?? null,
+          createdAt: a.createdAt.toISOString(),
+        },
+      ];
+    }),
     engineRounds,
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,

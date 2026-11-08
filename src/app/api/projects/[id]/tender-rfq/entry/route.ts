@@ -2,7 +2,7 @@
  * GET /api/projects/[id]/tender-rfq/entry（W-1）
  *
  * 「问供应商要价」按钮的一切前置信息：能不能发 / 为什么 / 去哪解决、可选供应商、默认条款、将发出的内容摘要、
- * 本项目待批的发送卡（附能否原地批与每家正文）、引擎发出的轮次耗时、自动进表说明。
+ * 本项目待批的发送卡与催单 / 追问卡（附能否原地批与每封正文）、引擎发出的轮次耗时、自动进表说明。
  * 零副作用：不建轮次、不建审批卡、不发信。
  */
 
@@ -24,7 +24,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   const entry = await loadRfqWebEntry({ projectId, orgId, userId: access.user.id });
   if (!entry.available) return NextResponse.json(entry);
 
-  const actionIds = entry.pendingSends.map((p) => p.actionId);
+  // 发送卡与催单卡（T-1）一起补：能否原地批 + 每封正文
+  const actionIds = [...entry.pendingSends.map((p) => p.actionId), ...entry.pendingChases.map((c) => c.actionId)];
   const [approvals, emails] = await Promise.all([
     loadRfqApprovalInfo(request, access.user, orgId, actionIds),
     loadRfqSendEmails(orgId, actionIds),
@@ -36,6 +37,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       ...p,
       approval: approvals[p.actionId] ?? null,
       emails: emails[p.actionId] ?? [],
+    })),
+    pendingChases: entry.pendingChases.map((c) => ({
+      ...c,
+      approval: approvals[c.actionId] ?? null,
+      emails: emails[c.actionId] ?? [],
     })),
   });
 }

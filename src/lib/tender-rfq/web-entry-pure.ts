@@ -433,3 +433,130 @@ export function assembleEntryPreview(src: {
     excludedCount: src.excludedCount,
   };
 }
+
+// ── T-1：从链接直达询价轮次（spec tender/rfq-web-entry「从链接直达询价轮次」） ──
+
+/** 轮次锚点前缀：通知跳转地址 /projects/{id}?tab=bid#rfq-round-{轮次 id} 与入口说明的页内锚点共用 */
+export const RFQ_ROUND_ANCHOR_PREFIX = "#rfq-round-";
+const ROUND_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** 地址里的 #rfq-round-<id> → 轮次 id；空、错前缀、含多余字符 → null */
+export function roundIdFromHash(hash: string | null | undefined): string | null {
+  if (!hash || !hash.startsWith(RFQ_ROUND_ANCHOR_PREFIX)) return null;
+  const id = hash.slice(RFQ_ROUND_ANCHOR_PREFIX.length);
+  return ROUND_ID_PATTERN.test(id) ? id : null;
+}
+
+/**
+ * 列表加载后展开哪一轮：锚点轮次属于本项目 → 它（优先于默认）；
+ * 否则当前已展开 / 待批的那一轮（仍在列表里）；否则最新一轮；没有轮次 → null。
+ */
+export function initialExpandedRound(input: {
+  hashRoundId: string | null;
+  roundIds: readonly string[];
+  currentRoundId: string | null;
+  latestRoundId: string | null;
+}): string | null {
+  const inList = (id: string | null): id is string => !!id && input.roundIds.includes(id);
+  if (inList(input.hashRoundId)) return input.hashRoundId;
+  if (inList(input.currentRoundId)) return input.currentRoundId;
+  return inList(input.latestRoundId) ? input.latestRoundId : null;
+}
+
+// ── T-1：催单卡在轮次里原地审批（spec tender/rfq-web-entry「待批催单卡的原地审批」，design D13） ──
+
+export type EmailPreview = { supplierName: string; to: string; subject: string; body: string };
+
+/**
+ * 审批卡 payload → 每封将发出的邮件（发出的就是这份）：
+ * 询价发送卡 `{ items: [{ supplierName, to, subject, body }] }`；催单 / 追问卡是单封 `{ supplierName, to, subject, body }`。
+ * 缺收件人或正文的条目不列。
+ */
+export function previewEmailsFromPayload(payload: unknown): EmailPreview[] {
+  if (!payload || typeof payload !== "object") return [];
+  const p = payload as { items?: unknown; supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown };
+  const one = (x: unknown): EmailPreview | null => {
+    if (!x || typeof x !== "object") return null;
+    const e = x as { supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown };
+    if (typeof e.to !== "string" || typeof e.body !== "string") return null;
+    return { supplierName: String(e.supplierName ?? ""), to: e.to, subject: String(e.subject ?? ""), body: e.body };
+  };
+  if (Array.isArray(p.items)) return p.items.map(one).filter((e): e is EmailPreview => e !== null);
+  const single = one(p);
+  return single ? [single] : [];
+}
+
+export type ChaseCardKind = "no_reply" | "missing_fields";
+
+/** 催单面板的文案：标题、驳回确认、驳回结果、写进审批记录的驳回备注 */
+export function chasePanelCopy(input: { kind: ChaseCardKind; chaseIndex: number; supplierName: string; roundNumber: number | null }): {
+  heading: string;
+  rejectConfirm: string;
+  rejected: string;
+  rejectNote: string;
+} {
+  const what = input.kind === "no_reply" ? `第 ${input.chaseIndex} 次催单` : "缺字段追问";
+  const round = input.roundNumber ? `第 ${input.roundNumber} 轮：` : "";
+  const who = input.supplierName.trim() || "供应商";
+  return {
+    heading: `${round}给${who}的${what}等待批准，批准后在原邮件线程里发出`,
+    rejectConfirm: "确认驳回？只是这一封不发出，这一轮不受影响。",
+    rejected: `已驳回，给${who}的这封${input.kind === "no_reply" ? "催单" : "追问"}不会发出。`,
+    rejectNote: "项目页驳回催单",
+  };
+}
+
+/** 轮次卡片头的计数；没有待批催单卡 → null（不显示） */
+export function chaseBadge(count: number): string | null {
+  return count > 0 ? `催单待批 ${count}` : null;
+}
+
+/**
+ * 催单卡批准 / 驳回没成功时，轮次卡片上追加的提示。失败原因可能是发送失败、别人已在审批中心处理、权限变了，
+ * 这里分不清，所以只说能确定的事（不声称会重新起草）。
+ */
+export const CHASE_FAILED_HINT = " 去审批中心看这张卡现在的状态；如果是发送失败，下次自动检查会按规则重新起草。";
+
+/** 询价项状态 → 中文（催单结果里不出现英文状态） */
+const ITEM_STATUS_LABEL: Record<string, string> = {
+  pending: "待发出",
+  sent: "已发出",
+  replied: "已回复",
+  quoted: "已报价",
+  declined: "已婉拒",
+  no_response: "未响应",
+};
+
+export function itemStatusLabel(status: string): string {
+  return ITEM_STATUS_LABEL[status] ?? "已处理";
+}
+
+/**
+ * 待批的催单卡还有没有用：催单（no_reply）只对还在「已发出」等回复的那家有用；
+ * 追问（missing_fields）只对「已回复 / 已报价」的那家有用。没用的卡批了也不会发出，轮次里不列（执行器同一判定）。
+ */
+export function chaseStillNeeded(kind: ChaseCardKind, itemStatus: string): boolean {
+  return kind === "no_reply" ? itemStatus === "sent" : itemStatus === "replied" || itemStatus === "quoted";
+}
+
+/**
+ * 批准催单卡后的结果文案（执行器的 message → 人话）：真的发出了 → sent；没发出（已回复 / 此前已发 / 已追问过）→ skipped（中性样式）。
+ * 去掉 Message-ID / threadId 之类的技术说明，状态换成中文。
+ */
+export function chaseOutcomeFromMessage(message: string | null | undefined): { kind: "sent" | "skipped"; text: string } {
+  const m = (message ?? "").trim();
+  if (!m) return { kind: "sent", text: "已批准并发出。" };
+  const sent = m.match(/^已给 ?(.+?) ?发出(第 \d 次催单|缺字段追问)（/);
+  if (sent) return { kind: "sent", text: `已给${sent[1]}发出${sent[2]}，回复会在原询价线程里自动进表。` };
+  const replied = m.match(/^(.+?) ?已回复（([a-z_]+)），这封催单没有发出/);
+  if (replied) return { kind: "skipped", text: `${replied[1]}现在是「${itemStatusLabel(replied[2])}」，这封催单没有发出。` };
+  if (/此前已发出|已追问过|没有发出|未重复发送/.test(m)) {
+    return { kind: "skipped", text: m.replace(/「([a-z_]+)」/g, (_x, st: string) => `「${itemStatusLabel(st)}」`) };
+  }
+  return { kind: "sent", text: m.replace(/（[^）]*Message-ID[^）]*）/g, "").trim() };
+}
+
+/** 催单卡执行失败的原因里也可能带英文状态（如「当前状态「replied」不需要追问」）→ 换成中文 */
+export function chaseErrorText(error: string): string {
+  return error.replace(/「([a-z_]+)」/g, (_x, st: string) => `「${itemStatusLabel(st)}」`);
+}

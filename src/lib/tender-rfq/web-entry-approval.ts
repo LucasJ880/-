@@ -13,7 +13,7 @@ import { buildCapabilitiesAccess } from "@/lib/capabilities/access";
 import { getCapabilityApproval } from "@/lib/capabilities/approvals/query";
 import { getTenantContext } from "@/lib/tenancy/context";
 import { makeApprovalId } from "@/lib/capabilities/approvals/types";
-import type { TenderSendRfqPayload } from "./types";
+import { previewEmailsFromPayload, type EmailPreview } from "./web-entry-pure";
 
 export type RfqApprovalInfo = {
   approvalId: string;
@@ -28,7 +28,7 @@ export type RfqApprovalInfo = {
   status: string;
 };
 
-export type RfqEmailPreview = { supplierName: string; to: string; subject: string; body: string };
+export type RfqEmailPreview = EmailPreview;
 
 export function rfqApprovalHref(approvalId: string): string {
   return `/capabilities/approvals/${encodeURIComponent(approvalId)}`;
@@ -83,7 +83,10 @@ export async function loadRfqApprovalInfo(
   return out;
 }
 
-/** 审批卡 payload 里每家供应商的邮件（发出的就是这份；正文已由 buildRfqDocument 做过敏感内容整单拦截）。 */
+/**
+ * 审批卡 payload 里每家供应商的邮件（发出的就是这份；询价正文已由 buildRfqDocument、催单正文已由 buildChasePayload 做过敏感内容拦截）。
+ * T-1：同时支持询价发送卡（items[]）与催单 / 追问卡（单封）。
+ */
 export async function loadRfqSendEmails(orgId: string, actionIds: string[]): Promise<Record<string, RfqEmailPreview[]>> {
   const out: Record<string, RfqEmailPreview[]> = {};
   if (actionIds.length === 0) return out;
@@ -91,12 +94,6 @@ export async function loadRfqSendEmails(orgId: string, actionIds: string[]): Pro
     where: { id: { in: actionIds }, orgId },
     select: { id: true, payload: true },
   });
-  for (const r of rows) {
-    const p = r.payload as Partial<TenderSendRfqPayload> | null;
-    const items = Array.isArray(p?.items) ? p.items : [];
-    out[r.id] = items
-      .filter((i) => i && typeof i.to === "string" && typeof i.body === "string")
-      .map((i) => ({ supplierName: String(i.supplierName ?? ""), to: i.to, subject: String(i.subject ?? ""), body: i.body }));
-  }
+  for (const r of rows) out[r.id] = previewEmailsFromPayload(r.payload);
   return out;
 }

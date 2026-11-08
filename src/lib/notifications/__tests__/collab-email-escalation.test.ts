@@ -1,6 +1,6 @@
 /**
  * 协作通知 COLLAB-2：未读升级邮件（design D14、D16，spec notifications/email-reminders）
- * - 发送条件：只限 mention / task_assigned、仍未读、创建于 [now − 24h, now − 15min]（两个边界）
+ * - 发送条件：只限 mention / task_assigned / rfq_chase_ready（T-1）、仍未读、创建于 [now − 24h, now − 15min]（两个边界）
  * - 防重：已发 / 已跳过 / 尝试满 3 次 / 10 分钟内正在发送的不再处理；认领的条件更新没命中时不发；两轮重叠只发一封
  * - 跳过：偏好关、免打扰（不论优先级）、账号停用、不是 active 成员、地址不可投递；跳过之后不再试
  * - 失败：记错误与次数，本轮不重试、下一轮再试、满 3 次不再试；metadata 合并保留原内容，状态不变
@@ -25,6 +25,7 @@ import {
   type MailNotification,
   type OutgoingMail,
 } from "../collab/email";
+import { chaseReadyNotice, quoteReceivedNotice } from "@/lib/tender-rfq/tracking-notify-pure";
 import {
   ESCALATION_CANDIDATE_LIMIT,
   ESCALATION_DEADLINE_MS,
@@ -505,11 +506,11 @@ async function main() {
     const c = w.candidateCalls[0];
     ok(
       !!c &&
-        eq([...c.types].sort(), ["mention", "task_assigned"]) &&
+        eq([...c.types].sort(), ["mention", "rfq_chase_ready", "task_assigned"]) &&
         c.take === 500 &&
         c.createdFrom.getTime() === T0.getTime() - 24 * HOUR &&
         c.createdTo.getTime() === T0.getTime() - 15 * MIN,
-      "候选查询：两种类型、[now − 24h, now − 15min]、前 500 条",
+      "候选查询：三种类型、[now − 24h, now − 15min]、前 500 条",
       c,
     );
     ok(result.candidates === 1 && result.eligible === 1 && row.id.length > 0, "运行结果记候选数与可发数", result);
@@ -722,6 +723,62 @@ async function main() {
     const allGood = world();
     addRow(allGood);
     ok(escalationOutcome(await run(allGood)).status === "succeeded", "全部发出 → succeeded");
+  }
+
+  console.log("T-1 催单待批的升级邮件");
+  {
+    const round = { inquiryId: "R1", projectId: "P1", projectName: "Alberta 露营装备", roundNumber: 2 };
+    const ready = chaseReadyNotice({
+      round,
+      days: 3,
+      cards: [
+        { actionId: "a1", supplierName: "丙厂", kind: "no_reply", missingFields: [] },
+        { actionId: "a2", supplierName: "丁厂", kind: "no_reply", missingFields: [] },
+        { actionId: "q1", supplierName: "甲厂", kind: "missing_fields", missingFields: ["validUntil"] },
+      ],
+    })!;
+    const quote = quoteReceivedNotice({ round, itemId: "it-1", messageId: "m-1", supplierName: "甲厂", missingFields: [] });
+    const asRow = (n: typeof ready, over: Partial<EscalationCandidateRow> = {}): Partial<EscalationCandidateRow> => ({
+      type: n.type,
+      priority: n.priority,
+      title: n.title,
+      summary: n.summary,
+      projectId: n.projectId,
+      entityType: n.entityType,
+      entityId: n.entityId,
+      metadata: JSON.stringify(n.metadata),
+      ...over,
+    });
+    const at = (type: string, ms: number) =>
+      escalationEligibility({ type, status: "unread", metadata: null, createdAt: ago(ms) }, T0);
+    ok(at("rfq_chase_ready", 16 * MIN) === "eligible", "rfq_chase_ready 满 15 分钟未读 → 进候选");
+    ok(at("rfq_chase_ready", 15 * MIN - 1) === "too_new", "rfq_chase_ready 不满 15 分钟 → 不发");
+    for (const type of ["rfq_quote_received", "rfq_reply_received", "rfq_no_response"]) {
+      ok(at(type, 20 * MIN) === "wrong_type", `${type} 不升级`);
+    }
+
+    const w = world();
+    const r = addRow(w, asRow(ready, { id: "chase-1", createdAt: ago(16 * MIN) }));
+    addRow(w, asRow(quote, { id: "quote-1", createdAt: ago(20 * MIN) }));
+    const result = await run(w);
+    ok(result.sent === 1 && w.sent.length === 1, "只发催单待批那一封，报价通知不发", result);
+    const mail = w.sent[0];
+    ok(mail?.subject === "【青砚】催单待批 · 项目「Alberta 露营装备」第 2 轮询价", "主题：【青砚】催单待批 · 项目「…」第 n 轮询价", mail?.subject);
+    ok(!!mail && mail.text.includes(`在青砚打开：${ORIGIN}/projects/P1?tab=bid#rfq-round-R1`), "打开链接指向该询价轮次", mail?.text);
+    ok(!!mail && mail.text.includes("催单待批｜项目「Alberta 露营装备」第 2 轮询价｜"), "事项行：类型名｜对象｜链接", mail?.text);
+    ok(!!mail && mail.text.includes(ready.title) && mail.text.includes(ready.summary), "正文含通知标题与摘要");
+    ok(!!mail && !/\$|¥|USD|CAD|\d+\.\d{2}/.test(mail.subject + mail.text), "主题与纯文本正文不出现任何金额");
+    // HTML 版内容与纯文本相同；模板 CSS 里有 0.16em 之类的小数，所以 HTML 只查货币符号与币种
+    ok(!!mail && !/\$|¥|USD|CAD/.test(mail.html), "HTML 正文不出现货币符号与币种");
+    ok(typeof metaOf(w, r.id).emailedAt === "string", "发过之后记 emailedAt");
+    ok(typeof metaOf(w, "quote-1").emailedAt === "undefined", "报价通知没有被认领");
+    const again = await run(w);
+    ok(again.sent === 0 && w.sent.length === 1, "下一轮不再为这条通知发邮件", again);
+
+    const w2 = world();
+    addRow(w2, asRow(ready, { id: "chase-read", status: "read", createdAt: ago(20 * MIN) }));
+    const r2 = await run(w2);
+    ok(r2.sent === 0 && w2.sent.length === 0, "已点开（已读）的催单待批不发");
   }
 
   console.log(`\ncollab-email-escalation: ${passed} passed, ${failed} failed`);

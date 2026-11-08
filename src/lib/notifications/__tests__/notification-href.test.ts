@@ -53,6 +53,9 @@ console.log("协作对象");
 eq({ entityType: "task", entityId: "T1" }, "/tasks?open=T1", "task");
 eq({ entityType: "project_discussion", entityId: "M1", projectId: "P1" }, "/projects/P1?tab=workbench#project-discussion", "project_discussion");
 eq({ entityType: "project_files", entityId: "D1", projectId: "P1" }, "/projects/P1?tab=files", "project_files");
+eq({ entityType: "tender_rfq_round", entityId: "R1", projectId: "P1" }, "/projects/P1?tab=bid#rfq-round-R1", "tender_rfq_round（T-1 询价轮次）");
+eq({ entityType: "tender_rfq_round", entityId: "R1" }, null, "询价轮次通知不带项目 → 没有跳转地址");
+eq({ entityType: "tender_rfq_round", projectId: "P1" }, "/projects/P1", "询价轮次通知缺轮次 id → 回落到项目");
 eq({ entityType: "project", entityId: "P9" }, "/projects/P9", "project");
 ok(PROJECT_DISCUSSION_HASH === "#project-discussion", "讨论区锚点常量");
 
@@ -78,6 +81,7 @@ eq({ entityType: "sales_quote", entityId: "Q 1", orgId: "O&1" }, "/sales/quote-s
 eq({ entityType: "trade_prospect", entityId: "x/y" }, "/trade/prospects/x%2Fy", "trade_prospect 编码");
 eq({ projectId: "P/1", activityId: "A 1" }, "/projects/P%2F1?activity=A%201", "项目与活动 id 编码");
 eq({ entityType: "project_discussion", projectId: "P/1" }, "/projects/P%2F1?tab=workbench#project-discussion", "讨论区的项目 id 编码");
+eq({ entityType: "tender_rfq_round", entityId: "R1", projectId: "P/1" }, "/projects/P%2F1?tab=bid#rfq-round-R1", "询价轮次的项目 id 编码");
 
 console.log("记住所选组织");
 ok(notificationOrgToRemember({ type: "install_completed", entityType: "blinds_order", entityId: "B1", orgId: "O1" }) === "O1", "安装类 → 记住组织");

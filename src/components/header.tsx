@@ -24,6 +24,9 @@ import {
   ListChecks,
   MessageSquare,
   Package,
+  MailCheck,
+  MailWarning,
+  AlarmClock,
 } from "lucide-react";
 import { cn, TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -221,6 +224,10 @@ const NTYPE_ICONS: Record<string, typeof Bell> = {
   task_status: ListChecks,
   task_comment: MessageSquare,
   order_stage: Package,
+  rfq_quote_received: MailCheck,
+  rfq_reply_received: MessageSquare,
+  rfq_chase_ready: AlarmClock,
+  rfq_no_response: MailWarning,
 };
 
 /* ── Notification Panel ── */
