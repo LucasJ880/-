@@ -78,6 +78,8 @@ console.log("判定与 Muse 模块不动");
   ok(!/tracking-notify/.test(chasePure), "chase-pure.ts 不引用询价通知（判定不变）");
   ok(!/tracking-notify/.test(museHooks), "muse-bridge/hooks.ts 不引用询价通知");
   ok(/export async function museOnNoResponse/.test(museHooks) && /export async function museOnQuoteRecorded/.test(museHooks), "Muse 钩子导出仍在");
+  const inquiryService = read("src/lib/inquiry/service.ts");
+  ok(inquiryService.length > 0 && !/tracking-notify|deliverCollabNotification/.test(inquiryService), "人工录报价 / 手工改状态（inquiry/service.ts）不发询价通知");
 }
 
 console.log("入站：默认 deps 接上 notifyTracking");

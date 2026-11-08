@@ -58,7 +58,7 @@
 否决：催单待批也给发起人——见上；否决：给组织管理员——收件面太大，且他们有审批中心。
 
 ### D8 跳转与首屏锚点
-`href.ts` 的 `switch` 加 `tender_rfq_round` → `projectId && /projects/{projectId}?tab=bid#rfq-round-{entityId}`（缺 `projectId` 返回 null，按既有顺序回落）。`web-entry-pure.ts` 新增 `roundIdFromHash(hash)`（只接受 `#rfq-round-` 后跟 id 字符集）与 `initialExpandedRound({ hashRoundId, roundIds, pendingRoundId, latestRoundId })`（锚点轮次在列表里 → 它；否则待批轮；否则最新一轮）。`project-inquiry-section.tsx` 列表首次加载时调这两个函数决定展开并滚动，用一个 ref 记下「已按锚点展开」，让待批 effect 不再覆盖。
+`href.ts` 的 `switch` 加 `tender_rfq_round` → `projectId && /projects/{projectId}?tab=bid#rfq-round-{entityId}`（缺 `projectId` 返回 null，按既有顺序回落）。`web-entry-pure.ts` 新增 `roundIdFromHash(hash)`（只接受 `#rfq-round-` 后跟 id 字符集）与 `initialExpandedRound({ hashRoundId, roundIds, currentRoundId, latestRoundId })`（锚点轮次在列表里 → 它；否则当前已展开 / 待批的那一轮；否则最新一轮）。`project-inquiry-section.tsx` 列表首次加载时读一次 hash、调这两个函数决定展开，列表渲染后再滚动；按锚点展开后，只有「入口数据第一次加载时就有的那张待批发送卡」不抢展开，之后新出现的待批轮次照常展开；已在本页时监听 `hashchange`（审查建议，已改）。
 否决：查询参数 `?round=`——W-1 的入口说明与 `followAnchor` 已用 `#rfq-round-`，两套约定会分叉；锚点也不触发服务端重渲染。
 
 ### D9 升级邮件只加一个类型
@@ -111,7 +111,7 @@
 ## Risks / Trade-offs
 
 - [Muse 旁路打开时负责人收到两条（Muse 事件 + 站内）] → 旁路现关闭；记入报告已知局限，本 change 不去重。
-- [同一页面上点铃铛里的另一轮通知，Next.js 只改 hash 不重挂载，不会自动展开] → 浏览器仍会滚到 `#rfq-round-<id>`；首屏读取覆盖「从别处点进来」的主路径；报告记为已知局限。
+- [铃铛点到与当前完全相同的地址（同一轮先后两条通知、中间手动收起过）不触发 `hashchange`，不重新展开] → 浏览器仍停在该轮；地址不同（另一轮、别的页 / tab 进来）都正常；报告记为已知局限。
 - [入站每条报价 / 回信多一次查询（补名字与发起人）] → 每 10 分钟一次、按回信条数计，量级很小；只查一次、不进循环内的其他查询。
 - [`onNoResponse` 签名变了] → 它是 `runForItems` 的内部 opts，只有 `runChaseScan` 一个传入方；wiring 测试锁住。
 - [新四类 `category` 与两条入站提醒不一致] → 见 D11，无读取方；审核可改。
