@@ -36,7 +36,7 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 
 - `src/app/(main)/layout.tsx`：不加判定。
 - `src/lib/navigation/filter.ts`：`isNavItemVisible` 等判定函数不改，只复用。
-- `src/components/sidebar.tsx`、`mobile-nav-drawer.tsx`、`mobile-tab-bar.tsx`：不改，底栏「招投标」口径属 VIS-1b。
+- `src/components/sidebar.tsx`、`mobile-nav-drawer.tsx`、`mobile-tab-bar.tsx`：文件不改。但 `mobile-tab-bar.tsx:249` 的「招投标」底栏调用 `canAccessBidWorkspace`，会随 D7 的口径一起变化：会计与出单不再见。这已在 spec `navigation/position-based-visibility`「手机底栏的招投标入口与招投标中心同口径」声明；底栏统一改走侧栏判定属 VIS-1b。
 - 全部 `/api/**` 路由的鉴权：不改。`src/lib/marketing/access.ts` 的 `requireMarketingReadAccess`、中间件对 `/api/marketing/**` 的旧模式拦截都保留。
 - 既有的同口径 layout 门保留，作纵深防御：
   - `PlatformAdminGate`：`admin/onboarding`、`agent-trace`、`memory`、`capabilities/runs`、`projects/[id]/{agents,feedback-tags,feedbacks,knowledge-bases,prompts,quality,tools}`、`settings/{agent-skills,digital-employees}`。
@@ -62,6 +62,8 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 - 顺手把文件改名为 Next 16 的 `proxy.ts`：同为 Node runtime，收益只是去掉弃用告警，却要改动若干读 `src/middleware.ts` 源码的既有断言，留到以后。
 
 ### D2 判定输入只有一个构造器
+
+中间件只做胶水，判定入口是 `route-gate.ts` 导出的请求处理函数。它接收 `NextRequest` 与一个可注入的判定输入加载器，返回「放行」或 302 响应，所以测试不连库也能断言 HTTP 层行为（状态码、`Location`、正文、响应头）。
 
 新增服务端模块 `src/lib/navigation/context-server.ts`，按 `(userId, 平台角色)` 产出 `NavigationFilterContext`（不含 `pathname`）。字段与来源：
 
@@ -89,7 +91,7 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 - 先查门表。命中「登录即可」或「不经路由门」（`/api/**`、免登录路径、末段带扩展名的静态文件、`/login`、`/register`、`/select-org`、Sentry 隧道 `/monitoring`）的请求不查库。
 - 其余请求每次都要：校验 JWT（不查库）、查用户状态与平台角色、解析当前企业 id，各一次轻查询。切换企业因此立即生效。
 - 其余判定输入按 `(userId, orgId)` 在进程内缓存 30 秒，最多 500 条，超出时淘汰最旧的。
-- 构造器抛错时 fail-closed：302 到 `/tasks`，并打一条服务端日志。
+- 构造器抛错时 fail-closed：302 到 `/tasks`，并打一条服务端日志（spec「判定输入取不到时一律拒绝」）。
 
 spec「判定时效」把这 30 秒写成了对外承诺。
 
@@ -105,6 +107,8 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 判定某导航项时，连同它的父链一起要求可见（`cap-approvals` 这类子项本身不带限制，靠父项「AI 工作中心」）。
 
+门表条目另有一个可选标记「项目成员也放行」，只用于 `/projects/*`：成员身份有效且当前企业内有 active 项目成员关系（即 `hasBidCapability`）时直接放行。这是门表唯一一处不经导航项的条件，因为「是项目成员」无法用岗位键表达；项目内能看到什么仍由 `requireProjectReadAccess` 等接口按项目判定。
+
 无侧栏入口的路由在 `src/lib/navigation/registry.ts` 新增 `ROUTE_ONLY_NAV_ITEMS` 登记。这些条目只做门、不进侧栏，由同一个 `isNavItemVisible` 判定。
 
 被否决：
@@ -117,9 +121,15 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 | 门条目 | 放行键（岗位模式） | 谁会被带过去（来源） |
 |---|---|---|
 | `/blinds-orders/*` | `orders.fulfillment.read` / `sales.order.create` / `install.task.assign` / 销售工作键 / 管理层，`window_covering` 模块，销售侧栏可见 | 销售：`sales/quote-sheet/page.tsx:2147`、`sales/customers/[id]/orders-list.tsx:22`、`sunny-process/autogen.ts:268`、`install/balance.ts:203`；订单阶段通知收件人（`src/lib/notifications/collab/recipients.ts:80-88`：创建人、商机负责人、出单、安装派工） |
-| `/projects/*`（详情及子页） | `project.read` / `project.create` / `project.update` / `operations.read` / `operations.manage` / 管理层，`bids` 或 `projects` 模块 | 运营：`ops/delivery-project-detail.tsx:317/333`、`operations/projects/query.ts:422`、`operations/dashboard/build-dashboard.ts`；任务抽屉；带 `projectId` 的通知（`href.ts:38-45`） |
-| `/sales/customers` | 销售工作键 / `trade.read` / 管理层，`sales` 模块；旧模式含平台角色 `trade` | 外贸：`src/app/(main)/trade/convert-trade-quote-to-sales-dialog.tsx:129/159`、`trade/prospects/[id]/page.tsx:919`；`sales_customer` 通知 |
-| `/capabilities/approvals` | 企业成员（分组 `WORK`，不受旧模式「AI 工作中心整组隐藏」影响） | 招投标与运营工作台：`bids-workspace-shell.tsx:39`、`ops-workspace-shell.tsx:350/456`；RFQ 抽屉 `tender-rfq/web-entry-approval.ts:34`；`approval` 通知（`href.ts:50`） |
+| `/projects/*`（详情及子页） | `project.read` / `project.create` / `project.update` / `operations.read` / `operations.manage` / 管理层，或「项目成员也放行」，`bids` 或 `projects` 模块 | 运营：`ops/delivery-project-detail.tsx:317/333`、`operations/projects/query.ts:422`、`operations/dashboard/build-dashboard.ts`；任务抽屉；带 `projectId` 的通知（`href.ts:38-45`） |
+| `/sales/customers` | 销售工作键 / `trade.read` / 管理层，`sales` 模块，销售侧栏可见；旧模式含平台角色 `trade` | 外贸：`src/app/(main)/trade/convert-trade-quote-to-sales-dialog.tsx:129/159`、`trade/prospects/[id]/page.tsx:919`；`sales_customer` 通知 |
+| `/capabilities/approvals` | 企业成员，销售侧栏可见（分组 `WORK`，不受旧模式「AI 工作中心整组隐藏」影响） | 招投标与运营工作台：`bids-workspace-shell.tsx:39`、`ops-workspace-shell.tsx:350/456`；RFQ 抽屉 `tender-rfq/web-entry-approval.ts:34`；`approval` 通知（`href.ts:50`） |
+
+| `/projects/*/{agents,prompts,tools,knowledge-bases,feedbacks,feedback-tags,quality}` | 平台 super_admin | 与这些子页既有的 `PlatformAdminGate` 同口径；单独登记，否则会被上一行放宽 |
+| `/sales/calendar` | 侧栏「日历」可见，或持 `install.task.update`（`window_covering` 模块） | `installation/install-tasks`「安装工在既有日历页 SHALL 能看到分配给自己的安装预约」 |
+| `/sales/website-bookings` | `sales.customer.create` / `sales.customer.read` / 管理层，`sales` 模块，销售侧栏可见 | `calendar/website-booking-intake`「页面对有查看权的成员」；接口口径是任意范围的 `sales.customer.create` 或全企业范围的 `sales.customer.read`（`api/sales/website-bookings/route.ts:5`），门只看持键，范围仍归接口 |
+
+「销售侧栏可见」指条目带 `salesWorkspaceVisible`：纯销售的侧栏只显示带此标记的条目，不带就会把 Lynn 弹回。
 
 对应的列表页（`/blinds-orders`、`/blinds-orders/new`、`/blinds-orders/zebra-ratios`、`/projects`、`/capabilities`）仍按侧栏入口判定。
 
@@ -150,13 +160,13 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 ### D6 302 目标与防环
 
-目标 = `getDefaultWorkspace(workspaceContextFromNav(ctx))`。目标本身不放行，或与被请求路径相同时，改落 `/tasks`。重定向不带原查询串，也不加任何说明判定原因的响应头。
+目标 = `resolveHomeRedirect(workspaceContextFromNav(ctx)) ?? "/"`，即该用户进入首页后最终停留的页面：管理层为 `/`，其余为首页落地规则的结果（岗位模式没有落地时为 `/tasks`）。不用 `getDefaultWorkspace`，因为它对出单、无岗位成员返回 `/`，而 `/` 在白名单里，会先到 `/` 再被首页跳一次。目标本身不放行，或与被请求路径相同时，改落 `/tasks`。重定向不带原查询串，也不加任何说明判定原因的响应头。
 
-测试对每种身份断言：目标必放行；从任一门表路径出发跟随重定向，两步内停下。
+测试对每种身份断言：目标必放行，且一跳即停（目标不是 `/` 以外还会再跳的页面）。
 
 被否决：
 
-- 一律跳 `/`：非管理层到 `/` 还会被首页再跳一次。
+- 一律跳 `/`，或用 `getDefaultWorkspace`：非管理层到 `/` 还会被首页再跳一次。
 - 403 页：判断点 2 已否。
 
 ### D7 招投标口径（判断点 3）
@@ -172,7 +182,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 后果：
 
 - 会计与三个出单岗位的侧栏少 `ws-bids` 和项目 / 情报 / 供应商组，`position-nav.test.ts` 的这 4 份快照相应更新。其余岗位快照不变。
-- 他们仍能经 D4 的 `/projects/*` 打开被链接到的项目详情。
+- 他们仍能经 D4 的 `/projects/*` 打开被链接到的项目详情；项目成员（含销售、安装工）同样能打开，只是不再因此看到 `/bids` 与项目列表。
 - 默认落地不受影响：会计的落地判定用的是 `NON_ACCOUNTING_HOME_PERMISSIONS`，不看招投标工作区。
 
 被否决：
@@ -220,6 +230,8 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 路由门在旧模式企业（梦馨）同样生效，判定就是旧模式侧栏的平台角色规则，不另立口径。表驱动测试带 4 个旧模式抽样（`trade` / `sales` / `boss` / `operations`）。
 
+后果：旧模式「品牌增长」要求平台角色 super_admin / `boss` / `manager` / `operations`，所以 `trade` / `user` 失去 `/marketing/**`、`/operations/growth/**`。改动前中间件只拦 `sales`，因此这一条在 proposal 里标为 BREAKING，spec `marketing/growth-center-access` 也写了旧模式外贸场景。
+
 被否决：只在岗位模式生效。那样旧模式还得保留中间件按 `role=sales` 拦营销页面的旧规则，与「判定来源只有一处」相反。
 
 ## 与八条硬纪律的关系
@@ -235,7 +247,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 ## Risks / Trade-offs
 
-- [中间件改 Node runtime 后要把 Prisma 打进中间件包，Vercel 构建或部署可能失败] → task 5 本地跑 `next build --webpack` 并确认构建输出里有 `ƒ Proxy (Middleware)`；PR 的 Vercel Preview 部署必须成功才合并。回滚就是 revert 本 PR，无数据迁移。
+- [中间件改 Node runtime 后要把 Prisma 打进中间件包，Vercel 构建或部署可能失败] → task 4.1 本地跑 `next build --webpack` 并确认构建输出里有 `ƒ Proxy (Middleware)`；PR 的 Vercel Preview 部署必须成功才合并。回滚就是 revert 本 PR，无数据迁移。
 - [每个页面请求多一次权限解析，预取放大请求量] → 登录即可与不经门的请求不查库，其余按 D3 缓存。合并后在 Vercel 日志里对比中间件耗时，写进报告。
 - [旧模式（梦馨）里侧栏不显示、却有站内链接或通知指向的页面会被弹回] → 已知两条：
   - 旧模式 `sales` 收到的 `revenue_opportunity` 通知跳 `/revenue/[id]`（PERM-6c 已让营收中心只认外贸键，入口本就不可见）。
@@ -259,7 +271,8 @@ spec「判定时效」把这 30 秒写成了对外承诺。
   - 表驱动：12 种岗位模式身份 + 4 个旧模式抽样 × 全部门表路径；
   - 侧栏可见 ⇔ 放行；默认工作区必放行；两步无环；
   - 源码断言：163 个 `(main)` 页面全部命中、6 个 `(main)` 外页面在清单里、中间件声明 `runtime: "nodejs"` 且调用路由门、旧营销页面门已删；
-  - 请求分类：`/api/**`、静态文件、免登录与白名单路径不查库。
+  - 请求分类：`/api/**`、静态文件、免登录与白名单路径不取判定输入。
+  - 中间件层：用 `NextRequest` 构造请求、注入假的输入加载器，断言 302 状态、`Location`、正文为空、无自定义说明头、查询串不带、加载器抛错时落 `/tasks`。
 - 受影响的既有测试（2026-11-08 基线）：
 
   | 测试 | 基线 |
@@ -283,5 +296,9 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 - Q1（D11）：收件箱 / 知识库对安装工等岗位是否隐藏、用哪组键。本 change 默认照侧栏现状不动。若要在 1a 一并收，需给出两项各自的岗位键，并接受相应侧栏快照变化。
 - Q2（D1）：门的位置从任务书写的 `(main)/layout.tsx` 改为 Node runtime 中间件，理由与夹具实测见 Context 与 D1。
 - Q3（D4）：对象详情页的放行面宽于列表页，以免销售、运营、招投标被自己的站内链接和通知弹回。任务书验收里 Lynn 的 `/blinds-orders`、`/projects` 302 指的是列表页，仍然成立。
-- Q4（D12）：路由门在梦馨（旧模式）同样生效。
+- Q4（D12）：路由门在梦馨（旧模式）同样生效。直接后果：旧模式平台角色 `trade` / `user` 不再能进营销工作区（改动前中间件只拦 `sales`），proposal 已标为 BREAKING。
 - Q5（验收数据）：`config/positions/sunny.json` 里 Miki 绑定的是 `owner` + `pricing_lead` + `accounting`（Bob、Bill 也都带 `owner`）。任务书验收按「Miki = `accounting` + `pricing_lead`」写了「`/bids` 302」，按这份绑定 Miki 是管理层，`/bids` 放行。路由门只按键判定，验收应以绑定文件为准，或先改绑定。本 change 的测试按岗位组合写，不按人名。
+- Q6（D5）：白名单比任务书宽：任务书只列 `/settings/account`、`/settings/appearance`、`/settings/notifications`、`/notifications`、`/help`、`/select-org`，本 change 还放行 `/`、`/tasks/**`、`/settings` 索引与两个微信页（理由见 D5）。另外 `/select-org` 不在 `(main)` 下，归门外清单。
+- Q7（D7）：任务书 Impact 说「四份侧栏快照不应变化（除判断点 5 移除两项）」，但判断点 3 本身就要求会计不再进 `/bids`，所以 accounting 与三个出单岗位的快照会变（少招投标与项目 / 情报 / 供应商组）。
+- Q8（D8）：任务书要删 `route-access.ts` 的「非销售即可」，并验收「grep 业务代码无 `role === "sales"` 按平台角色拦路由的残留」。本 change 删掉页面层的判定，保留 API 层的 `canAccessMarketingWorkspace`（`requireMarketingReadAccess` 与中间件 `/api/marketing/**` 分支在用），因为 API 层在任务书 Out of scope 里。grep 验收因此限定为页面路由（`src/middleware.ts` 的页面分支与 `src/app/(main)/**`）。
+- Q9（D4）：`inventory/fabric-stock-access` 写的是「库存列表 SHALL 对持 `inventory.read` 的人开放」，`sales_rep` 模板持 `inventory.read`。本 change 照任务书验收让 Lynn 的 `/inventory` 页面 302（侧栏对纯销售不显示库存），库存接口对她仍开放。这里按「该 spec 说的是接口」理解；如果它说的是页面，需改那份 spec。
