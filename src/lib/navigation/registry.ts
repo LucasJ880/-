@@ -63,6 +63,11 @@ import {
 const POSITION_MGMT = ["organization.dashboard.read"] as const;
 const POSITION_SALES = ["sales.quote.create", "sales.quote.pricing_close", ...POSITION_MGMT] as const;
 const POSITION_OPS = ["operations.read", "operations.manage"] as const;
+/**
+ * VIS-1a（判断点 3）：招投标 / 项目列表 / 项目情报 / 供应商库——岗位模式只认招投标写键或管理层；
+ * 只持 project.read（会计、出单）或只是某项目成员不再可见。
+ */
+const POSITION_BIDS = ["project.create", "project.update", ...POSITION_MGMT] as const;
 
 export const NAV_GROUP_META: Record<
   NavigationGroup,
@@ -654,7 +659,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     href: "/revenue",
     icon: TrendingUp,
     group: "BUSINESS",
-    moduleKey: ["trade", "sales"],
+    // VIS-1a：营收中心只随外贸模块（不再因 sales 模块放行：Sunny 未开外贸却出现收入驾驶舱）
+    moduleKey: "trade",
     // PERM-6c：营收中心只认外贸键，旧模式不再因平台 sales 显示
     requiredPlatformRoles: [...NAV_ROLES_TRADE],
     tradeEntry: true,
@@ -686,7 +692,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECTS",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     matchPaths: ["/projects"],
     displayOrder: 10,
   },
@@ -701,7 +707,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     matchPaths: [
       "/projects/intelligence",
       "/projects/intelligence/series",
@@ -722,7 +728,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     displayOrder: 30,
   },
   {
@@ -733,7 +739,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     displayOrder: 40,
   },
   {
@@ -744,7 +750,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     displayOrder: 50,
   },
   {
@@ -755,7 +761,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     displayOrder: 60,
   },
   {
@@ -766,7 +772,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "PROJECT_INTEL",
     moduleKey: ["bids", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     displayOrder: 70,
   },
 
@@ -780,7 +786,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "SUPPLIERS",
     moduleKey: ["bids", "supply_chain", "projects"],
     requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
-    positionPermissions: ["project.read"],
+    positionPermissions: [...POSITION_BIDS],
     displayOrder: 10,
   },
 
@@ -968,6 +974,113 @@ export const SYSTEM_NAV_ITEMS: NavigationItem[] = [
     icon: CircleHelp,
     group: "SYSTEM",
     displayOrder: 10,
+  },
+];
+
+/**
+ * VIS-1a：只做路由门、不进侧栏的可见规则（spec navigation/route-gate）。
+ * 判定仍走 isNavItemVisible，与侧栏同口径；这些条目不渲染，只被 route-gate 的门表引用。
+ * 来源（谁会经站内链接 / 通知被带过去）见 openspec/changes/vis-1a-route-gate/design.md D4。
+ */
+export const ROUTE_ONLY_NAV_ITEMS: NavigationItem[] = [
+  {
+    // 审批中心：招投标 / 运营工作台、RFQ 抽屉、审批通知都会带人进来；列表本就按本人提交 / 被指派过滤
+    key: "route-approvals",
+    label: "审批中心",
+    href: "/capabilities/approvals",
+    group: "WORK",
+    requireMembership: true,
+    capabilitiesAccess: "any_member",
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
+  },
+  {
+    // 工艺单详情：销售（报价单 / 客户页 / 订单阶段与安装通知）、出单、安装派工
+    key: "route-blinds-order-detail",
+    label: "工艺单详情",
+    group: "BUSINESS",
+    moduleKey: "window_covering",
+    requiredPlatformRoles: [...NAV_ROLES_EXEC, "operations", "sales"],
+    requiredPermissions: ["orders.fulfillment.read", "sales.order.create", "install.task.assign"],
+    positionPermissions: ["orders.fulfillment.read", "sales.order.create", "install.task.assign", ...POSITION_SALES],
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
+  },
+  {
+    // 项目详情：运营（交付项目 → 源项目）、会计 / 出单（project.read）；项目成员由门表标记另行放行
+    key: "route-project-detail",
+    label: "项目详情",
+    group: "PROJECTS",
+    moduleKey: ["bids", "projects"],
+    requiredPlatformRoles: [...NAV_ROLES_PROJECTS],
+    positionPermissions: ["project.read", "project.create", "project.update", ...POSITION_OPS, ...POSITION_MGMT],
+    displayOrder: 0,
+  },
+  {
+    // 客户详情：销售；外贸把报价转成销售客户后跳过来
+    key: "route-sales-customer-detail",
+    label: "客户详情",
+    group: "BUSINESS",
+    moduleKey: "sales",
+    requiredPlatformRoles: [...NAV_ROLES_SALES, "trade"],
+    positionPermissions: [...POSITION_SALES, "trade.read"],
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
+  },
+  {
+    // 销售复盘：持 sales.analytics.read 即可（不再只认平台 super_admin）
+    key: "route-sales-analytics",
+    label: "销售复盘",
+    href: "/sales/analytics",
+    group: "BUSINESS",
+    moduleKey: "sales",
+    requiredPermissions: ["sales.analytics.read"],
+    positionPermissions: ["sales.analytics.read"],
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
+  },
+  {
+    // 平台管理员页：/agent-trace、/ai-activity、数字员工 / 技能设置、项目的智能体等子页
+    key: "route-platform-admin",
+    label: "平台管理员页",
+    group: "PLATFORM",
+    platformAdminOnly: true,
+    displayOrder: 0,
+  },
+  {
+    // 安装工在既有日历页看分配给自己的安装预约（spec installation/install-tasks）
+    key: "route-install-calendar",
+    label: "安装日历",
+    href: "/sales/calendar",
+    group: "WORK",
+    moduleKey: "window_covering",
+    requireMembership: true,
+    requiredPermissions: ["install.task.update"],
+    positionPermissions: ["install.task.update"],
+    displayOrder: 0,
+  },
+  {
+    // 网站预约待转入：有查看权的成员（接口：任意范围 sales.customer.create 或全企业 sales.customer.read）
+    key: "route-website-bookings",
+    label: "网站预约",
+    href: "/sales/website-bookings",
+    group: "BUSINESS",
+    moduleKey: "sales",
+    requiredPlatformRoles: [...NAV_ROLES_SALES],
+    positionPermissions: ["sales.customer.create", "sales.customer.read", ...POSITION_MGMT],
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
+  },
+  {
+    // 邮箱绑定：销售、招投标（RFQ 授权邮箱提示）、梦馨外贸（公司发件身份）
+    key: "route-email-settings",
+    label: "邮箱绑定",
+    href: "/settings/email",
+    group: "BUSINESS",
+    requiredPlatformRoles: [...new Set([...NAV_ROLES_SALES, "trade", ...NAV_ROLES_PROJECTS])],
+    positionPermissions: [...POSITION_SALES, "project.create", "project.update", "trade.read", "trade.manage"],
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
   },
 ];
 
