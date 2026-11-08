@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { loginRedirectPath } from "@/lib/auth/safe-next";
-import {
-  canAccessMarketingWorkspace,
-  isMarketingApiPath,
-  isMarketingWorkspacePath,
-} from "@/lib/marketing/route-access";
+import { canAccessMarketingWorkspace, isMarketingApiPath } from "@/lib/marketing/route-access";
+import { applyRouteGate, isStaticImagePath } from "@/lib/navigation/route-gate";
+import { ROUTE_GATE_LOADER } from "@/lib/navigation/context-server";
 
 const COOKIE_NAME = "qy_session";
 
@@ -45,7 +43,7 @@ function isPublicPath(pathname: string): boolean {
   );
 }
 
-async function verifiedRole(token: string): Promise<string | null> {
+async function verifiedSession(token: string): Promise<{ sub: string; role: string } | null> {
   try {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
@@ -54,7 +52,10 @@ async function verifiedRole(token: string): Promise<string | null> {
     }
     const key = new TextEncoder().encode(secret);
     const { payload } = await jwtVerify(token, key);
-    return typeof payload.role === "string" ? payload.role : "";
+    return {
+      sub: typeof payload.sub === "string" ? payload.sub : "",
+      role: typeof payload.role === "string" ? payload.role : "",
+    };
   } catch {
     return null;
   }
@@ -63,13 +64,19 @@ async function verifiedRole(token: string): Promise<string | null> {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // VIS-1a：public/ 图片在登录检查之前放行（与改动前 matcher 按图片扩展名排除一致；
+  // 已登录区路径即使带图片扩展名也不在此列，照样要登录并经路由门）
+  if (isStaticImagePath(pathname)) {
+    return NextResponse.next();
+  }
+
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
   const token = request.cookies.get(COOKIE_NAME)?.value;
-  const role = token ? await verifiedRole(token) : null;
-  if (!token || role === null) {
+  const session = token ? await verifiedSession(token) : null;
+  if (!token || session === null) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
         { error: "未登录" },
@@ -82,21 +89,28 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  if (isMarketingWorkspacePath(pathname) && !canAccessMarketingWorkspace(role)) {
-    if (isMarketingApiPath(pathname)) {
-      return NextResponse.json(
-        { error: "销售账号无权访问营销工作区" },
-        { status: 403 },
-      );
-    }
-    return NextResponse.redirect(new URL("/sales", request.url));
+  const role = session.role;
+  // 旧模式（无行业包企业）营销只读接口：JWT 平台角色 sales 拦截（API 层，不在 VIS-1a 范围；页面由路由门判定）
+  if (isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)) {
+    return NextResponse.json(
+      { error: "销售账号无权访问营销工作区" },
+      { status: 403 },
+    );
   }
 
-  return NextResponse.next();
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
+  // VIS-1a 路由门（spec navigation/route-gate）：已登录页面请求在渲染前按导航注册表判定，
+  // 不满足 302 到落地页；判定输入与侧栏同一构造器（context-server）
+  const gated = await applyRouteGate(request, session.sub, ROUTE_GATE_LOADER);
+  return gated ?? NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  // VIS-1a：路由门要查库，跑在 Node.js runtime（Next 16 middleware 支持；design D1）
+  runtime: "nodejs",
+  // 不再按图片扩展名整体排除：图片在函数开头放行，已登录区路径带扩展名照样判定（design D5）
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

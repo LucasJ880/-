@@ -37,6 +37,7 @@ import {
   mergedProfileBindings,
 } from "@/lib/authorization/role-defaults";
 import { DEFAULT_MENGXIN_MODULES, DEFAULT_SUNNY_MODULES, type OrgModule } from "@/lib/tenancy/modules";
+import { config as middlewareConfig, middleware } from "@/middleware";
 
 let pass = 0;
 let fail = 0;
@@ -525,6 +526,16 @@ async function http() {
     const results = await Promise.all(paths.map((p) => applyRouteGate(req(p), "u1", loader)));
     ok(results.every((r) => r === null) && calls.user === 0 && calls.context === 0, "API / 静态 / 门外 / 登录即可：放行且不调加载器");
   }
+  // 中间件层：判定顺序（design D3）——public 图片在登录检查之前放行，其余静态文件仍要登录
+  {
+    const loc = async (p: string) => (await middleware(req(p))).headers.get("location") ?? "";
+    ok((await loc("/icons/icon-192x192.png")) === "" && (await loc("/logo.png")) === "", "未登录：登录页图标 / 大屏 logo 不被重定向");
+    ok(new URL(await loc("/sw.js")).pathname === "/login", "未登录：/sw.js 与改动前一样跳 /login");
+    ok(new URL(await loc("/projects/a.png")).pathname === "/login", "未登录：/projects/a.png（已登录区路径带图片扩展名）跳 /login");
+    ok(new URL(await loc("/trade/prospects")).pathname === "/login", "未登录：页面照旧跳 /login");
+    const api = await middleware(req("/api/sales/home"));
+    ok(api.status === 401, "未登录：接口照旧 401");
+  }
 }
 
 // ─────────────────────────── 缓存 ───────────────────────────
@@ -585,6 +596,13 @@ async function http() {
   const cs = read("src/lib/navigation/context-server.ts");
   ok(!/resolvePreferredOrgId\(/.test(cs) && /take: 2/.test(cs), "context-server：中间件不调 resolvePreferredOrgId，当前企业只读解析");
   ok(/withIndustryPackModules\(/.test(cs) && /hasPositionTemplates\(/.test(cs) && /resolveEffectiveBindings\(/.test(cs), "context-server：模块含行业包兜底、岗位模式、岗位权限键");
+
+  // 中间件：Node runtime、从 context-server 取输入、调用路由门；营销页面分支已删；matcher 不再排除图片
+  ok((middlewareConfig as { runtime?: string }).runtime === "nodejs", "中间件声明 runtime: nodejs");
+  ok(/import \{ ROUTE_GATE_LOADER \} from "@\/lib\/navigation\/context-server"/.test(mw) && /applyRouteGate\(request, session\.sub, ROUTE_GATE_LOADER\)/.test(mw), "中间件从 context-server 取输入并调用路由门");
+  ok(!/isMarketingWorkspacePath|isMarketingPagePath/.test(mw), "中间件不再引用营销页面判定");
+  ok(middlewareConfig.matcher.every((m) => !/png|svg|jpe?g|gif|webp/.test(m)), "matcher 不再按图片扩展名排除");
+  ok(/const VERSION = "qingyan-v4";/.test(read("public/sw.js")), "Service Worker 缓存版本提升到 qingyan-v4");
 }
 
 http().then(() => {
