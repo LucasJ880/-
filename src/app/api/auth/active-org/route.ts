@@ -11,9 +11,8 @@ import {
   switchUserActiveOrg,
 } from "@/lib/organizations/org-access";
 import { db } from "@/lib/db";
-import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy";
-import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
-import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
+import type { OrgModulesConfig } from "@/lib/tenancy";
+import { loadOrgNavigationInputs } from "@/lib/navigation/context-server";
 
 /**
  * GET /api/auth/active-org
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
   }
 
   const resolved = await resolvePreferredOrgId(user.id, user.role);
-  let modules: ReturnType<typeof parseOrgModulesJson> = null;
+  let modules: OrgModulesConfig | null = null;
   let orgCode: string | null = null;
   let orgCompany: { name: string; logoUrl: string } | null = null;
   let workspaceIds: string[] = [];
@@ -44,59 +43,20 @@ export async function GET(request: NextRequest) {
       where: { id: resolved.orgId },
       select: {
         code: true,
-        modulesJson: true,
-        industryPackId: true,
         company: { select: { name: true, logoUrl: true } },
       },
     });
     orgCode = org?.code ?? null;
     orgCompany = org?.company ?? null;
-    modules = withIndustryPackModules(
-      parseOrgModulesJson(org?.modulesJson),
-      org?.industryPackId,
-    );
-    // PERM-4c2：行业包有岗位模板 → 岗位模式（导航 / 落地按岗位键）
-    positionMode = hasPositionTemplates(org?.industryPackId);
-    const [member, workspaces, projectMember] = await Promise.all([
-      db.organizationMember.findUnique({
-        where: {
-          orgId_userId: { orgId: resolved.orgId, userId: user.id },
-        },
-        select: { role: true, status: true },
-      }),
-      db.workspaceMember.findMany({
-        where: {
-          userId: user.id,
-          status: "active",
-          workspace: { orgId: resolved.orgId, status: "active" },
-        },
-        select: { workspaceId: true },
-      }),
-      db.projectMember.findFirst({
-        where: {
-          userId: user.id,
-          status: "active",
-          project: { orgId: resolved.orgId },
-        },
-        select: { id: true },
-      }),
-    ]);
-    if (member?.status === "active") orgRole = member.role;
-    workspaceIds = workspaces.map((w) => w.workspaceId);
-    hasBidCapability = Boolean(projectMember);
-    // INSTALL-1：岗位权限键（ALLOW），供侧栏 / 底栏按权限显示工作区入口
-    try {
-      const bindings = await resolveEffectiveBindings({
-        type: "HUMAN",
-        id: user.id,
-        orgId: resolved.orgId,
-      });
-      permissionKeys = [
-        ...new Set(bindings.filter((b) => b.effect === "ALLOW").map((b) => b.permissionKey)),
-      ];
-    } catch {
-      permissionKeys = [];
-    }
+    // VIS-1a：模块（含行业包兜底）/ 岗位模式 / 成员身份 / 工作区 / 投标能力信号 / 岗位权限键
+    // 与路由门同一个构造器（src/lib/navigation/context-server.ts），侧栏可见 ⇔ 路由放行；这里不走缓存
+    const inputs = await loadOrgNavigationInputs(user.id, resolved.orgId);
+    modules = inputs.modules;
+    positionMode = inputs.positionMode;
+    orgRole = inputs.orgRole;
+    workspaceIds = inputs.workspaceIds;
+    hasBidCapability = inputs.hasBidCapability;
+    permissionKeys = inputs.permissionKeys;
   }
 
   const canSwitch = access ? canSelfSwitchOrganizations(access) : false;

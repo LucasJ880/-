@@ -130,7 +130,8 @@ export function canAccessOperationsWorkspace(
  * 招投标中心 /bids
  * — 管理层（且企业启用 bids/projects，或尚未配置 modules 时不因模块拦截管理层）
  * — 非管理层必须同时具备：bids|projects 模块（若已配置）+ 显式能力信号
- * — 显式能力：project.* 权限，或有效项目成员关系（hasBidCapability）
+ * — 显式能力：旧模式为 project.* 权限或有效项目成员关系（hasBidCapability）；
+ *   岗位模式（VIS-1a）只认 project.create / project.update
  * — 禁止仅凭普通 user / 组织模块开放
  */
 export function canAccessBidWorkspace(ctx: WorkspacePolicyContext): boolean {
@@ -142,8 +143,11 @@ export function canAccessBidWorkspace(ctx: WorkspacePolicyContext): boolean {
     return bidModuleOk;
   }
 
-  const explicitBid =
-    hasAnyPermission(ctx, BID_PERMISSIONS) || Boolean(ctx.hasBidCapability);
+  // VIS-1a（判断点 3）：岗位模式只认招投标写键——只持 project.read（会计、出单）或只是某项目成员不再放行；
+  // 旧模式口径不变
+  const explicitBid = ctx.positionMode
+    ? hasAnyPermission(ctx, BID_HOME_PERMISSIONS)
+    : hasAnyPermission(ctx, BID_PERMISSIONS) || Boolean(ctx.hasBidCapability);
 
   if (!explicitBid) return false;
   return bidModuleOk;
