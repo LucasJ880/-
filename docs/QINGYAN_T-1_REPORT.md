@@ -42,7 +42,7 @@
 |---|---|
 | `tracking-notify-pure.test.ts`（新增） | 127 passed |
 | `tracking-notify.test.ts`（新增，注入 deps 执行） | 33 passed |
-| `tracking-notify-wiring.test.ts`（新增，源码接线） | 66 passed |
+| `tracking-notify-wiring.test.ts`（新增，源码接线） | 67 passed |
 | `inbound-apply.test.ts` | 72 passed（改前 54） |
 | `web-entry-pure.test.ts` | 122 passed（改前 81） |
 | `collab-preferences.test.ts` | 104 passed（改前 80） |
