@@ -9,7 +9,7 @@
 
 ### Requirement: 营销工作区页面与只读接口的门槛
 营销工作区页面（`/marketing/**`、`/operations/growth/**`）SHALL 由路由门判定（见 `navigation/route-gate`），口径与侧栏"品牌增长"入口相同：
-- 岗位模式（Sunny、梦馨）下，只对持 `operations.read` 或 `operations.manage` 的成员与管理层放行；
+- 岗位模式（Sunny、梦馨）下，只对持 `operations.read` 或 `operations.manage` 的成员放行（两家的老板模板都含 `operations.read`）；
 - 无行业包企业（旧模式）下，只对平台角色 super_admin / `boss` / `manager` / `operations` 放行，`sales` / `trade` / `user` 不放行。
 
 不放行者 SHALL 被 302 到其落地页（销售为 `/sales/home`）。增长中心只读接口（`/api/marketing/**` 的 GET）SHALL 与改动前一致：岗位模式企业对岗位派生平台角色为 `sales` 的人返回 403；旧模式企业继续由中间件按平台角色 `sales` 拦截。

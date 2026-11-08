@@ -95,6 +95,16 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 - 其余判定输入按 `(userId, orgId)` 在进程内缓存 30 秒，最多 500 条，超出时淘汰最旧的。
 - 构造器抛错时 fail-closed：302 到 `/tasks`，并打一条服务端日志（spec「判定输入取不到时一律拒绝」）。
 
+中间件的判定顺序：
+1. `public/` 图片 → 放行，不要求登录，与改动前一致；
+2. 免登录路径 → 放行；
+3. 登录检查（JWT），未登录时页面跳 `/login`、接口 401；
+4. `/api/**` → 只走保留的 `/api/marketing/**` 分支，不进路由门；
+5. 其余 `public/` 静态文件与门外路径 → 放行；
+6. 登录即可的路由 → 放行，不查用户；
+7. 查用户：不存在或停用 → `/login`；平台 super_admin → 放行；
+8. 取企业侧输入（缓存）→ 路由门判定 → 放行或 302。
+
 spec「判定时效」把这 30 秒写成了对外承诺。
 
 被否决：
@@ -109,7 +119,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 判定某导航项时，连同它的父链一起要求可见（`cap-approvals` 这类子项本身不带限制，靠父项「AI 工作中心」）。
 
-门表条目另有一个可选标记「项目成员也放行」，只用于 `/projects/*`：成员身份有效且当前企业内有 active 项目成员关系（即 `hasBidCapability`）时直接放行。这是门表唯一一处不经导航项的条件，因为「是项目成员」无法用岗位键表达；项目内能看到什么仍由 `requireProjectReadAccess` 等接口按项目判定。
+门表条目另有一个可选标记「项目成员也放行」，只用于 `/projects/*`：成员身份有效且当前企业内有 active 项目成员关系（即 `hasBidCapability`）时直接放行。这是门表两处不经导航项的条件之一（另一处是 `/organizations` 的「无成员身份也放行」），因为「是项目成员」无法用岗位键表达；项目内能看到什么仍由 `requireProjectReadAccess` 等接口按项目判定。
 
 无侧栏入口的路由在 `src/lib/navigation/registry.ts` 新增 `ROUTE_ONLY_NAV_ITEMS` 登记。这些条目只做门、不进侧栏，由同一个 `isNavItemVisible` 判定。
 
@@ -132,7 +142,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 | `/sales/website-bookings` | `sales.customer.create` / `sales.customer.read` / 管理层，`sales` 模块，销售侧栏可见 | `calendar/website-booking-intake`「页面对有查看权的成员」；接口口径是任意范围的 `sales.customer.create` 或全企业范围的 `sales.customer.read`（`api/sales/website-bookings/route.ts:5`），门只看持键，范围仍归接口 |
 
 | `/settings/email` | 销售工作键 / `project.create` / `project.update` / `trade.read` / `trade.manage` / 管理层，销售侧栏可见 | 销售：`quote-sheet/page.tsx:2202`、`sales/customers/[id]/page.tsx:199`；招投标：`tender-rfq/web-entry-pure.ts:63`；梦馨外贸：该页有梦馨「公司发件身份」分支（`settings/email/page.tsx:74,245`），梦馨未启用 `bids`、外贸业务员不持销售键，只按「邮箱绑定」判定会把他们弹走 |
-| `/organizations`（列表页本身） | 侧栏「成员与组织」可见，或当前企业无 active 成员身份 | 没有企业的用户点「前往组织」：约 10 个 `/trade` 页面的空态、`knowledge/page.tsx:140`、`suppliers/page.tsx:220`、`dashboard-welcome-section.tsx`；这是门表第二处不经导航项的条件 |
+| `/organizations`（列表页本身） | 侧栏「成员与组织」可见，或当前企业无 active 成员身份 | 没有企业的用户点「前往组织」：约 10 个 `/trade` 页面的空态、`knowledge/page.tsx:140`、`suppliers/page.tsx:220`、`dashboard-welcome-section.tsx`；即上面说的第二处不经导航项的条件 |
 
 「销售侧栏可见」指条目带 `salesWorkspaceVisible`：纯销售的侧栏只显示带此标记的条目，不带就会把 Lynn 弹回。
 
@@ -165,11 +175,15 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 静态文件的判法：末段带扩展名，且第一段不是已登录区的一级路径。`public/` 下 34 个文件全部带扩展名，一级目录与 `(main)` 的一级路径没有重名，已核对。只看扩展名会留出绕过口：`/trade/prospects/x.json` 会渲染动态详情页而不经门。
 
-同理，中间件的 `matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`，不再按图片扩展名整体排除。现在的 matcher 会让 `/projects/a.png` 连登录检查都跳过。改后图片请求进中间件，命中「静态文件」后立即放行，不取判定输入，与改动前一样不要求登录。
+同理，中间件的 `matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`，不再按图片扩展名整体排除。现在的 matcher 会让 `/projects/a.png` 连登录检查都跳过。
+
+改后静态文件是否要求登录与改动前完全一致：
+- 图片（`svg` / `png` / `jpg` / `jpeg` / `gif` / `webp`）在登录检查之前就放行，所以登录页图标 `/icons/icon-192x192.png`（`login/page.tsx:161`）与免登录 `/display` 用的 `/logo.png`（`display/page.tsx:285`）照常。
+- 其余静态文件（`/sw.js`、`/manifest.json`、`/sunny-quote.html`、`/sku-catalog.csv`）在登录检查之后放行，与改动前一样要求登录。
 
 被否决：只按扩展名放行（上述绕过）；在中间件里读 `public/` 目录（Vercel 上不可靠）。
 
-`/settings/email` 不进白名单，门表指向「邮箱绑定」或「招投标中心」任一可见即可。销售要用；招投标的 RFQ 入口在授权邮箱未连接时提示去这里（`tender-rfq/web-entry-pure.ts:63`）。
+`/settings/email` 不进白名单，按 D4 表里的「邮箱绑定」只做门条目判定：销售工作键、`project.create` / `project.update`、`trade.read` / `trade.manage` 或管理层。销售、招投标（RFQ 入口在授权邮箱未连接时提示去这里，`tender-rfq/web-entry-pure.ts:63`）与梦馨外贸都要用。
 
 被否决：
 
@@ -201,7 +215,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 - 会计与三个出单岗位的侧栏少 `ws-bids` 和项目 / 情报 / 供应商组，`position-nav.test.ts` 的这 4 份快照相应更新。其余岗位快照不变。
 - 他们仍能经 D4 的 `/projects/*` 打开被链接到的项目详情；项目成员（含销售、安装工）同样能打开，只是不再因此看到 `/bids` 与项目列表。
-- 默认落地不受影响：会计的落地判定用的是 `NON_ACCOUNTING_HOME_PERMISSIONS`，不看招投标工作区。
+- 默认落地不受影响：岗位模式的落地 `positionDefaultWorkspace`（`workspace-policy.ts:222`）只在持 `project.create` / `project.update` 时才去问招投标工作区，会计不持这两个键，落地仍是 `/accounting`。旧模式的会计落地（`NON_ACCOUNTING_HOME_PERMISSIONS`）不受 D7 影响。
 
 被否决：
 
@@ -214,6 +228,8 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 - 删除 `src/lib/marketing/workspace-gate.ts`，以及只调用它的 `marketing/layout.tsx`、`operations/growth/layout.tsx` 两个文件。
 - 中间件删掉营销页面分支，保留 `/api/marketing/**` 分支。
 - `route-access.ts` 删 `isMarketingPagePath` / `isMarketingWorkspacePath`，保留 `isMarketingApiPath` 与 `canAccessMarketingWorkspace`（API 判定在用）。
+
+后果：除销售外，安装工、会计、出单、招投标与无岗位成员都失去营销工作区（他们都不持 `operations.*`，侧栏里本来就没有「品牌增长」）。改动前只拦销售，proposal 标为 BREAKING。
 
 被否决：整个删掉 `route-access.ts`。API 读守卫和旧模式 API 拦截依赖它，而 API 层在本期范围之外。
 
@@ -276,6 +292,12 @@ super_admin 的页面请求在解析用户后直接放行，不取企业侧输�
 
 被否决：不动 SW。离线回放的旧页虽然拿不到数据，但正是「先看到骨架和术语」的体感。
 
+### D15 营收中心只随外贸模块
+
+`biz-revenue` 的 `moduleKey` 从 `["trade", "sales"]` 改为 `"trade"`，`NAV_HREF_MODULES["/revenue"]` 同步改为 `["trade"]`。Sunny 未开外贸，此后任何人都不见营收中心，敲 `/revenue/**` 会被 302。无行业包企业里启用 `sales` 未启用 `trade` 的，平台 `boss` 同样不再见营收中心。这已写进 spec「岗位模式判定」的例外，以及 `revenue/spine-access`。
+
+被否决：保留 `["trade", "sales"]`，只靠外贸入口规则（`tradeEntry`）挡。Sunny 老板模板持 `trade.read`，`tradeEntry` 挡不住；正是因为 `sales` 模块放行，「收入驾驶舱」才出现在 Sunny 菜单里，这是任务书点名的问题。
+
 ## 与八条硬纪律的关系
 
 1. 零 schema：不改 Prisma、不写 migration。门表与「只做门」的条目都是代码常量，缓存只在进程内存里。
@@ -307,7 +329,7 @@ super_admin 的页面请求在解析用户后直接放行，不取企业侧输�
 ## 验证方式
 
 - `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，包含四部分：
-  - 表驱动：Sunny 11 种岗位身份 + 梦馨 2 种岗位身份 + 4 个无行业包企业抽样 × 全部登记路径；super_admin 全放行；停用用户 → `/login`；
+  - 表驱动：Sunny 11 种岗位身份 + 梦馨 2 种岗位身份 + 4 个无行业包企业抽样（启用 `sales` / `trade` / `marketing` / `operations` / `product_content` / `supply_chain`）× 全部登记路径；super_admin 全放行；停用用户 → `/login`；
   - 侧栏可见 ⇔ 放行；默认工作区必放行；两步无环；
   - 源码断言：163 个 `(main)` 页面与快照逐条一致、6 个 `(main)` 外页面在清单里、中间件声明 `runtime: "nodejs"` 且调用路由门、`matcher` 不再按图片扩展名排除、旧营销页面门已删、`sw.js` 的 `VERSION` 已提升；
   - 请求分类：`/api/**`、静态文件、免登录与白名单路径不取判定输入。
@@ -343,3 +365,4 @@ super_admin 的页面请求在解析用户后直接放行，不取企业侧输�
 - Q7（D7）：任务书 Impact 说「四份侧栏快照不应变化（除判断点 5 移除两项）」，但判断点 3 本身就要求会计不再进 `/bids`，所以 accounting 与三个出单岗位的快照会变（少招投标与项目 / 情报 / 供应商组）。
 - Q8（D8）：任务书要删 `route-access.ts` 的「非销售即可」，并验收「grep 业务代码无 `role === "sales"` 按平台角色拦路由的残留」。本 change 删掉页面层的判定，保留 API 层的 `canAccessMarketingWorkspace`（`requireMarketingReadAccess` 与中间件 `/api/marketing/**` 分支在用），因为 API 层在任务书 Out of scope 里。grep 验收因此限定为页面路由（`src/middleware.ts` 的页面分支与 `src/app/(main)/**`）。
 - Q9（D4）：`inventory/fabric-stock-access` 写的是「库存列表 SHALL 对持 `inventory.read` 的人开放」，`sales_rep` 模板持 `inventory.read`。本 change 照任务书验收让 Lynn 的 `/inventory` 页面 302（侧栏对纯销售不显示库存），库存接口对她仍开放。这里按「该 spec 说的是接口」理解；如果它说的是页面，需改那份 spec。
+- Q10（D7）：任务书验收写「Bob 的手机底栏『招投标』仅在持 bids 键时出现」，但判断点 3 定的是「`/projects` 与 `/bids` 只对持 bids 键的岗位与老板可见」。Bob 持 `owner`（管理层），按判断点 3 底栏与侧栏都保留招投标。本 change 按判断点 3 执行，验收这一条请以判断点 3 为准，或另行改口径。

@@ -9,7 +9,7 @@
   - `src/lib/tenancy/modules.ts`：`NAV_HREF_MODULES["/revenue"]` 改为 `["trade"]`。
   - `src/lib/rbac/workspace-policy.ts`：`canAccessBidWorkspace` 在岗位模式下非管理层只认 `project.create` / `project.update`，旧模式不变。
   - 测试：
-    - `position-nav.test.ts` 更新 accounting 与三个出单岗位的快照，并补三条 spec 场景断言：会计 / 出单即使 `hasBidCapability` 也不见招投标与项目情报；`bids` / `owner` 可见；启用 `sales` 未启用 `trade` 时老板不见营收中心。
+    - `position-nav.test.ts` 更新 accounting 与三个出单岗位的快照，并补三条 spec 场景断言：会计 / 出单即使 `hasBidCapability` 也不见招投标与项目情报；`bids` / `owner` 可见；启用 `sales` 未启用 `trade` 时，岗位模式老板与无行业包企业的平台 `boss` 都不见营收中心。
     - `workspace-policy.test.ts` 补岗位模式的 `canAccessBidWorkspace` 用例：会计、出单、只是项目成员的安装工为 false；`bids`、`owner`、`ops_lead` + `bids` 为 true；旧模式用例不变。
   - verify：`position-nav.test.ts`、`navigation-ia.test.ts`、`navigation-workspace.test.ts`、`workspace-policy.test.ts`、`wechat-entry-nav.test.ts` 全过；`position-nav` 里除上述 4 份快照外其余快照未改。
 
@@ -24,7 +24,8 @@
     - 请求处理函数：接收 `NextRequest` 与可注入的输入加载器，返回放行或 302。用户停用或不存在 → `/login`；平台 super_admin → 放行。
   - 新增可注入时钟的 TTL 缓存（30 秒、500 条上限、超出淘汰最旧）。
   - 先写 `src/lib/navigation/__tests__/route-gate.test.ts`：
-    - 表驱动：Sunny 11 种岗位身份 + 梦馨 2 种（`trade_rep`；`owner` + `trade_rep`，按 `DEFAULT_MENGXIN_MODULES`）+ 4 个无行业包企业抽样 × 全部登记路径的放行 / 302 目标；super_admin 全放行。
+    - 表驱动：Sunny 11 种岗位身份 + 梦馨 2 种（`trade_rep`；`owner` + `trade_rep`，按 `DEFAULT_MENGXIN_MODULES`）+ 4 个无行业包企业抽样（启用 `sales` / `trade` / `marketing` / `operations` / `product_content` / `supply_chain`）× 全部登记路径的放行 / 302 目标；super_admin 全放行（含未登记路径）。
+    - 侧栏等价只对「只对应单个侧栏入口」的路由断言；登录即可、只做门条目、带标记的路由按各自规则断言。
     - 侧栏可见 ⇔ 放行；默认工作区必放行；两步无环；
     - 源码断言：遍历 `src/app/(main)/**/page.tsx`，与测试里的「页面 → 规则」快照逐条一致（163 条，新页面不在快照里即失败）；`(main)` 外 6 个页面在免登录或门外清单；`public/` 下文件都带扩展名且一级目录不与已登录区重名。
     - spec `navigation/route-gate` 每条可在纯函数层验证的场景各一条断言：Lynn / 安装工 / 老板 / 会计 / ops_lead / bids / ops_staff / 出单 / 梦馨两种身份 / 无行业包抽样。
@@ -32,6 +33,7 @@
     - 请求分类：`/api/**`、静态文件、免登录、门外、白名单不调加载器。
     - HTTP 层：用 `NextRequest` 构造请求，断言 302、`Location`、正文为空、无自定义说明头、不带原查询串；加载器抛错时落 `/tasks`；停用用户落 `/login`。
     - 带扩展名的已登录区路径（如 `/trade/prospects/x.json`）判为需判定。
+    - 判定顺序（design D3）：未登录请求 `public/` 图片放行；未登录请求 `/sw.js` 跳 `/login`；登录即可的路由不调用户查询。
   - 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
   - verify：`npx tsx src/lib/navigation/__tests__/route-gate.test.ts` 全过；`bash scripts/check-test-registry.sh` 通过；`ci/test-registry-baseline.txt` 无新增行。
 
@@ -44,7 +46,7 @@
 
 ## 4. 中间件接入
 
-- [ ] 4.1 改 `src/middleware.ts`：`config` 加 `runtime: "nodejs"`，`matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`；登录校验之后按第 2 组的请求分类判定，需判定的页面请求经 `context-server` 取输入、调 `resolveRouteGate`，不放行就 `NextResponse.redirect(target, 302)`，不带原查询串、不加说明判定原因的响应头；取输入失败时 302 到 `/tasks` 并记日志；删除营销页面分支，保留 `/api/marketing/**` 分支。`public/sw.js` 的 `VERSION` 提到 `qingyan-v4`。route-gate 测试补源码断言：中间件声明 `runtime: "nodejs"`、从 `context-server` 取输入、调用 `route-gate` 的请求处理函数、不再引用 `isMarketingPagePath`。verify：route-gate 测试、`npx tsx scripts/public-route-auth-contracts.test.ts`（基线 164）、`notification-href.test.ts`（基线 91）全过；`NODE_OPTIONS=--max-old-space-size=$(node scripts/build-heap-mb.mjs) npx next build --webpack` 成功，构建输出含 `ƒ Proxy (Middleware)`。
+- [ ] 4.1 改 `src/middleware.ts`：`config` 加 `runtime: "nodejs"`，`matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`；登录校验之后按第 2 组的请求分类判定，需判定的页面请求经 `context-server` 取输入、调 `resolveRouteGate`，不放行就 `NextResponse.redirect(target, 302)`，不带原查询串、不加说明判定原因的响应头；取输入失败时 302 到 `/tasks` 并记日志；删除营销页面分支，保留 `/api/marketing/**` 分支。`public/sw.js` 的 `VERSION` 提到 `qingyan-v4`。route-gate 测试补源码断言：中间件声明 `runtime: "nodejs"`、从 `context-server` 取输入、调用 `route-gate` 的请求处理函数、不再导入 `isMarketingWorkspacePath` / `isMarketingPagePath`；`config.matcher` 不再含图片扩展名排除；`public/sw.js` 的 `VERSION` 为 `qingyan-v4`。verify：route-gate 测试、`npx tsx scripts/public-route-auth-contracts.test.ts`（基线 164）、`notification-href.test.ts`（基线 91）全过；`NODE_OPTIONS=--max-old-space-size=$(node scripts/build-heap-mb.mjs) npx next build --webpack` 成功，构建输出含 `ƒ Proxy (Middleware)`。
 
 ## 5. 删除被取代的旧门
 

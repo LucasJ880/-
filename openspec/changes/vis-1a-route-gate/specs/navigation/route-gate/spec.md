@@ -2,16 +2,16 @@
 
 ## Purpose
 
-已登录用户请求任一已登录页面时，服务端先按导航入口的可见规则判定「所属模块已开 ∧ 当前岗位持键」，不满足就在渲染前 302 到该用户的落地页。看得见的入口都能用，看不见的入口敲 URL 也进不去。唯一的例外是微信两页，它们的开关状态由 `identity/wechat-entry` 管辖。
+已登录用户请求任一已登录页面时，服务端先按导航入口的可见规则判定「所属模块已开 ∧ 当前岗位持键」，不满足就在渲染前 302 到该用户的落地页。看得见的入口都能用，看不见的入口敲 URL 也进不去。侧栏以外的放行只来自逐条列出的规则：登录即可的路由、没有侧栏入口的页面、对象详情页、平台 super_admin。
 
 ## ADDED Requirements
 
 ### Requirement: 判定口径与侧栏同源
-已登录用户请求已登录区（`(main)`）的任一页面时，系统 SHALL 在渲染前判定。硬加载、站内导航与预取请求都算。规则：该路径对应的导航入口及其全部父入口在当前用户侧栏里可见，即放行；否则不放行。判定 SHALL 使用与侧栏完全相同的输入：当前企业启用的模块、岗位权限键、岗位模式、企业角色、成员身份、工作区、投标能力信号、平台角色、Autopilot 资格。`/api/auth/active-org` 的响应字段 SHALL 与改动前一致。
+已登录用户请求已登录区（`(main)`）的任一页面时，系统 SHALL 在渲染前判定。硬加载、站内导航与预取请求都算。对应侧栏入口的路由，规则是：该导航入口及其全部父入口在当前用户侧栏里可见即放行，否则不放行。其余路由按本规格后面逐条列出的规则判定。判定 SHALL 使用与侧栏完全相同的输入：当前企业启用的模块、岗位权限键、岗位模式、企业角色、成员身份、工作区、投标能力信号、平台角色、Autopilot 资格。`/api/auth/active-org` 的响应字段 SHALL 与改动前一致。
 
 #### Scenario: 侧栏可见等价于路由放行
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
-- **THEN** 测试覆盖以下身份（平台 super_admin 另见「平台 super_admin 不受路由门限制」）：`sales_rep`、`installer`、`accounting`、`accounting` + `pricing_lead`、`owner`、`pricing_lead`、`bids`、`ops_lead`、`ops_staff`、`fulfillment_vinyl`、无岗位，梦馨 `trade_rep`、梦馨 `owner` + `trade_rep`，以及无行业包企业抽样（`trade` / `sales` / `boss` / `operations`）。对每种身份、每个对应侧栏入口的路由，「该入口在侧栏可见」与「该路由放行」的结果相同，测试通过
+- **THEN** 测试覆盖以下身份（平台 super_admin 另见「平台 super_admin 不受路由门限制」）：`sales_rep`、`installer`、`accounting`、`accounting` + `pricing_lead`、`owner`、`pricing_lead`、`bids`、`ops_lead`、`ops_staff`、`fulfillment_vinyl`、无岗位，梦馨 `trade_rep`、梦馨 `owner` + `trade_rep`，以及无行业包企业抽样（`trade` / `sales` / `boss` / `operations`）。对每种身份、每个只对应单个侧栏入口的路由（不含登录即可的路由、没有侧栏入口的页面、对象详情页与带「项目成员 / 无成员身份也放行」条件的路由），「该入口在侧栏可见」与「该路由放行」的结果相同，测试通过
 
 #### Scenario: 子入口要求父入口可见
 - **WHEN** 岗位模式下只持 `bids` 岗位的成员请求 `/capabilities/catalog`
@@ -56,7 +56,7 @@
 - **THEN** 全部放行，测试通过
 
 ### Requirement: 会话用户失效时回登录页
-会话有效、但对应用户不存在或状态不是 active 时，页面请求 SHALL 302 到 `/login`，SHALL NOT 进入路由门判定或落 `/tasks`。
+会话有效、但对应用户不存在或状态不是 active 时，需判定的页面请求 SHALL 302 到 `/login`，SHALL NOT 进入路由门判定或落 `/tasks`。登录即可的路由不查用户，行为与改动前一致。
 
 #### Scenario: 停用账号
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，以返回"用户已停用"的输入加载器请求 `/sales/home`
@@ -77,7 +77,7 @@
 - **THEN** 响应为 302，正文为空，响应头只有 `Location` 与框架默认头，没有说明判定原因的自定义头，测试通过
 
 ### Requirement: 登录即可的路由
-以下路由 SHALL 对任一已登录用户放行，不看模块与岗位键：`/`、`/tasks` 及其子路由、`/notifications`、`/help`、`/settings`（索引页本身）、`/settings/account`、`/settings/appearance`、`/settings/notifications`、`/settings/wechat`、`/wechat`。首页 `/` 放行后仍按既有首页落地规则跳转。两个微信页在微信入口开关关闭时仍只显示"暂未开放"（见 `identity/wechat-entry`）；开关打开时侧栏不显示"微信集成"的用户也能打开这两页，这是本门唯一的「看不见也进得去」。
+以下路由 SHALL 对任一已登录用户放行，不看模块与岗位键：`/`、`/tasks` 及其子路由、`/notifications`、`/help`、`/settings`（索引页本身）、`/settings/account`、`/settings/appearance`、`/settings/notifications`、`/settings/wechat`、`/wechat`。首页 `/` 放行后仍按既有首页落地规则跳转。两个微信页在微信入口开关关闭时仍只显示"暂未开放"（见 `identity/wechat-entry`）；开关打开时，侧栏不显示"微信集成"的用户也能打开这两页；`/tasks`、`/notifications`、`/settings` 对侧栏里没有对应入口的纯销售同样放行。
 
 #### Scenario: 白名单放行
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
@@ -145,9 +145,9 @@
 
 ### Requirement: 对象详情页按被链接的人放行
 对象详情页 SHALL 按"谁会经站内链接或通知被带过去"放行，不随列表页收紧：
-- `/blinds-orders/<id>`（含编辑）：持出单读、建单、安装派工或销售工作键的成员，以及管理层。
-- `/projects/<id>` 及其非平台管理员子页：持项目读写键或运营键的成员、当前企业内任一项目的 active 成员，以及管理层。
-- `/sales/customers/<id>`：持销售工作键或外贸读键的成员，以及管理层。
+- `/blinds-orders/<id>`（含编辑）：企业启用 `window_covering` 模块，且持出单读、建单、安装派工、销售工作键之一，或是管理层。
+- `/projects/<id>` 及其非平台管理员子页：企业启用 `bids` 或 `projects` 模块，且持项目读写键或运营键、或是当前企业内任一项目的 active 成员、或是管理层。
+- `/sales/customers/<id>`：企业启用 `sales` 模块，且持销售工作键或外贸读键，或是管理层。
 - `/capabilities/approvals/**`：全部企业成员，包括纯销售。
 
 对应的列表页 SHALL 仍按其侧栏入口判定。
@@ -177,10 +177,10 @@
 - **THEN** 页面正常打开
 
 ### Requirement: 未登记的路径一律拒绝
-已登录区里没有登记可见规则的路径 SHALL 视为不放行，按"不放行时 302 到落地页"处理。系统 SHALL NOT 对未登记的路径默认放行。
+已登录区里没有登记可见规则的路径 SHALL 视为不放行，按"不放行时 302 到落地页"处理。系统 SHALL NOT 对未登记的路径默认放行。平台 super_admin 除外（见「平台 super_admin 不受路由门限制」），他请求未登记路径时与改动前一样，由页面自身决定（不存在即 404）。
 
 #### Scenario: 未登记路径
-- **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，以任一身份请求 `/no-such-workspace`
+- **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，以任一非 super_admin 身份请求 `/no-such-workspace`
 - **THEN** 返回 302 到该身份的落地页，测试通过
 
 ### Requirement: 每个页面都已登记
@@ -198,7 +198,7 @@
 以下请求 SHALL NOT 经路由门判定，行为与改动前一致：
 - `/api/**`；
 - 免登录路径；
-- `public/` 静态文件：末段带文件扩展名、且第一段不是已登录区一级路径的请求，如 `/sw.js`、`/manifest.json`、`/sunny-quote.html`、`/brands/x.png`；
+- `public/` 静态文件：末段带文件扩展名、且第一段不是已登录区一级路径的请求。是否要求登录与改动前相同：图片（`svg` / `png` / `jpg` / `jpeg` / `gif` / `webp`）不要求登录，如 `/icons/icon-192x192.png`、`/logo.png`；其余（如 `/sw.js`、`/manifest.json`、`/sunny-quote.html`、`/sku-catalog.csv`）仍要求登录；
 - `/login`、`/register`、`/select-org`；
 - 错误上报隧道 `/monitoring`。
 
@@ -209,6 +209,10 @@
 #### Scenario: 带扩展名的已登录区路径照样判定
 - **WHEN** 只持 `sales_rep` 岗位的成员请求 `/trade/prospects/x.json` 或 `/projects/a.png`
 - **THEN** 按页面判定，返回 302 到 `/sales/home`；未登录时与其他页面一样跳 `/login`（`route-gate.test.ts` 覆盖分类）
+
+#### Scenario: 未登录时的静态文件
+- **WHEN** 未登录的浏览器请求 `/icons/icon-192x192.png`（登录页上的图标）与 `/logo.png`（免登录的 `/display` 页用到），再请求 `/sw.js`
+- **THEN** 两个图片正常返回，不被重定向；`/sw.js` 与改动前一样 302 到登录页（`route-gate.test.ts` 覆盖分类与先后）
 
 #### Scenario: 静态文件不被重定向
 - **WHEN** 只持 `installer` 岗位的成员请求 `/sunny-quote.html` 或 `/sw.js`
@@ -232,7 +236,7 @@
 
 #### Scenario: 旧模式抽样
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
-- **THEN** 无行业包企业的 `trade` / `sales` / `boss` / `operations` 四个抽样，放行结果都与其旧模式侧栏一致，测试通过
+- **THEN** 无行业包企业的 `trade` / `sales` / `boss` / `operations` 四个抽样（企业启用 `sales`、`trade`、`marketing`、`operations`、`product_content`、`supply_chain`），放行结果都与其旧模式侧栏一致，测试通过
 
 #### Scenario: 梦馨老板照常
 - **WHEN** 梦馨持 `owner` + `trade_rep` 岗位的成员（Cathy）请求 `/trade/prospects/<id>`、`/revenue`、`/product-content`、`/operations/growth`、`/settings/email`

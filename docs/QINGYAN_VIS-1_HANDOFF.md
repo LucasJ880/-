@@ -17,7 +17,7 @@
 
 ## 0. 下一步
 
-1. **审核 VIS-1a 四件套**（Claude chat / Lucas）。重点看 design 末节「审核关注点」Q1–Q9，这些地方偏离或补充了任务书。最要紧的四条如下，Q5 见下面第 3 步：
+1. **审核 VIS-1a 四件套**（Claude chat / Lucas）。重点看 design 末节「审核关注点」Q1–Q10，这些地方偏离或补充了任务书。最要紧的四条如下，Q5 见下面第 3 步：
    - **Q1**：收件箱（`/service-inbox`）与知识库（`/knowledge`）对安装工等岗位是否隐藏、用哪组键。任务书验收要安装工 302，但这两项当前对所有非纯销售岗位都在侧栏里，任务书没给岗位键。默认：1a 照侧栏现状不动。
    - **Q2**：门的位置从任务书写的 `(main)/layout.tsx` 改为 Node runtime 中间件。夹具实测见 §2。
    - **Q3**：对象详情页（`/blinds-orders/[id]`、`/projects/[id]`、`/sales/customers/[id]`、`/capabilities/approvals/**`）的放行面宽于列表页，避免销售、运营、招投标被自己的站内链接或通知弹回。
@@ -106,6 +106,6 @@
 | 1 | 规划期探针：用真实注册表与 `isNavItemVisible` 模拟门表，覆盖 Sunny 各岗位、梦馨两种身份与无行业包抽样，算出放行 / 302 矩阵 | 163 页全覆盖；落地页全部放行、无环；spec 每条可算的场景与矩阵一致 |
 | 2a | 独立审查（规则 / 一致性），1 blocker、8 major、11 minor | 全部改掉，主要有：302 目标改为首页最终落地；补取输入失败、查询串、`/monitoring`；安装工日历；网站预约；项目成员；项目平台管理员子页；底栏招投标与营收规格声明；每条要求都有测试场景；Q6–Q9 |
 | 2b | 独立审查（代码事实 / 技术），5 major、6 minor | 全部改掉，主要有：梦馨是岗位模式；中间件不调 `resolvePreferredOrgId`；页面 → 规则快照；super_admin 不受门限制；停用用户回 `/login`；静态文件判法收窄并改 `matcher`；SW 版本；补两份读中间件的既有测试 |
-| 3 | `openspec validate --strict`；scratchpad 拷贝里 archive 演练（RENAMED + MODIFIED 合并正常）；探针复算新规则；再起一次只查「修订引入的问题」的独立核对 | 见提交记录与本节后续更新 |
+| 3 | `openspec validate --strict`；scratchpad 拷贝里 archive 演练（RENAMED + MODIFIED 合并正常，+17 / ~5 / →1）；探针复算新规则；再起一次只查「修订引入的问题」的独立核对，4 major、8 minor，无 blocker，放行 / 302 结论全部复算正确 | 全部改掉，主要有：「侧栏 ⇔ 放行」只对单入口路由断言，删掉「唯一例外」说法；写明中间件判定顺序（图片在登录前放行、其余静态文件仍要登录，与改动前一致）；super_admin 与 fail-closed 的关系；D5 邮箱绑定改指 D4；详情页补模块条件；停用用户只管需判定的请求；补 D15（营收中心）与 Q10（Bob 底栏）；BREAKING 补招投标岗位失去营销工作区、`/ai-activity` 收为平台管理员页 |
 
 夹具与探针脚本都在会话 scratchpad，不进仓库。复现方法见 §2；探针逻辑就是 tasks 2.1 要写进 `route-gate.test.ts` 的内容。

@@ -17,6 +17,10 @@
 - **WHEN** 当前企业无行业包，微信入口开关关闭，平台角色为 `boss` 的成员加载导航
 - **THEN** 可见入口与开关打开时相比只少"微信集成"
 
+#### Scenario: 旧模式未开外贸没有营收中心
+- **WHEN** 当前企业无行业包、启用 `sales` 未启用 `trade`，平台角色为 `boss` 的成员加载导航
+- **THEN** 不可见"收入驾驶舱"与"今日询盘"，其余可见入口与改动前相同（`npx tsx src/lib/navigation/__tests__/position-nav.test.ts` 覆盖）
+
 ### Requirement: 岗位模式的导航入口
 岗位模式下，除外贸入口与平台管理入口外，每个导航入口 SHALL 只按其声明的权限键（持任一即可见）与工作区判定；平台角色与"按平台角色整组 / 单条隐藏"的规则 SHALL NOT 参与。唯一的前置条件是平台开关：微信入口开关关闭时，"微信集成"入口 SHALL NOT 出现（见 `identity/wechat-entry`）。销售区入口 SHALL 要求 `sales.quote.create` 或 `sales.quote.pricing_close` 或管理层；企业经营、AI 能力与经营驾驶舱 SHALL 要求管理层；招投标中心、项目列表、项目情报与供应商库入口 SHALL 要求 `project.create` 或 `project.update` 或管理层，只持 `project.read` 或只是某项目成员 SHALL NOT 使这些入口可见；品牌增长入口 SHALL 要求 `operations.read` 或 `operations.manage`。
 
@@ -61,7 +65,7 @@
 
 #### Scenario: 未开外贸的企业没有营收中心
 - **WHEN** 企业启用 `sales` 而未启用 `trade`，持 `owner` 岗位的成员加载导航
-- **THEN** 不可见"收入驾驶舱"与"今日询盘"
+- **THEN** 不可见"收入驾驶舱"与"今日询盘"（`npx tsx src/lib/navigation/__tests__/position-nav.test.ts` 覆盖）
 
 ## ADDED Requirements
 

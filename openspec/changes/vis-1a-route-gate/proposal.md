@@ -19,11 +19,12 @@ TASKFLOW：VIS-1a（新增 Phase V「可见性收口」；任务书 `docs/QINGYA
 - 提升 `public/sw.js` 的缓存版本，清掉门上线前离线缓存下的业务页。
 - 新增源码断言测试：`src/app/(main)/**/page.tsx` 与「页面 → 规则」快照必须逐条一致，新页面即使落在已有前缀下也要显式登记；`(main)` 以外的 6 个页面必须在免登录或门外清单里，否则测试失败。
 - 把 `src/middleware.ts` 切到 Node.js runtime 来承载路由门。理由与夹具实测见 design D1：layout 在软导航时不重渲染，`loading.tsx` 之下的门会先吐骨架。
-- 收紧营销工作区（`/marketing/**`、`/operations/growth/**`），改按侧栏「品牌增长」口径判定。岗位模式下只放行运营键持有者与管理层，安装工、会计、出单、无岗位成员被拦，销售落 `/sales/home`（原来是 `/sales`）。**BREAKING**
+- 收紧营销工作区（`/marketing/**`、`/operations/growth/**`），改按侧栏「品牌增长」口径判定。岗位模式下只放行持 `operations.read` / `operations.manage` 的成员（老板模板含 `operations.read`）。安装工、会计、出单、招投标、无岗位成员被拦，销售落 `/sales/home`（原来是 `/sales`）。**BREAKING**
 - 收紧外贸角色的营销工作区（改动前只拦销售），与各自侧栏一致；梦馨老板 Cathy（`owner` + `trade_rep`）不受影响。**BREAKING**
   - 梦馨（岗位模式）只持 `trade_rep` 的外贸业务员不再能进；
   - 无行业包企业的平台角色 `trade` / `user` 不再能进。
 - 删除被路由门取代的营销页面门：`src/lib/marketing/workspace-gate.ts`、两处 layout、中间件的营销页面分支。中间件对 `/api/marketing/**` 的旧模式拦截保留。
+- 收紧 `/ai-activity` 为只对平台 super_admin 放行（任务书：平台管理员页）。改动前它没有任何门，接口返回本人的 AI 活动记录。**BREAKING**
 - 修正 `/sales/analytics`：改按 `sales.analytics.read` 判定（老板、合价、会计、销售模板都持此键），删除页面里只认平台 super_admin 的「无权限访问」块。
 - 修正营收中心：`/revenue` 导航项与 `NAV_HREF_MODULES["/revenue"]` 只认 `trade` 模块，不再因 `sales` 模块出现。Sunny 未开外贸，老板敲 `/revenue/**`、`/trade/**` 会被 302 到 `/`；老板模板的外贸三键不动（判断点 4）。**BREAKING**
 - 收紧岗位模式的招投标工作区（判断点 3）：只认 `project.create` / `project.update` 或管理层，不再因 `project.read` 或「是某项目成员」放行；项目列表、项目情报、供应商库三组入口同口径。会计与三个出单岗位因此失去：
