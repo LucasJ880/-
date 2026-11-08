@@ -15,7 +15,7 @@
 
 ## 2. 门表与纯判定
 
-- [ ] 2.1 写判定函数与测试：
+- [x] 2.1 写判定函数与测试：
   - 新增 `src/lib/navigation/route-gate.ts`，包含五部分：
     - 门表常量：按 design D4 / D5，按段匹配、`*` 单段、`=` 精确、最具体优先；含 `/projects/*` 的「项目成员也放行」标记、`/organizations` 的「无成员身份也放行」标记与项目平台管理员子页条目。
     - 请求分类：API / 免登录 / `public/` 静态文件 / 门外 / 登录即可 / 需判定。静态文件 = 末段带扩展名且第一段不是已登录区一级路径。
@@ -33,7 +33,7 @@
     - 请求分类：`/api/**`、静态文件、免登录、门外、白名单不调加载器。
     - HTTP 层：用 `NextRequest` 构造请求，断言 302、`Location`、正文为空、无自定义说明头、不带原查询串；加载器抛错时落 `/tasks`；停用用户落 `/login`。
     - 带扩展名的已登录区路径（如 `/trade/prospects/x.json`）判为需判定。
-    - 判定顺序（design D3）：未登录请求 `public/` 图片放行；未登录请求 `/sw.js` 跳 `/login`；登录即可的路由不调用户查询。
+    - 判定顺序（design D3）中纯函数层可验证的部分：登录即可的路由不调用户查询。未登录时图片与 `/sw.js` 的先后依赖中间件，在 4.1 用中间件层断言验证。
   - 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
   - verify：`npx tsx src/lib/navigation/__tests__/route-gate.test.ts` 全过；`bash scripts/check-test-registry.sh` 通过；`ci/test-registry-baseline.txt` 无新增行。
 
@@ -46,7 +46,7 @@
 
 ## 4. 中间件接入
 
-- [ ] 4.1 改 `src/middleware.ts`：`config` 加 `runtime: "nodejs"`，`matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`；登录校验之后按第 2 组的请求分类判定，需判定的页面请求经 `context-server` 取输入、调 `resolveRouteGate`，不放行就 `NextResponse.redirect(target, 302)`，不带原查询串、不加说明判定原因的响应头；取输入失败时 302 到 `/tasks` 并记日志；删除营销页面分支，保留 `/api/marketing/**` 分支。`public/sw.js` 的 `VERSION` 提到 `qingyan-v4`。route-gate 测试补源码断言：中间件声明 `runtime: "nodejs"`、从 `context-server` 取输入、调用 `route-gate` 的请求处理函数、不再导入 `isMarketingWorkspacePath` / `isMarketingPagePath`；`config.matcher` 不再含图片扩展名排除；`public/sw.js` 的 `VERSION` 为 `qingyan-v4`。verify：route-gate 测试、`npx tsx scripts/public-route-auth-contracts.test.ts`（基线 164）、`notification-href.test.ts`（基线 91）全过；`NODE_OPTIONS=--max-old-space-size=$(node scripts/build-heap-mb.mjs) npx next build --webpack` 成功，构建输出含 `ƒ Proxy (Middleware)`。
+- [ ] 4.1 改 `src/middleware.ts`：`config` 加 `runtime: "nodejs"`，`matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`；登录校验之后按第 2 组的请求分类判定，需判定的页面请求经 `context-server` 取输入、调 `resolveRouteGate`，不放行就 `NextResponse.redirect(target, 302)`，不带原查询串、不加说明判定原因的响应头；取输入失败时 302 到 `/tasks` 并记日志；删除营销页面分支，保留 `/api/marketing/**` 分支。`public/sw.js` 的 `VERSION` 提到 `qingyan-v4`。route-gate 测试补中间件层断言（直接调用 `middleware`）：未登录请求 `public/` 图片放行、未登录请求 `/sw.js` 跳 `/login`、未登录请求 `/projects/a.png` 跳 `/login`；补源码断言：中间件声明 `runtime: "nodejs"`、从 `context-server` 取输入、调用 `route-gate` 的请求处理函数、不再导入 `isMarketingWorkspacePath` / `isMarketingPagePath`；`config.matcher` 不再含图片扩展名排除；`public/sw.js` 的 `VERSION` 为 `qingyan-v4`。verify：route-gate 测试、`npx tsx scripts/public-route-auth-contracts.test.ts`（基线 164）、`notification-href.test.ts`（基线 91）全过；`NODE_OPTIONS=--max-old-space-size=$(node scripts/build-heap-mb.mjs) npx next build --webpack` 成功，构建输出含 `ƒ Proxy (Middleware)`。
 
 ## 5. 删除被取代的旧门
 
