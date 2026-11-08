@@ -22,10 +22,8 @@ src/lib/knowledge/__tests__/text-chunk.test.ts
 src/lib/marketing/__tests__/audit-from-signals.test.ts
 src/lib/marketing/__tests__/crm-source-attribution.test.ts
 src/lib/marketing/__tests__/marketing-economics.test.ts
-src/lib/marketing/__tests__/marketing-middleware-access.test.ts
 src/lib/marketing/__tests__/mmm-scenario.test.ts
 src/lib/marketing/__tests__/paid-media-mapper.test.ts
-src/lib/marketing/__tests__/route-access.test.ts
 src/lib/mobile/__tests__/scroll-lock.test.ts
 src/lib/navigation/__tests__/trade-layout.test.ts
 src/lib/notifications/__tests__/delivery-gate.test.ts

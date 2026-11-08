@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Shield } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
@@ -68,7 +68,8 @@ const GRANULARITY_LABELS: Record<Granularity, string> = {
 };
 
 export default function SalesAnalyticsPage() {
-  const { user, loading: userLoading, isSuperAdmin } = useCurrentUser();
+  // VIS-1a：可见性由路由门按 sales.analytics.read 判定（不再只认平台 super_admin）；数据范围由接口按键与范围决定
+  const { loading: userLoading } = useCurrentUser();
 
   const defaults = useMemo(() => defaultDateRange(), []);
   const [startDate, setStartDate] = useState(defaults.start);
@@ -84,15 +85,14 @@ export default function SalesAnalyticsPage() {
 
   // 拉销售列表（只拉一次）
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    // 只持本人范围的人接口返回 403：下拉为空即可，不报错
     apiFetch("/api/sales/reps")
       .then((r) => (r.ok ? r.json() : { reps: [] }))
       .then((d: { reps: SalesRep[] }) => setReps(d.reps || []))
       .catch(() => setReps([]));
-  }, [isSuperAdmin]);
+  }, []);
 
   const loadMatrix = useCallback(async () => {
-    if (!isSuperAdmin) return;
     setLoading(true);
     setError("");
     try {
@@ -117,7 +117,7 @@ export default function SalesAnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isSuperAdmin, startDate, endDate, granularity, selectedReps, viewType]);
+  }, [startDate, endDate, granularity, selectedReps, viewType]);
 
   useEffect(() => {
     loadMatrix();
@@ -127,17 +127,6 @@ export default function SalesAnalyticsPage() {
     return (
       <div className="flex h-40 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-accent" />
-      </div>
-    );
-  }
-  if (!isSuperAdmin) {
-    return (
-      <div className="mx-auto max-w-2xl">
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-[rgba(166,61,61,0.15)] bg-[rgba(166,61,61,0.04)] py-12">
-          <Shield className="h-10 w-10 text-[#a63d3d]" />
-          <p className="text-sm font-medium text-[#a63d3d]">无权限访问</p>
-          <p className="text-xs text-[#a63d3d]">销售复盘页仅管理员可查看</p>
-        </div>
       </div>
     );
   }
