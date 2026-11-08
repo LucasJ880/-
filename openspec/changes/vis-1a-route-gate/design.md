@@ -69,7 +69,7 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 
 | 字段 | 来源 |
 |---|---|
-| 当前企业 | `resolvePreferredOrgId` |
+| 当前企业 | 中间件：`User.activeOrgId`；为空时取唯一的 active 成员关系（与 `/api/auth/me` 同法），只读、不写回。active-org：仍用 `resolvePreferredOrgId`（它会自动选定并写回 `activeOrgId`），之后两边一致 |
 | `modules` | `withIndustryPackModules(parseOrgModulesJson(modulesJson), industryPackId)` |
 | `positionMode` | `hasPositionTemplates(industryPackId)` |
 | `permissionKeys` | `resolveEffectiveBindings` 的 ALLOW 键 |
@@ -80,16 +80,18 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 | `autopilotAllowed` | `hasAutopilotCapability(user, "autopilot.view")`，与 `/api/auth/me` 同 |
 | `wechatEntryEnabled` | `isWechatBindingEnabled()` |
 
-`/api/auth/active-org` 改为调用它取这些字段，响应 JSON 字段与取值不变。
+`/api/auth/active-org` 改为调用它取这些字段，且不走 D3 的缓存，所以响应 JSON 的字段与取值都与改动前一致。中间件不调 `resolvePreferredOrgId`：它会列出全部成员关系、做计数、对 super_admin 一次载入最多 200 家企业，还可能写库，不适合每个请求都跑。
 
 被否决：路由门直接复用 `resolveWorkspaceContextFromCookies`。它读 `next/headers` 的 cookies，中间件里用不了；又缺行业包模块兜底与 `workspaceIds`，会与侧栏判定不一致，正是要消除的东西。
 
 ### D3 每个页面请求都判定，进程内缓存 30 秒
 
-预取也经过中间件（夹具结果三）。一个页面有 N 个侧栏链接，就会触发 N 次判定，每次要 6–8 次查询。处理办法：
+预取也经过中间件（夹具结果三）。一个页面有 N 个侧栏链接，就会触发 N 次判定。不加缓存时每次约 6–8 次查询（若用 `resolvePreferredOrgId` 则约 10–11 次）。处理办法：
 
-- 先查门表。命中「登录即可」或「不经路由门」（`/api/**`、免登录路径、末段带扩展名的静态文件、`/login`、`/register`、`/select-org`、Sentry 隧道 `/monitoring`）的请求不查库。
-- 其余请求每次都要：校验 JWT（不查库）、查用户状态与平台角色、解析当前企业 id，各一次轻查询。切换企业因此立即生效。
+- 先做请求分类。「不经路由门」的请求（`/api/**`、免登录路径、`public/` 静态文件、`/login`、`/register`、`/select-org`、Sentry 隧道 `/monitoring`）与「登录即可」的请求都不取判定输入。
+- 其余请求每次都要：校验 JWT（不查库），一次查用户的状态、平台角色与 `activeOrgId`；`activeOrgId` 为空时再查一次成员关系（最多取 2 条）。切换企业因此立即生效。
+  - 用户不存在或状态不是 active：302 `/login`（spec「会话用户失效时回登录页」）。
+  - 平台 super_admin：到这一步直接放行，不再取企业侧输入（D13）。
 - 其余判定输入按 `(userId, orgId)` 在进程内缓存 30 秒，最多 500 条，超出时淘汰最旧的。
 - 构造器抛错时 fail-closed：302 到 `/tasks`，并打一条服务端日志（spec「判定输入取不到时一律拒绝」）。
 
@@ -129,6 +131,9 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 | `/sales/calendar` | 侧栏「日历」可见，或持 `install.task.update`（`window_covering` 模块） | `installation/install-tasks`「安装工在既有日历页 SHALL 能看到分配给自己的安装预约」 |
 | `/sales/website-bookings` | `sales.customer.create` / `sales.customer.read` / 管理层，`sales` 模块，销售侧栏可见 | `calendar/website-booking-intake`「页面对有查看权的成员」；接口口径是任意范围的 `sales.customer.create` 或全企业范围的 `sales.customer.read`（`api/sales/website-bookings/route.ts:5`），门只看持键，范围仍归接口 |
 
+| `/settings/email` | 销售工作键 / `project.create` / `project.update` / `trade.read` / `trade.manage` / 管理层，销售侧栏可见 | 销售：`quote-sheet/page.tsx:2202`、`sales/customers/[id]/page.tsx:199`；招投标：`tender-rfq/web-entry-pure.ts:63`；梦馨外贸：该页有梦馨「公司发件身份」分支（`settings/email/page.tsx:74,245`），梦馨未启用 `bids`、外贸业务员不持销售键，只按「邮箱绑定」判定会把他们弹走 |
+| `/organizations`（列表页本身） | 侧栏「成员与组织」可见，或当前企业无 active 成员身份 | 没有企业的用户点「前往组织」：约 10 个 `/trade` 页面的空态、`knowledge/page.tsx:140`、`suppliers/page.tsx:220`、`dashboard-welcome-section.tsx`；这是门表第二处不经导航项的条件 |
+
 「销售侧栏可见」指条目带 `salesWorkspaceVisible`：纯销售的侧栏只显示带此标记的条目，不带就会把 Lynn 弹回。
 
 对应的列表页（`/blinds-orders`、`/blinds-orders/new`、`/blinds-orders/zebra-ratios`、`/projects`、`/capabilities`）仍按侧栏入口判定。
@@ -138,6 +143,13 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 - 工艺单详情 → `/install/repairs/[id]`（`blinds-orders/[id]/page.tsx:721`），销售点会被弹回。
 - 招投标交接 → `/ops/**`（`projects/handoff-dialog.tsx:177/200`），今天已被页面门弹回，行为不变。
 - 微信推送里的 `/agent-trace` 链接（`agent-runtime/workbench-link.ts`），今天已被 `PlatformAdminGate` 弹回，行为不变。
+- 手机底栏「AI」页签 → `/capabilities`（`mobile-tab-bar.tsx:316-321`）：出单与无岗位成员会显示这个页签，但 AI 工作中心对他们不可见；今天进去是接口 403。
+- 数字员工工作台的「客户」「创建报价」按钮（`assistant/digital-employee-workbench.tsx:78,285`）对非销售岗位。
+- `/settings` 索引页上无条件显示的「邮箱绑定」卡片（`settings/page.tsx:235`）对安装工、会计等（属 VIS-1c）。
+- 工艺单详情 / 编辑页回列表的链接与删除后的跳转（`blinds-orders/[id]/page.tsx:300,316,355`、`edit/page.tsx:70`）对销售。
+- 头部全局搜索里的项目结果（`header.tsx:190`，属 VIS-1c）。
+- 首页岗位卡指向 `/revenue`、`/ai-activity`（属 VIS-1b）。
+- 多企业成员点开另一家企业的通知（`href.ts:59` 带 `?orgId=`）：点击只把企业写进浏览器本地（`header.tsx:577-579`），路由门按服务端的 `activeOrgId` 判定，目标若在当前企业不可见会被弹回。Sunny 与梦馨成员都是单企业（`FIXED`），平台 super_admin 按 D13 不受门限制。
 
 ### D5 登录即可白名单与门外清单
 
@@ -149,7 +161,13 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 - `/settings` 索引：销售日历的「重新连接 Google」（`sales/calendar/page.tsx:358`）、报价复核（`quote-digital-employee-review.tsx:46`）与 Google OAuth 回调（`api/auth/google/callback`）都会落到这里；按「企业设置」入口判定会把纯销售弹走。索引页上的卡片怎么收属 VIS-1c。
 - 两个微信页：`identity/wechat-entry` 规定开关关闭时任何已登录用户直接访问都显示「暂未开放」。路由门放行，交给 COLLAB-1 的整页替换；本 change 不改那份规格。
 
-门外清单：`(auth)` 组的 `/login`、`/register`、`/select-org`，中间件 `PUBLIC_PATHS`，末段带扩展名的路径（`public/` 下的文件全部带扩展名，已核对），以及 `/monitoring`。
+门外清单包括：`(auth)` 组的 `/login`、`/register`、`/select-org`；中间件 `PUBLIC_PATHS`；`/monitoring`；`public/` 静态文件。
+
+静态文件的判法：末段带扩展名，且第一段不是已登录区的一级路径。`public/` 下 34 个文件全部带扩展名，一级目录与 `(main)` 的一级路径没有重名，已核对。只看扩展名会留出绕过口：`/trade/prospects/x.json` 会渲染动态详情页而不经门。
+
+同理，中间件的 `matcher` 改为只排除 `_next/static`、`_next/image`、`favicon.ico`，不再按图片扩展名整体排除。现在的 matcher 会让 `/projects/a.png` 连登录检查都跳过。改后图片请求进中间件，命中「静态文件」后立即放行，不取判定输入，与改动前一样不要求登录。
+
+被否决：只按扩展名放行（上述绕过）；在中间件里读 `public/` 目录（Vercel 上不可靠）。
 
 `/settings/email` 不进白名单，门表指向「邮箱绑定」或「招投标中心」任一可见即可。销售要用；招投标的 RFQ 入口在授权邮箱未连接时提示去这里（`tender-rfq/web-entry-pure.ts:63`）。
 
@@ -228,11 +246,35 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 ### D12 两种模式都生效
 
-路由门在旧模式企业（梦馨）同样生效，判定就是旧模式侧栏的平台角色规则，不另立口径。表驱动测试带 4 个旧模式抽样（`trade` / `sales` / `boss` / `operations`）。
+梦馨（`home_textile_trade_v1`）与 Sunny 一样是岗位模式：`hasPositionTemplates` 为 true，见 `docs/QINGYAN_PERM-6b_REPORT.md`。真正的旧模式只有无行业包的企业。路由门对两类企业都生效，判定就是各自侧栏的规则，不另立口径。表驱动测试带：
+- 梦馨两种身份：只持 `trade_rep`；`owner` + `trade_rep`（Cathy）。
+- 4 个无行业包企业抽样：`trade` / `sales` / `boss` / `operations`。
 
-后果：旧模式「品牌增长」要求平台角色 super_admin / `boss` / `manager` / `operations`，所以 `trade` / `user` 失去 `/marketing/**`、`/operations/growth/**`。改动前中间件只拦 `sales`，因此这一条在 proposal 里标为 BREAKING，spec `marketing/growth-center-access` 也写了旧模式外贸场景。
+对梦馨的影响（按 `DEFAULT_MENGXIN_MODULES` 计算）：
+- Cathy（`owner` + `trade_rep`，管理层）：外贸、营收、产品内容、营销、邮箱绑定全部照常。
+- 只持 `trade_rep` 的外贸业务员：外贸、营收、产品内容、审批中心、收件箱、知识库照常；D4 让 `/settings/email` 对外贸键放行。
+- 只持 `trade_rep` 的外贸业务员失去营销工作区（`/marketing/**`、`/operations/growth/**`，他们侧栏里本来没有「品牌增长」），被拦后落 `/tasks`，即该岗位进入首页后的既有落地。
 
-被否决：只在岗位模式生效。那样旧模式还得保留中间件按 `role=sales` 拦营销页面的旧规则，与「判定来源只有一处」相反。
+改动前，中间件与页面门只拦销售。无行业包企业里平台角色 `trade` / `user` 同样失去营销工作区。这两条在 proposal 里标为 BREAKING。
+
+被否决：只在 Sunny 生效。那样还得为其他企业保留中间件按 `role=sales` 拦营销页面的旧规则，与「判定来源只有一处」相反。
+
+### D13 平台 super_admin 不受路由门限制
+
+super_admin 的页面请求在解析用户后直接放行，不取企业侧输入。理由有三：
+- 任务书验收要求「Lucas 一切照旧」。
+- 他常在自己不是 active 成员的企业里操作，例如 `/organizations` 建企业、看别家企业的成员页。按侧栏判定，无成员身份会隐藏大半分组。
+- 1d 也定了 super_admin 不受审批范围限制。
+
+各页面既有的 `PlatformAdminGate`、`AutopilotGate` 照旧。VIS-1e 的「以岗位预览」会把预览态的 `platformRole` 视同 `user`，届时路由门对预览态生效。
+
+被否决：super_admin 也按侧栏判定。会在没有成员身份的企业里把他弹走，与「一切照旧」相反。
+
+### D14 Service Worker 缓存版本
+
+`public/sw.js` 对页面导航先走网络、离线时回落缓存（`sw.js:86-104`）。门上线前缓存下的业务页 HTML，离线时仍可能被回放。把 `VERSION` 从 `qingyan-v3` 提到 `qingyan-v4`，激活时清掉旧缓存。
+
+被否决：不动 SW。离线回放的旧页虽然拿不到数据，但正是「先看到骨架和术语」的体感。
 
 ## 与八条硬纪律的关系
 
@@ -243,17 +285,14 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 5. 不爬登录页：不涉及。
 6. 邮箱分离：不涉及。`/settings/email` 只是页面门，不改 EmailProvider 的查找规则。
 7. 确定性优先：门表查表判定，零 LLM 调用。
-8. 测试注册：新增的 `src/lib/navigation/__tests__/route-gate.test.ts` 在同一 task 里注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，`bash scripts/check-test-registry.sh` 通过；`ci/test-registry-baseline.txt` 不新增行。
+8. 测试注册：新增的 `src/lib/navigation/__tests__/route-gate.test.ts` 在同一 task 里注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`route-access.test.ts` 从基线转为正式注册，`ci/test-registry-baseline.txt` 只删不增；`bash scripts/check-test-registry.sh` 通过。
 
 ## Risks / Trade-offs
 
 - [中间件改 Node runtime 后要把 Prisma 打进中间件包，Vercel 构建或部署可能失败] → task 4.1 本地跑 `next build --webpack` 并确认构建输出里有 `ƒ Proxy (Middleware)`；PR 的 Vercel Preview 部署必须成功才合并。回滚就是 revert 本 PR，无数据迁移。
 - [每个页面请求多一次权限解析，预取放大请求量] → 登录即可与不经门的请求不查库，其余按 D3 缓存。合并后在 Vercel 日志里对比中间件耗时，写进报告。
-- [旧模式（梦馨）里侧栏不显示、却有站内链接或通知指向的页面会被弹回] → 已知两条：
-  - 旧模式 `sales` 收到的 `revenue_opportunity` 通知跳 `/revenue/[id]`（PERM-6c 已让营收中心只认外贸键，入口本就不可见）。
-  - 无企业成员身份的用户点「前往组织」（`/organizations`）。
-  
-  报告里请梦馨侧确认。
+- [梦馨只持 `trade_rep` 的外贸业务员失去营销工作区] → 他们侧栏里本来没有「品牌增长」，Cathy 不受影响（D12）。报告里请梦馨侧确认是否有只持 `trade_rep` 的在用账号。
+- [其他企业里侧栏不显示、却有站内链接或通知指向的页面会被弹回] → 清单见 D4。`/organizations` 已对无成员身份的用户放行，super_admin 不受门限制（D13）。
 - [未登记或不存在的路径从 404 变成 302] → spec「门表之外的路径一律拒绝」写明了，可接受。
 - [判定滞后最多 30 秒] → spec「判定时效」写明。切换企业立即生效（企业 id 每次请求都重新解析）。
 - [Lynn 在 VIS-1b 之前仍能进 `/workforce`、`/assistant`] → 侧栏还有这两项，路由门保持一致；proposal Out of scope 写明。
@@ -268,9 +307,9 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 ## 验证方式
 
 - `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，包含四部分：
-  - 表驱动：12 种岗位模式身份 + 4 个旧模式抽样 × 全部门表路径；
+  - 表驱动：Sunny 11 种岗位身份 + 梦馨 2 种岗位身份 + 4 个无行业包企业抽样 × 全部登记路径；super_admin 全放行；停用用户 → `/login`；
   - 侧栏可见 ⇔ 放行；默认工作区必放行；两步无环；
-  - 源码断言：163 个 `(main)` 页面全部命中、6 个 `(main)` 外页面在清单里、中间件声明 `runtime: "nodejs"` 且调用路由门、旧营销页面门已删；
+  - 源码断言：163 个 `(main)` 页面与快照逐条一致、6 个 `(main)` 外页面在清单里、中间件声明 `runtime: "nodejs"` 且调用路由门、`matcher` 不再按图片扩展名排除、旧营销页面门已删、`sw.js` 的 `VERSION` 已提升；
   - 请求分类：`/api/**`、静态文件、免登录与白名单路径不取判定输入。
   - 中间件层：用 `NextRequest` 构造请求、注入假的输入加载器，断言 302 状态、`Location`、正文为空、无自定义说明头、查询串不带、加载器抛错时落 `/tasks`。
 - 受影响的既有测试（2026-11-08 基线）：
@@ -285,6 +324,8 @@ spec「判定时效」把这 30 秒写成了对外承诺。
   | `route-access.test.ts` | 3 |
   | `ops-access.test.ts` | 21 |
   | `wechat-entry-nav.test.ts` | 19 |
+  | `scripts/public-route-auth-contracts.test.ts`（直接 import 中间件并调用） | 164 |
+  | `notification-href.test.ts`（读中间件源码断言登录回跳） | 91 |
 
   改动后全部通过；`position-nav` 只有 accounting 与三个出单岗位的快照变化。
 - `bash scripts/check-test-registry.sh`、`npm run typecheck`、`npm run lint:baseline`、`npm test`。
@@ -296,7 +337,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 - Q1（D11）：收件箱 / 知识库对安装工等岗位是否隐藏、用哪组键。本 change 默认照侧栏现状不动。若要在 1a 一并收，需给出两项各自的岗位键，并接受相应侧栏快照变化。
 - Q2（D1）：门的位置从任务书写的 `(main)/layout.tsx` 改为 Node runtime 中间件，理由与夹具实测见 Context 与 D1。
 - Q3（D4）：对象详情页的放行面宽于列表页，以免销售、运营、招投标被自己的站内链接和通知弹回。任务书验收里 Lynn 的 `/blinds-orders`、`/projects` 302 指的是列表页，仍然成立。
-- Q4（D12）：路由门在梦馨（旧模式）同样生效。直接后果：旧模式平台角色 `trade` / `user` 不再能进营销工作区（改动前中间件只拦 `sales`），proposal 已标为 BREAKING。
+- Q4（D12）：路由门对所有企业生效，包括梦馨（它是岗位模式，不是旧模式）。直接后果：梦馨只持 `trade_rep` 的外贸业务员、无行业包企业的 `trade` / `user`，都不再能进营销工作区（改动前只拦销售），proposal 已标为 BREAKING；Cathy 不受影响。
 - Q5（验收数据）：`config/positions/sunny.json` 里 Miki 绑定的是 `owner` + `pricing_lead` + `accounting`（Bob、Bill 也都带 `owner`）。任务书验收按「Miki = `accounting` + `pricing_lead`」写了「`/bids` 302」，按这份绑定 Miki 是管理层，`/bids` 放行。路由门只按键判定，验收应以绑定文件为准，或先改绑定。本 change 的测试按岗位组合写，不按人名。
 - Q6（D5）：白名单比任务书宽：任务书只列 `/settings/account`、`/settings/appearance`、`/settings/notifications`、`/notifications`、`/help`、`/select-org`，本 change 还放行 `/`、`/tasks/**`、`/settings` 索引与两个微信页（理由见 D5）。另外 `/select-org` 不在 `(main)` 下，归门外清单。
 - Q7（D7）：任务书 Impact 说「四份侧栏快照不应变化（除判断点 5 移除两项）」，但判断点 3 本身就要求会计不再进 `/bids`，所以 accounting 与三个出单岗位的快照会变（少招投标与项目 / 情报 / 供应商组）。

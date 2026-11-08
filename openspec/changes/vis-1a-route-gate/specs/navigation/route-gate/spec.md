@@ -11,7 +11,7 @@
 
 #### Scenario: 侧栏可见等价于路由放行
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
-- **THEN** 测试覆盖以下身份：`sales_rep`、`installer`、`accounting`、`accounting` + `pricing_lead`、`owner`、`pricing_lead`、`bids`、`ops_lead`、`ops_staff`、`fulfillment_vinyl`、无岗位、平台 super_admin，以及旧模式抽样（`trade` / `sales` / `boss` / `operations`）。对每种身份、每个对应侧栏入口的路由，「该入口在侧栏可见」与「该路由放行」的结果相同，测试通过
+- **THEN** 测试覆盖以下身份（平台 super_admin 另见「平台 super_admin 不受路由门限制」）：`sales_rep`、`installer`、`accounting`、`accounting` + `pricing_lead`、`owner`、`pricing_lead`、`bids`、`ops_lead`、`ops_staff`、`fulfillment_vinyl`、无岗位，梦馨 `trade_rep`、梦馨 `owner` + `trade_rep`，以及无行业包企业抽样（`trade` / `sales` / `boss` / `operations`）。对每种身份、每个对应侧栏入口的路由，「该入口在侧栏可见」与「该路由放行」的结果相同，测试通过
 
 #### Scenario: 子入口要求父入口可见
 - **WHEN** 岗位模式下只持 `bids` 岗位的成员请求 `/capabilities/catalog`
@@ -47,6 +47,20 @@
 #### Scenario: 落地页必放行且无环
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
 - **THEN** 对测试里的每一种身份，重定向目标都是放行的路径；从任一已登记路径出发，一次重定向就停在放行页面，测试通过
+
+### Requirement: 平台 super_admin 不受路由门限制
+平台 super_admin 的页面请求 SHALL 一律放行，与改动前一致，包括他不是当前企业 active 成员的情况。各页面既有的平台管理员门与 Autopilot 门照旧生效。侧栏等价断言对 super_admin 不适用。
+
+#### Scenario: 平台管理员照旧
+- **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，以平台 super_admin 身份请求每一条已登记路径，包括当前企业里他不是成员、模块未开的路径
+- **THEN** 全部放行，测试通过
+
+### Requirement: 会话用户失效时回登录页
+会话有效、但对应用户不存在或状态不是 active 时，页面请求 SHALL 302 到 `/login`，SHALL NOT 进入路由门判定或落 `/tasks`。
+
+#### Scenario: 停用账号
+- **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，以返回"用户已停用"的输入加载器请求 `/sales/home`
+- **THEN** 响应为 302，`Location` 为 `/login`，测试通过
 
 ### Requirement: 判定输入取不到时一律拒绝
 需要判定的页面请求如果取不到判定输入（例如数据库不可用），系统 SHALL 302 到 `/tasks`，SHALL NOT 放行被请求页面，并 SHALL 记一条服务端日志。
@@ -109,7 +123,9 @@
 - `/operations/tender-profile` 随"招投标中心"；
 - `/inbox` 随"数字员工"；
 - `/sales/calendar` 在"日历"可见者之外，SHALL 还对持 `install.task.update` 的安装工放行；
-- `/sales/website-bookings` SHALL 对持 `sales.customer.create` 或 `sales.customer.read` 的成员与管理层放行。
+- `/sales/website-bookings` SHALL 对持 `sales.customer.create` 或 `sales.customer.read` 的成员与管理层放行；
+- `/settings/email` SHALL 对持销售工作键、`project.create` / `project.update`、`trade.read` / `trade.manage` 的成员与管理层放行；
+- `/organizations`（列表页本身）SHALL 在侧栏"成员与组织"可见时放行，用户在当前企业没有 active 成员身份时也放行（便于从"前往组织"进入）。
 
 #### Scenario: 随入口规则
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
@@ -122,6 +138,10 @@
 #### Scenario: 会计看网站预约
 - **WHEN** 只持 `accounting` 岗位的成员打开 `/sales/website-bookings`
 - **THEN** 页面正常打开（`calendar/website-booking-intake`「页面与入口」不变）
+
+#### Scenario: 梦馨外贸绑定邮箱
+- **WHEN** 梦馨只持 `trade_rep` 岗位的成员打开 `/settings/email`
+- **THEN** 页面正常打开；只持 `installer` 岗位的成员请求同一路径返回 302 到 `/install`
 
 ### Requirement: 对象详情页按被链接的人放行
 对象详情页 SHALL 按"谁会经站内链接或通知被带过去"放行，不随列表页收紧：
@@ -153,7 +173,7 @@
 - **THEN** 页面正常打开；同一成员请求 `/capabilities` 返回 302 到 `/bids`
 
 #### Scenario: 外贸把报价转成销售客户
-- **WHEN** 旧模式企业里平台角色为 `trade` 的成员打开 `/sales/customers/<id>`
+- **WHEN** 无行业包企业里平台角色为 `trade` 的成员、或梦馨只持 `trade_rep` 岗位的成员打开 `/sales/customers/<id>`
 - **THEN** 页面正常打开
 
 ### Requirement: 未登记的路径一律拒绝
@@ -164,27 +184,31 @@
 - **THEN** 返回 302 到该身份的落地页，测试通过
 
 ### Requirement: 每个页面都已登记
-已登录区的每一个页面 SHALL 有登记的可见规则；已登录区以外的页面（登录、注册、选企业、大屏、客户报价、客户分享页）SHALL 在免登录清单或门外清单里。新增页面未登记时，测试 SHALL 失败。
+已登录区的每一个页面 SHALL 有登记的可见规则，且「页面 → 规则」的对应 SHALL 在测试快照里逐条列出。新增页面不在快照里时，测试 SHALL 失败，即使它落在已有前缀之下、能继承一条规则。已登录区以外的页面（登录、注册、选企业、大屏、客户报价、客户分享页）SHALL 在免登录清单或门外清单里。
 
 #### Scenario: 源码断言
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
-- **THEN** 163 个已登录区页面全部有登记，6 个已登录区以外的页面全部在免登录或门外清单里，测试通过
+- **THEN** 快照里 163 个已登录区页面与实际页面一一对应，每个都映射到其规则；6 个已登录区以外的页面全部在免登录或门外清单里，测试通过
 
 #### Scenario: 新页面漏登记
-- **WHEN** 在已登录区新增一个页面而不登记，再运行同一测试
+- **WHEN** 在已登录区新增一个页面（例如 `/projects/<id>/new-tab`，落在已有前缀之下）而不更新快照，再运行同一测试
 - **THEN** 测试失败，并打印该页面路径
 
 ### Requirement: 不经路由门的请求
 以下请求 SHALL NOT 经路由门判定，行为与改动前一致：
 - `/api/**`；
 - 免登录路径；
-- 末段带文件扩展名的请求，即 `public/` 静态文件，如 `/sw.js`、`/manifest.json`、`/sunny-quote.html`；
+- `public/` 静态文件：末段带文件扩展名、且第一段不是已登录区一级路径的请求，如 `/sw.js`、`/manifest.json`、`/sunny-quote.html`、`/brands/x.png`；
 - `/login`、`/register`、`/select-org`；
 - 错误上报隧道 `/monitoring`。
 
 #### Scenario: 请求分类
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
 - **THEN** 上列请求全部判为不经路由门、不取判定输入；登录即可的路由放行且不取判定输入，测试通过
+
+#### Scenario: 带扩展名的已登录区路径照样判定
+- **WHEN** 只持 `sales_rep` 岗位的成员请求 `/trade/prospects/x.json` 或 `/projects/a.png`
+- **THEN** 按页面判定，返回 302 到 `/sales/home`；未登录时与其他页面一样跳 `/login`（`route-gate.test.ts` 覆盖分类）
 
 #### Scenario: 静态文件不被重定向
 - **WHEN** 只持 `installer` 岗位的成员请求 `/sunny-quote.html` 或 `/sw.js`
@@ -202,16 +226,26 @@
 - **THEN** 返回 302 到其新的落地页
 
 ### Requirement: 两种模式都生效
-路由门 SHALL 同时作用于岗位模式企业与旧模式企业。旧模式下的判定 SHALL 与该企业旧模式侧栏一致（平台角色规则），不另立旧模式的放行或拦截口径。
+路由门 SHALL 同时作用于两类企业，均不另立放行或拦截口径：
+- 岗位模式企业：Sunny（窗饰）与梦馨（家纺外贸，`home_textile_trade_v1`）都属此类；
+- 旧模式企业：没有行业包的企业，判定与其旧模式侧栏（平台角色规则）一致。
 
 #### Scenario: 旧模式抽样
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
-- **THEN** 旧模式 `trade` / `sales` / `boss` / `operations` 四个抽样的放行结果都与其旧模式侧栏一致，测试通过
+- **THEN** 无行业包企业的 `trade` / `sales` / `boss` / `operations` 四个抽样，放行结果都与其旧模式侧栏一致，测试通过
+
+#### Scenario: 梦馨老板照常
+- **WHEN** 梦馨持 `owner` + `trade_rep` 岗位的成员（Cathy）请求 `/trade/prospects/<id>`、`/revenue`、`/product-content`、`/operations/growth`、`/settings/email`
+- **THEN** 全部放行
+
+#### Scenario: 梦馨外贸业务员进营销工作区
+- **WHEN** 梦馨只持 `trade_rep` 岗位的成员请求 `/operations/growth`
+- **THEN** 返回 302，`Location` 为 `/tasks`（梦馨外贸业务员进入首页后的既有落地）
 
 #### Scenario: 旧模式销售与外贸进营销工作区
-- **WHEN** 旧模式企业里平台角色为 `sales` 或 `trade` 的成员请求 `/operations/growth`
+- **WHEN** 无行业包企业里平台角色为 `sales` 或 `trade` 的成员请求 `/operations/growth`
 - **THEN** 返回 302 到各自落地页：销售为 `/sales/home`；外贸为 `/tasks`，即旧模式外贸进入首页后的既有落地
 
 #### Scenario: 旧模式外贸进营收中心
-- **WHEN** 旧模式企业（启用 `trade`）里平台角色为 `trade` 的成员请求 `/revenue`
+- **WHEN** 无行业包企业（启用 `trade`）里平台角色为 `trade` 的成员请求 `/revenue`
 - **THEN** 页面正常打开

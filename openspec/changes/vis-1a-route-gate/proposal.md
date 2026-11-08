@@ -10,14 +10,19 @@ TASKFLOW：VIS-1a（新增 Phase V「可见性收口」；任务书 `docs/QINGYA
 
 - 新增服务端路由门：每个已登录的 `(main)` 页面请求（硬加载、站内软导航、预取）在渲染前判定，规则与侧栏的 `isNavItemVisible` 相同（含父入口），输入与侧栏同一份。
 - 让不放行的请求 302 到该用户进入首页后最终停留的页面：管理层为 `/`，其余按首页落地规则，没有则 `/tasks`；页面不渲染，`Location` 不带原查询串，不加说明判定原因的响应头。
-- 让判定输入取不到的请求（如数据库不可用）302 到 `/tasks`，不放行。
+- 让判定输入取不到的请求（如数据库不可用）302 到 `/tasks`，不放行；会话有效但用户已停用或不存在的请求 302 到 `/login`。
+- 让平台 super_admin 的页面请求一律放行，与改动前一致（任务书「Lucas 一切照旧」）；页面既有的平台管理员门与 Autopilot 门不变。
 - 新增「路由 → 可见规则」登记表（代码常量，零 schema），覆盖 `(main)` 全部 163 个页面；门表之外的 `(main)` 路径一律拒绝（fail-closed）。
 - 新增「登录即可」白名单：`/`、`/tasks/**`、`/notifications`、`/help`、`/settings`（索引）、`/settings/account`、`/settings/appearance`、`/settings/notifications`、`/settings/wechat`、`/wechat`。
-- 跳过不需要判定的请求：`/api/**`、免登录路径、末段带扩展名的静态文件、`/login`、`/register`、`/select-org`、`/monitoring`。
-- 新增源码断言测试：每个 `src/app/(main)/**/page.tsx` 都必须有登记，`(main)` 以外的 6 个页面必须在免登录或门外清单里，否则测试失败。
+- 跳过不需要判定的请求：`/api/**`、免登录路径、`public/` 静态文件、`/login`、`/register`、`/select-org`、`/monitoring`。静态文件的判法是：末段带扩展名，且第一段不是已登录区一级路径。
+- 修正中间件 `matcher`：不再按图片扩展名整体排除，`/projects/a.png` 这类路径也要登录并经门。
+- 提升 `public/sw.js` 的缓存版本，清掉门上线前离线缓存下的业务页。
+- 新增源码断言测试：`src/app/(main)/**/page.tsx` 与「页面 → 规则」快照必须逐条一致，新页面即使落在已有前缀下也要显式登记；`(main)` 以外的 6 个页面必须在免登录或门外清单里，否则测试失败。
 - 把 `src/middleware.ts` 切到 Node.js runtime 来承载路由门。理由与夹具实测见 design D1：layout 在软导航时不重渲染，`loading.tsx` 之下的门会先吐骨架。
 - 收紧营销工作区（`/marketing/**`、`/operations/growth/**`），改按侧栏「品牌增长」口径判定。岗位模式下只放行运营键持有者与管理层，安装工、会计、出单、无岗位成员被拦，销售落 `/sales/home`（原来是 `/sales`）。**BREAKING**
-- 收紧旧模式（梦馨）营销工作区：平台角色 `trade` / `user` 不再能进（改动前中间件只拦 `sales`），与其旧模式侧栏一致。**BREAKING**
+- 收紧外贸角色的营销工作区（改动前只拦销售），与各自侧栏一致；梦馨老板 Cathy（`owner` + `trade_rep`）不受影响。**BREAKING**
+  - 梦馨（岗位模式）只持 `trade_rep` 的外贸业务员不再能进；
+  - 无行业包企业的平台角色 `trade` / `user` 不再能进。
 - 删除被路由门取代的营销页面门：`src/lib/marketing/workspace-gate.ts`、两处 layout、中间件的营销页面分支。中间件对 `/api/marketing/**` 的旧模式拦截保留。
 - 修正 `/sales/analytics`：改按 `sales.analytics.read` 判定（老板、合价、会计、销售模板都持此键），删除页面里只认平台 super_admin 的「无权限访问」块。
 - 修正营收中心：`/revenue` 导航项与 `NAV_HREF_MODULES["/revenue"]` 只认 `trade` 模块，不再因 `sales` 模块出现。Sunny 未开外贸，老板敲 `/revenue/**`、`/trade/**` 会被 302 到 `/`；老板模板的外贸三键不动（判断点 4）。**BREAKING**
@@ -33,16 +38,24 @@ TASKFLOW：VIS-1a（新增 Phase V「可见性收口」；任务书 `docs/QINGYA
   - `/capabilities/approvals/**`：全部企业成员。
   
   来源清单见 design D4。
-- 保留两项既有承诺：安装工仍能进 `/sales/calendar`（`installation/install-tasks`），有查看权的会计仍能进 `/sales/website-bookings`（`calendar/website-booking-intake`）。
+- 保留既有承诺与入口：
+  - 安装工仍能进 `/sales/calendar`（`installation/install-tasks`）；
+  - 有查看权的会计仍能进 `/sales/website-bookings`（`calendar/website-booking-intake`）；
+  - 外贸与招投标仍能进 `/settings/email`；
+  - 没有企业成员身份的用户仍能进 `/organizations`。
 - 去掉 `bids` / `ops/**` / `accounting` / `install/**` 页面里重复的工作区重定向，改由路由门承担；判定函数保留，侧栏与底栏仍在用。
 - 新增表驱动测试，并注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`：
-  - 覆盖 12 种岗位模式身份与 4 个旧模式抽样 × 全部登记路由，断言放行结果与 302 目标；
+  - 覆盖 Sunny 11 种与梦馨 2 种岗位身份、4 个无行业包企业抽样 × 全部登记路由，断言放行结果与 302 目标；
   - 断言「侧栏可见 ⇔ 路由放行」、落地页必放行、一跳即停。
 
 ## Capabilities
 
 ### New Capabilities
-- `navigation/route-gate`：已登录页面请求的服务端可见性门。包括判定口径（与侧栏同源）、302 目标与防环、取不到输入时拒绝、不泄露、登录即可白名单、无侧栏入口与对象详情页的放行规则、fail-closed、全页登记断言、不经门的请求、判定时效、两种模式。
+- `navigation/route-gate`：已登录页面请求的服务端可见性门。包括：
+  - 判定口径（与侧栏同源）、两种模式、判定时效；
+  - 302 目标与防环、取不到输入时拒绝、停用用户回登录、不泄露；
+  - super_admin 放行、登录即可白名单、无侧栏入口与对象详情页的放行规则；
+  - fail-closed、全页登记快照、不经门的请求。
 
 ### Modified Capabilities
 - `navigation/position-based-visibility`：
@@ -69,7 +82,8 @@ TASKFLOW：VIS-1a（新增 Phase V「可见性收口」；任务书 `docs/QINGYA
   - `src/app/api/auth/active-org/route.ts`。
   - `src/lib/marketing/route-access.ts`。
   - 页面：`src/app/(main)/sales/analytics/page.tsx`、`bids/page.tsx`、`accounting/page.tsx`、`ops/**/page.tsx`、`install/**/page.tsx`。
-  - 测试：`position-nav.test.ts`、`workspace-policy.test.ts`、`residual-reads.test.ts`、`route-access.test.ts`。
+  - 静态资源：`public/sw.js`（`VERSION`）。
+  - 测试：`position-nav.test.ts`、`workspace-policy.test.ts`、`residual-reads.test.ts`、`route-access.test.ts`；`scripts/public-route-auth-contracts.test.ts` 与 `notification-href.test.ts` 读或调用中间件，须仍通过。
   - 测试注册：`scripts/test-all.sh`、`scripts/test-ci-unit.sh`；`ci/test-registry-baseline.txt` 删掉 `route-access.test.ts` 一行，改为正式注册。
 - 删除：`src/lib/marketing/workspace-gate.ts`、`src/app/(main)/marketing/layout.tsx`、`src/app/(main)/operations/growth/layout.tsx`。
 - 运行时：中间件从 Edge 改为 Node.js runtime。需判定的页面请求（含预取）多一次权限解析，企业侧字段在进程内缓存 30 秒（design D3）。

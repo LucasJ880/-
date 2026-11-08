@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-08（VIS-1a 四件套已产出，`openspec validate --strict` 通过，经两轮独立审查修订；**待审核，未 apply**） |
+| 最后更新 | 2026-11-08（VIS-1a 四件套已产出并经三轮核对，见 §5；`openspec validate --strict` 通过；**待审核，未 apply**） |
 | 任务书 | `docs/QINGYAN_VIS-1_VISIBILITY_TASKBRIEF.md`（判断点 1–7 已拍板，见「拍板结果 · VIS-1」） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase V（VIS-1a～1e 五行，状态全 `[ ]`） |
 | 进行中的 change | `openspec/changes/vis-1a-route-gate/`（proposal / specs / design / tasks；tasks 7 条，全部未勾） |
@@ -17,12 +17,12 @@
 
 ## 0. 下一步
 
-1. **审核 VIS-1a 四件套**（Claude chat / Lucas）。重点看 design 末节「审核关注点」Q1–Q5，这五处偏离或补充了任务书（Q5 见下面第 3 步）：
+1. **审核 VIS-1a 四件套**（Claude chat / Lucas）。重点看 design 末节「审核关注点」Q1–Q9，这些地方偏离或补充了任务书。最要紧的四条如下，Q5 见下面第 3 步：
    - **Q1**：收件箱（`/service-inbox`）与知识库（`/knowledge`）对安装工等岗位是否隐藏、用哪组键。任务书验收要安装工 302，但这两项当前对所有非纯销售岗位都在侧栏里，任务书没给岗位键。默认：1a 照侧栏现状不动。
    - **Q2**：门的位置从任务书写的 `(main)/layout.tsx` 改为 Node runtime 中间件。夹具实测见 §2。
    - **Q3**：对象详情页（`/blinds-orders/[id]`、`/projects/[id]`、`/sales/customers/[id]`、`/capabilities/approvals/**`）的放行面宽于列表页，避免销售、运营、招投标被自己的站内链接或通知弹回。
-   - **Q4**：路由门对梦馨（旧模式）同样生效。
-2. 审核通过后：`/opsx:apply vis-1a-route-gate`。按 tasks.md 顺序做，开工先跑 8 个受影响测试记基线（§3）。
+   - **Q4**：路由门对所有企业生效。**梦馨是岗位模式，不是旧模式**（`hasPositionTemplates("home_textile_trade_v1") === true`，见 `docs/QINGYAN_PERM-6b_REPORT.md`）。后果：梦馨只持 `trade_rep` 的外贸业务员失去营销工作区，Cathy（`owner` + `trade_rep`）不受影响。
+2. 审核通过后：`/opsx:apply vis-1a-route-gate`。按 tasks.md 顺序做，开工先跑 10 个受影响测试记基线（§3）。
 3. 合并前置（Lucas）：`config/positions/sunny.json` 的 9 个 `TODO:<姓名>` 占位填成真实邮箱并跑岗位绑定（第 5 行的 `TODO:` 是说明文字，不算）。
    - 同一文件显示 Bob = `owner` + `fulfillment_drapery`，Bill = `owner` + `bids` + `fulfillment_vinyl`，**Miki = `owner` + `pricing_lead` + `accounting`**。
    - 任务书验收把 Miki 当作只持 `accounting` + `pricing_lead`，写了「`/bids` 302」「审批中心不见 `tender.*`」；按这份绑定，Miki 是管理层，`/bids` 会放行。
@@ -51,6 +51,11 @@
   - 任务通知会落到 `/tasks?open=`。
 - 通知跳转只走 `src/lib/notifications/href.ts` 的 `notificationHref()`；Notification 上存的 `metadata.href` 无人读取。
 - `src/lib/permissions-client.ts` 的 `canAccessModule`（一张旧的路由 → 平台角色表）无任何调用方。
+- **梦馨（`home_textile_trade_v1`）是岗位模式**；真正走旧模式（平台角色规则）的只有无行业包的企业。梦馨 `owner` 模板含 `organization.dashboard.read`、`operations.read`、三个外贸键；`trade_rep`（系统模板）只有 `trade.read`、`trade.manage`，进入首页后落 `/tasks`。梦馨模块是 `DEFAULT_MENGXIN_MODULES`（无 `bids`、`window_covering`）。
+- `resolvePreferredOrgId` 很重：会列出全部成员关系并计数，对 super_admin 一次载入最多 200 家企业，还可能写回 `activeOrgId`，不能放进中间件每个请求跑。轻量读法见 `/api/auth/me`：`activeOrgId`，为空时取唯一成员关系。
+- 中间件 `matcher` 现在按图片扩展名整体排除，`/projects/a.png` 这类路径连登录检查都跳过（既有问题，1a 一并修）。
+- `public/sw.js` 对页面导航离线时回落缓存（`VERSION = "qingyan-v3"`）。
+- `scripts/public-route-auth-contracts.test.ts` 直接 import 并调用 `middleware`；`notification-href.test.ts` 读中间件源码，断言登录回跳。
 - 仓库无 `"use server"`（无 server actions），无 `prefetch={true}`，无 `staleTimes` 设置；`public/` 下文件全部带扩展名。
 
 ## 2. 夹具实测（Q2 的依据，可复现）
@@ -77,6 +82,10 @@
 | `src/lib/marketing/__tests__/route-access.test.ts` | 3 |
 | `src/lib/operations/__tests__/ops-access.test.ts` | 21 |
 | `src/lib/navigation/__tests__/wechat-entry-nav.test.ts` | 19 |
+| `scripts/public-route-auth-contracts.test.ts` | 164 |
+| `src/lib/notifications/__tests__/notification-href.test.ts` | 91 |
+
+`openspec validate --specs --strict` 在 main 上已有 4 个失败（`accounting/workspace`、`authorization/position-catalog`、`inventory/fabric-stock-access`、`sunny/process-order-autogen`），非本线引入。在 scratchpad 拷贝里对本 change 做 archive 演练：合并后新增 / 修改的 4 份规格全部通过，失败数仍是这 4 个。
 
 ## 4. 留给 VIS-1b～1e 的已知输入
 
@@ -89,3 +98,14 @@
   - 系统 `sales_rep` 模板持 `sales.analytics.read`，Lynn 能进 `/sales/analytics`（本人范围数据）；如不希望，属岗位模板问题（PERM 线），不是门的问题。
 - 1d：审批中心 `/capabilities/approvals/**` 在 1a 对全部企业成员放行（列表本就按本人提交 / 被指派过滤），可见集合由 1d 收口。
 - 1e：预览 cookie 要接到 `src/lib/navigation/context-server.ts`（1a 新增的共享判定输入），中间件与侧栏就会一起变。
+
+## 5. 核对记录（2026-11-08）
+
+| 轮次 | 做法 | 结果 |
+|---|---|---|
+| 1 | 规划期探针：用真实注册表与 `isNavItemVisible` 模拟门表，覆盖 Sunny 各岗位、梦馨两种身份与无行业包抽样，算出放行 / 302 矩阵 | 163 页全覆盖；落地页全部放行、无环；spec 每条可算的场景与矩阵一致 |
+| 2a | 独立审查（规则 / 一致性），1 blocker、8 major、11 minor | 全部改掉，主要有：302 目标改为首页最终落地；补取输入失败、查询串、`/monitoring`；安装工日历；网站预约；项目成员；项目平台管理员子页；底栏招投标与营收规格声明；每条要求都有测试场景；Q6–Q9 |
+| 2b | 独立审查（代码事实 / 技术），5 major、6 minor | 全部改掉，主要有：梦馨是岗位模式；中间件不调 `resolvePreferredOrgId`；页面 → 规则快照；super_admin 不受门限制；停用用户回 `/login`；静态文件判法收窄并改 `matcher`；SW 版本；补两份读中间件的既有测试 |
+| 3 | `openspec validate --strict`；scratchpad 拷贝里 archive 演练（RENAMED + MODIFIED 合并正常）；探针复算新规则；再起一次只查「修订引入的问题」的独立核对 | 见提交记录与本节后续更新 |
+
+夹具与探针脚本都在会话 scratchpad，不进仓库。复现方法见 §2；探针逻辑就是 tasks 2.1 要写进 `route-gate.test.ts` 的内容。
