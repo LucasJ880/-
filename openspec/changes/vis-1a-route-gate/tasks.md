@@ -54,7 +54,7 @@
 ## 7. 收尾
 
 - [ ] 7.1 写 `docs/QINGYAN_VIS-1a_REPORT.md` 并更新 TASKFLOW：
-  - 报告内容：基线与改动后测试数、受影响岗位的放行 / 302 表、侧栏快照差异、构建输出、design「审核关注点」Q1–Q4 的拍板结果、已知仍会弹回的站内链接、合并后生产核对清单。
+  - 报告内容：基线与改动后测试数、受影响岗位的放行 / 302 表、侧栏快照差异、构建输出、design「审核关注点」Q1–Q5 的拍板结果、已知仍会弹回的站内链接、合并后生产核对清单。
   - TASKFLOW：`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase V 的 VIS-1a 状态列改为 `[G]（change vis-1a-route-gate；待合并）`。
   - verify：报告文件存在；`git diff docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 只改 VIS-1a 一行。
 

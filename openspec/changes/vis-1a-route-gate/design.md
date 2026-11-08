@@ -284,3 +284,4 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 - Q2（D1）：门的位置从任务书写的 `(main)/layout.tsx` 改为 Node runtime 中间件，理由与夹具实测见 Context 与 D1。
 - Q3（D4）：对象详情页的放行面宽于列表页，以免销售、运营、招投标被自己的站内链接和通知弹回。任务书验收里 Lynn 的 `/blinds-orders`、`/projects` 302 指的是列表页，仍然成立。
 - Q4（D12）：路由门在梦馨（旧模式）同样生效。
+- Q5（验收数据）：`config/positions/sunny.json` 里 Miki 绑定的是 `owner` + `pricing_lead` + `accounting`（Bob、Bill 也都带 `owner`）。任务书验收按「Miki = `accounting` + `pricing_lead`」写了「`/bids` 302」，按这份绑定 Miki 是管理层，`/bids` 放行。路由门只按键判定，验收应以绑定文件为准，或先改绑定。本 change 的测试按岗位组合写，不按人名。
