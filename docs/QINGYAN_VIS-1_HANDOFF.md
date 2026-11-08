@@ -4,18 +4,23 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-08（VIS-1a 已 apply：tasks 7/7，报告 `docs/QINGYAN_VIS-1a_REPORT.md`；Q1–Q10 Lucas 拍板「按推荐的走」；**待开 PR / 合并**） |
+| 最后更新 | 2026-11-08（VIS-1a 已合并 #393（CI 全绿）并归档为 `openspec/changes/archive/2026-11-08-vis-1a-route-gate`；规格 `navigation/route-gate` 已入 `openspec/specs`；VIS-1b 四件套在分支 `claude/vis-1b-home-and-shell` 起草中） |
 | 任务书 | `docs/QINGYAN_VIS-1_VISIBILITY_TASKBRIEF.md`（判断点 1–7 已拍板，见「拍板结果 · VIS-1」） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase V（VIS-1a～1e 五行，状态全 `[ ]`） |
-| 进行中的 change | `openspec/changes/vis-1a-route-gate/`（tasks 7/7 已勾；TASKFLOW VIS-1a = `[G]`） |
-| 另一个未归档 change | `rfq-tracking-notify`（T-1，#391 已合并，归档小 PR 未做；不属本线，TASKFLOW 已把 T-1 从 `[G]` 修为 `[x]（#391；待 archive）`） |
+| 进行中的 change | VIS-1a 已归档；`vis-1b-home-and-shell` 起草中（分支 `claude/vis-1b-home-and-shell`，基于 #393 合并后的代码） |
+| 另一个未归档 change | `rfq-tracking-notify`（T-1）：归档 PR LucasJ880/-#394 已开、已与 main 合并解冲突，待合并 |
 | 工作分支 | `claude/vis-1-taskflow-proposal-918h26` |
 | OpenSpec CLI | 未装进依赖：`npm i -g @fission-ai/openspec@1.15.0`（或 `npx -y @fission-ai/openspec@1.15.0 <cmd>`），命令前加 `OPENSPEC_TELEMETRY=0` |
 | 运行环境 | 云容器默认 Node 22（`.nvmrc` 要求 24）。仓库不带 `node_modules`：`npm ci --ignore-scripts` 后**必须** `npx prisma generate`，否则 `residual-reads` / `ops-access` 等测试报 `Cannot find module '.prisma/client/default'`。本地 `.env` 直连生产库，不在本地起应用 |
 
 ---
 
-## 0. 下一步（2026-11-08 apply 完成后）
+## 0. 下一步（2026-11-08，#393 合并后）
+
+- VIS-1a：已合并（#393）并归档（本归档 PR）。生产核对按 `docs/QINGYAN_VIS-1a_REPORT.md` §9（Lucas）；`config/positions/sunny.json` 的 9 个邮箱占位仍待填实并跑绑定。
+- VIS-1b：四件套起草中，分支 `claude/vis-1b-home-and-shell`，审核通过前不 apply。
+
+### 0a. apply 完成时的下一步（留档）
 
 1. 开 PR（一个 change = 一个 PR）；Vercel Preview 部署必须成功（中间件改为 Node runtime，打进了 Prisma）。在 Preview 上按报告 §9 第 7 条看一次预取请求路径。
 2. 合并前：Lucas 把 `config/positions/sunny.json` 的 9 个 `TODO:<姓名>` 填实并跑岗位绑定。

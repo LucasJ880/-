@@ -27,12 +27,32 @@
 - **WHEN** 只持 `ops_staff` 岗位的 Maggie 读取增长中心品牌事实
 - **THEN** 响应 `permissions.canEdit` 为 false
 
-### Requirement: 岗位模式下销售不能读增长中心
-在岗位模式企业中，岗位派生平台角色为 `sales` 的人 SHALL NOT 访问营销工作区页面（`/marketing/**`、`/operations/growth/**`，重定向到 `/sales`），且增长中心只读接口（`/api/marketing/**` 的 GET）SHALL 返回 403。这等同于旧模式中间件对平台角色 `sales` 的拦截。旧模式企业 SHALL 继续由中间件按平台角色拦截。
+### Requirement: 营销工作区页面与只读接口的门槛
+营销工作区页面（`/marketing/**`、`/operations/growth/**`）SHALL 由路由门判定（见 `navigation/route-gate`），口径与侧栏"品牌增长"入口相同：
+- 岗位模式（Sunny、梦馨）下，只对持 `operations.read` 或 `operations.manage` 的成员放行（两家的老板模板都含 `operations.read`）；
+- 无行业包企业（旧模式）下，只对平台角色 super_admin / `boss` / `manager` / `operations` 放行，`sales` / `trade` / `user` 不放行。
+
+不放行者 SHALL 被 302 到其落地页（销售为 `/sales/home`）。增长中心只读接口（`/api/marketing/**` 的 GET）SHALL 与改动前一致：岗位模式企业对岗位派生平台角色为 `sales` 的人返回 403；旧模式企业继续由中间件按平台角色 `sales` 拦截。
 
 #### Scenario: 压扁后的销售打开增长中心
 - **WHEN** 岗位模式企业中平台角色为 `user`、绑定 `sales_rep` 的成员打开 `/operations/growth`
-- **THEN** 被重定向到 `/sales`
+- **THEN** 返回 302，`Location` 为 `/sales/home`（`npx tsx src/lib/navigation/__tests__/route-gate.test.ts` 覆盖）
+
+#### Scenario: 安装工打开营销员工页
+- **WHEN** 岗位模式企业中只绑定 `installer` 的成员打开 `/marketing/employee`
+- **THEN** 返回 302，`Location` 为 `/install`
+
+#### Scenario: 会计打开增长中心
+- **WHEN** 岗位模式企业中只绑定 `accounting` 的成员打开 `/operations/growth/campaigns`
+- **THEN** 返回 302，`Location` 为 `/accounting`
+
+#### Scenario: 运营与老板照常进入
+- **WHEN** 岗位模式企业中绑定 `ops_staff` 或 `owner` 的成员打开 `/operations/growth`
+- **THEN** 页面正常打开
+
+#### Scenario: 外贸不再进营销工作区
+- **WHEN** 梦馨只持 `trade_rep` 岗位的成员、或无行业包企业平台角色为 `trade` 的成员打开 `/marketing/employee`
+- **THEN** 返回 302 到其落地页。改动前中间件与页面门只拦销售，外贸可进
 
 #### Scenario: 压扁后的销售读营销数据
 - **WHEN** 岗位模式企业中平台角色为 `user`、绑定 `sales_rep` 的成员请求 `/api/marketing/dashboard`
