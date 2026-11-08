@@ -39,6 +39,16 @@ ok(pkg.includes("--max-old-space-size=$(node scripts/build-heap-mb.mjs)"), "BP-7
     "BP-7f: 构建先单独跑类型检查再编译（Next 内置检查已关，见 next.config 注释）",
   );
   ok(/ignoreBuildErrors:\s*true/.test(cfg), "BP-7g: Next 内置类型检查关闭——前提是 BP-7f 成立");
+  const typecheck = (JSON.parse(pkg) as { scripts: Record<string, string> }).scripts.typecheck;
+  ok(
+    typecheck.includes("--max-old-space-size=$(node scripts/build-heap-mb.mjs)") && typecheck.includes("tsc --noEmit"),
+    "BP-7h: typecheck 同样按构建机内存提堆（tsc 全量检查峰值约 4.4GB，Node 默认约 2GB 堆的机器上 OOM）",
+  );
+  const testAll = code("scripts/test-all.sh");
+  ok(
+    testAll.includes('run_test "TypeScript 类型检查" "npm run typecheck"') && !/run_test[^\n]*"npx tsc --noEmit"/.test(testAll),
+    "BP-7i: npm test 的类型检查走 npm run typecheck（不绕开堆参数直接 npx tsc）",
+  );
 }
 const GIB = 1024 ** 3;
 ok(buildHeapMb(16 * GIB) === 7168 && buildHeapMb(8 * GIB) === 7168, "BP-7d: 16GB 及以下构建机保持 7168（生产 Enhanced 已验证）");

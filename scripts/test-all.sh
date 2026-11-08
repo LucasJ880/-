@@ -657,7 +657,8 @@ run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
 echo "━━━ TypeScript 编译检查 ━━━"
 echo ""
 
-run_test "TypeScript 类型检查" "npx tsc --noEmit"
+# 走 npm run typecheck（带堆参数，与 CI Typecheck 一致）；裸 npx tsc 用 Node 默认堆，全量检查约需 4.4GB，2GB 默认堆的机器上 OOM
+run_test "TypeScript 类型检查" "npm run typecheck"
 
 # ── 第三组：AI 分类测试（如果 scripts/test-work-json.py 存在） ──
 
