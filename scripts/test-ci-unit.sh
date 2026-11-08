@@ -400,6 +400,7 @@ npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
 # T-1：询价进展通知（纯逻辑 + 源码接线断言，无 DB / 无 AI）
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts
+npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

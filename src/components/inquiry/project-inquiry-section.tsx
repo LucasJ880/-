@@ -79,6 +79,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   /** T-1：地址里的 #rfq-round-<id> 只在首次加载列表时读一次；按锚点展开后，待批轮次不再抢展开 */
   const hashHandledRef = useRef(false);
   const anchoredRef = useRef(false);
+  /** 入口数据第一次加载成功时的第一张待批发送卡所在轮次（没有为 null；还没加载为 undefined） */
+  const initialPendingRef = useRef<string | null | undefined>(undefined);
   const [scrollToRound, setScrollToRound] = useState<string | null>(null);
 
   // 加载失败时保留上一次成功的入口数据（否则会退回旧界面、待批轮次重新露出「标记发送」）
@@ -89,6 +91,9 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
         return (await r.json()) as RfqEntryView;
       })
       .then((data) => {
+        if (initialPendingRef.current === undefined) {
+          initialPendingRef.current = data.available ? (data.pendingSends[0]?.inquiryId ?? null) : null;
+        }
         setEntry(data);
         setEntryError(false);
       })
@@ -143,15 +148,24 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
 
   // 有待批发送卡时默认展开那一轮（审批面板在里面）；只在「第一张待批卡」变化时跳，不打断用户手动收起
   const firstPendingInquiryId = ready?.pendingSends[0]?.inquiryId ?? null;
-  // 从链接直达时（T-1），首次看到的待批轮次不抢锚点那一轮；之后新出现的待批轮次照常展开
-  const firstPendingSeenRef = useRef(false);
+  // 从链接直达时（T-1）：首屏就有的那张待批卡不抢锚点那一轮；之后新出现的待批轮次照常展开
   useEffect(() => {
     if (!firstPendingInquiryId) return;
-    const initial = !firstPendingSeenRef.current;
-    firstPendingSeenRef.current = true;
-    if (initial && anchoredRef.current) return;
+    if (anchoredRef.current && firstPendingInquiryId === initialPendingRef.current) return;
     setExpandedId(firstPendingInquiryId);
   }, [firstPendingInquiryId]);
+
+  // 已在本页时点了同项目另一轮的通知：地址只改 hash、页面不重载 → 展开并滚到那一轮
+  useEffect(() => {
+    const onHashChange = () => {
+      const id = roundIdFromHash(window.location.hash);
+      if (!id || !rounds.some((r) => r.id === id)) return;
+      setExpandedId(id);
+      setScrollToRound(id);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [rounds]);
 
   // 从链接直达：列表渲染出该轮之后再滚过去（首屏时元素还不在，浏览器自己的锚点滚动落空）
   useEffect(() => {

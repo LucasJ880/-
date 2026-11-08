@@ -3,7 +3,7 @@
  * - 文案表每行一例；文字规则（项目名截断、名单、字段顺序）
  * - 按段脱敏：标题摘要不命中敏感判定，含金额的名字整段替换
  * - 四类去重键；同一批卡顺序不同键相同
- * - 催单待批：一轮多张卡合成一条、优先级
+ * - 催单待批：多张卡的文案与优先级（「一轮只调一次」由 tracking-notify.test.ts 执行验证）
  * - 收件人组合
  * - 缺字段标签与 Muse hooks 的表逐字相同（防漂移）
  * 运行：npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts
@@ -116,7 +116,6 @@ console.log("催单待批（催单与追问）");
   eq("多家追问：标题", multiAsk.title, `3 封催单 / 追问已起草，等你批准 · ${P}`);
   eq("多家追问：摘要", multiAsk.summary, "第 2 轮：丙厂超过 3 天没回；甲厂、乙厂报价缺信息。48 小时内不批会过期。");
 
-  ok("一轮多张卡合成一条（返回单个对象）", !Array.isArray(mixed) && mixed.type === RFQ_CHASE_READY);
   ok("本轮没有新卡 → 不发", chaseReadyNotice({ round: ROUND, days: 3, cards: [] }) === null);
 }
 

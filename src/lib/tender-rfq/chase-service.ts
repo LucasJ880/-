@@ -63,7 +63,7 @@ export type ChaseRoundDrafted = ChaseRoundContext & {
   cards: Array<{ itemId: string; supplierName: string; actionId: string; kind: ChaseKind; missingFields: InboundMissingField[] }>;
 };
 
-type LoadedItem = {
+export type LoadedItem = {
   snapshot: ChaseItemSnapshot;
   supplierEmail: string | null;
   inquiryId: string;
@@ -154,11 +154,27 @@ async function loadRfqMail(inquiryId: string): Promise<Map<string, { subject: st
 
 const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
+/** runForItems 的读写（T-1：可注入，让「一轮一条催单待批」能被执行测试锁住；默认就是原来的库调用） */
+export type ChaseRunDeps = {
+  loadOrgSettingsJson: (orgId: string) => Promise<unknown>;
+  markItemNoResponse: (scope: { projectId: string; inquiryId: string; itemId: string }) => Promise<unknown>;
+  loadRfqMail: (inquiryId: string) => Promise<Map<string, { subject: string; to: string }>>;
+  requestApproval: typeof requestApproval;
+};
+
+export const defaultChaseRunDeps: ChaseRunDeps = {
+  loadOrgSettingsJson: async (orgId) =>
+    (await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson ?? null,
+  markItemNoResponse,
+  loadRfqMail,
+  requestApproval,
+};
+
 /**
  * 按轮次分组决策 → 起草 / 标 no_response。
  * principalUserId：手动 = 发起人；扫描 = 项目 owner（催单天数也按 owner 的偏好）。
  */
-async function runForItems(
+export async function runForItems(
   orgId: string,
   items: LoadedItem[],
   now: Date,
@@ -170,18 +186,19 @@ async function runForItems(
     /** T-1：一轮起草完、本轮有新卡时调用一次 */
     onRoundDrafted?: (round: ChaseRoundDrafted) => Promise<void>;
   },
+  deps: ChaseRunDeps = defaultChaseRunDeps,
 ): Promise<ChaseRunResult> {
   const out = emptyRun();
   if (items.length === 0) return out;
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  const settings = readTenderRfqSettings(org?.settingsJson);
+  const orgSettingsJson = await deps.loadOrgSettingsJson(orgId);
+  const settings = readTenderRfqSettings(orgSettingsJson);
 
   const byRound = new Map<string, LoadedItem[]>();
   for (const it of items) byRound.set(it.inquiryId, [...(byRound.get(it.inquiryId) ?? []), it]);
 
   for (const [inquiryId, roundItems] of byRound) {
     const owner = roundItems[0].ownerId;
-    const days = resolveChaseAfterDays(readUserPrefs(org?.settingsJson, owner).chaseAfterDays, org?.settingsJson);
+    const days = resolveChaseAfterDays(readUserPrefs(orgSettingsJson, owner).chaseAfterDays, orgSettingsJson);
     const replyBy = roundItems[0].roundDueDate;
     const decision: ChaseDecision = decideChases({ now, chaseAfterDays: days, replyBy, items: roundItems.map((i) => i.snapshot) }, { manual: opts.manual });
     const nameOf = (id: string) => roundItems.find((i) => i.snapshot.itemId === id)?.snapshot.supplierName ?? "供应商";
@@ -201,7 +218,7 @@ async function runForItems(
     for (const itemId of decision.noResponse) {
       const it = roundItems.find((i) => i.snapshot.itemId === itemId)!;
       try {
-        await markItemNoResponse({ projectId: it.snapshot.projectId, inquiryId, itemId });
+        await deps.markItemNoResponse({ projectId: it.snapshot.projectId, inquiryId, itemId });
         out.noResponse.push({ itemId, supplierName: it.snapshot.supplierName });
         const twoChases = it.snapshot.chases.filter((c) => c.kind === "no_reply").length >= 2;
         await opts.onNoResponse?.(itemId, twoChases ? "two_chases" : "deadline", { ...roundCtx, supplierName: it.snapshot.supplierName });
@@ -212,7 +229,7 @@ async function runForItems(
 
     if (decision.drafts.length === 0) continue;
     const roundCards: ChaseRoundDrafted["cards"] = [];
-    const mails = await loadRfqMail(inquiryId);
+    const mails = await deps.loadRfqMail(inquiryId);
     for (const plan of decision.drafts) {
       const it = roundItems.find((i) => i.snapshot.itemId === plan.itemId)!;
       const mail = mails.get(plan.itemId);
@@ -238,7 +255,7 @@ async function runForItems(
         out.failed.push({ itemId: plan.itemId, supplierName: it.snapshot.supplierName, error: built.message });
         continue;
       }
-      const approval = await requestApproval({
+      const approval = await deps.requestApproval({
         orgId,
         principal: { userId: opts.principalUserId ?? owner, actorType: opts.manual ? "user" : "agent" },
         actionType: TENDER_SEND_CHASE_TYPE,

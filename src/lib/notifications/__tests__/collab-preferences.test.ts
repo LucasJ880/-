@@ -247,7 +247,7 @@ ok(OCT < AFTER_DEPLOY, "时间常量自检");
 console.log("设置页文案");
 const page = read("src/app/(main)/settings/notifications/page.tsx");
 ok(page.includes('label="未读提醒与每日汇总邮件"'), "邮件开关名称");
-ok(page.includes("@提及与任务指派 15 分钟未读时发一封提醒；每天早上 7 点（组织时区）发一封未读汇总。发到你的青砚账号邮箱。"), "邮件开关说明");
+ok(page.includes("@提及、任务指派与催单待批 15 分钟未读时发一封提醒；每天早上 7 点（组织时区）发一封未读汇总。发到你的青砚账号邮箱。"), "邮件开关说明");
 ok(page.includes(">站外通道</h2>") && !page.includes("站外通道（预留）"), "分组标题为「站外通道」");
 ok(page.includes("控制站内通知类型、优先级、静默时段，以及未读提醒与每日汇总邮件。推送通道已预留，后续版本接入。"), "页面说明");
 ok(!page.includes("当前未连接发信"), "不再写「当前未连接发信」");

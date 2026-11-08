@@ -25,14 +25,15 @@ TASKFLOW：T-1（新增 Phase T「询价追踪」；任务书 `docs/QINGYAN_T-1_
 ### Modified Capabilities
 - `notifications/email-reminders`：「升级邮件的发送条件」类型从两种变三种（加 `rfq_chase_ready`）；「升级邮件的主题与正文」类型名多一个「催单待批」、对象多一种询价轮次写法。
 - `notifications/click-targets`：新增「询价轮次的跳转地址」（`tender_rfq_round`）。
+- `notifications/preferences`：「设置页的邮件开关文案」的说明里加上「催单待批」（升级邮件范围变了，文案跟着变）。
 - `tender/rfq-web-entry`：新增「从链接直达询价轮次」（项目页首屏按 `#rfq-round-<id>` 展开该轮）。
 
 受影响的 Muse 意图：无。`muse-bridge/hooks.ts` 与 Muse 出站箱不改；`chase` 意图走的 `draftChasesForProject` 不发站内通知；`MUSE_BRIDGE_ENABLED` 打开时项目负责人会同时看到 Muse 事件与新的站内通知（旁路目前关闭，记入已知局限，本 change 不去重）。
 
 ## Impact
 
-- 新增：`src/lib/tender-rfq/tracking-notify-pure.ts`、`src/lib/tender-rfq/tracking-notify.ts`、`src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts`、`src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts`。
-- 修改：`src/lib/notifications/constants.ts`、`src/lib/notifications/delivery-gate.ts`、`src/lib/notifications/href.ts`、`src/lib/notifications/collab/escalation.ts`、`src/lib/tender-rfq/inbound-sync.ts`、`src/lib/tender-rfq/chase-service.ts`、`src/lib/tender-rfq/web-entry-pure.ts`（锚点解析）、`src/components/inquiry/project-inquiry-section.tsx`；测试 `inbound-apply.test.ts`、`collab-email-escalation.test.ts`、`notification-href.test.ts`、`collab-preferences.test.ts`、`web-entry-pure.test.ts`；`scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
+- 新增：`src/lib/tender-rfq/tracking-notify-pure.ts`、`src/lib/tender-rfq/tracking-notify.ts`、`src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts`、`src/lib/tender-rfq/__tests__/tracking-notify.test.ts`（注入 deps 的执行测试）、`src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts`。
+- 修改：`src/lib/notifications/constants.ts`、`src/lib/notifications/delivery-gate.ts`、`src/lib/notifications/href.ts`、`src/lib/notifications/collab/escalation.ts`、`src/lib/tender-rfq/inbound-sync.ts`、`src/lib/tender-rfq/chase-service.ts`、`src/lib/tender-rfq/web-entry-pure.ts`（锚点解析）、`src/components/inquiry/project-inquiry-section.tsx`、`src/components/header.tsx` 与 `src/components/notification/notification-list-item.tsx`（四个类型的图标）、`src/app/(main)/settings/notifications/page.tsx`（邮件开关说明）；测试 `inbound-apply.test.ts`、`collab-email-escalation.test.ts`、`notification-href.test.ts`、`collab-preferences.test.ts`、`web-entry-pure.test.ts`；`scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
 - 不动：`chase-pure.ts`（`decideChases` / `decideNoResponse`）、`chase-execute.ts`、`execute.ts`、`inbound-parse.ts`、`inbound-apply.ts`、`muse-bridge/**`、`collab/deliver.ts`、`collab/email.ts`、`collab/digest.ts`、Prisma schema、`vercel.json`。
 - 硬纪律：零 schema（类型是字符串，通知写既有 `Notification`）；通知与升级邮件只发本组织 active 成员本人青砚账号（config 第 2 条澄清），零对外发送；不新增 cron / 队列；零 LLM 调用；标题、摘要、升级邮件不出现金额。
 

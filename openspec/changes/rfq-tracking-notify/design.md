@@ -91,6 +91,7 @@
 ## 验证方式
 
 - `npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts`：spec 文案表每行一例、文字规则、按段脱敏、四类去重键（含「同一批卡顺序不同键相同」）、催单待批合并与优先级、收件人组合、两张缺字段标签表逐字相同。
+- `npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts`（注入 deps 执行）：`runForItems` 真跑 `decideChases`，一轮多张卡只调一次 `onRoundDrafted`、起草失败的卡不进通知；三个投递入口的收件人、去重与吞错（`runForItems` 的库读写为此改为可注入，默认不变）。
 - `npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts`（源码断言，同 `collab-wiring.test.ts` 写法）：`runChaseScan` 传 `onRoundDrafted` 与带通知的 `onNoResponse`，`draftChasesForProject` 都不传；默认入站 deps 有 `notifyTracking`；两条入站提醒的类别、对象与 `sourceKey` 字符串；新文件不导入 LLM 客户端、`db` 不进纯模块、`muse-bridge/hooks.ts` 未被修改的导出仍在。
 - `npx tsx src/lib/tender-rfq/__tests__/inbound-apply.test.ts`：quoted / replied 各调一次 `notifyTracking`、解析失败 / 自己发出 / 未命中线程 / `none` 不调；`notifyTracking` 抛错时结果计数、审计、游标不变。
 - `npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts`、`notification-href.test.ts`、`collab-preferences.test.ts`、`src/lib/tender-rfq/__tests__/web-entry-pure.test.ts`：各自新增用例。

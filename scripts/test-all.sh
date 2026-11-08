@@ -591,6 +591,7 @@ run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" 
 run_test "招标询价 Web 入口（入口状态/错误文案/状态行/耗时/预览白名单，W-1）" "npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts"
 run_test "招标询价 进展通知（文案/脱敏/去重/收件人，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts"
 run_test "招标询价 进展通知接线（只在定时检查发/入站挂钩/投递入口，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts"
+run_test "招标询价 进展通知执行（催单一轮一条/投递收件人与去重，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

@@ -126,7 +126,9 @@ console.log("项目页：从链接直达询价轮次");
   ok(/roundIdFromHash\(window\.location\.hash\)/.test(section), "首次加载列表时读 location.hash");
   ok(/hashHandledRef\.current = true/.test(section), "锚点只读一次");
   ok(/initialExpandedRound\(\{ hashRoundId, roundIds, currentRoundId: prev, latestRoundId \}\)/.test(section), "展开哪一轮交给 initialExpandedRound");
-  ok(/if \(initial && anchoredRef\.current\) return;/.test(section), "按锚点展开后，首次看到的待批轮次不抢展开");
+  ok(/if \(anchoredRef\.current && firstPendingInquiryId === initialPendingRef\.current\) return;/.test(section), "按锚点展开后，只有首屏就有的那张待批卡不抢展开");
+  ok(/if \(initialPendingRef\.current === undefined\) \{\s*\n\s*initialPendingRef\.current = data\.available \? \(data\.pendingSends\[0\]\?\.inquiryId \?\? null\) : null;/.test(section), "首屏待批轮次在入口数据第一次加载成功时记下（没有待批也记 null）");
+  ok(/window\.addEventListener\("hashchange", onHashChange\)/.test(section) && /window\.removeEventListener\("hashchange", onHashChange\)/.test(section), "已在本页时监听 hashchange（并在卸载时移除）");
   ok(/document\.getElementById\(`rfq-round-\$\{scrollToRound\}`\)/.test(section) && /scrollIntoView/.test(section), "列表渲染后滚到该轮");
   ok(/id=\{`rfq-round-\$\{r\.id\}`\}/.test(section), "轮次卡片的 id 与锚点一致");
 }
