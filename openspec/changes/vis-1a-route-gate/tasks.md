@@ -39,7 +39,7 @@
 
 ## 3. 共享判定输入
 
-- [ ] 3.1 新增 `src/lib/navigation/context-server.ts`：按 design D2 的字段表产出判定输入。
+- [x] 3.1 新增 `src/lib/navigation/context-server.ts`：按 design D2 的字段表产出判定输入。
   - 中间件用：当前企业 = `activeOrgId`，为空时取唯一 active 成员关系；只读、不调 `resolvePreferredOrgId`；用户状态 / 平台角色 / 当前企业 id 每次请求重新解析，企业侧字段走第 2 组的缓存，按 `(userId, orgId)` 分键。
   - active-org 用：企业仍由 `resolvePreferredOrgId` 决定，不走缓存。
   - `src/app/api/auth/active-org/route.ts` 改为用它取 modules / orgRole / workspaceIds / hasBidCapability / permissionKeys / positionMode。route-gate 测试补源码断言：active-org 响应的 JSON 键集合与改动前一致，且 active-org 从 `context-server` 取输入。verify：`npm run typecheck` 通过；route-gate 测试全过。

@@ -571,6 +571,20 @@ async function http() {
   ok(publicFiles.length > 0 && publicFiles.every((f) => /\.[A-Za-z0-9]+$/.test(f)), "public/ 下文件都带扩展名");
   ok(readdirSync(join(root, "public")).every((n) => !GATED_TOP_SEGMENTS.has(n)), "public/ 一级名不与已登录区一级路径重名");
   ok(existsSync(join(root, "src/app/(main)")) && GATED_TOP_SEGMENTS.size > 25, "门表一级路径集合已生成");
+
+  // /api/auth/active-org：判定输入与路由门同一个构造器，响应 JSON 键集合与改动前一致
+  const ao = read("src/app/api/auth/active-org/route.ts");
+  ok(/from "@\/lib\/navigation\/context-server"/.test(ao) && /loadOrgNavigationInputs\(user\.id, resolved\.orgId\)/.test(ao), "active-org 从 context-server 取判定输入");
+  ok(!/resolveEffectiveBindings|withIndustryPackModules|hasPositionTemplates/.test(ao), "active-org 不再自拼判定输入");
+  const getBody = ao.slice(ao.indexOf("export async function GET"), ao.indexOf("export async function PATCH"));
+  const jsonStart = getBody.lastIndexOf("return NextResponse.json({");
+  const jsonBlock = getBody.slice(jsonStart, getBody.indexOf("\n  });", jsonStart));
+  const keys = [...jsonBlock.matchAll(/^\s{4}(\w+)(?=[,:\n])/gm)].map((x) => x[1]).sort();
+  const BEFORE = ["activeOrgId", "orgCode", "orgCompany", "modules", "orgRole", "workspaceIds", "hasMembership", "hasBidCapability", "permissionKeys", "positionMode", "needsSelection", "orgAccessMode", "canSelfSwitchOrg", "canSwitch", "organizations"].sort();
+  ok(JSON.stringify(keys) === JSON.stringify(BEFORE), `active-org 响应键集合与改动前一致（${keys.length} 个）`);
+  const cs = read("src/lib/navigation/context-server.ts");
+  ok(!/resolvePreferredOrgId\(/.test(cs) && /take: 2/.test(cs), "context-server：中间件不调 resolvePreferredOrgId，当前企业只读解析");
+  ok(/withIndustryPackModules\(/.test(cs) && /hasPositionTemplates\(/.test(cs) && /resolveEffectiveBindings\(/.test(cs), "context-server：模块含行业包兜底、岗位模式、岗位权限键");
 }
 
 http().then(() => {
