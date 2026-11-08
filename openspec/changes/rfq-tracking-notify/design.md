@@ -79,6 +79,7 @@
 - 正文预览抽成 `web-entry-pure.previewEmailsFromPayload`：发送卡读 `items[]`，催单卡读单封 `{ supplierName, to, subject, body }`；`loadRfqSendEmails` 改用它（即任务书 T-2 §3.2 第 2 条的「兼容 `tender.send_chase` 单封 payload」，提前到 T-1，T-2 直接复用）。
 - `RfqApprovalPanel` 加 `variant: "chase"`：标题、驳回确认与驳回结果换成催单文案（`web-entry-pure.chasePanelCopy`）；**驳回不把轮次标为已取消**（发送卡的驳回才取消草稿轮）；结果带 `source: "chase"`，执行失败时提示「下次自动检查会重新起草」而不是「重新问供应商要价」。
 - 轮次卡片头加 `催单待批 {N}`；「全部批准」仍属 T-2。
+- 复核补充：待批卡对应那家已不用再催（`chaseStillNeeded`，与 `chase-execute.ts` 执行时的判定一致）就不列；批准结果经 `chaseOutcomeFromMessage` 转人话（去掉 Message-ID / threadId 说明、状态换中文；没发出的用中性的 `skipped` 样式）；失败提示只说能确定的事（「去审批中心看状态；如果是发送失败，下次自动检查会重新起草」）；无权提示写「需要项目负责人或组织管理员批准」。`chase-execute.ts` 不改。
 否决：轮次卡片只给「去审批中心」链接——通知点进来还得再跳一次，任务书 §2.1 写的是「审批面板就在那里」；否决：另写一个催单审批组件——批准 / 驳回 / 幂等键 / `expectedPayloadHash` / 跨企业 `orgId` 的逻辑会出现第二份。
 
 ### D12 失败隔离

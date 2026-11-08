@@ -28,7 +28,7 @@
 
 ## 7. 门禁与审查
 
-- [ ] 7.1 全量门禁：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate rfq-tracking-notify --strict`；再跑一遍开工前的基线测试对比通过数；交一个只拿任务书 + diff 的独立审查，应修项全部修正后复核；verify：以上命令全部 exit 0，审查结论与处理记入报告
+- [x] 7.1 全量门禁：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate rfq-tracking-notify --strict`；再跑一遍开工前的基线测试对比通过数；交一个只拿任务书 + diff 的独立审查，应修项全部修正后复核；verify：以上命令全部 exit 0，审查结论与处理记入报告
 
 ## 8. 报告与 TASKFLOW
 

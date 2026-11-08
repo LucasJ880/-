@@ -511,5 +511,52 @@ export function chaseBadge(count: number): string | null {
   return count > 0 ? `催单待批 ${count}` : null;
 }
 
-/** 催单卡执行失败后的提示（卡已失效；下一次定时检查会按规则重新起草） */
-export const CHASE_FAILED_HINT = " 这张催单卡已失效，下次自动检查会按规则重新起草。";
+/**
+ * 催单卡批准 / 驳回没成功时，轮次卡片上追加的提示。失败原因可能是发送失败、别人已在审批中心处理、权限变了，
+ * 这里分不清，所以只说能确定的事（不声称会重新起草）。
+ */
+export const CHASE_FAILED_HINT = " 去审批中心看这张卡现在的状态；如果是发送失败，下次自动检查会按规则重新起草。";
+
+/** 询价项状态 → 中文（催单结果里不出现英文状态） */
+const ITEM_STATUS_LABEL: Record<string, string> = {
+  pending: "待发出",
+  sent: "已发出",
+  replied: "已回复",
+  quoted: "已报价",
+  declined: "已婉拒",
+  no_response: "未响应",
+};
+
+export function itemStatusLabel(status: string): string {
+  return ITEM_STATUS_LABEL[status] ?? "已处理";
+}
+
+/**
+ * 待批的催单卡还有没有用：催单（no_reply）只对还在「已发出」等回复的那家有用；
+ * 追问（missing_fields）只对「已回复 / 已报价」的那家有用。没用的卡批了也不会发出，轮次里不列（执行器同一判定）。
+ */
+export function chaseStillNeeded(kind: ChaseCardKind, itemStatus: string): boolean {
+  return kind === "no_reply" ? itemStatus === "sent" : itemStatus === "replied" || itemStatus === "quoted";
+}
+
+/**
+ * 批准催单卡后的结果文案（执行器的 message → 人话）：真的发出了 → sent；没发出（已回复 / 此前已发 / 已追问过）→ skipped（中性样式）。
+ * 去掉 Message-ID / threadId 之类的技术说明，状态换成中文。
+ */
+export function chaseOutcomeFromMessage(message: string | null | undefined): { kind: "sent" | "skipped"; text: string } {
+  const m = (message ?? "").trim();
+  if (!m) return { kind: "sent", text: "已批准并发出。" };
+  const sent = m.match(/^已给 ?(.+?) ?发出(第 \d 次催单|缺字段追问)（/);
+  if (sent) return { kind: "sent", text: `已给${sent[1]}发出${sent[2]}，回复会在原询价线程里自动进表。` };
+  const replied = m.match(/^(.+?) ?已回复（([a-z_]+)），这封催单没有发出/);
+  if (replied) return { kind: "skipped", text: `${replied[1]}现在是「${itemStatusLabel(replied[2])}」，这封催单没有发出。` };
+  if (/此前已发出|已追问过|没有发出|未重复发送/.test(m)) {
+    return { kind: "skipped", text: m.replace(/「([a-z_]+)」/g, (_x, st: string) => `「${itemStatusLabel(st)}」`) };
+  }
+  return { kind: "sent", text: m.replace(/（[^）]*Message-ID[^）]*）/g, "").trim() };
+}
+
+/** 催单卡执行失败的原因里也可能带英文状态（如「当前状态「replied」不需要追问」）→ 换成中文 */
+export function chaseErrorText(error: string): string {
+  return error.replace(/「([a-z_]+)」/g, (_x, st: string) => `「${itemStatusLabel(st)}」`);
+}

@@ -20,6 +20,7 @@ import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
   assembleEntryPreview,
+  chaseStillNeeded,
   autoIngestNote,
   decideRfqEntryState,
   elapsedLabel,
@@ -101,10 +102,24 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
         type: TENDER_SEND_CHASE_TYPE,
         OR: [{ status: "approved" }, { status: "pending", expiresAt: { gt: now } }],
       },
-      select: { id: true, payload: true, createdAt: true },
+      select: { id: true, payload: true, createdAt: true, status: true },
       orderBy: { createdAt: "asc" },
     }),
   ]);
+
+  // 待批催单卡对应那家的当前状态：已回复的那家不用再催（批了执行器也不会发），不列
+  const chaseItemIds = [
+    ...new Set(chaseRows.flatMap((a) => {
+      const id = (a.payload as Partial<TenderSendChasePayload> | null)?.inquiryItemId;
+      return id ? [id] : [];
+    })),
+  ];
+  const chaseItemStatus = new Map(
+    (chaseItemIds.length
+      ? await db.inquiryItem.findMany({ where: { id: { in: chaseItemIds } }, select: { id: true, status: true } })
+      : []
+    ).map((i) => [i.id, i.status]),
+  );
 
   // ── 内存预构建（与 prepareRfqRound 的 buildRfqDocument 入参一致；不传人工可选项） ──
   const term = pickRfqIncoterm(null, prefs);
@@ -192,13 +207,16 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     pendingChases: chaseRows.flatMap((a) => {
       const p = a.payload as Partial<TenderSendChasePayload> | null;
       if (!p?.inquiryId || !p.inquiryItemId) return [];
+      const kind = p.kind === "missing_fields" ? ("missing_fields" as const) : ("no_reply" as const);
+      // 已批准、还在发出中的照常显示；待批的只列还有用的
+      if (a.status === "pending" && !chaseStillNeeded(kind, chaseItemStatus.get(p.inquiryItemId) ?? "")) return [];
       return [
         {
           actionId: a.id,
           inquiryId: p.inquiryId,
           itemId: p.inquiryItemId,
           supplierName: String(p.supplierName ?? ""),
-          kind: p.kind === "missing_fields" ? ("missing_fields" as const) : ("no_reply" as const),
+          kind,
           chaseIndex: p.chaseIndex === 2 ? 2 : 1,
           roundNumber: roundOf.get(p.inquiryId)?.roundNumber ?? null,
           createdAt: a.createdAt.toISOString(),

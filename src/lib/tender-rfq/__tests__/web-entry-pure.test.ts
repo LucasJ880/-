@@ -17,7 +17,11 @@ import {
   roundStatusLine,
   CHASE_FAILED_HINT,
   chaseBadge,
+  chaseErrorText,
+  chaseOutcomeFromMessage,
   chasePanelCopy,
+  chaseStillNeeded,
+  itemStatusLabel,
   initialExpandedRound,
   previewEmailsFromPayload,
   RFQ_ROUND_ANCHOR_PREFIX,
@@ -263,7 +267,30 @@ console.log("T-1 催单卡原地审批");
   ok("驳回备注", first.rejectNote === "项目页驳回催单");
   ok("没有轮次序号 / 供应商名时回落", chasePanelCopy({ kind: "no_reply", chaseIndex: 1, supplierName: " ", roundNumber: null }).heading === "给供应商的第 1 次催单等待批准，批准后在原邮件线程里发出");
   ok("卡片头计数", chaseBadge(2) === "催单待批 2" && chaseBadge(0) === null);
-  ok("失败提示：下次自动检查重新起草（不叫人重新问供应商要价）", CHASE_FAILED_HINT.includes("下次自动检查") && !CHASE_FAILED_HINT.includes("问供应商要价"));
+  ok("失败提示：指去审批中心，只在发送失败时才说会重新起草", CHASE_FAILED_HINT.includes("去审批中心看这张卡现在的状态") && CHASE_FAILED_HINT.includes("如果是发送失败") && !CHASE_FAILED_HINT.includes("问供应商要价"));
+
+  // 还用不用催（与 chase-execute 执行时的判定一致）
+  ok("催单：还在「已发出」→ 有用", chaseStillNeeded("no_reply", "sent"));
+  ok("催单：已回复 / 已报价 / 未响应 → 不用", !chaseStillNeeded("no_reply", "replied") && !chaseStillNeeded("no_reply", "quoted") && !chaseStillNeeded("no_reply", "no_response"));
+  ok("追问：已回复 / 已报价 → 有用", chaseStillNeeded("missing_fields", "replied") && chaseStillNeeded("missing_fields", "quoted"));
+  ok("追问：已发出 / 已婉拒 → 不用", !chaseStillNeeded("missing_fields", "sent") && !chaseStillNeeded("missing_fields", "declined"));
+  ok("状态没查到 → 不用", !chaseStillNeeded("no_reply", "") && !chaseStillNeeded("missing_fields", ""));
+  ok("状态中文", itemStatusLabel("replied") === "已回复" && itemStatusLabel("quoted") === "已报价" && itemStatusLabel("weird") === "已处理");
+
+  // 执行器 message 原文（src/lib/tender-rfq/chase-execute.ts）→ 人话
+  const sentPlain = chaseOutcomeFromMessage("已给 丙厂 发出第 1 次催单（回复在原询价线程）");
+  ok("发出了：第 1 次催单", sentPlain.kind === "sent" && sentPlain.text === "已给丙厂发出第 1 次催单，回复会在原询价线程里自动进表。", sentPlain);
+  const sentNoId = chaseOutcomeFromMessage("已给 甲厂 发出缺字段追问（回复在原询价线程；未取到原 Message-ID，仅按 threadId 归线程）");
+  ok("发出了：追问，去掉 Message-ID / threadId 说明", sentNoId.kind === "sent" && sentNoId.text === "已给甲厂发出缺字段追问，回复会在原询价线程里自动进表。" && !/Message-ID|threadId/.test(sentNoId.text), sentNoId);
+  const replied = chaseOutcomeFromMessage("丙厂 已回复（replied），这封催单没有发出");
+  ok("这家已回复：中性、中文状态、不出现 replied", replied.kind === "skipped" && replied.text === "丙厂现在是「已回复」，这封催单没有发出。" && !/replied/.test(replied.text), replied);
+  ok("这家已报价：中文状态", chaseOutcomeFromMessage("丙厂 已回复（quoted），这封催单没有发出").text === "丙厂现在是「已报价」，这封催单没有发出。");
+  const again = chaseOutcomeFromMessage("第 2 次催单此前已发出，未重复发送");
+  ok("此前已发：中性", again.kind === "skipped" && again.text === "第 2 次催单此前已发出，未重复发送");
+  ok("已追问过：中性", chaseOutcomeFromMessage("这家已追问过缺字段，未重复发送").kind === "skipped");
+  ok("没有 message → 已批准并发出", chaseOutcomeFromMessage(undefined).text === "已批准并发出。");
+  ok("失败原因里的英文状态换成中文", chaseErrorText("当前状态「replied」不需要追问") === "当前状态「已回复」不需要追问");
+  ok("没有英文状态的失败原因原样", chaseErrorText("发送失败：timeout") === "发送失败：timeout");
 }
 
 console.log(`\nW-1 web-entry-pure: ${passed} passed`);

@@ -148,6 +148,12 @@ console.log("催单卡原地审批（design D13）");
   ok(/variant="chase"/.test(section) && /chases\.map\(\(c\) => \(/.test(section), "轮次展开后每张催单卡一块面板");
   ok(/chaseBadge\(chases\.length\)/.test(section), "卡片头显示催单待批计数");
   ok(/lastOutcome\.source === "chase" \? CHASE_FAILED_HINT/.test(section), "催单卡失败的提示不叫人重新问供应商要价");
+  ok(/if \(a\.status === "pending" && !chaseStillNeeded\(kind, chaseItemStatus\.get\(p\.inquiryItemId\) \?\? ""\)\) return \[\];/.test(entry), "已不用再催的待批卡不列（已批执行中的照常列）");
+  ok(/select: \{ id: true, status: true \}/.test(entry), "按询价项当前状态判断");
+  ok(/if \(isChase\) \{\s*\n\s*const r = chaseOutcomeFromMessage\(data\.message\);/.test(panel), "催单批准结果经 chaseOutcomeFromMessage 转人话");
+  ok(/chaseErrorText\(/.test(panel), "催单失败原因里的英文状态换成中文");
+  ok(/outcome\.kind === "rejected" \|\| outcome\.kind === "skipped"/.test(panel), "没发出的结果用中性样式");
+  ok(/isChase \? "需要项目负责人或组织管理员批准。" : "需要组织管理员批准。"/.test(panel), "催单卡无权提示写明负责人也能批");
 }
 
 console.log("投递与纪律");

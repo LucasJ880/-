@@ -17,12 +17,19 @@ import { CheckCircle2, ChevronDown, ChevronRight, Mail, ShieldCheck, XCircle } f
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
-import { approvalStatusNote, chasePanelCopy, friendlyExecutionError, type ChaseCardKind } from "@/lib/tender-rfq/web-entry-pure";
+import {
+  approvalStatusNote,
+  chaseErrorText,
+  chaseOutcomeFromMessage,
+  chasePanelCopy,
+  friendlyExecutionError,
+  type ChaseCardKind,
+} from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
 import type { RfqApprovalInfo, RfqEmailPreview } from "./rfq-web-entry-types";
 
-/** sent = 全部发出；partial = 部分发出（有失败）；error = 一封都没发出或决策失败 */
-export type RfqDecisionOutcome = { kind: "sent" | "partial" | "rejected" | "error"; text: string; source?: "rfq" | "chase" };
+/** sent = 全部发出；partial = 部分发出（有失败）；skipped = 批准了但不需要发（催单：这家已回复等）；error = 一封都没发出或决策失败 */
+export type RfqDecisionOutcome = { kind: "sent" | "partial" | "skipped" | "rejected" | "error"; text: string; source?: "rfq" | "chase" };
 
 type Props = {
   projectId: string;
@@ -79,7 +86,10 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         const failed: RfqDecisionOutcome = {
           kind: "error",
           source,
-          text: action === "approve" ? friendlyExecutionError(data.error || data.message || "") : data.error || data.message || "驳回没有成功，请去审批中心处理。",
+          text:
+            action === "approve"
+              ? friendlyExecutionError(isChase ? chaseErrorText(data.error || data.message || "") : data.error || data.message || "")
+              : data.error || data.message || "驳回没有成功，请去审批中心处理。",
         };
         setOutcome(failed);
         notifyPendingActionsChanged();
@@ -105,8 +115,14 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         notifyPendingActionsChanged();
         onDone(done);
       } else {
-        const text = friendlySent(data.message);
-        const done: RfqDecisionOutcome = { kind: text.includes("失败：") ? "partial" : "sent", text, source };
+        let done: RfqDecisionOutcome;
+        if (isChase) {
+          const r = chaseOutcomeFromMessage(data.message);
+          done = { kind: r.kind, text: r.text, source };
+        } else {
+          const text = friendlySent(data.message);
+          done = { kind: text.includes("失败：") ? "partial" : "sent", text, source };
+        }
         setOutcome(done);
         notifyPendingActionsChanged();
         onDone(done);
@@ -168,7 +184,13 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         <p
           className={cn(
             "flex items-start gap-1.5 text-xs",
-            outcome.kind === "error" ? "text-danger" : outcome.kind === "partial" ? "text-[#9a6a2f]" : outcome.kind === "rejected" ? "text-muted" : "text-accent",
+            outcome.kind === "error"
+              ? "text-danger"
+              : outcome.kind === "partial"
+                ? "text-[#9a6a2f]"
+                : outcome.kind === "rejected" || outcome.kind === "skipped"
+                  ? "text-muted"
+                  : "text-accent",
           )}
           role="status"
         >
@@ -211,7 +233,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </div>
       ) : (
         <p className="text-xs text-muted">
-          需要组织管理员批准。
+          {isChase ? "需要项目负责人或组织管理员批准。" : "需要组织管理员批准。"}
           {approval ? (
             <>
               {" "}
