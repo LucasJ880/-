@@ -91,7 +91,7 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| T-1 | 询价进展站内通知：报价了 / 回信无报价 / 催单待批（一轮一次扫描一条；15 分钟未读发升级邮件）/ 未响应；收件人为项目负责人 ∪ 本轮发起人（催单待批只给负责人）；点开到该轮（`?tab=bid#rfq-round-<id>`），催单 / 追问卡在轮次里原地批准；两条入站提醒归入询价类别 | W-1 | 任务书 §2.6：带价回信后负责人铃铛出现「报价了」并展开到该轮；定时检查起草催单 → 一条「等你批准」，点开就是审批面板；30 分钟未读收到【青砚】升级邮件；通知与邮件无金额 | [G]（change `rfq-tracking-notify`；待合并） |
+| T-1 | 询价进展站内通知：报价了 / 回信无报价 / 催单待批（一轮一次扫描一条；15 分钟未读发升级邮件）/ 未响应；收件人为项目负责人 ∪ 本轮发起人（催单待批只给负责人）；点开到该轮（`?tab=bid#rfq-round-<id>`），催单 / 追问卡在轮次里原地批准；两条入站提醒归入询价类别 | W-1 | 任务书 §2.6：带价回信后负责人铃铛出现「报价了」并展开到该轮；定时检查起草催单 → 一条「等你批准」，点开就是审批面板；30 分钟未读收到【青砚】升级邮件；通知与邮件无金额 | [x]（#391；change `rfq-tracking-notify` 待 archive） |
 | T-2 | 询价追踪页 `/bids/rfq` + `/bids` 汇总卡（需要我处理 / 等回复 / 已报价 / 未响应；下次自动催的日期与 `decideChases` 一致；落地价取比价矩阵）；首页「供应商未回复」改查 `sent`；`batch-followup` → 410 | T-1 | 任务书 §3.5 | [ ] |
 
 ---
@@ -178,6 +178,24 @@
 **GATE-C 验收**（细项见任务书 §7）：开关默认关时登录页、设置页、`/settings/wechat`、`/wechat`、组织开通页都看不到微信绑定 / 扫码入口，打开后与改动前一致；A 把任务指派给 B → B 有未读 `task_assigned`、A 自己没有通知，B 15 分钟内不读收到一封升级邮件且下一轮不重发；任务评论里 @ 的请求重放不产生第二条通知；讨论区 @ 非项目成员整条 400；订单"备货完成 → 已排期"时创建人、商机负责人、排期负责角色各收到一条 `order_stage`，操作人不收；组织当地 7 点每人一封只含未读的汇总，没有未读不发；关了邮件偏好只收站内通知；邮件与通知摘要不含金额、客户电话、地址，邮件主题以 `【青砚】` 开头；合并提交上 Vercel 生产与 staging 构建都成功。
 
 **运维前置（COLLAB-2 邮件，Evan 操作）**：生产需有 `NEXT_PUBLIC_APP_URL=https://qingyan.ca` 与 `RESEND_API_KEY`，设好后重新部署。缺任一项时，`notify-email-escalation` / `notify-email-digest` 每轮记为跳过并写明缺哪项，站内通知不受影响。staging 验收要收真实邮件时，临时开 `QINGYAN_ALLOW_REAL_EMAIL_NON_PROD`，验完关掉（报告 §5、§6）。
+
+---
+
+## Phase V — 可见性收口（看得见的都是能用的）
+
+任务书：`docs/QINGYAN_VIS-1_VISIBILITY_TASKBRIEF.md`（Lucas 2026-11-08 拍板：判断点 1–7 全取推荐，见任务书「拍板结果 · VIS-1」）。规则：一个入口（路由 / 首页卡片 / 底栏 / 通知类型 / 设置项 / 审批项 / AI 工具）只在「所属模块已开 ∧ 当前岗位持键」时出现，判定只从导航注册表（`src/lib/navigation/registry.ts` + `src/lib/tenancy/modules.ts`）派生。纪律同上：零 schema、不新增权限键、零新增 LLM 调用、不触碰出站、不新增队列。与 Phase K / P / C 并列，属 Sunny 线。一个 change = 一个 PR，按 VIS-1a → 1e 顺序合并。
+
+**合并前置（Lucas）**：先把 `config/positions/sunny.json` 的 `TODO:` 邮箱占位填成真实邮箱并跑岗位绑定；否则岗位模式下无键的人在 VIS-1a 之后敲任何业务 URL 都会被弹回默认工作区。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| VIS-1a | 路由级可见性门（服务端）：`(main)` 布局按导航注册表判定「模块已开 ∧ 岗位持键」，不满足 302 到默认工作区；路由前缀 → 导航项映射表 + 登录即可白名单，表外路由 fail-closed；营销工作区旧门（中间件页面规则 / 「非销售即可」）由路由门取代；`/sales/analytics` 改按 `sales.analytics.read`；`/revenue` 只认 `trade` 模块；`/bids` 在岗位模式不再因 `project.read` 放行；源码断言每个 `(main)` 页面都命中映射表或白名单 | — | OpenSpec change `vis-1a-route-gate`；BREAKING：老板失去 `/trade/**` 直达、会计失去 `/bids`、安装工失去营销工作区；报告 `docs/QINGYAN_VIS-1a_REPORT.md` | [ ] |
+| VIS-1b | 首页 / 底栏 / 索引页按同一张表：岗位卡补模块与键并按导航同口径过滤（`inbound_sales` 卡随 `trade` 模块、`ops_knowledge` 卡仅平台管理员）；「等你拍板」只列本岗位可批类型，Sunny 原生审批跳各自专属落点；底栏「招投标」与侧栏 `ws-bids` 同判定；`/operations` 索引与 `/help` 功能地图从可见导航生成；销售侧栏移除「AI 任务」「数字员工」，`/workforce` 按可读域过滤 | VIS-1a | OpenSpec change `vis-1b-home-and-shell`；报告 `docs/QINGYAN_VIS-1b_REPORT.md` | [ ] |
+| VIS-1c | 通知类型 / 设置 / 搜索 / AI 工具按模块收口：通知开关与通知页筛选只列模块已开的类型（图标表与跳转表不改）；`/settings` 发信文案改读组织设置；全局搜索的项目范围改为本人可读且须持 `project.read`；AI 助手工具表按模块过滤（与执行期同一映射）；营销增长员工按 `marketing` 模块 ∧ 营销键 | VIS-1a | OpenSpec change `vis-1c-notify-settings-search`；报告 `docs/QINGYAN_VIS-1c_REPORT.md` | [ ] |
+| VIS-1d | 审批中心按模块 ∧ 岗位：可见集合 = 本人提交 / 被指派 ∪ 「所属模块已开 ∧ 本岗位持对应审批键」的类型；AI 助手「待我确认」与团队审批范围改用同一集合函数；平台 super_admin 不受此限 | VIS-1a | OpenSpec change `vis-1d-approvals-split`；隔离库测试；BREAKING：Sunny org_admin 不再见全量审批，梦馨不受影响；报告 `docs/QINGYAN_VIS-1d_REPORT.md` | [ ] |
+| VIS-1e | 平台管理员「以岗位预览」：super_admin 在组织成员页写 2 小时预览 cookie（零 schema），导航 / 路由门 / 首页 / 通知 / 审批 / AI 工具按该岗位模板的键；预览态非 GET API 一律 409 `PREVIEW_READONLY`；顶部常驻横幅可退出 | VIS-1a–1d | OpenSpec change `vis-1e-preview-as-position`；报告 `docs/QINGYAN_VIS-1e_REPORT.md` | [ ] |
+
+**GATE-V 验收**（细项见任务书「验收」节）：以 VIS-1e 预览逐岗位核对 Lynn（`sales_rep`）/ 安装工 / Miki（`accounting` + `pricing_lead`）/ Bob（`owner`）/ Lucas（`super_admin`）；未授权直达 URL 一律服务端 302 到默认工作区、无骨架闪现；`npm run test:ci` 与 `npm run typecheck` 通过；每个 change 的 `openspec validate` 通过。
 
 ---
 
