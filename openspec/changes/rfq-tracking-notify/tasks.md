@@ -32,7 +32,7 @@
 
 ## 8. 报告与 TASKFLOW
 
-- [ ] 8.1 写 `docs/QINGYAN_T-1_REPORT.md`（交付、门禁输出、与任务书的偏差 D5 / D11、已知局限：Muse 旁路双通知 / 同页 hash 不重展开、staging 步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：新增 Phase T 表（T-1 `[G]`、T-2 `[ ]`）；verify：报告存在，`grep -n "^| T-1 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且状态为 `[G]`
+- [x] 8.1 写 `docs/QINGYAN_T-1_REPORT.md`（交付、门禁输出、与任务书的偏差 D5 / D11、已知局限：Muse 旁路双通知 / 同页 hash 不重展开、staging 步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：新增 Phase T 表（T-1 `[G]`、T-2 `[ ]`）；verify：报告存在，`grep -n "^| T-1 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且状态为 `[G]`
 
 ## Workflow follow-up
 
