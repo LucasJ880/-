@@ -19,8 +19,8 @@ import { InquiryDetail } from "./inquiry-detail";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
-import type { RfqEntryView, RfqPendingSendView } from "./rfq-web-entry-types";
-import { RFQ_ROUND_ANCHOR_PREFIX, initialExpandedRound, roundIdFromHash } from "@/lib/tender-rfq/web-entry-pure";
+import type { RfqEntryView, RfqPendingChaseView, RfqPendingSendView } from "./rfq-web-entry-types";
+import { CHASE_FAILED_HINT, RFQ_ROUND_ANCHOR_PREFIX, chaseBadge, initialExpandedRound, roundIdFromHash } from "@/lib/tender-rfq/web-entry-pure";
 
 interface InquiryRound {
   id: string;
@@ -145,6 +145,9 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const entryUnknown = entry === null;
   const entryAction = ready?.state.action ?? null;
   const pendingByInquiry = new Map<string, RfqPendingSendView>((ready?.pendingSends ?? []).map((p) => [p.inquiryId, p]));
+  /** T-1：每轮待批的催单 / 追问卡（每张一封，原地审批） */
+  const chasesByInquiry = new Map<string, RfqPendingChaseView[]>();
+  for (const c of ready?.pendingChases ?? []) chasesByInquiry.set(c.inquiryId, [...(chasesByInquiry.get(c.inquiryId) ?? []), c]);
 
   // 有待批发送卡时默认展开那一轮（审批面板在里面）；只在「第一张待批卡」变化时跳，不打断用户手动收起
   const firstPendingInquiryId = ready?.pendingSends[0]?.inquiryId ?? null;
@@ -316,6 +319,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
           {rounds.map((r) => {
             const isOpen = expandedId === r.id;
             const pending = pendingByInquiry.get(r.id) ?? null;
+            const chases = chasesByInquiry.get(r.id) ?? [];
+            const chaseLabel = chaseBadge(chases.length);
             const engine = ready?.engineRounds[r.id] ?? null;
             return (
               <div
@@ -347,6 +352,11 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     >
                       {pending ? "待批准" : STATUS_LABEL[r.status] ?? r.status}
                     </span>
+                    {chaseLabel && (
+                      <span className="rounded-full bg-[rgba(154,106,47,0.10)] px-2 py-0.5 text-[11px] font-medium text-[#9a6a2f]">
+                        {chaseLabel}
+                      </span>
+                    )}
                     <span className="text-xs text-muted">
                       {r.items.length} 家供应商
                     </span>
@@ -374,7 +384,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     {lastOutcome.kind === "sent" ? <CheckCircle2 size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "error" ? <XCircle size={14} className="mt-px shrink-0" /> : lastOutcome.kind === "partial" ? <AlertTriangle size={14} className="mt-px shrink-0" /> : null}
                     <span className="flex-1">
                       {lastOutcome.text}
-                      {lastOutcome.kind === "error" && !pending ? " 这张卡已失效，处理好原因后重新「问供应商要价」。" : ""}
+                      {lastOutcome.kind === "error" && lastOutcome.source === "chase" ? CHASE_FAILED_HINT : ""}
+                      {lastOutcome.kind === "error" && lastOutcome.source !== "chase" && !pending ? " 这张卡已失效，处理好原因后重新「问供应商要价」。" : ""}
                       {lastOutcome.kind === "partial" ? " 没发出的那几家可以下一轮再问，或电话 / 微信联系后在明细里「标记发送」。" : ""}
                     </span>
                     <button type="button" aria-label="关闭这条提示" onClick={() => setLastOutcome(null)} className="shrink-0 opacity-70 hover:opacity-100">
@@ -403,6 +414,19 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         onDone={(o) => onDecision(r.id, o)}
                       />
                     )}
+                    {chases.map((c) => (
+                      <RfqApprovalPanel
+                        key={c.actionId}
+                        variant="chase"
+                        chase={{ kind: c.kind, chaseIndex: c.chaseIndex, supplierName: c.supplierName }}
+                        projectId={projectId}
+                        inquiryId={r.id}
+                        roundNumber={c.roundNumber ?? r.roundNumber}
+                        approval={c.approval}
+                        emails={c.emails}
+                        onDone={(o) => onDecision(r.id, o)}
+                      />
+                    ))}
                     <InquiryDetail
                       projectId={projectId}
                       orgId={orgId}

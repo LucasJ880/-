@@ -15,7 +15,11 @@ import {
   orderEntrySuppliers,
   rfqErrorToUserMessage,
   roundStatusLine,
+  CHASE_FAILED_HINT,
+  chaseBadge,
+  chasePanelCopy,
   initialExpandedRound,
+  previewEmailsFromPayload,
   RFQ_ROUND_ANCHOR_PREFIX,
   roundIdFromHash,
   type RfqEntryFacts,
@@ -236,6 +240,30 @@ console.log("T-1 从链接直达询价轮次");
   ok("没有锚点、没有待批 → 最新一轮", initialExpandedRound({ hashRoundId: null, roundIds: ids, currentRoundId: null, latestRoundId: "r3" }) === "r3");
   ok("当前展开的那轮已不在列表 → 最新一轮", initialExpandedRound({ hashRoundId: null, roundIds: ids, currentRoundId: "gone", latestRoundId: "r3" }) === "r3");
   ok("没有轮次 → null", initialExpandedRound({ hashRoundId: "r1", roundIds: [], currentRoundId: null, latestRoundId: null }) === null);
+}
+
+console.log("T-1 催单卡原地审批");
+{
+  const rfqPayload = { inquiryId: "i1", items: [{ supplierName: "甲厂", to: "a@x.example", subject: "询价", body: "正文A" }, { supplierName: "乙厂", to: "b@x.example", subject: "询价", body: "正文B" }, { supplierName: "坏", to: null, body: "x" }] };
+  const prev = previewEmailsFromPayload(rfqPayload);
+  ok("询价发送卡：读 items[]，缺收件人的不列", prev.length === 2 && prev[0].supplierName === "甲厂" && prev[1].body === "正文B");
+  const chasePayload = { inquiryId: "i1", inquiryItemId: "it1", supplierName: "丙厂", to: "c@x.example", kind: "no_reply", chaseIndex: 1, subject: "Re: 询价", body: "您好，想确认一下报价进度", bodyHash: "h" };
+  const one = previewEmailsFromPayload(chasePayload);
+  ok("催单卡：单封正文", one.length === 1 && one[0].supplierName === "丙厂" && one[0].to === "c@x.example" && one[0].subject === "Re: 询价" && one[0].body.startsWith("您好"));
+  ok("催单卡缺正文 → 不列", previewEmailsFromPayload({ ...chasePayload, body: undefined }).length === 0);
+  ok("空 / 非对象 payload → 空", previewEmailsFromPayload(null).length === 0 && previewEmailsFromPayload("x").length === 0 && previewEmailsFromPayload({}).length === 0);
+
+  const first = chasePanelCopy({ kind: "no_reply", chaseIndex: 1, supplierName: "丙厂", roundNumber: 2 });
+  ok("第 1 次催单的标题", first.heading === "第 2 轮：给丙厂的第 1 次催单等待批准，批准后在原邮件线程里发出");
+  ok("第 2 次催单的标题", chasePanelCopy({ kind: "no_reply", chaseIndex: 2, supplierName: "丙厂", roundNumber: 2 }).heading === "第 2 轮：给丙厂的第 2 次催单等待批准，批准后在原邮件线程里发出");
+  const ask = chasePanelCopy({ kind: "missing_fields", chaseIndex: 1, supplierName: "甲厂", roundNumber: 2 });
+  ok("追问的标题", ask.heading === "第 2 轮：给甲厂的缺字段追问等待批准，批准后在原邮件线程里发出");
+  ok("驳回确认：只是这一封，这一轮不受影响", first.rejectConfirm === "确认驳回？只是这一封不发出，这一轮不受影响。" && !/取消/.test(first.rejectConfirm));
+  ok("驳回结果：催单 / 追问", first.rejected === "已驳回，给丙厂的这封催单不会发出。" && ask.rejected === "已驳回，给甲厂的这封追问不会发出。");
+  ok("驳回备注", first.rejectNote === "项目页驳回催单");
+  ok("没有轮次序号 / 供应商名时回落", chasePanelCopy({ kind: "no_reply", chaseIndex: 1, supplierName: " ", roundNumber: null }).heading === "给供应商的第 1 次催单等待批准，批准后在原邮件线程里发出");
+  ok("卡片头计数", chaseBadge(2) === "催单待批 2" && chaseBadge(0) === null);
+  ok("失败提示：下次自动检查重新起草（不叫人重新问供应商要价）", CHASE_FAILED_HINT.includes("下次自动检查") && !CHASE_FAILED_HINT.includes("问供应商要价"));
 }
 
 console.log(`\nW-1 web-entry-pure: ${passed} passed`);

@@ -133,6 +133,23 @@ console.log("项目页：从链接直达询价轮次");
   ok(/id=\{`rfq-round-\$\{r\.id\}`\}/.test(section), "轮次卡片的 id 与锚点一致");
 }
 
+console.log("催单卡原地审批（design D13）");
+{
+  const entry = read("src/lib/tender-rfq/web-entry.ts");
+  const route = read("src/app/api/projects/[id]/tender-rfq/entry/route.ts");
+  const approval = read("src/lib/tender-rfq/web-entry-approval.ts");
+  const panel = read("src/components/inquiry/rfq-approval-panel.tsx");
+  const section = read("src/components/inquiry/project-inquiry-section.tsx");
+  ok(/type: TENDER_SEND_CHASE_TYPE,\s*\n\s*OR: \[\{ status: "approved" \}, \{ status: "pending", expiresAt: \{ gt: now \} \}\]/.test(entry), "入口只查未过期待批与已批执行中的催单卡");
+  ok(/pendingChases: chaseRows\.flatMap/.test(entry), "入口返回 pendingChases");
+  ok(/\.\.\.entry\.pendingChases\.map\(\(c\) => c\.actionId\)/.test(route) && /pendingChases: entry\.pendingChases\.map\(\(c\) => \(\{\s*\n\s*\.\.\.c,\s*\n\s*approval: approvals\[c\.actionId\]/.test(route), "路由给催单卡补审批能力与正文");
+  ok(/out\[r\.id\] = previewEmailsFromPayload\(r\.payload\)/.test(approval), "正文预览兼容询价与催单两种 payload");
+  ok(/if \(!isChase\) \{\s*\n\s*await apiFetch\(`\/api\/projects\/\$\{projectId\}\/inquiries\/\$\{inquiryId\}`, \{\s*\n\s*method: "PATCH"/.test(panel), "催单驳回不把轮次标为已取消（只有询价发送卡会）");
+  ok(/variant="chase"/.test(section) && /chases\.map\(\(c\) => \(/.test(section), "轮次展开后每张催单卡一块面板");
+  ok(/chaseBadge\(chases\.length\)/.test(section), "卡片头显示催单待批计数");
+  ok(/lastOutcome\.source === "chase" \? CHASE_FAILED_HINT/.test(section), "催单卡失败的提示不叫人重新问供应商要价");
+}
+
 console.log("投递与纪律");
 {
   ok(/deliverCollabNotification\(/.test(trackingNotify), "统一经 deliverCollabNotification 投递");

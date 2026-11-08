@@ -8,6 +8,19 @@ export type { RfqApprovalInfo, RfqEmailPreview, UserMessage };
 
 export type RfqIncoterm = "EXW" | "FOB" | "CIF" | "DDP" | "DAP";
 
+export type RfqPendingChaseView = {
+  actionId: string;
+  inquiryId: string;
+  itemId: string;
+  supplierName: string;
+  kind: "no_reply" | "missing_fields";
+  chaseIndex: number;
+  roundNumber: number | null;
+  createdAt: string;
+  approval: RfqApprovalInfo | null;
+  emails: RfqEmailPreview[];
+};
+
 export type RfqPendingSendView = {
   actionId: string;
   inquiryId: string;
@@ -26,6 +39,8 @@ export type RfqEntryView =
       defaults: { incoterm: RfqIncoterm | null; incotermFromPrefs: boolean };
       preview: EntryPreview;
       pendingSends: RfqPendingSendView[];
+      /** T-1：待批的催单 / 追问卡（每张一封） */
+      pendingChases: RfqPendingChaseView[];
       engineRounds: Record<string, { elapsed: string | null }>;
       autoIngest: UserMessage;
       timeZone: string;

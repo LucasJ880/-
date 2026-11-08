@@ -23,6 +23,7 @@
 - 不改 `src/lib/tender-rfq/chase-pure.ts`（`decideChases` / `decideNoResponse` / `resolveChaseAfterDays` / 模板）、`chase-execute.ts`、`execute.ts`、`inbound-parse.ts`、`inbound-apply.ts`（`planInquiryItemUpdate`）。
 - 不改 `src/lib/muse-bridge/**`（`hooks.ts`、`events.ts`、`evidence.ts`）。
 - 不改 `src/lib/notifications/collab/deliver.ts`、`recipients.ts`、`email.ts`、`digest.ts`、`redact.ts`；不改 `src/lib/inquiry/service.ts`（`recordQuote` / `markItemReplied` / `markItemNoResponse`）。
+- 不改审批中心（`src/lib/capabilities/approvals/*`、`src/app/(main)/capabilities/approvals/*`）与 `tender.send_rfq` 发送卡的审批面板行为（D13 只给面板加催单变体）。
 - 不改 `vercel.json`、`src/app/api/cron/tender-rfq-inbound/route.ts`、`src/app/api/cron/sales-actions/route.ts`；不改 Prisma schema。
 - 不在 `src/app/(main)/bids/**`、`src/lib/proactive/scanner.ts` 做任何事（T-2）。
 
@@ -71,6 +72,14 @@
 ### D11 新四类的 `category`：保持 `deliver.ts` 现状（= 类型名）
 `deliverCollabNotification` 把 `category` 写成 `type`，所以新四类的 `category` 分别是各自的类型名，而 D10 的两条是 `tender_rfq`。Context 已核实没有任何 UI 或接口按这两个值筛选，这个不一致只体现在库里。选择不动 `deliver.ts`。
 否决：给 `CollabEvent` 加可选 `category` 覆盖、让六条都是 `tender_rfq`——为一个没有读取方的字段改协作通知的共享入口，扩大 COLLAB-2 的回归面。审核若要统一，改动只在 `deliver.ts` 加一个可选字段 + 一条测试，不影响 specs 与任务拆分。
+
+### D13 催单卡在轮次里原地审批（审核决定，2026-11-08）
+独立审查发现：W-1 的轮次卡片只给 `tender.send_rfq` 发送卡渲染审批面板，`tender.send_chase` 卡在项目页任何地方都不显示，点「催单待批」落到的那一轮没有批准按钮。拍板：在该轮原地显示催单卡审批面板。做法：
+- `web-entry.ts` 多查本项目待批（`pending` 且未过期，或 `approved` 执行中）的 `tender.send_chase` 卡，`pendingChases` 带轮次、供应商、催单 / 追问与第几次；入口路由与发送卡一起补审批能力与正文。
+- 正文预览抽成 `web-entry-pure.previewEmailsFromPayload`：发送卡读 `items[]`，催单卡读单封 `{ supplierName, to, subject, body }`；`loadRfqSendEmails` 改用它（即任务书 T-2 §3.2 第 2 条的「兼容 `tender.send_chase` 单封 payload」，提前到 T-1，T-2 直接复用）。
+- `RfqApprovalPanel` 加 `variant: "chase"`：标题、驳回确认与驳回结果换成催单文案（`web-entry-pure.chasePanelCopy`）；**驳回不把轮次标为已取消**（发送卡的驳回才取消草稿轮）；结果带 `source: "chase"`，执行失败时提示「下次自动检查会重新起草」而不是「重新问供应商要价」。
+- 轮次卡片头加 `催单待批 {N}`；「全部批准」仍属 T-2。
+否决：轮次卡片只给「去审批中心」链接——通知点进来还得再跳一次，任务书 §2.1 写的是「审批面板就在那里」；否决：另写一个催单审批组件——批准 / 驳回 / 幂等键 / `expectedPayloadHash` / 跨企业 `orgId` 的逻辑会出现第二份。
 
 ### D12 失败隔离
 `syncOrgInbound` 对 `notifyTracking` 加 `.catch`；`runChaseScan` 传入的两个回调内部 `try/catch`，绝不向 `runForItems` 抛错——否则 `onNoResponse` 抛错会让该家同时进 `noResponse` 与 `failed`（现有代码把回调放在同一个 `try` 里）。`deliverCollabNotification` 本身不抛错，补上下文的查询失败只记日志。

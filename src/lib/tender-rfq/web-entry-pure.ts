@@ -462,3 +462,54 @@ export function initialExpandedRound(input: {
   if (inList(input.currentRoundId)) return input.currentRoundId;
   return inList(input.latestRoundId) ? input.latestRoundId : null;
 }
+
+// ── T-1：催单卡在轮次里原地审批（spec tender/rfq-web-entry「待批催单卡的原地审批」，design D13） ──
+
+export type EmailPreview = { supplierName: string; to: string; subject: string; body: string };
+
+/**
+ * 审批卡 payload → 每封将发出的邮件（发出的就是这份）：
+ * 询价发送卡 `{ items: [{ supplierName, to, subject, body }] }`；催单 / 追问卡是单封 `{ supplierName, to, subject, body }`。
+ * 缺收件人或正文的条目不列。
+ */
+export function previewEmailsFromPayload(payload: unknown): EmailPreview[] {
+  if (!payload || typeof payload !== "object") return [];
+  const p = payload as { items?: unknown; supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown };
+  const one = (x: unknown): EmailPreview | null => {
+    if (!x || typeof x !== "object") return null;
+    const e = x as { supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown };
+    if (typeof e.to !== "string" || typeof e.body !== "string") return null;
+    return { supplierName: String(e.supplierName ?? ""), to: e.to, subject: String(e.subject ?? ""), body: e.body };
+  };
+  if (Array.isArray(p.items)) return p.items.map(one).filter((e): e is EmailPreview => e !== null);
+  const single = one(p);
+  return single ? [single] : [];
+}
+
+export type ChaseCardKind = "no_reply" | "missing_fields";
+
+/** 催单面板的文案：标题、驳回确认、驳回结果、写进审批记录的驳回备注 */
+export function chasePanelCopy(input: { kind: ChaseCardKind; chaseIndex: number; supplierName: string; roundNumber: number | null }): {
+  heading: string;
+  rejectConfirm: string;
+  rejected: string;
+  rejectNote: string;
+} {
+  const what = input.kind === "no_reply" ? `第 ${input.chaseIndex} 次催单` : "缺字段追问";
+  const round = input.roundNumber ? `第 ${input.roundNumber} 轮：` : "";
+  const who = input.supplierName.trim() || "供应商";
+  return {
+    heading: `${round}给${who}的${what}等待批准，批准后在原邮件线程里发出`,
+    rejectConfirm: "确认驳回？只是这一封不发出，这一轮不受影响。",
+    rejected: `已驳回，给${who}的这封${input.kind === "no_reply" ? "催单" : "追问"}不会发出。`,
+    rejectNote: "项目页驳回催单",
+  };
+}
+
+/** 轮次卡片头的计数；没有待批催单卡 → null（不显示） */
+export function chaseBadge(count: number): string | null {
+  return count > 0 ? `催单待批 ${count}` : null;
+}
+
+/** 催单卡执行失败后的提示（卡已失效；下一次定时检查会按规则重新起草） */
+export const CHASE_FAILED_HINT = " 这张催单卡已失效，下次自动检查会按规则重新起草。";

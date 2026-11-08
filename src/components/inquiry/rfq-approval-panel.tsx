@@ -6,6 +6,9 @@
  * 能否批准取审批中心对同一张卡的判定（服务端算好的 approval.canApprove）；
  * 批准 / 驳回直接调审批中心既有接口，批准在请求内同步执行，响应里就是「已发出 N/N：…」。
  * 驳回后把这轮草稿标为已取消，免得留下一轮看似可手工发送的草稿。
+ *
+ * T-1：variant="chase" 用于催单 / 缺字段追问卡（每张一封，design D13）——文案换成催单的；
+ * 驳回只让这一封不发出，**不**把轮次标为已取消；结果带 source="chase"。
  */
 
 import { useState } from "react";
@@ -14,12 +17,12 @@ import { CheckCircle2, ChevronDown, ChevronRight, Mail, ShieldCheck, XCircle } f
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
-import { approvalStatusNote, friendlyExecutionError } from "@/lib/tender-rfq/web-entry-pure";
+import { approvalStatusNote, chasePanelCopy, friendlyExecutionError, type ChaseCardKind } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
 import type { RfqApprovalInfo, RfqEmailPreview } from "./rfq-web-entry-types";
 
 /** sent = 全部发出；partial = 部分发出（有失败）；error = 一封都没发出或决策失败 */
-export type RfqDecisionOutcome = { kind: "sent" | "partial" | "rejected" | "error"; text: string };
+export type RfqDecisionOutcome = { kind: "sent" | "partial" | "rejected" | "error"; text: string; source?: "rfq" | "chase" };
 
 type Props = {
   projectId: string;
@@ -30,13 +33,20 @@ type Props = {
   /** 每次决策之后回调（成功、驳回、失败都会调），父组件刷新轮次并保留结果文字——本面板随后可能被卸载 */
   onDone: (outcome: RfqDecisionOutcome) => void;
   className?: string;
+  /** rfq = 询价发送卡（默认）；chase = 催单 / 追问卡 */
+  variant?: "rfq" | "chase";
+  /** variant="chase" 时必填 */
+  chase?: { kind: ChaseCardKind; chaseIndex: number; supplierName: string };
 };
 
 type Outcome = RfqDecisionOutcome | null;
 
 const NETWORK_ERROR = "网络出错了，请重试；不确定是否已发出时，先刷新看轮次状态再操作。";
 
-export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className }: Props) {
+export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className, variant = "rfq", chase }: Props) {
+  const isChase = variant === "chase" && !!chase;
+  const source: RfqDecisionOutcome["source"] = isChase ? "chase" : "rfq";
+  const chaseCopy = isChase ? chasePanelCopy({ ...chase, roundNumber }) : null;
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
@@ -60,7 +70,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         body: JSON.stringify({
           idempotencyKey: `${action}:${approval.approvalId}:${Date.now()}`,
           expectedPayloadHash: approval.payloadHash ?? undefined,
-          note: action === "reject" ? "项目页驳回询价发送" : undefined,
+          note: action === "reject" ? (chaseCopy ? chaseCopy.rejectNote : "项目页驳回询价发送") : undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
@@ -68,6 +78,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         // 执行失败时执行器会把卡标为 failed（卡作废）；刷新让父组件拿到新状态，文字由父组件保留
         const failed: RfqDecisionOutcome = {
           kind: "error",
+          source,
           text: action === "approve" ? friendlyExecutionError(data.error || data.message || "") : data.error || data.message || "驳回没有成功，请去审批中心处理。",
         };
         setOutcome(failed);
@@ -76,25 +87,32 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         return;
       }
       if (action === "reject") {
-        // 驳回后这一轮不会发出：把草稿轮次标为已取消（draft → canceled 是合法流转）
-        await apiFetch(`/api/projects/${projectId}/inquiries/${inquiryId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "canceled" }),
-        }).catch(() => undefined);
-        const done: RfqDecisionOutcome = { kind: "rejected", text: "已驳回，这一轮不会发出。需要的话重新「问供应商要价」。" };
+        // 询价发送卡被驳回 → 这一轮不会发出：把草稿轮次标为已取消（draft → canceled 是合法流转）。
+        // 催单卡被驳回只是这一封不发，轮次照常（T-1）。
+        if (!isChase) {
+          await apiFetch(`/api/projects/${projectId}/inquiries/${inquiryId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "canceled" }),
+          }).catch(() => undefined);
+        }
+        const done: RfqDecisionOutcome = {
+          kind: "rejected",
+          source,
+          text: chaseCopy ? chaseCopy.rejected : "已驳回，这一轮不会发出。需要的话重新「问供应商要价」。",
+        };
         setOutcome(done);
         notifyPendingActionsChanged();
         onDone(done);
       } else {
         const text = friendlySent(data.message);
-        const done: RfqDecisionOutcome = { kind: text.includes("失败：") ? "partial" : "sent", text };
+        const done: RfqDecisionOutcome = { kind: text.includes("失败：") ? "partial" : "sent", text, source };
         setOutcome(done);
         notifyPendingActionsChanged();
         onDone(done);
       }
     } catch {
-      setOutcome({ kind: "error", text: NETWORK_ERROR });
+      setOutcome({ kind: "error", text: NETWORK_ERROR, source });
     } finally {
       setBusy(null);
       setConfirmReject(false);
@@ -107,9 +125,11 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         <ShieldCheck size={16} className="mt-0.5 shrink-0 text-accent" />
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">
-            {roundNumber ? `第 ${roundNumber} 轮询价` : "这轮询价"}等待批准，批准后立即从授权邮箱发出
+            {chaseCopy ? chaseCopy.heading : `${roundNumber ? `第 ${roundNumber} 轮询价` : "这轮询价"}等待批准，批准后立即从授权邮箱发出`}
           </p>
-          <p className="mt-0.5 text-xs text-muted">共 {emails.length} 封，批准前不会发出任何邮件。点开可以看每家收到的正文。</p>
+          <p className="mt-0.5 text-xs text-muted">
+            {chaseCopy ? "批准前不会发出。点开可以看这封的正文。" : `共 ${emails.length} 封，批准前不会发出任何邮件。点开可以看每家收到的正文。`}
+          </p>
         </div>
       </div>
 
@@ -175,7 +195,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
           {canReject &&
             (confirmReject ? (
               <span className="inline-flex items-center gap-2 text-xs text-muted">
-                确认驳回？这一轮会取消。
+                {chaseCopy ? chaseCopy.rejectConfirm : "确认驳回？这一轮会取消。"}
                 <Button size="sm" variant="destructive" loading={busy === "reject"} disabled={busy !== null} onClick={() => decide("reject")}>
                   确认驳回
                 </Button>

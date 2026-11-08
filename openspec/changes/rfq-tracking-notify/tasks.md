@@ -22,13 +22,17 @@
 
 - [x] 5.1 `collab/escalation.ts ESCALATION_TYPES` 加 `rfq_chase_ready`；`INBOUND_NOTIFICATION_CATEGORY` 改 `"tender_rfq"`，`notifyFailed` 入参加 `inquiryId` 并改 `entityType: "tender_rfq_round"` / `entityId`，标题、摘要、优先级、`sourceKey` 不变；`collab-email-escalation.test.ts` 加「`rfq_chase_ready` 满 15 分钟未读进候选并发信、`rfq_quote_received` 不进候选、主题为 `【青砚】催单待批 · 项目「…」第 n 轮询价`、链接指向 `?tab=bid#rfq-round-`、正文无金额」；wiring 测试加两条提醒的类别 / 对象 / `sourceKey` 断言；verify：两个测试全过
 
-## 6. 门禁与审查
+## 6. 催单卡原地审批（审查阻断项，2026-11-08 拍板）
 
-- [ ] 6.1 全量门禁：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate rfq-tracking-notify --strict`；再跑一遍开工前的基线测试对比通过数；交一个只拿任务书 + diff 的独立审查，应修项全部修正后复核；verify：以上命令全部 exit 0，审查结论与处理记入报告
+- [x] 6.1 `web-entry-pure.ts` 加 `previewEmailsFromPayload`（发送卡 `items[]` / 催单单封）、`chasePanelCopy`、`chaseBadge`；`web-entry-approval.loadRfqSendEmails` 改用前者；`web-entry.ts` 返回 `pendingChases`（未过期待批 + 已批执行中的 `tender.send_chase`），入口路由补审批能力与正文；`RfqApprovalPanel` 加 `variant="chase"`（驳回不取消轮次、结果带 `source: "chase"`）；轮次卡片头 `催单待批 N`、展开后每张卡一块面板；`web-entry-pure.test.ts` 加用例，wiring 测试加「入口查催单卡、路由补审批、催单驳回不 PATCH 轮次」；verify：两个测试全过、`npm run typecheck` 通过
 
-## 7. 报告与 TASKFLOW
+## 7. 门禁与审查
 
-- [ ] 7.1 写 `docs/QINGYAN_T-1_REPORT.md`（交付、门禁输出、与任务书的偏差 D5 / D11、已知局限：Muse 旁路双通知 / 同页 hash 不重展开、staging 步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：新增 Phase T 表（T-1 `[G]`、T-2 `[ ]`）；verify：报告存在，`grep -n "^| T-1 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且状态为 `[G]`
+- [ ] 7.1 全量门禁：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate rfq-tracking-notify --strict`；再跑一遍开工前的基线测试对比通过数；交一个只拿任务书 + diff 的独立审查，应修项全部修正后复核；verify：以上命令全部 exit 0，审查结论与处理记入报告
+
+## 8. 报告与 TASKFLOW
+
+- [ ] 8.1 写 `docs/QINGYAN_T-1_REPORT.md`（交付、门禁输出、与任务书的偏差 D5 / D11、已知局限：Muse 旁路双通知 / 同页 hash 不重展开、staging 步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：新增 Phase T 表（T-1 `[G]`、T-2 `[ ]`）；verify：报告存在，`grep -n "^| T-1 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且状态为 `[G]`
 
 ## Workflow follow-up
 
