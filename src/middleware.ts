@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { loginRedirectPath } from "@/lib/auth/safe-next";
 import { canAccessMarketingWorkspace, isMarketingApiPath } from "@/lib/marketing/route-access";
-import { applyRouteGate, isStaticImagePath } from "@/lib/navigation/route-gate";
+import { applyRouteGate, isStaticImagePath, type RouteGateLoader } from "@/lib/navigation/route-gate";
 import { ROUTE_GATE_LOADER } from "@/lib/navigation/context-server";
 
 const COOKIE_NAME = "qy_session";
@@ -62,6 +62,11 @@ async function verifiedSession(token: string): Promise<{ sub: string; role: stri
 }
 
 export async function middleware(request: NextRequest) {
+  return handleRequest(request, ROUTE_GATE_LOADER);
+}
+
+/** 中间件本体；路由门的判定输入加载器可注入（测试用假加载器，生产用 context-server 的 ROUTE_GATE_LOADER） */
+export async function handleRequest(request: NextRequest, loader: RouteGateLoader) {
   const { pathname } = request.nextUrl;
 
   // VIS-1a：public/ 图片在登录检查之前放行（与改动前 matcher 按图片扩展名排除一致；
@@ -104,7 +109,7 @@ export async function middleware(request: NextRequest) {
 
   // VIS-1a 路由门（spec navigation/route-gate）：已登录页面请求在渲染前按导航注册表判定，
   // 不满足 302 到落地页；判定输入与侧栏同一构造器（context-server）
-  const gated = await applyRouteGate(request, session.sub, ROUTE_GATE_LOADER);
+  const gated = await applyRouteGate(request, session.sub, loader);
   return gated ?? NextResponse.next();
 }
 

@@ -257,8 +257,9 @@ export function isRouteAllowed(pathname: string, ctx: NavigationFilterContext): 
   const rule = entry.rule;
   if (rule.kind === "login_only") return true;
   if (rule.allowWithoutMembership && !ctx.hasMembership) return true;
-  if (rule.allowProjectMember && ctx.hasMembership && ctx.hasBidCapability) return true;
   const c: NavigationFilterContext = { ...ctx, pathname };
+  // 项目成员：仍要求企业启用 bids / projects 模块（route-project-member 只带模块与成员身份条件）
+  if (rule.allowProjectMember && ctx.hasBidCapability && navChainVisible("route-project-member", c)) return true;
   return rule.navKeys.some((k) => navChainVisible(k, c));
 }
 
@@ -285,6 +286,36 @@ export const ROUTE_GATE_OUTSIDE_PATHS = ["/login", "/register", "/select-org", "
 const IMAGE_EXTENSION = /\.(?:svg|png|jpg|jpeg|gif|webp)$/i;
 const FILE_EXTENSION = /\.[A-Za-z0-9]+$/;
 
+/**
+ * 框架内部的 RSC / 预取路径变体还原为页面路径（Vercel 可能把 `/x.rsc`、`/x.prefetch.rsc`、`/x.segments/…`
+ * 交给中间件；按页面路径判定，避免被当成静态文件放过）。
+ */
+export function rscPagePath(pathname: string): string {
+  let p = pathname;
+  const seg = p.indexOf(".segments/");
+  if (seg >= 0) p = p.slice(0, seg);
+  else if (p.endsWith(".segments")) p = p.slice(0, -".segments".length);
+  if (p.endsWith(".rsc")) p = p.slice(0, -".rsc".length);
+  if (p.endsWith(".prefetch")) p = p.slice(0, -".prefetch".length);
+  if (p !== pathname && (p === "/index" || p === "")) return "/";
+  return p;
+}
+
+/**
+ * 判定要看的路径：还原 RSC 变体后的原样路径，以及解码一次后的路径（Next 生产环境按解码后的路径查静态路由，
+ * 编码过的段不能绕过门表）。解码失败返回 null（按不放行处理）。
+ */
+export function gatePathVariants(pathname: string): string[] | null {
+  const raw = rscPagePath(pathname);
+  let decoded: string;
+  try {
+    decoded = rscPagePath(decodeURIComponent(raw));
+  } catch {
+    return null;
+  }
+  return decoded === raw ? [raw] : [raw, decoded];
+}
+
 /** public/ 静态文件：末段带扩展名，且第一段不是已登录区一级路径 */
 export function isStaticFilePath(pathname: string): boolean {
   const segs = splitPath(pathname);
@@ -293,9 +324,11 @@ export function isStaticFilePath(pathname: string): boolean {
   return !GATED_TOP_SEGMENTS.has(segs[0]);
 }
 
-/** public/ 图片：在登录检查之前放行（与改动前 matcher 排除图片一致） */
+/** public/ 图片：在登录检查之前放行（与改动前 matcher 排除图片一致）；原样与解码后都须是 public 图片 */
 export function isStaticImagePath(pathname: string): boolean {
-  return isStaticFilePath(pathname) && IMAGE_EXTENSION.test(pathname);
+  const variants = gatePathVariants(pathname);
+  if (!variants || variants[0] !== pathname) return false;
+  return variants.every((p) => isStaticFilePath(p) && IMAGE_EXTENSION.test(p));
 }
 
 export type RouteRequestKind = "api" | "static_file" | "outside" | "login_only" | "gated";
@@ -304,8 +337,15 @@ function underAny(pathname: string, prefixes: readonly string[]): boolean {
   return prefixes.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-/** 已登录请求的分类（中间件免登录路径在此之前已放行） */
+/** 已登录请求的分类（中间件免登录路径在此之前已放行）；RSC 变体还原、原样与解码后分类一致才算非「需判定」 */
 export function classifyPageRequest(pathname: string): RouteRequestKind {
+  const variants = gatePathVariants(pathname);
+  if (!variants) return "gated";
+  const kinds = variants.map(classifyOne);
+  return kinds.every((k) => k === kinds[0]) ? kinds[0] : "gated";
+}
+
+function classifyOne(pathname: string): RouteRequestKind {
   if (pathname === "/api" || pathname.startsWith("/api/")) return "api";
   if (isStaticFilePath(pathname)) return "static_file";
   if (pathname.startsWith("/_next/") || underAny(pathname, ROUTE_GATE_OUTSIDE_PATHS)) return "outside";
@@ -409,6 +449,10 @@ export async function applyRouteGate(
     return redirectTo(request, "/tasks");
   }
 
-  const decision = resolveRouteGate(pathname, { ...ctx, pathname });
-  return decision.allowed ? null : redirectTo(request, decision.redirect);
+  // 原样与解码后的路径都须放行；解码失败按不放行
+  const variants = gatePathVariants(pathname);
+  const page = variants?.[0] ?? pathname;
+  const judged: NavigationFilterContext = { ...ctx, pathname: page };
+  if (variants && variants.every((p) => isRouteAllowed(p, { ...ctx, pathname: p }))) return null;
+  return redirectTo(request, gateRedirectTarget(page, judged));
 }

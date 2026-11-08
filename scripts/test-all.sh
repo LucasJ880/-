@@ -349,6 +349,7 @@ run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-acce
 run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"
 run_test "销售账号营销数字员工权限" "npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts"
 run_test "营销接口判定（VIS-1a 起只测接口层）" "npx tsx src/lib/marketing/__tests__/route-access.test.ts"
+run_test "中间件对营销页面 / 接口的处理（VIS-1a 路由门）" "npx tsx src/lib/marketing/__tests__/marketing-middleware-access.test.ts"
 run_test "归档客户销售工作区可见性" "npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts"
 run_test "Phase3B-A AiThread Org Bind" "npx tsx src/lib/assistant/__tests__/thread-org-policy.test.ts"
 run_test "Phase3B-A Intent Router" "npx tsx src/lib/assistant/__tests__/intent-router.test.ts"

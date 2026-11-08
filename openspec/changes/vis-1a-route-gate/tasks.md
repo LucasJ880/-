@@ -5,7 +5,7 @@
 ## 1. 注册表与工作区口径
 
 - [x] 1.1 改注册表与工作区策略：
-  - `src/lib/navigation/registry.ts`：新增 `ROUTE_ONLY_NAV_ITEMS`，不进 `NAVIGATION_REGISTRY` 也不进侧栏。共 9 条：审批中心、工艺单详情、项目详情、客户详情、销售复盘、平台管理员页、安装日历、网站预约、邮箱绑定。键、模块与 `salesWorkspaceVisible` 按 design D4 / D9。`nav-projects`、`nav-project-intel`、`nav-intel-{awards,competitors,agencies,supply,monitor}`、`nav-suppliers` 的 `positionPermissions` 改为 `project.create` / `project.update` / `organization.dashboard.read`；`biz-revenue` 的 `moduleKey` 改为 `"trade"`。
+  - `src/lib/navigation/registry.ts`：新增 `ROUTE_ONLY_NAV_ITEMS`，不进 `NAVIGATION_REGISTRY` 也不进侧栏。共 9 条：审批中心、工艺单详情、项目详情、客户详情、销售复盘、平台管理员页、安装日历、网站预约、邮箱绑定（6.1 独立审查后加第 10 条 `route-project-member`，给「项目成员也放行」补模块条件）。键、模块与 `salesWorkspaceVisible` 按 design D4 / D9。`nav-projects`、`nav-project-intel`、`nav-intel-{awards,competitors,agencies,supply,monitor}`、`nav-suppliers` 的 `positionPermissions` 改为 `project.create` / `project.update` / `organization.dashboard.read`；`biz-revenue` 的 `moduleKey` 改为 `"trade"`。
   - `src/lib/tenancy/modules.ts`：`NAV_HREF_MODULES["/revenue"]` 改为 `["trade"]`。
   - `src/lib/rbac/workspace-policy.ts`：`canAccessBidWorkspace` 在岗位模式下非管理层只认 `project.create` / `project.update`，旧模式不变。
   - 测试：

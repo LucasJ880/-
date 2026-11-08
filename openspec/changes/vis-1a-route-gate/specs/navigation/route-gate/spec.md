@@ -176,6 +176,17 @@
 - **WHEN** 无行业包企业里平台角色为 `trade` 的成员、或梦馨只持 `trade_rep` 岗位的成员打开 `/sales/customers/<id>`
 - **THEN** 页面正常打开
 
+### Requirement: 编码路径与框架内部路径变体按页面路径判定
+路由门 SHALL 先把框架内部的 RSC / 预取路径变体（`/x.rsc`、`/x.prefetch`、`/x.segments/…`）还原为页面路径再判定。请求路径含百分号编码时，原样路径与解码一次后的路径 SHALL 都放行才放行；解码失败的路径 SHALL 视为不放行。编码过的路径 SHALL NOT 被当作 `public/` 静态文件放过。
+
+#### Scenario: 编码路径不能绕过
+- **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`，以只持 `accounting` 岗位的输入请求 `/projects/%69ntelligence` 与 `/projects/intelligence%2Fawards`，以 `sales_rep` 请求 `/blinds-orders/%6Eew`
+- **THEN** 都返回 302 到各自落地页，测试通过
+
+#### Scenario: 预取变体按页面判定
+- **WHEN** Sunny 持 `owner` 岗位的成员的请求路径为 `/revenue.prefetch` 或 `/revenue.segments/_tree.segment.rsc`
+- **THEN** 按 `/revenue` 判定，返回 302 到 `/`（同一测试覆盖）
+
 ### Requirement: 未登记的路径一律拒绝
 已登录区里没有登记可见规则的路径 SHALL 视为不放行，按"不放行时 302 到落地页"处理。系统 SHALL NOT 对未登记的路径默认放行。平台 super_admin 除外（见「平台 super_admin 不受路由门限制」），他请求未登记路径时与改动前一样，由页面自身决定（不存在即 404）。
 

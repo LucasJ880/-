@@ -1017,6 +1017,16 @@ export const ROUTE_ONLY_NAV_ITEMS: NavigationItem[] = [
     displayOrder: 0,
   },
   {
+    // 项目成员打开项目详情时的模块与成员身份条件（门表 /projects/* 的「项目成员也放行」：成员关系由 hasBidCapability 给出）
+    key: "route-project-member",
+    label: "项目详情（项目成员）",
+    group: "PROJECTS",
+    moduleKey: ["bids", "projects"],
+    requireMembership: true,
+    salesWorkspaceVisible: true,
+    displayOrder: 0,
+  },
+  {
     // 客户详情：销售；外贸把报价转成销售客户后跳过来
     key: "route-sales-customer-detail",
     label: "客户详情",

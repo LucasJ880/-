@@ -89,10 +89,10 @@ Next 16.2 的两条约束（本仓库版本 `next@16.2.0`），已用最小夹�
 预取也经过中间件（夹具结果三）。一个页面有 N 个侧栏链接，就会触发 N 次判定。不加缓存时每次约 6–8 次查询（若用 `resolvePreferredOrgId` 则约 10–11 次）。处理办法：
 
 - 先做请求分类。「不经路由门」的请求（`/api/**`、免登录路径、`public/` 静态文件、`/login`、`/register`、`/select-org`、Sentry 隧道 `/monitoring`）与「登录即可」的请求都不取判定输入。
-- 其余请求每次都要：校验 JWT（不查库），一次查用户的状态、平台角色与 `activeOrgId`；`activeOrgId` 为空时再查一次成员关系（最多取 2 条）。切换企业因此立即生效。
+- 其余请求每次都要：校验 JWT（不查库），一次查用户的状态、平台角色与 `activeOrgId`，一次查可用企业（active 成员关系 ∧ 企业未归档）。当前企业按 `resolvePreferredOrgId` 对非平台管理员的选法确定：只有一家可用企业就用它；多家时用 `activeOrgId` 且须在其中；否则无企业。被移出、企业已归档时不会沿用旧的 `activeOrgId`。只读、不列计数、不写库；切换企业因此立即生效（独立审查第 2 条）。
   - 用户不存在或状态不是 active：302 `/login`（spec「会话用户失效时回登录页」）。
   - 平台 super_admin：到这一步直接放行，不再取企业侧输入（D13）。
-- 其余判定输入按 `(userId, orgId)` 在进程内缓存 30 秒，最多 500 条，超出时淘汰最旧的。
+- 其余判定输入按 `(userId, orgId)` 在进程内缓存 30 秒，最多 500 条，超出时淘汰最旧的。同一键的并发请求（预取风暴）合并为一次取数。岗位权限键解析失败时按「无键」给出（与 active-org 一致）并记日志，这种降级结果不缓存（独立审查第 4 条）。加载器的依赖可注入（`createRouteGateLoader`），这些行为在 route-gate 测试里用假依赖验证。
 - 构造器抛错时 fail-closed：302 到 `/tasks`，并打一条服务端日志（spec「判定输入取不到时一律拒绝」）。
 
 中间件的判定顺序：
@@ -119,7 +119,7 @@ spec「判定时效」把这 30 秒写成了对外承诺。
 
 判定某导航项时，连同它的父链一起要求可见（`cap-approvals` 这类子项本身不带限制，靠父项「AI 工作中心」）。
 
-门表条目另有一个可选标记「项目成员也放行」，只用于 `/projects/*`：成员身份有效且当前企业内有 active 项目成员关系（即 `hasBidCapability`）时直接放行。这是门表两处不经导航项的条件之一（另一处是 `/organizations` 的「无成员身份也放行」），因为「是项目成员」无法用岗位键表达；项目内能看到什么仍由 `requireProjectReadAccess` 等接口按项目判定。
+门表条目另有一个可选标记「项目成员也放行」，只用于 `/projects/*`：当前企业内有 active 项目成员关系（即 `hasBidCapability`），且只做门条目 `route-project-member`（只带 `bids` / `projects` 模块与成员身份条件）可见时放行。模块条件不能省（独立审查第 3 条：梦馨无这两个模块，项目成员也不进）。这是门表两处不经导航项的条件之一（另一处是 `/organizations` 的「无成员身份也放行」），因为「是项目成员」无法用岗位键表达；项目内能看到什么仍由 `requireProjectReadAccess` 等接口按项目判定。
 
 无侧栏入口的路由在 `src/lib/navigation/registry.ts` 新增 `ROUTE_ONLY_NAV_ITEMS` 登记。这些条目只做门、不进侧栏，由同一个 `isNavItemVisible` 判定。
 
@@ -298,6 +298,16 @@ super_admin 的页面请求在解析用户后直接放行，不取企业侧输�
 
 被否决：保留 `["trade", "sales"]`，只靠外贸入口规则（`tradeEntry`）挡。Sunny 老板模板持 `trade.read`，`tradeEntry` 挡不住；正是因为 `sales` 模块放行，「收入驾驶舱」才出现在 Sunny 菜单里，这是任务书点名的问题。
 
+### D16 编码路径与框架内部路径变体
+
+Next 生产环境按解码后的路径查静态路由（`node_modules/next/dist/server/lib/router-utils/filesystem.js` 的「check decoded variant」），而中间件看到的是原样路径。只按原样匹配会被 `/projects/%69ntelligence` 这类路径绕过，这是独立审查第 1 条。处理：
+- 先把 RSC / 预取变体（`.rsc`、`.prefetch`、`.segments/…`，Vercel 可能直接交给中间件）还原为页面路径；
+- 再要求原样路径与解码一次后的路径都放行；解码失败按不放行。
+
+站内链接不会把字母编码，所以「原样路径不在门表里即拒绝」不会误伤正常使用。
+
+被否决：只按解码后的路径判定。原样路径若命中更宽的条目，就会与 Next 的另一路匹配不一致；两者都要求是最保守的做法。
+
 ## 与八条硬纪律的关系
 
 1. 零 schema：不改 Prisma、不写 migration。门表与「只做门」的条目都是代码常量，缓存只在进程内存里。
@@ -355,6 +365,8 @@ super_admin 的页面请求在解析用户后直接放行，不取企业侧输�
 - `openspec validate vis-1a-route-gate --strict`。
 
 ## 审核关注点（偏离任务书之处，请拍板）
+
+拍板（Lucas，2026-11-08）：「按推荐的走」，Q1–Q10 全部按本节的推荐执行。
 
 - Q1（D11）：收件箱 / 知识库对安装工等岗位是否隐藏、用哪组键。本 change 默认照侧栏现状不动。若要在 1a 一并收，需给出两项各自的岗位键，并接受相应侧栏快照变化。
 - Q2（D1）：门的位置从任务书写的 `(main)/layout.tsx` 改为 Node runtime 中间件，理由与夹具实测见 Context 与 D1。

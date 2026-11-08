@@ -38,6 +38,7 @@ import {
 } from "@/lib/authorization/role-defaults";
 import { DEFAULT_MENGXIN_MODULES, DEFAULT_SUNNY_MODULES, type OrgModule } from "@/lib/tenancy/modules";
 import { config as middlewareConfig, middleware } from "@/middleware";
+import { NO_ORG_INPUTS, createRouteGateLoader, pickGateOrgId, type OrgNavigationInputs } from "../context-server";
 
 let pass = 0;
 let fail = 0;
@@ -142,7 +143,7 @@ console.log("route-gate（VIS-1a）");
     "每条门表条目的示例路径（或其子路径）都命中它自己",
   );
   const routeOnlyKeys = ROUTE_ONLY_NAV_ITEMS.map((i) => i.key);
-  ok(routeOnlyKeys.length === 9, `只做门条目 9 条（实际 ${routeOnlyKeys.length}）`);
+  ok(routeOnlyKeys.length === 10, `只做门条目 10 条（实际 ${routeOnlyKeys.length}）`);
   const sidebarKeys = new Set<string>();
   const walk = (items: typeof NAVIGATION_REGISTRY) => items.forEach((i) => { sidebarKeys.add(i.key); if (i.children) walk(i.children); });
   walk([...NAVIGATION_REGISTRY, ...SYSTEM_NAV_ITEMS]);
@@ -424,6 +425,7 @@ for (const name of IDS) {
   ok(target("sales_rep", "/blinds-orders") === "/sales/home", "Lynn：工艺单列表 → /sales/home");
   ok(allowed("ops_staff", "/projects/x") && target("ops_staff", "/projects") === "/ops", "ops_staff：项目详情放行，项目列表 → /ops");
   ok(isRouteAllowed("/projects/x", at({ ...ID.installer, hasBidCapability: true }, "/projects/x")) && !allowed("installer", "/projects/x"), "安装工：是项目成员才能开项目详情");
+  ok(!isRouteAllowed("/projects/x", at({ ...ID.mx_trade_rep, hasBidCapability: true }, "/projects/x")), "项目成员仍要求模块：梦馨（无 bids / projects）项目成员不进项目详情");
   ok(allowed("bids", "/capabilities/approvals") && allowed("legacy_trade", "/sales/customers/x") && allowed("mx_trade_rep", "/sales/customers/x"), "招投标进审批中心；外贸（旧模式 / 梦馨）进客户详情");
   ok(!allowed("mx_cathy", "/blinds-orders/x") && !allowed("mx_cathy", "/projects/x"), "详情页仍要求模块：梦馨（无窗饰 / 招投标模块）老板不进工艺单 / 项目详情");
   ok(isRouteAllowed("/organizations", at({ ...ID.no_position, hasMembership: false, orgRole: null }, "/organizations")), "无成员身份：/organizations 列表放行");
@@ -526,6 +528,27 @@ async function http() {
     const results = await Promise.all(paths.map((p) => applyRouteGate(req(p), "u1", loader)));
     ok(results.every((r) => r === null) && calls.user === 0 && calls.context === 0, "API / 静态 / 门外 / 登录即可：放行且不调加载器");
   }
+  // 编码路径：原样与解码后都须放行（Next 生产环境按解码后的路径查静态路由）
+  {
+    const check = async (c: RouteGateContext, path: string) => {
+      const { loader } = fakeLoader(activeUser(), c);
+      return applyRouteGate(req(path), "u1", loader);
+    };
+    const denied = async (c: RouteGateContext, path: string) => (await check(c, path))?.status === 302;
+    ok(await denied(ID.accounting, "/projects/%69ntelligence") && await denied(ID.accounting, "/projects/intelligence%2Fawards"), "编码路径：会计不能经 /projects/%69ntelligence 或 %2F 进项目情报");
+    ok(await denied(ID.fulfillment_vinyl, "/projects/%69ntelligence") && await denied(ID.ops_staff, "/projects/intelligence%2Fawards"), "编码路径：出单 / 运营同样被拦");
+    ok(await denied(ID.sales_rep, "/blinds-orders/%6Eew") && await denied(ID.owner, "/revenue/%74oday") && await denied(ID.sales_rep, "/trade/%70rospects"), "编码路径：工艺单新建 / 今日询盘 / 外贸子页不能绕过");
+    ok(await denied(ID.bids, "/projects/%E0%A4%A"), "编码路径：解码失败按不放行");
+    ok((await check(ID.bids, "/projects/%69ntelligence")) === null, "编码路径：原样与解码后都放行的页面照常放行");
+    ok(await denied(ID.sales_rep, "/sales/%68ome"), "编码路径：原样路径不在门表里即拒绝（站内链接不会把字母编码，宁拒勿放）");
+    ok(classifyPageRequest("/projects%2Fa.png") === "gated" && !isStaticImagePath("/projects%2Fa.png"), "编码路径：/projects%2Fa.png 不当作 public 图片");
+    // RSC / 预取路径变体按页面路径判定
+    ok(classifyPageRequest("/revenue.prefetch") === "gated" && classifyPageRequest("/revenue.segments/_tree.segment.rsc") === "gated", "RSC 变体：/x.prefetch、/x.segments/… 按页面判定，不当静态文件");
+    ok(await denied(ID.owner, "/revenue.prefetch") && await denied(ID.owner, "/revenue.segments/_tree.segment.rsc"), "RSC 变体：Sunny 老板的营收中心预取同样被拦");
+    ok((await check(ID.mx_trade_rep, "/revenue.prefetch")) === null && classifyPageRequest("/index.segments/_tree.segment.rsc") === "login_only", "RSC 变体：放行的页面照常；首页的 /index.segments 还原为 /");
+    ok((await check(ID.bids, "//bids")) === null && await denied(ID.sales_rep, "//bids") && await denied(ID.bids, "/BIDS"), "双斜杠按同一路径判定；大写路径不命中门表即拒绝");
+  }
+
   // 中间件层：判定顺序（design D3）——public 图片在登录检查之前放行，其余静态文件仍要登录
   {
     const loc = async (p: string) => (await middleware(req(p))).headers.get("location") ?? "";
@@ -536,6 +559,52 @@ async function http() {
     const api = await middleware(req("/api/sales/home"));
     ok(api.status === 401, "未登录：接口照旧 401");
   }
+}
+
+// ─────────────────────────── 中间件加载器（假依赖：当前企业、缓存、降级、并发合并）───────────────────────────
+async function loaderFactory() {
+  ok(pickGateOrgId(null, ["a"]) === "a" && pickGateOrgId("b", ["a"]) === "a", "当前企业：只有一家可用企业就用它（与 resolvePreferredOrgId 一致）");
+  ok(pickGateOrgId("a", ["a", "b"]) === "a" && pickGateOrgId("c", ["a", "b"]) === null && pickGateOrgId(null, ["a", "b"]) === null, "当前企业：多家时用 activeOrgId 且须在可用企业里，否则无企业");
+  ok(pickGateOrgId("a", []) === null, "当前企业：已被移出（无可用企业）→ 无企业，不沿用旧 activeOrgId");
+
+  let now = 0;
+  let usable = ["orgA"];
+  let degradeNext = false;
+  const fetched: string[] = [];
+  const inputs = (orgId: string | null): OrgNavigationInputs => ({ ...NO_ORG_INPUTS, orgRole: orgId ? "org_member" : null, hasMembership: Boolean(orgId), permissionKeys: orgId ? [`k:${orgId}`] : [] });
+  const loader = createRouteGateLoader({
+    findUser: async (id) => ({ id, role: "user", status: "active", activeOrgId: "orgA" }),
+    findUsableOrgIds: async () => usable,
+    loadOrgInputs: async (_u, orgId) => {
+      fetched.push(orgId ?? "-");
+      await new Promise((r) => setTimeout(r, 5));
+      const degraded = degradeNext;
+      degradeNext = false;
+      return { inputs: degraded ? { ...inputs(orgId), permissionKeys: [] } : inputs(orgId), degraded };
+    },
+    cache: new TtlCache<OrgNavigationInputs>({ ttlMs: ROUTE_GATE_CACHE_TTL_MS, max: 10, now: () => now }),
+    autopilotAllowed: () => false,
+    wechatEntryEnabled: () => false,
+  });
+  const user = (await loader.loadUser("u1"))!;
+  const burst = await Promise.all(Array.from({ length: 5 }, () => loader.loadContext(user)));
+  ok(fetched.length === 1 && burst.every((c) => c.permissionKeys?.[0] === "k:orgA"), "并发预取：同一用户同一企业只取一次");
+  await loader.loadContext(user);
+  ok(fetched.length === 1, "30 秒内命中缓存");
+  now += ROUTE_GATE_CACHE_TTL_MS;
+  await loader.loadContext(user);
+  ok(fetched.length === 2, "30 秒后重新取");
+  usable = ["orgA", "orgB"];
+  const switched = await loader.loadContext({ ...user, activeOrgId: "orgB" });
+  ok(fetched.at(-1) === "orgB" && switched.permissionKeys?.[0] === "k:orgB", "切换企业：按新企业取，不复用旧企业缓存");
+  usable = [];
+  const removed = await loader.loadContext(user);
+  ok(removed.hasMembership === false && (removed.permissionKeys ?? []).length === 0, "被移出企业：无企业、无键（与侧栏一致）");
+  usable = ["orgC"];
+  degradeNext = true;
+  await loader.loadContext(user);
+  await loader.loadContext(user);
+  ok(fetched.filter((o) => o === "orgC").length === 2, "岗位权限键解析失败的降级结果不缓存");
 }
 
 // ─────────────────────────── 缓存 ───────────────────────────
@@ -594,18 +663,18 @@ async function http() {
   const BEFORE = ["activeOrgId", "orgCode", "orgCompany", "modules", "orgRole", "workspaceIds", "hasMembership", "hasBidCapability", "permissionKeys", "positionMode", "needsSelection", "orgAccessMode", "canSelfSwitchOrg", "canSwitch", "organizations"].sort();
   ok(JSON.stringify(keys) === JSON.stringify(BEFORE), `active-org 响应键集合与改动前一致（${keys.length} 个）`);
   const cs = read("src/lib/navigation/context-server.ts");
-  ok(!/resolvePreferredOrgId\(/.test(cs) && /take: 2/.test(cs), "context-server：中间件不调 resolvePreferredOrgId，当前企业只读解析");
+  ok(!/resolvePreferredOrgId\(/.test(cs) && /pickGateOrgId\(user\.activeOrgId/.test(cs) && /org: \{ status: \{ not: "archived" \} \}/.test(cs), "context-server：中间件不调 resolvePreferredOrgId，当前企业只读解析（可用企业 = active 成员 ∧ 未归档）");
   ok(/withIndustryPackModules\(/.test(cs) && /hasPositionTemplates\(/.test(cs) && /resolveEffectiveBindings\(/.test(cs), "context-server：模块含行业包兜底、岗位模式、岗位权限键");
 
   // 中间件：Node runtime、从 context-server 取输入、调用路由门；营销页面分支已删；matcher 不再排除图片
   ok((middlewareConfig as { runtime?: string }).runtime === "nodejs", "中间件声明 runtime: nodejs");
-  ok(/import \{ ROUTE_GATE_LOADER \} from "@\/lib\/navigation\/context-server"/.test(mw) && /applyRouteGate\(request, session\.sub, ROUTE_GATE_LOADER\)/.test(mw), "中间件从 context-server 取输入并调用路由门");
+  ok(/import \{ ROUTE_GATE_LOADER \} from "@\/lib\/navigation\/context-server"/.test(mw) && /handleRequest\(request, ROUTE_GATE_LOADER\)/.test(mw) && /applyRouteGate\(request, session\.sub, loader\)/.test(mw), "中间件从 context-server 取输入并调用路由门");
   ok(!/isMarketingWorkspacePath|isMarketingPagePath/.test(mw), "中间件不再引用营销页面判定");
   ok(middlewareConfig.matcher.every((m) => !/png|svg|jpe?g|gif|webp/.test(m)), "matcher 不再按图片扩展名排除");
   ok(/const VERSION = "qingyan-v4";/.test(read("public/sw.js")), "Service Worker 缓存版本提升到 qingyan-v4");
 }
 
-http().then(() => {
+http().then(loaderFactory).then(() => {
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 });
