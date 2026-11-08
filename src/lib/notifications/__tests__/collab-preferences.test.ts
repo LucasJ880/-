@@ -253,5 +253,40 @@ ok(page.includes("控制站内通知类型、优先级、静默时段，以及�
 ok(!page.includes("当前未连接发信"), "不再写「当前未连接发信」");
 ok(page.includes('label="推送通知"') && page.includes("浏览器或 App 推送（后续版本）。"), "推送开关保持原样");
 
+console.log("T-1 询价进展的四个类型");
+{
+  const RFQ_TYPES = ["rfq_quote_received", "rfq_reply_received", "rfq_chase_ready", "rfq_no_response"] as const;
+  const RFQ_LABELS: Record<(typeof RFQ_TYPES)[number], string> = {
+    rfq_quote_received: "供应商报价了",
+    rfq_reply_received: "供应商回信（无报价）",
+    rfq_chase_ready: "催单待批",
+    rfq_no_response: "供应商未响应",
+  };
+  for (const t of RFQ_TYPES) {
+    ok(REGISTRY.includes(t), `注册表含 ${t}`);
+    ok(NOTIFICATION_TYPE_LABELS[t] === RFQ_LABELS[t], `${t} → ${RFQ_LABELS[t]}`);
+    ok(TYPE_INTRODUCED_AT[t] === "9999-12-31T00:00:00Z", `${t} 用远未来哨兵`);
+    ok(new RegExp(`\\b${t}:`).test(itemIcons), `通知页图标表含 ${t}`);
+    ok(new RegExp(`\\b${t}:`).test(headerIcons), `铃铛图标表含 ${t}`);
+  }
+  // 本次上线前的清单：当时注册表里还没有这四个类型
+  const BEFORE_T1 = REGISTRY.filter((t) => !(RFQ_TYPES as readonly string[]).includes(t));
+  const octNoKnown = row({ enabledTypesJson: JSON.stringify(BEFORE_T1), updatedAt: OCT });
+  ok(RFQ_TYPES.every((t) => typeOn(octNoKnown, t)), "2026-10 保存、无 knownTypes 的清单：四个询价类型视为开启");
+  const savedAfterCollab = row({
+    enabledTypesJson: JSON.stringify(BEFORE_T1),
+    metadata: JSON.stringify({ knownTypes: BEFORE_T1 }),
+    updatedAt: new Date("2026-11-06T00:00:00Z"),
+  });
+  ok(RFQ_TYPES.every((t) => typeOn(savedAfterCollab, t)), "COLLAB-2 之后、T-1 之前保存（knownTypes 里没有询价类型）：视为开启");
+  const turnedOff = row({
+    enabledTypesJson: JSON.stringify(REGISTRY.filter((t) => t !== "rfq_chase_ready")),
+    metadata: JSON.stringify({ knownTypes: REGISTRY }),
+    updatedAt: AFTER_DEPLOY,
+  });
+  ok(!typeOn(turnedOff, "rfq_chase_ready"), "上线后在设置页关掉「催单待批」并保存 → 关闭");
+  ok(typeOn(turnedOff, "rfq_quote_received"), "关掉「催单待批」不影响「供应商报价了」");
+}
+
 console.log(`\ncollab-preferences: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

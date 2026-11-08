@@ -316,6 +316,76 @@ console.log("tender-rfq inbound (§5 acceptance)");
   ok("邮箱拆分：入站按 mailboxEmail 找授权邮箱", asked === "lucas@sunnyshutter.ca");
 }
 
+// T-1：回信自动入表、审计写完之后调用询价通知（spec tender/rfq-notifications）
+{
+  console.log("T-1 询价通知挂钩");
+  const quoteOrReply: InboundSyncDeps["parse"] = (input) =>
+    input.bodyText.includes("10.00")
+      ? parseInboundQuote(input, { complete: llm({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 10, totalPrice: null, evidence: "单价 CAD 10.00" }] }) })
+      : parseInboundQuote(input, { complete: llm({ isQuote: false }) });
+  type Call = { orgId: string; itemId: string; transition: string; messageId: string; auditedFirst: boolean };
+
+  const world = makeWorld();
+  const calls: Call[] = [];
+  const items = [item({ id: "i-q", threadId: "t-q" }), item({ id: "i-r", threadId: "t-r" })];
+  const deps: InboundSyncDeps = {
+    ...makeDeps(world, { messages: [msg("m-q", "t-q", "单价 CAD 10.00"), msg("m-r", "t-r", "收到，下周报价。")], parse: quoteOrReply }),
+    notifyTracking: async (e) => {
+      calls.push({ orgId: e.orgId, itemId: e.item.id, transition: e.plan.transition, messageId: e.messageId, auditedFirst: world.audits.some((a) => a.messageId === e.messageId && a.action === "rfq_inbound:applied") });
+    },
+  };
+  const r = await syncOrgInbound(org(items), deps);
+  ok("报价入表调用一次询价通知（quoted）", calls.filter((c) => c.itemId === "i-q" && c.transition === "quoted" && c.messageId === "m-q").length === 1);
+  ok("回信入表调用一次询价通知（replied）", calls.filter((c) => c.itemId === "i-r" && c.transition === "replied" && c.messageId === "m-r").length === 1);
+  ok("通知带组织 id", calls.every((c) => c.orgId === "org-1"));
+  ok("通知在入表审计写完之后", calls.every((c) => c.auditedFirst));
+  ok("计数照常", r.quoted === 1 && r.replied === 1 && r.failed === 0);
+  const again = await syncOrgInbound(org(items), deps);
+  ok("同一封回信第二次 → 跳过，不再通知", again.duplicates === 2 && calls.length === 2);
+
+  // 解析失败 / 自己发出 / 未命中线程 / 状态不变 → 不调
+  const world2 = makeWorld();
+  const calls2: string[] = [];
+  const quotedAlready = item({ id: "i-done", threadId: "t-done", status: "quoted", unitPrice: 10, deliveryDays: 30, validUntil: new Date("2026-12-31T00:00:00Z") });
+  const items2 = [item({ id: "i-bad", threadId: "t-bad" }), item({ id: "i-own", threadId: "t-own" }), quotedAlready];
+  const own: InboundMessage = { ...msg("m-own", "t-own", "单价 CAD 10.00"), labelIds: ["SENT"] };
+  const deps2: InboundSyncDeps = {
+    ...makeDeps(world2, {
+      messages: [msg("m-bad", "t-bad", "坏信"), own, msg("m-x", "t-unknown", "单价 CAD 10.00"), msg("m-done", "t-done", "谢谢，已收到。")],
+      parse: async (input) => {
+        if (input.bodyText === "坏信") throw new Error("附件损坏，无法解析");
+        return quoteOrReply(input);
+      },
+    }),
+    notifyTracking: async (e) => { calls2.push(`${e.item.id}:${e.plan.transition}`); },
+  };
+  const r2 = await syncOrgInbound(org(items2), deps2);
+  ok("解析失败：只发既有的失败提醒，不调询价通知", r2.failed === 1 && world2.failedNotices.includes("m-bad") && !calls2.some((c) => c.startsWith("i-bad")));
+  ok("自己发出的邮件：不调", r2.ownMessages === 1 && !calls2.some((c) => c.startsWith("i-own")));
+  ok("未命中询价线程：不调", r2.ignored === 1);
+  ok("处理后状态不变（none）：不调", world2.applied.some((a) => a.itemId === "i-done" && a.plan.transition === "none") && !calls2.some((c) => c.startsWith("i-done")), world2.applied.map((a) => a.plan.transition));
+  ok("这一批一次都没调", calls2.length === 0, calls2);
+
+  // 通知抛错（异步 reject 与同步 throw）→ 入表结果、审计、游标不受影响
+  for (const mode of ["reject", "throw"] as const) {
+    const w = makeWorld();
+    const failing: InboundSyncDeps["notifyTracking"] =
+      mode === "reject"
+        ? async () => { throw new Error("db down"); }
+        : ((() => { throw new Error("sync boom"); }) as unknown as InboundSyncDeps["notifyTracking"]);
+    const d: InboundSyncDeps = { ...makeDeps(w, { messages: [msg("m-q2", "t-q", "单价 CAD 10.00")], parse: quoteOrReply }), notifyTracking: failing };
+    const rr = await syncOrgInbound(org([item({ id: "i-q", threadId: "t-q" })]), d);
+    ok(`询价通知抛错（${mode}）时入表结果不变`, rr.quoted === 1 && rr.failed === 0 && w.applied.length === 1);
+    ok(`询价通知抛错（${mode}）时审计照写、不写失败审计`, w.audits.length === 1 && w.audits[0].action === "rfq_inbound:applied" && w.failedNotices.length === 0);
+    ok(`询价通知抛错（${mode}）时游标照常前进`, w.cursors.at(-1)?.historyId === "h-200");
+  }
+
+  // 没有 notifyTracking 依赖（旧调用方）→ 行为不变
+  const w0 = makeWorld();
+  const r0 = await syncOrgInbound(org([item({ id: "i-q", threadId: "t-q" })]), makeDeps(w0, { messages: [msg("m-q3", "t-q", "单价 CAD 10.00")], parse: quoteOrReply }));
+  ok("不传 notifyTracking：入表照常", r0.quoted === 1 && w0.applied.length === 1);
+}
+
 console.log(`\ntender-rfq inbound-apply: ${passed} passed`);
 }
 

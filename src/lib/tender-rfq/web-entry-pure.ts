@@ -433,3 +433,32 @@ export function assembleEntryPreview(src: {
     excludedCount: src.excludedCount,
   };
 }
+
+// ── T-1：从链接直达询价轮次（spec tender/rfq-web-entry「从链接直达询价轮次」） ──
+
+/** 轮次锚点前缀：通知跳转地址 /projects/{id}?tab=bid#rfq-round-{轮次 id} 与入口说明的页内锚点共用 */
+export const RFQ_ROUND_ANCHOR_PREFIX = "#rfq-round-";
+const ROUND_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** 地址里的 #rfq-round-<id> → 轮次 id；空、错前缀、含多余字符 → null */
+export function roundIdFromHash(hash: string | null | undefined): string | null {
+  if (!hash || !hash.startsWith(RFQ_ROUND_ANCHOR_PREFIX)) return null;
+  const id = hash.slice(RFQ_ROUND_ANCHOR_PREFIX.length);
+  return ROUND_ID_PATTERN.test(id) ? id : null;
+}
+
+/**
+ * 列表加载后展开哪一轮：锚点轮次属于本项目 → 它（优先于默认）；
+ * 否则当前已展开 / 待批的那一轮（仍在列表里）；否则最新一轮；没有轮次 → null。
+ */
+export function initialExpandedRound(input: {
+  hashRoundId: string | null;
+  roundIds: readonly string[];
+  currentRoundId: string | null;
+  latestRoundId: string | null;
+}): string | null {
+  const inList = (id: string | null): id is string => !!id && input.roundIds.includes(id);
+  if (inList(input.hashRoundId)) return input.hashRoundId;
+  if (inList(input.currentRoundId)) return input.currentRoundId;
+  return inList(input.latestRoundId) ? input.latestRoundId : null;
+}

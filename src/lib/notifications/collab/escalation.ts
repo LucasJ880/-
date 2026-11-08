@@ -2,7 +2,7 @@
  * 协作通知 COLLAB-2：未读升级邮件（design D14，spec notifications/email-reminders）
  *
  * 挂在既有 sales-actions 定时任务的最后一步（每 15 分钟），不新增 cron 或队列：
- * 1. 候选：mention / task_assigned、仍未读、创建于 [now − 24h, now − 15min]，按创建时间升序取前 500 条；
+ * 1. 候选：mention / task_assigned / rfq_chase_ready（T-1 催单待批）、仍未读、创建于 [now − 24h, now − 15min]，按创建时间升序取前 500 条；
  *    再按 metadata 在内存里去掉已发、已跳过、尝试满 3 次、10 分钟内正在发送的；
  * 2. 跳过（记下原因，之后不再试）：账号停用、不是 active 成员、邮件偏好关、免打扰（不论优先级）、地址不可投递；
  * 3. 认领：对这一条通知做条件更新（metadata 仍是读到的原文、仍未读），写入 emailSendingAt 与 emailAttempts + 1，
@@ -29,7 +29,8 @@ import {
   type MailDeps,
 } from "./email";
 
-export const ESCALATION_TYPES = ["mention", "task_assigned"] as const;
+/** T-1：催单待批也升级（卡 48 小时过期，没人看会白起草）；报价 / 回信 / 未响应不升级 */
+export const ESCALATION_TYPES = ["mention", "task_assigned", "rfq_chase_ready"] as const;
 export const ESCALATION_MIN_AGE_MS = 15 * 60_000;
 export const ESCALATION_WINDOW_MS = 24 * 60 * 60_000;
 export const ESCALATION_CANDIDATE_LIMIT = 500;

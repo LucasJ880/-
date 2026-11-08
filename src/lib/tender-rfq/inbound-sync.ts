@@ -23,7 +23,8 @@ import type { MuseQuoteSnapshot } from "@/lib/muse-bridge/hooks";
 /* ---------------------------------- 类型 ---------------------------------- */
 
 export const INBOUND_AUDIT_TARGET = "rfq_inbound_message" as const;
-export const INBOUND_NOTIFICATION_CATEGORY = "muse_bridge" as const;
+/** 入站提醒（解析失败 / 缺读信权限）的类别：询价（T-1 起，此前为 muse_bridge）；去重键不变 */
+export const INBOUND_NOTIFICATION_CATEGORY = "tender_rfq" as const;
 const REMINDER_WINDOW_MS = 24 * 3600 * 1000;
 /** 只扫最近 90 天发出的询价（更早的线程不再期待回信） */
 const OPEN_ITEM_WINDOW_DAYS = 90;
@@ -76,7 +77,12 @@ export type InboundSyncDeps = {
    */
   reviveNoResponse?: (item: InboundItemRow) => Promise<void>;
   writeAudit: (entry: { orgId: string; projectId: string; userId: string; messageId: string; action: "rfq_inbound:applied" | "rfq_inbound:failed"; data: Record<string, unknown> }) => Promise<void>;
-  notifyFailed: (entry: { orgId: string; projectId: string; userId: string; messageId: string; error: string }) => Promise<void>;
+  notifyFailed: (entry: { orgId: string; projectId: string; inquiryId: string; userId: string; messageId: string; error: string }) => Promise<void>;
+  /**
+   * T-1：回信自动入表、审计写完之后的站内通知（quoted → 报价了；replied → 回信无报价）。
+   * 不传 = 不通知（测试 deps 可省）；出错只记日志，不影响入表结果与计数。
+   */
+  notifyTracking?: (entry: { orgId: string; item: InboundItemRow; plan: InquiryItemUpdatePlan; messageId: string }) => Promise<void>;
   saveCursor: (orgId: string, cursor: InboundCursor) => Promise<void>;
   /** P1-7：收信成功后的催单扫描（不传 = 不扫；入站被跳过时不扫——没读到回信就不知道谁真没回） */
   runChaseScan?: (orgId: string, now: Date) => Promise<{ drafted: unknown[]; noResponse: unknown[]; failed: unknown[] }>;
@@ -239,6 +245,13 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
         action: "rfq_inbound:applied",
         data: { itemId: item.id, ...auditSummary(parsed, plan), ...(revived ? { revivedFromNoResponse: true } : {}) },
       });
+      if (deps.notifyTracking && (plan.transition === "quoted" || plan.transition === "replied")) {
+        const notify = deps.notifyTracking;
+        // 包一层 Promise：同步抛错也只记日志，不进下面的失败分支（否则会再写一条失败审计）
+        await Promise.resolve()
+          .then(() => notify({ orgId: org.orgId, item, plan, messageId: ref.messageId }))
+          .catch((e) => console.error("[tender-rfq-inbound] tracking notify failed:", e));
+      }
       if (plan.transition === "quoted") result.quoted += 1;
       else if (plan.transition === "replied") result.replied += 1;
       else result.unchanged += 1;
@@ -254,7 +267,7 @@ export async function syncOrgInbound(org: InboundOrgContext, deps: InboundSyncDe
         action: "rfq_inbound:failed",
         data: { itemId: owner.id, error },
       }).catch((e) => console.error("[tender-rfq-inbound] audit failed:", e));
-      await deps.notifyFailed({ orgId: org.orgId, projectId: owner.projectId, userId: owner.ownerId, messageId: ref.messageId, error })
+      await deps.notifyFailed({ orgId: org.orgId, projectId: owner.projectId, inquiryId: owner.inquiryId, userId: owner.ownerId, messageId: ref.messageId, error })
         .catch((e) => console.error("[tender-rfq-inbound] notify failed:", e));
     }
   }
@@ -423,10 +436,22 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
         category: INBOUND_NOTIFICATION_CATEGORY,
         title: "有一封供应商回信解析失败，请手工录入",
         summary: `回信（Gmail ${e.messageId}）未能自动入表：${e.error.slice(0, 120)}`,
-        entityType: "project",
-        entityId: e.projectId,
+        // T-1：跳到该回信所属的询价轮次（/projects/{id}?tab=bid#rfq-round-{轮次}）
+        entityType: "tender_rfq_round",
+        entityId: e.inquiryId,
         priority: "medium",
         sourceKey: `tender-rfq-inbound:failed:${e.messageId}`,
+      });
+    },
+    notifyTracking: async (e) => {
+      if (e.plan.transition !== "quoted" && e.plan.transition !== "replied") return;
+      const { notifyInboundTracking } = await import("./tracking-notify");
+      await notifyInboundTracking({
+        orgId: e.orgId,
+        itemId: e.item.id,
+        transition: e.plan.transition,
+        messageId: e.messageId,
+        missingFields: e.plan.missingFields,
       });
     },
     runChaseScan: async (orgId, now) => {

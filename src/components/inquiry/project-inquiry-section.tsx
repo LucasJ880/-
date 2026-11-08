@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 import {
@@ -20,6 +20,7 @@ import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel"
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
 import type { RfqEntryView, RfqPendingSendView } from "./rfq-web-entry-types";
+import { RFQ_ROUND_ANCHOR_PREFIX, initialExpandedRound, roundIdFromHash } from "@/lib/tender-rfq/web-entry-pure";
 
 interface InquiryRound {
   id: string;
@@ -62,7 +63,7 @@ const STATUS_LABEL: Record<string, string> = {
   canceled: "已取消",
 };
 
-const ROUND_ANCHOR_PREFIX = "#rfq-round-";
+const ROUND_ANCHOR_PREFIX = RFQ_ROUND_ANCHOR_PREFIX;
 
 export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const [rounds, setRounds] = useState<InquiryRound[]>([]);
@@ -75,6 +76,10 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   /** 最近一次审批决策的结果：审批面板在刷新后会卸载，结果文字留在该轮卡片上，直到手动关掉 */
   const [lastOutcome, setLastOutcome] = useState<(RfqDecisionOutcome & { inquiryId: string }) | null>(null);
+  /** T-1：地址里的 #rfq-round-<id> 只在首次加载列表时读一次；按锚点展开后，待批轮次不再抢展开 */
+  const hashHandledRef = useRef(false);
+  const anchoredRef = useRef(false);
+  const [scrollToRound, setScrollToRound] = useState<string | null>(null);
 
   // 加载失败时保留上一次成功的入口数据（否则会退回旧界面、待批轮次重新露出「标记发送」）
   const loadEntry = useCallback(() => {
@@ -94,9 +99,20 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
     apiFetch(`/api/projects/${projectId}/inquiries`)
       .then((r) => r.json())
       .then((data) => {
-        const list = Array.isArray(data) ? data : [];
+        const list: InquiryRound[] = Array.isArray(data) ? data : [];
         setRounds(list);
-        setExpandedId((prev) => prev ?? (list.length > 0 ? list[list.length - 1].id : null));
+        const roundIds = list.map((r) => r.id);
+        const latestRoundId = roundIds.length > 0 ? roundIds[roundIds.length - 1] : null;
+        let hashRoundId: string | null = null;
+        if (!hashHandledRef.current) {
+          hashHandledRef.current = true;
+          hashRoundId = roundIdFromHash(window.location.hash);
+          if (hashRoundId && roundIds.includes(hashRoundId)) {
+            anchoredRef.current = true;
+            setScrollToRound(hashRoundId);
+          }
+        }
+        setExpandedId((prev) => initialExpandedRound({ hashRoundId, roundIds, currentRoundId: prev, latestRoundId }));
       })
       .finally(() => setLoading(false));
   }, [projectId]);
@@ -127,9 +143,24 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
 
   // 有待批发送卡时默认展开那一轮（审批面板在里面）；只在「第一张待批卡」变化时跳，不打断用户手动收起
   const firstPendingInquiryId = ready?.pendingSends[0]?.inquiryId ?? null;
+  // 从链接直达时（T-1），首次看到的待批轮次不抢锚点那一轮；之后新出现的待批轮次照常展开
+  const firstPendingSeenRef = useRef(false);
   useEffect(() => {
-    if (firstPendingInquiryId) setExpandedId(firstPendingInquiryId);
+    if (!firstPendingInquiryId) return;
+    const initial = !firstPendingSeenRef.current;
+    firstPendingSeenRef.current = true;
+    if (initial && anchoredRef.current) return;
+    setExpandedId(firstPendingInquiryId);
   }, [firstPendingInquiryId]);
+
+  // 从链接直达：列表渲染出该轮之后再滚过去（首屏时元素还不在，浏览器自己的锚点滚动落空）
+  useEffect(() => {
+    if (!scrollToRound || loading) return;
+    const target = document.getElementById(`rfq-round-${scrollToRound}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    setScrollToRound(null);
+  }, [scrollToRound, loading, rounds]);
 
   /** 入口说明里的页内锚点：#rfq-round-<id> 展开并滚到该轮；#rfq-rounds 滚到列表 */
   const followAnchor = useCallback((href: string) => {

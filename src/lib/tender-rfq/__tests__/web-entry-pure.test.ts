@@ -15,6 +15,9 @@ import {
   orderEntrySuppliers,
   rfqErrorToUserMessage,
   roundStatusLine,
+  initialExpandedRound,
+  RFQ_ROUND_ANCHOR_PREFIX,
+  roundIdFromHash,
   type RfqEntryFacts,
 } from "../web-entry-pure";
 
@@ -215,6 +218,24 @@ console.log("W-1 预览白名单（不含敏感商务数字）");
   const json = JSON.stringify(preview);
   ok("只保留五个白名单字段", Object.keys(preview).sort().join(",") === "confirmedRequirementCount,excludedCount,fromEmail,fromName,replyBy");
   ok("不含估值 / 我方报价 / 中标价 / 毛利", !/estimatedValue|ourBidPrice|winningBidPrice|margin|250000|199000/.test(json));
+}
+
+console.log("T-1 从链接直达询价轮次");
+{
+  ok("锚点前缀与跳转地址一致", RFQ_ROUND_ANCHOR_PREFIX === "#rfq-round-");
+  ok("合法 id → 轮次 id", roundIdFromHash("#rfq-round-cmh1x2y3z0001abcd") === "cmh1x2y3z0001abcd");
+  ok("空 / undefined → null", roundIdFromHash("") === null && roundIdFromHash(undefined) === null && roundIdFromHash(null) === null);
+  ok("只有前缀没有 id → null", roundIdFromHash("#rfq-round-") === null);
+  ok("错前缀 → null", roundIdFromHash("#rfq-rounds") === null && roundIdFromHash("#project-suppliers") === null && roundIdFromHash("rfq-round-abc") === null);
+  ok("含多余字符 → null", roundIdFromHash("#rfq-round-abc?x=1") === null && roundIdFromHash("#rfq-round-a/b") === null && roundIdFromHash("#rfq-round-<script>") === null);
+  ok("过长 → null", roundIdFromHash(`#rfq-round-${"a".repeat(65)}`) === null);
+  const ids = ["r1", "r2", "r3"];
+  ok("锚点轮次优先于默认展开（待批轮）", initialExpandedRound({ hashRoundId: "r1", roundIds: ids, currentRoundId: "r2", latestRoundId: "r3" }) === "r1");
+  ok("锚点轮次优先于最新一轮", initialExpandedRound({ hashRoundId: "r1", roundIds: ids, currentRoundId: null, latestRoundId: "r3" }) === "r1");
+  ok("锚点轮次不属于该项目 → 按默认（待批轮）", initialExpandedRound({ hashRoundId: "x9", roundIds: ids, currentRoundId: "r2", latestRoundId: "r3" }) === "r2");
+  ok("没有锚点、没有待批 → 最新一轮", initialExpandedRound({ hashRoundId: null, roundIds: ids, currentRoundId: null, latestRoundId: "r3" }) === "r3");
+  ok("当前展开的那轮已不在列表 → 最新一轮", initialExpandedRound({ hashRoundId: null, roundIds: ids, currentRoundId: "gone", latestRoundId: "r3" }) === "r3");
+  ok("没有轮次 → null", initialExpandedRound({ hashRoundId: "r1", roundIds: [], currentRoundId: null, latestRoundId: null }) === null);
 }
 
 console.log(`\nW-1 web-entry-pure: ${passed} passed`);

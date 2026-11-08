@@ -32,6 +32,11 @@ export const NOTIFICATION_TYPE_KEYS = [
   "task_status",
   "task_comment",
   "order_stage",
+  // T-1：询价进展（报价 / 回信无报价 / 催单待批 / 未响应）
+  "rfq_quote_received",
+  "rfq_reply_received",
+  "rfq_chase_ready",
+  "rfq_no_response",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];
@@ -63,6 +68,10 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   task_status: "任务状态变化",
   task_comment: "任务新评论",
   order_stage: "工艺单阶段变化",
+  rfq_quote_received: "供应商报价了",
+  rfq_reply_received: "供应商回信（无报价）",
+  rfq_chase_ready: "催单待批",
+  rfq_no_response: "供应商未响应",
 };
 
 /** 类型名称；没有登记名称的类型统一叫「其他通知」 */
