@@ -359,7 +359,7 @@ function flatKeys(items: ResolvedNavItem[]): string[] {
       !e.rule.allowWithoutMembership &&
       !ROUTE_ONLY_NAV_ITEMS.some((i) => i.key === (e.rule as { navKeys: readonly string[] }).navKeys[0]),
   );
-  let mismatches: string[] = [];
+  const mismatches: string[] = [];
   for (const name of IDS) {
     const c = ID[name];
     const visible = new Set(flatKeys(resolveNavigationTree([...NAVIGATION_REGISTRY, ...SYSTEM_NAV_ITEMS], at(c, "/"))));
