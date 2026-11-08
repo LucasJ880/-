@@ -58,11 +58,6 @@ for (const tier of [platformTier, client.platformTier]) {
     "platformTier：super_admin → admin 档，admin → user，其余原样",
   );
 }
-ok(
-  ["/sales", "/trade", "/admin", "/inventory"].every((m) => client.canAccessModule("admin", m) === client.canAccessModule("user", m)),
-  "canAccessModule：平台 admin 与 user 相同",
-);
-ok(client.canAccessModule("super_admin", "/admin") === client.canAccessModule("super_admin", "/admin"), "canAccessModule：super_admin 不受影响");
 
 // ── AI 能力矩阵 / 工具档 ──
 ok(JSON.stringify(getCapabilities("admin")) === JSON.stringify(getCapabilities("user")), "能力矩阵：平台 admin = user");

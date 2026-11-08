@@ -159,7 +159,7 @@ M1 award 搜索（canadabuys open data）/ M2 web 搜索（**Tavily**）/ M2.5 A
 
 ### 6.1 导航/权限/i18n 五件套
 
-navigation/registry.ts 加 NavigationItem（labelKey/moduleKey/requiredPlatformRoles/displayOrder…；新 group 还要 NAV_GROUP_META + NAV_SECTION_LABEL + MOBILE_TOP_CATEGORIES）→ tenancy/modules.ts `NAV_HREF_MODULES` → permissions-client.ts `MODULE_ROLES`（与 rbac/roles.ts、rbac/role-access.ts MODULE_VISIBILITY 三处 SYNC）→ i18n 三文件（messages.ts 接口→zh.ts→en.ts，缺实现即编译错）。
+navigation/registry.ts 加 NavigationItem（labelKey/moduleKey/requiredPlatformRoles/displayOrder…；新 group 还要 NAV_GROUP_META + NAV_SECTION_LABEL + MOBILE_TOP_CATEGORIES）→ tenancy/modules.ts `NAV_HREF_MODULES` → i18n 三文件（messages.ts 接口→zh.ts→en.ts，缺实现即编译错）。
 
 ### 6.2 API 门与前端请求
 
