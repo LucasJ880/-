@@ -60,7 +60,7 @@
 
 ## 6. 门禁
 
-- [ ] 6.1 跑整体门禁并做独立审查：
+- [x] 6.1 跑整体门禁并做独立审查：
   - `npm test`（全量）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate vis-1a-route-gate --strict`。
   - 另起独立审查：只给任务书、spec 增量与 diff，不给本设计的结论；逐条处理审查意见。
   - 发现 spec 没覆盖的对外行为时先补 spec 增量再改代码。
@@ -68,8 +68,8 @@
 
 ## 7. 收尾
 
-- [ ] 7.1 写 `docs/QINGYAN_VIS-1a_REPORT.md` 并更新 TASKFLOW：
-  - 报告内容：基线与改动后测试数、受影响岗位的放行 / 302 表、侧栏快照差异、构建输出、design「审核关注点」Q1–Q9 的拍板结果、已知仍会弹回的站内链接、合并后生产核对清单。
+- [x] 7.1 写 `docs/QINGYAN_VIS-1a_REPORT.md` 并更新 TASKFLOW：
+  - 报告内容：基线与改动后测试数、受影响岗位的放行 / 302 表、侧栏快照差异、构建输出、design「审核关注点」Q1–Q10 的拍板结果、已知仍会弹回的站内链接、合并后生产核对清单。
   - TASKFLOW：`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase V 的 VIS-1a 状态列改为 `[G]（change vis-1a-route-gate；待合并）`；任务描述若与拍板后的实际交付不一致（如 Q1、Q2 的结论），同步改描述。
   - verify：报告文件存在；`git diff docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 只改 VIS-1a 一行。
 

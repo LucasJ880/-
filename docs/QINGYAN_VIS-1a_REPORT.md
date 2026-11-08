@@ -106,7 +106,10 @@
 门禁：
 - `npm run test:ci`：PASS（`CI unit subset PASS`）。
   - 第一次跑时 `marketing-middleware-access.test.ts` 失败：它锁着旧的 307 → `/sales`，且经中间件连真实库，已改为新口径。
-- `npm test`（全量，`NODE_OPTIONS=--max-old-space-size=8192`）：见下方「全量结果」。
+- `npm test`（全量，`NODE_OPTIONS=--max-old-space-size=8192`）：558/571 通过，13 个失败，均与本 change 无关：
+  - 这 13 个在 main 的工作树里逐个复跑，同样失败（退出码 1）。
+  - 原因都是环境：10 个 capabilities / agent-trace 库测试的「DATABASE SAFETY CHECK」拒跑（无隔离库）；授标情报 Postgres 矩阵需 `DATABASE_URL`；Gmail Draft OAuth 依赖环境变量；客户报价 PDF 分页需 Chromium。
+  - 第一次全量用默认堆，「TypeScript 类型检查」因内存溢出失败（共 14 个）；加大堆后通过。
 - `npm run typecheck`：容器默认堆下 `tsc` 内存溢出，`NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit` 退出 0。之前本地构建留下的 `.next/types` 会让 tsc 报已删 layout，删掉 `.next` 后通过；CI 无此目录。
 - `npm run lint:baseline`：PASS（无新增 error fingerprint，相对基线少 15 处 error）。
 - `bash scripts/check-test-registry.sh`：通过，已注册 547，基线剩 69。
