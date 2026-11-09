@@ -18,10 +18,12 @@ import {
   workspaceContextFromNav,
 } from "@/lib/rbac/workspace-policy";
 import {
+  HOME_TEXTILE_TRADE_INDUSTRY_PACK,
   WINDOW_COVERING_INDUSTRY_PACK,
   hasPositionTemplates,
   mergedProfileBindings,
 } from "@/lib/authorization/role-defaults";
+import { DEFAULT_MENGXIN_MODULES } from "@/lib/tenancy/modules";
 import { PERMISSION_REGISTRY } from "@/lib/authorization/permissions";
 
 let pass = 0;
@@ -133,6 +135,8 @@ const COMMON = [
   "work-notifications",
   "work-tasks",
 ];
+// VIS-1b（design D6 / Q8）：没有可读工作域的一线岗位不见「AI 任务」
+const COMMON_NO_AI_JOBS = COMMON.filter((k) => k !== "work-ai-jobs");
 const SALES_SIDEBAR = [
   "biz-all-quotes",
   "biz-quotes",
@@ -215,7 +219,7 @@ const CASES: Array<{ name: string; positions: string[]; page: string; sidebar: s
     positions: ["accounting"],
     page: "/accounting",
     // VIS-1a（判断点 3）：只持 project.read 不再见招投标与项目 / 情报 / 供应商
-    sidebar: [...COMMON, "biz-accounting", "ws-install"],
+    sidebar: [...COMMON_NO_AI_JOBS, "biz-accounting", "ws-install"],
   },
   {
     name: "bids",
@@ -228,17 +232,24 @@ const CASES: Array<{ name: string; positions: string[]; page: string; sidebar: s
     positions: [p],
     page: "/tasks",
     // VIS-1a（判断点 3）：只持 project.read 不再见招投标与项目 / 情报 / 供应商
-    sidebar: [...COMMON, "biz-inventory", "biz-work-orders", "ws-install"],
+    sidebar: [...COMMON_NO_AI_JOBS, "biz-inventory", "biz-work-orders", "ws-install"],
   })),
-  { name: "installer", positions: ["installer"], page: "/install", sidebar: [...COMMON, "ws-install"] },
+  { name: "installer", positions: ["installer"], page: "/install", sidebar: [...COMMON_NO_AI_JOBS, "ws-install"] },
   { name: "owner + pricing_lead + accounting", positions: ["owner", "pricing_lead", "accounting"], page: "/", sidebar: OWNER_SIDEBAR },
-  { name: "无岗位", positions: [], page: "/tasks", sidebar: COMMON },
+  { name: "无岗位", positions: [], page: "/tasks", sidebar: COMMON_NO_AI_JOBS },
 ];
 
 for (const c of CASES) {
   const nc = ctx({ permissionKeys: keysOf(...c.positions) });
   ok(finalPage(nc) === c.page, `${c.name}：进入首页 → ${c.page}（实际 ${finalPage(nc)}）`);
   eqList(visible(nc), c.sidebar, `${c.name}：侧栏快照`);
+}
+
+// VIS-1b：梦馨外贸员仍见「AI 任务」（外贸入口 → 可读销售域；spec「AI 任务只对有可读工作域的人出现」）
+{
+  const mxKeys = [...new Set(mergedProfileBindings(HOME_TEXTILE_TRADE_INDUSTRY_PACK, "trade_rep").filter((b) => (b.effect ?? "ALLOW") === "ALLOW").map((b) => b.permissionKey))];
+  const mx = ctx({ modules: { enabled: [...DEFAULT_MENGXIN_MODULES] }, permissionKeys: mxKeys });
+  ok(visible(mx).includes("work-ai-jobs") && visible(mx).includes("biz-trade"), "梦馨 trade_rep：侧栏仍含「AI 任务」与「外贸」");
 }
 
 // spec 场景：多岗并集

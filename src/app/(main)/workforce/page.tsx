@@ -150,7 +150,8 @@ export default function WorkforceJobCenterPage() {
           <JobListSkeleton />
         ) : error ? (
           <ErrorState error={error} onRetry={() => void load({ tab })} />
-        ) : jobs.length === 0 ? (
+        ) : jobs.length === 0 && !nextCursor ? (
+          // VIS-1b：服务端按可读工作域补扫，扫到上限的一页可能为空但仍有游标——那时不显示空态（spec agents/workforce-job-scope）
           <EmptyState
             icon={tab === "needs_you" ? HandHelping : Briefcase}
             title={EMPTY_COPY[tab].title}
@@ -158,6 +159,9 @@ export default function WorkforceJobCenterPage() {
           />
         ) : (
           <div className="space-y-2.5">
+            {jobs.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted">最近的作业里暂时没有你能查看的，可以继续加载更早的。</p>
+            ) : null}
             {jobs.map((job) => (
               <JobCard key={job.jobId} job={job} />
             ))}

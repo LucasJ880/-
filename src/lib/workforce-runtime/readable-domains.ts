@@ -22,6 +22,14 @@ export const WORK_DOMAIN_NAV_ENTRIES: Readonly<Record<Exclude<WorkDomain, "gener
   sales: ["sales-home", "biz-trade"],
 };
 
+const KNOWN_DOMAINS: readonly WorkDomain[] = ["tender", "delivery", "sales", "general"];
+
+/** 与 work-domain.ts 的 normalizeWorkDomain 同口径（只认已知域字面量），但不连库，供纯模块（等你拍板）用 */
+export function asWorkDomain(value: unknown): WorkDomain | null {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return (KNOWN_DOMAINS as readonly string[]).includes(v) ? (v as WorkDomain) : null;
+}
+
 /** 读不出工作域的作业，在可读集合里用这个记号 */
 export const UNRESOLVED_WORK_DOMAIN = "unresolved" as const;
 export type ReadableWorkDomain = WorkDomain | typeof UNRESOLVED_WORK_DOMAIN;

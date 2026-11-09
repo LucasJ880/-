@@ -401,6 +401,12 @@ for (const name of IDS) {
     ok(!d.allowed && d.redirect === "/tasks", "只启用 sales 的企业老板（零可见卡）：/bids → /tasks，不先到 /");
     ok(target("owner", "/bids/x") === "allow" && target("owner", "/ai-activity") === "/", "Sunny 老板（有可见卡）：落地仍为 /");
   }
+  // VIS-1b（Q8）：没有可读工作域的一线岗位敲「AI 任务」→ 各自落地页
+  ok(
+    target("accounting", "/workforce") === "/accounting" && target("installer", "/workforce") === "/install" && target("fulfillment_vinyl", "/workforce/x") === "/tasks",
+    "一线岗位敲 /workforce：会计 → /accounting、安装工 → /install、出单 → /tasks",
+  );
+  ok(["bids", "ops_staff", "ops_lead", "owner", "mx_trade_rep"].every((n) => allowed(n as IdName, "/workforce")), "有可读域的岗位照常进 /workforce（招投标 / 运营 / 老板 / 梦馨外贸）");
   ok(target("bids", "/capabilities/catalog") === "/bids" && target("bids", "/capabilities") === "/bids", "bids：AI 工作中心子页要求父入口 → /bids");
   ok(IDS.every((n) => target(n, "/no-such-workspace") === gateRedirectTarget("/no-such-workspace", at(ID[n], "/no-such-workspace"))), "未登记路径：一律按不放行处理");
   ok(IDS.every((n) => !allowed(n, "/no-such-workspace")), "未登记路径：任一非 super_admin 身份都不放行");

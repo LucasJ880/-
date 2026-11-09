@@ -110,6 +110,7 @@ run_test "Agent Runtime V2 Preview Gate P0" "npx tsx src/lib/agent-runtime-v2/__
 run_test "Workforce 2A Job Identity/Restore/Metadata" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-job-identity.test.ts"
 run_test "Workforce 2A Lease/Reclaim/Exhaustion" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-lease.test.ts"
 run_test "Workforce 2A Durable Timeout" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-timeout.test.ts"
+run_test "Workforce 作业可读域与 AI 任务入口（VIS-1b）" "npx tsx src/lib/workforce-runtime/__tests__/readable-domains.test.ts"
 run_test "Workforce 2A Approval Resume Identity" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-approval-resume.test.ts"
 run_test "Workforce 2A Stale Worker Fencing" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-stale-worker.test.ts"
 run_test "Workforce 2A Normal Slices Budget" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-normal-slices.test.ts"

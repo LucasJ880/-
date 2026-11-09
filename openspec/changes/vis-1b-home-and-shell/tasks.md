@@ -33,7 +33,7 @@
 
 ## 3. workforce 作业可读域与「AI 任务」入口
 
-- [ ] 3.1 按工作域过滤作业并收窄入口：
+- [x] 3.1 按工作域过滤作业并收窄入口：
   - 新增 `src/lib/workforce-runtime/readable-domains.ts`（对照表 + `canReadWorkDomain(domain | null, ctx)`）。
   - `read-model/list-service.ts`：`listWorkforceJobViews` 加可选可读判定，按 design D5 分批补扫（至多 5 批）、定游标；子行只为返回的作业取。
   - `api/workforce/jobs/route.ts` 与 `jobs/[id]/route.ts`：判定输入取 `loadOrgNavigationInputs(user.id, resolution.orgId)` + `buildNavigationFilterContext`；列表传入判定，详情不可读返回 404。
@@ -50,7 +50,7 @@
 
 ## 4. 「等你拍板」
 
-- [ ] 4.1 按类型给落点并按落点过滤：
+- [x] 4.1 按类型给落点并按落点过滤：
   - `waiting.ts`：
     - 新增落点表（spec `cockpit/posts-overview`，用读模型已取到的 PendingAction payload）；
     - 审批条目带 `sourceType`，无专属落点时 `href` 为 `/capabilities/approvals/${encodeURIComponent(`${sourceType}:${sourceId}`)}`；

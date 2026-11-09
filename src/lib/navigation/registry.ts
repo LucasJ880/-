@@ -68,6 +68,20 @@ const POSITION_OPS = ["operations.read", "operations.manage"] as const;
  * 只持 project.read（会计、出单）或只是某项目成员不再可见。
  */
 const POSITION_BIDS = ["project.create", "project.update", ...POSITION_MGMT] as const;
+/**
+ * VIS-1b：「AI 任务」只对至少可读一个工作域的人（design D6；spec navigation/position-based-visibility）——
+ * 可读域入口（招投标中心 / 运营中心 / 项目列表 / 销售首页 / 外贸）在岗位模式下认的键的并集 + 管理层。
+ * 入口还看模块与平台角色，键不看；不一致的身份列为已知例外（readable-domains.test.ts 断言）。
+ */
+const POSITION_WORKFORCE = [
+  ...POSITION_MGMT,
+  "project.create",
+  "project.update",
+  ...POSITION_OPS,
+  "sales.quote.create",
+  "sales.quote.pricing_close",
+  "trade.read",
+] as const;
 
 export const NAV_GROUP_META: Record<
   NavigationGroup,
@@ -224,6 +238,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     href: "/workforce",
     icon: Briefcase,
     group: "WORK",
+    positionPermissions: [...POSITION_WORKFORCE],
     salesWorkspaceVisible: true,
     displayOrder: 65,
   },

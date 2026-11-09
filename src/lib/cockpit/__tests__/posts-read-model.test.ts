@@ -304,6 +304,7 @@ async function main() {
   {
     const src = stripComments(read("src/lib/cockpit/posts-read-model.ts"));
     ok(/visiblePosts\(navCtx\)/.test(src) && /loadPostKpis\(viewer, now, deps, posts\)/.test(src), "读模型先定可见岗位，只为可见岗位取 KPI");
+    ok(/canOpen: \(href\) => canOpenHref\(href, navCtx\)/.test(src) && /canReadWorkDomain: \(domain\) => canReadWorkDomain\(asWorkDomain\(domain\), navCtx\)/.test(src), "等你拍板用同一份判定输入：落点放行、作业按可读工作域");
     ok(/navContext: resolveCockpitNavContext/.test(src) && !/resolveCockpitNavContext|navContext/.test(src.slice(src.indexOf("export async function resolveCockpitViewer"), src.indexOf("export function defaultCockpitViewerDeps"))), "判定输入只在岗位总览产出，resolveCockpitViewer 不变（时间线 / 工作量不多查）");
   }
   {

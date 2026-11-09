@@ -11,7 +11,8 @@ import { AUTOMATION_REGISTRY, type AutomationKey } from "@/lib/automation/regist
 import { isFinancialControlEnabled } from "@/lib/project-finance/flags";
 import { canAccessManagementWorkspace } from "@/lib/rbac/workspace-policy";
 import type { RouteGateContext } from "@/lib/navigation/filter-context";
-import { visiblePosts } from "@/lib/navigation/landing";
+import { canOpenHref, visiblePosts } from "@/lib/navigation/landing";
+import { asWorkDomain, canReadWorkDomain } from "@/lib/workforce-runtime/readable-domains";
 import {
   POST_REGISTRY,
   pickKpiMetrics,
@@ -391,6 +392,11 @@ export async function getOrgPostsCockpit(
     jobs: jobs.items,
     jobsTruncated: jobs.truncated,
     lookups,
+    // VIS-1b：只列落点放行的审批、只列可读工作域的需要你作业（与路由门、/workforce 同一判定）
+    access: {
+      canOpen: (href) => canOpenHref(href, navCtx),
+      canReadWorkDomain: (domain) => canReadWorkDomain(asWorkDomain(domain), navCtx),
+    },
   });
 
   return assemblePostsCockpit({ orgId: viewer.orgId, now, timezone, env: deps.env, latestRuns, runCounts, agentRunCounts, quotaHit, waiting, kpis, posts });
