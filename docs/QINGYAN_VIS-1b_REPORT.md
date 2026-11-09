@@ -68,11 +68,63 @@ change：`vis-1b-home-and-shell`（任务书 `docs/QINGYAN_VIS-1_VISIBILITY_TASK
 
 ## 5. 测试与门禁（实际运行）
 
-GATE_RESULTS
+受影响测试（基线 2026-11-09 → 改动后，均 `npx tsx <file>` 实跑）：
+
+| 测试 | 基线 | 改动后 |
+|---|---|---|
+| `posts.test.ts` | 226 | 229 |
+| `waiting.test.ts` | 58 | 80 |
+| `posts-read-model.test.ts` | 139 | 156 |
+| `org-cockpit-view.test.tsx` | 79 | 86 |
+| `position-nav.test.ts` | 96 | 98 |
+| `navigation-ia.test.ts` | 63 | 64 |
+| `route-gate.test.ts` | 132 | 138（页面 → 规则快照不变） |
+| `entry-visibility.test.ts`（新，已注册） | — | 56 |
+| `readable-domains.test.ts`（新，已注册） | — | 34 |
+| `residual-reads.test.ts` | 76 | 76（门表断言改读 `route-gate-core.ts`） |
+| `list-service.test.ts` / `api-access.test.ts` | 36 / 13 | 36 / 13（不传判定时行为不变） |
+
+门禁：
+- `npm run test:ci`：PASS。
+- `npm test`：560/573。13 个失败与改动前同一批，已在 `origin/main`（c318d6c）上逐个复跑、同样失败：
+  - 10 个要真实 Postgres；
+  - 1 个要 Chromium（客户报价 PDF 分页）；
+  - 1 个要 Gmail 环境（OAuth compose scope）；
+  - 1 个 Agent Trace 只读查询（要数据库）。
+- `npm run typecheck`：通过。
+- `npm run lint:baseline`：PASS（无新增 error fingerprint，error 比基线少 15 处）；本次改动的文件 eslint 零输出。
+- `bash scripts/check-test-registry.sh`：通过（549 个，欠账基线 69 条不增）。
+- `npx next build --webpack`：成功（4.0 分钟，exit 0）。告警只有既有的 Sentry / Prisma instrumentation 与 PDF 生成依赖的「Critical dependency」，与本次改动无关；`/help`、`/operations` 改为动态渲染（ƒ），中间件照旧为 Node runtime。
+- `openspec validate vis-1b-home-and-shell --strict`：通过。
+
 
 ## 6. 独立审查与处理
 
-REVIEW_RESULTS
+三轮独立审查：两轮四件套审查，一轮代码审查。代码审查只给任务书、规格增量与 diff，不给 design。
+
+**四件套第一轮**：6 个 Major、7 个 Minor，全部改进四件套后才开工。主要几条：
+- 审批详情退回链接的 id 写法；
+- 截断时 `total` 的口径；
+- `/workforce` 过滤后的分页；
+- 通用域未过滤，新增 Q8；
+- 零卡跳转两跳，改为 MODIFIED 路由门规格；
+- 工艺单返回链本身会被拦。
+
+**四件套第二轮**：13 条全部确认解决。另有 1 个 Major（「AI 任务」规格写的是「入口可见」，实现按岗位键，三类身份对不上）已改为按岗位键写，并列出已知例外。9 个 Minor 全改。
+
+**代码审查**：无 Major。8 个 Minor 的处理如下。
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | `/workforce` 列表逐条解析工作域，老板也付逐条查询 | 已修：可读全部工作域者不传判定，走单次查询；一批内并发解析 |
+| 2 | `/`、`/help`、`/operations` 先跑 `resolveWorkspaceContextFromCookies` 再丢掉结果 | 已修：`page-context-server.ts` 只从 session cookie 取用户 id，再走路由门 loader |
+| 3 | 每个钩子实例各自请求 `/api/auth/active-org` | 已修：模块级缓存，按当前企业键 30 秒内复用，失败不缓存 |
+| 4 | 首页时间线仍显示不可见岗位名；`/workforce/<id>` 链接不看可读域 | 未改：时间线在 proposal「Out of scope」里；列为后续（见 §9） |
+| 5 | 零卡管理层的侧栏「管理总览」与底栏「总览」点进去跳 `/tasks`；会计 / 出单 / 无岗位的「总览」跳各自落地页 | 未改：后者是改动前就有的；前者是 Q6 拍板的直接后果。列入 §9 |
+| 6 | `resolveLandingPage` 本身没有「不放行 → /tasks」兜底 | 已修：落地页函数自身兜底；26 种身份探针都没触发 |
+| 7 | `/operations` 的发布服务不可用提示点名可能看不到的卡片；`/help` 静态段落 | 前者已修；后者按 design Non-Goal 保留 |
+| 8 | 销售底栏「新增」面板的「外贸报价」对旧模式未启用窗饰的销售会被弹回 | 已修：面板各入口按 `canOpen`，补 spec 场景 |
+
 
 ## 7. 拍板结果（design「审核关注点」）
 
@@ -105,4 +157,14 @@ Q1–Q10 全部按推荐执行（Lucas 2026-11-09）：
   - 梦馨平台角色 `trade` 未绑岗位：可读销售域但无入口，绑上 `trade_rep` 即有。
 - 岗位模式下没绑岗位的平台 super_admin，侧栏不显示「AI 任务」。这和 VIS-1a 起其他按岗位键显示的入口（如「项目列表」）同一口径；路由门对 super_admin 本来就放行，页面照常能进。
 - 无专属落点的营销 / 草稿 / 日历类审批落审批详情，详情页对全体成员放行，所以照样列出；收窄等 VIS-1d。
-- 旧作业逐条解析工作域；列表一页最多补扫 5 批。
+- 旧作业逐条解析工作域（一批内并发）；列表一页最多补扫 5 批。
+- 首页时间线（company.log）照旧：
+  - 平台级自动化行仍会标「运维与知识」「询盘销售」等不可见岗位名；
+  - 作业行的 `/workforce/<id>` 链接不看可读域，打开不可读的会是 404。
+
+  按岗位过滤时间线在 proposal「Out of scope」里，建议并进 VIS-1c 或另立小 change（代码审查 #4）。
+- 「总览」指向 `/` 的入口（侧栏「管理总览」、手机底栏首格）：
+  - 非管理层点进去会按落地规则跳到自己的工作区，这是改动前就有的；
+  - 零可见卡的管理层会跳到 `/tasks`（Q6）。
+
+  不是被路由门拦，但入口名与落点不一致（代码审查 #5）。

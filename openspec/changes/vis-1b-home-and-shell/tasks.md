@@ -91,7 +91,7 @@
 
 ## 7. 门禁
 
-- [ ] 7.1 跑整体门禁并做独立审查：
+- [x] 7.1 跑整体门禁并做独立审查：
   - `npm run test:ci`、`npm test`（13 个环境类失败需在 `origin/main` 上复现同样失败）、typecheck、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`npx next build --webpack`、`openspec validate vis-1b-home-and-shell --strict`。
   - 另起独立代码审查：只给任务书、spec 增量与 diff，不给 design；逐条处理。
   - 发现 spec 没覆盖的对外行为时先补 spec 增量。
@@ -99,7 +99,7 @@
 
 ## 8. 收尾
 
-- [ ] 8.1 写 `docs/QINGYAN_VIS-1b_REPORT.md` 并更新 TASKFLOW：
+- [x] 8.1 写 `docs/QINGYAN_VIS-1b_REPORT.md` 并更新 TASKFLOW：
   - 报告内容：
     - 基线与改动后测试数；
     - 按身份的对照表：卡片、落地页、等你拍板、可读工作域、底栏、帮助地图；
