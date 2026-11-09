@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import { isSuperAdmin } from "@/lib/permissions-client";
 
@@ -49,9 +49,16 @@ function fetchUser(): Promise<CurrentUser | null> {
   return cachePromise;
 }
 
+const subscribeNever = () => () => {};
+
 export function useCurrentUser(): UseCurrentUserReturn {
   const [user, setUser] = useState<CurrentUser | null>(cachedUser);
   const [loading, setLoading] = useState(!cachedUser);
+  // 服务端渲染与水合时按服务端快照（false）处理：只返回「无用户、加载中」，与服务端 HTML 一致；
+  // 水合提交后 React 立即用客户端快照（true）重渲染，再读模块缓存。
+  // 否则晚于外壳水合的 Suspense 边界（如 /admin/users）首帧会读到外壳已写入的缓存，
+  // 渲染出与服务端 HTML 不同的内容（hydration mismatch）。客户端路由切换不经水合，仍直接用缓存。
+  const hydrated = useSyncExternalStore(subscribeNever, () => true, () => false);
 
   const reload = useCallback(() => {
     cachedUser = null;
@@ -74,12 +81,14 @@ export function useCurrentUser(): UseCurrentUserReturn {
     });
   }, []);
 
+  const visibleUser = hydrated ? user : null;
+
   // PERM-7b：只认 super_admin（平台 admin 等同 user）
-  const isPlatformAdmin = isSuperAdmin(user?.role);
+  const isPlatformAdmin = isSuperAdmin(visibleUser?.role);
 
   return {
-    user,
-    loading,
+    user: visibleUser,
+    loading: hydrated ? loading : true,
     isSuperAdmin: isPlatformAdmin,
     isPlatformAdmin,
     reload,
