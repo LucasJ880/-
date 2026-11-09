@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Landmark, Loader2 } from "lucide-react";
-import { apiJson } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { IntelHubShell } from "@/components/bid-workflow/intel-hub-shell";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 
@@ -24,7 +24,13 @@ type AwardRow = {
   verificationStatus: string;
   status: string;
   projectId: string | null;
+  possibleDuplicateOfId?: string | null;
 };
+
+/** 线索 / 疑似重复：管理员可「确认」；任何未撤回记录：管理员可「撤回」（P2-0d） */
+function needsConfirm(r: AwardRow): boolean {
+  return r.status === "NEEDS_REVIEW" || (r.verificationStatus !== "HUMAN_CONFIRMED" && r.verificationStatus !== "SYSTEM_VERIFIED");
+}
 
 type Intelligence = {
   basis: { totalRecords: number; authoritative: number; aiOnly: number; needsReview: number };
@@ -90,6 +96,11 @@ export default function IntelAwardsPage() {
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [notEnabled, setNotEnabled] = useState(false);
+  const [canReview, setCanReview] = useState(false);
+  const [retracting, setRetracting] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [acting, setActing] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -105,11 +116,13 @@ export default function IntelAwardsPage() {
       const qs = params.toString();
       const res = await apiJson<{
         available: boolean;
+        canReview?: boolean;
         reason?: string;
         records: AwardRow[];
         intelligence: Intelligence | null;
       }>(`/api/org/tender-awards${qs ? `?${qs}` : ""}`);
       setNotEnabled(res.available === false);
+      setCanReview(res.canReview === true);
       setRows(res.records);
       setIntel(res.intelligence);
     } catch (e) {
@@ -117,6 +130,38 @@ export default function IntelAwardsPage() {
     }
     setBusy(false);
   }, [orgId, buyer, winner, from, to]);
+
+  const review = useCallback(
+    async (row: AwardRow, action: "confirm" | "retract") => {
+      if (!orgId) return;
+      setActing(row.id);
+      setActionMsg(null);
+      try {
+        const res = await apiFetch(
+          `/api/organizations/${encodeURIComponent(orgId)}/tender-awards/${encodeURIComponent(row.id)}/review`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(action === "retract" ? { action, reason: reason.trim() } : { action }),
+          },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "操作失败");
+        setActionMsg(
+          action === "confirm"
+            ? `已确认「${row.winnerName}」这条授标记录。`
+            : `已撤回「${row.winnerName}」这条授标记录（原记录保留，不再计入情报）。`,
+        );
+        setRetracting(null);
+        setReason("");
+        await load();
+      } catch (e) {
+        setActionMsg(e instanceof Error ? e.message : "操作失败");
+      }
+      setActing(null);
+    },
+    [orgId, reason, load],
+  );
 
   useEffect(() => {
     void load();
@@ -192,6 +237,16 @@ export default function IntelAwardsPage() {
         </div>
 
         {err && <p className="text-sm text-red-500">{err}</p>}
+        {actionMsg && (
+          <p className="text-sm text-[var(--muted)]" data-testid="award-review-msg">
+            {actionMsg}
+          </p>
+        )}
+        {canReview && rows.some(needsConfirm) && (
+          <p className="text-xs text-[var(--muted)]">
+            你是组织管理员：「线索」和「疑似重复」可以确认或撤回；填错的记录可以撤回后在项目里重新标记结果。
+          </p>
+        )}
         {ambiguous && (
           <p className="text-sm text-[var(--muted)]">您属于多个组织，请先在组织切换器中选择当前组织。</p>
         )}
@@ -217,6 +272,7 @@ export default function IntelAwardsPage() {
                   <th className="px-3 py-2 font-medium">金额</th>
                   <th className="px-3 py-2 font-medium">授标日期</th>
                   <th className="px-3 py-2 font-medium">可信度</th>
+                  {canReview && <th className="px-3 py-2 font-medium">处理</th>}
                 </tr>
               </thead>
               <tbody>
@@ -239,7 +295,72 @@ export default function IntelAwardsPage() {
                           {badge.text}
                           {r.status === "NEEDS_REVIEW" ? " · 疑似重复" : ""}
                         </span>
+                        {r.status === "NEEDS_REVIEW" && r.possibleDuplicateOfId
+                          ? (() => {
+                              const orig = rows.find((x) => x.id === r.possibleDuplicateOfId);
+                              return orig ? (
+                                <p className="mt-1 text-[11px] text-[var(--muted)]">
+                                  疑似与 {orig.solicitationNumber ?? "（无编号）"} · {orig.awardDate ?? "日期未知"} 重复
+                                </p>
+                              ) : null;
+                            })()
+                          : null}
                       </td>
+                      {canReview && (
+                        <td className="px-3 py-2 align-top" data-testid="award-review-cell">
+                          {retracting === r.id ? (
+                            <div className="flex flex-col gap-1">
+                              <input
+                                value={reason}
+                                onChange={(e) => setReason(e.target.value)}
+                                maxLength={200}
+                                placeholder="撤回原因（必填）"
+                                className="h-7 w-44 rounded border border-[var(--border)] bg-transparent px-2 text-xs"
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => void review(r, "retract")}
+                                  disabled={acting === r.id || !reason.trim()}
+                                  className="rounded bg-red-600 px-2 py-0.5 text-xs text-white disabled:opacity-50"
+                                >
+                                  确认撤回
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setRetracting(null);
+                                    setReason("");
+                                  }}
+                                  className="rounded border border-[var(--border)] px-2 py-0.5 text-xs"
+                                >
+                                  取消
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {needsConfirm(r) && (
+                                <button
+                                  onClick={() => void review(r, "confirm")}
+                                  disabled={acting === r.id}
+                                  className="rounded border border-emerald-600 px-2 py-0.5 text-xs text-emerald-700 disabled:opacity-50"
+                                >
+                                  {r.status === "NEEDS_REVIEW" ? "不是重复，确认" : "确认属实"}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setRetracting(r.id);
+                                  setReason("");
+                                }}
+                                disabled={acting === r.id}
+                                className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)] disabled:opacity-50"
+                              >
+                                撤回
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

@@ -38,6 +38,9 @@ function entityHref(item: NotificationLinkTarget): string | null {
       return projectId && `/projects/${projectId}?tab=workbench${PROJECT_DISCUSSION_HASH}`;
     case "project_files":
       return projectId && `/projects/${projectId}?tab=files`;
+    // 询价轮次（T-1）：项目「标书与报价」并展开该轮；缺项目 id 按取用顺序回落
+    case "tender_rfq_round":
+      return projectId && id && `/projects/${projectId}?tab=bid#rfq-round-${id}`;
     case "project":
       return id && `/projects/${id}`;
     // 业务对象

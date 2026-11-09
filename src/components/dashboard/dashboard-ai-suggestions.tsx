@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
-import { BatchFollowupDialog } from "@/components/batch-followup/batch-followup-dialog";
 import type {
   ProactiveSuggestion,
   TriggerKind,
@@ -95,11 +94,9 @@ interface ScanResult {
 function SuggestionRow({
   suggestion,
   onProjectClick,
-  onBatchFollowup,
 }: {
   suggestion: ProactiveSuggestion;
   onProjectClick?: (id: string) => void;
-  onBatchFollowup?: (projectId: string) => void;
 }) {
   const style = SEVERITY_STYLES[suggestion.severity];
   const KindIcon = KIND_ICONS[suggestion.kind] ?? AlertTriangle;
@@ -119,7 +116,8 @@ function SuggestionRow({
   function handleAction() {
     if (!action) return;
     if (action.type === "send_followup_email" && action.params?.projectId) {
-      onBatchFollowup?.(action.params.projectId);
+      // W-1：批量直发催促已下线（它走的是绕过审批的单封直发接口）；催单在项目「标书与报价」的询价轮次里处理
+      window.location.href = `/projects/${action.params.projectId}?tab=bid`;
     } else if (action.type === "view_customer" && action.params?.customerId) {
       window.location.href = `/sales/customers/${action.params.customerId}`;
     } else if (action.type === "call_customer" && action.params?.phone) {
@@ -156,7 +154,7 @@ function SuggestionRow({
               )}
             >
               <ActionIcon size={11} />
-              {action.label}
+              {action.type === "send_followup_email" ? "去询价轮次处理" : action.label}
             </button>
           )}
           <Link
@@ -179,7 +177,6 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [followupProjectId, setFollowupProjectId] = useState<string | null>(null);
 
   const didInit = useRef(false);
 
@@ -287,7 +284,6 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
               key={s.id}
               suggestion={s}
               onProjectClick={onProjectClick}
-              onBatchFollowup={(pid) => setFollowupProjectId(pid)}
             />
           ))}
           {suggestions.length > 3 && (
@@ -306,13 +302,6 @@ export function DashboardAiSuggestions({ onProjectClick }: Props) {
         </div>
       )}
 
-      {followupProjectId && (
-        <BatchFollowupDialog
-          projectId={followupProjectId}
-          onClose={() => setFollowupProjectId(null)}
-          onSent={() => scan(true)}
-        />
-      )}
     </div>
   );
 }

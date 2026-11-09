@@ -1,119 +1,27 @@
+/**
+ * POST /api/projects/[id]/inquiries/[inquiryId]/items/[itemId]/email/send — 已下线（W-1，Evan 2026-11-06 拍板）
+ *
+ * 原功能：单封直发（不经审批、不记邮件线程，回信不会自动进表）。
+ * 现在发询价：项目「标书与报价」→「问供应商要价」→ 送审（tender.send_rfq）→ 批准后从组织授权邮箱发出，回信自动进表。
+ * 保留路由文件并显式返回 410，避免旧客户端拿到 404 误以为是网络问题。本路由不发邮件、不调 LLM、不写任何数据。
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { requireProjectWriteAccess } from "@/lib/projects/access";
-import { db } from "@/lib/db";
-import { sendGmail, getEmailProvider } from "@/lib/google-email";
-import { onEmailSent } from "@/lib/project-discussion/system-events";
-import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 
 type Params = {
   params: Promise<{ id: string; inquiryId: string; itemId: string }>;
 };
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const { id: projectId, inquiryId, itemId } = await params;
+const LEGACY_DIRECT_EMAIL_GONE_MESSAGE = "单封直发已下线，请用项目页「问供应商要价」";
 
+export async function POST(request: NextRequest, { params }: Params) {
+  const { id: projectId } = await params;
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  const body = await request.json().catch(() => null);
-  const emailId = body?.emailId as string | undefined;
-
-  if (!emailId) {
-    return NextResponse.json({ error: "缺少 emailId" }, { status: 400 });
-  }
-
-  const email = await db.projectEmail.findUnique({ where: { id: emailId } });
-  if (
-    !email ||
-    email.projectId !== projectId ||
-    email.inquiryId !== inquiryId ||
-    email.inquiryItemId !== itemId
-  ) {
-    return NextResponse.json({ error: "邮件记录不存在" }, { status: 404 });
-  }
-
-  if (email.status === "sent") {
-    return NextResponse.json({ error: "该邮件已发送，不可重复发送" }, { status: 409 });
-  }
-
-  const provider = await getEmailProvider(access.user.id);
-  if (!provider) {
-    return NextResponse.json(
-      { error: "你尚未绑定 Gmail 邮件服务，请在设置页绑定后重试" },
-      { status: 400 }
-    );
-  }
-
-  const subject = (body?.subject as string) || email.subject;
-  const htmlBody = (body?.body as string) || email.body;
-
-  await db.projectEmail.update({
-    where: { id: emailId },
-    data: {
-      status: "sending",
-      subject,
-      body: htmlBody,
-      fromEmail: provider.accountEmail,
-      sentById: access.user.id,
-    },
-  });
-
-  try {
-    const result = await sendGmail(access.user.id, {
-      to: email.toEmail,
-      from: provider.accountEmail,
-      subject,
-      body: htmlBody,
-    });
-
-    await db.projectEmail.update({
-      where: { id: emailId },
-      data: {
-        status: "sent",
-        externalMessageId: result.messageId,
-        sentAt: new Date(),
-      },
-    });
-
-    const item = await db.inquiryItem.findUnique({
-      where: { id: itemId },
-      include: { supplier: { select: { name: true } } },
-    });
-
-    await onEmailSent(
-      projectId,
-      emailId,
-      email.toEmail,
-      email.toName,
-      item?.supplier.name ?? "未知供应商",
-      subject,
-      access.user.id,
-      access.user.name || access.user.email
-    );
-
-    await logAudit({
-      userId: access.user.id,
-      orgId: email.orgId,
-      projectId,
-      action: AUDIT_ACTIONS.AI_SEND,
-      targetType: AUDIT_TARGETS.PROJECT_EMAIL,
-      targetId: emailId,
-      afterData: { toEmail: email.toEmail, subject },
-      request,
-    });
-
-    return NextResponse.json({
-      success: true,
-      emailId,
-      externalMessageId: result.messageId,
-    });
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "发送失败";
-    await db.projectEmail.update({
-      where: { id: emailId },
-      data: { status: "failed", errorMessage },
-    });
-    console.error("Gmail send error:", err);
-    return NextResponse.json({ error: `邮件发送失败：${errorMessage}` }, { status: 502 });
-  }
+  return NextResponse.json(
+    { error: LEGACY_DIRECT_EMAIL_GONE_MESSAGE, code: "GONE", next: `/projects/${projectId}?tab=bid` },
+    { status: 410 },
+  );
 }

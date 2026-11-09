@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
 import { resolveWorkspaceContextFromCookies } from "@/lib/rbac/resolve-workspace-context";
-import {
-  canAccessInstallWorkspace,
-  isManagementWorkspaceUser,
-} from "@/lib/rbac/workspace-policy";
+// VIS-1a：安装工作区可见性由路由门判定（src/proxy.ts → route-gate），这里只保留未登录跳转
 import { Suspense } from "react";
 import { RepairList } from "@/components/install/repair-pages";
 
@@ -11,9 +8,6 @@ import { RepairList } from "@/components/install/repair-pages";
 export default async function Page() {
   const session = await resolveWorkspaceContextFromCookies();
   if (!session) redirect("/login");
-  if (!canAccessInstallWorkspace(session.ctx) && !isManagementWorkspaceUser(session.ctx)) {
-    redirect("/");
-  }
   return (
     <Suspense fallback={null}>
       <RepairList />

@@ -133,7 +133,7 @@ async function main() {
     // 白名单判定在取正文 / 解析之前
     const allowIdx = lib.indexOf("if (!isAllowlistedSender(sender, channel.allowlist))");
     assert.ok(allowIdx > 0 && allowIdx < lib.indexOf("fetchInboundEmailFromResend)(resendEmailId") && allowIdx < lib.indexOf("parseForwardedEmail({"), "allowlist before fetch / parse");
-    assert.match(src("src/middleware.ts"), /"\/api\/trade\/webhook",/);
+    assert.match(src("src/proxy.ts"), /"\/api\/trade\/webhook",/);
   });
 
   await ok("路由（动态）：未配置密钥 503；超过 5 MB 413；签名错 / 过期 401；签名对但非 JSON 400 —— 都不碰 DB", async () => {

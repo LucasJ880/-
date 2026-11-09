@@ -214,7 +214,8 @@ const CASES: Array<{ name: string; positions: string[]; page: string; sidebar: s
     name: "accounting",
     positions: ["accounting"],
     page: "/accounting",
-    sidebar: [...COMMON, ...PROJECT_INTEL, "biz-accounting", "ws-bids", "ws-install"],
+    // VIS-1a（判断点 3）：只持 project.read 不再见招投标与项目 / 情报 / 供应商
+    sidebar: [...COMMON, "biz-accounting", "ws-install"],
   },
   {
     name: "bids",
@@ -226,7 +227,8 @@ const CASES: Array<{ name: string; positions: string[]; page: string; sidebar: s
     name: p,
     positions: [p],
     page: "/tasks",
-    sidebar: [...COMMON, ...PROJECT_INTEL, "biz-inventory", "biz-work-orders", "ws-bids", "ws-install"],
+    // VIS-1a（判断点 3）：只持 project.read 不再见招投标与项目 / 情报 / 供应商
+    sidebar: [...COMMON, "biz-inventory", "biz-work-orders", "ws-install"],
   })),
   { name: "installer", positions: ["installer"], page: "/install", sidebar: [...COMMON, "ws-install"] },
   { name: "owner + pricing_lead + accounting", positions: ["owner", "pricing_lead", "accounting"], page: "/", sidebar: OWNER_SIDEBAR },
@@ -252,6 +254,26 @@ for (const c of CASES) {
   const o = visible(ctx({ permissionKeys: keysOf("ops_staff") }));
   ok(o.includes("ws-ops") && o.includes("growth-hub"), "ops_staff：运营中心 + 品牌增长可见");
   ok(!o.includes("sales-home") && !o.includes("biz-quotes"), "ops_staff：销售中心 / 报价不可见");
+}
+
+// ── VIS-1a：招投标 / 项目情报只认招投标写键或管理层（判断点 3）──
+{
+  const BID_ENTRIES = ["ws-bids", "nav-projects", "nav-project-intel", "nav-intel-awards", "nav-suppliers"];
+  for (const p of ["accounting", "fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"]) {
+    const v = visible(ctx({ permissionKeys: keysOf(p), hasBidCapability: true }));
+    ok(!BID_ENTRIES.some((k) => v.includes(k)), `${p}（即使是项目成员）：不见招投标与项目情报`);
+  }
+  ok(visible(ctx({ permissionKeys: keysOf("accounting") })).includes("biz-accounting"), "accounting：会计视图仍可见");
+  for (const p of ["bids", "owner"]) {
+    const v = visible(ctx({ permissionKeys: keysOf(p) }));
+    ok(BID_ENTRIES.every((k) => v.includes(k)), `${p}：可见招投标与项目情报`);
+  }
+  const NO_TRADE = { enabled: MODULES.enabled.filter((m) => m !== "trade") };
+  const ownerNoTrade = visible(ctx({ modules: NO_TRADE, permissionKeys: keysOf("owner") }));
+  ok(!ownerNoTrade.includes("biz-revenue") && !ownerNoTrade.includes("biz-revenue-today"), "启用 sales 未启用 trade：老板不见营收中心与今日询盘");
+  const bossNoTrade = visible(ctx({ positionMode: false, platformRole: "boss", orgRole: "org_owner", modules: NO_TRADE, permissionKeys: [] }));
+  ok(!bossNoTrade.includes("biz-revenue") && !bossNoTrade.includes("biz-revenue-today"), "无行业包企业启用 sales 未启用 trade：平台 boss 不见营收中心与今日询盘");
+  ok(bossNoTrade.includes("sales-home") && bossNoTrade.includes("ops-center"), "无行业包企业未启用 trade：平台 boss 其余入口照常");
 }
 
 // ── 平台角色不影响（反例） ──

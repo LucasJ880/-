@@ -9,7 +9,8 @@
  * - org 隔离 fail-closed：所有查询/写入强制 orgId。
  * - 幂等：同一 (orgId, sourceType, sourceKey) 重复摄取 → 返回既有观察，不产生第二行。
  * - 去重只做确定性匹配（solicitationNumber / winner+date+amount 精确）；弱信号 → NEEDS_REVIEW
- *   + possibleDuplicateOfId 留人工裁决，绝不 fuzzy merge。
+ *   + possibleDuplicateOfId 留人工裁决，绝不 fuzzy merge。弱信号 = 同 winner+buyer，但两条都有
+ *   招标编号且规范化后不同的不算（另一次招标，P2-0c）。
  * - API/UI 禁止绕过本 service 直接 prisma.awardRecord.* 写。
  *
  * 词表复用 T3（不建第二套）：confidence HIGH|MEDIUM|LOW；
@@ -155,6 +156,21 @@ function clip(s: string | null | undefined): string | null {
   const v = (s ?? "").trim();
   return v ? v.slice(0, TEXT_CAP) : null;
 }
+
+/** 招标编号比较用的规范化：大写，去掉空白与标点（只用于「是不是另一次招标」的判断，不改存储值） */
+export function normalizeSolicitationKey(v: string | null | undefined): string | null {
+  const k = (v ?? "").toUpperCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  return k || null;
+}
+
+/** 两条都有招标编号且规范化后不同 → 不同招标（P2-0c） */
+export function isDistinctSolicitation(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ka = normalizeSolicitationKey(a);
+  const kb = normalizeSolicitationKey(b);
+  return ka != null && kb != null && ka !== kb;
+}
+
+const WEAK_MATCH_SCAN_CAP = 200;
 
 /** 供应商名确定性规范化（与 buyer 同纪律；normalizeBuyerName 足够通用：小写+去公司后缀+空白折叠） */
 export function normalizeVendorName(name: string): string {
@@ -333,17 +349,23 @@ export async function createOrObserveAwardRecord(
     return { outcome: "ATTACHED_EXISTING", record, sourceId: src.id };
   }
 
-  // 3) 确定性弱信号：同 winner+buyer 已有记录但日期/金额对不上 → NEEDS_REVIEW 留人工
+  // 3) 确定性弱信号：同 winner+buyer 已有记录但日期/金额对不上 → NEEDS_REVIEW 留人工。
+  //    例外（P2-0c）：两条都有招标编号、且规范化后不同 → 是同一买家的另一次招标（周期采购 /
+  //    同一在位供应商再次中标），不是重复，正常 ACTIVE。编号缺一方、或只差大小写 / 空格 / 标点
+  //    → 仍判疑似重复留人工。
   let weak: AwardRecordRow | null = null;
   if (buyerNorm) {
-    weak = await c.awardRecord.findFirst({
+    const sameWinnerBuyer = await c.awardRecord.findMany({
       where: {
         orgId: input.orgId,
         winnerNameNormalized: winnerNorm,
         buyerNameNormalized: buyerNorm,
         status: { not: "RETRACTED" },
       },
+      orderBy: { createdAt: "asc" },
+      take: WEAK_MATCH_SCAN_CAP,
     });
+    weak = sameWinnerBuyer.find((r) => !isDistinctSolicitation(solicitation, r.solicitationNumber)) ?? null;
   }
 
   const record = await c.awardRecord.create({
@@ -451,6 +473,57 @@ export async function confirmAwardRecord(
     data.buyerNameNormalized = raw ? normalizeBuyerName(raw) : null;
   }
   return c.awardRecord.update({ where: { id: record.id }, data });
+}
+
+export const RETRACT_REASON_MAX = 200;
+
+/**
+ * 人工撤回（P2-0d）：ACTIVE / NEEDS_REVIEW → RETRACTED。只改状态，不删行、不删来源；
+ * 撤回人、时间、原因与撤回前状态记在 metadata.retraction。已撤回 → 原样返回（幂等）。
+ * 权限（组织管理员）由路由层负责；这里只要求人工 user actor。
+ */
+export async function retractAwardRecord(
+  input: { orgId: string; actor: AwardActor; awardRecordId: string; reason: string },
+  opts?: { client?: AwardsDbClient },
+): Promise<{ record: AwardRecordRow; changed: boolean }> {
+  assertOrg(input.orgId);
+  assertWriteActor(input.actor);
+  if (input.actor.actorType !== "user" || !input.actor.userId) {
+    throw new AwardIntelError("RETRACT_REQUIRES_USER", "撤回必须由人工 user actor 执行");
+  }
+  const reason = (input.reason ?? "").replace(/\s+/g, " ").trim();
+  if (!reason) throw new AwardIntelError("REASON_REQUIRED", "请填写撤回原因");
+  if (reason.length > RETRACT_REASON_MAX) {
+    throw new AwardIntelError("REASON_TOO_LONG", `撤回原因不超过 ${RETRACT_REASON_MAX} 字`);
+  }
+  const c = client(opts?.client);
+  const record = await c.awardRecord.findFirst({
+    where: { id: input.awardRecordId, orgId: input.orgId },
+  });
+  if (!record) throw new AwardIntelError("NOT_FOUND", "AwardRecord 不存在或不属于该组织");
+  if (record.status === "RETRACTED") return { record, changed: false };
+
+  const prevMeta =
+    record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
+      ? (record.metadata as Record<string, unknown>)
+      : {};
+  const updated = await c.awardRecord.update({
+    where: { id: record.id },
+    data: {
+      status: "RETRACTED",
+      metadata: {
+        ...prevMeta,
+        retraction: {
+          byUserId: input.actor.userId,
+          at: new Date().toISOString(),
+          reason,
+          previousStatus: record.status,
+          previousVerificationStatus: record.verificationStatus,
+        },
+      },
+    },
+  });
+  return { record: updated, changed: true };
 }
 
 /* ------------------------------- 读路径 ------------------------------- */

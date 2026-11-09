@@ -224,7 +224,7 @@ ok("人工入口经认领：录入询盘不重跑已结束的 FDE；手动重跑
 });
 
 ok("/api/trade/webhook/* 在 middleware 公开路径里（状态接口无需登录态，鉴权在路由内）", () => {
-  const mw = src("src/middleware.ts");
+  const mw = src("src/proxy.ts");
   assert.match(mw, /"\/api\/trade\/webhook",/);
 });
 

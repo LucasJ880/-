@@ -52,17 +52,14 @@ for (const [name, fn] of [
 ok(isPlatformAdmin({ role: "super_admin" }) && !isPlatformAdmin({ role: "admin" }), "isPlatformAdmin 传 user 对象同口径");
 
 // ── 平台档归一 ──
-for (const tier of [platformTier, client.platformTier]) {
-  ok(
-    tier("super_admin") === "admin" && tier("admin") === "user" && tier("sales") === "sales" && tier("trade") === "trade" && tier(null) === "user",
-    "platformTier：super_admin → admin 档，admin → user，其余原样",
-  );
-}
 ok(
-  ["/sales", "/trade", "/admin", "/inventory"].every((m) => client.canAccessModule("admin", m) === client.canAccessModule("user", m)),
-  "canAccessModule：平台 admin 与 user 相同",
+  platformTier("super_admin") === "admin" &&
+    platformTier("admin") === "user" &&
+    platformTier("sales") === "sales" &&
+    platformTier("trade") === "trade" &&
+    platformTier(null) === "user",
+  "platformTier：super_admin → admin 档，admin → user，其余原样",
 );
-ok(client.canAccessModule("super_admin", "/admin") === client.canAccessModule("super_admin", "/admin"), "canAccessModule：super_admin 不受影响");
 
 // ── AI 能力矩阵 / 工具档 ──
 ok(JSON.stringify(getCapabilities("admin")) === JSON.stringify(getCapabilities("user")), "能力矩阵：平台 admin = user");

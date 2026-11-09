@@ -51,6 +51,10 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   task_status: ListChecks,
   task_comment: MessageSquare,
   order_stage: Package,
+  rfq_quote_received: MailCheck,
+  rfq_reply_received: MessageSquare,
+  rfq_chase_ready: AlarmClock,
+  rfq_no_response: MailWarning,
 };
 
 const PRIORITY_STYLES: Record<string, string> = {

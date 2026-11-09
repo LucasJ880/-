@@ -5,6 +5,9 @@
  *       → 创建 ProjectInquiry(draft) + items → 每家渲染邮件 → requestApproval（审批卡）
  *
  * 本函数零出站。真正发送只在 execute.ts（批准后）。
+ *
+ * 调用方：Muse `rfq` 意图（source=muse）与项目页「问供应商要价」（W-1，source=web）——两边共用同一流程。
+ * loadRfqRoundLockState / loadRfqRequirementInputs 也被 web-entry.ts 的入口预判复用，保证「按钮可点」与「真正送审」判定一致。
  */
 
 import { db } from "@/lib/db";
@@ -20,6 +23,7 @@ import {
   readCriticalFactSlot,
   readTenderRfqSettings,
   type ExistingRound,
+  type RoundLockVerdict,
 } from "./round-pure";
 import { TENDER_SEND_RFQ_TYPE, type TenderSendRfqPayload } from "./types";
 import { pickRfqIncoterm, pickRfqSuppliers, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
@@ -30,6 +34,8 @@ export type PrepareRfqInput = {
   projectId: string;
   orgId: string;
   userId: string;
+  /** 入口来源：只写进审批卡 source.toolName 供审计区分，不改变任何判定 */
+  source: "web" | "muse";
   supplierIds?: string[];
   /** 没给 supplierIds 时按名称模糊匹配 */
   supplierHint?: string | null;
@@ -85,35 +91,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   const settings = readTenderRfqSettings(project.org?.settingsJson);
 
   // ── 轮次锁 ──
-  const rounds = await db.projectInquiry.findMany({
-    where: { projectId: project.id },
-    select: {
-      id: true,
-      roundNumber: true,
-      status: true,
-      createdAt: true,
-      createdById: true,
-      items: { select: { status: true } },
-    },
-  });
-  const pendingSends = await db.pendingAction.findMany({
-    where: { orgId: input.orgId, projectId: project.id, type: TENDER_SEND_RFQ_TYPE, status: { in: ["pending", "approved"] } },
-    select: { payload: true },
-  });
-  const pendingInquiryIds = new Set(pendingSends.map((p) => (p.payload as { inquiryId?: string } | null)?.inquiryId).filter(Boolean));
-  const creatorIds = [...new Set(rounds.map((r) => r.createdById))];
-  const creators = creatorIds.length ? await db.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true } }) : [];
-  const nameOf = new Map(creators.map((u) => [u.id, u.name]));
-  const existing: ExistingRound[] = rounds.map((r) => ({
-    inquiryId: r.id,
-    roundNumber: r.roundNumber,
-    status: r.status,
-    createdAt: r.createdAt,
-    createdByName: nameOf.get(r.createdById) ?? null,
-    sentCount: r.items.filter((i) => i.status !== "pending").length,
-    hasPendingSend: pendingInquiryIds.has(r.id),
-  }));
-  const lock = decideRoundLock(existing, now, settings.roundLockDays);
+  const { lock } = await loadRfqRoundLockState({ orgId: input.orgId, projectId: project.id, now, roundLockDays: settings.roundLockDays });
   if (lock.locked) return { ok: false, errorCode: "ROUND_LOCKED", message: lock.message };
 
   // ── 供应商：显式 > 名称提示 > 操作者的常用供应商（偏好）> 候选列表 ──
@@ -149,8 +127,143 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   }
 
   // ── 要求 + 事实（最新非 SUPERSEDED 的 run） ──
+  const { requirements, facts } = await loadRfqRequirementInputs(project.id);
+
+  // Web 表单总是提交用户的显式选择（默认值已预填进下拉框），null = 用户选了「不指定」，不能再回退到个人默认；
+  // Muse 不带 incoterm 时仍按偏好补齐（P1-8 行为不变）。
+  const term = input.source === "web" ? { incoterm: input.incoterm ?? null, fromPrefs: false } : pickRfqIncoterm(input.incoterm, prefs);
+  const built = buildRfqDocument({
+    projectName: project.name,
+    buyerDisplayName: settings.fromName,
+    closeDate: project.closeDate ? project.closeDate.toISOString() : null,
+    now,
+    requirements,
+    facts,
+    quantityTiers: input.quantityTiers,
+    incoterm: term.incoterm,
+    destination: input.destination ?? null,
+    replyLeadDays: settings.replyLeadDays,
+    extraQuestions: input.extraQuestions,
+    scopeNote: input.scopeNote ?? null,
+  });
+  if (!built.ok) return { ok: false, errorCode: built.errorCode, message: built.message };
+  const doc = built.doc;
+
+  // ── 建轮次（draft，零出站） ──
+  const inquiry = await createInquiry(
+    // 标题留空 → createInquiry 默认「第 N 轮询价」（原硬编码的「第 N 轮询价（Muse）」未插值，界面会显示字面 N）
+    { projectId: project.id, scope: doc.scopeNote ?? undefined, dueDate: doc.replyBy ?? undefined },
+    input.userId,
+  );
+  const items: TenderSendRfqPayload["items"] = [];
+  for (const s of ready) {
+    const item = await addInquiryItem({ projectId: project.id, inquiryId: inquiry.id }, s.id, input.userId);
+    const mail = renderRfqEmail(doc, { supplierName: s.name, roundNumber: inquiry.roundNumber });
+    items.push({ inquiryItemId: item.id, supplierId: s.id, supplierName: s.name, to: s.contactEmail, subject: mail.subject, body: mail.body });
+  }
+
+  const payload: TenderSendRfqPayload = {
+    projectId: project.id,
+    inquiryId: inquiry.id,
+    roundNumber: inquiry.roundNumber,
+    fromName: settings.fromName,
+    fromEmail: settings.fromEmail,
+    items,
+    rfqDocHash: hashRfqPayloadItems(items),
+    incoterm: term.incoterm,
+  };
+
+  // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）
+  const approval = await requestApproval({
+    orgId: input.orgId,
+    principal: { userId: input.userId, actorType: "user" },
+    actionType: TENDER_SEND_RFQ_TYPE,
+    title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商 — ${project.name}`,
+    preview: previewRfqPayload(payload),
+    payload: payload as unknown as Record<string, unknown>,
+    // 对外发邮件：与 revenue-spine 跟进邮件同级
+    risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
+    source: { module: "tender-rfq.service", toolName: input.source === "web" ? "tender_send_rfq_web" : "tender_send_rfq", stepKey: `rfq:${inquiry.id}` },
+    business: { projectId: project.id },
+    ttlHours: 72,
+    idempotencyKey: `${TENDER_SEND_RFQ_TYPE}:${inquiry.id}`,
+  });
+  if (!approval.ok) {
+    // 审批卡没建成：把刚建的草稿轮次标为已取消，免得留下一轮「看似可手工发送」的孤儿草稿（draft → canceled 是合法流转）
+    await db.projectInquiry.update({ where: { id: inquiry.id }, data: { status: "canceled" } }).catch(() => undefined);
+    return { ok: false, errorCode: "DRAFT_FAILED", message: `生成审批草稿失败：${approval.error}` };
+  }
+  const actionId = approval.actionIds[0] ?? "";
+
+  return {
+    ok: true,
+    actionId,
+    inquiryId: inquiry.id,
+    roundNumber: inquiry.roundNumber,
+    preview: payload.items.map((i) => `${i.supplierName} <${i.to}>`).join("、"),
+    replyBy: doc.replyBy,
+    fromEmail: settings.fromEmail,
+    suppliers: items.map((i) => ({ id: i.supplierId, name: i.supplierName, to: i.to })),
+    blockedSuppliers: blocked,
+    excludedRequirements: doc.excluded.length,
+    supplierSource: pick.source,
+    incoterm: term.incoterm,
+    incotermFromPrefs: term.fromPrefs,
+  };
+}
+
+/* ---------------------------------- 共用加载器（prepare 与 W-1 入口预判） ---------------------------------- */
+
+export type RfqPendingSend = { actionId: string; inquiryId: string; createdAt: Date };
+
+/** 读本项目各轮次 + 待批 / 已批未执行的 tender.send_rfq → decideRoundLock。只读。 */
+export async function loadRfqRoundLockState(input: {
+  orgId: string;
+  projectId: string;
+  now: Date;
+  roundLockDays: number;
+}): Promise<{ existing: ExistingRound[]; lock: RoundLockVerdict; pendingSends: RfqPendingSend[] }> {
+  const rounds = await db.projectInquiry.findMany({
+    where: { projectId: input.projectId },
+    select: {
+      id: true,
+      roundNumber: true,
+      status: true,
+      createdAt: true,
+      createdById: true,
+      items: { select: { status: true } },
+    },
+  });
+  const pendingRows = await db.pendingAction.findMany({
+    where: { orgId: input.orgId, projectId: input.projectId, type: TENDER_SEND_RFQ_TYPE, status: { in: ["pending", "approved"] } },
+    select: { id: true, createdAt: true, payload: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const pendingSends: RfqPendingSend[] = [];
+  for (const p of pendingRows) {
+    const inquiryId = (p.payload as { inquiryId?: string } | null)?.inquiryId;
+    if (inquiryId) pendingSends.push({ actionId: p.id, inquiryId, createdAt: p.createdAt });
+  }
+  const pendingInquiryIds = new Set(pendingSends.map((p) => p.inquiryId));
+  const creatorIds = [...new Set(rounds.map((r) => r.createdById))];
+  const creators = creatorIds.length ? await db.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true } }) : [];
+  const nameOf = new Map(creators.map((u) => [u.id, u.name]));
+  const existing: ExistingRound[] = rounds.map((r) => ({
+    inquiryId: r.id,
+    roundNumber: r.roundNumber,
+    status: r.status,
+    createdAt: r.createdAt,
+    createdByName: nameOf.get(r.createdById) ?? null,
+    sentCount: r.items.filter((i) => i.status !== "pending").length,
+    hasPendingSend: pendingInquiryIds.has(r.id),
+  }));
+  return { existing, lock: decideRoundLock(existing, input.now, input.roundLockDays), pendingSends };
+}
+
+/** 最新可用分析运行（REVIEW_REQUIRED / APPROVED）的要求 + 关键事实槽。只读。 */
+export async function loadRfqRequirementInputs(projectId: string): Promise<{ requirements: RfqRequirementInput[]; facts: RfqFactInput[] }> {
   const run = await db.tenderAnalysisRun.findFirst({
-    where: { projectId: project.id, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+    where: { projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -183,81 +296,5 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
       }
     }
   }
-
-  const term = pickRfqIncoterm(input.incoterm, prefs);
-  const built = buildRfqDocument({
-    projectName: project.name,
-    buyerDisplayName: settings.fromName,
-    closeDate: project.closeDate ? project.closeDate.toISOString() : null,
-    now,
-    requirements,
-    facts,
-    quantityTiers: input.quantityTiers,
-    incoterm: term.incoterm,
-    destination: input.destination ?? null,
-    replyLeadDays: settings.replyLeadDays,
-    extraQuestions: input.extraQuestions,
-    scopeNote: input.scopeNote ?? null,
-  });
-  if (!built.ok) return { ok: false, errorCode: built.errorCode, message: built.message };
-  const doc = built.doc;
-
-  // ── 建轮次（draft，零出站） ──
-  const inquiry = await createInquiry(
-    { projectId: project.id, title: `第 N 轮询价（Muse）`, scope: doc.scopeNote ?? undefined, dueDate: doc.replyBy ?? undefined },
-    input.userId,
-  );
-  const items: TenderSendRfqPayload["items"] = [];
-  for (const s of ready) {
-    const item = await addInquiryItem({ projectId: project.id, inquiryId: inquiry.id }, s.id, input.userId);
-    const mail = renderRfqEmail(doc, { supplierName: s.name, roundNumber: inquiry.roundNumber });
-    items.push({ inquiryItemId: item.id, supplierId: s.id, supplierName: s.name, to: s.contactEmail, subject: mail.subject, body: mail.body });
-  }
-
-  const payload: TenderSendRfqPayload = {
-    projectId: project.id,
-    inquiryId: inquiry.id,
-    roundNumber: inquiry.roundNumber,
-    fromName: settings.fromName,
-    fromEmail: settings.fromEmail,
-    items,
-    rfqDocHash: hashRfqPayloadItems(items),
-    incoterm: term.incoterm,
-  };
-
-  // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）
-  const approval = await requestApproval({
-    orgId: input.orgId,
-    principal: { userId: input.userId, actorType: "user" },
-    actionType: TENDER_SEND_RFQ_TYPE,
-    title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商 — ${project.name}`,
-    preview: previewRfqPayload(payload),
-    payload: payload as unknown as Record<string, unknown>,
-    // 对外发邮件：与 revenue-spine 跟进邮件同级
-    risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
-    source: { module: "tender-rfq.service", toolName: "tender_send_rfq", stepKey: `rfq:${inquiry.id}` },
-    business: { projectId: project.id },
-    ttlHours: 72,
-    idempotencyKey: `${TENDER_SEND_RFQ_TYPE}:${inquiry.id}`,
-  });
-  if (!approval.ok) {
-    return { ok: false, errorCode: "DRAFT_FAILED", message: `生成审批草稿失败：${approval.error}` };
-  }
-  const actionId = approval.actionIds[0] ?? "";
-
-  return {
-    ok: true,
-    actionId,
-    inquiryId: inquiry.id,
-    roundNumber: inquiry.roundNumber,
-    preview: payload.items.map((i) => `${i.supplierName} <${i.to}>`).join("、"),
-    replyBy: doc.replyBy,
-    fromEmail: settings.fromEmail,
-    suppliers: items.map((i) => ({ id: i.supplierId, name: i.supplierName, to: i.to })),
-    blockedSuppliers: blocked,
-    excludedRequirements: doc.excluded.length,
-    supplierSource: pick.source,
-    incoterm: term.incoterm,
-    incotermFromPrefs: term.fromPrefs,
-  };
+  return { requirements, facts };
 }

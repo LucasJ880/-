@@ -254,7 +254,7 @@ export default function NotificationSettingsPage() {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">站外通道</h2>
         <ToggleRow
           label="未读提醒与每日汇总邮件"
-          description="@提及与任务指派 15 分钟未读时发一封提醒；每天早上 7 点（组织时区）发一封未读汇总。发到你的青砚账号邮箱。"
+          description="@提及、任务指派与催单待批 15 分钟未读时发一封提醒；每天早上 7 点（组织时区）发一封未读汇总。发到你的青砚账号邮箱。"
           checked={pref.emailEnabled}
           onChange={(v) => setPref({ ...pref, emailEnabled: v })}
           disabled={saving}

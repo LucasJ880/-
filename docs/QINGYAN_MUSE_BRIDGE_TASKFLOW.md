@@ -58,7 +58,7 @@
 | P1-6 | `compare` 意图：归一化矩阵 + 一句话结论（谁最便宜、谁全合规、谁交期超期）；`price_scenario` 意图：比价矩阵 → `tender-pricing.buildScenarios`，输出价格分 / 打平价 / 所选供应商落地价，**不输出毛利率、项目估值、我方最终报价**（决定 A，#237） | P1-5 | 响应 ≤ 1200 字，data 带矩阵；脱敏测试通过 | [x]（待 GATE-1 联调；#235、#237） |
 | P1-7 | `chase` 意图 + 催单调度：N 天无回复 → 草稿 → PendingAction `tender.send_chase` → 审批 → 原询价线程回复发出；催满两次 / 回复截止已过 → 自动 `markItemNoResponse` + `no_response` 事件；缺字段追问（含贸易条款 / 起订量，#258）；未响应后晚到的回信照样入表（#258） | P1-3 | cron tick 幂等；同 item 同一时刻最多一张待批催单卡 | [x]（待 GATE-1 联调；#239、#258） |
 | P1-8 | 建议式回复契约（结论 → 理由 → 下一步）+ `next_step` 意图（确定性查表，零 LLM）+ 个人偏好记忆（常用供应商 / 默认 Incoterm / 催单天数，`preferences` / `set_preference` 意图） | P1-6 | 每条 ok 回复第一行 ≤ 60 字且 `suggestedActions[0]` = 下一步；偏好里不存任何金额 | [x]（待 GATE-1 联调；#236） |
-| P1-6G | 比价解读数字校验：`/compare/analysis` 的 LLM 解读里每个金额 / 数量 / 百分比 / 日期必须能在交给 LLM 的输入（矩阵 + 代码结论）里找到，找不到的就地标注「［矩阵中无此数］」并在面板提示以矩阵为准（P1-5-6 报告遗留项） | P1-6 | `interpretation-guard.test.ts` 全过；零新增 LLM 调用；矩阵 / 结论 / 推荐不变 | [G]（change `rfq-compare-number-guard`；待合并） |
+| P1-6G | 比价解读数字校验：`/compare/analysis` 的 LLM 解读里每个金额 / 数量 / 百分比 / 日期必须能在交给 LLM 的输入（矩阵 + 代码结论）里找到，找不到的就地标注「［矩阵中无此数］」并在面板提示以矩阵为准（P1-5-6 报告遗留项） | P1-6 | `interpretation-guard.test.ts` 全过；零新增 LLM 调用；矩阵 / 结论 / 推荐不变 | [x]（#383；archive `2026-11-06-rfq-compare-number-guard`） |
 
 **GATE-1 联调前置（运维）**
 - 授权邮箱 `mailboxEmail`（lucas@sunnyshutter.ca）的拥有者登录青砚 → 设置 → 连接 Gmail，授权须同时含 gmail.compose（发信）与 gmail.readonly（读回信）；`EmailProvider` 只按组织设置里的 `mailboxEmail` 查找（邮箱分离，#238）。
@@ -69,6 +69,30 @@
 - `staging` 分支已于 2026-10-27 快进同步到 main（含 #232–#240、#258）。
 
 **GATE-1 验收**：从 Muse 说「问三家价」到三家报价进表，人工手录字段数 = 0；全程出站动作全部有 PendingAction 记录；Muse 端消息零敏感字段。
+**GATE-1 验收（Web 版，W-1 起）**：从项目「标书与报价」点「问供应商要价」到三家报价进表，人工手录字段数 = 0；出站只经 `tender.send_rfq` 审批；审批人不离开项目页。
+
+---
+
+## Phase W — 先把已建好的用起来（Web 入口）
+
+上位方案：`claude/招投标四步路径整合方案-2026-11-06.md`（青砚项目文档，Evan 2026-11-06 拍板 §6a）。纪律同上：零 schema、出站一律审批、不新增队列、零新增 LLM 调用。Muse Connector 冻结后，P1 询价引擎的入口改由 Web 承担；`MUSE_BRIDGE_ENABLED` 旁路保留。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| W-1 | 项目页「问供应商要价」：入口前置判断（七种不可发原因 + 出路）→ 抽屉选供应商 / 条款 → 与 Muse 同一 `prepareRfqRound`（`source=web`）建 `tender.send_rfq` → 原地批准 / 驳回（审批中心既有接口）→ 轮次状态行与「从发起到发出」耗时；待批轮次禁止手工标记发送；旧单封直发 `email/send`、`email/generate` 下线（410） | P1-1..P1-8 | OpenSpec change `rfq-web-entry`；`web-entry-pure` 81 项测试注册；报告 `docs/QINGYAN_W-1_REPORT.md`；staging GATE-W 见任务书 §6 | [x]（#389；archive `2026-11-07-rfq-web-entry`） |
+| W-2 | RFQ 设置页：fromName / fromEmail / mailboxEmail / 回复提前量 / 轮次锁 / 催单天数 / 落地成本 FX（现只有 `PUT /api/organizations/[orgId]/tender-rfq-settings`） | W-1 | 页面保存 = 现有 PUT 的效果；非 org_admin 不可见 | [ ] |
+| W-3 | 比价矩阵所选供应商落地价接进定价助手成本线（Web 化 `projectScenariosForMuse`，决定 A 不变） | W-1 | 定价助手出现「来自比价矩阵」成本来源；手填可覆盖 | [ ] |
+
+---
+
+## Phase T — 询价追踪（谁回了、谁没回、该催谁）
+
+任务书：`docs/QINGYAN_T-1_T-2_RFQ_TRACKING_TASKBRIEF.md`（Evan 2026-11-07 拍板 §8：「催单待批」15 分钟未读发升级邮件；`batch-followup` 直接下线；追踪页显示价格）。纪律同上：零 schema、出站一律审批、不新增 cron / 队列、零新增 LLM 调用；通知、升级邮件与汇总不出金额。目标：替掉「盯 Grok Bot 追踪」这一步。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| T-1 | 询价进展站内通知：报价了 / 回信无报价 / 催单待批（一轮一次扫描一条；15 分钟未读发升级邮件）/ 未响应；收件人为项目负责人 ∪ 本轮发起人（催单待批只给负责人）；点开到该轮（`?tab=bid#rfq-round-<id>`），催单 / 追问卡在轮次里原地批准；两条入站提醒归入询价类别 | W-1 | 任务书 §2.6：带价回信后负责人铃铛出现「报价了」并展开到该轮；定时检查起草催单 → 一条「等你批准」，点开就是审批面板；30 分钟未读收到【青砚】升级邮件；通知与邮件无金额 | [x]（#391；archive `2026-11-08-rfq-tracking-notify`） |
+| T-2 | 询价追踪页 `/bids/rfq` + `/bids` 汇总卡（需要我处理 / 等回复 / 已报价 / 未响应；下次自动催的日期与 `decideChases` 一致；落地价取比价矩阵）；首页「供应商未回复」改查 `sent`；`batch-followup` → 410 | T-1 | 任务书 §3.5 | [ ] |
 
 ---
 
@@ -76,8 +100,10 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| P2-0 | 结果表单补「中标方（选填）」：未中标时人工填写 → 结果备注 + 人工确认授标事实（幂等 `tender-result-winner:{projectId}`，换名不覆盖）；授标情报投影把我方排除出「竞争对手」域（`ownAwardCount`）。来源 `QINGYAN_TENDER_INTEL_SLOTS_P1P2_REPORT.md` §5 遗留两条 | — | 未中标填中标方 → 竞争对手域出现该对手、不出现我方；同名再标记幂等；授标情报关闭时只写备注（`docs/QINGYAN_P2-0_REPORT.md`） | [G]（change `tender-outcome-winner`；待合并） |
-| P2-0b | 情报中枢「竞争对手」「采购机构」两页接真实数据（授标事实 + 我方项目，只读 `GET /api/org/tender-intel-profiles`，项目经可见性过滤）；「周期采购」入口收起（页面保留） | P2-0 | 两页显示对手 / 机构画像、我方排除或标出；开关关闭时降级；导航无「周期采购」（`docs/QINGYAN_P2-0b_REPORT.md`） | [G]（change `tender-intel-org-profiles`；待合并，依赖 P2-0） |
+| P2-0 | 结果表单补「中标方（选填）」：未中标时人工填写 → 结果备注 + 人工确认授标事实（幂等 `tender-result-winner:{projectId}`，换名不覆盖）；授标情报投影把我方排除出「竞争对手」域（`ownAwardCount`）。来源 `QINGYAN_TENDER_INTEL_SLOTS_P1P2_REPORT.md` §5 遗留两条 | — | 未中标填中标方 → 竞争对手域出现该对手、不出现我方；同名再标记幂等；授标情报关闭时只写备注（`docs/QINGYAN_P2-0_REPORT.md`） | [x]（#384；archive `2026-11-06-tender-outcome-winner`） |
+| P2-0b | 情报中枢「竞争对手」「采购机构」两页接真实数据（授标事实 + 我方项目，只读 `GET /api/org/tender-intel-profiles`，项目经可见性过滤）；「周期采购」入口收起（页面保留） | P2-0 | 两页显示对手 / 机构画像、我方排除或标出；开关关闭时降级；导航无「周期采购」（`docs/QINGYAN_P2-0b_REPORT.md`） | [x]（#385；archive `2026-11-06-tender-intel-org-profiles`） |
+| P2-0c | 授标去重：同中标方 + 同买家、两条都有招标编号且不同 → 另一次招标（ACTIVE），不再判疑似重复；编号缺失或只差写法仍留人工 | — | 我方 / 对手在同一机构再次中标不落 NEEDS_REVIEW；买家周期用上全部样本（`docs/QINGYAN_P2-0c_REPORT.md`） | [x]（#386；archive `2026-11-06-award-dedupe-solicitation`） |
+| P2-0d | 授标记录人工处理（仅组织管理员）：「历史中标」页确认线索 / 疑似重复、撤回错误记录（原因必填、留痕、同事务审计）；撤回后重新标记结果可更正中标方 | P2-0, P2-0c | 非管理员无按钮且接口 403；确认 / 撤回留审计；撤回后更正写新记录、重放幂等（`docs/QINGYAN_P2-0d_REPORT.md`） | [G]（change `award-record-review`；待合并） |
 | P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
@@ -156,6 +182,24 @@
 
 ---
 
+## Phase V — 可见性收口（看得见的都是能用的）
+
+任务书：`docs/QINGYAN_VIS-1_VISIBILITY_TASKBRIEF.md`（Lucas 2026-11-08 拍板：判断点 1–7 全取推荐，见任务书「拍板结果 · VIS-1」）。规则：一个入口（路由 / 首页卡片 / 底栏 / 通知类型 / 设置项 / 审批项 / AI 工具）只在「所属模块已开 ∧ 当前岗位持键」时出现，判定只从导航注册表（`src/lib/navigation/registry.ts` + `src/lib/tenancy/modules.ts`）派生。纪律同上：零 schema、不新增权限键、零新增 LLM 调用、不触碰出站、不新增队列。与 Phase K / P / C 并列，属 Sunny 线。一个 change = 一个 PR，按 VIS-1a → 1e 顺序合并。
+
+**合并前置（Lucas）**：先把 `config/positions/sunny.json` 的 `TODO:` 邮箱占位填成真实邮箱并跑岗位绑定；否则岗位模式下无键的人在 VIS-1a 之后敲任何业务 URL 都会被弹回默认工作区。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| VIS-1a | 路由级可见性门（服务端）：已登录页面请求（含站内导航）在渲染前由 Node runtime 中间件按导航注册表判定「模块已开 ∧ 岗位持键」，不满足 302 到落地页；路由前缀 → 导航项映射表 + 登录即可白名单，表外路由 fail-closed；营销工作区旧门（中间件页面规则 / 「非销售即可」）由路由门取代；`/sales/analytics` 改按 `sales.analytics.read`；`/revenue` 只认 `trade` 模块；`/bids` 在岗位模式不再因 `project.read` 放行；源码断言每个 `(main)` 页面都命中映射表或白名单 | — | OpenSpec change `vis-1a-route-gate`；BREAKING：老板失去 `/trade/**` 直达、会计失去 `/bids`、安装工失去营销工作区；报告 `docs/QINGYAN_VIS-1a_REPORT.md` | [x]（#393；archive `2026-11-08-vis-1a-route-gate`） |
+| VIS-1b | 首页 / 底栏 / 索引页按同一张表：岗位卡补模块与键并按导航同口径过滤（`inbound_sales` 卡随 `trade` 模块、`ops_knowledge` 卡仅平台管理员）；「等你拍板」只列本岗位可批类型，Sunny 原生审批跳各自专属落点；底栏「招投标」与侧栏 `ws-bids` 同判定；`/operations` 索引与 `/help` 功能地图从可见导航生成；销售侧栏移除「AI 任务」「数字员工」，`/workforce` 按可读域过滤 | VIS-1a | OpenSpec change `vis-1b-home-and-shell`；报告 `docs/QINGYAN_VIS-1b_REPORT.md` | [ ] |
+| VIS-1c | 通知类型 / 设置 / 搜索 / AI 工具按模块收口：通知开关与通知页筛选只列模块已开的类型（图标表与跳转表不改）；`/settings` 发信文案改读组织设置；全局搜索的项目范围改为本人可读且须持 `project.read`；AI 助手工具表按模块过滤（与执行期同一映射）；营销增长员工按 `marketing` 模块 ∧ 营销键 | VIS-1a | OpenSpec change `vis-1c-notify-settings-search`；报告 `docs/QINGYAN_VIS-1c_REPORT.md` | [ ] |
+| VIS-1d | 审批中心按模块 ∧ 岗位：可见集合 = 本人提交 / 被指派 ∪ 「所属模块已开 ∧ 本岗位持对应审批键」的类型；AI 助手「待我确认」与团队审批范围改用同一集合函数；平台 super_admin 不受此限 | VIS-1a | OpenSpec change `vis-1d-approvals-split`；隔离库测试；BREAKING：Sunny org_admin 不再见全量审批，梦馨不受影响；报告 `docs/QINGYAN_VIS-1d_REPORT.md` | [ ] |
+| VIS-1e | 平台管理员「以岗位预览」：super_admin 在组织成员页写 2 小时预览 cookie（零 schema），导航 / 路由门 / 首页 / 通知 / 审批 / AI 工具按该岗位模板的键；预览态非 GET API 一律 409 `PREVIEW_READONLY`；顶部常驻横幅可退出 | VIS-1a–1d | OpenSpec change `vis-1e-preview-as-position`；报告 `docs/QINGYAN_VIS-1e_REPORT.md` | [ ] |
+
+**GATE-V 验收**（细项见任务书「验收」节）：以 VIS-1e 预览逐岗位核对 Lynn（`sales_rep`）/ 安装工 / Miki（`accounting` + `pricing_lead`）/ Bob（`owner`）/ Lucas（`super_admin`）；未授权直达 URL 一律服务端 302 到默认工作区、无骨架闪现；`npm run test:ci` 与 `npm run typecheck` 通过；每个 change 的 `openspec validate` 通过。
+
+---
+
 ## Phase R — 采购情报与政府资料申请（Tender 类目）
 
 任务书：`docs/QINGYAN_PROC-1_RECORDS_TASKBRIEF.md`（v1.0，2026-11-05）；交接：`docs/QINGYAN_PROC-1_HANDOFF.md`。纪律：第 1 条零 schema 与第 3 条租约有 PROC-1 限定例外（决定 C，Lucas 2026-11-05 批准）；其余同上——不加 cron / 队列（挂既有 `tender-watch`）、零出站（用户自助提交）、只读官方开放数据 / 公开页、零 LLM。
@@ -201,4 +245,5 @@
 11. COLLAB-2 审核（Evan，2026-11-04）：
     - `collab-notify` 四件套按原样批准实施。
     - 手工验收放在 qingyan-staging 上做；本地 `.env` 直连生产库，不在本地跑。
-12. **决定 C**（2026-11-05，PROC-1，Lucas 批准）：硬纪律第 1 条例外——迁移 `20261105120000_add_procurement_records_foundation` 只新增 16 张 `Procurement*` / `Records*` 表；第 3 条例外——`ProcurementScanRun` 的单行认领（runnerToken + 心跳）只服务 `tender-watch` 里的采购扫描步骤，三个命中 R1 命名模式的表已逐条登记 baseline。两条例外都只限 PROC-1，已写进 `openspec/config.yaml`；合并仍由 Evan 拍板，生产迁移走 Owner Gate（`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`）。
+12. 对外询价可以自批（W-1，用户 2026-11-07 拍板）：Web 建的 `tender.send_rfq` 审批卡不指定审批人，按审批中心现有规则（`canDecidePending`）创建人本人可以批准自己发起的对外询价，与 Muse 路径一致；纪律第 2 条「出站先审批」仍成立（必须经审批卡），不加「对外邮件不能自批」。
+13. **决定 C**（2026-11-05，PROC-1，Lucas 批准）：硬纪律第 1 条例外——迁移 `20261105120000_add_procurement_records_foundation` 只新增 16 张 `Procurement*` / `Records*` 表；第 3 条例外——`ProcurementScanRun` 的单行认领（runnerToken + 心跳）只服务 `tender-watch` 里的采购扫描步骤，三个命中 R1 命名模式的表已逐条登记 baseline。两条例外都只限 PROC-1，已写进 `openspec/config.yaml`；合并仍由 Evan 拍板，生产迁移走 Owner Gate（`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`）。

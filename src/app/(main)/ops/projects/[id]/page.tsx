@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { resolveWorkspaceContextFromCookies } from "@/lib/rbac/resolve-workspace-context";
-import { canAccessOperationsWorkspace } from "@/lib/rbac/workspace-policy";
+// VIS-1a：运营工作区可见性由路由门判定（src/proxy.ts → route-gate），这里只保留未登录跳转
 import { DeliveryProjectDetailView } from "@/components/ops/delivery-project-detail";
 
 export default async function OpsProjectDetailPage({
@@ -10,10 +10,6 @@ export default async function OpsProjectDetailPage({
 }) {
   const session = await resolveWorkspaceContextFromCookies();
   if (!session) redirect("/login");
-
-  if (!canAccessOperationsWorkspace(session.ctx)) {
-    redirect("/");
-  }
 
   const { id } = await params;
   return <DeliveryProjectDetailView projectId={id} />;

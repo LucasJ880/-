@@ -12,6 +12,8 @@
  * - lost + 用户在结果表单选填了中标方（P2-0）→ 同一人工动作把对手中标写成
  *   AwardRecord（HUMAN_CONFIRMED / USER_ENTRY / 幂等 sourceKey=tender-result-winner:{projectId}）；
  *   每个项目只记一次：再次标记换了名字不覆盖（返回 winner_already_recorded，避免静默改写事实）。
+ *   更正（P2-0d）：组织管理员先在「历史中标」撤回原记录，再重新标记——来源键对应记录已撤回时
+ *   改用后继键 `{key}:after:{撤回记录 id}` 写新记录（我方中标 own-result 同理）。
  *   没填中标方的 lost 仍不写对手事实。
  * - Buyer 写门是 admin-only（corporate-memory access.ts）：无权限 → 跳过并
  *   记录原因，绝不阻塞结果标记。
@@ -25,7 +27,31 @@ import {
   materializeWinnerConfirmation,
   normalizeVendorName,
   type AwardsDbClient,
+  type MaterializeWinnerResult,
+  type ObserveAwardInput,
 } from "./awards";
+
+/** 同一项目同一来源键最多跟随几次「已撤回 → 新键」（P2-0d；超过视为数据异常） */
+const MAX_RETRACTED_HOPS = 10;
+
+/**
+ * 写入结果标记的授标事实；若该来源键对应的记录已被组织管理员撤回（P2-0d），
+ * 改用确定性的后继键 `{baseKey}:after:{撤回记录 id}` 再写——撤回后重新标记（更正）能落新记录，
+ * 重放同一更正仍幂等。撤回记录本身不复活。
+ */
+async function materializeSkippingRetracted(
+  tx: AwardsDbClient,
+  baseKey: string,
+  build: (sourceKey: string) => ObserveAwardInput,
+): Promise<MaterializeWinnerResult> {
+  let key = baseKey;
+  for (let i = 0; i < MAX_RETRACTED_HOPS; i++) {
+    const res = await materializeWinnerConfirmation(build(key), { client: tx });
+    if (!res.materialized || res.record.status !== "RETRACTED") return res;
+    key = `${baseKey}:after:${res.record.id}`;
+  }
+  throw new Error(`retracted_chain_too_long:${baseKey}`);
+}
 
 export type OwnResultBackfillOutcome = {
   award: "written" | "skipped";
@@ -97,8 +123,7 @@ export async function backfillOwnResultCanonical(input: {
       }
       const amount = project.winningBidPrice ?? null;
       const res = await db.$transaction(async (tx) =>
-        materializeWinnerConfirmation(
-          {
+        materializeSkippingRetracted(tx as unknown as AwardsDbClient, `tender-result-winner:${project.id}`, (sourceKey) => ({
             orgId: project.orgId!,
             actor: { actorType: "user", userId: input.actorUserId },
             award: {
@@ -113,16 +138,14 @@ export async function backfillOwnResultCanonical(input: {
             },
             source: {
               sourceType: "USER_ENTRY",
-              sourceKey: `tender-result-winner:${project.id}`,
+              sourceKey,
               sourceUrl: null,
               evidenceSnippet: null,
               capturedAt: new Date(),
             },
             confidence: "MEDIUM",
             verificationStatus: "HUMAN_CONFIRMED",
-          },
-          { client: tx as unknown as AwardsDbClient },
-        ),
+          })),
       );
       if (!res.materialized) {
         out.awardReason = res.reason;
@@ -155,8 +178,7 @@ export async function backfillOwnResultCanonical(input: {
     const amount = project.winningBidPrice ?? project.ourBidPrice ?? null;
 
     const res = await db.$transaction(async (tx) =>
-      materializeWinnerConfirmation(
-        {
+      materializeSkippingRetracted(tx as unknown as AwardsDbClient, `own-result:${project.id}`, (sourceKey) => ({
           orgId: project.orgId!,
           actor: { actorType: "user", userId: input.actorUserId },
           award: {
@@ -172,16 +194,14 @@ export async function backfillOwnResultCanonical(input: {
           },
           source: {
             sourceType: "USER_ENTRY",
-            sourceKey: `own-result:${project.id}`,
+            sourceKey,
             sourceUrl: null,
             evidenceSnippet: null,
             capturedAt: new Date(),
           },
           confidence: "HIGH",
           verificationStatus: "HUMAN_CONFIRMED",
-        },
-        { client: tx as unknown as AwardsDbClient },
-      ),
+        })),
     );
     out.award = res.materialized ? "written" : "skipped";
     out.awardRecordId = res.materialized ? res.record.id : null;

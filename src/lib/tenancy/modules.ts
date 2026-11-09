@@ -64,7 +64,8 @@ export const NAV_HREF_MODULES: Record<string, OrgModule[]> = {
   "/trade/channels": ["trade"],
   "/trade/fulfillment": ["trade", "supply_chain"],
   "/trade/knowledge": ["trade"],
-  "/revenue": ["trade", "sales"],
+  // VIS-1a：营收中心只随外贸模块
+  "/revenue": ["trade"],
   "/revenue/today": ["trade"],
   "/trade/signals": ["trade"],
   "/product-content": ["product_content", "trade"],

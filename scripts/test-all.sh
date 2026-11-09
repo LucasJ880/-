@@ -233,6 +233,7 @@ run_test "Trade Product Sample" "npx tsx src/lib/trade/__tests__/product-sample.
 run_test "Navigation IA" "npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts"
 run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts"
 run_test "Navigation Position Mode (PERM-4c2)" "npx tsx src/lib/navigation/__tests__/position-nav.test.ts"
+run_test "路由级可见性门（VIS-1a）" "npx tsx src/lib/navigation/__tests__/route-gate.test.ts"
 run_test "Autopilot A0 Access" "npx tsx src/lib/autopilot/__tests__/access.test.ts"
 run_test "Autopilot A0 Sanitize" "npx tsx src/lib/autopilot/__tests__/sanitize.test.ts"
 run_test "Autopilot A0 Repository Org" "npx tsx src/lib/autopilot/__tests__/repository-org.test.ts"
@@ -347,6 +348,8 @@ run_test "PERM-3 Fulfillment Category" "npx tsx src/lib/fulfillment/__tests__/ca
 run_test "PERM-3 Order Access" "npx tsx src/lib/fulfillment/__tests__/order-access.test.ts"
 run_test "安装任务范围与工作区（INSTALL-1）" "npx tsx src/lib/install/__tests__/scope.test.ts"
 run_test "销售账号营销数字员工权限" "npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts"
+run_test "营销接口判定（VIS-1a 起只测接口层）" "npx tsx src/lib/marketing/__tests__/route-access.test.ts"
+run_test "中间件对营销页面 / 接口的处理（VIS-1a 路由门）" "npx tsx src/lib/marketing/__tests__/marketing-middleware-access.test.ts"
 run_test "归档客户销售工作区可见性" "npx tsx src/lib/sales/__tests__/archived-customer-visibility.test.ts"
 run_test "Phase3B-A AiThread Org Bind" "npx tsx src/lib/assistant/__tests__/thread-org-policy.test.ts"
 run_test "Phase3B-A Intent Router" "npx tsx src/lib/assistant/__tests__/intent-router.test.ts"
@@ -492,6 +495,8 @@ run_test "外部情报 CanadaBuys 适配器" "npx tsx src/lib/tender-intel/__tes
 run_test "外部情报自动提取+交叉验证" "npx tsx src/lib/tender-intel/__tests__/canadabuys-auto.test.ts"
 run_test "外部情报 Web 搜索（M2）" "npx tsx src/lib/tender-intel/__tests__/websearch.test.ts"
 run_test "T4 canonical 授标情报 service+read model" "npx tsx src/lib/tender-intel/__tests__/awards.test.ts"
+run_test "P2-0c 授标去重：不同招标编号不判疑似重复 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts"
+run_test "P2-0d 授标记录人工处理（确认 / 撤回，仅组织管理员）DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-review-db.isolated.test.ts"
 run_test "T4 语义门 SEM-T4-01..08" "npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts"
 run_test "T5 计划 seam + 确定性 DAG" "npx tsx src/lib/workforce-runtime/__tests__/t5-plan-seam.test.ts"
 run_test "T5 执行策略 descriptor + 新鲜度授权" "npx tsx src/lib/workforce-runtime/__tests__/t5-execution-policy.test.ts"
@@ -587,6 +592,10 @@ run_test "招标询价 比价解读数字校验（P1-6G）" "npx tsx src/lib/ten
 run_test "招标询价 [auto] 备注回读" "npx tsx src/lib/tender-rfq/__tests__/notes-parse.test.ts"
 run_test "招标询价 催单/追问决策与模板" "npx tsx src/lib/tender-rfq/__tests__/chase-pure.test.ts"
 run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts"
+run_test "招标询价 Web 入口（入口状态/错误文案/状态行/耗时/预览白名单，W-1）" "npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts"
+run_test "招标询价 进展通知（文案/脱敏/去重/收件人，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts"
+run_test "招标询价 进展通知接线（只在定时检查发/入站挂钩/投递入口，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts"
+run_test "招标询价 进展通知执行（催单一轮一条/投递收件人与去重，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
@@ -657,7 +666,8 @@ run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
 echo "━━━ TypeScript 编译检查 ━━━"
 echo ""
 
-run_test "TypeScript 类型检查" "npx tsc --noEmit"
+# 走 npm run typecheck（带堆参数，与 CI Typecheck 一致）；裸 npx tsc 用 Node 默认堆，全量检查约需 4.4GB，2GB 默认堆的机器上 OOM
+run_test "TypeScript 类型检查" "npm run typecheck"
 
 # ── 第三组：AI 分类测试（如果 scripts/test-work-json.py 存在） ──
 

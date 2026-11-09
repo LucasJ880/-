@@ -42,6 +42,11 @@ export const TYPE_INTRODUCED_AT: Record<string, string> = {
   task_status: "9999-12-31T00:00:00Z",
   task_comment: "9999-12-31T00:00:00Z",
   order_stage: "9999-12-31T00:00:00Z",
+  // T-1：同 COLLAB-2 的哨兵——上线前保存的清单都没见过这四个开关，一律视为开启
+  rfq_quote_received: "9999-12-31T00:00:00Z",
+  rfq_reply_received: "9999-12-31T00:00:00Z",
+  rfq_chase_ready: "9999-12-31T00:00:00Z",
+  rfq_no_response: "9999-12-31T00:00:00Z",
 };
 
 const REGISTERED_TYPES = new Set(DEFAULT_ENABLED_TYPES);

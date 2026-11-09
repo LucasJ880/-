@@ -66,6 +66,10 @@ npx tsx src/lib/tender-intel/__tests__/outcome-winner-db.isolated.test.ts
 # P2-0b：竞争对手 / 采购机构画像（纯函数 + 路由 DB e2e，无隔离库自动跳过）
 npx tsx src/lib/tender-intel/__tests__/org-profiles.test.ts
 npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts
+# P2-0c：授标去重（不同招标编号不判疑似重复；DB 测试无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts
+# P2-0d：授标记录人工处理（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/tender-intel/__tests__/award-review-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts
@@ -142,6 +146,7 @@ npx tsx src/lib/trade/__tests__/inquiry-design-rules.test.ts
 npx tsx src/lib/navigation/__tests__/trade-layout.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/navigation/__tests__/position-nav.test.ts
+npx tsx src/lib/navigation/__tests__/route-gate.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
 npx tsx src/lib/autopilot/__tests__/repository-org.test.ts
@@ -395,6 +400,14 @@ npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
 npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
+
+# W-1：询价 Web 入口（纯逻辑，无 DB / 无 AI）
+npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
+
+# T-1：询价进展通知（纯逻辑 + 源码接线断言，无 DB / 无 AI）
+npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts
+npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts
+npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

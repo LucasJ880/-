@@ -3,7 +3,7 @@
  * 运行：npx tsx src/lib/authorization/__tests__/residual-reads.test.ts
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { WINDOW_COVERING_INDUSTRY_PACK, mergedProfileBindings } from "../role-defaults";
 import { PLATFORM_ROLE_COLLAPSE_READY } from "../platform-role-collapse";
@@ -153,10 +153,11 @@ ok(PLATFORM_ROLE_COLLAPSE_READY === true, "写库闸门已打开");
     "experiments", "health", "brand-profile", "dashboard", "channel-accounts", "campaigns", "automations",
   ];
   for (const f of mktFiles) ok(src(`src/app/api/marketing/${f}/route.ts`).includes("requireMarketingReadAccess(user"), `GET /api/marketing/${f}：读守卫`);
-  for (const d of ["src/app/(main)/marketing/layout.tsx", "src/app/(main)/operations/growth/layout.tsx"]) {
-    ok(src(d).includes("await guardMarketingWorkspacePage()"), `${d}：服务端门槛`);
-  }
-  ok(src("src/middleware.ts").includes("canAccessMarketingWorkspace(role)"), "中间件原判定保留（旧模式）");
+  // VIS-1a：营销页面改由路由门判定（门表 → 「品牌增长」入口），原 layout 门已删
+  const gate = src("src/lib/navigation/route-gate.ts");
+  ok(gate.includes('{ pattern: "/marketing", rule: nav("growth-hub") }') && gate.includes('{ pattern: "/operations/growth", rule: nav("growth-hub") }'), "营销页面经路由门（品牌增长口径）");
+  ok(!existsSync(join(process.cwd(), "src/app/(main)/marketing/layout.tsx")) && !existsSync(join(process.cwd(), "src/lib/marketing/workspace-gate.ts")), "旧营销页面门已删");
+  ok(src("src/proxy.ts").includes("isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)"), "中间件旧模式营销接口分支保留");
   // 前端
   ok(src("src/components/dashboard/management-dashboard-client.tsx").includes("user?.effectiveRole || user?.role"), "管理总览读 effectiveRole");
   ok(src("src/app/(main)/assistant/digital-employee-workbench.tsx").includes("user?.effectiveRole ?? user?.role"), "工作台营销入口读 effectiveRole");

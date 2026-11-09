@@ -11,6 +11,7 @@ import {
   getDefaultWorkspace,
   type WorkspacePolicyContext,
 } from "../workspace-policy";
+import { WINDOW_COVERING_INDUSTRY_PACK, mergedProfileBindings } from "@/lib/authorization/role-defaults";
 
 let pass = 0;
 let fail = 0;
@@ -178,6 +179,34 @@ ok(
   ) === "/ops",
   "运营兼投标能力时仍优先运营专职入口 /ops",
 );
+
+// ── VIS-1a：岗位模式的招投标工作区只认 project.create / project.update 或管理层（判断点 3）──
+{
+  const keysOf = (...positions: string[]) => [
+    ...new Set(
+      positions.flatMap((p) =>
+        mergedProfileBindings(WINDOW_COVERING_INDUSTRY_PACK, p)
+          .filter((b) => (b.effect ?? "ALLOW") === "ALLOW")
+          .map((b) => b.permissionKey),
+      ),
+    ),
+  ];
+  const pos = (positions: string[], extra: Partial<WorkspacePolicyContext> = {}) =>
+    ctx({ positionMode: true, permissionKeys: keysOf(...positions), ...extra });
+  ok(!canAccessBidWorkspace(pos(["accounting"])), "岗位模式 accounting（持 project.read）：不进招投标");
+  ok(!canAccessBidWorkspace(pos(["fulfillment_vinyl"])), "岗位模式 fulfillment_vinyl（持 project.read）：不进招投标");
+  ok(!canAccessBidWorkspace(pos(["installer"], { hasBidCapability: true })), "岗位模式 只是项目成员的安装工：不进招投标");
+  ok(!canAccessBidWorkspace(pos(["accounting"], { hasBidCapability: true })), "岗位模式 是项目成员的会计：不进招投标");
+  ok(canAccessBidWorkspace(pos(["bids"])), "岗位模式 bids：进招投标");
+  ok(canAccessBidWorkspace(pos(["owner"])), "岗位模式 owner（管理层）：进招投标");
+  ok(canAccessBidWorkspace(pos(["ops_lead", "bids"])), "岗位模式 ops_lead + bids：进招投标");
+  ok(!canAccessBidWorkspace(pos(["bids"], { enabledModules: ["sales", "operations"] })), "岗位模式 bids，企业未启用 bids / projects：不进招投标");
+  ok(
+    canAccessBidWorkspace(ctx({ permissionKeys: ["project.read"] })) &&
+      canAccessBidWorkspace(ctx({ permissionKeys: [], hasBidCapability: true })),
+    "旧模式：project.read / 项目成员仍放行（口径不变）",
+  );
+}
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
