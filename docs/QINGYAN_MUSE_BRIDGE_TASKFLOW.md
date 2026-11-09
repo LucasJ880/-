@@ -200,6 +200,16 @@
 
 ---
 
+## Phase U — 企业用户接入（邀请码直接进企业 · 用户管理按企业隔离）
+
+起因：Lucas 2026-11-09，Sunny 新员工用销售邀请码注册后什么都看不到（码上只勾了公司 logo，注册落进个人工作区）；用户管理在 Sunny 下看到全平台的人。纪律同上：零 schema、零出站、零 LLM、权限不放宽。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| USR-1 | 平台邀请码页可指定「加入企业」与企业内角色（只给销售 / 外贸、企业须启用；可给已有的码补绑 / 改绑 / 解绑）→ 注册直接加入企业、当前企业设为该企业、自动绑默认岗位、不建个人工作区；公司 logo 跟随企业、页面不再手选；「用户管理」默认只列当前企业在册员工（带企业内角色），全平台需显式切换 | — | OpenSpec change `org-scoped-user-onboarding`；`org-scoped-users-db.isolated.test.ts` 36 项（真实注册进企业 + `sales_rep` + 上限 + 列表范围 / 权限）；截图 `docs/acceptance/usr-1/`；报告 `docs/QINGYAN_USR-1_REPORT.md` | [G] |
+
+---
+
 ## Phase R — 采购情报与政府资料申请（Tender 类目）
 
 任务书：`docs/QINGYAN_PROC-1_RECORDS_TASKBRIEF.md`（v1.0，2026-11-05）；交接：`docs/QINGYAN_PROC-1_HANDOFF.md`。纪律：第 1 条零 schema 与第 3 条租约有 PROC-1 限定例外（决定 C，Lucas 2026-11-05 批准）；其余同上——不加 cron / 队列（挂既有 `tender-watch`）、零出站（用户自助提交）、只读官方开放数据 / 公开页、零 LLM。

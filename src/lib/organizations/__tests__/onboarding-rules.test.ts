@@ -32,12 +32,14 @@ import { factoryOwnerRoleProblem,
   deriveOnboardingSteps,
   formatInviteCode,
   hasOnboardingTestTag,
+  isPersonalWorkspaceCode,
   isOnboardingTestEventId,
   nextOnboardingTestCounter,
   onboardingTestEventId,
   planBusinessProfileCategories,
   planExistingOrgAdoption,
   planMembership,
+  validateAdminInviteOrgBinding,
   validateCategorySelection,
   validateInviteRequest,
   validateOnboardingPatch,
@@ -256,6 +258,33 @@ ok("注册时二次校验：带 orgId 的邀请码角色越界一律拒绝；org
   assert.ok(!checkOrgBoundInvite({ orgId: "org1", orgRole: "org_member", role: "boss" }).ok);
   assert.ok(!checkOrgBoundInvite({ orgId: "org1", orgRole: "org_owner", role: "trade" }).ok);
   assert.ok(!checkOrgBoundInvite({ orgId: null, orgRole: "org_member", role: "trade" }).ok);
+});
+
+ok("USR-1 平台邀请码绑定企业：只给 sales / trade，企业内角色缺省 org_member，不填企业 = 旧行为", () => {
+  assert.deepEqual(validateAdminInviteOrgBinding({ role: "sales", orgId: " org1 ", orgRole: undefined }), { ok: true, orgId: "org1", orgRole: "org_member" });
+  assert.deepEqual(validateAdminInviteOrgBinding({ role: "trade", orgId: "org1", orgRole: "org_admin" }), { ok: true, orgId: "org1", orgRole: "org_admin" });
+  assert.deepEqual(validateAdminInviteOrgBinding({ role: "sales", orgId: "org1", orgRole: "" }), { ok: true, orgId: "org1", orgRole: "org_member" });
+  for (const role of ["user", "operations", "boss", "manager", "admin", "super_admin"]) {
+    const r = validateAdminInviteOrgBinding({ role, orgId: "org1", orgRole: "org_member" });
+    assert.ok(!r.ok && /销售/.test(r.error), role);
+  }
+  assert.ok(!validateAdminInviteOrgBinding({ role: "sales", orgId: "org1", orgRole: "org_owner" }).ok);
+  assert.ok(!validateAdminInviteOrgBinding({ role: "sales", orgId: "org1", orgRole: 1 }).ok);
+  assert.ok(!validateAdminInviteOrgBinding({ role: "sales", orgId: 42, orgRole: undefined }).ok);
+  // 不填企业：任何平台角色都行，orgRole 一并清空
+  for (const orgId of [undefined, null, "", "  "]) {
+    assert.deepEqual(validateAdminInviteOrgBinding({ role: "user", orgId, orgRole: "org_admin" }), { ok: true, orgId: null, orgRole: null });
+  }
+  // 与注册时的二次校验同口径：能建出来的企业码一定通过 checkOrgBoundInvite
+  for (const role of ["sales", "trade"]) {
+    for (const orgRole of ["org_member", "org_admin", undefined]) {
+      const b = validateAdminInviteOrgBinding({ role, orgId: "org1", orgRole });
+      assert.ok(b.ok && checkOrgBoundInvite({ orgId: b.orgId, orgRole: b.orgRole, role }).ok, `${role}/${orgRole}`);
+    }
+  }
+  assert.equal(isPersonalWorkspaceCode("personal-abc12345"), true);
+  assert.equal(isPersonalWorkspaceCode("sunny"), false);
+  assert.equal(isPersonalWorkspaceCode(null), false);
 });
 
 ok("成员幂等：不降级 owner / admin；停用的按目标角色重新启用；低角色升到目标", () => {

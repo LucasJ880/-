@@ -296,6 +296,10 @@ npx tsx src/lib/revenue-spine/__tests__/owner-today-db.isolated.test.ts
 # 厂家入驻向导（PRD F6）：纯函数 + 路由静态契约；DB e2e 无隔离库自动跳过
 npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts
 npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts
+# USR-1：平台邀请码绑定企业 + 用户管理按企业隔离（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/users/__tests__/list-scope.test.ts
+npx tsx src/lib/users/__tests__/list-status.test.ts
+npx tsx src/lib/organizations/__tests__/org-scoped-users-db.isolated.test.ts
 # 首响 SLA 分级提醒 / 工作时间日历 / SLA 指标（DB e2e 无隔离库自动跳过）
 npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts
 npx tsx src/lib/revenue-spine/__tests__/sla-metrics.test.ts

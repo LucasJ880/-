@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -9,12 +9,17 @@ import {
   ToggleLeft,
   ToggleRight,
   Trash2,
+  Pencil,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { canViewAdminPages } from "@/lib/permissions-client";
 import { apiFetch } from "@/lib/api-fetch";
+import { useOrganizations } from "@/lib/hooks/use-organizations";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { isPersonalWorkspaceCode } from "@/lib/organizations/onboarding-rules";
 
 interface InviteCode {
   id: string;
@@ -27,27 +32,24 @@ interface InviteCode {
   expiresAt: string | null;
   createdAt: string;
   companyIdsJson: string | null;
+  orgId: string | null;
+  orgRole: string | null;
+  /** USR-1：所属企业（未绑定为 null） */
+  org: { id: string; name: string | null; status: string } | null;
 }
 
-interface Company {
-  id: string;
-  name: string;
-  slug: string;
-  logoUrl: string;
-}
-
-function parseCompanyIds(json: string | null): string[] {
-  if (!json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
-}
+/** 绑定企业的码只能给这两种平台角色（与注册时的校验同口径） */
+const ORG_BOUND_ROLES = ["sales", "trade"] as const;
+const ORG_ROLE_LABELS: Record<string, string> = {
+  org_member: "成员",
+  org_admin: "企业管理员",
+};
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "管理员",
+  boss: "老板",
+  manager: "总经理",
+  operations: "运营",
   sales: "销售",
   trade: "外贸助手",
   user: "普通用户",
@@ -71,24 +73,50 @@ export default function InviteCodesPage() {
   const [newRole, setNewRole] = useState("user");
   const [newLabel, setNewLabel] = useState("");
   const [newMaxUses, setNewMaxUses] = useState("");
-  const [newCompanyIds, setNewCompanyIds] = useState<string[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [newOrgId, setNewOrgId] = useState("");
+  const [newOrgRole, setNewOrgRole] = useState("org_member");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
+  // USR-1：可绑定的企业（启用中、不是个人工作区）；默认选中当前企业
+  const { organizations } = useOrganizations();
+  const { orgId: currentOrgId } = useCurrentOrgId();
+  const orgOptions = useMemo(
+    () =>
+      organizations
+        .filter((o) => o.status === "active" && !isPersonalWorkspaceCode(o.code))
+        .sort((a, b) => a.name.localeCompare(b.name, "zh-CN")),
+    [organizations],
+  );
+  const orgName = (orgId: string) => orgOptions.find((o) => o.id === orgId)?.name ?? "";
+
+  const [editingOrgFor, setEditingOrgFor] = useState<string | null>(null);
+  const [editOrgId, setEditOrgId] = useState("");
+  const [editOrgRole, setEditOrgRole] = useState("org_member");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  // 公司 logo 不在页面上选：绑定企业时由服务端按该企业关联的公司写入
+  const pickNewOrg = (orgId: string) => {
+    setNewOrgId(orgId);
+    if (orgId && !(ORG_BOUND_ROLES as readonly string[]).includes(newRole)) setNewRole("sales");
+  };
+
+  const openCreate = () => {
+    setShowCreate(true);
+    setError("");
+    const defaultOrg = currentOrgId && orgOptions.some((o) => o.id === currentOrgId) ? currentOrgId : "";
+    setNewOrgRole("org_member");
+    setNewOrgId(defaultOrg);
+    if (defaultOrg) setNewRole("sales");
+  };
+
   const loadCodes = useCallback(async () => {
     try {
-      const [codesRes, companiesRes] = await Promise.all([
-        apiFetch("/api/admin/invite-codes"),
-        apiFetch("/api/admin/companies"),
-      ]);
+      const codesRes = await apiFetch("/api/admin/invite-codes");
       if (codesRes.ok) {
         const data = await codesRes.json();
         setCodes(data.codes);
-      }
-      if (companiesRes.ok) {
-        const data = await companiesRes.json();
-        setCompanies(data.companies);
       }
     } finally {
       setLoading(false);
@@ -119,7 +147,8 @@ export default function InviteCodesPage() {
           role: newRole,
           label: newLabel.trim() || undefined,
           maxUses: newMaxUses ? parseInt(newMaxUses) : null,
-          companyIds: newCompanyIds.length > 0 ? newCompanyIds : undefined,
+          orgId: newOrgId || null,
+          orgRole: newOrgId ? newOrgRole : undefined,
         }),
       });
       const data = await res.json();
@@ -132,7 +161,8 @@ export default function InviteCodesPage() {
       setNewRole("user");
       setNewLabel("");
       setNewMaxUses("");
-      setNewCompanyIds([]);
+      setNewOrgId("");
+      setNewOrgRole("org_member");
       loadCodes();
     } catch {
       setError("网络错误");
@@ -148,6 +178,36 @@ export default function InviteCodesPage() {
       body: JSON.stringify({ isActive: !currentActive }),
     });
     loadCodes();
+  };
+
+  const startEditOrg = (c: InviteCode) => {
+    setEditingOrgFor(c.id);
+    setEditOrgId(c.orgId ?? "");
+    setEditOrgRole(c.orgRole ?? "org_member");
+    setEditError("");
+  };
+
+  const saveEditOrg = async (id: string) => {
+    setEditSaving(true);
+    setEditError("");
+    try {
+      const res = await apiFetch(`/api/admin/invite-codes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editOrgId ? { orgId: editOrgId, orgRole: editOrgRole } : { orgId: null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditError(data.error || "保存失败");
+        return;
+      }
+      setEditingOrgFor(null);
+      loadCodes();
+    } catch {
+      setEditError("网络错误");
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -172,10 +232,10 @@ export default function InviteCodesPage() {
     <div className="space-y-6">
       <PageHeader
         title="邀请码管理"
-        description="管理注册邀请码，控制角色分配"
+        description="管理注册邀请码：绑定角色，并可指定注册后直接加入的企业"
         actions={
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={openCreate}
             className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[color:var(--on-accent)] hover:bg-accent-hover transition-colors"
           >
             <Plus size={16} />
@@ -196,6 +256,39 @@ export default function InviteCodesPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted">加入企业</label>
+              <select
+                value={newOrgId}
+                onChange={(e) => pickNewOrg(e.target.value)}
+                data-testid="invite-org-select"
+                className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+              >
+                <option value="">不加入企业（注册后自建个人工作区）</option>
+                {orgOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted">企业内角色</label>
+              <select
+                value={newOrgRole}
+                onChange={(e) => setNewOrgRole(e.target.value)}
+                disabled={!newOrgId}
+                className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none disabled:opacity-50"
+              >
+                <option value="org_member">成员</option>
+                <option value="org_admin">企业管理员</option>
+              </select>
+            </div>
+            <p className="sm:col-span-2 -mt-2 text-xs text-muted" data-testid="invite-org-hint">
+              {newOrgId
+                ? `用这个码注册的人直接加入「${orgName(newOrgId)}」，当前企业就是它；按平台角色自动绑定默认岗位（销售 → 销售人员，外贸 → 外贸业务员），左上角显示该企业的公司 logo，不会建个人工作区。绑定企业的码只能分配销售或外贸角色。`
+                : "不加入企业：注册后会自建一个「××的工作区」，之后要由平台管理员在企业成员页把人加进企业并设岗位。"}
+            </p>
+            <div>
               <label className="mb-1.5 block text-xs font-medium text-muted">邀请码</label>
               <input
                 value={newCode}
@@ -211,12 +304,12 @@ export default function InviteCodesPage() {
                 onChange={(e) => setNewRole(e.target.value)}
                 className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
               >
-                <option value="boss">老板</option>
-                <option value="manager">总经理</option>
-                <option value="operations">运营</option>
+                {!newOrgId && <option value="boss">老板</option>}
+                {!newOrgId && <option value="manager">总经理</option>}
+                {!newOrgId && <option value="operations">运营</option>}
                 <option value="sales">销售</option>
                 <option value="trade">外贸助手</option>
-                <option value="user">普通用户</option>
+                {!newOrgId && <option value="user">普通用户</option>}
               </select>
             </div>
             <div>
@@ -238,41 +331,6 @@ export default function InviteCodesPage() {
                 min={1}
                 className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none"
               />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-muted">
-                公司归属（可多选，登录后左上角显示「青砚 × 公司logo」）
-              </label>
-              {companies.length === 0 ? (
-                <p className="text-xs text-muted/60">暂无公司，可先运行公司初始化脚本或联系管理员创建</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {companies.map((co) => {
-                    const selected = newCompanyIds.includes(co.id);
-                    return (
-                      <button
-                        key={co.id}
-                        type="button"
-                        onClick={() =>
-                          setNewCompanyIds((prev) =>
-                            selected ? prev.filter((id) => id !== co.id) : [...prev, co.id]
-                          )
-                        }
-                        className={cn(
-                          "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                          selected
-                            ? "border-accent/60 bg-accent/10 text-foreground"
-                            : "border-border/60 bg-input-bg text-muted hover:text-foreground"
-                        )}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={co.logoUrl} alt={co.name} className="h-4 w-4 rounded-full object-cover" />
-                        {co.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
 
@@ -296,12 +354,12 @@ export default function InviteCodesPage() {
       )}
 
       <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-border/60 bg-card-bg">
-        <table className="w-full min-w-[640px] text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead>
-            <tr className="border-b border-border/40 text-left text-xs text-muted">
+            <tr className="whitespace-nowrap border-b border-border/40 text-left text-xs text-muted">
               <th className="px-4 py-3 font-medium">邀请码</th>
               <th className="px-4 py-3 font-medium">角色</th>
-              <th className="px-4 py-3 font-medium">公司</th>
+              <th className="px-4 py-3 font-medium">企业</th>
               <th className="px-4 py-3 font-medium">备注</th>
               <th className="px-4 py-3 font-medium text-center">已用/上限</th>
               <th className="px-4 py-3 font-medium text-center">状态</th>
@@ -333,40 +391,90 @@ export default function InviteCodesPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={cn("inline-flex rounded-md border px-2 py-0.5 text-[10px] font-medium", ROLE_COLORS[c.role] || ROLE_COLORS.user)}>
+                  <span className={cn("inline-flex whitespace-nowrap rounded-md border px-2 py-0.5 text-[10px] font-medium", ROLE_COLORS[c.role] || ROLE_COLORS.user)}>
                     {ROLE_LABELS[c.role] || c.role}
                   </span>
                 </td>
-                <td className="px-4 py-3">
-                  {(() => {
-                    const ids = parseCompanyIds(c.companyIdsJson);
-                    if (ids.length === 0) return <span className="text-muted">—</span>;
-                    return (
-                      <div className="flex items-center gap-1.5">
-                        {ids.map((id) => {
-                          const co = companies.find((x) => x.id === id);
-                          if (!co) return null;
-                          return (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              key={id}
-                              src={co.logoUrl}
-                              alt={co.name}
-                              title={co.name}
-                              className="h-5 w-5 rounded-full object-cover ring-1 ring-border/40"
-                            />
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+                <td className="min-w-[220px] px-4 py-3 text-xs" data-testid="invite-org-cell">
+                  {editingOrgFor === c.id ? (
+                    <div className="space-y-1.5">
+                      {(ORG_BOUND_ROLES as readonly string[]).includes(c.role) ? (
+                        <>
+                          <select
+                            value={editOrgId}
+                            onChange={(e) => setEditOrgId(e.target.value)}
+                            className="w-full rounded-md border border-border/60 bg-input-bg px-2 py-1 text-xs"
+                          >
+                            <option value="">不加入企业</option>
+                            {orgOptions.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                          {editOrgId && (
+                            <select
+                              value={editOrgRole}
+                              onChange={(e) => setEditOrgRole(e.target.value)}
+                              className="w-full rounded-md border border-border/60 bg-input-bg px-2 py-1 text-xs"
+                            >
+                              <option value="org_member">成员</option>
+                              <option value="org_admin">企业管理员</option>
+                            </select>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => saveEditOrg(c.id)}
+                              disabled={editSaving}
+                              className="rounded-md bg-accent px-2 py-0.5 text-[color:var(--on-accent)] disabled:opacity-50"
+                            >
+                              {editSaving ? "保存中…" : "保存"}
+                            </button>
+                            <button onClick={() => setEditingOrgFor(null)} className="text-muted hover:text-foreground">
+                              取消
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-muted">只影响以后用这个码注册的人</p>
+                        </>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="text-muted">只有销售 / 外贸码可以绑定企业</p>
+                          <button onClick={() => setEditingOrgFor(null)} className="text-muted hover:text-foreground">
+                            关闭
+                          </button>
+                        </div>
+                      )}
+                      {editError && <p className="text-red-400">{editError}</p>}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      {c.org ? (
+                        <span className="inline-flex items-center gap-1 text-foreground">
+                          <Building2 size={12} className="text-muted" />
+                          {c.org.name ?? "（企业已删除）"}
+                          {c.org.status !== "active" && <span className="text-red-400">（{c.org.status === "missing" ? "不存在" : "已停用"}）</span>}
+                          <span className="text-muted">· {ORG_ROLE_LABELS[c.orgRole ?? "org_member"] ?? c.orgRole}</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted">不加入企业</span>
+                      )}
+                      <button
+                        onClick={() => startEditOrg(c)}
+                        className="rounded p-0.5 text-muted hover:text-foreground"
+                        title="修改企业"
+                        data-testid="invite-org-edit"
+                      >
+                        <Pencil size={11} />
+                      </button>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-muted">{c.label || "—"}</td>
-                <td className="px-4 py-3 text-center">
+                <td className="whitespace-nowrap px-4 py-3 text-center">
                   <span className="text-foreground">{c.usedCount}</span>
                   <span className="text-muted">/{c.maxUses ?? "∞"}</span>
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="whitespace-nowrap px-4 py-3 text-center">
                   {c.isActive ? (
                     <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">启用</span>
                   ) : (

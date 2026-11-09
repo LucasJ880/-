@@ -385,6 +385,36 @@ export function checkOrgBoundInvite(invite: {
   return { ok: true, orgId: invite.orgId, orgRole: orgRole as OrgBoundOrgRole };
 }
 
+/**
+ * 平台邀请码页（/admin/invite-codes）建码 / 补绑企业时的校验，与注册时的 checkOrgBoundInvite 同一组常量：
+ * 能建出来的企业码一定能注册成功。orgId 为空 = 不绑定企业（旧行为，orgRole 一并为空）。
+ * 企业是否存在 / 启用由调用方查库。
+ */
+export function validateAdminInviteOrgBinding(input: {
+  role: string;
+  orgId: unknown;
+  orgRole: unknown;
+}): { ok: true; orgId: string | null; orgRole: OrgBoundOrgRole | null } | { ok: false; error: string } {
+  if (input.orgId !== undefined && input.orgId !== null && typeof input.orgId !== "string") {
+    return { ok: false, error: "企业参数无效" };
+  }
+  const orgId = typeof input.orgId === "string" ? input.orgId.trim() : "";
+  if (!orgId) return { ok: true, orgId: null, orgRole: null };
+  if (!(ORG_BOUND_PLATFORM_ROLES as readonly string[]).includes(input.role)) {
+    return { ok: false, error: "绑定企业的邀请码只能分配销售（sales）或外贸（trade）角色" };
+  }
+  const orgRole = input.orgRole === undefined || input.orgRole === null || input.orgRole === "" ? "org_member" : input.orgRole;
+  if (typeof orgRole !== "string" || !(ORG_BOUND_ORG_ROLES as readonly string[]).includes(orgRole)) {
+    return { ok: false, error: "企业内角色只能是 org_member 或 org_admin" };
+  }
+  return { ok: true, orgId, orgRole: orgRole as OrgBoundOrgRole };
+}
+
+/** 个人工作区（旧式注册时自动建的「×× 的工作区」）：邀请码页的企业下拉不列它们 */
+export function isPersonalWorkspaceCode(code: string | null | undefined): boolean {
+  return typeof code === "string" && code.startsWith("personal-");
+}
+
 export interface ExistingOrgFacts {
   /** 经入驻向导开通过（settingsJson.onboarding.provisionedById；PATCH 不写） */
   createdByOnboarding: boolean;

@@ -17,6 +17,7 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { isAdmin, isPlatformSuperAdmin } from "@/lib/permissions-client";
 
 interface UserRow {
@@ -30,31 +31,19 @@ interface UserRow {
   authProvider: string;
   lastLoginAt: string | null;
   createdAt: string;
+  /** USR-1：企业范围时该用户在企业内的角色 */
+  orgRole?: string;
 }
 
+type UsersScope = { type: "platform" } | { type: "org"; org: { id: string; name: string } };
+
 interface UsersResponse {
+  scope?: UsersScope;
   users: UserRow[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
-}
-
-interface CompanyOption {
-  id: string;
-  name: string;
-  slug: string;
-  logoUrl: string;
-}
-
-function parseCompanyIds(json: unknown): string[] {
-  if (typeof json !== "string" || !json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
 }
 
 const STATUS_OPTIONS = [
@@ -78,6 +67,12 @@ function UsersContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user: currentUser, loading: userLoading } = useCurrentUser();
+  // USR-1：默认只看当前企业的员工；全平台需要显式切换（?scope=platform）
+  const { orgId: currentOrgId, loading: orgLoading } = useCurrentOrgId();
+  const [view, setView] = useState<"org" | "platform">(
+    searchParams.get("scope") === "platform" ? "platform" : "org",
+  );
+  const needsOrg = view === "org" && !orgLoading && !currentOrgId;
 
   const [data, setData] = useState<UsersResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,14 +91,19 @@ function UsersContent() {
   const [newRole, setNewRole] = useState("");
   const [roleUpdating, setRoleUpdating] = useState(false);
   const [permUpdating, setPermUpdating] = useState(false);
-  const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [companyUpdating, setCompanyUpdating] = useState(false);
 
   const loadUsers = useCallback(() => {
+    if (view === "org" && !currentOrgId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
 
     const params = new URLSearchParams();
+    if (view === "platform") params.set("scope", "platform");
+    else if (currentOrgId) params.set("orgId", currentOrgId);
     if (keyword.trim()) params.set("keyword", keyword.trim());
     if (status) params.set("status", status);
     params.set("page", String(page));
@@ -120,58 +120,23 @@ function UsersContent() {
       .then((d: UsersResponse) => setData(d))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [keyword, status, page]);
+  }, [keyword, status, page, view, currentOrgId]);
 
   useEffect(() => {
-    if (userLoading) return;
+    if (userLoading || orgLoading) return;
     if (!isPlatformSuperAdmin(currentUser?.role)) return;
     loadUsers();
-  }, [loadUsers, userLoading, currentUser?.role]);
-
-  // 公司列表（联合品牌分配用，仅 admin 拉取）
-  useEffect(() => {
-    if (userLoading || !isAdmin(currentUser?.role)) return;
-    apiFetch("/api/admin/companies")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setCompanies(d?.companies ?? []))
-      .catch(() => {});
-  }, [userLoading, currentUser?.role]);
-
-  async function handleCompanyToggle(companyId: string) {
-    if (!selectedUser || companyUpdating || !userDetail) return;
-    const current = parseCompanyIds(userDetail.companyIdsJson);
-    const next = current.includes(companyId)
-      ? current.filter((id) => id !== companyId)
-      : [...current, companyId];
-    setCompanyUpdating(true);
-    try {
-      const res = await apiFetch(`/api/users/${selectedUser.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyIds: next }),
-      });
-      if (res.ok) {
-        setUserDetail({
-          ...userDetail,
-          companyIdsJson: next.length > 0 ? JSON.stringify(next) : null,
-        });
-      } else {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "更新公司归属失败");
-      }
-    } finally {
-      setCompanyUpdating(false);
-    }
-  }
+  }, [loadUsers, userLoading, orgLoading, currentUser?.role]);
 
   useEffect(() => {
     const params = new URLSearchParams();
+    if (view === "platform") params.set("scope", "platform");
     if (keyword.trim()) params.set("keyword", keyword.trim());
     if (status) params.set("status", status);
     if (page > 1) params.set("page", String(page));
     const qs = params.toString();
     router.replace(`/admin/users${qs ? `?${qs}` : ""}`, { scroll: false });
-  }, [keyword, status, page, router]);
+  }, [keyword, status, page, view, router]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -341,8 +306,39 @@ function UsersContent() {
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
         title="用户管理"
-        description="查看和管理平台所有用户账号"
+        description={
+          view === "platform"
+            ? "全平台所有用户账号（含不在任何企业里的账号）"
+            : data?.scope?.type === "org"
+              ? `当前企业：${data.scope.org.name}（只显示该企业的在册员工）`
+              : "只显示当前企业的在册员工"
+        }
       />
+
+      <div className="flex flex-wrap items-center gap-2" data-testid="users-scope-switch">
+        <div className="inline-flex rounded-lg border border-border bg-card-bg p-0.5 text-sm">
+          <button
+            type="button"
+            onClick={() => { setView("org"); setPage(1); }}
+            className={`rounded-md px-3 py-1.5 ${view === "org" ? "bg-accent text-[color:var(--on-accent)]" : "text-muted hover:text-foreground"}`}
+          >
+            当前企业
+            {view === "org" && data?.scope?.type === "org" ? `：${data.scope.org.name}` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setView("platform"); setPage(1); }}
+            className={`rounded-md px-3 py-1.5 ${view === "platform" ? "bg-accent text-[color:var(--on-accent)]" : "text-muted hover:text-foreground"}`}
+          >
+            全平台
+          </button>
+        </div>
+        <span className="text-xs text-muted">
+          {view === "org"
+            ? "切换企业用左上角的企业切换器；新员工请用绑定企业的邀请码注册"
+            : "全平台视图会列出所有企业和个人工作区的账号"}
+        </span>
+      </div>
 
       <div className="rounded-xl border border-border bg-card-bg p-4">
         <form onSubmit={handleSearch} className="flex flex-wrap items-center gap-3">
@@ -382,7 +378,11 @@ function UsersContent() {
         </form>
       </div>
 
-      {loading ? (
+      {needsOrg ? (
+        <div className="rounded-xl border border-dashed border-border p-8 text-sm text-muted" data-testid="users-need-org">
+          还没有选中企业。请先在左上角的企业切换器里选择企业，或切到「全平台」查看所有账号。
+        </div>
+      ) : loading ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-accent" />
         </div>
@@ -394,7 +394,11 @@ function UsersContent() {
           </button>
         </div>
       ) : !data || data.users.length === 0 ? (
-        <EmptyState icon={Users} title="暂无用户" description="没有符合筛选条件的用户" />
+        <EmptyState
+          icon={Users}
+          title="暂无用户"
+          description={view === "org" ? "当前企业没有符合筛选条件的在册员工" : "没有符合筛选条件的用户"}
+        />
       ) : (
         <>
           <div className="overflow-x-auto rounded-xl border border-border bg-card-bg">
@@ -404,6 +408,7 @@ function UsersContent() {
                   <th className="px-4 py-3">用户</th>
                   <th className="px-4 py-3">邮箱</th>
                   <th className="px-4 py-3">角色</th>
+                  {view === "org" && <th className="px-4 py-3">企业内角色</th>}
                   <th className="px-4 py-3">状态</th>
                   <th className="px-4 py-3">认证方式</th>
                   <th className="px-4 py-3">最近登录</th>
@@ -438,6 +443,11 @@ function UsersContent() {
                     <td className="px-4 py-3">
                       <RoleBadge role={u.role} type="platform" />
                     </td>
+                    {view === "org" && (
+                      <td className="px-4 py-3">
+                        {u.orgRole ? <RoleBadge role={u.orgRole} type="org" /> : <span className="text-muted">—</span>}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <StatusBadge status={u.status} />
                     </td>
@@ -459,7 +469,9 @@ function UsersContent() {
           </div>
 
           <div className="flex items-center justify-between">
-            <p className="text-xs text-muted">共 {data.total} 条</p>
+            <p className="text-xs text-muted">
+              {view === "org" && data.scope?.type === "org" ? `${data.scope.org.name} 共 ${data.total} 人` : `共 ${data.total} 条`}
+            </p>
             <Pagination
               page={data.page}
               totalPages={data.totalPages}
@@ -562,42 +574,6 @@ function UsersContent() {
                     </div>
                   )}
                 </div>
-
-                {/* 公司归属（联合品牌）—— 仅 admin 可改 */}
-                {isAdmin(currentUser?.role) && companies.length > 0 && (
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-sm font-medium">公司归属</p>
-                    <p className="mt-1 text-xs text-muted leading-relaxed">
-                      归属公司后，该用户登录左上角显示「青砚 × 公司logo」。可多选，第一个为主公司。
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {companies.map((co) => {
-                        const selected = parseCompanyIds(userDetail.companyIdsJson).includes(co.id);
-                        return (
-                          <button
-                            key={co.id}
-                            type="button"
-                            onClick={() => handleCompanyToggle(co.id)}
-                            disabled={companyUpdating}
-                            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
-                              selected
-                                ? "border-accent/60 bg-accent/10 text-foreground"
-                                : "border-border bg-background text-muted hover:text-foreground"
-                            }`}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={co.logoUrl}
-                              alt={co.name}
-                              className="h-4 w-4 rounded-full object-cover"
-                            />
-                            {co.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 {/* 客户权限开关 —— 仅对非 admin 角色有意义；仅 admin 可改 */}
                 {isAdmin(currentUser?.role) &&
