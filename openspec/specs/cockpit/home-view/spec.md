@@ -6,7 +6,7 @@
 ## Requirements
 
 ### Requirement: 首页对管理层展示岗位视图，访问规则不变
-`/` SHALL 保持既有的服务端规则：未登录跳登录页，非管理层按既有规则重定向到各自的默认工作区；管理层 SHALL 看到岗位视图，SHALL NOT 再看到旧的管理仪表盘。首页 SHALL NOT 新增顶层导航项。
+`/` SHALL 保持既有的服务端规则：未登录跳登录页，非管理层按既有规则重定向到各自的默认工作区；管理层 SHALL 看到岗位视图，SHALL NOT 再看到旧的管理仪表盘。管理层在当前企业一张可见岗位卡片都没有时，`/` SHALL 302 到 `/tasks`，SHALL NOT 渲染空的岗位视图；这一判定 SHALL 与路由门的落地页使用同一函数与同一份判定输入（见 `navigation/route-gate`「不放行时 302 到落地页」）。首页 SHALL NOT 新增顶层导航项。
 
 #### Scenario: 管理层打开首页
 - **WHEN** 组织 `org_admin` 打开 `/`
@@ -14,7 +14,11 @@
 
 #### Scenario: 重定向逻辑保留
 - **WHEN** 运行 `npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx`
-- **THEN** 静态断言 `src/app/(main)/page.tsx` 仍调用 `resolveHomeRedirect` 与登录检查，且不再引用 `ManagementDashboardClient`，退出码 0
+- **THEN** 静态断言 `src/app/(main)/page.tsx` 调用落地页函数 `resolveLandingPage`（其内沿用 `resolveHomeRedirect`）与登录检查，判定输入取自路由门的取输入函数，且不再引用 `ManagementDashboardClient`，退出码 0
+
+#### Scenario: 没有可见卡片
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts`，以一家只启用 `sales` 模块的岗位模式企业、持 `owner` 岗位、微信入口开关关闭的输入计算可见岗位
+- **THEN** 可见岗位为空，落地页函数返回 `/tasks`，测试通过；`page.tsx` 用该函数决定跳转由 `org-cockpit-view.test.tsx` 的源码断言覆盖
 
 ### Requirement: 首屏只调用两个只读接口
 首屏 SHALL 只并发调用 `GET /api/cockpit/posts` 与 `GET /api/cockpit/timeline` 两个接口，首屏的全部数据 SHALL 来自这两个接口的响应，SHALL NOT 使用写死或模拟数据。时间线后续页 SHALL 只在用户点击"加载更多"时按 `nextCursor` 请求；首屏之外由用户点击展开的区块 SHALL 只在点击后请求各自的只读接口，SHALL NOT 在首屏自动请求。页面 SHALL NOT 发出任何非 GET 请求。
@@ -24,7 +28,7 @@
 - **THEN** 只发出上述两个 GET 请求；源码静态断言组件里没有其他接口地址、没有 `POST` / `PUT` / `PATCH` / `DELETE`
 
 ### Requirement: 等你 N 件横幅
-页面顶部 SHALL 显示去重后的待处理总数（来源被截断时显示为"N+"），点击 SHALL 跳 `/capabilities/approvals`；SHALL 列出接口返回的前几条（标题、所属岗位、时间），每条点击跳该条自己的页面；未归属岗位的条数大于 0 时 SHALL 注明。总数为 0 时 SHALL 显示"暂无待你处理的事项"。
+页面顶部 SHALL 显示去重后的待处理总数（来源被截断时显示为"N+"），点击 SHALL 跳 `/capabilities/approvals`；SHALL 列出接口返回的前几条（标题、所属岗位、时间），每条点击跳该条自己的页面（即接口给的 `href`）；所属岗位 SHALL 只在该岗位出现在接口返回的 `posts` 里时显示，否则该条不显示岗位名；未归属岗位的条数大于 0 时 SHALL 注明。总数为 0 时 SHALL 显示"暂无待你处理的事项"。
 
 #### Scenario: 有待处理
 - **WHEN** 接口返回 `waitingForYou.total = 5`、`truncated = false`
@@ -34,8 +38,12 @@
 - **WHEN** 接口返回 `total = 100`、`truncated = true`
 - **THEN** 横幅显示"100+"
 
-### Requirement: 七个岗位卡片
-页面 SHALL 按接口顺序显示七张岗位卡片，组件 SHALL NOT 自行排序；每张 SHALL 显示：岗位名；健康度标签与色调（失败 / 配额已满为危险色，迟到 / 未运行过为警示色，正常为成功色，未配置 / 按需为中性色）；心跳的相对时间；下次应跑时间；三个 KPI 数值及其口径（或"未接入 / 未开启 / 暂不可用"）；待审批数与需要你数；近 7 天 AI 运行数与平台自动化运行数（分开显示，SHALL NOT 相加）；失败 / 迟到 / 未运行过的自动化名称（按此顺序，最多 3 个，未配置与按需不列）。计数 SHALL 带千分位。页头 SHALL 注明心跳与自动化次数为平台级。卡片 SHALL 链接到岗位的既有页面。卡片列数 SHALL 按内容区宽度（而非视口宽度）在一列、两列、三列之间切换。
+#### Scenario: 不可见岗位不显示岗位名
+- **WHEN** 运行 `npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx`，接口的 `posts` 不含 `inbound_sales`，`items` 里有一条 `post = "inbound_sales"` 的折扣审批
+- **THEN** 该条显示标题与时间，不显示「询盘销售」，链接为接口给的 `href`，测试通过
+
+### Requirement: 岗位卡片
+页面 SHALL 按接口顺序显示接口返回的岗位卡片（只含可见岗位），组件 SHALL NOT 自行排序或补齐；每张 SHALL 显示：岗位名；健康度标签与色调（失败 / 配额已满为危险色，迟到 / 未运行过为警示色，正常为成功色，未配置 / 按需为中性色）；心跳的相对时间；下次应跑时间；三个 KPI 数值及其口径（或"未接入 / 未开启 / 暂不可用"）；待审批数与需要你数；近 7 天 AI 运行数与平台自动化运行数（分开显示，SHALL NOT 相加）；失败 / 迟到 / 未运行过的自动化名称（按此顺序，最多 3 个，未配置与按需不列）。计数 SHALL 带千分位。页头 SHALL 注明心跳与自动化次数为平台级。页头副标题与加载骨架 SHALL NOT 写死岗位个数，骨架 SHALL 固定为三张占位。卡片 SHALL 链接到岗位的既有页面。卡片列数 SHALL 按内容区宽度（而非视口宽度）在一列、两列、三列之间切换。
 
 #### Scenario: 卡片内容
 - **WHEN** 接口返回投标岗位 `health = "failed"`、KPI `{tenderSubmittedCount: 12, wonCount: 3, winRatePercentage: "25.0"}`
@@ -52,6 +60,14 @@
 #### Scenario: 配额已满
 - **WHEN** 接口返回 `quotaHit = true`
 - **THEN** 页面显示今日 AI 运行配额已满的提示
+
+#### Scenario: 只显示接口给的卡片
+- **WHEN** 运行 `npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx`，接口只返回 `tender`、`marketing`、`projects`、`content` 四个岗位
+- **THEN** 页面只渲染这四张卡片，不渲染占位卡片，测试通过
+
+#### Scenario: 页头与骨架不写死个数
+- **WHEN** 运行同一测试
+- **THEN** 源码断言 `org-cockpit-view.tsx` 不含「七个岗位」，加载骨架渲染三张占位，测试通过
 
 ### Requirement: company.log 时间线
 页面底部 SHALL 按接口顺序显示时间线条目（时间、岗位、操作者——"系统" / "AI" / 用户名、摘要），有 `href` 的条目 SHALL 可点击；有 `nextCursor` 时 SHALL 显示"加载更多"；"加载更多"失败时 SHALL 保留已加载条目并提供重试；列表被刷新或重试替换后，替换前发出的"加载更多"响应 SHALL 被丢弃；无条目时 SHALL 显示"最近 7 天暂无记录"。相对时间 SHALL 以接口的 `generatedAt` 为基准计算。
