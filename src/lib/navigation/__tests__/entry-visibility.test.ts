@@ -228,6 +228,13 @@ async function main() {
     ok(/canOpen\("\/sales"\) \?/.test(wb) && /canOpen\("\/sales\/quote-sheet"\) \?/.test(wb) && /const linked = canOpen\(href\)/.test(wb), "数字员工工作台：三类销售入口按 canOpen");
     ok(/useNavigationAccess\(\)\.canOpen\("\/assistant"\)/.test(tasks) && /\{canOpenAssistant \? \(/.test(tasks), "/tasks：「进入协同空间」按 canOpen");
     ok(/canOpen\(`\/workforce\/\$\{job\.jobId\}`\) && canOpen\("\/bids"\)/.test(card), "投标分析卡片：「查看执行详情」按 canOpen（作业详情 + 招投标中心）");
+    ok(
+      !canOpenHref("/trade/quotes", c("legacy_sales")) && canOpenHref("/sales?view=customers&new=1", c("legacy_sales")) && canOpenHref("/sales/calendar?new=1", c("legacy_sales")),
+      "旧模式销售（未启用窗饰）的新增面板：「外贸报价」不出现；新客户、新预约照常",
+    );
+    ok(["/sales?view=customers&new=1", "/sales?view=customers&followup=1", "/sales/quote-sheet", "/sales/calendar?new=1", "/sales/measure"].every((h) => canOpenHref(h, c("sales_rep"))), "Sunny 销售的新增面板：五个入口都放行");
+    const sheet = read("src/components/sales-command-center/sales-mobile-create-sheet.tsx");
+    ok(/useNavigationAccess\(\)/.test(sheet) && /\.filter\(\(item\) => canOpen\(item\.href\)\)/.test(sheet), "销售底栏「新增」面板：各入口按 canOpen");
   }
 
   // ── /help 功能地图与 72 条说明（spec「/help 功能地图从可见导航生成」）──
@@ -263,6 +270,7 @@ async function main() {
     ok(unopenable.length === 0, "每种身份：列出的卡片都放行");
     const ops = read("src/app/(main)/operations/page.tsx");
     ok(/visibleOperationsCards\(ctx\)/.test(ops) && /暂无可用的运营入口/.test(ops) && !/href="\/operations\/tender-profile"/.test(ops), "/operations：卡片按判定过滤，有空态，不再写死卡片");
+    ok(!/市场情报、品牌记忆、内容日历和审核队列/.test(ops), "/operations：发布服务不可用的提示不再点名可能看不到的卡片");
   }
 
   // ── 纯模块：不导入 next/server ──

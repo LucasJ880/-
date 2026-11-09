@@ -47,7 +47,7 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 - 新增判定输入拼装函数：把 active-org 响应拼成与路由门相同的输入，服务端与客户端共用。
 - 新增客户端钩子：回答「这个地址对我放行吗」与「我的落地页」，平台 super_admin 一律放行。
 - 按钩子显示手机底栏每个页签（任务书只点名「招投标」，design Q10）：「招投标」与侧栏「招投标中心」同口径；「AI」只在 AI 工作中心放行时出现；「助手」只在数字员工放行时出现。底栏布局（销售 / 通用）的判定不变。
-- 隐藏指向不放行页面的站内链接：工艺单详情里的维修单链接、数字员工工作台的「客户」「创建报价」「打开销售工作区」按钮、`/tasks` 的「进入协同空间」、投标 AI 分析卡片的「查看执行详情」。
+- 隐藏指向不放行页面的站内链接：工艺单详情里的维修单链接、数字员工工作台的「客户」「创建报价」「打开销售工作区」按钮、`/tasks` 的「进入协同空间」、投标 AI 分析卡片的「查看执行详情」、手机销售底栏「新增」面板里的入口。
 - 改写工艺单详情 / 编辑页的返回链接与删除后跳转：`/blinds-orders` 不放行时，先退到客户详情（放行时），再退到当前用户的落地页。
 
 **索引页与帮助**
@@ -81,11 +81,13 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - `src/lib/navigation/landing.ts`（岗位卡可见判定、落地页、重定向目标）；
   - `src/lib/navigation/filter-context.ts`（判定输入拼装）；
   - `src/lib/navigation/use-navigation-access.ts`（客户端钩子）；
+  - `src/lib/navigation/mobile-tabs.ts`、`help-map.ts`、`operations-index.ts`（底栏页签、帮助地图、索引卡片的纯函数）与 `page-context-server.ts`（服务端页面取输入）；
+  - `src/lib/workforce-runtime/job-scope-server.ts`（作业可读判定的服务端接线）；
   - `src/lib/workforce-runtime/readable-domains.ts`（工作域 → 导航入口）；
   - 对应测试。
 - 修改：
   - `src/lib/cockpit/posts.ts`、`posts-read-model.ts`、`waiting.ts`、`src/app/(main)/page.tsx`、`src/components/cockpit/org-cockpit-view.tsx`；
-  - `src/components/tender-analysis/agent-card.tsx`；
+  - `src/components/tender-analysis/agent-card.tsx`、`src/components/sales-command-center/sales-mobile-create-sheet.tsx`；
   - `src/app/api/workforce/jobs/route.ts`、`jobs/[id]/route.ts`、`src/lib/workforce-runtime/read-model/list-service.ts`、`src/app/(main)/workforce/page.tsx`；
   - `src/lib/navigation/registry.ts`（两项 `salesWorkspaceVisible`、`work-ai-jobs` 岗位键、72 条 `description`）、`types.ts`、`route-gate.ts`、`context-server.ts`；
   - `src/components/mobile-tab-bar.tsx`、`src/app/(main)/operations/page.tsx`、`src/app/(main)/help/page.tsx`；

@@ -46,7 +46,7 @@ export default async function OperationsPage() {
         <div className="space-y-3 rounded-xl border border-border bg-card-bg px-5 py-4 text-sm">
           <h2 className="font-semibold">发布服务暂不可用</h2>
           <p className="leading-relaxed text-muted">
-            当前仍可使用市场情报、品牌记忆、内容日历和审核队列。发布排期恢复后会自动出现在这里。
+            发布排期恢复后会自动出现在这里；下方其余入口照常可用。
           </p>
         </div>
       )}

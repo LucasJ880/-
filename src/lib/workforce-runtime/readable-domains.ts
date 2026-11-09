@@ -56,6 +56,11 @@ export function readableWorkDomains(ctx: RouteGateContext): ReadableWorkDomain[]
   return out;
 }
 
+/** 可读全部工作域（含解析不出）：调用方可跳过逐条解析 */
+export function readsEveryWorkDomain(ctx: RouteGateContext): boolean {
+  return ctx.isPlatformAdmin || readableWorkDomains(ctx).length === 5;
+}
+
 /** 作业行（AgentRun）的最小形状：解析工作域需要的字段 */
 export type WorkforceRunForScope = {
   id: string;

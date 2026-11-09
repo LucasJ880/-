@@ -33,6 +33,30 @@ function subscribeOrgStorage(cb: () => void) {
   };
 }
 
+/** 同一页面里多个钩子实例共用一次 active-org 请求（按当前企业键；30 秒内复用，与路由门缓存同时效） */
+const INPUTS_TTL_MS = 30_000;
+let inputsCache: { orgKey: string; at: number; promise: Promise<OrgNavigationInputs | null> } | null = null;
+
+function fetchNavigationInputs(orgKey: string): Promise<OrgNavigationInputs | null> {
+  const now = Date.now();
+  if (inputsCache && inputsCache.orgKey === orgKey && now - inputsCache.at < INPUTS_TTL_MS) return inputsCache.promise;
+  const promise = (async () => {
+    try {
+      const res = await apiFetch("/api/auth/active-org");
+      if (!res.ok) return null;
+      return inputsFromActiveOrgResponse(await res.json());
+    } catch {
+      return null;
+    }
+  })();
+  inputsCache = { orgKey, at: now, promise };
+  // 失败不缓存：下一个实例或下次挂载重试
+  void promise.then((v) => {
+    if (v === null && inputsCache?.promise === promise) inputsCache = null;
+  });
+  return promise;
+}
+
 export type NavigationAccess = {
   /** 判定输入是否已取得 */
   ready: boolean;
@@ -51,16 +75,10 @@ export function useNavigationAccess(): NavigationAccess {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiFetch("/api/auth/active-org");
-        if (!res.ok) return;
-        const body: unknown = await res.json();
-        if (!cancelled) setInputs(inputsFromActiveOrgResponse(body));
-      } catch {
-        /* 取不到输入：保持未就绪，入口不出现 */
-      }
-    })();
+    // 取不到输入：保持未就绪，入口不出现
+    void fetchNavigationInputs(storedOrgId).then((next) => {
+      if (!cancelled && next) setInputs(next);
+    });
     return () => {
       cancelled = true;
     };

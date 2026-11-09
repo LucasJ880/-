@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { loadNavigationContextForOrg } from "@/lib/navigation/context-server";
 import type { RouteGateContext } from "@/lib/navigation/filter-context";
 import { WORKFORCE_JOB_RUN_TYPE } from "./constants";
-import { createWorkforceJobReadFilter, type WorkDomainResolver, type WorkforceRunForScope } from "./readable-domains";
+import { createWorkforceJobReadFilter, readsEveryWorkDomain, type WorkDomainResolver, type WorkforceRunForScope } from "./readable-domains";
 import { resolveEffectiveWorkDomain } from "./work-domain";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -21,13 +21,16 @@ export const resolveRunWorkDomain: WorkDomainResolver = async (run) => {
   return result.ok ? result.workDomain : null;
 };
 
-/** 当前用户在该企业的作业可读判定 */
+/**
+ * 当前用户在该企业的作业可读判定。能读全部工作域（含解析不出）的人返回 canRead = undefined：
+ * 列表走改动前的单次查询、不逐条解析工作域（审查：老板翻页不该多付逐条查询）。
+ */
 export async function loadWorkforceJobReadFilter(
   user: { id: string; role: string | null },
   orgId: string,
-): Promise<{ ctx: RouteGateContext; canRead: (run: WorkforceRunForScope) => Promise<boolean> }> {
+): Promise<{ ctx: RouteGateContext; canRead: ((run: WorkforceRunForScope) => Promise<boolean>) | undefined }> {
   const ctx = await loadNavigationContextForOrg(user, orgId);
-  return { ctx, canRead: createWorkforceJobReadFilter(ctx, resolveRunWorkDomain) };
+  return { ctx, canRead: readsEveryWorkDomain(ctx) ? undefined : createWorkforceJobReadFilter(ctx, resolveRunWorkDomain) };
 }
 
 /** 详情接口用：取作业行的最小字段（与 getWorkforceJobView 同样按 orgId + id + runType 三条件） */

@@ -10,6 +10,7 @@ import {
   canReadWorkDomain,
   createWorkforceJobReadFilter,
   readableWorkDomains,
+  readsEveryWorkDomain,
   type ReadableWorkDomain,
 } from "../readable-domains";
 import { listWorkforceJobViews, WORKFORCE_LIST_MAX_SCAN_BATCHES, type WorkforceListReader } from "../read-model/list-service";
@@ -236,11 +237,12 @@ async function main() {
     const detail = read("src/app/api/workforce/jobs/[id]/route.ts");
     ok(
       /loadWorkforceJobReadFilter\(\{ id: user\.id, role: user\.role \}, resolution\.orgId\)/.test(detail) &&
-        /if \(!run \|\| !\(await canRead\(run\)\)\) \{\s*return NextResponse\.json\(\{ error: "任务不存在" \}, \{ status: 404 \}\);/.test(detail),
+        /if \(!run \|\| \(canRead && !\(await canRead\(run\)\)\)\) \{\s*return NextResponse\.json\(\{ error: "任务不存在" \}, \{ status: 404 \}\);/.test(detail),
       "详情接口：与列表同一判定函数；不可读返回与不存在相同的 404",
     );
+    ok(readsEveryWorkDomain(sunny("owner")) && readsEveryWorkDomain(SUPER_ADMIN) && !readsEveryWorkDomain(sunny("ops_staff")) && !readsEveryWorkDomain(mx("owner", "trade_rep")), "可读全部工作域（Sunny 老板、平台 super_admin）→ 列表不逐条解析；梦馨老板（无投标域）照常逐条");
     const server = read("src/lib/workforce-runtime/job-scope-server.ts");
-    ok(/resolveEffectiveWorkDomain\(/.test(server) && /createWorkforceJobReadFilter\(ctx, resolveRunWorkDomain\)/.test(server), "服务端解析沿用既有 resolveEffectiveWorkDomain");
+    ok(/resolveEffectiveWorkDomain\(/.test(server) && /readsEveryWorkDomain\(ctx\) \? undefined : createWorkforceJobReadFilter\(ctx, resolveRunWorkDomain\)/.test(server), "服务端解析沿用既有 resolveEffectiveWorkDomain");
     const page = read("src/app/(main)/workforce/page.tsx");
     ok(/jobs\.length === 0 && !nextCursor \? \(/.test(page), "/workforce 页面只在 nextCursor 为空时渲染空态");
     const pure = read("src/lib/workforce-runtime/readable-domains.ts").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");

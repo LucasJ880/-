@@ -140,6 +140,7 @@
   - 游标：凑满时 `nextCursor` 指向本页最后一条，扫满时指向最后扫描的一行。恰在一批最后一行凑满时不另发探测查询，游标可以非空，下一页返回空列表与空游标。
   - 响应形状不变（`{jobs, nextCursor}`），没有计数字段。
   - 子行（步骤、事件、PendingAction）只为返回的作业批量取。
+  - 一批内的工作域解析并发进行；能读全部工作域（含解析不出）的人——Sunny 老板、平台 super_admin——不传判定，走改动前的单次查询。
   - 前端：`/workforce` 页在本页为空但 `nextCursor` 非空时保留「加载更多」，不显示空态。
 - **详情接口**：不可读返回 404。
 - **「等你拍板」的作业**：同一函数。
@@ -189,6 +190,9 @@
 - 返回：
   - `canOpen(href)`：super_admin 一律 true；输入未就绪时一律 false；
   - `landingPage`：未就绪时为 null。
+- 同一页面里的多个钩子实例共用一次 active-org 请求（模块级缓存，按当前企业键，30 秒内复用；失败不缓存）。
+
+服务端页面（`/`、`/help`、`/operations`）经 `page-context-server.ts` 取输入：只从 session cookie 取用户 id（与中间件同一个 `verifySession`），再走 `ROUTE_GATE_LOADER`，不先跑 `resolveWorkspaceContextFromCookies`。
 
 测试防漂移：对同一份企业输入，`buildNavigationFilterContext(inputsFromActiveOrgResponse(activeOrgNavigationFields(inputs)), …)` 与 loader 的产出逐字段相同。`activeOrgNavigationFields` 是 active-org 路由抽出的导航字段纯映射。
 
@@ -236,6 +240,7 @@
   - 收口页签的维修单链接在 `/install/repairs/<id>` 不放行时不渲染。
 - **数字员工工作台**：客户提醒、「打开销售工作区」「创建报价」逐个 `canOpen`。
 - **`/tasks` 的「进入协同空间」**：`canOpen("/assistant")`。
+- **手机销售底栏的「新增」面板**：各入口 `canOpen`（旧模式未启用窗饰的销售原来会看到会被弹回的「外贸报价」）。
 - **投标 AI 分析卡片的「查看执行详情」**（`tender-analysis/agent-card.tsx:237`，指向 `/workforce/<作业 id>`）：`canOpen("/workforce/<id>") && canOpen("/bids")`。作业固定是投标域，不放行「招投标中心」的人打开会 404（运营）或被路由门弹回（会计、出单，D6 之后）。
 
 被否决：

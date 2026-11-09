@@ -313,9 +313,12 @@ export async function listWorkforceJobViews(
     for (let batch = 0; batch < WORKFORCE_LIST_MAX_SCAN_BATCHES; batch++) {
       const runs = await fetchBatch(cursor);
       const fullBatch = runs.length > limit;
+      // 一批内并发判定（工作域解析各自至多 1–2 次查询），再按顺序取
+      const canRead = input.canRead;
+      const readable = await Promise.all(runs.map((run) => canRead(run)));
       let filled = false;
       for (let i = 0; i < runs.length; i++) {
-        if (!(await input.canRead(runs[i]))) continue;
+        if (!readable[i]) continue;
         pageRuns.push(runs[i]);
         if (pageRuns.length === limit) {
           filled = true;

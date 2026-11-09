@@ -46,7 +46,8 @@ export const GET = withAuth<{ id: string }>(async (_req, ctx, user) => {
     loadWorkforceJobReadFilter({ id: user.id, role: user.role }, resolution.orgId),
     loadWorkforceRunForScope(resolution.orgId, id),
   ]);
-  if (!run || !(await canRead(run))) {
+  // canRead 为空 = 可读全部工作域（老板 / 平台 super_admin），不逐条解析
+  if (!run || (canRead && !(await canRead(run)))) {
     return NextResponse.json({ error: "任务不存在" }, { status: 404 });
   }
   return NextResponse.json({ job: result.view });

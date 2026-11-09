@@ -23,11 +23,10 @@ export function visiblePosts(ctx: RouteGateContext): PostRegistryEntry[] {
   return POST_REGISTRY.filter((post) => isPostVisible(post, ctx));
 }
 
-/** 进入首页后最终停留的页面 */
+/** 进入首页后最终停留的页面；该页对判定输入不放行时落 /tasks（落地页必放行，spec navigation/route-gate） */
 export function resolveLandingPage(ctx: RouteGateContext): string {
-  const dest = resolveHomeRedirect(workspaceContextFromNav(ctx));
-  if (dest) return dest;
-  return visiblePosts(ctx).length > 0 ? "/" : "/tasks";
+  const dest = resolveHomeRedirect(workspaceContextFromNav(ctx)) ?? (visiblePosts(ctx).length > 0 ? "/" : "/tasks");
+  return canOpenHref(dest, ctx) ? dest : "/tasks";
 }
 
 /** 不放行时的目标：落地页；落地页不放行或与请求同路径时落 /tasks */
