@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   // PERM-7b：不再签发平台 admin——历史上签发为 admin 的邀请码按 user 落
   const assignedRole = invite.role === "admin" ? "user" : invite.role;
 
-  // 企业邀请码（入驻向导）：只给 trade / sales 平台角色；企业须存在且启用
+  // 企业邀请码（入驻向导 / 平台邀请码页绑定企业）：只给 trade / sales 平台角色；企业须存在且启用
   let orgBinding: { orgId: string; orgRole: OrgBoundOrgRole } | null = null;
   if (invite.orgId) {
     const check = checkOrgBoundInvite(invite);
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
 
   if (orgBinding) {
     return registerIntoOrg(request, {
-      invite: { id: invite.id, usedCount: invite.usedCount, role: assignedRole, companyIdsJson: invite.companyIdsJson },
+      invite: { id: invite.id, maxUses: invite.maxUses, role: assignedRole, companyIdsJson: invite.companyIdsJson },
       orgId: orgBinding.orgId,
       orgRole: orgBinding.orgRole,
       email,
@@ -188,13 +188,13 @@ export async function POST(request: NextRequest) {
 class InviteAlreadyUsedError extends Error {}
 
 /**
- * 企业邀请码注册：单事务内原子占用邀请码（按读到的 usedCount 做 CAS，单次使用）→ 建 / 补用户
+ * 企业邀请码注册：单事务内原子占用邀请码（按使用上限条件更新）→ 建 / 补用户
  * → 加入企业（不降级既有更高角色）→ 设为当前工作企业。不建个人工作区。
  */
 async function registerIntoOrg(
   request: NextRequest,
   input: {
-    invite: { id: string; usedCount: number; role: string; companyIdsJson: string | null };
+    invite: { id: string; maxUses: number | null; role: string; companyIdsJson: string | null };
     orgId: string;
     orgRole: OrgBoundOrgRole;
     email: string;
@@ -208,8 +208,14 @@ async function registerIntoOrg(
   let membershipAction: string;
   try {
     const out = await db.$transaction(async (tx) => {
+      // USR-1：按上限占用（有上限 usedCount < maxUses；无上限不限次数）。单次码语义与原 CAS 相同，
+      // 多次使用的平台企业码不会因多人同时注册而误报「已达上限」。
       const claimed = await tx.inviteCode.updateMany({
-        where: { id: input.invite.id, isActive: true, usedCount: input.invite.usedCount },
+        where: {
+          id: input.invite.id,
+          isActive: true,
+          ...(input.invite.maxUses !== null ? { usedCount: { lt: input.invite.maxUses } } : {}),
+        },
         data: { usedCount: { increment: 1 } },
       });
       if (claimed.count !== 1) throw new InviteAlreadyUsedError();

@@ -83,6 +83,10 @@ run_test "通道入站标识 跨组织唯一 纯函数" "npx tsx src/lib/trade/_
 run_test "通道入站标识 跨组织唯一 DB 测试（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts"
 run_test "厂家入驻向导 校验/就绪推导/路由契约" "npx tsx src/lib/organizations/__tests__/onboarding-rules.test.ts"
 run_test "厂家入驻向导 DB 端到端(isolated)" "npx tsx src/lib/organizations/__tests__/onboarding-db.isolated.test.ts"
+# USR-1：平台邀请码绑定企业（注册直接进企业）+ 用户管理按企业隔离
+run_test "USR-1 用户管理列表范围 纯函数" "npx tsx src/lib/users/__tests__/list-scope.test.ts"
+run_test "用户列表状态筛选（默认不含已删除）" "npx tsx src/lib/users/__tests__/list-status.test.ts"
+run_test "USR-1 邀请码绑定企业 / 用户管理按企业隔离 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-scoped-users-db.isolated.test.ts"
 run_test "首响分级提醒 / 工作时间日历（夏令时）/ 策略字段合并" "npx tsx src/lib/revenue-spine/__tests__/sla-tiers.test.ts"
 run_test "首响 SLA 指标（中位/P90/24 小时回复率/测试排除/展会单列）" "npx tsx src/lib/revenue-spine/__tests__/sla-metrics.test.ts"
 run_test "首响分级 + SLA 指标 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/revenue-spine/__tests__/sla-tiers-db.isolated.test.ts"

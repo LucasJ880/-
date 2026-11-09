@@ -67,6 +67,5 @@ src/lib/trade/__tests__/inquiry-design-rules.test.ts
 src/lib/trade/__tests__/inquiry-rules.test.ts
 src/lib/trade/__tests__/inquiry-sla.test.ts
 src/lib/trade/__tests__/website-inquiry.test.ts
-src/lib/users/__tests__/list-status.test.ts
 src/lib/visualizer/__tests__/render-job.test.ts
 src/lib/visualizer/__tests__/texture-fill.test.ts

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireSuperAdmin } from "@/lib/auth/guards";
+import { validateAdminInviteOrgBinding } from "@/lib/organizations/onboarding-rules";
+import { findBindableOrg } from "@/lib/organizations/invite-org-binding";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -17,6 +19,28 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if (body.maxUses !== undefined) data.maxUses = body.maxUses;
   if (body.expiresAt !== undefined) {
     data.expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
+  }
+
+  // USR-1：补绑 / 改绑 / 解绑企业（orgId: null 解绑并清空 orgRole）。只影响以后的注册，已注册的人不动。
+  if (body.orgId !== undefined || body.orgRole !== undefined) {
+    const current = await db.inviteCode.findUnique({
+      where: { id },
+      select: { role: true, orgId: true, orgRole: true },
+    });
+    if (!current) {
+      return NextResponse.json({ error: "邀请码不存在" }, { status: 404 });
+    }
+    const nextOrgId = body.orgId !== undefined ? body.orgId : current.orgId;
+    const nextOrgRole = body.orgRole !== undefined ? body.orgRole : body.orgId !== undefined ? undefined : current.orgRole;
+    const binding = validateAdminInviteOrgBinding({ role: current.role, orgId: nextOrgId, orgRole: nextOrgRole });
+    if (!binding.ok) {
+      return NextResponse.json({ error: binding.error }, { status: 400 });
+    }
+    if (binding.orgId && !(await findBindableOrg(binding.orgId))) {
+      return NextResponse.json({ error: "企业不存在或已停用" }, { status: 400 });
+    }
+    data.orgId = binding.orgId;
+    data.orgRole = binding.orgRole;
   }
 
   try {

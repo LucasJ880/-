@@ -19,6 +19,8 @@ export interface UserListItem {
   createdAt: Date;
   /** 公司归属（JSON 数组的 Company.id），联合品牌 logo 用 */
   companyIdsJson: string | null;
+  /** USR-1：按企业范围列人时，该用户在该企业内的角色（全平台范围不返回） */
+  orgRole?: string;
 }
 
 export interface UserDetail extends UserListItem {
@@ -72,13 +74,17 @@ export function buildUserListStatusWhere(
  * status=all 返回含已删除在内的全部用户。
  */
 export async function listUsers(
-  params: PaginationParams & { status?: string; search?: string }
+  params: PaginationParams & { status?: string; search?: string; orgId?: string }
 ): Promise<PaginatedResult<UserListItem>> {
   const { page, pageSize, skip } = normalizePagination(params.page, params.pageSize);
 
   const where: Record<string, unknown> = {
     ...buildUserListStatusWhere(params.status),
   };
+  // USR-1：企业范围 = 该企业 active 成员（离开企业的人不算员工）
+  if (params.orgId) {
+    where.orgMemberships = { some: { orgId: params.orgId, status: "active" } };
+  }
   if (params.search) {
     where.OR = [
       { email: { contains: params.search, mode: "insensitive" } },
@@ -90,7 +96,12 @@ export async function listUsers(
   const [data, total] = await Promise.all([
     db.user.findMany({
       where,
-      select: USER_LIST_SELECT,
+      select: params.orgId
+        ? {
+            ...USER_LIST_SELECT,
+            orgMemberships: { where: { orgId: params.orgId, status: "active" }, select: { role: true } },
+          }
+        : USER_LIST_SELECT,
       orderBy: { createdAt: "desc" },
       skip,
       take: pageSize,
@@ -98,8 +109,15 @@ export async function listUsers(
     db.user.count({ where }),
   ]);
 
+  const rows: UserListItem[] = params.orgId
+    ? (data as Array<UserListItem & { orgMemberships?: Array<{ role: string }> }>).map(({ orgMemberships, ...u }) => ({
+        ...u,
+        orgRole: orgMemberships?.[0]?.role,
+      }))
+    : (data as UserListItem[]);
+
   return {
-    data: data as UserListItem[],
+    data: rows,
     total,
     page,
     pageSize,
