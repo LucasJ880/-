@@ -136,6 +136,7 @@ for (const key of automationKeys) {
 ok(postForAutomation("approval-timeout") === "ops_knowledge", "approval-timeout → ops_knowledge（全组织审批过期，不是投标专属）");
 ok(postForAutomation("post-daily-digest") === "ops_knowledge", "post-daily-digest → ops_knowledge（A-5 岗位日结：组织运转留痕）");
 ok(postForAutomation("tender-watch") === "tender", "tender-watch → tender（不按 registry category=projects 推导）");
+ok(postForAutomation("procurement-watch") === "tender", "procurement-watch → tender（PROC-1 采购监控挂在 tender-watch）");
 ok(postForAutomation("inquiry-sla") === "inbound_sales", "inquiry-sla → inbound_sales（不按 registry category=service 推导）");
 ok(postForAutomation("aivora-sync") === "content", "aivora-sync → content");
 ok(postForAutomation("no-such-automation") === null, "未知自动化键 → null");

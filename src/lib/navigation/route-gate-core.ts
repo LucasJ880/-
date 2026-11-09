@@ -138,6 +138,8 @@ export const ROUTE_GATE_TABLE: readonly RouteGateEntry[] = [
   { pattern: "/projects/intelligence/agencies", rule: nav("nav-intel-agencies") },
   { pattern: "/projects/intelligence/supply-chain", rule: nav("nav-intel-supply") },
   { pattern: "/projects/intelligence/monitor", rule: nav("nav-intel-monitor") },
+  // PROC-1：资料申请台账 / 申请详情属于「采购情报」（与候选项目、设置同一入口）
+  { pattern: "/projects/intelligence/records", rule: nav("nav-intel-monitor") },
   { pattern: "/suppliers", rule: nav("nav-suppliers") },
 
   // ── 品牌增长 / 内容运营 ──

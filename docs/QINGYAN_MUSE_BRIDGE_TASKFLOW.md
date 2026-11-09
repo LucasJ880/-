@@ -200,6 +200,18 @@
 
 ---
 
+## Phase R — 采购情报与政府资料申请（Tender 类目）
+
+任务书：`docs/QINGYAN_PROC-1_RECORDS_TASKBRIEF.md`（v1.0，2026-11-05）；交接：`docs/QINGYAN_PROC-1_HANDOFF.md`。纪律：第 1 条零 schema 与第 3 条租约有 PROC-1 限定例外（决定 C，Lucas 2026-11-05 批准）；其余同上——不加 cron / 队列（挂既有 `tender-watch`）、零出站（用户自助提交）、只读官方开放数据 / 公开页、零 LLM。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| PROC-1 | 采购监控（CanadaBuys 公告 / Open Government 合同 / Completed ATI / 合同历史页）→ 候选与采购工具去重 → 申请卡（联邦 ATI 模板、版本、规则、申请人、重复检查、READY）→ 自助交接与回执核对 → 案件事件 / 期限 / 待办 → 披露文件解析、明细复核、按口径分析与导出 | 硬纪律 1 例外（Evan） | OpenSpec change `procurement-records-requests`；三组纯测试 + 隔离库端到端注册；报告 `docs/QINGYAN_PROC-1_REPORT.md` | [G]（硬纪律 1 / 3 例外已批准：决定 C；待合并与 Owner Gate 迁移；业务验收待做） |
+
+**GATE-R 验收**（业务验收另列，不能用 fixture 代替）：生产迁移按 Owner Gate 执行后，授权用户保存并启用监控，生产定时扫描至少一次真实 SUCCESS / PARTIAL 且来源结果可见；用户完成一次真实自助提交并上传真实回执，状态为 SUBMITTED（document_verified）。
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
@@ -234,3 +246,4 @@
     - `collab-notify` 四件套按原样批准实施。
     - 手工验收放在 qingyan-staging 上做；本地 `.env` 直连生产库，不在本地跑。
 12. 对外询价可以自批（W-1，用户 2026-11-07 拍板）：Web 建的 `tender.send_rfq` 审批卡不指定审批人，按审批中心现有规则（`canDecidePending`）创建人本人可以批准自己发起的对外询价，与 Muse 路径一致；纪律第 2 条「出站先审批」仍成立（必须经审批卡），不加「对外邮件不能自批」。
+13. **决定 C**（2026-11-05，PROC-1，Lucas 批准）：硬纪律第 1 条例外——迁移 `20261105120000_add_procurement_records_foundation` 只新增 16 张 `Procurement*` / `Records*` 表；第 3 条例外——`ProcurementScanRun` 的单行认领（runnerToken + 心跳）只服务 `tender-watch` 里的采购扫描步骤，三个命中 R1 命名模式的表已逐条登记 baseline。两条例外都只限 PROC-1，已写进 `openspec/config.yaml`；合并仍由 Evan 拍板，生产迁移走 Owner Gate（`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`）。

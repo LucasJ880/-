@@ -395,6 +395,10 @@ npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
 npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
 npx tsx src/lib/notifications/__tests__/collab-email-escalation.test.ts
 npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts
+# PROC-1（openspec change procurement-records-requests）：采购监控 / 资料申请 / 披露分析——纯函数，无 DB、无网络
+npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts
+npx tsx src/lib/procurement-records/__tests__/records-request-pure.test.ts
+npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
 npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts

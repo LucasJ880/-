@@ -1,0 +1,30 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: 自动化调度表与线上调度一致
+系统 SHALL 为每个自动化维护一条调度：随 cron 每次触发都记录运行的、按 cron 计划；按本地时刻门控的（在本地某些小时才记录运行）、给出门控小时与时区（组织时区或固定时区）；按需运行的。每条 cron 计划 SHALL 与 `vercel.json` 中该自动化路由的 `schedule` 一致，每组门控小时 SHALL 与路由源码中的门控数组一致。
+
+#### Scenario: 调度表与 vercel.json 对照
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/schedule.test.ts`
+- **THEN** 34 个自动化各有一条调度；非按需的每一条都能在 `vercel.json` 找到同路径同 `schedule` 的 cron；门控小时与路由源码一致，退出码 0
+
+#### Scenario: 新增自动化未配调度
+- **WHEN** 自动化注册表新增一个键而调度表未配
+- **THEN** `npm run typecheck` 失败，调度测试失败
+
+#### Scenario: 岗位日结按组织本地 0 点与 1 点门控
+- **WHEN** 读取 `post-daily-digest` 的调度
+- **THEN** 为本地时刻门控：路由 `/api/cron/daily-brief`、门控小时 `[0, 1]`、组织时区，与路由源码一致
+
+#### Scenario: 未读升级邮件随销售动作定时任务每 15 分钟一轮
+- **WHEN** 读取 `notify-email-escalation` 的调度
+- **THEN** 为 cron 计划：路由 `/api/cron/sales-actions`、`*/15 * * * *`，与 `vercel.json` 一致，最长正常间隔 15 分钟
+
+#### Scenario: 每日未读汇总邮件按组织本地 7 点门控
+- **WHEN** 读取 `notify-email-digest` 的调度
+- **THEN** 为本地时刻门控：路由 `/api/cron/daily-brief`、门控小时 `[7]`、组织时区，与路由源码一致，最长正常间隔 1440 分钟
+
+#### Scenario: 采购监控随公告盯梢定时任务每小时检查一次
+- **WHEN** 读取 `procurement-watch` 的调度
+- **THEN** 为 cron 计划：路由 `/api/cron/tender-watch`、`25 * * * *`，与 `vercel.json` 一致，最长正常间隔 60 分钟（实际扫描按组织排程，缺省周一、周四 08:00 多伦多）；`npx tsx src/lib/cockpit/__tests__/schedule.test.ts` 覆盖

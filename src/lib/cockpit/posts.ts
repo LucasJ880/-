@@ -136,7 +136,7 @@ export const POST_REGISTRY = [
   {
     key: "tender",
     name: "投标",
-    automationKeys: ["tender-watch", "tender-auto-analysis", "tender-rfq-inbound"],
+    automationKeys: ["tender-watch", "tender-auto-analysis", "tender-rfq-inbound", "procurement-watch"],
     pendingActionTypes: ["tender.send_rfq", "tender.send_chase"],
     workDomains: ["tender"],
     agentRunTypes: [],
