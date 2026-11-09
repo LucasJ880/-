@@ -8,7 +8,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: 首页对管理层展示岗位视图，访问规则不变
-`/` SHALL 保持既有的服务端规则：未登录跳登录页，非管理层按既有规则重定向到各自的默认工作区；管理层 SHALL 看到岗位视图，SHALL NOT 再看到旧的管理仪表盘。管理层在当前企业一张可见岗位卡片都没有时，`/` SHALL 302 到 `/tasks`，SHALL NOT 渲染空的岗位视图。首页 SHALL NOT 新增顶层导航项。
+`/` SHALL 保持既有的服务端规则：未登录跳登录页，非管理层按既有规则重定向到各自的默认工作区；管理层 SHALL 看到岗位视图，SHALL NOT 再看到旧的管理仪表盘。管理层在当前企业一张可见岗位卡片都没有时，`/` SHALL 302 到 `/tasks`，SHALL NOT 渲染空的岗位视图；这一判定 SHALL 与路由门的落地页使用同一函数（见 `navigation/route-gate`「不放行时 302 到落地页」）。首页 SHALL NOT 新增顶层导航项。
 
 #### Scenario: 管理层打开首页
 - **WHEN** 组织 `org_admin` 打开 `/`
@@ -20,10 +20,10 @@
 
 #### Scenario: 没有可见卡片
 - **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/posts-read-model.test.ts`，以一家只启用 `sales` 模块的岗位模式企业、持 `owner` 岗位、微信入口开关关闭的输入计算可见岗位
-- **THEN** 可见岗位为空；首页据此 302 到 `/tasks`（源码断言 `page.tsx` 在可见岗位为空时调用 `redirect("/tasks")`），测试通过
+- **THEN** 可见岗位为空，落地页函数返回 `/tasks`；源码断言 `page.tsx` 用该函数决定跳转，测试通过
 
 ### Requirement: 岗位卡片
-页面 SHALL 按接口顺序显示接口返回的岗位卡片（只含可见岗位），组件 SHALL NOT 自行排序或补齐；每张 SHALL 显示：岗位名；健康度标签与色调（失败 / 配额已满为危险色，迟到 / 未运行过为警示色，正常为成功色，未配置 / 按需为中性色）；心跳的相对时间；下次应跑时间；三个 KPI 数值及其口径（或"未接入 / 未开启 / 暂不可用"）；待审批数与需要你数；近 7 天 AI 运行数与平台自动化运行数（分开显示，SHALL NOT 相加）；失败 / 迟到 / 未运行过的自动化名称（按此顺序，最多 3 个，未配置与按需不列）。计数 SHALL 带千分位。页头 SHALL 注明心跳与自动化次数为平台级。卡片 SHALL 链接到岗位的既有页面。卡片列数 SHALL 按内容区宽度（而非视口宽度）在一列、两列、三列之间切换。
+页面 SHALL 按接口顺序显示接口返回的岗位卡片（只含可见岗位），组件 SHALL NOT 自行排序或补齐；每张 SHALL 显示：岗位名；健康度标签与色调（失败 / 配额已满为危险色，迟到 / 未运行过为警示色，正常为成功色，未配置 / 按需为中性色）；心跳的相对时间；下次应跑时间；三个 KPI 数值及其口径（或"未接入 / 未开启 / 暂不可用"）；待审批数与需要你数；近 7 天 AI 运行数与平台自动化运行数（分开显示，SHALL NOT 相加）；失败 / 迟到 / 未运行过的自动化名称（按此顺序，最多 3 个，未配置与按需不列）。计数 SHALL 带千分位。页头 SHALL 注明心跳与自动化次数为平台级。页头副标题与加载骨架 SHALL NOT 写死岗位个数，骨架 SHALL 固定为三张占位。卡片 SHALL 链接到岗位的既有页面。卡片列数 SHALL 按内容区宽度（而非视口宽度）在一列、两列、三列之间切换。
 
 #### Scenario: 卡片内容
 - **WHEN** 接口返回投标岗位 `health = "failed"`、KPI `{tenderSubmittedCount: 12, wonCount: 3, winRatePercentage: "25.0"}`
@@ -44,3 +44,7 @@
 #### Scenario: 只显示接口给的卡片
 - **WHEN** 运行 `npx tsx src/components/cockpit/__tests__/org-cockpit-view.test.tsx`，接口只返回 `tender`、`marketing`、`projects`、`content` 四个岗位
 - **THEN** 页面只渲染这四张卡片，不渲染占位卡片，测试通过
+
+#### Scenario: 页头与骨架不写死个数
+- **WHEN** 运行同一测试
+- **THEN** 源码断言 `org-cockpit-view.tsx` 不含「七个岗位」，加载骨架渲染三张占位，测试通过

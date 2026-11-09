@@ -3,7 +3,11 @@
 ## ADDED Requirements
 
 ### Requirement: 岗位卡片的可见条件
-一个岗位卡片对某用户可见，当且仅当：其跳转页面（`nav`）对该用户经路由门放行（平台 super_admin 视为放行，见 `navigation/route-gate`）；「客服」岗位另要求微信入口开关打开。可见条件 SHALL 只来自岗位注册表里的跳转页面与字面量标记，注册表 SHALL NOT 为此新增运行时导入。
+一个岗位卡片 SHALL 当且仅当以下条件同时成立时对某用户可见：
+- 其跳转页面（`nav`）对该用户经路由门放行（平台 super_admin 视为放行，见 `navigation/route-gate`）；
+- 「客服」岗位另要求微信入口开关打开。
+
+可见条件 SHALL 只来自岗位注册表里的跳转页面与字面量标记，注册表 SHALL NOT 为此新增运行时导入。首页、岗位总览接口与路由门的落地页计算 SHALL 用同一个可见判定函数。
 
 #### Scenario: 可见条件表
 - **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/posts.test.ts`

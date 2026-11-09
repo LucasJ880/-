@@ -31,12 +31,27 @@
 ## ADDED Requirements
 
 ### Requirement: 纯销售侧栏不含 AI 任务与数字员工
-岗位模式的纯销售（持销售工作键、不是管理层、不持运营 / 招投标 / 会计 / 安装 / 出单键）与旧模式平台角色 `sales` 的侧栏 SHALL NOT 含「AI 任务」（`/workforce`）与「数字员工」（`/assistant`）。按路由门与侧栏同源的规则，这类用户请求 `/workforce/**`、`/assistant`、`/inbox` SHALL 被 302 到 `/sales/home`。其他岗位的侧栏不变。
+岗位模式的纯销售（持销售工作键、不是管理层、不持运营 / 招投标 / 会计 / 安装 / 出单键）与旧模式平台角色 `sales` 的侧栏 SHALL NOT 含「AI 任务」（`/workforce`）与「数字员工」（`/assistant`）。按路由门与侧栏同源的规则，这类用户请求 `/workforce/**`、`/assistant`、`/inbox` SHALL 被 302 到 `/sales/home`。其他岗位的「数字员工」不变。
 
 #### Scenario: 销售侧栏快照
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/position-nav.test.ts`
-- **THEN** `sales_rep` 与 `pricing_lead` 的侧栏为日历、销售首页、客户与商机、报价、报价记录、我的业绩、邮箱绑定，不含 `work-ai-jobs` 与 `work-assistant`；其余岗位快照不变，测试通过
+- **THEN** `sales_rep` 与 `pricing_lead` 的侧栏为日历、销售首页、客户与商机、报价、报价记录、我的业绩、邮箱绑定，不含 `work-ai-jobs` 与 `work-assistant`，测试通过
 
 #### Scenario: 销售敲 AI 任务
 - **WHEN** 只持 `sales_rep` 岗位的成员请求 `/workforce` 或 `/assistant`
 - **THEN** 返回 302，`Location` 为 `/sales/home`（`npx tsx src/lib/navigation/__tests__/route-gate.test.ts` 覆盖）
+
+### Requirement: AI 任务只对有可读工作域的人出现
+岗位模式下，侧栏「AI 任务」（`/workforce`）SHALL 只对至少可读一个工作域的成员出现（可读判定见 `agents/workforce-job-scope`「工作域按导航入口判定可读」）：管理层，或「招投标中心」「运营中心」「项目列表」「销售首页」「外贸」至少一项可见的成员；纯销售仍按上一条不含。按路由门与侧栏同源的规则，其他成员请求 `/workforce/**` SHALL 被 302 到各自的落地页。旧模式不变。
+
+#### Scenario: 一线岗位的侧栏没有 AI 任务
+- **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/position-nav.test.ts`
+- **THEN** 只持 `accounting`、只持 `installer`、只持 `fulfillment_vinyl`、无岗位成员的侧栏不含 `work-ai-jobs`；`bids`、`ops_staff`、`ops_lead`、`owner`、梦馨 `trade_rep` 的侧栏仍含；其余快照不变，测试通过
+
+#### Scenario: 一线岗位敲 AI 任务
+- **WHEN** 只持 `accounting`、只持 `installer`、只持 `fulfillment_vinyl` 的成员分别请求 `/workforce`
+- **THEN** 依次 302 到 `/accounting`、`/install`、`/tasks`（`route-gate.test.ts` 覆盖）
+
+#### Scenario: 入口与可读域不漂移
+- **WHEN** 运行 `npx tsx src/lib/workforce-runtime/__tests__/readable-domains.test.ts`
+- **THEN** 对每种测试身份（纯销售除外），「AI 任务」是否可见与可读工作域是否非空的结果相同，测试通过
