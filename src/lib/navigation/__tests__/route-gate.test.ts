@@ -407,6 +407,12 @@ for (const name of IDS) {
     "一线岗位敲 /workforce：会计 → /accounting、安装工 → /install、出单 → /tasks",
   );
   ok(["bids", "ops_staff", "ops_lead", "owner", "mx_trade_rep"].every((n) => allowed(n as IdName, "/workforce")), "有可读域的岗位照常进 /workforce（招投标 / 运营 / 老板 / 梦馨外贸）");
+  // VIS-1b（判断点 5）：纯销售与旧模式 sales 失去 AI 任务与数字员工
+  ok(
+    ["/workforce", "/workforce/x", "/assistant", "/inbox"].every((p) => target("sales_rep", p) === "/sales/home" && target("pricing_lead", p) === "/sales/home" && target("legacy_sales", p) === "/sales/home"),
+    "Lynn（sales_rep）/ 合价 / 旧模式销售：/workforce、/assistant、/inbox → /sales/home",
+  );
+  ok(allowed("ops_staff", "/assistant") && allowed("installer", "/assistant") && allowed("accounting", "/inbox"), "其他岗位的「数字员工」不变");
   ok(target("bids", "/capabilities/catalog") === "/bids" && target("bids", "/capabilities") === "/bids", "bids：AI 工作中心子页要求父入口 → /bids");
   ok(IDS.every((n) => target(n, "/no-such-workspace") === gateRedirectTarget("/no-such-workspace", at(ID[n], "/no-such-workspace"))), "未登记路径：一律按不放行处理");
   ok(IDS.every((n) => !allowed(n, "/no-such-workspace")), "未登记路径：任一非 super_admin 身份都不放行");

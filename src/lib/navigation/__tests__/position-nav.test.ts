@@ -144,8 +144,7 @@ const SALES_SIDEBAR = [
   "sales-email-settings",
   "sales-home",
   "sales-performance",
-  "work-ai-jobs",
-  "work-assistant",
+  // VIS-1b（判断点 5）：纯销售侧栏不再有「AI 任务」「数字员工」
   "work-calendar",
 ];
 const PROJECT_INTEL = [
@@ -351,11 +350,14 @@ ok(!visible(ctx({ platformRole: "boss" })).includes("ops-center"), "平台 boss 
   ok(isSalesTab(ctx({ permissionKeys: keysOf("pricing_lead") })), "pricing_lead：销售底栏");
   ok(!isSalesTab(ctx({ platformRole: "sales", permissionKeys: keysOf("ops_staff") })), "平台 sales + ops_staff：通用底栏");
   ok(!isSalesTab(ctx({ permissionKeys: keysOf("owner", "pricing_lead") })), "owner + pricing_lead：通用底栏（管理层落地 /）");
-  const src = readFileSync(join(process.cwd(), "src/components/mobile-tab-bar.tsx"), "utf8");
+  // VIS-1b：底栏判定搬到纯模块 mobile-tabs.ts（组件经 useNavigationAccess 取同一份判定输入）
+  const src = readFileSync(join(process.cwd(), "src/lib/navigation/mobile-tabs.ts"), "utf8");
   ok(
-    /positionMode\s*\?\s*getDefaultWorkspace\(wsCtx\)\s*===\s*"\/sales\/home"\s*:\s*user\?\.role === "sales"/.test(src),
-    "mobile-tab-bar：isSales 岗位模式按默认落地、旧模式按平台角色",
+    /ctx\.positionMode\s*\?\s*getDefaultWorkspace\(wsCtx\)\s*===\s*"\/sales\/home"\s*:\s*ctx\.platformRole === "sales"/.test(src),
+    "mobile-tabs：isSales 岗位模式按默认落地、旧模式按平台角色",
   );
+  const bar = readFileSync(join(process.cwd(), "src/components/mobile-tab-bar.tsx"), "utf8");
+  ok(/useNavigationAccess\(\)/.test(bar) && /computeMobileTabs\(ctx\)/.test(bar) && !/apiFetch|workspace-policy/.test(bar), "mobile-tab-bar：用共享钩子与纯函数，不再自取 active-org、自拼判定输入");
 }
 
 // ── 旧模式抽样（与改动前一致；改动前快照取自 main@da0119d4，平台用户管理入口除外） ──
@@ -365,8 +367,9 @@ ok(!visible(ctx({ platformRole: "boss" })).includes("ops-center"), "平台 boss 
   ok(finalPage(L_SALES) === "/sales/home", "旧模式 平台 sales → /sales/home");
   eqList(
     visible(L_SALES),
-    [...SALES_SIDEBAR, "work-assistant", "work-ai-jobs"].filter((k, i, a) => a.indexOf(k) === i),
-    "旧模式 平台 sales：侧栏与改动前一致",
+    // VIS-1b（判断点 5）：旧模式平台 sales 同步去掉「AI 任务」「数字员工」（spec「岗位模式判定」的旧模式例外）
+    SALES_SIDEBAR,
+    "旧模式 平台 sales：侧栏与改动前一致（例外：不含 AI 任务与数字员工）",
   );
   const L_OPS = legacy({ platformRole: "operations", permissionKeys: ["operations.read", "operations.manage"] });
   ok(finalPage(L_OPS) === "/ops", "旧模式 平台 operations + operations.* → /ops");

@@ -391,10 +391,11 @@ ok(
     "/sales/calendar",
     "/sales/performance",
     "/settings/email",
-    "/assistant",
   ].every((h) => salesHrefs.includes(h)),
-  "销售工作区含销售首页/客户与商机/报价/日历/业绩/邮箱绑定/助手",
+  "销售工作区含销售首页/客户与商机/报价/日历/业绩/邮箱绑定",
 );
+// VIS-1b（判断点 5）：旧模式销售不再含「数字员工」「AI 任务」
+ok(!salesHrefs.includes("/assistant") && !salesHrefs.includes("/workforce"), "销售工作区不含数字员工与 AI 任务");
 ok(
   !salesNav.some(
     (i) =>

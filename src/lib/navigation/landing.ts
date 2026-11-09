@@ -48,3 +48,17 @@ export function canOpenHref(href: string, ctx: RouteGateContext | null): boolean
   const path = href.split(/[?#]/)[0] || "/";
   return isRouteAllowed(path, { ...ctx, pathname: path });
 }
+
+/**
+ * 工艺单详情 / 编辑页的「返回」与删除后跳转（spec navigation/entry-visibility「站内链接与按钮只在目标放行时出现」；design D12）：
+ * 列表放行 → /blinds-orders；否则客户详情（有客户且放行）；否则当前用户的落地页（路由门保证放行）。输入未就绪 → null（不渲染）。
+ */
+export function blindsOrderBackHref(ctx: RouteGateContext | null, customerId: string | null | undefined): string | null {
+  if (!ctx) return null;
+  if (canOpenHref("/blinds-orders", ctx)) return "/blinds-orders";
+  if (customerId) {
+    const customer = `/sales/customers/${encodeURIComponent(customerId)}`;
+    if (canOpenHref(customer, ctx)) return customer;
+  }
+  return resolveLandingPage(ctx);
+}

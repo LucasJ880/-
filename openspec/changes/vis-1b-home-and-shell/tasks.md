@@ -61,7 +61,7 @@
 
 ## 5. 侧栏、底栏与站内链接
 
-- [ ] 5.1 改侧栏、底栏与站内链接：
+- [x] 5.1 改侧栏、底栏与站内链接：
   - `registry.ts`：`work-ai-jobs`、`work-assistant` 去掉 `salesWorkspaceVisible`。
   - `mobile-tab-bar.tsx`：改用钩子，每个页签按 `canOpen` 出现，布局判定不变，不再从企业列表回推成员身份。
   - 按 design D12 收掉站内链接：`blinds-orders/[id]/page.tsx`、`blinds-orders/[id]/edit/page.tsx`（返回链：客户详情 → `landingPage`）、`assistant/digital-employee-workbench.tsx`、`tasks/tasks-classic.tsx`、`tender-analysis/agent-card.tsx`（「查看执行详情」）。

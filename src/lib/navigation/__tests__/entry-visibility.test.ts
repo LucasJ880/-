@@ -21,7 +21,9 @@ import {
   type OrgNavigationInputs,
   type RouteGateContext,
 } from "../filter-context";
-import { canOpenHref } from "../landing";
+import { blindsOrderBackHref, canOpenHref } from "../landing";
+import { computeMobileTabs } from "../mobile-tabs";
+import { navEntryVisible } from "../route-gate-core";
 import {
   HOME_TEXTILE_TRADE_INDUSTRY_PACK,
   WINDOW_COVERING_INDUSTRY_PACK,
@@ -172,6 +174,57 @@ async function main() {
     ok(canOpenHref("/sales?view=customers", lynn) && !canOpenHref("/bids?tab=rfq#x", lynn), "href 的查询串与锚点不参与判定");
   }
 
+  // ── 手机底栏页签（spec navigation/position-based-visibility）──
+  {
+    const tabsOf = (name: string) => computeMobileTabs(clientCtx(IDENTITIES[name]));
+    const keys = (name: string) => tabsOf(name).tabs.map((t) => t.key);
+    ok(tabsOf("sales_rep").layout === "sales" && tabsOf("pricing_lead").layout === "sales", "销售岗位用销售底栏");
+    ok(!keys("fulfillment_vinyl").includes("ai") && keys("fulfillment_vinyl").includes("assistant"), "出单的底栏没有「AI」（/capabilities 不放行），有「助手」", keys("fulfillment_vinyl"));
+    ok(!keys("accounting").includes("bids") && !keys("fulfillment_vinyl").includes("bids"), "会计与出单的底栏没有「招投标」", { acc: keys("accounting"), ful: keys("fulfillment_vinyl") });
+    ok(keys("ops_lead_bids").includes("bids"), "ops_lead + bids 的底栏有「招投标」", keys("ops_lead_bids"));
+    const mismatch = NAMES.filter((n) => n !== "super_admin").filter((n) => {
+      const c = clientCtx(IDENTITIES[n]);
+      return keys(n).includes("bids") !== navEntryVisible("ws-bids", { ...c, pathname: "/bids" });
+    });
+    ok(mismatch.length === 0, "每种身份：底栏是否出现「招投标」与侧栏「招投标中心」是否可见相同", mismatch);
+    const unopenable = NAMES.flatMap((n) => tabsOf(n).tabs.filter((t) => !canOpenHref(t.href, clientCtx(IDENTITIES[n]))).map((t) => `${n}:${t.key}`));
+    ok(unopenable.length === 0, "每种身份：底栏的每个页签都放行（点进去不被弹回）", unopenable);
+    ok(JSON.stringify(keys("owner")) === '["overview","ops","bids","install"]', "老板：总览 / 运营 / 招投标 / 安装（与改动前相同，四格上限）", keys("owner"));
+    ok(keys("no_position").includes("ai") === false && keys("project_member").includes("assistant"), "无岗位：没有「AI」；助手照常");
+    ok(tabsOf("legacy_sales").layout === "sales" && tabsOf("legacy_boss").layout === "general", "旧模式：布局仍按平台角色 sales");
+    ok(computeMobileTabs(clientCtx(IDENTITIES.super_admin)).tabs.length === 4, "平台 super_admin：通用布局取满四格");
+  }
+
+  // ── 站内链接目标与返回链（spec「站内链接与按钮只在目标放行时出现」）──
+  {
+    const c = (n: string) => clientCtx(IDENTITIES[n]);
+    ok(blindsOrderBackHref(c("sales_rep"), "c1") === "/sales/customers/c1", "销售看工艺单：返回指向该单客户详情（列表不放行）");
+    ok(blindsOrderBackHref(c("accounting"), "c1") === "/accounting", "会计看工艺单：列表与客户详情都不放行 → 返回指向 /accounting（落地页）");
+    ok(blindsOrderBackHref(c("fulfillment_vinyl"), "c1") === "/blinds-orders" && blindsOrderBackHref(c("owner"), "c1") === "/blinds-orders", "列表放行（出单 / 老板）：返回列表");
+    ok(blindsOrderBackHref(c("sales_rep"), null) === "/sales/home", "没有客户：退到落地页");
+    ok(blindsOrderBackHref(null, "c1") === null, "输入未就绪：不渲染返回链接");
+    const backTargets = NAMES.map((n) => blindsOrderBackHref(c(n), "c1")!).every((href, i) => canOpenHref(href, c(NAMES[i])));
+    ok(backTargets, "每种身份：返回链接的目标都放行");
+    ok(!canOpenHref("/install/repairs/r1", c("sales_rep")) && canOpenHref("/install/repairs/r1", c("ops_lead")), "收口页签维修单链接：销售不出现，运营主管出现");
+    ok(!canOpenHref("/sales", c("ops_staff")) && !canOpenHref("/sales/quote-sheet", c("ops_staff")) && !canOpenHref("/sales/customers/c1", c("ops_staff")), "运营看工作台：不显示「打开销售工作区」「创建报价」与销售客户提醒链接");
+    ok(canOpenHref("/sales", c("owner")) && canOpenHref("/sales/quote-sheet", c("sales_rep")), "老板 / 销售：工作台销售入口照常");
+    ok(!canOpenHref("/assistant", c("sales_rep")) && canOpenHref("/assistant", c("ops_staff")), "/tasks「进入协同空间」：纯销售不出现，运营出现");
+    const agentLink = (n: string) => canOpenHref("/workforce/j1", c(n)) && canOpenHref("/bids", c(n));
+    ok(!agentLink("ops_staff") && !agentLink("accounting") && agentLink("bids") && agentLink("owner"), "投标分析卡片「查看执行详情」：运营 / 会计不出现，招投标 / 老板出现");
+
+    const detail = read("src/app/(main)/blinds-orders/[id]/page.tsx");
+    const edit = read("src/app/(main)/blinds-orders/[id]/edit/page.tsx");
+    const wb = read("src/app/(main)/assistant/digital-employee-workbench.tsx");
+    const tasks = read("src/app/(main)/tasks/tasks-classic.tsx");
+    const card = read("src/components/tender-analysis/agent-card.tsx");
+    ok(!/href="\/blinds-orders"|router\.push\("\/blinds-orders"\)/.test(detail) && /blindsOrderBackHref\(access\.ctx, order\.customerId\)/.test(detail) && /blindsOrderBackHref\(access\.ctx, order\?\.customerId\)/.test(detail), "工艺单详情：返回与删除后跳转走返回链");
+    ok(/canOpen\(`\/install\/repairs\/\$\{task\.repair\.id\}`\) \?/.test(detail), "工艺单详情：维修单链接按 canOpen 渲染");
+    ok(!/href="\/blinds-orders"/.test(edit) && /blindsOrderBackHref\(access\.ctx, null\)/.test(edit), "工艺单编辑页：返回走返回链");
+    ok(/canOpen\("\/sales"\) \?/.test(wb) && /canOpen\("\/sales\/quote-sheet"\) \?/.test(wb) && /const linked = canOpen\(href\)/.test(wb), "数字员工工作台：三类销售入口按 canOpen");
+    ok(/useNavigationAccess\(\)\.canOpen\("\/assistant"\)/.test(tasks) && /\{canOpenAssistant \? \(/.test(tasks), "/tasks：「进入协同空间」按 canOpen");
+    ok(/canOpen\(`\/workforce\/\$\{job\.jobId\}`\) && canOpen\("\/bids"\)/.test(card), "投标分析卡片：「查看执行详情」按 canOpen（作业详情 + 招投标中心）");
+  }
+
   // ── 纯模块：不导入 next/server ──
   {
     const PURE = [
@@ -179,6 +232,7 @@ async function main() {
       "src/lib/navigation/landing.ts",
       "src/lib/navigation/filter-context.ts",
       "src/lib/navigation/use-navigation-access.ts",
+      "src/lib/navigation/mobile-tabs.ts",
     ];
     const bad = PURE.filter((p) => /from "next\/server"|from "\.\/route-gate"|from "\.\/context-server"|@\/lib\/db/.test(read(p)));
     ok(bad.length === 0, `纯模块不导入 next/server / route-gate.ts / context-server / db${bad.length ? "（" + bad.join(",") + "）" : ""}`);

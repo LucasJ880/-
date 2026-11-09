@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { calculateItem } from "@/lib/blinds/calculation-engine";
 import { apiFetch } from "@/lib/api-fetch";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
+import { blindsOrderBackHref } from "@/lib/navigation/landing";
 import { blockingIssues, computeIssues, type ProcessIssue } from "@/lib/sunny-process/issues";
 import type { ProcessSpec } from "@/lib/sunny-process/process-spec";
 import {
@@ -114,6 +116,8 @@ export default function BlindsOrderDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  // VIS-1b：返回 / 删除后跳转与收口页签的维修单链接只指向放行的页面（design D12）
+  const access = useNavigationAccess();
   const [order, setOrder] = useState<BlindsOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"overview" | "parts" | "fabric" | "closeout" | "domestic" | "drapes" | "vinyl" | "purchase">("overview");
@@ -297,7 +301,7 @@ export default function BlindsOrderDetailPage({
     if (!confirm("确定删除此工艺单？此操作不可恢复。")) return;
     const res = await apiFetch(`/api/blinds-orders/${id}`, { method: "DELETE" });
     if (res.ok) {
-      router.push("/blinds-orders");
+      router.push(blindsOrderBackHref(access.ctx, order?.customerId) ?? "/tasks");
     }
   }
 
@@ -313,9 +317,14 @@ export default function BlindsOrderDetailPage({
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <p className="text-muted">工艺单不存在</p>
-        <Link href="/blinds-orders" className="mt-4 text-accent hover:underline">
-          返回列表
-        </Link>
+        {(() => {
+          const back = blindsOrderBackHref(access.ctx, null);
+          return back ? (
+            <Link href={back} className="mt-4 text-accent hover:underline">
+              {back === "/blinds-orders" ? "返回列表" : "返回"}
+            </Link>
+          ) : null;
+        })()}
       </div>
     );
   }
@@ -352,9 +361,14 @@ export default function BlindsOrderDetailPage({
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <Link href="/blinds-orders" className="text-muted transition-colors hover:text-muted">
-              <ArrowLeft size={20} />
-            </Link>
+            {(() => {
+              const back = blindsOrderBackHref(access.ctx, order.customerId);
+              return back ? (
+                <Link href={back} className="text-muted transition-colors hover:text-muted" aria-label="返回">
+                  <ArrowLeft size={20} />
+                </Link>
+              ) : null;
+            })()}
             <h1 className="text-2xl font-bold text-foreground">{order.code}</h1>
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${st.color}`}>
               {st.label}
@@ -521,7 +535,7 @@ export default function BlindsOrderDetailPage({
       {spec && view === "drapes" && <DrapesSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
       {spec && view === "vinyl" && <VinylSection spec={spec} onChange={editSpec} editable={editable} issues={issues} orderCode={order.code} />}
       {spec && view === "purchase" && <PurchaseSection spec={spec} onChange={editSpec} editable={editable} issues={issues} />}
-      {view === "closeout" && closeout && <CloseoutTab task={closeout} />}
+      {view === "closeout" && closeout && <CloseoutTab task={closeout} canOpen={access.canOpen} />}
 
       {scheduleOpen && (
         <ScheduleInstallDialog
@@ -697,7 +711,7 @@ function ScheduleInstallDialog({
 }
 
 /** INSTALL-1：收口标签——每窗缩略图 / 时间 / 张数（持 install.photo.read 才拿得到数据）；INSTALL-2a：含工艺参数单元 */
-function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
+function CloseoutTab({ task, canOpen }: { task: InstallTaskDetailData; canOpen: (href: string) => boolean }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
@@ -718,9 +732,13 @@ function CloseoutTab({ task }: { task: InstallTaskDetailData }) {
         {task.completedAt && task.repair && (
           <span className="text-[#a86a12]">
             {new Date(task.completedAt).toLocaleString("zh-CN", { timeZone: "America/Toronto" })} 提交维修单{" "}
-            <Link href={`/install/repairs/${task.repair.id}`} className="font-mono underline">
-              {task.repair.repairNo}
-            </Link>
+            {canOpen(`/install/repairs/${task.repair.id}`) ? (
+              <Link href={`/install/repairs/${task.repair.id}`} className="font-mono underline">
+                {task.repair.repairNo}
+              </Link>
+            ) : (
+              <span className="font-mono">{task.repair.repairNo}</span>
+            )}
             ，目标 {task.repair.targetDate}
           </span>
         )}

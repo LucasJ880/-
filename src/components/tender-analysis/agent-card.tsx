@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 
 type AgentStatusPayload = {
   enabled: boolean;
@@ -65,6 +66,8 @@ type Props = {
 };
 
 export function TenderAnalysisAgentCard({ projectId, onAnalysisFinished }: Props) {
+  // VIS-1b：作业固定是投标域——「查看执行详情」只给作业详情与招投标中心都放行的人（design D12）
+  const { canOpen } = useNavigationAccess();
   const [data, setData] = useState<AgentStatusPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -233,7 +236,7 @@ export function TenderAnalysisAgentCard({ projectId, onAnalysisFinished }: Props
         <div className="text-xs text-red-600">{actionError}</div>
       ) : null}
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {job ? (
+        {job && canOpen(`/workforce/${job.jobId}`) && canOpen("/bids") ? (
           <a href={`/workforce/${job.jobId}`} className="underline-offset-2 hover:underline">
             查看执行详情
           </a>

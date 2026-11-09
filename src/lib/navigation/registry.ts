@@ -227,7 +227,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     href: "/assistant",
     icon: MessageSquare,
     group: "WORK",
-    salesWorkspaceVisible: true,
+    // VIS-1b（判断点 5）：不再在纯销售侧栏出现
     displayOrder: 60,
   },
   {
@@ -239,7 +239,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     icon: Briefcase,
     group: "WORK",
     positionPermissions: [...POSITION_WORKFORCE],
-    salesWorkspaceVisible: true,
+    // VIS-1b（判断点 5）：不再在纯销售侧栏出现
     displayOrder: 65,
   },
 
