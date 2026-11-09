@@ -24,6 +24,11 @@ import {
 import { blindsOrderBackHref, canOpenHref } from "../landing";
 import { computeMobileTabs } from "../mobile-tabs";
 import { navEntryVisible } from "../route-gate-core";
+import { buildHelpMap } from "../help-map";
+import { OPERATIONS_INDEX_CARDS, visibleOperationsCards } from "../operations-index";
+import { NAVIGATION_REGISTRY, SYSTEM_NAV_ITEMS } from "../registry";
+import { resolveNavigationTree } from "../filter";
+import type { NavigationItem, ResolvedNavItem } from "../types";
 import {
   HOME_TEXTILE_TRADE_INDUSTRY_PACK,
   WINDOW_COVERING_INDUSTRY_PACK,
@@ -225,6 +230,41 @@ async function main() {
     ok(/canOpen\(`\/workforce\/\$\{job\.jobId\}`\) && canOpen\("\/bids"\)/.test(card), "投标分析卡片：「查看执行详情」按 canOpen（作业详情 + 招投标中心）");
   }
 
+  // ── /help 功能地图与 72 条说明（spec「/help 功能地图从可见导航生成」）──
+  {
+    const all: NavigationItem[] = [];
+    const walk = (items: NavigationItem[]) => items.forEach((i) => { all.push(i); if (i.children) walk(i.children); });
+    walk([...NAVIGATION_REGISTRY, ...SYSTEM_NAV_ITEMS]);
+    const bad = all.filter((i) => !i.description || i.description.trim().length === 0 || [...i.description].length > 40).map((i) => i.key);
+    ok(all.length === 72 && bad.length === 0, `导航注册表与系统底栏共 72 项，每项说明非空且不超过 40 字（实际 ${all.length}${bad.length ? "；不合格 " + bad.join(",") : ""}）`);
+    const flatKeys = (items: ResolvedNavItem[]): string[] => items.flatMap((i) => [i.key, ...(i.children ? flatKeys(i.children) : [])]);
+    const mapKeys = (n: string) => buildHelpMap(clientCtx(IDENTITIES[n])).flatMap((g) => g.entries.map((e) => e.key));
+    const sidebarKeys = (n: string) => flatKeys(resolveNavigationTree([...NAVIGATION_REGISTRY, ...SYSTEM_NAV_ITEMS], { ...clientCtx(IDENTITIES[n]), pathname: "/help" }));
+    const same = (a: string[], b: string[]) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+    ok(same(mapKeys("sales_rep"), sidebarKeys("sales_rep")), "销售：地图里的入口与侧栏可见入口完全相同", mapKeys("sales_rep"));
+    ok(!mapKeys("sales_rep").some((k) => k.startsWith("ws-bids") || k.startsWith("growth-") || k.startsWith("biz-trade") || k === "nav-projects"), "销售：地图不含招投标、营销、外贸入口");
+    ok(NAMES.every((n) => same(mapKeys(n), sidebarKeys(n))), "每种身份：地图 = 侧栏可见入口");
+    const sales = buildHelpMap(clientCtx(IDENTITIES.sales_rep));
+    ok(sales.every((g) => g.entries.every((e) => e.description.length > 0)) && sales[sales.length - 1].group === "SYSTEM", "地图按侧栏分组顺序列出，每项带说明（系统组在最后）");
+    const help = read("src/app/(main)/help/page.tsx");
+    ok(!/ROUTES|PROJECT_AUDIT/.test(help) && /buildHelpMap\(ctx\)/.test(help) && /loadPageNavigationContext\(\)/.test(help), "/help：删除静态 ROUTES 与 PROJECT_AUDIT 引用，地图按可见导航生成");
+    ok(/组织与项目/.test(help) && /DEPLOY_VERCEL\.md/.test(help), "/help：其余段落不动");
+  }
+
+  // ── /operations 索引（spec「/operations 索引只列放行的卡片」）──
+  {
+    const titles = (n: string) => visibleOperationsCards(clientCtx(IDENTITIES[n])).map((c) => c.title);
+    const OPS_STAFF = ["增长中心", "营销数字员工", "市场情报", "矩阵账号", "视频资产", "发布审核队列", "数据看板", "品牌记忆", "内容日历"];
+    ok(JSON.stringify(titles("ops_staff")) === JSON.stringify(OPS_STAFF), "运营：9 张内容运营卡片，不含「投标业务档案」", titles("ops_staff"));
+    ok(titles("super_admin").length === OPERATIONS_INDEX_CARDS.length && titles("super_admin").includes("投标业务档案"), "平台 super_admin：全部卡片");
+    ok(titles("owner").length === OPERATIONS_INDEX_CARDS.length, "Sunny 老板：全部卡片（含投标业务档案）");
+    ok(titles("installer").length === 0, "安装工：一张都不放行（页面显示空态；路由门本身也拦 /operations）");
+    const unopenable = NAMES.flatMap((n) => visibleOperationsCards(clientCtx(IDENTITIES[n])).filter((c) => !canOpenHref(c.href, clientCtx(IDENTITIES[n]))).map((c) => `${n}:${c.href}`));
+    ok(unopenable.length === 0, "每种身份：列出的卡片都放行");
+    const ops = read("src/app/(main)/operations/page.tsx");
+    ok(/visibleOperationsCards\(ctx\)/.test(ops) && /暂无可用的运营入口/.test(ops) && !/href="\/operations\/tender-profile"/.test(ops), "/operations：卡片按判定过滤，有空态，不再写死卡片");
+  }
+
   // ── 纯模块：不导入 next/server ──
   {
     const PURE = [
@@ -233,6 +273,8 @@ async function main() {
       "src/lib/navigation/filter-context.ts",
       "src/lib/navigation/use-navigation-access.ts",
       "src/lib/navigation/mobile-tabs.ts",
+      "src/lib/navigation/help-map.ts",
+      "src/lib/navigation/operations-index.ts",
     ];
     const bad = PURE.filter((p) => /from "next\/server"|from "\.\/route-gate"|from "\.\/context-server"|@\/lib\/db/.test(read(p)));
     ok(bad.length === 0, `纯模块不导入 next/server / route-gate.ts / context-server / db${bad.length ? "（" + bad.join(",") + "）" : ""}`);

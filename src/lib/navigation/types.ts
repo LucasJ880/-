@@ -21,6 +21,8 @@ export type NavigationItem = {
   labelKey?: MessageKey;
   /** 无 i18n 时的中文兜底 */
   label: string;
+  /** VIS-1b：一句说明（不超过 40 字），/help 功能地图按可见导航生成时显示（spec navigation/entry-visibility） */
+  description?: string;
   href?: string;
   icon?: LucideIcon;
   group: NavigationGroup;

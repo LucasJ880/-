@@ -78,7 +78,7 @@
 
 ## 6. 索引页与帮助地图
 
-- [ ] 6.1 让索引页与帮助地图按可见入口生成：
+- [x] 6.1 让索引页与帮助地图按可见入口生成：
   - `types.ts` 加 `description?: string`，注册表 72 项各写一句（不超过 40 字）。
   - `help/page.tsx` 按 design D10 从可见导航树生成功能地图，删 `ROUTES` 与 `PROJECT_AUDIT` 引用。
   - `operations/page.tsx` 按 D9 把卡片改成常量数组，super_admin 全显，其余按 `isRouteAllowed` 过滤，加空态。

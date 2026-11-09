@@ -1,13 +1,22 @@
 import Link from "next/link";
-import { BarChart3, BookOpen, CalendarDays, Clapperboard, ExternalLink, Megaphone, Search, ShieldCheck, TrendingUp, Users } from "lucide-react";
+import { redirect } from "next/navigation";
+import { ExternalLink, Megaphone } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { visibleOperationsCards } from "@/lib/navigation/operations-index";
+import { loadPageNavigationContext } from "@/lib/navigation/page-context-server";
 
 /**
  * 内容运营入口
+ * VIS-1b：卡片逐张按路由门判定，只列对当前用户放行的（平台 super_admin 全部显示）；一张都没有时显示空态
+ * （spec navigation/entry-visibility「/operations 索引只列放行的卡片」）。
  */
 const POSTIZ_URL = process.env.NEXT_PUBLIC_POSTIZ_URL;
 
-export default function OperationsPage() {
+export default async function OperationsPage() {
+  const ctx = await loadPageNavigationContext();
+  if (!ctx) redirect("/login");
+  const cards = visibleOperationsCards(ctx);
+
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <PageHeader
@@ -42,129 +51,27 @@ export default function OperationsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Link
-          href="/operations/growth"
-          className="flex items-center gap-3 rounded-xl border border-accent/40 bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <TrendingUp className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">增长中心</div>
-            <div className="mt-0.5 text-xs text-muted">
-              企业事实、七维体检、增长任务、推广计划与营销实验闭环
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/marketing/employee"
-          className="flex items-center gap-3 rounded-xl border border-accent/40 bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <Megaphone className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">营销数字员工</div>
-            <div className="mt-0.5 text-xs text-muted">
-              产品档案、客户研究、竞品、文案、邮件与广告规划（副作用须审批）
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/intelligence"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <Search className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">市场情报</div>
-            <div className="mt-0.5 text-xs text-muted">
-              调用青砚营销分析，拆解竞品全渠道打法并设计首个增长实验
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/matrix"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <Users className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">矩阵账号</div>
-            <div className="mt-0.5 text-xs text-muted">
-              英文社媒 + 小红书账号台账，按账号组管理通道与配额
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/assets"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <Clapperboard className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">视频资产</div>
-            <div className="mt-0.5 text-xs text-muted">
-              Aivora 成片自动入库，AI 差异化文案后扇出派发到矩阵账号
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/review"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <ShieldCheck className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">发布审核队列</div>
-            <div className="mt-0.5 text-xs text-muted">
-              抽检任务与规则拦截任务在此人工通过或驳回
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/dashboard"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <BarChart3 className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">数据看板</div>
-            <div className="mt-0.5 text-xs text-muted">
-              账号健康、发布任务状态与近 14 天发布趋势
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/brand"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <BookOpen className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">品牌记忆</div>
-            <div className="mt-0.5 text-xs text-muted">
-              统一品牌语料，文案变体与内容技能自动引用，口径一致
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/tender-profile"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <BookOpen className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">投标业务档案</div>
-            <div className="mt-0.5 text-xs text-muted">
-              与品牌档案分离：投标起草、备忘录、合规响应只读这份档案，不回退到其他业务线
-            </div>
-          </div>
-        </Link>
-        <Link
-          href="/operations/calendar"
-          className="flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:border-accent"
-        >
-          <CalendarDays className="h-5 w-5 shrink-0 text-accent" />
-          <div>
-            <div className="font-semibold">内容日历</div>
-            <div className="mt-0.5 text-xs text-muted">
-              AI 按品牌记忆批量出选题，审核后关联视频扇出
-            </div>
-          </div>
-        </Link>
-      </div>
-
+      {cards.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card-bg px-5 py-8 text-center text-sm text-muted">
+          暂无可用的运营入口
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {cards.map((card) => (
+            <Link
+              key={card.href}
+              href={card.href}
+              className={`flex items-center gap-3 rounded-xl border ${card.highlight ? "border-accent/40" : "border-border"} bg-card-bg px-5 py-4 transition-colors hover:border-accent`}
+            >
+              <card.icon className="h-5 w-5 shrink-0 text-accent" />
+              <div>
+                <div className="font-semibold">{card.title}</div>
+                <div className="mt-0.5 text-xs text-muted">{card.description}</div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
