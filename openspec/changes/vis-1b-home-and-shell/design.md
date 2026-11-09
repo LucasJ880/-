@@ -213,7 +213,7 @@
 
 ### D9 `/operations` 索引按放行过滤（Q9）
 
-页内卡片改成本地常量数组（`href`、标题、说明、图标），文案不变。服务端页面用 `ROUTE_GATE_LOADER` 取当前用户输入：
+卡片清单改成常量数组（`href`、标题、说明、图标），文案不变；放在 `src/lib/navigation/operations-index.ts`（`page.tsx` 不能有额外的具名导出，测试要直接读这张表）。服务端页面用 `ROUTE_GATE_LOADER` 取当前用户输入：
 - 平台 super_admin 全部显示（`isRouteAllowed` 本身没有 super_admin 放行）；
 - 其余逐张按 `isRouteAllowed(card.href)` 过滤；
 - 一张都不放行时显示「暂无可用的运营入口」。

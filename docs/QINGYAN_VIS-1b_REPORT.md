@@ -78,7 +78,7 @@ change：`vis-1b-home-and-shell`（任务书 `docs/QINGYAN_VIS-1_VISIBILITY_TASK
 | `org-cockpit-view.test.tsx` | 79 | 86 |
 | `position-nav.test.ts` | 96 | 98 |
 | `navigation-ia.test.ts` | 63 | 64 |
-| `route-gate.test.ts` | 132 | 138（页面 → 规则快照不变） |
+| `route-gate.test.ts` | 132 | 139（页面 → 规则快照不变） |
 | `entry-visibility.test.ts`（新，已注册） | — | 56 |
 | `readable-domains.test.ts`（新，已注册） | — | 34 |
 | `residual-reads.test.ts` | 76 | 76（门表断言改读 `route-gate-core.ts`） |
@@ -96,6 +96,9 @@ change：`vis-1b-home-and-shell`（任务书 `docs/QINGYAN_VIS-1_VISIBILITY_TASK
 - `bash scripts/check-test-registry.sh`：通过（549 个，欠账基线 69 条不增）。
 - `npx next build --webpack`：成功（4.0 分钟，exit 0）。告警只有既有的 Sentry / Prisma instrumentation 与 PDF 生成依赖的「Critical dependency」，与本次改动无关；`/help`、`/operations` 改为动态渲染（ƒ），中间件照旧为 Node runtime。
 - `openspec validate vis-1b-home-and-shell --strict`：通过。
+- `/opsx:verify vis-1b-home-and-shell`：8/8 任务完成，22 条 ADDED / MODIFIED 需求都有实现与测试，2 条 RENAMED 随 MODIFIED 核对。两条 WARNING 已当场处理：
+  - 场景「招投标岗位进不了索引页」缺直接断言，已在 `route-gate.test.ts` 补上；
+  - design D9 写的「页内常量数组」与实际位置 `operations-index.ts` 不一致，已改 design。
 
 
 ## 6. 独立审查与处理

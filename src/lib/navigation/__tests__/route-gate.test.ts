@@ -413,6 +413,8 @@ for (const name of IDS) {
     "Lynn（sales_rep）/ 合价 / 旧模式销售：/workforce、/assistant、/inbox → /sales/home",
   );
   ok(allowed("ops_staff", "/assistant") && allowed("installer", "/assistant") && allowed("accounting", "/inbox"), "其他岗位的「数字员工」不变");
+  // VIS-1b spec「招投标岗位进不了索引页」：/operations 照旧拒绝，投标档案仍可由招投标工作台进入
+  ok(target("bids", "/operations") === "/bids" && allowed("bids", "/operations/tender-profile"), "招投标：/operations → /bids；/operations/tender-profile 放行");
   ok(target("bids", "/capabilities/catalog") === "/bids" && target("bids", "/capabilities") === "/bids", "bids：AI 工作中心子页要求父入口 → /bids");
   ok(IDS.every((n) => target(n, "/no-such-workspace") === gateRedirectTarget("/no-such-workspace", at(ID[n], "/no-such-workspace"))), "未登记路径：一律按不放行处理");
   ok(IDS.every((n) => !allowed(n, "/no-such-workspace")), "未登记路径：任一非 super_admin 身份都不放行");
