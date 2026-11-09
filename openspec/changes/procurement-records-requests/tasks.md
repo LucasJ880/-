@@ -30,7 +30,7 @@
 
 ## 8. 端到端测试、报告与 TASKFLOW
 
-- [ ] 8.1 写 `src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`（真实路由 + 注入 fetch + 隔离库，覆盖任务书第十五节 1–18）并注册；全量 `npm test`；写 `docs/QINGYAN_PROC-1_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 状态列 + 交接文件。verify：隔离库测试退出 0；`npm test` 结果写入报告；`openspec validate procurement-records-requests --strict` 通过。
+- [x] 8.1 写 `src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`（真实路由 + 注入 fetch + 隔离库，覆盖任务书第十五节 1–18）并注册；全量 `npm test`；写 `docs/QINGYAN_PROC-1_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 状态列 + 交接文件。verify：隔离库测试退出 0；`npm test` 结果写入报告；`openspec validate procurement-records-requests --strict` 通过。
 
 ## 9. 省级机关规则种子（Lucas 2026-11-05 追加）
 
