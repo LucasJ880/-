@@ -21,6 +21,7 @@ import {
 } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 import { daysRemainingToronto } from "@/lib/time";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
 import {
@@ -309,6 +310,7 @@ export function TasksClassicPage() {
 function TasksPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const canOpenAssistant = useNavigationAccess().canOpen("/assistant");
   const projectFilter = searchParams.get("project") || "";
   const openParam = searchParams.get("open") || "";
 
@@ -511,7 +513,10 @@ function TasksPageContent() {
           <p className="mt-1 max-w-sm text-sm text-muted">创建任务以跟踪工作进度，也可以在协同空间中用自然语言整理任务。</p>
           <div className="mt-6 flex items-center gap-3">
             <button type="button" onClick={() => { setEditingTask(null); setShowForm(true); }} className="min-h-10 rounded-[var(--radius-md)] bg-accent px-5 py-2 text-sm font-medium text-[color:var(--on-accent)] shadow-sm hover:bg-accent-hover active:scale-[0.98]">新建任务</button>
-            <Link href="/assistant" className="min-h-10 rounded-[var(--radius-md)] border border-border px-5 py-2 text-sm font-medium hover:bg-background/80">进入协同空间</Link>
+            {/* VIS-1b：数字员工不放行时不出现（纯销售自判断点 5 起没有 /assistant；design D12） */}
+            {canOpenAssistant ? (
+              <Link href="/assistant" className="min-h-10 rounded-[var(--radius-md)] border border-border px-5 py-2 text-sm font-medium hover:bg-background/80">进入协同空间</Link>
+            ) : null}
           </div>
         </div>
       ) : viewMode === "kanban" ? (

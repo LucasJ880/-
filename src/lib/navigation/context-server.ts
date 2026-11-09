@@ -10,7 +10,7 @@
  */
 
 import { db } from "@/lib/db";
-import { parseOrgModulesJson, withIndustryPackModules, type OrgModulesConfig } from "@/lib/tenancy/modules";
+import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy/modules";
 import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
 import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
 import { hasAutopilotCapability } from "@/lib/autopilot/access";
@@ -19,30 +19,18 @@ import {
   ROUTE_GATE_CACHE_MAX,
   ROUTE_GATE_CACHE_TTL_MS,
   TtlCache,
-  type RouteGateContext,
   type RouteGateLoader,
   type RouteGateUser,
 } from "./route-gate";
+import {
+  NO_ORG_INPUTS,
+  buildNavigationFilterContext,
+  type OrgNavigationInputs,
+  type RouteGateContext,
+} from "./filter-context";
 
-export type OrgNavigationInputs = {
-  modules: OrgModulesConfig | null;
-  positionMode: boolean;
-  orgRole: string | null;
-  hasMembership: boolean;
-  workspaceIds: string[];
-  hasBidCapability: boolean;
-  permissionKeys: string[];
-};
-
-export const NO_ORG_INPUTS: OrgNavigationInputs = {
-  modules: null,
-  positionMode: false,
-  orgRole: null,
-  hasMembership: false,
-  workspaceIds: [],
-  hasBidCapability: false,
-  permissionKeys: [],
-};
+// VIS-1b：输入类型与「无企业」常量搬到纯模块 filter-context.ts（客户端也要用），这里重新导出，原导入方不变
+export { NO_ORG_INPUTS, type OrgNavigationInputs } from "./filter-context";
 
 /** 企业侧判定输入 + 是否降级（岗位权限键解析失败时按「无键」给出，调用方不应缓存降级结果） */
 export async function loadOrgNavigationInputsDetailed(
@@ -143,13 +131,11 @@ export function createRouteGateLoader(deps: RouteGateLoaderDeps): RouteGateLoade
         org = result.inputs;
         if (!result.degraded) deps.cache.set(key, org);
       }
-      return {
-        ...org,
-        platformRole: user.role,
-        isPlatformAdmin: user.role === "super_admin",
+      // VIS-1b：与客户端钩子同一个拼装函数（filter-context.ts）
+      return buildNavigationFilterContext(org, { role: user.role }, {
         autopilotAllowed: deps.autopilotAllowed(user),
         wechatEntryEnabled: deps.wechatEntryEnabled(),
-      };
+      });
     },
   };
 }
@@ -175,3 +161,18 @@ export const ROUTE_GATE_LOADER: RouteGateLoader = createRouteGateLoader({
   autopilotAllowed: (user) => hasAutopilotCapability({ id: user.id, role: user.role }, "autopilot.view"),
   wechatEntryEnabled: () => isWechatBindingEnabled(),
 });
+
+/**
+ * VIS-1b：指定企业的判定输入（岗位总览用驾驶舱企业、workforce 接口用接口已解析的企业；design D2 / D5）。
+ * 与路由门 loader 同一套企业侧输入与拼装函数，只是企业由调用方给定、不走缓存。
+ */
+export async function loadNavigationContextForOrg(
+  user: { id: string; role: string | null },
+  orgId: string | null,
+): Promise<RouteGateContext> {
+  const inputs = await loadOrgNavigationInputs(user.id, orgId);
+  return buildNavigationFilterContext(inputs, { role: user.role }, {
+    autopilotAllowed: hasAutopilotCapability({ id: user.id, role: user.role }, "autopilot.view"),
+    wechatEntryEnabled: isWechatBindingEnabled(),
+  });
+}

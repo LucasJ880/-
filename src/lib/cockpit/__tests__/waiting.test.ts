@@ -5,6 +5,9 @@
 import {
   COCKPIT_REDACTED,
   WAITING_HREF,
+  approvalDetailHref,
+  approvalLandingHref,
+  type WaitingAccess,
   attributeNeedsYouJob,
   attributePendingMine,
   buildWaitingForYou,
@@ -17,6 +20,11 @@ import {
   type PendingActionRow,
   type PendingMineInput,
 } from "../waiting";
+import { canOpenHref } from "@/lib/navigation/landing";
+import type { RouteGateContext } from "@/lib/navigation/filter-context";
+import { asWorkDomain, canReadWorkDomain } from "@/lib/workforce-runtime/readable-domains";
+import { WINDOW_COVERING_INDUSTRY_PACK, mergedProfileBindings } from "@/lib/authorization/role-defaults";
+import { DEFAULT_SUNNY_MODULES } from "@/lib/tenancy/modules";
 
 let pass = 0;
 let fail = 0;
@@ -146,7 +154,9 @@ console.log("合并与去重");
   ok(r.waitingForYou.items[0].id === "pa14" && r.waitingForYou.items[9].id === "pa05", "按时间倒序（审批取创建时间）");
   ok(r.waitingForYou.items[0].at === "2026-10-26T14:00:00.000Z", "条目的 at 字段");
   ok(r.waitingForYou.total === 15 && r.waitingForYou.truncated === false, "total 为全部条数，未截断");
-  ok(r.waitingForYou.items.every((i) => i.href === WAITING_HREF), "审批条目跳 /capabilities/approvals");
+  // VIS-1b：没有专属落点的审批跳审批详情（编码后的「来源类型:来源 id」），不再一律跳列表页
+  ok(r.waitingForYou.items.every((i) => i.href === `${WAITING_HREF}/${encodeURIComponent(`PENDING_ACTION:${i.id}`)}`), "无专属落点的审批条目跳审批详情（编码后的 PENDING_ACTION:<id>）");
+  ok(r.waitingForYou.href === WAITING_HREF, "横幅本身仍跳 /capabilities/approvals");
 }
 {
   const r = buildWaitingForYou({
@@ -187,6 +197,79 @@ console.log("合并与去重");
     lookups: lookups(),
   });
   ok(r.waitingForYou.items.length === 0 && r.waitingForYou.total === 1, "OTHER 来源不进 items，但仍计入总数");
+}
+
+// ── VIS-1b：按类型给落点、落点放行才列、截断口径、作业按可读域（spec cockpit/posts-overview、agents/workforce-job-scope）──
+{
+  const L = (actionType: string, payload: Record<string, unknown>, extra: Partial<PendingActionRow> = {}) =>
+    approvalLandingHref(pm({ sourceId: "pa1", actionType }), row({ type: actionType, payload, ...extra }));
+  ok(L("sales.approve_quote_promotion", { quoteId: "q1" }) === "/sales/quote-sheet?mode=order&quoteId=q1", "超限折扣 → 报价单");
+  ok(L("sales.update_signed_quote", { quoteId: "q1" }) === "/sales/quote-sheet?mode=order&quoteId=q1", "签约改价 → 报价单");
+  ok(L("sales.update_quote_settings", {}) === "/sales/cockpit", "折扣设置变更 → 销售驾驶舱");
+  ok(L("install.send_warranty_email", { orderId: "o1" }) === "/accounting?tab=balance&order=o1", "质保邮件 → 会计待收尾款页签");
+  ok(L("install.send_repair_visit_email", { repairId: "r1", orderId: "o1" }) === "/install/repairs/r1", "返修邮件 → 维修单");
+  ok(L("orders.cancel_blinds_order", { orderId: "o1" }) === "/blinds-orders/o1", "取消订单 → 工艺单");
+  ok(L("tender.send_rfq", { projectId: "p1", inquiryId: "i1" }) === "/projects/p1?tab=bid#rfq-round-i1", "询价 → 项目的该轮询价");
+  ok(L("tender.send_chase", { inquiryId: "i1" }, { projectId: "p1" }) === "/projects/p1?tab=bid#rfq-round-i1", "催单：payload 缺 projectId 时取 PendingAction.projectId");
+  ok(L("revenue_spine.propose_commercial_fact", {}) === "/revenue", "营收脊柱 → 营收中心");
+  ok(L("grader.email_draft", {}) === "/capabilities/approvals/PENDING_ACTION%3Apa1", "没有专属落点 → 审批详情（PENDING_ACTION%3Apa1）");
+  ok(L("sales.approve_quote_promotion", {}) === "/capabilities/approvals/PENDING_ACTION%3Apa1", "payload 缺 id → 退回审批详情");
+  ok(
+    approvalLandingHref(pm({ sourceType: "APPROVAL_REQUEST", sourceId: "ar1", actionType: "send_email" }), null) === "/capabilities/approvals/APPROVAL_REQUEST%3Aar1" &&
+      approvalLandingHref(pm({ sourceType: "PRODUCT_CONTENT", sourceId: "pc1", actionType: "publish" }), null) === approvalDetailHref("PRODUCT_CONTENT", "pc1"),
+    "ApprovalRequest 与产品内容审批 → 审批详情",
+  );
+
+  const keys = (...p: string[]) => [...new Set(p.flatMap((k) => mergedProfileBindings(WINDOW_COVERING_INDUSTRY_PACK, k).filter((b) => (b.effect ?? "ALLOW") === "ALLOW").map((b) => b.permissionKey)))];
+  const ctx = (permissionKeys: string[], extra: Partial<RouteGateContext> = {}): RouteGateContext => ({
+    platformRole: "user", orgRole: "org_admin", hasMembership: true, workspaceIds: [], modules: { enabled: [...DEFAULT_SUNNY_MODULES] },
+    isPlatformAdmin: false, permissionKeys, positionMode: true, hasBidCapability: false, autopilotAllowed: false, wechatEntryEnabled: false, ...extra,
+  });
+  const access = (c: RouteGateContext): WaitingAccess => ({ canOpen: (h) => canOpenHref(h, c), canReadWorkDomain: (d) => canReadWorkDomain(asWorkDomain(d), c) });
+  const owner = ctx(keys("owner"));
+  const landings = ["/sales/quote-sheet?mode=order&quoteId=q1", "/sales/cockpit", "/accounting?tab=balance&order=o1", "/install/repairs/r1", "/blinds-orders/o1", "/projects/p1?tab=bid#rfq-round-i1", "/capabilities/approvals/PENDING_ACTION%3Apa1"];
+  ok(landings.every((h) => canOpenHref(h, owner)) && !canOpenHref("/revenue", owner), "Sunny 老板：各专属落点都放行，营收中心不放行（未启用 trade）");
+
+  const pas = {
+    pa1: row({ type: "sales.approve_quote_promotion", payload: { quoteId: "q1" } }),
+    pa2: row({ type: "revenue_spine.propose_commercial_fact", payload: {} }),
+    pa3: row({ type: "install.send_warranty_email", payload: { orderId: "o1" } }),
+  };
+  const mine = [
+    pm({ sourceId: "pa1", actionType: "sales.approve_quote_promotion", createdAt: "2026-10-26T12:00:00.000Z" }),
+    pm({ sourceId: "pa2", actionType: "revenue_spine.propose_commercial_fact", createdAt: "2026-10-26T11:00:00.000Z" }),
+    pm({ sourceId: "pa3", actionType: "install.send_warranty_email", createdAt: "2026-10-26T10:00:00.000Z" }),
+  ];
+  const r = buildWaitingForYou({ pendingMine: mine, pendingMineTotal: 3, pendingMineTruncated: false, jobs: [], jobsTruncated: false, lookups: lookups({ pas }), access: access(owner) });
+  ok(r.waitingForYou.items.find((i) => i.id === "pa1")?.href === "/sales/quote-sheet?mode=order&quoteId=q1", "折扣审批跳报价单（含 quoteId）");
+  ok(r.waitingForYou.items.find((i) => i.id === "pa3")?.href === "/accounting?tab=balance&order=o1", "质保邮件跳会计页（含 orderId）");
+  ok(!r.waitingForYou.items.some((i) => i.id === "pa2") && r.waitingForYou.total === 2, "落点不放行的条目不列：Sunny 老板的营收脊柱不计入 total、不出现在 items", r.waitingForYou);
+  ok(r.perPost.inbound_sales.pendingApprovals === 1, "不列的条目也不计入岗位待审批数（只剩折扣那一条）");
+
+  const superAdmin = ctx([], { platformRole: "super_admin", isPlatformAdmin: true });
+  const rs = buildWaitingForYou({ pendingMine: mine, pendingMineTotal: 3, pendingMineTruncated: false, jobs: [], jobsTruncated: false, lookups: lookups({ pas }), access: access(superAdmin) });
+  ok(rs.waitingForYou.total === 3 && rs.waitingForYou.items.length === 3, "平台 super_admin：落点一律放行，三条都列");
+
+  // 截断：总数 120、取到 100 条、其中 3 条落点不放行 → 97 + 未取到的 20
+  const hundred = Array.from({ length: 100 }, (_, i) =>
+    pm({ sourceId: `p${i}`, actionType: i < 3 ? "revenue_spine.propose_commercial_fact" : "grader.email_draft", createdAt: `2026-10-26T10:${String(i % 60).padStart(2, "0")}:00.000Z` }),
+  );
+  const rt = buildWaitingForYou({ pendingMine: hundred, pendingMineTotal: 120, pendingMineTruncated: true, jobs: [], jobsTruncated: false, lookups: lookups(), access: access(owner) });
+  ok(rt.waitingForYou.total === 117 && rt.waitingForYou.truncated === true, "待我审批被截断时的总数：117（97 + 未取到的 20），truncated", { total: rt.waitingForYou.total, truncated: rt.waitingForYou.truncated });
+
+  // 需要你作业按可读工作域：只可读交付域
+  const opsStaff = ctx(keys("ops_staff"), { orgRole: "org_member" });
+  const rj = buildWaitingForYou({
+    pendingMine: [],
+    pendingMineTotal: 0,
+    pendingMineTruncated: false,
+    jobs: [job({ jobId: "jt", workDomain: "tender" }), job({ jobId: "jd", workDomain: "delivery" }), job({ jobId: "jn", workDomain: null })],
+    jobsTruncated: false,
+    lookups: lookups(),
+    access: access(opsStaff),
+  });
+  ok(JSON.stringify(rj.waitingForYou.items.map((i) => i.id)) === '["jd"]' && rj.waitingForYou.total === 1, "只可读交付域：投标域与解析不出的需要你作业不出现在条目与总数里", rj.waitingForYou.items.map((i) => i.id));
+  ok(rj.perPost.tender.needsYou === 0 && rj.perPost.projects.needsYou === 1, "不可读的作业也不计入岗位需要你数");
 }
 
 console.log(`\n组织驾驶舱等你 N 件: ${pass}/${pass + fail} passed`);

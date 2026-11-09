@@ -397,6 +397,27 @@ for (const name of IDS) {
   ok(["/marketing/employee", "/operations/growth", "/inventory"].every((p) => target("installer", p) === "/install"), "安装工：营销 / 库存 → /install");
   ok(["/revenue", "/revenue/today", "/trade/prospects"].every((p) => target("owner", p) === "/"), "Sunny 老板：营收中心 / 外贸 → /（模块未开，尽管持 trade.read）");
   ok(target("fulfillment_vinyl", "/bids") === "/tasks", "fulfillment_vinyl：/bids → /tasks（不先到 /）");
+  {
+    // VIS-1b：没有可见岗位卡的管理层直接落 /tasks（落地页与首页同一函数，一跳到位）
+    const salesOnlyOwner = ctx({ permissionKeys: sunny("owner"), orgRole: "org_admin", modules: { enabled: ["sales"] } });
+    const d = resolveRouteGate("/bids", at(salesOnlyOwner, "/bids"));
+    ok(!d.allowed && d.redirect === "/tasks", "只启用 sales 的企业老板（零可见卡）：/bids → /tasks，不先到 /");
+    ok(target("owner", "/bids/x") === "allow" && target("owner", "/ai-activity") === "/", "Sunny 老板（有可见卡）：落地仍为 /");
+  }
+  // VIS-1b（Q8）：没有可读工作域的一线岗位敲「AI 任务」→ 各自落地页
+  ok(
+    target("accounting", "/workforce") === "/accounting" && target("installer", "/workforce") === "/install" && target("fulfillment_vinyl", "/workforce/x") === "/tasks",
+    "一线岗位敲 /workforce：会计 → /accounting、安装工 → /install、出单 → /tasks",
+  );
+  ok(["bids", "ops_staff", "ops_lead", "owner", "mx_trade_rep"].every((n) => allowed(n as IdName, "/workforce")), "有可读域的岗位照常进 /workforce（招投标 / 运营 / 老板 / 梦馨外贸）");
+  // VIS-1b（判断点 5）：纯销售与旧模式 sales 失去 AI 任务与数字员工
+  ok(
+    ["/workforce", "/workforce/x", "/assistant", "/inbox"].every((p) => target("sales_rep", p) === "/sales/home" && target("pricing_lead", p) === "/sales/home" && target("legacy_sales", p) === "/sales/home"),
+    "Lynn（sales_rep）/ 合价 / 旧模式销售：/workforce、/assistant、/inbox → /sales/home",
+  );
+  ok(allowed("ops_staff", "/assistant") && allowed("installer", "/assistant") && allowed("accounting", "/inbox"), "其他岗位的「数字员工」不变");
+  // VIS-1b spec「招投标岗位进不了索引页」：/operations 照旧拒绝，投标档案仍可由招投标工作台进入
+  ok(target("bids", "/operations") === "/bids" && allowed("bids", "/operations/tender-profile"), "招投标：/operations → /bids；/operations/tender-profile 放行");
   ok(target("bids", "/capabilities/catalog") === "/bids" && target("bids", "/capabilities") === "/bids", "bids：AI 工作中心子页要求父入口 → /bids");
   ok(IDS.every((n) => target(n, "/no-such-workspace") === gateRedirectTarget("/no-such-workspace", at(ID[n], "/no-such-workspace"))), "未登记路径：一律按不放行处理");
   ok(IDS.every((n) => !allowed(n, "/no-such-workspace")), "未登记路径：任一非 super_admin 身份都不放行");

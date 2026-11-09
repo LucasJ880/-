@@ -125,7 +125,7 @@ console.log("完整渲染");
 const html = render({ status: "ready", data: fixture() }, { status: "ready", items: entries, nextCursor: "c1" });
 {
   const order = [...html.matchAll(/data-post="([a-z_]+)"/g)].map((m) => m[1]);
-  ok(JSON.stringify(order) === JSON.stringify(POST_REGISTRY.map((p) => p.key)), "七张岗位卡片按接口顺序", order);
+  ok(JSON.stringify(order) === JSON.stringify(POST_REGISTRY.map((p) => p.key)), "岗位卡片按接口顺序", order);
   for (const p of POST_REGISTRY) {
     const anchor = html.match(new RegExp(`<a[^>]*data-post="${p.key}"[^>]*>`))?.[0] ?? "";
     ok(anchor.includes(`href="${p.nav}"`), `${p.key} 卡片链接到 ${p.nav}`, anchor);
@@ -145,6 +145,17 @@ console.log("等你 N 件横幅");
   ok(html.includes('href="/capabilities/approvals"') && html.includes("去审批"), "横幅链接到 /capabilities/approvals");
   ok(html.includes("回复 ACME 询盘") && html.includes('href="/workforce/job-2"'), "列出条目，作业条目跳自己的页面");
   ok(html.includes("30 分钟前") && html.includes("询盘销售"), "条目带岗位名与时间");
+}
+// ── VIS-1b：只显示接口给的卡片；横幅不显示不可见岗位的岗位名；页头不写死个数 ──
+{
+  const four = fixture({ posts: fixture().posts.filter((p) => ["tender", "marketing", "projects", "content"].includes(p.key)) });
+  const out = render({ status: "ready", data: four }, { status: "ready", items: [], nextCursor: null });
+  const order = [...out.matchAll(/data-post="([a-z_]+)"/g)].map((m) => m[1]);
+  ok(JSON.stringify(order) === '["tender","marketing","projects","content"]', "接口只返回四个岗位 → 只渲染这四张，不补占位卡片", order);
+  const banner = out.match(/<section aria-label="等你拍板"[\s\S]*?<\/section>/)?.[0] ?? "";
+  ok(!banner.includes("询盘销售") && banner.includes("回复 ACME 询盘"), "归属不可见岗位（询盘销售）的条目照常列出，但不显示岗位名", banner.slice(0, 200));
+  ok(/href="\/workforce\/job-2"[\s\S]*?投标/.test(banner), "归属可见岗位（投标）的条目照常带岗位名");
+  ok(!read("src/components/cockpit/org-cockpit-view.tsx").includes("七个岗位"), "页头副标题不写死「七个岗位」");
   ok(html.includes("其中 1 件暂无法归到具体岗位"), "未归属条数提示");
   ok(html.includes(COCKPIT_REDACTED), "脱敏提示原样显示");
   const truncated = render({ status: "ready", data: fixture({ waitingForYou: { ...fixture().waitingForYou, total: 100, truncated: true } }) }, { status: "ready", items: [], nextCursor: null });
@@ -224,6 +235,7 @@ console.log("空态与错误态");
   const logAuth = render({ status: "ready", data: fixture() }, { status: "error", error: "session_expired" });
   ok(logAuth.includes("时间线：登录已过期") && !logAuth.includes("时间线加载失败</span><button"), "时间线鉴权类错误：显示原因，不给无效的重试");
   const loading = render({ status: "loading" }, { status: "loading" });
+  ok((loading.match(/h-\[196px\] animate-pulse/g) ?? []).length === 3, "加载骨架固定三张占位，不写死七张");
   ok(loading.includes("animate-pulse") && !loading.includes("data-post=") && (loading.match(/aria-busy="true"/g) ?? []).length === 2, "加载中 → 骨架屏，两块区域标 aria-busy");
 }
 console.log("页面只读");
@@ -236,8 +248,13 @@ console.log("页面只读");
 console.log("首页与容器源码");
 {
   const page = stripComments(read("src/app/(main)/page.tsx"));
-  ok(/resolveWorkspaceContextFromCookies\(\)/.test(page) && /redirect\("\/login"\)/.test(page), "首页保留登录检查");
-  ok(/resolveHomeRedirect\(session\.ctx\)/.test(page) && /if \(dest\) redirect\(dest\)/.test(page), "首页保留非管理层重定向");
+  ok(/loadPageNavigationContext\(\)/.test(page) && /if \(!ctx\) redirect\("\/login"\)/.test(page), "首页保留登录检查（session cookie 无效 / 账号停用 → /login）");
+  // VIS-1b：落地页与路由门同一函数、同一份判定输入（spec cockpit/home-view「重定向逻辑保留」「没有可见卡片」）
+  const pageCtx = stripComments(read("src/lib/navigation/page-context-server.ts"));
+  ok(/verifySession\(token\)/.test(pageCtx) && /ROUTE_GATE_LOADER\.loadUser\(userId\)/.test(pageCtx) && /ROUTE_GATE_LOADER\.loadContext\(user\)/.test(pageCtx) && !/resolveWorkspaceContextFromCookies/.test(pageCtx), "首页判定输入取自路由门的取输入函数（session cookie 取用户，不重复取数）");
+  ok(/const dest = resolveLandingPage\(ctx\)/.test(page) && /if \(dest !== "\/"\) redirect\(dest\)/.test(page), "首页用落地页函数决定跳转（零卡管理层 → /tasks，非管理层 → 默认工作区）");
+  const landing = stripComments(read("src/lib/navigation/landing.ts"));
+  ok(/resolveHomeRedirect\(workspaceContextFromNav\(ctx\)\) \?\? \(visiblePosts\(ctx\)\.length > 0 \? "\/" : "\/tasks"\)/.test(landing) && /return canOpenHref\(dest, ctx\) \? dest : "\/tasks"/.test(landing), "落地页函数沿用 resolveHomeRedirect，管理层零可见卡落 /tasks，落地页不放行时兜底 /tasks");
   ok(!page.includes("ManagementDashboardClient") && /<OrgCockpitHome \/>/.test(page), "首页渲染 OrgCockpitHome，不再引用旧仪表盘");
   const home = stripComments(read("src/components/cockpit/org-cockpit-home.tsx"));
   const apis = [...new Set([...home.matchAll(/["'`](\/api\/[^"'`?$]+)/g)].map((m) => m[1]))].sort();

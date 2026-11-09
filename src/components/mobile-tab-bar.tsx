@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -17,18 +17,8 @@ import {
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCurrentUser } from "@/lib/hooks/use-current-user";
-import { useOrganizations } from "@/lib/hooks/use-organizations";
-import { readStoredOrgId } from "@/lib/org-selection";
-import { apiFetch } from "@/lib/api-fetch";
-import type { OrgModulesConfig } from "@/lib/tenancy/modules";
-import {
-  canAccessBidWorkspace,
-  canAccessInstallWorkspace,
-  canAccessOperationsWorkspace,
-  getDefaultWorkspace,
-  workspaceContextFromNav,
-} from "@/lib/rbac/workspace-policy";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
+import { computeMobileTabs, type MobileTab, type MobileTabKey } from "@/lib/navigation/mobile-tabs";
 import { SalesMobileCreateSheet } from "@/components/sales-command-center/sales-mobile-create-sheet";
 
 interface TabItem {
@@ -38,133 +28,69 @@ interface TabItem {
   match: (pathname: string) => boolean;
 }
 
-function subscribeOrgStorage(cb: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener("storage", cb);
-  window.addEventListener("qingyan-org-storage", cb);
-  return () => {
-    window.removeEventListener("storage", cb);
-    window.removeEventListener("qingyan-org-storage", cb);
-  };
+const TAB_ICONS: Record<MobileTabKey, typeof Home> = {
+  "sales-home": Home,
+  "sales-customers": Users,
+  "sales-quotes": FileText,
+  "sales-calendar": CalendarDays,
+  install: Wrench,
+  ops: PackageCheck,
+  bids: FolderKanban,
+  overview: Home,
+  ai: Layers,
+  assistant: MessagesSquare,
+};
+
+/** 高亮规则；首格（默认落地）比后面同名页签多认几个前缀 */
+function tabMatch(key: MobileTabKey, first: boolean): (p: string) => boolean {
+  switch (key) {
+    case "sales-home":
+      return (p) => p === "/sales/home" || p === "/sales/performance";
+    case "sales-customers":
+      return (p) =>
+        p.startsWith("/sales/customers") ||
+        (p === "/sales" && typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("view") === "customers"
+          : false);
+    case "sales-quotes":
+      return (p) => p.startsWith("/sales/quote-sheet") || p.startsWith("/sales/quotes");
+    case "sales-calendar":
+      return (p) => p.startsWith("/sales/calendar");
+    case "install":
+      return (p) => p.startsWith("/install");
+    case "ops":
+      return first ? (p) => p.startsWith("/ops") || p.startsWith("/tasks") : (p) => p.startsWith("/ops");
+    case "bids":
+      return first ? (p) => p.startsWith("/bids") || p.startsWith("/projects") : (p) => p.startsWith("/bids");
+    case "overview":
+      return (p) => p === "/" || p.startsWith("/tasks") || p.startsWith("/notifications") || p.startsWith("/service-inbox");
+    case "ai":
+      return (p) => p.startsWith("/capabilities");
+    case "assistant":
+      return (p) => p.startsWith("/assistant");
+  }
 }
 
+const toItem = (tab: MobileTab, first: boolean): TabItem => ({
+  href: tab.href,
+  label: tab.label,
+  icon: TAB_ICONS[tab.key],
+  match: tabMatch(tab.key, first),
+});
+
+/**
+ * VIS-1b：每个页签只在目标经路由门放行时出现（useNavigationAccess + computeMobileTabs）；布局判定不变。
+ * 判定输入未就绪时只显示「更多」，页签不先显示后消失。
+ */
 export function MobileTabBar({ onMore }: { onMore: () => void }) {
   const pathname = usePathname();
-  const { user } = useCurrentUser();
-  const { organizations } = useOrganizations();
   const [createOpen, setCreateOpen] = useState(false);
-  const [orgModules, setOrgModules] = useState<OrgModulesConfig | null>(null);
-  const [orgRole, setOrgRole] = useState<string | null>(null);
-  const [hasMembership, setHasMembership] = useState(false);
-  const [hasBidCapability, setHasBidCapability] = useState(false);
-  const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
-  // PERM-4c2：岗位模式（窗饰企业导航按岗位键）
-  const [positionMode, setPositionMode] = useState(false);
+  const { ctx } = useNavigationAccess();
+  const computed = useMemo(() => (ctx ? computeMobileTabs(ctx) : null), [ctx]);
 
-  const storedOrgId = useSyncExternalStore(
-    subscribeOrgStorage,
-    readStoredOrgId,
-    () => "",
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiFetch("/api/auth/active-org");
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          modules?: OrgModulesConfig | null;
-          orgRole?: string | null;
-          hasMembership?: boolean;
-          hasBidCapability?: boolean;
-          permissionKeys?: string[];
-          positionMode?: boolean;
-        };
-        if (!cancelled) {
-          setOrgModules(data.modules ?? null);
-          setOrgRole(data.orgRole ?? null);
-          setHasMembership(Boolean(data.hasMembership ?? data.orgRole));
-          setHasBidCapability(Boolean(data.hasBidCapability));
-          setPermissionKeys(Array.isArray(data.permissionKeys) ? data.permissionKeys : []);
-          setPositionMode(data.positionMode === true);
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [storedOrgId]);
-
-
-  const wsCtx = useMemo(
-    () =>
-      workspaceContextFromNav({
-        platformRole: user?.role ?? "user",
-        orgRole:
-          orgRole ??
-          organizations.find((o) => o.id === storedOrgId)?.myRole ??
-          null,
-        modules: orgModules,
-        hasMembership:
-          hasMembership ||
-          Boolean(organizations.find((o) => o.id === storedOrgId)?.myRole),
-        hasBidCapability,
-        permissionKeys,
-        positionMode,
-      }),
-    [
-      user?.role,
-      orgRole,
-      orgModules,
-      hasMembership,
-      hasBidCapability,
-      permissionKeys,
-      positionMode,
-      organizations,
-      storedOrgId,
-    ],
-  );
-
-  // PERM-4c2：岗位模式下销售底栏 = 默认落地为销售首页；旧模式按平台角色 sales
-  const isSales = positionMode ? getDefaultWorkspace(wsCtx) === "/sales/home" : user?.role === "sales";
-
-  if (isSales) {
-    const salesTabs: TabItem[] = [
-      {
-        href: "/sales/home",
-        label: "首页",
-        icon: Home,
-        match: (p) => p === "/sales/home" || p === "/sales/performance",
-      },
-      {
-        href: "/sales?view=customers",
-        label: "客户",
-        icon: Users,
-        match: (p) =>
-          p.startsWith("/sales/customers") ||
-          (p === "/sales" && typeof window !== "undefined"
-            ? new URLSearchParams(window.location.search).get("view") ===
-              "customers"
-            : false),
-      },
-      {
-        href: "/sales/quote-sheet",
-        label: "报价",
-        icon: FileText,
-        match: (p) =>
-          p.startsWith("/sales/quote-sheet") || p.startsWith("/sales/quotes"),
-      },
-      {
-        href: "/sales/calendar",
-        label: "日历",
-        icon: CalendarDays,
-        match: (p) => p.startsWith("/sales/calendar"),
-      },
-    ];
-
+  if (computed?.layout === "sales") {
+    const left = computed.tabs.filter((t) => t.slot === "left").map((t) => toItem(t, false));
+    const right = computed.tabs.filter((t) => t.slot === "right").map((t) => toItem(t, false));
     return (
       <>
         <nav
@@ -178,7 +104,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
               "calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0))",
           }}
         >
-          {salesTabs.slice(0, 2).map((item) => {
+          {left.map((item) => {
             const isActive = item.match(pathname);
             return (
               <Link
@@ -214,7 +140,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
             </span>
           </button>
 
-          {salesTabs.slice(2).map((item) => {
+          {right.map((item) => {
             const isActive = item.match(pathname);
             return (
               <Link
@@ -244,92 +170,7 @@ export function MobileTabBar({ onMore }: { onMore: () => void }) {
     );
   }
 
-  const defaultHref = getDefaultWorkspace(wsCtx);
-  const showOps = canAccessOperationsWorkspace(wsCtx);
-  const showBids = canAccessBidWorkspace(wsCtx);
-  const showInstall = canAccessInstallWorkspace(wsCtx);
-
-  const items: TabItem[] = [];
-
-  if (defaultHref === "/install") {
-    // INSTALL-1：安装工——首栏即安装任务
-    items.push({
-      href: "/install",
-      label: "安装",
-      icon: Wrench,
-      match: (p) => p.startsWith("/install"),
-    });
-  } else if (defaultHref === "/ops") {
-    items.push({
-      href: "/ops",
-      label: "运营",
-      icon: PackageCheck,
-      match: (p) => p.startsWith("/ops") || p.startsWith("/tasks"),
-    });
-  } else if (defaultHref === "/bids") {
-    items.push({
-      href: "/bids",
-      label: "招投标",
-      icon: FolderKanban,
-      match: (p) => p.startsWith("/bids") || p.startsWith("/projects"),
-    });
-  } else {
-    items.push({
-      href: "/",
-      label: "总览",
-      icon: Home,
-      match: (p) =>
-        p === "/" ||
-        p.startsWith("/tasks") ||
-        p.startsWith("/notifications") ||
-        p.startsWith("/service-inbox"),
-    });
-  }
-
-  if (showOps && defaultHref !== "/ops") {
-    items.push({
-      href: "/ops",
-      label: "运营",
-      icon: PackageCheck,
-      match: (p) => p.startsWith("/ops"),
-    });
-  }
-
-  if (showBids && defaultHref !== "/bids") {
-    items.push({
-      href: "/bids",
-      label: "招投标",
-      icon: FolderKanban,
-      match: (p) => p.startsWith("/bids"),
-    });
-  }
-
-  if (showInstall && defaultHref !== "/install") {
-    items.push({
-      href: "/install",
-      label: "安装",
-      icon: Wrench,
-      match: (p) => p.startsWith("/install"),
-    });
-  }
-
-  if (defaultHref === "/") {
-    items.push({
-      href: "/capabilities",
-      label: "AI",
-      icon: Layers,
-      match: (p) => p.startsWith("/capabilities"),
-    });
-  }
-
-  items.push({
-    href: "/assistant",
-    label: "助手",
-    icon: MessagesSquare,
-    match: (p) => p.startsWith("/assistant"),
-  });
-
-  const tabs = items.slice(0, 4);
+  const tabs = (computed?.tabs ?? []).map((t, i) => toItem(t, i === 0));
 
   return (
     <nav

@@ -4,6 +4,8 @@ import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { BlindsOrderForm } from "@/components/blinds-order-form";
 import { apiJson } from "@/lib/api-fetch";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
+import { blindsOrderBackHref } from "@/lib/navigation/landing";
 
 interface OrderData {
   id: string;
@@ -40,6 +42,8 @@ export default function EditBlindsOrderPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  // VIS-1b：「返回列表」在列表不放行时改去落地页（design D12）
+  const access = useNavigationAccess();
   const [order, setOrder] = useState<OrderData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -67,9 +71,14 @@ export default function EditBlindsOrderPage({
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <p className="text-muted">工艺单不存在</p>
-        <Link href="/blinds-orders" className="mt-4 text-accent hover:underline">
-          返回列表
-        </Link>
+        {(() => {
+          const back = blindsOrderBackHref(access.ctx, null);
+          return back ? (
+            <Link href={back} className="mt-4 text-accent hover:underline">
+              {back === "/blinds-orders" ? "返回列表" : "返回"}
+            </Link>
+          ) : null;
+        })()}
       </div>
     );
   }

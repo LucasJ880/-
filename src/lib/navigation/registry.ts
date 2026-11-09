@@ -68,6 +68,20 @@ const POSITION_OPS = ["operations.read", "operations.manage"] as const;
  * 只持 project.read（会计、出单）或只是某项目成员不再可见。
  */
 const POSITION_BIDS = ["project.create", "project.update", ...POSITION_MGMT] as const;
+/**
+ * VIS-1b：「AI 任务」只对至少可读一个工作域的人（design D6；spec navigation/position-based-visibility）——
+ * 可读域入口（招投标中心 / 运营中心 / 项目列表 / 销售首页 / 外贸）在岗位模式下认的键的并集 + 管理层。
+ * 入口还看模块与平台角色，键不看；不一致的身份列为已知例外（readable-domains.test.ts 断言）。
+ */
+const POSITION_WORKFORCE = [
+  ...POSITION_MGMT,
+  "project.create",
+  "project.update",
+  ...POSITION_OPS,
+  "sales.quote.create",
+  "sales.quote.pricing_close",
+  "trade.read",
+] as const;
 
 export const NAV_GROUP_META: Record<
   NavigationGroup,
@@ -110,6 +124,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-home",
     label: "管理总览",
+    description: "管理层的岗位视图：各岗位在不在干活、等你拍板几件",
     labelKey: "nav_dashboard",
     href: "/",
     icon: LayoutDashboard,
@@ -120,6 +135,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "ws-ops",
     label: "运营中心",
+    description: "运营工作台：今天要跟进的订单、任务与异常",
     labelKey: "nav_ops_workspace",
     href: "/ops",
     icon: PackageCheck,
@@ -132,6 +148,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "ws-ops-projects",
     label: "执行项目",
+    description: "正在执行的交付项目与进度",
     href: "/ops/projects",
     icon: ClipboardList,
     group: "WORK",
@@ -143,6 +160,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "ws-install",
     label: "安装任务",
+    description: "分配给你的安装任务、日历与逐窗收口",
     href: "/install",
     icon: Wrench,
     group: "WORK",
@@ -155,6 +173,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "ws-bids",
     label: "招投标中心",
+    description: "投标项目全流程：分析、询价、投标、中标交接",
     labelKey: "nav_bids_workspace",
     href: "/bids",
     icon: FolderKanban,
@@ -168,6 +187,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-tasks",
     label: "我的工作",
+    description: "你名下的任务与待办，按时间与项目查看",
     labelKey: "nav_tasks",
     href: "/tasks",
     icon: CheckSquare,
@@ -177,6 +197,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-inbox",
     label: "收件箱",
+    description: "客户在各渠道发来的消息，统一回复",
     labelKey: "nav_service_inbox",
     href: "/service-inbox",
     icon: Inbox,
@@ -187,6 +208,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-notifications",
     label: "待处理事项",
+    description: "需要你处理或知晓的提醒",
     labelKey: "nav_notifications",
     href: "/notifications",
     icon: Bell,
@@ -196,6 +218,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-calendar",
     label: "日历",
+    description: "量房、安装与会议日程",
     labelKey: "nav_appointment_calendar",
     href: "/sales/calendar",
     icon: CalendarDays,
@@ -209,22 +232,25 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-assistant",
     label: "数字员工",
+    description: "和数字员工对话，整理任务、起草内容",
     labelKey: "nav_ai_assistant",
     href: "/assistant",
     icon: MessageSquare,
     group: "WORK",
-    salesWorkspaceVisible: true,
+    // VIS-1b（判断点 5）：不再在纯销售侧栏出现
     displayOrder: 60,
   },
   {
     // 2D-1 Job Center：数字员工任务总览（只读观测面）
     key: "work-ai-jobs",
     label: "AI 任务",
+    description: "数字员工在做的作业：进度、结果与需要你的事",
     labelKey: "nav_ai_jobs",
     href: "/workforce",
     icon: Briefcase,
     group: "WORK",
-    salesWorkspaceVisible: true,
+    positionPermissions: [...POSITION_WORKFORCE],
+    // VIS-1b（判断点 5）：不再在纯销售侧栏出现
     displayOrder: 65,
   },
 
@@ -232,6 +258,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "ops-center",
     label: "管理模块",
+    description: "旧版经营管理模块入口",
     labelKey: "nav_operations_center",
     href: "/operations/center",
     icon: BarChart3,
@@ -248,6 +275,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "capabilities",
     label: "AI 工作中心",
+    description: "AI 能力的总入口：目录、运行、审批与治理",
     labelKey: "nav_capabilities_hub",
     href: "/capabilities",
     icon: Layers,
@@ -263,6 +291,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "cap-overview",
         label: "中台总览",
+        description: "AI 中台的整体运行情况",
         labelKey: "nav_capabilities_overview",
         href: "/capabilities",
         group: "CAPABILITIES",
@@ -273,6 +302,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "cap-catalog",
         label: "能力目录",
+        description: "已接入的 AI 能力清单与说明",
         labelKey: "nav_capabilities_catalog",
         href: "/capabilities/catalog",
         group: "CAPABILITIES",
@@ -282,6 +312,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "cap-runs",
         label: "运行诊断",
+        description: "AI 运行记录与失败诊断",
         labelKey: "nav_capabilities_runs",
         href: "/capabilities/runs",
         group: "CAPABILITIES",
@@ -292,6 +323,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "cap-approvals",
         label: "审批中心",
+        description: "等你批准的 AI 动作与外发内容",
         labelKey: "nav_capabilities_approvals",
         href: "/capabilities/approvals",
         group: "CAPABILITIES",
@@ -301,6 +333,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "cap-governance",
         label: "治理中心",
+        description: "AI 使用规则、权限与风险控制",
         labelKey: "nav_capabilities_governance",
         href: "/capabilities/governance",
         group: "CAPABILITIES",
@@ -311,6 +344,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "cap-health",
         label: "配置健康",
+        description: "AI 配置是否完整、可用",
         labelKey: "nav_capabilities_health",
         href: "/capabilities/config-health",
         group: "CAPABILITIES",
@@ -323,6 +357,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "autopilot",
     label: "Autopilot",
+    description: "自动驾驶模式的运行与评估",
     labelKey: "nav_autopilot",
     href: "/ai/autopilot",
     icon: Gauge,
@@ -335,6 +370,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "autopilot-overview",
         label: "总览",
+        description: "自动驾驶的整体状态",
         labelKey: "nav_autopilot_overview",
         href: "/ai/autopilot",
         group: "CAPABILITIES",
@@ -345,6 +381,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "autopilot-runs",
         label: "Runs",
+        description: "自动驾驶每次运行的记录",
         labelKey: "nav_autopilot_runs",
         href: "/ai/autopilot/runs",
         group: "CAPABILITIES",
@@ -354,6 +391,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "autopilot-evaluations",
         label: "Evaluations",
+        description: "自动驾驶结果的评估与打分",
         labelKey: "nav_autopilot_evaluations",
         href: "/ai/autopilot/evaluations",
         group: "CAPABILITIES",
@@ -363,6 +401,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
       {
         key: "autopilot-telemetry",
         label: "Telemetry",
+        description: "自动驾驶的运行指标",
         labelKey: "nav_autopilot_telemetry",
         href: "/ai/autopilot/telemetry",
         group: "CAPABILITIES",
@@ -376,6 +415,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "sales-home",
     label: "销售首页",
+    description: "销售的今日概览：跟进、报价与业绩",
     labelKey: "nav_sales_workspace",
     href: "/sales/home",
     icon: Home,
@@ -391,6 +431,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "sales-crm",
     label: "客户与商机",
+    description: "客户与商机的管理和跟进",
     labelKey: "nav_customer_opportunities",
     href: "/sales",
     icon: Users,
@@ -406,6 +447,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-quotes",
     label: "报价",
+    description: "新建报价、量房与算价",
     labelKey: "nav_quote_sheet",
     href: "/sales/quote-sheet",
     icon: FileText,
@@ -419,6 +461,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-all-quotes",
     label: "报价记录",
+    description: "所有报价的历史记录与状态",
     labelKey: "nav_all_quotes",
     href: "/sales/quotes",
     icon: ScrollText,
@@ -432,6 +475,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "sales-performance",
     label: "我的业绩",
+    description: "你的成交、提成与目标进度",
     href: "/sales/performance",
     icon: Target,
     group: "BUSINESS",
@@ -445,6 +489,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "sales-email-settings",
     label: "邮箱绑定",
+    description: "绑定你的工作邮箱，用于收发客户邮件",
     href: "/settings/email",
     icon: Mail,
     group: "BUSINESS",
@@ -458,6 +503,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-cockpit",
     label: "团队销售分析",
+    description: "团队的销售数据、折扣设置与转化",
     labelKey: "nav_cockpit",
     href: "/sales/cockpit",
     icon: BarChart3,
@@ -470,6 +516,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-work-orders",
     label: "工艺单",
+    description: "工艺单的制作、修改与状态推进",
     labelKey: "nav_work_orders",
     href: "/blinds-orders",
     icon: ClipboardList,
@@ -485,6 +532,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     // PERM-5a：会计视图（成交与提成 / 报价过程 / 项目结算）；按岗位键可见
     key: "biz-accounting",
     label: "会计视图",
+    description: "成交金额、收款、尾款与提成",
     href: "/accounting",
     icon: Calculator,
     group: "BUSINESS",
@@ -496,6 +544,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-inventory",
     label: "面料库存",
+    description: "面料库存与出入库",
     labelKey: "nav_fabric_inventory",
     href: "/inventory",
     icon: Package,
@@ -511,6 +560,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade",
     label: "外贸",
+    description: "外贸业务的总览",
     labelKey: "nav_trade_dashboard",
     href: "/trade",
     icon: Handshake,
@@ -523,6 +573,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-inbox",
     label: "询盘收件箱",
+    description: "海外询盘的收件与分拣",
     labelKey: "nav_trade_inbox",
     href: "/trade/inbox",
     icon: Inbox,
@@ -535,6 +586,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-prospects",
     label: "线索资产",
+    description: "外贸线索与客户资产",
     labelKey: "nav_trade_prospects",
     href: "/trade/prospects",
     icon: Users,
@@ -547,6 +599,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-quotes",
     label: "外贸报价",
+    description: "外贸报价单",
     labelKey: "nav_trade_quotes",
     href: "/trade/quotes",
     icon: FileText,
@@ -559,6 +612,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-samples",
     label: "寄样",
+    description: "寄样记录与跟进",
     labelKey: "nav_trade_samples",
     href: "/trade/samples",
     icon: Package,
@@ -571,6 +625,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-products",
     label: "货号",
+    description: "产品货号与资料",
     labelKey: "nav_trade_products",
     href: "/trade/products",
     icon: Tags,
@@ -583,6 +638,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-chat",
     label: "外贸 AI 对话",
+    description: "与外贸 AI 助手对话",
     labelKey: "nav_trade_chat",
     href: "/trade/chat",
     icon: MessageSquare,
@@ -595,6 +651,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-intel",
     label: "企业情报",
+    description: "目标企业的背景情报",
     labelKey: "nav_trade_intelligence",
     href: "/trade/intelligence",
     icon: Radar,
@@ -607,6 +664,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-fulfillment",
     label: "履约协同",
+    description: "外贸订单的履约协同",
     labelKey: "nav_trade_fulfillment",
     href: "/trade/fulfillment",
     icon: PackageCheck,
@@ -619,6 +677,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-import",
     label: "展会导入",
+    description: "展会名片与线索导入",
     labelKey: "nav_trade_import",
     href: "/trade/import",
     icon: Upload,
@@ -631,6 +690,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-signals",
     label: "市场监测",
+    description: "市场动态与机会监测",
     labelKey: "nav_trade_watch_signals",
     href: "/trade/signals",
     icon: Eye,
@@ -643,6 +703,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-channels",
     label: "消息通道",
+    description: "外贸消息通道的配置",
     labelKey: "nav_trade_channels",
     href: "/trade/channels",
     icon: Cable,
@@ -655,6 +716,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-revenue",
     label: "收入驾驶舱",
+    description: "询盘到收入的整体漏斗与时效",
     labelKey: "nav_revenue_cockpit",
     href: "/revenue",
     icon: TrendingUp,
@@ -671,6 +733,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     // 老板 / 外贸手机上看「今天该干什么」；/revenue/today 按最长匹配归到本项，不点亮收入驾驶舱
     key: "biz-revenue-today",
     label: "今日询盘",
+    description: "今天进来的询盘",
     labelKey: "nav_revenue_today",
     href: "/revenue/today",
     icon: CalendarCheck,
@@ -686,6 +749,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-projects",
     label: "项目列表",
+    description: "投标与交付项目的列表",
     labelKey: "nav_projects",
     href: "/projects",
     icon: FolderKanban,
@@ -701,6 +765,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-project-intel",
     label: "智能调查室",
+    description: "招标情报的调查与研判",
     labelKey: "nav_project_intelligence",
     href: "/projects/intelligence",
     icon: Lightbulb,
@@ -724,6 +789,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-intel-awards",
     label: "历史中标",
+    description: "历史中标结果与价格参考",
     href: "/projects/intelligence/awards",
     icon: Target,
     group: "PROJECT_INTEL",
@@ -735,6 +801,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-intel-competitors",
     label: "竞争对手",
+    description: "竞争对手的投标与中标情况",
     href: "/projects/intelligence/competitors",
     icon: Eye,
     group: "PROJECT_INTEL",
@@ -746,6 +813,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-intel-agencies",
     label: "采购机构",
+    description: "采购机构与招标方资料",
     href: "/projects/intelligence/agencies",
     icon: Building2,
     group: "PROJECT_INTEL",
@@ -757,6 +825,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-intel-supply",
     label: "供应链线索",
+    description: "供应链与分包线索",
     href: "/projects/intelligence/supply-chain",
     icon: Package,
     group: "PROJECT_INTEL",
@@ -768,6 +837,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-intel-monitor",
     label: "情报监控",
+    description: "招标公告的持续监控",
     href: "/projects/intelligence/monitor",
     icon: Radar,
     group: "PROJECT_INTEL",
@@ -781,6 +851,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "nav-suppliers",
     label: "供应商库",
+    description: "供应商资料、报价与询价历史",
     labelKey: "nav_suppliers",
     href: "/suppliers",
     icon: Package2,
@@ -795,6 +866,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "growth-hub",
     label: "品牌增长",
+    description: "企业体检、增长任务与营销实验",
     labelKey: "nav_growth_hub",
     href: "/operations/growth",
     icon: Megaphone,
@@ -808,6 +880,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "growth-content",
     label: "内容生产",
+    description: "内容的计划、审核与多渠道发布",
     labelKey: "nav_publish_calendar",
     href: "/operations",
     icon: Megaphone,
@@ -820,6 +893,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "growth-product-content",
     label: "产品内容",
+    description: "产品文案与图文素材",
     labelKey: "nav_product_content",
     href: "/product-content",
     icon: Layers,
@@ -832,6 +906,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "growth-intel",
     label: "营销分析",
+    description: "营销数据与渠道表现分析",
     labelKey: "nav_market_intelligence",
     href: "/operations/intelligence",
     icon: Radar,
@@ -844,6 +919,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "growth-reports",
     label: "经营简报",
+    description: "每周经营简报",
     labelKey: "nav_weekly_reports",
     href: "/reports",
     icon: FileText,
@@ -857,6 +933,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "mgmt-orgs",
     label: "成员与组织",
+    description: "企业成员、岗位与组织信息",
     labelKey: "nav_organizations",
     href: "/organizations",
     icon: Building2,
@@ -867,6 +944,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "mgmt-knowledge",
     label: "知识库",
+    description: "企业资料与常见问答，供 AI 引用",
     labelKey: "nav_org_knowledge",
     href: "/knowledge",
     icon: BookOpen,
@@ -879,6 +957,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "mgmt-memory",
     label: "组织记忆",
+    description: "数字员工记住的企业偏好与约定",
     labelKey: "nav_ai_memory",
     href: "/memory",
     icon: Brain,
@@ -890,6 +969,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "mgmt-wechat",
     label: "微信集成",
+    description: "微信消息与绑定",
     labelKey: "nav_wechat_messages",
     href: "/wechat",
     icon: MessageCircle,
@@ -902,6 +982,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "mgmt-settings",
     label: "企业设置",
+    description: "企业的各项设置",
     labelKey: "nav_settings",
     href: "/settings",
     icon: Settings,
@@ -913,6 +994,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "plat-users",
     label: "用户管理",
+    description: "平台用户的管理",
     labelKey: "nav_user_management",
     href: "/admin/users",
     icon: Users,
@@ -924,6 +1006,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "plat-invites",
     label: "邀请码",
+    description: "注册邀请码的生成与管理",
     labelKey: "nav_invite_codes",
     href: "/admin/invite-codes",
     icon: Shield,
@@ -934,6 +1017,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "plat-onboarding",
     label: "厂家入驻",
+    description: "新企业入驻配置",
     labelKey: "nav_factory_onboarding",
     href: "/admin/onboarding",
     icon: Factory,
@@ -944,6 +1028,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "plat-audit",
     label: "平台审计",
+    description: "平台级操作审计",
     labelKey: "nav_audit_logs",
     href: "/admin/audit-logs",
     icon: ScrollText,
@@ -954,6 +1039,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "plat-intake",
     label: "待分发项目",
+    description: "待分发给企业的项目",
     labelKey: "nav_project_intake",
     href: "/admin/project-intake",
     icon: ClipboardList,
@@ -970,6 +1056,7 @@ export const SYSTEM_NAV_ITEMS: NavigationItem[] = [
   {
     key: "sys-help",
     label: "使用说明",
+    description: "功能地图与常见问题",
     labelKey: "nav_help",
     href: "/help",
     icon: CircleHelp,

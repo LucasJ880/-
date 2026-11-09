@@ -306,6 +306,18 @@ for (const post of POST_REGISTRY) {
   ok(existsSync(join(root, "src/app/(main)", post.nav, "page.tsx")), `${post.key}：${post.nav} 对应的 page.tsx 存在`);
 }
 
+// ── VIS-1b：岗位卡片的可见条件（spec cockpit/post-registry）──────────
+console.log("可见条件");
+{
+  const wechatOnly = POST_REGISTRY.filter((p) => "requiresWechatEntry" in p && p.requiresWechatEntry === true).map((p) => p.key);
+  ok(JSON.stringify(wechatOnly) === '["service"]', "只有 service 带「需微信入口开关」标记，其余六个岗位只由跳转页决定", wechatOnly);
+  const extraKeys = POST_REGISTRY.flatMap((p) =>
+    Object.keys(p).filter((k) => !["key", "name", "automationKeys", "pendingActionTypes", "workDomains", "agentRunTypes", "kpi", "nav", "requiresWechatEntry"].includes(k)),
+  );
+  ok(extraKeys.length === 0, "岗位上没有 moduleKey / positionPermissions 之类的第二套可见规则", extraKeys);
+  ok(/requiresWechatEntry\?: true;/.test(postsSrc), "标记是字面量类型（代码常量，不读配置）");
+}
+
 // ── 注册表是代码事实 ──────────────────────────────────────────
 console.log("零运行时依赖");
 {
