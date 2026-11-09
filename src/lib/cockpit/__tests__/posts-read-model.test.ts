@@ -40,6 +40,40 @@ import {
   sourceCursorBound,
 } from "../timeline";
 import { COCKPIT_REDACTED } from "../waiting";
+import type { RouteGateContext } from "@/lib/navigation/filter-context";
+import { isPostVisible, resolveLandingPage, visiblePosts } from "@/lib/navigation/landing";
+import { POST_REGISTRY } from "../posts";
+import {
+  HOME_TEXTILE_TRADE_INDUSTRY_PACK,
+  WINDOW_COVERING_INDUSTRY_PACK,
+  mergedProfileBindings,
+} from "@/lib/authorization/role-defaults";
+import { DEFAULT_MENGXIN_MODULES, DEFAULT_SUNNY_MODULES } from "@/lib/tenancy/modules";
+
+// VIS-1b：岗位卡可见判定的输入（与路由门同一套）
+function positionKeys(pack: string, ...positions: string[]): string[] {
+  return [...new Set(positions.flatMap((p) => mergedProfileBindings(pack, p).filter((b) => (b.effect ?? "ALLOW") === "ALLOW").map((b) => b.permissionKey)))];
+}
+function navCtx(partial: Partial<RouteGateContext>): RouteGateContext {
+  return {
+    platformRole: "user",
+    orgRole: "org_admin",
+    hasMembership: true,
+    workspaceIds: [],
+    modules: { enabled: [...DEFAULT_SUNNY_MODULES] },
+    isPlatformAdmin: false,
+    permissionKeys: [],
+    positionMode: true,
+    hasBidCapability: false,
+    autopilotAllowed: false,
+    wechatEntryEnabled: false,
+    ...partial,
+  };
+}
+const SUPER_ADMIN_WECHAT_ON = navCtx({ platformRole: "super_admin", isPlatformAdmin: true, wechatEntryEnabled: true });
+const SUNNY_OWNER = navCtx({ permissionKeys: positionKeys(WINDOW_COVERING_INDUSTRY_PACK, "owner") });
+const MX_CATHY = navCtx({ modules: { enabled: [...DEFAULT_MENGXIN_MODULES] }, permissionKeys: positionKeys(HOME_TEXTILE_TRADE_INDUSTRY_PACK, "owner", "trade_rep") });
+const SALES_ONLY_OWNER = navCtx({ modules: { enabled: ["sales"] }, permissionKeys: positionKeys(WINDOW_COVERING_INDUSTRY_PACK, "owner") });
 
 let pass = 0;
 let fail = 0;
@@ -132,16 +166,17 @@ async function main() {
 
   const deps = (o: Partial<PostsCockpitDeps> = {}): PostsCockpitDeps => ({
     now: () => NOW,
+    // 缺省：平台 super_admin + 微信入口开 → 七个岗位全部可见（spec「七个岗位」场景）
+    navContext: async () => SUPER_ADMIN_WECHAT_ON,
     env: { EMPLOYEE_AI_LEARNING_ENABLED: "1" },
     orgTimezone: async (orgId) => (track("orgTimezone", orgId), "America/Toronto"),
-    latestAutomationRuns: async () =>
-      new Map<string, LastRunSnapshot>([
+    latestAutomationRuns: async (keys) => (track("latestAutomationRuns", keys), new Map<string, LastRunSnapshot>([
         ["inquiry-sla", run(3)],
         ["revenue-spine-sync", run(5)],
         ["daily-brief", run(5 * 60)],
         ["tender-watch", run(30, "failed")],
         ["release-drift", run(3 * 60)],
-      ]),
+      ])),
     automationRunCounts: async () => new Map([["inquiry-sla", 2000], ["revenue-spine-sync", 600], ["tender-watch", 160]]),
     agentRunCounts: async (orgId, _since, runTypes, workDomains) => (
       track("agentRunCounts", { orgId, runTypes, workDomains }),
@@ -228,6 +263,48 @@ async function main() {
     ok(projCtx?.orgId === "org-1" && projCtx.viewer.orgRole === "org_admin", "项目 KPI 按查看人上下文取数");
     const slaCtx = calls["kpi:sla"]?.[0] as { window: { kind: string; days?: number } };
     ok(slaCtx.window.kind === "rolling_days" && slaCtx.window.days === 30, "KPI 加载器拿到注册表声明的窗口");
+  }
+  // ── VIS-1b：按身份的可见岗位（spec cockpit/posts-overview、cockpit/post-registry、cockpit/home-view）──
+  {
+    for (const k of Object.keys(calls)) delete calls[k];
+    const res = await getOrgPostsCockpit(viewer, deps({ navContext: async () => SUNNY_OWNER }));
+    ok(JSON.stringify(res.posts.map((p) => p.key)) === JSON.stringify(["tender", "marketing", "projects", "content"]), "Sunny 老板（未启用 trade、微信关）：投标、营销增长、项目交付、内容", res.posts.map((p) => p.key));
+    ok(!calls["kpi:sla"] && !!calls["kpi:tender"] && !!calls["kpi:projects"], "不可见岗位（询盘销售）的 KPI 读函数未被调用");
+    const keys = (calls.latestAutomationRuns?.[0] ?? []) as string[];
+    ok(!keys.includes("inquiry-sla") && !keys.includes("service-inbox-sla") && !keys.includes("release-drift") && keys.includes("tender-watch"), "自动化只为可见岗位读取（不含询盘销售 / 客服 / 运维与知识的自动化）", keys);
+    const agentCall = calls.agentRunCounts?.[0] as { runTypes: string[]; workDomains: string[] };
+    ok(agentCall.runTypes.length === 0 && JSON.stringify([...agentCall.workDomains].sort()) === '["delivery","tender"]', "动作数只按可见岗位的 runType / 工作域计", agentCall);
+    ok(res.waitingForYou.total >= 0 && res.posts.every((p) => p.kpi !== undefined), "可见岗位都带 KPI");
+  }
+  {
+    const res = await getOrgPostsCockpit(viewer, deps({ navContext: async () => MX_CATHY }));
+    ok(JSON.stringify(res.posts.map((p) => p.key)) === JSON.stringify(["inbound_sales", "marketing", "content"]), "梦馨老板 Cathy：询盘销售、营销增长、内容", res.posts.map((p) => p.key));
+  }
+  {
+    const res = await getOrgPostsCockpit(viewer, deps({ navContext: async () => ({ ...SUPER_ADMIN_WECHAT_ON, wechatEntryEnabled: false }) }));
+    ok(res.posts.length === 6 && !res.posts.some((p) => p.key === "service"), "平台 super_admin、微信关：六个岗位（客服随微信开关）");
+  }
+  {
+    for (const k of Object.keys(calls)) delete calls[k];
+    const res = await getOrgPostsCockpit(viewer, deps({ navContext: async () => SALES_ONLY_OWNER }));
+    ok(res.posts.length === 0 && visiblePosts(SALES_ONLY_OWNER).length === 0, "只启用 sales 的岗位模式企业老板（微信关）：没有可见岗位");
+    ok(!calls["kpi:sla"] && !calls["kpi:tender"] && !calls["kpi:projects"], "零可见卡：一个 KPI 读函数都不调");
+    ok(resolveLandingPage(SALES_ONLY_OWNER) === "/tasks" && resolveLandingPage(SUNNY_OWNER) === "/", "落地页：零卡 → /tasks；有卡 → /");
+  }
+  {
+    const byKey = (k: string) => POST_REGISTRY.find((p) => p.key === k)!;
+    ok(!isPostVisible(byKey("inbound_sales"), SUNNY_OWNER) && isPostVisible(byKey("inbound_sales"), MX_CATHY), "询盘销售随外贸模块：Sunny（未启用 trade）老板不可见，梦馨老板可见");
+    ok(!isPostVisible(byKey("ops_knowledge"), SUNNY_OWNER) && isPostVisible(byKey("ops_knowledge"), SUPER_ADMIN_WECHAT_ON), "运维与知识只对平台 super_admin");
+    ok(!isPostVisible(byKey("service"), { ...SUPER_ADMIN_WECHAT_ON, wechatEntryEnabled: false }), "客服随微信入口开关（super_admin 也一样）");
+  }
+  {
+    const sunnyOps = navCtx({ orgRole: "org_member", permissionKeys: positionKeys(WINDOW_COVERING_INDUSTRY_PACK, "ops_staff") });
+    ok(resolveLandingPage(sunnyOps) === "/ops", "非管理层落地页沿用首页落地规则（ops_staff → /ops）");
+  }
+  {
+    const src = stripComments(read("src/lib/cockpit/posts-read-model.ts"));
+    ok(/visiblePosts\(navCtx\)/.test(src) && /loadPostKpis\(viewer, now, deps, posts\)/.test(src), "读模型先定可见岗位，只为可见岗位取 KPI");
+    ok(/navContext: resolveCockpitNavContext/.test(src) && !/resolveCockpitNavContext|navContext/.test(src.slice(src.indexOf("export async function resolveCockpitViewer"), src.indexOf("export function defaultCockpitViewerDeps"))), "判定输入只在岗位总览产出，resolveCockpitViewer 不变（时间线 / 工作量不多查）");
   }
   {
     for (const k of Object.keys(calls)) delete calls[k];

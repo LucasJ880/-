@@ -4,10 +4,10 @@
 
 ## 1. 客户端可用的路由门判定、落地页与输入拼装
 
-- [ ] 1.1 拆出纯判定、落地页函数与输入拼装，并新增客户端钩子：
+- [x] 1.1 拆出纯判定、落地页函数与输入拼装，并新增客户端钩子：
   - 拆出 `src/lib/navigation/route-gate-core.ts`：门表、匹配、`isRouteAllowed`、`gatePathVariants`、`GATED_TOP_SEGMENTS`。不导入 `next/server`。
   - 新增 `src/lib/navigation/landing.ts`：`isPostVisible`、`visiblePosts`、`resolveLandingPage`（管理层零可见卡 → `/tasks`），并把 `gateRedirectTarget` 搬进来改用它。
-  - 新增 `src/lib/navigation/filter-context.ts`：`buildNavigationFilterContext`、`inputsFromActiveOrgResponse`；`context-server.ts` 的 loader 改用前者；active-org 路由的响应映射抽成纯函数 `activeOrgBody`（15 个响应键不变）。
+  - 新增 `src/lib/navigation/filter-context.ts`：`buildNavigationFilterContext`、`inputsFromActiveOrgResponse`；`context-server.ts` 的 loader 改用前者；active-org 路由的导航字段抽成纯函数 `activeOrgNavigationFields`（15 个响应键不变）。
   - `route-gate.ts` 重新导出 core 与 `gateRedirectTarget`，原导入方不变。
   - 新增 `src/lib/navigation/use-navigation-access.ts`：按 design D7 拼输入，返回 `canOpen(href)` 与 `landingPage`。super_admin 一律放行；输入未就绪时 `canOpen` 一律 false、`landingPage` 为 null。
   - 先写 `src/lib/navigation/__tests__/entry-visibility.test.ts`：
@@ -20,7 +20,7 @@
 
 ## 2. 首页岗位卡
 
-- [ ] 2.1 按跳转页判定岗位卡可见：
+- [x] 2.1 按跳转页判定岗位卡可见：
   - `posts.ts`：`service` 加字面量 `requiresWechatEntry: true`。
   - `posts-read-model.ts`：新增 `resolveCockpitNavContext(viewer)`（`loadOrgNavigationInputs(userId, viewer.orgId)` + `buildNavigationFilterContext`），只由 `/api/cockpit/posts` 调用；按 design D1 过滤，只为可见卡取 KPI 与自动化。时间线与工作量接口不改。
   - `src/app/(main)/page.tsx`：登录检查照旧；判定输入改取 `ROUTE_GATE_LOADER`；`resolveLandingPage(ctx)` 不为 `/` 时跳转（零卡即 `/tasks`）。

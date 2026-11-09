@@ -11,8 +11,8 @@ import {
   switchUserActiveOrg,
 } from "@/lib/organizations/org-access";
 import { db } from "@/lib/db";
-import type { OrgModulesConfig } from "@/lib/tenancy";
-import { loadOrgNavigationInputs } from "@/lib/navigation/context-server";
+import { NO_ORG_INPUTS, loadOrgNavigationInputs } from "@/lib/navigation/context-server";
+import { activeOrgNavigationFields } from "@/lib/navigation/filter-context";
 
 /**
  * GET /api/auth/active-org
@@ -30,14 +30,9 @@ export async function GET(request: NextRequest) {
   }
 
   const resolved = await resolvePreferredOrgId(user.id, user.role);
-  let modules: OrgModulesConfig | null = null;
   let orgCode: string | null = null;
   let orgCompany: { name: string; logoUrl: string } | null = null;
-  let workspaceIds: string[] = [];
-  let orgRole: string | null = null;
-  let hasBidCapability = false;
-  let permissionKeys: string[] = [];
-  let positionMode = false;
+  let navInputs = NO_ORG_INPUTS;
   if (resolved.orgId) {
     const org = await db.organization.findUnique({
       where: { id: resolved.orgId },
@@ -50,13 +45,8 @@ export async function GET(request: NextRequest) {
     orgCompany = org?.company ?? null;
     // VIS-1a：模块（含行业包兜底）/ 岗位模式 / 成员身份 / 工作区 / 投标能力信号 / 岗位权限键
     // 与路由门同一个构造器（src/lib/navigation/context-server.ts），侧栏可见 ⇔ 路由放行；这里不走缓存
-    const inputs = await loadOrgNavigationInputs(user.id, resolved.orgId);
-    modules = inputs.modules;
-    positionMode = inputs.positionMode;
-    orgRole = inputs.orgRole;
-    workspaceIds = inputs.workspaceIds;
-    hasBidCapability = inputs.hasBidCapability;
-    permissionKeys = inputs.permissionKeys;
+    // VIS-1b：导航字段经 activeOrgNavigationFields 输出，客户端钩子用 inputsFromActiveOrgResponse 原样还原
+    navInputs = await loadOrgNavigationInputs(user.id, resolved.orgId);
   }
 
   const canSwitch = access ? canSelfSwitchOrganizations(access) : false;
@@ -64,17 +54,18 @@ export async function GET(request: NextRequest) {
   const needsSelection =
     canSwitch && resolved.needsSelection && !resolved.orgId;
 
+  const nav = activeOrgNavigationFields(navInputs);
   return NextResponse.json({
     activeOrgId: resolved.orgId,
     orgCode,
     orgCompany,
-    modules,
-    orgRole,
-    workspaceIds,
-    hasMembership: Boolean(orgRole),
-    hasBidCapability,
-    permissionKeys,
-    positionMode,
+    modules: nav.modules,
+    orgRole: nav.orgRole,
+    workspaceIds: nav.workspaceIds,
+    hasMembership: nav.hasMembership,
+    hasBidCapability: nav.hasBidCapability,
+    permissionKeys: nav.permissionKeys,
+    positionMode: nav.positionMode,
     needsSelection,
     orgAccessMode: access?.orgAccessMode ?? "FIXED",
     canSelfSwitchOrg: access?.canSelfSwitchOrg ?? false,

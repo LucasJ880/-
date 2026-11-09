@@ -190,7 +190,7 @@
   - `canOpen(href)`：super_admin 一律 true；输入未就绪时一律 false；
   - `landingPage`：未就绪时为 null。
 
-测试防漂移：对同一份企业输入，`buildNavigationFilterContext(inputsFromActiveOrgResponse(activeOrgBody(inputs)), …)` 与 loader 的产出逐字段相同。`activeOrgBody` 是 active-org 路由抽出的纯映射。
+测试防漂移：对同一份企业输入，`buildNavigationFilterContext(inputsFromActiveOrgResponse(activeOrgNavigationFields(inputs)), …)` 与 loader 的产出逐字段相同。`activeOrgNavigationFields` 是 active-org 路由抽出的导航字段纯映射。
 
 被否决：
 - 客户端直接导入 `route-gate.ts`：会把 `next/server` 拖进客户端包。
@@ -289,6 +289,8 @@
 - `openspec validate vis-1b-home-and-shell --strict`。
 
 ## 审核关注点（偏离或补充任务书之处，请拍板）
+
+拍板结果（Lucas 2026-11-09）：Q1–Q10 全部按推荐执行。Q3 按判断点 5 原样执行：「AI 任务」「数字员工」两项都从销售侧栏去掉。
 
 - Q1（D4）：「等你拍板」按「落点放行」过滤，而不是任务书写的「与可见岗位卡取交集」，否则老板自己的折扣审批会被藏掉。
   - 横幅：Sunny 的折扣审批仍按既有归属记在「询盘销售」下，Bob 看不到这张卡，横幅对这类条目不显示岗位名（D4）。

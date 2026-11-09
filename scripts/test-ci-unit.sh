@@ -145,6 +145,7 @@ npx tsx src/lib/navigation/__tests__/trade-layout.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/navigation/__tests__/route-gate.test.ts
+npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
 npx tsx src/lib/autopilot/__tests__/repository-org.test.ts

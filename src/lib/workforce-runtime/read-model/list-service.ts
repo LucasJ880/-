@@ -228,7 +228,15 @@ export type ListWorkforceJobViewsInput = {
   /** 缺省 20；强制 clamp 到 1..50（禁止 unbounded list） */
   limit?: number;
   cursor?: WorkforceJobsCursor | null;
+  /**
+   * VIS-1b：作业可读判定（spec agents/workforce-job-scope）。给出时分批扫描、跳过不可读的作业凑满一页，
+   * 一次至多扫 WORKFORCE_LIST_MAX_SCAN_BATCHES 批（每批 limit + 1 行）；缺省 = 不过滤（改动前行为）。
+   */
+  canRead?: (run: { id: string; orgId: string; metadata: unknown }) => Promise<boolean>;
 };
+
+/** 一次列表请求至多扫描的批数（spec「/workforce 列表只含可读作业」） */
+export const WORKFORCE_LIST_MAX_SCAN_BATCHES = 5;
 
 export type ListWorkforceJobViewsResult = {
   items: WorkforceJobListItem[];
@@ -252,46 +260,80 @@ export async function listWorkforceJobViews(
   if (filter !== "all") {
     where.status = { in: [...FILTER_INTERNAL_STATUSES[filter]] };
   }
-  if (input.cursor) {
-    where.OR = [
-      { updatedAt: { lt: input.cursor.updatedAt } },
-      {
-        AND: [
-          { updatedAt: input.cursor.updatedAt },
-          { id: { lt: input.cursor.id } },
-        ],
-      },
-    ];
-  }
-
   const db = reader ?? (await defaultListReader());
 
-  // take limit+1 判定 hasMore；游标 = 页内最后一行的 (updatedAt, id)
-  const runs = await db.agentRun.findMany({
-    where,
-    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-    take: limit + 1,
-    select: {
-      id: true,
-      orgId: true,
-      runType: true,
-      status: true,
-      attempts: true,
-      errorCode: true,
-      errorMessage: true,
-      planJson: true,
-      metadata: true,
-      startedAt: true,
-      completedAt: true,
-      cancelledAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const select = {
+    id: true,
+    orgId: true,
+    runType: true,
+    status: true,
+    attempts: true,
+    errorCode: true,
+    errorMessage: true,
+    planJson: true,
+    metadata: true,
+    startedAt: true,
+    completedAt: true,
+    cancelledAt: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+  // take limit+1 判定 hasMore；keyset 翻页条件：updatedAt < c.u OR (updatedAt = c.u AND id < c.i)
+  const fetchBatch = (cursor: WorkforceJobsCursor | null | undefined) =>
+    db.agentRun.findMany({
+      where: cursor
+        ? {
+            ...where,
+            OR: [
+              { updatedAt: { lt: cursor.updatedAt } },
+              { AND: [{ updatedAt: cursor.updatedAt }, { id: { lt: cursor.id } }] },
+            ],
+          }
+        : where,
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select,
+    });
+  type Run = Awaited<ReturnType<typeof fetchBatch>>[number];
+  const cursorOf = (run: Run): WorkforceJobsCursor => ({ updatedAt: run.updatedAt, id: run.id });
 
-  const hasMore = runs.length > limit;
-  const pageRuns = hasMore ? runs.slice(0, limit) : runs;
-  if (pageRuns.length === 0) return { items: [], nextCursor: null };
+  let pageRuns: Run[];
+  let nextCursor: WorkforceJobsCursor | null;
+  if (!input.canRead) {
+    // 改动前行为：游标 = 页内最后一行
+    const runs = await fetchBatch(input.cursor);
+    const hasMore = runs.length > limit;
+    pageRuns = hasMore ? runs.slice(0, limit) : runs;
+    nextCursor = hasMore && pageRuns.length ? cursorOf(pageRuns[pageRuns.length - 1]) : null;
+  } else {
+    // VIS-1b：分批补扫。凑满 → 游标指向本页最后一条；扫满上限 → 指向最后扫描的一行；确定扫完 → 空
+    pageRuns = [];
+    nextCursor = null;
+    let cursor = input.cursor ?? null;
+    for (let batch = 0; batch < WORKFORCE_LIST_MAX_SCAN_BATCHES; batch++) {
+      const runs = await fetchBatch(cursor);
+      const fullBatch = runs.length > limit;
+      let filled = false;
+      for (let i = 0; i < runs.length; i++) {
+        if (!(await input.canRead(runs[i]))) continue;
+        pageRuns.push(runs[i]);
+        if (pageRuns.length === limit) {
+          filled = true;
+          // 本批里还有没看的行 → 一定还有；恰在满批最后一行凑满 → 无法确定，给游标（下一页可能为空）
+          nextCursor = i < runs.length - 1 || fullBatch ? cursorOf(runs[i]) : null;
+          break;
+        }
+      }
+      if (filled) break;
+      if (!fullBatch || runs.length === 0) {
+        nextCursor = null;
+        break;
+      }
+      cursor = cursorOf(runs[runs.length - 1]);
+      if (batch === WORKFORCE_LIST_MAX_SCAN_BATCHES - 1) nextCursor = cursor;
+    }
+  }
+  if (pageRuns.length === 0) return { items: [], nextCursor };
 
   const runIds = pageRuns.map((r) => r.id);
 
@@ -372,11 +414,7 @@ export async function listWorkforceJobViews(
     return item;
   });
 
-  const last = pageRuns[pageRuns.length - 1];
-  return {
-    items,
-    nextCursor: hasMore ? { updatedAt: last.updatedAt, id: last.id } : null,
-  };
+  return { items, nextCursor };
 }
 
 function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {

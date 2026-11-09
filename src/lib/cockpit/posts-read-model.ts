@@ -10,6 +10,8 @@ import type { AuthUser } from "@/lib/auth";
 import { AUTOMATION_REGISTRY, type AutomationKey } from "@/lib/automation/registry";
 import { isFinancialControlEnabled } from "@/lib/project-finance/flags";
 import { canAccessManagementWorkspace } from "@/lib/rbac/workspace-policy";
+import type { RouteGateContext } from "@/lib/navigation/filter-context";
+import { visiblePosts } from "@/lib/navigation/landing";
 import {
   POST_REGISTRY,
   pickKpiMetrics,
@@ -64,7 +66,6 @@ import {
 
 const DAY_MS = 86_400_000;
 const TENDER_KPI_SOURCE: PostKpiSource = "src/lib/project-finance/portfolio.ts#getTenderPortfolioSummary";
-const AUTOMATION_KEYS = AUTOMATION_REGISTRY.map((d) => d.key as AutomationKey);
 
 // ── 查看人与访问控制 ──────────────────────────────────────────
 
@@ -200,6 +201,11 @@ export interface AgentRunCounts {
 
 export interface PostsCockpitDeps {
   now(): Date;
+  /**
+   * VIS-1b：调用者在驾驶舱企业的导航判定输入（与路由门同一套输入与拼装；design D2）。
+   * 岗位卡只返回、只取数可见的（spec cockpit/posts-overview）。
+   */
+  navContext(viewer: CockpitViewer): Promise<RouteGateContext>;
   env: Readonly<Record<string, string | undefined>>;
   orgTimezone(orgId: string): Promise<string>;
   latestAutomationRuns(keys: readonly AutomationKey[]): Promise<ReadonlyMap<string, LastRunSnapshot>>;
@@ -252,9 +258,11 @@ export function assemblePostsCockpit(input: {
   agentRunCounts: AgentRunCounts;
   quotaHit: boolean;
   waiting: ReturnType<typeof buildWaitingForYou>;
-  kpis: Readonly<Record<PostKey, PostKpiView>>;
+  kpis: Readonly<Partial<Record<PostKey, PostKpiView>>>;
+  /** 对调用者可见的岗位（注册表顺序）；缺省为全部（测试用） */
+  posts?: readonly PostRegistryEntry[];
 }): PostsCockpitResponse {
-  const posts = POST_REGISTRY.map((post): PostCardView => {
+  const posts = (input.posts ?? POST_REGISTRY).map((post): PostCardView => {
     const automations = post.automationKeys.map((key): AutomationStatusView => {
       const schedule = AUTOMATION_SCHEDULES[key];
       const lastRun = input.latestRuns.get(key) ?? null;
@@ -299,7 +307,7 @@ export function assemblePostsCockpit(input: {
           sum((post.agentRunTypes as readonly string[]).map((t) => input.agentRunCounts.byRunType.get(t) ?? 0)) +
           sum((post.workDomains as readonly string[]).map((d) => input.agentRunCounts.byWorkDomain.get(d) ?? 0)),
       },
-      kpi: input.kpis[post.key],
+      kpi: input.kpis[post.key] ?? { status: "error" },
     };
   });
 
@@ -334,9 +342,15 @@ async function loadPostKpi(post: PostRegistryEntry, viewer: CockpitViewer, now: 
   }
 }
 
-export async function loadPostKpis(viewer: CockpitViewer, now: Date, deps: PostsCockpitDeps): Promise<Record<PostKey, PostKpiView>> {
-  const entries = await Promise.all(POST_REGISTRY.map(async (post) => [post.key, await loadPostKpi(post, viewer, now, deps)] as const));
-  return Object.fromEntries(entries) as Record<PostKey, PostKpiView>;
+/** 只为给定岗位（缺省全部）取 KPI；不可见岗位的读函数不被调用 */
+export async function loadPostKpis(
+  viewer: CockpitViewer,
+  now: Date,
+  deps: PostsCockpitDeps,
+  posts: readonly PostRegistryEntry[] = POST_REGISTRY,
+): Promise<Partial<Record<PostKey, PostKpiView>>> {
+  const entries = await Promise.all(posts.map(async (post) => [post.key, await loadPostKpi(post, viewer, now, deps)] as const));
+  return Object.fromEntries(entries) as Partial<Record<PostKey, PostKpiView>>;
 }
 
 // ── 岗位总览：入口 ────────────────────────────────────────────
@@ -347,18 +361,22 @@ export async function getOrgPostsCockpit(
 ): Promise<PostsCockpitResponse> {
   const now = deps.now();
   const since = new Date(now.getTime() - 7 * DAY_MS);
-  const runTypes = [...new Set(POST_REGISTRY.flatMap((p) => p.agentRunTypes as readonly string[]))];
-  const workDomains = [...new Set(POST_REGISTRY.flatMap((p) => p.workDomains as readonly string[]))];
+  // VIS-1b：先定可见岗位，KPI / 自动化 / 动作数只为可见岗位读取（design D1 / D2）
+  const navCtx = await deps.navContext(viewer);
+  const posts = visiblePosts(navCtx);
+  const automationKeys = [...new Set(posts.flatMap((p) => p.automationKeys as readonly AutomationKey[]))];
+  const runTypes = [...new Set(posts.flatMap((p) => p.agentRunTypes as readonly string[]))];
+  const workDomains = [...new Set(posts.flatMap((p) => p.workDomains as readonly string[]))];
 
   const [timezone, latestRuns, runCounts, agentRunCounts, quotaHit, pendingMine, jobs, kpis] = await Promise.all([
     deps.orgTimezone(viewer.orgId),
-    deps.latestAutomationRuns(AUTOMATION_KEYS),
-    deps.automationRunCounts(AUTOMATION_KEYS, since),
+    deps.latestAutomationRuns(automationKeys),
+    deps.automationRunCounts(automationKeys, since),
     deps.agentRunCounts(viewer.orgId, since, runTypes, workDomains),
     deps.quotaHitToday(viewer.orgId, viewer.user.id, utcDayStart(now)),
     deps.pendingMine(viewer),
     deps.needsYouJobs(viewer.orgId),
-    loadPostKpis(viewer, now, deps),
+    loadPostKpis(viewer, now, deps, posts),
   ]);
 
   const lookups = await deps.attributionLookups(
@@ -375,7 +393,7 @@ export async function getOrgPostsCockpit(
     lookups,
   });
 
-  return assemblePostsCockpit({ orgId: viewer.orgId, now, timezone, env: deps.env, latestRuns, runCounts, agentRunCounts, quotaHit, waiting, kpis });
+  return assemblePostsCockpit({ orgId: viewer.orgId, now, timezone, env: deps.env, latestRuns, runCounts, agentRunCounts, quotaHit, waiting, kpis, posts });
 }
 
 // ── 查询条件（纯函数，测试直接对其断言） ──────────────────────
@@ -402,9 +420,16 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+/** VIS-1b：岗位总览专用的判定输入（只由 /api/cockpit/posts 经 getOrgPostsCockpit 调用；时间线与工作量接口不调） */
+export async function resolveCockpitNavContext(viewer: CockpitViewer): Promise<RouteGateContext> {
+  const { loadNavigationContextForOrg } = await import("@/lib/navigation/context-server");
+  return loadNavigationContextForOrg({ id: viewer.user.id, role: viewer.user.role }, viewer.orgId);
+}
+
 export function defaultPostsCockpitDeps(): PostsCockpitDeps {
   return {
     now: () => new Date(),
+    navContext: resolveCockpitNavContext,
     env: process.env,
     orgTimezone: async (orgId) => (await import("@/lib/automation/registry")).loadOrgTimezone(orgId),
 
