@@ -17,7 +17,7 @@
     "lint": "eslint",
     "lint:baseline": "node scripts/check-eslint-baseline.mjs",
     "lint:baseline:generate": "node scripts/check-eslint-baseline.mjs --generate",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node --max-old-space-size=$(node scripts/build-heap-mb.mjs) node_modules/typescript/bin/tsc --noEmit",
     "qa": "npm run lint && npx prisma generate && npx next build",
     "test": "bash scripts/test-all.sh",
     "test:api": "bash scripts/test-all.sh --api",
