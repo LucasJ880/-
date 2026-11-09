@@ -57,48 +57,6 @@ export function isPlatformSuperAdmin(platformRole: string | null | undefined): b
   return isSuperAdmin(platformRole);
 }
 
-/**
- * 检查前端模块可见性
- * SYNC: MODULE_ROLES 映射与 src/lib/rbac/role-access.ts MODULE_VISIBILITY 同源。
- */
-export function canAccessModule(role: string | null | undefined, modulePath: string): boolean {
-  if (!role) return false;
-  const normalizedRole = platformTier(role);
-
-  const MODULE_ROLES: Record<string, string[] | undefined> = {
-    "/":              undefined,
-    "/notifications": undefined,
-    "/tasks":         undefined,
-    "/sales":           ["admin", "boss", "manager", "sales"],
-    "/sales/quote-sheet": ["admin", "boss", "manager", "sales"],
-    "/sales/quotes":    ["admin", "boss", "manager", "sales"],
-    "/sales/calendar":  ["admin", "boss", "manager", "sales"],
-    "/sales/measure":   ["admin", "boss", "manager", "sales"],
-    "/settings/email":  ["admin", "boss", "manager", "sales"],
-    "/inventory":       ["admin", "boss", "manager", "operations"],
-    "/sales/cockpit":   ["admin", "boss", "manager", "sales"],
-    "/sales/knowledge": ["admin", "boss", "manager", "sales"],
-    "/blinds-orders":   ["admin", "boss", "manager", "sales", "operations"],
-    "/trade":           ["admin", "boss", "manager", "trade"],
-    "/trade/knowledge": ["admin", "boss", "manager", "trade"],
-    "/revenue":         ["admin", "boss", "manager", "trade", "sales"],
-    "/organizations":   ["admin", "boss", "manager", "operations", "user"],
-    "/projects":        ["admin", "boss", "manager", "operations", "user"],
-    "/suppliers":       ["admin", "boss", "manager", "operations", "user"],
-    "/assistant":       undefined,
-    "/wechat":          ["admin", "boss", "manager", "operations", "trade", "user"],
-    "/agent-trace":     undefined,
-    "/ai-activity":     undefined,
-    "/reports":         ["admin", "boss", "manager", "operations", "user"],
-    "/settings/wechat": ["admin", "boss", "manager", "operations"],
-    "/admin":           ["admin", "boss"],
-  };
-
-  const roles = MODULE_ROLES[modulePath];
-  if (!roles) return true;
-  return roles.includes(normalizedRole);
-}
-
 const ORG_ROLE_LABELS: Record<string, string> = {
   org_owner: "企业负责人",
   org_admin: "企业管理员",
