@@ -34,7 +34,7 @@
 时间线 SHALL 只取本组织的审计日志与 AI 运行事件。审计日志 SHALL 排除记账 / 查看类动作（配额预留 / 提交 / 释放 / 结算、模型供应商状态查看、敏感审批查看）。AI 运行事件 SHALL 只取有岗位归属的 run（岗位认领的 runType 或 workforce 作业）的、对用户可见且事件类型在白名单内的事件（`run.completed`、`run.failed`、`run.cancelled`、`run.needs_human`、`job.completed`、`job.failed`、`job.cancelled`、`job.waiting_human`、`approval.required`、`verification.needs_human`）。自动化运行是平台级的，SHALL 只取失败或部分失败的运行，以及最长正常间隔不小于 24 小时的自动化的运行。审计日志的变更前后数据 SHALL NOT 出现在条目里；唯一例外是 `cockpit/company-log-labels` 规定的商机阶段变更白名单枚举（流转来源、是否按策略、前后阶段）。
 
 #### Scenario: 高频成功运行不进时间线
-- **WHEN** `agent-runs`（每 2 分钟）近 7 天有大量成功运行和 1 次失败
+- **WHEN** 平台 super_admin 调用，`agent-runs`（每 2 分钟）近 7 天有大量成功运行和 1 次失败
 - **THEN** 时间线里只出现那 1 次失败
 
 #### Scenario: 低频成功运行进时间线

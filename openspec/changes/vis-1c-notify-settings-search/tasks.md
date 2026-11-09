@@ -28,11 +28,11 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
     - `NOTIFICATION_TYPE_ENTRIES`、`NOTIFICATION_FILTER_ENTRIES`；
     - `visibleNotificationTypes(canOpen)`、`visibleNotificationFilters(canOpen)`。
   - 对照表按 design D1（处理页面）；无运行时副作用。实现时再逐个生产方核对一遍（含 Muse 桥 `muse-bridge/events.ts`），核对记录写进报告。
-  - `notification-type-toggle-list.tsx`：取 `useNavigationAccess()`；未就绪显示占位；只渲染可见类型；增删照旧作用在完整 `enabledTypes` 上。
+  - `notification-type-toggle-list.tsx`：先把内联的增删闭包（`:17-24`）抽成纯函数 `toggleEnabledType(enabledTypes, key)` 放进 `type-visibility.ts`；再取 `useNavigationAccess()`，未就绪显示占位，只渲染可见类型，增删照旧作用在完整 `enabledTypes` 上。
   - `notifications/page.tsx`：`TYPE_OPTIONS` 改由 `visibleNotificationFilters` 产出；选中项不可见时回到「全部类型」。
   - 先写 `src/lib/notifications/__tests__/type-visibility.test.ts`，覆盖：
     - 每个非隐藏类型有处理页面，且都命中门表；
-    - design D1 身份表的每一行（销售、是项目成员的销售、招投标、运营、会计、出单、安装工、无岗位、梦馨老板、梦馨外贸、老板、super_admin）；
+    - design D1 身份表的每一行（销售、合价、是项目成员的销售、招投标、运营主管、运营、会计、出单、安装工、无岗位、梦馨老板、梦馨外贸、老板、super_admin）；
     - 销售与安装工的筛选项；
     - 「保存不动隐藏类型」，用开关列表的增删函数验证；
     - 两处接线的源码断言。
@@ -71,16 +71,15 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 - [ ] 3.1 按 design D6 收窄项目结果（前置：#409 已合并，本分支已变基到含 #409 的 main）：
   - `src/lib/search/where.ts` 加 `buildReadableProjectWhere(userId, adminOrgIds)`。
   - `api/search/route.ts`：
-    - 查本人 org_admin / org_owner 的企业；
-    - 判定输入用 `resolvePreferredOrgId` + `loadNavigationContextForOrg`；
-    - 项目详情门不放行时 `projects: []`；
+    - super_admin 不判定门、两处不加范围；
+    - 其余用户：查本人 org_admin / org_owner 的企业；判定输入用 `resolvePreferredOrgId` + `loadNavigationContextForOrg`；项目详情门不放行时 `projects: []`；
     - 项目条件改用可读条件；任务条件不变。
   - `search-where.test.ts` 加用例：
     - 普通成员只搜到参与的项目；
     - 负责人跨企业也搜得到自己负责的项目；
     - org_admin 搜到本企业全部已分发项目；
     - 未分发项目搜不到；
-    - 「不是项目成员的销售不搜项目」「是项目成员的销售搜项目」的门判定；
+    - 「不是项目成员的销售不搜项目」「是项目成员的销售搜项目」「未绑岗位的 super_admin 搜项目」的判定；
     - 路由源码断言改写：判定与可读条件都接上（替换 #409 的 `buildProjectSearchWhere(projectWhere, q)` 断言）。
   - verify：`search-where.test.ts` 全过（#409 的其余 9 条不变）。
 
@@ -113,11 +112,11 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 - [ ] 5.1 按 design D9、D11 改两个入口：
   - `digital-employee-workbench.tsx`：营销卡片按 `canOpen("/marketing/employee")`。`canUseMarketingDigitalEmployee` 保留（营销员工接口与微信路由仍用）。
   - `NavigationItem` 加 `managementOnly?: true`；`filter.ts` 岗位模式下遇到它按 `isManagementWorkspaceUser` 判定；`registry.ts` 的 `work-home` 标上它。
-  - `mobile-tabs.ts`：首格按 `resolveLandingPage(ctx)` 取「总览」/「任务」/「会计」（两种模式）。
+  - `mobile-tabs.ts`：首格按 `resolveLandingPage(ctx)` 取「任务」/「会计」，其余「总览」（两种模式）；`mobile-tab-bar.tsx` 的 `TAB_ICONS`、`tabMatch` 补 `tasks`、`accounting`。
   - 改测试：
-    - `entry-visibility.test.ts`：营销卡片身份表、底栏首格（accounting「会计」、fulfillment_vinyl 与无岗位「任务」、owner「总览」）；
+    - `entry-visibility.test.ts`：营销卡片身份表与工作台源码断言、底栏首格（accounting「会计」、fulfillment_vinyl 与无岗位「任务」、owner「总览」）；
     - `position-nav.test.ts`：非管理层侧栏无 `work-home`；未绑岗位的 super_admin 仍有；
-    - `residual-reads.test.ts:163`。
+    - `residual-reads.test.ts:163`：去掉对营销入口的 `effectiveRole` 断言（design D13）。
   - verify：
     - 三份测试全过；`navigation-workspace.test.ts`（34，旧模式侧栏）不变；
     - `sales-digital-employee-access.test.ts`、`effective-platform-role.test.ts` 不变；
@@ -126,15 +125,15 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 ## 6. 首页时间线与规格拆分
 
 - [ ] 6.1 按 design D10 收口时间线：
-  - `CompanyLogDeps` 加 `navContext`；时间线路由取 `resolveCockpitNavContext(viewer)`。
-  - `landing.ts` 加 `visibleAutomationKeys(ctx)`；`automationRunTimelineWhere` 加可见键参数，在查询里过滤（super_admin 不加）。
+  - `CompanyLogDeps` 照 `PostsCockpitDeps` 加 `navContext(viewer)`；时间线路由取 `resolveCockpitNavContext(viewer)`；更新 `posts-read-model.ts:429` 的注释。
+  - `landing.ts` 加 `visibleAutomationKeys(ctx)`；`automationRunTimelineWhere` 加可见键参数，在查询里过滤（`ctx.isPlatformAdmin` 时不加）。
   - `timeline.ts`：`workforce_job` 的 `href` 按显式工作域可读判定，无显式工作域时按 `readsEveryWorkDomain`；审计行不动。
   - `org-cockpit-view.tsx`：岗位格只在 `post` 在 `posts` 里时显示名字。
   - 改测试：
     - `timeline.test.ts`：Sunny 老板的可见自动化键含 `tender-watch`、不含 `release-drift`；梦馨老板的投标域作业 `href` 为 null；无显式工作域的作业只对可读全部工作域的人带链接；
     - `org-cockpit-view.test.tsx`：不可见岗位不显示岗位名；
     - `posts-read-model.test.ts:308`：posts 与 timeline 组装判定输入，workload 不组装；
-    - `posts-read-model.test.ts:356-380`：改为 super_admin 调用（或换成可见岗位的自动化），另加「非 super_admin 的自动化查询条件带可见键」。
+    - `posts-read-model.test.ts:356-380`：mock 补 `navContext`，判定输入设为可读销售域（保住 `href === "/workforce/run-1"`）；另加「非 super_admin 的自动化查询条件带可见键、super_admin 不带」。
   - design D12 的规格拆分已在本 change 的 spec 增量里，代码与 `waiting.test.ts` 不动。
   - verify：
     - 三份测试全过；

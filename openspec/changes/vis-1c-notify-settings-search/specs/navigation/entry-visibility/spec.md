@@ -17,7 +17,7 @@
 - **THEN** 只持 `ops_staff`、`ops_lead`、`owner` 时卡片出现；只持 `sales_rep`、`accounting`、`installer`、`fulfillment_vinyl` 时不出现；源码断言工作台按该页面判定，测试通过
 
 ### Requirement: 底栏首格指向落地页
-手机通用布局的首格在默认工作区不是安装、运营、招投标时 SHALL 指向当前用户的落地页：落地页为 `/` 时为「总览」，为 `/tasks` 时为「任务」，为 `/accounting` 时为「会计」。岗位模式与旧模式相同。
+手机通用布局的首格在默认工作区不是安装、运营、招投标时：当前用户的落地页为 `/tasks` SHALL 为「任务」→ `/tasks`，为 `/accounting` SHALL 为「会计」→ `/accounting`，其余情况仍为「总览」→ `/`。岗位模式与旧模式相同。
 
 #### Scenario: 首格指向落地页
 - **WHEN** 运行同一测试，以岗位模式输入计算通用布局首格

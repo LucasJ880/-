@@ -33,7 +33,8 @@ TASKFLOW：VIS-1c（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 平台级自动化运行只列可见岗位的；
   - workforce 作业条目只在作业可读时带链接；
   - 不可见岗位的条目不显示岗位名。
-- 收窄「管理总览」：岗位模式下侧栏「管理总览」只对管理层（平台 super_admin 或老板岗位）出现；手机底栏首格在落地页不是 `/` 时改指落地页。**BREAKING**（非管理层侧栏少一项）
+- 收窄「管理总览」：岗位模式下侧栏「管理总览」只对管理层（平台 super_admin 或老板岗位）出现。**BREAKING**（非管理层侧栏少一项）
+- 改指底栏首格：手机底栏首格在落地页为 `/tasks` 或 `/accounting` 时改指落地页（「任务」「会计」）。
 - 拆分规格：把 `cockpit/posts-overview` 里过长的「等你 N 件…」需求拆成「组成与去重」「计数与截断」与两条落点（只改规格，行为不变）。
 
 **测试**
@@ -48,9 +49,12 @@ TASKFLOW：VIS-1c（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 
 ### Modified Capabilities
 - `navigation/entry-visibility`：新增「`/settings` 索引只列放行的卡片」「营销数字员工卡片只在其页面放行时出现」「底栏首格指向落地页」。
-- `navigation/position-based-visibility`：新增「管理总览只对管理层」。
+- `authorization/position-mode-residual-reads`：「前端按派生角色显示业务模块」去掉营销数字员工入口一句。
+- `identity/wechat-entry`：「设置页微信入口」补「邮箱绑定」不显示时的位置与场景前提。
+- `tender/rfq-notifications`「四个询价通知类型」、`notifications/activity-events`「新增五个通知类型」：场景「设置页列出新类型」补用户前提。
+- `navigation/position-based-visibility`：新增「管理总览只对管理层」；「岗位模式判定」的旧模式例外清单补「底栏首格指向落地页」。
 - `agents/tool-authorization`：新增「工具列表按模块过滤且与执行同一映射」「营销工具随营销模块与品牌增长入口」。
-- `cockpit/company-log`：新增「时间线按可见岗位与可读作业收口」；「条目的岗位归属只用结构化字段」「来源范围有界」各改一个场景的前提（调用者可读 / 调用者为 super_admin）。
+- `cockpit/company-log`：新增「时间线按可见岗位与可读作业收口」；「条目的岗位归属只用结构化字段」改一个、「来源范围有界」改两个场景的前提（调用者可读 / 调用者为 super_admin）。
 - `cockpit/home-view`：「company.log 时间线」补「不可见岗位不显示岗位名」，场景「时间线条目」补前提。
 - `cockpit/posts-overview`：移除「等你 N 件按现成"待我审批"口径并与需要你去重」，新增「等你 N 件的组成与去重」「等你 N 件的计数与截断」「销售与安装审批的落点」「其余审批的落点」四条（内容不变，只拆开）。
 
@@ -70,7 +74,7 @@ TASKFLOW：VIS-1c（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 工具：`src/lib/tenancy/tool-auth.ts`（导出模块映射）、`src/lib/agent-core/tool-registry.ts`、`src/lib/agent-core/engine.ts`、`src/lib/agent-core/types.ts`、`src/app/api/agent-core/tools/route.ts`、`src/app/api/agent-core/chat/route.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`；
   - 营销卡片：`src/app/(main)/assistant/digital-employee-workbench.tsx`；
   - 时间线：`src/lib/cockpit/timeline.ts`、`posts-read-model.ts`（company log 部分）、`src/lib/navigation/landing.ts`（可见自动化键）、`src/app/api/cockpit/timeline/route.ts`、`src/components/cockpit/org-cockpit-view.tsx`；
-  - 入口：`src/lib/navigation/types.ts`（`managementOnly`）、`filter.ts`、`registry.ts`（`work-home`）、`mobile-tabs.ts`；
+  - 入口：`src/lib/navigation/types.ts`（`managementOnly`）、`filter.ts`、`registry.ts`（`work-home`）、`mobile-tabs.ts`、`src/components/mobile-tab-bar.tsx`；
   - 测试与 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
 - 硬纪律：零 schema（发信文案落在既有 `Organization.settingsJson`）、不新增权限键、零新增 LLM 调用、不触碰出站、不新增队列 / cron。
 

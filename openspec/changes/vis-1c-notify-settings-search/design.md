@@ -53,7 +53,7 @@
   - `TimelineLookups.agentRuns` 已带 `metadata.workDomain`（显式工作域）。
   - `CompanyLogDeps` 没有判定输入；`posts-read-model.test.ts:308` 断言只有 posts 路由组装判定输入。
 - **「总览」入口（VIS-1b 遗留，代码审查 #5）**：
-  - 侧栏 `work-home`（`registry.ts:124-134`，`href: "/"`）没有岗位键，岗位模式下对所有成员可见。
+  - 侧栏 `work-home`（`registry.ts:124-134`，`href: "/"`）没有岗位键，岗位模式下除纯销售（走销售侧栏）外对所有成员可见。
   - 非管理层点进去会被 `/` 按落地规则跳走（会计 → `/accounting`，出单、无岗位、梦馨外贸 → `/tasks`）。
   - 手机通用底栏首格在默认工作区不是安装、运营、招投标时固定为「总览」→ `/`（`mobile-tabs.ts:62`），两种模式相同。
   - 岗位模式的管理层 = 平台 super_admin 或持 `organization.dashboard.read`（`isManagementWorkspaceUser`，`workspace-policy.ts:98-108`）；该键只在 `owner` 模板里（`role-defaults.ts:244`）。导航的 `positionPermissions` 只看键，未绑岗位的 super_admin 不命中。
@@ -101,7 +101,7 @@
 | `install_completed`、`install_balance_confirmed`、`install_warranty_sent`、`install_warranty_failed`、`install_repair_*` | `/install`、`/accounting`、`/blinds-orders/_` | 按收件人分别落在会计、维修单、工艺单 |
 | `order_stage` | `/blinds-orders/_` | |
 | 筛选「项目分发」`project_dispatched` | `/projects/_` | 落在项目详情 |
-| 筛选「报价让利审核」`quote_promotion_approval` | `/sales/quote-sheet` | 落在报价单 |
+| 筛选「报价让利审核」`quote_promotion_approval` | `/sales/quote-sheet` | 收件人是超限折扣的审批人（老板，或兜底的企业管理员），审批对象是报价单；通知本身落在审批详情（对全体成员放行，取它会让人人都看到这一项） |
 
 按身份的结果（2026-11-09 用脚本按真实门表计算，Sunny / 梦馨默认模块，岗位模式，微信开关关）：
 
@@ -171,10 +171,10 @@
   `{ intakeStatus: "dispatched", OR: [{ ownerId }, { orgId: { in: adminOrgIds } }, { members: { some: { userId, status: "active" } } }] }`。
   它与 `requireProjectReadAccess` 同口径：负责人不限企业，org_admin / org_owner 只看本企业，active 成员只看自己参与的项目。
 - `api/search/route.ts`：
-  - 判定输入：`resolvePreferredOrgId` + `loadNavigationContextForOrg(user, orgId)`；`isRouteAllowed("/projects/_", ctx)` 为假时不查项目，`projects: []`。
+  - 平台 super_admin 不判定门（`isRouteAllowed` 本身没有 super_admin 放行），项目与任务两处都不加范围。
+  - 其余用户：判定输入 `resolvePreferredOrgId` + `loadNavigationContextForOrg(user, orgId)`；`isRouteAllowed("/projects/_", ctx)` 为假时不查项目，`projects: []`。
   - 项目条件改用 `buildProjectSearchWhere(buildReadableProjectWhere(...), q)`。
   - 任务条件照旧用 `buildProjectVisibilityWhere`（任务范围不变）。
-  - super_admin 两处都不加范围。
 - #409 的源码断言「路由用 `buildProjectSearchWhere(projectWhere, q)`」随之改写。
 - 搜索面板（`header.tsx`）不改：项目为空时它本来就不显示项目分组。
 
@@ -201,6 +201,7 @@
   - `api/ai/threads/[threadId]/messages/route.ts`
   - `api/agent-core/chat/route.ts`
   - `GET /api/agent-core/tools`
+- 外贸对话（`trade/chat-assistant.ts:279`）也是人类入口，但只取 trade / secretary 域，到不了 `marketing_*`，不传。
 - 数字员工与后台运行（`agent-runtime/process.ts`、技能运行、提及网关）不传，行为不变。它们的工具按数字员工岗位的所需权限判定（`agents/tool-authorization`「数字员工调用只认所需权限」）。
 - 执行期不加这道门：人类调用仍按「人类调用的过渡回退」只看平台角色。人类对话不传 `allowedToolNames`，所以模型若调用列表外的 `marketing_*`，执行期不会拦（见 Q5）。
 
@@ -211,22 +212,25 @@
 
 ### D9 营销数字员工卡片按 `canOpen("/marketing/employee")`（Q6）
 
-工作台取 `useNavigationAccess()`，卡片条件改为 `canOpen("/marketing/employee")`（钩子对 super_admin 一律放行）。`canUseMarketingDigitalEmployee` 本身保留：营销员工接口与微信路由仍用它，测试不变。`residual-reads.test.ts:163` 改为断言工作台按该页面判定。
+工作台取 `useNavigationAccess()`，卡片条件改为 `canOpen("/marketing/employee")`（钩子对 super_admin 一律放行）。`canUseMarketingDigitalEmployee` 本身保留：营销员工接口与微信路由仍用它，测试不变。
+- 源码断言放在 `entry-visibility.test.ts`（与 spec 场景同处）。
+- `residual-reads.test.ts:163` 去掉对营销入口的 `effectiveRole` 断言；它对应的「前端按派生角色显示业务模块」随之 MODIFIED（D13）。
 
 被否决：按任务书写「`marketing` 模块 ∧ 营销键」的新表达式。`/marketing` 的门规则 `growth-hub` 已经是模块 ∧ 岗位键（`registry.ts:867-877`），按页面判定就是这个口径。
 
 ### D10 时间线按可见岗位与可读作业收口（Q7，VIS-1b 遗留 #4）
 
 - `posts-read-model.ts`：
-  - `CompanyLogDeps` 加 `navContext: RouteGateContext | null`（null = super_admin，不限制）。时间线路由与岗位总览共用 `resolveCockpitNavContext(viewer)`。
-  - 自动化来源在查询里过滤：`automationRunTimelineWhere(window, lowFrequencyKeys, visibleKeys)` 在 `AND` 里加 `{ automationKey: { in: visibleKeys } }`；`visibleKeys` 为 null（super_admin）时不加。
+  - `CompanyLogDeps` 照 `PostsCockpitDeps`（`:209`）加 `navContext(viewer): Promise<RouteGateContext>`，时间线路由与岗位总览共用 `resolveCockpitNavContext(viewer)`；改掉 `:429` 那句「只由 posts 路由调用」的注释。
+  - 自动化来源在查询里过滤：`visibleKeys = ctx.isPlatformAdmin ? null : visibleAutomationKeys(ctx)`，`automationRunTimelineWhere(window, lowFrequencyKeys, visibleKeys)` 在 `AND` 里加 `{ automationKey: { in: visibleKeys } }`，null 时不加。super_admin 要单独放行，因为微信开关关时 `visiblePosts` 对 super_admin 也不含「客服」，否则 `service-inbox-sla` 会被滤掉。
+  - `isTimelineAutomationRun`（`:788`）与查询里的条件同口径，不会再滤掉查询放进来的行。
 - `landing.ts` 新增 `visibleAutomationKeys(ctx)`：可见岗位的 `automationKeys` 并集。岗位 → 自动化归属是注册表常量，查询内过滤后每路仍取 `limit + 1` 条，翻页不重复不遗漏。
 - `timeline.ts` 的 AI 事件行：`workforce_job` 的 `href` 按 `canReadWorkDomain(asWorkDomain(run.workDomain), ctx)` 给出；没有显式工作域的旧作业只在 `readsEveryWorkDomain(ctx)` 时给出（否则详情页按有效工作域解析可能 404）。
 - 审计行不过滤：它们来自本企业，岗位不可见不等于事情与调用者无关。
 - `org-cockpit-view.tsx` 的 `CompanyLog`：岗位格只在 `post` 出现在 `posts` 里时显示名字。`post` 为空照旧显示「未归属」。
 - 改测试：
   - `posts-read-model.test.ts:308`：posts 与 timeline 两个路由组装判定输入，workload 不组装。
-  - `posts-read-model.test.ts:356-380`（用 `release-drift` 行验证归并与游标）：改为以 super_admin 调用，或换成可见岗位的自动化。
+  - `posts-read-model.test.ts:356-380`：mock 补 `navContext`；其中 `href === "/workforce/run-1"`（销售域作业）的断言要求调用者可读销售域，按此设判定输入。
 
 被否决：
 - 查出来后再在内存里过滤自动化行。被滤掉的行仍占 `limit + 1` 的名额，游标会越过后面可见的行，违反「翻页 SHALL NOT 重复或遗漏」。
@@ -236,7 +240,8 @@
 ### D11 「管理总览」只对管理层，底栏首格指向落地页（Q8，VIS-1b 遗留 #5）
 
 - `NavigationItem` 加可选字面量 `managementOnly: true`（代码常量）。`filter.ts` 的 `positionPermissionOk` 在岗位模式下遇到它时返回 `isManagementWorkspaceUser(navWorkspaceCtx(ctx))`（同 `tradeEntry` 的写法），所以未绑岗位的 super_admin 仍看得到。`work-home` 标上它。旧模式不变。
-- `mobile-tabs.ts`：通用布局在默认工作区不是 `/install`、`/ops`、`/bids` 时，首格按 `resolveLandingPage(ctx)` 取：`/` →「总览」，`/tasks` →「任务」，`/accounting` →「会计」，其他落地页沿用「总览」。两种模式相同。
+- `mobile-tabs.ts`：通用布局在默认工作区不是 `/install`、`/ops`、`/bids` 时，首格按 `resolveLandingPage(ctx)` 取：`/tasks` →「任务」，`/accounting` →「会计」，其余情况仍为「总览」→ `/`。两种模式相同（旧模式下这类成员的落地页还可能是 `/ops`、`/bids` 等，那些照旧显示「总览」，进去后按落地规则跳转）。
+- `mobile-tab-bar.tsx`：`TAB_ICONS` 与 `tabMatch`（`:31-73`）补两个新页签键 `tasks`、`accounting`。
 - 路由门对 `/` 仍是登录即可（`/=`），不改。
 - 受影响快照：`position-nav.test.ts` 非管理层侧栏去掉 `work-home`；`entry-visibility.test.ts` 的底栏首格按身份更新。
 
@@ -247,6 +252,18 @@
 ### D12 拆分「等你 N 件」规格（Q9）
 
 用 REMOVED + ADDED 拆成四条：「组成与去重」「计数与截断」「销售与安装审批的落点」「其余审批的落点」。原有 8 个场景按内容分配，每条的首个场景写明测试命令，其余文字不变。不用 MODIFIED：MODIFIED 必须保留整条正文和全部场景，拆不开。代码与 `waiting.test.ts` 不改。
+
+### D13 既有规格的连带修改
+
+本 change 让下面几条既有规格的字面不再成立，用 MODIFIED 改写，正文与场景名不变，只加前提或例外：
+
+- `authorization/position-mode-residual-reads`「前端按派生角色显示业务模块」：营销数字员工入口不再按 `effectiveRole`，改指 entry-visibility。
+- `identity/wechat-entry`「设置页微信入口」：「邮箱绑定」不显示时微信卡片照旧在该位置；场景加「`/settings/email` 对其放行」。
+- `tender/rfq-notifications`「四个询价通知类型」、`notifications/activity-events`「新增五个通知类型」：场景「设置页列出新类型」加「处理页面对其放行的用户」。
+- `navigation/position-based-visibility`「岗位模式判定」：旧模式例外清单加「底栏首格指向落地页」。
+- `cockpit/company-log`「来源范围有界」两个场景、「条目的岗位归属只用结构化字段」一个场景：加调用者前提（D10）。
+
+被否决：不改这些规格，靠新 capability 覆盖。归档后主规格会同时有两条相反的要求。
 
 ## 与八条硬纪律的关系
 
@@ -287,7 +304,7 @@
 门禁：
 - `npm run test:ci`、`npm test`（13 个环境类失败与 origin/main 相同）。
 - `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`npx next build --webpack`。
-- `openspec validate vis-1c-notify-settings-search --strict`。归档后 `openspec validate --specs --strict` 的超长告警从 1 条变 0 条。
+- `openspec validate vis-1c-notify-settings-search --strict`。归档后 `openspec validate --specs --strict` 的超长告警从 3 条变 2 条（剩 `authorization/position-catalog`、`sunny/process-order-autogen`，不在本 change 范围）。
 
 ## 审核关注点（偏离或补充任务书之处，请拍板）
 
@@ -314,5 +331,5 @@
   - 没有显式工作域的旧作业只对可读全部工作域的人带链接。
 - Q8（D11）：
   - 岗位模式下「管理总览」只对管理层（平台 super_admin 或持 `organization.dashboard.read`，即 `owner`）出现。**BREAKING**：非管理层侧栏少一项。
-  - 底栏首格改指落地页，两种模式都生效：会计「会计」；出单、无岗位、梦馨外贸「任务」。
+  - 底栏首格在落地页为 `/tasks` 或 `/accounting` 时改指落地页，两种模式都生效：会计「会计」；出单、无岗位、梦馨外贸「任务」；其余仍「总览」。
 - Q9（D12）：「等你 N 件」拆成四条而不是两条，因为落点表单独一条仍超 500 字。
