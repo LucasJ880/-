@@ -202,7 +202,7 @@
 
 #### Scenario: 源码断言
 - **WHEN** 运行 `npx tsx src/lib/navigation/__tests__/route-gate.test.ts`
-- **THEN** 快照里 163 个已登录区页面与实际页面一一对应，每个都映射到其规则；6 个已登录区以外的页面全部在免登录或门外清单里，测试通过
+- **THEN** 快照里 166 个已登录区页面与实际页面一一对应，每个都映射到其规则（含 PROC-1 新增的 `/projects/intelligence/monitor/settings`、`/projects/intelligence/records`、`/projects/intelligence/records/[id]`，均归「采购情报」`nav-intel-monitor`）；6 个已登录区以外的页面全部在免登录或门外清单里，测试通过
 
 #### Scenario: 新页面漏登记
 - **WHEN** 在已登录区新增一个页面（例如 `/projects/<id>/new-tab`，落在已有前缀之下）而不更新快照，再运行同一测试
