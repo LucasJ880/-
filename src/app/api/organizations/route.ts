@@ -59,8 +59,6 @@ export async function GET(request: NextRequest) {
         projectCount: projectCountByOrg.get(o.id) ?? 0,
         myRole: roleByOrg.get(o.id) ?? null,
         company: o.company ?? null,
-        // USR-1：邀请码页选企业后自动带上该企业的公司 logo
-        companyId: o.companyId,
       })),
     });
   }

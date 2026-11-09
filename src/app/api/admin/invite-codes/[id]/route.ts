@@ -36,11 +36,14 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     if (!binding.ok) {
       return NextResponse.json({ error: binding.error }, { status: 400 });
     }
-    if (binding.orgId && !(await findBindableOrg(binding.orgId))) {
+    const boundOrg = binding.orgId ? await findBindableOrg(binding.orgId) : null;
+    if (binding.orgId && !boundOrg) {
       return NextResponse.json({ error: "企业不存在或已停用" }, { status: 400 });
     }
     data.orgId = binding.orgId;
     data.orgRole = binding.orgRole;
+    // 公司 logo 跟随企业：补绑 / 改绑时按该企业关联的公司写入；解绑不动
+    if (boundOrg) data.companyIdsJson = boundOrg.companyId ? JSON.stringify([boundOrg.companyId]) : null;
   }
 
   try {

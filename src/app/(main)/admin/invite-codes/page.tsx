@@ -45,23 +45,6 @@ const ORG_ROLE_LABELS: Record<string, string> = {
   org_admin: "企业管理员",
 };
 
-interface Company {
-  id: string;
-  name: string;
-  slug: string;
-  logoUrl: string;
-}
-
-function parseCompanyIds(json: string | null): string[] {
-  if (!json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
 const ROLE_LABELS: Record<string, string> = {
   admin: "管理员",
   boss: "老板",
@@ -90,10 +73,8 @@ export default function InviteCodesPage() {
   const [newRole, setNewRole] = useState("user");
   const [newLabel, setNewLabel] = useState("");
   const [newMaxUses, setNewMaxUses] = useState("");
-  const [newCompanyIds, setNewCompanyIds] = useState<string[]>([]);
   const [newOrgId, setNewOrgId] = useState("");
   const [newOrgRole, setNewOrgRole] = useState("org_member");
-  const [companies, setCompanies] = useState<Company[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -107,10 +88,6 @@ export default function InviteCodesPage() {
         .sort((a, b) => a.name.localeCompare(b.name, "zh-CN")),
     [organizations],
   );
-  const orgCompanyId = (orgId: string): string | null => {
-    const o = organizations.find((x) => x.id === orgId) as { companyId?: string | null } | undefined;
-    return o?.companyId ?? null;
-  };
   const orgName = (orgId: string) => orgOptions.find((o) => o.id === orgId)?.name ?? "";
 
   const [editingOrgFor, setEditingOrgFor] = useState<string | null>(null);
@@ -119,14 +96,10 @@ export default function InviteCodesPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
 
+  // 公司 logo 不在页面上选：绑定企业时由服务端按该企业关联的公司写入
   const pickNewOrg = (orgId: string) => {
     setNewOrgId(orgId);
-    if (!orgId) return;
-    if (!(ORG_BOUND_ROLES as readonly string[]).includes(newRole)) setNewRole("sales");
-    const companyId = orgCompanyId(orgId);
-    if (companyId && companies.some((c) => c.id === companyId)) {
-      setNewCompanyIds((prev) => (prev.includes(companyId) ? prev : [...prev, companyId]));
-    }
+    if (orgId && !(ORG_BOUND_ROLES as readonly string[]).includes(newRole)) setNewRole("sales");
   };
 
   const openCreate = () => {
@@ -134,30 +107,16 @@ export default function InviteCodesPage() {
     setError("");
     const defaultOrg = currentOrgId && orgOptions.some((o) => o.id === currentOrgId) ? currentOrgId : "";
     setNewOrgRole("org_member");
-    if (defaultOrg) {
-      setNewRole("sales");
-      setNewCompanyIds([]);
-      setNewOrgId(defaultOrg);
-      const companyId = orgCompanyId(defaultOrg);
-      if (companyId && companies.some((c) => c.id === companyId)) setNewCompanyIds([companyId]);
-    } else {
-      setNewOrgId("");
-    }
+    setNewOrgId(defaultOrg);
+    if (defaultOrg) setNewRole("sales");
   };
 
   const loadCodes = useCallback(async () => {
     try {
-      const [codesRes, companiesRes] = await Promise.all([
-        apiFetch("/api/admin/invite-codes"),
-        apiFetch("/api/admin/companies"),
-      ]);
+      const codesRes = await apiFetch("/api/admin/invite-codes");
       if (codesRes.ok) {
         const data = await codesRes.json();
         setCodes(data.codes);
-      }
-      if (companiesRes.ok) {
-        const data = await companiesRes.json();
-        setCompanies(data.companies);
       }
     } finally {
       setLoading(false);
@@ -188,7 +147,6 @@ export default function InviteCodesPage() {
           role: newRole,
           label: newLabel.trim() || undefined,
           maxUses: newMaxUses ? parseInt(newMaxUses) : null,
-          companyIds: newCompanyIds.length > 0 ? newCompanyIds : undefined,
           orgId: newOrgId || null,
           orgRole: newOrgId ? newOrgRole : undefined,
         }),
@@ -203,7 +161,6 @@ export default function InviteCodesPage() {
       setNewRole("user");
       setNewLabel("");
       setNewMaxUses("");
-      setNewCompanyIds([]);
       setNewOrgId("");
       setNewOrgRole("org_member");
       loadCodes();
@@ -328,7 +285,7 @@ export default function InviteCodesPage() {
             </div>
             <p className="sm:col-span-2 -mt-2 text-xs text-muted" data-testid="invite-org-hint">
               {newOrgId
-                ? `用这个码注册的人直接加入「${orgName(newOrgId)}」，当前企业就是它；按平台角色自动绑定默认岗位（销售 → 销售人员，外贸 → 外贸业务员），不会建个人工作区。绑定企业的码只能分配销售或外贸角色。`
+                ? `用这个码注册的人直接加入「${orgName(newOrgId)}」，当前企业就是它；按平台角色自动绑定默认岗位（销售 → 销售人员，外贸 → 外贸业务员），左上角显示该企业的公司 logo，不会建个人工作区。绑定企业的码只能分配销售或外贸角色。`
                 : "不加入企业：注册后会自建一个「××的工作区」，之后要由平台管理员在企业成员页把人加进企业并设岗位。"}
             </p>
             <div>
@@ -375,41 +332,6 @@ export default function InviteCodesPage() {
                 className="w-full rounded-lg border border-border/60 bg-input-bg px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none"
               />
             </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-muted">
-                公司归属（可多选，登录后左上角显示「青砚 × 公司logo」）
-              </label>
-              {companies.length === 0 ? (
-                <p className="text-xs text-muted/60">暂无公司，可先运行公司初始化脚本或联系管理员创建</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {companies.map((co) => {
-                    const selected = newCompanyIds.includes(co.id);
-                    return (
-                      <button
-                        key={co.id}
-                        type="button"
-                        onClick={() =>
-                          setNewCompanyIds((prev) =>
-                            selected ? prev.filter((id) => id !== co.id) : [...prev, co.id]
-                          )
-                        }
-                        className={cn(
-                          "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors",
-                          selected
-                            ? "border-accent/60 bg-accent/10 text-foreground"
-                            : "border-border/60 bg-input-bg text-muted hover:text-foreground"
-                        )}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={co.logoUrl} alt={co.name} className="h-4 w-4 rounded-full object-cover" />
-                        {co.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="flex items-center gap-2 pt-2">
@@ -438,7 +360,6 @@ export default function InviteCodesPage() {
               <th className="px-4 py-3 font-medium">邀请码</th>
               <th className="px-4 py-3 font-medium">角色</th>
               <th className="px-4 py-3 font-medium">企业</th>
-              <th className="px-4 py-3 font-medium">公司</th>
               <th className="px-4 py-3 font-medium">备注</th>
               <th className="px-4 py-3 font-medium text-center">已用/上限</th>
               <th className="px-4 py-3 font-medium text-center">状态</th>
@@ -448,7 +369,7 @@ export default function InviteCodesPage() {
           <tbody>
             {codes.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-12 text-center text-muted">
+                <td colSpan={7} className="px-4 py-12 text-center text-muted">
                   暂无邀请码，点击上方按钮创建
                 </td>
               </tr>
@@ -547,30 +468,6 @@ export default function InviteCodesPage() {
                       </button>
                     </div>
                   )}
-                </td>
-                <td className="px-4 py-3">
-                  {(() => {
-                    const ids = parseCompanyIds(c.companyIdsJson);
-                    if (ids.length === 0) return <span className="text-muted">—</span>;
-                    return (
-                      <div className="flex items-center gap-1.5">
-                        {ids.map((id) => {
-                          const co = companies.find((x) => x.id === id);
-                          if (!co) return null;
-                          return (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              key={id}
-                              src={co.logoUrl}
-                              alt={co.name}
-                              title={co.name}
-                              className="h-5 w-5 rounded-full object-cover ring-1 ring-border/40"
-                            />
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
                 </td>
                 <td className="px-4 py-3 text-muted">{c.label || "—"}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-center">

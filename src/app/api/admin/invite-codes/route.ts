@@ -75,7 +75,8 @@ export async function POST(request: NextRequest) {
   if (!binding.ok) {
     return NextResponse.json({ error: binding.error }, { status: 400 });
   }
-  if (binding.orgId && !(await findBindableOrg(binding.orgId))) {
+  const boundOrg = binding.orgId ? await findBindableOrg(binding.orgId) : null;
+  if (binding.orgId && !boundOrg) {
     return NextResponse.json({ error: "企业不存在或已停用" }, { status: 400 });
   }
 
@@ -86,9 +87,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "邀请码已存在" }, { status: 409 });
   }
 
-  // 公司归属（可多选）：校验公司存在且启用
+  // 公司 logo 跟随企业：绑定企业时按该企业关联的公司写入（页面不再提供选择，传入的 companyIds 忽略）；
+  // 不绑定企业时仍接受旧参数 companyIds（接口兼容）
   let companyIdsJson: string | null = null;
-  if (companyIds && companyIds.length > 0) {
+  if (boundOrg) {
+    companyIdsJson = boundOrg.companyId ? JSON.stringify([boundOrg.companyId]) : null;
+  } else if (companyIds && companyIds.length > 0) {
     const validCompanies = await db.company.findMany({
       where: { id: { in: companyIds }, isActive: true },
       select: { id: true },
