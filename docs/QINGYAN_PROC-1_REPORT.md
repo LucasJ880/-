@@ -246,7 +246,10 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 | `VERCEL_ENV=production` 迁移闸 | OK：42 条迁移全部已应用（vinyl 那条按「库比代码新」提醒放行） |
 | Vercel 项目 `-`（Production） | 设 `PROCUREMENT_RECORDS_SCHEMA_READY=1`、`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`；重新部署；随后合并 #406 / #404 / #405 并部署 |
 
-未在本记录中确认的：初始数据写入（`procurement-records-seed.ts --write`）与 Sunny 单企业岗位落地（`seed-org-authorization.ts`）是否已执行；规则核实、申请人确认、启用监控与 §10 业务验收由 Lucas 在界面完成。
+| 初始数据写入 `procurement-records-seed.ts --with-history-case`（先 dry-run 再 `--write`） | 目标 `ep-super-field-antfibsl`、组织 Sunny Home & Deco、以其 org_owner（Lucas）名义；S6 `CW2379109` / S7 `CW2450151` / S8 `CW2370017` 三条研究种子 `created: true`；历史案件 A-2026-00183 `created: true`（待核实历史记录，user_reported） |
+| Sunny 单企业岗位落地 `seed-org-authorization.ts --org sunny-home-deco`（VIS-2 / #405 部署后） | 岗位 20、权限绑定 171、岗位模板 18；核对 `sales.revenue.summary.read` 绑在 `ops_lead`、`ops_staff` 上 |
+
+以上为 Evan 2026-11-09 贴回的终端输出。规则核实、申请人确认、启用监控与 §10 业务验收由 Lucas 在界面完成。
 
 ## 9. 需要你提供的资料或决定
 
