@@ -147,7 +147,7 @@ ok(/addEventListener\("hashchange"/.test(project), "项目页监听锚点变化"
 ok(/setActiveTab\("workbench"\)/.test(project), "项目页打开工作台");
 ok(/getElementById\("project-discussion"\)/.test(project) && /scrollIntoView/.test(project), "讨论区渲染后滚动过去");
 
-const mw = read("src/middleware.ts");
+const mw = read("src/proxy.ts");
 ok(/import \{[^}]*loginRedirectPath[^}]*\} from "@\/lib\/auth\/safe-next"/.test(mw), "中间件导入登录地址函数");
 ok(/loginRedirectPath\(pathname, request\.nextUrl\.search\)/.test(mw), "中间件按原路径与查询串生成登录地址");
 const apiCheck = mw.indexOf('pathname.startsWith("/api/")');

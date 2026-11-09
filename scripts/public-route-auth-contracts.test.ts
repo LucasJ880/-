@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { requireCronSecret } from "../src/lib/cron/auth";
 import { requireTradeCronSecret } from "../src/lib/trade/access";
-import { middleware } from "../src/middleware";
+import { proxy } from "../src/proxy";
 
 const root = process.cwd();
 let passed = 0;
@@ -54,7 +54,7 @@ function extractPublicPathsArray(mwSrc: string): string[] {
 
 async function main() {
   console.log("\nmiddleware public paths（bypass session，≠ 匿名开放）");
-  const mw = read("src/middleware.ts");
+  const mw = read("src/proxy.ts");
   const publicPaths = extractPublicPathsArray(mw);
   for (const p of [
     "/api/cron",
@@ -390,7 +390,7 @@ async function main() {
 
   console.log("\n动态：middleware 对 /embed/inquiry.js 不要求网页 Session");
   {
-    const res = await middleware(new NextRequest("http://localhost/embed/inquiry.js"));
+    const res = await proxy(new NextRequest("http://localhost/embed/inquiry.js"));
     ok(res.status !== 401 && res.status !== 307 && !res.headers.get("location"), "middleware 放行 /embed/inquiry.js（不重定向登录）");
   }
 
@@ -399,7 +399,7 @@ async function main() {
     const req = new NextRequest("http://localhost/api/trade/cron", {
       method: "POST",
     });
-    const res = await middleware(req);
+    const res = await proxy(req);
     // public bypass → next()；非 public 未登录 API → 401 + x-auth-reason=session
     const authReason = res.headers.get("x-auth-reason");
     ok(res.status !== 401, "middleware does not 401 trade/cron without session");
@@ -408,7 +408,7 @@ async function main() {
 
   console.log("\n动态：middleware 对 /api/trade/webhook/email 不要求网页 Session");
   {
-    const res = await middleware(new NextRequest("http://localhost/api/trade/webhook/email", { method: "POST" }));
+    const res = await proxy(new NextRequest("http://localhost/api/trade/webhook/email", { method: "POST" }));
     ok(res.status !== 401 && res.headers.get("x-auth-reason") !== "session", "middleware does not 401 trade/webhook/email without session");
   }
 

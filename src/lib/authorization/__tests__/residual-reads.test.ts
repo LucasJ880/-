@@ -157,7 +157,7 @@ ok(PLATFORM_ROLE_COLLAPSE_READY === true, "写库闸门已打开");
   const gate = src("src/lib/navigation/route-gate.ts");
   ok(gate.includes('{ pattern: "/marketing", rule: nav("growth-hub") }') && gate.includes('{ pattern: "/operations/growth", rule: nav("growth-hub") }'), "营销页面经路由门（品牌增长口径）");
   ok(!existsSync(join(process.cwd(), "src/app/(main)/marketing/layout.tsx")) && !existsSync(join(process.cwd(), "src/lib/marketing/workspace-gate.ts")), "旧营销页面门已删");
-  ok(src("src/middleware.ts").includes("isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)"), "中间件旧模式营销接口分支保留");
+  ok(src("src/proxy.ts").includes("isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)"), "中间件旧模式营销接口分支保留");
   // 前端
   ok(src("src/components/dashboard/management-dashboard-client.tsx").includes("user?.effectiveRole || user?.role"), "管理总览读 effectiveRole");
   ok(src("src/app/(main)/assistant/digital-employee-workbench.tsx").includes("user?.effectiveRole ?? user?.role"), "工作台营销入口读 effectiveRole");
