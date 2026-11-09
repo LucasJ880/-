@@ -86,8 +86,10 @@ export interface PostDefinition {
   /** 整个 runType 都属于本岗位时才列出；不归属的取值见 UNATTRIBUTED_AGENT_RUN_TYPES */
   agentRunTypes: readonly string[];
   kpi: PostKpiSpec;
-  /** 卡片点击跳转的既有页面路径 */
+  /** 卡片点击跳转的既有页面路径；卡片对某用户可见 ⇔ 该路径经路由门放行（VIS-1b，spec cockpit/post-registry） */
   nav: string;
+  /** VIS-1b：另要求微信入口开关打开才可见（只有「客服」） */
+  requiresWechatEntry?: true;
 }
 
 // ── 注册表（数组顺序即岗位卡片展示顺序） ────────────────────────
@@ -197,6 +199,7 @@ export const POST_REGISTRY = [
       reason: "客服线只有写入型的 SLA 扫描函数（runServiceInboxSla，跨组织、会改提醒级别），计数内联在 GET /api/service-inbox 路由里，没有按组织只读的读函数",
     },
     nav: "/service-inbox",
+    requiresWechatEntry: true,
   },
   {
     key: "projects",

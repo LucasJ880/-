@@ -12,6 +12,9 @@
  * - cursor: 上一页返回的游标（篡改/非法 → 400）
  *
  * 排序恒为 updatedAt DESC（最近活跃优先）。无任何写入路径。
+ *
+ * VIS-1b：只返回当前用户可读工作域的作业（spec agents/workforce-job-scope）——判定输入取接口已解析的企业，
+ * 与路由门同一套拼装；服务层分批补扫凑页，响应形状不变（{ jobs, nextCursor }）。
  */
 
 import { NextResponse } from "next/server";
@@ -25,6 +28,7 @@ import {
   workforceOrgFailureHttp,
 } from "@/lib/workforce-runtime/read-model";
 import type { WorkforceJobsCursor } from "@/lib/workforce-runtime/read-model";
+import { loadWorkforceJobReadFilter } from "@/lib/workforce-runtime/job-scope-server";
 
 export const GET = withAuth(async (req, _ctx, user) => {
   const resolution = await resolveWorkforceApiOrgForUser({
@@ -62,11 +66,13 @@ export const GET = withAuth(async (req, _ctx, user) => {
     }
   }
 
+  const { canRead } = await loadWorkforceJobReadFilter({ id: user.id, role: user.role }, resolution.orgId);
   const result = await listWorkforceJobViews({
     orgId: resolution.orgId,
     status: statusParam,
     limit,
     cursor,
+    canRead,
   });
 
   return NextResponse.json({

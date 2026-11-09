@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { SalesBottomSheet } from "./sales-bottom-sheet";
 import { useOrgModules } from "@/lib/hooks/use-org-modules";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 
 const ITEMS = [
   {
@@ -48,6 +49,8 @@ export function SalesMobileCreateSheet({
   onClose: () => void;
 }) {
   const { hasModule } = useOrgModules();
+  // VIS-1b：面板里的入口只在目标放行时出现（spec navigation/entry-visibility）
+  const { canOpen } = useNavigationAccess();
   const windowCovering = hasModule("window_covering");
   const items = ITEMS.flatMap((item) => {
     if (item.href === "/sales/quote-sheet" && windowCovering === false) {
@@ -58,7 +61,7 @@ export function SalesMobileCreateSheet({
       return [];
     }
     return [item];
-  });
+  }).filter((item) => canOpen(item.href));
   return (
     <SalesBottomSheet open={open} onClose={onClose} title="新增">
       <div className="grid grid-cols-2 gap-2">

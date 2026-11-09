@@ -77,7 +77,7 @@ export function OrgCockpitView({
     <div className="mx-auto w-full max-w-6xl">
       <PageHeader
         title="岗位视图"
-        description="七个岗位在不在干活、哪里卡住、等你拍板几件"
+        description="各岗位在不在干活、哪里卡住、等你拍板几件"
         meta={
           data ? (
             <>
@@ -163,6 +163,8 @@ export function OrgCockpitView({
 export function WaitingBanner({ data, now }: { data: PostsCockpitResponse; now: Date }) {
   const waiting = data.waitingForYou;
   const items = waiting.items.slice(0, WAITING_PREVIEW);
+  // VIS-1b：所属岗位只在它是可见岗位（在 posts 里）时显示（spec cockpit/home-view「等你 N 件横幅」）
+  const visiblePostKeys = new Set<string>(data.posts.map((p) => p.key));
   return (
     <section aria-label="等你拍板" className="rounded-xl border border-border/60 bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -191,7 +193,9 @@ export function WaitingBanner({ data, now }: { data: PostsCockpitResponse; now: 
             <li key={`${item.kind}:${item.id}`}>
               <Link href={item.href} className="-mx-2 flex min-h-[44px] items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted/5">
                 <span className="min-w-0 flex-1 truncate text-foreground">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted">{postName(item.post)}</span>
+                {item.post && visiblePostKeys.has(item.post) ? (
+                  <span className="shrink-0 text-xs text-muted">{postName(item.post)}</span>
+                ) : null}
                 <span className="w-20 shrink-0 text-right text-xs text-muted">{formatRelativeTime(item.at, now)}</span>
               </Link>
             </li>
@@ -429,7 +433,7 @@ function BannerSkeleton() {
 function CardsSkeleton() {
   return (
     <>
-      {Array.from({ length: 7 }, (_, i) => (
+      {Array.from({ length: 3 }, (_, i) => (
         <div key={i} className="h-[196px] animate-pulse rounded-xl border border-border/60 bg-card p-4" aria-hidden="true">
           <div className="h-4 w-1/3 rounded bg-foreground/[0.07]" />
           <div className="mt-2.5 h-3 w-1/2 rounded bg-foreground/[0.05]" />

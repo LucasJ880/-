@@ -54,6 +54,7 @@ npx tsx src/lib/workforce-runtime/__tests__/t5-plan-seam.test.ts
 npx tsx src/lib/workforce-runtime/__tests__/t5-execution-policy.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-seg2-v2-spine.test.ts
 npx tsx src/lib/workforce-runtime/__tests__/t5-seg25-work-domain.test.ts
+npx tsx src/lib/workforce-runtime/__tests__/readable-domains.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-seg3-v2-convergence.test.ts
 npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts
 npx tsx src/lib/workforce-runtime/__tests__/obs-p1-latency-self-trigger.test.ts
@@ -147,6 +148,7 @@ npx tsx src/lib/navigation/__tests__/trade-layout.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/navigation/__tests__/route-gate.test.ts
+npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
 npx tsx src/lib/autopilot/__tests__/repository-org.test.ts

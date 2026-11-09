@@ -175,6 +175,66 @@ export interface PostWaitingCounts {
 export const WAITING_HREF = "/capabilities/approvals";
 export const WAITING_ITEMS_LIMIT = 10;
 
+// ── 落点（VIS-1b，spec cockpit/posts-overview「等你 N 件…」；design D4）──────────
+
+/** 审批详情页：审批 id = `<来源类型>:<来源 id>`，整段 URL 编码（与审批中心列表、报价审批接口同写法） */
+export function approvalDetailHref(sourceType: ApprovalSource, sourceId: string): string {
+  return `${WAITING_HREF}/${encodeURIComponent(`${sourceType}:${sourceId}`)}`;
+}
+
+type LandingFn = (payload: Record<string, unknown> | null, row: PendingActionRow | null) => string | null;
+const enc = encodeURIComponent;
+const quoteSheet: LandingFn = (p) => {
+  const quoteId = str(p?.quoteId);
+  return quoteId ? `/sales/quote-sheet?mode=order&quoteId=${enc(quoteId)}` : null;
+};
+const rfqRound: LandingFn = (p, row) => {
+  const projectId = str(p?.projectId) ?? row?.projectId ?? null;
+  const inquiryId = str(p?.inquiryId);
+  return projectId && inquiryId ? `/projects/${enc(projectId)}?tab=bid#rfq-round-${enc(inquiryId)}` : null;
+};
+
+/** PendingAction 类型 → 专属落点（payload 缺对应 id 时为 null，退回审批详情） */
+export const PENDING_ACTION_LANDINGS: Readonly<Record<string, LandingFn>> = {
+  "sales.approve_quote_promotion": quoteSheet,
+  "sales.update_signed_quote": quoteSheet,
+  "sales.update_quote_settings": () => "/sales/cockpit",
+  "install.send_warranty_email": (p) => {
+    const orderId = str(p?.orderId);
+    return orderId ? `/accounting?tab=balance&order=${enc(orderId)}` : null;
+  },
+  "install.send_repair_visit_email": (p) => {
+    const repairId = str(p?.repairId);
+    return repairId ? `/install/repairs/${enc(repairId)}` : null;
+  },
+  "orders.cancel_blinds_order": (p) => {
+    const orderId = str(p?.orderId);
+    return orderId ? `/blinds-orders/${enc(orderId)}` : null;
+  },
+  "tender.send_rfq": rfqRound,
+  "tender.send_chase": rfqRound,
+};
+
+/** 一条待我审批的落点：专属页面，否则审批详情 */
+export function approvalLandingHref(item: PendingMineInput, row: PendingActionRow | null): string {
+  if (item.sourceType === "PENDING_ACTION") {
+    const type = row?.type ?? item.actionType;
+    const payload = record(row?.payload);
+    if (type.startsWith("revenue_spine.")) return "/revenue";
+    const landing = PENDING_ACTION_LANDINGS[type]?.(payload, row);
+    if (landing) return landing;
+  }
+  return approvalDetailHref(item.sourceType, item.sourceId);
+}
+
+/** 调用者的入口判定（缺省 = 不过滤，测试与改动前口径用） */
+export interface WaitingAccess {
+  /** 该地址对调用者放行（与路由门同源；平台 super_admin 一律放行） */
+  canOpen(href: string): boolean;
+  /** 需要你作业的工作域对调用者可读（spec agents/workforce-job-scope） */
+  canReadWorkDomain(domain: string | null): boolean;
+}
+
 const KIND_BY_SOURCE: Record<ApprovalSource, WaitingKind | null> = {
   PENDING_ACTION: "pending_action",
   APPROVAL_REQUEST: "approval_request",
@@ -196,6 +256,8 @@ export function buildWaitingForYou(input: {
   jobsTruncated: boolean;
   lookups: AttributionLookups;
   limit?: number;
+  /** VIS-1b：只列落点放行的审批、只列可读的需要你作业 */
+  access?: WaitingAccess;
 }): { waitingForYou: WaitingForYou; perPost: Record<PostKey, PostWaitingCounts> } {
   const perPost = Object.fromEntries(POST_KEYS.map((k) => [k, { pendingApprovals: 0, needsYou: 0 }])) as Record<
     PostKey,
@@ -203,9 +265,17 @@ export function buildWaitingForYou(input: {
   >;
   const items: WaitingItem[] = [];
 
+  let listedApprovals = 0;
+  const listedPendingActions = new Set<string>();
   for (const approval of input.pendingMine) {
     const kind = KIND_BY_SOURCE[approval.sourceType];
     if (!kind) continue;
+    const row = approval.sourceType === "PENDING_ACTION" ? input.lookups.pendingActions.get(approval.sourceId) ?? null : null;
+    const href = approvalLandingHref(approval, row);
+    // 落点对调用者不放行的条目：不列、不计数（例：Sunny 的 revenue_spine.* → /revenue）
+    if (input.access && !input.access.canOpen(href)) continue;
+    listedApprovals++;
+    if (approval.sourceType === "PENDING_ACTION") listedPendingActions.add(approval.sourceId);
     const post = attributePendingMine(approval, input.lookups);
     if (post) perPost[post].pendingApprovals++;
     items.push({
@@ -214,15 +284,13 @@ export function buildWaitingForYou(input: {
       title: redactCockpitText(approval.title ?? approval.actionType),
       post,
       at: approval.createdAt,
-      href: WAITING_HREF,
+      href,
     });
   }
 
-  const listedPendingActions = new Set(
-    input.pendingMine.filter((a) => a.sourceType === "PENDING_ACTION").map((a) => a.sourceId),
-  );
   let separateJobs = 0;
   for (const job of input.jobs) {
+    if (input.access && !input.access.canReadWorkDomain(job.workDomain)) continue;
     const post = attributeNeedsYouJob(job);
     if (post) perPost[post].needsYou++;
     const coveredByApprovals =
@@ -241,9 +309,11 @@ export function buildWaitingForYou(input: {
 
   items.sort(byNewest);
   const fetchedApprovals = input.pendingMine.filter((a) => KIND_BY_SOURCE[a.sourceType] !== null).length;
+  // 截断：未取到的行判不了落点，原样计入（design D4）
+  const unfetchedApprovals = Math.max(0, input.pendingMineTotal - fetchedApprovals);
   return {
     waitingForYou: {
-      total: Math.max(input.pendingMineTotal, fetchedApprovals) + separateJobs,
+      total: listedApprovals + unfetchedApprovals + separateJobs,
       truncated: input.pendingMineTruncated || input.jobsTruncated || input.pendingMineTotal > fetchedApprovals,
       unattributed: items.filter((i) => i.post === null).length,
       items: items.slice(0, input.limit ?? WAITING_ITEMS_LIMIT),

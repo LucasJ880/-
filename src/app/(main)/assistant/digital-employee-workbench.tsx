@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +85,8 @@ export function DigitalEmployeeWorkbench({
   onPrompt,
 }: DigitalEmployeeWorkbenchProps) {
   const { user } = useCurrentUser();
+  // VIS-1b：指向 /sales/** 的入口只在目标放行时出现（design D12）
+  const { canOpen } = useNavigationAccess();
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [pending, setPending] = useState<PendingAction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -208,18 +211,20 @@ export function DigitalEmployeeWorkbench({
               <h3 className="text-sm font-semibold text-foreground">今日行动队列</h3>
               <p className="mt-0.5 text-xs text-muted">来自 CRM、报价状态和跟进日期</p>
             </div>
-            <Link href="/sales" className="text-xs font-medium text-accent hover:underline">
-              打开销售工作区
-            </Link>
+            {canOpen("/sales") ? (
+              <Link href="/sales" className="text-xs font-medium text-accent hover:underline">
+                打开销售工作区
+              </Link>
+            ) : null}
           </div>
 
           <div className="mt-3 space-y-2">
-            {alerts.slice(0, 5).map((item, index) => (
-              <Link
-                key={`${item.category}-${item.action?.payload?.customerId ?? index}`}
-                href={alertHref(item)}
-                className="group flex items-start gap-3 rounded-lg border border-border/70 bg-background/50 p-3 hover:border-accent/25 hover:bg-accent-soft/40"
-              >
+            {alerts.slice(0, 5).map((item, index) => {
+              const href = alertHref(item);
+              const linked = canOpen(href);
+              const key = `${item.category}-${item.action?.payload?.customerId ?? index}`;
+              const body = (
+                <>
                 <span
                   className={cn(
                     "mt-1.5 h-2 w-2 shrink-0 rounded-full",
@@ -232,9 +237,20 @@ export function DigitalEmployeeWorkbench({
                     {item.description}
                   </span>
                 </span>
-                <ArrowRight size={14} className="mt-1 shrink-0 text-muted group-hover:text-accent" />
-              </Link>
-            ))}
+                  {linked ? <ArrowRight size={14} className="mt-1 shrink-0 text-muted group-hover:text-accent" /> : null}
+                </>
+              );
+              const cls = "group flex items-start gap-3 rounded-lg border border-border/70 bg-background/50 p-3";
+              return linked ? (
+                <Link key={key} href={href} className={`${cls} hover:border-accent/25 hover:bg-accent-soft/40`}>
+                  {body}
+                </Link>
+              ) : (
+                <div key={key} className={cls}>
+                  {body}
+                </div>
+              );
+            })}
             {!loading && alerts.length === 0 && (
               <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted">
                 暂无高优先事项。数字员工会持续关注跟进日期、报价状态和客户互动。
@@ -282,9 +298,11 @@ export function DigitalEmployeeWorkbench({
             </div>
           </div>
         </div>
-        <Link href="/sales/quote-sheet" className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800">
-          创建报价 <ArrowRight size={13} />
-        </Link>
+        {canOpen("/sales/quote-sheet") ? (
+          <Link href="/sales/quote-sheet" className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800">
+            创建报价 <ArrowRight size={13} />
+          </Link>
+        ) : null}
       </section>
     </div>
   );

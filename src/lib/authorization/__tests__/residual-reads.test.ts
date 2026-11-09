@@ -154,7 +154,7 @@ ok(PLATFORM_ROLE_COLLAPSE_READY === true, "写库闸门已打开");
   ];
   for (const f of mktFiles) ok(src(`src/app/api/marketing/${f}/route.ts`).includes("requireMarketingReadAccess(user"), `GET /api/marketing/${f}：读守卫`);
   // VIS-1a：营销页面改由路由门判定（门表 → 「品牌增长」入口），原 layout 门已删
-  const gate = src("src/lib/navigation/route-gate.ts");
+  const gate = src("src/lib/navigation/route-gate-core.ts"); // VIS-1b：门表拆到 route-gate-core.ts
   ok(gate.includes('{ pattern: "/marketing", rule: nav("growth-hub") }') && gate.includes('{ pattern: "/operations/growth", rule: nav("growth-hub") }'), "营销页面经路由门（品牌增长口径）");
   ok(!existsSync(join(process.cwd(), "src/app/(main)/marketing/layout.tsx")) && !existsSync(join(process.cwd(), "src/lib/marketing/workspace-gate.ts")), "旧营销页面门已删");
   ok(src("src/proxy.ts").includes("isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)"), "中间件旧模式营销接口分支保留");

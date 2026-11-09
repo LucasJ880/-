@@ -12,6 +12,9 @@
  *
  * 本阶段不透出内部时间线开关（Admin/Operator 面专属，API 恒为用户视图）；
  * 无任何写入路径（服务层 Reader 类型只有 findFirst/findMany）。
+ *
+ * VIS-1b：工作域对当前用户不可读的作业同样 404（与不存在相同，不泄露存在性；spec agents/workforce-job-scope），
+ * 判定与列表接口同一函数。
  */
 
 import { NextResponse } from "next/server";
@@ -21,6 +24,7 @@ import {
   resolveWorkforceApiOrgForUser,
   workforceOrgFailureHttp,
 } from "@/lib/workforce-runtime/read-model";
+import { loadWorkforceJobReadFilter, loadWorkforceRunForScope } from "@/lib/workforce-runtime/job-scope-server";
 
 export const GET = withAuth<{ id: string }>(async (_req, ctx, user) => {
   const { id } = await ctx.params;
@@ -36,6 +40,14 @@ export const GET = withAuth<{ id: string }>(async (_req, ctx, user) => {
 
   const result = await getWorkforceJobView({ orgId: resolution.orgId, jobId: id });
   if (!result.ok) {
+    return NextResponse.json({ error: "任务不存在" }, { status: 404 });
+  }
+  const [{ canRead }, run] = await Promise.all([
+    loadWorkforceJobReadFilter({ id: user.id, role: user.role }, resolution.orgId),
+    loadWorkforceRunForScope(resolution.orgId, id),
+  ]);
+  // canRead 为空 = 可读全部工作域（老板 / 平台 super_admin），不逐条解析
+  if (!run || (canRead && !(await canRead(run)))) {
     return NextResponse.json({ error: "任务不存在" }, { status: 404 });
   }
   return NextResponse.json({ job: result.view });

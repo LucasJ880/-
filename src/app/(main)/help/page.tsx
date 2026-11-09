@@ -1,52 +1,46 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { buildHelpMap } from "@/lib/navigation/help-map";
+import { loadPageNavigationContext } from "@/lib/navigation/page-context-server";
 
-const ROUTES = [
-  { path: "/", label: "工作台", note: "统计、本周进度、日程、任务片段、快捷入口" },
-  { path: "/inbox", label: "收件箱", note: "快速捕获：单条输入 → AI 解析 → 创建任务/日程" },
-  { path: "/tasks", label: "任务", note: "列表、筛选、详情与评论/活动" },
-  { path: "/organizations", label: "组织", note: "数据隔离边界；新建项目前需有所属组织" },
-  { path: "/projects", label: "项目", note: "卡片列表与详情（成员、环境、Prompt、知识库入口）" },
-  { path: "/assistant", label: "协同空间", note: "多轮讨论与业务上下文，适合规划、分析和起草" },
-  { path: "/blinds-orders", label: "工艺单", note: "百叶窗订单（行业模块）" },
-  { path: "/settings", label: "设置", note: "Google 日历 OAuth 连接与说明" },
-  { path: "/help", label: "本页", note: "功能地图与关系说明" },
-];
+/**
+ * 使用说明 · 功能地图（VIS-1b：从当前用户侧栏可见的导航树生成，spec navigation/entry-visibility）
+ * 名称与一句说明取自导航注册表；侧栏看不到的入口不在这里出现。
+ */
+export default async function HelpPage() {
+  const ctx = await loadPageNavigationContext();
+  if (!ctx) redirect("/login");
+  const groups = buildHelpMap(ctx);
 
-export default function HelpPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
         <h1 className="text-2xl font-bold">使用说明 · 功能地图</h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          与{" "}
-          <code className="rounded bg-background px-1 text-[11px]">docs/PROJECT_AUDIT.md</code>{" "}
-          对齐的一页速查；完整 API 与数据模型亦见该文档。
-        </p>
+        <p className="mt-2 text-sm leading-relaxed text-muted">你在侧栏能看到的全部入口，以及每个入口是做什么的。</p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card-bg">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-border bg-background/50 text-xs text-muted">
-              <th className="px-4 py-2 font-medium">路径</th>
-              <th className="px-4 py-2 font-medium">名称</th>
-              <th className="px-4 py-2 font-medium">说明</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ROUTES.map((r) => (
-              <tr key={r.path} className="border-b border-border/80 last:border-0">
-                <td className="px-4 py-2.5 font-mono text-xs">
-                  <Link href={r.path} className="text-accent hover:underline">
-                    {r.path}
-                  </Link>
-                </td>
-                <td className="px-4 py-2.5 font-medium">{r.label}</td>
-                <td className="px-4 py-2.5 text-muted">{r.note}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-5">
+        {groups.map((g) => (
+          <section key={g.group} className="overflow-hidden rounded-xl border border-border bg-card-bg">
+            <h2 className="border-b border-border bg-background/50 px-4 py-2 text-xs font-medium text-muted">{g.label}</h2>
+            <ul className="divide-y divide-border/80">
+              {g.entries.map((e) => (
+                <li key={e.key} className="flex flex-col gap-0.5 px-4 py-2.5 text-sm sm:flex-row sm:items-baseline sm:gap-4">
+                  <span className={e.depth > 0 ? "shrink-0 pl-4 font-medium sm:w-40" : "shrink-0 font-medium sm:w-40"}>
+                    {e.href ? (
+                      <Link href={e.href} className="text-accent hover:underline">
+                        {e.label}
+                      </Link>
+                    ) : (
+                      e.label
+                    )}
+                  </span>
+                  <span className="text-muted">{e.description}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </div>
 
       <div className="space-y-3 rounded-xl border border-border bg-card-bg px-5 py-4 text-sm">
