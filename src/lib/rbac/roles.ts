@@ -105,7 +105,6 @@ export function normalizeRetiredPlatformRole(role: string | null | undefined): s
 /**
  * PERM-7b：平台角色归一到工具策略 / 模块映射使用的档位词汇。
  * super_admin → "admin"（平台管理员档）；平台 `admin` → "user"（不再进入平台管理员档）；其余原样。
- * SYNC: src/lib/permissions-client.ts platformTier
  */
 export function platformTier(role: string | null | undefined): string {
   if (role === "super_admin") return "admin";
