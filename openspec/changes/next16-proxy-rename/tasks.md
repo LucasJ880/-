@@ -17,7 +17,7 @@ TASKFLOW：无（基础设施），不写 REPORT、不改 TASKFLOW 状态列。�
 ## 4. 门禁
 
 - [x] 4.1 `npm run test:ci`、`npm run lint:baseline`、`openspec validate next16-proxy-rename --strict`；verify：全部退出码 0
-- [ ] 4.2 `NODE_OPTIONS=--max-old-space-size=$(node scripts/build-heap-mb.mjs) npx next build --webpack`；verify：退出码 0，输出里 `file convention is deprecated` 出现 0 次且仍有 `ƒ Proxy (Middleware)`，`.next/server/` 的 manifest 显示 proxy 为 Node.js runtime 且打进了 Prisma
+- [x] 4.2 `NODE_OPTIONS=--max-old-space-size=$(node scripts/build-heap-mb.mjs) npx next build --webpack`；verify：退出码 0，输出里 `file convention is deprecated` 出现 0 次且仍有 `ƒ Proxy (Middleware)`，`.next/server/` 的 manifest 显示 proxy 为 Node.js runtime 且打进了 Prisma
 
 ## Workflow follow-up
 

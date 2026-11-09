@@ -10,7 +10,7 @@ Next 16 已弃用 `middleware` 文件约定，`next build` 每次都输出「The
 
 - 把 `src/middleware.ts` 改名为 `src/proxy.ts`（`git mv`），对 Next 导出的入口函数从 `middleware` 改为 `proxy`；函数体与 `handleRequest` 一字不改。
 - 删掉 `config` 里的 `runtime: "nodejs"`：Next 16 的 proxy 固定跑在 Node.js runtime，在 proxy 文件里写 `runtime` 会让构建报错（`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md` §Runtime）。`matcher` 不变。
-- 改 7 个读或 import 中间件的测试，让它们指向 `src/proxy.ts` / `proxy`：`scripts/public-route-auth-contracts.test.ts`、`src/lib/notifications/__tests__/notification-href.test.ts`、`src/lib/navigation/__tests__/route-gate.test.ts`、`src/lib/marketing/__tests__/marketing-middleware-access.test.ts`、`src/lib/authorization/__tests__/residual-reads.test.ts`、`src/lib/trade/__tests__/email-inbound.test.ts`、`src/lib/trade/__tests__/website-inquiry-async.test.ts`。各测试的断言项数不变。
+- 改 7 个读或 import 中间件的测试，让它们指向 `src/proxy.ts` / `proxy`：`scripts/public-route-auth-contracts.test.ts`、`src/lib/notifications/__tests__/notification-href.test.ts`、`src/lib/navigation/__tests__/route-gate.test.ts`、`src/lib/marketing/__tests__/marketing-middleware-access.test.ts`、`src/lib/authorization/__tests__/residual-reads.test.ts`、`src/lib/trade/__tests__/email-inbound.test.ts`、`src/lib/trade/__tests__/website-inquiry-async.test.ts`。除 route-gate 因下一条的一拆三从 132 项变为 134 项外，各测试的断言项数不变。
 - 把 `route-gate.test.ts` 的「中间件声明 runtime: nodejs」改为三条断言：proxy 不声明 `runtime`；`src/middleware.ts` 不存在；`src/proxy.ts` 导出 `proxy` 函数。
 - 把 10 个页面文件注释里的 `src/middleware.ts` 改为 `src/proxy.ts`（只改注释）。
 

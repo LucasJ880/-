@@ -15,7 +15,7 @@
 
 - `next build --webpack` 不再输出 middleware 弃用告警，路由表仍有 Proxy 条目，proxy 仍按 Node.js runtime 构建，路由门要用的 Prisma 仍打进 proxy。
 - 请求处理逐字节不变：`handleRequest` 的函数体、`PUBLIC_PATHS`、`COOKIE_NAME`、`matcher`、判定顺序、响应体、状态码和头都不改。
-- 7 个读或 import 中间件的测试全部改指 `src/proxy.ts`，每个测试的通过项数与改名前相同。
+- 7 个读或 import 中间件的测试全部改指 `src/proxy.ts`，除 route-gate 因 D3 从 132 项变为 134 项外，每个测试的通过项数与改名前相同。
 
 **Non-Goals:**
 
