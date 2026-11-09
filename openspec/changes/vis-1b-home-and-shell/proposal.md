@@ -11,8 +11,9 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 **首页岗位卡**
 - 判定岗位卡可见：跳转页对当前用户经路由门放行才出现。例如 `inbound_sales` 跳 `/revenue`，随 `trade` 模块；`ops_knowledge` 跳 `/ai-activity`，只对平台 super_admin。
 - 要求「客服」卡另看微信入口开关。
-- 只为可见卡读取 KPI 与自动化，接口只返回可见卡。
-- 合并落地页计算：管理层一张可见卡都没有时，首页与路由门都落 `/tasks`，一次跳转到位。
+- 只为可见卡读取 KPI 与自动化。
+- 收窄岗位总览接口：`posts` 只返回可见卡。
+- 合并落地页计算：管理层一张可见卡都没有时，首页与路由门都落 `/tasks`，一次跳转到位。首页改用路由门的同一份判定输入。
 - 去掉首页副标题与加载骨架里写死的「七个岗位」。
 
 **「等你拍板」**
@@ -27,6 +28,7 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 其余 → 审批详情（`/capabilities/approvals/<编码后的「来源类型:来源 id」>`，与审批中心列表同写法）。
 - 只列落点对当前用户放行的审批。这里不按任务书写的「与可见岗位卡取交集」：Sunny 原生审批（折扣、签约改价）按既有归属算在「询盘销售」卡下，这张卡在 Sunny 不可见，取交集会把老板自己的折扣审批藏掉（design Q1）。
 - 明确截断时的总数：已取到且放行的条数加上未取到的条数，并标 `truncated`。
+- 隐藏横幅里不可见岗位的岗位名：Sunny 的折扣审批仍归「询盘销售」，Bob 看不到这张卡，条目就不标岗位名。
 
 **workforce 作业**
 - 新增「工作域 → 导航入口」对照（代码常量）：
@@ -37,15 +39,15 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 - 过滤 `/workforce` 列表：服务端分批扫描、跳过不可读作业凑满一页，一次至多扫 5 批。
 - 隐藏不可读的作业详情：返回 404。
 - 过滤首页「需要你」作业，与列表同一函数。
-- 收窄「AI 任务」入口：只对至少可读一个工作域的人出现。会计、安装工、出单与无岗位成员不再看到它，`/workforce/**` 对他们 302 到各自落地页（design Q8）。**BREAKING**
+- 收窄「AI 任务」入口：只对持可读域入口岗位键的人出现。会计、安装工、出单与无岗位成员不再看到它，`/workforce/**` 对他们 302 到各自落地页（design Q8）。**BREAKING**
 
 **侧栏、底栏与站内链接**
 - 去掉 `work-ai-jobs`（AI 任务）与 `work-assistant`（数字员工）的 `salesWorkspaceVisible`（判断点 5）。纯销售侧栏不再有这两项，经路由门同步失去 `/workforce/**`、`/assistant`、`/inbox`。**BREAKING**
 - 拆出客户端可用的路由门判定与落地页函数（纯模块，不依赖 `next/server`）。
 - 新增判定输入拼装函数：把 active-org 响应拼成与路由门相同的输入，服务端与客户端共用。
 - 新增客户端钩子：回答「这个地址对我放行吗」与「我的落地页」，平台 super_admin 一律放行。
-- 按钩子显示手机底栏每个页签：「招投标」与侧栏「招投标中心」同口径；「AI」只在 AI 工作中心放行时出现；「助手」只在数字员工放行时出现。底栏布局（销售 / 通用）的判定不变。
-- 隐藏指向不放行页面的站内链接：工艺单详情里的维修单链接、数字员工工作台的「客户」「创建报价」「打开销售工作区」按钮、`/tasks` 的「进入协同空间」。
+- 按钩子显示手机底栏每个页签（任务书只点名「招投标」，design Q10）：「招投标」与侧栏「招投标中心」同口径；「AI」只在 AI 工作中心放行时出现；「助手」只在数字员工放行时出现。底栏布局（销售 / 通用）的判定不变。
+- 隐藏指向不放行页面的站内链接：工艺单详情里的维修单链接、数字员工工作台的「客户」「创建报价」「打开销售工作区」按钮、`/tasks` 的「进入协同空间」、投标 AI 分析卡片的「查看执行详情」。
 - 改写工艺单详情 / 编辑页的返回链接与删除后跳转：`/blinds-orders` 不放行时，先退到客户详情（放行时），再退到当前用户的落地页。
 
 **索引页与帮助**
@@ -65,10 +67,10 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 
 ### Modified Capabilities
 - `cockpit/posts-overview`：「响应按岗位注册表顺序返回七个岗位」更名并改为返回当前用户可见的岗位；「等你 N 件…」改为按类型给落点、只列落点放行的审批、写明截断时的总数、作业按可读工作域。
-- `cockpit/home-view`：「首页对管理层展示岗位视图」补「无可见卡片时 302 到 `/tasks`」，与路由门共用落地页函数；「七个岗位卡片」改为按接口返回的可见卡片显示，副标题与骨架不写死个数。
+- `cockpit/home-view`：「首页对管理层展示岗位视图」补「无可见卡片时 302 到 `/tasks`」，与路由门共用落地页函数与判定输入；「七个岗位卡片」改为按接口返回的可见卡片显示，副标题与骨架不写死个数；「等你 N 件横幅」不可见岗位不显示岗位名。
 - `cockpit/post-registry`：新增「岗位卡片的可见条件」（跳转页放行 ∧ 客服另要求微信开关）。
 - `navigation/route-gate`：「不放行时 302 到落地页」里管理层的落地页在零可见卡时改为 `/tasks`。
-- `navigation/position-based-visibility`：「岗位模式的底栏」与「手机底栏的招投标入口与招投标中心同口径」改为每个页签按路由门判定；新增「纯销售侧栏不含 AI 任务与数字员工」「AI 任务只对有可读工作域的人出现」。
+- `navigation/position-based-visibility`：「岗位模式判定」的旧模式例外补上平台角色 `sales` 与底栏；「岗位模式的底栏」与「手机底栏的招投标入口与招投标中心同口径」改为每个页签按路由门判定；新增「纯销售侧栏不含 AI 任务与数字员工」「AI 任务只对有可读工作域的人出现」。
 
 受影响的 Muse 意图：无（不触碰 muse-bridge）。
 
@@ -83,6 +85,7 @@ TASKFLOW：VIS-1b（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 对应测试。
 - 修改：
   - `src/lib/cockpit/posts.ts`、`posts-read-model.ts`、`waiting.ts`、`src/app/(main)/page.tsx`、`src/components/cockpit/org-cockpit-view.tsx`；
+  - `src/components/tender-analysis/agent-card.tsx`；
   - `src/app/api/workforce/jobs/route.ts`、`jobs/[id]/route.ts`、`src/lib/workforce-runtime/read-model/list-service.ts`、`src/app/(main)/workforce/page.tsx`；
   - `src/lib/navigation/registry.ts`（两项 `salesWorkspaceVisible`、`work-ai-jobs` 岗位键、72 条 `description`）、`types.ts`、`route-gate.ts`、`context-server.ts`；
   - `src/components/mobile-tab-bar.tsx`、`src/app/(main)/operations/page.tsx`、`src/app/(main)/help/page.tsx`；

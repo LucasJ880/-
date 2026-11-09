@@ -24,7 +24,7 @@
 
 ### Requirement: 等你 N 件按现成"待我审批"口径并与需要你去重
 `waitingForYou` SHALL 由两部分组成：
-1. 与 `/capabilities/approvals` 的"待我审批"相同口径的条目（PendingAction / ApprovalRequest / 产品内容审批中状态为待审批且调用者有决策权的），且只含落点对调用者放行的条目；
+1. 与 `/capabilities/approvals` 的"待我审批"相同口径的条目（PendingAction / ApprovalRequest / 产品内容审批中状态为待审批且调用者有决策权的），且只含落点对调用者放行的条目（平台 super_admin 视为全部放行）；
 2. 本组织 workforce 中状态为需要你、且对调用者可读的作业（见 `agents/workforce-job-scope`）。
 
 作业关联的 PendingAction 全部已在第 1 部分中时 SHALL 不再单独计数。需决策类通知 SHALL NOT 另计。
@@ -33,7 +33,7 @@
 - `total` SHALL 为：已取到且落点放行的审批条数，加上"待我审批"总数中未取到的条数（无法判定落点，原样计入），再加上去重后单独计数的需要你作业条数。
 - 任一来源被截断时（含"待我审批"总数大于已取到的条数），SHALL 返回 `truncated: true`。
 - `items` 为按 `at` 倒序的前 10 条（`at`：审批取创建时间，需要你作业取最近活动时间），每条含 `kind`、`id`、`title`、`post`、`at`、`href`。
-- `unattributed` 为 `post` 为空的条数。
+- `unattributed` 为 `post` 为空的条数。`post` 沿用既有归属规则，归属岗位对调用者不可见时也照常返回（横幅是否显示岗位名见 `cockpit/home-view`「等你 N 件横幅」）。
 
 审批条目的 `href`（即落点）SHALL 按类型给出：
 - `sales.approve_quote_promotion`、`sales.update_signed_quote` → `/sales/quote-sheet?mode=order&quoteId=<quoteId>`；

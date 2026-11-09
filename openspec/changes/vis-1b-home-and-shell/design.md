@@ -74,7 +74,7 @@
 
 ### D2 读模型用驾驶舱企业的同一份输入，只为可见卡取数
 
-`resolveCockpitViewer` 额外产出 `NavigationFilterContext`：
+新增 `resolveCockpitNavContext(viewer)`，只由 `/api/cockpit/posts` 调用（`resolveCockpitViewer` 不变，时间线与工作量接口不多一次查询）：
 - 输入取 `loadOrgNavigationInputs(userId, viewer.orgId)`，即驾驶舱当前企业，不走 `ROUTE_GATE_LOADER.loadContext`（它用 `pickGateOrgId` 自己选企业）。
 - 再经 D7 的 `buildNavigationFilterContext` 拼成判定输入，与路由门同一个函数。
 
@@ -83,6 +83,7 @@
 被否决：
 - 读模型自己再查一遍岗位键与模块。这是第三份输入，正是 VIS-1a 要消除的。
 - 直接用 `ROUTE_GATE_LOADER`。多企业成员切换驾驶舱企业时，卡片会按另一家企业的模块算。
+- 在 `resolveCockpitViewer` 里产出：它也被时间线与工作量接口（Non-Goal）调用，会白多一次查询。
 
 ### D3 首页与路由门共用落地页函数，零卡 → `/tasks`
 
@@ -90,7 +91,12 @@
 - 先取既有 `resolveHomeRedirect`；
 - 返回空（管理层）时，有可见卡为 `/`，零卡为 `/tasks`。
 
-`gateRedirectTarget` 搬进 `landing.ts`，改用它；`(main)/page.tsx` 的管理层分支也用它，零卡时 `redirect("/tasks")`。`route-gate.ts` 重新导出 `gateRedirectTarget`，原导入方不变。spec 增量 MODIFIED `navigation/route-gate`「不放行时 302 到落地页」。
+`gateRedirectTarget` 搬进 `landing.ts`，改用它。`(main)/page.tsx` 改用与路由门同一份输入：
+- 登录检查照旧；
+- 判定输入取 `ROUTE_GATE_LOADER.loadUser` / `loadContext`（同一企业选择、同一 30 秒缓存，中间件刚取过）；
+- `resolveLandingPage(ctx)` 不为 `/` 时 `redirect(dest)`，零卡即 `redirect("/tasks")`。
+
+现在的 `resolveWorkspaceContextFromCookies` 输入与路由门不同（模块无行业包回退、无微信开关与 `workspaceIds`、企业按 `resolvePreferredOrgId` 选），继续用它会让首页与路由门对落地页各算各的。`route-gate.ts` 重新导出 `gateRedirectTarget`，原导入方不变。spec 增量 MODIFIED `navigation/route-gate`「不放行时 302 到落地页」。
 
 被否决：
 - 只在 `page.tsx` 里跳：路由门先把人送到 `/` 再跳一次，两跳，违反路由门规格。
@@ -106,8 +112,10 @@
 - 没有专属落点的 PendingAction、payload 缺 id 的条目、ApprovalRequest 与产品内容审批，落审批详情。链接写成 `/capabilities/approvals/${encodeURIComponent(`${sourceType}:${sourceId}`)}`，与审批中心列表、报价审批接口同写法。条目需带 `sourceType` 才能拼出。
 
 过滤：
-- 条目只在落点对调用者放行时计入。
+- 条目只在落点对调用者放行时计入；平台 super_admin 视为全部放行（与 D1 相同，`isRouteAllowed` 本身没有 super_admin 放行）。
 - 审批详情页对全部企业成员放行（VIS-1a），所以退回详情的条目不会因此被过滤；真正被滤掉的是落点在不可用模块里的条目，例如 Sunny 的 `revenue_spine.*`。
+
+归属：条目的 `post` 沿用既有归属，不改；首页横幅只在该岗位是可见卡时显示岗位名，所以 Bob 的折扣审批不再挂「询盘销售」（spec `cockpit/home-view`「等你 N 件横幅」）。
 
 截断：未取到的「待我审批」行判不了落点，原样计入 `total`，并标 `truncated: true`。`total` = 已取到且放行 + 未取到 + 单独计数的作业。
 
@@ -124,10 +132,12 @@
 - 通用与解析不出的随管理层（`isManagementWorkspaceUser`）；
 - super_admin 全部可读。
 
+判定输入：两个 workforce 接口用 `loadOrgNavigationInputs(user.id, resolution.orgId)` 加 `buildNavigationFilterContext`，与 D2 同法，企业取接口既有的 `resolution.orgId`。
+
 各处如何用：
 - **列表接口**：`listWorkforceJobViews` 增加可选的可读判定参数。
   - 每批仍取 `limit + 1` 行，逐行用既有 `resolveEffectiveWorkDomain` 解析工作域并过滤，凑满 `limit` 条或扫满 5 批为止。
-  - 游标：凑满时 `nextCursor` 指向本页最后一条，扫满时指向最后扫描的一行。
+  - 游标：凑满时 `nextCursor` 指向本页最后一条，扫满时指向最后扫描的一行。恰在一批最后一行凑满时不另发探测查询，游标可以非空，下一页返回空列表与空游标。
   - 响应形状不变（`{jobs, nextCursor}`），没有计数字段。
   - 子行（步骤、事件、PendingAction）只为返回的作业批量取。
   - 前端：`/workforce` 页在本页为空但 `nextCursor` 非空时保留「加载更多」，不显示空态。
@@ -151,7 +161,14 @@
 
 旧模式不读 `positionPermissions`，不变。路由门 `/workforce/**` 规则就是 `work-ai-jobs`，自动跟随。
 
-防漂移：`readable-domains.test.ts` 对每种测试身份（纯销售除外）断言「AI 任务可见 ⇔ 可读工作域非空」。
+规格按这组键写（spec `navigation/position-based-visibility`「AI 任务只对有可读工作域的人出现」），不按「入口可见」写：键不看模块与平台角色，入口可见要看。复审探针找到三类不一致，作为已知例外写进规格与测试：
+- Sunny 里持系统岗位 `trade_rep`（有 `trade.read`，Sunny 没有 `trade` 模块）：入口出现，列表为空；
+- 梦馨里持 `project_manager`（有 `project.create` / `update`，梦馨没有 `bids` / `projects` 模块）：同上；
+- 梦馨里平台角色 `trade`、未绑岗位：「外贸」经 `tradeEntry` 可见、可读销售域，但入口不出现；绑上 `trade_rep` 即出现。
+
+行业包岗位（owner、ops_lead、ops_staff、bids、accounting、installer、出单 ×3、梦馨 trade_rep）与无岗位成员上，两种规则一致。
+
+防漂移：`readable-domains.test.ts` 对上述身份（纯销售与旧模式 `sales` 除外）断言「AI 任务可见 ⇔ 可读工作域非空」，三类例外逐条断言为例外。
 
 被否决：
 - 给导航项加「任一入口可见即可见」的新字段：要改 `filter.ts` 判定函数（Non-Goal），且侧栏、抽屉、路由门三处都要跟着认。
@@ -219,6 +236,7 @@
   - 收口页签的维修单链接在 `/install/repairs/<id>` 不放行时不渲染。
 - **数字员工工作台**：客户提醒、「打开销售工作区」「创建报价」逐个 `canOpen`。
 - **`/tasks` 的「进入协同空间」**：`canOpen("/assistant")`。
+- **投标 AI 分析卡片的「查看执行详情」**（`tender-analysis/agent-card.tsx:237`，指向 `/workforce/<作业 id>`）：`canOpen("/workforce/<id>") && canOpen("/bids")`。作业固定是投标域，不放行「招投标中心」的人打开会 404（运营）或被路由门弹回（会计、出单，D6 之后）。
 
 被否决：
 - 留着链接让路由门弹回。这正是任务书说的「点进去被弹回」。
@@ -238,9 +256,10 @@
 
 ## Risks / Trade-offs
 
-- [首页接口多一次判定输入查询] → 一次 `loadOrgNavigationInputs`（与 active-org 接口同查询）；首页本就只对管理层。
+- [岗位总览与两个 workforce 接口各多一次判定输入查询] → 各一次 `loadOrgNavigationInputs`（与 active-org 接口同查询）；时间线与工作量接口不受影响。首页 `page.tsx` 走路由门 loader 的 30 秒缓存。
+- [首页与岗位总览的企业选择不同] → 首页跳转按路由门的企业（`pickGateOrgId`），卡片按驾驶舱企业（`viewer.orgId`）。单企业成员一致；多企业成员两者都优先当前选中的企业，只在当前企业不可用时可能分开。
 - [作业列表补扫] → 一次请求至多 5 批 × 51 行。新作业带显式工作域，解析零查询；只有旧作业逐条查项目或步骤。扫满仍不满一页时前端保留「加载更多」。
-- [「AI 任务」入口与可读域用两种写法表达] → 测试逐身份断言二者等价；新增可读域入口时测试会先红。
+- [「AI 任务」入口与可读域用两种写法表达] → 测试逐身份断言二者等价，三类已知例外单列；新增可读域入口时测试会先红。
 - [客户端钩子在输入到达前一律不显示入口，底栏首帧可能少几个页签] → 与侧栏现状一致（侧栏同样等 active-org）；spec 要求「不先显示后消失」。
 - [梦馨老板首页从 7 张卡变 3 张] → 与其模块一致（无 `bids` / `projects` 模块）；Q4 请确认。
 - [销售失去 `/assistant`；会计、安装工、出单失去 `/workforce`] → Q3、Q8。
@@ -272,6 +291,7 @@
 ## 审核关注点（偏离或补充任务书之处，请拍板）
 
 - Q1（D4）：「等你拍板」按「落点放行」过滤，而不是任务书写的「与可见岗位卡取交集」，否则老板自己的折扣审批会被藏掉。
+  - 横幅：Sunny 的折扣审批仍按既有归属记在「询盘销售」下，Bob 看不到这张卡，横幅对这类条目不显示岗位名（D4）。
   - 连带后果：`marketing.*`、`grader.*`、`calendar.*` 等没有专属落点的审批退回审批详情，详情页对全体成员放行，所以照样列出。任务书验收里 Bob 的「只列 Sunny 原生审批 + 投标」不会严格成立；收窄要等 VIS-1d 定审批中心可见集合。
 - Q2（D5）：workforce 可读域按「工作域 → 导航入口」判定，而不是任务书写的「按可见岗位卡的 `workDomains`」，否则 Sunny 老板看不到本企业的销售域作业。销售域另认「外贸」，否则梦馨外贸员看不到自己的询盘作业。
 - Q3（D11）：判断点 5 的直接后果是纯销售也失去 `/assistant`（数字员工对话）与 `/inbox`。`/tasks` 的「进入协同空间」随之隐藏。若销售仍需要 AI 对话，应只去掉「AI 任务」、保留「数字员工」。
@@ -283,3 +303,4 @@
   - 依据：任务书「无可读域的人不见此项」；通用域在岗位表里归平台专属的「运维与知识」卡；现在没有创建方写 `general`，只有项目默认 `general` 的旧作业会落到这里。
   - 另一选择：通用域对所有能开 `/workforce` 的人可读、入口不收窄。那样一线岗位会看到未分类项目上的全部旧作业。
 - Q9（D9）：`/operations` 索引过滤页内静态卡片，不按任务书改为「从可见导航生成」，因为索引卡片多数不在导航里。
+- Q10（D8）：底栏除任务书写的「招投标」外，「AI」「助手」与销售布局四个页签也逐个按路由门判定。
