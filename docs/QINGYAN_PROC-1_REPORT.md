@@ -232,6 +232,22 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 
 以上演练与核对都是本地 / 公开数据，不是生产执行证据；生产迁移、置位、部署与烟测仍由持凭证的人按 runbook 执行。
 
+## 8b. 生产上线记录（2026-11-09，Evan 执行）
+
+在 Evan 本机终端按 runbook 执行（本开发会话没有生产凭证，只核对他贴回的输出）：
+
+| 步骤 | 结果 |
+|---|---|
+| Neon 备份分支 | 已建（`pre-proc1-prod-<日期>`） |
+| `npm run db:target:check` | 第一次 BLOCKED（`BLOCKED_DATABASE_TARGET_MISMATCH`：`DATABASE_URL` 误用了另一个端点、`DIRECT_URL` 是生产）——检查器按设计拦下；改为两条都用生产直连串后通过 |
+| 预检 `npm run db:migrate:status` | 只有 `20261105120000_add_procurement_records_foundation` 待应用；最后一条共同迁移 `20261027180000_quote_discount_roman_shade`；「库里有、本地没有」的 84 条中 83 条是 `ARCHIVED_MIGRATIONS`，另 1 条 `20260829200000_add_vinyl_work_order` 是已记录的既有遗留（见 `QINGYAN_MENGXIN_FDE_V1_PRODUCTION_VALIDATION.md`） |
+| 双确认闸 `npm run db:migrate:deploy` | 目标 `ep-super-field-antfibsl` / `neondb`，`protectedTarget=true`；迁移成功 |
+| 迁移后 `npm run db:migrate:status` | Database schema is up to date |
+| `VERCEL_ENV=production` 迁移闸 | OK：42 条迁移全部已应用（vinyl 那条按「库比代码新」提醒放行） |
+| Vercel 项目 `-`（Production） | 设 `PROCUREMENT_RECORDS_SCHEMA_READY=1`、`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`；重新部署；随后合并 #406 / #404 / #405 并部署 |
+
+未在本记录中确认的：初始数据写入（`procurement-records-seed.ts --write`）与 Sunny 单企业岗位落地（`seed-org-authorization.ts`）是否已执行；规则核实、申请人确认、启用监控与 §10 业务验收由 Lucas 在界面完成。
+
 ## 9. 需要你提供的资料或决定
 
 1. ~~硬纪律 1 / 3 例外~~：**已批准**（Lucas 2026-11-05，决定 C）；合并仍由 Evan 拍板。

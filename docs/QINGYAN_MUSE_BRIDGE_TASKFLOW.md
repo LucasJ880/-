@@ -195,7 +195,7 @@
 | VIS-1c | 通知类型 / 设置 / 搜索 / AI 工具按模块收口：通知开关与通知页筛选只列模块已开的类型（图标表与跳转表不改）；`/settings` 发信文案改读组织设置；全局搜索的项目范围改为本人可读且须持 `project.read`；AI 助手工具表按模块过滤（与执行期同一映射）；营销增长员工按 `marketing` 模块 ∧ 营销键 | VIS-1a | OpenSpec change `vis-1c-notify-settings-search`；报告 `docs/QINGYAN_VIS-1c_REPORT.md` | [ ] |
 | VIS-1d | 审批中心按模块 ∧ 岗位：可见集合 = 本人提交 / 被指派 ∪ 「所属模块已开 ∧ 本岗位持对应审批键」的类型；AI 助手「待我确认」与团队审批范围改用同一集合函数；平台 super_admin 不受此限 | VIS-1a | OpenSpec change `vis-1d-approvals-split`；隔离库测试；BREAKING：Sunny org_admin 不再见全量审批，梦馨不受影响；报告 `docs/QINGYAN_VIS-1d_REPORT.md` | [ ] |
 | VIS-1e | 平台管理员「以岗位预览」：super_admin 在组织成员页写 2 小时预览 cookie（零 schema），导航 / 路由门 / 首页 / 通知 / 审批 / AI 工具按该岗位模板的键；预览态非 GET API 一律 409 `PREVIEW_READONLY`；顶部常驻横幅可退出 | VIS-1a–1d | OpenSpec change `vis-1e-preview-as-position`；报告 `docs/QINGYAN_VIS-1e_REPORT.md` | [ ] |
-| VIS-2 | 运营看全公司销售额汇总（Lucas 2026-11-09：销售只看本人销售额、运营看运营数据 + 销售额、招投标对销售 / 运营不可见、老板看全部；对照后只缺运营看销售额）：新权限键 `sales.revenue.summary.read`（只 ORG）绑窗饰 `ops_lead` / `ops_staff`；`GET /api/ops/sales-summary` 只返回本周 / 本月至今成单金额、成单数、报价金额；运营中心只读卡；`scripts/seed-org-authorization.ts` 单企业重跑岗位落地 | VIS-1a | OpenSpec change `ops-sales-revenue-summary`；纯函数 9 + 隔离库 13（运营 / 老板 / 会计 200、销售 / 招投标 / 无岗位 403、无明细泄露）；截图 `docs/acceptance/vis-2/`；报告 `docs/QINGYAN_VIS-2_REPORT.md`；上线后对 Sunny 跑一次单企业落地 | [G] |
+| VIS-2 | 运营看全公司销售额汇总（Lucas 2026-11-09：销售只看本人销售额、运营看运营数据 + 销售额、招投标对销售 / 运营不可见、老板看全部；对照后只缺运营看销售额）：新权限键 `sales.revenue.summary.read`（只 ORG）绑窗饰 `ops_lead` / `ops_staff`；`GET /api/ops/sales-summary` 只返回本周 / 本月至今成单金额、成单数、报价金额；运营中心只读卡；`scripts/seed-org-authorization.ts` 单企业重跑岗位落地 | VIS-1a | OpenSpec change `ops-sales-revenue-summary`；纯函数 9 + 隔离库 13（运营 / 老板 / 会计 200、销售 / 招投标 / 无岗位 403、无明细泄露）；截图 `docs/acceptance/vis-2/`；报告 `docs/QINGYAN_VIS-2_REPORT.md`；上线后对 Sunny 跑一次单企业落地 | [x]（#405；archive `2026-11-09-ops-sales-revenue-summary`；2026-11-09 已部署生产，运营岗看到卡片需对 Sunny 跑一次 `scripts/seed-org-authorization.ts`） |
 
 **GATE-V 验收**（细项见任务书「验收」节）：以 VIS-1e 预览逐岗位核对 Lynn（`sales_rep`）/ 安装工 / Miki（`accounting` + `pricing_lead`）/ Bob（`owner`）/ Lucas（`super_admin`）；未授权直达 URL 一律服务端 302 到默认工作区、无骨架闪现；`npm run test:ci` 与 `npm run typecheck` 通过；每个 change 的 `openspec validate` 通过。
 
@@ -207,7 +207,7 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| USR-1 | 平台邀请码页可指定「加入企业」与企业内角色（只给销售 / 外贸、企业须启用；可给已有的码补绑 / 改绑 / 解绑）→ 注册直接加入企业、当前企业设为该企业、自动绑默认岗位、不建个人工作区；公司 logo 跟随企业、页面不再手选；「用户管理」默认只列当前企业在册员工（带企业内角色），全平台需显式切换 | — | OpenSpec change `org-scoped-user-onboarding`；`org-scoped-users-db.isolated.test.ts` 36 项（真实注册进企业 + `sales_rep` + 上限 + 列表范围 / 权限）；截图 `docs/acceptance/usr-1/`；报告 `docs/QINGYAN_USR-1_REPORT.md` | [G] |
+| USR-1 | 平台邀请码页可指定「加入企业」与企业内角色（只给销售 / 外贸、企业须启用；可给已有的码补绑 / 改绑 / 解绑）→ 注册直接加入企业、当前企业设为该企业、自动绑默认岗位、不建个人工作区；公司 logo 跟随企业、页面不再手选；「用户管理」默认只列当前企业在册员工（带企业内角色），全平台需显式切换 | — | OpenSpec change `org-scoped-user-onboarding`；`org-scoped-users-db.isolated.test.ts` 36 项（真实注册进企业 + `sales_rep` + 上限 + 列表范围 / 权限）；截图 `docs/acceptance/usr-1/`；报告 `docs/QINGYAN_USR-1_REPORT.md` | [x]（#404；archive `2026-11-09-org-scoped-user-onboarding`；2026-11-09 已部署生产） |
 
 ---
 
@@ -217,7 +217,7 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| PROC-1 | 采购监控（CanadaBuys 公告 / Open Government 合同 / Completed ATI / 合同历史页）→ 候选与采购工具去重 → 申请卡（联邦 ATI 模板、版本、规则、申请人、重复检查、READY）→ 自助交接与回执核对 → 案件事件 / 期限 / 待办 → 披露文件解析、明细复核、按口径分析与导出 | 硬纪律 1 例外（Evan） | OpenSpec change `procurement-records-requests`；三组纯测试 + 隔离库端到端注册；报告 `docs/QINGYAN_PROC-1_REPORT.md` | [~]（#382 已合并、规格已归档 `2026-11-09-procurement-records-requests`；2026-11-09 真实只读核对通过、本地按生产方式迁移演练通过（报告 §8a）；生产迁移 / 置位与 GATE-R 业务验收待做，验收后改 `[x]`） |
+| PROC-1 | 采购监控（CanadaBuys 公告 / Open Government 合同 / Completed ATI / 合同历史页）→ 候选与采购工具去重 → 申请卡（联邦 ATI 模板、版本、规则、申请人、重复检查、READY）→ 自助交接与回执核对 → 案件事件 / 期限 / 待办 → 披露文件解析、明细复核、按口径分析与导出 | 硬纪律 1 例外（Evan） | OpenSpec change `procurement-records-requests`；三组纯测试 + 隔离库端到端注册；报告 `docs/QINGYAN_PROC-1_REPORT.md` | [~]（#382 已合并、规格已归档 `2026-11-09-procurement-records-requests`；2026-11-09 真实只读核对通过、本地按生产方式迁移演练通过（报告 §8a）；**2026-11-09 生产迁移已执行（Evan）**、Vercel 生产置位并重新部署（报告 §8b）；GATE-R 业务验收待做（Lucas），验收后改 `[x]`） |
 
 **GATE-R 验收**（业务验收另列，不能用 fixture 代替）：生产迁移按 Owner Gate 执行后，授权用户保存并启用监控，生产定时扫描至少一次真实 SUCCESS / PARTIAL 且来源结果可见；用户完成一次真实自助提交并上传真实回执，状态为 SUBMITTED（document_verified）。
 
