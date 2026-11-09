@@ -17,7 +17,7 @@
 
 ## 0. 下一步（2026-11-08，#393 合并后）
 
-- VIS-1a：已合并（#393）并归档（本归档 PR）。生产核对按 `docs/QINGYAN_VIS-1a_REPORT.md` §9（Lucas）；`config/positions/sunny.json` 的 9 个邮箱占位仍待填实并跑绑定。
+- VIS-1a：已合并（#393）并归档（本归档 PR）。生产核对按 `docs/QINGYAN_VIS-1a_REPORT.md` §9（Lucas）；`config/positions/sunny.json` 已填 7 人邮箱（2026-11-09，Lucas 给的名单：bill / miki / lynn / marty / maggie / yee（= 小叶）/ installation（= 安装工））。剩 `TODO:Bob`、`TODO:蒋晨` 两个占位：补上邮箱或删掉这两行之前，绑定脚本整文件拒绝（退出 2）。
 - VIS-1b：四件套起草中，分支 `claude/vis-1b-home-and-shell`，审核通过前不 apply。
 
 ### 0a. apply 完成时的下一步（留档）
