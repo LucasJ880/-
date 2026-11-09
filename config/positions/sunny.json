@@ -9,13 +9,13 @@
   "bindings": {
     "lucas@sunnyshutter.ca": ["owner", "bids"],
     "alex@sunnyshutter.ca": ["sales_rep"],
-    "TODO:Bob": ["owner", "fulfillment_drapery"],
+    "bob@sunnyshutter.ca": ["owner", "fulfillment_drapery"],
     "bill@sunnyshutter.ca": ["owner", "bids", "fulfillment_vinyl"],
     "miki@sunnyshutter.ca": ["owner", "pricing_lead", "accounting"],
     "lynn@sunnyshutter.ca": ["sales_rep"],
     "marty@sunnyshutter.ca": ["ops_lead"],
     "maggie@sunnyshutter.ca": ["ops_staff"],
-    "TODO:蒋晨": ["bids", "fulfillment_drapery"],
+    "chen@sunnyshutter.ca": ["bids", "fulfillment_drapery"],
     "yee@sunnyshutter.ca": ["fulfillment_shades"],
     "installation@sunnyshutter.ca": ["installer"]
   }

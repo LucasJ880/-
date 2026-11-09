@@ -17,7 +17,7 @@
 
 ## 0. 下一步（2026-11-08，#393 合并后）
 
-- VIS-1a：已合并（#393）并归档（本归档 PR）。生产核对按 `docs/QINGYAN_VIS-1a_REPORT.md` §9（Lucas）；`config/positions/sunny.json` 已填 7 人邮箱（2026-11-09，Lucas 给的名单：bill / miki / lynn / marty / maggie / yee（= 小叶）/ installation（= 安装工））。剩 `TODO:Bob`、`TODO:蒋晨` 两个占位：补上邮箱或删掉这两行之前，绑定脚本整文件拒绝（退出 2）。
+- VIS-1a：已合并（#393）并归档（本归档 PR）。生产核对按 `docs/QINGYAN_VIS-1a_REPORT.md` §9（Lucas）；`config/positions/sunny.json` 11 人邮箱已全部填齐（2026-11-09，Lucas 给的名单；yee = 小叶，chen = 蒋晨），文件里没有 `TODO:` 占位了。全员在 Sunny 注册成 active 成员后，`--dry-run` 跑一遍绑定，再正式执行。
 - VIS-1b：四件套已过两轮独立审查并改完（分支 `claude/vis-1b-home-and-shell`，56ae302，`openspec validate --strict` 通过，未开 PR）。等 Lucas 拍板 design「审核关注点」Q1–Q10 后再 `/opsx:apply`；apply 前不改代码。
 
 ### 0a. apply 完成时的下一步（留档）

@@ -123,20 +123,17 @@ ok(
   "汇总输出：每人一行 + 停用计数",
 );
 
-// ── 仓库里的 Sunny 绑定文件：当前只应因 TODO 占位被拒 ──
+// ── 仓库里的 Sunny 绑定文件：邮箱已填齐（2026-11-09），全员 active 时整份通过 ──
 const sunnyText = readFileSync(join(process.cwd(), "config/positions/sunny.json"), "utf8");
 const sunny = parseBindingFile(sunnyText);
 ok(sunny.ok, "config/positions/sunny.json 可解析");
 if (sunny.ok) {
+  const emails = Object.keys(sunny.value.bindings);
+  ok(!emails.some((e) => e.startsWith("TODO:")), "sunny.json 不再有 TODO 占位");
   const realMembers: Record<string, { userId: string; status: string }> = {};
-  for (const email of Object.keys(sunny.value.bindings)) {
-    if (!email.startsWith("TODO:")) realMembers[email] = { userId: `u-${email}`, status: "active" };
-  }
+  for (const email of emails) realMembers[email] = { userId: `u-${email}`, status: "active" };
   const v = validateBindings({ file: sunny.value, knownProfileKeys: known, membersByEmail: realMembers });
-  ok(
-    !v.ok && v.errors.length === 1 && v.errors[0].startsWith("存在未填邮箱的占位"),
-    "sunny.json 当前仅因 TODO 占位被拒（岗位 key 全部合法）",
-  );
+  ok(v.ok && v.resolved.length === 11, "sunny.json 11 人全员 active 时整份通过（岗位 key 全部合法）");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);
