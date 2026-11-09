@@ -1,0 +1,437 @@
+{
+  "kind": "REAL_READ_ONLY_CHECK",
+  "startedAt": "2026-11-09T16:14:07.977Z",
+  "note": "真实只读结果（官方公开数据）；未写数据库",
+  "sources": {
+    "CANADABUYS_TENDER_NOTICES": {
+      "result": {
+        "source": "CANADABUYS_TENDER_NOTICES",
+        "status": "SUCCESS",
+        "fetched": 930,
+        "matched": 13,
+        "newCandidates": 0,
+        "updatedEvidence": 0,
+        "truncated": false,
+        "pagesFetched": 2,
+        "note": null,
+        "startedAt": "2026-11-09T16:14:07.978Z",
+        "finishedAt": "2026-11-09T16:14:10.047Z"
+      },
+      "sampleRecords": [
+        {
+          "number": "87700",
+          "class": "SOLICITATION",
+          "title": "APN - BASE JANITORIAL SERVICES CFB SHILO, MANITOBA",
+          "contracting": "Defence Construction Canada - Western Region",
+          "buying": null,
+          "value": null,
+          "parent": null,
+          "url": "https://www.merx.com/public/solicitations/4101691609/abstract?language=EN"
+        },
+        {
+          "number": "W8486-270882A",
+          "class": "SOLICITATION",
+          "title": "Cloth, Coated, Nylon/Polyurethane, 235 g/m², CADPAT™ Multi-Terrain (MT) – Re-Tender",
+          "contracting": "Department of National Defence (DND)",
+          "buying": null,
+          "value": null,
+          "parent": null,
+          "url": null
+        },
+        {
+          "number": "RFSA-26-2422",
+          "class": "SOLICITATION",
+          "title": "Duty Belt Systems",
+          "contracting": "Parliamentary Protective Service (PPS)",
+          "buying": null,
+          "value": null,
+          "parent": null,
+          "url": null
+        },
+        {
+          "number": "5P420-25-0330A",
+          "class": "SOLICITATION",
+          "title": "Cleaning and Maintenance – Jasper National Park",
+          "contracting": "Parks Canada Agency (PC)",
+          "buying": null,
+          "value": null,
+          "parent": null,
+          "url": null
+        },
+        {
+          "number": "WS5823766466",
+          "class": "SOLICITATION",
+          "title": "21C11-251606 RFSO Fabric",
+          "contracting": "Department of Public Works and Government Services (PSPC)",
+          "buying": "Correctional Service of Canada (CSC)",
+          "value": null,
+          "parent": null,
+          "url": "https://portal.us.bn.cloud.ariba.com/dashboard/public/appext/comsapsbncdiscoveryui#/RfxEvent/preview/1110021086?anId=ANONYMOUS"
+        }
+      ],
+      "atiSummaries": [],
+      "pageSnapshots": []
+    },
+    "OPEN_CANADA_CONTRACTS": {
+      "result": {
+        "source": "OPEN_CANADA_CONTRACTS",
+        "status": "SUCCESS",
+        "fetched": 78,
+        "matched": 14,
+        "newCandidates": 0,
+        "updatedEvidence": 0,
+        "truncated": true,
+        "pagesFetched": 11,
+        "note": "关键词 52 个，本轮按页数上限只查询前 5 个（截断待续）",
+        "startedAt": "2026-11-09T16:14:10.047Z",
+        "finishedAt": "2026-11-09T16:14:28.764Z"
+      },
+      "sampleRecords": [
+        {
+          "number": "21T51139-27-5469736",
+          "class": "CALL_UP",
+          "title": "Usage of Inventory",
+          "contracting": "Correctional Service of Canada | Service correctionnel du Canada",
+          "buying": "Correctional Service of Canada | Service correctionnel du Canada",
+          "value": "32101.02",
+          "parent": "CW2379109",
+          "url": "https://open.canada.ca/data/en/api/3/action/datastore_search?resource_id=fac950c0-00d5-4ec1-a4d3-9cbebf98a305&limit=5&filters=%7B%22reference_number%22%3A%22C-2026-2027-Q2-00487%22%7D"
+        },
+        {
+          "number": "21T51139-27-5407043",
+          "class": "CALL_UP",
+          "title": "Usage of Inventory",
+          "contracting": "Correctional Service of Canada | Service correctionnel du Canada",
+          "buying": "Correctional Service of Canada | Service correctionnel du Canada",
+          "value": "32101.02",
+          "parent": "CW2379109",
+          "url": "https://open.canada.ca/data/en/api/3/action/datastore_search?resource_id=fac950c0-00d5-4ec1-a4d3-9cbebf98a305&limit=5&filters=%7B%22reference_number%22%3A%22C-2026-2027-Q1-00886%22%7D"
+        },
+        {
+          "number": "21T51139-27-5400302",
+          "class": "CALL_UP",
+          "title": "Usage of Inventory",
+          "contracting": "Correctional Service of Canada | Service correctionnel du Canada",
+          "buying": "Correctional Service of Canada | Service correctionnel du Canada",
+          "value": "32101.02",
+          "parent": "CW2379109",
+          "url": "https://open.canada.ca/data/en/api/3/action/datastore_search?resource_id=fac950c0-00d5-4ec1-a4d3-9cbebf98a305&limit=5&filters=%7B%22reference_number%22%3A%22C-2026-2027-Q1-00776%22%7D"
+        },
+        {
+          "number": "21T51139-27-5378796",
+          "class": "CALL_UP",
+          "title": "Usage of Inventory",
+          "contracting": "Correctional Service of Canada | Service correctionnel du Canada",
+          "buying": "Correctional Service of Canada | Service correctionnel du Canada",
+          "value": "32101.02",
+          "parent": "CW2379109",
+          "url": "https://open.canada.ca/data/en/api/3/action/datastore_search?resource_id=fac950c0-00d5-4ec1-a4d3-9cbebf98a305&limit=5&filters=%7B%22reference_number%22%3A%22C-2026-2027-Q1-00370%22%7D"
+        },
+        {
+          "number": "21T51139-26-5251783",
+          "class": "CALL_UP",
+          "title": "Usage of Inventory",
+          "contracting": "Correctional Service of Canada | Service correctionnel du Canada",
+          "buying": "Correctional Service of Canada | Service correctionnel du Canada",
+          "value": "32101.02",
+          "parent": "CW2379109",
+          "url": "https://open.canada.ca/data/en/api/3/action/datastore_search?resource_id=fac950c0-00d5-4ec1-a4d3-9cbebf98a305&limit=5&filters=%7B%22reference_number%22%3A%22C-2025-2026-Q3-00913%22%7D"
+        }
+      ],
+      "atiSummaries": [],
+      "pageSnapshots": []
+    },
+    "OPEN_CANADA_ATI_SUMMARIES": {
+      "result": {
+        "source": "OPEN_CANADA_ATI_SUMMARIES",
+        "status": "SUCCESS",
+        "fetched": 2,
+        "matched": 1,
+        "newCandidates": 0,
+        "updatedEvidence": 0,
+        "truncated": false,
+        "pagesFetched": 5,
+        "note": null,
+        "startedAt": "2026-11-09T16:14:28.764Z",
+        "finishedAt": "2026-11-09T16:15:24.824Z"
+      },
+      "sampleRecords": [],
+      "atiSummaries": [
+        {
+          "requestNumber": "A-2015-00392",
+          "owner": "Correctional Service of Canada | Service correctionnel du Canada",
+          "pages": 1,
+          "disposition": "DA"
+        }
+      ],
+      "pageSnapshots": []
+    },
+    "CANADABUYS_CONTRACT_HISTORY_PAGE": {
+      "result": {
+        "source": "CANADABUYS_CONTRACT_HISTORY_PAGE",
+        "status": "SUCCESS",
+        "fetched": 3,
+        "matched": 3,
+        "newCandidates": 0,
+        "updatedEvidence": 0,
+        "truncated": false,
+        "pagesFetched": 3,
+        "note": "仅做页面哈希变更检测，不解析字段",
+        "startedAt": "2026-11-09T16:15:24.825Z",
+        "finishedAt": "2026-11-09T16:15:28.208Z"
+      },
+      "sampleRecords": [],
+      "atiSummaries": [],
+      "pageSnapshots": [
+        {
+          "url": "https://canadabuys.canada.ca/en/tender-opportunities/contract-history/cw2379109-001",
+          "httpStatus": 200,
+          "digest": "01e9b449e8f0f69a",
+          "error": null
+        },
+        {
+          "url": "https://canadabuys.canada.ca/en/tender-opportunities/contract-history/cw2450151-000",
+          "httpStatus": 200,
+          "digest": "6a41ccf0dae0294e",
+          "error": null
+        },
+        {
+          "url": "https://canadabuys.canada.ca/en/tender-opportunities/contract-history/cw2370017-001",
+          "httpStatus": 200,
+          "digest": "f8eec305dab06a25",
+          "error": null
+        }
+      ]
+    }
+  },
+  "canadaBuysHeaderCheck": [
+    {
+      "url": "https://canadabuys.canada.ca/opendata/pub/newTenderNotice-nouvelAvisAppelOffres.csv",
+      "httpStatus": 200,
+      "headerCount": 67,
+      "missing": [],
+      "headers": [
+        "title-titre-eng",
+        "title-titre-fra",
+        "referenceNumber-numeroReference",
+        "amendmentNumber-numeroModification",
+        "solicitationNumber-numeroSollicitation",
+        "publicationDate-datePublication",
+        "tenderClosingDate-appelOffresDateCloture",
+        "amendmentDate-dateModification",
+        "expectedContractStartDate-dateDebutContratPrevue",
+        "expectedContractEndDate-dateFinContratPrevue",
+        "tenderStatus-appelOffresStatut-eng",
+        "tenderStatus-appelOffresStatut-fra",
+        "gsin-nibs",
+        "gsinDescription-nibsDescription-eng",
+        "gsinDescription-nibsDescription-fra",
+        "unspsc",
+        "unspscDescription-eng",
+        "unspscDescription-fra",
+        "procurementCategory-categorieApprovisionnement",
+        "noticeType-avisType-eng",
+        "noticeType-avisType-fra",
+        "procurementMethod-methodeApprovisionnement-eng",
+        "procurementMethod-methodeApprovisionnement-fra",
+        "selectionCriteria-criteresSelection-eng",
+        "selectionCriteria-criteresSelection-fra",
+        "limitedTenderingReason-raisonAppelOffresLimite-eng",
+        "limitedTenderingReason-raisonAppelOffresLimite-fra",
+        "tradeAgreements-accordsCommerciaux-eng",
+        "tradeAgreements-accordsCommerciaux-fra",
+        "regionsOfOpportunity-regionAppelOffres-eng",
+        "regionsOfOpportunity-regionAppelOffres-fra",
+        "regionsOfDelivery-regionsLivraison-eng",
+        "regionsOfDelivery-regionsLivraison-fra",
+        "contractingEntityName-nomEntitContractante-eng",
+        "contractingEntityAddressLine-ligneAdresseEntiteContractante-eng",
+        "contractingEntityAddressCity-entiteContractanteAdresseVille-eng",
+        "contractingEntityAddressProvince-entiteContractanteAdresseProvince-eng",
+        "contractingEntityAddressPostalCode-entiteContractanteAdresseCodePostal",
+        "contractingEntityAddressCountry-entiteContractanteAdressePays-eng",
+        "contractingEntityName-nomEntitContractante-fra",
+        "contractingEntityAddressLine-ligneAdresseEntiteContractante-fra",
+        "contractingEntityAddressCity-entiteContractanteAdresseVille-fra",
+        "contractingEntityAddressProvince-entiteContractanteAdresseProvince-fra",
+        "contractingEntityAddressCountry-entiteContractanteAdressePays-fra",
+        "endUserEntitiesName-nomEntitesUtilisateurFinal-eng",
+        "endUserEntitiesAddress-adresseEntitesUtilisateurFinal-eng",
+        "endUserEntitiesName-nomEntitesUtilisateurFinal-fra",
+        "endUserEntitiesAddress-adresseEntitesUtilisateurFinal-fra",
+        "contactInfoName-informationsContactNom",
+        "contactInfoEmail-informationsContactCourriel",
+        "contactInfoPhone-contactInfoTelephone",
+        "contactInfoFax",
+        "contactInfoAddressLine-contactInfoAdresseLigne-eng",
+        "contactInfoCity-contacterInfoVille-eng",
+        "contactInfoProvince-contacterInfoProvince-eng",
+        "contactInfoPostalcode",
+        "contactInfoCountry-contactInfoPays-eng",
+        "contactInfoAddressLine-contactInfoAdresseLigne-fra",
+        "contactInfoCity-contacterInfoVille-fra",
+        "contactInfoProvince-contacterInfoProvince-fra"
+      ]
+    },
+    {
+      "url": "https://canadabuys.canada.ca/opendata/pub/openTenderNotice-ouvertAvisAppelOffres.csv",
+      "httpStatus": 200,
+      "headerCount": 67,
+      "missing": [],
+      "headers": [
+        "title-titre-eng",
+        "title-titre-fra",
+        "referenceNumber-numeroReference",
+        "amendmentNumber-numeroModification",
+        "solicitationNumber-numeroSollicitation",
+        "publicationDate-datePublication",
+        "tenderClosingDate-appelOffresDateCloture",
+        "amendmentDate-dateModification",
+        "expectedContractStartDate-dateDebutContratPrevue",
+        "expectedContractEndDate-dateFinContratPrevue",
+        "tenderStatus-appelOffresStatut-eng",
+        "tenderStatus-appelOffresStatut-fra",
+        "gsin-nibs",
+        "gsinDescription-nibsDescription-eng",
+        "gsinDescription-nibsDescription-fra",
+        "unspsc",
+        "unspscDescription-eng",
+        "unspscDescription-fra",
+        "procurementCategory-categorieApprovisionnement",
+        "noticeType-avisType-eng",
+        "noticeType-avisType-fra",
+        "procurementMethod-methodeApprovisionnement-eng",
+        "procurementMethod-methodeApprovisionnement-fra",
+        "selectionCriteria-criteresSelection-eng",
+        "selectionCriteria-criteresSelection-fra",
+        "limitedTenderingReason-raisonAppelOffresLimite-eng",
+        "limitedTenderingReason-raisonAppelOffresLimite-fra",
+        "tradeAgreements-accordsCommerciaux-eng",
+        "tradeAgreements-accordsCommerciaux-fra",
+        "regionsOfOpportunity-regionAppelOffres-eng",
+        "regionsOfOpportunity-regionAppelOffres-fra",
+        "regionsOfDelivery-regionsLivraison-eng",
+        "regionsOfDelivery-regionsLivraison-fra",
+        "contractingEntityName-nomEntitContractante-eng",
+        "contractingEntityAddressLine-ligneAdresseEntiteContractante-eng",
+        "contractingEntityAddressCity-entiteContractanteAdresseVille-eng",
+        "contractingEntityAddressProvince-entiteContractanteAdresseProvince-eng",
+        "contractingEntityAddressPostalCode-entiteContractanteAdresseCodePostal",
+        "contractingEntityAddressCountry-entiteContractanteAdressePays-eng",
+        "contractingEntityName-nomEntitContractante-fra",
+        "contractingEntityAddressLine-ligneAdresseEntiteContractante-fra",
+        "contractingEntityAddressCity-entiteContractanteAdresseVille-fra",
+        "contractingEntityAddressProvince-entiteContractanteAdresseProvince-fra",
+        "contractingEntityAddressCountry-entiteContractanteAdressePays-fra",
+        "endUserEntitiesName-nomEntitesUtilisateurFinal-eng",
+        "endUserEntitiesAddress-adresseEntitesUtilisateurFinal-eng",
+        "endUserEntitiesName-nomEntitesUtilisateurFinal-fra",
+        "endUserEntitiesAddress-adresseEntitesUtilisateurFinal-fra",
+        "contactInfoName-informationsContactNom",
+        "contactInfoEmail-informationsContactCourriel",
+        "contactInfoPhone-contactInfoTelephone",
+        "contactInfoFax",
+        "contactInfoAddressLine-contactInfoAdresseLigne-eng",
+        "contactInfoCity-contacterInfoVille-eng",
+        "contactInfoProvince-contacterInfoProvince-eng",
+        "contactInfoPostalcode",
+        "contactInfoCountry-contactInfoPays-eng",
+        "contactInfoAddressLine-contactInfoAdresseLigne-fra",
+        "contactInfoCity-contacterInfoVille-fra",
+        "contactInfoProvince-contacterInfoProvince-fra"
+      ]
+    }
+  ],
+  "atiSummaries": {
+    "searchStatus": 200,
+    "searchError": null,
+    "datasets": [
+      {
+        "id": "0797e893-751e-4695-8229-a5066e4fe43c",
+        "name": "0797e893-751e-4695-8229-a5066e4fe43c",
+        "title": "Completed Access to Information Request Summaries dataset",
+        "resources": [
+          {
+            "id": "19383ca2-b01a-487d-88f7-e1ffbc7d39c2",
+            "name": "Completed Access to Information Request Summaries dataset",
+            "format": "CSV",
+            "datastore_active": true,
+            "url": "/data/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/19383ca2-b01a-487d-88f7-e1ffbc7d39c2/download/ati-all.csv"
+          },
+          {
+            "id": "5a1386a5-ba69-4725-8338-2f26004d7382",
+            "name": "Completed Access to Information Request Summaries dataset (Nothing to report)",
+            "format": "CSV",
+            "datastore_active": true,
+            "url": "/data/dataset/0797e893-751e-4695-8229-a5066e4fe43c/resource/5a1386a5-ba69-4725-8338-2f26004d7382/download/ati-nil.csv"
+          },
+          {
+            "id": "c8745108-5138-45f1-b7aa-cb16cef414c1",
+            "name": "Search Completed Access to Information Requests (English)",
+            "format": "HTML",
+            "datastore_active": false,
+            "url": "https://open.canada.ca/en/search/ati"
+          },
+          {
+            "id": "d338974f-b307-4737-88ae-c28af9178f2a",
+            "name": "Search Completed Access to Information Requests (French)",
+            "format": "HTML",
+            "datastore_active": false,
+            "url": "https://ouvert.canada.ca/fr/search/ati"
+          },
+          {
+            "id": "9803cf94-f080-46af-8a74-a1fab0c93cb9",
+            "name": "Data Dictionary",
+            "format": "XLSX",
+            "datastore_active": false,
+            "url": "https://open.canada.ca/data/recombinant-published-dictionary/ati"
+          },
+          {
+            "id": "5515c59c-130a-4979-81fd-acbb94020a8a",
+            "name": "Data Schema",
+            "format": "JSON",
+            "datastore_active": false,
+            "url": "https://open.canada.ca/data/recombinant-published-schema/ati.json"
+          }
+        ]
+      }
+    ],
+    "datastoreResources": [
+      {
+        "dataset": "Completed Access to Information Request Summaries dataset",
+        "resourceId": "19383ca2-b01a-487d-88f7-e1ffbc7d39c2",
+        "name": "Completed Access to Information Request Summaries dataset",
+        "fields": [
+          "_id",
+          "year",
+          "month",
+          "request_number",
+          "summary_en",
+          "summary_fr",
+          "disposition",
+          "pages",
+          "comments_en",
+          "comments_fr",
+          "umd_number",
+          "owner_org",
+          "owner_org_title"
+        ],
+        "hasExpectedFields": true
+      },
+      {
+        "dataset": "Completed Access to Information Request Summaries dataset",
+        "resourceId": "5a1386a5-ba69-4725-8338-2f26004d7382",
+        "name": "Completed Access to Information Request Summaries dataset (Nothing to report)",
+        "fields": [
+          "_id",
+          "year",
+          "month",
+          "owner_org",
+          "owner_org_title"
+        ],
+        "hasExpectedFields": false
+      }
+    ]
+  },
+  "finishedAt": "2026-11-09T16:15:30.594Z"
+}

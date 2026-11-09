@@ -10,7 +10,7 @@
 
 > 证据分级（本报告全文适用）：
 > - **fixture**：构造的 CSV / CKAN 行、回执、来信、披露文件，只用于测试与演示；
-> - **真实只读结果**：本会话**没有**——网络策略拒绝 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca`（代理 403）；
+> - **真实只读结果**：2026-11-05 开发会话**没有**——网络策略拒绝 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca`（代理 403）；**2026-11-09 已取得**（放行三个域名后，见 §8a 与 `docs/acceptance/proc-1/live-check.json`）；
 > - **用户真实提交证据**：**没有**——本次开发未提交任何政府申请。业务验收见 §8。
 
 ## 1. 已完成 / 未完成（对应任务书）
@@ -193,20 +193,50 @@ DATABASE_URL=postgresql://qy:qy@localhost:5544/qy_isolated DIRECT_URL=postgresql
 
 | 项 | 状态 | 证据 |
 |---|---|---|
-| 代码 | 已推送分支 `claude/tender-dijkstra-1i94ag`；Draft PR https://github.com/LucasJ880/-/pull/382；**未合并** | git log / PR |
-| 生产 / staging 迁移 | **未执行** | 只在本地隔离库预演 |
+| 代码 | 已推送分支 `claude/tender-dijkstra-1i94ag`；Draft PR https://github.com/LucasJ880/-/pull/382；**未合并**（2026-11-09 更新：已合并，`9ffca30`） | git log / PR |
+| 生产 / staging 迁移 | **未执行**（2026-11-09 更新：仍未执行；#382 先于迁移合并，此后 main 的生产构建都被迁移闸拦住，生产停在 `f20f4cd`；本地按生产方式演练通过，见 §8a） | 只在本地隔离库预演 |
 | `PROCUREMENT_RECORDS_SCHEMA_READY` | 各环境**未设置** | — |
 | 定时扫描 | **未启用**（生产无表；新建监控默认未启用） | — |
-| 真实官方来源只读运行 | **未发生**（网络策略拒绝） | 代理 403 记录 |
+| 真实官方来源只读运行 | **未发生**（网络策略拒绝）（2026-11-09 更新：**已发生**，四个来源 SUCCESS，CSV 列名齐全，见 §8a） | 代理 403 记录；`docs/acceptance/proc-1/live-check.json` |
 | 真实自助提交 | **未发生**（待业务验收） | — |
 
 注意：迁移已登记进 `EXPECTED_ACTIVE_MIGRATIONS`。合并到 main 后，生产构建会被 `predeploy-migration-gate` 拦住，直到按 runbook 执行受控迁移——这是有意的（先 safe-migrate，再合并 / 部署）。
+
+## 8a. 上线前核对（2026-11-09，Evan 接手生产上线前）
+
+**真实只读核对**（`scripts/procurement-records-live-check.ts`，不连库、不写数据；官方公开数据；结果文件 `docs/acceptance/proc-1/live-check.json`）：
+
+| 来源 | 状态 | 取到 / 匹配 | 说明 |
+|---|---|---|---|
+| CanadaBuys 招标公告开放数据 CSV | SUCCESS | 930 / 13 | 两个 CSV 表头 HTTP 200、67 列，`missing` 为空 |
+| Open Canada 合同披露（CKAN） | SUCCESS | 78 / 14 | 52 个关键词按页数上限只查前 5 个（设计内截断，下次续查） |
+| Completed ATI 摘要（CKAN datastore） | SUCCESS | 2 / 1 | 资源 ID `19383ca2-b01a-487d-88f7-e1ffbc7d39c2`（`hasExpectedFields: true`）→ 生产设 `PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID` |
+| CanadaBuys 合同历史页 | SUCCESS | 3 / 3 | 只做页面哈希变更检测；第一次运行有 1 个页面 HTTP 403（PARTIAL），重跑 3 / 3 |
+
+核对中发现并修正：脚本单独核对 CSV 表头时没带 User-Agent，CanadaBuys 对这种请求返回 403；正式抓取代码（`source-fetch.ts`）一直带 UA，不受影响。脚本改为复用同一个 UA 常量后表头核对通过。运行环境须让 Node 的 fetch 走出站代理（本会话用 `NODE_USE_ENV_PROXY=1`；普通开发机 / Vercel 不需要）。
+
+**按生产方式的本地演练**（新建空库 `qy_proc1_rehearsal`）：
+
+| 步骤 | 结果 |
+|---|---|
+| 先应用 PROC-1 之前的全部迁移，模拟生产现状 → `npm run db:migrate:status` | 只有 `20261105120000_add_procurement_records_foundation` 待应用（与生产预期一致：`f20f4cd` 之后只新增这一条） |
+| `VERCEL_ENV=production` 跑 `predeploy-migration-gate` | BLOCKED，exit 1，列出缺这条迁移 |
+| 按受保护库处理、只给 `ALLOW_DATABASE_MIGRATION` 不给 `CONFIRM_PRODUCTION_MIGRATION` | 拒绝执行 |
+| 双确认闸 `npm run db:migrate:deploy` | 成功，耗时 66 ms；status：up to date |
+| runbook §3.5 验表 SQL | 16 |
+| 再跑迁移闸 | OK（42 条迁移全部已应用），exit 0 |
+| 在该库上跑 `procurement-records-db.isolated.test.ts` | 158 passed |
+| 迁移文件 | sha256 `4e2df98d…f6857` 与登记一致；16 张 CREATE TABLE、6 条 ALTER 都是新表之间的外键，无任何既有表改动；`verify:migration-history` 93 passed |
+
+注意：`safe-migrate-deploy.ts` 按主机名判断是否「受保护的生产库」（含 prod / main / primary 或既有两个 Neon 主机名），并打印脱敏后的 host / database / protectedTarget——执行前先看这几行确认指向的是生产库。
+
+以上演练与核对都是本地 / 公开数据，不是生产执行证据；生产迁移、置位、部署与烟测仍由持凭证的人按 runbook 执行。
 
 ## 9. 需要你提供的资料或决定
 
 1. ~~硬纪律 1 / 3 例外~~：**已批准**（Lucas 2026-11-05，决定 C）；合并仍由 Evan 拍板。
 2. ~~生产迁移的 Owner Gate 时间窗~~：按推荐执行——见 `docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`（需持有生产库凭证的人执行；本会话没有生产凭证）。
-3. ~~首次真实只读运行~~：已同意；放行本会话或生产环境对 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca` 的出站访问，用于首次真实只读运行，并核对 CanadaBuys CSV 列名与 Completed ATI 摘要资源 ID（`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`）——一条命令：`npx tsx scripts/procurement-records-live-check.ts --out docs/acceptance/proc-1/live-check.json`（不连库、不写数据）。本会话域名仍被网络策略拒绝（2026-11-05 复测仍为 403），放行前无法产生真实结果。
+3. ~~首次真实只读运行~~：已同意；放行本会话或生产环境对 `open.canada.ca`、`canadabuys.canada.ca`、`search.open.canada.ca` 的出站访问，用于首次真实只读运行，并核对 CanadaBuys CSV 列名与 Completed ATI 摘要资源 ID（`PROCUREMENT_ATI_SUMMARIES_RESOURCE_ID`）——一条命令：`npx tsx scripts/procurement-records-live-check.ts --out docs/acceptance/proc-1/live-check.json`（不连库、不写数据）。本会话域名仍被网络策略拒绝（2026-11-05 复测仍为 403），放行前无法产生真实结果。（2026-11-09：已完成，见 §8a。）
 4. 当前申请人资料（公司法定名称、代表人、地址、邮箱）：请在界面填写并确认；系统不会从历史回复信带出。
 5. 首次台账：A-2026-00183 之外是否还有历史 ATI / 省市申请？有则按 JSON 导入，没有则由你在界面确认「该范围无历史申请」。
 6. 三条种子合同的资料持有机关（PSPC 还是 CSC / CORCAN / DND）按所需记录核实后填写。

@@ -38,7 +38,7 @@ async function getJson(url: string): Promise<{ ok: boolean; status: number; json
 
 async function main() {
   process.env.TENDER_EXTERNAL_INTEL_ENABLED = "1";
-  const { ADAPTERS, DEFAULT_CANADABUYS_NOTICE_URLS } = await import("@/lib/procurement-records/source-fetch");
+  const { ADAPTERS, DEFAULT_CANADABUYS_NOTICE_URLS, USER_AGENT } = await import("@/lib/procurement-records/source-fetch");
   const { defaultWatchConfig } = await import("@/lib/procurement-records/watch-config");
   const { RESEARCH_SEEDS } = await import("@/lib/procurement-records/seed");
   const { normalizeInstrumentNumber } = await import("@/lib/procurement-records/identity");
@@ -73,7 +73,8 @@ async function main() {
   const headerCheck: unknown[] = [];
   for (const url of DEFAULT_CANADABUYS_NOTICE_URLS) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      // 与正式抓取同一个 User-Agent：CanadaBuys 对不带 UA 的请求返回 403（2026-11-09 真实核对发现）
+      const res = await fetch(url, { headers: { "user-agent": USER_AGENT, accept: "*/*" }, signal: AbortSignal.timeout(60_000) });
       const text = res.ok ? await res.text() : "";
       const headers = text ? (parseCsv(text.slice(0, 20_000))[0] ?? []) : [];
       const need = {

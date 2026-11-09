@@ -28,7 +28,8 @@ export const DEFAULT_CANADABUYS_NOTICE_URLS = [
   "https://canadabuys.canada.ca/opendata/pub/openTenderNotice-ouvertAvisAppelOffres.csv",
 ];
 
-const USER_AGENT = "qingyan-procurement-watch/1.0 (+public open data, read-only)";
+/** 来源抓取的 User-Agent；live-check 脚本复用同一个（CanadaBuys 会拒绝不带 UA 的请求） */
+export const USER_AGENT = "qingyan-procurement-watch/1.0 (+public open data, read-only)";
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_CSV_BYTES = 60 * 1024 * 1024;
 
