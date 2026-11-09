@@ -18,7 +18,7 @@
 ## 0. 下一步（2026-11-08，#393 合并后）
 
 - VIS-1a：已合并（#393）并归档（本归档 PR）。生产核对按 `docs/QINGYAN_VIS-1a_REPORT.md` §9（Lucas）；`config/positions/sunny.json` 11 人邮箱已全部填齐（2026-11-09，Lucas 给的名单；yee = 小叶，chen = 蒋晨），文件里没有 `TODO:` 占位了。全员在 Sunny 注册成 active 成员后，`--dry-run` 跑一遍绑定，再正式执行。
-- VIS-1b：四件套已过两轮独立审查并改完（分支 `claude/vis-1b-home-and-shell`，56ae302，`openspec validate --strict` 通过，未开 PR）。等 Lucas 拍板 design「审核关注点」Q1–Q10 后再 `/opsx:apply`；apply 前不改代码。
+- VIS-1b：已 apply 完（分支 `claude/vis-1b-home-and-shell`，8/8 任务；Q1–Q10 按推荐拍板）。门禁全过：npm test 560/573，13 个环境类失败在 origin/main 上同样失败；typecheck、lint:baseline、test:ci、next build、`openspec validate --strict`、`/opsx:verify` 都通过。三轮独立审查都已处理。报告 `docs/QINGYAN_VIS-1b_REPORT.md`。下一步：Lucas 说开 PR 再开；合并后 `/opsx:archive vis-1b-home-and-shell --yes`（独立小 PR）。
 
 ### 0a. apply 完成时的下一步（留档）
 
