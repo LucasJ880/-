@@ -61,11 +61,11 @@ async function verifiedSession(token: string): Promise<{ sub: string; role: stri
   }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   return handleRequest(request, ROUTE_GATE_LOADER);
 }
 
-/** 中间件本体；路由门的判定输入加载器可注入（测试用假加载器，生产用 context-server 的 ROUTE_GATE_LOADER） */
+/** proxy（原 middleware）本体；路由门的判定输入加载器可注入（测试用假加载器，生产用 context-server 的 ROUTE_GATE_LOADER） */
 export async function handleRequest(request: NextRequest, loader: RouteGateLoader) {
   const { pathname } = request.nextUrl;
 
@@ -114,8 +114,8 @@ export async function handleRequest(request: NextRequest, loader: RouteGateLoade
 }
 
 export const config = {
-  // VIS-1a：路由门要查库，跑在 Node.js runtime（Next 16 middleware 支持；design D1）
-  runtime: "nodejs",
-  // 不再按图片扩展名整体排除：图片在函数开头放行，已登录区路径带扩展名照样判定（design D5）
+  // VIS-1a：路由门要查库，须跑在 Node.js runtime。Next 16 的 proxy 固定 Node.js runtime，
+  // 不得再声明 runtime（声明即构建报错 E1031；next16-proxy-rename design D2）
+  // VIS-1a：不再按图片扩展名整体排除：图片在函数开头放行，已登录区路径带扩展名照样判定（vis-1a design D5）
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

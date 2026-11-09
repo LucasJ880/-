@@ -1,5 +1,5 @@
 /**
- * 中间件对营销工作区的处理（VIS-1a 起）：
+ * 中间件（Next 16 起为 src/proxy.ts）对营销工作区的处理（VIS-1a 起）：
  * - 营销页面（/marketing/**、/operations/growth/**）由路由门按「品牌增长」入口判定，不放行 302 到落地页；
  * - 营销接口（/api/marketing/**）的旧模式拦截保留：JWT 平台角色 sales → 403。
  * 路由门的判定输入用注入的假加载器（不连库）；完整矩阵见 src/lib/navigation/__tests__/route-gate.test.ts。
@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SignJWT } from "jose";
 import { NextRequest } from "next/server";
-import { handleRequest } from "../../../middleware";
+import { handleRequest } from "../../../proxy";
 import type { RouteGateContext, RouteGateLoader } from "../../navigation/route-gate";
 import { WINDOW_COVERING_INDUSTRY_PACK, mergedProfileBindings } from "../../authorization/role-defaults";
 import { DEFAULT_SUNNY_MODULES } from "../../tenancy/modules";
