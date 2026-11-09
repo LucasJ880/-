@@ -313,6 +313,9 @@ npx tsx src/lib/sales/__tests__/period-pure.test.ts
 npx tsx src/lib/sales/__tests__/period-insights.test.ts
 # STAT-1：期间周预设与按人报价明细
 npx tsx src/lib/sales/__tests__/period-drilldown-pure.test.ts
+# OPS-REV：运营中心只读的全公司销售额汇总（DB e2e 无隔离库自动跳过）
+npx tsx src/lib/sales/period/__tests__/revenue-summary.test.ts
+npx tsx src/lib/sales/period/__tests__/revenue-summary-db.isolated.test.ts
 # KPI-2：期间看板 AI 解读纯函数核心
 npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts
 # CAL-1：日历观察纯函数核心

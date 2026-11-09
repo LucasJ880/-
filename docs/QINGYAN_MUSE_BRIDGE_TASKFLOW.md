@@ -195,6 +195,7 @@
 | VIS-1c | 通知类型 / 设置 / 搜索 / AI 工具按模块收口：通知开关与通知页筛选只列模块已开的类型（图标表与跳转表不改）；`/settings` 发信文案改读组织设置；全局搜索的项目范围改为本人可读且须持 `project.read`；AI 助手工具表按模块过滤（与执行期同一映射）；营销增长员工按 `marketing` 模块 ∧ 营销键 | VIS-1a | OpenSpec change `vis-1c-notify-settings-search`；报告 `docs/QINGYAN_VIS-1c_REPORT.md` | [ ] |
 | VIS-1d | 审批中心按模块 ∧ 岗位：可见集合 = 本人提交 / 被指派 ∪ 「所属模块已开 ∧ 本岗位持对应审批键」的类型；AI 助手「待我确认」与团队审批范围改用同一集合函数；平台 super_admin 不受此限 | VIS-1a | OpenSpec change `vis-1d-approvals-split`；隔离库测试；BREAKING：Sunny org_admin 不再见全量审批，梦馨不受影响；报告 `docs/QINGYAN_VIS-1d_REPORT.md` | [ ] |
 | VIS-1e | 平台管理员「以岗位预览」：super_admin 在组织成员页写 2 小时预览 cookie（零 schema），导航 / 路由门 / 首页 / 通知 / 审批 / AI 工具按该岗位模板的键；预览态非 GET API 一律 409 `PREVIEW_READONLY`；顶部常驻横幅可退出 | VIS-1a–1d | OpenSpec change `vis-1e-preview-as-position`；报告 `docs/QINGYAN_VIS-1e_REPORT.md` | [ ] |
+| VIS-2 | 运营看全公司销售额汇总（Lucas 2026-11-09：销售只看本人销售额、运营看运营数据 + 销售额、招投标对销售 / 运营不可见、老板看全部；对照后只缺运营看销售额）：新权限键 `sales.revenue.summary.read`（只 ORG）绑窗饰 `ops_lead` / `ops_staff`；`GET /api/ops/sales-summary` 只返回本周 / 本月至今成单金额、成单数、报价金额；运营中心只读卡；`scripts/seed-org-authorization.ts` 单企业重跑岗位落地 | VIS-1a | OpenSpec change `ops-sales-revenue-summary`；纯函数 9 + 隔离库 13（运营 / 老板 / 会计 200、销售 / 招投标 / 无岗位 403、无明细泄露）；截图 `docs/acceptance/vis-2/`；报告 `docs/QINGYAN_VIS-2_REPORT.md`；上线后对 Sunny 跑一次单企业落地 | [G] |
 
 **GATE-V 验收**（细项见任务书「验收」节）：以 VIS-1e 预览逐岗位核对 Lynn（`sales_rep`）/ 安装工 / Miki（`accounting` + `pricing_lead`）/ Bob（`owner`）/ Lucas（`super_admin`）；未授权直达 URL 一律服务端 302 到默认工作区、无骨架闪现；`npm run test:ci` 与 `npm run typecheck` 通过；每个 change 的 `openspec validate` 通过。
 

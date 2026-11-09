@@ -298,6 +298,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
       // PERM-4b：运营内容起草 + 批准（批准不得自批）
       "operations.content.draft",
       "operations.content.approve",
+      // OPS-REV：运营中心只读的全公司销售额汇总（不含客户 / 报价 / 按人明细）
+      "sales.revenue.summary.read",
     ),
   },
   {
@@ -342,8 +344,8 @@ export const WINDOW_COVERING_ROLE_PROFILES: DefaultRoleProfile[] = [
     key: "ops_staff",
     name: "运营人员",
     description: "运营任务执行、内容起草；库存只读",
-    // PERM-4b：起草 / 提交运营内容，不能批准
-    bindings: org("inventory.read", "operations.content.draft"),
+    // PERM-4b：起草 / 提交运营内容，不能批准；OPS-REV：运营中心只读的全公司销售额汇总
+    bindings: org("inventory.read", "operations.content.draft", "sales.revenue.summary.read"),
   },
   { key: "fulfillment_vinyl", name: "出单·Vinyl", description: "Vinyl 品类订单与工艺单", bindings: fulfillment("vinyl") },
   { key: "fulfillment_drapery", name: "出单·布帘", description: "布帘品类订单与工艺单", bindings: fulfillment("drapery") },
