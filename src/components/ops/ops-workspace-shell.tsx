@@ -11,6 +11,7 @@ import type {
   OpsTaskSummary,
 } from "@/lib/operations/dashboard";
 import { OpsSubnav } from "@/components/ops/ops-subnav";
+import { OpsSalesSummaryCard } from "@/components/ops/ops-sales-summary-card";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
 
@@ -356,6 +357,9 @@ export function OpsWorkspaceShell() {
           </Link>
         ))}
       </div>
+
+      {/* OPS-REV：全公司销售额（只读汇总；无权时不渲染） */}
+      <OpsSalesSummaryCard />
 
       {emptyAll ? (
         <div className="rounded-xl border border-[var(--border)] px-4 py-8">

@@ -59,6 +59,16 @@ const REGISTRY_ENTRIES: PermissionDefinition[] = [
   def("sales.quote.send", "sales.quote", "send", "发送报价", "发送报价给客户", ["PRINCIPAL", "ORG"], "HIGH"),
 
   def("sales.analytics.read", "sales.analytics", "read", "销售分析", "查看销售分析", ["PRINCIPAL", "ORG"], "MEDIUM"),
+  // OPS-REV：运营看「销售额」——只给全公司汇总数字（成单金额 / 成单数 / 报价金额），不含客户、报价与按人明细
+  def(
+    "sales.revenue.summary.read",
+    "sales.revenue",
+    "read",
+    "查看销售额汇总",
+    "只读全公司本周 / 本月成单金额、成单数、报价金额；不含客户、单个报价与按销售员的明细",
+    ["ORG"],
+    "MEDIUM",
+  ),
 
   def("operations.read", "operations", "read", "查看运营", "查看运营数据", ["ORG"], "LOW"),
   def("operations.manage", "operations", "manage", "管理运营", "修改运营配置", ["ORG"], "HIGH"),

@@ -323,6 +323,9 @@ run_test "销售期间汇总口径（KPI-1）" "npx tsx src/lib/sales/__tests__/
 run_test "销售期间汇总确定性洞察（KPI-1）" "npx tsx src/lib/sales/__tests__/period-insights.test.ts"
 run_test "期间周预设与按人报价明细（STAT-1）" "npx tsx src/lib/sales/__tests__/period-drilldown-pure.test.ts"
 run_test "销售期间汇总 DB 端到端（KPI-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/period-db.isolated.test.ts"
+# OPS-REV：运营中心只读的全公司销售额汇总（运营主管 / 运营人员）
+run_test "OPS-REV 运营中心销售额汇总 纯函数 + 岗位绑定" "npx tsx src/lib/sales/period/__tests__/revenue-summary.test.ts"
+run_test "OPS-REV 运营中心销售额汇总 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/period/__tests__/revenue-summary-db.isolated.test.ts"
 # KPI-2 sales-period-narrative：期间看板 AI 解读
 run_test "期间看板 AI 解读纯函数核心（KPI-2）" "npx tsx src/lib/sales/__tests__/period-narrative-pure.test.ts"
 run_test "期间看板 AI 解读 DB 端到端（KPI-2；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/period-narrative-db.isolated.test.ts"
