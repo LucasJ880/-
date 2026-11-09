@@ -6,7 +6,7 @@
 页面底部 SHALL 按接口顺序显示时间线条目（时间、岗位、操作者——"系统" / "AI" / 用户名、摘要），有 `href` 的条目 SHALL 可点击；条目的岗位名 SHALL 只在该岗位出现在岗位总览返回的 `posts` 里时显示，否则该格留空（`post` 为空时照旧显示"未归属"）；有 `nextCursor` 时 SHALL 显示"加载更多"；"加载更多"失败时 SHALL 保留已加载条目并提供重试；列表被刷新或重试替换后，替换前发出的"加载更多"响应 SHALL 被丢弃；无条目时 SHALL 显示"最近 7 天暂无记录"。相对时间 SHALL 以接口的 `generatedAt` 为基准计算。
 
 #### Scenario: 时间线条目
-- **WHEN** 接口返回一条 `actor = "ai"`、`post = "tender"`、`href = "/workforce/run-1"` 的条目
+- **WHEN** 岗位总览的 `posts` 含 `tender`，接口返回一条 `actor = "ai"`、`post = "tender"`、`href = "/workforce/run-1"` 的条目
 - **THEN** 显示"AI"、"投标"，并链接到 `/workforce/run-1`
 
 #### Scenario: 刷新与加载更多交错

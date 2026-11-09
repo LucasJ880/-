@@ -34,3 +34,7 @@
 #### Scenario: 保留其他设置
 - **WHEN** 运行同一测试，对 `settingsJson = { onboarding: {...}, ui: { theme: "x" } }` 计算 `platform_relay` 的新值
 - **THEN** 结果保留 `onboarding` 与 `ui.theme`，只新增 `ui.senderCopy`；`clear` 时只删 `ui.senderCopy`，测试通过
+
+#### Scenario: 没有显式开关时拒绝
+- **WHEN** 未设 `ALLOW_SENDER_COPY_UPDATE=true`，或 `--actor` 不是平台 super_admin，运行回填脚本（含 `--dry-run`）
+- **THEN** 脚本退出码非 0、不读写企业设置（同一测试以源码断言覆盖）
