@@ -46,3 +46,6 @@
 
 - [x] 11.1 入口合并为「采购情报」+ 三页签（候选项目 / 资料申请 / 设置，新增 `monitor/settings` 页）；`ProcurementMonitor` / `RecordsLedger` 分 `candidates|settings`、`list|settings` 两种模式；新增纯函数 `next-step.ts`（下一步与设置类阻塞）；详情改为「下一步」卡 + 四页签；候选卡片与 Tender 卡片默认精简、细节可展开。verify：`records-request-pure.test.ts`（180）退出 0；`npm run typecheck`、`npm run lint:baseline`、`openspec validate --strict` 通过；手机宽度（iPhone 13）四页无横向滚动；截图 `docs/acceptance/proc-1/01–25` 全部为新布局（fixture；01–18 同名重拍）。
 
+## 12. 合入 main 后对齐路由门（VIS-1a，2026-11-09）
+
+- [x] 12.1 main 合入 VIS-1a 路由门后，PROC-1 的三个新页面需登记：`route-gate.ts` 门表新增 `/projects/intelligence/records` → `nav-intel-monitor`；`route-gate.test.ts` 快照补三条、页面计数 163 → 166；规格增量 `specs/navigation/route-gate`（MODIFIED「每个页面都已登记」）。verify：`route-gate.test.ts`（134）与 navigation 其余测试退出 0；`openspec validate procurement-records-requests --strict` 通过。

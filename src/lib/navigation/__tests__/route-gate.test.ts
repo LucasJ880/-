@@ -257,6 +257,9 @@ const PAGE_RULE_SNAPSHOT: Array<[string, string]> = [
   ["/projects/intelligence/awards", "/projects/intelligence/awards nav-intel-awards"],
   ["/projects/intelligence/competitors", "/projects/intelligence/competitors nav-intel-competitors"],
   ["/projects/intelligence/monitor", "/projects/intelligence/monitor nav-intel-monitor"],
+  ["/projects/intelligence/monitor/settings", "/projects/intelligence/monitor nav-intel-monitor"],
+  ["/projects/intelligence/records", "/projects/intelligence/records nav-intel-monitor"],
+  ["/projects/intelligence/records/[id]", "/projects/intelligence/records nav-intel-monitor"],
   ["/projects/intelligence/series", "/projects/intelligence nav-project-intel"],
   ["/projects/intelligence/supply-chain", "/projects/intelligence/supply-chain nav-intel-supply"],
   ["/projects/intelligence/supply-chain/supplier", "/projects/intelligence/supply-chain nav-intel-supply"],
@@ -341,7 +344,7 @@ const PAGE_RULE_SNAPSHOT: Array<[string, string]> = [
   const stale = PAGE_RULE_SNAPSHOT.map(([p]) => p).filter((p) => !pages.includes(p));
   if (missing.length) console.error(`    未登记的页面（请在快照与门表里登记）：${missing.join(" ")}`);
   if (stale.length) console.error(`    快照里已不存在的页面：${stale.join(" ")}`);
-  ok(pages.length === 163 && missing.length === 0 && stale.length === 0, `163 个 (main) 页面与快照一一对应（实际 ${pages.length}）`);
+  ok(pages.length === 166 && missing.length === 0 && stale.length === 0, `166 个 (main) 页面与快照一一对应（实际 ${pages.length}）`);
   const drift = PAGE_RULE_SNAPSHOT.filter(([p, label]) => ruleLabel(matchRouteGateEntry(p.replace(/\[[^\]]+\]/g, "x"))) !== label);
   if (drift.length) console.error(`    规则与快照不一致：${drift.map(([p]) => p).join(" ")}`);
   ok(drift.length === 0, "每个页面命中的门表条目与规则都与快照一致");

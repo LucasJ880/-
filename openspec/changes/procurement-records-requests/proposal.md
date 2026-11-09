@@ -33,6 +33,7 @@ Sunny 在下一次投标前要持续发现值得跟的政府采购，并查清�
 ### Modified Capabilities
 - `cockpit/post-registry`：自动化键由 33 增至 34（新增 `procurement-watch`，归属投标岗位）。
 - `cockpit/posts-overview`：调度表由 33 条增至 34 条（`procurement-watch` 挂在 `tender-watch` 路由，`25 * * * *`）。
+- `navigation/route-gate`：已登录区页面由 163 增至 166（新增 `/projects/intelligence/monitor/settings`、`/projects/intelligence/records`、`/projects/intelligence/records/[id]`），门表新增 `/projects/intelligence/records` → `nav-intel-monitor`（`monitor/settings` 由既有 `/projects/intelligence/monitor` 条目覆盖）。
 - Tender 详情「情报」Tab 只追加一张卡片（规格见 `procurement/watch-scan`「前序供应商与进口线索」）；现有卡片与行为不变，「确认为上轮中标」复用既有人工确认路由。
 
 受影响的 Muse 意图：无（不触碰 `muse-bridge`）。
