@@ -306,6 +306,13 @@ async function main() {
     ok(label("owner") === "总览→/" && label("super_admin") === "总览→/", `老板、super_admin：首格仍为「总览」→ /（实际 ${label("owner")}）`);
     ok(label("installer") === "安装→/install" && label("ops_staff") === "运营→/ops" && label("bids") === "招投标→/bids", "安装 / 运营 / 招投标默认工作区的首格不变");
     ok(NAMES.every((n) => { const tab = first(n); return !tab || canOpenHref(tab.href, clientCtx(IDENTITIES[n])); }), "每种身份的首格都放行");
+    // 旧模式同一规则（spec「岗位模式与旧模式相同」）
+    const legacyFirst = (role: string, partial: Partial<OrgNavigationInputs>) =>
+      computeMobileTabs(clientCtx({ role, inputs: inputs({ positionMode: false, modules: { enabled: LEGACY_MODULES }, ...partial }) })).tabs[0];
+    const la = legacyFirst("user", { permissionKeys: sunny("accounting") });
+    const ln = legacyFirst("user", {});
+    ok(la?.label === "会计" && la.href === "/accounting" && ln?.label === "任务" && ln.href === "/tasks", `旧模式：会计首格「会计」、无键成员首格「任务」（实际 ${la?.label} / ${ln?.label}）`);
+    ok(computeMobileTabs(clientCtx(IDENTITIES.legacy_boss)).tabs[0]?.label === "总览", "旧模式老板：首格仍为「总览」");
     const bar = read("src/components/mobile-tab-bar.tsx");
     ok(/tasks: ListTodo/.test(bar) && /accounting: Calculator/.test(bar) && /case "tasks":/.test(bar) && /case "accounting":/.test(bar), "底栏组件有「任务」「会计」的图标与高亮规则");
   }

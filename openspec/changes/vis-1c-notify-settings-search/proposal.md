@@ -65,15 +65,17 @@ TASKFLOW：VIS-1c（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 - 新增：
   - `src/lib/notifications/type-visibility.ts`（类型 → 入口页面对照）；
   - `src/lib/settings/sender-copy.ts`（发信文案读写）；
+  - `src/lib/agent-core/entry-gate.ts`、`entry-gate-server.ts`（人类对话的工具列表入口门）；
   - `scripts/set-org-sender-copy.ts`（回填脚本）；
   - 对应测试。
 - 修改：
   - 通知：`src/components/notification/notification-type-toggle-list.tsx`、`src/app/(main)/notifications/page.tsx`；
   - 设置：`src/app/(main)/settings/page.tsx`、`settings/email/page.tsx`、`src/app/api/organizations/route.ts`、`src/lib/hooks/use-organizations.ts`、`scripts/seed-org-mengxin-home-textile.ts`；
-  - 搜索：`src/app/api/search/route.ts`、`src/lib/search/where.ts`；
+  - 搜索：`src/app/api/search/route.ts`、`src/lib/search/where.ts`、`src/lib/navigation/page-context-server.ts`（路由门同一份判定输入）；
   - 工具：`src/lib/tenancy/tool-auth.ts`（导出模块映射）、`src/lib/agent-core/tool-registry.ts`、`src/lib/agent-core/engine.ts`、`src/lib/agent-core/types.ts`、`src/app/api/agent-core/tools/route.ts`、`src/app/api/agent-core/chat/route.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`、`src/lib/agent-runtime/process.ts`（微信对话）；
   - 营销卡片：`src/app/(main)/assistant/digital-employee-workbench.tsx`；
-  - 时间线：`src/lib/cockpit/timeline.ts`、`posts-read-model.ts`（company log 部分）、`src/lib/navigation/landing.ts`（可见自动化键）、`src/app/api/cockpit/timeline/route.ts`、`src/components/cockpit/org-cockpit-view.tsx`；
+  - 时间线：`src/lib/cockpit/timeline.ts`、`posts-read-model.ts`（company log 部分）、`src/lib/navigation/landing.ts`（可见自动化键）、`src/lib/workforce-runtime/readable-domains.ts`（按显式工作域判定可读）、`src/app/api/cockpit/timeline/route.ts`、`src/components/cockpit/org-cockpit-view.tsx`；
+  - 判定钩子：`src/lib/navigation/use-navigation-access.ts`（取失败时 `failed` / `retry`）；
   - 入口：`src/lib/navigation/types.ts`（`managementOnly`）、`filter.ts`、`registry.ts`（`work-home`）、`mobile-tabs.ts`、`src/components/mobile-tab-bar.tsx`；
   - 测试与 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
 - 硬纪律：零 schema（发信文案落在既有 `Organization.settingsJson`）、不新增权限键、零新增 LLM 调用、不触碰出站、不新增队列 / cron。
