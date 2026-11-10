@@ -24,7 +24,7 @@
 | b1-tenant-context-static | 20 |
 | phase1-1-context-propagation | 24 |
 
-search-where（#409）的基线在 #409 合并、本分支变基后补记。
+search-where（#409）：10（2026-11-10，#409 尚未合入 main，先以 merge 提交并入本分支后实测）。
 
 ## 1. 通知类型可见性
 
@@ -73,7 +73,7 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 
 ## 3. 全局搜索项目范围
 
-- [ ] 3.1 按 design D6 收窄项目结果（前置：#409 已合并，本分支已变基到含 #409 的 main）：
+- [x] 3.1 按 design D6 收窄项目结果（前置：#409 已合并，本分支已变基到含 #409 的 main）：
   - `src/lib/search/where.ts` 加 `buildReadableProjectWhere(userId, adminOrgIds)`。
   - `api/search/route.ts`：
     - super_admin 不判定门、两处不加范围；
