@@ -94,7 +94,8 @@ console.log("search-where（全局搜索范围）");
   ok(/buildProjectSearchWhere\(buildReadableProjectWhere\(user\.id, adminOrgIds\), q\)/.test(src), "路由的项目条件用可读范围（buildReadableProjectWhere）");
   ok(/if \(isSuperAdmin\(user\.role\)\) return buildProjectSearchWhere\(null, q\);/.test(src), "平台 super_admin：不判定门、项目不加范围");
   ok(/if \(!shouldSearchProjects\(ctx\)\) return null;/.test(src) && /projectSearch === null\s*\? Promise\.resolve\(\[\]\)/.test(src), "项目详情门不放行：不查项目，项目结果为空");
-  ok(/loadNavigationContextForOrg\(user, orgId\)/.test(src) && /isOrgSystemAdmin\(m\.role\)/.test(src), "判定输入与路由门同源；管理企业按 org_admin / org_owner");
+  ok(/loadGateNavigationContextForUser\(user\.id\)/.test(src) && !/resolvePreferredOrgId/.test(src), "判定输入取路由门同一份（缓存、不写库，不走 resolvePreferredOrgId）");
+  ok(/isOrgSystemAdmin\(m\.role\)/.test(src), "管理企业按 org_admin / org_owner");
   ok(/return NextResponse\.json\(\{ tasks, projects \}\);/.test(src), "响应形状保持 { tasks, projects }");
   ok(!/\.\.\.taskProjectScope/.test(src) && !/\.\.\.\w+Scope,\s*\n\s*OR:/.test(src), "路由不再出现「展开范围后再写 OR」的写法");
 }

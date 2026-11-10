@@ -463,6 +463,10 @@ export async function executeConversationRun(rawInput: {
     return { text: "当前组织不可用，任务未执行。请联系管理员确认组织状态。" };
   }
   const tenantRunFields = toAgentTenantRunFields(tenantResolved);
+  // VIS-1c：微信对话是人类对话入口——营销工具只给「品牌增长」入口放行的人（agents/tool-authorization）；
+  // 判定用平台角色（不是派生角色），与路由门同一份判定输入
+  const { loadToolEntryGate } = await import("@/lib/agent-core/entry-gate-server");
+  const entryGate = await loadToolEntryGate({ id: userId, role: rawInput.userRole }, orgId);
 
   const domains: Array<
     "trade" | "sales" | "project" | "secretary" | "knowledge" | "cockpit" | "system"
@@ -548,6 +552,7 @@ ${context.memoryBlock}`;
       agentRunId: runId,
       role: input.userRole,
       ...tenantRunFields,
+      entryGate,
       abortSignal: abort.signal,
       runtime: {
         orgId,

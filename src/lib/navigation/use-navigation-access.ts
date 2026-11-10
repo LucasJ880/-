@@ -60,6 +60,10 @@ function fetchNavigationInputs(orgKey: string): Promise<OrgNavigationInputs | nu
 export type NavigationAccess = {
   /** 判定输入是否已取得 */
   ready: boolean;
+  /** VIS-1c：判定输入取失败（未就绪且本次请求已失败）；入口仍不出现，可调 retry 重取 */
+  failed: boolean;
+  /** 重新请求判定输入（失败的请求不缓存） */
+  retry(): void;
   /** 判定输入（未就绪为 null） */
   ctx: RouteGateContext | null;
   canOpen(href: string): boolean;
@@ -72,17 +76,30 @@ export function useNavigationAccess(): NavigationAccess {
   const wechatEntryEnabled = useWechatEntryEnabled();
   const storedOrgId = useSyncExternalStore(subscribeOrgStorage, readStoredOrgId, () => "");
   const [inputs, setInputs] = useState<OrgNavigationInputs | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    // 取不到输入：保持未就绪，入口不出现
+    // 取不到输入：保持未就绪，入口不出现；标记失败，调用方可提示并重试
     void fetchNavigationInputs(storedOrgId).then((next) => {
-      if (!cancelled && next) setInputs(next);
+      if (cancelled) return;
+      if (next) {
+        setInputs(next);
+        setFailed(false);
+      } else {
+        setFailed(true);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [storedOrgId]);
+  }, [storedOrgId, attempt]);
+
+  const retry = useCallback(() => {
+    setFailed(false);
+    setAttempt((n) => n + 1);
+  }, []);
 
   const ctx = useMemo<RouteGateContext | null>(() => {
     if (!user || !inputs) return null;
@@ -95,5 +112,5 @@ export function useNavigationAccess(): NavigationAccess {
   const canOpen = useCallback((href: string) => canOpenHref(href, ctx), [ctx]);
   const landingPage = useMemo(() => (ctx ? resolveLandingPage(ctx) : null), [ctx]);
 
-  return { ready: ctx !== null, ctx, canOpen, landingPage };
+  return { ready: ctx !== null, failed: ctx === null && failed, retry, ctx, canOpen, landingPage };
 }

@@ -47,7 +47,7 @@ export function platformRelayTitle(orgName: string | null | undefined): string {
 }
 
 /** 代发模式的说明（不含任何企业专属的人名、邮箱与域名） */
-export const PLATFORM_RELAY_SUMMARY = "询盘通知与审批后的跟进邮件由平台发信通道以下方「公司发件身份」发出，不使用 Gmail。";
+export const PLATFORM_RELAY_SUMMARY = "询盘通知与审批后的跟进邮件由平台发信通道以企业的「公司发件身份」发出，不使用 Gmail。";
 
 /** 登录账号上另有个人 Gmail 时的提示 */
 export function personalGmailNotice(gmailEmail: string | null | undefined): string {

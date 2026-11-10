@@ -205,7 +205,7 @@ console.log("可见岗位与可读作业");
   ok(hrefFor("mx_cathy", "tender") === null, "梦馨老板（未启用 bids / projects）：投标域作业照常出现，href 为 null");
   ok(hrefFor("owner", "tender") === "/workforce/run-x", "Sunny 老板：可读投标域，带链接");
   ok(hrefFor("mx_cathy", "sales") === "/workforce/run-x", "梦馨老板：可读销售域，带链接");
-  ok(hrefFor("owner", null) === (readsEveryWorkDomain(gateCtx("owner")) ? "/workforce/run-x" : null), "无显式工作域：只对可读全部工作域的人带链接（Sunny 老板）");
+  ok(readsEveryWorkDomain(gateCtx("owner")) && hrefFor("owner", null) === "/workforce/run-x", "无显式工作域：Sunny 老板可读全部工作域，带链接");
   ok(hrefFor("mx_cathy", null) === null && !readsEveryWorkDomain(gateCtx("mx_cathy")), "无显式工作域：梦馨老板读不了全部工作域 → 不带链接");
   ok(hrefFor("super_admin", null) === "/workforce/run-x", "平台 super_admin：一律带链接");
   ok(agentEventEntry(row, lookupsOf("tender")).href === "/workforce/run-x", "不传判定（纯函数缺省）：照旧带链接");

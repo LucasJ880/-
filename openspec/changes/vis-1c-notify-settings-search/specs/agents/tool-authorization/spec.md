@@ -10,7 +10,7 @@
 - **THEN** 结果逐一相同；只启用 `sales` 时列表没有 `trade_*`、`marketing_*`、`project_*`，测试通过
 
 ### Requirement: 营销工具随营销模块与品牌增长入口
-`marketing_*` 工具的所需模块 SHALL 为 `marketing`（列表与执行期同一映射）。人类对话入口（助手对话、Agent Core 对话）给模型的工具列表与 `GET /api/agent-core/tools` SHALL 另要求「品牌增长」入口对当前用户放行（平台 super_admin 视为放行）。数字员工与后台运行的工具列表不加这道门。执行期授权不因此改变（人类调用仍按「人类调用的过渡回退」）。
+`marketing_*` 工具的所需模块 SHALL 为 `marketing`（列表与执行期同一映射）。人类对话入口（助手对话、Agent Core 对话、微信对话）给模型的工具列表与 `GET /api/agent-core/tools` SHALL 另要求「品牌增长」入口对当前用户放行（平台 super_admin 视为放行）。数字员工、提及网关与后台运行的工具列表不加这道门。执行期授权不因此改变（人类调用仍按「人类调用的过渡回退」）。
 
 #### Scenario: 销售的工具列表
 - **WHEN** 运行同一测试，以 Sunny 只持 `sales_rep` 岗位的输入计算人类对话的工具列表
@@ -22,4 +22,4 @@
 
 #### Scenario: 只有人类入口传入入口门
 - **WHEN** 运行同一测试
-- **THEN** 源码断言助手对话、Agent Core 对话与工具列表接口传入入口门，`agent-runtime/process.ts` 不传（同一测试覆盖）
+- **THEN** 源码断言助手对话、Agent Core 对话、微信对话（`agent-runtime/process.ts`）与工具列表接口传入入口门，提及网关不传（同一测试覆盖）

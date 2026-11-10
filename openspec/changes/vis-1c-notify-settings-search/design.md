@@ -172,7 +172,7 @@
   它与 `requireProjectReadAccess` 同口径：负责人不限企业，org_admin / org_owner 只看本企业，active 成员只看自己参与的项目。
 - `api/search/route.ts`：
   - 平台 super_admin 不判定门（`isRouteAllowed` 本身没有 super_admin 放行），项目与任务两处都不加范围。
-  - 其余用户：判定输入 `resolvePreferredOrgId` + `loadNavigationContextForOrg(user, orgId)`；`isRouteAllowed("/projects/_", ctx)` 为假时不查项目，`projects: []`。
+  - 其余用户：判定输入取路由门同一份（`loadGateNavigationContextForUser`：同一企业选择、30 秒缓存、不列计数、不写库；搜索每次输入都请求，实现期审查后从 `resolvePreferredOrgId` + `loadNavigationContextForOrg` 改来）；项目详情门不放行时不查项目，`projects: []`。
   - 项目条件改用 `buildProjectSearchWhere(buildReadableProjectWhere(...), q)`。
   - 任务条件照旧用 `buildProjectVisibilityWhere`（任务范围不变）。
 - #409 的源码断言「路由用 `buildProjectSearchWhere(projectWhere, q)`」随之改写。
@@ -197,12 +197,13 @@
 ### D8 人类对话的营销工具另要「品牌增长」入口（Q5）
 
 - `RegistryFilters` 加 `entryGate?: { marketing: boolean }`。值为 `{ marketing: false }` 时剔除 `marketing_*`；缺省不限制。`AgentRunOptions`（`agent-core/types.ts`）加同名可选字段，由 engine 转给列表。
-- 给人用的三个入口传入，值为 `{ marketing: isSuperAdmin || isRouteAllowed("/marketing", ctx) }`，判定输入用该请求企业的 `loadNavigationContextForOrg`：
+- 给人用的四个入口传入，值为 `toolEntryGate(ctx)` = `{ marketing: canOpenHref("/marketing", ctx) }`（super_admin 一律放行），判定输入用该请求企业的 `loadNavigationContextForOrg`：
   - `api/ai/threads/[threadId]/messages/route.ts`
   - `api/agent-core/chat/route.ts`
   - `GET /api/agent-core/tools`
+  - 微信对话 `agent-runtime/process.ts` 的 `executeConversationRun`（实现期代码审查指出它是人类入口；按平台角色判定，不用派生角色）
 - 外贸对话（`trade/chat-assistant.ts:279`）也是人类入口，但只取 trade / secretary 域，到不了 `marketing_*`，不传。
-- 数字员工与后台运行（`agent-runtime/process.ts`、技能运行、提及网关）不传，行为不变。它们的工具按数字员工岗位的所需权限判定（`agents/tool-authorization`「数字员工调用只认所需权限」）。
+- 数字员工与后台运行（技能运行、提及网关）不传，行为不变。它们的工具按数字员工岗位的所需权限判定（`agents/tool-authorization`「数字员工调用只认所需权限」）。
 - 执行期不加这道门：人类调用仍按「人类调用的过渡回退」只看平台角色。人类对话不传 `allowedToolNames`，所以模型若调用列表外的 `marketing_*`，执行期不会拦（见 Q5）。
 
 被否决：
@@ -290,8 +291,8 @@
 - [代发文案变通用，少了 Cathy / QQ / 询盘地址] → 发件身份仍由下方「公司发件身份」卡片显示；询盘收件人是梦馨的业务事实，不该写在通用界面里。
 - [销售仍看得到 `agent_*` 与 `project_update`] → 任务书验收写「无 `agent_*`」。销售确实会收到效果图渲染完成（`agent_task`）、Muse 草稿审批（`agent_approval`）与 Muse 询问（`project_update`），藏掉开关就关不掉它们。见 Q1。
 - [任务结果仍带项目名] → 任务范围不变：本企业项目里的任务照旧搜得到，结果行带项目名，即使该项目本人打不开。收窄任务范围不在任务书内；见 Q4。
-- [负责人与成员的项目可跨企业] → `buildReadableProjectWhere` 与详情页同口径：本人负责或参与的其他企业项目也搜得到（打得开）。项目详情门只按当前企业判定一次。
-- [搜索与人类对话各多一次判定输入查询] → `loadNavigationContextForOrg` 是 4 次查询加岗位绑定解析。搜索面板已有 300 ms 防抖；人类对话每轮一次。
+- [负责人与成员的项目可跨企业] → `buildReadableProjectWhere` 与详情页同口径：本人负责或参与的其他企业项目也搜得到（打得开）。项目详情门按路由门选定的当前企业判定一次。
+- [判定输入的查询量] → 搜索用路由门同一份判定输入（30 秒缓存、不写库），另多一次成员关系查询；人类对话、时间线每次各一次 `loadNavigationContextForOrg`（4 次查询加岗位绑定解析，不缓存），对话由模型调用主导耗时，时间线每页一次。
 - [人类对话可越过列表调用营销工具] → 见 D8 末条与 Q5。
 - [时间线少了平台级运行] → Sunny 老板看不到归在「询盘销售」「运维与知识」下的自动化行：`daily-brief`、`sales-action-sync`、`wechat-push`、`inquiry-sla`、`calendar-watch`、`muse-reminder-scan`、`approval-timeout`、`post-daily-digest`、`notify-email-*` 等。它们是平台级运行，不分企业，失败也不是某个企业的事；平台管理员照旧全部看得到。见 Q7。
 - [零可见卡的管理层] → 侧栏仍有「管理总览」，点进去落 `/tasks`（VIS-1b Q6）；底栏首格随落地页变「任务」。

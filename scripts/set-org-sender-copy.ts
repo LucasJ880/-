@@ -7,7 +7,7 @@
  *     --org <企业 code> --mode <platform_relay|clear> --actor <平台管理员邮箱> [--dry-run]
  *
  * 只改 Organization.settingsJson.ui.senderCopy，保留其他键；写库时记一条审计（organization.settings.sender_copy）。
- * 退出码：0 成功 / 1 拒绝（未显式允许、执行者不是平台管理员）/ 2 输入错误（参数、找不到企业）
+ * 退出码：0 成功 / 1 拒绝（未显式允许、执行者不是平台管理员）/ 2 输入错误（参数、找不到企业）或执行失败（数据库错误）
  * 不打印连接串 / 密码哈希 / token。
  */
 
@@ -61,28 +61,29 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const org = await db.organization.findUnique({
-    where: { code: orgCode },
-    select: { id: true, code: true, name: true, settingsJson: true },
-  });
-  if (!org) {
+  const orgSelect = { id: true, code: true, name: true, settingsJson: true } as const;
+  const preview = await db.organization.findUnique({ where: { code: orgCode }, select: orgSelect });
+  if (!preview) {
     console.error(`[set-org-sender-copy] 找不到企业 code=${orgCode}`);
     return 2;
   }
-
-  const before = readSenderCopy(org.settingsJson);
-  const nextSettings = withSenderCopy(org.settingsJson, mode);
-  const after = readSenderCopy(nextSettings);
+  const describe = (settingsJson: unknown) => {
+    const before = readSenderCopy(settingsJson);
+    const after = readSenderCopy(withSenderCopy(settingsJson, mode));
+    return { before, after, text: `ui.senderCopy ${before ?? "（未设置）"} → ${after ?? "（未设置）"}` };
+  };
   console.log(
-    `[set-org-sender-copy] 企业 ${org.code}（${org.name}）执行者 ${actor.email}：ui.senderCopy ${before ?? "（未设置）"} → ${after ?? "（未设置）"}${dryRun ? "（dry-run，不写库）" : ""}`,
+    `[set-org-sender-copy] 企业 ${preview.code}（${preview.name}）执行者 ${actor.email}：${describe(preview.settingsJson).text}${dryRun ? "（dry-run，不写库）" : ""}`,
   );
   if (dryRun) return 0;
-  if (before === after) {
-    console.log("[set-org-sender-copy] 无变化，不写库");
-    return 0;
-  }
 
-  await db.$transaction(async (tx) => {
+  // 在事务里重读 settingsJson 再写：避免覆盖期间别处对其他键的修改
+  const changed = await db.$transaction(async (tx) => {
+    const org = await tx.organization.findUnique({ where: { id: preview.id }, select: orgSelect });
+    if (!org) return false;
+    const { before, after } = describe(org.settingsJson);
+    if (before === after) return false;
+    const nextSettings = withSenderCopy(org.settingsJson, mode);
     await tx.organization.update({
       where: { id: org.id },
       data: { settingsJson: nextSettings as Prisma.InputJsonValue },
@@ -96,8 +97,9 @@ async function main(): Promise<number> {
       beforeData: { senderCopy: before },
       afterData: { senderCopy: after, via: "scripts/set-org-sender-copy.ts" },
     });
+    return true;
   });
-  console.log("[set-org-sender-copy] 完成");
+  console.log(changed ? "[set-org-sender-copy] 完成" : "[set-org-sender-copy] 无变化，不写库");
   return 0;
 }
 

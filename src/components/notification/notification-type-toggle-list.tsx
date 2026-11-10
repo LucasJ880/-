@@ -15,7 +15,7 @@ interface Props {
 export function NotificationTypeToggleList({ enabledTypes, onChange, disabled }: Props) {
   const set = new Set(enabledTypes);
   // VIS-1c：只列处理页面对当前用户放行的类型（notifications/type-visibility）；判定输入未就绪时不先列全量
-  const { ready, canOpen } = useNavigationAccess();
+  const { ready, failed, retry, canOpen } = useNavigationAccess();
 
   const toggle = (key: string) => {
     if (disabled) return;
@@ -23,6 +23,17 @@ export function NotificationTypeToggleList({ enabledTypes, onChange, disabled }:
     const next = toggleEnabledType(enabledTypes, key);
     if (next) onChange(next);
   };
+
+  if (!ready && failed) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3 text-sm text-muted">
+        <span>通知类型加载失败</span>
+        <button type="button" onClick={retry} className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-muted/5">
+          重试
+        </button>
+      </div>
+    );
+  }
 
   if (!ready) {
     return (

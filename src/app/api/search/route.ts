@@ -10,17 +10,16 @@ import {
   type SearchWhere,
 } from "@/lib/search/where";
 import { isOrgSystemAdmin, isSuperAdmin } from "@/lib/rbac/roles";
-import { resolvePreferredOrgId } from "@/lib/organizations/active-org";
-import { loadNavigationContextForOrg } from "@/lib/navigation/context-server";
+import { loadGateNavigationContextForUser } from "@/lib/navigation/page-context-server";
 
 /**
  * VIS-1c：项目结果只给打得开的项目（spec search/global-search「项目结果的范围」）。
  * 平台 super_admin 不判定门、不加范围；其余用户项目详情门不放行时不搜项目（返回 null）。
+ * 判定输入取路由门同一份（同一企业选择、30 秒缓存、不写库）：搜索每次输入都会请求。
  */
 async function projectSearchWhereFor(user: { id: string; role: string }, q: string): Promise<SearchWhere | null> {
   if (isSuperAdmin(user.role)) return buildProjectSearchWhere(null, q);
-  const { orgId } = await resolvePreferredOrgId(user.id, user.role);
-  const ctx = await loadNavigationContextForOrg(user, orgId);
+  const ctx = await loadGateNavigationContextForUser(user.id);
   if (!shouldSearchProjects(ctx)) return null;
   const memberships = await db.organizationMember.findMany({
     where: { userId: user.id, status: "active" },

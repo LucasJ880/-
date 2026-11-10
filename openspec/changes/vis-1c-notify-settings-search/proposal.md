@@ -23,7 +23,7 @@ TASKFLOW：VIS-1c（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
 
 **AI 助手工具**
 - 共用模块映射：工具列表与执行期授权用同一个「工具 → 所需模块」函数和同一份企业模块输入，列表不再出现执行期会因模块拒绝的工具。
-- 收窄营销工具：`marketing_*` 所需模块改为 `marketing`；人类对话里只在「品牌增长」入口对当前用户放行时进入工具列表。
+- 收窄营销工具：`marketing_*` 所需模块改为 `marketing`；人类对话（网页助手、Agent Core、微信）里只在「品牌增长」入口对当前用户放行时进入工具列表。
 
 **营销数字员工**
 - 改判工作台「营销增长数字员工」卡片：只在营销数字员工页对当前用户放行时出现，不再按「派生角色 ≠ sales」。
@@ -71,7 +71,7 @@ TASKFLOW：VIS-1c（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 通知：`src/components/notification/notification-type-toggle-list.tsx`、`src/app/(main)/notifications/page.tsx`；
   - 设置：`src/app/(main)/settings/page.tsx`、`settings/email/page.tsx`、`src/app/api/organizations/route.ts`、`src/lib/hooks/use-organizations.ts`、`scripts/seed-org-mengxin-home-textile.ts`；
   - 搜索：`src/app/api/search/route.ts`、`src/lib/search/where.ts`；
-  - 工具：`src/lib/tenancy/tool-auth.ts`（导出模块映射）、`src/lib/agent-core/tool-registry.ts`、`src/lib/agent-core/engine.ts`、`src/lib/agent-core/types.ts`、`src/app/api/agent-core/tools/route.ts`、`src/app/api/agent-core/chat/route.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`；
+  - 工具：`src/lib/tenancy/tool-auth.ts`（导出模块映射）、`src/lib/agent-core/tool-registry.ts`、`src/lib/agent-core/engine.ts`、`src/lib/agent-core/types.ts`、`src/app/api/agent-core/tools/route.ts`、`src/app/api/agent-core/chat/route.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`、`src/lib/agent-runtime/process.ts`（微信对话）；
   - 营销卡片：`src/app/(main)/assistant/digital-employee-workbench.tsx`；
   - 时间线：`src/lib/cockpit/timeline.ts`、`posts-read-model.ts`（company log 部分）、`src/lib/navigation/landing.ts`（可见自动化键）、`src/app/api/cockpit/timeline/route.ts`、`src/components/cockpit/org-cockpit-view.tsx`；
   - 入口：`src/lib/navigation/types.ts`（`managementOnly`）、`filter.ts`、`registry.ts`（`work-home`）、`mobile-tabs.ts`、`src/components/mobile-tab-bar.tsx`；

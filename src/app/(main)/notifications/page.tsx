@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -49,19 +49,25 @@ function NotificationsContent() {
   const typeOptions = navReady ? visibleNotificationFilters(canOpen) : [ALL_TYPES_FILTER];
   const typeFilter = !navReady || typeOptions.some((o) => o.key === requestedType) ? requestedType : "";
 
+  // 只认最新一次请求的响应：判定输入就绪后筛选可能回到「全部类型」并重取，先发的旧响应不得覆盖
+  const loadSeq = useRef(0);
   const load = useCallback(
     (p = 1) => {
+      const seq = ++loadSeq.current;
       setLoading(true);
       const qs = new URLSearchParams({ page: String(p), pageSize: "20" });
       if (statusFilter) qs.set("status", statusFilter);
       if (typeFilter) qs.set("type", typeFilter);
       apiJson<{ data?: NotificationItem[]; total?: number; page?: number }>(`/api/notifications?${qs}`)
         .then((d) => {
+          if (seq !== loadSeq.current) return;
           setItems(d.data ?? []);
           setTotal(d.total ?? 0);
           setPage(d.page ?? 1);
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (seq === loadSeq.current) setLoading(false);
+        });
       apiJson<{ count?: number }>("/api/notifications/unread-count")
         .then((d) => setUnreadTotal(d.count ?? 0))
         .catch(() => {});

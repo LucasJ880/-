@@ -148,10 +148,12 @@ console.log("\n两处接线（源码断言）");
   ok(/visibleNotificationTypes\(canOpen\)/.test(list), "设置页开关列表按 visibleNotificationTypes 过滤");
   ok(/toggleEnabledType\(enabledTypes, key\)/.test(list), "开关增删走 toggleEnabledType（作用在完整 enabledTypes 上）");
   ok(/if \(!ready\)/.test(list) && !/NOTIFICATION_TYPE_KEYS/.test(list), "判定输入未就绪不列类型；不再直接遍历全量类型");
+  ok(/if \(!ready && failed\)/.test(list) && /onClick=\{retry\}/.test(list) && /通知类型加载失败/.test(list), "判定输入取失败：提示并可重试，不一直转圈");
   const page = read("src/app/(main)/notifications/page.tsx");
   ok(/visibleNotificationFilters\(canOpen\)/.test(page), "通知页筛选按 visibleNotificationFilters 过滤");
   ok(/navReady \? visibleNotificationFilters\(canOpen\) : \[ALL_TYPES_FILTER\]/.test(page), "通知页：判定输入未就绪时只有「全部类型」");
   ok(!/TYPE_OPTIONS = \[/.test(page) && !/"project_dispatched"/.test(page), "通知页不再写死筛选清单");
+  ok(/const seq = \+\+loadSeq\.current;/.test(page) && /if \(seq !== loadSeq\.current\) return;/.test(page), "通知页：只认最新一次请求的响应（筛选回到全部类型后旧响应不覆盖）");
   const lib = read("src/lib/notifications/type-visibility.ts");
   ok(!/from "react"|from "next\/|@\/lib\/db"/.test(lib), "对照模块是纯模块（不导入 react / next / db）");
 }

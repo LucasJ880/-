@@ -282,6 +282,8 @@ async function main() {
     ok(withCard.every((n) => emailCard(n)), `设置页：${withCard.join("、")} 有「邮箱绑定」`);
     const settings = read("src/app/(main)/settings/page.tsx");
     ok(/\{navReady && canOpen\("\/settings\/email"\) && \(\s*<Link\s+href="\/settings\/email"/.test(settings), "设置页：「邮箱绑定」卡按 canOpen(\"/settings/email\") 渲染，判定输入未就绪时不显示");
+    const hookSrc = read("src/lib/navigation/use-navigation-access.ts");
+    ok(/failed: ctx === null && failed, retry/.test(hookSrc) && /\[storedOrgId, attempt\]/.test(hookSrc), "钩子：判定输入取失败时给出 failed，retry 重新请求（失败不缓存）");
   }
 
   // ── VIS-1c：营销数字员工卡片（spec「营销数字员工卡片只在其页面放行时出现」）──

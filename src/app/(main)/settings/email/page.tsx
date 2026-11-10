@@ -256,7 +256,7 @@ export default function EmailBindingPage() {
             <div>
               <p className="font-medium text-foreground">{platformRelayTitle(currentOrg?.name)}：公司发件身份（非 Gmail）</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {PLATFORM_RELAY_SUMMARY}
+                发件身份见下方「公司发件身份」。
                 {gmail?.email ? personalGmailNotice(gmail.email) : ""}
               </p>
             </div>

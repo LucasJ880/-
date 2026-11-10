@@ -73,7 +73,7 @@ console.log("\n两页与企业列表接线（源码断言）");
     ok(!/MENGXIN_ORG_CODE|mengxin-home-textile/.test(src), `${p}：不再出现 MENGXIN_ORG_CODE 与 mengxin-home-textile`);
     ok(/currentOrg\?\.senderCopy === "platform_relay"/.test(src), `${p}：按当前企业的 senderCopy 判定`);
     ok(!/Cathy|inquiry@mengxinhometextile\.com|梦馨/.test(src), `${p}：页面里没有写死的梦馨人名与邮箱`);
-    ok(/platformRelayTitle\(currentOrg\?\.name\)/.test(src) && /PLATFORM_RELAY_SUMMARY/.test(src), `${p}：代发文案取自 sender-copy 模块`);
+    ok(/platformRelayTitle\(currentOrg\?\.name\)/.test(src) && (src.match(/PLATFORM_RELAY_SUMMARY/g) ?? []).length === 2, `${p}：代发文案取自 sender-copy 模块，说明只出现一次（另一处是 import）`);
   }
   const settings = code("src/app/(main)/settings/page.tsx");
   ok(/\{!isPlatformRelay && \(\s*<div className="border-t/.test(settings), "/settings：代发时不显示 Gmail OAuth 配置说明");
@@ -99,6 +99,8 @@ console.log("\n回填脚本（源码断言）");
   ok(actorAt > 0 && orgReadAt > actorAt, "执行者不是 super_admin 时先退出，不读企业设置");
   ok(/if \(dryRun\) return 0;/.test(s) && s.indexOf("if (dryRun) return 0;") < s.indexOf("organization.update"), "--dry-run 只打印、不写库");
   ok(/withSenderCopy\(org\.settingsJson, mode\)/.test(s), "只经 withSenderCopy 改 ui.senderCopy，保留其他键");
+  const txAt = s.indexOf("db.$transaction(");
+  ok(txAt > 0 && s.indexOf("tx.organization.findUnique", txAt) > txAt && s.indexOf("tx.organization.findUnique", txAt) < s.indexOf("tx.organization.update", txAt), "在事务里重读 settingsJson 再写（不覆盖期间别处改的其他键）");
   ok(/writeAuditLog\(tx, \{/.test(s) && /organization\.settings\.sender_copy/.test(s), "写库时在同一事务里记审计");
   ok(/return 1;/.test(s) && /return 2;/.test(s), "拒绝退出码 1，输入错误退出码 2");
   const seed = read("scripts/seed-org-mengxin-home-textile.ts");

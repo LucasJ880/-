@@ -105,8 +105,12 @@ console.log("\n接线（源码断言）");
   for (const p of ["src/app/api/ai/threads/[threadId]/messages/route.ts", "src/app/api/agent-core/chat/route.ts", "src/app/api/agent-core/tools/route.ts"]) {
     ok(/loadToolEntryGate\(user, orgId\)/.test(code(p)), `${p}：传入入口门`);
   }
+  // 微信对话（executeConversationRun）是人类入口：按平台角色（不是派生角色）取入口门
+  const proc = code("src/lib/agent-runtime/process.ts");
+  ok(/loadToolEntryGate\(\{ id: userId, role: rawInput\.userRole \}, orgId\)/.test(proc) && /\.\.\.tenantRunFields,\s*entryGate,/.test(proc), "微信对话：传入入口门（平台角色判定）");
   ok(/modulesJson: org\?\.modulesJson \?\? undefined/.test(code("src/app/api/agent-core/tools/route.ts")), "工具列表接口按该企业 modulesJson 过滤");
-  for (const p of ["src/lib/agent-runtime/process.ts", "src/lib/trade/chat-assistant.ts", "src/lib/mention-gateway/handle.ts"]) {
+  // 外贸对话只取 trade / secretary 域（到不了 marketing_*）；提及网关是数字员工通道：不传
+  for (const p of ["src/lib/trade/chat-assistant.ts", "src/lib/mention-gateway/handle.ts"]) {
     ok(!/entryGate/.test(read(p)), `${p}：不传入口门`);
   }
   const gate = read("src/lib/agent-core/entry-gate.ts");
