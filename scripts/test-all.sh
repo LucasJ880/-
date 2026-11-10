@@ -172,6 +172,7 @@ run_test "Tender/Project 安全P0 AgentTask 授权布线契约" "npx tsx src/app
 run_test "Tender/Project 安全P0 AgentTask execute/cancel 路由级授权" "npx tsx src/app/api/agent/tasks/__tests__/route-exec.test.ts"
 run_test "Phase2A 规则/Pack/工具权限" "npx tsx src/lib/tenancy/__tests__/phase2a-rules-tools.test.ts"
 run_test "AI收敛P0 pre-execute守卫/审批闸" "npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts"
+run_test "工具列表按模块过滤与营销入口门（VIS-1c）" "npx tsx src/lib/agent-core/__tests__/tool-list-modules.test.ts"
 run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
 # Mention Gateway M0/M1（Mock PoC：flag 默认关、只读 allowlist、fail-closed；纯逻辑，无 DB）
 run_test "Mention Gateway M0 Safety Gate" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m0-safety-gate.test.ts"
@@ -657,6 +658,8 @@ run_test "协作通知类型与偏好（COLLAB-2）" "npx tsx src/lib/notificati
 run_test "协作通知脱敏（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-redact.test.ts"
 run_test "协作通知事件与投递入口（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-events.test.ts"
 run_test "通知跳转地址与登录回跳（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/notification-href.test.ts"
+run_test "通知类型按处理页面判定可见（VIS-1c）" "npx tsx src/lib/notifications/__tests__/type-visibility.test.ts"
+run_test "发信文案按企业设置（VIS-1c）" "npx tsx src/lib/settings/__tests__/sender-copy.test.ts"
 run_test "协作通知 @ 提及（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts"
 run_test "协作通知 @ 输入（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts"
 run_test "协作通知接线（COLLAB-2）" "npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts"

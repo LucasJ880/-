@@ -8,6 +8,7 @@ import {
   ensureUniqueOrgCode,
   isValidPlanType,
 } from "@/lib/organizations/utils";
+import { readSenderCopy } from "@/lib/settings/sender-copy";
 
 /**
  * GET /api/organizations
@@ -59,6 +60,8 @@ export async function GET(request: NextRequest) {
         projectCount: projectCountByOrg.get(o.id) ?? 0,
         myRole: roleByOrg.get(o.id) ?? null,
         company: o.company ?? null,
+        // VIS-1c：发信文案模式（settings/sender-copy）；只透出已知值，不透出 settingsJson
+        senderCopy: readSenderCopy(o.settingsJson),
       })),
     });
   }
@@ -106,6 +109,7 @@ export async function GET(request: NextRequest) {
       company: m.org.company ?? null,
       projectCount: dispatchedCountByOrg.get(m.org.id) ?? 0,
       myRole: m.role,
+      senderCopy: readSenderCopy(m.org.settingsJson),
     })),
   });
 }

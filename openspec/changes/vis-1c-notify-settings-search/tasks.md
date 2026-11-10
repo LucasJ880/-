@@ -2,7 +2,7 @@
 
 每条带验证；真实输出写进 `docs/QINGYAN_VIS-1c_REPORT.md`。
 
-受影响测试基线（2026-11-09，origin/main 439a19a）：
+受影响测试基线（2026-11-09，origin/main 439a19a；2026-11-10 变基到 c70a0ca 后复跑，数值不变）：
 
 | 测试 | 通过数 |
 |---|---|
@@ -18,12 +18,17 @@
 | wechat-entry-render | 62 |
 | residual-reads | 76 |
 | navigation-workspace | 34 |
+| sales-digital-employee-access | 3 |
+| effective-platform-role | 63 |
+| pre-execute-guard | 38 |
+| b1-tenant-context-static | 20 |
+| phase1-1-context-propagation | 24 |
 
 search-where（#409）的基线在 #409 合并、本分支变基后补记。
 
 ## 1. 通知类型可见性
 
-- [ ] 1.1 按 design D1–D3 接通知类型对照：
+- [x] 1.1 按 design D1–D3 接通知类型对照：
   - 新增 `src/lib/notifications/type-visibility.ts`：
     - `NOTIFICATION_TYPE_ENTRIES`、`NOTIFICATION_FILTER_ENTRIES`；
     - `visibleNotificationTypes(canOpen)`、`visibleNotificationFilters(canOpen)`。
@@ -44,7 +49,7 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 
 ## 2. 发信文案与设置页卡片
 
-- [ ] 2.1 按 design D4、D5 改设置：
+- [x] 2.1 按 design D4、D5 改设置：
   - 新增 `src/lib/settings/sender-copy.ts`（`readSenderCopy`、`withSenderCopy`，纯函数）。
   - `api/organizations/route.ts` 两条分支的响应加 `senderCopy`（`include` 已取到 `settingsJson`，不多查）；`use-organizations.ts` 的 `OrgSummary` 加 `senderCopy?: "platform_relay" | null`。
   - `settings/page.tsx`、`settings/email/page.tsx`：
@@ -85,7 +90,7 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 
 ## 4. AI 工具列表
 
-- [ ] 4.1 按 design D7、D8 改工具列表：
+- [x] 4.1 按 design D7、D8 改工具列表：
   - `tool-auth.ts`：
     - 导出 `toolRequiredModules`，加 `marketing_` → `["marketing"]`；
     - 抽出并导出 `toolModulesSatisfied(tool, modulesJson)`，`canInvokeTool` 改调它，拒绝码与顺序不变。

@@ -21,6 +21,8 @@ import { Suspense } from "react";
 import { persistSelectedOrgId } from "@/lib/org-selection";
 import { installNotificationHref } from "@/lib/install/balance";
 import { notificationHref, notificationOrgToRemember } from "@/lib/notifications/href";
+import { ALL_TYPES_FILTER, visibleNotificationFilters } from "@/lib/notifications/type-visibility";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 
 function NotificationsContent() {
   const router = useRouter();
@@ -40,7 +42,12 @@ function NotificationsContent() {
   } | null>(null);
 
   const statusFilter = searchParams.get("status") || "";
-  const typeFilter = searchParams.get("type") || "";
+  const requestedType = searchParams.get("type") || "";
+  // VIS-1c：类型筛选只列处理页面对当前用户放行的项（notifications/type-visibility）；
+  // 判定输入未就绪时只有「全部类型」，不先列全量再收；选中项不可见时回到「全部类型」
+  const { ready: navReady, canOpen } = useNavigationAccess();
+  const typeOptions = navReady ? visibleNotificationFilters(canOpen) : [ALL_TYPES_FILTER];
+  const typeFilter = !navReady || typeOptions.some((o) => o.key === requestedType) ? requestedType : "";
 
   const load = useCallback(
     (p = 1) => {
@@ -186,16 +193,6 @@ function NotificationsContent() {
     { key: "snoozed", label: "稍后提醒" },
   ];
 
-  const TYPE_OPTIONS = [
-    { key: "", label: "全部类型" },
-    { key: "task_due", label: "任务截止" },
-    { key: "calendar_event", label: "日程" },
-    { key: "followup", label: "跟进" },
-    { key: "project_update", label: "项目更新" },
-    { key: "project_dispatched", label: "项目分发" },
-    { key: "quote_promotion_approval", label: "报价让利审核" },
-  ];
-
   const totalPages = Math.ceil(total / 20);
 
   return (
@@ -270,7 +267,7 @@ function NotificationsContent() {
             onChange={(e) => setFilter("type", e.target.value)}
             className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-accent"
           >
-            {TYPE_OPTIONS.map((o) => (
+            {typeOptions.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
               </option>

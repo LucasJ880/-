@@ -135,7 +135,7 @@ const samplePaths = (() => {
 })();
 
 async function main() {
-  console.log("entry-visibility（VIS-1b）");
+  console.log("entry-visibility（VIS-1b / VIS-1c）");
 
   // ── 判定输入拼装：客户端与路由门 loader 逐字段相同 ──
   {
@@ -271,6 +271,17 @@ async function main() {
     const ops = read("src/app/(main)/operations/page.tsx");
     ok(/visibleOperationsCards\(ctx\)/.test(ops) && /暂无可用的运营入口/.test(ops) && !/href="\/operations\/tender-profile"/.test(ops), "/operations：卡片按判定过滤，有空态，不再写死卡片");
     ok(!/市场情报、品牌记忆、内容日历和审核队列/.test(ops), "/operations：发布服务不可用的提示不再点名可能看不到的卡片");
+  }
+
+  // ── VIS-1c：/settings 索引的「邮箱绑定」卡（spec「/settings 索引只列放行的卡片」）──
+  {
+    const emailCard = (n: string) => canOpenHref("/settings/email", clientCtx(IDENTITIES[n]));
+    const without = ["installer", "ops_staff", "ops_lead", "accounting", "fulfillment_vinyl", "no_position"];
+    const withCard = ["sales_rep", "bids", "owner"];
+    ok(without.every((n) => !emailCard(n)), `设置页：${without.join("、")} 没有「邮箱绑定」`);
+    ok(withCard.every((n) => emailCard(n)), `设置页：${withCard.join("、")} 有「邮箱绑定」`);
+    const settings = read("src/app/(main)/settings/page.tsx");
+    ok(/\{navReady && canOpen\("\/settings\/email"\) && \(\s*<Link\s+href="\/settings\/email"/.test(settings), "设置页：「邮箱绑定」卡按 canOpen(\"/settings/email\") 渲染，判定输入未就绪时不显示");
   }
 
   // ── 纯模块：不导入 next/server ──

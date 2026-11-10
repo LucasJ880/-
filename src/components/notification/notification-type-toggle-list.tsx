@@ -1,9 +1,10 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NOTIFICATION_TYPE_KEYS, NOTIFICATION_TYPE_LABELS } from "@/lib/notifications/constants";
-
-const HIDDEN_TYPES = new Set(["runtime_failed", "evaluation_low", "feedback"]);
+import { NOTIFICATION_TYPE_LABELS } from "@/lib/notifications/constants";
+import { toggleEnabledType, visibleNotificationTypes } from "@/lib/notifications/type-visibility";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 
 interface Props {
   enabledTypes: string[];
@@ -13,19 +14,28 @@ interface Props {
 
 export function NotificationTypeToggleList({ enabledTypes, onChange, disabled }: Props) {
   const set = new Set(enabledTypes);
+  // VIS-1c：只列处理页面对当前用户放行的类型（notifications/type-visibility）；判定输入未就绪时不先列全量
+  const { ready, canOpen } = useNavigationAccess();
 
   const toggle = (key: string) => {
     if (disabled) return;
-    const next = new Set(enabledTypes);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    if (next.size === 0) return;
-    onChange([...next]);
+    // 增删作用在完整的已开启集合上：列表里不出现的类型原样提交，偏好不变
+    const next = toggleEnabledType(enabledTypes, key);
+    if (next) onChange(next);
   };
+
+  if (!ready) {
+    return (
+      <div className="flex items-center gap-2 px-1 py-3 text-sm text-muted">
+        <Loader2 size={14} className="animate-spin" />
+        加载通知类型…
+      </div>
+    );
+  }
 
   return (
     <ul className="space-y-2">
-      {NOTIFICATION_TYPE_KEYS.filter((key) => !HIDDEN_TYPES.has(key)).map((key) => {
+      {visibleNotificationTypes(canOpen).map((key) => {
         const on = set.has(key);
         return (
           <li key={key}>

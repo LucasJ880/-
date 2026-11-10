@@ -12,6 +12,8 @@ export interface OrgSummary {
   memberCount: number;
   projectCount: number;
   myRole: string | null;
+  /** VIS-1c：发信文案模式（settings/sender-copy）；null = 标准邮箱绑定 */
+  senderCopy?: "platform_relay" | null;
 }
 
 interface UseOrganizationsReturn {
