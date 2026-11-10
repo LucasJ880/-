@@ -8,7 +8,7 @@
 
 import { getDefaultWorkspace, workspaceContextFromNav } from "@/lib/rbac/workspace-policy";
 import type { RouteGateContext } from "./filter-context";
-import { canOpenHref } from "./landing";
+import { canOpenHref, resolveLandingPage } from "./landing";
 
 export type MobileTabKey =
   | "sales-home"
@@ -19,6 +19,8 @@ export type MobileTabKey =
   | "ops"
   | "bids"
   | "overview"
+  | "tasks"
+  | "accounting"
   | "ai"
   | "assistant";
 
@@ -41,6 +43,16 @@ export function isSalesTabLayout(ctx: RouteGateContext): boolean {
   return ctx.positionMode ? getDefaultWorkspace(wsCtx) === "/sales/home" : ctx.platformRole === "sales";
 }
 
+/**
+ * VIS-1c：通用布局首格（默认工作区不是安装 / 运营 / 招投标时）指向落地页（spec navigation/entry-visibility「底栏首格指向落地页」）：
+ * 落地页为 /tasks →「任务」，为 /accounting →「会计」，其余仍为「总览」→ /。两种模式相同。
+ */
+function firstCellForLanding(landing: string): MobileTab {
+  if (landing === "/tasks") return { key: "tasks", href: "/tasks", label: "任务" };
+  if (landing === "/accounting") return { key: "accounting", href: "/accounting", label: "会计" };
+  return { key: "overview", href: "/", label: "总览" };
+}
+
 export function computeMobileTabs(ctx: RouteGateContext): MobileTabLayout {
   const open = (tab: MobileTab) => canOpenHref(tab.href, ctx);
 
@@ -59,7 +71,7 @@ export function computeMobileTabs(ctx: RouteGateContext): MobileTabLayout {
   if (defaultHref === "/install") candidates.push({ key: "install", href: "/install", label: "安装" });
   else if (defaultHref === "/ops") candidates.push({ key: "ops", href: "/ops", label: "运营" });
   else if (defaultHref === "/bids") candidates.push({ key: "bids", href: "/bids", label: "招投标" });
-  else candidates.push({ key: "overview", href: "/", label: "总览" });
+  else candidates.push(firstCellForLanding(resolveLandingPage(ctx)));
 
   if (defaultHref !== "/ops") candidates.push({ key: "ops", href: "/ops", label: "运营" });
   // 「招投标」与侧栏「招投标中心」同口径：/bids 的门规则就是 ws-bids

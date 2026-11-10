@@ -135,8 +135,10 @@ const COMMON = [
   "work-notifications",
   "work-tasks",
 ];
+// VIS-1c（design D11 / Q8）：「管理总览」只对管理层（spec「管理总览只对管理层」）
+const COMMON_NON_MGMT = COMMON.filter((k) => k !== "work-home");
 // VIS-1b（design D6 / Q8）：没有可读工作域的一线岗位不见「AI 任务」
-const COMMON_NO_AI_JOBS = COMMON.filter((k) => k !== "work-ai-jobs");
+const COMMON_NO_AI_JOBS = COMMON_NON_MGMT.filter((k) => k !== "work-ai-jobs");
 const SALES_SIDEBAR = [
   "biz-all-quotes",
   "biz-quotes",
@@ -205,13 +207,13 @@ const CASES: Array<{ name: string; positions: string[]; page: string; sidebar: s
     name: "ops_lead",
     positions: ["ops_lead"],
     page: "/ops",
-    sidebar: [...COMMON, ...GROWTH, "biz-inventory", "biz-work-orders", "ws-install", "ws-ops", "ws-ops-projects"],
+    sidebar: [...COMMON_NON_MGMT, ...GROWTH, "biz-inventory", "biz-work-orders", "ws-install", "ws-ops", "ws-ops-projects"],
   },
   {
     name: "ops_staff",
     positions: ["ops_staff"],
     page: "/ops",
-    sidebar: [...COMMON, ...GROWTH, "biz-inventory", "ws-ops", "ws-ops-projects"],
+    sidebar: [...COMMON_NON_MGMT, ...GROWTH, "biz-inventory", "ws-ops", "ws-ops-projects"],
   },
   {
     name: "accounting",
@@ -224,7 +226,7 @@ const CASES: Array<{ name: string; positions: string[]; page: string; sidebar: s
     name: "bids",
     positions: ["bids"],
     page: "/bids",
-    sidebar: [...COMMON, ...PROJECT_INTEL, "biz-accounting", "ws-bids"],
+    sidebar: [...COMMON_NON_MGMT, ...PROJECT_INTEL, "biz-accounting", "ws-bids"],
   },
   ...["fulfillment_vinyl", "fulfillment_drapery", "fulfillment_shades"].map((p) => ({
     name: p,
@@ -242,6 +244,26 @@ for (const c of CASES) {
   const nc = ctx({ permissionKeys: keysOf(...c.positions) });
   ok(finalPage(nc) === c.page, `${c.name}：进入首页 → ${c.page}（实际 ${finalPage(nc)}）`);
   eqList(visible(nc), c.sidebar, `${c.name}：侧栏快照`);
+}
+
+// VIS-1c：未绑岗位的平台 super_admin 仍是管理层，侧栏仍含「管理总览」；非管理层一律不含
+{
+  const sa = ctx({ platformRole: "super_admin", isPlatformAdmin: true, permissionKeys: ALL_KEYS });
+  const saUnbound = ctx({ platformRole: "super_admin", isPlatformAdmin: true, permissionKeys: [] });
+  ok(visible(sa).includes("work-home") && visible(saUnbound).includes("work-home"), "平台 super_admin（含未绑岗位）：侧栏含「管理总览」");
+  const nonMgmt = CASES.filter((c) => !c.positions.includes("owner"));
+  ok(nonMgmt.every((c) => !visible(ctx({ permissionKeys: keysOf(...c.positions) })).includes("work-home")), "非管理层岗位与无岗位成员：侧栏都不含「管理总览」");
+  // 旧模式：去掉 managementOnly 标记前后，各平台角色的侧栏完全相同
+  const unflagged = NAVIGATION_REGISTRY.map((i) => ({ ...i, managementOnly: undefined }));
+  const legacyCtxs = [
+    ctx({ positionMode: false, platformRole: "user" }),
+    ctx({ positionMode: false, platformRole: "sales" }),
+    ctx({ positionMode: false, platformRole: "boss", orgRole: "org_admin" }),
+  ];
+  ok(
+    legacyCtxs.every((c) => JSON.stringify(visible(c)) === JSON.stringify(flat(resolveNavigationTree(unflagged, c)))),
+    "旧模式不读 managementOnly（侧栏与不带标记时相同）",
+  );
 }
 
 // VIS-1b：梦馨外贸员仍见「AI 任务」（外贸入口 → 可读销售域；spec「AI 任务只对有可读工作域的人出现」）

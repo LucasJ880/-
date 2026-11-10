@@ -114,7 +114,7 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 
 ## 5. 营销卡片与「管理总览」
 
-- [ ] 5.1 按 design D9、D11 改两个入口：
+- [x] 5.1 按 design D9、D11 改两个入口：
   - `digital-employee-workbench.tsx`：营销卡片按 `canOpen("/marketing/employee")`。`canUseMarketingDigitalEmployee` 保留（营销员工接口与微信路由仍用）。
   - `NavigationItem` 加 `managementOnly?: true`；`filter.ts` 岗位模式下遇到它按 `isManagementWorkspaceUser` 判定；`registry.ts` 的 `work-home` 标上它。
   - `mobile-tabs.ts`：首格按 `resolveLandingPage(ctx)` 取「任务」/「会计」，其余「总览」（两种模式）；`mobile-tab-bar.tsx` 的 `TAB_ICONS`、`tabMatch` 补 `tasks`、`accounting`。
@@ -129,7 +129,7 @@ search-where（#409）的基线在 #409 合并、本分支变基后补记。
 
 ## 6. 首页时间线与规格拆分
 
-- [ ] 6.1 按 design D10 收口时间线：
+- [x] 6.1 按 design D10 收口时间线：
   - `CompanyLogDeps` 照 `PostsCockpitDeps` 加 `navContext(viewer)`；时间线路由取 `resolveCockpitNavContext(viewer)`；更新 `posts-read-model.ts:429` 的注释。
   - `landing.ts` 加 `visibleAutomationKeys(ctx)`；`automationRunTimelineWhere` 加可见键参数，在查询里过滤（`ctx.isPlatformAdmin` 时不加）。
   - `timeline.ts`：`workforce_job` 的 `href` 按显式工作域可读判定，无显式工作域时按 `readsEveryWorkDomain`；审计行不动。

@@ -305,7 +305,10 @@ async function main() {
     const src = stripComments(read("src/lib/cockpit/posts-read-model.ts"));
     ok(/visiblePosts\(navCtx\)/.test(src) && /loadPostKpis\(viewer, now, deps, posts\)/.test(src), "读模型先定可见岗位，只为可见岗位取 KPI");
     ok(/canOpen: \(href\) => canOpenHref\(href, navCtx\)/.test(src) && /canReadWorkDomain: \(domain\) => canReadWorkDomain\(asWorkDomain\(domain\), navCtx\)/.test(src), "等你拍板用同一份判定输入：落点放行、作业按可读工作域");
-    ok(/navContext: resolveCockpitNavContext/.test(src) && !/resolveCockpitNavContext|navContext/.test(src.slice(src.indexOf("export async function resolveCockpitViewer"), src.indexOf("export function defaultCockpitViewerDeps"))), "判定输入只在岗位总览产出，resolveCockpitViewer 不变（时间线 / 工作量不多查）");
+    ok(/navContext: resolveCockpitNavContext/.test(src) && !/resolveCockpitNavContext|navContext/.test(src.slice(src.indexOf("export async function resolveCockpitViewer"), src.indexOf("export function defaultCockpitViewerDeps"))), "判定输入由读模型依赖产出，resolveCockpitViewer 不变");
+    // VIS-1c：岗位总览与时间线共用同一个判定输入函数；工作量接口不组装
+    ok((src.match(/navContext: resolveCockpitNavContext,/g) ?? []).length === 2, "岗位总览与时间线两处默认依赖都用 resolveCockpitNavContext");
+    ok(!/navContext|resolveCockpitNavContext|loadNavigationContextForOrg/.test(stripComments(read("src/lib/cockpit/workload-read-model.ts"))), "工作量接口不组装判定输入");
   }
   {
     for (const k of Object.keys(calls)) delete calls[k];
@@ -343,6 +346,8 @@ async function main() {
     const seen: Record<string, unknown> = {};
     const logDeps: CompanyLogDeps = {
       now: () => NOW,
+      // VIS-1c：判定输入取 Sunny 老板（可读销售域，保住下方作业链接断言）
+      navContext: async () => SUNNY_OWNER,
       auditRows: async (orgId, window, take) => (
         (seen.audit = { orgId, window, take }),
         [{ id: "a1", createdAt: new Date("2026-10-26T11:00:00Z"), userId: "u9", userName: "Ann", action: "PENDING_ACTION_APPROVED", targetType: "pending_action", targetId: "pa1" }]
@@ -351,8 +356,8 @@ async function main() {
         (seen.event = { orgId, window, take }),
         [{ id: "e1", createdAt: new Date("2026-10-26T10:00:00Z"), runId: "run-1", eventType: "job.waiting_human", title: null }]
       ),
-      automationRunRows: async (window, take, lowFreq) => (
-        (seen.run = { window, take, lowFreq }),
+      automationRunRows: async (window, take, lowFreq, visibleKeys) => (
+        (seen.run = { window, take, lowFreq, visibleKeys }),
         [{ id: "r1", startedAt: new Date("2026-10-26T09:00:00Z"), automationKey: "release-drift", status: "succeeded", error: null }]
       ),
       transitionDetails: async (orgId, ids) => {
@@ -375,6 +380,10 @@ async function main() {
     ok(audit.window.from.toISOString() === "2026-10-19T12:00:00.000Z", "窗口起点 = now - days");
     ok(JSON.stringify(audit.window.bound) === JSON.stringify(sourceCursorBound("audit:", cursor)), "每路拿到各自的游标边界");
     ok(JSON.stringify((seen.run as { lowFreq: string[] }).lowFreq).includes("release-drift"), "自动化运行带低频清单");
+    const visibleKeys = (seen.run as { visibleKeys: string[] | null }).visibleKeys;
+    ok(Array.isArray(visibleKeys) && visibleKeys.includes("tender-watch") && !visibleKeys.includes("release-drift") && !visibleKeys.includes("daily-brief"), "非 super_admin：自动化查询带可见自动化键（Sunny 老板有投标、无运维与知识 / 询盘销售）", visibleKeys);
+    await getOrgCompanyLog(viewer, { limit: 2, days: 7, cursor }, { ...logDeps, navContext: async () => navCtx({ platformRole: "super_admin", isPlatformAdmin: true }) });
+    ok((seen.run as { visibleKeys: unknown }).visibleKeys === null, "平台 super_admin：自动化查询不按岗位过滤（含微信开关关时的「客服」）");
     ok(JSON.stringify(seen.lookups) === JSON.stringify({ orgId: "org-1", paIds: ["pa1"], runIds: ["run-1"] }), "归属查询带审计里的待审批动作与事件的 run");
     ok(JSON.stringify(res.items.map((i) => i.id)) === '["audit:a1","event:e1"]' && res.nextCursor !== null, "归并取前 limit 条并给出下一页游标", res.items.map((i) => i.id));
     ok(decodeTimelineCursor(res.nextCursor ?? "")?.id === "event:e1", "下一页游标指向本页最后一条");
@@ -447,6 +456,9 @@ async function main() {
       "AI 事件：按组织 + runId 走索引 + 可见 + 事件白名单",
     );
     const runs = automationRunTimelineWhere({ from, bound: sourceCursorBound("run:", null) }, lowFrequencyAutomationKeys());
+    ok(runs.AND.length === 2, "自动化运行：不传可见键（super_admin）时不加岗位过滤");
+    const scoped = automationRunTimelineWhere({ from, bound: sourceCursorBound("run:", null) }, lowFrequencyAutomationKeys(), ["tender-watch"]);
+    ok(scoped.AND.length === 3 && JSON.stringify(scoped.AND[2]) === JSON.stringify({ automationKey: { in: ["tender-watch"] } }), "自动化运行：可见键在查询条件里（翻页不遗漏）");
     ok(JSON.stringify(runs.AND[1]) === JSON.stringify({ OR: [{ status: { in: ["failed", "partial"] } }, { automationKey: { in: lowFrequencyAutomationKeys() } }] }), "自动化运行：失败 / 部分失败或低频");
     ok(!isTimelineAutomationRun({ automationKey: "agent-runs", status: "succeeded" }) && isTimelineAutomationRun({ automationKey: "agent-runs", status: "failed" }), "取回后再按同一规则过滤一次");
   }

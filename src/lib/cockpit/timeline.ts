@@ -256,7 +256,15 @@ export function auditEntry(row: AuditRow, lookups: TimelineLookups): TimelineEnt
   };
 }
 
-export function agentEventEntry(row: AgentEventRow, lookups: TimelineLookups): TimelineEntry {
+/**
+ * `canLinkJob`：workforce 作业是否带 `/workforce/<id>` 链接（VIS-1c：按显式工作域对调用者可读判定；
+ * 缺省 = 一律带，供纯函数测试）。
+ */
+export function agentEventEntry(
+  row: AgentEventRow,
+  lookups: TimelineLookups,
+  canLinkJob: (workDomain: string | null) => boolean = () => true,
+): TimelineEntry {
   const run = lookups.agentRuns.get(row.runId);
   const label = (EVENT_LABELS as Record<string, string>)[row.eventType] ?? row.eventType;
   return {
@@ -268,7 +276,7 @@ export function agentEventEntry(row: AgentEventRow, lookups: TimelineLookups): T
     kind: "agent_event",
     source: "ai",
     summary: redactCockpitText(row.title?.trim() ? `${label}：${row.title}` : label),
-    href: run?.runType === "workforce_job" ? `/workforce/${row.runId}` : null,
+    href: run?.runType === "workforce_job" && canLinkJob(run.workDomain) ? `/workforce/${row.runId}` : null,
   };
 }
 

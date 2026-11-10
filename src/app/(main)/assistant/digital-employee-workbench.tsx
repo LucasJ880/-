@@ -18,9 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
-import { canUseMarketingDigitalEmployee } from "@/lib/marketing/access";
 import { cn } from "@/lib/utils";
 
 interface AlertItem {
@@ -84,7 +82,6 @@ export function DigitalEmployeeWorkbench({
   orgReady,
   onPrompt,
 }: DigitalEmployeeWorkbenchProps) {
-  const { user } = useCurrentUser();
   // VIS-1b：指向 /sales/** 的入口只在目标放行时出现（design D12）
   const { canOpen } = useNavigationAccess();
   const [briefing, setBriefing] = useState<Briefing | null>(null);
@@ -139,10 +136,10 @@ export function DigitalEmployeeWorkbench({
       ROLE_ACTIONS.filter(
         (action) =>
           action.id !== "marketing" ||
-          // PERM-4c5：岗位模式企业按岗位派生平台角色
-          canUseMarketingDigitalEmployee(user?.effectiveRole ?? user?.role),
+          // VIS-1c：营销数字员工卡片只在其页面放行时出现（navigation/entry-visibility），不按派生平台角色
+          canOpen("/marketing/employee"),
       ),
-    [user?.effectiveRole, user?.role],
+    [canOpen],
   );
   const metrics: Array<{ label: string; value: number; icon: LucideIcon }> = [
     { label: "高优先事项", value: highPriorityCount, icon: AlertTriangle },

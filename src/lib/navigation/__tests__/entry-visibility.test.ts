@@ -284,6 +284,30 @@ async function main() {
     ok(/\{navReady && canOpen\("\/settings\/email"\) && \(\s*<Link\s+href="\/settings\/email"/.test(settings), "设置页：「邮箱绑定」卡按 canOpen(\"/settings/email\") 渲染，判定输入未就绪时不显示");
   }
 
+  // ── VIS-1c：营销数字员工卡片（spec「营销数字员工卡片只在其页面放行时出现」）──
+  {
+    const card = (n: string) => canOpenHref("/marketing/employee", clientCtx(IDENTITIES[n]));
+    ok(["ops_staff", "ops_lead", "owner", "super_admin"].every(card), "营销员工卡片：ops_staff、ops_lead、owner、super_admin 出现");
+    ok(["sales_rep", "accounting", "installer", "fulfillment_vinyl"].every((n) => !card(n)), "营销员工卡片：sales_rep、accounting、installer、fulfillment_vinyl 不出现");
+    const wb = read("src/app/(main)/assistant/digital-employee-workbench.tsx");
+    ok(/action\.id !== "marketing" \|\|[\s\S]{0,160}canOpen\("\/marketing\/employee"\)/.test(wb), "工作台：营销卡片按 canOpen(\"/marketing/employee\") 判定");
+    ok(!/canUseMarketingDigitalEmployee|effectiveRole/.test(wb), "工作台：不再按派生平台角色判定营销卡片");
+  }
+
+  // ── VIS-1c：底栏首格指向落地页（spec「底栏首格指向落地页」）──
+  {
+    const first = (n: string) => computeMobileTabs(clientCtx(IDENTITIES[n])).tabs[0];
+    const label = (n: string) => `${first(n)?.label}→${first(n)?.href}`;
+    ok(label("accounting") === "会计→/accounting", `会计：首格「会计」→ /accounting（实际 ${label("accounting")}）`);
+    ok(label("fulfillment_vinyl") === "任务→/tasks" && label("no_position") === "任务→/tasks", `出单、无岗位：首格「任务」→ /tasks（实际 ${label("fulfillment_vinyl")} / ${label("no_position")}）`);
+    ok(label("mx_trade_rep") === "任务→/tasks", `梦馨外贸：首格「任务」→ /tasks（实际 ${label("mx_trade_rep")}）`);
+    ok(label("owner") === "总览→/" && label("super_admin") === "总览→/", `老板、super_admin：首格仍为「总览」→ /（实际 ${label("owner")}）`);
+    ok(label("installer") === "安装→/install" && label("ops_staff") === "运营→/ops" && label("bids") === "招投标→/bids", "安装 / 运营 / 招投标默认工作区的首格不变");
+    ok(NAMES.every((n) => { const tab = first(n); return !tab || canOpenHref(tab.href, clientCtx(IDENTITIES[n])); }), "每种身份的首格都放行");
+    const bar = read("src/components/mobile-tab-bar.tsx");
+    ok(/tasks: ListTodo/.test(bar) && /accounting: Calculator/.test(bar) && /case "tasks":/.test(bar) && /case "accounting":/.test(bar), "底栏组件有「任务」「会计」的图标与高亮规则");
+  }
+
   // ── 纯模块：不导入 next/server ──
   {
     const PURE = [

@@ -39,6 +39,15 @@ function isManagement(ctx: RouteGateContext): boolean {
 }
 
 /** 某工作域（null = 解析不出）对判定输入是否可读 */
+/**
+ * VIS-1c：只凭显式工作域（metadata.workDomain）判定作业可读，不逐条解析（首页时间线用）：
+ * 有显式工作域按它判定；没有的（旧作业）只对可读全部工作域的人放行（否则详情页按有效工作域解析可能 404）。
+ */
+export function canReadJobByExplicitDomain(explicitDomain: unknown, ctx: RouteGateContext): boolean {
+  const domain = asWorkDomain(explicitDomain);
+  return domain ? canReadWorkDomain(domain, ctx) : readsEveryWorkDomain(ctx);
+}
+
 export function canReadWorkDomain(domain: WorkDomain | null, ctx: RouteGateContext): boolean {
   if (ctx.isPlatformAdmin) return true;
   if (domain === null || domain === "general") return isManagement(ctx);
