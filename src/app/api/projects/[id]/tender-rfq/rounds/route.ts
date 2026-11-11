@@ -12,6 +12,7 @@ import { resolveOrgTimezone } from "@/lib/automation/registry";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit/logger";
 import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 import { db } from "@/lib/db";
+import { followUpCardView } from "@/lib/tender-rfq/followup-coverage";
 import { prepareRfqRound } from "@/lib/tender-rfq/service";
 import { rfqErrorToUserMessage, type RfqEntryErrorCode } from "@/lib/tender-rfq/web-entry-pure";
 import { loadRfqApprovalInfo, loadRfqSendEmails } from "@/lib/tender-rfq/web-entry-approval";
@@ -31,6 +32,8 @@ const BodySchema = z.object({
     .max(5, "附加问题最多 5 条")
     .optional(),
   quantityTiers: z.array(z.number().positive()).max(5, "数量阶梯最多 5 档").optional(),
+  // RFQ-AUTO-1：这一轮的催单与追问随本卡一并批准。开关关闭时即使传 true 也不生效（服务层判定）
+  autoFollowUp: z.boolean().optional(),
 });
 
 const STATUS_OF: Record<RfqEntryErrorCode, number> = {
@@ -94,6 +97,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     scopeNote: body.scopeNote || null,
     extraQuestions: body.extraQuestions,
     quantityTiers: body.quantityTiers,
+    autoFollowUp: body.autoFollowUp === true,
   });
 
   if (!result.ok) {
@@ -117,7 +121,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     action: AUDIT_ACTIONS.CREATE,
     targetType: "tender_rfq_round",
     targetId: result.inquiryId,
-    afterData: { source: "web", actionId: result.actionId, roundNumber: result.roundNumber, supplierCount: result.suppliers.length, incoterm: result.incoterm },
+    afterData: { source: "web", actionId: result.actionId, roundNumber: result.roundNumber, supplierCount: result.suppliers.length, incoterm: result.incoterm, followUpPolicy: result.followUpPolicy },
     request,
   });
 
@@ -139,5 +143,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     incoterm: result.incoterm,
     approval: approvals[result.actionId] ?? null,
     emails: emails[result.actionId] ?? [],
+    // RFQ-AUTO-1：这张卡带的跟进授权（范围 + 模板预览）；没带 = null
+    followUp: result.followUpPolicy ? followUpCardView(result.followUpPolicy, { fromName: result.fromName, now: new Date() }) : null,
   });
 }

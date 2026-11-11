@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { InquiryDetail } from "./inquiry-detail";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
+import { RfqFollowUpStatus } from "./rfq-followup-status";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
 import type { RfqEntryView, RfqPendingChaseView, RfqPendingSendView } from "./rfq-web-entry-types";
@@ -322,6 +323,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
             const chases = chasesByInquiry.get(r.id) ?? [];
             const chaseLabel = chaseBadge(chases.length);
             const engine = ready?.engineRounds[r.id] ?? null;
+            const followUp = ready?.followUp?.rounds[r.id] ?? null;
             return (
               <div
                 key={r.id}
@@ -411,8 +413,12 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         roundNumber={pending.roundNumber ?? r.roundNumber}
                         approval={pending.approval}
                         emails={pending.emails}
+                        followUp={ready?.followUp?.cards[pending.actionId] ?? null}
                         onDone={(o) => onDecision(r.id, o)}
                       />
+                    )}
+                    {followUp && !pending && (
+                      <RfqFollowUpStatus projectId={projectId} inquiryId={r.id} view={followUp} canManage={canManage} onChanged={loadEntry} />
                     )}
                     {chases.map((c) => (
                       <RfqApprovalPanel

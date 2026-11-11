@@ -421,6 +421,8 @@ npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts
+npx tsx src/lib/tender-rfq/__tests__/followup-coverage.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/followup-auto-db.isolated.test.ts
 # TI-1：招标价格表行项
 npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts
