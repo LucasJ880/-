@@ -8,7 +8,7 @@
 ## 2. 接口与界面
 
 - [x] 2.1 读取函数与路由 `GET /api/projects/[id]/bid-workspace/schedule-candidates`（项目读权限；功能开关关闭 404；取当前有效的分析；已驳回的要求对应的线索不返回；不写库）；verify：`npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts` 全部通过（本地隔离库）
-- [ ] 2.2 `bid-workspace-panel.tsx`：粘贴导入区加「从招标分析带入」、原文对照与「没带入」清单、已有内容时先确认；verify：`docs/acceptance/fix-2/prefill-filled.png`、`prefill-saved.png`；`schedule-prefill.test.ts` 里的接线断言通过
+- [x] 2.2 `bid-workspace-panel.tsx`：粘贴导入区加「从招标分析带入」、原文对照与「没带入」清单、已有内容时先确认；verify：`docs/acceptance/fix-2/prefill-filled.png`、`prefill-saved.png`；`schedule-prefill.test.ts` 里的接线断言通过
 
 ## 3. 测试注册与验收
 
