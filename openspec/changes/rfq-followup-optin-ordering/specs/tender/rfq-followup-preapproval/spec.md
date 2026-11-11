@@ -11,6 +11,6 @@
 - **WHEN** 同一个人的一次开启与一次关闭同时到达
 - **THEN** 两次都成功返回；最终状态与时间最晚的那条记录一致，各条记录的时间严格递增（`auto-draft-db.isolated.test.ts`）
 
-#### Scenario: 重复设置不多写
-- **WHEN** 开关已经是关，同时到达两次关闭
-- **THEN** 没有新增记录（`auto-draft-db.isolated.test.ts`）
+#### Scenario: 同时到达的两次相同设置
+- **WHEN** 开关是关，同时到达两次开启；随后状态已经是开，又同时到达两次开启
+- **THEN** 第一回只新增一条记录，第二回没有新增记录（`auto-draft-db.isolated.test.ts`）

@@ -6,7 +6,6 @@
  * 本文件不发信、不建审批卡：它只决定之后自动起草的卡「带不带」授权；授权仍然写在卡上、由人批准才生效。
  */
 import { db } from "@/lib/db";
-import { writeAuditLog } from "@/lib/audit/logger";
 import { isRfqAutoDraftEnabledForOrg } from "./auto-draft-flags";
 import {
   AUTO_DRAFT_OPTIN_AUDIT_ACTION,
@@ -48,23 +47,43 @@ export type SetOptInResult =
 /**
  * 开启 / 关闭本人的开关。调用方负责项目写权限与「userId 就是登录的那个人」。
  * 开启要求两个功能开关都打开；关闭不要求。状态已经是想要的那样就不写。
- * 写入 = 追加一条记录（记录即状态）：写不进去就算失败，不用吞错的 logAudit。
+ * 写入 = 追加一条记录（记录即状态）：写不进去就算失败。
+ *
+ * RFQ-AUTO-3a：最后一次设置一定生效。状态取「最近一条记录」，而记录时间原本由写入那台服务器自己的时钟给出——
+ * 两台服务器时钟有先后、或时钟被回拨时，后点的「关闭」会排在先点的「开启」后面而不生效。所以在一个短事务里：
+ * 取本人的锁 → 读最近一条 → 需要才写，并明确给记录时间（至少比上一条晚 1 毫秒）。
+ * 事务里只有这几条语句，不包任何别的调用。
  */
 export async function setAutoDraftFollowUpOptIn(input: { orgId: string; projectId: string; userId: string; enabled: boolean }): Promise<SetOptInResult> {
   if (input.enabled && !isAutoDraftFollowUpOptInAvailable(input.orgId)) {
     return { ok: false, errorCode: "DISABLED", message: "这个开关还没有对你的组织开放。" };
   }
-  const current = await loadAutoDraftFollowUpOptInState(input.orgId, input.userId);
-  if (!optInNeedsWrite(current, input.enabled)) return { ok: true, state: current, changed: false };
-  await writeAuditLog(db, {
-    userId: input.userId,
-    orgId: input.orgId,
-    projectId: input.projectId,
-    action: AUTO_DRAFT_OPTIN_AUDIT_ACTION,
-    targetType: AUTO_DRAFT_OPTIN_TARGET,
-    targetId: input.userId,
-    beforeData: { state: current },
-    afterData: optInAuditData(input.enabled, chaseTemplateHash()),
+  const templateHash = chaseTemplateHash();
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`rfq-auto-followup-optin:${input.orgId}:${input.userId}`}))) AS l`;
+    const latest = await tx.auditLog.findFirst({
+      where: { orgId: input.orgId, userId: input.userId, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION, targetType: AUTO_DRAFT_OPTIN_TARGET, targetId: input.userId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { createdAt: true, afterData: true },
+    });
+    const current = optInState(parseOptInRecord(latest?.afterData), templateHash);
+    if (!optInNeedsWrite(current, input.enabled)) return { ok: true as const, state: current, changed: false };
+    // 已经持有本人的锁，上一条不会再变：新记录的时间至少比它晚 1 毫秒，「最近一条」就一定是这一条
+    const createdAt = new Date(Math.max(Date.now(), (latest?.createdAt.getTime() ?? 0) + 1));
+    // 直接写这一条（而不是经 writeAuditLog）是为了能指定时间；字段与它写的相同
+    await tx.auditLog.create({
+      data: {
+        userId: input.userId,
+        orgId: input.orgId,
+        projectId: input.projectId,
+        action: AUTO_DRAFT_OPTIN_AUDIT_ACTION,
+        targetType: AUTO_DRAFT_OPTIN_TARGET,
+        targetId: input.userId,
+        beforeData: JSON.stringify({ state: current }),
+        afterData: JSON.stringify(optInAuditData(input.enabled, templateHash)),
+        createdAt,
+      },
+    });
+    return { ok: true as const, state: input.enabled ? ("on" as const) : ("off" as const), changed: true };
   });
-  return { ok: true, state: input.enabled ? "on" : "off", changed: true };
 }
