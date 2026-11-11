@@ -89,7 +89,9 @@ const panel = readFileSync(resolve(root, "src/components/tender/bid-workspace-pa
 const tab = readFileSync(resolve(root, "src/components/project-detail/tabs/bid-tab.tsx"), "utf8");
 const code = panel.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 const apiPaths = [...code.matchAll(/\/api\/[^"'`\s)]*/g)].map((m) => m[0]);
-ok("只请求投标工作区的两个接口", apiPaths.length === 2 && apiPaths.every((u) => /^\/api\/projects\/\$\{projectId\}\/bid-workspace(\/cost-sheet)?$/.test(u)));
+// FIX-2 之后多了一个只读接口（从招标分析带入数量与单位）：仍然只在投标工作区之下，仍然没有新的写请求
+ok("只请求投标工作区之下的三个接口（主接口、成本核算、从招标分析带入）", apiPaths.length === 3 && apiPaths.every((u) => /^\/api\/projects\/\$\{projectId\}\/bid-workspace(\/cost-sheet|\/schedule-candidates)?$/.test(u)) && new Set(apiPaths).size === 3);
+ok("「从招标分析带入」是一次不带方法与请求体的读取", /apiFetch\(`\/api\/projects\/\$\{projectId\}\/bid-workspace\/schedule-candidates`\)/.test(code));
 ok("请求方法只有读取、保存、计算（没有删除）", !/method:\s*"(DELETE|PATCH)"/.test(code) && (code.match(/method:\s*"PUT"/g) ?? []).length === 1 && (code.match(/method:\s*"POST"/g) ?? []).length === 1);
 ok("没有审批、发信、提交之类的调用", !/pending-?action|PendingAction|approve|sendEmail|send-email|\/send|submit-bid|\/submit|mailto:/i.test(code));
 ok("404（开关关闭）时不渲染任何内容", /res\.status === 404\) return setState\(\{ status: "off" \}\)/.test(code) && /if \(state\.status !== "ready"\) return null;/.test(code));

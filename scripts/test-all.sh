@@ -646,6 +646,8 @@ run_test "投标工作区 读取结果与成本核算" "npx tsx src/lib/tender-b
 run_test "投标工作区 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts"
 run_test "投标工作区 面板粘贴导入与成本输入组装" "npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts"
 run_test "投标工作区 行明细与补遗录入" "npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts"
+run_test "FIX-2 价格表从招标分析带入（纯逻辑 + 接线）" "npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts"
+run_test "FIX-2 价格表从招标分析带入 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

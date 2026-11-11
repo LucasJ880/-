@@ -11,7 +11,7 @@
  * - 没有发送、提交、批准之类的对外动作。
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calculator, ClipboardList, FileDiff, Loader2, Pencil, Plus, ShieldAlert, Trash2, Upload, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import type { CostSheetView } from "@/lib/tender-bid-cost/sheet-view";
@@ -26,6 +26,7 @@ import {
   removeAddendum, upsertAddendum, withLineDetail, type AddendumDraft, type CertDraft, type LineEntryDraft,
 } from "@/lib/tender-bid-workspace/line-entry";
 import { nowWithOffset, parseHolderNames, parseSchedulePaste, type ParsedSchedule } from "@/lib/tender-bid-workspace/paste-import";
+import { prefillClickAction, prefillIsStale, prefillTextToApply, type SchedulePrefillResponse } from "@/lib/tender-bid-workspace/schedule-prefill";
 import type { WorkspaceView } from "@/lib/tender-bid-workspace/workspace-view";
 
 type Readiness = WorkspaceView["readiness"];
@@ -87,7 +88,7 @@ export function BidWorkspacePanel({ projectId, canManage }: { projectId: string;
     <section className="space-y-4" data-testid="bid-workspace-panel">
       <VerdictCard readiness={costReadiness ?? view.readiness} withCost={costReadiness !== null} />
       <StageCard view={view} />
-      <ScheduleCard view={view} workspace={workspace} canManage={canManage} onSave={save} />
+      <ScheduleCard projectId={projectId} view={view} workspace={workspace} canManage={canManage} onSave={save} />
       <AddendaCard view={view} workspace={workspace} canManage={canManage} onSave={save} />
       <HoldersCard view={view} workspace={workspace} canManage={canManage} onSave={save} />
       <CostCard projectId={projectId} view={view} onReadiness={setCostReadiness} />
@@ -172,12 +173,49 @@ function ListBlock({ title, items, empty }: { title: string; items: string[]; em
 
 /* ------------------------------ 价格表 ------------------------------ */
 
-function ScheduleCard({ view, workspace, canManage, onSave }: { view: WorkspaceView; workspace: StoredWorkspace | null; canManage: boolean; onSave: (body: unknown) => Promise<string | null> }) {
+function ScheduleCard({ projectId, view, workspace, canManage, onSave }: { projectId: string; view: WorkspaceView; workspace: StoredWorkspace | null; canManage: boolean; onSave: (body: unknown) => Promise<string | null> }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // FIX-2：从招标分析带入。只把生成的文本填进粘贴框——不保存；保存仍由人点下面的按钮
+  const [prefill, setPrefill] = useState<SchedulePrefillResponse | null>(null);
+  const [prefillBusy, setPrefillBusy] = useState(false);
+  const [prefillError, setPrefillError] = useState<string | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const prefillSeq = useRef(0);
+  // 换了项目或面板卸载：还在路上的那次带入作废（不把上一个项目的行填进来）
+  useEffect(() => () => { prefillSeq.current += 1; }, [projectId]);
+  const loadPrefill = async () => {
+    const seq = (prefillSeq.current += 1);
+    setPrefillBusy(true);
+    setPrefillError(null);
+    setConfirmReplace(false);
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/bid-workspace/schedule-candidates`);
+      const data = (await res.json().catch(() => null)) as (SchedulePrefillResponse & { error?: string }) | null;
+      if (seq !== prefillSeq.current) return;
+      if (!res.ok || !data || typeof data.state !== "string") {
+        setPrefill(null);
+        setPrefillError(data?.error ?? "没有取到招标分析里的数量，请重试。");
+        return;
+      }
+      setPrefill(data);
+      // 只把文本填进粘贴框；这里不保存，保存仍由人点下面的按钮
+      const next = prefillTextToApply(data);
+      if (next !== null) setText(next);
+    } catch {
+      if (seq !== prefillSeq.current) return;
+      setPrefill(null);
+      setPrefillError("网络出错了，请重试。");
+    } finally {
+      if (seq === prefillSeq.current) setPrefillBusy(false);
+    }
+  };
+  // 粘贴框里已经有内容：先确认再替换
+  const askPrefill = () => (prefillClickAction(text) === "confirm" ? setConfirmReplace(true) : void loadPrefill());
+  const prefillStale = !!prefill && prefill.rows.length > 0 && prefillIsStale(prefill.text, text);
   const parsed: ParsedSchedule | null = useMemo(() => (text.trim() ? parseSchedulePaste(text) : null), [text]);
   const lines = view.schedule.lines;
   const parsedCount = parsed ? parsed.lines.length : 0;
@@ -188,7 +226,7 @@ function ScheduleCard({ view, workspace, canManage, onSave }: { view: WorkspaceV
     const err = await onSave({ priceSchedule: { lines: parsed.lines } });
     setBusy(false);
     setError(err);
-    if (!err) { setOpen(false); setText(""); }
+    if (!err) { setOpen(false); setText(""); setPrefill(null); }
   };
 
   return (
@@ -207,13 +245,59 @@ function ScheduleCard({ view, workspace, canManage, onSave }: { view: WorkspaceV
       {open && canManage && (
         <div className="mt-3 space-y-2">
           <p className="text-xs text-muted">从发标方的价格表里复制整块粘贴。列序：行号、说明、数量、单位、包装数、尺寸、最小尺寸、认证要求。单位与数量按原文保存，不做换算。保存会替换现有的全部行项。</p>
-          <textarea className={`${INPUT} h-32 font-mono`} value={text} onChange={(e) => setText(e.target.value)} placeholder={"1\tTwin Mattress Cover\t2367\tEach\t\t39 x 77.5 x 9-15"} data-testid="bw-schedule-paste" />
-          {parsed && (
-            <p className="text-xs text-muted">
-              解析出 {parsed.lines.length} 行{parsed.skippedHeader ? "（已跳过表头）" : ""}{parsed.issues.length > 0 ? `，${parsed.issues.length} 行有问题` : ""}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className={BTN} disabled={prefillBusy} onClick={askPrefill} data-testid="bw-schedule-prefill">
+              {prefillBusy ? <Loader2 size={12} className="animate-spin" /> : <ClipboardList size={12} />} 从招标分析带入
+            </button>
+            <span className="text-xs text-muted">把招标分析抽到的数量与单位填进下面的框里，核对后再保存。</span>
+          </div>
+          {confirmReplace && (
+            <p role="alert" className="flex flex-wrap items-center gap-2 text-xs text-amber-800" data-testid="bw-schedule-prefill-confirm">
+              下面的框里已经有内容，带入会把它换掉。
+              <button type="button" className={BTN} onClick={() => void loadPrefill()}>确定替换</button>
+              <button type="button" className="text-muted underline" onClick={() => setConfirmReplace(false)}>先不带入</button>
             </p>
           )}
-          {parsed && parsed.issues.length > 0 && <ul className="space-y-0.5 text-xs text-red-700">{parsed.issues.slice(0, 8).map((i) => <li key={i.row}>{i.messageZh}</li>)}</ul>}
+          {prefillError && <p role="alert" className="text-xs text-red-700">{prefillError}</p>}
+          {prefill && <p className="text-xs text-foreground" data-testid="bw-schedule-prefill-message">{prefill.messageZh}</p>}
+          <textarea className={`${INPUT} h-32 font-mono`} value={text} readOnly={prefillBusy} onChange={(e) => setText(e.target.value)} placeholder={"1\tTwin Mattress Cover\t2367\tEach\t\t39 x 77.5 x 9-15"} data-testid="bw-schedule-paste" />
+          {prefill && prefill.rows.length > 0 && (
+            <details className="text-xs text-muted" open data-testid="bw-schedule-prefill-rows">
+              <summary className="cursor-pointer">带入的 {prefill.rows.length} 行各自是分析从哪里抽到的（对照招标文件核对）</summary>
+              {prefillStale && <p className="mt-1 text-amber-800" data-testid="bw-schedule-prefill-stale">框里的内容你已经改过；下面是带入那一刻的对照，行号以带入时为准。</p>}
+              <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+                {prefill.rows.map((r) => (
+                  <li key={r.lineNo}>
+                    第 {r.lineNo} 行：分析抽到的数量「{r.quantityText}」{r.unitText ? `，单位「${r.unitText}」` : "，没有给单位"}{r.sourceZh ? ` · ${r.sourceZh}` : r.page ? ` · 第 ${r.page} 页` : ""}
+                    {r.sameAsLine !== null && <span className="text-amber-800">（说明、数量、单位都与第 {r.sameAsLine} 行相同，可能是重复）</span>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {prefill && prefill.skipped.length > 0 && (
+            <details className="text-xs text-amber-800" open data-testid="bw-schedule-prefill-skipped">
+              <summary className="cursor-pointer">没有带入的 {prefill.skipped.length} 条（要你自己对照招标文件填）</summary>
+              <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto">
+                {prefill.skipped.map((k, i) => (
+                  <li key={i}>
+                    {k.description}：{k.reasonZh}{k.quantityText ? `（分析抽到的数量「${k.quantityText}」${k.unitText ? `，单位「${k.unitText}」` : ""}）` : ""}{k.sourceZh ? ` · ${k.sourceZh}` : k.page ? ` · 第 ${k.page} 页` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {parsed && (
+            <p className="text-xs text-muted">
+              解析出 {parsed.lines.length} 行{parsed.skippedHeader ? "（已跳过表头）" : ""}{parsed.issues.length > 0 ? `，${parsed.issues.length} 行有问题（有问题的行不会保存）` : ""}
+            </p>
+          )}
+          {parsed && parsed.issues.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-red-700" data-testid="bw-schedule-paste-issues">
+              {parsed.issues.slice(0, 8).map((i) => <li key={i.row}>{i.messageZh}</li>)}
+              {parsed.issues.length > 8 && <li>……还有 {parsed.issues.length - 8} 行有问题没有列出</li>}
+            </ul>
+          )}
           {error && <p className="text-xs text-red-700">{error}</p>}
           <button type="button" className={BTN_PRIMARY} disabled={busy || !parsed || parsed.lines.length === 0} onClick={submit} data-testid="bw-schedule-save">
             {busy && <Loader2 size={12} className="animate-spin" />} 保存 {parsedCount} 行
