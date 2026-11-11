@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
+import { buildProjectSearchWhere, buildTaskSearchWhere } from "@/lib/search/where";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const q = request.nextUrl.searchParams.get("q")?.trim();
@@ -11,33 +12,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
 
   const projectWhere = await buildProjectVisibilityWhere(user);
 
-  const projectFilter = projectWhere
-    ? {
-        AND: [
-          projectWhere,
-          { OR: [{ name: { contains: q } }, { description: { contains: q } }] },
-        ],
-      }
-    : { OR: [{ name: { contains: q } }, { description: { contains: q } }] };
-
-  const taskProjectScope = projectWhere
-    ? {
-        OR: [
-          { project: projectWhere },
-          { projectId: null, creatorId: user.id },
-        ],
-      }
-    : {};
-
   const [tasks, projects] = await Promise.all([
     db.task.findMany({
-      where: {
-        ...taskProjectScope,
-        OR: [
-          { title: { contains: q } },
-          { description: { contains: q } },
-        ],
-      },
+      // 范围与关键词用 AND 组合（修复：之前展开范围后再写 OR 键，范围被覆盖，任务搜索跨企业泄露）
+      where: buildTaskSearchWhere(projectWhere, user.id, q),
       select: {
         id: true,
         title: true,
@@ -50,7 +28,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
       take: 8,
     }),
     db.project.findMany({
-      where: projectFilter,
+      where: buildProjectSearchWhere(projectWhere, q),
       select: {
         id: true,
         name: true,

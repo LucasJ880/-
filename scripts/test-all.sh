@@ -240,6 +240,7 @@ run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation
 run_test "Navigation Position Mode (PERM-4c2)" "npx tsx src/lib/navigation/__tests__/position-nav.test.ts"
 run_test "路由级可见性门（VIS-1a）" "npx tsx src/lib/navigation/__tests__/route-gate.test.ts"
 run_test "入口判定与路由门同源（VIS-1b）" "npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts"
+run_test "全局搜索范围不被关键词覆盖" "npx tsx src/lib/search/__tests__/search-where.test.ts"
 run_test "Autopilot A0 Access" "npx tsx src/lib/autopilot/__tests__/access.test.ts"
 run_test "Autopilot A0 Sanitize" "npx tsx src/lib/autopilot/__tests__/sanitize.test.ts"
 run_test "Autopilot A0 Repository Org" "npx tsx src/lib/autopilot/__tests__/repository-org.test.ts"
