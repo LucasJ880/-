@@ -114,6 +114,28 @@
 - **比对前去掉软连字符等格式字符**：从 PDF 贴过来的项目名称里常有。
 - 没有改的（审查提到、判断为可接受）：大小写按 `toLowerCase` 而不是完整的大小写折叠（`İSTANBUL` 对不上 `istanbul`、`strasse` 对不上 `straße`）；子串误中（`led` 对上 `Scheduled`）是 D3 明说的代价。
 
+## 与八条硬纪律的关系
+
+1. **零 schema**：遵守。分组是 `AuditLog` 里本人的只追加记录（最近一条即状态），不新增表与字段，也不放进 `Organization.settingsJson`。
+2. **出站先审批**：遵守，不改纪律文字。本次不新增任何出站路径：分组只决定抽屉里先勾选谁、自动起草的卡起草给谁；卡仍是待批的，仍须人在网页上批准才发。分组的名字与关键词不进询价单与邮件。
+3. **禁止第三套队列**：遵守。没有新增任何后台执行；保存时的事务级锁随事务结束释放，不是队列。
+4. **脱敏**：遵守。新的响应字段只有分组的名字、关键词、供应商号与家数；不含价格、估值、毛利。Muse 通道没有新增内容。
+5. **不爬登录页**：不涉及。
+6. **邮箱分离**：不涉及。
+7. **确定性优先**：遵守。项目用哪一组是文字比对，恰好一组对上才用；不新增模型调用；不往 Muse 的偏好里写任何东西。
+8. **测试注册**：两个新测试都注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+
+## 验证方式
+
+- `npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts`（新）：开关；校验逐条（上限、重名、关键词长度、看不见或无效的字符、分隔符、供应商号）；读库里那份（读比写宽、读不出来的标记）；规整与比对（一组 / 零组 / 多组 / 全角 / 软连字符）；抽屉预选与那一行说明；四种修改；保存接口的响应 → 界面动作；接线的源码断言。
+- `npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts`（新，本地隔离库，保存经真实路由处理函数）：功能关闭；保存、读回与留记录；内容不合规与别的组织的供应商被拒；权限；版本冲突与同时保存；自动起草按分组、对不上、对上多组、组里无就绪；别人的分组不被使用；邮件内容与手动选同样几家逐字相同；时钟不一致时保存仍生效；记录读不出来时不起草。
+- `npx tsx src/lib/tender-rfq/__tests__/auto-draft-pure.test.ts`（扩）：两个新原因、判定顺序、带分组的文案。
+- 既有测试不改断言即通过：`auto-draft-db.isolated.test.ts`、`web-entry-pure.test.ts`。
+- 全量：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`。
+- 真实应用截图（本地库、演示数据；本地开发模式要带 `QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES=localhost`）四张，存 `docs/acceptance/rfq-auto-5/`。
+- 开 PR 前请一个不带结论的独立审查。
+- `openspec validate rfq-supplier-groups --strict`。
+
 ## Risks / Trade-offs
 
 - **关键词误中 → 起草给错的一组。** 卡摘要写明组名与关键词，收件人列在卡上；自动起草的卡只能在网页批（Muse 里批不了）。误中的后果是「起草了一张要驳回的卡」，不是「发错了」。
