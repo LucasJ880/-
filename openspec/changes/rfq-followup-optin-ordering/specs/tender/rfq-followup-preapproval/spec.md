@@ -8,8 +8,8 @@
 - **THEN** 状态为关；之后他触发的自动起草的卡不带跟进授权；再开启一次，状态为开（`npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts`）
 
 #### Scenario: 同时到达的开与关
-- **WHEN** 同一个人的一次开启与一次关闭同时到达
-- **THEN** 两次都成功返回；最终状态与时间最晚的那条记录一致，各条记录的时间严格递增（`auto-draft-db.isolated.test.ts`）
+- **WHEN** 同一个人的四次开启与四次关闭同时到达
+- **THEN** 八次都成功返回；写下的记录严格是开与关交替的（没有连着两条相同的），时间严格递增；最终状态就是最后那条记录（`auto-draft-db.isolated.test.ts`）
 
 #### Scenario: 同时到达的两次相同设置
 - **WHEN** 开关是关，同时到达两次开启；随后状态已经是开，又同时到达两次开启
