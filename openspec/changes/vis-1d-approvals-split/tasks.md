@@ -70,7 +70,7 @@
 
 ## 3. 待我确认、红点、运营看板与收件箱
 
-- [ ] 3.1 按 design D7 收口四处团队审批范围：
+- [x] 3.1 按 design D7 收口四处团队审批范围：
   - `marketing/team.ts` 新增 `teamApprovalScopeWhere(userId, access)`（行为不变）。
   - 新增 `src/lib/approval/pending-mine.ts`：`pendingMineWhere`、`listMyPendingActions` / `countMyPendingActions(user, orgId, opts)` = 处理人范围 ∩ 可见集合 ∩ 当前企业（另含本人个人草稿）；红点另加未过期，解析不出企业时只数个人草稿（200）。
   - 四处改用同一个函数或同一组条件：

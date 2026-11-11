@@ -5,7 +5,7 @@
  */
 
 import { db } from "@/lib/db";
-import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
+import { loadPendingMineWhere } from "@/lib/approval/pending-mine";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { generateReminderLayers } from "@/lib/reminders/generator";
 import {
@@ -193,38 +193,23 @@ export async function buildOpsDashboard(params: {
       take: 200,
     }),
     (async () => {
-      const access = await getTeamApprovalAccessIds(userId);
+      // VIS-1d：与「待我确认」同一组条件（处理人范围 ∩ 审批的可见集合）；企业范围沿用看板自己的
+      // （含该企业项目上的无企业卡），再取交集
+      const pendingWhere = await loadPendingMineWhere(userId, orgId, {
+        orgScope: {
+          OR: [
+            { orgId },
+            { orgId: null, createdById: userId },
+            ...(orgProjectIds.length
+              ? [{ projectId: { in: orgProjectIds } }]
+              : []),
+          ],
+        },
+      });
       return db.pendingAction.findMany({
         where: {
           status: "pending",
-          AND: [
-            {
-              OR: [
-                {
-                  createdById: userId,
-                  orgId: null,
-                  projectId: null,
-                  approverUserId: null,
-                },
-                { approverUserId: userId },
-                ...(access.orgIds.length
-                  ? [{ orgId: { in: access.orgIds } }]
-                  : []),
-                ...(access.projectIds.length
-                  ? [{ projectId: { in: access.projectIds } }]
-                  : []),
-              ],
-            },
-            {
-              OR: [
-                { orgId },
-                { orgId: null, createdById: userId },
-                ...(orgProjectIds.length
-                  ? [{ projectId: { in: orgProjectIds } }]
-                  : []),
-              ],
-            },
-          ],
+          ...pendingWhere,
         },
         orderBy: { createdAt: "desc" },
         take: 30,

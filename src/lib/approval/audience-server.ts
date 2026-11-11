@@ -9,7 +9,7 @@
 import { db } from "@/lib/db";
 import { ROUTE_GATE_LOADER } from "@/lib/navigation/context-server";
 import { isOrgSystemAdmin, isSuperAdmin } from "@/lib/rbac/roles";
-import type { ApprovalViewer } from "./audience";
+import { portCardVisible, type ApprovalItem, type ApprovalViewer } from "./audience";
 
 export async function loadApprovalViewer(userId: string, orgId: string | null): Promise<ApprovalViewer> {
   const user = await ROUTE_GATE_LOADER.loadUser(userId);
@@ -52,4 +52,18 @@ export async function loadApprovalViewer(userId: string, orgId: string | null): 
     projectIds: [...new Set([...ownedProjects.map((p) => p.id), ...adminProjects.map((p) => p.projectId)])],
     ctx,
   };
+}
+
+/**
+ * 单张卡的端口判定（design D5）：viewer 按卡所属企业取（不按调用方当前企业：微信传空）；
+ * 调用方已取好、且用户与企业都相同时复用。
+ */
+export async function cardVisibleTo(
+  item: ApprovalItem,
+  userId: string,
+  callerOrgId: string | null | undefined,
+  viewer?: ApprovalViewer,
+): Promise<boolean> {
+  const v = viewer && viewer.userId === userId && viewer.orgId === item.orgId ? viewer : await loadApprovalViewer(userId, item.orgId);
+  return portCardVisible(item, v, callerOrgId);
 }

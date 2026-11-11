@@ -22,6 +22,7 @@ import {
   type PendingActionWhere,
 } from "../audience";
 import { buildNavigationFilterContext } from "@/lib/navigation/filter-context";
+import { currentOrgScopeWhere, pendingMineWhere } from "../pending-mine";
 import { gateCtx, sunnyInputs, type IdentityName } from "@/lib/navigation/__tests__/identity-fixtures";
 
 let pass = 0;
@@ -69,6 +70,23 @@ const pa = (type: string, over: Partial<ApprovalItem> = {}): ApprovalItem => ({
   ...over,
 });
 const other = (sourceType: "APPROVAL_REQUEST" | "PRODUCT_CONTENT", over: Partial<ApprovalItem> = {}): ApprovalItem => ({ ...pa("", over), sourceType, type: null, ...over });
+
+type Row = Record<string, unknown>;
+/** 小求值器：把 Prisma where（AND / OR / NOT / 等值 / null / in / startsWith）跑在样例行上 */
+function matches(row: Row, where: PendingActionWhere): boolean {
+  return Object.entries(where).every(([key, cond]) => {
+    if (key === "OR") return (cond as PendingActionWhere[]).some((w) => matches(row, w));
+    if (key === "AND") return (cond as PendingActionWhere[]).every((w) => matches(row, w));
+    if (key === "NOT") return !matches(row, cond as PendingActionWhere);
+    const value = row[key];
+    if (cond === null) return value === null || value === undefined;
+    if (typeof cond !== "object") return value === cond;
+    const c = cond as Record<string, unknown>;
+    if ("in" in c) return (c.in as unknown[]).includes(value);
+    if ("startsWith" in c) return typeof value === "string" && value.startsWith(String(c.startsWith));
+    return false;
+  });
+}
 
 const SALES6 = [
   "sales.approve_quote_promotion",
@@ -164,21 +182,6 @@ console.log("\n旧模式企业沿用原规则");
 
 console.log("\n可见集合条件与单条判定同义（小求值器）");
 {
-  type Row = Record<string, unknown>;
-  function matches(row: Row, where: PendingActionWhere): boolean {
-    return Object.entries(where).every(([key, cond]) => {
-      if (key === "OR") return (cond as PendingActionWhere[]).some((w) => matches(row, w));
-      if (key === "AND") return (cond as PendingActionWhere[]).every((w) => matches(row, w));
-      if (key === "NOT") return !matches(row, cond as PendingActionWhere);
-      const value = row[key];
-      if (cond === null) return value === null || value === undefined;
-      if (typeof cond !== "object") return value === cond;
-      const c = cond as Record<string, unknown>;
-      if ("in" in c) return (c.in as unknown[]).includes(value);
-      if ("startsWith" in c) return typeof value === "string" && value.startsWith(String(c.startsWith));
-      return false;
-    });
-  }
   const types = ["sales.approve_quote_promotion", "install.send_warranty_email", "tender.send_rfq", "tender.send_chase", "marketing.activate_campaign", "revenue_spine.propose_commercial_fact", "sales.send_inquiry_reply", "grader.email_draft", "calendar.create_event", "sales.update_stage"];
   const rows: ApprovalItem[] = [];
   for (const type of types) {
@@ -260,6 +263,85 @@ console.log("\n审批中心接入（源码）");
   const rfq = code("src/lib/tender-rfq/web-entry-approval.ts");
   const loop = rfq.indexOf("for (const actionId of actionIds)");
   ok(rfq.indexOf("loadApprovalViewer(") > 0 && rfq.indexOf("loadApprovalViewer(") < loop && /getCapabilityApproval\(usable, approvalId, viewer\)/.test(rfq), "RFQ 原地审批：一个项目只取一次判定输入");
+}
+
+console.log("\n待我确认 = 处理人范围 ∩ 可见集合 ∩ 当前企业");
+{
+  const team = (orgIds: string[], projectIds: string[] = []) => ({ orgIds, projectIds });
+  const run = (v: ApprovalViewer, access: { orgIds: string[]; projectIds: string[] }, rows: ApprovalItem[]) =>
+    rows.filter((r) => matches(r as unknown as Row, pendingMineWhere(v, access) as PendingActionWhere));
+  const personalMine = pa("grader.email_draft", { orgId: null, createdById: ME });
+  const personalOther = pa("grader.email_draft", { orgId: null });
+  const rows = [
+    pa("tender.send_rfq"),
+    pa("grader.email_draft"),
+    pa("grader.email_draft", { orgId: "org-2" }),
+    pa("tender.send_rfq", { orgId: "org-2" }),
+    personalMine,
+    personalOther,
+  ];
+  const admin = viewer("no_position", { isOrgHandler: true, isOrgAdminRole: true });
+  const got = run(admin, team([ORG, "org-2"]), rows);
+  ok(got.length === 2 && got.includes(rows[1]) && got.includes(personalMine), "不持岗位的管理员：只有本企业无业务归属的草稿与本人个人草稿（另一企业的不算）", got);
+  const legacyAdmin = legacyViewer({ isOrgAdminRole: true, isOrgHandler: true });
+  const gotLegacy = run(legacyAdmin, team([ORG, "org-2"]), rows);
+  ok(gotLegacy.length === 3 && gotLegacy.includes(rows[0]) && gotLegacy.includes(rows[1]) && !gotLegacy.includes(rows[3]), "旧模式的多企业管理员：不按可见集合收窄，但只含当前企业", gotLegacy);
+  const owner = legacyViewer({ projectIds: ["p1"] });
+  const rfqOnMyProject = pa("tender.send_rfq", { projectId: "p1" });
+  ok(run(owner, team([], ["p1"]), [rfqOnMyProject]).length === 1, "旧模式项目负责人：「待我确认」照旧含他人的 tender.send_rfq");
+  const noOrg = { ...viewer("sales_rep"), orgId: null, ctx: null };
+  ok(JSON.stringify(run(noOrg, team([ORG]), rows)) === JSON.stringify([personalMine]), "解析不出当前企业：只含本人的个人草稿");
+  ok(JSON.stringify(currentOrgScopeWhere(ME, null)) === JSON.stringify({ orgId: null, createdById: ME }), "当前企业为空：企业范围只剩本人的无企业草稿");
+}
+
+console.log("\n待我确认、红点、运营看板与收件箱（源码）");
+{
+  const mine = code("src/lib/approval/pending-mine.ts");
+  ok(/teamApprovalScopeWhere\(viewer\.userId, teamAccess\)/.test(mine) && /pendingActionAudienceWhere\(viewer\)/.test(mine), "pendingMineWhere = 处理人范围 ∩ 可见集合 ∩ 企业范围");
+  ok((mine.match(/await loadPendingMineWhere\(userId, orgId\)/g) ?? []).length === 2 && /status: "pending", expiresAt: \{ gt: now \}/.test(mine), "列表与红点同一组条件，红点另加未过期");
+  const list = code("src/app/api/ai/pending-actions/route.ts");
+  const count = code("src/app/api/ai/pending-actions/count/route.ts");
+  const dash = code("src/lib/operations/dashboard/build-dashboard.ts");
+  const port = code("src/lib/approval/port.ts");
+  ok(/listMyPendingActions\(user\.id, orgRes\.orgId/.test(list), "待我确认列表调 listMyPendingActions");
+  ok(/countMyPendingActions\(user\.id, orgRes\.ok \? orgRes\.orgId : null\)/.test(count) && /resolveAssistantOrgId\(request, user\)/.test(count), "红点调 countMyPendingActions，当前企业与列表同取法，解析不出时只数个人草稿");
+  ok(/loadPendingMineWhere\(userId, orgId, \{\s*orgScope:/.test(dash), "运营看板用同一组条件，企业范围沿用自己的");
+  const inbox = port.slice(port.indexOf("export async function listApprovalInbox"), port.indexOf("export async function", port.indexOf("export async function listApprovalInbox") + 10));
+  ok(/loadPendingMineWhere\(userId, opts\.orgId, \{ viewer \}\)/.test(inbox) && /getPendingApprovals\(userId, \{ orgId: opts\.orgId, viewer \}\)/.test(inbox), "收件箱用同一组条件，项目智能体审批也只取当前企业");
+  for (const [label, src] of [["列表", list], ["红点", count], ["运营看板", dash], ["收件箱", inbox]] as const) {
+    ok(!/\{ approverUserId: user(?:\.id|Id) \}/.test(src) && !/getTeamApprovalAccessIds\(/.test(src), `${label}：不再自己拼处理人范围`);
+  }
+  const team = code("src/lib/marketing/team.ts");
+  ok(/export function teamApprovalScopeWhere/.test(team), "处理人范围抽成 teamApprovalScopeWhere");
+  const agentApproval = code("src/lib/agent/approval.ts");
+  const gpa = agentApproval.slice(agentApproval.indexOf("export async function getPendingApprovals"));
+  ok(/if \(!orgId\) return \[\];/.test(gpa) && /task: \{ project: \{ orgId \} \}/.test(gpa) && /isApprovalVisible\(approvalRequestItem\(row\), viewer\)/.test(gpa), "getPendingApprovals：只取当前企业项目上的、可见的");
+  const agentRoute = code("src/app/api/agent/approvals/route.ts");
+  ok(/resolveAssistantOrgId\(request, user\)/.test(agentRoute) && /orgRes\.ok \? orgRes\.orgId : null/.test(agentRoute) && /listApprovalInbox\(user\.id, \{ orgId, viewer \}\)/.test(agentRoute), "/api/agent/approvals：当前企业与「待我确认」同取法，解析不出只给个人草稿");
+  const muse = code("src/lib/muse-bridge/router.ts");
+  ok((muse.match(/listApprovalInbox\(identity\.userId, \{ orgId: identity\.orgId \}\)/g) ?? []).length === 2 && !/listApprovalInbox\(identity\.userId\)|listApprovalInbox\(userId\)/.test(muse), "Muse：收件箱都带绑定企业");
+  const approve = muse.slice(muse.indexOf('case "approve": {'), muse.indexOf('case "reject": {'));
+  ok(approve.indexOf("cardVisibleTo(") > 0 && approve.indexOf("cardVisibleTo(") < approve.indexOf("museApprovalNeedsWebPreview("), "Muse approve：先判可见，再判网页预览");
+
+  const route = code("src/app/api/ai/pending-actions/[id]/route.ts");
+  const vis = route.indexOf("portCardVisible(pendingActionItem(action), viewer, orgRes.orgId)");
+  ok(vis > 0 && vis < route.indexOf("canDecideTeamApproval(action"), "[id] 路由：可见校验在 canDecideTeamApproval 之前");
+  ok(/portCardVisible\(pendingActionItem\(action\), viewer, orgRes\.orgId\)\) \{\s*return NextResponse\.json\(\{ error: "草稿不存在" \}, \{ status: 404 \}\);/.test(route) && /if \(!action\) \{\s*return NextResponse\.json\(\{ error: "草稿不存在" \}, \{ status: 404 \}\);/.test(route), "[id] 路由：看不见与不存在返回相同的 404");
+
+  const approveFn = port.slice(port.indexOf("export async function approveApprovalItem"), port.indexOf("export async function rejectApprovalItem"));
+  const rejectFn = port.slice(port.indexOf("export async function rejectApprovalItem"), port.indexOf("export async function expireOverdueApprovals"));
+  const before = (fn: string, marker: string) => {
+    const v = fn.indexOf("cardVisibleTo(pendingActionItem(before)");
+    return v > 0 && v < fn.indexOf(marker);
+  };
+  ok(before(approveFn, "isTerminalPendingActionStatus(before.status)") && before(approveFn, "executePendingAction("), "端口批准：可见校验在已终态分支与执行之前");
+  ok(before(rejectFn, 'before.status === "rejected"') && before(rejectFn, "rejectPendingAction("), "端口驳回：可见校验在已终态分支与驳回之前");
+  for (const [label, fn, marker] of [["批准", approveFn, "resolveApproval("], ["驳回", rejectFn, "resolveApproval("]] as const) {
+    const ar = fn.slice(fn.indexOf("db.approvalRequest.findFirst"));
+    const v = ar.indexOf("cardVisibleTo(approvalRequestItem(approval)");
+    ok(v > 0 && v < ar.indexOf(marker) && /return approvalRequestNotFound\(\);/.test(ar), `端口${label}项目智能体审批：先判可见，看不见按不存在返回`);
+  }
+  ok(/error: "草稿不存在",[\s\S]*?run: null/.test(port.slice(port.indexOf("function pendingApproveNotFound"), port.indexOf("function pendingRejectNotFound"))), "端口：看不见的结果照「草稿不存在」的收敛形状");
 }
 
 console.log("\n纯模块");
