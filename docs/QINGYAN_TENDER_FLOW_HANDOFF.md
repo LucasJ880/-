@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第六次（Lucas 休息期间按授权继续：TI-4a 接口 #417、TI-4b 面板 #418 实施完并开 Draft PR；#411–#417 CI 全绿；八个 PR 均已订阅活动。上一次授权原话：「盯着这几个 PR；开始做 TI-3 规划；其他你来主导，需要我确定的按你推荐的做，权限给你，你来进行大优化」） |
+| 最后更新 | 2026-11-11 第七次（Lucas 休息期间按授权继续：TI-4a 接口 #417、TI-4b 面板 #418、TI-4c 逐行录入与补遗 #419 实施完并开 Draft PR；#411–#417 CI 全绿，#418、#419 CI 运行中；九个 PR 均已订阅活动。上一次授权原话：「盯着这几个 PR；开始做 TI-3 规划；其他你来主导，需要我确定的按你推荐的做，权限给你，你来进行大优化」） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]`、TI-0 `[~]`（FIX-1 / TI-1 / TI-2 的行在各自 apply 的最后一条任务里新增） |
-| 工作分支 | 一条叠起来的链，每个 PR 的 base 是前一个分支：`claude/zealous-shannon-p48grg`（#411 文档与规划）→ `claude/rfq-requirement-category-match`（#412）→ `claude/tender-price-schedule-lines`（#413）→ `claude/tender-bid-cost-sheet`（#414）→ `claude/tender-competition-leads`（#415）→ `claude/tender-bid-readiness`（#416）→ `claude/tender-bid-workspace-api`（#417）→ `claude/tender-bid-workspace-panel`（#418）。新 change 从链顶再开分支。本文件只在 #411 的分支上更新 |
-| 性质 | #411 无代码。#412 改了询价生成器（线上行为会变：询价能带上要求）。#413–#416 是新增的纯函数目录，线上不可达。#417 三个接口、#418 一个面板，都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关 |
-| 进行中的 change | 七个都已实施完、未归档（合并后才能 archive）：`rfq-requirement-category-match`、`tender-price-schedule-lines`、`tender-bid-cost-sheet`、`tender-competition-leads`、`tender-bid-readiness`、`tender-bid-workspace-api`、`tender-bid-workspace-panel`；另有 `next16-proxy-rename`（与本任务无关） |
+| 工作分支 | 一条叠起来的链，每个 PR 的 base 是前一个分支：`claude/zealous-shannon-p48grg`（#411 文档与规划）→ `claude/rfq-requirement-category-match`（#412）→ `claude/tender-price-schedule-lines`（#413）→ `claude/tender-bid-cost-sheet`（#414）→ `claude/tender-competition-leads`（#415）→ `claude/tender-bid-readiness`（#416）→ `claude/tender-bid-workspace-api`（#417）→ `claude/tender-bid-workspace-panel`（#418）→ `claude/tender-bid-workspace-line-entry`（#419）。新 change 从链顶再开分支。本文件只在 #411 的分支上更新 |
+| 性质 | #411 无代码。#412 改了询价生成器（线上行为会变：询价能带上要求）。#413–#416 是新增的纯函数目录，线上不可达。#417 三个接口、#418 一个面板、#419 面板里的录入与两个可选存储字段，都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关 |
+| 进行中的 change | 八个都已实施完、未归档（合并后才能 archive）：`rfq-requirement-category-match`、`tender-price-schedule-lines`、`tender-bid-cost-sheet`、`tender-competition-leads`、`tender-bid-readiness`、`tender-bid-workspace-api`、`tender-bid-workspace-panel`、`tender-bid-workspace-line-entry`；另有 `next16-proxy-rename`（与本任务无关） |
 
 ---
 
@@ -29,7 +29,7 @@
 
 ### 0.2 PR 链
 
-合并顺序必须是 #411 → #412 → #413 → #414 → #415 → #416 → #417 → #418。前一个合并并删除分支后，GitHub 会把下一个自动改指 main。
+合并顺序必须是 #411 → #412 → #413 → #414 → #415 → #416 → #417 → #418 → #419。前一个合并并删除分支后，GitHub 会把下一个自动改指 main。
 
 | PR | change | 线上影响 |
 |---|---|---|
@@ -41,8 +41,11 @@
 | #416 | TI-3b 可投标判定与阶段策略表 | 无 |
 | #417 | TI-4a 投标工作区存取接口 | 无（开关 `TENDER_BID_WORKSPACE_ENABLED` 默认关，关闭时三个接口都 404） |
 | #418 | TI-4b 项目页「投标工作区」面板 | 无（开关关闭时面板不渲染；打开后只有白名单组织的「标书与报价」页签顶部多一个面板） |
+| #419 | TI-4c 逐行录入与补遗 | 无（同一个开关之后；保存接口多一条校验：「已核验」的证书必须有出处） |
 
-2026-11-11 03:55 UTC 核对：#411–#417 的 CI（`validate-lint-typecheck-test-build`）全部 success；#418 刚推送，CI 排队中。八个 PR 都已 `subscribe_pr_activity`。
+2026-11-11 核对：#411–#417 的 CI（`validate-lint-typecheck-test-build`）全部 success；#418、#419 推送后 CI 运行中（接手时先查这两个）。九个 PR 都已 `subscribe_pr_activity`。
+
+教训（#418）：TI-4a 有一条断言写死了目录里的模块文件数，TI-4b 新增文件后会失败，首次推送后才发现。**往既有目录加文件或改既有组件之后，把读到它的既有测试全部重跑**（`grep -rln "<目录或文件名>" src/lib --include=*.test.ts`），不要只跑新写的测试。
 
 每个合并之后：`/opsx:archive <change> --yes`（独立小 PR），并把 TASKFLOW 该行的 `[G]（#NNN 待审）` 改成 `[x]（#NNN；archive …）`。
 
@@ -62,13 +65,13 @@ PR 事件会以 `<wake reason="external-event">` 送进会话。处理前先在�
 
 ### 0.5 接下来
 
-TI-4a（接口）与 TI-4b（面板）已完成并各自开了 Draft PR。候选的下一步，按推荐顺序：
+TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已完成并各自开了 Draft PR。到这里，一个标可以在界面上从粘贴价格表走到「只剩成本与截标两类阻断项」。候选的下一步，按推荐顺序：
 
-1. **TI-4c 逐行录入**：拟投品牌型号、产品尺寸、证书、补遗的录入界面。接口（TI-4a）已支持，面板目前只显示核对结果，所以「尺寸尚未核对」「认证未过」现在只能经接口消除。纯界面，零 schema。
-2. **FIX-2**：分析入库时保留数量与单位（`v2-map.ts` 现在会丢），让价格表可以从已分析的招标文件预填，而不是只能粘贴。
-3. **成本输入落库**：等 Lucas 在三个候选里拍板（TI-4a 报告 §3；推荐专用表、按财务查看权读）。拍板前成本输入只在浏览器本地。
-4. 只读适配器（官方授标来源）、把进口线索写成供应商线索、核算结果写回报价引擎。
-5. FLOW 方案 H1：把「下一步」查表搬上 Web；TI-3b 的阻断项与三张清单是它的输入。
+1. **FIX-2**：分析入库时保留数量与单位（`v2-map.ts` 现在会丢），让价格表可以从已分析的招标文件预填，而不是只能粘贴。
+2. **成本输入落库**：等 Lucas 在三个候选里拍板（TI-4a 报告 §3；推荐专用表、按财务查看权读）。拍板前成本输入只在浏览器本地。这一步做完才能把成本假设纳入补遗复核、做低 / 基准 / 高多情景并排。
+3. 只读适配器（官方授标来源）、把进口线索写成供应商线索、核算结果写回报价引擎。
+4. FLOW 方案 H1：把「下一步」查表搬上 Web；TI-3b 的阻断项与三张清单是它的输入。
+5. 证书出处关联到项目已上传的文件；行明细按行保存的接口（解决两人同时编辑的后写覆盖）。
 
 #### 等 Lucas 决定的事（都已写进对应 PR 与报告）
 
@@ -77,6 +80,7 @@ TI-4a（接口）与 TI-4b（面板）已完成并各自开了 Draft PR。候选
 | 八个 PR 的合并与上线 | 按顺序合；#412 上线后第一次询价在审批卡上核对正文 | 本文 §0.2 |
 | 生产开关 `TENDER_BID_WORKSPACE_ENABLED` 与组织白名单 | 先只对自家组织打开 | TI-4a 报告 |
 | 成本输入最终存哪里 | 专用表，按财务查看权读 | TI-4a 报告 §3 |
+| 谁可以把证书标成「已核验」 | 先按现状（有项目写权限即可，须填出处并留审计），有第二个录入人时再收窄 | TI-4c 报告 §6 |
 | 情报室 `summaryJson` 是否算零 schema 的合规落点 | 算（代码里已有先例），并在 `openspec/config.yaml` 补一句 | 本文 §0.4 |
 | 原「四步路径」文档、R-1 例外状态 | — | 差距分析 §10 |
 
@@ -139,6 +143,7 @@ TENDER_BID_WORKSPACE_ENABLED=1 npx next dev -p 3100
 | 实施 | TI-3b：可投标判定与阶段策略表 | 完成 2026-11-11，#416 待审 | 4 个测试 87 项；验收项 A7 / A16 / A21；`docs/QINGYAN_TI-3b_REPORT.md` |
 | 实施 | TI-4a：投标工作区存取接口 | 完成 2026-11-11，#417 待审 | 纯逻辑 46 项 + 隔离库端到端 40 项；验收项 A17 / A20 / A22；`docs/QINGYAN_TI-4a_REPORT.md` |
 | 实施 | TI-4b：项目页「投标工作区」面板 | 完成 2026-11-11，#418 待审 | 40 项断言；真实应用截图 5 张 `docs/acceptance/ti-4b/`；`docs/QINGYAN_TI-4b_REPORT.md` |
+| 实施 | TI-4c：逐行录入与补遗 | 完成 2026-11-11，#419 待审 | 新增 41 项断言，既有三个测试 +23 项（隔离库 49 项全过）；截图 3 张 `docs/acceptance/ti-4c/`；`docs/QINGYAN_TI-4c_REPORT.md` |
 
 ## 2. 已核对的要点（细节看底稿，这里只放接手必须知道的）
 
