@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   addGroup,
+  findGroup,
   groupHint,
   groupsWithoutKeywords,
   interpretGroupsSaveResponse,
@@ -80,7 +81,12 @@ export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, o
         onSaved(outcome.view);
         return true;
       }
-      if (outcome.kind === "conflict") onSaved(outcome.view);
+      if (outcome.kind === "conflict") {
+        // 分组换成了最新的一份：正在改 / 正在确认删除的那一组可能已经不在了，一并收起
+        onSaved(outcome.view);
+        setEditing(null);
+        setConfirmDelete(null);
+      }
       setMessage({ tone: "error", text: outcome.messageZh });
       return false;
     } catch {
@@ -98,8 +104,17 @@ export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, o
     }
   }
 
+  /** 要改的那一组还在不在（别处删掉或改名之后，这里的按钮可能还留着） */
+  function stillThere(name: string): boolean {
+    if (findGroup(doc, name)) return true;
+    setMessage({ tone: "error", text: `分组「${name}」已经不在了，没有改动。` });
+    setEditing(null);
+    setConfirmDelete(null);
+    return false;
+  }
+
   async function saveEditing() {
-    if (!editing) return;
+    if (!editing || !stillThere(editing.group)) return;
     if (await save(updateGroupMeta(doc, editing.group, { name: editing.name, keywords: parseKeywordsInput(editing.keywords) }))) setEditing(null);
   }
 
@@ -180,7 +195,7 @@ export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, o
                     <button
                       type="button"
                       disabled={busy || selected.length === 0}
-                      onClick={() => save(replaceGroupSuppliers(doc, g.name, selected))}
+                      onClick={() => stillThere(g.name) && save(replaceGroupSuppliers(doc, g.name, selected))}
                       className="text-accent disabled:text-muted"
                       title={selected.length === 0 ? "先勾选供应商" : `把这一组的供应商换成当前勾选的 ${selected.length} 家`}
                       data-testid="rfq-group-overwrite"
@@ -211,7 +226,7 @@ export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, o
                     loading={busy}
                     loadingText="删除中…"
                     onClick={async () => {
-                      if (await save(removeGroup(doc, g.name))) setConfirmDelete(null);
+                      if (stillThere(g.name) && (await save(removeGroup(doc, g.name)))) setConfirmDelete(null);
                     }}
                     data-testid="rfq-group-delete-confirm"
                   >

@@ -271,6 +271,41 @@ async function main() {
     ok(dGone?.drafted === true && dGone.supplierCount === 1 && dGone.skippedCount === 2 && ((await cards(pBlinds3.projectId))[0].payload as { items: Array<{ supplierId: string }> }).items.map((i) => i.supplierId).join() === sA.id, "起草时跳过停用的与已不在本组织的，只发给剩下的那一家", dGone);
     await db.supplier.update({ where: { id: sB.id }, data: { orgId: ORG } });
 
+    // —— 11b. 独立审查后补 ——
+    // (1) 记录时间不可靠时也不丢保存：把最新一条的时间拨到 30 秒之后（模拟另一台机器的时钟更快），再在它上面保存
+    await db.auditLog.update({ where: { id: v3 ?? "" }, data: { createdAt: new Date(Date.now() + 30_000) } });
+    const skewDoc = WITH_LIGHT.map((g) => (g.name === FURN ? { ...g, keywords: ["furniture", "desk", "chair"] } : g));
+    const skewed = await put(home.projectId, { baseVersion: v3, groups: skewDoc }, owner);
+    const v4 = skewed.json?.supplierGroups?.version ?? null;
+    const afterSkew = (await entryOf(home.projectId)).supplierGroups;
+    ok(skewed.status === 200 && skewed.json?.changed === true && typeof v4 === "string" && v4 !== v3 && afterSkew?.version === v4 && afterSkew.groups.find((g) => g.name === FURN)?.keywords.join() === "furniture,desk,chair", "上一条记录的时间比现在还晚（时钟不一致）：新保存照样成为当前的一版，返回的就是新版本", { v3, v4, now: afterSkew?.version });
+    const staleAfterSkew = await put(home.projectId, { baseVersion: v3, groups: WITH_LIGHT }, owner);
+    ok(staleAfterSkew.status === 409 && staleAfterSkew.json?.supplierGroups?.version === v4, "此后基于旧版的保存照样 409（没有悄悄被接受）", staleAfterSkew);
+    // (2) 看不见或无效的字符在入口就被拒，不会走到写审批卡那一步；无效的供应商号是 400 而不是 500
+    const nul = await put(home.projectId, { baseVersion: v4, groups: [...skewDoc, { name: "窗\u0000饰", supplierIds: [sA.id], keywords: ["blind"] }] }, owner);
+    const surrogate = await put(home.projectId, { baseVersion: v4, groups: [...skewDoc, { name: "窗\ud800饰", supplierIds: [sA.id], keywords: [] }] }, owner);
+    const badId = await put(home.projectId, { baseVersion: v4, groups: [...skewDoc, { name: "坏号", supplierIds: ["a\u0000b"], keywords: [] }] }, owner);
+    ok([nul, surrogate, badId].every((r) => r.status === 400 && r.json?.errorCode === "INVALID") && (await entryOf(home.projectId)).supplierGroups?.version === v4, "名字里有 U+0000 / 落单的代理项、供应商号里有 U+0000：都是 400，库里不变", [nul.status, surrogate.status, badId.status]);
+    // (3) 最新一条记录读不出来：不能当成「他没有分组」而退回常用供应商
+    const mkRow = (afterData: string) => db.auditLog.create({ data: { userId: OWNER, orgId: ORG, action: SUPPLIER_GROUPS_AUDIT_ACTION, targetType: "rfq_supplier_groups", targetId: OWNER, afterData, createdAt: new Date(Date.now() + 120_000) }, select: { id: true } });
+    const garbage = await mkRow("这不是分组");
+    const pGarbage = await mkProject(`Office Chairs Garbage ${stamp}`);
+    const dGarbage = await draft(pGarbage);
+    ok(dGarbage?.drafted === false && dGarbage.reason === "SUPPLIER_GROUP_UNDETERMINED" && dGarbage.messageZh.includes("读不出来") && (await rounds(pGarbage.projectId)).length === 0, "最新一条分组记录读不出来：不起草，不退回常用供应商（他有 2 家可选的常用供应商），照实说明", dGarbage);
+    const eGarbage = (await entryOf(pGarbage.projectId)).supplierGroups;
+    ok(eGarbage?.groups.length === 0 && eGarbage.version === garbage.id, "这时入口里分组为空，版本是那条记录——可以在它上面重新保存");
+    const repaired = await put(home.projectId, { baseVersion: garbage.id, groups: skewDoc }, owner);
+    const v5 = repaired.json?.supplierGroups?.version ?? null;
+    ok(repaired.status === 200 && repaired.json?.supplierGroups?.groups.length === 3 && typeof v5 === "string", "在读不出来的那条上重新保存：成功，分组恢复", repaired);
+    // (4) 存量内容不合现在的规则（1 个字符的英文关键词）：照样读得出来、照样只认分组
+    await db.auditLog.update({ where: { id: v5 ?? "" }, data: { afterData: JSON.stringify({ groups: [{ name: BLINDS, supplierIds: [sA.id], keywords: ["b"] }] }) } });
+    const pLegacy = await mkProject(`Office Chairs Legacy ${stamp}`);
+    const dLegacy = await draft(pLegacy);
+    ok(dLegacy?.drafted === false && dLegacy.reason === "SUPPLIER_GROUP_UNDETERMINED" && !dLegacy.messageZh.includes("读不出来") && (await rounds(pLegacy.projectId)).length === 0, "存量的分组不合现在的规则：仍读得出来，对不上就不起草（没有退回常用供应商）", dLegacy);
+    const relaid = await put(home.projectId, { baseVersion: v5, groups: skewDoc }, owner);
+    const v6 = relaid.json?.supplierGroups?.version ?? null;
+    ok(relaid.status === 200 && typeof v6 === "string", "把内容存回正常的一份", relaid);
+
     // —— 12. 保存之后把功能关掉：回到常用供应商，分组留在记录里 ——
     groupsOff();
     const pOff = await mkProject(`Window Blinds FlagOff ${stamp}`);
@@ -280,7 +315,7 @@ async function main() {
     const eOff = await entryOf(pOff.projectId);
     ok(!("supplierGroups" in eOff) && !eOff.suppliers.some((s) => s.id === sI.id), "功能关闭：入口没有分组字段，可选列表也回到本功能之前的样子（组里停用的那家不再并入）");
     groupsOn();
-    ok((await entryOf(home.projectId)).supplierGroups?.version === v3, "重新打开：之前保存的分组还在");
+    ok((await entryOf(home.projectId)).supplierGroups?.version === v6, "重新打开：之前保存的分组还在");
   } finally {
     groupsOff();
     delete process.env.TENDER_RFQ_AUTO_DRAFT_ENABLED;

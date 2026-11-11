@@ -88,7 +88,9 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     loadActiveSupplierGroups(input.orgId, input.userId),
     db.project.findFirst({ where: { id: input.projectId, orgId: input.orgId }, select: { name: true } }),
   ]);
-  const hasGroups = storedGroups.doc.groups.length > 0;
+  // 有保存记录但读不出来，也算「他有分组」：不起草，不退回常用供应商
+  const groupsUnreadable = storedGroups.unreadable === true;
+  const hasGroups = storedGroups.doc.groups.length > 0 || groupsUnreadable;
   const groupMatch: SupplierGroupMatch | null = hasGroups ? matchSupplierGroup(storedGroups.doc, project?.name) : null;
   const matchedGroup = groupMatch?.kind === "one" ? findGroup(storedGroups.doc, groupMatch.group) : null;
   const group = groupMatch?.kind === "one" && matchedGroup ? { groupName: matchedGroup.name, keyword: groupMatch.keyword } : null;
@@ -108,7 +110,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     pickedSupplierCount: picked.length,
     groupMatch,
   });
-  if (!decision.draft) return decision.reason === "FLAG_OFF" ? null : autoDraftBlocked(decision.reason, { ...ctx, groupMatch });
+  if (!decision.draft) return decision.reason === "FLAG_OFF" ? null : autoDraftBlocked(decision.reason, { ...ctx, groupMatch, groupsUnreadable });
 
   // RFQ-AUTO-3：触发起草的这个人有没有事先开启「自动起草的轮次带跟进授权」（只看他本人的；功能开关任一关闭 → false）
   const followUpOptIn = await loadAutoDraftFollowUpOptIn(input.orgId, input.userId);

@@ -7,14 +7,13 @@
  * 本文件不发信、不建审批卡。
  */
 import { db } from "@/lib/db";
-import { writeAuditLog } from "@/lib/audit/logger";
 import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
 import {
   EMPTY_SUPPLIER_GROUPS,
   SUPPLIER_GROUPS_AUDIT_ACTION,
   SUPPLIER_GROUPS_TARGET,
   buildSupplierGroupsEntry,
-  parseSupplierGroupsDoc,
+  readStoredSupplierGroups,
   sameSupplierGroups,
   supplierIdsInGroups,
   validateSupplierGroups,
@@ -23,18 +22,33 @@ import {
 } from "./supplier-groups";
 import { orderEntrySuppliers } from "./web-entry-pure";
 
-export type StoredSupplierGroups = { doc: SupplierGroupsDoc; version: string | null };
+export type StoredSupplierGroups = {
+  doc: SupplierGroupsDoc;
+  version: string | null;
+  /** 有保存记录，但内容读不出来（不是分组的样子）。这不等于「他没有分组」：自动起草据此不起草，而不是退回常用供应商 */
+  unreadable?: boolean;
+};
 
 type Reader = Pick<typeof db, "auditLog">;
+type LatestRow = { id: string; createdAt: Date; afterData: string | null };
 
-async function readLatest(client: Reader, orgId: string, userId: string): Promise<StoredSupplierGroups> {
-  // 只读他自己的、只读这个组织的
-  const latest = await client.auditLog.findFirst({
+async function readLatestRow(client: Reader, orgId: string, userId: string): Promise<LatestRow | null> {
+  // 只读他自己的、只读这个组织的。「最近」按记录时间排——保存时保证每条都比上一条晚（见 saveSupplierGroups）
+  return client.auditLog.findFirst({
     where: { orgId, userId, action: SUPPLIER_GROUPS_AUDIT_ACTION, targetType: SUPPLIER_GROUPS_TARGET, targetId: userId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { id: true, afterData: true },
+    select: { id: true, createdAt: true, afterData: true },
   });
-  return latest ? { doc: parseSupplierGroupsDoc(latest.afterData), version: latest.id } : { doc: EMPTY_SUPPLIER_GROUPS, version: null };
+}
+
+function toStored(row: LatestRow | null): StoredSupplierGroups {
+  if (!row) return { doc: EMPTY_SUPPLIER_GROUPS, version: null };
+  const read = readStoredSupplierGroups(row.afterData);
+  return { doc: read.doc, version: row.id, ...(read.readable ? {} : { unreadable: true }) };
+}
+
+async function readLatest(client: Reader, orgId: string, userId: string): Promise<StoredSupplierGroups> {
+  return toStored(await readLatestRow(client, orgId, userId));
 }
 
 /** 这个人保存的分组，不看功能开关（保存与冲突处理用） */
@@ -75,7 +89,8 @@ export async function saveSupplierGroups(input: {
 
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`rfq-supplier-groups:${input.orgId}:${input.userId}`}))) AS l`;
-    const current = await readLatest(tx, input.orgId, input.userId);
+    const latestRow = await readLatestRow(tx, input.orgId, input.userId);
+    const current = toStored(latestRow);
     if (current.version !== input.baseVersion) {
       return { ok: false as const, errorCode: "VERSION_CONFLICT" as const, message: "分组在别处被改过了，已换成最新的。请再操作一次。", current };
     }
@@ -91,18 +106,25 @@ export async function saveSupplierGroups(input: {
       }
     }
 
-    await writeAuditLog(tx, {
-      userId: input.userId,
-      orgId: input.orgId,
-      projectId: input.projectId,
-      action: SUPPLIER_GROUPS_AUDIT_ACTION,
-      targetType: SUPPLIER_GROUPS_TARGET,
-      targetId: input.userId,
-      beforeData: { groups: current.doc.groups, version: current.version },
-      afterData: { groups: next.groups },
+    // 记录时间由应用服务器的时钟给出：两台机器的时钟有先后，或时钟被往回拨，新写的一条就可能排在旧的后面、
+    // 「最近一条」仍是旧的。所以这里明确给时间：至少比上一条晚 1 毫秒（已经持有本人的锁，不会有并发的写入）。
+    const createdAt = new Date(Math.max(Date.now(), (latestRow?.createdAt.getTime() ?? 0) + 1));
+    // 直接写这一条（而不是经 writeAuditLog）是为了能指定时间并拿回记录号；字段与它写的相同
+    const row = await tx.auditLog.create({
+      data: {
+        userId: input.userId,
+        orgId: input.orgId,
+        projectId: input.projectId,
+        action: SUPPLIER_GROUPS_AUDIT_ACTION,
+        targetType: SUPPLIER_GROUPS_TARGET,
+        targetId: input.userId,
+        beforeData: JSON.stringify({ groups: current.doc.groups, version: current.version }),
+        afterData: JSON.stringify({ groups: next.groups }),
+        createdAt,
+      },
+      select: { id: true },
     });
-    const saved = await readLatest(tx, input.orgId, input.userId);
-    return { ok: true as const, doc: saved.doc, version: saved.version, changed: true };
+    return { ok: true as const, doc: next, version: row.id, changed: true };
   });
 }
 

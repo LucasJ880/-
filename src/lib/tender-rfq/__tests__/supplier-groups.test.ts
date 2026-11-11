@@ -20,6 +20,7 @@ import {
   normalizeForMatch,
   parseKeywordsInput,
   parseSupplierGroupsDoc,
+  readStoredSupplierGroups,
   removeGroup,
   replaceGroupSuppliers,
   sameSupplierGroups,
@@ -73,6 +74,13 @@ console.log("校验");
   ok("关键词可以不给（= 没有关键词）", valid([{ name: "窗饰", supplierIds: ["a"] }]).groups[0].keywords.length === 0);
   ok("关键词不是字符串列表 → 拒绝", errOf([{ name: "窗饰", supplierIds: ["a"], keywords: [1] }]).length > 0 && errOf([{ name: "窗饰", supplierIds: ["a"], keywords: "blind" }]).length > 0);
   ok("多余的字段被丢掉：存下来的只有名字、供应商、关键词", Object.keys(valid([{ name: "窗饰", supplierIds: ["a"], keywords: [], price: 1, userId: "u" }]).groups[0]).sort().join() === "keywords,name,supplierIds");
+  // 独立审查后补：看不见或无效的字符、关键词里的分隔符、供应商号的字符
+  ok("名字里有 U+0000 / 落单的代理项 / 控制字符 → 拒绝（否则后面写审批卡会失败）", ["窗\u0000饰", "窗\ud800饰", "窗\u0007饰"].every((n) => errOf([G(n, ["a"])]).includes("看不见或无效的字符")));
+  ok("名字只有零宽字符 / 夹着零宽字符 → 拒绝（否则是一个看不见的标签）", errOf([G("\u200b", ["a"])]).includes("看不见或无效") && errOf([G("窗\u200b饰", ["a"])]).includes("看不见或无效"));
+  ok("名字里的换行与制表符按空白收拾，不算无效", valid([G("窗饰\n\t供应商", ["a"])]).groups[0].name === "窗饰 供应商");
+  ok("关键词里有零宽字符（想绕过「英文至少 3 个字符」）/ U+0000 → 拒绝", errOf([G("窗饰", ["a"], ["a\u200b"])]).includes("看不见或无效") && errOf([G("窗饰", ["a"], ["bl\u0000ind"])]).includes("看不见或无效"));
+  ok("关键词里有逗号、顿号、分号 → 拒绝（输入框按这些符号拆关键词，带着存下来下次编辑会被拆开）", ["blinds, shades", "窗帘、卷帘", "a;bc", "窗帘，卷帘", "ab；cd"].every((k) => errOf([G("窗饰", ["a"], [k])]).includes("不能有逗号、顿号或分号")));
+  ok("供应商号只认常规的 id 字符：带 U+0000、空格、斜杠、中文的都当无效", ["a\u0000b", "a b", "a/b", "供应商", "a.b"].every((id) => errOf([G("窗饰", [id])]).includes("无效的供应商")) && valid([G("窗饰", ["cmAbc_123-x"])]).groups.length === 1);
   ok("有一处不对就整体拒绝（不部分保存）", !validateSupplierGroups([G("窗饰", ["a"]), G("家具", [])]).ok);
 }
 
@@ -83,6 +91,13 @@ console.log("读库里存的那份");
   ok("记录里是 JSON 文本：解析出来", sameSupplierGroups(parseSupplierGroupsDoc(JSON.stringify(doc)), doc));
   ok("对象也认", sameSupplierGroups(parseSupplierGroupsDoc(doc), doc));
   ok("坏数据（不是 JSON / 结构不对 / 内容不合规 / 空）当作没有分组", [null, undefined, "", "{", "[]", JSON.stringify({ groups: "x" }), JSON.stringify({ groups: [G("窗饰", [])] }), 42].every((raw) => parseSupplierGroupsDoc(raw).groups.length === 0));
+  // 读比写宽：收紧规则之后，存量的分组不能整份读不出来（读不出来会被当成「没有分组」）
+  const overLimit = { groups: [...Array.from({ length: 12 }, (_, i) => G(`组${i}`, ["a"], ["x"])), G("大组", Array.from({ length: 9 }, (_, i) => `s${i}`), ["字".repeat(60)])] };
+  const lenient = readStoredSupplierGroups(JSON.stringify(overLimit));
+  ok("读库里那份不套用现在的上限：超出组数、家数、关键词长度的存量内容照样读得出来", !validateSupplierGroups(overLimit.groups).ok && lenient.readable && lenient.doc.groups.length === 13 && lenient.doc.groups[0].keywords.join() === "x" && lenient.doc.groups[12].supplierIds.length === 9);
+  ok("读的时候结构不对的组丢掉、其余的留下", JSON.stringify(readStoredSupplierGroups({ groups: [G("好的", ["a"], ["blind"]), { name: "没有供应商", supplierIds: [] }, { supplierIds: ["a"] }, "x", G("好的", ["b"])] }).doc) === JSON.stringify({ groups: [G("好的", ["a"], ["blind"])] }));
+  ok("没有记录的样子（不是 JSON / 没有 groups 列表）→ 读不出来；groups 是空列表 → 读得出来，就是没有分组", [null, "", "{", "[]", JSON.stringify({ groups: "x" }), 42].every((raw) => readStoredSupplierGroups(raw).readable === false) && readStoredSupplierGroups(JSON.stringify({ groups: [] })).readable === true);
+  ok("记录里写着有分组、却一组都读不出来 → 读不出来（不能当成「他没有分组」）", readStoredSupplierGroups(JSON.stringify({ groups: [{ name: "", supplierIds: ["a"] }] })).readable === false && readStoredSupplierGroups(JSON.stringify({ groups: [{ name: "", supplierIds: ["a"] }] })).doc.groups.length === 0);
   ok("用到的全部供应商：去重、保持出现顺序", supplierIdsInGroups({ groups: [G("A", ["x", "y"]), G("B", ["y", "z"])] }).join() === "x,y,z");
 }
 
@@ -101,6 +116,7 @@ console.log("项目用哪一组");
   ok("全角与连续空白：关键词「Roller Shade」对上「ＲＯＬＬＥＲ   shade replacement」", matchSupplierGroup({ groups: [G("卷帘", ["a"], ["Roller Shade"])] }, "ＲＯＬＬＥＲ   shade replacement").kind === "one");
   ok("规整：全半角统一、转小写、连续空白并成一个、去首尾", normalizeForMatch("  ＡＢＣ   Def\n ") === "abc def");
   ok("一组里多个关键词都对上：仍只算这一组，依据是保存顺序里的第一个", JSON.stringify(matchSupplierGroup({ groups: [G("窗饰", ["a"], ["shade", "blind"])] }, "blind and shade")) === JSON.stringify({ kind: "one", group: "窗饰", keyword: "shade" }));
+  ok("项目名称里的软连字符、零宽空格不影响比对（bli­nds 仍对上 blind）", matchSupplierGroup({ groups: [G("窗饰", ["a"], ["blind"])] }, "Window bli\u00adnds su\u200bpply").kind === "one" && normalizeForMatch("bli\u00adnds") === "blinds");
   ok("确定性：同样的输入两次结果相同", JSON.stringify(m("Window Blinds")) === JSON.stringify(m("Window Blinds")));
   ok("按名字找组不分大小写", findGroup({ groups: [G("Blinds", ["a"])] }, "blinds")?.name === "Blinds" && findGroup(doc, "没有") === null);
 }
@@ -127,7 +143,7 @@ console.log("抽屉预选");
   ok("对上时写明依据，并说明组里有几家现在不能选", matched.hint?.tone === "matched" && matched.hint.textZh.includes("项目名称里有「blind」，对上了分组「窗饰」，已按这一组勾选") && matched.hint.textZh.includes("另有 1 家现在不能选"));
   const afterSwitch = groupHint({ groups: e, suppliers, selected: ["e"], max: 8 });
   ok("人改选了别的组 / 手动改了勾选之后：说明跟着变，不再写「已按这一组勾选」，并告诉他怎么回到对上的那一组", afterSwitch?.tone === "matched" && afterSwitch.textZh.includes("对上了分组「窗饰」") && !afterSwitch.textZh.includes("已按这一组勾选") && afterSwitch.textZh.includes("点「窗饰」可以按这一组勾选"));
-  ok("勾选同样几家但顺序不同（取消再勾回来）：仍算是这一组", groupHint({ groups: e, suppliers, selected: ["a", "c"], max: 8 })?.textZh.includes("已按这一组勾选") === true && sameSelection(["a", "c"], ["c", "a"]) && !sameSelection(["a"], ["a", "c"]) && !sameSelection(["a", "a"], ["a", "c"]));
+  ok("勾选同样几家但顺序不同（取消再勾回来）：仍算是这一组", groupHint({ groups: e, suppliers, selected: ["a", "c"], max: 8 })?.textZh.includes("已按这一组勾选") === true && sameSelection(["a", "c"], ["c", "a"]) && !sameSelection(["a"], ["a", "c"]) && !sameSelection(["a", "a"], ["a", "c"]) && !sameSelection(["a", "c"], ["a", "a"]));
   ok("没有分组时没有说明；刚打开时的说明就是按预选结果算出来的那一句", groupHint({ groups: null, suppliers, selected: [], max: 8 }) === null && groupHint({ groups: e, suppliers, selected: matched.selected, max: 8 })?.textZh === matched.hint.textZh);
 
   const und = groupPreselection({ groups: entry("Janitorial Services"), suppliers, max: 8 });
@@ -202,6 +218,8 @@ console.log("接线");
   ok("服务：读只按本人 + 本组织；保存在一个事务里先取本人的锁再比版本", service.includes("where: { orgId, userId, action: SUPPLIER_GROUPS_AUDIT_ACTION, targetType: SUPPLIER_GROUPS_TARGET, targetId: userId }") && service.includes("pg_advisory_xact_lock") && service.indexOf("pg_advisory_xact_lock") < service.indexOf("current.version !== input.baseVersion"));
   ok("服务：不写组织设置", !service.includes("settingsJson") && !service.includes("organization.update"));
   ok("纯函数文件零依赖（前后端共用）", !/^import /m.test(pure));
+  ok("服务：每条记录的时间明确给出，至少比上一条晚（不依赖各台机器的时钟先后）；保存后直接用新记录的号做版本", service.includes("Math.max(Date.now(), (latestRow?.createdAt.getTime() ?? 0) + 1)") && service.includes("version: row.id"));
+  ok("分组区：发现别处改过之后，把正在编辑 / 正在确认删除的状态一并收起", /if \(outcome\.kind === "conflict"\) \{[\s\S]{0,200}setEditing\(null\);\s*setConfirmDelete\(null\);/.test(comp));
   ok("自动起草：只读操作者本人的分组，有分组时名单不取常用供应商", autoDraft.includes("loadActiveSupplierGroups(input.orgId, input.userId)") && autoDraft.includes("hasGroups ? (matchedGroup?.supplierIds ?? []) : prefs.defaultSupplierIds"));
   ok("询价单与邮件的生成不知道分组（分组信息不出站）", !build.includes("supplier-groups") && !build.includes("autoDraftGroup") && !build.includes("groupName"));
 }

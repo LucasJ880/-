@@ -114,6 +114,8 @@ export function decideAutoDraft(f: AutoDraftFacts): AutoDraftDecision {
   if (!f.flagEnabled) return no("FLAG_OFF");
   if (!f.run.isCurrent || f.run.status !== "APPROVED") return no("RUN_NOT_APPROVED");
   if (f.roundCount > 0) return no("ROUND_EXISTS");
+  // 组织里一家能发的供应商都没有：没有分组的人得到「没有常用供应商」；有分组的人不该被告知去攒常用供应商
+  if (f.entryBlock === "no_ready_suppliers" && f.groupMatch) return no(f.groupMatch.kind === "one" ? "SUPPLIER_GROUP_EMPTY" : "SUPPLIER_GROUP_UNDETERMINED");
   if (f.entryBlock) return no(ENTRY_BLOCK_TO_REASON[f.entryBlock]);
   if (f.groupMatch) {
     // 有分组就只认分组：对不上不猜，也不退回常用供应商
@@ -165,7 +167,7 @@ export function autoDraftDone(input: { projectId: string; inquiryId: string; rou
 /** 没起草：原因 → 一句话 + 去处。审核过程中必然反复出现的原因标为 quiet，避免每点一下都提示。 */
 export function autoDraftBlocked(
   reason: Exclude<AutoDraftReason, "FLAG_OFF">,
-  ctx: { projectId: string; trigger: AutoDraftTrigger; groupMatch?: SupplierGroupMatch | null },
+  ctx: { projectId: string; trigger: AutoDraftTrigger; groupMatch?: SupplierGroupMatch | null; groupsUnreadable?: boolean },
 ): RfqAutoDraftResult {
   const rfqEntry: EntryAction = { label: "去「标书与报价」发询价", href: bidTabHref(ctx.projectId) };
   const requirements: EntryAction = { label: "去「需求」", href: `/projects/${encodeURIComponent(ctx.projectId)}?tab=requirements` };
@@ -185,6 +187,8 @@ export function autoDraftBlocked(
       return blocked("你还没有能发询价的常用供应商，没有自动起草。在询价入口手动选一次，之后选定报价的供应商会成为常用。", rfqEntry);
     case "SUPPLIER_GROUP_UNDETERMINED": {
       const m = ctx.groupMatch;
+      // unreadable：记录里有分组但读不出来（见 auto-draft-service）——同样不起草、不退回常用供应商，只是照实说
+      if (ctx.groupsUnreadable) return blocked("你保存的供应商分组读不出来，没有自动起草询价（不会改用常用供应商）。请在询价入口重新保存一次分组，或手动选供应商发起。", rfqEntry);
       const why =
         m?.kind === "many"
           ? `项目名称同时对上了 ${m.groups.map((g) => `「${g}」`).join("")} ${m.groups.length} 个供应商分组`
@@ -205,7 +209,7 @@ export function autoDraftBlocked(
 export const AUTO_DRAFT_TITLE_PREFIX = "自动起草：";
 /** 摘要里那一行的固定开头：轮次列表靠它把这一行从卡的摘要里取出来，显示在原地审批处 */
 export const AUTO_DRAFT_PREVIEW_PREFIX = "系统在招标分析批准后自动起草";
-export const AUTO_DRAFT_NOTE_FALLBACK = "系统在招标分析批准后自动起草，供应商取自操作者保存的名单。请核对收件人与正文后再批准。";
+export const AUTO_DRAFT_NOTE_FALLBACK = "系统在招标分析批准后自动起草，供应商取自操作者的常用供应商。请核对收件人与正文后再批准。";
 export function autoDraftPreviewLineZh(userName: string, counts: { confirmedCount: number; unconfirmedCount: number }, group?: AutoDraftGroupSource | null): string {
   const unconfirmed = counts.unconfirmedCount > 0 ? `，另有 ${counts.unconfirmedCount} 条没有确认的没带上` : "";
   const source = group ? groupSourceZh(group) : "常用供应商";

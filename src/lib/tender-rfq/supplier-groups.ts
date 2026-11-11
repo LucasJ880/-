@@ -27,15 +27,27 @@ export const EMPTY_SUPPLIER_GROUPS: SupplierGroupsDoc = { groups: [] };
 
 /* ---------------------------------- 规整 ---------------------------------- */
 
-/** 比对用的规整：全半角统一、不分大小写、连续空白并成一个、去首尾空白 */
+/**
+ * 比对用的规整：全半角统一、去掉看不见的格式字符（软连字符、零宽空格等，否则「bli­nds」对不上 blind）、
+ * 不分大小写、连续空白并成一个、去首尾空白。
+ */
 export function normalizeForMatch(text: string): string {
-  return text.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+  return text.normalize("NFKC").replace(/\p{Cf}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 /** 保存用的规整：只收拾空白（保留人写的大小写与全半角，显示时原样） */
 const tidy = (text: string): string => text.replace(/\s+/g, " ").trim();
 const charCount = (text: string): number => [...text].length;
 const isAsciiOnly = (text: string): boolean => /^[\x20-\x7e]+$/.test(text);
+/**
+ * 看不见或无效的字符：控制字符（含 U+0000）、零宽 / 格式字符、落单的代理项、私用区、未分配码位。
+ * 这些字符进了名字会造出看不见的标签，U+0000 与落单的代理项还会让后面写库失败——所以在入口就拒绝。
+ */
+const hasInvisibleOrInvalid = (text: string): boolean => /\p{C}/u.test(text);
+/** 关键词里不能有分隔符：输入框是按这些符号拆关键词的，带着它存下来，下次编辑就会被拆成两个 */
+const KEYWORD_SEPARATOR = /[,，、;；]/;
+/** 供应商号：只认常规的 id 字符（库里的 id 都是这样的；别的一律当无效，不拿去查库） */
+const SUPPLIER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** 输入框里的关键词：逗号、顿号、分号或换行分隔 */
 export function parseKeywordsInput(text: string): string[] {
@@ -64,13 +76,14 @@ export function validateSupplierGroups(raw: unknown): ValidateGroupsResult {
     if (typeof g.name !== "string") return fail("每个分组都要有名字。");
     const name = tidy(g.name);
     if (!name) return fail("分组的名字不能为空。");
+    if (hasInvisibleOrInvalid(name)) return fail("分组的名字里有看不见或无效的字符，请重新输入。");
     if (charCount(name) > L.nameMax) return fail(`分组的名字最多 ${L.nameMax} 个字：「${name.slice(0, 20)}…」。`);
     const nameKey = normalizeForMatch(name);
     if (seenNames.has(nameKey)) return fail(`有两个分组都叫「${name}」（不分大小写），请改一个。`);
     seenNames.add(nameKey);
 
     if (!Array.isArray(g.supplierIds)) return fail(`分组「${name}」的供应商格式不对。`);
-    if (!g.supplierIds.every((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 64)) return fail(`分组「${name}」里有无效的供应商。`);
+    if (!g.supplierIds.every((x): x is string => typeof x === "string" && SUPPLIER_ID_RE.test(x))) return fail(`分组「${name}」里有无效的供应商。`);
     const supplierIds = g.supplierIds as string[];
     if (supplierIds.length < 1) return fail(`分组「${name}」里至少要有 1 家供应商。`);
     if (supplierIds.length > L.suppliers) return fail(`分组「${name}」里最多 ${L.suppliers} 家供应商。`);
@@ -82,6 +95,8 @@ export function validateSupplierGroups(raw: unknown): ValidateGroupsResult {
     const seenKeywords = new Set<string>();
     for (const k of rawKeywords as string[]) {
       const keyword = tidy(k);
+      if (hasInvisibleOrInvalid(keyword)) return fail(`分组「${name}」的关键词里有看不见或无效的字符，请重新输入。`);
+      if (KEYWORD_SEPARATOR.test(keyword)) return fail(`关键词里不能有逗号、顿号或分号：「${keyword.slice(0, 20)}」。要写几个关键词请分开填。`);
       const key = normalizeForMatch(keyword);
       if (!key) return fail(`分组「${name}」里有空的关键词。`);
       const len = charCount(key);
@@ -97,19 +112,43 @@ export function validateSupplierGroups(raw: unknown): ValidateGroupsResult {
   return { ok: true, doc: { groups } };
 }
 
-/** 读库里存的那份（记录里是 JSON 文本）：只认能通过校验的；坏数据当作没有分组 */
-export function parseSupplierGroupsDoc(stored: unknown): SupplierGroupsDoc {
+/**
+ * 读库里存的那份（记录里是 JSON 文本）。读比写宽：只要求结构对（有名字、有供应商），不套用现在的各项上限——
+ * 否则哪天把规则收紧了，存量的分组会整份读不出来，读不出来又会被当成「没有分组」而退回常用供应商。
+ * 结构不对的组丢掉；整份都不是分组的样子（不是 JSON、没有 groups 列表）→ readable = false。
+ */
+export function readStoredSupplierGroups(stored: unknown): { doc: SupplierGroupsDoc; readable: boolean } {
   let raw: unknown = stored;
   if (typeof stored === "string") {
     try {
       raw = JSON.parse(stored);
     } catch {
-      return EMPTY_SUPPLIER_GROUPS;
+      return { doc: EMPTY_SUPPLIER_GROUPS, readable: false };
     }
   }
-  const groups = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { groups?: unknown }).groups : undefined;
-  const v = validateSupplierGroups(groups);
-  return v.ok ? v.doc : EMPTY_SUPPLIER_GROUPS;
+  const list = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { groups?: unknown }).groups : undefined;
+  if (!Array.isArray(list)) return { doc: EMPTY_SUPPLIER_GROUPS, readable: false };
+  const groups: SupplierGroup[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const g = item as Record<string, unknown>;
+    const name = typeof g.name === "string" ? tidy(g.name) : "";
+    const supplierIds = Array.isArray(g.supplierIds) ? [...new Set(g.supplierIds.filter((x): x is string => typeof x === "string" && SUPPLIER_ID_RE.test(x)))] : [];
+    if (!name || hasInvisibleOrInvalid(name) || supplierIds.length === 0 || seen.has(normalizeForMatch(name))) continue;
+    seen.add(normalizeForMatch(name));
+    const keywords = Array.isArray(g.keywords)
+      ? [...new Set(g.keywords.filter((x): x is string => typeof x === "string").map(tidy).filter((k) => k.length > 0 && !hasInvisibleOrInvalid(k)))]
+      : [];
+    groups.push({ name, supplierIds, keywords });
+  }
+  // 记录里写着有分组、却一组都读不出来：不能当成「他没有分组」
+  return { doc: { groups }, readable: groups.length > 0 || list.length === 0 };
+}
+
+/** 只要分组本身（读不出来的当作空）。要区分「没有分组」与「读不出来」的地方用 readStoredSupplierGroups */
+export function parseSupplierGroupsDoc(stored: unknown): SupplierGroupsDoc {
+  return readStoredSupplierGroups(stored).doc;
 }
 
 export function sameSupplierGroups(a: SupplierGroupsDoc, b: SupplierGroupsDoc): boolean {
@@ -200,8 +239,9 @@ export type GroupPreselection = {
 /** 两份勾选是不是同样几家（不看顺序：人取消再勾回来，顺序会变） */
 export function sameSelection(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return set.size === a.length && b.every((x) => set.has(x));
+  const setA = new Set(a);
+  const setB = new Set(b);
+  return setA.size === a.length && setB.size === b.length && b.every((x) => setA.has(x));
 }
 
 /**

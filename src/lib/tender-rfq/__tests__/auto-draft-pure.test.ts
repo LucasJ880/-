@@ -70,6 +70,7 @@ ok("有分组且恰好一组对上、组里有就绪的 → 起草", reasonOf({ 
 ok("有分组但对不上：哪怕常用供应商有就绪的也不起草（不退回常用供应商）", reasonOf({ groupMatch: { kind: "none" }, pickedSupplierCount: 3 }) === "SUPPLIER_GROUP_UNDETERMINED");
 ok("没有分组（不传 / 传 null）：判定与本功能之前相同", reasonOf({ groupMatch: null }) === "DRAFT" && reasonOf({ groupMatch: null, pickedSupplierCount: 0 }) === "NO_DEFAULT_SUPPLIERS" && reasonOf({ groupMatch: undefined, pickedSupplierCount: 0 }) === "NO_DEFAULT_SUPPLIERS");
 ok("分组的原因排在既有原因之后：分析没批准、已有轮次、入口拦截都优先", reasonOf({ groupMatch: { kind: "none" }, run: { isCurrent: true, status: "REVIEW_REQUIRED" } }) === "RUN_NOT_APPROVED" && reasonOf({ groupMatch: { kind: "none" }, roundCount: 1 }) === "ROUND_EXISTS" && reasonOf({ groupMatch: { kind: "none" }, entryBlock: "sender_not_connected" }) === "SENDER_NOT_READY");
+ok("组织里一家能发的供应商都没有：没有分组的人得到「没有常用供应商」，有分组的人得到分组的原因（不被告知去攒常用供应商）", reasonOf({ entryBlock: "no_ready_suppliers" }) === "NO_DEFAULT_SUPPLIERS" && reasonOf({ entryBlock: "no_ready_suppliers", groupMatch: { kind: "one", group: "窗饰", keyword: "blind" } }) === "SUPPLIER_GROUP_EMPTY" && reasonOf({ entryBlock: "no_ready_suppliers", groupMatch: { kind: "none" } }) === "SUPPLIER_GROUP_UNDETERMINED" && reasonOf({ entryBlock: "no_ready_suppliers", groupMatch: { kind: "many", groups: ["a", "b"] } }) === "SUPPLIER_GROUP_UNDETERMINED");
 ok("十个原因：除起草失败（执行阶段才有）外都被判定用例覆盖", AUTO_DRAFT_REASONS.length === 10 && AUTO_DRAFT_REASONS.filter((r) => r !== "DRAFT_FAILED").every((r) => cases.some((c) => c[2] === r)));
 
 /* ---------- 对外结果 ---------- */
@@ -106,6 +107,9 @@ console.log("对外结果");
   ok("一组都没对上：说明写明没有对上、不会改用常用供应商，去询价入口，要提示", !none.drafted && none.messageZh.includes("没有对上你的任何一个供应商分组") && none.messageZh.includes("不会改用常用供应商") && none.action?.href === "/projects/p1?tab=bid" && !none.quiet);
   ok("对上不止一组：说明列出这几组", !many.drafted && many.messageZh.includes("「窗饰」「家具」") && many.messageZh.includes("2 个供应商分组") && many.action?.href === "/projects/p1?tab=bid" && !many.quiet);
   ok("对上的那一组里没有能发的：说明写明是哪一组", !empty.drafted && empty.messageZh.includes("分组「窗饰」里现在没有能发询价的供应商") && empty.action?.href === "/projects/p1?tab=bid" && !empty.quiet);
+  const unreadable = autoDraftBlocked("SUPPLIER_GROUP_UNDETERMINED", { ...ctx, groupMatch: { kind: "none" }, groupsUnreadable: true });
+  ok("保存的分组读不出来：照实说，不起草、不改用常用供应商，去询价入口", !unreadable.drafted && unreadable.messageZh.includes("读不出来") && unreadable.messageZh.includes("不会改用常用供应商") && unreadable.action?.href === "/projects/p1?tab=bid" && !unreadable.quiet);
+  ok("取不到摘要那一行时的兜底句与本功能之前逐字相同", AUTO_DRAFT_NOTE_FALLBACK === "系统在招标分析批准后自动起草，供应商取自操作者的常用供应商。请核对收件人与正文后再批准。");
   const viaGroup = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 2, skippedCount: 1, unconfirmedCount: 0, group: { groupName: "窗饰", keyword: "blind" } });
   ok("按分组起草：说明写明哪一组、凭哪个关键词，不再说「常用供应商」；跳过的说成「这一组里」", viaGroup.messageZh.includes("2 家供应商，取自分组「窗饰」（项目名称里有「blind」）") && !viaGroup.messageZh.includes("常用供应商") && viaGroup.messageZh.includes("这一组里有 1 家"));
   ok("按分组起草：结果对象的字段不变（分组只进说明文字）", Object.keys(viaGroup).sort().join() === Object.keys(done).sort().join());
