@@ -2,7 +2,7 @@
 
 ## Context
 
-读代码确认的现状（`grep` 全仓 `organization.update` 且写 `settingsJson` 的位置，共 14 处）：
+读代码确认的现状（`grep` 全仓 `organization.update` 且写 `settingsJson` 的位置：`src/` 下 14 处；独立审查另找出 `scripts/` 下 3 个会在生产上运行的脚本——`scripts/muse-bridge/bind.ts`、`scripts/seed-org-mengxin-home-textile.ts`、`scripts/set-org-sender-copy.ts`，也一并改了）：
 
 | 位置 | 写什么 | 现在怎么写 |
 |---|---|---|
@@ -43,13 +43,14 @@
 
 `src/lib/organizations/settings-write.ts`：
 
-- `lockOrganizationRow(tx, orgId)`：`SELECT id FROM "Organization" WHERE id = … FOR UPDATE`。与已有的三处用的是同一句，所以新旧写入方互相也是串行的。
+- `lockOrganizationRow(tx, orgId)`：`SELECT id FROM "Organization" WHERE id = … FOR NO KEY UPDATE`。与已有的三处（它们用 `FOR UPDATE`）互斥，所以新旧写入方互相也是串行的。
 - `mutateOrgSettings(orgId, fn)`：开一个短事务，锁行，读 `settingsJson`，调用 `fn(最新的整块)`，`fn` 返回 `{ next, result }`；`next` 没给就不写。`fn` 必须是同步的纯函数——锁里不做任何别的查询或网络调用。
 - `mutateOrgSettingsInTx(tx, orgId, fn)`：给已经在事务里的调用方用。
 
 - 否决：乐观并发（加版本号、写时比对）。要新增一列（违反零 schema），或者拿整块内容做比对（大而慢），还要给 11 处都写重试。
 - 否决：用数据库的 JSON 局部更新（`jsonb_set`）只改自己的键。能让加了的那几处互不覆盖，但挡不住任何一处还在整块写回的写入方；而且每处的「改法」是 TypeScript 纯函数（合并、校验、去重），搬进 SQL 会重写一遍逻辑。
 - 否决：咨询锁（`pg_advisory_xact_lock`）。已有的三处用的是行锁；换一种锁，新旧写入方之间就不互斥了。
+- 否决：`FOR UPDATE`（第一版就是这么写的，独立审查后改掉）。有 35 张表的外键指向组织；往这些表插入一行时，数据库会对组织行加一把很弱的锁（`FOR KEY SHARE`），`FOR UPDATE` 与它互斥。后果是三个：写设置会被任何还没提交的「插入一条本组织的记录」的事务卡住（审查实测：对方持有 7 秒时写设置超时失败）；反过来也卡住它们；还会造出死锁——开户更新设置先锁组织行、后改用户行，用户切换当前组织先锁用户行、后做外键检查，审查实测 120 次里 53 次死锁，旧代码 0 次。`FOR NO KEY UPDATE` 正好是普通的 `UPDATE` 改非主键列本来就会拿的锁：与外键检查不冲突，与另一个 `FOR NO KEY UPDATE` / `FOR UPDATE` 互斥。
 
 ### D2 全部 11 处都改，而不是只改询价与 Muse 相关的几处
 
@@ -70,10 +71,10 @@
 
 ### D4 守卫测试用源码扫描
 
-扫 `src/` 下所有非测试文件：出现「`organization.update(…)` 且 `data` 里有 `settingsJson`」的文件，必须引用了统一入口，或自己有 `FOR UPDATE`。不满足就失败并列出文件。
+扫 `src/` 与 `scripts/` 下所有非测试文件：出现「`organization.update(…)` 且 `data` 里有 `settingsJson`」的文件，必须引用了统一入口，或自己有 `FOR UPDATE` / `FOR NO KEY UPDATE`。不满足就失败并列出文件。另有一份「直接写这一列的文件」名单（现在 6 个），扫描结果必须与名单一致——「文件里某处有锁」并不能说明每一处写入都在锁里，新增的直接写入必须先过一遍审查再加进名单。在自己事务里锁行的几处，另有断言核对「锁在读设置之前」。
 
 - 否决：只靠评审。这次的 11 处就是这样一处一处长出来的。
-- 代价：源码扫描认的是写法。有人换一种写法（比如 `updateMany`、原生 SQL）能绕过去；扫描里把 `updateMany` 与 `upsert` 也算上，原生 SQL 写这一列的情况在仓库里现在没有。
+- 代价：源码扫描认的是写法。扫描里把 `updateMany` 与 `upsert` 也算上；认不出来的有：`data` 是一个变量或展开（`data: { ...patch }`）、经关联的嵌套写入、原生 SQL。这几种写法仓库里现在都没有（独立审查逐一搜过）。
 
 ## 与八条硬纪律的关系
 
@@ -88,8 +89,9 @@
 
 ## 验证方式
 
-- `npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts`（新，本地隔离库）：对照用例（不加锁的写法并发写 12 个键会丢）；入口并发写 12 个键全保留；八种真实写入方同时进行、重复多轮，八项都在；同一个人的设置偏好与自动学习同时发生都保留；同时学习 4 家供应商都在；询价设置接口的 400 / 200 与审计；组织不存在时各写入方的既有处理。
+- `npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts`（新，本地隔离库）：对照用例（不加锁的写法并发写 12 个键会丢）；入口并发写 12 个键全保留；七种真实写入方同时进行 12 轮，七项都在；开户更新设置、门店折扣与另外三种写入同时进行 10 轮；有人拿着锁时外键插入不用等、另一处设置写入要等；先插入再锁行的 8 个事务不死锁；同一个人的设置偏好与自动学习同时发生都保留；同时学习 4 家供应商都在；询价设置接口的 400 / 200 与审计；组织不存在时各写入方的既有处理。
 - 同一份测试在 `main` 的旧代码上跑：真实写入方并发的用例应当失败（丢键）。
+- 变异检查：把入口的锁换回 `FOR UPDATE` → 「外键插入不用等」「不死锁」两条失败；把门店折扣与开户更新设置里的锁删掉 → 隔离库测试与守卫测试都失败。
 - `npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts`（新）：现有代码通过；对一段「不经入口整块写回」的示例源码判为不通过。
 - 各写入方既有的测试不改断言即通过：`npm run test:ci`（含 muse-bridge、calendar-watch、blinds、onboarding、tender-rfq 的全部已注册测试）；本地隔离库的 `auto-draft-db`、`supplier-groups-db`、`followup-auto-db`。
 - `npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`。
@@ -99,7 +101,9 @@
 ## Risks / Trade-offs
 
 - **写入现在会互相等待。** 每次持锁只有「读一行、算、写一行」，毫秒级；定时任务与人的操作撞上时，后到的多等几毫秒。
-- **死锁。** 所有写入方都只锁这一行，且在锁里不再去锁别的行；门店折扣与开户在同一事务里还写别的表，但那些表没有别的事务先锁它们再来锁组织行。独立审查时专门核对。
+- **死锁。** 第一版用 `FOR UPDATE` 时这一条判断错了（漏了外键检查隐含的那把锁），见 D1。改成 `FOR NO KEY UPDATE` 之后，「先插入本组织的记录、再锁行写设置」的事务同时进行也不会死锁（有测试）。
+- **已有的三处（斑马帘比例、质保设置、能力配额策略）仍用 `FOR UPDATE`**，它们自己仍会与外键插入互相阻塞——这是既有行为，本次没有动。其中能力配额策略在持锁期间还会用另一个数据库连接做查询；现在排在这把锁后面的写入方多了（两个定时任务、Muse），连接池很小时它更容易等不到连接。建议另开一个小改动把这三处也换成 `FOR NO KEY UPDATE`。
+- **开户的两处会把锁一直拿到事务结束**（锁之后还有工作区、成员、用户几条语句），这期间别的设置写入要等；不影响外键插入。
 - **事务超时。** Prisma 交互式事务默认等连接 2 秒、执行 5 秒；极端并发下可能有写入失败并报错（而不是悄悄丢）。收信游标写失败的后果是下一轮多扫一些邮件，既有的去重会挡住重复处理。
 - **改到了本任务之外的模块**（销售、开户、日历、运营手册）。见 D2。
 - **隔离库测试在 CI 里跳过**（仓库现状）：并发的证据只在本地跑得出来，报告里写明。
