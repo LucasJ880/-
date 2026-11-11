@@ -423,6 +423,12 @@ npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/dimension-match.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/closing-and-export.test.ts
+# TI-2：逐行投标成本核算表
+npx tsx src/lib/tender-bid-cost/__tests__/line-cost.test.ts
+npx tsx src/lib/tender-bid-cost/__tests__/freight.test.ts
+npx tsx src/lib/tender-bid-cost/__tests__/pricing.test.ts
+npx tsx src/lib/tender-bid-cost/__tests__/reconcile.test.ts
+npx tsx src/lib/tender-bid-cost/__tests__/sheet-view.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
