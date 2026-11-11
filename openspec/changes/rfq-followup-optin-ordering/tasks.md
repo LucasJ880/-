@@ -14,5 +14,5 @@
 ## 3. 验收与收尾
 
 - [x] 3.1 开 PR 前请一个不带结论的独立审查并处理其发现；verify：报告 §5 逐条写明
-- [ ] 3.2 全部门禁；verify：`npm run test:ci` 输出 `CI unit subset PASS`、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/check-test-registry.sh` OK、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate rfq-followup-optin-ordering --strict` valid
+- [x] 3.2 全部门禁；verify：`npm run test:ci` 输出 `CI unit subset PASS`、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/check-test-registry.sh` OK、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate rfq-followup-optin-ordering --strict` valid
 - [x] 3.3 写 `docs/QINGYAN_RFQ-AUTO-3a_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 RFQ-AUTO-3a 一行，状态 `[G]`

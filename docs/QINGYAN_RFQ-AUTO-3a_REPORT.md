@@ -42,7 +42,30 @@
 
 ## 4. 证据
 
-GATES_PLACEHOLDER
+```
+auto-draft-db.isolated.test.ts（本地隔离库）
+  修复后的代码              76 passed, 0 failed（原 68，+8；连跑三次结果相同）
+  main 上的旧实现，同一份测试  72 passed, 4 failed：
+    ✗ 同时到达四次开启与四次关闭……   写出的记录是「开关关关关」
+    ✗ 上一条「开启」记录的时间比现在晚 30 秒：关闭照样生效   状态仍是 "on"
+    ✗ 关闭之后他触发的自动起草：卡不带跟进授权   withFollowUp: true
+    ✗ 再开启一次……全部记录仍是开关交替、时间严格递增
+auto-followup-optin.test.ts        21 项通过（原 19；一条源码断言随实现更新，另加两条）
+web-entry-pure.test.ts             151 passed（未改断言）
+followup-auto-db.isolated.test.ts  28 passed（RFQ-AUTO-1，未改断言）
+
+npm run test:ci（CI 同款环境变量）   CI unit subset PASS
+npm run typecheck                  exit 0
+npm run lint:baseline              PASS（无新增 error fingerprint）
+scripts/check-test-registry.sh     OK 已注册 591 个；历史欠账基线 68 条
+scripts/test-runtime-architecture.sh   PASS
+check-swc-nullish-logical          PASS
+openspec validate rfq-followup-optin-ordering --strict   valid
+```
+
+全量测试第一遍没有过：`web-entry-pure` 里一条既有断言按字面核对「状态已是想要的就不写」那一行，改写时多了一个类型标注而对不上。改回原来的写法（类型标注挪到回调的返回类型上），那条断言没有动，重跑通过。
+
+「开关是关，同时到达两次开启只写一条」这一条在旧实现上有时也能过（两次请求未必真的撞在一起），所以它不算可靠的证据；可靠的是「四开四关」那一条。
 
 ## 5. 独立审查
 
