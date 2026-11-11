@@ -10,8 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 import { requireOrgRole } from "@/lib/auth/guards";
 import { logAudit } from "@/lib/audit/logger";
 import {
@@ -58,13 +58,16 @@ export async function PUT(request: NextRequest, { params }: Params) {
     }
   }
 
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  if (!org) return NextResponse.json({ error: "组织不存在" }, { status: 404 });
-
-  const applied = applyTenderRfqSettingsUpdate(org.settingsJson, parsed.data);
+  // FIX-3：锁行后在最新的设置上应用这次修改（不合规就不写）；审计里的「保存前」也取锁里读到的
+  const body = parsed.data;
+  const res = await mutateOrgSettings<ReturnType<typeof applyTenderRfqSettingsUpdate>>(orgId, (current) => {
+    const out = applyTenderRfqSettingsUpdate(current, body);
+    return out.ok ? { next: out.next, result: out } : { result: out };
+  });
+  if (!res.found) return NextResponse.json({ error: "组织不存在" }, { status: 404 });
+  const applied = res.result;
   if (!applied.ok) return NextResponse.json({ error: applied.error }, { status: 400 });
-
-  await db.organization.update({ where: { id: orgId }, data: { settingsJson: applied.next as Prisma.InputJsonValue } });
+  const org = { settingsJson: res.before };
   await logAudit({
     userId: auth.user.id,
     orgId,

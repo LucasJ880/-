@@ -24,7 +24,7 @@ import { enabledMuseIntents } from "./flags";
 import type { MuseIdentity } from "./binding-pure";
 import { advisoryResponse, gateAdvisory, type Advisory } from "./advisory";
 import { countUnknownCriticalFacts, decideNextStep } from "./next-step";
-import { loadUserPrefs, saveUserPrefs } from "./prefs";
+import { loadUserPrefs, updateUserPrefs } from "./prefs";
 import { applyPreference } from "./prefs-pure";
 import { resolveCloseDate } from "@/lib/tender/stage";
 import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
@@ -644,8 +644,9 @@ async function handleSetPreference(
   identity: MuseIdentity,
   command: Extract<MuseCommandArgs, { intent: "set_preference" }>,
 ): Promise<MuseCommandResponse> {
+  const now = new Date();
   const before = await loadUserPrefs(identity.orgId, identity.userId);
-  const applied = applyPreference(before, command.key, command.value, new Date());
+  const applied = applyPreference(before, command.key, command.value, now);
   if (!applied.ok) return errResponse(requestId, "VALIDATION_FAILED", applied.error);
   if (command.key === "defaultSupplierIds" && applied.prefs.defaultSupplierIds.length) {
     const names = await supplierNamesOf(identity.orgId, applied.prefs.defaultSupplierIds);
@@ -653,6 +654,11 @@ async function handleSetPreference(
       return errResponse(requestId, "VALIDATION_FAILED", "有供应商不在你的组织里，没有保存。");
     }
   }
-  await saveUserPrefs(identity.orgId, identity.userId, applied.prefs);
-  return respond(requestId, setPreferenceAdvisory(applied.summaryZh), { data: { preferences: applied.prefs } });
+  // FIX-3：校验在锁外做完；保存时在锁里对「此刻库里的偏好」再应用一次这项修改——
+  // 不把先前读到的整条偏好写回去（那样会冲掉这期间刚学到的常用供应商等）。
+  const saved = await updateUserPrefs(identity.orgId, identity.userId, (fresh) => {
+    const again = applyPreference(fresh, command.key, command.value, now);
+    return again.ok ? again.prefs : fresh;
+  });
+  return respond(requestId, setPreferenceAdvisory(applied.summaryZh), { data: { preferences: saved ?? applied.prefs } });
 }

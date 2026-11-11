@@ -16,6 +16,7 @@ import { ensureDefaultPositions } from "@/lib/authorization/onboarding-positions
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { lockOrganizationRow } from "./settings-write";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { isValidTimeZone } from "@/lib/automation/local-time";
 import { isPrismaUniqueViolation } from "@/lib/bid-workflow/prisma-errors";
@@ -163,6 +164,8 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
     db.$transaction(async (tx) => {
       /** 已存在的组织只补缺不覆盖：被保留的既有值 */
       const keptExisting: string[] = [];
+      // FIX-3：这个 code 已有组织时先锁住它的行再读——下面会把它的设置整块写回，不能冲掉别处并发的写入
+      await tx.$queryRaw`SELECT id FROM "Organization" WHERE code = ${input.code} FOR UPDATE`;
       let org = await tx.organization.findUnique({ where: { code: input.code }, select: ORG_SELECT });
       let created = false;
       /** 本次把企业 owner 交给了工厂老板（新建，或既有企业原由平台管理员暂代） */
@@ -406,16 +409,20 @@ export async function updateOnboardingSettings(
     }
   }
   const settings = rec(org.settingsJson) ?? {};
-  const onboarding = onboardingSettings(settings.onboarding, actorUserId, new Date(), "update");
-  const acks: Rec = { ...(rec(onboarding.acknowledgements) ?? {}) };
-  for (const [step, value] of Object.entries(patch.acknowledge ?? {})) {
-    if (value) acks[step] = { at: new Date().toISOString(), byUserId: actorUserId };
-    else delete acks[step];
-  }
-  const nextSettings: Rec = {
-    ...settings,
-    ...(patch.timezone ? { timezone: patch.timezone } : {}),
-    onboarding: { ...onboarding, acknowledgements: acks },
+  const nowForSettings = new Date();
+  /** 在给定的设置上应用这次修改（时区、向导记录、各步确认）。FIX-3：实际写入时传的是锁里读到的最新设置 */
+  const buildNextSettings = (base: Rec): Rec => {
+    const onboarding = onboardingSettings(base.onboarding, actorUserId, nowForSettings, "update");
+    const acks: Rec = { ...(rec(onboarding.acknowledgements) ?? {}) };
+    for (const [step, value] of Object.entries(patch.acknowledge ?? {})) {
+      if (value) acks[step] = { at: nowForSettings.toISOString(), byUserId: actorUserId };
+      else delete acks[step];
+    }
+    return {
+      ...base,
+      ...(patch.timezone ? { timezone: patch.timezone } : {}),
+      onboarding: { ...onboarding, acknowledgements: acks },
+    };
   };
   const pack = patch.industryPackId ? resolveIndustryPack(patch.industryPackId) : null;
   if (pack && pack.status !== "ok") throw new OnboardingError("INVALID_INPUT", pack.message);
@@ -427,7 +434,14 @@ export async function updateOnboardingSettings(
       ? org.ownerId
       : null;
 
+  /** 实际写进去的设置（审计用） */
+  let writtenSettings: Rec = settings;
   await db.$transaction(async (tx) => {
+    // FIX-3：先锁行、读最新的设置，再在它之上应用这次修改（原来用的是事务外读到的那一份）
+    await lockOrganizationRow(tx, orgId);
+    const fresh = await tx.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
+    const nextSettings = buildNextSettings(rec(fresh?.settingsJson) ?? {});
+    writtenSettings = nextSettings;
     await tx.organization.update({
       where: { id: orgId },
       data: {
@@ -466,12 +480,12 @@ export async function updateOnboardingSettings(
       acknowledgements: rec(rec(settings.onboarding)?.acknowledgements) ?? {},
     },
     afterData: {
-      timezone: nextSettings.timezone ?? null,
+      timezone: writtenSettings.timezone ?? null,
       industryPackId: pack?.status === "ok" ? pack.pack.id : org.industryPackId,
       modules: pack?.status === "ok" ? pack.pack.enabledModules : undefined,
       ownerId: patch.ownerUserId ?? org.ownerId,
       ...(demotedOwnerId ? { previousOwnerDemotedToAdmin: demotedOwnerId } : {}),
-      acknowledgements: acks,
+      acknowledgements: rec(rec(writtenSettings.onboarding)?.acknowledgements) ?? {},
       ...(patch.leaveOrg ? { actorLeftOrg: true } : {}),
     },
   });

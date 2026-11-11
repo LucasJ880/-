@@ -459,11 +459,9 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
       return runChaseScan(orgId, now);
     },
     saveCursor: async (orgId, cursor) => {
-      const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-      await db.organization.update({
-        where: { id: orgId },
-        data: { settingsJson: withInboundCursor(org?.settingsJson ?? null, cursor) as import("@prisma/client").Prisma.InputJsonValue },
-      });
+      // FIX-3：锁行后在最新的设置上只改游标（原来读到的整块可能已经被别处改过）
+      const { mutateOrgSettings } = await import("@/lib/organizations/settings-write");
+      await mutateOrgSettings(orgId, (current) => ({ next: withInboundCursor(current, cursor), result: null }));
     },
   };
 }
