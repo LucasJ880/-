@@ -621,6 +621,11 @@ run_test "投标成本核算 核算表视图与 Markdown 渲染（含渥太华�
 run_test "竞争情报线索 文件领取方快照与公司名称比对" "npx tsx src/lib/tender-competition/__tests__/document-holders.test.ts"
 run_test "竞争情报线索 进口线索与来源连接状态" "npx tsx src/lib/tender-competition/__tests__/leads-and-sources.test.ts"
 run_test "竞争情报线索 历史金额口径" "npx tsx src/lib/tender-competition/__tests__/amount-measures.test.ts"
+# TI-3b：可投标判定与阶段策略表
+run_test "可投标判定 证据状态投影与矛盾检测" "npx tsx src/lib/tender-bid-readiness/__tests__/evidence-status.test.ts"
+run_test "可投标判定 强制认证闸与补遗失效" "npx tsx src/lib/tender-bid-readiness/__tests__/certification-and-staleness.test.ts"
+run_test "可投标判定 可投标判定（渥太华回归）" "npx tsx src/lib/tender-bid-readiness/__tests__/readiness.test.ts"
+run_test "可投标判定 阶段策略表（只读阶段不询问）" "npx tsx src/lib/tender-bid-readiness/__tests__/stage-policy.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
