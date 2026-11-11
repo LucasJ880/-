@@ -6,6 +6,7 @@ import {
   requireTenderAnalysisWrite,
 } from "@/lib/tender-auto-analysis/api-access";
 import { batchConfirmRequirements } from "@/lib/tender-auto-analysis/review";
+import { maybeAutoDraftRfq } from "@/lib/tender-rfq/auto-draft-service";
 
 /** POST body: { requirementIds: string[] } */
 export async function POST(
@@ -40,8 +41,11 @@ export async function POST(
       { status: result.code === "not_found" ? 404 : 400 },
     );
   }
+  // RFQ-AUTO-2：这一批确认完如果要求都审完了，替人起草第 1 轮询价的待批卡
+  const rfqAutoDraft = await maybeAutoDraftRfq({ orgId, projectId, runId, userId: access.user.id, trigger: "batch_confirm" });
   return NextResponse.json({
     ok: true,
     confirmedCount: result.confirmedCount,
+    ...(rfqAutoDraft ? { rfqAutoDraft } : {}),
   });
 }

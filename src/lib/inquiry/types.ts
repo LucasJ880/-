@@ -138,6 +138,11 @@ export interface CreateInquiryInput {
   title?: string;
   scope?: string;
   dueDate?: string;
+  /**
+   * 只在新轮次恰好是这个轮次号时才建（如 1 = 只建项目的第 1 轮）。
+   * 已有轮次、或并发时别的请求先建了，抛 RoundNumberTakenError，不建任何东西。
+   */
+  expectRoundNumber?: number;
 }
 
 export interface UpdateInquiryInput {

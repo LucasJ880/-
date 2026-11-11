@@ -6,6 +6,7 @@ import {
   requireTenderAnalysisWrite,
 } from "@/lib/tender-auto-analysis/api-access";
 import { confirmRequirement } from "@/lib/tender-auto-analysis/review";
+import { maybeAutoDraftRfq } from "@/lib/tender-rfq/auto-draft-service";
 
 export async function POST(
   request: NextRequest,
@@ -33,5 +34,7 @@ export async function POST(
       { status: result.code === "not_found" ? 404 : 400 },
     );
   }
-  return NextResponse.json({ ok: true, reviewStatusLabel: "已确认" });
+  // RFQ-AUTO-2：这是最后一条未审核的要求时，替人起草第 1 轮询价的待批卡
+  const rfqAutoDraft = await maybeAutoDraftRfq({ orgId, projectId, runId, userId: access.user.id, trigger: "confirm_requirement" });
+  return NextResponse.json({ ok: true, reviewStatusLabel: "已确认", ...(rfqAutoDraft ? { rfqAutoDraft } : {}) });
 }

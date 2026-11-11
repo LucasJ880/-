@@ -93,6 +93,14 @@ export function toPrismaHttpError(err: unknown): { msg: string; status: number }
   return { msg: "服务器内部错误", status: 500 };
 }
 
+/** createInquiry 带 expectRoundNumber 时：这个轮次号已经有了（或并发时被别的请求先建了） */
+export class RoundNumberTakenError extends BusinessError {
+  constructor(public readonly roundNumber: number) {
+    super(`第 ${roundNumber} 轮询价已经存在`, 409);
+    this.name = "RoundNumberTakenError";
+  }
+}
+
 // ── 创建询价轮次 ──────────────────────────────────────────────
 
 export async function createInquiry(input: CreateInquiryInput, userId: string) {
@@ -101,18 +109,26 @@ export async function createInquiry(input: CreateInquiryInput, userId: string) {
     _max: { roundNumber: true },
   });
   const nextRound = (maxRound._max.roundNumber ?? 0) + 1;
+  const expecting = input.expectRoundNumber !== undefined;
+  if (expecting && nextRound !== input.expectRoundNumber) throw new RoundNumberTakenError(input.expectRoundNumber as number);
 
-  return db.projectInquiry.create({
-    data: {
-      projectId: input.projectId,
-      roundNumber: nextRound,
-      title: input.title?.trim() || `第 ${nextRound} 轮询价`,
-      scope: input.scope?.trim() || null,
-      dueDate: input.dueDate ? new Date(input.dueDate) : null,
-      createdById: userId,
-    },
-    include: { items: { include: { supplier: true } } },
-  });
+  try {
+    return await db.projectInquiry.create({
+      data: {
+        projectId: input.projectId,
+        roundNumber: nextRound,
+        title: input.title?.trim() || `第 ${nextRound} 轮询价`,
+        scope: input.scope?.trim() || null,
+        dueDate: input.dueDate ? new Date(input.dueDate) : null,
+        createdById: userId,
+      },
+      include: { items: { include: { supplier: true } } },
+    });
+  } catch (err) {
+    // 并发：别的请求刚建了同一个轮次号（(projectId, roundNumber) 唯一约束）
+    if (expecting && (err as { code?: string } | null)?.code === "P2002") throw new RoundNumberTakenError(input.expectRoundNumber as number);
+    throw err;
+  }
 }
 
 // ── 更新询价轮次 ──────────────────────────────────────────────

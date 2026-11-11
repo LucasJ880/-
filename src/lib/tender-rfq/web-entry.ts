@@ -9,6 +9,8 @@
  * 响应按白名单组装，不含项目估值 / 我方报价 / 毛利。
  */
 
+import { isRfqAutoDraftEnabledForOrg } from "./auto-draft-flags";
+import { AUTO_DRAFT_TOOL_NAME, autoDraftedRoundNotes } from "./auto-draft-pure";
 import { buildFollowUpPolicy, followUpCardView, parseFollowUpPolicy, type FollowUpCardView } from "./followup-coverage";
 import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
 import { loadRoundFollowUpStatus } from "./followup-service";
@@ -62,6 +64,8 @@ export type RfqWebEntry =
       timeZone: string;
       /** RFQ-AUTO-1：开关关闭时为 null——界面不出现任何自动跟进的内容 */
       followUp: RfqEntryFollowUp | null;
+      /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
+      autoDraftedRounds?: Record<string, { noteZh: string }>;
     };
 
 /** RFQ-AUTO-1：入口里与跟进授权有关的全部内容 */
@@ -241,6 +245,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     engineRounds,
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
+    ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
     followUp: await loadEntryFollowUp({
       orgId: input.orgId,
       now,
@@ -251,6 +256,15 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       inquiryIds: lockState.existing.map((r) => r.inquiryId),
     }),
   };
+}
+
+/** RFQ-AUTO-2：本项目里由系统起草的轮次（只在开关打开时调用） */
+async function loadAutoDraftedRounds(orgId: string, projectId: string): Promise<Record<string, { noteZh: string }>> {
+  const cards = await db.pendingAction.findMany({
+    where: { orgId, projectId, type: TENDER_SEND_RFQ_TYPE, payload: { path: ["metadata", "sourceToolName"], equals: AUTO_DRAFT_TOOL_NAME } },
+    select: { payload: true, preview: true },
+  });
+  return autoDraftedRoundNotes(cards);
 }
 
 async function loadEntryFollowUp(input: {

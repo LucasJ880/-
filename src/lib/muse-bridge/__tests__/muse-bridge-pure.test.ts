@@ -29,6 +29,7 @@ import {
 } from "../router-pure";
 import { buildMuseEvent } from "../events-pure";
 import { WECHAT_CONFIRM_POLICY } from "@/lib/ai-grader/actions/wechat-confirm-policy";
+import { AUTO_DRAFT_TOOL_NAME } from "@/lib/tender-rfq/auto-draft-pure";
 
 let passed = 0;
 function ok(name: string, cond: boolean) {
@@ -174,6 +175,12 @@ const row = (over: Partial<StatusProjectRow>): StatusProjectRow => ({
   ok("授权内容不合规也照样拦（键在就拦，不靠解析结果放行）", museApprovalNeedsWebPreview("tender.send_rfq", { followUpPolicy: { anything: true } }) && museApprovalNeedsWebPreview("tender.send_rfq", { followUpPolicy: "x" }));
   ok("不带授权的发询价卡（含 Muse 自己发起的）与催单卡照常可在 Muse 批", !museApprovalNeedsWebPreview("tender.send_rfq", { inquiryId: "q" }) && !museApprovalNeedsWebPreview("tender.send_rfq", { followUpPolicy: null }) && !museApprovalNeedsWebPreview("tender.send_chase", { followUpPolicy }));
   ok("被拦时的提示说明原因与去哪里批", /自动跟进授权/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq"))) && /项目页/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq"))));
+  // RFQ-AUTO-2：系统自动起草的发询价卡，起草时没有人看过收件人与正文；Muse 里只有标题
+  const autoDrafted = { inquiryId: "q", metadata: { sourceToolName: "tender_send_rfq_auto" } };
+  ok("自动起草的发询价卡不能在 Muse 批（只能在网页核对收件人与正文后批）", museApprovalNeedsWebPreview("tender.send_rfq", autoDrafted) && !museCanApproveAction("tender.send_rfq", autoDrafted));
+  ok("人工起草的（网页抽屉 / Muse 自己发起）照常可在 Muse 批；来源标记只对发询价卡生效", !museApprovalNeedsWebPreview("tender.send_rfq", { metadata: { sourceToolName: "tender_send_rfq_web" } }) && !museApprovalNeedsWebPreview("tender.send_rfq", { metadata: { sourceToolName: "tender_send_rfq" } }) && !museApprovalNeedsWebPreview("tender.send_chase", autoDrafted));
+  ok("自动起草的卡被拦时的提示说明原因；带跟进授权的卡仍用授权那句提示", /自动起草/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq", autoDrafted))) && /自动跟进授权/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq", { ...autoDrafted, followUpPolicy }))) && /自动跟进授权/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq"))));
+  ok("Muse 里的来源标记与询价模块的常量同值", AUTO_DRAFT_TOOL_NAME === "tender_send_rfq_auto");
   ok("查不到类型（不存在 / 跨组织）不在这里拦，交给 ApprovalPort", !museApprovalNeedsWebPreview(undefined) && !museApprovalNeedsWebPreview(null));
   ok(
     "白名单：活动上线 / 报价让利 / 研究计划 / 营销上下文覆盖都要去网页批",

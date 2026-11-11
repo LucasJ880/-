@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import type { RfqAutoDraftResult } from "@/lib/tender-rfq/auto-draft-pure";
 import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
 import { StatementKindBadge } from "./statement-kind-badge";
 import { SourceSnippetDialog } from "./source-snippet-dialog";
@@ -10,6 +11,9 @@ import {
   type AnalystSection,
 } from "./analyst-synthesis-view";
 import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
+
+/** RFQ-AUTO-2：审核接口响应里的自动起草结果（只取界面用到的类型） */
+type RfqAutoDraftView = RfqAutoDraftResult;
 
 type TabKey =
   | "report"
@@ -236,6 +240,7 @@ export function TenderAnalysisPanel({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [rfqAutoDraft, setRfqAutoDraft] = useState<RfqAutoDraftView | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -277,6 +282,10 @@ export function TenderAnalysisPanel({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "操作失败");
+      // RFQ-AUTO-2：审核动作成功后，接口可能带回「是否已自动起草第 1 轮询价」。
+      // 不必提示的（quiet）不显示，并且清掉上一次的提示——免得旧的一行留在那里说着已经不成立的话
+      const auto = (json as { rfqAutoDraft?: RfqAutoDraftView }).rfqAutoDraft;
+      if (auto) setRfqAutoDraft(auto.quiet ? null : auto);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -531,6 +540,32 @@ export function TenderAnalysisPanel({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {rfqAutoDraft ? (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${
+            rfqAutoDraft.drafted ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-[var(--border)] bg-[var(--card)]"
+          }`}
+          role="status"
+          data-testid="rfq-auto-draft-result"
+        >
+          <span>{rfqAutoDraft.messageZh}</span>
+          <span className="flex items-center gap-3">
+            {rfqAutoDraft.drafted ? (
+              <a href={rfqAutoDraft.href} className="text-xs font-medium underline" data-testid="rfq-auto-draft-link">
+                去批准
+              </a>
+            ) : rfqAutoDraft.action ? (
+              <a href={rfqAutoDraft.action.href} className="text-xs font-medium underline" data-testid="rfq-auto-draft-link">
+                {rfqAutoDraft.action.label}
+              </a>
+            ) : null}
+            <button type="button" className="text-xs text-[var(--muted)]" onClick={() => setRfqAutoDraft(null)}>
+              知道了
+            </button>
+          </span>
         </div>
       ) : null}
 
