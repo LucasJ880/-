@@ -69,7 +69,33 @@ Lucas 2026-11-11 看过这一点后答复：「范围可以，门禁过了就开
 
 ## 5. 证据
 
-GATES_PLACEHOLDER
+```
+settings-write-db.isolated.test.ts（本地隔离库，调用真实的写入方）
+  修复后的代码                    27 passed, 0 failed（连跑三次结果相同）
+  main 上的旧写入方，同一份测试      22 项里 8 项失败（当时测试是 22 项）：七种写入同时进行第一轮就丢四到五项；
+                                 同时选定 4 家供应商只留下 1 家；同时设置贸易条款与学习供应商，贸易条款丢了
+  把入口的锁换回 FOR UPDATE        25 passed, 2 failed：外键插入等了 910 ms；先插入再锁行出现死锁
+  删掉门店折扣与开户更新设置里的锁    26 passed, 1 failed：第一轮就丢四项
+settings-write-guard.test.ts     22 项通过；在 main 的旧代码上点出 10 个不合规的文件
+
+涉及模块既有的隔离库测试（都没改断言）：
+  onboarding-db                  82 passed
+  calendar-watch-db / calendar-change-push-db / website-booking-intake-db   80 / 32 / 44 通过
+  quote-settings-db（价表折扣）    54 通过
+  email-inbound-db               47 通过
+  effective-platform-role-db / mengxin-positions-db / audience-db   17 / 25 / 44 通过
+  auto-draft-db / supplier-groups-db / followup-auto-db   76 / 53 / 28 passed
+
+npm run test:ci（CI 同款环境变量）  CI unit subset PASS
+npm run typecheck                exit 0
+npm run lint:baseline            PASS（无新增 error fingerprint）
+scripts/check-test-registry.sh   OK 已注册 597 个；历史欠账基线 68 条
+scripts/test-runtime-architecture.sh   PASS
+check-swc-nullish-logical        PASS
+openspec validate org-settings-locked-write --strict   valid
+```
+
+全量测试与门禁都是在独立审查的修复之后跑的。
 
 ## 6. 独立审查
 
