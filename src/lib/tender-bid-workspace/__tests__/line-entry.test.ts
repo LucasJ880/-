@@ -117,7 +117,8 @@ console.log("面板源码");
   ok("保存一行时带上当时影响该行的最新补遗号", /detailFromDraft\(draft, \{ basedOnAddendum: latestAddendumFor\(/.test(code));
   ok("面板写明「已核验」是人工确认", /VERIFIED_IS_MANUAL_ZH/.test(code));
   ok("行录入与补遗的编辑入口只对有写权限的人显示", /canManage && \(\s*<button[^>]*data-testid=\{`bw-line-edit-/.test(code) && /canManage && <AddendumForm/.test(code));
-  ok("仍然只请求投标工作区的两个接口，没有删除请求", [...code.matchAll(/\/api\/[^"'`\s)]*/g)].length === 2 && !/method:\s*"(DELETE|PATCH)"/.test(code));
+  // FIX-2 之后多了一个只读接口（从招标分析带入）；写请求的种类与数量没有变
+  ok("仍然只请求投标工作区之下的接口（现在三个），没有删除请求，写请求仍是一个保存、一个计算", [...code.matchAll(/\/api\/[^"'`\s)]*/g)].length === 3 && [...code.matchAll(/\/api\/[^"'`\s)]*/g)].every((m) => m[0].startsWith("/api/projects/${projectId}/bid-workspace")) && !/method:\s*"(DELETE|PATCH)"/.test(code) && (code.match(/method:\s*"PUT"/g) ?? []).length === 1 && (code.match(/method:\s*"POST"/g) ?? []).length === 1);
 }
 
 console.log(`\n✓ line-entry: ${passed} 项断言全部通过`);
