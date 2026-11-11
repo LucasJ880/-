@@ -114,6 +114,30 @@ async function main() {
     ok((await server.getRequestPreview({ cookies: { get: () => undefined } } as never, "u1")) === null, "请求里没有预览 cookie：无预览");
   }
 
+  console.log("\n开启与退出（源码）");
+  {
+    const route = code("src/app/api/admin/preview/route.ts");
+    const post = route.slice(route.indexOf("export async function POST"), route.indexOf("export async function DELETE"));
+    const del = route.slice(route.indexOf("export async function DELETE"));
+    ok(/requirePlatformSuperAdmin\(request\)/.test(post) && !/requirePlatformSuperAdmin/.test(del) && /requireAuth\(request\)/.test(del), "开启只认平台 super_admin；退出只需会话");
+    const order = ["组织不存在", "PREVIEW_ORG_NOT_POSITION_MODE", "PREVIEW_NOT_MEMBER", "PREVIEW_POSITION_INVALID", "signPreviewToken("].map((k) => post.indexOf(k));
+    ok(order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1])), "开启条件按 spec 顺序：企业 → 岗位模式 → 成员 → 岗位 → 签发", order);
+    ok(/status: "active", principalType: "HUMAN"/.test(post) && /profiles\.length !== keys\.length/.test(post), "岗位须是本企业 active 的人类岗位，缺一个即 400");
+    ok(/orgId: org\.id, orgName: org\.name, positions, expiresAt/.test(post), "开启成功的响应体");
+    ok(/NextResponse\.json\(\{ ok: true \}\)/.test(del) && /clearPreviewCookie\(response\)/.test(del), "退出：清 cookie，返回 ok");
+    ok(!/export (async )?function (?!GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)/.test(route), "路由文件只导出 HTTP 方法");
+    const cookie = code("src/lib/preview/cookie.ts");
+    ok(/httpOnly: true/.test(cookie) && /sameSite: "lax"/.test(cookie) && /path: "\/"/.test(cookie) && /maxAge: PREVIEW_TTL_SECONDS/.test(cookie) && /secure: process\.env\.NODE_ENV === "production"/.test(cookie), "cookie 属性：httpOnly、生产 secure、lax、path /、2 小时");
+    const audit = code("src/lib/preview/audit.ts");
+    ok(/PREVIEW_STARTED/.test(post) && /PREVIEW_ENDED/.test(audit) && !/token/.test(audit) && !/afterData: \{[^}]*token/.test(post), "审计：开启 / 结束各一条，不含 token");
+    const logout = code("src/app/api/auth/logout/route.ts");
+    ok(/clearPreviewCookie\(response\)/.test(logout) && /logPreviewEnded\(userId, preview, request, "logout"\)/.test(logout), "登出：清预览 cookie，带有效预览时记预览结束");
+    const login = code("src/app/api/auth/login/route.ts");
+    ok(/clearPreviewCookie\(response\)/.test(login) && /withoutPreview\(\(\) => resolvePreferredOrgId\(/.test(login), "登录：清预览 cookie，选企业不带预览身份");
+    const wx = code("src/app/api/auth/wechat/callback/route.ts");
+    ok(/setSessionCookie\(response, token\);\s*clearPreviewCookie\(response\)/.test(wx), "微信回调登录：清预览 cookie");
+  }
+
   console.log("\n纯模块");
   {
     for (const f of ["src/lib/preview/token.ts", "src/lib/preview/identity.ts"]) {

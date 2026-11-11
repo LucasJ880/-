@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clearPreviewCookie } from "@/lib/preview/cookie";
 import { db } from "@/lib/db";
 import { createSession, setSessionCookie } from "@/lib/auth/session";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
@@ -158,6 +159,8 @@ export async function GET(request: NextRequest) {
       : `/select-org?next=${encodeURIComponent(next.startsWith("/") ? next : "/")}`;
   const response = NextResponse.redirect(new URL(dest, request.url));
   setSessionCookie(response, token);
+  // VIS-1e：重新登录清掉以岗位预览的 cookie
+  clearPreviewCookie(response);
 
   response.cookies.set(STATE_COOKIE, "", {
     httpOnly: true,

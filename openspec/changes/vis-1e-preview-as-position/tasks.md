@@ -45,7 +45,7 @@
 
 ## 2. 开启与退出
 
-- [ ] 2.1 按 design D2 / D4 / D7 / D8 新增开启与退出：
+- [x] 2.1 按 design D2 / D4 / D7 / D8 新增开启与退出：
   - `src/app/api/admin/preview/route.ts`：
     - `POST`：只允许平台 super_admin（`PLATFORM_ADMIN_REQUIRED`）。按 spec「开启条件」的顺序校验（404，`PREVIEW_ORG_NOT_POSITION_MODE` / `PREVIEW_NOT_MEMBER` / `PREVIEW_POSITION_INVALID` 400）。成功写 `qy_preview`（httpOnly、生产 secure、lax、`path /`、2 小时），返回 `{ orgId, orgName, positions, expiresAt }`，写 `PREVIEW_STARTED` 审计。
     - `DELETE`：只需会话，清 cookie，返回 `{ ok: true }`；有有效预览时写 `PREVIEW_ENDED` 审计。
