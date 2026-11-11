@@ -168,6 +168,12 @@ const row = (over: Partial<StatusProjectRow>): StatusProjectRow => ({
   ok("审批失败 → APPROVAL_FAILED + 原因", !f.ok && f.errorCode === "APPROVAL_FAILED" && f.message.includes("无权操作"));
   ok("询盘回复（给买家的邮件）在 Muse 里不能直接批", museApprovalNeedsWebPreview("sales.send_inquiry_reply"));
   ok("投标询价 / 催单仍可在 Muse 批（审批卡列出收件供应商与发件邮箱）", !museApprovalNeedsWebPreview("tender.send_rfq") && !museApprovalNeedsWebPreview("tender.send_chase"));
+  // RFQ-AUTO-1：带跟进授权的发询价卡，批准它等于一并批准后面的催单与追问；Muse 里只有标题，看不到授权范围与模板
+  const followUpPolicy = { version: 1, maxReminders: 2, chaseAfterDays: 3, replyBy: "2026-11-20", allowMissingFieldQuestion: true, templateHash: "f03e0de092b72d19" };
+  ok("带跟进授权的发询价卡不能在 Muse 批（只能在网页看完授权范围后批）", museApprovalNeedsWebPreview("tender.send_rfq", { inquiryId: "q", followUpPolicy }) && !museCanApproveAction("tender.send_rfq", { followUpPolicy }));
+  ok("授权内容不合规也照样拦（键在就拦，不靠解析结果放行）", museApprovalNeedsWebPreview("tender.send_rfq", { followUpPolicy: { anything: true } }) && museApprovalNeedsWebPreview("tender.send_rfq", { followUpPolicy: "x" }));
+  ok("不带授权的发询价卡（含 Muse 自己发起的）与催单卡照常可在 Muse 批", !museApprovalNeedsWebPreview("tender.send_rfq", { inquiryId: "q" }) && !museApprovalNeedsWebPreview("tender.send_rfq", { followUpPolicy: null }) && !museApprovalNeedsWebPreview("tender.send_chase", { followUpPolicy }));
+  ok("被拦时的提示说明原因与去哪里批", /自动跟进授权/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq"))) && /项目页/.test(JSON.stringify(webPreviewRequiredResponse("r1", "tender.send_rfq"))));
   ok("查不到类型（不存在 / 跨组织）不在这里拦，交给 ApprovalPort", !museApprovalNeedsWebPreview(undefined) && !museApprovalNeedsWebPreview(null));
   ok(
     "白名单：活动上线 / 报价让利 / 研究计划 / 营销上下文覆盖都要去网页批",

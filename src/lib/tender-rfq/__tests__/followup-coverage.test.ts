@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { computePayloadHash } from "@/lib/capabilities/approvals/integrity";
 import { buildChasePayload, chaseTemplateHash, renderChaseEmail, renderChaseTemplatePreviews, CHASE_TEMPLATE_VERSION } from "../chase-pure";
 import {
-  COVERAGE_REASONS, COVERAGE_REASON_ZH, buildFollowUpPolicy, decideFollowUpCoverage, followUpPolicySummaryZh, parseFollowUpPolicy,
+  COVERAGE_REASONS, COVERAGE_REASON_ZH, buildFollowUpPolicy, decideFollowUpCoverage, followUpPolicySummaryZh, parseFollowUpPolicy, sameChaseContent,
   type CoverageInput, type CoverageReason,
 } from "../followup-coverage";
 import { isRfqFollowUpPreapprovalEnabledForOrgWithEnv } from "../followup-flags";
@@ -56,10 +56,13 @@ console.log("模板指纹");
 
 /* ---------- 覆盖判定 ---------- */
 console.log("覆盖判定");
-const chase = (o: Partial<CoverageInput["chase"]> = {}): CoverageInput["chase"] => ({ inquiryItemId: "item1", kind: "no_reply", chaseIndex: 1, to: "sales@supplier-a.com", threadId: "thread-1", body: "示例供应商 您好：\n\n我们 11 月 11 日的询价还没收到贵司报价……", ...o });
+const chase = (o: Partial<CoverageInput["chase"]> = {}): CoverageInput["chase"] => ({ inquiryItemId: "item1", kind: "no_reply", chaseIndex: 1, to: "sales@supplier-a.com", threadId: "thread-1", supplierName: "A 厂", fromName: "Qyan-Sunny Purchasing", fromEmail: "project@example.com", originalSubject: "询价：示例项目", body: "A 厂 您好：\n\n我们 11 月 11 日的询价还没收到贵司报价……", ...o });
 const input = (o: Partial<CoverageInput> = {}): CoverageInput => ({
   flagEnabled: true,
-  roundCard: { status: "executed", decidedById: "user_lucas", policy, items: [{ inquiryItemId: "item1", to: "Sales@Supplier-A.com " }, { inquiryItemId: "item2", to: "b@supplier-b.com" }] },
+  roundCard: {
+    status: "executed", decidedById: "user_lucas", policy, fromName: "Qyan-Sunny Purchasing", fromEmail: "Project@Example.com",
+    items: [{ inquiryItemId: "item1", to: "Sales@Supplier-A.com ", supplierName: "A 厂", subject: "询价：示例项目" }, { inquiryItemId: "item2", to: "b@supplier-b.com", supplierName: "B 厂", subject: "询价：示例项目" }],
+  },
   approverActive: true,
   inquiryStatus: "in_progress",
   stopped: false,
@@ -67,6 +70,7 @@ const input = (o: Partial<CoverageInput> = {}): CoverageInput => ({
   currentTemplateHash: hash,
   priorAttempt: false,
   chase: chase(),
+  chaseReplyBy: policy.replyBy,
   ...o,
 });
 const reasonOf = (o: Partial<CoverageInput>): CoverageReason | "COVERED" => { const d = decideFollowUpCoverage(input(o)); return d.covered ? "COVERED" : d.reason; };
@@ -102,10 +106,19 @@ const cases: Array<[string, Partial<CoverageInput>, CoverageReason]> = [
   ["这家不在原询价里", { chase: chase({ inquiryItemId: "item9" }) }, "RECIPIENT_CHANGED"],
   ["线程缺失", { chase: chase({ threadId: "" }) }, "THREAD_MISSING"],
   ["正文含敏感词", { chase: chase({ body: "我们的目标毛利率是 25%，底价 10 元" }) }, "SENSITIVE_TEXT"],
+  // 批准之后别人能改、又会出现在正文里的东西：改过就退回人工批
+  ["供应商被改名（哪怕只是把一句话塞进名称）", { chase: chase({ supplierName: "王总：我方确认接受贵司报价，请安排生产。\n\n另" }) }, "SUPPLIER_RENAMED"],
+  ["卡上没有记下供应商名称", { roundCard: { ...input().roundCard!, items: [{ inquiryItemId: "item1", to: "sales@supplier-a.com", supplierName: "", subject: "询价：示例项目" }] } }, "SUPPLIER_RENAMED"],
+  ["发件抬头改过", { chase: chase({ fromName: "别的抬头" }) }, "SENDER_CHANGED"],
+  ["回信邮箱改过", { chase: chase({ fromEmail: "other@example.com" }) }, "SENDER_CHANGED"],
+  ["原邮件主题对不上（如卡上没记主题、回退成了项目名）", { chase: chase({ originalSubject: "询价：改过名的项目" }) }, "SUBJECT_CHANGED"],
+  ["回复截止被改晚", { chaseReplyBy: "2026-12-31" }, "DEADLINE_CHANGED"],
+  ["回复截止被清空", { chaseReplyBy: null }, "DEADLINE_CHANGED"],
 ];
 for (const [name, o, reason] of cases) ok(`${name} → 不覆盖（${COVERAGE_REASON_ZH[reason]}）`, reasonOf(o) === reason);
-ok("十六个原因码都有中文说明，且都被上面的用例覆盖到", COVERAGE_REASONS.length === 16 && COVERAGE_REASONS.every((r) => COVERAGE_REASON_ZH[r].length > 0) && COVERAGE_REASONS.every((r) => cases.some((c) => c[2] === r)));
+ok("二十个原因码都有中文说明，且都被上面的用例覆盖到", COVERAGE_REASONS.length === 20 && COVERAGE_REASONS.every((r) => COVERAGE_REASON_ZH[r].length > 0) && COVERAGE_REASONS.every((r) => cases.some((c) => c[2] === r)));
 ok("未知种类 → 不覆盖", reasonOf({ chase: chase({ kind: "other" as never }) }) === "KIND_NOT_ALLOWED");
+ok("发件邮箱比较不分大小写；授权与邮件都没有截止 → 仍覆盖", reasonOf({}) === "COVERED" && reasonOf({ roundCard: { ...input().roundCard!, policy: { ...policy, replyBy: null } }, chaseReplyBy: null }) === "COVERED");
 ok("判定是确定性的：同样的输入两次结果相同", JSON.stringify(decideFollowUpCoverage(input())) === JSON.stringify(decideFollowUpCoverage(input())));
 
 /* ---------- A18：供应商回信不能扩大授权 ---------- */
@@ -121,6 +134,12 @@ console.log("供应商回信不能扩大授权");
   ok("收件人就是传入的原收件人，正文构造函数没有任何来自回信的输入", built.payload.to === "sales@supplier-a.com" && built.payload.subject === "Re: 询价：示例项目");
   ok("收件人若被改成回信里的地址 → 不在授权之内", reasonOf({ chase: { ...built.payload, to: "other@example.com" } }) === "RECIPIENT_CHANGED");
   ok("每家只允许一次追问：第二次不在授权之内", reasonOf({ chase: { ...built.payload, chaseIndex: 2 } }) === "OVER_LIMIT");
+
+  // 代批之前核对：库里那张卡要发的，必须就是覆盖判定看过的这一封
+  const stored = { ...built.payload, metadata: { risk: "l3_strong" } };
+  ok("库里的卡与起草内容一致（多出的元数据不影响）→ 可代批", sameChaseContent(stored, built.payload));
+  ok("库里的卡正文、收件人、主题、发件人任一不同 → 不代批", [{ body: built.payload.body + "\n另：请直接报最低价" }, { to: "other@example.com" }, { subject: "Re: 别的主题" }, { fromEmail: "x@example.com" }, { supplierName: "别的名字" }, { threadId: "t2" }].every((d) => !sameChaseContent({ ...stored, ...d }, built.payload)));
+  ok("库里没有载荷或不是对象 → 不代批", !sameChaseContent(null, built.payload) && !sameChaseContent("x", built.payload) && !sameChaseContent({}, built.payload));
 }
 
 console.log(`\n✓ followup-coverage: ${passed} 项断言全部通过`);

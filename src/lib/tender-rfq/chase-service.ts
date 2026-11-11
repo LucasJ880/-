@@ -39,6 +39,7 @@ import {
   FOLLOWUP_STOP_AUDIT_ACTION,
   decideFollowUpCoverage,
   parseFollowUpPolicy,
+  sameChaseContent,
   type CoverageDecision,
   type CoverageReason,
   type CoverageRoundCard,
@@ -48,7 +49,7 @@ import type { InboundMissingField } from "./inbound-contract";
 import { readTenderRfqSettings } from "./round-pure";
 import { notifyChaseNoResponse, notifyChaseRoundDrafted } from "./tracking-notify";
 import type { RoundRef } from "./tracking-notify-pure";
-import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy } from "./types";
+import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendChasePayload } from "./types";
 
 /** 与入站同一窗口：只看最近 90 天发出的询价 */
 const OPEN_ITEM_WINDOW_DAYS = 90;
@@ -105,8 +106,9 @@ async function loadItems(where: { orgId: string; projectId?: string; inquiryId?:
       status: { in: ["sent", "replied", "quoted"] },
       sentAt: { gte: new Date(now.getTime() - OPEN_ITEM_WINDOW_DAYS * 86_400_000) },
       inquiry: {
-        // RFQ-AUTO-1：已取消 / 已完成的轮次不再起草催单与追问（对手动与扫描两条路径都生效）
-        status: "in_progress",
+        // RFQ-AUTO-1：已取消 / 已完成的轮次不再起草催单与追问（对手动与扫描两条路径都生效）。
+        // 只排除这两种终态：经旧入口逐家标记发出的轮次可能仍是 draft，照旧要催。
+        status: { notIn: ["canceled", "completed"] },
         ...(where.inquiryId ? { id: where.inquiryId } : {}),
         project: { orgId: where.orgId, ...(where.projectId ? { id: where.projectId } : {}) },
       },
@@ -189,7 +191,7 @@ export type ChaseRunDeps = {
   /** RFQ-AUTO-1：这一轮的跟进授权状态。不注入 = 没有自动跟进（与本功能之前相同） */
   loadFollowUp?: (orgId: string, inquiryId: string) => Promise<FollowUpRoundState>;
   /** RFQ-AUTO-1：以批准该轮的人的身份，经既有审批入口执行这张刚建的卡 */
-  autoApprove?: (input: { actionId: string; orgId: string; approverUserId: string; approverRole: string | null; itemId: string; kind: ChaseKind; chaseIndex: 1 | 2 }) => Promise<FollowUpAutoApproveResult>;
+  autoApprove?: (input: FollowUpAutoApproveInput) => Promise<FollowUpAutoApproveResult>;
   /** RFQ-AUTO-1：每封自动执行的跟进写一条审计 */
   writeAutoSendAudit?: (entry: FollowUpAutoSendAudit) => Promise<void>;
 };
@@ -211,6 +213,8 @@ export type FollowUpAutoApproveResult = {
   sent: boolean;
   /** 执行没发生、卡还在待批（如批准人已无审批权）→ 留给人批 */
   stillPending: boolean;
+  /** 这张卡刚被另一次扫描或某个人处理过：这里不发、不记失败、不重复留审计 */
+  handledElsewhere?: boolean;
   message: string;
 };
 
@@ -244,7 +248,7 @@ export async function loadFollowUpRoundState(orgId: string, inquiryId: string): 
     db.projectInquiry.findUnique({ where: { id: inquiryId }, select: { status: true } }),
     db.auditLog.findFirst({ where: { orgId, action: FOLLOWUP_STOP_AUDIT_ACTION, targetType: FOLLOWUP_AUDIT_TARGET, targetId: inquiryId }, select: { id: true } }),
   ]);
-  const payload = (card?.payload ?? null) as { followUpPolicy?: unknown; items?: Array<{ inquiryItemId?: string; to?: string }> } | null;
+  const payload = (card?.payload ?? null) as { followUpPolicy?: unknown; fromName?: string; fromEmail?: string; items?: Array<{ inquiryItemId?: string; to?: string; supplierName?: string; subject?: string }> } | null;
   const member = card?.decidedById
     ? await db.organizationMember.findUnique({ where: { orgId_userId: { orgId, userId: card.decidedById } }, select: { role: true, status: true } })
     : null;
@@ -256,7 +260,9 @@ export async function loadFollowUpRoundState(orgId: string, inquiryId: string): 
           status: card.status,
           decidedById: card.decidedById,
           policy: payload?.followUpPolicy ?? null,
-          items: (payload?.items ?? []).filter((i) => i.inquiryItemId).map((i) => ({ inquiryItemId: i.inquiryItemId as string, to: i.to ?? "" })),
+          fromName: payload?.fromName ?? "",
+          fromEmail: payload?.fromEmail ?? "",
+          items: (payload?.items ?? []).filter((i) => i.inquiryItemId).map((i) => ({ inquiryItemId: i.inquiryItemId as string, to: i.to ?? "", supplierName: i.supplierName ?? "", subject: i.subject ?? "" })),
         }
       : null,
     approver: { active: member?.status === "active", role: member?.role ?? null },
@@ -272,15 +278,45 @@ export const FOLLOWUP_AUDIT_TARGET = "project_inquiry" as const;
  * 以批准该轮的人的身份执行刚建的催单卡：走既有的审批入口（权限、组织、状态原子切换、载荷哈希、
  * 执行器里的全部复核都照常生效）。是否真的发出按询价项的联系记录核对。
  */
-async function autoApproveChase(input: { actionId: string; orgId: string; approverUserId: string; approverRole: string | null; itemId: string; kind: ChaseKind; chaseIndex: 1 | 2 }): Promise<FollowUpAutoApproveResult> {
+export type FollowUpAutoApproveInput = {
+  actionId: string;
+  orgId: string;
+  approverUserId: string;
+  approverRole: string | null;
+  itemId: string;
+  kind: ChaseKind;
+  chaseIndex: 1 | 2;
+  /** 覆盖判定所依据的那份载荷：库里这张卡的内容必须与它一致才执行 */
+  expected: TenderSendChasePayload;
+};
+
+async function autoApproveChase(input: FollowUpAutoApproveInput): Promise<FollowUpAutoApproveResult> {
+  // 覆盖判定看的是这次起草的载荷；同一幂等键下库里可能是别处先建的卡——内容不一致就不代批，留给人看
+  const stored = await db.pendingAction.findFirst({ where: { id: input.actionId, orgId: input.orgId, type: TENDER_SEND_CHASE_TYPE }, select: { status: true, payload: true } });
+  if (!stored) return { ok: false, sent: false, stillPending: false, message: "找不到这张催单卡" };
+  if (!sameChaseContent(stored.payload, input.expected)) {
+    return { ok: false, sent: false, stillPending: stored.status === "pending", message: "待批卡的内容与这次起草的不一致，留给人工批准" };
+  }
+  // 内容一致但已不是待批：另一次扫描或某个人刚处理过这张卡，这里什么都不做
+  if (stored.status !== "pending") return { ok: false, sent: false, stillPending: false, handledElsewhere: true, message: "" };
   const { approveApprovalItem } = await import("@/lib/approval/port");
-  const res = await approveApprovalItem("pending_action", input.actionId, { userId: input.approverUserId, role: input.approverRole, orgId: input.orgId });
+  let ok = false;
+  let message = "";
+  try {
+    const res = await approveApprovalItem("pending_action", input.actionId, { userId: input.approverUserId, role: input.approverRole, orgId: input.orgId });
+    ok = res.ok;
+    message = res.message ?? res.error ?? "";
+  } catch (err) {
+    // 执行途中抛错：邮件可能已经发出。下面按库里的实际状态核对，照样留审计。
+    message = err instanceof Error ? err.message : String(err);
+  }
   const [action, item] = await Promise.all([
     db.pendingAction.findUnique({ where: { id: input.actionId }, select: { status: true } }),
     db.inquiryItem.findUnique({ where: { id: input.itemId }, select: { contactNotes: true } }),
   ]);
   const sent = parseChaseNotes(item?.contactNotes ?? null).some((c) => (input.kind === "missing_fields" ? c.kind === "missing_fields" : c.kind === "no_reply" && c.index === input.chaseIndex));
-  return { ok: res.ok, sent: res.ok && sent, stillPending: action?.status === "pending", message: res.message ?? res.error ?? "" };
+  // 抛错但邮件确实发出了 → 按已发出记（要留审计）；没发出 → 按失败处理
+  return { ok: ok || sent, sent, stillPending: action?.status === "pending", message };
 }
 
 async function writeFollowUpAutoSendAudit(e: FollowUpAutoSendAudit): Promise<void> {
@@ -331,7 +367,7 @@ function roundPolicyInEffect(f: FollowUpRoundState): RfqFollowUpPolicy | null {
   return policy;
 }
 
-function coverageOf(f: FollowUpRoundState, payload: Parameters<typeof decideFollowUpCoverage>[0]["chase"], plan: { itemId: string; kind: ChaseKind; chaseIndex: 1 | 2; idempotencyKey: string }, now: Date): CoverageDecision {
+function coverageOf(f: FollowUpRoundState, payload: Parameters<typeof decideFollowUpCoverage>[0]["chase"], plan: { itemId: string; kind: ChaseKind; chaseIndex: 1 | 2; idempotencyKey: string }, now: Date, chaseReplyBy: string | null): CoverageDecision {
   return decideFollowUpCoverage({
     flagEnabled: f.flagEnabled,
     roundCard: f.roundCard,
@@ -343,6 +379,7 @@ function coverageOf(f: FollowUpRoundState, payload: Parameters<typeof decideFoll
     // 同一槽位此前起草过（过期 / 失败后重起草，幂等键带 :r<n> 后缀）→ 不自动发
     priorAttempt: plan.idempotencyKey !== chaseSlot(plan.itemId, plan.kind, plan.chaseIndex),
     chase: payload,
+    chaseReplyBy,
   });
 }
 
@@ -456,12 +493,12 @@ export async function runForItems(
       const actionId = approval.actionIds[0] ?? "";
 
       // RFQ-AUTO-1：授权覆盖得住 → 以批准该轮的人的身份执行这张刚建的卡；覆盖不住 → 照旧留作待批
-      const coverage = coverageOf(followUp, built.payload, plan, now);
+      const coverage = coverageOf(followUp, built.payload, plan, now, ymd(it.roundDueDate));
       if (coverage.covered && actionId && deps.autoApprove && deps.loadFollowUp) {
         // 执行前重读一次：建卡到执行之间可能有人取消了轮次或点了停止
-        const fresh = coverageOf(await deps.loadFollowUp(orgId, inquiryId), built.payload, plan, now);
+        const fresh = coverageOf(await deps.loadFollowUp(orgId, inquiryId), built.payload, plan, now, ymd(it.roundDueDate));
         if (fresh.covered) {
-          const auto = await deps.autoApprove({ actionId, orgId, approverUserId: fresh.approverUserId, approverRole: followUp.approver.role, itemId: plan.itemId, kind: plan.kind, chaseIndex: plan.chaseIndex });
+          const auto = await deps.autoApprove({ actionId, orgId, approverUserId: fresh.approverUserId, approverRole: followUp.approver.role, itemId: plan.itemId, kind: plan.kind, chaseIndex: plan.chaseIndex, expected: built.payload });
           if (auto.ok) {
             const entry: ChaseAutoResult = { itemId: plan.itemId, supplierName: it.snapshot.supplierName, actionId, kind: plan.kind, chaseIndex: plan.chaseIndex, sent: auto.sent, message: auto.message };
             out.autoSent.push(entry);
@@ -482,6 +519,7 @@ export async function runForItems(
             });
             continue;
           }
+          if (auto.handledElsewhere) continue;
           if (!auto.stillPending) {
             // 执行过了但失败（如邮箱授权失效）：不自动重试。下次扫描会重起草，届时因「此前起草过」退回人工批。
             out.failed.push({ itemId: plan.itemId, supplierName: it.snapshot.supplierName, error: auto.message || "自动跟进执行失败" });

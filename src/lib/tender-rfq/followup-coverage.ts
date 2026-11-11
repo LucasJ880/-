@@ -67,6 +67,7 @@ export function followUpPolicyScopeZh(policy: RfqFollowUpPolicy): string {
 export const COVERAGE_REASONS = [
   "FLAG_OFF", "NO_ROUND_CARD", "NO_POLICY", "ROUND_CARD_NOT_EXECUTED", "NOT_HUMAN_APPROVED", "APPROVER_INACTIVE", "ROUND_NOT_IN_PROGRESS", "STOPPED",
   "PRIOR_ATTEMPT", "KIND_NOT_ALLOWED", "OVER_LIMIT", "DEADLINE_PASSED", "TEMPLATE_CHANGED", "RECIPIENT_CHANGED", "THREAD_MISSING", "SENSITIVE_TEXT",
+  "SUPPLIER_RENAMED", "SENDER_CHANGED", "SUBJECT_CHANGED", "DEADLINE_CHANGED",
 ] as const;
 export type CoverageReason = (typeof COVERAGE_REASONS)[number];
 
@@ -87,6 +88,10 @@ export const COVERAGE_REASON_ZH: Record<CoverageReason, string> = {
   RECIPIENT_CHANGED: "收件人与原询价邮件不一致",
   THREAD_MISSING: "原询价邮件线程缺失",
   SENSITIVE_TEXT: "正文含内部敏感字样",
+  SUPPLIER_RENAMED: "供应商名称在批准之后改过",
+  SENDER_CHANGED: "发件抬头或回信邮箱在批准之后改过",
+  SUBJECT_CHANGED: "原询价邮件的主题对不上",
+  DEADLINE_CHANGED: "回复截止在批准之后改过",
 };
 
 export type CoverageRoundCard = {
@@ -96,8 +101,11 @@ export type CoverageRoundCard = {
   decidedById: string | null;
   /** 载荷里的 followUpPolicy，原样传入（这里严格解析） */
   policy: unknown;
-  /** 原询价邮件：每个询价项的收件人 */
-  items: ReadonlyArray<{ inquiryItemId: string; to: string }>;
+  /** 批准时定格的发件抬头与回信邮箱 */
+  fromName: string;
+  fromEmail: string;
+  /** 原询价邮件：每个询价项批准时的收件人、供应商名称、主题 */
+  items: ReadonlyArray<{ inquiryItemId: string; to: string; supplierName: string; subject: string }>;
 };
 
 export type CoverageInput = {
@@ -114,7 +122,9 @@ export type CoverageInput = {
   currentTemplateHash: string;
   /** 这封邮件（同一家、同一序号）此前是否已经起草过——过期或失败后重起草的不自动发，免得发送失败时每次扫描都重试 */
   priorAttempt: boolean;
-  chase: Pick<TenderSendChasePayload, "inquiryItemId" | "kind" | "chaseIndex" | "to" | "threadId" | "body">;
+  chase: Pick<TenderSendChasePayload, "inquiryItemId" | "kind" | "chaseIndex" | "to" | "threadId" | "body" | "supplierName" | "fromName" | "fromEmail" | "originalSubject">;
+  /** 这封邮件正文里写的回复截止（YYYY-MM-DD；没有 = null）——来自轮次当前的截止日 */
+  chaseReplyBy: string | null;
 };
 
 export type CoverageDecision =
@@ -154,6 +164,11 @@ export function decideFollowUpCoverage(input: CoverageInput): CoverageDecision {
   const original = card.items.find((i) => i.inquiryItemId === chase.inquiryItemId);
   if (!original || !original.to || !sameAddress(original.to, chase.to)) return no("RECIPIENT_CHANGED");
   if (!chase.threadId) return no("THREAD_MISSING");
+  // 正文里会出现的、批准之后别人能改的东西，都必须和批准的那张卡一致：人批准的是当时看到的内容
+  if (!original.supplierName || original.supplierName !== chase.supplierName) return no("SUPPLIER_RENAMED");
+  if (card.fromName !== chase.fromName || !sameAddress(card.fromEmail, chase.fromEmail)) return no("SENDER_CHANGED");
+  if (!original.subject || original.subject !== chase.originalSubject) return no("SUBJECT_CHANGED");
+  if ((policy.replyBy ?? null) !== (input.chaseReplyBy ?? null)) return no("DEADLINE_CHANGED");
   if (containsSensitiveSupplierBriefText(chase.body)) return no("SENSITIVE_TEXT");
 
   return { covered: true, approverUserId: card.decidedById, policy };
@@ -201,4 +216,14 @@ export function followUpCardView(policy: RfqFollowUpPolicy, input: { fromName: s
   if (policy.maxReminders >= 2) templates.push({ key: "reminder2", labelZh: `第 2 次催单（再过 ${policy.chaseAfterDays} 天仍未回复时）`, ...p.reminder2 });
   if (policy.allowMissingFieldQuestion) templates.push({ key: "missingFields", labelZh: "缺字段追问（报价缺哪项问哪项，只在这六项里）", ...p.missingFields });
   return { summaryZh: followUpPolicySummaryZh(policy), templates };
+}
+
+/* ---------------------------------- 待批卡与起草内容的一致性 ---------------------------------- */
+
+/** 库里这张卡要发的，是不是覆盖判定看过的那一封（同一幂等键可能复用了别处先建的卡） */
+const CHASE_BOUND_FIELDS = ["projectId", "inquiryId", "inquiryItemId", "supplierName", "to", "kind", "chaseIndex", "threadId", "originalSubject", "subject", "body", "fromName", "fromEmail", "bodyHash"] as const;
+export function sameChaseContent(stored: unknown, expected: TenderSendChasePayload): boolean {
+  if (!stored || typeof stored !== "object") return false;
+  const s = stored as Record<string, unknown>;
+  return CHASE_BOUND_FIELDS.every((k) => s[k] === expected[k]);
 }

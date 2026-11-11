@@ -337,7 +337,7 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged, 
               {autoFollowUp && (
                 <div className="space-y-1 pl-6 text-muted">
                   <p className="text-foreground/85">{followUpOffer.summaryZh}</p>
-                  <p>正文是固定模板，只发给这一轮的收件人；送审后在审批卡上可以逐段看到。轮次取消、过了回复截止、或你点「停止自动跟进」后不再发。</p>
+                  <p>正文是固定模板，只发给这一轮的收件人；送审后在审批卡上可以逐段看到。轮次取消或你点「停止自动跟进」后不再发；过了回复截止不再催单（缺字段的追问不受截止限制）。供应商名称、发件人或回复截止在批准之后改过的，退回逐封批。带这项授权的卡只能在网页上批。</p>
                 </div>
               )}
             </section>

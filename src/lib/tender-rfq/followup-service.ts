@@ -70,13 +70,17 @@ export async function loadRoundFollowUpStatus(orgId: string, inquiryIds: readonl
         where: { orgId, action: FOLLOWUP_AUTO_SEND_AUDIT_ACTION, targetType: FOLLOWUP_AUDIT_TARGET, targetId: inquiryId },
         select: { afterData: true },
       });
-      autoSentCount = rows.filter((r) => {
+      // 按催单卡去重：并发的两次扫描可能各写一条审计，但同一张卡只会发出一封
+      const sentCards = new Set<string>();
+      for (const r of rows) {
         try {
-          return (JSON.parse(r.afterData ?? "{}") as { sent?: boolean }).sent === true;
+          const d = JSON.parse(r.afterData ?? "{}") as { sent?: boolean; chaseActionId?: string };
+          if (d.sent === true && d.chaseActionId) sentCards.add(d.chaseActionId);
         } catch {
-          return false;
+          // 坏数据不计
         }
-      }).length;
+      }
+      autoSentCount = sentCards.size;
     }
     out.set(inquiryId, { ...display, autoSentCount });
   }

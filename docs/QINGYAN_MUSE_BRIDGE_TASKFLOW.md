@@ -244,7 +244,7 @@
 
 | # | 任务 | 依赖 | 产出 | 状态 |
 |---|---|---|---|---|
-| RFQ-AUTO-1 | 一次批准管整轮：发询价的审批卡可带跟进授权（催单最多 2 次、间隔、回复截止、一次缺字段追问、模板指纹），批准这张卡即一并批准授权范围内的后续邮件；扫描时逐封做覆盖判定（16 个条件），覆盖得住的仍逐封建审批记录、以批准该轮的人的身份经既有审批入口执行并另写审计，覆盖不住的照旧待批；轮次可停止自动跟进；顺带修两个现存漏洞（已取消 / 已完成的轮次不再跟进；催单过了回复截止不发）。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关 | FIX-1 | OpenSpec change `rfq-round-followup-preapproval`；新增测试 51 项 + 隔离库端到端 23 项已注册，`chase-execute` +7；任务书验收项 A18 / A19 补齐（22 条至此全部有测试）；`openspec/config.yaml` 硬纪律第 2 条补一句（待 Owner 确认）；截图 4 张 `docs/acceptance/rfq-auto-1/`；报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` | [G]（PR 待审） |
+| RFQ-AUTO-1 | 一次批准管整轮：发询价的审批卡可带跟进授权（催单最多 2 次、间隔、回复截止、一次缺字段追问、模板指纹），批准这张卡即一并批准授权范围内的后续邮件；扫描时逐封做覆盖判定（20 个条件，含「正文里的供应商名称 / 发件人 / 截止与批准的卡一致」）；带授权的卡只能在网页批（Muse 里不能批），覆盖得住的仍逐封建审批记录、以批准该轮的人的身份经既有审批入口执行并另写审计，覆盖不住的照旧待批；轮次可停止自动跟进；顺带修两个现存漏洞（已取消 / 已完成的轮次不再跟进；催单过了回复截止不发）。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关 | FIX-1 | OpenSpec change `rfq-round-followup-preapproval`；新增测试 62 项 + 隔离库端到端 28 项已注册，`chase-execute` +7、`muse-bridge-pure` +4；开 PR 前经独立审查并修复 6 处；任务书验收项 A18 / A19 补齐（22 条至此全部有测试）；`openspec/config.yaml` 硬纪律第 2 条补一句（待 Owner 确认）；截图 4 张 `docs/acceptance/rfq-auto-1/`；报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` | [G]（PR 待审） |
 
 ---
 

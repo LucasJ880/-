@@ -198,7 +198,8 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     orgId: input.orgId,
     principal: { userId: input.userId, actorType: "user" },
     actionType: TENDER_SEND_RFQ_TYPE,
-    title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商 — ${project.name}`,
+    // 带跟进授权时标题里就写明：只显示标题的界面（通知、列表）也看得出批的不只是首封
+    title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商${followUpPolicy ? "（含自动跟进授权）" : ""} — ${project.name}`,
     preview: previewRfqPayload(payload),
     payload: payload as unknown as Record<string, unknown>,
     // 对外发邮件：与 revenue-spine 跟进邮件同级

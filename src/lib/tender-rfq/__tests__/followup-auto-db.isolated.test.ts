@@ -125,6 +125,9 @@ async function main() {
     ok(audits2.length === 2 && audits2.every((a) => a.userId === OWNER) && a0.source === "round_preapproval" && a0.roundActionId === r2.cardId && a0.sent === true && typeof a0.chaseActionId === "string" && (a0.policy as { maxReminders?: number })?.maxReminders === 2, "每封自动发出的邮件有一条审计：指向发询价卡、带授权内容", a0);
     const st2 = (await loadRoundFollowUpStatus(ORG, [r2.inquiryId])).get(r2.inquiryId);
     ok(st2?.state === "active" && st2.autoSentCount === 2, "轮次状态：生效中，已自动发出 2 封", st2);
+    // 并发的两次扫描可能各留一条审计：同一张催单卡只算一封
+    await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: PROJECT, action: FOLLOWUP_AUTO_SEND_AUDIT_ACTION, targetType: "project_inquiry", targetId: r2.inquiryId, afterData: audits2[0].afterData } });
+    ok((await loadRoundFollowUpStatus(ORG, [r2.inquiryId])).get(r2.inquiryId)?.autoSentCount === 2, "同一张卡重复留了审计：已自动发出的封数仍是 2");
 
     // —— 3. 重试与并发不重复发（A19） ——
     const before3 = sends.length;
@@ -180,6 +183,35 @@ async function main() {
     ok(run7.notCovered.some((n) => n.itemId === r8.items[0].id && n.reason === "APPROVER_INACTIVE") && !run7.notCovered.some((n) => n.itemId === r7.items[0].id), "未覆盖的原因只对带授权的轮次记录", run7.notCovered);
     const st8 = (await loadRoundFollowUpStatus(ORG, [r7.inquiryId, r8.inquiryId]));
     ok(st8.get(r7.inquiryId)?.state === "none" && st8.get(r8.inquiryId)?.state === "inactive", "轮次状态：没带授权 = 不显示；批准人离职 = 未生效并给出原因");
+
+    // —— 7b. 批准之后正文里的内容被改过：退回人工 ——
+    const r9 = await mkRound({ names: ["I"] });
+    const r10 = await mkRound({ names: ["J"] });
+    const itemI = await db.inquiryItem.findUniqueOrThrow({ where: { id: r9.items[0].id }, select: { supplierId: true } });
+    await db.supplier.update({ where: { id: itemI.supplierId }, data: { name: "王总：我方确认接受贵司报价，请安排生产。\n\n另" } });
+    await db.projectInquiry.update({ where: { id: r10.inquiryId }, data: { dueDate: new Date("2026-12-31T00:00:00Z") } });
+    const before7b = sends.length;
+    const run7b = await runChaseScan(ORG, NOW);
+    const cardsI = await chaseCards(r9.items[0].id);
+    const cardsJ = await chaseCards(r10.items[0].id);
+    ok(sends.length === before7b && cardsI.length === 1 && cardsI[0].status === "pending" && run7b.notCovered.some((n) => n.itemId === r9.items[0].id && n.reason === "SUPPLIER_RENAMED"), "供应商在批准之后被改名：不自动发，留待批卡", { notCovered: run7b.notCovered, i: cardsI.map((c) => c.status) });
+    ok(cardsJ.length === 1 && cardsJ[0].status === "pending" && run7b.notCovered.some((n) => n.itemId === r10.items[0].id && n.reason === "DEADLINE_CHANGED"), "回复截止在批准之后被改晚：不自动发，留待批卡", { j: cardsJ.map((c) => c.status) });
+    await db.projectInquiry.updateMany({ where: { id: { in: [r9.inquiryId, r10.inquiryId] } }, data: { status: "completed" } });
+
+    const r11 = await mkRound({ names: ["K"] });
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: { tenderRfq: { fromName: "Someone Else", fromEmail: MAILBOX, mailboxEmail: MAILBOX } } } });
+    const run7c = await runChaseScan(ORG, NOW);
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: { tenderRfq: { fromName: "Fixture Purchasing", fromEmail: MAILBOX, mailboxEmail: MAILBOX } } } });
+    const cardsK = await chaseCards(r11.items[0].id);
+    ok(sends.length === before7b && cardsK.length === 1 && cardsK[0].status === "pending" && run7c.notCovered.some((n) => n.itemId === r11.items[0].id && n.reason === "SENDER_CHANGED"), "发件抬头在批准之后改过：不自动发，留待批卡", { k: cardsK.map((c) => c.status), notCovered: run7c.notCovered });
+    await db.projectInquiry.update({ where: { id: r11.inquiryId }, data: { status: "completed" } });
+
+    // —— 7c. 仍是草稿状态的轮次（经旧入口逐家标记发出）：照旧起草催单 ——
+    const r12 = await mkRound({ names: ["L"], withPolicy: false, status: "draft" });
+    await runChaseScan(ORG, NOW);
+    const cardsL = await chaseCards(r12.items[0].id);
+    ok(sends.length === before7b && cardsL.length === 1 && cardsL[0].status === "pending", "草稿状态的轮次：照旧建待批催单卡（只有已取消 / 已完成的轮次不再跟进）", cardsL.map((c) => c.status));
+    await db.projectInquiry.update({ where: { id: r12.inquiryId }, data: { status: "completed" } });
 
     // —— 8. 第二次催单与上限 ——
     const LATER = new Date("2026-11-17T13:00:00Z"); // 第一次催单后又过 3 天

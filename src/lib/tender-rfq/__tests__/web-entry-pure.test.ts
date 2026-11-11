@@ -308,6 +308,10 @@ console.log("RFQ-AUTO-1 入口与接口接线（源码断言）");
   ok("授权只在「网页发起 + 明确勾选 + 开关打开」三者同时成立时写进载荷", /input\.source === "web" && input\.autoFollowUp === true && isRfqFollowUpPreapprovalEnabledForOrg\(/.test(service));
   ok("建轮次接口：autoFollowUp 是可选布尔，只有明确为 true 才算勾选", /autoFollowUp: z\.boolean\(\)\.optional\(\)/.test(roundsRoute) && /autoFollowUp: body\.autoFollowUp === true,/.test(roundsRoute));
   ok("停止接口：要求项目写权限，且只有 POST", /requireProjectWriteAccess/.test(stopRoute) && /export async function POST/.test(stopRoute) && !/export async function (GET|PUT|PATCH|DELETE)/.test(stopRoute));
+  ok("带授权时标题里写明「含自动跟进授权」（只显示标题的界面也看得出）", /\$\{followUpPolicy \? "（含自动跟进授权）" : ""\}/.test(service));
+  const chaseService = read("src/lib/tender-rfq/chase-service.ts");
+  ok("扫描只排除已取消 / 已完成的轮次（草稿状态的照旧催）", /status: \{ notIn: \["canceled", "completed"\] \}/.test(chaseService) && !/status: "in_progress",\n\s+\.\.\.\(where\.inquiryId/.test(chaseService));
+  ok("代批之前核对库里那张卡的内容，且按组织与类型查", /findFirst\(\{ where: \{ id: input\.actionId, orgId: input\.orgId, type: TENDER_SEND_CHASE_TYPE \}/.test(chaseService) && /sameChaseContent\(stored\.payload, input\.expected\)/.test(chaseService));
   ok("Muse 发起路径调用同一个建轮次函数，但不传 autoFollowUp", /prepareRfqRound\(/.test(muse) && !/autoFollowUp/.test(muse));
 }
 

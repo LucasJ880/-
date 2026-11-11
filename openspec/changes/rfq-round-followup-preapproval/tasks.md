@@ -29,3 +29,11 @@
 
 - 一个 change = 一个 PR，直接指向 main，不叠层；不自动合并；合并后 `/opsx:archive rfq-round-followup-preapproval --yes`（独立小 PR）。
 - 下一个 change：RFQ-AUTO-2 `rfq-round-auto-draft`（要求确认后自动选供应商、自动起草一轮，仍只给一张卡）。
+
+## 7. 独立审查后的修复
+
+- [x] 7.1 覆盖判定加四条（供应商名称、发件人、原邮件主题、回复截止与批准的卡一致）；verify：`followup-coverage.test.ts` 与 `followup-auto-db.isolated.test.ts` 全部通过
+- [x] 7.2 带授权的发询价卡不能在 Muse 批、标题标明「含自动跟进授权」；verify：`muse-bridge-pure.test.ts` 全部通过
+- [x] 7.3 扫描只排除已取消 / 已完成的轮次；verify：`followup-auto-db.isolated.test.ts`「草稿状态的轮次」
+- [x] 7.4 代为执行前核对库里审批记录的内容；执行抛错时按实际状态留审计；已自动发出的封数按卡去重；verify：`followup-coverage.test.ts`、`followup-auto-db.isolated.test.ts`
+- [x] 7.5 抽屉里关于回复截止的说明改正；规格、design、报告同步
