@@ -23,6 +23,9 @@ import { buildRfqDocument } from "./build";
 import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
 import { readTenderRfqSettings, resolveSender } from "./round-pure";
 import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
+import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
+import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
+import { loadActiveSupplierGroups } from "./supplier-groups-service";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
   assembleEntryPreview,
@@ -72,6 +75,11 @@ export type RfqWebEntry =
        * 两个功能开关都关闭时没有这个字段；只开了一个时，只有本人的开关不是 off 才有（让他看得到、关得掉）。
        */
       autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
+      /**
+       * RFQ-AUTO-5：本人的供应商分组、每组现在几家可选、这个项目按名称对上了哪一组、当前这一版的标识。
+       * 功能关闭时没有这个字段——响应与界面都和本功能之前相同。
+       */
+      supplierGroups?: SupplierGroupsEntry;
     };
 
 /** RFQ-AUTO-1：入口里与跟进授权有关的全部内容 */
@@ -100,8 +108,12 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   const settings = readTenderRfqSettings(orgSettings);
   const timeZone = resolveOrgTimezone(orgSettings);
   const prefs = readUserPrefs(orgSettings, input.userId);
+  // RFQ-AUTO-5：本人的分组（功能关闭 → 空，且不查库）
+  const groupsEnabled = isRfqSupplierGroupsEnabledForOrg(input.orgId);
+  const storedGroups = await loadActiveSupplierGroups(input.orgId, input.userId);
+  const groupSupplierIds = supplierIdsInGroups(storedGroups.doc);
 
-  const [lockState, reqInputs, providers, supplierRows, executed, chaseRows] = await Promise.all([
+  const [lockState, reqInputs, providers, recentSupplierRows, groupSupplierRows, executed, chaseRows] = await Promise.all([
     loadRfqRoundLockState({ orgId: input.orgId, projectId: project.id, now, roundLockDays: settings.roundLockDays }),
     loadRfqRequirementInputs(project.id),
     db.emailProvider.findMany({
@@ -117,6 +129,10 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       take: SUPPLIER_LIMIT,
       select: { id: true, name: true, contactEmail: true, status: true },
     }),
+    // 分组里的供应商单独取：停用的、或排在最近 100 家之外的，也要出现在抽屉里（标明不可选），不能悄悄消失
+    groupSupplierIds.length
+      ? db.supplier.findMany({ where: { orgId: input.orgId, id: { in: groupSupplierIds } }, select: { id: true, name: true, contactEmail: true, status: true } })
+      : Promise.resolve([]),
     db.pendingAction.findMany({
       where: { orgId: input.orgId, projectId: project.id, type: TENDER_SEND_RFQ_TYPE, status: "executed" },
       select: { payload: true, createdAt: true, executedAt: true },
@@ -186,7 +202,8 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       })()
     : { locked: false as const };
 
-  const suppliers = orderEntrySuppliers(supplierRows, prefs.defaultSupplierIds);
+  // 去重在 orderEntrySuppliers 里做；没有分组时 groupSupplierRows 为空，结果与本功能之前相同
+  const suppliers = orderEntrySuppliers([...recentSupplierRows, ...groupSupplierRows], prefs.defaultSupplierIds);
 
   const state = decideRfqEntryState({
     projectId: project.id,
@@ -255,6 +272,16 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     timeZone,
     ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
     ...(await loadEntryAutoDraftFollowUp(input.orgId, input.userId)),
+    ...(groupsEnabled
+      ? {
+          supplierGroups: buildSupplierGroupsEntry({
+            doc: storedGroups.doc,
+            version: storedGroups.version,
+            projectName: project.name,
+            readySupplierIds: new Set(suppliers.filter((x) => x.ready).map((x) => x.id)),
+          }),
+        }
+      : {}),
     followUp: await loadEntryFollowUp({
       orgId: input.orgId,
       now,

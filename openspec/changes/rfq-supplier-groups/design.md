@@ -102,7 +102,7 @@
 
 ### D9 自动起草时读分组的位置
 
-在 `auto-draft-service.ts` 里，现有「便宜的条件先查」之后、选供应商之前读操作者的分组（一次查询）与项目名称（入口已读）。有分组 → 供应商 id 取自对上的那一组，仍经 `pickAutoDraftSuppliers`（就绪规则、8 家上限、跳过原因都不变）。`prepareRfqRound` 不改。
+在 `auto-draft-service.ts` 里，现有「便宜的条件先查」之后、选供应商之前读操作者的分组（一次查询）与项目名称（入口已读）。有分组 → 供应商 id 取自对上的那一组，仍经 `pickAutoDraftSuppliers`（就绪规则、8 家上限、跳过原因都不变）。`prepareRfqRound` 的流程不改，只多一个可选入参把「哪一组、哪个关键词」带到卡摘要的那一句里（实施时发现那一句是在建轮次里拼的）。
 
 ## Risks / Trade-offs
 

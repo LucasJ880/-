@@ -4,6 +4,7 @@
  * 只在人的审核动作（批准招标分析 / 确认 / 批量确认 / 驳回要求）成功之后被调用，在那次请求里同步执行。
  * 批准分析即视为审核完成（Lucas 2026-11-11 定）：询价单只带已确认的要求，没确认的不带，并在卡与结果里写明有几条没带上。
  * 只起草：调既有的 prepareRfqRound 产出一张待批的发询价审批卡；不批准、不发信。
+ * 供应商（RFQ-AUTO-5）：操作者没有生效的分组 → 他的常用供应商；有分组 → 只用按项目名称恰好对上的那一组，对不上不起草。
  * 卡带不带跟进授权，只取决于触发起草的那个人自己的开关（RFQ-AUTO-3，默认关）；带了也仍要人批准这张卡才生效。
  * 任何异常都被接住——自动起草失败不影响触发它的审核动作。
  *
@@ -26,6 +27,8 @@ import {
 } from "./auto-draft-pure";
 import { loadAutoDraftFollowUpOptIn } from "./auto-followup-optin-service";
 import { prepareRfqRound } from "./service";
+import { findGroup, matchSupplierGroup, type SupplierGroupMatch } from "./supplier-groups";
+import { loadActiveSupplierGroups } from "./supplier-groups-service";
 import { loadRfqWebEntry } from "./web-entry";
 
 export type MaybeAutoDraftInput = {
@@ -79,12 +82,23 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
   const entry = await loadRfqWebEntry({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, now: input.now });
   if (!entry.available) return null; // 不是投标项目：本功能不适用
 
-  const org = await db.organization.findUnique({ where: { id: input.orgId }, select: { settingsJson: true } });
+  // ── 供应商名单：有生效的分组就只认分组（按项目名称比对，只看他本人的）；没有分组才是常用供应商 ──
+  const [org, storedGroups, project] = await Promise.all([
+    db.organization.findUnique({ where: { id: input.orgId }, select: { settingsJson: true } }),
+    loadActiveSupplierGroups(input.orgId, input.userId),
+    db.project.findFirst({ where: { id: input.projectId, orgId: input.orgId }, select: { name: true } }),
+  ]);
+  const hasGroups = storedGroups.doc.groups.length > 0;
+  const groupMatch: SupplierGroupMatch | null = hasGroups ? matchSupplierGroup(storedGroups.doc, project?.name) : null;
+  const matchedGroup = groupMatch?.kind === "one" ? findGroup(storedGroups.doc, groupMatch.group) : null;
+  const group = groupMatch?.kind === "one" && matchedGroup ? { groupName: matchedGroup.name, keyword: groupMatch.keyword } : null;
+
   const prefs = readUserPrefs(org?.settingsJson ?? null, input.userId);
-  const supplierRows = prefs.defaultSupplierIds.length
-    ? await db.supplier.findMany({ where: { orgId: input.orgId, id: { in: prefs.defaultSupplierIds } }, select: { id: true, name: true, contactEmail: true, status: true } })
+  const listIds = hasGroups ? (matchedGroup?.supplierIds ?? []) : prefs.defaultSupplierIds;
+  const supplierRows = listIds.length
+    ? await db.supplier.findMany({ where: { orgId: input.orgId, id: { in: listIds } }, select: { id: true, name: true, contactEmail: true, status: true } })
     : [];
-  const { picked, skipped } = pickAutoDraftSuppliers(prefs.defaultSupplierIds, supplierRows);
+  const { picked, skipped } = pickAutoDraftSuppliers(listIds, supplierRows);
 
   const decision = decideAutoDraft({
     flagEnabled: true,
@@ -92,8 +106,9 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     roundCount,
     entryBlock: entry.state.enabled ? null : entry.state.reason,
     pickedSupplierCount: picked.length,
+    groupMatch,
   });
-  if (!decision.draft) return decision.reason === "FLAG_OFF" ? null : autoDraftBlocked(decision.reason, ctx);
+  if (!decision.draft) return decision.reason === "FLAG_OFF" ? null : autoDraftBlocked(decision.reason, { ...ctx, groupMatch });
 
   // RFQ-AUTO-3：触发起草的这个人有没有事先开启「自动起草的轮次带跟进授权」（只看他本人的；功能开关任一关闭 → false）
   const followUpOptIn = await loadAutoDraftFollowUpOptIn(input.orgId, input.userId);
@@ -108,6 +123,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     supplierIds: picked.map((p) => p.id),
     onlyIfFirstRound: true,
     ...(followUpOptIn ? { autoFollowUp: true } : {}),
+    ...(group ? { autoDraftGroup: group } : {}),
     now: input.now,
   });
   if (!prepared.ok) {
@@ -121,7 +137,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     action: AUTO_DRAFT_AUDIT_ACTION,
     targetType: AUDIT_TARGET,
     targetId: prepared.inquiryId,
-    afterData: auditData({ input, actionId: prepared.actionId, roundNumber: prepared.roundNumber, suppliers: prepared.suppliers, skipped, unconfirmedCount, withFollowUp: !!prepared.followUpPolicy }),
+    afterData: auditData({ input, actionId: prepared.actionId, roundNumber: prepared.roundNumber, suppliers: prepared.suppliers, skipped, unconfirmedCount, withFollowUp: !!prepared.followUpPolicy, group, groupsVersion: group ? storedGroups.version : null }),
   });
 
   return autoDraftDone({
@@ -133,6 +149,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     unconfirmedCount,
     // 以卡上实际写了什么为准（而不是开关的值）
     withFollowUp: !!prepared.followUpPolicy,
+    group,
   });
 }
 
@@ -144,6 +161,8 @@ function auditData(a: {
   skipped: AutoDraftSkipped[];
   unconfirmedCount: number;
   withFollowUp: boolean;
+  group: { groupName: string; keyword: string } | null;
+  groupsVersion: string | null;
 }) {
   return {
     // 这一轮不是人在抽屉里发起的：是人的审核动作触发、系统按他的常用供应商起草的
@@ -152,7 +171,9 @@ function auditData(a: {
     analysisRunId: a.input.runId,
     actionId: a.actionId,
     roundNumber: a.roundNumber,
-    supplierSource: "operator_default_suppliers",
+    // 名单从哪来：操作者的常用供应商，或（RFQ-AUTO-5）他的供应商分组里按项目名称对上的那一组
+    supplierSource: a.group ? "operator_supplier_group" : "operator_default_suppliers",
+    ...(a.group ? { supplierGroup: { name: a.group.groupName, matchedKeyword: a.group.keyword, version: a.groupsVersion } } : {}),
     suppliers: a.suppliers.map((s) => ({ id: s.id, name: s.name })),
     skipped: a.skipped,
     // 批准时还没确认也没驳回的要求数：这些没有带进询价单

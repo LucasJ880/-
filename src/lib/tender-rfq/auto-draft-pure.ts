@@ -3,9 +3,11 @@
  *
  * 系统只起草：产出一张待批的发询价审批卡，不批准、不发信。
  * 判定是查表：条件按固定顺序检查，返回第一条不满足的原因；不调用模型。
- * 供应商只来自操作者自己保存的常用供应商——不按品类、标签、评分增补或替换。
+ * 供应商只来自操作者自己保存的名单：没有分组时是他的常用供应商；有分组时（RFQ-AUTO-5）是按项目名称恰好对上的那一组，
+ * 对不上就不起草、不退回常用供应商。不按供应商自身的品类字段、标签、评分增补或替换。
  */
 
+import type { SupplierGroupMatch } from "./supplier-groups";
 import type { EntryAction, EntryBlockReason } from "./web-entry-pure";
 
 /** 自动起草的审批卡来源标记（写进审批卡载荷的元数据，供审计与轮次列表识别） */
@@ -25,6 +27,10 @@ export const AUTO_DRAFT_REASONS = [
   "SENSITIVE_LEAK",
   "SENDER_NOT_READY",
   "NO_DEFAULT_SUPPLIERS",
+  // RFQ-AUTO-5：操作者有分组，但按项目名称确定不了用哪一组（零组或多组对上）
+  "SUPPLIER_GROUP_UNDETERMINED",
+  // RFQ-AUTO-5：对上的那一组里没有在用且有邮箱的供应商
+  "SUPPLIER_GROUP_EMPTY",
   "DRAFT_FAILED",
 ] as const;
 export type AutoDraftReason = (typeof AUTO_DRAFT_REASONS)[number];
@@ -79,8 +85,13 @@ export type AutoDraftFacts = {
   roundCount: number;
   /** 既有询价入口对这个操作者的结论：null = 可以发 */
   entryBlock: EntryBlockReason | null;
-  /** 操作者的常用供应商里就绪的那几家（pickAutoDraftSuppliers 的结果） */
+  /** 供应商名单（常用供应商，或对上的那一组）里就绪的那几家（pickAutoDraftSuppliers 的结果） */
   pickedSupplierCount: number;
+  /**
+   * RFQ-AUTO-5：操作者有生效的分组时，这个项目按名称比对的结果；没有分组（或功能关闭）不传 / 传 null——
+   * 此时名单是常用供应商，判定与本功能之前相同。
+   */
+  groupMatch?: SupplierGroupMatch | null;
 };
 
 export type AutoDraftDecision = { draft: true } | { draft: false; reason: AutoDraftReason };
@@ -104,6 +115,12 @@ export function decideAutoDraft(f: AutoDraftFacts): AutoDraftDecision {
   if (!f.run.isCurrent || f.run.status !== "APPROVED") return no("RUN_NOT_APPROVED");
   if (f.roundCount > 0) return no("ROUND_EXISTS");
   if (f.entryBlock) return no(ENTRY_BLOCK_TO_REASON[f.entryBlock]);
+  if (f.groupMatch) {
+    // 有分组就只认分组：对不上不猜，也不退回常用供应商
+    if (f.groupMatch.kind !== "one") return no("SUPPLIER_GROUP_UNDETERMINED");
+    if (f.pickedSupplierCount <= 0) return no("SUPPLIER_GROUP_EMPTY");
+    return { draft: true };
+  }
   if (f.pickedSupplierCount <= 0) return no("NO_DEFAULT_SUPPLIERS");
   return { draft: true };
 }
@@ -121,10 +138,15 @@ export type RfqAutoDraftResult =
 const bidTabHref = (projectId: string) => `/projects/${encodeURIComponent(projectId)}?tab=bid`;
 export const autoDraftRoundHref = (projectId: string, inquiryId: string) => `${bidTabHref(projectId)}#rfq-round-${encodeURIComponent(inquiryId)}`;
 
-export function autoDraftDone(input: { projectId: string; inquiryId: string; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number; withFollowUp?: boolean }): RfqAutoDraftResult {
+/** RFQ-AUTO-5：这次起草用的分组与依据（给内部人看的说明里用；不进发给供应商的任何内容） */
+export type AutoDraftGroupSource = { groupName: string; keyword: string };
+const groupSourceZh = (g: AutoDraftGroupSource) => `分组「${g.groupName}」（项目名称里有「${g.keyword}」）`;
+
+export function autoDraftDone(input: { projectId: string; inquiryId: string; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number; withFollowUp?: boolean; group?: AutoDraftGroupSource | null }): RfqAutoDraftResult {
   // RFQ-AUTO-3：卡上带跟进授权时在这里就说清楚——批准它不只是批准首封
   const followUp = input.withFollowUp ? "这张卡带自动跟进授权：批准它会一并批准后面的催单和追问。" : "";
-  const skipped = input.skippedCount > 0 ? `（常用供应商里有 ${input.skippedCount} 家停用、没有邮箱或超出上限，已跳过）` : "";
+  const skipped = input.skippedCount > 0 ? `（${input.group ? "这一组" : "常用供应商"}里有 ${input.skippedCount} 家停用、没有邮箱或超出上限，已跳过）` : "";
+  const who = input.group ? `${input.supplierCount} 家供应商，取自${groupSourceZh(input.group)}` : `${input.supplierCount} 家常用供应商`;
   // 批准分析即视为审核完成：询价单只带已确认的要求，没确认的不带——这里说清楚有几条没带上
   const unconfirmed = input.unconfirmedCount > 0 ? `询价单只带已确认的要求，另有 ${input.unconfirmedCount} 条没有确认的没带上。` : "";
   return {
@@ -134,7 +156,7 @@ export function autoDraftDone(input: { projectId: string; inquiryId: string; rou
     skippedCount: input.skippedCount,
     unconfirmedCount: input.unconfirmedCount,
     withFollowUp: input.withFollowUp === true,
-    messageZh: `已为你起草第 ${input.roundNumber} 轮询价：${input.supplierCount} 家常用供应商${skipped}。${unconfirmed}${followUp}还没有发出，批准后才发。`,
+    messageZh: `已为你起草第 ${input.roundNumber} 轮询价：${who}${skipped}。${unconfirmed}${followUp}还没有发出，批准后才发。`,
     href: autoDraftRoundHref(input.projectId, input.inquiryId),
     quiet: false,
   };
@@ -143,7 +165,7 @@ export function autoDraftDone(input: { projectId: string; inquiryId: string; rou
 /** 没起草：原因 → 一句话 + 去处。审核过程中必然反复出现的原因标为 quiet，避免每点一下都提示。 */
 export function autoDraftBlocked(
   reason: Exclude<AutoDraftReason, "FLAG_OFF">,
-  ctx: { projectId: string; trigger: AutoDraftTrigger },
+  ctx: { projectId: string; trigger: AutoDraftTrigger; groupMatch?: SupplierGroupMatch | null },
 ): RfqAutoDraftResult {
   const rfqEntry: EntryAction = { label: "去「标书与报价」发询价", href: bidTabHref(ctx.projectId) };
   const requirements: EntryAction = { label: "去「需求」", href: `/projects/${encodeURIComponent(ctx.projectId)}?tab=requirements` };
@@ -161,6 +183,18 @@ export function autoDraftBlocked(
       return blocked("发询价的授权邮箱还没连接好，没有自动起草。", { label: "去连接邮箱", href: "/settings/email" });
     case "NO_DEFAULT_SUPPLIERS":
       return blocked("你还没有能发询价的常用供应商，没有自动起草。在询价入口手动选一次，之后选定报价的供应商会成为常用。", rfqEntry);
+    case "SUPPLIER_GROUP_UNDETERMINED": {
+      const m = ctx.groupMatch;
+      const why =
+        m?.kind === "many"
+          ? `项目名称同时对上了 ${m.groups.map((g) => `「${g}」`).join("")} ${m.groups.length} 个供应商分组`
+          : "项目名称没有对上你的任何一个供应商分组";
+      return blocked(`${why}，没有自动起草询价（有分组时不会改用常用供应商）。请在询价入口选一个分组后发起。`, rfqEntry);
+    }
+    case "SUPPLIER_GROUP_EMPTY": {
+      const name = ctx.groupMatch?.kind === "one" ? `分组「${ctx.groupMatch.group}」` : "对上的那个供应商分组";
+      return blocked(`${name}里现在没有能发询价的供应商（停用或没有邮箱），没有自动起草。请在询价入口调整这一组或手动选。`, rfqEntry);
+    }
     case "DRAFT_FAILED":
       return blocked("自动起草询价没有成功，可以在询价入口手动发起。", rfqEntry);
   }
@@ -171,10 +205,11 @@ export function autoDraftBlocked(
 export const AUTO_DRAFT_TITLE_PREFIX = "自动起草：";
 /** 摘要里那一行的固定开头：轮次列表靠它把这一行从卡的摘要里取出来，显示在原地审批处 */
 export const AUTO_DRAFT_PREVIEW_PREFIX = "系统在招标分析批准后自动起草";
-export const AUTO_DRAFT_NOTE_FALLBACK = "系统在招标分析批准后自动起草，供应商取自操作者的常用供应商。请核对收件人与正文后再批准。";
-export function autoDraftPreviewLineZh(userName: string, counts: { confirmedCount: number; unconfirmedCount: number }): string {
+export const AUTO_DRAFT_NOTE_FALLBACK = "系统在招标分析批准后自动起草，供应商取自操作者保存的名单。请核对收件人与正文后再批准。";
+export function autoDraftPreviewLineZh(userName: string, counts: { confirmedCount: number; unconfirmedCount: number }, group?: AutoDraftGroupSource | null): string {
   const unconfirmed = counts.unconfirmedCount > 0 ? `，另有 ${counts.unconfirmedCount} 条没有确认的没带上` : "";
-  return `${AUTO_DRAFT_PREVIEW_PREFIX}；供应商取自 ${userName || "操作者"} 的常用供应商；询价单带了 ${counts.confirmedCount} 条已确认的要求${unconfirmed}。请核对收件人与正文后再批准。`;
+  const source = group ? groupSourceZh(group) : "常用供应商";
+  return `${AUTO_DRAFT_PREVIEW_PREFIX}；供应商取自 ${userName || "操作者"} 的${source}；询价单带了 ${counts.confirmedCount} 条已确认的要求${unconfirmed}。请核对收件人与正文后再批准。`;
 }
 
 /**

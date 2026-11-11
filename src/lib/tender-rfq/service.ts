@@ -58,6 +58,11 @@ export type PrepareRfqInput = {
    * 或 auto（RFQ-AUTO-3：触发起草的人事先开启了个人开关，由自动起草的服务读出后传入）时生效；Muse 不传。
    */
   autoFollowUp?: boolean;
+  /**
+   * RFQ-AUTO-5：自动起草用了供应商分组时，是哪一组、凭项目名称里的哪个关键词。只在来源是 auto 时用，
+   * 只写进审批卡摘要里那一句给内部人看的说明——不进询价单、不进邮件。
+   */
+  autoDraftGroup?: { groupName: string; keyword: string } | null;
   now?: Date;
 };
 
@@ -232,7 +237,7 @@ async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Pro
       ? autoDraftPreviewLineZh((await db.user.findUnique({ where: { id: input.userId }, select: { name: true } }))?.name ?? "", {
           confirmedCount: doc.lineItems.length,
           unconfirmedCount: requirements.filter((r) => r.reviewStatus === "AI_EXTRACTED").length,
-        })
+        }, input.autoDraftGroup ?? null)
       : null;
 
   const payload: TenderSendRfqPayload = {

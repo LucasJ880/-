@@ -48,7 +48,7 @@ TASKFLOW：RFQ-AUTO-5（Phase F 续，接 RFQ-AUTO-2、RFQ-AUTO-3、RFQ-AUTO-4�
 
 ## Impact
 
-- `src/lib/tender-rfq/`：新增分组的校验、匹配（纯函数）与读写（服务）、功能开关；`auto-draft-service.ts` 与 `auto-draft-pure.ts` 按分组选供应商并新增两个「没起草」的原因；`web-entry.ts` 返回分组信息。
+- `src/lib/tender-rfq/`：新增分组的校验、匹配（纯函数）与读写（服务）、功能开关；`auto-draft-service.ts` 与 `auto-draft-pure.ts` 按分组选供应商并新增两个「没起草」的原因；`web-entry.ts` 返回分组信息；`service.ts` 的建轮次入参多一个可选项（用了哪一组、凭哪个关键词），只写进卡摘要里给内部人看的那一句，建轮次流程不变。
 - `src/app/api/projects/[id]/tender-rfq/supplier-groups/route.ts`：新接口。
 - `src/components/inquiry/`：询价抽屉里的分组选择与管理。
-- 不改 `prisma/schema.prisma`、`src/lib/muse-bridge/**`、`src/lib/pending-actions/**`、`service.ts` 的建轮次流程、跟进授权相关文件、`openspec/config.yaml`。
+- 不改 `prisma/schema.prisma`、`src/lib/muse-bridge/**`、`src/lib/pending-actions/**`、询价单与邮件的生成（`build.ts`）、跟进授权相关文件、`openspec/config.yaml`。
