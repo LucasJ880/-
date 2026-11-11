@@ -117,3 +117,69 @@
 - `docs.frappe.io` 不在本会话网络白名单内，ERPNext 的结论来自源码而非文档。
 - 搜索命中的 `sketabchi/rfpkit`、`manojmallick/bidforge-agent` 无法克隆，未读。
 - 商业产品（网页搜索结果里占多数）不在本调研范围。
+
+---
+
+## 6. 第二轮（2026-11-11）：成本核算表、不逐项询问的流程、贸易数据
+
+起因：Lucas 追问「GitHub 上没有其他可以借鉴的吗」，并提了两点——ChatGPT 每次都要问「要不要查海关数据」，希望做成通用流程；成本核算表要表现出来。本轮只搜这三类，不重复第一轮的投标写作类项目。读法同前：调研浅克隆后读源码，主会话抽查 6 处（§6.5）。
+
+### 6.1 结论
+
+1. **没有现成的「逐行投标成本核算表」可以照搬。** 读到的项目里，没有一个同时做到按行、进口与本地分流、进口环节税现金流、预备金口径、毛利率与加成率并列。能借的是零件，版式要自己定。
+2. **「不逐项询问」在开源研究代理里是一个配置开关加一张权限表**，做法很一致，可以直接照这个思路做。
+3. **加拿大逐票提单数据在公开来源里不存在**；找到的 1688 工具要登录并带反检测，按硬纪律第 5 条排除。
+
+### 6.2 成本核算可借的零件
+
+| 零件 | 出处 | 许可证 | 用在哪 |
+|---|---|---|---|
+| 整票费用分摊方法：按数量 / 按金额 / 手工（`distribute_charges_based_on`） | [frappe/erpnext](https://github.com/frappe/erpnext) 落地成本凭证 | GPL-3.0，只借思路 | TI-2 分摊 |
+| 分摊方法：均摊 / 按数量 / 按现成本 / 按重量 / 按体积（`split_method`），每条费用可单独选方法 | [odoo/odoo](https://github.com/odoo/odoo) `stock_landed_costs` | LGPL-3，只借思路 | TI-2 分摊（采用按体积、重量、货值、数量四种） |
+| 分摊后必须对账：各行之和与整票金额不等就报错；余数加到最后一行 | ERPNext、Odoo | 同上 | TI-2 分摊 |
+| 起订量与整包装取整：先取起订量，再向上取整到整箱（需要 105 件、每箱 10 件 → 11 箱），超出部分单列 | [hamitemreozn/LandedCompare](https://github.com/hamitemreozn/LandedCompare) 规则文档 | 无许可证，只借思路 | TI-2「采购数量与起订量」 |
+| 税行「显示但不计入合计」 | 同上 | 同上 | TI-2 可抵扣的进口 GST 只进现金流 |
+| 缺汇率是阻断错误，「绝不静默退回默认值」 | 同上 | 同上 | 与青砚落地成本的现有语义一致 |
+| 税率结果的出处字段：税率原文、规则原文、匹配方式、置信级别、来源、取数日期、税则快照日期、提示 | [opsloft/tariff-resolver](https://github.com/opsloft/tariff-resolver) | MIT；只覆盖美国税则 | TI-2「假设与出处」块的字段形状 |
+| 报价来源字段：来源文件、格式、文件哈希、所在表与行 | [yigitcan-ozturk/rfqdiff](https://github.com/yigitcan-ozturk/rfqdiff) | MIT | 同上 |
+| 备选报价并排比较：按产品分组、每个备选一行、最优价 / 最优单价 / 最早交期高亮 | Odoo `purchase_alternative` | LGPL-3，只借思路 | 后续「行 × 供应商」比价 |
+
+没有可借之处的：三个 AccioWork 仓库只有说明页，计算器不在仓库里；Procure-Sherpa 只有文档与截图。
+
+### 6.3 「不逐项询问」的做法
+
+| 做法 | 出处 | 许可证 |
+|---|---|---|
+| 澄清提问是一个开关 `allow_clarification`，关掉后直接从写研究提纲开始，全程不再问 | [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research) | MIT |
+| 人工反馈默认关（`include_human_feedback: false`）；规划子问题后并发执行，不逐个确认 | [assafelovic/gpt-researcher](https://github.com/assafelovic/gpt-researcher) | Apache-2.0 |
+| 每个工具一个静态权限：允许 / 询问 / 拒绝；只有写文件类询问，其余直接放行 | [virattt/dexter](https://github.com/virattt/dexter) | 无 LICENSE 文件，只借思路 |
+| 逐工具声明 `needsApproval`；需要批准时整轮暂停，由人批准或驳回后继续 | [openai/openai-agents-js](https://github.com/openai/openai-agents-js) | MIT |
+| 缺输入不编造、不提问，在结果里明说「未指定」；拿不到的数据按条返回带类型的错误，其余照常完成 | open_deep_research、tariff-resolver | MIT |
+| 每个循环都有配置里的上限；默认值按「代码 → 文件 → 环境变量 / 单次运行」逐层覆盖 | 三者皆是 | — |
+
+落到青砚：差距分析 §17.1 的阶段策略表（自动 / 等材料 / 未接通 / 要批准）。青砚已有的审批卡机制对应这里的「需要批准才暂停」；缺的只是把只读阶段事先归类。
+
+### 6.4 贸易与寻源数据
+
+| 来源 | 有什么 | 取得方式 | 能不能用 |
+|---|---|---|---|
+| 加拿大进口商数据库（ISED，open.canada.ca 开放数据） | 按 HS 编码、城市、来源国列出进口商名单；年度 | 公开下载 | 能。没有逐票记录与金额 |
+| 加拿大统计局商品贸易数据 | 按 HS 编码的进出口汇总；无公司名 | 公开下载 | 能 |
+| CBSA 关税表 | 税目、最惠国与各优惠税率 | 公开的数据库 / 网页；有人做了下载并转成本地库的脚本（[incredibleamir-dot/CBSA-Tariff-Lookup](https://github.com/incredibleamir-dot/CBSA-Tariff-Lookup)，无许可证，只借思路） | 能，作为带日期的税则快照 |
+| UN Comtrade（[uncomtrade/comtradeapicall](https://github.com/uncomtrade/comtradeapicall)，MIT） | 国家间按 HS 编码的贸易汇总；无公司名 | 预览接口无需密钥 | 能，只能看市场规模与来源国 |
+| 逐票提单数据 | — | 没有找到合法公开的加拿大来源 | 只能来自付费授权的商业数据库，默认「未接通」 |
+| [superjack2050/1688-cli](https://github.com/superjack2050/1688-cli)（MIT） | 1688 搜索、报盘、供应商 | **扫码登录买家账号**，并启用浏览器反检测插件；不是官方开放接口 | **不能**（硬纪律第 5 条） |
+| [adminglobalcostdata/ca-customs-tariff](https://github.com/adminglobalcostdata/ca-customs-tariff) | 仓库里只有 100 行样例，全量在付费服务后面 | — | 不能直接用 |
+
+### 6.5 交叉核对记录
+
+| # | 调研结论 | 主会话抽查 | 结果 |
+|---|---|---|---|
+| V4 | open_deep_research 有 `allow_clarification`，为假时跳过澄清 | `configuration.py:54`、`deep_researcher.py:75` | 一致 |
+| V5 | 1688-cli 用反检测插件并要扫码登录 | `src/session/context.ts:5、27`；README 第 26、92 行 | 一致 |
+| V6 | ERPNext 分摊选项为 `Qty` / `Amount` / `Distribute Manually` | `landed_cost_voucher.py:52` | 一致 |
+| V7 | Odoo 分摊方法五种 | `stock_landed_cost.py:11-15` | 一致 |
+| V8 | openai-agents-js 逐工具 `needsApproval` | `packages/agents-core/src/tool.ts:104` | 一致 |
+| V9 | LandedCompare：缺参数是阻断错误、默认按货值分摊、税行可不计入 | `docs/CALCULATION_RULES.md:600、632、428` | 一致（只读了规则文档，没读它的源码） |
+
+**未核对**：`ised-isde.canada.ca` 与 `www.cbsa-asfc.gc.ca` 不在本会话网络白名单内，进口商数据库的具体字段与 CBSA 下载页没有直接看到；各托管计算器与付费数据集没有打开；UN Comtrade 的配额仓库里没写。

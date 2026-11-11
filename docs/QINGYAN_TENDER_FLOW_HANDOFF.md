@@ -4,30 +4,32 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第二次（ChatGPT 一方以 Skill + 实施任务书到达；任务转入 Tender Intelligence Phase A；差距分析已交，**停在 Owner Gate A**） |
+| 最后更新 | 2026-11-11 第三次（Owner Gate A 已过：Lucas「按照你的推荐去做」；三个 change 的四件套已出，**等审核后 apply**；第二轮开源调研已并入） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
-| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]`、TI-0 `[~]` |
+| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]`、TI-0 `[~]`（FIX-1 / TI-1 / TI-2 的行在各自 apply 的最后一条任务里新增） |
 | 工作分支 | `claude/zealous-shannon-p48grg`（只在此分支提交与推送；未要求不开 PR） |
-| 性质 | FLOW-0 与 TI-0 都只出文档，不改代码、不开 OpenSpec change |
-| 进行中的 change | `next16-proxy-rename`（与本任务无关，`openspec list` 显示 Complete、未归档） |
+| 性质 | 到目前为止只有文档与规划文件，**没有改任何代码** |
+| 进行中的 change | `rfq-requirement-category-match`（FIX-1，0/5）、`tender-price-schedule-lines`（TI-1，0/7）、`tender-bid-cost-sheet`（TI-2，0/8）——三个都只有四件套，`openspec validate --strict` 通过；另有 `next16-proxy-rename`（与本任务无关） |
 
 ---
 
 ## 0. 下一步
 
-**现在卡在：Owner Gate A。** Lucas 要对 `docs/tender-intelligence-gap-analysis.md` §10 的 10 项拍板；拍板之前不进入 Phase B，不开 change，不写代码。
+**现在卡在：三个 change 的四件套等审核。** 按 `CLAUDE.md` §4，propose 只出规划文件，审过才能 `/opsx:apply`。Owner Gate A 已过（差距分析 §10a）。
 
-Lucas 2026-11-11 的原话要点（第二条消息）：先只读审查并交差距分析 → 再做数据契约与离线测试 → 审核后再做真实数据连接、界面、成本计算 → 最后交 Draft PR 与测试证据。未经 Owner 明确批准，不发询价、不付费、不正式投标、不合并、不部署生产。禁止新建并行的 Tender / Supplier / Task 体系。
+审核通过后的顺序：
 
-拍板之后按顺序做：
+1. `/opsx:apply rfq-requirement-category-match`（FIX-1）。最小、最急：真实数据下询价单带不上任何要求，已用只读脚本复现（小写类别与旧式代码都返回 `NO_CONFIRMED_REQUIREMENTS`）。先写测试看它失败，再改 `src/lib/tender-rfq/build.ts`。
+2. `/opsx:apply tender-price-schedule-lines`（TI-1）。夹具原件是 Skill 包里的 `assets/ottawa-bedbug-case.json`，**不在仓库里**；18 行的内容在差距分析 §13 与本会话记录里，找不到就请 Lucas 重新上传 `skill.zip`。入库的夹具把竞争对手与出口商名称换成代号。
+3. `/opsx:apply tender-bid-cost-sheet`（TI-2），依赖 TI-1。金标数字来自 Skill 包 `scripts/cost_model.py` 的输出，已写进该 change 的 design「验证方式」。注意合计利润取 313.03（逐行相加），不是样例的 313.04。
+4. 还没 propose 的：FIX-2（数量与单位在入库时被丢，落点取决于 Gate B 的数据库方案，先不动）；TI-3（文件领取方、别名、进口线索、连接状态、证据词表、可投标判定，**外加阶段策略表**——差距分析 §17.1）。
+5. Phase B 三个 change 做完停在 Owner Gate B：审契约与测试，定数据库方案（差距分析 §7）。
 
-1. 把拍板结果逐条写进差距分析 §10（加一列「拍板」），涉及硬纪律例外的同步改 `openspec/config.yaml` 并注明批准人与日期。
-2. 若同意做前置修复：先写一个用入库真实类别值（小写 / `mandatory_technical`）的测试，把差距分析 §8 第 1 项复现出来，再 `/opsx:propose`。
-3. Skill 与夹具：原件只在上传目录与会话临时目录，**会话结束即消失**。差距分析 §10 第 9 项定下落位之前不入库；新会话若找不到原件，请 Lucas 重新上传 `skill.zip`。夹具里有真实公司名，入库前按拍板结果决定是否代号化。
-4. Phase B 的三个 change（TI-1 行项与单位、TI-2 逐行成本、TI-3 领取方 / 线索 / 可投标判定）互不依赖，各自 `/opsx:propose <change>` → 四件套回传审 → `/opsx:apply`。全部是纯函数与夹具测试：不动库、不联网、不调模型。
-5. Phase B 做完停在 Owner Gate B：审契约与测试，定数据库方案（差距分析 §7）。
+每个 change 结束前跑它 tasks 里列的门禁。运行环境：依赖已在本会话装好（`npm ci --ignore-scripts` 后 `npx prisma generate`），新会话要重装；单文件测试 `npx tsx <file>`。
+
+当前会话只被授权在 `claude/zealous-shannon-p48grg` 上推送，没有被要求开 PR。「一个 change 一个 PR」需要 Lucas 另行开口并说明分支怎么分。
 
 FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测（第 4 轮）；独立复核（第 5 轮）；四步路径方案原文；生产开关实际值；R-1 例外是否算已批准。
 
@@ -40,11 +42,14 @@ FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测�
 | 1 | 青砚基线 | 完成 2026-11-11 | 基线文档；12 条断点；3 条更正；5 条未核对 |
 | 2 | 开源调研 | 完成 2026-11-11 | 开源调研文档；13 个仓库；3 处抽查 |
 | 3 | ChatGPT 一方入矩阵 | 完成 2026-11-11（据 Skill 原文；真实对话产出与「三个时刻」未收到） | 方案 §6 |
-| TI-A | Tender Intelligence Phase A：只读架构审查 | 完成 2026-11-11，等 Owner Gate A | `docs/tender-intelligence-gap-analysis.md`：实体映射、8 面板落点、3 个现存问题、10 项待拍板、分阶段安排 |
+| TI-A | Tender Intelligence Phase A：只读架构审查 | 完成 2026-11-11；Owner Gate A 已过（按建议执行） | `docs/tender-intelligence-gap-analysis.md`：实体映射、8 面板落点、3 个现存问题、10 项待拍板、分阶段安排 |
 | 4 | 同标实测 | 未开始 | — |
 | 5 | 独立复核 → 定稿 → 拍板 | 未开始 | — |
 
 ---
+
+| 开源二 | 第二轮开源调研：成本核算、不逐项询问的流程、贸易数据 | 完成 2026-11-11 | 开源调研 §6；6 处抽查 |
+| 规划 | FIX-1、TI-1、TI-2 四件套 | 完成 2026-11-11，等审核 | `openspec/changes/{rfq-requirement-category-match,tender-price-schedule-lines,tender-bid-cost-sheet}/` |
 
 ## 2. 已核对的要点（细节看底稿，这里只放接手必须知道的）
 
@@ -87,7 +92,7 @@ FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测�
 
 ## 5. 不要做的事
 
-- 不要在 Owner Gate A 拍板之前开任何 change 或写任何代码。
+- 不要在四件套审核通过之前 apply；不要 propose 之外顺手改代码。
 - 不要新建并行的 Tender / Supplier / Task 体系；供应商主档只有 `Supplier` 一个。
 - 不要发询价、付费、提交投标或资料申请、合并、部署、动生产数据或凭证——每一项都要 Lucas 单独明确授权。
 - 不要把「领取文件」写成「投标」，不要把历史运单写成当前供货关系，不要在未接通数据源时造数据。
