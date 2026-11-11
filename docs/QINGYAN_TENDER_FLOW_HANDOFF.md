@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第十三次（RFQ-AUTO-3 实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
+| 最后更新 | 2026-11-11 第十四次（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]` |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用 |
-| 进行中的 change | `rfq-auto-draft-followup-optin`（RFQ-AUTO-3，实施完成，PR 待审），见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
+| 进行中的 change | 本任务名下没有。`rfq-auto-draft-followup-optin` 已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
 
 ---
 
@@ -104,7 +104,7 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 |---|---|---|---|---|
 | `rfq-round-followup-preapproval` | RFQ-AUTO-1 | `claude/rfq-round-autopilot` | **已合并**（#422，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-round-followup-preapproval` | Lucas 在四个审批方式里选了「一次批准管整轮」，审过四件套后说「可以，开始实施」。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` |
 | `rfq-round-auto-draft` | RFQ-AUTO-2 | `claude/rfq-round-auto-draft` | **已合并**（#425，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-round-auto-draft` | Lucas 审过四件套后说「可以开始实施了」。实施中发现界面上要求只能在「批准分析」之前逐条确认，按原稿（每条都审完才起草）几乎不会触发；Lucas 在三个选项里选了「照样起草」：批准分析即视为审核完成，只带已确认的要求并写明有几条没带上。开关 `TENDER_RFQ_AUTO_DRAFT_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-2_REPORT.md` |
-| `rfq-auto-draft-followup-optin` | RFQ-AUTO-3 | `claude/rfq-auto-draft-followup` | **实施完成，PR 已开（指向 main），未合并** | Lucas「开始 RFQ-AUTO-3，其他按照你推荐的做」，审过四件套后说「可以，开始实施」。个人开关（按人、按组织，默认关），开启后自动起草的卡带跟进授权。没有新的功能开关。报告 `docs/QINGYAN_RFQ-AUTO-3_REPORT.md` |
+| `rfq-auto-draft-followup-optin` | RFQ-AUTO-3 | `claude/rfq-auto-draft-followup` | **已合并**（#427，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-auto-draft-followup-optin`（这次归档修改了两份已有规格：`rfq-followup-preapproval` 改 1 条加 5 条，`rfq-auto-draft` 改 1 条） | Lucas「开始 RFQ-AUTO-3，其他按照你推荐的做」，审过四件套后说「可以，开始实施」。个人开关（按人、按组织，默认关），开启后自动起草的卡带跟进授权。没有新的功能开关。报告 `docs/QINGYAN_RFQ-AUTO-3_REPORT.md` |
 
 **#422 正文里请 Lucas 确认的两处**（Lucas 没有另外留言，直接合并了 #422；按合并即同意处理，想改随时说）：
 
@@ -115,9 +115,11 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 
 **Lucas 2026-11-11「其他按照你推荐的做」的范围**（已向他说明我的理解，他没有异议并让开始实施）：RFQ-AUTO-3 之后按下面的顺序做第 2、3 项，各自一个 change、一个 PR，每个都先回传四件套。三件事不在这句话的范围内：生产开关（没有权限，也不该由会话来改）；成本输入存专用表（要新增表，违反零 schema，须 Lucas 明确批准例外）；谁能标「已核验」（推荐就是维持现状）。
 
+**RFQ-AUTO-3 的独立审查顺带暴露的一个既有问题（还没有 change，要不要做等 Lucas 定）**：`Organization.settingsJson` 被多处「整块读、整块写」且不加锁——收信定时任务的游标（`tender-rfq/inbound-sync.ts`）、Muse 的偏好与绑定（`muse-bridge/prefs.ts`、`binding.ts`）、管理员改询价设置（`api/organizations/[orgId]/tender-rfq-settings`）、日历监听、投标资料等。它们之间可能互相覆盖（例如刚学到的常用供应商被定时任务的一次回写冲掉）。只有少数写入方加了行锁。RFQ-AUTO-3 没有改这些写法，只是让个人开关绕开了它。
+
 **询价自动流接下来可以做的**（按推荐顺序）：
 
-1. ~~RFQ-AUTO-3~~：已做，见上表。合并后要 `/opsx:archive rfq-auto-draft-followup-optin --yes`（独立小 PR）。
+1. ~~RFQ-AUTO-3~~：已做并归档，见上表。实施中与四件套原稿不同的四处（都是独立审查后改的，写在 #427 正文最前面，Lucas 看过后合并）：开关的状态是本人最近一条开关记录而不是组织设置里的一格；关闭任何时候都可以；带授权的待批卡不看功能开关都显示授权（也改变了 RFQ-AUTO-1 的一个界面行为）；开启时绑定模板指纹。
 2. 给「批准分析」之前的要求审核加批量确认按钮（接口 `batch-confirm` 已有，界面没有用）。
 3. 常用供应商按项目品类分组（现在是每人一份，不分品类；RFQ-AUTO-2 报告 §8 第 1 条的取舍由此而来）。
 
@@ -128,6 +130,7 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 - 四、**改对外发送的审批方式，开 PR 前必须请一个不带结论的独立审查。** RFQ-AUTO-1 自测全绿（51 项 + 真库 23 项）之后，独立审查仍找到 6 处真实问题，其中两处能让「人批准的」和「实际发出的」不一致：正文里的供应商名称、发件人、回复截止在批准之后别人能改；带授权的卡能在 Muse 里只看标题就批。修完后是 62 项 + 真库 28 项。审查的提问方式：只给代码和要找的失败类型，不给自己的结论。
 - 六、**用真实应用走一遍，会碰到测试环境碰不到的东西。** RFQ-AUTO-2 的测试全绿之后，本地开发模式下第一次点「批准分析」得到的是「起草失败」：建审批卡被既有的「非生产环境写入保护」拦住了（测试环境不受它限制）。本地起服务截图时要加 `QINGYAN_ALLOWED_DB_ENDPOINT_PREFIXES=localhost`。另外，开发服务器的构建缓存损坏会让个别接口返回 404 页面，清掉 `.next/dev` 重启即可。
 - 七、**动手之前先看界面上人实际怎么操作。** RFQ-AUTO-2 的四件套假设「批准分析之后还会逐条确认要求」，实际界面批准之后就不给按钮了。这是写完代码、起真实应用截图前核对界面才发现的，改了起草条件并重新请 Lucas 定。下次写触发条件之前先读对应的组件。
+- 八、**放进共享的大 JSON 之前，先查清楚还有谁在写它、怎么写。** RFQ-AUTO-3 原稿把个人开关放在 `Organization.settingsJson` 里，理由是「零 schema 的合规落点」。独立审查查了所有写入方，发现大多是不加锁的整块回写——对一个表示「同意」的开关来说，被悄悄恢复成开是不能接受的。改成只追加的记录。凡是「撤回必须可靠」的状态，都不要放进会被别人整块覆盖的地方。
 - 五、**在容器里跑过 `next dev` 之后，`.next/dev/types` 可能留下损坏的生成文件，让 `npm run typecheck` 报与源码无关的错。** 删掉 `.next/dev` 重跑即可；直接 `npx tsc` 会内存溢出，要用 `npm run typecheck`。
 
 ### 0.6 实施中沿用的约定
