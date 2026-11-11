@@ -188,6 +188,14 @@ export async function getRequestPreview(request: Pick<NextRequest, "cookies">, u
 }
 
 /** 库函数用：按当前请求（或显式注入）取该用户的预览状态 */
+/**
+ * 不经会话鉴权的公开路由用（如客户分享链接）：请求带着属于当前会话用户、签名有效的预览 cookie（含已失效）即为只读。
+ */
+export async function isRequestPreviewReadonly(request: Pick<NextRequest, "cookies">): Promise<boolean> {
+  const sub = await sessionSubOf(request.cookies.get(SESSION_COOKIE)?.value);
+  return !!sub && (await getRequestPreview(request, sub)) !== null;
+}
+
 export async function getAmbientPreview(userId: string | null | undefined): Promise<PreviewState | null> {
   if (!userId) return null;
   return resolvePreviewToken(await ambientTokenFor(userId), userId);

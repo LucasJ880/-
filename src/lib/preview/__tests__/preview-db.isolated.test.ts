@@ -61,6 +61,9 @@ const NM = id("orgnm");
 const ORGS = [WC, HT, LG, NM];
 const P1 = id("p1");
 const P2 = id("p2");
+const CUST = id("cust");
+const QUOTE = id("quote");
+const SHARE = `fxvis1eshare${stamp}`;
 
 process.env.AUTOPILOT_ENABLED = "1";
 process.env.AUTOPILOT_OWNER_USER_IDS = SA;
@@ -90,6 +93,7 @@ async function main() {
   const positionsRoute = await import("@/app/api/organizations/[orgId]/positions/route");
   const logoutRoute = await import("@/app/api/auth/logout/route");
   const searchRoute = await import("@/app/api/search/route");
+  const shareRoute = await import("@/app/api/sales/quotes/share/[token]/route");
   const orgsRoute = await import("@/app/api/organizations/route");
   const notificationsRoute = await import("@/app/api/notifications/route");
   const unreadRoute = await import("@/app/api/notifications/unread-count/route");
@@ -158,6 +162,8 @@ async function main() {
       cardIds.push(row.id);
       return `PENDING_ACTION:${row.id}`;
     };
+    await db.salesCustomer.create({ data: { id: CUST, orgId: WC, name: "Example Homeowner", createdById: REP } });
+    await db.salesQuote.create({ data: { id: QUOTE, orgId: WC, customerId: CUST, status: "sent", orderNumber: `FX-${stamp}`, grandTotal: 0, createdById: REP, shareToken: SHARE } });
     const PROMO = await card("sales.approve_quote_promotion", REP, { approverUserId: OWNERU });
     const RFQ = await card("tender.send_rfq", BIDS, { projectId: P1 });
     const WARRANTY = await card("install.send_warranty_email", OWNERU);
@@ -298,6 +304,11 @@ async function main() {
     const brief = await call(briefingRoute.GET, SA, "/api/sales/daily-briefing", B);
     const briefAfter = await db.notification.count({ where: { userId: SA, type: "sales_daily_briefing" } });
     ok(brief.status === 200 && brief.body?.previewReadonly === true && brief.body?.briefing === null && brief.body?.cached === false && briefAfter === briefBefore, "每日简报：预览中不生成、不建通知（没有当日缓存时返回空并标只读）", { status: brief.status, body: brief.body });
+    const shareView = await call(shareRoute.GET, SA, `/api/sales/quotes/share/${SHARE}`, B, { params: { token: SHARE } });
+    const quoteInPreview = await db.salesQuote.findUnique({ where: { id: QUOTE }, select: { viewedAt: true, status: true } });
+    await call(shareRoute.GET, SA, `/api/sales/quotes/share/${SHARE}`, null, { params: { token: SHARE } });
+    const quotePlain = await db.salesQuote.findUnique({ where: { id: QUOTE }, select: { viewedAt: true, status: true } });
+    ok(shareView.status === 200 && quoteInPreview?.viewedAt === null && quoteInPreview?.status === "sent" && !!quotePlain?.viewedAt && quotePlain?.status === "viewed", "客户分享链接：预览中打开不记客户查看、不改报价状态（不带预览照旧记）", { status: shareView.status, inPreview: quoteInPreview, plain: quotePlain });
     const dbActive = (await db.user.findUnique({ where: { id: SA }, select: { activeOrgId: true } }))?.activeOrgId;
     ok(dbActive === HT, "库里的当前企业仍是家纺企业（预览中的 GET 都没有改写）", dbActive);
 
@@ -417,6 +428,8 @@ async function main() {
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: USERS } }, { orgId: { in: ORGS } }] } }).catch(() => undefined);
     await db.aiThread.deleteMany({ where: { userId: { in: USERS } } }).catch(() => undefined);
     await db.task.deleteMany({ where: { projectId: { in: [P1, P2] } } }).catch(() => undefined);
+    await db.salesQuote.deleteMany({ where: { id: QUOTE } }).catch((e) => console.warn("quote cleanup:", e instanceof Error ? e.message : e));
+    await db.salesCustomer.deleteMany({ where: { id: CUST } }).catch((e) => console.warn("customer cleanup:", e instanceof Error ? e.message : e));
     await db.userNotificationPreference.deleteMany({ where: { userId: { in: USERS } } }).catch(() => undefined);
     await db.project.deleteMany({ where: { id: { in: [P1, P2] } } }).catch((e) => console.warn("project cleanup:", e instanceof Error ? e.message : e));
     await db.principalRoleBinding.deleteMany({ where: { orgId: { in: ORGS } } }).catch(() => undefined);
