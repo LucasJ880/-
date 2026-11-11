@@ -232,6 +232,7 @@
 | FLOW-0 | 三方对比（青砚现状 / ChatGPT workflow / 开源项目）+ 多轮交叉验证 → 主流程重排方案 | — | 方案 §8：三份底稿齐全、矩阵无空格；至少一份标书同标实测；独立复核一轮；每个保留项达到任务书粒度；Lucas 拍板 | [~]（第 1、2 轮完成：`docs/QINGYAN_TENDER_FLOW_BASELINE.md`、`docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；第 3 轮矩阵已据 ChatGPT 一方的 Skill 填入；第 4、5 轮未做） |
 | TI-0 | Tender Intelligence Phase A：只读架构审查与差距分析（Lucas 2026-11-11 任务书：招标文件 → 文件领取方 → 竞争对手历史采购 → 进口线索 → 厂家匹配 → 认证核验 → 逐行成本 → 投标决策；渥太华 18026-93121-T01 作回归样例） | FLOW-0 第 3 轮 | `docs/tender-intelligence-gap-analysis.md` §10 的 10 项由 Lucas 拍板（Owner Gate A）；拍板前不开 change、不写代码 | [~]（差距分析已交；Owner Gate A 已过，Lucas 2026-11-11 按建议执行，见差距分析 §10a；Phase B 进行中） |
 | FIX-1 | 询价单按类别筛要求时认得入库的写法：类别判定不区分大小写与首尾空白；旧式代码 `mandatory_technical` 按技术类进入、`mandatory_general` 不进入；未知类别不进入。此前库里的小写类别与旧式代码全部被判为「不属于供应商侧」，真实数据下询价发不出去 | TI-0（Gate A 第 8 项） | OpenSpec change `rfq-requirement-category-match`；`build.test.ts` 21 → 31 项；报告 `docs/QINGYAN_FIX-1_REPORT.md` | [G]（#412 待审） |
+| TI-1 | 招标价格表行项（纯函数）：行项契约与结构校验、按行号集合的数量汇总、供应商按件报价到招标单位的换算与金额舍入、尺寸对照（相符 / 不符 / 无法判断）、截标时间必须带时区与开放 / 已提交 / 已过期的推导、按官方价格表原样导出；渥太华 18026-93121-T01 的 18 行作回归夹具（公司名用代号）。不落库、不联网、不调模型，线上零变化 | FIX-1 | OpenSpec change `tender-price-schedule-lines`；四个新测试共 81 项已注册；覆盖任务书验收项 A1 / A2 / A8 / A9 / A10 / A16；报告 `docs/QINGYAN_TI-1_REPORT.md` | [G]（#413 待审） |
 
 ---
 
