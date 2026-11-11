@@ -60,6 +60,7 @@ const LG = id("orglg");
 const NM = id("orgnm");
 const ORGS = [WC, HT, LG, NM];
 const P1 = id("p1");
+const P2 = id("p2");
 
 process.env.AUTOPILOT_ENABLED = "1";
 process.env.AUTOPILOT_OWNER_USER_IDS = SA;
@@ -72,7 +73,9 @@ async function main() {
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const { resolveEffectiveBindings } = await import("@/lib/authorization/resolve-effective-permissions");
   const { authorize } = await import("@/lib/authorization/authorize");
-  const { withPreviewToken, __resetPreviewCacheForTests } = await import("@/lib/preview/server");
+  const { withPreviewToken, __resetPreviewCacheForTests, getRequestPreview, effectivePlatformRole } = await import("@/lib/preview/server");
+  const { getVisibleProjectIds } = await import("@/lib/projects/visibility");
+  const { generateReminderLayers } = await import("@/lib/reminders/generator");
   const { ROUTE_GATE_LOADER } = await import("@/lib/navigation/context-server");
   const { applyRouteGate } = await import("@/lib/navigation/route-gate");
   const { resolveCockpitViewer } = await import("@/lib/cockpit/posts-read-model");
@@ -86,6 +89,11 @@ async function main() {
   const briefingRoute = await import("@/app/api/sales/daily-briefing/route");
   const positionsRoute = await import("@/app/api/organizations/[orgId]/positions/route");
   const logoutRoute = await import("@/app/api/auth/logout/route");
+  const searchRoute = await import("@/app/api/search/route");
+  const orgsRoute = await import("@/app/api/organizations/route");
+  const notificationsRoute = await import("@/app/api/notifications/route");
+  const unreadRoute = await import("@/app/api/notifications/unread-count/route");
+  const prefRoute = await import("@/app/api/notifications/preferences/me/route");
   const { DEFAULT_SUNNY_MODULES } = await import("@/lib/tenancy");
 
   const cardIds: string[] = [];
@@ -137,6 +145,11 @@ async function main() {
     await bind(WC, REP, "sales_rep");
     await bind(WC, BIDS, "bids");
     await db.project.create({ data: { id: P1, name: "Example Tender", ownerId: BIDS, orgId: WC, status: "active" } });
+    // 本人另一企业（家纺，本人是 org_admin）的项目与任务：预览中不应出现
+    await db.project.create({ data: { id: P2, name: "Example Textile Order", ownerId: OWNERU, orgId: HT, status: "active" } });
+    const dueToday = new Date();
+    const T1 = (await db.task.create({ data: { title: `Example scope ${stamp} WC`, projectId: P1, creatorId: BIDS, dueDate: dueToday }, select: { id: true } })).id;
+    const T2 = (await db.task.create({ data: { title: `Example scope ${stamp} HT`, projectId: P2, creatorId: OWNERU, dueDate: dueToday }, select: { id: true } })).id;
     const card = async (type: string, createdById: string, extra: Json = {}) => {
       const row = await db.pendingAction.create({
         data: { type, title: `Example ${type}`, preview: "fixture", payload: {}, createdById, orgId: WC, status: "pending", expiresAt: new Date(Date.now() + 72 * 3600_000), ...extra },
@@ -284,9 +297,64 @@ async function main() {
     const briefBefore = await db.notification.count({ where: { userId: SA, type: "sales_daily_briefing" } });
     const brief = await call(briefingRoute.GET, SA, "/api/sales/daily-briefing", B);
     const briefAfter = await db.notification.count({ where: { userId: SA, type: "sales_daily_briefing" } });
-    ok(briefAfter === briefBefore && (brief.body?.previewReadonly === true || brief.status >= 400), "每日简报：预览中不生成、不建通知", { status: brief.status, body: brief.body });
+    ok(brief.status === 200 && brief.body?.previewReadonly === true && brief.body?.briefing === null && brief.body?.cached === false && briefAfter === briefBefore, "每日简报：预览中不生成、不建通知（没有当日缓存时返回空并标只读）", { status: brief.status, body: brief.body });
     const dbActive = (await db.user.findUnique({ where: { id: SA }, select: { activeOrgId: true } }))?.activeOrgId;
     ok(dbActive === HT, "库里的当前企业仍是家纺企业（预览中的 GET 都没有改写）", dbActive);
+
+    // ── 审查补充：其他读成员企业与平台角色的地方（与真实会计逐项相同） ──
+    console.log("\n其他读取点（与真实会计相同）");
+    const visPreview = [...((await inPreview(T, () => getVisibleProjectIds(SA, "user"))) ?? [])].sort();
+    const visReal = [...((await getVisibleProjectIds(ACCT, "user")) ?? [])].sort();
+    ok(same(visPreview, visReal) && visPreview.includes(P1) && !visPreview.includes(P2), "项目可见范围：与真实会计相同，不含本人另一企业的项目", { preview: visPreview.length, real: visReal.length });
+    const searchIds = (b: Json | null) => ({ tasks: ((b?.tasks as Json[]) ?? []).map((t) => t.id as string).sort(), projects: ((b?.projects as Json[]) ?? []).map((x) => x.id as string).sort() });
+    const sPreview = await call(searchRoute.GET, SA, `/api/search?q=${stamp}`, T);
+    const sReal = await call(searchRoute.GET, ACCT, `/api/search?q=${stamp}`, null);
+    const sSelf = await call(searchRoute.GET, SA, `/api/search?q=${stamp}`, null);
+    ok(sPreview.status === 200 && same(searchIds(sPreview.body), searchIds(sReal.body)) && searchIds(sPreview.body).tasks.includes(T1) && !searchIds(sPreview.body).tasks.includes(T2) && searchIds(sSelf.body).tasks.includes(T2), "全局搜索：与真实会计相同，搜不到本人另一企业的任务（不带预览照旧搜得到）", { preview: searchIds(sPreview.body), real: searchIds(sReal.body), self: searchIds(sSelf.body) });
+    const taskIdsIn = (v: unknown, out = new Set<string>()): Set<string> => {
+      if (Array.isArray(v)) v.forEach((x) => taskIdsIn(x, out));
+      else if (v && typeof v === "object") {
+        const o = v as Record<string, unknown>;
+        for (const k of ["id", "taskId"]) if (o[k] === T1 || o[k] === T2) out.add(o[k] as string);
+        Object.values(o).forEach((x) => taskIdsIn(x, out));
+      }
+      return out;
+    };
+    const remPreview = [...taskIdsIn(await inPreview(T, () => generateReminderLayers(SA)))].sort();
+    const remReal = [...taskIdsIn(await generateReminderLayers(ACCT))].sort();
+    const remSelf = [...taskIdsIn(await inPreview(null, () => generateReminderLayers(SA)))].sort();
+    ok((await inPreview(T, () => effectivePlatformRole(SA, "super_admin"))) === "user" && same(remPreview, remReal) && remPreview.includes(T1) && !remPreview.includes(T2) && remSelf.includes(T2), "首页提醒：平台角色按 user、与真实会计相同，不含本人另一企业的任务（不带预览照旧含）", { preview: remPreview, real: remReal, self: remSelf });
+    const orgRows = (b: Json | null) => ((b?.organizations as Json[]) ?? []).filter((o) => ORGS.includes(o.id as string)).map((o) => `${o.id}:${o.myRole}`).sort();
+    const olPreview = await call(orgsRoute.GET, SA, "/api/organizations", T);
+    const olReal = await call(orgsRoute.GET, ACCT, "/api/organizations", null);
+    ok(olPreview.status === 200 && same(orgRows(olPreview.body), [`${WC}:org_member`]) && same(orgRows(olPreview.body), orgRows(olReal.body)), "企业列表：只有预览企业、成员角色 org_member，与真实会计相同", { preview: orgRows(olPreview.body), real: orgRows(olReal.body) });
+    const prefCount = () => db.userNotificationPreference.count({ where: { userId: SA } });
+    const prefBefore = await prefCount();
+    const nl = await call(notificationsRoute.GET, SA, "/api/notifications", T);
+    const uc = await call(unreadRoute.GET, SA, "/api/notifications/unread-count", T);
+    const pm = await call(prefRoute.GET, SA, "/api/notifications/preferences/me", T);
+    const prefInPreview = await prefCount();
+    await call(notificationsRoute.GET, SA, "/api/notifications", null);
+    const prefPlain = await prefCount();
+    ok(nl.status === 200 && uc.status === 200 && pm.status === 200 && prefBefore === 0 && prefInPreview === 0 && prefPlain === 1, "通知列表、未读数、通知偏好：预览中不同步、不建偏好行（不带预览照旧建）", { status: [nl.status, uc.status, pm.status], prefBefore, prefInPreview, prefPlain });
+    const reqPreview = await getRequestPreview(mkReq(SA, "/api/x", T), SA);
+    const reqForeign = await getRequestPreview(mkReq(ACCT, "/api/x", T), SA);
+    ok(reqPreview?.state === "active" && reqForeign === null, "预览只认当前会话：别人的会话带着本人的预览 cookie 不生效", { own: reqPreview?.state, foreign: reqForeign });
+
+    // 已失效的预览中，本人失效的当前企业偏好也不清空（不带预览照旧清空）
+    await db.organization.update({ where: { id: NM }, data: { status: "archived" } });
+    await db.user.update({ where: { id: SA }, data: { activeOrgId: NM } });
+    await db.roleProfile.update({ where: { orgId_key: { orgId: WC, key: "accounting" } }, data: { status: "inactive" } });
+    __resetPreviewCacheForTests();
+    const staleAo = await call(activeOrgRoute.GET, SA, "/api/auth/active-org", T);
+    const staleKept = (await db.user.findUnique({ where: { id: SA }, select: { activeOrgId: true } }))?.activeOrgId;
+    await db.roleProfile.update({ where: { orgId_key: { orgId: WC, key: "accounting" } }, data: { status: "active" } });
+    await call(activeOrgRoute.GET, SA, "/api/auth/active-org", null);
+    const staleCleared = (await db.user.findUnique({ where: { id: SA }, select: { activeOrgId: true } }))?.activeOrgId;
+    await db.organization.update({ where: { id: NM }, data: { status: "active" } });
+    await db.user.update({ where: { id: SA }, data: { activeOrgId: HT } });
+    __resetPreviewCacheForTests();
+    ok(staleAo.status === 200 && staleKept === NM && staleCleared === null, "已失效的预览：失效的当前企业偏好不清空（不带预览照旧清空）", { status: staleAo.status, staleKept, staleCleared });
 
     // ── 只读：代理拒写不带 cookie 值 ──
     console.log("\n只读");
@@ -348,7 +416,9 @@ async function main() {
     await db.notification.deleteMany({ where: { userId: { in: USERS } } }).catch(() => undefined);
     await db.auditLog.deleteMany({ where: { OR: [{ userId: { in: USERS } }, { orgId: { in: ORGS } }] } }).catch(() => undefined);
     await db.aiThread.deleteMany({ where: { userId: { in: USERS } } }).catch(() => undefined);
-    await db.project.deleteMany({ where: { id: P1 } }).catch((e) => console.warn("project cleanup:", e instanceof Error ? e.message : e));
+    await db.task.deleteMany({ where: { projectId: { in: [P1, P2] } } }).catch(() => undefined);
+    await db.userNotificationPreference.deleteMany({ where: { userId: { in: USERS } } }).catch(() => undefined);
+    await db.project.deleteMany({ where: { id: { in: [P1, P2] } } }).catch((e) => console.warn("project cleanup:", e instanceof Error ? e.message : e));
     await db.principalRoleBinding.deleteMany({ where: { orgId: { in: ORGS } } }).catch(() => undefined);
     await db.roleProfile.deleteMany({ where: { orgId: { in: ORGS } } }).catch(() => undefined);
     await db.positionTemplate.deleteMany({ where: { orgId: { in: ORGS } } }).catch(() => undefined);

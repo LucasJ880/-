@@ -4,7 +4,7 @@
  */
 
 import { db } from "@/lib/db";
-import { getActivePreview } from "@/lib/preview/server";
+import { getActivePreview, isPreviewReadonly } from "@/lib/preview/server";
 import { PREVIEW_ORG_ROLE } from "@/lib/preview/identity";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 
@@ -143,8 +143,8 @@ export async function setUserActiveOrgId(
 ): Promise<string | null> {
   const ok = await canUserUseOrg(userId, userRole, orgId);
   if (!ok) return null;
-  // VIS-1e：预览期间不写当前企业
-  if (await getActivePreview(userId)) return orgId;
+  // VIS-1e：预览期间（含已失效、尚未退出）不写当前企业
+  if (await isPreviewReadonly(userId)) return orgId;
   await db.user.update({
     where: { id: userId },
     data: { activeOrgId: orgId },
@@ -184,8 +184,8 @@ export async function resolvePreferredOrgId(
     return { orgId: preferred, organizations, needsSelection: false };
   }
 
-  // 偏好失效则清空，强制重选
-  if (preferred) {
+  // 偏好失效则清空，强制重选（VIS-1e：预览期间不写）
+  if (preferred && !(await isPreviewReadonly(userId))) {
     await db.user.update({
       where: { id: userId },
       data: { activeOrgId: null },

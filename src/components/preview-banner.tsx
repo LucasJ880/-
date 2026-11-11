@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { clearStoredOrgId } from "@/lib/org-selection";
 import { apiFetch } from "@/lib/api-fetch";
 import { usePreviewInfo } from "@/lib/hooks/use-preview";
 
@@ -29,6 +30,8 @@ export function PreviewBanner() {
   async function exit() {
     setBusy(true);
     await apiFetch("/api/admin/preview", { method: "DELETE" }).catch(() => null);
+    // 预览中本地记住的是预览企业；清掉后由服务端的当前企业重新 hydrate
+    clearStoredOrgId();
     window.location.assign("/");
   }
 

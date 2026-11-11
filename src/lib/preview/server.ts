@@ -14,8 +14,11 @@ import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
 import { isSuperAdmin } from "@/lib/rbac/roles";
+import { verifySession } from "@/lib/auth/session";
 import { PREVIEW_COOKIE, verifyPreviewToken, type PreviewClaims } from "./token";
 import {
+  PREVIEW_ORG_ROLE,
+  PREVIEW_PLATFORM_ROLE,
   activePreviewFor,
   previewFingerprint,
   type ActivePreview,
@@ -44,12 +47,34 @@ export function withoutPreview<T>(fn: () => T): T {
   return scope.run({ token: null }, fn);
 }
 
-async function ambientToken(): Promise<string | null> {
+const SESSION_COOKIE = "qy_session";
+const sessionSubCache = new Map<string, { at: number; sub: Promise<string | null> }>();
+
+/** 会话 cookie 的用户（按 token 缓存 30 秒）：预览只对当前会话用户生效（spec「横幅与失效」最后一句） */
+async function sessionSubOf(sessionToken: string | null | undefined): Promise<string | null> {
+  if (!sessionToken) return null;
+  const now = Date.now();
+  const hit = sessionSubCache.get(sessionToken);
+  if (hit && now - hit.at < CACHE_TTL_MS) return hit.sub;
+  const sub = verifySession(sessionToken).then((p) => p?.sub ?? null);
+  sessionSubCache.set(sessionToken, { at: now, sub });
+  if (sessionSubCache.size > CACHE_MAX) {
+    const oldest = sessionSubCache.keys().next().value;
+    if (oldest !== undefined) sessionSubCache.delete(oldest);
+  }
+  return sub;
+}
+
+/** 当前请求里属于 userId 本人会话的预览 token；显式注入优先（代理已核对会话，测试直接给定） */
+async function ambientTokenFor(userId: string): Promise<string | null> {
   const injected = scope.getStore();
   if (injected) return injected.token;
   try {
     const { cookies } = await import("next/headers");
-    return (await cookies()).get(PREVIEW_COOKIE)?.value ?? null;
+    const jar = await cookies();
+    const token = jar.get(PREVIEW_COOKIE)?.value ?? null;
+    if (!token) return null;
+    return (await sessionSubOf(jar.get(SESSION_COOKIE)?.value)) === userId ? token : null;
   } catch (err) {
     const { unstable_rethrow } = await import("next/navigation");
     unstable_rethrow(err);
@@ -64,6 +89,7 @@ const cache = new Map<string, { at: number; value: Promise<PreviewState | null> 
 /** 仅测试用：改库后清掉预览校验缓存 */
 export function __resetPreviewCacheForTests(): void {
   cache.clear();
+  sessionSubCache.clear();
 }
 
 async function validate(claims: PreviewClaims): Promise<PreviewState> {
@@ -146,22 +172,45 @@ export async function resolvePreviewToken(token: string | null | undefined, user
   return value;
 }
 
-/** 请求里的预览 token；显式注入（withPreviewToken / withoutPreview）优先 */
-export function previewTokenFromRequest(request: Pick<NextRequest, "cookies">): string | null {
+/** 请求里属于 userId 本人会话的预览 token；显式注入（withPreviewToken / withoutPreview）优先 */
+async function previewTokenFromRequest(request: Pick<NextRequest, "cookies">, userId: string): Promise<string | null> {
   const injected = scope.getStore();
   if (injected) return injected.token;
-  return request.cookies.get(PREVIEW_COOKIE)?.value ?? null;
+  const token = request.cookies.get(PREVIEW_COOKIE)?.value ?? null;
+  if (!token) return null;
+  return (await sessionSubOf(request.cookies.get(SESSION_COOKIE)?.value)) === userId ? token : null;
 }
 
 /** 路由处理函数用：按请求 cookie 取该用户的预览状态 */
 export async function getRequestPreview(request: Pick<NextRequest, "cookies">, userId: string | null | undefined): Promise<PreviewState | null> {
-  return resolvePreviewToken(previewTokenFromRequest(request), userId);
+  if (!userId) return null;
+  return resolvePreviewToken(await previewTokenFromRequest(request, userId), userId);
 }
 
 /** 库函数用：按当前请求（或显式注入）取该用户的预览状态 */
 export async function getAmbientPreview(userId: string | null | undefined): Promise<PreviewState | null> {
   if (!userId) return null;
-  return resolvePreviewToken(await ambientToken(), userId);
+  return resolvePreviewToken(await ambientTokenFor(userId), userId);
+}
+
+/**
+ * 预览中（active 或已失效、尚未退出）：写一律不做（与代理拒写同口径，spec「写拒绝只看签名」）。
+ * 给 GET 里的懒初始化、缓存写、当前企业回写等用。
+ */
+export async function isPreviewReadonly(userId: string | null | undefined): Promise<boolean> {
+  return (await getAmbientPreview(userId)) !== null;
+}
+
+/** 本人有效的 active 成员关系：预览中只有预览企业（org_member），否则读库 */
+export async function listEffectiveMemberships(userId: string): Promise<Array<{ orgId: string; role: string }>> {
+  const preview = await getActivePreview(userId);
+  if (preview) return [{ orgId: preview.orgId, role: PREVIEW_ORG_ROLE }];
+  return db.organizationMember.findMany({ where: { userId, status: "active" }, select: { orgId: true, role: true } });
+}
+
+/** 本人有效的平台角色：预览中为 user */
+export async function effectivePlatformRole(userId: string, dbRole: string | null | undefined): Promise<string> {
+  return (await getActivePreview(userId)) ? PREVIEW_PLATFORM_ROLE : (dbRole ?? "user");
 }
 
 /** 库函数用：只要 active 的预览（读取改写身份时用） */

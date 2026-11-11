@@ -169,8 +169,11 @@ export async function canDecideTeamApproval(
   let isOrgAdmin = false;
   let isProjectOwner = false;
   let isProjectAdmin = false;
+  // VIS-1e：以岗位预览期间不是企业所有者、不是 org_admin（写一律被拒，这里只影响「能批」的显示）
+  const { getActivePreview } = await import("@/lib/preview/server");
+  const previewing = Boolean(await getActivePreview(ctx.userId));
 
-  if (action.orgId) {
+  if (action.orgId && !previewing) {
     const organization = await db.organization.findUnique({
       where: { id: action.orgId },
       select: { ownerId: true },

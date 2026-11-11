@@ -195,8 +195,9 @@ userId 仍是本人。所以本人提交的、本人是指定审批人的、本�
 - `GET /api/sales/daily-briefing`：不生成、不建通知、不覆盖缓存；有当日缓存就照样返回，没有就返回空并标 `previewReadonly: true`。
 - `GET /api/operations/market-intelligence`：不调 `ensureMarketingSkill`；技能已存在就照常读，不存在就返回空。
 - `GET /api/capabilities/approvals/[id]` 的审计：照写。审计如实记录「谁在什么时候看了」。
+- 独立代码审查后补的（扫描跟进一层库函数后发现）：通知列表与未读数不同步通知、通知偏好不建行、采购规则不建默认规则、项目摘要不刷新、复盘不建草稿、外贸模板不建默认模板、内置技能不建、项目讨论不建会话、Google 日历与 Gmail 绑定回调拒绝绑定。判定用 `isPreviewReadonly`（预览有效或已失效都算），与代理拒写同口径。
 
-另加源码扫描测试：列出 `src/app/api/**/route.ts` 里导出 GET 且含写库调用（`.create(` / `.update(` / `.upsert(` / `.delete(` / `createNotification(` 等）的文件，与测试里的登记表逐个比对。登记表每条写明预览下的行为（停写 / 照写审计 / 公开路径不带会话）；新增未登记的 GET 写库会让测试失败。
+另加源码扫描测试：列出 `src/app/api/**/route.ts` 里导出 GET 且含写库调用（`.create(` / `.update(` / `.upsert(` / `.delete(` / `createNotification(` 等）的文件，与测试里的登记表逐个比对。扫描范围是 GET 函数体、它调到的同文件辅助函数，以及它调到的 `@/lib` 导出函数（含该库文件内的辅助函数，只跟一层）。登记表每条写明预览下的行为（停写 / 照写审计 / 公开路径不带会话）；新增未登记的 GET 写库会让测试失败。
 
 被否决：
 - 用 Prisma 扩展在数据库层统一拦写。`db` 是普通 `PrismaClient`（`src/lib/db.ts`），`$extends` 会改掉全站 `db` 的类型；登录、退出与审计又要逐个开口子，改动面比收益大。

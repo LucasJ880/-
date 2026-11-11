@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { isPreviewReadonly } from "@/lib/preview/server";
 import {
   listTemplates,
   createTemplate,
@@ -28,7 +29,8 @@ export async function GET(request: NextRequest) {
 
   const templates = await listTemplates(orgRes.orgId, category);
 
-  if (templates.length === 0) {
+  // VIS-1e：以岗位预览期间不建默认模板
+  if (templates.length === 0 && !(await isPreviewReadonly(auth.user.id))) {
     await seedDefaultTemplates(orgRes.orgId);
     const seeded = await listTemplates(orgRes.orgId, category);
     return NextResponse.json(seeded);

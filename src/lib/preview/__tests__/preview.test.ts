@@ -154,7 +154,7 @@ async function main() {
     const rpo = ao.slice(ao.indexOf("export async function resolvePreferredOrgId"));
     const branch = rpo.slice(0, rpo.indexOf("listActiveOrgOptions(userId, userRole)"));
     ok(/getActivePreview\(userId\)/.test(branch) && !/setUserActiveOrgId|db\.user\.update/.test(branch), "resolvePreferredOrgId：预览中返回预览企业，不写 activeOrgId");
-    ok(/if \(await getActivePreview\(userId\)\) return orgId;\s*await db\.user\.update/.test(ao), "setUserActiveOrgId：预览中不写");
+    ok(/if \(await isPreviewReadonly\(userId\)\) return orgId;\s*await db\.user\.update/.test(ao), "setUserActiveOrgId：预览中（含已失效）不写");
     ok(/if \(preview\) return preview\.orgId;\s*const row = await db\.user\.findUnique/.test(ao), "getUserActiveOrgId：预览中为预览企业");
     ok(/if \(preview\) return orgId === preview\.orgId;/.test(ao) && /if \(preview\) return previewOrgOptions\(preview\.orgId\)/.test(ao), "canUserUseOrg / listActiveOrgOptions：只有预览企业");
     ok(/if \(preview\) return preview\.orgId;\s*const profile = await getOrgAccessProfile/.test(code("src/lib/organizations/org-access.ts")), "ensureFixedUserActiveOrg：预览中不写");
@@ -212,7 +212,7 @@ async function main() {
 
   console.log("\nGET 写库登记（design D9）");
   {
-    const { readdirSync } = await import("node:fs");
+    const { readdirSync, existsSync } = await import("node:fs");
     const files: string[] = [];
     const walk = (d: string) => {
       for (const e of readdirSync(join(process.cwd(), d), { withFileTypes: true })) {
@@ -222,9 +222,52 @@ async function main() {
       }
     };
     walk("src/app/api");
-    const WRITE = /\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\bcreateNotification\(|\bsetUserActiveOrgId\(|\bensureMarketingSkill\(|\blogAudit\(|\bwriteAuditLog\(|\bensureFixedUserActiveOrg\(|\bresolvePreferredOrgId\(/g;
+    // 写库调用：Prisma 写方法与几个已知的写库辅助函数（.delete( 会撞上 Map.delete，预览模块自身排除；
+    // 要求点号前是标识符，排除 createHash(...).update( 这类链式调用）
+    const WRITE = /(?<=[\w\]]\s*)\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\bcreateNotification\(|\bsetUserActiveOrgId\(|\bensureMarketingSkill\(|\blogAudit\(|\bwriteAuditLog\(|\bensureFixedUserActiveOrg\(|\bresolvePreferredOrgId\(/g;
+    // 函数体：function 声明按参数括号配对后跳过返回类型（返回类型可以是对象字面量）；箭头函数取第一个 `=> {`
+    const closeOf = (src: string, i: number) => {
+      let d = 0;
+      for (let j = i; j < src.length; j++) {
+        if (src[j] === "(") d++;
+        else if (src[j] === ")" && --d === 0) return j;
+      }
+      return -1;
+    };
+    const bodyStart = (src: string, start: number) => {
+      const lead = src.slice(start).match(/^\s*/)?.[0].length ?? 0;
+      if (/^[^\n(=]*\bfunction\b/.test(src.slice(start + lead, start + lead + 200))) {
+        const pe = closeOf(src, src.indexOf("(", start + lead));
+        if (pe < 0) return -1;
+        let depth = 0;
+        let prev = ")";
+        for (let j = pe + 1; j < src.length; j++) {
+          const c = src[j];
+          if (/\s/.test(c)) continue;
+          if (c === "{" && depth === 0 && !":|&,".includes(prev)) return j;
+          if ("<({[".includes(c)) depth++;
+          else if (")}]".includes(c) || (c === ">" && prev !== "=")) depth--;
+          prev = c;
+        }
+        return -1;
+      }
+      // 箭头函数：同一条声明里的第一个 `=>`；表达式体（不跟 `{`）取到行尾
+      const rest = src.slice(start + lead);
+      const end = rest.slice(1).search(/\n(export |const |function |async function )/);
+      const decl = end < 0 ? rest : rest.slice(0, end + 1);
+      const arrow = decl.indexOf("=>");
+      if (arrow < 0) return -1;
+      const after = decl.slice(arrow + 2).match(/^\s*/)?.[0].length ?? 0;
+      const at = start + lead + arrow + 2 + after;
+      return src[at] === "{" ? at : -(at + 2);
+    };
     const bodyFrom = (src: string, start: number) => {
-      const i = src.indexOf("{", start);
+      const i = bodyStart(src, start);
+      if (i < -1) {
+        const at = -i - 2;
+        const eol = src.indexOf("\n", at);
+        return src.slice(at, eol < 0 ? undefined : eol);
+      }
       if (i < 0) return "";
       let depth = 0;
       for (let j = i; j < src.length; j++) {
@@ -233,18 +276,15 @@ async function main() {
       }
       return src.slice(i);
     };
-    const found: Record<string, string[]> = {};
-    for (const f of files) {
-      const src = code(f);
-      const m = src.match(/export\s+(const|async function|function)\s+GET\b/);
-      if (!m || m.index === undefined) continue;
-      let reach = bodyFrom(src, m.index);
+    // 同文件：从入口函数体出发，把被调用的本文件函数体并进来（到不再增加为止）
+    const reachWithin = (src: string, seed: string) => {
+      let reach = seed;
       const seen = new Set<string>();
-      for (let k = 0; k < 5; k++) {
+      for (let k = 0; k < 6; k++) {
         let added = false;
         for (const c of new Set([...reach.matchAll(/\b([a-zA-Z_]\w*)\(/g)].map((x) => x[1]))) {
           if (seen.has(c)) continue;
-          const def = src.match(new RegExp(`(?:^|\\n)(?:async\\s+)?function\\s+${c}\\b|(?:^|\\n)const\\s+${c}\\s*=\\s*(?:async\\s*)?\\(`));
+          const def = src.match(new RegExp(`(?:^|\\n)(?:export\\s+)?(?:async\\s+)?function\\s+${c}\\b|(?:^|\\n)(?:export\\s+)?const\\s+${c}\\s*=\\s*(?:async\\s*)?\\(`));
           if (def && def.index !== undefined) {
             seen.add(c);
             reach += bodyFrom(src, def.index);
@@ -253,43 +293,99 @@ async function main() {
         }
         if (!added) break;
       }
-      const hits = [...new Set([...reach.matchAll(WRITE)].map((x) => x[0]))].sort();
-      if (hits.length) found[f] = hits;
+      return reach;
+    };
+    const resolveLib = (spec: string) => {
+      const base = `src/${spec.replace(/^@\//, "")}`;
+      return [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`].find((c) => existsSync(join(process.cwd(), c))) ?? null;
+    };
+    const SKIP_LIBS = new Set(["src/lib/preview/server.ts", "src/lib/cron/auth.ts"]);
+    const found: Record<string, string[]> = {};
+    for (const f of files) {
+      if (f.startsWith("src/app/api/cron/")) continue; // 定时任务：Bearer 密钥，不带浏览器 cookie
+      const src = code(f);
+      const m = src.match(/export\s+(const|async function|function)\s+GET\b/);
+      if (!m || m.index === undefined) continue;
+      const reach = reachWithin(src, bodyFrom(src, m.index));
+      const hits = new Set([...reach.matchAll(WRITE)].map((x) => x[0]));
+      const called = new Set([...reach.matchAll(/\b([a-zA-Z_]\w*)\(/g)].map((x) => x[1]));
+      // 跟进一层 @/lib 导入：被 GET 调到的导出函数（含其同文件辅助函数）
+      for (const im of src.matchAll(/import\s+\{([^}]+)\}\s+from\s+"(@\/lib\/[^"]+)"/g)) {
+        const lib = resolveLib(im[2]);
+        if (!lib || SKIP_LIBS.has(lib)) continue;
+        const lsrc = code(lib);
+        for (const name of im[1].split(",").map((x) => x.trim().split(/\s+as\s+/).pop() ?? "").filter(Boolean)) {
+          if (!called.has(name)) continue;
+          const def = lsrc.match(new RegExp(`export\\s+(?:async\\s+)?function\\s+${name}\\b|export\\s+const\\s+${name}\\s*=`));
+          if (!def || def.index === undefined) continue;
+          if (new RegExp(WRITE.source).test(reachWithin(lsrc, bodyFrom(lsrc, def.index)))) hits.add(`${name}()`);
+        }
+      }
+      if (hits.size) found[f] = [...hits].sort();
     }
     // 每条写明预览下的行为
     const REGISTRY: Record<string, string> = {
       "src/app/api/accounting/sales-summary/route.ts": "审计照写",
+      "src/app/api/agent-core/skills/route.ts": "预览中不建内置技能",
       "src/app/api/agent-core/tools/route.ts": "当前企业解析预览感知，不写",
       "src/app/api/auth/active-org/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/auth/google/callback/route.ts": "预览中拒绝绑定",
+      "src/app/api/auth/google-email/callback/route.ts": "预览中拒绝绑定",
       "src/app/api/auth/wechat/callback/route.ts": "公开登录回调，清预览 cookie",
-      "src/app/api/cron/marketing-automation/route.ts": "定时任务，不带浏览器 cookie",
-      "src/app/api/cron/release-drift/route.ts": "定时任务，不带浏览器 cookie",
+      "src/app/api/bridge/muse/events/route.ts": "Muse API token，不带浏览器 cookie",
+      "src/app/api/calendar/google/route.ts": "本人 Google token 刷新（与预览身份无关）",
+      "src/app/api/calendar/google/calendars/route.ts": "本人 Google token 刷新（与预览身份无关）",
+      "src/app/api/capabilities/approvals/[approvalId]/route.ts": "审计照写",
       "src/app/api/marketing/daily-brief/route.ts": "审计照写",
+      "src/app/api/notifications/preferences/me/route.ts": "预览中不建偏好行",
+      "src/app/api/notifications/route.ts": "预览中不同步通知",
+      "src/app/api/notifications/unread-count/route.ts": "预览中不同步通知",
       "src/app/api/operations/market-intelligence/route.ts": "预览中只读已有技能",
       "src/app/api/ops/home/route.ts": "当前企业解析预览感知，不写",
       "src/app/api/ops/projects/[id]/route.ts": "当前企业解析预览感知，不写",
       "src/app/api/ops/projects/route.ts": "当前企业解析预览感知，不写",
       "src/app/api/ops/sales-summary/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/procurement/rules/route.ts": "预览中不建默认规则",
+      "src/app/api/projects/[id]/ai-summary/route.ts": "预览中不刷新摘要",
+      "src/app/api/projects/[id]/discussion/messages/route.ts": "预览中不建讨论会话",
+      "src/app/api/projects/[id]/discussion/route.ts": "预览中不建讨论会话",
+      "src/app/api/projects/[id]/reviews/route.ts": "预览中不建复盘草稿",
       "src/app/api/sales/daily-briefing/route.ts": "预览中不生成、不建通知、不覆盖缓存",
+      "src/app/api/sales/quotes/share/[token]/route.ts": "客户分享链接：不读会话，与是否预览无关",
       "src/app/api/tasks/route.ts": "当前企业解析预览感知，不写",
-      "src/app/api/trade/webhook/wechat/route.ts": "公开 webhook，不带会话",
+      "src/app/api/trade/cron/route.ts": "定时任务：CRON_SECRET，不带浏览器 cookie",
+      "src/app/api/trade/templates/route.ts": "预览中不建默认模板",
     };
     const unregistered = Object.keys(found).filter((f) => !REGISTRY[f]);
     const stale = Object.keys(REGISTRY).filter((f) => !found[f]);
-    ok(unregistered.length === 0, "所有会写库的 GET 都已登记预览下的行为", unregistered.map((f) => `${f} :: ${found[f].join(" ")}`));
+    ok(unregistered.length === 0, "所有会写库的 GET（含一层库函数）都已登记预览下的行为", unregistered.map((f) => `${f} :: ${found[f].join(" ")}`));
     ok(stale.length === 0, "登记表没有过期条目", stale);
-    const db = code("src/app/api/sales/daily-briefing/route.ts");
-    const get = db.slice(db.indexOf("export const GET"), db.indexOf("export const POST"));
-    ok(get.indexOf("getActivePreview(user.id)") > 0 && get.indexOf("getActivePreview(user.id)") < get.indexOf("generateBriefing("), "每日简报：预览判断在生成之前");
-    const mi = code("src/app/api/operations/market-intelligence/route.ts");
-    ok(/preview \? await findMarketingSkill\(orgRes\.orgId\) : await ensureMarketingSkill\(orgRes\.orgId\)/.test(mi), "市场情报：预览中只读已有技能");
+    const guarded: Array<[string, RegExp, string]> = [
+      ["src/app/api/sales/daily-briefing/route.ts", /if \(await isPreviewReadonly\(user\.id\)\) \{\s*return NextResponse\.json\(\{ briefing: null/, "每日简报"],
+      ["src/app/api/operations/market-intelligence/route.ts", /readonly \? await findMarketingSkill\(orgRes\.orgId\) : await ensureMarketingSkill/, "市场情报"],
+      ["src/app/api/notifications/route.ts", /if \(!\(await isPreviewReadonly\(auth\.user\.id\)\)\) await syncNotifications/, "通知列表"],
+      ["src/app/api/notifications/unread-count/route.ts", /if \(!\(await isPreviewReadonly\(auth\.user\.id\)\)\) await syncNotifications/, "未读数"],
+      ["src/lib/notifications/preferences.ts", /if \(await isPreviewReadonly\(userId\)\) \{[\s\S]*?findUnique/, "通知偏好"],
+      ["src/app/api/procurement/rules/route.ts", /ensureDefaults: !\(await isPreviewReadonly\(user\.id\)\)/, "采购规则"],
+      ["src/app/api/projects/[id]/ai-summary/route.ts", /intel && !\(await isPreviewReadonly\(user\.id\)\)\) \{\s*await refreshStructuredSummary/, "项目摘要"],
+      ["src/app/api/projects/[id]/reviews/route.ts", /if \(!\(await isPreviewReadonly\(user\.id\)\)\) await maybeCreateReviewDraft/, "复盘草稿"],
+      ["src/app/api/trade/templates/route.ts", /templates\.length === 0 && !\(await isPreviewReadonly\(auth\.user\.id\)\)/, "外贸模板"],
+      ["src/app/api/agent-core/skills/route.ts", /existingCount === 0 && !\(await isPreviewReadonly\(user\.id\)\)/, "内置技能"],
+      ["src/app/api/projects/[id]/discussion/route.ts", /create: !\(await isPreviewReadonly\(user\.id\)\)/, "项目讨论概览"],
+      ["src/app/api/projects/[id]/discussion/messages/route.ts", /\{ create: !\(await isPreviewReadonly\(user\.id\)\) \}/, "项目讨论翻页"],
+      ["src/app/api/auth/google/callback/route.ts", /if \(await getRequestPreview\(request, user\.id\)\) \{[\s\S]*?preview_readonly[\s\S]*?await handleCallback/, "Google 日历绑定"],
+      ["src/app/api/auth/google-email/callback/route.ts", /if \(await getRequestPreview\(request, user\.id\)\) \{[\s\S]*?preview_readonly[\s\S]*?await handleEmailCallback/, "Gmail 绑定"],
+    ];
+    for (const [f, re, label] of guarded) ok(re.test(code(f)), `GET 写库守卫（预览中含已失效）：${label}`);
+    const ao = code("src/lib/organizations/active-org.ts");
+    ok(/if \(await isPreviewReadonly\(userId\)\) return orgId;/.test(ao) && /if \(preferred && !\(await isPreviewReadonly\(userId\)\)\)/.test(ao) && /profile\.activeOrgId !== only && !\(await isPreviewReadonly\(userId\)\)/.test(code("src/lib/organizations/org-access.ts")), "当前企业回写：预览中（含已失效）不写");
   }
 
   console.log("\n路由门、代理与页面门（源码）");
   {
     const proxySrc = code("src/proxy.ts");
     const refuse = proxySrc.indexOf("shouldRefusePreviewWrite(");
-    ok(refuse > 0 && refuse < proxySrc.indexOf("if (isPublicPath(pathname))"), "代理：拒写在公开路径放行之前");
+    ok(refuse > 0 && refuse < proxySrc.indexOf("if (isPublicPath(pathname))") && refuse < proxySrc.indexOf("if (isStaticImagePath(pathname))"), "代理：拒写在静态图片与公开路径放行之前");
     ok(/const role = signedPreview \? PREVIEW_PLATFORM_ROLE : session\.role/.test(proxySrc), "代理：营销 API 旧规则在预览中按 user 判");
     ok(/withPreviewToken\(signedPreview \? previewToken : null, \(\) => applyRouteGate\(request, sessionSub, loader\)\)/.test(proxySrc), "代理：路由门在显式注入的预览 token 下执行");
     const cs = code("src/lib/navigation/context-server.ts");
@@ -325,6 +421,23 @@ async function main() {
     const ps = read("src/app/(main)/organizations/[orgId]/positions-section.tsx");
     ok(/以 TA 的岗位预览/.test(ps) && /按岗位组合预览/.test(ps) && /JSON\.stringify\(\{ orgId, positionKeys: keys \}\)/.test(ps) && /window\.location\.assign\("\/"\)/.test(ps), "企业详情页「岗位」一节：两个入口，开启后整页回到首页");
     ok(/cachedUser = d\?\.user \? \{ \.\.\.d\.user, preview: d\.preview \?\? null \} : null/.test(code("src/lib/hooks/use-current-user.ts")), "当前用户缓存带上预览信息");
+  }
+
+  console.log("\n审查后的补充落点（源码）");
+  {
+    const srv = code("src/lib/preview/server.ts");
+    ok(/\(await sessionSubOf\(jar\.get\(SESSION_COOKIE\)\?\.value\)\) === userId \? token : null/.test(srv) && /\(await sessionSubOf\(request\.cookies\.get\(SESSION_COOKIE\)\?\.value\)\) === userId \? token : null/.test(srv), "预览只对当前会话用户生效（库函数与路由处理函数都核对会话）");
+    ok(/listEffectiveMemberships\(user\.id\)/.test(code("src/app/api/search/route.ts")), "全局搜索：成员企业按预览");
+    const vis = code("src/lib/projects/visibility.ts");
+    ok((vis.match(/listEffectiveMemberships\((user\.id|userId)\)/g) ?? []).length === 2 && !/organizationMember\.findMany/.test(vis), "项目可见范围：成员企业按预览");
+    ok(/await effectivePlatformRole\(userId, user\?\.role\)/.test(code("src/lib/reminders/generator.ts")), "首页提醒：平台角色按预览");
+    ok(/if \(memberships\[i\]\.org\.id !== preview\.orgId\) memberships\.splice\(i, 1\)/.test(code("src/app/api/organizations/route.ts")), "企业列表：预览中只列预览企业");
+    ok(/if \(action\.orgId && !previewing\)/.test(code("src/lib/marketing/team.ts")), "团队审批能批判定：预览中不是企业所有者、不是 org_admin");
+    ok(/getActiveRequestPreview\(request, auth\.user\.id\)\) \{\s*return NextResponse\.json\(\{ error: "无权访问", code: "AUTOPILOT_FORBIDDEN" \}/.test(code("src/lib/autopilot/access.ts")), "Autopilot 接口：预览中 403");
+    ok((code("src/app/api/auth/register/route.ts").match(/setSessionCookie\(response, token\);\s*clearPreviewCookie\(response\);/g) ?? []).length === 2, "注册：新会话清预览 cookie");
+    ok(/clearStoredOrgId\(\);\s*window\.location\.assign\("\/"\)/.test(code("src/components/preview-banner.tsx")), "退出预览：清掉本地记住的当前企业");
+    const trade = code("src/app/(main)/trade/chat/page.tsx");
+    ok(/!previewReadonly && !sending/.test(trade) && /disabled=\{previewReadonly\}/.test(trade), "外贸 AI 对话输入：预览中禁用");
   }
 
   console.log("\n纯模块");

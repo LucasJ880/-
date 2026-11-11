@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clearPreviewCookie } from "@/lib/preview/cookie";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession, setSessionCookie } from "@/lib/auth/session";
@@ -173,6 +174,8 @@ export async function POST(request: NextRequest) {
   });
 
   setSessionCookie(response, token);
+  // VIS-1e：新会话清掉以岗位预览的 cookie
+  clearPreviewCookie(response);
 
   await logAudit({
     userId: user.id,
@@ -271,6 +274,8 @@ async function registerIntoOrg(
     organization: { id: input.orgId },
   });
   setSessionCookie(response, token);
+  // VIS-1e：新会话清掉以岗位预览的 cookie
+  clearPreviewCookie(response);
 
   await logAudit({
     userId: user.id,

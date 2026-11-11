@@ -72,15 +72,9 @@ export async function proxy(request: NextRequest) {
 export async function handleRequest(request: NextRequest, loader: RouteGateLoader) {
   const { pathname } = request.nextUrl;
 
-  // VIS-1a：public/ 图片在登录检查之前放行（与改动前 matcher 按图片扩展名排除一致；
-  // 已登录区路径即使带图片扩展名也不在此列，照样要登录并经路由门）
-  if (isStaticImagePath(pathname)) {
-    return NextResponse.next();
-  }
-
   const token = request.cookies.get(COOKIE_NAME)?.value;
   // VIS-1e：以岗位预览只读（spec authorization/position-preview「预览只读」「写拒绝只看签名」）。
-  // 在公开路径放行之前判；只看签名、aud、过期与会话用户，不读库。
+  // 在静态图片与公开路径放行之前判（任一路径）；只看签名、aud、过期与会话用户，不读库。
   const previewToken = request.cookies.get(PREVIEW_COOKIE)?.value ?? null;
   let session: { sub: string; role: string } | null | undefined;
   let signedPreview = false;
@@ -90,6 +84,12 @@ export async function handleRequest(request: NextRequest, loader: RouteGateLoade
     if (signedPreview && shouldRefusePreviewWrite({ method: request.method, pathname, hasSignedPreview: true })) {
       return NextResponse.json(previewReadonlyBody(), { status: 409 });
     }
+  }
+
+  // VIS-1a：public/ 图片在登录检查之前放行（与改动前 matcher 按图片扩展名排除一致；
+  // 已登录区路径即使带图片扩展名也不在此列，照样要登录并经路由门）
+  if (isStaticImagePath(pathname)) {
+    return NextResponse.next();
   }
 
   if (isPublicPath(pathname)) {

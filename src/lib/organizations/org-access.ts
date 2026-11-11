@@ -3,7 +3,7 @@
  */
 
 import { db } from "@/lib/db";
-import { getActivePreview } from "@/lib/preview/server";
+import { getActivePreview, isPreviewReadonly } from "@/lib/preview/server";
 import type { OrgAccessMode } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit/logger";
 
@@ -160,7 +160,7 @@ export async function ensureFixedUserActiveOrg(
   if (memberships.length === 0) return null;
   if (memberships.length === 1) {
     const only = memberships[0]!.orgId;
-    if (profile.activeOrgId !== only) {
+    if (profile.activeOrgId !== only && !(await isPreviewReadonly(userId))) {
       await db.user.update({
         where: { id: userId },
         data: { activeOrgId: only },

@@ -57,8 +57,8 @@ export async function findRule(orgId: string, jurisdiction: string, institutionK
   return db.recordsRuleProfile.findUnique({ where: { orgId_jurisdiction_institutionKey_channel: { orgId, jurisdiction, institutionKey: "*", channel: ch } } });
 }
 
-export async function listRules(orgId: string) {
-  await ensureDefaultRules(orgId);
+export async function listRules(orgId: string, opts: { ensureDefaults?: boolean } = {}) {
+  if (opts.ensureDefaults !== false) await ensureDefaultRules(orgId);
   return db.recordsRuleProfile.findMany({ where: { orgId }, orderBy: [{ jurisdiction: "asc" }, { institutionKey: "asc" }, { channel: "asc" }] });
 }
 

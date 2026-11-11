@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestPreview } from "@/lib/preview/server";
 import { handleCallback } from "@/lib/google-calendar";
 import { getCurrentUser } from "@/lib/auth";
 
@@ -21,6 +22,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/settings?google=error&reason=no_user", request.url));
     }
 
+    // VIS-1e：以岗位预览期间不绑定（OAuth 回调会写 token）
+    if (await getRequestPreview(request, user.id)) {
+      return NextResponse.redirect(new URL("/settings?google=error&reason=preview_readonly", request.url));
+    }
     await handleCallback(code, user.id);
     return NextResponse.redirect(new URL("/settings?google=success", request.url));
   } catch (err) {
