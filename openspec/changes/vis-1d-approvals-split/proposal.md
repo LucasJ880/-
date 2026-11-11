@@ -20,18 +20,18 @@ TASKFLOW：VIS-1d（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 招投标询价 / 催单与项目智能体审批按招投标中心。
   - 营销按品牌增长，产品内容按产品内容页。
 - 保留没有业务归属的草稿对企业处理人可见：助手、Grader、日历等草稿（不在对照里的类型）仍对企业所有者与成员角色 `org_admin` 可见，与执行期认的处理人相同。
-- 保留旧模式不变：行业包没有岗位模板的企业（旧模式）没有岗位键可对照，审批中心、「待我确认」、收件箱与批准入口的行为全部照旧。
+- 保留旧模式的可见规则：行业包没有岗位模板的企业（旧模式）没有岗位键可对照，审批中心、「待我确认」、收件箱与批准入口都不按可见集合收窄（「只含当前企业」除外，见下）。
 - 收回企业管理员看全企业：岗位模式企业里，企业成员角色 org_owner / org_admin 本身不再看到全企业的业务类型审批。**BREAKING**
 
 **审批中心**
 - 改审批中心列表按可见集合过滤；在查询里过滤 PendingAction，不再取 200 条后在内存里过滤。
 - 改审批详情：不可见的返回 404（与「不存在」同一错误）。批准 / 驳回 / 撤回 / 重试都经详情加载，不可见的一律批不了。
-- 改审批中心的幂等重放：先经详情判可见，再读幂等缓存。
+- 改审批中心的幂等重放：先经详情判可见，再读幂等缓存；缓存只在审批与动作都相同时命中。
 
 **待我确认与审批收件箱**
 - 改 AI 助手「待我确认」列表与侧栏红点数为「既有处理人范围 ∩ 可见集合 ∩ 当前企业」，两者用同一个查询条件函数。红点数 = 列表中未过期的条数；解析不出当前企业时只数本人的个人草稿。
-- 改运营看板的待审批、审批收件箱（`/api/agent/approvals` 与 Muse）为同一个查询条件函数，收件箱改为只含当前企业。
-- 改 AI 助手与审批端口的批准 / 驳回：看不见的审批一律按「不存在」拒绝，端口在返回任何状态之前判；Muse `approve` 先判可见再判网页预览。
+- 改运营看板的待审批、审批收件箱（`/api/agent/approvals` 与 Muse，含其中的项目智能体审批）为同一套范围与可见判定，收件箱改为只含当前企业（对旧模式同样适用，属租户隔离）。
+- 改 AI 助手与审批端口（含项目智能体审批分支）的批准 / 驳回：看不见的审批返回与 id 不存在时完全相同的结果，端口按审批所属企业、在返回任何状态之前判；Muse `approve` 先判可见再判网页预览。
 
 **测试**
 - 新增纯函数表驱动测试：类型对照、可见集合与查询条件同义（小求值器跑样例行）、按身份的可见类型。
@@ -64,7 +64,8 @@ TASKFLOW：VIS-1d（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 团队审批范围：`src/lib/marketing/team.ts`（抽出共用条件）；
   - 待我确认：`src/app/api/ai/pending-actions/route.ts`、`count/route.ts`、`[id]/route.ts`；
   - 运营看板：`src/lib/operations/dashboard/build-dashboard.ts`；
-  - 收件箱与端口：`src/lib/approval/port.ts`、`src/app/api/agent/approvals/route.ts`、`src/lib/muse-bridge/router.ts`（传企业；`approve` 先判可见）；
+  - 收件箱与端口：`src/lib/approval/port.ts`、`src/lib/agent/approval.ts`（`getPendingApprovals` 限企业）、`src/app/api/agent/approvals/route.ts`、`src/lib/muse-bridge/router.ts`（传企业；`approve` 先判可见）；
+  - RFQ 原地审批：`src/lib/tender-rfq/web-entry-approval.ts`（一个项目只取一次判定输入）；
   - 测试与 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
 - 硬纪律：零 schema、不新增权限键、零新增 LLM 调用、不触碰出站（只收窄谁能看见与谁能批）、不新增队列 / cron。
 
@@ -77,4 +78,5 @@ TASKFLOW：VIS-1d（Phase V「可见性收口」；任务书 `docs/QINGYAN_VIS-1
   - 多位持键人只存第一位为审批人；
   - 销售 / 订单的键校验在认领之后，失败会消耗审批卡。
 - 审批卡的生成、通知与落点（`cockpit/waiting.ts` 落点表）。
+- 产品内容自己的决定接口（`api/product-content/jobs/[id]/approvals/*`、`approve-plan`）与 RFQ 面板的待发邮件正文（`loadRfqSendEmails`）：各有自己的权限校验，不改。
 - 工作区（Workspace）审批角色规则；新增权限键或岗位模板。
