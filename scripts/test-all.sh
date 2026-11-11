@@ -630,6 +630,7 @@ run_test "可投标判定 阶段策略表（只读阶段不询问）" "npx tsx s
 run_test "投标工作区 契约与开关" "npx tsx src/lib/tender-bid-workspace/__tests__/workspace-contract.test.ts"
 run_test "投标工作区 读取结果与成本核算" "npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts"
 run_test "投标工作区 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts"
+run_test "投标工作区 面板粘贴导入与成本输入组装" "npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
