@@ -233,6 +233,7 @@
 | TI-0 | Tender Intelligence Phase A：只读架构审查与差距分析（Lucas 2026-11-11 任务书：招标文件 → 文件领取方 → 竞争对手历史采购 → 进口线索 → 厂家匹配 → 认证核验 → 逐行成本 → 投标决策；渥太华 18026-93121-T01 作回归样例） | FLOW-0 第 3 轮 | `docs/tender-intelligence-gap-analysis.md` §10 的 10 项由 Lucas 拍板（Owner Gate A）；拍板前不开 change、不写代码 | [~]（差距分析已交；Owner Gate A 已过，Lucas 2026-11-11 按建议执行，见差距分析 §10a；Phase B 进行中） |
 | FIX-1 | 询价单按类别筛要求时认得入库的写法：类别判定不区分大小写与首尾空白；旧式代码 `mandatory_technical` 按技术类进入、`mandatory_general` 不进入；未知类别不进入。此前库里的小写类别与旧式代码全部被判为「不属于供应商侧」，真实数据下询价发不出去 | TI-0（Gate A 第 8 项） | OpenSpec change `rfq-requirement-category-match`；`build.test.ts` 21 → 31 项；报告 `docs/QINGYAN_FIX-1_REPORT.md` | [G]（#412 待审） |
 | TI-1 | 招标价格表行项（纯函数）：行项契约与结构校验、按行号集合的数量汇总、供应商按件报价到招标单位的换算与金额舍入、尺寸对照（相符 / 不符 / 无法判断）、截标时间必须带时区与开放 / 已提交 / 已过期的推导、按官方价格表原样导出；渥太华 18026-93121-T01 的 18 行作回归夹具（公司名用代号）。不落库、不联网、不调模型，线上零变化 | FIX-1 | OpenSpec change `tender-price-schedule-lines`；四个新测试共 81 项已注册；覆盖任务书验收项 A1 / A2 / A8 / A9 / A10 / A16；报告 `docs/QINGYAN_TI-1_REPORT.md` | [G]（#413 待审） |
+| TI-2 | 逐行投标成本核算表（纯函数）：成本构成分项、进口与本地采购分流、关税依据分级（已核实 / 敏感性假设）、进口 GST 可抵扣只进现金流、运费方案互斥与整票费用分摊、起订量与整包装取整、按售价毛利率与成本加成两种口径并同时输出两个比率、预备金两种口径不重复、两套情景对账不给胜出者、缺参数不出数；核算表视图四块与 Markdown 渲染。不落库、不联网、不调模型，线上零变化 | TI-1 | OpenSpec change `tender-bid-cost-sheet`；五个新测试共 103 项已注册；覆盖任务书验收项 A10–A14；样例 `docs/acceptance/ti-2/ottawa-sample-cost-sheet.md`（合成数据）；报告 `docs/QINGYAN_TI-2_REPORT.md` | [G]（PR 待审） |
 
 ---
 

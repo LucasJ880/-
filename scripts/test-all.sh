@@ -611,6 +611,12 @@ run_test "招标价格表 行项契约与数量汇总（渥太华 18 行）" "np
 run_test "招标价格表 单位换算与金额舍入" "npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts"
 run_test "招标价格表 尺寸对照" "npx tsx src/lib/tender-price-schedule/__tests__/dimension-match.test.ts"
 run_test "招标价格表 截标时间与官方价格表导出" "npx tsx src/lib/tender-price-schedule/__tests__/closing-and-export.test.ts"
+# TI-2：逐行投标成本核算表
+run_test "投标成本核算 逐行直接成本（进口 / 本地 / 关税依据 / GST 去向 / 起订量）" "npx tsx src/lib/tender-bid-cost/__tests__/line-cost.test.ts"
+run_test "投标成本核算 运费方案互斥与整票分摊" "npx tsx src/lib/tender-bid-cost/__tests__/freight.test.ts"
+run_test "投标成本核算 定价口径、预备金与合计" "npx tsx src/lib/tender-bid-cost/__tests__/pricing.test.ts"
+run_test "投标成本核算 两套成本情景对账" "npx tsx src/lib/tender-bid-cost/__tests__/reconcile.test.ts"
+run_test "投标成本核算 核算表视图与 Markdown 渲染（含渥太华样例文件校验）" "npx tsx src/lib/tender-bid-cost/__tests__/sheet-view.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
