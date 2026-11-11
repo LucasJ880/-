@@ -8,7 +8,11 @@ import { join } from "node:path";
 import {
   APPROVAL_FAMILIES,
   approvalFamilyOf,
+  approvalRequestItem,
   isApprovalVisible,
+  isLegacyOrg,
+  pendingActionItem,
+  productContentItem,
   legacyListVisible,
   pendingActionAudienceWhere,
   portCardVisible,
@@ -220,6 +224,42 @@ console.log("\n端口判定顺序");
   ok(portCardVisible(pa("tender.send_rfq"), legacyViewer(), null), "4 旧模式：可见（微信传空企业也按卡所属企业判）");
   ok(!portCardVisible(pa("grader.email_draft", { createdById: ME }), viewer("sales_rep", { ctx: { ...gateCtx("sales_rep"), hasMembership: false } }), null), "5 非成员：不可见");
   ok(!portCardVisible(pa("tender.send_rfq"), v, ORG) && portCardVisible(pa("grader.email_draft"), v, ORG), "6 其余按可见集合：不持岗位的管理员看不到询价、看得到无业务归属草稿");
+}
+
+console.log("\n三个来源的判定形状");
+{
+  const prc = pendingActionItem({ type: "tender.send_rfq", orgId: ORG, createdById: "a", approverUserId: "b", workspaceId: "w", projectId: "p" });
+  ok(prc.sourceType === "PENDING_ACTION" && prc.type === "tender.send_rfq" && prc.projectId === "p" && prc.workspaceId === "w", "PendingAction：类型、项目、工作区照列取");
+  const ar = approvalRequestItem({ approverUserId: "b", task: { createdById: "a", project: { id: "p", orgId: ORG, workspaceId: "w" } } });
+  ok(ar.sourceType === "APPROVAL_REQUEST" && ar.orgId === ORG && ar.createdById === "a" && ar.projectId === "p" && ar.workspaceId === "w", "项目智能体审批：企业 / 项目 / 工作区取任务所属项目，提交人取任务创建人");
+  const pc = productContentItem({ orgId: ORG, requestedById: "a" });
+  ok(pc.sourceType === "PRODUCT_CONTENT" && pc.createdById === "a" && pc.approverUserId === null, "产品内容审批：提交人取 requestedById");
+  ok(isLegacyOrg(legacyViewer()) && isLegacyOrg(legacyViewer({ isPlatformAdmin: true })) && !isLegacyOrg(viewer("owner")) && !isLegacyOrg(viewer("no_position", { ctx: null })), "旧模式按企业判（super_admin 在旧模式企业也走原列表规则）");
+}
+
+console.log("\n审批中心接入（源码）");
+{
+  const query = code("src/lib/capabilities/approvals/query.ts");
+  ok(!/if \(!isOrgAdminRole\(access\.orgRole\)\) \{\s*filtered = filtered\.filter/.test(query), "query.ts 不再有按 isOrgAdminRole(access.orgRole) 的整段放行");
+  ok(/legacy \? \{\} : \{ AND: \[pendingActionAudienceWhere\(viewer\)\] \}/.test(query), "列表：PendingAction 在查询里按可见集合过滤（旧模式除外）");
+  ok(/if \(legacy\) \{[\s\S]*?legacyListVisible\(/.test(query), "列表：旧模式改调 legacyListVisible");
+  ok((query.match(/if \(!visible\((approvalRequestItem|productContentItem)\(row\)\)\) continue;/g) ?? []).length === 2, "列表：项目智能体与产品内容审批投影前判可见");
+  ok((query.match(/if \(!row \|\| !isApprovalVisible\((pendingActionItem|approvalRequestItem|productContentItem)\(row\), viewer\)\)/g) ?? []).length === 3, "详情：三个来源不可见与不存在同一个 404");
+
+  const decision = code("src/lib/capabilities/approvals/decision.ts");
+  const fn = decision.slice(decision.indexOf("export async function decideCapabilityApproval"));
+  const firstDetail = fn.indexOf("await getCapabilityApproval(access, input.approvalId, viewer)");
+  const idem = fn.indexOf("await loadIdempotency(");
+  const expiry = fn.indexOf('projection.status === "EXPIRED"');
+  const cap = fn.indexOf("const capOk");
+  ok(firstDetail > 0 && idem > firstDetail && expiry > idem && cap > expiry, "decision.ts：幂等读取在第一次详情加载之后、过期与能力检查之前", { firstDetail, idem, expiry, cap });
+  ok(/existing\.approvalKey !== approvalKey \|\| existing\.action !== action\) return null/.test(decision) && /loadIdempotency\(\s*access\.orgId,\s*input\.idempotencyKey,\s*input\.approvalId,\s*input\.action,?\s*\)/.test(fn), "decision.ts：幂等缓存只在审批与动作都相同时命中");
+  ok((fn.match(/loadApprovalViewer\(/g) ?? []).length === 1 && (fn.match(/getCapabilityApproval\(access, input\.approvalId, viewer\)/g) ?? []).length === 6 && !/getCapabilityApproval\(access, input\.approvalId\)/.test(fn), "decision.ts：判定输入只取一次，6 处详情加载都用它");
+  ok((fn.match(/note: input\.note,\s*viewer,/g) ?? []).length === 3, "decision.ts：3 处端口调用都带上同一个判定输入");
+
+  const rfq = code("src/lib/tender-rfq/web-entry-approval.ts");
+  const loop = rfq.indexOf("for (const actionId of actionIds)");
+  ok(rfq.indexOf("loadApprovalViewer(") > 0 && rfq.indexOf("loadApprovalViewer(") < loop && /getCapabilityApproval\(usable, approvalId, viewer\)/.test(rfq), "RFQ 原地审批：一个项目只取一次判定输入");
 }
 
 console.log("\n纯模块");

@@ -24,6 +24,7 @@ import {
 } from "@/lib/agent/approval";
 import { resumeFlowAfterApproval } from "@/lib/agent-core/skills/flow-runner";
 import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
+import type { ApprovalViewer } from "./audience";
 
 export type ApprovalKind = "pending_action" | "approval_request";
 
@@ -57,6 +58,11 @@ export interface ApprovalDecisionContext {
   orgId?: string | null;
   note?: string;
   acceptedWithRisk?: boolean;
+  /**
+   * VIS-1d：调用方已取好的审批可见判定输入（审批中心按当前企业取一次）。
+   * 只在它的企业与卡所属企业相同时采用，否则端口按卡所属企业自行取。
+   */
+  viewer?: ApprovalViewer;
 }
 
 export interface ApprovalDecisionResult {

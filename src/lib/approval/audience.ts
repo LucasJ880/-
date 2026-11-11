@@ -142,10 +142,65 @@ export function portCardVisible(item: ApprovalItem, viewer: ApprovalViewer, call
   return isApprovalVisible(item, viewer);
 }
 
+/** viewer 所在企业是旧模式（行业包没有岗位模板）：按企业判，与 super_admin、成员身份无关 */
+export function isLegacyOrg(viewer: ApprovalViewer): boolean {
+  return !!viewer.ctx && !viewer.ctx.positionMode;
+}
+
+/** 三个来源的行 → 统一判定形状（只取判定用到的列） */
+export function pendingActionItem(row: {
+  type: string;
+  orgId: string | null;
+  createdById: string | null;
+  approverUserId: string | null;
+  workspaceId: string | null;
+  projectId: string | null;
+}): ApprovalItem {
+  return {
+    sourceType: "PENDING_ACTION",
+    type: row.type,
+    orgId: row.orgId,
+    createdById: row.createdById,
+    approverUserId: row.approverUserId,
+    workspaceId: row.workspaceId,
+    projectId: row.projectId,
+  };
+}
+
+export function approvalRequestItem(row: {
+  approverUserId: string | null;
+  task: { createdById: string | null; project: { id: string; orgId: string | null; workspaceId: string | null } };
+}): ApprovalItem {
+  return {
+    sourceType: "APPROVAL_REQUEST",
+    type: null,
+    orgId: row.task.project.orgId,
+    createdById: row.task.createdById,
+    approverUserId: row.approverUserId,
+    workspaceId: row.task.project.workspaceId,
+    projectId: row.task.project.id,
+  };
+}
+
+export function productContentItem(row: { orgId: string; requestedById: string | null }): ApprovalItem {
+  return {
+    sourceType: "PRODUCT_CONTENT",
+    type: null,
+    orgId: row.orgId,
+    createdById: row.requestedById,
+    approverUserId: null,
+    workspaceId: null,
+    projectId: null,
+  };
+}
+
 /** 旧模式审批中心列表的原规则（改动前 query.ts 的过滤） */
-export function legacyListVisible(item: ApprovalItem, viewer: ApprovalViewer): boolean {
+export function legacyListVisible(
+  item: Pick<ApprovalItem, "createdById" | "approverUserId" | "workspaceId">,
+  viewer: ApprovalViewer,
+): boolean {
   if (viewer.isOrgAdminRole) return true;
-  if (relatedToMe(item, viewer)) return true;
+  if (item.createdById === viewer.userId || item.approverUserId === viewer.userId) return true;
   return !!item.workspaceId && viewer.workspaceIds.includes(item.workspaceId);
 }
 

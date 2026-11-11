@@ -49,7 +49,7 @@
 
 ## 2. 审批中心
 
-- [ ] 2.1 按 design D6 接入审批中心：
+- [x] 2.1 按 design D6 接入审批中心：
   - `query.ts`：
     - 列表与详情加可选参数 `viewer`，缺省时由 `loadApprovalViewer` 取；
     - PendingAction 的查询条件加 `pendingActionAudienceWhere`；ApprovalRequest 与产品内容投影前判 `isApprovalVisible`；

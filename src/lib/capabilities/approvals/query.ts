@@ -1,5 +1,8 @@
 /**
  * 审批中心列表 / 详情查询
+ *
+ * VIS-1d（spec approvals/visibility，design D6）：岗位模式企业按审批的可见集合过滤，
+ * PendingAction 在查询里过滤；详情不可见与不存在同一个 404。旧模式企业列表沿用原规则。
  */
 
 import { db } from "@/lib/db";
@@ -7,7 +10,6 @@ import type { CapabilitiesAccessContext } from "../types";
 import {
   CapabilitiesAccessError,
   isOrgAdminRole,
-  isWorkspaceMember,
   resolveDetailAccessMode,
 } from "../access";
 import { canWorkspaceApprove, getWorkspaceMembership } from "@/lib/tenancy/workspace-rbac";
@@ -18,6 +20,17 @@ import {
 } from "./adapters";
 import type { ApprovalProjection, ApprovalSourceType } from "./types";
 import { parseApprovalId } from "./types";
+import {
+  approvalRequestItem,
+  isApprovalVisible,
+  isLegacyOrg,
+  legacyListVisible,
+  pendingActionAudienceWhere,
+  pendingActionItem,
+  productContentItem,
+  type ApprovalViewer,
+} from "@/lib/approval/audience";
+import { loadApprovalViewer } from "@/lib/approval/audience-server";
 
 export const APPROVALS_MAX_PAGE = 100;
 export const APPROVALS_DEFAULT_PAGE = 20;
@@ -80,9 +93,17 @@ function visibilityMode(
   return resolveDetailAccessMode(access, workspaceId);
 }
 
+/** 调用方不传时按当前用户与企业取（审批中心路由、概览、首页岗位总览不改调用形状） */
+async function viewerFor(access: CapabilitiesAccessContext, viewer?: ApprovalViewer): Promise<ApprovalViewer> {
+  return viewer ?? loadApprovalViewer(access.userId, access.orgId);
+}
+
+const notFound = () => new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
+
 export async function listCapabilityApprovals(
   access: CapabilitiesAccessContext,
   filters: ApprovalListFilters = {},
+  viewerInput?: ApprovalViewer,
 ): Promise<{
   items: ApprovalProjection[];
   page: number;
@@ -116,11 +137,16 @@ export async function listCapabilityApprovals(
 
   const wantSource = filters.sourceType;
   const items: ApprovalProjection[] = [];
+  const viewer = await viewerFor(access, viewerInput);
+  // 旧模式企业：列表沿用原规则（见文末）；岗位模式：按可见集合
+  const legacy = isLegacyOrg(viewer);
+  const visible = (item: Parameters<typeof isApprovalVisible>[0]) => legacy || isApprovalVisible(item, viewer);
 
   // PendingAction
   if (!wantSource || wantSource === "PENDING_ACTION") {
     const rows = await db.pendingAction.findMany({
       where: {
+        ...(legacy ? {} : { AND: [pendingActionAudienceWhere(viewer)] }),
         orgId: access.orgId,
         createdAt: { gte: from, lte: to },
         ...(filters.projectId ? { projectId: filters.projectId } : {}),
@@ -202,6 +228,7 @@ export async function listCapabilityApprovals(
     });
 
     for (const row of rows) {
+      if (!visible(approvalRequestItem(row))) continue;
       const ws = row.task.project.workspaceId;
       const mode = visibilityMode(access, ws);
       let canDecide = row.approverUserId === access.userId;
@@ -238,6 +265,7 @@ export async function listCapabilityApprovals(
       take: 200,
     });
     for (const row of rows) {
+      if (!visible(productContentItem(row))) continue;
       const mode = visibilityMode(access, null);
       const canDecide =
         isOrgAdminRole(access.orgRole) ||
@@ -288,21 +316,24 @@ export async function listCapabilityApprovals(
     filtered = filtered.filter((i) => i.status === "EXPIRED");
   }
 
-  // 非 org_admin：过滤不可见 WS
-  if (!isOrgAdminRole(access.orgRole)) {
-    filtered = filtered.filter((i) => {
-      if (!i.workspaceId) {
-        return (
-          i.submittedById === access.userId ||
-          i.assignedApproverIds?.includes(access.userId)
-        );
-      }
-      return (
-        isWorkspaceMember(access, i.workspaceId) ||
-        i.submittedById === access.userId ||
-        i.assignedApproverIds?.includes(access.userId)
-      );
-    });
+  // 旧模式企业的原规则：org_owner / org_admin 看全企业，其余只见本人提交、本人为指定审批人或本人所在工作区的。
+  // 判定输入取审批中心自己的访问上下文（与改动前同源）。
+  if (legacy) {
+    const legacyViewer: ApprovalViewer = {
+      ...viewer,
+      isOrgAdminRole: isOrgAdminRole(access.orgRole),
+      workspaceIds: access.workspaceIds,
+    };
+    filtered = filtered.filter((i) =>
+      legacyListVisible(
+        {
+          createdById: i.submittedById ?? null,
+          approverUserId: i.assignedApproverIds?.includes(access.userId) ? access.userId : null,
+          workspaceId: i.workspaceId ?? null,
+        },
+        legacyViewer,
+      ),
+    );
   }
 
   filtered.sort(
@@ -325,18 +356,21 @@ export async function listCapabilityApprovals(
 export async function getCapabilityApproval(
   access: CapabilitiesAccessContext,
   approvalId: string,
+  viewerInput?: ApprovalViewer,
 ): Promise<ApprovalProjection> {
   const parsed = parseApprovalId(approvalId);
   if (!parsed) {
-    throw new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
+    throw notFound();
   }
+  const viewer = await viewerFor(access, viewerInput);
 
   if (parsed.sourceType === "PENDING_ACTION") {
     const row = await db.pendingAction.findFirst({
       where: { id: parsed.sourceId, orgId: access.orgId },
     });
-    if (!row) {
-      throw new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
+    // 不可见与不存在同一个错误（批准 / 驳回 / 撤回 / 重试都经这里加载）
+    if (!row || !isApprovalVisible(pendingActionItem(row), viewer)) {
+      throw notFound();
     }
     const mode = visibilityMode(access, row.workspaceId);
     const canDecide = await canDecidePending(access, row, "MEDIUM");
@@ -374,8 +408,8 @@ export async function getCapabilityApproval(
         step: { select: { id: true, title: true, skillId: true } },
       },
     });
-    if (!row) {
-      throw new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
+    if (!row || !isApprovalVisible(approvalRequestItem(row), viewer)) {
+      throw notFound();
     }
     const ws = row.task.project.workspaceId;
     const mode = visibilityMode(access, ws);
@@ -402,8 +436,8 @@ export async function getCapabilityApproval(
     const row = await db.productContentApproval.findFirst({
       where: { id: parsed.sourceId, orgId: access.orgId },
     });
-    if (!row) {
-      throw new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
+    if (!row || !isApprovalVisible(productContentItem(row), viewer)) {
+      throw notFound();
     }
     const mode = visibilityMode(access, null);
     const canDecide =

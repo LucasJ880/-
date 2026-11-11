@@ -23,6 +23,7 @@ import {
   verifyPayloadIntegrity,
 } from "./integrity";
 import { getCapabilityApproval } from "./query";
+import { loadApprovalViewer } from "@/lib/approval/audience-server";
 import { parseApprovalId } from "./types";
 import type { ApprovalProjection, ApprovalRiskLevel } from "./types";
 
@@ -96,9 +97,15 @@ async function rememberIdempotency(opts: {
   }
 }
 
+/**
+ * VIS-1d：只在幂等记录的审批与动作都与本次请求相同时命中。
+ * 拿别人卡的幂等键配自己可见的审批 id，不返回那张卡的缓存结果。
+ */
 async function loadIdempotency(
   orgId: string,
   key: string,
+  approvalKey: string,
+  action: DecisionAction,
 ): Promise<DecisionResult | null> {
   const existing = await db.approvalDecisionIdempotency.findUnique({
     where: {
@@ -106,6 +113,7 @@ async function loadIdempotency(
     },
   });
   if (!existing?.resultJson) return null;
+  if (existing.approvalKey !== approvalKey || existing.action !== action) return null;
   return { ...(existing.resultJson as DecisionResult), duplicate: true };
 }
 
@@ -217,15 +225,20 @@ export async function decideCapabilityApproval(
     throw new CapabilitiesAccessError("审批不存在", "NOT_FOUND", 404);
   }
 
+  // VIS-1d：判定输入只取一次；详情先判可见（不可见与不存在同一个 404），再读幂等缓存。
+  // 幂等读取在过期与能力检查之前：已执行或已过期的重放照旧拿到首次结果。
+  const viewer = await loadApprovalViewer(access.userId, access.orgId);
+  const projection = await getCapabilityApproval(access, input.approvalId, viewer);
+
   if (input.idempotencyKey) {
     const cached = await loadIdempotency(
       access.orgId,
       input.idempotencyKey,
+      input.approvalId,
+      input.action,
     );
     if (cached) return cached;
   }
-
-  const projection = await getCapabilityApproval(access, input.approvalId);
 
   // 过期优先（展示态 EXPIRED 或底层仍 pending 但已过期）
   if (
@@ -337,7 +350,7 @@ export async function decideCapabilityApproval(
         ok: true,
         status: "CANCELLED",
         message: "已取消",
-        approval: await getCapabilityApproval(access, input.approvalId),
+        approval: await getCapabilityApproval(access, input.approvalId, viewer),
       };
       if (input.idempotencyKey) {
         await rememberIdempotency({
@@ -358,6 +371,7 @@ export async function decideCapabilityApproval(
         role: access.orgRole,
         orgId: access.orgId,
         note: input.note,
+        viewer,
       });
       await logAudit({
         userId: access.userId,
@@ -372,7 +386,7 @@ export async function decideCapabilityApproval(
         status: "REJECTED",
         message: port.message,
         error: port.error,
-        approval: await getCapabilityApproval(access, input.approvalId),
+        approval: await getCapabilityApproval(access, input.approvalId, viewer),
       };
       if (input.idempotencyKey) {
         await rememberIdempotency({
@@ -418,6 +432,7 @@ export async function decideCapabilityApproval(
       role: access.orgRole,
       orgId: access.orgId,
       note: input.note,
+      viewer,
     });
 
     await logAudit({
@@ -438,7 +453,7 @@ export async function decideCapabilityApproval(
       status: port.status,
       message: port.message,
       error: port.error,
-      approval: await getCapabilityApproval(access, input.approvalId),
+      approval: await getCapabilityApproval(access, input.approvalId, viewer),
     };
     if (input.idempotencyKey) {
       await rememberIdempotency({
@@ -468,6 +483,7 @@ export async function decideCapabilityApproval(
       role: access.orgRole,
       orgId: access.orgId,
       note: input.note,
+      viewer,
     });
     await logAudit({
       userId: access.userId,
@@ -485,7 +501,7 @@ export async function decideCapabilityApproval(
       status: port.status,
       message: port.message,
       error: port.error,
-      approval: await getCapabilityApproval(access, input.approvalId),
+      approval: await getCapabilityApproval(access, input.approvalId, viewer),
     };
     if (input.idempotencyKey) {
       await rememberIdempotency({
@@ -535,7 +551,7 @@ export async function decideCapabilityApproval(
     const result: DecisionResult = {
       ok: true,
       status: input.action === "approve" ? "APPROVED" : "REJECTED",
-      approval: await getCapabilityApproval(access, input.approvalId),
+      approval: await getCapabilityApproval(access, input.approvalId, viewer),
     };
     if (input.idempotencyKey) {
       await rememberIdempotency({
