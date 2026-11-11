@@ -246,6 +246,18 @@ function requirementsReview(input: WebNextStepInput): Core {
   };
 }
 
+const HOUR = 3_600_000;
+/**
+ * 要不要提醒由查表决定（三天以内）；怎么说：满一天的用查表的原话，
+ * 不足一天的按小时说——查表按天向上取整，离截标 5 小时它会说「1 天后截标」，在页面上会误导人。
+ */
+function urgencyText(input: WebNextStepInput, tableConclusion: string): string {
+  const left = input.closeDate ? input.closeDate.getTime() - input.now.getTime() : null;
+  if (left === null || left >= 24 * HOUR) return tableConclusion;
+  if (left < HOUR) return "不到 1 小时后截标，还没提交";
+  return `约 ${Math.round(left / HOUR)} 小时后截标，还没提交`;
+}
+
 export function decideWebNextStep(input: WebNextStepInput): WebNextStepView {
   const snapshot = toSnapshot(input);
   const closesAt = input.closeDate ? input.closeDate.toISOString() : null;
@@ -280,7 +292,7 @@ export function decideWebNextStep(input: WebNextStepInput): WebNextStepView {
 
   // —— 截标提醒：同一张表、去掉待批，只看它是不是命中「三天内截标」 ——
   const deadline = decideNextStep({ ...snapshot, pendingApprovals: [] });
-  const urgencyZh = deadline.rule === "deadline_soon" ? deadline.advisory.conclusion : null;
+  const urgencyZh = deadline.rule === "deadline_soon" ? urgencyText(input, deadline.advisory.conclusion) : null;
 
   // —— 真正的下一步：同一张表、去掉截标时间 ——
   const tableSnapshot = { ...snapshot, closeDate: null };
