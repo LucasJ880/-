@@ -89,7 +89,7 @@
 
 ## 4. 隔离库测试
 
-- [ ] 4.1 按 design D8 写并实跑隔离库测试：
+- [x] 4.1 按 design D8 写并实跑隔离库测试：
   - 本机起临时 Postgres 16，`prisma migrate deploy` 建表。
   - 新增 `src/lib/approval/__tests__/audience-db.isolated.test.ts`。种子按 design D8（先绑岗位再取 viewer），断言：
     - 审批中心列表、详情 404、批准 404 且状态不变（不持岗位的 org_admin 对他人询价卡）；
