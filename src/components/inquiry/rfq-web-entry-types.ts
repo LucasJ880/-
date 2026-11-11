@@ -53,6 +53,8 @@ export type RfqEntryView =
       timeZone: string;
       /** RFQ-AUTO-1：开关关闭时为 null */
       followUp: RfqEntryFollowUp | null;
+      /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段 */
+      autoDraftedRounds?: Record<string, { noteZh: string }>;
     };
 
 export type RfqRoundCreated = {

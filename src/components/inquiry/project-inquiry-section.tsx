@@ -324,6 +324,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
             const chaseLabel = chaseBadge(chases.length);
             const engine = ready?.engineRounds[r.id] ?? null;
             const followUp = ready?.followUp?.rounds[r.id] ?? null;
+            const autoDrafted = ready?.autoDraftedRounds?.[r.id] ?? null;
             return (
               <div
                 key={r.id}
@@ -357,6 +358,15 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     {chaseLabel && (
                       <span className="rounded-full bg-[rgba(154,106,47,0.10)] px-2 py-0.5 text-[11px] font-medium text-[#9a6a2f]">
                         {chaseLabel}
+                      </span>
+                    )}
+                    {autoDrafted && (
+                      <span
+                        className="rounded-full bg-[rgba(110,125,118,0.10)] px-2 py-0.5 text-[11px] font-medium text-[#55635d]"
+                        title={autoDrafted.noteZh}
+                        data-testid="rfq-auto-draft-badge"
+                      >
+                        自动起草
                       </span>
                     )}
                     <span className="text-xs text-muted">
@@ -406,6 +416,11 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                 )}
                 {isOpen && (
                   <div className="space-y-3 border-t border-border px-4 py-3">
+                    {pending && autoDrafted && (
+                      <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground/85" data-testid="rfq-auto-draft-note">
+                        {autoDrafted.noteZh}
+                      </p>
+                    )}
                     {pending && (
                       <RfqApprovalPanel
                         projectId={projectId}

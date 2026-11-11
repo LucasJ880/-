@@ -94,7 +94,7 @@ export async function handleMuseCommand(
           select: { type: true, payload: true },
         });
         if (museApprovalNeedsWebPreview(target?.type, target?.payload)) {
-          response = webPreviewRequiredResponse(requestId, target?.type);
+          response = webPreviewRequiredResponse(requestId, target?.type, target?.payload);
           break;
         }
         const outcome = await approveApprovalItem("pending_action", command.approvalId, {

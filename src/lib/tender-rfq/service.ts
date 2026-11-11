@@ -12,7 +12,7 @@
 
 import { db } from "@/lib/db";
 import { requestApproval } from "@/lib/approval/request";
-import { addInquiryItem, createInquiry } from "@/lib/inquiry/service";
+import { RoundNumberTakenError, addInquiryItem, createInquiry } from "@/lib/inquiry/service";
 import { buildRfqDocument, renderRfqEmail, type RfqFactInput, type RfqRequirementInput } from "./build";
 import {
   decideRoundLock,
@@ -27,6 +27,7 @@ import {
 } from "./round-pure";
 import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
 import { buildFollowUpPolicy } from "./followup-coverage";
+import { AUTO_DRAFT_TITLE_PREFIX, AUTO_DRAFT_TOOL_NAME, autoDraftPreviewLineZh } from "./auto-draft-pure";
 import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
 import { TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendRfqPayload } from "./types";
 import { pickRfqIncoterm, pickRfqSuppliers, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
@@ -37,8 +38,13 @@ export type PrepareRfqInput = {
   projectId: string;
   orgId: string;
   userId: string;
-  /** 入口来源：只写进审批卡 source.toolName 供审计区分，不改变任何判定 */
-  source: "web" | "muse";
+  /**
+   * 入口来源：写进审批卡 source.toolName 供审计区分。
+   * auto = RFQ-AUTO-2 要求审核完后由系统起草（标题与摘要标明；不带跟进授权——那只在 web 且明确勾选时写）。
+   */
+  source: "web" | "muse" | "auto";
+  /** RFQ-AUTO-2：只在项目还没有任何轮次时才建（并发或重复触发时最多建出一个第 1 轮）；否则返回 ROUND_LOCKED，不建任何东西 */
+  onlyIfFirstRound?: boolean;
   supplierIds?: string[];
   /** 没给 supplierIds 时按名称模糊匹配 */
   supplierHint?: string | null;
@@ -119,7 +125,10 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     pick.source === "hint"
       ? { orgId: input.orgId, name: { contains: pick.hint, mode: "insensitive" as const } }
       : { orgId: input.orgId, id: { in: pick.supplierIds } };
-  const suppliers = await db.supplier.findMany({ where, select: { id: true, name: true, contactEmail: true, status: true } });
+  const supplierRows = await db.supplier.findMany({ where, select: { id: true, name: true, contactEmail: true, status: true } });
+  // RFQ-AUTO-2：自动起草时收件人按传入的顺序排（= 操作者保存常用供应商的顺序）；其余入口保持原样
+  const order = input.source === "auto" && pick.source === "explicit" ? new Map(pick.supplierIds.map((id, i) => [id, i])) : null;
+  const suppliers = order ? [...supplierRows].sort((x, y) => (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0)) : supplierRows;
   const { ready, blocked } = partitionSuppliers(suppliers);
   // 常用供应商都发不了（已删 / 没邮箱 / 停用）→ 回候选列表让人选，而不是报错
   if (ready.length === 0 && pick.source === "prefs") return listCandidates();
@@ -158,11 +167,42 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   const doc = built.doc;
 
   // ── 建轮次（draft，零出站） ──
-  const inquiry = await createInquiry(
-    // 标题留空 → createInquiry 默认「第 N 轮询价」（原硬编码的「第 N 轮询价（Muse）」未插值，界面会显示字面 N）
-    { projectId: project.id, scope: doc.scopeNote ?? undefined, dueDate: doc.replyBy ?? undefined },
-    input.userId,
-  );
+  let inquiry: Awaited<ReturnType<typeof createInquiry>>;
+  try {
+    inquiry = await createInquiry(
+      // 标题留空 → createInquiry 默认「第 N 轮询价」（原硬编码的「第 N 轮询价（Muse）」未插值，界面会显示字面 N）
+      { projectId: project.id, scope: doc.scopeNote ?? undefined, dueDate: doc.replyBy ?? undefined, ...(input.onlyIfFirstRound ? { expectRoundNumber: 1 } : {}) },
+      input.userId,
+    );
+  } catch (err) {
+    if (err instanceof RoundNumberTakenError) return { ok: false, errorCode: "ROUND_LOCKED", message: "项目已有询价轮次。" };
+    throw err;
+  }
+  // 轮次已建、审批卡还没建成之前出任何错：把这一轮标为已取消再抛出，不留下一轮没有审批卡的草稿
+  try {
+    return await draftRoundCard(input, { project, settings, doc, inquiry, ready, blocked, requirements, term, supplierSource: pick.source });
+  } catch (err) {
+    await db.projectInquiry.update({ where: { id: inquiry.id }, data: { status: "canceled" } }).catch(() => undefined);
+    throw err;
+  }
+}
+
+type DraftRoundContext = {
+  project: { id: string; name: string; ownerId: string; org: { settingsJson: unknown } | null };
+  settings: ReturnType<typeof readTenderRfqSettings>;
+  doc: Extract<ReturnType<typeof buildRfqDocument>, { ok: true }>["doc"];
+  inquiry: Awaited<ReturnType<typeof createInquiry>>;
+  ready: ReturnType<typeof partitionSuppliers>["ready"];
+  blocked: ReturnType<typeof partitionSuppliers>["blocked"];
+  requirements: RfqRequirementInput[];
+  term: { incoterm: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null; fromPrefs: boolean };
+  supplierSource: "explicit" | "hint" | "prefs";
+};
+
+/** 给刚建好的轮次加询价项、建发询价审批卡（零出站） */
+async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Promise<PrepareRfqResult> {
+  const { project, settings, doc, inquiry, ready, blocked, requirements, term } = c;
+  const pick = { source: c.supplierSource };
   const items: TenderSendRfqPayload["items"] = [];
   for (const s of ready) {
     const item = await addInquiryItem({ projectId: project.id, inquiryId: inquiry.id }, s.id, input.userId);
@@ -177,6 +217,15 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
           chaseAfterDays: resolveChaseAfterDays(readUserPrefs(project.org?.settingsJson, project.ownerId).chaseAfterDays, project.org?.settingsJson),
           replyBy: doc.replyBy,
           templateHash: chaseTemplateHash(),
+        })
+      : null;
+
+  // RFQ-AUTO-2：自动起草的卡在标题与摘要里标明，摘要写明供应商取自谁的常用供应商
+  const autoDraftNote =
+    input.source === "auto"
+      ? autoDraftPreviewLineZh((await db.user.findUnique({ where: { id: input.userId }, select: { name: true } }))?.name ?? "", {
+          confirmedCount: doc.lineItems.length,
+          unconfirmedCount: requirements.filter((r) => r.reviewStatus === "AI_EXTRACTED").length,
         })
       : null;
 
@@ -199,12 +248,12 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     principal: { userId: input.userId, actorType: "user" },
     actionType: TENDER_SEND_RFQ_TYPE,
     // 带跟进授权时标题里就写明：只显示标题的界面（通知、列表）也看得出批的不只是首封
-    title: `发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商${followUpPolicy ? "（含自动跟进授权）" : ""} — ${project.name}`,
-    preview: previewRfqPayload(payload),
+    title: `${autoDraftNote ? AUTO_DRAFT_TITLE_PREFIX : ""}发送第 ${inquiry.roundNumber} 轮询价给 ${items.length} 家供应商${followUpPolicy ? "（含自动跟进授权）" : ""} — ${project.name}`,
+    preview: autoDraftNote ? `${previewRfqPayload(payload)}\n${autoDraftNote}` : previewRfqPayload(payload),
     payload: payload as unknown as Record<string, unknown>,
     // 对外发邮件：与 revenue-spine 跟进邮件同级
     risk: { vocabulary: "agent-core.tool-risk", value: "l3_strong", requiresApproval: true },
-    source: { module: "tender-rfq.service", toolName: input.source === "web" ? "tender_send_rfq_web" : "tender_send_rfq", stepKey: `rfq:${inquiry.id}` },
+    source: { module: "tender-rfq.service", toolName: input.source === "web" ? "tender_send_rfq_web" : input.source === "auto" ? AUTO_DRAFT_TOOL_NAME : "tender_send_rfq", stepKey: `rfq:${inquiry.id}` },
     business: { projectId: project.id },
     ttlHours: 72,
     idempotencyKey: `${TENDER_SEND_RFQ_TYPE}:${inquiry.id}`,
