@@ -24,8 +24,8 @@ function ok(cond: boolean, name: string, detail?: unknown) {
   else { fail++; console.error(`  ✗ ${name}`, detail !== undefined ? JSON.stringify(detail).slice(0, 2000) : ""); }
 }
 
-type Row = { lineNo: number; description: string; quantity: string; uom: string; quantityText: string | null; unitText: string | null; page: number | null; source: string };
-type Body = { state?: string; messageZh?: string; text?: string; rows?: Row[]; skipped?: Array<{ description: string; quantityText: string | null; reasonZh: string; page: number | null }>; error?: string };
+type Row = { lineNo: number; description: string; quantity: string; uom: string; quantityText: string | null; unitText: string | null; page: number | null; sourceZh: string | null; source: string; sameAsLine: number | null };
+type Body = { state?: string; messageZh?: string; text?: string; rows?: Row[]; skipped?: Array<{ description: string; quantityText: string | null; reasonZh: string; page: number | null; sourceZh: string | null }>; truncatedFrom?: number | null; error?: string };
 
 async function main() {
   const { NextRequest } = await import("next/server");
@@ -34,6 +34,8 @@ async function main() {
   const { mapV2Result } = await import("@/lib/tender-auto-analysis/v2-map");
   const { persistV2CanonicalTx } = await import("@/lib/tender-auto-analysis/v2-persist-core");
   const { CRITICAL_FACT_TYPES } = await import("@/lib/tender-understanding/contract");
+  const { rejectFact, confirmFact } = await import("@/lib/tender-auto-analysis/review");
+  const { TENDER_ANALYSIS_STATUSES } = await import("@/lib/tender-auto-analysis/constants");
   const { parseSchedulePaste } = await import("../paste-import");
   const route = await import("@/app/api/projects/[id]/bid-workspace/schedule-candidates/route");
   type V2 = Parameters<typeof mapV2Result>[0];
@@ -71,9 +73,10 @@ async function main() {
   };
 
   const ev = (pageNumber: number) => [{ documentId: "fixture-doc", pageNumber, snippet: "fixture" }];
-  type ReqIn = { id: string; object: string; quantity?: string | null; unit?: string | null; status?: string; page?: number };
+  type ReqIn = { id: string; object: string; quantity?: string | null; unit?: string | null; status?: string; page?: number; category?: string };
   type FactIn = { claim: string; rawValue?: string | null; page?: number };
-  function analysis(reqs: ReqIn[], facts: FactIn[] = []): V2 {
+  type ConflictIn = { id: string; topic: string; itemIds: string[]; values: string[]; resolution: string; note: string };
+  function analysis(reqs: ReqIn[], facts: FactIn[] = [], conflicts: ConflictIn[] = []): V2 {
     const criticalFacts = Object.fromEntries(CRITICAL_FACT_TYPES.map((k) => [k, { status: "UNKNOWN" }]));
     const base = { category: "PRODUCT", actor: null, action: null, mandatory: true, mandatorySignal: null, deadline: null, submissionStage: null, technicalArea: null, addendumDisposition: "NEW", supersededById: null, confidence: "HIGH" };
     return {
@@ -82,8 +85,8 @@ async function main() {
       projectSummary: "Fixture supply tender.",
       criticalFacts,
       facts: facts.map((f, i) => ({ id: `f${i + 1}`, factType: "quantity", claim: f.claim, rawValue: f.rawValue ?? null, normalizedValue: null, confidence: "HIGH", evidence: ev(f.page ?? 9), sourceRole: "BASE_TENDER", status: "ACTIVE" })),
-      requirements: reqs.map((r) => ({ ...base, id: r.id, statement: `Supply ${r.object}.`, object: r.object, quantity: r.quantity ?? null, unit: r.unit ?? null, status: r.status ?? "ACTIVE", evidence: ev(r.page ?? 12) })),
-      mandatoryRequirementIds: [], submissionChecklist: [], risks: [], conflicts: [], clarifications: [], resolvedAmbiguities: [], addendumChanges: [], nextActions: [], limitations: [], unknowns: [],
+      requirements: reqs.map((r) => ({ ...base, category: r.category ?? "PRODUCT", id: r.id, statement: `Supply ${r.object}.`, object: r.object, quantity: r.quantity ?? null, unit: r.unit ?? null, status: r.status ?? "ACTIVE", evidence: ev(r.page ?? 12) })),
+      mandatoryRequirementIds: [], submissionChecklist: [], risks: [], conflicts, clarifications: [], resolvedAmbiguities: [], addendumChanges: [], nextActions: [], limitations: [], unknowns: [],
       evidenceCoverage: { factsWithEvidence: facts.length, factsTotal: facts.length, requirementsWithEvidence: reqs.length, requirementsTotal: reqs.length },
       metadata: { analyzerVersion: "tender-understanding-v2", resultVersion: "tender-analysis-result-v2", projectId: "fixture", startedAt: "", finishedAt: "", wallTimeMs: 0, llmCalls: 1, llmFailures: 0, models: ["fixture"], promptUsages: [], pages: 14, windows: 1, rejectedCandidates: [], inputChars: 0, outputChars: 0 },
     } as unknown as V2;
@@ -106,6 +109,7 @@ async function main() {
       runs: (await db.tenderAnalysisRun.findMany({ where: { projectId: { in: projectIds } }, orderBy: { id: "asc" }, select: { id: true, status: true, updatedAt: true } })).map((r) => [r.id, r.status, r.updatedAt.toISOString()]),
       sections: (await db.tenderAnalysisSection.findMany({ where: { run: { projectId: { in: projectIds } } }, orderBy: { id: "asc" }, select: { id: true, updatedAt: true } })).map((s) => [s.id, s.updatedAt.toISOString()]),
       requirements: (await db.tenderExtractedRequirement.findMany({ where: { projectId: { in: projectIds } }, orderBy: { id: "asc" }, select: { id: true, reviewStatus: true, updatedAt: true } })).map((r) => [r.id, r.reviewStatus, r.updatedAt.toISOString()]),
+      facts: (await db.tenderAnalysisFact.findMany({ where: { run: { projectId: { in: projectIds } } }, orderBy: { id: "asc" }, select: { id: true, manuallyConfirmed: true, confirmedById: true, confidence: true } })).map((f) => [f.id, f.manuallyConfirmed, f.confirmedById, f.confidence]),
       orgs: (await db.organization.findMany({ where: { id: { in: [ORG, ORG_B] } }, orderBy: { id: "asc" }, select: { id: true, updatedAt: true } })).map((o) => [o.id, o.updatedAt.toISOString()]),
     });
 
@@ -121,31 +125,48 @@ async function main() {
         { id: "REQ-003", object: "Bath Towel", quantity: "500", unit: "pcs", page: 14 },
         { id: "REQ-004", object: "Flame retardant fabric" },
         { id: "REQ-005", object: "Old Blanket", quantity: "80", unit: "EA", status: "SUPERSEDED" },
+        { id: "REQ-006", object: "Warranty", quantity: "5", unit: "years", category: "WARRANTY" },
+        { id: "REQ-007", object: "Fitted Sheet", quantity: "300", unit: "EA", status: "NEEDS_REVIEW", page: 16 },
+        { id: "REQ-008", object: "Fitted Sheet (Addendum 1)", quantity: "360", unit: "EA", status: "NEEDS_REVIEW", page: 2 },
       ],
-      [{ claim: "Estimated annual laundry bags", rawValue: "approx. 120 per year", page: 9 }],
+      [
+        { claim: "Estimated annual laundry bags", rawValue: "120 bags", page: 9 },
+        { claim: "Wash cloths per year", rawValue: "approx. 900 per year", page: 9 },
+        { claim: "Shower curtains required", rawValue: "45", page: 10 },
+      ],
+      [{ id: "x1", topic: "fitted sheet quantity", itemIds: ["REQ-007", "REQ-008"], values: ["300", "360"], resolution: "UNRESOLVED", note: "base vs addendum" }],
     ));
     const stored = await db.tenderAnalysisSection.findFirst({ where: { runId: run1, sectionKey: "PRICING_EVALUATION" }, select: { structuredJson: true } });
-    const storedItems = ((stored?.structuredJson as { scheduleCandidates?: { version?: number; items?: Array<{ code: string | null; quantityText: string | null; unitText: string | null }> } } | null)?.scheduleCandidates);
-    ok(storedItems?.version === 1 && storedItems.items?.length === 4 && storedItems.items[0].quantityText === "2,367" && storedItems.items[0].unitText === "Each" && storedItems.items[2].unitText === "pcs" && !storedItems.items.some((i) => i.code === "REQ-004" || i.code === "REQ-005"), "分析入库后，「价格与评标」一节里存着 4 条数量线索：数量与单位是原文（2,367 / Each / pcs），不带数量的与被取代的不在其中", storedItems);
+    const storedItems = ((stored?.structuredJson as { scheduleCandidates?: { version?: number; total?: number; items?: Array<{ code: string | null; quantityText: string | null; unitText: string | null; inConflict: boolean; sourceZh: string | null }> } } | null)?.scheduleCandidates);
+    ok(storedItems?.version === 1 && storedItems.total === 8 && storedItems.items?.length === 8 && storedItems.items[0].quantityText === "2,367" && storedItems.items[0].unitText === "Each" && storedItems.items[0].sourceZh === "Fixture.pdf · 第 12 页" && storedItems.items[2].unitText === "pcs" && !storedItems.items.some((i) => ["REQ-004", "REQ-005", "REQ-006"].includes(i.code ?? "")), "分析入库后，「价格与评标」一节里存着 8 条数量线索：数量与单位是分析给出的文字原样（2,367 / Each / pcs），带出处；不带数量的、被取代的、质保类的不在其中", storedItems);
+    ok(storedItems?.items?.filter((i) => i.inConflict).map((i) => i.code).join() === "REQ-007,REQ-008", "说法不一致、还没有定的两条要求记下并标明", storedItems?.items?.map((i) => [i.code, i.inConflict]));
     const reqRows = await db.tenderExtractedRequirement.findMany({ where: { analysisRunId: run1 }, select: { requirementCode: true } });
-    ok(reqRows.length === 4 && reqRows.some((r) => r.requirementCode === "REQ-003"), "入库的要求照旧（4 条有效的；要求编号就是线索里记的编号）", reqRows);
+    ok(reqRows.length === 7 && reqRows.some((r) => r.requirementCode === "REQ-003"), "入库的要求照旧（7 条有效的；要求编号就是线索里记的编号）", reqRows);
 
-    // 一条要求被人驳回
+    // 审核的人驳回了一条要求、一条数量类事实（用真实的审核函数）
     await db.tenderExtractedRequirement.updateMany({ where: { analysisRunId: run1, requirementCode: "REQ-003" }, data: { reviewStatus: "REJECTED" } });
+    const factRows = await db.tenderAnalysisFact.findMany({ where: { runId: run1 }, select: { id: true, contentZh: true } });
+    const curtainFact = factRows.find((f) => f.contentZh === "Shower curtains required");
+    const bagFact = factRows.find((f) => f.contentZh === "Estimated annual laundry bags");
+    const rej = await rejectFact({ runId: run1, factId: curtainFact?.id ?? "", projectId: p1, orgId: ORG, actorUserId: OWNER });
+    const conf = await confirmFact({ runId: run1, factId: bagFact?.id ?? "", projectId: p1, orgId: ORG, actorUserId: OWNER });
+    ok(rej.ok === true && conf.ok === true, "（前提）用审核的真实函数驳回了一条事实、确认了一条事实", { rej, conf });
+
     const before = await snapshot();
     const r1 = await call(p1);
     const b1 = r1.body;
-    ok(r1.status === 200 && b1.state === "ready" && b1.rows?.map((r) => `${r.lineNo}|${r.description}|${r.quantity}|${r.uom}`).join(";") === "1|Twin Mattress Cover|2367|Each;2|Estimated annual laundry bags|120|", "带入 2 行：2,367 → 2367、Each；估计量取 120、没有单位", b1);
-    ok(b1.rows?.[0].quantityText === "2,367" && b1.rows[0].unitText === "Each" && b1.rows[0].page === 12 && b1.rows[1].quantityText === "approx. 120 per year" && b1.rows[1].page === 9 && b1.rows[1].source === "fact", "每一行带着原文数量与页码供核对");
-    ok(b1.skipped?.length === 1 && b1.skipped[0].description === "Pillow Protector" && b1.skipped[0].quantityText === "100-200" && b1.skipped[0].reasonZh === "数量是一个范围", "数量是范围的那条不带入，并写明原因", b1.skipped);
+    ok(r1.status === 200 && b1.state === "ready" && b1.rows?.map((r) => `${r.lineNo}|${r.description}|${r.quantity}|${r.uom}`).join(";") === "1|Twin Mattress Cover|2367|Each;2|Estimated annual laundry bags|120|Bag", "带入 2 行：2,367 → 2367、Each；「120 bags」→ 120、Bag（事实的单位取自它的数量文字）", b1);
+    ok(b1.rows?.[0].quantityText === "2,367" && b1.rows[0].unitText === "Each" && b1.rows[0].page === 12 && b1.rows[0].sourceZh === "Fixture.pdf · 第 12 页" && b1.rows[1].quantityText === "120 bags" && b1.rows[1].page === 9 && b1.rows[1].source === "fact", "每一行带着分析给出的数量文字与出处（文件名 · 第几页）供核对");
+    ok(b1.skipped?.map((k) => `${k.description}=${k.reasonZh}`).join("|") === "Pillow Protector=数量是一个范围|Fitted Sheet=分析发现这里有两处说法不一致，还没有定|Fitted Sheet (Addendum 1)=分析发现这里有两处说法不一致，还没有定|Wash cloths per year=数量里除了数字还有别的说明，取不准", "没带入 4 条，各有原因：范围；说法不一致的两条（300 与 360，不替人选）；按年计的用量", b1.skipped);
     ok(!JSON.stringify(b1).includes("Bath Towel"), "已被人驳回的那条要求，线索不出现（带入的行与没带入的清单里都没有）");
-    ok(!JSON.stringify(b1).includes("Old Blanket") && !JSON.stringify(b1).includes("Flame retardant"), "被取代的、不带数量的要求不出现");
-    ok(b1.text === "1\tTwin Mattress Cover\t2367\tEach\n2\tEstimated annual laundry bags\t120\t", "粘贴文本：行号 ⇥ 说明 ⇥ 数量 ⇥ 单位", b1.text);
+    ok(!JSON.stringify(b1).includes("Shower curtains"), "已被人驳回的那条数量类事实，线索同样不出现");
+    ok(!JSON.stringify(b1).includes("Old Blanket") && !JSON.stringify(b1).includes("Flame retardant") && !JSON.stringify(b1).includes("Warranty"), "被取代的、不带数量的、质保类的要求不出现");
+    ok(b1.text === "1\tTwin Mattress Cover\t2367\tEach\n2\tEstimated annual laundry bags\t120\tBag", "粘贴文本：行号 ⇥ 说明 ⇥ 数量 ⇥ 单位", b1.text);
     const parsed = parseSchedulePaste(b1.text ?? "");
-    ok(parsed.lines.length === 1 && parsed.lines[0].lineNo === 1 && parsed.lines[0].quantity === "2367" && parsed.lines[0].uom === "Each" && parsed.issues.length === 1 && parsed.issues[0].messageZh.includes("缺少单位"), "这段文本交给既有的粘贴解析：有单位的那行原样解析出来；没有单位的那行照常报「缺少单位」，由人补", parsed);
-    ok((b1.messageZh ?? "").includes("带入了 2 行") && (b1.messageZh ?? "").includes("1 行没有单位") && (b1.messageZh ?? "").includes("逐行核对") && (b1.messageZh ?? "").includes("还没有保存"), "说明文字写明带入几行、几行没有单位、要逐行核对、还没有保存", b1.messageZh);
-    ok(Object.keys(b1).sort().join() === "messageZh,rows,skipped,state,text" && !/price|cost|margin|amount|金额|单价/i.test(JSON.stringify(b1)), "响应里只有这五个字段，没有任何金额");
-    ok((await snapshot()) === before, "调用前后：审计记录数、项目、分析、分析的各节、要求、组织，都没有被写过");
+    ok(parsed.lines.length === 2 && parsed.issues.length === 0 && parsed.lines.map((l) => `${l.lineNo}|${l.description}|${l.quantity}|${l.uom}`).join(";") === "1|Twin Mattress Cover|2367|Each;2|Estimated annual laundry bags|120|Bag", "这段文本交给既有的粘贴解析：两行原样解析出来", parsed);
+    ok((b1.messageZh ?? "").includes("带入了 2 行") && (b1.messageZh ?? "").includes("另有 4 条没有带入") && (b1.messageZh ?? "").includes("逐行核对") && (b1.messageZh ?? "").includes("还没有保存"), "说明文字写明带入几行、几条没带入、要逐行核对、还没有保存", b1.messageZh);
+    ok(Object.keys(b1).sort().join() === "messageZh,rows,skipped,state,text,truncatedFrom" && b1.truncatedFrom === null && Object.keys(b1.rows?.[0] ?? {}).sort().join() === "description,lineNo,page,quantity,quantityText,sameAsLine,source,sourceZh,unitText,uom", "响应里只有这六个字段；行里只有说明、数量、单位与出处，没有我方的成本、报价、毛利");
+    ok((await snapshot()) === before, "调用前后：审计记录数、项目、分析、分析的各节、要求、事实、组织，都没有被写过");
 
     // 只读成员也能带入（它只是读）
     const rViewer = await call(p1, VIEWER);
@@ -176,11 +197,13 @@ async function main() {
     const p2 = await mkProject();
     const rNone = await call(p2);
     ok(rNone.status === 200 && rNone.body.state === "no_analysis" && rNone.body.rows?.length === 0 && rNone.body.text === "" && (rNone.body.messageZh ?? "").includes("还没有可用的招标分析"), "项目没有任何分析：说明「还没有可用的招标分析」，带入 0 行", rNone.body);
-    for (const status of ["PENDING", "RUNNING", "FAILED", "SUPERSEDED", "REJECTED"]) {
+    const notUsable = TENDER_ANALYSIS_STATUSES.filter((st) => st !== "REVIEW_REQUIRED" && st !== "APPROVED");
+    ok(notUsable.join() === "PENDING,EXTRACTING,ANALYZING,FAILED,SUPERSEDED", "（前提）分析的状态一共七种，除了等待审核与已批准还有这五种", [...TENDER_ANALYSIS_STATUSES]);
+    for (const status of notUsable) {
       await persist(p2, await mkRun(p2, status), analysis([{ id: "REQ-001", object: `Item from ${status} run`, quantity: "9", unit: "EA" }]));
+      const r = await call(p2);
+      ok(r.body.state === "no_analysis" && r.body.rows?.length === 0 && !JSON.stringify(r.body).includes("Item from"), `只有一份状态是 ${status} 的分析：当作没有可用的分析（它的内容不拿来用）`, r.body);
     }
-    const rNotUsable = await call(p2);
-    ok(rNotUsable.body.state === "no_analysis" && rNotUsable.body.rows?.length === 0, "只有排队中、进行中、失败、被取代、被驳回的分析：同样当作没有可用的分析（它们的内容不拿来用）", rNotUsable.body);
 
     // —— 4. 分析是在本功能之前做的 ——
     const p3 = await mkProject();
@@ -231,6 +254,7 @@ async function main() {
     const r7 = await call(p7);
     const parsed7 = parseSchedulePaste(r7.body.text ?? "");
     ok(r7.body.rows?.length === 300 && r7.body.rows[299].lineNo === 300 && parsed7.lines.length === 300 && parsed7.issues.length === 0, "分析里有 320 条带数量的要求：入库存 300 条，带入 300 行（价格表的上限），解析无误", { rows: r7.body.rows?.length, skipped: r7.body.skipped?.length, parsed: parsed7.lines.length });
+    ok(r7.body.truncatedFrom === 320 && (r7.body.messageZh ?? "").includes("共有 320 条数量线索，只保留了前 300 条"), "并且写明：分析里共有 320 条，只保留了前 300 条（不是悄悄少了 20 条）", { truncatedFrom: r7.body.truncatedFrom, msg: r7.body.messageZh });
   } finally {
     delete process.env.TENDER_BID_WORKSPACE_ENABLED;
     delete process.env.TENDER_BID_WORKSPACE_ORG_ALLOWLIST;
