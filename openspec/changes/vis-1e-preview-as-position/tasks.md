@@ -110,7 +110,7 @@
 
 ## 6. 隔离库测试
 
-- [ ] 6.1 新增 `src/lib/preview/__tests__/preview-db.isolated.test.ts` 并在本机 Postgres 16 上实跑：
+- [x] 6.1 新增 `src/lib/preview/__tests__/preview-db.isolated.test.ts` 并在本机 Postgres 16 上实跑：
   - 种子：
     - 虚构窗饰企业（与 Sunny 同一行业包，岗位模式）：含 `owner`、`bids`、`accounting` 岗位，另有一张他人让利审批卡、一张询价卡、一张质保邮件卡；
     - 虚构家纺企业（岗位模式）；

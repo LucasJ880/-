@@ -244,6 +244,7 @@ run_test "入口判定与路由门同源（VIS-1b）" "npx tsx src/lib/navigatio
 run_test "审批的可见集合（VIS-1d）" "npx tsx src/lib/approval/__tests__/audience.test.ts"
 run_test "审批的可见集合 DB 端到端（VIS-1d；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/approval/__tests__/audience-db.isolated.test.ts"
 run_test "以岗位预览（VIS-1e）" "npx tsx src/lib/preview/__tests__/preview.test.ts"
+run_test "以岗位预览 DB 端到端（VIS-1e；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/preview/__tests__/preview-db.isolated.test.ts"
 run_test "全局搜索范围不被关键词覆盖" "npx tsx src/lib/search/__tests__/search-where.test.ts"
 run_test "Autopilot A0 Access" "npx tsx src/lib/autopilot/__tests__/access.test.ts"
 run_test "Autopilot A0 Sanitize" "npx tsx src/lib/autopilot/__tests__/sanitize.test.ts"
