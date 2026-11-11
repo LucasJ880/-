@@ -223,6 +223,16 @@
 
 ---
 
+## Phase F — 招投标主流程重排（三方对比 → 方案）
+
+起因：Lucas 2026-11-11，同事反馈 ChatGPT 的 workflow 做标更顺，青砚招投标类目的 workflow 要更新。方案：`docs/QINGYAN_TENDER_FLOW_PLAN.md`；交接：`docs/QINGYAN_TENDER_FLOW_HANDOFF.md`。编号 `FLOW` 为暂定。FLOW-0 只出文档；后续实施项待 FLOW-0 拍板后再列，与 W-2 / W-3 / T-2 / P2-1～P2-3 重叠的沿用原编号，不重复立项。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| FLOW-0 | 三方对比（青砚现状 / ChatGPT workflow / 开源项目）+ 多轮交叉验证 → 主流程重排方案 | — | 方案 §8：三份底稿齐全、矩阵无空格；至少一份标书同标实测；独立复核一轮；每个保留项达到任务书粒度；Lucas 拍板 | [~]（第 1、2 轮完成：`docs/QINGYAN_TENDER_FLOW_BASELINE.md`、`docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；第 3 轮等 ChatGPT workflow 摘要） |
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
