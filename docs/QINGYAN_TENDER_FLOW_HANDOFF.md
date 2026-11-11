@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第九次（#421 归档收尾已合并。新开「询价自动流」两个 change：RFQ-AUTO-1 实施完成、PR #422 CI 绿、等 Lucas 确认两处；RFQ-AUTO-2 只有四件套、等审。详见 §0.5a）。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
+| 最后更新 | 2026-11-11 第十次（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]` |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用 |
-| 进行中的 change | `rfq-round-followup-preapproval`（PR #422）、`rfq-round-auto-draft`（只有四件套），见 §0.5a。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
+| 进行中的 change | `rfq-round-auto-draft`（只有四件套，等审），见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
 
 ---
 
@@ -102,15 +102,15 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 
 | change | TASKFLOW | 分支 | 状态 | 接手要知道的 |
 |---|---|---|---|---|
-| `rfq-round-followup-preapproval` | RFQ-AUTO-1 | `claude/rfq-round-autopilot` | PR #422（指向 main），CI 绿，**未合并** | Lucas 在四个审批方式里选了「一次批准管整轮」，审过四件套后说「可以，开始实施」。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` |
+| `rfq-round-followup-preapproval` | RFQ-AUTO-1 | `claude/rfq-round-autopilot` | **已合并**（#422，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-round-followup-preapproval` | Lucas 在四个审批方式里选了「一次批准管整轮」，审过四件套后说「可以，开始实施」。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` |
 | `rfq-round-auto-draft` | RFQ-AUTO-2 | `claude/rfq-round-auto-draft` | 只有四件套（已推送，没开 PR、没写代码），**等 Lucas 审** | 要求审核完后自动起草第 1 轮询价的待批卡；供应商只取操作者的常用供应商；不带跟进授权。实施要等 Lucas 说可以 |
 
-**#422 等 Lucas 明确确认的两处**（都写在 PR 正文里）：
+**#422 正文里请 Lucas 确认的两处**（Lucas 没有另外留言，直接合并了 #422；按合并即同意处理，想改随时说）：
 
 1. `openspec/config.yaml` 硬纪律第 2 条末尾加的一句（一张已批准的卡可以一并授权卡上写明的后续固定模板邮件，仅限询价轮次的催单与缺字段追问）。不同意则 #422 不应合并。
 2. 建轮次抽屉里的勾选框默认勾选（design D7）；规格写的是「明确勾选」。要改成默认不勾只需改一行。
 
-**#422 合并之后要做的**：`/opsx:archive rfq-round-followup-preapproval --yes`（独立小 PR，同步 TASKFLOW 的 RFQ-AUTO-1 状态）。之后才能提「自动起草的轮次怎么带跟进授权」（暂定 RFQ-AUTO-3：个人偏好里一个明确的开关）。
+**#422 之后**：归档已做（本次更新所在的 PR）。生产上开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 仍是关的，打开由 Lucas 决定（建议先只对自家组织）。接下来可以提「自动起草的轮次怎么带跟进授权」（暂定 RFQ-AUTO-3：个人偏好里一个明确的开关）。
 
 **这一轮的教训**（接着 §0.2 的三条）：
 
