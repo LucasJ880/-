@@ -95,3 +95,46 @@ FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测�
 - 不要采纳开源调研 §4「明确不借」里的任何一项。
 - 不要让「下一步」由模型决定（硬纪律第 7 条）。
 - 不要新增队列、定时任务、Prisma 模型（硬纪律第 1、3 条）；确有需要就写成「需例外」交 Lucas / Evan 拍板。
+
+---
+
+## 6. 给 ChatGPT 一方的 Skill 补丁：只读的事不再逐项询问
+
+背景：Lucas 2026-11-11 反馈，用 `qyane-tender-intelligence` Skill 跑的时候，ChatGPT 每次都要停下来问「要不要查海关数据」之类的问题。青砚里的对应做法是阶段策略表（差距分析 §17.1）。在青砚做完之前，把下面这段加到 `SKILL.md` 第 1 节之后即可止住询问。Skill 原文是英文，补丁也用英文。
+
+```markdown
+## 1a. Default execution policy: do not ask before read-only work
+
+Run every read-only stage by default. Do not ask whether to run a stage, which
+sources to check, or whether to continue. Classify each stage before starting
+and act on its class:
+
+- AUTO: read-only, free, nothing leaves the workspace. Parsing files,
+  plan-taker analysis from material already provided, public award and
+  procurement history, public manufacturer catalogs, the compliance matrix,
+  cost scenarios, the timeline, the Owner brief. Run it.
+- NEEDS_MATERIAL: depends on something only the user holds, such as a portal
+  screenshot, a supplier quote, a certificate or a freight quote. Do not stop.
+  Run everything else, then list under "Missing inputs" exactly what is needed
+  and which result it would change.
+- NOT_CONNECTED: a source this session cannot reach, such as licensed
+  customs or shipment data or an authenticated portal. Do not ask whether to
+  query it. Report NOT_CONNECTED, say what the source would add, and continue.
+  If the source is connected and free to query, use it without asking. If it
+  charges per query, treat the query as APPROVAL.
+- APPROVAL: supplier emails, government requests, filings, payments, logins,
+  orders. Prepare the draft, stop, and ask.
+
+Ask a question only in three cases:
+1. An APPROVAL action is next.
+2. Two official documents conflict and the latest addendum does not resolve it.
+3. The canonical tender (issuer plus solicitation ID) cannot be identified.
+
+When a calculation needs an assumption, choose the conservative value, label
+it as an assumption with its basis, and show the sensitivity. Do not pause.
+
+Finish every run with the full set of standard outputs. Close with three
+lists: Missing inputs, Not connected, Awaiting approval.
+```
+
+要点：把「能不能做」「要不要做」从对话里拿出来，事先归类。只有对外发送、付费、提交这一类才停。
