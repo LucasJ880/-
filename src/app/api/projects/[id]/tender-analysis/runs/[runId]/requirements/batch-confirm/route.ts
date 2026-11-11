@@ -5,6 +5,8 @@ import {
   orgIdOf,
   requireTenderAnalysisWrite,
 } from "@/lib/tender-auto-analysis/api-access";
+import { logAudit } from "@/lib/audit/logger";
+import { BATCH_CONFIRM_AUDIT_ACTION, BATCH_CONFIRM_LIMIT } from "@/lib/tender-auto-analysis/requirement-batch-confirm";
 import { batchConfirmRequirements } from "@/lib/tender-auto-analysis/review";
 import { maybeAutoDraftRfq } from "@/lib/tender-rfq/auto-draft-service";
 
@@ -41,6 +43,24 @@ export async function POST(
       { status: result.code === "not_found" ? 404 : 400 },
     );
   }
+  // RFQ-AUTO-4：留一条审计——谁、哪份分析、请求确认哪几条、实际确认了几条。
+  // 确认已经完成，所以用吞错的写法：审计写不进去不让这次请求报错。
+  await logAudit({
+    userId: access.user.id,
+    orgId,
+    projectId,
+    action: BATCH_CONFIRM_AUDIT_ACTION,
+    targetType: "tender_analysis_run",
+    targetId: runId,
+    afterData: {
+      // 与服务函数同一个上限：超出的部分没有被处理，也就不记
+      requestedRequirementIds: requirementIds.filter(Boolean).slice(0, BATCH_CONFIRM_LIMIT),
+      requestedCount: requirementIds.filter(Boolean).length,
+      confirmedCount: result.confirmedCount,
+    },
+    request,
+  });
+
   // RFQ-AUTO-2：这一批确认完如果要求都审完了，替人起草第 1 轮询价的待批卡
   const rfqAutoDraft = await maybeAutoDraftRfq({ orgId, projectId, runId, userId: access.user.id, trigger: "batch_confirm" });
   return NextResponse.json({

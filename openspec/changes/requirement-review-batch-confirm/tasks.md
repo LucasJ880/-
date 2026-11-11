@@ -2,8 +2,8 @@
 
 ## 1. 纯函数与接口
 
-- [ ] 1.1 纯函数 `requirement-batch-confirm.ts`（计数、全选待确认的、按 200 条分批、结果与提示文案）；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm.test.ts` 全部通过
-- [ ] 1.2 批量确认路由成功后写审计（请求与响应结构不变，审计失败不影响结果）；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm-db.isolated.test.ts` 全部通过（本地隔离库）
+- [x] 1.1 纯函数 `requirement-batch-confirm.ts`（计数、全选待确认的、按 200 条分批、结果与提示文案）；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm.test.ts` 全部通过
+- [x] 1.2 批量确认路由成功后写审计（请求与响应结构不变，审计失败不影响结果）；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm-db.isolated.test.ts` 全部通过（本地隔离库）
 
 ## 2. 界面
 
