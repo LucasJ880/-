@@ -122,61 +122,6 @@
 - **WHEN** 某岗位的所有自动化都没有运行记录
 - **THEN** 该岗位 `heartbeat` 为 `null`
 
-### Requirement: 等你 N 件按现成"待我审批"口径并与需要你去重
-`waitingForYou` SHALL 由两部分组成：
-1. 与 `/capabilities/approvals` 的"待我审批"相同口径的条目（PendingAction / ApprovalRequest / 产品内容审批中状态为待审批且调用者有决策权的），且只含落点对调用者放行的条目（平台 super_admin 视为全部放行）；
-2. 本组织 workforce 中状态为需要你、且对调用者可读的作业（见 `agents/workforce-job-scope`）。
-
-作业关联的 PendingAction 全部已在第 1 部分中时 SHALL 不再单独计数。需决策类通知 SHALL NOT 另计。
-
-计数与截断：
-- `total` SHALL 为：已取到且落点放行的审批条数，加上"待我审批"总数中未取到的条数（无法判定落点，原样计入），再加上去重后单独计数的需要你作业条数。
-- 任一来源被截断时（含"待我审批"总数大于已取到的条数），SHALL 返回 `truncated: true`。
-- `items` 为按 `at` 倒序的前 10 条（`at`：审批取创建时间，需要你作业取最近活动时间），每条含 `kind`、`id`、`title`、`post`、`at`、`href`。
-- `unattributed` 为 `post` 为空的条数。`post` 沿用既有归属规则，归属岗位对调用者不可见时也照常返回（横幅是否显示岗位名见 `cockpit/home-view`「等你 N 件横幅」）。
-
-审批条目的 `href`（即落点）SHALL 按类型给出：
-- `sales.approve_quote_promotion`、`sales.update_signed_quote` → `/sales/quote-sheet?mode=order&quoteId=<quoteId>`；
-- `sales.update_quote_settings` → `/sales/cockpit`；
-- `install.send_warranty_email` → `/accounting?tab=balance&order=<orderId>`；
-- `install.send_repair_visit_email` → `/install/repairs/<repairId>`；
-- `orders.cancel_blinds_order` → `/blinds-orders/<orderId>`；
-- `tender.send_rfq`、`tender.send_chase` → `/projects/<projectId>?tab=bid#rfq-round-<inquiryId>`；
-- `revenue_spine.*` → `/revenue`；
-- 其余 PendingAction 类型、payload 缺对应 id 的条目、ApprovalRequest 与产品内容审批 → 审批详情 `/capabilities/approvals/<编码后的审批 id>`，审批 id 为 `<来源类型>:<来源 id>`（如 `PENDING_ACTION:pa1`），整段 SHALL 经 URL 编码，与审批中心列表的链接写法相同。
-
-#### Scenario: 作业与其审批去重
-- **WHEN** 一个需要你的作业关联的 PendingAction 也在待我审批里
-- **THEN** `total` 只计 1，`items` 里只出现这条 PendingAction
-
-#### Scenario: 作业有未进待我审批的需要你
-- **WHEN** 一个需要你的作业没有关联 PendingAction（如需要澄清）
-- **THEN** 它作为 `kind: "workforce_job"` 计入 `total`，`href` 为 `/workforce/<作业 id>`
-
-#### Scenario: 折扣审批跳报价单
-- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/waiting.test.ts`，待我审批里有一条 `sales.approve_quote_promotion`，payload 含 `quoteId = q1`
-- **THEN** 该条 `href` 为 `/sales/quote-sheet?mode=order&quoteId=q1`，测试通过
-
-#### Scenario: 折扣设置变更跳销售驾驶舱
-- **WHEN** 待我审批里有一条 `sales.update_quote_settings`
-- **THEN** 该条 `href` 为 `/sales/cockpit`（同一测试覆盖）
-
-#### Scenario: 质保邮件跳会计页
-- **WHEN** 待我审批里有一条 `install.send_warranty_email`，payload 含 `orderId = o1`
-- **THEN** 该条 `href` 为 `/accounting?tab=balance&order=o1`（同一测试覆盖）
-
-#### Scenario: 没有专属落点的审批跳详情
-- **WHEN** 待我审批里有一条 `grader.email_draft`，PendingAction id 为 `pa1`
-- **THEN** 该条 `href` 为 `/capabilities/approvals/PENDING_ACTION%3Apa1`（同一测试覆盖）
-
-#### Scenario: 落点不放行的条目不列
-- **WHEN** Sunny（未启用 `trade`）持 `owner` 岗位的调用者的待我审批里有一条 `revenue_spine.propose_commercial_fact`
-- **THEN** 该条不计入 `total`、不出现在 `items`（`/revenue` 对其不放行；同一测试覆盖）
-
-#### Scenario: 待我审批被截断时的总数
-- **WHEN** 待我审批总数为 120，已取到 100 条，其中 3 条落点不放行，没有单独计数的需要你作业
-- **THEN** `total` 为 117（97 + 未取到的 20），`truncated` 为 true（同一测试覆盖）
-
 ### Requirement: 待审批与需要你按岗位归属
 每个岗位的 `pendingApprovals` SHALL 是 `waitingForYou` 第 (1) 部分里归属该岗位的条数：PendingAction 按岗位注册表的动作归属规则（通用动作类型按行上下文）；ApprovalRequest 按其项目工作域，无法判定或项目未分类（工作域为默认值 `general`）时归 `projects`；产品内容审批归 `content`。每个岗位的 `needsYou` SHALL 是第 (2) 部分里工作域归属该岗位的作业数（不受去重影响）；工作域缺失的旧作业 SHALL 按既有的有效工作域解析规则判定，判定不出不归属任何岗位。
 
@@ -224,3 +169,67 @@
 #### Scenario: KPI 只含声明字段
 - **WHEN** 投标汇总读函数的返回值含 `wonProjects.finalizedMarginPercentage`
 - **THEN** 响应里不出现该字段名与数值
+
+### Requirement: 等你 N 件的组成与去重
+`waitingForYou` SHALL 由两部分组成：
+1. 与 `/capabilities/approvals` 的"待我审批"相同口径的条目（PendingAction / ApprovalRequest / 产品内容审批中状态为待审批且调用者有决策权的），且只含落点（见「销售与安装审批的落点」「其余审批的落点」）对调用者放行的条目（平台 super_admin 视为全部放行）；
+2. 本组织 workforce 中状态为需要你、且对调用者可读的作业（见 `agents/workforce-job-scope`）。
+
+作业关联的 PendingAction 全部已在第 1 部分中时 SHALL 不再单独计数。需决策类通知 SHALL NOT 另计。
+
+#### Scenario: 作业与其审批去重
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/waiting.test.ts`，一个需要你的作业关联的 PendingAction 也在待我审批里
+- **THEN** `total` 只计 1，`items` 里只出现这条 PendingAction，测试通过
+
+#### Scenario: 作业有未进待我审批的需要你
+- **WHEN** 一个需要你的作业没有关联 PendingAction（如需要澄清）
+- **THEN** 它作为 `kind: "workforce_job"` 计入 `total`，`href` 为 `/workforce/<作业 id>`
+
+#### Scenario: 落点不放行的条目不列
+- **WHEN** Sunny（未启用 `trade`）持 `owner` 岗位的调用者的待我审批里有一条 `revenue_spine.propose_commercial_fact`
+- **THEN** 该条不计入 `total`、不出现在 `items`（`/revenue` 对其不放行；同一测试覆盖）
+
+### Requirement: 等你 N 件的计数与截断
+`waitingForYou` 的字段 SHALL 为：
+- `total`：已取到且落点放行的审批条数，加上"待我审批"总数中未取到的条数（无法判定落点，原样计入），再加上去重后单独计数的需要你作业条数；
+- `truncated`：任一来源被截断时（含"待我审批"总数大于已取到的条数）为 true；
+- `items`：按 `at` 倒序的前 10 条（审批取创建时间，需要你作业取最近活动时间），每条含 `kind`、`id`、`title`、`post`、`at`、`href`；
+- `unattributed`：`post` 为空的条数。
+
+`post` 沿用既有归属规则，归属岗位对调用者不可见时也照常返回（横幅是否显示岗位名见 `cockpit/home-view`「等你 N 件横幅」）。
+
+#### Scenario: 待我审批被截断时的总数
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/waiting.test.ts`，待我审批总数为 120，已取到 100 条，其中 3 条落点不放行，没有单独计数的需要你作业
+- **THEN** `total` 为 117（97 + 未取到的 20），`truncated` 为 true，测试通过
+
+### Requirement: 销售与安装审批的落点
+销售与安装类审批条目的 `href`（即落点）SHALL 按类型给出：
+- `sales.approve_quote_promotion`、`sales.update_signed_quote` → `/sales/quote-sheet?mode=order&quoteId=<quoteId>`；
+- `sales.update_quote_settings` → `/sales/cockpit`；
+- `install.send_warranty_email` → `/accounting?tab=balance&order=<orderId>`；
+- `install.send_repair_visit_email` → `/install/repairs/<repairId>`。
+
+payload 缺对应 id 时按「其余审批的落点」给出。
+
+#### Scenario: 折扣审批跳报价单
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/waiting.test.ts`，待我审批里有一条 `sales.approve_quote_promotion`，payload 含 `quoteId = q1`
+- **THEN** 该条 `href` 为 `/sales/quote-sheet?mode=order&quoteId=q1`，测试通过
+
+#### Scenario: 折扣设置变更跳销售驾驶舱
+- **WHEN** 待我审批里有一条 `sales.update_quote_settings`
+- **THEN** 该条 `href` 为 `/sales/cockpit`（同一测试覆盖）
+
+#### Scenario: 质保邮件跳会计页
+- **WHEN** 待我审批里有一条 `install.send_warranty_email`，payload 含 `orderId = o1`
+- **THEN** 该条 `href` 为 `/accounting?tab=balance&order=o1`（同一测试覆盖）
+
+### Requirement: 其余审批的落点
+其余审批条目的 `href` SHALL 按类型给出：
+- `orders.cancel_blinds_order` → `/blinds-orders/<orderId>`；
+- `tender.send_rfq`、`tender.send_chase` → `/projects/<projectId>?tab=bid#rfq-round-<inquiryId>`；
+- `revenue_spine.*` → `/revenue`；
+- 其余 PendingAction 类型、payload 缺对应 id 的条目、ApprovalRequest 与产品内容审批 → 审批详情 `/capabilities/approvals/<编码后的审批 id>`，审批 id 为 `<来源类型>:<来源 id>`（如 `PENDING_ACTION:pa1`），整段 SHALL 经 URL 编码，与审批中心列表的链接写法相同。
+
+#### Scenario: 没有专属落点的审批跳详情
+- **WHEN** 运行 `npx tsx src/lib/cockpit/__tests__/waiting.test.ts`，待我审批里有一条 `grader.email_draft`，PendingAction id 为 `pa1`
+- **THEN** 该条 `href` 为 `/capabilities/approvals/PENDING_ACTION%3Apa1`，测试通过
