@@ -300,6 +300,32 @@ async function main() {
     ok(/if \(await getActivePreview\(user\.id\)\) redirect\(fallbackPath\)/.test(code("src/lib/autopilot/page-guard.ts")), "Autopilot 页门：预览中拒绝");
   }
 
+  console.log("\n其余可见层读取点与界面（源码）");
+  {
+    const aud = code("src/lib/approval/audience-server.ts");
+    ok(/const previewing = Boolean\(user\.previewFingerprint\)/.test(aud) && /isOrgHandler: !previewing &&/.test(aud) && /isOrgAdminRole: !previewing &&/.test(aud) && /ROUTE_GATE_LOADER\.loadUser\(userId\)/.test(aud), "审批可见判定输入：预览中不是平台管理员、不是企业处理人");
+    const posts = code("src/lib/cockpit/posts-read-model.ts");
+    ok(/if \(preview\) return orgId === preview\.orgId \? "org_member" : null;/.test(posts), "首页岗位总览：成员角色按预览");
+    ok(/const membership = await getOrgMembership\(user\.id, orgId\)/.test(code("src/lib/tenancy/context.ts")) && /orgRole: tenant\.orgRole/.test(code("src/lib/capabilities/access.ts")), "审批中心访问上下文：成员角色经 getOrgMembership（预览中 org_member）");
+    const tools = code("src/app/api/agent-core/tools/route.ts");
+    ok(/resolvePreferredOrgId\(user\.id, user\.role\)/.test(tools) && /loadToolEntryGate\(user, orgId\)/.test(tools) && /loadNavigationContextForOrg\(/.test(code("src/lib/agent-core/entry-gate-server.ts")), "AI 工具列表：当前企业、平台角色与入口门都经预览感知的落点");
+    ok(/loadGateNavigationContextForUser\(/.test(code("src/app/api/search/route.ts")) && /ROUTE_GATE_LOADER\.loadUser\(userId\)/.test(code("src/lib/navigation/page-context-server.ts")), "全局搜索与页面判定输入：经路由门加载器（预览感知）");
+    const hyd = code("src/components/active-org-hydrator.tsx");
+    ok(hyd.indexOf("if (data.previewing) return;") > 0 && hyd.indexOf("if (data.previewing) return;") < hyd.indexOf('method: "PATCH"'), "客户端：预览中不回写当前企业");
+    const header = code("src/components/header.tsx");
+    ok(/if \(previewReadonly\) return;\s*await apiFetch\(`\/api\/notifications\/\$\{id\}\/\$\{action\}`/.test(header) && /if \(previewReadonly\) return;\s*await apiFetch\("\/api\/notifications\/read-all"/.test(header), "客户端：预览中不标已读");
+    for (const f of ["src/app/(main)/assistant/chat-panel.tsx", "src/app/(main)/inbox/page.tsx", "src/components/project-ai-chat/project-ai-chat.tsx"]) {
+      const src = code(f);
+      ok(/disabled=\{isLoading \|\| previewReadonly\}/.test(src) && /attachments\.isParsing \|\| previewReadonly\}/.test(src) && /previewReadonly\s*\?\s*PREVIEW_CHAT_DISABLED_HINT/.test(src), `AI 对话输入预览中禁用并说明：${f}`);
+    }
+    const banner = read("src/components/preview-banner.tsx");
+    ok(/正在以〈\{label\}〉预览（只读）· 剩余 \{minutesLeft\(preview\.expiresAt, now\)\} 分钟/.test(banner) && /预览已失效/.test(banner) && /"退出预览" : "退出"/.test(banner) && /method: "DELETE"/.test(banner) && /window\.location\.assign\("\/"\)/.test(banner), "横幅：active / invalid 两种文案，退出后整页回到首页");
+    ok(/<PreviewBanner \/>/.test(code("src/components/app-shell.tsx")), "横幅挂在应用外壳（所有已登录页面）");
+    const ps = read("src/app/(main)/organizations/[orgId]/positions-section.tsx");
+    ok(/以 TA 的岗位预览/.test(ps) && /按岗位组合预览/.test(ps) && /JSON\.stringify\(\{ orgId, positionKeys: keys \}\)/.test(ps) && /window\.location\.assign\("\/"\)/.test(ps), "企业详情页「岗位」一节：两个入口，开启后整页回到首页");
+    ok(/cachedUser = d\?\.user \? \{ \.\.\.d\.user, preview: d\.preview \?\? null \} : null/.test(code("src/lib/hooks/use-current-user.ts")), "当前用户缓存带上预览信息");
+  }
+
   console.log("\n纯模块");
   {
     for (const f of ["src/lib/preview/token.ts", "src/lib/preview/identity.ts"]) {

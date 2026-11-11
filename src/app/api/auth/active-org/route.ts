@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestPreview } from "@/lib/preview/server";
 import { requireAuth } from "@/lib/auth/guards";
 import {
   resolvePreferredOrgId,
@@ -55,7 +56,10 @@ export async function GET(request: NextRequest) {
     canSwitch && resolved.needsSelection && !resolved.orgId;
 
   const nav = activeOrgNavigationFields(navInputs);
+  // VIS-1e：以岗位预览中客户端不回写当前企业
+  const previewing = Boolean(await getRequestPreview(request, user.id));
   return NextResponse.json({
+    previewing,
     activeOrgId: resolved.orgId,
     orgCode,
     orgCompany,

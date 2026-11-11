@@ -95,7 +95,7 @@
 
 ## 5. 其余可见层读取点与界面
 
-- [ ] 5.1 按 design D5 落点 5 与 D7 改写：
+- [x] 5.1 按 design D5 落点 5 与 D7 改写：
   - 读取点：
     - `loadApprovalViewer`：预览时 `isPlatformAdmin` / `isOrgHandler` / `isOrgAdminRole` 为 false；
     - `posts-read-model`、`buildCapabilitiesAccess`：成员角色、平台角色按预览；

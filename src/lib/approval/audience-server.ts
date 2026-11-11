@@ -44,10 +44,12 @@ export async function loadApprovalViewer(userId: string, orgId: string | null): 
     }),
   ]);
   const activeRole = member?.status === "active" ? member.role : null;
+  // VIS-1e：以岗位预览期间成员角色 org_member、不是企业所有者（平台角色已由加载器给成 user）
+  const previewing = Boolean(user.previewFingerprint);
   return {
     ...empty,
-    isOrgHandler: org?.ownerId === userId || activeRole === "org_admin",
-    isOrgAdminRole: isOrgSystemAdmin(activeRole),
+    isOrgHandler: !previewing && (org?.ownerId === userId || activeRole === "org_admin"),
+    isOrgAdminRole: !previewing && isOrgSystemAdmin(activeRole),
     workspaceIds: workspaces.map((w) => w.workspaceId),
     projectIds: [...new Set([...ownedProjects.map((p) => p.id), ...adminProjects.map((p) => p.projectId)])],
     ctx,

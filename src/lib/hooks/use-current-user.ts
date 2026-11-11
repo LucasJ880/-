@@ -20,6 +20,16 @@ export interface CurrentUser {
   autopilotAllowed?: boolean;
   /** PERM-4c5：当前企业的岗位派生平台角色（按业务角色显示模块用；平台管理判定仍用 role） */
   effectiveRole?: string;
+  /** VIS-1e：以岗位预览（/api/auth/me 顶层的 preview，不含 token）；无预览为 null */
+  preview?: CurrentUserPreview | null;
+}
+
+export interface CurrentUserPreview {
+  state: "active" | "invalid";
+  orgId: string;
+  orgName: string | null;
+  positions: Array<{ key: string; name: string }>;
+  expiresAt: string;
 }
 
 interface UseCurrentUserReturn {
@@ -39,7 +49,7 @@ function fetchUser(): Promise<CurrentUser | null> {
   cachePromise = apiFetch("/api/auth/me")
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
-      cachedUser = d?.user ?? null;
+      cachedUser = d?.user ? { ...d.user, preview: d.preview ?? null } : null;
       return cachedUser;
     })
     .catch(() => null)

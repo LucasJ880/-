@@ -34,12 +34,16 @@ export function ActiveOrgHydrator() {
           activeOrgId?: string | null;
           needsSelection?: boolean;
           organizations?: Array<{ id: string }>;
+          previewing?: boolean;
         };
 
         if (data.activeOrgId) {
           hydrateStoredOrgId(data.activeOrgId);
           return;
         }
+
+        // VIS-1e：以岗位预览中不回写当前企业（写请求一律被拒）
+        if (data.previewing) return;
 
         // 本地已有有效选择时，回写服务端
         const local = readStoredOrgId();
