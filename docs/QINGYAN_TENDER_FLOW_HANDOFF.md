@@ -1,36 +1,35 @@
-# 招投标主流程重排（FLOW-0）· 交接（HANDOFF）
+# 招投标主流程重排（FLOW-0）与 Tender Intelligence（TI）· 交接（HANDOFF）
 
 > 任何新会话从这里进。先读本文件，再按「下一步」执行，不凭记忆重写。本文件只记录**已核对过的事实**；未核对的写明「未核对」。每完成一轮就更新本文件并提交。
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11（第 1、2 轮完成；第 3 轮等 ChatGPT workflow 摘要） |
+| 最后更新 | 2026-11-11 第二次（ChatGPT 一方以 Skill + 实施任务书到达；任务转入 Tender Intelligence Phase A；差距分析已交，**停在 Owner Gate A**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
-| 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md` |
-| 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT `docs/QINGYAN_TENDER_FLOW_GPT_WORKFLOW.md`（**尚未创建**，收到摘要后建） |
-| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]` |
+| 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
+| 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
+| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]`、TI-0 `[~]` |
 | 工作分支 | `claude/zealous-shannon-p48grg`（只在此分支提交与推送；未要求不开 PR） |
-| 性质 | FLOW-0 只出文档，不改代码、不开 OpenSpec change |
+| 性质 | FLOW-0 与 TI-0 都只出文档，不改代码、不开 OpenSpec change |
 | 进行中的 change | `next16-proxy-rename`（与本任务无关，`openspec list` 显示 Complete、未归档） |
 
 ---
 
 ## 0. 下一步
 
-**现在卡在：等 Lucas 提供 ChatGPT workflow 摘要。** 模板在方案 §5，已交给 Lucas。
+**现在卡在：Owner Gate A。** Lucas 要对 `docs/tender-intelligence-gap-analysis.md` §10 的 10 项拍板；拍板之前不进入 Phase B，不开 change，不写代码。
 
-收到后按顺序做（方案 §2.3 第 3 轮）：
+Lucas 2026-11-11 的原话要点（第二条消息）：先只读审查并交差距分析 → 再做数据契约与离线测试 → 审核后再做真实数据连接、界面、成本计算 → 最后交 Draft PR 与测试证据。未经 Owner 明确批准，不发询价、不付费、不正式投标、不合并、不部署生产。禁止新建并行的 Tender / Supplier / Task 体系。
 
-1. 把摘要原文存成 `docs/QINGYAN_TENDER_FLOW_GPT_WORKFLOW.md`：先原文，后整理。存之前检查有没有毛利率、我方最终报价、项目估值，有就请 Lucas 确认是否去掉。
-2. 按 S0–S10 坐标把它拆进方案 §6 矩阵的 ChatGPT 列。每格标「有佐证」（有指令原文或真实产出片段）或「自述」。
-3. 列三张清单：它有青砚没有 / 青砚有它没有 / 都有但做法不同。每条对到基线的断点编号 G1–G12 或新增编号。
-4. 用同事的「三个时刻」重排方案 §7 的 H1–H8 顺序；被否定的假设划掉并写明原因，不要悄悄删。
-5. 对每条想采纳的 ChatGPT 做法过方案 §2.4 的三关；触碰硬纪律的单列，不默认放行。
-6. 更新本文件 §1 进度表与「最后更新」，提交推送。
+拍板之后按顺序做：
 
-之后是第 4 轮（同标实测）与第 5 轮（独立复核），做法见方案 §2.3。
+1. 把拍板结果逐条写进差距分析 §10（加一列「拍板」），涉及硬纪律例外的同步改 `openspec/config.yaml` 并注明批准人与日期。
+2. 若同意做前置修复：先写一个用入库真实类别值（小写 / `mandatory_technical`）的测试，把差距分析 §8 第 1 项复现出来，再 `/opsx:propose`。
+3. Skill 与夹具：原件只在上传目录与会话临时目录，**会话结束即消失**。差距分析 §10 第 9 项定下落位之前不入库；新会话若找不到原件，请 Lucas 重新上传 `skill.zip`。夹具里有真实公司名，入库前按拍板结果决定是否代号化。
+4. Phase B 的三个 change（TI-1 行项与单位、TI-2 逐行成本、TI-3 领取方 / 线索 / 可投标判定）互不依赖，各自 `/opsx:propose <change>` → 四件套回传审 → `/opsx:apply`。全部是纯函数与夹具测试：不动库、不联网、不调模型。
+5. Phase B 做完停在 Owner Gate B：审契约与测试，定数据库方案（差距分析 §7）。
 
-**同时在等的四件事**（方案 §9，不阻塞第 3 轮）：四步路径方案原文；生产旗标实际值；实测用哪份标书；R-1 例外是否算已批准。
+FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测（第 4 轮）；独立复核（第 5 轮）；四步路径方案原文；生产开关实际值；R-1 例外是否算已批准。
 
 ---
 
@@ -40,7 +39,8 @@
 |---|---|---|---|
 | 1 | 青砚基线 | 完成 2026-11-11 | 基线文档；12 条断点；3 条更正；5 条未核对 |
 | 2 | 开源调研 | 完成 2026-11-11 | 开源调研文档；13 个仓库；3 处抽查 |
-| 3 | ChatGPT 一方入矩阵 | 等输入 | — |
+| 3 | ChatGPT 一方入矩阵 | 完成 2026-11-11（据 Skill 原文；真实对话产出与「三个时刻」未收到） | 方案 §6 |
+| TI-A | Tender Intelligence Phase A：只读架构审查 | 完成 2026-11-11，等 Owner Gate A | `docs/tender-intelligence-gap-analysis.md`：实体映射、8 面板落点、3 个现存问题、10 项待拍板、分阶段安排 |
 | 4 | 同标实测 | 未开始 | — |
 | 5 | 独立复核 → 定稿 → 拍板 | 未开始 | — |
 
@@ -53,6 +53,13 @@
 - 同一个标的进度有四套说法（基线 §3）。
 - 开源项目里没有一个覆盖「读标书 → 询价 → 比价 → 定价」；可借的集中在交付前检查与补遗失效传递（开源调研 §1、§4）。
 - 方案 §7 的 H1–H8 是**假设**，不是结论。第 3 轮之前不要据此开 change。
+- Tender Intelligence 审查的要点（细节看差距分析）：
+  - 供应商情报 S1–S4 的代码都在 HEAD 上，`SUPPLIER_INTEL_ENABLED` 默认关；主备推荐、逐要求匹配、强制要求闸、认证登记都已有。「已有 1688 排名」说大了，1688 专用适配器是 `DEFERRED`。
+  - 证据链用现有的 `MemoryClaim` / `MemoryClaimEvidence`；金额口径分离已在 PROC-1 的 `ProcurementLineItem.amountBasis`。
+  - 真缺的五样：价格表行项、文件领取方快照、竞争对手公司实体与别名、进口线索关联、逐行成本情景。
+  - 成本实验室扩 `src/lib/quote-engine`，不另写计算器。
+  - 三个现存问题：询价单类别大小写对不上（`tender-rfq/build.ts:187` 对 `v2-map.ts:214`）；数量与单位在 `v2-map.ts` 被丢；`TenderArchiveItem` 没有写入方。
+  - 架构守卫禁止 Prisma 模型名与 `src/lib` 文件名含 Plan / Run / Task / Event / engine / queue 等词——「Plan Taker」在代码里叫「文件领取方（document holder）」。
 - TASKFLOW 里已有、与本任务重叠的未完成项：W-2、W-3、T-2、P2-1～P2-4、P3-1～P3-3。H2 = W-3，H6 = T-2，H7 = P2-1～3，H8 = W-2。不要重复立项。
 
 ---
@@ -80,7 +87,10 @@
 
 ## 5. 不要做的事
 
-- 不要在第 3 轮之前开任何 change 或写任何代码。
+- 不要在 Owner Gate A 拍板之前开任何 change 或写任何代码。
+- 不要新建并行的 Tender / Supplier / Task 体系；供应商主档只有 `Supplier` 一个。
+- 不要发询价、付费、提交投标或资料申请、合并、部署、动生产数据或凭证——每一项都要 Lucas 单独明确授权。
+- 不要把「领取文件」写成「投标」，不要把历史运单写成当前供货关系，不要在未接通数据源时造数据。
 - 不要把 H1–H8 当成已拍板。
 - 不要采纳开源调研 §4「明确不借」里的任何一项。
 - 不要让「下一步」由模型决定（硬纪律第 7 条）。
