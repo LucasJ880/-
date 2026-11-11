@@ -44,7 +44,10 @@ console.log("存在哪里（源码断言）");
   ok("不读也不写 Organization.settingsJson（那一块会被别处整块回写）", !/settingsJson|organization\.(update|findUnique)/.test(code(pure)) && !/settingsJson|organization\.(update|findUnique)/.test(code(service)));
   ok("状态只来自这个人在这个组织里最近一条记录：查询按组织、用户、动作、对象限定", /where: \{ orgId, userId, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION, targetType: AUTO_DRAFT_OPTIN_TARGET, targetId: userId \}/.test(service) && /orderBy: \[\{ createdAt: "desc" \}, \{ id: "desc" \}\]/.test(service));
   ok("只追加：服务里没有改写或删除记录的调用", !/auditLog\.(update|updateMany|delete|deleteMany|upsert)/.test(code(service)));
-  ok("写入用会抛错的那个审计函数（写不进去就算失败），不用吞错的", /await writeAuditLog\(db,/.test(service) && !/logAudit\(/.test(code(service)));
+  ok("写入是事务里的一次追加（写不进去就抛错、算失败），不用吞错的那个审计函数", /await tx\.auditLog\.create\(/.test(service) && !/logAudit\(/.test(code(service)));
+  // RFQ-AUTO-3a：最后一次设置一定生效，不依赖各台服务器的时钟
+  ok("设置在一个事务里：先取本人的锁，再读最近一条，再写", service.indexOf("pg_advisory_xact_lock") > 0 && service.indexOf("pg_advisory_xact_lock") < service.indexOf("tx.auditLog.findFirst") && service.indexOf("tx.auditLog.findFirst") < service.indexOf("tx.auditLog.create") && /rfq-auto-followup-optin:\$\{input\.orgId\}:\$\{input\.userId\}/.test(service));
+  ok("记录时间明确给出：至少比上一条晚 1 毫秒", service.includes("Math.max(Date.now(), (latest?.createdAt.getTime() ?? 0) + 1)") && /createdAt,\s*\},\s*\}\);/.test(service));
   ok("开启要求两个功能开关都打开；关闭不要求", /if \(input\.enabled && !isAutoDraftFollowUpOptInAvailable\(input\.orgId\)\)/.test(service));
   ok("自动起草时：功能开关任一关闭 → 直接当作没开，不查库；否则只有 on 才算开（lapsed 不算）", /if \(!isAutoDraftFollowUpOptInAvailable\(orgId\)\) return false;\s*return \(await loadAutoDraftFollowUpOptInState\(orgId, userId\)\) === "on";/.test(service));
 }

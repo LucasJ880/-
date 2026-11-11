@@ -378,6 +378,42 @@ async function main() {
     delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
     const entryAllOff = await loadRfqWebEntry({ projectId: pBackOn.projectId, orgId: ORG, userId: OWNER, now: NOW });
     ok(entryAllOff.available && !("autoDraftFollowUp" in entryAllOff), "两个功能开关都关闭：入口没有这个字段");
+
+    // —— 17. RFQ-AUTO-3a：最后一次设置一定生效，不依赖服务器的时钟；同时到达的设置不留下不一致的状态 ——
+    flagOn();
+    process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED = "1";
+    const otherCookie = `qy_session=${await createSession({ sub: OTHER, email: email(OTHER), role: "user" })}`;
+    const otherRows = () => db.auditLog.findMany({ where: { orgId: ORG, userId: OTHER, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+    const enabledOf = (r: { afterData: string | null }) => (JSON.parse(r.afterData ?? "{}") as { enabled?: boolean }).enabled === true;
+    const increasing = (rows: Array<{ createdAt: Date }>) => rows.every((r, i) => i === 0 || r.createdAt.getTime() > rows[i - 1].createdAt.getTime());
+    const alternating = (rows: Array<{ afterData: string | null }>) => rows.every((r, i) => i === 0 || enabledOf(r) !== enabledOf(rows[i - 1]));
+    const pClock = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const setOther = (enabled: boolean) => put(pClock.projectId, { enabled }, otherCookie);
+
+    // (a) 同时到达的设置（这一段不动时钟，单独就能测出「没有互斥」）
+    ok((await stateOf(OTHER)) === "off" && (await otherRows()).length === 0, "这位成员还没有任何开关记录");
+    const twiceOn = await Promise.all([setOther(true), setOther(true)]);
+    const rowsTwice = await otherRows();
+    ok(twiceOn.every((r) => r.status === 200) && rowsTwice.length === 1 && (await stateOf(OTHER)) === "on", "开关是关，同时到达两次开启：只新增一条记录（没有互斥时两次都读到「关」、各写一条）", { n: rowsTwice.length });
+    const twiceOnAgain = await Promise.all([setOther(true), setOther(true)]);
+    ok(twiceOnAgain.every((r) => r.status === 200) && (await otherRows()).length === 1, "状态已经是开，同时到达两次开启：没有新增记录");
+    const burst = await Promise.all([false, true, false, true, false, true, false, true].map((e) => setOther(e)));
+    const rowsBurst = await otherRows();
+    const stateBurst = await stateOf(OTHER);
+    ok(burst.every((r) => r.status === 200) && rowsBurst.length >= 2 && alternating(rowsBurst) && increasing(rowsBurst) && (stateBurst === "on") === enabledOf(rowsBurst[rowsBurst.length - 1]), "同时到达四次开启与四次关闭：都成功；记录严格是开关交替的（没有互斥时会连着写出好几条「关」）、时间严格递增；最终状态就是最后那条记录", { n: rowsBurst.length, seq: rowsBurst.map((r) => (enabledOf(r) ? "开" : "关")).join("") });
+
+    // (b) 上一条记录的时间比现在还晚（写它的那台服务器时钟更快）
+    if ((await stateOf(OTHER)) !== "on") await setOther(true);
+    const onRow = (await otherRows()).at(-1);
+    ok(!!onRow && enabledOf(onRow) && (await stateOf(OTHER)) === "on", "先让开关处于开");
+    await db.auditLog.update({ where: { id: onRow?.id ?? "" }, data: { createdAt: new Date(Date.now() + 30_000) } });
+    const off3a = await setOther(false);
+    ok(off3a.status === 200 && ((await off3a.json()) as { state?: string; changed?: boolean }).changed === true && (await stateOf(OTHER)) === "off", "上一条「开启」记录的时间比现在晚 30 秒：关闭照样生效（状态为关）", await stateOf(OTHER));
+    const rClock = await draft(pClock, "approve_run", OTHER);
+    ok(rClock?.drafted === true && rClock.withFollowUp === false && !("followUpPolicy" in ((await cards(pClock.projectId))[0].payload as object)), "关闭之后他触发的自动起草：卡不带跟进授权", rClock);
+    const on3b = await setOther(true);
+    const rows3b = await otherRows();
+    ok(on3b.status === 200 && (await stateOf(OTHER)) === "on" && increasing(rows3b) && alternating(rows3b) && enabledOf(rows3b[rows3b.length - 1]), "再开启一次：状态为开；全部记录仍是开关交替、时间严格递增", rows3b.slice(-3).map((r) => r.createdAt.toISOString()));
   } finally {
     const { __setChaseExecuteIoForTest: resetIo } = await import("../chase-execute");
     resetIo(null);
