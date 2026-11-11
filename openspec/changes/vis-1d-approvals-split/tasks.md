@@ -28,7 +28,7 @@
 
 ## 1. 可见集合纯函数与判定输入
 
-- [ ] 1.1 按 design D1–D5 新增可见集合：
+- [x] 1.1 按 design D1–D5 新增可见集合：
   - 新增 `src/lib/approval/audience.ts`（纯模块）：
     - `APPROVAL_FAMILIES`；
     - `approvalFamilyOf`、`visibleFamilies`、`isApprovalVisible`、`legacyListVisible`、`pendingActionAudienceWhere`；
