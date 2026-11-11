@@ -185,6 +185,31 @@ async function main() {
   const noSchedule = await cost(OWNER, costBody, EMPTY_PROJECT);
   ok(noSchedule.status === 409 && /先保存价格表/.test(String(noSchedule.body?.error)), "还没有价格表 → 409 与说明", noSchedule.body);
 
+  // —— TI-4c：证书出处、补遗号、补遗后待复核（真路由 + 真库） ——
+  type V = { lineChecks: Array<{ lineNo: number; certification: { verdict: string } }>; readiness: { blockers: Array<{ code: string; lineNo: number | null; messageZh: string }> } };
+  const storedDetails = async () => (((await roomOf(PROJECT))!.summaryJson as Json).bidWorkspace as { lineDetails: Record<string, { basedOnAddendum?: number; certificates?: Array<{ evidenceRef?: string | null }> }> }).lineDetails;
+  const detailsBefore = (await get(OWNER)).body!.workspace as { lineDetails: Json };
+  const verified4c = { id: "CSA-HX100", status: "VERIFIED", coverage: "WHOLE_UNIT", issuer: "CSA Group", issuerAccreditedInCanada: true, coveredModels: ["HX-100"], expiresAt: "2028-06-30" };
+  const line13 = (cert: Json, basedOnAddendum: number) => ({ lineDetails: { ...detailsBefore.lineDetails, "13": { product: { make: "HeatX", model: "HX-100" }, offeredDimensions: "38 x 23 x 23", certificates: [cert], basedOnAddendum } } });
+  const snapshot4c = JSON.stringify((await roomOf(PROJECT))!.summaryJson);
+  const auditsBeforeReject = (await audits(PROJECT)).length;
+  const rejected4c = await put(MEMBER, line13(verified4c, 1));
+  ok(rejected4c.status === 400 && /必须填出处/.test(String(rejected4c.body?.error)), "已核验而没有出处 → 400 与说明", rejected4c.body);
+  ok(JSON.stringify((await roomOf(PROJECT))!.summaryJson) === snapshot4c && (await audits(PROJECT)).length === auditsBeforeReject, "被拒的保存不落库、不写审计");
+  const saved4c = await put(MEMBER, line13({ ...verified4c, evidenceRef: "CSA 产品清单查询截图 2026-11-01" }, 99));
+  const sv13 = saved4c.body?.view as V | undefined;
+  ok(saved4c.status === 200 && sv13?.lineChecks.find((c) => c.lineNo === 13)?.certification.verdict === "PASS", "带出处的已核验整机证书 → 第 13 行认证通过", saved4c.body?.error);
+  ok((await storedDetails())["13"].basedOnAddendum === 1 && (await storedDetails())["13"].certificates?.[0].evidenceRef === "CSA 产品清单查询截图 2026-11-01", "客户端虚报的补遗号 99 被压到实际最新的 1；出处已落库");
+  ok(!sv13!.readiness.blockers.some((b) => b.code === "STALE_AFTER_ADDENDUM"), "此时没有待复核");
+  const withAddendum2 = await put(OWNER, { addenda: [{ number: 1, issuedOn: "2026-11-05", affectedLineNos: [13, 14, 15] }, { number: 2, issuedOn: "2026-11-08", affectedLineNos: [13], effect: "腔体最小尺寸修订" }] });
+  const stale4c = (withAddendum2.body!.view as V).readiness.blockers.filter((b) => b.code === "STALE_AFTER_ADDENDUM");
+  ok(stale4c.length === 2 && stale4c.every((b) => b.lineNo === 13 && b.messageZh.includes("第 2 号补遗之后需要复核")), "保存影响第 13 行的第 2 号补遗 → 尺寸对照与认证判定各报一条待复核", stale4c);
+  const current4c = (await get(OWNER)).body!.workspace as { lineDetails: Record<string, Json> };
+  const resaved4c = await put(MEMBER, { lineDetails: { ...current4c.lineDetails, "13": { ...current4c.lineDetails["13"], basedOnAddendum: 2 } } });
+  ok(resaved4c.status === 200 && !(resaved4c.body!.view as V).readiness.blockers.some((b) => b.code === "STALE_AFTER_ADDENDUM") && (await storedDetails())["13"].basedOnAddendum === 2, "重新保存第 13 行 → 待复核消失，补遗号记为 2");
+  ok((await storedDetails())["18"] !== undefined, "保存第 13 行没有丢掉第 18 行已存的明细");
+  ok((await put(VIEWER, line13({ ...verified4c, evidenceRef: "x" }, 2))).status === 403, "只读成员不能录入行明细 → 403");
+
   // —— 清理 ——
   await db.auditLog.deleteMany({ where: { projectId: { in: [PROJECT, EMPTY_PROJECT] } } });
   await db.project.deleteMany({ where: { id: { in: [PROJECT, EMPTY_PROJECT] } } });
@@ -193,7 +218,7 @@ async function main() {
   await db.user.deleteMany({ where: { id: { in: [OWNER, MEMBER, VIEWER, OUTSIDER] } } });
   await db.$disconnect();
 
-  console.log(`\nTI-4a bid workspace DB: ${pass} passed, ${fail} failed`);
+  console.log(`\nTI-4a / TI-4c bid workspace DB: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
 

@@ -76,4 +76,25 @@ console.log("tender-bid-workspace view");
   ok("自相矛盾的成本输入（两个运费方案）→ 400 并带原因", !rejected.ok && rejected.status === 400 && rejected.code === "COST_INPUT_REJECTED" && rejected.messageZh.includes("只能选一个"));
 }
 
+{
+  // TI-4c：补遗之后已核对的行需要复核
+  const verified = { id: "CSA-1", status: "VERIFIED" as const, coverage: "WHOLE_UNIT" as const, issuer: "CSA Group", issuerAccreditedInCanada: true, coveredModels: ["HX-100"], expiresAt: "2028-01-01", evidenceRef: "csa-listing.pdf" };
+  const line13 = { product: { make: "HeatX", model: "HX-100" }, offeredDimensions: "40 x 24 x 24", certificates: [verified], basedOnAddendum: 1 };
+  const base = mergeWorkspace(stored, { lineDetails: { ...stored.lineDetails, "13": line13 } }, "user_1", now);
+  const v1 = buildWorkspaceView(base, ctx());
+  ok("第 13 行六个条件齐全、按第 1 号补遗核对 → 认证通过、尺寸相符、没有待复核", v1.lineChecks.find((c) => c.lineNo === 13)!.certification.verdict === "PASS" && v1.lineChecks.find((c) => c.lineNo === 13)!.dimension?.verdict === "MATCH" && !v1.readiness.blockers.some((b) => b.code === "STALE_AFTER_ADDENDUM"));
+  const after = mergeWorkspace(base, { addenda: [...base.addenda, { number: 2, issuedOn: "2026-11-08", affectedLineNos: [13], effect: "腔体最小尺寸修订" }] }, "user_1", now);
+  const v2 = buildWorkspaceView(after, ctx());
+  const stale = v2.readiness.blockers.filter((b) => b.code === "STALE_AFTER_ADDENDUM");
+  ok("之后来了影响第 13 行的第 2 号补遗 → 尺寸对照与认证判定各报一条待复核", stale.length === 2 && stale.every((b) => b.lineNo === 13 && b.messageZh.includes("第 2 号补遗之后需要复核")) && stale.some((b) => b.messageZh.includes("认证判定")) && stale.some((b) => b.messageZh.includes("尺寸对照")));
+  ok("待复核使判定为不可投标；不影响没被补遗涉及的行", v2.readiness.state === "NOT_READY" && !stale.some((b) => b.lineNo === 1));
+  const resaved = mergeWorkspace(after, { lineDetails: { ...after.lineDetails, "13": { ...line13, basedOnAddendum: 2 } } }, "user_1", now);
+  ok("重新保存该行（按第 2 号补遗）→ 待复核消失", !buildWorkspaceView(resaved, ctx()).readiness.blockers.some((b) => b.code === "STALE_AFTER_ADDENDUM"));
+  const lied = mergeWorkspace(base, { lineDetails: { ...base.lineDetails, "13": { ...line13, basedOnAddendum: 99 } } }, "user_1", now);
+  const liedAfter = mergeWorkspace(lied, { addenda: [...lied.addenda, { number: 2, affectedLineNos: [13] }] }, "user_1", now);
+  ok("先虚报补遗号也躲不过之后的复核", buildWorkspaceView(liedAfter, ctx()).readiness.blockers.some((b) => b.code === "STALE_AFTER_ADDENDUM" && b.lineNo === 13));
+  const claimedOnly = mergeWorkspace(stored, { lineDetails: { ...stored.lineDetails, "14": { product: { make: "HeatX", model: "HX-200" }, certificates: [{ ...verified, id: "X-2", status: "CLAIMED" as const, coveredModels: ["HX-200"], evidenceRef: null }] } } }, "user_1", now);
+  ok("只有供应商声称的证书 → 认证仍未过，原因写明未经核验", buildWorkspaceView(claimedOnly, ctx()).lineChecks.find((c) => c.lineNo === 14)!.certification.reasons.some((r) => r.code === "CERT_NOT_VERIFIED"));
+}
+
 console.log(`\ntender-bid-workspace view: ${passed} passed`);

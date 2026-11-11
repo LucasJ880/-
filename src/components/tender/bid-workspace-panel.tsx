@@ -6,19 +6,25 @@
  * - 只在读取接口成功返回时渲染；404（开关关闭）时返回 null，页面与没有本面板时相同。
  * - 显示可投标判定、阻断项、三张清单与十三个阶段的决定——没有任何「是否执行」的询问。
  * - 价格表与文件领取方名单：粘贴导入（有项目写权限时）。
+ * - TI-4c：价格表每行可展开录入拟投品牌型号、产品尺寸与证书；补遗卡片可新增与删除。
  * - 成本核算：输入只保存在浏览器本地；点「计算」由接口返回核算表，组件不做任何金额运算。
  * - 没有发送、提交、批准之类的对外动作。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Calculator, ClipboardList, Loader2, ShieldAlert, Upload, Users } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Calculator, ClipboardList, FileDiff, Loader2, Pencil, Plus, ShieldAlert, Trash2, Upload, Users } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import type { CostSheetView } from "@/lib/tender-bid-cost/sheet-view";
-import type { StoredWorkspace } from "@/lib/tender-bid-workspace/contract";
+import { latestAddendumFor } from "@/lib/tender-bid-readiness/staleness";
+import type { LineDetail, StoredWorkspace } from "@/lib/tender-bid-workspace/contract";
 import {
   buildCostRequest, costDraftStorageKey, currenciesNeedingFx, emptyCostDraft, emptyDraftLine, parseCostDraft,
   type CostDraft, type CostDraftLine,
 } from "@/lib/tender-bid-workspace/cost-draft";
+import {
+  ACCREDITED_ZH, CERT_COVERAGE_ZH, CERT_STATUS_ZH, VERIFIED_IS_MANUAL_ZH, addendumFromDraft, detailFromDraft, draftFromDetail, emptyCertDraft, formatLineNos,
+  removeAddendum, upsertAddendum, withLineDetail, type AddendumDraft, type CertDraft, type LineEntryDraft,
+} from "@/lib/tender-bid-workspace/line-entry";
 import { nowWithOffset, parseHolderNames, parseSchedulePaste, type ParsedSchedule } from "@/lib/tender-bid-workspace/paste-import";
 import type { WorkspaceView } from "@/lib/tender-bid-workspace/workspace-view";
 
@@ -81,7 +87,8 @@ export function BidWorkspacePanel({ projectId, canManage }: { projectId: string;
     <section className="space-y-4" data-testid="bid-workspace-panel">
       <VerdictCard readiness={costReadiness ?? view.readiness} withCost={costReadiness !== null} />
       <StageCard view={view} />
-      <ScheduleCard view={view} canManage={canManage} onSave={save} />
+      <ScheduleCard view={view} workspace={workspace} canManage={canManage} onSave={save} />
+      <AddendaCard view={view} workspace={workspace} canManage={canManage} onSave={save} />
       <HoldersCard view={view} workspace={workspace} canManage={canManage} onSave={save} />
       <CostCard projectId={projectId} view={view} onReadiness={setCostReadiness} />
     </section>
@@ -165,8 +172,9 @@ function ListBlock({ title, items, empty }: { title: string; items: string[]; em
 
 /* ------------------------------ 价格表 ------------------------------ */
 
-function ScheduleCard({ view, canManage, onSave }: { view: WorkspaceView; canManage: boolean; onSave: (body: unknown) => Promise<string | null> }) {
+function ScheduleCard({ view, workspace, canManage, onSave }: { view: WorkspaceView; workspace: StoredWorkspace | null; canManage: boolean; onSave: (body: unknown) => Promise<string | null> }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,14 +222,19 @@ function ScheduleCard({ view, canManage, onSave }: { view: WorkspaceView; canMan
       {lines.length === 0 ? <p className="mt-3 text-xs text-muted">还没有价格表行项。</p> : (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full border-collapse text-xs">
-            <thead><tr>{["行", "说明", "数量", "单位", "包装数", "尺寸", "认证", "核对"].map((h) => <th key={h} className={TH}>{h}</th>)}</tr></thead>
+            <thead><tr>{["行", "说明", "数量", "单位", "包装数", "尺寸", "认证", "拟投产品", "核对", ""].map((h, i) => <th key={i} className={TH}>{h}</th>)}</tr></thead>
             <tbody>
               {lines.map((l) => {
                 const check = view.lineChecks.find((c) => c.lineNo === l.lineNo);
                 const cert = check?.certification.verdict;
                 const dim = check?.dimension?.verdict;
+                const detail = workspace?.lineDetails[String(l.lineNo)];
+                const product = [detail?.product?.make, detail?.product?.model].filter(Boolean).join(" ");
+                const latest = latestAddendumFor(l.lineNo, view.addenda);
+                const needsReview = !!detail && latest > (detail.basedOnAddendum ?? 0);
                 return (
-                  <tr key={l.lineNo}>
+                  <Fragment key={l.lineNo}>
+                  <tr>
                     <td className={TD}>{l.lineNo}</td>
                     <td className={TD}>{l.description}</td>
                     <td className={`${TD} text-right tabular-nums`}>{String(l.quantity)}</td>
@@ -230,19 +243,184 @@ function ScheduleCard({ view, canManage, onSave }: { view: WorkspaceView; canMan
                     <td className={TD}>{l.dimensions ?? (l.minimumDimensions ? `≥ ${l.minimumDimensions}` : "")}</td>
                     <td className={TD}>{l.certificationGate ? "须整机认证" : ""}</td>
                     <td className={TD}>
+                      {product && <span className="block">{product}</span>}
+                      {detail?.offeredDimensions && <span className="block text-muted">{detail.offeredDimensions}</span>}
+                    </td>
+                    <td className={TD}>
                       {cert === "BLOCKED" && <span className="text-red-700">认证未过 </span>}
                       {cert === "PASS" && <span className="text-emerald-700">认证通过 </span>}
                       {dim === "MISMATCH" && <span className="text-red-700">尺寸不符</span>}
                       {dim === "MATCH" && <span className="text-emerald-700">尺寸相符</span>}
                       {dim === "UNKNOWN" && <span className="text-amber-700">尺寸无法判断</span>}
+                      {needsReview && <span className="block text-amber-700">第 {latest} 号补遗后待复核</span>}
+                    </td>
+                    <td className={`${TD} text-right`}>
+                      {canManage && (
+                        <button type="button" data-testid={`bw-line-edit-${l.lineNo}`} className={BTN} onClick={() => setEditing(editing === l.lineNo ? null : l.lineNo)}>
+                          <Pencil size={11} /> 录入
+                        </button>
+                      )}
                     </td>
                   </tr>
+                  {editing === l.lineNo && canManage && (
+                    <tr>
+                      <td colSpan={10} className="border-b border-border bg-accent/5 px-3 py-3">
+                        <LineEditor
+                          key={l.lineNo}
+                          lineNo={l.lineNo}
+                          required={l.dimensions ?? (l.minimumDimensions ? `≥ ${l.minimumDimensions}` : null)}
+                          certificationGate={l.certificationGate ?? null}
+                          detail={detail}
+                          latestAddendum={latest}
+                          reasons={cert === "BLOCKED" ? check?.certification.reasons.map((r) => r.messageZh) ?? [] : []}
+                          onCancel={() => setEditing(null)}
+                          onSave={async (draft) => {
+                            const r = detailFromDraft(draft, { basedOnAddendum: latestAddendumFor(l.lineNo, view.addenda) });
+                            if (!r.ok) return r.issuesZh.join("；");
+                            const err = await onSave({ lineDetails: withLineDetail(workspace?.lineDetails, l.lineNo, r.detail) });
+                            if (!err) setEditing(null);
+                            return err;
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------ 行录入（TI-4c） ------------------------------ */
+
+function LineEditor({ lineNo, required, certificationGate, detail, latestAddendum, reasons, onSave, onCancel }: {
+  lineNo: number; required: string | null; certificationGate: string | null; detail: LineDetail | undefined; latestAddendum: number;
+  reasons: string[]; onSave: (draft: LineEntryDraft) => Promise<string | null>; onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<LineEntryDraft>(() => draftFromDetail(detail));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const setCert = (i: number, patch: Partial<CertDraft>) => setDraft((d) => ({ ...d, certificates: d.certificates.map((c, k) => (k === i ? { ...c, ...patch } : c)) }));
+  const submit = async () => {
+    setBusy(true);
+    const err = await onSave(draft);
+    setBusy(false);
+    setError(err);
+  };
+  return (
+    <div className="space-y-3 text-xs" data-testid={`bw-line-editor-${lineNo}`}>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="space-y-1"><span className="block text-muted">拟投品牌</span><input className={`${FIELD} w-40`} value={draft.make} onChange={(e) => setDraft((d) => ({ ...d, make: e.target.value }))} data-testid="bw-line-make" /></label>
+        <label className="space-y-1"><span className="block text-muted">型号</span><input className={`${FIELD} w-40`} value={draft.model} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))} data-testid="bw-line-model" /></label>
+        <label className="space-y-1">
+          <span className="block text-muted">产品尺寸{required ? `（要求 ${required}）` : "（本行没有尺寸要求）"}</span>
+          <input className={`${FIELD} w-52`} value={draft.offeredDimensions} placeholder="如 39 x 77.5 x 12" onChange={(e) => setDraft((d) => ({ ...d, offeredDimensions: e.target.value }))} data-testid="bw-line-dims" />
+        </label>
+      </div>
+
+      {certificationGate && (
+        <div className="space-y-2">
+          <p className="font-medium text-foreground">证书 <span className="font-normal text-muted">（本行要求：{certificationGate}）</span></p>
+          <p className="text-amber-800">{VERIFIED_IS_MANUAL_ZH}</p>
+          {reasons.length > 0 && <p className="text-red-700">目前未过：{reasons.join("；")}</p>}
+          {draft.certificates.map((c, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-2 rounded-lg border border-border/60 bg-card-bg px-2 py-2" data-testid={`bw-cert-${i}`}>
+              <label className="space-y-1"><span className="block text-muted">编号</span><input className={`${FIELD} w-36`} value={c.id} onChange={(e) => setCert(i, { id: e.target.value })} data-testid={`bw-cert-id-${i}`} /></label>
+              <label className="space-y-1"><span className="block text-muted">状态</span>
+                <select className={SELECT} value={c.status} onChange={(e) => setCert(i, { status: e.target.value as CertDraft["status"] })} data-testid={`bw-cert-status-${i}`}>
+                  {(Object.keys(CERT_STATUS_ZH) as CertDraft["status"][]).map((k) => <option key={k} value={k}>{CERT_STATUS_ZH[k]}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1"><span className="block text-muted">覆盖范围</span>
+                <select className={SELECT} value={c.coverage} onChange={(e) => setCert(i, { coverage: e.target.value as CertDraft["coverage"] })} data-testid={`bw-cert-coverage-${i}`}>
+                  {(Object.keys(CERT_COVERAGE_ZH) as CertDraft["coverage"][]).map((k) => <option key={k} value={k}>{CERT_COVERAGE_ZH[k]}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1"><span className="block text-muted">发证机构</span><input className={`${FIELD} w-32`} value={c.issuer} onChange={(e) => setCert(i, { issuer: e.target.value })} data-testid={`bw-cert-issuer-${i}`} /></label>
+              <label className="space-y-1"><span className="block text-muted">在加拿大受认可</span>
+                <select className={SELECT} value={c.accredited} onChange={(e) => setCert(i, { accredited: e.target.value as CertDraft["accredited"] })} data-testid={`bw-cert-accredited-${i}`}>
+                  {(Object.keys(ACCREDITED_ZH) as CertDraft["accredited"][]).map((k) => <option key={k} value={k}>{ACCREDITED_ZH[k]}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1"><span className="block text-muted">所列型号（逗号分隔）</span><input className={`${FIELD} w-40`} value={c.coveredModels} onChange={(e) => setCert(i, { coveredModels: e.target.value })} data-testid={`bw-cert-models-${i}`} /></label>
+              <label className="space-y-1"><span className="block text-muted">到期日</span><input className={`${FIELD} w-28`} placeholder="YYYY-MM-DD" value={c.expiresAt} onChange={(e) => setCert(i, { expiresAt: e.target.value })} data-testid={`bw-cert-expires-${i}`} /></label>
+              <label className="space-y-1"><span className="block text-muted">出处（文件名、链接或查询记录）</span><input className={`${FIELD} w-64`} value={c.evidenceRef} onChange={(e) => setCert(i, { evidenceRef: e.target.value })} data-testid={`bw-cert-evidence-${i}`} /></label>
+              <button type="button" className={BTN} onClick={() => setDraft((d) => ({ ...d, certificates: d.certificates.filter((_, k) => k !== i) }))}><Trash2 size={11} /> 移除</button>
+            </div>
+          ))}
+          <button type="button" className={BTN} onClick={() => setDraft((d) => ({ ...d, certificates: [...d.certificates, emptyCertDraft()] }))} data-testid="bw-cert-add"><Plus size={11} /> 加一张证书</button>
+        </div>
+      )}
+
+      {latestAddendum > 0 && <p className="text-muted">第 {latestAddendum} 号补遗影响本行：保存即表示已按它核对过这一行。</p>}
+      {error && <p className="text-red-700" data-testid="bw-line-error">{error}</p>}
+      <div className="flex gap-2">
+        <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={submit} data-testid="bw-line-save">{busy && <Loader2 size={12} className="animate-spin" />} 保存第 {lineNo} 行</button>
+        <button type="button" className={BTN} onClick={onCancel}>取消</button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ 补遗（TI-4c） ------------------------------ */
+
+function AddendaCard({ view, workspace, canManage, onSave }: { view: WorkspaceView; workspace: StoredWorkspace | null; canManage: boolean; onSave: (body: unknown) => Promise<string | null> }) {
+  const addenda = workspace?.addenda ?? [];
+  const [error, setError] = useState<string | null>(null);
+  if (view.schedule.lines.length === 0) return null;
+  const remove = async (number: number) => setError(await onSave({ addenda: removeAddendum(addenda, number) }));
+  return (
+    <div className={CARD} data-testid="bw-addenda">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><FileDiff size={16} className="text-accent/60" /> 补遗 <span className="text-xs font-normal text-muted">{addenda.length} 份</span></h3>
+      <p className="mt-1 text-xs text-muted">补遗影响到的行，如果之前已经录入过尺寸或证书，会被标为待复核，重新保存该行后消除。系统不解析补遗正文，影响哪些行由人填。</p>
+      {addenda.length === 0 ? <p className="mt-2 text-xs text-muted">还没有补遗。</p> : (
+        <ul className="mt-2 space-y-1 text-xs">
+          {addenda.map((a) => (
+            <li key={a.number} className="flex flex-wrap items-center gap-2 border-b border-border/40 py-1 last:border-0">
+              <span className="font-medium">第 {a.number} 号</span>
+              {a.issuedOn && <span className="text-muted">{a.issuedOn}</span>}
+              <span>{a.affectedLineNos.length > 0 ? `影响第 ${formatLineNos(a.affectedLineNos)} 行` : "不影响价格表行"}</span>
+              {a.effect && <span className="text-foreground/85">{a.effect}</span>}
+              {canManage && <button type="button" className={`${BTN} ml-auto`} onClick={() => void remove(a.number)}><Trash2 size={11} /> 删除</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
+      {canManage && <AddendumForm validLineNos={view.schedule.lines.map((l) => l.lineNo)} onAdd={(a) => onSave({ addenda: upsertAddendum(addenda, a) })} />}
+    </div>
+  );
+}
+
+function AddendumForm({ validLineNos, onAdd }: { validLineNos: number[]; onAdd: (a: StoredWorkspace["addenda"][number]) => Promise<string | null> }) {
+  const empty: AddendumDraft = { number: "", issuedOn: "", affected: "", effect: "" };
+  const [draft, setDraft] = useState<AddendumDraft>(empty);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    const r = addendumFromDraft(draft, validLineNos);
+    if (!r.ok) return setError(r.issuesZh.join("；"));
+    setBusy(true);
+    const err = await onAdd(r.addendum);
+    setBusy(false);
+    setError(err);
+    if (!err) setDraft(empty);
+  };
+  return (
+    <div className="mt-3 space-y-2 text-xs">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="space-y-1"><span className="block text-muted">补遗号</span><input className={`${FIELD} w-16`} inputMode="numeric" value={draft.number} onChange={(e) => setDraft((d) => ({ ...d, number: e.target.value }))} data-testid="bw-addendum-number" /></label>
+        <label className="space-y-1"><span className="block text-muted">日期</span><input className={`${FIELD} w-28`} placeholder="YYYY-MM-DD" value={draft.issuedOn} onChange={(e) => setDraft((d) => ({ ...d, issuedOn: e.target.value }))} data-testid="bw-addendum-date" /></label>
+        <label className="space-y-1"><span className="block text-muted">影响的行（如 13-15, 18）</span><input className={`${FIELD} w-40`} value={draft.affected} onChange={(e) => setDraft((d) => ({ ...d, affected: e.target.value }))} data-testid="bw-addendum-lines" /></label>
+        <label className="space-y-1"><span className="block text-muted">说明</span><input className={`${FIELD} w-72`} value={draft.effect} onChange={(e) => setDraft((d) => ({ ...d, effect: e.target.value }))} data-testid="bw-addendum-effect" /></label>
+        <button type="button" className={BTN_PRIMARY} disabled={busy || !draft.number.trim()} onClick={submit} data-testid="bw-addendum-save">{busy && <Loader2 size={12} className="animate-spin" />} 保存补遗</button>
+      </div>
+      {error && <p className="text-red-700" data-testid="bw-addendum-error">{error}</p>}
     </div>
   );
 }
