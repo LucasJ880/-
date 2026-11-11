@@ -10,6 +10,7 @@
  */
 
 import { PrismaClient, type Prisma } from "@prisma/client";
+import { mutateOrgSettingsInTx } from "../../src/lib/organizations/settings-write";
 import { readMuseBindings, withMuseBinding } from "../../src/lib/muse-bridge/binding-pure";
 
 const db = new PrismaClient();
@@ -38,7 +39,8 @@ async function main() {
   if (!museUserId) throw new Error("缺 --muse <museUserId>");
 
   if (has("unbind")) {
-    await db.organization.update({ where: { id: orgId }, data: { settingsJson: withMuseBinding(org.settingsJson, museUserId, null) as Prisma.InputJsonValue } });
+    // FIX-3：锁行后在最新的设置上只改这一条绑定（不把开头读到的整块写回去）
+    await db.$transaction((tx: Prisma.TransactionClient) => mutateOrgSettingsInTx(tx, orgId, (current) => ({ next: withMuseBinding(current, museUserId, null), result: null })));
     console.log(`✓ 已解绑 ${museUserId}`);
     return;
   }
@@ -52,12 +54,9 @@ async function main() {
   const member = await db.organizationMember.findFirst({ where: { orgId, userId: user.id, status: "active" }, select: { role: true } });
   if (!member) throw new Error(`${email} 不是组织「${org.name}」的有效成员，先在青砚里加入组织`);
 
-  const next = withMuseBinding(org.settingsJson, museUserId, {
-    userId: user.id,
-    boundAt: new Date().toISOString(),
-    boundBy: "scripts/muse-bridge/bind.ts",
-  });
-  await db.organization.update({ where: { id: orgId }, data: { settingsJson: next as Prisma.InputJsonValue } });
+  const binding = { userId: user.id, boundAt: new Date().toISOString(), boundBy: "scripts/muse-bridge/bind.ts" };
+  // FIX-3：锁行后在最新的设置上只改这一条绑定
+  await db.$transaction((tx: Prisma.TransactionClient) => mutateOrgSettingsInTx(tx, orgId, (current) => ({ next: withMuseBinding(current, museUserId, binding), result: null })));
   console.log(`✓ 已绑定  Muse ${museUserId}  →  ${user.name ?? email} (userId=${user.id}, orgRole=${member.role})  @ 组织「${org.name}」`);
 }
 
