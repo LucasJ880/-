@@ -1,0 +1,16 @@
+## ADDED Requirements
+
+### Requirement: 个人开关的最后一次设置一定生效
+个人开关的状态 SHALL 是本人最后一次成功设置的结果，SHALL NOT 取决于各台服务器时钟的快慢或是否被回拨：在一条时间比现在还晚的记录之后再设置，新的设置 SHALL 仍然生效。同一个人同时到达的多次设置 SHALL 依次执行，最终状态 SHALL 是其中最后执行的那一次的结果，SHALL NOT 出现两条都写入而状态与最后一次不符的情况。状态已经是想要的那样时 SHALL NOT 新增记录。
+
+#### Scenario: 上一条记录的时间比现在还晚
+- **WHEN** 本人最近一条「开启」记录的时间比现在晚 30 秒（写它的那台服务器时钟更快），他在网页上关闭开关
+- **THEN** 状态为关；之后他触发的自动起草的卡不带跟进授权；再开启一次，状态为开（`npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts`）
+
+#### Scenario: 同时到达的开与关
+- **WHEN** 同一个人的一次开启与一次关闭同时到达
+- **THEN** 两次都成功返回；最终状态与时间最晚的那条记录一致，各条记录的时间严格递增（`auto-draft-db.isolated.test.ts`）
+
+#### Scenario: 重复设置不多写
+- **WHEN** 开关已经是关，同时到达两次关闭
+- **THEN** 没有新增记录（`auto-draft-db.isolated.test.ts`）
