@@ -74,11 +74,29 @@ const DOMAIN_MODULES: Record<string, OrgModule[]> = {
   system: ["operations"],
 };
 
-function toolRequiredModules(toolName: string, domain: string): OrgModule[] {
+/**
+ * 工具 → 所需模块（任一已启用即可）。执行期授权与工具列表共用（VIS-1c，spec agents/tool-authorization
+ * 「工具列表按模块过滤且与执行同一映射」），不要在别处复制这张表。
+ */
+export function toolRequiredModules(toolName: string, domain: string): OrgModule[] {
   if (toolName.startsWith("product_content_")) {
     return ["product_content", "trade"];
   }
+  // VIS-1c：营销工具随营销模块（此前按 system 域落到 operations）
+  if (toolName.startsWith("marketing_")) {
+    return ["marketing"];
+  }
   return DOMAIN_MODULES[domain] ?? ["operations"];
+}
+
+/**
+ * 企业模块是否满足工具所需模块。企业未配置模块（解析为 null）时不限制。
+ * 执行期（canInvokeTool → module_disabled）与工具列表（registry.list）用同一个函数、同一份企业模块配置。
+ */
+export function toolModulesSatisfied(tool: Pick<ToolDefinition, "name" | "domain">, modulesJson: unknown): boolean {
+  const mods = parseOrgModulesJson(modulesJson);
+  if (!mods) return true;
+  return toolRequiredModules(tool.name, tool.domain).some((m) => isModuleEnabled(mods, m));
 }
 
 function normalizeOrgRole(role: string | undefined | null): OrgRole | null {
@@ -211,17 +229,12 @@ export function canInvokeTool(input: CanInvokeToolInput): ToolAuthDecision {
     );
   }
 
-  const mods = parseOrgModulesJson(modulesJson);
-  const required = toolRequiredModules(tool.name, tool.domain);
-  if (mods) {
-    const enabled = required.some((m) => isModuleEnabled(mods, m));
-    if (!enabled) {
-      return deny(
-        "module_disabled",
-        `企业未启用所需模块（需要: ${required.join("|")}）`,
-        appliedPolicies,
-      );
-    }
+  if (!toolModulesSatisfied(tool, modulesJson)) {
+    return deny(
+      "module_disabled",
+      `企业未启用所需模块（需要: ${toolRequiredModules(tool.name, tool.domain).join("|")}）`,
+      appliedPolicies,
+    );
   }
 
   if (workspaceId) {

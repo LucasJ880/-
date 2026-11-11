@@ -44,6 +44,7 @@ import {
   queueMarketResearchRequest,
 } from "@/lib/market-intelligence/research-runtime";
 import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
+import { loadToolEntryGate } from "@/lib/agent-core/entry-gate-server";
 import { resolveModelPolicy } from "@/lib/ai/model-policy";
 import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
 import { getRequestContext } from "@/lib/common/request-context";
@@ -927,6 +928,8 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
   }
 
   const taskMode = assistantMode === "fast" ? "fast" : "chat";
+  // VIS-1c：人类对话的工具列表入口门（营销工具只给「品牌增长」入口放行的人；agents/tool-authorization）
+  const entryGate = withTools ? await loadToolEntryGate(user, orgId) : undefined;
   const encoder = new TextEncoder();
   const startedAt = Date.now();
 
@@ -973,6 +976,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
             toolPolicy: tenant.toolPolicy,
             domains: Array.from(domains) as (typeof caps.aiDomains)[number][],
             maxRisk,
+            entryGate,
             abortSignal,
             // Phase 1.1：统一执行上下文（服务端注入；Case A：actor=USER，agent=青砚）
             runtime: {

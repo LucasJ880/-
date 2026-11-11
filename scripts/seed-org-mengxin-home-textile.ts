@@ -9,6 +9,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { DEFAULT_MENGXIN_MODULES } from "../src/lib/tenancy/modules";
+import { SENDER_COPY_PLATFORM_RELAY, withSenderCopy } from "@/lib/settings/sender-copy";
 
 const ORG = {
   code: "mengxin-home-textile",
@@ -91,9 +92,13 @@ async function main() {
       : {};
   await db.organization.update({
     where: { id: org.id },
-    data: { settingsJson: { ...settings, timezone: ORG.timezone } as Prisma.InputJsonValue },
+    // VIS-1c：梦馨走平台发信通道，设置页显示代发说明（settings/sender-copy）；重跑种子不回退
+    data: {
+      settingsJson: withSenderCopy({ ...settings, timezone: ORG.timezone }, SENDER_COPY_PLATFORM_RELAY) as Prisma.InputJsonValue,
+    },
   });
   console.log(`settingsJson.timezone: ${ORG.timezone}`);
+  console.log(`settingsJson.ui.senderCopy: ${SENDER_COPY_PLATFORM_RELAY}`);
 
   // 梦馨独立折扣行；解锁码仅来自 MENGXIN_LINE_DISCOUNT_UNLOCK_CODE（无跨企业默认）
   const existingDiscount = await db.quoteDiscountSettings.findUnique({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -21,6 +21,8 @@ import { Suspense } from "react";
 import { persistSelectedOrgId } from "@/lib/org-selection";
 import { installNotificationHref } from "@/lib/install/balance";
 import { notificationHref, notificationOrgToRemember } from "@/lib/notifications/href";
+import { ALL_TYPES_FILTER, visibleNotificationFilters } from "@/lib/notifications/type-visibility";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 
 function NotificationsContent() {
   const router = useRouter();
@@ -40,21 +42,32 @@ function NotificationsContent() {
   } | null>(null);
 
   const statusFilter = searchParams.get("status") || "";
-  const typeFilter = searchParams.get("type") || "";
+  const requestedType = searchParams.get("type") || "";
+  // VIS-1c：类型筛选只列处理页面对当前用户放行的项（notifications/type-visibility）；
+  // 判定输入未就绪时只有「全部类型」，不先列全量再收；选中项不可见时回到「全部类型」
+  const { ready: navReady, canOpen } = useNavigationAccess();
+  const typeOptions = navReady ? visibleNotificationFilters(canOpen) : [ALL_TYPES_FILTER];
+  const typeFilter = !navReady || typeOptions.some((o) => o.key === requestedType) ? requestedType : "";
 
+  // 只认最新一次请求的响应：判定输入就绪后筛选可能回到「全部类型」并重取，先发的旧响应不得覆盖
+  const loadSeq = useRef(0);
   const load = useCallback(
     (p = 1) => {
+      const seq = ++loadSeq.current;
       setLoading(true);
       const qs = new URLSearchParams({ page: String(p), pageSize: "20" });
       if (statusFilter) qs.set("status", statusFilter);
       if (typeFilter) qs.set("type", typeFilter);
       apiJson<{ data?: NotificationItem[]; total?: number; page?: number }>(`/api/notifications?${qs}`)
         .then((d) => {
+          if (seq !== loadSeq.current) return;
           setItems(d.data ?? []);
           setTotal(d.total ?? 0);
           setPage(d.page ?? 1);
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (seq === loadSeq.current) setLoading(false);
+        });
       apiJson<{ count?: number }>("/api/notifications/unread-count")
         .then((d) => setUnreadTotal(d.count ?? 0))
         .catch(() => {});
@@ -186,16 +199,6 @@ function NotificationsContent() {
     { key: "snoozed", label: "稍后提醒" },
   ];
 
-  const TYPE_OPTIONS = [
-    { key: "", label: "全部类型" },
-    { key: "task_due", label: "任务截止" },
-    { key: "calendar_event", label: "日程" },
-    { key: "followup", label: "跟进" },
-    { key: "project_update", label: "项目更新" },
-    { key: "project_dispatched", label: "项目分发" },
-    { key: "quote_promotion_approval", label: "报价让利审核" },
-  ];
-
   const totalPages = Math.ceil(total / 20);
 
   return (
@@ -270,7 +273,7 @@ function NotificationsContent() {
             onChange={(e) => setFilter("type", e.target.value)}
             className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-accent"
           >
-            {TYPE_OPTIONS.map((o) => (
+            {typeOptions.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
               </option>

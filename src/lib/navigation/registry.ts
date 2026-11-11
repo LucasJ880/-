@@ -131,6 +131,8 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     group: "WORK",
     exact: true,
     displayOrder: 10,
+    // VIS-1c：岗位模式下只对管理层（非管理层进 / 也会被落地规则跳走）
+    managementOnly: true,
   },
   {
     key: "ws-ops",

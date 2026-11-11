@@ -11,8 +11,8 @@ import { AUTOMATION_REGISTRY, type AutomationKey } from "@/lib/automation/regist
 import { isFinancialControlEnabled } from "@/lib/project-finance/flags";
 import { canAccessManagementWorkspace } from "@/lib/rbac/workspace-policy";
 import type { RouteGateContext } from "@/lib/navigation/filter-context";
-import { canOpenHref, visiblePosts } from "@/lib/navigation/landing";
-import { asWorkDomain, canReadWorkDomain } from "@/lib/workforce-runtime/readable-domains";
+import { canOpenHref, visibleAutomationKeys, visiblePosts } from "@/lib/navigation/landing";
+import { asWorkDomain, canReadJobByExplicitDomain, canReadWorkDomain } from "@/lib/workforce-runtime/readable-domains";
 import {
   POST_REGISTRY,
   pickKpiMetrics,
@@ -426,7 +426,7 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-/** VIS-1b：岗位总览专用的判定输入（只由 /api/cockpit/posts 经 getOrgPostsCockpit 调用；时间线与工作量接口不调） */
+/** VIS-1b / VIS-1c：岗位总览与时间线的判定输入（/api/cockpit/posts、/api/cockpit/timeline 调用；工作量接口不调） */
 export async function resolveCockpitNavContext(viewer: CockpitViewer): Promise<RouteGateContext> {
   const { loadNavigationContextForOrg } = await import("@/lib/navigation/context-server");
   return loadNavigationContextForOrg({ id: viewer.user.id, role: viewer.user.role }, viewer.orgId);
@@ -679,11 +679,20 @@ export function agentEventTimelineWhere(orgId: string, runIds: readonly string[]
 }
 
 /** 平台级运行流：只取失败 / 部分失败，以及低频自动化的运行 */
-export function automationRunTimelineWhere(window: SourceWindow, lowFrequencyKeys: readonly string[]) {
+/**
+ * `visibleKeys`（VIS-1c）：只取归属岗位对调用者可见的自动化；null = 不限（平台 super_admin）。
+ * 在查询里过滤，每路仍取 limit + 1 条，翻页不重复不遗漏（spec cockpit/company-log）。
+ */
+export function automationRunTimelineWhere(
+  window: SourceWindow,
+  lowFrequencyKeys: readonly string[],
+  visibleKeys: readonly string[] | null = null,
+) {
   return {
     AND: [
       cursorWhere("startedAt", window),
       { OR: [{ status: { in: [...TIMELINE_RUN_STATUSES] } }, { automationKey: { in: [...lowFrequencyKeys] } }] },
+      ...(visibleKeys ? [{ automationKey: { in: [...visibleKeys] } }] : []),
     ],
   };
 }
@@ -696,9 +705,16 @@ export interface CompanyLogResponse {
 
 export interface CompanyLogDeps {
   now(): Date;
+  /** VIS-1c：与岗位总览同一份判定输入（自动化按可见岗位收口、作业链接按可读工作域） */
+  navContext(viewer: CockpitViewer): Promise<RouteGateContext>;
   auditRows(orgId: string, window: SourceWindow, take: number): Promise<AuditRow[]>;
   agentEventRows(orgId: string, window: SourceWindow, take: number): Promise<AgentEventRow[]>;
-  automationRunRows(window: SourceWindow, take: number, lowFrequencyKeys: readonly AutomationKey[]): Promise<AutomationRunRow[]>;
+  automationRunRows(
+    window: SourceWindow,
+    take: number,
+    lowFrequencyKeys: readonly AutomationKey[],
+    visibleKeys: readonly AutomationKey[] | null,
+  ): Promise<AutomationRunRow[]>;
   timelineLookups(orgId: string, pendingActionIds: readonly string[], runIds: readonly string[]): Promise<TimelineLookups>;
   /** 商机阶段变更审计 id → 白名单枚举（来源、是否按策略、前后阶段）；只为本页这些 id 查一次 */
   transitionDetails(orgId: string, auditIds: readonly string[]): Promise<ReadonlyMap<string, TransitionDetail>>;
@@ -712,10 +728,20 @@ export async function getOrgCompanyLog(
   const now = deps.now();
   const from = new Date(now.getTime() - params.days * DAY_MS);
   const take = params.limit + 1;
-  const [audits, events, runs] = await Promise.all([
+  const navContext = deps.navContext(viewer);
+  const [audits, events, runs, ctx] = await Promise.all([
     deps.auditRows(viewer.orgId, { from, bound: sourceCursorBound("audit:", params.cursor) }, take),
     deps.agentEventRows(viewer.orgId, { from, bound: sourceCursorBound("event:", params.cursor) }, take),
-    deps.automationRunRows({ from, bound: sourceCursorBound("run:", params.cursor) }, take, lowFrequencyAutomationKeys()),
+    // VIS-1c：平台级自动化只取可见岗位的（super_admin 不限）；在查询里过滤，翻页不遗漏
+    navContext.then((c) =>
+      deps.automationRunRows(
+        { from, bound: sourceCursorBound("run:", params.cursor) },
+        take,
+        lowFrequencyAutomationKeys(),
+        c.isPlatformAdmin ? null : visibleAutomationKeys(c),
+      ),
+    ),
+    navContext,
   ]);
   const pendingActionIds = audits
     .filter((a) => a.targetType.trim().toLowerCase() === "pending_action" && a.targetId)
@@ -726,7 +752,7 @@ export async function getOrgCompanyLog(
     transitionIds.length ? deps.transitionDetails(viewer.orgId, transitionIds) : Promise.resolve(new Map<string, TransitionDetail>()),
   ]);
   const merged = mergeTimeline({
-    sources: [audits.map((a) => auditEntry({ ...a, transition: transitions.get(a.id) ?? null }, lookups)), events.map((e) => agentEventEntry(e, lookups)), runs.map(automationRunEntry)],
+    sources: [audits.map((a) => auditEntry({ ...a, transition: transitions.get(a.id) ?? null }, lookups)), events.map((e) => agentEventEntry(e, lookups, (workDomain) => canReadJobByExplicitDomain(workDomain, ctx))), runs.map(automationRunEntry)],
     limit: params.limit,
     cursor: params.cursor,
     from,
@@ -737,6 +763,7 @@ export async function getOrgCompanyLog(
 export function defaultCompanyLogDeps(): CompanyLogDeps {
   return {
     now: () => new Date(),
+    navContext: resolveCockpitNavContext,
 
     // 审计日志只取 action / 目标类型 / 操作人，不读 beforeData / afterData
     auditRows: async (orgId, window, take) => {
@@ -777,10 +804,10 @@ export function defaultCompanyLogDeps(): CompanyLogDeps {
     },
 
     // 不取 error：平台级运行流的错误文本可能带出其他组织的数据
-    automationRunRows: async (window, take, lowFrequencyKeys) => {
+    automationRunRows: async (window, take, lowFrequencyKeys, visibleKeys) => {
       const { db } = await import("@/lib/db");
       const rows = await db.automationRun.findMany({
-        where: automationRunTimelineWhere(window, lowFrequencyKeys),
+        where: automationRunTimelineWhere(window, lowFrequencyKeys, visibleKeys),
         orderBy: [{ startedAt: "desc" }, { id: "desc" }],
         take,
         select: { id: true, startedAt: true, automationKey: true, status: true },

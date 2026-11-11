@@ -12,9 +12,10 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
   ToolAllowRoles,
+  ToolEntryGate,
 } from "./types";
 import { isSuperAdmin, platformTier, type PlatformRole } from "@/lib/rbac/roles";
-import { canInvokeTool } from "@/lib/tenancy/tool-auth";
+import { canInvokeTool, toolModulesSatisfied } from "@/lib/tenancy/tool-auth";
 import { runPreExecuteGuards } from "./pre-execute-guard";
 import { handleRequiresApproval } from "./approval-gate";
 
@@ -56,6 +57,16 @@ export interface RegistryFilters {
   maxRisk?: "l0_read" | "l1_internal_write" | "l2_soft" | "l3_strong";
   /** 企业禁用工具 */
   disabledTools?: string[];
+  /**
+   * VIS-1c：企业模块配置（Organization.modulesJson 原值，与执行期 canInvokeTool 的 modulesJson 同一份）；
+   * 传入时只列企业模块满足所需模块的工具，与执行期同一映射（toolModulesSatisfied）。不传 = 不按模块过滤。
+   */
+  modulesJson?: unknown;
+  /**
+   * VIS-1c：人类对话的入口门（spec agents/tool-authorization「营销工具随营销模块与品牌增长入口」）。
+   * `marketing: false` 时剔除 marketing_*；不传 = 不限制（数字员工与后台运行）。执行期不读它。
+   */
+  entryGate?: ToolEntryGate;
 }
 
 export const RISK_ORDER: Record<NonNullable<RegistryFilters["maxRisk"]>, number> = {
@@ -92,6 +103,13 @@ class ToolRegistry {
     if (filters?.disabledTools?.length) {
       const banned = new Set(filters.disabledTools);
       result = result.filter((t) => !banned.has(t.name));
+    }
+    if (filters?.modulesJson !== undefined) {
+      const modulesJson = filters.modulesJson;
+      result = result.filter((t) => toolModulesSatisfied(t, modulesJson));
+    }
+    if (filters?.entryGate && !filters.entryGate.marketing) {
+      result = result.filter((t) => !t.name.startsWith("marketing_"));
     }
     if (filters?.role) {
       const role = normalizeRole(filters.role);

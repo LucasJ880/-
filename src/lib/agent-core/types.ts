@@ -187,6 +187,12 @@ export interface CoreToolCall {
 
 // ── Agent 运行选项 ───────────────────────────────────────────────
 
+/** VIS-1c：工具列表入口门（spec agents/tool-authorization「营销工具随营销模块与品牌增长入口」） */
+export type ToolEntryGate = {
+  /** 「品牌增长」入口对当前用户放行（平台 super_admin 视为放行）；false 时列表剔除 marketing_* */
+  marketing: boolean;
+};
+
 export interface AgentRunOptions {
   /**
    * 可用工具集（按名称过滤）。
@@ -249,6 +255,11 @@ export interface AgentRunOptions {
    * 不传表示无上限。
    */
   maxRisk?: ToolRisk;
+  /**
+   * VIS-1c：人类对话入口传入的工具列表入口门（只影响给模型的工具列表，执行期不读）；
+   * 数字员工与后台运行不传 = 不限制。
+   */
+  entryGate?: ToolEntryGate;
   /**
    * 外部 AbortSignal（通常传入 NextRequest.signal）
    * 客户端断开时，正在进行的 OpenAI 调用会被立即中止，避免继续扣费。

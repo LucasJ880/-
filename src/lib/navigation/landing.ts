@@ -23,6 +23,14 @@ export function visiblePosts(ctx: RouteGateContext): PostRegistryEntry[] {
   return POST_REGISTRY.filter((post) => isPostVisible(post, ctx));
 }
 
+/**
+ * VIS-1c：可见岗位的自动化键并集（spec cockpit/company-log「时间线按可见岗位与可读作业收口」）。
+ * 时间线在来源查询里按它过滤平台级自动化运行；平台 super_admin 由调用方放行（微信开关关时 visiblePosts 对其也不含「客服」）。
+ */
+export function visibleAutomationKeys(ctx: RouteGateContext): PostRegistryEntry["automationKeys"][number][] {
+  return [...new Set(visiblePosts(ctx).flatMap((post) => post.automationKeys))];
+}
+
 /** 进入首页后最终停留的页面；该页对判定输入不放行时落 /tasks（落地页必放行，spec navigation/route-gate） */
 export function resolveLandingPage(ctx: RouteGateContext): string {
   const dest = resolveHomeRedirect(workspaceContextFromNav(ctx)) ?? (visiblePosts(ctx).length > 0 ? "/" : "/tasks");

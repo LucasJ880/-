@@ -160,7 +160,8 @@ ok(PLATFORM_ROLE_COLLAPSE_READY === true, "写库闸门已打开");
   ok(src("src/proxy.ts").includes("isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)"), "中间件旧模式营销接口分支保留");
   // 前端
   ok(src("src/components/dashboard/management-dashboard-client.tsx").includes("user?.effectiveRole || user?.role"), "管理总览读 effectiveRole");
-  ok(src("src/app/(main)/assistant/digital-employee-workbench.tsx").includes("user?.effectiveRole ?? user?.role"), "工作台营销入口读 effectiveRole");
+  // VIS-1c：工作台营销入口改按营销数字员工页是否放行（判定断言在 navigation/__tests__/entry-visibility.test.ts）
+  ok(!src("src/app/(main)/assistant/digital-employee-workbench.tsx").includes("canUseMarketingDigitalEmployee"), "工作台营销入口不再按派生平台角色判定");
   // 视觉方案：所有路由都先解析查看者
   const vRoutes = src("src/app/api/visualizer/sessions/route.ts");
   ok(vRoutes.includes("resolveVisualizerViewer(user)") && vRoutes.includes("visualizerSessionListScope(viewer)"), "视觉方案列表：先解析查看者");

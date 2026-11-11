@@ -9,8 +9,8 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
-
-const MENGXIN_ORG_CODE = "mengxin-home-textile";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
+import { PLATFORM_RELAY_SUMMARY, personalGmailNotice, platformRelayTitle } from "@/lib/settings/sender-copy";
 
 interface GoogleStatus {
   connected: boolean;
@@ -55,7 +55,10 @@ function SettingsContent() {
   const { orgId, organizations, loading: orgLoading } = useCurrentOrgId();
   const wechatEnabled = useWechatEntryEnabled();
   const currentOrg = organizations.find((o) => o.id === orgId);
-  const isMengxinOrg = currentOrg?.code === MENGXIN_ORG_CODE;
+  // VIS-1c：发信文案按企业设置（settings/sender-copy），不按企业代码写死
+  const isPlatformRelay = currentOrg?.senderCopy === "platform_relay";
+  // VIS-1c：「邮箱绑定」卡只在 /settings/email 对当前用户放行时出现（navigation/entry-visibility）
+  const { ready: navReady, canOpen } = useNavigationAccess();
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -231,6 +234,7 @@ function SettingsContent() {
         <span className="text-xs text-accent">去设置 →</span>
       </Link>
 
+      {navReady && canOpen("/settings/email") && (
       <Link
         href="/settings/email"
         className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card-bg px-5 py-4 transition-colors hover:bg-accent-soft"
@@ -244,6 +248,7 @@ function SettingsContent() {
         </div>
         <span className="text-xs text-accent">去设置 →</span>
       </Link>
+      )}
 
       {wechatEnabled && (
         <Link
@@ -379,11 +384,11 @@ function SettingsContent() {
           </div>
           <div>
             <h2 className="text-sm font-semibold">
-              {isMengxinOrg ? "梦馨发信通道" : "Gmail 邮件发送"}
+              {isPlatformRelay ? platformRelayTitle(currentOrg?.name) : "Gmail 邮件发送"}
             </h2>
             <p className="text-xs text-muted">
-              {isMengxinOrg
-                ? "官网询盘由 Resend 发到 Cathy / QQ，并写入青砚外贸询盘。梦馨不使用 Gmail。"
+              {isPlatformRelay
+                ? PLATFORM_RELAY_SUMMARY
                 : "绑定后，可在询价流程中通过青砚直接发送邮件给供应商（AI 生成草稿 → 确认 → 发送）"}
             </p>
           </div>
@@ -395,18 +400,15 @@ function SettingsContent() {
               <Loader2 size={14} className="animate-spin" />
               检查连接状态...
             </div>
-          ) : isMengxinOrg ? (
+          ) : isPlatformRelay ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#2e7a56]" />
-                <span className="text-sm font-medium text-[#2e7a56]">官网询盘：Resend</span>
-                <span className="text-sm text-muted">inquiry@mengxinhometextile.com</span>
+                <span className="text-sm font-medium text-[#2e7a56]">平台发信通道</span>
               </div>
               <p className="text-xs leading-relaxed text-muted">
-                这不是梦馨的 Gmail 企业绑定。工厂收件箱是 Cathy 的业务邮箱，客户确认信也由 Resend 发出。
-                {gmail?.connected
-                  ? ` 你登录账号上仍绑着 Gmail（${gmail.email}），那是个人/其他企业用的，切回 Sunny 才会用于青砚发信。请不要在此解除，以免影响 Sunny。`
-                  : ""}
+                本企业不使用 Gmail 企业绑定，发件身份见「邮箱绑定」页的「公司发件身份」。
+                {gmail?.connected ? ` ${personalGmailNotice(gmail.email)}` : ""}
               </p>
             </div>
           ) : gmail?.connected ? (
@@ -460,7 +462,7 @@ function SettingsContent() {
           )}
         </div>
 
-        {!isMengxinOrg && (
+        {!isPlatformRelay && (
         <div className="border-t border-border px-5 py-3">
           <details className="group rounded-lg border border-border/80 bg-background/40">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">

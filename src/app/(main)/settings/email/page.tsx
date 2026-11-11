@@ -18,8 +18,8 @@ import { Label } from "@/components/ui/label";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSenderCard } from "./org-sender-card";
 import { EmailProfileCard } from "./email-profile-card";
+import { PLATFORM_RELAY_SUMMARY, personalGmailNotice, platformRelayTitle } from "@/lib/settings/sender-copy";
 
-const MENGXIN_ORG_CODE = "mengxin-home-textile";
 
 interface GmailState {
   connected: boolean;
@@ -71,7 +71,8 @@ const PRESETS = [
 export default function EmailBindingPage() {
   const { orgId, organizations, loading: orgLoading } = useCurrentOrgId();
   const currentOrg = organizations.find((o) => o.id === orgId);
-  const isMengxinOrg = currentOrg?.code === MENGXIN_ORG_CODE;
+  // VIS-1c：发信文案按企业设置（settings/sender-copy），不按企业代码写死
+  const isPlatformRelay = currentOrg?.senderCopy === "platform_relay";
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
 
@@ -242,22 +243,21 @@ export default function EmailBindingPage() {
       <PageHeader
         title="邮箱绑定"
         description={
-          isMengxinOrg
-            ? "梦馨的跟进邮件按下方「公司发件身份」发出，不使用 Gmail。下方 Gmail 属于登录账号的个人绑定。"
+          isPlatformRelay
+            ? PLATFORM_RELAY_SUMMARY
             : "绑定一次，报价 / 通知邮件自动从你的邮箱发给客户"
         }
       />
 
-      {isMengxinOrg && (
+      {isPlatformRelay && (
         <div className="rounded-xl border border-border bg-card-bg p-3 text-sm">
           <div className="flex items-start gap-2">
             <Mail size={16} className="mt-0.5 shrink-0 text-accent" />
             <div>
-              <p className="font-medium text-foreground">梦馨发信：公司发件身份（Resend，非 Gmail）</p>
+              <p className="font-medium text-foreground">{platformRelayTitle(currentOrg?.name)}：公司发件身份（非 Gmail）</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                官网询盘发到 Cathy，并抄送 QQ，同时写入青砚外贸询盘；审批后的跟进邮件按下方「公司发件身份」发出。你看到的 Gmail
-                {gmail?.email ? `（${gmail.email}）` : ""}
-                是登录账号的个人绑定，只用于 Sunny，不会用来发梦馨的邮件。请不要断开，以免影响 Sunny。
+                发件身份见下方「公司发件身份」。
+                {gmail?.email ? personalGmailNotice(gmail.email) : ""}
               </p>
             </div>
           </div>
@@ -268,7 +268,7 @@ export default function EmailBindingPage() {
       <EmailProfileCard orgId={orgId} />
 
       {/* ─── 当前生效通道提示 ─── */}
-      {!isMengxinOrg && activeChannel && (
+      {!isPlatformRelay && activeChannel && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-sm text-emerald-800">
           <div className="flex items-center gap-2">
             <CheckCircle size={16} className="text-emerald-600" />
@@ -283,7 +283,7 @@ export default function EmailBindingPage() {
       )}
 
       {/* ─── Google OAuth 一键授权（主推） ─── */}
-      {!isMengxinOrg && (
+      {!isPlatformRelay && (
       <div className="rounded-xl border-2 border-accent/30 bg-gradient-to-br from-accent/5 to-transparent p-5">
         <div className="flex items-start gap-3">
           <div className="shrink-0 rounded-lg bg-card-bg p-2 shadow-sm">
@@ -363,7 +363,7 @@ export default function EmailBindingPage() {
         </p>
       )}
 
-      {!isMengxinOrg && (
+      {!isPlatformRelay && (
       <>
       {/* ─── 高级：SMTP 手动配置（折叠） ─── */}
       <div className="rounded-xl border border-border bg-card-bg/60">

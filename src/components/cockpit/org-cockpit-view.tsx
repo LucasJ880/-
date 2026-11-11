@@ -149,7 +149,13 @@ export function OrgCockpitView({
               <span className="text-xs text-muted">最近 7 天 · 系统、AI 与成员的动作</span>
             </div>
             <div className="mt-3">
-              <CompanyLog timeline={timeline} now={now} onRetry={onRetryTimeline} onLoadMore={onLoadMore} />
+              <CompanyLog
+                timeline={timeline}
+                now={now}
+                onRetry={onRetryTimeline}
+                onLoadMore={onLoadMore}
+                visiblePostKeys={data ? new Set(data.posts.map((p) => p.key)) : null}
+              />
             </div>
           </section>
         </>
@@ -299,11 +305,14 @@ export function CompanyLog({
   now,
   onRetry,
   onLoadMore,
+  visiblePostKeys = null,
 }: {
   timeline: TimelineState;
   now: Date;
   onRetry?: () => void;
   onLoadMore?: () => void;
+  /** VIS-1c：岗位总览返回的可见岗位；岗位名只在其中时显示（spec cockpit/home-view「company.log 时间线」） */
+  visiblePostKeys?: ReadonlySet<string> | null;
 }) {
   if (timeline.status === "loading") return <LogSkeleton />;
   if (timeline.status === "error") {
@@ -330,7 +339,9 @@ export function CompanyLog({
               {/* 窄屏：时间 / 岗位 / 操作者排一行、摘要另起一行；sm 以上 contents 展开成四列 */}
               <div className="flex gap-2 text-xs text-muted sm:contents">
                 <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">{formatRelativeTime(entry.at, now)}</span>
-                <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">{postName(entry.post)}</span>
+                <span className="sm:w-20 sm:shrink-0 sm:pt-0.5">
+                  {entry.post === null ? postName(null) : visiblePostKeys?.has(entry.post) ? postName(entry.post) : ""}
+                </span>
                 <ActorCell entry={entry} />
               </div>
               <span className="min-w-0 flex-1 break-words text-foreground/90 [overflow-wrap:anywhere]">{entry.summary}</span>

@@ -4,11 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Calculator,
   CalendarDays,
   FileText,
   FolderKanban,
   Home,
   Layers,
+  ListTodo,
   Menu,
   MessagesSquare,
   PackageCheck,
@@ -37,6 +39,8 @@ const TAB_ICONS: Record<MobileTabKey, typeof Home> = {
   ops: PackageCheck,
   bids: FolderKanban,
   overview: Home,
+  tasks: ListTodo,
+  accounting: Calculator,
   ai: Layers,
   assistant: MessagesSquare,
 };
@@ -64,6 +68,11 @@ function tabMatch(key: MobileTabKey, first: boolean): (p: string) => boolean {
       return first ? (p) => p.startsWith("/bids") || p.startsWith("/projects") : (p) => p.startsWith("/bids");
     case "overview":
       return (p) => p === "/" || p.startsWith("/tasks") || p.startsWith("/notifications") || p.startsWith("/service-inbox");
+    // VIS-1c：首格指向落地页（任务 / 会计）时的高亮
+    case "tasks":
+      return (p) => p.startsWith("/tasks") || p.startsWith("/notifications");
+    case "accounting":
+      return (p) => p.startsWith("/accounting");
     case "ai":
       return (p) => p.startsWith("/capabilities");
     case "assistant":

@@ -5,7 +5,13 @@
  * 范围条件被整段丢掉（修复前任务搜索即如此：任何登录用户都能搜到其他企业的任务）。
  *
  * projectWhere 为 buildProjectVisibilityWhere 的结果；null 表示平台 super_admin（不加范围）。
+ *
+ * VIS-1c（spec search/global-search「项目结果的范围」）：项目结果另收窄为本人打得开的项目——
+ * 只在项目详情页对其放行时搜，且只搜详情页读判定（requireProjectReadAccess）会放行的项目。
  */
+
+import { canOpenHref } from "@/lib/navigation/landing";
+import type { RouteGateContext } from "@/lib/navigation/filter-context";
 
 export type SearchWhere = Record<string, unknown>;
 
@@ -27,4 +33,27 @@ export function buildProjectSearchWhere(projectWhere: SearchWhere | null, q: str
   const keyword = keywordWhere(["name", "description"], q);
   if (!projectWhere) return keyword;
   return { AND: [projectWhere, keyword] };
+}
+
+/** 项目详情页的探测路径（动态段用占位 id） */
+export const PROJECT_DETAIL_PROBE = "/projects/_";
+
+/** 是否搜项目：项目详情页经路由门对其放行（平台 super_admin 一律放行，判定输入缺失一律不放行） */
+export function shouldSearchProjects(ctx: RouteGateContext | null): boolean {
+  return canOpenHref(PROJECT_DETAIL_PROBE, ctx);
+}
+
+/**
+ * 项目结果的读范围，与详情页读判定同口径：已分发，且本人负责（不限企业）、
+ * 本人在该项目所属企业为 org_admin / org_owner（adminOrgIds），或本人是项目 active 成员。
+ */
+export function buildReadableProjectWhere(userId: string, adminOrgIds: readonly string[]): SearchWhere {
+  return {
+    intakeStatus: "dispatched",
+    OR: [
+      { ownerId: userId },
+      ...(adminOrgIds.length ? [{ orgId: { in: [...adminOrgIds] } }] : []),
+      { members: { some: { userId, status: "active" } } },
+    ],
+  };
 }

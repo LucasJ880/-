@@ -42,6 +42,11 @@ export type NavigationItem = {
   positionPermissions?: string[];
   /** PERM-4c2：外贸入口——岗位模式下对平台角色 trade 或管理层可见（PERM-6 前的例外） */
   tradeEntry?: boolean;
+  /**
+   * VIS-1c：岗位模式下只对管理层出现（平台 super_admin 或持 organization.dashboard.read；
+   * isManagementWorkspaceUser）。旧模式不读它。spec navigation/position-based-visibility「管理总览只对管理层」。
+   */
+  managementOnly?: true;
   /** PERM-4c2：只对平台 super_admin 可见（两种模式都生效；platformAdminOnly 含平台 admin） */
   superAdminOnly?: boolean;
   /** 企业成员角色 OrganizationMember.role */

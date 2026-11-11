@@ -20,6 +20,7 @@ import type { CoreMessage, ToolDomain, AgentRunOptions } from "@/lib/agent-core"
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
 import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
+import { loadToolEntryGate } from "@/lib/agent-core/entry-gate-server";
 
 export const maxDuration = 60;
 
@@ -91,6 +92,8 @@ export const POST = withAuth(async (request, _ctx, user) => {
       workspaceIds: tenant.workspaceIds,
       toolPolicy: tenant.toolPolicy,
       maxRisk,
+      // VIS-1c：人类对话的工具列表入口门（营销工具只给「品牌增长」入口放行的人；agents/tool-authorization）
+      entryGate: await loadToolEntryGate(user, orgId),
       abortSignal: request.signal,
     });
 

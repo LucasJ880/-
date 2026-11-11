@@ -275,5 +275,22 @@ console.log("首页与容器源码");
   }
 }
 
+// ── VIS-1c：时间线不显示不可见岗位的名字（spec cockpit/home-view「company.log 时间线」）──
+console.log("时间线岗位名");
+{
+  // 只看时间线条目（split 后第 0 段是条目之前的页面，含横幅）
+  const logRow = (out: string, summary: string) => out.split("<li data-entry=").slice(1).find((seg) => seg.includes(summary)) ?? "";
+  const withoutInbound = fixture({ posts: fixture().posts.filter((p) => p.key !== "inbound_sales") });
+  const out = render({ status: "ready", data: withoutInbound }, { status: "ready", items: entries, nextCursor: null });
+  const row = logRow(out, "PENDING_ACTION_APPROVED · pending_action");
+  ok(row !== "" && !row.includes("询盘销售"), "posts 不含 inbound_sales → 该审计条目的岗位格不显示「询盘销售」", row.slice(0, 200));
+  ok(logRow(out, "作业等待人工").includes("投标"), "可见岗位（tender）照常显示岗位名");
+  ok(logRow(out, COCKPIT_REDACTED).includes("未归属"), "post 为空照旧显示「未归属」");
+  const full = render({ status: "ready", data: fixture() }, { status: "ready", items: entries, nextCursor: null });
+  ok(logRow(full, "PENDING_ACTION_APPROVED · pending_action").includes("询盘销售"), "posts 含 inbound_sales → 照常显示「询盘销售」");
+  const loadingPosts = render({ status: "loading" }, { status: "ready", items: entries, nextCursor: null });
+  ok(!logRow(loadingPosts, "作业等待人工").includes("投标"), "岗位总览未返回时不先显示岗位名");
+}
+
 console.log(`\n组织驾驶舱岗位视图渲染: ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);

@@ -23,6 +23,9 @@ import {
   type TimelineLookups,
 } from "../timeline";
 import { COCKPIT_REDACTED } from "../waiting";
+import { visibleAutomationKeys } from "@/lib/navigation/landing";
+import { canReadJobByExplicitDomain, readsEveryWorkDomain } from "@/lib/workforce-runtime/readable-domains";
+import { gateCtx } from "@/lib/navigation/__tests__/identity-fixtures";
 
 let pass = 0;
 let fail = 0;
@@ -181,6 +184,31 @@ console.log("归并翻页");
   ok(JSON.stringify(sorted.map((e) => e.id)) === JSON.stringify(ids), "整体严格倒序");
   const narrow = mergeTimeline({ sources: [all], limit: 50, cursor: null, from: T("2026-10-24T00:00:00Z") });
   ok(narrow.items.length === 6 && narrow.nextCursor === null, "窗口外的条目被排除；最后一页 nextCursor 为 null");
+}
+
+// ── VIS-1c：时间线按可见岗位与可读作业收口（spec cockpit/company-log「时间线按可见岗位与可读作业收口」）──
+console.log("可见岗位与可读作业");
+{
+  const sunnyOwnerKeys = visibleAutomationKeys(gateCtx("owner"));
+  ok(sunnyOwnerKeys.includes("tender-watch") && !sunnyOwnerKeys.includes("release-drift"), "Sunny 老板：可见自动化键含 tender-watch，不含 release-drift（运维与知识）");
+  ok(!sunnyOwnerKeys.includes("daily-brief") && !sunnyOwnerKeys.includes("agent-runs"), "Sunny 老板：询盘销售与运维与知识下的平台级运行不在可见键里");
+  ok(visibleAutomationKeys(gateCtx("mx_cathy")).includes("daily-brief") && !visibleAutomationKeys(gateCtx("mx_cathy")).includes("tender-watch"), "梦馨老板：有询盘销售、没有投标");
+
+  const lookupsOf = (workDomain: string | null) => ({
+    pendingActions: new Map(),
+    projectWorkDomains: new Map(),
+    agentRuns: new Map([["run-x", { runType: "workforce_job", workDomain }]]),
+  });
+  const row = { id: "ex", createdAt: T("2026-10-26T10:00:00Z"), runId: "run-x", eventType: "job.waiting_human", title: null };
+  const hrefFor = (name: Parameters<typeof gateCtx>[0], workDomain: string | null) =>
+    agentEventEntry(row, lookupsOf(workDomain), (wd) => canReadJobByExplicitDomain(wd, gateCtx(name))).href;
+  ok(hrefFor("mx_cathy", "tender") === null, "梦馨老板（未启用 bids / projects）：投标域作业照常出现，href 为 null");
+  ok(hrefFor("owner", "tender") === "/workforce/run-x", "Sunny 老板：可读投标域，带链接");
+  ok(hrefFor("mx_cathy", "sales") === "/workforce/run-x", "梦馨老板：可读销售域，带链接");
+  ok(readsEveryWorkDomain(gateCtx("owner")) && hrefFor("owner", null) === "/workforce/run-x", "无显式工作域：Sunny 老板可读全部工作域，带链接");
+  ok(hrefFor("mx_cathy", null) === null && !readsEveryWorkDomain(gateCtx("mx_cathy")), "无显式工作域：梦馨老板读不了全部工作域 → 不带链接");
+  ok(hrefFor("super_admin", null) === "/workforce/run-x", "平台 super_admin：一律带链接");
+  ok(agentEventEntry(row, lookupsOf("tender")).href === "/workforce/run-x", "不传判定（纯函数缺省）：照旧带链接");
 }
 
 console.log(`\n组织驾驶舱 company.log: ${pass}/${pass + fail} passed`);

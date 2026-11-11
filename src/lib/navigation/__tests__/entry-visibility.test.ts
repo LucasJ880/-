@@ -135,7 +135,7 @@ const samplePaths = (() => {
 })();
 
 async function main() {
-  console.log("entry-visibility（VIS-1b）");
+  console.log("entry-visibility（VIS-1b / VIS-1c）");
 
   // ── 判定输入拼装：客户端与路由门 loader 逐字段相同 ──
   {
@@ -271,6 +271,50 @@ async function main() {
     const ops = read("src/app/(main)/operations/page.tsx");
     ok(/visibleOperationsCards\(ctx\)/.test(ops) && /暂无可用的运营入口/.test(ops) && !/href="\/operations\/tender-profile"/.test(ops), "/operations：卡片按判定过滤，有空态，不再写死卡片");
     ok(!/市场情报、品牌记忆、内容日历和审核队列/.test(ops), "/operations：发布服务不可用的提示不再点名可能看不到的卡片");
+  }
+
+  // ── VIS-1c：/settings 索引的「邮箱绑定」卡（spec「/settings 索引只列放行的卡片」）──
+  {
+    const emailCard = (n: string) => canOpenHref("/settings/email", clientCtx(IDENTITIES[n]));
+    const without = ["installer", "ops_staff", "ops_lead", "accounting", "fulfillment_vinyl", "no_position"];
+    const withCard = ["sales_rep", "bids", "owner"];
+    ok(without.every((n) => !emailCard(n)), `设置页：${without.join("、")} 没有「邮箱绑定」`);
+    ok(withCard.every((n) => emailCard(n)), `设置页：${withCard.join("、")} 有「邮箱绑定」`);
+    const settings = read("src/app/(main)/settings/page.tsx");
+    ok(/\{navReady && canOpen\("\/settings\/email"\) && \(\s*<Link\s+href="\/settings\/email"/.test(settings), "设置页：「邮箱绑定」卡按 canOpen(\"/settings/email\") 渲染，判定输入未就绪时不显示");
+    const hookSrc = read("src/lib/navigation/use-navigation-access.ts");
+    ok(/failed: ctx === null && failed, retry/.test(hookSrc) && /\[storedOrgId, attempt\]/.test(hookSrc), "钩子：判定输入取失败时给出 failed，retry 重新请求（失败不缓存）");
+  }
+
+  // ── VIS-1c：营销数字员工卡片（spec「营销数字员工卡片只在其页面放行时出现」）──
+  {
+    const card = (n: string) => canOpenHref("/marketing/employee", clientCtx(IDENTITIES[n]));
+    ok(["ops_staff", "ops_lead", "owner", "super_admin"].every(card), "营销员工卡片：ops_staff、ops_lead、owner、super_admin 出现");
+    ok(["sales_rep", "accounting", "installer", "fulfillment_vinyl"].every((n) => !card(n)), "营销员工卡片：sales_rep、accounting、installer、fulfillment_vinyl 不出现");
+    const wb = read("src/app/(main)/assistant/digital-employee-workbench.tsx");
+    ok(/action\.id !== "marketing" \|\|[\s\S]{0,160}canOpen\("\/marketing\/employee"\)/.test(wb), "工作台：营销卡片按 canOpen(\"/marketing/employee\") 判定");
+    ok(!/canUseMarketingDigitalEmployee|effectiveRole/.test(wb), "工作台：不再按派生平台角色判定营销卡片");
+  }
+
+  // ── VIS-1c：底栏首格指向落地页（spec「底栏首格指向落地页」）──
+  {
+    const first = (n: string) => computeMobileTabs(clientCtx(IDENTITIES[n])).tabs[0];
+    const label = (n: string) => `${first(n)?.label}→${first(n)?.href}`;
+    ok(label("accounting") === "会计→/accounting", `会计：首格「会计」→ /accounting（实际 ${label("accounting")}）`);
+    ok(label("fulfillment_vinyl") === "任务→/tasks" && label("no_position") === "任务→/tasks", `出单、无岗位：首格「任务」→ /tasks（实际 ${label("fulfillment_vinyl")} / ${label("no_position")}）`);
+    ok(label("mx_trade_rep") === "任务→/tasks", `梦馨外贸：首格「任务」→ /tasks（实际 ${label("mx_trade_rep")}）`);
+    ok(label("owner") === "总览→/" && label("super_admin") === "总览→/", `老板、super_admin：首格仍为「总览」→ /（实际 ${label("owner")}）`);
+    ok(label("installer") === "安装→/install" && label("ops_staff") === "运营→/ops" && label("bids") === "招投标→/bids", "安装 / 运营 / 招投标默认工作区的首格不变");
+    ok(NAMES.every((n) => { const tab = first(n); return !tab || canOpenHref(tab.href, clientCtx(IDENTITIES[n])); }), "每种身份的首格都放行");
+    // 旧模式同一规则（spec「岗位模式与旧模式相同」）
+    const legacyFirst = (role: string, partial: Partial<OrgNavigationInputs>) =>
+      computeMobileTabs(clientCtx({ role, inputs: inputs({ positionMode: false, modules: { enabled: LEGACY_MODULES }, ...partial }) })).tabs[0];
+    const la = legacyFirst("user", { permissionKeys: sunny("accounting") });
+    const ln = legacyFirst("user", {});
+    ok(la?.label === "会计" && la.href === "/accounting" && ln?.label === "任务" && ln.href === "/tasks", `旧模式：会计首格「会计」、无键成员首格「任务」（实际 ${la?.label} / ${ln?.label}）`);
+    ok(computeMobileTabs(clientCtx(IDENTITIES.legacy_boss)).tabs[0]?.label === "总览", "旧模式老板：首格仍为「总览」");
+    const bar = read("src/components/mobile-tab-bar.tsx");
+    ok(/tasks: ListTodo/.test(bar) && /accounting: Calculator/.test(bar) && /case "tasks":/.test(bar) && /case "accounting":/.test(bar), "底栏组件有「任务」「会计」的图标与高亮规则");
   }
 
   // ── 纯模块：不导入 next/server ──

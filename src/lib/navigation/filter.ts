@@ -104,6 +104,8 @@ function navWorkspaceCtx(ctx: NavigationFilterContext) {
  */
 function positionPermissionOk(item: NavigationItem, ctx: NavigationFilterContext): boolean {
   if (item.platformAdminOnly) return ctx.isPlatformAdmin;
+  // VIS-1c：管理层专属入口（未绑岗位的平台 super_admin 也算管理层，与「岗位模式的管理层」一致）
+  if (item.managementOnly) return isManagementWorkspaceUser(navWorkspaceCtx(ctx));
   if (item.tradeEntry) {
     // PERM-6a：岗位模式下也认外贸岗位键 trade.read
     return (

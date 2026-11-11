@@ -24,6 +24,14 @@ export async function readSessionUserId(): Promise<string | null> {
 export async function loadPageNavigationContext(): Promise<RouteGateContext | null> {
   const userId = await readSessionUserId();
   if (!userId) return null;
+  return loadGateNavigationContextForUser(userId);
+}
+
+/**
+ * VIS-1c：已知用户 id 时取与路由门同一份判定输入（同一企业选择、30 秒缓存、不列计数、不写库）。
+ * 给高频接口用（全局搜索每次输入都会请求）；账号不存在或停用返回 null。
+ */
+export async function loadGateNavigationContextForUser(userId: string): Promise<RouteGateContext | null> {
   const user = await ROUTE_GATE_LOADER.loadUser(userId);
   if (!user || user.status !== "active") return null;
   return ROUTE_GATE_LOADER.loadContext(user);

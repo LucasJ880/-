@@ -8,7 +8,14 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildProjectSearchWhere, buildTaskSearchWhere, type SearchWhere } from "../where";
+import {
+  buildProjectSearchWhere,
+  buildReadableProjectWhere,
+  buildTaskSearchWhere,
+  shouldSearchProjects,
+  type SearchWhere,
+} from "../where";
+import { gateCtx } from "@/lib/navigation/__tests__/identity-fixtures";
 
 let pass = 0;
 let fail = 0;
@@ -82,8 +89,49 @@ console.log("search-where（全局搜索范围）");
 }
 {
   const src = readFileSync(join(process.cwd(), "src/app/api/search/route.ts"), "utf8");
-  ok(/buildTaskSearchWhere\(projectWhere, user\.id, q\)/.test(src) && /buildProjectSearchWhere\(projectWhere, q\)/.test(src), "路由用这两个函数组装查询条件");
+  ok(/buildTaskSearchWhere\(projectWhere, user\.id, q\)/.test(src), "路由用 buildTaskSearchWhere 组装任务条件（任务范围不变）");
+  // VIS-1c：项目条件改为可读范围 ∧ 项目详情门
+  ok(/buildProjectSearchWhere\(buildReadableProjectWhere\(user\.id, adminOrgIds\), q\)/.test(src), "路由的项目条件用可读范围（buildReadableProjectWhere）");
+  ok(/if \(isSuperAdmin\(user\.role\)\) return buildProjectSearchWhere\(null, q\);/.test(src), "平台 super_admin：不判定门、项目不加范围");
+  ok(/if \(!shouldSearchProjects\(ctx\)\) return null;/.test(src) && /projectSearch === null\s*\? Promise\.resolve\(\[\]\)/.test(src), "项目详情门不放行：不查项目，项目结果为空");
+  ok(/loadGateNavigationContextForUser\(user\.id\)/.test(src) && !/resolvePreferredOrgId/.test(src), "判定输入取路由门同一份（缓存、不写库，不走 resolvePreferredOrgId）");
+  ok(/isOrgSystemAdmin\(m\.role\)/.test(src), "管理企业按 org_admin / org_owner");
+  ok(/return NextResponse\.json\(\{ tasks, projects \}\);/.test(src), "响应形状保持 { tasks, projects }");
   ok(!/\.\.\.taskProjectScope/.test(src) && !/\.\.\.\w+Scope,\s*\n\s*OR:/.test(src), "路由不再出现「展开范围后再写 OR」的写法");
+}
+
+// ── VIS-1c：项目结果的范围（spec search/global-search「项目结果的范围」）──
+console.log("\n项目结果的范围（VIS-1c）");
+{
+  // u1：org-a 的 org_member；org-b 的 org_admin；另负责 org-c 的一个项目；是 pa2 的 active 成员
+  const P = (id: string, orgId: string | null, over: Partial<Row> = {}): Row => ({
+    id, orgId, ownerId: "x", intakeStatus: "dispatched", members: [], name: `报价${id}`, description: "", ...over,
+  });
+  const projects: Row[] = [
+    P("pa1", "org-a"),
+    P("pa2", "org-a", { members: [{ userId: "u1", status: "active" }] }),
+    P("pa3", "org-a", { members: [{ userId: "u1", status: "removed" }] }),
+    P("pb1", "org-b"),
+    P("pb2", "org-b", { intakeStatus: "pending_dispatch" }),
+    P("pc1", "org-c", { ownerId: "u1" }),
+    P("pd1", "org-d"),
+  ];
+  const where = buildProjectSearchWhere(buildReadableProjectWhere("u1", ["org-b"]), "报价");
+  const hits = projects.filter((p) => matches(p, where)).map((p) => p.id);
+  ok(JSON.stringify(hits) === '["pa2","pb1","pc1"]', "只搜到：参与的项目、管理企业的已分发项目、本人负责的项目", hits);
+  ok(!hits.includes("pa1") && !hits.includes("pa3"), "普通成员：企业里没参与（或已移出）的项目搜不到（修复前能搜到）");
+  ok(!hits.includes("pb2"), "未分发的项目搜不到（与详情页一致）");
+  ok(hits.includes("pc1"), "负责人：其他企业里本人负责的项目也搜得到（详情页放行负责人）");
+  const memberOnly = buildProjectSearchWhere(buildReadableProjectWhere("u1", []), "报价");
+  ok(JSON.stringify(projects.filter((p) => matches(p, memberOnly)).map((p) => p.id)) === '["pa2","pc1"]', "没有管理企业时不带企业条件");
+  ok(JSON.stringify(Object.keys(where)) === '["AND"]', "可读范围与关键词用 AND 组合");
+
+  ok(!shouldSearchProjects(gateCtx("sales_rep")), "不是项目成员的销售：不搜项目（项目详情门不放行）");
+  ok(shouldSearchProjects(gateCtx("sales_rep_project_member")), "是项目成员的销售：搜项目（只会搜到参与的项目）");
+  ok(shouldSearchProjects(gateCtx("bids")) && shouldSearchProjects(gateCtx("owner")), "招投标、老板：搜项目");
+  ok(!shouldSearchProjects(gateCtx("installer")) && !shouldSearchProjects(gateCtx("no_position")), "安装工、无岗位：不搜项目");
+  ok(shouldSearchProjects(gateCtx("super_admin")), "未绑岗位的平台 super_admin：搜项目");
+  ok(!shouldSearchProjects(null), "判定输入缺失：不搜项目");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

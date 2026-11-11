@@ -329,6 +329,9 @@ export async function runAgent(rawOptions: AgentRunOptions): Promise<AgentRunRes
       orgRole,
       maxRisk: options.maxRisk,
       disabledTools: toolPolicy?.disabledTools,
+      // VIS-1c：列表与执行期同一份企业模块配置（buildToolContextBase 的 modulesJson）；入口门只有人类对话入口传
+      modulesJson: options.modulesJson,
+      entryGate: options.entryGate,
     }),
     ...extraToolsToOpenAI(options.extraTools),
   ];
@@ -587,6 +590,9 @@ export async function* runAgentStream(
       orgRole,
       maxRisk: options.maxRisk,
       disabledTools: toolPolicy?.disabledTools,
+      // VIS-1c：列表与执行期同一份企业模块配置（buildToolContextBase 的 modulesJson）；入口门只有人类对话入口传
+      modulesJson: options.modulesJson,
+      entryGate: options.entryGate,
     }),
     ...extraToolsToOpenAI(options.extraTools),
   ];
