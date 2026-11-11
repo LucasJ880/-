@@ -25,7 +25,10 @@ import {
   type ExistingRound,
   type RoundLockVerdict,
 } from "./round-pure";
-import { TENDER_SEND_RFQ_TYPE, type TenderSendRfqPayload } from "./types";
+import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
+import { buildFollowUpPolicy } from "./followup-coverage";
+import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
+import { TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendRfqPayload } from "./types";
 import { pickRfqIncoterm, pickRfqSuppliers, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 
 const RFQ_FACT_TYPES = ["quantity", "delivery", "location", "warranty", "scope"] as const;
@@ -44,6 +47,8 @@ export type PrepareRfqInput = {
   incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
   destination?: string | null;
   quantityTiers?: number[];
+  /** RFQ-AUTO-1：这一轮的催单与追问随本卡一并批准。只在网页发起、开关打开时生效；Muse 不传 */
+  autoFollowUp?: boolean;
   now?: Date;
 };
 
@@ -55,6 +60,9 @@ export type PrepareRfqResult =
       roundNumber: number;
       preview: string;
       replyBy: string | null;
+      /** RFQ-AUTO-1：写进审批卡的跟进授权；null = 这一轮不带授权 */
+      followUpPolicy: RfqFollowUpPolicy | null;
+      fromName: string;
       fromEmail: string;
       suppliers: Array<{ id: string; name: string; to: string }>;
       blockedSuppliers: Array<{ id: string; name: string; reason: "no_email" | "inactive" }>;
@@ -85,7 +93,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
 
   const project = await db.project.findFirst({
     where: { id: input.projectId, orgId: input.orgId, workDomain: "tender" },
-    select: { id: true, name: true, closeDate: true, org: { select: { settingsJson: true } } },
+    select: { id: true, name: true, closeDate: true, ownerId: true, org: { select: { settingsJson: true } } },
   });
   if (!project) return { ok: false, errorCode: "PROJECT_NOT_FOUND", message: "没找到这个投标项目，或它不属于你的组织。" };
   const settings = readTenderRfqSettings(project.org?.settingsJson);
@@ -162,6 +170,16 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     items.push({ inquiryItemId: item.id, supplierId: s.id, supplierName: s.name, to: s.contactEmail, subject: mail.subject, body: mail.body });
   }
 
+  // RFQ-AUTO-1 跟进授权：网页发起 + 明确勾选 + 开关打开才写。间隔按项目负责人的偏好（与催单扫描同一口径），与回复截止一起在此定格。
+  const followUpPolicy =
+    input.source === "web" && input.autoFollowUp === true && isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)
+      ? buildFollowUpPolicy({
+          chaseAfterDays: resolveChaseAfterDays(readUserPrefs(project.org?.settingsJson, project.ownerId).chaseAfterDays, project.org?.settingsJson),
+          replyBy: doc.replyBy,
+          templateHash: chaseTemplateHash(),
+        })
+      : null;
+
   const payload: TenderSendRfqPayload = {
     projectId: project.id,
     inquiryId: inquiry.id,
@@ -171,6 +189,8 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     items,
     rfqDocHash: hashRfqPayloadItems(items),
     incoterm: term.incoterm,
+    // 不带授权时不写这个键：载荷与本功能之前逐字节相同
+    ...(followUpPolicy ? { followUpPolicy } : {}),
   };
 
   // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）
@@ -202,6 +222,8 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     roundNumber: inquiry.roundNumber,
     preview: payload.items.map((i) => `${i.supplierName} <${i.to}>`).join("、"),
     replyBy: doc.replyBy,
+    followUpPolicy,
+    fromName: settings.fromName,
     fromEmail: settings.fromEmail,
     suppliers: items.map((i) => ({ id: i.supplierId, name: i.supplierName, to: i.to })),
     blockedSuppliers: blocked,

@@ -607,6 +607,8 @@ run_test "招标询价 Web 入口（入口状态/错误文案/状态行/耗时/�
 run_test "招标询价 进展通知（文案/脱敏/去重/收件人，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts"
 run_test "招标询价 进展通知接线（只在定时检查发/入站挂钩/投递入口，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts"
 run_test "招标询价 进展通知执行（催单一轮一条/投递收件人与去重，T-1）" "npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts"
+run_test "招标询价 跟进授权（构造/覆盖判定/模板指纹/回信不能扩大授权，RFQ-AUTO-1）" "npx tsx src/lib/tender-rfq/__tests__/followup-coverage.test.ts"
+run_test "招标询价 跟进授权 DB 端到端（隔离库执行，否则跳过，RFQ-AUTO-1）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/followup-auto-db.isolated.test.ts"
 # TI-1：招标价格表行项（契约 / 单位换算 / 尺寸对照 / 截标与导出）
 run_test "招标价格表 行项契约与数量汇总（渥太华 18 行）" "npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts"
 run_test "招标价格表 单位换算与金额舍入" "npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts"

@@ -3,6 +3,8 @@
  * 运行：npx tsx src/lib/tender-rfq/__tests__/round-pure.test.ts
  */
 import assert from "node:assert/strict";
+import { chaseTemplateHash } from "../chase-pure";
+import { buildFollowUpPolicy, followUpPolicySummaryZh } from "../followup-coverage";
 import {
   decideRoundLock, hashRfqPayloadItems, partitionSuppliers, previewRfqPayload,
   readCriticalFactSlot, readTenderRfqSettings, resolveSender, type ExistingRound,
@@ -91,5 +93,12 @@ console.log("tender-rfq payload");
   ok("正文改一字 hash 变", hashRfqPayloadItems([{ ...items[0], body: "hello!" }]) !== h);
   const pv = previewRfqPayload({ projectId: "p", inquiryId: "i", roundNumber: 2, fromName: "Qyan-Sunny Purchasing", fromEmail: "project@sunnyshutter.ca", items, rfqDocHash: h });
   ok("预览含轮次/家数/发件人/收件人，不含正文", pv.includes("第 2 轮") && pv.includes("1 封") && pv.includes("project@sunnyshutter.ca") && pv.includes("a@x.com") && !pv.includes("hello"));
+  // RFQ-AUTO-1：带跟进授权时，摘要多一行范围说明（在别的界面批准这张卡的人也能看到）
+  const base = { projectId: "p", inquiryId: "i", roundNumber: 2, fromName: "Qyan-Sunny Purchasing", fromEmail: "project@sunnyshutter.ca", items, rfqDocHash: h };
+  const policy = buildFollowUpPolicy({ chaseAfterDays: 3, replyBy: "2026-11-20", templateHash: chaseTemplateHash() });
+  const withPolicy = previewRfqPayload({ ...base, followUpPolicy: policy });
+  ok("不带授权：摘要里没有「自动跟进」字样", !pv.includes("自动跟进") && !previewRfqPayload({ ...base, followUpPolicy: null }).includes("自动跟进"));
+  ok("带授权：摘要末尾多一行，写明次数、间隔、截止与「批准这张卡即一并批准」", policy !== null && withPolicy.startsWith(pv) && withPolicy.includes(followUpPolicySummaryZh(policy)) && /最多 2 次/.test(withPolicy) && withPolicy.includes("3 天") && withPolicy.includes("2026-11-20") && withPolicy.includes("批准这张卡即一并批准"));
+  ok("带授权：摘要仍不含邮件正文", !withPolicy.includes("hello"));
 }
 console.log(`\ntender-rfq round-pure: ${passed} passed`);

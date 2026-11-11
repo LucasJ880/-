@@ -9,12 +9,15 @@
  * 响应按白名单组装，不含项目估值 / 我方报价 / 毛利。
  */
 
+import { buildFollowUpPolicy, followUpCardView, parseFollowUpPolicy, type FollowUpCardView } from "./followup-coverage";
+import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
+import { loadRoundFollowUpStatus } from "./followup-service";
 import { db } from "@/lib/db";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
 import { hasGmailComposeScope, hasGmailReadScope } from "@/lib/google-email";
 import { pickRfqIncoterm, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 import { buildRfqDocument } from "./build";
-import { resolveChaseAfterDays } from "./chase-pure";
+import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
 import { readTenderRfqSettings, resolveSender } from "./round-pure";
 import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
@@ -57,7 +60,19 @@ export type RfqWebEntry =
       engineRounds: Record<string, { elapsed: string | null }>;
       autoIngest: UserMessage;
       timeZone: string;
+      /** RFQ-AUTO-1：开关关闭时为 null——界面不出现任何自动跟进的内容 */
+      followUp: RfqEntryFollowUp | null;
     };
+
+/** RFQ-AUTO-1：入口里与跟进授权有关的全部内容 */
+export type RfqEntryFollowUp = {
+  /** 新建一轮时可勾选的授权（范围 + 模板预览） */
+  offer: FollowUpCardView | null;
+  /** 待批发送卡上已带的授权：actionId → 展示内容 */
+  cards: Record<string, FollowUpCardView>;
+  /** 各轮的状态：inquiryId → 生效中 / 已停止 / 未生效 */
+  rounds: Record<string, { state: "active" | "stopped" | "inactive"; summaryZh: string; reasonZh: string | null; autoSentCount: number }>;
+};
 
 const SUPPLIER_LIMIT = 100;
 
@@ -226,5 +241,43 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     engineRounds,
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
+    followUp: await loadEntryFollowUp({
+      orgId: input.orgId,
+      now,
+      fromName: settings.fromName,
+      chaseAfterDays,
+      replyBy,
+      pendingActionIds: lockState.pendingSends.map((p) => p.actionId),
+      inquiryIds: lockState.existing.map((r) => r.inquiryId),
+    }),
   };
+}
+
+async function loadEntryFollowUp(input: {
+  orgId: string;
+  now: Date;
+  fromName: string;
+  chaseAfterDays: number;
+  replyBy: string | null;
+  pendingActionIds: string[];
+  inquiryIds: string[];
+}): Promise<RfqEntryFollowUp | null> {
+  if (!isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)) return null;
+  const view = (policy: Parameters<typeof followUpCardView>[0]) => followUpCardView(policy, { fromName: input.fromName, now: input.now });
+  // 新建一轮会带的授权：与 prepareRfqRound 同一套入参（间隔按项目负责人偏好、截止 = 这一轮的回复截止）
+  const offerPolicy = buildFollowUpPolicy({ chaseAfterDays: input.chaseAfterDays, replyBy: input.replyBy, templateHash: chaseTemplateHash() });
+  const cards: RfqEntryFollowUp["cards"] = {};
+  if (input.pendingActionIds.length) {
+    const rows = await db.pendingAction.findMany({ where: { orgId: input.orgId, id: { in: input.pendingActionIds }, type: TENDER_SEND_RFQ_TYPE }, select: { id: true, payload: true } });
+    for (const r of rows) {
+      const policy = parseFollowUpPolicy((r.payload as { followUpPolicy?: unknown } | null)?.followUpPolicy);
+      if (policy) cards[r.id] = view(policy);
+    }
+  }
+  const rounds: RfqEntryFollowUp["rounds"] = {};
+  for (const [inquiryId, st] of await loadRoundFollowUpStatus(input.orgId, input.inquiryIds)) {
+    if (st.state === "none") continue;
+    rounds[inquiryId] = { state: st.state, summaryZh: st.summaryZh, reasonZh: st.state === "inactive" ? st.reasonZh : null, autoSentCount: st.autoSentCount };
+  }
+  return { offer: offerPolicy ? view(offerPolicy) : null, cards, rounds };
 }

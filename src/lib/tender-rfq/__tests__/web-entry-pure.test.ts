@@ -3,6 +3,8 @@
  * 运行：npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { partitionSuppliers } from "../round-pure";
 import {
   approvalStatusNote,
@@ -291,6 +293,22 @@ console.log("T-1 催单卡原地审批");
   ok("没有 message → 已批准并发出", chaseOutcomeFromMessage(undefined).text === "已批准并发出。");
   ok("失败原因里的英文状态换成中文", chaseErrorText("当前状态「replied」不需要追问") === "当前状态「已回复」不需要追问");
   ok("没有英文状态的失败原因原样", chaseErrorText("发送失败：timeout") === "发送失败：timeout");
+}
+
+console.log("RFQ-AUTO-1 入口与接口接线（源码断言）");
+{
+  const root = resolve(__dirname, "../../../..");
+  const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+  const entry = read("src/lib/tender-rfq/web-entry.ts");
+  const service = read("src/lib/tender-rfq/service.ts");
+  const roundsRoute = read("src/app/api/projects/[id]/tender-rfq/rounds/route.ts");
+  const stopRoute = read("src/app/api/projects/[id]/tender-rfq/rounds/[inquiryId]/follow-up/stop/route.ts");
+  const muse = read("src/lib/muse-bridge/router.ts");
+  ok("开关关闭：入口的 followUp 为 null（界面据此不显示勾选框与状态）", /if \(!isRfqFollowUpPreapprovalEnabledForOrg\(input\.orgId\)\) return null;/.test(entry));
+  ok("授权只在「网页发起 + 明确勾选 + 开关打开」三者同时成立时写进载荷", /input\.source === "web" && input\.autoFollowUp === true && isRfqFollowUpPreapprovalEnabledForOrg\(/.test(service));
+  ok("建轮次接口：autoFollowUp 是可选布尔，只有明确为 true 才算勾选", /autoFollowUp: z\.boolean\(\)\.optional\(\)/.test(roundsRoute) && /autoFollowUp: body\.autoFollowUp === true,/.test(roundsRoute));
+  ok("停止接口：要求项目写权限，且只有 POST", /requireProjectWriteAccess/.test(stopRoute) && /export async function POST/.test(stopRoute) && !/export async function (GET|PUT|PATCH|DELETE)/.test(stopRoute));
+  ok("Muse 发起路径调用同一个建轮次函数，但不传 autoFollowUp", /prepareRfqRound\(/.test(muse) && !/autoFollowUp/.test(muse));
 }
 
 console.log(`\nW-1 web-entry-pure: ${passed} passed`);
