@@ -14,6 +14,8 @@
 import { db } from "@/lib/db";
 import { logAudit, writeAuditLog } from "@/lib/audit/logger";
 import { approveApprovalItem, rejectApprovalItem, listApprovalInbox } from "@/lib/approval/port";
+import { pendingActionItem } from "@/lib/approval/audience";
+import { cardVisibleTo } from "@/lib/approval/audience-server";
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import { buildTenderPackageContext } from "@/lib/tender-auto-analysis/chat-context";
@@ -89,10 +91,13 @@ export async function handleMuseCommand(
       case "approve": {
         // 白名单：只有内部低风险动作和 Muse 自己的询价 / 催单可在这里批；其余须在网页看完内容后批准。
         // 按 id 在本组织（或无组织的个人旧动作，与 ApprovalPort 同口径）内查类型；查不到交给 ApprovalPort 报不存在
-        const target = await db.pendingAction.findFirst({
+        const found = await db.pendingAction.findFirst({
           where: { id: command.approvalId, OR: [{ orgId: identity.orgId }, { orgId: null }] },
-          select: { type: true, payload: true },
+          select: { type: true, payload: true, orgId: true, createdById: true, approverUserId: true, workspaceId: true, projectId: true },
         });
+        // VIS-1d：先判可见再判网页预览。看不见的卡与不存在的 id 走同一条路（不按类型给不同答复），由 ApprovalPort 报不存在
+        const target =
+          found && (await cardVisibleTo(pendingActionItem(found), identity.userId, identity.orgId)) ? found : null;
         if (museApprovalNeedsWebPreview(target?.type, target?.payload)) {
           response = webPreviewRequiredResponse(requestId, target?.type, target?.payload);
           break;
@@ -263,7 +268,7 @@ async function loadStatusRows(identity: MuseIdentity, projectId?: string): Promi
     },
   });
 
-  const inbox = await listApprovalInbox(identity.userId);
+  const inbox = await listApprovalInbox(identity.userId, { orgId: identity.orgId });
   const pendingByProject = new Map<string, number>();
   for (const item of inbox) {
     const pid = item.source.projectId;
@@ -325,9 +330,9 @@ async function chaseDaysFor(identity: MuseIdentity, prefDays?: number | null): P
   return resolveChaseAfterDays(days, org?.settingsJson);
 }
 
-/** 该用户可见、属于该项目的待批 PendingAction（approve 意图只认 pending_action） */
-async function pendingActionsForProject(userId: string, projectId: string) {
-  const inbox = await listApprovalInbox(userId);
+/** 该用户可见、属于该项目的待批 PendingAction（approve 意图只认 pending_action）；收件箱只含 Muse 绑定的企业 */
+async function pendingActionsForProject(identity: MuseIdentity, projectId: string) {
+  const inbox = await listApprovalInbox(identity.userId, { orgId: identity.orgId });
   return inbox
     .filter((i) => i.kind === "pending_action" && i.source.projectId === projectId)
     .map((i) => ({ id: i.id, title: i.title, createdAt: i.createdAt }))
@@ -376,7 +381,7 @@ async function handleAsk(
   });
 
   // LLM 只给结论 / 理由 / 提示词；下一步由代码按 §2.1 查表映射，映射不到就没有
-  const earliest = (await pendingActionsForProject(identity.userId, projectId))[0]?.id ?? null;
+  const earliest = (await pendingActionsForProject(identity, projectId))[0]?.id ?? null;
   return respond(requestId, askAdvisory(answer, { projectId, earliestApprovalId: earliest }));
 }
 
@@ -587,7 +592,7 @@ async function handleNextStep(requestId: string, identity: MuseIdentity, project
       select: { id: true, items: { select: { id: true, status: true, sentAt: true, isSelected: true, contactNotes: true, supplier: { select: { name: true } } } } },
     }),
     db.projectQuote.count({ where: { projectId } }),
-    pendingActionsForProject(identity.userId, projectId),
+    pendingActionsForProject(identity, projectId),
     loadUserPrefs(identity.orgId, identity.userId),
   ]);
 

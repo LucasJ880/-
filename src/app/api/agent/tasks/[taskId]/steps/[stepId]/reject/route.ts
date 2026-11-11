@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { requireProjectReadAccess } from "@/lib/projects/access";
-import { rejectApprovalItem } from "@/lib/approval/port";
+import { APPROVAL_REQUEST_NOT_FOUND_ERROR, rejectApprovalItem } from "@/lib/approval/port";
 
 /**
  * POST /api/agent/tasks/:taskId/steps/:stepId/reject
@@ -34,7 +34,7 @@ export const POST = withAuth(async (request, ctx, user) => {
   });
 
   if (!approval) {
-    return NextResponse.json({ error: "无待处理的审批请求" }, { status: 404 });
+    return NextResponse.json({ error: APPROVAL_REQUEST_NOT_FOUND_ERROR }, { status: 404 });
   }
 
   const result = await rejectApprovalItem("approval_request", approval.id, {
@@ -44,6 +44,10 @@ export const POST = withAuth(async (request, ctx, user) => {
     note,
   });
 
+  // VIS-1d：端口对看不见的审批按「不存在」返回，这里与上面的不存在同一个 404
+  if (!result.ok && result.error === APPROVAL_REQUEST_NOT_FOUND_ERROR) {
+    return NextResponse.json({ error: APPROVAL_REQUEST_NOT_FOUND_ERROR }, { status: 404 });
+  }
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error ?? "驳回失败" },

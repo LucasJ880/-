@@ -241,6 +241,8 @@ run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation
 run_test "Navigation Position Mode (PERM-4c2)" "npx tsx src/lib/navigation/__tests__/position-nav.test.ts"
 run_test "路由级可见性门（VIS-1a）" "npx tsx src/lib/navigation/__tests__/route-gate.test.ts"
 run_test "入口判定与路由门同源（VIS-1b）" "npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts"
+run_test "审批的可见集合（VIS-1d）" "npx tsx src/lib/approval/__tests__/audience.test.ts"
+run_test "审批的可见集合 DB 端到端（VIS-1d；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/approval/__tests__/audience-db.isolated.test.ts"
 run_test "全局搜索范围不被关键词覆盖" "npx tsx src/lib/search/__tests__/search-where.test.ts"
 run_test "Autopilot A0 Access" "npx tsx src/lib/autopilot/__tests__/access.test.ts"
 run_test "Autopilot A0 Sanitize" "npx tsx src/lib/autopilot/__tests__/sanitize.test.ts"

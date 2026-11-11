@@ -140,6 +140,8 @@ export type RouteGateUser = {
 export type RouteGateLoader = {
   loadUser(userId: string): Promise<RouteGateUser | null>;
   loadContext(user: RouteGateUser): Promise<RouteGateContext>;
+  /** VIS-1d：指定企业的判定输入，与 loadContext 共用 (userId, orgId) 的缓存与请求合并 */
+  loadContextForOrg(user: RouteGateUser, orgId: string | null): Promise<RouteGateContext>;
 };
 
 function redirectTo(request: NextRequest, target: string): NextResponse {

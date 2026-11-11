@@ -115,28 +115,32 @@ export type RouteGateLoaderDeps = {
 /** 路由门加载器（依赖可注入，测试用假依赖） */
 export function createRouteGateLoader(deps: RouteGateLoaderDeps): RouteGateLoader {
   const inflight = new Map<string, Promise<{ inputs: OrgNavigationInputs; degraded: boolean }>>();
+  async function contextFor(user: RouteGateUser, orgId: string | null): Promise<RouteGateContext> {
+    const key = `${user.id}:${orgId ?? "-"}`;
+    let org = deps.cache.get(key);
+    if (!org) {
+      let pending = inflight.get(key);
+      if (!pending) {
+        pending = deps.loadOrgInputs(user.id, orgId).finally(() => inflight.delete(key));
+        inflight.set(key, pending);
+      }
+      const result = await pending;
+      org = result.inputs;
+      if (!result.degraded) deps.cache.set(key, org);
+    }
+    // VIS-1b：与客户端钩子同一个拼装函数（filter-context.ts）
+    return buildNavigationFilterContext(org, { role: user.role }, {
+      autopilotAllowed: deps.autopilotAllowed(user),
+      wechatEntryEnabled: deps.wechatEntryEnabled(),
+    });
+  }
   return {
     loadUser: (userId) => deps.findUser(userId),
     async loadContext(user): Promise<RouteGateContext> {
-      const orgId = pickGateOrgId(user.activeOrgId, await deps.findUsableOrgIds(user.id));
-      const key = `${user.id}:${orgId ?? "-"}`;
-      let org = deps.cache.get(key);
-      if (!org) {
-        let pending = inflight.get(key);
-        if (!pending) {
-          pending = deps.loadOrgInputs(user.id, orgId).finally(() => inflight.delete(key));
-          inflight.set(key, pending);
-        }
-        const result = await pending;
-        org = result.inputs;
-        if (!result.degraded) deps.cache.set(key, org);
-      }
-      // VIS-1b：与客户端钩子同一个拼装函数（filter-context.ts）
-      return buildNavigationFilterContext(org, { role: user.role }, {
-        autopilotAllowed: deps.autopilotAllowed(user),
-        wechatEntryEnabled: deps.wechatEntryEnabled(),
-      });
+      return contextFor(user, pickGateOrgId(user.activeOrgId, await deps.findUsableOrgIds(user.id)));
     },
+    // VIS-1d：调用方给定企业（审批可见集合按审批所属企业判）；非成员得到 hasMembership=false
+    loadContextForOrg: (user, orgId) => contextFor(user, orgId),
   };
 }
 

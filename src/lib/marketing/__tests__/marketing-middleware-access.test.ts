@@ -63,6 +63,9 @@ function loaderFor(position: string, extra: Partial<RouteGateContext> = {}) {
         ...extra,
       };
     },
+    async loadContextForOrg(user) {
+      return this.loadContext(user);
+    },
   };
   return { loader, calls };
 }

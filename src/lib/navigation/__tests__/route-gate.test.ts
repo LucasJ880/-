@@ -497,6 +497,11 @@ function fakeLoader(user: RouteGateUser | null | "throw", c: RouteGateContext | 
       if (c === "throw") throw new Error("db down");
       return c;
     },
+    async loadContextForOrg() {
+      calls.context++;
+      if (c === "throw") throw new Error("db down");
+      return c;
+    },
   };
   return { loader, calls };
 }

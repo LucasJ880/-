@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 
@@ -110,6 +111,24 @@ export async function getTeamApprovalAccessIds(userId: string) {
   return {
     orgIds: [...new Set([...ownedOrgs.map((row) => row.id), ...orgAdmins.map((row) => row.orgId)])],
     projectIds: [...new Set([...ownedProjects.map((row) => row.id), ...projectAdmins.map((row) => row.projectId)])],
+  };
+}
+
+/**
+ * 团队审批的处理人范围（PendingAction where）：本人的个人草稿 ∪ 本人是指定审批人 ∪ 本人管理的企业 / 项目。
+ * VIS-1d：「待我确认」、红点、运营看板与收件箱共用这一段（行为与改动前四处各写的一份相同）。
+ */
+export function teamApprovalScopeWhere(
+  userId: string,
+  access: { orgIds: readonly string[]; projectIds: readonly string[] },
+): Prisma.PendingActionWhereInput {
+  return {
+    OR: [
+      { createdById: userId, orgId: null, projectId: null, approverUserId: null },
+      { approverUserId: userId },
+      ...(access.orgIds.length ? [{ orgId: { in: [...access.orgIds] } }] : []),
+      ...(access.projectIds.length ? [{ projectId: { in: [...access.projectIds] } }] : []),
+    ],
   };
 }
 
