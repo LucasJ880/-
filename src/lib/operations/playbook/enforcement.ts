@@ -6,8 +6,8 @@
  * - enforce：进入发布审批也必须有批准 Playbook（新组织默认）
  */
 
-import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 
 export type PlaybookEnforcementMode = "off" | "warn" | "enforce";
 
@@ -45,17 +45,12 @@ export async function setPlaybookEnforcementMode(
   orgId: string,
   mode: PlaybookEnforcementMode,
 ): Promise<void> {
-  const org = await db.organization.findUnique({
-    where: { id: orgId },
-    select: { settingsJson: true },
+  // FIX-3：锁行后在最新的设置上只改这一项
+  const res = await mutateOrgSettings(orgId, (current) => {
+    const prev = current && typeof current === "object" ? { ...(current as Record<string, unknown>) } : {};
+    prev.playbookEnforcementMode = mode;
+    return { next: prev, result: null };
   });
-  const prev =
-    org?.settingsJson && typeof org.settingsJson === "object"
-      ? { ...(org.settingsJson as Record<string, unknown>) }
-      : {};
-  prev.playbookEnforcementMode = mode;
-  await db.organization.update({
-    where: { id: orgId },
-    data: { settingsJson: prev as Prisma.InputJsonValue },
-  });
+  // 组织不存在时的既有行为：更新一条不存在的记录会抛错
+  if (!res.found) throw new Error(`组织不存在：${orgId}`);
 }
