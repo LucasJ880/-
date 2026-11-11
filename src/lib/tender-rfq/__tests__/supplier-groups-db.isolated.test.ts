@@ -297,11 +297,15 @@ async function main() {
     const repaired = await put(home.projectId, { baseVersion: garbage.id, groups: skewDoc }, owner);
     const v5 = repaired.json?.supplierGroups?.version ?? null;
     ok(repaired.status === 200 && repaired.json?.supplierGroups?.groups.length === 3 && typeof v5 === "string", "在读不出来的那条上重新保存：成功，分组恢复", repaired);
-    // (4) 存量内容不合现在的规则（1 个字符的英文关键词）：照样读得出来、照样只认分组
-    await db.auditLog.update({ where: { id: v5 ?? "" }, data: { afterData: JSON.stringify({ groups: [{ name: BLINDS, supplierIds: [sA.id], keywords: ["b"] }] }) } });
+    // (4) 存量内容不合现在的规则（1 个字符的英文关键词）：照样读得出来、照样只认分组。
+    //     关键词用「~」：项目名称里的时间戳是 0-9a-z，不会碰巧对上
+    await db.auditLog.update({ where: { id: v5 ?? "" }, data: { afterData: JSON.stringify({ groups: [{ name: BLINDS, supplierIds: [sA.id], keywords: ["~"] }] }) } });
     const pLegacy = await mkProject(`Office Chairs Legacy ${stamp}`);
     const dLegacy = await draft(pLegacy);
     ok(dLegacy?.drafted === false && dLegacy.reason === "SUPPLIER_GROUP_UNDETERMINED" && !dLegacy.messageZh.includes("读不出来") && (await rounds(pLegacy.projectId)).length === 0, "存量的分组不合现在的规则：仍读得出来，对不上就不起草（没有退回常用供应商）", dLegacy);
+    const pLegacyHit = await mkProject(`Chairs ~ Legacy ${stamp}`);
+    const dLegacyHit = await draft(pLegacyHit);
+    ok(dLegacyHit?.drafted === true && ((await cards(pLegacyHit.projectId))[0].payload as { items: Array<{ supplierId: string }> }).items.map((i) => i.supplierId).join() === sA.id, "存量的那一组确实在生效：项目名称对上它的关键词时，起草给这一组", dLegacyHit);
     const relaid = await put(home.projectId, { baseVersion: v5, groups: skewDoc }, owner);
     const v6 = relaid.json?.supplierGroups?.version ?? null;
     ok(relaid.status === 200 && typeof v6 === "string", "把内容存回正常的一份", relaid);
