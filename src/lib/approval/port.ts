@@ -229,8 +229,11 @@ function pendingRejectNotFound(): ApprovalDecisionResult {
   return { ok: false, status: "failed", error: "草稿不存在", run: null };
 }
 
+/** 项目智能体审批不存在 / 不在待批 / 看不见时的统一结果（步骤审批路由按它返回 404） */
+export const APPROVAL_REQUEST_NOT_FOUND_ERROR = "无待处理的审批请求";
+
 function approvalRequestNotFound(): ApprovalDecisionResult {
-  return { ok: false, error: "无待处理的审批请求" };
+  return { ok: false, error: APPROVAL_REQUEST_NOT_FOUND_ERROR };
 }
 
 const PENDING_BEFORE_SELECT = {

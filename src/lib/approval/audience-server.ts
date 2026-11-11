@@ -55,15 +55,34 @@ export async function loadApprovalViewer(userId: string, orgId: string | null): 
 }
 
 /**
- * 单张卡的端口判定（design D5）：viewer 按卡所属企业取（不按调用方当前企业：微信传空）；
- * 调用方已取好、且用户与企业都相同时复用。
+ * 单张卡的判定输入（design D5）：按卡所属企业取（不按调用方当前企业：微信传空）；调用方已取好、
+ * 且用户与企业都相同时复用。没有企业、但挂了项目的卡，另按该项目判本人是否负责人 / project_admin
+ * （与执行器对无企业卡的判定同源：Project.ownerId 与 active 的 project_admin 成员）。
  */
+export async function viewerForCard(item: ApprovalItem, userId: string, viewer?: ApprovalViewer): Promise<ApprovalViewer> {
+  let v = viewer && viewer.userId === userId && viewer.orgId === item.orgId ? viewer : await loadApprovalViewer(userId, item.orgId);
+  if (!item.orgId && item.projectId && !v.projectIds.includes(item.projectId)) {
+    const projectId = item.projectId;
+    const [project, member] = await Promise.all([
+      db.project.findUnique({ where: { id: projectId }, select: { ownerId: true } }),
+      db.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId } },
+        select: { role: true, status: true },
+      }),
+    ]);
+    if (project?.ownerId === userId || (member?.status === "active" && member.role === "project_admin")) {
+      v = { ...v, projectIds: [...v.projectIds, projectId] };
+    }
+  }
+  return v;
+}
+
+/** 单张卡的端口判定（design D5 的 6 步） */
 export async function cardVisibleTo(
   item: ApprovalItem,
   userId: string,
   callerOrgId: string | null | undefined,
   viewer?: ApprovalViewer,
 ): Promise<boolean> {
-  const v = viewer && viewer.userId === userId && viewer.orgId === item.orgId ? viewer : await loadApprovalViewer(userId, item.orgId);
-  return portCardVisible(item, v, callerOrgId);
+  return portCardVisible(item, await viewerForCard(item, userId, viewer), callerOrgId);
 }

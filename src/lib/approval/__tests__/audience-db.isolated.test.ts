@@ -50,6 +50,7 @@ const id = (p: string) => `fx_vis1d_${p}_${stamp}`;
 // 窗饰（岗位模式）
 const OWNER = id("owner");
 const ADMIN0 = id("admin0");
+const ADMIN1 = id("admin1");
 const ACCT = id("acct");
 const REP1 = id("rep1");
 const REP2 = id("rep2");
@@ -62,7 +63,7 @@ const LADMIN = id("ladmin");
 const LOWNER = id("lowner");
 const LNON = id("lnon");
 const LG2OWNER = id("lg2owner");
-const USERS = [OWNER, ADMIN0, ACCT, REP1, REP2, BIDS, CATHY, TR, LADMIN, LOWNER, LNON, LG2OWNER];
+const USERS = [OWNER, ADMIN0, ADMIN1, ACCT, REP1, REP2, BIDS, CATHY, TR, LADMIN, LOWNER, LNON, LG2OWNER];
 
 const WC = id("orgwc");
 const MX = id("orgmx");
@@ -88,6 +89,8 @@ async function main() {
   const { resolveMuseBinding } = await import("@/lib/muse-bridge/binding");
   const { MUSE_BRIDGE_CONTRACT_VERSION } = await import("@/lib/muse-bridge/contract");
   const approveRoute = await import("@/app/api/ai/pending-actions/[id]/route");
+  const { cardVisibleTo, loadApprovalViewer } = await import("@/lib/approval/audience-server");
+  const { pendingActionAudienceWhere, pendingActionItem } = await import("@/lib/approval/audience");
   const { DEFAULT_SUNNY_MODULES } = await import("@/lib/tenancy");
 
   const cardIds: string[] = [];
@@ -107,6 +110,7 @@ async function main() {
       data: [
         member(WC, OWNER, "org_admin"),
         member(WC, ADMIN0, "org_admin"),
+        member(WC, ADMIN1, "org_admin"),
         member(WC, ACCT),
         member(WC, REP1),
         member(WC, REP2),
@@ -114,6 +118,7 @@ async function main() {
         member(MX, CATHY, "org_admin"),
         member(MX, TR),
         member(MX, ADMIN0, "org_admin"),
+        member(MX, ADMIN1, "org_admin"),
         member(LG, LADMIN, "org_admin"),
         member(LG, LOWNER),
         member(LG, LNON),
@@ -122,7 +127,7 @@ async function main() {
       ],
     });
     // ADMIN0 同时是两家企业成员：AI 助手入口按当前企业解析
-    await db.user.update({ where: { id: ADMIN0 }, data: { activeOrgId: WC } });
+    await db.user.updateMany({ where: { id: { in: [ADMIN0, ADMIN1] } }, data: { activeOrgId: WC } });
     await seedOrgAuthorizationProfiles(WC);
     await seedOrgAuthorizationProfiles(MX);
     const bind = async (orgId: string, userId: string, key: string) => {
@@ -175,6 +180,9 @@ async function main() {
     const MX_DRAFT = await card({ type: "grader.email_draft", orgId: MX, createdById: TR });
     const LCARD = await card({ type: "tender.send_rfq", orgId: LG, createdById: LNON, projectId: LP });
     const LCARD2 = await card({ type: "grader.email_draft", orgId: LG2, createdById: LG2OWNER });
+    // 无企业、挂了项目的卡（历史数据形态）
+    const NOORG_WC = await card({ type: "tender.send_rfq", orgId: null, createdById: REP1, projectId: P1 });
+    const NOORG_LG = await card({ type: "tender.send_rfq", orgId: null, createdById: LNON, projectId: LP });
     const MISSING = id("missing");
 
     const task = await db.agentTask.create({ data: { projectId: P1, intent: "fixture", createdById: BIDS }, select: { id: true } });
@@ -249,6 +257,15 @@ async function main() {
     const unexpired = mine.filter((a) => a.status === "pending" && a.expiresAt.getTime() > Date.now()).length;
     ok(count === unexpired && mineIds.has(GRADER_EXPIRED) && count === mine.length - 1, "红点数 = 列表里未过期的条数（过期的列表照常显示）", { count, unexpired, total: mine.length });
     ok((await countMyPendingActions(ADMIN0, null)) === 1, "解析不出当前企业：红点只数本人的个人草稿");
+    // spec 场景「红点数与列表一致」：企业里一条他人的询价、一条无业务归属的助手草稿（另有一条已过期的），另一企业里一条他本可处理的草稿
+    const mine1 = await listMyPendingActions(ADMIN1, WC, { status: "pending" });
+    const mine1Live = mine1.filter((a) => a.expiresAt.getTime() > Date.now());
+    ok(
+      mine1.every((a) => a.orgId === WC && a.type === "grader.email_draft") && mine1Live.length === 1 && mine1Live[0].id === GRADER,
+      "spec 场景：列表只有本企业的助手草稿（过期的照常列出）",
+      mine1.map((a) => [a.id, a.type, a.orgId]),
+    );
+    ok((await countMyPendingActions(ADMIN1, WC)) === 1, "spec 场景：红点数为 1");
     const ownerMinePA = new Set((await listMyPendingActions(OWNER, WC, { status: "pending" })).map((a) => a.id));
     ok(ownerMinePA.has(PROMO) && ownerMinePA.has(RFQ) && ownerMinePA.has(GRADER), "Sunny 老板：「待我确认」有让利审批、询价与无业务归属草稿", [...ownerMinePA]);
 
@@ -305,6 +322,12 @@ async function main() {
     const aiHidden = await post(ADMIN0, RFQ, WC);
     const aiMissing = await post(ADMIN0, MISSING, WC);
     ok(aiHidden.status === 404 && same(aiHidden, aiMissing) && (await status(RFQ)) === "pending", "AI 助手：看不见的卡与不存在的 id 返回相同的 404，未执行", { aiHidden, aiMissing });
+    const aiCrossHidden = await post(ADMIN0, REV, WC);
+    ok(same(aiCrossHidden, aiMissing) && (await status(REV)) === "pending", "AI 助手：另一企业里也看不见的卡，与不存在相同（不透露属于哪家企业）", aiCrossHidden);
+    const aiCrossNonMember = await post(REP1, MX_DRAFT, WC);
+    ok(aiCrossNonMember.status === 404 && aiCrossNonMember.body?.error === "草稿不存在", "AI 助手：不是那家企业成员的，另一企业的卡按不存在", aiCrossNonMember);
+    const aiCrossVisible = await post(ADMIN0, MX_DRAFT, WC);
+    ok(aiCrossVisible.status === 403 && (await status(MX_DRAFT)) === "pending", "AI 助手：在卡所属企业里看得见、但当前企业不同的，照旧提示切换企业（403），未执行", aiCrossVisible);
 
     // ── Muse approve ──
     console.log("\nMuse");
@@ -316,7 +339,8 @@ async function main() {
         const requestId = `req-vis1d-${stamp}-${++seq}`;
         const envelope = { contractVersion: MUSE_BRIDGE_CONTRACT_VERSION, requestId, orgId: WC, museUserRef: `muse-admin0-${stamp}`, command: { intent: "approve", approvalId } } as Parameters<typeof handleMuseCommand>[0];
         const res = (await handleMuseCommand(envelope, bound.identity)) as unknown as Json;
-        const { requestId: _r, ...rest } = res;
+        const rest: Json = { ...res };
+        delete rest.requestId;
         return rest;
       };
       const museHidden = await muse(RFQ);
@@ -336,6 +360,15 @@ async function main() {
     ok(lnonAi.status === 403 && lnonAi.body?.error === "无权操作" && (await status(LCARD)) === "pending", "旧模式非处理人经 AI 助手：处理人判定拒绝（不是 404，可见校验已放行），未执行", lnonAi);
     const lnonPort = await approveApprovalItem("pending_action", LCARD, { userId: LNON, role: "user", orgId: LG });
     ok(lnonPort.error === "无权操作该草稿" && (await status(LCARD)) === "pending", "旧模式非处理人经端口：执行器「无权操作该草稿」（可见校验已放行），未执行", lnonPort);
+    // 无企业、挂了项目的卡：给创建人、指定审批人与该项目的负责人（与执行器一致），不按岗位
+    const noOrgWc = pendingActionItem((await db.pendingAction.findUnique({ where: { id: NOORG_WC } }))!);
+    ok((await cardVisibleTo(noOrgWc, BIDS, WC)) && (await cardVisibleTo(noOrgWc, REP1, WC)) && !(await cardVisibleTo(noOrgWc, ADMIN0, WC)) && !(await cardVisibleTo(noOrgWc, OWNER, WC)), "无企业的项目卡（岗位模式）：项目负责人与创建人可见，企业管理员与持岗位的老板不可见");
+    const audienceCount = async (userId: string, orgId: string, cardId: string) =>
+      db.pendingAction.count({ where: { AND: [{ id: cardId }, pendingActionAudienceWhere(await loadApprovalViewer(userId, orgId)) as never] } });
+    ok((await audienceCount(BIDS, WC, NOORG_WC)) === 1 && (await audienceCount(ADMIN0, WC, NOORG_WC)) === 0, "无企业的项目卡：真实查询条件与单条判定一致（运营看板口径）");
+    const noOrgLg = pendingActionItem((await db.pendingAction.findUnique({ where: { id: NOORG_LG } }))!);
+    ok((await cardVisibleTo(noOrgLg, LOWNER, LG)) && !(await cardVisibleTo(noOrgLg, LADMIN, LG)), "无企业的项目卡（旧模式）：项目负责人照旧可批（不收窄），企业管理员按执行器本就不认");
+
     const lgCount = await countMyPendingActions(LADMIN, LG);
     const lg2Count = await countMyPendingActions(LADMIN, LG2);
     ok(lgCount === 1 && lg2Count === 1, "两家旧模式企业的管理员：红点只数当前企业", { lgCount, lg2Count, LCARD, LCARD2 });

@@ -19,7 +19,7 @@ import {
 } from "@/lib/approval/port";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
 import { pendingActionItem, portCardVisible } from "@/lib/approval/audience";
-import { loadApprovalViewer } from "@/lib/approval/audience-server";
+import { viewerForCard } from "@/lib/approval/audience-server";
 import { getOrgMembership } from "@/lib/auth";
 import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 import { canConfirmPendingActionInActiveOrg } from "@/lib/assistant/thread-org-backfill";
@@ -76,6 +76,14 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
     return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
   }
 
+  // VIS-1d：先在卡所属企业里判可见，看不见与不存在返回相同的 404（不透露存在、也不透露属于哪家企业）；
+  // 看得见、但不在当前企业的，照旧提示切换企业（下方 403）
+  const item = pendingActionItem(action);
+  const viewer = await viewerForCard(item, user.id);
+  if (!portCardVisible(item, viewer, null)) {
+    return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
+  }
+
   const orgGate = canConfirmPendingActionInActiveOrg({
     actionOrgId: action.orgId,
     activeOrgId: orgRes.orgId,
@@ -99,12 +107,6 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
       );
     }
   }
-  // VIS-1d：在处理人判定之前判可见（按卡所属企业）；看不见与不存在返回相同的 404
-  const viewer = await loadApprovalViewer(user.id, action.orgId);
-  if (!portCardVisible(pendingActionItem(action), viewer, orgRes.orgId)) {
-    return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
-  }
-
   // PERM-4c5：岗位模式企业的审批决策与执行可见范围取岗位派生平台角色
   const aiRole = await resolveEffectivePlatformRole({ userId: user.id, orgId: orgRes.orgId, platformRole: user.role });
   if (

@@ -194,10 +194,12 @@ console.log("\n可见集合条件与单条判定同义（小求值器）");
     rows.push(pa(type, { orgId: null, createdById: ME }));
     rows.push(pa(type, { orgId: "org-2" }));
     rows.push(pa(type, { orgId: "org-2", createdById: ME }));
+    rows.push(pa(type, { orgId: null, projectId: "p1" }));
   }
   // 调用方总会另 AND「当前企业 ∪ 本人个人草稿」：同义只要求在这个范围内成立。
   // 岗位模式与非成员的条件本身就排除范围外的行，按全部行比；旧模式 / super_admin 的 `{}` 按范围内的行比。
-  const inScope = (r: ApprovalItem, v: ApprovalViewer) => r.orgId === v.orgId || (r.orgId === null && (r.createdById === ME || r.approverUserId === ME));
+  const inScope = (r: ApprovalItem, v: ApprovalViewer) =>
+    r.orgId === v.orgId || (r.orgId === null && (r.createdById === ME || r.approverUserId === ME || (!!r.projectId && v.projectIds.includes(r.projectId))));
   const viewers: [string, ApprovalViewer][] = [
     ["Sunny 老板", viewer("owner", { isOrgHandler: true, isOrgAdminRole: true })],
     ["会计", viewer("accounting")],
@@ -222,7 +224,15 @@ console.log("\n端口判定顺序");
 {
   const v = viewer("no_position", { isOrgHandler: true });
   ok(portCardVisible(pa("tender.send_rfq"), viewer("super_admin"), "org-x"), "1 super_admin：可见");
-  ok(portCardVisible(pa("grader.email_draft", { orgId: null, createdById: ME }), v, null) && !portCardVisible(pa("grader.email_draft", { orgId: null }), v, null), "2 个人草稿：只给创建人 / 指定审批人");
+  ok(portCardVisible(pa("grader.email_draft", { orgId: null, createdById: ME }), v, null) && !portCardVisible(pa("grader.email_draft", { orgId: null }), v, null), "2 无企业的卡：给创建人 / 指定审批人，企业处理人不算");
+  const noOrgOnProject = pa("tender.send_rfq", { orgId: null, projectId: "p9" });
+  ok(
+    portCardVisible(noOrgOnProject, viewer("sales_rep", { projectIds: ["p9"] }), ORG) &&
+      !portCardVisible(noOrgOnProject, viewer("owner", { isOrgHandler: true }), ORG) &&
+      isApprovalVisible(noOrgOnProject, legacyViewer({ projectIds: ["p9"] })) &&
+      !isApprovalVisible(noOrgOnProject, legacyViewer({ isOrgAdminRole: true, isOrgHandler: true })),
+    "2 无企业、挂了项目的卡：另给该项目的负责人 / project_admin（与执行器一致，旧模式不收窄），不按岗位",
+  );
   ok(!portCardVisible(pa("grader.email_draft"), v, "org-2"), "3 调用方企业与卡的企业不同：视为不存在");
   ok(portCardVisible(pa("tender.send_rfq"), legacyViewer(), null), "4 旧模式：可见（微信传空企业也按卡所属企业判）");
   ok(!portCardVisible(pa("grader.email_draft", { createdById: ME }), viewer("sales_rep", { ctx: { ...gateCtx("sales_rep"), hasMembership: false } }), null), "5 非成员：不可见");
@@ -324,9 +334,20 @@ console.log("\n待我确认、红点、运营看板与收件箱（源码）");
   ok(approve.indexOf("cardVisibleTo(") > 0 && approve.indexOf("cardVisibleTo(") < approve.indexOf("museApprovalNeedsWebPreview("), "Muse approve：先判可见，再判网页预览");
 
   const route = code("src/app/api/ai/pending-actions/[id]/route.ts");
-  const vis = route.indexOf("portCardVisible(pendingActionItem(action), viewer, orgRes.orgId)");
-  ok(vis > 0 && vis < route.indexOf("canDecideTeamApproval(action"), "[id] 路由：可见校验在 canDecideTeamApproval 之前");
-  ok(/portCardVisible\(pendingActionItem\(action\), viewer, orgRes\.orgId\)\) \{\s*return NextResponse\.json\(\{ error: "草稿不存在" \}, \{ status: 404 \}\);/.test(route) && /if \(!action\) \{\s*return NextResponse\.json\(\{ error: "草稿不存在" \}, \{ status: 404 \}\);/.test(route), "[id] 路由：看不见与不存在返回相同的 404");
+  const vis = route.indexOf("portCardVisible(item, viewer, null)");
+  ok(
+    vis > 0 && vis < route.indexOf("canConfirmPendingActionInActiveOrg(") && vis < route.indexOf("getOrgMembership(") && vis < route.indexOf("canDecideTeamApproval(action"),
+    "[id] 路由：可见校验（按卡所属企业）在跨企业提示、成员校验与 canDecideTeamApproval 之前",
+  );
+  ok(/viewerForCard\(item, user\.id\)/.test(route) && /portCardVisible\(item, viewer, null\)\) \{\s*return NextResponse\.json\(\{ error: "草稿不存在" \}, \{ status: 404 \}\);/.test(route) && /if \(!action\) \{\s*return NextResponse\.json\(\{ error: "草稿不存在" \}, \{ status: 404 \}\);/.test(route), "[id] 路由：看不见与不存在返回相同的 404");
+  for (const kind of ["approve", "reject"]) {
+    const step = code(`src/app/api/agent/tasks/[taskId]/steps/[stepId]/${kind}/route.ts`);
+    ok(
+      /if \(!approval\) \{\s*return NextResponse\.json\(\{ error: APPROVAL_REQUEST_NOT_FOUND_ERROR \}, \{ status: 404 \}\);/.test(step) &&
+        /if \(!result\.ok && result\.error === APPROVAL_REQUEST_NOT_FOUND_ERROR\) \{\s*return NextResponse\.json\(\{ error: APPROVAL_REQUEST_NOT_FOUND_ERROR \}, \{ status: 404 \}\);/.test(step),
+      `项目智能体步骤审批（${kind}）：端口判为看不见时与不存在同一个 404`,
+    );
+  }
 
   const approveFn = port.slice(port.indexOf("export async function approveApprovalItem"), port.indexOf("export async function rejectApprovalItem"));
   const rejectFn = port.slice(port.indexOf("export async function rejectApprovalItem"), port.indexOf("export async function expireOverdueApprovals"));

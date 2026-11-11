@@ -112,13 +112,21 @@ function relatedToMe(item: ApprovalItem, viewer: ApprovalViewer): boolean {
 }
 
 /**
+ * 没有企业的卡：创建人、指定审批人，以及卡所属项目的负责人 / project_admin
+ * （与执行器对无企业卡认的处理人一致，所有模式相同；viewer.projectIds 须含该项目，见 audience-server 的 viewerForCard）。
+ */
+function noOrgCardVisible(item: ApprovalItem, viewer: ApprovalViewer): boolean {
+  return relatedToMe(item, viewer) || (!!item.projectId && viewer.projectIds.includes(item.projectId));
+}
+
+/**
  * 单条判定（审批中心的项目智能体 / 产品内容审批、详情与端口用）。顺序：
- * super_admin → 个人草稿（无企业）只给创建人与指定审批人 → 不是 viewer 企业的不可见 → 旧模式可见
+ * super_admin → 无企业的卡只给创建人、指定审批人与所属项目的负责人 → 不是 viewer 企业的不可见 → 旧模式可见
  * → 非成员不可见 → 本人相关 / 工作区 / 项目 → 类型对照 → 无业务归属给企业处理人。
  */
 export function isApprovalVisible(item: ApprovalItem, viewer: ApprovalViewer): boolean {
   if (viewer.isPlatformAdmin) return true;
-  if (!item.orgId) return relatedToMe(item, viewer);
+  if (!item.orgId) return noOrgCardVisible(item, viewer);
   if (item.orgId !== viewer.orgId) return false;
   const mode = modeOf(viewer);
   if (mode === "none") return false;
@@ -137,7 +145,7 @@ export function isApprovalVisible(item: ApprovalItem, viewer: ApprovalViewer): b
  */
 export function portCardVisible(item: ApprovalItem, viewer: ApprovalViewer, callerOrgId: string | null | undefined): boolean {
   if (viewer.isPlatformAdmin) return true;
-  if (!item.orgId) return relatedToMe(item, viewer);
+  if (!item.orgId) return noOrgCardVisible(item, viewer);
   if (callerOrgId && callerOrgId !== item.orgId) return false;
   return isApprovalVisible(item, viewer);
 }
@@ -222,7 +230,14 @@ const ALL_PENDING_ACTION_FAMILY_CLAUSES = familyClauses(APPROVAL_FAMILIES);
  * 调用方另 AND 自己的企业范围与处理人范围。super_admin 与旧模式为 `{}`（不收窄，design D4 / D5）。
  */
 export function pendingActionAudienceWhere(viewer: ApprovalViewer): PendingActionWhere {
-  const personal = { orgId: null, OR: [{ createdById: viewer.userId }, { approverUserId: viewer.userId }] };
+  const personal = {
+    orgId: null,
+    OR: [
+      { createdById: viewer.userId },
+      { approverUserId: viewer.userId },
+      ...(viewer.projectIds.length ? [{ projectId: { in: [...viewer.projectIds] } }] : []),
+    ],
+  };
   const mode = modeOf(viewer);
   if (mode === "all" || mode === "legacy") return {};
   if (mode === "none" || !viewer.orgId) return personal;
