@@ -180,6 +180,7 @@ function ScheduleCard({ view, workspace, canManage, onSave }: { view: WorkspaceV
   const [error, setError] = useState<string | null>(null);
   const parsed: ParsedSchedule | null = useMemo(() => (text.trim() ? parseSchedulePaste(text) : null), [text]);
   const lines = view.schedule.lines;
+  const parsedCount = parsed ? parsed.lines.length : 0;
 
   const submit = async () => {
     if (!parsed || parsed.lines.length === 0) return;
@@ -215,7 +216,7 @@ function ScheduleCard({ view, workspace, canManage, onSave }: { view: WorkspaceV
           {parsed && parsed.issues.length > 0 && <ul className="space-y-0.5 text-xs text-red-700">{parsed.issues.slice(0, 8).map((i) => <li key={i.row}>{i.messageZh}</li>)}</ul>}
           {error && <p className="text-xs text-red-700">{error}</p>}
           <button type="button" className={BTN_PRIMARY} disabled={busy || !parsed || parsed.lines.length === 0} onClick={submit} data-testid="bw-schedule-save">
-            {busy && <Loader2 size={12} className="animate-spin" />} 保存 {parsed?.lines.length ?? 0} 行
+            {busy && <Loader2 size={12} className="animate-spin" />} 保存 {parsedCount} 行
           </button>
         </div>
       )}

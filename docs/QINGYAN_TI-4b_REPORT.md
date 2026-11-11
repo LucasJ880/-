@@ -98,6 +98,7 @@ Change 'tender-bid-workspace-panel' is valid
 | 计算后顶部仍显示「还没有成本核算」 | 接口本来就随核算表返回已计入成本的判定；面板改为采用它，并在规格里补了一句（先改规格，再加断言） |
 | `paste-import.ts` 用了正则 `s` 标志，项目编译目标不支持 | 改为 `[\s\S]` |
 | TI-4a 的 `workspace-contract.test.ts` 写死了「目录里正好四个模块文件」，本次新增两个文件后该断言失败（首次推送后才发现，当时没有重跑 TI-4a 的三个测试） | 改为确认 TI-4a 的四个模块与两个路由在扫描范围内，新增文件自动纳入禁用引用扫描；随后把读到 `bid-tab.tsx` 或 `components/tender` 的 11 个测试全部重跑，均通过；TI-4a 三个测试 24 / 22 / 40 项通过 |
+| 首轮 CI 红：`scripts/check-swc-nullish-logical.test.ts`（仓库的行级检查，禁止同一行里 `??` 与 `&&` / `||` 无括号并用）判 `bid-workspace-panel.tsx` 一行为危险写法——那一行其实是两个独立的 JSX 表达式，但检查按行扫描 | 没动检查；把 `parsed?.lines.length ?? 0` 提成变量 `parsedCount`。本地用 CI 同样的环境变量把 `scripts/test-ci-unit.sh` 从头到尾跑通（`CI unit subset PASS`）。教训：推送前跑整份 CI 子集，不只跑自己写的测试 |
 
 ## 6. 已知限制
 
