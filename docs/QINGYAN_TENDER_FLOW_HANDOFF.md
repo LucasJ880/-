@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第十七次（#431（RFQ-AUTO-5 供应商分组）与 #433（RFQ-AUTO-3a 个人开关的时钟问题）都已合并并归档。询价自动流的六个 change 都在 main 上；生产上的三个开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十六次：（#429 已合并并归档，规格在 `openspec/specs/tender/requirement-review-batch-confirm`。RFQ-AUTO-5（供应商分组）四件套已获 Lucas 同意并实施，在分支 `claude/rfq-supplier-groups` 上，独立审查中、PR 还没开；详见 §0.5a）。第十五次：（#428 归档已合并。RFQ-AUTO-4（要求审核的批量确认）实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十四次：（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
+| 最后更新 | 2026-11-11 第十八次（下一步计划已定，见 §0.5b：FIX-3 → FIX-2 → FLOW-H1，#434 合并后开始第一项）。第十七次：（#431（RFQ-AUTO-5 供应商分组）与 #433（RFQ-AUTO-3a 个人开关的时钟问题）都已合并并归档。询价自动流的六个 change 都在 main 上；生产上的三个开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十六次：（#429 已合并并归档，规格在 `openspec/specs/tender/requirement-review-batch-confirm`。RFQ-AUTO-5（供应商分组）四件套已获 Lucas 同意并实施，在分支 `claude/rfq-supplier-groups` 上，独立审查中、PR 还没开；详见 §0.5a）。第十五次：（#428 归档已合并。RFQ-AUTO-4（要求审核的批量确认）实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十四次：（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
@@ -126,9 +126,29 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 2. ~~批量确认按钮~~：已做并归档（RFQ-AUTO-4），见上表。
 3. ~~常用供应商按项目品类分组~~：已做并归档（RFQ-AUTO-5），见上表。Lucas 审四件套时对三处取舍（分组按人、对不上就不起草、只比项目名称）没有提出异议。
 
-**现在没有排好的下一项。** 三个功能开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`、`TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED` 在生产上都还是关的，打开由 Lucas 决定（建议先只对自家组织：先开自动起草，再开供应商分组，最后开跟进授权，各观察几轮）。还等 Lucas 定的事：成本输入要不要存专用表（要新增表，须明确批准零 schema 的例外）；`Organization.settingsJson` 多处不加锁整块回写要不要另开 change 处理。
+**下一步计划见 §0.5b。** 三个功能开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`、`TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED` 在生产上都还是关的，打开由 Lucas 决定（建议先只对自家组织：先开自动起草，再开供应商分组，最后开跟进授权，各观察几轮）。还等 Lucas 定的事：成本输入要不要存专用表（要新增表，须明确批准零 schema 的例外）；`Organization.settingsJson` 多处不加锁整块回写要不要另开 change 处理。
 
 **#422 之后**：归档已做（#423，已合并）。生产上开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 仍是关的，打开由 Lucas 决定（建议先只对自家组织）。接下来可以提「自动起草的轮次怎么带跟进授权」（暂定 RFQ-AUTO-3：个人偏好里一个明确的开关）。
+
+### 0.5b 下一步计划（2026-11-11 晚定）
+
+来源：Lucas 2026-11-11「按照你推荐的开始做，并且做下一步的计划，等 434 合并后开始」。本会话的理解（已当场向他说明）：按下面的顺序做，每一项一个 change、一个 PR、直接指向 main；四件套写完直接实施，取舍写在 PR 最前面；合并、部署、生产开关仍由 Lucas 来做。
+
+| 顺序 | TASKFLOW | 做什么 | 为什么排在这里 | 状态 |
+|---|---|---|---|---|
+| 1 | FIX-3 | **组织设置的写入不再互相覆盖。** `Organization.settingsJson` 被多处「整块读、整块写」且不加锁：收信定时任务的游标（`tender-rfq/inbound-sync.ts`，每 10 分钟写一次）、Muse 的偏好与绑定（`muse-bridge/prefs.ts`、`binding.ts`）、询价设置（`api/organizations/[orgId]/tender-rfq-settings`）、投标资料（`tender-profile/store.ts`）。它们之间会互相冲掉——例如刚学到的常用供应商、刚改的询价发件设置，被定时任务的一次回写恢复成旧值。改为统一经一个「先锁住这一行、读最新、只改自己那一块、写回」的入口。范围只含询价与 Muse 相关的这几处；销售、安装、开户等别的写入方（其中斑马帘比例、质保设置、能力治理已经加了锁）不在本次范围。零 schema。 | 三个自动流开关打开之后，自动起草靠常用供应商、收信靠游标，这些都在这一块里；先把地基修好再放量。实际发生过没有不清楚，但定时任务每 10 分钟一次，撞上人改设置是迟早的事。 | #434 合并后开始 |
+| 2 | FIX-2 | **分析入库时保留数量与单位**（`v2-map.ts` 现在会丢），让价格表可以从已分析的招标文件预填，不必手工粘贴。 | 投标工作区现在的第一步是粘贴价格表；这一步省掉之后，一个标从上传文件到「只剩成本与截标两类阻断项」不需要手工转录。 | 排在 FIX-3 之后 |
+| 3 | FLOW-H1 | **把「下一步」查表搬上 Web**：项目页上直接告诉人现在卡在哪、下一步点哪里；TI-3b 的阻断项与三张清单是它的输入。 | 这是 Lucas 最初的诉求（不要每一步都来问人）在网页上的落点；前两步做完，它能指的路才是通的。 | 排在 FIX-2 之后 |
+| — | — | **成本输入落库（专用表）**：推荐专用表、按财务查看权读。 | 要新增一张表，违反零 schema（硬纪律第 1 条），还要一次生产迁移。 | **不动，等 Lucas 明确说「批准为成本输入新增一张表」**；一句「按推荐做」不算 |
+
+每一项都照这几条做（前面几轮攒下的规矩）：写四件套之前先跑 `openspec instructions <proposal|design|tasks>` 照 rules 写；动手之前先读对应的组件与现有测试；改完把读到被改文件的既有测试全部重跑；涉及对外发送、审批、同意、多租户隔离的改动，开 PR 前请一个不带结论的独立审查；用 CI 的环境变量跑整份子集；能在旧代码上失败的测试才算证据。
+
+**生产开关（由 Lucas 操作，本会话没有权限也不该碰）**：三个开关都在部署平台的环境变量里，默认关。推荐的顺序与每一步看什么：
+
+1. `TENDER_RFQ_AUTO_DRAFT_ENABLED=1`，并把 `TENDER_RFQ_AUTO_DRAFT_ORG_ALLOWLIST` 设成自家组织的 id。之后在一个真实的标上批准招标分析，看面板上是否出现「已为你起草第 1 轮询价」，到项目页核对这张待批卡的收件人与正文。不对就驳回这张卡——不会发出任何东西。
+2. `TENDER_RFQ_SUPPLIER_GROUPS_ENABLED=1`（同样配白名单）。在询价抽屉里建一两个分组、填关键词；下一个标批准分析后，看起草的卡是不是给了对的那一组。
+3. `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED=1`（同样配白名单）。先在抽屉里手动发一轮并勾选自动跟进，观察一轮催单；满意后再到询价区块顶部开启个人开关，让自动起草的卡也带授权。
+4. 任何一步不满意：把对应的环境变量删掉或设为空并重新部署，行为回到打开之前；已保存的分组、已批准的轮次都留在库里，不丢。
 
 **这一轮的教训**（接着 §0.2 的三条）：
 
