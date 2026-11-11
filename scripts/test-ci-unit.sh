@@ -418,6 +418,11 @@ npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts
+# TI-1：招标价格表行项
+npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts
+npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts
+npx tsx src/lib/tender-price-schedule/__tests__/dimension-match.test.ts
+npx tsx src/lib/tender-price-schedule/__tests__/closing-and-export.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
