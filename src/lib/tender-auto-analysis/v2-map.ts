@@ -13,6 +13,7 @@ import type {
   DocumentFactV2,
   TenderRequirementV2,
 } from "@/lib/tender-understanding/contract";
+import { collectScheduleCandidates } from "@/lib/tender-bid-workspace/schedule-prefill";
 import type {
   ConfidenceLevel,
   SectionKey,
@@ -305,7 +306,8 @@ export function mapV2Result(
     sec("PRODUCT_SCOPE", reqLines(byCats("PRODUCT", "TECHNICAL", "WARRANTY")), null),
     sec("MANDATORY_REQUIREMENTS", reqLines(mandatoryReqs), { count: mandatoryReqs.length }, "HIGH_CONFIDENCE"),
     sec("SUBMISSION_REQUIREMENTS", reqLines(byCats("SUBMISSION", "SHOP_DRAWINGS", "SAMPLES", "REPORTING")), { checklist: result.submissionChecklist }),
-    sec("PRICING_EVALUATION", reqLines(byCats("PRICING", "COMMERCIAL")), null),
+    // FIX-2：要求与数量类事实里的数量、单位原文在这里保留下来（原来在入库时被丢掉），投标工作区的价格表可以从这里带入
+    sec("PRICING_EVALUATION", reqLines(byCats("PRICING", "COMMERCIAL")), { scheduleCandidates: collectScheduleCandidates(result) }),
     sec("DELIVERY_LOGISTICS", reqLines(byCats("DELIVERY", "INSTALLATION", "SCHEDULE")), null),
     sec("PAYMENT", reqLines(byCats("COMMERCIAL")), null),
     sec("CERTIFICATIONS", reqLines(byCats("SAFETY", "TRAINING")), null),
