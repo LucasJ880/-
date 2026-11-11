@@ -11,6 +11,6 @@
 
 ## 3. 注册、审查、门禁与文档
 
-- [ ] 3.1 两个新测试注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；请独立审查并处理其发现；verify：`bash scripts/check-test-registry.sh` 通过；审查发现逐条写进报告
-- [ ] 3.2 全部门禁；verify：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh`、`openspec validate requirement-review-batch-confirm --strict` 全部通过
-- [ ] 3.3 写 docs/QINGYAN_RFQ-AUTO-4_REPORT.md + 更新 TASKFLOW 状态列；verify：报告含测试输出、截图清单与「更容易不看就确认」这一取舍；TASKFLOW 有 `RFQ-AUTO-4` 一行
+- [x] 3.1 两个新测试注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；请独立审查并处理其发现；verify：`bash scripts/check-test-registry.sh` 通过；审查发现逐条写进报告
+- [x] 3.2 全部门禁；verify：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh`、`openspec validate requirement-review-batch-confirm --strict` 全部通过
+- [x] 3.3 写 docs/QINGYAN_RFQ-AUTO-4_REPORT.md + 更新 TASKFLOW 状态列；verify：报告含测试输出、截图清单与「更容易不看就确认」这一取舍；TASKFLOW 有 `RFQ-AUTO-4` 一行

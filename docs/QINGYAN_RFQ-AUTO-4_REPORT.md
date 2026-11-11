@@ -56,7 +56,15 @@
 ```
 requirement-batch-confirm.test.ts              54 项通过（新增：纯函数 25 + 用假接口走真实提交逻辑 11 + 面板与接口的源码断言 18）
 requirement-batch-confirm-db.isolated.test.ts  17 passed, 0 failed（新增；本地隔离库，经真实路由处理函数）
-GATES_PLACEHOLDER
+auto-draft-db.isolated.test.ts（RFQ-AUTO-2 / 3，也调用批量确认接口，未改断言）   68 passed
+
+npm run test:ci（CI 同款环境变量）   CI unit subset PASS
+npm run typecheck                  exit 0
+npm run lint:baseline              PASS（无新增 error fingerprint）
+scripts/check-test-registry.sh     OK 已注册 591 个；历史欠账基线 68 条
+scripts/test-runtime-architecture.sh   PASS
+check-swc-nullish-logical          PASS
+openspec validate requirement-review-batch-confirm --strict   valid
 ```
 
 真库测试覆盖的情形：有写权限的人批量确认 3 条，已驳回的不动；响应仍只有 `ok` 与 `confirmedCount`；审计记下操作者、分析、请求的要求与实际确认数；选了 3 条其中 1 条已被别人驳回 → 返回 2 条，被驳回的不会被改回确认；请求里夹着别的项目的要求号 → 只确认本分析的；不是本组织成员的人、没登录的人被拒且不留审计；请求不合规 → 400、不确认、不留审计；一次超过 200 条的行为与分两批提交；带着保护时分析已批准或已被取代 → 409、不确认、不留审计；不带保护时行为与以前相同；本组织的普通成员、项目里只是操作员 → 403；审计里不存过长的字符串。
