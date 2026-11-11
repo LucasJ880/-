@@ -300,7 +300,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
       {ready?.autoDraftFollowUp && (
         <RfqAutoFollowUpOptIn
           projectId={projectId}
-          enabled={ready.autoDraftFollowUp.enabled}
+          state={ready.autoDraftFollowUp.state}
+          available={ready.autoDraftFollowUp.available}
           offer={ready.followUp?.offer ?? null}
           canManage={canManage}
           onChanged={loadEntry}
@@ -439,6 +440,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         approval={pending.approval}
                         emails={pending.emails}
                         followUp={ready?.followUp?.cards[pending.actionId] ?? null}
+                        followUpSuspended={ready?.followUp?.suspended === true}
                         onDone={(o) => onDecision(r.id, o)}
                       />
                     )}

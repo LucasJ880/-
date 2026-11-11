@@ -239,41 +239,44 @@ async function main() {
     // ═════════ RFQ-AUTO-3：自动起草的轮次按本人的开关带跟进授权 ═════════
     console.log("RFQ-AUTO-3 个人开关");
     flagOn();
-    const { readAutoDraftFollowUpOptIn, AUTO_DRAFT_OPTIN_AUDIT_ACTION } = await import("../auto-followup-optin");
+    const { AUTO_DRAFT_OPTIN_AUDIT_ACTION, AUTO_DRAFT_OPTIN_TARGET } = await import("../auto-followup-optin");
+    const { loadAutoDraftFollowUpOptInState } = await import("../auto-followup-optin-service");
     const { prepareRfqRound } = await import("../service");
     const { runChaseScan } = await import("../chase-service");
     const { __setChaseExecuteIoForTest } = await import("../chase-execute");
-    const { parseChaseNotes } = await import("../chase-pure");
+    const { parseChaseNotes, chaseTemplateHash } = await import("../chase-pure");
     const { formatRfqContactNotes } = await import("../inbound-contract");
     const { FOLLOWUP_AUTO_SEND_AUDIT_ACTION } = await import("../followup-coverage");
     const { TENDER_SEND_CHASE_TYPE } = await import("../types");
     const { readUserPrefs, withUserPrefs } = await import("@/lib/muse-bridge/prefs-pure");
     const optInRoute = await import("@/app/api/projects/[id]/tender-rfq/auto-follow-up/route");
     const settingsNow = async () => (await db.organization.findUniqueOrThrow({ where: { id: ORG }, select: { settingsJson: true } })).settingsJson;
+    const stateOf = (userId: string) => loadAutoDraftFollowUpOptInState(ORG, userId);
     const put = (projectId: string, body: unknown, ck = cookie) =>
       optInRoute.PUT(new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/auto-follow-up`, { method: "PUT", headers: { cookie: ck, "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id: projectId }) });
-    const optInAudits = () => db.auditLog.findMany({ where: { orgId: ORG, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION }, orderBy: { createdAt: "asc" } });
+    const optInAudits = () => db.auditLog.findMany({ where: { orgId: ORG, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
     const policyOf = (c: { payload: unknown }) => (c.payload as { followUpPolicy?: unknown }).followUpPolicy;
     // 让 OTHER 也有常用供应商（但他不开启开关）
     await db.organization.update({ where: { id: ORG }, data: { settingsJson: withUserPrefs(await settingsNow(), OTHER, { ...readUserPrefs(null, OTHER), defaultSupplierIds: [sA.id, sB.id] }) as never } });
+    const settingsBefore = JSON.stringify(await settingsNow());
 
-    // —— 11. 默认关；开启要走接口、留审计、不动别的设置 ——
+    // —— 11. 默认关；开启要走接口、留记录、不碰组织设置 ——
     const pA0 = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
     const entryOff = await loadRfqWebEntry({ projectId: pA0.projectId, orgId: ORG, userId: OWNER, now: NOW });
-    ok(entryOff.available && entryOff.autoDraftFollowUp?.enabled === false && !readAutoDraftFollowUpOptIn(await settingsNow(), OWNER), "默认关：入口里本人的开关是关");
+    ok(entryOff.available && entryOff.autoDraftFollowUp?.state === "off" && entryOff.autoDraftFollowUp.available === true && (await stateOf(OWNER)) === "off", "默认关：入口里本人的开关是关（两个功能开关都开着，所以看得到）");
     const bad = await put(pA0.projectId, { enabled: "yes" });
     const extra = await put(pA0.projectId, { enabled: true, userId: OTHER });
-    ok(bad.status === 400 && extra.status === 400 && !readAutoDraftFollowUpOptIn(await settingsNow(), OWNER) && !readAutoDraftFollowUpOptIn(await settingsNow(), OTHER), "请求体不是 { enabled: 布尔 }、或夹带了别人的用户号：400，开关不变");
+    ok(bad.status === 400 && extra.status === 400 && (await stateOf(OWNER)) === "off" && (await stateOf(OTHER)) === "off" && (await optInAudits()).length === 0, "请求体不是 { enabled: 布尔 }、或夹带了别人的用户号：400，什么都没写");
     const on1 = await put(pA0.projectId, { enabled: true });
-    const jOn1 = (await on1.json()) as { ok?: boolean; enabled?: boolean; changed?: boolean };
-    const afterOn = await settingsNow();
-    ok(on1.status === 200 && jOn1.ok === true && jOn1.enabled === true && jOn1.changed === true && readAutoDraftFollowUpOptIn(afterOn, OWNER) && !readAutoDraftFollowUpOptIn(afterOn, OTHER), "本人开启：成功；只有他自己的开关变了", jOn1);
-    ok(readUserPrefs(afterOn, OWNER).defaultSupplierIds.length === 4 && readUserPrefs(afterOn, OTHER).defaultSupplierIds.length === 2 && (afterOn as { tenderRfq?: { fromName?: string; mailboxEmail?: string } }).tenderRfq?.fromName === "Fixture Purchasing" && (afterOn as { tenderRfq?: { mailboxEmail?: string } }).tenderRfq?.mailboxEmail === MAILBOX, "开启没有动常用供应商与询价设置");
+    const jOn1 = (await on1.json()) as { ok?: boolean; state?: string; changed?: boolean };
+    ok(on1.status === 200 && jOn1.ok === true && jOn1.state === "on" && jOn1.changed === true && (await stateOf(OWNER)) === "on" && (await stateOf(OTHER)) === "off", "本人开启：成功；只有他自己的开关变了", jOn1);
     const on2 = await put(pA0.projectId, { enabled: true });
     const audOn = await optInAudits();
-    ok(((await on2.json()) as { changed?: boolean }).changed === false && audOn.length === 1 && audOn[0].userId === OWNER && (JSON.parse(audOn[0].afterData ?? "{}") as { enabled?: boolean }).enabled === true, "留一条审计（谁、开）；已经开着再开不重复记", audOn.map((a) => a.afterData));
+    const recOn = JSON.parse(audOn[0]?.afterData ?? "{}") as { enabled?: boolean; templateHash?: string };
+    ok(((await on2.json()) as { changed?: boolean }).changed === false && audOn.length === 1 && audOn[0].userId === OWNER && audOn[0].targetType === AUTO_DRAFT_OPTIN_TARGET && audOn[0].targetId === OWNER && recOn.enabled === true && recOn.templateHash === chaseTemplateHash(), "留一条记录（谁、开、当时的模板指纹）；已经开着再开不重复记", audOn.map((a) => a.afterData));
+    ok(JSON.stringify(await settingsNow()) === settingsBefore, "开关不存在组织设置里：开启前后那一块逐字节相同");
     const outPut = await put(pA0.projectId, { enabled: true }, outsiderCookie);
-    ok(outPut.status >= 400 && outsiderId !== null && !readAutoDraftFollowUpOptIn(await settingsNow(), outsiderId), "对项目没有写权限的人调设置接口：被拒，什么都没写", { status: outPut.status });
+    ok(outPut.status >= 400 && outsiderId !== null && (await stateOf(outsiderId)) === "off" && (await optInAudits()).length === 1, "对项目没有写权限的人调设置接口：被拒，什么都没写", { status: outPut.status });
 
     // —— 12. 开启后：自动起草的卡带授权，内容与网页勾选时相同 ——
     const rA = await draft(pA0);
@@ -285,7 +288,7 @@ async function main() {
     ok(web.ok && JSON.stringify(policyOf(cardA)) === JSON.stringify(policyOf(cardWeb)) && (policyOf(cardA) as { maxReminders?: number; allowMissingFieldQuestion?: boolean })?.maxReminders === 2, "授权内容与网页勾选时逐字段相同（次数、间隔、回复截止、追问、模板指纹）", { auto: policyOf(cardA), web: policyOf(cardWeb) });
     ok(cardA.title.startsWith(AUTO_DRAFT_TITLE_PREFIX) && cardA.title.includes("（含自动跟进授权）") && (cardA.preview ?? "").includes("含自动跟进") && cardA.status === "pending" && cardA.decidedById === null, "标题同时标明「自动起草」与「含自动跟进授权」，摘要写明范围；卡仍是待批", { title: cardA.title });
     const entryA = await loadRfqWebEntry({ projectId: pA0.projectId, orgId: ORG, userId: OWNER, now: NOW });
-    ok(entryA.available && entryA.autoDraftFollowUp?.enabled === true && !!entryA.followUp?.cards[cardA.id] && entryA.followUp.cards[cardA.id].templates.length === 3 && Object.keys(entryA.autoDraftedRounds ?? {}).length === 1 && (Object.values(entryA.autoDraftedRounds ?? {})[0]?.noteZh ?? "").includes("常用供应商"), "项目页原地审批处：这张卡既有自动起草的说明，也有授权范围与三段模板");
+    ok(entryA.available && entryA.autoDraftFollowUp?.state === "on" && !!entryA.followUp?.cards[cardA.id] && entryA.followUp.cards[cardA.id].templates.length === 3 && entryA.followUp.suspended !== true && Object.keys(entryA.autoDraftedRounds ?? {}).length === 1 && (Object.values(entryA.autoDraftedRounds ?? {})[0]?.noteZh ?? "").includes("常用供应商"), "项目页原地审批处：这张卡既有自动起草的说明，也有授权范围与三段模板");
     const auditA = await db.auditLog.findFirst({ where: { orgId: ORG, action: AUTO_DRAFT_AUDIT_ACTION, projectId: pA0.projectId } });
     ok((JSON.parse(auditA?.afterData ?? "{}") as { withFollowUpAuthorization?: boolean }).withFollowUpAuthorization === true, "自动起草的审计记下这张卡带授权");
 
@@ -309,6 +312,15 @@ async function main() {
     const D4 = new Date(NOW.getTime() + 4 * 86400_000);
     await runChaseScan(ORG, D4);
     ok(sends.length === 0 && (await chaseCardsA()).length === 0 && roundA.items.every((i) => i.sentAt === null), "卡还没有人批准：扫描不为这一轮起草任何催单，没有邮件发出");
+
+    // —— 14b. 卡起草之后功能开关被关掉：批准处仍然看得到卡上的授权，并注明现在是暂停 ——
+    delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
+    const entrySuspended = await loadRfqWebEntry({ projectId: pA0.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    const entryNoCard = await loadRfqWebEntry({ projectId: pOther.projectId, orgId: ORG, userId: OTHER, now: NOW });
+    ok(entrySuspended.available && entrySuspended.followUp?.suspended === true && entrySuspended.followUp.offer === null && Object.keys(entrySuspended.followUp.rounds).length === 0 && entrySuspended.followUp.cards[cardA.id]?.templates.length === 3, "跟进授权的功能关掉后：这张带授权的待批卡在批准处仍显示范围与三段模板，并标为暂停；不给勾选与轮次状态");
+    ok(entryNoCard.available && entryNoCard.followUp === null, "同样关着时，没有带授权的待批卡的项目：入口里没有任何跟进的内容（与本功能之前相同）");
+    process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED = "1";
+
     // 模拟「人在网页上批准了这张卡并已发出」：卡标为已执行（决定人 = OWNER），询价项标为已发出
     await db.pendingAction.update({ where: { id: cardA.id }, data: { status: "executed", decidedById: OWNER, decidedAt: NOW, executedAt: NOW } });
     await db.projectInquiry.update({ where: { id: roundA.id }, data: { status: "in_progress" } });
@@ -319,10 +331,13 @@ async function main() {
     ok(scan1.autoSent.filter((a) => roundA.items.some((i) => i.id === a.itemId) && a.sent).length === 3 && sends.length === 3 && chase1.length === 3 && chase1.every((c) => c.status === "executed" && c.decidedById === OWNER) && autoAud.length === 3 && autoAud.every((a) => a.userId === OWNER), "人批准并发出之后：3 家各自动发出第 1 次催单，以批准人的身份执行，各留一条审计", { autoSent: scan1.autoSent.length, sends: sends.length, notCovered: scan1.notCovered });
     ok(sends.every((m) => (cardA.payload as { items: Array<{ to: string }> }).items.some((i) => i.to === m.to)) && sends.every((m) => m.subject.startsWith("Re: ")), "催单的收件人就是卡上批准的那三家，回复在原线程");
 
-    // —— 15. 关闭：只影响之后起草的；已批准的轮次照常 ——
+    // —— 15. 关闭：只影响之后起草的；已批准的轮次照常；别处回写旧设置不会把它恢复成开 ——
+    const staleSettings = await settingsNow(); // 另一处写入方此刻读到的整块设置
     const off1 = await put(pA0.projectId, { enabled: false });
     const audOff = await optInAudits();
-    ok(((await off1.json()) as { enabled?: boolean; changed?: boolean }).enabled === false && !readAutoDraftFollowUpOptIn(await settingsNow(), OWNER) && audOff.length === 2 && (JSON.parse(audOff[1].afterData ?? "{}") as { enabled?: boolean }).enabled === false, "本人关闭：成功，再留一条审计（关）");
+    ok(((await off1.json()) as { state?: string; changed?: boolean }).state === "off" && (await stateOf(OWNER)) === "off" && audOff.length === 2 && (JSON.parse(audOff[1].afterData ?? "{}") as { enabled?: boolean }).enabled === false, "本人关闭：成功，再留一条记录（关）");
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: staleSettings as never } }); // 模拟定时任务 / Muse / 管理员把先前读到的旧设置整块写回
+    ok((await stateOf(OWNER)) === "off", "别处把先前读到的旧设置整块写回：开关仍是关（它不在那一块里，不会被悄悄恢复）");
     const pAfterOff = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
     const rAfterOff = await draft(pAfterOff);
     ok(rAfterOff?.drafted === true && rAfterOff.withFollowUp === false && !("followUpPolicy" in ((await cards(pAfterOff.projectId))[0].payload as object)), "关闭之后触发的自动起草：不带授权");
@@ -332,19 +347,37 @@ async function main() {
     const notes = parseChaseNotes((await db.inquiryItem.findUniqueOrThrow({ where: { id: roundA.items[0].id }, select: { contactNotes: true } })).contactNotes);
     ok(scan2.autoSent.filter((a) => a.chaseIndex === 2 && a.sent).length === 3 && sends.length === before15 + 3 && notes.filter((c) => c.kind === "no_reply").length === 2, "关闭之前已批准的那一轮：间隔到了照常自动发第 2 次催单（要停用得在轮次上停止）", { autoSent: scan2.autoSent.length });
 
-    // —— 16. 跟进授权的功能开关关闭：个人开关不生效、不显示、设置接口不可用 ——
-    await put(pA0.projectId, { enabled: true });
+    // —— 16. 模板改过之后开关失效 ——
+    await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: pA0.projectId, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION, targetType: AUTO_DRAFT_OPTIN_TARGET, targetId: OWNER, afterData: JSON.stringify({ enabled: true, templateHash: "0123456789abcdef" }) } }); // 等于「在旧模板下开启过」
+    const pLapsed = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const entryLapsed = await loadRfqWebEntry({ projectId: pLapsed.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    const rLapsed = await draft(pLapsed);
+    ok((await stateOf(OWNER)) === "lapsed" && entryLapsed.available && entryLapsed.autoDraftFollowUp?.state === "lapsed" && rLapsed?.drafted === true && rLapsed.withFollowUp === false && !("followUpPolicy" in ((await cards(pLapsed.projectId))[0].payload as object)), "开启时的模板与现在的不同：开关失效，自动起草的卡不带授权，入口显示已失效", rLapsed);
+    const reOn = await put(pLapsed.projectId, { enabled: true });
+    const lastRec = JSON.parse((await optInAudits()).at(-1)?.afterData ?? "{}") as { templateHash?: string };
+    ok(((await reOn.json()) as { state?: string; changed?: boolean }).changed === true && (await stateOf(OWNER)) === "on" && lastRec.templateHash === chaseTemplateHash(), "重新开启：记下现在的模板指纹，恢复生效");
+
+    // —— 17. 功能开关关闭：开关不生效、开不了，但随时关得掉 ——
     delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
     const pFlagOff = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
     const rFlagOff = await draft(pFlagOff);
     const entryFlagOff = await loadRfqWebEntry({ projectId: pFlagOff.projectId, orgId: ORG, userId: OWNER, now: NOW });
-    const putFlagOff = await put(pFlagOff.projectId, { enabled: false });
-    ok(rFlagOff?.drafted === true && rFlagOff.withFollowUp === false && !("followUpPolicy" in ((await cards(pFlagOff.projectId))[0].payload as object)) && entryFlagOff.available && !("autoDraftFollowUp" in entryFlagOff) && putFlagOff.status === 404 && readAutoDraftFollowUpOptIn(await settingsNow(), OWNER), "跟进授权的功能开关关闭：个人开关虽然开着，自动起草的卡不带授权；入口不显示它；设置接口 404 且不改任何东西", { status: putFlagOff.status });
+    ok(rFlagOff?.drafted === true && rFlagOff.withFollowUp === false && !("followUpPolicy" in ((await cards(pFlagOff.projectId))[0].payload as object)), "跟进授权的功能开关关闭：个人开关虽然开着，自动起草的卡不带授权");
+    ok(entryFlagOff.available && entryFlagOff.autoDraftFollowUp?.state === "on" && entryFlagOff.autoDraftFollowUp.available === false, "这时入口仍带着他的开关（开着、但标明现在不生效）——让他看得到、关得掉");
+    const otherEntry = await loadRfqWebEntry({ projectId: pFlagOff.projectId, orgId: ORG, userId: OTHER, now: NOW });
+    ok(otherEntry.available && !("autoDraftFollowUp" in otherEntry), "没开过的人在功能关闭时看不到这个开关");
+    const cannotOn = await put(pFlagOff.projectId, { enabled: true }, `qy_session=${await createSession({ sub: OTHER, email: email(OTHER), role: "user" })}`);
+    ok(cannotOn.status === 404 && (await stateOf(OTHER)) === "off", "功能关闭时开不了：404，什么都没写");
+    const offWhileFlagOff = await put(pFlagOff.projectId, { enabled: false });
+    ok(offWhileFlagOff.status === 200 && ((await offWhileFlagOff.json()) as { state?: string; changed?: boolean }).state === "off" && (await stateOf(OWNER)) === "off", "功能关闭时照样关得掉：成功，状态变为关");
     process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED = "1";
+    const pBackOn = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const rBackOn = await draft(pBackOn);
+    ok(rBackOn?.drafted === true && rBackOn.withFollowUp === false, "功能重新打开后：他已经关掉了，自动起草的卡不带授权（不会自己恢复）");
     flagOff();
-    const entryDraftOff = await loadRfqWebEntry({ projectId: pFlagOff.projectId, orgId: ORG, userId: OWNER, now: NOW });
-    const putDraftOff = await put(pFlagOff.projectId, { enabled: false });
-    ok(entryDraftOff.available && !("autoDraftFollowUp" in entryDraftOff) && putDraftOff.status === 404, "自动起草的功能开关关闭：入口同样不显示它，设置接口 404");
+    delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
+    const entryAllOff = await loadRfqWebEntry({ projectId: pBackOn.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    ok(entryAllOff.available && !("autoDraftFollowUp" in entryAllOff), "两个功能开关都关闭：入口没有这个字段");
   } finally {
     const { __setChaseExecuteIoForTest: resetIo } = await import("../chase-execute");
     resetIo(null);

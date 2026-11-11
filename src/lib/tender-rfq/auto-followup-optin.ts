@@ -1,46 +1,54 @@
 /**
- * RFQ-AUTO-3 个人开关「自动起草的轮次带跟进授权」— 纯逻辑（读 / 写组织设置里的那一格）
+ * RFQ-AUTO-3 个人开关「自动起草的轮次带跟进授权」— 纯逻辑（记录的形状与状态判定）
  *
- * 存在 Organization.settingsJson.tenderRfq.autoDraftFollowUp[userId]（零 schema）：
- *   开 = { enabled: true, at: ISO 时间 }；关 = 没有这个键。
- * 默认关。读的时候严格解析：形状不对一律当作关。写的时候只动本人的那一格，
- * tenderRfq 下的其它设置、别人的开关、settingsJson 的其它键都原样保留。
+ * 状态 = 这个人在这个组织里最近一条开关记录（AuditLog，零 schema；与 RFQ-AUTO-1「停止自动跟进」同一做法：记录即状态）。
+ * 只追加、不改写——不放进 Organization.settingsJson：那一块被好几处整块读、整块写（定时任务的游标、Muse 的偏好与绑定、
+ * 管理员改设置……），放在里面的话，人刚关掉的开关可能被别处的一次旧数据回写悄悄恢复成开。
  *
- * 不放进 museBridge.userPrefs：那一份只认四个字段，Muse 下一次写偏好会把多出来的键丢掉；
- * 而且那里的键能在 Muse 里改，这个开关只能由本人在网页上（看得到授权范围与模板的地方）开。
+ * 开启时记下当时的邮件模板指纹：人开启时看到的是那一版模板，模板之后改了，开关就失效（lapsed），要重新看过再开。
  */
 
-export const AUTO_DRAFT_OPTIN_KEY = "autoDraftFollowUp" as const;
 export const AUTO_DRAFT_OPTIN_AUDIT_ACTION = "tender.rfq_followup.auto_draft_optin" as const;
+/** 审计对象类型；targetId = 这个人的用户号 */
+export const AUTO_DRAFT_OPTIN_TARGET = "tender_rfq_auto_followup_optin" as const;
 
-const asObject = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const validUserId = (userId: unknown): userId is string => typeof userId === "string" && userId.length > 0 && userId.length <= 64;
+export type OptInRecord = { enabled: boolean; templateHash: string | null };
+/** off = 没开（默认）；on = 开着且模板没变；lapsed = 开过，但模板之后改了，需重新开启 */
+export type OptInState = "off" | "on" | "lapsed";
 
-/** 这个人在这个组织里有没有开启。坏数据、别的类型、enabled 不是字面量 true，都算没开。 */
-export function readAutoDraftFollowUpOptIn(settingsJson: unknown, userId: string): boolean {
-  if (!validUserId(userId)) return false;
-  const all = asObject(asObject(asObject(settingsJson).tenderRfq)[AUTO_DRAFT_OPTIN_KEY]);
-  if (!Object.prototype.hasOwnProperty.call(all, userId)) return false;
-  const mine = asObject(all[userId]);
-  return mine.enabled === true && typeof mine.at === "string" && mine.at.length > 0;
+const HASH_RE = /^[0-9a-f]{16}$/;
+
+/** 写进审计 afterData 的内容：开 = { enabled: true, templateHash }；关 = { enabled: false } */
+export function optInAuditData(enabled: boolean, templateHash: string): { enabled: true; templateHash: string } | { enabled: false } {
+  return enabled ? { enabled: true, templateHash } : { enabled: false };
 }
 
 /**
- * 写回（纯函数）。状态没变 → changed: false，next 就是传入的对象本身（调用方据此不写库、不写审计）。
+ * 严格解析一条开关记录。形状不对（不是对象、enabled 不是布尔、开着却没有合规的模板指纹）→ null，
+ * 调用方按「没开」处理。
  */
-export function withAutoDraftFollowUpOptIn(
-  settingsJson: unknown,
-  userId: string,
-  enabled: boolean,
-  now: Date,
-): { changed: boolean; next: Record<string, unknown> } {
-  const base = asObject(settingsJson);
-  if (!validUserId(userId) || readAutoDraftFollowUpOptIn(settingsJson, userId) === enabled) return { changed: false, next: base };
-  const tenderRfq = { ...asObject(base.tenderRfq) };
-  const all = { ...asObject(tenderRfq[AUTO_DRAFT_OPTIN_KEY]) };
-  if (enabled) all[userId] = { enabled: true, at: now.toISOString() };
-  else delete all[userId];
-  if (Object.keys(all).length > 0) tenderRfq[AUTO_DRAFT_OPTIN_KEY] = all;
-  else delete tenderRfq[AUTO_DRAFT_OPTIN_KEY];
-  return { changed: true, next: { ...base, tenderRfq } };
+export function parseOptInRecord(afterData: string | null | undefined): OptInRecord | null {
+  if (!afterData) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(afterData);
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (o.enabled === false) return { enabled: false, templateHash: null };
+  if (o.enabled === true && typeof o.templateHash === "string" && HASH_RE.test(o.templateHash)) return { enabled: true, templateHash: o.templateHash };
+  return null;
+}
+
+/** 最近一条记录 + 现在的模板指纹 → 状态。没有记录或记录不合规 → off。 */
+export function optInState(latest: OptInRecord | null, currentTemplateHash: string): OptInState {
+  if (!latest || !latest.enabled) return "off";
+  return latest.templateHash === currentTemplateHash ? "on" : "lapsed";
+}
+
+/** 这次设置要不要写一条新记录：状态已经是想要的那样就不写（lapsed 时开或关都要写） */
+export function optInNeedsWrite(current: OptInState, enabled: boolean): boolean {
+  return enabled ? current !== "on" : current !== "off";
 }

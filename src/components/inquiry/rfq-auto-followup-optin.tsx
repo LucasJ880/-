@@ -3,8 +3,10 @@
 /**
  * RFQ-AUTO-3 本人的开关「自动起草的轮次带跟进授权」。
  *
- * 只显示与开关，不发信、不批准、不起草。开启前能看到授权范围与三段模板（与发询价卡上展示的是同一份）。
- * 开了之后，自动起草的卡带授权——但授权仍然写在卡上，仍然要人在网页上批准那张卡才生效。
+ * 只显示与开关，不发信、不批准、不起草。开启前能看到授权范围与三段模板（与发询价卡上展示的是同一份）；
+ * 二次确认期间范围一直展开，收不起来。
+ * 开了之后，自动起草的卡带授权——但授权仍然写在卡上，仍然要有审批权的人在网页上批准那张卡才生效。
+ * 关闭任何时候都可以；模板改过之后开关自动失效，要重新看过再开。
  */
 
 import { useState } from "react";
@@ -15,7 +17,10 @@ import type { RfqFollowUpCardView } from "./rfq-web-entry-types";
 
 type Props = {
   projectId: string;
-  enabled: boolean;
+  /** off = 没开；on = 开着；lapsed = 开过，但邮件模板之后改了，已失效 */
+  state: "off" | "on" | "lapsed";
+  /** 两个功能开关都打开：现在能生效、能开启。false 时只能关闭 */
+  available: boolean;
   /** 授权范围 + 模板预览；入口没给时只显示开关与说明 */
   offer: RfqFollowUpCardView | null;
   canManage: boolean;
@@ -23,7 +28,10 @@ type Props = {
   onChanged: () => void;
 };
 
-export function RfqAutoFollowUpOptIn({ projectId, enabled, offer, canManage, onChanged }: Props) {
+export function RfqAutoFollowUpOptIn({ projectId, state, available, offer, canManage, onChanged }: Props) {
+  const enabled = state === "on";
+  // 开着但现在不生效（功能没有对组织开放）或已失效（模板改过）：都要让人看得到、关得掉
+  const label = state === "lapsed" ? "已失效" : enabled ? (available ? "已开启" : "已开启 · 现在不生效") : "未开启";
   const [expanded, setExpanded] = useState(false);
   const [openTemplate, setOpenTemplate] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -56,36 +64,51 @@ export function RfqAutoFollowUpOptIn({ projectId, enabled, offer, canManage, onC
         <Repeat size={13} className="text-accent/70" />
         <span className="font-medium text-foreground">自动起草的轮次带跟进授权</span>
         <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${enabled ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]" : "bg-border/60 text-muted"}`}
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            state === "lapsed" || (enabled && !available) ? "bg-[#9a6a2f]/10 text-[#9a6a2f]" : enabled ? "bg-[rgba(46,122,86,0.08)] text-[#2e7a56]" : "bg-border/60 text-muted"
+          }`}
           data-testid="rfq-auto-followup-optin-state"
         >
-          {enabled ? "已开启" : "未开启"}
+          {label}
         </span>
         <span className="text-muted">只对你自己触发的自动起草生效</span>
         {canManage && !confirming && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            onClick={() => (enabled ? void set(false) : (setExpanded(true), setConfirming(true)))}
-            loading={busy && enabled}
-            loadingText="正在关闭…"
-            data-testid="rfq-auto-followup-optin-toggle"
-          >
-            {enabled ? "关闭" : "开启"}
-          </Button>
+          <span className="ml-auto flex items-center gap-2">
+            {(enabled || state === "lapsed") && (
+              <Button variant="outline" size="sm" onClick={() => void set(false)} loading={busy} loadingText="正在关闭…" data-testid="rfq-auto-followup-optin-off">
+                关闭
+              </Button>
+            )}
+            {!enabled && available && (
+              <Button variant="outline" size="sm" onClick={() => (setExpanded(true), setConfirming(true))} data-testid="rfq-auto-followup-optin-toggle">
+                {state === "lapsed" ? "重新开启" : "开启"}
+              </Button>
+            )}
+          </span>
         )}
       </div>
       <p className="text-muted">
-        {enabled
-          ? "你批准招标分析后，系统起草的第 1 轮询价会带上催单和追问的授权。授权写在那张卡上，仍然要你在网页上批准那张卡才生效；关闭只影响之后起草的轮次。"
-          : "开启后，你批准招标分析时系统起草的第 1 轮询价会带上催单和追问的授权——批准那张卡，就一并批准了后面的催单和追问。不开启 = 这些轮次的催单和追问照旧逐封批。"}
+        {state === "lapsed"
+          ? "你开启之后，催单和追问的邮件模板改过了，所以这个开关已经失效：现在自动起草的轮次不带授权。看过下面的新模板后可以重新开启。"
+          : enabled && !available
+            ? "这个开关是开着的，但相关功能现在没有对你的组织开放，所以不生效；功能重新开放后它会恢复生效。不想那样的话现在就可以关闭。"
+            : enabled
+              ? "你批准招标分析后，系统起草的第 1 轮询价会带上催单和追问的授权。授权写在那张卡上，仍然要有审批权的人在网页上批准那张卡才生效（催单和追问以批准人的身份发出）；关闭只影响之后起草的轮次。"
+              : "开启后，你批准招标分析时系统起草的第 1 轮询价会带上催单和追问的授权——有审批权的人批准那张卡，就一并批准了后面的催单和追问。不开启 = 这些轮次的催单和追问照旧逐封批。"}
       </p>
-      <button type="button" onClick={() => setExpanded((v) => !v)} className="flex items-center gap-1 text-accent" aria-expanded={expanded} data-testid="rfq-auto-followup-optin-expand">
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+      {/* 二次确认期间范围不能收起：确认的那句话指的就是这一段 */}
+      <button
+        type="button"
+        onClick={() => !confirming && setExpanded((v) => !v)}
+        disabled={confirming}
+        className="flex items-center gap-1 text-accent disabled:cursor-default"
+        aria-expanded={expanded || confirming}
+        data-testid="rfq-auto-followup-optin-expand"
+      >
+        {expanded || confirming ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         授权的范围与邮件模板
       </button>
-      {expanded && (
+      {(expanded || confirming) && (
         <div className="space-y-2 rounded-md border border-[#9a6a2f]/30 bg-[#9a6a2f]/[0.05] p-3" data-testid="rfq-auto-followup-optin-scope">
           {offer ? (
             <>
@@ -119,7 +142,7 @@ export function RfqAutoFollowUpOptIn({ projectId, enabled, offer, canManage, onC
       )}
       {confirming && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#9a6a2f]/30 bg-[#9a6a2f]/[0.05] p-2">
-          <span className="text-foreground">开启后，以后你触发的自动起草都会带上上面这份授权（每张卡仍要你批准才生效）。确定开启？</span>
+          <span className="text-foreground">开启后，以后你触发的自动起草都会带上上面这份授权（每张卡仍要有审批权的人批准才生效；模板改了这个开关会自动失效）。确定开启？</span>
           <Button variant="outline" size="sm" onClick={() => void set(true)} loading={busy} loadingText="正在开启…" data-testid="rfq-auto-followup-optin-confirm">
             确定开启
           </Button>

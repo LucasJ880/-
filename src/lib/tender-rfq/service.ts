@@ -40,7 +40,7 @@ export type PrepareRfqInput = {
   userId: string;
   /**
    * 入口来源：写进审批卡 source.toolName 供审计区分。
-   * auto = RFQ-AUTO-2 要求审核完后由系统起草（标题与摘要标明；不带跟进授权——那只在 web 且明确勾选时写）。
+   * auto = RFQ-AUTO-2 招标分析批准后由系统起草（标题与摘要标明）。
    */
   source: "web" | "muse" | "auto";
   /** RFQ-AUTO-2：只在项目还没有任何轮次时才建（并发或重复触发时最多建出一个第 1 轮）；否则返回 ROUND_LOCKED，不建任何东西 */
@@ -53,7 +53,10 @@ export type PrepareRfqInput = {
   incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
   destination?: string | null;
   quantityTiers?: number[];
-  /** RFQ-AUTO-1：这一轮的催单与追问随本卡一并批准。只在网页发起、开关打开时生效；Muse 不传 */
+  /**
+   * 这一轮的催单与追问随本卡一并批准。只在功能开关打开、且来源是 web（RFQ-AUTO-1：发起人当场勾选）
+   * 或 auto（RFQ-AUTO-3：触发起草的人事先开启了个人开关，由自动起草的服务读出后传入）时生效；Muse 不传。
+   */
   autoFollowUp?: boolean;
   now?: Date;
 };

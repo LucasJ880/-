@@ -56,7 +56,7 @@ export type RfqEntryView =
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
       /** RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」；两个功能开关任一关闭时没有这个字段 */
-      autoDraftFollowUp?: { enabled: boolean };
+      autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
     };
 
 export type RfqRoundCreated = {

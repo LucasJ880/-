@@ -1,51 +1,52 @@
 /**
- * RFQ-AUTO-3 个人开关「自动起草的轮次带跟进授权」— 纯逻辑测试
+ * RFQ-AUTO-3 个人开关「自动起草的轮次带跟进授权」— 纯逻辑测试（记录的形状与状态判定）
  * 运行：npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
  */
 import assert from "node:assert/strict";
-import { AUTO_DRAFT_OPTIN_KEY, readAutoDraftFollowUpOptIn, withAutoDraftFollowUpOptIn } from "../auto-followup-optin";
-import { applyTenderRfqSettingsUpdate } from "../landed-cost";
-import { readTenderRfqSettings } from "../round-pure";
-import { learnSupplier, readUserPrefs, withUserPrefs } from "@/lib/muse-bridge/prefs-pure";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { optInAuditData, optInNeedsWrite, optInState, parseOptInRecord, type OptInState } from "../auto-followup-optin";
+import { chaseTemplateHash } from "../chase-pure";
 
 let passed = 0;
 function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
-const NOW = new Date("2026-11-12T09:00:00Z");
+const HASH = chaseTemplateHash();
+const OTHER_HASH = HASH === "0000000000000000" ? "1111111111111111" : "0000000000000000";
+const rec = (v: unknown) => parseOptInRecord(JSON.stringify(v));
 
-console.log("读");
-ok("默认关：没有设置、空对象、null、不是对象，都算没开", [undefined, null, {}, "x", 3, [], { tenderRfq: null }, { tenderRfq: { [AUTO_DRAFT_OPTIN_KEY]: null } }].every((s) => !readAutoDraftFollowUpOptIn(s, "u1")));
-const on = (userId: string, v: unknown) => ({ tenderRfq: { [AUTO_DRAFT_OPTIN_KEY]: { [userId]: v } } });
-ok("开：enabled 是字面量 true 且有时间", readAutoDraftFollowUpOptIn(on("u1", { enabled: true, at: "2026-11-12T09:00:00.000Z" }), "u1"));
-ok("严格解析：enabled 是 \"true\" / 1 / 缺时间 / 整个值就是 true，都算没开", [{ enabled: "true", at: "x" }, { enabled: 1, at: "x" }, { enabled: true }, { enabled: true, at: "" }, true, "on", ["enabled"]].every((v) => !readAutoDraftFollowUpOptIn(on("u1", v), "u1")));
-ok("只看本人的那一格：别人开了不算我开", !readAutoDraftFollowUpOptIn(on("u2", { enabled: true, at: "x" }), "u1"));
-ok("用户号不合规（空、过长）一律算没开；原型上的键不算", !readAutoDraftFollowUpOptIn(on("", { enabled: true, at: "x" }), "") && !readAutoDraftFollowUpOptIn(on("u".repeat(65), { enabled: true, at: "x" }), "u".repeat(65)) && !readAutoDraftFollowUpOptIn({ tenderRfq: { [AUTO_DRAFT_OPTIN_KEY]: {} } }, "constructor") && !readAutoDraftFollowUpOptIn({ tenderRfq: { [AUTO_DRAFT_OPTIN_KEY]: {} } }, "__proto__"));
+console.log("记录的形状");
+ok("开 = { enabled: true, templateHash }；关 = { enabled: false }（关的时候不带指纹）", JSON.stringify(optInAuditData(true, HASH)) === JSON.stringify({ enabled: true, templateHash: HASH }) && JSON.stringify(optInAuditData(false, HASH)) === JSON.stringify({ enabled: false }));
+ok("写出去的记录能原样读回", JSON.stringify(rec(optInAuditData(true, HASH))) === JSON.stringify({ enabled: true, templateHash: HASH }) && JSON.stringify(rec(optInAuditData(false, HASH))) === JSON.stringify({ enabled: false, templateHash: null }));
+ok("严格解析：没有内容、不是 JSON、不是对象、是数组 → 当作没有记录", [null, undefined, "", "{oops", "true", "3", "[]", JSON.stringify("x")].every((v) => parseOptInRecord(v as string | null) === null));
+ok("严格解析：enabled 不是布尔（\"true\" / 1 / 缺失）→ 当作没有记录", [{ enabled: "true", templateHash: HASH }, { enabled: 1, templateHash: HASH }, { templateHash: HASH }, {}].every((v) => rec(v) === null));
+ok("严格解析：开着却没有合规的模板指纹（缺失 / 空 / 长度不对 / 非十六进制 / 不是字符串）→ 当作没有记录", [{ enabled: true }, { enabled: true, templateHash: "" }, { enabled: true, templateHash: "abc" }, { enabled: true, templateHash: "ZZZZZZZZZZZZZZZZ" }, { enabled: true, templateHash: 12 }].every((v) => rec(v) === null));
 
-console.log("写");
-const base = {
-  timezone: "America/Toronto",
-  tenderRfq: { fromName: "Qyan-Sunny Purchasing", fromEmail: "project@example.com", mailboxEmail: "owner@example.com", landedCost: { fxAsOf: "2026-11-01" }, [AUTO_DRAFT_OPTIN_KEY]: { u2: { enabled: true, at: "2026-11-01T00:00:00.000Z" } } },
-  museBridge: { userPrefs: { u1: { defaultSupplierIds: ["s1"], defaultIncoterm: "FOB", chaseAfterDays: 3, lastUpdatedAt: null } }, bindings: { x: 1 } },
-};
-const opened = withAutoDraftFollowUpOptIn(base, "u1", true, NOW);
-ok("开启：状态变了，本人的那一格写成 { enabled: true, at }", opened.changed && readAutoDraftFollowUpOptIn(opened.next, "u1") && JSON.stringify((opened.next.tenderRfq as Record<string, Record<string, unknown>>)[AUTO_DRAFT_OPTIN_KEY].u1) === JSON.stringify({ enabled: true, at: NOW.toISOString() }));
-ok("开启：别人的开关原样保留", readAutoDraftFollowUpOptIn(opened.next, "u2") && JSON.stringify((opened.next.tenderRfq as Record<string, Record<string, unknown>>)[AUTO_DRAFT_OPTIN_KEY].u2) === JSON.stringify(base.tenderRfq[AUTO_DRAFT_OPTIN_KEY].u2));
-ok("开启：询价设置的其它键、Muse 的偏好与绑定、组织的其它设置都原样保留", (() => { const { tenderRfq: t1, ...rest1 } = opened.next as typeof base; const { tenderRfq: t0, ...rest0 } = base; const strip = (t: Record<string, unknown>) => { const { [AUTO_DRAFT_OPTIN_KEY]: _drop, ...r } = t; void _drop; return r; }; return JSON.stringify(rest1) === JSON.stringify(rest0) && JSON.stringify(strip(t1)) === JSON.stringify(strip(t0)); })());
-ok("不改传入的对象", !readAutoDraftFollowUpOptIn(base, "u1") && Object.keys(base.tenderRfq[AUTO_DRAFT_OPTIN_KEY]).join() === "u2");
-ok("已经开着再开：状态没变，返回原对象（调用方据此不写库、不写审计）", (() => { const again = withAutoDraftFollowUpOptIn(opened.next, "u1", true, new Date("2027-01-01T00:00:00Z")); return !again.changed && again.next === opened.next; })());
-const closed = withAutoDraftFollowUpOptIn(opened.next, "u1", false, NOW);
-ok("关闭：删掉本人的那一格，别人的还在", closed.changed && !readAutoDraftFollowUpOptIn(closed.next, "u1") && readAutoDraftFollowUpOptIn(closed.next, "u2") && !("u1" in (closed.next.tenderRfq as Record<string, Record<string, unknown>>)[AUTO_DRAFT_OPTIN_KEY]));
-ok("本来就没开再关：状态没变", !withAutoDraftFollowUpOptIn(base, "u1", false, NOW).changed);
-ok("最后一个人也关了：整格删掉，不留空对象", (() => { const c = withAutoDraftFollowUpOptIn(withAutoDraftFollowUpOptIn({ tenderRfq: { fromName: "F" } }, "u1", true, NOW).next, "u1", false, NOW); return c.changed && !(AUTO_DRAFT_OPTIN_KEY in (c.next.tenderRfq as Record<string, unknown>)) && (c.next.tenderRfq as Record<string, unknown>).fromName === "F"; })());
-ok("没有任何设置时也能开", readAutoDraftFollowUpOptIn(withAutoDraftFollowUpOptIn(null, "u1", true, NOW).next, "u1"));
-ok("用户号不合规：不写", !withAutoDraftFollowUpOptIn(base, "", true, NOW).changed && !withAutoDraftFollowUpOptIn(base, "u".repeat(65), true, NOW).changed);
+console.log("状态");
+ok("默认关：没有记录 → off", optInState(null, HASH) === "off");
+ok("最近一条是关 → off", optInState(rec({ enabled: false }), HASH) === "off");
+ok("最近一条是开、模板指纹与现在相同 → on", optInState(rec({ enabled: true, templateHash: HASH }), HASH) === "on");
+ok("最近一条是开、但模板之后改过 → lapsed（不生效，要重新看过再开）", optInState(rec({ enabled: true, templateHash: OTHER_HASH }), HASH) === "lapsed");
+ok("记录不合规 → off（宁可当作没开）", optInState(rec({ enabled: true }), HASH) === "off" && optInState(rec({ enabled: "yes", templateHash: HASH }), HASH) === "off");
 
-console.log("与既有设置互不干扰");
+console.log("要不要写一条新记录");
+const need = (s: OptInState, e: boolean) => optInNeedsWrite(s, e);
+ok("已经是想要的状态就不写：开着再开、关着再关", !need("on", true) && !need("off", false));
+ok("状态要变就写：关 → 开、开 → 关", need("off", true) && need("on", false));
+ok("失效时开或关都写：重新开启记下新的指纹；关闭把它彻底关掉", need("lapsed", true) && need("lapsed", false));
+
+console.log("存在哪里（源码断言）");
 {
-  const upd = applyTenderRfqSettingsUpdate(opened.next, { fromName: "New Name" } as never);
-  ok("管理员改询价设置（发件抬头）：个人开关不被冲掉", upd.ok && readAutoDraftFollowUpOptIn(upd.next, "u1") && readAutoDraftFollowUpOptIn(upd.next, "u2") && readTenderRfqSettings(upd.next).fromName === "New Name");
-  const prefs = withUserPrefs(opened.next, "u1", learnSupplier(readUserPrefs(opened.next, "u1"), "s9", NOW));
-  ok("Muse 写个人偏好（学到一家常用供应商）：个人开关不被冲掉，偏好里也没有多出这个键", readAutoDraftFollowUpOptIn(prefs, "u1") && readUserPrefs(prefs, "u1").defaultSupplierIds[0] === "s9" && !JSON.stringify((prefs.museBridge as Record<string, unknown>).userPrefs).includes(AUTO_DRAFT_OPTIN_KEY));
-  ok("读询价设置不受这一格影响", readTenderRfqSettings(opened.next).fromEmail === "project@example.com" && readTenderRfqSettings(opened.next).mailboxEmail === "owner@example.com");
+  const root = resolve(__dirname, "../../../..");
+  const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+  const pure = read("src/lib/tender-rfq/auto-followup-optin.ts");
+  const service = read("src/lib/tender-rfq/auto-followup-optin-service.ts");
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  ok("不读也不写 Organization.settingsJson（那一块会被别处整块回写）", !/settingsJson|organization\.(update|findUnique)/.test(code(pure)) && !/settingsJson|organization\.(update|findUnique)/.test(code(service)));
+  ok("状态只来自这个人在这个组织里最近一条记录：查询按组织、用户、动作、对象限定", /where: \{ orgId, userId, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION, targetType: AUTO_DRAFT_OPTIN_TARGET, targetId: userId \}/.test(service) && /orderBy: \[\{ createdAt: "desc" \}, \{ id: "desc" \}\]/.test(service));
+  ok("只追加：服务里没有改写或删除记录的调用", !/auditLog\.(update|updateMany|delete|deleteMany|upsert)/.test(code(service)));
+  ok("写入用会抛错的那个审计函数（写不进去就算失败），不用吞错的", /await writeAuditLog\(db,/.test(service) && !/logAudit\(/.test(code(service)));
+  ok("开启要求两个功能开关都打开；关闭不要求", /if \(input\.enabled && !isAutoDraftFollowUpOptInAvailable\(input\.orgId\)\)/.test(service));
+  ok("自动起草时：功能开关任一关闭 → 直接当作没开，不查库；否则只有 on 才算开（lapsed 不算）", /if \(!isAutoDraftFollowUpOptInAvailable\(orgId\)\) return false;\s*return \(await loadAutoDraftFollowUpOptInState\(orgId, userId\)\) === "on";/.test(service));
 }
 
 console.log(`\n✓ auto-followup-optin: ${passed} 项断言全部通过`);
