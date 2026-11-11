@@ -617,6 +617,10 @@ run_test "投标成本核算 运费方案互斥与整票分摊" "npx tsx src/lib
 run_test "投标成本核算 定价口径、预备金与合计" "npx tsx src/lib/tender-bid-cost/__tests__/pricing.test.ts"
 run_test "投标成本核算 两套成本情景对账" "npx tsx src/lib/tender-bid-cost/__tests__/reconcile.test.ts"
 run_test "投标成本核算 核算表视图与 Markdown 渲染（含渥太华样例文件校验）" "npx tsx src/lib/tender-bid-cost/__tests__/sheet-view.test.ts"
+# TI-3a：竞争情报的线索契约
+run_test "竞争情报线索 文件领取方快照与公司名称比对" "npx tsx src/lib/tender-competition/__tests__/document-holders.test.ts"
+run_test "竞争情报线索 进口线索与来源连接状态" "npx tsx src/lib/tender-competition/__tests__/leads-and-sources.test.ts"
+run_test "竞争情报线索 历史金额口径" "npx tsx src/lib/tender-competition/__tests__/amount-measures.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

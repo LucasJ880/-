@@ -429,6 +429,10 @@ npx tsx src/lib/tender-bid-cost/__tests__/freight.test.ts
 npx tsx src/lib/tender-bid-cost/__tests__/pricing.test.ts
 npx tsx src/lib/tender-bid-cost/__tests__/reconcile.test.ts
 npx tsx src/lib/tender-bid-cost/__tests__/sheet-view.test.ts
+# TI-3a：竞争情报的线索契约
+npx tsx src/lib/tender-competition/__tests__/document-holders.test.ts
+npx tsx src/lib/tender-competition/__tests__/leads-and-sources.test.ts
+npx tsx src/lib/tender-competition/__tests__/amount-measures.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
