@@ -22,6 +22,7 @@ import {
   deriveTenderWorkbenchState,
   type TenderAnalysisPhase,
 } from "@/lib/tender/workbench-state";
+import type { WebNextStepView } from "@/lib/tender-next-step/targets";
 
 /**
  * 项目内导航目标：五个一级 tab + 两个贯穿抽屉（资料 / 问青砚）。
@@ -109,6 +110,21 @@ export function filterProjectContextActivities(
       !TECHNICAL_ACTIVITY_ACTIONS.has(activity.actionKey) &&
       !TECHNICAL_ACTIVITY_TARGETS.has(activity.targetType),
   );
+}
+
+/**
+ * FLOW-H1：有了服务端的「下一步」之后，决策摘要跟着它说同一条结论，不再给出另一个下一步。
+ * 按钮只在「下一步」卡片上（那里能带人到页内的具体位置），所以这里不留按钮。
+ */
+export function applyNextStepToCommand(
+  command: ProjectCommandState,
+  view: Pick<WebNextStepView, "headlineZh" | "reasonsZh" | "action">,
+): ProjectCommandState {
+  return {
+    ...command,
+    nextAction: null,
+    recommendation: { title: view.headlineZh, body: view.reasonsZh[0] ?? view.action?.labelZh ?? view.headlineZh },
+  };
 }
 
 export function deriveProjectCommandState(

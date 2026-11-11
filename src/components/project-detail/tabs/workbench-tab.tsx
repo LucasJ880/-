@@ -59,6 +59,8 @@ import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 import type { ProjectDuty } from "@/lib/projects/duty";
 import type { TenderWorkbenchState } from "@/lib/tender/workbench-state";
+import type { WebNextStepTarget, WebNextStepView } from "@/lib/tender-next-step/targets";
+import { NextStepCard } from "@/components/project-detail/next-step-card";
 
 const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
@@ -85,6 +87,9 @@ interface WorkbenchTabProps {
   currentUserId: string | null;
   onNavigate: (target: ProjectContextTarget) => void;
   onReload: () => void;
+  /** FLOW-H1：服务端算出的下一步；接口不可用（含开关关闭）时为 null，不渲染卡片 */
+  nextStep?: WebNextStepView | null;
+  onOpenNextStep?: (target: WebNextStepTarget) => void;
 }
 
 export function WorkbenchTab({
@@ -108,6 +113,8 @@ export function WorkbenchTab({
   currentUserId,
   onNavigate,
   onReload,
+  nextStep,
+  onOpenNextStep,
 }: WorkbenchTabProps) {
   const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
   const tenderProps = buildTenderProps(project);
@@ -115,6 +122,10 @@ export function WorkbenchTab({
 
   return (
     <div className="space-y-6">
+      {tenderish && nextStep && onOpenNextStep ? (
+        <NextStepCard projectId={projectId} view={nextStep} onOpen={onOpenNextStep} />
+      ) : null}
+
       <ProjectCommandOverview
         command={command}
         pendingCount={pendingActions.length}

@@ -360,7 +360,7 @@ function roundHasPolicy(f: FollowUpRoundState): boolean {
 }
 
 /** 轮次层面的条件都满足时返回授权（用来定催单间隔）；否则 null */
-function roundPolicyInEffect(f: FollowUpRoundState): RfqFollowUpPolicy | null {
+export function roundPolicyInEffect(f: FollowUpRoundState): RfqFollowUpPolicy | null {
   if (!f.flagEnabled || !f.roundCard) return null;
   const policy = parseFollowUpPolicy(f.roundCard.policy);
   if (!policy || f.roundCard.status !== "executed" || !f.roundCard.decidedById || !f.approver.active || f.inquiryStatus !== "in_progress" || f.stopped) return null;

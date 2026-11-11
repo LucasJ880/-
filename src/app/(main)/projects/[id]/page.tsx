@@ -21,7 +21,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiJson } from "@/lib/api-fetch";
+import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { nextStepHref, type WebNextStepTarget, type WebNextStepView } from "@/lib/tender-next-step/targets";
 import { getProjectStage } from "@/lib/tender/stage";
 import {
   analysisPhaseFromRunStatus,
@@ -42,6 +43,7 @@ import {
 } from "@/components/workspace-shell-context";
 import {
   ProjectContextPanel,
+  applyNextStepToCommand,
   deriveProjectCommandState,
   filterProjectContextActivities,
   type ProjectContextPendingAction,
@@ -89,6 +91,22 @@ function scrollProjectContentToTop() {
   });
 }
 
+/**
+ * FLOW-H1：切到某个页签后滚到页内的一个位置。那个位置所在的区块可能要等接口返回才出现，
+ * 所以每 200 毫秒找一次、最多 8 秒；找到就滚过去并停。返回一个取消函数。
+ * 这里只滚动——不点任何按钮。
+ */
+function scrollToProjectAnchor(anchor: string): () => void {
+  let tries = 0;
+  const timer = window.setInterval(() => {
+    tries += 1;
+    const el = document.getElementById(anchor);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (el || tries >= 40) window.clearInterval(timer);
+  }, 200);
+  return () => window.clearInterval(timer);
+}
+
 export default function ProjectDetailPage() {
   return (
     <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
@@ -123,6 +141,11 @@ function ProjectDetailContent() {
   const [orgRulesRefreshKey, setOrgRulesRefreshKey] = useState(0);
   const [pendingActions, setPendingActions] = useState<ProjectContextPendingAction[]>([]);
   const [analysisRunStatus, setAnalysisRunStatus] = useState<string | null>(null);
+  // FLOW-H1：服务端算出的「下一步」。接口不可用（含开关关闭的 404）时为 null，页面与没有它时相同
+  const [nextStep, setNextStep] = useState<WebNextStepView | null>(null);
+  const nextStepSeq = useRef(0);
+  const nextStepOff = useRef(false);
+  const cancelAnchorScroll = useRef<(() => void) | null>(null);
 
   // ── 5-Tab 状态：URL ?tab= 优先（含旧 4-tab 别名），其次 sessionStorage，默认工作台 ──
   const [initialResolved] = useState(() => {
@@ -203,6 +226,39 @@ function ProjectDetailContent() {
     },
     [router, pathname, searchParams],
   );
+
+  /** FLOW-H1：按「下一步」给的位置导航——开文件抽屉、进审批中心，或切页签并滚到页内的位置。只导航，不执行任何动作 */
+  const openNextStepTarget = useCallback(
+    (target: WebNextStepTarget) => {
+      setPanelOpen(false);
+      cancelAnchorScroll.current?.();
+      cancelAnchorScroll.current = null;
+      if (target.kind === "files") {
+        setFilesOpen(true);
+        return;
+      }
+      if (target.kind === "href") {
+        router.push(target.href);
+        return;
+      }
+      setActiveTab(target.tab);
+      setFilesOpen(false);
+      setChatOpen(false);
+      const url = nextStepHref(id, target);
+      // 先把地址（含 #位置）写进地址栏：询价区块挂载时读它来展开对应的那一轮
+      window.history.replaceState(window.history.state, "", url);
+      router.replace(url, { scroll: false });
+      if (!target.anchor) {
+        scrollProjectContentToTop();
+        return;
+      }
+      // 询价区块已经在页面上时，靠这个事件展开对应的那一轮
+      window.setTimeout(() => window.dispatchEvent(new HashChangeEvent("hashchange")), 60);
+      cancelAnchorScroll.current = scrollToProjectAnchor(target.anchor);
+    },
+    [id, router, setPanelOpen],
+  );
+  useEffect(() => () => cancelAnchorScroll.current?.(), []);
 
   const openProjectArea = useCallback(
     (target: ProjectContextTarget) => {
@@ -320,6 +376,41 @@ function ProjectDetailContent() {
     void loadPendingActions();
   }, [load, loadActivity, loadPendingActions]);
 
+  // FLOW-H1：取「下一步」。只读接口；404（开关关闭 / 非招投标项目）之后不再请求
+  const loadNextStep = useCallback(async () => {
+    if (!id || nextStepOff.current) return;
+    const seq = (nextStepSeq.current += 1);
+    try {
+      const res = await apiFetch(`/api/projects/${id}/next-step`);
+      if (seq !== nextStepSeq.current) return;
+      if (res.status === 404) nextStepOff.current = true;
+      const data = res.ok ? ((await res.json().catch(() => null)) as { view?: WebNextStepView } | null) : null;
+      if (seq !== nextStepSeq.current) return;
+      setNextStep(data?.view && typeof data.view.rule === "string" ? data.view : null);
+    } catch {
+      if (seq === nextStepSeq.current) setNextStep(null);
+    }
+  }, [id]);
+
+  // 打开工作台、回到工作台、分析状态变了：重新取
+  useEffect(() => {
+    if (activeTab === "workbench") void loadNextStep();
+  }, [activeTab, analysisRunStatus, loadNextStep]);
+
+  // 审批有变化、项目有更新：重新取
+  useEffect(() => {
+    const refresh = () => void loadNextStep();
+    const onProject = (e: Event) => {
+      if ((e as CustomEvent).detail?.projectId === id) refresh();
+    };
+    window.addEventListener("pending-actions-changed", refresh);
+    window.addEventListener("qingyan:project-updated", onProject);
+    return () => {
+      window.removeEventListener("pending-actions-changed", refresh);
+      window.removeEventListener("qingyan:project-updated", onProject);
+    };
+  }, [id, loadNextStep]);
+
   useEffect(() => {
     const refresh = () => void loadPendingActions();
     window.addEventListener("pending-actions-changed", refresh);
@@ -387,7 +478,7 @@ function ProjectDetailContent() {
     return () => window.clearInterval(timer);
   }, [id, parsingActive, analysisPhase]);
 
-  const command = useMemo(
+  const baseCommand = useMemo(
     () =>
       deriveProjectCommandState({
         status: project?.status ?? "active",
@@ -414,6 +505,11 @@ function ProjectDetailContent() {
       analysisPhase,
       parsingActive,
     ],
+  );
+  // FLOW-H1：有服务端的「下一步」时，决策摘要跟着它说同一条结论（按钮只在「下一步」卡片上）
+  const command = useMemo(
+    () => (nextStep ? applyNextStepToCommand(baseCommand, nextStep) : baseCommand),
+    [baseCommand, nextStep],
   );
 
   const workspaceContext = useMemo(
@@ -583,6 +679,8 @@ function ProjectDetailContent() {
           currentUserId={currentUser?.id ?? null}
           onNavigate={openProjectArea}
           onReload={load}
+          nextStep={nextStep}
+          onOpenNextStep={openNextStepTarget}
         />
       )}
 

@@ -48,7 +48,10 @@ export function BidTab({ projectId, orgId, canManage }: BidTabProps) {
       {/* Phase 2：Our Bid 摘要（Approved Quote 为权威来源） */}
       <TenderOurBidCard projectId={projectId} />
 
-      <BidQuoteArea projectId={projectId} />
+      {/* FLOW-H1：id 是「下一步」卡片滚动到投标价的位置（这个区块总有内容，不会多出一段空白） */}
+      <div id="bid-quote-area" className="scroll-mt-4">
+        <BidQuoteArea projectId={projectId} />
+      </div>
 
       <ProjectGenerateMenu projectId={projectId} canManage={canManage} />
 
