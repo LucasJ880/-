@@ -2,13 +2,13 @@
 
 ## 1. 个人开关
 
-- [ ] 1.1 读写的纯函数 `auto-followup-optin.ts`（严格解析、只动本人的键、关闭即删键）与服务（读、设置并写审计）；verify：`npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts` 全部通过
-- [ ] 1.2 设置接口 `PUT /api/projects/{id}/tender-rfq/auto-follow-up`（项目写权限；跟进授权的功能开关关闭时 404；状态变化才写审计）；verify：`auto-draft-db.isolated.test.ts` 中经路由处理函数的用例通过
+- [x] 1.1 读写的纯函数 `auto-followup-optin.ts`（严格解析、只动本人的键、关闭即删键）与服务（读、设置并写审计）；verify：`npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts` 全部通过
+- [x] 1.2 设置接口 `PUT /api/projects/{id}/tender-rfq/auto-follow-up`（项目写权限；跟进授权的功能开关关闭时 404；状态变化才写审计）；verify：`auto-draft-db.isolated.test.ts` 中经路由处理函数的用例通过
 
 ## 2. 接线
 
-- [ ] 2.1 自动起草的服务读操作者的开关并传入；`service.ts` 写授权的条件接受来源 `auto`；结果对象加 `withFollowUp` 与一句说明；verify：`npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts` 与 `auto-draft-pure.test.ts` 全部通过（含批准后自动催单、批准前零出站）
-- [ ] 2.2 询价入口返回 `autoDraftFollowUp`（两个功能开关都开时才有）；verify：`npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts` 全部通过（含新增的接线断言）
+- [x] 2.1 自动起草的服务读操作者的开关并传入；`service.ts` 写授权的条件接受来源 `auto`；结果对象加 `withFollowUp` 与一句说明；verify：`npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts` 与 `auto-draft-pure.test.ts` 全部通过（含批准后自动催单、批准前零出站）
+- [x] 2.2 询价入口返回 `autoDraftFollowUp`（两个功能开关都开时才有）；verify：`npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts` 全部通过（含新增的接线断言）
 
 ## 3. 界面
 

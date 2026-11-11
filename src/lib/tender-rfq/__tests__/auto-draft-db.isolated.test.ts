@@ -200,7 +200,7 @@ async function main() {
     const res1 = await approveRoute.POST(post(`${base8}/approve`), { params: Promise.resolve({ id: p8.projectId, runId: p8.runId }) });
     const j1 = (await res1.json()) as { ok?: boolean; status?: string; leftAiExtractedCount?: number; rfqAutoDraft?: Record<string, unknown> };
     ok(res1.status === 200 && j1.ok === true && j1.status === "APPROVED" && j1.leftAiExtractedCount === 1 && j1.rfqAutoDraft?.drafted === true && j1.rfqAutoDraft.unconfirmedCount === 1 && j1.rfqAutoDraft.quiet === false && (await rounds(p8.projectId)).length === 1, "批准接口（还剩 1 条没确认）：批准成功，响应里 rfqAutoDraft.drafted 为 true 并写明 1 条没带上，库里有了第 1 轮", j1);
-    ok(Object.keys(j1.rfqAutoDraft ?? {}).sort().join() === "drafted,href,messageZh,quiet,roundNumber,skippedCount,supplierCount,unconfirmedCount" && !/@/.test(JSON.stringify(j1.rfqAutoDraft)), "响应里的 rfqAutoDraft 只有白名单字段，不含任何邮箱");
+    ok(Object.keys(j1.rfqAutoDraft ?? {}).sort().join() === "drafted,href,messageZh,quiet,roundNumber,skippedCount,supplierCount,unconfirmedCount,withFollowUp" && j1.rfqAutoDraft?.withFollowUp === false && !/@/.test(JSON.stringify(j1.rfqAutoDraft)), "响应里的 rfqAutoDraft 只有白名单字段，不含任何邮箱");
     const res2 = await approveRoute.POST(post(`${base8}/approve`), { params: Promise.resolve({ id: p8.projectId, runId: p8.runId }) });
     const j2 = (await res2.json()) as Record<string, unknown>;
     ok(res2.status === 200 && !("rfqAutoDraft" in j2) && (await rounds(p8.projectId)).length === 1, "重复批准（幂等返回）：不触发判定，响应不带 rfqAutoDraft", j2);
@@ -235,7 +235,120 @@ async function main() {
     // —— 10. 全程零出站 ——
     const allCards = await db.pendingAction.findMany({ where: { orgId: ORG, type: TENDER_SEND_RFQ_TYPE }, select: { status: true, executedAt: true } });
     ok(allCards.length === 4 && allCards.every((c) => c.status !== "executed" && c.status !== "approved" && c.executedAt === null) && (await db.inquiryItem.count({ where: { inquiry: { projectId: { in: projectIds } }, sentAt: { not: null } } })) === 0, "整个测试里没有任何卡被批准或执行，没有任何询价项被标为已发出", allCards);
+
+    // ═════════ RFQ-AUTO-3：自动起草的轮次按本人的开关带跟进授权 ═════════
+    console.log("RFQ-AUTO-3 个人开关");
+    flagOn();
+    const { readAutoDraftFollowUpOptIn, AUTO_DRAFT_OPTIN_AUDIT_ACTION } = await import("../auto-followup-optin");
+    const { prepareRfqRound } = await import("../service");
+    const { runChaseScan } = await import("../chase-service");
+    const { __setChaseExecuteIoForTest } = await import("../chase-execute");
+    const { parseChaseNotes } = await import("../chase-pure");
+    const { formatRfqContactNotes } = await import("../inbound-contract");
+    const { FOLLOWUP_AUTO_SEND_AUDIT_ACTION } = await import("../followup-coverage");
+    const { TENDER_SEND_CHASE_TYPE } = await import("../types");
+    const { readUserPrefs, withUserPrefs } = await import("@/lib/muse-bridge/prefs-pure");
+    const optInRoute = await import("@/app/api/projects/[id]/tender-rfq/auto-follow-up/route");
+    const settingsNow = async () => (await db.organization.findUniqueOrThrow({ where: { id: ORG }, select: { settingsJson: true } })).settingsJson;
+    const put = (projectId: string, body: unknown, ck = cookie) =>
+      optInRoute.PUT(new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/auto-follow-up`, { method: "PUT", headers: { cookie: ck, "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id: projectId }) });
+    const optInAudits = () => db.auditLog.findMany({ where: { orgId: ORG, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION }, orderBy: { createdAt: "asc" } });
+    const policyOf = (c: { payload: unknown }) => (c.payload as { followUpPolicy?: unknown }).followUpPolicy;
+    // 让 OTHER 也有常用供应商（但他不开启开关）
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: withUserPrefs(await settingsNow(), OTHER, { ...readUserPrefs(null, OTHER), defaultSupplierIds: [sA.id, sB.id] }) as never } });
+
+    // —— 11. 默认关；开启要走接口、留审计、不动别的设置 ——
+    const pA0 = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const entryOff = await loadRfqWebEntry({ projectId: pA0.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    ok(entryOff.available && entryOff.autoDraftFollowUp?.enabled === false && !readAutoDraftFollowUpOptIn(await settingsNow(), OWNER), "默认关：入口里本人的开关是关");
+    const bad = await put(pA0.projectId, { enabled: "yes" });
+    const extra = await put(pA0.projectId, { enabled: true, userId: OTHER });
+    ok(bad.status === 400 && extra.status === 400 && !readAutoDraftFollowUpOptIn(await settingsNow(), OWNER) && !readAutoDraftFollowUpOptIn(await settingsNow(), OTHER), "请求体不是 { enabled: 布尔 }、或夹带了别人的用户号：400，开关不变");
+    const on1 = await put(pA0.projectId, { enabled: true });
+    const jOn1 = (await on1.json()) as { ok?: boolean; enabled?: boolean; changed?: boolean };
+    const afterOn = await settingsNow();
+    ok(on1.status === 200 && jOn1.ok === true && jOn1.enabled === true && jOn1.changed === true && readAutoDraftFollowUpOptIn(afterOn, OWNER) && !readAutoDraftFollowUpOptIn(afterOn, OTHER), "本人开启：成功；只有他自己的开关变了", jOn1);
+    ok(readUserPrefs(afterOn, OWNER).defaultSupplierIds.length === 4 && readUserPrefs(afterOn, OTHER).defaultSupplierIds.length === 2 && (afterOn as { tenderRfq?: { fromName?: string; mailboxEmail?: string } }).tenderRfq?.fromName === "Fixture Purchasing" && (afterOn as { tenderRfq?: { mailboxEmail?: string } }).tenderRfq?.mailboxEmail === MAILBOX, "开启没有动常用供应商与询价设置");
+    const on2 = await put(pA0.projectId, { enabled: true });
+    const audOn = await optInAudits();
+    ok(((await on2.json()) as { changed?: boolean }).changed === false && audOn.length === 1 && audOn[0].userId === OWNER && (JSON.parse(audOn[0].afterData ?? "{}") as { enabled?: boolean }).enabled === true, "留一条审计（谁、开）；已经开着再开不重复记", audOn.map((a) => a.afterData));
+    const outPut = await put(pA0.projectId, { enabled: true }, outsiderCookie);
+    ok(outPut.status >= 400 && outsiderId !== null && !readAutoDraftFollowUpOptIn(await settingsNow(), outsiderId), "对项目没有写权限的人调设置接口：被拒，什么都没写", { status: outPut.status });
+
+    // —— 12. 开启后：自动起草的卡带授权，内容与网页勾选时相同 ——
+    const rA = await draft(pA0);
+    const cardA = (await cards(pA0.projectId))[0];
+    const pWeb = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const web = await prepareRfqRound({ projectId: pWeb.projectId, orgId: ORG, userId: OWNER, source: "web", supplierIds: [sC.id, sA.id, sB.id], autoFollowUp: true, incoterm: "FOB", now: NOW });
+    const cardWeb = (await cards(pWeb.projectId))[0];
+    ok(rA?.drafted === true && rA.withFollowUp === true && rA.messageZh.includes("这张卡带自动跟进授权：批准它会一并批准后面的催单和追问。") && !!policyOf(cardA), "开启后触发自动起草：卡带跟进授权，结果里写明", rA);
+    ok(web.ok && JSON.stringify(policyOf(cardA)) === JSON.stringify(policyOf(cardWeb)) && (policyOf(cardA) as { maxReminders?: number; allowMissingFieldQuestion?: boolean })?.maxReminders === 2, "授权内容与网页勾选时逐字段相同（次数、间隔、回复截止、追问、模板指纹）", { auto: policyOf(cardA), web: policyOf(cardWeb) });
+    ok(cardA.title.startsWith(AUTO_DRAFT_TITLE_PREFIX) && cardA.title.includes("（含自动跟进授权）") && (cardA.preview ?? "").includes("含自动跟进") && cardA.status === "pending" && cardA.decidedById === null, "标题同时标明「自动起草」与「含自动跟进授权」，摘要写明范围；卡仍是待批", { title: cardA.title });
+    const entryA = await loadRfqWebEntry({ projectId: pA0.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    ok(entryA.available && entryA.autoDraftFollowUp?.enabled === true && !!entryA.followUp?.cards[cardA.id] && entryA.followUp.cards[cardA.id].templates.length === 3 && Object.keys(entryA.autoDraftedRounds ?? {}).length === 1 && (Object.values(entryA.autoDraftedRounds ?? {})[0]?.noteZh ?? "").includes("常用供应商"), "项目页原地审批处：这张卡既有自动起草的说明，也有授权范围与三段模板");
+    const auditA = await db.auditLog.findFirst({ where: { orgId: ORG, action: AUTO_DRAFT_AUDIT_ACTION, projectId: pA0.projectId } });
+    ok((JSON.parse(auditA?.afterData ?? "{}") as { withFollowUpAuthorization?: boolean }).withFollowUpAuthorization === true, "自动起草的审计记下这张卡带授权");
+
+    // —— 13. 只用本人的开关 ——
+    const pOther = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const rOther = await draft(pOther, "approve_run", OTHER);
+    const cardOther = (await cards(pOther.projectId))[0];
+    ok(rOther?.drafted === true && rOther.withFollowUp === false && !("followUpPolicy" in (cardOther.payload as object)) && !cardOther.title.includes("含自动跟进授权"), "同组织的甲开了、乙没开，乙触发的自动起草：不带授权", rOther);
+
+    // —— 14. 批准之前零出站；人批准并发出之后才自动催单 ——
+    const sends: Array<{ to: string; subject: string }> = [];
+    __setChaseExecuteIoForTest({
+      findProviders: async () => [{ userId: OWNER, accountEmail: MAILBOX, grantedScopes: "gmail.compose" }],
+      hasComposeScope: () => true,
+      getMessageIdHeader: async () => "<original@fixture.test>",
+      send: (async (_userId: string, m: { to: string; subject: string; threadId?: string }) => { sends.push({ to: m.to, subject: m.subject }); return { messageId: `gm-ad-${sends.length}`, threadId: m.threadId ?? "t" }; }) as never,
+    });
+    process.env.QINGYAN_ALLOW_REAL_EMAIL_NON_PROD = "1"; // 允许执行器走到（假的）发送：发的全是内存里的假邮件
+    const roundA = (await rounds(pA0.projectId))[0];
+    const chaseCardsA = () => db.pendingAction.findMany({ where: { orgId: ORG, projectId: pA0.projectId, type: TENDER_SEND_CHASE_TYPE } });
+    const D4 = new Date(NOW.getTime() + 4 * 86400_000);
+    await runChaseScan(ORG, D4);
+    ok(sends.length === 0 && (await chaseCardsA()).length === 0 && roundA.items.every((i) => i.sentAt === null), "卡还没有人批准：扫描不为这一轮起草任何催单，没有邮件发出");
+    // 模拟「人在网页上批准了这张卡并已发出」：卡标为已执行（决定人 = OWNER），询价项标为已发出
+    await db.pendingAction.update({ where: { id: cardA.id }, data: { status: "executed", decidedById: OWNER, decidedAt: NOW, executedAt: NOW } });
+    await db.projectInquiry.update({ where: { id: roundA.id }, data: { status: "in_progress" } });
+    for (const it of roundA.items) await db.inquiryItem.update({ where: { id: it.id }, data: { status: "sent", sentAt: NOW, sentVia: "email", contactNotes: formatRfqContactNotes(`gm-${it.id}`, `th-${it.id}`, NOW) } });
+    const scan1 = await runChaseScan(ORG, D4);
+    const chase1 = await chaseCardsA();
+    const autoAud = await db.auditLog.findMany({ where: { orgId: ORG, action: FOLLOWUP_AUTO_SEND_AUDIT_ACTION, targetId: roundA.id } });
+    ok(scan1.autoSent.filter((a) => roundA.items.some((i) => i.id === a.itemId) && a.sent).length === 3 && sends.length === 3 && chase1.length === 3 && chase1.every((c) => c.status === "executed" && c.decidedById === OWNER) && autoAud.length === 3 && autoAud.every((a) => a.userId === OWNER), "人批准并发出之后：3 家各自动发出第 1 次催单，以批准人的身份执行，各留一条审计", { autoSent: scan1.autoSent.length, sends: sends.length, notCovered: scan1.notCovered });
+    ok(sends.every((m) => (cardA.payload as { items: Array<{ to: string }> }).items.some((i) => i.to === m.to)) && sends.every((m) => m.subject.startsWith("Re: ")), "催单的收件人就是卡上批准的那三家，回复在原线程");
+
+    // —— 15. 关闭：只影响之后起草的；已批准的轮次照常 ——
+    const off1 = await put(pA0.projectId, { enabled: false });
+    const audOff = await optInAudits();
+    ok(((await off1.json()) as { enabled?: boolean; changed?: boolean }).enabled === false && !readAutoDraftFollowUpOptIn(await settingsNow(), OWNER) && audOff.length === 2 && (JSON.parse(audOff[1].afterData ?? "{}") as { enabled?: boolean }).enabled === false, "本人关闭：成功，再留一条审计（关）");
+    const pAfterOff = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const rAfterOff = await draft(pAfterOff);
+    ok(rAfterOff?.drafted === true && rAfterOff.withFollowUp === false && !("followUpPolicy" in ((await cards(pAfterOff.projectId))[0].payload as object)), "关闭之后触发的自动起草：不带授权");
+    const before15 = sends.length;
+    const D8 = new Date(NOW.getTime() + 8 * 86400_000);
+    const scan2 = await runChaseScan(ORG, D8);
+    const notes = parseChaseNotes((await db.inquiryItem.findUniqueOrThrow({ where: { id: roundA.items[0].id }, select: { contactNotes: true } })).contactNotes);
+    ok(scan2.autoSent.filter((a) => a.chaseIndex === 2 && a.sent).length === 3 && sends.length === before15 + 3 && notes.filter((c) => c.kind === "no_reply").length === 2, "关闭之前已批准的那一轮：间隔到了照常自动发第 2 次催单（要停用得在轮次上停止）", { autoSent: scan2.autoSent.length });
+
+    // —— 16. 跟进授权的功能开关关闭：个人开关不生效、不显示、设置接口不可用 ——
+    await put(pA0.projectId, { enabled: true });
+    delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
+    const pFlagOff = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const rFlagOff = await draft(pFlagOff);
+    const entryFlagOff = await loadRfqWebEntry({ projectId: pFlagOff.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    const putFlagOff = await put(pFlagOff.projectId, { enabled: false });
+    ok(rFlagOff?.drafted === true && rFlagOff.withFollowUp === false && !("followUpPolicy" in ((await cards(pFlagOff.projectId))[0].payload as object)) && entryFlagOff.available && !("autoDraftFollowUp" in entryFlagOff) && putFlagOff.status === 404 && readAutoDraftFollowUpOptIn(await settingsNow(), OWNER), "跟进授权的功能开关关闭：个人开关虽然开着，自动起草的卡不带授权；入口不显示它；设置接口 404 且不改任何东西", { status: putFlagOff.status });
+    process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED = "1";
+    flagOff();
+    const entryDraftOff = await loadRfqWebEntry({ projectId: pFlagOff.projectId, orgId: ORG, userId: OWNER, now: NOW });
+    const putDraftOff = await put(pFlagOff.projectId, { enabled: false });
+    ok(entryDraftOff.available && !("autoDraftFollowUp" in entryDraftOff) && putDraftOff.status === 404, "自动起草的功能开关关闭：入口同样不显示它，设置接口 404");
   } finally {
+    const { __setChaseExecuteIoForTest: resetIo } = await import("../chase-execute");
+    resetIo(null);
+    delete process.env.QINGYAN_ALLOW_REAL_EMAIL_NON_PROD;
     flagOff();
     delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
     // —— 清理 ——
@@ -255,7 +368,7 @@ async function main() {
     await db.$disconnect();
   }
 
-  console.log(`\nRFQ-AUTO-2 auto draft DB: ${pass} passed, ${fail} failed`);
+  console.log(`\nRFQ-AUTO-2 / RFQ-AUTO-3 auto draft DB: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
 

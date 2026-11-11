@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { InquiryDetail } from "./inquiry-detail";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
+import { RfqAutoFollowUpOptIn } from "./rfq-auto-followup-optin";
 import { RfqFollowUpStatus } from "./rfq-followup-status";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
@@ -295,6 +296,15 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
             </p>
           ))}
         </div>
+      )}
+      {ready?.autoDraftFollowUp && (
+        <RfqAutoFollowUpOptIn
+          projectId={projectId}
+          enabled={ready.autoDraftFollowUp.enabled}
+          offer={ready.followUp?.offer ?? null}
+          canManage={canManage}
+          onChanged={loadEntry}
+        />
       )}
       {createError && <p className="mt-2 text-xs text-danger">{createError}</p>}
       {canManage && entryError && (

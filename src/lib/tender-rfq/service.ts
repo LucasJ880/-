@@ -210,9 +210,12 @@ async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Pro
     items.push({ inquiryItemId: item.id, supplierId: s.id, supplierName: s.name, to: s.contactEmail, subject: mail.subject, body: mail.body });
   }
 
-  // RFQ-AUTO-1 跟进授权：网页发起 + 明确勾选 + 开关打开才写。间隔按项目负责人的偏好（与催单扫描同一口径），与回复截止一起在此定格。
+  // 跟进授权只在人明确选择时写，且功能开关要打开：
+  //   RFQ-AUTO-1 网页发起 + 当场勾选；RFQ-AUTO-3 自动起草 + 触发起草的人事先在网页上开启了个人开关（由调用方读出后传入）。
+  // Muse 发起的不传 autoFollowUp，也不在允许的来源里。间隔按项目负责人的偏好（与催单扫描同一口径），与回复截止一起在此定格。
+  const followUpRequested = (input.source === "web" || input.source === "auto") && input.autoFollowUp === true;
   const followUpPolicy =
-    input.source === "web" && input.autoFollowUp === true && isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)
+    followUpRequested && isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)
       ? buildFollowUpPolicy({
           chaseAfterDays: resolveChaseAfterDays(readUserPrefs(project.org?.settingsJson, project.ownerId).chaseAfterDays, project.org?.settingsJson),
           replyBy: doc.replyBy,

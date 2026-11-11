@@ -23,6 +23,7 @@ import {
   type AutoDraftTrigger,
   type RfqAutoDraftResult,
 } from "./auto-draft-pure";
+import { loadAutoDraftFollowUpOptIn } from "./auto-followup-optin-service";
 import { prepareRfqRound } from "./service";
 import { loadRfqWebEntry } from "./web-entry";
 
@@ -93,6 +94,9 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
   });
   if (!decision.draft) return decision.reason === "FLAG_OFF" ? null : autoDraftBlocked(decision.reason, ctx);
 
+  // RFQ-AUTO-3：触发起草的这个人有没有事先开启「自动起草的轮次带跟进授权」（只看他本人的；功能开关任一关闭 → false）
+  const followUpOptIn = await loadAutoDraftFollowUpOptIn(input.orgId, input.userId);
+
   // ── 起草：只在它恰好是项目的第 1 轮时才建。并发或重复触发时，后到的一次在建轮次那一步被拒
   //    （已有轮次，或撞上 (projectId, roundNumber) 唯一约束），什么都不会建出来。不持有任何长事务。 ──
   const prepared = await deps.prepare({
@@ -102,6 +106,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     source: "auto",
     supplierIds: picked.map((p) => p.id),
     onlyIfFirstRound: true,
+    ...(followUpOptIn ? { autoFollowUp: true } : {}),
     now: input.now,
   });
   if (!prepared.ok) {
@@ -115,7 +120,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     action: AUTO_DRAFT_AUDIT_ACTION,
     targetType: AUDIT_TARGET,
     targetId: prepared.inquiryId,
-    afterData: auditData({ input, actionId: prepared.actionId, roundNumber: prepared.roundNumber, suppliers: prepared.suppliers, skipped, unconfirmedCount }),
+    afterData: auditData({ input, actionId: prepared.actionId, roundNumber: prepared.roundNumber, suppliers: prepared.suppliers, skipped, unconfirmedCount, withFollowUp: !!prepared.followUpPolicy }),
   });
 
   return autoDraftDone({
@@ -125,6 +130,8 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     supplierCount: prepared.suppliers.length,
     skippedCount: skipped.length,
     unconfirmedCount,
+    // 以卡上实际写了什么为准（而不是开关的值）
+    withFollowUp: !!prepared.followUpPolicy,
   });
 }
 
@@ -135,6 +142,7 @@ function auditData(a: {
   suppliers: Array<{ id: string; name: string }>;
   skipped: AutoDraftSkipped[];
   unconfirmedCount: number;
+  withFollowUp: boolean;
 }) {
   return {
     // 这一轮不是人在抽屉里发起的：是人的审核动作触发、系统按他的常用供应商起草的
@@ -148,5 +156,7 @@ function auditData(a: {
     skipped: a.skipped,
     // 批准时还没确认也没驳回的要求数：这些没有带进询价单
     unconfirmedRequirementCount: a.unconfirmedCount,
+    // 这张卡带不带跟进授权（带 = 触发起草的人事先开启了个人开关）
+    withFollowUpAuthorization: a.withFollowUp,
   };
 }

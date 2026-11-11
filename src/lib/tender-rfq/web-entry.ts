@@ -10,6 +10,8 @@
  */
 
 import { isRfqAutoDraftEnabledForOrg } from "./auto-draft-flags";
+import { readAutoDraftFollowUpOptIn } from "./auto-followup-optin";
+import { isAutoDraftFollowUpOptInAvailable } from "./auto-followup-optin-service";
 import { AUTO_DRAFT_TOOL_NAME, autoDraftedRoundNotes } from "./auto-draft-pure";
 import { buildFollowUpPolicy, followUpCardView, parseFollowUpPolicy, type FollowUpCardView } from "./followup-coverage";
 import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
@@ -66,6 +68,8 @@ export type RfqWebEntry =
       followUp: RfqEntryFollowUp | null;
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /** RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」；两个功能开关任一关闭时没有这个字段——界面不显示它 */
+      autoDraftFollowUp?: { enabled: boolean };
     };
 
 /** RFQ-AUTO-1：入口里与跟进授权有关的全部内容 */
@@ -246,6 +250,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
     ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
+    ...(isAutoDraftFollowUpOptInAvailable(input.orgId) ? { autoDraftFollowUp: { enabled: readAutoDraftFollowUpOptIn(orgSettings, input.userId) } } : {}),
     followUp: await loadEntryFollowUp({
       orgId: input.orgId,
       now,

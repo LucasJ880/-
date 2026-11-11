@@ -73,7 +73,11 @@ console.log("对外结果");
   const clean = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 2, skippedCount: 0, unconfirmedCount: 0 });
   ok("没有跳过时不提跳过；要求都确认了就不提「没带上」", !clean.messageZh.includes("跳过") && !clean.messageZh.includes("没带上"));
   ok("还有没确认的要求：写明询价单只带已确认的、有几条没带上", done.drafted && done.unconfirmedCount === 4 && done.messageZh.includes("只带已确认的要求") && done.messageZh.includes("另有 4 条没有确认的没带上"));
-  ok("结果对象只有白名单里的字段", Object.keys(done).sort().join() === "drafted,href,messageZh,quiet,roundNumber,skippedCount,supplierCount,unconfirmedCount");
+  ok("结果对象只有白名单里的字段", Object.keys(done).sort().join() === "drafted,href,messageZh,quiet,roundNumber,skippedCount,supplierCount,unconfirmedCount,withFollowUp");
+  // RFQ-AUTO-3：卡上带跟进授权时结果里写明
+  const withAuth = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 2, skippedCount: 0, unconfirmedCount: 0, withFollowUp: true });
+  ok("不带授权：标记为 false，说明里不提授权", done.drafted && done.withFollowUp === false && !done.messageZh.includes("授权") && clean.drafted && clean.withFollowUp === false);
+  ok("带授权：标记为 true，说明里写明「批准它会一并批准后面的催单和追问」，仍写明还没有发出", withAuth.drafted && withAuth.withFollowUp === true && withAuth.messageZh.includes("这张卡带自动跟进授权：批准它会一并批准后面的催单和追问。") && withAuth.messageZh.endsWith("还没有发出，批准后才发。"));
 
   const blockedReasons = AUTO_DRAFT_REASONS.filter((r): r is Exclude<AutoDraftReason, "FLAG_OFF"> => r !== "FLAG_OFF");
   const all = blockedReasons.map((r) => autoDraftBlocked(r, { projectId: "p1", trigger: "approve_run" }));
