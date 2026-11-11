@@ -47,6 +47,15 @@
 
 教训（#418）：TI-4a 有一条断言写死了目录里的模块文件数，TI-4b 新增文件后会失败，首次推送后才发现。**往既有目录加文件或改既有组件之后，把读到它的既有测试全部重跑**（`grep -rln "<目录或文件名>" src/lib --include=*.test.ts`），不要只跑新写的测试。
 
+教训二（#418 首轮 CI 红）：仓库有一条行级检查 `scripts/check-swc-nullish-logical.test.ts`，同一行里 `??` 与 `&&` / `||` 无括号并用即判失败——即使它们分属两个独立的 JSX 表达式。写组件时把 `a ?? b` 提成变量。**推送前用 CI 的环境变量跑整份子集**（约 8 分钟）：
+
+```
+DATABASE_URL="postgresql://ci:ci@127.0.0.1:5999/ci?schema=public" DIRECT_URL="$DATABASE_URL" \
+JWT_SECRET=ci-only-jwt-secret-not-for-production NODE_ENV=test bash scripts/test-ci-unit.sh   # 末行应为 CI unit subset PASS
+```
+
+CI 对同一分支的新推送会取消上一轮（`cancel-in-progress`），所以连续小推送只有最后一次有结果。
+
 每个合并之后：`/opsx:archive <change> --yes`（独立小 PR），并把 TASKFLOW 该行的 `[G]（#NNN 待审）` 改成 `[x]（#NNN；archive …）`。
 
 PR 事件会以 `<wake reason="external-event">` 送进会话。处理前先在上下文里找到该 PR 的 `subscription.created` 事件原文（规则在里面）；找不到就先对该 PR 再调一次 `subscribe_pr_activity`。
