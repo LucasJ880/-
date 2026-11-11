@@ -165,7 +165,8 @@ export async function provisionFactoryOrg(input: ProvisionFactoryOrgInput) {
       /** 已存在的组织只补缺不覆盖：被保留的既有值 */
       const keptExisting: string[] = [];
       // FIX-3：这个 code 已有组织时先锁住它的行再读——下面会把它的设置整块写回，不能冲掉别处并发的写入
-      await tx.$queryRaw`SELECT id FROM "Organization" WHERE code = ${input.code} FOR UPDATE`;
+      //（FOR NO KEY UPDATE：与外键检查不冲突，见 settings-write.ts 的说明）
+      await tx.$queryRaw`SELECT id FROM "Organization" WHERE code = ${input.code} FOR NO KEY UPDATE`;
       let org = await tx.organization.findUnique({ where: { code: input.code }, select: ORG_SELECT });
       let created = false;
       /** 本次把企业 owner 交给了工厂老板（新建，或既有企业原由平台管理员暂代） */
@@ -434,13 +435,15 @@ export async function updateOnboardingSettings(
       ? org.ownerId
       : null;
 
-  /** 实际写进去的设置（审计用） */
+  /** 锁里读到的、写之前的设置与实际写进去的设置（审计用：前后必须取自同一次读写） */
+  let settingsBeforeWrite: Rec = settings;
   let writtenSettings: Rec = settings;
   await db.$transaction(async (tx) => {
     // FIX-3：先锁行、读最新的设置，再在它之上应用这次修改（原来用的是事务外读到的那一份）
     await lockOrganizationRow(tx, orgId);
     const fresh = await tx.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-    const nextSettings = buildNextSettings(rec(fresh?.settingsJson) ?? {});
+    settingsBeforeWrite = rec(fresh?.settingsJson) ?? {};
+    const nextSettings = buildNextSettings(settingsBeforeWrite);
     writtenSettings = nextSettings;
     await tx.organization.update({
       where: { id: orgId },
@@ -473,11 +476,11 @@ export async function updateOnboardingSettings(
     targetType: AUDIT_TARGETS.ORG,
     targetId: orgId,
     beforeData: {
-      timezone: settings.timezone ?? null,
+      timezone: settingsBeforeWrite.timezone ?? null,
       industryPackId: org.industryPackId,
       modulesJson: org.modulesJson,
       ownerId: org.ownerId,
-      acknowledgements: rec(rec(settings.onboarding)?.acknowledgements) ?? {},
+      acknowledgements: rec(rec(settingsBeforeWrite.onboarding)?.acknowledgements) ?? {},
     },
     afterData: {
       timezone: writtenSettings.timezone ?? null,

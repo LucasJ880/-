@@ -6,8 +6,8 @@
  *   npx tsx scripts/seed-org-mengxin-home-textile.ts --switch-active
  */
 
-import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 import { DEFAULT_MENGXIN_MODULES } from "../src/lib/tenancy/modules";
 import { SENDER_COPY_PLATFORM_RELAY, withSenderCopy } from "@/lib/settings/sender-copy";
 
@@ -82,21 +82,13 @@ async function main() {
   console.log(`modulesJson: ${DEFAULT_MENGXIN_MODULES.join(", ")}`);
   console.log("industryPackId: home_textile_trade_v1");
 
-  const { settingsJson } = await db.organization.findUniqueOrThrow({
-    where: { id: org.id },
-    select: { settingsJson: true },
+  // FIX-3：锁行后在最新的设置上只改时区与发信说明（重跑种子时企业可能正在被使用，不能把整块旧内容写回去）
+  // VIS-1c：梦馨走平台发信通道，设置页显示代发说明（settings/sender-copy）；重跑种子不回退
+  const written = await mutateOrgSettings(org.id, (current) => {
+    const settings = current && typeof current === "object" && !Array.isArray(current) ? (current as Record<string, unknown>) : {};
+    return { next: withSenderCopy({ ...settings, timezone: ORG.timezone }, SENDER_COPY_PLATFORM_RELAY), result: null };
   });
-  const settings =
-    settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson)
-      ? (settingsJson as Record<string, unknown>)
-      : {};
-  await db.organization.update({
-    where: { id: org.id },
-    // VIS-1c：梦馨走平台发信通道，设置页显示代发说明（settings/sender-copy）；重跑种子不回退
-    data: {
-      settingsJson: withSenderCopy({ ...settings, timezone: ORG.timezone }, SENDER_COPY_PLATFORM_RELAY) as Prisma.InputJsonValue,
-    },
-  });
+  if (!written.found) throw new Error(`组织不存在：${org.id}`);
   console.log(`settingsJson.timezone: ${ORG.timezone}`);
   console.log(`settingsJson.ui.senderCopy: ${SENDER_COPY_PLATFORM_RELAY}`);
 

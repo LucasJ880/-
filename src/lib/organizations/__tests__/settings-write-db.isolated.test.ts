@@ -31,7 +31,9 @@ async function main() {
   const { NextRequest } = await import("next/server");
   const { db } = await import("@/lib/db");
   const { createSession } = await import("@/lib/auth/session");
-  const { mutateOrgSettings } = await import("../settings-write");
+  const { mutateOrgSettings, mutateOrgSettingsInTx, lockOrganizationRow } = await import("../settings-write");
+  const { updateOnboardingSettings } = await import("../onboarding");
+  const { saveDiscountsForOrg, readJsonDiscounts } = await import("@/lib/blinds/discount-settings");
   const { defaultInboundSyncDeps, readInboundCursor } = await import("@/lib/tender-rfq/inbound-sync");
   const { learnSupplierPreference, updateUserPrefs, saveUserPrefs, loadUserPrefs } = await import("@/lib/muse-bridge/prefs");
   const { applyPreference, readUserPrefs } = await import("@/lib/muse-bridge/prefs-pure");
@@ -176,7 +178,71 @@ async function main() {
     ok(quiet && cursorThrew && (await db.organization.count({ where: { id: ghost } })) === 0, "组织不存在：保存偏好照旧不抛错，回写游标照旧抛错；都不会新建组织");
     const calGhost = await saveCalendarWatchSettings({ orgId: ghost, actorUserId: OWNER, body: { websiteMarkers: ["x"] } });
     ok(!calGhost.ok && calGhost.status === 404, "保存日历监听设置：组织不存在 → 照旧 404");
+
+    // —— 7. 在自己事务里锁行的写入方（开户更新设置、门店折扣）与别的写入同时进行 ——
+    const lost7: string[] = [];
+    const ROUNDS7 = 10;
+    for (let r = 0; r < ROUNDS7; r++) {
+      const pct = (10 + r) / 100;
+      await Promise.all([
+        updateOnboardingSettings(ORG, { acknowledge: { [`step_${r}`]: true } }, OWNER),
+        saveDiscountsForOrg({ orgId: ORG, userId: OWNER, patch: { fauxwood: pct } as never }),
+        mutateOrgSettings(ORG, (cur) => ({ next: { ...rec(cur), [`mix_${r}`]: r }, result: null })),
+        setMuseBinding({ orgId: ORG, museUserRef: `mix_muse_${r}`, userId: OTHER, actorUserId: OWNER }),
+        saveTenderProfile(ORG, { positioning: `mix ${r}` }),
+      ]);
+      const s = await settings();
+      const acks = rec(rec(s.onboarding).acknowledgements);
+      const check: Array<[string, boolean]> = [
+        ["开户确认", `step_${r}` in acks && Array.from({ length: r }, (_, i) => `step_${i}`).every((k) => k in acks)],
+        ["门店折扣", readJsonDiscounts(s).fauxwood === pct],
+        ["入口写的键", s[`mix_${r}`] === r],
+        ["Muse 绑定", readMuseBindings(s)[`mix_muse_${r}`]?.userId === OTHER],
+        ["投标资料", rec(s.tenderProfile).positioning === `mix ${r}`],
+      ];
+      for (const [name, good] of check) if (!good) lost7.push(`第 ${r + 1} 轮：${name}`);
+    }
+    ok(lost7.length === 0, `开户更新设置、门店折扣与另外三种写入同时进行 ${ROUNDS7} 轮：每一轮五项都在，之前各轮的开户确认也都在`, lost7.slice(0, 12));
+    const obAudit = await db.auditLog.findFirst({ where: { orgId: ORG, action: "onboarding.org.update" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+    const obBefore = rec(rec(JSON.parse(obAudit?.beforeData ?? "{}")).acknowledgements);
+    const obAfter = rec(rec(JSON.parse(obAudit?.afterData ?? "{}")).acknowledgements);
+    ok(Object.keys(obAfter).length === Object.keys(obBefore).length + 1, "开户更新设置的审计：「之前」与「之后」取自同一次读写，只差这一次确认的那一步", { before: Object.keys(obBefore).length, after: Object.keys(obAfter).length });
+
+    // —— 8. 锁的强度：不与「插入一条本组织的记录」互相阻塞，也不因此死锁 ——
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const timed = async (f: () => Promise<unknown>) => { const t = Date.now(); await f(); return Date.now() - t; };
+    let lockHeld!: () => void;
+    const held = new Promise<void>((r) => { lockHeld = r; });
+    const holder = db.$transaction(async (tx) => {
+      await mutateOrgSettingsInTx(tx, ORG, (cur) => ({ next: { ...rec(cur), heldOnce: true }, result: null }));
+      lockHeld();
+      await sleep(900); // 拿着锁不放 0.9 秒
+    });
+    await held;
+    const [insertMs, userMs, writerMs] = await Promise.all([
+      timed(() => db.auditLog.create({ data: { userId: OWNER, orgId: ORG, action: "fixture.fk_probe", targetType: "fixture" } })),
+      timed(() => db.user.update({ where: { id: OTHER }, data: { activeOrgId: ORG } })),
+      timed(() => mutateOrgSettings(ORG, (cur) => ({ next: { ...rec(cur), afterHeld: true }, result: null }))),
+    ]);
+    await holder;
+    ok(insertMs < 500 && userMs < 500, `有人拿着设置的锁时：往本组织插入一条记录、把用户的当前组织切到它，都不用等（${insertMs} ms / ${userMs} ms）`, { insertMs, userMs });
+    ok(writerMs >= 500 && (await settings()).afterHeld === true && (await settings()).heldOnce === true, `而另一处设置写入要等它放锁（等了 ${writerMs} ms），之后两处的修改都在`, { writerMs });
+    const crossed = await Promise.allSettled(
+      Array.from({ length: 8 }, (_, i) =>
+        db.$transaction(async (tx) => {
+          await tx.auditLog.create({ data: { userId: OWNER, orgId: ORG, action: "fixture.fk_probe", targetType: "fixture" } });
+          await sleep(20);
+          await lockOrganizationRow(tx, ORG);
+          const cur = await tx.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
+          await tx.organization.update({ where: { id: ORG }, data: { settingsJson: { ...rec(cur?.settingsJson), [`crossed_${i}`]: true } } });
+        }),
+      ),
+    );
+    const sCrossed = await settings();
+    ok(crossed.every((c) => c.status === "fulfilled") && Array.from({ length: 8 }, (_, i) => `crossed_${i}`).every((k) => k in sCrossed), "8 个事务各自先插入一条本组织的记录、再锁行写设置：没有死锁，8 处修改都在", crossed.filter((c) => c.status === "rejected").map((c) => String((c as PromiseRejectedResult).reason).slice(0, 160)));
   } finally {
+    await db.user.updateMany({ where: { id: { in: [OWNER, OTHER] } }, data: { activeOrgId: null } });
+    await db.quoteDiscountSettings.deleteMany({ where: { orgId: ORG } });
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: ORG }, { userId: { in: [OWNER, OTHER] } }] } });
     await db.supplier.deleteMany({ where: { orgId: ORG } });
     await db.project.deleteMany({ where: { id: PROJECT } });

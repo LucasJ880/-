@@ -15,7 +15,6 @@ export async function getTenderProfile(orgId: string): Promise<TenderProfile | n
 }
 
 export async function saveTenderProfile(orgId: string, patch: Partial<TenderProfile>): Promise<TenderProfile> {
-  // 组织不存在时的既有行为：更新一条不存在的记录会抛错。这里保持（先确认存在再进锁）
   const computeNext = (current: unknown) => {
     const s = current && typeof current === "object" && !Array.isArray(current) ? (current as Record<string, unknown>) : {};
     const parsed = tenderProfileSchema.safeParse(s[KEY] ?? {});
@@ -25,6 +24,7 @@ export async function saveTenderProfile(orgId: string, patch: Partial<TenderProf
   };
   // FIX-3：锁行后在最新的设置上合并这次修改
   const res = await mutateOrgSettings(orgId, computeNext);
+  // 组织不存在时照旧抛错（原来是更新一条不存在的记录时由数据库层抛出）
   if (!res.found) throw new Error(`组织不存在：${orgId}`);
   return res.result;
 }
