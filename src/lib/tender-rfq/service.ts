@@ -180,7 +180,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   }
   // 轮次已建、审批卡还没建成之前出任何错：把这一轮标为已取消再抛出，不留下一轮没有审批卡的草稿
   try {
-    return await draftRoundCard(input, { project, settings, doc, inquiry, ready, blocked, requirements, incoterm: term.incoterm, supplierSource: pick.source });
+    return await draftRoundCard(input, { project, settings, doc, inquiry, ready, blocked, requirements, term, supplierSource: pick.source });
   } catch (err) {
     await db.projectInquiry.update({ where: { id: inquiry.id }, data: { status: "canceled" } }).catch(() => undefined);
     throw err;
@@ -188,21 +188,20 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
 }
 
 type DraftRoundContext = {
-  project: { id: string; name: string; ownerId: string | null; org: { settingsJson: unknown } | null };
+  project: { id: string; name: string; ownerId: string; org: { settingsJson: unknown } | null };
   settings: ReturnType<typeof readTenderRfqSettings>;
   doc: Extract<ReturnType<typeof buildRfqDocument>, { ok: true }>["doc"];
   inquiry: Awaited<ReturnType<typeof createInquiry>>;
   ready: ReturnType<typeof partitionSuppliers>["ready"];
   blocked: ReturnType<typeof partitionSuppliers>["blocked"];
   requirements: RfqRequirementInput[];
-  incoterm: TenderSendRfqPayload["incoterm"];
+  term: { incoterm: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null; fromPrefs: boolean };
   supplierSource: "explicit" | "hint" | "prefs";
 };
 
 /** 给刚建好的轮次加询价项、建发询价审批卡（零出站） */
 async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Promise<PrepareRfqResult> {
-  const { project, settings, doc, inquiry, ready, blocked, requirements } = c;
-  const term = { incoterm: c.incoterm };
+  const { project, settings, doc, inquiry, ready, blocked, requirements, term } = c;
   const pick = { source: c.supplierSource };
   const items: TenderSendRfqPayload["items"] = [];
   for (const s of ready) {

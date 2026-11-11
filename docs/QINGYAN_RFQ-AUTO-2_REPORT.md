@@ -115,8 +115,18 @@ auto-draft-db.isolated.test.ts     38 passed, 0 failed（新增；本地隔离�
 web-entry-pure.test.ts             143 passed（原 130，+13：接线、并发、补偿）
 muse-bridge-pure.test.ts           75 passed（原 71，+4：自动起草的卡不能在 Muse 批）
 round-pure.test.ts                 34 passed（未改断言）
-GATES_PLACEHOLDER
+followup-coverage / followup-auto-db（RFQ-AUTO-1，未改断言）   62 项 / 28 passed
+
+npm run test:ci（CI 同款环境变量）   CI unit subset PASS
+npm run typecheck                  exit 0（第一次跑出 3 处类型错误——重构建轮次函数时引入的，已修，见下）
+npm run lint:baseline              PASS（无新增 error fingerprint）
+scripts/check-test-registry.sh     OK 已注册 588 个；历史欠账基线 68 条
+scripts/test-runtime-architecture.sh   PASS
+check-swc-nullish-logical          PASS
+openspec validate rfq-round-auto-draft --strict   valid
 ```
+
+类型检查抓到的 3 处错误都在 `service.ts` 拆出的那个内部函数的参数类型上（负责人字段、贸易条款的类型写宽了）。改的只是类型标注与传参方式，运行行为不变；修完后类型检查通过，上面列的测试在修完后重跑过。
 
 真库测试覆盖的情形：开关关闭零变化；批准后起草（含批准时还有没确认的要求）；询价单正文只有已确认的要求；收件人只有操作者的常用供应商且顺序一致，就绪但不在常用里的不被选；卡不带跟进授权（RFQ-AUTO-1 的开关开着也不带）；标题、摘要、来源标记；审计内容；卡待批时再触发不重复起草；人驳回后不再起草；批准之前逐条确认不起草也不提示；并发两次只起草一轮；并发三次建「只能是第 1 轮」的轮次只建成一个；已有人工建的轮次不自动起草；别人的常用供应商不被使用；建轮次抛错或返回失败都不向上抛；分析被取代、要求全部驳回、邮箱没连接、别的项目的分析、组织对不上都不起草；四个接口的响应；重复批准不触发；不是本组织成员的人调接口被拒；开关关闭时接口响应不变；全程没有任何卡被批准或执行。
 

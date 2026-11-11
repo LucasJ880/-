@@ -17,5 +17,5 @@
 ## 4. 注册、门禁与文档
 
 - [x] 4.1 两个新测试注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`.env.example` 加两个变量；verify：`bash scripts/check-test-registry.sh` 通过
-- [ ] 4.2 全部门禁；verify：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh`、`openspec validate rfq-round-auto-draft --strict` 全部通过
+- [x] 4.2 全部门禁；verify：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh`、`openspec validate rfq-round-auto-draft --strict` 全部通过
 - [x] 4.3 写 docs/QINGYAN_RFQ-AUTO-2_REPORT.md + 更新 TASKFLOW 状态列；verify：报告含测试输出、截图清单与「常用供应商未必适合本项目」这一取舍；TASKFLOW 有 `RFQ-AUTO-2` 一行
