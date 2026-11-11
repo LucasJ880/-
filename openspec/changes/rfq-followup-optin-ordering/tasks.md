@@ -14,4 +14,4 @@
 ## 3. 验收与收尾
 
 - [ ] 3.1 门禁：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、测试注册、架构守卫、`??` 混用检查、`openspec validate rfq-followup-optin-ordering --strict`
-- [ ] 3.2 `docs/QINGYAN_RFQ-AUTO-3a_REPORT.md`；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加一行 RFQ-AUTO-3a
+- [x] 3.2 `docs/QINGYAN_RFQ-AUTO-3a_REPORT.md`；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加一行 RFQ-AUTO-3a
