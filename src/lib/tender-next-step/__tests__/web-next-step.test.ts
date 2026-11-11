@@ -167,6 +167,8 @@ console.log("等批准的动作指到哪里");
   ok("催单的卡：同样指到它所在的那一轮", sameTarget(r.action!.target, TAB("bid", "rfq-round-inq9")));
   r = decideWebNextStep(mk({ pendingApprovals: [card("x1", { type: "sales.send_quote", inquiryId: null })] }));
   ok("别的类型的审批：位置是审批中心", r.action!.target.kind === "href" && (r.action!.target as { href: string }).href === APPROVAL_CENTER_HREF && r.action!.labelZh === "去审批中心");
+  r = decideWebNextStep(mk({ pendingApprovals: [card("x3", { type: "sales.send_quote", inquiryId: "inq1" })] }));
+  ok("别的类型的审批即使带着一个轮次号，也去审批中心（那一轮里没有它的批准按钮）", r.action!.target.kind === "href");
   r = decideWebNextStep(mk({ pendingApprovals: [card("x2", { inquiryId: null })] }));
   ok("询价的卡但读不到是哪一轮：位置是审批中心（不猜）", r.action!.target.kind === "href");
 }
