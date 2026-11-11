@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第十六次（#429 已合并并归档，规格在 `openspec/specs/tender/requirement-review-batch-confirm`。RFQ-AUTO-5（供应商分组）四件套已获 Lucas 同意并实施，在分支 `claude/rfq-supplier-groups` 上，独立审查中、PR 还没开；详见 §0.5a）。第十五次：（#428 归档已合并。RFQ-AUTO-4（要求审核的批量确认）实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十四次：（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
+| 最后更新 | 2026-11-11 第十七次（#431（RFQ-AUTO-5 供应商分组）与 #433（RFQ-AUTO-3a 个人开关的时钟问题）都已合并并归档。询价自动流的六个 change 都在 main 上；生产上的三个开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十六次：（#429 已合并并归档，规格在 `openspec/specs/tender/requirement-review-batch-confirm`。RFQ-AUTO-5（供应商分组）四件套已获 Lucas 同意并实施，在分支 `claude/rfq-supplier-groups` 上，独立审查中、PR 还没开；详见 §0.5a）。第十五次：（#428 归档已合并。RFQ-AUTO-4（要求审核的批量确认）实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十四次：（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]` |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用 |
-| 进行中的 change | `rfq-supplier-groups`（RFQ-AUTO-5，在分支 `claude/rfq-supplier-groups` 上，还没进 main），见 §0.5a。`requirement-review-batch-confirm` 已归档。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
+| 进行中的 change | 本任务名下没有。`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
 
 ---
 
@@ -105,9 +105,9 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 | `rfq-round-followup-preapproval` | RFQ-AUTO-1 | `claude/rfq-round-autopilot` | **已合并**（#422，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-round-followup-preapproval` | Lucas 在四个审批方式里选了「一次批准管整轮」，审过四件套后说「可以，开始实施」。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` |
 | `rfq-round-auto-draft` | RFQ-AUTO-2 | `claude/rfq-round-auto-draft` | **已合并**（#425，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-round-auto-draft` | Lucas 审过四件套后说「可以开始实施了」。实施中发现界面上要求只能在「批准分析」之前逐条确认，按原稿（每条都审完才起草）几乎不会触发；Lucas 在三个选项里选了「照样起草」：批准分析即视为审核完成，只带已确认的要求并写明有几条没带上。开关 `TENDER_RFQ_AUTO_DRAFT_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-2_REPORT.md` |
 | `rfq-auto-draft-followup-optin` | RFQ-AUTO-3 | `claude/rfq-auto-draft-followup` | **已合并**（#427，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-auto-draft-followup-optin`（这次归档修改了两份已有规格：`rfq-followup-preapproval` 改 1 条加 5 条，`rfq-auto-draft` 改 1 条） | Lucas「开始 RFQ-AUTO-3，其他按照你推荐的做」，审过四件套后说「可以，开始实施」。个人开关（按人、按组织，默认关），开启后自动起草的卡带跟进授权。没有新的功能开关。报告 `docs/QINGYAN_RFQ-AUTO-3_REPORT.md` |
-| `rfq-followup-optin-ordering` | RFQ-AUTO-3a | `claude/rfq-optin-clock-order` | **实施完成，PR 已开（#433，指向 main），未合并** | 修 RFQ-AUTO-3 的一个缺口（RFQ-AUTO-5 的独立审查顺带发现）：个人开关的状态取「最近一条记录」，记录时间来自各台服务器自己的时钟，时钟不一致时后点的「关闭」可能不生效（已在旧代码上复现）。设置改为一个短事务：取本人的锁、读最近一条、需要才写，并明确给记录时间。Lucas 2026-11-11「RFQ-AUTO-3 的时钟问题可以修，开始吧」；这次没有先回传四件套再等一轮，已在 PR 里说明。报告 `docs/QINGYAN_RFQ-AUTO-3a_REPORT.md` |
+| `rfq-followup-optin-ordering` | RFQ-AUTO-3a | `claude/rfq-optin-clock-order` | **已合并**（#433，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-followup-optin-ordering`（`rfq-followup-preapproval` 加 1 条） | 修 RFQ-AUTO-3 的一个缺口（RFQ-AUTO-5 的独立审查顺带发现）：个人开关的状态取「最近一条记录」，记录时间来自各台服务器自己的时钟，时钟不一致时后点的「关闭」可能不生效（已在旧代码上复现）。设置改为一个短事务：取本人的锁、读最近一条、需要才写，并明确给记录时间。Lucas 2026-11-11「RFQ-AUTO-3 的时钟问题可以修，开始吧」；这次没有先回传四件套再等一轮，已在 PR 里说明。报告 `docs/QINGYAN_RFQ-AUTO-3a_REPORT.md` |
 | `requirement-review-batch-confirm` | RFQ-AUTO-4 | `claude/requirement-batch-confirm` | **已合并**（#429，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-requirement-review-batch-confirm` | Lucas 审过四件套后说「可以，开始实施吧」。要求列表的勾选式批量确认 + 计数 + 批准前的提示 + 审计；不加功能开关。与原稿不同的一处（独立审查后改，写在 PR 正文最前面）：批量确认多了一个可选参数「只在等待审核时确认」，所以请求体多一个可选字段、`review.ts` 多一个可选参数。报告 `docs/QINGYAN_RFQ-AUTO-4_REPORT.md` |
-| `rfq-supplier-groups` | RFQ-AUTO-5 | `claude/rfq-supplier-groups` | **实施完成，PR 已开（#431，指向 main），未合并**；独立审查的发现都已修复（报告 §5） | Lucas 2026-11-11 审过四件套后说「RFQ-AUTO-5 可以，开始实施了」。每人自己的供应商分组（名字 / 最多 8 家 / 关键词），按项目名称做确定性的文字比对选组，恰好一组对上才用；抽屉按分组预选并可管理分组；自动起草有分组时只认分组、对不上不起草（不退回常用供应商）。分组存成本人的只追加记录（不进组织设置）。开关 `TENDER_RFQ_SUPPLIER_GROUPS_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-5_REPORT.md`（在该分支上） |
+| `rfq-supplier-groups` | RFQ-AUTO-5 | `claude/rfq-supplier-groups` | **已合并**（#431，2026-11-11）并已归档到 `openspec/changes/archive/2026-11-11-rfq-supplier-groups`（新规格 `tender/rfq-supplier-groups` 11 条；`rfq-auto-draft` 改 3 条加 2 条；`rfq-web-entry` 改 1 条） | Lucas 2026-11-11 审过四件套后说「RFQ-AUTO-5 可以，开始实施了」。每人自己的供应商分组（名字 / 最多 8 家 / 关键词），按项目名称做确定性的文字比对选组，恰好一组对上才用；抽屉按分组预选并可管理分组；自动起草有分组时只认分组、对不上不起草（不退回常用供应商）。分组存成本人的只追加记录（不进组织设置）。开关 `TENDER_RFQ_SUPPLIER_GROUPS_ENABLED` 默认关。报告 `docs/QINGYAN_RFQ-AUTO-5_REPORT.md`（在该分支上） |
 
 **#422 正文里请 Lucas 确认的两处**（Lucas 没有另外留言，直接合并了 #422；按合并即同意处理，想改随时说）：
 
@@ -124,7 +124,9 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 
 1. ~~RFQ-AUTO-3~~：已做并归档，见上表。实施中与四件套原稿不同的四处（都是独立审查后改的，写在 #427 正文最前面，Lucas 看过后合并）：开关的状态是本人最近一条开关记录而不是组织设置里的一格；关闭任何时候都可以；带授权的待批卡不看功能开关都显示授权（也改变了 RFQ-AUTO-1 的一个界面行为）；开启时绑定模板指纹。
 2. ~~批量确认按钮~~：已做并归档（RFQ-AUTO-4），见上表。
-3. 常用供应商按项目品类分组（现在是每人一份，不分品类；RFQ-AUTO-2 报告 §8 第 1 条的取舍由此而来）。
+3. ~~常用供应商按项目品类分组~~：已做并归档（RFQ-AUTO-5），见上表。Lucas 审四件套时对三处取舍（分组按人、对不上就不起草、只比项目名称）没有提出异议。
+
+**现在没有排好的下一项。** 三个功能开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`、`TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED` 在生产上都还是关的，打开由 Lucas 决定（建议先只对自家组织：先开自动起草，再开供应商分组，最后开跟进授权，各观察几轮）。还等 Lucas 定的事：成本输入要不要存专用表（要新增表，须明确批准零 schema 的例外）；`Organization.settingsJson` 多处不加锁整块回写要不要另开 change 处理。
 
 **#422 之后**：归档已做（#423，已合并）。生产上开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 仍是关的，打开由 Lucas 决定（建议先只对自家组织）。接下来可以提「自动起草的轮次怎么带跟进授权」（暂定 RFQ-AUTO-3：个人偏好里一个明确的开关）。
 
@@ -135,6 +137,9 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 - 七、**动手之前先看界面上人实际怎么操作。** RFQ-AUTO-2 的四件套假设「批准分析之后还会逐条确认要求」，实际界面批准之后就不给按钮了。这是写完代码、起真实应用截图前核对界面才发现的，改了起草条件并重新请 Lucas 定。下次写触发条件之前先读对应的组件。
 - 九、**对源码文本的断言测不出行为上的毛病。** RFQ-AUTO-4 的面板断言起初全是「这一行代码还在不在」，独立审查指出它们抓不住「提示被后面的批次冲掉」「响应看不懂被当成确认 0 条」这类问题。能从组件里抽出来的逻辑（这里是分批提交的循环）要抽成纯函数，用假的接口做行为测试；源码断言只用来防「有人把这一行改掉」。
 - 八、**放进共享的大 JSON 之前，先查清楚还有谁在写它、怎么写。** RFQ-AUTO-3 原稿把个人开关放在 `Organization.settingsJson` 里，理由是「零 schema 的合规落点」。独立审查查了所有写入方，发现大多是不加锁的整块回写——对一个表示「同意」的开关来说，被悄悄恢复成开是不能接受的。改成只追加的记录。凡是「撤回必须可靠」的状态，都不要放进会被别人整块覆盖的地方。
+- 十、**写四件套之前先跑 `openspec instructions <proposal|design|tasks> --change <name> --json`，照它返回的 rules 写。** 这个项目对四件套有固定要求（design 必须有「与八条硬纪律的关系」「验证方式」两节；tasks 每条自带 verify、不超过 8 条；Why 不超过两句）。RFQ-AUTO-5 与 RFQ-AUTO-3a 的四件套是在会话上下文被压缩之后凭印象写的，这几项都漏了，是 RFQ-AUTO-3a 的独立审查读 `openspec/config.yaml` 时发现的；两个 change 都在各自的 PR 里补齐了。`openspec validate --strict` 不检查这些，所以通过校验不等于合规。
+- 十一、**「最近一条记录即状态」必须自己保证先后，不能靠记录时间。** 审计记录的时间是写入那台服务器的时钟给的。RFQ-AUTO-3 的个人开关与 RFQ-AUTO-5 的供应商分组都踩了：时钟不一致时，后写的排到前面去，「保存成功却不生效」。修法是持有本人的锁时明确给时间（至少比上一条晚 1 毫秒）。「有没有某条记录」这种判断（RFQ-AUTO-1 的停止）不受影响。
+- 十二、**改 MODIFIED 的要求时留意长度。** 主规格里一条要求的正文超过 500 字，`openspec validate --specs --strict` 会判不通过，而 change 的增量校验不查 MODIFIED 的长度——归档之后主规格才变红。RFQ-AUTO-5 归档时撞上了（「起草条件」加了分组的内容后超长），在归档的 PR 里把分组那一段拆成单独的一条要求后再归档。
 - 五、**在容器里跑过 `next dev` 之后，`.next/dev/types` 可能留下损坏的生成文件，让 `npm run typecheck` 报与源码无关的错。** 删掉 `.next/dev` 重跑即可；直接 `npx tsc` 会内存溢出，要用 `npm run typecheck`。
 
 ### 0.6 实施中沿用的约定
