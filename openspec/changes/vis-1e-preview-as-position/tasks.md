@@ -75,7 +75,7 @@
 
 ## 4. 路由门、代理、Autopilot 与 GET 写库
 
-- [ ] 4.1 按 design D5 落点 4、D6、D9 改写：
+- [x] 4.1 按 design D5 落点 4、D6、D9 改写：
   - 路由门：
     - `RouteGateUser` 带预览；`ROUTE_GATE_LOADER` 的 `loadUser`、可用企业按预览；缓存键含预览指纹；
     - `page-context-server`、`platform-admin-guard`、`autopilot/page-guard` 按预览；

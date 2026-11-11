@@ -135,6 +135,8 @@ export type RouteGateUser = {
   role: string | null;
   status: string;
   activeOrgId: string | null;
+  /** VIS-1e：以岗位预览的指纹（预览中 role 为 user、activeOrgId 为预览企业）；判定输入缓存键带上它 */
+  previewFingerprint?: string | null;
 };
 
 export type RouteGateLoader = {

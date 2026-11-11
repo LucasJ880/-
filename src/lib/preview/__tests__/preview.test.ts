@@ -172,6 +172,134 @@ async function main() {
     ok(/preview: previewState \? previewBannerInfo\(previewState\) : null/.test(me) && /const activeOrgId = preview \? preview\.orgId/.test(me) && /!preview &&\s*hasAutopilotCapability/.test(me), "/api/auth/me：返回横幅信息（不含 token），当前企业为预览企业，无 Autopilot");
   }
 
+  console.log("\n代理拒写");
+  {
+    const { NextRequest } = await import("next/server");
+    const { handleRequest } = await import("@/proxy");
+    const loaderCalls = { n: 0 };
+    const loader = {
+      async loadUser() {
+        loaderCalls.n++;
+        return { id: "u1", role: "user", status: "active", activeOrgId: "o1" };
+      },
+      async loadContext() {
+        throw new Error("not used");
+      },
+      async loadContextForOrg() {
+        throw new Error("not used");
+      },
+    };
+    const session = await createSession({ sub: "u1", email: "u1@fixture.test", role: "super_admin" });
+    const { token: pv } = await token.signPreviewToken({ userId: "u1", orgId: "o1", keys: ["accounting"] });
+    const { token: foreign } = await token.signPreviewToken({ userId: "u2", orgId: "o1", keys: ["accounting"] });
+    const send = (method: string, path: string, cookie: string) =>
+      handleRequest(new NextRequest(`http://localhost${path}`, { method, headers: { cookie } }), loader as never);
+    const both = `qy_session=${session}; qy_preview=${pv}`;
+    const refused = async (r: Response) => r.status === 409 && JSON.stringify(await r.json()) === JSON.stringify(identity.previewReadonlyBody());
+    ok(await refused(await send("POST", "/api/sales/customers", both)), "业务 API 的 POST：409 PREVIEW_READONLY");
+    ok((await send("PUT", "/api/sales/customers/c1", both)).status === 409 && (await send("PATCH", "/api/auth/active-org", both)).status === 409 && (await send("DELETE", "/api/sales/customers/c1", both)).status === 409, "PUT / PATCH / DELETE：409（含回写当前企业）");
+    ok((await send("POST", "/api/sales/quotes/share/tok/sign", both)).status === 409, "公开分享链接的签字接口（公开路径）：也 409");
+    ok((await send("POST", "/settings", both)).status === 409, "页面路径的写：409");
+    const passes = (r: Response) => r.headers.get("x-middleware-next") === "1";
+    ok(passes(await send("DELETE", "/api/admin/preview", both)), "退出预览：放行");
+    ok(passes(await send("POST", "/api/auth/logout", both)) && passes(await send("POST", "/api/auth/login", both)), "登出、登录：放行");
+    ok(passes(await send("GET", "/api/sales/customers", both)), "GET：放行");
+    ok(passes(await send("POST", "/api/sales/customers", `qy_session=${session}; qy_preview=${foreign}`)), "别人的预览 cookie：不拒写");
+    ok(passes(await send("POST", "/api/sales/customers", `qy_session=${session}; qy_preview=${pv.slice(0, -2)}xx`)), "被篡改的预览 cookie：不拒写");
+    ok((await send("POST", "/api/sales/customers", `qy_preview=${pv}`)).status === 401, "没有会话：照旧 401，不按预览拒写");
+    ok(loaderCalls.n === 0, "拒写与 API 请求不调路由门加载器");
+  }
+
+  console.log("\nGET 写库登记（design D9）");
+  {
+    const { readdirSync } = await import("node:fs");
+    const files: string[] = [];
+    const walk = (d: string) => {
+      for (const e of readdirSync(join(process.cwd(), d), { withFileTypes: true })) {
+        const rel = `${d}/${e.name}`;
+        if (e.isDirectory()) walk(rel);
+        else if (e.name === "route.ts") files.push(rel);
+      }
+    };
+    walk("src/app/api");
+    const WRITE = /\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\bcreateNotification\(|\bsetUserActiveOrgId\(|\bensureMarketingSkill\(|\blogAudit\(|\bwriteAuditLog\(|\bensureFixedUserActiveOrg\(|\bresolvePreferredOrgId\(/g;
+    const bodyFrom = (src: string, start: number) => {
+      const i = src.indexOf("{", start);
+      if (i < 0) return "";
+      let depth = 0;
+      for (let j = i; j < src.length; j++) {
+        if (src[j] === "{") depth++;
+        else if (src[j] === "}" && --depth === 0) return src.slice(i, j + 1);
+      }
+      return src.slice(i);
+    };
+    const found: Record<string, string[]> = {};
+    for (const f of files) {
+      const src = code(f);
+      const m = src.match(/export\s+(const|async function|function)\s+GET\b/);
+      if (!m || m.index === undefined) continue;
+      let reach = bodyFrom(src, m.index);
+      const seen = new Set<string>();
+      for (let k = 0; k < 5; k++) {
+        let added = false;
+        for (const c of new Set([...reach.matchAll(/\b([a-zA-Z_]\w*)\(/g)].map((x) => x[1]))) {
+          if (seen.has(c)) continue;
+          const def = src.match(new RegExp(`(?:^|\\n)(?:async\\s+)?function\\s+${c}\\b|(?:^|\\n)const\\s+${c}\\s*=\\s*(?:async\\s*)?\\(`));
+          if (def && def.index !== undefined) {
+            seen.add(c);
+            reach += bodyFrom(src, def.index);
+            added = true;
+          }
+        }
+        if (!added) break;
+      }
+      const hits = [...new Set([...reach.matchAll(WRITE)].map((x) => x[0]))].sort();
+      if (hits.length) found[f] = hits;
+    }
+    // 每条写明预览下的行为
+    const REGISTRY: Record<string, string> = {
+      "src/app/api/accounting/sales-summary/route.ts": "审计照写",
+      "src/app/api/agent-core/tools/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/auth/active-org/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/auth/wechat/callback/route.ts": "公开登录回调，清预览 cookie",
+      "src/app/api/cron/marketing-automation/route.ts": "定时任务，不带浏览器 cookie",
+      "src/app/api/cron/release-drift/route.ts": "定时任务，不带浏览器 cookie",
+      "src/app/api/marketing/daily-brief/route.ts": "审计照写",
+      "src/app/api/operations/market-intelligence/route.ts": "预览中只读已有技能",
+      "src/app/api/ops/home/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/ops/projects/[id]/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/ops/projects/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/ops/sales-summary/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/sales/daily-briefing/route.ts": "预览中不生成、不建通知、不覆盖缓存",
+      "src/app/api/tasks/route.ts": "当前企业解析预览感知，不写",
+      "src/app/api/trade/webhook/wechat/route.ts": "公开 webhook，不带会话",
+    };
+    const unregistered = Object.keys(found).filter((f) => !REGISTRY[f]);
+    const stale = Object.keys(REGISTRY).filter((f) => !found[f]);
+    ok(unregistered.length === 0, "所有会写库的 GET 都已登记预览下的行为", unregistered.map((f) => `${f} :: ${found[f].join(" ")}`));
+    ok(stale.length === 0, "登记表没有过期条目", stale);
+    const db = code("src/app/api/sales/daily-briefing/route.ts");
+    const get = db.slice(db.indexOf("export const GET"), db.indexOf("export const POST"));
+    ok(get.indexOf("getActivePreview(user.id)") > 0 && get.indexOf("getActivePreview(user.id)") < get.indexOf("generateBriefing("), "每日简报：预览判断在生成之前");
+    const mi = code("src/app/api/operations/market-intelligence/route.ts");
+    ok(/preview \? await findMarketingSkill\(orgRes\.orgId\) : await ensureMarketingSkill\(orgRes\.orgId\)/.test(mi), "市场情报：预览中只读已有技能");
+  }
+
+  console.log("\n路由门、代理与页面门（源码）");
+  {
+    const proxySrc = code("src/proxy.ts");
+    const refuse = proxySrc.indexOf("shouldRefusePreviewWrite(");
+    ok(refuse > 0 && refuse < proxySrc.indexOf("if (isPublicPath(pathname))"), "代理：拒写在公开路径放行之前");
+    ok(/const role = signedPreview \? PREVIEW_PLATFORM_ROLE : session\.role/.test(proxySrc), "代理：营销 API 旧规则在预览中按 user 判");
+    ok(/withPreviewToken\(signedPreview \? previewToken : null, \(\) => applyRouteGate\(request, sessionSub, loader\)\)/.test(proxySrc), "代理：路由门在显式注入的预览 token 下执行");
+    const cs = code("src/lib/navigation/context-server.ts");
+    ok(/const key = `\$\{user\.id\}:\$\{orgId \?\? "-"\}:\$\{user\.previewFingerprint \?\? "-"\}`/.test(cs), "路由门缓存键含预览指纹");
+    ok(/role: PREVIEW_PLATFORM_ROLE, status: row\.status, activeOrgId: preview\.orgId, previewFingerprint: preview\.fingerprint/.test(cs) && /if \(preview\) return \[preview\.orgId\];/.test(cs), "路由门加载器：预览中平台角色 user、当前企业与可用企业为预览企业");
+    ok(/autopilotAllowed: \(user\) => !user\.previewFingerprint && hasAutopilotCapability/.test(cs) && /autopilotAllowed: !preview && hasAutopilotCapability/.test(cs), "Autopilot：路由门与指定企业的判定输入在预览中为 false");
+    ok(/if \(await getActivePreview\(user\.id\)\) redirect\(fallbackPath\)/.test(code("src/lib/auth/platform-admin-guard.ts")), "平台管理员页门：预览中拒绝");
+    ok(/if \(await getActivePreview\(user\.id\)\) redirect\(fallbackPath\)/.test(code("src/lib/autopilot/page-guard.ts")), "Autopilot 页门：预览中拒绝");
+  }
+
   console.log("\n纯模块");
   {
     for (const f of ["src/lib/preview/token.ts", "src/lib/preview/identity.ts"]) {

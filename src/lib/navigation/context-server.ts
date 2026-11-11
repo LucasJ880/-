@@ -11,7 +11,7 @@
 
 import { db } from "@/lib/db";
 import { getActivePreview } from "@/lib/preview/server";
-import { PREVIEW_ORG_ROLE, previewAllowKeys } from "@/lib/preview/identity";
+import { PREVIEW_ORG_ROLE, PREVIEW_PLATFORM_ROLE, previewAllowKeys } from "@/lib/preview/identity";
 import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy/modules";
 import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
 import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
@@ -127,7 +127,8 @@ export type RouteGateLoaderDeps = {
 export function createRouteGateLoader(deps: RouteGateLoaderDeps): RouteGateLoader {
   const inflight = new Map<string, Promise<{ inputs: OrgNavigationInputs; degraded: boolean }>>();
   async function contextFor(user: RouteGateUser, orgId: string | null): Promise<RouteGateContext> {
-    const key = `${user.id}:${orgId ?? "-"}`;
+    // VIS-1e：预览与非预览、不同预览的判定输入互不串用
+    const key = `${user.id}:${orgId ?? "-"}:${user.previewFingerprint ?? "-"}`;
     let org = deps.cache.get(key);
     if (!org) {
       let pending = inflight.get(key);
@@ -158,13 +159,23 @@ export function createRouteGateLoader(deps: RouteGateLoaderDeps): RouteGateLoade
 /** 中间件注入给 applyRouteGate 的加载器 */
 export const ROUTE_GATE_LOADER: RouteGateLoader = createRouteGateLoader({
   async findUser(userId) {
-    const row = await db.user.findUnique({
-      where: { id: userId },
-      select: { id: true, role: true, status: true, activeOrgId: true },
-    });
-    return row ? { id: row.id, role: row.role, status: row.status, activeOrgId: row.activeOrgId } : null;
+    const [row, preview] = await Promise.all([
+      db.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, status: true, activeOrgId: true },
+      }),
+      getActivePreview(userId),
+    ]);
+    if (!row) return null;
+    // VIS-1e：以岗位预览期间平台角色 user、当前企业为预览企业（spec authorization/position-preview）
+    if (preview && row.status === "active") {
+      return { id: row.id, role: PREVIEW_PLATFORM_ROLE, status: row.status, activeOrgId: preview.orgId, previewFingerprint: preview.fingerprint };
+    }
+    return { id: row.id, role: row.role, status: row.status, activeOrgId: row.activeOrgId };
   },
   async findUsableOrgIds(userId) {
+    const preview = await getActivePreview(userId);
+    if (preview) return [preview.orgId];
     const rows = await db.organizationMember.findMany({
       where: { userId, status: "active", org: { status: { not: "archived" } } },
       select: { orgId: true },
@@ -173,7 +184,8 @@ export const ROUTE_GATE_LOADER: RouteGateLoader = createRouteGateLoader({
   },
   loadOrgInputs: loadOrgNavigationInputsDetailed,
   cache: new TtlCache<OrgNavigationInputs>({ ttlMs: ROUTE_GATE_CACHE_TTL_MS, max: ROUTE_GATE_CACHE_MAX }),
-  autopilotAllowed: (user) => hasAutopilotCapability({ id: user.id, role: user.role }, "autopilot.view"),
+  // VIS-1e：预览中没有 Autopilot 入口
+  autopilotAllowed: (user) => !user.previewFingerprint && hasAutopilotCapability({ id: user.id, role: user.role }, "autopilot.view"),
   wechatEntryEnabled: () => isWechatBindingEnabled(),
 });
 
@@ -185,9 +197,9 @@ export async function loadNavigationContextForOrg(
   user: { id: string; role: string | null },
   orgId: string | null,
 ): Promise<RouteGateContext> {
-  const inputs = await loadOrgNavigationInputs(user.id, orgId);
-  return buildNavigationFilterContext(inputs, { role: user.role }, {
-    autopilotAllowed: hasAutopilotCapability({ id: user.id, role: user.role }, "autopilot.view"),
+  const [inputs, preview] = await Promise.all([loadOrgNavigationInputs(user.id, orgId), getActivePreview(user.id)]);
+  return buildNavigationFilterContext(inputs, { role: preview ? PREVIEW_PLATFORM_ROLE : user.role }, {
+    autopilotAllowed: !preview && hasAutopilotCapability({ id: user.id, role: user.role }, "autopilot.view"),
     wechatEntryEnabled: isWechatBindingEnabled(),
   });
 }

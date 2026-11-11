@@ -12,6 +12,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getActivePreview } from "@/lib/preview/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { scanSalesDomain } from "@/lib/secretary/domains/sales";
@@ -69,6 +70,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
     if (activeCustomerCount === customerIds.length) {
       return NextResponse.json({ briefing: cachedBriefing, cached: true });
     }
+  }
+
+  // VIS-1e：以岗位预览期间不生成、不建通知、不覆盖缓存（spec authorization/position-preview「预览只读」）
+  if (await getActivePreview(user.id)) {
+    return NextResponse.json({ briefing: null, cached: false, previewReadonly: true });
   }
 
   const briefing = await generateBriefing(user.id, orgRes.orgId, ownOnly);

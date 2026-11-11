@@ -33,6 +33,12 @@ export function withPreviewToken<T>(token: string | null | undefined, fn: () => 
   return scope.run({ token: token ?? null }, fn);
 }
 
+/** 当前显式注入的预览 token：不在注入范围内为 undefined（测试用的假加载器据此判断） */
+export function injectedPreviewToken(): string | null | undefined {
+  const injected = scope.getStore();
+  return injected ? injected.token : undefined;
+}
+
 /** 在「无预览」下执行（登录、退出等不应带预览身份的流程） */
 export function withoutPreview<T>(fn: () => T): T {
   return scope.run({ token: null }, fn);

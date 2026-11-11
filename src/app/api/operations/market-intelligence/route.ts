@@ -3,7 +3,9 @@ import { withAuth } from "@/lib/common/api-helpers";
 import { checkRateLimitAsync } from "@/lib/common/rate-limit";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { db } from "@/lib/db";
-import { ensureMarketingSkill } from "@/lib/market-intelligence/skill";
+import { ensureMarketingSkill, findMarketingSkill } from "@/lib/market-intelligence/skill";
+import { getActivePreview } from "@/lib/preview/server";
+import { previewReadonlyBody } from "@/lib/preview/identity";
 import { listMarketIntelligenceWorkspace } from "@/lib/market-intelligence/service";
 import { canManageMarketIntelligence } from "@/lib/market-intelligence/access";
 import {
@@ -40,7 +42,10 @@ export const GET = withAuth(async (request, _ctx, user) => {
   );
   if (!orgRes.ok) return orgRes.response;
 
-  const skill = await ensureMarketingSkill(orgRes.orgId);
+  // VIS-1e：以岗位预览期间只读取已有技能，不建不改
+  const preview = await getActivePreview(user.id);
+  const skill = preview ? await findMarketingSkill(orgRes.orgId) : await ensureMarketingSkill(orgRes.orgId);
+  if (!skill) return NextResponse.json(previewReadonlyBody(), { status: 409 });
   const [executions, researchRuns, automation, canManage] = await Promise.all([
     db.skillExecution.findMany({
       where: { skillId: skill.id, success: true },

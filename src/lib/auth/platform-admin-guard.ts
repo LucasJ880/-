@@ -3,6 +3,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getActivePreview } from "@/lib/preview/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifySession } from "@/lib/auth/session";
@@ -50,6 +51,8 @@ export async function requirePlatformAdminPage(
   });
   if (!user || user.status !== "active") redirect("/login");
   if (!isPlatformAdmin(user.role)) redirect(fallbackPath);
+  // VIS-1e：以岗位预览期间按非平台管理员处理
+  if (await getActivePreview(user.id)) redirect(fallbackPath);
   return { id: user.id, role: user.role };
 }
 
