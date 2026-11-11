@@ -77,7 +77,9 @@ console.log("tender-bid-workspace contract");
     join(root, "src/app/api/projects/[id]/bid-workspace/route.ts"),
     join(root, "src/app/api/projects/[id]/bid-workspace/cost-sheet/route.ts"),
   ].map((p) => ({ p, text: readFileSync(p, "utf8") }));
-  ok("四个模块文件 + 两个路由文件", files.length === 6);
+  // 目录里后续新增的模块文件自动进入下面的扫描（TI-4b 起不再写死文件数）
+  const names = files.map((f) => f.p.slice(root.length + 1));
+  ok("TI-4a 的四个模块文件与两个路由文件都在扫描范围内", ["contract.ts", "flags.ts", "store.ts", "workspace-view.ts"].every((n) => names.includes(`src/lib/tender-bid-workspace/${n}`)) && names.filter((n) => n.endsWith("/route.ts")).length === 2);
   const banned = /sendGmail|google-email|requestApproval|pending-actions|@\/lib\/ai\b|createCompletion|\bfetch\s*\(\s*["'`h]|resend/i;
   ok("没有发信、建立审批、模型调用或外部网络请求的引用", files.every((f) => !banned.test(f.text)));
   const costRoute = files.find((f) => f.p.endsWith("cost-sheet/route.ts"))!.text;
