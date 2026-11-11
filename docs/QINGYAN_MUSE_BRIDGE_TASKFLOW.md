@@ -223,6 +223,17 @@
 
 ---
 
+## Phase F — 招投标主流程重排（三方对比 → 方案）
+
+起因：Lucas 2026-11-11，同事反馈 ChatGPT 的 workflow 做标更顺，青砚招投标类目的 workflow 要更新。方案：`docs/QINGYAN_TENDER_FLOW_PLAN.md`；交接：`docs/QINGYAN_TENDER_FLOW_HANDOFF.md`。编号 `FLOW` 为暂定。FLOW-0 只出文档；后续实施项待 FLOW-0 拍板后再列，与 W-2 / W-3 / T-2 / P2-1～P2-3 重叠的沿用原编号，不重复立项。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| FLOW-0 | 三方对比（青砚现状 / ChatGPT workflow / 开源项目）+ 多轮交叉验证 → 主流程重排方案 | — | 方案 §8：三份底稿齐全、矩阵无空格；至少一份标书同标实测；独立复核一轮；每个保留项达到任务书粒度；Lucas 拍板 | [~]（第 1、2 轮完成：`docs/QINGYAN_TENDER_FLOW_BASELINE.md`、`docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；第 3 轮矩阵已据 ChatGPT 一方的 Skill 填入；第 4、5 轮未做） |
+| TI-0 | Tender Intelligence Phase A：只读架构审查与差距分析（Lucas 2026-11-11 任务书：招标文件 → 文件领取方 → 竞争对手历史采购 → 进口线索 → 厂家匹配 → 认证核验 → 逐行成本 → 投标决策；渥太华 18026-93121-T01 作回归样例） | FLOW-0 第 3 轮 | `docs/tender-intelligence-gap-analysis.md` §10 的 10 项由 Lucas 拍板（Owner Gate A）；拍板前不开 change、不写代码 | [~]（差距分析已交，等 Owner Gate A） |
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
