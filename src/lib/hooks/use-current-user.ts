@@ -59,6 +59,11 @@ function fetchUser(): Promise<CurrentUser | null> {
   return cachePromise;
 }
 
+/** 一次性取当前用户（与 hook 共用缓存与在途请求）；给不在 React 渲染周期里的逻辑用 */
+export function fetchCurrentUser(): Promise<CurrentUser | null> {
+  return cachedUser ? Promise.resolve(cachedUser) : fetchUser();
+}
+
 export function useCurrentUser(): UseCurrentUserReturn {
   const [user, setUser] = useState<CurrentUser | null>(cachedUser);
   const [loading, setLoading] = useState(!cachedUser);

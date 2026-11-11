@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { fetchCurrentUser } from "@/lib/hooks/use-current-user";
 import { usePathname, useRouter } from "next/navigation";
 import {
   hydrateStoredOrgId,
@@ -34,7 +35,6 @@ export function ActiveOrgHydrator() {
           activeOrgId?: string | null;
           needsSelection?: boolean;
           organizations?: Array<{ id: string }>;
-          previewing?: boolean;
         };
 
         if (data.activeOrgId) {
@@ -42,8 +42,8 @@ export function ActiveOrgHydrator() {
           return;
         }
 
-        // VIS-1e：以岗位预览中不回写当前企业（写请求一律被拒）
-        if (data.previewing) return;
+        // VIS-1e：以岗位预览中不回写当前企业（写请求一律被拒；预览中服务端总会给出当前企业，这里再兜一层）
+        if ((await fetchCurrentUser())?.preview) return;
 
         // 本地已有有效选择时，回写服务端
         const local = readStoredOrgId();

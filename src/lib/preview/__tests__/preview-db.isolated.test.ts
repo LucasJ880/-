@@ -249,7 +249,7 @@ async function main() {
     const aoPreview = await call(activeOrgRoute.GET, SA, "/api/auth/active-org", T);
     const aoReal = await call(activeOrgRoute.GET, ACCT, "/api/auth/active-org", null);
     const navFields = (b: Json | null) => ({ orgRole: b?.orgRole, hasMembership: b?.hasMembership, positionMode: b?.positionMode, keys: [...((b?.permissionKeys as string[]) ?? [])].sort(), modules: b?.modules });
-    ok(aoPreview.body?.activeOrgId === WC && aoPreview.body?.previewing === true && same(navFields(aoPreview.body), navFields(aoReal.body)), "侧栏判定输入：与真实会计相同（成员角色、岗位模式、键、模块）", { preview: navFields(aoPreview.body), real: navFields(aoReal.body) });
+    ok(aoPreview.body?.activeOrgId === WC && same(navFields(aoPreview.body), navFields(aoReal.body)), "侧栏判定输入：与真实会计相同（成员角色、岗位模式、键、模块）", { preview: navFields(aoPreview.body), real: navFields(aoReal.body) });
     const ids = (b: Json | null) => ((b?.items as Json[]) ?? []).map((i) => i.id as string).sort();
     const apPreview = await call(approvalsRoute.GET, SA, "/api/capabilities/approvals?tab=all&pageSize=100", T);
     const apReal = await call(approvalsRoute.GET, ACCT, "/api/capabilities/approvals?tab=all&pageSize=100", null);

@@ -311,7 +311,8 @@ async function main() {
     ok(/resolvePreferredOrgId\(user\.id, user\.role\)/.test(tools) && /loadToolEntryGate\(user, orgId\)/.test(tools) && /loadNavigationContextForOrg\(/.test(code("src/lib/agent-core/entry-gate-server.ts")), "AI 工具列表：当前企业、平台角色与入口门都经预览感知的落点");
     ok(/loadGateNavigationContextForUser\(/.test(code("src/app/api/search/route.ts")) && /ROUTE_GATE_LOADER\.loadUser\(userId\)/.test(code("src/lib/navigation/page-context-server.ts")), "全局搜索与页面判定输入：经路由门加载器（预览感知）");
     const hyd = code("src/components/active-org-hydrator.tsx");
-    ok(hyd.indexOf("if (data.previewing) return;") > 0 && hyd.indexOf("if (data.previewing) return;") < hyd.indexOf('method: "PATCH"'), "客户端：预览中不回写当前企业");
+    const guard = hyd.indexOf("if ((await fetchCurrentUser())?.preview) return;");
+    ok(guard > 0 && guard < hyd.indexOf('method: "PATCH"'), "客户端：预览中不回写当前企业");
     const header = code("src/components/header.tsx");
     ok(/if \(previewReadonly\) return;\s*await apiFetch\(`\/api\/notifications\/\$\{id\}\/\$\{action\}`/.test(header) && /if \(previewReadonly\) return;\s*await apiFetch\("\/api\/notifications\/read-all"/.test(header), "客户端：预览中不标已读");
     for (const f of ["src/app/(main)/assistant/chat-panel.tsx", "src/app/(main)/inbox/page.tsx", "src/components/project-ai-chat/project-ai-chat.tsx"]) {
