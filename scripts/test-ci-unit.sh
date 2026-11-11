@@ -152,6 +152,7 @@ npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/navigation/__tests__/route-gate.test.ts
 npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
 npx tsx src/lib/approval/__tests__/audience.test.ts
+npx tsx src/lib/preview/__tests__/preview.test.ts
 npx tsx src/lib/search/__tests__/search-where.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts

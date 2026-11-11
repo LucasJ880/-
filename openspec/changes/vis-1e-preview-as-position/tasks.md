@@ -22,7 +22,7 @@
 
 ## 1. 预览核心
 
-- [ ] 1.1 按 design D4 / D5 新增预览核心：
+- [x] 1.1 按 design D4 / D5 新增预览核心：
   - `src/lib/preview/token.ts`（纯）：
     - 派生密钥：HMAC-SHA256(`JWT_SECRET`, `"qy-preview-v1"`)；
     - 签发与无库校验：签名、`aud: "qy-preview"`、过期、`sub` 等于会话用户、岗位 key 1–10 个。
