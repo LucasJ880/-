@@ -56,7 +56,7 @@
 
 ## 3. 鉴权、权限、成员与导航判定输入
 
-- [ ] 3.1 按 design D5 落点 1–3 改写：
+- [x] 3.1 按 design D5 落点 1–3 改写：
   - `getCurrentUser`：有效预览时平台角色 `user`，带 `preview`。
   - `resolveEffectiveBindings`（HUMAN）：预览企业返回预览权限行（来源 `preview:<岗位>:<行>`），其他企业返回空，在读平台角色之前返回。
   - `getOrgMembership`：预览企业返回成员角色 `org_member` 的 active 成员，其他企业空。

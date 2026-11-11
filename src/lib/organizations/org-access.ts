@@ -3,6 +3,7 @@
  */
 
 import { db } from "@/lib/db";
+import { getActivePreview } from "@/lib/preview/server";
 import type { OrgAccessMode } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit/logger";
 
@@ -142,6 +143,9 @@ export async function switchUserActiveOrg(opts: {
 export async function ensureFixedUserActiveOrg(
   userId: string,
 ): Promise<string | null> {
+  // VIS-1e：以岗位预览期间不写当前企业
+  const preview = await getActivePreview(userId);
+  if (preview) return preview.orgId;
   const profile = await getOrgAccessProfile(userId);
   if (!profile) return null;
   if (profile.orgAccessMode !== "FIXED") {

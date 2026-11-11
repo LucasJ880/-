@@ -4,6 +4,8 @@
  */
 
 import { db } from "@/lib/db";
+import { getActivePreview } from "@/lib/preview/server";
+import { PREVIEW_ORG_ROLE } from "@/lib/preview/identity";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 
 export type ActiveOrgOption = {
@@ -15,11 +17,24 @@ export type ActiveOrgOption = {
   projectCount: number;
 };
 
+/** VIS-1e：预览企业的选项（成员角色 org_member） */
+async function previewOrgOptions(orgId: string): Promise<ActiveOrgOption[]> {
+  const [org, projectCount] = await Promise.all([
+    db.organization.findUnique({ where: { id: orgId }, include: { _count: { select: { members: true } } } }),
+    db.project.count({ where: { orgId, intakeStatus: "dispatched" } }),
+  ]);
+  if (!org) return [];
+  return [{ id: org.id, name: org.name, code: org.code, myRole: PREVIEW_ORG_ROLE, memberCount: org._count.members, projectCount }];
+}
+
 /** 供登录/选组织页展示的组织列表（普通用户：所属；super_admin：全部未归档） */
 export async function listActiveOrgOptions(
   userId: string,
   userRole: string
 ): Promise<ActiveOrgOption[]> {
+  // VIS-1e：以岗位预览期间可选企业只有预览企业（成员角色 org_member）
+  const preview = await getActivePreview(userId);
+  if (preview) return previewOrgOptions(preview.orgId);
   if (isSuperAdmin(userRole)) {
     const orgs = await db.organization.findMany({
       where: { status: { not: "archived" } },
@@ -91,6 +106,8 @@ export async function canUserUseOrg(
   userRole: string,
   orgId: string
 ): Promise<boolean> {
+  const preview = await getActivePreview(userId);
+  if (preview) return orgId === preview.orgId;
   const org = await db.organization.findUnique({
     where: { id: orgId },
     select: { id: true, status: true },
@@ -105,6 +122,9 @@ export async function canUserUseOrg(
 }
 
 export async function getUserActiveOrgId(userId: string): Promise<string | null> {
+  // VIS-1e：以岗位预览期间当前企业即预览企业（库里的 activeOrgId 不变）
+  const preview = await getActivePreview(userId);
+  if (preview) return preview.orgId;
   const row = await db.user.findUnique({
     where: { id: userId },
     select: { activeOrgId: true },
@@ -123,6 +143,8 @@ export async function setUserActiveOrgId(
 ): Promise<string | null> {
   const ok = await canUserUseOrg(userId, userRole, orgId);
   if (!ok) return null;
+  // VIS-1e：预览期间不写当前企业
+  if (await getActivePreview(userId)) return orgId;
   await db.user.update({
     where: { id: userId },
     data: { activeOrgId: orgId },
@@ -139,6 +161,11 @@ export async function resolvePreferredOrgId(
   organizations: ActiveOrgOption[];
   needsSelection: boolean;
 }> {
+  // VIS-1e：以岗位预览期间当前企业即预览企业，不写 activeOrgId
+  const preview = await getActivePreview(userId);
+  if (preview) {
+    return { orgId: preview.orgId, organizations: await previewOrgOptions(preview.orgId), needsSelection: false };
+  }
   const organizations = await listActiveOrgOptions(userId, userRole);
   if (organizations.length === 0) {
     return { orgId: null, organizations, needsSelection: false };

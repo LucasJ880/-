@@ -10,6 +10,8 @@
  */
 
 import { db } from "@/lib/db";
+import { getActivePreview } from "@/lib/preview/server";
+import { PREVIEW_ORG_ROLE, previewAllowKeys } from "@/lib/preview/identity";
 import { parseOrgModulesJson, withIndustryPackModules } from "@/lib/tenancy/modules";
 import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
 import { resolveEffectiveBindings } from "@/lib/authorization/resolve-effective-permissions";
@@ -72,19 +74,28 @@ export async function loadOrgNavigationInputsDetailed(
     permissionKeys = [];
     degraded = true;
   }
-  return {
-    inputs: {
-      modules: withIndustryPackModules(parseOrgModulesJson(org?.modulesJson), org?.industryPackId),
-      // PERM-4c2：行业包有岗位模板 → 岗位模式
-      positionMode: hasPositionTemplates(org?.industryPackId),
-      orgRole,
-      hasMembership: Boolean(orgRole),
-      workspaceIds: workspaces.map((w) => w.workspaceId),
-      hasBidCapability: Boolean(projectMember),
-      permissionKeys,
-    },
-    degraded,
+  const inputs: OrgNavigationInputs = {
+    modules: withIndustryPackModules(parseOrgModulesJson(org?.modulesJson), org?.industryPackId),
+    // PERM-4c2：行业包有岗位模板 → 岗位模式
+    positionMode: hasPositionTemplates(org?.industryPackId),
+    orgRole,
+    hasMembership: Boolean(orgRole),
+    workspaceIds: workspaces.map((w) => w.workspaceId),
+    hasBidCapability: Boolean(projectMember),
+    permissionKeys,
   };
+  // VIS-1e：以岗位预览期间，预览企业按 org_member + 所选岗位的键；其他企业按非成员（spec authorization/position-preview）
+  const preview = await getActivePreview(userId);
+  if (preview) {
+    return {
+      inputs:
+        orgId === preview.orgId
+          ? { ...inputs, positionMode: true, orgRole: PREVIEW_ORG_ROLE, hasMembership: true, permissionKeys: previewAllowKeys(preview) }
+          : { ...inputs, orgRole: null, hasMembership: false, workspaceIds: [], hasBidCapability: false, permissionKeys: [] },
+      degraded,
+    };
+  }
+  return { inputs, degraded };
 }
 
 /** 当前企业的导航判定输入（侧栏与路由门同一口径）；orgId 为空时为「无企业」 */

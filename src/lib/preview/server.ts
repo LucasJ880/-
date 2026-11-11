@@ -140,7 +140,10 @@ export async function resolvePreviewToken(token: string | null | undefined, user
   return value;
 }
 
+/** 请求里的预览 token；显式注入（withPreviewToken / withoutPreview）优先 */
 export function previewTokenFromRequest(request: Pick<NextRequest, "cookies">): string | null {
+  const injected = scope.getStore();
+  if (injected) return injected.token;
   return request.cookies.get(PREVIEW_COOKIE)?.value ?? null;
 }
 

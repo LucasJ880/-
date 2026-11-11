@@ -138,6 +138,40 @@ async function main() {
     ok(/setSessionCookie\(response, token\);\s*clearPreviewCookie\(response\)/.test(wx), "微信回调登录：清预览 cookie");
   }
 
+  console.log("\n鉴权、权限、成员与导航判定输入（源码）");
+  {
+    const usesPreview = (f: string, call: RegExp) => {
+      const src = code(f);
+      return /from "@\/lib\/preview\/server"/.test(src) && call.test(src);
+    };
+    ok(usesPreview("src/lib/auth/index.ts", /getActiveRequestPreview\(request, user\.id\)/) && /role: preview \? PREVIEW_PLATFORM_ROLE : user\.role/.test(code("src/lib/auth/index.ts")), "getCurrentUser：预览中平台角色为 user");
+    ok(/return row && previewMembershipFor\(preview, orgId\) \? \{ \.\.\.row, role: PREVIEW_ORG_ROLE \} : null/.test(code("src/lib/auth/index.ts")), "getOrgMembership：预览企业 org_member，其他企业非成员");
+    const rep = code("src/lib/authorization/resolve-effective-permissions.ts");
+    const fn = rep.slice(rep.indexOf("export async function resolveEffectiveBindings"));
+    ok(fn.indexOf("getActivePreview(principal.id)") > 0 && fn.indexOf("getActivePreview(principal.id)") < fn.indexOf("db.user.findUnique"), "resolveEffectiveBindings：预览判断在读平台角色之前");
+    ok(/principal\.orgId === preview\.orgId\s*\?\s*preview\.bindings/.test(fn), "resolveEffectiveBindings：预览企业取所选岗位的权限行，其他企业为空");
+    const ao = code("src/lib/organizations/active-org.ts");
+    const rpo = ao.slice(ao.indexOf("export async function resolvePreferredOrgId"));
+    const branch = rpo.slice(0, rpo.indexOf("listActiveOrgOptions(userId, userRole)"));
+    ok(/getActivePreview\(userId\)/.test(branch) && !/setUserActiveOrgId|db\.user\.update/.test(branch), "resolvePreferredOrgId：预览中返回预览企业，不写 activeOrgId");
+    ok(/if \(await getActivePreview\(userId\)\) return orgId;\s*await db\.user\.update/.test(ao), "setUserActiveOrgId：预览中不写");
+    ok(/if \(preview\) return preview\.orgId;\s*const row = await db\.user\.findUnique/.test(ao), "getUserActiveOrgId：预览中为预览企业");
+    ok(/if \(preview\) return orgId === preview\.orgId;/.test(ao) && /if \(preview\) return previewOrgOptions\(preview\.orgId\)/.test(ao), "canUserUseOrg / listActiveOrgOptions：只有预览企业");
+    ok(/if \(preview\) return preview\.orgId;\s*const profile = await getOrgAccessProfile/.test(code("src/lib/organizations/org-access.ts")), "ensureFixedUserActiveOrg：预览中不写");
+    const trade = code("src/lib/trade/access.ts");
+    ok(trade.indexOf("getActivePreview(user.id)") > 0 && trade.indexOf("getActivePreview(user.id)") < trade.indexOf("if (isPlatformSuperAdmin(user.role))"), "resolveTradeOrgId：预览判断在平台管理员分支之前");
+    const rro = code("src/lib/auth/resolve-request-org.ts");
+    ok(rro.indexOf("getActivePreview(user.id)") > 0 && rro.indexOf("getActivePreview(user.id)") < rro.indexOf("if (isAdmin(user.role))"), "resolveRequestOrgIdForUser：预览判断在管理员分支之前");
+    ok(/if \(preview\) return \[preview\.orgId\];/.test(code("src/lib/workforce-runtime/read-model/api-org.ts")), "resolveWorkforceApiOrgForUser：可用企业只有预览企业");
+    const cs = code("src/lib/navigation/context-server.ts");
+    ok(/orgId === preview\.orgId\s*\?\s*\{ \.\.\.inputs, positionMode: true, orgRole: PREVIEW_ORG_ROLE, hasMembership: true, permissionKeys: previewAllowKeys\(preview\) \}/.test(cs) && /orgRole: null, hasMembership: false/.test(cs), "导航判定输入：预览企业 org_member + 所选岗位的键，其他企业非成员");
+    const team = code("src/lib/marketing/team.ts");
+    const gta = team.slice(team.indexOf("export async function getTeamApprovalAccessIds"));
+    ok(/orgIds: \[\] as string\[\]/.test(gta) && /orgId: preview\.orgId/.test(gta), "团队审批处理人范围：预览中无企业范围，项目只取预览企业的");
+    const me = code("src/app/api/auth/me/route.ts");
+    ok(/preview: previewState \? previewBannerInfo\(previewState\) : null/.test(me) && /const activeOrgId = preview \? preview\.orgId/.test(me) && /!preview &&\s*hasAutopilotCapability/.test(me), "/api/auth/me：返回横幅信息（不含 token），当前企业为预览企业，无 Autopilot");
+  }
+
   console.log("\n纯模块");
   {
     for (const f of ["src/lib/preview/token.ts", "src/lib/preview/identity.ts"]) {

@@ -96,6 +96,22 @@ export function canDecideTeamApprovalFromSnapshot(
 }
 
 export async function getTeamApprovalAccessIds(userId: string) {
+  // VIS-1e：以岗位预览期间不是企业所有者、不是 org_admin；项目范围只取预览企业里本人负责或任 project_admin 的
+  const { getActivePreview } = await import("@/lib/preview/server");
+  const preview = await getActivePreview(userId);
+  if (preview) {
+    const [ownedProjects, projectAdmins] = await Promise.all([
+      db.project.findMany({ where: { ownerId: userId, status: "active", orgId: preview.orgId }, select: { id: true } }),
+      db.projectMember.findMany({
+        where: { userId, role: "project_admin", status: "active", project: { orgId: preview.orgId } },
+        select: { projectId: true },
+      }),
+    ]);
+    return {
+      orgIds: [] as string[],
+      projectIds: [...new Set([...ownedProjects.map((row) => row.id), ...projectAdmins.map((row) => row.projectId)])],
+    };
+  }
   const [ownedOrgs, orgAdmins, ownedProjects, projectAdmins] = await Promise.all([
     db.organization.findMany({ where: { ownerId: userId }, select: { id: true } }),
     db.organizationMember.findMany({
