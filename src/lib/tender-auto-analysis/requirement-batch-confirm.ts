@@ -58,7 +58,8 @@ export function toggleSelection(selected: ReadonlyArray<string>, id: string, req
 /** 按接口上限分批：去重、去空，保持顺序；每批不超过 size 条 */
 export function chunkRequirementIds(ids: ReadonlyArray<string>, size: number = BATCH_CONFIRM_LIMIT): string[][] {
   const clean = [...new Set(ids.filter((x) => typeof x === "string" && x.length > 0))];
-  const n = Number.isInteger(size) && size > 0 ? size : BATCH_CONFIRM_LIMIT;
+  // 批大小不合规用接口上限；也不允许超过接口上限（超出的部分接口会静默丢弃）
+  const n = Number.isInteger(size) && size > 0 ? Math.min(size, BATCH_CONFIRM_LIMIT) : BATCH_CONFIRM_LIMIT;
   const out: string[][] = [];
   for (let i = 0; i < clean.length; i += n) out.push(clean.slice(i, i + n));
   return out;
@@ -75,7 +76,7 @@ export function batchConfirmResultZh(input: { selected: number; confirmed: numbe
       : `没有确认成功：${input.error}。`;
   }
   if (input.confirmed < input.selected) {
-    return `已确认 ${input.confirmed} 条（选了 ${input.selected} 条，其中 ${input.selected - input.confirmed} 条在提交时已经不是待确认，可能刚被别人处理）。`;
+    return `已确认 ${input.confirmed} 条（选了 ${input.selected} 条，其中 ${input.selected - input.confirmed} 条在提交时已经不是待确认——可能已被处理过，以刷新后的列表为准）。`;
   }
   return `已确认 ${input.confirmed} 条。`;
 }
@@ -84,4 +85,60 @@ export function batchConfirmResultZh(input: { selected: number; confirmed: numbe
 export function approveHintZh(pendingCount: number): string | null {
   if (!(pendingCount > 0)) return null;
   return `还有 ${pendingCount} 条要求没有确认：批准后不能再确认，没确认的不会进询价单。`;
+}
+
+/* ---------------------------------- 提交 ---------------------------------- */
+
+/** 一批的提交结果：ok = HTTP 成功；json = 响应体（解析不了就是 null） */
+export type BatchPostResult = { ok: boolean; json: unknown };
+
+export type BatchSubmitOutcome<A> = {
+  selected: number;
+  /** 各批接口返回的实际确认数之和 */
+  confirmed: number;
+  /** 出错的那一批的说明；全部成功 = null */
+  error: string | null;
+  /** 各批响应里带回的「自动起草」结果：取最后一个需要提示的；都不需要提示 = null */
+  autoDraft: A | null;
+  /** 有没有哪一批带回过「自动起草」结果（据此决定要不要清掉旧的提示） */
+  sawAutoDraft: boolean;
+};
+
+/**
+ * 按批依次提交选中的要求。某一批失败（HTTP 失败、响应看不懂、抛错）就停，后面的批次不再提交。
+ * 这里不碰界面状态：面板拿到结果后自己决定显示什么。
+ */
+export async function submitBatchConfirm<A extends { quiet: boolean }>(
+  ids: ReadonlyArray<string>,
+  post: (chunk: string[]) => Promise<BatchPostResult>,
+): Promise<BatchSubmitOutcome<A>> {
+  const chunks = chunkRequirementIds(ids);
+  const out: BatchSubmitOutcome<A> = { selected: chunks.reduce((n, c) => n + c.length, 0), confirmed: 0, error: null, autoDraft: null, sawAutoDraft: false };
+  for (const chunk of chunks) {
+    let res: BatchPostResult;
+    try {
+      res = await post(chunk);
+    } catch (e) {
+      out.error = e instanceof Error ? e.message : String(e);
+      break;
+    }
+    const json = (res.json && typeof res.json === "object" ? res.json : null) as { confirmedCount?: unknown; error?: unknown; rfqAutoDraft?: unknown } | null;
+    if (!res.ok) {
+      out.error = typeof json?.error === "string" && json.error ? json.error : "操作失败";
+      break;
+    }
+    if (typeof json?.confirmedCount !== "number") {
+      // 成功的状态码但内容看不懂：不能当作「确认了 0 条」，按失败处理
+      out.error = "服务器返回的内容看不懂，这一批是否确认成功请以刷新后的列表为准";
+      break;
+    }
+    out.confirmed += json.confirmedCount;
+    const auto = json.rfqAutoDraft as A | undefined;
+    if (auto && typeof auto === "object") {
+      out.sawAutoDraft = true;
+      // 后面的批次带回「不必提示」的结果，不能把前面那一批需要提示的结果冲掉
+      if (!auto.quiet) out.autoDraft = auto;
+    }
+  }
+  return out;
 }

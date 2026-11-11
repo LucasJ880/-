@@ -44,6 +44,7 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
 
   const projectIds: string[] = [];
+  const extraUsers: string[] = [];
   let seq = 0;
   async function mkProject(statuses: string[]) {
     seq += 1;
@@ -113,14 +114,52 @@ async function main() {
     ok(jMany.confirmedCount === BATCH_CONFIRM_LIMIT && left === 5 && dMany.requestedCount === BATCH_CONFIRM_LIMIT + 5 && dMany.requestedRequirementIds?.length === BATCH_CONFIRM_LIMIT && dMany.confirmedCount === BATCH_CONFIRM_LIMIT, `一次提交 ${BATCH_CONFIRM_LIMIT + 5} 条：接口只确认前 ${BATCH_CONFIRM_LIMIT} 条，剩 5 条仍待确认；审计记下请求了多少、处理了哪些`, { confirmed: jMany.confirmedCount, left });
     const resRest = await call(many, { requirementIds: many.ids.slice(BATCH_CONFIRM_LIMIT) });
     ok(((await resRest.json()) as { confirmedCount?: number }).confirmedCount === 5 && (await db.tenderExtractedRequirement.count({ where: { analysisRunId: many.runId, reviewStatus: "AI_EXTRACTED" } })) === 0 && (await audits(many.runId)).length === 2, "再提交剩下的那一批（界面的分批做法）：全部确认，两批各留一条审计");
+
+    // —— 7. 面板带的那道保护：分析已不是等待审核 → 409，一条都不确认 ——
+    const p7 = await mkProject(["AI_EXTRACTED", "AI_EXTRACTED", "CONFIRMED"]);
+    const inReview = await call(p7, { requirementIds: [p7.ids[0]], onlyWhileInReview: true });
+    const dIn = JSON.parse((await audits(p7.runId))[0]?.afterData ?? "{}") as { onlyWhileInReview?: boolean };
+    ok(inReview.status === 200 && ((await inReview.json()) as { confirmedCount?: number }).confirmedCount === 1 && dIn.onlyWhileInReview === true, "分析等待审核、带着保护：照常确认；审计记下带了保护");
+    await db.tenderAnalysisRun.update({ where: { id: p7.runId }, data: { status: "APPROVED", approvedById: OWNER, approvedAt: new Date() } }); // 面板还开着，别人把分析批准了
+    const stale = await call(p7, { requirementIds: [p7.ids[1]], onlyWhileInReview: true });
+    const jStale = (await stale.json()) as { code?: string; error?: string };
+    ok(stale.status === 409 && jStale.code === "run_not_in_review" && (jStale.error ?? "").includes("不是等待审核") && (await statusOf(p7.ids))[p7.ids[1]] === "AI_EXTRACTED" && (await audits(p7.runId)).length === 1, "分析刚被批准、带着保护再提交：409，那条要求仍是待确认，不留审计", jStale);
+    const alreadyDone = await call(p7, { requirementIds: [p7.ids[0], p7.ids[2]], onlyWhileInReview: true });
+    ok(alreadyDone.status === 409, "已批准的分析上、要求本来就已确认：同样 409（不让人误以为还能确认）");
+    const legacy = await call(p7, { requirementIds: [p7.ids[1]] });
+    ok(legacy.status === 200 && ((await legacy.json()) as { confirmedCount?: number }).confirmedCount === 1 && (await statusOf(p7.ids))[p7.ids[1]] === "CONFIRMED", "不带这个字段：与以前相同，不看分析的状态（接口的既有行为没有变）");
+    const p8 = await mkProject(["AI_EXTRACTED"]);
+    await db.tenderAnalysisRun.update({ where: { id: p8.runId }, data: { status: "SUPERSEDED" } });
+    const superseded = await call(p8, { requirementIds: p8.ids, onlyWhileInReview: true });
+    ok(superseded.status === 409 && (await statusOf(p8.ids))[p8.ids[0]] === "AI_EXTRACTED", "分析已被新的一份取代、带着保护：409，不确认");
+    const p9 = await mkProject(["CONFIRMED", "REJECTED"]);
+    const nothingPending = await call(p9, { requirementIds: p9.ids, onlyWhileInReview: true });
+    ok(nothingPending.status === 200 && ((await nothingPending.json()) as { confirmedCount?: number }).confirmedCount === 0, "分析仍在审核、只是这些要求都不是待确认：200、确认 0 条（不是 409）");
+
+    // —— 8. 是本组织成员、也是项目成员，但没有写权限 ——
+    const MEMBER = `bcmember_${stamp}`;
+    await db.user.create({ data: { id: MEMBER, email: email(MEMBER), name: "Fixture Member", role: "user" } });
+    extraUsers.push(MEMBER);
+    await db.organizationMember.create({ data: { orgId: ORG, userId: MEMBER, role: "org_member", status: "active" } });
+    const p10 = await mkProject(["AI_EXTRACTED"]);
+    await db.projectMember.create({ data: { projectId: p10.projectId, userId: MEMBER, role: "operator", status: "active" } });
+    const resMember = await call(p10, { requirementIds: p10.ids, onlyWhileInReview: true }, MEMBER);
+    ok(resMember.status === 403 && (await statusOf(p10.ids))[p10.ids[0]] === "AI_EXTRACTED" && (await audits(p10.runId)).length === 0, "本组织的普通成员、项目里只是操作员：403，不确认、不留审计", { status: resMember.status });
+
+    // —— 9. 审计里不存过长的字符串 ——
+    const p11 = await mkProject(["AI_EXTRACTED"]);
+    await call(p11, { requirementIds: [p11.ids[0], "x".repeat(5000)] });
+    const d11 = JSON.parse((await audits(p11.runId))[0]?.afterData ?? "{}") as { requestedRequirementIds?: string[]; requestedCount?: number; confirmedCount?: number };
+    ok(d11.confirmedCount === 1 && d11.requestedCount === 2 && d11.requestedRequirementIds?.join() === p11.ids[0], "请求里夹着一个 5000 字符的「要求号」：正常的那条照常确认，审计里只记合规长度的要求号", { n: d11.requestedRequirementIds?.length });
   } finally {
-    await db.auditLog.deleteMany({ where: { OR: [{ orgId: ORG }, { userId: { in: [OWNER, OUTSIDER] } }] } });
+    await db.projectMember.deleteMany({ where: { projectId: { in: projectIds } } });
+    await db.auditLog.deleteMany({ where: { OR: [{ orgId: ORG }, { userId: { in: [OWNER, OUTSIDER, ...extraUsers] } }] } });
     await db.tenderExtractedRequirement.deleteMany({ where: { projectId: { in: projectIds } } });
     await db.tenderAnalysisRun.deleteMany({ where: { projectId: { in: projectIds } } });
     await db.project.deleteMany({ where: { id: { in: projectIds } } });
     await db.organizationMember.deleteMany({ where: { orgId: ORG } });
     await db.organization.deleteMany({ where: { id: ORG } });
-    await db.user.deleteMany({ where: { id: { in: [OWNER, OUTSIDER] } } });
+    await db.user.deleteMany({ where: { id: { in: [OWNER, OUTSIDER, ...extraUsers] } } });
     await db.$disconnect();
   }
 

@@ -13,7 +13,8 @@ TASKFLOW：RFQ-AUTO-4（Phase F 续，接 RFQ-AUTO-2）
 - 「确认选中的 N 条」调用既有的批量确认接口；选中超过 200 条时按 200 条一批依次提交。完成后显示实际确认了几条。
 - 要求列表上方显示计数：已确认 / 待确认 / 已驳回各几条。
 - 「批准分析」按钮旁，在还有待确认的要求时显示一句提示：还剩几条没确认、批准后不能再确认、它们不会进询价单。不增加点击。
-- 批量确认接口每次成功写一条审计（谁、哪份分析、确认了哪几条）。接口的请求与响应结构不变。
+- 批量确认接口每次成功写一条审计（谁、哪份分析、请求确认哪几条、实际确认了几条）。接口的响应结构不变。
+- 面板提交时要求接口「只在分析仍是等待审核时确认」：分析已被批准或被取代时接口返回 409、一条都不确认。这是请求体里新增的一个可选字段，不带它的调用行为不变。
 - 不加功能开关：这是既有接口上的界面操作，不涉及对外发送。
 
 ## 受影响的 Muse 意图
@@ -46,4 +47,5 @@ TASKFLOW：RFQ-AUTO-4（Phase F 续，接 RFQ-AUTO-2）
 - `src/components/tender-analysis/analysis-panel.tsx`：要求列表的勾选、工具条、计数与批准按钮旁的提示。
 - `src/lib/tender-auto-analysis/`：新增一个纯函数文件（计数、全选、分批、提示文案）。
 - `src/app/api/projects/[id]/tender-analysis/runs/[runId]/requirements/batch-confirm/route.ts`：成功后写审计。
-- 不改 `src/lib/tender-auto-analysis/review.ts`、单条确认 / 驳回路由、批准路由、`src/lib/tender-rfq/**`、`prisma/schema.prisma`。
+- `src/lib/tender-auto-analysis/review.ts`：批量确认多一个可选参数（只在等待审核时确认），不传时行为不变。
+- 不改单条确认 / 驳回路由、批准路由、`src/lib/tender-rfq/**`、`prisma/schema.prisma`。

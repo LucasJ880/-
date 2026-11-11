@@ -10,7 +10,11 @@ import { BATCH_CONFIRM_AUDIT_ACTION, BATCH_CONFIRM_LIMIT } from "@/lib/tender-au
 import { batchConfirmRequirements } from "@/lib/tender-auto-analysis/review";
 import { maybeAutoDraftRfq } from "@/lib/tender-rfq/auto-draft-service";
 
-/** POST body: { requirementIds: string[] } */
+/**
+ * POST body: { requirementIds: string[], onlyWhileInReview?: boolean }
+ * onlyWhileInReview（RFQ-AUTO-4，可选）：为 true 时只在分析仍是等待审核时确认，否则 409 且一条都不确认。
+ * 不带这个字段时行为与以前相同。
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; runId: string }> },
@@ -22,8 +26,10 @@ export async function POST(
   if (!orgId) return missingOrgResponse();
 
   let requirementIds: string[] = [];
+  let onlyWhileInReview = false;
   try {
     const body = await request.json();
+    onlyWhileInReview = body?.onlyWhileInReview === true;
     requirementIds = Array.isArray(body?.requirementIds)
       ? body.requirementIds.filter((x: unknown) => typeof x === "string")
       : [];
@@ -36,11 +42,12 @@ export async function POST(
     projectId,
     orgId,
     requirementIds,
+    ...(onlyWhileInReview ? { onlyWhileInReview: true } : {}),
   });
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error, code: result.code },
-      { status: result.code === "not_found" ? 404 : 400 },
+      { status: result.code === "not_found" ? 404 : result.code === "run_not_in_review" ? 409 : 400 },
     );
   }
   // RFQ-AUTO-4：留一条审计——谁、哪份分析、请求确认哪几条、实际确认了几条。
@@ -53,10 +60,11 @@ export async function POST(
     targetType: "tender_analysis_run",
     targetId: runId,
     afterData: {
-      // 与服务函数同一个上限：超出的部分没有被处理，也就不记
-      requestedRequirementIds: requirementIds.filter(Boolean).slice(0, BATCH_CONFIRM_LIMIT),
+      // 与服务函数同一个上限：超出的部分没有被处理，也就不记。要求号是短字符串，过长的不可能对得上，不写进审计
+      requestedRequirementIds: requirementIds.filter((id) => id.length > 0 && id.length <= 64).slice(0, BATCH_CONFIRM_LIMIT),
       requestedCount: requirementIds.filter(Boolean).length,
       confirmedCount: result.confirmedCount,
+      onlyWhileInReview,
     },
     request,
   });

@@ -7,11 +7,11 @@ import {
   approveHintZh,
   batchConfirmResultZh,
   canBatchConfirm,
-  chunkRequirementIds,
   countRequirementReview,
   pendingRequirementIds,
   pruneSelection,
   reviewCountsLineZh,
+  submitBatchConfirm,
   toggleSelection,
 } from "@/lib/tender-auto-analysis/requirement-batch-confirm";
 import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
@@ -254,7 +254,8 @@ export function TenderAnalysisPanel({
   const [rfqAutoDraft, setRfqAutoDraft] = useState<RfqAutoDraftView | null>(null);
   // RFQ-AUTO-4：批量确认——勾选由人做，默认一条都不选
   const [selectedReqIds, setSelectedReqIds] = useState<string[]>([]);
-  const [batchMessage, setBatchMessage] = useState<string | null>(null);
+  // 结果消息记着它属于哪一份分析：换了一份分析（重新分析）或这份分析已不在审核中，就不再显示
+  const [batchMessage, setBatchMessage] = useState<{ runId: string; text: string } | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -308,36 +309,26 @@ export function TenderAnalysisPanel({
     }
   };
 
-  // RFQ-AUTO-4：确认选中的要求。接口一次最多处理 200 条（多出的会被静默丢弃），所以这里按批依次提交；
+  // RFQ-AUTO-4：确认选中的要求。接口一次最多处理 200 条（多出的会被静默丢弃），所以按批依次提交；
   // 显示的是各批接口返回的实际确认数之和。某一批失败就停，说明此前已确认了几条。
+  // 每一批都带 onlyWhileInReview：面板开着的时候别人把分析批准了，服务端会拒绝（一条都不确认）。
   const confirmSelected = async () => {
     if (!data || !canBatchConfirm(data.run.status)) return;
+    const run = data.run;
     const ids = pruneSelection(selectedReqIds, data.requirements);
     if (ids.length === 0) return;
     setBusy(true);
     setBatchMessage(null);
-    let confirmed = 0;
-    let failure: string | null = null;
-    try {
-      for (const chunk of chunkRequirementIds(ids)) {
-        const res = await apiFetch(`/api/projects/${projectId}/tender-analysis/runs/${data.run.id}/requirements/batch-confirm`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requirementIds: chunk }),
-        });
-        const json = (await res.json().catch(() => null)) as { confirmedCount?: number; error?: string; rfqAutoDraft?: RfqAutoDraftView } | null;
-        if (!res.ok) {
-          failure = json?.error || "操作失败";
-          break;
-        }
-        confirmed += typeof json?.confirmedCount === "number" ? json.confirmedCount : 0;
-        const auto = json?.rfqAutoDraft;
-        if (auto) setRfqAutoDraft(auto.quiet ? null : auto);
-      }
-    } catch (e) {
-      failure = e instanceof Error ? e.message : String(e);
-    }
-    setBatchMessage(batchConfirmResultZh({ selected: ids.length, confirmed, error: failure }));
+    const outcome = await submitBatchConfirm<RfqAutoDraftView>(ids, async (chunk) => {
+      const res = await apiFetch(`/api/projects/${projectId}/tender-analysis/runs/${run.id}/requirements/batch-confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requirementIds: chunk, onlyWhileInReview: true }),
+      });
+      return { ok: res.ok, json: await res.json().catch(() => null) };
+    });
+    if (outcome.sawAutoDraft) setRfqAutoDraft(outcome.autoDraft);
+    setBatchMessage({ runId: run.id, text: batchConfirmResultZh({ selected: outcome.selected, confirmed: outcome.confirmed, error: outcome.error }) });
     setSelectedReqIds([]);
     await load();
     setBusy(false);
@@ -461,6 +452,7 @@ export function TenderAnalysisPanel({
   const reviewCounts = countRequirementReview(data.requirements);
   const batchEnabled = canBatchConfirm(data.run.status);
   const selectedCount = pruneSelection(selectedReqIds, data.requirements).length;
+  const batchNotice = batchMessage && batchMessage.runId === data.run.id && batchEnabled ? batchMessage.text : null;
   const riskChapter = data.chapters.find((c) => c.key === "performance_risks" || c.key === "pricing_risks");
 
   return (
@@ -854,9 +846,9 @@ export function TenderAnalysisPanel({
                   </button>
                 </>
               ) : null}
-              {batchMessage ? (
+              {batchNotice ? (
                 <p className="basis-full text-[var(--muted)]" role="status" data-testid="requirement-batch-message">
-                  {batchMessage}
+                  {batchNotice}
                 </p>
               ) : null}
             </div>
