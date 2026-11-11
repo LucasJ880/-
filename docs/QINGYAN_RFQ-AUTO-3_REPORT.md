@@ -72,7 +72,14 @@ auto-draft-db.isolated.test.ts     68 passed, 0 failed（原 38，+30；本地�
 auto-draft-pure.test.ts            47 项通过（原 45）
 web-entry-pure.test.ts             151 passed（原 143；其中一条 RFQ-AUTO-1 的旧断言随行为更新，见 §5 第 3 条）
 followup-auto-db.isolated.test.ts  28 passed（RFQ-AUTO-1，未改断言）
-GATES_PLACEHOLDER
+
+npm run test:ci（CI 同款环境变量）   CI unit subset PASS
+npm run typecheck                  exit 0
+npm run lint:baseline              PASS（无新增 error fingerprint）
+scripts/check-test-registry.sh     OK 已注册 589 个；历史欠账基线 68 条
+scripts/test-runtime-architecture.sh   PASS
+check-swc-nullish-logical          PASS
+openspec validate rfq-auto-draft-followup-optin --strict   valid
 ```
 
 真库测试新增的情形：默认关；请求体不合规或夹带别人的用户号 → 400 且什么都不写；本人开启只影响他自己；留一条记录（带模板指纹）、重复开启不重复记；开启前后组织设置逐字节相同；没有项目写权限的人被拒；开启后自动起草的卡带授权，内容与网页勾选时逐字段相同；标题、摘要、原地审批处的展示；自动起草的审计记下带授权；同组织甲开了乙没开，乙触发的不带；卡没人批准时扫描不为这一轮起草任何催单；把卡标为已批准并发出之后，3 家各自动发出第 1 次催单（以批准人身份、各留审计、收件人是卡上那三家）；关闭后新起草的不带、已批准的那一轮照常发第 2 次催单；别处把旧设置整块写回后开关仍是关；模板指纹不同 → 已失效、不带授权，重新开启后恢复；功能开关关闭期间开不了、关得掉，关掉后功能重开也不会自己恢复；带授权的待批卡在功能关闭时批准处仍显示授权并标为暂停；两个功能开关都关闭时入口没有这个字段。
