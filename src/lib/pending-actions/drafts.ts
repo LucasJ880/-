@@ -15,6 +15,7 @@ import type { ToolExecutionResult } from "@/lib/agent-core/types";
 import type { PendingActionType } from "./types";
 import { toPendingApprovalResult } from "./types";
 import { computePayloadHash } from "@/lib/capabilities/approvals/integrity";
+import { withDraftIdempotencyRetry } from "./draft-idempotency";
 
 const DEFAULT_TTL_HOURS = 24;
 
@@ -151,7 +152,19 @@ function buildCreateData(input: CreateDraftInput) {
   };
 }
 
+/**
+ * 整批在一个事务里建；同组织 + 幂等键已有记录时复用。
+ * 并发时后到方的写入撞上唯一约束：PostgreSQL 会中止整个事务（之后任何语句都报 25P02），
+ * 所以写入错误不在事务里接，由 withDraftIdempotencyRetry 用新事务整批重跑——重跑时事务里的前置查询
+ * 能看到先到方已提交的那张卡并复用。只有「组织 + 幂等键」冲突才重跑，其它错误照旧抛出（整批回滚）。
+ */
 async function defaultCreateAllInTransaction(
+  inputs: CreateDraftInput[],
+): Promise<CreatedDraftAction[]> {
+  return withDraftIdempotencyRetry(() => createAllInOneTransaction(inputs));
+}
+
+async function createAllInOneTransaction(
   inputs: CreateDraftInput[],
 ): Promise<CreatedDraftAction[]> {
   return db.$transaction(async (tx) => {
@@ -185,56 +198,24 @@ async function defaultCreateAllInTransaction(
         }
       }
       const { payloadHash, data } = buildCreateData(input);
-      try {
-        const action = await tx.pendingAction.create({
-          data,
-          select: {
-            id: true,
-            type: true,
-            title: true,
-            preview: true,
-            agentRunId: true,
-          },
-        });
-        out.push({
-          actionId: action.id,
-          type: action.type,
-          title: action.title,
-          preview: action.preview,
-          payloadHash,
-          agentRunId: action.agentRunId,
-        });
-      } catch (e) {
-        // 并发唯一冲突：复用已有行
-        if (input.orgId && input.idempotencyKey) {
-          const raced = await tx.pendingAction.findFirst({
-            where: {
-              orgId: input.orgId,
-              idempotencyKey: input.idempotencyKey,
-            },
-            select: {
-              id: true,
-              type: true,
-              title: true,
-              preview: true,
-              agentRunId: true,
-              payloadHash: true,
-            },
-          });
-          if (raced) {
-            out.push({
-              actionId: raced.id,
-              type: raced.type,
-              title: raced.title,
-              preview: raced.preview,
-              payloadHash: raced.payloadHash ?? "",
-              agentRunId: raced.agentRunId,
-            });
-            continue;
-          }
-        }
-        throw e;
-      }
+      const action = await tx.pendingAction.create({
+        data,
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          preview: true,
+          agentRunId: true,
+        },
+      });
+      out.push({
+        actionId: action.id,
+        type: action.type,
+        title: action.title,
+        preview: action.preview,
+        payloadHash,
+        agentRunId: action.agentRunId,
+      });
     }
     return out;
   });
