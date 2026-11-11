@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
+import { VERIFIED_NEEDS_EVIDENCE_ZH,
   blocksIn, costSheetRequestSchema, mergeWorkspace, readStoredWorkspace, saveWorkspaceRequestSchema, storedWorkspaceSchema, BID_WORKSPACE_KEY, MAX_SCHEDULE_LINES,
 } from "../contract";
 import { isBidWorkspaceEnabledForOrgWithEnv } from "../flags";
@@ -85,6 +85,24 @@ console.log("tender-bid-workspace contract");
   const costRoute = files.find((f) => f.p.endsWith("cost-sheet/route.ts"))!.text;
   ok("成本核算路由不写库", !/\.(create|update|upsert|delete)\s*\(|saveWorkspaceBlocks|\$transaction/.test(costRoute));
   ok("成本核算路由检查财务查看权", costRoute.includes("resolveFinancePrivilege") && costRoute.includes("canReadAll"));
+}
+
+{
+  // TI-4c：证书出处与补遗号
+  const cert = (o: Record<string, unknown> = {}) => ({ id: "CSA-1", status: "VERIFIED", coverage: "WHOLE_UNIT", issuer: "CSA Group", issuerAccreditedInCanada: true, coveredModels: ["HX-100"], expiresAt: "2028-01-01", ...o });
+  const bad = saveWorkspaceRequestSchema.safeParse({ lineDetails: { "13": { certificates: [cert()] } } });
+  ok("已核验而没有出处 → 保存请求被拒", !bad.success && bad.error.issues[0].message === VERIFIED_NEEDS_EVIDENCE_ZH && bad.error.issues[0].path.join(".") === "lineDetails.13.certificates.0.evidenceRef");
+  ok("出处只有空白也算没有", !saveWorkspaceRequestSchema.safeParse({ lineDetails: { "13": { certificates: [cert({ evidenceRef: "   " })] } } }).success);
+  ok("已核验且有出处 → 通过；出处被保留", saveWorkspaceRequestSchema.parse({ lineDetails: { "13": { certificates: [cert({ evidenceRef: "csa-listing-2026-11-01.pdf" })] } } }).lineDetails!["13"].certificates![0].evidenceRef === "csa-listing-2026-11-01.pdf");
+  ok("供应商声称不要求出处", saveWorkspaceRequestSchema.safeParse({ lineDetails: { "13": { certificates: [cert({ status: "CLAIMED" })] } } }).success);
+  ok("已存内容的读取不加这一条（旧记录不会让整个工作区读不出来）", storedWorkspaceSchema.safeParse({ version: 1, priceSchedule: { lines: [] }, lineDetails: { "13": { certificates: [cert()] } }, documentHolders: null, addenda: [], updatedAt: "2026-11-11T00:00:00.000Z", updatedById: "u" }).success);
+  const now = new Date("2026-11-11T15:00:00Z");
+  const addenda = [{ number: 1, affectedLineNos: [13] }, { number: 2, affectedLineNos: [14] }];
+  const merged = mergeWorkspace(null, saveWorkspaceRequestSchema.parse({ addenda, lineDetails: { "13": { offeredDimensions: "40 x 24 x 24", basedOnAddendum: 9 }, "14": { offeredDimensions: "40 x 40 x 30", basedOnAddendum: 1 }, "1": { offeredDimensions: "39 x 77.5 x 12", basedOnAddendum: 3 }, "15": { offeredDimensions: "112 x 58 x 81" } } }), "u", now);
+  ok("虚报的补遗号被压到实际影响该行的最新号", merged.lineDetails["13"].basedOnAddendum === 1 && merged.lineDetails["1"].basedOnAddendum === 0);
+  ok("如实或偏低的补遗号原样保留；不带则记 0", merged.lineDetails["14"].basedOnAddendum === 1 && merged.lineDetails["15"].basedOnAddendum === 0);
+  const later = mergeWorkspace(merged, saveWorkspaceRequestSchema.parse({ addenda: [...addenda, { number: 3, affectedLineNos: [13] }] }), "u", now);
+  ok("只保存补遗时，行明细已记下的补遗号不动", later.lineDetails["13"].basedOnAddendum === 1 && later.addenda.length === 3);
 }
 
 console.log(`\ntender-bid-workspace contract: ${passed} passed`);

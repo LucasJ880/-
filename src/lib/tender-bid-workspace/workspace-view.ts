@@ -12,6 +12,7 @@ import type { CostScenarioInput } from "@/lib/tender-bid-cost/contract";
 import { evaluateCertificationGate, type CertificationGateResult } from "@/lib/tender-bid-readiness/certification-gate";
 import { assessBidReadiness, type CostReadinessInput, type ReadinessAssessment } from "@/lib/tender-bid-readiness/readiness";
 import { decideStages, type MaterialKey, type StagePolicyResult } from "@/lib/tender-bid-readiness/stage-policy";
+import type { DependentConclusion } from "@/lib/tender-bid-readiness/staleness";
 import { summarizeDocumentHolders, type DocumentHolderSummary } from "@/lib/tender-competition/document-holders";
 import { validatePriceSchedule, type PriceScheduleLine, type ScheduleValidation } from "@/lib/tender-price-schedule/contract";
 import { matchDimensions, type DimensionMatch } from "@/lib/tender-price-schedule/dimension-match";
@@ -75,6 +76,26 @@ export function deriveMaterials(stored: StoredWorkspace | null, ctx: Pick<Worksp
   return out;
 }
 
+/**
+ * TI-4c 由行明细现算「依赖补遗版本的结论」：填了产品尺寸的行有一条尺寸对照，
+ * 带认证要求且填了品牌型号或证书的行有一条认证判定；基准是该行明细保存时的补遗号。
+ */
+function conclusionsOf(stored: StoredWorkspace | null): DependentConclusion[] {
+  const out: DependentConclusion[] = [];
+  for (const line of linesOf(stored)) {
+    const detail = stored?.lineDetails[String(line.lineNo)];
+    if (!detail) continue;
+    const basedOnAddendum = detail.basedOnAddendum ?? 0;
+    if ((line.dimensions || line.minimumDimensions) && detail.offeredDimensions?.trim()) {
+      out.push({ key: `dimension:${line.lineNo}`, kind: "DIMENSION_MATCH", lineNo: line.lineNo, basedOnAddendum });
+    }
+    if (line.certificationGate?.trim() && (detail.product?.make?.trim() || detail.product?.model?.trim() || (detail.certificates ?? []).length > 0)) {
+      out.push({ key: `certification:${line.lineNo}`, kind: "CERTIFICATION", lineNo: line.lineNo, basedOnAddendum });
+    }
+  }
+  return out;
+}
+
 function readinessOf(stored: StoredWorkspace | null, ctx: WorkspaceContext, checks: LineCheck[], cost: CostReadinessInput | null): ReadinessAssessment {
   const details = stored?.lineDetails ?? {};
   return assessBidReadiness({
@@ -86,7 +107,7 @@ function readinessOf(stored: StoredWorkspace | null, ctx: WorkspaceContext, chec
     products: Object.fromEntries(Object.entries(details).map(([k, v]) => [Number(k), v.product ?? undefined])),
     certificates: Object.fromEntries(Object.entries(details).map(([k, v]) => [Number(k), v.certificates ?? []])),
     addenda: stored?.addenda ?? [],
-    conclusions: [],
+    conclusions: conclusionsOf(stored),
   });
 }
 

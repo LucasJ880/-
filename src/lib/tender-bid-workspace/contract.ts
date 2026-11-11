@@ -10,6 +10,7 @@ import { z } from "zod";
 import { CERTIFICATE_COVERAGE, CERTIFICATE_STATUSES } from "@/lib/tender-bid-readiness/certification-gate";
 import { ALLOCATION_METHODS, FREIGHT_MODES, QUOTE_EVIDENCE_KINDS, SOURCING_TYPES } from "@/lib/tender-bid-cost/contract";
 import { HOLDER_SNAPSHOT_SOURCES } from "@/lib/tender-competition/document-holders";
+import { latestAddendumFor } from "@/lib/tender-bid-readiness/staleness";
 import { QUOTE_BASES } from "@/lib/tender-price-schedule/unit-conversion";
 
 export const BID_WORKSPACE_KEY = "bidWorkspace" as const;
@@ -48,13 +49,20 @@ export const certificateSchema = z.object({
   issuerAccreditedInCanada: z.boolean().nullable(),
   coveredModels: z.array(text(80)).max(50),
   expiresAt: optText(40),
+  /** TI-4c 出处：证书文件名、链接或查询记录。「已核验」的证书在保存时必须有（见 saveWorkspaceRequestSchema） */
+  evidenceRef: optText(300),
 });
 
 export const lineDetailSchema = z.object({
   product: z.object({ make: optText(120), model: optText(120) }).nullable().optional(),
   offeredDimensions: optText(120),
   certificates: z.array(certificateSchema).max(20).optional(),
+  /** TI-4c 这一行的明细是按第几号补遗核对的（0 或缺省 = 原始文件）。合并时不会超过实际影响该行的最新补遗号 */
+  basedOnAddendum: z.number().int().min(0).max(999).optional(),
 });
+
+export type StoredCertificate = z.infer<typeof certificateSchema>;
+export type LineDetail = z.infer<typeof lineDetailSchema>;
 
 /** 键 = 行号（字符串形式的正整数） */
 export const lineDetailsSchema = z.record(z.string().regex(/^[1-9]\d{0,3}$/), lineDetailSchema);
@@ -75,6 +83,8 @@ export const addendumSchema = z.object({
   effect: optText(1000),
 });
 
+export type StoredAddendum = z.infer<typeof addendumSchema>;
+
 const scheduleBlock = z.object({ lines: z.array(priceScheduleLineSchema).max(MAX_SCHEDULE_LINES) });
 
 /** 已存内容。 */
@@ -92,12 +102,26 @@ export type StoredWorkspace = z.infer<typeof storedWorkspaceSchema>;
 export const WORKSPACE_BLOCKS = ["priceSchedule", "lineDetails", "documentHolders", "addenda"] as const;
 export type WorkspaceBlock = (typeof WORKSPACE_BLOCKS)[number];
 
-/** 保存请求：分块，至少给一块；没给的块保持原值。 */
+export const VERIFIED_NEEDS_EVIDENCE_ZH = "标为「已核验」的证书必须填出处";
+
+/**
+ * 保存请求：分块，至少给一块；没给的块保持原值。
+ * TI-4c：「已核验」而没有出处的证书在这里拒绝（只约束新写入；已存内容的读取不加这一条，
+ * 免得一条旧记录让整个工作区读不出来）。
+ */
 export const saveWorkspaceRequestSchema = z.object({
   priceSchedule: scheduleBlock.optional(),
   lineDetails: lineDetailsSchema.optional(),
   documentHolders: documentHoldersSchema.nullable().optional(),
   addenda: z.array(addendumSchema).max(50).optional(),
+}).superRefine((req, ctx) => {
+  for (const [lineNo, detail] of Object.entries(req.lineDetails ?? {})) {
+    (detail.certificates ?? []).forEach((cert, i) => {
+      if (cert.status === "VERIFIED" && !cert.evidenceRef?.trim()) {
+        ctx.addIssue({ code: "custom", path: ["lineDetails", lineNo, "certificates", i, "evidenceRef"], message: VERIFIED_NEEDS_EVIDENCE_ZH });
+      }
+    });
+  }
 });
 export type SaveWorkspaceRequest = z.infer<typeof saveWorkspaceRequestSchema>;
 
@@ -112,12 +136,17 @@ export function emptyWorkspace(userId: string, now: Date): StoredWorkspace {
 /** 把保存请求合并进已存内容：只替换给出的块。 */
 export function mergeWorkspace(prev: StoredWorkspace | null, req: SaveWorkspaceRequest, userId: string, now: Date): StoredWorkspace {
   const base = prev ?? emptyWorkspace(userId, now);
+  const addenda = req.addenda ?? base.addenda;
+  // TI-4c：本次提交的行明细，补遗号不得超过实际影响该行的最新补遗号（不能靠虚报绕过复核）
+  const lineDetails = req.lineDetails
+    ? Object.fromEntries(Object.entries(req.lineDetails).map(([k, v]) => [k, { ...v, basedOnAddendum: Math.min(v.basedOnAddendum ?? 0, latestAddendumFor(Number(k), addenda)) }]))
+    : base.lineDetails;
   return {
     version: BID_WORKSPACE_VERSION,
     priceSchedule: req.priceSchedule ?? base.priceSchedule,
-    lineDetails: req.lineDetails ?? base.lineDetails,
+    lineDetails,
     documentHolders: req.documentHolders !== undefined ? req.documentHolders : base.documentHolders,
-    addenda: req.addenda ?? base.addenda,
+    addenda,
     updatedAt: now.toISOString(),
     updatedById: userId,
   };
