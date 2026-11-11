@@ -14,9 +14,11 @@ import { Drawer } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
+import { groupPreselection, type SupplierGroupsEntry } from "@/lib/tender-rfq/supplier-groups";
 import { monthDay } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
+import { RfqSupplierGroups } from "./rfq-supplier-groups";
 import type { RfqEntryView, RfqIncoterm, RfqRoundCreated, RfqRoundFailed, UserMessage } from "./rfq-web-entry-types";
 
 type Entry = Extract<RfqEntryView, { available: true }>;
@@ -39,11 +41,15 @@ const inputCls =
   "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-accent/60";
 
 export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged, onDecision }: Props) {
+  // RFQ-AUTO-5：有分组时预先勾选对上的那一组（对不上就不预先勾选）；没有分组或功能关闭时仍是可选的常用供应商
   const defaultSelected = useMemo(
-    () => entry.suppliers.filter((s) => s.isDefault && s.ready).slice(0, MAX_SUPPLIERS).map((s) => s.id),
-    [entry.suppliers],
+    () => groupPreselection({ groups: entry.supplierGroups, suppliers: entry.suppliers, max: MAX_SUPPLIERS }).selected,
+    [entry.suppliers, entry.supplierGroups],
   );
   const [selected, setSelected] = useState<string[]>(defaultSelected);
+  // 抽屉开着时保存过分组：先用保存接口返回的那一份（父组件刷新入口后两者一致）
+  const [savedGroups, setSavedGroups] = useState<SupplierGroupsEntry | null>(null);
+  const groupsView = savedGroups ?? entry.supplierGroups ?? null;
   const [query, setQuery] = useState("");
   const [incoterm, setIncoterm] = useState<RfqIncoterm | "">(entry.defaults.incoterm ?? "");
   const [destination, setDestination] = useState("");
@@ -63,6 +69,7 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged, 
   useEffect(() => {
     if (open && !wasOpen.current) {
       setSelected(defaultSelected);
+      setSavedGroups(null);
       setQuery("");
       setIncoterm(entry.defaults.incoterm ?? "");
       setDestination("");
@@ -181,6 +188,20 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged, 
                 已选 {selected.length} / 最多 {MAX_SUPPLIERS}
               </span>
             </div>
+            {groupsView && entry.suppliers.length > 0 && (
+              <RfqSupplierGroups
+                projectId={projectId}
+                view={groupsView}
+                suppliers={entry.suppliers}
+                selected={selected}
+                max={MAX_SUPPLIERS}
+                onSelect={setSelected}
+                onSaved={(view) => {
+                  setSavedGroups(view);
+                  onChanged();
+                }}
+              />
+            )}
             {entry.suppliers.length === 0 ? (
               <p className="rounded-md border border-dashed border-border p-3 text-xs text-muted">
                 组织里还没有供应商。{" "}

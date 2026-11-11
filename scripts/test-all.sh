@@ -614,6 +614,8 @@ run_test "招标询价 跟进授权 DB 端到端（隔离库执行，否则跳�
 run_test "招标询价 自动起草第 1 轮：判定与选供应商（RFQ-AUTO-2）" "npx tsx src/lib/tender-rfq/__tests__/auto-draft-pure.test.ts"
 run_test "招标询价 自动起草第 1 轮 DB 端到端（隔离库执行，否则跳过，RFQ-AUTO-2）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts"
 run_test "招标询价 自动起草带跟进授权的个人开关：读写（RFQ-AUTO-3）" "npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts"
+run_test "招标询价 供应商分组：校验、比对与抽屉预选（RFQ-AUTO-5）" "npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts"
+run_test "招标询价 供应商分组 DB（隔离库执行，否则跳过，RFQ-AUTO-5）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts"
 # TI-1：招标价格表行项（契约 / 单位换算 / 尺寸对照 / 截标与导出）
 run_test "招标价格表 行项契约与数量汇总（渥太华 18 行）" "npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts"
 run_test "招标价格表 单位换算与金额舍入" "npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts"

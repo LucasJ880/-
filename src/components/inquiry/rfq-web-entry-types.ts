@@ -5,6 +5,7 @@ import type { EntryPreview, EntrySupplier, RfqEntryState, UserMessage } from "@/
 import type { RfqApprovalInfo, RfqEmailPreview } from "@/lib/tender-rfq/web-entry-approval";
 import type { FollowUpCardView } from "@/lib/tender-rfq/followup-coverage";
 import type { RfqEntryFollowUp } from "@/lib/tender-rfq/web-entry";
+import type { SupplierGroupsEntry } from "@/lib/tender-rfq/supplier-groups";
 
 export type { RfqApprovalInfo, RfqEmailPreview, UserMessage };
 
@@ -57,6 +58,8 @@ export type RfqEntryView =
       autoDraftedRounds?: Record<string, { noteZh: string }>;
       /** RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」；两个功能开关任一关闭时没有这个字段 */
       autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
+      /** RFQ-AUTO-5：本人的供应商分组与这个项目对上了哪一组；功能关闭时没有这个字段 */
+      supplierGroups?: SupplierGroupsEntry;
     };
 
 export type RfqRoundCreated = {

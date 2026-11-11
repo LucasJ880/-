@@ -57,12 +57,21 @@ const cases: Array<[string, Partial<AutoDraftFacts>, AutoDraftReason]> = [
   ["入口：授权邮箱缺发信权限", { entryBlock: "sender_no_compose_scope" }, "SENDER_NOT_READY"],
   ["入口：组织里没有就绪的供应商", { entryBlock: "no_ready_suppliers" }, "NO_DEFAULT_SUPPLIERS"],
   ["操作者没有就绪的常用供应商", { pickedSupplierCount: 0 }, "NO_DEFAULT_SUPPLIERS"],
+  // RFQ-AUTO-5：有分组时只认分组
+  ["有分组，项目名称没有对上任何一组", { groupMatch: { kind: "none" } }, "SUPPLIER_GROUP_UNDETERMINED"],
+  ["有分组，项目名称对上不止一组", { groupMatch: { kind: "many", groups: ["窗饰", "家具"] } }, "SUPPLIER_GROUP_UNDETERMINED"],
+  ["有分组，对上的那一组里没有就绪的供应商", { groupMatch: { kind: "one", group: "窗饰", keyword: "blind" }, pickedSupplierCount: 0 }, "SUPPLIER_GROUP_EMPTY"],
 ];
 for (const [name, o, reason] of cases) ok(`${name} → 不起草（${reason}）`, reasonOf(o) === reason);
 ok("检查顺序固定：先看分析，再看轮次，再看入口与供应商", reasonOf({ flagEnabled: false, run: { isCurrent: false, status: "x" }, roundCount: 1 }) === "FLAG_OFF" && reasonOf({ run: { isCurrent: true, status: "REVIEW_REQUIRED" }, roundCount: 1 }) === "RUN_NOT_APPROVED" && reasonOf({ roundCount: 1, entryBlock: "sensitive_leak" }) === "ROUND_EXISTS" && reasonOf({ entryBlock: "sensitive_leak", pickedSupplierCount: 0 }) === "SENSITIVE_LEAK");
 ok("批准时还有没确认的要求不拦起草（批准分析即视为审核完成；判定的输入里根本没有这一项）", !("pendingRequirementCount" in facts()) && reasonOf({}) === "DRAFT");
 ok("判定是确定性的：同样的输入两次结果相同", JSON.stringify(decideAutoDraft(facts())) === JSON.stringify(decideAutoDraft(facts())));
-ok("八个原因：除起草失败（执行阶段才有）外都被判定用例覆盖", AUTO_DRAFT_REASONS.length === 8 && AUTO_DRAFT_REASONS.filter((r) => r !== "DRAFT_FAILED").every((r) => cases.some((c) => c[2] === r)));
+ok("有分组且恰好一组对上、组里有就绪的 → 起草", reasonOf({ groupMatch: { kind: "one", group: "窗饰", keyword: "blind" }, pickedSupplierCount: 2 }) === "DRAFT");
+ok("有分组但对不上：哪怕常用供应商有就绪的也不起草（不退回常用供应商）", reasonOf({ groupMatch: { kind: "none" }, pickedSupplierCount: 3 }) === "SUPPLIER_GROUP_UNDETERMINED");
+ok("没有分组（不传 / 传 null）：判定与本功能之前相同", reasonOf({ groupMatch: null }) === "DRAFT" && reasonOf({ groupMatch: null, pickedSupplierCount: 0 }) === "NO_DEFAULT_SUPPLIERS" && reasonOf({ groupMatch: undefined, pickedSupplierCount: 0 }) === "NO_DEFAULT_SUPPLIERS");
+ok("分组的原因排在既有原因之后：分析没批准、已有轮次、入口拦截都优先", reasonOf({ groupMatch: { kind: "none" }, run: { isCurrent: true, status: "REVIEW_REQUIRED" } }) === "RUN_NOT_APPROVED" && reasonOf({ groupMatch: { kind: "none" }, roundCount: 1 }) === "ROUND_EXISTS" && reasonOf({ groupMatch: { kind: "none" }, entryBlock: "sender_not_connected" }) === "SENDER_NOT_READY");
+ok("组织里一家能发的供应商都没有：没有分组的人得到「没有常用供应商」，有分组的人得到分组的原因（不被告知去攒常用供应商）", reasonOf({ entryBlock: "no_ready_suppliers" }) === "NO_DEFAULT_SUPPLIERS" && reasonOf({ entryBlock: "no_ready_suppliers", groupMatch: { kind: "one", group: "窗饰", keyword: "blind" } }) === "SUPPLIER_GROUP_EMPTY" && reasonOf({ entryBlock: "no_ready_suppliers", groupMatch: { kind: "none" } }) === "SUPPLIER_GROUP_UNDETERMINED" && reasonOf({ entryBlock: "no_ready_suppliers", groupMatch: { kind: "many", groups: ["a", "b"] } }) === "SUPPLIER_GROUP_UNDETERMINED");
+ok("十个原因：除起草失败（执行阶段才有）外都被判定用例覆盖", AUTO_DRAFT_REASONS.length === 10 && AUTO_DRAFT_REASONS.filter((r) => r !== "DRAFT_FAILED").every((r) => cases.some((c) => c[2] === r)));
 
 /* ---------- 对外结果 ---------- */
 console.log("对外结果");
@@ -89,7 +98,21 @@ console.log("对外结果");
   ok("邮箱没连好 → 去连接邮箱", act("SENDER_NOT_READY")?.href === "/settings/email");
   ok("没有已确认的要求 / 含不能外发的内容 → 去「需求」", act("NO_CONFIRMED_REQUIREMENTS")?.href === "/projects/p1?tab=requirements" && act("SENSITIVE_LEAK")?.href === "/projects/p1?tab=requirements");
   ok("「分析未批准」在四种触发动作下都不提示（批准之前逐条确认 / 驳回时的常态）", AUTO_DRAFT_TRIGGERS.every((t) => autoDraftBlocked("RUN_NOT_APPROVED", { projectId: "p", trigger: t }).quiet));
-  ok("「分析未批准」「已有轮次」不提示（审核过程中的常态）；其余原因都提示", by("RUN_NOT_APPROVED").quiet && by("ROUND_EXISTS").quiet && (["NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "SENDER_NOT_READY", "NO_DEFAULT_SUPPLIERS", "DRAFT_FAILED"] as const).every((r) => !by(r).quiet));
+  ok("「分析未批准」「已有轮次」不提示（审核过程中的常态）；其余原因都提示", by("RUN_NOT_APPROVED").quiet && by("ROUND_EXISTS").quiet && (["NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "SENDER_NOT_READY", "NO_DEFAULT_SUPPLIERS", "SUPPLIER_GROUP_UNDETERMINED", "SUPPLIER_GROUP_EMPTY", "DRAFT_FAILED"] as const).every((r) => !by(r).quiet));
+  // RFQ-AUTO-5：分组确定不了 / 组里没人
+  const ctx = { projectId: "p1", trigger: "approve_run" as const };
+  const none = autoDraftBlocked("SUPPLIER_GROUP_UNDETERMINED", { ...ctx, groupMatch: { kind: "none" } });
+  const many = autoDraftBlocked("SUPPLIER_GROUP_UNDETERMINED", { ...ctx, groupMatch: { kind: "many", groups: ["窗饰", "家具"] } });
+  const empty = autoDraftBlocked("SUPPLIER_GROUP_EMPTY", { ...ctx, groupMatch: { kind: "one", group: "窗饰", keyword: "blind" } });
+  ok("一组都没对上：说明写明没有对上、不会改用常用供应商，去询价入口，要提示", !none.drafted && none.messageZh.includes("没有对上你的任何一个供应商分组") && none.messageZh.includes("不会改用常用供应商") && none.action?.href === "/projects/p1?tab=bid" && !none.quiet);
+  ok("对上不止一组：说明列出这几组", !many.drafted && many.messageZh.includes("「窗饰」「家具」") && many.messageZh.includes("2 个供应商分组") && many.action?.href === "/projects/p1?tab=bid" && !many.quiet);
+  ok("对上的那一组里没有能发的：说明写明是哪一组", !empty.drafted && empty.messageZh.includes("分组「窗饰」里现在没有能发询价的供应商") && empty.action?.href === "/projects/p1?tab=bid" && !empty.quiet);
+  const unreadable = autoDraftBlocked("SUPPLIER_GROUP_UNDETERMINED", { ...ctx, groupMatch: { kind: "none" }, groupsUnreadable: true });
+  ok("保存的分组读不出来：照实说，不起草、不改用常用供应商，去询价入口", !unreadable.drafted && unreadable.messageZh.includes("读不出来") && unreadable.messageZh.includes("不会改用常用供应商") && unreadable.action?.href === "/projects/p1?tab=bid" && !unreadable.quiet);
+  ok("取不到摘要那一行时的兜底句与本功能之前逐字相同", AUTO_DRAFT_NOTE_FALLBACK === "系统在招标分析批准后自动起草，供应商取自操作者的常用供应商。请核对收件人与正文后再批准。");
+  const viaGroup = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 2, skippedCount: 1, unconfirmedCount: 0, group: { groupName: "窗饰", keyword: "blind" } });
+  ok("按分组起草：说明写明哪一组、凭哪个关键词，不再说「常用供应商」；跳过的说成「这一组里」", viaGroup.messageZh.includes("2 家供应商，取自分组「窗饰」（项目名称里有「blind」）") && !viaGroup.messageZh.includes("常用供应商") && viaGroup.messageZh.includes("这一组里有 1 家"));
+  ok("按分组起草：结果对象的字段不变（分组只进说明文字）", Object.keys(viaGroup).sort().join() === Object.keys(done).sort().join());
   ok("说明里没有价格、估值、毛利之类的字样", [done, ...all].every((b) => !/毛利|估值|底价|\$|¥|CAD|CNY/.test(b.messageZh)));
 }
 
@@ -98,6 +121,8 @@ console.log("标记");
 {
   const line = autoDraftPreviewLineZh("Lucas", { confirmedCount: 5, unconfirmedCount: 2 });
   ok("摘要行写明供应商取自谁的常用供应商、带了几条已确认的要求、有几条没带上，并提醒核对后再批", line.includes("Lucas 的常用供应商") && line.includes("带了 5 条已确认的要求") && line.includes("另有 2 条没有确认的没带上") && line.includes("核对"));
+  const groupLine = autoDraftPreviewLineZh("Lucas", { confirmedCount: 5, unconfirmedCount: 0 }, { groupName: "窗饰", keyword: "blind" });
+  ok("按分组起草：摘要行写明取自谁的哪一个分组、凭哪个关键词；开头不变（轮次列表靠它取这一行）", groupLine.includes("供应商取自 Lucas 的分组「窗饰」（项目名称里有「blind」）") && !groupLine.includes("常用供应商") && groupLine.startsWith(line.slice(0, 12)) && autoDraftPreviewLineZh("Lucas", { confirmedCount: 5, unconfirmedCount: 2 }, null) === line);
   ok("要求都确认了：摘要行不提「没带上」；没有名字时写「操作者」", !autoDraftPreviewLineZh("", { confirmedCount: 3, unconfirmedCount: 0 }).includes("没带上") && autoDraftPreviewLineZh("", { confirmedCount: 3, unconfirmedCount: 0 }).includes("操作者"));
 }
 {
