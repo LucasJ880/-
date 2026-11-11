@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { buildRfqDocument, computeReplyBy, renderRfqEmail, type RfqRequirementInput } from "../build";
+import { REQUIREMENT_CATEGORIES } from "@/lib/tender-understanding/contract";
 
 let passed = 0;
 function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
@@ -68,6 +69,50 @@ console.log("tender-rfq build");
   ok("招标原文含 cost / $ 这类合法词不误拒", r.ok);
   const r2 = buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements: [req({ requirementCode: "R-01", chineseTranslation: "我方毛利需保持 30%" })], facts: [] });
   ok("要求原文被内部字段污染 → 拒绝", !r2.ok && r2.errorCode === "SENSITIVE_LEAK");
+}
+// —— FIX-1：类别判定认得入库的写法（V2 入库为小写；V1 为旧式代码） ——
+{
+  const build = (requirements: RfqRequirementInput[]) =>
+    buildRfqDocument({ projectName: "P", buyerDisplayName: "B", closeDate: null, now, requirements, facts: [] });
+  const one = (category: string) => build([req({ requirementCode: "R-01", category })]);
+  const included = (category: string) => { const r = one(category); return r.ok && r.doc.lineItems.length === 1; };
+
+  const lower = build([
+    req({ requirementCode: "R-01", category: "product" }),
+    req({ requirementCode: "R-02", category: "delivery" }),
+    req({ requirementCode: "R-03", category: "technical" }),
+  ]);
+  ok("小写入库的类别照常进入询价单（3 条）", lower.ok && lower.doc.lineItems.length === 3);
+  ok("带空白与混合大小写与大写判定相同", included(" Product ") && included("PRODUCT"));
+
+  const legacyTech = one("mandatory_technical");
+  ok("旧式代码 mandatory_technical 进入询价单，行项类别为技术类", legacyTech.ok && legacyTech.doc.lineItems[0]?.category === "TECHNICAL");
+  const mixedLegacy = build([req({ requirementCode: "R-01" }), req({ requirementCode: "R-02", category: "mandatory_general" })]);
+  ok("旧式代码 mandatory_general 不进入，记 not_supplier_facing",
+    mixedLegacy.ok && mixedLegacy.doc.lineItems.length === 1 && mixedLegacy.doc.excluded.some((e) => e.requirementCode === "R-02" && e.reason === "not_supplier_facing"));
+
+  const unknown = build([req({ requirementCode: "R-01" }), req({ requirementCode: "R-02", category: "misc_notes" }), req({ requirementCode: "R-03", category: "" })]);
+  ok("未知与空类别不进入，记 not_supplier_facing",
+    unknown.ok && unknown.doc.lineItems.length === 1 && unknown.doc.excluded.filter((e) => e.reason === "not_supplier_facing").length === 2);
+
+  const samples = one("samples");
+  ok("小写 samples 触发样品提示，行项类别为标准写法",
+    samples.ok && samples.doc.lineItems[0]?.category === "SAMPLES" && samples.doc.attachmentsRequested.some((a) => a.includes("样品")));
+
+  const none = build([
+    req({ requirementCode: "R-01", category: "insurance" }),
+    req({ requirementCode: "R-02", category: "bonding" }),
+    req({ requirementCode: "R-03", category: "administrative" }),
+  ]);
+  ok("全部非供应商侧 → NO_CONFIRMED_REQUIREMENTS", !none.ok && none.errorCode === "NO_CONFIRMED_REQUIREMENTS");
+
+  const unconfirmed = build([req({ requirementCode: "R-01", category: "product", reviewStatus: "AI_EXTRACTED" })]);
+  ok("归一不放进未确认的要求", !unconfirmed.ok && unconfirmed.errorCode === "NO_CONFIRMED_REQUIREMENTS");
+
+  // 双源一致：分析契约里的每个类别，大写与小写写法的判定必须相同
+  const drift = REQUIREMENT_CATEGORIES.filter((c) => included(c) !== included(c.toLowerCase()));
+  ok(`分析契约 ${REQUIREMENT_CATEGORIES.length} 个类别大小写两种写法判定一致`, drift.length === 0);
+  ok("分析契约里供应商侧类别恰为 10 个", REQUIREMENT_CATEGORIES.filter((c) => included(c.toLowerCase())).length === 10);
 }
 ok("回复截止不早于今天+2", computeReplyBy("2026-10-23", now) === "2026-10-24");
 ok("截标为空 → 无回复截止", computeReplyBy(null, now) === null);

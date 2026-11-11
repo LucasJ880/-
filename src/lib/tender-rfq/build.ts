@@ -33,6 +33,26 @@ export const SUPPLIER_FACING_CATEGORIES: readonly RequirementCategoryV2[] = [
   "TRAINING",
 ];
 
+/**
+ * 旧式类别代码（V1 分析引擎写入）→ 标准类别。只列确有归属的代码；
+ * 不在表里的（如 mandatory_general）一律视为未知，不进询价单。
+ */
+const LEGACY_CATEGORY_MAP: Readonly<Record<string, RequirementCategoryV2>> = {
+  MANDATORY_TECHNICAL: "TECHNICAL",
+};
+
+/**
+ * 把入库的类别写法归一成标准类别：去首尾空白 → 转大写 → 旧式代码映射。
+ * 库里的类别是小写（V2 入库时 toLowerCase）或旧式代码（V1），不能直接与大写清单比较。
+ * 返回 null = 不属于供应商侧（含未知与空），调用方按 not_supplier_facing 处理，不猜归属。
+ */
+export function normalizeSupplierFacingCategory(raw: string | null | undefined): RequirementCategoryV2 | null {
+  const upper = (raw ?? "").trim().toUpperCase();
+  if (!upper) return null;
+  const category = LEGACY_CATEGORY_MAP[upper] ?? upper;
+  return (SUPPLIER_FACING_CATEGORIES as readonly string[]).includes(category) ? (category as RequirementCategoryV2) : null;
+}
+
 export type RfqRequirementInput = {
   requirementCode: string;
   category: string;
@@ -184,14 +204,15 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
       excluded.push({ requirementCode: r.requirementCode, reason: "not_confirmed" });
       continue;
     }
-    if (!(SUPPLIER_FACING_CATEGORIES as readonly string[]).includes(r.category)) {
+    const category = normalizeSupplierFacingCategory(r.category);
+    if (!category) {
       excluded.push({ requirementCode: r.requirementCode, reason: "not_supplier_facing" });
       continue;
     }
     items.push({
       seq: seq++,
       requirementCode: r.requirementCode,
-      category: r.category,
+      category,
       specZh: (r.chineseTranslation ?? "").trim() || r.originalRequirement.trim(),
       specOriginal: r.originalRequirement.trim(),
       mandatory: r.mandatory,
