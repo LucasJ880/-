@@ -89,8 +89,9 @@ export function RfqAutoFollowUpOptIn({ projectId, enabled, offer, canManage, onC
         <div className="space-y-2 rounded-md border border-[#9a6a2f]/30 bg-[#9a6a2f]/[0.05] p-3" data-testid="rfq-auto-followup-optin-scope">
           {offer ? (
             <>
+              <p className="text-muted">以这个项目现在的设置为例，自动起草的卡上会写：</p>
               <p className="text-foreground/85">{offer.summaryZh}</p>
-              <p className="text-muted">间隔天数与回复截止按每一轮起草时的设置定格；正文是下面的固定模板，只发给那一轮的原收件人。带授权的卡只能在网页上批，轮次里随时可以「停止自动跟进」。</p>
+              <p className="text-muted">间隔天数与回复截止每个项目不同，按每一轮起草时的设置定格；正文是下面的固定模板，只发给那一轮的原收件人。带授权的卡只能在网页上批，轮次里随时可以「停止自动跟进」。</p>
               <ul className="divide-y divide-border/60 rounded-md border border-border bg-background">
                 {offer.templates.map((t) => {
                   const open = openTemplate === t.key;
