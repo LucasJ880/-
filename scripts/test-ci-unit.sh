@@ -431,6 +431,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.t
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
 npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts
+npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
+NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
 # TI-1：招标价格表行项
 npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts
