@@ -115,13 +115,15 @@ export function decideAutoDraft(f: AutoDraftFacts): AutoDraftDecision {
  * quiet = 这次不必在界面上提示（审核过程中的常态：分析还没批准、项目已有轮次）；字段本身仍在响应里。
  */
 export type RfqAutoDraftResult =
-  | { drafted: true; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number; messageZh: string; href: string; quiet: false }
+  | { drafted: true; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number; withFollowUp: boolean; messageZh: string; href: string; quiet: false }
   | { drafted: false; reason: Exclude<AutoDraftReason, "FLAG_OFF">; messageZh: string; action: EntryAction | null; quiet: boolean };
 
 const bidTabHref = (projectId: string) => `/projects/${encodeURIComponent(projectId)}?tab=bid`;
 export const autoDraftRoundHref = (projectId: string, inquiryId: string) => `${bidTabHref(projectId)}#rfq-round-${encodeURIComponent(inquiryId)}`;
 
-export function autoDraftDone(input: { projectId: string; inquiryId: string; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number }): RfqAutoDraftResult {
+export function autoDraftDone(input: { projectId: string; inquiryId: string; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number; withFollowUp?: boolean }): RfqAutoDraftResult {
+  // RFQ-AUTO-3：卡上带跟进授权时在这里就说清楚——批准它不只是批准首封
+  const followUp = input.withFollowUp ? "这张卡带自动跟进授权：批准它会一并批准后面的催单和追问。" : "";
   const skipped = input.skippedCount > 0 ? `（常用供应商里有 ${input.skippedCount} 家停用、没有邮箱或超出上限，已跳过）` : "";
   // 批准分析即视为审核完成：询价单只带已确认的要求，没确认的不带——这里说清楚有几条没带上
   const unconfirmed = input.unconfirmedCount > 0 ? `询价单只带已确认的要求，另有 ${input.unconfirmedCount} 条没有确认的没带上。` : "";
@@ -131,7 +133,8 @@ export function autoDraftDone(input: { projectId: string; inquiryId: string; rou
     supplierCount: input.supplierCount,
     skippedCount: input.skippedCount,
     unconfirmedCount: input.unconfirmedCount,
-    messageZh: `已为你起草第 ${input.roundNumber} 轮询价：${input.supplierCount} 家常用供应商${skipped}。${unconfirmed}还没有发出，批准后才发。`,
+    withFollowUp: input.withFollowUp === true,
+    messageZh: `已为你起草第 ${input.roundNumber} 轮询价：${input.supplierCount} 家常用供应商${skipped}。${unconfirmed}${followUp}还没有发出，批准后才发。`,
     href: autoDraftRoundHref(input.projectId, input.inquiryId),
     quiet: false,
   };

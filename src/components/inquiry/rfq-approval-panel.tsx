@@ -46,13 +46,15 @@ type Props = {
   chase?: { kind: ChaseCardKind; chaseIndex: number; supplierName: string };
   /** RFQ-AUTO-1：这张发询价卡带的跟进授权——批准它即一并批准这些后续邮件，所以必须在这里让人看到 */
   followUp?: RfqFollowUpCardView | null;
+  /** 跟进授权的功能现在是关的：授权照样显示，但注明关闭期间不会自动发、重新打开后恢复生效 */
+  followUpSuspended?: boolean;
 };
 
 type Outcome = RfqDecisionOutcome | null;
 
 const NETWORK_ERROR = "网络出错了，请重试；不确定是否已发出时，先刷新看轮次状态再操作。";
 
-export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className, variant = "rfq", chase, followUp }: Props) {
+export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className, variant = "rfq", chase, followUp, followUpSuspended }: Props) {
   const isChase = variant === "chase" && !!chase;
   const source: RfqDecisionOutcome["source"] = isChase ? "chase" : "rfq";
   const chaseCopy = isChase ? chasePanelCopy({ ...chase, roundNumber }) : null;
@@ -157,6 +159,11 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
           <p className="text-xs font-medium text-foreground">批准这张卡，同时批准以下后续邮件</p>
           <p className="text-xs text-foreground/85">{followUp.summaryZh}</p>
           <p className="text-xs text-muted">这些邮件到点由系统发出，不再逐封问你；正文就是下面的固定模板，只发给这一轮的原收件人。轮次里随时可以「停止自动跟进」。</p>
+          {followUpSuspended && (
+            <p className="text-xs text-[#9a6a2f]" data-testid="rfq-followup-suspended">
+              自动跟进的功能现在是关闭的：关闭期间这些邮件仍会逐封等你批。但这份授权写在这张卡里——功能重新打开后，它会恢复生效。
+            </p>
+          )}
           <ul className="divide-y divide-border/60 rounded-md border border-border bg-background">
             {followUp.templates.map((t) => {
               const open = openTemplate === t.key;

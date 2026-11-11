@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { InquiryDetail } from "./inquiry-detail";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
+import { RfqAutoFollowUpOptIn } from "./rfq-auto-followup-optin";
 import { RfqFollowUpStatus } from "./rfq-followup-status";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
@@ -296,6 +297,16 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
           ))}
         </div>
       )}
+      {ready?.autoDraftFollowUp && (
+        <RfqAutoFollowUpOptIn
+          projectId={projectId}
+          state={ready.autoDraftFollowUp.state}
+          available={ready.autoDraftFollowUp.available}
+          offer={ready.followUp?.offer ?? null}
+          canManage={canManage}
+          onChanged={loadEntry}
+        />
+      )}
       {createError && <p className="mt-2 text-xs text-danger">{createError}</p>}
       {canManage && entryError && (
         <p className="mt-2 flex items-center gap-2 text-xs text-[#9a6a2f]">
@@ -429,6 +440,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         approval={pending.approval}
                         emails={pending.emails}
                         followUp={ready?.followUp?.cards[pending.actionId] ?? null}
+                        followUpSuspended={ready?.followUp?.suspended === true}
                         onDone={(o) => onDecision(r.id, o)}
                       />
                     )}

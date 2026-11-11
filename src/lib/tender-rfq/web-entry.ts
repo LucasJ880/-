@@ -10,6 +10,7 @@
  */
 
 import { isRfqAutoDraftEnabledForOrg } from "./auto-draft-flags";
+import { isAutoDraftFollowUpOptInAvailable, loadAutoDraftFollowUpOptInState } from "./auto-followup-optin-service";
 import { AUTO_DRAFT_TOOL_NAME, autoDraftedRoundNotes } from "./auto-draft-pure";
 import { buildFollowUpPolicy, followUpCardView, parseFollowUpPolicy, type FollowUpCardView } from "./followup-coverage";
 import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
@@ -62,10 +63,15 @@ export type RfqWebEntry =
       engineRounds: Record<string, { elapsed: string | null }>;
       autoIngest: UserMessage;
       timeZone: string;
-      /** RFQ-AUTO-1：开关关闭时为 null——界面不出现任何自动跟进的内容 */
+      /** RFQ-AUTO-1：开关关闭时为 null——界面不出现任何自动跟进的内容；唯一的例外是已经带着授权的待批卡（见 suspended） */
       followUp: RfqEntryFollowUp | null;
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /**
+       * RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」。available = 两个功能开关都打开（现在能生效、能开启）。
+       * 两个功能开关都关闭时没有这个字段；只开了一个时，只有本人的开关不是 off 才有（让他看得到、关得掉）。
+       */
+      autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
     };
 
 /** RFQ-AUTO-1：入口里与跟进授权有关的全部内容 */
@@ -76,6 +82,8 @@ export type RfqEntryFollowUp = {
   cards: Record<string, FollowUpCardView>;
   /** 各轮的状态：inquiryId → 生效中 / 已停止 / 未生效 */
   rounds: Record<string, { state: "active" | "stopped" | "inactive"; summaryZh: string; reasonZh: string | null; autoSentCount: number }>;
+  /** 跟进授权的功能开关现在是关的：卡上的授权照样显示，但注明关闭期间不会自动发 */
+  suspended?: boolean;
 };
 
 const SUPPLIER_LIMIT = 100;
@@ -246,6 +254,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
     ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
+    ...(await loadEntryAutoDraftFollowUp(input.orgId, input.userId)),
     followUp: await loadEntryFollowUp({
       orgId: input.orgId,
       now,
@@ -256,6 +265,14 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       inquiryIds: lockState.existing.map((r) => r.inquiryId),
     }),
   };
+}
+
+/** RFQ-AUTO-3：本人的开关。两个功能开关都关 → 不查库、没有这个字段。 */
+async function loadEntryAutoDraftFollowUp(orgId: string, userId: string): Promise<{ autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean } }> {
+  if (!isRfqFollowUpPreapprovalEnabledForOrg(orgId) && !isRfqAutoDraftEnabledForOrg(orgId)) return {};
+  const available = isAutoDraftFollowUpOptInAvailable(orgId);
+  const state = await loadAutoDraftFollowUpOptInState(orgId, userId);
+  return available || state !== "off" ? { autoDraftFollowUp: { state, available } } : {};
 }
 
 /** RFQ-AUTO-2：本项目里由系统起草的轮次（只在开关打开时调用） */
@@ -276,10 +293,9 @@ async function loadEntryFollowUp(input: {
   pendingActionIds: string[];
   inquiryIds: string[];
 }): Promise<RfqEntryFollowUp | null> {
-  if (!isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)) return null;
   const view = (policy: Parameters<typeof followUpCardView>[0]) => followUpCardView(policy, { fromName: input.fromName, now: input.now });
-  // 新建一轮会带的授权：与 prepareRfqRound 同一套入参（间隔按项目负责人偏好、截止 = 这一轮的回复截止）
-  const offerPolicy = buildFollowUpPolicy({ chaseAfterDays: input.chaseAfterDays, replyBy: input.replyBy, templateHash: chaseTemplateHash() });
+  // 待批发送卡上已带的授权：不看功能开关——只要卡的载荷里有授权，批准的人就必须看得到。
+  // （卡起草之后功能开关被关掉的话，授权仍在卡里，开关再打开就会恢复生效。）
   const cards: RfqEntryFollowUp["cards"] = {};
   if (input.pendingActionIds.length) {
     const rows = await db.pendingAction.findMany({ where: { orgId: input.orgId, id: { in: input.pendingActionIds }, type: TENDER_SEND_RFQ_TYPE }, select: { id: true, payload: true } });
@@ -288,6 +304,12 @@ async function loadEntryFollowUp(input: {
       if (policy) cards[r.id] = view(policy);
     }
   }
+  if (!isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)) {
+    // 功能开关关闭：不给勾选、不显示轮次状态；只有确实存在带授权的待批卡时才返回，并标明现在是暂停状态
+    return Object.keys(cards).length > 0 ? { offer: null, cards, rounds: {}, suspended: true } : null;
+  }
+  // 新建一轮会带的授权：与 prepareRfqRound 同一套入参（间隔按项目负责人偏好、截止 = 这一轮的回复截止）
+  const offerPolicy = buildFollowUpPolicy({ chaseAfterDays: input.chaseAfterDays, replyBy: input.replyBy, templateHash: chaseTemplateHash() });
   const rounds: RfqEntryFollowUp["rounds"] = {};
   for (const [inquiryId, st] of await loadRoundFollowUpStatus(input.orgId, input.inquiryIds)) {
     if (st.state === "none") continue;
