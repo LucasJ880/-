@@ -70,11 +70,11 @@
 - **THEN** 入口响应里这一组仍是 3 家，可选的是 2 家（`supplier-groups-db.isolated.test.ts`）
 
 ### Requirement: 抽屉按分组预选
-本人有至少一个分组时，打开询价抽屉 SHALL 这样预选：恰好一组对上 → 预先勾选这一组里可选的供应商（按组内顺序），并写明用了哪一组、凭哪个关键词；否则 SHALL NOT 预先勾选任何供应商，并提示选一组或手动勾选（不止一组对上时列出这些组）。点一个分组 SHALL 把勾选换成该组里可选的供应商。预选之后人 SHALL 仍能自由增减勾选；提交的收件人 SHALL 以人最终勾选的为准。本人没有分组时，预选 SHALL 与现在相同（常用供应商）。
+本人有至少一个分组时，打开询价抽屉 SHALL 这样预选：恰好一组对上 → 预先勾选这一组里可选的供应商（按组内顺序），并写明用了哪一组、凭哪个关键词；否则 SHALL NOT 预先勾选任何供应商，并提示选一组或手动勾选（不止一组对上时列出这些组）。点一个分组 SHALL 把勾选换成该组里可选的供应商。那一行说明 SHALL 跟着当前的勾选走：勾选已不是对上的那一组时 SHALL NOT 仍写「已按这一组勾选」。预选之后人 SHALL 仍能自由增减勾选；提交的收件人 SHALL 以人最终勾选的为准。本人没有分组时，预选 SHALL 与现在相同（常用供应商）。
 
 #### Scenario: 对上一组
 - **WHEN** 项目名称对上分组「窗饰」（3 家，其中 1 家没有邮箱），打开抽屉
-- **THEN** 预先勾选的是另外 2 家，抽屉里写着「项目名称里有『blind』，选了分组『窗饰』」（`npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts`；截图 `docs/acceptance/rfq-auto-5/drawer-matched.png`）
+- **THEN** 预先勾选的是另外 2 家，抽屉里写着「项目名称里有『blind』，对上了分组『窗饰』，已按这一组勾选」（`npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts`；截图 `docs/acceptance/rfq-auto-5/drawer-matched.png`）
 
 #### Scenario: 对不上
 - **WHEN** 本人有两个分组，项目名称一个都对不上，打开抽屉

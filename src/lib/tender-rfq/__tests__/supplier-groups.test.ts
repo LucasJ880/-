@@ -12,6 +12,7 @@ import {
   addGroup,
   buildSupplierGroupsEntry,
   findGroup,
+  groupHint,
   groupPreselection,
   groupsWithoutKeywords,
   interpretGroupsSaveResponse,
@@ -22,6 +23,7 @@ import {
   removeGroup,
   replaceGroupSuppliers,
   sameSupplierGroups,
+  sameSelection,
   selectionForGroup,
   supplierIdsInGroups,
   updateGroupMeta,
@@ -122,7 +124,11 @@ console.log("抽屉预选");
 
   const matched = groupPreselection({ groups: e, suppliers, max: 8 });
   ok("恰好一组对上 → 预选这一组里可选的，按组内顺序；常用供应商不勾", matched.selected.join() === "c,a" && matched.activeGroup === "窗饰");
-  ok("对上时写明依据，并说明组里有几家现在不能选", matched.hint?.tone === "matched" && matched.hint.textZh.includes("项目名称里有「blind」，选了分组「窗饰」") && matched.hint.textZh.includes("另有 1 家现在不能选"));
+  ok("对上时写明依据，并说明组里有几家现在不能选", matched.hint?.tone === "matched" && matched.hint.textZh.includes("项目名称里有「blind」，对上了分组「窗饰」，已按这一组勾选") && matched.hint.textZh.includes("另有 1 家现在不能选"));
+  const afterSwitch = groupHint({ groups: e, suppliers, selected: ["e"], max: 8 });
+  ok("人改选了别的组 / 手动改了勾选之后：说明跟着变，不再写「已按这一组勾选」，并告诉他怎么回到对上的那一组", afterSwitch?.tone === "matched" && afterSwitch.textZh.includes("对上了分组「窗饰」") && !afterSwitch.textZh.includes("已按这一组勾选") && afterSwitch.textZh.includes("点「窗饰」可以按这一组勾选"));
+  ok("勾选同样几家但顺序不同（取消再勾回来）：仍算是这一组", groupHint({ groups: e, suppliers, selected: ["a", "c"], max: 8 })?.textZh.includes("已按这一组勾选") === true && sameSelection(["a", "c"], ["c", "a"]) && !sameSelection(["a"], ["a", "c"]) && !sameSelection(["a", "a"], ["a", "c"]));
+  ok("没有分组时没有说明；刚打开时的说明就是按预选结果算出来的那一句", groupHint({ groups: null, suppliers, selected: [], max: 8 }) === null && groupHint({ groups: e, suppliers, selected: matched.selected, max: 8 })?.textZh === matched.hint.textZh);
 
   const und = groupPreselection({ groups: entry("Janitorial Services"), suppliers, max: 8 });
   ok("对不上 → 不预先勾选任何供应商（常用供应商也不勾），提示选一组或手动勾选", und.selected.length === 0 && und.activeGroup === null && und.hint?.tone === "undetermined" && und.hint.textZh.includes("没有对上任何分组") && und.hint.textZh.includes("手动勾选"));
@@ -133,7 +139,7 @@ console.log("抽屉预选");
   ok("点分组也不超过上限", selectionForGroup(G("x", ["a", "c", "e"]), suppliers, 2).join() === "a,c" && selectionForGroup(G("x", ["a"]), suppliers, 0).length === 0);
   ok("组里的供应商不在可选列表里（已被删）→ 不会被勾上", selectionForGroup(G("x", ["ghost", "a"]), suppliers, 8).join() === "a");
   const allBlocked = groupPreselection({ groups: buildSupplierGroupsEntry({ doc: { groups: [G("窗饰", ["b"], ["blind"])] }, version: null, projectName: "blinds", readySupplierIds: new Set() }), suppliers, max: 8 });
-  ok("对上的那一组里没有可选的 → 不勾任何人，并照实说明", allBlocked.selected.length === 0 && allBlocked.hint?.textZh.includes("现在没有能发询价的供应商") === true);
+  ok("对上的那一组里没有可选的 → 不勾任何人，并照实说明", allBlocked.selected.length === 0 && allBlocked.hint?.tone === "undetermined" && allBlocked.hint.textZh.includes("现在没有能发询价的供应商") === true);
 }
 
 /* ---------- 修改 ---------- */

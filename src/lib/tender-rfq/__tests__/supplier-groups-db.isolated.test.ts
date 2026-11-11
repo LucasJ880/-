@@ -164,7 +164,7 @@ async function main() {
     const pBlinds = await mkProject(`Supply and Install Window BLINDS ${stamp}`);
     const eBlinds = await entryOf(pBlinds.projectId);
     const preBlinds = groupPreselection({ groups: eBlinds.supplierGroups, suppliers: eBlinds.suppliers, max: 8 });
-    ok(eBlinds.supplierGroups?.match.kind === "one" && eBlinds.supplierGroups.match.group === BLINDS && eBlinds.supplierGroups.match.keyword === "blind" && preBlinds.selected.join() === [sA.id, sB.id].join() && preBlinds.hint?.textZh.includes(`项目名称里有「blind」，选了分组「${BLINDS}」`) === true, "项目名称对上一组：预选这一组里可选的 2 家（按组内顺序），写明依据；常用供应商没有被勾", { match: eBlinds.supplierGroups?.match, pre: preBlinds });
+    ok(eBlinds.supplierGroups?.match.kind === "one" && eBlinds.supplierGroups.match.group === BLINDS && eBlinds.supplierGroups.match.keyword === "blind" && preBlinds.selected.join() === [sA.id, sB.id].join() && preBlinds.hint?.textZh.includes(`项目名称里有「blind」，对上了分组「${BLINDS}」，已按这一组勾选`) === true, "项目名称对上一组：预选这一组里可选的 2 家（按组内顺序），写明依据；常用供应商没有被勾", { match: eBlinds.supplierGroups?.match, pre: preBlinds });
     const preHome = groupPreselection({ groups: e1.supplierGroups, suppliers: e1.suppliers, max: 8 });
     ok(e1.supplierGroups?.match.kind === "none" && preHome.selected.length === 0 && preHome.hint?.tone === "undetermined", "项目名称对不上：不预先勾选任何供应商（有 2 家可选的常用供应商也不勾）", preHome);
 

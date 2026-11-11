@@ -14,12 +14,13 @@ import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   addGroup,
-  groupPreselection,
+  groupHint,
   groupsWithoutKeywords,
   interpretGroupsSaveResponse,
   parseKeywordsInput,
   removeGroup,
   replaceGroupSuppliers,
+  sameSelection,
   selectionForGroup,
   updateGroupMeta,
   validateSupplierGroups,
@@ -45,8 +46,6 @@ type Props = {
 
 const inputCls = "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-accent/60";
 
-const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
-
 export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, onSelect, onSaved }: Props) {
   const [managing, setManaging] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,7 +56,7 @@ export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, o
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const doc: SupplierGroupsDoc = { groups: view.groups.map((g) => ({ name: g.name, supplierIds: g.supplierIds, keywords: g.keywords })) };
-  const hint = groupPreselection({ groups: view, suppliers, max }).hint;
+  const hint = groupHint({ groups: view, suppliers, selected, max });
   const noKeywords = groupsWithoutKeywords(doc);
   const atLimit = view.groups.length >= view.limits.groups;
 
@@ -118,7 +117,7 @@ export function RfqSupplierGroups({ projectId, view, suppliers, selected, max, o
           <div className="flex flex-wrap gap-1.5">
             {view.groups.map((g) => {
               const ids = selectionForGroup(g, suppliers, max);
-              const active = ids.length > 0 && sameIds(ids, selected);
+              const active = ids.length > 0 && sameSelection(ids, selected);
               return (
                 <button
                   key={g.name}

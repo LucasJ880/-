@@ -187,13 +187,52 @@ export function selectionForGroup(group: Pick<SupplierGroup, "supplierIds">, sup
   return group.supplierIds.filter((id) => ready.has(id)).slice(0, Math.max(0, max));
 }
 
+export type GroupHint = { tone: "matched" | "undetermined"; textZh: string };
+
 export type GroupPreselection = {
   selected: string[];
   /** 预选用的那一组；没有按分组预选为 null */
   activeGroup: string | null;
-  /** 抽屉里那一行说明；没有分组时为 null（界面与本功能之前相同） */
-  hint: { tone: "matched" | "undetermined"; textZh: string } | null;
+  /** 刚打开时抽屉里那一行说明；没有分组时为 null（界面与本功能之前相同） */
+  hint: GroupHint | null;
 };
+
+/** 两份勾选是不是同样几家（不看顺序：人取消再勾回来，顺序会变） */
+export function sameSelection(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return set.size === a.length && b.every((x) => set.has(x));
+}
+
+/**
+ * 抽屉里那一行说明：这个项目对上了哪一组、现在的勾选是不是这一组。
+ * 跟着当前的勾选走——人改选了别的组之后，不会还写着「已按这一组勾选」。没有分组时为 null。
+ */
+export function groupHint(input: {
+  groups: Pick<SupplierGroupsEntry, "groups" | "match"> | null | undefined;
+  suppliers: readonly PickableSupplier[];
+  selected: readonly string[];
+  max: number;
+}): GroupHint | null {
+  const { groups, suppliers, selected, max } = input;
+  if (!groups || groups.groups.length === 0) return null;
+  const m = groups.match;
+  const group = m.kind === "one" ? groups.groups.find((g) => g.name === m.group) : undefined;
+  if (m.kind === "one" && group) {
+    const ids = selectionForGroup(group, suppliers, max);
+    const head = `项目名称里有「${m.keyword}」，对上了分组「${group.name}」`;
+    if (ids.length === 0) return { tone: "undetermined", textZh: `${head}，但这一组里现在没有能发询价的供应商。请改选别的组，或手动勾选。` };
+    if (sameSelection(ids, selected)) {
+      const notReady = group.supplierIds.length - ids.length;
+      return { tone: "matched", textZh: `${head}，已按这一组勾选${notReady > 0 ? `（组里另有 ${notReady} 家现在不能选）` : ""}。可以改选别的组或手动增减。` };
+    }
+    return { tone: "matched", textZh: `${head}。现在的勾选和这一组不一样；点「${group.name}」可以按这一组勾选。` };
+  }
+  if (m.kind === "many") {
+    return { tone: "undetermined", textZh: `项目名称同时对上了 ${m.groups.map((g) => `「${g}」`).join("")} ${m.groups.length} 个分组，没有替你选。请点一个分组，或手动勾选。` };
+  }
+  return { tone: "undetermined", textZh: "项目名称没有对上任何分组的关键词，没有替你预选。请点一个分组，或手动勾选。" };
+}
 
 /**
  * 打开抽屉时预先勾选谁。
@@ -210,20 +249,9 @@ export function groupPreselection(input: {
     return { selected: suppliers.filter((s) => s.isDefault && s.ready).slice(0, Math.max(0, max)).map((s) => s.id), activeGroup: null, hint: null };
   }
   const m = groups.match;
-  if (m.kind === "one") {
-    const group = groups.groups.find((g) => g.name === m.group);
-    if (group) {
-      const selected = selectionForGroup(group, suppliers, max);
-      const notReady = group.supplierIds.length - selected.length;
-      const tail = selected.length === 0 ? "，但这一组里现在没有能发询价的供应商" : notReady > 0 ? `（组里另有 ${notReady} 家现在不能选）` : "";
-      return { selected, activeGroup: group.name, hint: { tone: "matched", textZh: `项目名称里有「${m.keyword}」，选了分组「${group.name}」${tail}。可以改选别的组或手动增减。` } };
-    }
-  }
-  const textZh =
-    m.kind === "many"
-      ? `项目名称同时对上了 ${m.groups.map((g) => `「${g}」`).join("")} ${m.groups.length} 个分组，没有替你选。请点一个分组，或手动勾选。`
-      : "项目名称没有对上任何分组的关键词，没有预先勾选。请点一个分组，或手动勾选。";
-  return { selected: [], activeGroup: null, hint: { tone: "undetermined", textZh } };
+  const group = m.kind === "one" ? groups.groups.find((g) => g.name === m.group) : undefined;
+  const selected = group ? selectionForGroup(group, suppliers, max) : [];
+  return { selected, activeGroup: group ? group.name : null, hint: groupHint({ groups, suppliers, selected, max }) };
 }
 
 /* ---------------------------------- 在一份分组上改一处（返回新的一份，不改原对象） ---------------------------------- */
