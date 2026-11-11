@@ -16,6 +16,7 @@ import { ChinaSupplierBriefPanel } from "@/components/bid-workflow/china-supplie
 import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
 import { TenderSourcingEntry } from "@/components/supplier-intel/tender-sourcing-entry";
 import { VersionHistoryDrawer } from "@/components/project-detail/version-history-drawer";
+import { BidWorkspacePanel } from "@/components/tender/bid-workspace-panel";
 
 interface BidTabProps {
   projectId: string;
@@ -39,6 +40,9 @@ export function BidTab({ projectId, orgId, canManage }: BidTabProps) {
           版本历史
         </button>
       </div>
+
+      {/* TI-4b 投标工作区：开关关闭时接口 404，面板不渲染任何内容 */}
+      <BidWorkspacePanel projectId={projectId} canManage={canManage} />
 
       {/* 招投标报价（引擎）置顶；legacy 外贸报价折叠（flag OFF 时与原来一致） */}
       {/* Phase 2：Our Bid 摘要（Approved Quote 为权威来源） */}
