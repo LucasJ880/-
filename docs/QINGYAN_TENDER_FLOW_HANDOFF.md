@@ -4,32 +4,44 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第三次（Owner Gate A 已过：Lucas「按照你的推荐去做」；三个 change 的四件套已出，**等审核后 apply**；第二轮开源调研已并入） |
+| 最后更新 | 2026-11-11 第四次（Lucas：「开始实施；一个 change 一个 PR；夹具按推荐用代号」。FIX-1、TI-1、TI-2 已实施，四个 Draft PR 已开：#411 规划基础、#412 FIX-1、#413 TI-1、#414 TI-2；**等审核与合并**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]`、TI-0 `[~]`（FIX-1 / TI-1 / TI-2 的行在各自 apply 的最后一条任务里新增） |
-| 工作分支 | `claude/zealous-shannon-p48grg`（只在此分支提交与推送；未要求不开 PR） |
-| 性质 | 到目前为止只有文档与规划文件，**没有改任何代码** |
-| 进行中的 change | `rfq-requirement-category-match`（FIX-1，0/5）、`tender-price-schedule-lines`（TI-1，0/7）、`tender-bid-cost-sheet`（TI-2，0/8）——三个都只有四件套，`openspec validate --strict` 通过；另有 `next16-proxy-rename`（与本任务无关） |
+| 工作分支 | 基础：`claude/zealous-shannon-p48grg`（#411，只有文档与规划文件）。其上依次叠：`claude/rfq-requirement-category-match`（#412）→ `claude/tender-price-schedule-lines`（#413）→ `claude/tender-bid-cost-sheet`（#414）。每个 PR 的 base 是前一个分支 |
+| 性质 | #411 无代码。#412 改了询价生成器（线上行为会变：询价能带上要求）。#413、#414 是新增的纯函数目录，线上不可达 |
+| 进行中的 change | `rfq-requirement-category-match`（5/5）、`tender-price-schedule-lines`（7/7）、`tender-bid-cost-sheet`（8/8）——都已实施完、未归档（合并后才能 archive）；另有 `next16-proxy-rename`（与本任务无关） |
 
 ---
 
 ## 0. 下一步
 
-**现在卡在：三个 change 的四件套等审核。** 按 `CLAUDE.md` §4，propose 只出规划文件，审过才能 `/opsx:apply`。Owner Gate A 已过（差距分析 §10a）。
+**现在卡在：四个 Draft PR 等 Lucas / Evan 审核与合并。** 合并、部署都要单独授权，本会话没有。
 
-审核通过后的顺序：
+合并顺序必须是 #411 → #412 → #413 → #414（后一个的 base 是前一个分支；前一个合并并删除分支后，GitHub 会把下一个自动改指 main）。
 
-1. `/opsx:apply rfq-requirement-category-match`（FIX-1）。最小、最急：真实数据下询价单带不上任何要求，已用只读脚本复现（小写类别与旧式代码都返回 `NO_CONFIRMED_REQUIREMENTS`）。先写测试看它失败，再改 `src/lib/tender-rfq/build.ts`。
-2. `/opsx:apply tender-price-schedule-lines`（TI-1）。夹具原件是 Skill 包里的 `assets/ottawa-bedbug-case.json`，**不在仓库里**；18 行的内容在差距分析 §13 与本会话记录里，找不到就请 Lucas 重新上传 `skill.zip`。入库的夹具把竞争对手与出口商名称换成代号。
-3. `/opsx:apply tender-bid-cost-sheet`（TI-2），依赖 TI-1。金标数字来自 Skill 包 `scripts/cost_model.py` 的输出，已写进该 change 的 design「验证方式」。注意合计利润取 313.03（逐行相加），不是样例的 313.04。
-4. 还没 propose 的：FIX-2（数量与单位在入库时被丢，落点取决于 Gate B 的数据库方案，先不动）；TI-3（文件领取方、别名、进口线索、连接状态、证据词表、可投标判定，**外加阶段策略表**——差距分析 §17.1）。
-5. Phase B 三个 change 做完停在 Owner Gate B：审契约与测试，定数据库方案（差距分析 §7）。
+每个 PR 合并之后：
 
-每个 change 结束前跑它 tasks 里列的门禁。运行环境：依赖已在本会话装好（`npm ci --ignore-scripts` 后 `npx prisma generate`），新会话要重装；单文件测试 `npx tsx <file>`。
+1. `/opsx:archive <change> --yes`，走一个独立的小 PR；同步把 TASKFLOW 里该行的 `[G]（#NNN 待审）` 改成 `[x]（#NNN；archive …）`。
+2. #412 上线后，第一次发询价时在审批卡上把正文从头核对一遍（`docs/QINGYAN_FIX-1_REPORT.md` §5）。
 
-当前会话只被授权在 `claude/zealous-shannon-p48grg` 上推送，没有被要求开 PR。「一个 change 一个 PR」需要 Lucas 另行开口并说明分支怎么分。
+接下来还没做的，按顺序：
+
+1. **TI-3**（还没 propose）：文件领取方快照、公司别名不自动合并、进口线索只是线索、来源「未接通」状态、证据词表投影、历史金额口径类型（A15）、可投标判定（A7、A21），**以及阶段策略表**（差距分析 §17.1：自动 / 等材料 / 未接通 / 要批准——Lucas 要的「不再逐项询问」就落在这里）。任务数可能超过 8 条，超了就拆成两个 change。
+2. **Owner Gate B**：TI-1、TI-2、TI-3 的契约与测试过审后，定数据库方案（差距分析 §7：零 schema 的 JSON 位，还是受限例外建表）。
+3. **FIX-2**：分析入库时丢弃数量与单位。落点取决于 Gate B，先不动。
+4. 之后才是持久化与接口（TI-4）、只读适配器（TI-5）、界面（TI-6、TI-7）。成本核算表接界面时按财务访问规则授权，并把结果写回报价引擎、让定价助手改读核算表。
+
+实施时已经定下、后面要沿用的约定：
+
+- 纯函数目录：`src/lib/tender-price-schedule/`、`src/lib/tender-bid-cost/`。文件基本名避开架构守卫的禁用词（plan / engine / queue / scheduler 等，按 `-`、`_`、`.` 切分后整词匹配）。
+- 金额一律用 `src/lib/project-finance/money.ts` 的定点工具；合计 = 各行舍入值之和。
+- 新测试同时登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+- 实施中发现规格没覆盖的对外行为：先补规格增量、`openspec validate --strict` 通过，再继续写代码（TI-2 这样补了三处，见 `docs/QINGYAN_TI-2_REPORT.md` §5）。
+- 渥太华夹具：`src/lib/tender-price-schedule/__tests__/fixtures/ottawa-18026.ts`，公司名用代号。Skill 包原件不在仓库里。
+
+运行环境：`npm ci --ignore-scripts` 后 `npx prisma generate`；单文件测试 `npx tsx <file>`；`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 约需数分钟。
 
 FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测（第 4 轮）；独立复核（第 5 轮）；四步路径方案原文；生产开关实际值；R-1 例外是否算已批准。
 
@@ -49,7 +61,11 @@ FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测�
 ---
 
 | 开源二 | 第二轮开源调研：成本核算、不逐项询问的流程、贸易数据 | 完成 2026-11-11 | 开源调研 §6；6 处抽查 |
-| 规划 | FIX-1、TI-1、TI-2 四件套 | 完成 2026-11-11，等审核 | `openspec/changes/{rfq-requirement-category-match,tender-price-schedule-lines,tender-bid-cost-sheet}/` |
+| 规划 | FIX-1、TI-1、TI-2 四件套 | 完成 2026-11-11；Lucas 同日批准实施 | `openspec/changes/{rfq-requirement-category-match,tender-price-schedule-lines,tender-bid-cost-sheet}/` |
+
+| 实施 | FIX-1：询价单类别归一 | 完成 2026-11-11，#412 待审 | `build.test.ts` 21 → 31 项；`docs/QINGYAN_FIX-1_REPORT.md` |
+| 实施 | TI-1：价格表行项 | 完成 2026-11-11，#413 待审 | 4 个测试 81 项；验收项 A1 / A2 / A8 / A9 / A10 / A16；`docs/QINGYAN_TI-1_REPORT.md` |
+| 实施 | TI-2：逐行成本核算表 | 完成 2026-11-11，#414 待审 | 5 个测试 103 项；验收项 A10–A14；样例 `docs/acceptance/ti-2/ottawa-sample-cost-sheet.md`；`docs/QINGYAN_TI-2_REPORT.md` |
 
 ## 2. 已核对的要点（细节看底稿，这里只放接手必须知道的）
 
@@ -92,7 +108,8 @@ FLOW-0 还欠的（不阻塞 TI）：同事的「三个时刻」；同标实测�
 
 ## 5. 不要做的事
 
-- 不要在四件套审核通过之前 apply；不要 propose 之外顺手改代码。
+- 不要合并、不要部署、不要 archive 未合并的 change。
+- 新的 change 先 `/opsx:propose`、审过再 apply；不要 propose 之外顺手改代码。
 - 不要新建并行的 Tender / Supplier / Task 体系；供应商主档只有 `Supplier` 一个。
 - 不要发询价、付费、提交投标或资料申请、合并、部署、动生产数据或凭证——每一项都要 Lucas 单独明确授权。
 - 不要把「领取文件」写成「投标」，不要把历史运单写成当前供货关系，不要在未接通数据源时造数据。
