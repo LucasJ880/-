@@ -99,6 +99,8 @@ npx tsx --test src/lib/project-finance/__tests__/p16-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p16-authz-contract.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm.test.ts
+NODE_ENV=test npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm-db.isolated.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
 npx tsx src/lib/tender-understanding/__tests__/addendum-disposition.test.ts
 npx tsx src/lib/tender-understanding/__tests__/input-completeness.test.ts

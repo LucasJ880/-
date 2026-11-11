@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-fetch";
 import type { RfqAutoDraftResult } from "@/lib/tender-rfq/auto-draft-pure";
+import {
+  approveHintZh,
+  batchConfirmResultZh,
+  canBatchConfirm,
+  countRequirementReview,
+  pendingRequirementIds,
+  pruneSelection,
+  reviewCountsLineZh,
+  submitBatchConfirm,
+  toggleSelection,
+} from "@/lib/tender-auto-analysis/requirement-batch-confirm";
 import { TenderAnalysisAgentCard } from "@/components/tender-analysis/agent-card";
 import { StatementKindBadge } from "./statement-kind-badge";
 import { SourceSnippetDialog } from "./source-snippet-dialog";
@@ -241,6 +252,10 @@ export function TenderAnalysisPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rfqAutoDraft, setRfqAutoDraft] = useState<RfqAutoDraftView | null>(null);
+  // RFQ-AUTO-4：批量确认——勾选由人做，默认一条都不选
+  const [selectedReqIds, setSelectedReqIds] = useState<string[]>([]);
+  // 结果消息记着它属于哪一份分析：换了一份分析（重新分析）或这份分析已不在审核中，就不再显示
+  const [batchMessage, setBatchMessage] = useState<{ runId: string; text: string } | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -292,6 +307,31 @@ export function TenderAnalysisPanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  // RFQ-AUTO-4：确认选中的要求。接口一次最多处理 200 条（多出的会被静默丢弃），所以按批依次提交；
+  // 显示的是各批接口返回的实际确认数之和。某一批失败就停，说明此前已确认了几条。
+  // 每一批都带 onlyWhileInReview：面板开着的时候别人把分析批准了，服务端会拒绝（一条都不确认）。
+  const confirmSelected = async () => {
+    if (!data || !canBatchConfirm(data.run.status)) return;
+    const run = data.run;
+    const ids = pruneSelection(selectedReqIds, data.requirements);
+    if (ids.length === 0) return;
+    setBusy(true);
+    setBatchMessage(null);
+    const outcome = await submitBatchConfirm<RfqAutoDraftView>(ids, async (chunk) => {
+      const res = await apiFetch(`/api/projects/${projectId}/tender-analysis/runs/${run.id}/requirements/batch-confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requirementIds: chunk, onlyWhileInReview: true }),
+      });
+      return { ok: res.ok, json: await res.json().catch(() => null) };
+    });
+    if (outcome.sawAutoDraft) setRfqAutoDraft(outcome.autoDraft);
+    setBatchMessage({ runId: run.id, text: batchConfirmResultZh({ selected: outcome.selected, confirmed: outcome.confirmed, error: outcome.error }) });
+    setSelectedReqIds([]);
+    await load();
+    setBusy(false);
   };
 
   const saveSection = async (sectionId: string) => {
@@ -408,6 +448,11 @@ export function TenderAnalysisPanel({
       f.statementKind === "AI_INFERENCE" ||
       /风险|risk/i.test(f.contentZh),
   );
+  // RFQ-AUTO-4：要求审核的计数与批量确认
+  const reviewCounts = countRequirementReview(data.requirements);
+  const batchEnabled = canBatchConfirm(data.run.status);
+  const selectedCount = pruneSelection(selectedReqIds, data.requirements).length;
+  const batchNotice = batchMessage && batchMessage.runId === data.run.id && batchEnabled ? batchMessage.text : null;
   const riskChapter = data.chapters.find((c) => c.key === "performance_risks" || c.key === "pricing_risks");
 
   return (
@@ -480,6 +525,12 @@ export function TenderAnalysisPanel({
             >
               批准分析
             </button>
+          ) : null}
+          {/* RFQ-AUTO-4：还有待确认的要求时，在批准按钮旁说清后果（不拦、不多一次点击） */}
+          {data.run.status === "REVIEW_REQUIRED" && approveHintZh(reviewCounts.pending) ? (
+            <p className="basis-full text-xs text-amber-800" data-testid="requirement-approve-hint">
+              {approveHintZh(reviewCounts.pending)}
+            </p>
           ) : null}
           {data.run.status !== "SUPERSEDED" ? (
             <button
@@ -760,12 +811,63 @@ export function TenderAnalysisPanel({
               暂无要求。抽取完成后将显示于此。
             </p>
           ) : (
-            data.requirements.map((r) => (
+            <>
+            {/* RFQ-AUTO-4：计数 + 批量确认（只在分析等待审核时出现；勾选由人做） */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--border)] px-3 py-2 text-xs" data-testid="requirement-review-bar">
+              <span data-testid="requirement-review-counts">{reviewCountsLineZh(reviewCounts)}</span>
+              {batchEnabled && reviewCounts.pending > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="underline disabled:opacity-50"
+                    onClick={() => setSelectedReqIds(pendingRequirementIds(data.requirements))}
+                    data-testid="requirement-select-all"
+                  >
+                    全选待确认的
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || selectedCount === 0}
+                    className="underline text-[var(--muted)] disabled:opacity-50"
+                    onClick={() => setSelectedReqIds([])}
+                    data-testid="requirement-select-none"
+                  >
+                    取消全选
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || selectedCount === 0}
+                    className="ml-auto rounded-lg bg-[var(--accent)] px-3 py-1.5 text-white disabled:opacity-50"
+                    onClick={() => void confirmSelected()}
+                    data-testid="requirement-confirm-selected"
+                  >
+                    确认选中的 {selectedCount} 条
+                  </button>
+                </>
+              ) : null}
+              {batchNotice ? (
+                <p className="basis-full text-[var(--muted)]" role="status" data-testid="requirement-batch-message">
+                  {batchNotice}
+                </p>
+              ) : null}
+            </div>
+            {data.requirements.map((r) => (
               <div
                 key={r.id}
                 className="rounded-xl border border-[var(--border)] p-3 space-y-1"
               >
                 <div className="flex flex-wrap gap-2 items-center text-xs">
+                  {batchEnabled && r.reviewStatus === "AI_EXTRACTED" ? (
+                    <input
+                      type="checkbox"
+                      aria-label={`选中 ${r.requirementCode}`}
+                      disabled={busy}
+                      checked={selectedReqIds.includes(r.id)}
+                      onChange={() => setSelectedReqIds((prev) => toggleSelection(prev, r.id, data.requirements))}
+                      data-testid="requirement-checkbox"
+                    />
+                  ) : null}
                   <span className="font-semibold">{r.requirementCode}</span>
                   <span className="rounded border px-1.5 py-0.5">
                     {r.reviewStatusLabel}
@@ -819,7 +921,8 @@ export function TenderAnalysisPanel({
                   ) : null}
                 </div>
               </div>
-            ))
+            ))}
+            </>
           )}
         </div>
       )}

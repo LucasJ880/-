@@ -446,6 +446,12 @@ export async function batchConfirmRequirements(input: {
   projectId: string;
   orgId: string;
   requirementIds: string[];
+  /**
+   * RFQ-AUTO-4：只在这份分析仍是「等待审核」时才确认；否则一条都不确认，返回 run_not_in_review。
+   * 条件写在同一条更新语句里（不是先查再改），所以与「同时有人批准了分析」不会交错。
+   * 不传 = 与本参数加入之前的行为相同（不看分析的状态）。
+   */
+  onlyWhileInReview?: boolean;
 }): Promise<{ ok: true; confirmedCount: number } | { ok: false; error: string; code: string }> {
   const run = await db.tenderAnalysisRun.findFirst({
     where: {
@@ -468,9 +474,18 @@ export async function batchConfirmRequirements(input: {
       projectId: input.projectId,
       id: { in: ids },
       reviewStatus: "AI_EXTRACTED",
+      ...(input.onlyWhileInReview ? { analysisRun: { status: "REVIEW_REQUIRED" } } : {}),
     },
     data: { reviewStatus: "CONFIRMED" },
   });
+
+  if (input.onlyWhileInReview && updated.count === 0) {
+    // 一条都没改：分清是「这些要求本来就不是待确认」还是「分析已经不是等待审核」
+    const now = await db.tenderAnalysisRun.findUnique({ where: { id: run.id }, select: { status: true } });
+    if (now?.status !== "REVIEW_REQUIRED") {
+      return { ok: false, error: "这份分析已经不是等待审核（可能刚被批准或被新的分析取代），不能再确认要求。", code: "run_not_in_review" };
+    }
+  }
 
   return { ok: true, confirmedCount: updated.count };
 }
