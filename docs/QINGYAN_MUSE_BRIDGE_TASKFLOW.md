@@ -240,6 +240,12 @@
 | TI-4b | 项目页「投标工作区」面板（「标书与报价」页签顶部）：判定与逐条阻断项；缺的材料 / 未接通的来源 / 等批准的动作三张清单与十三个阶段的决定（无任何「是否执行」询问）；价格表与文件领取方名单粘贴导入；成本核算逐行输入并显示核算表（进口 / 本地分组、合计含毛利率与加成率、不含 HST、阻断与提示、假设与出处）；组件不做金额运算；成本输入只存浏览器本地；开关关闭时不渲染 | TI-4a | OpenSpec change `tender-bid-workspace-panel`；40 项断言已注册；真实应用截图 5 张 `docs/acceptance/ti-4b/`；报告 `docs/QINGYAN_TI-4b_REPORT.md` | [x]（#418，经 #420 进 main；archive `2026-11-11-tender-bid-workspace-panel`；开关默认关，生产未启用） |
 | TI-4c | 投标工作区的逐行录入与补遗：价格表每行可录入拟投品牌型号、产品尺寸与证书；证书加「出处」，保存接口拒绝「已核验」而无出处的证书；补遗卡片可新增与删除；行明细记下按第几号补遗核对，之后有新补遗影响该行则判定报「补遗之后需要复核」，重新保存后消除（客户端带的补遗号被服务端压到不超过实际最新号）；认证闸的六个条件与判定规则本身不变 | TI-4b | OpenSpec change `tender-bid-workspace-line-entry`；新增 41 项断言已注册，既有三个测试 +23 项（含隔离库端到端 +9）；真实应用截图 3 张 `docs/acceptance/ti-4c/`；报告 `docs/QINGYAN_TI-4c_REPORT.md`（含「谁可以把证书标成已核验」待 Owner 决定） | [x]（#419，经 #420 进 main；archive `2026-11-11-tender-bid-workspace-line-entry`；开关默认关，生产未启用） |
 
+### Phase F（续）— 询价自动流
+
+| # | 任务 | 依赖 | 产出 | 状态 |
+|---|---|---|---|---|
+| RFQ-AUTO-1 | 一次批准管整轮：发询价的审批卡可带跟进授权（催单最多 2 次、间隔、回复截止、一次缺字段追问、模板指纹），批准这张卡即一并批准授权范围内的后续邮件；扫描时逐封做覆盖判定（20 个条件，含「正文里的供应商名称 / 发件人 / 截止与批准的卡一致」）；带授权的卡只能在网页批（Muse 里不能批），覆盖得住的仍逐封建审批记录、以批准该轮的人的身份经既有审批入口执行并另写审计，覆盖不住的照旧待批；轮次可停止自动跟进；顺带修两个现存漏洞（已取消 / 已完成的轮次不再跟进；催单过了回复截止不发）。开关 `TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` 默认关 | FIX-1 | OpenSpec change `rfq-round-followup-preapproval`；新增测试 62 项 + 隔离库端到端 28 项已注册，`chase-execute` +7、`muse-bridge-pure` +4；开 PR 前经独立审查并修复 6 处；任务书验收项 A18 / A19 补齐（22 条至此全部有测试）；`openspec/config.yaml` 硬纪律第 2 条补一句（待 Owner 确认）；截图 4 张 `docs/acceptance/rfq-auto-1/`；报告 `docs/QINGYAN_RFQ-AUTO-1_REPORT.md` | [G]（PR 待审） |
+
 ---
 
 ## 度量（每个 GATE 复测）

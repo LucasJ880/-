@@ -68,7 +68,8 @@ console.log("催单扫描：一轮一次");
   ok(loopEnd > 0 && callAt > loopEnd, "onRoundDrafted 在本轮卡全部起草之后");
   ok(/roundCards\.push\(\{[^}]*missingFields: plan\.missingFields/.test(run), "每张卡带上本次追问的缺字段");
   ok(/opts\.onNoResponse\?\.\(itemId, [^,]+, \{ \.\.\.roundCtx, supplierName: it\.snapshot\.supplierName \}\)/.test(run), "onNoResponse 带轮次上下文与供应商名");
-  ok(/days,\s*\n\s*\};/.test(run) && run.includes("const days = resolveChaseAfterDays("), "轮次上下文的催单天数就是 decideChases 用的那个");
+  // RFQ-AUTO-1：授权生效的轮次用批准时定格的天数，否则仍按项目负责人偏好——两种情况下都是同一个 days 进判定与通知
+  ok(/days,\s*\n\s*\};/.test(run) && /const days = roundPolicy \? roundPolicy\.chaseAfterDays : resolveChaseAfterDays\(/.test(run) && /decideChases\(\{ now, chaseAfterDays: days,/.test(run), "轮次上下文的催单天数就是 decideChases 用的那个");
   const load = block(chaseService, "async function loadItems");
   ok(/inquiry: \{ select: \{[^}]*roundNumber: true, createdById: true/.test(load), "loadItems 只多 select 轮次序号与发起人");
 }

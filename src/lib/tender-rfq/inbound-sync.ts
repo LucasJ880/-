@@ -85,7 +85,7 @@ export type InboundSyncDeps = {
   notifyTracking?: (entry: { orgId: string; item: InboundItemRow; plan: InquiryItemUpdatePlan; messageId: string }) => Promise<void>;
   saveCursor: (orgId: string, cursor: InboundCursor) => Promise<void>;
   /** P1-7：收信成功后的催单扫描（不传 = 不扫；入站被跳过时不扫——没读到回信就不知道谁真没回） */
-  runChaseScan?: (orgId: string, now: Date) => Promise<{ drafted: unknown[]; noResponse: unknown[]; failed: unknown[] }>;
+  runChaseScan?: (orgId: string, now: Date) => Promise<{ drafted: unknown[]; autoSent?: unknown[]; noResponse: unknown[]; failed: unknown[] }>;
 };
 
 export type OrgSyncResult = {
@@ -103,7 +103,7 @@ export type OrgSyncResult = {
   failed: number;
   historyId: string | null;
   /** P1-7 催单扫描：起草的卡数 / 标 no_response 数 / 失败数 */
-  chase?: { drafted: number; noResponse: number; failed: number; error?: string };
+  chase?: { drafted: number; /** RFQ-AUTO-1：随轮次授权自动执行的封数 */ autoSent?: number; noResponse: number; failed: number; error?: string };
 };
 
 /* ---------------------------------- 游标（零 schema） ---------------------------------- */
@@ -521,7 +521,7 @@ export async function syncAllOrgsInbound(
       if (!r.skipped && d.runChaseScan) {
         try {
           const c = await d.runChaseScan(ctx.orgId, d.now());
-          r.chase = { drafted: c.drafted.length, noResponse: c.noResponse.length, failed: c.failed.length };
+          r.chase = { drafted: c.drafted.length, autoSent: c.autoSent?.length ?? 0, noResponse: c.noResponse.length, failed: c.failed.length };
         } catch (err) {
           // 催单扫描失败不影响收信结果（游标已写），下次 tick 再扫
           console.error(`[tender-rfq-inbound] chase scan ${ctx.orgId} failed:`, err);

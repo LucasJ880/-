@@ -26,7 +26,7 @@ import {
   type ChaseCardKind,
 } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
-import type { RfqApprovalInfo, RfqEmailPreview } from "./rfq-web-entry-types";
+import type { RfqApprovalInfo, RfqEmailPreview, RfqFollowUpCardView } from "./rfq-web-entry-types";
 
 /** sent = 全部发出；partial = 部分发出（有失败）；skipped = 批准了但不需要发（催单：这家已回复等）；error = 一封都没发出或决策失败 */
 export type RfqDecisionOutcome = { kind: "sent" | "partial" | "skipped" | "rejected" | "error"; text: string; source?: "rfq" | "chase" };
@@ -44,19 +44,22 @@ type Props = {
   variant?: "rfq" | "chase";
   /** variant="chase" 时必填 */
   chase?: { kind: ChaseCardKind; chaseIndex: number; supplierName: string };
+  /** RFQ-AUTO-1：这张发询价卡带的跟进授权——批准它即一并批准这些后续邮件，所以必须在这里让人看到 */
+  followUp?: RfqFollowUpCardView | null;
 };
 
 type Outcome = RfqDecisionOutcome | null;
 
 const NETWORK_ERROR = "网络出错了，请重试；不确定是否已发出时，先刷新看轮次状态再操作。";
 
-export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className, variant = "rfq", chase }: Props) {
+export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, emails, onDone, className, variant = "rfq", chase, followUp }: Props) {
   const isChase = variant === "chase" && !!chase;
   const source: RfqDecisionOutcome["source"] = isChase ? "chase" : "rfq";
   const chaseCopy = isChase ? chasePanelCopy({ ...chase, roundNumber }) : null;
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const [openTemplate, setOpenTemplate] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome>(null);
 
   // 有了决策结果就不再给按钮：批准执行失败时执行器已把卡作废，再点只会得到「当前状态不支持」
@@ -148,6 +151,33 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
           </p>
         </div>
       </div>
+
+      {!isChase && followUp && (
+        <div className="space-y-2 rounded-md border border-[#9a6a2f]/30 bg-[#9a6a2f]/[0.05] p-3" data-testid="rfq-followup-authorization">
+          <p className="text-xs font-medium text-foreground">批准这张卡，同时批准以下后续邮件</p>
+          <p className="text-xs text-foreground/85">{followUp.summaryZh}</p>
+          <p className="text-xs text-muted">这些邮件到点由系统发出，不再逐封问你；正文就是下面的固定模板，只发给这一轮的原收件人。轮次里随时可以「停止自动跟进」。</p>
+          <ul className="divide-y divide-border/60 rounded-md border border-border bg-background">
+            {followUp.templates.map((t) => {
+              const open = openTemplate === t.key;
+              return (
+                <li key={t.key}>
+                  <button type="button" onClick={() => setOpenTemplate(open ? null : t.key)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs" aria-expanded={open}>
+                    {open ? <ChevronDown size={12} className="text-muted" /> : <ChevronRight size={12} className="text-muted" />}
+                    <span className="text-foreground">{t.labelZh}</span>
+                  </button>
+                  {open && (
+                    <div className="border-t border-border/60 px-3 py-2">
+                      <p className="text-xs font-medium text-foreground">{t.subject}</p>
+                      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-muted">{t.body}</pre>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {emails.length > 0 && (
         <ul className="divide-y divide-border/60 rounded-md border border-border bg-background">
