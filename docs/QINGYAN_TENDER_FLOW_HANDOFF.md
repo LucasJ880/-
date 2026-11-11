@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-11 第七次（Lucas 休息期间按授权继续：TI-4a 接口 #417、TI-4b 面板 #418、TI-4c 逐行录入与补遗 #419 实施完并开 Draft PR；#411–#417 CI 全绿，#418、#419 CI 运行中；九个 PR 均已订阅活动。上一次授权原话：「盯着这几个 PR；开始做 TI-3 规划；其他你来主导，需要我确定的按你推荐的做，权限给你，你来进行大优化」） |
+| 最后更新 | 2026-11-11 第八次（Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
-| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F，FLOW-0 `[~]`、TI-0 `[~]`（FIX-1 / TI-1 / TI-2 的行在各自 apply 的最后一条任务里新增） |
-| 工作分支 | 一条叠起来的链，每个 PR 的 base 是前一个分支：`claude/zealous-shannon-p48grg`（#411 文档与规划）→ `claude/rfq-requirement-category-match`（#412）→ `claude/tender-price-schedule-lines`（#413）→ `claude/tender-bid-cost-sheet`（#414）→ `claude/tender-competition-leads`（#415）→ `claude/tender-bid-readiness`（#416）→ `claude/tender-bid-workspace-api`（#417）→ `claude/tender-bid-workspace-panel`（#418）→ `claude/tender-bid-workspace-line-entry`（#419）。新 change 从链顶再开分支。本文件只在 #411 的分支上更新 |
-| 性质 | #411 无代码。#412 改了询价生成器（线上行为会变：询价能带上要求）。#413–#416 是新增的纯函数目录，线上不可达。#417 三个接口、#418 一个面板、#419 面板里的录入与两个可选存储字段，都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关 |
-| 进行中的 change | 八个都已实施完、未归档（合并后才能 archive）：`rfq-requirement-category-match`、`tender-price-schedule-lines`、`tender-bid-cost-sheet`、`tender-competition-leads`、`tender-bid-readiness`、`tender-bid-workspace-api`、`tender-bid-workspace-panel`、`tender-bid-workspace-line-entry`；另有 `next16-proxy-rename`（与本任务无关） |
+| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]` |
+| 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
+| 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用 |
+| 进行中的 change | 本任务名下没有。八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
 
 ---
 
@@ -27,25 +27,24 @@
 - **不做，等 Lucas / Evan**：合并到 main、部署、生产迁移、改生产数据或凭证、发询价或任何对外邮件、付费数据、提交投标或资料申请。这些此前被明确划为「每一项单独授权」，一句笼统的「权限给你」不覆盖它们；合并即上线，不可逆。
 - **不改** `openspec/config.yaml` 的硬纪律文字。需要澄清的地方写在 PR 里等确认。
 
-### 0.2 PR 链
+### 0.2 PR 链（已全部合并，2026-11-11）
 
-合并顺序必须是 #411 → #412 → #413 → #414 → #415 → #416 → #417 → #418 → #419。前一个合并并删除分支后，GitHub 会把下一个自动改指 main。
-
-| PR | change | 线上影响 |
+| PR | change | 怎么进的 main |
 |---|---|---|
-| #411 | 文档与规划文件 | 无代码 |
-| #412 | FIX-1 询价类别归一 | **会变**：询价能带上要求。上线后第一次发询价请在审批卡上核对正文 |
-| #413 | TI-1 价格表行项 | 无（纯函数，线上不可达） |
-| #414 | TI-2 逐行成本核算表 | 无 |
-| #415 | TI-3a 竞争情报线索契约 | 无 |
-| #416 | TI-3b 可投标判定与阶段策略表 | 无 |
-| #417 | TI-4a 投标工作区存取接口 | 无（开关 `TENDER_BID_WORKSPACE_ENABLED` 默认关，关闭时三个接口都 404） |
-| #418 | TI-4b 项目页「投标工作区」面板 | 无（开关关闭时面板不渲染；打开后只有白名单组织的「标书与报价」页签顶部多一个面板） |
-| #419 | TI-4c 逐行录入与补遗 | 无（同一个开关之后；保存接口多一条校验：「已核验」的证书必须有出处） |
+| #411 | 文档与规划 | 直接 |
+| #412 | FIX-1 询价类别归一 | 直接（**线上行为已变**：询价能带上要求。上线后第一次发询价请在审批卡上核对正文） |
+| #413 | TI-1 价格表行项 | 先合进 #412 的分支，随 #412 进 main |
+| #414 | TI-2 逐行成本核算表 | 经 #420 |
+| #415 | TI-3a 竞争情报线索契约 | 经 #420 |
+| #416 | TI-3b 可投标判定与阶段策略表 | 经 #420 |
+| #417 | TI-4a 投标工作区存取接口 | 经 #420（开关默认关） |
+| #418 | TI-4b 项目页「投标工作区」面板 | 经 #420（开关默认关） |
+| #419 | TI-4c 逐行录入与补遗 | 经 #420（开关默认关） |
+| #420 | 补救：把 #414–#419 的内容带进 main | 直接 |
 
-2026-11-11 核对：#411–#417 的 CI（`validate-lint-typecheck-test-build`）全部 success；#418、#419 推送后 CI 运行中（接手时先查这两个）。九个 PR 都已 `subscribe_pr_activity`。
+合并后的 main 的文件树与合并前在本地验证过的那棵树逐字节相同（`84ea0738…`；验证内容：整份 `scripts/test-ci-unit.sh`、`npm run typecheck`、`npm run lint:baseline`）。
 
-教训（#418）：TI-4a 有一条断言写死了目录里的模块文件数，TI-4b 新增文件后会失败，首次推送后才发现。**往既有目录加文件或改既有组件之后，把读到它的既有测试全部重跑**（`grep -rln "<目录或文件名>" src/lib --include=*.test.ts`），不要只跑新写的测试。
+教训一（#418）：TI-4a 有一条断言写死了目录里的模块文件数，TI-4b 新增文件后会失败，首次推送后才发现。**往既有目录加文件或改既有组件之后，把读到它的既有测试全部重跑**（`grep -rln "<目录或文件名>" src/lib --include=*.test.ts`），不要只跑新写的测试。
 
 教训二（#418 首轮 CI 红）：仓库有一条行级检查 `scripts/check-swc-nullish-logical.test.ts`，同一行里 `??` 与 `&&` / `||` 无括号并用即判失败——即使它们分属两个独立的 JSX 表达式。写组件时把 `a ?? b` 提成变量。**推送前用 CI 的环境变量跑整份子集**（约 8 分钟）：
 
@@ -56,7 +55,7 @@ JWT_SECRET=ci-only-jwt-secret-not-for-production NODE_ENV=test bash scripts/test
 
 CI 对同一分支的新推送会取消上一轮（`cancel-in-progress`），所以连续小推送只有最后一次有结果。
 
-每个合并之后：`/opsx:archive <change> --yes`（独立小 PR），并把 TASKFLOW 该行的 `[G]（#NNN 待审）` 改成 `[x]（#NNN；archive …）`。
+教训三（叠层 PR 的合并）：九个 PR 叠成一条链，每个的合并目标是前一个的分支。合并时没按顺序、合并后分支也没删，结果 #414–#419 各自合进了上一个分支，GitHub 显示「已合并」但内容不在 main，靠 #420 补救。**以后不要叠层**：一个 change 一个 PR，都直接指向 main；前一个没合并而后一个又依赖它时，后一个先不开 PR，或在 PR 正文第一行写明「先合 #NNN，合并时勾 Delete branch」。接手时如果看到一串「已合并」，用 `git merge-base --is-ancestor origin/<分支> origin/main` 核对内容是否真的在 main。
 
 PR 事件会以 `<wake reason="external-event">` 送进会话。处理前先在上下文里找到该 PR 的 `subscription.created` 事件原文（规则在里面）；找不到就先对该 PR 再调一次 `subscribe_pr_activity`。
 
@@ -74,7 +73,7 @@ PR 事件会以 `<wake reason="external-event">` 送进会话。处理前先在�
 
 ### 0.5 接下来
 
-TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已完成并各自开了 Draft PR。到这里，一个标可以在界面上从粘贴价格表走到「只剩成本与截标两类阻断项」。候选的下一步，按推荐顺序：
+TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合入 main 并归档。到这里，一个标可以在界面上从粘贴价格表走到「只剩成本与截标两类阻断项」。候选的下一步，按推荐顺序：
 
 1. **FIX-2**：分析入库时保留数量与单位（`v2-map.ts` 现在会丢），让价格表可以从已分析的招标文件预填，而不是只能粘贴。
 2. **成本输入落库**：等 Lucas 在三个候选里拍板（TI-4a 报告 §3；推荐专用表、按财务查看权读）。拍板前成本输入只在浏览器本地。这一步做完才能把成本假设纳入补遗复核、做低 / 基准 / 高多情景并排。
@@ -86,7 +85,7 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已完�
 
 | 事 | 推荐 | 出处 |
 |---|---|---|
-| 八个 PR 的合并与上线 | 按顺序合；#412 上线后第一次询价在审批卡上核对正文 | 本文 §0.2 |
+| 上线后的第一次询价 | #412 已在 main；第一次发询价时在审批卡上把正文核对一遍，尤其是 V1 引擎分析的老项目 | 本文 §0.2 |
 | 生产开关 `TENDER_BID_WORKSPACE_ENABLED` 与组织白名单 | 先只对自家组织打开 | TI-4a 报告 |
 | 成本输入最终存哪里 | 专用表，按财务查看权读 | TI-4a 报告 §3 |
 | 谁可以把证书标成「已核验」 | 先按现状（有项目写权限即可，须填出处并留审计），有第二个录入人时再收窄 | TI-4c 报告 §6 |
@@ -142,7 +141,7 @@ TENDER_BID_WORKSPACE_ENABLED=1 npx next dev -p 3100
 ---
 
 | 开源二 | 第二轮开源调研：成本核算、不逐项询问的流程、贸易数据 | 完成 2026-11-11 | 开源调研 §6；6 处抽查 |
-| 规划 | FIX-1、TI-1、TI-2 四件套 | 完成 2026-11-11；Lucas 同日批准实施 | `openspec/changes/{rfq-requirement-category-match,tender-price-schedule-lines,tender-bid-cost-sheet}/` |
+| 规划 | FIX-1、TI-1、TI-2 四件套 | 完成 2026-11-11；Lucas 同日批准实施 | 已归档：`openspec/changes/archive/2026-11-11-{rfq-requirement-category-match,tender-price-schedule-lines,tender-bid-cost-sheet}/` |
 
 | 实施 | FIX-1：询价单类别归一 | 完成 2026-11-11，#412 待审 | `build.test.ts` 21 → 31 项；`docs/QINGYAN_FIX-1_REPORT.md` |
 | 实施 | TI-1：价格表行项 | 完成 2026-11-11，#413 待审 | 4 个测试 81 项；验收项 A1 / A2 / A8 / A9 / A10 / A16；`docs/QINGYAN_TI-1_REPORT.md` |
