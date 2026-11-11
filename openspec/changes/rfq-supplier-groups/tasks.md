@@ -33,5 +33,5 @@
 
 - [x] 5.1 本地真实应用截图到 `docs/acceptance/rfq-auto-5/`：`drawer-matched.png`、`drawer-undetermined.png`、`drawer-manage.png`、`panel-result-group.png`
 - [x] 5.2 开 PR 前请一个不带结论的独立审查（重点：能不能读到 / 用到别人的分组；能不能绕过版本检查覆盖；分组信息会不会进邮件；功能关闭时是否完全无痕），修复其发现并补测试
-- [ ] 5.3 全部门禁：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、测试注册、架构守卫、`??` 混用检查、`openspec validate rfq-supplier-groups --strict`
-- [ ] 5.4 `docs/QINGYAN_RFQ-AUTO-5_REPORT.md`；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加一行 RFQ-AUTO-5；`docs/QINGYAN_TENDER_FLOW_HANDOFF.md` 更新
+- [x] 5.3 全部门禁：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、测试注册、架构守卫、`??` 混用检查、`openspec validate rfq-supplier-groups --strict`
+- [x] 5.4 `docs/QINGYAN_RFQ-AUTO-5_REPORT.md`；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加一行 RFQ-AUTO-5；`docs/QINGYAN_TENDER_FLOW_HANDOFF.md` 的 RFQ-AUTO-5 一行在 #430（RFQ-AUTO-4 归档）里，本 PR 不动它以免两个 PR 改同一处，归档本 change 时一并更新

@@ -66,7 +66,26 @@
 
 ### 测试输出（实际运行）
 
-GATES_PLACEHOLDER
+```
+supplier-groups.test.ts                 103 项通过（新增：校验 / 比对 / 抽屉预选 / 修改 / 保存结果的处理 + 接线）
+supplier-groups-db.isolated.test.ts     53 passed, 0 failed（新增；本地隔离库，保存经真实路由处理函数；连跑三次结果相同）
+auto-draft-pure.test.ts                 63 项通过（原 47；只改了「原因共几个」那一条：8 → 10）
+auto-draft-db.isolated.test.ts          68 passed（RFQ-AUTO-2 / 3，未改断言）
+followup-auto-db.isolated.test.ts       28 passed（RFQ-AUTO-1，未改断言）
+requirement-batch-confirm-db.isolated   17 passed（RFQ-AUTO-4，未改断言）
+web-entry-pure.test.ts                  151 passed（未改断言）
+auto-followup-optin.test.ts             19 项通过（未改断言）
+
+npm run test:ci（CI 同款环境变量）        CI unit subset PASS
+npm run typecheck                       exit 0
+npm run lint:baseline                   PASS（无新增 error fingerprint）
+scripts/check-test-registry.sh          OK 已注册 593 个；历史欠账基线 68 条
+scripts/test-runtime-architecture.sh    PASS
+check-swc-nullish-logical               PASS
+openspec validate rfq-supplier-groups --strict   valid
+```
+
+全量与门禁都是在并入最新 main（含 #429）之后、独立审查的修复之后跑的。真库测试写完第一版之后出过一次假失败：用例里的关键词 `b` 碰巧出现在项目名称的时间戳里，换成不会碰上的字符后连跑三次都过——是测试的问题，不是产品的。
 
 真库测试覆盖的情形：功能关闭时保存 404、入口没有分组字段；还没有分组时预选与自动起草照旧；保存后留一条记录（谁、哪个组织、保存前后的内容，记录的 id 就是版本），组织设置逐字节不变；组里停用的供应商仍在组里、出现在可选列表里并标明不可选；内容不合规（11 组 / 一组 9 家 / 同名 / 关键词太短）、混入别的组织的供应商、不存在的供应商号、请求体夹带别人的用户号、缺版本、不是 JSON——都被拒且什么都不写；没有项目写权限的本组织成员 403、外人被拒、没登录 401；同组织另一位成员读不到也用不到这些分组；基于旧版的保存 409 并带回最新的；内容没变的保存不多写记录；**基于同一版的两个保存同时到达，一个成功一个 409，库里只多一条**；自动起草按分组（收件人与顺序、摘要、结果、轮次说明、审计）；对不上 / 对上多组 / 组里没人各自不起草；另一个品类的项目落到另一组；操作者自己没有分组时不用别人的；**按分组起草与手动勾选同样两家，邮件标题与正文逐字相同，且不含组名**；组里的供应商之后不在本组织了不卡住别的修改、起草时跳过；保存之后把功能关掉回到常用供应商，重新打开分组还在。
 
