@@ -28,7 +28,7 @@
 - **THEN** `state.enabled` 为 true，`warnings` 含「回信不会自动进表」；同一测试覆盖
 
 ### Requirement: 可选供应商与默认条款
-entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集，每家标明 `ready` 与不可选原因（`no_email` / `inactive`），`ready` 的判定 SHALL 与送审时的供应商就绪规则逐条一致；操作者常用供应商 SHALL 标 `isDefault: true` 并排在前面；SHALL 返回默认贸易条款及其是否来自个人偏好。Web 提交的贸易条款 SHALL 按用户显式选择生效，选「不指定」时 SHALL NOT 回退到个人默认。
+entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集，每家标明 `ready` 与不可选原因（`no_email` / `inactive`），`ready` 的判定 SHALL 与送审时的供应商就绪规则逐条一致；操作者常用供应商 SHALL 标 `isDefault: true` 并排在前面；SHALL 返回默认贸易条款及其是否来自个人偏好。Web 提交的贸易条款 SHALL 按用户显式选择生效，选「不指定」时 SHALL NOT 回退到个人默认。操作者有生效的供应商分组时，entry 返回的可选供应商 SHALL 另外包含各分组里的供应商（同样标明 `ready` 与不可选原因），抽屉的预先勾选 SHALL 改由分组决定（见 `tender/rfq-supplier-groups`），常用供应商仍标 `isDefault: true` 并排在前面但 SHALL NOT 被预先勾选；操作者没有分组或分组功能未开启时，预先勾选的 SHALL 仍是可选的常用供应商。
 
 #### Scenario: 常用供应商默认勾选、没邮箱的不可选
 - **WHEN** 操作者常用供应商里有一家没有联系邮箱
@@ -41,6 +41,14 @@ entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集
 #### Scenario: 选「不指定」贸易条款
 - **WHEN** 操作者个人默认为 DDP，在抽屉里选「不指定」后提交
 - **THEN** 询价单不写贸易条款，结果页显示「贸易条款：不指定」
+
+#### Scenario: 有分组时常用供应商不预先勾选
+- **WHEN** 操作者有 2 家可选的常用供应商，也有一个分组，项目名称没有对上任何一组
+- **THEN** 这 2 家仍标 `isDefault: true`、排在前面，但抽屉没有预先勾选任何供应商（`npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts`）
+
+#### Scenario: 分组里的供应商在可选列表里
+- **WHEN** 分组里有一家供应商已停用（不在 active 供应商里，也不是常用供应商）
+- **THEN** entry 的可选供应商里有这一家，`ready: false`、`blockedReason: "inactive"`（`npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts`）
 
 ### Requirement: 生成并送审
 `POST /api/projects/{id}/tender-rfq/rounds` SHALL 要求项目写权限，用 zod 校验请求体（`supplierIds` 1–8 个、`extraQuestions` ≤ 5 条、`incoterm` 限 EXW/FOB/CIF/DDP/DAP），校验失败返回 400 与中文说明。通过后 SHALL 以 `source: "web"` 调用与 Muse `rfq` 意图相同的询价生成流程（轮次锁、供应商就绪、只发已确认要求、敏感内容整单拦截），成功时创建且只创建一张 `tender.send_rfq` 审批卡，响应 SHALL 含轮次号、每家收件人、回复截止与 `approval: { approvalId, canApprove, payloadHash }`（`canApprove` 与审批中心对同一张卡的判定一致）。批准前系统 SHALL NOT 发出任何邮件。失败时响应 SHALL 含 `userMessage: { message, action? }`。
