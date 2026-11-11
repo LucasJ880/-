@@ -59,7 +59,7 @@ export async function setAutoDraftFollowUpOptIn(input: { orgId: string; projectI
     return { ok: false, errorCode: "DISABLED", message: "这个开关还没有对你的组织开放。" };
   }
   const templateHash = chaseTemplateHash();
-  return db.$transaction(async (tx) => {
+  return db.$transaction(async (tx): Promise<SetOptInResult> => {
     await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`rfq-auto-followup-optin:${input.orgId}:${input.userId}`}))) AS l`;
     const latest = await tx.auditLog.findFirst({
       where: { orgId: input.orgId, userId: input.userId, action: AUTO_DRAFT_OPTIN_AUDIT_ACTION, targetType: AUTO_DRAFT_OPTIN_TARGET, targetId: input.userId },
@@ -67,7 +67,7 @@ export async function setAutoDraftFollowUpOptIn(input: { orgId: string; projectI
       select: { createdAt: true, afterData: true },
     });
     const current = optInState(parseOptInRecord(latest?.afterData), templateHash);
-    if (!optInNeedsWrite(current, input.enabled)) return { ok: true as const, state: current, changed: false };
+    if (!optInNeedsWrite(current, input.enabled)) return { ok: true, state: current, changed: false };
     // 已经持有本人的锁，上一条不会再变：新记录的时间至少比它晚 1 毫秒，「最近一条」就一定是这一条
     const createdAt = new Date(Math.max(Date.now(), (latest?.createdAt.getTime() ?? 0) + 1));
     // 直接写这一条（而不是经 writeAuditLog）是为了能指定时间；字段与它写的相同
@@ -84,6 +84,6 @@ export async function setAutoDraftFollowUpOptIn(input: { orgId: string; projectI
         createdAt,
       },
     });
-    return { ok: true as const, state: input.enabled ? ("on" as const) : ("off" as const), changed: true };
+    return { ok: true, state: input.enabled ? "on" : "off", changed: true };
   });
 }
