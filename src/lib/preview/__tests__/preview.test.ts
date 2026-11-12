@@ -426,6 +426,11 @@ async function main() {
 
   console.log("\n审查后的补充落点（源码）");
   {
+    // 预览模块经 auth / 权限等共享库会被客户端页面间接打包：静态 `node:` 导入让客户端构建报 UnhandledSchemeError
+    for (const f of ["src/lib/preview/token.ts", "src/lib/preview/server.ts", "src/lib/preview/identity.ts"]) {
+      ok(!/^\s*import\s[^;]*from\s+"node:/m.test(code(f)) && !/^\s*import\s+"node:/m.test(code(f)), `${f.split("/").pop()}：没有静态 node: 导入（客户端构建可打包）`);
+    }
+    ok(/import\s*\{[^}]*\}\s*from\s*"@\/lib\/tasks\/status"/.test(code("src/components/tasks/work-queue.tsx")) && !/from "@\/lib\/tasks";/.test(code("src/components/tasks/work-queue.tsx")), "任务工作台（客户端）不经 @/lib/tasks 汇总导出引入服务端查询");
     const srv = code("src/lib/preview/server.ts");
     ok(/\(await sessionSubOf\(jar\.get\(SESSION_COOKIE\)\?\.value\)\) === userId \? token : null/.test(srv) && /\(await sessionSubOf\(request\.cookies\.get\(SESSION_COOKIE\)\?\.value\)\) === userId \? token : null/.test(srv), "预览只对当前会话用户生效（库函数与路由处理函数都核对会话）");
     ok(/listEffectiveMemberships\(user\.id\)/.test(code("src/app/api/search/route.ts")), "全局搜索：成员企业按预览");

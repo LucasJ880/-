@@ -9,7 +9,6 @@
  *   active 成员、企业仍是岗位模式且 active、岗位都是该企业 active 的人类岗位）。结果按「token + userId」缓存 30 秒。
  */
 
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { hasPositionTemplates } from "@/lib/authorization/role-defaults";
@@ -29,7 +28,21 @@ import {
 } from "./identity";
 
 type Scope = { token: string | null };
-const scope = new AsyncLocalStorage<Scope>();
+type ScopeStore = { run<R>(store: Scope, fn: () => R): R; getStore(): Scope | undefined };
+
+/**
+ * 显式注入的作用域。`AsyncLocalStorage` 经 `process.getBuiltinModule` 取：本模块经共享库会被客户端页面间接打包，
+ * 静态的 `node:async_hooks` 导入在客户端构建里报 UnhandledSchemeError。浏览器里不会调用到这里，取不到就退化为空作用域。
+ */
+function createScope(): ScopeStore {
+  const hooks =
+    typeof process !== "undefined" && typeof process.getBuiltinModule === "function"
+      ? (process.getBuiltinModule("node:async_hooks") as typeof import("node:async_hooks") | undefined)
+      : undefined;
+  if (hooks) return new hooks.AsyncLocalStorage<Scope>();
+  return { run: (_store, fn) => fn(), getStore: () => undefined };
+}
+const scope = createScope();
 
 /** 在显式给定的预览 token 下执行（代理、测试）；token 为空即无预览 */
 export function withPreviewToken<T>(token: string | null | undefined, fn: () => T): T {

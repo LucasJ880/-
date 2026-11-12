@@ -6,7 +6,6 @@
  * 会话 token 也通不过预览校验。这里只做无库校验（签名、aud、过期、属于会话用户、岗位个数），有库校验见 server.ts。
  */
 
-import { createHmac } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 
 export const PREVIEW_COOKIE = "qy_preview";
@@ -27,9 +26,24 @@ export type PreviewClaims = {
   exp: number;
 };
 
-function previewKey(secret: string | undefined = process.env.JWT_SECRET): Uint8Array {
-  if (!secret) throw new Error("JWT_SECRET environment variable is not set");
-  return new Uint8Array(createHmac("sha256", secret).update(KEY_DERIVATION_LABEL).digest());
+const keyCache = new Map<string, Promise<Uint8Array>>();
+
+/**
+ * 派生密钥 HMAC-SHA256(JWT_SECRET, label)。用 WebCrypto 而不是 `node:crypto`：本模块经共享库会被客户端页面间接打包，
+ * `node:` 导入在客户端构建里报 UnhandledSchemeError（浏览器里不会调用到这里）。
+ */
+function previewKey(secret: string | undefined = process.env.JWT_SECRET): Promise<Uint8Array> {
+  if (!secret) return Promise.reject(new Error("JWT_SECRET environment variable is not set"));
+  let key = keyCache.get(secret);
+  if (!key) {
+    const enc = new TextEncoder();
+    key = globalThis.crypto.subtle
+      .importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+      .then((k) => globalThis.crypto.subtle.sign("HMAC", k, enc.encode(KEY_DERIVATION_LABEL)))
+      .then((mac) => new Uint8Array(mac));
+    keyCache.set(secret, key);
+  }
+  return key;
 }
 
 /** 岗位 key 列表：字符串、去重保序、1–10 个、形如 `accounting`；不合格返回 null */
@@ -60,7 +74,7 @@ export async function signPreviewToken(
     .setAudience(PREVIEW_AUDIENCE)
     .setIssuedAt(nowSec)
     .setExpirationTime(exp)
-    .sign(previewKey(opts.secret));
+    .sign(await previewKey(opts.secret));
   return { token, expiresAt: new Date(exp * 1000) };
 }
 
@@ -74,7 +88,7 @@ export async function verifyPreviewToken(
 ): Promise<PreviewClaims | null> {
   if (!token || !sessionUserId) return null;
   try {
-    const { payload } = await jwtVerify(token, previewKey(opts.secret), {
+    const { payload } = await jwtVerify(token, await previewKey(opts.secret), {
       audience: PREVIEW_AUDIENCE,
       algorithms: ["HS256"],
       currentDate: opts.now,
