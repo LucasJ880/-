@@ -44,6 +44,8 @@ npx tsx src/lib/tender-intel/__tests__/websearch.test.ts
 npx tsx src/lib/tender-intel/__tests__/awards.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts
 npx tsx src/lib/tender/__tests__/workbench-state.test.ts
+npx tsx src/lib/tender/__tests__/stage-status-catch-up.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-status-catch-up-db.isolated.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts

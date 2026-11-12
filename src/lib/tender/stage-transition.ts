@@ -15,6 +15,7 @@ import { getProjectStage } from "./stage";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { emitProjectPatchEvents, onStageAdvanced } from "@/lib/project-discussion/system-events";
 import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
+import { tenderStatusLagsBehind } from "./stage-status-catch-up";
 import { onStageAdvancedTasks } from "./stage-tasks";
 import { notifyProjectMembers } from "@/lib/notifications/create";
 
@@ -194,7 +195,10 @@ export async function advanceProjectStage(
   const validation = validateStageTransition(currentStage, targetStage, confidence);
 
   // no_op：已在目标阶段，直接返回成功，不写库
+  // FIX-6：阶段已到但招投标状态落后（阶段时间是自动写的），人确认了 → 补上状态与回调
   if (validation.decision === "no_op") {
+    const caught = await catchUpLaggingTenderStatus({ project, targetStage, input });
+    if (caught) return caught;
     return { success: true, decision: "no_op", reason: validation.reason };
   }
 
@@ -217,6 +221,8 @@ export async function advanceProjectStage(
     timestampField &&
     project[timestampField as keyof typeof project] != null
   ) {
+    const caught = await catchUpLaggingTenderStatus({ project, targetStage, input });
+    if (caught) return caught;
     return {
       success: true,
       decision: "no_op",
@@ -318,6 +324,83 @@ export async function advanceProjectStage(
     success: true,
     decision: "require_human_review",
     reason: `已推进到「${STAGE_LABEL[targetStage]}」`,
+    project: updated as unknown as Record<string, unknown>,
+  };
+}
+
+// ── FIX-6：阶段已到、招投标状态落后时补状态 ─────────────────
+
+/**
+ * 人确认推进到 targetStage，而阶段记录已经在这一段（时间是自动写的），招投标状态却还落后：
+ * 只把招投标状态改成这一段对应的值，照常写讨论区的状态变化、审计，项目有来源系统时发状态回调（人已确认）。
+ * 不写阶段时间、不建不关任务、不发「已推进」的成员通知。
+ * 不该补（没确认、项目不是进行中、状态不落后、写入时状态已被别人改了）→ null，调用方按原来的「无需重复推进」返回。
+ */
+async function catchUpLaggingTenderStatus(args: {
+  project: NonNullable<Awaited<ReturnType<typeof db.project.findUnique>>>;
+  targetStage: TenderStage;
+  input: AdvanceStageInput;
+}): Promise<AdvanceStageResult | null> {
+  const { project, targetStage, input } = args;
+  const { projectId, actor, reason, source, humanConfirmed, confidence, evidence } = input;
+  if (humanConfirmed !== true || project.status !== "active") return null;
+  const newTenderStatus = STAGE_TO_TENDER_STATUS[targetStage];
+  if (!newTenderStatus || !tenderStatusLagsBehind(project.tenderStatus, targetStage, newTenderStatus)) return null;
+
+  const updated = await db.$transaction(
+    async (tx: Prisma.TransactionClient) => {
+      // 条件写：读之后状态被别人改了（记了结果、同时点了两次）就不写
+      const claimed = await tx.project.updateMany({
+        where: { id: projectId, status: "active", tenderStatus: project.tenderStatus },
+        data: { tenderStatus: newTenderStatus },
+      });
+      if (claimed.count === 0) return null;
+      await emitProjectPatchEvents(
+        projectId,
+        project as unknown as Record<string, unknown>,
+        { ...project, tenderStatus: newTenderStatus } as unknown as Record<string, unknown>,
+        { id: actor.id, name: actor.name },
+        tx,
+      );
+      return tx.project.findUniqueOrThrow({ where: { id: projectId }, include: PROJECT_INCLUDE });
+    },
+    { timeout: 15000 },
+  );
+  if (!updated) return null;
+
+  await logAudit({
+    userId: actor.id,
+    orgId: project.orgId ?? undefined,
+    projectId,
+    action: AUDIT_ACTIONS.STATUS_CHANGE,
+    targetType: AUDIT_TARGETS.PROJECT,
+    targetId: projectId,
+    beforeData: { stage: targetStage, tenderStatus: project.tenderStatus },
+    afterData: {
+      stage: targetStage,
+      tenderStatus: newTenderStatus,
+      statusCatchUp: true,
+      reason,
+      source,
+      humanConfirmed,
+      confidence: confidence ?? null,
+      evidence: evidence ?? [],
+    },
+  });
+
+  if (project.sourceSystem) {
+    notifyProjectStatusChange({
+      projectId,
+      oldStatus: project.tenderStatus || "new",
+      newStatus: newTenderStatus,
+      updatedBy: actor.email,
+    }).catch((err) => console.error("[Webhook] dispatch failed:", err));
+  }
+
+  return {
+    success: true,
+    decision: "require_human_review",
+    reason: `已在「${STAGE_LABEL[targetStage]}」阶段；招投标状态已同步为「${STAGE_LABEL[targetStage]}」`,
     project: updated as unknown as Record<string, unknown>,
   };
 }

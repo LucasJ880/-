@@ -521,6 +521,8 @@ run_test "T5 Seg3 确定性 DAG canonical V2 收敛" "npx tsx src/lib/tender-wor
 run_test "T5-P1.1 Workforce V2 可续跑（continuation/游标/预算）" "npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts"
 run_test "观察期包1 延迟压缩（让出链式自触发）" "npx tsx src/lib/workforce-runtime/__tests__/obs-p1-latency-self-trigger.test.ts"
 run_test "招标工作台状态投影" "npx tsx src/lib/tender/__tests__/workbench-state.test.ts"
+run_test "FIX-6 阶段已到、状态落后时补状态（纯逻辑 + 接线）" "npx tsx src/lib/tender/__tests__/stage-status-catch-up.test.ts"
+run_test "FIX-6 阶段已到、状态落后时补状态 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-status-catch-up-db.isolated.test.ts"
 run_test "招标自动分析幂等键" "npx tsx src/lib/tender-auto-analysis/__tests__/idempotency.test.ts"
 run_test "招标自动分析入队辅助" "npx tsx src/lib/tender-auto-analysis/__tests__/enqueue-helpers.test.ts"
 run_test "招标自动分析多文档包指纹" "npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts"
