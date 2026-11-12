@@ -195,8 +195,14 @@ async function main() {
     const round1 = await db.projectInquiry.create({ data: { projectId: P, roundNumber: 1, title: "round 1", scope: "bedding", status: "in_progress", createdById: OWNER } });
     const sentAt = new Date(Date.now() - 3 * DAY - 3600_000);
     const mkItem = (supplierId: string, o: { status?: string; contactNotes?: string | null } = {}) => db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId, status: o.status ?? "sent", sentAt, contactNotes: o.contactNotes ?? null, createdById: OWNER } });
+    const unsent = await db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId: sA, status: "pending", createdById: OWNER } });
+    ok((await view(P)).actualStage === "interpretation", "实际进度：轮次建了、供应商加了但还没发出 → 仍是项目解读（没发出不算询价）");
+    await db.inquiryItem.delete({ where: { id: unsent.id } });
     const iA = await mkItem(sA), iB = await mkItem(sB), iC = await mkItem(sC);
     ok((await view(P)).actualStage === "supplier_inquiry", "实际进度：一轮询价已发出 → 供应商询价");
+    await db.inquiryItem.update({ where: { id: iA.id }, data: { status: "replied", repliedAt: new Date() } });
+    ok((await view(P)).actualStage === "supplier_inquiry", "实际进度：有一家回复了但报价还没录入 → 仍是供应商询价（回复不等于报价）");
+    await db.inquiryItem.update({ where: { id: iA.id }, data: { status: "sent", repliedAt: null } });
     v = await view(P, VIEWER);
     ok(v.rule === "waiting_replies" && v.reasonsZh[0] === "满 5 天没回，这里会提示" && at(v) === `tab:bid#rfq-round-${round1.id}`, "发出 3 天没回；项目负责人设的是 5 天、看页面的人自己设的是 2 天：按负责人的 5 天算，还在等回复（与定时催单扫描同一口径）", v);
     await db.inquiryItem.updateMany({ where: { inquiryId: round1.id }, data: { sentAt: new Date(Date.now() - 6 * DAY) } });
