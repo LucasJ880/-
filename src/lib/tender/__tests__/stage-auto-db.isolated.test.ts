@@ -5,7 +5,7 @@
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET=… \
  *   npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
  * 无隔离库时自动跳过。全部数据为 fixture。询价发出用注入的假发信函数，不发任何邮件。
- * 建任务的断言依赖 FIX-5（#447）：在没有它的代码上，建任务会因 sortOrder 失败。
+ * 建任务的断言依赖 FIX-7（#447）：在没有它的代码上，建任务会因 sortOrder 失败。
  */
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
