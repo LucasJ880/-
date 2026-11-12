@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-12 第二十次（§0.5b 的三项全部做完并归档：FIX-3（#436）、FIX-2（#437）、FLOW-H1（#439，规格在 `openspec/specs/tender/web-next-step`）。本任务名下没有进行中的 change，也没有开着的 PR。生产上的开关都还是关的。接下来做什么见 §0.5c，等 Lucas 说开始）。第十九次：（§0.5b 的第 1 项 FIX-3（#436）与第 2 项 FIX-2（#437）都已合并并归档，规格在 `openspec/specs/settings/org-settings-write` 与 `openspec/specs/tender/price-schedule-prefill`；第 3 项 FLOW-H1 经 Lucas 同意已开始，在分支 `claude/flow-h1-next-step` 上，change 是 `tender-web-next-step`，独立审查中、PR 还没开）。第十八次：（下一步计划已定，见 §0.5b：FIX-3 → FIX-2 → FLOW-H1，#434 合并后开始第一项）。第十七次：（#431（RFQ-AUTO-5 供应商分组）与 #433（RFQ-AUTO-3a 个人开关的时钟问题）都已合并并归档。询价自动流的六个 change 都在 main 上；生产上的三个开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十六次：（#429 已合并并归档，规格在 `openspec/specs/tender/requirement-review-batch-confirm`。RFQ-AUTO-5（供应商分组）四件套已获 Lucas 同意并实施，在分支 `claude/rfq-supplier-groups` 上，独立审查中、PR 还没开；详见 §0.5a）。第十五次：（#428 归档已合并。RFQ-AUTO-4（要求审核的批量确认）实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十四次：（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
+| 最后更新 | 2026-11-12 第二十三次（**#449（FLOW-H1c）已合并并归档**，规格在 `openspec/specs/tender/stage-auto-advance`（6 条要求），开关默认关。**编号撞了**：另一个会话的 #448（并发建审批草稿时复用已有的那张）先以 FIX-5 合并，所以本任务的「修好阶段任务」#447 改名 **FIX-7**（报告 `docs/QINGYAN_FIX-7_REPORT.md`），FIX-6 仍是 #450。#449 先于 #447 合并：线上无影响（开关关），但 main 上 FLOW-H1c 的隔离库测试要等 #447 合并才全过。Lucas 对 FIX-6：「不用加开关，按照你推荐的做吧」）。第二十二次：（Lucas 对三个问题的回答：「1.要修，要这些组队任务 2.需要 3.暂时不管工艺单」，之后又说「都按照你推荐的写」。据此：**FIX-5（#447）** 修好阶段推进之后的自动任务（没有开关，合并即生效），PR 待审、CI 绿；**FLOW-H1c（#449）** 让阶段记录跟着事实自动前进（开关 `TENDER_STAGE_AUTO_ADVANCE_ENABLED` 默认关），PR 待审、CI 绿，**要在 #447 之后合并**；Sunny 工艺单那份测试不管。#446（FLOW-H4a）仍待审；FLOW-H4b 仍等 #446。生产上的开关都还是关的。随后 Lucas 说「按照你推荐的做」：**FIX-6（#450）** 让人确认的推进在阶段已到、招投标状态落后时补上状态与回调（没有开关，点确认时会发回调，待拍板），不依赖其它 PR）。第二十一次：（Lucas 说「按照你的推荐开始吧」，§0.5c 的三项按顺序在做：第 1 项 FLOW-H1b（#443）已合并并归档，规格在 `openspec/specs/tender/web-progress`；第 3 项 FIX-4（#444，换锁，没有开关）已合并并归档，规格并入 `openspec/specs/settings/org-settings-write`（现在 6 条要求）；第 2 项「提交环节」拆成两个 change：FLOW-H4a（#446，记「已提交」并留回执）PR 待审；FLOW-H4b（交付前检查清单改成确定性生成）四件套、规则、接口、组件与测试都在分支 `claude/flow-h4b-checklist` 上，只差挂到页面与验收，等 #446 合并后接着做。生产上的开关都还是关的。等 Lucas 定的事见 §0.5c 末尾：阶段记录要不要自动前进；阶段推进后建任务一直失败要不要修）。第二十次：（§0.5b 的三项全部做完并归档：FIX-3（#436）、FIX-2（#437）、FLOW-H1（#439，规格在 `openspec/specs/tender/web-next-step`）。本任务名下没有进行中的 change，也没有开着的 PR。生产上的开关都还是关的。接下来做什么见 §0.5c，等 Lucas 说开始）。第十九次：（§0.5b 的第 1 项 FIX-3（#436）与第 2 项 FIX-2（#437）都已合并并归档，规格在 `openspec/specs/settings/org-settings-write` 与 `openspec/specs/tender/price-schedule-prefill`；第 3 项 FLOW-H1 经 Lucas 同意已开始，在分支 `claude/flow-h1-next-step` 上，change 是 `tender-web-next-step`，独立审查中、PR 还没开）。第十八次：（下一步计划已定，见 §0.5b：FIX-3 → FIX-2 → FLOW-H1，#434 合并后开始第一项）。第十七次：（#431（RFQ-AUTO-5 供应商分组）与 #433（RFQ-AUTO-3a 个人开关的时钟问题）都已合并并归档。询价自动流的六个 change 都在 main 上；生产上的三个开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十六次：（#429 已合并并归档，规格在 `openspec/specs/tender/requirement-review-batch-confirm`。RFQ-AUTO-5（供应商分组）四件套已获 Lucas 同意并实施，在分支 `claude/rfq-supplier-groups` 上，独立审查中、PR 还没开；详见 §0.5a）。第十五次：（#428 归档已合并。RFQ-AUTO-4（要求审核的批量确认）实施完成，PR 已开，等 Lucas 审；详见 §0.5a）。第十四次：（#427 已合并并归档。询价自动流三个 change 都在 main 上，生产上的开关都还是关的；本任务名下没有进行中的 change。下一步见 §0.5a）。第十三次：RFQ-AUTO-3 实施完成，PR 已开。第十二次：（#425 已合并并归档，规格在 `openspec/specs/tender/rfq-auto-draft`。询价自动流两个 change 都在 main 上，两个开关在生产上都还是关的；本任务名下没有进行中的 change。详见 §0.5a）。第十一次：#423 归档已合并，RFQ-AUTO-2 实施完成、PR 已开。第十次：（#422 已合并并归档，规格在 `openspec/specs/tender/rfq-followup-preapproval`；RFQ-AUTO-2 只有四件套、等 Lucas 审。详见 §0.5a）。第九次：#421 归档收尾已合并，新开「询价自动流」两个 change。第八次：Lucas 当天合并了 #411–#419，并经补救 PR #420 把 #414–#419 的内容带进 main；八个 change 已全部 archive，TASKFLOW 状态列已同步。**现在 main 上有全部内容，没有进行中的 PR 链。**） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]` |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用 |
-| 进行中的 change | 本任务名下没有。`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
+| 进行中的 change | `tender-submission-record`（FLOW-H4a，PR #446 待审）；`tender-submission-checklist`（FLOW-H4b，分支 `claude/flow-h4b-checklist`，还没开 PR）；`stage-tasks-create-fix`（FIX-7，原 FIX-5，PR #447 待审）；`tender-stage-status-catch-up`（FIX-6，PR #450 待审，Lucas 定不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
 
 ---
 
@@ -152,20 +152,37 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 
 另外两个与询价自动流无关、同样默认关的开关（可以在上面任何一步之前或之后单独打开，互不依赖）：
 
-- `TENDER_WEB_NEXT_STEP_ENABLED=1`（FLOW-H1，可配 `TENDER_WEB_NEXT_STEP_ORG_ALLOWLIST`）：招投标项目的工作台顶部多一张「下一步」卡片。只读、只指路。打开后先看三四个处在不同阶段的真实的标，卡片说的与实际是否对得上；对不上就关掉，没有遗留数据。
+- `TENDER_WEB_NEXT_STEP_ENABLED=1`（FLOW-H1，可配 `TENDER_WEB_NEXT_STEP_ORG_ALLOWLIST`）：招投标项目的工作台顶部多一张「下一步」卡片。只读、只指路。同一个开关还管 FLOW-H1b：项目页的阶段与进度条按实际进度显示、三步卡让位（只改显示）。打开后先看三四个处在不同阶段的真实的标，卡片说的与实际是否对得上；对不上就关掉，没有遗留数据。
 - `TENDER_BID_WORKSPACE_ENABLED=1`（TI-4a，可配白名单）：投标工作区。FIX-2 的「从招标分析带入」按钮在它里面；卡片里的阻断项与「价格表还没录」也要它开着才出现。
 
 ### 0.5c 三项做完之后（2026-11-12）
 
-§0.5b 的三项都已合并并归档。下面是本会话推荐的下一批，**都还没有开始，等 Lucas 说开始**；每一项仍是一个 change、一个 PR。
+§0.5b 的三项都已合并并归档。下面是本会话推荐的下一批；Lucas 2026-11-12 说「按照你的推荐开始吧」，三项按顺序在做，每一项仍是一个 change、一个 PR。各项的进展写在「备注」一栏的末尾。
 
 | 推荐顺序 | 做什么 | 为什么 | 备注 |
 |---|---|---|---|
-| 1 | **H1 的后半：六段进度条从同一张表推导，取代工作台三步卡。** | 现在同一页上仍有三个地方说进度（卡片、决策摘要的「当前处于某某阶段」、三步卡），阶段靠手工推进，会与卡片说的不一致——FLOW-H1 的截图里就能看到（卡片说「报价齐了」，摘要标题还是「项目分发」）。 | 会动 `src/lib/tender/stage*.ts` 与阶段任务，面比 FLOW-H1 大；动手前先定「阶段还要不要人工确认才前进」 |
-| 2 | **提交环节（方案 H4）：页面上能记「已提交」并留回执；交付前检查清单由已确认的强制要求确定性生成。** | 卡片现在遇到「截标日期已过、没有提交记录」只能指到关键日期——页面上没有「标记已提交」的按钮，提交时间只能靠在对话里推进阶段写入。 | 零 schema（回执存既有文件与审计）；不自动提交 |
-| 3 | **把三处旧的行锁从 `FOR UPDATE` 换成 `FOR NO KEY UPDATE`**（斑马帘比例、质保设置、能力配额策略）。 | FIX-3 的独立审查证明 `FOR UPDATE` 会与外键检查互斥、引出死锁；新的写入入口已经换了，这三处是遗留。 | 很小；不在招投标范围内，所以单列出来等点头 |
+| 1 | **H1 的后半：六段进度条从同一张表推导，取代工作台三步卡。** | 现在同一页上仍有三个地方说进度（卡片、决策摘要的「当前处于某某阶段」、三步卡），阶段靠手工推进，会与卡片说的不一致——FLOW-H1 的截图里就能看到（卡片说「报价齐了」，摘要标题还是「项目分发」）。 | 会动 `src/lib/tender/stage*.ts` 与阶段任务，面比 FLOW-H1 大；动手前先定「阶段还要不要人工确认才前进」 **已完成（FLOW-H1b）**：#443 2026-11-12 合并，已归档（`2026-11-12-tender-web-progress-from-facts`）。做法与这里原先设想的不同——**只改显示，没有动阶段记录与阶段任务**：「下一步」接口多返回实际进度、同一时刻记录的阶段、显示的阶段三项；没结束的项目显示两者里靠后的那个，已结束的显示记录的；不一致时项目进度区写明；有卡片时三步卡不渲染。沿用开关 `TENDER_WEB_NEXT_STEP_ENABLED`。「阶段要不要自动前进」没有做，等 Lucas 定（见下） |
+| 2 | **提交环节（方案 H4）：页面上能记「已提交」并留回执；交付前检查清单由已确认的强制要求确定性生成。** | 卡片现在遇到「截标日期已过、没有提交记录」只能指到关键日期——页面上没有「标记已提交」的按钮，提交时间只能靠在对话里推进阶段写入。 | 零 schema（回执存既有文件与审计）；不自动提交 **拆成了两个 change**（调查发现这件事比原先写的大，要点见表后）。**FLOW-H4a `tender-submission-record`：PR #446 待审**——接口 `GET` / `POST …/submission-record` 与「提交」页签的「提交记录」；第一次记录走既有的阶段推进（时间用人填的），更正与补记只改提交时间；每次追加一条审计行；新开关 `TENDER_SUBMISSION_RECORD_ENABLED` 默认关；第一次记录不能撤销；回执文件上传没做。**FLOW-H4b `tender-submission-checklist`：分支 `claude/flow-h4b-checklist`，没开 PR**——已有：四件套；规则 `src/lib/tender-submission-checklist/contract.ts`；取数与标状态的服务和两个接口（`GET …/submission-checklist`、`PUT …/items/[key]`，状态存进 `TenderDeliverable.status`）；模型清单接口在开关开启时返回 409 不调模型；组件 `src/components/tender/submission-checklist-card.tsx`；测试三份（纯逻辑 37、隔离库 30、渲染 21）。**还差**：#446 合并后把分支并上最新的 main，在 `submission-tab.tsx` 里挂上组件（开关可用时不显示 `BidChecklist`），真实浏览器截图，变异核对，独立审查，报告与 TASKFLOW 行，开 PR。新开关 `TENDER_SUBMISSION_CHECKLIST_ENABLED` |
+| 3 | **把三处旧的行锁从 `FOR UPDATE` 换成 `FOR NO KEY UPDATE`**（斑马帘比例、质保设置、能力配额策略）。 | FIX-3 的独立审查证明 `FOR UPDATE` 会与外键检查互斥、引出死锁；新的写入入口已经换了，这三处是遗留。 | 很小；不在招投标范围内，所以单列出来等点头 **已完成（FIX-4）**：#444 2026-11-12 合并，已归档（`2026-11-12-org-row-lock-no-key-update`）。三处四条语句改为调用 `lockOrganizationRow`；守卫禁止再对组织行用 `FOR UPDATE`。没有开关，已随合并生效。注意：左边「引出死锁」的说法对这三处不成立（独立审查在旧代码上试了 98 轮没造出），实际解决的是互相卡住（约 920 毫秒 → 约 40 毫秒） |
+
+**第 2 项（提交环节）的现状调查要点**（2026-11-12，免得下次重查）：
+
+- 写「提交时间」的路径只有一条：`POST /api/projects/[id]/advance-stage` → `advanceProjectStage()`（`src/lib/tender/stage-transition.ts`）。页面上唯一调用它的是对话抽屉里模型给出的「阶段推进建议」卡片；项目页没有按钮。`PATCH /api/projects/[id]` 明确拒绝写阶段时间。「提交」页签上那句「提交/开标日期在关键日期里维护」对提交时间是错的。
+- 这条路径的副作用：时间只能是「现在」（记不了过去的提交时间）；同时把招投标状态写成 `bid_submitted`；发 3–4 条讨论区系统消息、一条高优先级成员通知、（有来源系统时）BidToGo 回调；**在标记已提交之后**自动建「准备投标文件」「提交投标」两条任务；没有撤销；可以从任何更早的阶段直接跳到提交，中间阶段的时间留空。
+- 「提交」页签上的「投标准备清单」是模型生成的（`/api/projects/[id]/checklist`，提示词只看项目概况、任务、询价、成员、文件名，**不看要求与交付物**），而且打开项目页约 0.8 秒后会自动触发一次；只要有读权限就能触发。存成一条 `source = "ai_checklist"` 的项目文件。
+- 已经有一份确定性的提交清单：分析时由 `buildSubmissionChecklist` 从强制的、类别属于提交类的要求生成，存在分析的 `summaryJson.submissionChecklist`，并投影成 `TenderDeliverable`。但它定格在分析那一刻，**不反映之后人的确认与驳回**；交付物的状态没有写接口。
+- 回执没有现成的落点：项目文件没有类别或元数据列，走现有上传接口会触发招标分析、计入文件包、通知成员；可用的零 schema 落点是审计日志、讨论区系统消息的 `metadata`、`BidIntelligenceRoom.summaryJson` 里自己的一块（投标工作区已经这样用，带行锁）。`src/lib/tender-price-schedule/closing-time.ts` 里已有回执的形状 `SubmissionRecord { submittedAt, receiptRef }`（「只有带平台回执的才算数」），但投标工作区从不把它传给可投标判定，所以截标之后「已过截标」的阻断项永远出现。
+- 阶段推进、放弃项目、清单接口都没有测试。
+
+Lucas 2026-11-12 已回答的三个问题（「1.要修，要这些组队任务 2.需要 3.暂时不管工艺单」）：
+
+- **阶段推进之后「为新阶段建任务」一直失败** → 修，要这些任务：**FIX-5 `stage-tasks-create-fix`，PR #447**（没有开关，合并即生效）。不再写不存在的 `sortOrder`；「准备投标文件」「提交投标」挪到供应商报价阶段（我的建议，可改回）；「提交投标」到期日取截标时间、截标还没到时任何任务都不晚于截标；进入新阶段时关掉之前**所有**阶段还没完成的自动任务（独立审查复现了只关上一阶段会留下永远逾期的任务）；同一项目加咨询锁查重；已放弃的项目不建，放弃项目时把还没完成的自动任务标为已取消。项目里所有成员都会收到这些任务的到期提醒。
+- **要不要让阶段记录自动前进** → 要：**FLOW-H1c `tender-stage-auto-advance`，PR #449**（开关默认关，依赖 #447 先合并）。分析完成 → 项目解读；询价执行这一次真的发出 / 人工标记已发送 → 供应商询价；没取消的轮次里第一次录入报价（人工或回信解析）→ 供应商报价。只在写上之后阶段记录会变靠后时写；不改招投标状态、不发 BidToGo 回调、不发讨论区消息与通知；写一条系统审计 `tender.stage.auto_advance`。
+- **Sunny 工艺单那份隔离库测试在 main 上本来就失败** → 暂时不管。
 
 仍然等 Lucas 明确决定、本会话不会自己动的：
+
+- ~~**FIX-6（#450）没有开关**~~（Lucas 2026-11-12：「不用加开关，按照你推荐的做吧」——已定，不加）：人确认推进到已到（或已过）的阶段、招投标状态落后时，补成人确认那一段的状态，并在有来源系统时发 BidToGo 回调——以前这一下什么也不发生。（原来的待定「供应商报价状态到不了」由它解决；调查发现最常见的是「不允许回退」那一种：状态还是新导入、记录已在供应商询价、AI 提议项目解读。）要不要加开关，等 Lucas 拍板。#446 合并后，要在「记录提交」调用推进的地方加一道检查（见 FIX-6 报告 §3.3）。
 
 - **生产开关**（上一小节）：本会话没有权限，也不该碰。
 - **成本输入落库**：要新增一张表，违反零 schema，须明确说「批准为成本输入新增一张表」。
@@ -187,6 +204,14 @@ TI-4a（接口）、TI-4b（面板）、TI-4c（逐行录入与补遗）已合�
 - 十六、**给人指路的话，只说现状，不说系统「会」做什么。** FLOW-H1 第一版写过「定时检查会给其中 N 家起草催单」「系统不会再催」「批准之后才能询价」，独立审查逐条证明在某些情况下是错的（邮箱没连、催单被驳回过、这一轮有授权；询价入口看的其实是已确认的要求）。写这类话之前先去读它说的那个功能自己的判断函数；读不全就不写。
 - 十七、**页内定位用的 `id` 要放在「没有数据时也会渲染」的元素上。** FLOW-H1 第一版把「去问供应商要价」指到轮次列表的 `id`，而还没有轮次时那个列表不渲染——恰好是最需要这次点击的时候。测试只查了「文件里有这个字符串」。现在的测试核对它在区块的根元素上，并在真实浏览器里核对点击之后按钮在视野里。
 - 十八、**改页面文件之后，一定在真实浏览器里把页面打开一次。** FLOW-H1 修审查发现的时候，一次按「从 A 标记到 B 标记」的整段替换把项目页的 `export default` 一并删掉了，还推了上去。类型检查、lint、整份单元测试子集全部通过——页面没有默认导出不是类型错误。是重拍截图时浏览器报出来的。整段替换前先看一眼被替换的那一段里有什么；页面文件现在有一条断言盯着默认导出。
+- 十九、**测试里的日期一律相对当前时间算，不要写死。** FLOW-H1b 的新测试把截标日期写成了 38 天后的一个固定日子，而进度条的状态要看真实的时钟——到那天之后 CI 会对所有人变红。独立审查把时钟往后拨才发现。
+- 二十、**页面手上的数据可能比接口返回的旧，不要拿两边去比。** FLOW-H1b 第一版让页面用自己加载的项目数据算「记录的阶段」，再与接口给的实际进度比；而批准询价、分析完成都会在后台把阶段记录往前写，页面手上的不会跟着刷新，于是那行说明会说「记录没有自动推进」——其实已经推进了。改成同一个接口在同一时刻把两边都读出来、把结论也算好。
+- 二十一、**从别处抄来的理由要自己验证一遍。** FIX-4 的四件套照着上一轮交接文档写了「`FOR UPDATE` 会引出死锁」，还配了一个「并发不死锁」的测试。独立审查把这个测试放到旧代码上跑，照样通过——那三处根本造不出死锁，真正的毛病是互相卡住。**一个用来证明「修好了」的测试，先在没修的代码上跑一遍，看它是不是真的会失败。**
+- 二十二、**页面上填的时间，要按所填那一天的时区偏移换算，不能拿「今天」的偏移。** FLOW-H4a 第一版用 `new Date().getTimezoneOffset()` 去换算人填的日期：在 11 月（标准时间）补记 10 月（夏令时）的提交，会整整错一小时。自测与真实浏览器都没发现（填的都是当周的日期），是独立审查把时区设成多伦多才跑出来的。测试要在一个有夏令时的时区里、取夏令时两侧的日期各核对一次。
+- 二十三、**想依赖的「既有行为」，先跑一遍确认它真的存在。** FLOW-H4a 的理由之一是「不要在已提交之后再建『提交投标』的任务」，测试也断言「没有建」。实际上建任务那一步在 main 上一直是坏的，带不带那个参数测试都通过。写「不发生某事」的断言之前，先让它在对照组里发生一次。
+- 二十四、**一个 change 依赖另一个还没合并的 PR 时，照实写合并顺序，测试在合并后的代码上验证。** FLOW-H1c 要调用 FIX-5 修好的建任务；不叠层（直接指向 main），而是在一个临时工作区里把 FIX-5 的分支并进来跑隔离库测试与变异，PR 最上面写明「#447 先合并」、单独跑时哪几项会失败、为什么。
+- 二十六、**TASKFLOW 编号开工前先在最新的 main 上查一遍，开 PR 前再查一遍。** 本任务的「修好阶段任务」用了 FIX-5，另一个会话同一天也用 FIX-5 做了别的、并先合并，报告文件同名冲突。改号要连带改：报告文件名、四件套、测试名、TASKFLOW 行、引用它的别的 change 与报告。
+- 二十五、**「只写时间、不动任务」也可能把阶段记录往回拉。** 阶段记录先看时间、没有时间才看招投标状态；对一个只有状态（例如已提交）、没有任何阶段时间的项目写上「供应商报价」的时间，阶段记录就从「项目提交」退回「供应商报价」。凡是往阶段记录里写时间，先算写上之后的阶段是不是更靠后。
 - 五、**在容器里跑过 `next dev` 之后，`.next/dev/types` 可能留下损坏的生成文件，让 `npm run typecheck` 报与源码无关的错。** 删掉 `.next/dev` 重跑即可；直接 `npx tsc` 会内存溢出，要用 `npm run typecheck`。
 
 ### 0.6 实施中沿用的约定
