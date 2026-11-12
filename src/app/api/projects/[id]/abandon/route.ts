@@ -4,6 +4,7 @@ import { requireProjectWriteAccess } from "@/lib/projects/access";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { onProjectAbandoned } from "@/lib/project-discussion/system-events";
 import { getProjectStage } from "@/lib/tender/stage";
+import { cancelOpenStageTasks } from "@/lib/tender/stage-tasks";
 
 const ABANDONABLE_STAGES = new Set([
   "interpretation",
@@ -78,6 +79,9 @@ export async function POST(
     });
 
     await onProjectAbandoned(id, user.name, user.id, currentStage, reason, tx);
+
+    // FIX-5：还没完成的阶段自动任务随项目一起撤掉（人自己建的任务不动）
+    await cancelOpenStageTasks(id, tx);
 
     return result;
   });

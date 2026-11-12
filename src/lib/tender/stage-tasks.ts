@@ -2,15 +2,17 @@
  * 阶段→任务联动
  *
  * 每个阶段有一组标准任务模板。阶段推进时：
- * 1. 将上一阶段的自动任务标为完成
- * 2. 为新阶段创建待办任务
+ * 1. 将新阶段之前所有阶段还没完成的自动任务标为完成（FIX-5：不只上一阶段——
+ *    分析完成、询价发出会绕过阶段推进直接写阶段时间，跳级推进也会跳过中间的阶段）
+ * 2. 为新阶段创建待办任务（项目不是进行中的不建；同一项目加锁，不重复建）
+ * 项目被放弃时，还没完成的自动任务标为已取消（cancelOpenStageTasks）。
  *
  * 自动任务通过 title 前缀 `[阶段]` 识别，避免误关人工创建的任务。
  */
 
 import { db } from "@/lib/db";
 import type { TenderStage } from "./types";
-import { STAGE_LABEL } from "./stage-transition";
+import { STAGE_LABEL, STAGE_ORDER } from "./stage-transition";
 
 export interface StageTaskTemplate {
   title: string;
@@ -120,21 +122,22 @@ export type StageTaskRow = {
   creatorId: string;
   assigneeId: string;
   dueDate: Date | null;
-  createdAt: Date;
 };
 
 /**
  * FIX-5：进入某个阶段时要建哪些任务（纯函数）。
  *   - 标题以「[阶段名]」开头；创建人与负责人是推进阶段的那个人；
- *   - 到期日 = now + 天数；标了 dueAtClose 的取截标时间（没有、或已经过了，仍按天数）；
- *   - 创建时间依次加 1 毫秒：同一批任务按模板里的先后顺序排（任务表没有排序列）。
+ *   - 到期日 = now + 天数；标了 dueAtClose 的取截标时间；
+ *   - 截标时间还没到时，任何一条的到期日都不晚于截标时间（截标之后才到期的任务没有意义）；
+ *   - 没有截标时间、或已经过了：一律按天数。
  */
 export function buildStageTaskRows(input: { stage: TenderStage; projectId: string; actorId: string; now: Date; closeDate: Date | null }): StageTaskRow[] {
   const templates = STAGE_TASK_TEMPLATES[input.stage] ?? [];
   const prefix = buildStagePrefix(input.stage);
-  return templates.map((t, idx) => {
+  return templates.map((t) => {
     const byDays = t.daysFromNow ? new Date(input.now.getTime() + t.daysFromNow * DAY_MS) : null;
-    const closing = t.dueAtClose && input.closeDate && input.closeDate.getTime() > input.now.getTime() ? input.closeDate : null;
+    const close = input.closeDate && input.closeDate.getTime() > input.now.getTime() ? input.closeDate : null;
+    const dueDate = close && (t.dueAtClose || (byDays && byDays.getTime() > close.getTime())) ? close : byDays;
     return {
       title: `${prefix} ${t.title}`,
       description: t.description,
@@ -143,8 +146,7 @@ export function buildStageTaskRows(input: { stage: TenderStage; projectId: strin
       projectId: input.projectId,
       creatorId: input.actorId,
       assigneeId: input.actorId,
-      dueDate: closing ?? byDays,
-      createdAt: new Date(input.now.getTime() + idx),
+      dueDate,
     };
   });
 }
@@ -153,8 +155,23 @@ function buildStagePrefix(stage: TenderStage): string {
   return `[${STAGE_LABEL[stage]}]`;
 }
 
+/** FIX-5：toStage 之前所有阶段的自动任务前缀（不含立项：立项没有模板） */
+export function earlierStagePrefixes(toStage: TenderStage): string[] {
+  const idx = STAGE_ORDER.indexOf(toStage);
+  return STAGE_ORDER.slice(0, Math.max(idx, 0))
+    .filter((s) => (STAGE_TASK_TEMPLATES[s]?.length ?? 0) > 0)
+    .map(buildStagePrefix);
+}
+
+/** 所有阶段的自动任务前缀 */
+export function allStagePrefixes(): string[] {
+  return STAGE_ORDER.filter((s) => (STAGE_TASK_TEMPLATES[s]?.length ?? 0) > 0).map(buildStagePrefix);
+}
+
+const OPEN_AUTO_STATUSES = ["todo", "in_progress"];
+
 /**
- * 阶段推进后的联动操作：关闭旧阶段任务 + 创建新阶段任务
+ * 阶段推进后的联动操作：关闭之前阶段的自动任务 + 创建新阶段任务
  */
 export async function onStageAdvancedTasks(
   projectId: string,
@@ -164,20 +181,23 @@ export async function onStageAdvancedTasks(
   /** FLOW-H4a：skipCreate = 只关上一阶段的自动任务，不为新阶段建任务（不传时与原来相同） */
   opts: { skipCreate?: boolean } = {},
 ) {
-  const prefix = buildStagePrefix(fromStage);
+  void fromStage; // FIX-5：关的是 toStage 之前的所有阶段，不只 fromStage
+  const prefixes = earlierStagePrefixes(toStage);
 
-  // 1. 将上一阶段的自动任务标为完成
-  await db.task.updateMany({
-    where: {
-      projectId,
-      title: { startsWith: prefix },
-      status: { in: ["todo", "in_progress"] },
-    },
-    data: {
-      status: "done",
-      completedAt: new Date(),
-    },
-  });
+  // 1. 将之前阶段还没完成的自动任务标为完成
+  if (prefixes.length > 0) {
+    await db.task.updateMany({
+      where: {
+        projectId,
+        OR: prefixes.map((p) => ({ title: { startsWith: p } })),
+        status: { in: OPEN_AUTO_STATUSES },
+      },
+      data: {
+        status: "done",
+        completedAt: new Date(),
+      },
+    });
+  }
 
   // 2. 为新阶段创建任务
   if (opts.skipCreate) return;
@@ -187,19 +207,40 @@ export async function onStageAdvancedTasks(
   const newPrefix = buildStagePrefix(toStage);
   const now = new Date();
 
-  // 避免重复创建：检查是否已有同前缀任务
-  const existing = await db.task.count({
+  // FIX-5：原来这里给每条任务写了 sortOrder——任务表没有这一列，每次都报错，任务从来没建出来过
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { closeDate: true, status: true } });
+  // 已放弃 / 已归档的项目不建
+  if (!project || project.status !== "active") return;
+  const tasks = buildStageTaskRows({ stage: toStage, projectId, actorId, now, closeDate: project.closeDate ?? null });
+
+  // 同一项目加锁再「查有没有、没有才建」：同时推进两次也只建一批
+  await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`stage-tasks:${projectId}`}))) AS l`;
+    // 避免重复创建：新阶段已有没完成的同前缀任务就不建
+    const existing = await tx.task.count({
+      where: {
+        projectId,
+        title: { startsWith: newPrefix },
+        status: { in: OPEN_AUTO_STATUSES },
+      },
+    });
+    if (existing > 0) return;
+    await tx.task.createMany({ data: tasks });
+  });
+}
+
+/**
+ * FIX-5：项目被放弃时，把还没完成的自动任务标为已取消（人自己建的任务不动）。
+ * 返回取消了几条。
+ */
+export async function cancelOpenStageTasks(projectId: string, client: Pick<typeof db, "task"> = db): Promise<number> {
+  const r = await client.task.updateMany({
     where: {
       projectId,
-      title: { startsWith: newPrefix },
-      status: { in: ["todo", "in_progress"] },
+      OR: allStagePrefixes().map((p) => ({ title: { startsWith: p } })),
+      status: { in: OPEN_AUTO_STATUSES },
     },
+    data: { status: "cancelled" },
   });
-  if (existing > 0) return;
-
-  // FIX-5：原来这里给每条任务写了 sortOrder——任务表没有这一列，每次都报错，任务从来没建出来过
-  const project = await db.project.findUnique({ where: { id: projectId }, select: { closeDate: true } });
-  const tasks = buildStageTaskRows({ stage: toStage, projectId, actorId, now, closeDate: project?.closeDate ?? null });
-
-  await db.task.createMany({ data: tasks });
+  return r.count;
 }
