@@ -98,6 +98,8 @@ run_test "B1 Tenant/AuthZ 安全矩阵" "npx tsx src/lib/tenancy/__tests__/b1-te
 run_test "B1 租户上下文静态断言" "npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts"
 run_test "B2 审批 CAS 静态断言" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts"
 run_test "B2 审批 CAS 并发矩阵(isolated)" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts"
+run_test "待审批草稿按企业 + 幂等键只建一张（FIX-5）" "npx tsx src/lib/pending-actions/__tests__/draft-idempotency.test.ts"
+run_test "待审批草稿并发建卡复用已有行 DB（FIX-5；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/pending-actions/__tests__/draft-idempotency-db.isolated.test.ts"
 run_test "B3 报价台账 producer" "npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts"
 run_test "B3 报价台账 producer 矩阵(isolated)" "npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts"
 run_test "B4 记忆访问门静态断言" "npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts"
@@ -653,6 +655,8 @@ run_test "FIX-2 价格表从招标分析带入（纯逻辑 + 接线）" "npx tsx
 run_test "FIX-2 价格表从招标分析带入 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts"
 run_test "FLOW-H1 项目页「下一步」（纯逻辑 + 接线）" "npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts"
 run_test "FLOW-H1 项目页「下一步」DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts"
+run_test "FLOW-H1c 阶段记录自动前进（纯逻辑 + 接线）" "npx tsx src/lib/tender/__tests__/stage-auto.test.ts"
+run_test "FLOW-H1c 阶段记录自动前进 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts"
 run_test "FLOW-H1b 阶段与进度条跟着实际进度显示（纯逻辑 + 接线）" "npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts"
 run_test "FLOW-H1b 项目进度区渲染（显示的阶段、说明）" "npx tsx src/components/tender/__tests__/project-progress-section.test.tsx"
 
