@@ -144,7 +144,8 @@ export function WorkbenchTab({
       <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
 
       {/* Tender 工作流 Quick Start：仅招投标项目展示（canonical workDomain 判定） */}
-      {tenderish ? (
+      {/* FLOW-H1b：有「下一步」卡片时三步卡让位（卡片说得更细）；没有卡片时照旧 */}
+      {tenderish && !(nextStep && onOpenNextStep) ? (
         <ProjectOnboardingGuide
           state={workbenchState}
           onNavigate={(target) => onNavigate(target)}
@@ -202,6 +203,8 @@ export function WorkbenchTab({
             projectId={projectId}
             canManage={canManage}
             onUpdated={onReload}
+            shownStage={nextStep?.shownStage ?? null}
+            recordedStageNow={nextStep?.recordedStage ?? null}
           />
         </div>
       ) : (

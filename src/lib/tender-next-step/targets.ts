@@ -59,6 +59,9 @@ export type WebNextStepRule =
 
 export type WebNextStepAction = { labelZh: string; target: WebNextStepTarget };
 
+/** 六段阶段（与 src/lib/tender/types 的 TenderStage 同一组值；这个文件零依赖，所以在这里再写一遍，测试核对两者一致） */
+export type NextStepStage = "initiation" | "distribution" | "interpretation" | "supplier_inquiry" | "supplier_quote" | "submission";
+
 export type WebNextStepView = {
   rule: WebNextStepRule;
   /** 一句结论：现在卡在哪 */
@@ -73,6 +76,15 @@ export type WebNextStepView = {
   closesAt: string | null;
   /** 顺带要办的事，不超过三条 */
   also: Array<{ textZh: string; target: WebNextStepTarget }>;
+  /**
+   * FLOW-H1b：按实际进度，这个标到了六段里的哪一段（有提交时间 / 有报价 / 有已发出的询价 / 有可用的分析）。
+   * 只是一个阶段名。
+   */
+  actualStage: NextStepStage;
+  /** 阶段记录（项目上的几个阶段时间）说的是哪一段——与这次响应同一时刻读的 */
+  recordedStage: NextStepStage;
+  /** 页面上显示哪一段：没结束的项目取上面两个里靠后的；已结束的项目就是记录的阶段 */
+  shownStage: NextStepStage;
 };
 
 /**
