@@ -51,6 +51,19 @@ function isTerminalStatus(status: string | null): boolean {
   );
 }
 
+/** 六段的先后顺序 */
+export const TENDER_STAGE_ORDER: readonly TenderStage[] = STAGES.map((s) => s.key);
+
+/**
+ * FLOW-H1b：两个阶段里靠后的那个。项目页用它显示「记录的阶段」与「实际到达的阶段」中更靠后的；
+ * 第二个参数没有（或认不出）时就是第一个。只用于显示，不写任何东西。
+ */
+export function laterStage(recorded: TenderStage, actual: TenderStage | null | undefined): TenderStage {
+  const a = TENDER_STAGE_ORDER.indexOf(recorded);
+  const b = actual ? TENDER_STAGE_ORDER.indexOf(actual) : -1;
+  return b > a ? (actual as TenderStage) : recorded;
+}
+
 /**
  * 获取项目的整体状态标签。
  */
@@ -80,9 +93,10 @@ export function resolveCloseDate(p: TenderProject): Date | null {
 
 /**
  * 生成 6 步 stepper 的状态列表（含各阶段权重）。
+ * stageOverride：按这个阶段算（FLOW-H1b：项目页传「显示的阶段」）；不传时与原来相同，用记录的阶段。
  */
-export function getStageSteps(p: TenderProject): StageInfo[] {
-  const current = getProjectStage(p);
+export function getStageSteps(p: TenderProject, stageOverride?: TenderStage): StageInfo[] {
+  const current = stageOverride ?? getProjectStage(p);
   const overallStatus = getProjectStageStatus(p);
   const stageIndex = STAGES.findIndex((s) => s.key === current);
 
@@ -120,8 +134,8 @@ export function getStageSteps(p: TenderProject): StageInfo[] {
  * 计算项目整体完成百分比。
  * 已完成的阶段权重累加；当前阶段视为进行中（不计入已完成比例）。
  */
-export function getProjectCompletion(p: TenderProject): number {
-  const current = getProjectStage(p);
+export function getProjectCompletion(p: TenderProject, stageOverride?: TenderStage): number {
+  const current = stageOverride ?? getProjectStage(p);
   const overallStatus = getProjectStageStatus(p);
   const stageIndex = STAGES.findIndex((s) => s.key === current);
 

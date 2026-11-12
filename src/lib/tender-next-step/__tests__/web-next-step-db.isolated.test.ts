@@ -25,7 +25,7 @@ function ok(cond: boolean, name: string, detail?: unknown) {
 }
 
 type Target = { kind: string; tab?: string; anchor?: string | null; href?: string };
-type View = { rule: string; headlineZh: string; reasonsZh: string[]; action: { labelZh: string; target: Target } | null; urgencyZh: string | null; closesAt: string | null; also: Array<{ textZh: string; target: Target }> };
+type View = { rule: string; headlineZh: string; reasonsZh: string[]; action: { labelZh: string; target: Target } | null; urgencyZh: string | null; closesAt: string | null; also: Array<{ textZh: string; target: Target }>; actualStage: string };
 type Body = { view?: View; error?: string };
 
 async function main() {
@@ -143,6 +143,7 @@ async function main() {
     // —— 2. 一个标从头走到尾 ——
     let v = await view(P);
     ok(v.rule === "no_documents" && at(v) === "files:" && v.action?.labelZh === "上传招标文件" && v.urgencyZh === null && typeof v.closesAt === "string", "刚建的项目：还没上传招标文件 → 文件抽屉；带着截标时间", v);
+    ok(v.actualStage === "initiation", "实际进度：只有项目本身 → 立项", v.actualStage);
 
     const doc = await db.projectDocument.create({ data: { projectId: P, title: "Tender.pdf", url: "fixture://tender.pdf", fileType: "pdf", parseStatus: "pending" } as never });
     v = await view(P);
@@ -155,12 +156,13 @@ async function main() {
 
     const run = await db.tenderAnalysisRun.create({ data: { orgId: ORG, projectId: P, status: "ANALYZING", idempotencyKey: `ns-${stamp}-run1`, sourceHashFingerprint: "fixture", createdById: OWNER } });
     v = await view(P);
-    ok(v.rule === "analysis_running" && v.headlineZh === "招标文件正在分析", "分析进行中", v);
+    ok(v.rule === "analysis_running" && v.headlineZh === "招标文件正在分析" && v.actualStage === "initiation", "分析进行中；实际进度仍是立项（还没有可用的分析）", v);
 
     await db.tenderAnalysisRun.update({ where: { id: run.id }, data: { status: "REVIEW_REQUIRED", summaryJson: { criticalFacts: { buyer: { status: "KNOWN", factId: "f1" }, closing_datetime: { status: "UNKNOWN" } } } } });
     for (let i = 1; i <= 3; i += 1) await db.tenderExtractedRequirement.create({ data: { projectId: P, analysisRunId: run.id, requirementCode: `R-00${i}`, category: "product", originalRequirement: `Fixture requirement ${i}`, chineseTranslation: `示例要求 ${i}`, mandatory: i === 1, reviewStatus: "AI_EXTRACTED" } });
     v = await view(P);
     ok(v.rule === "unknown_facts" && v.headlineZh === "分析完了，1 个关键事实没证据" && at(v) === "tab:requirements#tender-analysis", "分析完、1 个关键事实没证据 → 去核对", v);
+    ok(v.actualStage === "interpretation", "实际进度：有了等待审核的分析 → 项目解读", v.actualStage);
     await db.tenderAnalysisRun.update({ where: { id: run.id }, data: { summaryJson: { criticalFacts: { buyer: { status: "KNOWN", factId: "f1" } } } } });
     v = await view(P);
     ok(v.rule === "requirements_review" && v.reasonsZh[0].startsWith("还有 3 条要求待确认") && v.reasonsZh[1] === "至少确认一条，才能从页面上问供应商要价" && at(v) === "tab:requirements#tender-analysis" && v.action?.labelZh === "去确认并批准", "关键事实齐了：等你确认要求并批准（不是去询价）；写明还有 3 条待确认、至少确认一条才能询价", v);
@@ -194,6 +196,7 @@ async function main() {
     const sentAt = new Date(Date.now() - 3 * DAY - 3600_000);
     const mkItem = (supplierId: string, o: { status?: string; contactNotes?: string | null } = {}) => db.inquiryItem.create({ data: { inquiryId: round1.id, supplierId, status: o.status ?? "sent", sentAt, contactNotes: o.contactNotes ?? null, createdById: OWNER } });
     const iA = await mkItem(sA), iB = await mkItem(sB), iC = await mkItem(sC);
+    ok((await view(P)).actualStage === "supplier_inquiry", "实际进度：一轮询价已发出 → 供应商询价");
     v = await view(P, VIEWER);
     ok(v.rule === "waiting_replies" && v.reasonsZh[0] === "满 5 天没回，这里会提示" && at(v) === `tab:bid#rfq-round-${round1.id}`, "发出 3 天没回；项目负责人设的是 5 天、看页面的人自己设的是 2 天：按负责人的 5 天算，还在等回复（与定时催单扫描同一口径）", v);
     await db.inquiryItem.updateMany({ where: { inquiryId: round1.id }, data: { sentAt: new Date(Date.now() - 6 * DAY) } });
@@ -254,6 +257,9 @@ async function main() {
     await db.inquiryItem.update({ where: { id: iC.id }, data: { status: "no_response" } });
     v = await view(P);
     ok(v.rule === "single_quote" && at(v) === `tab:bid#rfq-round-${round1.id}`, "一家报价、一家谢绝、一家未响应：只有 1 家报价", v);
+    ok(v.actualStage === "supplier_quote", "实际进度：有一家已报价 → 供应商报价", v.actualStage);
+    const recorded = await db.project.findUnique({ where: { id: P }, select: { supplierQuotedAt: true, supplierInquiredAt: true, interpretedAt: true, submittedAt: true, tenderStatus: true } });
+    ok(recorded?.supplierQuotedAt === null && recorded?.supplierInquiredAt === null && recorded?.interpretedAt === null && recorded?.submittedAt === null, "阶段记录没有被写过：项目上的几个阶段时间仍然是空的（只改显示）", recorded);
     await db.inquiryItem.update({ where: { id: iB.id }, data: { status: "quoted", repliedAt: new Date(), unitPrice: 11.5, totalPrice: 27220.5, currency: "CAD" } });
     v = await view(P);
     ok(v.rule === "quotes_ready" && v.headlineZh === "报价齐了，还没定供应商" && at(v) === `tab:bid#rfq-round-${round1.id}` && v.action?.labelZh === "去比价并选定", "两家报价：报价齐了 → 那一轮", v);
@@ -285,7 +291,7 @@ async function main() {
     // 金额不出现
     const texts = JSON.stringify([await view(P), await view(P, VIEWER)]);
     ok(!/123456|123,456|45678|45,678|34567|23\.45|9\.87|11\.5|23362|27220/.test(texts) && !/[$¥€£]|毛利|估值|报价金额/.test(texts), "项目有估值、供应商报了价、投标报价有总额与毛利：响应的文字里这些数字一个都不出现", texts.slice(0, 600));
-    ok(Object.keys(v).sort().join() === "action,also,closesAt,headlineZh,reasonsZh,rule,urgencyZh", "响应里只有这七个字段");
+    ok(Object.keys(v).sort().join() === "action,actualStage,also,closesAt,headlineZh,reasonsZh,rule,urgencyZh", "响应里只有这八个字段");
 
     // 临近截标：提醒与下一步并存
     await db.projectQuote.delete({ where: { id: quote.id } });
@@ -307,7 +313,7 @@ async function main() {
     ok(v.rule === "past_closing" && v.headlineZh === "截标日期已过，没有提交记录" && at(v) === "tab:workbench#project-key-dates" && v.urgencyZh === null, "截标日期过了一天以上、没有提交时间：照实说；位置是工作台的关键日期；不再建议定价", v);
     await db.project.update({ where: { id: P }, data: { submittedAt: new Date(Date.now() - 2 * 3600_000) } });
     v = await view(P);
-    ok(v.rule === "submitted" && v.headlineZh === "已提交，等开标结果" && at(v) === "tab:submission", "有提交时间：已提交，等结果", v);
+    ok(v.rule === "submitted" && v.headlineZh === "已提交，等开标结果" && at(v) === "tab:submission" && v.actualStage === "submission", "有提交时间：已提交，等结果；实际进度是项目提交", v);
     await db.project.update({ where: { id: P }, data: { tenderStatus: "lost" } });
     v = await view(P);
     ok(v.rule === "closed" && v.headlineZh === "这个标已结束（未中标）" && v.action === null, "招投标状态是未中标：这个标已结束", v);
@@ -348,6 +354,11 @@ async function main() {
     await db.inquiryItem.create({ data: { inquiryId: r2.id, supplierId: sC, status: "sent", sentAt: new Date(), createdById: OWNER } });
     v = await view(P2);
     ok(v.rule === "waiting_replies" && at(v) === `tab:bid#rfq-round-${r2.id}`, "第 2 轮今天发出了一家：当前这一轮是最新一轮有已发出的（第 2 轮），不是最早的第 1 轮", v);
+    ok(v.actualStage === "supplier_quote", "实际进度：报价在第 1 轮、第 2 轮刚发出还没人回 → 仍是供应商报价（开新一轮不让进度倒退）", v.actualStage);
+    // 把有报价的第 1 轮取消：已取消的轮次不算
+    await db.projectInquiry.update({ where: { id: r1.id }, data: { status: "canceled" } });
+    ok((await view(P2)).actualStage === "supplier_inquiry", "有报价的那一轮被取消了：实际进度回到供应商询价（已取消的轮次不算）");
+    await db.projectInquiry.update({ where: { id: r1.id }, data: { status: "in_progress" } });
     await db.projectInquiry.update({ where: { id: r2.id }, data: { status: "canceled" } });
     ok(at(await view(P2)) === `tab:bid#rfq-round-${r1.id}`, "第 2 轮取消了：回到第 1 轮");
     // 轮次标为完成、还有一家「已发出」：定时催单不再看它，这里也不说「没回」

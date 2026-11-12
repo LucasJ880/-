@@ -32,7 +32,7 @@ const mk = (o: Partial<WebNextStepInput> = {}): WebNextStepInput => ({
   now: NOW, projectId: "p1", projectName: "示例标", closedLabelZh: null, won: false, closeDate: ahead(20), submittedAt: null,
   documentCount: 3, parsingActive: false, analysisStatus: "APPROVED", latestAnalysisFailed: false, unknownCriticalFacts: 0, mandatoryNonCompliant: 0,
   pendingRequirementCount: 0, confirmedRequirementCount: 5,
-  pendingApprovals: [], latestRound: null, hasProjectQuote: false, chaseAfterDays: 3, canManage: true, workspace: null, rfqEntry: null, ...o,
+  pendingApprovals: [], latestRound: null, hasProjectQuote: false, hasUsableAnalysis: true, anySent: false, anyQuoted: false, chaseAfterDays: 3, canManage: true, workspace: null, rfqEntry: null, ...o,
 });
 /** 同一个状态交给 Muse 的查表（不带截标时间——网页把截标单独算） */
 const tableOf = (i: WebNextStepInput) => {
@@ -313,7 +313,7 @@ console.log("结果里有什么、没有什么");
     decideWebNextStep(mk({ closeDate: ago(3) })),
     decideWebNextStep(mk({ confirmedRequirementCount: 0 })),
   ];
-  ok("只有这七个字段；没有价格、毛利、估值之类的字段", all.every((x) => Object.keys(x).sort().join() === "action,also,closesAt,headlineZh,reasonsZh,rule,urgencyZh"));
+  ok("只有这八个字段；没有价格、毛利、估值之类的字段", all.every((x) => Object.keys(x).sort().join() === "action,actualStage,also,closesAt,headlineZh,reasonsZh,rule,urgencyZh"));
   ok("原因不超过三条，顺带要办的事不超过三条", all.every((x) => x.reasonsZh.length <= 3 && x.also.length <= 3));
   ok("文字里没有金额（货币符号、「元」、百分号）", all.every((x) => !/[$¥€£%]|\d\s*元|CAD|USD/.test(JSON.stringify([x.headlineZh, x.reasonsZh, x.also, x.action?.labelZh]))));
   ok("按钮的文字都是「去…」「看…」「上传…」这类导航的说法，没有「批准」「发送」「提交投标」「催」", all.every((x) => !x.action || (/^(去|看|上传)/.test(x.action.labelZh) && !/^(批准|发送|提交投标|催)/.test(x.action.labelZh))));

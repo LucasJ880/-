@@ -2,8 +2,9 @@
 
 import { BarChart3, AlertCircle, Clock, CheckCircle2, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TenderProject } from "@/lib/tender/types";
+import type { TenderProject, TenderStage } from "@/lib/tender/types";
 import {
+  laterStage,
   getProjectStage,
   getProjectStageStatus,
   getStageSteps,
@@ -56,16 +57,21 @@ export function ProjectProgressSection({
   projectId,
   canManage,
   onUpdated,
+  actualStage,
 }: {
   project: TenderProject;
   projectId?: string;
   canManage?: boolean;
   onUpdated?: () => void;
+  /** FLOW-H1b：按实际进度到达的阶段（来自「下一步」接口）；没有时只用记录的阶段，与原来相同 */
+  actualStage?: TenderStage | null;
 }) {
-  const currentStage = getProjectStage(project);
+  // 显示的阶段 = 记录的阶段与实际到达的阶段里靠后的那个。只改显示，不写阶段记录
+  const recordedStage = getProjectStage(project);
+  const currentStage = laterStage(recordedStage, actualStage);
   const stageStatus = getProjectStageStatus(project);
-  const stages = getStageSteps(project);
-  const completion = getProjectCompletion(project);
+  const stages = getStageSteps(project, currentStage);
+  const completion = getProjectCompletion(project, currentStage);
   const timelineEvents = buildProjectTimelineEvents(project);
   const closeDate = resolveCloseDate(project);
   const countdown = closeDate ? formatCountdown(closeDate) : null;
@@ -128,6 +134,12 @@ export function ProjectProgressSection({
             </div>
           )}
         </div>
+
+        {currentStage !== recordedStage && (
+          <p className="mt-2 text-xs text-muted" data-testid="progress-stage-note">
+            这里显示的是按实际进度得出的阶段。记录的阶段还是「{STAGE_LABELS[recordedStage] || recordedStage}」——阶段记录没有自动推进，别处（项目列表等）看到的仍是记录的阶段。
+          </p>
+        )}
 
         {/* Overdue warning banner */}
         {isOverdueNotSubmitted && (

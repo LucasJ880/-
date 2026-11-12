@@ -160,6 +160,10 @@ export async function loadWebNextStepInput(input: { project: NextStepProject; us
         }
       : null,
     hasProjectQuote: quoteCount > 0,
+    // FLOW-H1b：实际进度看所有没取消的轮次，不只是当前这一轮（开新一轮不该让进度条倒退）
+    hasUsableAnalysis: !!usableRun,
+    anySent: rounds.some((r) => r.items.some((i) => i.status !== "pending")),
+    anyQuoted: rounds.some((r) => r.items.some((i) => i.status === "quoted")),
     chaseAfterDays,
     canManage: input.canManage,
     workspace: workspace

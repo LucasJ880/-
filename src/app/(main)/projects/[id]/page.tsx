@@ -23,7 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import type { WebNextStepTarget, WebNextStepView } from "@/lib/tender-next-step/targets";
-import { getProjectStage } from "@/lib/tender/stage";
+import { getProjectStage, laterStage } from "@/lib/tender/stage";
 import {
   analysisPhaseFromRunStatus,
   deriveTenderWorkbenchState,
@@ -461,6 +461,12 @@ function ProjectDetailContent() {
     () => project ? getProjectStage(buildTenderProps(project)) : "initiation",
     [project],
   );
+  // FLOW-H1b：显示的阶段 = 记录的阶段与实际到达的阶段里靠后的那个（实际进度来自「下一步」接口）。
+  // 只用于显示——不写阶段记录；没有「下一步」时就是记录的阶段，与原来相同
+  const displayStage = useMemo(
+    () => (nextStepWanted && nextStep ? laterStage(tenderStage, nextStep.actualStage) : tenderStage),
+    [nextStepWanted, nextStep, tenderStage],
+  );
 
   // ── 工作台状态单一事实源 ──
   // documentCount / parseStatus 来自项目 canonical 文档，analysisPhase 来自
@@ -505,7 +511,7 @@ function ProjectDetailContent() {
     () =>
       deriveProjectCommandState({
         status: project?.status ?? "active",
-        stage: tenderStage,
+        stage: displayStage,
         orgBound: Boolean(project?.orgId),
         documentCount,
         closeDate: project?.closeDate ?? project?.dueDate ?? null,
@@ -523,7 +529,7 @@ function ProjectDetailContent() {
       project,
       progress,
       pendingActions.length,
-      tenderStage,
+      displayStage,
       documentCount,
       analysisPhase,
       parsingActive,
