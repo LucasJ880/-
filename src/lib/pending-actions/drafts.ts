@@ -9,6 +9,7 @@
  * - 返回 ToolExecutionResult 给 LLM
  */
 
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import type { ToolExecutionResult } from "@/lib/agent-core/types";
@@ -151,91 +152,86 @@ function buildCreateData(input: CreateDraftInput) {
   };
 }
 
+const CREATED_SELECT = {
+  id: true,
+  type: true,
+  title: true,
+  preview: true,
+  agentRunId: true,
+} as const;
+
+const EXISTING_SELECT = { ...CREATED_SELECT, payloadHash: true } as const;
+
+/** 「建或复用一行」用到的事务方法（纯函数测试注入假事务） */
+export type DraftRowTx = Pick<Prisma.TransactionClient, "pendingAction">;
+
+function findByIdempotencyKey(tx: DraftRowTx, orgId: string, idempotencyKey: string) {
+  return tx.pendingAction.findFirst({
+    where: { orgId, idempotencyKey },
+    select: EXISTING_SELECT,
+  });
+}
+
+function reused(row: {
+  id: string;
+  type: string;
+  title: string;
+  preview: string;
+  agentRunId: string | null;
+  payloadHash: string | null;
+}): CreatedDraftAction {
+  return {
+    actionId: row.id,
+    type: row.type,
+    title: row.title,
+    preview: row.preview,
+    payloadHash: row.payloadHash ?? "",
+    agentRunId: row.agentRunId,
+  };
+}
+
+/**
+ * 在事务里建一行草稿，或复用同一企业 + 幂等键的已有行（spec approvals/draft-idempotency）。
+ *
+ * 带企业与幂等键时插入用 `skipDuplicates`（INSERT … ON CONFLICT DO NOTHING）：并发的后到者遇到唯一冲突时什么都不做，
+ * 事务不中止（直接 create 撞键会让 Postgres 中止整个事务，之后的查询全部 25P02）。ON CONFLICT 会等先到者的事务结束，
+ * 所以没插进去时，紧接着按键读（READ COMMITTED）读得到先到者已提交的行。读不到就抛错，整批按失败处理。
+ */
+export async function createOrReuseDraftRow(
+  tx: DraftRowTx,
+  input: CreateDraftInput,
+): Promise<CreatedDraftAction> {
+  const keyed = input.orgId && input.idempotencyKey ? { orgId: input.orgId, idempotencyKey: input.idempotencyKey } : null;
+  if (keyed) {
+    const existing = await findByIdempotencyKey(tx, keyed.orgId, keyed.idempotencyKey);
+    if (existing) return reused(existing);
+  }
+  const { payloadHash, data } = buildCreateData(input);
+  const created = keyed
+    ? (await tx.pendingAction.createManyAndReturn({ data: [data], skipDuplicates: true, select: CREATED_SELECT }))[0]
+    : await tx.pendingAction.create({ data, select: CREATED_SELECT });
+  if (created) {
+    return {
+      actionId: created.id,
+      type: created.type,
+      title: created.title,
+      preview: created.preview,
+      payloadHash,
+      agentRunId: created.agentRunId,
+    };
+  }
+  // 没插进去：并发的先到者已建了同键的行
+  const raced = keyed ? await findByIdempotencyKey(tx, keyed.orgId, keyed.idempotencyKey) : null;
+  if (raced) return reused(raced);
+  throw new Error("DRAFT_IDEMPOTENCY_CONFLICT_UNRESOLVED");
+}
+
 async function defaultCreateAllInTransaction(
   inputs: CreateDraftInput[],
 ): Promise<CreatedDraftAction[]> {
   return db.$transaction(async (tx) => {
     const out: CreatedDraftAction[] = [];
-    for (const input of inputs) {
-      if (input.orgId && input.idempotencyKey) {
-        const existing = await tx.pendingAction.findFirst({
-          where: {
-            orgId: input.orgId,
-            idempotencyKey: input.idempotencyKey,
-          },
-          select: {
-            id: true,
-            type: true,
-            title: true,
-            preview: true,
-            agentRunId: true,
-            payloadHash: true,
-          },
-        });
-        if (existing) {
-          out.push({
-            actionId: existing.id,
-            type: existing.type,
-            title: existing.title,
-            preview: existing.preview,
-            payloadHash: existing.payloadHash ?? "",
-            agentRunId: existing.agentRunId,
-          });
-          continue;
-        }
-      }
-      const { payloadHash, data } = buildCreateData(input);
-      try {
-        const action = await tx.pendingAction.create({
-          data,
-          select: {
-            id: true,
-            type: true,
-            title: true,
-            preview: true,
-            agentRunId: true,
-          },
-        });
-        out.push({
-          actionId: action.id,
-          type: action.type,
-          title: action.title,
-          preview: action.preview,
-          payloadHash,
-          agentRunId: action.agentRunId,
-        });
-      } catch (e) {
-        // 并发唯一冲突：复用已有行
-        if (input.orgId && input.idempotencyKey) {
-          const raced = await tx.pendingAction.findFirst({
-            where: {
-              orgId: input.orgId,
-              idempotencyKey: input.idempotencyKey,
-            },
-            select: {
-              id: true,
-              type: true,
-              title: true,
-              preview: true,
-              agentRunId: true,
-              payloadHash: true,
-            },
-          });
-          if (raced) {
-            out.push({
-              actionId: raced.id,
-              type: raced.type,
-              title: raced.title,
-              preview: raced.preview,
-              payloadHash: raced.payloadHash ?? "",
-              agentRunId: raced.agentRunId,
-            });
-            continue;
-          }
-        }
-        throw e;
-      }
-    }
+    for (const input of inputs) out.push(await createOrReuseDraftRow(tx, input));
     return out;
   });
 }
