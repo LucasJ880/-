@@ -98,6 +98,8 @@ run_test "B1 Tenant/AuthZ 安全矩阵" "npx tsx src/lib/tenancy/__tests__/b1-te
 run_test "B1 租户上下文静态断言" "npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts"
 run_test "B2 审批 CAS 静态断言" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts"
 run_test "B2 审批 CAS 并发矩阵(isolated)" "npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts"
+run_test "待审批草稿按企业 + 幂等键只建一张（FIX-5）" "npx tsx src/lib/pending-actions/__tests__/draft-idempotency.test.ts"
+run_test "待审批草稿并发建卡复用已有行 DB（FIX-5；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/pending-actions/__tests__/draft-idempotency-db.isolated.test.ts"
 run_test "B3 报价台账 producer" "npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts"
 run_test "B3 报价台账 producer 矩阵(isolated)" "npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts"
 run_test "B4 记忆访问门静态断言" "npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts"
