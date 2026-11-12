@@ -128,7 +128,7 @@
 | `web-progress.test.ts`、`tender-detail-ia.test.ts`（既有，读到被改的文件） | 51 项、36 项通过，断言未改 |
 | 变异核对 | 第一轮 49 处（3 处没被发现，补了断言）；审查之后 51 处（含审查找到的漏网项），全部被测试发现 |
 | 真实浏览器（多伦多时区） | 截标已过 → 卡片 → 提交记录 → 备注带金额被拒 → 确认 → 保存 → 回到工作台 → 更正 → 补记 → 只读成员；开关关闭。没有页面错误。库里读回：填的 11 月 7 日 15:20 存成 20:20Z |
-| `npm run test:ci` | 见 PR 说明（提交本报告后在最终代码上完整跑一遍） |
+| `npm run test:ci` | `CI unit subset PASS`（在最终代码上完整跑的一遍） |
 | `npm run typecheck` | 退出码 0 |
 | `npm run lint:baseline` | PASS |
 | `bash scripts/check-test-registry.sh` | OK（606 个） |
