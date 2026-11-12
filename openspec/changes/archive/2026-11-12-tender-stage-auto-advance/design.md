@@ -11,7 +11,7 @@
 - 人工把询价项标记为已发送（电话、微信询价，`…/items/{itemId}/mark-sent`）不写任何阶段时间。
 - 「供应商报价」没有任何自动写入。录入报价有两条路：人工录入接口（`/api/projects/{id}/inquiries/{inquiryId}/items/{itemId}/record-quote`）与回信自动解析（`src/lib/tender-rfq/inbound-sync.ts`），都调 `recordQuote`（`src/lib/inquiry/service.ts`）。
 - FLOW-H1b 让项目页按事实显示阶段，并写明「阶段记录没有自动推进」；是否让记录本身前进留给了 Lucas，他定为要。
-- FIX-5（#447，待合并）修好了阶段任务：进入新阶段时关掉之前各阶段还没完成的自动任务、为新阶段建任务、同一项目加锁查重、已放弃不建。**本 change 调它的入口 `onStageAdvancedTasks`，建任务那部分要 #447 合并之后才真的生效**（main 上建任务仍会因 `sortOrder` 失败，错误被吞掉）。
+- FIX-7（#447，待合并）修好了阶段任务：进入新阶段时关掉之前各阶段还没完成的自动任务、为新阶段建任务、同一项目加锁查重、已放弃不建。**本 change 调它的入口 `onStageAdvancedTasks`，建任务那部分要 #447 合并之后才真的生效**（main 上建任务仍会因 `sortOrder` 失败，错误被吞掉）。
 
 ## Goals / Non-Goals
 
@@ -24,7 +24,7 @@
 **Non-Goals（具体到文件）**
 
 - 不改 `src/lib/tender/stage-transition.ts`（推进规则、人确认、回调、通知）。
-- 不改 `src/lib/tender/stage-tasks.ts`（任务模板与收建规则，FIX-5 的范围）。
+- 不改 `src/lib/tender/stage-tasks.ts`（任务模板与收建规则，FIX-7 的范围）。
 - 不改 `src/lib/project-intake/service.ts`（分发写的时间）。
 - 不改 `src/lib/muse-bridge/`、`src/lib/proactive/`、项目页组件（`src/components/tender/project-progress-section.tsx` 那行「阶段记录没有自动推进」的说明不改，见 Risks）。
 - 改动的既有文件只有：`src/lib/inquiry/service.ts`（`recordQuote`、`markItemSent`）、录入报价与标记已发送两个接口、`src/lib/tender-rfq/execute.ts`、`src/lib/tender-auto-analysis/worker.ts`、审计的两张标签表（`src/lib/cockpit/audit-labels.ts`、`src/lib/activity/formatter.ts`）。
@@ -107,7 +107,7 @@
 - **那行「阶段记录没有自动推进」的说明**（FLOW-H1b）：开关打开后，它只在三种情形下出现——只有投标报价单、项目级报价单、开关没覆盖的组织——这些情形里阶段记录确实没有自动推进，所以照旧准确；措辞写在 #445 归档的规格里，这次不改。
 - **审计挂在人名下**：回信自动解析等不知道是谁的情形，审计记在项目负责人名下（另有「是否知道是谁」一项）；驾驶舱把这条审计标为系统动作，活动流写「（系统）自动推进了阶段记录」。
 - **依赖 #447**：#447 没合并时，开关打开也只会写时间、关上一阶段的任务，建不出新任务。合并顺序：#447 在前。
-- **成员会看到更多任务提醒**：自动前进也会建任务，FIX-5 报告 §3.1 说的到期提醒同样适用。
+- **成员会看到更多任务提醒**：自动前进也会建任务，FIX-7 报告 §3.1 说的到期提醒同样适用。
 - **回信自动解析可能解析错**：把一封不是报价的回信当成报价，会让阶段记录提前到「供应商报价」。这是解析本身的问题，人可以在询价里改回；阶段记录不会退回（阶段不允许回退，既有规则）。
 - **开关打开后的头几天**：已经落后的老项目不补写，要等它们下一次有报价录入。
 
