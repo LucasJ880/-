@@ -12,5 +12,5 @@
 ## 3. 测试注册与验收
 
 - [x] 3.1 两个新测试注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：`bash scripts/check-test-registry.sh` 输出 OK
-- [ ] 3.2 变异核对；开 PR 前请一个不带结论的独立审查并处理其发现；全部门禁；verify：报告里逐条写明；`npm run test:ci` 输出 `CI unit subset PASS`、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate tender-web-next-step --strict` valid
-- [ ] 3.3 写 `docs/QINGYAN_FLOW-H1_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 FLOW-H1 一行，状态 `[G]`
+- [x] 3.2 变异核对；开 PR 前请一个不带结论的独立审查并处理其发现；全部门禁；verify：报告里逐条写明；`npm run test:ci` 输出 `CI unit subset PASS`、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate tender-web-next-step --strict` valid
+- [x] 3.3 写 `docs/QINGYAN_FLOW-H1_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 FLOW-H1 一行，状态 `[G]`
