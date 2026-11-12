@@ -655,6 +655,8 @@ run_test "FIX-2 价格表从招标分析带入（纯逻辑 + 接线）" "npx tsx
 run_test "FIX-2 价格表从招标分析带入 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts"
 run_test "FLOW-H1 项目页「下一步」（纯逻辑 + 接线）" "npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts"
 run_test "FLOW-H1 项目页「下一步」DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts"
+run_test "FLOW-H1c 阶段记录自动前进（纯逻辑 + 接线）" "npx tsx src/lib/tender/__tests__/stage-auto.test.ts"
+run_test "FLOW-H1c 阶段记录自动前进 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts"
 run_test "FLOW-H1b 阶段与进度条跟着实际进度显示（纯逻辑 + 接线）" "npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts"
 run_test "FLOW-H1b 项目进度区渲染（显示的阶段、说明）" "npx tsx src/components/tender/__tests__/project-progress-section.test.tsx"
 
