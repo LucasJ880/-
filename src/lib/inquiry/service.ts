@@ -286,7 +286,8 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
 export async function recordQuote(
   scope: ItemScope,
   input: RecordQuoteInput,
-  opts: { skipMuseHook?: boolean } = {},
+  /** actorId（FLOW-H1c）：录入报价的人；回信自动解析不传，自动前进记在项目负责人名下 */
+  opts: { skipMuseHook?: boolean; actorId?: string | null } = {},
 ) {
   const { item } = await resolveItem(scope);
 
@@ -324,6 +325,12 @@ export async function recordQuote(
     data,
     include: { supplier: true },
   });
+  // FLOW-H1c：第一次录入报价 → 阶段记录到达「供应商报价」（开关关闭时什么也不做；失败不影响录入）
+  if (current !== ITEM_STATUS.QUOTED) {
+    await import("@/lib/tender/stage-auto")
+      .then((m) => m.recordStageReached({ projectId: scope.projectId, trigger: "quote_recorded", actorId: opts.actorId ?? null }))
+      .catch((err) => console.error("[StageAuto] quote_recorded failed:", err));
+  }
   // Muse Bridge（P0-8）：best-effort 推 quote.parsed / missing_fields（缺字段如实列出）。
   // skipMuseHook：调用方自己推（如 P1-4 入站，缺字段以解析结果为准），避免重复事件。
   if (opts.skipMuseHook) return updated;

@@ -77,6 +77,10 @@ export async function execTenderSendRfq(
 
   if (sent.length > 0) {
     await db.projectInquiry.update({ where: { id: payload.inquiryId }, data: { status: INQUIRY_STATUS.IN_PROGRESS } }).catch(() => undefined);
+    // FLOW-H1c：第一轮发出 → 阶段记录到达「供应商询价」并收建阶段任务（开关关闭时什么也不做）；下面原有的写入照旧
+    await import("@/lib/tender/stage-auto")
+      .then((m) => m.recordStageReached({ projectId: payload.projectId, trigger: "rfq_sent", actorId: ctx.userId }))
+      .catch((err) => console.error("[StageAuto] rfq_sent failed:", err));
     await db.project.update({ where: { id: payload.projectId }, data: { supplierInquiredAt: new Date() } }).catch(() => undefined);
     // P1-8：批准人（操作者）没有默认贸易条款时，记下这轮用的（best-effort，不影响发送结果）
     if (project.orgId && payload.incoterm) {
