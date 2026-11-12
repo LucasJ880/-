@@ -16,6 +16,11 @@ function envList(v: string | undefined): string[] {
   return (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+/** 只看总开关（不需要组织）：关闭时调用方连模块都不加载、不查库 */
+export function isStageAutoAdvanceSwitchedOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return envBool(env.TENDER_STAGE_AUTO_ADVANCE_ENABLED);
+}
+
 export function isStageAutoAdvanceEnabledForOrgWithEnv(orgId: string | null | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
   if (!envBool(env.TENDER_STAGE_AUTO_ADVANCE_ENABLED)) return false;
   if (!orgId) return false;

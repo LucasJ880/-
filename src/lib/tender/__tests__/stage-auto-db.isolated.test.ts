@@ -35,6 +35,8 @@ async function main() {
   const { hashRfqPayloadItems } = await import("@/lib/tender-rfq/round-pure");
   const { recordStageReached, AUTO_ADVANCE_AUDIT_ACTION } = await import("../stage-auto");
   const quoteRoute = await import("@/app/api/projects/[id]/inquiries/[inquiryId]/items/[itemId]/record-quote/route");
+  const markSentRoute = await import("@/app/api/projects/[id]/inquiries/[inquiryId]/items/[itemId]/mark-sent/route");
+  const { defaultInboundSyncDeps } = await import("@/lib/tender-rfq/inbound-sync");
 
   console.log("FLOW-H1c stage auto-advance — isolated DB");
   const stamp = Date.now().toString(36);
@@ -59,9 +61,9 @@ async function main() {
     await db.project.create({ data: { id, name: `Fixture Tender ${stamp}-${seq}`, orgId, ownerId: OWNER, workDomain: "tender", intakeStatus: "dispatched", status: "active", tenderStatus: "supplier_inquiry", closeDate: new Date(Date.now() + 20 * DAY), supplierInquiredAt: new Date(Date.now() - DAY), ...extra } });
     return id;
   }
-  async function mkItem(projectId: string, status: string, supplierId = supplier.id) {
-    let inquiry = await db.projectInquiry.findFirst({ where: { projectId } });
-    if (!inquiry) inquiry = await db.projectInquiry.create({ data: { projectId, createdById: OWNER, status: "in_progress" } });
+  async function mkItem(projectId: string, status: string, supplierId = supplier.id, inquiryStatus = "in_progress") {
+    let inquiry = await db.projectInquiry.findFirst({ where: { projectId, status: inquiryStatus } });
+    if (!inquiry) inquiry = await db.projectInquiry.create({ data: { projectId, createdById: OWNER, status: inquiryStatus, roundNumber: (await db.projectInquiry.count({ where: { projectId } })) + 1 } });
     const item = await db.inquiryItem.create({ data: { inquiryId: inquiry.id, supplierId, status, createdById: OWNER } });
     return { inquiryId: inquiry.id, itemId: item.id };
   }
@@ -74,6 +76,25 @@ async function main() {
   async function quoteViaRoute(projectId: string, ref: { inquiryId: string; itemId: string }, unitPrice = "123.45") {
     const req = new NextRequest(`http://localhost/api/projects/${projectId}/inquiries/${ref.inquiryId}/items/${ref.itemId}/record-quote`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieA, "x-org-id": ORG }, body: JSON.stringify({ unitPrice, currency: "CAD" }) });
     return quoteRoute.POST(req, { params: Promise.resolve({ id: projectId, inquiryId: ref.inquiryId, itemId: ref.itemId }) });
+  }
+  async function markSentViaRoute(projectId: string, ref: { inquiryId: string; itemId: string }) {
+    const req = new NextRequest(`http://localhost/api/projects/${projectId}/inquiries/${ref.inquiryId}/items/${ref.itemId}/mark-sent`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieA, "x-org-id": ORG }, body: JSON.stringify({ sentVia: "phone" }) });
+    return markSentRoute.POST(req, { params: Promise.resolve({ id: projectId, inquiryId: ref.inquiryId, itemId: ref.itemId }) });
+  }
+  // 只让某个项目的某类写入失败（临时触发器，用完删掉）
+  const triggersMade: Array<{ name: string; table: string }> = [];
+  async function failOn(table: string, projectCol: string, projectId: string, extra = "") {
+    const name = `h1c_fail_${stamp}_${triggersMade.length}`;
+    await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ${name}() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'h1c fixture: refused'; END; $$ LANGUAGE plpgsql`);
+    await db.$executeRawUnsafe(`CREATE TRIGGER ${name} BEFORE INSERT OR UPDATE ON "${table}" FOR EACH ROW WHEN (NEW."${projectCol}" = '${projectId}'${extra}) EXECUTE FUNCTION ${name}()`);
+    triggersMade.push({ name, table });
+    return async () => { await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${name} ON "${table}"`); await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${name}()`); };
+  }
+  async function captureErrors<T>(fn: () => Promise<T>): Promise<{ value: T; errors: string[] }> {
+    const errors: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => { errors.push(a.map(String).join(" ")); };
+    try { return { value: await fn(), errors }; } finally { console.error = orig; }
   }
   const setFlag = (on: boolean, allow?: string) => {
     if (on) process.env.TENDER_STAGE_AUTO_ADVANCE_ENABLED = "1"; else delete process.env.TENDER_STAGE_AUTO_ADVANCE_ENABLED;
@@ -91,6 +112,12 @@ async function main() {
     const P0b = await mkProject({ supplierInquiredAt: null, tenderStatus: null });
     const off = await recordStageReached({ projectId: P0b, trigger: "analysis_ready", actorId: null });
     ok(!off.written && off.reason === "flag_off" && (await proj(P0b)).interpretedAt === null, "开关关闭：共用函数什么也不写");
+    const P0c = await mkProject({ supplierInquiredAt: null, tenderStatus: "pursuing", interpretedAt: new Date(Date.now() - DAY) });
+    await db.task.create({ data: { title: "[项目解读] 精读招标文件", status: "todo", priority: "high", projectId: P0c, creatorId: OWNER, assigneeId: OWNER } });
+    const ref0c = await mkItem(P0c, "pending");
+    const items0c = [{ inquiryItemId: ref0c.itemId, supplierName: supplier.name, to: "supplier@fixture.test", subject: "RFQ fixture", body: "fixture body" }];
+    const ex0 = await execTenderSendRfq({ projectId: P0c, inquiryId: ref0c.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items: items0c, rfqDocHash: hashRfqPayloadItems(items0c) } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: (async () => ({ messageId: `m0_${stamp}`, threadId: `t0_${stamp}` })) as never });
+    ok(ex0.ok && !!(await proj(P0c)).supplierInquiredAt && (await tasks(P0c, "[项目解读]")).every((t) => t.status === "todo") && (await tasks(P0c, "[供应商询价]")).length === 0 && (await audits(P0c)).length === 0, "开关关闭：询价发出照原样写供应商询价时间，不关不建任务，没有审计");
 
     /* ---------- 2. 人工录入第一家报价 ---------- */
     setFlag(true);
@@ -111,7 +138,7 @@ async function main() {
     ok((await db.projectMessage.count({ where: { projectId: P1 } })) === msgBefore && (await db.notification.count({ where: { projectId: P1 } })) === notiBefore, "没有新的讨论区消息、没有新的成员通知");
     const a1 = await audits(P1);
     const after1 = a1[0]?.afterData ?? {};
-    ok(a1.length === 1 && a1[0].userId === A && a1[0].beforeData.stage === "supplier_inquiry" && after1.stage === "supplier_quote" && after1.trigger === "quote_recorded" && after1.field === "supplierQuotedAt" && after1.advanced === true && after1.actorKnown === true, "一条自动前进的审计：触发、写的哪一段、前后阶段、触发的人", a1);
+    ok(a1.length === 1 && a1[0].userId === A && a1[0].beforeData.stage === "supplier_inquiry" && after1.stage === "supplier_quote" && after1.trigger === "quote_recorded" && after1.field === "supplierQuotedAt" && after1.actorKnown === true, "一条自动前进的审计：触发、写的哪一段、前后阶段、触发的人", a1);
     ok(!JSON.stringify(a1).includes("123.45") && !/price|amount|CAD/i.test(JSON.stringify(a1)), "审计里没有报价金额与币种");
     triggers.push(String(after1.trigger));
 
@@ -125,10 +152,13 @@ async function main() {
     const again = await recordStageReached({ projectId: P1, trigger: "quote_recorded", actorId: A });
     ok(!again.written && again.reason === "already_reached", "这一段已有时间：直接说已到过，不去写", again);
 
-    /* ---------- 4. 回信自动解析（照它的调用方式：跳过 Muse 推送、不传触发的人） ---------- */
+    /* ---------- 4. 回信自动解析：走它真实的写入函数（已发出的询价项 → 已回复 → 已报价） ---------- */
     const P2 = await mkProject();
-    const ref2 = await mkItem(P2, "replied");
-    await recordQuote({ projectId: P2, inquiryId: ref2.inquiryId, itemId: ref2.itemId }, { unitPrice: "88" }, { skipMuseHook: true });
+    const ref2 = await mkItem(P2, "sent");
+    const deps = await defaultInboundSyncDeps();
+    const itemRow = { id: ref2.itemId, inquiryId: ref2.inquiryId, projectId: P2, ownerId: OWNER, threadId: `t2_${stamp}`, status: "sent", unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null, quoteNotes: null };
+    await deps.applyPlan(itemRow as Parameters<typeof deps.applyPlan>[0], { data: { unitPrice: 88, currency: "CAD" }, notesAppend: "[fixture] parsed", missingFields: [], transition: "quoted", events: ["quote.parsed"] } as Parameters<typeof deps.applyPlan>[1], new Date());
+    ok((await db.inquiryItem.findUniqueOrThrow({ where: { id: ref2.itemId }, select: { status: true } })).status === "quoted", "回信解析的写入函数把询价项写成已报价");
     const a2 = await audits(P2);
     ok(!!(await proj(P2)).supplierQuotedAt && a2.length === 1 && a2[0].userId === OWNER && a2[0].afterData.actorKnown === false, "回信自动解析录入报价：同样写入；不知道是谁，审计记在项目负责人名下", a2);
     const q2 = await tasks(P2, "[供应商报价]");
@@ -150,12 +180,30 @@ async function main() {
     const q3 = await tasks(P3, "[供应商询价]");
     ok(q3.length === 2 && q3.every((t) => t.assigneeId === A), "建出供应商询价的 2 条，负责人是 A（依赖 #447）", q3.length);
     triggers.push(String(a3[0]?.afterData?.trigger));
+    const ref3b = await mkItem(P3, "pending", supplier2.id, "draft");
+    const items3b = [{ inquiryItemId: ref3b.itemId, supplierName: supplier2.name, to: "supplier2@fixture.test", subject: "RFQ fixture 2", body: "fixture body 2" }];
+    const ex3b = await execTenderSendRfq({ projectId: P3, inquiryId: ref3b.inquiryId, roundNumber: 2, fromName: "Fixture", fromEmail: MAILBOX, items: items3b, rfqDocHash: hashRfqPayloadItems(items3b) } as Parameters<typeof execTenderSendRfq>[0], { userId: OWNER, role: "user", orgId: ORG }, { send: fakeSend });
+    ok(ex3b.ok && (await audits(P3)).length === 1 && (await tasks(P3, "[供应商询价]")).length === 2, "第二轮询价发出：不再前进（仍是一条审计、一批任务）");
+    const ex3c = await execTenderSendRfq({ projectId: P3, inquiryId: ref3b.inquiryId, roundNumber: 2, fromName: "Fixture", fromEmail: MAILBOX, items: items3b, rfqDocHash: hashRfqPayloadItems(items3b) } as Parameters<typeof execTenderSendRfq>[0], { userId: OWNER, role: "user", orgId: ORG }, { send: fakeSend });
+    ok(ex3c.ok && /此前已发/.test(String(ex3c.message)), "同一轮重放（全部此前已发）：执行器照常返回", ex3c);
+    const P3m = await mkProject({ supplierInquiredAt: null, tenderStatus: "pursuing", interpretedAt: new Date(Date.now() - DAY) });
+    const ref3m = await mkItem(P3m, "pending");
+    const rm = await markSentViaRoute(P3m, ref3m);
+    const a3m = await audits(P3m);
+    ok(rm.status === 200 && !!(await proj(P3m)).supplierInquiredAt && a3m.length === 1 && a3m[0].userId === A && a3m[0].afterData.trigger === "rfq_marked_sent", "人工标记已发送（电话询价）：阶段记录到达供应商询价，审计记在标记的 A 名下", { status: rm.status, a3m });
+    const P3z = await mkProject({ supplierInquiredAt: null, tenderStatus: "pursuing", interpretedAt: new Date(Date.now() - DAY) });
+    const ref3z = await mkItem(P3z, "pending");
+    const sentZero: unknown[] = [];
+    await db.inquiryItem.update({ where: { id: ref3z.itemId }, data: { status: "sent", sentAt: new Date() } });
+    const items3z = [{ inquiryItemId: ref3z.itemId, supplierName: supplier.name, to: "supplier@fixture.test", subject: "RFQ z", body: "z" }];
+    const ex3z = await execTenderSendRfq({ projectId: P3z, inquiryId: ref3z.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items: items3z, rfqDocHash: hashRfqPayloadItems(items3z) } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: (async (_u: string, m: unknown) => { sentZero.push(m); return { messageId: "x", threadId: "y" }; }) as never });
+    ok(ex3z.ok && sentZero.length === 0 && (await audits(P3z)).length === 0 && (await tasks(P3z)).length === 0, "执行时这一家早已发过、这次一封也没发：不触发自动前进", { ex3z, sent: sentZero.length });
 
     /* ---------- 6. 分析收尾（直接调共用函数；接线由纯逻辑测试核对） ---------- */
     const P4 = await mkProject({ supplierInquiredAt: null, tenderStatus: null });
     const r4 = await recordStageReached({ projectId: P4, trigger: "analysis_ready", actorId: null });
     const q4 = await tasks(P4, "[项目解读]");
-    ok(r4.written && r4.advanced && r4.from === "distribution" && r4.to === "interpretation" && !!(await proj(P4)).interpretedAt, "分析收尾：已分发的项目到达项目解读", r4);
+    ok(r4.written && r4.from === "distribution" && r4.to === "interpretation" && !!(await proj(P4)).interpretedAt, "分析收尾：已分发的项目到达项目解读", r4);
     ok(q4.length === 3 && q4.every((t) => t.assigneeId === OWNER), "建出项目解读的 3 条，负责人是项目负责人（依赖 #447）", q4.length);
     triggers.push("analysis_ready");
     ok(triggers.join() === "quote_recorded,quote_recorded,rfq_sent,analysis_ready", "三种触发都走过", triggers);
@@ -167,6 +215,10 @@ async function main() {
       ["未中标的项目", { tenderStatus: "lost" }, "has_result"],
       ["不投标的项目", { tenderStatus: "no_bid" }, "has_result"],
       ["不是招投标的项目", { workDomain: "sales" }, "not_tender"],
+      ["已中标的项目", { tenderStatus: "won" }, "has_result"],
+      ["已取消的项目", { tenderStatus: "cancelled" }, "has_result"],
+      ["已放弃投标的项目", { tenderStatus: "passed" }, "has_result"],
+      ["已记了授标日期的项目", { awardDate: new Date(Date.now() - DAY) }, "has_result"],
     ];
     for (const [label, extra] of cases) {
       const P = await mkProject(extra);
@@ -177,13 +229,19 @@ async function main() {
     ok(reasons.map((r) => r.reason).join() === cases.map((c) => c[2]).join(), "共用函数给出的原因与情形对得上", reasons);
 
     const P8 = await mkProject({ tenderStatus: "bid_submitted", submittedAt: new Date(Date.now() - DAY) });
+    const keep8 = await db.task.create({ data: { title: "[供应商询价] 跟进供应商回复", status: "todo", priority: "medium", projectId: P8, creatorId: OWNER, assigneeId: OWNER } });
     await recordQuote({ projectId: P8, ...(await mkItem(P8, "replied")) }, { unitPrice: "10" }, { actorId: A });
-    const a8 = await audits(P8);
-    ok(!!(await proj(P8)).supplierQuotedAt && (await tasks(P8)).length === 0 && a8.length === 1 && a8[0].afterData.advanced === false && a8[0].afterData.stage === "submission", "已提交的项目录入报价：时间写入，但阶段记录仍是项目提交，不建不关任务", a8);
+    ok((await proj(P8)).supplierQuotedAt === null && (await audits(P8)).length === 0 && (await tasks(P8)).length === 1 && (await db.task.findUniqueOrThrow({ where: { id: keep8.id } })).status === "todo", "已提交的项目录入报价：不写时间（写了时间轴上供应商报价会排在提交之后），不建不关任务，没有审计");
+    const P8b = await mkProject({ tenderStatus: "bid_submitted", supplierInquiredAt: null, intakeStatus: "pending" });
+    await recordQuote({ projectId: P8b, ...(await mkItem(P8b, "replied")) }, { unitPrice: "10" }, { actorId: A });
+    ok((await proj(P8b)).supplierQuotedAt === null && (await audits(P8b)).length === 0, "阶段只由招投标状态（已提交）得出、没有任何阶段时间：不写（写了阶段记录会退回供应商报价）");
+    const P8c = await mkProject();
+    await recordQuote({ projectId: P8c, ...(await mkItem(P8c, "replied", supplier.id, "canceled")) }, { unitPrice: "10" }, { actorId: A });
+    ok((await proj(P8c)).supplierQuotedAt === null && (await audits(P8c)).length === 0, "已取消的询价轮次里录入报价：不前进");
 
     const P11 = await mkProject({ interpretedAt: null });
     const r11 = await recordStageReached({ projectId: P11, trigger: "analysis_ready", actorId: A });
-    ok(r11.written && !r11.advanced && r11.to === "supplier_inquiry" && !!(await proj(P11)).interpretedAt && (await tasks(P11)).length === 0, "已在供应商询价、项目解读时间还空着：分析收尾补上时间，阶段记录不变，不建任务", r11);
+    ok(!r11.written && r11.reason === "not_forward" && (await proj(P11)).interpretedAt === null && (await tasks(P11)).length === 0, "已在供应商询价、项目解读时间还空着：共用函数不写、不建任务（分析收尾原有的写入另外照旧）", r11);
 
     /* ---------- 8. 白名单 ---------- */
     setFlag(true, ORG2);
@@ -197,24 +255,55 @@ async function main() {
     const both = await Promise.all([recordStageReached({ projectId: P10, trigger: "quote_recorded", actorId: A }), recordStageReached({ projectId: P10, trigger: "quote_recorded", actorId: OWNER })]);
     ok(both.filter((r) => r.written).length === 1 && (await audits(P10)).length === 1 && (await tasks(P10, "[供应商报价]")).length === 5, "同时触发两次：只写一次、一条审计、一批任务", both);
 
-    /* ---------- 10. 自动前进失败不影响录入报价 ---------- */
+    /* ---------- 10. 读之后项目被放弃：不写 ---------- */
+    const PS = await mkProject();
+    await db.project.update({ where: { id: PS }, data: { status: "abandoned" } });
+    const delegate = db.project as unknown as { findUnique: (a: unknown) => Promise<Record<string, unknown> | null> };
+    const realFind = delegate.findUnique.bind(delegate);
+    delegate.findUnique = async (a: unknown) => { const r = await realFind(a); return r && (a as { where?: { id?: string } }).where?.id === PS ? { ...r, status: "active" } : r; };
+    let rs: Awaited<ReturnType<typeof recordStageReached>>;
+    try { rs = await recordStageReached({ projectId: PS, trigger: "quote_recorded", actorId: A }); } finally { delegate.findUnique = realFind; }
+    ok(!rs.written && rs.reason === "lost_race" && (await proj(PS)).supplierQuotedAt === null && (await tasks(PS)).length === 0, "读到的是进行中、写的时候已被放弃：不写、不建任务", rs);
+    const PS2 = await mkProject();
+    await db.project.update({ where: { id: PS2 }, data: { tenderStatus: "lost" } });
+    delegate.findUnique = async (a: unknown) => { const r = await realFind(a); return r && (a as { where?: { id?: string } }).where?.id === PS2 ? { ...r, tenderStatus: "supplier_inquiry" } : r; };
+    try { rs = await recordStageReached({ projectId: PS2, trigger: "quote_recorded", actorId: A }); } finally { delegate.findUnique = realFind; }
+    ok(!rs.written && (await proj(PS2)).supplierQuotedAt === null, "读之后被记成未中标：不写", rs);
+
+    /* ---------- 11. 带来源系统的项目：不发状态回调（不发任何请求） ---------- */
+    const PW = await mkProject({ sourceSystem: "bidtogo" });
+    await db.externalReference.create({ data: { system: "bidtogo", externalId: `ext_${stamp}`, projectId: PW } });
+    const fetches: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown) => { fetches.push(String(input)); return new Response("{}", { status: 200 }); }) as typeof fetch;
+    let rw: Response;
+    try { rw = await quoteViaRoute(PW, await mkItem(PW, "replied")); await sleep(300); } finally { globalThis.fetch = realFetch; }
+    ok(rw.status === 200 && !!(await proj(PW)).supplierQuotedAt && (await proj(PW)).tenderStatus === "supplier_inquiry" && fetches.length === 0, "来源系统的项目自动前进：招投标状态不变，没有发出任何请求（没有状态回调）", fetches);
+
+    /* ---------- 12. 失败隔离 ---------- */
     const PF = await mkProject();
     const refF = await mkItem(PF, "replied");
-    await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION h1c_fail_${stamp}() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'h1c fixture: project update refused'; END; $$ LANGUAGE plpgsql`);
-    await db.$executeRawUnsafe(`CREATE TRIGGER h1c_fail_${stamp} BEFORE UPDATE ON "Project" FOR EACH ROW WHEN (NEW."id" = '${PF}' AND NEW."supplierQuotedAt" IS NOT NULL) EXECUTE FUNCTION h1c_fail_${stamp}()`);
-    const errors: unknown[] = [];
-    const origError = console.error;
-    console.error = (...a: unknown[]) => { errors.push(a); };
-    let rF: Response | null = null;
-    try { rF = await quoteViaRoute(PF, refF); } finally {
-      console.error = origError;
-      await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS h1c_fail_${stamp} ON "Project"`);
-      await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS h1c_fail_${stamp}()`);
-    }
+    const dropF = await failOn("Project", "id", PF, ` AND NEW."supplierQuotedAt" IS NOT NULL`);
+    let rF: { value: Response; errors: string[] };
+    try { rF = await captureErrors(() => quoteViaRoute(PF, refF)); } finally { await dropF(); }
     const itemF = await db.inquiryItem.findUniqueOrThrow({ where: { id: refF.itemId }, select: { status: true } });
-    ok(rF?.status === 200 && itemF.status === "quoted" && (await proj(PF)).supplierQuotedAt === null && errors.some((e) => String((e as unknown[])[0]).includes("[StageAuto] quote_recorded failed")), "写阶段时间被数据库拒绝：录入报价照样成功，留下错误日志", { status: rF?.status, item: itemF.status, errors: errors.length });
+    ok(rF.value.status === 200 && itemF.status === "quoted" && (await proj(PF)).supplierQuotedAt === null && rF.errors.some((e) => e.includes("[StageAuto] quote_recorded failed")), "写阶段时间被数据库拒绝：录入报价照样成功，留下错误日志", { status: rF.value.status, item: itemF.status, errors: rF.errors.length });
+    const PT = await mkProject();
+    const dropT = await failOn("Task", "projectId", PT);
+    let rT: { value: Response; errors: string[] };
+    const refT = await mkItem(PT, "replied");
+    try { rT = await captureErrors(() => quoteViaRoute(PT, refT)); } finally { await dropT(); }
+    ok(rT.value.status === 200 && !!(await proj(PT)).supplierQuotedAt && (await audits(PT)).length === 1 && rT.errors.some((e) => e.includes("[StageAuto] tasks failed")), "建任务被拒绝：时间照写、审计照写，录入报价成功，留下错误日志", rT.errors.length);
+    const PA = await mkProject();
+    const dropA = await failOn("AuditLog", "projectId", PA, ` AND NEW."action" = '${AUTO_ADVANCE_AUDIT_ACTION}'`);
+    let rA: { value: Response; errors: string[] };
+    const refA = await mkItem(PA, "replied");
+    try { rA = await captureErrors(() => quoteViaRoute(PA, refA)); } finally { await dropA(); }
+    ok(rA.value.status === 200 && !!(await proj(PA)).supplierQuotedAt && (await tasks(PA, "[供应商报价]")).length === 5 && rA.errors.some((e) => e.includes("[StageAuto] audit failed")), "写审计被拒绝：时间与任务照常，录入报价成功，留下错误日志", rA.errors.length);
   } finally {
     setFlag(false);
+    for (const t of triggersMade) { await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${t.name} ON "${t.table}"`); await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${t.name}()`); }
+    await db.externalReference.deleteMany({ where: { projectId: { in: projectIds } } });
     await sleep(300);
     await db.notification.deleteMany({ where: { projectId: { in: projectIds } } });
     await db.task.deleteMany({ where: { projectId: { in: projectIds } } });
