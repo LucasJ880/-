@@ -99,11 +99,14 @@ export async function compensateBatchPrepareFailure(input: {
   return updated.count;
 }
 
+/** 事务内建行的结果：复用的已有行带 `reused: true`（只在本模块里用来决定补偿哪些，返回给调用方前去掉） */
+type DraftRowResult = CreatedDraftAction & { reused?: true };
+
 type DraftBatchAdapters = {
   /** 在事务中创建全部行；失败应抛错（事务回滚） */
   createAllInTransaction: (
     inputs: CreateDraftInput[],
-  ) => Promise<CreatedDraftAction[]>;
+  ) => Promise<DraftRowResult[]>;
   /** 事务成功后写审计；失败应抛错以触发补偿 */
   auditCreated: (actions: CreatedDraftAction[], inputs: CreateDraftInput[]) => Promise<void>;
   markAwaitingApproval: (orgId: string, agentRunId: string) => Promise<void>;
@@ -163,7 +166,9 @@ const CREATED_SELECT = {
 const EXISTING_SELECT = { ...CREATED_SELECT, payloadHash: true } as const;
 
 /** 「建或复用一行」用到的事务方法（纯函数测试注入假事务） */
-export type DraftRowTx = Pick<Prisma.TransactionClient, "pendingAction">;
+export type DraftRowTx = {
+  pendingAction: Pick<Prisma.TransactionClient["pendingAction"], "findFirst" | "create" | "createManyAndReturn">;
+};
 
 function findByIdempotencyKey(tx: DraftRowTx, orgId: string, idempotencyKey: string) {
   return tx.pendingAction.findFirst({
@@ -172,14 +177,14 @@ function findByIdempotencyKey(tx: DraftRowTx, orgId: string, idempotencyKey: str
   });
 }
 
-function reused(row: {
+function toReusedAction(row: {
   id: string;
   type: string;
   title: string;
   preview: string;
   agentRunId: string | null;
   payloadHash: string | null;
-}): CreatedDraftAction {
+}): DraftRowResult {
   return {
     actionId: row.id,
     type: row.type,
@@ -187,7 +192,13 @@ function reused(row: {
     preview: row.preview,
     payloadHash: row.payloadHash ?? "",
     agentRunId: row.agentRunId,
+    reused: true,
   };
+}
+
+function withoutReusedFlag(action: DraftRowResult): CreatedDraftAction {
+  const { actionId, type, title, preview, payloadHash, agentRunId } = action;
+  return { actionId, type, title, preview, payloadHash, agentRunId };
 }
 
 /**
@@ -196,15 +207,16 @@ function reused(row: {
  * 带企业与幂等键时插入用 `skipDuplicates`（INSERT … ON CONFLICT DO NOTHING）：并发的后到者遇到唯一冲突时什么都不做，
  * 事务不中止（直接 create 撞键会让 Postgres 中止整个事务，之后的查询全部 25P02）。ON CONFLICT 会等先到者的事务结束，
  * 所以没插进去时，紧接着按键读（READ COMMITTED）读得到先到者已提交的行。读不到就抛错，整批按失败处理。
+ * 复用的结果带 `reused: true`：之后的步骤失败时只补偿本批新建的行，不动别人建的那张。
  */
 export async function createOrReuseDraftRow(
   tx: DraftRowTx,
   input: CreateDraftInput,
-): Promise<CreatedDraftAction> {
+): Promise<DraftRowResult> {
   const keyed = input.orgId && input.idempotencyKey ? { orgId: input.orgId, idempotencyKey: input.idempotencyKey } : null;
   if (keyed) {
     const existing = await findByIdempotencyKey(tx, keyed.orgId, keyed.idempotencyKey);
-    if (existing) return reused(existing);
+    if (existing) return toReusedAction(existing);
   }
   const { payloadHash, data } = buildCreateData(input);
   const created = keyed
@@ -222,18 +234,22 @@ export async function createOrReuseDraftRow(
   }
   // 没插进去：并发的先到者已建了同键的行
   const raced = keyed ? await findByIdempotencyKey(tx, keyed.orgId, keyed.idempotencyKey) : null;
-  if (raced) return reused(raced);
+  if (raced) return toReusedAction(raced);
   throw new Error("DRAFT_IDEMPOTENCY_CONFLICT_UNRESOLVED");
 }
 
 async function defaultCreateAllInTransaction(
   inputs: CreateDraftInput[],
-): Promise<CreatedDraftAction[]> {
-  return db.$transaction(async (tx) => {
-    const out: CreatedDraftAction[] = [];
-    for (const input of inputs) out.push(await createOrReuseDraftRow(tx, input));
-    return out;
-  });
+): Promise<DraftRowResult[]> {
+  // 显式 READ COMMITTED：撞键后的读取要看到先到者刚提交的行（更高的隔离级别下 ON CONFLICT 会报序列化失败）
+  return db.$transaction(
+    async (tx) => {
+      const out: DraftRowResult[] = [];
+      for (const input of inputs) out.push(await createOrReuseDraftRow(tx, input));
+      return out;
+    },
+    { isolationLevel: "ReadCommitted" },
+  );
 }
 
 /**
@@ -310,7 +326,7 @@ export async function createDraftBatch(
     __failAfterCreateIndex: adapters?.__failAfterCreateIndex,
   };
 
-  let created: CreatedDraftAction[] = [];
+  let created: DraftRowResult[] = [];
   try {
     if (typeof impl.__failAfterCreateIndex === "number") {
       // 测试路径：逐条创建以模拟「第一张成功、第二张失败」
@@ -326,7 +342,8 @@ export async function createDraftBatch(
       created = await impl.createAllInTransaction(inputs);
     }
 
-    await impl.auditCreated(created, inputs);
+    const actions = created.map(withoutReusedFlag);
+    await impl.auditCreated(actions, inputs);
 
     if (agentRunId && orgId) {
       await impl.markAwaitingApproval(orgId, agentRunId);
@@ -334,15 +351,16 @@ export async function createDraftBatch(
 
     // Muse Bridge（Phase 0）：best-effort 推审批卡；收件人 = 指定审批人，否则创建人。
     // emitMuseEvent 内部按 MUSE_BRIDGE_ENABLED 开关短路、按 eventId 幂等、绝不上抛。
-    void notifyMuseApprovalRequested(created, inputs);
+    void notifyMuseApprovalRequested(actions, inputs);
 
-    return { success: true, actions: created };
+    return { success: true, actions };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg !== "BATCH_CREATE_INJECTED_FAILURE") {
       console.error("[createDraftBatch] failed:", e);
     }
-    const ids = created.map((a) => a.actionId);
+    // 只补偿本批新建的行：复用的已有草稿是别的请求建的，对方可能已经按成功返回（spec「复用的草稿不被本批补偿」）
+    const ids = created.filter((a) => !a.reused).map((a) => a.actionId);
     if (ids.length > 0) {
       await impl.compensate(ids, userId, orgId).catch((err) => {
         console.error("[createDraftBatch] compensate failed:", err);

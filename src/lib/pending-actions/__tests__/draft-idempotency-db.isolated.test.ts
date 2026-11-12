@@ -4,6 +4,8 @@
  *   顺序重复两次：同一个 id、库里一行。
  *   同键并发两次（10 轮，每轮换一个键）：两边都成功、同一个 id、库里一行，没有「建草稿失败」的错误日志。
  *   一批两条（一条与并发的单条请求同键、一条新键）与单条请求并发：两边都成功，撞键的复用、新键新建，顺序与请求一致。
+ *   确定性的竞态：另一个事务先建了同键的行、还没提交时发起建草稿（建草稿的插入在等它），
+ *   那个事务提交 → 复用它的行；回滚 → 自己新建一行。
  *
  * 只建草稿，不批准、不执行、不出站。
  *
@@ -39,6 +41,7 @@ const stamp = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
 const USER = `fx_fix5_user_${stamp}`;
 const ORG = `fx_fix5_org_${stamp}`;
 const ROUNDS = 10;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function main() {
   const { db } = await import("@/lib/db");
@@ -125,6 +128,44 @@ async function main() {
       ok(allOk, "一批两条与同键单条并发 × 5 轮：两边都成功；撞键的与单条同一个 id，新键新建；顺序与请求一致；每个键一行", outcomes);
       ok(draftFailures() === 0, "一批撞键时也没有「建草稿失败」的错误日志", errorLines.slice(0, 3));
     }
+
+    console.log("\n先到者还没提交（确定性）");
+    for (const outcome of ["commit", "rollback"] as const) {
+      const key = `held-${outcome}`;
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => (release = r));
+      let outerId: string | null = null;
+      const outer = db
+        .$transaction(
+          async (tx) => {
+            const row = await tx.pendingAction.create({
+              data: { type: "assistant.create_reminder", title: "另一个事务建的", preview: "fixture", payload: { key }, status: "pending", createdById: USER, orgId: ORG, idempotencyKey: key, expiresAt: new Date(Date.now() + 3600_000) },
+              select: { id: true },
+            });
+            outerId = row.id;
+            await gate;
+            if (outcome === "rollback") throw new Error("ROLLBACK_FOR_TEST");
+          },
+          { timeout: 20_000 },
+        )
+        .catch((e) => {
+          if (!(e instanceof Error && e.message === "ROLLBACK_FOR_TEST")) throw e;
+        });
+      for (let i = 0; i < 200 && !outerId; i++) await sleep(10);
+      const pending = createDraftBatch([input(key)]);
+      await sleep(400);
+      const waited = await Promise.race([pending.then(() => false), sleep(0).then(() => true)]);
+      release();
+      await outer;
+      const r = await pending;
+      const rowsNow = await db.pendingAction.findMany({ where: { orgId: ORG, idempotencyKey: key }, select: { id: true, status: true } });
+      if (outcome === "commit") {
+        ok(waited && r.success && firstId(r) === outerId && rowsNow.length === 1 && rowsNow[0].id === outerId, "另一个事务持有同键未提交的行，随后提交：建草稿等它结束后复用它的行，库里一行", { waited, r, outerId, rowsNow });
+      } else {
+        ok(waited && r.success && !!firstId(r) && firstId(r) !== outerId && rowsNow.length === 1 && rowsNow[0].id === firstId(r) && rowsNow[0].status === "pending", "另一个事务持有同键未提交的行，随后回滚：建草稿自己新建一行（待审批）", { waited, r, outerId, rowsNow });
+      }
+    }
+    ok(draftFailures() === 0, "确定性竞态里也没有「建草稿失败」的错误日志", errorLines.slice(0, 3));
 
     const pendingCount = await db.pendingAction.count({ where: { orgId: ORG, status: { not: "pending" } } });
     ok(pendingCount === 0, "没有草稿被补偿标成失败（全是待审批）", pendingCount);

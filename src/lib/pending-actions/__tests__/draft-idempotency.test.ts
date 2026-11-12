@@ -74,7 +74,7 @@ async function main() {
     const out = await run(tx, { ...base, orgId: "o1", idempotencyKey: "k1" });
     const ins = calls.find((c) => c.op === "createManyAndReturn");
     const data = (ins?.args.data as Array<Record<string, unknown>> | undefined) ?? [];
-    ok(out.actionId === "pa_new" && out.title === base.title, "没有已有行：插入成功，返回新建的那张", out);
+    ok(out.actionId === "pa_new" && out.title === base.title && out.reused === undefined, "没有已有行：插入成功，返回新建的那张（不标复用）", out);
     ok(calls.map((c) => c.op).join(",") === "findFirst,createManyAndReturn", "先按键查，再插入（不走普通 create）", calls.map((c) => c.op));
     ok(ins?.args.skipDuplicates === true && data.length === 1 && data[0].orgId === "o1" && data[0].idempotencyKey === "k1" && data[0].status === "pending", "插入遇唯一冲突什么都不做（skipDuplicates），只插这一行、状态待审批", ins?.args);
     ok(typeof out.payloadHash === "string" && out.payloadHash.length > 0 && out.payloadHash === data[0].payloadHash, "新建的返回本次载荷的哈希（与落库的一致）", out.payloadHash);
@@ -84,13 +84,13 @@ async function main() {
   {
     const { tx, calls } = fakeTx({ found: [existingRow] });
     const out = await run(tx, { ...base, orgId: "o1", idempotencyKey: "k1" });
-    ok(out.actionId === "pa_existing" && out.title === "先到的那张" && out.preview === "先到的摘要" && out.payloadHash === "hash_existing" && out.agentRunId === "run_a", "先查命中：复用已有那张，返回它的 id、类型、标题、摘要与哈希", out);
+    ok(out.actionId === "pa_existing" && out.title === "先到的那张" && out.preview === "先到的摘要" && out.payloadHash === "hash_existing" && out.agentRunId === "run_a" && out.reused === true, "先查命中：复用已有那张，返回它的 id、类型、标题、摘要与哈希，标为复用", out);
     ok(calls.length === 1 && calls[0].op === "findFirst", "先查命中：不发插入", calls.map((c) => c.op));
   }
   {
     const { tx, calls } = fakeTx({ found: [null, existingRow], inserted: [[]] });
     const out = await run(tx, { ...base, orgId: "o1", idempotencyKey: "k1" });
-    ok(out.actionId === "pa_existing" && out.payloadHash === "hash_existing", "插入撞键（没插进去）：在同一事务里按键读出先到者的行并复用", out);
+    ok(out.actionId === "pa_existing" && out.payloadHash === "hash_existing" && out.reused === true, "插入撞键（没插进去）：在同一事务里按键读出先到者的行并复用，标为复用", out);
     ok(calls.map((c) => c.op).join(",") === "findFirst,createManyAndReturn,findFirst", "撞键后再按键读一次，不抛错、不重插", calls.map((c) => c.op));
   }
   {
@@ -123,6 +123,48 @@ async function main() {
     ok(data.idempotencyKey === null && data.status === "pending" && !("note" in (data.payload as Record<string, unknown>)), "普通插入的数据与改动前相同（幂等键为空、待审批、载荷按落库形态）", data);
   }
 
+  console.log("\n补偿只针对本批新建的行");
+  {
+    const { createDraftBatch } = drafts;
+    const reusedA = { actionId: "pa_other_request", type: base.type, title: "别的请求建的", preview: "p", payloadHash: "h1", agentRunId: null, reused: true as const };
+    const newB = { actionId: "pa_this_batch", type: base.type, title: "本批新建", preview: "p", payloadHash: "h2", agentRunId: null };
+    const compensated: string[][] = [];
+    const inputs = [
+      { ...base, orgId: "o1", idempotencyKey: "kA", agentRunId: "run_1" },
+      { ...base, orgId: "o1", agentRunId: "run_1" },
+    ];
+    const failed = await createDraftBatch(inputs as never, {
+      createAllInTransaction: async () => [reusedA, newB],
+      auditCreated: async () => undefined,
+      markAwaitingApproval: async () => {
+        throw new Error("Run 不存在或跨组织");
+      },
+      compensate: async (ids) => {
+        compensated.push(ids);
+        return ids.length;
+      },
+    });
+    ok(
+      !failed.success && JSON.stringify(compensated) === JSON.stringify([["pa_this_batch"]]) && JSON.stringify(failed.compensatedActionIds) === JSON.stringify(["pa_this_batch"]),
+      "事务后的步骤失败：只把本批新建的标为失败，不动复用的、别的请求建的那张",
+      { compensated, failed },
+    );
+    const audited: unknown[] = [];
+    const succeeded = await createDraftBatch(inputs as never, {
+      createAllInTransaction: async () => [reusedA, newB],
+      auditCreated: async (actions) => {
+        audited.push(...actions);
+      },
+      markAwaitingApproval: async () => undefined,
+      compensate: async () => 0,
+    });
+    ok(
+      succeeded.success && succeeded.actions.length === 2 && succeeded.actions.every((a) => !("reused" in a)) && audited.length === 2 && audited.every((a) => !("reused" in (a as object))),
+      "成功时返回给调用方与写审计的结果不带复用标记，形状与改动前相同",
+      succeeded,
+    );
+  }
+
   console.log("\n接线（源码）");
   {
     const src = code("src/lib/pending-actions/drafts.ts");
@@ -131,7 +173,7 @@ async function main() {
     ok(!/catch\s*\(/.test(txFn) && !/\.create\(/.test(txFn), "整批建行：不再在事务里捕获唯一冲突、不直接 create");
     const fn = src.slice(src.indexOf("export async function createOrReuseDraftRow"), src.indexOf("async function defaultCreateAllInTransaction"));
     ok(/createManyAndReturn\(\{[\s\S]*?skipDuplicates: true/.test(fn), "带键的插入用 skipDuplicates（INSERT … ON CONFLICT DO NOTHING）");
-    ok(!/isolationLevel/.test(src), "事务隔离级别沿用库默认（READ COMMITTED）");
+    ok(/\{ isolationLevel: "ReadCommitted" \}/.test(txFn), "整批建行的事务显式用 READ COMMITTED（撞键后要读到先到者刚提交的行）");
   }
 
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
