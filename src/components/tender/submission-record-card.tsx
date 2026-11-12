@@ -18,6 +18,7 @@ import {
   confirmTextZh,
   fromDatetimeLocal,
   openButtonZh,
+  parseSubmissionInput,
   statusLineZh,
   toDatetimeLocal,
   type SubmissionChannel,
@@ -79,6 +80,16 @@ export function SubmissionRecordCard({
     setStep("form");
   };
   const submittedIso = fromDatetimeLocal(when, tz);
+  // 点「保存」时先用与接口相同的规则校验一遍：不对就留在表单里说明原因，不进确认那一步
+  const toConfirm = () => {
+    const checked = parseSubmissionInput({ submittedAt: submittedIso, channel, receiptRef, note }, new Date());
+    if (!checked.ok) {
+      setError(checked.errors.join("；"));
+      return;
+    }
+    setError("");
+    setStep("confirm");
+  };
   const save = async () => {
     if (!submittedIso) return;
     setSaving(true);
@@ -184,7 +195,7 @@ export function SubmissionRecordCard({
           {error ? <p className="mt-3 text-sm text-danger-text" data-testid="submission-record-error">{error}</p> : null}
           {step === "form" ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setStep("confirm")} disabled={!submittedIso} data-testid="submission-record-next" className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:opacity-90 disabled:opacity-50">
+              <button type="button" onClick={toConfirm} disabled={!submittedIso} data-testid="submission-record-next" className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:opacity-90 disabled:opacity-50">
                 保存
               </button>
               <button type="button" onClick={() => setStep("closed")} className="rounded-lg border border-border px-3 py-1.5 text-sm">
