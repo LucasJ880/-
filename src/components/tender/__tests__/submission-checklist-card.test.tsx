@@ -54,7 +54,7 @@ console.log("有清单");
 console.log("不能标的人、不能单独标的条目、正在保存");
 {
   const ro = html(viewOf(reqs, { canEdit: false, statusByKey: { req_r_2: "WAIVED" } }));
-  ok("只读成员：没有任何按钮，只显示状态文字", !ro.includes("submission-checklist-set-") && (ro.match(/data-testid="submission-checklist-status"/g) ?? []).length === 2 && text(ro).includes("不适用") && text(ro).includes("待办"));
+  ok("只读成员：没有任何按钮，只显示状态文字", !ro.includes("submission-checklist-set-") && [...ro.matchAll(/data-testid="submission-checklist-status">([\s\S]*?)<\/span>/g)].map((x) => text(x[1])).join() === "不适用,待办");
   ok("不给 onSet（上层没接写入）：同样没有按钮", !renderToStaticMarkup(<SubmissionChecklistBody view={viewOf(reqs)} />).includes("submission-checklist-set-"));
   const dup = html(viewOf([req({ requirementCode: "R-1" }), req({ requirementCode: "R 1" })]));
   ok("两条编号派生出同一个键：只有前一条有按钮，后一条说明请在上一条上标", (dup.match(/role="group"/g) ?? []).length === 1 && text(dup).includes("请在上一条上标"));
