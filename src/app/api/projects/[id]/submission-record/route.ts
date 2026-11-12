@@ -25,13 +25,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const orgId = project.orgId;
   if (!orgId || !isSubmissionRecordEnabledForOrg(orgId) || project.workDomain !== "tender") return notEnabled();
 
-  // 有没有项目写权限（与写接口同一组条件，且项目须已分发）
+  // 有没有项目写权限：与 requireProjectWriteAccess 逐条相同——超级管理员不看分发；其余人项目须已分发，
+  // 且是负责人、组织管理员或项目管理员
   const canRecord =
-    project.intakeStatus === "dispatched" &&
-    (isSuperAdmin(user.role) ||
-      project.ownerId === user.id ||
-      (!!orgRole && hasOrgRole(orgRole, "org_admin")) ||
-      (!!projectRole && hasProjectRole(projectRole, "project_admin")));
+    isSuperAdmin(user.role) ||
+    (project.intakeStatus === "dispatched" &&
+      (project.ownerId === user.id ||
+        (!!orgRole && hasOrgRole(orgRole, "org_admin")) ||
+        (!!projectRole && hasProjectRole(projectRole, "project_admin"))));
 
   const view = await loadSubmissionRecordView({ projectId, orgId, canRecord });
   if (!view) return notEnabled();

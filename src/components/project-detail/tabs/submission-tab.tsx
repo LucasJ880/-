@@ -16,6 +16,7 @@ import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
 import { SubmissionRecordCard } from "@/components/tender/submission-record-card";
+import { toDatetimeLocal } from "@/lib/tender-submission/contract";
 import { HandoffDialog } from "@/components/projects/handoff-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
 import { TENDER_STATUS_LABELS } from "@/lib/domain/labels";
@@ -97,7 +98,8 @@ export function SubmissionTab({
           <div>
             <dt className="text-[11px] text-muted">提交时间</dt>
             <dd className="mt-0.5 font-medium">
-              {project.submittedAt ? project.submittedAt.slice(0, 10) : "尚未提交"}
+              {/* 提交记录可用时按本地日期显示，与下面「提交记录」里的时间一致；不可用时与原来相同 */}
+              {project.submittedAt ? (recordAvailable ? toDatetimeLocal(new Date(project.submittedAt)).slice(0, 10) : project.submittedAt.slice(0, 10)) : "尚未提交"}
             </dd>
           </div>
           <div>

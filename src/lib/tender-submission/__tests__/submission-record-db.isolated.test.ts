@@ -33,24 +33,30 @@ async function main() {
   const { db } = await import("@/lib/db");
   const { createSession } = await import("@/lib/auth/session");
   const { advanceProjectStage } = await import("@/lib/tender/stage-transition");
+  const { onStageAdvancedTasks } = await import("@/lib/tender/stage-tasks");
   const { SUBMISSION_AUDIT_ACTION } = await import("../contract");
   const route = await import("@/app/api/projects/[id]/submission-record/route");
 
   console.log("FLOW-H4a submission record — isolated DB");
   const stamp = Date.now().toString(36);
   const OWNER = `srowner_${stamp}`, VIEWER = `srviewer_${stamp}`, OUTSIDER = `srout_${stamp}`;
+  const OWNER2 = `srowner2_${stamp}`, PADMIN = `srpadmin_${stamp}`, SUPER = `srsuper_${stamp}`;
   const ORG = `srorg_${stamp}`, ORG_B = `srorgb_${stamp}`;
-  const users = [OWNER, VIEWER, OUTSIDER];
+  const users = [OWNER, VIEWER, OUTSIDER, OWNER2, PADMIN, SUPER];
+  const roleOf = (id: string) => (id === SUPER ? "super_admin" : "user");
   const email = (id: string) => `${id}@fixture.test`;
   const HOUR = 3_600_000, DAY = 24 * HOUR;
   process.env.TENDER_SUBMISSION_RECORD_ENABLED = "1";
   delete process.env.TENDER_SUBMISSION_RECORD_ORG_ALLOWLIST;
 
-  for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: "user" } });
+  for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: roleOf(id) } });
   await db.organization.create({ data: { id: ORG, name: "Fixture Bidder Inc.", code: `sr-${stamp}`, ownerId: OWNER } });
   await db.organization.create({ data: { id: ORG_B, name: "Other Fixture Org", code: `srb-${stamp}`, ownerId: OUTSIDER } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: VIEWER, role: "org_member", status: "active" } });
+  // 普通组织成员：一个是某个项目的负责人，一个是某个项目的项目管理员
+  await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER2, role: "org_member", status: "active" } });
+  await db.organizationMember.create({ data: { orgId: ORG, userId: PADMIN, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG_B, userId: OUTSIDER, role: "org_admin", status: "active" } });
 
   const projectIds: string[] = [];
@@ -59,11 +65,11 @@ async function main() {
     seq += 1;
     const id = `srproj_${stamp}_${seq}`;
     projectIds.push(id);
-    await db.project.create({ data: { id, name: `Fixture Tender ${stamp}-${seq}`, orgId: o.orgId ?? ORG, ownerId: o.ownerId ?? OWNER, workDomain: o.workDomain ?? "tender", intakeStatus: "dispatched", closeDate: new Date(Date.now() - 2 * DAY), ...(o.data ?? {}) } as never });
+    await db.project.create({ data: { id, name: `Fixture Tender ${stamp}-${seq}`, orgId: o.orgId ?? ORG, ownerId: o.ownerId ?? OWNER, workDomain: o.workDomain ?? "tender", intakeStatus: "dispatched", status: "active", closeDate: new Date(Date.now() - 2 * DAY), ...(o.data ?? {}) } as never });
     if ((o.orgId ?? ORG) === ORG) await db.projectMember.create({ data: { projectId: id, userId: VIEWER, role: "viewer", status: "active" } });
     return id;
   }
-  const cookieOf = async (userId: string) => `qy_session=${await createSession({ sub: userId, email: email(userId), role: "user" })}`;
+  const cookieOf = async (userId: string) => `qy_session=${await createSession({ sub: userId, email: email(userId), role: roleOf(userId) })}`;
   const get = async (projectId: string, userId: string = OWNER) => {
     const res = await route.GET(new NextRequest(`http://localhost/api/projects/${projectId}/submission-record`, { headers: { cookie: await cookieOf(userId) } }), { params: Promise.resolve({ id: projectId }) });
     return { status: res.status, body: rec(await res.json().catch(() => null)) };
@@ -95,6 +101,29 @@ async function main() {
     ok(a.success && a.decision === "require_human_review" && !!pa.submittedAt && Math.abs(pa.submittedAt.getTime() - t0) < 5000 && pa.tenderStatus === "bid_submitted", "阶段推进不传新参数：提交时间是点击那一刻，招投标状态是已提交（与原来相同）", { a, pa });
     const again = await advanceProjectStage({ projectId: PA, targetStage: "submission", reason: "fixture", source: "manual", actor: { id: OWNER, name: "Fixture", email: email(OWNER) }, humanConfirmed: true });
     ok(again.success && again.decision === "no_op" && (await proj(PA)).submittedAt!.getTime() === pa.submittedAt!.getTime(), "再推进一次：无需操作，时间不变");
+    const statusAudit = await db.auditLog.findMany({ where: { projectId: PA, action: "status_change" } });
+    ok(statusAudit.length === 1 && rec(JSON.parse(statusAudit[0].afterData ?? "{}")).stage === "submission" && (await messages(PA, "stage_advanced")) === 1 && (await messages(PA, "project_submitted")) === 1, "阶段推进照旧留一条状态变更的审计、一条阶段推进的消息、一条「提交了项目」", { audits: statusAudit.length });
+    // 「不为新阶段建任务」：直接调那一步。带上 skipCreate 时只关上一阶段的任务，根本不去建
+    const PT = await mkProject();
+    await db.task.create({ data: { title: "[供应商报价] 整理供应商报价", status: "todo", priority: "medium", projectId: PT, creatorId: OWNER, assigneeId: OWNER } as never });
+    let skipErr: unknown = null;
+    await onStageAdvancedTasks(PT, "supplier_quote", "submission", OWNER, { skipCreate: true }).catch((e) => { skipErr = e; });
+    ok(skipErr === null && (await stageTasks(PT, "[项目提交]")).length === 0 && (await stageTasks(PT, "[供应商报价]")).every((t) => t.status === "done"), "带 skipCreate：不出错、不建「项目提交」的任务，上一阶段的自动任务被关掉", String(skipErr).slice(0, 200));
+    // 不带时它会去建。目前 main 上这一步因为一个既有的错建不出来（任务表没有它要写的那一列，错误被调用方吞掉）——这里只记下现状，不当作断言
+    let createErr: unknown = null;
+    await onStageAdvancedTasks(PT, "supplier_quote", "submission", OWNER).catch((e) => { createErr = e; });
+    console.log(`  · （现状，不是断言）不带 skipCreate 时建任务：${createErr ? "失败——" + String(createErr).replace(/\s+/g, " ").match(/Unknown argument `\w+`/)?.[0] : `建了 ${(await stageTasks(PT, "[项目提交]")).length} 条`}`);
+    await db.task.deleteMany({ where: { projectId: PT, title: { startsWith: "[项目提交]" } } });
+    // 调用方带着「读到的状态」去推进：库里的已经不是那个值（别人刚记了投标结果 / 放弃了项目）→ 不写
+    const PE = await mkProject({ data: { tenderStatus: "won" } });
+    const stale = await advanceProjectStage({ projectId: PE, targetStage: "submission", reason: "fixture", source: "manual", actor: { id: OWNER, name: "Fixture", email: email(OWNER) }, humanConfirmed: true, occurredAt: new Date(Date.now() - HOUR), expected: { status: "active", tenderStatus: null } });
+    const pe = await proj(PE);
+    ok(stale.success && stale.decision === "no_op" && pe.submittedAt === null && pe.tenderStatus === "won" && (await messages(PE, "stage_advanced")) === 0, "带着过时的状态去推进（库里已是已中标）：无需操作，什么都没写，「已中标」没有被冲成「已提交」", { stale, pe });
+    await db.project.update({ where: { id: PE }, data: { status: "abandoned", tenderStatus: null } });
+    const stale2 = await advanceProjectStage({ projectId: PE, targetStage: "submission", reason: "fixture", source: "manual", actor: { id: OWNER, name: "Fixture", email: email(OWNER) }, humanConfirmed: true, expected: { status: "active", tenderStatus: null } });
+    ok(stale2.decision === "no_op" && (await proj(PE)).submittedAt === null, "带着过时的状态去推进（库里已放弃）：同样不写");
+    const fresh2 = await advanceProjectStage({ projectId: PE, targetStage: "submission", reason: "fixture", source: "manual", actor: { id: OWNER, name: "Fixture", email: email(OWNER) }, humanConfirmed: true, expected: { status: "abandoned", tenderStatus: null } });
+    ok(fresh2.decision === "require_human_review" && !!(await proj(PE)).submittedAt, "状态与读到的一致：照常写入");
 
     /* ---------- 1. 权限、隔离、开关 ---------- */
     const P = await mkProject();
@@ -119,6 +148,8 @@ async function main() {
     const money = await post(P, { ...good, note: "报了 $128,000" });
     ok(money.status === 400 && String(money.body.error).includes("不要写金额"), "备注里写了金额：400，说明这里不记金额", money.body);
     ok((await post(P, { ...good, channel: "fax" })).status === 400 && (await post(P, { ...good, submittedAt: "昨天" })).status === 400 && (await post(P, null)).status === 400, "方式不认识、时间不是时刻、内容不是对象：400");
+    const day = yesterday.toISOString().slice(0, 10);
+    ok((await post(P, { ...good, submittedAt: day })).status === 400 && (await post(P, { ...good, submittedAt: `${day}T10:00` })).status === 400 && (await post(P, { ...good, submittedAt: "2020" })).status === 400, "时间只有日期、不带时区、只有年份：400（不按服务器的时区去猜）");
     ok((await snapshot(P)) === before, "以上所有被拒的请求之后：项目、审计、讨论区、任务、通知都没有变化");
 
     /* ---------- 3. 第一次记录 ---------- */
@@ -136,7 +167,8 @@ async function main() {
     g = await get(P, VIEWER);
     const v1 = rec(g.body.view), rv1 = rec(v1.record);
     ok(g.status === 200 && v1.submittedAt === yesterday.toISOString() && v1.nextKind === "correction" && v1.count === 1 && rv1.receiptRef === "ABC-123" && rv1.channel === "portal" && rv1.recordedByName === `Fixture ${OWNER}` && typeof rv1.recordedAt === "string" && v1.canRecord === false, "只读成员读取：看到最新的记录、谁记的、何时记的；下一次是更正", g.body);
-    ok(Object.keys(v1).sort().join() === "blockedZh,canRecord,count,nextKind,record,submittedAt" && !/price|amount|margin|金额|毛利/i.test(JSON.stringify(g.body)), "读取的响应只有这六项，没有任何金额相关的字段");
+    ok(Object.keys(v1).sort().join() === "blockedZh,canRecord,count,nextKind,record,submittedAt,syncsToSource" && v1.syncsToSource === false && !/price|amount|margin|金额|毛利/i.test(JSON.stringify(g.body)), "读取的响应只有这七项，没有任何金额相关的字段");
+    ok(rec(first.body.view).canRecord === true && rec(rec(first.body.view).record).receiptRef === "ABC-123", "记录成功的响应里带着最新的内容，且标明这个人能记录");
 
     /* ---------- 4. 更正 ---------- */
     const noticesBefore = await stageNotices(P), advancedBefore = await messages(P, "stage_advanced"), submittedBefore = await messages(P, "project_submitted"), tasksBefore = await db.task.count({ where: { projectId: P } });
@@ -165,15 +197,25 @@ async function main() {
     ok((await records(PW)).length === 1 && rw.kind === "backfill" && rw.receiptRef === "ABC-123", "补记留下的那条记录标的是「补记」", rw);
     ok((await messages(PW, "stage_advanced")) === 0 && (await stageNotices(PW)) === 0 && (await stageTasks(PW, "[项目提交]")).length === 0 && (await messages(PW, "project_submitted")) === 1, "补记不算阶段推进：没有阶段推进的消息与通知、没有新任务；讨论区记了一条「提交了项目」");
     ok(rec((await get(PW)).body.view).nextKind === "correction", "补记之后再记就是更正");
-    for (const status of ["lost", "no_bid", "cancelled", "bid_submitted"]) {
+    for (const status of ["lost", "bid_submitted", "archived", "completed"]) {
       const px = await mkProject({ data: { tenderStatus: status } });
       const r = await post(px, good);
       const after = await proj(px);
       ok(r.status === 200 && r.body.kind === "backfill" && after.tenderStatus === status && after.submittedAt?.getTime() === yesterday.getTime() && (await messages(px, "stage_advanced")) === 0, `招投标状态是 ${status}、没有提交时间：只补日期，状态不被改写成别的`, { kind: r.body.kind, after });
     }
-    // 没有任何阶段时间、也没有分发标记、招投标状态是备标中：阶段记录本来就算作项目提交
+    // 没有投：没有提交可记
+    for (const [status, zh] of [["no_bid", "不投标"], ["passed", "已放弃投标"], ["cancelled", "已取消"]] as const) {
+      const px = await mkProject({ data: { tenderStatus: status } });
+      const bx = await snapshot(px);
+      const r = await post(px, good);
+      const vx = rec((await get(px)).body.view);
+      ok(r.status === 409 && String(r.body.error).includes(`「${zh}」`) && (await snapshot(px)) === bx && vx.nextKind === null && String(vx.blockedZh).includes(zh), `投标结果是${zh}、没有提交时间：409，说明没有提交可记，什么都没写（不会把一个没投的标算成已提交）`, { status: r.status, body: r.body, vx });
+    }
+    const PN = await mkProject({ data: { tenderStatus: "cancelled", submittedAt: new Date(Date.now() - 3 * DAY) } });
+    const rn = await post(PN, good);
+    ok(rn.status === 200 && rn.body.kind === "correction" && (await proj(PN)).tenderStatus === "cancelled", "交了之后招标取消（已有提交时间）：仍可更正，状态不变", rn.body);
+    // 招投标状态是备标中（还没有结果）
     const PP = await mkProject({ data: { tenderStatus: "bid_preparation" } });
-    await db.project.update({ where: { id: PP }, data: { intakeStatus: "dispatched" } });
     const rp = await post(PP, good);
     await settle();
     ok(rp.status === 200 && rp.body.kind === "first" && (await proj(PP)).tenderStatus === "bid_submitted", "招投标状态是备标中（还没有结果）：按第一次记录，进入已提交", { kind: rp.body.kind, p: await proj(PP) });
@@ -201,6 +243,40 @@ async function main() {
     ok(refused.status === 409 && String(refused.body.error).includes("已放弃") && (await snapshot(PX)) === bx, "已放弃的项目：409，什么都没有写", refused.body);
     const vx = rec((await get(PX)).body.view);
     ok(vx.nextKind === null && String(vx.blockedZh).includes("已放弃"), "读取时说明不能记录的原因", vx);
+    const PZ = await mkProject({ data: { status: "archived" } });
+    const bz = await snapshot(PZ);
+    const refusedZ = await post(PZ, good);
+    ok(refusedZ.status === 409 && String(refusedZ.body.error).includes("已归档") && (await snapshot(PZ)) === bz, "已归档的项目：409，什么都没有写", refusedZ.body);
+    // 已提交之后才归档的项目：同样不能更正
+    const PZ2 = await mkProject({ data: { status: "archived", submittedAt: new Date(Date.now() - 5 * DAY), tenderStatus: "bid_submitted" } });
+    ok((await post(PZ2, good)).status === 409, "已归档、已有提交时间的项目：也不能更正");
+
+    /* ---------- 7b. 谁能记录：与写接口逐条一致 ---------- */
+    const PO = await mkProject({ ownerId: OWNER2 });
+    await db.projectMember.create({ data: { projectId: PO, userId: PADMIN, role: "project_admin", status: "active" } });
+    const can = async (uid: string) => rec((await get(PO, uid)).body.view).canRecord;
+    ok((await can(OWNER2)) === true && (await can(PADMIN)) === true && (await can(OWNER)) === true && (await can(VIEWER)) === false, "负责人（普通组织成员）、项目管理员（普通组织成员）、组织管理员：能记录；只读成员：不能", { owner2: await can(OWNER2), padmin: await can(PADMIN), orgAdmin: await can(OWNER), viewer: await can(VIEWER) });
+    ok((await post(PO, good, PADMIN)).status === 200 && (await post(PO, { ...good, receiptRef: "CAD-2026-00123" }, OWNER2)).status === 200 && rec(rec((await get(PO)).body.view).record).receiptRef === "CAD-2026-00123", "项目管理员能记录；负责人能更正；回执编号里带货币代码的编号能保存");
+    // 还没分发的项目：普通人读不到；超级管理员读写都行，页面上的「能不能记录」与之相符
+    const PU = await mkProject({ data: { intakeStatus: "pending_dispatch" } });
+    const superView = await get(PU, SUPER);
+    ok((await get(PU, OWNER)).status >= 400 && superView.status === 200 && rec(superView.body.view).canRecord === true && (await post(PU, good, SUPER)).status === 200 && (await post(PU, good, OWNER)).status >= 400, "还没分发的项目：超级管理员读到「能记录」并且真的能记；其余人读写都被拒（按钮与实际权限一致）", { superView: superView.body });
+    // 来自外部来源系统的项目：读取时标明第一次记录会把状态同步回去（这里只读，不触发）
+    const PS = await mkProject({ data: { sourceSystem: "bidtogo" } });
+    ok(rec((await get(PS)).body.view).syncsToSource === true && rec((await get(PO)).body.view).syncsToSource === false, "项目有来源系统：读取时标明会同步；没有的不标");
+
+    /* ---------- 7c. 显示的记录与项目上的提交时间对得上 ---------- */
+    // 模拟两个人同时第一次记录、填的不一样：项目上最后生效的是 B 的时间，而 A 的那条记录后写进来
+    const PR = await mkProject();
+    const tLate = new Date(yesterday.getTime() - 5 * HOUR);
+    ok((await post(PR, { ...good, submittedAt: tLate.toISOString(), receiptRef: "B-1" })).status === 200, "（前提）B 记录成功");
+    await sleep(15);
+    await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: PR, action: SUBMISSION_AUDIT_ACTION, targetType: "project", targetId: PR, afterData: JSON.stringify({ v: 1, kind: "first", submittedAt: yesterday.toISOString(), channel: "email", receiptRef: "A-1", note: null }) } });
+    const vr = rec((await get(PR)).body.view);
+    ok(vr.submittedAt === tLate.toISOString() && rec(vr.record).receiptRef === "B-1" && rec(vr.record).submittedAt === tLate.toISOString() && vr.count === 2, "后写进来的那条记的是另一个时间：页面显示的仍是与项目提交时间对得上的那一条（不把 A 的回执配上 B 的时间）；条数照实是 2", vr);
+    await db.project.update({ where: { id: PR }, data: { submittedAt: new Date(yesterday.getTime() - 9 * HOUR) } });
+    const vr2 = rec((await get(PR)).body.view);
+    ok(vr2.record === null && vr2.count === 2 && typeof vr2.submittedAt === "string", "没有任何一条记录对得上项目上的提交时间（时间是在别处写的）：照实显示没有回执记录", vr2);
     /* ---------- 8. 别的组织自己的项目正常 ---------- */
     const PB = await mkProject({ orgId: ORG_B, ownerId: OUTSIDER });
     ok((await post(PB, good, OWNER)).status >= 400 && (await post(PB, good, OUTSIDER)).status === 200 && (await records(PB))[0]?.orgId === ORG_B, "别的组织的项目：这边的人写不了；那边自己的人能写，记录记在那边名下");

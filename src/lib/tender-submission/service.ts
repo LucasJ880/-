@@ -17,6 +17,7 @@ import { advanceProjectStage } from "@/lib/tender/stage-transition";
 import {
   SUBMISSION_AUDIT_ACTION,
   SUBMISSION_AUDIT_TARGET,
+  blockedReasonZh,
   classifySubmission,
   parseStoredRecord,
   toStoredRecord,
@@ -27,34 +28,35 @@ import {
 
 type Actor = { id: string; name: string; email: string };
 
+/** 找「与项目上的提交时间对得上的最新一条记录」时往回看多少条 */
+const RECENT_RECORDS = 20;
+
 const STAGE_SELECT = {
-  id: true, orgId: true, status: true, tenderStatus: true, intakeStatus: true,
+  id: true, orgId: true, status: true, tenderStatus: true, intakeStatus: true, sourceSystem: true,
   distributedAt: true, dispatchedAt: true, interpretedAt: true, supplierInquiredAt: true, supplierQuotedAt: true, submittedAt: true,
 } as const;
-
-/** 项目已放弃 / 已归档 → 不能再记录（说明原因）；否则 null */
-export function blockedReasonZh(project: { status: string | null }): string | null {
-  if (project.status === "abandoned") return "项目已放弃，不能再记录提交";
-  if (project.status === "archived") return "项目已归档，不能再记录提交";
-  return null;
-}
 
 /** 读取：项目上的提交时间、最新的一条记录、历次条数。只读。 */
 export async function loadSubmissionRecordView(input: { projectId: string; orgId: string; canRecord: boolean }): Promise<SubmissionRecordView | null> {
   const where = { orgId: input.orgId, projectId: input.projectId, action: SUBMISSION_AUDIT_ACTION, targetType: SUBMISSION_AUDIT_TARGET, targetId: input.projectId };
-  const [project, latest, count] = await Promise.all([
+  const [project, recent, count] = await Promise.all([
     db.project.findFirst({ where: { id: input.projectId, orgId: input.orgId }, select: STAGE_SELECT }),
-    db.auditLog.findFirst({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { afterData: true, createdAt: true, user: { select: { name: true } } } }),
+    db.auditLog.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: RECENT_RECORDS, select: { afterData: true, createdAt: true, user: { select: { name: true } } } }),
     db.auditLog.count({ where }),
   ]);
   if (!project) return null;
   const blockedZh = blockedReasonZh(project);
+  // 显示的那条记录必须与项目上的提交时间对得上：取最新的、记的就是这个提交时间的那一条。
+  // 两个人同时第一次记录、填的不一样时，后写进来的记录不一定是最后生效的那个时间——不能把 A 的回执配上 B 的时间。
+  const submittedIso = project.submittedAt ? project.submittedAt.toISOString() : null;
+  const latest = submittedIso ? recent.find((r) => parseStoredRecord(r.afterData)?.submittedAt === submittedIso) : undefined;
   const stored = parseStoredRecord(latest?.afterData);
   return {
     submittedAt: project.submittedAt ? project.submittedAt.toISOString() : null,
     nextKind: blockedZh ? null : classifySubmission({ recordedStage: recordedStageOf(project), submittedAt: project.submittedAt, tenderStatus: project.tenderStatus }),
     blockedZh,
     canRecord: input.canRecord,
+    syncsToSource: !!project.sourceSystem,
     record: stored && latest ? { ...stored, recordedAt: latest.createdAt.toISOString(), recordedByName: latest.user?.name ?? null } : null,
     count,
   };
@@ -84,6 +86,8 @@ export async function recordSubmission(input: { projectId: string; orgId: string
     const advanced = await advanceProjectStage({
       projectId, targetStage: "submission", reason: "在项目页上记录提交", source: "manual", actor, humanConfirmed: true,
       occurredAt: value.submittedAt, skipStageTasks: true,
+      // 从上面读到现在，别人可能刚记了投标结果或放弃了项目：那样就不推进（不把「已中标」冲成「已提交」），转到下面在锁里重新判断
+      expected: { status: project.status, tenderStatus: project.tenderStatus },
     });
     if (!advanced.success) return { ok: false, status: 409, error: advanced.reason };
     if (advanced.decision !== "no_op") {
@@ -91,7 +95,7 @@ export async function recordSubmission(input: { projectId: string; orgId: string
       await writeAuditLog(db, audit("first"));
       return { ok: true, kind: "first", submittedAt: value.submittedAt.toISOString() };
     }
-    // no_op：同一时刻别的请求已经把项目推进到了提交阶段（同时点了两次）→ 按「已在提交阶段」处理
+    // no_op：同一时刻别的请求已经把项目推进到了提交阶段（同时点了两次），或项目的状态刚变了 → 到下面在锁里重新判断
   }
 
   // 已在提交阶段：只改提交时间这一个日期，并追加记录——同一个事务
@@ -103,7 +107,7 @@ export async function recordSubmission(input: { projectId: string; orgId: string
     const blockedNow = blockedReasonZh(fresh);
     if (blockedNow) return { ok: false, status: 409, error: blockedNow };
     const kind = classifySubmission({ recordedStage: recordedStageOf(fresh), submittedAt: fresh.submittedAt, tenderStatus: fresh.tenderStatus });
-    if (kind === "first") return { ok: false, status: 409, error: "项目的阶段刚刚变了，请刷新后再试" };
+    if (kind === "first") return { ok: false, status: 409, error: "项目的状态刚刚变了，请刷新后再试" };
     if (!fresh.submittedAt || fresh.submittedAt.getTime() !== value.submittedAt.getTime()) {
       await tx.project.update({ where: { id: projectId }, data: { submittedAt: value.submittedAt } });
       await emitProjectPatchEvents(

@@ -16,10 +16,10 @@ import {
   SUBMISSION_KIND_ZH,
   SUBMISSION_NOTE_MAX,
   confirmTextZh,
-  fromDatetimeLocal,
   openButtonZh,
   parseSubmissionInput,
   statusLineZh,
+  submittedAtToSend,
   toDatetimeLocal,
   type SubmissionChannel,
   type SubmissionRecordView,
@@ -44,6 +44,8 @@ export function SubmissionRecordCard({
   const [view, setView] = useState<SubmissionRecordView | null>(null);
   const [step, setStep] = useState<Step>("closed");
   const [when, setWhen] = useState("");
+  // 人有没有动过时间那一栏：没动过的更正原样保留已有的提交时刻（表单只精确到分钟）
+  const [whenTouched, setWhenTouched] = useState(false);
   const [channel, setChannel] = useState<SubmissionChannel>("portal");
   const [receiptRef, setReceiptRef] = useState("");
   const [note, setNote] = useState("");
@@ -68,18 +70,18 @@ export function SubmissionRecordCard({
 
   if (!view) return null;
 
-  const tz = new Date().getTimezoneOffset();
   const kind = view.nextKind;
   const openForm = () => {
-    // 更正时带出现有的值；第一次记录默认填现在
-    setWhen(toDatetimeLocal(view.submittedAt ? new Date(view.submittedAt) : new Date(), tz));
+    // 更正时带出现有的值（方式、回执编号、备注都带上，免得只改一项却把别的清掉）；第一次记录默认填现在
+    setWhen(toDatetimeLocal(view.submittedAt ? new Date(view.submittedAt) : new Date()));
+    setWhenTouched(false);
     setChannel(view.record?.channel ?? "portal");
     setReceiptRef(view.record?.receiptRef ?? "");
-    setNote("");
+    setNote(view.record?.note ?? "");
     setError("");
     setStep("form");
   };
-  const submittedIso = fromDatetimeLocal(when, tz);
+  const submittedIso = submittedAtToSend({ fieldValue: when, touched: whenTouched, existing: view.submittedAt });
   // 点「保存」时先用与接口相同的规则校验一遍：不对就留在表单里说明原因，不进确认那一步
   const toConfirm = () => {
     const checked = parseSubmissionInput({ submittedAt: submittedIso, channel, receiptRef, note }, new Date());
@@ -173,7 +175,7 @@ export function SubmissionRecordCard({
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs text-muted">
               实际提交的时间
-              <input type="datetime-local" value={when} max={toDatetimeLocal(new Date(), tz)} onChange={(e) => setWhen(e.target.value)} disabled={step === "confirm"} className={input} data-testid="submission-record-when" />
+              <input type="datetime-local" value={when} max={toDatetimeLocal(new Date())} onChange={(e) => { setWhen(e.target.value); setWhenTouched(true); }} disabled={step === "confirm"} className={input} data-testid="submission-record-when" />
             </label>
             <label className="text-xs text-muted">
               提交方式
@@ -192,7 +194,7 @@ export function SubmissionRecordCard({
               <textarea value={note} maxLength={SUBMISSION_NOTE_MAX} rows={2} onChange={(e) => setNote(e.target.value)} disabled={step === "confirm"} className={input} data-testid="submission-record-note" />
             </label>
           </div>
-          {error ? <p className="mt-3 text-sm text-danger-text" data-testid="submission-record-error">{error}</p> : null}
+          {error ? <p role="alert" className="mt-3 text-sm text-danger-text" data-testid="submission-record-error">{error}</p> : null}
           {step === "form" ? (
             <div className="mt-4 flex flex-wrap gap-2">
               <button type="button" onClick={toConfirm} disabled={!submittedIso} data-testid="submission-record-next" className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:opacity-90 disabled:opacity-50">
@@ -204,7 +206,7 @@ export function SubmissionRecordCard({
             </div>
           ) : (
             <div className="mt-4 rounded-lg border border-warning/40 bg-warning-light p-3" data-testid="submission-record-confirm">
-              <p className="text-sm text-warning-text">{confirmTextZh(kind)}</p>
+              <p className="text-sm text-warning-text">{confirmTextZh(kind, { syncsToSource: view.syncsToSource })}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => void save()} disabled={saving} data-testid="submission-record-save" className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-[color:var(--on-accent)] hover:opacity-90 disabled:opacity-50">
                   {saving ? <Loader2 size={14} className="animate-spin" /> : null}

@@ -147,6 +147,11 @@ export interface AdvanceStageInput {
   occurredAt?: Date;
   /** FLOW-H4a：不为新阶段建自动任务（上一阶段的自动任务照旧关掉）。不传 = 照旧建。 */
   skipStageTasks?: boolean;
+  /**
+   * FLOW-H4a：调用方读项目时看到的项目状态与招投标状态。写入时库里的若已不是这两个值（别人刚记了投标结果、
+   * 或放弃了项目），就不写，按「无需操作」返回，由调用方重新判断。不传 = 不检查，与原来相同。
+   */
+  expected?: { status: string; tenderStatus: string | null };
 }
 
 /** 事务里发现阶段时间已被别的请求写入（同时点了两次）→ 整个事务作废，按「无需重复写入」返回 */
@@ -178,6 +183,7 @@ export async function advanceProjectStage(
     evidence,
     occurredAt,
     skipStageTasks,
+    expected,
   } = input;
 
   const project = await db.project.findUnique({ where: { id: projectId } });
@@ -260,7 +266,7 @@ export async function advanceProjectStage(
       //（同时点了两次）——那样这里一行也改不到，整个事务作废，不重复发消息与通知。
       if (timestampField) {
         const claimed = await tx.project.updateMany({
-          where: { id: projectId, [timestampField]: null },
+          where: { id: projectId, [timestampField]: null, ...(expected ? { status: expected.status, tenderStatus: expected.tenderStatus } : {}) },
           data,
         });
         if (claimed.count === 0) throw new StageAlreadyWritten();
