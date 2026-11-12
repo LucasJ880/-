@@ -10,6 +10,7 @@
  */
 
 import { db } from "@/lib/db";
+import { isStageAutoAdvanceSwitchedOn } from "@/lib/tender/stage-auto-flags";
 import { hasGmailComposeScope, sendGmail } from "@/lib/google-email";
 import { markItemSent } from "@/lib/inquiry/service";
 import { INQUIRY_STATUS } from "@/lib/inquiry/types";
@@ -48,6 +49,7 @@ export async function execTenderSendRfq(
   const send = deps.send ?? sendGmail;
   const from = `"${payload.fromName.replace(/"/g, "")}" <${payload.fromEmail}>`;
   const sent: string[] = [];
+  let newlySent = 0; // 这一次真的发出的（不含「此前已发」）
   const failed: Array<{ supplierName: string; error: string }> = [];
 
   for (const item of payload.items) {
@@ -70,6 +72,7 @@ export async function execTenderSendRfq(
         data: { contactNotes: formatRfqContactNotes(messageId, threadId, new Date()) },
       });
       sent.push(item.supplierName);
+      newlySent += 1;
     } catch (err) {
       failed.push({ supplierName: item.supplierName, error: err instanceof Error ? err.message : String(err) });
     }
@@ -77,6 +80,12 @@ export async function execTenderSendRfq(
 
   if (sent.length > 0) {
     await db.projectInquiry.update({ where: { id: payload.inquiryId }, data: { status: INQUIRY_STATUS.IN_PROGRESS } }).catch(() => undefined);
+    // FLOW-H1c：这一次真的发出了至少一家 → 阶段记录到达「供应商询价」并收建阶段任务（开关关闭时不加载、不查库）；下面原有的写入照旧
+    if (newlySent > 0 && isStageAutoAdvanceSwitchedOn()) {
+      await import("@/lib/tender/stage-auto")
+        .then((m) => m.recordStageReached({ projectId: payload.projectId, trigger: "rfq_sent", actorId: ctx.userId }))
+        .catch((err) => console.error("[StageAuto] rfq_sent failed:", err));
+    }
     await db.project.update({ where: { id: payload.projectId }, data: { supplierInquiredAt: new Date() } }).catch(() => undefined);
     // P1-8：批准人（操作者）没有默认贸易条款时，记下这轮用的（best-effort，不影响发送结果）
     if (project.orgId && payload.incoterm) {

@@ -2,7 +2,7 @@
  * 阶段→任务联动
  *
  * 每个阶段有一组标准任务模板。阶段推进时：
- * 1. 将新阶段之前所有阶段还没完成的自动任务标为完成（FIX-5：不只上一阶段——
+ * 1. 将新阶段之前所有阶段还没完成的自动任务标为完成（FIX-7：不只上一阶段——
  *    分析完成、询价发出会绕过阶段推进直接写阶段时间，跳级推进也会跳过中间的阶段）
  * 2. 为新阶段创建待办任务（项目不是进行中的不建；同一项目加锁，不重复建）
  * 项目被放弃时，还没完成的自动任务标为已取消（cancelOpenStageTasks）。
@@ -19,7 +19,7 @@ export interface StageTaskTemplate {
   description: string;
   priority: string;
   daysFromNow?: number;
-  /** FIX-5：到期日取项目的截标时间（没有截标时间、或已经过了，仍按 daysFromNow 算） */
+  /** FIX-7：到期日取项目的截标时间（没有截标时间、或已经过了，仍按 daysFromNow 算） */
   dueAtClose?: boolean;
 }
 
@@ -91,7 +91,7 @@ export const STAGE_TASK_TEMPLATES: Partial<Record<TenderStage, StageTaskTemplate
       priority: "medium",
       daysFromNow: 4,
     },
-    // FIX-5：这两条原来排在「项目提交」阶段——可进入那个阶段就意味着标已经交了。
+    // FIX-7：这两条原来排在「项目提交」阶段——可进入那个阶段就意味着标已经交了。
     // 挪到这里：交标之前要做的事，进入「项目提交」时随「[供应商报价]」的任务一起被关掉。
     {
       title: "准备投标文件",
@@ -125,7 +125,7 @@ export type StageTaskRow = {
 };
 
 /**
- * FIX-5：进入某个阶段时要建哪些任务（纯函数）。
+ * FIX-7：进入某个阶段时要建哪些任务（纯函数）。
  *   - 标题以「[阶段名]」开头；创建人与负责人是推进阶段的那个人；
  *   - 到期日 = now + 天数；标了 dueAtClose 的取截标时间；
  *   - 截标时间还没到时，任何一条的到期日都不晚于截标时间（截标之后才到期的任务没有意义）；
@@ -155,7 +155,7 @@ function buildStagePrefix(stage: TenderStage): string {
   return `[${STAGE_LABEL[stage]}]`;
 }
 
-/** FIX-5：toStage 之前所有阶段的自动任务前缀（不含立项：立项没有模板） */
+/** FIX-7：toStage 之前所有阶段的自动任务前缀（不含立项：立项没有模板） */
 export function earlierStagePrefixes(toStage: TenderStage): string[] {
   const idx = STAGE_ORDER.indexOf(toStage);
   return STAGE_ORDER.slice(0, Math.max(idx, 0))
@@ -181,7 +181,7 @@ export async function onStageAdvancedTasks(
   /** FLOW-H4a：skipCreate = 只关上一阶段的自动任务，不为新阶段建任务（不传时与原来相同） */
   opts: { skipCreate?: boolean } = {},
 ) {
-  void fromStage; // FIX-5：关的是 toStage 之前的所有阶段，不只 fromStage
+  void fromStage; // FIX-7：关的是 toStage 之前的所有阶段，不只 fromStage
   const prefixes = earlierStagePrefixes(toStage);
 
   // 1. 将之前阶段还没完成的自动任务标为完成
@@ -207,7 +207,7 @@ export async function onStageAdvancedTasks(
   const newPrefix = buildStagePrefix(toStage);
   const now = new Date();
 
-  // FIX-5：原来这里给每条任务写了 sortOrder——任务表没有这一列，每次都报错，任务从来没建出来过
+  // FIX-7：原来这里给每条任务写了 sortOrder——任务表没有这一列，每次都报错，任务从来没建出来过
   const project = await db.project.findUnique({ where: { id: projectId }, select: { closeDate: true, status: true } });
   // 已放弃 / 已归档的项目不建
   if (!project || project.status !== "active") return;
@@ -230,7 +230,7 @@ export async function onStageAdvancedTasks(
 }
 
 /**
- * FIX-5：项目被放弃时，把还没完成的自动任务标为已取消（人自己建的任务不动）。
+ * FIX-7：项目被放弃时，把还没完成的自动任务标为已取消（人自己建的任务不动）。
  * 返回取消了几条。
  */
 export async function cancelOpenStageTasks(projectId: string, client: Pick<typeof db, "task"> = db): Promise<number> {

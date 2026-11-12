@@ -57,7 +57,7 @@ export interface Violation {
 // ── Census configuration (deterministic token/regex tables) ────────────────
 
 const APPROVAL_WRITE_RE =
-  /\.(pendingAction|approvalRequest)\s*\.\s*(create|createMany|upsert|update|updateMany|delete|deleteMany)\s*\(/;
+  /\.(pendingAction|approvalRequest)\s*\.\s*(create|createMany|createManyAndReturn|upsert|update|updateMany|updateManyAndReturn|delete|deleteMany)\s*\(/;
 /** Creation helpers that only the canonical boundary may re-export for new code. */
 const APPROVAL_HELPER_SPECIFIERS = [
   "@/lib/pending-actions/drafts",

@@ -1,5 +1,5 @@
 /**
- * FIX-5 阶段推进之后的自动任务——真实 DB（隔离库）
+ * FIX-7 阶段推进之后的自动任务——真实 DB（隔离库）
  *
  * 运行（隔离库）：
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET=… \
@@ -9,13 +9,13 @@
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
 function skip(reason: string): never {
-  console.log(`⏭  跳过 FIX-5 阶段任务 DB 测试（${reason}）`);
+  console.log(`⏭  跳过 FIX-7 阶段任务 DB 测试（${reason}）`);
   process.exit(0);
 }
 if (!process.env.DATABASE_URL?.trim()) skip("未提供 DATABASE_URL");
 if (process.env.NODE_ENV !== "test") skip("需 NODE_ENV=test");
 if ((process.env.DATABASE_ENVIRONMENT || "").toLowerCase() !== "isolated") skip("需 DATABASE_ENVIRONMENT=isolated");
-assertSafeTestDatabase({ scriptName: "FIX-5 stage tasks DB test" });
+assertSafeTestDatabase({ scriptName: "FIX-7 stage tasks DB test" });
 
 let pass = 0;
 let fail = 0;
@@ -33,7 +33,7 @@ async function main() {
   const { createSession } = await import("@/lib/auth/session");
   const abandonRoute = await import("@/app/api/projects/[id]/abandon/route");
 
-  console.log("FIX-5 stage tasks — isolated DB");
+  console.log("FIX-7 stage tasks — isolated DB");
   const stamp = Date.now().toString(36);
   const OWNER = `stowner_${stamp}`, OTHER = `stother_${stamp}`, ORG = `storg_${stamp}`;
   const DAY = 86_400_000;
@@ -238,7 +238,7 @@ async function main() {
     await db.$disconnect();
   }
 
-  console.log(`\nFIX-5 stage tasks DB: ${pass} passed, ${fail} failed`);
+  console.log(`\nFIX-7 stage tasks DB: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
 

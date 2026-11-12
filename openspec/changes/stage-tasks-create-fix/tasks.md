@@ -1,4 +1,4 @@
-# Tasks：修好阶段推进之后的自动任务（FIX-5）
+# Tasks：修好阶段推进之后的自动任务（FIX-7）
 
 ## 1. 修
 
@@ -12,4 +12,4 @@
 ## 3. 验收
 
 - [x] 3.1 变异核对；独立审查并处理其发现；全部门禁；verify：报告里逐条写明；`npm run test:ci` 输出 `CI unit subset PASS`、`npm run lint:baseline` PASS、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate stage-tasks-create-fix --strict` valid
-- [x] 3.2 写 `docs/QINGYAN_FIX-5_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 FIX-5 一行，状态 `[G]`
+- [x] 3.2 写 `docs/QINGYAN_FIX-7_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 FIX-7 一行，状态 `[G]`

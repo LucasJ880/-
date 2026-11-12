@@ -1,5 +1,5 @@
 /**
- * FIX-5 阶段推进之后的自动任务 — 纯逻辑测试
+ * FIX-7 阶段推进之后的自动任务 — 纯逻辑测试
  * 运行：npx tsx src/lib/tender/__tests__/stage-tasks.test.ts
  * 真实数据库里的行为另见 stage-tasks-db.isolated.test.ts
  */

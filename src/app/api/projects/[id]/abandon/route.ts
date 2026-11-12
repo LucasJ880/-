@@ -80,7 +80,7 @@ export async function POST(
 
     await onProjectAbandoned(id, user.name, user.id, currentStage, reason, tx);
 
-    // FIX-5：还没完成的阶段自动任务随项目一起撤掉（人自己建的任务不动）
+    // FIX-7：还没完成的阶段自动任务随项目一起撤掉（人自己建的任务不动）
     await cancelOpenStageTasks(id, tx);
 
     return result;

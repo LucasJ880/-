@@ -1,6 +1,6 @@
 # Proposal：修好阶段推进之后的自动任务
 
-TASKFLOW：FIX-5（Phase F 续）
+TASKFLOW：FIX-7（Phase F 续）
 来源：做 FLOW-H4a 时发现的既有错误（FLOW-H4a 的报告 §3.2，随 #446 合入）；Lucas 2026-11-12「要修，要这些组队任务」。
 
 ## Why
