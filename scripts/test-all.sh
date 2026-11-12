@@ -622,6 +622,7 @@ run_test "招标询价 供应商分组：校验、比对与抽屉预选（RFQ-AU
 run_test "招标询价 供应商分组 DB（隔离库执行，否则跳过，RFQ-AUTO-5）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts"
 run_test "组织设置的写入：守卫——写入方必须经统一入口或自己锁行（FIX-3）" "npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts"
 run_test "组织设置的并发写入互不覆盖 DB（隔离库执行，否则跳过，FIX-3）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts"
+run_test "组织行锁不与外键检查互斥 DB（隔离库执行，否则跳过，FIX-4）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts"
 # TI-1：招标价格表行项（契约 / 单位换算 / 尺寸对照 / 截标与导出）
 run_test "招标价格表 行项契约与数量汇总（渥太华 18 行）" "npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts"
 run_test "招标价格表 单位换算与金额舍入" "npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts"
