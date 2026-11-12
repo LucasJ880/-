@@ -116,6 +116,8 @@ export async function onStageAdvancedTasks(
   fromStage: TenderStage,
   toStage: TenderStage,
   actorId: string,
+  /** FLOW-H4a：skipCreate = 只关上一阶段的自动任务，不为新阶段建任务（不传时与原来相同） */
+  opts: { skipCreate?: boolean } = {},
 ) {
   const prefix = buildStagePrefix(fromStage);
 
@@ -133,6 +135,7 @@ export async function onStageAdvancedTasks(
   });
 
   // 2. 为新阶段创建任务
+  if (opts.skipCreate) return;
   const templates = STAGE_TASK_TEMPLATES[toStage];
   if (!templates || templates.length === 0) return;
 
