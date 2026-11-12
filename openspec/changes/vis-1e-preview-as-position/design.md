@@ -117,6 +117,8 @@ userId 仍是本人。所以本人提交的、本人是指定审批人的、本�
   - `getRequestPreview(request)`：路由处理函数用，读 `request.cookies`；
   - `getAmbientPreview(userId)`：没有 request 的库函数用。先看本模块的 AsyncLocalStorage 里有没有显式注入的 token（`withPreviewToken(token, fn)` / `withoutPreview(fn)`，代理、登录与测试用）；没有再读 `next/headers` 的 `cookies()`。`cookies()` 抛错时先 `unstable_rethrow`（放过 Next 内部的控制流错误），其余按无预览。
   - 两者都做 D4 的两层校验。结果按「token + userId」缓存 30 秒，含 JWT 校验结果，所以一个请求里多次调用只是一次 `cookies()` 加一次查表。另有仅测试用的清缓存钩子。
+  - 两者都只认属于当前会话用户（`qy_session` 的 `sub`）的预览 cookie；显式注入的 token 由调用方（代理）核对过会话。
+  - 预览模块经鉴权与权限库会被客户端页面间接打包，所以不写静态 `node:` 导入：`AsyncLocalStorage` 经 `process.getBuiltinModule` 取，派生密钥用 WebCrypto 计算（与 HMAC-SHA256 同一份字节）。
 
 落点（每处在「有有效预览且 userId 是预览本人」时改写，否则原样）：
 1. **API 鉴权** `getCurrentUser`（另把 `/api/auth/me` 的 `activeOrgId`、`effectiveRole` 改为按预览企业）：返回平台角色 `user`，另带 `preview`（企业、岗位 key 与名称、到期）。约 80 个文件里按 `user.role` 判的 super_admin 放行随之失效。
@@ -141,6 +143,7 @@ userId 仍是本人。所以本人提交的、本人是指定审批人的、本�
    - `buildCapabilitiesAccess`：成员角色；
    - `/api/agent-core/tools`、`/api/search`；
    - `platform-admin-guard`、`autopilot/page-guard`：预览中按非 super_admin。
+   - 独立代码审查后补的：项目可见范围（`projects/visibility.ts` 的两处成员企业读取）、首页提醒（`reminders/generator.ts` 的平台角色）、企业列表（`/api/organizations` 非管理员分支只列预览企业、成员角色 `org_member`）、营销团队审批「能批」判定（预览中不认企业所有者与 org_admin）、Autopilot 接口（`requireAutopilotAccess` 预览中 403）。统一经 `server.ts` 的 `listEffectiveMemberships`、`effectivePlatformRole`。
 6. **代理**：见 D6。
 
 被否决：

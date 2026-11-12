@@ -131,7 +131,7 @@
 
 ## 7. 门禁与独立审查
 
-- [ ] 7.1 跑门禁并做独立代码审查：
+- [x] 7.1 跑门禁并做独立代码审查：
   - 门禁：
     - `npm run test:ci`；
     - `npm test`，与 origin/main 对比环境类失败；
@@ -150,7 +150,7 @@
 
 ## 8. 报告与 TASKFLOW
 
-- [ ] 8.1 写 `docs/QINGYAN_VIS-1e_REPORT.md` 并同步 TASKFLOW：
+- [x] 8.1 写 `docs/QINGYAN_VIS-1e_REPORT.md` 并同步 TASKFLOW：
   - 报告包含：
     - 改动清单与 D5 落点清单（每处一行）、D9 的 GET 写库登记表；
     - 按岗位的预览结果表（Sunny 老板、会计、销售、招投标、运营、梦馨 Cathy），由真实实现计算；
