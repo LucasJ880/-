@@ -85,7 +85,7 @@ FIX-3（#436）已经把其余写入方换成了不互斥的 `FOR NO KEY UPDATE`
 | `governance-hygiene-concurrency-gate.test.ts`、`governance-hygiene-gate.test.ts`（既有，配额策略） | 20 项、22 项通过，断言未改 |
 | `autogen-db.isolated.test.ts`（既有） | main 上本来就失败，见 §3.4 |
 | 变异核对 | 29 处把实现改坏的改动（每一处改回 `FOR UPDATE`、删锁、挪到读之后、换成更弱的锁、换条件、用旧数据写回……），每一处都有测试失败；其中 7 处是独立审查找到的（5 处第一版守卫没拦住） |
-| `npm run test:ci` | 见 PR 说明（提交本报告后在最终代码上完整跑一遍） |
+| `npm run test:ci` | `CI unit subset PASS`（在最终代码上完整跑的一遍） |
 | `npm run typecheck` | 退出码 0 |
 | `npm run lint:baseline` | PASS |
 | `bash scripts/check-test-registry.sh` | OK |
