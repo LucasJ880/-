@@ -374,6 +374,7 @@ console.log("接线");
   ok("截标时间只显示到日（手工填的只有日期，显示钟点会是假的）", cardSrc.includes('toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })') && !/hour:|minute:/.test(cardSrc));
   ok("卡片的测试标记齐全", ["next-step-card", "next-step-headline", "next-step-reasons", "next-step-action", "next-step-urgency", "next-step-closing", "next-step-also"].every((id) => cardSrc.includes(`data-testid="${id}"`)) && cardSrc.includes("data-rule={view.rule}"));
 
+  ok("页面文件仍然默认导出页面组件（改这个文件时曾经把它误删，类型检查发现不了）", /^export default function ProjectDetailPage\(\) \{/m.test(page) && page.includes("<ProjectDetailContent />") && /^function ProjectDetailContent\(\) \{/m.test(page));
   const navStart = page.indexOf("const openNextStepTarget = useCallback(");
   const nav = page.slice(navStart, page.indexOf("const openProjectArea = useCallback("));
   ok("（前提）取到了页面上导航的那段代码", navStart > 0 && nav.includes("scrollToProjectAnchor(target.anchor)"));

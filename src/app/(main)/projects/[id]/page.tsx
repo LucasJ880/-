@@ -121,6 +121,14 @@ function scrollToProjectAnchor(anchor: string): () => void {
   return stop;
 }
 
+export default function ProjectDetailPage() {
+  return (
+    <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
+      <ProjectDetailContent />
+    </Suspense>
+  );
+}
+
 function ProjectDetailContent() {
   const params = useParams();
   const router = useRouter();
