@@ -31,12 +31,13 @@ async function main() {
 
   console.log("FIX-6 stage status catch-up — isolated DB");
   const stamp = Date.now().toString(36);
-  const OWNER = `scowner_${stamp}`, ORG = `scorg_${stamp}`, SYS = `bt_${stamp}`;
+  const OWNER = `scowner_${stamp}`, B = `scb_${stamp}`, ORG = `scorg_${stamp}`, SYS = `bt_${stamp}`;
   const DAY = 86_400_000;
   const T_INQ = new Date(Date.now() - 3 * DAY), T_QUOTE = new Date(Date.now() - DAY);
   await db.user.create({ data: { id: OWNER, email: `${OWNER}@fixture.test`, name: "Fixture Owner", role: "user" } });
+  await db.user.create({ data: { id: B, email: `${B}@fixture.test`, name: "Fixture B", role: "user" } });
   await db.organization.create({ data: { id: ORG, name: "Fixture Bidder Inc.", code: `sc-${stamp}`, ownerId: OWNER } });
-  await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
+  for (const userId of [OWNER, B]) await db.organizationMember.create({ data: { orgId: ORG, userId, role: "org_admin", status: "active" } });
   const endpoint = await db.webhookEndpoint.create({ data: { system: SYS, url: `https://webhook-${stamp}.fixture.invalid/hook`, secret: "fixture-secret", events: "[\"*\"]" } });
 
   const projectIds: string[] = [];
@@ -49,7 +50,8 @@ async function main() {
     if (withSource) await db.externalReference.create({ data: { system: SYS, externalId: `ext_${stamp}_${seq}`, projectId: id } });
     return id;
   }
-  const actor = { id: OWNER, name: "Fixture Owner", email: `${OWNER}@fixture.test` };
+  // 由 B 点确认：项目负责人 OWNER 不是操作人，正常推进时会收到「已推进」的通知（见对照用例）
+  const actor = { id: B, name: "Fixture B", email: `${B}@fixture.test` };
   const advance = (projectId: string, targetStage: "interpretation" | "supplier_inquiry" | "supplier_quote" | "submission", humanConfirmed = true) =>
     advanceProjectStage({ projectId, targetStage, reason: "fixture", source: "manual", actor, humanConfirmed });
   const proj = (id: string) => db.project.findUniqueOrThrow({ where: { id }, select: { tenderStatus: true, supplierQuotedAt: true, supplierInquiredAt: true, submittedAt: true, interpretedAt: true } });
@@ -78,7 +80,7 @@ async function main() {
     ok(p1.tenderStatus === "supplier_quote", "招投标状态变成「供应商报价」", p1.tenderStatus);
     ok(p1.supplierQuotedAt!.getTime() === T_QUOTE.getTime() && p1.supplierInquiredAt!.getTime() === T_INQ.getTime() && p1.submittedAt === null, "阶段时间都没动");
     const a1 = await audits(P1);
-    ok(a1.length === 1 && a1[0].after.statusCatchUp === true && a1[0].after.humanConfirmed === true && a1[0].before.tenderStatus === "supplier_inquiry" && a1[0].after.tenderStatus === "supplier_quote" && a1[0].userId === OWNER, "一条审计：标明补状态、人已确认、前后状态、操作人", a1);
+    ok(a1.length === 1 && a1[0].after.statusCatchUp === true && a1[0].after.humanConfirmed === true && a1[0].before.tenderStatus === "supplier_inquiry" && a1[0].after.tenderStatus === "supplier_quote" && a1[0].userId === B, "一条审计：标明补状态、人已确认、前后状态、操作人", a1);
     ok((await db.projectMessage.count({ where: { projectId: P1 } })) > msgBefore, "讨论区有一条状态变化");
     const c1 = callsFor(P1);
     ok(c1.length === 1 && c1[0].url === endpoint.url && c1[0].body.event === "project.status_changed" && c1[0].body.old_status === "supplier_inquiry" && c1[0].body.new_status === "supplier_quote" && c1[0].body.external_ref_system === SYS, "发出一次状态回调到配置的接收地址：供应商询价 → 供应商报价", c1);
@@ -121,6 +123,7 @@ async function main() {
     await sleep(400);
     const p5 = await proj(P5);
     ok(r5.success && r5.decision === "require_human_review" && !/已同步/.test(r5.reason) && !!p5.supplierQuotedAt && p5.tenderStatus === "supplier_quote" && callsFor(P5).length === 1, "阶段还没到：照原来正常推进（写时间、改状态、发一次回调）", r5);
+    ok((await db.notification.count({ where: { projectId: P5, userId: OWNER } })) >= 1, "对照：正常推进时项目负责人收到了「已推进」的通知（所以补状态那条「没有通知」不是空的）");
 
     /* ---------- 6. 同时点两次 ---------- */
     const P6 = await mkProject();
@@ -151,7 +154,7 @@ async function main() {
     await db.webhookEndpoint.deleteMany({ where: { system: SYS } });
     await db.organizationMember.deleteMany({ where: { orgId: ORG } });
     await db.organization.deleteMany({ where: { id: ORG } });
-    await db.user.deleteMany({ where: { id: OWNER } });
+    await db.user.deleteMany({ where: { id: { in: [OWNER, B] } } });
     await db.$disconnect();
   }
 
