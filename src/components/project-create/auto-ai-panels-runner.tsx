@@ -38,7 +38,8 @@ export function AutoAiPanelsRunner({
             ),
           ]);
           const hasSummary = !!summaryRes?.summary;
-          const hasChecklist = !!checklistRes?.checklist;
+          // FLOW-H4b：模型清单已被确定性清单取代时，不算「缺清单」，不为它去触发生成
+          const hasChecklist = !!checklistRes?.checklist || checklistRes?.replaced === true;
           if (hasSummary && hasChecklist) {
             // 通知面板刷新已有数据
             window.dispatchEvent(

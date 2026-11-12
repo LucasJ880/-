@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai/prompts";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
+import { isSubmissionChecklistEnabledForOrg } from "@/lib/tender-submission-checklist/flags";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -78,7 +79,14 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (access instanceof NextResponse) return access;
 
   const checklist = await loadStoredChecklist(id);
-  return NextResponse.json({ checklist });
+  // FLOW-H4b：这个组织开了确定性的交付前检查清单 → 告诉调用方这份模型清单已被取代（已存的内容照旧返回，不删历史）
+  const replaced = replacedByDeterministicChecklist(access.project);
+  return NextResponse.json(replaced ? { checklist, replaced: true } : { checklist });
+}
+
+/** FLOW-H4b：招投标项目、且组织开了确定性清单的开关 → 这份模型清单不再生成 */
+function replacedByDeterministicChecklist(project: { orgId: string | null; workDomain?: string | null }): boolean {
+  return project.workDomain === "tender" && isSubmissionChecklistEnabledForOrg(project.orgId);
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -86,6 +94,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   const access = await requireProjectReadAccess(request, id);
   if (access instanceof NextResponse) return access;
+
+  // FLOW-H4b：已由确定性清单取代 → 不调模型（页面上的自动触发器发来的请求到这里就结束）
+  if (replacedByDeterministicChecklist(access.project)) {
+    return NextResponse.json({ error: "投标准备清单已由「交付前检查清单」取代，不再由模型生成", replaced: true }, { status: 409 });
+  }
 
   if (!isAIConfigured()) {
     return NextResponse.json({ error: "AI 服务未配置" }, { status: 500 });
