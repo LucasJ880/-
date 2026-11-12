@@ -14,8 +14,8 @@
 
 ## 4. 验收与收尾
 
-- [ ] 4.1 开 PR 前请一个不带结论的独立审查（只给 diff 与 spec 增量）并处理其发现；跑全部门禁；verify：`npm run test:ci` 输出 `CI unit subset PASS`；`npm test` 的失败与 origin/main 逐条相同；`npm run typecheck` 退出码 0；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`npx next build --webpack` 通过；`openspec validate draft-idempotent-race-reuse --strict` valid
-- [ ] 4.2 写 `docs/QINGYAN_FIX-5_REPORT.md` + 更新 TASKFLOW 状态列；verify：报告里每个数字来自本次真实输出（改动前后的隔离库结果、门禁、审查处理）；TASKFLOW 里有 FIX-5 一行，状态 `[G]（PR 待审）`
+- [x] 4.1 开 PR 前请一个不带结论的独立审查（只给 diff 与 spec 增量）并处理其发现；跑全部门禁；verify：`npm run test:ci` 输出 `CI unit subset PASS`；`npm test` 的失败与 origin/main 逐条相同；`npm run typecheck` 退出码 0；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`npx next build --webpack` 通过；`openspec validate draft-idempotent-race-reuse --strict` valid
+- [x] 4.2 写 `docs/QINGYAN_FIX-5_REPORT.md` + 更新 TASKFLOW 状态列；verify：报告里每个数字来自本次真实输出（改动前后的隔离库结果、门禁、审查处理）；TASKFLOW 里有 FIX-5 一行，状态 `[G]（PR 待审）`
 
 ## Workflow follow-up
 
