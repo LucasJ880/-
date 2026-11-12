@@ -59,6 +59,22 @@ ok(
   ),
   "直接 approvalRequest.create → NEW_APPROVAL_BYPASS_FORBIDDEN",
 );
+// 2e) createManyAndReturn / updateManyAndReturn 也是写审批存储（FIX-5 起审批存储里第一次用到 *AndReturn）
+ok(
+  hasRule(
+    { "src/lib/somewhere/y.ts": "await tx.pendingAction.createManyAndReturn({ data: [], skipDuplicates: true });" },
+    "NEW_APPROVAL_BYPASS_FORBIDDEN",
+  ) &&
+    hasRule(
+      { "src/lib/somewhere/z.ts": "await db.pendingAction.updateManyAndReturn({ where: {}, data: {} });" },
+      "NEW_APPROVAL_BYPASS_FORBIDDEN",
+    ) &&
+    !hasRule(
+      { "src/lib/pending-actions/drafts.ts": "await tx.pendingAction.createManyAndReturn({ data: [], skipDuplicates: true });" },
+      "NEW_APPROVAL_BYPASS_FORBIDDEN",
+    ),
+  "pendingAction.createManyAndReturn / updateManyAndReturn → NEW_APPROVAL_BYPASS_FORBIDDEN（canonical owner 内不误报）",
+);
 
 // 3) new Run model writer / status writer
 ok(hasRule({ "src/lib/x/y.ts": "db.agentRun.create({ data: {} })" }, "NEW_RUN_MODEL_WRITER_FORBIDDEN"), "新 agentRun.create → NEW_RUN_MODEL_WRITER_FORBIDDEN");

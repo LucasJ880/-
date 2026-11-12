@@ -225,6 +225,7 @@ npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts
 npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts
+npx tsx src/lib/pending-actions/__tests__/draft-idempotency.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
@@ -465,6 +466,8 @@ npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts
 NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts
+npx tsx src/lib/tender/__tests__/stage-auto.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts
 npx tsx src/components/tender/__tests__/project-progress-section.test.tsx
 npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts

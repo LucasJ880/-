@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = await request.json();
 
   try {
-    const item = await recordQuote({ projectId, inquiryId, itemId }, body);
+    const item = await recordQuote({ projectId, inquiryId, itemId }, body, { actorId: access.user.id });
     return NextResponse.json(item);
   } catch (err) {
     const { msg, status } = toPrismaHttpError(err);
