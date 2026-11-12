@@ -118,6 +118,8 @@ async function main() {
       const [z, w, c] = await Promise.all([timed(() => putZebra("held")), timed(() => putWarranty("0102")), timed(() => mkPolicy(IMAGES, 1000))]);
       await holder;
       const s = await settings();
+      // 两个保存即使没锁行，也会在自己 UPDATE 组织行时被对方挡住——等待时间只对「新建配额策略」有区分力；
+      // 两个保存有没有在读之前锁行，看下一条：拿锁那一方写的键还在不在（没锁行的话，它是在对方提交之前读的，会把对方写的冲掉）
       ok(z.ms >= FAST_MS && w.ms >= FAST_MS && c.ms >= FAST_MS, `有人拿着组织行的锁 0.9 秒：三处都等到它放开（${z.ms} / ${w.ms} / ${c.ms} ms）`, { z: z.ms, w: w.ms, c: c.ms });
       ok(z.value.status === 200 && w.value.status === 200 && s.heldOnce === true && (await zebraNote()) === "held" && (await warrantyPhone()) === "416-555-0102", "等完之后都成功，拿锁那一方写的、这两处写的都在（没有互相覆盖）", Object.keys(s));
     }
@@ -139,7 +141,9 @@ async function main() {
       ok(rec((await settings()).untouched).keep === "me", "原有的别的设置项始终没有被动过");
     }
 
-    // —— 4. 与「先插入一条本组织的记录、再锁行写设置」的事务同时进行：不死锁 ——
+    // —— 4. 与「先插入一条本组织的记录、再锁行写设置」的事务同时进行：没有请求失败 ——
+    // 回归检查：这一段在改动之前（三处还是 FOR UPDATE 时）同样通过——这三处锁行之后只再插入审计或写策略行，
+    // 与这类事务没有拿锁顺序上的颠倒，造不出死锁。留着是防以后有人在锁行之后再去动别的会被对方先锁住的行。
     {
       const ROUNDS = 6, CROSSERS = 6;
       const failures: string[] = [];
@@ -163,7 +167,7 @@ async function main() {
         if ((await zebraNote()) !== `x${r}`) failures.push(`round ${r}: zebra lost`);
         if ((await warrantyPhone()) !== `416-555-${3000 + r}`) failures.push(`round ${r}: warranty lost`);
       }
-      ok(failures.length === 0, `${CROSSERS} 个「先插入、再锁行写设置」的事务与三处保存同时进行 ${ROUNDS} 轮：没有死锁、没有请求失败、每一轮的修改都在`, failures.slice(0, 10));
+      ok(failures.length === 0, `${CROSSERS} 个「先插入、再锁行写设置」的事务与三处保存同时进行 ${ROUNDS} 轮：没有请求失败（没有死锁）、每一轮的修改都在`, failures.slice(0, 10));
     }
 
     // —— 5. 配额策略的写入仍然串行 ——
