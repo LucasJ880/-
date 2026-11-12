@@ -56,7 +56,7 @@ async function main() {
     const closeDate = (await db.project.findUniqueOrThrow({ where: { id: P }, select: { closeDate: true } })).closeDate!;
     const t0 = Date.now();
     await onStageAdvancedTasks(P, "initiation", "distribution", OWNER);
-    let created = await tasks(P, "[项目分发]");
+    const created = await tasks(P, "[项目分发]");
     ok(names(created) === "[项目分发] 分配项目负责人|[项目分发] 初步评估项目可行性", "进入项目分发：建出 2 条，按模板顺序（以前这一步每次都失败）", created);
     ok(created.every((t) => t.status === "todo" && t.creatorId === OWNER && t.assigneeId === OWNER && !!t.description && t.completedAt === null) && created.map((t) => t.priority).join() === "high,medium", "每条：待办、创建人与负责人是推进的人、有说明；优先级与模板一致");
     ok(created.map((t) => Math.round((t.dueDate!.getTime() - t0) / DAY)).join() === "1,2", "到期日 = 进入阶段那一刻 + 模板里的天数", created.map((t) => t.dueDate));
