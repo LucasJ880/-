@@ -4,6 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getActivePreview } from "@/lib/preview/server";
 import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/rbac/roles";
@@ -39,6 +40,13 @@ export async function resolveRequestOrgIdForUser(
   bodyOrgId?: string | null,
 ): Promise<RequestOrgResolution> {
   const explicit = (bodyOrgId ?? "").trim() || null;
+
+  // VIS-1e：以岗位预览期间只认预览企业
+  const preview = await getActivePreview(user.id);
+  if (preview) {
+    if (explicit && explicit !== preview.orgId) return { ok: false, response: forbiddenOrg() };
+    return { ok: true, orgId: preview.orgId };
+  }
 
   if (isAdmin(user.role)) {
     if (!explicit) {

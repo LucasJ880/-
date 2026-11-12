@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { onQuoteViewed } from "@/lib/sales/opportunity-lifecycle";
 import { deriveQuoteDisplayAmounts } from "@/lib/sales/quote-display-amounts";
 import { evaluatePromotionApproval } from "@/lib/sales/promotion-approval";
+import { isRequestPreviewReadonly } from "@/lib/preview/server";
 
 export async function GET(
   request: NextRequest,
@@ -52,7 +53,8 @@ export async function GET(
     );
   }
 
-  if (!quote.viewedAt) {
+  // VIS-1e：平台管理员在预览中打开客户链接不算客户查看（不改报价状态、不推进商机）
+  if (!quote.viewedAt && !(await isRequestPreviewReadonly(request))) {
     await db.salesQuote.update({
       where: { id: quote.id },
       data: {

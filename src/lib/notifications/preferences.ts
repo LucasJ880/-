@@ -156,6 +156,28 @@ export async function ensureUserNotificationPreference(userId: string) {
 export async function getUserNotificationPreferenceDTO(
   userId: string
 ): Promise<UserNotificationPreferenceDTO> {
+  // VIS-1e：以岗位预览期间不建偏好行，没有就按初始值返回
+  const { isPreviewReadonly } = await import("@/lib/preview/server");
+  if (await isPreviewReadonly(userId)) {
+    const existing = await db.userNotificationPreference.findUnique({ where: { userId } });
+    if (existing) return rowToDTO(existing);
+    // 与建行时的库默认值一致（schema 的 @default），不落库
+    const now = new Date();
+    return rowToDTO({
+      ...initialPreferenceData(userId),
+      id: "",
+      orgId: null,
+      enableInAppNotifications: true,
+      onlyHighPriority: false,
+      onlyMyItems: false,
+      includeWatchedProjects: true,
+      quietHoursEnabled: false,
+      emailEnabled: false,
+      pushEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   const row = await ensureUserNotificationPreference(userId);
   return rowToDTO(row);
 }

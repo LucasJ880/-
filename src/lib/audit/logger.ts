@@ -130,6 +130,9 @@ export const AUDIT_ACTIONS = {
   DELETE: "delete",
   LOGIN: "login",
   LOGOUT: "logout",
+  /** VIS-1e：平台 super_admin 以岗位预览（平台动作，不记企业，企业在 targetId 与 afterData） */
+  PREVIEW_STARTED: "PREVIEW_STARTED",
+  PREVIEW_ENDED: "PREVIEW_ENDED",
   INVITE: "invite",
   REMOVE: "remove",
   ROLE_CHANGE: "role_change",

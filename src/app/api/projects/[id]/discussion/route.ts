@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { canViewProjectDiscussion } from "@/lib/project-discussion/access";
 import { getDiscussionOverview } from "@/lib/project-discussion/service";
+import { isPreviewReadonly } from "@/lib/preview/server";
 
 /**
  * GET /api/projects/[id]/discussion
@@ -19,7 +20,7 @@ export const GET = withAuth(async (request, ctx, user) => {
   const pageSizeStr = request.nextUrl.searchParams.get("pageSize");
   const pageSize = pageSizeStr ? Math.min(Math.max(parseInt(pageSizeStr, 10), 1), 100) : undefined;
 
-  const overview = await getDiscussionOverview(projectId, { pageSize, cursor });
+  const overview = await getDiscussionOverview(projectId, { pageSize, cursor, create: !(await isPreviewReadonly(user.id)) });
 
   return NextResponse.json(overview);
 });

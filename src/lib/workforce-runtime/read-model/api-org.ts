@@ -27,6 +27,10 @@ export async function resolveWorkforceApiOrgForUser(user: {
       getActiveOrgId: activeOrg.getUserActiveOrgId,
       canUseOrg: activeOrg.canUserUseOrg,
       listActiveMembershipOrgIds: async (userId) => {
+        // VIS-1e：以岗位预览期间只有预览企业
+        const { getActivePreview } = await import("@/lib/preview/server");
+        const preview = await getActivePreview(userId);
+        if (preview) return [preview.orgId];
         const memberships = await db.organizationMember.findMany({
           where: { userId, status: "active" },
           select: { orgId: true },
