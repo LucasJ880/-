@@ -655,6 +655,8 @@ run_test "FLOW-H1 项目页「下一步」（纯逻辑 + 接线）" "npx tsx src
 run_test "FLOW-H1 项目页「下一步」DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts"
 run_test "FLOW-H1b 阶段与进度条跟着实际进度显示（纯逻辑 + 接线）" "npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts"
 run_test "FLOW-H1b 项目进度区渲染（显示的阶段、说明）" "npx tsx src/components/tender/__tests__/project-progress-section.test.tsx"
+run_test "FIX-5 阶段推进之后的自动任务（纯逻辑 + 接线）" "npx tsx src/lib/tender/__tests__/stage-tasks.test.ts"
+run_test "FIX-5 阶段推进之后的自动任务 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
