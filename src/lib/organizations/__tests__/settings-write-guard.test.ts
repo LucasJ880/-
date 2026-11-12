@@ -47,6 +47,11 @@ export function isGuarded(source: string): boolean {
     || /FOR\s+(NO\s+KEY\s+)?UPDATE/i.test(code);
 }
 
+/** FIX-4：有没有对组织行取 FOR UPDATE 的语句（注释里的不算；FOR NO KEY UPDATE 不算） */
+export function locksOrgRowForUpdate(source: string): boolean {
+  return /FROM\s+"?Organization"?\b[^`;]*?\bFOR\s+UPDATE\b/i.test(stripComments(source));
+}
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     if (name === "node_modules" || name === "__tests__" || name.startsWith(".")) continue;
@@ -71,6 +76,8 @@ console.log("识别规则");
   ok("经入口 → 合规", isGuarded(`import { mutateOrgSettings } from "@/lib/organizations/settings-write";`) && isGuarded(`const { mutateOrgSettings } = await import("@/lib/organizations/settings-write");`) && isGuarded(`import { lockOrganizationRow } from "./settings-write";`));
   ok("自己锁行 → 合规", isGuarded("await tx.$queryRaw`SELECT id FROM \"Organization\" WHERE id = ${orgId} FOR UPDATE`;"));
   ok("注释里写一句 FOR UPDATE 不算锁行", !isGuarded(`// SELECT ... FOR UPDATE\nawait db.organization.update({ data: { settingsJson } })`));
+  ok("认得出对组织行取 FOR UPDATE：单行、跨行、按 code 找行的都算", locksOrgRowForUpdate('await tx.$queryRaw`SELECT id FROM "Organization" WHERE id = ${orgId} FOR UPDATE`;') && locksOrgRowForUpdate('await tx.$executeRaw`\n      SELECT id FROM "Organization" WHERE id = ${opts.orgId} FOR UPDATE\n    `;') && locksOrgRowForUpdate('SELECT id FROM "Organization" WHERE code = ${code}\n FOR   UPDATE'));
+  ok("FOR NO KEY UPDATE 不算；别的表上的 FOR UPDATE 不算；注释里的不算；同一文件里先锁别的表再读组织也不算", !locksOrgRowForUpdate('SELECT id FROM "Organization" WHERE id = ${orgId} FOR NO KEY UPDATE') && !locksOrgRowForUpdate('SELECT "id" FROM "Project" WHERE "id" = ${projectId} FOR UPDATE') && !locksOrgRowForUpdate('// SELECT id FROM "Organization" WHERE id = $1 FOR UPDATE\n/* FROM "Organization" FOR UPDATE */') && !locksOrgRowForUpdate('await tx.$queryRaw`SELECT id FROM "Organization" WHERE id = ${a} FOR NO KEY UPDATE`;\nawait tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${b} FOR UPDATE`;'));
   ok("FOR NO KEY UPDATE 也算锁行", isGuarded("await tx.$queryRaw`SELECT id FROM \"Organization\" WHERE id = ${orgId} FOR NO KEY UPDATE`;"));
   ok("字符串里带 // 的那一行后面的写入照样被认出来", writesOrgSettings(`const u = "https://example.test/a//b"; await db.organization.update({ where: { id }, data: { settingsJson: next } });`));
 }
@@ -89,13 +96,24 @@ console.log("全仓扫描");
   // 加之前请确认：同一事务里先 lockOrganizationRow（或 mutateOrgSettingsInTx）再读再写。能用 mutateOrgSettings 就不要直接写。
   const DIRECT_WRITERS = [
     "scripts/set-org-sender-copy.ts", // 事务里先 lockOrganizationRow 再重读再写
-    "src/app/api/install/warranty-settings/route.ts", // 既有：FOR UPDATE
-    "src/app/api/sunny-process/zebra-ratios/route.ts", // 既有：FOR UPDATE
+    "src/app/api/install/warranty-settings/route.ts", // 事务里先 lockOrganizationRow 再读再写（FIX-4 之前是 FOR UPDATE）
+    "src/app/api/sunny-process/zebra-ratios/route.ts", // 事务里先 lockOrganizationRow 再读再写（FIX-4 之前是 FOR UPDATE）
     "src/lib/blinds/discount-settings.ts", // 既有事务里先 lockOrganizationRow
     "src/lib/organizations/onboarding.ts", // 两处：按 code 锁行；lockOrganizationRow
     "src/lib/organizations/settings-write.ts", // 入口自己
   ];
   ok("直接写这一列的文件与名单一致（多了 = 新增了直接写入，先过一遍审查再加进名单；少了 = 名单该删）", JSON.stringify(names) === JSON.stringify(DIRECT_WRITERS), { 实际: names, 名单: DIRECT_WRITERS });
+
+  // FIX-4：对组织行不许再用 FOR UPDATE（它与「往本组织插入一条关联记录」的外键检查互斥，会卡住对方、也能造出死锁）
+  const forUpdate = files.filter((f) => locksOrgRowForUpdate(read(f))).map((f) => relative(process.cwd(), f));
+  ok("src/ 与 scripts/ 下没有任何对组织行取 FOR UPDATE 的语句（要锁组织行请用 lockOrganizationRow）", forUpdate.length === 0, { 还在用的文件: forUpdate });
+  const zebra = read(join(root, "app/api/sunny-process/zebra-ratios/route.ts"));
+  const warranty = read(join(root, "app/api/install/warranty-settings/route.ts"));
+  const lockThenRead = (src: string) => { const lock = src.indexOf("await lockOrganizationRow(tx, orgRes.orgId);"); const readAt = src.indexOf("tx.organization.findUnique({ where: { id: orgRes.orgId }, select: { settingsJson: true } })"); return lock > 0 && lock < readAt && readAt < src.indexOf("tx.organization.update({"); };
+  ok("斑马帘比例、质保设置：事务里先锁行、再读设置、再写", lockThenRead(zebra) && lockThenRead(warranty) && (zebra.match(/lockOrganizationRow\(/g) ?? []).length === 1 && (warranty.match(/lockOrganizationRow\(/g) ?? []).length === 1);
+  const policy = read(join(root, "lib/capabilities/governance/policy.ts"));
+  const txBodies = policy.split("db.$transaction(async (tx) => {").slice(1);
+  ok("能力配额策略：新建与修改两个事务都以锁组织行开头，之后才读策略", txBodies.length === 2 && txBodies.every((b) => /^\s*await lockOrganizationRow\(tx, opts\.orgId\);/.test(b) && b.indexOf("lockOrganizationRow(") < b.indexOf("tx.capabilityQuotaPolicy.")) && !/\$executeRaw|\$queryRaw/.test(policy));
 
   // 在自己事务里锁行的三处：锁必须在「读设置」之前。把锁删掉或挪到读之后，这里会失败
   const discount = read(join(root, "lib/blinds/discount-settings.ts"));
