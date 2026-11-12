@@ -139,3 +139,32 @@ export function confirmTextZh(kind: SubmissionKind): string {
   if (kind === "backfill") return "这个项目已经有投标结果，但没有提交时间。保存后只补上提交时间与回执，不改投标结果。";
   return "保存后提交时间会改成这次填的值，并留下一条更正记录。之前的记录不会被删除。";
 }
+
+/* ---------- 页面用的小工具（纯函数） ---------- */
+
+/** 时刻 → `<input type="datetime-local">` 要的本地时间写法（到分钟）。tzOffsetMinutes 取浏览器的 `getTimezoneOffset()`。 */
+export function toDatetimeLocal(at: Date, tzOffsetMinutes: number): string {
+  const shifted = new Date(at.getTime() - tzOffsetMinutes * 60_000);
+  return shifted.toISOString().slice(0, 16);
+}
+
+/** `<input type="datetime-local">` 的值 → 时刻（ISO）；空或不是时刻 → null */
+export function fromDatetimeLocal(value: string, tzOffsetMinutes: number): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return null;
+  const asUtc = new Date(`${value.slice(0, 16)}:00.000Z`);
+  if (Number.isNaN(asUtc.getTime())) return null;
+  return new Date(asUtc.getTime() + tzOffsetMinutes * 60_000).toISOString();
+}
+
+/** 这一块最上面的一句话：现在是什么状态。只说事实，回执编号是人填的，不说「已核实」。 */
+export function statusLineZh(view: Pick<SubmissionRecordView, "submittedAt" | "record" | "count">): string {
+  if (!view.submittedAt) return "还没有提交记录";
+  if (!view.record) return "项目已标为已提交，但没有回执记录（提交时间是在别处推进阶段时写入的）";
+  const receipt = view.record.receiptRef ? `回执编号 ${view.record.receiptRef}（由记录人填写）` : "没有填回执编号";
+  return `已提交 · ${SUBMISSION_CHANNEL_ZH[view.record.channel]} · ${receipt}${view.count > 1 ? ` · 共记录 ${view.count} 次，显示的是最新一次` : ""}`;
+}
+
+/** 打开表单的按钮上写什么 */
+export function openButtonZh(kind: SubmissionKind): string {
+  return kind === "first" ? "记录已提交" : kind === "backfill" ? "补记提交时间" : "更正";
+}
