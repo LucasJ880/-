@@ -13,6 +13,7 @@
  * 这里不执行任何动作：不批准、不发送、不起草。
  */
 import { decideNextStep, type NextStepDecision, type NextStepSnapshot } from "@/lib/muse-bridge/next-step";
+import { laterStage } from "@/lib/tender/stage";
 import { analysisPhaseFromRunStatus } from "@/lib/tender/workbench-state";
 import { deadlinePassed } from "@/lib/tender-rfq/chase-pure";
 import {
@@ -20,6 +21,7 @@ import {
   NEXT_STEP_ANCHORS,
   rfqRoundAnchorId,
   withoutMoney,
+  type NextStepStage,
   type WebNextStepAction,
   type WebNextStepRule,
   type WebNextStepTarget,
@@ -63,6 +65,16 @@ export type WebNextStepInput = {
   latestRound: { inquiryId: string; replyBy: Date | null; items: WebRoundItem[] } | null;
   /** 有没有还作数的投标报价（已取消、已被取代的不算） */
   hasProjectQuote: boolean;
+  /** FLOW-H1b：有没有等待审核或已批准的分析（不管最近一次是不是在重跑） */
+  hasUsableAnalysis: boolean;
+  /** FLOW-H1b：阶段记录说的是哪一段（与其余事实同一时刻读的） */
+  recordedStage: NextStepStage;
+  /** FLOW-H1b：项目已结束（已放弃、已归档、招投标状态是终态）→ 显示的阶段不再跟实际进度走 */
+  stageFrozen: boolean;
+  /** FLOW-H1b：任何一轮（已取消的不算）里有供应商已发出、已回复或已有结果 */
+  anySent: boolean;
+  /** FLOW-H1b：任何一轮（已取消的不算）里有供应商已报价 */
+  anyQuoted: boolean;
   /** 等待天数：与定时催单扫描同一个取法（该轮授权里定格的 > 项目负责人的偏好 > 组织设置 > 3） */
   chaseAfterDays: number;
   /** 看页面的人有没有项目写权限 */
@@ -310,6 +322,28 @@ function fromTable(input: WebNextStepInput, d: NextStepDecision, snapshot: NextS
   }
 }
 
+/**
+ * FLOW-H1b：按实际进度到了六段里的哪一段。看的是「有没有」——与阶段记录的含义一致（进入这一段）。
+ * 最低是「立项」：项目有没有分发由阶段记录管，这里不重复判断。只读，不写任何东西。
+ * 已有投标报价单（没作废的）也算到了「供应商报价」：这时已经在定价，「下一步」说的是「准备提交」。
+ */
+export function actualStageOf(input: Pick<WebNextStepInput, "submittedAt" | "anyQuoted" | "hasProjectQuote" | "anySent" | "hasUsableAnalysis">): NextStepStage {
+  if (input.submittedAt) return "submission";
+  if (input.anyQuoted || input.hasProjectQuote) return "supplier_quote";
+  if (input.anySent) return "supplier_inquiry";
+  if (input.hasUsableAnalysis) return "interpretation";
+  return "initiation";
+}
+
+/**
+ * FLOW-H1b：页面上显示哪一段。没结束的项目：记录的阶段与实际进度里靠后的那个（实际进度不会把显示往回拉）。
+ * 已结束的项目（已中标、未中标、已放弃、已归档等）：就是记录的阶段——结束的项目进度条按「已完成」画，
+ * 这时再按实际进度往后挪会把完成百分比抬高。
+ */
+export function shownStageOf(input: Pick<WebNextStepInput, "recordedStage" | "stageFrozen" | "submittedAt" | "anyQuoted" | "hasProjectQuote" | "anySent" | "hasUsableAnalysis">): NextStepStage {
+  return input.stageFrozen ? input.recordedStage : laterStage(input.recordedStage, actualStageOf(input));
+}
+
 const HOUR = 3_600_000;
 const DAY_MS = 24 * HOUR;
 /**
@@ -332,7 +366,7 @@ export function decideWebNextStep(input: WebNextStepInput): WebNextStepView {
       reasonsZh.splice(2);
       reasonsZh.push("你在这个项目里没有修改权限，这一步要项目负责人来做");
     }
-    return { rule: core.rule, headlineZh: core.headlineZh, reasonsZh, action: core.action, urgencyZh, closesAt, also: [...(core.also ?? []), ...extraAlso].slice(0, 3) };
+    return { rule: core.rule, headlineZh: core.headlineZh, reasonsZh, action: core.action, urgencyZh, closesAt, also: [...(core.also ?? []), ...extraAlso].slice(0, 3), actualStage: actualStageOf(input), recordedStage: input.recordedStage, shownStage: shownStageOf(input) };
   };
   const pendingCount = input.pendingApprovals.length;
   const pendingAlso: Also = pendingCount > 0 ? [{ textZh: `还有 ${pendingCount} 条审批等你处理`, target: APPROVALS }] : [];
