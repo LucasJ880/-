@@ -461,6 +461,8 @@ npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts
+npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts
+NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

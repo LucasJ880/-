@@ -22,6 +22,7 @@ import {
   deriveTenderWorkbenchState,
   type TenderAnalysisPhase,
 } from "@/lib/tender/workbench-state";
+import type { WebNextStepView } from "@/lib/tender-next-step/targets";
 
 /**
  * 项目内导航目标：五个一级 tab + 两个贯穿抽屉（资料 / 问青砚）。
@@ -109,6 +110,27 @@ export function filterProjectContextActivities(
       !TECHNICAL_ACTIVITY_ACTIONS.has(activity.actionKey) &&
       !TECHNICAL_ACTIVITY_TARGETS.has(activity.targetType),
   );
+}
+
+/**
+ * FLOW-H1：有了服务端的「下一步」之后，决策摘要与右侧的项目上下文都跟着它说同一条结论，不再各说各的。
+ * - 工作台上的决策摘要：不留按钮（按钮在它正上方的「下一步」卡片上，那里能带人到页内的具体位置）。
+ * - 右侧的项目上下文（每个页签都看得到，而卡片只在工作台）：keepButton，按钮去往同一个页签或文件抽屉；
+ *   去站外页面（审批中心）的不放按钮。
+ */
+export function applyNextStepToCommand(
+  command: ProjectCommandState,
+  view: Pick<WebNextStepView, "headlineZh" | "reasonsZh" | "action">,
+  opts: { keepButton?: boolean } = {},
+): ProjectCommandState {
+  const reason = view.reasonsZh[0] ?? view.action?.labelZh ?? view.headlineZh;
+  const target = view.action?.target;
+  const panelTarget: ProjectContextTarget | null = !target ? null : target.kind === "files" ? "files" : target.kind === "tab" ? target.tab : null;
+  return {
+    ...command,
+    nextAction: opts.keepButton && view.action && panelTarget ? { label: view.action.labelZh, reason, target: panelTarget } : null,
+    recommendation: { title: view.headlineZh, body: reason },
+  };
 }
 
 export function deriveProjectCommandState(

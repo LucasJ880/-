@@ -212,7 +212,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card-bg p-5">
+    // FLOW-H1：id 是「下一步」卡片滚动到供应商询价的位置——放在整块的根上，还没有轮次时也在
+    <div id="rfq-section" className="scroll-mt-4 rounded-xl border border-border bg-card-bg p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ShoppingCart size={16} className="text-accent/60" />

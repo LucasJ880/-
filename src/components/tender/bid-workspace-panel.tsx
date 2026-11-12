@@ -85,7 +85,7 @@ export function BidWorkspacePanel({ projectId, canManage }: { projectId: string;
   const { view, workspace } = state.data;
 
   return (
-    <section className="space-y-4" data-testid="bid-workspace-panel">
+    <section id="bid-workspace" className="scroll-mt-4 space-y-4" data-testid="bid-workspace-panel">
       <VerdictCard readiness={costReadiness ?? view.readiness} withCost={costReadiness !== null} />
       <StageCard view={view} />
       <ScheduleCard projectId={projectId} view={view} workspace={workspace} canManage={canManage} onSave={save} />
