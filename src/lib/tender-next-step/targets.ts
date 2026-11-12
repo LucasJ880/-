@@ -78,9 +78,13 @@ export type WebNextStepView = {
   also: Array<{ textZh: string; target: WebNextStepTarget }>;
   /**
    * FLOW-H1b：按实际进度，这个标到了六段里的哪一段（有提交时间 / 有报价 / 有已发出的询价 / 有可用的分析）。
-   * 页面拿它与记录的阶段比，显示靠后的那个。只是一个阶段名。
+   * 只是一个阶段名。
    */
   actualStage: NextStepStage;
+  /** 阶段记录（项目上的几个阶段时间）说的是哪一段——与这次响应同一时刻读的 */
+  recordedStage: NextStepStage;
+  /** 页面上显示哪一段：没结束的项目取上面两个里靠后的；已结束的项目就是记录的阶段 */
+  shownStage: NextStepStage;
 };
 
 /**

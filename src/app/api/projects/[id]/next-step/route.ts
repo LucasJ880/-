@@ -40,6 +40,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       // 库结构落后时项目记录可能没有这两列：按没有处理。只认截标时间，不拿内部的到期日顶替
       closeDate: project.closeDate ?? null,
       submittedAt: project.submittedAt ?? null,
+      // FLOW-H1b：阶段记录（只读，用来算「记录的阶段」）
+      intakeStatus: project.intakeStatus ?? null,
+      distributedAt: project.distributedAt ?? null,
+      dispatchedAt: project.dispatchedAt ?? null,
+      interpretedAt: project.interpretedAt ?? null,
+      supplierInquiredAt: project.supplierInquiredAt ?? null,
+      supplierQuotedAt: project.supplierQuotedAt ?? null,
     },
     userId: user.id,
     canManage,

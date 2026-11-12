@@ -25,11 +25,28 @@ const STATUS_TO_STAGE: Record<string, TenderStage> = {
   archived: "submission",
 };
 
+/** 阶段记录：推导「记录的阶段」要看的那几项（页面上的项目对象与服务端的项目记录都满足） */
+export type StageRecord = {
+  tenderStatus: string | null;
+  intakeStatus?: string | null;
+  distributedAt?: string | Date | null;
+  dispatchedAt?: string | Date | null;
+  interpretedAt?: string | Date | null;
+  supplierInquiredAt?: string | Date | null;
+  supplierQuotedAt?: string | Date | null;
+  submittedAt?: string | Date | null;
+};
+
 /**
  * 推导当前招投标阶段。
  * 优先使用日期字段，兜底用 tenderStatus / intakeStatus。
  */
 export function getProjectStage(p: TenderProject): TenderStage {
+  return recordedStageOf(p);
+}
+
+/** 同一套推导，只要阶段记录那几项（服务端拿项目记录直接算；结果与 getProjectStage 相同） */
+export function recordedStageOf(p: StageRecord): TenderStage {
   if (p.submittedAt) return "submission";
   if (p.supplierQuotedAt) return "supplier_quote";
   if (p.supplierInquiredAt) return "supplier_inquiry";
@@ -51,11 +68,21 @@ function isTerminalStatus(status: string | null): boolean {
   );
 }
 
+/** 招投标状态已是终态（已提交、已中标、未中标、已放弃投标、已归档）：进度条按「已完成」画 */
+export function isTerminalTenderStatus(status: string | null | undefined): boolean {
+  return isTerminalStatus(status ?? null);
+}
+
 /** 六段的先后顺序 */
 export const TENDER_STAGE_ORDER: readonly TenderStage[] = STAGES.map((s) => s.key);
 
+/** 是不是六段之一；不是（接口没给、给了认不出的值）→ null */
+export function asTenderStage(value: unknown): TenderStage | null {
+  return typeof value === "string" && (TENDER_STAGE_ORDER as readonly string[]).includes(value) ? (value as TenderStage) : null;
+}
+
 /**
- * FLOW-H1b：两个阶段里靠后的那个。项目页用它显示「记录的阶段」与「实际到达的阶段」中更靠后的；
+ * FLOW-H1b：两个阶段里靠后的那个——「记录的阶段」与「实际到达的阶段」中更靠后的；
  * 第二个参数没有（或认不出）时就是第一个。只用于显示，不写任何东西。
  */
 export function laterStage(recorded: TenderStage, actual: TenderStage | null | undefined): TenderStage {

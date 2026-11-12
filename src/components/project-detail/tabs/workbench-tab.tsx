@@ -203,7 +203,8 @@ export function WorkbenchTab({
             projectId={projectId}
             canManage={canManage}
             onUpdated={onReload}
-            actualStage={nextStep?.actualStage ?? null}
+            shownStage={nextStep?.shownStage ?? null}
+            recordedStageNow={nextStep?.recordedStage ?? null}
           />
         </div>
       ) : (

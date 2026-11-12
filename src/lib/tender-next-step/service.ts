@@ -15,6 +15,7 @@ import { loadWorkspace, loadWorkspaceContext } from "@/lib/tender-bid-workspace/
 import { buildWorkspaceView } from "@/lib/tender-bid-workspace/workspace-view";
 import { parseChaseNotes, resolveChaseAfterDays } from "@/lib/tender-rfq/chase-pure";
 import { OPEN_ITEM_WINDOW_DAYS, loadFollowUpRoundState, roundPolicyInEffect } from "@/lib/tender-rfq/chase-service";
+import { isTerminalTenderStatus, recordedStageOf } from "@/lib/tender/stage";
 import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
 import { loadRfqWebEntry } from "@/lib/tender-rfq/web-entry";
 import { chaseStillNeeded } from "@/lib/tender-rfq/web-entry-pure";
@@ -30,6 +31,13 @@ export type NextStepProject = {
   tenderStatus: string | null;
   closeDate: Date | null;
   submittedAt: Date | null;
+  /** FLOW-H1b：阶段记录的其余几项（库结构落后时可能没有：按没有处理） */
+  intakeStatus?: string | null;
+  distributedAt?: Date | null;
+  dispatchedAt?: Date | null;
+  interpretedAt?: Date | null;
+  supplierInquiredAt?: Date | null;
+  supplierQuotedAt?: Date | null;
 };
 
 const TERMINAL_LABEL_ZH: Record<string, string> = {
@@ -162,6 +170,8 @@ export async function loadWebNextStepInput(input: { project: NextStepProject; us
     hasProjectQuote: quoteCount > 0,
     // FLOW-H1b：实际进度看所有没取消的轮次，不只是当前这一轮（开新一轮不该让进度条倒退）
     hasUsableAnalysis: !!usableRun,
+    recordedStage: recordedStageOf(project),
+    stageFrozen: closedLabelOf(project) !== null || isTerminalTenderStatus(project.tenderStatus),
     anySent: rounds.some((r) => r.items.some((i) => i.status !== "pending")),
     anyQuoted: rounds.some((r) => r.items.some((i) => i.status === "quoted")),
     chaseAfterDays,
