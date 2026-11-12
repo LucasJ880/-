@@ -122,6 +122,8 @@ async function main() {
     ok(r1b.status === 200 && (await proj(P1)).supplierQuotedAt!.getTime() === stampBefore && (await audits(P1)).length === 1 && (await tasks(P1, "[供应商报价]")).length === 5, "第二家报价：时间不变，不再写审计，不再建任务");
     await quoteViaRoute(P1, ref1, "120.00");
     ok((await audits(P1)).length === 1, "同一家改报价（已是已报价）：也不再触发");
+    const again = await recordStageReached({ projectId: P1, trigger: "quote_recorded", actorId: A });
+    ok(!again.written && again.reason === "already_reached", "这一段已有时间：直接说已到过，不去写", again);
 
     /* ---------- 4. 回信自动解析（照它的调用方式：跳过 Muse 推送、不传触发的人） ---------- */
     const P2 = await mkProject();
@@ -178,6 +180,10 @@ async function main() {
     await recordQuote({ projectId: P8, ...(await mkItem(P8, "replied")) }, { unitPrice: "10" }, { actorId: A });
     const a8 = await audits(P8);
     ok(!!(await proj(P8)).supplierQuotedAt && (await tasks(P8)).length === 0 && a8.length === 1 && a8[0].afterData.advanced === false && a8[0].afterData.stage === "submission", "已提交的项目录入报价：时间写入，但阶段记录仍是项目提交，不建不关任务", a8);
+
+    const P11 = await mkProject({ interpretedAt: null });
+    const r11 = await recordStageReached({ projectId: P11, trigger: "analysis_ready", actorId: A });
+    ok(r11.written && !r11.advanced && r11.to === "supplier_inquiry" && !!(await proj(P11)).interpretedAt && (await tasks(P11)).length === 0, "已在供应商询价、项目解读时间还空着：分析收尾补上时间，阶段记录不变，不建任务", r11);
 
     /* ---------- 8. 白名单 ---------- */
     setFlag(true, ORG2);
