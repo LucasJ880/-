@@ -161,6 +161,8 @@ async function main() {
     await settle();
     const pw = await proj(PW);
     ok(back.status === 200 && back.body.kind === "backfill" && pw.submittedAt?.getTime() === yesterday.getTime() && pw.tenderStatus === "won", "补记：提交时间被补上，招投标状态仍是已中标", { back: back.body, pw });
+    const rw = rec(JSON.parse((await records(PW))[0]?.afterData ?? "{}"));
+    ok((await records(PW)).length === 1 && rw.kind === "backfill" && rw.receiptRef === "ABC-123", "补记留下的那条记录标的是「补记」", rw);
     ok((await messages(PW, "stage_advanced")) === 0 && (await stageNotices(PW)) === 0 && (await stageTasks(PW, "[项目提交]")).length === 0 && (await messages(PW, "project_submitted")) === 1, "补记不算阶段推进：没有阶段推进的消息与通知、没有新任务；讨论区记了一条「提交了项目」");
     ok(rec((await get(PW)).body.view).nextKind === "correction", "补记之后再记就是更正");
     for (const status of ["lost", "no_bid", "cancelled", "bid_submitted"]) {
