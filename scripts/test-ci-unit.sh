@@ -465,6 +465,8 @@ npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts
 NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts
+npx tsx src/lib/tender/__tests__/stage-auto.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts
 npx tsx src/components/tender/__tests__/project-progress-section.test.tsx
 
