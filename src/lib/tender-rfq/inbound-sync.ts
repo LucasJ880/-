@@ -459,11 +459,11 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
       return runChaseScan(orgId, now);
     },
     saveCursor: async (orgId, cursor) => {
-      const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-      await db.organization.update({
-        where: { id: orgId },
-        data: { settingsJson: withInboundCursor(org?.settingsJson ?? null, cursor) as import("@prisma/client").Prisma.InputJsonValue },
-      });
+      // FIX-3：锁行后在最新的设置上只改游标（原来读到的整块可能已经被别处改过）
+      const { mutateOrgSettings } = await import("@/lib/organizations/settings-write");
+      const res = await mutateOrgSettings(orgId, (current) => ({ next: withInboundCursor(current, cursor), result: null }));
+      // 组织不存在时的既有行为：更新一条不存在的记录会抛错（由调用方按组织接住）
+      if (!res.found) throw new Error(`组织不存在：${orgId}`);
     },
   };
 }

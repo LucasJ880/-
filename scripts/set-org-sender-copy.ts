@@ -77,8 +77,11 @@ async function main(): Promise<number> {
   );
   if (dryRun) return 0;
 
-  // 在事务里重读 settingsJson 再写：避免覆盖期间别处对其他键的修改
+  // 在事务里先锁行、再重读 settingsJson、再写：避免覆盖期间别处对其他键的修改
+  //（FIX-3：只重读不锁行仍然会互相覆盖——读已提交隔离级别下，重读之后别人还能插进来）
+  const { lockOrganizationRow } = await import("@/lib/organizations/settings-write");
   const changed = await db.$transaction(async (tx) => {
+    await lockOrganizationRow(tx, preview.id);
     const org = await tx.organization.findUnique({ where: { id: preview.id }, select: orgSelect });
     if (!org) return false;
     const { before, after } = describe(org.settingsJson);

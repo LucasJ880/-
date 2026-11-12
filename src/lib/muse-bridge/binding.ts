@@ -11,8 +11,8 @@
 
 import { loadPositionMode } from "@/lib/rbac/permission-keys";
 import { resolveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
-import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 import {
   readMuseBindings,
   resolveBindingPure,
@@ -64,7 +64,7 @@ export async function setMuseBinding(input: {
   userId: string | null;
   actorUserId: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const org = await db.organization.findUnique({ where: { id: input.orgId }, select: { settingsJson: true } });
+  const org = await db.organization.findUnique({ where: { id: input.orgId }, select: { id: true } });
   if (!org) return { ok: false, error: "组织不存在" };
   if (input.userId) {
     const member = await db.organizationMember.findFirst({
@@ -73,11 +73,9 @@ export async function setMuseBinding(input: {
     });
     if (!member) return { ok: false, error: "目标用户不是该组织有效成员" };
   }
-  const next = withMuseBinding(
-    org.settingsJson,
-    input.museUserRef,
-    input.userId ? { userId: input.userId, boundAt: new Date().toISOString(), boundBy: input.actorUserId } : null,
-  );
-  await db.organization.update({ where: { id: input.orgId }, data: { settingsJson: next as Prisma.InputJsonValue } });
+  const binding = input.userId ? { userId: input.userId, boundAt: new Date().toISOString(), boundBy: input.actorUserId } : null;
+  // FIX-3：锁行后在最新的设置上只改这一条绑定（成员校验与设置无关，留在锁外）
+  const res = await mutateOrgSettings(input.orgId, (current) => ({ next: withMuseBinding(current, input.museUserRef, binding), result: null }));
+  if (!res.found) return { ok: false, error: "组织不存在" };
   return { ok: true };
 }
