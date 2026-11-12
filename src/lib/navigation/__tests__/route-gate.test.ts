@@ -557,6 +557,41 @@ async function http() {
     const results = await Promise.all(paths.map((p) => applyRouteGate(req(p), "u1", loader)));
     ok(results.every((r) => r === null) && calls.user === 0 && calls.context === 0, "API / 静态 / 门外 / 登录即可：放行且不调加载器");
   }
+  // VIS-1e：以岗位预览期间按预览身份判定（spec navigation/route-gate「平台 super_admin 不受路由门限制」MODIFIED）
+  {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "route-gate-test-secret-0123456789abcdef";
+    const { handleRequest } = await import("@/proxy");
+    const { createSession } = await import("@/lib/auth/session");
+    const { signPreviewToken, verifyPreviewToken } = await import("@/lib/preview/token");
+    const { injectedPreviewToken } = await import("@/lib/preview/server");
+    const session = await createSession({ sub: "u1", email: "u1@fixture.test", role: "super_admin" });
+    const { token: pv } = await signPreviewToken({ userId: "u1", orgId: "org1", keys: ["accounting"] });
+    let previewSeen = 0;
+    const loader: RouteGateLoader = {
+      async loadUser() {
+        const t = injectedPreviewToken();
+        const claims = t ? await verifyPreviewToken(t, "u1") : null;
+        if (claims) previewSeen++;
+        return claims ? { ...activeUser("user"), previewFingerprint: "pv:org1:accounting" } : activeUser("super_admin");
+      },
+      async loadContext() {
+        return ID.accounting;
+      },
+      async loadContextForOrg() {
+        return ID.accounting;
+      },
+    };
+    const mk = (path: string, withPreview: boolean) =>
+      new NextRequest(`http://localhost${path}`, { headers: { cookie: `qy_session=${session}${withPreview ? `; qy_preview=${pv}` : ""}` } });
+    const passes = (r: Response) => r.headers.get("x-middleware-next") === "1";
+    const bids = await handleRequest(mk("/bids", true), loader);
+    ok(bids.status === 302 && new URL(bids.headers.get("location") ?? "http://x/").pathname !== "/bids", "预览（会计）：/bids 302 到落地页");
+    ok(passes(await handleRequest(mk("/accounting", true), loader)), "预览（会计）：/accounting 放行");
+    ok(passes(await handleRequest(mk("/bids", false), loader)) && previewSeen === 2, "不带预览 cookie：super_admin 照旧放行；代理把预览 token 注入路由门");
+    const { token: other } = await signPreviewToken({ userId: "u2", orgId: "org1", keys: ["accounting"] });
+    const foreign = new NextRequest("http://localhost/bids", { headers: { cookie: `qy_session=${session}; qy_preview=${other}` } });
+    ok(passes(await handleRequest(foreign, loader)), "别人的预览 cookie：不生效");
+  }
   // 编码路径：原样与解码后都须放行（Next 生产环境按解码后的路径查静态路由）
   {
     const check = async (c: RouteGateContext, path: string) => {
@@ -700,7 +735,7 @@ async function loaderFactory() {
   ok(!("runtime" in proxyConfig), "proxy 不声明 runtime（Next 16 proxy 固定 Node.js runtime）");
   ok(!existsSync(join(root, "src/middleware.ts")), "src/middleware.ts 已不存在（Next 16 弃用 middleware 约定，与 proxy.ts 并存即构建报错）");
   ok(/^export async function proxy\(request: NextRequest\)/m.test(mw), "src/proxy.ts 导出 proxy 函数");
-  ok(/import \{ ROUTE_GATE_LOADER \} from "@\/lib\/navigation\/context-server"/.test(mw) && /handleRequest\(request, ROUTE_GATE_LOADER\)/.test(mw) && /applyRouteGate\(request, session\.sub, loader\)/.test(mw), "中间件从 context-server 取输入并调用路由门");
+  ok(/import \{ ROUTE_GATE_LOADER \} from "@\/lib\/navigation\/context-server"/.test(mw) && /handleRequest\(request, ROUTE_GATE_LOADER\)/.test(mw) && /applyRouteGate\(request, sessionSub, loader\)/.test(mw), "中间件从 context-server 取输入并调用路由门");
   ok(!/isMarketingWorkspacePath|isMarketingPagePath/.test(mw), "中间件不再引用营销页面判定");
   ok(proxyConfig.matcher.every((m) => !/png|svg|jpe?g|gif|webp/.test(m)), "matcher 不再按图片扩展名排除");
   ok(/const VERSION = "qingyan-v4";/.test(read("public/sw.js")), "Service Worker 缓存版本提升到 qingyan-v4");

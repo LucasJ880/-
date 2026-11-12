@@ -154,6 +154,11 @@ export async function requireAutopilotAccess(
     capability,
   });
   if (!decision.allowed) return autopilotForbiddenResponse(decision);
+  // VIS-1e：以岗位预览期间没有 Autopilot（接口与页门、侧栏入口同口径）
+  const { getActiveRequestPreview } = await import("@/lib/preview/server");
+  if (await getActiveRequestPreview(request, auth.user.id)) {
+    return NextResponse.json({ error: "无权访问", code: "AUTOPILOT_FORBIDDEN" }, { status: 403 });
+  }
 
   const tenant = await requireTenantContext(request);
   if (tenant instanceof NextResponse) return tenant;

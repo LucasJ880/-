@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isPreviewReadonly } from "@/lib/preview/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import {
@@ -10,12 +11,13 @@ import {
   maybeCreateReviewDraft,
 } from "@/lib/projects/review";
 
-export const GET = withAuth(async (request, ctx) => {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
   const access = await requireProjectReadAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  await maybeCreateReviewDraft(projectId).catch(() => null);
+  // VIS-1e：以岗位预览期间不建复盘草稿
+  if (!(await isPreviewReadonly(user.id))) await maybeCreateReviewDraft(projectId).catch(() => null);
 
   const reviews = await db.projectReview.findMany({
     where: { projectId },

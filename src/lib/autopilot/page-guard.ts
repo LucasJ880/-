@@ -3,6 +3,7 @@
  */
 
 import { cookies } from "next/headers";
+import { getActivePreview } from "@/lib/preview/server";
 import { redirect } from "next/navigation";
 import { verifySession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -30,5 +31,7 @@ export async function requireAutopilotPage(
   if (!hasAutopilotCapability({ id: user.id, role: user.role }, capability)) {
     redirect(fallbackPath);
   }
+  // VIS-1e：以岗位预览期间没有 Autopilot
+  if (await getActivePreview(user.id)) redirect(fallbackPath);
   return { id: user.id, role: user.role };
 }

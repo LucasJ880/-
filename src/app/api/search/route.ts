@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { listEffectiveMemberships } from "@/lib/preview/server";
 import { db } from "@/lib/db";
 import { withAuth } from "@/lib/common/api-helpers";
 import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
@@ -21,10 +22,8 @@ async function projectSearchWhereFor(user: { id: string; role: string }, q: stri
   if (isSuperAdmin(user.role)) return buildProjectSearchWhere(null, q);
   const ctx = await loadGateNavigationContextForUser(user.id);
   if (!shouldSearchProjects(ctx)) return null;
-  const memberships = await db.organizationMember.findMany({
-    where: { userId: user.id, status: "active" },
-    select: { orgId: true, role: true },
-  });
+  // VIS-1e：以岗位预览期间只有预览企业（org_member）
+  const memberships = await listEffectiveMemberships(user.id);
   const adminOrgIds = memberships.filter((m) => isOrgSystemAdmin(m.role)).map((m) => m.orgId);
   return buildProjectSearchWhere(buildReadableProjectWhere(user.id, adminOrgIds), q);
 }

@@ -4,6 +4,9 @@ import { loginRedirectPath } from "@/lib/auth/safe-next";
 import { canAccessMarketingWorkspace, isMarketingApiPath } from "@/lib/marketing/route-access";
 import { applyRouteGate, isStaticImagePath, type RouteGateLoader } from "@/lib/navigation/route-gate";
 import { ROUTE_GATE_LOADER } from "@/lib/navigation/context-server";
+import { PREVIEW_COOKIE, verifyPreviewToken } from "@/lib/preview/token";
+import { PREVIEW_PLATFORM_ROLE, previewReadonlyBody, shouldRefusePreviewWrite } from "@/lib/preview/identity";
+import { withPreviewToken } from "@/lib/preview/server";
 
 const COOKIE_NAME = "qy_session";
 
@@ -69,6 +72,20 @@ export async function proxy(request: NextRequest) {
 export async function handleRequest(request: NextRequest, loader: RouteGateLoader) {
   const { pathname } = request.nextUrl;
 
+  const token = request.cookies.get(COOKIE_NAME)?.value;
+  // VIS-1e：以岗位预览只读（spec authorization/position-preview「预览只读」「写拒绝只看签名」）。
+  // 在静态图片与公开路径放行之前判（任一路径）；只看签名、aud、过期与会话用户，不读库。
+  const previewToken = request.cookies.get(PREVIEW_COOKIE)?.value ?? null;
+  let session: { sub: string; role: string } | null | undefined;
+  let signedPreview = false;
+  if (previewToken && token) {
+    session = await verifiedSession(token);
+    signedPreview = !!session && !!(await verifyPreviewToken(previewToken, session.sub));
+    if (signedPreview && shouldRefusePreviewWrite({ method: request.method, pathname, hasSignedPreview: true })) {
+      return NextResponse.json(previewReadonlyBody(), { status: 409 });
+    }
+  }
+
   // VIS-1a：public/ 图片在登录检查之前放行（与改动前 matcher 按图片扩展名排除一致；
   // 已登录区路径即使带图片扩展名也不在此列，照样要登录并经路由门）
   if (isStaticImagePath(pathname)) {
@@ -79,8 +96,7 @@ export async function handleRequest(request: NextRequest, loader: RouteGateLoade
     return NextResponse.next();
   }
 
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-  const session = token ? await verifiedSession(token) : null;
+  if (session === undefined) session = token ? await verifiedSession(token) : null;
   if (!token || session === null) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
@@ -94,7 +110,8 @@ export async function handleRequest(request: NextRequest, loader: RouteGateLoade
     );
   }
 
-  const role = session.role;
+  // VIS-1e：预览中按平台角色 user 判（旧的营销 API 规则）
+  const role = signedPreview ? PREVIEW_PLATFORM_ROLE : session.role;
   // 旧模式（无行业包企业）营销只读接口：JWT 平台角色 sales 拦截（API 层，不在 VIS-1a 范围；页面由路由门判定）
   if (isMarketingApiPath(pathname) && !canAccessMarketingWorkspace(role)) {
     return NextResponse.json(
@@ -109,7 +126,9 @@ export async function handleRequest(request: NextRequest, loader: RouteGateLoade
 
   // VIS-1a 路由门（spec navigation/route-gate）：已登录页面请求在渲染前按导航注册表判定，
   // 不满足 302 到落地页；判定输入与侧栏同一构造器（context-server）
-  const gated = await applyRouteGate(request, session.sub, loader);
+  // VIS-1e：路由门判定在显式注入的预览 token 下执行（不依赖 cookies() 在代理里的行为）
+  const sessionSub = session.sub;
+  const gated = await withPreviewToken(signedPreview ? previewToken : null, () => applyRouteGate(request, sessionSub, loader));
   return gated ?? NextResponse.next();
 }
 

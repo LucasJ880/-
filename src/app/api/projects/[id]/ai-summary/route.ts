@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { isPreviewReadonly } from "@/lib/preview/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { refreshStructuredSummary } from "@/lib/projects/structured-summary";
 import { AI_ADVICE_LABELS } from "@/lib/projects/ai-summary-types";
 
-export const GET = withAuth(async (request, ctx) => {
+export const GET = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
   const access = await requireProjectReadAccess(request, projectId);
   if (access instanceof NextResponse) return access;
@@ -21,7 +22,8 @@ export const GET = withAuth(async (request, ctx) => {
     },
   });
 
-  if (!intel?.structuredSummaryJson && intel) {
+  // VIS-1e：以岗位预览期间不刷新（刷新会写项目情报）
+  if (!intel?.structuredSummaryJson && intel && !(await isPreviewReadonly(user.id))) {
     await refreshStructuredSummary(projectId);
     intel = await db.projectIntelligence.findUnique({
       where: { projectId },
