@@ -52,7 +52,7 @@ export async function loadSubmissionRecordView(input: { projectId: string; orgId
   const stored = parseStoredRecord(latest?.afterData);
   return {
     submittedAt: project.submittedAt ? project.submittedAt.toISOString() : null,
-    nextKind: blockedZh ? null : classifySubmission({ recordedStage: recordedStageOf(project), submittedAt: project.submittedAt }),
+    nextKind: blockedZh ? null : classifySubmission({ recordedStage: recordedStageOf(project), submittedAt: project.submittedAt, tenderStatus: project.tenderStatus }),
     blockedZh,
     canRecord: input.canRecord,
     record: stored && latest ? { ...stored, recordedAt: latest.createdAt.toISOString(), recordedByName: latest.user?.name ?? null } : null,
@@ -80,7 +80,7 @@ export async function recordSubmission(input: { projectId: string; orgId: string
     afterData: toStoredRecord(value, kind), request: input.request,
   });
 
-  if (classifySubmission({ recordedStage: recordedStageOf(project), submittedAt: project.submittedAt }) === "first") {
+  if (classifySubmission({ recordedStage: recordedStageOf(project), submittedAt: project.submittedAt, tenderStatus: project.tenderStatus }) === "first") {
     const advanced = await advanceProjectStage({
       projectId, targetStage: "submission", reason: "在项目页上记录提交", source: "manual", actor, humanConfirmed: true,
       occurredAt: value.submittedAt, skipStageTasks: true,
@@ -102,7 +102,7 @@ export async function recordSubmission(input: { projectId: string; orgId: string
     if (!fresh) return { ok: false, status: 404, error: "项目不存在" };
     const blockedNow = blockedReasonZh(fresh);
     if (blockedNow) return { ok: false, status: 409, error: blockedNow };
-    const kind = classifySubmission({ recordedStage: recordedStageOf(fresh), submittedAt: fresh.submittedAt });
+    const kind = classifySubmission({ recordedStage: recordedStageOf(fresh), submittedAt: fresh.submittedAt, tenderStatus: fresh.tenderStatus });
     if (kind === "first") return { ok: false, status: 409, error: "项目的阶段刚刚变了，请刷新后再试" };
     if (!fresh.submittedAt || fresh.submittedAt.getTime() !== value.submittedAt.getTime()) {
       await tx.project.update({ where: { id: projectId }, data: { submittedAt: value.submittedAt } });

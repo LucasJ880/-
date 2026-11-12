@@ -20,7 +20,11 @@ export const SUBMISSION_CHANNEL_ZH: Record<SubmissionChannel, string> = {
   other: "其它方式",
 };
 
-/** first = 项目此前没到提交阶段；correction = 已有提交时间，改它；backfill = 已算作提交阶段但没有提交时间，补上 */
+/**
+ * first = 项目此前没到提交阶段、也没有投标结果：进入提交阶段；
+ * correction = 已有提交时间，改它；
+ * backfill = 没有提交时间，但项目已经有投标结果（已中标、未中标、不投标……）或已算作提交阶段：只补上提交时间。
+ */
 export const SUBMISSION_KINDS = ["first", "correction", "backfill"] as const;
 export type SubmissionKind = (typeof SUBMISSION_KINDS)[number];
 export const SUBMISSION_KIND_ZH: Record<SubmissionKind, string> = { first: "记录提交", correction: "更正", backfill: "补记提交时间" };
@@ -76,12 +80,19 @@ export function parseSubmissionInput(body: unknown, now: Date): { ok: true; valu
 }
 
 /**
- * 这一次记录属于哪种情形。
- * recordedStage：阶段记录说的阶段（招投标状态是已中标、未中标等时，没有任何阶段时间也会落在「项目提交」）。
+ * 招投标状态已经是「之后的事」：已提交，或已经有结果。这时再走阶段推进会把它改写成「已提交」——
+ * 一个已中标的项目补记提交时间，不能把「已中标」冲掉。
  */
-export function classifySubmission(input: { recordedStage: TenderStage; submittedAt: Date | string | null | undefined }): SubmissionKind {
+export const AFTER_SUBMISSION_STATUSES: readonly string[] = ["bid_submitted", "won", "lost", "passed", "no_bid", "cancelled", "archived", "completed", "terminated"];
+
+/**
+ * 这一次记录属于哪种情形。
+ * recordedStage：阶段记录说的阶段；tenderStatus：招投标状态。
+ */
+export function classifySubmission(input: { recordedStage: TenderStage; submittedAt: Date | string | null | undefined; tenderStatus: string | null | undefined }): SubmissionKind {
   if (input.submittedAt) return "correction";
-  return input.recordedStage === "submission" ? "backfill" : "first";
+  if (input.recordedStage === "submission") return "backfill";
+  return AFTER_SUBMISSION_STATUSES.includes((input.tenderStatus ?? "").toLowerCase()) ? "backfill" : "first";
 }
 
 /** 存进审计行 afterData 的内容。没有金额字段。 */
