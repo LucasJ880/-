@@ -37,9 +37,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       ownerId: project.ownerId,
       status: project.status ?? null,
       tenderStatus: project.tenderStatus ?? null,
-      // 库结构落后时项目记录可能没有这几列：按没有处理
+      // 库结构落后时项目记录可能没有这两列：按没有处理。只认截标时间，不拿内部的到期日顶替
       closeDate: project.closeDate ?? null,
-      dueDate: project.dueDate ?? null,
       submittedAt: project.submittedAt ?? null,
     },
     userId: user.id,

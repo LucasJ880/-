@@ -52,7 +52,7 @@ import type { RoundRef } from "./tracking-notify-pure";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendChasePayload } from "./types";
 
 /** 与入站同一窗口：只看最近 90 天发出的询价 */
-const OPEN_ITEM_WINDOW_DAYS = 90;
+export const OPEN_ITEM_WINDOW_DAYS = 90;
 
 export type ChaseDraftResult = { itemId: string; supplierName: string; actionId: string; kind: ChaseKind; chaseIndex: 1 | 2 };
 /** RFQ-AUTO-1：随轮次授权自动执行的一封（sent=false：执行器判定不需要发，如对方刚回复） */

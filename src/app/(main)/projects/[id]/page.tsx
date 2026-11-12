@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
-import { nextStepHref, type WebNextStepTarget, type WebNextStepView } from "@/lib/tender-next-step/targets";
+import type { WebNextStepTarget, WebNextStepView } from "@/lib/tender-next-step/targets";
 import { getProjectStage } from "@/lib/tender/stage";
 import {
   analysisPhaseFromRunStatus,
@@ -93,26 +93,32 @@ function scrollProjectContentToTop() {
 
 /**
  * FLOW-H1：切到某个页签后滚到页内的一个位置。那个位置所在的区块可能要等接口返回才出现，
- * 所以每 200 毫秒找一次、最多 8 秒；找到就滚过去并停。返回一个取消函数。
- * 这里只滚动——不点任何按钮。
+ * 它上面的区块也可能晚一步才撑开——所以每 200 毫秒看一次：没出现就等（最多 8 秒），
+ * 出现后在接下来的 1.6 秒里只要它被挤离了顶部就再滚一次。人一旦自己滚动或按键就停。
+ * 返回一个取消函数。这里只滚动——不点任何按钮。
  */
 function scrollToProjectAnchor(anchor: string): () => void {
   let tries = 0;
+  let settled = 0;
+  const stop = () => {
+    window.clearInterval(timer);
+    window.removeEventListener("wheel", stop);
+    window.removeEventListener("touchmove", stop);
+    window.removeEventListener("keydown", stop);
+  };
   const timer = window.setInterval(() => {
     tries += 1;
     const el = document.getElementById(anchor);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    if (el || tries >= 40) window.clearInterval(timer);
+    if (el) {
+      settled += 1;
+      if (Math.abs(el.getBoundingClientRect().top) > 96) el.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+    if (settled >= 8 || tries >= 40) stop();
   }, 200);
-  return () => window.clearInterval(timer);
-}
-
-export default function ProjectDetailPage() {
-  return (
-    <Suspense fallback={<div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>}>
-      <ProjectDetailContent />
-    </Suspense>
-  );
+  window.addEventListener("wheel", stop, { passive: true });
+  window.addEventListener("touchmove", stop, { passive: true });
+  window.addEventListener("keydown", stop);
+  return stop;
 }
 
 function ProjectDetailContent() {
@@ -213,6 +219,9 @@ function ProjectDetailContent() {
 
   const selectTab = useCallback(
     (tab: TenderDetailTab) => {
+      // 人自己切了页签：还在进行的「滚到某个位置」作废
+      cancelAnchorScroll.current?.();
+      cancelAnchorScroll.current = null;
       setActiveTab(tab);
       setFilesOpen(false);
       setChatOpen(false);
@@ -244,7 +253,11 @@ function ProjectDetailContent() {
       setActiveTab(target.tab);
       setFilesOpen(false);
       setChatOpen(false);
-      const url = nextStepHref(id, target);
+      // 地址栏：保留其它参数（如来源页），换掉页签，去掉动态深链；带上 #位置
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", target.tab);
+      next.delete("activity");
+      const url = `${pathname}?${next.toString()}${target.anchor ? `#${encodeURIComponent(target.anchor)}` : ""}`;
       // 先把地址（含 #位置）写进地址栏：询价区块挂载时读它来展开对应的那一轮
       window.history.replaceState(window.history.state, "", url);
       router.replace(url, { scroll: false });
@@ -256,7 +269,7 @@ function ProjectDetailContent() {
       window.setTimeout(() => window.dispatchEvent(new HashChangeEvent("hashchange")), 60);
       cancelAnchorScroll.current = scrollToProjectAnchor(target.anchor);
     },
-    [id, router, setPanelOpen],
+    [router, pathname, searchParams, setPanelOpen],
   );
   useEffect(() => () => cancelAnchorScroll.current?.(), []);
 
@@ -376,9 +389,10 @@ function ProjectDetailContent() {
     void loadPendingActions();
   }, [load, loadActivity, loadPendingActions]);
 
-  // FLOW-H1：取「下一步」。只读接口；404（开关关闭 / 非招投标项目）之后不再请求
+  // FLOW-H1：取「下一步」。只读接口；只对招投标项目取；404（开关关闭）之后不再请求
+  const nextStepWanted = !!project && isTenderProject(project);
   const loadNextStep = useCallback(async () => {
-    if (!id || nextStepOff.current) return;
+    if (!id || !nextStepWanted || nextStepOff.current) return;
     const seq = (nextStepSeq.current += 1);
     try {
       const res = await apiFetch(`/api/projects/${id}/next-step`);
@@ -390,26 +404,27 @@ function ProjectDetailContent() {
     } catch {
       if (seq === nextStepSeq.current) setNextStep(null);
     }
-  }, [id]);
+  }, [id, nextStepWanted]);
 
-  // 打开工作台、回到工作台、分析状态变了：重新取
+  // 项目数据每次重新载入（首次打开、在工作台上改了关键日期或推进了阶段、别处通知项目有更新）、分析状态变了：重新取
   useEffect(() => {
-    if (activeTab === "workbench") void loadNextStep();
-  }, [activeTab, analysisRunStatus, loadNextStep]);
+    void loadNextStep();
+  }, [project, analysisRunStatus, loadNextStep]);
 
-  // 审批有变化、项目有更新：重新取
+  // 从别的页签回到工作台：重新取（在别的页签里做过的事要反映出来）
+  const lastTabForNextStep = useRef(activeTab);
+  useEffect(() => {
+    const cameBack = activeTab === "workbench" && lastTabForNextStep.current !== "workbench";
+    lastTabForNextStep.current = activeTab;
+    if (cameBack) void loadNextStep();
+  }, [activeTab, loadNextStep]);
+
+  // 审批有变化：重新取（项目有更新走上面：项目数据会重新载入）
   useEffect(() => {
     const refresh = () => void loadNextStep();
-    const onProject = (e: Event) => {
-      if ((e as CustomEvent).detail?.projectId === id) refresh();
-    };
     window.addEventListener("pending-actions-changed", refresh);
-    window.addEventListener("qingyan:project-updated", onProject);
-    return () => {
-      window.removeEventListener("pending-actions-changed", refresh);
-      window.removeEventListener("qingyan:project-updated", onProject);
-    };
-  }, [id, loadNextStep]);
+    return () => window.removeEventListener("pending-actions-changed", refresh);
+  }, [loadNextStep]);
 
   useEffect(() => {
     const refresh = () => void loadPendingActions();
@@ -506,10 +521,16 @@ function ProjectDetailContent() {
       parsingActive,
     ],
   );
-  // FLOW-H1：有服务端的「下一步」时，决策摘要跟着它说同一条结论（按钮只在「下一步」卡片上）
+  // FLOW-H1：有服务端的「下一步」时，两处都跟着它说同一条结论。
+  // 工作台上的决策摘要不留按钮（按钮在它上方的卡片上）；右侧的项目上下文每个页签都看得到，保留按钮
+  const showNextStep = nextStepWanted ? nextStep : null;
   const command = useMemo(
-    () => (nextStep ? applyNextStepToCommand(baseCommand, nextStep) : baseCommand),
-    [baseCommand, nextStep],
+    () => (showNextStep ? applyNextStepToCommand(baseCommand, showNextStep, { keepButton: true }) : baseCommand),
+    [baseCommand, showNextStep],
+  );
+  const workbenchCommand = useMemo(
+    () => (showNextStep ? applyNextStepToCommand(baseCommand, showNextStep) : baseCommand),
+    [baseCommand, showNextStep],
   );
 
   const workspaceContext = useMemo(
@@ -661,7 +682,7 @@ function ProjectDetailContent() {
         <WorkbenchTab
           projectId={id}
           project={project}
-          command={command}
+          command={workbenchCommand}
           workbenchState={workbench}
           progress={progress}
           pendingActions={pendingActions}
@@ -679,7 +700,7 @@ function ProjectDetailContent() {
           currentUserId={currentUser?.id ?? null}
           onNavigate={openProjectArea}
           onReload={load}
-          nextStep={nextStep}
+          nextStep={showNextStep}
           onOpenNextStep={openNextStepTarget}
         />
       )}

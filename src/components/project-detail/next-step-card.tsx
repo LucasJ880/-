@@ -14,7 +14,8 @@ function closingText(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return `截标 ${d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  // 只显示到日：手工填的截标时间只有日期（存成当天中午），显示钟点会是假的
+  return `截标 ${d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}`;
 }
 
 export function NextStepCard({ projectId, view, onOpen }: { projectId: string; view: WebNextStepView; onOpen: (target: WebNextStepTarget) => void }) {

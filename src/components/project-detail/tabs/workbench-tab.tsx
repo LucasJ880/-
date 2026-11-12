@@ -195,12 +195,15 @@ export function WorkbenchTab({
       )}
 
       {tenderish ? (
-        <ProjectProgressSection
-          project={tenderProps}
-          projectId={projectId}
-          canManage={canManage}
-          onUpdated={onReload}
-        />
+        // FLOW-H1：id 是「下一步」卡片滚动到关键日期的位置
+        <div id="project-key-dates" className="scroll-mt-4">
+          <ProjectProgressSection
+            project={tenderProps}
+            projectId={projectId}
+            canManage={canManage}
+            onUpdated={onReload}
+          />
+        </div>
       ) : (
         progress && (
           <div className="rounded-xl border border-border bg-card-bg p-5">
