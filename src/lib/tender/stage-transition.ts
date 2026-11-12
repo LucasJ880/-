@@ -15,6 +15,7 @@ import { getProjectStage } from "./stage";
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { emitProjectPatchEvents, onStageAdvanced } from "@/lib/project-discussion/system-events";
 import { notifyProjectStatusChange } from "@/lib/webhook/dispatcher";
+import { TENDER_STATUS_LABELS } from "@/lib/domain/labels";
 import { tenderStatusLagsBehind } from "./stage-status-catch-up";
 import { onStageAdvancedTasks } from "./stage-tasks";
 import { notifyProjectMembers } from "@/lib/notifications/create";
@@ -195,14 +196,16 @@ export async function advanceProjectStage(
   const validation = validateStageTransition(currentStage, targetStage, confidence);
 
   // no_op：已在目标阶段，直接返回成功，不写库
-  // FIX-6：阶段已到但招投标状态落后（阶段时间是自动写的），人确认了 → 补上状态与回调
+  // FIX-6：阶段记录已到（或已过）人确认的阶段，但招投标状态落后（阶段时间是自动写的）→ 补上这一阶段的状态与回调
   if (validation.decision === "no_op") {
-    const caught = await catchUpLaggingTenderStatus({ project, targetStage, input });
+    const caught = await catchUpLaggingTenderStatus({ project, currentStage, targetStage, input });
     if (caught) return caught;
     return { success: true, decision: "no_op", reason: validation.reason };
   }
 
   if (validation.decision === "deny") {
+    const caught = await catchUpLaggingTenderStatus({ project, currentStage, targetStage, input });
+    if (caught) return caught;
     return { success: false, decision: "deny", reason: validation.reason };
   }
 
@@ -221,8 +224,6 @@ export async function advanceProjectStage(
     timestampField &&
     project[timestampField as keyof typeof project] != null
   ) {
-    const caught = await catchUpLaggingTenderStatus({ project, targetStage, input });
-    if (caught) return caught;
     return {
       success: true,
       decision: "no_op",
@@ -331,21 +332,23 @@ export async function advanceProjectStage(
 // ── FIX-6：阶段已到、招投标状态落后时补状态 ─────────────────
 
 /**
- * 人确认推进到 targetStage，而阶段记录已经在这一段（时间是自动写的），招投标状态却还落后：
- * 只把招投标状态改成这一段对应的值，照常写讨论区的状态变化、审计，项目有来源系统时发状态回调（人已确认）。
- * 不写阶段时间、不建不关任务、不发「已推进」的成员通知。
- * 不该补（没确认、项目不是进行中、状态不落后、写入时状态已被别人改了）→ null，调用方按原来的「无需重复推进」返回。
+ * 人确认推进到 targetStage，而阶段记录已经在这一段或更靠后（时间是自动写的），招投标状态却还落后于 targetStage：
+ * 只把招投标状态改成 targetStage 对应的值（人确认的是这一段，不替人多推），照常写讨论区的状态变化、审计，
+ * 项目有来源系统时发状态回调（人已确认）。不写阶段时间、不建不关任务、不发「已推进」的成员通知。
+ * 不该补（不是招投标项目、没确认、不是进行中、状态不落后、写入时状态已被别人改了）→ null，调用方照原来返回。
  */
 async function catchUpLaggingTenderStatus(args: {
   project: NonNullable<Awaited<ReturnType<typeof db.project.findUnique>>>;
+  currentStage: TenderStage;
   targetStage: TenderStage;
   input: AdvanceStageInput;
 }): Promise<AdvanceStageResult | null> {
-  const { project, targetStage, input } = args;
+  const { project, currentStage, targetStage, input } = args;
   const { projectId, actor, reason, source, humanConfirmed, confidence, evidence } = input;
   if (humanConfirmed !== true || project.status !== "active") return null;
+  if ((project.workDomain ?? "").toLowerCase() !== "tender") return null;
   const newTenderStatus = STAGE_TO_TENDER_STATUS[targetStage];
-  if (!newTenderStatus || !tenderStatusLagsBehind(project.tenderStatus, targetStage, newTenderStatus)) return null;
+  if (!newTenderStatus || !tenderStatusLagsBehind(project.tenderStatus, targetStage)) return null;
 
   const updated = await db.$transaction(
     async (tx: Prisma.TransactionClient) => {
@@ -375,9 +378,10 @@ async function catchUpLaggingTenderStatus(args: {
     action: AUDIT_ACTIONS.STATUS_CHANGE,
     targetType: AUDIT_TARGETS.PROJECT,
     targetId: projectId,
-    beforeData: { stage: targetStage, tenderStatus: project.tenderStatus },
+    beforeData: { stage: currentStage, tenderStatus: project.tenderStatus },
     afterData: {
-      stage: targetStage,
+      stage: currentStage,
+      confirmedStage: targetStage,
       tenderStatus: newTenderStatus,
       statusCatchUp: true,
       reason,
@@ -400,7 +404,7 @@ async function catchUpLaggingTenderStatus(args: {
   return {
     success: true,
     decision: "require_human_review",
-    reason: `已在「${STAGE_LABEL[targetStage]}」阶段；招投标状态已同步为「${STAGE_LABEL[targetStage]}」`,
+    reason: `阶段记录已在「${STAGE_LABEL[currentStage]}」；招投标状态已同步为「${TENDER_STATUS_LABELS[newTenderStatus] ?? newTenderStatus}」`,
     project: updated as unknown as Record<string, unknown>,
   };
 }
