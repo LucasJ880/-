@@ -17,6 +17,7 @@ import { parseChaseNotes, resolveChaseAfterDays } from "@/lib/tender-rfq/chase-p
 import { OPEN_ITEM_WINDOW_DAYS, loadFollowUpRoundState, roundPolicyInEffect } from "@/lib/tender-rfq/chase-service";
 import { isTerminalTenderStatus, recordedStageOf } from "@/lib/tender/stage";
 import { parseRfqThreadId } from "@/lib/tender-rfq/inbound-contract";
+import { isSubmissionRecordEnabledForOrg } from "@/lib/tender-submission/flags";
 import { loadRfqWebEntry } from "@/lib/tender-rfq/web-entry";
 import { chaseStillNeeded } from "@/lib/tender-rfq/web-entry-pure";
 import { RFQ_ENTRY_RULES, decideWebNextStep, type WebNextStepInput } from "./web-next-step";
@@ -180,6 +181,7 @@ export async function loadWebNextStepInput(input: { project: NextStepProject; us
       ? { hasPriceSchedule: workspace.hasPriceSchedule, blockers: workspace.readiness.blockers.map((b) => ({ code: b.code, messageZh: b.messageZh })) }
       : null,
     rfqEntry: null,
+    submissionRecordEnabled: isSubmissionRecordEnabledForOrg(orgId),
   };
 }
 

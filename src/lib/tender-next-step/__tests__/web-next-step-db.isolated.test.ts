@@ -48,6 +48,8 @@ async function main() {
   const DAY = 86_400_000;
   process.env.TENDER_WEB_NEXT_STEP_ENABLED = "1";
   delete process.env.TENDER_WEB_NEXT_STEP_ORG_ALLOWLIST;
+  delete process.env.TENDER_SUBMISSION_RECORD_ENABLED;
+  delete process.env.TENDER_SUBMISSION_RECORD_ORG_ALLOWLIST;
   delete process.env.TENDER_BID_WORKSPACE_ENABLED;
   delete process.env.TENDER_BID_WORKSPACE_ORG_ALLOWLIST;
   delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
@@ -319,6 +321,15 @@ async function main() {
     await db.project.update({ where: { id: P }, data: { closeDate: new Date(Date.now() - 30 * 3600_000) } });
     v = await view(P);
     ok(v.rule === "past_closing" && v.headlineZh === "截标日期已过，没有提交记录" && at(v) === "tab:workbench#project-key-dates" && v.urgencyZh === null, "截标日期过了一天以上、没有提交时间：照实说；位置是工作台的关键日期；不再建议定价", v);
+    // FLOW-H4a：这个组织开了「提交记录」→ 同一个状态指到「提交」页签的提交记录；关掉、或组织不在名单里 → 回到关键日期
+    process.env.TENDER_SUBMISSION_RECORD_ENABLED = "1";
+    v = await view(P);
+    ok(v.rule === "past_closing" && at(v) === "tab:submission#submission-record" && v.action?.labelZh === "去记录提交" && v.also.some((a) => a.target.kind === "tab" && a.target.tab === "workbench" && a.target.anchor === "project-key-dates"), "提交记录开着：截标已过时卡片去「提交」页签的提交记录，关键日期放在顺带要办的事里", v);
+    process.env.TENDER_SUBMISSION_RECORD_ORG_ALLOWLIST = ORG_B;
+    ok(at(await view(P)) === "tab:workbench#project-key-dates", "这个组织不在提交记录的名单里：仍指到关键日期");
+    delete process.env.TENDER_SUBMISSION_RECORD_ORG_ALLOWLIST;
+    delete process.env.TENDER_SUBMISSION_RECORD_ENABLED;
+    ok(at(await view(P)) === "tab:workbench#project-key-dates", "提交记录关掉：回到关键日期");
     await db.project.update({ where: { id: P }, data: { submittedAt: new Date(Date.now() - 2 * 3600_000) } });
     v = await view(P);
     ok(v.rule === "submitted" && v.headlineZh === "已提交，等开标结果" && at(v) === "tab:submission" && v.actualStage === "submission", "有提交时间：已提交，等结果；实际进度是项目提交", v);
@@ -464,6 +475,8 @@ async function main() {
   } finally {
     delete process.env.TENDER_WEB_NEXT_STEP_ENABLED;
     delete process.env.TENDER_WEB_NEXT_STEP_ORG_ALLOWLIST;
+    delete process.env.TENDER_SUBMISSION_RECORD_ENABLED;
+    delete process.env.TENDER_SUBMISSION_RECORD_ORG_ALLOWLIST;
     delete process.env.TENDER_BID_WORKSPACE_ENABLED;
     delete process.env.TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED;
     await db.pendingAction.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { orgId: { in: [ORG, ORG_B] } }] } });

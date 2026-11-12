@@ -140,7 +140,22 @@ export interface AdvanceStageInput {
   humanConfirmed: boolean;
   confidence?: number;
   evidence?: string[];
+  /**
+   * FLOW-H4a：这一阶段实际发生的时间（写进阶段时间那一列）。不传 = 现在，与原来相同。
+   * 页面上「记录提交」用它写入人填的提交时间。
+   */
+  occurredAt?: Date;
+  /** FLOW-H4a：不为新阶段建自动任务（上一阶段的自动任务照旧关掉）。不传 = 照旧建。 */
+  skipStageTasks?: boolean;
+  /**
+   * FLOW-H4a：调用方读项目时看到的项目状态与招投标状态。写入时库里的若已不是这两个值（别人刚记了投标结果、
+   * 或放弃了项目），就不写，按「无需操作」返回，由调用方重新判断。不传 = 不检查，与原来相同。
+   */
+  expected?: { status: string; tenderStatus: string | null };
 }
+
+/** 事务里发现阶段时间已被别的请求写入（同时点了两次）→ 整个事务作废，按「无需重复写入」返回 */
+class StageAlreadyWritten extends Error {}
 
 export interface AdvanceStageResult {
   success: boolean;
@@ -166,6 +181,9 @@ export async function advanceProjectStage(
     humanConfirmed,
     confidence,
     evidence,
+    occurredAt,
+    skipStageTasks,
+    expected,
   } = input;
 
   const project = await db.project.findUnique({ where: { id: projectId } });
@@ -225,7 +243,12 @@ export async function advanceProjectStage(
   }
 
   const newTenderStatus = STAGE_TO_TENDER_STATUS[targetStage];
-  const now = new Date();
+  const now = occurredAt ?? new Date();
+  const alreadyWritten: AdvanceStageResult = {
+    success: true,
+    decision: "no_op",
+    reason: `「${STAGE_LABEL[targetStage]}」阶段已完成，无需重复写入`,
+  };
 
   const data: Record<string, unknown> = {};
   if (timestampField) {
@@ -235,11 +258,23 @@ export async function advanceProjectStage(
     data.tenderStatus = newTenderStatus;
   }
 
-  const updated = await db.$transaction(
+  let updated;
+  try {
+  updated = await db.$transaction(
     async (tx: Prisma.TransactionClient) => {
-      const result = await tx.project.update({
+      // 并发保护做在库里：只有阶段时间还是空的才写。上面那次检查与这里之间，别的请求可能已经写过
+      //（同时点了两次）——那样这里一行也改不到，整个事务作废，不重复发消息与通知。
+      if (timestampField) {
+        const claimed = await tx.project.updateMany({
+          where: { id: projectId, [timestampField]: null, ...(expected ? { status: expected.status, tenderStatus: expected.tenderStatus } : {}) },
+          data,
+        });
+        if (claimed.count === 0) throw new StageAlreadyWritten();
+      } else {
+        await tx.project.update({ where: { id: projectId }, data });
+      }
+      const result = await tx.project.findUniqueOrThrow({
         where: { id: projectId },
-        data,
         include: PROJECT_INCLUDE,
       });
 
@@ -267,6 +302,10 @@ export async function advanceProjectStage(
     },
     { timeout: 15000 }
   );
+  } catch (e) {
+    if (e instanceof StageAlreadyWritten) return alreadyWritten;
+    throw e;
+  }
 
   await logAudit({
     userId: actor.id,
@@ -300,7 +339,7 @@ export async function advanceProjectStage(
   }
 
   // 阶段→任务联动：关闭旧阶段任务 + 创建新阶段任务
-  onStageAdvancedTasks(projectId, currentStage, targetStage, actor.id)
+  onStageAdvancedTasks(projectId, currentStage, targetStage, actor.id, { skipCreate: !!skipStageTasks })
     .catch((err) => console.error("[StageTasks] failed:", err));
 
   // 通知项目成员：阶段已推进
