@@ -91,16 +91,16 @@ OpenSpec change `vis-1e-preview-as-position`。
 
 ## 5. 门禁与测试
 
-本机 Node 24；分支已 rebase 到 origin/main `beebdfa4`（含 #437）。
+本机 Node 24。下表是 rebase 到 origin/main `d63dadbf`（含 #436、#437）之后在最终代码上跑的结果。
 
 | 门禁 | 结果 |
 |---|---|
 | `npm run test:ci` | PASS |
-| `npm test` | 610/623。13 个失败与 origin/main（608/621）逐条相同，都是既有环境类（Postgres / Chromium / Gmail / Agent Trace） |
+| `npm test` | 612/625。13 个失败与 origin/main 逐条相同（rebase 前在 `beebdfa4` 上对照跑过：608/621），都是既有环境类（Postgres / Chromium / Gmail / Agent Trace） |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增 error fingerprint） |
 | `bash scripts/check-test-registry.sh` | 通过（已注册 599 个） |
-| `npx next build --webpack` | 通过（`NODE_OPTIONS=--max-old-space-size=8192`；警告与 origin/main 相同，都是 Sentry / OpenTelemetry 既有的） |
+| `npx next build --webpack` | 通过（冷构建 3.7 分钟，`NODE_OPTIONS=--max-old-space-size=8192`；警告与 origin/main 相同，都是 Sentry / OpenTelemetry 既有的） |
 | `openspec validate vis-1e-preview-as-position --strict` | 通过 |
 | `/opsx:verify vis-1e-preview-as-position` | 8/8 任务；11 条 ADDED + 2 条 MODIFIED 需求、19 个场景都有实现与测试；0 critical / 0 warning（verify 时把审查后补的落点同步进了 design D5） |
 
@@ -141,6 +141,8 @@ OpenSpec change `vis-1e-preview-as-position`。
 | org-scoped-users-db.isolated | 36 | 36 |
 | procurement-records-db.isolated | 158 | 158 |
 | autogen-db.isolated | 18 条失败（`NO_BINDING`） | 18 条失败（`NO_BINDING`） |
+
+rebase 到 `d63dadbf` 后，本分支另跑 #436 带进来的 `settings-write-db` 27 通过（要 `JWT_SECRET` 环境变量）、`onboarding-db` 82、`preview-db` 44。
 
 两边一致的既有失败：`phase3a3-approvals-smoke` 的一条与 VIS-1d 时相同；`autogen-db` 是测试种子没给出单岗位绑定（报 `NO_BINDING`），逐条相同，与本 change 无关。
 
