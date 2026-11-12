@@ -69,7 +69,12 @@ async function main() {
     const cancelled = await db.task.create({ data: { title: "[项目解读] 已取消的一条", status: "cancelled", priority: "low", projectId: P, creatorId: OWNER } });
     const inProgress = await db.task.updateMany({ where: { projectId: P, title: "[项目解读] 确认投标资质要求" }, data: { status: "in_progress" } });
     const blocked = await db.task.create({ data: { title: "[项目解读] 等业主答疑", status: "blocked", priority: "medium", projectId: P, creatorId: OWNER, blockedReason: "等答疑" } });
+    // 同一个组织的另一个项目，正好也有「[项目解读]」的任务：P 推进时不能动它
+    const PX = await mkProject(10);
+    const foreign = await db.task.create({ data: { title: "[项目解读] 精读招标文件", status: "todo", priority: "high", projectId: PX, creatorId: OWNER, assigneeId: OWNER } });
     await onStageAdvancedTasks(P, "interpretation", "supplier_inquiry", OWNER);
+    const foreignAfter = await db.task.findUniqueOrThrow({ where: { id: foreign.id }, select: { status: true, completedAt: true } });
+    ok(foreignAfter.status === "todo" && foreignAfter.completedAt === null, "别的项目里同名的自动任务没有被关掉（只动本项目的）", foreignAfter);
     const after = await db.task.findMany({ where: { id: { in: [manual.id, cancelled.id, blocked.id] } }, select: { id: true, status: true } });
     const st = (id: string) => after.find((x) => x.id === id)?.status;
     ok(inProgress.count === 1 && (await tasks(P, "[项目解读] 精读")).every((t) => t.status === "done") && (await tasks(P, "[项目解读] 确认")).every((t) => t.status === "done") && (await tasks(P, "[项目解读] 编制")).every((t) => t.status === "done"), "上一阶段待办与进行中的自动任务都被标为完成");
@@ -100,6 +105,14 @@ async function main() {
     /* ---------- 5. 进入项目提交：只关不建 ---------- */
     await onStageAdvancedTasks(P, "supplier_quote", "submission", OWNER);
     ok((await tasks(P, "[供应商报价]")).every((t) => t.status === "done") && (await tasks(P, "[项目提交]")).length === 0, "进入项目提交：供应商报价的 5 条（含「提交投标」）被标为完成；没有新任务");
+
+    // 调用方指明不建：只关上一阶段的，不为新阶段建
+    const PS = await mkProject(10);
+    await onStageAdvancedTasks(PS, "initiation", "distribution", OWNER);
+    await onStageAdvancedTasks(PS, "distribution", "interpretation", OWNER, { skipCreate: true });
+    ok((await tasks(PS, "[项目分发]")).length === 2 && (await tasks(PS, "[项目分发]")).every((t) => t.status === "done") && (await tasks(PS)).length === 2, "指明不建任务：上一阶段的 2 条被关掉，新阶段一条也没建");
+    await onStageAdvancedTasks(PS, "distribution", "interpretation", OWNER);
+    ok((await tasks(PS, "[项目解读]")).length === 3 && (await tasks(PX)).length === 1, "不指明时照常建（对照）；别的项目始终没有多出任务");
 
     /* ---------- 6. 从阶段推进的入口走一遍 ---------- */
     const PE = await mkProject(20);
