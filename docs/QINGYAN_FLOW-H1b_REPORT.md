@@ -107,7 +107,7 @@ FLOW-H1 上线后，工作台最上面的卡片会说「报价齐了，还没定
 | 读到被改文件的其它既有测试（7 份） | 全部通过，断言未改 |
 | 变异核对 | 64 处把实现改坏的改动，每一处都有测试失败（第一轮 27 处里 2 处没被发现，补了用例；独立审查另找出 15 处没被发现的，补了渲染测试与用例） |
 | 真实浏览器 | 开关打开五种情况、开关关闭一种情况，页面都能渲染、没有页面错误；截图见 §2 |
-| `npm run test:ci` | 见 PR 说明（提交本报告后在最终代码上完整跑一遍） |
+| `npm run test:ci` | `CI unit subset PASS`（合并 main 之后、在最终代码上完整跑的一遍） |
 | `npm run typecheck` | 退出码 0 |
 | `npm run lint:baseline` | PASS |
 | `bash scripts/check-test-registry.sh` | OK（604 个） |
