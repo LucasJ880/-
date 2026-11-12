@@ -3,7 +3,7 @@
 ## 1. 判断与写入
 
 - [ ] 1.1 `src/lib/tender-submission/`：输入校验与三种情形的判定（纯函数）、开关；verify：`npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts` 全部通过
-- [ ] 1.2 `src/lib/tender/stage-transition.ts` 加两个可选参数；`src/lib/tender-submission/service.ts`：第一次记录走阶段推进，更正与补记自己写日期，记录追加进审计；verify：`npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts` 全部通过（本地隔离库），其中含「不传新参数时阶段推进与原来相同」
+- [ ] 1.2 `src/lib/tender/stage-transition.ts` 加三个可选参数、把重复写入的保护做进写的那一句；`src/lib/tender-submission/service.ts`：第一次记录走阶段推进，更正与补记自己写日期，记录追加进审计；verify：`npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts` 全部通过（本地隔离库），其中含「不传新参数时阶段推进写入的内容与原来相同」
 - [ ] 1.3 接口 `GET` / `POST /api/projects/[id]/submission-record`；verify：同上隔离库测试里的权限、隔离、开关、非招投标项目各场景通过
 
 ## 2. 页面
