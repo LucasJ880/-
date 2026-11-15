@@ -500,6 +500,18 @@ export function isMailReadAllowed(
   return envFlag("MAIL_READ_ENABLED", env);
 }
 
+/**
+ * MAIL-2 客户来信提醒的平台开关（MAIL_WATCH_ENABLED，默认关）。
+ * 与读信开关同一处解析、同样先评估隔离；它只读邮件元数据，不要求读信工具（MAIL_READ_ENABLED）开着。
+ */
+export function isMailWatchAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const a = assessRuntimeIsolation(env);
+  if (!a.ok) return false;
+  return envFlag("MAIL_WATCH_ENABLED", env);
+}
+
 export function isRealWechatSendAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {

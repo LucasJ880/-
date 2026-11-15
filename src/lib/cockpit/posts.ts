@@ -108,6 +108,7 @@ export const POST_REGISTRY = [
       "trade-daily",
       "muse-reminder-scan",
       "calendar-watch",
+      "mail-watch",
     ],
     pendingActionTypes: [
       "sales.update_followup",

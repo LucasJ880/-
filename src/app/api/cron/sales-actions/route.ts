@@ -3,6 +3,7 @@ import { runTrackedAutomation } from "@/lib/automation/runner";
 import { runCalendarWatch } from "@/lib/calendar-watch/run";
 import { requireCronSecret } from "@/lib/cron/auth";
 import { db } from "@/lib/db";
+import { MAIL_WATCH_DEADLINE_MS, runMailWatch } from "@/lib/mail-watch/run";
 import { scanMuseReminders } from "@/lib/muse-bridge/reminder-scan";
 import { ESCALATION_DEADLINE_MS, escalationOutcome, runEmailEscalation } from "@/lib/notifications/collab/escalation";
 import { syncSalesAutoActions } from "@/lib/sales/auto-action-sync";
@@ -84,6 +85,37 @@ export async function GET(request: NextRequest) {
       },
     };
   });
+  // MAIL-2：客户来信提醒（只读成员本人勾选的邮箱里新来信的元数据，不读正文）。排在日历观察之后、升级邮件之前，
+  // 有每邮箱封数上限与截止时刻；平台开关关闭或没有满足三道开关的邮箱时记为跳过并写明原因。
+  // 自带收错：出错只记日志，不影响其它步骤的结果与响应
+  const mailWatch = await runTrackedAutomation("mail-watch", async () => {
+    const result = await runMailWatch({ deadline: new Date(requestStartedAt + MAIL_WATCH_DEADLINE_MS) });
+    return {
+      data: result,
+      status: result.skipped ? "skipped" : result.failedCount > 0 ? "partial" : "succeeded",
+      processedCount: result.mailboxes,
+      succeededCount: result.mailboxes - result.deadlineSkipped,
+      failedCount: result.failedCount,
+      metadata: {
+        skipped: result.skipped,
+        organizations: result.organizations,
+        mailboxes: result.mailboxes,
+        deadlineSkipped: result.deadlineSkipped,
+        failedCount: result.failedCount,
+        scanned: result.scanned,
+        matched: result.matched,
+        unmatched: result.unmatched,
+        notified: result.notified,
+        wechatSent: result.wechatSent,
+        wechatFailed: result.wechatFailed,
+        wechatSkipped: result.wechatSkipped,
+        wechatCapped: result.wechatCapped,
+      },
+    };
+  }).catch((error) => {
+    console.error("[cron/sales-actions] mail-watch failed:", error instanceof Error ? error.name : "error");
+    return { error: "mail-watch failed" };
+  });
   // COLLAB-2：@提及与任务指派满 15 分钟仍未读 → 升级邮件（design D14）。排在最后，有封数上限与截止时刻；
   // 自带收错：出错只记日志，不影响前几步的结果与响应
   const notifyEmailEscalation = await runTrackedAutomation("notify-email-escalation", async () =>
@@ -92,5 +124,5 @@ export async function GET(request: NextRequest) {
     console.error("[cron/sales-actions] notify-email-escalation failed:", error);
     return { error: error instanceof Error ? error.message : String(error) };
   });
-  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, calendarWatch, notifyEmailEscalation });
+  return NextResponse.json({ syncedAt: new Date().toISOString(), ...data, museReminders, mailWatch, calendarWatch, notifyEmailEscalation });
 }

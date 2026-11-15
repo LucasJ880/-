@@ -33,6 +33,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 const RFQ = ["rfq_quote_received", "rfq_reply_received", "rfq_chase_ready", "rfq_no_response"];
 const INSTALL = NOTIFICATION_TYPE_KEYS.filter((k) => k.startsWith("install_"));
+/** MAIL-2：客户来信只对客户详情页放行的成员可见 */
+const MAIL = ["mail_inbound"];
 const visibleFor = (name: IdentityName) => visibleNotificationTypes((href) => canOpenHref(href, gateCtx(name)));
 const hiddenFor = (name: IdentityName) => {
   const vis = new Set(visibleFor(name));
@@ -65,14 +67,14 @@ console.log("\n按身份的可见类型（design D1 身份表）");
     sales_rep: [...RFQ],
     pricing_lead: [...RFQ],
     sales_rep_project_member: [...RFQ],
-    bids: ["quote_signed", "sales_daily_briefing", "order_stage"],
-    ops_lead: [...RFQ, "quote_signed", "sales_daily_briefing"],
-    accounting: [...RFQ, "quote_signed", "sales_daily_briefing"],
-    fulfillment_vinyl: [...RFQ, "quote_signed", "sales_daily_briefing"],
-    fulfillment_shades: [...RFQ, "quote_signed", "sales_daily_briefing"],
-    ops_staff: [...RFQ, ...INSTALL, "quote_signed", "sales_daily_briefing", "order_stage"],
-    installer: [...RFQ, "project_update", "agent_task", "quote_signed", "sales_daily_briefing", "order_stage"],
-    no_position: [...RFQ, ...INSTALL, "project_update", "agent_task", "quote_signed", "sales_daily_briefing", "order_stage"],
+    bids: [...MAIL, "quote_signed", "sales_daily_briefing", "order_stage"],
+    ops_lead: [...RFQ, ...MAIL, "quote_signed", "sales_daily_briefing"],
+    accounting: [...RFQ, ...MAIL, "quote_signed", "sales_daily_briefing"],
+    fulfillment_vinyl: [...RFQ, ...MAIL, "quote_signed", "sales_daily_briefing"],
+    fulfillment_shades: [...RFQ, ...MAIL, "quote_signed", "sales_daily_briefing"],
+    ops_staff: [...RFQ, ...INSTALL, ...MAIL, "quote_signed", "sales_daily_briefing", "order_stage"],
+    installer: [...RFQ, ...MAIL, "project_update", "agent_task", "quote_signed", "sales_daily_briefing", "order_stage"],
+    no_position: [...RFQ, ...INSTALL, ...MAIL, "project_update", "agent_task", "quote_signed", "sales_daily_briefing", "order_stage"],
     mx_trade_rep: [...RFQ, ...INSTALL, "project_update", "agent_task", "quote_signed", "sales_daily_briefing", "order_stage"],
     mx_cathy: [...RFQ, ...INSTALL, "quote_signed", "order_stage"],
     owner: [],
