@@ -166,7 +166,7 @@ export default function TradeDashboardPage() {
     return (
       <div className="space-y-4 py-16 text-center">
         <p className="text-sm text-muted">
-          多组织账号需先选择当前组织：请在侧栏选择组织，或从组织页进入后再使用海外业务。
+          多组织账号需先选择当前组织：请在侧栏选择组织，或从组织页进入后再使用外贸获客。
         </p>
         <button
           type="button"
@@ -200,7 +200,7 @@ export default function TradeDashboardPage() {
         </Link>
         <span className="mx-1.5 text-border">·</span>
         <Link href="/trade/signals" className="text-blue-400 hover:text-blue-300 hover:underline">
-          页面监控信号
+          市场监测
         </Link>
         <span className="mx-1.5 text-border">·</span>
         低频文本指纹弱信号列表

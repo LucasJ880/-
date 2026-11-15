@@ -135,11 +135,15 @@ export type RouteGateUser = {
   role: string | null;
   status: string;
   activeOrgId: string | null;
+  /** VIS-1e：以岗位预览的指纹（预览中 role 为 user、activeOrgId 为预览企业）；判定输入缓存键带上它 */
+  previewFingerprint?: string | null;
 };
 
 export type RouteGateLoader = {
   loadUser(userId: string): Promise<RouteGateUser | null>;
   loadContext(user: RouteGateUser): Promise<RouteGateContext>;
+  /** VIS-1d：指定企业的判定输入，与 loadContext 共用 (userId, orgId) 的缓存与请求合并 */
+  loadContextForOrg(user: RouteGateUser, orgId: string | null): Promise<RouteGateContext>;
 };
 
 function redirectTo(request: NextRequest, target: string): NextResponse {

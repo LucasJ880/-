@@ -256,7 +256,7 @@ export function ManagementDashboardClient() {
           <h3 className="text-sm font-semibold text-foreground mb-3">海外增长快捷操作</h3>
           <div className="flex flex-wrap gap-3">
             <a href="/trade" className="rounded-lg bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
-              进入海外业务
+              进入外贸获客
             </a>
             <a href="/trade/knowledge" className="rounded-lg bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
               查看知识库

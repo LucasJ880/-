@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { getActivePreview, getActiveRequestPreview } from "@/lib/preview/server";
+import { PREVIEW_ORG_ROLE, PREVIEW_PLATFORM_ROLE, previewMembershipFor } from "@/lib/preview/identity";
 import { db } from "@/lib/db";
 import { getSessionFromRequest, verifySession } from "./session";
 
@@ -43,13 +45,16 @@ export async function getCurrentUser(
     });
     if (!user || user.status !== "active") return null;
 
+    // VIS-1e：以岗位预览期间平台角色视同 user（spec authorization/position-preview「预览身份」）
+    const preview = await getActiveRequestPreview(request, user.id);
+
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       nickname: user.nickname,
       avatar: user.avatar,
-      role: user.role,
+      role: preview ? PREVIEW_PLATFORM_ROLE : user.role,
       status: user.status,
       canEditCustomers: user.canEditCustomers ?? true,
     };
@@ -63,9 +68,15 @@ export async function getCurrentUser(
  * 获取用户在指定组织中的成员信息
  */
 export async function getOrgMembership(userId: string, orgId: string) {
-  return db.organizationMember.findUnique({
-    where: { orgId_userId: { orgId, userId } },
-  });
+  const [row, preview] = await Promise.all([
+    db.organizationMember.findUnique({
+      where: { orgId_userId: { orgId, userId } },
+    }),
+    getActivePreview(userId),
+  ]);
+  if (!preview) return row;
+  // VIS-1e：预览企业为 org_member，其他企业非成员
+  return row && previewMembershipFor(preview, orgId) ? { ...row, role: PREVIEW_ORG_ROLE } : null;
 }
 
 /**

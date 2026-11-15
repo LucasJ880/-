@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestPreview } from "@/lib/preview/server";
 import { GmailOAuthError, handleEmailCallback } from "@/lib/google-email";
 import { getCurrentUser } from "@/lib/auth";
 
@@ -47,6 +48,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // VIS-1e：以岗位预览期间不绑定（OAuth 回调会写 token）
+    if (await getRequestPreview(request, user.id)) {
+      return NextResponse.redirect(new URL(`${returnTo}?gmail=error&reason=preview_readonly`, request.url));
+    }
     await handleEmailCallback(code, user.id);
     return NextResponse.redirect(
       new URL(`${returnTo}?gmail=success`, request.url),

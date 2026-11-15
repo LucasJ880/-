@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
+import { listMyPendingActions } from "@/lib/approval/pending-mine";
 import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 
 export const GET = withAuth(async (request, _ctx, user) => {
@@ -33,57 +33,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
     }
   }
 
-  const access = await getTeamApprovalAccessIds(user.id);
-  const actions = await db.pendingAction.findMany({
-    where: {
-      AND: [
-        {
-          OR: [
-            {
-              createdById: user.id,
-              orgId: null,
-              projectId: null,
-              approverUserId: null,
-            },
-            { approverUserId: user.id },
-            ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
-            ...(access.projectIds.length
-              ? [{ projectId: { in: access.projectIds } }]
-              : []),
-          ],
-        },
-        // Phase 3B-A：列表默认限制在当前 active org（含 null-org 个人草稿）
-        {
-          OR: [{ orgId: orgRes.orgId }, { orgId: null, createdById: user.id }],
-        },
-      ],
-      ...(status === "all" ? {} : { status }),
-      ...(threadId ? { threadId } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      type: true,
-      title: true,
-      preview: true,
-      status: true,
-      threadId: true,
-      messageId: true,
-      expiresAt: true,
-      decidedAt: true,
-      executedAt: true,
-      failureReason: true,
-      resultRef: true,
-      createdAt: true,
-      orgId: true,
-      projectId: true,
-      approverUserId: true,
-      createdById: true,
-      createdBy: { select: { name: true, email: true } },
-      approver: { select: { name: true, email: true } },
-    },
-  });
+  // VIS-1d：处理人范围 ∩ 审批的可见集合 ∩ 当前企业（另含本人的个人草稿），与红点同一组条件
+  const actions = await listMyPendingActions(user.id, orgRes.orgId, { status, threadId });
 
   // 附上所属对话的标题（PR4.5 Inbox 要显示"在哪个对话里产生的"）
   const threadIds = Array.from(

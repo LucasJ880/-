@@ -44,6 +44,7 @@ import {
   type DiscountsOverride,
 } from "./pricing-helpers";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import { effectiveShadeValance } from "@/lib/blinds/order-form-pricing";
 import {
   DEFAULT_MIN_INSTALL_FEE,
   DEFAULT_DELIVERY_FEE,
@@ -228,6 +229,8 @@ export interface QuotePdfInput {
   salesRep: string;
   installMode: InstallMode;
   shadeOrders: ShadeOrderLine[];
+  /** Shades 表底部的 Valance Type：行上 Valance 为空时用它定价（与页面预览、保存同一取值） */
+  shadeValanceType: string;
   shutterOrders: ShutterOrderLine[];
   shutterMaterial: "Wooden" | "Vinyl";
   shutterLouverSize: string;
@@ -630,6 +633,7 @@ export async function exportQuotePdf(
       input.discounts,
       input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
       input.cordlessPolicy,
+      input.shadeValanceType,
     );
     return (
       p &&
@@ -845,6 +849,7 @@ export async function exportQuotePdf(
           input.discounts,
           input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
           input.cordlessPolicy,
+          input.shadeValanceType,
         );
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);
@@ -864,7 +869,8 @@ export async function exportQuotePdf(
           ]
             .filter(Boolean)
             .join("/"),
-          l.valance || "—",
+          // 生效罩型（行上 → 表底部 Valance Type），与该行计价、工艺单同一个取值
+          effectiveShadeValance(l.valance, input.shadeValanceType) || "—",
           `$${p!.merch.toFixed(2)}`,
           `$${p!.install.toFixed(2)}`,
           `$${p!.total.toFixed(2)}`,

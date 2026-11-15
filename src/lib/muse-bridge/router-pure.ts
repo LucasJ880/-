@@ -219,8 +219,27 @@ export const MUSE_FLOW_APPROVAL_TYPES = ["tender.send_rfq", "tender.send_chase"]
  * 其余（询盘回复、活动上线、报价让利、研究计划、营销上下文覆盖、写报价备注、未知 / 新增类型）
  * 的审批卡只有一句标题，看不到正文 / 风险提醒，只能在青砚网页上批准；驳回不受影响。
  */
+/** 发询价卡的载荷里是否带了跟进授权（键存在且不为 null 即算：宁可多拦，不靠解析结果放行） */
+export function rfqCardCarriesFollowUp(type: string | null | undefined, payload?: unknown): boolean {
+  if (type !== "tender.send_rfq" || !payload || typeof payload !== "object") return false;
+  const policy = (payload as { followUpPolicy?: unknown }).followUpPolicy;
+  return policy !== undefined && policy !== null;
+}
+
+/** 发询价卡是不是系统自动起草的（靠载荷元数据里的来源标记；与 tender-rfq/auto-draft-pure 的 AUTO_DRAFT_TOOL_NAME 同值） */
+export function rfqCardAutoDrafted(type: string | null | undefined, payload?: unknown): boolean {
+  if (type !== "tender.send_rfq" || !payload || typeof payload !== "object") return false;
+  return (payload as { metadata?: { sourceToolName?: unknown } }).metadata?.sourceToolName === "tender_send_rfq_auto";
+}
+
 export function museCanApproveAction(type: string | null | undefined, payload?: unknown): boolean {
   if (!type) return false;
+  // RFQ-AUTO-1：带跟进授权的发询价卡，批准它等于一并批准后面的催单与追问。授权范围与模板只在网页的
+  // 审批卡上能看全，Muse 里只有一句标题 → 这类卡只能在网页批（Muse 自己发起的轮次从不带授权，不受影响）。
+  if (rfqCardCarriesFollowUp(type, payload)) return false;
+  // RFQ-AUTO-2：系统自动起草的发询价卡，起草时没有人看过收件人与正文（人工起草的在抽屉里 / Muse 的回复里看过）。
+  // Muse 里只有一句标题 → 这类卡只能在网页批。
+  if (rfqCardAutoDrafted(type, payload)) return false;
   if ((MUSE_FLOW_APPROVAL_TYPES as readonly string[]).includes(type)) return true;
   return isWeChatConfirmableAction(type, payload);
 }
@@ -232,7 +251,13 @@ export function museApprovalNeedsWebPreview(type: string | null | undefined, pay
   return !!type && !museCanApproveAction(type, payload);
 }
 
-export function webPreviewRequiredResponse(requestId: string, type?: string | null): MuseCommandResponse {
+export function webPreviewRequiredResponse(requestId: string, type?: string | null, payload?: unknown): MuseCommandResponse {
+  if (type === "tender.send_rfq" && rfqCardAutoDrafted(type, payload) && !rfqCardCarriesFollowUp(type, payload)) {
+    return errResponse(requestId, "APPROVAL_FAILED", "这一轮询价是系统自动起草的，还没有人核对过收件人和正文。请在青砚项目页的询价里看完后批准，这里不能直接批。");
+  }
+  if (type === "tender.send_rfq") {
+    return errResponse(requestId, "APPROVAL_FAILED", "这一轮询价带自动跟进授权：批准它会一并批准后面的催单和追问。请在青砚项目页的询价里看完授权范围和邮件模板后批准，这里不能直接批。");
+  }
   if (type === INQUIRY_REPLY_TYPE) {
     return errResponse(requestId, "APPROVAL_FAILED", "给买家的询盘回复需在青砚「今日询盘」页看完草稿后批准，这里不能直接批。");
   }

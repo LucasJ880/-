@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PREVIEW_CHAT_DISABLED_HINT, usePreviewReadonly } from "@/lib/hooks/use-preview";
 import {
   Plus,
   Loader2,
@@ -144,8 +145,10 @@ export default function TradeChatPage() {
     loadSessions();
   };
 
+  // VIS-1e：以岗位预览中 AI 对话输入禁用
+  const previewReadonly = usePreviewReadonly();
   const canSend =
-    !sending && !attachments.isParsing && (input.trim().length > 0 || attachments.hasReady);
+    !previewReadonly && !sending && !attachments.isParsing && (input.trim().length > 0 || attachments.hasReady);
 
   const sendMessage = async (text?: string) => {
     const content = (text ?? input).trim();
@@ -363,8 +366,11 @@ export default function TradeChatPage() {
                 }
               }}
               onPaste={attachments.onPaste}
+              disabled={previewReadonly}
               placeholder={
-                attachments.hasReady
+                previewReadonly
+                  ? PREVIEW_CHAT_DISABLED_HINT
+                  : attachments.hasReady
                   ? "想让 AI 怎么分析这份附件？留空直接发送也可以"
                   : "输入消息，或拖入/粘贴文件、截图让 AI 分析... (Enter 发送, Shift+Enter 换行)"
               }

@@ -11,6 +11,8 @@ import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { buildCapabilitiesAccess } from "@/lib/capabilities/access";
 import { getCapabilityApproval } from "@/lib/capabilities/approvals/query";
+import { loadApprovalViewer } from "@/lib/approval/audience-server";
+import type { ApprovalViewer } from "@/lib/approval/audience";
 import { getTenantContext } from "@/lib/tenancy/context";
 import { makeApprovalId } from "@/lib/capabilities/approvals/types";
 import { previewEmailsFromPayload, type EmailPreview } from "./web-entry-pure";
@@ -52,21 +54,26 @@ export async function loadRfqApprovalInfo(
   if (actionIds.length === 0) return out;
 
   let usable: Awaited<ReturnType<typeof buildCapabilitiesAccess>> | null = null;
+  // VIS-1d：一个项目的多张卡只取一次审批可见判定输入；看不见的卡按「不存在」给审批中心链接
+  let viewer: ApprovalViewer | null = null;
   try {
     const tenant = await getTenantContext(request, user, { bodyOrgId: projectOrgId });
-    if (!(tenant instanceof NextResponse) && tenant.orgId === projectOrgId) usable = await buildCapabilitiesAccess(tenant);
+    if (!(tenant instanceof NextResponse) && tenant.orgId === projectOrgId) {
+      usable = await buildCapabilitiesAccess(tenant);
+      viewer = await loadApprovalViewer(usable.userId, usable.orgId);
+    }
   } catch {
     usable = null;
   }
 
   for (const actionId of actionIds) {
-    if (!usable) {
+    if (!usable || !viewer) {
       out[actionId] = fallback(actionId);
       continue;
     }
     try {
       const approvalId = makeApprovalId("PENDING_ACTION", actionId);
-      const proj = await getCapabilityApproval(usable, approvalId);
+      const proj = await getCapabilityApproval(usable, approvalId, viewer);
       out[actionId] = {
         approvalId,
         orgId: projectOrgId,

@@ -16,6 +16,16 @@ export function readStoredOrgId(): string {
   }
 }
 
+/** VIS-1e：退出以岗位预览时清掉本地记住的当前企业（预览中记的是预览企业） */
+export function clearStoredOrgId() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(SELECTED_ORG_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function persistSelectedOrgId(orgId: string) {
   if (typeof window === "undefined") return;
   try {

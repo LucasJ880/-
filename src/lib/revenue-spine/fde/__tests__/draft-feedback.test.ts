@@ -452,7 +452,9 @@ async function main() {
     }
     ok(/if \(before && after && after\.status !== before\.status\) await recordFdeDraftFeedback\(id, before\.type\);/.test(approve), "批准：只在本次调用确实改变了状态时记（无权 / 隔离 / 跨组织不记）");
     ok(/if \(result\.ok\) await recordFdeDraftFeedback\(id, before\?\.type\);/.test(reject), "驳回：只在驳回真正生效时记");
-    ok(/select: \{ agentRunId: true, orgId: true, status: true, type: true \}/.test(reject), "驳回前读出类型，非询盘回复不加载模块");
+    // VIS-1d：批准 / 驳回前的读取共用 PENDING_BEFORE_SELECT（另带可见判定所需的列），仍含类型
+    const beforeSelect = port.match(/const PENDING_BEFORE_SELECT = \{([\s\S]*?)\} as const;/)?.[1] ?? "";
+    ok(/select: PENDING_BEFORE_SELECT/.test(reject) && /\btype: true\b/.test(beforeSelect) && /\bagentRunId: true\b/.test(beforeSelect), "驳回前读出类型，非询盘回复不加载模块");
     const expire = port.slice(port.indexOf("export async function expireOverdueApprovals"));
     ok(/for \(const row of expiredWinners\) \{\s*if \(row\.type === INQUIRY_REPLY_ACTION\) await recordFdeDraftFeedback\(row\.id, row\.type\);/.test(expire), "过期：只对本轮赢家调用");
     ok(expire.indexOf("recordFdeDraftFeedback(") > expire.indexOf("reconcileWorkforceRunsAfterApprovalExpiry(expiredWinners)"), "过期：放在 run 收敛之后");

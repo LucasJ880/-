@@ -14,7 +14,7 @@
  */
 
 import type { sendGmail } from "@/lib/google-email";
-import { appendContactNote, formatChaseNote, hashChaseBody, parseChaseNotes, parseRfqMessageId } from "./chase-pure";
+import { appendContactNote, deadlinePassed, formatChaseNote, hashChaseBody, parseChaseNotes, parseRfqMessageId } from "./chase-pure";
 import { parseRfqThreadId } from "./inbound-contract";
 import { readTenderRfqSettings, resolveSender, type SenderProvider } from "./round-pure";
 import type { TenderSendChasePayload } from "./types";
@@ -26,6 +26,8 @@ export type ChaseExecuteIo = {
   now: () => Date;
   loadProject: (projectId: string) => Promise<{ orgId: string | null; settingsJson: unknown } | null>;
   loadItem: (itemId: string) => Promise<{ status: string; contactNotes: string | null; inquiryId: string } | null>;
+  /** RFQ-AUTO-1：轮次状态与回复截止（执行时重读） */
+  loadInquiry: (inquiryId: string) => Promise<{ status: string; dueDate: Date | null } | null>;
   findProviders: (mailboxEmail: string) => Promise<SenderProvider[]>;
   hasComposeScope: (scopes: string | null) => boolean;
   /** 原询价邮件的 RFC 822 Message-ID；取不到 / 没有读权限 → null */
@@ -34,12 +36,21 @@ export type ChaseExecuteIo = {
   saveContactNotes: (itemId: string, contactNotes: string) => Promise<void>;
 };
 
+let testIoOverride: Partial<ChaseExecuteIo> | null = null;
+/**
+ * 测试专用：让经真实审批执行器走到这里的调用用上假邮件 IO（执行器不传 io）。
+ * 只在 NODE_ENV=test 生效；其它环境调用无效果。
+ */
+export function __setChaseExecuteIoForTest(io: Partial<ChaseExecuteIo> | null): void {
+  testIoOverride = process.env.NODE_ENV === "test" ? io : null;
+}
+
 export async function execTenderSendChase(
   payload: TenderSendChasePayload,
   ctx: ExecTenderSendChaseContext,
   io?: Partial<ChaseExecuteIo>,
 ): Promise<ExecTenderSendChaseResult> {
-  const d: ChaseExecuteIo = { ...(await defaultChaseExecuteIo()), ...io };
+  const d: ChaseExecuteIo = { ...(await defaultChaseExecuteIo()), ...(process.env.NODE_ENV === "test" ? testIoOverride : null), ...io };
 
   if (!payload?.projectId || !payload.inquiryItemId || !payload.to || !payload.subject || !payload.body) {
     return { ok: false, error: "催单 payload 不完整，拒绝执行", errorCode: "CHASE_PAYLOAD_INVALID" };
@@ -59,6 +70,15 @@ export async function execTenderSendChase(
   if (!item || item.inquiryId !== payload.inquiryId) return { ok: false, error: "询价项已不存在", errorCode: "ITEM_NOT_FOUND" };
   if (parseRfqThreadId(item.contactNotes) !== payload.threadId) {
     return { ok: false, error: "询价线程与审批时不一致，拒绝执行", errorCode: "CHASE_THREAD_MISMATCH" };
+  }
+  // RFQ-AUTO-1：轮次已取消 / 已完成不再跟进；催单过了回复截止不发。对自动执行与人工批准的卡同样生效。
+  const inquiry = await d.loadInquiry(payload.inquiryId);
+  if (!inquiry) return { ok: false, error: "询价轮次已不存在", errorCode: "INQUIRY_NOT_FOUND" };
+  if (inquiry.status === "canceled" || inquiry.status === "completed") {
+    return { ok: true, resultRef: payload.inquiryItemId, message: `这一轮询价已${inquiry.status === "canceled" ? "取消" : "完成"}，这封${payload.kind === "no_reply" ? "催单" : "追问"}没有发出` };
+  }
+  if (payload.kind === "no_reply" && deadlinePassed(inquiry.dueDate, d.now())) {
+    return { ok: true, resultRef: payload.inquiryItemId, message: "回复截止已过，这封催单没有发出" };
   }
   // 重放 / 过时保护：执行时重读状态
   const done = parseChaseNotes(item.contactNotes);
@@ -128,6 +148,7 @@ async function defaultChaseExecuteIo(): Promise<ChaseExecuteIo> {
       return p ? { orgId: p.orgId, settingsJson: p.org?.settingsJson ?? null } : null;
     },
     loadItem: (itemId) => db.inquiryItem.findUnique({ where: { id: itemId }, select: { status: true, contactNotes: true, inquiryId: true } }),
+    loadInquiry: (inquiryId) => db.projectInquiry.findUnique({ where: { id: inquiryId }, select: { status: true, dueDate: true } }),
     findProviders: (mailboxEmail) =>
       db.emailProvider.findMany({
         where: { type: "gmail", accountEmail: { equals: mailboxEmail, mode: "insensitive" } },

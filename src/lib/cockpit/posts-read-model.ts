@@ -126,6 +126,10 @@ export function defaultCockpitViewerDeps(): CockpitViewerDeps {
       return { ok: false, ...workforceOrgFailureHttp(resolution.reason) };
     },
     activeOrgRole: async (orgId, userId) => {
+      // VIS-1e：以岗位预览期间预览企业为 org_member，其他企业非成员
+      const { getActivePreview } = await import("@/lib/preview/server");
+      const preview = await getActivePreview(userId);
+      if (preview) return orgId === preview.orgId ? "org_member" : null;
       const { db } = await import("@/lib/db");
       const member = await db.organizationMember.findUnique({
         where: { orgId_userId: { orgId, userId } },

@@ -2,6 +2,7 @@
  * Tender RFQ — 轮次决策（纯函数，零 DB）
  */
 
+import { followUpPolicySummaryZh, parseFollowUpPolicy } from "./followup-coverage";
 import { createHash } from "node:crypto";
 import type { RfqFactInput } from "./build";
 import { TENDER_RFQ_DEFAULTS, type ResolvedTenderRfqSettings, type TenderSendRfqPayload } from "./types";
@@ -177,5 +178,7 @@ export function hashRfqPayloadItems(items: TenderSendRfqPayload["items"]): strin
 /** 审批卡预览：每家一行，不贴正文（正文在青砚里看）。 */
 export function previewRfqPayload(p: TenderSendRfqPayload): string {
   const lines = p.items.map((i) => `· ${i.supplierName} <${i.to}>`);
-  return `第 ${p.roundNumber} 轮询价，${p.items.length} 封邮件，发件人 "${p.fromName}" <${p.fromEmail}>：\n${lines.join("\n")}\n主题：${p.items[0]?.subject ?? ""}`;
+  const policy = parseFollowUpPolicy(p.followUpPolicy);
+  // RFQ-AUTO-1：带跟进授权时，所有展示这张卡的界面都能看到这一行
+  return `第 ${p.roundNumber} 轮询价，${p.items.length} 封邮件，发件人 "${p.fromName}" <${p.fromEmail}>：\n${lines.join("\n")}\n主题：${p.items[0]?.subject ?? ""}${policy ? `\n${followUpPolicySummaryZh(policy)}` : ""}`;
 }

@@ -6,6 +6,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { isPreviewReadonly } from "@/lib/preview/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { seedBuiltinSkills } from "@/lib/agent-core/skills/seed";
@@ -42,7 +43,8 @@ export const GET = withAuth(async (req, _ctx, user) => {
   const existingCount = await db.agentSkill.count({
     where: { orgId },
   });
-  if (existingCount === 0) {
+  // VIS-1e：以岗位预览期间不建内置技能
+  if (existingCount === 0 && !(await isPreviewReadonly(user.id))) {
     await seedBuiltinSkills(orgId);
   }
 

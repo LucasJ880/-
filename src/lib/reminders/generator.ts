@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { effectivePlatformRole } from "@/lib/preview/server";
 import {
   startOfDayToronto,
   endOfDayToronto,
@@ -75,9 +76,10 @@ export async function generateReminderLayers(
     where: { id: userId },
     select: { role: true },
   });
+  // VIS-1e：以岗位预览期间平台角色为 user
   const actionableProjectIds = await getActionableProjectIds(
     userId,
-    user?.role ?? "user"
+    await effectivePlatformRole(userId, user?.role)
   );
   const taskScope = buildActionableTaskScope(userId, actionableProjectIds);
   const actionableSet = new Set(actionableProjectIds);

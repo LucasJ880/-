@@ -22,6 +22,7 @@ import {
   parseMentionList,
 } from "@/lib/notifications/collab/mentions";
 import { defaultRecipientDeps } from "@/lib/notifications/collab/recipients";
+import { isPreviewReadonly } from "@/lib/preview/server";
 
 /**
  * GET /api/projects/[id]/discussion/messages?cursor=...
@@ -45,7 +46,7 @@ export const GET = withAuth(async (request, ctx, user) => {
     ? Math.min(Math.max(parseInt(pageSizeStr, 10), 1), 100)
     : undefined;
 
-  const result = await loadOlderMessages(projectId, cursor, pageSize);
+  const result = await loadOlderMessages(projectId, cursor, pageSize, { create: !(await isPreviewReadonly(user.id)) });
   return NextResponse.json(result);
 });
 

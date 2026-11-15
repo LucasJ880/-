@@ -4,8 +4,8 @@
  * 学习入口都是 best-effort：失败只 console.error，绝不影响调用方（选定供应商 / 发询价）。
  */
 
-import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 import { learnIncoterm, learnSupplier, readUserPrefs, withUserPrefs, type MuseUserPrefs } from "./prefs-pure";
 
 export async function loadUserPrefs(orgId: string, userId: string): Promise<MuseUserPrefs> {
@@ -13,25 +13,27 @@ export async function loadUserPrefs(orgId: string, userId: string): Promise<Muse
   return readUserPrefs(org?.settingsJson ?? null, userId);
 }
 
-export async function saveUserPrefs(orgId: string, userId: string, prefs: MuseUserPrefs): Promise<void> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  if (!org) return;
-  await db.organization.update({
-    where: { id: orgId },
-    data: { settingsJson: withUserPrefs(org.settingsJson, userId, prefs) as Prisma.InputJsonValue },
+/**
+ * FIX-3：在锁里对这个人最新的偏好应用一次修改，返回修改后的偏好（组织不存在返回 null）。
+ * fn 拿到的是此刻库里的偏好——不是调用方先前读到的那份；返回同一个对象 = 不写。
+ */
+export async function updateUserPrefs(orgId: string, userId: string, fn: (p: MuseUserPrefs) => MuseUserPrefs): Promise<MuseUserPrefs | null> {
+  const res = await mutateOrgSettings(orgId, (current) => {
+    const before = readUserPrefs(current, userId);
+    const after = fn(before);
+    if (after === before) return { result: before }; // 无变化不写
+    return { next: withUserPrefs(current, userId, after), result: after };
   });
+  return res.found ? res.result : null;
+}
+
+/** 整条保存这个人的偏好（组织设置里别的键原样保留）。新代码优先用 updateUserPrefs——它基于最新的偏好修改。 */
+export async function saveUserPrefs(orgId: string, userId: string, prefs: MuseUserPrefs): Promise<void> {
+  await mutateOrgSettings(orgId, (current) => ({ next: withUserPrefs(current, userId, prefs), result: null }));
 }
 
 async function updatePrefs(orgId: string, userId: string, fn: (p: MuseUserPrefs) => MuseUserPrefs): Promise<void> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  if (!org) return;
-  const before = readUserPrefs(org.settingsJson, userId);
-  const after = fn(before);
-  if (after === before) return; // 无变化不写
-  await db.organization.update({
-    where: { id: orgId },
-    data: { settingsJson: withUserPrefs(org.settingsJson, userId, after) as Prisma.InputJsonValue },
-  });
+  await updateUserPrefs(orgId, userId, fn);
 }
 
 /** selectItem 成功后：操作者本人的常用供应商挪到最前（上限 5） */

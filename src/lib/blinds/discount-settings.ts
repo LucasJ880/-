@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { lockOrganizationRow } from "@/lib/organizations/settings-write";
 import type { Prisma } from "@prisma/client";
 import type { ProductName, CordlessPolicy } from "./pricing-types";
 import {
@@ -601,6 +602,8 @@ export async function saveDiscountsForOrg(params: {
       Object.keys(addonPatch).length > 0
     ) {
       // 只替换 pricing.discounts / pricing.cordless / pricing.addons 子键；sunnyWarranty / tenderRfq / calendarWatch 等其它键原样保留
+      // FIX-3：先锁住这个组织的行再读，别处并发写入的键才不会被这里的整块写回冲掉
+      await lockOrganizationRow(tx, params.orgId);
       const org = await tx.organization.findUnique({ where: { id: params.orgId }, select: { settingsJson: true } });
       let merged: Record<string, unknown> = (org?.settingsJson ?? {}) as Record<string, unknown>;
       if (Object.keys(jsonPatch).length > 0) merged = mergeJsonDiscounts(merged, jsonPatch);

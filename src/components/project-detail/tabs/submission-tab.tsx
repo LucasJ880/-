@@ -6,7 +6,7 @@
  * 复盘卡、转执行 / 放弃（含既有 Dialog 与业务规则）。不新建第二套提交流程。
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Ban, CheckSquare, ClipboardList, Flag, Loader2, Send } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
@@ -15,6 +15,9 @@ import { BidChecklist } from "@/components/project-checklist/bid-checklist";
 import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
+import { SubmissionRecordCard } from "@/components/tender/submission-record-card";
+import { SubmissionChecklistCard } from "@/components/tender/submission-checklist-card";
+import { toDatetimeLocal } from "@/lib/tender-submission/contract";
 import { HandoffDialog } from "@/components/projects/handoff-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
 import { TENDER_STATUS_LABELS } from "@/lib/domain/labels";
@@ -53,6 +56,8 @@ interface SubmissionTabProps {
   handoffInfo: ProjectHandoffInfo | null;
   onReload: () => void;
   onReviewConfirmed: () => void;
+  /** FLOW-H4b：清单里「去确认」切到「要求」页签（不传则不显示那个按钮） */
+  onGoRequirements?: () => void;
 }
 
 export function SubmissionTab({
@@ -62,7 +67,14 @@ export function SubmissionTab({
   handoffInfo,
   onReload,
   onReviewConfirmed,
+  onGoRequirements,
 }: SubmissionTabProps) {
+  // FLOW-H4b：确定性的交付前检查清单可用时（开关开着）不再显示模型生成的那份；没查完之前两份都不显示，免得闪一下
+  const [checklistState, setChecklistState] = useState<"unknown" | "on" | "off">("unknown");
+  // 必须是稳定的引用：清单组件的取数函数依赖它，每次渲染换一个会反复取数
+  const onChecklistAvailable = useCallback((available: boolean) => setChecklistState(available ? "on" : "off"), []);
+  // FLOW-H4a：提交记录的接口可用时（开关开着），换掉下面那句过时的提示
+  const [recordAvailable, setRecordAvailable] = useState(false);
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
   const [showHandoffDialog, setShowHandoffDialog] = useState(false);
   const stage = getProjectStage(buildTenderProps(project));
@@ -94,7 +106,8 @@ export function SubmissionTab({
           <div>
             <dt className="text-[11px] text-muted">提交时间</dt>
             <dd className="mt-0.5 font-medium">
-              {project.submittedAt ? project.submittedAt.slice(0, 10) : "尚未提交"}
+              {/* 提交记录可用时按本地日期显示，与下面「提交记录」里的时间一致；不可用时与原来相同 */}
+              {project.submittedAt ? (recordAvailable ? toDatetimeLocal(new Date(project.submittedAt)).slice(0, 10) : project.submittedAt.slice(0, 10)) : "尚未提交"}
             </dd>
           </div>
           <div>
@@ -109,9 +122,14 @@ export function SubmissionTab({
           </div>
         </dl>
         <p className="mt-3 text-[11px] text-muted">
-          提交/开标日期在工作台「项目进度 · 关键日期」维护；最终标书文档在「标书与报价」生成，源文件见资料抽屉。
+          {recordAvailable
+            ? "提交时间与回执在下面的「提交记录」里记；开标日期在工作台「项目进度 · 关键日期」维护；最终标书文档在「标书与报价」生成，源文件见资料抽屉。"
+            : "提交/开标日期在工作台「项目进度 · 关键日期」维护；最终标书文档在「标书与报价」生成，源文件见资料抽屉。"}
         </p>
       </section>
+
+      {/* FLOW-H4a：提交记录（开关关闭时这个组件什么都不渲染） */}
+      <SubmissionRecordCard projectId={projectId} onAvailable={setRecordAvailable} onRecorded={onReload} />
 
       {/* 提交就绪：投标清单 + 分析交付物与任务 */}
       <section className="rounded-xl border border-border bg-card-bg p-5 space-y-4">
@@ -119,7 +137,12 @@ export function SubmissionTab({
           <CheckSquare size={16} className="text-accent/60" />
           提交就绪
         </h3>
-        <BidChecklist projectId={projectId} />
+        <SubmissionChecklistCard
+          projectId={projectId}
+          onAvailable={onChecklistAvailable}
+          onGoConfirm={onGoRequirements}
+        />
+        {checklistState === "off" ? <BidChecklist projectId={projectId} /> : null}
         <div className="rounded-lg border border-border/60 p-4">
           <h4 className="mb-3 flex items-center gap-2 text-xs font-semibold text-muted">
             <ClipboardList size={14} />

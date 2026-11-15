@@ -3,8 +3,16 @@
  */
 import type { EntryPreview, EntrySupplier, RfqEntryState, UserMessage } from "@/lib/tender-rfq/web-entry-pure";
 import type { RfqApprovalInfo, RfqEmailPreview } from "@/lib/tender-rfq/web-entry-approval";
+import type { FollowUpCardView } from "@/lib/tender-rfq/followup-coverage";
+import type { RfqEntryFollowUp } from "@/lib/tender-rfq/web-entry";
+import type { SupplierGroupsEntry } from "@/lib/tender-rfq/supplier-groups";
 
 export type { RfqApprovalInfo, RfqEmailPreview, UserMessage };
+
+/** RFQ-AUTO-1：审批卡 / 建轮次表单上展示的跟进授权（范围 + 模板预览） */
+export type RfqFollowUpCardView = FollowUpCardView;
+/** RFQ-AUTO-1：一轮的自动跟进状态 */
+export type RfqFollowUpRoundView = RfqEntryFollowUp["rounds"][string];
 
 export type RfqIncoterm = "EXW" | "FOB" | "CIF" | "DDP" | "DAP";
 
@@ -44,6 +52,14 @@ export type RfqEntryView =
       engineRounds: Record<string, { elapsed: string | null }>;
       autoIngest: UserMessage;
       timeZone: string;
+      /** RFQ-AUTO-1：开关关闭时为 null */
+      followUp: RfqEntryFollowUp | null;
+      /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段 */
+      autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /** RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」；两个功能开关任一关闭时没有这个字段 */
+      autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
+      /** RFQ-AUTO-5：本人的供应商分组与这个项目对上了哪一组；功能关闭时没有这个字段 */
+      supplierGroups?: SupplierGroupsEntry;
     };
 
 export type RfqRoundCreated = {
@@ -59,6 +75,8 @@ export type RfqRoundCreated = {
   incoterm: RfqIncoterm | null;
   approval: RfqApprovalInfo | null;
   emails: RfqEmailPreview[];
+  /** RFQ-AUTO-1：这张卡带的跟进授权；没带 = null */
+  followUp?: RfqFollowUpCardView | null;
 };
 
 export type RfqRoundFailed = { ok: false; errorCode: string; userMessage: UserMessage };

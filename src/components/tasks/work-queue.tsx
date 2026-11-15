@@ -5,13 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import {
-  normalizeTaskStatus,
-  partitionWorkQueue,
-  TASK_STATUS_META,
-  TASK_STATUS_VALUES,
-  type TaskStatusValue,
-} from "@/lib/tasks";
+// 直接引纯模块：`@/lib/tasks` 汇总导出里有服务端查询（项目可见范围、预览身份），不能进客户端包
+import { normalizeTaskStatus, TASK_STATUS_META, TASK_STATUS_VALUES, type TaskStatusValue } from "@/lib/tasks/status";
+import { partitionWorkQueue } from "@/lib/tasks/group";
 import { cn, TASK_PRIORITY, type TaskPriority } from "@/lib/utils";
 import { TaskDrawer } from "@/components/tasks/task-drawer";
 

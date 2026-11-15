@@ -3,6 +3,13 @@ import { OPERATIONS_SKILLS } from "@/lib/agent-core/skills/operations-seed";
 
 export const MARKETING_SKILL_SLUG = "qingyan-marketing-analysis";
 
+/** 只读取已有的市场情报技能（VIS-1e 预览中用，不建不改） */
+export async function findMarketingSkill(orgId: string) {
+  return db.agentSkill.findUnique({
+    where: { orgId_slug: { orgId, slug: MARKETING_SKILL_SLUG } },
+  });
+}
+
 export async function ensureMarketingSkill(orgId: string) {
   const existing = await db.agentSkill.findUnique({
     where: { orgId_slug: { orgId, slug: MARKETING_SKILL_SLUG } },

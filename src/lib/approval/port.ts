@@ -23,7 +23,9 @@ import {
   escalateApproval,
 } from "@/lib/agent/approval";
 import { resumeFlowAfterApproval } from "@/lib/agent-core/skills/flow-runner";
-import { getTeamApprovalAccessIds } from "@/lib/marketing/team";
+import { approvalRequestItem, pendingActionItem, type ApprovalViewer } from "./audience";
+import { cardVisibleTo, loadApprovalViewer } from "./audience-server";
+import { loadPendingMineWhere } from "./pending-mine";
 
 export type ApprovalKind = "pending_action" | "approval_request";
 
@@ -57,6 +59,11 @@ export interface ApprovalDecisionContext {
   orgId?: string | null;
   note?: string;
   acceptedWithRisk?: boolean;
+  /**
+   * VIS-1d：调用方已取好的审批可见判定输入（审批中心按当前企业取一次）。
+   * 只在它的企业与卡所属企业相同时采用，否则端口按卡所属企业自行取。
+   */
+  viewer?: ApprovalViewer;
 }
 
 export interface ApprovalDecisionResult {
@@ -73,19 +80,23 @@ export interface ApprovalDecisionResult {
 
 // ── 统一收件箱 ───────────────────────────────────────────────────
 
+/**
+ * VIS-1d：收件箱 = 「待我确认」同一组条件（处理人范围 ∩ 审批的可见集合 ∩ 当前企业，另含本人的个人草稿）
+ * + 该企业项目上、本人可见的项目智能体审批。企业为空时只含本人的个人草稿。
+ */
 export async function listApprovalInbox(
   userId: string,
+  opts: { orgId: string | null; viewer?: ApprovalViewer },
 ): Promise<ApprovalInboxItem[]> {
-  const access = await getTeamApprovalAccessIds(userId);
+  const viewer =
+    opts.viewer && opts.viewer.userId === userId && opts.viewer.orgId === opts.orgId
+      ? opts.viewer
+      : await loadApprovalViewer(userId, opts.orgId);
+  const pendingWhere = await loadPendingMineWhere(userId, opts.orgId, { viewer });
   const [pendingActions, approvalRequests] = await Promise.all([
     db.pendingAction.findMany({
       where: {
-        OR: [
-          { createdById: userId, orgId: null, projectId: null, approverUserId: null },
-          { approverUserId: userId },
-          ...(access.orgIds.length ? [{ orgId: { in: access.orgIds } }] : []),
-          ...(access.projectIds.length ? [{ projectId: { in: access.projectIds } }] : []),
-        ],
+        ...pendingWhere,
         status: "pending",
         expiresAt: { gt: new Date() },
       },
@@ -103,7 +114,7 @@ export async function listApprovalInbox(
         projectId: true,
       },
     }),
-    getPendingApprovals(userId),
+    getPendingApprovals(userId, { orgId: opts.orgId, viewer }),
   ]);
 
   const items: ApprovalInboxItem[] = [
@@ -198,6 +209,51 @@ async function recordFdeDraftFeedback(actionId: string, type: string | null | un
   }
 }
 
+/**
+ * VIS-1d：看不见的卡与 id 不存在时逐键相同（executor「草稿不存在」→ 收敛为 failed，run 为空）。
+ * 不执行、不收敛、不透露状态。
+ */
+function pendingApproveNotFound(): ApprovalDecisionResult {
+  return {
+    ok: false,
+    status: "failed",
+    resultRef: undefined,
+    message: undefined,
+    error: "草稿不存在",
+    errorCode: undefined,
+    run: null,
+  };
+}
+
+function pendingRejectNotFound(): ApprovalDecisionResult {
+  return { ok: false, status: "failed", error: "草稿不存在", run: null };
+}
+
+/** 项目智能体审批不存在 / 不在待批 / 看不见时的统一结果（步骤审批路由按它返回 404） */
+export const APPROVAL_REQUEST_NOT_FOUND_ERROR = "无待处理的审批请求";
+
+function approvalRequestNotFound(): ApprovalDecisionResult {
+  return { ok: false, error: APPROVAL_REQUEST_NOT_FOUND_ERROR };
+}
+
+const PENDING_BEFORE_SELECT = {
+  agentRunId: true,
+  orgId: true,
+  status: true,
+  type: true,
+  createdById: true,
+  approverUserId: true,
+  workspaceId: true,
+  projectId: true,
+} as const;
+
+const APPROVAL_REQUEST_SELECT = {
+  id: true,
+  taskId: true,
+  approverUserId: true,
+  task: { select: { createdById: true, project: { select: { id: true, orgId: true, workspaceId: true } } } },
+} as const;
+
 export async function approveApprovalItem(
   kind: ApprovalKind,
   id: string,
@@ -206,8 +262,13 @@ export async function approveApprovalItem(
   if (kind === "pending_action") {
     const before = await db.pendingAction.findUnique({
       where: { id },
-      select: { agentRunId: true, orgId: true, status: true, type: true },
+      select: PENDING_BEFORE_SELECT,
     });
+
+    // VIS-1d：一进来就判可见（在已终态分支之前），按卡所属企业
+    if (before && !(await cardVisibleTo(pendingActionItem(before), ctx.userId, ctx.orgId, ctx.viewer))) {
+      return pendingApproveNotFound();
+    }
 
     // 幂等：已终态 → 收敛并返回既有结果，不重复副作用（含 Gmail 草稿：不二次 drafts.create）
     if (before && isTerminalPendingActionStatus(before.status)) {
@@ -386,10 +447,11 @@ export async function approveApprovalItem(
 
   const approval = await db.approvalRequest.findFirst({
     where: { id, status: "pending" },
-    select: { id: true, taskId: true },
+    select: APPROVAL_REQUEST_SELECT,
   });
-  if (!approval) {
-    return { ok: false, error: "无待处理的审批请求" };
+  // VIS-1d：项目智能体审批同样先判可见（企业取任务所属项目），看不见按不存在返回
+  if (!approval || !(await cardVisibleTo(approvalRequestItem(approval), ctx.userId, ctx.orgId, ctx.viewer))) {
+    return approvalRequestNotFound();
   }
 
   await resolveApproval({
@@ -418,8 +480,13 @@ export async function rejectApprovalItem(
   if (kind === "pending_action") {
     const before = await db.pendingAction.findUnique({
       where: { id },
-      select: { agentRunId: true, orgId: true, status: true, type: true },
+      select: PENDING_BEFORE_SELECT,
     });
+
+    // VIS-1d：一进来就判可见（在已终态分支之前），按卡所属企业
+    if (before && !(await cardVisibleTo(pendingActionItem(before), ctx.userId, ctx.orgId, ctx.viewer))) {
+      return pendingRejectNotFound();
+    }
 
     if (before && before.status === "rejected") {
       const run = await reconcileAfterPendingAction({
@@ -565,10 +632,10 @@ export async function rejectApprovalItem(
 
   const approval = await db.approvalRequest.findFirst({
     where: { id, status: "pending" },
-    select: { id: true, taskId: true },
+    select: APPROVAL_REQUEST_SELECT,
   });
-  if (!approval) {
-    return { ok: false, error: "无待处理的审批请求" };
+  if (!approval || !(await cardVisibleTo(approvalRequestItem(approval), ctx.userId, ctx.orgId, ctx.viewer))) {
+    return approvalRequestNotFound();
   }
 
   await resolveApproval({

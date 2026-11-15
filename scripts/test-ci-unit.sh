@@ -44,6 +44,8 @@ npx tsx src/lib/tender-intel/__tests__/websearch.test.ts
 npx tsx src/lib/tender-intel/__tests__/awards.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts
 npx tsx src/lib/tender/__tests__/workbench-state.test.ts
+npx tsx src/lib/tender/__tests__/stage-status-catch-up.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-status-catch-up-db.isolated.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
@@ -99,6 +101,8 @@ npx tsx --test src/lib/project-finance/__tests__/p16-pure.test.ts
 npx tsx --test src/lib/project-finance/__tests__/p16-authz-contract.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-fingerprint.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/extract-core.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm.test.ts
+NODE_ENV=test npx tsx src/lib/tender-auto-analysis/__tests__/requirement-batch-confirm-db.isolated.test.ts
 npx tsx src/lib/tender-eval/__tests__/eval-harness.test.ts
 npx tsx src/lib/tender-understanding/__tests__/addendum-disposition.test.ts
 npx tsx src/lib/tender-understanding/__tests__/input-completeness.test.ts
@@ -149,6 +153,10 @@ npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/navigation/__tests__/route-gate.test.ts
 npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
+# NAV-1a（openspec change nav-1a-single-name）：入口名称单一来源——纯函数 + 源码断言，无 DB
+npx tsx src/lib/navigation/__tests__/entry-naming.test.ts
+npx tsx src/lib/approval/__tests__/audience.test.ts
+npx tsx src/lib/preview/__tests__/preview.test.ts
 npx tsx src/lib/search/__tests__/search-where.test.ts
 npx tsx src/lib/autopilot/__tests__/access.test.ts
 npx tsx src/lib/autopilot/__tests__/sanitize.test.ts
@@ -193,6 +201,7 @@ npx tsx src/lib/notifications/__tests__/mark-all-read.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
 npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts
+npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts
 npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts
@@ -221,6 +230,7 @@ npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts
 npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts
+npx tsx src/lib/pending-actions/__tests__/draft-idempotency.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
@@ -421,6 +431,16 @@ npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify-wiring.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracking-notify.test.ts
+npx tsx src/lib/tender-rfq/__tests__/followup-coverage.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/followup-auto-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/auto-draft-pure.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
+npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts
+npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
+NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts
 # TI-1：招标价格表行项
 npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts
@@ -447,6 +467,21 @@ npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts
+npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts
+NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts
+npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts
+NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts
+npx tsx src/lib/tender/__tests__/stage-auto.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
+npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts
+npx tsx src/components/tender/__tests__/project-progress-section.test.tsx
+npx tsx src/lib/tender/__tests__/stage-tasks.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts
+npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts
+NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts
+npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts
+NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts
+npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

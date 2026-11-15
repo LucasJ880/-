@@ -69,7 +69,7 @@ export function ProjectStageStepper({
           const isBeforeCurrent = currentIdx >= 0 && i < currentIdx;
 
           return (
-            <div key={stage.key} className="flex flex-1 items-start">
+            <div key={stage.key} className="flex flex-1 items-start" data-stage={stage.key} data-status={stage.status}>
               <div className="flex flex-col items-center">
                 <div
                   className={cn(

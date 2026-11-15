@@ -7,6 +7,7 @@
  */
 
 import { db } from "@/lib/db";
+import { getActivePreview } from "@/lib/preview/server";
 import { PERMISSION_REGISTRY } from "./permissions";
 import { SYSTEM_ROLE_PROFILES, hasPositionTemplates } from "./role-defaults";
 import type { BindingEffect, DataScope, PrincipalRef } from "./types";
@@ -109,6 +110,14 @@ export async function resolveEffectiveBindings(
   // PERM-5b：数字员工只认自己的岗位绑定——无平台管理员全权、无成员角色兼容回退、不继承 sponsor
   if (principal.type === "DIGITAL_EMPLOYEE") return loadProfileBindings(principal);
   if (principal.type !== "HUMAN") return [];
+
+  // VIS-1e：以岗位预览期间只取所选岗位在预览企业的权限行，其他企业无权限；不再按库里的平台角色给全权
+  const preview = await getActivePreview(principal.id);
+  if (preview) {
+    return principal.orgId === preview.orgId
+      ? preview.bindings.map((b) => ({ ...b, dataScope: b.dataScope as DataScope }))
+      : [];
+  }
 
   const user = await db.user.findUnique({
     where: { id: principal.id },

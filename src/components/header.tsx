@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
+import { usePreviewReadonly } from "@/lib/hooks/use-preview";
 import {
   Bell,
   User,
@@ -284,12 +285,15 @@ function NotificationPanel({
     return () => document.removeEventListener("mousedown", handler);
   }, [open, onClose]);
 
+  // VIS-1e：以岗位预览中不标已读（写请求一律被拒）
+  const previewReadonly = usePreviewReadonly();
   const handleAction = useCallback(
     async (id: string, action: "read" | "done") => {
+      if (previewReadonly) return;
       await apiFetch(`/api/notifications/${id}/${action}`, { method: "PATCH" });
       load();
     },
-    [load]
+    [load, previewReadonly]
   );
 
   if (!open) return null;
@@ -320,6 +324,7 @@ function NotificationPanel({
               type="button"
               onClick={async () => {
                 // 本人全部未读（不只面板已加载的 12 条），与角标同一范围
+                if (previewReadonly) return;
                 await apiFetch("/api/notifications/read-all", { method: "POST" });
                 load();
               }}

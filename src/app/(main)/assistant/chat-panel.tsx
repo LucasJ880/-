@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { PREVIEW_CHAT_DISABLED_HINT, usePreviewReadonly } from "@/lib/hooks/use-preview";
 import type { ReactNode, RefObject } from "react";
 import {
   Send,
@@ -244,6 +245,8 @@ export function ChatPanel({
   orgReady = true,
   orgBlockReason = null,
 }: ChatPanelProps) {
+  // VIS-1e：以岗位预览中 AI 对话输入禁用
+  const previewReadonly = usePreviewReadonly();
   const scrollRef = useRef<HTMLDivElement>(null);
   const approvalPanelRef = useRef<HTMLDivElement>(null);
   const [stickySelectedIds, setStickySelectedIds] = useState<string[]>([]);
@@ -809,7 +812,9 @@ export function ChatPanel({
               }
             }}
             placeholder={
-              !orgReady
+              previewReadonly
+                ? PREVIEW_CHAT_DISABLED_HINT
+                : !orgReady
                 ? "请先选择当前工作组织…"
                 : voiceState === "recording"
                 ? "正在聆听，再点一下麦克风结束..."
@@ -821,7 +826,7 @@ export function ChatPanel({
                       ? "输入你的问题，如「帮我提炼产品细节」，留空直接发送也可以..."
                       : "描述目标、客户情况或需要推进的工作，也可拖入文件或截图..."
             }
-            disabled={isLoading}
+            disabled={isLoading || previewReadonly}
             rows={1}
             className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-[#959c98] disabled:opacity-50"
             style={{ minHeight: "44px" }}
@@ -856,7 +861,7 @@ export function ChatPanel({
           )}
           <button
             onClick={() => trySend()}
-            disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing}
+            disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing || previewReadonly}
             className={cn(
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white shadow-xs transition-colors disabled:bg-[#d8dcda] disabled:text-[#8e9591] disabled:shadow-none",
               !orgReady

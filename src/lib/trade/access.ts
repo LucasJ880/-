@@ -13,6 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { getActivePreview } from "@/lib/preview/server";
 import type { AuthUser } from "@/lib/auth";
 import { getOrgMembership } from "@/lib/auth";
 import { requireCronSecret } from "@/lib/cron/auth";
@@ -88,6 +89,13 @@ export async function resolveTradeOrgId(
   const url = new URL(request.url);
   const fromQuery = url.searchParams.get("orgId");
   const explicit = (fromQuery ?? opts?.bodyOrgId ?? "").trim() || null;
+
+  // VIS-1e：以岗位预览期间只认预览企业，显式指定别的企业按企业上下文不一致拒绝
+  const preview = await getActivePreview(user.id);
+  if (preview) {
+    if (explicit && explicit !== preview.orgId) return { ok: false, response: orgContextMismatchResponse() };
+    return { ok: true, orgId: preview.orgId };
+  }
 
   if (isPlatformSuperAdmin(user.role)) {
     if (!explicit) {

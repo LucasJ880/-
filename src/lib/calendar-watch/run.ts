@@ -7,6 +7,7 @@
  */
 
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
 import { getLocalTimeParts } from "@/lib/automation/local-time";
@@ -392,11 +393,12 @@ async function alreadyDelivered(sourceKey: string): Promise<boolean> {
 
 /** 回写单个日历的游标：重新读最新配置，只在该日历仍在观察、读取账号未变时写 */
 async function saveCursor(orgId: string, readerUserId: string, calendarId: string, cursor: CalendarCursor): Promise<void> {
-  const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  const current = readCalendarWatch(org?.settingsJson ?? null);
-  if (current.readerUserId !== readerUserId || !current.calendarIds.includes(calendarId)) return;
-  const next = withCalendarWatch(org?.settingsJson ?? null, { ...current, cursor: { ...current.cursor, [calendarId]: cursor } });
-  await db.organization.update({ where: { id: orgId }, data: { settingsJson: next as object } });
+  // FIX-3：锁行后在最新的设置上判断并只改这一个日历的游标
+  await mutateOrgSettings(orgId, (latest) => {
+    const current = readCalendarWatch(latest);
+    if (current.readerUserId !== readerUserId || !current.calendarIds.includes(calendarId)) return { result: null };
+    return { next: withCalendarWatch(latest, { ...current, cursor: { ...current.cursor, [calendarId]: cursor } }), result: null };
+  });
 }
 
 const emptyTally = (): PushTally => ({ muse: 0, wechatSent: 0, wechatFailed: 0, wechatSkipped: 0, wechatCapped: 0 });

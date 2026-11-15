@@ -9,6 +9,7 @@ import {
   Suspense,
 } from "react";
 import { usePathname } from "next/navigation";
+import { PreviewBanner } from "@/components/preview-banner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { MobileTabBar } from "./mobile-tab-bar";
@@ -90,6 +91,8 @@ function AppShellContents({ children }: { children: React.ReactNode }) {
 
         {/* Main workspace: current context lives in Header; right panel is opt-in per entity page. */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-[color:var(--shell-divider)] bg-[color:var(--shell-main-bg)] backdrop-blur-md">
+          {/* VIS-1e：以岗位预览横幅（所有已登录页面常驻，含对话页） */}
+          <PreviewBanner />
           {/* 对话页手机端隐藏全局顶栏，桌面保留 */}
           <div className={cn(isChatRoute && "hidden md:block")}>
             <Header />

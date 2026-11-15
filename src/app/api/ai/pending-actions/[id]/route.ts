@@ -18,6 +18,8 @@ import {
   rejectApprovalItem,
 } from "@/lib/approval/port";
 import { canDecideTeamApproval } from "@/lib/marketing/team";
+import { pendingActionItem, portCardVisible } from "@/lib/approval/audience";
+import { viewerForCard } from "@/lib/approval/audience-server";
 import { getOrgMembership } from "@/lib/auth";
 import { resolveAssistantOrgId } from "@/lib/assistant/thread-org";
 import { canConfirmPendingActionInActiveOrg } from "@/lib/assistant/thread-org-backfill";
@@ -65,11 +67,20 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
       expiresAt: true,
       orgId: true,
       projectId: true,
+      workspaceId: true,
       approverUserId: true,
       agentRunId: true,
     },
   });
   if (!action) {
+    return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
+  }
+
+  // VIS-1d：先在卡所属企业里判可见，看不见与不存在返回相同的 404（不透露存在、也不透露属于哪家企业）；
+  // 看得见、但不在当前企业的，照旧提示切换企业（下方 403）
+  const item = pendingActionItem(action);
+  const viewer = await viewerForCard(item, user.id);
+  if (!portCardVisible(item, viewer, null)) {
     return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
   }
 
@@ -116,6 +127,7 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
       userId: user.id,
       role: aiRole,
       orgId: orgRes.orgId,
+      viewer,
     });
     if (!result.ok && !result.duplicate) {
       return NextResponse.json(
@@ -146,6 +158,7 @@ const authenticatedPost = withAuth(async (request, ctx, user) => {
       role: aiRole,
       orgId: orgRes.orgId,
       note: reason,
+      viewer,
     });
     if (!result.ok && !result.duplicate) {
       return NextResponse.json(

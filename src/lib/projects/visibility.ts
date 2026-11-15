@@ -22,6 +22,7 @@
  */
 
 import { db } from "@/lib/db";
+import { listEffectiveMemberships } from "@/lib/preview/server";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import type { AuthUser } from "@/lib/auth";
 import { buildProjectLifecycleWhere } from "@/lib/projects/lifecycle";
@@ -48,10 +49,8 @@ export async function buildProjectVisibilityWhere(
     return null;
   }
 
-  const memberships = await db.organizationMember.findMany({
-    where: { userId: user.id, status: "active" },
-    select: { orgId: true },
-  });
+  // VIS-1e：以岗位预览期间只有预览企业
+  const memberships = await listEffectiveMemberships(user.id);
   const orgIds = memberships.map((m) => m.orgId);
 
   return {
@@ -75,10 +74,8 @@ export async function getVisibleProjectIds(
 ): Promise<string[] | null> {
   if (isSuperAdmin(role)) return null;
 
-  const memberships = await db.organizationMember.findMany({
-    where: { userId, status: "active" },
-    select: { orgId: true },
-  });
+  // VIS-1e：以岗位预览期间只有预览企业
+  const memberships = await listEffectiveMemberships(userId);
   const orgIds = memberships.map((m) => m.orgId);
 
   const projects = await db.project.findMany({

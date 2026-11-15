@@ -130,7 +130,7 @@ export default function OrganizationsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
-        title="组织"
+        title="成员与组织"
         description="组织是一级数据隔离边界：成员在此协作，项目必须归属在某个组织下才能统一管理任务与环境。"
       />
 

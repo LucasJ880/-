@@ -3,6 +3,8 @@
  * 运行：npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { partitionSuppliers } from "../round-pure";
 import {
   approvalStatusNote,
@@ -291,6 +293,67 @@ console.log("T-1 催单卡原地审批");
   ok("没有 message → 已批准并发出", chaseOutcomeFromMessage(undefined).text === "已批准并发出。");
   ok("失败原因里的英文状态换成中文", chaseErrorText("当前状态「replied」不需要追问") === "当前状态「已回复」不需要追问");
   ok("没有英文状态的失败原因原样", chaseErrorText("发送失败：timeout") === "发送失败：timeout");
+}
+
+console.log("RFQ-AUTO-1 入口与接口接线（源码断言）");
+{
+  const root = resolve(__dirname, "../../../..");
+  const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+  const entry = read("src/lib/tender-rfq/web-entry.ts");
+  const service = read("src/lib/tender-rfq/service.ts");
+  const roundsRoute = read("src/app/api/projects/[id]/tender-rfq/rounds/route.ts");
+  const stopRoute = read("src/app/api/projects/[id]/tender-rfq/rounds/[inquiryId]/follow-up/stop/route.ts");
+  const muse = read("src/lib/muse-bridge/router.ts");
+  ok("开关关闭：入口不给勾选、不给轮次状态（界面据此不显示）；没有带授权的待批卡时 followUp 为 null", /if \(!isRfqFollowUpPreapprovalEnabledForOrg\(input\.orgId\)\) \{[\s\S]{0,160}return Object\.keys\(cards\)\.length > 0 \? \{ offer: null, cards, rounds: \{\}, suspended: true \} : null;/.test(entry));
+  ok("授权只在「来源是网页或自动起草 + 明确带了 autoFollowUp + 开关打开」同时成立时写进载荷", /const followUpRequested = \(input\.source === "web" \|\| input\.source === "auto"\) && input\.autoFollowUp === true;/.test(service) && /followUpRequested && isRfqFollowUpPreapprovalEnabledForOrg\(input\.orgId\)/.test(service));
+  ok("建轮次接口：autoFollowUp 是可选布尔，只有明确为 true 才算勾选", /autoFollowUp: z\.boolean\(\)\.optional\(\)/.test(roundsRoute) && /autoFollowUp: body\.autoFollowUp === true,/.test(roundsRoute));
+  ok("停止接口：要求项目写权限，且只有 POST", /requireProjectWriteAccess/.test(stopRoute) && /export async function POST/.test(stopRoute) && !/export async function (GET|PUT|PATCH|DELETE)/.test(stopRoute));
+  ok("带授权时标题里写明「含自动跟进授权」（只显示标题的界面也看得出）", /\$\{followUpPolicy \? "（含自动跟进授权）" : ""\}/.test(service));
+  const chaseService = read("src/lib/tender-rfq/chase-service.ts");
+  ok("扫描只排除已取消 / 已完成的轮次（草稿状态的照旧催）", /status: \{ notIn: \["canceled", "completed"\] \}/.test(chaseService) && !/status: "in_progress",\n\s+\.\.\.\(where\.inquiryId/.test(chaseService));
+  ok("代批之前核对库里那张卡的内容，且按组织与类型查", /findFirst\(\{ where: \{ id: input\.actionId, orgId: input\.orgId, type: TENDER_SEND_CHASE_TYPE \}/.test(chaseService) && /sameChaseContent\(stored\.payload, input\.expected\)/.test(chaseService));
+  ok("Muse 发起路径调用同一个建轮次函数，但不传 autoFollowUp", /prepareRfqRound\(/.test(muse) && !/autoFollowUp/.test(muse));
+}
+
+console.log("RFQ-AUTO-2 自动起草的接线（源码断言）");
+{
+  const root = resolve(__dirname, "../../../..");
+  const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+  const entry = read("src/lib/tender-rfq/web-entry.ts");
+  const service = read("src/lib/tender-rfq/service.ts");
+  const autoService = read("src/lib/tender-rfq/auto-draft-service.ts");
+  const base = "src/app/api/projects/[id]/tender-analysis/runs/[runId]";
+  const routes = {
+    approve_run: read(`${base}/approve/route.ts`),
+    batch_confirm: read(`${base}/requirements/batch-confirm/route.ts`),
+    confirm_requirement: read(`${base}/requirements/[requirementId]/confirm/route.ts`),
+    reject_requirement: read(`${base}/requirements/[requirementId]/reject/route.ts`),
+  };
+  ok("开关关闭：入口不查自动起草的轮次，响应里也没有这个字段", /\.\.\.\(isRfqAutoDraftEnabledForOrg\(input\.orgId\) \? \{ autoDraftedRounds: await loadAutoDraftedRounds\(input\.orgId, project\.id\) \} : \{\}\)/.test(entry));
+  ok("入口按组织、项目、类型与来源标记找自动起草的轮次", /where: \{ orgId, projectId, type: TENDER_SEND_RFQ_TYPE, payload: \{ path: \["metadata", "sourceToolName"\], equals: AUTO_DRAFT_TOOL_NAME \} \}/.test(entry));
+  ok("四个审核路由各调用一次自动起草，触发类型各不相同，操作者取登录用户", Object.entries(routes).every(([trigger, src]) => (src.match(/maybeAutoDraftRfq\(/g) ?? []).length === 1 && src.includes(`trigger: "${trigger}"`) && /userId: access\.user\.id/.test(src)));
+  ok("四个路由都在鉴权与动作成功之后才调用，且开关关闭（结果为空）时响应不带这个字段", Object.values(routes).every((src) => src.indexOf("maybeAutoDraftRfq(") > src.indexOf("requireTenderAnalysisWrite(") && src.indexOf("maybeAutoDraftRfq(") > src.indexOf("if (!result.ok)") && /\.\.\.\(rfqAutoDraft \? \{ rfqAutoDraft \} : \{\}\)/.test(src)));
+  ok("重复批准（幂等返回）不触发", /const rfqAutoDraft = result\.idempotent\s*\?\s*null/.test(routes.approve_run));
+  ok("自动起草走既有的建轮次函数，来源记为 auto", /source: "auto"/.test(autoService) && /prepare: prepareRfqRound/.test(autoService));
+  // RFQ-AUTO-3：自动起草带不带授权，只取决于触发起草的那个人自己的开关
+  const optInService = read("src/lib/tender-rfq/auto-followup-optin-service.ts");
+  const optInRoute = read("src/app/api/projects/[id]/tender-rfq/auto-follow-up/route.ts");
+  ok("自动起草只在读到操作者本人的开关为开时才传 autoFollowUp，且读的是 input.userId 的开关", /const followUpOptIn = await loadAutoDraftFollowUpOptIn\(input\.orgId, input\.userId\);/.test(autoService) && /\.\.\.\(followUpOptIn \? \{ autoFollowUp: true \} : \{\}\)/.test(autoService) && (autoService.match(/autoFollowUp/g) ?? []).length === 1);
+  ok("结果与审计里「带不带授权」以卡上实际写了什么为准", (autoService.match(/withFollowUp: !!prepared\.followUpPolicy/g) ?? []).length === 2);
+  ok("跟进授权的写入条件：来源只认网页与自动起草，Muse 不在其中；仍须明确带 autoFollowUp 且功能开关打开", /\(input\.source === "web" \|\| input\.source === "auto"\) && input\.autoFollowUp === true/.test(service) && !/input\.source === "muse"[^\n]*autoFollowUp/.test(service) && !/autoFollowUp/.test(read("src/lib/muse-bridge/router.ts")));
+  ok("个人开关：两个功能开关任一关闭就不生效（自动起草时读出来是关、且不查库）", /return isRfqFollowUpPreapprovalEnabledForOrg\(orgId\) && isRfqAutoDraftEnabledForOrg\(orgId\);/.test(optInService) && /if \(!isAutoDraftFollowUpOptInAvailable\(orgId\)\) return false;/.test(optInService));
+  ok("设置开关：状态已经是想要的那样就不写", /if \(!optInNeedsWrite\(current, input\.enabled\)\) return \{ ok: true, state: current, changed: false \};/.test(optInService));
+  ok("设置接口：先鉴权（项目写权限）再读请求体；用户号只取登录用户，请求体里只有 enabled", optInRoute.indexOf("requireProjectWriteAccess(") < optInRoute.indexOf("request.json()") && /userId: access\.user\.id/.test(optInRoute) && /z\.object\(\{ enabled: z\.boolean\(\) \}\)\.strict\(\)/.test(optInRoute) && /export async function PUT/.test(optInRoute) && !/export async function (GET|POST|PATCH|DELETE)/.test(optInRoute));
+  ok("入口带的是登录用户自己的开关；两个功能开关都关时不查库、没有这个字段；只开了一个时只有开关不是 off 才带（让他看得到、关得掉）", /\.\.\.\(await loadEntryAutoDraftFollowUp\(input\.orgId, input\.userId\)\)/.test(entry) && /if \(!isRfqFollowUpPreapprovalEnabledForOrg\(orgId\) && !isRfqAutoDraftEnabledForOrg\(orgId\)\) return \{\};/.test(entry) && /return available \|\| state !== "off" \? \{ autoDraftFollowUp: \{ state, available \} \} : \{\};/.test(entry));
+  ok("待批卡上的授权不看功能开关：先按卡的载荷取出来，功能关闭时也返回并标为暂停", entry.indexOf("if (policy) cards[r.id] = view(policy);") < entry.indexOf("if (!isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)) {") && /return Object\.keys\(cards\)\.length > 0 \? \{ offer: null, cards, rounds: \{\}, suspended: true \} : null;/.test(entry));
+  ok("个人开关不经过 Muse：Muse 的偏好与路由里都没有它", !/autoDraftFollowUp|auto-followup-optin/.test(read("src/lib/muse-bridge/prefs-pure.ts")) && !/autoDraftFollowUp|auto-followup-optin/.test(read("src/lib/muse-bridge/router.ts")) && !/autoDraftFollowUp|auto-followup-optin/.test(read("src/lib/muse-bridge/router-pure.ts")));
+  ok("自动起草的服务不批准、不执行、不发信", !/approveApprovalItem|executePendingAction|sendEmail|sendGmail|execTenderSendRfq/.test(autoService));
+  const inquiryService = read("src/lib/inquiry/service.ts");
+  ok("只建项目的第 1 轮：自动起草要求「恰好是第 1 轮才建」，且不持有事务或咨询锁（不占住数据库连接）", /onlyIfFirstRound: true/.test(autoService) && !/\$transaction|pg_advisory/.test(autoService));
+  ok("建轮次：轮次号对不上或撞上唯一约束时什么都不建，报「已有轮次」", /if \(expecting && nextRound !== input\.expectRoundNumber\) throw new RoundNumberTakenError/.test(inquiryService) && /code === "P2002"\) throw new RoundNumberTakenError/.test(inquiryService) && /if \(err instanceof RoundNumberTakenError\) return \{ ok: false, errorCode: "ROUND_LOCKED"/.test(service));
+  ok("轮次已建、审批卡没建成之前出错：把这一轮标为已取消再抛出（不留没有审批卡的草稿轮次）", /return await draftRoundCard\([\s\S]{0,260}\} catch \(err\) \{\s*await db\.projectInquiry\.update\(\{ where: \{ id: inquiry\.id \}, data: \{ status: "canceled" \} \}\)\.catch\(\(\) => undefined\);\s*throw err;/.test(service));
+  ok("不带 onlyIfFirstRound 时建轮次的行为不变（网页与 Muse 入口不传）", /\.\.\.\(input\.onlyIfFirstRound \? \{ expectRoundNumber: 1 \} : \{\}\)/.test(service) && !/onlyIfFirstRound/.test(read("src/app/api/projects/[id]/tender-rfq/rounds/route.ts")) && !/onlyIfFirstRound/.test(read("src/lib/muse-bridge/router.ts")));
+  ok("自动起草的服务接住全部异常", /try \{\s*return await run\(input, deps\);\s*\} catch/.test(autoService));
 }
 
 console.log(`\nW-1 web-entry-pure: ${passed} passed`);

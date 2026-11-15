@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActivePreview } from "@/lib/preview/server";
+import { PREVIEW_ORG_ROLE } from "@/lib/preview/identity";
 import { db } from "@/lib/db";
 import { requireAuth, requirePlatformAdmin } from "@/lib/auth/guards";
 import { isSuperAdmin } from "@/lib/rbac/roles";
@@ -83,6 +85,14 @@ export async function GET(request: NextRequest) {
     orderBy: { joinedAt: "desc" },
   });
 
+  // VIS-1e：以岗位预览期间只列预览企业，成员角色 org_member
+  const preview = await getActivePreview(user.id);
+  if (preview) {
+    for (let i = memberships.length - 1; i >= 0; i--) {
+      if (memberships[i].org.id !== preview.orgId) memberships.splice(i, 1);
+      else memberships[i] = { ...memberships[i], role: PREVIEW_ORG_ROLE };
+    }
+  }
   const memberOrgIds = memberships.map((m) => m.org.id);
   const dispatchedCounts = memberOrgIds.length
     ? await db.project.groupBy({

@@ -157,6 +157,44 @@ export function renderChaseEmail(input: ChaseEmailInput): { subject: string; bod
   return { subject: chaseSubject(input.originalSubject), body: L.join("\n") };
 }
 
+/* ---------------------------------- 模板指纹（RFQ-AUTO-1） ---------------------------------- */
+
+/** 催单 / 追问模板的版本。改了 renderChaseEmail 的任何文字都要加一——已批准的跟进授权据此失效，退回逐张人工批。 */
+export const CHASE_TEMPLATE_VERSION = 1;
+
+const TEMPLATE_SAMPLE = { supplierName: "示例供应商", originalSubject: "询价：示例项目", sentAt: new Date("2026-01-05T00:00:00Z"), fromName: "示例发件人" } as const;
+
+/**
+ * 三段模板的预览（催单一、催单二、缺字段追问——追问列出全部六个可能的字段）。
+ * 审批卡上展示的就是它；指纹也由它算出，所以「人看到的」与「指纹保护的」是同一份文字。
+ */
+export function renderChaseTemplatePreviews(input: { supplierName?: string; originalSubject?: string; sentAt?: Date | null; replyBy: string | null; fromName: string }): {
+  reminder1: { subject: string; body: string };
+  reminder2: { subject: string; body: string };
+  missingFields: { subject: string; body: string };
+} {
+  const base = {
+    supplierName: input.supplierName ?? TEMPLATE_SAMPLE.supplierName,
+    originalSubject: input.originalSubject ?? TEMPLATE_SAMPLE.originalSubject,
+    sentAt: input.sentAt === undefined ? TEMPLATE_SAMPLE.sentAt : input.sentAt,
+    replyBy: input.replyBy,
+    fromName: input.fromName,
+  };
+  return {
+    reminder1: renderChaseEmail({ ...base, kind: "no_reply", chaseIndex: 1, missingFields: [] }),
+    reminder2: renderChaseEmail({ ...base, kind: "no_reply", chaseIndex: 2, missingFields: [] }),
+    missingFields: renderChaseEmail({ ...base, kind: "missing_fields", chaseIndex: 1, missingFields: CHASE_FIELD_ORDER }),
+  };
+}
+
+/** 模板指纹：版本号 + 用固定样例渲染出的三段正文（有、无回复截止各一份）。 */
+export function chaseTemplateHash(): string {
+  const withDeadline = renderChaseTemplatePreviews({ replyBy: "2026-01-12", fromName: TEMPLATE_SAMPLE.fromName });
+  const noDeadline = renderChaseTemplatePreviews({ replyBy: null, fromName: TEMPLATE_SAMPLE.fromName });
+  const text = [withDeadline, noDeadline].flatMap((p) => [p.reminder1, p.reminder2, p.missingFields]).map((m) => `${m.subject}\n${m.body}`).join("\n---\n");
+  return createHash("sha256").update(`v${CHASE_TEMPLATE_VERSION}\n${text}`).digest("hex").slice(0, 16);
+}
+
 export function hashChaseBody(p: Pick<TenderSendChasePayload, "inquiryItemId" | "to" | "threadId" | "subject" | "body">): string {
   return createHash("sha256").update(`${p.inquiryItemId}|${p.to}|${p.threadId}|${p.subject}|${p.body}`).digest("hex").slice(0, 16);
 }
@@ -238,7 +276,7 @@ export function decideNoResponse(item: Pick<ChaseItemSnapshot, "status" | "sentA
   return waited && (nudges.length >= CHASE_MAX || deadlinePassed(replyBy, now));
 }
 
-function deadlinePassed(replyBy: Date | null, now: Date): boolean {
+export function deadlinePassed(replyBy: Date | null, now: Date): boolean {
   // dueDate 是日期（当天 00:00 UTC）：过了当天才算过期
   return !!replyBy && now.getTime() >= replyBy.getTime() + DAY;
 }

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clearPreviewCookie } from "@/lib/preview/cookie";
+import { withoutPreview } from "@/lib/preview/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { createSession, setSessionCookie } from "@/lib/auth/session";
@@ -77,7 +79,8 @@ export async function POST(request: NextRequest) {
   const { resolvePreferredOrgId } = await import(
     "@/lib/organizations/active-org"
   );
-  const preferred = await resolvePreferredOrgId(user.id, user.role);
+  // VIS-1e：登录不带以岗位预览的身份（旧的预览 cookie 在下面清掉）
+  const preferred = await withoutPreview(() => resolvePreferredOrgId(user.id, user.role));
 
   const response = NextResponse.json({
     user: {
@@ -92,6 +95,7 @@ export async function POST(request: NextRequest) {
   });
 
   setSessionCookie(response, token);
+  clearPreviewCookie(response);
 
   await logAudit({
     userId: user.id,

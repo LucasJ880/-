@@ -10,7 +10,8 @@ import { NAV_GROUP_META, NAV_SECTION_LABEL, NAVIGATION_REGISTRY, SYSTEM_NAV_ITEM
 import type { RouteGateContext } from "./filter-context";
 import type { NavigationGroup, ResolvedNavItem } from "./types";
 
-export type HelpMapEntry = { key: string; label: string; description: string; href: string | null; depth: number };
+/** label 是注册表名称（中文）；显示时用 navEntryLabel({ label, labelKey }, 当前界面语言文案表)，与侧栏同名（NAV-1a） */
+export type HelpMapEntry = { key: string; label: string; labelKey: string | null; description: string; href: string | null; depth: number };
 export type HelpMapGroup = { group: NavigationGroup; label: string; entries: HelpMapEntry[] };
 
 export function buildHelpMap(ctx: RouteGateContext): HelpMapGroup[] {
@@ -19,7 +20,7 @@ export function buildHelpMap(ctx: RouteGateContext): HelpMapGroup[] {
   const walk = (items: ResolvedNavItem[], depth: number) => {
     for (const item of items) {
       const list = byGroup.get(item.group) ?? [];
-      list.push({ key: item.key, label: item.label, description: item.description ?? "", href: item.href ?? null, depth });
+      list.push({ key: item.key, label: item.label, labelKey: item.labelKey ?? null, description: item.description ?? "", href: item.href ?? null, depth });
       byGroup.set(item.group, list);
       if (item.children?.length) walk(item.children, depth + 1);
     }

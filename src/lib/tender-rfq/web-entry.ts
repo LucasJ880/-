@@ -9,14 +9,23 @@
  * 响应按白名单组装，不含项目估值 / 我方报价 / 毛利。
  */
 
+import { isRfqAutoDraftEnabledForOrg } from "./auto-draft-flags";
+import { isAutoDraftFollowUpOptInAvailable, loadAutoDraftFollowUpOptInState } from "./auto-followup-optin-service";
+import { AUTO_DRAFT_TOOL_NAME, autoDraftedRoundNotes } from "./auto-draft-pure";
+import { buildFollowUpPolicy, followUpCardView, parseFollowUpPolicy, type FollowUpCardView } from "./followup-coverage";
+import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
+import { loadRoundFollowUpStatus } from "./followup-service";
 import { db } from "@/lib/db";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
 import { hasGmailComposeScope, hasGmailReadScope } from "@/lib/google-email";
 import { pickRfqIncoterm, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 import { buildRfqDocument } from "./build";
-import { resolveChaseAfterDays } from "./chase-pure";
+import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
 import { readTenderRfqSettings, resolveSender } from "./round-pure";
 import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
+import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
+import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
+import { loadActiveSupplierGroups } from "./supplier-groups-service";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
   assembleEntryPreview,
@@ -57,7 +66,33 @@ export type RfqWebEntry =
       engineRounds: Record<string, { elapsed: string | null }>;
       autoIngest: UserMessage;
       timeZone: string;
+      /** RFQ-AUTO-1：开关关闭时为 null——界面不出现任何自动跟进的内容；唯一的例外是已经带着授权的待批卡（见 suspended） */
+      followUp: RfqEntryFollowUp | null;
+      /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
+      autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /**
+       * RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」。available = 两个功能开关都打开（现在能生效、能开启）。
+       * 两个功能开关都关闭时没有这个字段；只开了一个时，只有本人的开关不是 off 才有（让他看得到、关得掉）。
+       */
+      autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
+      /**
+       * RFQ-AUTO-5：本人的供应商分组、每组现在几家可选、这个项目按名称对上了哪一组、当前这一版的标识。
+       * 功能关闭时没有这个字段——响应与界面都和本功能之前相同。
+       */
+      supplierGroups?: SupplierGroupsEntry;
     };
+
+/** RFQ-AUTO-1：入口里与跟进授权有关的全部内容 */
+export type RfqEntryFollowUp = {
+  /** 新建一轮时可勾选的授权（范围 + 模板预览） */
+  offer: FollowUpCardView | null;
+  /** 待批发送卡上已带的授权：actionId → 展示内容 */
+  cards: Record<string, FollowUpCardView>;
+  /** 各轮的状态：inquiryId → 生效中 / 已停止 / 未生效 */
+  rounds: Record<string, { state: "active" | "stopped" | "inactive"; summaryZh: string; reasonZh: string | null; autoSentCount: number }>;
+  /** 跟进授权的功能开关现在是关的：卡上的授权照样显示，但注明关闭期间不会自动发 */
+  suspended?: boolean;
+};
 
 const SUPPLIER_LIMIT = 100;
 
@@ -73,8 +108,12 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   const settings = readTenderRfqSettings(orgSettings);
   const timeZone = resolveOrgTimezone(orgSettings);
   const prefs = readUserPrefs(orgSettings, input.userId);
+  // RFQ-AUTO-5：本人的分组（功能关闭 → 空，且不查库）
+  const groupsEnabled = isRfqSupplierGroupsEnabledForOrg(input.orgId);
+  const storedGroups = await loadActiveSupplierGroups(input.orgId, input.userId);
+  const groupSupplierIds = supplierIdsInGroups(storedGroups.doc);
 
-  const [lockState, reqInputs, providers, supplierRows, executed, chaseRows] = await Promise.all([
+  const [lockState, reqInputs, providers, recentSupplierRows, groupSupplierRows, executed, chaseRows] = await Promise.all([
     loadRfqRoundLockState({ orgId: input.orgId, projectId: project.id, now, roundLockDays: settings.roundLockDays }),
     loadRfqRequirementInputs(project.id),
     db.emailProvider.findMany({
@@ -90,6 +129,10 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       take: SUPPLIER_LIMIT,
       select: { id: true, name: true, contactEmail: true, status: true },
     }),
+    // 分组里的供应商单独取：停用的、或排在最近 100 家之外的，也要出现在抽屉里（标明不可选），不能悄悄消失
+    groupSupplierIds.length
+      ? db.supplier.findMany({ where: { orgId: input.orgId, id: { in: groupSupplierIds } }, select: { id: true, name: true, contactEmail: true, status: true } })
+      : Promise.resolve([]),
     db.pendingAction.findMany({
       where: { orgId: input.orgId, projectId: project.id, type: TENDER_SEND_RFQ_TYPE, status: "executed" },
       select: { payload: true, createdAt: true, executedAt: true },
@@ -159,7 +202,8 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
       })()
     : { locked: false as const };
 
-  const suppliers = orderEntrySuppliers(supplierRows, prefs.defaultSupplierIds);
+  // 去重在 orderEntrySuppliers 里做；没有分组时 groupSupplierRows 为空，结果与本功能之前相同
+  const suppliers = orderEntrySuppliers([...recentSupplierRows, ...groupSupplierRows], prefs.defaultSupplierIds);
 
   const state = decideRfqEntryState({
     projectId: project.id,
@@ -226,5 +270,77 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     engineRounds,
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
+    ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
+    ...(await loadEntryAutoDraftFollowUp(input.orgId, input.userId)),
+    ...(groupsEnabled
+      ? {
+          supplierGroups: buildSupplierGroupsEntry({
+            doc: storedGroups.doc,
+            version: storedGroups.version,
+            projectName: project.name,
+            readySupplierIds: new Set(suppliers.filter((x) => x.ready).map((x) => x.id)),
+          }),
+        }
+      : {}),
+    followUp: await loadEntryFollowUp({
+      orgId: input.orgId,
+      now,
+      fromName: settings.fromName,
+      chaseAfterDays,
+      replyBy,
+      pendingActionIds: lockState.pendingSends.map((p) => p.actionId),
+      inquiryIds: lockState.existing.map((r) => r.inquiryId),
+    }),
   };
+}
+
+/** RFQ-AUTO-3：本人的开关。两个功能开关都关 → 不查库、没有这个字段。 */
+async function loadEntryAutoDraftFollowUp(orgId: string, userId: string): Promise<{ autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean } }> {
+  if (!isRfqFollowUpPreapprovalEnabledForOrg(orgId) && !isRfqAutoDraftEnabledForOrg(orgId)) return {};
+  const available = isAutoDraftFollowUpOptInAvailable(orgId);
+  const state = await loadAutoDraftFollowUpOptInState(orgId, userId);
+  return available || state !== "off" ? { autoDraftFollowUp: { state, available } } : {};
+}
+
+/** RFQ-AUTO-2：本项目里由系统起草的轮次（只在开关打开时调用） */
+async function loadAutoDraftedRounds(orgId: string, projectId: string): Promise<Record<string, { noteZh: string }>> {
+  const cards = await db.pendingAction.findMany({
+    where: { orgId, projectId, type: TENDER_SEND_RFQ_TYPE, payload: { path: ["metadata", "sourceToolName"], equals: AUTO_DRAFT_TOOL_NAME } },
+    select: { payload: true, preview: true },
+  });
+  return autoDraftedRoundNotes(cards);
+}
+
+async function loadEntryFollowUp(input: {
+  orgId: string;
+  now: Date;
+  fromName: string;
+  chaseAfterDays: number;
+  replyBy: string | null;
+  pendingActionIds: string[];
+  inquiryIds: string[];
+}): Promise<RfqEntryFollowUp | null> {
+  const view = (policy: Parameters<typeof followUpCardView>[0]) => followUpCardView(policy, { fromName: input.fromName, now: input.now });
+  // 待批发送卡上已带的授权：不看功能开关——只要卡的载荷里有授权，批准的人就必须看得到。
+  // （卡起草之后功能开关被关掉的话，授权仍在卡里，开关再打开就会恢复生效。）
+  const cards: RfqEntryFollowUp["cards"] = {};
+  if (input.pendingActionIds.length) {
+    const rows = await db.pendingAction.findMany({ where: { orgId: input.orgId, id: { in: input.pendingActionIds }, type: TENDER_SEND_RFQ_TYPE }, select: { id: true, payload: true } });
+    for (const r of rows) {
+      const policy = parseFollowUpPolicy((r.payload as { followUpPolicy?: unknown } | null)?.followUpPolicy);
+      if (policy) cards[r.id] = view(policy);
+    }
+  }
+  if (!isRfqFollowUpPreapprovalEnabledForOrg(input.orgId)) {
+    // 功能开关关闭：不给勾选、不显示轮次状态；只有确实存在带授权的待批卡时才返回，并标明现在是暂停状态
+    return Object.keys(cards).length > 0 ? { offer: null, cards, rounds: {}, suspended: true } : null;
+  }
+  // 新建一轮会带的授权：与 prepareRfqRound 同一套入参（间隔按项目负责人偏好、截止 = 这一轮的回复截止）
+  const offerPolicy = buildFollowUpPolicy({ chaseAfterDays: input.chaseAfterDays, replyBy: input.replyBy, templateHash: chaseTemplateHash() });
+  const rounds: RfqEntryFollowUp["rounds"] = {};
+  for (const [inquiryId, st] of await loadRoundFollowUpStatus(input.orgId, input.inquiryIds)) {
+    if (st.state === "none") continue;
+    rounds[inquiryId] = { state: st.state, summaryZh: st.summaryZh, reasonZh: st.state === "inactive" ? st.reasonZh : null, autoSentCount: st.autoSentCount };
+  }
+  return { offer: offerPolicy ? view(offerPolicy) : null, cards, rounds };
 }

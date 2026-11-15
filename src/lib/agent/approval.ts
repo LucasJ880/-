@@ -4,6 +4,8 @@
 
 import { db } from "@/lib/db";
 import type { ApprovalDecision, RiskLevel } from "./types";
+import { approvalRequestItem, isApprovalVisible, type ApprovalViewer } from "@/lib/approval/audience";
+import { loadApprovalViewer } from "@/lib/approval/audience-server";
 
 interface CreateApprovalInput {
   taskId: string;
@@ -102,8 +104,13 @@ export async function resolveApproval(
   return { taskId: approval.taskId, stepId: approval.stepId };
 }
 
+/**
+ * 待审批的项目智能体审批（本人是审批人或未指定审批人）。
+ * VIS-1d：只含当前企业项目上的、本人可见的（审批的可见集合）；企业为空时为空。
+ */
 export async function getPendingApprovals(
-  userId: string
+  userId: string,
+  opts: { orgId: string | null; viewer?: ApprovalViewer },
 ): Promise<
   Array<{
     id: string;
@@ -118,27 +125,42 @@ export async function getPendingApprovals(
     step: { title: string; agentName: string };
   }>
 > {
-  return db.approvalRequest.findMany({
-    where: {
-      status: "pending",
-      OR: [
-        { approverUserId: userId },
-        { approverUserId: null },
-      ],
-    },
-    include: {
-      task: {
-        select: {
-          intent: true,
-          project: { select: { id: true, name: true } },
+  const orgId = opts.orgId;
+  if (!orgId) return [];
+  const [viewer, rows] = await Promise.all([
+    opts.viewer && opts.viewer.userId === userId && opts.viewer.orgId === orgId
+      ? Promise.resolve(opts.viewer)
+      : loadApprovalViewer(userId, orgId),
+    db.approvalRequest.findMany({
+      where: {
+        status: "pending",
+        OR: [
+          { approverUserId: userId },
+          { approverUserId: null },
+        ],
+        task: { project: { orgId } },
+      },
+      include: {
+        task: {
+          select: {
+            intent: true,
+            createdById: true,
+            project: { select: { id: true, name: true, orgId: true, workspaceId: true } },
+          },
+        },
+        step: {
+          select: { title: true, agentName: true },
         },
       },
-      step: {
-        select: { title: true, agentName: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+  return rows
+    .filter((row) => isApprovalVisible(approvalRequestItem(row), viewer))
+    .map(({ task: { intent, project }, ...rest }) => ({
+      ...rest,
+      task: { intent, project: { id: project.id, name: project.name } },
+    }));
 }
 
 /**

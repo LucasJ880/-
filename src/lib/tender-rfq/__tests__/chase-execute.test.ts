@@ -41,7 +41,7 @@ function payload(o: Partial<TenderSendChasePayload> = {}): TenderSendChasePayloa
   return { ...base, bodyHash: o.bodyHash ?? hashChaseBody(base) };
 }
 
-type World = { notes: string | null; status: string; sends: Array<{ userId: string; requestBody: { raw: string; threadId?: string } }>; lookups: string[] };
+type World = { notes: string | null; status: string; inquiryStatus?: string; dueDate?: Date | null; inquiryMissing?: boolean; sends: Array<{ userId: string; requestBody: { raw: string; threadId?: string } }>; lookups: string[] };
 
 /** 执行器 io：真实 sendGmail + 注入的假 Gmail 客户端（验证 threadId 真的传到了 messages.send） */
 function makeIo(w: World, opts: { messageIdHeader?: string | null; mailboxEmail?: string } = {}): Partial<ChaseExecuteIo> {
@@ -62,6 +62,7 @@ function makeIo(w: World, opts: { messageIdHeader?: string | null; mailboxEmail?
       settingsJson: { tenderRfq: { fromEmail: "project@sunnyshutter.ca", ...(opts.mailboxEmail ? { mailboxEmail: opts.mailboxEmail } : {}) } },
     }),
     loadItem: async () => ({ status: w.status, contactNotes: w.notes, inquiryId: "inq-1" }),
+    loadInquiry: async () => (w.inquiryMissing ? null : { status: w.inquiryStatus ?? "in_progress", dueDate: w.dueDate ?? null }),
     findProviders: async (email) => {
       w.lookups.push(email);
       return [
@@ -161,6 +162,37 @@ async function main() {
       const mf = world({ status: "sent" });
       const r5 = await execTenderSendChase(payload({ kind: "missing_fields" }), { userId: "u", role: null, orgId: "org_1" }, makeIo(mf));
       ok("追问只对 replied / quoted 发", !r5.ok && mf.sends.length === 0);
+
+      // —— RFQ-AUTO-1：轮次状态与回复截止（对人工批准的卡同样生效）——
+      const ctx = { userId: "u", role: null, orgId: "org_1" };
+      const canceled = world();
+      canceled.inquiryStatus = "canceled";
+      const c1 = await execTenderSendChase(payload(), ctx, makeIo(canceled));
+      ok("轮次已取消 → 催单不发，结果说明原因", c1.ok && canceled.sends.length === 0 && (c1.message ?? "").includes("已取消") && canceled.notes === RFQ_NOTES);
+      const canceledMf = world({ status: "quoted" });
+      canceledMf.inquiryStatus = "canceled";
+      const c2 = await execTenderSendChase(payload({ kind: "missing_fields" }), ctx, makeIo(canceledMf));
+      ok("轮次已取消 → 追问也不发", c2.ok && canceledMf.sends.length === 0 && (c2.message ?? "").includes("追问没有发出"));
+      const completed = world();
+      completed.inquiryStatus = "completed";
+      const c3 = await execTenderSendChase(payload(), ctx, makeIo(completed));
+      ok("轮次已完成 → 不发", c3.ok && completed.sends.length === 0 && (c3.message ?? "").includes("已完成"));
+      const overdue = world();
+      overdue.dueDate = new Date("2026-10-23T00:00:00Z");
+      const c4 = await execTenderSendChase(payload(), ctx, makeIo(overdue));
+      ok("回复截止已过 → 催单不发", c4.ok && overdue.sends.length === 0 && (c4.message ?? "").includes("回复截止已过"));
+      const dueToday = world();
+      dueToday.dueDate = new Date("2026-10-25T00:00:00Z");
+      const c5 = await execTenderSendChase(payload(), ctx, makeIo(dueToday, { messageIdHeader: ORIGINAL_MSGID }));
+      ok("截止当天仍然发", c5.ok && dueToday.sends.length === 1);
+      const overdueMf = world({ status: "quoted" });
+      overdueMf.dueDate = new Date("2026-10-01T00:00:00Z");
+      const c6 = await execTenderSendChase(payload({ kind: "missing_fields" }), ctx, makeIo(overdueMf, { messageIdHeader: ORIGINAL_MSGID }));
+      ok("追问不受回复截止限制", c6.ok && overdueMf.sends.length === 1);
+      const gone = world();
+      gone.inquiryMissing = true;
+      const c7 = await execTenderSendChase(payload(), ctx, makeIo(gone));
+      ok("轮次查不到 → 拒绝", !c7.ok && c7.errorCode === "INQUIRY_NOT_FOUND" && gone.sends.length === 0);
     }
   } finally {
     if (prevAllow === undefined) delete process.env.QINGYAN_ALLOW_REAL_EMAIL_NON_PROD;

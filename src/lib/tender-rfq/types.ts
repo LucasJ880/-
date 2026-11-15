@@ -27,6 +27,26 @@ export type TenderSendRfqPayload = {
   rfqDocHash: string;
   /** 这轮询价写进 RFQ 的贸易条款（P1-8：批准发出后学习为操作者的默认值） */
   incoterm?: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null;
+  /**
+   * RFQ-AUTO-1 跟进授权：批准这张卡即一并批准授权范围内的催单与缺字段追问。
+   * 缺省 / null = 不带授权，催单与追问逐张待批。整个对象被这张卡的载荷哈希覆盖。
+   */
+  followUpPolicy?: RfqFollowUpPolicy | null;
+};
+
+/** RFQ-AUTO-1：随发询价卡一并批准的后续邮件范围（批准时定格） */
+export type RfqFollowUpPolicy = {
+  version: 1;
+  /** 催单（未回复提醒）次数上限 */
+  maxReminders: 0 | 1 | 2;
+  /** 催单间隔天数 */
+  chaseAfterDays: number;
+  /** 回复截止 YYYY-MM-DD；过了不再催。null = 这一轮没有回复截止 */
+  replyBy: string | null;
+  /** 是否允许每家一次缺字段追问 */
+  allowMissingFieldQuestion: boolean;
+  /** 批准时催单 / 追问模板的指纹；模板之后改过 → 授权不再覆盖 */
+  templateHash: string;
 };
 
 export const TENDER_SEND_CHASE_TYPE = "tender.send_chase" as const;

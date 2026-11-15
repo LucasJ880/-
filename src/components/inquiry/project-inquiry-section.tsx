@@ -17,6 +17,8 @@ import {
 import { cn } from "@/lib/utils";
 import { InquiryDetail } from "./inquiry-detail";
 import { RfqApprovalPanel, type RfqDecisionOutcome } from "./rfq-approval-panel";
+import { RfqAutoFollowUpOptIn } from "./rfq-auto-followup-optin";
+import { RfqFollowUpStatus } from "./rfq-followup-status";
 import { RfqRoundStatusLine } from "./rfq-round-status-line";
 import { RfqWebEntryDrawer } from "./rfq-web-entry-drawer";
 import type { RfqEntryView, RfqPendingChaseView, RfqPendingSendView } from "./rfq-web-entry-types";
@@ -210,7 +212,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card-bg p-5">
+    // FLOW-H1：id 是「下一步」卡片滚动到供应商询价的位置——放在整块的根上，还没有轮次时也在
+    <div id="rfq-section" className="scroll-mt-4 rounded-xl border border-border bg-card-bg p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ShoppingCart size={16} className="text-accent/60" />
@@ -295,6 +298,16 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
           ))}
         </div>
       )}
+      {ready?.autoDraftFollowUp && (
+        <RfqAutoFollowUpOptIn
+          projectId={projectId}
+          state={ready.autoDraftFollowUp.state}
+          available={ready.autoDraftFollowUp.available}
+          offer={ready.followUp?.offer ?? null}
+          canManage={canManage}
+          onChanged={loadEntry}
+        />
+      )}
       {createError && <p className="mt-2 text-xs text-danger">{createError}</p>}
       {canManage && entryError && (
         <p className="mt-2 flex items-center gap-2 text-xs text-[#9a6a2f]">
@@ -322,6 +335,8 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
             const chases = chasesByInquiry.get(r.id) ?? [];
             const chaseLabel = chaseBadge(chases.length);
             const engine = ready?.engineRounds[r.id] ?? null;
+            const followUp = ready?.followUp?.rounds[r.id] ?? null;
+            const autoDrafted = ready?.autoDraftedRounds?.[r.id] ?? null;
             return (
               <div
                 key={r.id}
@@ -355,6 +370,15 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     {chaseLabel && (
                       <span className="rounded-full bg-[rgba(154,106,47,0.10)] px-2 py-0.5 text-[11px] font-medium text-[#9a6a2f]">
                         {chaseLabel}
+                      </span>
+                    )}
+                    {autoDrafted && (
+                      <span
+                        className="rounded-full bg-[rgba(110,125,118,0.10)] px-2 py-0.5 text-[11px] font-medium text-[#55635d]"
+                        title={autoDrafted.noteZh}
+                        data-testid="rfq-auto-draft-badge"
+                      >
+                        自动起草
                       </span>
                     )}
                     <span className="text-xs text-muted">
@@ -404,6 +428,11 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                 )}
                 {isOpen && (
                   <div className="space-y-3 border-t border-border px-4 py-3">
+                    {pending && autoDrafted && (
+                      <p className="rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground/85" data-testid="rfq-auto-draft-note">
+                        {autoDrafted.noteZh}
+                      </p>
+                    )}
                     {pending && (
                       <RfqApprovalPanel
                         projectId={projectId}
@@ -411,8 +440,13 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                         roundNumber={pending.roundNumber ?? r.roundNumber}
                         approval={pending.approval}
                         emails={pending.emails}
+                        followUp={ready?.followUp?.cards[pending.actionId] ?? null}
+                        followUpSuspended={ready?.followUp?.suspended === true}
                         onDone={(o) => onDecision(r.id, o)}
                       />
+                    )}
+                    {followUp && !pending && (
+                      <RfqFollowUpStatus projectId={projectId} inquiryId={r.id} view={followUp} canManage={canManage} onChanged={loadEntry} />
                     )}
                     {chases.map((c) => (
                       <RfqApprovalPanel

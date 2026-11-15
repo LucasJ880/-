@@ -85,7 +85,7 @@ export type InboundSyncDeps = {
   notifyTracking?: (entry: { orgId: string; item: InboundItemRow; plan: InquiryItemUpdatePlan; messageId: string }) => Promise<void>;
   saveCursor: (orgId: string, cursor: InboundCursor) => Promise<void>;
   /** P1-7：收信成功后的催单扫描（不传 = 不扫；入站被跳过时不扫——没读到回信就不知道谁真没回） */
-  runChaseScan?: (orgId: string, now: Date) => Promise<{ drafted: unknown[]; noResponse: unknown[]; failed: unknown[] }>;
+  runChaseScan?: (orgId: string, now: Date) => Promise<{ drafted: unknown[]; autoSent?: unknown[]; noResponse: unknown[]; failed: unknown[] }>;
 };
 
 export type OrgSyncResult = {
@@ -103,7 +103,7 @@ export type OrgSyncResult = {
   failed: number;
   historyId: string | null;
   /** P1-7 催单扫描：起草的卡数 / 标 no_response 数 / 失败数 */
-  chase?: { drafted: number; noResponse: number; failed: number; error?: string };
+  chase?: { drafted: number; /** RFQ-AUTO-1：随轮次授权自动执行的封数 */ autoSent?: number; noResponse: number; failed: number; error?: string };
 };
 
 /* ---------------------------------- 游标（零 schema） ---------------------------------- */
@@ -459,11 +459,11 @@ export async function defaultInboundSyncDeps(): Promise<InboundSyncDeps> {
       return runChaseScan(orgId, now);
     },
     saveCursor: async (orgId, cursor) => {
-      const org = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-      await db.organization.update({
-        where: { id: orgId },
-        data: { settingsJson: withInboundCursor(org?.settingsJson ?? null, cursor) as import("@prisma/client").Prisma.InputJsonValue },
-      });
+      // FIX-3：锁行后在最新的设置上只改游标（原来读到的整块可能已经被别处改过）
+      const { mutateOrgSettings } = await import("@/lib/organizations/settings-write");
+      const res = await mutateOrgSettings(orgId, (current) => ({ next: withInboundCursor(current, cursor), result: null }));
+      // 组织不存在时的既有行为：更新一条不存在的记录会抛错（由调用方按组织接住）
+      if (!res.found) throw new Error(`组织不存在：${orgId}`);
     },
   };
 }
@@ -521,7 +521,7 @@ export async function syncAllOrgsInbound(
       if (!r.skipped && d.runChaseScan) {
         try {
           const c = await d.runChaseScan(ctx.orgId, d.now());
-          r.chase = { drafted: c.drafted.length, noResponse: c.noResponse.length, failed: c.failed.length };
+          r.chase = { drafted: c.drafted.length, autoSent: c.autoSent?.length ?? 0, noResponse: c.noResponse.length, failed: c.failed.length };
         } catch (err) {
           // 催单扫描失败不影响收信结果（游标已写），下次 tick 再扫
           console.error(`[tender-rfq-inbound] chase scan ${ctx.orgId} failed:`, err);

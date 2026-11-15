@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { PREVIEW_CHAT_DISABLED_HINT, usePreviewReadonly } from "@/lib/hooks/use-preview";
 import {
   Inbox,
   Send,
@@ -39,6 +40,8 @@ interface InboxItem {
 }
 
 export default function InboxPage() {
+  // VIS-1e：以岗位预览中 AI 对话输入禁用
+  const previewReadonly = usePreviewReadonly();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -236,11 +239,13 @@ export default function InboxPage() {
             }
           }}
           placeholder={
-            isLoading
+            previewReadonly
+              ? PREVIEW_CHAT_DISABLED_HINT
+              : isLoading
               ? "AI 正在解析上一条..."
               : "例如：明天下午提交季度报表给财务部"
           }
-          disabled={isLoading}
+          disabled={isLoading || previewReadonly}
           rows={2}
           className="w-full resize-none bg-transparent px-1 text-sm leading-relaxed outline-none placeholder:text-muted disabled:opacity-50"
         />
@@ -259,7 +264,7 @@ export default function InboxPage() {
           </div>
           <button
             onClick={handleSubmit}
-            disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing}
+            disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing || previewReadonly}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-medium text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
           >
             {isLoading ? (

@@ -61,9 +61,24 @@ export async function getOrCreateMainConversation(
  */
 export async function getDiscussionOverview(
   projectId: string,
-  opts?: { pageSize?: number; cursor?: string }
+  opts?: { pageSize?: number; cursor?: string; create?: boolean }
 ): Promise<DiscussionOverview> {
-  const conv = await getOrCreateMainConversation(projectId);
+  // VIS-1e：只读调用方（预览中）不建会话；还没有会话就返回空概览
+  const conv =
+    opts?.create === false
+      ? await db.projectConversation.findUnique({ where: { projectId } })
+      : await getOrCreateMainConversation(projectId);
+  if (!conv) {
+    const memberCount = await db.projectMember.count({ where: { projectId, status: "active" } });
+    return {
+      conversation: { id: "", projectId, kind: "MAIN", title: "项目讨论", archivedAt: null, createdAt: new Date(0).toISOString() },
+      memberCount,
+      messageCount: 0,
+      messages: [],
+      hasMore: false,
+      nextCursor: null,
+    };
+  }
   const pageSize = opts?.pageSize ?? DEFAULT_PAGE_SIZE;
 
   const whereBase: Prisma.ProjectMessageWhereInput = {
@@ -224,13 +239,18 @@ export async function sendMentionMessageOnce(
 export async function loadOlderMessages(
   projectId: string,
   cursor: string,
-  pageSize = DEFAULT_PAGE_SIZE
+  pageSize = DEFAULT_PAGE_SIZE,
+  opts: { create?: boolean } = {}
 ): Promise<{
   messages: DiscussionMessage[];
   hasMore: boolean;
   nextCursor: string | null;
 }> {
-  const conv = await getOrCreateMainConversation(projectId);
+  const conv =
+    opts.create === false
+      ? await db.projectConversation.findUnique({ where: { projectId } })
+      : await getOrCreateMainConversation(projectId);
+  if (!conv) return { messages: [], hasMore: false, nextCursor: null };
 
   const cursorFilter = parseCursor(cursor);
   const where: Prisma.ProjectMessageWhereInput = {

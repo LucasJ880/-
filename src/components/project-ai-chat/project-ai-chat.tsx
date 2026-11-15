@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { PREVIEW_CHAT_DISABLED_HINT, usePreviewReadonly } from "@/lib/hooks/use-preview";
 import {
   Send,
   Bot,
@@ -95,6 +96,8 @@ export function ProjectAiChat({
   orgId?: string | null;
   onProjectUpdate?: () => void;
 }) {
+  // VIS-1e：以岗位预览中 AI 对话输入禁用
+  const previewReadonly = usePreviewReadonly();
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<StreamingMsg[]>([]);
   const [input, setInput] = useState("");
@@ -723,13 +726,15 @@ export function ProjectAiChat({
                   }
                 }}
                 placeholder={
-                  isLoading
+                  previewReadonly
+                    ? PREVIEW_CHAT_DISABLED_HINT
+                    : isLoading
                     ? "AI 正在处理..."
                     : assistantMode === "fast"
                       ? "快速提问…"
                       : "描述目标，Enter 发送…"
                 }
-                disabled={isLoading}
+                disabled={isLoading || previewReadonly}
                 rows={1}
                 className="max-h-24 flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted disabled:opacity-50"
                 style={{ minHeight: "32px" }}
@@ -743,7 +748,7 @@ export function ProjectAiChat({
               <button
                 type="button"
                 onClick={() => handleSend()}
-                disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing}
+                disabled={(!input.trim() && !attachments.hasReady) || isLoading || attachments.isParsing || previewReadonly}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-[color:var(--on-accent)] transition-colors hover:bg-accent-hover disabled:opacity-40"
               >
                 {isLoading ? (

@@ -59,6 +59,8 @@ import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 import type { ProjectDuty } from "@/lib/projects/duty";
 import type { TenderWorkbenchState } from "@/lib/tender/workbench-state";
+import type { WebNextStepTarget, WebNextStepView } from "@/lib/tender-next-step/targets";
+import { NextStepCard } from "@/components/project-detail/next-step-card";
 
 const PROJECT_DUTIES: ProjectDuty[] = ["owner", "purchaser", "participant"];
 
@@ -85,6 +87,9 @@ interface WorkbenchTabProps {
   currentUserId: string | null;
   onNavigate: (target: ProjectContextTarget) => void;
   onReload: () => void;
+  /** FLOW-H1：服务端算出的下一步；接口不可用（含开关关闭）时为 null，不渲染卡片 */
+  nextStep?: WebNextStepView | null;
+  onOpenNextStep?: (target: WebNextStepTarget) => void;
 }
 
 export function WorkbenchTab({
@@ -108,6 +113,8 @@ export function WorkbenchTab({
   currentUserId,
   onNavigate,
   onReload,
+  nextStep,
+  onOpenNextStep,
 }: WorkbenchTabProps) {
   const [mentionDraft, setMentionDraft] = useState<{ userId: string; name: string } | null>(null);
   const tenderProps = buildTenderProps(project);
@@ -115,6 +122,10 @@ export function WorkbenchTab({
 
   return (
     <div className="space-y-6">
+      {tenderish && nextStep && onOpenNextStep ? (
+        <NextStepCard projectId={projectId} view={nextStep} onOpen={onOpenNextStep} />
+      ) : null}
+
       <ProjectCommandOverview
         command={command}
         pendingCount={pendingActions.length}
@@ -133,7 +144,8 @@ export function WorkbenchTab({
       <NeedsYouCard pendingActions={pendingActions} onOpenChat={() => onNavigate("chat")} />
 
       {/* Tender 工作流 Quick Start：仅招投标项目展示（canonical workDomain 判定） */}
-      {tenderish ? (
+      {/* FLOW-H1b：有「下一步」卡片时三步卡让位（卡片说得更细）；没有卡片时照旧 */}
+      {tenderish && !(nextStep && onOpenNextStep) ? (
         <ProjectOnboardingGuide
           state={workbenchState}
           onNavigate={(target) => onNavigate(target)}
@@ -184,12 +196,17 @@ export function WorkbenchTab({
       )}
 
       {tenderish ? (
-        <ProjectProgressSection
-          project={tenderProps}
-          projectId={projectId}
-          canManage={canManage}
-          onUpdated={onReload}
-        />
+        // FLOW-H1：id 是「下一步」卡片滚动到关键日期的位置
+        <div id="project-key-dates" className="scroll-mt-4">
+          <ProjectProgressSection
+            project={tenderProps}
+            projectId={projectId}
+            canManage={canManage}
+            onUpdated={onReload}
+            shownStage={nextStep?.shownStage ?? null}
+            recordedStageNow={nextStep?.recordedStage ?? null}
+          />
+        </div>
       ) : (
         progress && (
           <div className="rounded-xl border border-border bg-card-bg p-5">

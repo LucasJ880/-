@@ -31,6 +31,7 @@ import {
   type NavigationGroup,
   type ResolvedNavItem,
 } from "@/lib/navigation";
+import { navEntryLabel } from "@/lib/navigation/entry-label";
 import { partitionTradeNav, usesTradeLayout } from "@/lib/navigation/trade-layout";
 import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 
@@ -44,14 +45,6 @@ function subscribeOrgStorage(cb: () => void) {
     window.removeEventListener("storage", cb);
     window.removeEventListener("qingyan-org-storage", cb);
   };
-}
-
-function itemLabel(
-  item: ResolvedNavItem,
-  m: Record<string, string>,
-): string {
-  if (item.labelKey && m[item.labelKey]) return m[item.labelKey];
-  return item.label;
 }
 
 function NavLink({
@@ -68,7 +61,7 @@ function NavLink({
   pendingCount: number;
 }) {
   const { m } = useLocale();
-  const label = itemLabel(item, m as unknown as Record<string, string>);
+  const label = navEntryLabel(item, m);
   const Icon = item.icon;
   const ref = useRef<HTMLAnchorElement>(null);
 
@@ -142,7 +135,7 @@ function CollapsibleNav({
   onToggle: () => void;
 }) {
   const { m } = useLocale();
-  const label = itemLabel(item, m as unknown as Record<string, string>);
+  const label = navEntryLabel(item, m);
   const Icon = item.icon;
   const expanded = manualExpanded ?? item.expanded;
   const hasActiveDescendant =

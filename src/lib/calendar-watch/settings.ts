@@ -5,6 +5,7 @@
  */
 
 import { db } from "@/lib/db";
+import { mutateOrgSettings } from "@/lib/organizations/settings-write";
 import { writeAuditLog } from "@/lib/audit/logger";
 import {
   GoogleTokenExpiredError,
@@ -94,14 +95,15 @@ export async function saveCalendarWatchSettings(input: {
     }
   }
 
-  // 写回前重读一次，减少与执行器回写游标的竞争窗口
-  const fresh = await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } });
-  const latest = readCalendarWatch(fresh?.settingsJson ?? null);
-  const next = applySettingsUpdate(latest, fields);
-  await db.organization.update({
-    where: { id: orgId },
-    data: { settingsJson: withCalendarWatch(fresh?.settingsJson ?? null, next) as object },
+  // FIX-3：锁行后在最新的设置上应用这次修改（原来是「写回前重读一次」，仍留有窗口；与执行器回写游标现在互相等待）
+  const res = await mutateOrgSettings(orgId, (fresh) => {
+    const latest = readCalendarWatch(fresh);
+    const next = applySettingsUpdate(latest, fields);
+    return { next: withCalendarWatch(fresh, next), result: { latest, next } };
   });
+  // 组织在校验之后被删掉：既有行为是更新不存在的记录而抛错
+  if (!res.found) throw new Error(`组织不存在：${orgId}`);
+  const { latest, next } = res.result;
   const before = publicView(latest);
   const after = publicView(next);
   await writeAuditLog(db, {
