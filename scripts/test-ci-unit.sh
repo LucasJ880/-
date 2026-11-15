@@ -352,6 +352,8 @@ npx tsx src/lib/authorization/__tests__/platform-role-collapse.test.ts
 npx tsx src/lib/authorization/__tests__/residual-reads.test.ts
 npx tsx src/lib/trade/__tests__/trade-access.test.ts
 npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
+# NAV-1c（openspec change nav-1c-reply-entry）：回复入口——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/reply-entry.test.ts
 npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
 npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
 npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts

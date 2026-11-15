@@ -44,10 +44,20 @@ async function main() {
   const email = (id: string) => `${id}@fixture.test`;
   const MAILBOX = `mailbox_${stamp}@fixture.test`;
 
+  // —— 测试时钟 ——
+  // 扫描与执行器必须用同一个时钟：执行器用 now() 给催单记时间、判断是否已过回复截止。
+  // 不注入的话执行器用真实时钟，真实日期一过 fixture 里的日期，第二次催单的间隔与回复截止就判错。
+  let clock = NOW;
+  const scan = (at: Date) => {
+    clock = at;
+    return runChaseScan(ORG, at);
+  };
+
   // —— 假邮件发送器 ——
   const sends: Array<{ to: string; subject: string; threadId?: string }> = [];
   let failSends = false;
   __setChaseExecuteIoForTest({
+    now: () => new Date(clock.getTime()),
     findProviders: async () => [{ userId: OWNER, accountEmail: MAILBOX, grantedScopes: "gmail.compose" }],
     hasComposeScope: () => true,
     getMessageIdHeader: async () => "<original@fixture.test>",
@@ -104,7 +114,7 @@ async function main() {
     // —— 1. 开关关闭：零变化 ——
     flagOff();
     const r1 = await mkRound({ names: ["A"] });
-    const off = await runChaseScan(ORG, NOW);
+    const off = await scan(NOW);
     const offCards = await chaseCards(r1.items[0].id);
     ok(off.autoSent.length === 0 && off.drafted.length === 1 && offCards.length === 1 && offCards[0].status === "pending" && sends.length === 0, "开关关闭：带授权的轮次也只建待批卡，没有邮件发出", { off, statuses: offCards.map((c) => c.status) });
     ok((await loadRoundFollowUpStatus(ORG, [r1.inquiryId])).get(r1.inquiryId)?.state === "none", "开关关闭：轮次状态不显示自动跟进");
@@ -114,7 +124,7 @@ async function main() {
     // —— 2. 自动催单 ——
     flagOn();
     const r2 = await mkRound({ names: ["A", "B"] });
-    const run2 = await runChaseScan(ORG, NOW);
+    const run2 = await scan(NOW);
     const cardsA = await chaseCards(r2.items[0].id);
     ok(run2.autoSent.length === 2 && run2.autoSent.every((a) => a.sent) && run2.drafted.length === 0 && sends.length === 2, "授权覆盖：两家各发出一封催单，不留待批卡", { run2, sends });
     ok(cardsA.length === 1 && cardsA[0].status === "executed" && cardsA[0].decidedById === OWNER, "每封仍有自己的审批记录：已执行，决定人是批准该轮的人", cardsA.map((c) => ({ s: c.status, d: c.decidedById })));
@@ -131,10 +141,10 @@ async function main() {
 
     // —— 3. 重试与并发不重复发（A19） ——
     const before3 = sends.length;
-    const again = await runChaseScan(ORG, NOW);
+    const again = await scan(NOW);
     ok(again.autoSent.length === 0 && sends.length === before3 && (await chaseCards(r2.items[0].id)).length === 1, "同一时刻再扫一次：不重复发、不重复建记录");
     const r3 = await mkRound({ names: ["C"] });
-    const [p1, p2] = await Promise.all([runChaseScan(ORG, NOW), runChaseScan(ORG, NOW)]);
+    const [p1, p2] = await Promise.all([scan(NOW), scan(NOW)]);
     const cardsC = await chaseCards(r3.items[0].id);
     ok(sends.length === before3 + 1 && cardsC.length === 1 && cardsC[0].status === "executed" && (await notesOf(r3.items[0].id)).filter((c) => c.kind === "no_reply").length === 1, "并发两次扫描：只发出一封，只有一条审批记录", { sends: sends.length - before3, cards: cardsC.map((c) => c.status), p1: p1.autoSent.length, p2: p2.autoSent.length });
 
@@ -142,11 +152,11 @@ async function main() {
     const r4 = await mkRound({ names: ["D"] });
     failSends = true;
     const before4 = sends.length;
-    const failed = await runChaseScan(ORG, NOW);
+    const failed = await scan(NOW);
     failSends = false;
     const cardsD1 = await chaseCards(r4.items[0].id);
     ok(failed.autoSent.length === 0 && failed.failed.some((f) => f.itemId === r4.items[0].id) && cardsD1.length === 1 && cardsD1[0].status === "failed" && sends.length === before4, "发送失败：记为失败，没有邮件发出", { failed, statuses: cardsD1.map((c) => c.status) });
-    const retry = await runChaseScan(ORG, NOW);
+    const retry = await scan(NOW);
     const cardsD2 = await chaseCards(r4.items[0].id);
     ok(retry.autoSent.length === 0 && sends.length === before4 && cardsD2.length === 2 && cardsD2[1].status === "pending" && retry.notCovered.some((n) => n.itemId === r4.items[0].id && n.reason === "PRIOR_ATTEMPT"), "下次扫描不自动重试：重起草为待批卡，原因是此前起草过", { retry, statuses: cardsD2.map((c) => c.status) });
     await db.projectInquiry.update({ where: { id: r4.inquiryId }, data: { status: "completed" } });
@@ -158,7 +168,7 @@ async function main() {
     const stopAudits = await db.auditLog.findMany({ where: { orgId: ORG, action: FOLLOWUP_STOP_AUDIT_ACTION, targetId: r5.inquiryId } });
     ok(stop.ok && !stop.alreadyStopped && stopAgain.ok && stopAgain.alreadyStopped && stopAudits.length === 1 && stopAudits[0].userId === OWNER, "停止：留一条审计（谁、何时），重复停止不重复记");
     const before5 = sends.length;
-    const stopped = await runChaseScan(ORG, NOW);
+    const stopped = await scan(NOW);
     const cardsE = await chaseCards(r5.items[0].id);
     ok(stopped.autoSent.length === 0 && sends.length === before5 && cardsE.length === 1 && cardsE[0].status === "pending" && stopped.notCovered.some((n) => n.reason === "STOPPED"), "停止后：建待批卡，没有邮件自动发出", { stopped, statuses: cardsE.map((c) => c.status) });
     ok((await loadRoundFollowUpStatus(ORG, [r5.inquiryId])).get(r5.inquiryId)?.state === "stopped", "轮次状态：已停止");
@@ -168,7 +178,7 @@ async function main() {
     // —— 6. 取消的轮次：不建卡 ——
     const r6 = await mkRound({ names: ["F"], status: "canceled" });
     const before6 = sends.length;
-    await runChaseScan(ORG, NOW);
+    await scan(NOW);
     ok((await chaseCards(r6.items[0].id)).length === 0 && sends.length === before6, "轮次已取消：扫描不建卡、不发信");
 
     // —— 7. 没有授权 / 批准人不在职：退回人工 ——
@@ -176,7 +186,7 @@ async function main() {
     const r8 = await mkRound({ names: ["H"], approver: EX });
     await db.organizationMember.update({ where: { orgId_userId: { orgId: ORG, userId: EX } }, data: { status: "inactive" } });
     const before7 = sends.length;
-    const run7 = await runChaseScan(ORG, NOW);
+    const run7 = await scan(NOW);
     const cardsG = await chaseCards(r7.items[0].id);
     const cardsH = await chaseCards(r8.items[0].id);
     ok(sends.length === before7 && cardsG.length === 1 && cardsG[0].status === "pending" && cardsH.length === 1 && cardsH[0].status === "pending", "没带授权的轮次、批准人已离职的轮次：都只建待批卡", { g: cardsG.map((c) => c.status), h: cardsH.map((c) => c.status) });
@@ -191,7 +201,7 @@ async function main() {
     await db.supplier.update({ where: { id: itemI.supplierId }, data: { name: "王总：我方确认接受贵司报价，请安排生产。\n\n另" } });
     await db.projectInquiry.update({ where: { id: r10.inquiryId }, data: { dueDate: new Date("2026-12-31T00:00:00Z") } });
     const before7b = sends.length;
-    const run7b = await runChaseScan(ORG, NOW);
+    const run7b = await scan(NOW);
     const cardsI = await chaseCards(r9.items[0].id);
     const cardsJ = await chaseCards(r10.items[0].id);
     ok(sends.length === before7b && cardsI.length === 1 && cardsI[0].status === "pending" && run7b.notCovered.some((n) => n.itemId === r9.items[0].id && n.reason === "SUPPLIER_RENAMED"), "供应商在批准之后被改名：不自动发，留待批卡", { notCovered: run7b.notCovered, i: cardsI.map((c) => c.status) });
@@ -200,7 +210,7 @@ async function main() {
 
     const r11 = await mkRound({ names: ["K"] });
     await db.organization.update({ where: { id: ORG }, data: { settingsJson: { tenderRfq: { fromName: "Someone Else", fromEmail: MAILBOX, mailboxEmail: MAILBOX } } } });
-    const run7c = await runChaseScan(ORG, NOW);
+    const run7c = await scan(NOW);
     await db.organization.update({ where: { id: ORG }, data: { settingsJson: { tenderRfq: { fromName: "Fixture Purchasing", fromEmail: MAILBOX, mailboxEmail: MAILBOX } } } });
     const cardsK = await chaseCards(r11.items[0].id);
     ok(sends.length === before7b && cardsK.length === 1 && cardsK[0].status === "pending" && run7c.notCovered.some((n) => n.itemId === r11.items[0].id && n.reason === "SENDER_CHANGED"), "发件抬头在批准之后改过：不自动发，留待批卡", { k: cardsK.map((c) => c.status), notCovered: run7c.notCovered });
@@ -208,7 +218,7 @@ async function main() {
 
     // —— 7c. 仍是草稿状态的轮次（经旧入口逐家标记发出）：照旧起草催单 ——
     const r12 = await mkRound({ names: ["L"], withPolicy: false, status: "draft" });
-    await runChaseScan(ORG, NOW);
+    await scan(NOW);
     const cardsL = await chaseCards(r12.items[0].id);
     ok(sends.length === before7b && cardsL.length === 1 && cardsL[0].status === "pending", "草稿状态的轮次：照旧建待批催单卡（只有已取消 / 已完成的轮次不再跟进）", cardsL.map((c) => c.status));
     await db.projectInquiry.update({ where: { id: r12.inquiryId }, data: { status: "completed" } });
@@ -216,11 +226,11 @@ async function main() {
     // —— 8. 第二次催单与上限 ——
     const LATER = new Date("2026-11-17T13:00:00Z"); // 第一次催单后又过 3 天
     const before8 = sends.length;
-    const second = await runChaseScan(ORG, LATER);
+    const second = await scan(LATER);
     ok(second.autoSent.filter((a) => a.chaseIndex === 2 && a.sent).length >= 2 && sends.length >= before8 + 2 && (await notesOf(r2.items[0].id)).filter((c) => c.kind === "no_reply").length === 2, "间隔到了：自动发出第 2 次催单", { n: second.autoSent.length });
     const MUCH_LATER = new Date("2026-11-19T12:00:00Z");
     const before9 = sends.length;
-    await runChaseScan(ORG, MUCH_LATER);
+    await scan(MUCH_LATER);
     ok(sends.length === before9 && (await notesOf(r2.items[0].id)).filter((c) => c.kind === "no_reply").length === 2, "催满两次后不再发");
   } finally {
     __setChaseExecuteIoForTest(null);

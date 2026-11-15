@@ -328,8 +328,15 @@ async function main() {
         if (!files.some((f) => read(f).includes(m[1]))) missing.push(`${t.want}：「${m[1]}」`);
       }
     }
-    ok(quoted.length === 16 && missing.length === 0, `「进去后」引用的 ${quoted.length} 处栏目 / 按钮名称都在目标页面源码里`, missing);
-    ok(!HELP_TASKS.some((t) => /写回复|自己写/.test(t.then)), "NAV-1c 合并前不引用还不存在的「写回复」");
+    ok(quoted.length === 17 && missing.length === 0, `「进去后」引用的 ${quoted.length} 处栏目 / 按钮名称都在目标页面源码里`, missing);
+    // NAV-1c：回复的两行补回任务书原文（「写回复」按钮与「去询盘收件箱自己写」的出路已存在）
+    const thenOf = (want: string) => HELP_TASKS.find((t) => t.want === want)?.then;
+    ok(
+      thenOf("回复买家") === "找到买家，点「查看回复草稿」或「写回复」，改好后点「发送邮件」" &&
+        thenOf("批准 AI 写好的回复") === "在「待审批回复」里先点「查看草稿」，再点「批准发送」；不想用就去询盘收件箱自己写",
+      "回复的两行写明自己写的出路（NAV-1c）",
+    );
+    ok(/去询盘收件箱自己写/.test(read("src/app/(main)/revenue/today/page.tsx")), "今日询盘的待批卡上确有「去询盘收件箱自己写」的链接");
 
     // 页面
     const help = read("src/app/(main)/help/page.tsx");
