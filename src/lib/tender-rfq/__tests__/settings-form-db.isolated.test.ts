@@ -39,11 +39,14 @@ async function main() {
   const ADMIN = `w2admin_${stamp}`, MEMBER = `w2member_${stamp}`, OUTSIDER = `w2out_${stamp}`;
   const ORG = `w2org_${stamp}`, ORG_DIRECT = `w2orgd_${stamp}`, ORG_B = `w2orgb_${stamp}`;
   const users = [ADMIN, MEMBER, OUTSIDER];
-  const orgs = [ORG, ORG_DIRECT, ORG_B];
+  const orgs = [ORG, ORG_DIRECT, ORG_B, `w2orgm_${stamp}`];
   const email = (id: string) => `${id}@fixture.test`;
   const ENV_FROM = "rfq-env-default@fixture.test";
   const prevEnv = process.env.TENDER_RFQ_FROM_EMAIL;
+  const prevMailboxEnv = process.env.TENDER_RFQ_MAILBOX_EMAIL;
   process.env.TENDER_RFQ_FROM_EMAIL = ENV_FROM;
+  delete process.env.TENDER_RFQ_MAILBOX_EMAIL;
+  const ORG_M1 = `w2orgm_${stamp}`;
   const projectIds: string[] = [];
 
   const STORED = {
@@ -77,7 +80,7 @@ async function main() {
 
   try {
     for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: "user" } });
-    for (const id of orgs) await db.organization.create({ data: { id, name: `Fixture Org ${id}`, code: id, ownerId: id === ORG_B ? OUTSIDER : ADMIN, settingsJson: JSON.parse(JSON.stringify(STORED)) } });
+    for (const id of [ORG, ORG_DIRECT, ORG_B]) await db.organization.create({ data: { id, name: `Fixture Org ${id}`, code: id, ownerId: id === ORG_B ? OUTSIDER : ADMIN, settingsJson: JSON.parse(JSON.stringify(STORED)) } });
     await db.organizationMember.create({ data: { orgId: ORG, userId: ADMIN, role: "org_admin", status: "active" } });
     await db.organizationMember.create({ data: { orgId: ORG_DIRECT, userId: ADMIN, role: "org_admin", status: "active" } });
     await db.organizationMember.create({ data: { orgId: ORG, userId: MEMBER, role: "org_member", status: "active" } });
@@ -96,6 +99,9 @@ async function main() {
     /* ---------- 1. 读 ---------- */
     let g = await get(ORG);
     ok(g.status === 200 && g.body.fromEmail === ENV_FROM && g.body.mailboxEmail === "owner@fixture.test", "管理员读：显示地址没存，按环境变量回退显示；授权邮箱是存的值", g.body);
+    ok(JSON.stringify(g.body.stored) === JSON.stringify({ fromName: true, fromEmail: false, mailboxEmail: true }), "读取说明哪几项是组织自己存的（显示地址没存）", g.body.stored);
+    const f1 = formFromView(g.body as unknown as View);
+    ok(f1.fromEmail === "" && f1.effective.fromEmail === ENV_FROM, "表单里没存的显示地址为空，生效值另记");
 
     /* ---------- 2. 只改保险费率 ---------- */
     const s1 = await pageSave(ORG, (f) => ({ ...f, insurancePct: "1.5" }));
@@ -141,6 +147,34 @@ async function main() {
     const s6 = await pageSave(ORG, (f) => f);
     ok(s6.r.ok && s6.r.empty && s6.res === null && JSON.stringify(await stored(ORG)) === before6, "什么都没改：不发请求，库里不变");
 
+    /* ---------- 6b. 授权邮箱没单独存、只改显示地址：发信账号不变（审查 M1） ---------- */
+    await db.organization.create({ data: { id: ORG_M1, name: "Fixture Org M1", code: ORG_M1, ownerId: ADMIN, settingsJson: { tenderRfq: { fromEmail: "a@fixture.test" } } } });
+    await db.organizationMember.create({ data: { orgId: ORG_M1, userId: ADMIN, role: "org_admin", status: "active" } });
+    const gm = await get(ORG_M1);
+    ok(gm.body.fromEmail === "a@fixture.test" && gm.body.mailboxEmail === "a@fixture.test" && rec(gm.body.stored).mailboxEmail === false, "授权邮箱没单独存，跟着显示地址：现在都是 a@", gm.body);
+    const sm = await pageSave(ORG_M1, (f) => ({ ...f, fromEmail: "b@fixture.test" }));
+    const gm2 = await get(ORG_M1);
+    ok(sm.res?.status === 200 && gm2.body.fromEmail === "b@fixture.test" && gm2.body.mailboxEmail === "a@fixture.test", "只把显示地址改成 b@：授权邮箱仍是 a@（页面把它固定下来了）", { body: sm.r, after: gm2.body });
+
+    /* ---------- 6c. 项目已被删除，它在设置里的那一行能删掉（审查 M2） ---------- */
+    const PX = await mkProject(ORG, ADMIN);
+    const sx = await pageSave(ORG, (f) => ({ ...f, projects: [...f.projects, { projectId: PX, dutyRatePct: "4", deliveryDeadline: "" }] }));
+    ok(sx.res?.status === 200 && PX in rec(rec(rec(rec(await stored(ORG)).tenderRfq).landedCost).projects), "先给一个项目加设置");
+    await db.project.delete({ where: { id: PX } });
+    const sx2 = await pageSave(ORG, (f) => ({ ...f, insurancePct: "1.7", projects: f.projects.filter((p) => p.projectId !== PX) }));
+    const after6c = rec(rec(rec(await stored(ORG)).tenderRfq).landedCost);
+    ok(sx2.res?.status === 200 && !(PX in rec(after6c.projects)) && after6c.insurancePct === 1.7, "项目被删掉之后，删掉它的那一行（连同别的修改）能保存", sx2.res);
+
+    /* ---------- 6d. 两个人同时改汇率：各自的汇率带各自的日期与来源（审查 M3） ---------- */
+    await put(ORG, { landedCost: { fxRates: { USD: 1.3 }, fxAsOf: "2026-11-01", fxSource: "BANK_SETTLEMENT" } });
+    const vA = (await get(ORG)).body as unknown as View;
+    const initA = formFromView(vA);
+    await put(ORG, { landedCost: { fxRates: { USD: 1.4 }, fxAsOf: "2026-11-14", fxSource: "MANUAL" } });
+    const rA = bodyFromForm({ ...formFromView(vA), fxRows: [{ currency: "USD", rate: "1.31" }] }, initA);
+    const resA = rA.ok && !rA.empty ? await put(ORG, rA.body) : null;
+    const lcA = rec(rec(rec(await stored(ORG)).tenderRfq).landedCost);
+    ok(resA?.status === 200 && rec(lcA.fxRates).USD === 1.31 && lcA.fxAsOf === "2026-11-01" && lcA.fxSource === "BANK_SETTLEMENT", "A 打开之后 B 改了汇率与日期；A 只改汇率保存：存下的是 A 的汇率连同 A 看到的日期与来源", lcA);
+
     /* ---------- 7. 谁能读、能存 ---------- */
     const before7 = JSON.stringify(await stored(ORG));
     ok((await get(ORG, MEMBER)).status === 403 && (await put(ORG, { landedCost: { insurancePct: 9 } }, MEMBER)).status === 403, "普通成员读、存：403");
@@ -153,6 +187,7 @@ async function main() {
   } finally {
     if (prevEnv === undefined) delete process.env.TENDER_RFQ_FROM_EMAIL;
     else process.env.TENDER_RFQ_FROM_EMAIL = prevEnv;
+    if (prevMailboxEnv !== undefined) process.env.TENDER_RFQ_MAILBOX_EMAIL = prevMailboxEnv;
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: orgs } }, { userId: { in: users } }] } });
     await db.project.deleteMany({ where: { id: { in: projectIds } } });
     await db.organizationMember.deleteMany({ where: { orgId: { in: orgs } } });

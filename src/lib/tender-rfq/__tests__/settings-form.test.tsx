@@ -8,10 +8,22 @@ import { join } from "node:path";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TenderRfqSettingsFields } from "@/components/organizations/tender-rfq-settings-section";
+import {
+  LOAD_FAILED_ZH,
+  NOTHING_TO_SAVE_ZH,
+  PROJECTS_FAILED_ZH,
+  SAVED_ZH,
+  initialSectionState,
+  prepareSave,
+  sectionReducer,
+  type SectionAction,
+  type SectionState,
+} from "../settings-section-state";
 import { tenderRfqSettingsPutSchema } from "../landed-cost";
 import {
   FX_NEEDS_DATE_AND_SOURCE_ZH,
   MAILBOX_NOTE_ZH,
+  PIN_MAILBOX_NOTE_ZH,
   SETTINGS_PURPOSE_ZH,
   bodyFromForm,
   formFromView,
@@ -30,6 +42,7 @@ const VIEW: TenderRfqSettingsView = {
   fromName: "Fixture Procurement",
   fromEmail: "project@fixture.test",
   mailboxEmail: "owner@fixture.test",
+  stored: { fromName: true, fromEmail: true, mailboxEmail: true },
   landedCost: {
     fxRates: { USD: 1.36, CNY: 0.19 },
     fxAsOf: "2026-11-10",
@@ -75,7 +88,7 @@ console.log("只发改过的项");
 console.log("汇率");
 {
   const add = run((f) => ({ ...f, fxRows: [...f.fxRows, { currency: "EUR", rate: "1.5" }] }));
-  ok("加一种币种：整张汇率表发出去，日期与来源没改就不发", add.ok && JSON.stringify(add.body) === JSON.stringify({ landedCost: { fxRates: { CNY: 0.19, USD: 1.36, EUR: 1.5 } } }) && valid(add.body), add);
+  ok("加一种币种：整张汇率表连同日期、来源一起发（三项是一个整体）", add.ok && JSON.stringify(add.body) === JSON.stringify({ landedCost: { fxRates: { CNY: 0.19, USD: 1.36, EUR: 1.5 }, fxAsOf: "2026-11-10", fxSource: "MANUAL" } }) && valid(add.body), add);
   const blankRowOnly = run((f) => ({ ...f, fxRows: [...f.fxRows, { currency: "", rate: "" }] }));
   ok("只多了一行空白：不算改了", blankRowOnly.ok && blankRowOnly.empty);
   const reorder = run((f) => ({ ...f, fxRows: [...f.fxRows].reverse() }));
@@ -106,7 +119,9 @@ console.log("估算参数");
   ok("加内陆运费（按票 800）", inl.ok && JSON.stringify(inl.body) === JSON.stringify({ landedCost: { exportInlandEstimate: { mode: "per_shipment", value: 800 } } }) && valid(inl.body));
   const pct = run((f) => ({ ...f, freight: { mode: "pct_of_goods", value: "8" } }));
   ok("改成按货值 8%", pct.ok && JSON.stringify(pct.body) === JSON.stringify({ landedCost: { freightEstimate: { mode: "pct_of_goods", value: 8 } } }) && valid(pct.body));
-  ok("百分比超过 100：写明", (() => { const r = run((f) => ({ ...f, freight: { mode: "pct_of_goods", value: "120" } })); return !r.ok && r.errors.some((e) => e.includes("不能超过 100")); })());
+  ok("按货值百分比超过 100：与接口一致，允许（不另加限制）", (() => { const r = run((f) => ({ ...f, freight: { mode: "pct_of_goods", value: "120" } })); return r.ok && valid(r.body); })());
+  ok("估算数值 0：允许", (() => { const r = run((f) => ({ ...f, freight: { mode: "per_unit", value: "0" } })); return r.ok && r.body.landedCost?.freightEstimate?.value === 0 && valid(r.body); })());
+  ok("边界：保险费率 100、关税率 100、显示名 120 字：都允许", (() => { const r = run((f) => ({ ...f, insurancePct: "100", fromName: "x".repeat(120), projects: [{ ...f.projects[0], dutyRatePct: "100" }, f.projects[1]] })); return r.ok && valid(r.body); })());
   ok("选了方式没填数：写明", (() => { const r = run((f) => ({ ...f, inland: { mode: "per_unit", value: "" } })); return !r.ok && r.errors.some((e) => e.startsWith("出口内陆运费")); })());
   ok("数值相同只是写法不同（6 与 6.0）：不算改了", (() => { const r = run((f) => ({ ...f, freight: { mode: "per_unit", value: "6.0" } })); return r.ok && r.empty; })());
   ok("保险费率超过 100、清关为负：各自写明", (() => { const r = run((f) => ({ ...f, insurancePct: "101", clearanceFlatCad: "-1" })); return !r.ok && r.errors.some((e) => e.startsWith("保险费率")) && r.errors.some((e) => e.startsWith("进口清关杂费")); })());
@@ -118,6 +133,10 @@ console.log("项目关税率");
   ok("加一个项目、删一个项目：前者带两项，后者 null；没动的不发", addRm.ok && JSON.stringify(addRm.body) === JSON.stringify({ landedCost: { projects: { projC: { dutyRatePct: 6.5, deliveryDeadline: null }, projB: null } } }) && valid(addRm.body), addRm);
   const edit = run((f) => ({ ...f, projects: [{ ...f.projects[0], dutyRatePct: "7" }, f.projects[1]] }));
   ok("改一个项目的关税率：只发这个项目", edit.ok && JSON.stringify(edit.body) === JSON.stringify({ landedCost: { projects: { projA: { dutyRatePct: 7, deliveryDeadline: "2026-12-20" } } } }) && valid(edit.body), edit);
+  const dlOnly = run((f) => ({ ...f, projects: [{ ...f.projects[0], deliveryDeadline: "2027-01-15" }, f.projects[1]] }));
+  ok("只改一个项目的交付截止：也会发", dlOnly.ok && JSON.stringify(dlOnly.body) === JSON.stringify({ landedCost: { projects: { projA: { dutyRatePct: 6.5, deliveryDeadline: "2027-01-15" } } } }), dlOnly);
+  ok("新加的一行什么都没填：写明（不存一条空设置）", (() => { const r = run((f) => ({ ...f, projects: [...f.projects, { projectId: "projC", dutyRatePct: "", deliveryDeadline: "" }] })); return !r.ok && r.errors.some((e) => e.includes("请填关税率或交付截止")); })());
+  ok("已有的一行把两项都清空：照常发（接口存成空）", (() => { const r = run((f) => ({ ...f, projects: [{ ...f.projects[0], dutyRatePct: "", deliveryDeadline: "" }, f.projects[1]] })); return r.ok && JSON.stringify(r.body.landedCost?.projects) === JSON.stringify({ projA: { dutyRatePct: null, deliveryDeadline: null } }); })());
   ok("没选项目：写明哪一行", (() => { const r = run((f) => ({ ...f, projects: [...f.projects, { projectId: "", dutyRatePct: "5", deliveryDeadline: "" }] })); return !r.ok && r.errors.some((e) => e.startsWith("项目设置第 3 行") && e.includes("选择项目")); })());
   ok("同一个项目两行：写明", (() => { const r = run((f) => ({ ...f, projects: [...f.projects, { ...f.projects[0] }] })); return !r.ok && r.errors.some((e) => e.includes("重复了")); })());
   ok("关税率超过 100、日期格式不对：各自写明", (() => { const r = run((f) => ({ ...f, projects: [{ ...f.projects[0], dutyRatePct: "150" }, { ...f.projects[1], deliveryDeadline: "12/20" }] })); return !r.ok && r.errors.some((e) => e.includes("关税率请填")) && r.errors.some((e) => e.includes("交付截止格式")); })());
@@ -131,10 +150,83 @@ console.log("一次改多项");
   ok("有错时一次列出所有错，不发请求", !bad.ok && bad.errors.length === 2);
 }
 
+console.log("组织自己存的与回退的");
+{
+  const unstoredView: TenderRfqSettingsView = { ...VIEW, fromEmail: "project@env-default.test", mailboxEmail: "project@env-default.test", stored: { fromName: true, fromEmail: false, mailboxEmail: false } };
+  const f0 = formFromView(unstoredView);
+  ok("没存的发件项：表单里为空，生效值另记（用作占位文字）", f0.fromEmail === "" && f0.mailboxEmail === "" && f0.effective.fromEmail === "project@env-default.test" && f0.fromName === "Fixture Procurement");
+  ok("旧接口没有 stored：当作都存了", formFromView({ ...VIEW, stored: undefined }).fromEmail === "project@fixture.test");
+  const untouched = bodyFromForm(f0, f0);
+  ok("没动：不发（回退值不会被写死）", untouched.ok && untouched.empty);
+  const onlyFrom = bodyFromForm({ ...f0, fromEmail: "alias@fixture.test" }, f0);
+  ok("授权邮箱没单独存、只改显示地址：授权邮箱固定为改之前实际用的那个（发信账号不变）", onlyFrom.ok && JSON.stringify(onlyFrom.body) === JSON.stringify({ fromEmail: "alias@fixture.test", mailboxEmail: "project@env-default.test" }) && valid(onlyFrom.body), onlyFrom);
+  const both = bodyFromForm({ ...f0, fromEmail: "alias@fixture.test", mailboxEmail: "box@fixture.test" }, f0);
+  ok("两个都改：按人填的", both.ok && both.body.mailboxEmail === "box@fixture.test");
+  const storedMailbox = run((f) => ({ ...f, fromEmail: "alias@fixture.test" }));
+  ok("授权邮箱已单独存：只改显示地址就只发显示地址", storedMailbox.ok && JSON.stringify(storedMailbox.body) === JSON.stringify({ fromEmail: "alias@fixture.test" }));
+  const clearStored = run((f) => ({ ...f, fromEmail: "" }));
+  ok("清空已存的显示地址：发 null（回到回退值）", clearStored.ok && clearStored.body.fromEmail === null);
+  ok("邮箱规则与接口一致（a@b.c 这类接口不收的也不发）", (() => { const r = run((f) => ({ ...f, fromEmail: "a@b.c" })); return !r.ok === !tenderRfqSettingsPutSchema.safeParse({ fromEmail: "a@b.c" }).success; })());
+}
+
+console.log("汇率与日期来源是一个整体");
+{
+  const r = run((f) => ({ ...f, fxRows: [{ currency: "USD", rate: "1.31" }, { currency: "CNY", rate: "0.19" }] }));
+  ok("只改了汇率：日期与来源按表单上的值一起发（两人同时改时不会挂上别人的日期与来源）", r.ok && r.body.landedCost?.fxAsOf === "2026-11-10" && r.body.landedCost?.fxSource === "MANUAL" && r.body.landedCost?.fxRates?.USD === 1.31, r);
+  const onlyDate = run((f) => ({ ...f, fxAsOf: "2026-11-15" }));
+  ok("只改日期：只发日期", onlyDate.ok && JSON.stringify(onlyDate.body) === JSON.stringify({ landedCost: { fxAsOf: "2026-11-15" } }));
+  const brokenDateView: TenderRfqSettingsView = { ...VIEW, landedCost: { ...VIEW.landedCost, fxAsOf: null } };
+  const fb = formFromView(brokenDateView);
+  const senderOnly = bodyFromForm({ ...fb, fromName: "New" }, fb);
+  ok("存量汇率日期缺失时只改发件名：不拦（与接口一致，接口只在写落地价参数时查）", senderOnly.ok && JSON.stringify(senderOnly.body) === JSON.stringify({ fromName: "New" }));
+  const lcEdit = bodyFromForm({ ...fb, insurancePct: "2" }, fb);
+  ok("同样情况下改落地价参数：拦下，写明缺日期与来源", !lcEdit.ok && lcEdit.errors.includes(FX_NEEDS_DATE_AND_SOURCE_ZH));
+}
+
+console.log("页面状态（reducer）");
+{
+  const reduce = (actions: SectionAction[], start: SectionState = initialSectionState()) => actions.reduce(sectionReducer, start);
+  const ready = reduce([{ type: "loaded", view: VIEW }]);
+  ok("读到之后：可编辑，打开时的值 = 表单", ready.phase === "ready" && ready.form != null && JSON.stringify(ready.form) === JSON.stringify(ready.initial));
+  ok("读失败 403（不是管理员）：整节不显示", reduce([{ type: "loadFailed", status: 403 }]).phase === "hidden");
+  const e500 = reduce([{ type: "loadFailed", status: 500 }]);
+  ok("读失败其它原因：显示错误，不是悄悄消失", e500.phase === "error" && e500.loadError === LOAD_FAILED_ZH);
+  ok("网络失败：同样显示错误", reduce([{ type: "loadFailed", status: null }]).phase === "error");
+  const fx = reduce([{ type: "fxAdd" }, { type: "fxUpdate", index: 2, patch: { currency: "eur" } }, { type: "fxUpdate", index: 2, patch: { rate: "1.5" } }], ready);
+  ok("加一行汇率、填币种（自动转大写）与汇率：只改这一行", fx.form!.fxRows.length === 3 && fx.form!.fxRows[2].currency === "EUR" && fx.form!.fxRows[2].rate === "1.5" && fx.form!.fxRows[0].currency === "CNY" && fx.form!.fxRows[1].currency === "USD");
+  const fxRm = reduce([{ type: "fxRemove", index: 0 }], ready);
+  ok("删第 1 行汇率：只删这一行", fxRm.form!.fxRows.length === 1 && fxRm.form!.fxRows[0].currency === "USD");
+  const pj = reduce([{ type: "projectAdd" }, { type: "projectUpdate", index: 2, patch: { projectId: "projC" } }, { type: "projectUpdate", index: 2, patch: { dutyRatePct: "5" } }, { type: "projectRemove", index: 0 }], ready);
+  ok("加一行项目、选项目、填关税率、删第 1 行：各自只动对应的那一行", pj.form!.projects.length === 2 && pj.form!.projects[0].projectId === "projB" && pj.form!.projects[1].projectId === "projC" && pj.form!.projects[1].dutyRatePct === "5");
+  const est = reduce([{ type: "estimate", key: "inland", patch: { mode: "per_shipment" } }, { type: "estimate", key: "inland", patch: { value: "800" } }], ready);
+  ok("改估算方式与数值", est.form!.inland.mode === "per_shipment" && est.form!.inland.value === "800" && est.form!.freight.mode === "per_unit");
+  const set = reduce([{ type: "set", key: "insurancePct", value: "1.5" }], ready);
+  ok("改一个输入框", set.form!.insurancePct === "1.5" && set.initial!.insurancePct === "1");
+  const undo = reduce([{ type: "reset" }], set);
+  ok("撤销未保存的修改：回到打开时的值，清掉提示", JSON.stringify(undo.form) === JSON.stringify(set.initial) && undo.errors.length === 0);
+  const p1 = prepareSave(set);
+  ok("保存：只发改过的项", p1.kind === "send" && JSON.stringify(p1.body) === JSON.stringify({ landedCost: { insurancePct: 1.5 } }));
+  ok("没改动就点保存：不调接口，提示没有改动", prepareSave(ready).kind === "empty" && reduce([{ type: "nothingToSave" }], ready).msg === NOTHING_TO_SAVE_ZH);
+  const bad = reduce([{ type: "set", key: "fxAsOf", value: "" }], ready);
+  const p2 = prepareSave(bad);
+  ok("有错：不调接口，列出错误", p2.kind === "errors" && reduce([{ type: "validationFailed", errors: p2.kind === "errors" ? p2.errors : [] }], bad).errors.includes(FX_NEEDS_DATE_AND_SOURCE_ZH));
+  const busy = reduce([{ type: "saveStarted" }], set);
+  ok("保存中：不能再改、不能撤销、不能再保存", busy.busy && reduce([{ type: "set", key: "insurancePct", value: "9" }], busy).form!.insurancePct === "1.5" && JSON.stringify(reduce([{ type: "reset" }], busy).form) === JSON.stringify(busy.form) && prepareSave(busy).kind === "noop");
+  const newView: TenderRfqSettingsView = { ...VIEW, landedCost: { ...VIEW.landedCost, insurancePct: 1.5 } };
+  const okd = reduce([{ type: "saveSucceeded", view: newView }], busy);
+  ok("保存成功：用接口返回的设置更新表单与打开时的值，提示已保存", !okd.busy && okd.msg === SAVED_ZH && okd.form!.insurancePct === "1.5" && okd.initial!.insurancePct === "1.5" && prepareSave(okd).kind === "empty");
+  const failed = reduce([{ type: "saveFailed", error: "参数不合法", issues: ["landedCost.fxAsOf: 日期格式 YYYY-MM-DD"] }], busy);
+  ok("保存失败：列出接口的错误与逐项说明，修改保留", !failed.busy && failed.errors[0] === "参数不合法" && failed.errors[1].startsWith("landedCost.fxAsOf") && failed.form!.insurancePct === "1.5");
+  ok("保存失败没有说明：写「保存失败」", reduce([{ type: "saveFailed" }], busy).errors[0] === "保存失败");
+  const pf = reduce([{ type: "projectsFailed" }], ready);
+  ok("项目列表读失败：给提示，不能新加项目（已有的照常显示）", pf.projectsError === PROJECTS_FAILED_ZH && reduce([{ type: "projectAdd" }], pf).form!.projects.length === 2);
+  ok("项目列表读到：可选", reduce([{ type: "projectsLoaded", projects: [{ id: "projA", name: "A" }] }], ready).projects.length === 1);
+}
+
 console.log("呈现");
 {
-  const html = (o: { errors?: string[]; projects?: Array<{ id: string; name: string }>; form?: TenderRfqSettingsForm } = {}) =>
-    renderToStaticMarkup(<TenderRfqSettingsFields form={o.form ?? base()} onChange={() => undefined} projects={o.projects ?? [{ id: "projA", name: "Fixture Tender A" }]} errors={o.errors ?? []} msg={null} busy={false} onSave={() => undefined} onReset={() => undefined} />);
+  const st = (o: Partial<SectionState> = {}): SectionState => ({ ...sectionReducer(initialSectionState(), { type: "loaded", view: VIEW }), projects: [{ id: "projA", name: "Fixture Tender A" }], ...o });
+  const html = (o: Partial<SectionState> = {}) => renderToStaticMarkup(<TenderRfqSettingsFields state={st(o)} dispatch={() => undefined} onSave={() => undefined} />);
   const h = html();
   ok("标题、用途说明、两个地址的说明", h.includes("询价与落地价设置") && h.includes(SETTINGS_PURPOSE_ZH) && h.includes(MAILBOX_NOTE_ZH));
   ok("当前值都显示出来（地址、汇率、日期、运费、保险、清关）", h.includes('value="project@fixture.test"') && h.includes('value="owner@fixture.test"') && h.includes('value="USD"') && h.includes('value="1.36"') && h.includes('value="2026-11-10"') && h.includes('value="150"'));
@@ -145,6 +237,18 @@ console.log("呈现");
   const withErr = html({ errors: [FX_NEEDS_DATE_AND_SOURCE_ZH] });
   ok("有错时列出来", withErr.includes('data-testid="tender-rfq-settings-errors"') && withErr.includes(FX_NEEDS_DATE_AND_SOURCE_ZH));
   ok("没错时没有错误框", !h.includes("tender-rfq-settings-errors"));
+  ok("数字输入用文本框（避免浏览器把打错的数字当成空，误清空）", !h.includes('type="number"') && h.includes('inputMode="decimal"'));
+  const busyH = html({ busy: true });
+  ok("保存中：保存、撤销按钮与输入框都禁用", /data-testid="tender-rfq-settings-save"[^>]*disabled=""/.test(busyH.replace(/disabled=""([^>]*)data-testid="tender-rfq-settings-save"/, 'data-testid="tender-rfq-settings-save" disabled=""')) && /disabled=""[^>]*data-testid="tender-rfq-settings-reset"|data-testid="tender-rfq-settings-reset"[^>]*disabled=""/.test(busyH) && (busyH.match(/disabled=""/g) ?? []).length > 15);
+  ok("不在保存中：保存按钮可点", !/disabled=""[^>]*data-testid="tender-rfq-settings-save"|data-testid="tender-rfq-settings-save"[^>]*disabled=""/.test(h));
+  const unstored = renderToStaticMarkup(<TenderRfqSettingsFields state={st({ form: formFromView({ ...VIEW, fromEmail: "project@env.test", mailboxEmail: "project@env.test", stored: { fromName: true, fromEmail: false, mailboxEmail: false } }), initial: formFromView({ ...VIEW, fromEmail: "project@env.test", mailboxEmail: "project@env.test", stored: { fromName: true, fromEmail: false, mailboxEmail: false } }) })} dispatch={() => undefined} onSave={() => undefined} />);
+  ok("没单独设置的地址：输入框为空，占位文字写明当前用的是什么；并说明授权邮箱会被固定", unstored.includes('placeholder="未单独设置，当前用：project@env.test"') && unstored.includes(PIN_MAILBOX_NOTE_ZH));
+  ok("已单独设置的授权邮箱：不出现固定说明", !h.includes(PIN_MAILBOX_NOTE_ZH));
+  ok("读失败：显示错误", html({ phase: "error", loadError: LOAD_FAILED_ZH, form: null }).includes(LOAD_FAILED_ZH));
+  ok("不是管理员（hidden）、还在读：什么都不渲染", html({ phase: "hidden" }) === "" && html({ phase: "loading" }) === "");
+  const pfh = html({ projectsError: PROJECTS_FAILED_ZH });
+  ok("项目列表读失败：有提示，「加一个项目」禁用", pfh.includes(PROJECTS_FAILED_ZH) && /disabled=""[^>]*>[^<]*<svg[^>]*>[\s\S]*?加一个项目|加一个项目/.test(pfh));
+  ok("保存后的提示显示出来", html({ msg: SAVED_ZH }).includes(SAVED_ZH));
 }
 
 console.log("接线");
@@ -152,12 +256,14 @@ console.log("接线");
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
   const page = read("src/app/(main)/organizations/[orgId]/page.tsx");
   const sec = read("src/components/organizations/tender-rfq-settings-section.tsx");
-  ok("组织页：只对 canManageOrg（org_admin / 平台管理员）渲染", page.includes("{canManageOrg && <TenderRfqSettingsSection orgId={orgId} />}") && /const canManageOrg =\s*org\?\.myRole === "org_admin" \|\| isSuperAdmin\(platformRole\);/.test(page));
-  ok("读与存走现有接口（GET / PUT tender-rfq-settings），请求体来自 bodyFromForm", sec.includes("`/api/organizations/${orgId}/tender-rfq-settings`") && sec.includes('method: "PUT"') && sec.includes("const r = bodyFromForm(form, initial);") && sec.includes("body: JSON.stringify(r.body)"));
-  ok("有错或没改动时不调接口", /if \(!r\.ok\) \{\s*setErrors\(r\.errors\);\s*return;\s*\}/.test(sec) && /if \(r\.empty\) \{\s*setMsg\("没有改动"\);\s*return;\s*\}/.test(sec));
-  ok("读取失败（如不是管理员，接口 403）：这一节不显示", sec.includes(".catch(() => setHidden(true));") && sec.includes("if (hidden || !form || !initial) return null;"));
-  ok("项目下拉只列招投标项目", sec.includes('.filter((p) => p.workDomain === "tender")'));
-  ok("保存之后重新读取（打开时的值随之更新）", /setMsg\("已保存"\);\s*load\(\);/.test(sec));
+  const route = read("src/app/api/organizations/[orgId]/tender-rfq-settings/route.ts");
+  ok("组织页：只对 canManageOrg（org_admin / 平台管理员）且组织在用时渲染", page.includes('{canManageOrg && org.status === "active" && <TenderRfqSettingsSection key={orgId} orgId={orgId} />}') && /const canManageOrg =\s*org\?\.myRole === "org_admin" \|\| isSuperAdmin\(platformRole\);/.test(page));
+  ok("读与存走现有接口（GET / PUT tender-rfq-settings），请求体来自 prepareSave", sec.includes("`/api/organizations/${orgId}/tender-rfq-settings`") && sec.includes('method: "PUT"') && sec.includes("const p = prepareSave(state);") && sec.includes("body: JSON.stringify(p.body)"));
+  ok("读失败按状态码交给 reducer（403 才隐藏）", sec.includes('if (!res.ok) dispatch({ type: "loadFailed", status: res.status });'));
+  ok("保存成功用接口返回的设置，失败带上逐项说明", sec.includes('dispatch({ type: "saveSucceeded", view: json as unknown as TenderRfqSettingsView })') && sec.includes("issues: Array.isArray(json.issues)"));
+  ok("项目下拉只列招投标项目；读失败交给 reducer", sec.includes('.filter((p) => p.workDomain === "tender")') && sec.includes('dispatch({ type: "projectsFailed" })'));
+  ok("接口：读取多返回 stored（哪几项是组织自己存的）", route.includes("stored: { fromName: isSet(\"fromName\"), fromEmail: isSet(\"fromEmail\"), mailboxEmail: isSet(\"mailboxEmail\") }"));
+  ok("接口：删除项目设置（null）不校验项目归属；写入的仍校验", route.includes(".filter(([, v]) => v !== null)") && route.includes("projects 里有不属于本组织的项目"));
 }
 
 console.log(`\nsettings-form: ${passed} passed`);

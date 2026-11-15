@@ -399,8 +399,8 @@ export default function OrganizationDetailPage() {
 
       {canManageMembers && <PositionsSection orgId={orgId} />}
 
-      {/* W-2：询价与落地价设置（org_admin / 平台管理员；接口 tender-rfq-settings 只认 org_admin） */}
-      {canManageOrg && <TenderRfqSettingsSection orgId={orgId} />}
+      {/* W-2：询价与落地价设置（org_admin / 平台管理员、组织在用时；接口 tender-rfq-settings 只认 org_admin） */}
+      {canManageOrg && org.status === "active" && <TenderRfqSettingsSection key={orgId} orgId={orgId} />}
     </div>
   );
 }
