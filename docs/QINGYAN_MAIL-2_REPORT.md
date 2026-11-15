@@ -5,6 +5,7 @@
 | change | `mail-watch` |
 | TASKFLOW | MAIL-2（Phase M「邮箱助手」） |
 | 任务书 | `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`（MAIL-2 一节；判断点 1–7 已拍板，判断点 8 未定、按 A 执行） |
+| PR | #470 |
 | 分支 | `claude/mail-watch`（MAIL-1 的 PR #455 已合并；本分支已合入 main `0925ec9d`） |
 | 开关 | 新增环境变量 `MAIL_WATCH_ENABLED`，**默认关**。合并后不设它，线上零变化：`sales-actions` 每轮多记一条「mail-watch：跳过，平台开关未开」 |
 | 性质 | 新能力。零 schema、零出站、零模型调用、不新增定时任务或队列；`vercel.json` 与 Prisma schema 无 diff；不改 `muse-bridge`、`approval-gate.ts`、`pre-execute-guard.ts`、导航注册表 |
