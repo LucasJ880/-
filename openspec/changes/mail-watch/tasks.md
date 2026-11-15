@@ -4,7 +4,7 @@
 
 ## 1. 读接口、纯函数与开关
 
-- [ ] 1.1 `src/lib/google-email.ts` 新增收件箱增量读取（`history.list`，`messageAdded`、`labelId=INBOX`，至多 50 封，返回处理到的历史记录 id；无游标只取当前位置；404 报过期）与单封元数据读取（`format=metadata`，头只取 `From` / `Subject` / `Date` / `Message-ID` / `Reply-To`），都经 MAIL-1 的本人邮箱读取入口；`GmailReadApi` 补 `history.list` 的 `labelId` 与历史记录 `id`；既有函数不改。新增 `src/lib/mail-watch/types.ts`、`pure.ts`（三道开关、跳过原因、`senderAddress`、归类、主题处理、通知与推送文案、收件人、页面状态、预填文字）；`src/lib/env/runtime-isolation.ts` 加 `MAIL_WATCH_ENABLED` 的解析；`.env.example` 登记。新增并在 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 注册 `src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`。verify：`npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts` 通过；`npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts` 与 `npx tsx src/lib/__tests__/google-email-oauth.test.ts` 通过数不低于基线；`git grep -nE "gmail\.modify|mail\.google\.com" -- src` 与 main 相同
+- [x] 1.1 `src/lib/google-email.ts` 新增收件箱增量读取（`history.list`，`messageAdded`、`labelId=INBOX`，至多 50 封，返回处理到的历史记录 id；无游标只取当前位置；404 报过期）与单封元数据读取（`format=metadata`，头只取 `From` / `Subject` / `Date` / `Message-ID` / `Reply-To`），都经 MAIL-1 的本人邮箱读取入口；`GmailReadApi` 补 `history.list` 的 `labelId` 与历史记录 `id`；既有函数不改。新增 `src/lib/mail-watch/types.ts`、`pure.ts`（三道开关、跳过原因、`senderAddress`、归类、主题处理、通知与推送文案、收件人、页面状态、预填文字）；`src/lib/env/runtime-isolation.ts` 加 `MAIL_WATCH_ENABLED` 的解析；`.env.example` 登记。新增并在 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 注册 `src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`。verify：`npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts` 通过；`npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts` 与 `npx tsx src/lib/__tests__/google-email-oauth.test.ts` 通过数不低于基线；`git grep -nE "gmail\.modify|mail\.google\.com" -- src` 与 main 相同
 
 ## 2. 配置与两个接口
 

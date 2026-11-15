@@ -34,7 +34,7 @@
 import { google } from "googleapis";
 import { db } from "@/lib/db";
 import { encryptField, decryptField } from "@/lib/crypto";
-import { isGmailDraftAllowed, isMailReadAllowed } from "@/lib/env/runtime-isolation";
+import { isGmailDraftAllowed, isMailReadAllowed, isMailWatchAllowed } from "@/lib/env/runtime-isolation";
 import { MAIL_SEARCH_MAX_RESULTS, applyThreadBudget } from "@/lib/mail-read/pure";
 
 // ── Scopes ──────────────────────────────────────────────────
@@ -80,6 +80,13 @@ export function isMailReadEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return isMailReadAllowed(env);
+}
+
+/** MAIL-2 客户来信提醒的平台开关（MAIL_WATCH_ENABLED，默认关）；统一走 runtime-isolation */
+export function isMailWatchEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isMailWatchAllowed(env);
 }
 
 /** 解析 OAuth scope 字符串是否包含目标 scope（支持完整 URL 或短名） */
@@ -512,10 +519,14 @@ export type GmailReadApi = {
         userId: string;
         startHistoryId: string;
         historyTypes?: string[];
+        /** MAIL-2：只要加入该标签的记录（来信观察传 INBOX） */
+        labelId?: string;
         pageToken?: string;
       }) => Promise<{
         data: {
           history?: Array<{
+            /** 历史记录 id：MAIL-2 用它作「处理到哪一条」的游标 */
+            id?: string | null;
             messagesAdded?: Array<{ message?: { id?: string | null; threadId?: string | null } | null }> | null;
           }> | null;
           historyId?: string | null;
@@ -959,6 +970,130 @@ export async function getThreadText(
     messages: budgeted.messages,
     truncated: budgeted.truncated,
     returnedChars: budgeted.returnedChars,
+  };
+}
+
+// ── 来信观察（MAIL-2；spec mail/inbound-watch） ─────────────────
+// 只读本人收件箱新到邮件的元数据：history.list（INBOX）+ messages.get(format=metadata)。
+// 不取正文、不下载附件、不改动邮箱。经上面的本人邮箱读取入口（未绑定 / 缺读信权限在发请求前抛出）。
+
+/** 每轮每个邮箱至多处理的新邮件数 */
+export const INBOX_ADDITIONS_MAX = 50;
+
+export type InboxAdditions = {
+  /** 按到达先后，至多 maxMessages 封 */
+  messages: ThreadReplyRef[];
+  /** 下一轮的起点：处理到的那条历史记录的 id；全部取完时为邮箱当前位置 */
+  historyId: string | null;
+  /** 游标过期（Gmail 只保留约一周历史，history.list 返回 404）：调用方重建起点、不回溯 */
+  expired: boolean;
+  /** 达到上限，还有没取的，留到下一轮 */
+  hasMore: boolean;
+};
+
+/**
+ * 自 sinceHistoryId 以来加入收件箱的邮件（只返回 id 与线程 id）。
+ * - sinceHistoryId 为空 → 不回溯，只返回当前位置作为起点；
+ * - 按历史记录的先后收集；再收一条记录就会超过上限时停在它之前，游标是上一条记录的 id，
+ *   所以没处理的邮件下一轮照样会读到，不丢。
+ */
+export async function listInboxAdditions(
+  userId: string,
+  opts: { sinceHistoryId: string | null; maxMessages?: number },
+  deps: GmailReadDeps = {},
+): Promise<InboxAdditions> {
+  const gmail = await getMailboxReader(userId, deps);
+  if (!opts.sinceHistoryId) {
+    const { data } = await gmail.users.getProfile({ userId: "me" });
+    return { messages: [], historyId: data.historyId ?? null, expired: false, hasMore: false };
+  }
+  const max = Math.max(1, Math.min(opts.maxMessages ?? INBOX_ADDITIONS_MAX, INBOX_ADDITIONS_MAX));
+  const messages: ThreadReplyRef[] = [];
+  const seen = new Set<string>();
+  let cursor: string = opts.sinceHistoryId;
+  let pageToken: string | undefined;
+  try {
+    for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
+      const { data } = await gmail.users.history.list({
+        userId: "me",
+        startHistoryId: opts.sinceHistoryId,
+        historyTypes: ["messageAdded"],
+        labelId: "INBOX",
+        ...(pageToken ? { pageToken } : {}),
+      });
+      for (const record of data.history ?? []) {
+        const fresh: ThreadReplyRef[] = [];
+        for (const added of record.messagesAdded ?? []) {
+          const id = added.message?.id;
+          const threadId = added.message?.threadId;
+          if (id && threadId && !seen.has(id) && !fresh.some((m) => m.messageId === id)) {
+            fresh.push({ messageId: id, threadId });
+          }
+        }
+        // 这条记录放不下了：停在它之前（已有内容时）。单条记录本身就超过上限时照收，避免永远卡住
+        if (messages.length > 0 && messages.length + fresh.length > max) {
+          return { messages, historyId: cursor, expired: false, hasMore: true };
+        }
+        for (const m of fresh) {
+          seen.add(m.messageId);
+          messages.push(m);
+        }
+        if (record.id) cursor = record.id;
+        if (messages.length >= max) {
+          return { messages, historyId: cursor, expired: false, hasMore: true };
+        }
+      }
+      if (!data.nextPageToken) {
+        // 全部取完：前进到邮箱当前位置（没有新来信时游标也要跟上，免得过期）
+        return { messages, historyId: data.historyId ?? cursor, expired: false, hasMore: false };
+      }
+      pageToken = data.nextPageToken;
+    }
+  } catch (err) {
+    if (gmailErrorStatus(err) === 404) return { messages: [], historyId: null, expired: true, hasMore: false };
+    throw err;
+  }
+  // 翻页达到上限：停在已处理到的位置，其余下一轮
+  return { messages, historyId: cursor, expired: false, hasMore: true };
+}
+
+export type InboxMessageMeta = {
+  messageId: string;
+  threadId: string;
+  labelIds: string[];
+  /** ISO 时间；Gmail 没给时为 null */
+  date: string | null;
+  /** From 头原文（显示名 + 地址） */
+  from: string;
+  subject: string;
+  /** RFC 822 Message-ID 头（同一封信进两个邮箱时相同）；没有时为 null */
+  rfcMessageId: string | null;
+  replyTo: string;
+};
+
+/** 单封邮件的元数据（format=metadata，只取 5 个头）。不取正文。 */
+export async function getInboxMessageMeta(
+  userId: string,
+  messageId: string,
+  deps: GmailReadDeps = {},
+): Promise<InboxMessageMeta> {
+  const gmail = await getMailboxReader(userId, deps);
+  const { data } = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "metadata",
+    metadataHeaders: ["From", "Subject", "Date", "Message-ID", "Reply-To"],
+  });
+  const rfc = partHeader(data.payload, "Message-ID").trim();
+  return {
+    messageId: data.id ?? messageId,
+    threadId: data.threadId ?? "",
+    labelIds: data.labelIds ?? [],
+    date: internalDateOf(data.internalDate)?.toISOString() ?? null,
+    from: partHeader(data.payload, "From"),
+    subject: partHeader(data.payload, "Subject"),
+    rfcMessageId: rfc || null,
+    replyTo: partHeader(data.payload, "Reply-To"),
   };
 }
 
