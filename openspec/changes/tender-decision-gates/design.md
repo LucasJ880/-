@@ -4,8 +4,8 @@
 
 - 投标决定：`setGoHoldNoGo`（`src/lib/bid-workflow/go-decision.ts`）在一个事务里写 `BidIntelligenceRoom.goDecision`（GO / HOLD / NO_GO）、`goDecidedAt`、`goDecisionById`，同时写 `Project.bidPhaseStatus` 与审计 `bid_go_decision`。可以反复改。唯一的入口是工作台的三个按钮。
 - 断点 G4（基线）：`tender-rfq`、`tender-bid-draft`、文档生成里没有任何地方读投标决定。
-- 询价入口状态（`decideRfqEntryState`，`web-entry-pure.ts`）有一个 `warnings` 数组，注释写明「不阻断的提醒」，页面在按钮旁与抽屉里都会显示；「下一步」卡片也读这个入口。阻断原因（`EntryBlockReason`）是另一回事，自动起草询价也看它。
-- 投标文件起草：卡片 `bid-draft-card.tsx` → `POST generate-pdf`（`docType = bid_draft`）→ `generateProjectDocument`（`src/lib/projects/generate/generate-docs.ts`）→ `gatherBidDraftInputs`（取最新的等待审核或已批准的分析，不记它的状态）→ 模型合成 → `renderBidDraftHtml`。结果元信息写进 `room.summaryJson.bidDraft`，元信息接口 `GET …/bid-draft` 读它。断点 G5：未批准的分析也能起草，起草出来的东西看不出来。
+- 询价入口状态（`decideRfqEntryState`，`web-entry-pure.ts`）有一个 `warnings` 数组，注释写明「不阻断的提醒」，页面在按钮旁与抽屉里都会显示。「下一步」卡片也读这个入口，但只读可用与否与说明——本次让入口另外返回那条提醒，卡片指向询价时带上（独立审查 M1）。阻断原因（`EntryBlockReason`）是另一回事，自动起草询价也看它。
+- 投标文件起草有两个入口：工作台的卡片 `bid-draft-card.tsx`，与「标书与报价」页签生成菜单（`project-generate-menu.tsx`）里的起草项（独立审查 M2）。两者都 → `POST generate-pdf`（`docType = bid_draft`）→ `generateProjectDocument`（`src/lib/projects/generate/generate-docs.ts`）→ `gatherBidDraftInputs`（取最新的等待审核或已批准的分析，不记它的状态）→ 模型合成 → `renderBidDraftHtml`。结果元信息写进 `room.summaryJson.bidDraft`，元信息接口 `GET …/bid-draft` 读它。断点 G5：未批准的分析也能起草，起草出来的东西看不出来。
 
 ## Goals / Non-Goals
 
@@ -16,7 +16,7 @@
 
 **Non-Goals（具体到文件）**
 
-- 不改 `src/lib/tender-rfq/web-entry-pure.ts` 的阻断原因与 `auto-draft-*.ts`（自动起草询价）。
+- 不改 `src/lib/tender-rfq/web-entry-pure.ts` 的阻断原因与 `auto-draft-*.ts`（自动起草询价）；「下一步」只在 `rfqEntryReasons` 里多带一条。
 - 不改 `src/lib/muse-bridge/**`。
 - 不改 `src/lib/tender-bid-draft/synthesize.ts`（提示词）与起草用哪些要求。
 - 不改 `src/lib/bid-workflow/**`（投标决定的写入）。
@@ -32,7 +32,7 @@
 
 ### D2 询价的提醒放进入口的 `warnings`，不加阻断原因
 
-`warnings` 本来就是不阻断的提醒，页面两处都会显示，「下一步」卡片也会读到。加阻断原因会改变入口可用与否，还会挡住自动起草。
+`warnings` 本来就是不阻断的提醒，页面两处都会显示；入口另外返回同一句（`decisionNoGoZh`），「下一步」卡片据此带上，不靠匹配文字。加阻断原因会改变入口可用与否，还会挡住自动起草。
 
 - 否决：新加一种阻断原因。见上。
 
@@ -42,7 +42,7 @@
 
 ### D4 起草时记下所用分析与是否已批准；与起草取的是同一份
 
-把起草取数改成同时返回所用分析的标识与状态（不进模型的输入），起草之后写进 `bidDraft` 元信息；草稿文件在 AI DRAFT 横幅下加一行。元信息接口另外返回「当前分析是否已批准」，供起草前提示。
+把起草取数改成同时返回所用分析的标识与状态（不进模型的输入），起草之后写进 `bidDraft` 元信息（只在项目有情报室时——元信息本来就写在情报室上）；草稿文件在 AI DRAFT 横幅下加一行。元信息接口另外返回「当前分析是否已批准」，供起草前提示。起草的那一段从 `generate-docs.ts` 原样移到 `src/lib/tender-bid-draft/generate.ts`，合成可以注入，测试用假的合成把整段走一遍（独立审查 M3）。
 
 - 否决：起草之后另查一次分析。中间可能换了一份，记下的不是起草用的那份。
 - 否决：把状态塞进起草的输入。输入会进模型的提示词。
@@ -65,7 +65,7 @@
 ## 验证方式
 
 - `npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx`（新）：文字、开关、草稿横幅、卡片呈现、接线。
-- `npx tsx src/lib/tender-decision-gates/__tests__/decision-gates-db.isolated.test.ts`（新，隔离库，真实路由；起草用假的合成函数，不调模型）：spec 的每个场景。
+- `npx tsx src/lib/tender-decision-gates/__tests__/decision-gates-db.isolated.test.ts`（新，隔离库，真实路由；起草整段用假的合成走一遍，不调模型）：spec 的每个场景，开关开关两种。
 - 变异核对；独立审查；真实浏览器截图。
 - 全量门禁与 `openspec validate tender-decision-gates --strict`。
 

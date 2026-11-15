@@ -193,5 +193,5 @@ export async function loadWebNextStep(input: { project: NextStepProject; userId:
   // 要指向「问供应商要价」时，先问页面上那个入口自己：现在能不能用、不能用是为什么（只读）
   const entry = await loadRfqWebEntry({ projectId: input.project.id, orgId: input.project.orgId, userId: input.userId, now });
   if (!entry.available) return view;
-  return decideWebNextStep({ ...facts, rfqEntry: { enabled: entry.state.enabled, messageZh: entry.state.message } });
+  return decideWebNextStep({ ...facts, rfqEntry: { enabled: entry.state.enabled, messageZh: entry.state.message, noGoZh: entry.decisionNoGoZh ?? null } });
 }

@@ -71,6 +71,8 @@ export type RfqWebEntry =
       followUp: RfqEntryFollowUp | null;
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /** FLOW-H5：投标决定是不投时的提醒（与 state.warnings 里那一条相同）；开关关闭或不是不投时没有这个字段 */
+      decisionNoGoZh?: string;
       /**
        * RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」。available = 两个功能开关都打开（现在能生效、能开启）。
        * 两个功能开关都关闭时没有这个字段；只开了一个时，只有本人的开关不是 off 才有（让他看得到、关得掉）。
@@ -223,7 +225,8 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   const noGo = isDecisionGatesEnabledForOrg(input.orgId)
     ? await db.bidIntelligenceRoom.findFirst({ where: { projectId: project.id, orgId: input.orgId, goDecision: "NO_GO" }, select: { goDecidedAt: true } })
     : null;
-  const state = noGo ? { ...baseState, warnings: [...baseState.warnings, noGoRfqReminderZh(noGo.goDecidedAt, timeZone)] } : baseState;
+  const decisionNoGoZh = noGo ? noGoRfqReminderZh(noGo.goDecidedAt, timeZone) : null;
+  const state = decisionNoGoZh ? { ...baseState, warnings: [...baseState.warnings, decisionNoGoZh] } : baseState;
 
   // ── 引擎发出的轮次与耗时 ──
   const engineRounds: Record<string, { elapsed: string | null }> = {};
@@ -276,6 +279,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     engineRounds,
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
+    ...(decisionNoGoZh ? { decisionNoGoZh } : {}),
     ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
     ...(await loadEntryAutoDraftFollowUp(input.orgId, input.userId)),
     ...(groupsEnabled

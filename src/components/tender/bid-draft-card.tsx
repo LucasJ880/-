@@ -27,8 +27,11 @@ type Payload = {
   } | null;
   latestDoc: { id: string; createdAt: string; version: number } | null;
   /** FLOW-H5：开关开着时才有 */
-  gates?: { noGoZh: string | null; pendingAnalysisZh: string | null };
+  gates?: BidDraftGates;
 };
+
+/** FLOW-H5：起草元信息接口返回的提醒（开关开着时才有） */
+export type BidDraftGates = { noGoZh: string | null; pendingAnalysisZh: string | null };
 
 /** FLOW-H5：起草卡片上的提醒与标注（只提醒，不拦）。没有就不渲染 */
 export function BidDraftGateNotes({ gates, basedOnApprovedAnalysis }: { gates?: Payload["gates"]; basedOnApprovedAnalysis?: boolean }) {

@@ -3,3 +3,4 @@ export { gatherBidDraftInputs, gatherBidDraftInputsWithBasis, type BidDraftBasis
 export { synthesizeBidDraft } from "./synthesize";
 export { renderBidDraftHtml } from "./render";
 export { bidDraftMetaOf } from "./meta";
+export { buildBidDraftDocument } from "./generate";

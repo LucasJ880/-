@@ -6,11 +6,12 @@ import { PENDING_ANALYSIS_DRAFT_HINT_ZH, isDecisionGatesEnabledForOrg, isNoGoDec
 
 async function gatesOf(
   orgId: string | null,
-  room: { goDecision: string | null; goDecidedAt: Date | null } | null,
+  room: { orgId: string; goDecision: string | null; goDecidedAt: Date | null } | null,
   run: { status: string } | null,
 ): Promise<{ noGoZh: string | null; pendingAnalysisZh: string | null }> {
   let noGoZh: string | null = null;
-  if (room && isNoGoDecision(room.goDecision)) {
+  // 与询价入口同一个规则：情报室记在这个项目的组织名下、决定是 NO_GO
+  if (room && room.orgId === orgId && isNoGoDecision(room.goDecision)) {
     const org = orgId ? await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }) : null;
     noGoZh = noGoDraftReminderZh(room.goDecidedAt, resolveOrgTimezone(org?.settingsJson ?? null));
   }
@@ -31,7 +32,7 @@ export async function GET(
     orderBy: { createdAt: "desc" },
     select: { id: true, status: true, summaryJson: true },
   });
-  const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId }, select: { summaryJson: true, goDecision: true, goDecidedAt: true } });
+  const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId }, select: { summaryJson: true, orgId: true, goDecision: true, goDecidedAt: true } });
   const rsj = ((room?.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
   const matrix = (((run?.summaryJson as Record<string, unknown>) ?? {}).bidFitMatrix ?? {}) as Record<string, unknown>;
   const reqCount = run

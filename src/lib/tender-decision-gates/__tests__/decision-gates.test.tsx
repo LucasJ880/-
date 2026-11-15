@@ -69,18 +69,31 @@ async function main() {
     const all = html({ gates: { noGoZh: "N", pendingAnalysisZh: "P" }, basedOnApprovedAnalysis: false });
     ok("三条都有时依次列出", [...all.matchAll(/data-note="(\w+)"/g)].map((m) => m[1]).join() === "nogo,pending,basis");
     const card = read("src/components/tender/bid-draft-card.tsx");
-    ok("卡片把提醒放在起草按钮下面（不拦按钮）", card.includes("<BidDraftGateNotes gates={data.gates} basedOnApprovedAnalysis={data.draft?.basedOnApprovedAnalysis} />") && !/disabled=\{[^}]*gates/.test(card));
+    const notesAt = card.indexOf("<BidDraftGateNotes gates={data.gates} basedOnApprovedAnalysis={data.draft?.basedOnApprovedAnalysis} />");
+    const draftBlockAt = card.indexOf("{data.draft ? (\n        <div className=\"mt-2 rounded-lg");
+    ok("卡片把提醒放在起草按钮下面、上一份草稿那一块之外（还没起草过时也看得到），不拦按钮", notesAt > 0 && draftBlockAt > notesAt && /^      <BidDraftGateNotes gates=\{data\.gates\} basedOnApprovedAnalysis=\{data\.draft\?\.basedOnApprovedAnalysis\} \/>$/m.test(card) && (card.match(/<BidDraftGateNotes /g) ?? []).length === 1 && !/disabled=\{[^}]*gates/.test(card));
+    const menu = read("src/components/project-generate/project-generate-menu.tsx");
+    ok("「标书与报价」的生成菜单：起草项下面显示同样的提醒（取起草元信息的 gates），不拦", menu.includes('{o.docType === "bid_draft" ? <div className="px-3 pb-2"><BidDraftGateNotes gates={draftGates} /></div> : null}') && menu.includes("apiJson<{ gates?: BidDraftGates }>(`/api/projects/${projectId}/bid-draft`).then((r) => setDraftGates(r.gates))") && !/disabled=\{[^}]*draftGates/.test(menu));
+  }
+
+  console.log("「下一步」卡片指向询价时");
+  {
+    const { rfqEntryReasons } = await import("@/lib/tender-next-step/web-next-step");
+    ok("入口可用、不投：先列不投的提醒，再列「点问供应商要价」", JSON.stringify(rfqEntryReasons({ rfqEntry: { enabled: true, messageZh: "", noGoZh: "投标决定是不投" } })) === JSON.stringify(["投标决定是不投", "点「问供应商要价」：按已确认的要求起草，发出前要你批准"]));
+    ok("入口不可用、不投：同样先列提醒", rfqEntryReasons({ rfqEntry: { enabled: false, messageZh: "还没有确认的要求", noGoZh: "投标决定是不投" } })[0] === "投标决定是不投");
+    ok("没有提醒（开关关、不是不投、没传）：与原来相同", JSON.stringify(rfqEntryReasons({ rfqEntry: { enabled: true, messageZh: "" } })) === JSON.stringify(["点「问供应商要价」：按已确认的要求起草，发出前要你批准"]) && JSON.stringify(rfqEntryReasons({ rfqEntry: { enabled: true, messageZh: "", noGoZh: null } })) === JSON.stringify(rfqEntryReasons({ rfqEntry: { enabled: true, messageZh: "" } })));
+    ok("下一步取数：把入口返回的那条提醒交给卡片", read("src/lib/tender-next-step/service.ts").includes("rfqEntry: { enabled: entry.state.enabled, messageZh: entry.state.message, noGoZh: entry.decisionNoGoZh ?? null }"));
   }
 
   console.log("接线");
   {
     const gen = read("src/lib/projects/generate/generate-docs.ts");
-    ok("起草：同一次取数拿到所用分析；开关开着且没批准才加横幅；元信息开关开着才多记", gen.includes("const gathered = await gatherBidDraftInputsWithBasis(") && gen.includes("{ unconfirmedBasisBanner: gates && !basis.approved ? UNCONFIRMED_BASIS_BANNER_EN : null }") && gen.includes("bidDraft: bidDraftMetaOf(result, gates ? basis : null),") && gen.includes("const { result, errorCode } = await synthesizeBidDraft(inputs);"));
+    ok("生成文件：投标文件起草走 buildBidDraftDocument（行为由隔离库测试用假的合成走一遍）", gen.includes("htmlOverride = await buildBidDraftDocument({ projectId: project.id, orgId: input.orgId, userId: input.userId });") && !gen.includes("synthesizeBidDraft("));
     const gather = read("src/lib/tender-bid-draft/gather.ts");
     ok("取数：所用分析的状态与起草取的是同一行", gather.includes("select: { id: true, status: true, summaryJson: true },") && gather.includes('basisOut.current = { runId: run.id, approved: run.status === "APPROVED" };'));
     ok("提示词不变：合成只拿起草的输入", !read("src/lib/tender-bid-draft/synthesize.ts").includes("basis"));
     const entry = read("src/lib/tender-rfq/web-entry.ts");
-    ok("询价入口：开关开着、这个组织这个项目的决定是 NO_GO 时多一条提醒；入口可用与否照旧", entry.includes('where: { projectId: project.id, orgId: input.orgId, goDecision: "NO_GO" }') && entry.includes("const state = noGo ? { ...baseState, warnings: [...baseState.warnings, noGoRfqReminderZh(noGo.goDecidedAt, timeZone)] } : baseState;") && entry.includes("const noGo = isDecisionGatesEnabledForOrg(input.orgId)"));
+    ok("询价入口：开关开着、这个组织这个项目的决定是 NO_GO 时多一条提醒并单独返回；入口可用与否照旧", entry.includes('where: { projectId: project.id, orgId: input.orgId, goDecision: "NO_GO" }') && entry.includes("const state = decisionNoGoZh ? { ...baseState, warnings: [...baseState.warnings, decisionNoGoZh] } : baseState;") && entry.includes("...(decisionNoGoZh ? { decisionNoGoZh } : {}),") && entry.includes("const noGo = isDecisionGatesEnabledForOrg(input.orgId)"));
     const route = read("src/app/api/projects/[id]/bid-draft/route.ts");
     ok("起草元信息接口：开关开着才多返回 gates", route.includes("...(gates ? { gates: await gatesOf(access.project.orgId, room, run) } : {}),") && route.includes("const gates = isDecisionGatesEnabledForOrg(access.project.orgId);"));
     ok("规则文件是纯的", !/@\/lib\/db|prisma|fetch\(/.test(read("src/lib/tender-decision-gates/gates.ts").replace(/\/\*[\s\S]*?\*\//g, "")));
