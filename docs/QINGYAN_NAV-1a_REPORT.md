@@ -1,11 +1,11 @@
 # NAV-1a 报告：一个入口一个名字
 
-change：`nav-1a-single-name`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` §NAV-1a；四件套 Lucas 2026-11-15 审核通过，design「审核关注点」Q1–Q5 全部按推荐，Q3 并入）。基线 main `dd0e99d`。零 schema、零出站、零 LLM、不动权限与路由门。
+change：`nav-1a-single-name`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` §NAV-1a；四件套 Lucas 2026-11-15 审核通过，design「审核关注点」Q1–Q5 全部按推荐，Q3 并入）。基线 main `dd0e99d`；开 PR 后发现 main 已前移到 `a747467`，已合并进本分支（见 §8）。零 schema、零出站、零 LLM、不动权限与路由门。
 
 | 项 | 值 |
 |---|---|
 | 新能力 | `navigation/entry-naming`（8 条要求） |
-| 新测试 | `src/lib/navigation/__tests__/entry-naming.test.ts`，31 项；`scripts/test-all.sh:247`「入口名称单一来源（NAV-1a）」，`scripts/test-ci-unit.sh:155` |
+| 新测试 | `src/lib/navigation/__tests__/entry-naming.test.ts`，31 项；`scripts/test-all.sh:248`「入口名称单一来源（NAV-1a）」，`scripts/test-ci-unit.sh:157` |
 | 截图 | `docs/acceptance/nav-1a/01–16`（本机临时库 + `next dev`，虚构企业与账号） |
 | BREAKING | 文案：所有企业侧栏与使用说明里 20 个入口名称、16 个页面大标题、20 处站内文字 |
 
@@ -151,9 +151,11 @@ change：`nav-1a-single-name`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TA
 | `npm run lint:baseline` | PASS（errors 38 ≤ 基线 53，无新增 fingerprint）；本次新增与改接线的 7 个文件单独 `eslint` 无输出。浅克隆下「PR 改动文件」附加检查被脚本跳过 |
 | `npm run test:ci` | `CI unit subset PASS`（退出码 0） |
 | `npm test` | 622/635。13 个失败都是环境类（无数据库连接 / Chromium / Gmail / Agent Trace）：Agent Trace 只读查询、Phase3A-2 Ledger DB、Phase3A-2 Smoke Access、Phase3A-3 Approvals Smoke、Governance Hygiene Gate、Governance Hygiene Concurrency Gate、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Phase3A-5 Settle DB、Phase3A-5 Overview Acceptance、Gmail Draft OAuth Compose Scope、T4 授标情报真实 Postgres 矩阵、Quote Operations 客户报价 PDF 分页布局。在 main `dd0e99d` 的干净检出上把这 13 项逐个重跑，13 项同样失败 |
-| `bash scripts/check-test-registry.sh` | 已注册 610 个；基线 68 条（未增未减，`trade-layout.test.ts` 那一行留给 NAV-1b） |
+| `bash scripts/check-test-registry.sh` | 已注册 617 个（合并 main 之后）；基线 68 条（未增未减，`trade-layout.test.ts` 那一行留给 NAV-1b） |
 | `git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` | 无输出 |
 | `openspec validate nav-1a-single-name --strict` | valid |
+
+**main 前移**：上表的 `npm test` / `npm run test:ci` / `lint:baseline` 是在 `dd0e99d` 之上跑的。实施期间 main 合入了 #446、#447、#450、#452（都是招投标线，56 个文件），与本 change 同改的只有 TASKFLOW、`scripts/test-all.sh`、`scripts/test-ci-unit.sh` 三个文件，自动合并无冲突；任务书引用的文件（导航、翻译表、说明页、外贸收件箱、客户时间线等）在 main 上都没有变。合并后重跑：`entry-naming` 31 通过、`entry-visibility` 73 通过、测试注册校验通过、`npm run typecheck` 通过；其余由 PR 的 CI 跑。合并带进来的 FIX-6、FIX-7、FLOW-H4a 三行在 TASKFLOW 里写着「PR 待审」而它们的 PR 已合并，本 PR 没有去改。
 
 受影响的既有测试，通过数与改动前相同：`entry-visibility` 73、`navigation-ia` 64、`navigation-workspace` 34、`position-nav` 101、`trade-layout` 5、`wechat-entry-nav` 19、`tenant-context` 28、`owner-today` 8、`phone-match` 13。
 
