@@ -41,7 +41,7 @@
 - `/help` 的结构、副标题、页尾三块开发者文字（NAV-1b 删）；本 change 只动它的大标题与名称单元格。
 - 例外清单里 7 个页面的标题：`/capabilities`、`/operations/intelligence`、`/reports`、`/`、`/sales/home`、`/assistant`、`/trade/chat`。
 - 只对 Sunny 老板或平台管理员可见的入口的页面标题（如 `/sales/cockpit`「销售分析」、`/projects`「项目」、`/blinds-orders`「工艺单管理」、`/wechat`「微信消息」、`/memory`「组织知识管理」、`/admin/invite-codes`「邀请码管理」）——任务书只要求核对 Cathy 与 Lynn 可见的入口。
-- 站内其他提到入口名字的文字（清单见「审核关注点」Q3）。
+- D9 清单以外提到入口旧名字的文字：`src/app/api/**` 的错误信息、`src/lib/automation/registry.ts` 的任务名、`src/lib/agent-core/**` 的工具说明、`src/lib/marketing/**` 与 `src/lib/pending-actions/executor.ts` 的推送正文、`src/lib/authorization/permissions.ts` 的权限名称、`src/lib/navigation/operations-index.ts` 的卡片名、`en.ts` 的 `header_notif_title`。
 - 数据里存的名字：`src/lib/trade/intelligence-service.ts:827` `INTELLIGENCE_CAMPAIGN_NAME = "企业情报"`（按名字查找既有活动，改了会重复建活动）、`src/lib/revenue-spine/source-labels.ts`。
 - 接口、Prisma schema、`vercel.json`、权限键、模块、岗位模板。
 
@@ -152,13 +152,14 @@
 | `/trade/chat` | `biz-trade-chat` 外贸 AI 对话 | 对话界面，没有大标题（空态小标题「海外业务协同」） | 同上 |
 
 - 否决：只改任务书列的 7 处。任务书明确要求「逐页核对 Cathy 与 Lynn 可见的其余入口，大标题与入口名不一致的一并对齐」。
-- 否决：把例外里的 7 个也硬对齐。`/reports`、`/operations/intelligence` 照抄入口名会让标题与页面内容不符；给对话页和首页加标题超出「改标题」的范围。这 7 个列在「审核关注点」Q2 请拍板。
+- 否决：把例外里的 7 个也硬对齐。`/reports`、`/operations/intelligence` 照抄入口名会让标题与页面内容不符；给对话页和首页加标题超出「改标题」的范围。Q2 已拍板不动。
 - 否决：让页面从注册表读标题（真正的单一来源）。16 个页面里多数是各写各的客户端页面，接入要逐页加导航依赖；本 change 用源码断言测试把「标题 = 入口名」守住，成本低一个量级。
 
 ### D7 测试：一个新文件，三组断言
 
 `src/lib/navigation/__tests__/entry-naming.test.ts`，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`：
 
+0. （共四组；第四组「站内文字」见 D9。）
 1. **名称一致**：72 项里 62 项带翻译键，中文相等、英文非空；20 项中文定名、18 项英文定名逐项相等；20 个旧名字不再是任何入口的名称。
 2. **三处共用**：源码断言 `sidebar.tsx`、`mobile-nav-drawer.tsx`、`/help` 的名称组件都调 D1 的函数；`sidebar.tsx` 不再有自己的 `itemLabel`；抽屉里不再有内联的 `item.labelKey && m[...]`；`/help` 页面不再直接渲染条目的 `label`。
 3. **大标题**：一张核对表（入口 key → 源文件 → 期望标题）加一张例外表（入口 key → 原因）；对三种身份的可见入口逐个断言「在核对表里且源码含该标题」或「在例外表里」，两表都不在即失败；例外表恰为 D6 的 8 个入口。
@@ -171,12 +172,44 @@
 
 - 否决：不管它。它是导航的手工冒烟脚本，留着过期断言等于埋雷。
 
+### D9 站内指向改名入口或页面的界面文字（Q3，Lucas 2026-11-15 并入）
+
+只改拍板清单里的 20 处（清单当时写「返回增长中心 5 处」，全量核对是 8 处，同一项补齐；「送内容运营」按钮带一条配对的操作提示，一起改）：
+
+| # | 位置 | 现文字 | 改为 |
+|---|---|---|---|
+| 1 | `src/components/dashboard/management-dashboard-client.tsx:259` | 进入海外业务 | 进入外贸获客 |
+| 2 | `src/app/(main)/trade/page.tsx:169` | …再使用海外业务。 | …再使用外贸获客。 |
+| 3 | `src/app/(main)/trade/page.tsx:203` | 页面监控信号 | 市场监测 |
+| 4 | `src/components/sales/pending-deposit-banner.tsx:97` | 全部报价 | 报价记录 |
+| 5 | `src/app/(main)/sales/quote-sheet/rough-quote-panel.tsx:327` | 全部报价 | 报价记录 |
+| 6 | `src/app/(main)/sales/quote-sheet/rough-quote-panel.tsx:301` | 保存后进入「全部报价」 | 保存后进入「报价记录」 |
+| 7 | `src/app/(main)/sales/quote-sheet/page.tsx:1612` | 保存后可在「全部报价」查看 | 保存后可在「报价记录」查看 |
+| 8 | `src/app/(main)/settings/notifications/page.tsx:285` | 前往通知中心 | 前往待处理事项 |
+| 9 | `src/app/(main)/operations/center/page.tsx:65` | 客服收件箱与发布运营 | 微信客服与发布运营 |
+| 10 | `src/lib/i18n/zh.ts:139` `header_notif_title` | 通知中心 | 待处理事项 |
+| 11–17 | `src/app/(main)/operations/growth/{metrics,brand,mmm,audit,experiments,campaigns,automations}/page.tsx` | 返回增长中心 | 返回品牌增长 |
+| 18 | `src/app/(main)/marketing/employee/page.tsx:155` | ← 增长中心 | ← 品牌增长 |
+| 19 | `src/components/market-intelligence/monitoring-workspace.tsx:676`（及 `:301` 的提示「未送内容运营」） | 送内容运营 | 送内容生产 |
+| 20 | `src/lib/revenue-spine/source-labels.ts:15` | 企业情报 | 竞品溯源 |
+
+测试：`entry-naming.test.ts` 第四组，逐处断言「文件含新文字、不含旧文字」；另断言 `INTELLIGENCE_CAMPAIGN_NAME` 仍为「企业情报」。
+
+**全量扫描多扫到、不在拍板清单里的 13 处，本 change 不改，记入报告**：提示语里的「通知中心」3 处（`src/components/notification/project-notification-rule-card.tsx:167`、`sales/quote-sheet/page.tsx:1169`、`settings/notifications/page.tsx:194`）；品牌增长各页提示语与加载失败文字里的「增长中心」6 处（`operations/growth/page.tsx:69,71,81`、`growth/metrics/page.tsx:251`、`growth/brand/page.tsx:238`、`src/components/market-intelligence/manual-analysis-panel.tsx:472`）；折扣设置卡里的「电子报价单」3 处（`sales/cockpit/discount-settings-card.tsx:434,475,797`）；`knowledge/page.tsx:74`「已写入组织知识库」。
+
+**不是同一个东西、不该改的**：`/trade/cockpit` 的「海外业务分析」与指向它的链接（另一个页面）；`/trade/chat` 空态的「海外业务协同」（例外页面）；`/inbox` 的「收件箱」（随手记页面，不是微信客服）；「查看全部报价」「…的全部报价」（泛指，不是入口名）。
+
+- 否决：按规则全量改（页面与组件里一切旧叫法）。会多出上面 13 处，其中「电子报价单」在折扣设置里是当名词用，换成「报价」读不通，要重写句子；这些不在拍板清单里，不擅自扩。
+- 否决：连接口错误信息、定时任务名、AI 工具说明一起改。那些不是指路文字，「增长中心」在 `src/lib` 与接口里有二十多处，且有的进了推送消息与审计，改动面与本 change 不相称。
+- 否决：改 `/operations` 索引卡片名「增长中心」。它由 `navigation/entry-visibility` 的场景与 `entry-visibility.test.ts:264` 钉住，改它要动另一个能力的规格。
+- 否决：同步改英文的铃铛标题。英文现为 Notifications，拍板清单只有中文那一处。
+
 ## 任务书「不确定处」里与本 change 有关的条目
 
 | 条目 | 核对结论 |
 |---|---|
 | Cathy 在生产的实际岗位与企业模块 | 没有生产访问，未核对。仓库里两处口径不同：`src/lib/navigation/__tests__/identity-fixtures.ts:58` 是「老板 + 外贸业务员、企业内 `org_admin`」，`src/lib/authorization/__tests__/mengxin-positions.test.ts:88` 的注释写「Cathy 生产实情：平台 boss + trade_rep + owner」、企业内 `org_member`。对本 change 无影响：定名对所有身份生效，大标题核对用的是测试身份的可见入口；生产若多开了模块，多出来的入口可能有未核对的标题。 |
-| 手机底栏的短名是否与定名表冲突 | 核对了 `src/lib/navigation/mobile-tabs.ts:51-82` 全部 12 个短名。没有一个短名是另一个入口的名字。「报价」→ `/sales/quote-sheet` 与定名一致。「日历」→ `/sales/calendar`，定名是「预约日历」，属于简称（同类：「首页」= 销售首页、「客户」= 客户与商机）。按任务书「本期不改」处理，见 Q4。 |
+| 手机底栏的短名是否与定名表冲突 | 核对了 `src/lib/navigation/mobile-tabs.ts:51-82` 全部 12 个短名。没有一个短名是另一个入口的名字。「报价」→ `/sales/quote-sheet` 与定名一致。「日历」→ `/sales/calendar`，定名是「预约日历」，属于简称（同类：「首页」= 销售首页、「客户」= 客户与商机）。按任务书「本期不改」处理（Q4 已拍板不改）。 |
 | 其余页面大标题没有逐页看完 | 已对三种身份的 46 个可见入口逐页看完，结果见 D6。Sunny 老板与平台管理员才可见的入口没有核对，列为 Non-Goal。 |
 
 ## 与八条硬纪律的关系
@@ -193,7 +226,7 @@
 ## Risks / Trade-offs
 
 - [Sunny 成员熟悉的名字变了：「电子报价单」→「报价」，页面标题同步变] → 任务书已定为 BREAKING · 文案；上线前在 PR 描述与报告里列全 20 个改名与 16 个标题；U-8 之后报价两项还会再改一次名，届时只改注册表一处，测试会带着其它几处一起失败。
-- [改了页面标题，但页面里别处还叫旧名字（如报价单页的提示「保存后可在『全部报价』查看」、增长中心子页的「← 返回增长中心」）] → 本 change 不改，清单在 Q3；拍板并入的话补一条 spec 要求再改。
+- [改了页面标题，但页面里别处还叫旧名字] → 指路的链接、按钮与提示语按 D9 改了 20 处；剩下的 13 处界面文字与 `src/lib`、接口里的叫法不改，清单进报告，由 Lucas 决定是否另开一个小 change。品牌增长页面标题是「品牌增长」而加载失败提示仍写「增长中心」，属于这一类。
 - [竞品溯源转入线索时建的活动名仍是「企业情报」，梦馨在活动列表里还会看到这个旧名字] → 这是按名字查找的数据，改名需要迁移既有活动，本 change 不动，记入报告。
 - [英文界面成员打开 `/help` 时名称先中文后英文闪一下] → 与侧栏现有行为一致；英文界面目前没有实际用户。
 - [源码断言测试按字符串找标题，页面重构（如标题改成变量）会误报] → 核对表写明文件与期望字符串，失败信息指到具体入口；这类测试在仓库里已有先例（`entry-visibility.test.ts` 的接线断言）。
@@ -212,16 +245,12 @@
 - `openspec validate nav-1a-single-name` 通过。
 - 真实应用截图（本地起应用，测试身份）：Cathy 的侧栏与 `/help` 并排、Lynn 的侧栏与 `/help` 并排、7 个任务书列出的页面标题，放 `docs/acceptance/nav-1a/`。
 
-## 审核关注点（偏离或补充任务书之处，请拍板）
+## 审核关注点与拍板结果（Lucas 2026-11-15：五个问题都按推荐，Q3 并入；四件套审核通过）
 
-- **Q1 逐页核对多出的 9 个标题**（D6 表后 9 行）按规则对齐。其中 `/sales/quote-sheet`「电子报价单」→「报价」、`/sales/quotes`「全部报价」→「报价记录」是 Sunny 销售每天用的页面，U-8 之后还要再改一次。推荐：照任务书对齐。
-- **Q2 对不齐的 7 个页面**（D6 例外表）本 change 不动。推荐：不动；其中 `/reports` 与 `/operations/intelligence` 是入口名与页面功能不符，另行决定改哪一边。
-- **Q3 站内其他提到旧名字的文字**，任务书没覆盖，本 change 默认不改。核对到的：
-  - 指向改名入口的链接 / 按钮：`src/components/dashboard/management-dashboard-client.tsx:259`「进入海外业务」；`src/app/(main)/sales/quote-sheet/rough-quote-panel.tsx:327`、`src/components/sales/pending-deposit-banner.tsx:97`「全部报价」；`src/app/(main)/settings/notifications/page.tsx:285`「前往通知中心」；`src/app/(main)/trade/page.tsx:203`「页面监控信号」。
-  - 提示语里引用入口名：`sales/quote-sheet/page.tsx:1612`、`rough-quote-panel.tsx:301`「全部报价」；`trade/page.tsx:169`「海外业务」；`operations/center/page.tsx:65`「客服收件箱与发布运营」。
-  - 铃铛下拉标题 `src/lib/i18n/zh.ts:139`「通知中心」（页面标题改成「待处理事项」后两处不同名）。
-  - 增长中心子页的返回链接「← 返回增长中心」5 处（`operations/growth/{metrics,brand,mmm,audit}/page.tsx`、`marketing/employee/page.tsx:155`）；「送内容运营」按钮（`monitoring-workspace.tsx:676`）。
-  - 线索来源标签 `src/lib/revenue-spine/source-labels.ts:15`「企业情报」（`trade/page.tsx:410` 同一来源已写「竞品溯源」）。
-  - 推荐：并入 1a，只改上面这些指向本次改名入口或页面的文字，不动数据里存的名字；拍板后补一条 spec 要求与对应断言。
-- **Q4 手机底栏「日历」**（→ 预约日历的简称）不改。推荐：不改。
-- **Q5 英文名**（D5）是直译，没有来源。推荐：按表执行。
+| # | 问题 | 结果 |
+|---|---|---|
+| Q1 | 逐页核对多出的 9 个标题是否照规则对齐（含 Sunny 的两个报价页，U-8 之后还要再改一次） | 对齐，见 D6 |
+| Q2 | 对不齐的 7 个页面本期不动 | 不动，登记为例外，见 D6 |
+| Q3 | 站内其他提到旧名字的文字要不要并入 | 并入，只改指向本次改名入口或页面的文字，不动数据里存的名字，见 D9 |
+| Q4 | 手机底栏「日历」要不要改成「预约日历」 | 不改 |
+| Q5 | 英文名按直译表执行 | 按 D5 执行 |

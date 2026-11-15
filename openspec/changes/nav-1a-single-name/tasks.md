@@ -1,6 +1,6 @@
 # Tasks
 
-每条带验证；真实输出写进 `docs/QINGYAN_NAV-1a_REPORT.md`。实施前先等「审核关注点」Q1–Q5 拍板；Q3 若并入，先用 `/opsx:update` 补 spec 要求再动代码。
+每条带验证；真实输出写进 `docs/QINGYAN_NAV-1a_REPORT.md`。四件套 Lucas 2026-11-15 审核通过（Q1–Q5 按推荐，Q3 并入，见 design D9）。
 
 受影响测试基线（2026-11-15，main `dd0e99d`，Node 24）：
 
@@ -26,13 +26,13 @@
 ## 3. 页面大标题
 
 - [ ] 3.1 按 design D6 改 16 处页面大标题（不改路由与页面其它内容），在 `entry-naming.test.ts` 加「大标题」组：核对表 + 例外表 + 三种身份可见入口全覆盖。验证：在未改标题的代码上该组失败并列出 16 个入口；改后全过，例外表恰为 8 个入口。
-- [ ] 3.2 把 `scripts/nav-visual-smoke.mjs` 四处「海外业务」改为「外贸获客」（design D8）。验证：`grep -n "海外业务" scripts/nav-visual-smoke.mjs` 无输出。
+- [ ] 3.2 按 design D9 改 20 处站内界面文字，在 `entry-naming.test.ts` 加「站内文字」组（逐处含新文字、不含旧文字；活动名称仍为「企业情报」）；把 `scripts/nav-visual-smoke.mjs` 四处「海外业务」改为「外贸获客」（design D8）。验证：在未改文字的代码上该组失败；改后全过；`grep -n "海外业务" scripts/nav-visual-smoke.mjs` 无输出；`owner-today` / `phone-match` 两个读来源标签的测试仍通过。
 
 ## 4. 整体核对与交付
 
 - [ ] 4.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1a-single-name`。验证：全部通过；`git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` 无输出。
 - [ ] 4.2 本地起应用，用测试身份截图：Cathy 侧栏与 `/help` 并排、Lynn 侧栏与 `/help` 并排、任务书列出的 7 个页面标题，放 `docs/acceptance/nav-1a/`。验证：截图里侧栏与说明页同名，没有「海外业务」「企业情报」「收件箱」「电子报价单」「全部报价」。
-- [ ] 4.3 写 `docs/QINGYAN_NAV-1a_REPORT.md`（20 个改名、16 个标题、8 个例外入口、未改的站内旧叫法清单、各命令真实输出）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1a 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1a 行状态为 `[G]`。
+- [ ] 4.3 写 `docs/QINGYAN_NAV-1a_REPORT.md`（20 个改名、16 个标题、8 个例外入口、20 处站内文字、未改的 13 处与 `src/lib` / 接口里的旧叫法清单、各命令真实输出）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1a 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1a 行状态为 `[G]`。
 
 ## Workflow follow-up
 
