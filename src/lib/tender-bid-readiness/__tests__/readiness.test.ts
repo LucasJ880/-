@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { matchDimensions } from "@/lib/tender-price-schedule/dimension-match";
 import { OTTAWA_18026, OTTAWA_18026_LINES } from "@/lib/tender-price-schedule/__tests__/fixtures/ottawa-18026";
 import type { CertificateEvidence } from "../certification-gate";
-import { WINDOW_EXPIRED_NO_RECEIPT_ZH, WINDOW_EXPIRED_ZH, assessBidReadiness, type CostReadinessInput, type ReadinessInput } from "../readiness";
+import { READINESS_STATES, REVIEW_ONLY_ZH, WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH, WINDOW_EXPIRED_NO_RECEIPT_ZH, WINDOW_EXPIRED_ZH, assessBidReadiness, type CostReadinessInput, type ReadinessInput } from "../readiness";
 
 let passed = 0;
 function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
@@ -76,13 +76,22 @@ console.log("tender-bid-readiness readiness");
   const submitted = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { receiptRef: "MERX-RCPT-1" } }));
   ok("已过截标但有带回执的提交 → 不算过期，提示仅供复盘", !codes(submitted).includes("WINDOW_EXPIRED") && submitted.warnings.some((w) => w.code === "ALREADY_SUBMITTED"));
   // FLOW-H4c：有提交时间但没有回执编号 → 仍是「已过截标」（只有带回执的才算已提交），文字写明去补回执编号
-  const noReceipt = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: null } }));
+  const noReceipt = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: null }, receiptCanBeAddedInRecord: true }));
   const expiredMsg = (r: ReturnType<typeof assessBidReadiness>) => r.blockers.find((b) => b.code === "WINDOW_EXPIRED")?.messageZh;
   ok("已过截标、有提交时间、没有回执编号 → 仍阻断，文字写明去「提交记录」里补上回执编号", expiredMsg(noReceipt) === WINDOW_EXPIRED_NO_RECEIPT_ZH && WINDOW_EXPIRED_NO_RECEIPT_ZH.includes("「提交记录」里补上回执编号") && !noReceipt.warnings.some((w) => w.code === "ALREADY_SUBMITTED"));
-  ok("回执编号是空白的也一样", expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: "   " } }))) === WINDOW_EXPIRED_NO_RECEIPT_ZH);
-  ok("已过截标、没有提交时间（没有记录或记录里没时间）→ 文字与原来相同", [undefined, null, {}, { receiptRef: null }, { submittedAt: null, receiptRef: null }].every((sub) => expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: sub as never }))) === WINDOW_EXPIRED_ZH) && WINDOW_EXPIRED_ZH === "已过截标，且没有带回执的提交记录");
+  ok("回执编号是空白的也一样", expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: "   " }, receiptCanBeAddedInRecord: true }))) === WINDOW_EXPIRED_NO_RECEIPT_ZH);
+  ok("「提交记录」对这个组织没开（或没说开着）：不指向它，只说有提交时间、没有回执编号", [false, undefined].every((x) => expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: null }, receiptCanBeAddedInRecord: x }))) === WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH) && !WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH.includes("提交记录") && WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH.includes("没有回执编号"));
+  ok("已过截标、没有提交时间（没有记录或记录里没时间）→ 文字与原来相同（不论「提交记录」开没开）", [undefined, null, {}, { receiptRef: null }, { submittedAt: null, receiptRef: null }].every((sub) => [true, false].every((x) => expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: sub as never, receiptCanBeAddedInRecord: x }))) === WINDOW_EXPIRED_ZH)) && WINDOW_EXPIRED_ZH === "已过截标，且没有带回执的提交记录");
   ok("截标还没到：有没有提交时间都没有「已过截标」", [null, { submittedAt: "2026-11-07T14:00:00.000Z", receiptRef: null }].every((sub) => !codes(assessBidReadiness(base({ now: BEFORE_CLOSE, submission: sub }))).includes("WINDOW_EXPIRED")));
   ok("判定的文字里不带出回执编号", !JSON.stringify(submitted).includes("MERX-RCPT-1"));
+  // FLOW-H4c：已经交了标（截标已过、有带回执的提交）→ 判定只供复盘，不论有没有阻断项；不说「可提交 Owner 决定」
+  const doneClean = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: "R-1" } }));
+  ok("已交标、没有别的阻断项 → 「已交标（仅供复盘）」，不是「可提交 Owner 决定」", doneClean.state === "REVIEW_ONLY" && doneClean.stateZh === REVIEW_ONLY_ZH && doneClean.blockers.length === 0 && doneClean.summaryZh === "已交标，判定只供复盘：没有阻断项。" && !/可提交 Owner 决定|不可投标/.test(doneClean.stateZh + doneClean.summaryZh));
+  const doneBlocked = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: "R-1" }, dimensionChecks: dimsOk.filter((d) => d.lineNo !== 1) }));
+  ok("已交标、还有阻断项 → 同样只供复盘（阻断项照列），不是「不可投标」", doneBlocked.state === "REVIEW_ONLY" && doneBlocked.blockers.length === 1 && doneBlocked.blockers[0].code === "DIMENSION_UNKNOWN" && doneBlocked.summaryZh === "已交标，判定只供复盘：1 个阻断项。" && doneBlocked.stateZh === REVIEW_ONLY_ZH);
+  ok("截标之前提前交了（带回执）：照常判定，不是只供复盘", assessBidReadiness(base({ now: BEFORE_CLOSE, submission: { submittedAt: "2026-11-07T14:00:00.000Z", receiptRef: "R-1" } })).state === "READY_FOR_OWNER_DECISION");
+  ok("判定一共三种：不可投标、可提交 Owner 决定、已交标（仅供复盘）", READINESS_STATES.join() === "NOT_READY,READY_FOR_OWNER_DECISION,REVIEW_ONLY");
+  ok("投标工作区面板：「已交标（仅供复盘）」的徽标用中性色，不是绿也不是红", (() => { const panel = readFileSync(join(process.cwd(), "src/components/tender/bid-workspace-panel.tsx"), "utf8"); return panel.includes('const reviewOnly = readiness.state === "REVIEW_ONLY";') && panel.includes('${reviewOnly ? "border-border bg-background text-muted" : ready ? "border-emerald-300'); })());
 }
 {
   const r = assessBidReadiness(base());

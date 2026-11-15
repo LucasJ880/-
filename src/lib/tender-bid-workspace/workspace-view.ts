@@ -31,6 +31,8 @@ export type WorkspaceContext = {
   quotedSupplierCount: number;
   /** FLOW-H4c：项目的提交时间与对得上的那条提交记录的回执编号；没有提交时间为 null */
   submission?: SubmissionRecord | null;
+  /** FLOW-H4c：这个组织开了提交记录（「提交」页签上有「提交记录」可以补回执编号） */
+  submissionRecordEnabled?: boolean;
 };
 
 export type LineCheck = {
@@ -105,6 +107,7 @@ function readinessOf(stored: StoredWorkspace | null, ctx: WorkspaceContext, chec
     now: ctx.now,
     closingAt: ctx.closingAtIso,
     submission: ctx.submission ?? null,
+    receiptCanBeAddedInRecord: ctx.submissionRecordEnabled === true,
     lines: linesOf(stored),
     cost,
     dimensionChecks: checks.filter((c) => c.dimension).map((c) => ({ lineNo: c.lineNo, verdict: c.dimension!.verdict, reasonZh: c.dimension!.reasonZh })),

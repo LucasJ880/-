@@ -14,6 +14,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import { emitProjectPatchEvents } from "@/lib/project-discussion/system-events";
 import { recordedStageOf } from "@/lib/tender/stage";
 import { advanceProjectStage } from "@/lib/tender/stage-transition";
+import { RECENT_SUBMISSION_RECORDS } from "./read";
 import {
   SUBMISSION_AUDIT_ACTION,
   SUBMISSION_AUDIT_TARGET,
@@ -29,7 +30,7 @@ import {
 type Actor = { id: string; name: string; email: string };
 
 /** 找「与项目上的提交时间对得上的最新一条记录」时往回看多少条 */
-const RECENT_RECORDS = 20;
+const RECENT_RECORDS = RECENT_SUBMISSION_RECORDS;
 
 const STAGE_SELECT = {
   id: true, orgId: true, status: true, tenderStatus: true, intakeStatus: true, sourceSystem: true,
@@ -118,20 +119,4 @@ export async function recordSubmission(input: { projectId: string; orgId: string
     await writeAuditLog(tx, { ...audit(kind), beforeData: { submittedAt: fresh.submittedAt ? fresh.submittedAt.toISOString() : null } });
     return { ok: true, kind, submittedAt: value.submittedAt.toISOString() };
   }, { timeout: 15000 });
-}
-
-/**
- * FLOW-H4c：给可投标判定用的提交记录——项目当前的提交时间，加上与它对得上的那条记录里的回执编号。
- * 只带这两样（判定只看「有没有回执编号」），不带方式与备注。项目没有提交时间 → null。不看提交记录的开关（D2）。
- */
-export async function loadSubmissionForReadiness(input: { projectId: string; orgId: string; submittedAt: Date | null }): Promise<{ submittedAt: string; receiptRef: string | null } | null> {
-  if (!input.submittedAt) return null;
-  const rows = await db.auditLog.findMany({
-    where: { orgId: input.orgId, projectId: input.projectId, action: SUBMISSION_AUDIT_ACTION, targetType: SUBMISSION_AUDIT_TARGET, targetId: input.projectId },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: RECENT_RECORDS,
-    select: { afterData: true },
-  });
-  const effective = effectiveRecordOf(input.submittedAt, rows);
-  return { submittedAt: input.submittedAt.toISOString(), receiptRef: effective?.record.receiptRef ?? null };
 }

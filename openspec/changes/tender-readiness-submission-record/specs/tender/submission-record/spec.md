@@ -1,15 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: 可投标判定看提交记录
-投标工作区给出的可投标判定（工作区读取与成本核算表两处）SHALL 带上与项目当前提交时间对得上的那条提交记录。那条记录有回执编号时，截标之后 SHALL NOT 报「已过截标」的阻断项，SHALL 给出「已有带回执的提交记录；本判定仅供复盘」的提示。项目有提交时间、但没有对得上的记录或记录没有回执编号时，SHALL 仍报「已过截标」，文字 SHALL 写明在「提交」页签的「提交记录」里补上回执编号。项目没有提交时间时，阻断项的文字 SHALL 与原来相同。与项目当前提交时间对不上的记录（被更正之前的）SHALL NOT 算数；别的项目、别的组织的记录 SHALL NOT 算数。截标还没到时 SHALL NOT 受影响。
+投标工作区给出的可投标判定（工作区读取与成本核算表两处）SHALL 带上与项目当前提交时间对得上的那条提交记录。那条记录有回执编号时，截标之后 SHALL NOT 报「已过截标」的阻断项，SHALL 给出「已有带回执的提交记录；本判定仅供复盘」的提示，判定 SHALL 为「已交标（仅供复盘）」。项目有提交时间、但没有对得上的记录或记录没有回执编号时，SHALL 仍报「已过截标」：提交记录对这个组织开着时，文字 SHALL 写明在「提交」页签的「提交记录」里补上回执编号；没开时 SHALL 只说有提交时间、没有回执编号，SHALL NOT 指向「提交记录」。项目没有提交时间时，阻断项的文字 SHALL 与原来相同。与项目当前提交时间对不上的记录（被更正之前的、更晚写下但时间不同的）SHALL NOT 算数；别的项目、别的组织的记录 SHALL NOT 算数；同一项目上别的动作的审计行 SHALL NOT 把真正的记录挤出去。截标还没到时 SHALL NOT 受影响。
 
 #### Scenario: 记了回执
 - **WHEN** 截标已过，项目经提交记录记下了提交时间与回执编号，读取投标工作区与成本核算表
-- **THEN** 两处的判定都没有「已过截标」，有「已有带回执的提交记录」的提示（`npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts`）
+- **THEN** 两处的判定都没有「已过截标」，有「已有带回执的提交记录」的提示，判定是「已交标（仅供复盘）」（`npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts`）
 
 #### Scenario: 记了但没有回执编号
 - **WHEN** 截标已过，项目有提交时间，记录里回执编号是空的；或项目的提交时间是在对话里推进阶段写下的、没有记录
 - **THEN** 仍有「已过截标」，文字写明去「提交记录」里补上回执编号（`readiness-submission-db.isolated.test.ts`；`npx tsx src/lib/tender-bid-readiness/__tests__/readiness.test.ts`）
+
+#### Scenario: 提交记录对这个组织没开
+- **WHEN** 截标已过，项目有提交时间、没有回执编号，提交记录的开关对这个组织关着
+- **THEN** 「已过截标」只说有提交时间、没有回执编号，不提「提交记录」（`readiness-submission-db.isolated.test.ts`；`readiness.test.ts`）
+
+#### Scenario: 时间对不上的、别的动作的
+- **WHEN** 之后又写下一条带回执、但时间与项目当前提交时间不同的记录；或同一项目上之后又有 25 条别的动作的审计行
+- **THEN** 前者不算；后者不影响真正的记录被找到（`readiness-submission-db.isolated.test.ts`）
 
 #### Scenario: 更正之后
 - **WHEN** 第一次记录带回执编号，之后更正了提交时间、这次没填回执编号

@@ -34,7 +34,7 @@ async function main() {
   const { createSession } = await import("@/lib/auth/session");
   const { advanceProjectStage } = await import("@/lib/tender/stage-transition");
   const { SUBMISSION_AUDIT_ACTION, SUBMISSION_AUDIT_TARGET } = await import("@/lib/tender-submission/contract");
-  const { WINDOW_EXPIRED_ZH, WINDOW_EXPIRED_NO_RECEIPT_ZH } = await import("@/lib/tender-bid-readiness/readiness");
+  const { WINDOW_EXPIRED_ZH, WINDOW_EXPIRED_NO_RECEIPT_ZH, WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH, REVIEW_ONLY_ZH } = await import("@/lib/tender-bid-readiness/readiness");
   const wsRoute = await import("@/app/api/projects/[id]/bid-workspace/route");
   const costRoute = await import("@/app/api/projects/[id]/bid-workspace/cost-sheet/route");
   const recordRoute = await import("@/app/api/projects/[id]/submission-record/route");
@@ -91,7 +91,7 @@ async function main() {
   /** 判定里截标窗口那一项：阻断项的文字（没有 = null）与有没有「已提交」的提示 */
   const windowOf = (readiness: unknown) => {
     const r = rec(readiness);
-    return { expired: (arr(r.blockers).find((b) => b.code === "WINDOW_EXPIRED")?.messageZh as string | undefined) ?? null, submitted: arr(r.warnings).some((w) => w.code === "ALREADY_SUBMITTED") };
+    return { expired: (arr(r.blockers).find((b) => b.code === "WINDOW_EXPIRED")?.messageZh as string | undefined) ?? null, submitted: arr(r.warnings).some((w) => w.code === "ALREADY_SUBMITTED"), state: r.state as string | undefined, stateZh: r.stateZh as string | undefined };
   };
   const wsWindow = async (pid: string) => {
     const r = await workspace(pid);
@@ -111,10 +111,10 @@ async function main() {
     const r1 = await record(P1, { submittedAt: at(20 * HOUR), channel: "portal", receiptRef: "ABC-123", note: NOTE });
     ok(r1.status === 200, "经提交记录接口记下提交时间与回执编号", r1.body);
     w = await wsWindow(P1);
-    ok(w.expired === null && w.submitted, "记了回执：工作区的判定没有「已过截标」，有「已有带回执的提交记录」的提示", w);
+    ok(w.expired === null && w.submitted && w.state === "REVIEW_ONLY" && w.stateZh === REVIEW_ONLY_ZH, "记了回执：工作区的判定没有「已过截标」，有「已有带回执的提交记录」的提示，判定是「已交标（仅供复盘）」", w);
     const sheet = await costSheet(P1);
     const sw = windowOf(sheet.body.readiness);
-    ok(sheet.status === 200 && sw.expired === null && sw.submitted, "成本核算表的判定也一样", { status: sheet.status, sw });
+    ok(sheet.status === 200 && sw.expired === null && sw.submitted && sw.state === "REVIEW_ONLY", "成本核算表的判定也一样（不会因为没有别的阻断项就说「可提交 Owner 决定」）", { status: sheet.status, sw });
     ok(!w.text.includes("ABC-123") && !w.text.includes(NOTE) && !sheet.text.includes("ABC-123") && !sheet.text.includes(NOTE), "工作区与成本核算表的响应里都不出现回执编号与备注");
 
     // 提交记录的开关后来关了：已经记下的回执仍然算数
@@ -134,7 +134,17 @@ async function main() {
     const P2 = await mkProject();
     ok((await record(P2, { submittedAt: at(10 * HOUR), channel: "email", receiptRef: null, note: null })).status === 200, "记录时回执编号留空");
     w = await wsWindow(P2);
-    ok(w.expired === WINDOW_EXPIRED_NO_RECEIPT_ZH && w.expired.includes("「提交记录」里补上回执编号"), "记了但没有回执编号：仍有「已过截标」，写明去「提交记录」里补", w);
+    ok(w.expired === WINDOW_EXPIRED_NO_RECEIPT_ZH && w.expired.includes("「提交记录」里补上回执编号") && w.state === "NOT_READY", "记了但没有回执编号：仍有「已过截标」（不可投标），写明去「提交记录」里补", w);
+    // 「提交记录」对这个组织没开：不指向一个看不到的地方
+    process.env.TENDER_SUBMISSION_RECORD_ENABLED = "0";
+    w = await wsWindow(P2);
+    ok(w.expired === WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH, "「提交记录」对这个组织没开：只说有提交时间、没有回执编号，不指向「提交记录」", w);
+    process.env.TENDER_SUBMISSION_RECORD_ENABLED = "1";
+    // 一条更晚写下、带回执、但时间与项目当前提交时间对不上的记录：不算
+    await sleep(20);
+    await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: P2, action: SUBMISSION_AUDIT_ACTION, targetType: SUBMISSION_AUDIT_TARGET, targetId: P2, afterData: JSON.stringify({ v: 1, kind: "correction", submittedAt: at(30 * HOUR), channel: "portal", receiptRef: "LATER-1", note: null }) } });
+    w = await wsWindow(P2);
+    ok(w.expired === WINDOW_EXPIRED_NO_RECEIPT_ZH && !w.submitted, "更晚写下的、带回执、但时间对不上的记录：不算（按与项目当前提交时间对得上的那条）", w);
 
     /* ---------- 5. 提交时间是在对话里推进阶段写下的（没有记录） ---------- */
     const P3 = await mkProject();
@@ -158,6 +168,10 @@ async function main() {
     ok(w.expired === WINDOW_EXPIRED_NO_RECEIPT_ZH && !w.submitted, "别的组织名下的、别的项目的记录（时间对得上、带回执）：都不算", w);
     w = await wsWindow(P4);
     ok(w.expired === null && w.submitted, "那个项目自己：记了回执，不报", w);
+    // 同一项目上之后又有 25 条别的动作的审计行（同一个对象）：真正的记录不被挤出去
+    for (let i = 0; i < 25; i++) await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: P4, action: "tender.fixture.other", targetType: SUBMISSION_AUDIT_TARGET, targetId: P4, afterData: JSON.stringify({ v: 1, kind: "first", submittedAt: at(9 * HOUR), channel: "portal", receiptRef: null, note: null }) } });
+    w = await wsWindow(P4);
+    ok(w.expired === null && w.submitted, "之后又有 25 条别的动作的审计行：只看提交记录那一种，真正的记录还在", w);
 
     /* ---------- 7. 截标还没到 ---------- */
     const P6 = await mkProject({ closeInDays: 3 });
