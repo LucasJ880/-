@@ -326,6 +326,8 @@ run_test "平台角色压扁规划 + 兼容回退收口（PERM-4c3）" "npx tsx 
 run_test "残留平台角色读点收口（PERM-4c5）" "npx tsx src/lib/authorization/__tests__/residual-reads.test.ts"
 run_test "外贸按岗位权限键（PERM-6a）" "npx tsx src/lib/trade/__tests__/trade-access.test.ts"
 run_test "外贸收件人 / 营收中心按外贸键（PERM-6c）" "npx tsx src/lib/trade/__tests__/trade-recipients.test.ts"
+# NAV-1c（openspec change nav-1c-reply-entry）：看到来信就能回——回复目标解析、时间线文字、收件箱按钮与深链、审批面链接，纯函数 + 源码断言，无 DB
+run_test "回复入口：客户时间线 / 询盘收件箱 / 审批面（NAV-1c）" "npx tsx src/lib/trade/__tests__/reply-entry.test.ts"
 run_test "岗位绑定界面（PERM-7）" "npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts"
 run_test "梦馨落岗位（PERM-6b）" "npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts"
 run_test "平台 admin 退役（PERM-7b）" "npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts"
@@ -412,6 +414,7 @@ run_test "平台角色压扁 DB 端到端（PERM-4c3；隔离库执行，否则�
 run_test "残留平台角色读点 DB 端到端（PERM-4c5；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/authorization/__tests__/residual-reads-db.isolated.test.ts"
 run_test "外贸按岗位权限键 DB 端到端（PERM-6a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/trade/__tests__/trade-access-db.isolated.test.ts"
 run_test "外贸收件人 / 营收中心 DB 端到端（PERM-6c；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/trade/__tests__/trade-recipients-db.isolated.test.ts"
+run_test "回复入口 DB 端到端（NAV-1c；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/trade/__tests__/reply-entry-db.isolated.test.ts"
 run_test "岗位绑定界面 DB 端到端（PERM-7；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/authorization/__tests__/position-binding-console-db.isolated.test.ts"
 run_test "梦馨落岗位 DB 端到端（PERM-6b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/authorization/__tests__/mengxin-positions-db.isolated.test.ts"
 run_test "平台 admin 退役 DB 端到端（PERM-7b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/rbac/__tests__/platform-admin-scope-db.isolated.test.ts"
