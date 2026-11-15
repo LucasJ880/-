@@ -12,7 +12,7 @@ export const OPPORTUNITY_SOURCE_LABELS: Record<OpportunitySource, string> = {
   website_inquiry: "官网",
   trade_show: "展会",
   email: "邮件",
-  trade_intelligence: "企业情报",
+  trade_intelligence: "竞品溯源",
   outbound: "主动开发",
   referral: "转介绍",
   existing_customer: "老客户",

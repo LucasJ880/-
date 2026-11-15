@@ -1603,13 +1603,13 @@ function QuoteSheetPageInner() {
         title={
           editingQuoteId
             ? `编辑报价单${editingQuoteVersion ? ` · v${editingQuoteVersion}` : ""}`
-            : "电子报价单"
+            : "报价"
         }
         description={
           editingQuoteId
             ? "正在修改已保存的报价单；保存后会覆盖原报价单（不会新建版本）"
             : workspaceMode === "rough"
-              ? "快速报价（October Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
+              ? "快速报价（October Rough Quote）· 保存后可在「报价记录」查看，或切换到详细订单"
               : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />

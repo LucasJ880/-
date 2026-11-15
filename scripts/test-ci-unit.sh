@@ -151,6 +151,8 @@ npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/navigation/__tests__/route-gate.test.ts
 npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
+# NAV-1a（openspec change nav-1a-single-name）：入口名称单一来源——纯函数 + 源码断言，无 DB
+npx tsx src/lib/navigation/__tests__/entry-naming.test.ts
 npx tsx src/lib/approval/__tests__/audience.test.ts
 npx tsx src/lib/preview/__tests__/preview.test.ts
 npx tsx src/lib/search/__tests__/search-where.test.ts
