@@ -63,7 +63,6 @@ export type ChecklistItem = ChecklistLine & {
   tickable: boolean;
 };
 
-/** 招标文件写明的一项提交条件；found = false 表示分析里没有找到 */
 /** 非提交类的要求类别（只出现在「废标风险」里）：给中文名；认不出的不显示原始代码 */
 const OTHER_CATEGORY_ZH: Record<string, string> = {
   product: "产品", model: "型号", technical: "技术", safety: "安全", certification: "认证", dimensions: "尺寸",
@@ -76,6 +75,7 @@ export function otherCategoryZh(category: string | null | undefined): string {
   return Object.hasOwn(OTHER_CATEGORY_ZH, k) ? OTHER_CATEGORY_ZH[k] : "其他要求";
 }
 
+/** 招标文件写明的一项提交条件；found = false 表示分析里没有找到 */
 export type ChecklistCondition = { slot: string; labelZh: string; found: boolean; textZh: string };
 
 export type SubmissionChecklistView = {
