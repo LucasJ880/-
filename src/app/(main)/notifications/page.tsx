@@ -205,7 +205,7 @@ function NotificationsContent() {
     <div className="mx-auto max-w-4xl space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
-          title="通知中心"
+          title="待处理事项"
           description="管理您的所有通知和提醒，追踪待处理事项"
         />
         <div className="flex shrink-0 items-center gap-2">

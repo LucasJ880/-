@@ -247,7 +247,7 @@ export function OpsWorkspaceShell() {
   if (loadState === "loading" && !data) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
-        <p className="text-[14px] text-[var(--muted)]">正在加载今日运营工作台…</p>
+        <p className="text-[14px] text-[var(--muted)]">正在加载运营中心…</p>
       </div>
     );
   }
@@ -271,7 +271,7 @@ export function OpsWorkspaceShell() {
       <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
           <p className="text-[12px] font-medium text-[var(--muted)]">运营中心</p>
-          <h1 className="text-2xl font-semibold tracking-tight">今日运营工作台</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">运营中心</h1>
           <p className="text-[13px] text-[var(--muted)]">
             {data.dateLabel}
             {data.userName ? ` · ${data.userName}` : ""}

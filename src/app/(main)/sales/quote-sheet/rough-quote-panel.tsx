@@ -298,7 +298,7 @@ export function RoughQuotePanel({
     <div className="flex min-h-[70dvh] flex-col overflow-hidden rounded-xl border border-border bg-card-bg">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
         <span className="font-medium text-muted-foreground">
-          October Rough Quote · 保存后进入「全部报价」
+          October Rough Quote · 保存后进入「报价记录」
         </span>
         {saving && (
           <span className="animate-pulse text-muted-foreground">保存中…</span>
@@ -324,7 +324,7 @@ export function RoughQuotePanel({
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-background"
             >
               <ExternalLink size={12} />
-              全部报价
+              报价记录
             </Link>
             {lastSaved.shareToken &&
               ["en", "cn", "fr"].map((lang) => (

@@ -23,7 +23,7 @@ import {
   type ResolvedNavItem,
 } from "@/lib/navigation";
 import { useLocale } from "@/lib/i18n/context";
-import type { MessageKey } from "@/lib/i18n/messages";
+import { navEntryLabel } from "@/lib/navigation/entry-label";
 import { CoBrand } from "@/components/co-brand";
 import { lockAppScroll } from "@/lib/mobile/scroll-lock";
 import { isPlatformAdmin as checkPlatformAdmin } from "@/lib/permissions-client";
@@ -296,10 +296,7 @@ export function MobileNavDrawer({
             <ul className="space-y-1">
               {categoryItems(drill).map((item) => {
                 if (!item.href) return null;
-                const label =
-                  item.labelKey && m[item.labelKey as MessageKey]
-                    ? m[item.labelKey as MessageKey]
-                    : item.label;
+                const label = navEntryLabel(item, m);
                 return (
                   <li key={item.key}>
                     <Link

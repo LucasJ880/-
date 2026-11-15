@@ -1,11 +1,12 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { buildHelpMap } from "@/lib/navigation/help-map";
 import { loadPageNavigationContext } from "@/lib/navigation/page-context-server";
+import { HelpEntryName } from "./entry-name";
 
 /**
  * 使用说明 · 功能地图（VIS-1b：从当前用户侧栏可见的导航树生成，spec navigation/entry-visibility）
- * 名称与一句说明取自导航注册表；侧栏看不到的入口不在这里出现。
+ * 一句说明取自导航注册表；名称经 HelpEntryName 按当前界面语言取，与侧栏同名（NAV-1a，spec navigation/entry-naming）。
+ * 侧栏看不到的入口不在这里出现。
  */
 export default async function HelpPage() {
   const ctx = await loadPageNavigationContext();
@@ -15,7 +16,7 @@ export default async function HelpPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">使用说明 · 功能地图</h1>
+        <h1 className="text-2xl font-bold">使用说明</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">你在侧栏能看到的全部入口，以及每个入口是做什么的。</p>
       </div>
 
@@ -27,13 +28,7 @@ export default async function HelpPage() {
               {g.entries.map((e) => (
                 <li key={e.key} className="flex flex-col gap-0.5 px-4 py-2.5 text-sm sm:flex-row sm:items-baseline sm:gap-4">
                   <span className={e.depth > 0 ? "shrink-0 pl-4 font-medium sm:w-40" : "shrink-0 font-medium sm:w-40"}>
-                    {e.href ? (
-                      <Link href={e.href} className="text-accent hover:underline">
-                        {e.label}
-                      </Link>
-                    ) : (
-                      e.label
-                    )}
+                    <HelpEntryName label={e.label} labelKey={e.labelKey} href={e.href} />
                   </span>
                   <span className="text-muted">{e.description}</span>
                 </li>

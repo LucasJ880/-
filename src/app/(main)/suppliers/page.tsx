@@ -181,7 +181,7 @@ export default function SuppliersPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <PageHeader
-        title="供应商"
+        title="供应商库"
         description="独立公共供应商库；可与多个投标项目多对多关联。"
         actions={
           <div className="flex items-center gap-2">

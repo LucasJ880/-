@@ -210,7 +210,7 @@ function MarketingBrandEditor({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link href="/operations/growth" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
-            <ArrowLeft size={14} /> 返回增长中心
+            <ArrowLeft size={14} /> 返回品牌增长
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold">企业事实中心</h1>
