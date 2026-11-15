@@ -26,6 +26,7 @@ import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
 import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
 import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
 import { loadActiveSupplierGroups } from "./supplier-groups-service";
+import { isDecisionGatesEnabledForOrg, noGoRfqReminderZh } from "@/lib/tender-decision-gates/gates";
 import { analysisAvailableAt, analysisUpdateNotes, isRfqAnalysisUpdateNoteEnabledForOrg } from "./analysis-update-note";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
@@ -71,6 +72,8 @@ export type RfqWebEntry =
       followUp: RfqEntryFollowUp | null;
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /** FLOW-H5：投标决定是不投时的提醒（与 state.warnings 里那一条相同）；开关关闭或不是不投时没有这个字段 */
+      decisionNoGoZh?: string;
       /** FLOW-H3：起草之后招标分析更新过的轮次（inquiryId → 提示）；开关关闭时没有这个字段 */
       analysisUpdateNotes?: Record<string, { noteZh: string }>;
       /**
@@ -208,7 +211,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   // 去重在 orderEntrySuppliers 里做；没有分组时 groupSupplierRows 为空，结果与本功能之前相同
   const suppliers = orderEntrySuppliers([...recentSupplierRows, ...groupSupplierRows], prefs.defaultSupplierIds);
 
-  const state = decideRfqEntryState({
+  const baseState = decideRfqEntryState({
     projectId: project.id,
     lock,
     confirmedRequirementCount,
@@ -221,6 +224,12 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     replyBy,
     timeZone,
   });
+  // FLOW-H5：投标决定是不投时多一条不阻断的提醒（开关开着时）；入口可用与否不变
+  const noGo = isDecisionGatesEnabledForOrg(input.orgId)
+    ? await db.bidIntelligenceRoom.findFirst({ where: { projectId: project.id, orgId: input.orgId, goDecision: "NO_GO" }, select: { goDecidedAt: true } })
+    : null;
+  const decisionNoGoZh = noGo ? noGoRfqReminderZh(noGo.goDecidedAt, timeZone) : null;
+  const state = decisionNoGoZh ? { ...baseState, warnings: [...baseState.warnings, decisionNoGoZh] } : baseState;
 
   // ── 引擎发出的轮次与耗时 ──
   const engineRounds: Record<string, { elapsed: string | null }> = {};
@@ -273,6 +282,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     engineRounds,
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
+    ...(decisionNoGoZh ? { decisionNoGoZh } : {}),
     ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
     ...(isRfqAnalysisUpdateNoteEnabledForOrg(input.orgId) ? { analysisUpdateNotes: await loadAnalysisUpdateNotes(input.orgId, project.id, executed, timeZone) } : {}),
     ...(await loadEntryAutoDraftFollowUp(input.orgId, input.userId)),

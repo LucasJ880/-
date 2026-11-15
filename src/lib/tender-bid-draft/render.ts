@@ -17,7 +17,8 @@ const para = (s: string) =>
 /** 占位高亮：提交前必须清零 */
 const mark = (html: string) => html.replace(/\[TO CONFIRM[^\]]*\]|\[INTERNAL[^\]]*\]/g, (m) => `<mark>${m}</mark>`);
 
-export function renderBidDraftHtml(input: BidDraftInputs, result: BidDraftResult): string {
+/** FLOW-H5：unconfirmedBasisBanner 有值时，在 AI DRAFT 横幅下加一行（基于还没批准的分析起草） */
+export function renderBidDraftHtml(input: BidDraftInputs, result: BidDraftResult, opts: { unconfirmedBasisBanner?: string | null } = {}): string {
   const s = result.sections;
   const rows = result.compliance
     .map(
@@ -50,7 +51,7 @@ mark{background:#fde68a}
 </style>
 <h1>Bid Response — Draft for Review</h1>
 <div class="meta">${esc(input.project.tenderTitle ?? input.project.nameZh)}${meta ? " ｜ " + meta : ""} ｜ Generated ${esc(result.generatedAt.slice(0, 16).replace("T", " "))} ｜ ${result.placeholders} placeholder(s)</div>
-<div class="banner">AI DRAFT — every section requires human review before submission. Placeholders [TO CONFIRM …] must be resolved; remove the Chinese internal section before submitting.</div>
+<div class="banner">AI DRAFT — every section requires human review before submission. Placeholders [TO CONFIRM …] must be resolved; remove the Chinese internal section before submitting.</div>${opts.unconfirmedBasisBanner ? `\n<div class="banner" data-basis="unconfirmed">${esc(opts.unconfirmedBasisBanner)}</div>` : ""}
 
 <h2>1. Cover Letter</h2>${mark(para(s.coverLetterEn))}
 <h2>2. Executive Summary / Understanding of Requirements</h2>${mark(para(s.executiveSummaryEn))}

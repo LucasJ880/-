@@ -195,6 +195,12 @@ async function main() {
     ok(out.status === 403 && (await snapshot(P)) === roomBefore, "别的组织的人带声明保存：403，什么都没改", out);
 
     /* ---------- 4. 点按钮后直接保存：记来源 ---------- */
+    // 报价引擎镜像进 pricingInputs 的我方报价（FIX-8）：记来源、去掉来源都不能把它冲掉
+    {
+      const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId: P }, select: { summaryJson: true } });
+      const sj0 = rec(room?.summaryJson);
+      await db.bidIntelligenceRoom.update({ where: { projectId: P }, data: { summaryJson: { ...sj0, pricingInputs: { ...rec(sj0.pricingInputs), ourPriceCad: 140000, ourPriceSource: "quote:fixture:v1", ourPriceStatus: "AUTHORITATIVE" } } as never } });
+    }
     let p = await save(P, landedB, itemB);
     let st = await storedInputs(P);
     const src = rec(st.ourCostSource);
@@ -225,8 +231,10 @@ async function main() {
     ok(rec((await storedInputs(P)).ourCostSource).kind === "manual", "声明别的组织里选定的那一条：手填");
     p = await post(P, { action: "save", inputs: { ourCostCad: landedB }, ourCostSource: { kind: "rfq_compare", inquiryItemId: itemB, landedCadTotal: landedB, roundNumber: 1, orgId: ORG_B } });
     ok(rec((await storedInputs(P)).ourCostSource).kind === "rfq_compare" && rec((await storedInputs(P)).ourCostSource).roundNumber === 1, "声明里多带的金额、轮次、组织不读：只按条目 id 重新核对");
+    ok((await storedInputs(P)).ourPriceCad === 140000 && (await storedInputs(P)).ourPriceSource === "quote:fixture:v1", "记来源之后，报价引擎镜像的我方报价还在（FIX-8）");
     p = await save(P, null);
     ok(!("ourCostSource" in (await storedInputs(P))), "成本清空：没有来源");
+    ok((await storedInputs(P)).ourPriceCad === 140000 && (await storedInputs(P)).ourPriceStatus === "AUTHORITATIVE", "去掉来源之后，报价引擎镜像的我方报价也还在（FIX-8）");
 
     /* ---------- 7. 已有手填的成本：读取不动它 ---------- */
     await save(P, 90000);

@@ -147,7 +147,12 @@ export async function POST(
   }
 
   // save：输入与/或人工模型覆盖
-  const prevInputs = (sj[PRICING_INPUTS_KEY] ?? {}) as Partial<PricingInputs>;
+  // pricingInputs 里还有报价引擎镜像的权威报价（ourPriceCad / ourPrice / ourPriceCurrency / ourPriceSource /
+  // ourPriceStatus / ourPriceSupersededSource，见 quote-engine/tender-bid.ts），这里只改三项人工输入，其余键原样保留。
+  const prevRaw = sj[PRICING_INPUTS_KEY];
+  const prevPi: Record<string, unknown> =
+    prevRaw && typeof prevRaw === "object" && !Array.isArray(prevRaw) ? (prevRaw as Record<string, unknown>) : {};
+  const prevInputs = prevPi as Partial<PricingInputs>;
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : v === null ? null : undefined as never;
   const inputs: PricingInputs = {
@@ -186,7 +191,10 @@ export async function POST(
     suggestion,
     now: new Date(),
   });
-  const stored: Record<string, unknown> = source ? { ...inputs, ourCostSource: source } : { ...inputs };
+  // FIX-8：保留 pricingInputs 里的其它键（报价引擎镜像的我方报价）；来源这一键按本次结果设或去掉
+  const stored: Record<string, unknown> = { ...prevPi, ...inputs };
+  if (source) stored.ourCostSource = source;
+  else delete stored.ourCostSource;
   const next: Record<string, unknown> = { ...sj, [PRICING_INPUTS_KEY]: stored };
   if (body.model) {
     const base = isScoringModel(sj[PRICING_MODEL_KEY]) ? (sj[PRICING_MODEL_KEY] as ScoringModel) : null;
