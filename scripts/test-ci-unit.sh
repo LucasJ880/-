@@ -82,6 +82,7 @@ npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts
 npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
 npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
 npx tsx src/lib/tender-compliance-memory/__tests__/compliance-memory.test.ts
