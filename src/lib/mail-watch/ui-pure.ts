@@ -55,9 +55,23 @@ export function isMailWatchInteraction(interaction: { analysisResult?: unknown }
   return ref?.kind === MAIL_WATCH_SOURCE_KIND;
 }
 
-/** 「让助手读这封信」是否显示：读信开关开（状态接口带 mailRead.enabled）且这条是来信观察建的 */
-export function showReadMailEntry(input: { mailReadEnabled: boolean | undefined; interaction: { analysisResult?: unknown } | null | undefined }): boolean {
-  return input.mailReadEnabled === true && isMailWatchInteraction(input.interaction);
+/** 这封信的收信时间：来信观察记在 sourceRef.receivedAt（Gmail 的收信时间）；没有或不合法时退回互动的创建时间 */
+export function mailWatchReceivedAt(interaction: { analysisResult?: unknown; createdAt: string | Date }): string | Date {
+  const ref = (interaction.analysisResult as { sourceRef?: { receivedAt?: unknown } } | null | undefined)?.sourceRef;
+  const at = typeof ref?.receivedAt === "string" ? ref.receivedAt : null;
+  return at && !Number.isNaN(new Date(at).getTime()) ? at : interaction.createdAt;
+}
+
+/**
+ * 「让助手读这封信」是否显示：读信开关开（状态接口带 mailRead.enabled）、助手页对本人放行、且这条是来信观察建的。
+ * 助手页不放行的人（比如岗位模式下只有销售岗位的成员，路由门会把 /assistant 重定向走）点了也到不了，所以不显示。
+ */
+export function showReadMailEntry(input: {
+  mailReadEnabled: boolean | undefined;
+  assistantOpen: boolean | undefined;
+  interaction: { analysisResult?: unknown } | null | undefined;
+}): boolean {
+  return input.mailReadEnabled === true && input.assistantOpen === true && isMailWatchInteraction(input.interaction);
 }
 
 /** 客户名进预填文字前：去换行与控制字符、去引号、至多 40 字（客户名是成员录入的，不是邮件里的文字） */

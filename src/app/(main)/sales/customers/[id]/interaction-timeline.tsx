@@ -1,12 +1,23 @@
 "use client";
 
-import { MessageSquare } from "lucide-react";
+import Link from "next/link";
+import { MailOpen, MessageSquare } from "lucide-react";
 import { Interaction, INTERACTION_ICONS } from "./types";
+import { mailWatchReceivedAt, readMailHref, showReadMailEntry } from "@/lib/mail-watch/ui-pure";
 
 export function InteractionTimeline({
   interactions,
+  customerName = "",
+  mailReadEnabled,
+  assistantOpen,
 }: {
   interactions: Interaction[];
+  /** MAIL-2：「让助手读这封信」的预填文字里用（成员录入的客户名，不是邮件里的文字） */
+  customerName?: string;
+  /** MAIL-1 状态接口的 mailRead.enabled；不是 true 就不显示「让助手读这封信」 */
+  mailReadEnabled?: boolean;
+  /** 助手页（/assistant）对当前用户是否放行；不是 true 也不显示 */
+  assistantOpen?: boolean;
 }) {
   if (interactions.length === 0) {
     return (
@@ -45,6 +56,17 @@ export function InteractionTimeline({
                 <span>
                   · {item.direction === "inbound" ? "收到" : "发出"}
                 </span>
+              )}
+              {/* 来信观察建的条目：打开助手并预填一句话（只有客户名与日期，不带主题），由用户自己发送 */}
+              {showReadMailEntry({ mailReadEnabled, assistantOpen, interaction: item }) && (
+                <Link
+                  href={readMailHref({ customerName, receivedAt: mailWatchReceivedAt(item) })}
+                  data-testid="read-mail-entry"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-accent hover:bg-accent/5"
+                >
+                  <MailOpen size={12} />
+                  让助手读这封信
+                </Link>
               )}
             </div>
           </div>

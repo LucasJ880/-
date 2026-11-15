@@ -259,6 +259,8 @@ export function interactionData(input: { orgId: string; customerId: string; mail
         kind: MAIL_WATCH_SOURCE_KIND,
         rfcMessageId: input.message.rfcMessageId,
         mailboxUserId: input.mailboxUserId,
+        // Gmail 记的收信时间（不是发信人写的 Date 头）；时间线的「让助手读这封信」用它写日期
+        receivedAt: input.message.date,
       },
     },
     createdById: input.mailboxUserId,

@@ -20,7 +20,7 @@
 
 ## 5. 页面
 
-- [ ] 5.1 `src/app/(main)/settings/email/page.tsx`：「客户来信提醒」勾选项（成员本人）与组织开关（企业管理员），状态由 `pure.ts` 的页面状态函数决定；`src/app/(main)/sales/customers/[id]/interaction-timeline.tsx` 与 `types.ts`：来信观察建的条目显示「让助手读这封信」（`/assistant?prompt=…`，预填文字不含主题；读信开关关闭时不显示）。扩 `mail-watch-pure.test.ts`（页面与时间线的源码断言）。verify：`npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts` 通过；本地隔离库 + `next dev` 截图存 `docs/acceptance/mail-2/`：勾选项三种状态（平台关不显示、组织关置灰、可勾选）、管理员的组织开关、客户时间线上的来信条目与入口
+- [x] 5.1 `src/app/(main)/settings/email/page.tsx`：「客户来信提醒」勾选项（成员本人）与组织开关（企业管理员），状态由 `pure.ts` 的页面状态函数决定；`src/app/(main)/sales/customers/[id]/interaction-timeline.tsx` 与 `types.ts`：来信观察建的条目显示「让助手读这封信」（`/assistant?prompt=…`，预填文字不含主题；读信开关关闭时不显示）。扩 `mail-watch-pure.test.ts`（页面与时间线的源码断言）。verify：`npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts` 通过；本地隔离库 + `next dev` 截图存 `docs/acceptance/mail-2/`：勾选项三种状态（平台关不显示、组织关置灰、可勾选）、管理员的组织开关、客户时间线上的来信条目与入口
 
 ## 6. 验证与报告
 

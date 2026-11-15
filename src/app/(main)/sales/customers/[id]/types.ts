@@ -38,6 +38,8 @@ export interface Interaction {
   content: string | null;
   createdAt: string;
   createdBy: { name: string };
+  /** 来源标记等（MAIL-2：来信观察建的条目带 sourceRef.kind = "mail_watch"）。页面只读它来决定显示哪个入口 */
+  analysisResult?: unknown;
 }
 
 export interface Quote {

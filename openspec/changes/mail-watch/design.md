@@ -165,7 +165,7 @@ specs、tasks 与下面的 D8、硬纪律第 4 条已按 D2 改写。以下保�
 
 `/settings/email`：在 MAIL-1 的「读信权限」一项下面加「客户来信提醒」勾选（调成员勾选接口）；企业管理员另见组织开关（调组织开关接口）。显示哪种状态由 `pure.ts` 的一个函数决定（平台关 → 不显示；组织关 → 勾选项置灰并说明；缺读信权限 → 可勾选但提示先重新授权）。
 
-客户时间线：`interaction-timeline.tsx` 对 `analysisResult.sourceRef.kind === "mail_watch"` 的条目显示「让助手读这封信」，链接到 `/assistant?prompt=…`。预填文字由纯函数生成，只含客户名与日期（「帮我读一下〈客户名〉在 11 月 12 日发来的邮件」）。是否显示取决于 MAIL-1 状态接口的 `mailRead.enabled`。
+客户时间线：`interaction-timeline.tsx` 对 `analysisResult.sourceRef.kind === "mail_watch"` 的条目显示「让助手读这封信」，链接到 `/assistant?prompt=…`。预填文字由纯函数生成，只含客户名与日期（「帮我读一下〈客户名〉在 11 月 12 日发来的邮件」）。是否显示取决于 MAIL-1 状态接口的 `mailRead.enabled`，以及助手页对本人是否放行（`useNavigationAccess().canOpen("/assistant")`，与路由门同一套判定）——实施截图时发现：VIS-1 判断点 5 之后，岗位模式下只有销售岗位的成员打不开 `/assistant`（路由门重定向到销售首页），入口对他们点了也到不了，所以不显示。这同时意味着这类成员目前在网页上用不了 MAIL-1 的读信（见报告「需要拍板」）。日期取互动 `analysisResult.sourceRef.receivedAt`（Gmail 的 `internalDate`，实施时加进来源标记；没有时退回互动的创建时间）。勾选卡片是独立组件 `settings/email/mail-watch-card.tsx`，挂在 Google 连接卡片下面；平台代发的企业不显示 Google 连接卡片，也不显示它。
 
 - 否决：把主题放进预填文字。那会让发信人写的字变成用户发给助手的话。
 

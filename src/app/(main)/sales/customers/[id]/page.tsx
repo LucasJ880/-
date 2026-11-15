@@ -23,6 +23,7 @@ import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,10 @@ function CustomerDetailPageInner() {
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
   const [emailReady, setEmailReady] = useState<boolean | null>(null);
+  // MAIL-2：读信开关开着时，来信观察建的时间线条目才显示「让助手读这封信」
+  const [mailReadEnabled, setMailReadEnabled] = useState(false);
+  // 入口链到助手页：助手页对本人不放行时（路由门会重定向走）不显示
+  const canOpenAssistant = useNavigationAccess().canOpen("/assistant");
   const [activeActions, setActiveActions] = useState<SalesActionDto[]>([]);
   useAppScrollLock(!!sendingEmailFor, "customer-send-email-overlay");
   const [deleting, setDeleting] = useState(false);
@@ -230,7 +235,7 @@ function CustomerDetailPageInner() {
     const [emailResult, actionResult] = await Promise.all([
       apiFetch("/api/sales/email-status")
         .then(async (response) => response.ok
-          ? response.json() as Promise<{ activeChannel?: "gmail" | "smtp" | null }>
+          ? response.json() as Promise<{ activeChannel?: "gmail" | "smtp" | null; mailRead?: { enabled: boolean } }>
           : null)
         .catch(() => null),
       apiFetch(`/api/sales/actions?status=active&customerId=${encodeURIComponent(id)}`)
@@ -240,6 +245,7 @@ function CustomerDetailPageInner() {
         .catch(() => null),
     ]);
     setEmailReady(emailResult ? Boolean(emailResult.activeChannel) : null);
+    setMailReadEnabled(emailResult?.mailRead?.enabled === true);
     setActiveActions(actionResult?.actions ?? []);
   }, [id]);
 
@@ -1135,7 +1141,12 @@ function CustomerDetailPageInner() {
 
       <div {...swipeHandlers}>
         {activeTab === "timeline" && (
-          <InteractionTimeline interactions={customer.interactions} />
+          <InteractionTimeline
+            interactions={customer.interactions}
+            customerName={customer.name}
+            mailReadEnabled={mailReadEnabled}
+            assistantOpen={canOpenAssistant}
+          />
         )}
         {activeTab === "quotes" && (
           <QuotesList
