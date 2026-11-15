@@ -30,9 +30,9 @@
 
 ## 4. 整体核对与交付
 
-- [ ] 4.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1a-single-name`。验证：全部通过；`git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` 无输出。
+- [x] 4.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1a-single-name`。验证：全部通过；`git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` 无输出。
 - [x] 4.2 本地起应用，用测试身份截图：Cathy 侧栏与 `/help` 并排、Lynn 侧栏与 `/help` 并排、任务书列出的 7 个页面标题，放 `docs/acceptance/nav-1a/`。验证：截图里侧栏与说明页同名，没有「海外业务」「企业情报」「收件箱」「电子报价单」「全部报价」。
-- [ ] 4.3 写 `docs/QINGYAN_NAV-1a_REPORT.md`（20 个改名、16 个标题、8 个例外入口、20 处站内文字、未改的 13 处与 `src/lib` / 接口里的旧叫法清单、各命令真实输出）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1a 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1a 行状态为 `[G]`。
+- [x] 4.3 写 `docs/QINGYAN_NAV-1a_REPORT.md`（20 个改名、16 个标题、8 个例外入口、20 处站内文字、未改的 13 处与 `src/lib` / 接口里的旧叫法清单、各命令真实输出）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1a 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1a 行状态为 `[G]`。
 
 ## Workflow follow-up
 
