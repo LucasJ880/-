@@ -82,7 +82,7 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
   - `effectiveShadeValance(rowValance, formValance)`：行上去空白后非空取行上，否则取表单级，否则空串；
   - `shadeLinePricingFabric({ product, sku }, valance)`：非 Roller → `skuToPricingFabric(sku, product)`（与现状逐字相同）；Roller → 先 `skuToPricingFabric` 得到完整键，`parseRollerFabric` 取基础面料，`valance` 非空时 `rollerEngineFabricKey(base, valance)`，`valance` 为空时原键照旧（D3）；
   - `shutterPricingFabric(material)`：`"Wooden"` → `"Wood"`，其余原样；
-  - `ORDER_PRICING_REV = 2` 与 `needsWoodRepriceNotice(...)`（D6）。
+  - `ORDER_PRICING_REV = 2`、`readOrderPricingRev(raw)`、`needsWoodRepriceNotice(...)`、`woodRepriceNoticeText(amountLabel)`（D6）。
   模块只依赖 `valance-options.ts`、`sku-catalog.ts`、`pricing-types.ts`，入参用结构类型，不引用页面目录的类型。
 - 否决：把这几个函数加进 `valance-options.ts`——百叶窗材质映射与口径标记不属于罩型。否决：在引擎 `priceFor` 里兼容 `Wooden`、在 `fallbackFabricKey` 里读罩型——引擎拿不到行上的 Valance，且会让「表单词汇」渗进价表层；`Wooden` 进引擎还会改变其它入口对坏输入的报错行为。否决：把价表键 `Wood` 改名 `Wooden`——要动价表文件与黄金用例。
 
@@ -114,7 +114,7 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 - 否决：行构造留在组件里、测试里抄一份——测的就不是页面实际跑的代码（第 1 步的复现脚本只能这么做，正说明问题）。否决：搬到服务端由接口收表单行——改接口契约，超出本次范围。
 
 ### D6 口径标记 `orderPricingRev` 与实木旧报价提醒
-- 做法：`QuoteFormState` 与 `QuoteDraftV1` 加可选 `orderPricingRev?: number`；页面持有「载入时的标记」状态——新建表单为 2，`applyFormState` 载入已存报价或本地草稿时取其值（缺省视为 1）；`handleSave` 写出的 `fullFormData` 恒为 2，保存成功后把状态置 2；本地草稿原样带着载入时的值。`needsWoodRepriceNotice({ loadedRev, shutterMaterial, shutterTotalsMerch })` 在 `loadedRev < 2 && shutterMaterial === "Wooden" && 百叶窗商品小计 > 0` 时为真。为真且本次打开未点「知道了」时，在表单顶部渲染一条琥珀色提示：「实木百叶窗现已按价表自动计价（本单百叶窗 $X）。这张报价保存于改动之前，此前实木百叶窗的价格需在 Part B 手填——请检查 Part B，删除手填的百叶窗价格，避免重复计价。」带「知道了」按钮。不拦保存。删除 `order-shutters.tsx:328` 的旧横幅。
+- 做法：`QuoteFormState` 与 `QuoteDraftV1` 加可选 `orderPricingRev?: number`；页面持有「载入时的标记」状态——新建表单为 2，`applyFormState` 载入已存报价或本地草稿时取其值（缺省视为 1）；`handleSave` 写出的 `fullFormData` 恒为 2，保存成功后把状态置 2；本地草稿原样带着载入时的值。`needsWoodRepriceNotice({ loadedRev, shutterMaterial, shutterMerch })` 在 `loadedRev < 2 && shutterMaterial === "Wooden" && 百叶窗商品小计 > 0` 时为真。为真且本次打开未点「知道了」时，在表单顶部渲染一条琥珀色提示：「实木百叶窗现已按价表自动计价（本单百叶窗 $X）。这份报价内容保存于本次调整之前，此前实木百叶窗的价格需在 Part B 手填——请检查 Part B，删除手填的百叶窗价格，避免重复计价。」（文案由 `woodRepriceNoticeText` 给出，已存报价与本地草稿通用）带「知道了」按钮。不拦保存。删除 `order-shutters.tsx:328` 的旧横幅。
 - 「提示一次」的落法：每次打开都提示，直到该报价按新口径保存过一次；「知道了」只在本次打开内有效，不写库。
 - 否决：不加标记、凡是 Wooden + Part B 有自定义行就提示——新报价也会一直提示，很快被无视。否决：按库里有没有 Shutters 报价行来判断「以前没算出价」——编辑页载入时只用 `formDataJson` 与让利审批字段、不读报价行，要为此多读一类数据并处理「部分计价」的多种成因。否决：自动删除 Part B 里疑似手填的百叶窗行——无法可靠识别，静默改销售填的金额违反任务书「不静默改数」。否决：把标记落到新列或企业设置——纪律 1；这是单张报价的属性，不是企业设置。
 
