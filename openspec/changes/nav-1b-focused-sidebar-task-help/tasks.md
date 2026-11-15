@@ -27,9 +27,9 @@
 
 ## 3. 整体核对与交付
 
-- [ ] 3.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1b-focused-sidebar-task-help --strict`。验证：全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json` 无输出。
-- [ ] 3.2 本地起应用，用虚构账号截图：Cathy 侧栏（「更多」折叠 / 展开 / 图标栏）、Cathy 的 `/help` 第一屏与全部入口、纯外贸业务员侧栏、Lynn 的侧栏与 `/help`，放 `docs/acceptance/nav-1b/`。验证：Cathy 第一段依次是 8 个常用入口；`/help` 的「全部入口」顺序与侧栏逐项一致；Lynn 的 `/help` 没有「我想做什么」与页尾。
-- [ ] 3.3 写 `docs/QINGYAN_NAV-1b_REPORT.md`（判定真值表、常用与更多的实际清单、「我想做什么」12 行与任务书原文的差异、19 条说明、各命令真实输出、给 NAV-1c 留的两行）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1b 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1b 行状态为 `[G]`。
+- [x] 3.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1b-focused-sidebar-task-help --strict`。验证：全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json` 无输出。
+- [x] 3.2 本地起应用，用虚构账号截图：Cathy 侧栏（「更多」折叠 / 展开 / 图标栏）、Cathy 的 `/help` 第一屏与全部入口、纯外贸业务员侧栏、Lynn 的侧栏与 `/help`，放 `docs/acceptance/nav-1b/`。验证：Cathy 第一段依次是 8 个常用入口；`/help` 的「全部入口」顺序与侧栏逐项一致；Lynn 的 `/help` 没有「我想做什么」与页尾。
+- [x] 3.3 写 `docs/QINGYAN_NAV-1b_REPORT.md`（判定真值表、常用与更多的实际清单、「我想做什么」12 行与任务书原文的差异、19 条说明、各命令真实输出、给 NAV-1c 留的两行）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1b 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1b 行状态为 `[G]`。
 
 ## Workflow follow-up
 

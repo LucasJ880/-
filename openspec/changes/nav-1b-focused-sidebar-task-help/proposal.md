@@ -25,7 +25,7 @@ Cathy 的侧栏有 38 个一级入口，日常用的排在第四组，本该给�
 - 改页首副标题：有「我想做什么」一节时为「先看『我想做什么』；找不到再看下面的全部入口。」，没有时保持现在的「你在侧栏能看到的全部入口，以及每个入口是做什么的。」
 
 **入口说明改白话（BREAKING · 文案）**
-- 改 19 个入口的一句说明（每条不超过 40 字，清单见 specs）。其中 `work-calendar`、`sales-crm`、`work-inbox`、`work-notifications` 四条 Sunny 的成员也看得到。
+- 改 19 个入口的一句说明（每条不超过 40 字，清单见 specs）。其中 `work-calendar`、`sales-crm`、`work-inbox`、`work-notifications`、`mgmt-knowledge` 五条 Sunny 的成员也看得到。
 
 **测试**
 - 重写 `trade-layout.test.ts`（判定真值表、常用顺序、更多按分组、两段互斥且覆盖全部可见项、Cathy 入口集合不变），注册进 `scripts/test-all.sh` 并从 `ci/test-registry-baseline.txt` 删掉它那一行。
