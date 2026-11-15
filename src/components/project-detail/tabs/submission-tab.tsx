@@ -15,6 +15,8 @@ import { BidChecklist } from "@/components/project-checklist/bid-checklist";
 import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
+import { SubmissionRecordCard } from "@/components/tender/submission-record-card";
+import { toDatetimeLocal } from "@/lib/tender-submission/contract";
 import { HandoffDialog } from "@/components/projects/handoff-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
 import { TENDER_STATUS_LABELS } from "@/lib/domain/labels";
@@ -63,6 +65,8 @@ export function SubmissionTab({
   onReload,
   onReviewConfirmed,
 }: SubmissionTabProps) {
+  // FLOW-H4a：提交记录的接口可用时（开关开着），换掉下面那句过时的提示
+  const [recordAvailable, setRecordAvailable] = useState(false);
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
   const [showHandoffDialog, setShowHandoffDialog] = useState(false);
   const stage = getProjectStage(buildTenderProps(project));
@@ -94,7 +98,8 @@ export function SubmissionTab({
           <div>
             <dt className="text-[11px] text-muted">提交时间</dt>
             <dd className="mt-0.5 font-medium">
-              {project.submittedAt ? project.submittedAt.slice(0, 10) : "尚未提交"}
+              {/* 提交记录可用时按本地日期显示，与下面「提交记录」里的时间一致；不可用时与原来相同 */}
+              {project.submittedAt ? (recordAvailable ? toDatetimeLocal(new Date(project.submittedAt)).slice(0, 10) : project.submittedAt.slice(0, 10)) : "尚未提交"}
             </dd>
           </div>
           <div>
@@ -109,9 +114,14 @@ export function SubmissionTab({
           </div>
         </dl>
         <p className="mt-3 text-[11px] text-muted">
-          提交/开标日期在工作台「项目进度 · 关键日期」维护；最终标书文档在「标书与报价」生成，源文件见资料抽屉。
+          {recordAvailable
+            ? "提交时间与回执在下面的「提交记录」里记；开标日期在工作台「项目进度 · 关键日期」维护；最终标书文档在「标书与报价」生成，源文件见资料抽屉。"
+            : "提交/开标日期在工作台「项目进度 · 关键日期」维护；最终标书文档在「标书与报价」生成，源文件见资料抽屉。"}
         </p>
       </section>
+
+      {/* FLOW-H4a：提交记录（开关关闭时这个组件什么都不渲染） */}
+      <SubmissionRecordCard projectId={projectId} onAvailable={setRecordAvailable} onRecorded={onReload} />
 
       {/* 提交就绪：投标清单 + 分析交付物与任务 */}
       <section className="rounded-xl border border-border bg-card-bg p-5 space-y-4">

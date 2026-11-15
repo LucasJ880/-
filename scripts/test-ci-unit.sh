@@ -44,6 +44,8 @@ npx tsx src/lib/tender-intel/__tests__/websearch.test.ts
 npx tsx src/lib/tender-intel/__tests__/awards.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts
 npx tsx src/lib/tender/__tests__/workbench-state.test.ts
+npx tsx src/lib/tender/__tests__/stage-status-catch-up.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-status-catch-up-db.isolated.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
@@ -474,6 +476,10 @@ npx tsx src/lib/tender/__tests__/stage-auto.test.ts
 NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts
 npx tsx src/components/tender/__tests__/project-progress-section.test.tsx
+npx tsx src/lib/tender/__tests__/stage-tasks.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts
+npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts
+NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
