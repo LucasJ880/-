@@ -44,6 +44,8 @@ npx tsx src/lib/tender-intel/__tests__/websearch.test.ts
 npx tsx src/lib/tender-intel/__tests__/awards.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-semantics.test.ts
 npx tsx src/lib/tender/__tests__/workbench-state.test.ts
+npx tsx src/lib/tender/__tests__/stage-status-catch-up.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-status-catch-up-db.isolated.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
@@ -225,6 +227,7 @@ npx tsx src/lib/tenancy/__tests__/b1-tenant-authz.test.ts
 npx tsx src/lib/agent-core/__tests__/b1-tenant-context-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas-static.test.ts
 npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts
+npx tsx src/lib/pending-actions/__tests__/draft-idempotency.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts
 npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.isolated.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate-static.test.ts
@@ -434,6 +437,7 @@ npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts
 npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts
 # TI-1：招标价格表行项
 npx tsx src/lib/tender-price-schedule/__tests__/schedule-contract.test.ts
 npx tsx src/lib/tender-price-schedule/__tests__/unit-conversion.test.ts
@@ -464,8 +468,14 @@ npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-next-step.test.ts
 NODE_ENV=test npx tsx src/lib/tender-next-step/__tests__/web-next-step-db.isolated.test.ts
+npx tsx src/lib/tender/__tests__/stage-auto.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts
 npx tsx src/components/tender/__tests__/project-progress-section.test.tsx
+npx tsx src/lib/tender/__tests__/stage-tasks.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts
+npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts
+NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts
 npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts
 NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts
 npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx

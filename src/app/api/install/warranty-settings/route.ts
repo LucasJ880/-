@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { lockOrganizationRow } from "@/lib/organizations/settings-write";
 import { withAuth } from "@/lib/common/api-helpers";
 import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { holdsOrgPermissions } from "@/lib/accounting/access";
@@ -48,8 +49,8 @@ export const PUT = withAuth(async (request, _ctx, user) => {
   const v = validateWarrantySettings(body.settings);
   if (!v.ok) return NextResponse.json({ error: v.errors.join("；"), errors: v.errors }, { status: 400 });
   const saved = await db.$transaction(async (tx) => {
-    // 行锁：settingsJson 整对象读改写，防止与其它设置并发保存互相覆盖
-    await tx.$queryRaw`SELECT id FROM "Organization" WHERE id = ${orgRes.orgId} FOR UPDATE`;
+    // 行锁：settingsJson 整对象读改写，防止与其它设置并发保存互相覆盖（锁的强度见 settings-write.ts）
+    await lockOrganizationRow(tx, orgRes.orgId);
     const org = await tx.organization.findUnique({ where: { id: orgRes.orgId }, select: { settingsJson: true } });
     if (!org) return null;
     const before = readWarrantySettings(org.settingsJson);

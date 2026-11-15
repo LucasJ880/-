@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { lockOrganizationRow } from "@/lib/organizations/settings-write";
 import { writeCapabilityAuditEvent } from "./audit";
 import { resolveEffectiveQuota } from "./resolve";
 import type { QuotaMetric, QuotaPeriod } from "./types";
@@ -53,13 +54,12 @@ export async function createQuotaPolicy(opts: {
   // Governance Hygiene：同 org+workspace+metric 只允许一个 enabled 的
   // current version；新建策略在同一事务内 supersede 全部旧 enabled 版本。
   //
-  // Concurrency：先锁 Organization 行（非空集，沿用 reconcile-run/enqueue-package
-  // 已验证的父行 FOR UPDATE 模式），使同一 org 的 quota-policy 写操作在数据库层
-  // 串行执行；锁必须在读取 latest version 之前获得，否则仍有 race window。
+  // Concurrency：先锁 Organization 行（非空集，父行锁模式），使同一 org 的 quota-policy
+  // 写操作在数据库层串行执行；锁必须在读取 latest version 之前获得，否则仍有 race window。
+  // FIX-4：锁的强度是 FOR NO KEY UPDATE（lockOrganizationRow）——写入方之间照样互斥，
+  // 但不与「往本组织插入一条关联记录」的外键检查互斥，见 organizations/settings-write.ts。
   const row = await db.$transaction(async (tx) => {
-    await tx.$executeRaw`
-      SELECT id FROM "Organization" WHERE id = ${opts.orgId} FOR UPDATE
-    `;
+    await lockOrganizationRow(tx, opts.orgId);
 
     const prev = await tx.capabilityQuotaPolicy.findFirst({
       where: {
@@ -135,9 +135,7 @@ export async function patchQuotaPolicy(opts: {
   // 并要求 latest.id === opts.id && latest.version === expectedVersion
   // && latest.enabled === true。
   const row = await db.$transaction(async (tx) => {
-    await tx.$executeRaw`
-      SELECT id FROM "Organization" WHERE id = ${opts.orgId} FOR UPDATE
-    `;
+    await lockOrganizationRow(tx, opts.orgId);
 
     const target = await tx.capabilityQuotaPolicy.findFirst({
       where: { id: opts.id, orgId: opts.orgId },

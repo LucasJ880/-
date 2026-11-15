@@ -23,7 +23,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const item = await markItemSent(
       { projectId, inquiryId, itemId },
-      { sentVia: body.sentVia }
+      { sentVia: body.sentVia },
+      { autoAdvanceActorId: access.user.id },
     );
     return NextResponse.json(item);
   } catch (err) {

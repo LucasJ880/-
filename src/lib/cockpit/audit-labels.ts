@@ -33,6 +33,8 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   assign_members: "指派成员",
   abandon_project: "放弃项目",
   dispatch_project: "分派项目",
+  // FLOW-H1c（tender/stage-auto.ts）
+  "tender.stage.auto_advance": "阶段记录自动前进",
   // 审批生命周期（capabilities/approvals/decision.ts、pending-actions/*）
   APPROVAL_CREATED: "发起审批",
   APPROVAL_APPROVED: "批准",
@@ -108,6 +110,7 @@ export const SYSTEM_AUDIT_ACTIONS: readonly string[] = [
   "rfq_inbound:failed",
   "revenue_spine.trade_outbound.mirrored",
   "cockpit.post_daily_digest",
+  "tender.stage.auto_advance",
 ];
 
 /** 只认自有键（普通对象查表会命中原型链上的 toString / constructor） */

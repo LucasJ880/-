@@ -26,6 +26,8 @@ export const NEXT_STEP_ANCHORS = {
   bidWorkspace: "bid-workspace",
   /** 工作台的项目进度 · 关键日期 */
   keyDates: "project-key-dates",
+  /** 「提交」页签的提交记录（FLOW-H4a；提交记录的开关关闭时页面上没有这一块，卡片也不会指过来） */
+  submissionRecord: "submission-record",
 } as const;
 export const rfqRoundAnchorId = (inquiryId: string): string => `rfq-round-${inquiryId}`;
 export const APPROVAL_CENTER_HREF = "/capabilities/approvals";

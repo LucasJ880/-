@@ -19,7 +19,8 @@
  *     写设置会被任何一个还没提交的「插入一条本组织的记录」的事务卡住，反过来也会卡住它们，还会造出死锁
  *     （开户更新设置 ↔ 用户切换当前组织，独立审查实测 120 次里 53 次）。
  *   - FOR NO KEY UPDATE 正好是「普通的 UPDATE 改非主键列」本来就会拿的那把锁：与外键检查不冲突，
- *     与另一个 FOR NO KEY UPDATE / FOR UPDATE 互斥——写入方之间照样串行，包括还在用 FOR UPDATE 的那三处旧代码。
+ *     与另一个 FOR NO KEY UPDATE / FOR UPDATE 互斥——写入方之间照样串行（滚动发布时新旧代码并存也一样）。
+ *   - FIX-4 之后，代码里锁组织行的只有这里和开户（按 code 找行）两处；斑马帘比例、质保设置、能力配额策略都调用这里。
  */
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -28,7 +29,7 @@ type Tx = Prisma.TransactionClient;
 
 /**
  * 锁住这个组织的行，直到事务结束。之后在同一事务里读到的 settingsJson 就是最新的。
- * 与既有的几处（斑马帘比例、质保设置、能力配额策略，它们用的是 FOR UPDATE）互斥，所以新旧写入方之间也互相等待。
+ * 斑马帘比例、质保设置、能力配额策略也用它（FIX-4 之前它们各自写 FOR UPDATE），所有锁组织行的写入方互相等待。
  */
 export async function lockOrganizationRow(tx: Tx, orgId: string): Promise<void> {
   await tx.$queryRaw`SELECT id FROM "Organization" WHERE id = ${orgId} FOR NO KEY UPDATE`;
