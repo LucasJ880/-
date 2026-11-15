@@ -8,7 +8,7 @@
 
 ## 2. 配置与两个接口
 
-- [ ] 2.1 `src/lib/mail-watch/settings.ts`：读取 `settingsJson.mailWatch`；组织开关保存（只改 `enabled`，写审计 `mail.watch.settings`）；成员勾选 / 取消（只动本人那一项，取消即删游标）；全部经 `mutateOrgSettings`。新增 `src/app/api/organizations/[orgId]/mail-watch-settings/route.ts`（GET / PUT，企业管理员或平台 super_admin）与 `src/app/api/sales/mail-watch/opt-in/route.ts`（GET / PUT，只认登录态的本人，另要求邮箱绑定页放行）；平台开关关闭时都返回 404。`settings-write-guard.test.ts` 补对 `mail-watch` 写入方的断言。新增并在 `scripts/test-all.sh` 注册 `src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`，本条先写配置与接口的场景（销售不能开组织开关、不能替别人勾选、取消勾选删游标、邮箱绑定页不放行的人 403）。verify：本机隔离库下该测试通过；`npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts` 通过
+- [x] 2.1 `src/lib/mail-watch/settings.ts`：读取 `settingsJson.mailWatch`；组织开关保存（只改 `enabled`，写审计 `mail.watch.settings`）；成员勾选 / 取消（只动本人那一项，取消即删游标）；全部经 `mutateOrgSettings`。新增 `src/app/api/organizations/[orgId]/mail-watch-settings/route.ts`（GET / PUT，企业管理员或平台 super_admin）与 `src/app/api/sales/mail-watch/opt-in/route.ts`（GET / PUT，只认登录态的本人，另要求邮箱绑定页放行）；平台开关关闭时都返回 404。`settings-write-guard.test.ts` 补对 `mail-watch` 写入方的断言。新增并在 `scripts/test-all.sh` 注册 `src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`，本条先写配置与接口的场景（销售不能开组织开关、不能替别人勾选、取消勾选删游标、邮箱绑定页不放行的人 403）。verify：本机隔离库下该测试通过；`npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts` 通过
 
 ## 3. 编排
 

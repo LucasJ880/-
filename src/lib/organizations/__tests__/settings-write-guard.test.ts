@@ -168,6 +168,9 @@ console.log("全仓扫描");
   ok("发信说明脚本：事务里先锁行、再重读", senderCopy.indexOf("await lockOrganizationRow(tx, preview.id);") > 0 && senderCopy.indexOf("await lockOrganizationRow(tx, preview.id);") < senderCopy.indexOf("tx.organization.findUnique({ where: { id: preview.id }, select: orgSelect })"));
   const calRun = read(join(root, "lib/calendar-watch/run.ts"));
   ok("日历游标：经入口，且「这个日历还在观察、读取账号没变」的判断在锁里对最新的设置做", /await mutateOrgSettings\(orgId, \(latest\) => \{\s*const current = readCalendarWatch\(latest\);\s*if \(current\.readerUserId !== readerUserId \|\| !current\.calendarIds\.includes\(calendarId\)\) return \{ result: null \};/.test(calRun));
+  // MAIL-2：来信提醒的配置（组织开关、成员勾选）
+  const mailSettings = read(join(root, "lib/mail-watch/settings.ts"));
+  ok("来信提醒设置：组织开关与成员勾选都经入口，在锁里对最新的设置应用修改，没有直接写 settingsJson", (mailSettings.match(/await mutateOrgSettings\(/g) ?? []).length === 2 && (mailSettings.match(/const latest = readMailWatch\(fresh\);/g) ?? []).length === 2 && !/organization\.update\(|settingsJson:/.test(mailSettings.replace(/select: \{ settingsJson: true \}/g, "")));
   const entry = readFileSync(join(root, "lib/organizations/settings-write.ts"), "utf8");
   ok("入口用的是 FOR NO KEY UPDATE（不与外键检查互斥），不是 FOR UPDATE", /FOR NO KEY UPDATE`/.test(entry) && !/WHERE id = \$\{orgId\} FOR UPDATE/.test(entry));
   ok("入口自己：先锁行、再读、再写，且锁里调用的是同步函数（没有 await fn）", entry.indexOf("await lockOrganizationRow(tx, orgId)") < entry.indexOf("tx.organization.findUnique") && entry.indexOf("tx.organization.findUnique") < entry.indexOf("tx.organization.update") && /const out = fn\(before\);/.test(entry) && !/await fn\(/.test(entry));

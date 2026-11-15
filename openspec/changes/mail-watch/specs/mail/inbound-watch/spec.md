@@ -18,14 +18,14 @@
 - **THEN** 下一轮不读他的邮箱，Gmail 假实现对该邮箱的调用次数为 0
 
 ### Requirement: 组织开关由企业管理员读取与保存
-`GET /api/organizations/[orgId]/mail-watch-settings` SHALL 返回该组织的来信提醒开关与已勾选的成员数；`PUT` SHALL 只接受 `{ enabled: boolean }`，只有该组织的企业管理员（org_owner / org_admin）或平台 super_admin 可以保存，其他人返回 403。保存 SHALL 写一条审计 `mail.watch.settings`（保存前后的开关值）。平台开关关闭时两个方法都返回 404。保存 SHALL NOT 改动任何成员的勾选与游标。
+`GET /api/organizations/[orgId]/mail-watch-settings` SHALL 返回该组织的来信提醒开关与已勾选的成员数；`PUT` SHALL 只接受 `{ enabled: boolean }`（多一个字段或类型不对返回 400）。两个方法都只对持有销售设置管理权限（`sales.settings.manage`，与日历观察设置同一口径；平台 super_admin 视为持有）的成员开放，其他人返回 403。保存 SHALL 写一条审计 `mail.watch.settings`（保存前后的开关值）。平台开关关闭时两个方法都返回 404。保存 SHALL NOT 改动任何成员的勾选与游标。
 
 #### Scenario: 销售不能开组织开关
 - **WHEN** 同一隔离库测试以 `sales_rep` 身份 `PUT { enabled: true }`
 - **THEN** 返回 403，设置未变
 
 #### Scenario: 管理员保存
-- **WHEN** 同一测试以企业管理员身份 `PUT { enabled: true }`
+- **WHEN** 同一测试以老板岗位（持销售设置管理权限）的身份 `PUT { enabled: true }`
 - **THEN** 返回 200，再次 `GET` 为开，审计里有一条 `mail.watch.settings`，已有成员的勾选与游标原样保留
 
 ### Requirement: 成员只能勾选自己的邮箱
@@ -237,11 +237,11 @@
 - **THEN** 两轮都没有对其邮箱发起 Gmail 请求，他只收到一条提醒
 
 ### Requirement: 邮箱绑定页的来信提醒设置
-平台开关开启时，`/settings/email` SHALL 显示「客户来信提醒」勾选项（成员本人，默认不勾），并写明只读取本人邮箱、只提醒已建档客户的来信、不读取正文；组织开关未开时勾选项 SHALL 可见但不可勾并说明原因。企业管理员 SHALL 另见组织开关。平台开关关闭时这两项 SHALL NOT 显示。
+平台开关开启时，`/settings/email` SHALL 显示「客户来信提醒」勾选项（成员本人，默认不勾），并写明只读取本人邮箱、只提醒已建档客户的来信、不读取正文；组织开关未开时勾选项 SHALL 可见但不可勾并说明原因。持有销售设置管理权限的成员 SHALL 另见组织开关。平台开关关闭时这两项 SHALL NOT 显示。
 
 #### Scenario: 页面按状态渲染
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`，对页面源码与页面状态函数做断言
-- **THEN** 平台开关关闭不渲染；组织开关关闭时勾选项不可勾并带说明；组织开关只在企业管理员的状态里出现
+- **THEN** 平台开关关闭不渲染；组织开关关闭时勾选项不可勾并带说明；组织开关只在有管理权限的状态里出现
 
 #### Scenario: 成员勾选
 - **WHEN** 平台与组织开关都开，Lynn 在 `/settings/email` 勾选「客户来信提醒」

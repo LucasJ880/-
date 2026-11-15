@@ -99,7 +99,7 @@ specs、tasks 与下面的 D8、硬纪律第 4 条已按 D2 改写。以下保�
 
 `settingsJson.mailWatch = { enabled, mailboxes: { [userId]: { optedInAt, historyId, lastSyncAt } } }`。所有写入经 `mutateOrgSettings`：组织开关只改 `enabled`；成员勾选只增删自己那一项；编排回写游标时在锁内重新确认该成员仍在 `mailboxes` 里，否则不写（防「取消勾选之后游标又被写回来」）。
 
-组织开关接口照 `calendar-watch-settings` 的鉴权（企业管理员或平台 super_admin）。成员勾选接口用 `withAuth`，组织取当前组织，另要求邮箱绑定页对其放行（与 MAIL-1 入口门同一个 `canOpenHref("/settings/email")`）；`userId` 只取登录态。两个接口在平台开关关闭时返回 404。
+组织开关接口照 `calendar-watch-settings` 的鉴权：`sales.settings.manage`（岗位模式下由持键的管理岗位决定，旧模式企业为企业管理员，平台 super_admin 视为持有）。实施时把规格里原来写的「企业管理员（org_owner / org_admin）」改成了这个口径，与日历观察设置一致。成员勾选接口用 `withAuth`，组织取当前组织，另要求邮箱绑定页对其放行（与 MAIL-1 入口门同一个 `canOpenHref("/settings/email")`）；`userId` 只取登录态。两个接口在平台开关关闭时返回 404。
 
 - 否决：把勾选存在用户自己的设置里。编排要按组织一次读出所有已勾选的邮箱，放在组织设置里一次读取；游标也和勾选在同一处，删勾选即删游标是一次写入。
 - 否决：让管理员替成员勾选。判断点 2 定的是成员本人勾选。
