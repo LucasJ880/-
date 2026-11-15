@@ -261,6 +261,19 @@
 
 ---
 
+## Phase Q — 报价工具并入青砚
+
+任务书：`docs/QINGYAN_QUOTE-1_QUOTE_FILE_IMPORT_TASKBRIEF.md`（Lucas 2026-11-14；方案文档 `Sunny报价系统_融入青砚方案_2026-11-14.md` 的 Q-0）。规则：文件只告诉青砚「填了什么」，价格永远由青砚算；文件里比青砚便宜的部分一律变成特别让利，走现有审批。纪律同上：零 schema（新字段只落 `formDataJson` 与 AuditLog）、零出站、不新增队列、零 LLM 调用、不新增权限键 / 路由。与 Phase K / P / V 并列，属 Sunny 线。一个 change = 一个 PR，按 QUOTE-1a → 1b 顺序合并。
+
+判断点（任务书「判断点」节）：3（Roller 罩盒加价补上）已拍板「做」；1（Door Screen Sheer 口径）未拍板，QUOTE-1a 不实施该项；2（褶皱率非 180 / 230 的行）只影响 QUOTE-1b，待拍板。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| QUOTE-1a | 详细订单定价口径对齐：Roller 行的定价键 = 基础面料 + 该行 Valance（Cassette / Fascia 加价 25 / 50）；实木百叶窗表单材质 `Wooden` 按价表键 `Wood` 计价；客户端预览与保存时的行构造用同一个纯函数取定价键；补经「表单行 → 企业默认折扣 → 引擎」完整路径的对照测试；已存报价不重算。Door Screen Sheer 不套企业折扣一项待判断点 1 拍板，另起 change 或追加 | 判断点 3 | OpenSpec change `quote-order-form-pricing-parity`；对照测试注册进 `scripts/test-all.sh`、158 条黄金用例不变；BREAKING（金额，只影响新建与再次保存的报价）；报告 `docs/QINGYAN_QUOTE-1a_REPORT.md` | [ ] |
+| QUOTE-1b | 导入工具报价文件（`.sunny-quote.json`，格式 `sunny-quote-studio` v1）：浏览器内读文件、不上传原文件 → 校验 → 多方案选一套 → 核对窗（逐行对照文件金额 / 青砚金额 + 阻断 / 提醒清单）→ 填入详细订单 → 走现有保存与让利三档；行级折扣低于企业默认的保留到行上，其余差额累加进特别让利；`formDataJson.importSource` 留痕 + 审计 `quote_imported` | QUOTE-1a；判断点 2 | OpenSpec change `quote-import-studio-file`；校验 / 映射 / 16 行样例对照测试注册；报告 `docs/QINGYAN_QUOTE-1b_REPORT.md` | [ ] |
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
