@@ -2,7 +2,7 @@
 
 ## 1. 规则
 
-- [ ] 1.1 `tracker-pure.ts`（`nextChaseOutlook`、`trackerRowView`、`classifyNeedsAction`、`trackerSummary`、`quoteCellView`）；verify：`npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.ts` 全部通过（含与 `decideChases` 的一致性表）
+- [ ] 1.1 `tracker-pure.ts`（`nextChaseOutlook`、`trackerRowView`、`classifyNeedsAction`、`trackerSummary`、`quoteCellView`）；verify：`npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx` 全部通过（含与 `decideChases` 的一致性表）
 
 ## 2. 服务与接口
 
