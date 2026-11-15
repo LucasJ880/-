@@ -17,6 +17,7 @@ import type { ToolDefinition, ToolExecutionContext, ToolExecutionResult, ToolRis
 import { PLATFORM_DEFAULT_AGENT_TOOL_POLICY } from "@/lib/org-rules/types";
 import { mailIntentForcesTools } from "@/lib/mail-read/pure";
 import { needsTools } from "../streaming";
+import { routeAssistantIntent } from "@/lib/assistant/intent-router";
 
 let pass = 0;
 let fail = 0;
@@ -181,6 +182,26 @@ async function main() {
     ok(mailIntentForcesTools(true, "王总回邮件了吗") && mailIntentForcesTools(true, "帮我找上周供应商那封信"), "这两条同时满足读信意图（助手灰度未命中的用户也走带工具的分支）");
     ok(route(false, "帮我润色这封邮件") === needsTools("帮我润色这封邮件") && needsTools("帮我润色这封邮件") === false && !mailIntentForcesTools(false, "帮我润色这封邮件"), "读信不可用：「帮我润色这封邮件」的路由与上线前相同（不带工具）");
     ok(route(undefined, "看看收件箱") === needsTools("看看收件箱"), "入口门没有 mail：不改变路由");
+    // 意图分流在读信路由之前：写 / 发邮件仍走既有的 Gmail 草稿流程，问邮件的进普通对话
+    ok(routeAssistantIntent("帮我回复客户").intent === "gmail_email_draft" && routeAssistantIntent("把这封邮件发出去").intent === "gmail_email_draft", "「帮我回复客户」「把这封邮件发出去」：仍判定为邮件草稿意图");
+    ok(["王总回邮件了吗", "帮我找上周供应商那封信", "看看王总最近的邮件"].every((t) => routeAssistantIntent(t).intent === "general_answer"), "问邮件的消息：进普通对话（由读信工具回答）");
+  }
+
+  console.log("\n网页助手消息接口的接线（源码断言）");
+  {
+    const web = code("src/app/api/ai/threads/[threadId]/messages/route.ts");
+    ok(/const mailIntent = mailIntentForcesTools\(webEntryGate\?\.mail, content\);/.test(web), "读信意图 = 入口门 mail ∧ 消息提到邮箱");
+    ok(/requestedCalendarAction \|\|\s*mailIntent \|\|\s*isOperatorEnabled\(/.test(web), "读信意图让本轮走 Operator 分支（不受助手灰度影响，做法同日历意图）");
+    ok(/if \(mailIntent\) withTools = true;/.test(web), "读信意图必带工具（含 fast 模式）");
+    ok(/const mailToolsOffered = withTools && webEntryGate\?\.mail === true;/.test(web) && /mailRead: mailToolsOffered,/.test(web), "系统提示的固定规则只在读信工具进入本轮列表时加入");
+    ok(/if \(ev\.ok && isMailToolName\(ev\.name\)\) \{\s*mailReadThisTurn = true;\s*mailBodiesThisTurn\.push\(\.\.\.mailBodiesFromToolData\(ev\.data\)\);/.test(web), "读信工具成功返回：记下本轮读过邮件，正文只留在本次请求的内存里");
+    ok(/const storedContent = mailReadThisTurn\s*\? redactVerbatimMail\(finalContent, mailBodiesThisTurn\)\.text\s*: finalContent;/.test(web), "本轮读过邮件：落库用省略原文后的文本");
+    ok(/role: "assistant",\s*content: storedContent,/.test(web) && !/role: "assistant",\s*content: finalContent,\s*\},\s*select: \{ id: true \}/.test(web), "Operator 分支写 AiMessage 用的是 storedContent");
+    ok(/if \(projectId && !mailReadThisTurn\) \{\s*import\("@\/lib\/projects\/insight-extract"\)/.test(web), "本轮读过邮件：不触发项目洞察抽取");
+    ok(/emit\(\{ type: "tool_result", name: ev\.name, ok: ev\.ok \}\);/.test(web) && !/emit\(\{[^}]*data: ev\.data/.test(web), "发给浏览器的工具事件只有工具名与成功与否（不带工具返回的数据）");
+    ok(!/mailBodiesThisTurn/.test(web.replace(/mailBodiesThisTurn\.push\([^;]*;|redactVerbatimMail\(finalContent, mailBodiesThisTurn\)|const mailBodiesThisTurn: string\[\] = \[\];/g, "")), "邮件正文变量只用于这一处省略，没有被写库、打日志或发给浏览器");
+    const operator = web.slice(web.indexOf("async function handleOperatorBranch"));
+    ok(!/indexThreadMessages|extractAndSaveMemories/.test(operator.slice(0, operator.indexOf("async function extractAndSaveMemories"))), "Operator 分支不建对话搜索索引、不抽取记忆");
   }
 
   console.log(`\n结果: ${pass} passed, ${fail} failed`);

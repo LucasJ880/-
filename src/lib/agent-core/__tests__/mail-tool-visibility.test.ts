@@ -217,7 +217,10 @@ async function main() {
 
   console.log("\n各入口（源码断言）");
   {
-    // WEB_ASSISTANT_ROUTE_ASSERTION
+    const web = code("src/app/api/ai/threads/[threadId]/messages/route.ts");
+    ok(/isMailReadAllowed\(\)\s*\? await loadToolEntryGate\(user, orgRes\.orgId, \{ surface: "web_assistant" \}\)\s*: null/.test(web), "网页助手对话的消息接口：读信开关开时以网页助手入口取入口门，关时不取");
+    ok((web.match(/web_assistant/g) ?? []).length === 1, "消息接口里只有这一处声明网页助手入口");
+    ok(/entryGate = withTools \? \(webEntryGate \?\? \(await loadToolEntryGate\(user, orgId\)\)\) : undefined/.test(web), "带工具运行时把这一份入口门交给引擎（开关关时沿用原来的入口门）");
     for (const p of ["src/app/api/agent-core/chat/route.ts", "src/app/api/agent-core/tools/route.ts", "src/lib/agent-runtime/process.ts"]) {
       ok(!/web_assistant/.test(code(p)) && /loadToolEntryGate\(/.test(code(p)), `${p}：取入口门但不声明网页助手入口`);
     }

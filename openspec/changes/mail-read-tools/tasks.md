@@ -20,7 +20,7 @@
 
 ## 5. 网页助手接线
 
-- [ ] 5.1 `src/app/api/ai/threads/[threadId]/messages/route.ts`：以网页助手入口取入口门（开关关时不取）；`mail === true` 且消息提到邮件 / 邮箱等词时走 Operator 分支并带工具；把 `mail` 传给系统提示；本轮调用过读信工具时，`AiMessage` 存省略原文后的文本、且不调用项目洞察抽取；流给浏览器的内容与工具事件不变。扩 `mail-untrusted-guard.test.ts`（路由判定纯函数三个场景 + 消息接口源码断言）。verify：`npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts` 与 `npx tsx src/lib/assistant/__tests__/intent-router.test.ts` 通过；`npm run typecheck` 通过
+- [x] 5.1 `src/app/api/ai/threads/[threadId]/messages/route.ts`：以网页助手入口取入口门（开关关时不取）；`mail === true` 且消息提到邮件 / 邮箱等词时走 Operator 分支并带工具；把 `mail` 传给系统提示；本轮调用过读信工具时，`AiMessage` 存省略原文后的文本、且不调用项目洞察抽取；流给浏览器的内容与工具事件不变。扩 `mail-untrusted-guard.test.ts`（路由判定纯函数三个场景 + 消息接口源码断言）。verify：`npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts` 与 `npx tsx src/lib/assistant/__tests__/intent-router.test.ts` 通过；`npm run typecheck` 通过
 
 ## 6. 读信权限状态
 
