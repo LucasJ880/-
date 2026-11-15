@@ -51,7 +51,7 @@
 - **THEN** 只有历史增量、线程成员列表与邮件元数据三类读取；邮件读取的格式都是元数据；没有附件、修改、发送、草稿接口的调用
 
 #### Scenario: 正文不出现在任何产物里
-- **WHEN** 同一测试处理一封带正文的客户来信后，把正文在账本、客户互动、通知、Muse 事件与微信推送文案里逐一查找
+- **WHEN** 同一测试处理一封带正文的客户来信后，把正文在账本、客户互动、通知与微信推送文案里逐一查找
 - **THEN** 都找不到
 
 #### Scenario: 不碰组织授权邮箱
@@ -203,16 +203,12 @@
 - **WHEN** 运行 `npx tsx src/lib/notifications/__tests__/type-visibility.test.ts`
 - **THEN** `sales_rep` 的可见类型里有 `mail_inbound`，安装工没有，测试通过
 
-### Requirement: 推送沿用日历变更推送的渠道与上限
-给某收件人发来信通知时，若 Muse Bridge 开启、企业在 Muse 放行名单内、且该收件人已绑定，SHALL 改发一条 Muse 事件 `mail.inbound`，不再发 `mail_inbound` 通知；信封不成立、摘要会被出站脱敏整段替换或落库失败时 SHALL 回落为 `mail_inbound` 通知。每新建一条通知（任一渠道）后 SHALL 推一条销售域微信，每轮至多 30 条且只在截止时刻前推，超出的不推、通知照建。推送 SHALL NOT 建 PendingAction（发给本组织成员本人，不算出站）。推送失败 SHALL NOT 影响账本、互动、游标与其它收件人。
+### Requirement: 新通知推送微信且不走 Muse
+每新建一条来信通知后 SHALL 用销售域微信推送发给该收件人，每条通知至多推一次（建好通知后、推送前中断的不补推），每轮至多 30 条且只在截止时刻前推，超出的不推、通知照建。推送 SHALL NOT 建 PendingAction（发给本组织成员本人，不算出站）。推送失败 SHALL NOT 影响账本、互动、游标与其它收件人。来信提醒 SHALL NOT 发 Muse 事件：已绑定 Muse 的成员同样收到 `mail_inbound` 站内通知与微信。
 
-#### Scenario: 已绑定 Muse
+#### Scenario: 已绑定 Muse 的成员
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`，Muse 开启且 Lynn 已绑定
-- **THEN** Lynn 有一条 `muse_bridge` 分类的站内记录、Bridge 能拉到 `mail.inbound`，没有另一条 `mail_inbound` 通知
-
-#### Scenario: 主题命中出站敏感词
-- **WHEN** 同一测试中主题会被 Muse 出站脱敏整段替换
-- **THEN** 回落为 `mail_inbound` 通知，摘要是完整主题
+- **THEN** Lynn 收到一条 `mail_inbound` 通知，没有 `muse_bridge` 分类的记录
 
 #### Scenario: 每轮上限
 - **WHEN** 同一测试以注入的额度 1 处理 3 封客户来信
@@ -222,15 +218,19 @@
 - **WHEN** 同一测试中微信推送抛错
 - **THEN** 账本、互动、通知照常，运行结果里微信失败数为 1
 
+#### Scenario: 不触碰 Muse 事件契约
+- **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`，对来信观察模块与 Muse 事件类型清单的源码做断言
+- **THEN** 来信观察模块没有调用 Muse 事件的发出函数，事件类型清单里没有邮件相关的类型
+
 ### Requirement: 推送文案只有客户名与主题
-微信正文与 Muse 事件摘要 SHALL 只含「客户来信：〈客户名〉」与主题，SHALL NOT 含邮件正文、发件地址或任何邮箱地址；主题里形如邮箱地址的串 SHALL 替换为 `[邮箱]`。Muse 摘要 SHALL 经既有的出站脱敏与长度截断。
+微信推送的标题 SHALL 为「客户来信：〈客户名〉」、正文 SHALL 为主题，SHALL NOT 含邮件正文、发件地址或任何邮箱地址；主题里形如邮箱地址的串 SHALL 替换为 `[邮箱]`。
 
 #### Scenario: 文案
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`，对一封主题里带邮箱地址的客户来信生成推送文案
 - **THEN** 标题为「客户来信：〈客户名〉」，正文是替换掉邮箱之后的主题，没有发件地址
 
 ### Requirement: 缺读信权限时提醒本人重新授权
-已勾选的成员没有绑定 Gmail、授权不含读信权限或授权已失效时，本轮 SHALL 跳过该邮箱，并给该成员发一条站内提醒「请到邮箱绑定页重新授权」，点开到 `/settings/email`；同一成员 24 小时内 SHALL 至多一条。该提醒 SHALL NOT 走 Muse。
+已勾选的成员没有绑定 Gmail、授权不含读信权限或授权已失效时，本轮 SHALL 跳过该邮箱，并给该成员发一条站内提醒「请到邮箱绑定页重新授权」，点开到 `/settings/email`；同一成员 24 小时内 SHALL 至多一条。该提醒 SHALL NOT 推微信。
 
 #### Scenario: 旧授权
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`，一位已勾选的成员只有撰写权限的旧授权，连续跑两轮

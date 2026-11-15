@@ -1,6 +1,6 @@
 # Proposal：客户来信提醒（MAIL-2）
 
-TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`，判断点 2–6 已于 2026-11-14 拍板，判断点 8 待定、按 A 实现）。依赖 MAIL-1（change `mail-read-tools`，PR #455）的读接口与读信开关。触碰 `muse-bridge`：只新增一个事件类型 `mail.inbound`，不改任何 Muse 意图（status / ask / rfq / compare / chase / price_scenario / next_step 等都不受影响）。
+TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`，判断点 2–6 已于 2026-11-14 拍板，判断点 8 待定、按 A 实现）。依赖 MAIL-1（change `mail-read-tools`，PR #455）的读接口与读信开关。不触碰 `muse-bridge`，没有受影响的 Muse 意图（design 待拍板 D 已取 D2：不走 Muse 事件）。
 
 ## Why
 
@@ -24,7 +24,7 @@ TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_M
 - 记账本 `mail.watch.observed`（按 Gmail 邮件 id 幂等），只有发件地址、主题（至多 120 字）、客户、命中规则。
 - 在客户时间线上建一条入站邮件互动，不挂商机、不进销售知识库分析；同一封信进了两个成员的邮箱时只建一条。
 - 给邮箱主人发通知「客户来信：〈客户名〉」（新类型 `mail_inbound`，点开到客户详情页）；收件人由一个纯函数算出，判断点 8 改 B 时只动这一处。
-- 推送沿用日历变更推送的做法：已绑定 Muse 的走 Muse 事件 `mail.inbound`，否则站内通知；新通知再推一条销售域微信，每轮有上限；文案只有客户名与主题。
+- 每新建一条通知再推一条销售域微信（上限与日历变更推送相同，每轮 30 条）；文案只有客户名与主题。不走 Muse 事件。
 
 **开关与配置（零 schema）**
 - 三道开关都开才读某个邮箱：平台 `MAIL_WATCH_ENABLED`（默认关）∧ 组织开关（默认关，企业管理员开）∧ 成员本人勾选（默认不勾）。
@@ -45,7 +45,7 @@ TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_M
 ## Capabilities
 
 ### New Capabilities
-- `mail/inbound-watch`：按成员本人的勾选观察其 Gmail 收件箱的新来信——三道开关、增量读取与游标、确定性归类、账本与幂等、客户时间线入站互动、`mail_inbound` 通知与推送、缺权限提醒、设置页与客户详情页的入口。
+- `mail/inbound-watch`：按成员本人的勾选观察其 Gmail 收件箱的新来信——三道开关、增量读取与游标、确定性归类、账本与幂等、客户时间线入站互动、`mail_inbound` 通知与微信推送、缺权限提醒、设置页与客户详情页的入口。
 
 ### Modified Capabilities
 
@@ -54,8 +54,8 @@ TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_M
 ## Impact
 
 - 新增：`src/lib/mail-watch/**`（`pure.ts`、`run.ts`、`settings.ts`、`types.ts` 与测试）、`src/app/api/organizations/[orgId]/mail-watch-settings/route.ts`、`src/app/api/sales/mail-watch/opt-in/route.ts`。
-- 修改：`src/lib/google-email.ts`（新增收件箱增量读取函数；既有函数不改）、`src/lib/env/runtime-isolation.ts`（开关）、`src/app/api/cron/sales-actions/route.ts`（加步骤）、`src/lib/muse-bridge/contract.ts` 与 `events.ts`（事件类型 `mail.inbound`）、`src/lib/notifications/constants.ts`、`type-visibility.ts`、`src/components/header.tsx`（图标表）、`src/app/(main)/settings/email/page.tsx`、`src/app/(main)/sales/customers/[id]/interaction-timeline.tsx` 与 `types.ts`、`src/lib/organizations/__tests__/settings-write-guard.test.ts`（登记新的写入方）、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`、`.env.example`。
-- 与任务书「Impact」不同：`src/lib/notifications/href.ts` 不用改（`sales_customer` 的跳转已存在）；多出 `muse-bridge` 两个文件与两个接口路由。
+- 修改：`src/lib/google-email.ts`（新增收件箱增量读取函数；既有函数不改）、`src/lib/env/runtime-isolation.ts`（开关）、`src/app/api/cron/sales-actions/route.ts`（加步骤）、`src/lib/notifications/constants.ts`、`type-visibility.ts`、`src/components/header.tsx`（图标表）、`src/app/(main)/settings/email/page.tsx`、`src/app/(main)/sales/customers/[id]/interaction-timeline.tsx` 与 `types.ts`、`src/lib/organizations/__tests__/settings-write-guard.test.ts`（登记新的写入方）、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`、`.env.example`。
+- 与任务书「Impact」不同：`src/lib/notifications/href.ts` 不用改（`sales_customer` 的跳转已存在）；多出两个接口路由。
 - 零 schema；`vercel.json` 无 diff；不新增依赖；新增一个环境变量 `MAIL_WATCH_ENABLED`。
 - 上线前置：MAIL-1 已合并；运维前置同 MAIL-1（OAuth 同意屏幕状态、成员重新授权）。
 
@@ -69,4 +69,4 @@ TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_M
 - 询价回信入站（`src/lib/tender-rfq/inbound-sync.ts`）与外贸的邮件转发询盘入站。
 - MAIL-1 的读信工具、写入封锁与读信权限状态。
 - 让既有的「多久没跟进」类提醒区分客户来信与成员跟进（见 design 风险一节）。
-- 微信 / Muse 通道里读邮件。
+- Muse 事件推送（已绑定 Muse 的成员同样收站内通知与微信）；微信 / Muse 通道里读邮件。

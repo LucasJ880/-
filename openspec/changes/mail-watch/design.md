@@ -4,7 +4,15 @@
 
 动机见 proposal.md。代码引用在分支 `claude/vibrant-mccarthy-2low2g`（MAIL-1，已并入 main `a747467`）上核对；只读代码，没有运行应用，没有连 Google。MAIL-2 建在 MAIL-1 之上：复用它在 `google-email.ts` 里的本人邮箱读取入口（先查授权含读信权限）与 `/settings/email` 的读信权限状态。
 
-### 待拍板（三处，都已按推荐方案写进 specs 与 tasks；改选别的方案只动标出的 Requirement 和 task）
+### 拍板结果（2026-11-15，Lucas：「C1，D2，四件套批准」）
+
+- 待拍板 C 取 **C1**：时间线标题用固定文字「客户来信（邮件）」，主题放在内容里。
+- 待拍板 D 取 **D2**：不走 Muse 事件；已绑定 Muse 的成员同样收站内通知与微信。不触碰 `muse-bridge`。
+- 待确认 E 仍待样本：本期按 `From` 匹配，不阻塞实施。
+
+specs、tasks 与下面的 D8、硬纪律第 4 条已按 D2 改写。以下保留拍板前的原文，供日后回看当时的备选。
+
+### 待拍板（三处；改选别的方案只动标出的 Requirement 和 task）
 
 **待拍板 C · 来信的主题写在客户时间线的哪个位置**
 
@@ -16,7 +24,7 @@
 **待拍板 D · 已绑定 Muse 的人是否走 Muse 事件**
 
 - 任务书与判断点 5 写「沿用 CAL-3 的渠道选择（已绑定 → 微信 / Muse，否则站内）」。照做需要在 Muse 事件契约里新增一个类型 `mail.inbound`（`muse-bridge/contract.ts` 的事件类型清单、`events.ts` 的类型映射与标题）。而「已决定」第 10 条（2026-11-04）写 Muse--Bridge-bot 的 Connector 永久冻结；Bridge 一侧对没见过的事件类型怎么显示，代码里看不到。
-- D1（按任务书，已写进 specs「推送沿用日历变更推送的渠道与上限」、task 3.1）：新增 `mail.inbound`，做法与 `calendar.changed` 完全相同；信封不成立或摘要会被出站脱敏整段替换时回落站内。
+- D1（按任务书）：新增 `mail.inbound`，做法与 `calendar.changed` 完全相同；信封不成立或摘要会被出站脱敏整段替换时回落站内。
 - D2：不走 Muse，所有人都发站内通知加微信。不碰 `muse-bridge`；已绑定 Muse 的人只在青砚铃铛和微信里看到。
 - 没有推荐倾向：需求方的原话提到在用 Muse，所以按任务书写了 D1；如果 Bridge 那边确认不会再认新的事件类型，改 D2 更省事（删一条 Requirement 的前半句和两个文件的改动）。
 
@@ -37,8 +45,8 @@
 | 增量读取与游标过期 | `listThreadReplies`（`history.list`，404 即过期） | `src/lib/google-email.ts` |
 | 在途询价线程 | `loadInboundOrgContexts` 的条件 + `parse…threadId`（线程 id 记在 `InquiryItem.contactNotes` 里，不是单独的列） | `src/lib/tender-rfq/inbound-sync.ts:474`、`inbound-contract.ts:94` |
 | 缺读信权限 24 小时提醒一次 | `recentReadScopeReminder` / `remindReadScope`（按通知键前缀与时间窗） | `inbound-sync.ts:162`、`:333` |
-| 渠道选择、微信上限、邮箱打码 | `chooseChannel`、`MAX_WECHAT_PUSHES_PER_RUN`（30）、`maskEmails`、`museEnvelopeClean` | `src/lib/calendar-watch/push-pure.ts` |
-| 通知幂等 | `Notification.sourceKey` 有唯一约束；CAL-1 的 `alreadyDelivered` 同时查站内键与 Muse 键 | `calendar-watch/run.ts` |
+| 微信上限、邮箱打码 | `MAX_WECHAT_PUSHES_PER_RUN`（30）、`maskEmails`；微信推送函数 `pushSalesReminder` | `src/lib/calendar-watch/push-pure.ts`、`src/lib/messaging/push-service.ts` |
+| 通知幂等 | `Notification.sourceKey` 有唯一约束 | `prisma/schema.prisma`；用法见 `calendar-watch/run.ts` 的 `alreadyDelivered` |
 | 客户可见性 | `canSeeResource(role, userId, { orgId, createdById }, orgId)`；岗位模式下角色取 `resolveEffectivePlatformRole` | `src/lib/rbac/data-scope.ts:88` |
 | 通知点开到客户详情 | `entityType: "sales_customer"` 已有跳转规则 | `src/lib/notifications/href.ts:60` |
 | 助手预填 | 助手页已支持 `?prompt=` | `src/app/(main)/assistant/page.tsx:135` |
@@ -53,7 +61,7 @@
 | 没提商机 | 梦馨的两条 FDE 流程按商机下的入站互动判断「客户回没回」（`fde/no-reply-followup.ts:322`、`exec-sales-inquiry-reply.ts:130`） | 来信互动不挂商机，这两条流程不受影响 |
 | `href.ts` 要改 | `sales_customer` 的跳转已存在 | 不改 |
 | 未匹配「只在账本里计数」 | — | 不逐封留痕，每轮每个邮箱写一条汇总 `mail.watch.run`；未匹配的发件人与主题不落库 |
-| 推送沿用 CAL-3 | 走 Muse 要在事件契约里加类型 | 待拍板 D |
+| 推送沿用 CAL-3（已绑定 → Muse） | 走 Muse 要在事件契约里加类型，而 Connector 已冻结 | 待拍板 D，已取 D2：只发站内通知与微信 |
 | 「同一封信发给 `sales@` 和 Lynn」按 RFC `Message-ID` 去重 | 互动上没有放这个头的列 | 放在既有的 `analysisResult.sourceRef`（外贸网站询盘已有同样用法，`trade/website-inquiry.ts:547`），见 D5 |
 
 **代码里看不到、上线前要有人确认的**：Marty 在青砚里的岗位与客户可见范围（规则 1、2 都要求客户对邮箱主人可见；若他只看得到自己的客户，`info@` 收到的老客户来信多数会归未匹配）；`SalesCustomer.email` 的填充率；公共地址的转发方式（待确认 E）。
@@ -70,6 +78,7 @@
 **Non-Goals:**
 
 - 不改 `src/lib/tender-rfq/**`（只调用它导出的线程 id 解析，不改其行为）、`src/lib/calendar-watch/**`（只引用 `push-pure.ts` 里已导出的纯函数与常量）。
+- 不改 `src/lib/muse-bridge/**`：不新增事件类型，不发 Muse 事件。
 - 不改 `google-email.ts` 里既有的 `listThreadReplies`、`listThreadMessages`、`getMessageWithAttachments`、`searchMailbox`、`getThreadText` 与 `EMAIL_SCOPES`；只新增函数。
 - 不改 MAIL-1 的 `src/lib/agent-core/**`、`src/lib/mail-read/pure.ts` 的既有导出、助手消息接口。
 - 不改读客户互动的那些既有代码（`sales-customer.ts`、`enterprise-readonly.ts`、`email-composer.ts`、`muse-bridge/sales.ts`、`knowledge-pipeline.ts`、`revenue-spine/**`、各「最近互动时间」的读取处）。
@@ -118,7 +127,7 @@
 每封命中的信按这个顺序：
 
 1. 账本里已有这个 Gmail 邮件 id 的 `mail.watch.observed` → 整封跳过。
-2. 逐个收件人：通知键 `mail-watch:<orgId>:<Gmail 邮件 id>:<userId>`。站内键或 Muse 键已存在 → 跳过该收件人；否则建通知（或发 Muse 事件），成功后才推微信。`sourceKey` 的唯一约束保证两轮重叠时只有一轮建得成。
+2. 逐个收件人：通知键 `mail-watch:<orgId>:<Gmail 邮件 id>:<userId>`。键已存在 → 跳过该收件人；否则建通知，成功后才推微信。`sourceKey` 的唯一约束保证两轮重叠时只有一轮建得成。
 3. 客户互动：先按「同组织、同客户、`analysisResult.sourceRef.rfcMessageId` 等于这封的 `Message-ID`」查，没有再按 Gmail 邮件 id 查，都没有才建。建的时候写 `analysisResult = { sourceRef: { kind: "mail_watch", rfcMessageId, mailboxUserId } }`、`analysisStatus = "skipped"`、不带 `opportunityId`。
 4. 写账本 `mail.watch.observed`。
 
@@ -139,13 +148,16 @@
 
 - 否决：复用 `project_update` 或 `followup` 类型。成员没法单独关掉「客户来信」，通知页也筛不出来。
 
-### D8（待拍板 D）推送
+### D8 推送（D2：只推微信）
 
-从 `calendar-watch/push-pure.ts` 引用 `chooseChannel`、`museEnvelopeClean`、`maskEmails`、`MAX_WECHAT_PUSHES_PER_RUN`。Muse 事件类型 `mail.inbound`：`contract.ts` 的类型清单加一项；`events.ts` 里站内类型映射到 `mail_inbound`、标题取摘要第一行。Muse 组织放行与绑定名单的读取照 `calendar-watch/run.ts` 的 `prepareOrg`。微信用 `pushSalesReminder`，文案为「客户来信：〈客户名〉」与打码后的主题。
+每新建一条 `mail_inbound` 通知后调用 `pushSalesReminder` 推一条销售域微信，文案为「客户来信：〈客户名〉」与打码后的主题。从 `calendar-watch/push-pure.ts` 只引用 `maskEmails` 与 `MAX_WECHAT_PUSHES_PER_RUN`（每轮 30 条，与日历变更推送各算各的额度）。不调用 Muse 事件的发出函数，不读 Muse 的放行与绑定名单，不改 `muse-bridge/**`。
+
+- 否决（D1）：新增 Muse 事件类型 `mail.inbound`。Connector 已冻结，Bridge 对新类型的显示无从确认；拍板取 D2。
+- 否决：与日历变更推送共用同一份每轮额度。两个步骤各自注入额度，互不知道对方推了多少；共用要在路由层传递状态，为一个上限不值得。
 
 ### D9 缺权限提醒
 
-读取入口抛出「未绑定」「缺读信权限」，或 Gmail 返回授权失效时：本轮跳过该邮箱；按通知键前缀 `mail-watch-scope:<orgId>:<userId>:` 查 24 小时内有没有提醒过，没有就建一条站内通知（类型 `system`，点开到 `/settings/email`）。不推微信、不走 Muse。
+读取入口抛出「未绑定」「缺读信权限」，或 Gmail 返回授权失效时：本轮跳过该邮箱；按通知键前缀 `mail-watch-scope:<orgId>:<userId>:` 查 24 小时内有没有提醒过，没有就建一条站内通知（类型 `system`，点开到 `/settings/email`）。不推微信。
 
 ### D10 页面
 
@@ -164,7 +176,7 @@
 1. 零 schema：遵守。新键 `settingsJson.mailWatch`；账本与汇总用 `AuditLog`；互动、通知用既有列（`analysisResult`、`analysisStatus`、`sourceKey`）。
 2. 出站先审批：不涉及。零对外发送；发给本组织成员本人的站内通知与微信按 CAL-3 的口径不算出站。
 3. 禁止第三套队列：遵守。挂既有 `sales-actions`；游标不是认领，没有 lease、worker 或新的调度。
-4. 脱敏：触碰。主题会进 Muse 事件摘要：经既有出站脱敏与截断，会被整段替换时回落站内（与 CAL-3 相同）；微信与 Muse 文案里的邮箱地址打码；不出邮件正文。待拍板 D 选 D2 时本条变为不涉及。
+4. 脱敏：不涉及。不走 Muse 通道（D2），不改 `muse-bridge`；微信文案里的邮箱地址打码，不出邮件正文。
 5. 不爬登录页：不涉及。只经成员本人授权的 Gmail API 读取。
 6. 邮箱分离：遵守。只按 `userId` 取个人授权；不读、不写 `mailboxEmail` / `fromEmail`。Lucas 的个人邮箱恰好也是组织授权邮箱所在的账号，来信观察读它是因为 Lucas 本人勾选，取授权的路径仍是他的个人绑定。
 7. 确定性优先：遵守。归类、跳过、收件人、文案都是查表或纯函数，零新增模型调用；来信互动标记为不进知识库分析，避免间接触发模型调用。
@@ -178,7 +190,7 @@
 
 - `npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`（三道开关真值表、跳过标签表、归类表、主题处理、通知与推送文案、收件人两种方式、页面状态、预填文字、源码断言）。
 - `npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`（本机 Postgres 隔离库，Gmail 与微信推送注入假实现；场景见 specs）。
-- 既有测试不改断言仍通过：`calendar-watch-pure`、`calendar-change-push-pure`、`type-visibility`、`notification-href`、`settings-write-guard`（只新增对 `mail-watch` 写入方的断言）、`muse-bridge-pure`、MAIL-1 的四个测试、运行时架构守卫。
+- 既有测试不改断言仍通过：`calendar-watch-pure`、`calendar-change-push-pure`、`type-visibility`、`notification-href`、`settings-write-guard`（只新增对 `mail-watch` 写入方的断言）、MAIL-1 的四个测试、运行时架构守卫。`git diff --stat main -- src/lib/muse-bridge` 为空。
 - `npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate mail-watch --strict`。
 - `git diff --stat main -- vercel.json prisma/` 为空。
 - 真实页面：本地隔离库 + `next dev`，截「客户来信提醒」勾选项的三种状态与客户时间线上的来信条目。
@@ -188,6 +200,7 @@
 
 - [来信会刷新「最近互动时间」] 销售首页、主动扫描、晨报、运行时 v2 的跟进分析、商机列表等至少 5 处，经客户取最近一条互动的时间判断「多久没跟进」（`sales/home/build-home.ts`、`proactive/sales-scanner.ts`、`secretary/domains/sales.ts`、`agent-runtime-v2/adapters.ts:472`、`api/sales/opportunities/route.ts`）。客户来信之后这个时间被刷新，成员若一直没回，「该跟进了」的提醒反而会推迟 → 本期不处理（要改这几处读取）；写进报告，并作为 MAIL-4「未回复提醒」的输入。若不能接受，备选是来信不写互动（判断点 4 改 B）。
 - [发件地址可以伪造] 规则 1 只看 `From` → 伪造的结果是邮箱主人收到一条「客户来信」和时间线上多一条记录，没有任何自动动作；正文不读；标题固定文字挡住了进模型的路。
+- [已绑定 Muse 的成员在 Muse 里看不到来信提醒] D2 的代价 → 他们在青砚铃铛与微信里收到；以后要进 Muse，是在通知这一步加一个渠道分支，不改归类与账本。
 - [内容字段里的主题仍会进 3 处模型上下文] 见 D6 残留 → 这 3 处不调工具、产物有人看；若要彻底排除，选 C3。
 - [公共地址的发件人被改写] 规则 1 会全部落空，只剩规则 2 → 待确认 E；上线顺序里先给 Lucas 一个人开，看一周汇总正是为了发现这一点。
 - [Marty 的可见范围] `info@` 的老客户来信可能多数归未匹配 → 上线前核对他的岗位；这是配置问题，不改代码。
