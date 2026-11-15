@@ -193,3 +193,86 @@ export async function loadInquiryThreads(
     };
   });
 }
+
+// ── NAV-1c：单个买家的会话（spec trade/inquiry-reply-entry「单个买家会话的只读接口」）──
+
+export interface InquiryThreadFocus {
+  thread: InquiryThread;
+  /** 最后一封来信的全文；该买家没有任何来信时为空 */
+  lastInbound: { subject: string | null; content: string; channel: string; createdAt: Date } | null;
+}
+
+/** 单会话读取时取这位买家最近多少条消息（不设时间窗口） */
+const FOCUS_MESSAGE_LIMIT = 500;
+
+/**
+ * 按线索 id 或商机 id 取本企业内一位买家的会话与最后一封来信全文。
+ * 不受列表的筛选、时间窗口与条数上限影响；只读。
+ * 商机 → 线索的规则与客户互动的回复目标相同：本企业内指向该商机、最早建立的那条。
+ * 线索不存在、不属于本企业、商机没有对应线索 → null。
+ */
+export async function loadInquiryThreadFocus(
+  orgId: string,
+  by: { prospectId?: string | null; opportunityId?: string | null },
+): Promise<InquiryThreadFocus | null> {
+  const select = {
+    id: true,
+    companyName: true,
+    contactName: true,
+    contactEmail: true,
+    country: true,
+    stage: true,
+    source: true,
+    score: true,
+    nextFollowUpAt: true,
+    lastContactAt: true,
+    createdAt: true,
+  } as const;
+  const prospect = by.prospectId
+    ? await db.tradeProspect.findFirst({ where: { id: by.prospectId, orgId }, select })
+    : by.opportunityId
+      ? await db.tradeProspect.findFirst({
+          where: { orgId, convertedToSalesOpportunityId: by.opportunityId },
+          orderBy: { createdAt: "asc" },
+          select,
+        })
+      : null;
+  if (!prospect) return null;
+
+  const messages = await db.tradeMessage.findMany({
+    where: { prospectId: prospect.id },
+    select: { id: true, prospectId: true, direction: true, channel: true, subject: true, content: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: FOCUS_MESSAGE_LIMIT,
+  });
+  const lastIn = messages.find((m) => m.direction === "inbound") ?? null;
+
+  // 有来信：与列表同一个聚合函数，结构与「待回复」判定完全一致；没有来信：给一个空会话，回复窗口照样能写
+  const built = buildInquiryThreads(messages, [prospect])[0];
+  const base: InquiryThread =
+    built ??
+    ({
+      prospectId: prospect.id,
+      companyName: prospect.companyName,
+      contactName: prospect.contactName,
+      contactEmail: prospect.contactEmail,
+      country: prospect.country,
+      stage: prospect.stage,
+      source: prospect.source,
+      score: prospect.score,
+      channel: "email",
+      lastInboundAt: prospect.createdAt,
+      lastInboundSubject: null,
+      lastInboundExcerpt: "",
+      inboundCount: 0,
+      replied: false,
+      waitingMinutes: null,
+      nextFollowUpAt: prospect.nextFollowUpAt,
+    } satisfies InquiryThread);
+
+  const analyses = await loadLatestAnalyses([prospect.id]).catch(() => new Map<string, InquiryAnalysisSummary>());
+  return {
+    thread: { ...base, analysis: analyses.get(prospect.id) ?? null, waitingSample: null },
+    lastInbound: lastIn ? { subject: lastIn.subject, content: lastIn.content, channel: lastIn.channel, createdAt: lastIn.createdAt } : null,
+  };
+}

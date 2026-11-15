@@ -38,6 +38,8 @@ export interface Interaction {
   content: string | null;
   createdAt: string;
   createdBy: { name: string };
+  /** NAV-1c：能在询盘收件箱回复这条来信时为外贸线索 id，否则为空（接口读时计算） */
+  replyTarget?: { prospectId: string } | null;
 }
 
 export interface Quote {

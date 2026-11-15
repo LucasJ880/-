@@ -5,8 +5,11 @@
  *   npx tsx src/lib/pending-actions/__tests__/b2-approval-cas.isolated.test.ts
  * 无隔离库时自动跳过（与 agent-run-event-sequence-deadlock.isolated.test.ts 同一约定）。
  *
- * 副作用探针：grader.internal_note → CUSTOMER 会真实 create CustomerInteraction 行，
+ * 副作用探针：grader.internal_note → OPPORTUNITY 会真实 create CustomerInteraction 行（customerId = 商机的客户），
  * 行数 == 执行器副作用调用次数（确定性计数）。
+ * 备注目标用商机而不是客户：执行器按「执行人能否看见目标」放行，admin 现在的数据范围是「本人的」。
+ * 客户只有创建人一个归属，B 看不见 A 建的客户，并发时一旦 B 抢到执行权就被拒、零副作用，测试随先后而红绿；
+ * 商机由 A 创建、分配给 B，两位审批人谁抢到执行权都能真实执行一次。
  */
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
@@ -45,6 +48,7 @@ async function main() {
   const A = `b2userA_${stamp}`;
   const B = `b2userB_${stamp}`;
   const CUST = `b2cust_${stamp}`;
+  const OPP = `b2opp_${stamp}`;
 
   // OrgRule 依赖用既有测试注入座（不触 org-rules 表）
   __setToolPolicyLoaderForTest(async () => ({ value: {} }));
@@ -54,14 +58,16 @@ async function main() {
   await db.organization.create({ data: { id: ORG, name: "B2 Fixture Org", code: `b2-${stamp}`, ownerId: A } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: B, role: "org_admin", status: "active" } });
   await db.salesCustomer.create({ data: { id: CUST, orgId: ORG, name: "B2 Fixture Customer", createdById: A } });
+  // A 创建、分配给 B：两位审批人都看得见（见文件头）
+  await db.salesOpportunity.create({ data: { id: OPP, orgId: ORG, customerId: CUST, title: "B2 Fixture Opportunity", createdById: A, assignedToId: B } });
 
   const ctxA = { userId: A, role: "admin", orgId: ORG };
   const ctxB = { userId: B, role: "admin", orgId: ORG };
 
   function notePayload() {
     return {
-      targetType: "CUSTOMER",
-      targetId: CUST,
+      targetType: "OPPORTUNITY",
+      targetId: OPP,
       note: "B2 并发测试备注",
       source: "GRADER",
       metadata: { orgId: ORG },
@@ -84,6 +90,16 @@ async function main() {
   }
   const interactionCount = () =>
     db.customerInteraction.count({ where: { orgId: ORG, customerId: CUST, channel: "ai_grader" } });
+
+  // ── 0) 前提：两位审批人单独执行都能真实执行一次 ─────────────────
+  // 否则 1) 的结果取决于谁抢到执行权（抢到的人若看不见目标，零副作用），测试随先后而红绿
+  for (const [who, ctx] of [["A", ctxA], ["B", ctxB]] as const) {
+    const action = await makeAction();
+    const before = await interactionCount();
+    const r = await executePendingAction(action.id, ctx);
+    const after = await interactionCount();
+    ok(r.ok && !r.errorCode && after - before === 1, `前提：审批人 ${who} 单独执行也能真实执行一次`, r);
+  }
 
   // ── 1) 并发双批准：恰一个执行权赢家，恰一次副作用 ────────────────
   {
@@ -195,6 +211,7 @@ async function main() {
   await db.pendingAction.deleteMany({ where: { orgId: ORG } });
   await db.customerInteraction.deleteMany({ where: { orgId: ORG } });
   await db.auditLog.deleteMany({ where: { userId: { in: [A, B] } } });
+  await db.salesOpportunity.deleteMany({ where: { orgId: ORG } });
   await db.salesCustomer.deleteMany({ where: { orgId: ORG } });
   await db.organizationMember.deleteMany({ where: { orgId: ORG } });
   await db.organization.deleteMany({ where: { id: ORG } });
