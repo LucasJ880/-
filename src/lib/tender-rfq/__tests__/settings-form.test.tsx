@@ -249,6 +249,9 @@ console.log("呈现");
   const pfh = html({ projectsError: PROJECTS_FAILED_ZH });
   ok("项目列表读失败：有提示，「加一个项目」禁用", pfh.includes(PROJECTS_FAILED_ZH) && /disabled=""[^>]*>[^<]*<svg[^>]*>[\s\S]*?加一个项目|加一个项目/.test(pfh));
   ok("保存后的提示显示出来", html({ msg: SAVED_ZH }).includes(SAVED_ZH));
+  const inlandInput = h.match(/<input[^>]*aria-label="出口国内陆运费（EXW 用）数值"[^>]*>/)?.[0] ?? "";
+  const freightInput = h.match(/<input[^>]*aria-label="国际运费（海运）数值"[^>]*>/)?.[0] ?? "";
+  ok("估算方式为「不填」时数值框禁用；选了方式的可填", inlandInput.includes('disabled=""') && freightInput !== "" && !freightInput.includes('disabled=""'), { inlandInput, freightInput });
 }
 
 console.log("接线");

@@ -4,7 +4,7 @@
 ## ADDED Requirements
 
 ### Requirement: 谁能看到
-组织详情页 SHALL 只对组织管理员（org_admin）与平台管理员显示「询价与落地价设置」一节。其他成员 SHALL NOT 看到这一节，接口对他们 SHALL 仍返回 403。
+组织详情页 SHALL 只在组织在用时、对组织管理员（org_admin）与平台管理员显示「询价与落地价设置」一节。其他成员 SHALL NOT 看到这一节，接口对他们 SHALL 仍返回 403。读取失败时只有 403 SHALL 隐藏这一节，其它失败 SHALL 显示错误。
 
 #### Scenario: 组织管理员
 - **WHEN** 组织管理员打开组织详情页
@@ -15,11 +15,19 @@
 - **THEN** 没有这一节；接口 403，设置不变（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
 
 ### Requirement: 保存只发改过的项
-保存 SHALL 只把人改过的项发给现有的 `PUT tender-rfq-settings`：没改的项 SHALL NOT 出现在请求里（原来存的值与环境变量回退都不变）；改成空 SHALL 发 null（清空）；汇率表改过就整张发。保存之后读回来的设置 SHALL 与直接用同样的请求调接口的结果相同。
+保存 SHALL 只把人改过的项发给 `PUT tender-rfq-settings`：没改的项 SHALL NOT 出现在请求里；改成空 SHALL 发 null。发件三项没单独存时 SHALL 显示为空并写明当前回退到的值；授权邮箱没单独存而显示地址改了，SHALL 把授权邮箱固定为改之前实际用的那个。汇率表改过 SHALL 连同日期与来源一起发。读回来的设置 SHALL 与直接调接口的结果相同。
 
 #### Scenario: 只改了保险费率
 - **WHEN** 管理员只把保险费率从 1 改成 1.5 后保存
 - **THEN** 请求里只有 `landedCost.insurancePct = 1.5`；发件地址仍按环境变量回退（没有被写成固定值）（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 授权邮箱跟着显示地址回退
+- **WHEN** 组织只存了显示地址 a@、没单独存授权邮箱，管理员把显示地址改成 b@
+- **THEN** 请求里同时把授权邮箱固定为 a@；保存后发信账号仍是 a@（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 两人同时改汇率
+- **WHEN** 管理员 A 打开之后 B 改了汇率、日期与来源，A 只改汇率就保存
+- **THEN** 存下的是 A 的汇率连同 A 看到的日期与来源（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
 
 #### Scenario: 清空一项
 - **WHEN** 管理员把清关杂费清空后保存
@@ -27,7 +35,7 @@
 
 #### Scenario: 项目关税率
 - **WHEN** 管理员给一个招投标项目加关税率 6.5%，删掉另一个项目的设置
-- **THEN** 请求里前者是 `{ dutyRatePct: 6.5 }`、后者是 null；别的组织的项目被接口拒绝（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+- **THEN** 请求里前者是 `{ dutyRatePct: 6.5 }`、后者是 null；别的组织的项目被接口拒绝；新加的一行什么都没填时页面写明（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
 
 ### Requirement: 汇率必须带日期与来源
 汇率表里有数字时，页面 SHALL 要求填汇率日期与来源（手工 / 银行结算），缺了 SHALL 不发请求并写明缺什么。币种 SHALL 是三位大写代码、汇率 SHALL 大于 0；不合规的行 SHALL 写明哪一行不对。
@@ -39,6 +47,17 @@
 #### Scenario: 币种或汇率不对
 - **WHEN** 币种写成 usd 或汇率写成 0
 - **THEN** 页面写明那一行不对，不发请求（`settings-form.test.tsx`）
+
+### Requirement: 接口的两处补充
+`GET tender-rfq-settings` SHALL 多返回 `stored`：发件显示名、显示地址、授权邮箱各自是不是组织自己存的。`PUT` 里项目设置为 null（删除）时 SHALL NOT 校验项目归属（项目可能已被删除）；要写入的项目设置 SHALL 仍须属于本组织。
+
+#### Scenario: 读取说明哪几项是自己存的
+- **WHEN** 组织存了授权邮箱、没存显示地址
+- **THEN** `stored` 是 `{ fromName, fromEmail: false, mailboxEmail: true }`（`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 删掉已删除项目的那一行
+- **WHEN** 一个项目已被删除，管理员删掉它在设置里的那一行并保存
+- **THEN** 保存成功，那一行没了（`settings-form-db.isolated.test.ts`）
 
 ### Requirement: 写明用在哪里
 这一节 SHALL 写明这些参数用于比价矩阵的落地价与报价表助手的成本建议，是组织的估算参数，落地价会标明出处；SHALL 写明授权邮箱与显示地址可以不同。这一节 SHALL NOT 显示或要求任何密码、令牌。
