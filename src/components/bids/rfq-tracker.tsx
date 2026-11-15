@@ -17,7 +17,7 @@ import { RfqApprovalPanel, type RfqDecisionOutcome } from "@/components/inquiry/
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import type { TrackerCard, TrackerPayload, TrackerRow } from "@/lib/tender-rfq/tracker";
-import { EMPTY_TRACKER_ZH, TRACKER_TABS, approvableCards, filterTrackerGroups, firstTabWithRows, type TrackerTab } from "@/lib/tender-rfq/tracker-pure";
+import { EMPTY_TRACKER_ZH, TRACKER_TABS, approvableCards, filterTrackerGroups, firstTabWithRows, type TrackerTab } from "@/lib/tender-rfq/tracker-view";
 import { chaseOutcomeFromMessage, chaseErrorText, friendlyExecutionError } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
 

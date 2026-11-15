@@ -26,7 +26,8 @@
 
 | 位置 | 改动 |
 |---|---|
-| `src/lib/tender-rfq/tracker-pure.ts`（新） | 下一步、分类、计数、汇总卡、报价列、页签、跳过原因（纯函数） |
+| `src/lib/tender-rfq/tracker-pure.ts`（新） | 下一步、分类、计数、报价列、跳过原因（纯函数，服务端用） |
+| `src/lib/tender-rfq/tracker-view.ts`（新） | 页签、过滤、全部批准、汇总卡文案（浏览器端也用；不引用任何模块） |
 | `src/lib/tender-rfq/tracker.ts`（新） | 取数（项目读权限、在途、催单间隔、待批卡、比价矩阵、白名单） |
 | `src/lib/tender-rfq/chase-service.ts` | `loadItems` 导出并可按 `projectIds` 过滤；抽出 `chaseDaysForRound`（扫描行为不变） |
 | `src/app/api/org/tender-rfq/tracker/route.ts`（新） | `GET`（`summary=1` 只要计数） |
@@ -35,7 +36,7 @@
 | `src/components/bids/bids-workspace-shell.tsx` | 挂汇总卡 |
 | `src/lib/proactive/scanner.ts`、`types.ts`、`src/components/dashboard/dashboard-ai-suggestions.tsx` | 首页建议口径与跳转 |
 | `src/app/api/projects/[id]/inquiries/batch-followup/route.ts` | 410 |
-| `src/lib/tender-rfq/__tests__/tracker-pure.test.tsx`（新） | 86 项 |
+| `src/lib/tender-rfq/__tests__/tracker-pure.test.tsx`（新） | 89 项 |
 | `src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts`（新） | 46 项 |
 | `tracking-notify-wiring.test.ts`、`route-gate.test.ts` | 源码断言随抽出的函数更新；页面快照登记 `/bids/rfq` |
 | `docs/acceptance/t-2/*.png` | 真实浏览器截图 5 张 |
@@ -46,7 +47,7 @@
 
 | 测试 | 项数 | 内容 |
 |---|---|---|
-| `tracker-pure.test.tsx` | 86 | 与 `decideChases` 的一致性表（未催、催过一次、催满两次、到期时截止已过、截止在等待中过、到期未扫描且截止已过、待批卡（含不批时哪天标未响应）、被驳回、过期卡、手工联系、已报价缺字段、已追问、已报价齐全、不同间隔）；文案与跨时区日期；四类「需要我处理」；计数与汇总卡；报价列与同一轮比价矩阵逐家对照；页签、全部批准、催单卡键、跳过原因；汇总卡呈现；接线 |
+| `tracker-pure.test.tsx` | 89 | 与 `decideChases` 的一致性表（未催、催过一次、催满两次、到期时截止已过、截止在等待中过、到期未扫描且截止已过、待批卡（含不批时哪天标未响应）、被驳回、过期卡、手工联系、已报价缺字段、已追问、已报价齐全、不同间隔）；文案与跨时区日期；四类「需要我处理」；计数与汇总卡；报价列与同一轮比价矩阵逐家对照；页签、全部批准、催单卡键、跳过原因；汇总卡呈现；接线（含客户端组件不间接引用服务端模块） |
 | `tracker-db.isolated.test.ts` | 46 | 真实路由 + 隔离库：只看到有项目读权限的（项目成员只看到那个项目、非项目成员的普通成员与组织只读成员什么都看不到）、非招投标 / 未派发 / 别的组织 / 已取消轮次 / 超过 14 天的未响应都不出现；每一行的下一步与日期；待批卡带审批信息与正文；过期卡不算、执行中的卡算；催满两次没有「现在就催」；价格与比价矩阵一致、换算不出写原因；白名单；计数与汇总卡相同；负责人催单天数；`loadItems` 不传 `projectIds` 与原来相同；现在就催（起草一张、两种跳过原因、不发信、别的组织拒绝、0 / 9 家拒绝、只读成员 403）；首页建议（只算超过天数的、不算 pending / 未响应 / 已取消轮次 / 非招投标）；比价矩阵轮数上限、行数截断；batch-followup 410 |
 
 两个新测试在 main 上都加载不了（新模块不存在）。
@@ -73,6 +74,8 @@
 | `npx tsx scripts/check-swc-nullish-logical.test.ts` | PASS |
 | `grep -rn '"contacted"' src/lib/proactive src/app/api/projects` | 空 |
 | `openspec validate rfq-tracker --strict` | valid |
+
+PR 上第一次 CI 的 `next build --webpack` 失败：`node:crypto` ← `chase-pure.ts` ← `tracker-pure.ts` ← `rfq-tracker.tsx`（客户端组件间接引用了服务端模块；typecheck 与单测查不出）。修复：浏览器端要用的部分（页签、过滤、全部批准、汇总卡文案）挪到不引用任何模块的 `tracker-view.ts`，两个客户端组件只从它取，`tracker-pure.ts` 原样转出；纯函数测试加三条源码断言防回归；本地 `next build --webpack` 通过。
 
 途中一次 `test:ci` 失败于 `navigation/__tests__/route-gate.test.ts`：(main) 下的页面要在快照里登记。登记 `/bids/rfq`（与 `/bids` 同一条门规则 ws-bids），重跑通过。
 

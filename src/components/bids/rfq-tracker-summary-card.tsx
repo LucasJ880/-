@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
-import { summaryCardText, type TrackerSummary } from "@/lib/tender-rfq/tracker-pure";
+import { summaryCardText, type TrackerSummary } from "@/lib/tender-rfq/tracker-view";
 
 export function RfqTrackerSummaryCard() {
   const [summary, setSummary] = useState<TrackerSummary | null>(null);

@@ -12,6 +12,11 @@ import { TENDER_SEND_CHASE_TYPE } from "./types";
 import type { CompareRow } from "./compare";
 import type { InboundMissingField } from "./inbound-contract";
 import { monthDay } from "./web-entry-pure";
+import type { TrackerSummary } from "./tracker-view";
+
+// 浏览器端也要用的部分在 tracker-view.ts（不引用 chase-pure）；这里原样转出，服务端与测试照旧从本文件取
+export { EMPTY_TRACKER_ZH, TRACKER_TABS, approvableCards, filterTrackerGroups, firstTabWithRows, rowInTab, summaryCardText } from "./tracker-view";
+export type { TrackerSummary, TrackerTab } from "./tracker-view";
 
 const DAY = 86_400_000;
 
@@ -179,15 +184,6 @@ export function trackerRowView(r: TrackerRowInput, timeZone: string, now: Date):
 
 /* ---------------------------------- 计数与汇总卡 ---------------------------------- */
 
-export type TrackerSummary = {
-  needsAction: number;
-  waiting: number;
-  quoted: number;
-  noResponse: number;
-  pendingCards: number;
-  quotedThisWeek: number;
-};
-
 export type SummaryRow = { status: string; needsAction: NeedsAction | null; repliedAt: Date | null };
 
 export function trackerSummary(rows: SummaryRow[], now: Date): TrackerSummary {
@@ -201,22 +197,6 @@ export function trackerSummary(rows: SummaryRow[], now: Date): TrackerSummary {
     quotedThisWeek: rows.filter((r) => r.status === "quoted" && r.repliedAt && r.repliedAt.getTime() >= weekAgo).length,
   };
 }
-
-/** /bids 顶部汇总卡：只有计数，不出现金额 */
-export function summaryCardText(s: TrackerSummary): string {
-  const parts: string[] = [];
-  if (s.waiting) parts.push(`${s.waiting} 家等回复`);
-  if (s.pendingCards) parts.push(`${s.pendingCards} 张催单待批`);
-  if (s.quotedThisWeek) parts.push(`本周 ${s.quotedThisWeek} 家已报价`);
-  if (parts.length) return `询价追踪：${parts.join(" · ")}`;
-  // 上面三项都为 0 时，用其余计数说清楚，别和「需要我处理 N」自相矛盾（审查 L1）
-  if (s.needsAction) return `询价追踪：${s.needsAction} 项需要我处理`;
-  if (s.quoted) return `询价追踪：${s.quoted} 家已报价`;
-  if (s.noResponse) return `询价追踪：${s.noResponse} 家未响应`;
-  return "询价追踪：没有在途询价";
-}
-
-export const EMPTY_TRACKER_ZH = "没有在途询价。去项目里点「问供应商要价」。";
 
 /* ---------------------------------- 报价列 ---------------------------------- */
 
@@ -289,36 +269,6 @@ export function chaseSkipZh(reason: string): string {
 
 /* ---------------------------------- 页面：分页签与「全部批准」 ---------------------------------- */
 
-export type TrackerTab = "needs" | "waiting" | "quoted" | "no_response";
-
-export const TRACKER_TABS: Array<{ key: TrackerTab; label: string; count: (s: TrackerSummary) => number }> = [
-  { key: "needs", label: "需要我处理", count: (s) => s.needsAction },
-  { key: "waiting", label: "等回复", count: (s) => s.waiting },
-  { key: "quoted", label: "已报价", count: (s) => s.quoted },
-  { key: "no_response", label: "未响应", count: (s) => s.noResponse },
-];
-
-type TabRow = { status: string; needsAction: string | null };
-
-export function rowInTab(r: TabRow, tab: TrackerTab): boolean {
-  if (tab === "needs") return r.needsAction != null;
-  if (tab === "waiting") return r.status === "sent";
-  if (tab === "quoted") return r.status === "quoted";
-  return r.status === "no_response";
-}
-
-/** 按页签过滤分组：没有行的轮次、没有轮次的项目都去掉 */
-export function filterTrackerGroups<R extends TabRow, G extends { rounds: Array<{ rows: R[] }> }>(groups: G[], tab: TrackerTab): G[] {
-  return groups
-    .map((g) => ({ ...g, rounds: g.rounds.map((r) => ({ ...r, rows: r.rows.filter((x) => rowInTab(x, tab)) })).filter((r) => r.rows.length > 0) }))
-    .filter((g) => g.rounds.length > 0);
-}
-
-/** 一轮里能原地批准的催单卡（「全部批准」只在 ≥ 2 张时出现） */
-export function approvableCards<C extends { approval: { canApprove: boolean; status: string } }>(rows: Array<{ cards: C[] }>): C[] {
-  return rows.flatMap((r) => r.cards).filter((c) => c.approval.canApprove && c.approval.status === "PENDING");
-}
-
 /** 催单卡的 idempotencyKey：tender.send_chase:<itemId>:<1|2|missing_fields>[:r<n>] */
 export function parseChaseCardKey(key: string | null): { itemId: string; chaseKind: "no_reply" | "missing_fields"; chaseIndex: number } | null {
   const prefix = `${TENDER_SEND_CHASE_TYPE}:`;
@@ -326,10 +276,4 @@ export function parseChaseCardKey(key: string | null): { itemId: string; chaseKi
   const m = key.slice(prefix.length).match(/^([^:]+):(1|2|missing_fields)(?::r\d+)?$/);
   if (!m) return null;
   return m[2] === "missing_fields" ? { itemId: m[1], chaseKind: "missing_fields", chaseIndex: 1 } : { itemId: m[1], chaseKind: "no_reply", chaseIndex: Number(m[2]) };
-}
-
-/** 按项目进来时默认停的页签：第一个有行的（都没有就「需要我处理」） */
-export function firstTabWithRows<R extends TabRow>(groups: Array<{ rounds: Array<{ rows: R[] }> }>): TrackerTab {
-  for (const t of TRACKER_TABS) if (filterTrackerGroups(groups, t.key).length > 0) return t.key;
-  return "needs";
 }

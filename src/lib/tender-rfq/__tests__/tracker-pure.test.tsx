@@ -279,6 +279,12 @@ console.log("接线");
   ok("页面：只认最后一次读取；已有数据时读取失败不清空页面", page.includes("if (seq !== loadSeq.current) return;") && page.includes("if (error && !data) return"));
   ok("页面：按项目进来时默认第一个有内容的页签，并可看全部", page.includes("setTab(firstTabWithRows(payload.groups));") && page.includes('data-testid="rfq-tracker-project-filter"'));
   ok("/bids 顶部挂汇总卡", shell.includes("<RfqTrackerSummaryCard />"));
+  // 客户端组件不能（直接或间接）引用 node: 模块，否则 next build 打包失败：只从 tracker-view 取，tracker-view 不引用任何模块
+  const view = read("src/lib/tender-rfq/tracker-view.ts");
+  const card = read("src/components/bids/rfq-tracker-summary-card.tsx");
+  ok("tracker-view 不引用任何模块（尤其 chase-pure / node:）", !/^\s*import\s/m.test(view) && !/from\s+"/.test(view));
+  ok("追踪页与汇总卡只从 tracker-view 取，不从 tracker-pure / chase-pure 取", page.includes('from "@/lib/tender-rfq/tracker-view"') && card.includes('from "@/lib/tender-rfq/tracker-view"') && !/from "@\/lib\/tender-rfq\/(tracker-pure|chase-pure)"/.test(page + card));
+  ok("tracker-pure 原样转出 tracker-view 的名字", read("src/lib/tender-rfq/tracker-pure.ts").includes('} from "./tracker-view";'));
 }
 
 console.log(`\ntracker-pure: ${passed} passed`);
