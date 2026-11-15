@@ -1,6 +1,6 @@
 # Tasks
 
-每条带验证；真实输出写进 `docs/QINGYAN_NAV-1b_REPORT.md`。实施前先等 design「审核关注点」Q1–Q6 拍板；Q4 若要加，先用 `/opsx:update` 补 spec 要求再动代码。
+每条带验证；真实输出写进 `docs/QINGYAN_NAV-1b_REPORT.md`。四件套 Lucas 2026-11-15 审核通过（Q1–Q6 全部按推荐，Q4 并入，见 design D10）。
 
 受影响测试基线（2026-11-15，main `d46730e`，Node 24）：
 
@@ -16,8 +16,8 @@
 
 ## 1. 两段式判定与侧栏
 
-- [ ] 1.1 在 `src/lib/navigation/trade-layout.ts` 实现判定、常用清单常量与分区函数（design D1、D2），删掉旧的按平台角色判定；重写 `trade-layout.test.ts`（真值表、常用顺序、更多按分组、两段互斥且覆盖、Cathy 与纯外贸业务员的入口集合与全量布局相等），注册进 `scripts/test-all.sh` 并从 `ci/test-registry-baseline.txt` 删掉它那一行；同步 `mengxin-positions.test.ts` 与 `trade-recipients.test.ts` 的断言。验证：新用例在旧代码上失败；改后 `trade-layout` 全过，`mengxin-positions`、`trade-recipients` 通过；`bash scripts/check-test-registry.sh` 报基线 67 条。
-- [ ] 1.2 `sidebar.tsx` 接线（design D3–D5）：「常用」段、「更多」开关行与展开后的分组、图标栏下的「更多」、段标题改「常用」（`zh.ts` / `en.ts` 的值）、分组小标题 12px + 侧栏弱化色；在 `trade-layout.test.ts` 加侧栏源码断言（调新判定、不再读派生平台角色、小标题样式）。验证：断言通过；`position-nav` 仍 101 通过；`npm run typecheck` 通过。
+- [ ] 1.1 在 `src/lib/navigation/trade-layout.ts` 实现判定、常用清单常量、分区函数与「更多」展开状态的取值函数（design D1、D2、D10），删掉旧的按平台角色判定；重写 `trade-layout.test.ts`（真值表、常用顺序、更多按分组、两段互斥且覆盖、Cathy 与纯外贸业务员的入口集合与全量布局相等、展开状态取值表），注册进 `scripts/test-all.sh` 并从 `ci/test-registry-baseline.txt` 删掉它那一行；同步 `mengxin-positions.test.ts` 与 `trade-recipients.test.ts` 的断言。验证：新用例在旧代码上失败；改后 `trade-layout` 全过，`mengxin-positions`、`trade-recipients` 通过；`bash scripts/check-test-registry.sh` 报基线 67 条。
+- [ ] 1.2 `sidebar.tsx` 接线（design D3–D5）：「常用」段、「更多」开关行与展开后的分组、当前页面在「更多」里时自动展开（D10）、图标栏下的「更多」、段标题改「常用」（`zh.ts` / `en.ts` 的值）、分组小标题 12px + 侧栏弱化色；在 `trade-layout.test.ts` 加侧栏源码断言（调新判定、不再读派生平台角色、小标题样式）。验证：断言通过；`position-nav` 仍 101 通过；`npm run typecheck` 通过。
 
 ## 2. 说明页与入口说明
 
