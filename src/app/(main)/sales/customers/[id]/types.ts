@@ -40,6 +40,8 @@ export interface Interaction {
   createdBy: { name: string };
   /** 来源标记等（MAIL-2：来信观察建的条目带 sourceRef.kind = "mail_watch"）。页面只读它来决定显示哪个入口 */
   analysisResult?: unknown;
+  /** NAV-1c：能在询盘收件箱回复这条来信时为外贸线索 id，否则为空（接口读时计算） */
+  replyTarget?: { prospectId: string } | null;
 }
 
 export interface Quote {

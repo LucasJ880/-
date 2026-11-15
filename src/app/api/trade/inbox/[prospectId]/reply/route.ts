@@ -1,7 +1,8 @@
 /**
  * POST /api/trade/inbox/[prospectId]/reply
  * 采用/编辑后的回复草稿 → 发送（Resend）或标记已在系统外发送。
- * body: { orgId?, subject, body, mode: "send" | "mark_sent" }
+ * body: { orgId?, subject, body, mode: "send" | "mark_sent", fromAiDraft?: boolean }
+ * fromAiDraft：正文是否来自 AI 草稿（NAV-1c）。只有声明为 true 时留底消息才标成 AI 草稿；手写回复不带或为 false。
  * 任何情况下都写一条 outbound 消息到时间线（收件箱据此判定已回复），并安排 3 天后跟进。
  */
 
@@ -59,7 +60,8 @@ export async function POST(
     channel: "email",
     subject: subject || undefined,
     content: mode === "send" ? text : `${text}\n\n（已在系统外发送，此处留底）`,
-    aiDraft: true,
+    // NAV-1c：以前一律记成 AI 草稿；现在只在请求声明正文来自 AI 草稿时为真（spec trade/inquiry-reply-entry「手写回复不标成 AI 草稿」）
+    aiDraft: body.fromAiDraft === true,
   });
 
   const now = new Date();

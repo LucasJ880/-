@@ -24,10 +24,8 @@ export type HelpTask = {
 
 export const HELP_TASKS: readonly HelpTask[] = [
   { module: "trade", want: "看今天要处理什么", entryKey: "biz-revenue-today", then: "四栏：「今日新询盘」「回复超时」「待审批回复」「样品与报价到期」" },
-  // NAV-1c 合并时补回任务书原文：…点「查看回复草稿」或「写回复」…
-  { module: "trade", want: "回复买家", entryKey: "biz-inbox", then: "找到买家，点「查看回复草稿」，改好后点「发送邮件」" },
-  // NAV-1c 合并时补回任务书原文：…不想用就去询盘收件箱自己写
-  { module: "trade", want: "批准 AI 写好的回复", entryKey: "biz-revenue-today", then: "在「待审批回复」里先点「查看草稿」，再点「批准发送」" },
+  { module: "trade", want: "回复买家", entryKey: "biz-inbox", then: "找到买家，点「查看回复草稿」或「写回复」，改好后点「发送邮件」" },
+  { module: "trade", want: "批准 AI 写好的回复", entryKey: "biz-revenue-today", then: "在「待审批回复」里先点「查看草稿」，再点「批准发送」；不想用就去询盘收件箱自己写" },
   { module: "trade", want: "已经在邮箱或 WhatsApp 回过了", entryKey: "biz-inbox", then: "点「已回复，标记」，系统不再催" },
   { module: "trade", want: "查一个买家的全部往来", entryKey: "biz-prospects", then: "点开买家，看「对话记录」" },
   { module: "trade", want: "给买家报价", entryKey: "biz-trade-quotes", then: "点「新建报价」；询盘收件箱里每个买家也有「新建报价」" },

@@ -327,7 +327,9 @@ async function main() {
     const timeline = code("src/app/(main)/sales/customers/[id]/interaction-timeline.tsx");
     ok(/showReadMailEntry\(\{ mailReadEnabled, assistantOpen, interaction: item \}\) && \(/.test(timeline), "时间线：入口是否显示由 showReadMailEntry 决定（读信开关 + 助手页放行 + 来信观察的条目）");
     ok(/href=\{readMailHref\(\{ customerName, receivedAt: mailWatchReceivedAt\(item\) \}\)\}/.test(timeline), "时间线：链接由 readMailHref 生成，只传客户名与收信时间");
-    const entry = timeline.slice(timeline.indexOf("showReadMailEntry({"), timeline.indexOf("</Link>"));
+    // 时间线上还有别的入口（NAV-1c 的「回复」）：只取本入口自己的那一段
+    const entryStart = timeline.indexOf("showReadMailEntry({");
+    const entry = timeline.slice(entryStart, timeline.indexOf("</Link>", entryStart));
     ok(entry.includes("让助手读这封信") && !/item\.(content|summary)/.test(entry), "时间线：入口文字固定，不把条目的内容或标题传进链接");
     const detail = code("src/app/(main)/sales/customers/[id]/page.tsx");
     ok(/setMailReadEnabled\(emailResult\?\.mailRead\?\.enabled === true\)/.test(detail) && /mailReadEnabled=\{mailReadEnabled\}/.test(detail) && /customerName=\{customer\.name\}/.test(detail), "客户详情页：读信开关取自状态接口的 mailRead.enabled，客户名取客户档案");

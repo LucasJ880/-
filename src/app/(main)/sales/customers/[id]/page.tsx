@@ -18,7 +18,9 @@ import {
   Trash2,
   Pencil,
   ImageIcon,
+  Reply,
 } from "lucide-react";
+import { inboxReplyHref } from "@/lib/trade/reply-target";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -478,6 +480,9 @@ function CustomerDetailPageInner() {
   }
 
   if (!customer) return null;
+
+  // NAV-1c：互动按时间倒序，第一条带回复目标的就是最近一条能回复的买家来信
+  const latestReplyTarget = customer.interactions.find((i) => i.replyTarget)?.replyTarget ?? null;
 
   const canEditBasicInfo =
     !userLoading &&
@@ -1079,6 +1084,16 @@ function CustomerDetailPageInner() {
         <div className="ml-auto hidden md:flex items-center gap-2">
           {activeTab === "timeline" && (
             <>
+              {/* NAV-1c：最近一条能回复的买家来信 → 询盘收件箱的回复窗口；没有则不出现 */}
+              {latestReplyTarget && (
+                <Link
+                  href={inboxReplyHref(latestReplyTarget)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent-soft transition-colors"
+                >
+                  <Reply className="h-3.5 w-3.5" />
+                  回复客户
+                </Link>
+              )}
               <button
                 onClick={() => setShowImportConvo(true)}
                 disabled={orgCreateBlocked}

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { MailOpen, MessageSquare } from "lucide-react";
+import { MailOpen, MessageSquare, Reply } from "lucide-react";
+import { inboxReplyHref, interactionMetaLine } from "@/lib/trade/reply-target";
 import { Interaction, INTERACTION_ICONS } from "./types";
 import { mailWatchReceivedAt, readMailHref, showReadMailEntry } from "@/lib/mail-watch/ui-pure";
 
@@ -50,12 +51,17 @@ export function InteractionTimeline({
                 {item.content}
               </p>
             )}
-            <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted/70">
-              <span>{item.createdBy.name}</span>
-              {item.direction && (
-                <span>
-                  · {item.direction === "inbound" ? "收到" : "发出"}
-                </span>
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted/70">
+              <span>{interactionMetaLine(item.direction, item.createdBy.name)}</span>
+              {/* 回复目标非空才有入口：进询盘收件箱并直接打开该买家的回复窗口 */}
+              {item.replyTarget && (
+                <Link
+                  href={inboxReplyHref(item.replyTarget)}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-card-bg px-2 py-1 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent"
+                >
+                  <Reply className="h-3 w-3" />
+                  回复
+                </Link>
               )}
               {/* 来信观察建的条目：打开助手并预填一句话（只有客户名与日期，不带主题），由用户自己发送 */}
               {showReadMailEntry({ mailReadEnabled, assistantOpen, interaction: item }) && (
