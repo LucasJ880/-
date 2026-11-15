@@ -46,7 +46,7 @@ export const EMPTY_SUBJECT = "（无主题）";
 export const INTERACTION_ANALYSIS_STATUS = "skipped";
 /** 缺读信权限的提醒：同一成员这么久之内至多一条 */
 export const SCOPE_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** 判断点 8 未定前只提醒邮箱主人；改 B 时只换这一个值 */
+/** 判断点 8 取 A（2026-11-15 拍板）：只提醒邮箱主人；以后要改 B 只换这一个值 */
 export const DEFAULT_RECIPIENT_MODE: RecipientMode = "owner_only";
 
 // ── 配置的读写形状 ──────────────────────────────────────────
