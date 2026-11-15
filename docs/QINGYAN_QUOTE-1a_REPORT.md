@@ -74,9 +74,11 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 | `bash scripts/check-test-registry.sh` | — | `OK 测试注册校验通过：已注册 617 个；历史欠账基线剩余 68 条（只减不增）` |
 | `openspec validate quote-order-form-pricing-parity --strict` | — | `Change 'quote-order-form-pricing-parity' is valid` |
 | `git diff --stat origin/main -- prisma/ vercel.json config/pricelist/ src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts src/lib/blinds/pricing-engine.ts src/lib/blinds/discount-settings.ts` | — | 空 |
-| `npm test`（无数据库，依赖库的项自行跳过） | — | NPM_TEST_RESULT |
+| `npm test`（无数据库，依赖库的项自行跳过） | — | `测试结果: 629/642 通过, 13 失败`；新测试在其中通过（71 / 0）。13 项失败逐项在 main `a747467` 的工作树里用同样的环境重跑，**全部同样失败**，都不涉及本次改动的文件（清单见下） |
 | 隔离库（本机 Postgres 16）`signed-quote-amount-db.isolated.test.ts` | — | 23 通过，0 失败 |
 | 隔离库 `quote-settings-db.isolated.test.ts` | — | 54 通过，0 失败 |
+
+`npm test` 的 13 项失败（本机无 `DATABASE_URL`、无 OAuth 配置；main 上同样失败）：Agent Trace 只读查询；Gmail Draft OAuth Compose Scope；Governance Hygiene Gate / Concurrency Gate；Phase3A-2 Ledger DB / Smoke Access；Phase3A-3 Approvals Smoke；Phase3A-4 Governance Smoke / Acceptance；Phase3A-5 Settle DB / Overview Acceptance；T4 授标情报真实 Postgres 矩阵；Quote Operations 客户报价 PDF 分页布局（`scripts/quotation-pdf-layout-e2e.ts`，页脚断言 S-4 / M-2，是另一套对客报价 PDF，不是详细订单的 `quote-pdf.ts`）。
 
 对照测试的六组：① 定价键（Roller 两个真实 SKU × 行上 4 种 × 表底部 3 种 = 24 键；SKU 本身是完整键；非 Roller 不随罩型变；Wooden → Wood）；② 预览金额（宽 49 / 50 / 55 × 行上 4 种 × 有无无绳 24 行字面量；实木 / Vinyl × Panel 数 1 / 2；超范围仍报错；MSRP 合计）；③ 表单行 → `buildOrderFormItems` → `applyOrgDiscountDefaults` → `calculateQuoteTotal` 与预览逐行比，缺省折扣与 Roller 40% / Shutters 30% 各一轮、每轮 158 行；④ 行上 4 种 × 表底部 3 种 12 组合「含罩盒加价 ⇔ 工艺单罩盒不是单轨无盒」；⑤ 口径标记、提醒判定与文案、草稿往返；⑥ 源码断言 9 条。
 
@@ -133,7 +135,7 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 - 百叶窗默认材质仍是 Wooden：忘了切 Vinyl 时现在会按更贵的 Wood 表出价而不再报错。
 - 打开旧报价时预览已是新金额，期间看板在该报价再次保存前按旧金额统计。
 - 没有跑 `next build`。
-- 与本次无关、在 main `a747467` 上同样失败的两项：`src/lib/agent-runtime/__tests__/trace.test.ts`（`npm test` 里的「Agent Trace 只读查询」）；隔离库下 `src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts` 第一步 mark-signed 返回 `NO_BINDING`（无库时自动跳过，所以 `npm test` 看不到）。
+- 与本次无关、在 main `a747467` 上同样失败的：§4 列出的 `npm test` 13 项；以及隔离库下 `src/lib/sunny-process/__tests__/autogen-db.isolated.test.ts` 第一步 mark-signed 返回 `NO_BINDING`（无库时自动跳过，所以 `npm test` 看不到）。
 
 ## 9. 上线前后可执行的只读查询
 
