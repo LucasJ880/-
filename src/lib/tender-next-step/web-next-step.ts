@@ -83,6 +83,8 @@ export type WebNextStepInput = {
   workspace: { hasPriceSchedule: boolean; blockers: Array<{ code: string; messageZh: string }> } | null;
   /** 页面上「问供应商要价」现在能不能用、不能用的原因。只在要指向询价入口时才取；没取为 null */
   rfqEntry?: { enabled: boolean; messageZh: string } | null;
+  /** FLOW-H4a：这个组织开了「提交记录」——页面上有地方记提交时间与回执。不传 = 没开，与原来相同 */
+  submissionRecordEnabled?: boolean;
 };
 
 /** 询价与催单这两种审批可以在它所在的那一轮里就地批准 */
@@ -101,6 +103,7 @@ const tab = (t: "workbench" | "requirements" | "bid" | "submission", anchor: str
 const ANALYSIS = tab("requirements", NEXT_STEP_ANCHORS.analysis);
 const RFQ_SECTION = tab("bid", NEXT_STEP_ANCHORS.rfqSection);
 const KEY_DATES = tab("workbench", NEXT_STEP_ANCHORS.keyDates);
+const SUBMISSION_RECORD = tab("submission", NEXT_STEP_ANCHORS.submissionRecord);
 const APPROVALS: WebNextStepTarget = { kind: "href", href: APPROVAL_CENTER_HREF };
 const roundTarget = (inquiryId: string) => tab("bid", rfqRoundAnchorId(inquiryId));
 const go = (labelZh: string, target: WebNextStepTarget): WebNextStepAction => ({ labelZh, target });
@@ -140,7 +143,11 @@ function rfqEntryReasons(input: WebNextStepInput): string[] {
 
 function prepareSubmission(input: WebNextStepInput): Core {
   const ws = input.workspace;
-  const plain: Core = { rule: "prepare_submission", headlineZh: "投标价已有，准备提交", reasonsZh: ["到「提交」页核对提交材料与截标时间"], action: go("去提交页", tab("submission")) };
+  const plain: Core = {
+    rule: "prepare_submission", headlineZh: "投标价已有，准备提交",
+    reasonsZh: input.submissionRecordEnabled ? ["到「提交」页核对提交材料与截标时间", "交完之后，在同一页记下实际提交的时间与回执"] : ["到「提交」页核对提交材料与截标时间"],
+    action: go("去提交页", tab("submission")),
+  };
   // 工作区没开、或开了但还没录价格表（那是另一件事，在顺带要办的事里提示）：不谈阻断项
   if (!ws || !ws.hasPriceSchedule) return plain;
   const blockers = ws.blockers.filter((b) => !UNLISTED_BLOCKERS.has(b.code));
@@ -384,16 +391,22 @@ export function decideWebNextStep(input: WebNextStepInput): WebNextStepView {
   const left = input.closeDate ? input.closeDate.getTime() - input.now.getTime() : null;
   // 过了截标时间整整一天才算「已过」：手工填的截标时间只有日期，当天之内不下这个结论
   if (left !== null && left <= -DAY_MS) {
-    return done(
-      {
-        rule: "past_closing",
-        headlineZh: "截标日期已过，没有提交记录",
-        reasonsZh: ["如果截标时间改过（比如补遗延期）：到工作台的关键日期里更新", "如果已经在门户提交了：系统里还没有提交时间"],
-        action: go("去看关键日期", KEY_DATES),
-      },
-      null,
-      pendingAlso,
-    );
+    // 页面上有地方记提交了（FLOW-H4a 的开关开着）：先指到那里；截标时间改过的情形放在顺带要办的事里
+    const core: Core = input.submissionRecordEnabled
+      ? {
+          rule: "past_closing",
+          headlineZh: "截标日期已过，没有提交记录",
+          reasonsZh: ["如果已经交了：到「提交」页签记下实际提交的时间与回执", "如果截标时间改过（比如补遗延期）：到工作台的关键日期里更新"],
+          action: go("去记录提交", SUBMISSION_RECORD),
+          also: [{ textZh: "截标时间改过？去更新关键日期", target: KEY_DATES }],
+        }
+      : {
+          rule: "past_closing",
+          headlineZh: "截标日期已过，没有提交记录",
+          reasonsZh: ["如果截标时间改过（比如补遗延期）：到工作台的关键日期里更新", "如果已经在门户提交了：系统里还没有提交时间"],
+          action: go("去看关键日期", KEY_DATES),
+        };
+    return done(core, null, pendingAlso);
   }
 
   // —— 截标提醒：同一张表、去掉待批，只看它是不是命中「三天内截标」 ——
