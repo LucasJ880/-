@@ -223,20 +223,22 @@ async function main() {
     const prevGmail = process.env.GMAIL_DRAFT_ENABLED;
     process.env.GMAIL_DRAFT_ENABLED = "1";
     const created: Array<Record<string, unknown>> = [];
+    const rowOf = (data: Record<string, unknown>) => {
+      created.push(data);
+      return {
+        id: `pa_${created.length}`,
+        type: data.type,
+        title: data.title,
+        preview: data.preview,
+        agentRunId: data.agentRunId ?? null,
+      };
+    };
+    // 带企业与幂等键的行走 createManyAndReturn（skipDuplicates，FIX-5 #448），不带的走 create——两条都要接住
     const fakeTx = {
       pendingAction: {
         findFirst: async () => null,
-        create: async (args: unknown) => {
-          const data = (args as { data: Record<string, unknown> }).data;
-          created.push(data);
-          return {
-            id: `pa_${created.length}`,
-            type: data.type,
-            title: data.title,
-            preview: data.preview,
-            agentRunId: data.agentRunId ?? null,
-          };
-        },
+        create: async (args: unknown) => rowOf((args as { data: Record<string, unknown> }).data),
+        createManyAndReturn: async (args: unknown) => (args as { data: Record<string, unknown>[] }).data.map(rowOf),
       },
     };
     stub("", "$transaction", async (fn) =>
