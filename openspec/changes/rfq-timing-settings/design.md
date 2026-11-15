@@ -11,7 +11,7 @@
 
 **Goals**：管理员能在页面上看、改这三项；页面保存 = PUT 的效果；默认值不变。
 
-**Non-Goals（具体到文件）**：不改 `round-pure.ts` 的 `readTenderRfqSettings`、`chase-pure.ts`、`build.ts`；不改 `prisma/schema.prisma`。
+**Non-Goals（具体到文件）**：不改 `round-pure.ts` 的 `readTenderRfqSettings`、`chase-pure.ts`（催单 / 未响应判定）、`build.ts`（`computeReplyBy`）、`chase-service.ts`（扫描与定格天数）、`muse-bridge/prefs-pure.ts`（个人偏好）；不改 `prisma/schema.prisma`。Muse 只改 `router-pure.ts` 的 `preferencesAdvisory` 一行文案与 `router.ts` 给它传天数（D5）。
 
 ## Decisions
 
@@ -29,18 +29,49 @@
 - `chaseAfterDays` 用 `resolveChaseAfterDays(null, settingsJson)`，只看组织层——个人偏好不属于组织设置。
 - 否决：只返回存的值。页面就得自己知道默认值，两处默认值会漂移。
 
-### D3 页面只发改过的项、空 = null
+### D3 页面只发改过的项、空 = null；先比较后校验
 
-沿用 W-2 D1：逐项比较打开时的值；改成空发 null（回到默认）。页面先按 D1 校验（1–60 整数），接口仍是最终把关。
+沿用 W-2 D1：逐项比较打开时的值；改成空发 null（回到默认）。**先比较、后校验**：库里已有读取认得但不在 1–60 的旧值（如轮次锁 0、回复提前量 2.5），不改就不发，也不挡别的项保存。改了才按 D1 校验（只收纯数字写法），接口仍是最终把关。
+
+- 否决：先校验整张表单。库里有旧值 0 的组织就什么都存不了（连汇率也存不了）。
+- 否决：页面不校验、全交给接口。接口的错误是 `replyLeadDays: Number must be…`，管理员看不懂是哪一项。
 
 ### D4 写明生效范围
 
-每项一句说明（常量，测试断言）：
-- 回复提前量：供应商回复截止 = 截标日前 N 天（不早于发出后第 2 天）；只影响以后新发的询价。
-- 轮次锁：同一项目 N 天内不再发新一轮（可以往已发的一轮加供应商）。
-- 催单天数：发出满 N 天没回就起草催单给你批；项目负责人自己设了催单天数时按个人设置；开了自动跟进的轮次按开的时候定下的天数。
+每项一句说明（常量，测试断言），按代码里的实际行为写：
+- 回复提前量：回复截止 = 截标日前 N 天（不早于起草后第 2 天，`computeReplyBy`）；起草时就定了，只影响以后新建的询价，已起草等批的不变。
+- 轮次锁：上一轮已发出、没结束时，从它建立起 N 天内不开新一轮（`decideRoundLock`）；可以往已发的一轮加供应商。
+- 催单天数：首次催单、第二次催单、标「未响应」都按 N（`decideChases` / `decideNoResponse`）；回复截止已过且最后一次联系满 N 天的，下一次扫描直接标未响应，不起草、不用批；催单卡交项目负责人批；本人偏好优先；开了自动跟进且授权仍生效（`roundPolicyInEffect`）的轮次按定格天数，授权失效后按现在的设置。
+
+- 否决：只写名称、不写说明。三个数字的影响面不同（尤其催单天数会让在途询价直接被标未响应），不写清楚管理员会误改。
+
+### D5 Muse「查看偏好」写出实际天数
+
+`preferencesAdvisory` 多一个参数（本人没设时实际用的天数），`router.ts` 用已有的 `chaseDaysFor(identity, null)`（即 `resolveChaseAfterDays(null, 组织设置)`）算好传入；文案「未设（按组织设置：N 天没回）」。
+
+- 否决：保持「默认 3 天」。组织能在页面上改之后，这句话会和扫描、追踪页实际用的天数不一致。
+- 否决：Muse 回复里不提组织天数。用户问的是「几天没回会催」，只说「未设」答非所问。
+
+## 与八条硬纪律的关系
+
+1. 零 schema：只读写 `Organization.settingsJson.tenderRfq` 里的三个键，不改 `prisma/schema.prisma`。
+2. 出站先审批：不新增出站动作。催单仍是审批卡，批了才发；标「未响应」是既有的内部状态迁移，不对外。
+3. 禁止第三套队列：不涉及（不新建队列、表或后台任务）。
+4. 脱敏：不涉及（三个天数不是敏感字段；页面与接口不显示密码、令牌）。
+5. 不爬登录页：不涉及。
+6. 邮箱分离：不涉及（不碰发件 / 授权邮箱的规则）。
+7. 确定性优先：全部是确定性代码，不调模型。
+8. 测试注册：新增 `rfq-timing-settings.test.tsx` 与 `rfq-timing-settings-db.isolated.test.ts`，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+
+## 验证方式
+
+- `npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings.test.tsx`：接口校验与合并、读法、表单（只发改过的、先比较后校验、纯数字）、页面状态、呈现与说明文字、Muse 偏好文案、接线。
+- 隔离库 `npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings-db.isolated.test.ts`：真实接口往返；`loadRfqWebEntry` 读到新的轮次锁天数与催单天数；回复截止；清空回到默认；400 / 403；审计。
+- W-2 原有测试 `settings-form.test.tsx`、`settings-form-db.isolated.test.ts` 仍通过。
+- 门禁：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate rfq-timing-settings --strict`。
+- 真实浏览器截图 `docs/acceptance/w-2b/*.png`。
 
 ## Risks / Trade-offs
 
-- **改催单天数立刻影响在途询价**：没开自动跟进的轮次，下一次扫描就按新天数判定（可能马上起草一批催单卡，仍须人批）。说明文字写明；这与现在直接改数据库的效果相同。
+- **改催单天数立刻影响在途询价**：没有生效中的自动跟进授权的轮次，下一次扫描就按新天数判定：可能马上起草一批催单卡（仍须项目负责人批）；**调小时，回复截止已过、最后一次联系已满新天数的供应商会被直接标「未响应」**（既有规则，不用批）。说明文字写明；这与现在直接改数据库的效果相同。
 - **库里已有 0 或小数的旧值**：读取照旧认，页面照旧显示；只要不改这一项就不会发出去，改的时候按 1–60 整数校验。

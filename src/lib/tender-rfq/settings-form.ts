@@ -181,8 +181,11 @@ export function bodyFromForm(form: TenderRfqSettingsForm, initial: TenderRfqSett
   // 询价节奏（W-2b）：改过才发；空 = null（回到默认）；只收 1–60 的整数（与接口同一范围）
   for (const f of RFQ_TIMING_FIELDS) {
     const a = parseNum(form.timing[f.key]);
+    // 先比较、后校验：库里已有的旧值（如 0 或小数）不改就不发，也不拦别的项保存
     if (a === parseNum(initial.timing[f.key])) continue;
-    if (a === "bad" || (a !== null && (!Number.isInteger(a) || a < RFQ_TIMING_DAYS_RANGE.min || a > RFQ_TIMING_DAYS_RANGE.max))) {
+    // 只收纯数字写法（不收 1e1、0x0A 之类 Number() 认得的写法）
+    const digits = /^\d+$/.test(form.timing[f.key].trim());
+    if (a === "bad" || (a !== null && (!digits || !Number.isInteger(a) || a < RFQ_TIMING_DAYS_RANGE.min || a > RFQ_TIMING_DAYS_RANGE.max))) {
       errors.push(`${f.label}：请填 ${RFQ_TIMING_DAYS_RANGE.min}–${RFQ_TIMING_DAYS_RANGE.max} 的整数（或留空用默认）`);
       continue;
     }
@@ -297,12 +300,12 @@ export const MAILBOX_NOTE_ZH =
 
 /** W-2b：询价节奏三项的名称与说明（页面逐项显示；说明写明管什么、什么时候生效） */
 export const RFQ_TIMING_FIELDS: ReadonlyArray<{ key: RfqTimingKey; label: string; note: string }> = [
-  { key: "replyLeadDays", label: "回复提前量", note: "供应商回复截止 = 截标日前这么多天（不早于发出后第 2 天）；只影响以后新发的询价。" },
-  { key: "roundLockDays", label: "轮次锁天数", note: "同一项目这么多天内不再发新一轮询价（可以往已发的一轮加供应商）。" },
+  { key: "replyLeadDays", label: "回复提前量", note: "供应商回复截止 = 截标日前这么多天（不早于起草后第 2 天）；只影响以后新建的询价，已起草等批的仍用原来的日期。" },
+  { key: "roundLockDays", label: "轮次锁天数", note: "同一项目上一轮已发出、还没结束时，从它建立起这么多天内不开新一轮（可以往已发的一轮加供应商）。" },
   {
     key: "chaseAfterDays",
     label: "催单天数",
-    note: "发出满这么多天没回，就起草催单给你批；项目负责人自己设了催单天数时按个人设置；开了自动跟进的轮次按开的时候定下的天数。改了之后，其它在途询价下一次检查就按新天数。",
+    note: "发出满这么多天没回，就起草一封催单（交项目负责人批）；第二次催单、标「未响应」也按这个天数——回复截止已过、最后一次联系也满这么多天的，下一次检查会直接标未响应（不起草、不用批）。项目负责人自己设了催单天数时按个人设置；开了自动跟进且仍在生效的轮次按开的时候定下的天数。改了之后，其它在途询价下一次检查就按新天数。",
   },
 ];
 export const timingPlaceholder = (effective: number | null) => (effective == null ? "未单独设置，用默认值" : `未单独设置，默认 ${effective} 天`);
