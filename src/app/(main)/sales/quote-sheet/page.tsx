@@ -53,6 +53,7 @@ import type {
   ShutterOrderLine,
   DrapeOrderLine,
   QuoteFormState,
+  QuoteImportSource,
   InstallMode,
 } from "./types";
 import { INSTALL_PRICES, SERVICE_ADDONS, HST_RATE, generateOrderNumber } from "./types";
@@ -324,6 +325,8 @@ function QuoteSheetPageInner() {
   // QUOTE-1a：载入内容的定价口径标记（新建 = 当前口径；载入已存报价 / 草稿时取其值，缺省 1）
   const [loadedPricingRev, setLoadedPricingRev] = useState<number>(ORDER_PRICING_REV);
   const [woodNoticeDismissed, setWoodNoticeDismissed] = useState(false);
+  // QUOTE-1b：导入留痕，随表单数据原样保存；手工录入的报价为 null
+  const [importSource, setImportSource] = useState<QuoteImportSource | null>(null);
   // 首屏检查完成前不允许自动保存，避免把刚挂载的空表覆盖掉尚未恢复的草稿
   const [draftReady, setDraftReady] = useState(false);
 
@@ -680,6 +683,7 @@ function QuoteSheetPageInner() {
           specialPromotion,
           // 草稿原样带着载入时的口径标记：恢复后仍能判断要不要提醒
           orderPricingRev: loadedPricingRev,
+          ...(importSource ? { importSource } : {}),
         },
         orgId,
         currentUser.id,
@@ -697,7 +701,7 @@ function QuoteSheetPageInner() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode, taxRate, sunnyMotorPrice, specialPromotion, loadedPricingRev,
+    installMode, taxRate, sunnyMotorPrice, specialPromotion, loadedPricingRev, importSource,
   ]);
 
   // 当 customerId 或 customers 变化时派生候选地址列表
@@ -777,6 +781,7 @@ function QuoteSheetPageInner() {
     // QUOTE-1a：改动前保存的内容没有口径标记 → 1；据此决定是否提醒检查 Part B
     setLoadedPricingRev(readOrderPricingRev(d.orderPricingRev));
     setWoodNoticeDismissed(false);
+    setImportSource(d.importSource ?? null);
   }, []);
 
   const handleRestoreDraft = useCallback(() => {
@@ -932,6 +937,8 @@ function QuoteSheetPageInner() {
         installMode, taxRate, sunnyMotorPrice,
         // QUOTE-1a：本次保存按当前定价口径构造报价行
         orderPricingRev: ORDER_PRICING_REV,
+        // QUOTE-1b：导入留痕原样带上，服务端据此写一次审计
+        ...(importSource ? { importSource } : {}),
       };
 
       // PRICE-3：Part B 已选且数量 > 0 的行作为附加项目提交，库里报价金额从此含 Part B（design D4）
@@ -1066,6 +1073,7 @@ function QuoteSheetPageInner() {
     promoBlocked, promoRatio, promoMaxPct,
     depositMinPct, depositUnlocked, isSuperAdmin,
     productsSubtotal, subtotalB, subtotalC,
+    importSource,
     editingQuoteId,
     orgId, orgLoading, ambiguous,
   ]);

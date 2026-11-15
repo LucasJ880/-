@@ -11,7 +11,8 @@
  */
 
 import type { ProductName } from "./pricing-types";
-import { skuToPricingFabric } from "./sku-catalog";
+import { getAvailableFabrics } from "./pricing-data";
+import { canonicalSku, skuToPricingFabric, type SkuEntry } from "./sku-catalog";
 import { parseRollerFabric, rollerEngineFabricKey } from "./valance-options";
 
 /** 本口径的表单数据标记（formDataJson.orderPricingRev）；没有该字段的旧表单视为 1 */
@@ -29,15 +30,70 @@ export function effectiveShadeValance(rowValance: unknown, formValance: unknown)
  * Roller 且没有生效罩型时原键照旧——SKU 本身是完整定价面料（如 "Blackout w Cassette"）的行不改价。
  */
 export function shadeLinePricingFabric(
-  line: { product: ProductName; sku: string },
+  line: { product: ProductName; sku: string; pricingFabric?: string },
   valance: string,
 ): string {
-  const key = skuToPricingFabric(line.sku, line.product);
+  // 行上带定价面料（QUOTE-1b：导入时以文件的面料档为准）且它是该产品的面料档 → 以它为取键起点；否则按 SKU 推断
+  const own = typeof line.pricingFabric === "string" ? line.pricingFabric.trim() : "";
+  const key = own && getAvailableFabrics(line.product).includes(own)
+    ? own
+    : skuToPricingFabric(line.sku, line.product);
   if (line.product !== "Roller") return key;
   const v = valance.trim();
   if (!v) return key;
   const base = parseRollerFabric(key).base;
   return rollerEngineFabricKey(base, v) || key;
+}
+
+/** 行级折扣（0–1 的有限数）→ 数字；缺失或非法 → null（按企业默认折扣） */
+export function lineDiscountOverride(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : null;
+}
+
+/** 行级折扣在表单上的显示文字，如 "15% off · 导入" */
+export function lineDiscountLabel(pct: number): string {
+  return `${Math.round(pct * 1000) / 10}% off · 导入`;
+}
+
+/** 销售手动换 SKU：行上定价面料随之清除，回到按 SKU 推断 */
+export function applyShadeSkuChange<T extends { sku: string; pricingFabric?: string }>(line: T, sku: string): T {
+  return { ...line, sku, pricingFabric: undefined };
+}
+
+/** 销售手动换产品：SKU 与行上定价面料清空；无绳只对 Zebra / Roller 保留 */
+export function applyShadeProductChange<
+  T extends { product: ProductName; sku: string; pricingFabric?: string; cordless?: boolean },
+>(line: T, product: ProductName): T {
+  return {
+    ...line,
+    product,
+    sku: "",
+    pricingFabric: undefined,
+    cordless: product === "Zebra" || product === "Roller" ? line.cordless : false,
+  };
+}
+
+export interface SkuSelectOption {
+  value: string;
+  label: string;
+  /** 当前值不在该产品的 SKU 目录里 */
+  outOfCatalog?: boolean;
+}
+
+/**
+ * SKU 下拉的选项：目录条目照旧；当前值非空且不在目录里时，在最前面加一项「目录外」，
+ * 否则浏览器会把它显示成未选择。
+ */
+export function skuSelectOptions(entries: readonly SkuEntry[], value: string): SkuSelectOption[] {
+  const options: SkuSelectOption[] = entries.map((e) => ({
+    value: e.sku,
+    label: e.isCategoryFallback ? `${e.readable} (type only)` : `${e.sku} · ${e.readable}`,
+  }));
+  const current = value.trim();
+  if (current && !entries.some((e) => e.sku === current || e.sku === canonicalSku(current))) {
+    options.unshift({ value, label: `${current} · 目录外`, outOfCatalog: true });
+  }
+  return options;
 }
 
 /** Shutters：表单材质 → 价表键 */

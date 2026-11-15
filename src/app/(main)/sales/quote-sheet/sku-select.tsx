@@ -7,6 +7,7 @@ import {
   getSkusByProduct,
   type SkuEntry,
 } from "@/lib/blinds/sku-catalog";
+import { skuSelectOptions } from "@/lib/blinds/order-form-pricing";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -43,11 +44,10 @@ export function SkuSelect({ product, value, onChange, className, placeholder }: 
       title={value || undefined}
     >
       <option value="">{placeholder ?? "— SKU —"}</option>
-      {entries.map((e) => (
-        <option key={e.sku} value={e.sku}>
-          {e.isCategoryFallback
-            ? `${e.readable} (type only)`
-            : `${e.sku} · ${e.readable}`}
+      {/* 当前值不在目录里时多一项「目录外」，避免显示成未选择（QUOTE-1b） */}
+      {skuSelectOptions(entries, value).map((o) => (
+        <option key={o.outOfCatalog ? `__out__${o.value}` : o.value} value={o.value}>
+          {o.label}
         </option>
       ))}
     </select>

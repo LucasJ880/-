@@ -7,7 +7,7 @@
 
 ## 2. 表单配套
 
-- [ ] 2.1 开工前记基线（`order-form-pricing-parity` 72、黄金 158 条、`quote-mapping` 55、`valance-options` 13）。按 design D7、D12：`types.ts` 加 `pricingFabric`、`lineDiscountPct`、`drapeLineDiscountPct`、`sheerLineDiscountPct`、`importSource`（`quote-draft.ts` 同步）；`order-form-pricing.ts` 的取键支持行上定价面料；`order-items.ts` 与 `pricing-helpers.ts`（含 PDF 经由的预览）带行级折扣；`order-shades.tsx` / `order-drapes.tsx` 显示并可清除行级折扣、换产品或 SKU 时清定价面料；`sku-select.tsx` 用 `skuSelectOptions` 显示「目录外」。`order-form-pricing-parity.test.ts` 加三组（定价面料、行级折扣含预览 = 保存与无绳行、SKU 选项）。verify：该测试既有 72 条不变、新增全过；`npm run typecheck` 退出 0；黄金 158 条一致；`git diff --stat origin/main -- src/lib/blinds/pricing-engine.ts src/lib/blinds/discount-settings.ts config/pricelist/` 为空
+- [x] 2.1 开工前记基线（`order-form-pricing-parity` 72、黄金 158 条、`quote-mapping` 55、`valance-options` 13）。按 design D7、D12：`types.ts` 加 `pricingFabric`、`lineDiscountPct`、`drapeLineDiscountPct`、`sheerLineDiscountPct`、`importSource`（`quote-draft.ts` 同步）；`order-form-pricing.ts` 的取键支持行上定价面料；`order-items.ts` 与 `pricing-helpers.ts`（含 PDF 经由的预览）带行级折扣；`order-shades.tsx` / `order-drapes.tsx` 显示并可清除行级折扣、换产品或 SKU 时清定价面料；`sku-select.tsx` 用 `skuSelectOptions` 显示「目录外」。`order-form-pricing-parity.test.ts` 加三组（定价面料、行级折扣含预览 = 保存与无绳行、SKU 选项）。verify：该测试既有 72 条不变、新增全过；`npm run typecheck` 退出 0；黄金 158 条一致；`git diff --stat origin/main -- src/lib/blinds/pricing-engine.ts src/lib/blinds/discount-settings.ts config/pricelist/` 为空
 
 ## 3. 映射、对照与核对窗
 

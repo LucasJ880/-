@@ -8,6 +8,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import { getAvailableFabrics } from "@/lib/blinds/pricing-data";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import { lineDiscountLabel, lineDiscountOverride } from "@/lib/blinds/order-form-pricing";
 import { updateLineField, removeLineById } from "./order-helpers";
 import {
   computeDrapeLinePrice,
@@ -218,6 +219,23 @@ export function OrderDrapesForm({ lines, onChange, installMode, discounts }: Pro
                     <div className="font-mono text-xs font-semibold text-teal-700">
                       {formatCAD(p.total)}
                     </div>
+                    {(["drapeLineDiscountPct", "sheerLineDiscountPct"] as const).map((field) =>
+                      lineDiscountOverride(line[field]) != null ? (
+                        <div key={field} className="flex items-center justify-end gap-1 text-[9px] font-medium text-amber-700">
+                          <span>
+                            {field === "drapeLineDiscountPct" ? "Drape" : "Sheer"} {lineDiscountLabel(lineDiscountOverride(line[field])!)}
+                          </span>
+                          <button
+                            type="button"
+                            title="清除行级折扣，回到企业默认折扣"
+                            onClick={() => updateLine(line.id, field, undefined)}
+                            className="rounded px-0.5 text-muted-foreground hover:text-red-500"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : null,
+                    )}
                     <div className="text-[9px] text-muted-foreground">
                       {installMode === "pickup" ? (
                         <span className="text-amber-600">Pickup · no install</span>
