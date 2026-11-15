@@ -68,6 +68,12 @@ function isTerminalStatus(status: string | null): boolean {
   );
 }
 
+/** FIX-6：招投标状态对应六段里的哪一段；认不出的状态 → null（为空 → 立项） */
+export function tenderStatusStageOf(status: string | null | undefined): TenderStage | null {
+  if (!status) return "initiation";
+  return Object.hasOwn(STATUS_TO_STAGE, status) ? STATUS_TO_STAGE[status] : null;
+}
+
 /** 招投标状态已是终态（已提交、已中标、未中标、已放弃投标、已归档）：进度条按「已完成」画 */
 export function isTerminalTenderStatus(status: string | null | undefined): boolean {
   return isTerminalStatus(status ?? null);
