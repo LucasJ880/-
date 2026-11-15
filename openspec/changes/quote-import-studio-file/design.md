@@ -58,12 +58,13 @@
 
 ## Decisions
 
-### D1 四个纯函数模块 + 一个核对窗组件
+### D1 五个纯函数模块 + 一个核对窗组件
 - 做法：`src/lib/sales/quote-import/` 下
   - `types.ts`：文件结构的最小类型、提示（`{ level: "block" | "warn", code, rowIndex?, messageZh }`）、对照结果。
   - `validate.ts`：`parseQuoteFile(text, byteLength)` → 通过时返回净化后的报价主体与方案清单，不通过时返回中文原因。
   - `map.ts`：`mapQuoteToForm(plan, ctx)` → 表单数据片段（三张表的行、Part B 行、安装方式、税率、客户四项、备注、`importSource`）+ 提示 + 待选褶皱率的行 + 各项让利来源；`matchCustomer(file, customers)`。
   - `compare.ts`：`compareWithQingyan(plan, mapped, settings, fullnessChoices)` → 逐行文件金额 / 青砚金额 / 差额 / 处理方式、两边合计、特别让利、价表是否一致。
+  - `audit.ts`：`readImportSource(formDataJson)` 与 `importAuditPayload(next, prev)`（D10；apply 中补进本清单——服务端两条保存路径共用，单独成模块才能做纯测试）。
   - 核对窗 `quote-sheet/import-review-dialog.tsx` 只调这些函数并渲染。
 - `map.ts` 与 `compare.ts` 引用页面目录的表单类型与 `buildOrderFormItems` / 预览函数（`src/lib` 测试引用页面目录代码已有先例）。
 - 否决：把映射写在核对窗组件里——测不到，且 QUOTE-1a 刚把同类逻辑从组件里搬出来。否决：服务端新增解析接口——要上传原文件（可带照片，最大 35 MB），违反任务书「不上传」。
@@ -111,6 +112,7 @@
 ### D10 `importSource` 与审计
 - 做法：`importSource = { tool: "sunny-quote-studio", fileVersion, quoteId, quoteNumber, plan, exportedAt, pricelistVersion, fileGrandTotal, importedAt, pricelistMatch, rowCount }`，随表单数据保存；`QuoteFormState` / `QuoteDraftV1` 加可选字段，`applyFormState` 原样保留。
   - 服务端在两条保存路径里解析 `formDataJson`：有 `importSource` 且（新建，或修改前的 `formDataJson` 没有 `importSource`，或其 `quoteId` + `exportedAt` + `importedAt` 与这次不同）时 `logAudit({ action: "quote_imported", targetType: "sales_quote", targetId, afterData })`，`afterData` 只含上面的留痕字段。解析失败或字段形状不对时不写、不报错。
+  - 已实现（apply，先于 1.1）：留痕只取白名单字段、文本截到 200 字；缺 `quoteId` / `exportedAt` / `importedAt` 任一项时视为没有留痕（无法判断是否同一次导入）。修改路径在 `commitQuoteUpdate` 开头按报价 id + 企业读一次保存前的 `formDataJson`，只在新的表单数据带留痕时才读；签约后改金额走审批的报价在批准落库时写审计。
 - 否决：每次保存都写——同一次导入会刷出多条。否决：由浏览器调审计接口——审计要在服务端与保存同一处写。
 
 ### D11 文件读取的安全边界
@@ -122,7 +124,7 @@
 - 否决：把目录外的 SKU 临时塞进目录缓存——会污染其它行的下拉。
 
 ### D13 测试
-- `src/lib/sales/quote-import/__tests__/validate.test.ts`、`map.test.ts`、`compare.test.ts`（纯逻辑，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`）；`order-form-pricing-parity.test.ts` 加定价面料、行级折扣、SKU 选项三组；`src/lib/sales/__tests__/quote-import-audit-db.isolated.test.ts`（隔离库，经真实路由，注册进 `scripts/test-all.sh`）。
+- `src/lib/sales/quote-import/__tests__/validate.test.ts`、`map.test.ts`、`compare.test.ts`、`audit.test.ts`（纯逻辑，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`）；`order-form-pricing-parity.test.ts` 加定价面料、行级折扣、SKU 选项三组；`src/lib/sales/__tests__/quote-import-audit-db.isolated.test.ts`（隔离库，经真实路由，注册进 `scripts/test-all.sh`）。
 - 每个测试文件与它测的模块在同一个 task 里创建并注册。
 - 否决：只做样例对照——映射表每一行都要有一例，样例覆盖不到负数附加项目、材质混用、运费差等。
 

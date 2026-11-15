@@ -18,6 +18,7 @@
 ## 4. 留痕、门禁与走查
 
 - [ ] 4.1 `quotes/route.ts` 与 `quote-update.ts` 按 design D10 写审计 `quote_imported`；新建 `src/lib/sales/__tests__/quote-import-audit-db.isolated.test.ts`（新建写一条、同一次导入再保存不重复、修改路径、无留痕不写、内容不含电话邮箱）并注册进 `scripts/test-all.sh`。全量门禁：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`npm test`（失败项逐个与 origin/main 同环境对照）、`openspec validate quote-import-studio-file --strict`、`git diff --stat origin/main -- prisma/ vercel.json` 为空。走查（本机隔离库 + Playwright，截图存 `docs/acceptance/quote-1b/`）：① 导入样例：17 行、第 12 行选 180 前「填入表单」不可用、选后让利 29.38、保存后库里合计 8134.62、`importSource` 与一条 `quote_imported`；② 第 12 行改选 230：让利 236.94、合计不变；③ 企业运费设 75：让利多 25；④ 第 3 行表单里 Cassette 271.88、改 None 221.88；⑤ 第 6 行 SKU 显示「目录外」；⑥ 第 11 行改 `Wood` 再导：材质 Wooden、1172.22；⑦ 反例：Zebra 改一格 MSRP、Vinyl + Wood 混用、带 3 张照片（保存后 `formDataJson` 无图片数据）、改 `format` / `version`、600 行、非 JSON；⑧ 让利审批：只留第 16 行且成交价 100 的文件，销售账号保存的行为与手填同额让利一致；⑨ 用 1.1 的真实导出文件各导一次。verify：隔离库测试全过；以上命令退出 0（`npm test` 列出与 main 相同的既有失败）；九项走查的截图与数字齐全
+  - 进度（2026-11-15，先于 1.1 完成的部分）：审计已接入两条保存路径（`src/lib/sales/quote-import/audit.ts`）；`audit.test.ts` 19 / 0 与 `quote-import-audit-db.isolated.test.ts` 12 / 0 已注册并通过。全量门禁与九项走查待 1.1–3.3 完成后做，本条不打勾。
 - [ ] 4.2 写 `docs/QINGYAN_QUOTE-1b_REPORT.md`（做了什么 / 改了哪些文件 / 文件结构核对结果 / 怎么验及每条命令的实际输出 / 走查九项 / 对任务书的调整：Door Screen Sheer 与褶皱率两项拍板后的差异、合计 8134.62 而非 8224.51 / 已知限制：客户列表 200 位、行级折扣无上限、不查重、回滚后的金额变化 / 上线前事项：核对企业运费）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` QUOTE-1b 状态列。verify：两个文件在同一提交里，报告里每条命令都有实际输出
 
 ## Workflow follow-up
