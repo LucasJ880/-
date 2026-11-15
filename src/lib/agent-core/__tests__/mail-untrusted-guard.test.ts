@@ -182,6 +182,12 @@ async function main() {
     ok(mailIntentForcesTools(true, "王总回邮件了吗") && mailIntentForcesTools(true, "帮我找上周供应商那封信"), "这两条同时满足读信意图（助手灰度未命中的用户也走带工具的分支）");
     ok(route(false, "帮我润色这封邮件") === needsTools("帮我润色这封邮件") && needsTools("帮我润色这封邮件") === false && !mailIntentForcesTools(false, "帮我润色这封邮件"), "读信不可用：「帮我润色这封邮件」的路由与上线前相同（不带工具）");
     ok(route(undefined, "看看收件箱") === needsTools("看看收件箱"), "入口门没有 mail：不改变路由");
+    // 追问：本条没有邮件字样，上一轮在问邮件
+    const prev = ["王总最近回了一封邮件，主题是报价确认。", "王总回邮件了吗"];
+    ok(!needsTools("他具体说了什么") && mailIntentForcesTools(true, "他具体说了什么", prev), "追问「他具体说了什么」：本对话最近两轮提到过邮件 → 带工具运行");
+    ok(!mailIntentForcesTools(true, "他具体说了什么", ["今天天气不错", "是的"]) && !mailIntentForcesTools(true, "他具体说了什么"), "最近两轮没提邮件：不强制");
+    ok(!mailIntentForcesTools(false, "他具体说了什么", prev) && !mailIntentForcesTools(undefined, "他具体说了什么", prev), "读信不可用：追问也不改变路由");
+    ok(!mailIntentForcesTools(true, "然后呢", ["a", "b", "c", "d", "更早的一条提到邮件"]), "只看最近 4 条");
     // 意图分流在读信路由之前：写 / 发邮件仍走既有的 Gmail 草稿流程，问邮件的进普通对话
     ok(routeAssistantIntent("帮我回复客户").intent === "gmail_email_draft" && routeAssistantIntent("把这封邮件发出去").intent === "gmail_email_draft", "「帮我回复客户」「把这封邮件发出去」：仍判定为邮件草稿意图");
     ok(["王总回邮件了吗", "帮我找上周供应商那封信", "看看王总最近的邮件"].every((t) => routeAssistantIntent(t).intent === "general_answer"), "问邮件的消息：进普通对话（由读信工具回答）");
@@ -190,7 +196,8 @@ async function main() {
   console.log("\n网页助手消息接口的接线（源码断言）");
   {
     const web = code("src/app/api/ai/threads/[threadId]/messages/route.ts");
-    ok(/const mailIntent = mailIntentForcesTools\(webEntryGate\?\.mail, content\);/.test(web), "读信意图 = 入口门 mail ∧ 消息提到邮箱");
+    ok(/const mailIntent = mailIntentForcesTools\(\s*webEntryGate\?\.mail,\s*content,\s*recentForMailIntent\.map\(\(m\) => m\.content\),\s*\);/.test(web), "读信意图 = 入口门 mail ∧（本条消息或本对话最近两轮提到邮箱）");
+    ok(/webEntryGate\?\.mail === true && !mentionsMailbox\(content\)\s*\? await db\.aiMessage\.findMany\(\{\s*where: \{ threadId \},\s*orderBy: \{ createdAt: "desc" \},\s*take: MAIL_INTENT_RECENT_MESSAGES,/.test(web), "往回看只在读信可用且本条没提邮箱时查询（开关关时零额外查询），最多 4 条");
     ok(/requestedCalendarAction \|\|\s*mailIntent \|\|\s*isOperatorEnabled\(/.test(web), "读信意图让本轮走 Operator 分支（不受助手灰度影响，做法同日历意图）");
     ok(/if \(mailIntent\) withTools = true;/.test(web), "读信意图必带工具（含 fast 模式）");
     ok(/const mailToolsOffered = withTools && webEntryGate\?\.mail === true;/.test(web) && /mailRead: mailToolsOffered,/.test(web), "系统提示的固定规则只在读信工具进入本轮列表时加入");

@@ -264,6 +264,19 @@ async function main() {
     ok(!("hasReadScope" in d.gmail) && d.mailRead?.enabled === true, "未连接 Gmail：不加 hasReadScope，只有 mailRead.enabled");
     ok(mailReadPanelState(off) === "hidden" && mailReadPanelState(null) === "hidden", "页面：开关关不显示");
     ok(mailReadPanelState(on) === "needs_reauth" && mailReadPanelState(on2) === "enabled" && mailReadPanelState(d) === "needs_google", "页面：未开启+重新授权 / 已开启 / 读信需要 Google 授权");
+    ok(!JSON.stringify([on, on2, d]).match(/accessToken|refreshToken/), "状态响应里没有令牌字段");
+  }
+
+  console.log("\n状态接口与邮箱绑定页（源码断言）");
+  {
+    const api = read("src/app/api/sales/email-status/route.ts");
+    ok(/withMailReadStatus\(\s*\{ gmail, smtp, activeChannel \},\s*\{ enabled: isMailReadEnabled\(\), hasReadScope: hasGmailReadScope\(provider\?\.grantedScopes\) \},\s*\)/.test(api), "状态接口：原响应经 withMailReadStatus 生成（开关取自服务端，权限取自实际授权的 scope）");
+    ok(!/accessToken:|refreshToken/.test(api.replace(/provider\.accessToken/g, "")), "状态接口不返回访问令牌 / 刷新令牌");
+    const page = read("src/app/(main)/settings/email/page.tsx");
+    ok(/const mailReadPanel = mailReadPanelState\(status\);/.test(page) && /\{mailReadPanel !== "hidden" && \(/.test(page), "页面：「读信权限」一项只在状态响应带 mailRead.enabled 时渲染");
+    ok(/mailReadPanel === "enabled" &&\s*"已开启/.test(page) && /mailReadPanel === "needs_reauth" &&\s*"未开启/.test(page) && /mailReadPanel === "needs_google" && "读信需要 Google 授权"/.test(page), "三种文案各对应一种状态");
+    ok(/\{mailReadPanel === "needs_reauth" && \(\s*<button\s+onClick=\{\(\) => handleConnectGoogle\(true\)\}[\s\S]{0,260}重新授权/.test(page), "缺读信权限时给出「重新授权」（沿用页面已有的重新授权流程）");
+    ok((page.match(/读信权限/g) ?? []).length >= 1 && /<p className="text-sm font-medium text-foreground">读信权限<\/p>/.test(page), "页面有「读信权限」标题");
   }
 
   console.log(`\n结果: ${pass} passed, ${fail} failed`);

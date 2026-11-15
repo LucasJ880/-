@@ -24,7 +24,7 @@
 
 ## 6. 读信权限状态
 
-- [ ] 6.1 `GET /api/sales/email-status` 的响应改由纯函数生成（开关关时逐字段不变；开时 `gmail.hasReadScope` 与顶层 `mailRead: { enabled: true }`）；`src/app/(main)/settings/email/page.tsx` 在 `mailRead.enabled` 时显示「读信权限」三种状态与「重新授权」。扩 `mail-read-pure.test.ts`（状态响应两种开关 × 三种授权、页面源码断言）。verify：`npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts` 通过；本地起应用、开开关，截「读信权限未开启 + 重新授权」与「只绑 SMTP」两张图存 `docs/acceptance/mail-1/`
+- [x] 6.1 `GET /api/sales/email-status` 的响应改由纯函数生成（开关关时逐字段不变；开时 `gmail.hasReadScope` 与顶层 `mailRead: { enabled: true }`）；`src/app/(main)/settings/email/page.tsx` 在 `mailRead.enabled` 时显示「读信权限」三种状态与「重新授权」。扩 `mail-read-pure.test.ts`（状态响应两种开关 × 三种授权、页面源码断言）。verify：`npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts` 通过；本地起应用、开开关，截「读信权限未开启 + 重新授权」与「只绑 SMTP」两张图存 `docs/acceptance/mail-1/`
 
 ## 7. 验证与报告
 

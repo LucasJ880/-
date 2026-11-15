@@ -222,9 +222,22 @@ export function mentionsMailbox(text: string | null | undefined): boolean {
   return MAILBOX_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-/** 读信可用（入口门 mail === true）且消息提到邮箱 → 本轮带工具运行；不可用时这些词不改变路由 */
-export function mailIntentForcesTools(mailGate: boolean | undefined, text: string | null | undefined): boolean {
-  return mailGate === true && mentionsMailbox(text);
+/** 追问时往回看本对话最近几条消息（两轮：2 条用户 + 2 条助手） */
+export const MAIL_INTENT_RECENT_MESSAGES = 4;
+
+/**
+ * 读信可用（入口门 mail === true）且「本条消息或本对话最近两轮」提到邮箱 → 本轮带工具运行；
+ * 不可用时这些词不改变路由。往回看是为了追问：「他具体说了什么」本身没有任何邮件字样，
+ * 但上一轮在问邮件——工具结果不进下一轮上下文，追问只能靠重新调用读信工具。
+ */
+export function mailIntentForcesTools(
+  mailGate: boolean | undefined,
+  text: string | null | undefined,
+  recentTexts: ReadonlyArray<string | null | undefined> = [],
+): boolean {
+  if (mailGate !== true) return false;
+  if (mentionsMailbox(text)) return true;
+  return recentTexts.slice(0, MAIL_INTENT_RECENT_MESSAGES).some((t) => mentionsMailbox(t));
 }
 
 // ── 助手回复落库前省略长段邮件原文 ──────────────────────────

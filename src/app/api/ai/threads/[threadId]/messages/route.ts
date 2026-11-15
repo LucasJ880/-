@@ -48,9 +48,11 @@ import { loadToolEntryGate } from "@/lib/agent-core/entry-gate-server";
 import type { ToolEntryGate } from "@/lib/agent-core/types";
 import { isMailReadAllowed } from "@/lib/env/runtime-isolation";
 import {
+  MAIL_INTENT_RECENT_MESSAGES,
   isMailToolName,
   mailBodiesFromToolData,
   mailIntentForcesTools,
+  mentionsMailbox,
   redactVerbatimMail,
 } from "@/lib/mail-read/pure";
 import { resolveModelPolicy } from "@/lib/ai/model-policy";
@@ -356,7 +358,21 @@ export const POST = withAuth(async (request, ctx, user) => {
   const webEntryGate: ToolEntryGate | null = isMailReadAllowed()
     ? await loadToolEntryGate(user, orgRes.orgId, { surface: "web_assistant" })
     : null;
-  const mailIntent = mailIntentForcesTools(webEntryGate?.mail, content);
+  // 追问（「他具体说了什么」）本身不带邮件字样：读信可用时往回看本对话最近两轮
+  const recentForMailIntent =
+    webEntryGate?.mail === true && !mentionsMailbox(content)
+      ? await db.aiMessage.findMany({
+          where: { threadId },
+          orderBy: { createdAt: "desc" },
+          take: MAIL_INTENT_RECENT_MESSAGES,
+          select: { content: true },
+        })
+      : [];
+  const mailIntent = mailIntentForcesTools(
+    webEntryGate?.mail,
+    content,
+    recentForMailIntent.map((m) => m.content),
+  );
   // 项目内显式选了助手模式 → 强制 Operator（否则 fast/expert 无效）
   const useOperator =
     Boolean(assistantMode) ||
