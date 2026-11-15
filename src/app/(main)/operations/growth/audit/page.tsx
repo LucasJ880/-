@@ -145,7 +145,7 @@ export default function MarketingAuditPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href="/operations/growth" className="text-sm text-accent">
-            ← 返回增长中心
+            ← 返回品牌增长
           </Link>
           <h1 className="mt-2 text-2xl font-bold">营销体检</h1>
           <p className="mt-1 text-sm text-muted">

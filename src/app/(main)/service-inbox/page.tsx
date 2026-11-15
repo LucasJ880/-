@@ -141,7 +141,7 @@ export default function ServiceInboxPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">客服收件箱</h1>
+          <h1 className="text-2xl font-bold">微信客服</h1>
           <p className="mt-1 text-sm text-muted">
             客户发给机器人微信号的消息。超时未回复会推送微信提醒（15 分钟 / 1 小时升级）。
           </p>

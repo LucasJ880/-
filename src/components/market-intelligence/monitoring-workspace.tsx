@@ -298,7 +298,7 @@ export function MonitoringWorkspace() {
           setNotice(`已确认信号，但生成选题失败：${data.contentPlanError}`);
         }
       } else if (status === "reviewed") {
-        setNotice("已确认信号（未送内容运营）");
+        setNotice("已确认信号（未送内容生产）");
       }
       setSelectedSignal(null);
       await load();
@@ -673,7 +673,7 @@ export function MonitoringWorkspace() {
                         className="mt-0.5 h-4 w-4 rounded border-border"
                       />
                       <span>
-                        送内容运营
+                        送内容生产
                         <span className="mt-0.5 block text-xs text-muted">
                           默认开启：确认后生成内容日历选题（待审），不自动发帖
                         </span>

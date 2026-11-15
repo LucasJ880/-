@@ -158,7 +158,7 @@ export default function GrowthCenterPage() {
 
   return <div className="mx-auto max-w-6xl space-y-5">
     <PageHeader
-      title="增长中心 Growth Center"
+      title="品牌增长"
       description="从企业事实、营销体检到任务、内容、实验和成交反馈的执行闭环。"
       actions={
         <button type="button" onClick={load} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">

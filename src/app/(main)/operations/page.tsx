@@ -20,7 +20,7 @@ export default async function OperationsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <PageHeader
-        title="内容运营"
+        title="内容生产"
         description="统一管理市场情报、品牌资产、内容计划、审核与多渠道发布。"
       />
 

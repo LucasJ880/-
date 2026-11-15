@@ -204,7 +204,7 @@ function SalesQuotesPageInner() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="全部报价"
+        title="报价记录"
         description="管理所有销售报价单"
         actions={
           <Link

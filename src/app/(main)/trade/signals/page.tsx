@@ -75,7 +75,7 @@ export default function TradeSignalsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="页面监控信号"
+        title="市场监测"
         description="按组织聚合的弱信号列表（需人工核对）；不含搜索与导出。"
       />
 

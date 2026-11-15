@@ -282,7 +282,7 @@ export default function NotificationSettingsPage() {
           href="/notifications"
           className="inline-flex items-center rounded-lg border border-border px-5 py-2.5 text-sm text-muted transition-colors hover:bg-accent-soft"
         >
-          前往通知中心
+          前往待处理事项
         </Link>
       </div>
     </div>

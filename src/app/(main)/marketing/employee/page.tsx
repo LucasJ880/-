@@ -152,7 +152,7 @@ export default function MarketingEmployeePage() {
         <div>
           <p className="text-sm text-muted">
             <Link href="/operations/growth" className="text-accent">
-              ← 增长中心
+              ← 品牌增长
             </Link>
           </p>
           <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold">
