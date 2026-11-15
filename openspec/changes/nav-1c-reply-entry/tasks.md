@@ -9,7 +9,7 @@
 | trade-recipients | 70 |
 | entry-visibility | 91 |
 | inbox-service | 7 |
-| 外发同步 / 审批发送的隔离库测试（本机 Postgres） | 实施前记录 |
+| 外发同步 / 审批发送相关的隔离库测试（本机 Postgres）：`revenue-spine-db` / `booth-cards-db` / `channels-to-spine-db` / `website-inquiry-async-db` / `onboarding-db` | 166 / 69 / 56 / 58 / 82 |
 
 ## 1. 回复目标与时间线
 
@@ -28,8 +28,8 @@
 ## 4. 端到端与交付
 
 - [x] 4.1 新增 `src/lib/trade/__tests__/reply-entry-db.isolated.test.ts`（specs 里标了隔离库的全部场景），注册进 `scripts/test-all.sh`。验证：本机 Postgres 16 上全过；无库时跳过并退出 0；基线里的外发同步 / 审批发送隔离库测试通过数不变。
-- [ ] 4.2 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1c-reply-entry --strict`；本地起应用截图放 `docs/acceptance/nav-1c/`。验证：命令全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` 无输出；截图里从时间线点「回复」到达的窗口上方是买家原文。
-- [ ] 4.3 写 `docs/QINGYAN_NAV-1c_REPORT.md`（三处入口、接口变化、与任务书的差异、各命令真实输出、staging 发信验收步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1c 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1c 行状态为 `[G]`。
+- [x] 4.2 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-1c-reply-entry --strict`；本地起应用截图放 `docs/acceptance/nav-1c/`。验证：命令全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` 无输出；截图里从时间线点「回复」到达的窗口上方是买家原文。
+- [x] 4.3 写 `docs/QINGYAN_NAV-1c_REPORT.md`（三处入口、接口变化、与任务书的差异、各命令真实输出、staging 发信验收步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-1c 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-1c 行状态为 `[G]`。
 
 ## Workflow follow-up
 

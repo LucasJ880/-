@@ -42,7 +42,7 @@ Cathy 在客户详情的互动时间线上看到买家来信，旁边却没有�
 - 接口：`GET /api/sales/customers/[id]`（互动多一个字段）、`POST /api/trade/inbox/[prospectId]/reply`（多读一个可选请求字段）、新增 `GET /api/trade/inbox/focus`。
 - 页面：`src/app/(main)/sales/customers/[id]/`（`interaction-timeline.tsx`、`page.tsx`、`types.ts`）、`src/app/(main)/trade/inbox/page.tsx`、`src/app/(main)/revenue/today/page.tsx`、`src/app/(main)/revenue/[id]/page.tsx`。
 - 库：新增 `src/lib/trade/reply-target.ts`（回复目标解析与时间线文字映射）；`src/lib/trade/inbox-service.ts`（单会话读取）；`src/lib/navigation/help-tasks.ts`（两行文字）。
-- 测试：新增 `src/lib/trade/__tests__/reply-entry.test.ts`（纯函数 + 源码断言）与 `reply-entry-db.isolated.test.ts`（隔离库），都注册进 `scripts/test-all.sh`；`entry-visibility.test.ts` 随两行文字调整。
+- 测试：新增 `src/lib/trade/__tests__/reply-entry.test.ts`（纯函数 + 源码断言）与 `reply-entry-db.isolated.test.ts`（隔离库），都注册进 `scripts/test-all.sh`；`entry-visibility.test.ts` 随两行文字调整；`trade-access.test.ts` 钉死的外贸守卫处理器盘点随新增的只读接口由 110 改为 111。
 - 出站：不新增发信通路。手写回复走的是既有的「人在收件箱点发送」那条路（`docs/QINGYAN_MENGXIN_FDE_V1_TRADE_OUTBOUND_SYNC.md`：Trade sends stay human-click actions）。
 - 数据库、权限键、路由门映射表、模块、岗位模板、定时任务：不动。零新增 LLM 调用（「写回复」留空，不调模型）。
 - 没有开关，合并即生效；回滚 = revert。无 BREAKING（时间线文字的变化对所有企业可见，但只是换了说法）。
