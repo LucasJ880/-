@@ -26,6 +26,7 @@ import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
 import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
 import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
 import { loadActiveSupplierGroups } from "./supplier-groups-service";
+import { analysisAvailableAt, analysisUpdateNotes, isRfqAnalysisUpdateNoteEnabledForOrg } from "./analysis-update-note";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
   assembleEntryPreview,
@@ -70,6 +71,8 @@ export type RfqWebEntry =
       followUp: RfqEntryFollowUp | null;
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段——响应与界面都和本功能之前相同 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /** FLOW-H3：起草之后招标分析更新过的轮次（inquiryId → 提示）；开关关闭时没有这个字段 */
+      analysisUpdateNotes?: Record<string, { noteZh: string }>;
       /**
        * RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」。available = 两个功能开关都打开（现在能生效、能开启）。
        * 两个功能开关都关闭时没有这个字段；只开了一个时，只有本人的开关不是 off 才有（让他看得到、关得掉）。
@@ -271,6 +274,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     autoIngest: autoIngestNote({ hasReadScope, chaseAfterDays }),
     timeZone,
     ...(isRfqAutoDraftEnabledForOrg(input.orgId) ? { autoDraftedRounds: await loadAutoDraftedRounds(input.orgId, project.id) } : {}),
+    ...(isRfqAnalysisUpdateNoteEnabledForOrg(input.orgId) ? { analysisUpdateNotes: await loadAnalysisUpdateNotes(input.orgId, project.id, executed, timeZone) } : {}),
     ...(await loadEntryAutoDraftFollowUp(input.orgId, input.userId)),
     ...(groupsEnabled
       ? {
@@ -343,4 +347,29 @@ async function loadEntryFollowUp(input: {
     rounds[inquiryId] = { state: st.state, summaryZh: st.summaryZh, reasonZh: st.state === "inactive" ? st.reasonZh : null, autoSentCount: st.autoSentCount };
   }
   return { offer: offerPolicy ? view(offerPolicy) : null, cards, rounds };
+}
+
+/**
+ * FLOW-H3：询价引擎发出的轮次里，起草（发送卡创建）之后招标分析更新过的那些。
+ * 「更新过」= 询价单取要求用的那一份分析（最新创建的等待审核或已批准的），在发送卡创建之后才完成或才批准。只读，不改任何东西。
+ */
+async function loadAnalysisUpdateNotes(
+  orgId: string,
+  projectId: string,
+  executed: ReadonlyArray<{ payload: unknown; createdAt: Date }>,
+  timeZone: string,
+): Promise<Record<string, { noteZh: string }>> {
+  const rounds = executed.flatMap((a) => {
+    const inquiryId = (a.payload as { inquiryId?: string } | null)?.inquiryId;
+    return inquiryId ? [{ inquiryId, draftedAt: a.createdAt }] : [];
+  });
+  if (rounds.length === 0) return {};
+  // 与询价单取要求时同一份（最新创建的可用分析，loadRfqRequirementInputs），再加上组织
+  const run = await db.tenderAnalysisRun.findFirst({
+    where: { orgId, projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
+    orderBy: { createdAt: "desc" },
+    select: { completedAt: true, createdAt: true, approvedAt: true },
+  });
+  const latest = run ? analysisAvailableAt(run) : null;
+  return analysisUpdateNotes({ rounds, latestAnalysisAt: latest, timeZone });
 }
