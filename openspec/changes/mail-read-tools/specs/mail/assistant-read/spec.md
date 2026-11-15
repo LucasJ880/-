@@ -52,7 +52,7 @@
 - **THEN** 调用被拒绝，Gmail 假实现没有被调用（同一测试覆盖）
 
 ### Requirement: 读取线程
-`mail_read_thread` SHALL 返回指定线程里每封邮件的发件人、收件人、主题、日期与纯文本正文（有纯文本用纯文本，只有 HTML 时去标签）。每封正文超过 6,000 字时截断并标 `truncated`；整线程正文合计超过 20,000 字时保留最新的邮件、其余只留元数据，并在线程一级标 `truncated`。附件 SHALL 只列文件名与大小，SHALL NOT 下载附件内容。线程不在调用者邮箱里或 id 格式不合法时 SHALL 统一返回 `MAIL_THREAD_NOT_FOUND`（文案「线程不存在」）。
+`mail_read_thread` SHALL 返回指定线程里每封邮件的发件人、收件人、主题、日期与纯文本正文（有纯文本用纯文本，只有 HTML 时去标签）。每封正文超过 6,000 字时截断并标 `truncated`；整线程正文合计不超过 20,000 字，额度从最新一封往前分配，额度用完之后更早的邮件只留元数据，并在线程一级标 `truncated`。附件 SHALL 只列文件名与大小，SHALL NOT 下载附件内容。线程不在调用者邮箱里或 id 格式不合法时 SHALL 统一返回 `MAIL_THREAD_NOT_FOUND`（文案「线程不存在」）。
 
 #### Scenario: 单封与整线程截断
 - **WHEN** 运行 `npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts`，对一封 9,000 字的邮件和一个合计 50,000 字的线程做截断

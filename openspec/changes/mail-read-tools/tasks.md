@@ -1,5 +1,7 @@
 # Tasks
 
+实施后的说明（2026-11-15）：待拍板 A、B 都取推荐方案。有三处做法与下面条目的原文不同，原因见 design D1、D3 与报告 §4：读信工具的「不传即不给」做在给模型的那一层（`toOpenAITools`），`registry.list` 只在传了入口门时剔除，`tool-list-modules.test.ts` 因此一行未改；两个工具在既有的 `tools/secretary.ts` 里登记，没有改 `tools/index.ts`（运行时架构守卫不允许新增工具登记面文件）；补了追问路由（本对话最近两轮提到过邮件）。
+
 开工前先跑将要触碰模块的已注册测试并记下基线通过数：`tool-list-modules`、`pre-execute-guard`、`phase1-1-context-propagation`、`run-hooks`、`google-email-oauth`、`intent-router`、`tool-descriptor`、`m2c-tool-policy`。待拍板 A 对应 5.1 里「回复落库前省略原文、不抽取洞察」两项，待拍板 B 对应 4.1 里「写入封锁」一项；拍板结果与推荐不同时先改 specs 再动这两条。
 
 ## 1. 读接口、纯函数与开关
