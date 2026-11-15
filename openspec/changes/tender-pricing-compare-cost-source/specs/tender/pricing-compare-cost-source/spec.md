@@ -4,7 +4,7 @@
 ## ADDED Requirements
 
 ### Requirement: 来自比价矩阵的成本建议
-开关对项目的组织开启时，报价表助手的读取接口 SHALL 返回一项成本建议：项目里最近一轮有人工选定（`isSelected`）且已报价的询价，用比价矩阵同一套换算算出那一家的落地价（CAD），带供应商名、轮次、数量口径、逐项金额与换算假设。没有选定时 SHALL 返回「还没有选定」的说明；换算不出落地价时 SHALL 返回原因，SHALL NOT 给出数字。SHALL NOT 用推荐或最低价代替选定。
+开关对项目的组织开启时，报价表助手的读取接口 SHALL 返回一项成本建议：项目里最近一轮有人工选定（`isSelected`）且已报价、未取消的询价，用比价矩阵同一套换算算出那一家的落地价（CAD），带供应商名、轮次、数量口径、逐项金额与换算假设；之后已取消或草稿的轮次 SHALL NOT 算作「之后还有」。取数出错时 SHALL 只这一项显示暂不可用，SHALL NOT 让整个接口失败。没有选定时 SHALL 返回「还没有选定」的说明；换算不出落地价时 SHALL 返回原因，SHALL NOT 给出数字。SHALL NOT 用推荐或最低价代替选定。
 
 #### Scenario: 最近一轮有选定
 - **WHEN** 第 2 轮选定了一家 FOB 报价，汇率、海运、关税率、清关参数齐全
@@ -13,6 +13,14 @@
 #### Scenario: 最近一轮没有选定、更早一轮有
 - **WHEN** 第 3 轮还没有选定，第 2 轮有
 - **THEN** 建议来自第 2 轮，并写明之后还有第 3 轮尚未选定（`compare-cost-source-db.isolated.test.ts`）
+
+#### Scenario: 已取消、草稿的轮次
+- **WHEN** 第 3 轮有选定但已取消，第 4 轮还是草稿
+- **THEN** 建议仍来自之前的选定，不说「之后还有」（`compare-cost-source-db.isolated.test.ts`）
+
+#### Scenario: 供应商给了总价
+- **WHEN** 选定的那一家报的是总价
+- **THEN** 货值按总价，数量口径写明按件估算的费用按询价单首档数量（`compare-cost-source-db.isolated.test.ts`）
 
 #### Scenario: 没有选定
 - **WHEN** 项目有报价但没有任何一轮选定
@@ -27,11 +35,15 @@
 - **THEN** 接口不返回这一项，卡片与现在相同（`compare-cost-source-db.isolated.test.ts`；`compare-cost-source.test.tsx`）
 
 ### Requirement: 只建议，人保存才生效
-卡片 SHALL 把建议显示为「来自比价矩阵」一行，并写明落地价不含 GST/HST。按钮 SHALL 只把数字填进「我方成本」输入框，SHALL NOT 自己保存。读取接口 SHALL NOT 改写已保存的成本；已保存的成本与建议不同时 SHALL 照旧按已保存的计算。人手填的数字 SHALL 始终可以保存并覆盖建议。
+卡片 SHALL 把建议显示为「来自比价矩阵」一行，写明换算依据与落地价不含 GST/HST（DDP 写以供应商报价为准）。按钮 SHALL 只把数字填进「我方成本」输入框，SHALL NOT 自己保存。读取接口 SHALL NOT 改写已保存的成本；已保存的成本与建议不同时 SHALL 照旧按已保存的计算。人手填的数字 SHALL 始终可以保存并覆盖建议。
 
 #### Scenario: 点按钮之后没有保存
 - **WHEN** 人点了「用这个作为我方成本」，没有点保存
 - **THEN** 输入框里是建议的数字，已保存的成本与情景表不变（`compare-cost-source.test.tsx`；`compare-cost-source-db.isolated.test.ts`）
+
+#### Scenario: DDP 与换算依据
+- **WHEN** 建议是一家 DDP 报价；或建议带汇率、关税的换算依据
+- **THEN** DDP 不写「不含 GST/HST」，写以供应商报价为准；换算依据显示在逐项下面（`compare-cost-source.test.tsx`）
 
 #### Scenario: 已有手填的成本
 - **WHEN** 已保存的成本是手填的 90,000，建议是 84,500

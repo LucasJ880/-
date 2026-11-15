@@ -18,5 +18,5 @@
 ## 4. 测试注册与验收
 
 - [x] 4.1 新测试注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`.env.example` 写开关；verify：`bash scripts/check-test-registry.sh` 输出 OK
-- [ ] 4.2 变异核对；独立审查并处理其发现；全部门禁；verify：报告里逐条写明；`npm run test:ci` 输出 `CI unit subset PASS`、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate tender-pricing-compare-cost-source --strict` valid
-- [ ] 4.3 写 `docs/QINGYAN_FLOW-H2_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 FLOW-H2 一行，状态 `[G]`
+- [x] 4.2 变异核对；独立审查并处理其发现；全部门禁；verify：报告里逐条写明；`npm run test:ci` 输出 `CI unit subset PASS`、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/test-runtime-architecture.sh` PASS、`openspec validate tender-pricing-compare-cost-source --strict` valid
+- [x] 4.3 写 `docs/QINGYAN_FLOW-H2_REPORT.md` + 更新 TASKFLOW 状态列；verify：TASKFLOW 里有 FLOW-H2 一行，状态 `[G]`
