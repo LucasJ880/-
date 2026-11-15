@@ -6,7 +6,7 @@
 | TASKFLOW | MAIL-2（Phase M「邮箱助手」） |
 | 任务书 | `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`（MAIL-2 一节；判断点 1–7 已拍板，判断点 8 未定、按 A 执行） |
 | PR | #470 |
-| 分支 | `claude/mail-watch`（MAIL-1 的 PR #455 已合并；本分支已合入 main `f857e313`，与 NAV-1c 在客户时间线上的两处冲突已解决：两个入口都保留） |
+| 分支 | `claude/mail-watch`（MAIL-1 的 PR #455 已合并；本分支已合入 main `363afc7c`（含 #475 的归档），与 NAV-1c 在客户时间线上的两处冲突已解决：两个入口都保留） |
 | 开关 | 新增环境变量 `MAIL_WATCH_ENABLED`，**默认关**。合并后不设它，线上零变化：`sales-actions` 每轮多记一条「mail-watch：跳过，平台开关未开」 |
 | 性质 | 新能力。零 schema、零出站、零模型调用、不新增定时任务或队列；`vercel.json` 与 Prisma schema 无 diff；不改 `muse-bridge`、`approval-gate.ts`、`pre-execute-guard.ts`、导航注册表 |
 
@@ -191,4 +191,4 @@ main 上同样失败的 14 项（都与本 change 无关；多数需要数据库
 3. staging：开平台开关与测试组织的开关，一个测试邮箱勾选，走第 6 节的验收。
 4. 生产：设 `MAIL_WATCH_ENABLED=true` → Sunny 管理员在邮箱绑定页开企业开关 → 先只让 Lucas 一个人勾选（他的邮箱同时收 `sales@`，样本最全），看一周 `mail.watch.run` 汇总里「客户来信 / 未匹配」的比例 → 再放开给 Marty 与销售。
 5. 回滚：去掉 `MAIL_WATCH_ENABLED` 并重新部署，下一轮起不再读任何邮箱；已建的通知、互动、账本保留。
-6. 合并后：`/opsx:archive mail-watch --yes`（独立小 PR）。MAIL-1 的 `mail-read-tools` 也还没有归档。
+6. 合并后：`/opsx:archive mail-watch --yes`（独立小 PR）。MAIL-1 的 `mail-read-tools` 已由 #475 归档（主规格 `mail/assistant-read`）。
