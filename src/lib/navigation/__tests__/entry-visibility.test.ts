@@ -4,6 +4,7 @@
  * 运行：npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
  */
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
@@ -24,7 +25,9 @@ import {
 import { blindsOrderBackHref, canOpenHref } from "../landing";
 import { computeMobileTabs } from "../mobile-tabs";
 import { navEntryVisible } from "../route-gate-core";
-import { buildHelpMap } from "../help-map";
+import { buildHelpMap, buildHelpTasks } from "../help-map";
+import { HELP_TASKS } from "../help-tasks";
+import { partitionFocusedNav } from "../trade-layout";
 import { OPERATIONS_INDEX_CARDS, visibleOperationsCards } from "../operations-index";
 import { NAVIGATION_REGISTRY, SYSTEM_NAV_ITEMS } from "../registry";
 import { resolveNavigationTree } from "../filter";
@@ -255,7 +258,119 @@ async function main() {
     ok(sales.every((g) => g.entries.every((e) => e.description.length > 0)) && sales[sales.length - 1].group === "SYSTEM", "地图按侧栏分组顺序列出，每项带说明（系统组在最后）");
     const help = read("src/app/(main)/help/page.tsx");
     ok(!/ROUTES|PROJECT_AUDIT/.test(help) && /buildHelpMap\(ctx\)/.test(help) && /loadPageNavigationContext\(\)/.test(help), "/help：删除静态 ROUTES 与 PROJECT_AUDIT 引用，地图按可见导航生成");
-    ok(/组织与项目/.test(help) && /DEPLOY_VERCEL\.md/.test(help), "/help：其余段落不动");
+    // NAV-1b：页尾三块开发者文字删除（spec「/help 不含面向开发者的文字」）
+    ok(!/DEPLOY_VERCEL|QA_P0_CHECKLIST|组织与项目|Prompt/.test(help), "/help：不含部署 / 发布回归 / 组织与项目 / Prompt 等面向开发者的文字");
+  }
+
+  // ── NAV-1b：/help 与侧栏同分段、「我想做什么」、白话说明（openspec change nav-1b-focused-sidebar-task-help）──
+  {
+    const mainTree = (n: string) => resolveNavigationTree(NAVIGATION_REGISTRY, { ...clientCtx(IDENTITIES[n]), pathname: "/help" });
+    const flat = (items: ResolvedNavItem[]): string[] => items.flatMap((i) => [i.key, ...(i.children ? flat(i.children) : [])]);
+
+    // 全部入口：两段式用户先「常用」再「更多」里的各分组，逐项与侧栏相同
+    for (const n of ["mx_cathy", "mx_trade_rep"]) {
+      const map = buildHelpMap(clientCtx(IDENTITIES[n]));
+      const side = partitionFocusedNav(mainTree(n));
+      const mapShape = map.filter((g) => g.group !== "SYSTEM").map((g) => `${g.section}:${g.label}:${g.entries.map((e) => e.key).join(",")}`);
+      const sideShape = [`primary:常用:${flat(side.primary).join(",")}`, ...side.moreGroups.map((g) => `more:${g.label}:${flat(g.items).join(",")}`)];
+      ok(JSON.stringify(mapShape) === JSON.stringify(sideShape) && map[map.length - 1].group === "SYSTEM", `${n}：全部入口先「常用」再「更多」各分组，分段、分组与组内顺序逐项同侧栏；系统组在最后`, { mapShape: mapShape.slice(0, 2), sideShape: sideShape.slice(0, 2) });
+    }
+    const cathyMap = buildHelpMap(clientCtx(IDENTITIES.mx_cathy));
+    ok(cathyMap[0].section === "primary" && cathyMap[0].entries.length === 8 && cathyMap.filter((g) => g.section === "more").length === 7, "老板 + 外贸业务员：常用 8 项，更多 7 个分组");
+    const lynnMap = buildHelpMap(clientCtx(IDENTITIES.sales_rep));
+    ok(
+      lynnMap.every((g) => g.section === null) && JSON.stringify(lynnMap.map((g) => `${g.label}:${g.entries.map((e) => e.key).join(",")}`)) === JSON.stringify(["工作区:work-calendar", "业务运营:sales-home,sales-crm,biz-quotes,biz-all-quotes,sales-performance,sales-email-settings", "系统:sys-help"]),
+      "窗饰销售：没有「常用」段，分组与顺序与改动前相同",
+      lynnMap.map((g) => `${g.label}:${g.entries.map((e) => e.key).join(",")}`),
+    );
+    ok(buildHelpMap(clientCtx(IDENTITIES.owner)).every((g) => g.section === null) && buildHelpMap(clientCtx(IDENTITIES.super_admin)).every((g) => g.section === null), "窗饰老板、平台 super_admin：全部入口仍按分组");
+
+    // 「我想做什么」
+    const allKeys = new Set<string>();
+    const walkAll = (items: NavigationItem[]) => items.forEach((i) => { allKeys.add(i.key); if (i.children) walkAll(i.children); });
+    walkAll([...NAVIGATION_REGISTRY, ...SYSTEM_NAV_ITEMS]);
+    ok(HELP_TASKS.length === 12 && HELP_TASKS.every((t) => allKeys.has(t.entryKey) && t.want.length > 0 && t.then.length > 0), "「我想做什么」12 行，每行绑定的入口 key 都在导航注册表里");
+    const cathyTasks = buildHelpTasks(clientCtx(IDENTITIES.mx_cathy));
+    ok(
+      JSON.stringify(cathyTasks.map((t) => `${t.want}→${t.entry.label}`)) ===
+        JSON.stringify([
+          "看今天要处理什么→今日询盘", "回复买家→询盘收件箱", "批准 AI 写好的回复→今日询盘", "已经在邮箱或 WhatsApp 回过了→询盘收件箱",
+          "查一个买家的全部往来→线索资产", "给买家报价→外贸报价", "寄样并盯回音→寄样", "查货号、价格、起订量→货号",
+          "展会回来批量录名片→展会导入", "让 AI 回得更准→知识库", "绑定发信邮箱→邮箱绑定", "加同事、调岗位→成员与组织",
+        ]),
+      "老板 + 外贸业务员：12 行的顺序与「点哪里」",
+      cathyTasks.map((t) => `${t.want}→${t.entry.label}`),
+    );
+    ok(cathyTasks.every((t) => typeof t.entry.href === "string" && canOpenHref(t.entry.href!, clientCtx(IDENTITIES.mx_cathy))), "老板 + 外贸业务员：每行「点哪里」都有链接且路由门放行");
+    const repTasks = buildHelpTasks(clientCtx(IDENTITIES.mx_trade_rep));
+    ok(repTasks.length === 11 && !repTasks.some((t) => t.entryKey === "sales-email-settings"), "纯外贸业务员：绑定「邮箱绑定」的那一行不出现（入口不可见），其余 11 行出现", repTasks.map((t) => t.entryKey));
+    // 窗饰企业没开外贸模块：即使看得到「邮箱绑定」「成员与组织」「知识库」，外贸的行也不出现
+    const sunnyNames = ["sales_rep", "pricing_lead", "owner", "bids", "ops_lead", "ops_staff", "accounting", "installer", "fulfillment_vinyl", "no_position"];
+    const sunnyWithRows = sunnyNames.filter((n) => buildHelpTasks(clientCtx(IDENTITIES[n])).length > 0);
+    ok(sunnyWithRows.length === 0, "窗饰企业各岗位：「我想做什么」为空，页面不渲染这一节", sunnyWithRows);
+    ok(HELP_TASKS.every((t) => t.module === "trade"), "本期 12 行都属于外贸模块");
+
+    // 「进去后」里用「」括起来的名称必须是目标页面上真有的栏目或按钮
+    const TARGET_SOURCES: Record<string, string[]> = {
+      "biz-revenue-today": ["src/app/(main)/revenue/today/page.tsx"],
+      "biz-inbox": ["src/app/(main)/trade/inbox/page.tsx"],
+      "biz-prospects": ["src/app/(main)/trade/prospects/[id]/page.tsx"],
+      "biz-trade-quotes": ["src/app/(main)/trade/quotes/page.tsx", "src/app/(main)/trade/inbox/page.tsx"],
+      "biz-trade-samples": ["src/app/(main)/trade/samples/page.tsx"],
+      "mgmt-knowledge": ["src/app/(main)/knowledge/page.tsx"],
+    };
+    const quoted: string[] = [];
+    const missing: string[] = [];
+    for (const t of HELP_TASKS) {
+      for (const m of t.then.matchAll(/「([^」]+)」/g)) {
+        quoted.push(m[1]);
+        const files = TARGET_SOURCES[t.entryKey] ?? [];
+        if (!files.some((f) => read(f).includes(m[1]))) missing.push(`${t.want}：「${m[1]}」`);
+      }
+    }
+    ok(quoted.length === 16 && missing.length === 0, `「进去后」引用的 ${quoted.length} 处栏目 / 按钮名称都在目标页面源码里`, missing);
+    ok(!HELP_TASKS.some((t) => /写回复|自己写/.test(t.then)), "NAV-1c 合并前不引用还不存在的「写回复」");
+
+    // 页面
+    const help = read("src/app/(main)/help/page.tsx");
+    ok(/buildHelpTasks\(ctx\)/.test(help) && /tasks\.length > 0 &&/.test(help) && /我想做什么/.test(help) && /全部入口/.test(help), "/help：有行才渲染「我想做什么」，其后是「全部入口」");
+    ok(
+      /tasks\.length > 0 \? "先看『我想做什么』；找不到再看下面的全部入口。" : "你在侧栏能看到的全部入口，以及每个入口是做什么的。"/.test(help),
+      "/help：副标题按有没有「我想做什么」二选一",
+    );
+    ok(/g\.section === "more" \? `更多 · \$\{g\.label\}` : g\.label/.test(help), "/help：「更多」里的分组标题带「更多 · 」前缀");
+
+    // 19 条白话说明
+    const PLAIN: Record<string, string> = {
+      "biz-revenue-today": "今天要处理的：新询盘、超时没回的、等你批的回复",
+      "biz-inbox": "所有买家来信；在这里看 AI 草稿、改好后发出回复",
+      "biz-prospects": "全部买家名单；点开看往来记录、背景调查并报价",
+      "biz-trade-quotes": "做报价单、发给买家、看对方有没有回",
+      "biz-trade-samples": "登记寄出的样品，到期提醒你跟进买家",
+      "biz-trade-products": "在售货号、FOB 价、起订量和交期；不记库存",
+      "biz-trade-chat": "有外贸问题直接问 AI 助手",
+      "biz-trade": "找海外买家：AI 帮你发现、调查和发开发信",
+      "biz-trade-intel": "输入品牌或产品线索，AI 找出可能的买家和渠道",
+      "biz-fulfillment": "处理指派给你的客户工单：传图、AI 出图、回传客户",
+      "biz-trade-import": "上传名片表格（CSV / Excel），批量建买家",
+      "biz-signals": "监控目标网页的变化，提示可能的商机（需人工核对）",
+      "biz-channels": "接通 WhatsApp、微信等，让买家消息进到青砚",
+      "biz-revenue": "从询盘到成交，每一步有多少单、卡在哪",
+      "sales-crm": "客户档案，以及每个客户谈到哪一步",
+      "mgmt-knowledge": "公司资料和常见问答放这里，AI 回复时会引用",
+      "work-notifications": "系统给你的提醒：要你处理或知道的事",
+      "work-inbox": "客户发到企业微信机器人的消息，在这里回",
+      "work-calendar": "预约与日程安排",
+    };
+    const every: NavigationItem[] = [];
+    const walkEvery = (items: NavigationItem[]) => items.forEach((i) => { every.push(i); if (i.children) walkEvery(i.children); });
+    walkEvery([...NAVIGATION_REGISTRY, ...SYSTEM_NAV_ITEMS]);
+    const wrong = Object.entries(PLAIN).filter(([k, v]) => every.find((i) => i.key === k)?.description !== v).map(([k]) => k);
+    ok(Object.keys(PLAIN).length === 19 && wrong.length === 0, "19 条入口说明逐条成立", wrong);
+    // 其余 53 条的指纹取自改动前的注册表（main d46730e）：谁改了其中任何一条，这里会失败
+    const rest = every.filter((i) => !(i.key in PLAIN)).map((i) => `${i.key}=${i.description}`).sort();
+    const fingerprint = createHash("sha256").update(rest.join("\n")).digest("hex").slice(0, 16);
+    ok(rest.length === 53 && fingerprint === "eb1f6871312c3bb3", "其余 53 个入口的说明与改动前相同", fingerprint);
   }
 
   // ── /operations 索引（spec「/operations 索引只列放行的卡片」）──

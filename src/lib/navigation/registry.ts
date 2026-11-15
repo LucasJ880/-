@@ -199,7 +199,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-inbox",
     label: "微信客服",
-    description: "客户在各渠道发来的消息，统一回复",
+    description: "客户发到企业微信机器人的消息，在这里回",
     labelKey: "nav_service_inbox",
     href: "/service-inbox",
     icon: Inbox,
@@ -210,7 +210,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-notifications",
     label: "待处理事项",
-    description: "需要你处理或知晓的提醒",
+    description: "系统给你的提醒：要你处理或知道的事",
     labelKey: "nav_notifications",
     href: "/notifications",
     icon: Bell,
@@ -220,7 +220,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "work-calendar",
     label: "预约日历",
-    description: "量房、安装与会议日程",
+    description: "预约与日程安排",
     labelKey: "nav_appointment_calendar",
     href: "/sales/calendar",
     icon: CalendarDays,
@@ -433,7 +433,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "sales-crm",
     label: "客户与商机",
-    description: "客户与商机的管理和跟进",
+    description: "客户档案，以及每个客户谈到哪一步",
     labelKey: "nav_customer_opportunities",
     href: "/sales",
     icon: Users,
@@ -562,7 +562,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade",
     label: "外贸获客",
-    description: "外贸业务的总览",
+    description: "找海外买家：AI 帮你发现、调查和发开发信",
     labelKey: "nav_trade_dashboard",
     href: "/trade",
     icon: Handshake,
@@ -575,7 +575,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-inbox",
     label: "询盘收件箱",
-    description: "海外询盘的收件与分拣",
+    description: "所有买家来信；在这里看 AI 草稿、改好后发出回复",
     labelKey: "nav_trade_inbox",
     href: "/trade/inbox",
     icon: Inbox,
@@ -588,7 +588,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-prospects",
     label: "线索资产",
-    description: "外贸线索与客户资产",
+    description: "全部买家名单；点开看往来记录、背景调查并报价",
     labelKey: "nav_trade_prospects",
     href: "/trade/prospects",
     icon: Users,
@@ -601,7 +601,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-quotes",
     label: "外贸报价",
-    description: "外贸报价单",
+    description: "做报价单、发给买家、看对方有没有回",
     labelKey: "nav_trade_quotes",
     href: "/trade/quotes",
     icon: FileText,
@@ -614,7 +614,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-samples",
     label: "寄样",
-    description: "寄样记录与跟进",
+    description: "登记寄出的样品，到期提醒你跟进买家",
     labelKey: "nav_trade_samples",
     href: "/trade/samples",
     icon: Package,
@@ -627,7 +627,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-products",
     label: "货号",
-    description: "产品货号与资料",
+    description: "在售货号、FOB 价、起订量和交期；不记库存",
     labelKey: "nav_trade_products",
     href: "/trade/products",
     icon: Tags,
@@ -640,7 +640,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-chat",
     label: "外贸 AI 对话",
-    description: "与外贸 AI 助手对话",
+    description: "有外贸问题直接问 AI 助手",
     labelKey: "nav_trade_chat",
     href: "/trade/chat",
     icon: MessageSquare,
@@ -653,7 +653,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-intel",
     label: "竞品溯源",
-    description: "目标企业的背景情报",
+    description: "输入品牌或产品线索，AI 找出可能的买家和渠道",
     labelKey: "nav_trade_intelligence",
     href: "/trade/intelligence",
     icon: Radar,
@@ -666,7 +666,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-fulfillment",
     label: "履约协同",
-    description: "外贸订单的履约协同",
+    description: "处理指派给你的客户工单：传图、AI 出图、回传客户",
     labelKey: "nav_trade_fulfillment",
     href: "/trade/fulfillment",
     icon: PackageCheck,
@@ -679,7 +679,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-trade-import",
     label: "展会导入",
-    description: "展会名片与线索导入",
+    description: "上传名片表格（CSV / Excel），批量建买家",
     labelKey: "nav_trade_import",
     href: "/trade/import",
     icon: Upload,
@@ -692,7 +692,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-signals",
     label: "市场监测",
-    description: "市场动态与机会监测",
+    description: "监控目标网页的变化，提示可能的商机（需人工核对）",
     labelKey: "nav_trade_watch_signals",
     href: "/trade/signals",
     icon: Eye,
@@ -705,7 +705,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-channels",
     label: "消息通道",
-    description: "外贸消息通道的配置",
+    description: "接通 WhatsApp、微信等，让买家消息进到青砚",
     labelKey: "nav_trade_channels",
     href: "/trade/channels",
     icon: Cable,
@@ -718,7 +718,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "biz-revenue",
     label: "收入驾驶舱",
-    description: "询盘到收入的整体漏斗与时效",
+    description: "从询盘到成交，每一步有多少单、卡在哪",
     labelKey: "nav_revenue_cockpit",
     href: "/revenue",
     icon: TrendingUp,
@@ -735,7 +735,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
     // 老板 / 外贸手机上看「今天该干什么」；/revenue/today 按最长匹配归到本项，不点亮收入驾驶舱
     key: "biz-revenue-today",
     label: "今日询盘",
-    description: "今天进来的询盘",
+    description: "今天要处理的：新询盘、超时没回的、等你批的回复",
     labelKey: "nav_revenue_today",
     href: "/revenue/today",
     icon: CalendarCheck,
@@ -946,7 +946,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   {
     key: "mgmt-knowledge",
     label: "知识库",
-    description: "企业资料与常见问答，供 AI 引用",
+    description: "公司资料和常见问答放这里，AI 回复时会引用",
     labelKey: "nav_org_knowledge",
     href: "/knowledge",
     icon: BookOpen,

@@ -16,14 +16,14 @@
 
 ## 1. 两段式判定与侧栏
 
-- [ ] 1.1 在 `src/lib/navigation/trade-layout.ts` 实现判定、常用清单常量、分区函数与「更多」展开状态的取值函数（design D1、D2、D10），删掉旧的按平台角色判定；重写 `trade-layout.test.ts`（真值表、常用顺序、更多按分组、两段互斥且覆盖、Cathy 与纯外贸业务员的入口集合与全量布局相等、展开状态取值表），注册进 `scripts/test-all.sh` 并从 `ci/test-registry-baseline.txt` 删掉它那一行；同步 `mengxin-positions.test.ts` 与 `trade-recipients.test.ts` 的断言。验证：新用例在旧代码上失败；改后 `trade-layout` 全过，`mengxin-positions`、`trade-recipients` 通过；`bash scripts/check-test-registry.sh` 报基线 67 条。
-- [ ] 1.2 `sidebar.tsx` 接线（design D3–D5）：「常用」段、「更多」开关行与展开后的分组、当前页面在「更多」里时自动展开（D10）、图标栏下的「更多」、段标题改「常用」（`zh.ts` / `en.ts` 的值）、分组小标题 12px + 侧栏弱化色；在 `trade-layout.test.ts` 加侧栏源码断言（调新判定、不再读派生平台角色、小标题样式）。验证：断言通过；`position-nav` 仍 101 通过；`npm run typecheck` 通过。
+- [x] 1.1 在 `src/lib/navigation/trade-layout.ts` 实现判定、常用清单常量、分区函数与「更多」展开状态的取值函数（design D1、D2、D10），删掉旧的按平台角色判定；重写 `trade-layout.test.ts`（真值表、常用顺序、更多按分组、两段互斥且覆盖、Cathy 与纯外贸业务员的入口集合与全量布局相等、展开状态取值表），注册进 `scripts/test-all.sh` 并从 `ci/test-registry-baseline.txt` 删掉它那一行；同步 `mengxin-positions.test.ts` 与 `trade-recipients.test.ts` 的断言。验证：新用例在旧代码上失败；改后 `trade-layout` 全过，`mengxin-positions`、`trade-recipients` 通过；`bash scripts/check-test-registry.sh` 报基线 67 条。
+- [x] 1.2 `sidebar.tsx` 接线（design D3–D5）：「常用」段、「更多」开关行与展开后的分组、当前页面在「更多」里时自动展开（D10）、图标栏下的「更多」、段标题改「常用」（`zh.ts` / `en.ts` 的值）、分组小标题 12px + 侧栏弱化色；在 `trade-layout.test.ts` 加侧栏源码断言（调新判定、不再读派生平台角色、小标题样式）。验证：断言通过；`position-nav` 仍 101 通过；`npm run typecheck` 通过。
 
 ## 2. 说明页与入口说明
 
-- [ ] 2.1 改 `registry.ts` 的 19 条 `description`（specs「入口说明用白话」）；在 `entry-visibility.test.ts` 加逐条断言与「其余 53 条不变」。验证：新断言通过；「72 项每项不超过 40 字」仍通过。
-- [ ] 2.2 新增 `src/lib/navigation/help-tasks.ts`（12 行常量与按可见入口过滤，design D6），`help-map.ts` 按侧栏分段输出（design D7）；在 `entry-visibility.test.ts` 加断言：全部入口顺序 = 侧栏顺序、每行绑定的 key 在注册表里、目标不可见的行不出现、窗饰销售为空、各行引用的按钮名在目标页面源码里。验证：新断言通过；既有「每种身份：地图 = 侧栏可见入口」仍通过。
-- [ ] 2.3 改 `/help` 页面：顶部「我想做什么」、「全部入口」分段、副标题二选一、删页尾三块开发者文字；把 `entry-visibility.test.ts` 里「其余段落不动」的断言改为「不含 `DEPLOY_VERCEL`、`QA_P0_CHECKLIST`、组织与项目、Prompt」，并按 design D9 调整 `entry-naming.test.ts` 对页面源码的一条断言。验证：`entry-visibility`、`entry-naming` 全过；`npm run typecheck` 通过。
+- [x] 2.1 改 `registry.ts` 的 19 条 `description`（specs「入口说明用白话」）；在 `entry-visibility.test.ts` 加逐条断言与「其余 53 条不变」。验证：新断言通过；「72 项每项不超过 40 字」仍通过。
+- [x] 2.2 新增 `src/lib/navigation/help-tasks.ts`（12 行常量与按可见入口过滤，design D6），`help-map.ts` 按侧栏分段输出（design D7）；在 `entry-visibility.test.ts` 加断言：全部入口顺序 = 侧栏顺序、每行绑定的 key 在注册表里、目标不可见的行不出现、窗饰销售为空、各行引用的按钮名在目标页面源码里。验证：新断言通过；既有「每种身份：地图 = 侧栏可见入口」仍通过。
+- [x] 2.3 改 `/help` 页面：顶部「我想做什么」、「全部入口」分段、副标题二选一、删页尾三块开发者文字；把 `entry-visibility.test.ts` 里「其余段落不动」的断言改为「不含 `DEPLOY_VERCEL`、`QA_P0_CHECKLIST`、组织与项目、Prompt」，并按 design D9 调整 `entry-naming.test.ts` 对页面源码的一条断言。验证：`entry-visibility`、`entry-naming` 全过；`npm run typecheck` 通过。
 
 ## 3. 整体核对与交付
 
