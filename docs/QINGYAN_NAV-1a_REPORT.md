@@ -155,7 +155,7 @@ change：`nav-1a-single-name`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TA
 | `git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` | 无输出 |
 | `openspec validate nav-1a-single-name --strict` | valid |
 
-**main 前移**：上表的 `npm test` / `npm run test:ci` / `lint:baseline` 是在 `dd0e99d` 之上跑的。实施期间 main 合入了 #446、#447、#450、#452（都是招投标线，56 个文件），与本 change 同改的只有 TASKFLOW、`scripts/test-all.sh`、`scripts/test-ci-unit.sh` 三个文件，自动合并无冲突；任务书引用的文件（导航、翻译表、说明页、外贸收件箱、客户时间线等）在 main 上都没有变。合并后重跑：`entry-naming` 31 通过、`entry-visibility` 73 通过、测试注册校验通过、`npm run typecheck` 通过；其余由 PR 的 CI 跑。合并带进来的 FIX-6、FIX-7、FLOW-H4a 三行在 TASKFLOW 里写着「PR 待审」而它们的 PR 已合并，本 PR 没有去改。
+**main 前移**：上表的 `npm test` / `npm run test:ci` / `lint:baseline` 是在 `dd0e99d` 之上跑的。实施期间 main 合入了 #446、#447、#450、#452（都是招投标线，56 个文件），与本 change 同改的只有 TASKFLOW、`scripts/test-all.sh`、`scripts/test-ci-unit.sh` 三个文件，自动合并无冲突；任务书引用的文件（导航、翻译表、说明页、外贸收件箱、客户时间线等）在 main 上都没有变。合并后重跑：`entry-naming` 31 通过、`entry-visibility` 73 通过、测试注册校验通过、`npm run typecheck` 通过；其余由 PR 的 CI 跑。之后 main 又合入 #445（归档 FIX-4 / FLOW-H1b / FLOW-H1c / FIX-6 / FIX-7 / FLOW-H4a，只动 TASKFLOW、招投标交接文档与 `openspec/`），TASKFLOW 有一处冲突：FLOW-H1b / FLOW-H1c / FIX-4 三行取 main 的归档状态，Phase N 保留。第二次合并后重跑 `entry-naming` 31 通过、测试注册校验通过、`openspec validate nav-1a-single-name --strict` 通过。
 
 受影响的既有测试，通过数与改动前相同：`entry-visibility` 73、`navigation-ia` 64、`navigation-workspace` 34、`position-nav` 101、`trade-layout` 5、`wechat-entry-nav` 19、`tenant-context` 28、`owner-today` 8、`phone-match` 13。
 
@@ -182,7 +182,7 @@ change：`nav-1a-single-name`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TA
 2. 任务书 1a 的 Impact 没列：`scripts/nav-visual-smoke.mjs`、`scripts/test-ci-unit.sh`、`src/components/ops/ops-workspace-shell.tsx`（`/ops` 的标题在外壳组件里）。
 3. `/help` 是服务端组件、界面语言只在浏览器里，所以名称单元格改成了客户端小组件；任务书没提。
 4. Cathy 的身份在仓库里有两个口径（`identity-fixtures.ts:58` 企业内 `org_admin`；`mengxin-positions.test.ts:88` 注释「生产实情：平台 boss」、企业内 `org_member`），生产未核对。对 1a 无影响。
-5. TASKFLOW 里 FLOW-H1b / FLOW-H1c / FIX-4 三行写「PR 待审」，而 #443 / #449 / #444 已合并，登记 Phase N 时按合并记录改成了「已合并；尚未 archive」。这三个 change 的 archive 还没做。
+5. 登记 Phase N 时，TASKFLOW 里 FLOW-H1b / FLOW-H1c / FIX-4 三行写「PR 待审」而 #443 / #449 / #444 已合并，当时按合并记录改成了「已合并；尚未 archive」。之后 #445 在 main 上把这三个 change 归档并更新了状态，本分支合并 main 时取了 main 的写法；本 PR 对 TASKFLOW 的净改动只剩新增 Phase N。
 6. 手机底栏的 12 个短名与定名表无冲突，「日历」是「预约日历」的简称，按 Q4 不改。
 
 ## 11. 上线注意
