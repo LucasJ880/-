@@ -356,6 +356,8 @@ npx tsx src/lib/trade/__tests__/trade-access.test.ts
 npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
 # NAV-1c（openspec change nav-1c-reply-entry）：回复入口——纯函数 + 源码断言，无 DB
 npx tsx src/lib/trade/__tests__/reply-entry.test.ts
+# NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段显示名、收件箱说法、回复能力标记——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/reply-clarity.test.ts
 npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
 npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
 npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts
@@ -424,6 +426,8 @@ npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts
 npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts
 npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts
 npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts
+npx tsx src/lib/ai-markdown/__tests__/url-policy.test.ts
+npx tsx src/components/__tests__/ai-markdown.test.tsx
 npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
@@ -458,6 +462,8 @@ npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/settings-form-db.isolated.test.ts
 npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts

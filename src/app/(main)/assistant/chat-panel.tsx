@@ -27,7 +27,7 @@ import {
   WorkSuggestionCard,
   type SimpleProject,
 } from "@/components/work-suggestion-card";
-import ReactMarkdown, { type Components } from "react-markdown";
+import { AiMarkdown, type AiMarkdownComponents } from "@/components/ai-markdown";
 import {
   AttachButton,
   DropOverlay,
@@ -36,7 +36,6 @@ import {
   type AttachmentSummary,
   type ChatAttachmentsController,
 } from "@/components/chat-attachments";
-import remarkGfm from "remark-gfm";
 import type { AiThread } from "./thread-list";
 import { ApprovalCard, type PendingApproval } from "./approval-card";
 import { PendingInbox } from "./pending-inbox";
@@ -105,7 +104,7 @@ function detectBlockquoteType(text: string): "warning" | "tip" | "conclusion" | 
   return "default";
 }
 
-const mdComponents: Components = {
+const mdComponents: AiMarkdownComponents = {
   h2({ children }) {
     return <h2>{children}</h2>;
   },
@@ -616,12 +615,9 @@ export function ChatPanel({
                     if (body) {
                       return msg.role === "assistant" ? (
                         <div className="prose-ai">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={mdComponents}
-                          >
+                          <AiMarkdown components={mdComponents}>
                             {body}
-                          </ReactMarkdown>
+                          </AiMarkdown>
                         </div>
                       ) : (
                         <>

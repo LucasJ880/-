@@ -11,8 +11,7 @@ import {
   Sparkles,
   Paperclip,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { AiMarkdown } from "@/components/ai-markdown";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { useRouter } from "next/navigation";
@@ -305,7 +304,7 @@ export default function TradeChatPage() {
                     )}
                     {m.content && (m.role === "assistant" ? (
                       <div className="prose-ai">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        <AiMarkdown>{m.content}</AiMarkdown>
                       </div>
                     ) : (
                       <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>

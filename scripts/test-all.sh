@@ -181,6 +181,8 @@ run_test "读信纯函数与读接口（MAIL-1）" "npx tsx src/lib/mail-read/__
 run_test "读信工具可见性：入口×受众×开关×模块（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts"
 run_test "读信工具：作用域/错误码/审计/不落库（MAIL-1）" "npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts"
 run_test "邮件内容不可信：固定提示/写入封锁/清单冻结（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts"
+run_test "模型输出 Markdown 地址判定：图片允许清单/链接去向（ai-markdown-image-allowlist）" "npx tsx src/lib/ai-markdown/__tests__/url-policy.test.ts"
+run_test "模型输出 Markdown 渲染：外部图片不加载/站内图片显示/五个页面统一（ai-markdown-image-allowlist）" "npx tsx src/components/__tests__/ai-markdown.test.tsx"
 run_test "来信观察纯函数与读接口（MAIL-2）" "npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts"
 run_test "来信观察 DB 端到端（MAIL-2；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts"
 run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
@@ -330,6 +332,8 @@ run_test "外贸按岗位权限键（PERM-6a）" "npx tsx src/lib/trade/__tests_
 run_test "外贸收件人 / 营收中心按外贸键（PERM-6c）" "npx tsx src/lib/trade/__tests__/trade-recipients.test.ts"
 # NAV-1c（openspec change nav-1c-reply-entry）：看到来信就能回——回复目标解析、时间线文字、收件箱按钮与深链、审批面链接，纯函数 + 源码断言，无 DB
 run_test "回复入口：客户时间线 / 询盘收件箱 / 审批面（NAV-1c）" "npx tsx src/lib/trade/__tests__/reply-entry.test.ts"
+# NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段 replied 的显示名与同源、收件箱「我方已回复」、回复能力标记与只读成员的页面，纯函数 + 源码断言，无 DB
+run_test "询盘收件箱：谁回复了谁 / 不能回复的成员（NAV-6）" "npx tsx src/lib/trade/__tests__/reply-clarity.test.ts"
 run_test "岗位绑定界面（PERM-7）" "npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts"
 run_test "梦馨落岗位（PERM-6b）" "npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts"
 run_test "平台 admin 退役（PERM-7b）" "npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts"
@@ -653,6 +657,8 @@ run_test "报价表助手 比价矩阵成本来源（FLOW-H2）" "npx tsx src/li
 run_test "报价表助手 比价矩阵成本来源 DB（隔离库执行，否则跳过，FLOW-H2）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts"
 run_test "询价追踪页（T-2）" "npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx"
 run_test "询价追踪页 DB（隔离库执行，否则跳过，T-2）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts"
+run_test "组织页 询价与落地价设置（W-2）" "npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx"
+run_test "组织页 询价与落地价设置 DB（隔离库执行，否则跳过，W-2）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/settings-form-db.isolated.test.ts"
 run_test "组织设置的写入：守卫——写入方必须经统一入口或自己锁行（FIX-3）" "npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts"
 run_test "组织设置的并发写入互不覆盖 DB（隔离库执行，否则跳过，FIX-3）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts"
 run_test "组织行锁不与外键检查互斥 DB（隔离库执行，否则跳过，FIX-4）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts"

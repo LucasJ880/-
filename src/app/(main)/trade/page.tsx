@@ -228,7 +228,7 @@ export default function TradeDashboardPage() {
         <OverviewCard icon={Users} label="总线索" value={d?.overview.totalProspects ?? 0} color="blue" />
         <OverviewCard icon={Search} label="合格" value={d?.overview.qualified ?? 0} color="violet" />
         <OverviewCard icon={Mail} label="已联系" value={d?.overview.contacted ?? 0} color="cyan" />
-        <OverviewCard icon={TrendingUp} label="已回复" value={d?.overview.replied ?? 0} color="emerald" />
+        <OverviewCard icon={TrendingUp} label={getTradeProspectStageLabel("replied")} value={d?.overview.replied ?? 0} color="emerald" />
         <OverviewCard icon={Trophy} label="成交" value={d?.overview.won ?? 0} color="amber" />
         <OverviewCard icon={Clock} label="待跟进" value={followUps.length} highlight={followUps.some((f) => f.isOverdue)} />
       </div>
