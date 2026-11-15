@@ -58,6 +58,8 @@
 
 助手回答里的 Markdown 外链图片会自动加载（`chat-panel.tsx`），理论上可被邮件里的指令用来带出数据。本 change 不读正文，不增加这个面；但建议在生产打开 `MAIL_READ_ENABLED` 之前先处理。
 
+**2026-11-15 补记：已由 change `ai-markdown-image-allowlist` 关闭（合并并部署之后生效）。** 五个按 Markdown 渲染模型输出的页面统一只显示站内文件代理（`/api/files/`）之下的图片，其余图片不加载、显示成一行不可点击的提示；外部链接仍可点击并显示真实主机名。详见 `docs/QINGYAN_MAIL-1_REPORT.md` §9 第 1 点的补记与 `docs/acceptance/ai-markdown-image-allowlist/browser-acceptance.txt`。没有关的两处（AI 起草的邮件 HTML 预览、全站内容安全策略）也记在那里。
+
 ## 4. 与任务书对不上的地方（以代码为准）
 
 | 任务书 | 代码现状 / 实施结果 |

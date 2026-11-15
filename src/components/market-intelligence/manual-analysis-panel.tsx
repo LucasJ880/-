@@ -17,8 +17,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { AiMarkdown } from "@/components/ai-markdown";
 import { apiFetch } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
@@ -511,7 +510,7 @@ export default function MarketIntelligencePage() {
               </div>
             ) : result ? (
               <div className="prose-ai max-w-none px-4 py-5 sm:px-6">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleResult}</ReactMarkdown>
+                <AiMarkdown>{visibleResult}</AiMarkdown>
               </div>
             ) : (
               <div className="flex min-h-[300px] flex-col items-center justify-center px-5 text-center sm:min-h-[420px] sm:px-6">
